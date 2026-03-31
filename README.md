@@ -1,1 +1,3 @@
-# amns-launcher
+# wonderful tremendous fantastic minecraft launcher
+
+waiting for adding contents...
