@@ -1,0 +1,18 @@
+# Build files
+/build/
+CMakeFiles/
+CMakeCache.txt
+Makefile
+*.cmake
+*.pro.user*
+*.pro.user
+*.qmake.stash
+*.vcxproj*
+*.sln
+*.user
+
+# Qt Creator
+*.autosave
+
+# Generated UI files
+ui/ui_MainWindow.h
