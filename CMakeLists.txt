@@ -16,6 +16,17 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTOUIC_SEARCH_PATHS ui)
 
+set(HEADER_FILES
+    src/MainWindow.hpp
+    src/launcher/LauncherManager.hpp
+    src/auth/AuthManager.hpp
+    src/manage/FolderManager.hpp
+    src/manage/VersionManager.hpp
+    src/settings/GlobalJavaSettings.hpp
+    src/download/DownloadManager.hpp
+    src/download/IntegrityChecker.hpp
+)
+
 set(SOURCE_FILES
     src/main.cpp
     src/MainWindow.cpp
@@ -26,6 +37,7 @@ set(SOURCE_FILES
     src/settings/GlobalJavaSettings.cpp
     src/download/DownloadManager.cpp
     src/download/IntegrityChecker.cpp
+    ${HEADER_FILES}
 )
 
 qt_add_executable(WTFMLLauncher

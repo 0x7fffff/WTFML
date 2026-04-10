@@ -1,4 +1,4 @@
-#include "VersionManager.h"
+#include "VersionManager.hpp"
 #include <QDir>
 #include <QStandardPaths>
 #include <QCoreApplication>
@@ -69,11 +69,23 @@ void VersionManager::fetchAvailableVersions()
 
 void VersionManager::fetchVersionDetails(const QString &versionId)
 {
-    downloadManager->fetchVersionJson(versionId);
+    if (downloadManager->getAvailableVersions().isEmpty()) {
+        QMetaObject::Connection conn;
+        conn = connect(downloadManager, &DownloadManager::versionManifestFetched, this,
+                       [this, versionId, &conn](const QList<MinecraftVersion> &) {
+                           disconnect(conn);
+                           downloadManager->fetchVersionJson(versionId);
+                       });
+        downloadManager->fetchVersionManifest();
+    } else {
+        downloadManager->fetchVersionJson(versionId);
+    }
 }
 
 void VersionManager::downloadVersion(const QString &versionId, const QString &destinationPath)
 {
+    m_currentVersionDownloading = versionId;
+
     // Get version JSON first
     if (!versionJsons.contains(versionId)) {
         qWarning() << "Version JSON not available for" << versionId << ". Fetch details first.";
@@ -162,5 +174,5 @@ void VersionManager::onDownloadProgress(const QString &fileName, qint64 bytesRec
 void VersionManager::onDownloadFinished(const QString &fileName, bool success, const QString &errorMessage)
 {
     // Similar to progress, need to map back to version ID
-    emit versionDownloadFinished("unknown", success, errorMessage);
+    emit versionDownloadFinished(m_currentVersionDownloading, success, errorMessage);
 }

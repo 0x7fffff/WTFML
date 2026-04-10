@@ -1,11 +1,11 @@
-#include "MainWindow.h"
+#include "MainWindow.hpp"
 #include "ui_MainWindow.h"
-#include "launcher/LauncherManager.h"
-#include "auth/AuthManager.h"
-#include "manage/FolderManager.h"
-#include "manage/VersionManager.h"
-#include "settings/GlobalJavaSettings.h"
-#include "download/DownloadManager.h"
+#include "launcher/LauncherManager.hpp"
+#include "auth/AuthManager.hpp"
+#include "manage/FolderManager.hpp"
+#include "manage/VersionManager.hpp"
+#include "settings/GlobalJavaSettings.hpp"
+#include "download/DownloadManager.hpp"
 
 #include <QMessageBox>
 #include <QInputDialog>
@@ -51,6 +51,7 @@ void MainWindow::setupConnections()
     connect(m_downloadManager, &DownloadManager::versionJsonFetched, this, &MainWindow::onVersionJsonFetched);
     connect(m_versionManager, &VersionManager::versionsFetched, this, &MainWindow::onVersionsFetched);
     connect(m_versionManager, &VersionManager::versionDetailsFetched, this, &MainWindow::onVersionDetailsFetched);
+    connect(m_versionManager, &VersionManager::versionDownloadFinished, this, &MainWindow::onVersionDownloadFinished);
 
     // Connect download button if it exists
     if (ui->downloadButton) {
@@ -131,8 +132,9 @@ void MainWindow::onStartButtonClicked()
         return;
     }
 
-    // Get asset index ID from version JSON
+    // Get asset index ID and Java major version from version JSON
     QString assetIndexId = "29"; // Default for 1.21.11
+    int javaMajorVersion = 21; // Default
     QJsonObject versionJson = m_versionManager->getVersionJson(versionId);
     if (!versionJson.isEmpty()) {
         QJsonObject assetIndexObj = versionJson["assetIndex"].toObject();
@@ -140,10 +142,22 @@ void MainWindow::onStartButtonClicked()
         if (!actualAssetIndexId.isEmpty()) {
             assetIndexId = actualAssetIndexId;
         }
+
+        QJsonObject javaVersionObj = versionJson["javaVersion"].toObject();
+        int majorVersion = javaVersionObj["majorVersion"].toInt();
+        if (majorVersion > 0) {
+            javaMajorVersion = majorVersion;
+        }
     }
 
-    const QStringList jvmArgs = m_launcherManager->generateJvmArguments(token, versionId, assetIndexId, *m_javaSettings, offlineMode);
-    m_launcherManager->startGame(jvmArgs, *m_javaSettings);
+    // Ensure correct Java runtime is available
+    if (!m_javaSettings->ensureJavaForVersion(javaMajorVersion)) {
+        appendLog(tr("无法获取所需的 Java 运行时环境：版本 %1").arg(javaMajorVersion));
+        return;
+    }
+
+    const QStringList jvmArgs = m_launcherManager->generateJvmArguments(token, versionId, assetIndexId, versionJson, *m_javaSettings, offlineMode);
+    m_launcherManager->startGame(jvmArgs, *m_javaSettings, versionId);
     appendLog(tr("已开始启动游戏，正在执行 JVM 参数..."));
 }
 
@@ -247,10 +261,18 @@ void MainWindow::onDownloadProgress(const QString &fileName, qint64 bytesReceive
 
 void MainWindow::onDownloadFinished(const QString &fileName, bool success, const QString &errorMessage)
 {
+    // Individual file download logging removed - only version completion is logged
+    Q_UNUSED(fileName)
+    Q_UNUSED(success)
+    Q_UNUSED(errorMessage)
+}
+
+void MainWindow::onVersionDownloadFinished(const QString &versionId, bool success, const QString &errorMessage)
+{
     if (success) {
-        appendLog(tr("✓ 下载完成: %1").arg(fileName));
+        appendLog(tr("✓ 版本 %1 文件下载完毕").arg(versionId));
     } else {
-        appendLog(tr("✗ 下载失败: %1 - %2").arg(fileName, errorMessage));
+        appendLog(tr("✗ 版本 %1 下载失败: %2").arg(versionId, errorMessage));
     }
 }
 

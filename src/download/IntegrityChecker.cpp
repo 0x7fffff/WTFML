@@ -1,4 +1,4 @@
-#include "IntegrityChecker.h"
+#include "IntegrityChecker.hpp"
 
 #include <QDir>
 #include <QFileInfo>

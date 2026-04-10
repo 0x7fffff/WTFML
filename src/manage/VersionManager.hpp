@@ -3,7 +3,7 @@
 #include <QObject>
 #include <QStringList>
 #include <QJsonObject>
-#include "../download/DownloadManager.h"
+#include "../download/DownloadManager.hpp"
 
 class VersionManager : public QObject
 {
@@ -45,4 +45,5 @@ private slots:
 private:
     DownloadManager *downloadManager;
     QMap<QString, QJsonObject> versionJsons; // versionId -> versionJson
+    QString m_currentVersionDownloading;
 };

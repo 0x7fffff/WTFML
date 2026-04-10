@@ -1,4 +1,4 @@
-#include "DownloadManager.h"
+#include "DownloadManager.hpp"
 #include <QDebug>
 #include <QEventLoop>
 #include <QJsonParseError>
@@ -73,7 +73,6 @@ void DownloadManager::downloadFile(const QString &url, const QString &destinatio
     pendingDownloads++;
     connect(reply, &QNetworkReply::finished, this, &DownloadManager::onDownloadReplyFinished);
     connect(reply, &QNetworkReply::downloadProgress, this, &DownloadManager::onDownloadReplyProgress);
-    qDebug() << "Started download:" << url << "->" << destinationPath;
 }
 
 void DownloadManager::downloadLibraries(const QList<Library> &libraries, const QString &basePath) {
@@ -102,7 +101,6 @@ void DownloadManager::downloadAssets(const AssetIndex &assetIndex, const QString
     pendingDownloads++;
     connect(indexReply, &QNetworkReply::finished, this, &DownloadManager::onAssetIndexDownloaded);
     connect(indexReply, &QNetworkReply::downloadProgress, this, &DownloadManager::onDownloadReplyProgress);
-    qDebug() << "Started downloading asset index:" << indexUrl << "->" << indexPath;
 }
 
 void DownloadManager::onAssetIndexDownloaded() {
@@ -129,9 +127,6 @@ void DownloadManager::onAssetIndexDownloaded() {
             file.write(reply->readAll());
             file.close();
             success = true;
-            qDebug() << "Asset index downloaded successfully:" << indexPath;
-            
-            // Now parse the index and download assets
             parseAndDownloadAssets(indexPath);
         } else {
             errorMessage = "Failed to save asset index file";
@@ -176,35 +171,26 @@ void DownloadManager::parseAndDownloadAssets(const QString &indexPath) {
     QString basePath = QCoreApplication::applicationDirPath() + "/.minecraft/assets";
     QString objectsPath = basePath + "/objects";
     
-    qDebug() << "Starting asset downloads for" << objects.size() << "files";
-    
     for (auto it = objects.begin(); it != objects.end(); ++it) {
         QString assetName = it.key();
         QJsonObject assetObj = it.value().toObject();
         QString hash = assetObj["hash"].toString();
-        qint64 size = assetObj["size"].toVariant().toLongLong();
         
         if (hash.length() != 40) {
             qWarning() << "Invalid hash for asset" << assetName << ":" << hash;
             continue;
         }
         
-        // Create subfolder based on first two characters of hash
         QString subfolder = hash.left(2);
         QString assetPath = objectsPath + "/" + subfolder + "/" + hash;
         
-        // Check if file already exists
         if (QFileInfo(assetPath).exists()) {
-            qDebug() << "Asset already exists, skipping:" << assetName;
             continue;
         }
         
-        // Download the asset
         QString assetUrl = "https://resources.download.minecraft.net/" + subfolder + "/" + hash;
         QDir().mkpath(QFileInfo(assetPath).absolutePath());
-        
         downloadFile(assetUrl, assetPath, hash);
-        qDebug() << "Downloading asset:" << assetName << "->" << assetPath;
     }
 }
 
@@ -303,31 +289,6 @@ void DownloadManager::onVersionJsonReplyFinished() {
         if (error.error == QJsonParseError::NoError) {
             parseVersionJson(json);
             emit versionJsonFetched(currentVersionJson);
-            
-            // Auto-start downloading required files
-            QString basePath = QCoreApplication::applicationDirPath() + "/.minecraft";
-            
-            // Download client JAR
-            QJsonObject downloads = currentVersionJson["downloads"].toObject();
-            QJsonObject client = downloads["client"].toObject();
-            if (!client.isEmpty()) {
-                QString clientUrl = client["url"].toString();
-                QString clientSha1 = client["sha1"].toString();
-                QString versionId = currentVersionJson["id"].toString();
-                QString clientPath = basePath + "/versions/" + versionId + "/" + versionId + ".jar";
-                qDebug() << "Downloading client JAR..." << clientPath;
-                downloadFile(clientUrl, clientPath, clientSha1);
-            }
-            
-            // Download libraries
-            QList<Library> libraries = extractLibraries(currentVersionJson);
-            qDebug() << "Downloading" << libraries.size() << "libraries...";
-            downloadLibraries(libraries, basePath + "/libraries");
-            
-            // Download asset index
-            AssetIndex assetIndex = extractAssetIndex(currentVersionJson);
-            qDebug() << "Downloading assets...";
-            downloadAssets(assetIndex, basePath + "/assets");
         } else {
             qDebug() << "JSON parse error:" << error.errorString();
             emit versionJsonFetched(QJsonObject());
@@ -380,7 +341,9 @@ void DownloadManager::onDownloadReplyFinished() {
         errorMessage = reply->errorString();
     }
 
-    qDebug() << "Download finished:" << destPath << "success=" << success << "error=" << errorMessage;
+    if (!success) {
+        qWarning() << "Download finished with error:" << destPath << errorMessage;
+    }
     emit downloadFinished(QFileInfo(destPath).fileName(), success, errorMessage);
     activeDownloads.remove(reply);
     expectedSha1s.remove(reply);

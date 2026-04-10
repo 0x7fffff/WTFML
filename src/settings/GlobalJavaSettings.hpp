@@ -13,6 +13,10 @@ public:
     QString javaPath() const;
     void setJavaPath(const QString &path);
     bool ensureJavaAvailable();
+    bool ensureJavaForComponent(const QString &component);
+    bool ensureJavaForVersion(int majorVersion);
+    QMap<int, QString> scanLocalJavaVersions();
+    bool downloadJavaFromMojang(int majorVersion);
 
     int xmx() const;
     void setXmx(int mbytes);

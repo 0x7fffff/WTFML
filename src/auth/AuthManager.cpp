@@ -1,4 +1,4 @@
-#include "AuthManager.h"
+#include "AuthManager.hpp"
 
 #include <QCoreApplication>
 #include <QDesktopServices>

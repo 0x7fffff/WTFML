@@ -1,4 +1,4 @@
-#include "FolderManager.h"
+#include "FolderManager.hpp"
 
 #include <QDir>
 #include <QFileInfo>

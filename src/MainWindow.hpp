@@ -40,6 +40,7 @@ private slots:
     void onVersionJsonFetched(const QJsonObject &versionJson);
     void onVersionsFetched(const QStringList &versions);
     void onVersionDetailsFetched(const QString &versionId, const QJsonObject &versionJson);
+    void onVersionDownloadFinished(const QString &versionId, bool success, const QString &errorMessage);
 
 private:
     void setupConnections();

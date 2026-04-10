@@ -1,5 +1,13 @@
-#include "LauncherManager.h"
-#include "../settings/GlobalJavaSettings.h"
+/**
+ * @file LauncherManager.cpp
+ * @brief Manages Minecraft game launching and JVM argument generation.
+ *
+ * This class handles the process of starting Minecraft with appropriate JVM arguments,
+ * classpath construction, and platform-specific library handling.
+ */
+
+#include "LauncherManager.hpp"
+#include "../settings/GlobalJavaSettings.hpp"
 
 #include <QDir>
 #include <QFileInfo>
@@ -9,12 +17,17 @@
 #include <QTimer>
 #include <QCoreApplication>
 #include <QDirIterator>
+#include <QJsonArray>
+#include <QJsonObject>
+#include <QSet>
+#include <QSysInfo>
 #include <QUuid>
 
 LauncherManager::LauncherManager(QObject *parent)
     : QObject(parent)
     , m_gameProcess(new QProcess(this))
 {
+    // Connect process signals for output handling and process monitoring
     connect(m_gameProcess, &QProcess::readyReadStandardOutput, this, &LauncherManager::handleReadyReadStandardOutput);
     connect(m_gameProcess, &QProcess::readyReadStandardError, this, &LauncherManager::handleReadyReadStandardError);
     connect(m_gameProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this, &LauncherManager::handleProcessFinished);
@@ -75,7 +88,22 @@ bool LauncherManager::checkPreLaunch(const QString &versionId, QStringList *erro
     return true;
 }
 
-QStringList LauncherManager::generateJvmArguments(const QString &token, const QString &versionId, const QString &assetIndexId, const GlobalJavaSettings &settings, bool offlineMode) const
+/**
+ * @brief Generates JVM arguments for Minecraft launch.
+ *
+ * Constructs the complete set of JVM arguments including memory settings,
+ * classpath, system properties, and game-specific parameters. Uses version.json
+ * dependencies to build classpath and applies platform-specific library filtering.
+ *
+ * @param token Authentication token for online mode
+ * @param versionId Minecraft version identifier
+ * @param assetIndexId Asset index identifier
+ * @param versionJson Version manifest JSON object containing library dependencies
+ * @param settings Java settings (memory, extra args, etc.)
+ * @param offlineMode Whether to run in offline mode with fake credentials
+ * @return QStringList of JVM arguments ready for QProcess
+ */
+QStringList LauncherManager::generateJvmArguments(const QString &token, const QString &versionId, const QString &assetIndexId, const QJsonObject &versionJson, const GlobalJavaSettings &settings, bool offlineMode) const
 {
     QStringList args;
     
@@ -92,25 +120,104 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     }
 
     args << QStringLiteral("-Dlog4j2.formatMsgNoLookups=true");
-    args << QStringLiteral("-Djava.library.path=./natives");
+    // Enable native access for Java 25+ compatibility
+    args << QStringLiteral("--enable-native-access=ALL-UNNAMED");
     args << QStringLiteral("-Djava.net.preferIPv4Stack=true");
     
-    // Build classpath with version-specific jar and libraries
-    QStringList classpath;
-    classpath << QString("versions/%1/%1.jar").arg(versionId);
-    
-    // Add all jar files from libraries directory
-    const QString librariesPath = QCoreApplication::applicationDirPath() + "/.minecraft/libraries";
-    const QDir librariesDir(librariesPath);
-    if (librariesDir.exists()) {
-        QDirIterator it(librariesPath, QStringList() << "*.jar", QDir::Files, QDirIterator::Subdirectories);
-        while (it.hasNext()) {
-            it.next();
-            QString relativePath = QDir(librariesPath).relativeFilePath(it.filePath());
-            classpath << QString("libraries/%1").arg(relativePath);
+    const auto osName = []() {
+        const QString product = QSysInfo::productType().toLower();
+        if (product.contains("windows")) {
+            return QStringLiteral("windows");
         }
+        if (product.contains("mac") || product.contains("osx") || product.contains("darwin")) {
+            return QStringLiteral("osx");
+        }
+        if (product.contains("linux")) {
+            return QStringLiteral("linux");
+        }
+        return QStringLiteral("windows");
+    }();
+
+    const auto libraryAllowed = [&](const QJsonObject &libObj) -> bool {
+        auto rules = libObj[QStringLiteral("rules")].toArray();
+        if (rules.isEmpty()) {
+            return true;
+        }
+
+        bool allowed = false;
+        for (const auto &ruleValue : rules) {
+            auto ruleObj = ruleValue.toObject();
+            QString action = ruleObj[QStringLiteral("action")].toString();
+            if (action.isEmpty()) {
+                continue;
+            }
+
+            auto osObj = ruleObj[QStringLiteral("os")].toObject();
+            bool matches = osObj.isEmpty();
+            if (!matches) {
+                QString ruleName = osObj[QStringLiteral("name")].toString().toLower();
+                if (!ruleName.isEmpty()) {
+                    matches = (ruleName == osName);
+                }
+            }
+
+            if (!matches) {
+                continue;
+            }
+
+            if (action == QStringLiteral("allow")) {
+                allowed = true;
+            } else if (action == QStringLiteral("disallow") || action == QStringLiteral("deny")) {
+                allowed = false;
+            }
+        }
+        return allowed;
+    };
+
+    const auto addClasspathPath = [&](const QString &path, QStringList &classpath) {
+        if (!path.isEmpty() && !classpath.contains(path)) {
+            classpath << path;
+        }
+    };
+
+    QStringList classpath;
+    // Add the main version JAR first
+    addClasspathPath(QStringLiteral("versions/%1/%1.jar").arg(versionId), classpath);
+
+    // Build classpath from version.json library dependencies
+    if (!versionJson.isEmpty()) {
+        auto libs = versionJson[QStringLiteral("libraries")].toArray();
+        for (const auto &value : libs) {
+            auto libObj = value.toObject();
+            // Skip libraries not allowed on this platform
+            if (!libraryAllowed(libObj)) {
+                continue;
+            }
+
+            auto downloads = libObj[QStringLiteral("downloads")].toObject();
+            auto artifact = downloads[QStringLiteral("artifact")].toObject();
+            QString artifactPath = artifact[QStringLiteral("path")].toString();
+            if (!artifactPath.isEmpty()) {
+                addClasspathPath(QDir::toNativeSeparators(QStringLiteral("libraries/%1").arg(artifactPath)), classpath);
+            }
+
+            auto classifiers = downloads[QStringLiteral("classifiers")].toObject();
+            auto natives = libObj[QStringLiteral("natives")].toObject();
+            if (!natives.isEmpty()) {
+                QString classifierKey = natives[osName].toString();
+                if (!classifierKey.isEmpty()) {
+                    auto classifierInfo = classifiers[classifierKey].toObject();
+                    QString classifierPath = classifierInfo[QStringLiteral("path")].toString();
+                    if (!classifierPath.isEmpty()) {
+                        addClasspathPath(QDir::toNativeSeparators(QStringLiteral("libraries/%1").arg(classifierPath)), classpath);
+                    }
+                }
+            }
+        }
+    } else {
+        qDebug() << "Warning: versionJson is empty, classpath will include only the version JAR.";
     }
-    
+
     const QString classpathStr = classpath.join(";");
     qDebug() << "Classpath:" << classpathStr;
     
@@ -126,7 +233,7 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
         
         args << QStringLiteral("--username") << fakePlayerName
              << QStringLiteral("--version") << versionId
-             << QStringLiteral("--gameDir") << QStringLiteral(".")
+             << QStringLiteral("--gameDir") << QString("versions/%1").arg(versionId)
              << QStringLiteral("--assetsDir") << QStringLiteral("assets")
              << QStringLiteral("--assetIndex") << assetIndexId
              << QStringLiteral("--uuid") << fakeUuid
@@ -140,7 +247,7 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
         
         args << QStringLiteral("--username") << QStringLiteral("Player")
              << QStringLiteral("--version") << versionId
-             << QStringLiteral("--gameDir") << QStringLiteral(".")
+             << QStringLiteral("--gameDir") << QString("versions/%1").arg(versionId)
              << QStringLiteral("--assetsDir") << QStringLiteral("assets")
              << QStringLiteral("--assetIndex") << assetIndexId
              << QStringLiteral("--uuid") << QStringLiteral("00000000-0000-0000-0000-000000000000")  // This should be real UUID from auth
@@ -152,17 +259,11 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     return args;
 }
 
-void LauncherManager::startGame(const QStringList &arguments, GlobalJavaSettings &settings)
+void LauncherManager::startGame(const QStringList &arguments, GlobalJavaSettings &settings, const QString &versionId)
 {
     if (m_gameProcess->state() != QProcess::NotRunning) {
         qWarning() << "Game process is already running";
         emit processError(tr("游戏进程已在运行"));
-        return;
-    }
-
-    if (!settings.ensureJavaAvailable()) {
-        qWarning() << "No valid Java installation found.";
-        emit processError(tr("未找到有效的 Java 环境，正在下载或请手动安装。"));
         return;
     }
 
@@ -204,6 +305,11 @@ void LauncherManager::startGame(const QStringList &arguments, GlobalJavaSettings
     QDir().mkpath(minecraftDir);
     m_gameProcess->setWorkingDirectory(minecraftDir);
     qDebug() << "Working directory:" << minecraftDir;
+    
+    // Create isolated directory for this version
+    QString isolatedPath = minecraftDir + "/versions/" + versionId;
+    QDir().mkpath(isolatedPath);
+    qDebug() << "Isolated game directory:" << isolatedPath;
     
     qDebug() << "Starting java process...";
     m_gameProcess->start();
