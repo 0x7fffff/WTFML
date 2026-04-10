@@ -42,12 +42,15 @@ cmake --build .
 
 ## to do list(急)
 
+- 把项目升级到CPP23
+- 把XML编写的UI换成人类能看懂的CPP
 - 给已有文件添加注释，规范详见CONTRIBUTING_COMMENT.md
+- 1.18.2及以下版本的启动
+- 完善目前没什么用的FolderManager
 - 补充 Microsoft OAuth2 登录回调与令牌刷新
 - 正版启动与皮肤等信息的拉取
 - 实现真实的 Minecraft 启动参数与版本解析。
 - 增加完整性校验、下载修复和 crash 报告导出。
-- 1.18.2版本及以下版本的启动
 
 ## to do list(future)
 - GUI的优化
