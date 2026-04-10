@@ -1,6 +1,17 @@
 #ifndef DOWNLOADMANAGER_H
 #define DOWNLOADMANAGER_H
 
+/**
+ * @file DownloadManager.hpp
+ * @brief Declares download and version manifest handling for WTFML.
+ * @author LoserKugua
+ * @date 2026-04-10
+ * @note Defines the data structures and signals for version and asset downloads.
+ *
+ * Responsible for fetching Mojang version manifests, downloading libraries,
+ * assets and client jars, and verifying SHA1 integrity.
+ */
+
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFile>

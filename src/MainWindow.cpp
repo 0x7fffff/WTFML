@@ -1,3 +1,14 @@
+/**
+ * @file MainWindow.cpp
+ * @brief Implements the main application window and user interaction logic.
+ * @author LoserKugua
+ * @date 2026-04-10
+ * @note This file implements the UI event handlers and delegates manager methods.
+ *
+ * This file connects UI controls to the launcher, handles user commands,
+ * and coordinates authentication, downloads, and launch operations.
+ */
+
 #include "MainWindow.hpp"
 
 #include <QCoreApplication>

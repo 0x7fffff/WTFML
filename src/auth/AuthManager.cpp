@@ -1,3 +1,14 @@
+/**
+ * @file AuthManager.cpp
+ * @brief Implements Microsoft OAuth login and token persistence.
+ * @author LoserKugua
+ * @date 2026-04-10
+ * @note Exchanges OAuth authorization codes and refreshes tokens transparently.
+ *
+ * Handles the browser-based OAuth redirect, callback processing, token
+ * storage and refresh logic.
+ */
+
 #include "AuthManager.hpp"
 
 #include <QCoreApplication>

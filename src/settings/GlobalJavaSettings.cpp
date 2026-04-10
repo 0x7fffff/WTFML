@@ -1,11 +1,13 @@
 /**
  * @file GlobalJavaSettings.cpp
  * @brief Manages Java runtime settings and version detection for Minecraft.
+ * @author LoserKugua
+ * @date 2026-04-10
+ * @note Implements Java discovery and version verification logic.
  *
  * Handles Java executable discovery, version parsing, memory settings,
  * and ensures appropriate Java runtime for specific Minecraft versions.
  */
-
 #include "GlobalJavaSettings.hpp"
 
 #include <QCoreApplication>

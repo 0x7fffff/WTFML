@@ -1,6 +1,9 @@
 /**
  * @file LauncherManager.cpp
  * @brief Manages Minecraft game launching and JVM argument generation.
+ * @author LoserKugua
+ * @date 2026-04-10
+ * @note Uses version.json dependencies and platform rules to avoid classpath conflicts.
  *
  * This class handles the process of starting Minecraft with appropriate JVM arguments,
  * classpath construction, and platform-specific library handling.

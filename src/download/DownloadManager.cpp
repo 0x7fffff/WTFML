@@ -1,3 +1,14 @@
+/**
+ * @file DownloadManager.cpp
+ * @brief Implements version and asset download logic for the launcher.
+ * @author LoserKugua
+ * @date 2026-04-10
+ * @note Processes network download state and saves files to .minecraft.
+ *
+ * Fetches metadata from Mojang, handles network replies, and stores version
+ * data and assets to the local .minecraft directory.
+ */
+
 #include "DownloadManager.hpp"
 
 #include <QCoreApplication>

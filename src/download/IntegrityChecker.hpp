@@ -1,3 +1,10 @@
+/**
+ * @file IntegrityChecker.hpp
+ * @brief Declares basic integrity verification for Minecraft install folders.
+ * @author LoserKugua
+ * @date 2026-04-10
+ * @note 检查版本目录是否存在，防止启动前缺少文件。
+ */
 #pragma once
 
 #include <QObject>

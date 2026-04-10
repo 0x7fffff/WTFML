@@ -1,3 +1,13 @@
+/**
+ * @file AuthManager.hpp
+ * @brief Declares Microsoft account authentication and OAuth callback handling.
+ * @author LoserKugua
+ * @date 2026-04-10
+ * @note Uses a local HTTP callback server for OAuth redirect handling.
+ *
+ * Manages login flow by starting a local HTTP callback server and exchanging
+ * OAuth authorization codes for access tokens.
+ */
 #pragma once
 
 #include <QDateTime>
@@ -12,11 +22,33 @@ class AuthManager : public QObject {
     Q_OBJECT
 
 public:
+    /**
+     * @brief Constructs the authentication manager.
+     * @param parent Parent QObject.
+     */
     explicit AuthManager(QObject *parent = nullptr);
 
+    /**
+     * @brief Initiates Microsoft OAuth login flow.
+     * @return True if the login flow successfully started.
+     */
     bool loginMicrosoft();
+
+    /**
+     * @brief Loads a saved access token if available and refreshes it if expired.
+     * @return Valid access token string or empty if unavailable.
+     */
     QString loadSavedToken();
+
+    /**
+     * @brief Attempts to refresh the saved access token.
+     * @return True if refresh succeeded.
+     */
     bool refreshAccessToken();
+
+    /**
+     * @brief Returns the current player name.
+     */
     QString playerName() const;
 
 signals:

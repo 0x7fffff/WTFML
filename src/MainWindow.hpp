@@ -1,3 +1,10 @@
+/**
+ * @file MainWindow.hpp
+ * @brief Declares the main launcher window and its UI interactions.
+ * @author LoserKugua
+ * @date 2026-04-10
+ * @note 按钮事件与版本选择在此文件中统一管理。
+ */
 #pragma once
 
 #include <QJsonObject>
@@ -17,11 +24,25 @@ class VersionManager;
 class GlobalJavaSettings;
 class DownloadManager;
 
+/**
+ * @brief Main UI window for the WTFML launcher.
+ *
+ * Manages the launcher workflow, including login, version selection,
+ * download control and game startup.
+ */
 class MainWindow : public QMainWindow {
     Q_OBJECT
 
 public:
+    /**
+     * @brief Constructs the main window and initializes all subsystems.
+     * @param parent Parent widget.
+     */
     explicit MainWindow(QWidget *parent = nullptr);
+
+    /**
+     * @brief Destroys the main window and releases owned resources.
+     */
     ~MainWindow() override;
 
 private slots:

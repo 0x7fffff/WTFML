@@ -1,3 +1,13 @@
+/**
+ * @file IntegrityChecker.cpp
+ * @brief Implements integrity checks for Minecraft installation folders.
+ * @author LoserKugua
+ * @date 2026-04-10
+ * @note Provides simple folder validation used during pre-launch checks.
+ *
+ * Validates that the required versions directory exists before launch.
+ */
+
 #include "IntegrityChecker.hpp"
 
 #include <QDir>

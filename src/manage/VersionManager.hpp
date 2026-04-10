@@ -1,3 +1,10 @@
+/**
+ * @file VersionManager.hpp
+ * @brief Declares version discovery, metadata fetching, and download orchestration.
+ * @author LoserKugua
+ * @date 2026-04-10
+ * @note 该模块负责版本列表、版本详情获取和版本下载管理。
+ */
 #pragma once
 
 #include <QJsonObject>

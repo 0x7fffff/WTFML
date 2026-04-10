@@ -1,3 +1,11 @@
+/**
+ * @file FolderManager.cpp
+ * @brief Implements folder validation and list management.
+ * @author LoserKugua
+ * @date 2026-04-10
+ * @note 提供简单的目录增删功能，与 UI 交互分离。
+ */
+
 #include "FolderManager.hpp"
 
 #include <QDir>
