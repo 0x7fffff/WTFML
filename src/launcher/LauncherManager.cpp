@@ -1,12 +1,11 @@
 /**
  * @file LauncherManager.cpp
- * @brief Manages Minecraft game launching and JVM argument generation.
+ * @brief 处理 Minecraft 游戏启动和 JVM 参数生成。
  * @author LoserKugua
  * @date 2026-04-10
- * @note Uses version.json dependencies and platform rules to avoid classpath conflicts.
+ * @note 使用 version.json 依赖和平台规定以避免 classpath 冲突。
  *
- * This class handles the process of starting Minecraft with appropriate JVM arguments,
- * classpath construction, and platform-specific library handling.
+ * 这个 class 用于使用正确的 JVM 参数、 classpath 构建、特定平台 library 处理、启动 Minecraft。
  */
 
 #include "LauncherManager.hpp"
@@ -29,7 +28,7 @@
 
 LauncherManager::LauncherManager(QObject *parent)
     : QObject(parent), m_gameProcess(new QProcess(this)) {
-    // Connect process signals for output handling and process monitoring
+    // 连接用于监测进程和输出处理的信号的过程
     connect(m_gameProcess, &QProcess::readyReadStandardOutput, this,
             &LauncherManager::handleReadyReadStandardOutput);
     connect(m_gameProcess, &QProcess::readyReadStandardError, this,
@@ -59,7 +58,7 @@ bool LauncherManager::checkPreLaunch(const QString &versionId, QStringList *erro
         return false;
     }
 
-    // Check for required game files for the specific version
+    // 为特定版本检查所需的游戏文件
     const QString versionJarPath = QString("%1/versions/%2/%2.jar").arg(basePath, versionId);
     const QFileInfo jarInfo(versionJarPath);
     if (!jarInfo.exists()) {
@@ -69,7 +68,7 @@ bool LauncherManager::checkPreLaunch(const QString &versionId, QStringList *erro
         return false;
     }
 
-    // Check libraries folder
+    // 检查 libraries 文件夹
     const QString librariesPath = QString("%1/libraries").arg(basePath);
     const QDir librariesDir(librariesPath);
     if (!librariesDir.exists() ||
@@ -80,7 +79,7 @@ bool LauncherManager::checkPreLaunch(const QString &versionId, QStringList *erro
         return false;
     }
 
-    // Check assets folder
+    // 检查 assets 文件夹
     const QString assetsPath = QString("%1/assets").arg(basePath);
     const QDir assetsDir(assetsPath);
     if (!assetsDir.exists()) {
@@ -128,7 +127,7 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     }
 
     args << QStringLiteral("-Dlog4j2.formatMsgNoLookups=true");
-    // Enable native access for Java 25+ compatibility
+    // 启用对 Java 25+ 的原生兼容性
     args << QStringLiteral("--enable-native-access=ALL-UNNAMED");
     args << QStringLiteral("-Djava.net.preferIPv4Stack=true");
 
@@ -189,15 +188,16 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     };
 
     QStringList classpath;
-    // Add the main version JAR first
+    // 先添加主版本 JAR 文件
     addClasspathPath(QStringLiteral("versions/%1/%1.jar").arg(versionId), classpath);
 
-    // Build classpath from version.json library dependencies
+    // 根据 version.json library 依赖构建 classpath
     if (!versionJson.isEmpty()) {
         auto libs = versionJson[QStringLiteral("libraries")].toArray();
         for (const auto &value : libs) {
             auto libObj = value.toObject();
             // Skip libraries not allowed on this platform
+            // 这个平台不允许跳过 libraries ？？//需要进一步完善注释
             if (!libraryAllowed(libObj)) {
                 continue;
             }
@@ -237,7 +237,7 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     args << QStringLiteral("net.minecraft.client.main.Main");
 
     if (offlineMode) {
-        // Offline mode: use fake credentials
+        // 离线模式：使用虚假登录证书
         QString fakePlayerName =
             "Player" + QString::number(QDateTime::currentMSecsSinceEpoch() % 1000);
         QString fakeUuid = QUuid::createUuid().toString().remove('{').remove('}');
@@ -249,10 +249,10 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
              << QStringLiteral("--assetsDir") << QStringLiteral("assets")
              << QStringLiteral("--assetIndex") << assetIndexId << QStringLiteral("--uuid")
              << fakeUuid << QStringLiteral("--accessToken")
-             << QStringLiteral("0")  // Fake token for offline mode
+             << QStringLiteral("0")  // 离线模式使用的虚假令牌
              << QStringLiteral("--userType") << QStringLiteral("legacy");
     } else {
-        // Online mode: use real credentials
+        // 正版登录：使用真实登录证书
         qDebug() << "Token length:" << token.length();
         args << QStringLiteral("-Dminecraft.accessToken=%1").arg(token);
         args << QStringLiteral("-Dminecraft.version=%1").arg(versionId);
@@ -262,8 +262,7 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
              << QString("versions/%1").arg(versionId) << QStringLiteral("--assetsDir")
              << QStringLiteral("assets") << QStringLiteral("--assetIndex") << assetIndexId
              << QStringLiteral("--uuid")
-             << QStringLiteral(
-                    "00000000-0000-0000-0000-000000000000")  // This should be real UUID from auth
+             << QStringLiteral("00000000-0000-0000-0000-000000000000")  // 此处使用从验证获取的 uuid
              << QStringLiteral("--accessToken") << token << QStringLiteral("--userType")
              << QStringLiteral("msa");
     }
@@ -283,12 +282,12 @@ void LauncherManager::startGame(const QStringList &arguments, GlobalJavaSettings
     const QString program =
         settings.javaPath().isEmpty() ? QStringLiteral("java") : settings.javaPath();
 
-    // Log startup information
+    // 记录启动信息
     qDebug() << "=== Game Launch Started ===";
     qDebug() << "Java executable:" << program;
     qDebug() << "JVM arguments count:" << arguments.length();
 
-    // Check if Java executable exists (only for absolute paths)
+    // 检测 Java 可执行文件存在（仅限绝对路径）
     const QFileInfo javaInfo(program);
     if (!javaInfo.exists()) {
         qWarning() << "Java executable not found at:" << program;
@@ -297,7 +296,7 @@ void LauncherManager::startGame(const QStringList &arguments, GlobalJavaSettings
     }
     qDebug() << "Java path verified:" << javaInfo.absoluteFilePath();
 
-    // Log some of the important arguments
+    // 记录部分重要参数
     for (int i = 0; i < arguments.length(); ++i) {
         const QString &arg = arguments.at(i);
         if (arg.startsWith("-D")) {
@@ -315,12 +314,13 @@ void LauncherManager::startGame(const QStringList &arguments, GlobalJavaSettings
     m_gameProcess->setArguments(arguments);
 
     // Set working directory to .minecraft folder for proper file resolution
+    // 将工作路径设定为 .minecraft 文件夹以进行正确的文件‘决议’ （需要重新翻译）
     QString minecraftDir = QCoreApplication::applicationDirPath() + "/.minecraft";
     QDir().mkpath(minecraftDir);
     m_gameProcess->setWorkingDirectory(minecraftDir);
     qDebug() << "Working directory:" << minecraftDir;
 
-    // Create isolated directory for this version
+    // 为这个版本创建独立的路径
     QString isolatedPath = minecraftDir + "/versions/" + versionId;
     QDir().mkpath(isolatedPath);
     qDebug() << "Isolated game directory:" << isolatedPath;
@@ -359,7 +359,7 @@ void LauncherManager::handleProcessFinished(int exitCode, QProcess::ExitStatus e
     qDebug() << "Exit code:" << exitCode;
     qDebug() << "Exit status:" << (exitStatus == QProcess::NormalExit ? "Normal" : "Crash");
 
-    // Check for any remaining output
+    // 检查剩余的输出
     const QByteArray remainingOutput = m_gameProcess->readAllStandardOutput();
     const QByteArray remainingError = m_gameProcess->readAllStandardError();
 

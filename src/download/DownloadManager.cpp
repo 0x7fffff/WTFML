@@ -1,12 +1,11 @@
 /**
  * @file DownloadManager.cpp
- * @brief Implements version and asset download logic for the launcher.
+ * @brief 为启动器执行版本文件和 asset 下载逻辑。
  * @author LoserKugua
  * @date 2026-04-10
- * @note Processes network download state and saves files to .minecraft.
+ * @note 进行网络文件下载并将文件存储至 .minecraft 文件夹。
  *
- * Fetches metadata from Mojang, handles network replies, and stores version
- * data and assets to the local .minecraft directory.
+ * 从mojang服务器获取元数据，处理网络回应，将版本数据和资产存储到本地 .minecraft 路径。
  */
 
 #include "DownloadManager.hpp"
@@ -21,7 +20,7 @@
 
 DownloadManager::DownloadManager(QObject *parent)
     : QObject(parent), networkManager(new QNetworkAccessManager(this)), pendingDownloads(0) {
-    // Register meta types for signals
+    // 为信号注册元类型
     qRegisterMetaType<MinecraftVersion>("MinecraftVersion");
     qRegisterMetaType<Library>("Library");
     qRegisterMetaType<AssetIndex>("AssetIndex");
@@ -30,7 +29,7 @@ DownloadManager::DownloadManager(QObject *parent)
 }
 
 DownloadManager::~DownloadManager() {
-    // Clean up active downloads
+    // 清除当前的下载
     for (auto reply : activeDownloads.keys()) {
         reply->abort();
         reply->deleteLater();
@@ -97,12 +96,12 @@ void DownloadManager::downloadLibraries(const QList<Library> &libraries, const Q
 }
 
 void DownloadManager::downloadAssets(const AssetIndex &assetIndex, const QString &basePath) {
-    // First, download the asset index JSON
+    // 第一步，下载资产索引 JSON 文件
     QString indexUrl = assetIndex.url;
     QString indexPath = basePath + "/indexes/" + assetIndex.id + ".json";
     QDir().mkpath(QFileInfo(indexPath).absolutePath());
 
-    // Download the index file
+    // 下载索引文件
     QUrl qurl(indexUrl);
     QNetworkRequest request(qurl);
     QNetworkReply *indexReply = networkManager->get(request);

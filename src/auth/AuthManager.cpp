@@ -1,12 +1,11 @@
 /**
  * @file AuthManager.cpp
- * @brief Implements Microsoft OAuth login and token persistence.
+ * @brief 执行微软 OAuth 登录并存储登录令牌。
  * @author LoserKugua
  * @date 2026-04-10
- * @note Exchanges OAuth authorization codes and refreshes tokens transparently.
+ * @note 传递 OAuth 代码并刷新令牌。
  *
- * Handles the browser-based OAuth redirect, callback processing, token
- * storage and refresh logic.
+ * 处理基于浏览器的登录重定向、回调处理、存储与刷新逻辑。
  */
 
 #include "AuthManager.hpp"
@@ -184,7 +183,7 @@ void AuthManager::handleNewConnection() {
     socket->flush();
     socket->waitForBytesWritten(3000);
 
-    // Only disconnect if socket is still connected
+    // 当套接字仍然连接时断开连接
     if (socket->state() == QAbstractSocket::ConnectedState) {
         socket->disconnectFromHost();
         if (socket->state() != QAbstractSocket::UnconnectedState) {
@@ -403,7 +402,7 @@ bool AuthManager::storeTokenData(const QJsonObject &tokenData) {
              << (settings.format() == QSettings::NativeFormat ? "Native" : "IniFormat");
     qDebug() << "Settings value set, encrypted data size:" << encrypted.size();
 
-    // Ensure settings are written to disk immediately
+    // 确保设置立即被写入
     settings.sync();
 
     const QSettings::Status status = settings.status();
@@ -465,7 +464,7 @@ QByteArray AuthManager::obfuscate(const QByteArray &plain, bool decrypt) const {
         QCryptographicHash::hash(QByteArray(kEncryptionKey), QCryptographicHash::Sha256);
     QByteArray data = plain;
     if (decrypt) {
-        // direct XOR is symmetric
+        // direct XOR is symmetric//需要添加翻译
     }
 
     QByteArray result;

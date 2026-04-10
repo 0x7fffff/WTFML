@@ -1,12 +1,11 @@
 /**
  * @file AuthManager.hpp
- * @brief Declares Microsoft account authentication and OAuth callback handling.
+ * @brief 微软账户登录和回调处理的声明。
  * @author LoserKugua
  * @date 2026-04-10
- * @note Uses a local HTTP callback server for OAuth redirect handling.
+ * @note 使用一个本机 HTTP 回调处理验证器重定向。
  *
- * Manages login flow by starting a local HTTP callback server and exchanging
- * OAuth authorization codes for access tokens.
+ * 通过启动一个本机 HTTP 回调服务器并交换验证令牌来处理登入流。
  */
 #pragma once
 
@@ -23,31 +22,31 @@ class AuthManager : public QObject {
 
 public:
     /**
-     * @brief Constructs the authentication manager.
+     * @brief 构建验证管理器。
      * @param parent Parent QObject.
      */
     explicit AuthManager(QObject *parent = nullptr);
 
     /**
-     * @brief Initiates Microsoft OAuth login flow.
-     * @return True if the login flow successfully started.
+     * @brief 初始化微软验证器登入流。
+     * @return 若登入流成功开启，则返回 true.
      */
     bool loginMicrosoft();
 
     /**
-     * @brief Loads a saved access token if available and refreshes it if expired.
-     * @return Valid access token string or empty if unavailable.
+     * @brief 加载一个已保存的令牌，若其失效则将其刷新。
+     * @return 返回一个有效的令牌，当令牌不可用时返回空值。
      */
     QString loadSavedToken();
 
     /**
-     * @brief Attempts to refresh the saved access token.
-     * @return True if refresh succeeded.
+     * @brief 尝试刷新令牌。
+     * @return 刷新成功返回 true.
      */
     bool refreshAccessToken();
 
     /**
-     * @brief Returns the current player name.
+     * @brief 记录玩家用户名。
      */
     QString playerName() const;
 

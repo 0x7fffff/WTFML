@@ -1,6 +1,6 @@
 /**
  * @file FolderManager.cpp
- * @brief Implements folder validation and list management.
+ * @brief 执行文件夹验证和列表管理。
  * @author LoserKugua
  * @date 2026-04-10
  * @note 提供简单的目录增删功能，与 UI 交互分离。

@@ -1,11 +1,11 @@
 /**
  * @file IntegrityChecker.cpp
- * @brief Implements integrity checks for Minecraft installation folders.
+ * @brief 检查安装 Minecraft 的文件夹的完整性。
  * @author LoserKugua
  * @date 2026-04-10
- * @note Provides simple folder validation used during pre-launch checks.
+ * @note 提供启动前检查时使用的文件夹有效性验证。
  *
- * Validates that the required versions directory exists before launch.
+ * 在启动前确保目标版本路径存在。
  */
 
 #include "IntegrityChecker.hpp"

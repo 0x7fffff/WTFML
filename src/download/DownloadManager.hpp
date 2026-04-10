@@ -3,13 +3,12 @@
 
 /**
  * @file DownloadManager.hpp
- * @brief Declares download and version manifest handling for WTFML.
+ * @brief WTFML的下载与版本列表功能声明。
  * @author LoserKugua
  * @date 2026-04-10
- * @note Defines the data structures and signals for version and asset downloads.
+ * @note 定义版本和 asset 的数据结构和信号。
  *
- * Responsible for fetching Mojang version manifests, downloading libraries,
- * assets and client jars, and verifying SHA1 integrity.
+ * 负责获取 mojang 版本列表、 library 下载、 asset 和客户端 jar 文件、验证 SHA1 完整性。
  */
 
 #include <QCryptographicHash>
@@ -28,7 +27,7 @@
 #include <QUrl>
 #include <QVariant>
 
-// Structs for Minecraft data
+// Minecraft 数据的结构
 struct MinecraftVersion {
     QString id;
     QString type;
@@ -67,16 +66,16 @@ public:
     explicit DownloadManager(QObject *parent = nullptr);
     ~DownloadManager();
 
-    // Version manifest operations
+    // 版本列表操作
     void fetchVersionManifest();
     QList<MinecraftVersion> getAvailableVersions() const;
     QString getLatestVersion(const QString &type = "release") const;
 
-    // Version JSON operations
+    // 版本 JSON 文件操作
     void fetchVersionJson(const QString &versionId);
     QJsonObject getVersionJson() const;
 
-    // Download operations
+    // 下载操作
     void downloadFile(const QString &url, const QString &destinationPath,
                       const QString &expectedSha1 = QString());
     void downloadLibraries(const QList<Library> &libraries, const QString &basePath);
@@ -84,7 +83,7 @@ public:
     void downloadClientJar(const QString &url, const QString &destinationPath,
                            const QString &expectedSha1);
 
-    // Utility methods
+    // Utility methods 实用方法？？//需要进一步完善注释
     bool verifyFileSha1(const QString &filePath, const QString &expectedSha1);
     QString calculateFileSha1(const QString &filePath);
     void parseVersionManifest(const QJsonDocument &json);
@@ -111,8 +110,9 @@ private:
     QNetworkAccessManager *networkManager;
     QList<MinecraftVersion> availableVersions;
     QJsonObject currentVersionJson;
-    QMap<QNetworkReply *, QString> activeDownloads;  // reply -> destination path
-    QMap<QNetworkReply *, QString> expectedSha1s;    // reply -> expected SHA1
+    QMap<QNetworkReply *, QString>
+        activeDownloads;  // reply -> destination path   回应目标路径//需要进一步翻译
+    QMap<QNetworkReply *, QString> expectedSha1s;  // reply -> expected SHA1  回应期望的 SHA1
     int pendingDownloads;
 
     void startDownload(const QUrl &url, const QString &destinationPath,

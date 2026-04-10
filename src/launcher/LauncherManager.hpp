@@ -1,6 +1,6 @@
 /**
  * @file LauncherManager.hpp
- * @brief Declares JVM argument generation and game process management.
+ * @brief 为 JVM 参数生成和游戏进程管理进行声明。
  * @author LoserKugua
  * @date 2026-04-10
  * @note 负责 Minecraft 启动参数构建和进程生命周期管理。
@@ -15,38 +15,37 @@ class GlobalJavaSettings;
 class QJsonObject;
 
 /**
- * @brief Handles Minecraft JVM argument generation and process startup.
+ * @brief 处理 Minecraft 的 JVM 参数生成和启动过程。
  *
- * Builds the classpath, applies platform-specific rules, and starts
- * the Minecraft process with the configured Java runtime.
+ * 构建 classpath, 应用平台特定规定，使用配置的 Java运行时环境 启动 Minecraft 进程。
  */
 class LauncherManager : public QObject {
     Q_OBJECT
 
 public:
     /**
-     * @brief Constructs a LauncherManager instance.
+     * @brief 建立一个启动管理实例。
      * @param parent Parent QObject.
      */
     explicit LauncherManager(QObject *parent = nullptr);
 
     /**
-     * @brief Validates required game files before launch.
+     * @brief 在启动前验证游戏文件。
      * @param versionId Minecraft version identifier.
      * @param errors Optional output list for error descriptions.
-     * @return True if pre-launch checks pass.
+     * @return 若通过启动前检查通过，则返回 true.
      */
     bool checkPreLaunch(const QString &versionId, QStringList *errors = nullptr) const;
 
     /**
-     * @brief Generates JVM arguments for Minecraft launch.
+     * @brief 为 Minecraft 启动生成 JVM 参数。
      * @param token Authentication token.
      * @param versionId Version identifier.
      * @param assetIndexId Asset index identifier.
      * @param versionJson Version JSON manifest.
      * @param settings Java runtime settings.
      * @param offlineMode Whether to launch in offline mode.
-     * @return List of JVM arguments.
+     * @return 返回 JVM 参数列表。
      */
     QStringList generateJvmArguments(const QString &token, const QString &versionId,
                                      const QString &assetIndexId, const QJsonObject &versionJson,
@@ -54,7 +53,7 @@ public:
                                      bool offlineMode = false) const;
 
     /**
-     * @brief Starts the Minecraft game process.
+     * @brief 启动 Minecraft 游戏进程。
      * @param arguments JVM and game arguments.
      * @param settings Java runtime settings.
      * @param versionId Version identifier.

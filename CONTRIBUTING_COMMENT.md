@@ -27,15 +27,16 @@ if (gameVersion < "1.19") {
 }
 ```
 3. 类与接口注释 (API Documentation)
-要求：使用英文，brief简要介绍，param参数说明，return返回值说明
+要求：brief简要介绍，return返回值说明 使用中文
+     param参数说明 使用英文（暂定）
 
 示例：
 
 ```cpp
 /**
- * @brief Starts the Minecraft game process.
+ * @brief 启动 Minecraft 游戏进程。
  * @param config The launch configuration containing JVM and game arguments.
- * @return True if process started successfully, false otherwise.
+ * @return 若进程成功启动，则返回 true, 否则返回 false.
  */
 bool launchGame(const LaunchConfig& config);
 ```
