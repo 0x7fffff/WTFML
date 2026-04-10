@@ -28,7 +28,7 @@
 
 LauncherManager::LauncherManager(QObject *parent)
     : QObject(parent), m_gameProcess(new QProcess(this)) {
-    // 连接用于监测进程和输出处理的信号的过程
+    // 连接用于监测进程和输出处理的信号的进程
     connect(m_gameProcess, &QProcess::readyReadStandardOutput, this,
             &LauncherManager::handleReadyReadStandardOutput);
     connect(m_gameProcess, &QProcess::readyReadStandardError, this,
@@ -93,11 +93,10 @@ bool LauncherManager::checkPreLaunch(const QString &versionId, QStringList *erro
 }
 
 /**
- * @brief Generates JVM arguments for Minecraft launch.
+ * @brief 为 Minecraft 启动生成 JVM 参数。
  *
- * Constructs the complete set of JVM arguments including memory settings,
- * classpath, system properties, and game-specific parameters. Uses version.json
- * dependencies to build classpath and applies platform-specific library filtering.
+ * 构造完整的 JVM 参数集，包括内存设置、 classpath 、系统属性和游戏特定参数。
+ * 使用 version.json 中的依赖项构建 classpath ，并应用针对特定平台的 library 过滤。
  *
  * @param token Authentication token for online mode
  * @param versionId Minecraft version identifier
@@ -105,7 +104,7 @@ bool LauncherManager::checkPreLaunch(const QString &versionId, QStringList *erro
  * @param versionJson Version manifest JSON object containing library dependencies
  * @param settings Java settings (memory, extra args, etc.)
  * @param offlineMode Whether to run in offline mode with fake credentials
- * @return QStringList of JVM arguments ready for QProcess
+ * @return 返回为 QProcess 准备的带有 JVM 参数的 QStringList
  */
 QStringList LauncherManager::generateJvmArguments(const QString &token, const QString &versionId,
                                                   const QString &assetIndexId,
@@ -196,8 +195,7 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
         auto libs = versionJson[QStringLiteral("libraries")].toArray();
         for (const auto &value : libs) {
             auto libObj = value.toObject();
-            // Skip libraries not allowed on this platform
-            // 这个平台不允许跳过 libraries ？？//需要进一步完善注释
+            // 跳过不适用这个平台的库
             if (!libraryAllowed(libObj)) {
                 continue;
             }
@@ -313,8 +311,7 @@ void LauncherManager::startGame(const QStringList &arguments, GlobalJavaSettings
     m_gameProcess->setProgram(program);
     m_gameProcess->setArguments(arguments);
 
-    // Set working directory to .minecraft folder for proper file resolution
-    // 将工作路径设定为 .minecraft 文件夹以进行正确的文件‘决议’ （需要重新翻译）
+    // 将工作目录设为 .minecraft 文件夹以确保文件能够正确解析
     QString minecraftDir = QCoreApplication::applicationDirPath() + "/.minecraft";
     QDir().mkpath(minecraftDir);
     m_gameProcess->setWorkingDirectory(minecraftDir);
