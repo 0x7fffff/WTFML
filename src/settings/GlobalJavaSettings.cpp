@@ -8,24 +8,23 @@
 
 #include "GlobalJavaSettings.hpp"
 
-#include <QSettings>
-#include <QProcess>
+#include <QCoreApplication>
 #include <QDir>
 #include <QDirIterator>
+#include <QEventLoop>
 #include <QFile>
 #include <QFileInfo>
-#include <QStandardPaths>
-#include <QJsonDocument>
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonValue>
-#include <QJsonObject>
+#include <QNetworkReply>
+#include <QProcess>
 #include <QRegularExpression>
 #include <QRegularExpressionMatch>
-#include <QNetworkReply>
-#include <QEventLoop>
+#include <QSettings>
+#include <QStandardPaths>
 #include <QTemporaryFile>
-#include <QCoreApplication>
 
 namespace {
 static constexpr const char kJavaPath[] = "Java/Path";
@@ -33,8 +32,8 @@ static constexpr const char kXmx[] = "Java/Xmx";
 static constexpr const char kXms[] = "Java/Xms";
 static constexpr const char kExtraArgs[] = "Java/ExtraArgs";
 
-bool runProcess(const QString &program, const QStringList &arguments, QString *stdOut = nullptr, QString *stdErr = nullptr, int timeoutMs = 5000)
-{
+bool runProcess(const QString &program, const QStringList &arguments, QString *stdOut = nullptr,
+                QString *stdErr = nullptr, int timeoutMs = 5000) {
     QProcess process;
     process.start(program, arguments);
     if (!process.waitForFinished(timeoutMs)) {
@@ -50,8 +49,7 @@ bool runProcess(const QString &program, const QStringList &arguments, QString *s
     return process.exitStatus() == QProcess::NormalExit;
 }
 
-bool verifyJavaExecutable(const QString &path, QString *versionOut = nullptr)
-{
+bool verifyJavaExecutable(const QString &path, QString *versionOut = nullptr) {
     if (path.isEmpty()) {
         return false;
     }
@@ -80,8 +78,7 @@ bool verifyJavaExecutable(const QString &path, QString *versionOut = nullptr)
     return false;
 }
 
-int parseJavaMajorVersion(const QString &versionOutput)
-{
+int parseJavaMajorVersion(const QString &versionOutput) {
     // Java version output examples:
     // java version "1.8.0_301" -> 8
     // java version "11.0.12" -> 11
@@ -117,8 +114,7 @@ int parseJavaMajorVersion(const QString &versionOutput)
     return majorVersion;
 }
 
-QString findJavaInEnvironment()
-{
+QString findJavaInEnvironment() {
     const QString javaHome = qEnvironmentVariable("JAVA_HOME");
     if (!javaHome.isEmpty()) {
         const QString candidate = QDir(javaHome).absoluteFilePath("bin/java.exe");
@@ -136,13 +132,10 @@ QString findJavaInEnvironment()
     return QString();
 }
 
-QString findJavaInCommonLocations()
-{
-    const QStringList rootDirs = {
-        qEnvironmentVariable("ProgramFiles"),
-        qEnvironmentVariable("ProgramFiles(x86)"),
-        qEnvironmentVariable("ProgramW6432")
-    };
+QString findJavaInCommonLocations() {
+    const QStringList rootDirs = {qEnvironmentVariable("ProgramFiles"),
+                                  qEnvironmentVariable("ProgramFiles(x86)"),
+                                  qEnvironmentVariable("ProgramW6432")};
 
     for (const QString &rootDirPath : rootDirs) {
         if (rootDirPath.isEmpty()) {
@@ -153,17 +146,18 @@ QString findJavaInCommonLocations()
             continue;
         }
 
-        QDirIterator it(rootDir.absolutePath(), QStringList() << "java.exe", QDir::Files, QDirIterator::Subdirectories);
+        QDirIterator it(rootDir.absolutePath(), QStringList() << "java.exe", QDir::Files,
+                        QDirIterator::Subdirectories);
         while (it.hasNext()) {
             QString candidate = it.next();
-            if (candidate.contains("Java", Qt::CaseInsensitive)
-                || candidate.contains("jdk", Qt::CaseInsensitive)
-                || candidate.contains("jre", Qt::CaseInsensitive)
-                || candidate.contains("temurin", Qt::CaseInsensitive)
-                || candidate.contains("adoptium", Qt::CaseInsensitive)
-                || candidate.contains("corretto", Qt::CaseInsensitive)
-                || candidate.contains("microsoft", Qt::CaseInsensitive)
-                || candidate.contains("zulu", Qt::CaseInsensitive)) {
+            if (candidate.contains("Java", Qt::CaseInsensitive) ||
+                candidate.contains("jdk", Qt::CaseInsensitive) ||
+                candidate.contains("jre", Qt::CaseInsensitive) ||
+                candidate.contains("temurin", Qt::CaseInsensitive) ||
+                candidate.contains("adoptium", Qt::CaseInsensitive) ||
+                candidate.contains("corretto", Qt::CaseInsensitive) ||
+                candidate.contains("microsoft", Qt::CaseInsensitive) ||
+                candidate.contains("zulu", Qt::CaseInsensitive)) {
                 if (verifyJavaExecutable(candidate)) {
                     return candidate;
                 }
@@ -174,8 +168,7 @@ QString findJavaInCommonLocations()
     return QString();
 }
 
-QString findJavaOnPath()
-{
+QString findJavaOnPath() {
     QString versionOutput;
     if (verifyJavaExecutable(QStringLiteral("java"), &versionOutput)) {
         return QStringLiteral("java");
@@ -183,18 +176,20 @@ QString findJavaOnPath()
     return QString();
 }
 
-bool extractZipWithPowerShell(const QString &zipFile, const QString &targetDir)
-{
-    QString command = QStringLiteral("Expand-Archive -Path '%1' -DestinationPath '%2' -Force").arg(zipFile, targetDir);
+bool extractZipWithPowerShell(const QString &zipFile, const QString &targetDir) {
+    QString command = QStringLiteral("Expand-Archive -Path '%1' -DestinationPath '%2' -Force")
+                          .arg(zipFile, targetDir);
     QString stdOut, stdErr;
-    bool ok = runProcess(QStringLiteral("powershell"), {QStringLiteral("-NoProfile"), QStringLiteral("-Command"), command}, &stdOut, &stdErr, 60000);
+    bool ok = runProcess(QStringLiteral("powershell"),
+                         {QStringLiteral("-NoProfile"), QStringLiteral("-Command"), command},
+                         &stdOut, &stdErr, 60000);
     Q_UNUSED(stdOut);
     return ok;
 }
 
-QString findExtractedJava(const QString &rootDir)
-{
-    QDirIterator it(rootDir, QStringList() << "java.exe", QDir::Files, QDirIterator::Subdirectories);
+QString findExtractedJava(const QString &rootDir) {
+    QDirIterator it(rootDir, QStringList() << "java.exe", QDir::Files,
+                    QDirIterator::Subdirectories);
     while (it.hasNext()) {
         QString candidate = it.next();
         if (verifyJavaExecutable(candidate)) {
@@ -204,8 +199,7 @@ QString findExtractedJava(const QString &rootDir)
     return QString();
 }
 
-bool downloadFileToLocal(const QUrl &url, const QString &destinationPath)
-{
+bool downloadFileToLocal(const QUrl &url, const QString &destinationPath) {
     QNetworkAccessManager manager;
     QNetworkRequest request(url);
     QNetworkReply *reply = manager.get(request);
@@ -229,33 +223,34 @@ bool downloadFileToLocal(const QUrl &url, const QString &destinationPath)
     return true;
 }
 
-bool downloadJavaRuntime(const QString &destinationDir, const QString &component, QString *javaPathOut)
-{
+bool downloadJavaRuntime(const QString &destinationDir, const QString &component,
+                         QString *javaPathOut) {
     QList<QUrl> urls;
     if (component == "java-runtime-gamma") {
         // Java 21
         urls = {
-            QUrl("https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.4+7/OpenJDK21U-jre_x64_windows_hotspot_21.0.4_7.zip"),
-            QUrl("https://download.bell-sw.com/java/21.0.4+7/bellsoft-jre21.0.4+7-win-amd64.zip")
-        };
+            QUrl("https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.4+7/"
+                 "OpenJDK21U-jre_x64_windows_hotspot_21.0.4_7.zip"),
+            QUrl("https://download.bell-sw.com/java/21.0.4+7/bellsoft-jre21.0.4+7-win-amd64.zip")};
     } else if (component == "java-runtime-beta") {
         // Java 17
         urls = {
-            QUrl("https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.12+7/OpenJDK17U-jre_x64_windows_hotspot_17.0.12_7.zip"),
-            QUrl("https://download.bell-sw.com/java/17.0.12+7/bellsoft-jre17.0.12+7-win-amd64.zip")
-        };
+            QUrl("https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.12+7/"
+                 "OpenJDK17U-jre_x64_windows_hotspot_17.0.12_7.zip"),
+            QUrl(
+                "https://download.bell-sw.com/java/17.0.12+7/bellsoft-jre17.0.12+7-win-amd64.zip")};
     } else if (component == "java-runtime-alpha" || component == "jre-legacy") {
         // Java 8
         urls = {
-            QUrl("https://github.com/adoptium/temurin8-binaries/releases/download/jdk8u422-b05/OpenJDK8U-jre_x64_windows_hotspot_8u422b05.zip"),
-            QUrl("https://download.bell-sw.com/java/8u422+5/bellsoft-jre8u422+5-win-amd64.zip")
-        };
+            QUrl("https://github.com/adoptium/temurin8-binaries/releases/download/jdk8u422-b05/"
+                 "OpenJDK8U-jre_x64_windows_hotspot_8u422b05.zip"),
+            QUrl("https://download.bell-sw.com/java/8u422+5/bellsoft-jre8u422+5-win-amd64.zip")};
     } else {
         // Default to Java 21
         urls = {
-            QUrl("https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.4+7/OpenJDK21U-jre_x64_windows_hotspot_21.0.4_7.zip"),
-            QUrl("https://download.bell-sw.com/java/21.0.4+7/bellsoft-jre21.0.4+7-win-amd64.zip")
-        };
+            QUrl("https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.4+7/"
+                 "OpenJDK21U-jre_x64_windows_hotspot_21.0.4_7.zip"),
+            QUrl("https://download.bell-sw.com/java/21.0.4+7/bellsoft-jre21.0.4+7-win-amd64.zip")};
     }
 
     QDir().mkpath(destinationDir);
@@ -282,59 +277,35 @@ bool downloadJavaRuntime(const QString &destinationDir, const QString &component
 
     return false;
 }
-}
+}  // namespace
 
 GlobalJavaSettings::GlobalJavaSettings(QObject *parent)
-    : QObject(parent)
-    , m_xmx(4096)  // 4GB
-    , m_xms(1024)  // 1GB
-    , m_extraJvmArgs(QStringLiteral("-XX:+UseG1GC"))
-{
+    : QObject(parent),
+      m_xmx(4096)  // 4GB
+      ,
+      m_xms(1024)  // 1GB
+      ,
+      m_extraJvmArgs(QStringLiteral("-XX:+UseG1GC")) {
     load();
 }
 
-QString GlobalJavaSettings::javaPath() const
-{
-    return m_javaPath;
-}
+QString GlobalJavaSettings::javaPath() const { return m_javaPath; }
 
-void GlobalJavaSettings::setJavaPath(const QString &path)
-{
-    m_javaPath = path;
-}
+void GlobalJavaSettings::setJavaPath(const QString &path) { m_javaPath = path; }
 
-int GlobalJavaSettings::xmx() const
-{
-    return m_xmx;
-}
+int GlobalJavaSettings::xmx() const { return m_xmx; }
 
-void GlobalJavaSettings::setXmx(int mbytes)
-{
-    m_xmx = qMax(256, mbytes);
-}
+void GlobalJavaSettings::setXmx(int mbytes) { m_xmx = qMax(256, mbytes); }
 
-int GlobalJavaSettings::xms() const
-{
-    return m_xms;
-}
+int GlobalJavaSettings::xms() const { return m_xms; }
 
-void GlobalJavaSettings::setXms(int mbytes)
-{
-    m_xms = qMax(128, mbytes);
-}
+void GlobalJavaSettings::setXms(int mbytes) { m_xms = qMax(128, mbytes); }
 
-QString GlobalJavaSettings::extraJvmArgs() const
-{
-    return m_extraJvmArgs;
-}
+QString GlobalJavaSettings::extraJvmArgs() const { return m_extraJvmArgs; }
 
-void GlobalJavaSettings::setExtraJvmArgs(const QString &args)
-{
-    m_extraJvmArgs = args;
-}
+void GlobalJavaSettings::setExtraJvmArgs(const QString &args) { m_extraJvmArgs = args; }
 
-void GlobalJavaSettings::load()
-{
+void GlobalJavaSettings::load() {
     QSettings settings;
     m_javaPath = settings.value(kJavaPath).toString();
     m_xmx = settings.value(kXmx, m_xmx).toInt();
@@ -342,8 +313,7 @@ void GlobalJavaSettings::load()
     m_extraJvmArgs = settings.value(kExtraArgs, m_extraJvmArgs).toString();
 }
 
-void GlobalJavaSettings::save() const
-{
+void GlobalJavaSettings::save() const {
     QSettings settings;
     settings.setValue(kJavaPath, m_javaPath);
     settings.setValue(kXmx, m_xmx);
@@ -351,8 +321,7 @@ void GlobalJavaSettings::save() const
     settings.setValue(kExtraArgs, m_extraJvmArgs);
 }
 
-QMap<int, QString> GlobalJavaSettings::scanLocalJavaVersions()
-{
+QMap<int, QString> GlobalJavaSettings::scanLocalJavaVersions() {
     QMap<int, QString> versions;
     const QString javaDir = QCoreApplication::applicationDirPath() + "/.minecraft/java";
 
@@ -394,12 +363,12 @@ QMap<int, QString> GlobalJavaSettings::scanLocalJavaVersions()
     return versions;
 }
 
-bool GlobalJavaSettings::downloadJavaFromMojang(int majorVersion)
-{
+bool GlobalJavaSettings::downloadJavaFromMojang(int majorVersion) {
     qDebug() << "Starting Java download from Adoptium for version:" << majorVersion;
 
     // Use Adoptium API to download Java
-    const QString apiUrl = QString("https://api.adoptium.net/v3/assets/latest/%1/hotspot").arg(majorVersion);
+    const QString apiUrl =
+        QString("https://api.adoptium.net/v3/assets/latest/%1/hotspot").arg(majorVersion);
     qDebug() << "Fetching from Adoptium API:" << apiUrl;
 
     QNetworkAccessManager manager;
@@ -449,7 +418,8 @@ bool GlobalJavaSettings::downloadJavaFromMojang(int majorVersion)
     }
 
     // Download the zip
-    const QString downloadDir = QCoreApplication::applicationDirPath() + QString("/.minecraft/java/%1").arg(majorVersion);
+    const QString downloadDir =
+        QCoreApplication::applicationDirPath() + QString("/.minecraft/java/%1").arg(majorVersion);
     qDebug() << "Download directory:" << downloadDir;
     QDir().mkpath(downloadDir);
     QString tempZip = QDir(downloadDir).absoluteFilePath("java_runtime.zip");
@@ -493,8 +463,7 @@ bool GlobalJavaSettings::downloadJavaFromMojang(int majorVersion)
  * @param majorVersion Required Java major version (e.g., 8, 11, 17, 21)
  * @return true if appropriate Java is available and configured, false otherwise
  */
-bool GlobalJavaSettings::ensureJavaForVersion(int majorVersion)
-{
+bool GlobalJavaSettings::ensureJavaForVersion(int majorVersion) {
     qDebug() << "Ensuring Java for version:" << majorVersion;
 
     // First, check if we already have the correct version configured
@@ -504,10 +473,12 @@ bool GlobalJavaSettings::ensureJavaForVersion(int majorVersion)
         if (verifyJavaExecutable(m_javaPath, &versionOutput)) {
             int currentVersion = parseJavaMajorVersion(versionOutput);
             if (currentVersion == majorVersion) {
-                qDebug() << "Using configured Java version" << currentVersion << "at:" << m_javaPath;
+                qDebug() << "Using configured Java version" << currentVersion
+                         << "at:" << m_javaPath;
                 return true;
             } else {
-                qDebug() << "Configured Java version" << currentVersion << "does not match required version" << majorVersion;
+                qDebug() << "Configured Java version" << currentVersion
+                         << "does not match required version" << majorVersion;
             }
         }
     }

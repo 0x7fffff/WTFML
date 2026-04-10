@@ -1,20 +1,20 @@
 #ifndef DOWNLOADMANAGER_H
 #define DOWNLOADMANAGER_H
 
-#include <QObject>
-#include <QNetworkAccessManager>
-#include <QNetworkReply>
+#include <QCryptographicHash>
+#include <QDir>
+#include <QFile>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QJsonArray>
-#include <QCryptographicHash>
-#include <QFile>
-#include <QDir>
-#include <QUrl>
-#include <QString>
-#include <QStringList>
 #include <QList>
 #include <QMap>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QObject>
+#include <QString>
+#include <QStringList>
+#include <QUrl>
 #include <QVariant>
 
 // Structs for Minecraft data
@@ -66,10 +66,12 @@ public:
     QJsonObject getVersionJson() const;
 
     // Download operations
-    void downloadFile(const QString &url, const QString &destinationPath, const QString &expectedSha1 = QString());
+    void downloadFile(const QString &url, const QString &destinationPath,
+                      const QString &expectedSha1 = QString());
     void downloadLibraries(const QList<Library> &libraries, const QString &basePath);
     void downloadAssets(const AssetIndex &assetIndex, const QString &basePath);
-    void downloadClientJar(const QString &url, const QString &destinationPath, const QString &expectedSha1);
+    void downloadClientJar(const QString &url, const QString &destinationPath,
+                           const QString &expectedSha1);
 
     // Utility methods
     bool verifyFileSha1(const QString &filePath, const QString &expectedSha1);
@@ -83,7 +85,8 @@ signals:
     void versionManifestFetched(const QList<MinecraftVersion> &versions);
     void versionJsonFetched(const QJsonObject &versionJson);
     void downloadProgress(const QString &fileName, qint64 bytesReceived, qint64 bytesTotal);
-    void downloadFinished(const QString &fileName, bool success, const QString &errorMessage = QString());
+    void downloadFinished(const QString &fileName, bool success,
+                          const QString &errorMessage = QString());
     void allDownloadsFinished(bool success);
 
 private slots:
@@ -97,11 +100,12 @@ private:
     QNetworkAccessManager *networkManager;
     QList<MinecraftVersion> availableVersions;
     QJsonObject currentVersionJson;
-    QMap<QNetworkReply*, QString> activeDownloads; // reply -> destination path
-    QMap<QNetworkReply*, QString> expectedSha1s; // reply -> expected SHA1
+    QMap<QNetworkReply *, QString> activeDownloads;  // reply -> destination path
+    QMap<QNetworkReply *, QString> expectedSha1s;    // reply -> expected SHA1
     int pendingDownloads;
 
-    void startDownload(const QUrl &url, const QString &destinationPath, const QString &expectedSha1 = QString());
+    void startDownload(const QUrl &url, const QString &destinationPath,
+                       const QString &expectedSha1 = QString());
     void handleDownloadError(QNetworkReply *reply, const QString &errorMessage);
     void checkAllDownloadsFinished();
     void parseAndDownloadAssets(const QString &indexPath);
@@ -112,4 +116,4 @@ Q_DECLARE_METATYPE(Library)
 Q_DECLARE_METATYPE(AssetIndex)
 Q_DECLARE_METATYPE(DownloadInfo)
 
-#endif // DOWNLOADMANAGER_H
+#endif  // DOWNLOADMANAGER_H

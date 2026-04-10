@@ -1,48 +1,48 @@
 #include "AuthManager.hpp"
 
 #include <QCoreApplication>
+#include <QCryptographicHash>
+#include <QDebug>
 #include <QDesktopServices>
 #include <QEventLoop>
+#include <QHostAddress>
 #include <QJsonDocument>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QRandomGenerator>
 #include <QSettings>
-#include <QHostAddress>
 #include <QTcpServer>
 #include <QTcpSocket>
-#include <QUrl>
-#include <QUrlQuery>
-#include <QCryptographicHash>
-#include <QRandomGenerator>
 #include <QTextStream>
 #include <QTimer>
-#include <QDebug>
+#include <QUrl>
+#include <QUrlQuery>
 
 namespace {
 static constexpr const char kClientId[] = "1f3dc837-04f1-4389-947e-d698b69571b7";
 static constexpr const char kTokenStoreKey[] = "MicrosoftTokenData";
 static constexpr const char kEncryptionKey[] = "WTFMLSecretKey2026";
-static constexpr const char kOAuthAuthorizeUrl[] = "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize";
-static constexpr const char kOAuthTokenUrl[] = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token";
+static constexpr const char kOAuthAuthorizeUrl[] =
+    "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize";
+static constexpr const char kOAuthTokenUrl[] =
+    "https://login.microsoftonline.com/consumers/oauth2/v2.0/token";
 static constexpr int kCallbackPort = 38226;
 static constexpr const char kRedirectUri[] = "http://localhost:38226/";
 static constexpr const char kOAuthScope[] = "XboxLive.signin offline_access";
-}
+}  // namespace
 
 AuthManager::AuthManager(QObject *parent)
-    : QObject(parent)
-    , m_playerName(tr("玩家"))
-    , m_callbackServer(new QTcpServer(this))
-    , m_networkManager(new QNetworkAccessManager(this))
-    , m_callbackPort(kCallbackPort)
-{
+    : QObject(parent),
+      m_playerName(tr("玩家")),
+      m_callbackServer(new QTcpServer(this)),
+      m_networkManager(new QNetworkAccessManager(this)),
+      m_callbackPort(kCallbackPort) {
     connect(m_callbackServer, &QTcpServer::newConnection, this, &AuthManager::handleNewConnection);
     loadStoredTokenData();
 }
 
-bool AuthManager::loginMicrosoft()
-{
+bool AuthManager::loginMicrosoft() {
     if (!startCallbackServer()) {
         emit loginFailed(tr("无法启动回调服务器。"));
         return false;
@@ -59,8 +59,7 @@ bool AuthManager::loginMicrosoft()
     return true;
 }
 
-QString AuthManager::loadSavedToken()
-{
+QString AuthManager::loadSavedToken() {
     const QJsonObject tokenData = loadStoredTokenData();
     if (tokenData.isEmpty()) {
         return QString();
@@ -84,8 +83,7 @@ QString AuthManager::loadSavedToken()
     return m_accessToken;
 }
 
-bool AuthManager::refreshAccessToken()
-{
+bool AuthManager::refreshAccessToken() {
     const QJsonObject tokenData = loadStoredTokenData();
     const QString refreshToken = tokenData.value("refresh_token").toString();
     if (refreshToken.isEmpty()) {
@@ -94,13 +92,9 @@ bool AuthManager::refreshAccessToken()
     return requestTokenRefresh(refreshToken);
 }
 
-QString AuthManager::playerName() const
-{
-    return m_playerName;
-}
+QString AuthManager::playerName() const { return m_playerName; }
 
-void AuthManager::handleNewConnection()
-{
+void AuthManager::handleNewConnection() {
     QTcpSocket *socket = m_callbackServer->nextPendingConnection();
     if (!socket) {
         return;
@@ -136,7 +130,7 @@ void AuthManager::handleNewConnection()
     qDebug() << "OAuth callback received from browser";
     qDebug() << "Code length:" << code.length();
     qDebug() << "Has error:" << !error.isEmpty();
-    
+
     if (!code.isEmpty()) {
         qDebug() << "Code (first 20 chars):" << code.left(20) << "...";
     }
@@ -150,7 +144,8 @@ void AuthManager::handleNewConnection()
     if (!code.isEmpty()) {
         success = exchangeAuthorizationCode(code);
         if (success) {
-            responseHtml = tr("<html><body><h1>登录成功</h1><p>你可以关闭此窗口。</p></body></html>");
+            responseHtml =
+                tr("<html><body><h1>登录成功</h1><p>你可以关闭此窗口。</p></body></html>");
             emit loginSucceeded();
         } else {
             responseHtml = tr("<html><body><h1>登录失败</h1><p>令牌交换失败。</p></body></html>");
@@ -177,7 +172,7 @@ void AuthManager::handleNewConnection()
     socket->write(response);
     socket->flush();
     socket->waitForBytesWritten(3000);
-    
+
     // Only disconnect if socket is still connected
     if (socket->state() == QAbstractSocket::ConnectedState) {
         socket->disconnectFromHost();
@@ -187,8 +182,7 @@ void AuthManager::handleNewConnection()
     }
 }
 
-bool AuthManager::startCallbackServer()
-{
+bool AuthManager::startCallbackServer() {
     if (m_callbackServer->isListening()) {
         return true;
     }
@@ -196,8 +190,7 @@ bool AuthManager::startCallbackServer()
     return m_callbackServer->listen(QHostAddress::Any, m_callbackPort);
 }
 
-QString AuthManager::buildAuthUrl()
-{
+QString AuthManager::buildAuthUrl() {
     const QString codeChallenge = createCodeChallenge(m_codeVerifier);
     QUrl url(kOAuthAuthorizeUrl);
     QUrlQuery query;
@@ -212,8 +205,7 @@ QString AuthManager::buildAuthUrl()
     return url.toString();
 }
 
-QString AuthManager::createCodeVerifier() const
-{
+QString AuthManager::createCodeVerifier() const {
     QByteArray randomBytes;
     randomBytes.reserve(32);
     for (int i = 0; i < 32; ++i) {
@@ -222,22 +214,22 @@ QString AuthManager::createCodeVerifier() const
     return base64UrlEncode(randomBytes);
 }
 
-QString AuthManager::createCodeChallenge(const QString &verifier) const
-{
-    const QByteArray sha256 = QCryptographicHash::hash(verifier.toUtf8(), QCryptographicHash::Sha256);
+QString AuthManager::createCodeChallenge(const QString &verifier) const {
+    const QByteArray sha256 =
+        QCryptographicHash::hash(verifier.toUtf8(), QCryptographicHash::Sha256);
     return base64UrlEncode(sha256);
 }
 
-QByteArray AuthManager::base64UrlEncode(const QByteArray &input) const
-{
-    QByteArray encoded = input.toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals);
+QByteArray AuthManager::base64UrlEncode(const QByteArray &input) const {
+    QByteArray encoded =
+        input.toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals);
     return encoded;
 }
 
-bool AuthManager::exchangeAuthorizationCode(const QString &code)
-{
+bool AuthManager::exchangeAuthorizationCode(const QString &code) {
     QNetworkRequest request{QUrl(kOAuthTokenUrl)};
-    request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/x-www-form-urlencoded"));
+    request.setHeader(QNetworkRequest::ContentTypeHeader,
+                      QStringLiteral("application/x-www-form-urlencoded"));
     request.setRawHeader("Accept", "application/json");
 
     QUrlQuery body;
@@ -266,7 +258,7 @@ bool AuthManager::exchangeAuthorizationCode(const QString &code)
     const bool hasError = reply->error() != QNetworkReply::NoError;
     const QString responseText = QString::fromUtf8(response);
     const int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-    
+
     if (hasError) {
         qWarning().noquote() << "Token exchange failed - Error:" << reply->errorString();
         qWarning().noquote() << "HTTP Status Code:" << statusCode;
@@ -274,7 +266,7 @@ bool AuthManager::exchangeAuthorizationCode(const QString &code)
         reply->deleteLater();
         return false;
     }
-    
+
     if (statusCode != 200) {
         qWarning().noquote() << "Token exchange returned HTTP" << statusCode;
         qWarning().noquote() << "Response:" << responseText;
@@ -288,7 +280,7 @@ bool AuthManager::exchangeAuthorizationCode(const QString &code)
         qWarning().noquote() << "Token exchange returned invalid JSON:" << responseText;
         return false;
     }
-    
+
     const QJsonObject jsonObject = document.object();
     if (jsonObject.contains("error")) {
         const QString errorCode = jsonObject.value("error").toString();
@@ -308,14 +300,14 @@ bool AuthManager::exchangeAuthorizationCode(const QString &code)
     return true;
 }
 
-bool AuthManager::requestTokenRefresh(const QString &refreshToken)
-{
+bool AuthManager::requestTokenRefresh(const QString &refreshToken) {
     if (refreshToken.isEmpty()) {
         return false;
     }
 
     QNetworkRequest request{QUrl(kOAuthTokenUrl)};
-    request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/x-www-form-urlencoded"));
+    request.setHeader(QNetworkRequest::ContentTypeHeader,
+                      QStringLiteral("application/x-www-form-urlencoded"));
     request.setRawHeader("Accept", "application/json");
 
     QUrlQuery body;
@@ -342,7 +334,7 @@ bool AuthManager::requestTokenRefresh(const QString &refreshToken)
     const bool hasError = reply->error() != QNetworkReply::NoError;
     const QString responseText = QString::fromUtf8(response);
     const int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-    
+
     if (hasError) {
         qWarning().noquote() << "Refresh token failed - Error:" << reply->errorString();
         qWarning().noquote() << "HTTP Status Code:" << statusCode;
@@ -350,7 +342,7 @@ bool AuthManager::requestTokenRefresh(const QString &refreshToken)
         reply->deleteLater();
         return false;
     }
-    
+
     if (statusCode != 200) {
         qWarning().noquote() << "Refresh token returned HTTP" << statusCode;
         qWarning().noquote() << "Response:" << responseText;
@@ -364,7 +356,7 @@ bool AuthManager::requestTokenRefresh(const QString &refreshToken)
         qWarning().noquote() << "Refresh token returned invalid JSON:" << responseText;
         return false;
     }
-    
+
     const QJsonObject jsonObject = document.object();
     if (jsonObject.contains("error")) {
         const QString errorCode = jsonObject.value("error").toString();
@@ -376,8 +368,7 @@ bool AuthManager::requestTokenRefresh(const QString &refreshToken)
     return storeTokenData(jsonObject);
 }
 
-bool AuthManager::storeTokenData(const QJsonObject &tokenData)
-{
+bool AuthManager::storeTokenData(const QJsonObject &tokenData) {
     if (tokenData.isEmpty()) {
         qWarning() << "storeTokenData: tokenData is empty";
         return false;
@@ -392,30 +383,30 @@ bool AuthManager::storeTokenData(const QJsonObject &tokenData)
     const QByteArray rawData = QJsonDocument(tokenData).toJson(QJsonDocument::Compact);
     const QByteArray encrypted = obfuscate(rawData.toBase64(), false);
     settings.setValue(kTokenStoreKey, encrypted);
-    
+
     qDebug() << "App Organization:" << QCoreApplication::organizationName();
     qDebug() << "App Name:" << QCoreApplication::applicationName();
     qDebug() << "App Version:" << QCoreApplication::applicationVersion();
     qDebug() << "Settings file:" << settings.fileName();
-    qDebug() << "Settings format:" << (settings.format() == QSettings::NativeFormat ? "Native" : "IniFormat");
+    qDebug() << "Settings format:"
+             << (settings.format() == QSettings::NativeFormat ? "Native" : "IniFormat");
     qDebug() << "Settings value set, encrypted data size:" << encrypted.size();
-    
+
     // Ensure settings are written to disk immediately
     settings.sync();
-    
+
     const QSettings::Status status = settings.status();
     if (status != QSettings::NoError) {
         qWarning() << "storeTokenData: QSettings error status:" << status;
         qWarning() << "Settings file path was:" << settings.fileName();
         return false;
     }
-    
+
     qDebug() << "Token data stored successfully";
     return true;
 }
 
-QJsonObject AuthManager::loadStoredTokenData() const
-{
+QJsonObject AuthManager::loadStoredTokenData() const {
     QSettings settings;
     const QByteArray encrypted = settings.value(kTokenStoreKey).toByteArray();
     if (encrypted.isEmpty()) {
@@ -432,8 +423,7 @@ QJsonObject AuthManager::loadStoredTokenData() const
     return document.object();
 }
 
-bool AuthManager::applyTokenData(const QJsonObject &tokenData)
-{
+bool AuthManager::applyTokenData(const QJsonObject &tokenData) {
     const QString accessToken = tokenData.value("access_token").toString();
     const QString refreshToken = tokenData.value("refresh_token").toString();
     const int expiresIn = tokenData.value("expires_in").toInt(0);
@@ -442,12 +432,12 @@ bool AuthManager::applyTokenData(const QJsonObject &tokenData)
         qWarning() << "Token data missing access_token";
         return false;
     }
-    
+
     if (refreshToken.isEmpty()) {
         qWarning() << "Token data missing refresh_token";
         return false;
     }
-    
+
     if (expiresIn <= 0) {
         qWarning() << "Token data has invalid expires_in:" << expiresIn;
     }
@@ -459,9 +449,9 @@ bool AuthManager::applyTokenData(const QJsonObject &tokenData)
     return true;
 }
 
-QByteArray AuthManager::obfuscate(const QByteArray &plain, bool decrypt) const
-{
-    QByteArray key = QCryptographicHash::hash(QByteArray(kEncryptionKey), QCryptographicHash::Sha256);
+QByteArray AuthManager::obfuscate(const QByteArray &plain, bool decrypt) const {
+    QByteArray key =
+        QCryptographicHash::hash(QByteArray(kEncryptionKey), QCryptographicHash::Sha256);
     QByteArray data = plain;
     if (decrypt) {
         // direct XOR is symmetric

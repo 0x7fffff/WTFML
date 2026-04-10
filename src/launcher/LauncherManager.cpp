@@ -7,34 +7,35 @@
  */
 
 #include "LauncherManager.hpp"
-#include "../settings/GlobalJavaSettings.hpp"
 
-#include <QDir>
-#include <QFileInfo>
-#include <QStandardPaths>
+#include <QCoreApplication>
 #include <QDateTime>
 #include <QDebug>
-#include <QTimer>
-#include <QCoreApplication>
+#include <QDir>
 #include <QDirIterator>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QSet>
+#include <QStandardPaths>
 #include <QSysInfo>
+#include <QTimer>
 #include <QUuid>
 
+#include "../settings/GlobalJavaSettings.hpp"
+
 LauncherManager::LauncherManager(QObject *parent)
-    : QObject(parent)
-    , m_gameProcess(new QProcess(this))
-{
+    : QObject(parent), m_gameProcess(new QProcess(this)) {
     // Connect process signals for output handling and process monitoring
-    connect(m_gameProcess, &QProcess::readyReadStandardOutput, this, &LauncherManager::handleReadyReadStandardOutput);
-    connect(m_gameProcess, &QProcess::readyReadStandardError, this, &LauncherManager::handleReadyReadStandardError);
-    connect(m_gameProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this, &LauncherManager::handleProcessFinished);
+    connect(m_gameProcess, &QProcess::readyReadStandardOutput, this,
+            &LauncherManager::handleReadyReadStandardOutput);
+    connect(m_gameProcess, &QProcess::readyReadStandardError, this,
+            &LauncherManager::handleReadyReadStandardError);
+    connect(m_gameProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
+            &LauncherManager::handleProcessFinished);
 }
 
-bool LauncherManager::checkPreLaunch(const QString &versionId, QStringList *errors) const
-{
+bool LauncherManager::checkPreLaunch(const QString &versionId, QStringList *errors) const {
     if (errors) {
         errors->clear();
     }
@@ -68,7 +69,8 @@ bool LauncherManager::checkPreLaunch(const QString &versionId, QStringList *erro
     // Check libraries folder
     const QString librariesPath = QString("%1/libraries").arg(basePath);
     const QDir librariesDir(librariesPath);
-    if (!librariesDir.exists() || librariesDir.entryList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot).isEmpty()) {
+    if (!librariesDir.exists() ||
+        librariesDir.entryList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot).isEmpty()) {
         if (errors) {
             errors->append(tr("libraries 文件夹为空或不存在"));
         }
@@ -103,17 +105,20 @@ bool LauncherManager::checkPreLaunch(const QString &versionId, QStringList *erro
  * @param offlineMode Whether to run in offline mode with fake credentials
  * @return QStringList of JVM arguments ready for QProcess
  */
-QStringList LauncherManager::generateJvmArguments(const QString &token, const QString &versionId, const QString &assetIndexId, const QJsonObject &versionJson, const GlobalJavaSettings &settings, bool offlineMode) const
-{
+QStringList LauncherManager::generateJvmArguments(const QString &token, const QString &versionId,
+                                                  const QString &assetIndexId,
+                                                  const QJsonObject &versionJson,
+                                                  const GlobalJavaSettings &settings,
+                                                  bool offlineMode) const {
     QStringList args;
-    
+
     qDebug() << "=== Generating JVM Arguments ===";
     qDebug() << "Memory settings: -Xms" << settings.xms() << "m -Xmx" << settings.xmx() << "m";
     qDebug() << "Offline mode:" << offlineMode;
-    
+
     args << QStringLiteral("-Xms%1m").arg(settings.xms());
     args << QStringLiteral("-Xmx%1m").arg(settings.xmx());
-    
+
     if (!settings.extraJvmArgs().isEmpty()) {
         qDebug() << "Extra JVM args:" << settings.extraJvmArgs();
         args << settings.extraJvmArgs().split(' ', Qt::SkipEmptyParts);
@@ -123,7 +128,7 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     // Enable native access for Java 25+ compatibility
     args << QStringLiteral("--enable-native-access=ALL-UNNAMED");
     args << QStringLiteral("-Djava.net.preferIPv4Stack=true");
-    
+
     const auto osName = []() {
         const QString product = QSysInfo::productType().toLower();
         if (product.contains("windows")) {
@@ -198,7 +203,9 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
             auto artifact = downloads[QStringLiteral("artifact")].toObject();
             QString artifactPath = artifact[QStringLiteral("path")].toString();
             if (!artifactPath.isEmpty()) {
-                addClasspathPath(QDir::toNativeSeparators(QStringLiteral("libraries/%1").arg(artifactPath)), classpath);
+                addClasspathPath(
+                    QDir::toNativeSeparators(QStringLiteral("libraries/%1").arg(artifactPath)),
+                    classpath);
             }
 
             auto classifiers = downloads[QStringLiteral("classifiers")].toObject();
@@ -209,7 +216,9 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
                     auto classifierInfo = classifiers[classifierKey].toObject();
                     QString classifierPath = classifierInfo[QStringLiteral("path")].toString();
                     if (!classifierPath.isEmpty()) {
-                        addClasspathPath(QDir::toNativeSeparators(QStringLiteral("libraries/%1").arg(classifierPath)), classpath);
+                        addClasspathPath(QDir::toNativeSeparators(
+                                             QStringLiteral("libraries/%1").arg(classifierPath)),
+                                         classpath);
                     }
                 }
             }
@@ -220,60 +229,62 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
 
     const QString classpathStr = classpath.join(";");
     qDebug() << "Classpath:" << classpathStr;
-    
+
     args << QStringLiteral("-cp") << classpathStr;
     args << QStringLiteral("net.minecraft.client.main.Main");
-    
+
     if (offlineMode) {
         // Offline mode: use fake credentials
-        QString fakePlayerName = "Player" + QString::number(QDateTime::currentMSecsSinceEpoch() % 1000);
+        QString fakePlayerName =
+            "Player" + QString::number(QDateTime::currentMSecsSinceEpoch() % 1000);
         QString fakeUuid = QUuid::createUuid().toString().remove('{').remove('}');
-        
+
         qDebug() << "Offline mode - Player:" << fakePlayerName << "UUID:" << fakeUuid;
-        
-        args << QStringLiteral("--username") << fakePlayerName
-             << QStringLiteral("--version") << versionId
-             << QStringLiteral("--gameDir") << QString("versions/%1").arg(versionId)
+
+        args << QStringLiteral("--username") << fakePlayerName << QStringLiteral("--version")
+             << versionId << QStringLiteral("--gameDir") << QString("versions/%1").arg(versionId)
              << QStringLiteral("--assetsDir") << QStringLiteral("assets")
-             << QStringLiteral("--assetIndex") << assetIndexId
-             << QStringLiteral("--uuid") << fakeUuid
-             << QStringLiteral("--accessToken") << QStringLiteral("0")  // Fake token for offline mode
+             << QStringLiteral("--assetIndex") << assetIndexId << QStringLiteral("--uuid")
+             << fakeUuid << QStringLiteral("--accessToken")
+             << QStringLiteral("0")  // Fake token for offline mode
              << QStringLiteral("--userType") << QStringLiteral("legacy");
     } else {
         // Online mode: use real credentials
         qDebug() << "Token length:" << token.length();
         args << QStringLiteral("-Dminecraft.accessToken=%1").arg(token);
         args << QStringLiteral("-Dminecraft.version=%1").arg(versionId);
-        
+
         args << QStringLiteral("--username") << QStringLiteral("Player")
-             << QStringLiteral("--version") << versionId
-             << QStringLiteral("--gameDir") << QString("versions/%1").arg(versionId)
-             << QStringLiteral("--assetsDir") << QStringLiteral("assets")
-             << QStringLiteral("--assetIndex") << assetIndexId
-             << QStringLiteral("--uuid") << QStringLiteral("00000000-0000-0000-0000-000000000000")  // This should be real UUID from auth
-             << QStringLiteral("--accessToken") << token
-             << QStringLiteral("--userType") << QStringLiteral("msa");
+             << QStringLiteral("--version") << versionId << QStringLiteral("--gameDir")
+             << QString("versions/%1").arg(versionId) << QStringLiteral("--assetsDir")
+             << QStringLiteral("assets") << QStringLiteral("--assetIndex") << assetIndexId
+             << QStringLiteral("--uuid")
+             << QStringLiteral(
+                    "00000000-0000-0000-0000-000000000000")  // This should be real UUID from auth
+             << QStringLiteral("--accessToken") << token << QStringLiteral("--userType")
+             << QStringLiteral("msa");
     }
-    
+
     qDebug() << "Total arguments count:" << args.length();
     return args;
 }
 
-void LauncherManager::startGame(const QStringList &arguments, GlobalJavaSettings &settings, const QString &versionId)
-{
+void LauncherManager::startGame(const QStringList &arguments, GlobalJavaSettings &settings,
+                                const QString &versionId) {
     if (m_gameProcess->state() != QProcess::NotRunning) {
         qWarning() << "Game process is already running";
         emit processError(tr("游戏进程已在运行"));
         return;
     }
 
-    const QString program = settings.javaPath().isEmpty() ? QStringLiteral("java") : settings.javaPath();
-    
+    const QString program =
+        settings.javaPath().isEmpty() ? QStringLiteral("java") : settings.javaPath();
+
     // Log startup information
     qDebug() << "=== Game Launch Started ===";
     qDebug() << "Java executable:" << program;
     qDebug() << "JVM arguments count:" << arguments.length();
-    
+
     // Check if Java executable exists (only for absolute paths)
     const QFileInfo javaInfo(program);
     if (!javaInfo.exists()) {
@@ -282,7 +293,7 @@ void LauncherManager::startGame(const QStringList &arguments, GlobalJavaSettings
         return;
     }
     qDebug() << "Java path verified:" << javaInfo.absoluteFilePath();
-    
+
     // Log some of the important arguments
     for (int i = 0; i < arguments.length(); ++i) {
         const QString &arg = arguments.at(i);
@@ -296,21 +307,21 @@ void LauncherManager::startGame(const QStringList &arguments, GlobalJavaSettings
             }
         }
     }
-    
+
     m_gameProcess->setProgram(program);
     m_gameProcess->setArguments(arguments);
-    
+
     // Set working directory to .minecraft folder for proper file resolution
     QString minecraftDir = QCoreApplication::applicationDirPath() + "/.minecraft";
     QDir().mkpath(minecraftDir);
     m_gameProcess->setWorkingDirectory(minecraftDir);
     qDebug() << "Working directory:" << minecraftDir;
-    
+
     // Create isolated directory for this version
     QString isolatedPath = minecraftDir + "/versions/" + versionId;
     QDir().mkpath(isolatedPath);
     qDebug() << "Isolated game directory:" << isolatedPath;
-    
+
     qDebug() << "Starting java process...";
     m_gameProcess->start();
     if (!m_gameProcess->waitForStarted(3000)) {
@@ -319,13 +330,12 @@ void LauncherManager::startGame(const QStringList &arguments, GlobalJavaSettings
         emit processError(tr("无法启动游戏进程：%1").arg(m_gameProcess->errorString()));
         return;
     }
-    
+
     qDebug() << "Java process started, PID:" << m_gameProcess->processId();
     emit processOutput(tr("游戏已启动（进程ID：%1）").arg(m_gameProcess->processId()));
 }
 
-void LauncherManager::handleReadyReadStandardOutput()
-{
+void LauncherManager::handleReadyReadStandardOutput() {
     const QString output = QString::fromLocal8Bit(m_gameProcess->readAllStandardOutput()).trimmed();
     if (!output.isEmpty()) {
         qDebug().noquote() << "[Game Output]" << output;
@@ -333,8 +343,7 @@ void LauncherManager::handleReadyReadStandardOutput()
     }
 }
 
-void LauncherManager::handleReadyReadStandardError()
-{
+void LauncherManager::handleReadyReadStandardError() {
     const QString error = QString::fromLocal8Bit(m_gameProcess->readAllStandardError()).trimmed();
     if (!error.isEmpty()) {
         qWarning().noquote() << "[Game Error]" << error;
@@ -342,27 +351,26 @@ void LauncherManager::handleReadyReadStandardError()
     }
 }
 
-void LauncherManager::handleProcessFinished(int exitCode, QProcess::ExitStatus exitStatus)
-{
+void LauncherManager::handleProcessFinished(int exitCode, QProcess::ExitStatus exitStatus) {
     qDebug() << "=== Game Process Finished ===";
     qDebug() << "Exit code:" << exitCode;
     qDebug() << "Exit status:" << (exitStatus == QProcess::NormalExit ? "Normal" : "Crash");
-    
+
     // Check for any remaining output
     const QByteArray remainingOutput = m_gameProcess->readAllStandardOutput();
     const QByteArray remainingError = m_gameProcess->readAllStandardError();
-    
+
     if (!remainingOutput.isEmpty()) {
         const QString output = QString::fromLocal8Bit(remainingOutput).trimmed();
         qDebug() << "Remaining output:" << output;
         emit processOutput(output);
     }
-    
+
     if (!remainingError.isEmpty()) {
         const QString error = QString::fromLocal8Bit(remainingError).trimmed();
         qDebug() << "Remaining error:" << error;
         emit processError(error);
     }
-    
+
     emit gameFinished(exitCode, exitStatus);
 }

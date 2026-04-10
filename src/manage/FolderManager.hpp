@@ -3,8 +3,7 @@
 #include <QObject>
 #include <QStringList>
 
-class FolderManager : public QObject
-{
+class FolderManager : public QObject {
     Q_OBJECT
 
 public:

@@ -8,8 +8,7 @@
 class QTcpServer;
 class QNetworkAccessManager;
 
-class AuthManager : public QObject
-{
+class AuthManager : public QObject {
     Q_OBJECT
 
 public:

@@ -1,12 +1,12 @@
 #pragma once
 
+#include <QJsonObject>
 #include <QObject>
 #include <QStringList>
-#include <QJsonObject>
+
 #include "../download/DownloadManager.hpp"
 
-class VersionManager : public QObject
-{
+class VersionManager : public QObject {
     Q_OBJECT
 
 public:
@@ -33,17 +33,20 @@ public:
 signals:
     void versionsFetched(const QStringList &versions);
     void versionDetailsFetched(const QString &versionId, const QJsonObject &versionJson);
-    void versionDownloadProgress(const QString &versionId, const QString &fileName, qint64 bytesReceived, qint64 bytesTotal);
-    void versionDownloadFinished(const QString &versionId, bool success, const QString &errorMessage = QString());
+    void versionDownloadProgress(const QString &versionId, const QString &fileName,
+                                 qint64 bytesReceived, qint64 bytesTotal);
+    void versionDownloadFinished(const QString &versionId, bool success,
+                                 const QString &errorMessage = QString());
 
 private slots:
     void onVersionManifestFetched(const QList<MinecraftVersion> &versions);
     void onVersionJsonFetched(const QJsonObject &versionJson);
     void onDownloadProgress(const QString &fileName, qint64 bytesReceived, qint64 bytesTotal);
-    void onDownloadFinished(const QString &fileName, bool success, const QString &errorMessage = QString());
+    void onDownloadFinished(const QString &fileName, bool success,
+                            const QString &errorMessage = QString());
 
 private:
     DownloadManager *downloadManager;
-    QMap<QString, QJsonObject> versionJsons; // versionId -> versionJson
+    QMap<QString, QJsonObject> versionJsons;  // versionId -> versionJson
     QString m_currentVersionDownloading;
 };

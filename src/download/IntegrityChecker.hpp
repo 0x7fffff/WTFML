@@ -4,8 +4,7 @@
 #include <QString>
 #include <QStringList>
 
-class IntegrityChecker : public QObject
-{
+class IntegrityChecker : public QObject {
     Q_OBJECT
 
 public:

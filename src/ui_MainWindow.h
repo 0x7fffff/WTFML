@@ -25,8 +25,7 @@
 
 QT_BEGIN_NAMESPACE
 
-class Ui_MainWindow
-{
+class Ui_MainWindow {
 public:
     QWidget *centralwidget;
     QVBoxLayout *verticalLayout;
@@ -46,10 +45,8 @@ public:
     QMenuBar *menubar;
     QStatusBar *statusbar;
 
-    void setupUi(QMainWindow *MainWindow)
-    {
-        if (MainWindow->objectName().isEmpty())
-            MainWindow->setObjectName("MainWindow");
+    void setupUi(QMainWindow *MainWindow) {
+        if (MainWindow->objectName().isEmpty()) MainWindow->setObjectName("MainWindow");
         MainWindow->resize(900, 620);
         centralwidget = new QWidget(MainWindow);
         centralwidget->setObjectName("centralwidget");
@@ -87,7 +84,6 @@ public:
 
         topButtonLayout->addWidget(removeFolderButton);
 
-
         verticalLayout->addLayout(topButtonLayout);
 
         groupBox = new QGroupBox(centralwidget);
@@ -98,7 +94,6 @@ public:
         versionList->setObjectName("versionList");
 
         groupBoxLayout->addWidget(versionList);
-
 
         verticalLayout->addWidget(groupBox);
 
@@ -111,7 +106,6 @@ public:
         logTextEdit->setReadOnly(true);
 
         groupBox_2Layout->addWidget(logTextEdit);
-
 
         verticalLayout->addWidget(groupBox_2);
 
@@ -126,27 +120,34 @@ public:
         retranslateUi(MainWindow);
 
         QMetaObject::connectSlotsByName(MainWindow);
-    } // setupUi
+    }  // setupUi
 
-    void retranslateUi(QMainWindow *MainWindow)
-    {
-        MainWindow->setWindowTitle(QCoreApplication::translate("MainWindow", "WTFML \345\220\257\345\212\250\345\231\250", nullptr));
-        startButton->setText(QCoreApplication::translate("MainWindow", "\345\220\257\345\212\250\346\270\270\346\210\217", nullptr));
-        downloadButton->setText(QCoreApplication::translate("MainWindow", "\344\270\213\350\275\275\347\211\210\346\234\254", nullptr));
-        loginButton->setText(QCoreApplication::translate("MainWindow", "\345\276\256\350\275\257\347\231\273\345\275\225", nullptr));
-        offlineModeCheckBox->setText(QCoreApplication::translate("MainWindow", "\347\246\273\347\272\277\346\250\241\345\274\217", nullptr));
-        addFolderButton->setText(QCoreApplication::translate("MainWindow", "\346\267\273\345\212\240\346\226\207\344\273\266\345\244\271", nullptr));
-        removeFolderButton->setText(QCoreApplication::translate("MainWindow", "\345\210\240\351\231\244\346\226\207\344\273\266\345\244\271", nullptr));
-        groupBox->setTitle(QCoreApplication::translate("MainWindow", "\347\211\210\346\234\254\347\256\241\347\220\206", nullptr));
-        groupBox_2->setTitle(QCoreApplication::translate("MainWindow", "\346\227\245\345\277\227\350\276\223\345\207\272", nullptr));
-    } // retranslateUi
-
+    void retranslateUi(QMainWindow *MainWindow) {
+        MainWindow->setWindowTitle(QCoreApplication::translate(
+            "MainWindow", "WTFML \345\220\257\345\212\250\345\231\250", nullptr));
+        startButton->setText(QCoreApplication::translate(
+            "MainWindow", "\345\220\257\345\212\250\346\270\270\346\210\217", nullptr));
+        downloadButton->setText(QCoreApplication::translate(
+            "MainWindow", "\344\270\213\350\275\275\347\211\210\346\234\254", nullptr));
+        loginButton->setText(QCoreApplication::translate(
+            "MainWindow", "\345\276\256\350\275\257\347\231\273\345\275\225", nullptr));
+        offlineModeCheckBox->setText(QCoreApplication::translate(
+            "MainWindow", "\347\246\273\347\272\277\346\250\241\345\274\217", nullptr));
+        addFolderButton->setText(QCoreApplication::translate(
+            "MainWindow", "\346\267\273\345\212\240\346\226\207\344\273\266\345\244\271", nullptr));
+        removeFolderButton->setText(QCoreApplication::translate(
+            "MainWindow", "\345\210\240\351\231\244\346\226\207\344\273\266\345\244\271", nullptr));
+        groupBox->setTitle(QCoreApplication::translate(
+            "MainWindow", "\347\211\210\346\234\254\347\256\241\347\220\206", nullptr));
+        groupBox_2->setTitle(QCoreApplication::translate(
+            "MainWindow", "\346\227\245\345\277\227\350\276\223\345\207\272", nullptr));
+    }  // retranslateUi
 };
 
 namespace Ui {
-    class MainWindow: public Ui_MainWindow {};
-} // namespace Ui
+class MainWindow : public Ui_MainWindow {};
+}  // namespace Ui
 
 QT_END_NAMESPACE
 
-#endif // UI_MAINWINDOW_H
+#endif  // UI_MAINWINDOW_H

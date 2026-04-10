@@ -1,10 +1,10 @@
 #pragma once
 
+#include <QJsonObject>
 #include <QMainWindow>
 #include <QProcess>
 #include <QString>
 #include <QStringList>
-#include <QJsonObject>
 
 namespace Ui {
 class MainWindow;
@@ -17,8 +17,7 @@ class VersionManager;
 class GlobalJavaSettings;
 class DownloadManager;
 
-class MainWindow : public QMainWindow
-{
+class MainWindow : public QMainWindow {
     Q_OBJECT
 
 public:
@@ -40,7 +39,8 @@ private slots:
     void onVersionJsonFetched(const QJsonObject &versionJson);
     void onVersionsFetched(const QStringList &versions);
     void onVersionDetailsFetched(const QString &versionId, const QJsonObject &versionJson);
-    void onVersionDownloadFinished(const QString &versionId, bool success, const QString &errorMessage);
+    void onVersionDownloadFinished(const QString &versionId, bool success,
+                                   const QString &errorMessage);
 
 private:
     void setupConnections();

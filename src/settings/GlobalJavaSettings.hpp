@@ -3,8 +3,7 @@
 #include <QObject>
 #include <QString>
 
-class GlobalJavaSettings : public QObject
-{
+class GlobalJavaSettings : public QObject {
     Q_OBJECT
 
 public:

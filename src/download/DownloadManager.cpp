@@ -1,11 +1,12 @@
 #include "DownloadManager.hpp"
+
+#include <QCoreApplication>
 #include <QDebug>
 #include <QEventLoop>
+#include <QFileInfo>
 #include <QJsonParseError>
 #include <QStandardPaths>
 #include <QTemporaryFile>
-#include <QCoreApplication>
-#include <QFileInfo>
 
 DownloadManager::DownloadManager(QObject *parent)
     : QObject(parent), networkManager(new QNetworkAccessManager(this)), pendingDownloads(0) {
@@ -29,12 +30,11 @@ void DownloadManager::fetchVersionManifest() {
     QUrl url("https://launchermeta.mojang.com/mc/game/version_manifest.json");
     QNetworkRequest request(url);
     QNetworkReply *reply = networkManager->get(request);
-    connect(reply, &QNetworkReply::finished, this, &DownloadManager::onVersionManifestReplyFinished);
+    connect(reply, &QNetworkReply::finished, this,
+            &DownloadManager::onVersionManifestReplyFinished);
 }
 
-QList<MinecraftVersion> DownloadManager::getAvailableVersions() const {
-    return availableVersions;
-}
+QList<MinecraftVersion> DownloadManager::getAvailableVersions() const { return availableVersions; }
 
 QString DownloadManager::getLatestVersion(const QString &type) const {
     for (const MinecraftVersion &version : availableVersions) {
@@ -51,18 +51,18 @@ void DownloadManager::fetchVersionJson(const QString &versionId) {
             QUrl url(version.url);
             QNetworkRequest request(url);
             QNetworkReply *reply = networkManager->get(request);
-            connect(reply, &QNetworkReply::finished, this, &DownloadManager::onVersionJsonReplyFinished);
+            connect(reply, &QNetworkReply::finished, this,
+                    &DownloadManager::onVersionJsonReplyFinished);
             return;
         }
     }
     emit versionJsonFetched(QJsonObject());
 }
 
-QJsonObject DownloadManager::getVersionJson() const {
-    return currentVersionJson;
-}
+QJsonObject DownloadManager::getVersionJson() const { return currentVersionJson; }
 
-void DownloadManager::downloadFile(const QString &url, const QString &destinationPath, const QString &expectedSha1) {
+void DownloadManager::downloadFile(const QString &url, const QString &destinationPath,
+                                   const QString &expectedSha1) {
     QUrl qurl(url);
     QNetworkRequest request(qurl);
     QNetworkReply *reply = networkManager->get(request);
@@ -72,7 +72,8 @@ void DownloadManager::downloadFile(const QString &url, const QString &destinatio
     }
     pendingDownloads++;
     connect(reply, &QNetworkReply::finished, this, &DownloadManager::onDownloadReplyFinished);
-    connect(reply, &QNetworkReply::downloadProgress, this, &DownloadManager::onDownloadReplyProgress);
+    connect(reply, &QNetworkReply::downloadProgress, this,
+            &DownloadManager::onDownloadReplyProgress);
 }
 
 void DownloadManager::downloadLibraries(const QList<Library> &libraries, const QString &basePath) {
@@ -89,7 +90,7 @@ void DownloadManager::downloadAssets(const AssetIndex &assetIndex, const QString
     QString indexUrl = assetIndex.url;
     QString indexPath = basePath + "/indexes/" + assetIndex.id + ".json";
     QDir().mkpath(QFileInfo(indexPath).absolutePath());
-    
+
     // Download the index file
     QUrl qurl(indexUrl);
     QNetworkRequest request(qurl);
@@ -100,11 +101,12 @@ void DownloadManager::downloadAssets(const AssetIndex &assetIndex, const QString
     }
     pendingDownloads++;
     connect(indexReply, &QNetworkReply::finished, this, &DownloadManager::onAssetIndexDownloaded);
-    connect(indexReply, &QNetworkReply::downloadProgress, this, &DownloadManager::onDownloadReplyProgress);
+    connect(indexReply, &QNetworkReply::downloadProgress, this,
+            &DownloadManager::onDownloadReplyProgress);
 }
 
 void DownloadManager::onAssetIndexDownloaded() {
-    QNetworkReply *reply = qobject_cast<QNetworkReply*>(sender());
+    QNetworkReply *reply = qobject_cast<QNetworkReply *>(sender());
     if (!reply) {
         qWarning() << "Asset index download finished with invalid reply.";
         return;
@@ -138,14 +140,14 @@ void DownloadManager::onAssetIndexDownloaded() {
     activeDownloads.remove(reply);
     expectedSha1s.remove(reply);
     pendingDownloads--;
-    
+
     if (!success) {
         qWarning() << "Asset index download failed:" << errorMessage;
         emit downloadFinished(indexPath, false, errorMessage);
     } else {
         emit downloadFinished(indexPath, true, QString());
     }
-    
+
     reply->deleteLater();
 }
 
@@ -167,34 +169,35 @@ void DownloadManager::parseAndDownloadAssets(const QString &indexPath) {
 
     QJsonObject indexObj = json.object();
     QJsonObject objects = indexObj["objects"].toObject();
-    
+
     QString basePath = QCoreApplication::applicationDirPath() + "/.minecraft/assets";
     QString objectsPath = basePath + "/objects";
-    
+
     for (auto it = objects.begin(); it != objects.end(); ++it) {
         QString assetName = it.key();
         QJsonObject assetObj = it.value().toObject();
         QString hash = assetObj["hash"].toString();
-        
+
         if (hash.length() != 40) {
             qWarning() << "Invalid hash for asset" << assetName << ":" << hash;
             continue;
         }
-        
+
         QString subfolder = hash.left(2);
         QString assetPath = objectsPath + "/" + subfolder + "/" + hash;
-        
+
         if (QFileInfo(assetPath).exists()) {
             continue;
         }
-        
+
         QString assetUrl = "https://resources.download.minecraft.net/" + subfolder + "/" + hash;
         QDir().mkpath(QFileInfo(assetPath).absolutePath());
         downloadFile(assetUrl, assetPath, hash);
     }
 }
 
-void DownloadManager::downloadClientJar(const QString &url, const QString &destinationPath, const QString &expectedSha1) {
+void DownloadManager::downloadClientJar(const QString &url, const QString &destinationPath,
+                                        const QString &expectedSha1) {
     downloadFile(url, destinationPath, expectedSha1);
 }
 
@@ -265,7 +268,7 @@ AssetIndex DownloadManager::extractAssetIndex(const QJsonObject &versionJson) {
 }
 
 void DownloadManager::onVersionManifestReplyFinished() {
-    QNetworkReply *reply = qobject_cast<QNetworkReply*>(sender());
+    QNetworkReply *reply = qobject_cast<QNetworkReply *>(sender());
     if (reply->error() == QNetworkReply::NoError) {
         QJsonParseError error;
         QJsonDocument json = QJsonDocument::fromJson(reply->readAll(), &error);
@@ -282,7 +285,7 @@ void DownloadManager::onVersionManifestReplyFinished() {
 }
 
 void DownloadManager::onVersionJsonReplyFinished() {
-    QNetworkReply *reply = qobject_cast<QNetworkReply*>(sender());
+    QNetworkReply *reply = qobject_cast<QNetworkReply *>(sender());
     if (reply->error() == QNetworkReply::NoError) {
         QJsonParseError error;
         QJsonDocument json = QJsonDocument::fromJson(reply->readAll(), &error);
@@ -301,7 +304,7 @@ void DownloadManager::onVersionJsonReplyFinished() {
 }
 
 void DownloadManager::onDownloadReplyFinished() {
-    QNetworkReply *reply = qobject_cast<QNetworkReply*>(sender());
+    QNetworkReply *reply = qobject_cast<QNetworkReply *>(sender());
     if (!reply) {
         qWarning() << "Download finished with invalid reply.";
         return;
@@ -357,7 +360,7 @@ void DownloadManager::onDownloadReplyFinished() {
 }
 
 void DownloadManager::onDownloadReplyProgress(qint64 bytesReceived, qint64 bytesTotal) {
-    QNetworkReply *reply = qobject_cast<QNetworkReply*>(sender());
+    QNetworkReply *reply = qobject_cast<QNetworkReply *>(sender());
     QString destPath = activeDownloads.value(reply);
     emit downloadProgress(QFileInfo(destPath).fileName(), bytesReceived, bytesTotal);
 }

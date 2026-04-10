@@ -3,13 +3,9 @@
 #include <QDir>
 #include <QFileInfo>
 
-IntegrityChecker::IntegrityChecker(QObject *parent)
-    : QObject(parent)
-{
-}
+IntegrityChecker::IntegrityChecker(QObject *parent) : QObject(parent) {}
 
-bool IntegrityChecker::verifyIntegrity(const QString &folderPath, QStringList *errors) const
-{
+bool IntegrityChecker::verifyIntegrity(const QString &folderPath, QStringList *errors) const {
     if (errors) {
         errors->clear();
     }

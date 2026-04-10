@@ -3,13 +3,9 @@
 #include <QDir>
 #include <QFileInfo>
 
-FolderManager::FolderManager(QObject *parent)
-    : QObject(parent)
-{
-}
+FolderManager::FolderManager(QObject *parent) : QObject(parent) {}
 
-bool FolderManager::addFolder(const QString &path)
-{
+bool FolderManager::addFolder(const QString &path) {
     const QFileInfo info(path);
     if (!info.exists() || !info.isDir()) {
         return false;
@@ -20,12 +16,6 @@ bool FolderManager::addFolder(const QString &path)
     return true;
 }
 
-bool FolderManager::removeFolder(const QString &path)
-{
-    return m_folders.removeOne(path);
-}
+bool FolderManager::removeFolder(const QString &path) { return m_folders.removeOne(path); }
 
-QStringList FolderManager::folders() const
-{
-    return m_folders;
-}
+QStringList FolderManager::folders() const { return m_folders; }

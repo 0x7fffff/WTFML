@@ -1,35 +1,33 @@
 #include "VersionManager.hpp"
-#include <QDir>
-#include <QStandardPaths>
+
 #include <QCoreApplication>
 #include <QDebug>
+#include <QDir>
+#include <QStandardPaths>
 
 VersionManager::VersionManager(QObject *parent)
-    : QObject(parent), downloadManager(new DownloadManager(this))
-{
-    connect(downloadManager, &DownloadManager::versionManifestFetched,
-            this, &VersionManager::onVersionManifestFetched);
-    connect(downloadManager, &DownloadManager::versionJsonFetched,
-            this, &VersionManager::onVersionJsonFetched);
-    connect(downloadManager, &DownloadManager::downloadProgress,
-            this, &VersionManager::onDownloadProgress);
-    connect(downloadManager, &DownloadManager::downloadFinished,
-            this, &VersionManager::onDownloadFinished);
+    : QObject(parent), downloadManager(new DownloadManager(this)) {
+    connect(downloadManager, &DownloadManager::versionManifestFetched, this,
+            &VersionManager::onVersionManifestFetched);
+    connect(downloadManager, &DownloadManager::versionJsonFetched, this,
+            &VersionManager::onVersionJsonFetched);
+    connect(downloadManager, &DownloadManager::downloadProgress, this,
+            &VersionManager::onDownloadProgress);
+    connect(downloadManager, &DownloadManager::downloadFinished, this,
+            &VersionManager::onDownloadFinished);
 }
 
-VersionManager::~VersionManager()
-{
+VersionManager::~VersionManager() {
     // DownloadManager is automatically deleted as child
 }
 
-QStringList VersionManager::installedVersions() const
-{
+QStringList VersionManager::installedVersions() const {
     QStringList versions;
-    
+
     // Scan for installed versions in .minecraft/versions
     QString versionsPath = QCoreApplication::applicationDirPath() + "/.minecraft/versions";
     QDir versionsDir(versionsPath);
-    
+
     if (versionsDir.exists()) {
         QStringList versionDirs = versionsDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
         for (const QString &versionDir : versionDirs) {
@@ -39,17 +37,16 @@ QStringList VersionManager::installedVersions() const
             }
         }
     }
-    
+
     // Add custom version option if no versions installed
     if (versions.isEmpty()) {
         versions.append(QStringLiteral("自定义版本"));
     }
-    
+
     return versions;
 }
 
-QStringList VersionManager::availableVersions() const
-{
+QStringList VersionManager::availableVersions() const {
     QStringList versions;
     for (const MinecraftVersion &version : downloadManager->getAvailableVersions()) {
         versions.append(version.id);
@@ -57,18 +54,13 @@ QStringList VersionManager::availableVersions() const
     return versions;
 }
 
-QString VersionManager::getLatestVersion(const QString &type) const
-{
+QString VersionManager::getLatestVersion(const QString &type) const {
     return downloadManager->getLatestVersion(type);
 }
 
-void VersionManager::fetchAvailableVersions()
-{
-    downloadManager->fetchVersionManifest();
-}
+void VersionManager::fetchAvailableVersions() { downloadManager->fetchVersionManifest(); }
 
-void VersionManager::fetchVersionDetails(const QString &versionId)
-{
+void VersionManager::fetchVersionDetails(const QString &versionId) {
     if (downloadManager->getAvailableVersions().isEmpty()) {
         QMetaObject::Connection conn;
         conn = connect(downloadManager, &DownloadManager::versionManifestFetched, this,
@@ -82,8 +74,7 @@ void VersionManager::fetchVersionDetails(const QString &versionId)
     }
 }
 
-void VersionManager::downloadVersion(const QString &versionId, const QString &destinationPath)
-{
+void VersionManager::downloadVersion(const QString &versionId, const QString &destinationPath) {
     m_currentVersionDownloading = versionId;
 
     // Get version JSON first
@@ -117,8 +108,7 @@ void VersionManager::downloadVersion(const QString &versionId, const QString &de
     downloadManager->downloadAssets(assetIndex, basePath + "/assets");
 }
 
-void VersionManager::downloadVersionLibraries(const QString &versionId, const QString &basePath)
-{
+void VersionManager::downloadVersionLibraries(const QString &versionId, const QString &basePath) {
     if (!versionJsons.contains(versionId)) {
         qWarning() << "Version JSON not available for" << versionId << ". Fetch details first.";
         return;
@@ -129,8 +119,7 @@ void VersionManager::downloadVersionLibraries(const QString &versionId, const QS
     downloadManager->downloadLibraries(libraries, basePath);
 }
 
-void VersionManager::downloadVersionAssets(const QString &versionId, const QString &basePath)
-{
+void VersionManager::downloadVersionAssets(const QString &versionId, const QString &basePath) {
     if (!versionJsons.contains(versionId)) {
         qWarning() << "Version JSON not available for" << versionId << ". Fetch details first.";
         return;
@@ -141,13 +130,11 @@ void VersionManager::downloadVersionAssets(const QString &versionId, const QStri
     downloadManager->downloadAssets(assetIndex, basePath);
 }
 
-QJsonObject VersionManager::getVersionJson(const QString &versionId) const
-{
+QJsonObject VersionManager::getVersionJson(const QString &versionId) const {
     return versionJsons.value(versionId, QJsonObject());
 }
 
-void VersionManager::onVersionManifestFetched(const QList<MinecraftVersion> &versions)
-{
+void VersionManager::onVersionManifestFetched(const QList<MinecraftVersion> &versions) {
     QStringList versionIds;
     for (const MinecraftVersion &version : versions) {
         versionIds.append(version.id);
@@ -155,8 +142,7 @@ void VersionManager::onVersionManifestFetched(const QList<MinecraftVersion> &ver
     emit versionsFetched(versionIds);
 }
 
-void VersionManager::onVersionJsonFetched(const QJsonObject &versionJson)
-{
+void VersionManager::onVersionJsonFetched(const QJsonObject &versionJson) {
     if (versionJson.contains("id")) {
         QString versionId = versionJson["id"].toString();
         versionJsons[versionId] = versionJson;
@@ -164,15 +150,16 @@ void VersionManager::onVersionJsonFetched(const QJsonObject &versionJson)
     }
 }
 
-void VersionManager::onDownloadProgress(const QString &fileName, qint64 bytesReceived, qint64 bytesTotal)
-{
+void VersionManager::onDownloadProgress(const QString &fileName, qint64 bytesReceived,
+                                        qint64 bytesTotal) {
     // For version downloads, we need to map back to version ID
-    // This is a simplified implementation - in practice, you'd track which version is being downloaded
+    // This is a simplified implementation - in practice, you'd track which version is being
+    // downloaded
     emit versionDownloadProgress("unknown", fileName, bytesReceived, bytesTotal);
 }
 
-void VersionManager::onDownloadFinished(const QString &fileName, bool success, const QString &errorMessage)
-{
+void VersionManager::onDownloadFinished(const QString &fileName, bool success,
+                                        const QString &errorMessage) {
     // Similar to progress, need to map back to version ID
     emit versionDownloadFinished(m_currentVersionDownloading, success, errorMessage);
 }
