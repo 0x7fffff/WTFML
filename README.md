@@ -42,6 +42,7 @@ cmake --build .
 
 ## to do list(急)
 
+- 给已有文件添加注释，规范详见CONTRIBUTING_COMMENT.md
 - 补充 Microsoft OAuth2 登录回调与令牌刷新
 - 正版启动与皮肤等信息的拉取
 - 实现真实的 Minecraft 启动参数与版本解析。
