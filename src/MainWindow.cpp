@@ -1,22 +1,32 @@
 /**
  * @file MainWindow.cpp
- * @brief Implements the main application window and user interaction logic.
- * @author LoserKugua
- * @date 2026-04-10
- * @note This file implements the UI event handlers and delegates manager methods.
+ * @brief 实现主应用程序窗口及用户交互逻辑。
+ * @author 0x7fffff
+ * @date 2026-04-11
+ * @note 本文件实现了 UI 事件处理函数并委托给各个管理器的方法。
  *
- * This file connects UI controls to the launcher, handles user commands,
- * and coordinates authentication, downloads, and launch operations.
+ * 本文件将 UI 控件连接到启动器，处理用户命令，
+ * 并协调身份验证、下载和启动操作。
  */
 
 #include "MainWindow.hpp"
 
+#include "MainWindowUI.hpp"
+
+// 添加以下头文件（防止hpp变动导致文件失效）
+#include <QCheckBox>
 #include <QCoreApplication>
 #include <QFile>
-#include <QFileInfo>
+#include <QGroupBox>
+#include <QHBoxLayout>
 #include <QInputDialog>
+#include <QListWidget>
+#include <QListWidgetItem>
 #include <QMessageBox>
 #include <QProcess>
+#include <QPushButton>
+#include <QTextEdit>
+#include <QVBoxLayout>
 
 #include "auth/AuthManager.hpp"
 #include "download/DownloadManager.hpp"
@@ -24,35 +34,39 @@
 #include "manage/FolderManager.hpp"
 #include "manage/VersionManager.hpp"
 #include "settings/GlobalJavaSettings.hpp"
-#include "ui_MainWindow.h"
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent),
-      ui(new Ui::MainWindow),
+      m_ui(new MainWindowUI(this)),
       m_launcherManager(new LauncherManager(this)),
       m_authManager(new AuthManager(this)),
       m_folderManager(new FolderManager(this)),
       m_versionManager(new VersionManager(this)),
       m_javaSettings(new GlobalJavaSettings(this)),
       m_downloadManager(new DownloadManager(this)) {
-    ui->setupUi(this);
     setupConnections();
     refreshVersionList();
 }
 
-MainWindow::~MainWindow() { delete ui; }
+MainWindow::~MainWindow() { delete m_ui; }
 
 void MainWindow::setupConnections() {
-    connect(ui->startButton, &QPushButton::clicked, this, &MainWindow::onStartButtonClicked);
-    connect(ui->loginButton, &QPushButton::clicked, this, &MainWindow::onLoginButtonClicked);
-    connect(ui->addFolderButton, &QPushButton::clicked, this, &MainWindow::onAddFolderClicked);
-    connect(ui->removeFolderButton, &QPushButton::clicked, this,
+    // UI 按钮信号
+    connect(m_ui->getStartButton(), &QPushButton::clicked, this, &MainWindow::onStartButtonClicked);
+    connect(m_ui->getLoginButton(), &QPushButton::clicked, this, &MainWindow::onLoginButtonClicked);
+    connect(m_ui->getAddFolderButton(), &QPushButton::clicked, this,
+            &MainWindow::onAddFolderClicked);
+    connect(m_ui->getRemoveFolderButton(), &QPushButton::clicked, this,
             &MainWindow::onRemoveFolderClicked);
+    connect(m_ui->getDownloadButton(), &QPushButton::clicked, this,
+            &MainWindow::onDownloadButtonClicked);
 
+    // 游戏进程信号
     connect(m_launcherManager, &LauncherManager::processOutput, this, &MainWindow::onProcessOutput);
     connect(m_launcherManager, &LauncherManager::processError, this, &MainWindow::onProcessError);
     connect(m_launcherManager, &LauncherManager::gameFinished, this, &MainWindow::onGameFinished);
 
+    // 下载管理器信号
     connect(m_downloadManager, &DownloadManager::downloadProgress, this,
             &MainWindow::onDownloadProgress);
     connect(m_downloadManager, &DownloadManager::downloadFinished, this,
@@ -61,56 +75,53 @@ void MainWindow::setupConnections() {
             &MainWindow::onAllDownloadsFinished);
     connect(m_downloadManager, &DownloadManager::versionJsonFetched, this,
             &MainWindow::onVersionJsonFetched);
+
+    // 版本管理器信号
     connect(m_versionManager, &VersionManager::versionsFetched, this,
             &MainWindow::onVersionsFetched);
     connect(m_versionManager, &VersionManager::versionDetailsFetched, this,
             &MainWindow::onVersionDetailsFetched);
     connect(m_versionManager, &VersionManager::versionDownloadFinished, this,
             &MainWindow::onVersionDownloadFinished);
-
-    // Connect download button if it exists
-    if (ui->downloadButton) {
-        connect(ui->downloadButton, &QPushButton::clicked, this,
-                &MainWindow::onDownloadButtonClicked);
-    }
 }
 
+void MainWindow::appendLog(const QString &text) { m_ui->getLogTextEdit()->append(text); }
+
 void MainWindow::refreshVersionList() {
-    ui->versionList->clear();
+    QListWidget *versionList = m_ui->getVersionList();
+    versionList->clear();
     const auto versions = m_versionManager->availableVersions();
     if (!versions.isEmpty()) {
-        ui->versionList->addItems(versions);
+        versionList->addItems(versions);
     } else {
         const auto installed = m_versionManager->installedVersions();
         if (!installed.isEmpty()) {
-            ui->versionList->addItems(installed);
+            versionList->addItems(installed);
         } else {
-            ui->versionList->addItem(tr("自定义版本"));
+            versionList->addItem(tr("自定义版本"));
         }
     }
-
     m_versionManager->fetchAvailableVersions();
 }
 
 void MainWindow::onVersionsFetched(const QStringList &versions) {
-    ui->versionList->clear();
+    QListWidget *versionList = m_ui->getVersionList();
+    versionList->clear();
     if (!versions.isEmpty()) {
-        ui->versionList->addItems(versions);
+        versionList->addItems(versions);
     } else {
         const auto installed = m_versionManager->installedVersions();
         if (!installed.isEmpty()) {
-            ui->versionList->addItems(installed);
+            versionList->addItems(installed);
         } else {
-            ui->versionList->addItem(tr("自定义版本"));
+            versionList->addItem(tr("自定义版本"));
         }
     }
-    appendLog(tr("已更新在线版本列表 (%1 个版本)。").arg(ui->versionList->count()));
+    appendLog(tr("已更新在线版本列表 (%1 个版本)。").arg(versionList->count()));
 }
 
-void MainWindow::appendLog(const QString &text) { ui->logTextEdit->append(text); }
-
 void MainWindow::onStartButtonClicked() {
-    bool offlineMode = ui->offlineModeCheckBox->isChecked();
+    bool offlineMode = m_ui->getOfflineModeCheckBox()->isChecked();
 
     QString token;
     if (!offlineMode) {
@@ -122,7 +133,7 @@ void MainWindow::onStartButtonClicked() {
         }
     }
 
-    QListWidgetItem *item = ui->versionList->currentItem();
+    QListWidgetItem *item = m_ui->getVersionList()->currentItem();
     if (!item) {
         QMessageBox::warning(this, tr("未选择版本"), tr("请先在版本列表中选择一个版本。"));
         return;
@@ -143,9 +154,8 @@ void MainWindow::onStartButtonClicked() {
         return;
     }
 
-    // Get asset index ID and Java major version from version JSON
-    QString assetIndexId = "29";  // Default for 1.21.11
-    int javaMajorVersion = 21;    // Default
+    QString assetIndexId = "29";
+    int javaMajorVersion = 21;
     QJsonObject versionJson = m_versionManager->getVersionJson(versionId);
     if (!versionJson.isEmpty()) {
         QJsonObject assetIndexObj = versionJson["assetIndex"].toObject();
@@ -153,7 +163,6 @@ void MainWindow::onStartButtonClicked() {
         if (!actualAssetIndexId.isEmpty()) {
             assetIndexId = actualAssetIndexId;
         }
-
         QJsonObject javaVersionObj = versionJson["javaVersion"].toObject();
         int majorVersion = javaVersionObj["majorVersion"].toInt();
         if (majorVersion > 0) {
@@ -161,7 +170,6 @@ void MainWindow::onStartButtonClicked() {
         }
     }
 
-    // Ensure correct Java runtime is available
     if (!m_javaSettings->ensureJavaForVersion(javaMajorVersion)) {
         appendLog(tr("无法获取所需的 Java 运行时环境：版本 %1").arg(javaMajorVersion));
         return;
@@ -184,9 +192,7 @@ void MainWindow::onLoginButtonClicked() {
 void MainWindow::onAddFolderClicked() {
     const QString folder =
         QInputDialog::getText(this, tr("添加游戏文件夹"), tr("请输入 Minecraft 根目录路径："));
-    if (folder.isEmpty()) {
-        return;
-    }
+    if (folder.isEmpty()) return;
     if (m_folderManager->addFolder(folder)) {
         appendLog(tr("已添加文件夹：%1").arg(folder));
     } else {
@@ -197,9 +203,7 @@ void MainWindow::onAddFolderClicked() {
 void MainWindow::onRemoveFolderClicked() {
     const QString folder =
         QInputDialog::getText(this, tr("删除游戏文件夹"), tr("请输入要删除的文件夹路径："));
-    if (folder.isEmpty()) {
-        return;
-    }
+    if (folder.isEmpty()) return;
     if (m_folderManager->removeFolder(folder)) {
         appendLog(tr("已删除文件夹：%1").arg(folder));
     } else {
@@ -220,16 +224,14 @@ void MainWindow::onGameFinished(int exitCode, QProcess::ExitStatus exitStatus) {
 }
 
 void MainWindow::onDownloadButtonClicked() {
-    QListWidgetItem *item = ui->versionList->currentItem();
+    QListWidgetItem *item = m_ui->getVersionList()->currentItem();
     if (!item) {
         QMessageBox::warning(this, tr("未选择版本"), tr("请先在版本列表中选择一个版本。"));
         return;
     }
 
     QString versionId = item->text();
-
-    // Check if already downloaded
-    if (item->text() != tr("自定义版本")) {
+    if (versionId != tr("自定义版本")) {
         QString versionsPath = QCoreApplication::applicationDirPath() + "/.minecraft/versions";
         QString versionJsonPath = versionsPath + "/" + versionId + "/" + versionId + ".json";
         if (QFile::exists(versionJsonPath)) {
@@ -240,8 +242,6 @@ void MainWindow::onDownloadButtonClicked() {
     }
 
     appendLog(tr("正在获取版本 %1 的信息...").arg(versionId));
-
-    // Fetch version details using VersionManager
     m_versionManager->fetchVersionDetails(versionId);
 }
 
@@ -263,10 +263,9 @@ void MainWindow::onDownloadProgress(const QString &fileName, qint64 bytesReceive
 
 void MainWindow::onDownloadFinished(const QString &fileName, bool success,
                                     const QString &errorMessage) {
-    // Individual file download logging removed - only version completion is logged
-    Q_UNUSED(fileName)
-    Q_UNUSED(success)
-    Q_UNUSED(errorMessage)
+    Q_UNUSED(fileName);
+    Q_UNUSED(success);
+    Q_UNUSED(errorMessage);
 }
 
 void MainWindow::onVersionDownloadFinished(const QString &versionId, bool success,
@@ -289,10 +288,7 @@ void MainWindow::onAllDownloadsFinished(bool success) {
     }
 }
 
-void MainWindow::onVersionJsonFetched(const QJsonObject &versionJson) {
-    // This is called by DownloadManager, but we use VersionManager now
-    Q_UNUSED(versionJson)
-}
+void MainWindow::onVersionJsonFetched(const QJsonObject &versionJson) { Q_UNUSED(versionJson); }
 
 void MainWindow::onVersionDetailsFetched(const QString &versionId, const QJsonObject &versionJson) {
     if (versionJson.isEmpty()) {
@@ -302,8 +298,6 @@ void MainWindow::onVersionDetailsFetched(const QString &versionId, const QJsonOb
     }
 
     appendLog(tr("版本信息获取成功，开始下载游戏文件..."));
-
-    // Start downloading the version
     QString versionsPath =
         QCoreApplication::applicationDirPath() + "/.minecraft/versions/" + versionId;
     m_versionManager->downloadVersion(versionId, versionsPath);

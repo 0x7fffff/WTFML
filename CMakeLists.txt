@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(WTFMLLauncher VERSION 0.1 LANGUAGES CXX)
+project(WTFMinecraftLauncher VERSION 0.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -13,8 +13,6 @@ find_package(Qt6 REQUIRED COMPONENTS Widgets Network Core Gui)
 
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
-set(CMAKE_AUTOUIC ON)
-set(CMAKE_AUTOUIC_SEARCH_PATHS ui)
 
 set(HEADER_FILES
     src/MainWindow.hpp
@@ -37,19 +35,20 @@ set(SOURCE_FILES
     src/settings/GlobalJavaSettings.cpp
     src/download/DownloadManager.cpp
     src/download/IntegrityChecker.cpp
+    ui/MainWindowUI.cpp          
     ${HEADER_FILES}
 )
 
-qt_add_executable(WTFMLLauncher
+qt_add_executable(WTFMinecraftLauncher
     ${SOURCE_FILES}
-    ui/MainWindow.ui
 )
 
-target_include_directories(WTFMLLauncher PRIVATE
+target_include_directories(WTFMinecraftLauncher PRIVATE
     ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/ui      
 )
 
-target_link_libraries(WTFMLLauncher PRIVATE
+target_link_libraries(WTFMinecraftLauncher PRIVATE
     Qt6::Widgets
     Qt6::Network
     Qt6::Core

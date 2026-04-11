@@ -43,7 +43,6 @@ cmake --build .
 ## to do list(急)
 
 - 把项目升级到CPP23
-- 把XML编写的UI换成人类能看懂的CPP
 - 给已有文件添加注释，规范详见CONTRIBUTING_COMMENT.md
 - 解决下载完成的提示出现多个的问题
 - 1.18.2及以下版本的启动
@@ -51,7 +50,7 @@ cmake --build .
 - 补充 Microsoft OAuth2 登录回调与令牌刷新
 - 登录令牌的加密储存和调取
 - 正版启动与皮肤等信息的拉取
-- 实现真实的 Minecraft 启动参数与版本解析。
+- 分离UI中已下载版本和版本总列表
 - 增加完整性校验、下载修复和 crash 报告导出。
 
 ## to do list(future)
