@@ -1,4 +1,4 @@
-# wonderful tremendous fantastic minecraft launcher
+# Wonderful Tremendous Fantastic Minecraft Launcher
 
 这是一个基于 C++17 和 Qt6 的 Minecraft 启动器原型项目。
 
@@ -42,8 +42,6 @@ cmake --build .
 
 ## to do list(急)
 
-- 把项目升级到CPP23
-- 给已有文件添加注释，规范详见CONTRIBUTING_COMMENT.md
 - 解决下载完成的提示出现多个的问题
 - 1.18.2及以下版本的启动
 - 完善目前没什么用的FolderManager

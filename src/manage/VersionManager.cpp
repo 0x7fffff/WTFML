@@ -3,7 +3,7 @@
  * @brief Implements version discovery and download orchestration.
  * @author LoserKugua
  * @date 2026-04-10
- * @note 处理版本元数据和下载流程，避免 UI 中直接访问网络。
+ * @note 处理版本 metadata 和下载流程，避免 UI 中直接访问网络。
  *
  * Uses DownloadManager to fetch version manifests, version JSON, and to
  * download required libraries and assets for selected Minecraft versions.

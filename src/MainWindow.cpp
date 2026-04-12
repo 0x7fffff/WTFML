@@ -11,7 +11,7 @@
 
 #include "MainWindow.hpp"
 
-#include "MainWindowUI.hpp"
+#include "..\ui\MainWindowUI.hpp"
 
 // 添加以下头文件（防止hpp变动导致文件失效）
 #include <QCheckBox>
