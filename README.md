@@ -19,16 +19,12 @@
 - `ui/`：Qt Designer UI 文件
 - `CMakeLists.txt`：构建配置
 
-## 构建方法
+## 分支 to do
 
-确保已安装 Qt6 和支持 CMake 的编译器。
-
-```sh
-mkdir build
-cd build
-cmake -DCMAKE_PREFIX_PATH="<Qt6安装路径>" ..
-cmake --build .
-```
+- 添加、管理、删除文件夹列表
+- 调整 Java 相对路径，并增添手动添加路径功能
+- 修复下载 Java 解压后文件不存在问题
+- 修改 ui 使已下载版本和全部版本列表分离
 
 ## 当前功能
 
