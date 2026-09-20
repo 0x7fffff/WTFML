@@ -458,12 +458,15 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     return args;
 }
 
-void LauncherManager::startGame(const QStringList &arguments, GlobalJavaSettings &settings,
+bool LauncherManager::startGame(const QStringList &arguments, GlobalJavaSettings &settings,
                                 const QString &versionId) {
+    // 返回值 = "进程真的起来了"。三条早退路径都必须 return false：调用方拿它当
+    // "这次算不算启动成功"的判据（据此记住上次启动的版本），任何一条漏掉都会把
+    // 失败当成功记下来。这个函数里**每一条 return 都要想一遍返回值**。
     if (m_gameProcess->state() != QProcess::NotRunning) {
         qWarning() << "Game process is already running";
         emit processError(tr("游戏进程已在运行"));
-        return;
+        return false;
     }
 
     const QString program =
@@ -479,7 +482,7 @@ void LauncherManager::startGame(const QStringList &arguments, GlobalJavaSettings
     if (!javaInfo.exists()) {
         qWarning() << "Java executable not found at:" << program;
         emit processError(tr("Java可执行文件未找到：%1").arg(program));
-        return;
+        return false;
     }
     qDebug() << "Java path verified:" << javaInfo.absoluteFilePath();
 
@@ -519,11 +522,12 @@ void LauncherManager::startGame(const QStringList &arguments, GlobalJavaSettings
         qWarning() << "Failed to start game process";
         qWarning() << "Error:" << m_gameProcess->errorString();
         emit processError(tr("无法启动游戏进程：%1").arg(m_gameProcess->errorString()));
-        return;
+        return false;
     }
 
     qDebug() << "Java process started, PID:" << m_gameProcess->processId();
     emit processOutput(tr("游戏已启动（进程ID：%1）").arg(m_gameProcess->processId()));
+    return true;
 }
 
 void LauncherManager::handleReadyReadStandardOutput() {

@@ -72,8 +72,15 @@ public:
      * @param arguments JVM and game arguments.
      * @param settings Java runtime settings.
      * @param versionId Version identifier.
+     * @return 进程是否真的起来了。三条早退路径（进程已在运行、找不到 Java 可执行
+     *         文件、waitForStarted 超时）都返回 false —— 调用方用它决定要不要把
+     *         这个版本记成"上次启动的版本"，所以失败时绝不能返回 true。
+     *
+     * NOTE: 返回 true 只代表"java 进程起来了"，不代表"游戏没崩"。后面游戏因为
+     *       库不全之类的原因立刻退出时它仍然是 true，这是刻意的：那种情况恰恰
+     *       最需要下次打开还选着这个版本。
      */
-    void startGame(const QStringList &arguments, GlobalJavaSettings &settings,
+    bool startGame(const QStringList &arguments, GlobalJavaSettings &settings,
                    const QString &versionId);
 
 signals:
