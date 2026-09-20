@@ -11,13 +11,13 @@
 
 #include "VersionManager.hpp"
 
-#include <QCoreApplication>
 #include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonParseError>
-#include <QStandardPaths>
+
+#include "../util/AppPaths.hpp"
 
 VersionManager::VersionManager(QObject *parent)
     : QObject(parent), downloadManager(new DownloadManager(this)) {
@@ -40,11 +40,11 @@ VersionManager::~VersionManager() {
     // DownloadManager is automatically deleted as child
 }
 
-QStringList VersionManager::installedVersions() const {
+QStringList VersionManager::installedVersions(QStringList *warnings) const {
     QStringList versions;
 
     // Scan for installed versions in .minecraft/versions
-    QString versionsPath = QCoreApplication::applicationDirPath() + "/.minecraft/versions";
+    QString versionsPath = AppPaths::versionsDir();
     QDir versionsDir(versionsPath);
 
     if (versionsDir.exists()) {
@@ -52,9 +52,27 @@ QStringList VersionManager::installedVersions() const {
         for (const QString &versionDir : versionDirs) {
             // 判据是客户端 jar 在不在：<id>/<id>.jar 齐了才算装好。光有个版本目录
             // （下载中途失败留下的）不算。
-            QString jarPath = versionsPath + "/" + versionDir + "/" + versionDir + ".jar";
+            QString jarPath = AppPaths::versionJarPath(versionDir);
             if (QFile::exists(jarPath)) {
                 versions.append(versionDir);
+                continue;
+            }
+            // 到这里说明目录名和 jar 名对不上。判据本身**不改** —— 放宽成"目录里有任意
+            // .jar 就算已安装"会把下载中途失败留下的半个版本也收进来。但必须让用户知道
+            // 有些东西被忽略了，因为这种实例在真机上确实存在：用户手动改了目录名，
+            // 却没改里面的 jar 名（`原版ATT2地图（无模组）/` 里躺着的是
+            // `ATT2原版地图（无模组）.jar`，388 MB / 851 MB 的整合包各一个）。
+            // 改之前的表现是它们从列表里静默消失，观感就是"启动器少了两三个版本"。
+            if (warnings == nullptr) {
+                continue;
+            }
+            const QStringList jars = QDir(AppPaths::versionDir(versionDir))
+                                         .entryList(QStringList() << QStringLiteral("*.jar"),
+                                                    QDir::Files);
+            if (!jars.isEmpty()) {
+                warnings->append(
+                    tr("目录 %1 里的 jar 叫「%2」，与目录名不一致，已忽略（目录改过名？）。")
+                        .arg(versionDir, jars.join(QStringLiteral("、"))));
             }
         }
     }
@@ -63,6 +81,11 @@ QStringList VersionManager::installedVersions() const {
     // QListWidget 不至于空着。那是界面层的占位职责，混进数据层之后调用方还得反过来
     // 判 versionId == "自定义版本" 才能把它拒掉（MainWindow 里写了两处）。
     // 现在空就是空：界面用下拉框的 placeholderText 表达"没有可选版本"。
+    //
+    // NOTE: versions/ 里除了真正的版本目录，还可能有用户随手丢进去的整合包 .zip
+    // （真机 4 个、共 935 MB）和纯空目录（真机有个 0 字节的 `26.2hyperland`）。
+    // 上面的 QDir::Dirs 过滤 + <id>.jar 判据已经把这两类都正确排除了，jars 为空也就
+    // 不会上报 —— 别为了"看起来更宽松"把 .zip 也当版本收进来。
     return versions;
 }
 
@@ -116,7 +139,7 @@ void VersionManager::downloadVersion(const QString &versionId, const QString &de
     downloadManager->beginBatch();
 
     const QJsonObject &versionJson = versionJsons[versionId];
-    const QString basePath = QCoreApplication::applicationDirPath() + "/.minecraft";
+    const QString basePath = AppPaths::minecraftDir();
 
     // 把 version.json 落盘。缺了它，下一次启动时 getVersionJson() 取不到
     // javaVersion / assetIndex，会静默退回错误的 Java 版本和资产索引 ——
@@ -200,8 +223,7 @@ QJsonObject VersionManager::getVersionJson(const QString &versionId) const {
 
     // 内存里没有就回读磁盘。下载时已经把 JSON 落盘，所以跨会话启动也能拿到
     // javaVersion 和 assetIndex，不需要先在同一次会话里点一次"下载"。
-    const QString jsonPath = QCoreApplication::applicationDirPath() +
-                             QStringLiteral("/.minecraft/versions/%1/%1.json").arg(versionId);
+    const QString jsonPath = AppPaths::versionJsonPath(versionId);
     QFile jsonFile(jsonPath);
     if (!jsonFile.exists() || !jsonFile.open(QIODevice::ReadOnly)) {
         qWarning() << "Version JSON not found on disk:" << jsonPath;
@@ -221,23 +243,21 @@ QJsonObject VersionManager::getVersionJson(const QString &versionId) const {
     return doc.object();
 }
 
-VersionDisplayParts VersionManager::displayParts(const QString &versionId) const {
-    // id 永远用参数填，不从文件里取：元数据文件是可以被用户手改的，而 id 是真正
-    // 进 --version 和文件路径的那个值，必须由调用方（本地扫描 / 在线清单）决定。
-    VersionDisplayParts parts;
-    parts.id = versionId;
+QJsonObject VersionManager::readVersionMeta(const QString &versionId, QString *metaPathOut) const {
+    const QString metaPath = AppPaths::versionMetaPath(versionId);
+    if (metaPathOut != nullptr) {
+        *metaPathOut = metaPath;
+    }
 
-    const QString metaPath = QCoreApplication::applicationDirPath() +
-                             QStringLiteral("/.minecraft/versions/%1/wtfml.meta").arg(versionId);
     QFile metaFile(metaPath);
     if (!metaFile.exists()) {
         // 绝大多数版本没有这个文件，不是异常，也别打日志——refreshInstalledVersions()
         // 会对着每个已安装版本调一次，打日志就是刷屏。
-        return parts;
+        return QJsonObject();
     }
     if (!metaFile.open(QIODevice::ReadOnly)) {
         qWarning() << "Version metadata exists but cannot be opened:" << metaPath;
-        return parts;
+        return QJsonObject();
     }
 
     QJsonParseError parseError;
@@ -247,10 +267,59 @@ VersionDisplayParts VersionManager::displayParts(const QString &versionId) const
         // 手写的文件写错格式很常见。整个文件当没有，但不静默——这是用户手写的，
         // 不告诉他写错了他会一直以为生效了。
         qWarning() << "Failed to parse version metadata" << metaPath << ":" << parseError.errorString();
-        return parts;
+        return QJsonObject();
+    }
+    return doc.object();
+}
+
+QStringList VersionManager::versionJvmArgs(const QString &versionId) const {
+    QString metaPath;
+    const QJsonObject meta = readVersionMeta(versionId, &metaPath);
+    if (meta.isEmpty()) {
+        return QStringList();
     }
 
-    const QJsonObject meta = doc.object();
+    const QJsonValue value = meta.value(QStringLiteral("jvmArgs"));
+    if (value.isUndefined() || value.isNull()) {
+        return QStringList();
+    }
+    // 用数组而不是 PCL 那种空格分隔的字符串：JVM 参数本身可能含空格
+    // （`-Dfoo=bar baz` 这种），切成数组无歧义。
+    if (!value.isArray()) {
+        qWarning() << "Version metadata field jvmArgs is not an array in" << metaPath
+                   << "— ignored";
+        return QStringList();
+    }
+
+    // 元素类型不对就跳过那一个、并说一声 —— 和 readString 对类型错误的态度一致：
+    // 这是用户手写的文件，写错了必须告诉他，否则表现成"明明写了却不生效"。
+    QStringList args;
+    const QJsonArray entries = value.toArray();
+    for (const QJsonValue &entry : entries) {
+        if (!entry.isString()) {
+            qWarning() << "Version metadata jvmArgs has a non-string entry in" << metaPath
+                       << "— skipped";
+            continue;
+        }
+        const QString arg = entry.toString();
+        if (!arg.isEmpty()) {
+            args.append(arg);
+        }
+    }
+    return args;
+}
+
+VersionDisplayParts VersionManager::displayParts(const QString &versionId) const {
+    // id 永远用参数填，不从文件里取：元数据文件是可以被用户手改的，而 id 是真正
+    // 进 --version 和文件路径的那个值，必须由调用方（本地扫描 / 在线清单）决定。
+    VersionDisplayParts parts;
+    parts.id = versionId;
+
+    QString metaPath;
+    const QJsonObject meta = readVersionMeta(versionId, &metaPath);
+    if (meta.isEmpty()) {
+        return parts;
+    }
 
     // 逐字段读。类型不对时给一句告警：QJsonValue::toString() 对数字/对象会安静地
     // 返回空串，手写 JSON 时把 "name" 写成数字是最容易犯的错，不提示的话表现成
@@ -269,6 +338,7 @@ VersionDisplayParts VersionManager::displayParts(const QString &versionId) const
     };
 
     parts.customName = readString("name");
+    parts.realVersion = readString("realVersion");
     parts.loaderName = readString("loaderName");
     parts.loaderVersion = readString("loaderVersion");
 
@@ -305,8 +375,10 @@ VersionDisplayParts VersionManager::displayParts(const QString &versionId) const
     }
 
     // NOTE: 这里刻意**不缓存**。getVersionJson() 能缓存是因为版本 JSON 一旦下载就不再变，
-    // 而这个文件将来会被"重命名"功能改写——缓存就会变成"改了名不生效"的 bug。
-    // N 只有个位数，而 refreshInstalledVersions() 一次会话最多被调三次。
+    // 而这个文件会被"重命名"功能改写——缓存就会变成"改了名不生效"的 bug。
+    // 开销不是不缓存的理由：调用方 refreshInstalledVersions() 一次会话最多被调三次，
+    // 每次每个版本一个 exists() 加（有文件时才有的）几百字节读取。真机上实例数可以到
+    // 61 个，也仍然是可忽略的量级 —— 所以别再拿"数量少"当论据，真正的理由是上面那条。
     return parts;
 }
 

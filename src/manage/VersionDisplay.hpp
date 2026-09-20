@@ -39,6 +39,18 @@ struct VersionNameOptions {
 struct VersionDisplayParts {
     /// 版本目录名，也就是真正进 --version 和文件路径的那个 id。永远非空。
     QString id;
+    /// 这个实例实际是哪个版本，例如 "1.18.2"。**为空时退化成 id**。
+    ///
+    /// 为什么不能拿 id 当实际版本：用户的目录名早就把加载器揉进去了，真机上是
+    /// `1.18.2-Forge_40.3.12`、`1.21.1-NeoForge_21.1.210`、`26.2-Fabric 0.19.5`
+    /// 这种。往 loaderName 里填 "Forge" 就会拼出
+    /// `我的整合包-1.18.2-Forge_40.3.12-Forge` —— 去重只对**完全相同**的串生效，
+    /// 救不了 `Forge` 和 `Forge_40.3.12`。PCL 用 Setup.ini 里的 VersionVanillaName
+    /// 这个独立字段解决同一个问题（`海波篮子` 的真实版本是 `26.2`）。
+    ///
+    /// 来源是 wtfml.meta 里可选的 "realVersion"，格式已就位、字段尚无来源 ——
+    /// 等"重命名 / 实例管理"界面来填。现在没有代码会写它，清零也不改变任何行为。
+    QString realVersion;
     /// 重命名后的自定义名。没重命名过就是空串。
     QString customName;
     /// 模组加载器名，例如 "Forge"。没检测到就是空串。
@@ -75,6 +87,9 @@ VersionNameOptions normalizeVersionNameOptions(VersionNameOptions options);
  * 顺序固定是：自定义名槽 → 实际版本 → 加载器名 → 加载器版本。规则：
  *   - 名称槽在没有自定义名时**退化成实际版本**（用户要求：只勾了"自定义名"而没重命名过时，
  *     显示的就是版本号本身，也就是改动前的样子）；
+ *   - "实际版本"指的是 `parts.realVersion`，为空时退化成 `parts.id`（目录名）。
+ *     **`id` 不会直接参与显示**：它是进 --version 和文件路径的那个值，可以长得完全不像
+ *     版本号（真机上有 `原版ATT2地图（无模组）` 这种）；
  *   - 文本重复的段跳过，所以"名称槽退化成版本号"不会拼出 `1.20.1-1.20.1`；
  *   - 空串段跳过，所以没加载器时不会留下多余的分隔符。
  *

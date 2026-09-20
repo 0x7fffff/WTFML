@@ -94,6 +94,14 @@ public:
 
     /**
      * @brief Returns extra JVM arguments configured by the user.
+     *
+     * 这就是 PCL「自定义 Java 启动参数」的**全局**入口（持久化键 Java/ExtraArgs，
+     * 默认 -XX:+UseG1GC）。在 LauncherManager::generateJvmArguments() 里它是先入列
+     * 的那一份，"按版本"的那份（wtfml.meta 的 jvmArgs）排在它之后，所以同一条选项
+     * 写两遍时单个实例胜出。
+     *
+     * NOTE: 界面入口还没做 —— 计划落在 MainWindow 那个目前还是空的 QMenuBar 上。
+     *       现在只有直接改配置文件才用得上它。
      */
     QString extraJvmArgs() const;
 

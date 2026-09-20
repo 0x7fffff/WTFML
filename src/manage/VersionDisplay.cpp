@@ -70,8 +70,15 @@ QString formatVersionName(const VersionDisplayParts &parts, const VersionNameOpt
     const QString loaderName = sanitizeComponent(parts.loaderName);
     const QString loaderVersion = sanitizeComponent(parts.loaderVersion);
 
+    // 实际版本：元数据里写了 "realVersion" 就用它，否则退化成目录名 —— 后者就是
+    // 加这个字段之前的行为，所以老实例（没有 wtfml.meta）逐字节不变。
+    // NOTE: 必须是 realVersion 而不是 id 参与后面两段，否则目录名里已经揉进去的加载器
+    //       （`1.18.2-Forge_40.3.12`）会和 loaderName 拼出重复段，见 .hpp 里的说明。
+    const QString realVersion =
+        parts.realVersion.isEmpty() ? id : sanitizeComponent(parts.realVersion);
+
     // 名称槽：没重命名过就退化成实际版本
-    const QString label = customName.isEmpty() ? id : customName;
+    const QString label = customName.isEmpty() ? realVersion : customName;
 
     // 四段都走同一个收口，重复的文本只留第一份。对称是刻意的：只对某一段去重的话，
     // 加载器名恰好等于版本号（或者等于名称）时会拼出 `Forge-Forge` 这种重复段。
@@ -87,7 +94,7 @@ QString formatVersionName(const VersionDisplayParts &parts, const VersionNameOpt
         appendIfNew(label);
     }
     if (options.showRealVersion) {
-        appendIfNew(id);
+        appendIfNew(realVersion);
     }
     if (options.showLoaderName) {
         appendIfNew(loaderName);

@@ -16,7 +16,6 @@
 // 添加以下头文件（防止hpp变动导致文件失效）
 #include <QCheckBox>
 #include <QComboBox>
-#include <QCoreApplication>
 #include <QDebug>
 #include <QFile>
 #include <QFileInfo>
@@ -38,6 +37,7 @@
 #include "manage/VersionManager.hpp"
 #include "settings/GlobalJavaSettings.hpp"
 #include "settings/LauncherSettings.hpp"
+#include "util/AppPaths.hpp"
 
 namespace {
 
@@ -258,15 +258,27 @@ void MainWindow::appendLog(const QString &text) { m_ui->getLogTextEdit()->append
 
 void MainWindow::refreshInstalledVersions() {
     // 只扫本地磁盘（.minecraft/versions/<id>/<id>.jar），同步返回，随叫随到。
-    const QStringList installed = m_versionManager->installedVersions();
+    //
+    // 识别不出来的版本只在第一次上报：本函数一次会话会被调三次（构造、版本列表到达、
+    // 下载完成），每回都报就是刷屏。第一次报过之后连扫都不扫了 —— 传 nullptr 时
+    // installedVersions() 走的是和加这个参数之前完全一样的那条路径。
+    QStringList warnings;
+    const QStringList installed = m_versionManager->installedVersions(
+        m_reportedUnrecognizedVersions ? nullptr : &warnings);
+    if (!warnings.isEmpty()) {
+        m_reportedUnrecognizedVersions = true;
+        for (const QString &warning : warnings) {
+            appendLog(warning);
+        }
+    }
 
     QComboBox *combo = m_ui->getInstalledVersionCombo();
     QList<VersionDisplayParts> parts;
     parts.reserve(installed.size());
     for (const QString &id : installed) {
-        // 每个版本读一次 <id>/wtfml.meta（几百字节、可选文件）。版本数量是个位数，
-        // 而 refreshInstalledVersions() 一次会话最多被调三次，不值得缓存 —— 缓存了
-        // 反而会变成"重命名之后不生效"。
+        // 每个版本读一次 <id>/wtfml.meta（几百字节的可选文件，绝大多数版本没有）。
+        // 刻意不缓存：这个文件会被"重命名"功能改写，缓存了就会变成"改了名不生效"。
+        // 开销上不必担心 —— 一次会话最多调三次，而真机上实例数可以到 61 个。
         parts.append(m_versionManager->displayParts(id));
     }
     fillVersionCombo(combo, parts, m_settings->versionNameOptions());
@@ -328,9 +340,11 @@ void MainWindow::updateStartButtonText() {
 
     // 下拉框的 tooltip 挂**裸 id**，不是显示名。两个理由：
     //   1. 下拉框设了 minimumContentsLength(16)，长显示名会被省略号截断；
-    //   2. 更要紧的是，关掉「版本名」档之后 id 在整个界面上就再也看不见了，
-    //      而它才是真正进 --version 和文件路径的那个值。用户要排查"怎么启动错了
-    //      版本"时，悬停是唯一能看到它的地方。
+    //   2. 更要紧的是，id 在界面上**任何开关组合下都不会出现** —— 显示名那边参与
+    //      拼装的"实际版本"是 parts.realVersion（为空才退化成 id），所以只要
+    //      wtfml.meta 里写了 realVersion，目录名就彻底从界面上消失了。而它才是真正
+    //      进 --version 和文件路径的那个值。用户要排查"怎么启动错了版本"时，
+    //      悬停是唯一能看到它的地方。
     // tooltip 必须走这条函数（而不是在 refreshInstalledVersions 里直接设），因为
     // fillVersionCombo() 套了 QSignalBlocker，刷新路径只能靠这一处收尾。
     const QString id = selectedVersionId(combo);
@@ -458,9 +472,12 @@ void MainWindow::onStartButtonClicked() {
         return;
     }
 
+    // 按版本的自定义参数来自 <id>/wtfml.meta 的 "jvmArgs"（PCL 那半边"自定义启动
+    // 参数"的对应物）；全局那半边是 GlobalJavaSettings::extraJvmArgs()，在
+    // generateJvmArguments() 里比它先入列，所以单个实例能盖掉全局默认值。
     const QStringList jvmArgs = m_launcherManager->generateJvmArguments(
         token, versionId, assetIndexId, versionJson, *m_javaSettings, offlineMode,
-        javaMajorVersion);
+        javaMajorVersion, m_versionManager->versionJvmArgs(versionId));
     // 记住"上次启动的版本"的时机是**进程真的起来了**，不是"表达式算完了"。
     // startGame() 有三条早退路径（进程已在运行 / 找不到 Java / waitForStarted 超时），
     // 以前它们都会先骗一句"已开始启动游戏"再显示错误。以"起来了"为准也是对的：
@@ -527,9 +544,7 @@ void MainWindow::onDownloadButtonClicked() {
         return;
     }
 
-    const QString versionJsonPath = QCoreApplication::applicationDirPath() +
-                                    "/.minecraft/versions/" + versionId + "/" + versionId +
-                                    ".json";
+    const QString versionJsonPath = AppPaths::versionJsonPath(versionId);
     if (QFile::exists(versionJsonPath)) {
         // 已经下过：不给"直接重下"（几 GB 白跑一趟），改成校验并补齐缺失/损坏的文件。
         const auto answer = QMessageBox::question(
@@ -600,7 +615,6 @@ void MainWindow::onVersionDetailsFetched(const QString &versionId, const QJsonOb
     }
 
     appendLog(tr("版本信息获取成功，开始下载游戏文件..."));
-    QString versionsPath =
-        QCoreApplication::applicationDirPath() + "/.minecraft/versions/" + versionId;
+    QString versionsPath = AppPaths::versionDir(versionId);
     m_versionManager->downloadVersion(versionId, versionsPath);
 }

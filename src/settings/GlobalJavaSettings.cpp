@@ -10,7 +10,6 @@
  */
 #include "GlobalJavaSettings.hpp"
 
-#include <QCoreApplication>
 #include <QDir>
 #include <QDirIterator>
 #include <QEventLoop>
@@ -28,6 +27,8 @@
 #include <QStandardPaths>
 #include <QTemporaryFile>
 
+#include "../util/AppPaths.hpp"
+
 namespace {
 static constexpr const char kJavaPath[] = "Java/Path";
 static constexpr const char kXmx[] = "Java/Xmx";
@@ -42,6 +43,9 @@ bool runProcess(const QString &program, const QStringList &arguments, QString *s
         return false;
     }
 
+    // NOTE: 这里刻意用 fromLocal8Bit、**不跟着游戏进程一起改成 fromUtf8**。
+    // 走这条路的两种调用（java -version、PowerShell）都不受 -Dstdout.encoding 约束
+    // —— 那个属性是 JVM 的参数，PowerShell 不是 JVM、不认它。跟着改才是引入乱码。
     if (stdOut) {
         *stdOut = QString::fromLocal8Bit(process.readAllStandardOutput());
     }
@@ -466,7 +470,7 @@ void GlobalJavaSettings::save() const {
 
 QMap<int, QString> GlobalJavaSettings::scanLocalJavaVersions() {
     QMap<int, QString> versions;
-    const QString javaDir = QCoreApplication::applicationDirPath() + "/.minecraft/java";
+    const QString javaDir = AppPaths::javaDir();
 
     QDir dir(javaDir);
     if (dir.exists()) {
@@ -569,8 +573,7 @@ bool GlobalJavaSettings::downloadJavaFromMojang(int majorVersion) {
     qDebug() << "Chosen download URL:" << downloadUrl;
 
     // Download the zip
-    const QString downloadDir =
-        QCoreApplication::applicationDirPath() + QString("/.minecraft/java/%1").arg(majorVersion);
+    const QString downloadDir = AppPaths::javaVersionDir(majorVersion);
     qDebug() << "Download directory:" << downloadDir;
     QDir().mkpath(downloadDir);
     QString tempZip = QDir(downloadDir).absoluteFilePath("java_runtime.zip");
@@ -672,7 +675,7 @@ bool GlobalJavaSettings::ensureJavaForVersion(int majorVersion, const QString &c
     // 按 version.json 声明的 component 下载对应运行时
     if (!component.isEmpty()) {
         qDebug() << "Downloading runtime component" << component << "for Java" << majorVersion;
-        const QString javaBase = QCoreApplication::applicationDirPath() + "/.minecraft/java";
+        const QString javaBase = AppPaths::javaDir();
         QString downloaded;
         if (downloadJavaRuntime(javaBase, component, &downloaded) &&
             javaMatchesMajor(downloaded, majorVersion)) {

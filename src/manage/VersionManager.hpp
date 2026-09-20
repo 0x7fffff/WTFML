@@ -24,7 +24,11 @@ public:
     // Version management
     // 扫 .minecraft/versions，返回磁盘上真正装好了的版本号（以 <id>.jar 存在为准）。
     // 一个都没有时返回空列表，不再塞 "自定义版本" 占位项。
-    QStringList installedVersions() const;
+    //
+    // warnings 是可选的收集器：当某个目录里**有 jar、但 jar 名和目录名对不上**时，
+    // 往里追加一句说明。这种实例在真机上真实存在（用户手动改过目录名），判据不放松，
+    // 但用户得知道为什么它没出现在列表里。传 nullptr 时行为与以前完全一致。
+    QStringList installedVersions(QStringList *warnings = nullptr) const;
     QStringList availableVersions() const;
     QString getLatestVersion(const QString &type = "release") const;
 
@@ -56,6 +60,15 @@ public:
     // 换个扩展名，这个撞名在结构上就不可能发生。
     VersionDisplayParts displayParts(const QString &versionId) const;
 
+    // 读某个版本自定义的 JVM 参数（wtfml.meta 里可选的 "jvmArgs" 字符串数组）。
+    // 读不到就是空列表，调用方不必区分"文件没有"和"字段没有"。
+    //
+    // 用途：PCL 允许用户自定义 Java 启动参数，这里预留"按版本"的那半边 ——
+    // "全局"那半边是 GlobalJavaSettings::extraJvmArgs()，早就生效了。
+    // NOTE: 参数本身可以做任何事（包括把 JVM 起不来），不做白名单校验 —— 这是用户
+    //       自己写的文件、自己指定的版本，和直接改命令行是一回事。
+    QStringList versionJvmArgs(const QString &versionId) const;
+
 signals:
     void versionsFetched(const QStringList &versions);
     void versionDetailsFetched(const QString &versionId, const QJsonObject &versionJson);
@@ -72,6 +85,12 @@ private slots:
     void onAllDownloadsFinished(bool success);
 
 private:
+    // 读 <id>/wtfml.meta 并解析成对象。文件不存在、打不开、格式错都返回空对象
+    // （格式错会告警）。displayParts() 和 versionJvmArgs() 共用这一份读盘逻辑，
+    // 免得把"什么算坏文件、坏了要不要吭声"的判断抄两遍、慢慢抄歪。
+    // metaPathOut 非空时回填路径，供调用方在告警里指出是哪个文件。
+    QJsonObject readVersionMeta(const QString &versionId, QString *metaPathOut = nullptr) const;
+
     DownloadManager *downloadManager;
     // versionId -> versionJson。mutable 是因为 getVersionJson() 是 const 的，
     // 但它在回读磁盘后要顺手填充这个缓存。
