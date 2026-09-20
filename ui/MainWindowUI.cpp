@@ -270,7 +270,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         home.right.layout->addWidget(listHint);
     }
 
-    // ---------- 实例：左 = 游戏文件夹按钮；右 = 实例列表（还没做） ----------
+    // ---------- 实例：左 = 游戏文件夹列表；右 = 那个文件夹里的实例 ----------
     QWidget *instanceTab = new QWidget(tabWidget);
     instanceTab->setObjectName(instanceTabName());
     const TwoColumns instance = buildTwoColumnPage(instanceTab, QStringLiteral("instance"));
@@ -281,37 +281,60 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         folderLayout->setContentsMargins(9, 9, 9, 9);
         folderLayout->setSpacing(10);
 
+        // 左边这张列表就是"启动器用哪一份 .minecraft"的选择器：选中哪一项，版本、资源、
+        // 库、自管 Java 就全从那一份里找（PCL 左边那几张卡片是同一个意思）。
+        // 自带的那一份永远排第一（见 FolderManager），所以列表不会是空的。
+        folderList = new QListWidget(folderGroupBox);
+        folderList->setObjectName(folderListName());
+        folderList->setUniformItemSizes(true);
+        // 路径比左栏宽是常态（`D:\MC\.minecraft` 就快 20 个字符了），而左栏只有 3:10。
+        // 不关横向滚动条的话，条目会按文字宽度撑开、滚轮之外还多一条横条，而文字**不会**
+        // 省略 —— 关掉它，条目宽度就跟视口走，省略号才生效。从中间省略：路径两头
+        // （盘符和最后一级目录名）都比中间那截有用，完整路径在 tooltip 里。
+        folderList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        folderList->setTextElideMode(Qt::ElideMiddle);
+        folderLayout->addWidget(folderList, 1);
+
+        QHBoxLayout *folderButtons = new QHBoxLayout;
         addFolderButton = new QPushButton(QStringLiteral("添加文件夹"), folderGroupBox);
         removeFolderButton = new QPushButton(QStringLiteral("删除文件夹"), folderGroupBox);
-        // 占位按钮：只写一行日志。
-        // TODO: 换成真正的文件夹管理页面（列出已添加的目录、点一下切换）。
-        manageFolderButton = new QPushButton(QStringLiteral("文件夹管理"), folderGroupBox);
-        folderLayout->addWidget(addFolderButton);
-        folderLayout->addWidget(removeFolderButton);
-        folderLayout->addWidget(manageFolderButton);
+        folderButtons->addWidget(addFolderButton);
+        folderButtons->addWidget(removeFolderButton);
+        folderLayout->addLayout(folderButtons);
 
         QLabel *folderHint = new QLabel(
-            QStringLiteral("添加文件夹可以指向别的 Minecraft 根目录（例如另一个启动器的实例目录）。"),
+            QStringLiteral("选中的就是启动器当前使用的 .minecraft（版本、存档、资源都从这里读）。"
+                           "自带的那一份删不掉。"),
             folderGroupBox);
         folderHint->setWordWrap(true);
         folderLayout->addWidget(folderHint);
-        instance.left.layout->addWidget(folderGroupBox);
-        instance.left.layout->addStretch(1);
+        instance.left.layout->addWidget(folderGroupBox, 1);
     }
     {
         QGroupBox *instanceGroupBox = new QGroupBox(QStringLiteral("实例列表"),
                                                     instance.right.widget);
         QVBoxLayout *instanceLayout = new QVBoxLayout(instanceGroupBox);
         instanceLayout->setContentsMargins(9, 9, 9, 9);
-        // TODO: 实例列表（重命名 / 分组 / 每实例独立设置）落在这里。真机上实例数可以到
-        //       61 个，PCL 用 5 张卡片分组（PCL.ini 的 CardKey/CardValue）。
-        QLabel *instanceTodo = new QLabel(
-            QStringLiteral("实例列表、重命名与分组尚未实现；当前先把每个版本当实例用，"
-                           "列表在「主页」右边。"),
+        instanceLayout->setSpacing(10);
+
+        instanceFolderLabel = new QLabel(instanceGroupBox);
+        instanceFolderLabel->setObjectName(instanceFolderLabelName());
+        instanceFolderLabel->setWordWrap(true);
+        instanceLayout->addWidget(instanceFolderLabel);
+
+        // 就是「主页」右边那张列表的同一份数据，只是摆在这儿配左边的文件夹看。
+        // 点击 = 在主页把它选中（两边按 id 双向同步，见 MainWindow::setupConnections）。
+        instanceList = new QListWidget(instanceGroupBox);
+        instanceList->setObjectName(instanceListName());
+        instanceList->setUniformItemSizes(true);
+        instanceLayout->addWidget(instanceList, 1);
+
+        QLabel *instanceHint = new QLabel(
+            QStringLiteral("一个实例就是 versions 下的一个目录（判据是 <id>/<id>.jar 存在）。"
+                           "重命名与分组还没做。"),
             instanceGroupBox);
-        instanceTodo->setWordWrap(true);
-        instanceLayout->addWidget(instanceTodo);
-        instanceLayout->addStretch(1);
+        instanceHint->setWordWrap(true);
+        instanceLayout->addWidget(instanceHint);
         instance.right.layout->addWidget(instanceGroupBox, 1);
     }
 

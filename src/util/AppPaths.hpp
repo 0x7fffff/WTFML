@@ -8,9 +8,10 @@
  * 改造前 `QCoreApplication::applicationDirPath() + "/.minecraft"` 这句拼接散在 5 个文件
  * 15 处，各自再往后缀 "/versions"、"/assets"、"/java"…… 后果不是炸，而是：
  *
- *   1. "切换 .minecraft 文件夹"这个功能没有落点。要让启动器改用另一个游戏目录，
- *      得改 15 处，漏一处就是"版本列表来自 A、下载写进 B"这种只在一半功能上生效的
- *      错位，而且两条路径长得几乎一样，看日志也未必看得出。
+ *   1. 【**已用**】"切换 .minecraft 文件夹"这个功能没有落点。要让启动器改用另一个
+ *      游戏目录，得改 15 处，漏一处就是"版本列表来自 A、下载写进 B"这种只在一半功能上
+ *      生效的错位，而且两条路径长得几乎一样，看日志也未必看得出。这个功能做出来了：
+ *      落点就是本文件（setMinecraftDir() 一处切换），见 FolderManager。
  *   2. 【**已修**】当时 startGame() 自己拼了一份 versions/<id> 的绝对路径给
  *      ensureInitialOptions 用，而 --gameDir 传的却是相对路径、靠 QProcess 的工作目录
  *      去解析 —— 两份值"恰好相等"，靠的是调用顺序而不是代码。现在这两处取的是
@@ -22,8 +23,10 @@
  *      调用方可以直接删，downloadAssets() 的那个参数则是**并到了 assetsDir() 这一份**上
  *      （索引和 objects 从此必然同源，游戏按 --assetsDir 找 indexes/<id>.json 不会扑空）。
  *
- * NOTE: 这里刻意不缓存。applicationDirPath() 本身是 O(1)（Qt 缓存了结果），而这些
- *       函数比起随后要做的扫盘/读文件便宜到可以忽略；反过来，一旦缓存，这个头文件
+ * NOTE: 这里**只存一样东西** —— 用户选中的那个数据根目录（见 setMinecraftDir()），
+ *       而且它是"被显式设定、要求所有调用方都看见"的状态，不是缓存。其余的一律现算：
+ *       applicationDirPath() 本身是 O(1)（Qt 缓存了结果），这些函数比起随后要做的
+ *       扫盘/读文件便宜到可以忽略；反过来，一旦把算出来的路径也缓存下来，这个头文件
  *       就从"路径的唯一出处"变成"路径的唯一出处 + 一份可能过期的副本"。
  */
 
@@ -36,12 +39,40 @@
 
 namespace AppPaths {
 
-/// 启动器的数据根目录：<exe 所在目录>/.minecraft
+/// 启动器**自带**的数据根目录：<exe 所在目录>/.minecraft
 ///
 /// 放在 exe 旁边（而不是 %APPDATA%）是刻意的：整个启动器连带游戏数据可以整体拷走。
 /// 代价是必须用绝对路径，因为工作目录可能被改动。
-inline QString minecraftDir() {
+///
+/// 它是「游戏文件夹」列表里永远排第一、也删不掉的那一项（见 FolderManager）：别的
+/// 目录被挪走、U 盘被拔掉的时候，启动器总得有一个能落的根目录。
+inline QString defaultMinecraftDir() {
     return QCoreApplication::applicationDirPath() + QStringLiteral("/.minecraft");
+}
+
+/// 数据根目录的可写覆盖。空串 = 用默认那份（defaultMinecraftDir()）。
+///
+/// NOTE: 写成函数局部 static 而不是文件级 static，免得引入静态初始化顺序的问题。
+inline QString &minecraftDirOverride() {
+    static QString dir;
+    return dir;
+}
+
+/// 切换启动器使用的数据根目录（「游戏文件夹」列表里点一下就走这里）。
+/// @param dir 目录路径；传空串 = 恢复成自带的那一份（<exe 所在目录>/.minecraft）。
+///
+/// NOTE: 只做 cleanPath（去掉多余的斜杠、`.`、`..`），**不**检查目录存不存在 ——
+///       "它是不是个真目录"是 FolderManager 的事，这一层只管"路径长什么样"。
+inline void setMinecraftDir(const QString &dir) {
+    minecraftDirOverride() = dir.isEmpty() ? QString() : QDir::cleanPath(dir);
+}
+
+/// 启动器当前的数据根目录：用户选过就是那一份，否则是自带的那一份。
+///
+/// 版本、资源、库、自管 Java 全部挂在它下面，所以切换它等于切换"整套 .minecraft"。
+inline QString minecraftDir() {
+    const QString &custom = minecraftDirOverride();
+    return custom.isEmpty() ? defaultMinecraftDir() : custom;
 }
 
 /// 已安装版本的根目录：<数据目录>/versions

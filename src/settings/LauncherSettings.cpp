@@ -21,6 +21,8 @@ static constexpr const char kNameShowReal[] = "Version/NameShowReal";
 static constexpr const char kNameShowLoaderName[] = "Version/NameShowLoaderName";
 static constexpr const char kNameShowLoaderVersion[] = "Version/NameShowLoaderVersion";
 static constexpr const char kAfterLaunch[] = "Launcher/AfterLaunch";
+static constexpr const char kFolders[] = "Launcher/Folders";
+static constexpr const char kCurrentFolder[] = "Launcher/CurrentFolder";
 static constexpr const char kDownloadSource[] = "Download/Source";
 
 // 枚举存进 QSettings 的字符串。这几个串是**持久化格式的一部分**，不是内部标识：
@@ -43,6 +45,26 @@ void LauncherSettings::setLastLaunchedVersion(const QString &versionId) {
         return;
     }
     m_lastLaunchedVersion = versionId;
+    save();
+}
+
+QStringList LauncherSettings::folders() const { return m_folders; }
+
+void LauncherSettings::setFolders(const QStringList &folders) {
+    if (m_folders == folders) {
+        return;
+    }
+    m_folders = folders;
+    save();
+}
+
+QString LauncherSettings::currentFolder() const { return m_currentFolder; }
+
+void LauncherSettings::setCurrentFolder(const QString &dir) {
+    if (m_currentFolder == dir) {
+        return;
+    }
+    m_currentFolder = dir;
     save();
 }
 
@@ -119,6 +141,9 @@ DownloadSource LauncherSettings::downloadSourceFromKey(const QString &key) {
 void LauncherSettings::load() {
     QSettings settings;
     m_lastLaunchedVersion = settings.value(kLastLaunched, m_lastLaunchedVersion).toString();
+    // 默认值同样取当前成员：load() 被调第二次而盘上是空的时，值应该留着而不是被抹掉。
+    m_folders = settings.value(kFolders, m_folders).toStringList();
+    m_currentFolder = settings.value(kCurrentFolder, m_currentFolder).toString();
     m_launcherBehaviour = behaviourFromKey(
         settings.value(kAfterLaunch, behaviourKey(m_launcherBehaviour)).toString());
     m_downloadSource = downloadSourceFromKey(
@@ -153,6 +178,8 @@ void LauncherSettings::load() {
 void LauncherSettings::save() const {
     QSettings settings;
     settings.setValue(kLastLaunched, m_lastLaunchedVersion);
+    settings.setValue(kFolders, m_folders);
+    settings.setValue(kCurrentFolder, m_currentFolder);
     settings.setValue(kAfterLaunch, behaviourKey(m_launcherBehaviour));
     settings.setValue(kDownloadSource, downloadSourceKey(m_downloadSource));
     settings.setValue(kNameShowCustom, m_versionNameOptions.showCustomName);

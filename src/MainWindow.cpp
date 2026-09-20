@@ -17,9 +17,10 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDebug>
+#include <QDir>
 #include <QFile>
+#include <QFileDialog>
 #include <QFileInfo>
-#include <QInputDialog>
 #include <QLabel>
 #include <QListWidget>
 #include <QMessageBox>
@@ -170,6 +171,26 @@ void syncComboToList(QComboBox *combo, const QListWidget *list) {
 }
 
 /**
+ * @brief 把一批版本灌进一张版本列表。
+ * @param list 目标列表。
+ * @param parts 每个版本的显示名组成部分。
+ * @param options 全局「版本名格式」开关。
+ *
+ * 灌完**不动选中项**：怎么收尾由调用方决定 —— 跟下拉框配对的那些走
+ * syncListToCombo() 对齐过去，实例页右边那张自己跟着下拉框走。
+ */
+void fillVersionList(QListWidget *list, const QList<VersionDisplayParts> &parts,
+                     const VersionNameOptions &options) {
+    const QSignalBlocker blocker(list);
+    list->clear();
+    for (const VersionDisplayParts &part : parts) {
+        // 版本号存进 Qt::UserRole，和下拉框同一个约定（显示名不是身份标识）。
+        auto *item = new QListWidgetItem(formatVersionName(part, options), list);
+        item->setData(Qt::UserRole, part.id);
+    }
+}
+
+/**
  * @brief 把一批版本同时灌进"下拉框 + 列表"这一对，并让两边选中同一项。
  * @param combo 版本下拉框。
  * @param list 与它同一份数据的列表。
@@ -183,16 +204,7 @@ void syncComboToList(QComboBox *combo, const QListWidget *list) {
 void fillVersionViews(QComboBox *combo, QListWidget *list,
                       const QList<VersionDisplayParts> &parts, const VersionNameOptions &options) {
     fillVersionCombo(combo, parts, options);
-
-    {
-        const QSignalBlocker blocker(list);
-        list->clear();
-        for (const VersionDisplayParts &part : parts) {
-            // 版本号存进 Qt::UserRole，和下拉框同一个约定（显示名不是身份标识）。
-            auto *item = new QListWidgetItem(formatVersionName(part, options), list);
-            item->setData(Qt::UserRole, part.id);
-        }
-    }
+    fillVersionList(list, parts, options);
     // 重灌之后把列表的选中项对齐到下拉框：下拉框那边已经负责"保住原来选的",
     // 列表跟着它走就行。不对齐的话，用户会看到上面选着 A、下面高亮着 B。
     syncListToCombo(combo, list);
@@ -281,17 +293,22 @@ QList<VersionDisplayParts> plainVersionParts(const QStringList &versionIds) {
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent),
       m_ui(new MainWindowUI(this)),
+      m_settings(new LauncherSettings(this)),
       m_launcherManager(new LauncherManager(this)),
       m_authManager(new AuthManager(this)),
-      m_folderManager(new FolderManager(this)),
+      m_folderManager(new FolderManager(m_settings, this)),
       m_versionManager(new VersionManager(this)),
-      m_javaSettings(new GlobalJavaSettings(this)),
-      m_settings(new LauncherSettings(this)) {
+      m_javaSettings(new GlobalJavaSettings(this)) {
     setupConnections();
     // 设置页先按盘上的值摆好（不扫 Java，那一段等第一次切到设置页，见
     // refreshJavaList()）。必须在下面 fetchAvailableVersions() **之前**：
     // 清单请求要不要走镜像就是在这一步交给 VersionManager 的。
     applySettingsToUi();
+    // 「游戏文件夹」：先把当前那一份交给 AppPaths —— 从这一句起，扫版本、下资源、
+    // 找 Java 用的都是它。**必须在 refreshInstalledVersions() 之前**，那个函数扫的
+    // 就是这个根目录。左边那张列表此刻还没有条目可选，所以要挡着信号灌。
+    applyCurrentFolderToPaths();
+    refreshFolderList();
     // 本地已安装的先填上（同步扫盘）；在线清单是异步拉的，回来之后由
     // onVersionsFetched() 填"可安装"下拉框 —— 在那之前它显示占位文案。
     refreshInstalledVersions();
@@ -317,10 +334,26 @@ void MainWindow::setupConnections() {
             &MainWindow::onAddFolderClicked);
     connect(m_ui->getRemoveFolderButton(), &QPushButton::clicked, this,
             &MainWindow::onRemoveFolderClicked);
-    // 占位按钮：先只写一行日志，别做成点了完全没反应（那反而像个 bug）。
-    // TODO: 换成真正的文件夹管理页面。
-    connect(m_ui->getManageFolderButton(), &QPushButton::clicked, this,
-            [this] { appendLog(tr("文件夹管理功能尚未实现。")); });
+    // 左边列表选中哪一份 .minecraft，启动器就换到哪一份上（PCL 的卡片是同一个交互）。
+    connect(m_ui->getFolderList(), &QListWidget::currentRowChanged, this,
+            &MainWindow::onFolderSelectionChanged);
+    // FolderManager 才是改状态的那一方：加载/删除目录、当前目录不存在时的退回，
+    // 都会从它这儿发信号出来，界面只管跟着重画。
+    connect(m_folderManager, &FolderManager::foldersChanged, this,
+            &MainWindow::refreshFolderList);
+    connect(m_folderManager, &FolderManager::currentFolderChanged, this, [this] {
+        applyCurrentFolderToPaths();
+        // 换了一整份 .minecraft，两件跟着"上一份"走的事要重置：
+        //   - "目录名和 jar 名对不上"的告警只报一次，新目录得重新能报；
+        //   - 本机 Java 列表是**按根目录**扫的（自管 Java 在 <数据目录>/java 下），
+        //     下次进设置页要重扫一遍。NOTE: 重扫是"往里加"，下拉框里已经摆着的旧条目
+        //     （上一个根目录里那份自管 Java）不会因此消失 —— 它指着的是个真实存在的
+        //     java.exe，选它也能跑，要重开启动器才会清干净。
+        m_reportedUnrecognizedVersions = false;
+        m_javaListScanned = false;
+        // 版本列表、实例列表、按钮文字、底栏全都对着新根目录重来一遍。
+        refreshInstalledVersions();
+    });
     // 用户在"已安装版本"下拉框里换一个版本，按钮第二行立刻跟着变。
     // NOTE: 这条只管用户手选。fillVersionCombo() 重灌下拉框时信号是被挡住的，
     // 那条路径由 refreshInstalledVersions() 自己收尾，两条路合起来才不会漏。
@@ -335,9 +368,10 @@ void MainWindow::setupConnections() {
                 // 底栏右下角那条状态要看"选中的是不是正在跑的那个实例"，
                 // 所以换版本也得跟着刷一遍。
                 updateBottomBar();
-                // 右栏那张列表是同一份数据的另一种看法，跟着一起亮。
+                // 两张列表都是同一份数据的另一种看法，跟着一起亮。
                 syncListToCombo(m_ui->getInstalledVersionCombo(),
                                 m_ui->getInstalledVersionList());
+                syncListToCombo(m_ui->getInstalledVersionCombo(), m_ui->getInstanceList());
             });
     // 列表 → 下拉框。点列表里的一行 = 在上面把它选中（用户要求的行为）。
     connect(m_ui->getInstalledVersionList(), &QListWidget::currentItemChanged, this,
@@ -345,6 +379,10 @@ void MainWindow::setupConnections() {
                 syncComboToList(m_ui->getInstalledVersionCombo(),
                                 m_ui->getInstalledVersionList());
             });
+    // 实例页右边那张列表同理：点一下等于在主页把它选中。
+    connect(m_ui->getInstanceList(), &QListWidget::currentItemChanged, this, [this] {
+        syncComboToList(m_ui->getInstalledVersionCombo(), m_ui->getInstanceList());
+    });
     connect(m_ui->getAvailableVersionCombo(), &QComboBox::currentIndexChanged, this,
             [this] {
                 syncListToCombo(m_ui->getAvailableVersionCombo(),
@@ -423,13 +461,17 @@ void MainWindow::setDownloadUiBusy(bool busy) {
     // 两个下拉框一起灰掉。在下什么，在点击那一刻就已经交给 VersionManager 了，
     // 这时候改选中项并不会改变在下的是哪个版本 —— 灰掉纯粹是不让"界面显示选的 A、
     // 实际在下的却是 B"这种事发生，免得看的人误判。
-    // "文件夹管理"是占位按钮，跟下载无关，不跟着灰。
     m_ui->getInstalledVersionCombo()->setEnabled(!busy);
     m_ui->getAvailableVersionCombo()->setEnabled(!busy);
-    // 两张列表是同一份数据的另一种看法，也一起灰掉：不然用户能在列表里点来点去、
+    // 三张列表是同一份数据的另一种看法，也一起灰掉：不然用户能在列表里点来点去、
     // 看着选中的版本变了，而实际在下的是另一个。
     m_ui->getInstalledVersionList()->setEnabled(!busy);
     m_ui->getAvailableVersionList()->setEnabled(!busy);
+    // 实例页左边那列也一起灰：换游戏文件夹 = 换一整套 .minecraft，下载中途换过去
+    // 会让这一批文件一半写进 A、一半写进 B。两个按钮的可用性由 updateFolderButtons()
+    // 一处说了算（「删除文件夹」还要看选中的是不是自带那份）。
+    m_ui->getFolderList()->setEnabled(!busy);
+    updateFolderButtons();
 
     QProgressBar *progressBar = m_ui->getProgressBar();
     if (busy) {
@@ -582,6 +624,17 @@ void MainWindow::refreshInstalledVersions() {
     }
     fillVersionViews(combo, m_ui->getInstalledVersionList(), parts,
                      m_settings->versionNameOptions());
+
+    // 实例页：顶上写清这是从哪一份 .minecraft 里扫出来的（左边换个文件夹它就跟着变），
+    // 右边那张列表灌同一批数据。列表本身不是"又一份数据源"，它只是同一个东西摆在
+    // 文件夹旁边更好看 —— 点击行为也和主页那张完全一样（见 setupConnections）。
+    const QString root = AppPaths::minecraftDir();
+    QString folderText = tr("当前文件夹：%1").arg(QDir::toNativeSeparators(root));
+    folderText += QDir(root).exists() ? tr("（%1 个实例）").arg(installed.size())
+                                      : tr("（这个目录不在盘上了）");
+    m_ui->getInstanceFolderLabel()->setText(folderText);
+    fillVersionList(m_ui->getInstanceList(), parts, m_settings->versionNameOptions());
+    syncListToCombo(combo, m_ui->getInstanceList());
 
     // 占位文案随上下文变。**两个串都必须非空**：空占位文案会让 QComboBox 在往空
     // 模型里插第一批数据时静默选中第 0 项（qcombobox.cpp:1753-1759），而这里必须
@@ -1128,25 +1181,97 @@ void MainWindow::onLoginButtonClicked() {
 }
 
 void MainWindow::onAddFolderClicked() {
-    const QString folder =
-        QInputDialog::getText(this, tr("添加游戏文件夹"), tr("请输入 Minecraft 根目录路径："));
-    if (folder.isEmpty()) return;
-    if (m_folderManager->addFolder(folder)) {
-        appendLog(tr("已添加文件夹：%1").arg(folder));
-    } else {
-        appendLog(tr("添加文件夹失败：%1").arg(folder));
+    // 用目录选择对话框而不是让用户手打路径：路径里有中文、空格、全角括号（真机上的
+    // 实例目录就是这样），打错一个字符得到的是一个"加进去了但一个实例都没有"的空文件夹，
+    // 而界面上看不出区别。
+    const QString folder = QFileDialog::getExistingDirectory(
+        this, tr("选择 Minecraft 游戏文件夹"), QDir::homePath());
+    if (folder.isEmpty()) {
+        return;  // 用户取消了，不是错误
     }
+    if (!m_folderManager->addFolder(folder)) {
+        QMessageBox::warning(this, tr("添加文件夹失败"),
+                             tr("「%1」不是一个存在的目录。").arg(folder));
+        return;
+    }
+    appendLog(tr("已添加文件夹：%1").arg(folder));
+    // 加完直接切过去：点「添加文件夹」的意图就是要用那一份。已经在列表里时会切到它，
+    // 已经是当前的则什么都不做（FolderManager 自己判）。
+    m_folderManager->setCurrentFolder(folder);
 }
 
 void MainWindow::onRemoveFolderClicked() {
-    const QString folder =
-        QInputDialog::getText(this, tr("删除游戏文件夹"), tr("请输入要删除的文件夹路径："));
-    if (folder.isEmpty()) return;
-    if (m_folderManager->removeFolder(folder)) {
-        appendLog(tr("已删除文件夹：%1").arg(folder));
-    } else {
-        appendLog(tr("删除文件夹失败：%1").arg(folder));
+    const QListWidgetItem *item = m_ui->getFolderList()->currentItem();
+    if (item == nullptr) {
+        QMessageBox::information(this, tr("删除文件夹"), tr("请先在列表里选中一个文件夹。"));
+        return;
     }
+    const QString folder = item->data(Qt::UserRole).toString();
+    if (!m_folderManager->removeFolder(folder)) {
+        // 只有"自带的那一份"会走到这儿（正常路径下按钮本来就是灰的），照实说明原因，
+        // 不是"删除失败"这种没法处理的消息。
+        QMessageBox::information(
+            this, tr("删除文件夹"),
+            tr("「%1」是启动器自带的游戏文件夹，删不掉。\n它是别的目录都被移走时唯一的退路。")
+                .arg(QDir::toNativeSeparators(folder)));
+        return;
+    }
+    appendLog(tr("已删除文件夹：%1").arg(folder));
+}
+
+void MainWindow::onFolderSelectionChanged() {
+    const QListWidgetItem *item = m_ui->getFolderList()->currentItem();
+    if (item == nullptr) {
+        return;
+    }
+    // 同一个目录时 FolderManager 直接返回、不发信号，所以这条链路是幂等的：
+    // refreshFolderList() 里挡了信号，重灌不会把用户刚做的选择又跑一遍。
+    m_folderManager->setCurrentFolder(item->data(Qt::UserRole).toString());
+    updateFolderButtons();
+}
+
+void MainWindow::refreshFolderList() {
+    QListWidget *list = m_ui->getFolderList();
+    const QString current = m_folderManager->currentFolder();
+    {
+        // 重灌不是"用户改选"，别把切换逻辑再跑一遍。下面要按当前目录摆选中项。
+        const QSignalBlocker blocker(list);
+        list->clear();
+        for (const QString &path : m_folderManager->folders()) {
+            const bool isDefault = FolderManager::isDefaultFolder(path);
+            // 路径用系统分隔符显示（`D:\MC\.minecraft`），别把 QDir 的 `/` 露给用户。
+            const QString shown = QDir::toNativeSeparators(path);
+            auto *item = new QListWidgetItem(isDefault ? tr("%1（自带）").arg(shown) : shown, list);
+            item->setData(Qt::UserRole, path);
+            // 列表窄，长路径会被省略号截断，所以完整路径挂 tooltip 上。
+            item->setToolTip(isDefault ? tr("%1\n启动器自带的游戏文件夹，删不掉。").arg(shown)
+                                       : shown);
+            if (path == current) {
+                list->setCurrentItem(item);
+            }
+        }
+    }
+    updateFolderButtons();
+}
+
+void MainWindow::updateFolderButtons() {
+    const QListWidgetItem *item = m_ui->getFolderList()->currentItem();
+    const bool removable = item != nullptr &&
+                           !FolderManager::isDefaultFolder(item->data(Qt::UserRole).toString());
+    // 下载期间整列都不给动（见 setDownloadUiBusy）：换文件夹会把后面那些文件写到
+    // 另一份 .minecraft 里去，半批在里面半批在外面，比"这次下不了"难查得多。
+    m_ui->getRemoveFolderButton()->setEnabled(removable && !m_downloadInFlight);
+    m_ui->getAddFolderButton()->setEnabled(!m_downloadInFlight);
+}
+
+void MainWindow::applyCurrentFolderToPaths() {
+    // 全局路径的**唯一**切换点。此后 AppPaths 的每一个函数（versions / assets /
+    // libraries / java）都对着这一份 .minecraft，直到下一次切换。
+    const QString root = m_folderManager->currentFolder();
+    // 自带那份**不设覆盖**（传空串 = 用默认那份）：启动器被整个拷到别处之后，默认路径
+    // 跟着 exe 走，而不是钉死在上次记下的那个老位置。
+    AppPaths::setMinecraftDir(FolderManager::isDefaultFolder(root) ? QString() : root);
+    appendLog(tr("当前游戏文件夹：%1").arg(QDir::toNativeSeparators(root)));
 }
 
 void MainWindow::onProcessOutput(const QString &text) {

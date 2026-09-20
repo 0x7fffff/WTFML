@@ -49,6 +49,9 @@ public:
     static QString availableVersionComboName() { return QStringLiteral("availableVersionCombo"); }
     static QString installedVersionListName() { return QStringLiteral("installedVersionList"); }
     static QString availableVersionListName() { return QStringLiteral("availableVersionList"); }
+    static QString folderListName() { return QStringLiteral("folderList"); }
+    static QString instanceListName() { return QStringLiteral("instanceList"); }
+    static QString instanceFolderLabelName() { return QStringLiteral("instanceFolderLabel"); }
     static QString tabWidgetName() { return QStringLiteral("mainTabWidget"); }
     static QString homeTabName() { return QStringLiteral("homeTab"); }
     static QString instanceTabName() { return QStringLiteral("instanceTab"); }
@@ -166,8 +169,13 @@ public:
     QCheckBox *getOfflineModeCheckBox() const { return offlineModeCheckBox; }
     QPushButton *getAddFolderButton() const { return addFolderButton; }
     QPushButton *getRemoveFolderButton() const { return removeFolderButton; }
-    // 占位按钮：只写一行日志，真正的文件夹管理页面还没做（见 .cpp 里的 TODO）
-    QPushButton *getManageFolderButton() const { return manageFolderButton; }
+    // 实例页左边那张列表：一行一个「游戏文件夹」，选中的那一份就是启动器当前用的
+    // .minecraft。右边那张列表是它下面扫出来的实例。
+    QListWidget *getFolderList() const { return folderList; }
+    QListWidget *getInstanceList() const { return instanceList; }
+    // 右边那句"当前文件夹：<路径>"。换文件夹时它跟着变 —— 没有它的话，右边那些实例
+    // 是从哪一份 .minecraft 里扫出来的就说不清了。
+    QLabel *getInstanceFolderLabel() const { return instanceFolderLabel; }
     // 两个下拉框，数据源互不相干，**也因此不在一页上**：
     //   installedVersionCombo —— 磁盘上已经装好的（.minecraft/versions/<id>/<id>.jar），
     //                            在「主页」，启动用它
@@ -219,11 +227,13 @@ private:
     // 控件指针
     QPushButton *startButton;
     QPushButton *downloadButton;
-    QPushButton *manageFolderButton;
     QPushButton *loginButton;
     QCheckBox *offlineModeCheckBox;
     QPushButton *addFolderButton;
     QPushButton *removeFolderButton;
+    QListWidget *folderList;
+    QListWidget *instanceList;
+    QLabel *instanceFolderLabel;
     QComboBox *installedVersionCombo;
     QComboBox *availableVersionCombo;
     QListWidget *installedVersionList;
