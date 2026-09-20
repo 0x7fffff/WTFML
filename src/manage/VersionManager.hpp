@@ -45,6 +45,10 @@ public:
     // UI 用它来决定"启动游戏"能不能点。
     bool isDownloading() const;
 
+    // 下载源：官方 / 镜像。转发给内部的 DownloadManager，界面只跟这一层打交道。
+    // 改完立刻对**下一次**发请求生效（下载中的那一批不会被中途改道）。
+    void setUseMirror(bool useMirror);
+
     // Version JSON access
     QJsonObject getVersionJson(const QString &versionId) const;
 

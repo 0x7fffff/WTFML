@@ -20,6 +20,9 @@ class FolderManager;
 class VersionManager;
 class GlobalJavaSettings;
 class LauncherSettings;
+// 「版本名格式」开关的数据模型。这里只按 const 引用传，前置声明就够，
+// 不必为了一个参数类型把 VersionDisplay.hpp 拖进每个 include 了 MainWindow.hpp 的地方。
+struct VersionNameOptions;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -45,6 +48,37 @@ private slots:
 
 private:
     void setupConnections();
+    // ---------- 「设置」选项卡 ----------
+    /// 把设置对象里的值灌进设置页的控件。构造函数里调一次；**不要**在用户改动之后
+    /// 再调它 —— 那会把用户正在编辑的东西顶回盘上的旧值。
+    void applySettingsToUi();
+    /// 填「Java 版本」下拉框。要跑几次 `java -version`（每次几十到几百毫秒），
+    /// 所以**第一次切到设置页**才扫，不在启动路径上加这段延迟。
+    void refreshJavaList();
+    /// 把「Java 版本」那一行的说明文字刷成"实际会用的那个 Java"（含两种空状态）。
+    void updateJavaPathLabel();
+    /// 把归一化之后的「版本名格式」开关回灌到四个勾选框上（内部挡信号）。
+    void pushVersionNameOptionsToUi(const VersionNameOptions &options);
+    /// 选项卡切换：底栏右下角要不要显示实例名、以及要不要扫 Java，都在这里收口。
+    void onMainTabChanged();
+    void onJavaSelectionChanged();
+    /// 把「内存分配」那一行画成当前状态：自动档按**现在**的系统内存重算并禁用两个数字框，
+    /// 手动档原样显示用户定的值；两种情况都要写那句"这台机器有多少内存"的说明。
+    /// 调用点：开窗灌值时、切到设置页时、真的要启动游戏之前（那一刻的可用内存才算数）。
+    void refreshMemoryUi();
+    /// 「自动（按系统内存）」勾选框。
+    void onMemoryAutoChanged();
+    void onMemoryChanged();
+    void onLauncherBehaviourChanged();
+    void onDownloadSourceChanged();
+    void onVersionNameOptionChanged();
+    void onApplyExtraJvmArgsClicked();
+    /// 把「下载源」交给真正发请求的那一层（VersionManager → DownloadManager）。
+    /// 启动时读盘、用户在设置页改，两条路都走这一句，别各写一遍。
+    void syncDownloadSource();
+    /// 启动成功后按「启动后」那一项处理启动器自己。
+    void applyLauncherBehaviourAfterLaunch();
+
     /// 把一条消息交给 Qt 的日志系统（命令行里看）。界面里已经没有日志面板了，
     /// 必须让用户看到的消息走的是 QMessageBox，不靠这一条 —— 见 .cpp 里的说明。
     void appendLog(const QString &text);
@@ -57,6 +91,9 @@ private:
     // 重灌"已安装版本"下拉框：扫本地 .minecraft/versions，同步返回。
     // 保住用户原来选中的那一项的逻辑在 fillVersionCombo() 里。
     void refreshInstalledVersions();
+    /// 重灌"可安装版本"那一对控件（下拉框 + 列表）。在线清单是它们唯一的数据源，
+    /// 清单还没拉回来时什么都不动（占位文案得留着）。
+    void refreshAvailableVersions();
     // 启动时把"上次启动过的版本"选回来。**只在构造函数里调一次**——
     // 名单每次刷新（清单到达、下载完成）都调它就会变成"用户手选完又被抢回去"。
     // 记着的那个版本已经不在磁盘上时留空不选，占位文案会说明该怎么选。
@@ -89,4 +126,11 @@ private:
     QString m_launchingVersionId;
     // 进度按网络分片到达（5000 多个 asset），节流一下再刷界面
     QElapsedTimer m_progressThrottle;
+    // 「设置」页的 Java 列表扫过没有。扫描要逐个跑 `java -version`，只在第一次
+    // 切到设置页时做一次；用户后来装了新 Java 想让它重扫，重开启动器即可。
+    bool m_javaListScanned = false;
+    // 窗口是不是为了「收起启动器，游戏退出后回来」这一档才藏起来的。
+    // 只有它为真时 onGameFinished() 才会把窗口叫回来 —— 用户自己最小化的窗口
+    // 不该被游戏的退出给弹出来。
+    bool m_hiddenForGame = false;
 };

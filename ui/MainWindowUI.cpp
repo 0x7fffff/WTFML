@@ -15,6 +15,7 @@
 #include <QHBoxLayout>
 #include <QMenuBar>
 #include <QPalette>
+#include <QScrollArea>
 #include <QVBoxLayout>
 
 namespace {
@@ -25,7 +26,7 @@ namespace {
  * QComboBox 默认把滚轮当成"切换选中项"处理，而滚轮事件是按鼠标位置派发的、
  * 跟焦点无关 —— 鼠标从下拉框上滚过（哪怕焦点在别处）就会静默换一个版本。
  * 「下载」页那个下拉框旁边就是「下载版本」，手一滑可能把一次 GB 级的下载指到
- * 别的版本上。
+ * 别的版本上。设置页那些下拉框同理（内存/下载源被滚轮悄悄改掉更难发现）。
  *
  * NOTE: QObject::eventFilter 是虚函数、不是槽，所以这里不需要 Q_OBJECT，
  *       AUTOMOC 不会牵扯进来，也不用在 cpp 末尾补 .moc 包含。
@@ -48,6 +49,122 @@ protected:
 
 /// 每个选项卡页面共用的边距：贴着选项卡内容区留一圈呼吸空间。
 constexpr int kPageMargin = 9;
+
+/// 左右两栏之间的间距。
+constexpr int kColumnSpacing = 12;
+
+/// 一栏：控件本身 + 它自己的竖排布局。
+struct Column {
+    QWidget *widget = nullptr;
+    QVBoxLayout *layout = nullptr;
+};
+
+/// 一个页面的左右两栏。
+struct TwoColumns {
+    Column left;
+    Column right;
+};
+
+/**
+ * @brief 把页面摆成左右两栏（左:右 = 3:7，仿 PCL）。
+ * @param page 选项卡页面。
+ * @param tab 页面代号（"home" / "instance" / "download" / "settings"），进 objectName。
+ * @return 两栏的控件与布局；调用方往 layout 里塞东西即可。
+ *
+ * 四个选项卡都走这一条路，比例因此只有一处出处（leftColumnStretch/rightColumnStretch）。
+ * 栏做成真控件而不是裸布局，是为了验证工程能按 objectName 找回来量几何。
+ */
+TwoColumns buildTwoColumnPage(QWidget *page, const QString &tab) {
+    auto *row = new QHBoxLayout(page);
+    row->setContentsMargins(kPageMargin, kPageMargin, kPageMargin, kPageMargin);
+    row->setSpacing(kColumnSpacing);
+
+    const auto makeColumn = [page](const QString &name) {
+        Column column;
+        column.widget = new QWidget(page);
+        column.widget->setObjectName(name);
+        column.layout = new QVBoxLayout(column.widget);
+        // 栏本身不留边距：页面那一层已经留过 kPageMargin 了，再留一层就是双层边距
+        column.layout->setContentsMargins(0, 0, 0, 0);
+        column.layout->setSpacing(10);
+        return column;
+    };
+
+    TwoColumns columns;
+    columns.left = makeColumn(MainWindowUI::leftColumnName(tab));
+    columns.right = makeColumn(MainWindowUI::rightColumnName(tab));
+    row->addWidget(columns.left.widget, MainWindowUI::leftColumnStretch());
+    row->addWidget(columns.right.widget, MainWindowUI::rightColumnStretch());
+    return columns;
+}
+
+/// 设置页里一行：名字在左、控件在右。返回这一行用掉的下标。
+/// @note 3:7 是靠 grid 的列拉伸因子实现的（见 setupSettingsPage），这里只负责摆。
+void addSettingRow(QGridLayout *grid, int row, const QString &labelText, QWidget *control,
+                   QWidget *parent) {
+    QLabel *label = new QLabel(labelText, parent);
+    label->setAlignment(Qt::AlignRight | Qt::AlignTop);
+    grid->addWidget(label, row, 0);
+    grid->addWidget(control, row, 1);
+}
+
+/// 设置页里的分组标题，横跨两列。
+void addSectionTitle(QGridLayout *grid, int row, const QString &text, QWidget *parent) {
+    QLabel *title = new QLabel(text, parent);
+    QFont titleFont = title->font();
+    titleFont.setBold(true);
+    title->setFont(titleFont);
+    grid->addWidget(title, row, 0, 1, 2);
+}
+
+/// 设置页里数字框的宽度（够写「65536 MB」再加一对上下箭头）。
+constexpr int kMemorySpinWidth = 130;
+
+/// 把一个控件加到设置页那一行的容器里，**只占它需要的那点宽度、靠左**放。
+///
+/// 为什么不是默认的"填满整格"：右列有 7 份宽（900 px 的窗口下就有 600 多 px），
+/// 一个「4096 MB」的数字框被拉到那个宽度看着就是坏的 —— PCL 那种设置页里的数字框
+/// 也只有巴掌宽。下拉框和文本框不这么处理：它们的宽度是有信息量的（Java 路径、
+/// 参数列表都长）。
+///
+/// @param minWidth 最小宽度；比 sizeHint 小的话实际按 sizeHint 走。
+void addInlineControl(QVBoxLayout *box, QWidget *control, int minWidth) {
+    control->setMinimumWidth(minWidth);
+    // 对齐标志传 0 以外的值 = "按 sizeHint 摆、不要撑满整格"（QBoxLayout::addWidget
+    // 的文档里那句 "the widget fills the entire cell" 只在 alignment 为 0 时成立）。
+    box->addWidget(control, 0, Qt::AlignLeft);
+}
+
+/// 给设置页里的一行控件套一层"控件 + 说明文字"的容器（说明统一小一号、灰色）。
+/// @return 容器；调用方再往它的 layout 里塞真控件 —— 说明文字在**最后**加，
+///         所以这里只把空布局还回去。
+QWidget *makeHintedControl(QWidget *parent) {
+    QWidget *box = new QWidget(parent);
+    QVBoxLayout *layout = new QVBoxLayout(box);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(4);
+    return box;
+}
+
+/// 往 makeHintedControl() 造出来的容器里加一句说明，并把标签还回去。
+/// 文字会随情况变的那几句用它（比如「内存分配」下面那句要说系统现在有多少内存）。
+QLabel *addDynamicHint(QWidget *box, const QString &text, QWidget *parent) {
+    QLabel *hint = new QLabel(text, parent);
+    hint->setWordWrap(true);
+    QFont hintFont = hint->font();
+    hintFont.setPointSize(qMax(1, hintFont.pointSize() - 1));
+    hint->setFont(hintFont);
+    QPalette hintPalette = hint->palette();
+    hintPalette.setColor(QPalette::WindowText, hintPalette.color(QPalette::PlaceholderText));
+    hint->setPalette(hintPalette);
+    qobject_cast<QVBoxLayout *>(box->layout())->addWidget(hint);
+    return hint;
+}
+
+/// 往 makeHintedControl() 造出来的容器里加一句说明。
+void addHint(QWidget *box, const QString &text, QWidget *parent) {
+    addDynamicHint(box, text, parent);
+}
 
 }  // namespace
 
@@ -75,190 +192,171 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     mainLayout->setSpacing(0);
 
     // ================= 选项卡：主页 / 实例 / 下载 / 设置 =================
-    // 四页各自只放自己那摊控件。注意两个版本下拉框被**分到了两页**：
-    // 「已安装版本」在主页（启动用），「可安装版本」在下载页（下载用）。它们本来就
-    // 是两个互不相干的数据源，以前并排放着只是因为都叫"版本"。
+    // 四页各自只放自己那摊控件，都按"左 3 右 7"两栏排：左栏是要操作的那点东西
+    // （选版本、按钮），右栏是列表或一整摊设置项。
+    // 注意两个版本下拉框被**分到了两页**：「已安装版本」在主页（启动用），
+    // 「可安装版本」在下载页（下载用）。它们本来就是两个互不相干的数据源，
+    // 以前并排放着只是因为都叫"版本"。
     tabWidget = new QTabWidget(centralWidget);
     tabWidget->setObjectName(tabWidgetName());
 
-    // ---------- 主页：挑一个已装好的版本，启动 ----------
+    // ---------- 主页：左 = 挑一个已装好的版本，启动；右 = 版本列表 ----------
     QWidget *homeTab = new QWidget(tabWidget);
     homeTab->setObjectName(homeTabName());
+    const TwoColumns home = buildTwoColumnPage(homeTab, QStringLiteral("home"));
+    {
+        home.left.layout->addWidget(new QLabel(QStringLiteral("已安装版本"), home.left.widget));
 
-    QVBoxLayout *homeLayout = new QVBoxLayout(homeTab);
-    homeLayout->setContentsMargins(kPageMargin, kPageMargin, kPageMargin, kPageMargin);
-    homeLayout->setSpacing(12);
+        installedVersionCombo = new QComboBox(home.left.widget);
 
-    QHBoxLayout *installedRow = new QHBoxLayout();
-    installedRow->setSpacing(10);
-    QLabel *installedVersionLabel = new QLabel(QStringLiteral("已安装版本"), homeTab);
+        // 空状态用"没选中任何项(currentIndex() == -1) + placeholderText"表示，
+        // 不再往列表里塞 "自定义版本" 那种假条目：控件自己会把占位文案画成灰字。
+        // NOTE: 只要占位文案非空，往空下拉框里 addItems() 就不会自动选中第 0 项
+        // （QComboBoxPrivate::rowsInserted 里那条 setCurrentIndex(0) 带了
+        //  !placeholderText.isEmpty() 的条件）。所以"空着"能一直保持到用户真的挑一项，
+        // 代价是刷新之后必须自己把选中项捡回来，见 MainWindow::fillVersionCombo()。
+        // 这里只是初始值；灌完数据后由 MainWindow 在两个串之间切换。
+        installedVersionCombo->setPlaceholderText(noInstalledVersionPlaceholder());
 
-    installedVersionCombo = new QComboBox(homeTab);
+        // 版本号长度不定（26.2-snapshot-1 之类），默认的 AdjustToContentsOnFirstShow 会在
+        // 第一次显示（那时还是空的）时定一个宽度然后一直沿用，之后灌进上千个长版本号就容易
+        // 把窗口顶宽。改成按"最短内容长度"算，宽度确定，灌数据时也不会跳。
+        installedVersionCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+        installedVersionCombo->setMinimumContentsLength(12);
+        // 滚轮防护：见本文件顶部的 WheelGuard
+        installedVersionCombo->installEventFilter(new WheelGuard(installedVersionCombo));
+        installedVersionCombo->setObjectName(installedVersionComboName());
+        home.left.layout->addWidget(installedVersionCombo);
 
-    // 空状态用"没选中任何项(currentIndex() == -1) + placeholderText"表示，
-    // 不再往列表里塞 "自定义版本" 那种假条目：控件自己会把占位文案画成灰字。
-    // NOTE: 只要占位文案非空，往空下拉框里 addItems() 就不会自动选中第 0 项
-    // （QComboBoxPrivate::rowsInserted 里那条 setCurrentIndex(0) 带了
-    //  !placeholderText.isEmpty() 的条件）。所以"空着"能一直保持到用户真的挑一项，
-    // 代价是刷新之后必须自己把选中项捡回来，见 MainWindow::fillVersionCombo()。
-    // 这里只是初始值；灌完数据后由 MainWindow 在两个串之间切换。
-    installedVersionCombo->setPlaceholderText(noInstalledVersionPlaceholder());
+        startButton = new QPushButton(QStringLiteral("启动游戏"), home.left.widget);
+        // 文字是两行（"启动游戏\n<版本号>"，由 MainWindow::updateStartButtonText() 维护），
+        // 高度固定给足，免得两行被压成一行半。
+        startButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        startButton->setMinimumHeight(88);
+        home.left.layout->addWidget(startButton);
 
-    // 版本号长度不定（26.2-snapshot-1 之类），默认的 AdjustToContentsOnFirstShow 会在
-    // 第一次显示（那时还是空的）时定一个宽度然后一直沿用，之后灌进上千个长版本号就容易
-    // 把窗口顶宽。改成按"最短内容长度"算，宽度确定，灌数据时也不会跳。
-    installedVersionCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
-    installedVersionCombo->setMinimumContentsLength(16);
-    // 滚轮防护：见本文件顶部的 WheelGuard
-    installedVersionCombo->installEventFilter(new WheelGuard(installedVersionCombo));
+        offlineModeCheckBox = new QCheckBox(QStringLiteral("离线模式"), home.left.widget);
+        offlineModeCheckBox->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+        home.left.layout->addWidget(offlineModeCheckBox, 0, Qt::AlignLeft);
 
-    installedRow->addWidget(installedVersionLabel);
-    installedRow->addWidget(installedVersionCombo, 1);
-    homeLayout->addLayout(installedRow);
+        // 剩下的竖直空间留在底部：按钮不跟着窗口高度一起被拉长
+        home.left.layout->addStretch(1);
+    }
+    {
+        installedVersionList = new QListWidget(home.right.widget);
+        installedVersionList->setObjectName(installedVersionListName());
+        // 几百上千条时省掉逐条量尺寸的开销。条目高度本来就一致。
+        installedVersionList->setUniformItemSizes(true);
 
-    startButton = new QPushButton(QStringLiteral("启动游戏"), homeTab);
-    // 文字是两行（"启动游戏\n<版本号>"，由 MainWindow::updateStartButtonText() 维护），
-    // 高度固定给足，免得两行被压成一行半。
-    startButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    startButton->setMinimumHeight(88);
-    homeLayout->addWidget(startButton);
+        QLabel *listTitle = new QLabel(QStringLiteral("版本列表"), home.right.widget);
+        QFont listTitleFont = listTitle->font();
+        listTitleFont.setBold(true);
+        listTitle->setFont(listTitleFont);
+        home.right.layout->addWidget(listTitle);
+        home.right.layout->addWidget(installedVersionList, 1);
 
-    offlineModeCheckBox = new QCheckBox(QStringLiteral("离线模式"), homeTab);
-    offlineModeCheckBox->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-    homeLayout->addWidget(offlineModeCheckBox, 0, Qt::AlignLeft);
+        QLabel *listHint =
+            new QLabel(QStringLiteral("点一下列表里的版本，等于在左边把它选中。"
+                                      "名字里带「自定义名」的是 .minecraft/versions 下的实例。"),
+                       home.right.widget);
+        listHint->setWordWrap(true);
+        home.right.layout->addWidget(listHint);
+    }
 
-    // 剩下的竖直空间留在底部：按钮不跟着窗口高度一起被拉长
-    homeLayout->addStretch(1);
-
-    // ---------- 实例：游戏文件夹与实例管理 ----------
+    // ---------- 实例：左 = 游戏文件夹按钮；右 = 实例列表（还没做） ----------
     QWidget *instanceTab = new QWidget(tabWidget);
     instanceTab->setObjectName(instanceTabName());
+    const TwoColumns instance = buildTwoColumnPage(instanceTab, QStringLiteral("instance"));
+    {
+        QGroupBox *folderGroupBox = new QGroupBox(QStringLiteral("游戏文件夹"),
+                                                  instance.left.widget);
+        QVBoxLayout *folderLayout = new QVBoxLayout(folderGroupBox);
+        folderLayout->setContentsMargins(9, 9, 9, 9);
+        folderLayout->setSpacing(10);
 
-    QVBoxLayout *instanceLayout = new QVBoxLayout(instanceTab);
-    instanceLayout->setContentsMargins(kPageMargin, kPageMargin, kPageMargin, kPageMargin);
-    instanceLayout->setSpacing(12);
+        addFolderButton = new QPushButton(QStringLiteral("添加文件夹"), folderGroupBox);
+        removeFolderButton = new QPushButton(QStringLiteral("删除文件夹"), folderGroupBox);
+        // 占位按钮：只写一行日志。
+        // TODO: 换成真正的文件夹管理页面（列出已添加的目录、点一下切换）。
+        manageFolderButton = new QPushButton(QStringLiteral("文件夹管理"), folderGroupBox);
+        folderLayout->addWidget(addFolderButton);
+        folderLayout->addWidget(removeFolderButton);
+        folderLayout->addWidget(manageFolderButton);
 
-    QGroupBox *folderGroupBox = new QGroupBox(QStringLiteral("游戏文件夹"), instanceTab);
-    QVBoxLayout *folderLayout = new QVBoxLayout(folderGroupBox);
-    folderLayout->setContentsMargins(9, 9, 9, 9);
-    folderLayout->setSpacing(10);
+        QLabel *folderHint = new QLabel(
+            QStringLiteral("添加文件夹可以指向别的 Minecraft 根目录（例如另一个启动器的实例目录）。"),
+            folderGroupBox);
+        folderHint->setWordWrap(true);
+        folderLayout->addWidget(folderHint);
+        instance.left.layout->addWidget(folderGroupBox);
+        instance.left.layout->addStretch(1);
+    }
+    {
+        QGroupBox *instanceGroupBox = new QGroupBox(QStringLiteral("实例列表"),
+                                                    instance.right.widget);
+        QVBoxLayout *instanceLayout = new QVBoxLayout(instanceGroupBox);
+        instanceLayout->setContentsMargins(9, 9, 9, 9);
+        // TODO: 实例列表（重命名 / 分组 / 每实例独立设置）落在这里。真机上实例数可以到
+        //       61 个，PCL 用 5 张卡片分组（PCL.ini 的 CardKey/CardValue）。
+        QLabel *instanceTodo = new QLabel(
+            QStringLiteral("实例列表、重命名与分组尚未实现；当前先把每个版本当实例用，"
+                           "列表在「主页」右边。"),
+            instanceGroupBox);
+        instanceTodo->setWordWrap(true);
+        instanceLayout->addWidget(instanceTodo);
+        instanceLayout->addStretch(1);
+        instance.right.layout->addWidget(instanceGroupBox, 1);
+    }
 
-    QHBoxLayout *folderButtonRow = new QHBoxLayout();
-    folderButtonRow->setSpacing(10);
-    addFolderButton = new QPushButton(QStringLiteral("添加文件夹"), folderGroupBox);
-    removeFolderButton = new QPushButton(QStringLiteral("删除文件夹"), folderGroupBox);
-    // 占位按钮：只写一行日志。
-    // TODO: 换成真正的文件夹管理页面（列出已添加的目录、点一下切换）。
-    manageFolderButton = new QPushButton(QStringLiteral("文件夹管理"), folderGroupBox);
-    folderButtonRow->addWidget(addFolderButton);
-    folderButtonRow->addWidget(removeFolderButton);
-    folderButtonRow->addWidget(manageFolderButton);
-    folderLayout->addLayout(folderButtonRow);
-
-    QLabel *folderHint = new QLabel(
-        QStringLiteral("添加文件夹可以指向别的 Minecraft 根目录（例如另一个启动器的实例目录）。"),
-        folderGroupBox);
-    folderHint->setWordWrap(true);
-    folderLayout->addWidget(folderHint);
-    instanceLayout->addWidget(folderGroupBox);
-
-    // TODO: 实例列表（重命名 / 分组 / 每实例独立设置）落在这里。真机上实例数可以到
-    //       61 个，PCL 用 5 张卡片分组（PCL.ini 的 CardKey/CardValue）。
-    QLabel *instanceTodo = new QLabel(
-        QStringLiteral("实例列表、重命名与分组尚未实现；当前版本的启动与下载分别在"
-                       "「主页」和「下载」页。"),
-        instanceTab);
-    instanceTodo->setWordWrap(true);
-    instanceLayout->addWidget(instanceTodo);
-    instanceLayout->addStretch(1);
-
-    // ---------- 下载：从在线清单挑一个版本下载 ----------
+    // ---------- 下载：左 = 挑可安装的版本；右 = 版本列表 + 下载按钮 ----------
     QWidget *downloadTab = new QWidget(tabWidget);
     downloadTab->setObjectName(downloadTabName());
+    const TwoColumns download = buildTwoColumnPage(downloadTab, QStringLiteral("download"));
+    {
+        download.left.layout->addWidget(new QLabel(QStringLiteral("可安装版本"),
+                                                   download.left.widget));
 
-    QVBoxLayout *downloadPageLayout = new QVBoxLayout(downloadTab);
-    downloadPageLayout->setContentsMargins(kPageMargin, kPageMargin, kPageMargin, kPageMargin);
-    downloadPageLayout->setSpacing(12);
+        availableVersionCombo = new QComboBox(download.left.widget);
+        availableVersionCombo->setObjectName(availableVersionComboName());
+        availableVersionCombo->setPlaceholderText(QStringLiteral("正在获取在线版本列表..."));
+        availableVersionCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+        availableVersionCombo->setMinimumContentsLength(12);
+        availableVersionCombo->installEventFilter(new WheelGuard(availableVersionCombo));
+        download.left.layout->addWidget(availableVersionCombo);
 
-    QGroupBox *versionGroupBox = new QGroupBox(QStringLiteral("版本下载"), downloadTab);
-    QGridLayout *versionLayout = new QGridLayout(versionGroupBox);
-    versionLayout->setContentsMargins(9, 9, 9, 9);
-    versionLayout->setHorizontalSpacing(10);
-    versionLayout->setVerticalSpacing(10);
+        QLabel *downloadHint = new QLabel(
+            QStringLiteral("下载进度显示在窗口底部那条状态栏上。已经下过的版本会改成"
+                           "「校验并补齐」，不会从头重下。"),
+            download.left.widget);
+        downloadHint->setWordWrap(true);
+        download.left.layout->addWidget(downloadHint);
+        download.left.layout->addStretch(1);
+    }
+    {
+        QGroupBox *versionGroupBox = new QGroupBox(QStringLiteral("版本下载"),
+                                                   download.right.widget);
+        QVBoxLayout *versionLayout = new QVBoxLayout(versionGroupBox);
+        versionLayout->setContentsMargins(9, 9, 9, 9);
+        versionLayout->setSpacing(10);
 
-    QLabel *availableVersionLabel = new QLabel(QStringLiteral("可安装版本"), versionGroupBox);
-    availableVersionCombo = new QComboBox(versionGroupBox);
+        availableVersionList = new QListWidget(versionGroupBox);
+        availableVersionList->setObjectName(availableVersionListName());
+        availableVersionList->setUniformItemSizes(true);
+        versionLayout->addWidget(availableVersionList, 1);
 
-    availableVersionCombo->setObjectName(availableVersionComboName());
-    installedVersionCombo->setObjectName(installedVersionComboName());
-    availableVersionCombo->setPlaceholderText(QStringLiteral("正在获取在线版本列表..."));
-    availableVersionCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
-    availableVersionCombo->setMinimumContentsLength(16);
-    availableVersionCombo->installEventFilter(new WheelGuard(availableVersionCombo));
+        // 「下载版本」只吃自己的宽度，靠左贴在列表下面：它的作用对象就是列表里
+        // 选中的那一条，挨着列表比挨着上面的下拉框更说得通。
+        downloadButton = new QPushButton(QStringLiteral("下载版本"), versionGroupBox);
+        downloadButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+        downloadButton->setMinimumWidth(96);
+        versionLayout->addWidget(downloadButton, 0, Qt::AlignLeft);
+        download.right.layout->addWidget(versionGroupBox, 1);
+    }
 
-    // 「下载版本」只占一行、贴在可安装下拉框右边。Fixed 策略：它只吃自己的宽度
-    // （配合 setMinimumWidth 取 96），剩下的全给下拉框。
-    downloadButton = new QPushButton(QStringLiteral("下载版本"), versionGroupBox);
-    downloadButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-    downloadButton->setMinimumWidth(96);
-
-    //        列0 = 标签（按自身宽度）  列1 = 下拉框（吃满剩余宽度）  列2 = 下载按钮
-    versionLayout->addWidget(availableVersionLabel, 0, 0);
-    versionLayout->addWidget(availableVersionCombo, 0, 1);
-    versionLayout->addWidget(downloadButton, 0, 2);
-    versionLayout->setColumnStretch(0, 0);
-    versionLayout->setColumnStretch(1, 1);
-    versionLayout->setColumnStretch(2, 0);
-    // 下拉框是固定高度，多出来的竖直空间全丢给第 1 行（空行），这一行贴顶。
-    // QGridLayout 没有 addStretch()，setRowStretch() 到不存在的行是官方写法，
-    // 内部 expand() 会把行数撑到 r+1。
-    versionLayout->setRowStretch(1, 1);
-    downloadPageLayout->addWidget(versionGroupBox);
-
-    QLabel *downloadHint = new QLabel(
-        QStringLiteral("下载进度显示在窗口底部那条状态栏上。已经下过的版本会改成"
-                       "「校验并补齐」，不会从头重下。"),
-        downloadTab);
-    downloadHint->setWordWrap(true);
-    downloadPageLayout->addWidget(downloadHint);
-    downloadPageLayout->addStretch(1);
-
-    // ---------- 设置：账户与 Java ----------
+    // ---------- 设置：左 = 选项名称，右 = 选项内容 ----------
     QWidget *settingsTab = new QWidget(tabWidget);
     settingsTab->setObjectName(settingsTabName());
-
-    QVBoxLayout *settingsLayout = new QVBoxLayout(settingsTab);
-    settingsLayout->setContentsMargins(kPageMargin, kPageMargin, kPageMargin, kPageMargin);
-    settingsLayout->setSpacing(12);
-
-    QGroupBox *accountGroupBox = new QGroupBox(QStringLiteral("账户"), settingsTab);
-    QVBoxLayout *accountLayout = new QVBoxLayout(accountGroupBox);
-    accountLayout->setContentsMargins(9, 9, 9, 9);
-    accountLayout->setSpacing(10);
-    loginButton = new QPushButton(QStringLiteral("微软登录"), accountGroupBox);
-    loginButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-    loginButton->setMinimumWidth(120);
-    QLabel *accountHint = new QLabel(
-        QStringLiteral("登录后当前账户显示在窗口左下角。不登录也可以用「离线模式」启动。"),
-        accountGroupBox);
-    accountHint->setWordWrap(true);
-    accountLayout->addWidget(loginButton, 0, Qt::AlignLeft);
-    accountLayout->addWidget(accountHint);
-    settingsLayout->addWidget(accountGroupBox);
-
-    QGroupBox *javaGroupBox = new QGroupBox(QStringLiteral("Java 设置"), settingsTab);
-    QVBoxLayout *javaLayout = new QVBoxLayout(javaGroupBox);
-    javaLayout->setContentsMargins(9, 9, 9, 9);
-    // TODO: Java 路径 / 最大最小堆 / 全局额外启动参数的界面入口落在这里
-    //       （数据层 GlobalJavaSettings 早就有了，缺的只是这几个输入框）。
-    QLabel *javaTodo = new QLabel(
-        QStringLiteral("Java 路径、内存上限与全局额外启动参数目前只能改配置文件，"
-                       "界面入口尚未实现。"),
-        javaGroupBox);
-    javaTodo->setWordWrap(true);
-    javaLayout->addWidget(javaTodo);
-    settingsLayout->addWidget(javaGroupBox);
-    settingsLayout->addStretch(1);
+    setupSettingsPage(settingsTab);
 
     // NOTE: 顺序就是契约：homeTabIndex() == 0 靠的就是"主页第一个 addTab"。
     tabWidget->addTab(homeTab, QStringLiteral("主页"));
@@ -270,8 +368,218 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     setupBottomBar(centralWidget, mainLayout);
 
     // 空的菜单栏：窗口上那条菜单现在什么都没挂。
-    // TODO: 设置类入口（Java 设置 / 打开 .minecraft 目录 / 关于）挂这里。
+    // TODO: 菜单里放"打开 .minecraft 目录 / 关于"这类动作；设置项已经全部搬进
+    //       「设置」选项卡了（以前这上面挂着"做设置界面"的待办）。
     parent->setMenuBar(new QMenuBar(parent));
+}
+
+void MainWindowUI::setupSettingsPage(QWidget *page) {
+    // 设置项多起来之后一屏放不下（账户 / Java / 内存 / 启动后 / JVM 参数 / 下载源 /
+    // 版本名格式），所以套一层滚动区：窗口高度是固定的 620，不给滚动就等于把最后
+    // 那几项藏起来。
+    QScrollArea *scroll = new QScrollArea(page);
+    scroll->setObjectName(settingsScrollName());
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+
+    QWidget *form = new QWidget(scroll);
+    form->setObjectName(settingsFormName());
+
+    QGridLayout *grid = new QGridLayout(form);
+    grid->setContentsMargins(0, 0, 0, 0);
+    grid->setHorizontalSpacing(12);
+    grid->setVerticalSpacing(10);
+    // 「选项名称放左边、设置内容放右边」的比例就是这一对 3:7。
+    grid->setColumnStretch(0, leftColumnStretch());
+    grid->setColumnStretch(1, rightColumnStretch());
+    scroll->setWidget(form);
+
+    int row = 0;
+
+    // ---------- 账户 ----------
+    addSectionTitle(grid, row++, QStringLiteral("账户"), form);
+    {
+        QWidget *box = makeHintedControl(form);
+        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        loginButton = new QPushButton(QStringLiteral("微软登录"), box);
+        loginButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+        loginButton->setMinimumWidth(120);
+        boxLayout->addWidget(loginButton, 0, Qt::AlignLeft);
+        addHint(box, QStringLiteral("登录后当前账户显示在窗口左下角。不登录也可以用"
+                                    "「离线模式」启动（名字都是 Player）。"),
+                form);
+        addSettingRow(grid, row++, QStringLiteral("当前账户"), box, form);
+    }
+
+    // ---------- Java 版本 ----------
+    addSectionTitle(grid, row++, QStringLiteral("Java 版本"), form);
+    {
+        QWidget *box = makeHintedControl(form);
+        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        javaVersionCombo = new QComboBox(box);
+        javaVersionCombo->setObjectName(javaVersionComboName());
+        javaVersionCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+        javaVersionCombo->setMinimumContentsLength(12);
+        javaVersionCombo->installEventFilter(new WheelGuard(javaVersionCombo));
+        boxLayout->addWidget(javaVersionCombo);
+        javaPathLabel = new QLabel(box);
+        javaPathLabel->setObjectName(javaPathLabelName());
+        javaPathLabel->setWordWrap(true);
+        javaPathLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        boxLayout->addWidget(javaPathLabel);
+        addHint(box, QStringLiteral("「自动」是按版本要求挑（1.16.5 及以下要 Java 8、"
+                                    "26.x 要 Java 25，同一个启动器里得能共存）。"
+                                    "选了具体的 Java 就别指望它会替你换一个 —— "
+                                    "版本对不上会直接报错，不会静默换一个。"),
+                form);
+        addSettingRow(grid, row++, QStringLiteral("运行时"), box, form);
+    }
+
+    // ---------- 内存分配 ----------
+    addSectionTitle(grid, row++, QStringLiteral("内存分配"), form);
+    {
+        // 第一行是「自动 / 手动」的总开关。自动档下那两个数字框是**禁用**的 ——
+        // 它们显示的是刚算出来的建议值，让用户以为能改会变成"改了不生效"。
+        QWidget *box = makeHintedControl(form);
+        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        memoryAutoCheck = new QCheckBox(QStringLiteral("自动（按系统内存）"), box);
+        memoryAutoCheck->setObjectName(memoryAutoCheckName());
+        boxLayout->addWidget(memoryAutoCheck, 0, Qt::AlignLeft);
+        // 文字由 MainWindow 填（要说清系统总内存/当前可用/建议值），这里先给一句占位，
+        // 免得空标签把行高压成 0、布局跳一下。
+        memoryAutoHint = addDynamicHint(box, QStringLiteral("正在读取系统内存…"), form);
+        memoryAutoHint->setObjectName(memoryAutoHintName());
+        addSettingRow(grid, row++, QStringLiteral("分配方式"), box, form);
+    }
+    {
+        QWidget *box = makeHintedControl(form);
+        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        memoryMaxSpin = new QSpinBox(box);
+        memoryMaxSpin->setObjectName(memoryMaxSpinName());
+        memoryMaxSpin->setRange(memoryMaxMinMb(), memoryLimitMaxMb());
+        memoryMaxSpin->setSingleStep(memoryStepMb());
+        memoryMaxSpin->setSuffix(QStringLiteral(" MB"));
+        addInlineControl(boxLayout, memoryMaxSpin, kMemorySpinWidth);
+        addHint(box, QStringLiteral("给 JVM 的 -Xmx。模组多、整合包大就往上调；"
+                                    "机器内存不够时先降这一项。"),
+                form);
+        addSettingRow(grid, row++, QStringLiteral("最大内存"), box, form);
+    }
+    {
+        QWidget *box = makeHintedControl(form);
+        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        memoryMinSpin = new QSpinBox(box);
+        memoryMinSpin->setObjectName(memoryMinSpinName());
+        memoryMinSpin->setRange(memoryMinMinMb(), memoryLimitMaxMb());
+        memoryMinSpin->setSingleStep(memoryStepMb());
+        memoryMinSpin->setSuffix(QStringLiteral(" MB"));
+        addInlineControl(boxLayout, memoryMinSpin, kMemorySpinWidth);
+        addHint(box, QStringLiteral("给 JVM 的 -Xms。设成和最大内存一样可以少几次扩容，"
+                                    "但会一直占着那些内存。"),
+                form);
+        addSettingRow(grid, row++, QStringLiteral("最小内存"), box, form);
+    }
+
+    // ---------- 启动后 ----------
+    addSectionTitle(grid, row++, QStringLiteral("启动后"), form);
+    {
+        QWidget *box = makeHintedControl(form);
+        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        launcherBehaviourCombo = new QComboBox(box);
+        launcherBehaviourCombo->setObjectName(launcherBehaviourComboName());
+        launcherBehaviourCombo->installEventFilter(new WheelGuard(launcherBehaviourCombo));
+        boxLayout->addWidget(launcherBehaviourCombo);
+        addHint(box, QStringLiteral("游戏起来之后启动器自己怎么办。「收起」是把窗口藏起来、"
+                                    "进程还在（关掉进程会连带杀掉游戏）。"),
+                form);
+        addSettingRow(grid, row++, QStringLiteral("启动器行为"), box, form);
+    }
+
+    // ---------- JVM 参数 ----------
+    addSectionTitle(grid, row++, QStringLiteral("JVM 参数"), form);
+    {
+        QWidget *box = makeHintedControl(form);
+        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        extraJvmArgsEdit = new QPlainTextEdit(box);
+        extraJvmArgsEdit->setObjectName(extraJvmArgsEditName());
+        extraJvmArgsEdit->setPlaceholderText(QStringLiteral("-XX:+UseG1GC -XX:MaxGCPauseMillis=50"));
+        // 三四行就够：这一格放的是"顺手加的几条参数"，不是一整份命令行
+        extraJvmArgsEdit->setFixedHeight(72);
+        boxLayout->addWidget(extraJvmArgsEdit);
+
+        QWidget *buttonRow = new QWidget(box);
+        QHBoxLayout *buttonRowLayout = new QHBoxLayout(buttonRow);
+        buttonRowLayout->setContentsMargins(0, 0, 0, 0);
+        applyExtraJvmArgsButton = new QPushButton(QStringLiteral("应用"), buttonRow);
+        applyExtraJvmArgsButton->setObjectName(applyExtraJvmArgsButtonName());
+        applyExtraJvmArgsButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+        applyExtraJvmArgsButton->setMinimumWidth(72);
+        buttonRowLayout->addWidget(applyExtraJvmArgsButton);
+        buttonRowLayout->addStretch(1);
+        boxLayout->addWidget(buttonRow);
+
+        addHint(box, QStringLiteral("多条参数用空格分隔。改完点「应用」生效 —— "
+                                    "不边打字边存，免得打到一半的半条参数被写进配置。"
+                                    "按版本的那份写在 .minecraft/versions/<版本>/wtfml.meta "
+                                    "的 jvmArgs 里，排在全局之后（同一条以后写的为准）。"),
+                form);
+        addSettingRow(grid, row++, QStringLiteral("全局额外参数"), box, form);
+    }
+
+    // ---------- 下载源 ----------
+    addSectionTitle(grid, row++, QStringLiteral("下载源"), form);
+    {
+        QWidget *box = makeHintedControl(form);
+        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        downloadSourceCombo = new QComboBox(box);
+        downloadSourceCombo->setObjectName(downloadSourceComboName());
+        downloadSourceCombo->installEventFilter(new WheelGuard(downloadSourceCombo));
+        boxLayout->addWidget(downloadSourceCombo);
+        addHint(box, QStringLiteral("镜像源是第三方服务（BMCLAPI），国内通常快很多。"
+                                    "下回来的文件不对时可以换回官方源重下。"),
+                form);
+        addSettingRow(grid, row++, QStringLiteral("来源"), box, form);
+    }
+
+    // ---------- 版本名格式 ----------
+    addSectionTitle(grid, row++, QStringLiteral("版本名格式"), form);
+    {
+        QWidget *box = makeHintedControl(form);
+        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+
+        QWidget *checks = new QWidget(box);
+        QGridLayout *checkLayout = new QGridLayout(checks);
+        checkLayout->setContentsMargins(0, 0, 0, 0);
+        checkLayout->setHorizontalSpacing(12);
+        checkLayout->setVerticalSpacing(4);
+        versionNameCustomCheck = new QCheckBox(QStringLiteral("自定义名"), checks);
+        versionNameCustomCheck->setObjectName(versionNameCustomCheckName());
+        versionNameRealCheck = new QCheckBox(QStringLiteral("版本名"), checks);
+        versionNameRealCheck->setObjectName(versionNameRealCheckName());
+        versionNameLoaderCheck = new QCheckBox(QStringLiteral("加载器名"), checks);
+        versionNameLoaderCheck->setObjectName(versionNameLoaderCheckName());
+        versionNameLoaderVersionCheck = new QCheckBox(QStringLiteral("加载器版本"), checks);
+        versionNameLoaderVersionCheck->setObjectName(versionNameLoaderVersionCheckName());
+        checkLayout->addWidget(versionNameCustomCheck, 0, 0);
+        checkLayout->addWidget(versionNameRealCheck, 0, 1);
+        checkLayout->addWidget(versionNameLoaderCheck, 1, 0);
+        checkLayout->addWidget(versionNameLoaderVersionCheck, 1, 1);
+        checkLayout->setColumnStretch(2, 1);
+        boxLayout->addWidget(checks);
+
+        addHint(box, QStringLiteral("上面这些名字是按「自定义名-实际版本-加载器名-加载器版本」"
+                                    "拼出来的，勾掉哪一项哪一段就不显示。"
+                                    "数据来自 .minecraft/versions/<版本>/wtfml.meta。"),
+                form);
+        addSettingRow(grid, row++, QStringLiteral("显示哪些字段"), box, form);
+    }
+
+    // 剩下的竖直空间留在底部：设置项不跟着窗口高度一起被拉长
+    grid->setRowStretch(row, 1);
+
+    QVBoxLayout *pageLayout = new QVBoxLayout(page);
+    pageLayout->setContentsMargins(kPageMargin, kPageMargin, kPageMargin, kPageMargin);
+    pageLayout->addWidget(scroll);
 }
 
 void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {

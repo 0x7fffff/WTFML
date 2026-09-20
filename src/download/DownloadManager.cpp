@@ -20,6 +20,63 @@
 #include "../launcher/LibraryRules.hpp"
 #include "../util/AppPaths.hpp"
 
+namespace {
+
+/// Mojang 官方的版本清单地址。
+constexpr char kOfficialVersionManifest[] =
+    "https://launchermeta.mojang.com/mc/game/version_manifest.json";
+
+/// 镜像源（BMCLAPI，第三方服务）的基址。
+constexpr char kMirrorBase[] = "https://bmclapi2.bangbang93.com";
+
+}  // namespace
+
+QString DownloadManager::mirrorUrl(const QString &officialUrl) {
+    const QUrl url(officialUrl);
+    const QString host = url.host();
+    const QString path = url.path();
+
+    // 版本清单：BMCLAPI 的路径形状和官方**完全一样**，换 host 即可。
+    if (host == QLatin1String("launchermeta.mojang.com")) {
+        return QLatin1String(kMirrorBase) + path;
+    }
+    // 资源对象：官方 /ab/abcdef...（前两位是子目录名）→ 镜像 /assets/ab/abcdef...
+    if (host == QLatin1String("resources.download.minecraft.net")) {
+        return QLatin1String(kMirrorBase) + QStringLiteral("/assets") + path;
+    }
+    // 库文件：官方就是标准 maven 布局 /com/foo/bar/1.0/bar-1.0.jar → 镜像 /maven/...
+    if (host == QLatin1String("libraries.minecraft.net")) {
+        return QLatin1String(kMirrorBase) + QStringLiteral("/maven") + path;
+    }
+    // 认不出来就原样返回（理由见头文件）。
+    return officialUrl;
+}
+
+QString DownloadManager::mirrorVersionJsonUrl(const QString &versionId) {
+    return QLatin1String(kMirrorBase) + QStringLiteral("/version/") + versionId +
+           QStringLiteral("/json");
+}
+
+QString DownloadManager::mirrorClientJarUrl(const QString &versionId) {
+    // NOTE: 官方地址里的那个 sha1 在这里用不上 —— 镜像不按 sha1 存，按版本号。
+    //       文件本身的校验没丢：downloadFile() 照样拿 version.json 里的 sha1 比。
+    return QLatin1String(kMirrorBase) + QStringLiteral("/version/") + versionId +
+           QStringLiteral("/client");
+}
+
+QString DownloadManager::mirrorAssetIndexUrl(const QString &assetIndexId) {
+    return QLatin1String(kMirrorBase) + QStringLiteral("/indexes/") + assetIndexId +
+           QStringLiteral(".json");
+}
+
+QString DownloadManager::officialVersionManifestUrl() {
+    return QString::fromLatin1(kOfficialVersionManifest);
+}
+
+QString DownloadManager::endpoint(const QString &officialUrl) const {
+    return m_useMirror ? mirrorUrl(officialUrl) : officialUrl;
+}
+
 DownloadManager::DownloadManager(QObject *parent)
     : QObject(parent), networkManager(new QNetworkAccessManager(this)), pendingDownloads(0) {
     // 为信号注册元类型
@@ -44,7 +101,7 @@ DownloadManager::~DownloadManager() {
 }
 
 void DownloadManager::fetchVersionManifest() {
-    QUrl url("https://launchermeta.mojang.com/mc/game/version_manifest.json");
+    QUrl url(endpoint(officialVersionManifestUrl()));
     QNetworkRequest request(url);
     // 元数据请求也要有超时：下载期间 UI 会禁用按钮，卡死的连接会让它永远禁用下去。
     request.setTransferTimeout(30000);
@@ -67,8 +124,13 @@ QString DownloadManager::getLatestVersion(const QString &type) const {
 void DownloadManager::fetchVersionJson(const QString &versionId) {
     for (const MinecraftVersion &version : availableVersions) {
         if (version.id == versionId) {
-            QUrl url(version.url);
-            QNetworkRequest request(url);
+            // 镜像源下要拿版本号重拼（官方那条 URL 里的 sha1 镜像不认），所以这里
+            // 用不上 version.url。
+            const QString effectiveUrl =
+                m_useMirror ? mirrorVersionJsonUrl(versionId) : version.url;
+            // 具名 QUrl：`QUrl url(effectiveUrl);` 会被当成函数声明（最令人烦恼的解析）
+            const QUrl versionQUrl(effectiveUrl);
+            QNetworkRequest request(versionQUrl);
             request.setTransferTimeout(30000);
             QNetworkReply *reply = networkManager->get(request);
             connect(reply, &QNetworkReply::finished, this,
@@ -231,7 +293,9 @@ void DownloadManager::downloadLibraries(const QList<Library> &libraries, const Q
         QDir().mkpath(QFileInfo(destPath).absolutePath());
         // 空 url 交给 downloadFile 记一笔失败：这种库缺了游戏必然起不来，
         // 静默跳过会让"下载完成"变成谎话。
-        downloadFile(lib.url, destPath, lib.sha1, lib.size, VerifyMode::SizeAndSha1);
+        // 这里经 endpoint() 过一道：Mojang 自家 libraries.minecraft.net 上的库走镜像，
+        // 别的 maven（Forge/Fabric）不在 BMCLAPI 的代理范围里，endpoint() 会原样返回。
+        downloadFile(endpoint(lib.url), destPath, lib.sha1, lib.size, VerifyMode::SizeAndSha1);
     }
 }
 
@@ -251,7 +315,17 @@ void DownloadManager::downloadAssets(const AssetIndex &assetIndex, const QString
 
     // NOTE: 索引文件必须无条件重取（走不了"已存在就跳过"）。Mojang 修订索引后
     // SHA1 和 objects 都会变，只按存在性判断会永远沿用旧索引，新资源一个都下不到。
-    QNetworkRequest request(QUrl(assetIndex.url));
+    //
+    // 镜像源下按索引号重拼。这一条映射是整套镜像里最没把握的一个（/indexes/<id>.json），
+    // 但拼错了会"响亮地失败"而不是静默出错数据：下面的 expectedSha1s 拿官方 sha1 校验，
+    // 内容不对就是一条 SHA1 mismatch 的失败清单。
+    const QString indexUrl = m_useMirror ? mirrorAssetIndexUrl(assetIndex.id) : assetIndex.url;
+    // NOTE: 这几个 URL 先落到具名的 QUrl 变量上，不写 `QNetworkRequest request(QUrl(x))`：
+    //       那一行会被编译器当成函数声明（最令人烦恼的解析）—— 它读成"形参名叫 x 的
+    //       QUrl 类型参数"，于是 request 成了函数名。原来那句能编过只是因为括号里
+    //       是 `assetIndex.url` 这种带点的表达式，没法当形参名。
+    const QUrl indexQUrl(indexUrl);
+    QNetworkRequest request(indexQUrl);
     request.setTransferTimeout(30000);
     QNetworkReply *indexReply = networkManager->get(request);
     activeDownloads[indexReply] = indexPath;
@@ -358,7 +432,10 @@ void DownloadManager::parseAndDownloadAssets(const QString &indexPath) {
         QString subfolder = hash.left(2);
         QString assetPath = objectsPath + "/" + subfolder + "/" + hash;
 
-        QString assetUrl = "https://resources.download.minecraft.net/" + subfolder + "/" + hash;
+        // 官方地址拼出来再经 endpoint() 落到实际源上 —— 两边的路径形状不一样
+        // （镜像多了 /assets 前缀），换算规则只写一份，就在 mirrorUrl() 里。
+        const QString assetUrl = endpoint(QStringLiteral("https://resources.download.minecraft.net/") +
+                                          subfolder + QStringLiteral("/") + hash);
         QDir().mkpath(QFileInfo(assetPath).absolutePath());
         // 文件名就是 SHA1，所以只按存在性判断：assets 目录已经 3 GB 出头，
         // 每次点下载都把 5000 多个对象重新哈希一遍会让界面卡死好几秒。
@@ -366,9 +443,12 @@ void DownloadManager::parseAndDownloadAssets(const QString &indexPath) {
     }
 }
 
-void DownloadManager::downloadClientJar(const QString &url, const QString &destinationPath,
-                                        const QString &expectedSha1, qint64 expectedSize) {
-    downloadFile(url, destinationPath, expectedSha1, expectedSize, VerifyMode::SizeAndSha1);
+void DownloadManager::downloadClientJar(const QString &versionId, const QString &url,
+                                        const QString &destinationPath, const QString &expectedSha1,
+                                        qint64 expectedSize) {
+    const QString effectiveUrl = m_useMirror ? mirrorClientJarUrl(versionId) : url;
+    downloadFile(effectiveUrl, destinationPath, expectedSha1, expectedSize,
+                 VerifyMode::SizeAndSha1);
 }
 
 bool DownloadManager::verifyFileSha1(const QString &filePath, const QString &expectedSha1) {

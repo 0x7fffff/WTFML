@@ -94,6 +94,49 @@ public:
     explicit DownloadManager(QObject *parent = nullptr);
     ~DownloadManager();
 
+    // ------------------------------------------------------------------
+    // 下载源：官方 / 镜像
+    // ------------------------------------------------------------------
+    // 界面那边是「下载源」下拉框（LauncherSettings::DownloadSource，存 QSettings），
+    // 这里只留一个布尔：DownloadManager 不需要知道这个设定存在哪、怎么持久化。
+    // 设置是**发请求那一刻**读的，所以改完立刻对下一次下载生效，不用重建对象。
+
+    /// @param useMirror true = 走镜像源（BMCLAPI，第三方服务）。
+    void setUseMirror(bool useMirror) { m_useMirror = useMirror; }
+    bool useMirror() const { return m_useMirror; }
+
+    // ------------------------------------------------------------------
+    // 官方地址 → 镜像地址。**纯函数**，不碰成员、不发请求，验证工程直接测它们。
+    // ------------------------------------------------------------------
+    // 为什么要三个专门的函数、而不是一个"换 host"的：BMCLAPI 对一部分资源用了
+    // 完全不同的路径形状，必须拿**版本号 / 索引号**重拼。
+    //   piston-meta 的 /v1/packages/<sha1>/<id>.json → /version/<id>/json（或 /indexes/<id>.json）
+    //   piston-data 的 /v1/objects/<sha1>/client.jar → /version/<id>/client
+    // 而这三处的 sha1 在地址里、id 在调用方手上，光看 URL 分不出是版本 JSON 还是
+    // 资源索引（两者形状一模一样，只能靠上下文区分是哪个 id）。
+
+    /// 把一条**地址自带身份**的官方地址换成镜像地址。
+    /// @param officialUrl 官方地址（版本清单 / 资源对象 / 库文件）。
+    /// @return 镜像地址；**认不出来的地址原样返回**。
+    ///
+    /// 认不出来就原样返回是刻意的：宁可这一条走官方，也别拼一个不存在的镜像地址出来
+    /// ——拼错的表现是"下载全失败"，比"有一部分没走镜像"难查得多。真机上会走到这条
+    /// 分支的有 Forge/Fabric 的库（maven.minecraftforge.net / maven.fabricmc.net），
+    /// BMCLAPI 本来就不代理它们。
+    static QString mirrorUrl(const QString &officialUrl);
+
+    /// 版本 JSON：官方是 /v1/packages/<sha1>/<id>.json，镜像按版本号取。
+    static QString mirrorVersionJsonUrl(const QString &versionId);
+
+    /// 客户端 jar：官方是 /v1/objects/<sha1>/client.jar，镜像按版本号取。
+    static QString mirrorClientJarUrl(const QString &versionId);
+
+    /// 资源索引 JSON：官方是 /v1/packages/<sha1>/<id>.json，镜像按索引号取。
+    static QString mirrorAssetIndexUrl(const QString &assetIndexId);
+
+    /// 版本清单的官方地址。
+    static QString officialVersionManifestUrl();
+
     // 版本列表操作
     void fetchVersionManifest();
     QList<MinecraftVersion> getAvailableVersions() const;
@@ -112,8 +155,11 @@ public:
                       VerifyMode mode = VerifyMode::SizeAndSha1);
     void downloadLibraries(const QList<Library> &libraries, const QString &basePath);
     void downloadAssets(const AssetIndex &assetIndex, const QString &basePath);
-    void downloadClientJar(const QString &url, const QString &destinationPath,
-                           const QString &expectedSha1, qint64 expectedSize = -1);
+    /// @param versionId 版本号。镜像源下客户端 jar 是**按版本号**取的
+    ///        （官方是按 sha1 取），所以这个参数是必需的，不能只给 URL。
+    void downloadClientJar(const QString &versionId, const QString &url,
+                           const QString &destinationPath, const QString &expectedSha1,
+                           qint64 expectedSize = -1);
 
     // 批次记账。beginBatch() / endBatch() 之间的所有下载被看作一批，
     // 整批结束时 allDownloadsFinished 只会发射一次；两者之间不允许提前 return，
@@ -168,6 +214,12 @@ private:
     bool m_batchEmitted = false;
     // 析构时 abort() 可能同步回调进 finished 处理函数，用它挡住
     bool m_shuttingDown = false;
+    // 下载源。false = 官方（默认，也是加这一项之前的行为）。
+    bool m_useMirror = false;
+
+    /// 按当前下载源把一条**地址自带身份**的官方地址落到实际请求的地址上。
+    /// （按版本号/索引号拼的那几处走 mirrorVersionJsonUrl() 之类的函数，不经过这里。）
+    QString endpoint(const QString &officialUrl) const;
 
     void startDownload(const QUrl &url, const QString &destinationPath,
                        const QString &expectedSha1 = QString());

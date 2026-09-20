@@ -119,6 +119,8 @@ void VersionManager::fetchVersionDetails(const QString &versionId) {
 
 bool VersionManager::isDownloading() const { return downloadManager->isBusy(); }
 
+void VersionManager::setUseMirror(bool useMirror) { downloadManager->setUseMirror(useMirror); }
+
 void VersionManager::downloadVersion(const QString &versionId, const QString &destinationPath) {
     // NOTE: 这两道早退必须在 beginBatch() 之前。beginBatch() 与 endBatch() 之间
     // 不允许有任何提前 return —— 一旦漏掉 endBatch()，m_batchOpen 就永远是 true，
@@ -169,7 +171,8 @@ void VersionManager::downloadVersion(const QString &versionId, const QString &de
             const QString jarPath = destinationPath + "/" + versionId + ".jar";
             // 带上 size：重新点下载时先比字节数，对得上才算"已经下过"，
             // 省掉一次 41 MB 的全文件哈希。
-            downloadManager->downloadClientJar(url, jarPath, sha1, size);
+            // 版本号要一起传：镜像源下客户端 jar 是按版本号取的，不是按 sha1。
+            downloadManager->downloadClientJar(versionId, url, jarPath, sha1, size);
         }
     }
 
