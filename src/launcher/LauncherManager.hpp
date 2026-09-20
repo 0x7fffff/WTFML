@@ -64,6 +64,11 @@ public:
      *        来自 VersionManager::versionJvmArgs()。插在全局
      *        GlobalJavaSettings::extraJvmArgs() **之后** —— JVM 参数后写的胜出，
      *        所以单个实例能盖掉全局默认那套（例如全局写死了 -XX:+UseG1GC）。
+     * @param playerName 玩家名，写进 --username。离线与正版两条分支**都用这一个来源**
+     *        （调用方传 AuthManager::playerName()）—— 以前两条分支各写各的：正版写死
+     *        "Player"，离线是 "Player" 拼一个时间戳。空 = 调用方没给（测试、未登录），
+     *        退回默认名。**不能发一个空的 --username 给游戏**，那样游戏会拒绝启动，
+     *        所以空值是"退回默认"而不是"原样传下去"。
      * @return 返回 JVM 参数列表。
      *
      * NOTE: 调用方传 javaMajorVersion <= 0（未传）时，按"不知道是哪个 Java"处理：
@@ -74,7 +79,8 @@ public:
                                      const QString &assetIndexId, const QJsonObject &versionJson,
                                      const GlobalJavaSettings &settings,
                                      bool offlineMode = false, int javaMajorVersion = 0,
-                                     const QStringList &versionJvmArgs = QStringList()) const;
+                                     const QStringList &versionJvmArgs = QStringList(),
+                                     const QString &playerName = QString()) const;
 
     /**
      * @brief 启动 Minecraft 游戏进程。

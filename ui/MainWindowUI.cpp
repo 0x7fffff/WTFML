@@ -296,16 +296,17 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
 
     // ---------- 左：头像 + 用户名 ----------
     // 真正的手绘皮肤头像要等 Minecraft profile API（登录流程现在只存了令牌，没取
-    // 玩家档案），这里先画一块"首字母圆牌"。颜色同样取自调色板，不写死。
+    // 玩家档案），这里先画一块"首字母方块"。颜色同样取自调色板，不写死。
+    // NOTE: 刻意**不加 border-radius** —— 这块是方的。真皮肤头像是 8x8 的方块贴图，
+    //       方形底比圆形底更接近它以后的样子。
     avatarLabel = new QLabel(QStringLiteral("?"), bottomBar);
     avatarLabel->setObjectName(avatarLabelName());
     avatarLabel->setFixedSize(32, 32);
     avatarLabel->setAlignment(Qt::AlignCenter);
     const QColor avatarBackground = bottomBar->palette().color(QPalette::Highlight);
     const QColor avatarForeground = bottomBar->palette().color(QPalette::HighlightedText);
-    avatarLabel->setStyleSheet(
-        QStringLiteral("QLabel { background-color: %1; color: %2; border-radius: 16px; }")
-            .arg(avatarBackground.name(), avatarForeground.name()));
+    avatarLabel->setStyleSheet(QStringLiteral("QLabel { background-color: %1; color: %2; }")
+                                   .arg(avatarBackground.name(), avatarForeground.name()));
 
     accountLabel = new QLabel(QStringLiteral("?"), bottomBar);
     accountLabel->setObjectName(accountLabelName());
@@ -332,8 +333,16 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     progressLayout->setSpacing(2);
     progressLayout->addWidget(statusLabel);
     progressLayout->addWidget(progressBar);
-    // 拉伸因子 1：左右两格按自身宽度，中间这一格吃掉所有富余宽度
-    barLayout->addLayout(progressLayout, 1);
+    // 富余宽度**不完全**给中间那格：以前左右两格按自身宽度、中间那格吃掉全部富余，
+    // 900 px 的窗口下进度条横跨大半个底栏（实测 789 px，占底栏 88%），太长了。
+    // 现在拉伸因子写成 4 : 1 : 1 —— 中间那格拿 4/(1+4+1) = 2/3 的富余宽度
+    // （实测 526 px = 789 的 2/3），左右各一份空档各自留白，所以它仍然居中，
+    // 窗口拉宽时按同样比例跟着长。
+    // NOTE: 别把中间那格写成 2 —— Qt 分配富余宽度是按拉伸因子直接切那个池子的，
+    //       不是"先满足最小宽度再分剩下的"，2:1:1 拿到的是 1/2 而不是 2/3。
+    barLayout->addStretch(1);
+    barLayout->addLayout(progressLayout, 4);
+    barLayout->addStretch(1);
     // 一开始什么都没在下：整格藏起来（"没在下载就看不见进度条"）
     statusLabel->hide();
     progressBar->hide();
