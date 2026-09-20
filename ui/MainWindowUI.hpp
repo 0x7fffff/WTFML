@@ -6,13 +6,17 @@
  * @note 实现界面与业务逻辑的分离，提高代码可维护性。
  *
  * 窗口结构自 2026-09 起是：顶部 QTabWidget（主页 / 实例 / 下载 / 设置）+
- * 底部一条通栏状态条（左：头像与用户名；中：启动/下载进度；右：实例运行状态）。
+ * 底部一条通栏状态条（左：实例运行状态；中：启动/下载进度；右：头像与用户名）。
  * 原先的「日志输出」面板已经去掉 —— 日志走 Qt 的日志系统，在命令行里看。
  *
- * 四个选项卡**都是左右两栏 3:7**（仿 PCL）：左栏是要操作的那点东西（选版本、按钮），
+ * 四个选项卡**都是左右两栏**（仿 PCL）：左栏是要操作的那点东西（选版本、按钮），
  * 右栏是列表或一整摊设置项。前三个（主页/实例/下载）由 buildTwoColumnPage() 搭出**真控件**，
- * 比例取自 leftColumnStretch()/rightColumnStretch()；「设置」页是一张两列的 QGridLayout，
- * 用同一对份数表达比例（栏不是控件）。界面和验证工程都引这一对份数，不各写一份。
+ * 比例取自 leftColumnStretch(tab)/rightColumnStretch(tab)；「设置」页是一张两列的
+ * QGridLayout，用默认那一对份数（3:7）表达比例（栏不是控件）。界面和验证工程都引这几对
+ * 份数，不各写一份。
+ *
+ * NOTE: 比例**按页不同** —— 实例页/下载页是默认的"左 3 右 7"，主页是"左 7 右 3"
+ *       （见 leftColumnIsWider()）。
  */
 
 #pragma once
@@ -47,7 +51,6 @@ public:
     // 拿显示内容当身份标识的测试会在产品改动时以看不懂的方式挂掉。
     static QString installedVersionComboName() { return QStringLiteral("installedVersionCombo"); }
     static QString availableVersionComboName() { return QStringLiteral("availableVersionCombo"); }
-    static QString installedVersionListName() { return QStringLiteral("installedVersionList"); }
     static QString availableVersionListName() { return QStringLiteral("availableVersionList"); }
     static QString folderListName() { return QStringLiteral("folderList"); }
     static QString instanceListName() { return QStringLiteral("instanceList"); }
@@ -67,7 +70,7 @@ public:
 
     // ---------- 左右两栏（主页/实例/下载三页用；设置页是两列 grid） ----------
     // 栏是**真的控件**（不是裸布局）：这样才能按 objectName 找回来量几何、
-    // 也才能在验证工程里断言"3:7"这条比例。
+    // 也才能在验证工程里断言左右两栏的份数（每一页各自的那一对）。
     //
     // NOTE: 只有前三个选项卡用 buildTwoColumnPage() 搭出这两个栏控件；「设置」页是
     //       一张两列的 QGridLayout（选项名称在列 0、控件在列 1），栏没有对应的控件，
@@ -81,12 +84,30 @@ public:
     static QString rightColumnName(const QString &tab) {
         return tab + QStringLiteral("RightColumn");
     }
-    /// 左栏占的份数。左:右 = 3:7。
+    /// 默认那一套份数：左 3 右 7。实例页/下载页，以及设置页那张两列表格都用它。
     static int leftColumnStretch() { return 3; }
-    /// 右栏占的份数。
+    /// 右栏占的份数（默认那一套）。
     static int rightColumnStretch() { return 7; }
-    /// 右栏在页面上是不是真的更宽（验证工程拿它当"3:7 生效了"的判据）。
+    /// 右栏在页面上是不是真的更宽（验证工程拿它当"默认的 3:7 生效了"的判据）。
     static bool rightColumnIsWider() { return rightColumnStretch() > leftColumnStretch(); }
+
+    /// 这一页是不是"左宽右窄"。
+    /// @param tab "home" / "instance" / "download"。
+    ///
+    /// 只有主页是。主页的右栏现在**空着**（原来那张「版本列表」已经去掉 —— 实例页右边
+    /// 已经有一张同样数据的列表了，主页那张是把同一件事说两遍），所以宽度让给左边的
+    /// "选版本 + 启动"那两样。另外两页的左栏仍是"只放选一个"的窄栏。
+    static bool leftColumnIsWider(const QString &tab) {
+        return tab == QStringLiteral("home");
+    }
+    /// 某一页左栏占的份数：主页把默认那一对**对调**过来用（7:3）。
+    static int leftColumnStretch(const QString &tab) {
+        return leftColumnIsWider(tab) ? rightColumnStretch() : leftColumnStretch();
+    }
+    /// 某一页右栏占的份数（见 leftColumnStretch(const QString&)）。
+    static int rightColumnStretch(const QString &tab) {
+        return leftColumnIsWider(tab) ? leftColumnStretch() : rightColumnStretch();
+    }
 
     // ---------- 设置页 ----------
     static QString settingsScrollName() { return QStringLiteral("settingsScroll"); }
@@ -132,12 +153,12 @@ public:
     static QString noInstalledVersionPlaceholder() { return QStringLiteral("暂无已安装版本"); }
     static QString chooseVersionPlaceholder() { return QStringLiteral("请选择一个版本"); }
 
-    // ---------- 底栏右下角"实例运行中"那行的正文 ----------
+    // ---------- 底栏左下角"实例运行中"那行的正文 ----------
     // 放在这里当唯一出处：MainWindow 拿它填文字，验证工程拿它做断言，两边不会写歪。
     static QString runStateRunningText() { return QStringLiteral("实例运行中"); }
 
     // ---------- 选项卡下标 ----------
-    // 底栏右侧的显示规则要知道"当前是不是在启动界面（主页）"：在主页且选中的就是
+    // 底栏左侧的显示规则要知道"当前是不是在启动界面（主页）"：在主页且选中的就是
     // 正在跑的那个实例时只显示一行，否则加第二行说明是哪个实例。
     static int homeTabIndex() { return 0; }
     /// 「设置」页的下标。用来做"第一次切到设置页才扫 Java"这条懒加载。
@@ -145,7 +166,7 @@ public:
     /// 当前显示的选项卡是不是主页（即"启动界面"）。
     bool isHomeTabCurrent() const;
 
-    /// 底栏右下角要不要显示第二行（正在跑的那个实例的名字）。
+    /// 底栏左下角要不要显示第二行（正在跑的那个实例的名字）。
     /// @param homeTabCurrent 当前是不是停在主页（启动界面）。
     /// @param selectedVersionId "已安装版本"下拉框当前选中的版本号（没选是空串）。
     /// @param runningVersionId 正在运行的版本号（没有实例在跑是空串）。
@@ -182,9 +203,10 @@ public:
     //   availableVersionCombo —— 在线清单里可下载的版本，在「下载」页，下载用它
     QComboBox *getInstalledVersionCombo() const { return installedVersionCombo; }
     QComboBox *getAvailableVersionCombo() const { return availableVersionCombo; }
-    // 两个列表和两个下拉框是同一份数据的两种看法（条目文本也是同一套显示名），
-    // 选中项双向同步：点列表 = 在下拉框里选中它，反之亦然。
-    QListWidget *getInstalledVersionList() const { return installedVersionList; }
+    // 剩下的两张列表和它们各自的下拉框是同一份数据的两种看法（条目文本也是同一套
+    // 显示名），选中项双向同步：点列表 = 在下拉框里选中它，反之亦然。
+    //   availableVersionList —— 下载页右边（「版本下载」那一组里）
+    //   instanceList        —— 实例页右边，见上面 getInstanceList()
     QListWidget *getAvailableVersionList() const { return availableVersionList; }
 
     // 设置页的控件。**只搭出来、只负责显隐**，值由 MainWindow 灌（它才知道
@@ -213,7 +235,7 @@ public:
     // 进度只出现在底栏中间那一格，不进日志（旧版是钉在 QStatusBar 上的）
     QProgressBar *getProgressBar() const { return progressBar; }
     QLabel *getStatusLabel() const { return statusLabel; }
-    // 底栏右侧：第一行是状态正文，第二行是实例名（只在需要区分时显示）
+    // 底栏左侧：第一行是状态正文，第二行是实例名（只在需要区分时显示）
     QLabel *getRunStateLabel() const { return runStateLabel; }
     QLabel *getRunStateDetailLabel() const { return runStateDetailLabel; }
 
@@ -221,7 +243,8 @@ private:
     void setupUi(QMainWindow *parent);
     /// 搭设置页：滚动区里一张两列表格，列 0 是选项名称、列 1 是控件（3:7）。
     void setupSettingsPage(QWidget *page);
-    /// 搭底部那条通栏状态条（左：头像/用户名，中：进度，右：实例运行状态）。
+    /// 搭底部那条通栏状态条（左：实例运行状态，中：进度，右：头像/用户名 ——
+    /// 2026-09 把左右两格对调过，见 .cpp 里的说明）。
     void setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout);
 
     // 控件指针
@@ -236,7 +259,6 @@ private:
     QLabel *instanceFolderLabel;
     QComboBox *installedVersionCombo;
     QComboBox *availableVersionCombo;
-    QListWidget *installedVersionList;
     QListWidget *availableVersionList;
     QComboBox *javaVersionCombo;
     QLabel *javaPathLabel;

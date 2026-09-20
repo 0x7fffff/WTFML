@@ -64,7 +64,7 @@ private:
     void updateJavaPathLabel();
     /// 把归一化之后的「版本名格式」开关回灌到四个勾选框上（内部挡信号）。
     void pushVersionNameOptionsToUi(const VersionNameOptions &options);
-    /// 选项卡切换：底栏右下角要不要显示实例名、以及要不要扫 Java，都在这里收口。
+    /// 选项卡切换：底栏左下角要不要显示实例名、以及要不要扫 Java，都在这里收口。
     void onMainTabChanged();
     void onJavaSelectionChanged();
     /// 把「内存分配」那一行画成当前状态：自动档按**现在**的系统内存重算并落盘、禁用两个
@@ -113,7 +113,7 @@ private:
     // 名单每次刷新（清单到达、下载完成）都调它就会变成"用户手选完又被抢回去"。
     // 记着的那个版本已经不在磁盘上时留空不选，占位文案会说明该怎么选。
     void restoreLastLaunchedVersion();
-    // 下载期间禁用"启动游戏""下载版本"、两个版本下拉框和两张版本列表，并把底栏中间
+    // 下载期间禁用"启动游戏""下载版本"、两个版本下拉框和两张列表，并把底栏中间
     // 那格的进度条切成"正在准备下载"的不确定态。进度条和底栏的显隐不在这里定
     // （取决于"在下载"和"在启动"两条），统一由 updateBottomBar() 说了算。
     void setDownloadUiBusy(bool busy);

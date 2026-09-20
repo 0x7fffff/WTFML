@@ -365,21 +365,13 @@ void MainWindow::setupConnections() {
     connect(m_ui->getInstalledVersionCombo(), &QComboBox::currentIndexChanged, this,
             [this] {
                 updateStartButtonText();
-                // 底栏右下角那条状态要看"选中的是不是正在跑的那个实例"，
+                // 底栏左下角那条状态要看"选中的是不是正在跑的那个实例"，
                 // 所以换版本也得跟着刷一遍。
                 updateBottomBar();
-                // 两张列表都是同一份数据的另一种看法，跟着一起亮。
-                syncListToCombo(m_ui->getInstalledVersionCombo(),
-                                m_ui->getInstalledVersionList());
+                // 实例页右边那张列表是同一份数据的另一种看法，跟着一起亮。
                 syncListToCombo(m_ui->getInstalledVersionCombo(), m_ui->getInstanceList());
             });
     // 列表 → 下拉框。点列表里的一行 = 在上面把它选中（用户要求的行为）。
-    connect(m_ui->getInstalledVersionList(), &QListWidget::currentItemChanged, this,
-            [this] {
-                syncComboToList(m_ui->getInstalledVersionCombo(),
-                                m_ui->getInstalledVersionList());
-            });
-    // 实例页右边那张列表同理：点一下等于在主页把它选中。
     connect(m_ui->getInstanceList(), &QListWidget::currentItemChanged, this, [this] {
         syncComboToList(m_ui->getInstalledVersionCombo(), m_ui->getInstanceList());
     });
@@ -426,7 +418,7 @@ void MainWindow::setupConnections() {
     connect(m_ui->getVersionNameLoaderVersionCheck(), &QCheckBox::toggled, this,
             nameOptionChanged);
 
-    // 选项卡切换：底栏右下角的显示规则依赖"当前是不是在主页"，切页就得重算；
+    // 选项卡切换：底栏左下角的显示规则依赖"当前是不是在主页"，切页就得重算；
     // 第一次切到设置页还要顺带扫一遍 Java。
     connect(m_ui->getTabWidget(), &QTabWidget::currentChanged, this,
             &MainWindow::onMainTabChanged);
@@ -463,10 +455,10 @@ void MainWindow::setDownloadUiBusy(bool busy) {
     // 实际在下的却是 B"这种事发生，免得看的人误判。
     m_ui->getInstalledVersionCombo()->setEnabled(!busy);
     m_ui->getAvailableVersionCombo()->setEnabled(!busy);
-    // 三张列表是同一份数据的另一种看法，也一起灰掉：不然用户能在列表里点来点去、
+    // 两张列表是同一份数据的另一种看法，也一起灰掉：不然用户能在列表里点来点去、
     // 看着选中的版本变了，而实际在下的是另一个。
-    m_ui->getInstalledVersionList()->setEnabled(!busy);
     m_ui->getAvailableVersionList()->setEnabled(!busy);
+    m_ui->getInstanceList()->setEnabled(!busy);
     // 实例页左边那列也一起灰：换游戏文件夹 = 换一整套 .minecraft，下载中途换过去
     // 会让这一批文件一半写进 A、一半写进 B。两个按钮的可用性由 updateFolderButtons()
     // 一处说了算（「删除文件夹」还要看选中的是不是自带那份）。
@@ -522,7 +514,7 @@ void MainWindow::updateBottomBar() {
     QLabel *runStateDetailLabel = m_ui->getRunStateDetailLabel();
     const QString running = m_launcherManager->runningVersionId();
     if (running.isEmpty()) {
-        // 没有实例在跑：右下角整格藏起来，不显示"未运行"这种废话
+        // 没有实例在跑：左下角整格藏起来，不显示"未运行"这种废话
         runStateLabel->setVisible(false);
         runStateDetailLabel->setVisible(false);
         return;
@@ -622,12 +614,13 @@ void MainWindow::refreshInstalledVersions() {
         // 开销上不必担心 —— 真机上实例数可以到 61 个，而这个函数一次会话没有调用上界。
         parts.append(m_versionManager->displayParts(id));
     }
-    fillVersionViews(combo, m_ui->getInstalledVersionList(), parts,
-                     m_settings->versionNameOptions());
+    // 主页上"已安装版本"只有下拉框这一个控件了（右栏那张列表 2026-09 去掉，见
+    // MainWindowUI 里主页那一段），所以这里只灌下拉框，同步选中项也只剩实例页那张列表。
+    fillVersionCombo(combo, parts, m_settings->versionNameOptions());
 
     // 实例页：顶上写清这是从哪一份 .minecraft 里扫出来的（左边换个文件夹它就跟着变），
     // 右边那张列表灌同一批数据。列表本身不是"又一份数据源"，它只是同一个东西摆在
-    // 文件夹旁边更好看 —— 点击行为也和主页那张完全一样（见 setupConnections）。
+    // 文件夹旁边更好看 —— 点击行为是"点一下等于在主页把它选中"（见 setupConnections）。
     const QString root = AppPaths::minecraftDir();
     QString folderText = tr("当前文件夹：%1").arg(QDir::toNativeSeparators(root));
     folderText += QDir(root).exists() ? tr("（%1 个实例）").arg(installed.size())
@@ -735,7 +728,7 @@ void MainWindow::refreshAvailableVersions() {
 void MainWindow::applySettingsToUi() {
     // 灌值时把信号全挡上：下面这些控件现在反映的是**盘上的值**，不是用户改的。
     // 不挡的话每条 currentIndexChanged/valueChanged 都会触发一遍"保存"，白写几次盘，
-    // 更要紧的是那几条槽里还夹着真动作（改「版本名格式」会重刷两张版本列表）。
+    // 更要紧的是那几条槽里还夹着真动作（改「版本名格式」会重刷实例列表）。
     const QSignalBlocker blockJava(m_ui->getJavaVersionCombo());
     const QSignalBlocker blockBehaviour(m_ui->getLauncherBehaviourCombo());
     const QSignalBlocker blockSource(m_ui->getDownloadSourceCombo());
@@ -839,7 +832,7 @@ void MainWindow::refreshJavaList() {
 }
 
 void MainWindow::onMainTabChanged() {
-    // 底栏右下角的显示规则依赖"当前是不是在主页"，切页就得重算。
+    // 底栏左下角的显示规则依赖"当前是不是在主页"，切页就得重算。
     updateBottomBar();
     if (m_ui->getTabWidget()->currentIndex() == MainWindowUI::settingsTabIndex()) {
         // 进设置页才做的两件事：扫 Java（要跑几次 `java -version`）、重算自动档内存
@@ -1277,7 +1270,7 @@ void MainWindow::applyCurrentFolderToPaths() {
 void MainWindow::onProcessOutput(const QString &text) {
     appendLog(tr("[游戏输出] %1").arg(text));
     // 游戏自己出话了 = JVM 和游戏都初始化到能打日志了，"正在启动"这段到此为止。
-    // 底栏中间那格让给下载进度（如果有），右下角换成"实例运行中"。
+    // 底栏中间那格让给下载进度（如果有），左下角换成"实例运行中"。
     if (m_launchInFlight) {
         m_launchInFlight = false;
         updateBottomBar();
@@ -1299,7 +1292,7 @@ void MainWindow::onGameFinished(int exitCode, QProcess::ExitStatus exitStatus) {
     } else {
         appendLog(tr("游戏进程已结束，退出码：%1").arg(exitCode));
     }
-    // 进程没了，"启动中"和右下角那条"实例运行中"都得收起来（runningVersionId() 在
+    // 进程没了，"启动中"和左下角那条"实例运行中"都得收起来（runningVersionId() 在
     // LauncherManager 里已经清了，这里只管重画）。
     m_launchInFlight = false;
     updateBottomBar();
