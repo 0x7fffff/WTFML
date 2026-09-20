@@ -605,9 +605,14 @@ bool LauncherManager::startGame(const QStringList &arguments, GlobalJavaSettings
     }
 
     qDebug() << "Java process started, PID:" << m_gameProcess->processId();
+    // 记"谁在跑"的**唯一**时机：进程真的起来了（三条早退路径都不记）。底栏右下角
+    // 那条状态和"启动中"进度的收尾都读它。
+    m_runningVersionId = versionId;
     emit processOutput(tr("游戏已启动（进程ID：%1）").arg(m_gameProcess->processId()));
     return true;
 }
+
+QString LauncherManager::runningVersionId() const { return m_runningVersionId; }
 
 bool LauncherManager::commandDeclaresUtf8Output(const QStringList &arguments) {
     bool isUtf8 = false;
@@ -667,5 +672,8 @@ void LauncherManager::handleProcessFinished(int exitCode, QProcess::ExitStatus e
         emit processError(error);
     }
 
+    // 清在 emit 之前：接 gameFinished 的槽会去读 runningVersionId() 刷新底栏，
+    // 反过来的话它会读到"刚退出的那个版本还在跑"。
+    m_runningVersionId.clear();
     emit gameFinished(exitCode, exitStatus);
 }

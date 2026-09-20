@@ -93,6 +93,16 @@ public:
                    const QString &versionId);
 
     /**
+     * @brief 当前正在运行的游戏进程是哪个版本。
+     * @return 返回版本号；没有任何游戏在运行时返回空串。
+     *
+     * 底栏右下角那条"实例运行中"就靠它：它为空 = 没在跑，非空 = 跑的就是这个版本。
+     * 记的时机和 m_gameProcess 的状态是同一个（waitForStarted 成功那一刻），清的时机
+     * 也同一个（handleProcessFinished），所以不会出现"进程没了但这里还留着版本号"。
+     */
+    QString runningVersionId() const;
+
+    /**
      * @brief 从最终命令行判断游戏进程的输出是不是 UTF-8。
      * @param arguments 交给 QProcess 的完整参数列表。
      * @return 命令行里 -Dstdout.encoding 的值是 utf-8（不区分大小写）时返回 true。
@@ -120,6 +130,9 @@ private:
     QString decodeGameOutput(const QByteArray &bytes) const;
 
     QProcess *m_gameProcess;
+    /// 正在运行的游戏进程对应的版本号。startGame() 在 waitForStarted() 成功之后
+    /// 才记下它，handleProcessFinished() 里清掉 —— 三条早退路径都不记。
+    QString m_runningVersionId;
     /// 游戏进程的输出是不是 UTF-8（= 命令行里有 -Dstdout.encoding=utf-8）。
     /// 由 startGame() 在启动前设置；四个解码点都按它选解码方式。
     /// 默认 false = 本地代码页，也就是加这个开关之前的行为。
