@@ -69,13 +69,16 @@ struct TwoColumns {
 };
 
 /**
- * @brief 把页面摆成左右两栏（左:右 = 3:7，仿 PCL）。
+ * @brief 把页面摆成左右两栏（仿 PCL）。
  * @param page 选项卡页面。
- * @param tab 页面代号（"home" / "instance" / "download"），进 objectName。
+ * @param tab 页面代号（"home" / "instance" / "download"），进 objectName，**也决定份数**。
  * @return 两栏的控件与布局；调用方往 layout 里塞东西即可。
  *
+ * 份数按页不同（主页左宽右窄、另两页左窄右宽，见 MainWindowUI::leftColumnIsWider()），
+ * 所以这里把 tab 一路传下去，不自己写死。
+ *
  * **只有主页/实例/下载这三个**走这条路；「设置」页走 setupSettingsPage()，它的 3:7 是在
- * 那张两列 grid 上用 setColumnStretch() 表达的（份数取自同一对 leftColumnStretch/
+ * 那张两列 grid 上用 setColumnStretch() 表达的（份数取自默认那一对 leftColumnStretch/
  * rightColumnStretch，所以比例仍是单点决定，但栏控件只有这三页有）。
  * 栏做成真控件而不是裸布局，是为了验证工程能按 objectName 找回来量几何。
  */
@@ -98,8 +101,8 @@ TwoColumns buildTwoColumnPage(QWidget *page, const QString &tab) {
     TwoColumns columns;
     columns.left = makeColumn(MainWindowUI::leftColumnName(tab));
     columns.right = makeColumn(MainWindowUI::rightColumnName(tab));
-    row->addWidget(columns.left.widget, MainWindowUI::leftColumnStretch());
-    row->addWidget(columns.right.widget, MainWindowUI::rightColumnStretch());
+    row->addWidget(columns.left.widget, MainWindowUI::leftColumnStretch(tab));
+    row->addWidget(columns.right.widget, MainWindowUI::rightColumnStretch(tab));
     return columns;
 }
 
@@ -198,15 +201,15 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     mainLayout->setSpacing(0);
 
     // ================= 选项卡：主页 / 实例 / 下载 / 设置 =================
-    // 四页各自只放自己那摊控件，都按"左 3 右 7"两栏排：左栏是要操作的那点东西
-    // （选版本、按钮），右栏是列表或一整摊设置项。
+    // 四页各自只放自己那摊控件，都排成左右两栏：左栏是要操作的那点东西
+    // （选版本、按钮），右栏是列表或一整摊设置项。份数按页不同，见 leftColumnIsWider()。
     // 注意两个版本下拉框被**分到了两页**：「已安装版本」在主页（启动用），
     // 「可安装版本」在下载页（下载用）。它们本来就是两个互不相干的数据源，
     // 以前并排放着只是因为都叫"版本"。
     tabWidget = new QTabWidget(centralWidget);
     tabWidget->setObjectName(tabWidgetName());
 
-    // ---------- 主页：左 = 挑一个已装好的版本，启动；右 = 版本列表 ----------
+    // ---------- 主页：左 = 挑一个已装好的版本，启动；右 = 空着（见下面的说明） ----------
     QWidget *homeTab = new QWidget(tabWidget);
     homeTab->setObjectName(homeTabName());
     const TwoColumns home = buildTwoColumnPage(homeTab, QStringLiteral("home"));
@@ -249,28 +252,14 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // 剩下的竖直空间留在底部：按钮不跟着窗口高度一起被拉长
         home.left.layout->addStretch(1);
     }
-    {
-        installedVersionList = new QListWidget(home.right.widget);
-        installedVersionList->setObjectName(installedVersionListName());
-        // 几百上千条时省掉逐条量尺寸的开销。条目高度本来就一致。
-        installedVersionList->setUniformItemSizes(true);
+    // 主页的右栏**故意是空的**：原来这里有一张「版本列表」，和左边那个下拉框是同一份
+    // 数据的两种看法 —— 而实例页右边现在也有一张同样数据的列表了，留着就是把同一件事
+    // 说三遍（2026-09 去掉的）。这一栏空着不装东西，只按份数把左边那套操作顶到 7 成宽
+    // （主页的比例因此是 7:3，见 leftColumnIsWider()）。
+    // NOTE: 控件一个都不放也得把这栏建出来 —— 验证工程靠 leftColumnName()/rightColumnName()
+    //       找这两栏量几何，主页右栏没了就等于主页的比例没地方量。
 
-        QLabel *listTitle = new QLabel(QStringLiteral("版本列表"), home.right.widget);
-        QFont listTitleFont = listTitle->font();
-        listTitleFont.setBold(true);
-        listTitle->setFont(listTitleFont);
-        home.right.layout->addWidget(listTitle);
-        home.right.layout->addWidget(installedVersionList, 1);
-
-        QLabel *listHint =
-            new QLabel(QStringLiteral("点一下列表里的版本，等于在左边把它选中。"
-                                      "名字里带「自定义名」的是 .minecraft/versions 下的实例。"),
-                       home.right.widget);
-        listHint->setWordWrap(true);
-        home.right.layout->addWidget(listHint);
-    }
-
-    // ---------- 实例：左 = 游戏文件夹按钮；右 = 实例列表（还没做） ----------
+    // ---------- 实例：左 = 游戏文件夹列表；右 = 那个文件夹里的实例 ----------
     QWidget *instanceTab = new QWidget(tabWidget);
     instanceTab->setObjectName(instanceTabName());
     const TwoColumns instance = buildTwoColumnPage(instanceTab, QStringLiteral("instance"));
@@ -281,37 +270,60 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         folderLayout->setContentsMargins(9, 9, 9, 9);
         folderLayout->setSpacing(10);
 
+        // 左边这张列表就是"启动器用哪一份 .minecraft"的选择器：选中哪一项，版本、资源、
+        // 库、自管 Java 就全从那一份里找（PCL 左边那几张卡片是同一个意思）。
+        // 自带的那一份永远排第一（见 FolderManager），所以列表不会是空的。
+        folderList = new QListWidget(folderGroupBox);
+        folderList->setObjectName(folderListName());
+        folderList->setUniformItemSizes(true);
+        // 路径比左栏宽是常态（`D:\MC\.minecraft` 就快 20 个字符了），而左栏只有 3:10。
+        // 不关横向滚动条的话，条目会按文字宽度撑开、滚轮之外还多一条横条，而文字**不会**
+        // 省略 —— 关掉它，条目宽度就跟视口走，省略号才生效。从中间省略：路径两头
+        // （盘符和最后一级目录名）都比中间那截有用，完整路径在 tooltip 里。
+        folderList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        folderList->setTextElideMode(Qt::ElideMiddle);
+        folderLayout->addWidget(folderList, 1);
+
+        QHBoxLayout *folderButtons = new QHBoxLayout;
         addFolderButton = new QPushButton(QStringLiteral("添加文件夹"), folderGroupBox);
         removeFolderButton = new QPushButton(QStringLiteral("删除文件夹"), folderGroupBox);
-        // 占位按钮：只写一行日志。
-        // TODO: 换成真正的文件夹管理页面（列出已添加的目录、点一下切换）。
-        manageFolderButton = new QPushButton(QStringLiteral("文件夹管理"), folderGroupBox);
-        folderLayout->addWidget(addFolderButton);
-        folderLayout->addWidget(removeFolderButton);
-        folderLayout->addWidget(manageFolderButton);
+        folderButtons->addWidget(addFolderButton);
+        folderButtons->addWidget(removeFolderButton);
+        folderLayout->addLayout(folderButtons);
 
         QLabel *folderHint = new QLabel(
-            QStringLiteral("添加文件夹可以指向别的 Minecraft 根目录（例如另一个启动器的实例目录）。"),
+            QStringLiteral("选中的就是启动器当前使用的 .minecraft（版本、存档、资源都从这里读）。"
+                           "自带的那一份删不掉。"),
             folderGroupBox);
         folderHint->setWordWrap(true);
         folderLayout->addWidget(folderHint);
-        instance.left.layout->addWidget(folderGroupBox);
-        instance.left.layout->addStretch(1);
+        instance.left.layout->addWidget(folderGroupBox, 1);
     }
     {
         QGroupBox *instanceGroupBox = new QGroupBox(QStringLiteral("实例列表"),
                                                     instance.right.widget);
         QVBoxLayout *instanceLayout = new QVBoxLayout(instanceGroupBox);
         instanceLayout->setContentsMargins(9, 9, 9, 9);
-        // TODO: 实例列表（重命名 / 分组 / 每实例独立设置）落在这里。真机上实例数可以到
-        //       61 个，PCL 用 5 张卡片分组（PCL.ini 的 CardKey/CardValue）。
-        QLabel *instanceTodo = new QLabel(
-            QStringLiteral("实例列表、重命名与分组尚未实现；当前先把每个版本当实例用，"
-                           "列表在「主页」右边。"),
+        instanceLayout->setSpacing(10);
+
+        instanceFolderLabel = new QLabel(instanceGroupBox);
+        instanceFolderLabel->setObjectName(instanceFolderLabelName());
+        instanceFolderLabel->setWordWrap(true);
+        instanceLayout->addWidget(instanceFolderLabel);
+
+        // 就是「主页」右边那张列表的同一份数据，只是摆在这儿配左边的文件夹看。
+        // 点击 = 在主页把它选中（两边按 id 双向同步，见 MainWindow::setupConnections）。
+        instanceList = new QListWidget(instanceGroupBox);
+        instanceList->setObjectName(instanceListName());
+        instanceList->setUniformItemSizes(true);
+        instanceLayout->addWidget(instanceList, 1);
+
+        QLabel *instanceHint = new QLabel(
+            QStringLiteral("一个实例就是 versions 下的一个目录（判据是 <id>/<id>.jar 存在）。"
+                           "重命名与分组还没做。"),
             instanceGroupBox);
-        instanceTodo->setWordWrap(true);
-        instanceLayout->addWidget(instanceTodo);
-        instanceLayout->addStretch(1);
+        instanceHint->setWordWrap(true);
+        instanceLayout->addWidget(instanceHint);
         instance.right.layout->addWidget(instanceGroupBox, 1);
     }
 
@@ -593,9 +605,13 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
 
 void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     // ---------- 底部通栏状态条（Steam 风格） ----------
-    // 三个格子：左 = 头像与用户名，中 = 启动/下载进度，右 = 实例运行状态。
+    // 三个格子：左 = 实例运行状态，中 = 启动/下载进度，右 = 头像与用户名。
     // 这里只**搭**它：显示什么由 MainWindow::updateBottomBar() 决定，
     // 界面这边不持有任何业务状态。
+    //
+    // NOTE: 头像那格和实例状态那格在 2026-09 **对调过**（原来头像在左、实例状态在右）。
+    //       底下那几个 stretch 是围绕中间那格配的，对调两头时中间那格的份数原样不动，
+    //       进度条仍然居中。
     bottomBar = new QFrame(parent);
     bottomBar->setObjectName(bottomBarName());
     bottomBar->setFrameShape(QFrame::NoFrame);
@@ -611,28 +627,33 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     barLayout->setContentsMargins(12, 6, 12, 6);
     barLayout->setSpacing(12);
 
-    // ---------- 左：头像 + 用户名 ----------
-    // 真正的手绘皮肤头像要等 Minecraft profile API（登录流程现在只存了令牌，没取
-    // 玩家档案），这里先画一块"首字母方块"。颜色同样取自调色板，不写死。
-    // NOTE: 刻意**不加 border-radius** —— 这块是方的。真皮肤头像是 8x8 的方块贴图，
-    //       方形底比圆形底更接近它以后的样子。
-    avatarLabel = new QLabel(QStringLiteral("?"), bottomBar);
-    avatarLabel->setObjectName(avatarLabelName());
-    avatarLabel->setFixedSize(32, 32);
-    avatarLabel->setAlignment(Qt::AlignCenter);
-    const QColor avatarBackground = bottomBar->palette().color(QPalette::Highlight);
-    const QColor avatarForeground = bottomBar->palette().color(QPalette::HighlightedText);
-    avatarLabel->setStyleSheet(QStringLiteral("QLabel { background-color: %1; color: %2; }")
-                                   .arg(avatarBackground.name(), avatarForeground.name()));
+    // ---------- 左：当前实例运行状态 ----------
+    // 第一行是状态正文，第二行是实例名。**在主页且选中的就是正在跑的那个实例**时
+    // 只显示第一行 —— 那种情况下用户眼前就是那个实例，再说一遍名字是废话。
+    runStateLabel = new QLabel(bottomBar);
+    runStateLabel->setObjectName(runStateLabelName());
+    // 贴在底栏最左边，所以文字左对齐（这两行原来在右端，靠的是右对齐）
+    runStateLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
 
-    accountLabel = new QLabel(QStringLiteral("?"), bottomBar);
-    accountLabel->setObjectName(accountLabelName());
+    runStateDetailLabel = new QLabel(bottomBar);
+    runStateDetailLabel->setObjectName(runStateDetailLabelName());
+    runStateDetailLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    // 第二行小一号、灰一点，跟第一行区分开。字号按当前字号减 1（不用点值，
+    // 免得不支持点值的平台出现负字号）；颜色用调色板里的 PlaceholderText。
+    QFont detailFont = runStateDetailLabel->font();
+    detailFont.setPointSize(qMax(1, detailFont.pointSize() - 1));
+    runStateDetailLabel->setFont(detailFont);
+    QPalette detailPalette = runStateDetailLabel->palette();
+    detailPalette.setColor(QPalette::WindowText, detailPalette.color(QPalette::PlaceholderText));
+    runStateDetailLabel->setPalette(detailPalette);
 
-    QHBoxLayout *accountRow = new QHBoxLayout();
-    accountRow->setSpacing(8);
-    accountRow->addWidget(avatarLabel);
-    accountRow->addWidget(accountLabel);
-    barLayout->addLayout(accountRow, 0);
+    QVBoxLayout *runStateLayout = new QVBoxLayout();
+    runStateLayout->setSpacing(0);
+    runStateLayout->addWidget(runStateLabel);
+    runStateLayout->addWidget(runStateDetailLabel);
+    // 没有实例在跑时左下角什么都不显示（不占着一句"未运行"）
+    runStateLabel->hide();
+    runStateDetailLabel->hide();
 
     // ---------- 中：进度（启动优先于下载） ----------
     statusLabel = new QLabel(bottomBar);
@@ -657,40 +678,39 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     // 窗口拉宽时按同样比例跟着长。
     // NOTE: 别把中间那格写成 2 —— Qt 分配富余宽度是按拉伸因子直接切那个池子的，
     //       不是"先满足最小宽度再分剩下的"，2:1:1 拿到的是 1/2 而不是 2/3。
-    barLayout->addStretch(1);
-    barLayout->addLayout(progressLayout, 4);
-    barLayout->addStretch(1);
     // 一开始什么都没在下：整格藏起来（"没在下载就看不见进度条"）
     statusLabel->hide();
     progressBar->hide();
 
-    // ---------- 右：当前实例运行状态 ----------
-    // 第一行是状态正文，第二行是实例名。**在主页且选中的就是正在跑的那个实例**时
-    // 只显示第一行 —— 那种情况下用户眼前就是那个实例，再说一遍名字是废话。
-    runStateLabel = new QLabel(bottomBar);
-    runStateLabel->setObjectName(runStateLabelName());
-    runStateLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    // ---------- 右：头像 + 用户名 ----------
+    // 真正的手绘皮肤头像要等 Minecraft profile API（登录流程现在只存了令牌，没取
+    // 玩家档案），这里先画一块"首字母方块"。颜色同样取自调色板，不写死。
+    // NOTE: 刻意**不加 border-radius** —— 这块是方的。真皮肤头像是 8x8 的方块贴图，
+    //       方形底比圆形底更接近它以后的样子。
+    avatarLabel = new QLabel(QStringLiteral("?"), bottomBar);
+    avatarLabel->setObjectName(avatarLabelName());
+    avatarLabel->setFixedSize(32, 32);
+    avatarLabel->setAlignment(Qt::AlignCenter);
+    const QColor avatarBackground = bottomBar->palette().color(QPalette::Highlight);
+    const QColor avatarForeground = bottomBar->palette().color(QPalette::HighlightedText);
+    avatarLabel->setStyleSheet(QStringLiteral("QLabel { background-color: %1; color: %2; }")
+                                   .arg(avatarBackground.name(), avatarForeground.name()));
 
-    runStateDetailLabel = new QLabel(bottomBar);
-    runStateDetailLabel->setObjectName(runStateDetailLabelName());
-    runStateDetailLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    // 第二行小一号、灰一点，跟第一行区分开。字号按当前字号减 1（不用点值，
-    // 免得不支持点值的平台出现负字号）；颜色用调色板里的 PlaceholderText。
-    QFont detailFont = runStateDetailLabel->font();
-    detailFont.setPointSize(qMax(1, detailFont.pointSize() - 1));
-    runStateDetailLabel->setFont(detailFont);
-    QPalette detailPalette = runStateDetailLabel->palette();
-    detailPalette.setColor(QPalette::WindowText, detailPalette.color(QPalette::PlaceholderText));
-    runStateDetailLabel->setPalette(detailPalette);
+    accountLabel = new QLabel(QStringLiteral("?"), bottomBar);
+    accountLabel->setObjectName(accountLabelName());
 
-    QVBoxLayout *runStateLayout = new QVBoxLayout();
-    runStateLayout->setSpacing(0);
-    runStateLayout->addWidget(runStateLabel);
-    runStateLayout->addWidget(runStateDetailLabel);
+    QHBoxLayout *accountRow = new QHBoxLayout();
+    accountRow->setSpacing(8);
+    accountRow->addWidget(avatarLabel);
+    accountRow->addWidget(accountLabel);
+
+    // 三格从左到右摆：实例状态（0）· 空档（1）· 进度（4）· 空档（1）· 账户（0）。
+    // 两头那两格都按自身宽度靠边站，份数写 0；富余宽度全在中间三份里分。
     barLayout->addLayout(runStateLayout, 0);
-    // 没有实例在跑时右下角什么都不显示（跟 Steam 一样，不占着一句"未运行"）
-    runStateLabel->hide();
-    runStateDetailLabel->hide();
+    barLayout->addStretch(1);
+    barLayout->addLayout(progressLayout, 4);
+    barLayout->addStretch(1);
+    barLayout->addLayout(accountRow, 0);
 
     mainLayout->addWidget(bottomBar);
 }

@@ -36,6 +36,9 @@ private slots:
     void onLoginButtonClicked();
     void onAddFolderClicked();
     void onRemoveFolderClicked();
+    /// 用户在左边那张列表里换了「游戏文件夹」。真正干活的是 FolderManager 发出的
+    /// currentFolderChanged()，这里只负责把选中项翻译成一次 setCurrentFolder()。
+    void onFolderSelectionChanged();
     void onProcessOutput(const QString &text);
     void onProcessError(const QString &text);
     void onGameFinished(int exitCode, QProcess::ExitStatus exitStatus);
@@ -61,7 +64,7 @@ private:
     void updateJavaPathLabel();
     /// 把归一化之后的「版本名格式」开关回灌到四个勾选框上（内部挡信号）。
     void pushVersionNameOptionsToUi(const VersionNameOptions &options);
-    /// 选项卡切换：底栏右下角要不要显示实例名、以及要不要扫 Java，都在这里收口。
+    /// 选项卡切换：底栏左下角要不要显示实例名、以及要不要扫 Java，都在这里收口。
     void onMainTabChanged();
     void onJavaSelectionChanged();
     /// 把「内存分配」那一行画成当前状态：自动档按**现在**的系统内存重算并落盘、禁用两个
@@ -91,9 +94,18 @@ private:
     /// 一个版本号在界面上的显示名（"已安装版本"下拉框里的那条文本）。
     /// 下拉框里没有它时退回版本号本身。
     QString instanceDisplayName(const QString &versionId) const;
-    // 重灌"已安装版本"下拉框：扫本地 .minecraft/versions，同步返回。
-    // 保住用户原来选中的那一项的逻辑在 fillVersionCombo() 里。
+    // 重灌所有"本地已安装实例"的看法：主页那一对（下拉框 + 列表）、实例页右边那张
+    // 列表、以及实例页顶上的"当前文件夹"那句。扫的是**当前游戏文件夹**的
+    // .minecraft/versions，同步返回。保住用户原来选中的那一项的逻辑在 fillVersionCombo() 里。
     void refreshInstalledVersions();
+    // 重灌实例页左边那张「游戏文件夹」列表，并把选中项停在 FolderManager 的当前目录上
+    // （内部挡信号：重灌不是用户改选，不该反过来触发一次切换）。
+    void refreshFolderList();
+    // 「删除文件夹」能不能点：自带那份删不掉，另外下载期间整列都不给动。
+    void updateFolderButtons();
+    // 把 FolderManager 的当前目录交给 AppPaths（此后所有 <数据目录>/... 都对着它），
+    // 并打一行日志。换文件夹的那条链路只有这一处改全局路径。
+    void applyCurrentFolderToPaths();
     /// 重灌"可安装版本"那一对控件（下拉框 + 列表）。在线清单是它们唯一的数据源，
     /// 清单还没拉回来时什么都不动（占位文案得留着）。
     void refreshAvailableVersions();
@@ -101,7 +113,7 @@ private:
     // 名单每次刷新（清单到达、下载完成）都调它就会变成"用户手选完又被抢回去"。
     // 记着的那个版本已经不在磁盘上时留空不选，占位文案会说明该怎么选。
     void restoreLastLaunchedVersion();
-    // 下载期间禁用"启动游戏""下载版本"、两个版本下拉框和两张版本列表，并把底栏中间
+    // 下载期间禁用"启动游戏""下载版本"、两个版本下拉框和两张列表，并把底栏中间
     // 那格的进度条切成"正在准备下载"的不确定态。进度条和底栏的显隐不在这里定
     // （取决于"在下载"和"在启动"两条），统一由 updateBottomBar() 说了算。
     void setDownloadUiBusy(bool busy);
@@ -112,12 +124,15 @@ private:
     void updateDownloadProgressUi(int done, int total, int failed, const QString &currentFile);
 
     MainWindowUI *m_ui;
+    // NOTE: 声明顺序就是构造顺序。m_settings 必须排在 m_folderManager **前面** ——
+    //       后者在构造函数里就要读盘（「游戏文件夹」列表），晚于它构造的话拿到的
+    //       指针是空的，读出来就是"一份文件夹都没添加过"。
+    LauncherSettings *m_settings;
     LauncherManager *m_launcherManager;
     AuthManager *m_authManager;
     FolderManager *m_folderManager;
     VersionManager *m_versionManager;
     GlobalJavaSettings *m_javaSettings;
-    LauncherSettings *m_settings;
     // 下载是否在进行中。注意不能只问 m_versionManager：从点击"下载"到版本 JSON
     // 拉回来之前，VersionManager 那边还没有任何批次，这段时间也得算"忙"。
     bool m_downloadInFlight = false;

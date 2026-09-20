@@ -10,6 +10,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QStringList>
 
 #include "../manage/VersionDisplay.hpp"
 
@@ -58,6 +59,27 @@ public:
      * @param versionId 版本目录名（不是显示名）。
      */
     void setLastLaunchedVersion(const QString &versionId);
+
+    // ------------------------------------------------------------------
+    // 「游戏文件夹」（实例页左边那张列表）
+    // ------------------------------------------------------------------
+    // 存的是**用户自己添加**的根目录，不含启动器自带的 <exe 目录>/.minecraft ——
+    // 那一份由 AppPaths::defaultMinecraftDir() 算出来，存下来反而会在启动器被挪到
+    // 别处之后变成一个指向旧地方的死路径。
+    // 「自带那份永远排第一、删不掉、当前目录不在盘上怎么办」这些语义在 FolderManager 里。
+    // ------------------------------------------------------------------
+
+    /// 用户添加过的根目录，按添加顺序。
+    QStringList folders() const;
+
+    /// 覆盖用户添加的根目录列表并立刻落盘。
+    void setFolders(const QStringList &folders);
+
+    /// 当前选中的根目录。空串 = 用启动器自带的那一份。
+    QString currentFolder() const;
+
+    /// 记下当前选中的根目录并立刻落盘。传空串 = 回到自带的那一份。
+    void setCurrentFolder(const QString &dir);
 
     // ------------------------------------------------------------------
     // 「版本名格式」
@@ -131,6 +153,8 @@ public:
 
 private:
     QString m_lastLaunchedVersion;
+    QStringList m_folders;
+    QString m_currentFolder;
     VersionNameOptions m_versionNameOptions;
     LauncherBehaviour m_launcherBehaviour = LauncherBehaviour::Unchanged;
     DownloadSource m_downloadSource = DownloadSource::Official;
