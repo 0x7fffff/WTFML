@@ -17,6 +17,7 @@
 #include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QLocale>
@@ -28,6 +29,7 @@
 #include "../settings/GlobalJavaSettings.hpp"
 #include "../util/ZipUtil.hpp"
 #include "LibraryRules.hpp"
+#include "VersionArguments.hpp"
 
 namespace {
 
@@ -357,6 +359,66 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
 
     const QString classpathStr = classpath.join(";");
     qDebug() << "Classpath:" << classpathStr;
+
+    // ------------------------------------------------------------------
+    // version.json 声明的 JVM 参数（arguments.jvm）
+    // ------------------------------------------------------------------
+    // NOTE: 这里以前完全忽略 arguments.jvm，只发我们自己硬编码的一小串参数。
+    // 26.3 正是靠 arguments.jvm 声明了 '-XX:StackShadowPages=32'（这个 JDK 的默认值
+    // 是 8）：影子区不够时，编译代码在资源重载这种深栈路径上会越过影子区踩到保护页，
+    // 表现为 jvm.dll 里的访问冲突 —— 没有 Java 异常、没有 hs_err、没有崩溃报告，
+    // 进程直接消失。凡是 version.json 声明了的，就该按它的规则过滤后原样传给 JVM，
+    // 而不是由我们维护一份会过期的参数清单。
+    const QString nativesDir = QDir::toNativeSeparators(nativesDirectory(versionId));
+    const QString librariesDir =
+        QDir(QCoreApplication::applicationDirPath() + QStringLiteral("/.minecraft"))
+            .absoluteFilePath(QStringLiteral("libraries"));
+
+    QHash<QString, QString> placeholders;
+    placeholders[QStringLiteral("natives_directory")] = nativesDir;
+    placeholders[QStringLiteral("library_directory")] = QDir::toNativeSeparators(librariesDir);
+    placeholders[QStringLiteral("launcher_name")] = QStringLiteral("WTFML");
+    placeholders[QStringLiteral("launcher_version")] =
+        QCoreApplication::applicationVersion().isEmpty()
+            ? QStringLiteral("1.0")
+            : QCoreApplication::applicationVersion();
+    placeholders[QStringLiteral("classpath")] = classpathStr;
+    placeholders[QStringLiteral("classpath_separator")] = QStringLiteral(";");
+    placeholders[QStringLiteral("version_name")] = versionId;
+
+    const QStringList declared =
+        VersionArguments::expand(versionJson.value(QStringLiteral("arguments"))
+                                     .toObject()
+                                     .value(QStringLiteral("jvm"))
+                                     .toArray(),
+                                 placeholders);
+
+    // 同一条属性只留一份：version.json 声明了就以它为准。值与我们完全相同时也归到
+    // 这里，免得同一个 -D 在命令行上出现两次。
+    if (VersionArguments::declaresPrefix(declared, QStringLiteral("--enable-native-access="))) {
+        args.removeAll(QStringLiteral("--enable-native-access=ALL-UNNAMED"));
+    }
+    if (VersionArguments::declaresPrefix(declared, QStringLiteral("-Djava.library.path="))) {
+        for (int i = args.size() - 1; i >= 0; --i) {
+            if (args.at(i).startsWith(QStringLiteral("-Djava.library.path="))) {
+                args.removeAt(i);
+            }
+        }
+    }
+    qDebug() << "Declared JVM arguments from version.json:" << declared;
+    args << declared;
+
+    // 声明的参数引用了 natives 目录就把它建出来：26.3 把它的 /lwjgl /jna /netty /java
+    // 子目录当作 LWJGL/JNA/netty 的提取目录，原版启动器在启动前总会创建这个目录。
+    // 建个空目录本身无害（prepareNatives 只认目录里有没有 .dll）。
+    if (!QDir(nativesDir).exists()) {
+        for (const QString &arg : declared) {
+            if (arg.contains(nativesDir, Qt::CaseInsensitive)) {
+                QDir().mkpath(nativesDir);
+                break;
+            }
+        }
+    }
 
     args << QStringLiteral("-cp") << classpathStr;
     args << QStringLiteral("net.minecraft.client.main.Main");
