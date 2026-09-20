@@ -12,6 +12,7 @@
 #include <QStringList>
 
 #include "../download/DownloadManager.hpp"
+#include "VersionDisplay.hpp"
 
 class VersionManager : public QObject {
     Q_OBJECT
@@ -21,6 +22,8 @@ public:
     ~VersionManager();
 
     // Version management
+    // 扫 .minecraft/versions，返回磁盘上真正装好了的版本号（以 <id>.jar 存在为准）。
+    // 一个都没有时返回空列表，不再塞 "自定义版本" 占位项。
     QStringList installedVersions() const;
     QStringList availableVersions() const;
     QString getLatestVersion(const QString &type = "release") const;
@@ -40,6 +43,18 @@ public:
 
     // Version JSON access
     QJsonObject getVersionJson(const QString &versionId) const;
+
+    // 读某个版本参与"显示名"的那些部分（自定义名、模组加载器名/版本）。
+    // 数据源是 <id>/wtfml.meta 这个可选文件，读不到就全是空串、显示名退化成纯版本号。
+    // `id` 永远用参数填，不从文件里取。
+    //
+    // NOTE: 文件名是 wtfml.meta 而不是 wtfml.json，这是必须的——<id>.json 是版本 JSON
+    // 的既定名字，万一真去下载一个 id 就叫 "wtfml" 的版本，versions/wtfml/wtfml.json
+    // 会同时是版本 JSON 和元数据文件。后果不是崩溃，是更糟的静默错：getVersionJson()
+    // 读到一份没有 "id" 字段的对象**仍然返回它**，调用方只判 isEmpty() 就会一路绿灯
+    // 走到兜底的 assetIndex/javaMajorVersion，也就是"静默选错 Java"那个老 bug。
+    // 换个扩展名，这个撞名在结构上就不可能发生。
+    VersionDisplayParts displayParts(const QString &versionId) const;
 
 signals:
     void versionsFetched(const QStringList &versions);

@@ -50,6 +50,8 @@ QStringList VersionManager::installedVersions() const {
     if (versionsDir.exists()) {
         QStringList versionDirs = versionsDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
         for (const QString &versionDir : versionDirs) {
+            // 判据是客户端 jar 在不在：<id>/<id>.jar 齐了才算装好。光有个版本目录
+            // （下载中途失败留下的）不算。
             QString jarPath = versionsPath + "/" + versionDir + "/" + versionDir + ".jar";
             if (QFile::exists(jarPath)) {
                 versions.append(versionDir);
@@ -57,11 +59,10 @@ QStringList VersionManager::installedVersions() const {
         }
     }
 
-    // Add custom version option if no versions installed
-    if (versions.isEmpty()) {
-        versions.append(QStringLiteral("自定义版本"));
-    }
-
+    // NOTE: 这里以前在没有任何已安装版本时会塞一个 "自定义版本" 进去，好让旧版
+    // QListWidget 不至于空着。那是界面层的占位职责，混进数据层之后调用方还得反过来
+    // 判 versionId == "自定义版本" 才能把它拒掉（MainWindow 里写了两处）。
+    // 现在空就是空：界面用下拉框的 placeholderText 表达"没有可选版本"。
     return versions;
 }
 
@@ -218,6 +219,95 @@ QJsonObject VersionManager::getVersionJson(const QString &versionId) const {
     // 填回缓存，同一次会话里不再重复读盘
     versionJsons[versionId] = doc.object();
     return doc.object();
+}
+
+VersionDisplayParts VersionManager::displayParts(const QString &versionId) const {
+    // id 永远用参数填，不从文件里取：元数据文件是可以被用户手改的，而 id 是真正
+    // 进 --version 和文件路径的那个值，必须由调用方（本地扫描 / 在线清单）决定。
+    VersionDisplayParts parts;
+    parts.id = versionId;
+
+    const QString metaPath = QCoreApplication::applicationDirPath() +
+                             QStringLiteral("/.minecraft/versions/%1/wtfml.meta").arg(versionId);
+    QFile metaFile(metaPath);
+    if (!metaFile.exists()) {
+        // 绝大多数版本没有这个文件，不是异常，也别打日志——refreshInstalledVersions()
+        // 会对着每个已安装版本调一次，打日志就是刷屏。
+        return parts;
+    }
+    if (!metaFile.open(QIODevice::ReadOnly)) {
+        qWarning() << "Version metadata exists but cannot be opened:" << metaPath;
+        return parts;
+    }
+
+    QJsonParseError parseError;
+    const QJsonDocument doc = QJsonDocument::fromJson(metaFile.readAll(), &parseError);
+    metaFile.close();
+    if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+        // 手写的文件写错格式很常见。整个文件当没有，但不静默——这是用户手写的，
+        // 不告诉他写错了他会一直以为生效了。
+        qWarning() << "Failed to parse version metadata" << metaPath << ":" << parseError.errorString();
+        return parts;
+    }
+
+    const QJsonObject meta = doc.object();
+
+    // 逐字段读。类型不对时给一句告警：QJsonValue::toString() 对数字/对象会安静地
+    // 返回空串，手写 JSON 时把 "name" 写成数字是最容易犯的错，不提示的话表现成
+    // "明明写了却不生效"。
+    const auto readString = [&meta, &metaPath](const char *key) -> QString {
+        const QJsonValue value = meta.value(QLatin1String(key));
+        if (value.isUndefined() || value.isNull()) {
+            return QString();
+        }
+        if (!value.isString()) {
+            qWarning() << "Version metadata field" << key << "is not a string in" << metaPath
+                       << "— ignored";
+            return QString();
+        }
+        return value.toString();
+    };
+
+    parts.customName = readString("name");
+    parts.loaderName = readString("loaderName");
+    parts.loaderVersion = readString("loaderVersion");
+
+    // 预留：按实例覆盖全局的显示格式。现在没有任何代码会写它，但读的这一侧先接好，
+    // 以后做"分开实例管理"时只要往 wtfml.meta 里写 "nameFormat" 就能生效。
+    //
+    // 语义是**整份替换**：没写的字段取 VersionNameOptions 的 struct 默认值，而不是取
+    // 全局设置里的值。理由是这个类在数据层，看不见 LauncherSettings，为了一个还没人写的
+    // 字段去建立这条依赖不划算；而且全局那四个开关今天恒等于默认值，两条语义在当前
+    // 完全等价。TODO: 以后真做"逐字段覆盖全局"时，得把全局 options 作为参数传进来。
+    // 四个开关全缺省时不构造 override，免得一个空对象把全局设置顶掉。
+    const QJsonValue nameFormat = meta.value(QLatin1String("nameFormat"));
+    if (nameFormat.isObject()) {
+        const QJsonObject formatObj = nameFormat.toObject();
+        VersionNameOptions overrideOptions;
+        bool anySet = false;
+        const auto readFlag = [&formatObj, &anySet](const char *key, bool &target) {
+            const QJsonValue value = formatObj.value(QLatin1String(key));
+            if (value.isBool()) {
+                target = value.toBool();
+                anySet = true;
+            }
+        };
+        readFlag("showCustomName", overrideOptions.showCustomName);
+        readFlag("showRealVersion", overrideOptions.showRealVersion);
+        readFlag("showLoaderName", overrideOptions.showLoaderName);
+        readFlag("showLoaderVersion", overrideOptions.showLoaderVersion);
+        if (anySet) {
+            parts.nameFormatOverride = overrideOptions;
+        }
+    } else if (!nameFormat.isUndefined() && !nameFormat.isNull()) {
+        qWarning() << "Version metadata field nameFormat is not an object in" << metaPath
+                   << "— ignored";
+    }
+
+    // NOTE: 这里刻意**不缓存**。getVersionJson() 能缓存是因为版本 JSON 一旦下载就不再变，
+    // 而这个文件将来会被"重命名"功能改写——缓存就会变成"改了名不生效"的 bug。
+    // N 只有个位数，而 refreshInstalledVersions() 一次会话最多被调三次。
+    return parts;
 }
 
 void VersionManager::onVersionManifestFetched(const QList<MinecraftVersion> &versions) {

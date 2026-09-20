@@ -21,7 +21,9 @@ set(HEADER_FILES
     src/auth/AuthManager.hpp
     src/manage/FolderManager.hpp
     src/manage/VersionManager.hpp
+    src/manage/VersionDisplay.hpp
     src/settings/GlobalJavaSettings.hpp
+    src/settings/LauncherSettings.hpp
     src/download/DownloadManager.hpp
     src/download/IntegrityChecker.hpp
     src/util/ZipUtil.hpp
@@ -34,7 +36,9 @@ set(SOURCE_FILES
     src/auth/AuthManager.cpp
     src/manage/FolderManager.cpp
     src/manage/VersionManager.cpp
+    src/manage/VersionDisplay.cpp
     src/settings/GlobalJavaSettings.cpp
+    src/settings/LauncherSettings.cpp
     src/download/DownloadManager.cpp
     src/download/IntegrityChecker.cpp
     src/util/ZipUtil.cpp

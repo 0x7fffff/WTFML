@@ -19,6 +19,7 @@ class AuthManager;
 class FolderManager;
 class VersionManager;
 class GlobalJavaSettings;
+class LauncherSettings;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -45,9 +46,18 @@ private slots:
 private:
     void setupConnections();
     void appendLog(const QString &text);
-    void refreshVersionList();
-    // 下载期间禁用"启动游戏""下载版本"，并显示状态栏进度条
+    // 重灌"已安装版本"下拉框：扫本地 .minecraft/versions，同步返回。
+    // 保住用户原来选中的那一项的逻辑在 fillVersionCombo() 里。
+    void refreshInstalledVersions();
+    // 启动时把"上次启动过的版本"选回来。**只在构造函数里调一次**——
+    // 名单每次刷新（清单到达、下载完成）都调它就会变成"用户手选完又被抢回去"。
+    // 记着的那个版本已经不在磁盘上时留空不选，占位文案会说明该怎么选。
+    void restoreLastLaunchedVersion();
+    // 下载期间禁用"启动游戏""下载版本"和两个版本下拉框，并显示状态栏进度条
     void setDownloadUiBusy(bool busy);
+    // 把"启动游戏"按钮的文字刷成两行：第一行固定是"启动游戏"，第二行是"已安装版本"
+    // 下拉框当前选中的版本号（没选时是"未选择版本"）。见 .cpp 里的说明。
+    void updateStartButtonText();
     void updateDownloadProgressUi(int done, int total, int failed, const QString &currentFile);
 
     MainWindowUI *m_ui;
@@ -56,6 +66,7 @@ private:
     FolderManager *m_folderManager;
     VersionManager *m_versionManager;
     GlobalJavaSettings *m_javaSettings;
+    LauncherSettings *m_settings;
     // 下载是否在进行中。注意不能只问 m_versionManager：从点击"下载"到版本 JSON
     // 拉回来之前，VersionManager 那边还没有任何批次，这段时间也得算"忙"。
     bool m_downloadInFlight = false;
