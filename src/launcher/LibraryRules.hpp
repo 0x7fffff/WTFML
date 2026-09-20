@@ -12,6 +12,7 @@
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QLatin1String>
+#include <QOperatingSystemVersion>
 #include <QRegularExpression>
 #include <QSet>
 #include <QString>
@@ -58,6 +59,20 @@ inline QString platformArch() {
 }
 
 /**
+ * @brief 当前系统的版本号，语义对齐 Java 的 os.version 属性。
+ * @return 形如 "10.0" 的主次版本号。
+ *
+ * NOTE: 必须用 major.minor，不能用 QSysInfo::productVersion()。后者在 Windows 11 上
+ * 返回 "11"，而 Java 的 os.version 在 Win10 和 Win11 上都是 "10.0" —— version.json
+ * 里 Mojang 的规则也正是按 "^10\." 匹配（1.18.2/1.19 的 -Dos.name=Windows 10 就挂在
+ * 这条规则上）。用 productVersion() 会让这条规则在 Win11 上静默失效。
+ */
+inline QString osVersion() {
+    const QOperatingSystemVersion current = QOperatingSystemVersion::current();
+    return QStringLiteral("%1.%2").arg(current.majorVersion()).arg(current.minorVersion());
+}
+
+/**
  * @brief 判断单条 rule 是否命中当前环境。
  * @param rule version.json 里的一条 rule 对象。
  * @param features 已启用的 feature 集合，启动器目前不启用任何 feature，传空即可。
@@ -75,9 +90,7 @@ inline bool ruleMatches(const QJsonObject &rule, const QSet<QString> &features =
             return false;
         }
         const QString version = osObj.value(QStringLiteral("version")).toString();
-        if (!version.isEmpty() && !QRegularExpression(version)
-                                       .match(QSysInfo::productVersion())
-                                       .hasMatch()) {
+        if (!version.isEmpty() && !QRegularExpression(version).match(osVersion()).hasMatch()) {
             return false;
         }
     }
