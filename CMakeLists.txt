@@ -25,7 +25,6 @@ set(HEADER_FILES
     src/settings/GlobalJavaSettings.hpp
     src/settings/LauncherSettings.hpp
     src/download/DownloadManager.hpp
-    src/download/IntegrityChecker.hpp
     src/util/AppPaths.hpp
     src/util/SystemMemory.hpp
     src/util/ZipUtil.hpp
@@ -42,7 +41,6 @@ set(SOURCE_FILES
     src/settings/GlobalJavaSettings.cpp
     src/settings/LauncherSettings.cpp
     src/download/DownloadManager.cpp
-    src/download/IntegrityChecker.cpp
     src/util/SystemMemory.cpp
     src/util/ZipUtil.cpp
     ui/MainWindowUI.cpp

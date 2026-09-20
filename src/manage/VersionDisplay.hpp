@@ -15,9 +15,11 @@
 /**
  * @brief 「版本名格式」的四个开关。
  *
- * NOTE: 这是**版本名格式**设置的数据模型。目前**没有任何界面入口**，一律用下面的默认值。
- *       以后加设置界面时，这四个布尔既可以摆成四个勾选框，也可以摆成一个"预设档位"的
- *       下拉框、由它去反写这四个布尔——模型是四个布尔，界面想怎么摆都行，别改模型去迁就界面。
+ * NOTE: 这是**版本名格式**设置的数据模型，界面入口在设置页的「版本名格式」那一行 ——
+ *       摆的正是四个勾选框（ui/MainWindowUI.cpp 的 versionNameCustomCheck/RealCheck/
+ *       LoaderCheck/LoaderVersionCheck），改动经 MainWindow::onVersionNameOptionChanged()
+ *       归一化后落盘。当初留的那条余地依然有效：这四个布尔也可以改摆成一个"预设档位"的
+ *       下拉框、由它去反写这四个布尔 —— 模型是四个布尔，界面想怎么摆都行，别改模型去迁就界面。
  */
 struct VersionNameOptions {
     bool showCustomName = true;
@@ -48,8 +50,10 @@ struct VersionDisplayParts {
     /// 救不了 `Forge` 和 `Forge_40.3.12`。PCL 用 Setup.ini 里的 VersionVanillaName
     /// 这个独立字段解决同一个问题（`海波篮子` 的真实版本是 `26.2`）。
     ///
-    /// 来源是 wtfml.meta 里可选的 "realVersion"，格式已就位、字段尚无来源 ——
-    /// 等"重命名 / 实例管理"界面来填。现在没有代码会写它，清零也不改变任何行为。
+    /// 来源是 wtfml.meta 里可选的 "realVersion"。**读侧已经全部打通**：displayParts() 读它、
+    /// 这里拿它当"实际版本"段，所以用户手写这个字段会**立刻**反映到界面上的显示名。
+    /// 缺的是**写侧** —— 还没有任何界面或代码会写它（那个入口排在"版本重命名 / 实例管理"里），
+    /// 所以今天的常态是这一项为空、由上面的 id 兜底。
     QString realVersion;
     /// 重命名后的自定义名。没重命名过就是空串。
     QString customName;
@@ -88,8 +92,9 @@ VersionNameOptions normalizeVersionNameOptions(VersionNameOptions options);
  *   - 名称槽在没有自定义名时**退化成实际版本**（用户要求：只勾了"自定义名"而没重命名过时，
  *     显示的就是版本号本身，也就是改动前的样子）；
  *   - "实际版本"指的是 `parts.realVersion`，为空时退化成 `parts.id`（目录名）。
- *     **`id` 不会直接参与显示**：它是进 --version 和文件路径的那个值，可以长得完全不像
- *     版本号（真机上有 `原版ATT2地图（无模组）` 这种）；
+ *     `id` 不会作为**独立的一段**出现，它只在上面这处兜底时被顶上来当实际版本用；
+ *     而它真正的身份是进 --version 和文件路径的那个值，可以长得完全不像版本号
+ *     （真机上有 `原版ATT2地图（无模组）` 这种）；
  *   - 文本重复的段跳过，所以"名称槽退化成版本号"不会拼出 `1.20.1-1.20.1`；
  *   - 空串段跳过，所以没加载器时不会留下多余的分隔符。
  *

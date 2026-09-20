@@ -55,16 +55,19 @@ private:
     /// 填「Java 版本」下拉框。要跑几次 `java -version`（每次几十到几百毫秒），
     /// 所以**第一次切到设置页**才扫，不在启动路径上加这段延迟。
     void refreshJavaList();
-    /// 把「Java 版本」那一行的说明文字刷成"实际会用的那个 Java"（含两种空状态）。
+    /// 把「Java 版本」那一行下面的说明文字刷成**当前设定**：手动/自动两档 × 路径有值/
+    /// 无值，四种说法。它说的是"设定了什么"，不是"这次启动一定会用哪个" —— 自动档下真正
+    /// 挑中的 Java 要到启动那一刻才知道（所以文案写的是"上次用的是…"）。
     void updateJavaPathLabel();
     /// 把归一化之后的「版本名格式」开关回灌到四个勾选框上（内部挡信号）。
     void pushVersionNameOptionsToUi(const VersionNameOptions &options);
     /// 选项卡切换：底栏右下角要不要显示实例名、以及要不要扫 Java，都在这里收口。
     void onMainTabChanged();
     void onJavaSelectionChanged();
-    /// 把「内存分配」那一行画成当前状态：自动档按**现在**的系统内存重算并禁用两个数字框，
-    /// 手动档原样显示用户定的值；两种情况都要写那句"这台机器有多少内存"的说明。
-    /// 调用点：开窗灌值时、切到设置页时、真的要启动游戏之前（那一刻的可用内存才算数）。
+    /// 把「内存分配」那一行画成当前状态：自动档按**现在**的系统内存重算并落盘、禁用两个
+    /// 数字框，手动档原样显示用户定的值；两种情况都要写那句"这台机器有多少内存"的说明。
+    /// 调用点：开窗灌值时（applySettingsToUi）、切到设置页时、用户切自动/手动那一刻、
+    /// 真的要启动游戏之前（那一刻的可用内存才算数）。
     void refreshMemoryUi();
     /// 「自动（按系统内存）」勾选框。
     void onMemoryAutoChanged();
@@ -98,10 +101,13 @@ private:
     // 名单每次刷新（清单到达、下载完成）都调它就会变成"用户手选完又被抢回去"。
     // 记着的那个版本已经不在磁盘上时留空不选，占位文案会说明该怎么选。
     void restoreLastLaunchedVersion();
-    // 下载期间禁用"启动游戏""下载版本"和两个版本下拉框，并显示状态栏进度条
+    // 下载期间禁用"启动游戏""下载版本"、两个版本下拉框和两张版本列表，并把底栏中间
+    // 那格的进度条切成"正在准备下载"的不确定态。进度条和底栏的显隐不在这里定
+    // （取决于"在下载"和"在启动"两条），统一由 updateBottomBar() 说了算。
     void setDownloadUiBusy(bool busy);
-    // 把"启动游戏"按钮的文字刷成两行：第一行固定是"启动游戏"，第二行是"已安装版本"
-    // 下拉框当前选中的版本号（没选时是"未选择版本"）。见 .cpp 里的说明。
+    // 把"启动游戏"按钮的文字刷成两行：第一行固定是"启动游戏"，第二行是「已安装版本」
+    // 下拉框当前选中的**显示名**（可能带自定义名/加载器名，不是版本号；没选时是
+    // "未选择版本"）。顺带把裸版本号的 tooltip 挂到同一个下拉框上。见 .cpp 里的说明。
     void updateStartButtonText();
     void updateDownloadProgressUi(int done, int total, int failed, const QString &currentFile);
 
@@ -116,7 +122,7 @@ private:
     // 拉回来之前，VersionManager 那边还没有任何批次，这段时间也得算"忙"。
     bool m_downloadInFlight = false;
     // "有版本目录但 jar 名对不上"这件事是否已经写过日志。refreshInstalledVersions()
-    // 一次会话会被调三次，不记一笔就是同样的告警刷三遍。
+    // 一次会话会被调很多次，不记一笔就是同样的告警反复刷。
     bool m_reportedUnrecognizedVersions = false;
     // 启动进度是否还在走。从"进程真的起来了"（startGame 返回 true）到游戏自己吐出
     // 第一行输出为止 —— 中间那段是 JVM 和游戏自己在初始化，界面上没别的反馈。

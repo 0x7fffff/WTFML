@@ -99,7 +99,7 @@ void ensureInitialOptions(const QString &gameDir) {
 
 LauncherManager::LauncherManager(QObject *parent)
     : QObject(parent), m_gameProcess(new QProcess(this)) {
-    // 连接用于监测进程和输出处理的信号的进程
+    // 把游戏进程的三条信号接到本类的三个槽上：标准输出、标准错误、进程结束。
     connect(m_gameProcess, &QProcess::readyReadStandardOutput, this,
             &LauncherManager::handleReadyReadStandardOutput);
     connect(m_gameProcess, &QProcess::readyReadStandardError, this,
@@ -451,9 +451,11 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     // 同一条属性只留一份：version.json 声明了就以它为准。值与我们完全相同时也归到
     // 这里，免得同一个 -D 在命令行上出现两次。
     //
-    // 只用在**我们自己硬编码**的那几条上。用户自定义的参数（全局 extraJvmArgs /
-    // 按版本 versionJvmArgs）不参与去重 —— 那是用户写的，他想和 version.json 各留
-    // 一份就各留一份，启动器替他删掉才是越权。
+    // NOTE: 实现上删的是**整个 args 列表**，所以用户自定义的参数（全局 extraJvmArgs /
+    // 按版本 versionJvmArgs，它们排在列表前面）**也在删除范围内** —— 其中
+    // -Djava.library.path 那条是按前缀删的，连值都不看，用户写了个不一样的目标也会被删。
+    // 净效果与"不删"相同，所以不算"替用户改参数"：declared 是下面才追加到列表末尾的，
+    // 而这类可重复选项 JVM 取后写的那个，声明的那份本来就会赢。别以为用户的参数没进这个循环。
     const auto dropOwnIfDeclared = [&args, &declared](const QString &prefix,
                                                       const QString &ownArg) {
         if (VersionArguments::declaresPrefix(declared, prefix)) {
@@ -529,6 +531,10 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
              << QStringLiteral("--userType") << QStringLiteral("legacy");
     } else {
         // 正版登录：使用真实登录证书
+        // NOTE: 这两样其实都还不"真实"：uuid 发的是全零（登录流程只存令牌、没去拉
+        //       profile，全工程没有第二个 uuid 来源），--username 也只是 AuthManager 那个
+        //       恒为 "Player" 的占位名。真实的 --username/--uuid 要等 profile 拉取做完。
+        //       顺带一提，离线分支反倒比这里"真"：它每次生成一个随机 uuid。
         qDebug() << "Token length:" << token.length();
         args << QStringLiteral("-Dminecraft.accessToken=%1").arg(token);
         args << QStringLiteral("-Dminecraft.version=%1").arg(versionId);
@@ -538,7 +544,7 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
              << AppPaths::versionDir(versionId) << QStringLiteral("--assetsDir")
              << AppPaths::assetsDir() << QStringLiteral("--assetIndex") << assetIndexId
              << QStringLiteral("--uuid")
-             << QStringLiteral("00000000-0000-0000-0000-000000000000")  // 此处使用从验证获取的 uuid
+             << QStringLiteral("00000000-0000-0000-0000-000000000000")  // 全零，见上面的 NOTE
              << QStringLiteral("--accessToken") << token << QStringLiteral("--userType")
              << QStringLiteral("msa");
     }
@@ -559,10 +565,14 @@ bool LauncherManager::startGame(const QStringList &arguments, GlobalJavaSettings
     }
 
     // 游戏进程的输出怎么解码，从**最终命令行**上反推（见下面那个静态函数的说明），
-    // 而不是另立一个"我们加没加编码参数"的开关。generateJvmArguments() 只在
-    // javaMajorVersion >= 19 时加 -Dstdout.encoding=utf-8，所以这里天然只在"参数真的
-    // 生效"时才判成 UTF-8；Java 8-18 会忽略那两个属性、仍按本地代码页写字节，于是
-    // 正确地回落到 fromLocal8Bit。
+    // 而不是另立一个"我们加没加编码参数"的开关。正常情况下这条判据是自洽的：
+    // generateJvmArguments() 只在 javaMajorVersion >= 19 时加 -Dstdout.encoding=utf-8，
+    // Java 8-18 会忽略那两个属性、仍按本地代码页写字节，于是正确地回落到 fromLocal8Bit。
+    //
+    // NOTE: 判据是命令行本身，它看不见"这条是谁加的"。用户在全局/按版本的自定义参数里
+    //       手写 -Dstdout.encoding=utf-8 时，Java 8-18 照样忽略它，而这里会判成 UTF-8，
+    //       于是中文变乱码。这是**刻意接受**的：宁可跟着实际命令行走，也不要两处各记一份
+    //       状态（那种失配更难查）。
     m_gameOutputIsUtf8 = commandDeclaresUtf8Output(arguments);
     qDebug() << "Game output is UTF-8:" << m_gameOutputIsUtf8;
 

@@ -97,10 +97,6 @@ QStringList VersionManager::availableVersions() const {
     return versions;
 }
 
-QString VersionManager::getLatestVersion(const QString &type) const {
-    return downloadManager->getLatestVersion(type);
-}
-
 void VersionManager::fetchAvailableVersions() { downloadManager->fetchVersionManifest(); }
 
 void VersionManager::fetchVersionDetails(const QString &versionId) {
@@ -177,44 +173,16 @@ void VersionManager::downloadVersion(const QString &versionId, const QString &de
     }
 
     // Download libraries
+    // NOTE: 库走 basePath（= versions/<id>），因为 versions/<id>/<id>.jar 和它旁边的
+    //       那些文件都是"这个版本自己的"；资源（assets）不一样，是全体共用的，
+    //       所以那边的目录由 AppPaths::assetsDir() 说了算，不跟着 basePath 走。
     QList<Library> libraries = downloadManager->extractLibraries(versionJson);
     downloadManager->downloadLibraries(libraries, basePath + "/libraries");
 
     // Download assets
     AssetIndex assetIndex = downloadManager->extractAssetIndex(versionJson);
-    downloadManager->downloadAssets(assetIndex, basePath + "/assets");
+    downloadManager->downloadAssets(assetIndex);
 
-    downloadManager->endBatch();
-}
-
-void VersionManager::downloadVersionLibraries(const QString &versionId, const QString &basePath) {
-    // 同 downloadVersion：早退只能在 beginBatch() 之前
-    if (!versionJsons.contains(versionId)) {
-        qWarning() << "Version JSON not available for" << versionId << ". Fetch details first.";
-        emit versionDownloadFinished(versionId, false, tr("尚未获取到该版本的 version.json。"));
-        return;
-    }
-
-    m_currentVersionDownloading = versionId;
-    downloadManager->beginBatch();
-    const QJsonObject &versionJson = versionJsons[versionId];
-    QList<Library> libraries = downloadManager->extractLibraries(versionJson);
-    downloadManager->downloadLibraries(libraries, basePath);
-    downloadManager->endBatch();
-}
-
-void VersionManager::downloadVersionAssets(const QString &versionId, const QString &basePath) {
-    if (!versionJsons.contains(versionId)) {
-        qWarning() << "Version JSON not available for" << versionId << ". Fetch details first.";
-        emit versionDownloadFinished(versionId, false, tr("尚未获取到该版本的 version.json。"));
-        return;
-    }
-
-    m_currentVersionDownloading = versionId;
-    downloadManager->beginBatch();
-    const QJsonObject &versionJson = versionJsons[versionId];
-    AssetIndex assetIndex = downloadManager->extractAssetIndex(versionJson);
-    downloadManager->downloadAssets(assetIndex, basePath);
     downloadManager->endBatch();
 }
 
@@ -379,8 +347,10 @@ VersionDisplayParts VersionManager::displayParts(const QString &versionId) const
 
     // NOTE: 这里刻意**不缓存**。getVersionJson() 能缓存是因为版本 JSON 一旦下载就不再变，
     // 而这个文件会被"重命名"功能改写——缓存就会变成"改了名不生效"的 bug。
-    // 开销不是不缓存的理由：调用方 refreshInstalledVersions() 一次会话最多被调三次，
-    // 每次每个版本一个 exists() 加（有文件时才有的）几百字节读取。真机上实例数可以到
+    // 开销不是不缓存的理由：调用方 refreshInstalledVersions() 每个已安装版本都要过这里
+    // 一遍，而它一次会话会被调很多次且**没有上界** —— 构造函数、版本清单到达、下载完成，
+    // 以及每勾一下「版本名格式」的四个勾选框（onVersionNameOptionChanged）都会重跑。
+    // 每次每个版本一个 exists() 加（有文件时才有的）几百字节读取；真机上实例数可以到
     // 61 个，也仍然是可忽略的量级 —— 所以别再拿"数量少"当论据，真正的理由是上面那条。
     return parts;
 }

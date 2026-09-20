@@ -5,15 +5,22 @@
  * @date 2026-09-20
  * @note header-only：只有 inline 函数，不需要加 .cpp，也不用碰链接。
  *
- * 以前 `QCoreApplication::applicationDirPath() + "/.minecraft"` 这句拼接散在 5 个文件
- * 15 处，各自再往后缀 "/versions"、"/assets"、"/java"…… 后果不是今天就会炸，而是：
+ * 改造前 `QCoreApplication::applicationDirPath() + "/.minecraft"` 这句拼接散在 5 个文件
+ * 15 处，各自再往后缀 "/versions"、"/assets"、"/java"…… 后果不是炸，而是：
  *
  *   1. "切换 .minecraft 文件夹"这个功能没有落点。要让启动器改用另一个游戏目录，
  *      得改 15 处，漏一处就是"版本列表来自 A、下载写进 B"这种只在一半功能上生效的
  *      错位，而且两条路径长得几乎一样，看日志也未必看得出。
- *   2. 同一个目录被算了两遍。例如 startGame() 自己拼了一份 versions/<id> 的绝对路径
- *      给 ensureInitialOptions 用，而 --gameDir 传的却是相对路径、靠 QProcess 的工作
- *      目录去解析。两份值今天恰好相等，但"恰好"是靠调用顺序维持的，不是靠代码。
+ *   2. 【**已修**】当时 startGame() 自己拼了一份 versions/<id> 的绝对路径给
+ *      ensureInitialOptions 用，而 --gameDir 传的却是相对路径、靠 QProcess 的工作目录
+ *      去解析 —— 两份值"恰好相等"，靠的是调用顺序而不是代码。现在这两处取的是
+ *      **同一个表达式** AppPaths::versionDir(versionId)，不再有第二份值。
+ *   3. 【**已收**】"同一个目录算两遍"这一类也清了：原来这里还有一个 gameDir()（和
+ *      versionDir() 同义、没有任何调用点），另外 DownloadManager::downloadAssets() 收了
+ *      一个 basePath 参数、而它调用的 parseAndDownloadAssets() 无视该参数直接读
+ *      AppPaths::assetsDir() —— 同一个"资源在哪儿"存了两份。两处都删了：gameDir() 没有
+ *      调用方可以直接删，downloadAssets() 的那个参数则是**并到了 assetsDir() 这一份**上
+ *      （索引和 objects 从此必然同源，游戏按 --assetsDir 找 indexes/<id>.json 不会扑空）。
  *
  * NOTE: 这里刻意不缓存。applicationDirPath() 本身是 O(1)（Qt 缓存了结果），而这些
  *       函数比起随后要做的扫盘/读文件便宜到可以忽略；反过来，一旦缓存，这个头文件
@@ -69,9 +76,6 @@ inline QString versionMetaPath(const QString &versionId) {
 inline QString nativesDir(const QString &versionId) {
     return versionDir(versionId) + QStringLiteral("/natives");
 }
-
-/// 独立游戏目录：--gameDir 指向的地方。当前就是版本目录本身。
-inline QString gameDir(const QString &versionId) { return versionDir(versionId); }
 
 /// 共享库根目录：<数据目录>/libraries。所有版本共用一份。
 inline QString libraryDir() { return minecraftDir() + QStringLiteral("/libraries"); }

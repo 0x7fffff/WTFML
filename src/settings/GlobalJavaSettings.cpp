@@ -106,32 +106,20 @@ bool verifyJavaExecutable(const QString &path, QString *versionOut = nullptr) {
     return false;
 }
 
-int parseJavaMajorVersion(const QString &versionOutput) {
-    // Java version output examples:
-    // java version "1.8.0_301" -> 8
-    // java version "11.0.12" -> 11
-    // java version "17.0.1" -> 17
-    // java version "21.0.1" -> 21
-
-    // Java requirements for games:
-    // 1.6 - 1.16.5 -> Java 8
-    // 1.17 - 1.20.4 -> Java 17
-    // 1.20.5 - 1.21.11 -> Java 21
-    // 26.1 + -> Java 25
-
-    QRegularExpression regex("version \"([^\"]+)\"");
-    QRegularExpressionMatch match = regex.match(versionOutput);
-    if (!match.hasMatch()) {
-        return -1;
-    }
-
-    QString version = match.captured(1);
-    QStringList parts = version.split('.');
+/// 从**裸版本号**（"25.0.1" / "1.8.0_422"）推主版本。
+/// "java -version 的输出"和"release 文件里的 JAVA_VERSION"两条路共用这一段，
+/// 免得两处各判一次"1.8 该取第二段"、慢慢就判歪一个。
+int majorFromVersionString(const QString &version) {
+    // NOTE: 这个函数只把**裸版本号**解析成主版本，和"哪个游戏版本要多新的 Java"无关。
+    //       那张对照表（1.6-1.16.5 → 8、1.17-1.20.4 → 17、1.20.5-1.21.11 → 21、
+    //       26.1+ → 25）不在这里 —— 实际来源是 version.json 的 javaVersion.majorVersion，
+    //       由 MainWindow 读取（另有一处兜底值）。
+    const QStringList parts = version.split(QLatin1Char('.'));
     if (parts.isEmpty()) {
         return -1;
     }
 
-    bool ok;
+    bool ok = false;
     int majorVersion = parts[0].toInt(&ok);
     if (!ok) {
         return -1;
@@ -146,6 +134,67 @@ int parseJavaMajorVersion(const QString &versionOutput) {
     }
 
     return majorVersion;
+}
+
+int parseJavaMajorVersion(const QString &versionOutput) {
+    // Java version output examples:
+    // java version "1.8.0_301" -> 8
+    // java version "11.0.12" -> 11
+    // java version "17.0.1" -> 17
+    // java version "21.0.1" -> 21
+
+    const QRegularExpression regex(QStringLiteral("version \"([^\"]+)\""));
+    const QRegularExpressionMatch match = regex.match(versionOutput);
+    if (!match.hasMatch()) {
+        return -1;
+    }
+    return majorFromVersionString(match.captured(1));
+}
+
+/**
+ * @brief 认出一个 java.exe 的主版本：先读 release 文件，读不到才真的跑一次 java -version。
+ * @param javaExe java.exe 的完整路径。
+ * @param versionOutput 退回探测时用来接 java -version 的原始输出（可以传 nullptr）。
+ * @return 主版本号；exe 不存在、或者两种办法都认不出来时返回 -1。
+ *
+ * JDK/JRE 安装时就把版本清单写在自己的根目录里（release 文件），读它是一次文件读取
+ * （微秒级）；而跑 java -version 要冷启一个 JVM —— Windows 上实测约 80~100 ms，
+ * 装了杀软的机器上第一次跑更久。而 scanLocalJavaVersions() 是**同步**跑的（切到设置页
+ * 那一下），本机 5 个运行时就是 0.6 s 的界面冻结 —— 这就是"点开设置卡一下"。
+ * 能读文件就别开进程。
+ *
+ * NOTE: 不是每个运行时都有 release。原版启动器那份 jre-legacy（Java 8 的老布局）就只有
+ *       bin/ 和 lib/，没有这个文件 —— Java 8 那代还没有这个惯例。所以读不到时**必须**
+ *       退回真的跑一次，不能拿目录名（jre-legacy / java-runtime-delta）去猜主版本：
+ *       目录名是别人起的，改名或者往里放了别的东西，猜出来的版本就是错的 ——
+ *       而"静默选错 Java"正是这一层最怕的错。
+ */
+int probeJavaMajorVersion(const QString &javaExe, QString *versionOutput = nullptr) {
+    if (!QFileInfo::exists(javaExe)) {
+        return -1;
+    }
+
+    // release 文件在 java.exe 的上一层：<运行时根>/bin/java.exe → <运行时根>/release
+    QDir runtimeRoot = QFileInfo(javaExe).absoluteDir();
+    runtimeRoot.cdUp();
+    QFile releaseFile(runtimeRoot.absoluteFilePath(QStringLiteral("release")));
+    if (releaseFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        const int majorVersion = GlobalJavaSettings::majorVersionFromReleaseFile(
+            QString::fromUtf8(releaseFile.readAll()));
+        if (majorVersion > 0) {
+            return majorVersion;
+        }
+    }
+
+    // 没有 release 文件（或者里面没有能认的 JAVA_VERSION）：只能真的问它一次。
+    QString probed;
+    if (!verifyJavaExecutable(javaExe, &probed)) {
+        return -1;
+    }
+    if (versionOutput) {
+        *versionOutput = probed;
+    }
+    return parseJavaMajorVersion(probed);
 }
 
 /**
@@ -238,9 +287,10 @@ QString findJavaInCommonLocations(int requiredMajor = -1) {
  * @param requiredMajor 需要的 Java 主版本，-1 表示不限。
  * @return 若找到匹配的 java.exe 则返回其绝对路径，否则返回空.
  *
- * FIXME: 旧实现直接返回裸命令 "java"，但 verifyJavaExecutable() 第一步就是
- * QFileInfo::exists()，裸命令永远过不了；即使侥幸通过，startGame() 也会用
- * QFileInfo(program).exists() 判定"Java 可执行文件未找到"。必须解析成绝对路径。
+ * NOTE: 为什么必须解析成**绝对路径**（旧实现返回裸命令 "java"，已修 —— 这段留在这里是
+ *       免得有人再"简化"回去）：裸命令过不了 verifyJavaExecutable() 第一步的
+ *       QFileInfo::exists()；即使侥幸通过，startGame() 也会用 QFileInfo(program).exists()
+ *       判定成"Java 可执行文件未找到"。
  */
 QString findJavaOnPath(int requiredMajor = -1) {
     const QString resolved = QStandardPaths::findExecutable(QStringLiteral("java"));
@@ -249,6 +299,14 @@ QString findJavaOnPath(int requiredMajor = -1) {
     }
     return QString();
 }
+
+/// 原版启动器下载好的一个运行时。主版本**在扫描时就认出来带着走** —— 调用方
+/// （scanLocalJavaVersions）要用它给 versions 建索引，重跑一遍 java -version
+/// 就是让界面白冻一倍时间。
+struct VanillaRuntime {
+    QString exe;
+    int majorVersion = -1;
+};
 
 /**
  * @brief 扫描原版启动器已经下载好的运行时目录。
@@ -259,10 +317,11 @@ QString findJavaOnPath(int requiredMajor = -1) {
  * gamma / delta / epsilon）。直接复用这些运行时可以省掉一次完整的下载，
  * 而且它们是 Mojang 针对该游戏版本挑选过的。
  *
- * @return 组件名到 java.exe 绝对路径的映射。
+ * @return 组件名到该运行时（路径 + 主版本）的映射。认不出主版本的组件不入表 ——
+ *         它对调用方没有意义，留着只会让调用方再过滤一遍。
  */
-QMap<QString, QString> scanVanillaRuntimeComponents() {
-    QMap<QString, QString> components;
+QMap<QString, VanillaRuntime> scanVanillaRuntimeComponents() {
+    QMap<QString, VanillaRuntime> components;
 
     QString appData = qEnvironmentVariable("APPDATA");
     if (appData.isEmpty()) {
@@ -277,11 +336,15 @@ QMap<QString, QString> scanVanillaRuntimeComponents() {
         return components;
     }
 
+    // 只收认得出主版本的那些：majorVersion <= 0 的运行时对调用方没有意义，
+    // 留在表里还要调用方自己再过滤一遍。
     const QStringList subdirs = runtimeRoot.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
     for (const QString &subdir : subdirs) {
-        const QString exe = QDir(runtimeRoot.absoluteFilePath(subdir)).absoluteFilePath("bin/java.exe");
-        if (verifyJavaExecutable(exe)) {
-            components[subdir] = exe;
+        const QString exe =
+            QDir(runtimeRoot.absoluteFilePath(subdir)).absoluteFilePath("bin/java.exe");
+        const int majorVersion = probeJavaMajorVersion(exe);
+        if (majorVersion > 0) {
+            components[subdir] = VanillaRuntime{exe, majorVersion};
         }
     }
     return components;
@@ -377,7 +440,8 @@ bool downloadFileToLocal(const QUrl &url, const QString &destinationPath) {
  * @param destinationDir 运行时根目录（通常是 <.minecraft>/java）。
  * @param component Mojang 的运行时组件名，如 java-runtime-epsilon。
  * @param javaPathOut 解压后找到的 java.exe 路径。
- * @return 若下载并解压成功则返回 true.
+ * @return 若下载、解压**并且**在解压结果里找到一个能跑的 java.exe 才返回 true。
+ *         解压成功但没找到 java.exe 的会继续试下一个 URL，全都如此就返回 false。
  */
 bool downloadJavaRuntime(const QString &destinationDir, const QString &component,
                          QString *javaPathOut) {
@@ -563,6 +627,21 @@ SystemMemory::Usage GlobalJavaSettings::refreshSuggestedMemory() {
     return usage;
 }
 
+int GlobalJavaSettings::majorVersionFromReleaseFile(const QString &releaseText) {
+    // release 文件是 KEY="value" 一行一条，版本那条叫 JAVA_VERSION：
+    //   Java 9+ : JAVA_VERSION="21.0.7"
+    //   Java 8  : JAVA_VERSION="1.8.0_422"
+    // 刻意**只认带引号的 JAVA_VERSION=** 这一种写法：同一个文件里还有
+    // JAVA_VERSION_DATE、MODULES 之类的行，宽泛地找 "version" 会撞上它们。
+    // 找不到就返回 -1，调用方退回真的跑一次 java -version，不猜。
+    static const QRegularExpression regex(QStringLiteral("JAVA_VERSION=\"([^\"]+)\""));
+    const QRegularExpressionMatch match = regex.match(releaseText);
+    if (!match.hasMatch()) {
+        return -1;
+    }
+    return majorFromVersionString(match.captured(1));
+}
+
 QMap<int, QString> GlobalJavaSettings::scanLocalJavaVersions() {
     QMap<int, QString> versions;
     const QString javaDir = AppPaths::javaDir();
@@ -572,11 +651,7 @@ QMap<int, QString> GlobalJavaSettings::scanLocalJavaVersions() {
         const QStringList subdirs = dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
         for (const QString &subdir : subdirs) {
             const QString javaExe = dir.absoluteFilePath(subdir + "/bin/java.exe");
-            QString versionOutput;
-            if (!verifyJavaExecutable(javaExe, &versionOutput)) {
-                continue;
-            }
-            const int majorVersion = parseJavaMajorVersion(versionOutput);
+            const int majorVersion = probeJavaMajorVersion(javaExe);
             if (majorVersion > 0) {
                 versions[majorVersion] = javaExe;
             }
@@ -585,16 +660,17 @@ QMap<int, QString> GlobalJavaSettings::scanLocalJavaVersions() {
 
     // 原版启动器已经下载好的运行时（jre-legacy / java-runtime-*）同样可以复用，
     // 省掉一次完整下载。这里用 first-wins，优先保留启动器自己下载的那一份。
-    const QMap<QString, QString> vanillaComponents = scanVanillaRuntimeComponents();
+    //
+    // NOTE: 主版本在 scanVanillaRuntimeComponents() 里就已经认出来了，这里**不重跑**。
+    //       以前这一层对每个组件又跑了一遍 java -version，同一件事做两遍 ——
+    //       本机 4 个组件就是多冻 0.3 s，而且这 0.3 s 一个字的信息都没换来。
+    const QMap<QString, VanillaRuntime> vanillaComponents = scanVanillaRuntimeComponents();
     for (auto it = vanillaComponents.cbegin(); it != vanillaComponents.cend(); ++it) {
-        QString versionOutput;
-        if (!verifyJavaExecutable(it.value(), &versionOutput)) {
-            continue;
-        }
-        const int majorVersion = parseJavaMajorVersion(versionOutput);
-        if (majorVersion > 0 && !versions.contains(majorVersion)) {
-            qDebug() << "Reusing vanilla launcher runtime" << it.key() << "for Java" << majorVersion;
-            versions[majorVersion] = it.value();
+        const VanillaRuntime &runtime = it.value();
+        if (!versions.contains(runtime.majorVersion)) {
+            qDebug() << "Reusing vanilla launcher runtime" << it.key() << "for Java"
+                     << runtime.majorVersion;
+            versions[runtime.majorVersion] = runtime.exe;
         }
     }
 
@@ -632,7 +708,7 @@ bool GlobalJavaSettings::downloadJavaFromMojang(int majorVersion) {
         return false;
     }
 
-    // Find Windows x64 JRE
+    // 在 Windows x64 的包里挑一个：优先 JRE，没有 JRE 才退到 JDK（见下面的 downloadUrl 选取）
     QString downloadUrl;
     QString jreUrl;
     QString jdkUrl;

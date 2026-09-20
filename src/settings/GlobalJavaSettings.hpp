@@ -57,19 +57,6 @@ public:
     void setAutoSelectJava(bool autoSelect) { m_autoSelectJava = autoSelect; }
 
     /**
-     * @brief Ensures a valid Java runtime is available.
-     * @return True if Java can be used.
-     */
-    bool ensureJavaAvailable();
-
-    /**
-     * @brief Ensures the Java runtime supports a named component.
-     * @param component Component name such as "java" or "javac".
-     * @return True if the component is available.
-     */
-    bool ensureJavaForComponent(const QString &component);
-
-    /**
      * @brief Ensures the configured Java matches the required major version.
      * @param majorVersion Required Java major version.
      * @param component Optional runtime component name from version.json
@@ -82,13 +69,35 @@ public:
     /**
      * @brief Scans local installations for Java versions.
      * @return Map from major version to executable path.
+     *
+     * NOTE: 这是**同步**的，而且每个候选运行时都要认一次主版本（见
+     *       majorVersionFromReleaseFile()）。界面在切到设置页那一下调它，
+     *       所以它花多少毫秒，界面就冻多少毫秒 —— 认版本那条路快不快要紧。
      */
     QMap<int, QString> scanLocalJavaVersions();
+
+    /**
+     * @brief 从 JDK/JRE 根目录那个 release 文件的内容里读出主版本。
+     * @param releaseText release 文件的全文。
+     * @return 主版本号；文件里没有 JAVA_VERSION、或者版本认不出来时返回 -1。
+     *
+     * 做成公开的纯函数是为了让验证工程能直接钉这张真值表（理由和 suggestXmxMb 一样）：
+     * 它是"扫描本机 Java 时不必启动 JVM"这条快路的前提，解析错了的后果是**静默认不出**
+     * 本机已经装好的 Java，然后再去下一个几百 MB 的运行时。
+     *
+     * 格式：release 文件是 KEY="value" 一行一条。Java 9+ 写 JAVA_VERSION="21.0.7"，
+     * Java 8 那代写 JAVA_VERSION="1.8.0_422"（主版本在第二段）。
+     */
+    static int majorVersionFromReleaseFile(const QString &releaseText);
 
     /**
      * @brief Downloads a Java runtime from Mojang for the required version.
      * @param majorVersion Required Java major version.
      * @return True if the download succeeded.
+     *
+     * NOTE: 名字里的 "FromMojang" 是历史遗留，**实际来源是 Adoptium**（api.adoptium.net
+     *       的 v3 assets/latest API），不是 Mojang 的服务器。函数名先不改 —— 改名要动
+     *       调用点，收益只是好看。
      */
     bool downloadJavaFromMojang(int majorVersion);
 
@@ -177,8 +186,9 @@ public:
      * 的那一份，"按版本"的那份（wtfml.meta 的 jvmArgs）排在它之后，所以同一条选项
      * 写两遍时单个实例胜出。
      *
-     * NOTE: 界面入口还没做 —— 计划落在 MainWindow 那个目前还是空的 QMenuBar 上。
-     *       现在只有直接改配置文件才用得上它。
+     * NOTE: 界面入口在设置页的「JVM 参数」那一行（ui/MainWindowUI.cpp 的 extraJvmArgsEdit
+     *       ＋旁边那个「应用」按钮），经 MainWindow::onApplyExtraJvmArgsClicked() 落盘。
+     *       它**不跟 textChanged 存**，必须点「应用」才进配置 —— 免得半条参数进了命令行。
      */
     QString extraJvmArgs() const;
 

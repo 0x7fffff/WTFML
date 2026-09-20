@@ -71,9 +71,10 @@ public:
      *        所以空值是"退回默认"而不是"原样传下去"。
      * @return 返回 JVM 参数列表。
      *
-     * NOTE: 调用方传 javaMajorVersion <= 0（未传）时，按"不知道是哪个 Java"处理：
-     *       按版本过滤的选项一律不加，沿用最保守的那套 —— 加错的后果是 JVM 直接
-     *       判 Unrecognized option 起不来。
+     * NOTE: 调用方传 javaMajorVersion <= 0（未传）时按"**沿用旧行为**"处理，不是"一条都
+     *       不加"：17 门槛的 --enable-native-access 在 <=0 时**照样加**（cpp 里的判断是
+     *       `>= 17 || <= 0`，旁边注明 0 表示调用方没传）；不加的只有 19 门槛的
+     *       -Dstdout/stderr.encoding 和 25 门槛的 --sun-misc-unsafe-memory-access。
      */
     QStringList generateJvmArguments(const QString &token, const QString &versionId,
                                      const QString &assetIndexId, const QJsonObject &versionJson,

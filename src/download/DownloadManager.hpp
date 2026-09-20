@@ -42,10 +42,17 @@ struct Library {
     QString sha1;
     qint64 size = 0;
     QString path;
+    // 下面两个字段由 extractLibraries() 从 LibraryRules::nativeClassifier() 的结果填好。
+    // 产品代码里下载和启动都不看它们（natives 的解压在 LauncherManager::prepareNatives()，
+    // 那边自己重新解析一遍 version.json），但**验证工程会读 isNative**（拿它核对"这个库
+    // 是 natives classifier 还是普通库"），所以别按"没人用"删掉。
+    //
     // 1.18.2 及以下的 natives 是 downloads.classifiers 里的独立 jar，
     // 它不进 classpath，而是启动时解压到 versions/<id>/natives/。
     bool isNative = false;
     // 该 jar 内需要跳过的条目前缀，来自 library 的 extract.exclude（通常是 META-INF/）。
+    // 真正用它的地方是 prepareNatives（从 version.json 重新算一遍），这个字段本身
+    // 目前**只写不读**。
     QStringList extractExclude;
 };
 
@@ -57,20 +64,12 @@ struct AssetIndex {
     qint64 totalSize;
 };
 
-struct DownloadInfo {
-    QString url;
-    QString sha1;
-    qint64 size;
-    QString path;
-};
-
 /**
  * @brief 决定一个已经存在于磁盘上的文件要不要重新下载。
  *
  * 重新点"下载"时用它来跳过已经完好的文件，避免整包重下。
  */
 enum class VerifyMode {
-    Always,       // 无条件重下（用于需要刷新的索引文件）
     ExistsOnly,   // 文件存在就算好（用于海量 asset，全量哈希会让界面卡住几秒）
     SizeAndSha1,  // 先比字节数，再比 SHA1（用于客户端 jar 和 library）
 };
@@ -83,7 +82,6 @@ struct DownloadStats {
     int done = 0;     // 已结束的（成功、失败、跳过都算）
     int failed = 0;   // 其中失败的
     int skipped = 0;  // 其中因为文件已存在而跳过的
-    QString currentFile;      // 最近一次有动静的文件，供状态栏显示
     QStringList failedPaths;  // 失败文件的完整路径，比 40 位哈希文件名可读
 };
 
@@ -106,7 +104,10 @@ public:
     bool useMirror() const { return m_useMirror; }
 
     // ------------------------------------------------------------------
-    // 官方地址 → 镜像地址。**纯函数**，不碰成员、不发请求，验证工程直接测它们。
+    // 官方地址 → 镜像地址。**纯函数**，不碰成员、不发请求。
+    // NOTE: "纯函数所以好测"是当初的理由，但这四个函数今天**一条断言都没有**：全仓库
+    //       除了本文件自己，只有 mw_check 里一句注释提到它们。要补的话它们不需要
+    //       QApplication，是现有代码里最容易钉住的一批。
     // ------------------------------------------------------------------
     // 为什么要三个专门的函数、而不是一个"换 host"的：BMCLAPI 对一部分资源用了
     // 完全不同的路径形状，必须拿**版本号 / 索引号**重拼。
@@ -140,7 +141,6 @@ public:
     // 版本列表操作
     void fetchVersionManifest();
     QList<MinecraftVersion> getAvailableVersions() const;
-    QString getLatestVersion(const QString &type = "release") const;
 
     // 版本 JSON 文件操作
     void fetchVersionJson(const QString &versionId);
@@ -154,7 +154,11 @@ public:
                       const QString &expectedSha1 = QString(), qint64 expectedSize = -1,
                       VerifyMode mode = VerifyMode::SizeAndSha1);
     void downloadLibraries(const QList<Library> &libraries, const QString &basePath);
-    void downloadAssets(const AssetIndex &assetIndex, const QString &basePath);
+    /// 资源索引和资源对象都落在 AppPaths::assetsDir() 下，也就是 --assetsDir 指的那个
+    /// 目录。调用方**不能**指定别处：索引和 objects 必须同源，否则游戏按 --assetsDir
+    /// 去找 indexes/<id>.json 就会扑空。
+    /// @param assetIndex version.json 的 assetIndex 节点，必须带 id / url / sha1。
+    void downloadAssets(const AssetIndex &assetIndex);
     /// @param versionId 版本号。镜像源下客户端 jar 是**按版本号**取的
     ///        （官方是按 sha1 取），所以这个参数是必需的，不能只给 URL。
     void downloadClientJar(const QString &versionId, const QString &url,
@@ -169,7 +173,10 @@ public:
     bool isBusy() const;
     DownloadStats stats() const;
 
-    // Utility methods 实用方法？？//需要进一步完善注释
+    // 工具方法：哈希/校验，以及把 version JSON 解析成上面那些结构体（版本清单和单个
+    // 版本 JSON 各一个入口）。留在 public 是给验证工程用的 —— 它会直接调
+    // extractLibraries()/extractAssetIndex() 断言"选中了哪些库、natives classifier
+    // 挑得对不对"。verifyFileSha1()/calculateFileSha1() 目前只有本类自己调。
     bool verifyFileSha1(const QString &filePath, const QString &expectedSha1);
     QString calculateFileSha1(const QString &filePath);
     void parseVersionManifest(const QJsonDocument &json);
@@ -198,9 +205,9 @@ private:
     QNetworkAccessManager *networkManager;
     QList<MinecraftVersion> availableVersions;
     QJsonObject currentVersionJson;
-    QMap<QNetworkReply *, QString>
-        activeDownloads;  // reply -> destination path   回应目标路径//需要进一步翻译
-    QMap<QNetworkReply *, QString> expectedSha1s;  // reply -> expected SHA1  回应期望的 SHA1
+    // 两张表都以 QNetworkReply* 为键，回复一结束就从表里摘掉（onDownloadReplyFinished）。
+    QMap<QNetworkReply *, QString> activeDownloads;  // reply -> 目标路径
+    QMap<QNetworkReply *, QString> expectedSha1s;    // reply -> 期望的 SHA1
     int pendingDownloads;
 
     // 批次记账
@@ -234,6 +241,5 @@ private:
 Q_DECLARE_METATYPE(MinecraftVersion)
 Q_DECLARE_METATYPE(Library)
 Q_DECLARE_METATYPE(AssetIndex)
-Q_DECLARE_METATYPE(DownloadInfo)
 
 #endif  // DOWNLOADMANAGER_H

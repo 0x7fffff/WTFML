@@ -531,8 +531,11 @@ void MainWindow::updateDownloadProgressUi(int done, int total, int failed,
 
 void MainWindow::onVersionDownloadStats(int done, int total, int failed,
                                         const QString &currentFile) {
-    // 前缘节流：200 ms 内的后续更新直接丢掉，只保留最后一次的状态由结束时补刷。
-    // 不这么做的话，5000 多个 asset 会疯狂重排状态栏，界面反而卡住。
+    // 前缘节流：200 ms 内的后续更新直接丢掉。不这么做的话，5000 多个 asset 会疯狂重排
+    // 状态栏，界面反而卡住。
+    // NOTE: 丢掉的那些**没有**"结束时补刷"这回事 —— 进度条和状态栏停在上一次越过阈值的
+    //       那一帧，最多比真实进度旧 200 ms。整批结束由 setDownloadUiBusy(false) 把进度条
+    //       归零收尾，所以停在哪一帧不影响收尾。
     if (m_progressThrottle.isValid() && m_progressThrottle.elapsed() < 200) {
         return;
     }
@@ -554,8 +557,9 @@ void MainWindow::appendLog(const QString &text) {
 void MainWindow::refreshInstalledVersions() {
     // 只扫本地磁盘（.minecraft/versions/<id>/<id>.jar），同步返回，随叫随到。
     //
-    // 识别不出来的版本只在第一次上报：本函数一次会话会被调三次（构造、版本列表到达、
-    // 下载完成），每回都报就是刷屏。第一次报过之后连扫都不扫了 —— 传 nullptr 时
+    // 识别不出来的版本只在第一次上报：本函数一次会话会被调很多次（构造、版本清单到达、
+    // 下载完成、每勾一下「版本名格式」都会走一遍），每回都报就是刷屏。第一次报过之后
+    // 连扫都不扫了 —— 传 nullptr 时
     // installedVersions() 走的是和加这个参数之前完全一样的那条路径。
     QStringList warnings;
     const QStringList installed = m_versionManager->installedVersions(
@@ -573,7 +577,7 @@ void MainWindow::refreshInstalledVersions() {
     for (const QString &id : installed) {
         // 每个版本读一次 <id>/wtfml.meta（几百字节的可选文件，绝大多数版本没有）。
         // 刻意不缓存：这个文件会被"重命名"功能改写，缓存了就会变成"改了名不生效"。
-        // 开销上不必担心 —— 一次会话最多调三次，而真机上实例数可以到 61 个。
+        // 开销上不必担心 —— 真机上实例数可以到 61 个，而这个函数一次会话没有调用上界。
         parts.append(m_versionManager->displayParts(id));
     }
     fillVersionViews(combo, m_ui->getInstalledVersionList(), parts,
@@ -635,7 +639,7 @@ void MainWindow::updateStartButtonText() {
     m_ui->getStartButton()->setText(tr("启动游戏\n%1").arg(shown));
 
     // 下拉框的 tooltip 挂**裸 id**，不是显示名。两个理由：
-    //   1. 下拉框设了 minimumContentsLength(16)，长显示名会被省略号截断；
+    //   1. 下拉框设了 minimumContentsLength(12)，长显示名会被省略号截断；
     //   2. 更要紧的是，id 在界面上**任何开关组合下都不会出现** —— 显示名那边参与
     //      拼装的"实际版本"是 parts.realVersion（为空才退化成 id），所以只要
     //      wtfml.meta 里写了 realVersion，目录名就彻底从界面上消失了。而它才是真正
@@ -835,6 +839,9 @@ void MainWindow::refreshMemoryUi() {
     if (usage.totalMb <= 0) {
         // 读不到系统内存（非 Windows 平台或系统调用失败）：照实说，别让用户以为是"按你的
         // 内存算的"。实际用的是内置默认值。
+        // NOTE: 这一支**不看 autoMemory**，是照着自动档写的：手动档下会对着用户自己刚
+        //       定的那两个数说"自动分配用的是内置默认值"。手动档下那句话两头都不对，
+        //       只是数值本身在上面两个框里能直接看到，就先这么写着。
         m_ui->getMemoryAutoHint()->setText(
             tr("读不到系统内存，自动分配用的是内置默认值（最大 %1 MB / 最小 %2 MB）。")
                 .arg(m_javaSettings->xmx())
@@ -905,8 +912,10 @@ void MainWindow::onDownloadSourceChanged() {
 }
 
 void MainWindow::syncDownloadSource() {
-    // 改完立刻生效，不用重启启动器 —— 设置是发请求那一刻读的（见 DownloadManager）。
-    // 正在下着的那一批不会被中途改道，这是对的：半批官方半批镜像更难查。
+    // 改完立刻生效，不用重启启动器 —— 设置是**发请求那一刻**读的（见 DownloadManager）。
+    // 正在下着的那一批不会被中途改道，这是对的：半批官方半批镜像更难查。机制上是"一个
+    // 批次的 URL 在入队那一刻就定死了"（downloadFile 收到的是一整个字符串），所以代价是
+    // 这次下载开始之后再改设置，要等下一次下载才见效。
     m_versionManager->setUseMirror(m_settings->downloadSource() == DownloadSource::Mirror);
 }
 
@@ -967,7 +976,8 @@ void MainWindow::onVersionsFetched(const QStringList &versions) {
     refreshInstalledVersions();
 
     if (versions.isEmpty()) {
-        // 拉清单失败时 DownloadManager 也会发这个信号（发的是空清单），别让
+        // 拉清单失败时 DownloadManager 也会发这个信号，发的是**上一次成功的结果**
+        // （首次拉取就失败才是空的），所以这一支实际拦的是"从来没拉到过"。别让
         // "正在获取..." 一直挂着骗人。列表那边同上：空名单不动它（本来就是空的）。
         m_ui->getAvailableVersionCombo()->setPlaceholderText(
             tr("在线版本列表获取失败，请检查网络"));

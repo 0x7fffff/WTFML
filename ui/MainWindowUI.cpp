@@ -26,7 +26,10 @@ namespace {
  * QComboBox 默认把滚轮当成"切换选中项"处理，而滚轮事件是按鼠标位置派发的、
  * 跟焦点无关 —— 鼠标从下拉框上滚过（哪怕焦点在别处）就会静默换一个版本。
  * 「下载」页那个下拉框旁边就是「下载版本」，手一滑可能把一次 GB 级的下载指到
- * 别的版本上。设置页那些下拉框同理（内存/下载源被滚轮悄悄改掉更难发现）。
+ * 别的版本上。设置页那三个下拉框同理（Java 运行时 / 启动后 / 下载源）。
+ *
+ * NOTE: 内存那两个数字框是 QSpinBox，**没有**装这个过滤器 —— 上面说的都是 QComboBox 的
+ *       行为（它把滚轮当成"换选中项"），别顺手以为内存也被护住了。
  *
  * NOTE: QObject::eventFilter 是虚函数、不是槽，所以这里不需要 Q_OBJECT，
  *       AUTOMOC 不会牵扯进来，也不用在 cpp 末尾补 .moc 包含。
@@ -68,10 +71,12 @@ struct TwoColumns {
 /**
  * @brief 把页面摆成左右两栏（左:右 = 3:7，仿 PCL）。
  * @param page 选项卡页面。
- * @param tab 页面代号（"home" / "instance" / "download" / "settings"），进 objectName。
+ * @param tab 页面代号（"home" / "instance" / "download"），进 objectName。
  * @return 两栏的控件与布局；调用方往 layout 里塞东西即可。
  *
- * 四个选项卡都走这一条路，比例因此只有一处出处（leftColumnStretch/rightColumnStretch）。
+ * **只有主页/实例/下载这三个**走这条路；「设置」页走 setupSettingsPage()，它的 3:7 是在
+ * 那张两列 grid 上用 setColumnStretch() 表达的（份数取自同一对 leftColumnStretch/
+ * rightColumnStretch，所以比例仍是单点决定，但栏控件只有这三页有）。
  * 栏做成真控件而不是裸布局，是为了验证工程能按 objectName 找回来量几何。
  */
 TwoColumns buildTwoColumnPage(QWidget *page, const QString &tab) {
@@ -98,7 +103,8 @@ TwoColumns buildTwoColumnPage(QWidget *page, const QString &tab) {
     return columns;
 }
 
-/// 设置页里一行：名字在左、控件在右。返回这一行用掉的下标。
+/// 设置页里一行：名字在左、控件在右。**没有返回值** —— "下一个空行号"由调用方自己
+/// `row++` 推进（每次调用照样把它摆在 grid 的第 row 行）。
 /// @note 3:7 是靠 grid 的列拉伸因子实现的（见 setupSettingsPage），这里只负责摆。
 void addSettingRow(QGridLayout *grid, int row, const QString &labelText, QWidget *control,
                    QWidget *parent) {
@@ -214,7 +220,8 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // NOTE: 只要占位文案非空，往空下拉框里 addItems() 就不会自动选中第 0 项
         // （QComboBoxPrivate::rowsInserted 里那条 setCurrentIndex(0) 带了
         //  !placeholderText.isEmpty() 的条件）。所以"空着"能一直保持到用户真的挑一项，
-        // 代价是刷新之后必须自己把选中项捡回来，见 MainWindow::fillVersionCombo()。
+        // 代价是刷新之后必须自己把选中项捡回来，见 MainWindow.cpp 里的 fillVersionCombo()
+        // （它是那个文件匿名命名空间里的自由函数，不是 MainWindow 的成员）。
         // 这里只是初始值；灌完数据后由 MainWindow 在两个串之间切换。
         installedVersionCombo->setPlaceholderText(noInstalledVersionPlaceholder());
 
@@ -229,7 +236,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         home.left.layout->addWidget(installedVersionCombo);
 
         startButton = new QPushButton(QStringLiteral("启动游戏"), home.left.widget);
-        // 文字是两行（"启动游戏\n<版本号>"，由 MainWindow::updateStartButtonText() 维护），
+        // 文字是两行（"启动游戏\n<显示名>"，由 MainWindow::updateStartButtonText() 维护；
         // 高度固定给足，免得两行被压成一行半。
         startButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
         startButton->setMinimumHeight(88);
@@ -325,8 +332,9 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         download.left.layout->addWidget(availableVersionCombo);
 
         QLabel *downloadHint = new QLabel(
-            QStringLiteral("下载进度显示在窗口底部那条状态栏上。已经下过的版本会改成"
-                           "「校验并补齐」，不会从头重下。"),
+            QStringLiteral("下载进度显示在窗口底部那条状态栏上。已经下过的版本不会从头重下"
+                           "——点「下载版本」时会先问一句，答「是」就只校验并补齐缺失或损坏"
+                           "的文件。"),
             download.left.widget);
         downloadHint->setWordWrap(true);
         download.left.layout->addWidget(downloadHint);
@@ -375,8 +383,9 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
 
 void MainWindowUI::setupSettingsPage(QWidget *page) {
     // 设置项多起来之后一屏放不下（账户 / Java / 内存 / 启动后 / JVM 参数 / 下载源 /
-    // 版本名格式），所以套一层滚动区：窗口高度是固定的 620，不给滚动就等于把最后
-    // 那几项藏起来。
+    // 版本名格式），所以套一层滚动区：窗口初始高度只有 620（只 resize 过、没有
+    // setFixedSize），不给滚动就等于把最后那几项一直藏在可视区外，用户不拖大窗口
+    // 根本看不见。
     QScrollArea *scroll = new QScrollArea(page);
     scroll->setObjectName(settingsScrollName());
     scroll->setWidgetResizable(true);

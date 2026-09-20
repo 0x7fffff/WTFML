@@ -52,6 +52,10 @@ AuthManager::AuthManager(QObject *parent)
       m_networkManager(new QNetworkAccessManager(this)),
       m_callbackPort(kCallbackPort) {
     connect(m_callbackServer, &QTcpServer::newConnection, this, &AuthManager::handleNewConnection);
+    // NOTE: 这一句是**无效调用** —— loadStoredTokenData() 是 const、只读一遍 QSettings 再
+    //       返回一个 QJsonObject，不碰任何成员，返回值丢在这里就等于什么都没做。
+    //       "开窗时先试一次免登录"要是真想要，得调 loadSavedToken()（它才会把令牌应用到
+    //       成员上、必要时发起刷新）—— 换之前先确认构造函数里发网络请求可以接受。
     loadStoredTokenData();
 }
 
@@ -140,16 +144,10 @@ void AuthManager::handleNewConnection() {
     const QString code = query.queryItemValue("code");
     const QString error = query.queryItemValue("error");
 
-    qDebug() << "OAuth callback received from browser";
-    qDebug() << "Code length:" << code.length();
-    qDebug() << "Has error:" << !error.isEmpty();
-
-    if (!code.isEmpty()) {
-        qDebug() << "Code (first 20 chars):" << code.left(20) << "...";
-    }
-    if (!error.isEmpty()) {
-        qDebug() << "Error from OAuth:" << error;
-    }
+    // NOTE: 这里**不要**把 code / error 的内容写进日志。授权码是密钥材料（PKCE 挡的是
+    //       "被别人截走后换成令牌"，不是"被别人抄走"），而 Qt 的 qDebug 默认打到 stderr，
+    //       谁把启动器的输出重定向了谁就拿到一份。要确认回调有没有成功，看下面的分支和
+    //       loginSucceeded/loginFailed 信号就够了。
 
     QString responseHtml;
     bool success = false;
@@ -456,7 +454,6 @@ bool AuthManager::applyTokenData(const QJsonObject &tokenData) {
     }
 
     m_accessToken = accessToken;
-    m_refreshToken = refreshToken;
     m_tokenExpiry = QDateTime::currentDateTimeUtc().addSecs(expiresIn - 30);
     qDebug() << "Token data applied successfully. Expires at:" << m_tokenExpiry;
     return true;
@@ -467,7 +464,7 @@ QByteArray AuthManager::obfuscate(const QByteArray &plain, bool decrypt) const {
         QCryptographicHash::hash(QByteArray(kEncryptionKey), QCryptographicHash::Sha256);
     QByteArray data = plain;
     if (decrypt) {
-        // direct XOR is symmetric//需要添加翻译
+        // XOR 是对称的：加密和解密是同一段运算，所以这里什么都不用做，走同一个循环。
     }
 
     QByteArray result;

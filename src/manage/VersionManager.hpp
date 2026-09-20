@@ -30,7 +30,6 @@ public:
     // 但用户得知道为什么它没出现在列表里。传 nullptr 时行为与以前完全一致。
     QStringList installedVersions(QStringList *warnings = nullptr) const;
     QStringList availableVersions() const;
-    QString getLatestVersion(const QString &type = "release") const;
 
     // Version fetching from Mojang API
     void fetchAvailableVersions();
@@ -38,15 +37,16 @@ public:
 
     // Version downloading
     void downloadVersion(const QString &versionId, const QString &destinationPath);
-    void downloadVersionLibraries(const QString &versionId, const QString &basePath);
-    void downloadVersionAssets(const QString &versionId, const QString &basePath);
 
     // 是否有一批下载正在进行（含"正在校验并跳过已存在文件"的整批）。
     // UI 用它来决定"启动游戏"能不能点。
     bool isDownloading() const;
 
     // 下载源：官方 / 镜像。转发给内部的 DownloadManager，界面只跟这一层打交道。
-    // 改完立刻对**下一次**发请求生效（下载中的那一批不会被中途改道）。
+    // 改完立刻对**之后发出的**请求生效：库和客户端 jar 的地址在批次开头一次算完，那部分
+    // 不会改道；但 5000+ 个 asset 的地址是解析完 asset index 才拼的（而索引回复要等网络），
+    // 所以下载中途切源会让资源那一半整体换源。别以为这条路走不通 —— 设置页那个下拉框
+    // 在下载期间并没有被禁用。
     void setUseMirror(bool useMirror);
 
     // Version JSON access

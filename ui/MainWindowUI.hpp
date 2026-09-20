@@ -9,9 +9,10 @@
  * 底部一条通栏状态条（左：头像与用户名；中：启动/下载进度；右：实例运行状态）。
  * 原先的「日志输出」面板已经去掉 —— 日志走 Qt 的日志系统，在命令行里看。
  *
- * 四个选项卡都按**左右两栏 3:7** 排（仿 PCL）：左栏是要操作的那点东西（选版本、
- * 按钮），右栏是列表或一整摊设置项。比例只在 leftColumnStretch()/rightColumnStretch()
- * 和 buildTwoColumnPage() 三处出现，界面和验证工程都引这里，不各写一份。
+ * 四个选项卡**都是左右两栏 3:7**（仿 PCL）：左栏是要操作的那点东西（选版本、按钮），
+ * 右栏是列表或一整摊设置项。前三个（主页/实例/下载）由 buildTwoColumnPage() 搭出**真控件**，
+ * 比例取自 leftColumnStretch()/rightColumnStretch()；「设置」页是一张两列的 QGridLayout，
+ * 用同一对份数表达比例（栏不是控件）。界面和验证工程都引这一对份数，不各写一份。
  */
 
 #pragma once
@@ -61,7 +62,7 @@ public:
     static QString progressBarName() { return QStringLiteral("progressBar"); }
     static QString statusLabelName() { return QStringLiteral("statusLabel"); }
 
-    // ---------- 左右两栏（四个选项卡共用） ----------
+    // ---------- 左右两栏（主页/实例/下载三页用；设置页是两列 grid） ----------
     // 栏是**真的控件**（不是裸布局）：这样才能按 objectName 找回来量几何、
     // 也才能在验证工程里断言"3:7"这条比例。
     //
@@ -196,6 +197,8 @@ public:
     QCheckBox *getVersionNameLoaderVersionCheck() const { return versionNameLoaderVersionCheck; }
 
     QTabWidget *getTabWidget() const { return tabWidget; }
+    // NOTE: 产品代码没有取过底栏本身（只取它里面的几个标签/进度条），只有验证工程
+    //       用它来量底栏的几何。
     QFrame *getBottomBar() const { return bottomBar; }
     QLabel *getAvatarLabel() const { return avatarLabel; }
     QLabel *getAccountLabel() const { return accountLabel; }

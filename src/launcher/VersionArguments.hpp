@@ -21,7 +21,11 @@
 namespace VersionArguments {
 
 /**
- * @brief 把一个 arguments 数组（arguments.jvm 或 arguments.game）展开成参数列表。
+ * @brief 把一个 arguments 数组展开成参数列表。
+ *
+ * NOTE: 两种数组它都能吃，但启动器**只把 arguments.jvm 交给它**（调用点在 LauncherManager）
+ *       —— version.json 的 arguments.game 和旧版的 minecraftArguments 从来没有被展开过，
+ *       游戏参数是那边硬编码的一串。以后要让游戏参数也按 version.json 走，入口是这里。
  * @param entries version.json 里 arguments 下的数组，可同时含字符串和规则对象。
  * @param placeholders ${...} 占位符到实际值的映射。
  * @param features 已启用的 feature 集合，启动器不启用任何 feature，传空即可。

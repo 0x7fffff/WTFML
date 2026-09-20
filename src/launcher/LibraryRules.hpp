@@ -41,7 +41,8 @@ inline QString platformName() {
 
 /**
  * @brief 当前 CPU 架构在 version.json 里使用的名字。
- * @return "x86_64" / "x86" / "arm64"，无法识别时返回归一化前的原始值。
+ * @return "x86_64" / "x86" / "arm64"，无法识别时返回**已经转成小写**的那个原始值
+ *         （QSysInfo 在各平台本来就返回小写，所以这一支今天看不出差别）。
  */
 inline QString platformArch() {
     const QString arch = QSysInfo::currentCpuArchitecture().toLower();
