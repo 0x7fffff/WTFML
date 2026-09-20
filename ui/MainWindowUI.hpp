@@ -8,6 +8,10 @@
  * 窗口结构自 2026-09 起是：顶部 QTabWidget（主页 / 实例 / 下载 / 设置）+
  * 底部一条通栏状态条（左：头像与用户名；中：启动/下载进度；右：实例运行状态）。
  * 原先的「日志输出」面板已经去掉 —— 日志走 Qt 的日志系统，在命令行里看。
+ *
+ * 四个选项卡都按**左右两栏 3:7** 排（仿 PCL）：左栏是要操作的那点东西（选版本、
+ * 按钮），右栏是列表或一整摊设置项。比例只在 leftColumnStretch()/rightColumnStretch()
+ * 和 buildTwoColumnPage() 三处出现，界面和验证工程都引这里，不各写一份。
  */
 
 #pragma once
@@ -17,13 +21,19 @@
 #include <QFrame>
 #include <QGroupBox>
 #include <QLabel>
+#include <QLineEdit>
+#include <QListWidget>
 #include <QMainWindow>
+#include <QPlainTextEdit>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QSpinBox>
 #include <QString>
 #include <QTabWidget>
 #include <QWidget>
 
+class QGridLayout;
+class QScrollArea;
 class QVBoxLayout;
 
 class MainWindowUI {
@@ -36,6 +46,8 @@ public:
     // 拿显示内容当身份标识的测试会在产品改动时以看不懂的方式挂掉。
     static QString installedVersionComboName() { return QStringLiteral("installedVersionCombo"); }
     static QString availableVersionComboName() { return QStringLiteral("availableVersionCombo"); }
+    static QString installedVersionListName() { return QStringLiteral("installedVersionList"); }
+    static QString availableVersionListName() { return QStringLiteral("availableVersionList"); }
     static QString tabWidgetName() { return QStringLiteral("mainTabWidget"); }
     static QString homeTabName() { return QStringLiteral("homeTab"); }
     static QString instanceTabName() { return QStringLiteral("instanceTab"); }
@@ -48,6 +60,59 @@ public:
     static QString runStateDetailLabelName() { return QStringLiteral("runStateDetailLabel"); }
     static QString progressBarName() { return QStringLiteral("progressBar"); }
     static QString statusLabelName() { return QStringLiteral("statusLabel"); }
+
+    // ---------- 左右两栏（四个选项卡共用） ----------
+    // 栏是**真的控件**（不是裸布局）：这样才能按 objectName 找回来量几何、
+    // 也才能在验证工程里断言"3:7"这条比例。
+    //
+    // NOTE: 只有前三个选项卡用 buildTwoColumnPage() 搭出这两个栏控件；「设置」页是
+    //       一张两列的 QGridLayout（选项名称在列 0、控件在列 1），栏没有对应的控件，
+    //       所以那两列**没有** objectName 可找 —— 设置页的比例靠 settingsForm 上
+    //       setColumnStretch() 的两份份数表达，验证工程去量列 0/列 1 里控件的几何。
+    /// @param tab "home" / "instance" / "download"。
+    static QString leftColumnName(const QString &tab) {
+        return tab + QStringLiteral("LeftColumn");
+    }
+    /// @param tab 同上。
+    static QString rightColumnName(const QString &tab) {
+        return tab + QStringLiteral("RightColumn");
+    }
+    /// 左栏占的份数。左:右 = 3:7。
+    static int leftColumnStretch() { return 3; }
+    /// 右栏占的份数。
+    static int rightColumnStretch() { return 7; }
+    /// 右栏在页面上是不是真的更宽（验证工程拿它当"3:7 生效了"的判据）。
+    static bool rightColumnIsWider() { return rightColumnStretch() > leftColumnStretch(); }
+
+    // ---------- 设置页 ----------
+    static QString settingsScrollName() { return QStringLiteral("settingsScroll"); }
+    static QString settingsFormName() { return QStringLiteral("settingsForm"); }
+    static QString javaVersionComboName() { return QStringLiteral("javaVersionCombo"); }
+    static QString javaPathLabelName() { return QStringLiteral("javaPathLabel"); }
+    static QString memoryMaxSpinName() { return QStringLiteral("memoryMaxSpin"); }
+    static QString memoryMinSpinName() { return QStringLiteral("memoryMinSpin"); }
+    static QString launcherBehaviourComboName() { return QStringLiteral("launcherBehaviourCombo"); }
+    static QString extraJvmArgsEditName() { return QStringLiteral("extraJvmArgsEdit"); }
+    static QString applyExtraJvmArgsButtonName() {
+        return QStringLiteral("applyExtraJvmArgsButton");
+    }
+    static QString downloadSourceComboName() { return QStringLiteral("downloadSourceCombo"); }
+    static QString versionNameCustomCheckName() {
+        return QStringLiteral("versionNameCustomCheck");
+    }
+    static QString versionNameRealCheckName() { return QStringLiteral("versionNameRealCheck"); }
+    static QString versionNameLoaderCheckName() { return QStringLiteral("versionNameLoaderCheck"); }
+    static QString versionNameLoaderVersionCheckName() {
+        return QStringLiteral("versionNameLoaderVersionCheck");
+    }
+
+    // ---------- 内存分配的取值范围 ----------
+    // 和 GlobalJavaSettings 的钳位保持一致（那边 setXmx 最少 256、setXms 最少 128），
+    // 否则界面允许填的值会被后端悄悄改掉，用户看到"填了不生效"。
+    static int memoryMaxMinMb() { return 256; }
+    static int memoryMinMinMb() { return 128; }
+    static int memoryLimitMaxMb() { return 65536; }
+    static int memoryStepMb() { return 256; }
 
     // ---------- 「已安装版本」下拉框的占位文案 ----------
     // 空状态有两种，由 MainWindow::refreshInstalledVersions() 按当前情形切换：
@@ -67,6 +132,8 @@ public:
     // 底栏右侧的显示规则要知道"当前是不是在启动界面（主页）"：在主页且选中的就是
     // 正在跑的那个实例时只显示一行，否则加第二行说明是哪个实例。
     static int homeTabIndex() { return 0; }
+    /// 「设置」页的下标。用来做"第一次切到设置页才扫 Java"这条懒加载。
+    static int settingsTabIndex() { return 3; }
     /// 当前显示的选项卡是不是主页（即"启动界面"）。
     bool isHomeTabCurrent() const;
 
@@ -102,6 +169,25 @@ public:
     //   availableVersionCombo —— 在线清单里可下载的版本，在「下载」页，下载用它
     QComboBox *getInstalledVersionCombo() const { return installedVersionCombo; }
     QComboBox *getAvailableVersionCombo() const { return availableVersionCombo; }
+    // 两个列表和两个下拉框是同一份数据的两种看法（条目文本也是同一套显示名），
+    // 选中项双向同步：点列表 = 在下拉框里选中它，反之亦然。
+    QListWidget *getInstalledVersionList() const { return installedVersionList; }
+    QListWidget *getAvailableVersionList() const { return availableVersionList; }
+
+    // 设置页的控件。**只搭出来、只负责显隐**，值由 MainWindow 灌（它才知道
+    // 那些设置存在哪、改了要不要落盘）。
+    QComboBox *getJavaVersionCombo() const { return javaVersionCombo; }
+    QLabel *getJavaPathLabel() const { return javaPathLabel; }
+    QSpinBox *getMemoryMaxSpin() const { return memoryMaxSpin; }
+    QSpinBox *getMemoryMinSpin() const { return memoryMinSpin; }
+    QComboBox *getLauncherBehaviourCombo() const { return launcherBehaviourCombo; }
+    QPlainTextEdit *getExtraJvmArgsEdit() const { return extraJvmArgsEdit; }
+    QPushButton *getApplyExtraJvmArgsButton() const { return applyExtraJvmArgsButton; }
+    QComboBox *getDownloadSourceCombo() const { return downloadSourceCombo; }
+    QCheckBox *getVersionNameCustomCheck() const { return versionNameCustomCheck; }
+    QCheckBox *getVersionNameRealCheck() const { return versionNameRealCheck; }
+    QCheckBox *getVersionNameLoaderCheck() const { return versionNameLoaderCheck; }
+    QCheckBox *getVersionNameLoaderVersionCheck() const { return versionNameLoaderVersionCheck; }
 
     QTabWidget *getTabWidget() const { return tabWidget; }
     QFrame *getBottomBar() const { return bottomBar; }
@@ -116,6 +202,8 @@ public:
 
 private:
     void setupUi(QMainWindow *parent);
+    /// 搭设置页：滚动区里一张两列表格，列 0 是选项名称、列 1 是控件（3:7）。
+    void setupSettingsPage(QWidget *page);
     /// 搭底部那条通栏状态条（左：头像/用户名，中：进度，右：实例运行状态）。
     void setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout);
 
@@ -129,6 +217,20 @@ private:
     QPushButton *removeFolderButton;
     QComboBox *installedVersionCombo;
     QComboBox *availableVersionCombo;
+    QListWidget *installedVersionList;
+    QListWidget *availableVersionList;
+    QComboBox *javaVersionCombo;
+    QLabel *javaPathLabel;
+    QSpinBox *memoryMaxSpin;
+    QSpinBox *memoryMinSpin;
+    QComboBox *launcherBehaviourCombo;
+    QPlainTextEdit *extraJvmArgsEdit;
+    QPushButton *applyExtraJvmArgsButton;
+    QComboBox *downloadSourceCombo;
+    QCheckBox *versionNameCustomCheck;
+    QCheckBox *versionNameRealCheck;
+    QCheckBox *versionNameLoaderCheck;
+    QCheckBox *versionNameLoaderVersionCheck;
     QTabWidget *tabWidget;
     QFrame *bottomBar;
     QLabel *avatarLabel;

@@ -21,11 +21,14 @@
 #include <QFileInfo>
 #include <QInputDialog>
 #include <QLabel>
+#include <QListWidget>
 #include <QMessageBox>
+#include <QPlainTextEdit>
 #include <QProgressBar>
 #include <QProcess>
 #include <QPushButton>
 #include <QSignalBlocker>
+#include <QSpinBox>
 #include <QTabWidget>
 
 #include "auth/AuthManager.hpp"
@@ -102,6 +105,142 @@ void fillVersionCombo(QComboBox *combo, const QList<VersionDisplayParts> &parts,
 }
 
 /**
+ * @brief 让列表的选中项跟上下拉框（两边都按 id 找，**不按文本**）。
+ * @param combo 版本下拉框。
+ * @param list 与它同一份数据的列表。
+ *
+ * 按 id 而不是文本：同一个版本在两个控件里可能显示得不一样，而且显示名会随
+ * 「版本名格式」的开关变。拿文本当身份标识一定找错。
+ */
+void syncListToCombo(const QComboBox *combo, QListWidget *list) {
+    const QString id = selectedVersionId(combo);
+    // 挡信号：这里是"跟着别人变"，不该反过来再把下拉框动一遍（两条路互相触发
+    // 就成环了）。真正的用户操作才发信号。
+    const QSignalBlocker blocker(list);
+    if (id.isEmpty()) {
+        list->setCurrentRow(-1);
+        return;
+    }
+    for (int row = 0; row < list->count(); ++row) {
+        if (list->item(row)->data(Qt::UserRole).toString() == id) {
+            list->setCurrentRow(row);
+            return;
+        }
+    }
+    // 列表里没有它（清单里被删掉的版本）：留空，别硬选一个别的。
+    list->setCurrentRow(-1);
+}
+
+/**
+ * @brief 让下拉框跟上列表的选中项。
+ * @param combo 版本下拉框。
+ * @param list 与它同一份数据的列表。
+ *
+ * 已经是同一项时**什么都不做** —— 这就是"列表 → 下拉框 → 列表"不会死循环的原因：
+ * 第二条腿发现两边一致，立刻停。下拉框真被改动时它会发 currentIndexChanged，
+ * 按钮文字和底栏跟着刷新的那条链路照跑不误。
+ */
+void syncComboToList(QComboBox *combo, const QListWidget *list) {
+    const QListWidgetItem *item = list->currentItem();
+    if (item == nullptr) {
+        return;
+    }
+    const int index = combo->findData(item->data(Qt::UserRole).toString());
+    if (index >= 0 && combo->currentIndex() != index) {
+        combo->setCurrentIndex(index);
+    }
+}
+
+/**
+ * @brief 把一批版本同时灌进"下拉框 + 列表"这一对，并让两边选中同一项。
+ * @param combo 版本下拉框。
+ * @param list 与它同一份数据的列表。
+ * @param parts 每个版本的显示名组成部分。
+ * @param options 全局「版本名格式」开关。
+ *
+ * 界面上这两个控件是**同一份数据的两种看法**（下拉框是"选一个"，列表是"看一眼都有
+ * 什么"），所以文本也走同一个 formatVersionName()，不许各拼一套 —— 各拼一套就会出现
+ * "列表里叫 A、下拉框里叫 B"，用户根本认不出是同一个版本。
+ */
+void fillVersionViews(QComboBox *combo, QListWidget *list,
+                      const QList<VersionDisplayParts> &parts, const VersionNameOptions &options) {
+    fillVersionCombo(combo, parts, options);
+
+    {
+        const QSignalBlocker blocker(list);
+        list->clear();
+        for (const VersionDisplayParts &part : parts) {
+            // 版本号存进 Qt::UserRole，和下拉框同一个约定（显示名不是身份标识）。
+            auto *item = new QListWidgetItem(formatVersionName(part, options), list);
+            item->setData(Qt::UserRole, part.id);
+        }
+    }
+    // 重灌之后把列表的选中项对齐到下拉框：下拉框那边已经负责"保住原来选的",
+    // 列表跟着它走就行。不对齐的话，用户会看到上面选着 A、下面高亮着 B。
+    syncListToCombo(combo, list);
+}
+
+/**
+ * @brief 按 itemData 里的枚举值选中一项。
+ * @return 找到并选中了返回 true；没有这一项返回 false（调用方决定要不要兜底）。
+ *
+ * NOTE: 枚举以 int 存进 itemData。界面这边只认"存进去的那个值"，不去 include
+ *       src/settings 里的枚举 —— 界面层不该为了显示一个下拉框去依赖设置模块。
+ */
+template <typename Enum> bool selectByEnumData(QComboBox *combo, Enum value) {
+    const int index = combo->findData(static_cast<int>(value));
+    if (index < 0) {
+        return false;
+    }
+    combo->setCurrentIndex(index);
+    return true;
+}
+
+/**
+ * @brief 往「Java 版本」下拉框里加一条运行时。
+ * @param combo 目标下拉框。
+ * @param majorVersion 主版本号；<= 0 表示不知道（钉死的那个路径就不一定知道）。
+ * @param path java 可执行文件的完整路径。
+ * @return 这条（新加的或本来就有的）条目的下标。
+ *
+ * NOTE: itemData 存的是**路径**，不是下标。这个下拉框里的条目会随扫描结果变多，
+ *       拿下标当身份标识会在下次扫描后指到另一个 Java 上。
+ *       空路径是保留给「自动」那一条的（它没有路径），所以这里拒绝空路径。
+ */
+int addJavaRuntimeItem(QComboBox *combo, int majorVersion, const QString &path) {
+    if (path.isEmpty()) {
+        return -1;
+    }
+    const int existing = combo->findData(path);
+    if (existing >= 0) {
+        return existing;
+    }
+    // 版本号不知道时只显示路径（钉死的那个路径不在扫描结果里就是这样）
+    const QString label = majorVersion > 0
+                              ? QStringLiteral("Java %1 — %2").arg(majorVersion).arg(path)
+                              : path;
+    combo->addItem(label, path);
+    return combo->count() - 1;
+}
+
+/**
+ * @brief 按当前设定把「Java 版本」下拉框的选中项摆正（调用方负责挡信号）。
+ * @param combo 目标下拉框。
+ * @param autoSelect 设定是不是"自动"。
+ * @param path 设定的路径。
+ *
+ * 自动档选那一条 itemData 为**空串**的条目（只有它一条是空的）。
+ * NOTE: 「手动档但路径是空的」这种配置只可能来自手改注册表（界面这条路上手动档
+ *       一定带着一个真实路径）—— 那种情况下这里会落到「自动」那一条，而
+ *       updateJavaPathLabel() 会照实说明它其实不会自动换 Java。不替用户改数据。
+ */
+void selectConfiguredJava(QComboBox *combo, bool autoSelect, const QString &path) {
+    const QString wanted = autoSelect ? QString() : path;
+    const int index = combo->findData(wanted);
+    combo->setCurrentIndex(index >= 0 ? index : 0);
+}
+
+/**
  * @brief 只有版本号、没有自定义名和加载器信息的那些版本（在线清单）。
  * @param versionIds 版本号清单。
  * @return 与 VersionDisplayParts 同长的清单，除 id 外全是空。
@@ -131,6 +270,10 @@ MainWindow::MainWindow(QWidget *parent)
       m_javaSettings(new GlobalJavaSettings(this)),
       m_settings(new LauncherSettings(this)) {
     setupConnections();
+    // 设置页先按盘上的值摆好（不扫 Java，那一段等第一次切到设置页，见
+    // refreshJavaList()）。必须在下面 fetchAvailableVersions() **之前**：
+    // 清单请求要不要走镜像就是在这一步交给 VersionManager 的。
+    applySettingsToUi();
     // 本地已安装的先填上（同步扫盘）；在线清单是异步拉的，回来之后由
     // onVersionsFetched() 填"可安装"下拉框 —— 在那之前它显示占位文案。
     refreshInstalledVersions();
@@ -174,13 +317,58 @@ void MainWindow::setupConnections() {
                 // 底栏右下角那条状态要看"选中的是不是正在跑的那个实例"，
                 // 所以换版本也得跟着刷一遍。
                 updateBottomBar();
+                // 右栏那张列表是同一份数据的另一种看法，跟着一起亮。
+                syncListToCombo(m_ui->getInstalledVersionCombo(),
+                                m_ui->getInstalledVersionList());
+            });
+    // 列表 → 下拉框。点列表里的一行 = 在上面把它选中（用户要求的行为）。
+    connect(m_ui->getInstalledVersionList(), &QListWidget::currentItemChanged, this,
+            [this] {
+                syncComboToList(m_ui->getInstalledVersionCombo(),
+                                m_ui->getInstalledVersionList());
+            });
+    connect(m_ui->getAvailableVersionCombo(), &QComboBox::currentIndexChanged, this,
+            [this] {
+                syncListToCombo(m_ui->getAvailableVersionCombo(),
+                                m_ui->getAvailableVersionList());
+            });
+    connect(m_ui->getAvailableVersionList(), &QListWidget::currentItemChanged, this,
+            [this] {
+                syncComboToList(m_ui->getAvailableVersionCombo(),
+                                m_ui->getAvailableVersionList());
             });
     connect(m_ui->getDownloadButton(), &QPushButton::clicked, this,
             &MainWindow::onDownloadButtonClicked);
 
-    // 选项卡切换：底栏右下角的显示规则依赖"当前是不是在主页"，切页就得重算。
+    // ---------- 设置页 ----------
+    // 「Java 版本」：选自动，或者钉死一个具体运行时。
+    connect(m_ui->getJavaVersionCombo(), &QComboBox::currentIndexChanged, this,
+            &MainWindow::onJavaSelectionChanged);
+    // 内存：两个 spin 共用一个槽。谁改的在这里区分不了（也不该区分，见 onMemoryChanged）。
+    connect(m_ui->getMemoryMaxSpin(), &QSpinBox::valueChanged, this,
+            &MainWindow::onMemoryChanged);
+    connect(m_ui->getMemoryMinSpin(), &QSpinBox::valueChanged, this,
+            &MainWindow::onMemoryChanged);
+    connect(m_ui->getLauncherBehaviourCombo(), &QComboBox::currentIndexChanged, this,
+            &MainWindow::onLauncherBehaviourChanged);
+    connect(m_ui->getDownloadSourceCombo(), &QComboBox::currentIndexChanged, this,
+            &MainWindow::onDownloadSourceChanged);
+    // JVM 参数刻意**不**接 textChanged：边打字边存会把打到一半的半条参数写进配置，
+    // 而它是直接塞进命令行的东西，半条参数会让游戏起不来。改完点「应用」。
+    connect(m_ui->getApplyExtraJvmArgsButton(), &QPushButton::clicked, this,
+            &MainWindow::onApplyExtraJvmArgsClicked);
+    // 四个「版本名格式」勾选框共用一个槽：归一化要同时看四个值。
+    const auto nameOptionChanged = [this] { onVersionNameOptionChanged(); };
+    connect(m_ui->getVersionNameCustomCheck(), &QCheckBox::toggled, this, nameOptionChanged);
+    connect(m_ui->getVersionNameRealCheck(), &QCheckBox::toggled, this, nameOptionChanged);
+    connect(m_ui->getVersionNameLoaderCheck(), &QCheckBox::toggled, this, nameOptionChanged);
+    connect(m_ui->getVersionNameLoaderVersionCheck(), &QCheckBox::toggled, this,
+            nameOptionChanged);
+
+    // 选项卡切换：底栏右下角的显示规则依赖"当前是不是在主页"，切页就得重算；
+    // 第一次切到设置页还要顺带扫一遍 Java。
     connect(m_ui->getTabWidget(), &QTabWidget::currentChanged, this,
-            [this] { updateBottomBar(); });
+            &MainWindow::onMainTabChanged);
 
     // 登录成功之后左下角要换成登录名（头像那块字母也跟着换）
     connect(m_authManager, &AuthManager::loginSucceeded, this, [this] { updateBottomBar(); });
@@ -215,6 +403,10 @@ void MainWindow::setDownloadUiBusy(bool busy) {
     // "文件夹管理"是占位按钮，跟下载无关，不跟着灰。
     m_ui->getInstalledVersionCombo()->setEnabled(!busy);
     m_ui->getAvailableVersionCombo()->setEnabled(!busy);
+    // 两张列表是同一份数据的另一种看法，也一起灰掉：不然用户能在列表里点来点去、
+    // 看着选中的版本变了，而实际在下的是另一个。
+    m_ui->getInstalledVersionList()->setEnabled(!busy);
+    m_ui->getAvailableVersionList()->setEnabled(!busy);
 
     QProgressBar *progressBar = m_ui->getProgressBar();
     if (busy) {
@@ -361,7 +553,8 @@ void MainWindow::refreshInstalledVersions() {
         // 开销上不必担心 —— 一次会话最多调三次，而真机上实例数可以到 61 个。
         parts.append(m_versionManager->displayParts(id));
     }
-    fillVersionCombo(combo, parts, m_settings->versionNameOptions());
+    fillVersionViews(combo, m_ui->getInstalledVersionList(), parts,
+                     m_settings->versionNameOptions());
 
     // 占位文案随上下文变。**两个串都必须非空**：空占位文案会让 QComboBox 在往空
     // 模型里插第一批数据时静默选中第 0 项（qcombobox.cpp:1753-1759），而这里必须
@@ -431,14 +624,250 @@ void MainWindow::updateStartButtonText() {
     combo->setToolTip(id.isEmpty() ? QString() : tr("版本目录名：%1").arg(id));
 }
 
-void MainWindow::onVersionsFetched(const QStringList &versions) {
-    // 只填"可安装"下拉框：它唯一的数据源就是在线的版本清单。以前清单为空时这里会
-    // 退回显示本地已安装版本，两个数据源混在一个列表里，用户分不清点下去到底是
-    // 启动还是下载 —— 现在两边各管各的。
+void MainWindow::refreshAvailableVersions() {
+    // 只填"可安装"那一对控件：它们唯一的数据源就是在线的版本清单。以前清单为空时
+    // 这里会退回显示本地已安装版本，两个数据源混在一个列表里，用户分不清点下去
+    // 到底是启动还是下载 —— 现在两边各管各的。
     // 在线清单只填 id：800+ 条逐条去读 wtfml.meta 是不可接受的 I/O，而且那些版本
     // 压根还没下载、磁盘上没有元数据可读。显示名因此退化成纯版本号。
-    fillVersionCombo(m_ui->getAvailableVersionCombo(), plainVersionParts(versions),
-                     m_settings->versionNameOptions());
+    const QStringList versions = m_versionManager->availableVersions();
+    if (versions.isEmpty()) {
+        // 名单还没拉回来（或者拉失败了）。这时候**什么都不动**：清空一次既会把
+        // 占位文案（"正在获取..." / "获取失败"）冲掉，也会把用户已经选中的版本丢掉。
+        return;
+    }
+    fillVersionViews(m_ui->getAvailableVersionCombo(), m_ui->getAvailableVersionList(),
+                     plainVersionParts(versions), m_settings->versionNameOptions());
+}
+
+// ======================================================================
+// 「设置」选项卡
+// ======================================================================
+//
+// 分工：MainWindowUI 只把控件搭出来（含"选项名称在左、控件在右"的两列布局），值和
+// 持久化全在这一层。枚举 → 文案的映射也在这里 —— 界面层不该为了画一个下拉框去
+// include src/settings，而 tr() 的文案本来就该和业务逻辑待在一起。
+//
+// 落盘时机逐项不同，这是这块最容易做错的地方，所以每一项都在自己的函数里说清楚：
+//   Java / 内存 / 启动后 / 下载源 / 版本名格式 —— 改完立刻存
+//   JVM 参数 —— 点「应用」才存（那是直接进命令行的东西，不能存半条）
+
+void MainWindow::applySettingsToUi() {
+    // 灌值时把信号全挡上：下面这些控件现在反映的是**盘上的值**，不是用户改的。
+    // 不挡的话每条 currentIndexChanged/valueChanged 都会触发一遍"保存"，白写几次盘，
+    // 更要紧的是那几条槽里还夹着真动作（改「版本名格式」会重刷两张版本列表）。
+    const QSignalBlocker blockJava(m_ui->getJavaVersionCombo());
+    const QSignalBlocker blockMax(m_ui->getMemoryMaxSpin());
+    const QSignalBlocker blockMin(m_ui->getMemoryMinSpin());
+    const QSignalBlocker blockBehaviour(m_ui->getLauncherBehaviourCombo());
+    const QSignalBlocker blockSource(m_ui->getDownloadSourceCombo());
+    const QSignalBlocker blockCustom(m_ui->getVersionNameCustomCheck());
+    const QSignalBlocker blockReal(m_ui->getVersionNameRealCheck());
+    const QSignalBlocker blockLoader(m_ui->getVersionNameLoaderCheck());
+    const QSignalBlocker blockLoaderVersion(m_ui->getVersionNameLoaderVersionCheck());
+
+    // ---------- Java 版本 ----------
+    // 本地扫到的那些运行时**不在这里加**：扫描要逐个跑 `java -version`，
+    // 放到第一次切到设置页时再做（refreshJavaList()）。这里只放「自动」那条
+    // （itemData 是空串，只有它是空的，见 selectConfiguredJava()）。
+    m_ui->getJavaVersionCombo()->addItem(tr("自动（按版本挑选）"), QString());
+    if (!m_javaSettings->autoSelectJava()) {
+        // 手动档：把一个条目摆出来，好让下面这句选中它。路径来自盘上，
+        // 可能指向一个早就删掉的 Java —— 那也是这个设定当前的真实状态，照实显示。
+        addJavaRuntimeItem(m_ui->getJavaVersionCombo(), 0, m_javaSettings->javaPath());
+    }
+    selectConfiguredJava(m_ui->getJavaVersionCombo(), m_javaSettings->autoSelectJava(),
+                         m_javaSettings->javaPath());
+    updateJavaPathLabel();
+
+    // ---------- 内存分配 ----------
+    m_ui->getMemoryMaxSpin()->setValue(m_javaSettings->xmx());
+    m_ui->getMemoryMinSpin()->setValue(m_javaSettings->xms());
+
+    // ---------- 启动后 ----------
+    // 枚举值存在 itemData 里，文案是这里的 tr()。两边的对应关系只在这四行里。
+    QComboBox *behaviourCombo = m_ui->getLauncherBehaviourCombo();
+    behaviourCombo->addItem(tr("不变"), int(LauncherBehaviour::Unchanged));
+    behaviourCombo->addItem(tr("最小化启动器"), int(LauncherBehaviour::Minimize));
+    behaviourCombo->addItem(tr("收起启动器"), int(LauncherBehaviour::Close));
+    behaviourCombo->addItem(tr("收起启动器，游戏退出后自动回来"),
+                            int(LauncherBehaviour::CloseAndRestore));
+    selectByEnumData(behaviourCombo, m_settings->launcherBehaviour());
+
+    // ---------- JVM 参数 ----------
+    m_ui->getExtraJvmArgsEdit()->setPlainText(m_javaSettings->extraJvmArgs());
+
+    // ---------- 下载源 ----------
+    QComboBox *sourceCombo = m_ui->getDownloadSourceCombo();
+    sourceCombo->addItem(tr("官方源（Mojang）"), int(DownloadSource::Official));
+    sourceCombo->addItem(tr("镜像源（BMCLAPI）"), int(DownloadSource::Mirror));
+    selectByEnumData(sourceCombo, m_settings->downloadSource());
+
+    // ---------- 版本名格式 ----------
+    pushVersionNameOptionsToUi(m_settings->versionNameOptions());
+
+    // 下载源得立刻交给发请求的那一层：构造函数里紧接着的
+    // fetchAvailableVersions() 就会走它。
+    syncDownloadSource();
+}
+
+void MainWindow::pushVersionNameOptionsToUi(const VersionNameOptions &options) {
+    // 挡信号：这是"把结果画出来"，不是用户操作。不挡的话，下面第一个 setChecked
+    // 会触发 onVersionNameOptionChanged()，它又回头去归一化、又回头调这个函数。
+    const QSignalBlocker blockCustom(m_ui->getVersionNameCustomCheck());
+    const QSignalBlocker blockReal(m_ui->getVersionNameRealCheck());
+    const QSignalBlocker blockLoader(m_ui->getVersionNameLoaderCheck());
+    const QSignalBlocker blockLoaderVersion(m_ui->getVersionNameLoaderVersionCheck());
+    m_ui->getVersionNameCustomCheck()->setChecked(options.showCustomName);
+    m_ui->getVersionNameRealCheck()->setChecked(options.showRealVersion);
+    m_ui->getVersionNameLoaderCheck()->setChecked(options.showLoaderName);
+    m_ui->getVersionNameLoaderVersionCheck()->setChecked(options.showLoaderVersion);
+}
+
+void MainWindow::updateJavaPathLabel() {
+    QLabel *label = m_ui->getJavaPathLabel();
+    if (!m_javaSettings->autoSelectJava()) {
+        const QString path = m_javaSettings->javaPath();
+        label->setText(path.isEmpty()
+                           ? tr("手动指定：还没有路径，启动会直接失败。")
+                           : tr("手动指定：%1").arg(path));
+        return;
+    }
+    const QString cached = m_javaSettings->javaPath();
+    label->setText(cached.isEmpty()
+                       ? tr("自动：还没挑过，启动时按版本要求找。")
+                       : tr("自动：上次用的是 %1").arg(cached));
+}
+
+void MainWindow::refreshJavaList() {
+    if (m_javaListScanned) {
+        return;
+    }
+    m_javaListScanned = true;
+
+    QComboBox *combo = m_ui->getJavaVersionCombo();
+    const QSignalBlocker blocker(combo);
+
+    const QMap<int, QString> local = m_javaSettings->scanLocalJavaVersions();
+    for (auto it = local.cbegin(); it != local.cend(); ++it) {
+        addJavaRuntimeItem(combo, it.key(), it.value());
+    }
+    // 钉死的那个路径也要在列表里（它可能不在扫描结果里：用户在别的盘上装的 Java、
+    // 或者那个路径已经失效）。没有它的话，用户一进设置页看到的是「自动」亮着，
+    // 而设定其实是手动 —— 界面在说谎。
+    addJavaRuntimeItem(combo, 0, m_javaSettings->javaPath());
+    selectConfiguredJava(combo, m_javaSettings->autoSelectJava(), m_javaSettings->javaPath());
+}
+
+void MainWindow::onMainTabChanged() {
+    // 底栏右下角的显示规则依赖"当前是不是在主页"，切页就得重算。
+    updateBottomBar();
+    if (m_ui->getTabWidget()->currentIndex() == MainWindowUI::settingsTabIndex()) {
+        refreshJavaList();
+    }
+}
+
+void MainWindow::onJavaSelectionChanged() {
+    const QString path = m_ui->getJavaVersionCombo()->currentData().toString();
+    if (path.isEmpty()) {
+        // 「自动」那一条。**刻意不清空 m_javaPath**：那个字段同时是"上次挑中的
+        // 路径"的缓存，清掉的话每次启动都要重新扫一遍本地 Java。
+        m_javaSettings->setAutoSelectJava(true);
+    } else {
+        m_javaSettings->setAutoSelectJava(false);
+        m_javaSettings->setJavaPath(path);
+    }
+    // 这两个 setter 只改内存，落盘要显式调（GlobalJavaSettings 的约定）。
+    m_javaSettings->save();
+    updateJavaPathLabel();
+}
+
+void MainWindow::onMemoryChanged() {
+    int maxMb = m_ui->getMemoryMaxSpin()->value();
+    const int minMb = m_ui->getMemoryMinSpin()->value();
+
+    if (minMb > maxMb) {
+        // 最大 < 最小是 JVM 直接拒绝启动的配置。越界时**总是**把最小内存拉下来，
+        // 不去顶用户刚填的那个数：两个 spin 共用一个槽，这里区分不了是谁刚被改的
+        // （猜错的代价是把用户正在输入的那个数改掉，比"最小内存被拉平"难受得多）。
+        // 同时挡信号：下面还要手动把两个值一起写回设置，不需要再来一轮。
+        const QSignalBlocker blocker(m_ui->getMemoryMinSpin());
+        m_ui->getMemoryMinSpin()->setValue(maxMb);
+    }
+
+    m_javaSettings->setXmx(maxMb);
+    m_javaSettings->setXms(m_ui->getMemoryMinSpin()->value());
+    m_javaSettings->save();
+}
+
+void MainWindow::onLauncherBehaviourChanged() {
+    const int value = m_ui->getLauncherBehaviourCombo()->currentData().toInt();
+    // setter 内部会比较，值没变就不写盘（构造时灌值那条路有 QSignalBlocker，走不到这里）。
+    m_settings->setLauncherBehaviour(static_cast<LauncherBehaviour>(value));
+}
+
+void MainWindow::onDownloadSourceChanged() {
+    const int value = m_ui->getDownloadSourceCombo()->currentData().toInt();
+    m_settings->setDownloadSource(static_cast<DownloadSource>(value));
+    syncDownloadSource();
+}
+
+void MainWindow::syncDownloadSource() {
+    // 改完立刻生效，不用重启启动器 —— 设置是发请求那一刻读的（见 DownloadManager）。
+    // 正在下着的那一批不会被中途改道，这是对的：半批官方半批镜像更难查。
+    m_versionManager->setUseMirror(m_settings->downloadSource() == DownloadSource::Mirror);
+}
+
+void MainWindow::onVersionNameOptionChanged() {
+    VersionNameOptions options;
+    options.showCustomName = m_ui->getVersionNameCustomCheck()->isChecked();
+    options.showRealVersion = m_ui->getVersionNameRealCheck()->isChecked();
+    options.showLoaderName = m_ui->getVersionNameLoaderCheck()->isChecked();
+    options.showLoaderVersion = m_ui->getVersionNameLoaderVersionCheck()->isChecked();
+    // setter 内部会 normalize 并落盘。
+    m_settings->setVersionNameOptions(options);
+
+    // 归一化可能把从属的那一项关掉（"加载器版本"的前提是"加载器名"）。必须把结果
+    // 回灌到勾选框上：不回灌的话，用户取消"加载器名"之后界面上的"加载器版本"还亮着，
+    // 而拼名字时它已经不参与 —— 界面在说谎，而且下次打开设置时它又自己灭了。
+    pushVersionNameOptionsToUi(m_settings->versionNameOptions());
+
+    // 显示名变了，界面上所有显示版本名的地方都得重拼。两处都不读磁盘以外的东西，
+    // 重来一遍很便宜：已安装的那份本来就要读每个版本的 wtfml.meta。
+    refreshInstalledVersions();
+    refreshAvailableVersions();
+}
+
+void MainWindow::onApplyExtraJvmArgsClicked() {
+    // 去首尾空白：末尾多一个空格会让命令行里多出一个空参数。
+    // 空串是合法的（就是"不加额外参数"）。
+    const QString args = m_ui->getExtraJvmArgsEdit()->toPlainText().trimmed();
+    m_javaSettings->setExtraJvmArgs(args);
+    m_javaSettings->save();
+    appendLog(tr("已保存全局 JVM 参数：%1").arg(args.isEmpty() ? tr("（空）") : args));
+}
+
+void MainWindow::applyLauncherBehaviourAfterLaunch() {
+    switch (m_settings->launcherBehaviour()) {
+    case LauncherBehaviour::Minimize:
+        showMinimized();
+        break;
+    case LauncherBehaviour::Close:
+        // hide() 而不是 close()：close() 是"关窗口"，启动器是最后一个窗口时那等于
+        // 退出进程，而游戏是它的子进程 —— 用户以为只是把启动器收起来，游戏跟着没了。
+        hide();
+        break;
+    case LauncherBehaviour::CloseAndRestore:
+        m_hiddenForGame = true;
+        hide();
+        break;
+    case LauncherBehaviour::Unchanged:
+        break;
+    }
+}
+
+void MainWindow::onVersionsFetched(const QStringList &versions) {
+    refreshAvailableVersions();
 
     // 顺带把已安装的也刷一遍：一次网络往返之后两个下拉框都是最新的，这条不变式
     // 很便宜（就是一次 QDir 扫描），但能兜住"清单在拉的这段时间用户往
@@ -447,7 +876,7 @@ void MainWindow::onVersionsFetched(const QStringList &versions) {
 
     if (versions.isEmpty()) {
         // 拉清单失败时 DownloadManager 也会发这个信号（发的是空清单），别让
-        // "正在获取..." 一直挂着骗人。
+        // "正在获取..." 一直挂着骗人。列表那边同上：空名单不动它（本来就是空的）。
         m_ui->getAvailableVersionCombo()->setPlaceholderText(
             tr("在线版本列表获取失败，请检查网络"));
         appendLog(tr("在线版本列表获取失败（网络异常？）。"));
@@ -576,6 +1005,9 @@ void MainWindow::onStartButtonClicked() {
         // return 之前同步发出的，会先于这次赋值到达，不会被当成"游戏已经出话了"。
         m_launchInFlight = true;
         m_launchingVersionId = versionId;
+        // 这一档只对"真的起来了"生效 —— startGame() 那三条早退路径（进程已在跑 /
+        // 找不到 Java / 超时）下面根本走不到这里。
+        applyLauncherBehaviourAfterLaunch();
     }
     updateBottomBar();
 }
@@ -639,6 +1071,16 @@ void MainWindow::onGameFinished(int exitCode, QProcess::ExitStatus exitStatus) {
     // LauncherManager 里已经清了，这里只管重画）。
     m_launchInFlight = false;
     updateBottomBar();
+
+    // 「收起启动器，游戏退出后自动回来」那一档：见 applyLauncherBehaviourAfterLaunch()。
+    // 只有**为了启动游戏才藏起来**的窗口才会被叫回来 —— 用户自己最小化、自己收起来的
+    // 窗口不该因为游戏退出就跳出来。
+    if (m_hiddenForGame) {
+        m_hiddenForGame = false;
+        showNormal();
+        raise();
+        activateWindow();
+    }
 }
 
 void MainWindow::onDownloadButtonClicked() {
