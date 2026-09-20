@@ -483,6 +483,17 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     args << QStringLiteral("-cp") << classpathStr;
     args << QStringLiteral("net.minecraft.client.main.Main");
 
+    // --gameDir / --assetsDir 传**绝对路径**，而不是"靠 cwd 解析出来的相对路径"。
+    //
+    // NOTE: 这两条以前是 "versions/<id>" 和 "assets" 两个相对路径，由 startGame() 设的
+    //       cwd（.minecraft）解析 —— 而 startGame() 自己又同时算了一份绝对路径
+    //       isolatedPath = <mc>/versions/<id>，同一个目录在两处各算一遍、其中一处依赖
+    //       调用顺序。改成绝对路径后解析结果逐字节相同（cwd 仍是 .minecraft，下面相对
+    //       路径的下场也一样），但不再依赖 cwd，也为以后"切换 .minecraft 文件夹"准备
+    //       了条件 —— 到那时 cwd 反而会变成不能依赖的东西。
+    //
+    // NOTE: cwd **本身不动**，仍然是 .minecraft。真机 61 个实例里大量模组按 cwd 找相对
+    //       路径，改它是另一回事、有未知的兼容风险，不混进这批加固。
     if (offlineMode) {
         // 离线模式：使用虚假登录证书
         QString fakePlayerName =
@@ -492,8 +503,8 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
         qDebug() << "Offline mode - Player:" << fakePlayerName << "UUID:" << fakeUuid;
 
         args << QStringLiteral("--username") << fakePlayerName << QStringLiteral("--version")
-             << versionId << QStringLiteral("--gameDir") << QString("versions/%1").arg(versionId)
-             << QStringLiteral("--assetsDir") << QStringLiteral("assets")
+             << versionId << QStringLiteral("--gameDir") << AppPaths::versionDir(versionId)
+             << QStringLiteral("--assetsDir") << AppPaths::assetsDir()
              << QStringLiteral("--assetIndex") << assetIndexId << QStringLiteral("--uuid")
              << fakeUuid << QStringLiteral("--accessToken")
              << QStringLiteral("0")  // 离线模式使用的虚假令牌
@@ -506,8 +517,8 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
 
         args << QStringLiteral("--username") << QStringLiteral("Player")
              << QStringLiteral("--version") << versionId << QStringLiteral("--gameDir")
-             << QString("versions/%1").arg(versionId) << QStringLiteral("--assetsDir")
-             << QStringLiteral("assets") << QStringLiteral("--assetIndex") << assetIndexId
+             << AppPaths::versionDir(versionId) << QStringLiteral("--assetsDir")
+             << AppPaths::assetsDir() << QStringLiteral("--assetIndex") << assetIndexId
              << QStringLiteral("--uuid")
              << QStringLiteral("00000000-0000-0000-0000-000000000000")  // 此处使用从验证获取的 uuid
              << QStringLiteral("--accessToken") << token << QStringLiteral("--userType")
