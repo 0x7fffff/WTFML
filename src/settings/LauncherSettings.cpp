@@ -20,6 +20,17 @@ static constexpr const char kNameShowCustom[] = "Version/NameShowCustom";
 static constexpr const char kNameShowReal[] = "Version/NameShowReal";
 static constexpr const char kNameShowLoaderName[] = "Version/NameShowLoaderName";
 static constexpr const char kNameShowLoaderVersion[] = "Version/NameShowLoaderVersion";
+static constexpr const char kAfterLaunch[] = "Launcher/AfterLaunch";
+static constexpr const char kDownloadSource[] = "Download/Source";
+
+// 枚举存进 QSettings 的字符串。这几个串是**持久化格式的一部分**，不是内部标识：
+// 改掉它们，用户盘上已经存好的值就会被当成"认不出来"、静默退回默认档。
+static constexpr const char kBehaviourUnchanged[] = "unchanged";
+static constexpr const char kBehaviourMinimize[] = "minimize";
+static constexpr const char kBehaviourClose[] = "close";
+static constexpr const char kBehaviourCloseAndRestore[] = "closeAndRestore";
+static constexpr const char kSourceOfficial[] = "official";
+static constexpr const char kSourceMirror[] = "mirror";
 
 }  // namespace
 
@@ -47,9 +58,71 @@ void LauncherSettings::setVersionNameOptions(const VersionNameOptions &options) 
     save();
 }
 
+void LauncherSettings::setLauncherBehaviour(LauncherBehaviour behaviour) {
+    if (m_launcherBehaviour == behaviour) {
+        return;
+    }
+    m_launcherBehaviour = behaviour;
+    save();
+}
+
+void LauncherSettings::setDownloadSource(DownloadSource source) {
+    if (m_downloadSource == source) {
+        return;
+    }
+    m_downloadSource = source;
+    save();
+}
+
+QString LauncherSettings::behaviourKey(LauncherBehaviour behaviour) {
+    switch (behaviour) {
+    case LauncherBehaviour::Minimize:
+        return QString::fromLatin1(kBehaviourMinimize);
+    case LauncherBehaviour::Close:
+        return QString::fromLatin1(kBehaviourClose);
+    case LauncherBehaviour::CloseAndRestore:
+        return QString::fromLatin1(kBehaviourCloseAndRestore);
+    case LauncherBehaviour::Unchanged:
+        break;
+    }
+    return QString::fromLatin1(kBehaviourUnchanged);
+}
+
+LauncherBehaviour LauncherSettings::behaviourFromKey(const QString &key) {
+    if (key == QLatin1String(kBehaviourMinimize)) {
+        return LauncherBehaviour::Minimize;
+    }
+    if (key == QLatin1String(kBehaviourClose)) {
+        return LauncherBehaviour::Close;
+    }
+    if (key == QLatin1String(kBehaviourCloseAndRestore)) {
+        return LauncherBehaviour::CloseAndRestore;
+    }
+    // 认不出来（旧版本写的值、用户手改的注册表）就当"不变"：这是唯一一个
+    // 什么副作用都没有的档位，猜错的代价比"最小化/关闭"小得多。
+    return LauncherBehaviour::Unchanged;
+}
+
+QString LauncherSettings::downloadSourceKey(DownloadSource source) {
+    return QString::fromLatin1(source == DownloadSource::Mirror ? kSourceMirror : kSourceOfficial);
+}
+
+DownloadSource LauncherSettings::downloadSourceFromKey(const QString &key) {
+    if (key == QLatin1String(kSourceMirror)) {
+        return DownloadSource::Mirror;
+    }
+    // 认不出来就当官方源。镜像源是第三方服务，不能替用户默认选它 ——
+    // 万一镜像挂了或者内容不对，用户会觉得"这启动器下的文件是坏的"。
+    return DownloadSource::Official;
+}
+
 void LauncherSettings::load() {
     QSettings settings;
     m_lastLaunchedVersion = settings.value(kLastLaunched, m_lastLaunchedVersion).toString();
+    m_launcherBehaviour = behaviourFromKey(
+        settings.value(kAfterLaunch, behaviourKey(m_launcherBehaviour)).toString());
+    m_downloadSource = downloadSourceFromKey(
+        settings.value(kDownloadSource, downloadSourceKey(m_downloadSource)).toString());
 
     // 默认值取当前成员的值（构造时是 struct 默认值），这样"注册表里没这一项"就落到默认档，
     // 和 GlobalJavaSettings::load() 用 m_xmx 当默认值是同一个写法。取成员而不是新造一个
@@ -80,6 +153,8 @@ void LauncherSettings::load() {
 void LauncherSettings::save() const {
     QSettings settings;
     settings.setValue(kLastLaunched, m_lastLaunchedVersion);
+    settings.setValue(kAfterLaunch, behaviourKey(m_launcherBehaviour));
+    settings.setValue(kDownloadSource, downloadSourceKey(m_downloadSource));
     settings.setValue(kNameShowCustom, m_versionNameOptions.showCustomName);
     settings.setValue(kNameShowReal, m_versionNameOptions.showRealVersion);
     settings.setValue(kNameShowLoaderName, m_versionNameOptions.showLoaderName);

@@ -34,6 +34,8 @@ static constexpr const char kJavaPath[] = "Java/Path";
 static constexpr const char kXmx[] = "Java/Xmx";
 static constexpr const char kXms[] = "Java/Xms";
 static constexpr const char kExtraArgs[] = "Java/ExtraArgs";
+/// 设置界面「Java 版本」那一项：true = 自动（按版本要求挑），false = 手动钉死。
+static constexpr const char kAutoSelect[] = "Java/AutoSelect";
 
 bool runProcess(const QString &program, const QStringList &arguments, QString *stdOut = nullptr,
                 QString *stdErr = nullptr, int timeoutMs = 5000) {
@@ -458,6 +460,9 @@ void GlobalJavaSettings::load() {
     m_xmx = settings.value(kXmx, m_xmx).toInt();
     m_xms = settings.value(kXms, m_xms).toInt();
     m_extraJvmArgs = settings.value(kExtraArgs, m_extraJvmArgs).toString();
+    // 默认值取成员当前值（构造时是 true）：注册表里没这一项就落到"自动"，
+    // 也就是加这个开关之前的行为。
+    m_autoSelectJava = settings.value(kAutoSelect, m_autoSelectJava).toBool();
 }
 
 void GlobalJavaSettings::save() const {
@@ -466,6 +471,7 @@ void GlobalJavaSettings::save() const {
     settings.setValue(kXmx, m_xmx);
     settings.setValue(kXms, m_xms);
     settings.setValue(kExtraArgs, m_extraJvmArgs);
+    settings.setValue(kAutoSelect, m_autoSelectJava);
 }
 
 QMap<int, QString> GlobalJavaSettings::scanLocalJavaVersions() {
@@ -635,6 +641,18 @@ bool GlobalJavaSettings::ensureJavaForVersion(int majorVersion, const QString &c
         }
         qDebug() << "Configured Java does not match required version" << majorVersion << ":"
                  << m_javaPath;
+    }
+
+    // 手动档到此为止：配置的路径不匹配（或者压根没配）时**不替用户换一个**。
+    // 自动挑在手动档下是帮倒忙 —— 用户钉 Java 8 就是为了跑 1.16.5，静默换成 Java 21
+    // 只会得到 UnsupportedClassVersionError，而且看不出是启动器换的。报错好过猜。
+    if (!m_autoSelectJava) {
+        qWarning() << "Java 选的是「手动指定」，而"
+                   << (m_javaPath.isEmpty() ? QStringLiteral("还没指定路径")
+                                            : m_javaPath + QStringLiteral(" 的主版本不是 ")
+                                                  + QString::number(majorVersion))
+                   << "—— 不自动更换，直接失败。";
+        return false;
     }
 
     // Scan local Java versions

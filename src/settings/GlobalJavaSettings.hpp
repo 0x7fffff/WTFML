@@ -34,6 +34,26 @@ public:
      */
     void setJavaPath(const QString &path);
 
+    // ------------------------------------------------------------------
+    // 「Java 版本」这一项（设置界面）：自动挑 / 手动钉死
+    // ------------------------------------------------------------------
+    // 两个档位**不是**"路径空不空"能表达的：自动档也会把挑中的路径写进 m_javaPath
+    // （它同时是缓存），所以"路径非空"既可能是自动挑的、也可能是用户钉的，
+    // 必须另存一个开关才分得清。
+
+    /**
+     * @brief 是否让启动器自己按版本要求挑 Java。
+     * @return true = 自动（默认，也是加这一项之前的行为）；
+     *         false = 手动指定 —— 路径不匹配时**不换一个**，直接失败。
+     */
+    bool autoSelectJava() const { return m_autoSelectJava; }
+
+    /**
+     * @brief 设置自动/手动档。和其他 setter 一样**只改内存**，落盘调 save()。
+     * @param autoSelect true = 自动。
+     */
+    void setAutoSelectJava(bool autoSelect) { m_autoSelectJava = autoSelect; }
+
     /**
      * @brief Ensures a valid Java runtime is available.
      * @return True if Java can be used.
@@ -126,4 +146,7 @@ private:
     int m_xmx;
     int m_xms;
     QString m_extraJvmArgs;
+    /// 「Java 版本」选的是不是自动档。默认 true —— 这就是加这一项之前的唯一行为，
+    /// 所以老配置文件（没有这个键）读回来仍然是老行为。
+    bool m_autoSelectJava = true;
 };
