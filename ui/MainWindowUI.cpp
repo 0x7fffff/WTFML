@@ -8,11 +8,13 @@
 
 #include "MainWindowUI.hpp"
 
+#include <QColor>
 #include <QEvent>
+#include <QFont>
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QMenuBar>
-#include <QStatusBar>
+#include <QPalette>
 #include <QVBoxLayout>
 
 namespace {
@@ -22,7 +24,8 @@ namespace {
  *
  * QComboBox 默认把滚轮当成"切换选中项"处理，而滚轮事件是按鼠标位置派发的、
  * 跟焦点无关 —— 鼠标从下拉框上滚过（哪怕焦点在别处）就会静默换一个版本。
- * 这两个下拉框就挨着「下载版本」，手一滑可能把一次 GB 级的下载指到别的版本上。
+ * 「下载」页那个下拉框旁边就是「下载版本」，手一滑可能把一次 GB 级的下载指到
+ * 别的版本上。
  *
  * NOTE: QObject::eventFilter 是虚函数、不是槽，所以这里不需要 Q_OBJECT，
  *       AUTOMOC 不会牵扯进来，也不用在 cpp 末尾补 .moc 包含。
@@ -43,9 +46,18 @@ protected:
     }
 };
 
+/// 每个选项卡页面共用的边距：贴着选项卡内容区留一圈呼吸空间。
+constexpr int kPageMargin = 9;
+
 }  // namespace
 
 MainWindowUI::MainWindowUI(QMainWindow *parent) { setupUi(parent); }
+
+bool MainWindowUI::isHomeTabCurrent() const {
+    // 主页恒定是第一页（下面 addTab 的顺序就是契约），所以比下标就够，
+    // 不用再存一份页面指针。
+    return tabWidget != nullptr && tabWidget->currentIndex() == homeTabIndex();
+}
 
 void MainWindowUI::setupUi(QMainWindow *parent) {
     parent->setWindowTitle(QStringLiteral("WTF Minecraft Launcher"));
@@ -56,101 +68,32 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     QWidget *centralWidget = new QWidget(parent);
     parent->setCentralWidget(centralWidget);
 
+    // NOTE: 边距和间距都是 0 —— 选项卡栏和底部状态条要**通栏**贴到窗口边缘
+    //       （Steam 那条底栏就是通栏的）。页面内部自己留边距，见 kPageMargin。
     QVBoxLayout *mainLayout = new QVBoxLayout(centralWidget);
-    mainLayout->setContentsMargins(9, 9, 9, 9);
-    mainLayout->setSpacing(6);
+    mainLayout->setContentsMargins(0, 0, 0, 0);
+    mainLayout->setSpacing(0);
 
-    // ---------- 顶部整体水平布局（左右分组，宽度比1:1，各占一半） ----------
-    QHBoxLayout *topLevelLayout = new QHBoxLayout();
-    topLevelLayout->setSpacing(48);  // 左右两组间距
+    // ================= 选项卡：主页 / 实例 / 下载 / 设置 =================
+    // 四页各自只放自己那摊控件。注意两个版本下拉框被**分到了两页**：
+    // 「已安装版本」在主页（启动用），「可安装版本」在下载页（下载用）。它们本来就
+    // 是两个互不相干的数据源，以前并排放着只是因为都叫"版本"。
+    tabWidget = new QTabWidget(centralWidget);
+    tabWidget->setObjectName(tabWidgetName());
 
-    // ========== 左侧组：两个按钮水平并排，竖直可拉伸 ==========
-    QWidget *leftContainer = new QWidget(centralWidget);
-    leftContainer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    leftContainer->setMinimumHeight(0);
+    // ---------- 主页：挑一个已装好的版本，启动 ----------
+    QWidget *homeTab = new QWidget(tabWidget);
+    homeTab->setObjectName(homeTabName());
 
-    QHBoxLayout *leftLayout = new QHBoxLayout(leftContainer);
-    leftLayout->setContentsMargins(0, 0, 0, 0);
-    leftLayout->setSpacing(10);  // 两个按钮之间间距
+    QVBoxLayout *homeLayout = new QVBoxLayout(homeTab);
+    homeLayout->setContentsMargins(kPageMargin, kPageMargin, kPageMargin, kPageMargin);
+    homeLayout->setSpacing(12);
 
-    startButton = new QPushButton(QStringLiteral("启动游戏"), leftContainer);
-    // 占位按钮：暂时不接任何槽。
-    // TODO: 接上文件夹管理页面（添加 / 删除 / 切换 .minecraft 目录）。
-    manageFolderButton = new QPushButton(QStringLiteral("文件夹管理"), leftContainer);
+    QHBoxLayout *installedRow = new QHBoxLayout();
+    installedRow->setSpacing(10);
+    QLabel *installedVersionLabel = new QLabel(QStringLiteral("已安装版本"), homeTab);
 
-    QSizePolicy btnPolicy = startButton->sizePolicy();
-    btnPolicy.setHorizontalPolicy(QSizePolicy::Expanding);
-    btnPolicy.setVerticalPolicy(QSizePolicy::Expanding);
-    startButton->setSizePolicy(btnPolicy);
-    manageFolderButton->setSizePolicy(btnPolicy);
-    startButton->setMinimumHeight(0);
-    manageFolderButton->setMinimumHeight(0);
-
-    leftLayout->addWidget(startButton);
-    leftLayout->addWidget(manageFolderButton);
-    leftLayout->setStretchFactor(startButton, 1);
-    leftLayout->setStretchFactor(manageFolderButton, 1);
-
-    // ========== 右侧组：两行两列，高度固定，水平可拉伸 ==========
-    QWidget *rightContainer = new QWidget(centralWidget);
-    rightContainer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-
-    QGridLayout *rightLayout = new QGridLayout(rightContainer);
-    rightLayout->setContentsMargins(0, 0, 0, 0);
-    rightLayout->setHorizontalSpacing(48);
-    rightLayout->setVerticalSpacing(10);
-
-    loginButton = new QPushButton(QStringLiteral("微软登录"), rightContainer);
-    offlineModeCheckBox = new QCheckBox(QStringLiteral("离线模式"), rightContainer);
-    addFolderButton = new QPushButton(QStringLiteral("添加文件夹"), rightContainer);
-    removeFolderButton = new QPushButton(QStringLiteral("删除文件夹"), rightContainer);
-
-    QSizePolicy rightBtnPolicy = loginButton->sizePolicy();
-    rightBtnPolicy.setHorizontalPolicy(QSizePolicy::Expanding);
-    rightBtnPolicy.setVerticalPolicy(QSizePolicy::Fixed);
-    loginButton->setSizePolicy(rightBtnPolicy);
-    addFolderButton->setSizePolicy(rightBtnPolicy);
-    removeFolderButton->setSizePolicy(rightBtnPolicy);
-    offlineModeCheckBox->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-
-    // 添加到布局，并设置第二行第一列的复选框水平居中对齐
-    rightLayout->addWidget(loginButton, 0, 0);
-    rightLayout->addWidget(addFolderButton, 0, 1);
-    rightLayout->addWidget(offlineModeCheckBox, 1, 0,
-                           Qt::AlignCenter);  // 由于是复选框,所以居中处理
-    rightLayout->addWidget(removeFolderButton, 1, 1);
-
-    rightLayout->setColumnStretch(0, 1);
-    rightLayout->setColumnStretch(1, 1);
-    rightLayout->setRowStretch(0, 0);
-    rightLayout->setRowStretch(1, 0);
-
-    // ---------- 组装顶层（左右各占一半） ----------
-    topLevelLayout->addWidget(leftContainer);
-    topLevelLayout->addWidget(rightContainer);
-    topLevelLayout->setStretchFactor(leftContainer, 1);
-    topLevelLayout->setStretchFactor(rightContainer, 1);
-
-    mainLayout->addLayout(topLevelLayout);
-
-    // ---------- 版本管理组：两个下拉框，一个只读本地、一个只读在线 ----------
-    versionGroupBox = new QGroupBox(QStringLiteral("版本管理"), centralWidget);
-    QGridLayout *versionLayout = new QGridLayout(versionGroupBox);
-    versionLayout->setContentsMargins(9, 9, 9, 9);
-    versionLayout->setHorizontalSpacing(10);
-    versionLayout->setVerticalSpacing(10);
-
-    QLabel *installedVersionLabel = new QLabel(QStringLiteral("已安装版本"), versionGroupBox);
-    QLabel *availableVersionLabel = new QLabel(QStringLiteral("可安装版本"), versionGroupBox);
-
-    installedVersionCombo = new QComboBox(versionGroupBox);
-    availableVersionCombo = new QComboBox(versionGroupBox);
-
-    // objectName 是为了让验证工程能稳定地认出这两个控件。以前 mw_check 是按占位文案
-    // 「暂无已安装版本」去找的，而那个文案正好要改成随上下文变 —— 测试就会以一个
-    // 完全看不懂的方式整体中止（installed == nullptr，后面 22 条断言全不跑）。
-    installedVersionCombo->setObjectName(installedVersionComboName());
-    availableVersionCombo->setObjectName(availableVersionComboName());
+    installedVersionCombo = new QComboBox(homeTab);
 
     // 空状态用"没选中任何项(currentIndex() == -1) + placeholderText"表示，
     // 不再往列表里塞 "自定义版本" 那种假条目：控件自己会把占位文案画成灰字。
@@ -160,80 +103,277 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     // 代价是刷新之后必须自己把选中项捡回来，见 MainWindow::fillVersionCombo()。
     // 这里只是初始值；灌完数据后由 MainWindow 在两个串之间切换。
     installedVersionCombo->setPlaceholderText(noInstalledVersionPlaceholder());
-    availableVersionCombo->setPlaceholderText(QStringLiteral("正在获取在线版本列表..."));
 
     // 版本号长度不定（26.2-snapshot-1 之类），默认的 AdjustToContentsOnFirstShow 会在
     // 第一次显示（那时还是空的）时定一个宽度然后一直沿用，之后灌进上千个长版本号就容易
     // 把窗口顶宽。改成按"最短内容长度"算，宽度确定，灌数据时也不会跳。
     installedVersionCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
     installedVersionCombo->setMinimumContentsLength(16);
-    availableVersionCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
-    availableVersionCombo->setMinimumContentsLength(16);
-
     // 滚轮防护：见本文件顶部的 WheelGuard
     installedVersionCombo->installEventFilter(new WheelGuard(installedVersionCombo));
+
+    installedRow->addWidget(installedVersionLabel);
+    installedRow->addWidget(installedVersionCombo, 1);
+    homeLayout->addLayout(installedRow);
+
+    startButton = new QPushButton(QStringLiteral("启动游戏"), homeTab);
+    // 文字是两行（"启动游戏\n<版本号>"，由 MainWindow::updateStartButtonText() 维护），
+    // 高度固定给足，免得两行被压成一行半。
+    startButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    startButton->setMinimumHeight(88);
+    homeLayout->addWidget(startButton);
+
+    offlineModeCheckBox = new QCheckBox(QStringLiteral("离线模式"), homeTab);
+    offlineModeCheckBox->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    homeLayout->addWidget(offlineModeCheckBox, 0, Qt::AlignLeft);
+
+    // 剩下的竖直空间留在底部：按钮不跟着窗口高度一起被拉长
+    homeLayout->addStretch(1);
+
+    // ---------- 实例：游戏文件夹与实例管理 ----------
+    QWidget *instanceTab = new QWidget(tabWidget);
+    instanceTab->setObjectName(instanceTabName());
+
+    QVBoxLayout *instanceLayout = new QVBoxLayout(instanceTab);
+    instanceLayout->setContentsMargins(kPageMargin, kPageMargin, kPageMargin, kPageMargin);
+    instanceLayout->setSpacing(12);
+
+    QGroupBox *folderGroupBox = new QGroupBox(QStringLiteral("游戏文件夹"), instanceTab);
+    QVBoxLayout *folderLayout = new QVBoxLayout(folderGroupBox);
+    folderLayout->setContentsMargins(9, 9, 9, 9);
+    folderLayout->setSpacing(10);
+
+    QHBoxLayout *folderButtonRow = new QHBoxLayout();
+    folderButtonRow->setSpacing(10);
+    addFolderButton = new QPushButton(QStringLiteral("添加文件夹"), folderGroupBox);
+    removeFolderButton = new QPushButton(QStringLiteral("删除文件夹"), folderGroupBox);
+    // 占位按钮：只写一行日志。
+    // TODO: 换成真正的文件夹管理页面（列出已添加的目录、点一下切换）。
+    manageFolderButton = new QPushButton(QStringLiteral("文件夹管理"), folderGroupBox);
+    folderButtonRow->addWidget(addFolderButton);
+    folderButtonRow->addWidget(removeFolderButton);
+    folderButtonRow->addWidget(manageFolderButton);
+    folderLayout->addLayout(folderButtonRow);
+
+    QLabel *folderHint = new QLabel(
+        QStringLiteral("添加文件夹可以指向别的 Minecraft 根目录（例如另一个启动器的实例目录）。"),
+        folderGroupBox);
+    folderHint->setWordWrap(true);
+    folderLayout->addWidget(folderHint);
+    instanceLayout->addWidget(folderGroupBox);
+
+    // TODO: 实例列表（重命名 / 分组 / 每实例独立设置）落在这里。真机上实例数可以到
+    //       61 个，PCL 用 5 张卡片分组（PCL.ini 的 CardKey/CardValue）。
+    QLabel *instanceTodo = new QLabel(
+        QStringLiteral("实例列表、重命名与分组尚未实现；当前版本的启动与下载分别在"
+                       "「主页」和「下载」页。"),
+        instanceTab);
+    instanceTodo->setWordWrap(true);
+    instanceLayout->addWidget(instanceTodo);
+    instanceLayout->addStretch(1);
+
+    // ---------- 下载：从在线清单挑一个版本下载 ----------
+    QWidget *downloadTab = new QWidget(tabWidget);
+    downloadTab->setObjectName(downloadTabName());
+
+    QVBoxLayout *downloadPageLayout = new QVBoxLayout(downloadTab);
+    downloadPageLayout->setContentsMargins(kPageMargin, kPageMargin, kPageMargin, kPageMargin);
+    downloadPageLayout->setSpacing(12);
+
+    QGroupBox *versionGroupBox = new QGroupBox(QStringLiteral("版本下载"), downloadTab);
+    QGridLayout *versionLayout = new QGridLayout(versionGroupBox);
+    versionLayout->setContentsMargins(9, 9, 9, 9);
+    versionLayout->setHorizontalSpacing(10);
+    versionLayout->setVerticalSpacing(10);
+
+    QLabel *availableVersionLabel = new QLabel(QStringLiteral("可安装版本"), versionGroupBox);
+    availableVersionCombo = new QComboBox(versionGroupBox);
+
+    availableVersionCombo->setObjectName(availableVersionComboName());
+    installedVersionCombo->setObjectName(installedVersionComboName());
+    availableVersionCombo->setPlaceholderText(QStringLiteral("正在获取在线版本列表..."));
+    availableVersionCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    availableVersionCombo->setMinimumContentsLength(16);
     availableVersionCombo->installEventFilter(new WheelGuard(availableVersionCombo));
 
-    // 「下载版本」从顶行搬到这里，只占第 1 行、贴在可安装下拉框右边。
-    // Fixed 策略：它只吃自己的宽度（配合 setMinimumWidth 取 96），剩下的全给下拉框。
+    // 「下载版本」只占一行、贴在可安装下拉框右边。Fixed 策略：它只吃自己的宽度
+    // （配合 setMinimumWidth 取 96），剩下的全给下拉框。
     downloadButton = new QPushButton(QStringLiteral("下载版本"), versionGroupBox);
     downloadButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     downloadButton->setMinimumWidth(96);
 
     //        列0 = 标签（按自身宽度）  列1 = 下拉框（吃满剩余宽度）  列2 = 下载按钮
-    versionLayout->addWidget(installedVersionLabel, 0, 0);
-    versionLayout->addWidget(installedVersionCombo, 0, 1);
-    versionLayout->addWidget(availableVersionLabel, 1, 0);
-    versionLayout->addWidget(availableVersionCombo, 1, 1);
-    versionLayout->addWidget(downloadButton, 1, 2);
-
-    // 两个下拉框同处列 1：宽度和左右边界天然一致，按钮只落在第 1 行的列 2 上
+    versionLayout->addWidget(availableVersionLabel, 0, 0);
+    versionLayout->addWidget(availableVersionCombo, 0, 1);
+    versionLayout->addWidget(downloadButton, 0, 2);
     versionLayout->setColumnStretch(0, 0);
     versionLayout->setColumnStretch(1, 1);
     versionLayout->setColumnStretch(2, 0);
-    // 下拉框都是固定高度，多出来的竖直空间全丢给第 2 行（空行），两行贴顶。
+    // 下拉框是固定高度，多出来的竖直空间全丢给第 1 行（空行），这一行贴顶。
     // QGridLayout 没有 addStretch()，setRowStretch() 到不存在的行是官方写法，
     // 内部 expand() 会把行数撑到 r+1。
-    versionLayout->setRowStretch(2, 1);
+    versionLayout->setRowStretch(1, 1);
+    downloadPageLayout->addWidget(versionGroupBox);
 
-    mainLayout->addWidget(versionGroupBox);
+    QLabel *downloadHint = new QLabel(
+        QStringLiteral("下载进度显示在窗口底部那条状态栏上。已经下过的版本会改成"
+                       "「校验并补齐」，不会从头重下。"),
+        downloadTab);
+    downloadHint->setWordWrap(true);
+    downloadPageLayout->addWidget(downloadHint);
+    downloadPageLayout->addStretch(1);
 
-    // ---------- 日志输出组 ----------
-    logGroupBox = new QGroupBox(QStringLiteral("日志输出"), centralWidget);
-    QVBoxLayout *logLayout = new QVBoxLayout(logGroupBox);
-    logLayout->setContentsMargins(9, 9, 9, 9);
-    logTextEdit = new QTextEdit(logGroupBox);
-    logTextEdit->setReadOnly(true);
-    logLayout->addWidget(logTextEdit);
-    mainLayout->addWidget(logGroupBox);
+    // ---------- 设置：账户与 Java ----------
+    QWidget *settingsTab = new QWidget(tabWidget);
+    settingsTab->setObjectName(settingsTabName());
 
-    // 垂直拉伸分配(1:2:6)：按钮行 : 版本区 : 日志区。
-    // 原来版本区是 3（大列表要占地方），换成两个下拉框后只要两行，
-    // 腾出来的高度全给日志区。
-    mainLayout->setStretchFactor(topLevelLayout, 1);
-    mainLayout->setStretchFactor(versionGroupBox, 2);
-    mainLayout->setStretchFactor(logGroupBox, 6);
+    QVBoxLayout *settingsLayout = new QVBoxLayout(settingsTab);
+    settingsLayout->setContentsMargins(kPageMargin, kPageMargin, kPageMargin, kPageMargin);
+    settingsLayout->setSpacing(12);
 
+    QGroupBox *accountGroupBox = new QGroupBox(QStringLiteral("账户"), settingsTab);
+    QVBoxLayout *accountLayout = new QVBoxLayout(accountGroupBox);
+    accountLayout->setContentsMargins(9, 9, 9, 9);
+    accountLayout->setSpacing(10);
+    loginButton = new QPushButton(QStringLiteral("微软登录"), accountGroupBox);
+    loginButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    loginButton->setMinimumWidth(120);
+    QLabel *accountHint = new QLabel(
+        QStringLiteral("登录后当前账户显示在窗口左下角。不登录也可以用「离线模式」启动。"),
+        accountGroupBox);
+    accountHint->setWordWrap(true);
+    accountLayout->addWidget(loginButton, 0, Qt::AlignLeft);
+    accountLayout->addWidget(accountHint);
+    settingsLayout->addWidget(accountGroupBox);
+
+    QGroupBox *javaGroupBox = new QGroupBox(QStringLiteral("Java 设置"), settingsTab);
+    QVBoxLayout *javaLayout = new QVBoxLayout(javaGroupBox);
+    javaLayout->setContentsMargins(9, 9, 9, 9);
+    // TODO: Java 路径 / 最大最小堆 / 全局额外启动参数的界面入口落在这里
+    //       （数据层 GlobalJavaSettings 早就有了，缺的只是这几个输入框）。
+    QLabel *javaTodo = new QLabel(
+        QStringLiteral("Java 路径、内存上限与全局额外启动参数目前只能改配置文件，"
+                       "界面入口尚未实现。"),
+        javaGroupBox);
+    javaTodo->setWordWrap(true);
+    javaLayout->addWidget(javaTodo);
+    settingsLayout->addWidget(javaGroupBox);
+    settingsLayout->addStretch(1);
+
+    // NOTE: 顺序就是契约：homeTabIndex() == 0 靠的就是"主页第一个 addTab"。
+    tabWidget->addTab(homeTab, QStringLiteral("主页"));
+    tabWidget->addTab(instanceTab, QStringLiteral("实例"));
+    tabWidget->addTab(downloadTab, QStringLiteral("下载"));
+    tabWidget->addTab(settingsTab, QStringLiteral("设置"));
+    mainLayout->addWidget(tabWidget, 1);
+
+    setupBottomBar(centralWidget, mainLayout);
+
+    // 空的菜单栏：窗口上那条菜单现在什么都没挂。
+    // TODO: 设置类入口（Java 设置 / 打开 .minecraft 目录 / 关于）挂这里。
     parent->setMenuBar(new QMenuBar(parent));
+}
 
-    // ---------- 状态栏：下载进度就放这里，不往日志里写 ----------
-    // NOTE: setStatusBar() 必须在 addPermanentWidget() 之前调用。后设的 QStatusBar
-    // 会把父窗口上原有的状态栏整个删掉，先挂上去的进度条会跟着一起消失。
-    parent->setStatusBar(new QStatusBar(parent));
-    QStatusBar *statusBar = parent->statusBar();
+void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
+    // ---------- 底部通栏状态条（Steam 风格） ----------
+    // 三个格子：左 = 头像与用户名，中 = 启动/下载进度，右 = 实例运行状态。
+    // 这里只**搭**它：显示什么由 MainWindow::updateBottomBar() 决定，
+    // 界面这边不持有任何业务状态。
+    bottomBar = new QFrame(parent);
+    bottomBar->setObjectName(bottomBarName());
+    bottomBar->setFrameShape(QFrame::NoFrame);
+    bottomBar->setFixedHeight(56);
+    // 底色比窗口底色深一档把它从内容区里分出来。**不写死颜色**：从当前调色板推出来，
+    // 浅色主题和深色主题下都成立（darker() 在两种主题上的效果都是"更沉一点"）。
+    bottomBar->setAutoFillBackground(true);
+    QPalette barPalette = bottomBar->palette();
+    barPalette.setColor(QPalette::Window, barPalette.color(QPalette::Window).darker(105));
+    bottomBar->setPalette(barPalette);
 
-    statusLabel = new QLabel(statusBar);
-    // 固定一个最小宽度：文件名长短变化时状态栏不会再跳来跳去
+    QHBoxLayout *barLayout = new QHBoxLayout(bottomBar);
+    barLayout->setContentsMargins(12, 6, 12, 6);
+    barLayout->setSpacing(12);
+
+    // ---------- 左：头像 + 用户名 ----------
+    // 真正的手绘皮肤头像要等 Minecraft profile API（登录流程现在只存了令牌，没取
+    // 玩家档案），这里先画一块"首字母方块"。颜色同样取自调色板，不写死。
+    // NOTE: 刻意**不加 border-radius** —— 这块是方的。真皮肤头像是 8x8 的方块贴图，
+    //       方形底比圆形底更接近它以后的样子。
+    avatarLabel = new QLabel(QStringLiteral("?"), bottomBar);
+    avatarLabel->setObjectName(avatarLabelName());
+    avatarLabel->setFixedSize(32, 32);
+    avatarLabel->setAlignment(Qt::AlignCenter);
+    const QColor avatarBackground = bottomBar->palette().color(QPalette::Highlight);
+    const QColor avatarForeground = bottomBar->palette().color(QPalette::HighlightedText);
+    avatarLabel->setStyleSheet(QStringLiteral("QLabel { background-color: %1; color: %2; }")
+                                   .arg(avatarBackground.name(), avatarForeground.name()));
+
+    accountLabel = new QLabel(QStringLiteral("?"), bottomBar);
+    accountLabel->setObjectName(accountLabelName());
+
+    QHBoxLayout *accountRow = new QHBoxLayout();
+    accountRow->setSpacing(8);
+    accountRow->addWidget(avatarLabel);
+    accountRow->addWidget(accountLabel);
+    barLayout->addLayout(accountRow, 0);
+
+    // ---------- 中：进度（启动优先于下载） ----------
+    statusLabel = new QLabel(bottomBar);
+    statusLabel->setObjectName(statusLabelName());
+    // 固定一个最小宽度：文件名长短变化时这一格不会再跳来跳去
     statusLabel->setMinimumWidth(260);
-    statusLabel->hide();
-
-    progressBar = new QProgressBar(statusBar);
+    progressBar = new QProgressBar(bottomBar);
+    progressBar->setObjectName(progressBarName());
     progressBar->setRange(0, 100);
     progressBar->setValue(0);
-    progressBar->setFixedWidth(220);
     progressBar->setTextVisible(true);
+
+    // 文字在上、进度条在下：底栏只有 56 px 高，横着并排会把进度条挤得太短
+    QVBoxLayout *progressLayout = new QVBoxLayout();
+    progressLayout->setSpacing(2);
+    progressLayout->addWidget(statusLabel);
+    progressLayout->addWidget(progressBar);
+    // 富余宽度**不完全**给中间那格：以前左右两格按自身宽度、中间那格吃掉全部富余，
+    // 900 px 的窗口下进度条横跨大半个底栏（实测 789 px，占底栏 88%），太长了。
+    // 现在拉伸因子写成 4 : 1 : 1 —— 中间那格拿 4/(1+4+1) = 2/3 的富余宽度
+    // （实测 526 px = 789 的 2/3），左右各一份空档各自留白，所以它仍然居中，
+    // 窗口拉宽时按同样比例跟着长。
+    // NOTE: 别把中间那格写成 2 —— Qt 分配富余宽度是按拉伸因子直接切那个池子的，
+    //       不是"先满足最小宽度再分剩下的"，2:1:1 拿到的是 1/2 而不是 2/3。
+    barLayout->addStretch(1);
+    barLayout->addLayout(progressLayout, 4);
+    barLayout->addStretch(1);
+    // 一开始什么都没在下：整格藏起来（"没在下载就看不见进度条"）
+    statusLabel->hide();
     progressBar->hide();
 
-    statusBar->addPermanentWidget(statusLabel);
-    statusBar->addPermanentWidget(progressBar);
+    // ---------- 右：当前实例运行状态 ----------
+    // 第一行是状态正文，第二行是实例名。**在主页且选中的就是正在跑的那个实例**时
+    // 只显示第一行 —— 那种情况下用户眼前就是那个实例，再说一遍名字是废话。
+    runStateLabel = new QLabel(bottomBar);
+    runStateLabel->setObjectName(runStateLabelName());
+    runStateLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+
+    runStateDetailLabel = new QLabel(bottomBar);
+    runStateDetailLabel->setObjectName(runStateDetailLabelName());
+    runStateDetailLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    // 第二行小一号、灰一点，跟第一行区分开。字号按当前字号减 1（不用点值，
+    // 免得不支持点值的平台出现负字号）；颜色用调色板里的 PlaceholderText。
+    QFont detailFont = runStateDetailLabel->font();
+    detailFont.setPointSize(qMax(1, detailFont.pointSize() - 1));
+    runStateDetailLabel->setFont(detailFont);
+    QPalette detailPalette = runStateDetailLabel->palette();
+    detailPalette.setColor(QPalette::WindowText, detailPalette.color(QPalette::PlaceholderText));
+    runStateDetailLabel->setPalette(detailPalette);
+
+    QVBoxLayout *runStateLayout = new QVBoxLayout();
+    runStateLayout->setSpacing(0);
+    runStateLayout->addWidget(runStateLabel);
+    runStateLayout->addWidget(runStateDetailLabel);
+    barLayout->addLayout(runStateLayout, 0);
+    // 没有实例在跑时右下角什么都不显示（跟 Steam 一样，不占着一句"未运行"）
+    runStateLabel->hide();
+    runStateDetailLabel->hide();
+
+    mainLayout->addWidget(bottomBar);
 }

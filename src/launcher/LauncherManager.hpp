@@ -64,6 +64,11 @@ public:
      *        来自 VersionManager::versionJvmArgs()。插在全局
      *        GlobalJavaSettings::extraJvmArgs() **之后** —— JVM 参数后写的胜出，
      *        所以单个实例能盖掉全局默认那套（例如全局写死了 -XX:+UseG1GC）。
+     * @param playerName 玩家名，写进 --username。离线与正版两条分支**都用这一个来源**
+     *        （调用方传 AuthManager::playerName()）—— 以前两条分支各写各的：正版写死
+     *        "Player"，离线是 "Player" 拼一个时间戳。空 = 调用方没给（测试、未登录），
+     *        退回默认名。**不能发一个空的 --username 给游戏**，那样游戏会拒绝启动，
+     *        所以空值是"退回默认"而不是"原样传下去"。
      * @return 返回 JVM 参数列表。
      *
      * NOTE: 调用方传 javaMajorVersion <= 0（未传）时，按"不知道是哪个 Java"处理：
@@ -74,7 +79,8 @@ public:
                                      const QString &assetIndexId, const QJsonObject &versionJson,
                                      const GlobalJavaSettings &settings,
                                      bool offlineMode = false, int javaMajorVersion = 0,
-                                     const QStringList &versionJvmArgs = QStringList()) const;
+                                     const QStringList &versionJvmArgs = QStringList(),
+                                     const QString &playerName = QString()) const;
 
     /**
      * @brief 启动 Minecraft 游戏进程。
@@ -91,6 +97,16 @@ public:
      */
     bool startGame(const QStringList &arguments, GlobalJavaSettings &settings,
                    const QString &versionId);
+
+    /**
+     * @brief 当前正在运行的游戏进程是哪个版本。
+     * @return 返回版本号；没有任何游戏在运行时返回空串。
+     *
+     * 底栏右下角那条"实例运行中"就靠它：它为空 = 没在跑，非空 = 跑的就是这个版本。
+     * 记的时机和 m_gameProcess 的状态是同一个（waitForStarted 成功那一刻），清的时机
+     * 也同一个（handleProcessFinished），所以不会出现"进程没了但这里还留着版本号"。
+     */
+    QString runningVersionId() const;
 
     /**
      * @brief 从最终命令行判断游戏进程的输出是不是 UTF-8。
@@ -120,6 +136,9 @@ private:
     QString decodeGameOutput(const QByteArray &bytes) const;
 
     QProcess *m_gameProcess;
+    /// 正在运行的游戏进程对应的版本号。startGame() 在 waitForStarted() 成功之后
+    /// 才记下它，handleProcessFinished() 里清掉 —— 三条早退路径都不记。
+    QString m_runningVersionId;
     /// 游戏进程的输出是不是 UTF-8（= 命令行里有 -Dstdout.encoding=utf-8）。
     /// 由 startGame() 在启动前设置；四个解码点都按它选解码方式。
     /// 默认 false = 本地代码页，也就是加这个开关之前的行为。

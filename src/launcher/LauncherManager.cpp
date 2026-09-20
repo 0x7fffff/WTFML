@@ -11,7 +11,6 @@
 #include "LauncherManager.hpp"
 
 #include <QCoreApplication>
-#include <QDateTime>
 #include <QDebug>
 #include <QDir>
 #include <QDirIterator>
@@ -33,6 +32,15 @@
 #include "VersionArguments.hpp"
 
 namespace {
+
+/**
+ * @brief 调用方没给玩家名时用的兜底名字（例如测试、未登录）。
+ *
+ * NOTE: 值和 AuthManager 的默认玩家名一致，但那边的 playerName() 才是**唯一来源** ——
+ *       真实启动路径（MainWindow）永远会把名字传进来，这里只是保证 --username 不会
+ *       是空的（空名字会让游戏直接拒绝启动）。
+ */
+constexpr char kDefaultPlayerName[] = "Player";
 
 /**
  * @brief 取某个版本解压 natives 的目标目录。
@@ -266,6 +274,7 @@ QString LauncherManager::prepareNatives(const QJsonObject &versionJson, const QS
  * @param offlineMode Whether to run in offline mode with fake credentials
  * @param javaMajorVersion 实际使用的 Java 主版本；<= 0 表示调用方没传
  * @param versionJvmArgs 该版本自定义的 JVM 参数，插在全局 extraJvmArgs 之后
+ * @param playerName 玩家名，写进 --username；空则退回 kDefaultPlayerName
  * @return 返回为 QProcess 准备的带有 JVM 参数的 QStringList
  *
  * NOTE: 这里刻意**只加硬编码做不到的事**，凡是 version.json 的 arguments.jvm 声明了的
@@ -284,13 +293,19 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
                                                   const QJsonObject &versionJson,
                                                   const GlobalJavaSettings &settings,
                                                   bool offlineMode, int javaMajorVersion,
-                                                  const QStringList &versionJvmArgs) const {
+                                                  const QStringList &versionJvmArgs,
+                                                  const QString &playerName) const {
     QStringList args;
 
     qDebug() << "=== Generating JVM Arguments ===";
     qDebug() << "Memory settings: -Xms" << settings.xms() << "m -Xmx" << settings.xmx() << "m";
     qDebug() << "Offline mode:" << offlineMode;
     qDebug() << "Java major version:" << javaMajorVersion;
+
+    // 玩家名只有一个来源（调用方传 AuthManager::playerName()），两条分支都取它。
+    // 空值退回默认名：--username 空着游戏会直接拒绝启动，所以宁可兜一个名字。
+    const QString username = playerName.isEmpty() ? QString::fromLatin1(kDefaultPlayerName)
+                                                   : playerName;
 
     args << QStringLiteral("-Xms%1m").arg(settings.xms());
     args << QStringLiteral("-Xmx%1m").arg(settings.xmx());
@@ -496,13 +511,16 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     //       路径，改它是另一回事、有未知的兼容风险，不混进这批加固。
     if (offlineMode) {
         // 离线模式：使用虚假登录证书
-        QString fakePlayerName =
-            "Player" + QString::number(QDateTime::currentMSecsSinceEpoch() % 1000);
+        // NOTE: 玩家名现在就是调用方给的那个（底栏上显示的名字），以前是
+        //       "Player" 拼一个毫秒时间戳。改成同一个名字是**有意的**：名字就是账户的
+        //       身份，每次启动换一个的话，单机存档的主人公名字会跟着变，离线服务器的
+        //       离线 UUID（由名字推出来）也会每次都被当成新玩家。唯一真的需要"不撞名"
+        //       的场合是同一台机器上开两个离线实例，那种情况用户自己会改名字。
         QString fakeUuid = QUuid::createUuid().toString().remove('{').remove('}');
 
-        qDebug() << "Offline mode - Player:" << fakePlayerName << "UUID:" << fakeUuid;
+        qDebug() << "Offline mode - Player:" << username << "UUID:" << fakeUuid;
 
-        args << QStringLiteral("--username") << fakePlayerName << QStringLiteral("--version")
+        args << QStringLiteral("--username") << username << QStringLiteral("--version")
              << versionId << QStringLiteral("--gameDir") << AppPaths::versionDir(versionId)
              << QStringLiteral("--assetsDir") << AppPaths::assetsDir()
              << QStringLiteral("--assetIndex") << assetIndexId << QStringLiteral("--uuid")
@@ -515,8 +533,8 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
         args << QStringLiteral("-Dminecraft.accessToken=%1").arg(token);
         args << QStringLiteral("-Dminecraft.version=%1").arg(versionId);
 
-        args << QStringLiteral("--username") << QStringLiteral("Player")
-             << QStringLiteral("--version") << versionId << QStringLiteral("--gameDir")
+        args << QStringLiteral("--username") << username << QStringLiteral("--version")
+             << versionId << QStringLiteral("--gameDir")
              << AppPaths::versionDir(versionId) << QStringLiteral("--assetsDir")
              << AppPaths::assetsDir() << QStringLiteral("--assetIndex") << assetIndexId
              << QStringLiteral("--uuid")
@@ -605,9 +623,14 @@ bool LauncherManager::startGame(const QStringList &arguments, GlobalJavaSettings
     }
 
     qDebug() << "Java process started, PID:" << m_gameProcess->processId();
+    // 记"谁在跑"的**唯一**时机：进程真的起来了（三条早退路径都不记）。底栏右下角
+    // 那条状态和"启动中"进度的收尾都读它。
+    m_runningVersionId = versionId;
     emit processOutput(tr("游戏已启动（进程ID：%1）").arg(m_gameProcess->processId()));
     return true;
 }
+
+QString LauncherManager::runningVersionId() const { return m_runningVersionId; }
 
 bool LauncherManager::commandDeclaresUtf8Output(const QStringList &arguments) {
     bool isUtf8 = false;
@@ -667,5 +690,8 @@ void LauncherManager::handleProcessFinished(int exitCode, QProcess::ExitStatus e
         emit processError(error);
     }
 
+    // 清在 emit 之前：接 gameFinished 的槽会去读 runningVersionId() 刷新底栏，
+    // 反过来的话它会读到"刚退出的那个版本还在跑"。
+    m_runningVersionId.clear();
     emit gameFinished(exitCode, exitStatus);
 }

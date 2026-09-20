@@ -19,8 +19,6 @@
 #include <QDebug>
 #include <QFile>
 #include <QFileInfo>
-#include <QGroupBox>
-#include <QHBoxLayout>
 #include <QInputDialog>
 #include <QLabel>
 #include <QMessageBox>
@@ -28,8 +26,7 @@
 #include <QProcess>
 #include <QPushButton>
 #include <QSignalBlocker>
-#include <QTextEdit>
-#include <QVBoxLayout>
+#include <QTabWidget>
 
 #include "auth/AuthManager.hpp"
 #include "launcher/LauncherManager.hpp"
@@ -143,6 +140,9 @@ MainWindow::MainWindow(QWidget *parent)
     // 不能塞进 refreshInstalledVersions()，那个函数每次清单到达、每次下载完成都会跑，
     // 塞进去就破坏了它"只保住、不新增"的语义。
     restoreLastLaunchedVersion();
+    // 底栏那三格的初始值：登录名可能已经从存下来的令牌里恢复了，进度两格先藏起来，
+    // 运行状态也要等第一次真的启动才有内容。
+    updateBottomBar();
     m_versionManager->fetchAvailableVersions();
 }
 
@@ -169,9 +169,21 @@ void MainWindow::setupConnections() {
     // 关掉「版本名」档之后，`我的整合包-Forge` 和 `别的名字-Forge` 完全可能显示成
     // 一样，那时按钮第二行和 tooltip 会停在旧值上。
     connect(m_ui->getInstalledVersionCombo(), &QComboBox::currentIndexChanged, this,
-            [this] { updateStartButtonText(); });
+            [this] {
+                updateStartButtonText();
+                // 底栏右下角那条状态要看"选中的是不是正在跑的那个实例"，
+                // 所以换版本也得跟着刷一遍。
+                updateBottomBar();
+            });
     connect(m_ui->getDownloadButton(), &QPushButton::clicked, this,
             &MainWindow::onDownloadButtonClicked);
+
+    // 选项卡切换：底栏右下角的显示规则依赖"当前是不是在主页"，切页就得重算。
+    connect(m_ui->getTabWidget(), &QTabWidget::currentChanged, this,
+            [this] { updateBottomBar(); });
+
+    // 登录成功之后左下角要换成登录名（头像那块字母也跟着换）
+    connect(m_authManager, &AuthManager::loginSucceeded, this, [this] { updateBottomBar(); });
 
     // 游戏进程信号
     connect(m_launcherManager, &LauncherManager::processOutput, this, &MainWindow::onProcessOutput);
@@ -205,17 +217,76 @@ void MainWindow::setDownloadUiBusy(bool busy) {
     m_ui->getAvailableVersionCombo()->setEnabled(!busy);
 
     QProgressBar *progressBar = m_ui->getProgressBar();
-    QLabel *statusLabel = m_ui->getStatusLabel();
-    progressBar->setVisible(busy);
-    statusLabel->setVisible(busy);
     if (busy) {
         // 还不知道总任务数：先转成不确定态的滚动条，拿到 stats 再换成确定态
         progressBar->setRange(0, 0);
-        statusLabel->setText(tr("正在准备下载..."));
+        m_ui->getStatusLabel()->setText(tr("正在准备下载..."));
     } else {
         progressBar->setRange(0, 100);
         progressBar->setValue(0);
     }
+    // 这一格的显隐**不在这里定**：底栏中间那格要同时受"在下载"和"在启动"两条影响，
+    // 只有 updateBottomBar() 一处说了算，免得两处各改一次互相盖掉。
+    updateBottomBar();
+}
+
+void MainWindow::updateBottomBar() {
+    // ---------- 左：头像 + 用户名 ----------
+    // NOTE: AuthManager 的登录流程只把令牌落盘，**没有**去取玩家档案，所以
+    //       playerName() 目前恒为它构造时那个默认值。真名与皮肤头像要等 profile
+    //       API（并给 AuthManager 补一个"读回来的名字"）。这里不自己造假名字。
+    const QString name = m_authManager->playerName();
+    m_ui->getAccountLabel()->setText(name);
+    m_ui->getAvatarLabel()->setText(name.isEmpty() ? QStringLiteral("?")
+                                                    : name.left(1).toUpper());
+
+    // ---------- 中：进度（启动优先于下载） ----------
+    // 两件事都会占这一格，启动优先 —— 下载可以慢慢来，用户刚点完启动那几秒需要反馈。
+    QProgressBar *progressBar = m_ui->getProgressBar();
+    QLabel *statusLabel = m_ui->getStatusLabel();
+    const bool showProgress = m_launchInFlight || m_downloadInFlight;
+    progressBar->setVisible(showProgress);
+    statusLabel->setVisible(showProgress);
+    if (m_launchInFlight) {
+        // 启动进度没有可测量的百分比（JVM 和游戏自己在初始化，没有任何进度回调），
+        // 所以是不确定态的滚动条。等游戏吐出第一行输出（或进程结束）就收起来。
+        progressBar->setRange(0, 0);
+        statusLabel->setText(tr("正在启动 %1 ...").arg(instanceDisplayName(m_launchingVersionId)));
+    } else if (!m_downloadInFlight) {
+        // 没有下载时把进度条复位：下一次下载开始前它会先显示上次的旧值，闪一下。
+        progressBar->setRange(0, 100);
+        progressBar->setValue(0);
+        statusLabel->clear();
+    }
+    // 下载态下的文字和数值由 updateDownloadProgressUi() 维护，这里不覆盖。
+
+    // ---------- 右：当前实例运行状态 ----------
+    QLabel *runStateLabel = m_ui->getRunStateLabel();
+    QLabel *runStateDetailLabel = m_ui->getRunStateDetailLabel();
+    const QString running = m_launcherManager->runningVersionId();
+    if (running.isEmpty()) {
+        // 没有实例在跑：右下角整格藏起来，不显示"未运行"这种废话
+        runStateLabel->setVisible(false);
+        runStateDetailLabel->setVisible(false);
+        return;
+    }
+
+    runStateLabel->setText(MainWindowUI::runStateRunningText());
+    runStateLabel->setVisible(true);
+    // 第二行要不要出，判据在 runStateShowsDetail() 里（那里也是它唯一的出处）。
+    const bool showDetail = MainWindowUI::runStateShowsDetail(
+        m_ui->isHomeTabCurrent(), selectedVersionId(m_ui->getInstalledVersionCombo()), running);
+    runStateDetailLabel->setVisible(showDetail);
+    runStateDetailLabel->setText(showDetail ? instanceDisplayName(running) : QString());
+}
+
+QString MainWindow::instanceDisplayName(const QString &versionId) const {
+    // 用下拉框里那条文本，也就是用户看惯了的显示名（可能是"我的整合包-1.20.1-Forge"），
+    // 而不是裸目录名。找不到（版本刚被删、或者压根不在本地）时退回版本号本身 ——
+    // 底栏宁可显示一个用户没见过的目录名，也不能什么都不显示。
+    const QComboBox *combo = m_ui->getInstalledVersionCombo();
+    const int index = combo->findData(versionId);
+    return index >= 0 ? combo->itemText(index) : versionId;
 }
 
 void MainWindow::updateDownloadProgressUi(int done, int total, int failed,
@@ -254,7 +325,16 @@ void MainWindow::onVersionDownloadStats(int done, int total, int failed,
     updateDownloadProgressUi(done, total, failed, currentFile);
 }
 
-void MainWindow::appendLog(const QString &text) { m_ui->getLogTextEdit()->append(text); }
+void MainWindow::appendLog(const QString &text) {
+    // 界面里**不再有**日志面板（2026-09 分选项卡时去掉的）：命令行里本来就有
+    // LauncherManager 的全套输出，多加一块面板只是把同一批东西抄第二遍。
+    //
+    // NOTE: 所以这条通道是"给人事后看"的，不是"必须让人看见"的。**必须让用户看到**
+    //       的消息（缺 Java、下载失败、未选版本、找不到 version.json）一律走
+    //       QMessageBox 挡住操作，绝不能只写这里 —— 从资源管理器双击启动时，
+    //       这里写的东西没有任何地方能显示出来。
+    qDebug().noquote() << QStringLiteral("[WTFML]") << text;
+}
 
 void MainWindow::refreshInstalledVersions() {
     // 只扫本地磁盘（.minecraft/versions/<id>/<id>.jar），同步返回，随叫随到。
@@ -475,9 +555,13 @@ void MainWindow::onStartButtonClicked() {
     // 按版本的自定义参数来自 <id>/wtfml.meta 的 "jvmArgs"（PCL 那半边"自定义启动
     // 参数"的对应物）；全局那半边是 GlobalJavaSettings::extraJvmArgs()，在
     // generateJvmArguments() 里比它先入列，所以单个实例能盖掉全局默认值。
+    // 玩家名和底栏左下角显示的是**同一个**（AuthManager::playerName()），离线与正版
+    // 两条分支都用它 —— 以前离线分支自己拼 "Player<时间戳>"、正版分支写死 "Player"，
+    // 于是底栏上的名字和游戏里看到的名字可以不一样。
     const QStringList jvmArgs = m_launcherManager->generateJvmArguments(
         token, versionId, assetIndexId, versionJson, *m_javaSettings, offlineMode,
-        javaMajorVersion, m_versionManager->versionJvmArgs(versionId));
+        javaMajorVersion, m_versionManager->versionJvmArgs(versionId),
+        m_authManager->playerName());
     // 记住"上次启动的版本"的时机是**进程真的起来了**，不是"表达式算完了"。
     // startGame() 有三条早退路径（进程已在运行 / 找不到 Java / waitForStarted 超时），
     // 以前它们都会先骗一句"已开始启动游戏"再显示错误。以"起来了"为准也是对的：
@@ -485,7 +569,15 @@ void MainWindow::onStartButtonClicked() {
     if (m_launcherManager->startGame(jvmArgs, *m_javaSettings, versionId)) {
         m_settings->setLastLaunchedVersion(versionId);
         appendLog(tr("已开始启动游戏，正在执行 JVM 参数..."));
+        // 启动进度从这里开始走到"游戏自己吐出第一行输出"为止。startGame() 返回之前
+        // 那段（准备 natives、探 Java、等进程起来）是同步阻塞的，界面根本没机会重画，
+        // 所以那一段不可能显示进度 —— 这里能覆盖的是随后的 JVM/游戏初始化。
+        // 顺序上安全：startGame() 内部那条 "游戏已启动" 的 processOutput 是在它
+        // return 之前同步发出的，会先于这次赋值到达，不会被当成"游戏已经出话了"。
+        m_launchInFlight = true;
+        m_launchingVersionId = versionId;
     }
+    updateBottomBar();
 }
 
 void MainWindow::onLoginButtonClicked() {
@@ -518,9 +610,24 @@ void MainWindow::onRemoveFolderClicked() {
     }
 }
 
-void MainWindow::onProcessOutput(const QString &text) { appendLog(tr("[游戏输出] %1").arg(text)); }
+void MainWindow::onProcessOutput(const QString &text) {
+    appendLog(tr("[游戏输出] %1").arg(text));
+    // 游戏自己出话了 = JVM 和游戏都初始化到能打日志了，"正在启动"这段到此为止。
+    // 底栏中间那格让给下载进度（如果有），右下角换成"实例运行中"。
+    if (m_launchInFlight) {
+        m_launchInFlight = false;
+        updateBottomBar();
+    }
+}
 
-void MainWindow::onProcessError(const QString &text) { appendLog(tr("[游戏错误] %1").arg(text)); }
+void MainWindow::onProcessError(const QString &text) {
+    appendLog(tr("[游戏错误] %1").arg(text));
+    // stderr 出东西也算"起来了"：有些版本把日志全写 stderr，等 stdout 会一直等下去。
+    if (m_launchInFlight) {
+        m_launchInFlight = false;
+        updateBottomBar();
+    }
+}
 
 void MainWindow::onGameFinished(int exitCode, QProcess::ExitStatus exitStatus) {
     if (exitStatus == QProcess::CrashExit) {
@@ -528,6 +635,10 @@ void MainWindow::onGameFinished(int exitCode, QProcess::ExitStatus exitStatus) {
     } else {
         appendLog(tr("游戏进程已结束，退出码：%1").arg(exitCode));
     }
+    // 进程没了，"启动中"和右下角那条"实例运行中"都得收起来（runningVersionId() 在
+    // LauncherManager 里已经清了，这里只管重画）。
+    m_launchInFlight = false;
+    updateBottomBar();
 }
 
 void MainWindow::onDownloadButtonClicked() {

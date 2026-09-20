@@ -45,7 +45,15 @@ private slots:
 
 private:
     void setupConnections();
+    /// 把一条消息交给 Qt 的日志系统（命令行里看）。界面里已经没有日志面板了，
+    /// 必须让用户看到的消息走的是 QMessageBox，不靠这一条 —— 见 .cpp 里的说明。
     void appendLog(const QString &text);
+    /// 刷新底部状态条那三格（头像/用户名、进度、实例运行状态）。
+    /// 显示规则见 .cpp；界面那边只负责把控件搭出来。
+    void updateBottomBar();
+    /// 一个版本号在界面上的显示名（"已安装版本"下拉框里的那条文本）。
+    /// 下拉框里没有它时退回版本号本身。
+    QString instanceDisplayName(const QString &versionId) const;
     // 重灌"已安装版本"下拉框：扫本地 .minecraft/versions，同步返回。
     // 保住用户原来选中的那一项的逻辑在 fillVersionCombo() 里。
     void refreshInstalledVersions();
@@ -73,6 +81,12 @@ private:
     // "有版本目录但 jar 名对不上"这件事是否已经写过日志。refreshInstalledVersions()
     // 一次会话会被调三次，不记一笔就是同样的告警刷三遍。
     bool m_reportedUnrecognizedVersions = false;
+    // 启动进度是否还在走。从"进程真的起来了"（startGame 返回 true）到游戏自己吐出
+    // 第一行输出为止 —— 中间那段是 JVM 和游戏自己在初始化，界面上没别的反馈。
+    // 命名刻意不叫 m_launching：它表示的是"这段进度要显示"而不是"正在启动"。
+    bool m_launchInFlight = false;
+    // 上面那段进度说的是哪个版本（中间那格要显示"正在启动 <显示名>"）。
+    QString m_launchingVersionId;
     // 进度按网络分片到达（5000 多个 asset），节流一下再刷界面
     QElapsedTimer m_progressThrottle;
 };

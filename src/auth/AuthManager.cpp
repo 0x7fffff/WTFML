@@ -44,7 +44,10 @@ static constexpr const char kOAuthScope[] = "XboxLive.signin offline_access";
 
 AuthManager::AuthManager(QObject *parent)
     : QObject(parent),
-      m_playerName(tr("玩家")),
+      // NOTE: 默认玩家名**不是界面文案，别翻译** —— 它就是启动游戏时 --username 的
+      //       值（离线与正版两条分支都取它），也是一个正版账户"名字"的占位。
+      //       真正要等到登录流程去拉 profile（现在只存令牌）才能填上真名。
+      m_playerName(QStringLiteral("Player")),
       m_callbackServer(new QTcpServer(this)),
       m_networkManager(new QNetworkAccessManager(this)),
       m_callbackPort(kCallbackPort) {
