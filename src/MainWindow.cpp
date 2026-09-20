@@ -472,9 +472,12 @@ void MainWindow::onStartButtonClicked() {
         return;
     }
 
+    // 按版本的自定义参数来自 <id>/wtfml.meta 的 "jvmArgs"（PCL 那半边"自定义启动
+    // 参数"的对应物）；全局那半边是 GlobalJavaSettings::extraJvmArgs()，在
+    // generateJvmArguments() 里比它先入列，所以单个实例能盖掉全局默认值。
     const QStringList jvmArgs = m_launcherManager->generateJvmArguments(
         token, versionId, assetIndexId, versionJson, *m_javaSettings, offlineMode,
-        javaMajorVersion);
+        javaMajorVersion, m_versionManager->versionJvmArgs(versionId));
     // 记住"上次启动的版本"的时机是**进程真的起来了**，不是"表达式算完了"。
     // startGame() 有三条早退路径（进程已在运行 / 找不到 Java / waitForStarted 超时），
     // 以前它们都会先骗一句"已开始启动游戏"再显示错误。以"起来了"为准也是对的：

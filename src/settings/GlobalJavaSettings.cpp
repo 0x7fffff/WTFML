@@ -43,6 +43,9 @@ bool runProcess(const QString &program, const QStringList &arguments, QString *s
         return false;
     }
 
+    // NOTE: 这里刻意用 fromLocal8Bit、**不跟着游戏进程一起改成 fromUtf8**。
+    // 走这条路的两种调用（java -version、PowerShell）都不受 -Dstdout.encoding 约束
+    // —— 那个属性是 JVM 的参数，PowerShell 不是 JVM、不认它。跟着改才是引入乱码。
     if (stdOut) {
         *stdOut = QString::fromLocal8Bit(process.readAllStandardOutput());
     }

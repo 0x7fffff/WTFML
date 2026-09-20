@@ -121,6 +121,9 @@ bool ZipUtil::extractArchives(const QStringList &archives, const QString &target
 
     if (process.exitStatus() != QProcess::NormalExit || process.exitCode() != 0) {
         if (errorOut) {
+            // NOTE: fromLocal8Bit 是对的，**不要**跟着游戏进程改成 fromUtf8 —— 这里的
+            // 输出来自 PowerShell，不是 JVM，-Dstdout.encoding 管不到它（见
+            // LauncherManager::decodeGameOutput 的说明）。
             const QString err = QString::fromLocal8Bit(process.readAllStandardError()).trimmed();
             *errorOut = err.isEmpty()
                             ? QStringLiteral("解压失败（PowerShell 退出码 %1）").arg(process.exitCode())

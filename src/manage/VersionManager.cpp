@@ -243,22 +243,21 @@ QJsonObject VersionManager::getVersionJson(const QString &versionId) const {
     return doc.object();
 }
 
-VersionDisplayParts VersionManager::displayParts(const QString &versionId) const {
-    // id 永远用参数填，不从文件里取：元数据文件是可以被用户手改的，而 id 是真正
-    // 进 --version 和文件路径的那个值，必须由调用方（本地扫描 / 在线清单）决定。
-    VersionDisplayParts parts;
-    parts.id = versionId;
-
+QJsonObject VersionManager::readVersionMeta(const QString &versionId, QString *metaPathOut) const {
     const QString metaPath = AppPaths::versionMetaPath(versionId);
+    if (metaPathOut != nullptr) {
+        *metaPathOut = metaPath;
+    }
+
     QFile metaFile(metaPath);
     if (!metaFile.exists()) {
         // 绝大多数版本没有这个文件，不是异常，也别打日志——refreshInstalledVersions()
         // 会对着每个已安装版本调一次，打日志就是刷屏。
-        return parts;
+        return QJsonObject();
     }
     if (!metaFile.open(QIODevice::ReadOnly)) {
         qWarning() << "Version metadata exists but cannot be opened:" << metaPath;
-        return parts;
+        return QJsonObject();
     }
 
     QJsonParseError parseError;
@@ -268,10 +267,59 @@ VersionDisplayParts VersionManager::displayParts(const QString &versionId) const
         // 手写的文件写错格式很常见。整个文件当没有，但不静默——这是用户手写的，
         // 不告诉他写错了他会一直以为生效了。
         qWarning() << "Failed to parse version metadata" << metaPath << ":" << parseError.errorString();
-        return parts;
+        return QJsonObject();
+    }
+    return doc.object();
+}
+
+QStringList VersionManager::versionJvmArgs(const QString &versionId) const {
+    QString metaPath;
+    const QJsonObject meta = readVersionMeta(versionId, &metaPath);
+    if (meta.isEmpty()) {
+        return QStringList();
     }
 
-    const QJsonObject meta = doc.object();
+    const QJsonValue value = meta.value(QStringLiteral("jvmArgs"));
+    if (value.isUndefined() || value.isNull()) {
+        return QStringList();
+    }
+    // 用数组而不是 PCL 那种空格分隔的字符串：JVM 参数本身可能含空格
+    // （`-Dfoo=bar baz` 这种），切成数组无歧义。
+    if (!value.isArray()) {
+        qWarning() << "Version metadata field jvmArgs is not an array in" << metaPath
+                   << "— ignored";
+        return QStringList();
+    }
+
+    // 元素类型不对就跳过那一个、并说一声 —— 和 readString 对类型错误的态度一致：
+    // 这是用户手写的文件，写错了必须告诉他，否则表现成"明明写了却不生效"。
+    QStringList args;
+    const QJsonArray entries = value.toArray();
+    for (const QJsonValue &entry : entries) {
+        if (!entry.isString()) {
+            qWarning() << "Version metadata jvmArgs has a non-string entry in" << metaPath
+                       << "— skipped";
+            continue;
+        }
+        const QString arg = entry.toString();
+        if (!arg.isEmpty()) {
+            args.append(arg);
+        }
+    }
+    return args;
+}
+
+VersionDisplayParts VersionManager::displayParts(const QString &versionId) const {
+    // id 永远用参数填，不从文件里取：元数据文件是可以被用户手改的，而 id 是真正
+    // 进 --version 和文件路径的那个值，必须由调用方（本地扫描 / 在线清单）决定。
+    VersionDisplayParts parts;
+    parts.id = versionId;
+
+    QString metaPath;
+    const QJsonObject meta = readVersionMeta(versionId, &metaPath);
+    if (meta.isEmpty()) {
+        return parts;
+    }
 
     // 逐字段读。类型不对时给一句告警：QJsonValue::toString() 对数字/对象会安静地
     // 返回空串，手写 JSON 时把 "name" 写成数字是最容易犯的错，不提示的话表现成

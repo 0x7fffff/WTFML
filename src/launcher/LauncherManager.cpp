@@ -264,13 +264,27 @@ QString LauncherManager::prepareNatives(const QJsonObject &versionJson, const QS
  * @param versionJson Version manifest JSON object containing library dependencies
  * @param settings Java settings (memory, extra args, etc.)
  * @param offlineMode Whether to run in offline mode with fake credentials
+ * @param javaMajorVersion 实际使用的 Java 主版本；<= 0 表示调用方没传
+ * @param versionJvmArgs 该版本自定义的 JVM 参数，插在全局 extraJvmArgs 之后
  * @return 返回为 QProcess 准备的带有 JVM 参数的 QStringList
+ *
+ * NOTE: 这里刻意**只加硬编码做不到的事**，凡是 version.json 的 arguments.jvm 声明了的
+ *       就按它的规则过滤后原样传（见下面那段）。PCL 那套调优值（-XX:G1NewSizePercent=20
+ *       -XX:G1ReservePercent=20 -XX:G1HeapRegionSize=32M -XX:MaxGCPauseMillis=50
+ *       -XX:+PerfDisableSharedMem -XX:MinHeapFreeRatio=25 -XX:MaxHeapFreeRatio=40，
+ *       以及 -XX:+UseCompactObjectHeaders）**不进这里** —— 它们随机器/堆大小/Java
+ *       版本而变，硬编码等于替用户做主了，归 versionJvmArgs 和
+ *       GlobalJavaSettings::extraJvmArgs() 这两个自定义口子。
+ *       其中带版本门槛的那几条，实测结论（21 与 25 两个运行时）：-XX:+PerfDisableSharedMem
+ *       全版本可用；-XX:+UseCompactObjectHeaders 只有新 JDK 接受，旧版是 Unrecognized
+ *       option。所以谁要往设置界面里放这些预设，必须一并带上版本过滤。
  */
 QStringList LauncherManager::generateJvmArguments(const QString &token, const QString &versionId,
                                                   const QString &assetIndexId,
                                                   const QJsonObject &versionJson,
                                                   const GlobalJavaSettings &settings,
-                                                  bool offlineMode, int javaMajorVersion) const {
+                                                  bool offlineMode, int javaMajorVersion,
+                                                  const QStringList &versionJvmArgs) const {
     QStringList args;
 
     qDebug() << "=== Generating JVM Arguments ===";
@@ -286,12 +300,42 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
         args << settings.extraJvmArgs().split(' ', Qt::SkipEmptyParts);
     }
 
+    // 按版本的自定义参数，**排在全局之后**：JVM 对同一条可重复选项取后写的那个，
+    // 所以单个实例能盖掉全局默认那套（全局默认是 -XX:+UseG1GC）。
+    if (!versionJvmArgs.isEmpty()) {
+        qDebug() << "Per-version JVM args:" << versionJvmArgs;
+        args << versionJvmArgs;
+    }
+
     args << QStringLiteral("-Dlog4j2.formatMsgNoLookups=true");
+    // -XX:-OmitStackTraceInFastThrow：实测 Java 8/17/25 全部接受，所以无条件加。
+    // 不开这条时 JIT 的"快速抛异常"会优化掉重复抛出异常的堆栈，崩溃日志缩成一行
+    // 没有下文的 NullPointerException —— 崩溃报告分析（和它的导出功能）全靠堆栈。
+    args << QStringLiteral("-XX:-OmitStackTraceInFastThrow");
     // --enable-native-access 是 JDK 17+ 才有的选项，用于启用对 Java 25+ 的原生兼容性。
     // Java 8（1.16.5 及以下需要）碰到它会直接 Unrecognized option 秒退，连主类都到不了，
     // 所以必须按实际使用的 Java 版本过滤。javaMajorVersion 为 0 表示调用方没传，沿用旧行为。
     if (javaMajorVersion >= 17 || javaMajorVersion <= 0) {
         args << QStringLiteral("--enable-native-access=ALL-UNNAMED");
+    }
+    // --sun-misc-unsafe-memory-access：实测 Java 8/17/21 **拒绝**（Unrecognized option，
+    // JVM 直接起不来）、Java 25 接受。这条写错门槛的后果不是"参数不生效"而是"游戏压根
+    // 启动不了"，所以门槛取**实测过的下界 25**：JEP 498 是在 JDK 24 引入这个选项的，
+    // 但本机没有 24 的运行时、无法验证（21 拒绝、25 接受之间正好隔着它），而两边的
+    // 代价完全不对称 —— 少加一条只是少压一句警告，加错一条是游戏起不来。
+    // 26.x 的 version.json 自己声明了它，下面的去重会让声明成为唯一那份；这条主要是
+    // 兜住"用户给老版本手动指定了新 Java"。
+    if (javaMajorVersion >= 25) {
+        args << QStringLiteral("--sun-misc-unsafe-memory-access=allow");
+    }
+    // -Dstdout.encoding / -Dstderr.encoding 是 JDK 19 才引入的属性（JDK-8284879）。
+    // Java 8-18 会**忽略**它们，System.out 仍按本地代码页（中国区 Windows = GBK）写字节，
+    // 那时按 UTF-8 解码反而是把好好的中文解成乱码。所以这条门槛和
+    // decodeGameOutput() 的解码选择必须同时成立 —— 实现上不让两边各记一份状态，
+    // 由 startGame() 从最终命令行反推（见那里的注释）。
+    if (javaMajorVersion >= 19) {
+        args << QStringLiteral("-Dstdout.encoding=utf-8");
+        args << QStringLiteral("-Dstderr.encoding=utf-8");
     }
     args << QStringLiteral("-Djava.net.preferIPv4Stack=true");
 
@@ -391,8 +435,28 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
 
     // 同一条属性只留一份：version.json 声明了就以它为准。值与我们完全相同时也归到
     // 这里，免得同一个 -D 在命令行上出现两次。
-    if (VersionArguments::declaresPrefix(declared, QStringLiteral("--enable-native-access="))) {
-        args.removeAll(QStringLiteral("--enable-native-access=ALL-UNNAMED"));
+    //
+    // 只用在**我们自己硬编码**的那几条上。用户自定义的参数（全局 extraJvmArgs /
+    // 按版本 versionJvmArgs）不参与去重 —— 那是用户写的，他想和 version.json 各留
+    // 一份就各留一份，启动器替他删掉才是越权。
+    const auto dropOwnIfDeclared = [&args, &declared](const QString &prefix,
+                                                      const QString &ownArg) {
+        if (VersionArguments::declaresPrefix(declared, prefix)) {
+            args.removeAll(ownArg);
+        }
+    };
+    dropOwnIfDeclared(QStringLiteral("--enable-native-access="),
+                      QStringLiteral("--enable-native-access=ALL-UNNAMED"));
+    dropOwnIfDeclared(QStringLiteral("--sun-misc-unsafe-memory-access="),
+                      QStringLiteral("--sun-misc-unsafe-memory-access=allow"));
+    // stdout/stderr 这两个按**一对**处理：只要 version.json 声明了其中任意一个，我们那
+    // 两条就都撤掉。理由是解码侧（decodeGameOutput）只有一个开关 —— 真出现"stdout 用
+    // gbk、stderr 用 utf-8"这种混搭，那一个开关无论取哪边都是错的。已知的 version.json
+    // 没有一条声明过它们，这纯粹是让那条不变量在纸面上也成立。
+    if (VersionArguments::declaresPrefix(declared, QStringLiteral("-Dstdout.encoding=")) ||
+        VersionArguments::declaresPrefix(declared, QStringLiteral("-Dstderr.encoding="))) {
+        args.removeAll(QStringLiteral("-Dstdout.encoding=utf-8"));
+        args.removeAll(QStringLiteral("-Dstderr.encoding=utf-8"));
     }
     if (VersionArguments::declaresPrefix(declared, QStringLiteral("-Djava.library.path="))) {
         for (int i = args.size() - 1; i >= 0; --i) {
@@ -465,6 +529,14 @@ bool LauncherManager::startGame(const QStringList &arguments, GlobalJavaSettings
         return false;
     }
 
+    // 游戏进程的输出怎么解码，从**最终命令行**上反推（见下面那个静态函数的说明），
+    // 而不是另立一个"我们加没加编码参数"的开关。generateJvmArguments() 只在
+    // javaMajorVersion >= 19 时加 -Dstdout.encoding=utf-8，所以这里天然只在"参数真的
+    // 生效"时才判成 UTF-8；Java 8-18 会忽略那两个属性、仍按本地代码页写字节，于是
+    // 正确地回落到 fromLocal8Bit。
+    m_gameOutputIsUtf8 = commandDeclaresUtf8Output(arguments);
+    qDebug() << "Game output is UTF-8:" << m_gameOutputIsUtf8;
+
     const QString program =
         settings.javaPath().isEmpty() ? QStringLiteral("java") : settings.javaPath();
 
@@ -526,8 +598,29 @@ bool LauncherManager::startGame(const QStringList &arguments, GlobalJavaSettings
     return true;
 }
 
+bool LauncherManager::commandDeclaresUtf8Output(const QStringList &arguments) {
+    bool isUtf8 = false;
+    for (const QString &arg : arguments) {
+        if (arg.startsWith(QStringLiteral("-Dstdout.encoding="))) {
+            // 同一条属性出现多次时 JVM 取最后一份，这里跟着取最后一份。
+            const QString encoding = arg.mid(arg.indexOf(QLatin1Char('=')) + 1);
+            isUtf8 = (encoding.compare(QStringLiteral("utf-8"), Qt::CaseInsensitive) == 0);
+        }
+    }
+    return isUtf8;
+}
+
+QString LauncherManager::decodeGameOutput(const QByteArray &bytes) const {
+    // 判据来自 startGame() 从命令行反推出来的 m_gameOutputIsUtf8，见那里的说明。
+    //
+    // NOTE: 只给游戏进程用这一份。GlobalJavaSettings::runProcess 和 ZipUtil 里的
+    //       fromLocal8Bit 不能跟着改 —— 它们解的是 PowerShell / java -version 的输出，
+    //       前者根本不是 JVM、不认 -Dstdout.encoding，改了才是引入乱码。
+    return m_gameOutputIsUtf8 ? QString::fromUtf8(bytes) : QString::fromLocal8Bit(bytes);
+}
+
 void LauncherManager::handleReadyReadStandardOutput() {
-    const QString output = QString::fromLocal8Bit(m_gameProcess->readAllStandardOutput()).trimmed();
+    const QString output = decodeGameOutput(m_gameProcess->readAllStandardOutput()).trimmed();
     if (!output.isEmpty()) {
         qDebug().noquote() << "[Game Output]" << output;
         emit processOutput(output);
@@ -535,7 +628,7 @@ void LauncherManager::handleReadyReadStandardOutput() {
 }
 
 void LauncherManager::handleReadyReadStandardError() {
-    const QString error = QString::fromLocal8Bit(m_gameProcess->readAllStandardError()).trimmed();
+    const QString error = decodeGameOutput(m_gameProcess->readAllStandardError()).trimmed();
     if (!error.isEmpty()) {
         qWarning().noquote() << "[Game Error]" << error;
         emit processError(error);
@@ -552,13 +645,13 @@ void LauncherManager::handleProcessFinished(int exitCode, QProcess::ExitStatus e
     const QByteArray remainingError = m_gameProcess->readAllStandardError();
 
     if (!remainingOutput.isEmpty()) {
-        const QString output = QString::fromLocal8Bit(remainingOutput).trimmed();
+        const QString output = decodeGameOutput(remainingOutput).trimmed();
         qDebug() << "Remaining output:" << output;
         emit processOutput(output);
     }
 
     if (!remainingError.isEmpty()) {
-        const QString error = QString::fromLocal8Bit(remainingError).trimmed();
+        const QString error = decodeGameOutput(remainingError).trimmed();
         qDebug() << "Remaining error:" << error;
         emit processError(error);
     }
