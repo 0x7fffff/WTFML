@@ -62,15 +62,14 @@ public:
     // ------------------------------------------------------------------
     // 「版本名格式」
     // ------------------------------------------------------------------
-    // NOTE: 这一项**目前没有任何界面入口**——项目里还没有设置界面（ui/MainWindowUI.cpp
-    // 里那个 QMenuBar 是空的），所以下面两个函数目前只有 MainWindow 在读写，值一律是
-    // VersionNameOptions 的默认值（自定义名✓ 版本名✓ 加载器名✓ 加载器版本✗）。
+    // NOTE: 界面入口在设置页的「版本名格式」那一行 —— 四个勾选框
+    // （versionNameCustomCheck / RealCheck / LoaderCheck / LoaderVersionCheck，
+    // ui/MainWindowUI.cpp），改动经 MainWindow::onVersionNameOptionChanged() 归一化后落盘。
     //
-    // TODO（别忘了这东西）: 以后做设置界面时，把这四个开关接出来。既可以摆成四个勾选框，
-    //   也可以摆成一个"预设档位"的下拉框、由它去反写这四个布尔——数据模型就是下面这个
-    //   四个布尔的 struct，界面想怎么摆都行，别为了界面去改模型。归一化由
-    //   normalizeVersionNameOptions() 负责，界面只要照它约束勾选即可。
-    //   入口的自然落点是 ui/MainWindowUI.cpp 里那个空 QMenuBar。
+    // 当初留的那条余地仍然有效：这四个布尔也可以改摆成一个"预设档位"的下拉框、由它去
+    //   反写这四个布尔——数据模型就是下面这个 struct，界面想怎么摆都行，别为了界面去改模型。
+    //   归一化由 normalizeVersionNameOptions() 负责，界面只要照它约束勾选即可。
+    //   默认值见 VersionDisplay.hpp 里 VersionNameOptions 的成员初始值。
     // ------------------------------------------------------------------
 
     /**

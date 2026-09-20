@@ -83,7 +83,6 @@ DownloadManager::DownloadManager(QObject *parent)
     qRegisterMetaType<MinecraftVersion>("MinecraftVersion");
     qRegisterMetaType<Library>("Library");
     qRegisterMetaType<AssetIndex>("AssetIndex");
-    qRegisterMetaType<DownloadInfo>("DownloadInfo");
     qRegisterMetaType<QList<MinecraftVersion>>("QList<MinecraftVersion>");
 }
 
@@ -112,15 +111,6 @@ void DownloadManager::fetchVersionManifest() {
 
 QList<MinecraftVersion> DownloadManager::getAvailableVersions() const { return availableVersions; }
 
-QString DownloadManager::getLatestVersion(const QString &type) const {
-    for (const MinecraftVersion &version : availableVersions) {
-        if (version.type == type) {
-            return version.id;
-        }
-    }
-    return QString();
-}
-
 void DownloadManager::fetchVersionJson(const QString &versionId) {
     for (const MinecraftVersion &version : availableVersions) {
         if (version.id == versionId) {
@@ -128,7 +118,10 @@ void DownloadManager::fetchVersionJson(const QString &versionId) {
             // 用不上 version.url。
             const QString effectiveUrl =
                 m_useMirror ? mirrorVersionJsonUrl(versionId) : version.url;
-            // 具名 QUrl：`QUrl url(effectiveUrl);` 会被当成函数声明（最令人烦恼的解析）
+            // 具名 QUrl 只是和下面几处保持一致的写法，**不是**为了躲"最令人烦恼的解析"：
+            // 这一行本身编译无警告（实测），`QUrl url(x);` 是对象。会歧义的是
+            // `QNetworkRequest request(QUrl(x))` 那种"参数写成了类型名(值)"的形状，
+            // 详细说明在 onAssetIndexDownloaded() 上面。
             const QUrl versionQUrl(effectiveUrl);
             QNetworkRequest request(versionQUrl);
             request.setTransferTimeout(30000);
@@ -174,16 +167,12 @@ DownloadStats DownloadManager::stats() const {
     s.done = m_doneJobs;
     s.failed = m_failedJobs;
     s.skipped = m_skippedJobs;
-    s.currentFile = m_currentFile;
     s.failedPaths = m_failedPaths;
     return s;
 }
 
 bool DownloadManager::fileAlreadyValid(const QString &path, const QString &expectedSha1,
                                        qint64 expectedSize, VerifyMode mode) {
-    if (mode == VerifyMode::Always) {
-        return false;
-    }
     const QFileInfo info(path);
     if (!info.exists() || !info.isFile()) {
         return false;
@@ -299,14 +288,18 @@ void DownloadManager::downloadLibraries(const QList<Library> &libraries, const Q
     }
 }
 
-void DownloadManager::downloadAssets(const AssetIndex &assetIndex, const QString &basePath) {
+void DownloadManager::downloadAssets(const AssetIndex &assetIndex) {
     if (assetIndex.url.isEmpty() || assetIndex.id.isEmpty()) {
         qWarning() << "Asset index is missing url or id, nothing to download.";
         return;
     }
 
-    // 第一步，下载资产索引 JSON 文件
-    const QString indexPath = basePath + "/indexes/" + assetIndex.id + ".json";
+    // 第一步，下载资产索引 JSON 文件。
+    // 目录**不接参数**：索引和下面 parseAndDownloadAssets() 写 objects 用的必须是同一个
+    // 根（AppPaths::assetsDir()，也就是 --assetsDir 指的地方），否则游戏去
+    // <assetsDir>/indexes/<id>.json 找索引会扑空 —— 之前这里收了一个 basePath 参数，
+    // 而 objects 那边一直是另算的，等于把"资源在哪儿"这个知识存了两份。
+    const QString indexPath = AppPaths::assetsDir() + "/indexes/" + assetIndex.id + ".json";
     QDir().mkpath(QFileInfo(indexPath).absolutePath());
 
     m_batchEmitted = false;
@@ -364,8 +357,19 @@ void DownloadManager::onAssetIndexDownloaded() {
         if (file.open(QIODevice::WriteOnly)) {
             file.write(reply->readAll());
             file.close();
-            success = true;
-            parseAndDownloadAssets(indexPath);
+            // 和 onDownloadReplyFinished() 一样必须核 SHA1：镜像源下这条地址是拿索引号
+            // **拼**出来的（/indexes/<id>.json），拼错时回来的可能是一份别的索引，也可能是
+            // 一个 404 页面 —— 不拦住就会拿它去下几千个内容不对的资源。期望值在
+            // downloadAssets() 里就登记好了（version.json 的 assetIndex.sha1）。
+            const QString expectedSha1 = expectedSha1s.value(reply);
+            if (expectedSha1.isEmpty() || verifyFileSha1(indexPath, expectedSha1)) {
+                success = true;
+                parseAndDownloadAssets(indexPath);
+            } else {
+                // 坏文件不留盘：它是"资源列表"本身，留在那儿没有任何价值，只会误导排查。
+                errorMessage = QStringLiteral("SHA1 verification failed");
+                file.remove();
+            }
         } else {
             errorMessage = QStringLiteral("Failed to save asset index file");
         }
