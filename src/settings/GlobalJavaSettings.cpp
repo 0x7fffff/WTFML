@@ -10,7 +10,6 @@
  */
 #include "GlobalJavaSettings.hpp"
 
-#include <QCoreApplication>
 #include <QDir>
 #include <QDirIterator>
 #include <QEventLoop>
@@ -27,6 +26,8 @@
 #include <QSettings>
 #include <QStandardPaths>
 #include <QTemporaryFile>
+
+#include "../util/AppPaths.hpp"
 
 namespace {
 static constexpr const char kJavaPath[] = "Java/Path";
@@ -466,7 +467,7 @@ void GlobalJavaSettings::save() const {
 
 QMap<int, QString> GlobalJavaSettings::scanLocalJavaVersions() {
     QMap<int, QString> versions;
-    const QString javaDir = QCoreApplication::applicationDirPath() + "/.minecraft/java";
+    const QString javaDir = AppPaths::javaDir();
 
     QDir dir(javaDir);
     if (dir.exists()) {
@@ -569,8 +570,7 @@ bool GlobalJavaSettings::downloadJavaFromMojang(int majorVersion) {
     qDebug() << "Chosen download URL:" << downloadUrl;
 
     // Download the zip
-    const QString downloadDir =
-        QCoreApplication::applicationDirPath() + QString("/.minecraft/java/%1").arg(majorVersion);
+    const QString downloadDir = AppPaths::javaVersionDir(majorVersion);
     qDebug() << "Download directory:" << downloadDir;
     QDir().mkpath(downloadDir);
     QString tempZip = QDir(downloadDir).absoluteFilePath("java_runtime.zip");
@@ -672,7 +672,7 @@ bool GlobalJavaSettings::ensureJavaForVersion(int majorVersion, const QString &c
     // 按 version.json 声明的 component 下载对应运行时
     if (!component.isEmpty()) {
         qDebug() << "Downloading runtime component" << component << "for Java" << majorVersion;
-        const QString javaBase = QCoreApplication::applicationDirPath() + "/.minecraft/java";
+        const QString javaBase = AppPaths::javaDir();
         QString downloaded;
         if (downloadJavaRuntime(javaBase, component, &downloaded) &&
             javaMatchesMajor(downloaded, majorVersion)) {

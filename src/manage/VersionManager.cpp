@@ -11,13 +11,13 @@
 
 #include "VersionManager.hpp"
 
-#include <QCoreApplication>
 #include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonParseError>
-#include <QStandardPaths>
+
+#include "../util/AppPaths.hpp"
 
 VersionManager::VersionManager(QObject *parent)
     : QObject(parent), downloadManager(new DownloadManager(this)) {
@@ -44,7 +44,7 @@ QStringList VersionManager::installedVersions() const {
     QStringList versions;
 
     // Scan for installed versions in .minecraft/versions
-    QString versionsPath = QCoreApplication::applicationDirPath() + "/.minecraft/versions";
+    QString versionsPath = AppPaths::versionsDir();
     QDir versionsDir(versionsPath);
 
     if (versionsDir.exists()) {
@@ -52,7 +52,7 @@ QStringList VersionManager::installedVersions() const {
         for (const QString &versionDir : versionDirs) {
             // 判据是客户端 jar 在不在：<id>/<id>.jar 齐了才算装好。光有个版本目录
             // （下载中途失败留下的）不算。
-            QString jarPath = versionsPath + "/" + versionDir + "/" + versionDir + ".jar";
+            QString jarPath = AppPaths::versionJarPath(versionDir);
             if (QFile::exists(jarPath)) {
                 versions.append(versionDir);
             }
@@ -116,7 +116,7 @@ void VersionManager::downloadVersion(const QString &versionId, const QString &de
     downloadManager->beginBatch();
 
     const QJsonObject &versionJson = versionJsons[versionId];
-    const QString basePath = QCoreApplication::applicationDirPath() + "/.minecraft";
+    const QString basePath = AppPaths::minecraftDir();
 
     // 把 version.json 落盘。缺了它，下一次启动时 getVersionJson() 取不到
     // javaVersion / assetIndex，会静默退回错误的 Java 版本和资产索引 ——
@@ -200,8 +200,7 @@ QJsonObject VersionManager::getVersionJson(const QString &versionId) const {
 
     // 内存里没有就回读磁盘。下载时已经把 JSON 落盘，所以跨会话启动也能拿到
     // javaVersion 和 assetIndex，不需要先在同一次会话里点一次"下载"。
-    const QString jsonPath = QCoreApplication::applicationDirPath() +
-                             QStringLiteral("/.minecraft/versions/%1/%1.json").arg(versionId);
+    const QString jsonPath = AppPaths::versionJsonPath(versionId);
     QFile jsonFile(jsonPath);
     if (!jsonFile.exists() || !jsonFile.open(QIODevice::ReadOnly)) {
         qWarning() << "Version JSON not found on disk:" << jsonPath;
@@ -227,8 +226,7 @@ VersionDisplayParts VersionManager::displayParts(const QString &versionId) const
     VersionDisplayParts parts;
     parts.id = versionId;
 
-    const QString metaPath = QCoreApplication::applicationDirPath() +
-                             QStringLiteral("/.minecraft/versions/%1/wtfml.meta").arg(versionId);
+    const QString metaPath = AppPaths::versionMetaPath(versionId);
     QFile metaFile(metaPath);
     if (!metaFile.exists()) {
         // 绝大多数版本没有这个文件，不是异常，也别打日志——refreshInstalledVersions()

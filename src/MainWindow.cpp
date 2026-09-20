@@ -16,7 +16,6 @@
 // 添加以下头文件（防止hpp变动导致文件失效）
 #include <QCheckBox>
 #include <QComboBox>
-#include <QCoreApplication>
 #include <QDebug>
 #include <QFile>
 #include <QFileInfo>
@@ -38,6 +37,7 @@
 #include "manage/VersionManager.hpp"
 #include "settings/GlobalJavaSettings.hpp"
 #include "settings/LauncherSettings.hpp"
+#include "util/AppPaths.hpp"
 
 namespace {
 
@@ -527,9 +527,7 @@ void MainWindow::onDownloadButtonClicked() {
         return;
     }
 
-    const QString versionJsonPath = QCoreApplication::applicationDirPath() +
-                                    "/.minecraft/versions/" + versionId + "/" + versionId +
-                                    ".json";
+    const QString versionJsonPath = AppPaths::versionJsonPath(versionId);
     if (QFile::exists(versionJsonPath)) {
         // 已经下过：不给"直接重下"（几 GB 白跑一趟），改成校验并补齐缺失/损坏的文件。
         const auto answer = QMessageBox::question(
@@ -600,7 +598,6 @@ void MainWindow::onVersionDetailsFetched(const QString &versionId, const QJsonOb
     }
 
     appendLog(tr("版本信息获取成功，开始下载游戏文件..."));
-    QString versionsPath =
-        QCoreApplication::applicationDirPath() + "/.minecraft/versions/" + versionId;
+    QString versionsPath = AppPaths::versionDir(versionId);
     m_versionManager->downloadVersion(versionId, versionsPath);
 }

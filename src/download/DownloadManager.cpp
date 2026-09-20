@@ -10,7 +10,6 @@
 
 #include "DownloadManager.hpp"
 
-#include <QCoreApplication>
 #include <QDebug>
 #include <QEventLoop>
 #include <QFileInfo>
@@ -19,6 +18,7 @@
 #include <QTemporaryFile>
 
 #include "../launcher/LibraryRules.hpp"
+#include "../util/AppPaths.hpp"
 
 DownloadManager::DownloadManager(QObject *parent)
     : QObject(parent), networkManager(new QNetworkAccessManager(this)), pendingDownloads(0) {
@@ -342,7 +342,7 @@ void DownloadManager::parseAndDownloadAssets(const QString &indexPath) {
     QJsonObject indexObj = json.object();
     QJsonObject objects = indexObj["objects"].toObject();
 
-    QString basePath = QCoreApplication::applicationDirPath() + "/.minecraft/assets";
+    QString basePath = AppPaths::assetsDir();
     QString objectsPath = basePath + "/objects";
 
     for (auto it = objects.begin(); it != objects.end(); ++it) {

@@ -26,6 +26,7 @@ set(HEADER_FILES
     src/settings/LauncherSettings.hpp
     src/download/DownloadManager.hpp
     src/download/IntegrityChecker.hpp
+    src/util/AppPaths.hpp
     src/util/ZipUtil.hpp
 )
 

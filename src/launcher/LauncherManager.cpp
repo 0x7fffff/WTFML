@@ -27,6 +27,7 @@
 #include <QUuid>
 
 #include "../settings/GlobalJavaSettings.hpp"
+#include "../util/AppPaths.hpp"
 #include "../util/ZipUtil.hpp"
 #include "LibraryRules.hpp"
 #include "VersionArguments.hpp"
@@ -39,8 +40,7 @@ namespace {
  * @return 返回 versions/<id>/natives 的绝对路径。
  */
 QString nativesDirectory(const QString &versionId) {
-    const QString base = QCoreApplication::applicationDirPath() + QStringLiteral("/.minecraft");
-    return QDir(base).absoluteFilePath(QStringLiteral("versions/%1/natives").arg(versionId));
+    return AppPaths::nativesDir(versionId);
 }
 
 /**
@@ -106,7 +106,7 @@ bool LauncherManager::checkPreLaunch(const QString &versionId, QStringList *erro
         errors->clear();
     }
 
-    const QString basePath = QCoreApplication::applicationDirPath() + "/.minecraft";
+    const QString basePath = AppPaths::minecraftDir();
     if (basePath.isEmpty()) {
         if (errors) {
             errors->append(tr("无法获取 Minecraft 目录。"));
@@ -205,9 +205,7 @@ QString LauncherManager::prepareNatives(const QJsonObject &versionJson, const QS
         return nativesDir;
     }
 
-    const QString librariesRoot =
-        QDir(QCoreApplication::applicationDirPath() + QStringLiteral("/.minecraft"))
-            .absoluteFilePath(QStringLiteral("libraries"));
+    const QString librariesRoot = AppPaths::libraryDir();
 
     QStringList jars;
     QStringList excludes;
@@ -370,9 +368,7 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     // 进程直接消失。凡是 version.json 声明了的，就该按它的规则过滤后原样传给 JVM，
     // 而不是由我们维护一份会过期的参数清单。
     const QString nativesDir = QDir::toNativeSeparators(nativesDirectory(versionId));
-    const QString librariesDir =
-        QDir(QCoreApplication::applicationDirPath() + QStringLiteral("/.minecraft"))
-            .absoluteFilePath(QStringLiteral("libraries"));
+    const QString librariesDir = AppPaths::libraryDir();
 
     QHash<QString, QString> placeholders;
     placeholders[QStringLiteral("natives_directory")] = nativesDir;
@@ -504,13 +500,13 @@ bool LauncherManager::startGame(const QStringList &arguments, GlobalJavaSettings
     m_gameProcess->setArguments(arguments);
 
     // 将工作目录设为 .minecraft 文件夹以确保文件能够正确解析
-    QString minecraftDir = QCoreApplication::applicationDirPath() + "/.minecraft";
+    QString minecraftDir = AppPaths::minecraftDir();
     QDir().mkpath(minecraftDir);
     m_gameProcess->setWorkingDirectory(minecraftDir);
     qDebug() << "Working directory:" << minecraftDir;
 
     // 为这个版本创建独立的路径
-    QString isolatedPath = minecraftDir + "/versions/" + versionId;
+    QString isolatedPath = AppPaths::versionDir(versionId);
     QDir().mkpath(isolatedPath);
     // 第一次启动这个版本时，让游戏界面语言跟随系统
     ensureInitialOptions(isolatedPath);
