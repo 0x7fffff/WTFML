@@ -10,8 +10,10 @@
 
 #include <QCheckBox>
 #include <QGroupBox>
+#include <QLabel>
 #include <QListWidget>
 #include <QMainWindow>
+#include <QProgressBar>
 #include <QPushButton>
 #include <QTextEdit>
 
@@ -28,6 +30,9 @@ public:
     QPushButton *getRemoveFolderButton() const { return removeFolderButton; }
     QListWidget *getVersionList() const { return versionList; }
     QTextEdit *getLogTextEdit() const { return logTextEdit; }
+    // 下载进度只出现在状态栏，不进日志
+    QProgressBar *getProgressBar() const { return progressBar; }
+    QLabel *getStatusLabel() const { return statusLabel; }
 
 private:
     void setupUi(QMainWindow *parent);
@@ -43,4 +48,6 @@ private:
     QTextEdit *logTextEdit;
     QGroupBox *versionGroupBox;
     QGroupBox *logGroupBox;
+    QProgressBar *progressBar;
+    QLabel *statusLabel;
 };

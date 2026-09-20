@@ -122,5 +122,25 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     mainLayout->setStretchFactor(logGroupBox, 4);
 
     parent->setMenuBar(new QMenuBar(parent));
+
+    // ---------- 状态栏：下载进度就放这里，不往日志里写 ----------
+    // NOTE: setStatusBar() 必须在 addPermanentWidget() 之前调用。后设的 QStatusBar
+    // 会把父窗口上原有的状态栏整个删掉，先挂上去的进度条会跟着一起消失。
     parent->setStatusBar(new QStatusBar(parent));
+    QStatusBar *statusBar = parent->statusBar();
+
+    statusLabel = new QLabel(statusBar);
+    // 固定一个最小宽度：文件名长短变化时状态栏不会再跳来跳去
+    statusLabel->setMinimumWidth(260);
+    statusLabel->hide();
+
+    progressBar = new QProgressBar(statusBar);
+    progressBar->setRange(0, 100);
+    progressBar->setValue(0);
+    progressBar->setFixedWidth(220);
+    progressBar->setTextVisible(true);
+    progressBar->hide();
+
+    statusBar->addPermanentWidget(statusLabel);
+    statusBar->addPermanentWidget(progressBar);
 }

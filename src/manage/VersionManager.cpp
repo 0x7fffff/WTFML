@@ -25,10 +25,15 @@ VersionManager::VersionManager(QObject *parent)
             &VersionManager::onVersionManifestFetched);
     connect(downloadManager, &DownloadManager::versionJsonFetched, this,
             &VersionManager::onVersionJsonFetched);
-    connect(downloadManager, &DownloadManager::downloadProgress, this,
-            &VersionManager::onDownloadProgress);
-    connect(downloadManager, &DownloadManager::downloadFinished, this,
-            &VersionManager::onDownloadFinished);
+    // NOTE: 这里以前还接了一个 downloadFinished -> onDownloadFinished，把每个文件的
+    // 完成都转发成 versionDownloadFinished，于是下载一个版本会在日志里刷出几千行
+    // 一模一样的话。现在只认整批结束的信号。
+    connect(downloadManager, &DownloadManager::allDownloadsFinished, this,
+            &VersionManager::onAllDownloadsFinished);
+    connect(downloadManager, &DownloadManager::batchProgress, this,
+            [this](int done, int total, int failed, const QString &currentFile) {
+                emit versionDownloadStats(done, total, failed, currentFile);
+            });
 }
 
 VersionManager::~VersionManager() {
@@ -75,27 +80,39 @@ QString VersionManager::getLatestVersion(const QString &type) const {
 void VersionManager::fetchAvailableVersions() { downloadManager->fetchVersionManifest(); }
 
 void VersionManager::fetchVersionDetails(const QString &versionId) {
+    m_pendingVersionId = versionId;
     if (downloadManager->getAvailableVersions().isEmpty()) {
-        QMetaObject::Connection conn;
-        conn = connect(downloadManager, &DownloadManager::versionManifestFetched, this,
-                       [this, versionId, &conn](const QList<MinecraftVersion> &) {
-                           disconnect(conn);
-                           downloadManager->fetchVersionJson(versionId);
-                       });
+        // 列表还没拉过：先拉列表，续接在 onVersionManifestFetched 里做。
+        // NOTE: 这里以前是临时 connect 一个 lambda、在里面 disconnect(conn)，
+        // 而 conn 是局部变量、被按引用捕获 —— 信号在函数返回之后才发，那句
+        // disconnect 读的是已经失效的栈内存，实测直接段错误。改成记在成员里。
+        m_fetchJsonAfterManifest = versionId;
         downloadManager->fetchVersionManifest();
     } else {
         downloadManager->fetchVersionJson(versionId);
     }
 }
 
-void VersionManager::downloadVersion(const QString &versionId, const QString &destinationPath) {
-    m_currentVersionDownloading = versionId;
+bool VersionManager::isDownloading() const { return downloadManager->isBusy(); }
 
-    // Get version JSON first
+void VersionManager::downloadVersion(const QString &versionId, const QString &destinationPath) {
+    // NOTE: 这两道早退必须在 beginBatch() 之前。beginBatch() 与 endBatch() 之间
+    // 不允许有任何提前 return —— 一旦漏掉 endBatch()，m_batchOpen 就永远是 true，
+    // allDownloadsFinished 永不发射，UI 会一直停在"下载中"、按钮永久变灰。
     if (!versionJsons.contains(versionId)) {
         qWarning() << "Version JSON not available for" << versionId << ". Fetch details first.";
+        // 也必须给 UI 一个终态，否则它会一直等这批下载结束。
+        emit versionDownloadFinished(versionId, false, tr("尚未获取到该版本的 version.json。"));
         return;
     }
+    if (downloadManager->isBusy()) {
+        qWarning() << "A download batch is already running, refusing to start another.";
+        emit versionDownloadFinished(versionId, false, tr("已有下载任务正在进行，请等它结束。"));
+        return;
+    }
+
+    m_currentVersionDownloading = versionId;
+    downloadManager->beginBatch();
 
     const QJsonObject &versionJson = versionJsons[versionId];
     const QString basePath = QCoreApplication::applicationDirPath() + "/.minecraft";
@@ -121,11 +138,14 @@ void VersionManager::downloadVersion(const QString &versionId, const QString &de
         const QJsonObject downloads = versionJson["downloads"].toObject();
         if (downloads.contains("client") && downloads["client"].isObject()) {
             const QJsonObject client = downloads["client"].toObject();
-            QString url = client["url"].toString();
-            QString sha1 = client["sha1"].toString();
+            const QString url = client["url"].toString();
+            const QString sha1 = client["sha1"].toString();
+            const qint64 size = client["size"].toVariant().toLongLong();
 
-            QString jarPath = destinationPath + "/" + versionId + ".jar";
-            downloadManager->downloadClientJar(url, jarPath, sha1);
+            const QString jarPath = destinationPath + "/" + versionId + ".jar";
+            // 带上 size：重新点下载时先比字节数，对得上才算"已经下过"，
+            // 省掉一次 41 MB 的全文件哈希。
+            downloadManager->downloadClientJar(url, jarPath, sha1, size);
         }
     }
 
@@ -136,28 +156,39 @@ void VersionManager::downloadVersion(const QString &versionId, const QString &de
     // Download assets
     AssetIndex assetIndex = downloadManager->extractAssetIndex(versionJson);
     downloadManager->downloadAssets(assetIndex, basePath + "/assets");
+
+    downloadManager->endBatch();
 }
 
 void VersionManager::downloadVersionLibraries(const QString &versionId, const QString &basePath) {
+    // 同 downloadVersion：早退只能在 beginBatch() 之前
     if (!versionJsons.contains(versionId)) {
         qWarning() << "Version JSON not available for" << versionId << ". Fetch details first.";
+        emit versionDownloadFinished(versionId, false, tr("尚未获取到该版本的 version.json。"));
         return;
     }
 
+    m_currentVersionDownloading = versionId;
+    downloadManager->beginBatch();
     const QJsonObject &versionJson = versionJsons[versionId];
     QList<Library> libraries = downloadManager->extractLibraries(versionJson);
     downloadManager->downloadLibraries(libraries, basePath);
+    downloadManager->endBatch();
 }
 
 void VersionManager::downloadVersionAssets(const QString &versionId, const QString &basePath) {
     if (!versionJsons.contains(versionId)) {
         qWarning() << "Version JSON not available for" << versionId << ". Fetch details first.";
+        emit versionDownloadFinished(versionId, false, tr("尚未获取到该版本的 version.json。"));
         return;
     }
 
+    m_currentVersionDownloading = versionId;
+    downloadManager->beginBatch();
     const QJsonObject &versionJson = versionJsons[versionId];
     AssetIndex assetIndex = downloadManager->extractAssetIndex(versionJson);
     downloadManager->downloadAssets(assetIndex, basePath);
+    downloadManager->endBatch();
 }
 
 QJsonObject VersionManager::getVersionJson(const QString &versionId) const {
@@ -195,26 +226,61 @@ void VersionManager::onVersionManifestFetched(const QList<MinecraftVersion> &ver
         versionIds.append(version.id);
     }
     emit versionsFetched(versionIds);
+
+    if (m_fetchJsonAfterManifest.isEmpty()) {
+        return;
+    }
+    const QString pending = m_fetchJsonAfterManifest;
+    m_fetchJsonAfterManifest.clear();
+    // 列表里没有这个版本（或者列表压根没拉到）时，fetchVersionJson 会立刻回一个
+    // 空 JSON，由 onVersionJsonFetched 转成终态信号 —— 请求方总能拿到结果。
+    downloadManager->fetchVersionJson(pending);
 }
 
 void VersionManager::onVersionJsonFetched(const QJsonObject &versionJson) {
     if (versionJson.contains("id")) {
         QString versionId = versionJson["id"].toString();
         versionJsons[versionId] = versionJson;
+        m_pendingVersionId.clear();
         emit versionDetailsFetched(versionId, versionJson);
+        return;
     }
+
+    // 拿不到版本 JSON（manifest 里没有这个版本，或者网络失败）：这里必须回一个终态。
+    // 静默丢弃会让 UI 一直停在"正在获取版本信息"，而按钮已经被禁用 ——
+    // 那就成了死界面。
+    if (m_pendingVersionId.isEmpty()) {
+        qDebug() << "Ignored a version JSON reply that nobody asked for.";
+        return;
+    }
+    const QString pending = m_pendingVersionId;
+    m_pendingVersionId.clear();
+    qWarning() << "Failed to fetch version JSON for" << pending;
+    emit versionDetailsFetched(pending, QJsonObject());
 }
 
-void VersionManager::onDownloadProgress(const QString &fileName, qint64 bytesReceived,
-                                        qint64 bytesTotal) {
-    // For version downloads, we need to map back to version ID
-    // This is a simplified implementation - in practice, you'd track which version is being
-    // downloaded
-    emit versionDownloadProgress("unknown", fileName, bytesReceived, bytesTotal);
-}
+void VersionManager::onAllDownloadsFinished(bool success) {
+    const DownloadStats stats = downloadManager->stats();
 
-void VersionManager::onDownloadFinished(const QString &fileName, bool success,
-                                        const QString &errorMessage) {
-    // Similar to progress, need to map back to version ID
-    emit versionDownloadFinished(m_currentVersionDownloading, success, errorMessage);
+    QString message;
+    if (success) {
+        message = stats.skipped > 0
+                      ? tr("%1 个文件已全部就绪（其中 %2 个本来就存在，已跳过）。")
+                            .arg(stats.total)
+                            .arg(stats.skipped)
+                      : tr("%1 个文件已全部就绪。").arg(stats.total);
+    } else {
+        // 失败清单只列前 10 项，剩下的折成一行 —— 5000 个 asset 全列出来没人看。
+        const QStringList shown = stats.failedPaths.mid(0, 10);
+        QString list = shown.join(QLatin1Char('\n'));
+        if (stats.failedPaths.size() > shown.size()) {
+            list += QLatin1Char('\n') +
+                    tr("……还有 %1 个").arg(stats.failedPaths.size() - shown.size());
+        }
+        message = tr("%1 个文件下载失败：").arg(stats.failed) + QLatin1Char('\n') + list;
+    }
+
+    // 一批只发一次。改动前这里由每个文件的 downloadFinished 触发，
+    // 下载一个版本会在日志里刷出几千行一模一样的话。
+    emit versionDownloadFinished(m_currentVersionDownloading, success, message);
 }

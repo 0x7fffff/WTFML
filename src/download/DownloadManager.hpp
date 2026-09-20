@@ -64,6 +64,29 @@ struct DownloadInfo {
     QString path;
 };
 
+/**
+ * @brief 决定一个已经存在于磁盘上的文件要不要重新下载。
+ *
+ * 重新点"下载"时用它来跳过已经完好的文件，避免整包重下。
+ */
+enum class VerifyMode {
+    Always,       // 无条件重下（用于需要刷新的索引文件）
+    ExistsOnly,   // 文件存在就算好（用于海量 asset，全量哈希会让界面卡住几秒）
+    SizeAndSha1,  // 先比字节数，再比 SHA1（用于客户端 jar 和 library）
+};
+
+/**
+ * @brief 一批下载任务的统计，供 UI 显示进度和汇总失败原因。
+ */
+struct DownloadStats {
+    int total = 0;    // 本批登记的任务总数（含被跳过的）
+    int done = 0;     // 已结束的（成功、失败、跳过都算）
+    int failed = 0;   // 其中失败的
+    int skipped = 0;  // 其中因为文件已存在而跳过的
+    QString currentFile;      // 最近一次有动静的文件，供状态栏显示
+    QStringList failedPaths;  // 失败文件的完整路径，比 40 位哈希文件名可读
+};
+
 class DownloadManager : public QObject {
     Q_OBJECT
 
@@ -81,12 +104,24 @@ public:
     QJsonObject getVersionJson() const;
 
     // 下载操作
+    // @param expectedSize 文件应有的字节数，传 -1 表示未知（旧版本 JSON 和 natives
+    //        classifier 都没有 size 字段），此时退化成只比 SHA1。
+    // @param mode 见 VerifyMode，决定已存在的文件要不要重下。
     void downloadFile(const QString &url, const QString &destinationPath,
-                      const QString &expectedSha1 = QString());
+                      const QString &expectedSha1 = QString(), qint64 expectedSize = -1,
+                      VerifyMode mode = VerifyMode::SizeAndSha1);
     void downloadLibraries(const QList<Library> &libraries, const QString &basePath);
     void downloadAssets(const AssetIndex &assetIndex, const QString &basePath);
     void downloadClientJar(const QString &url, const QString &destinationPath,
-                           const QString &expectedSha1);
+                           const QString &expectedSha1, qint64 expectedSize = -1);
+
+    // 批次记账。beginBatch() / endBatch() 之间的所有下载被看作一批，
+    // 整批结束时 allDownloadsFinished 只会发射一次；两者之间不允许提前 return，
+    // 否则 m_batchOpen 永远为真，完成信号永不发射，UI 会一直停在"下载中"。
+    void beginBatch();
+    void endBatch();
+    bool isBusy() const;
+    DownloadStats stats() const;
 
     // Utility methods 实用方法？？//需要进一步完善注释
     bool verifyFileSha1(const QString &filePath, const QString &expectedSha1);
@@ -102,6 +137,8 @@ signals:
     void downloadProgress(const QString &fileName, qint64 bytesReceived, qint64 bytesTotal);
     void downloadFinished(const QString &fileName, bool success,
                           const QString &errorMessage = QString());
+    // 进度用标量发，避免每来一个网络分片就拷贝一份 DownloadStats。
+    void batchProgress(int done, int total, int failed, const QString &currentFile);
     void allDownloadsFinished(bool success);
 
 private slots:
@@ -120,10 +157,25 @@ private:
     QMap<QNetworkReply *, QString> expectedSha1s;  // reply -> expected SHA1  回应期望的 SHA1
     int pendingDownloads;
 
+    // 批次记账
+    int m_totalJobs = 0;
+    int m_doneJobs = 0;
+    int m_failedJobs = 0;
+    int m_skippedJobs = 0;
+    QStringList m_failedPaths;
+    QString m_currentFile;
+    bool m_batchOpen = false;
+    bool m_batchEmitted = false;
+    // 析构时 abort() 可能同步回调进 finished 处理函数，用它挡住
+    bool m_shuttingDown = false;
+
     void startDownload(const QUrl &url, const QString &destinationPath,
                        const QString &expectedSha1 = QString());
     void handleDownloadError(QNetworkReply *reply, const QString &errorMessage);
     void checkAllDownloadsFinished();
+    void emitBatchProgress(const QString &currentFile);
+    bool fileAlreadyValid(const QString &path, const QString &expectedSha1, qint64 expectedSize,
+                          VerifyMode mode);
     void parseAndDownloadAssets(const QString &indexPath);
 };
 

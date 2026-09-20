@@ -17,19 +17,21 @@
 #include <QCheckBox>
 #include <QCoreApplication>
 #include <QFile>
+#include <QFileInfo>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QInputDialog>
+#include <QLabel>
 #include <QListWidget>
 #include <QListWidgetItem>
 #include <QMessageBox>
+#include <QProgressBar>
 #include <QProcess>
 #include <QPushButton>
 #include <QTextEdit>
 #include <QVBoxLayout>
 
 #include "auth/AuthManager.hpp"
-#include "download/DownloadManager.hpp"
 #include "launcher/LauncherManager.hpp"
 #include "manage/FolderManager.hpp"
 #include "manage/VersionManager.hpp"
@@ -42,8 +44,7 @@ MainWindow::MainWindow(QWidget *parent)
       m_authManager(new AuthManager(this)),
       m_folderManager(new FolderManager(this)),
       m_versionManager(new VersionManager(this)),
-      m_javaSettings(new GlobalJavaSettings(this)),
-      m_downloadManager(new DownloadManager(this)) {
+      m_javaSettings(new GlobalJavaSettings(this)) {
     setupConnections();
     refreshVersionList();
 }
@@ -66,23 +67,74 @@ void MainWindow::setupConnections() {
     connect(m_launcherManager, &LauncherManager::processError, this, &MainWindow::onProcessError);
     connect(m_launcherManager, &LauncherManager::gameFinished, this, &MainWindow::onGameFinished);
 
-    // 下载管理器信号
-    connect(m_downloadManager, &DownloadManager::downloadProgress, this,
-            &MainWindow::onDownloadProgress);
-    connect(m_downloadManager, &DownloadManager::downloadFinished, this,
-            &MainWindow::onDownloadFinished);
-    connect(m_downloadManager, &DownloadManager::allDownloadsFinished, this,
-            &MainWindow::onAllDownloadsFinished);
-    connect(m_downloadManager, &DownloadManager::versionJsonFetched, this,
-            &MainWindow::onVersionJsonFetched);
-
     // 版本管理器信号
+    // NOTE: 这里以前接的是 MainWindow 自己 new 出来的一个 DownloadManager，
+    // 但从来没有任何地方在它上面发起过下载 —— 真正的下载全走 VersionManager
+    // 内部的 DownloadManager。于是 "下载完成" 那个弹窗从来没有被触发过，
+    // 用户看着刷屏的日志以为还没下完就去点启动。现在只接真正在下载的那条链路。
     connect(m_versionManager, &VersionManager::versionsFetched, this,
             &MainWindow::onVersionsFetched);
     connect(m_versionManager, &VersionManager::versionDetailsFetched, this,
             &MainWindow::onVersionDetailsFetched);
+    connect(m_versionManager, &VersionManager::versionDownloadStats, this,
+            &MainWindow::onVersionDownloadStats);
     connect(m_versionManager, &VersionManager::versionDownloadFinished, this,
             &MainWindow::onVersionDownloadFinished);
+}
+
+void MainWindow::setDownloadUiBusy(bool busy) {
+    m_downloadInFlight = busy;
+    m_ui->getStartButton()->setEnabled(!busy);
+    m_ui->getDownloadButton()->setEnabled(!busy);
+
+    QProgressBar *progressBar = m_ui->getProgressBar();
+    QLabel *statusLabel = m_ui->getStatusLabel();
+    progressBar->setVisible(busy);
+    statusLabel->setVisible(busy);
+    if (busy) {
+        // 还不知道总任务数：先转成不确定态的滚动条，拿到 stats 再换成确定态
+        progressBar->setRange(0, 0);
+        statusLabel->setText(tr("正在准备下载..."));
+    } else {
+        progressBar->setRange(0, 100);
+        progressBar->setValue(0);
+    }
+}
+
+void MainWindow::updateDownloadProgressUi(int done, int total, int failed,
+                                          const QString &currentFile) {
+    QProgressBar *progressBar = m_ui->getProgressBar();
+    QLabel *statusLabel = m_ui->getStatusLabel();
+
+    if (total <= 0) {
+        progressBar->setRange(0, 0);
+        statusLabel->setText(tr("正在准备下载..."));
+        return;
+    }
+
+    progressBar->setRange(0, total);
+    progressBar->setValue(done);
+
+    QString text = tr("已下载 %1 / %2").arg(done).arg(total);
+    if (failed > 0) {
+        text += tr("，失败 %1").arg(failed);
+    }
+    if (!currentFile.isEmpty()) {
+        // 路径可能很长（asset 目录层级深），只显示文件名
+        text += QStringLiteral("  ") + QFileInfo(currentFile).fileName();
+    }
+    statusLabel->setText(text);
+}
+
+void MainWindow::onVersionDownloadStats(int done, int total, int failed,
+                                        const QString &currentFile) {
+    // 前缘节流：200 ms 内的后续更新直接丢掉，只保留最后一次的状态由结束时补刷。
+    // 不这么做的话，5000 多个 asset 会疯狂重排状态栏，界面反而卡住。
+    if (m_progressThrottle.isValid() && m_progressThrottle.elapsed() < 200) {
+        return;
+    }
+    m_progressThrottle.start();
+    updateDownloadProgressUi(done, total, failed, currentFile);
 }
 
 void MainWindow::appendLog(const QString &text) { m_ui->getLogTextEdit()->append(text); }
@@ -121,6 +173,14 @@ void MainWindow::onVersionsFetched(const QStringList &versions) {
 }
 
 void MainWindow::onStartButtonClicked() {
+    // 防御：下载期间按钮本来就是灰的，但这里再拦一道。改动前没有任何阻拦，
+    // 用户看着日志以为下完了直接点启动，游戏会因为文件不全崩掉。
+    if (m_downloadInFlight || m_versionManager->isDownloading()) {
+        QMessageBox::warning(this, tr("下载进行中"),
+                             tr("该版本的文件还没有下载完成，请等下载结束后再启动。"));
+        return;
+    }
+
     bool offlineMode = m_ui->getOfflineModeCheckBox()->isChecked();
 
     QString token;
@@ -261,6 +321,11 @@ void MainWindow::onGameFinished(int exitCode, QProcess::ExitStatus exitStatus) {
 }
 
 void MainWindow::onDownloadButtonClicked() {
+    if (m_downloadInFlight) {
+        appendLog(tr("已有下载任务正在进行，请等它结束。"));
+        return;
+    }
+
     QListWidgetItem *item = m_ui->getVersionList()->currentItem();
     if (!item) {
         QMessageBox::warning(this, tr("未选择版本"), tr("请先在版本列表中选择一个版本。"));
@@ -268,69 +333,62 @@ void MainWindow::onDownloadButtonClicked() {
     }
 
     QString versionId = item->text();
-    if (versionId != tr("自定义版本")) {
-        QString versionsPath = QCoreApplication::applicationDirPath() + "/.minecraft/versions";
-        QString versionJsonPath = versionsPath + "/" + versionId + "/" + versionId + ".json";
-        if (QFile::exists(versionJsonPath)) {
-            QMessageBox::information(this, tr("版本已存在"),
-                                     tr("版本 %1 已存在，无需重复下载。").arg(versionId));
+    if (versionId == tr("自定义版本")) {
+        QMessageBox::warning(this, tr("不支持的版本"), tr("自定义版本暂不支持下载。"));
+        return;
+    }
+
+    const QString versionJsonPath = QCoreApplication::applicationDirPath() +
+                                    "/.minecraft/versions/" + versionId + "/" + versionId +
+                                    ".json";
+    if (QFile::exists(versionJsonPath)) {
+        // 已经下过：不给"直接重下"（几 GB 白跑一趟），改成校验并补齐缺失/损坏的文件。
+        const auto answer = QMessageBox::question(
+            this, tr("版本已存在"),
+            tr("版本 %1 已经下载过了。\n是否校验并修复缺失或损坏的文件？").arg(versionId),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+        if (answer != QMessageBox::Yes) {
+            appendLog(tr("已取消对版本 %1 的校验。").arg(versionId));
             return;
         }
-    }
-
-    appendLog(tr("正在获取版本 %1 的信息...").arg(versionId));
-    m_versionManager->fetchVersionDetails(versionId);
-}
-
-void MainWindow::onDownloadProgress(const QString &fileName, qint64 bytesReceived,
-                                    qint64 bytesTotal) {
-    QString progress;
-    if (bytesTotal > 0) {
-        int percentage = (bytesReceived * 100) / bytesTotal;
-        progress = tr("[%1%] 正在下载: %2 (%3 / %4 MB)")
-                       .arg(percentage)
-                       .arg(fileName)
-                       .arg(bytesReceived / (1024 * 1024))
-                       .arg(bytesTotal / (1024 * 1024));
+        appendLog(tr("开始校验版本 %1 的文件（已存在的会跳过）...").arg(versionId));
     } else {
-        progress = tr("正在下载: %1 (%2 MB)").arg(fileName).arg(bytesReceived / (1024 * 1024));
+        appendLog(tr("正在获取版本 %1 的信息...").arg(versionId));
     }
-    appendLog(progress);
-}
 
-void MainWindow::onDownloadFinished(const QString &fileName, bool success,
-                                    const QString &errorMessage) {
-    Q_UNUSED(fileName);
-    Q_UNUSED(success);
-    Q_UNUSED(errorMessage);
+    // busy 必须在点击这一刻就置上：版本 JSON 是异步拉回来的，
+    // 中间这段时间如果按钮还能点，用户会重复触发。
+    setDownloadUiBusy(true);
+    m_progressThrottle.invalidate();
+    m_versionManager->fetchVersionDetails(versionId);
 }
 
 void MainWindow::onVersionDownloadFinished(const QString &versionId, bool success,
                                            const QString &errorMessage) {
+    // 整批结束，无论成败都要把界面恢复回来
+    setDownloadUiBusy(false);
+    m_progressThrottle.invalidate();
+
     if (success) {
-        appendLog(tr("✓ 版本 %1 文件下载完毕").arg(versionId));
+        appendLog(tr("✓ 版本 %1 下载完成：%2").arg(versionId, errorMessage));
+        // 这里不刷新版本列表：列表显示的是在线版本清单，下载完成不会改变它；
+        // 而 refreshVersionList() 会 clear() 掉列表、连用户当前选中的版本一起丢掉，
+        // 刚下完想点启动还得重新选一次。
+        QMessageBox::information(this, tr("下载完成"),
+                                 tr("版本 %1 的文件已全部就绪。\n\n%2").arg(versionId, errorMessage));
     } else {
-        appendLog(tr("✗ 版本 %1 下载失败: %2").arg(versionId, errorMessage));
+        appendLog(tr("✗ 版本 %1 下载失败：%2").arg(versionId, errorMessage));
+        QMessageBox::warning(this, tr("下载失败"),
+                             tr("版本 %1 有文件未能下载完成。\n\n%2").arg(versionId, errorMessage));
     }
 }
-
-void MainWindow::onAllDownloadsFinished(bool success) {
-    if (success) {
-        appendLog(tr("===== 所有文件下载完成 ====="));
-        refreshVersionList();
-        QMessageBox::information(this, tr("下载完成"), tr("版本文件已全部下载完成！"));
-    } else {
-        appendLog(tr("===== 部分文件下载失败 ====="));
-        QMessageBox::warning(this, tr("下载失败"), tr("部分文件下载失败，请检查日志。"));
-    }
-}
-
-void MainWindow::onVersionJsonFetched(const QJsonObject &versionJson) { Q_UNUSED(versionJson); }
 
 void MainWindow::onVersionDetailsFetched(const QString &versionId, const QJsonObject &versionJson) {
     if (versionJson.isEmpty()) {
-        appendLog(tr("获取版本 JSON 失败"));
-        QMessageBox::warning(this, tr("下载失败"), tr("无法获取版本信息。"));
+        appendLog(tr("获取版本 %1 的信息失败。").arg(versionId));
+        setDownloadUiBusy(false);
+        QMessageBox::warning(this, tr("下载失败"),
+                             tr("无法获取版本 %1 的信息，请检查网络后重试。").arg(versionId));
         return;
     }
 
