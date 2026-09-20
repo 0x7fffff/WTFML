@@ -62,3 +62,8 @@ target_link_libraries(WTFMinecraftLauncher PRIVATE
     Qt6::Core
     Qt6::Gui
 )
+
+# 令牌落盘用的 DPAPI（CryptProtectData）在这个库里。见 src/auth/AuthManager.cpp 的 protectToken()。
+if(WIN32)
+    target_link_libraries(WTFMinecraftLauncher PRIVATE crypt32)
+endif()

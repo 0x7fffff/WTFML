@@ -321,6 +321,9 @@ MainWindow::MainWindow(QWidget *parent)
     // 底栏那三格的初始值：登录名可能已经从存下来的令牌里恢复了，进度两格先藏起来，
     // 运行状态也要等第一次真的启动才有内容。
     updateBottomBar();
+    // 登录按钮的初始文字也看"上次登过没有"：登过就该是「重新登录」，不然用户会以为
+    // 上次的登录没留住（而底下那行用户名明明已经是他的名字了）。
+    updateLoginButton();
     m_versionManager->fetchAvailableVersions();
 }
 
@@ -423,8 +426,12 @@ void MainWindow::setupConnections() {
     connect(m_ui->getTabWidget(), &QTabWidget::currentChanged, this,
             &MainWindow::onMainTabChanged);
 
-    // 登录成功之后左下角要换成登录名（头像那块字母也跟着换）
-    connect(m_authManager, &AuthManager::loginSucceeded, this, [this] { updateBottomBar(); });
+    // 登录三态都要在界面上有反应。以前只接了 loginSucceeded，而且它刷的还是同一个占位名
+    // （AuthManager 那会儿没有真名），于是"登录成功"这件事在启动器上一点痕迹都没有：
+    // 用户点完登录、在浏览器里看到「登录成功」，回到启动器还是原样，像什么都没发生。
+    connect(m_authManager, &AuthManager::loginStarted, this, &MainWindow::onLoginStarted);
+    connect(m_authManager, &AuthManager::loginSucceeded, this, &MainWindow::onLoginSucceeded);
+    connect(m_authManager, &AuthManager::loginFailed, this, &MainWindow::onLoginFailed);
 
     // 游戏进程信号
     connect(m_launcherManager, &LauncherManager::processOutput, this, &MainWindow::onProcessOutput);
@@ -481,9 +488,9 @@ void MainWindow::setDownloadUiBusy(bool busy) {
 
 void MainWindow::updateBottomBar() {
     // ---------- 左：头像 + 用户名 ----------
-    // NOTE: AuthManager 的登录流程只把令牌落盘，**没有**去取玩家档案，所以
-    //       playerName() 目前恒为它构造时那个默认值。真名与皮肤头像要等 profile
-    //       API（并给 AuthManager 补一个"读回来的名字"）。这里不自己造假名字。
+    // 登录过就是档案里的真名（登录那一刻拿到的，或者开窗时从盘上读回来的那份）；
+    // 没登录是占位的 "Player" —— 这里不自己造假名字，也不去猜。
+    // NOTE: 头像仍是首字母方块（真皮肤头像要另拉一次皮肤贴图，还没做）。
     const QString name = m_authManager->playerName();
     m_ui->getAccountLabel()->setText(name);
     m_ui->getAvatarLabel()->setText(name.isEmpty() ? QStringLiteral("?")
@@ -527,6 +534,22 @@ void MainWindow::updateBottomBar() {
         m_ui->isHomeTabCurrent(), selectedVersionId(m_ui->getInstalledVersionCombo()), running);
     runStateDetailLabel->setVisible(showDetail);
     runStateDetailLabel->setText(showDetail ? instanceDisplayName(running) : QString());
+}
+
+void MainWindow::updateLoginButton() {
+    QPushButton *button = m_ui->getLoginButton();
+    // "在不在登录中"问 AuthManager，不在这里再存一份 —— 存两份就会出现"按钮说在登录、
+    // 实际早就不等了"（超时那条路尤其容易漏）。
+    const bool inFlight = m_authManager->loginInFlight();
+    button->setEnabled(!inFlight);
+    if (inFlight) {
+        button->setText(MainWindowUI::loginButtonBusyText());
+        return;
+    }
+    // 登录过就写「重新登录」：账户还在（令牌过期了重走一遍链就能续上），但换账户、
+    // 或者凭据被撤销之后重登，都得再点这一次。写着「微软登录」会让人以为还没登录。
+    button->setText(m_authManager->loggedIn() ? MainWindowUI::loginButtonReloginText()
+                                              : MainWindowUI::loginButtonText());
 }
 
 QString MainWindow::instanceDisplayName(const QString &versionId) const {
@@ -1047,10 +1070,17 @@ void MainWindow::onStartButtonClicked() {
 
     QString token;
     if (!offlineMode) {
-        token = m_authManager->loadSavedToken();
+        // 拿不到令牌的原因有好几种（从没登录过 / 登录过期了换不出来 / 换的时候被 XSTS 挡了），
+        // 对应的话完全不同。要一句"请先登录"，用户照做也还是登不上 —— 所以这里把
+        // AuthManager 给的原因一起弹出来。
+        QString tokenError;
+        token = m_authManager->loadSavedToken(&tokenError);
         if (token.isEmpty()) {
             QMessageBox::warning(this, tr("登录缺失"),
-                                 tr("请先登录 Microsoft 账户，或使用离线模式。"));
+                                 tokenError.isEmpty()
+                                     ? tr("请先登录 Microsoft 账户，或使用离线模式。")
+                                     : tr("%1\n\n请重新登录 Microsoft 账户，或改用离线模式。")
+                                           .arg(tokenError));
             return;
         }
     }
@@ -1140,10 +1170,11 @@ void MainWindow::onStartButtonClicked() {
     // 玩家名和底栏左下角显示的是**同一个**（AuthManager::playerName()），离线与正版
     // 两条分支都用它 —— 以前离线分支自己拼 "Player<时间戳>"、正版分支写死 "Player"，
     // 于是底栏上的名字和游戏里看到的名字可以不一样。
+    // UUID 也一样：正版分支用它当 --uuid（没登录时 AuthManager 给空串，那边退回全零）。
     const QStringList jvmArgs = m_launcherManager->generateJvmArguments(
         token, versionId, assetIndexId, versionJson, *m_javaSettings, offlineMode,
         javaMajorVersion, m_versionManager->versionJvmArgs(versionId),
-        m_authManager->playerName());
+        m_authManager->playerName(), m_authManager->playerUuid());
     // 记住"上次启动的版本"的时机是**进程真的起来了**，不是"表达式算完了"。
     // startGame() 有三条早退路径（进程已在运行 / 找不到 Java / waitForStarted 超时），
     // 以前它们都会先骗一句"已开始启动游戏"再显示错误。以"起来了"为准也是对的：
@@ -1166,11 +1197,35 @@ void MainWindow::onStartButtonClicked() {
 }
 
 void MainWindow::onLoginButtonClicked() {
-    if (m_authManager->loginMicrosoft()) {
-        appendLog(tr("打开了登录网页，请完成 Microsoft 登录。"));
-    } else {
-        appendLog(tr("登录流程启动失败。"));
-    }
+    // 返回值刻意不管：失败那两条路径 AuthManager 会先发一次 loginFailed()，弹窗由
+    // onLoginFailed() 统一负责（直接连接，所以这里返回之前那个窗已经弹出来了）。
+    // 在这里再写一句日志就是同一件事说两遍，而且日志不是给用户看的地方。
+    m_authManager->loginMicrosoft();
+}
+
+void MainWindow::onLoginStarted() {
+    // 从这一刻到浏览器回调回来可能有几十秒（用户要输账号密码、可能还要过二次验证）。
+    // 界面得说明自己在等什么 —— 按钮变灰、文字换成「正在登录…」。
+    // 超时兜底在 AuthManager 那边：浏览器再也不回来时它会发一次 loginFailed()，
+    // 按钮照样会被这一句放回去。
+    updateLoginButton();
+}
+
+void MainWindow::onLoginSucceeded(const QString &playerName) {
+    updateLoginButton();
+    // 底栏左下的用户名和头像首字母都换成真名 —— 这是"启动器有反应"里最该看见的那一下
+    updateBottomBar();
+    // 用户刚在浏览器里看到过「登录成功」，这里再说一声是为了把**登录到的是哪个账户**
+    // 摆出来：拿错微软账户登录（家里共用的机器上很常见）只有这句话能看出来。
+    QMessageBox::information(this, tr("登录成功"), tr("已登录为「%1」。").arg(playerName));
+}
+
+void MainWindow::onLoginFailed(const QString &errorMessage) {
+    updateLoginButton();
+    // 登录失败是**挡住启动**的错误（没有令牌就点不动「启动游戏」），按产品约定必须弹窗。
+    // 正文是 AuthManager 那边给的、能直接给用户看的话（"这个微软账户还没注册过 Xbox 账户，
+    // 到 xbox.com 登录一次"这种），不是一句"登录失败"。
+    QMessageBox::warning(this, tr("登录失败"), errorMessage);
 }
 
 void MainWindow::onAddFolderClicked() {

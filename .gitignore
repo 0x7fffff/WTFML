@@ -16,3 +16,8 @@ Makefile
 
 # Generated UI files
 ui/ui_MainWindow.h
+
+dev-login.json
+credential.json
+wtfml-token-tool/
+/LOCAL_FILES.md

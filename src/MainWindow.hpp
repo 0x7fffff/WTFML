@@ -34,6 +34,12 @@ public:
 private slots:
     void onStartButtonClicked();
     void onLoginButtonClicked();
+    // 登录三态（AuthManager 的三个信号）。登录是异步的：点完按钮到浏览器回调回来之间
+    // 可能有几十秒（用户还得输账号密码），所以这三条都得在界面上有反应 ——
+    // 尤其 loginFailed，它以前**根本没有人接**，失败只在浏览器那个页面里看得见。
+    void onLoginStarted();
+    void onLoginSucceeded(const QString &playerName);
+    void onLoginFailed(const QString &errorMessage);
     void onAddFolderClicked();
     void onRemoveFolderClicked();
     /// 用户在左边那张列表里换了「游戏文件夹」。真正干活的是 FolderManager 发出的
@@ -91,6 +97,9 @@ private:
     /// 刷新底部状态条那三格（头像/用户名、进度、实例运行状态）。
     /// 显示规则见 .cpp；界面那边只负责把控件搭出来。
     void updateBottomBar();
+    /// 设置页那个「微软登录」按钮的文字与可用性：没登录是「微软登录」、登录过是
+    /// 「重新登录」、正在走流程是灰的「正在登录…」。
+    void updateLoginButton();
     /// 一个版本号在界面上的显示名（"已安装版本"下拉框里的那条文本）。
     /// 下拉框里没有它时退回版本号本身。
     QString instanceDisplayName(const QString &versionId) const;

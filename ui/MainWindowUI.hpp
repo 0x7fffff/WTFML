@@ -49,6 +49,7 @@ public:
     // 验证工程靠这些名字认控件。**不要**改回按占位文案或条目文本去认——那些是
     // 会被产品逻辑改写的显示内容（占位文案现在就要随"有没有可选版本"切换），
     // 拿显示内容当身份标识的测试会在产品改动时以看不懂的方式挂掉。
+    static QString loginButtonName() { return QStringLiteral("loginButton"); }
     static QString installedVersionComboName() { return QStringLiteral("installedVersionCombo"); }
     static QString availableVersionComboName() { return QStringLiteral("availableVersionCombo"); }
     static QString availableVersionListName() { return QStringLiteral("availableVersionList"); }
@@ -156,6 +157,16 @@ public:
     // ---------- 底栏左下角"实例运行中"那行的正文 ----------
     // 放在这里当唯一出处：MainWindow 拿它填文字，验证工程拿它做断言，两边不会写歪。
     static QString runStateRunningText() { return QStringLiteral("实例运行中"); }
+
+    // ---------- 登录按钮的三种文字 ----------
+    // 按钮**文字会随状态变**（MainWindow::updateLoginButton()），所以验证工程不能拿
+    // 文案去认这个按钮（认了就会在"已登录"时找不到它），要么按它初始那一句找、要么
+    // 按别的属性找。这里的三个串是唯一的出处。
+    static QString loginButtonText() { return QStringLiteral("微软登录"); }
+    /// 已经登录过之后：写着「微软登录」会让人以为还没登录。
+    static QString loginButtonReloginText() { return QStringLiteral("重新登录"); }
+    /// 流程正在走（浏览器那头还没回调回来）。这时按钮是灰的。
+    static QString loginButtonBusyText() { return QStringLiteral("正在登录…"); }
 
     // ---------- 选项卡下标 ----------
     // 底栏左侧的显示规则要知道"当前是不是在启动界面（主页）"：在主页且选中的就是

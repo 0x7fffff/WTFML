@@ -422,12 +422,17 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
     {
         QWidget *box = makeHintedControl(form);
         auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
-        loginButton = new QPushButton(QStringLiteral("微软登录"), box);
+        // 初始文字只是"还没登录"那一种；登录成功之后 MainWindow::updateLoginButton()
+        // 会把它换成「重新登录」，正在登的时候是灰的「正在登录…」。
+        loginButton = new QPushButton(loginButtonText(), box);
+        // 按钮文字会随登录状态变（见 loginButtonText() 那三条），所以验证工程得按
+        // objectName 认它，不能按文案认。
+        loginButton->setObjectName(MainWindowUI::loginButtonName());
         loginButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
         loginButton->setMinimumWidth(120);
         boxLayout->addWidget(loginButton, 0, Qt::AlignLeft);
-        addHint(box, QStringLiteral("登录后当前账户显示在窗口左下角。不登录也可以用"
-                                    "「离线模式」启动（名字都是 Player）。"),
+        addHint(box, QStringLiteral("登录后用户名显示在窗口左下角，启动游戏时用的也是它。"
+                                    "不登录就用「离线模式」启动，名字是 Player。"),
                 form);
         addSettingRow(grid, row++, QStringLiteral("当前账户"), box, form);
     }

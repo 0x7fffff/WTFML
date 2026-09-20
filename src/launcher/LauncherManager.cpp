@@ -294,7 +294,8 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
                                                   const GlobalJavaSettings &settings,
                                                   bool offlineMode, int javaMajorVersion,
                                                   const QStringList &versionJvmArgs,
-                                                  const QString &playerName) const {
+                                                  const QString &playerName,
+                                                  const QString &playerUuid) const {
     QStringList args;
 
     qDebug() << "=== Generating JVM Arguments ===";
@@ -531,10 +532,13 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
              << QStringLiteral("--userType") << QStringLiteral("legacy");
     } else {
         // 正版登录：使用真实登录证书
-        // NOTE: 这两样其实都还不"真实"：uuid 发的是全零（登录流程只存令牌、没去拉
-        //       profile，全工程没有第二个 uuid 来源），--username 也只是 AuthManager 那个
-        //       恒为 "Player" 的占位名。真实的 --username/--uuid 要等 profile 拉取做完。
-        //       顺带一提，离线分支反倒比这里"真"：它每次生成一个随机 uuid。
+        // NOTE: 令牌和 UUID 现在都是真的了（登录流程走完整条链，档案里的 name/uuid 都拿
+        //       到了）。没有档案时（没登录、或者测试没传）才退回全零 UUID —— 那是**老行为**：
+        //       以前登录只存微软令牌、不拉档案，全工程没有第二个 uuid 来源，于是正版分支一直
+        //       发全零，在正版服上等于一个"谁都不是"的身份。
+        const QString uuid = playerUuid.isEmpty()
+                                 ? QStringLiteral("00000000-0000-0000-0000-000000000000")
+                                 : playerUuid;
         qDebug() << "Token length:" << token.length();
         args << QStringLiteral("-Dminecraft.accessToken=%1").arg(token);
         args << QStringLiteral("-Dminecraft.version=%1").arg(versionId);
@@ -543,10 +547,8 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
              << versionId << QStringLiteral("--gameDir")
              << AppPaths::versionDir(versionId) << QStringLiteral("--assetsDir")
              << AppPaths::assetsDir() << QStringLiteral("--assetIndex") << assetIndexId
-             << QStringLiteral("--uuid")
-             << QStringLiteral("00000000-0000-0000-0000-000000000000")  // 全零，见上面的 NOTE
-             << QStringLiteral("--accessToken") << token << QStringLiteral("--userType")
-             << QStringLiteral("msa");
+             << QStringLiteral("--uuid") << uuid << QStringLiteral("--accessToken") << token
+             << QStringLiteral("--userType") << QStringLiteral("msa");
     }
 
     qDebug() << "Total arguments count:" << args.length();

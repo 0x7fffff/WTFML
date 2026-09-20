@@ -69,6 +69,11 @@ public:
      *        "Player"，离线是 "Player" 拼一个时间戳。空 = 调用方没给（测试、未登录），
      *        退回默认名。**不能发一个空的 --username 给游戏**，那样游戏会拒绝启动，
      *        所以空值是"退回默认"而不是"原样传下去"。
+     * @param playerUuid 正版分支的 --uuid（调用方传 AuthManager::playerUuid()，带横线的
+     *        标准写法）。空 = 没有档案（没登录、或者测试没给），那时退回全零 UUID ——
+     *        这是老行为：以前登录流程根本不拉档案，全工程没有 UUID 来源，所以正版分支一
+     *        直发全零，正版服上等于一个"谁都不是"的身份。离线分支**不用**它（那边每次
+     *        自己随机生成一个）。
      * @return 返回 JVM 参数列表。
      *
      * NOTE: 调用方传 javaMajorVersion <= 0（未传）时按"**沿用旧行为**"处理，不是"一条都
@@ -81,7 +86,8 @@ public:
                                      const GlobalJavaSettings &settings,
                                      bool offlineMode = false, int javaMajorVersion = 0,
                                      const QStringList &versionJvmArgs = QStringList(),
-                                     const QString &playerName = QString()) const;
+                                     const QString &playerName = QString(),
+                                     const QString &playerUuid = QString()) const;
 
     /**
      * @brief 启动 Minecraft 游戏进程。
