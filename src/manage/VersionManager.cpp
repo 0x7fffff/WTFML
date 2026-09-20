@@ -290,6 +290,7 @@ VersionDisplayParts VersionManager::displayParts(const QString &versionId) const
     };
 
     parts.customName = readString("name");
+    parts.realVersion = readString("realVersion");
     parts.loaderName = readString("loaderName");
     parts.loaderVersion = readString("loaderVersion");
 

@@ -340,9 +340,11 @@ void MainWindow::updateStartButtonText() {
 
     // 下拉框的 tooltip 挂**裸 id**，不是显示名。两个理由：
     //   1. 下拉框设了 minimumContentsLength(16)，长显示名会被省略号截断；
-    //   2. 更要紧的是，关掉「版本名」档之后 id 在整个界面上就再也看不见了，
-    //      而它才是真正进 --version 和文件路径的那个值。用户要排查"怎么启动错了
-    //      版本"时，悬停是唯一能看到它的地方。
+    //   2. 更要紧的是，id 在界面上**任何开关组合下都不会出现** —— 显示名那边参与
+    //      拼装的"实际版本"是 parts.realVersion（为空才退化成 id），所以只要
+    //      wtfml.meta 里写了 realVersion，目录名就彻底从界面上消失了。而它才是真正
+    //      进 --version 和文件路径的那个值。用户要排查"怎么启动错了版本"时，
+    //      悬停是唯一能看到它的地方。
     // tooltip 必须走这条函数（而不是在 refreshInstalledVersions 里直接设），因为
     // fillVersionCombo() 套了 QSignalBlocker，刷新路径只能靠这一处收尾。
     const QString id = selectedVersionId(combo);
