@@ -7,12 +7,12 @@
  */
 #pragma once
 
+#include <QJsonObject>
 #include <QObject>
 #include <QProcess>
 #include <QStringList>
 
 class GlobalJavaSettings;
-class QJsonObject;
 
 /**
  * @brief 处理 Minecraft 的 JVM 参数生成和启动过程。
@@ -33,9 +33,23 @@ public:
      * @brief 在启动前验证游戏文件。
      * @param versionId Minecraft version identifier.
      * @param errors Optional output list for error descriptions.
+     * @param versionJson Version manifest, used to check the natives requirement.
      * @return 若通过启动前检查通过，则返回 true.
      */
-    bool checkPreLaunch(const QString &versionId, QStringList *errors = nullptr) const;
+    bool checkPreLaunch(const QString &versionId, QStringList *errors = nullptr,
+                        const QJsonObject &versionJson = QJsonObject()) const;
+
+    /**
+     * @brief 按需把旧格式的 natives classifier 解压到该版本自己的目录。
+     * @param versionJson Version manifest containing library dependencies.
+     * @param versionId Minecraft version identifier.
+     * @param errors Optional output list for error descriptions.
+     * @return 返回 natives 目录的绝对路径；该版本不需要 natives，或准备失败时返回空。
+     *
+     * NOTE: 解压只在该目录还没有任何 .dll 时才做，所以除第一次启动外几乎零开销。
+     */
+    QString prepareNatives(const QJsonObject &versionJson, const QString &versionId,
+                           QStringList *errors = nullptr) const;
 
     /**
      * @brief 为 Minecraft 启动生成 JVM 参数。
@@ -45,12 +59,13 @@ public:
      * @param versionJson Version JSON manifest.
      * @param settings Java runtime settings.
      * @param offlineMode Whether to launch in offline mode.
+     * @param javaMajorVersion 实际使用的 Java 主版本，用于过滤该版本不支持的 JVM 选项。
      * @return 返回 JVM 参数列表。
      */
     QStringList generateJvmArguments(const QString &token, const QString &versionId,
                                      const QString &assetIndexId, const QJsonObject &versionJson,
                                      const GlobalJavaSettings &settings,
-                                     bool offlineMode = false) const;
+                                     bool offlineMode = false, int javaMajorVersion = 0) const;
 
     /**
      * @brief 启动 Minecraft 游戏进程。

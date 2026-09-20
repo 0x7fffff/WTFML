@@ -54,6 +54,8 @@ private slots:
 
 private:
     DownloadManager *downloadManager;
-    QMap<QString, QJsonObject> versionJsons;  // versionId -> versionJson
+    // versionId -> versionJson。mutable 是因为 getVersionJson() 是 const 的，
+    // 但它在回读磁盘后要顺手填充这个缓存。
+    mutable QMap<QString, QJsonObject> versionJsons;
     QString m_currentVersionDownloading;
 };

@@ -1,6 +1,6 @@
 # Wonderful Tremendous Fantastic Minecraft Launcher
 
-这是一个基于 C++17 和 Qt6 的 Minecraft 启动器原型项目。
+这是一个基于 C++23 和 Qt6 的 Minecraft 启动器原型项目。
 
 ## 目标
 
@@ -33,16 +33,20 @@
 - Java 参数生成、进程输出和崩溃检测框架已搭建。
 - 文件夹管理与版本列表显示已实现基础逻辑。
 - Java 配置加载/保存和完整性校验骨架已完成。
-- 1.18.2及以上版本的隔离与离线启动(不含1.18.2)
-- 自动读取version.json文件分析需要的java版本，自动下载java(1.18.2+)
+- 各版本的隔离与离线启动（natives 链路已打通，1.18.2 及以下同样可用）
+- 自动读取 version.json 的 javaVersion，优先复用本机已有运行时，找不到才下载
+- 旧格式 natives 在启动时按需解压，并自动补上 -Djava.library.path
+- 首次启动某版本时写入 options.txt，界面语言跟随系统
 
 ## to do list(急)
 
 - 解决下载完成的提示出现多个的问题
-- 1.18.2及以下版本的启动
+- 1.18.2及以下版本的启动（链路已打通并离线实测，待从 UI 实际测试）
 - 完善目前没什么用的FolderManager
 - 补充 Microsoft OAuth2 登录回调与令牌刷新
 - 登录令牌的加密储存和调取
+- 资源索引被 Mojang 修订后，UI 没有刷新单个版本资源的入口（见到 version.json 就拒绝重下）
+- 只刷新资产索引、资源本身都齐全时 allDownloadsFinished 不会发射（onAssetIndexDownloaded 不检查完成）
 - 正版启动与皮肤等信息的拉取
 - 分离UI中已下载版本和版本总列表
 - 增加完整性校验、下载修复和 crash 报告导出。

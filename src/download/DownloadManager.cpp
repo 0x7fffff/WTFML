@@ -18,6 +18,8 @@
 #include <QStandardPaths>
 #include <QTemporaryFile>
 
+#include "../launcher/LibraryRules.hpp"
+
 DownloadManager::DownloadManager(QObject *parent)
     : QObject(parent), networkManager(new QNetworkAccessManager(this)), pendingDownloads(0) {
     // 为信号注册元类型
@@ -90,6 +92,10 @@ void DownloadManager::downloadLibraries(const QList<Library> &libraries, const Q
     for (const Library &lib : libraries) {
         QString url = lib.url;
         QString destPath = basePath + "/" + lib.path;
+        // 空 url 或空 path 只会发起不可能成功的请求，直接跳过
+        if (url.isEmpty() || lib.path.isEmpty()) {
+            continue;
+        }
         QDir().mkpath(QFileInfo(destPath).absolutePath());
         downloadFile(url, destPath, lib.sha1);
     }
@@ -253,15 +259,44 @@ QList<Library> DownloadManager::extractLibraries(const QJsonObject &versionJson)
     QJsonArray libs = versionJson["libraries"].toArray();
     for (const QJsonValue &value : libs) {
         QJsonObject libObj = value.toObject();
-        Library lib;
-        lib.name = libObj["name"].toString();
+
+        // 先过平台规则，不适用于本机的库连下载都不必
+        if (!LibraryRules::libraryAllowed(libObj)) {
+            continue;
+        }
+
         QJsonObject downloads = libObj["downloads"].toObject();
         QJsonObject artifact = downloads["artifact"].toObject();
-        lib.url = artifact["url"].toString();
-        lib.sha1 = artifact["sha1"].toString();
-        lib.size = artifact["size"].toVariant().toLongLong();
-        lib.path = artifact["path"].toString();
-        libraries.append(lib);
+        QString artifactPath = artifact["path"].toString();
+        QString artifactUrl = artifact["url"].toString();
+
+        // NOTE: 1.12.2 里有 2 个库完全没有 artifact（只有 classifiers），
+        // 旧代码会拿空 url 和 "dir/" 这样的空 path 去发起下载，产生幽灵请求。
+        if (!artifactPath.isEmpty() && !artifactUrl.isEmpty()) {
+            Library lib;
+            lib.name = libObj["name"].toString();
+            lib.url = artifactUrl;
+            lib.sha1 = artifact["sha1"].toString();
+            lib.size = artifact["size"].toVariant().toLongLong();
+            lib.path = artifactPath;
+            libraries.append(lib);
+        }
+
+        // 旧格式（1.18.2 及以下）的 natives：classifier 是独立 jar，需要下载后解压。
+        // 1.19+ 没有 natives 字段（classifier 写在 name 里走 artifact 分支），
+        // 这里直接返回空，行为与改动前完全一致。
+        const LibraryRules::NativeClassifier classifier = LibraryRules::nativeClassifier(libObj);
+        if (classifier.valid()) {
+            Library native;
+            native.name = libObj["name"].toString() + QLatin1Char(':') +
+                          QStringLiteral("natives");
+            native.url = classifier.url;
+            native.sha1 = classifier.sha1;
+            native.path = classifier.path;
+            native.isNative = true;
+            native.extractExclude = classifier.excludes;
+            libraries.append(native);
+        }
     }
     return libraries;
 }

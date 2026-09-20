@@ -40,8 +40,13 @@ struct Library {
     QString name;
     QString url;
     QString sha1;
-    qint64 size;
+    qint64 size = 0;
     QString path;
+    // 1.18.2 及以下的 natives 是 downloads.classifiers 里的独立 jar，
+    // 它不进 classpath，而是启动时解压到 versions/<id>/natives/。
+    bool isNative = false;
+    // 该 jar 内需要跳过的条目前缀，来自 library 的 extract.exclude（通常是 META-INF/）。
+    QStringList extractExclude;
 };
 
 struct AssetIndex {

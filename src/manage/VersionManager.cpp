@@ -14,6 +14,9 @@
 #include <QCoreApplication>
 #include <QDebug>
 #include <QDir>
+#include <QFile>
+#include <QJsonDocument>
+#include <QJsonParseError>
 #include <QStandardPaths>
 
 VersionManager::VersionManager(QObject *parent)
@@ -97,6 +100,22 @@ void VersionManager::downloadVersion(const QString &versionId, const QString &de
     const QJsonObject &versionJson = versionJsons[versionId];
     const QString basePath = QCoreApplication::applicationDirPath() + "/.minecraft";
 
+    // 把 version.json 落盘。缺了它，下一次启动时 getVersionJson() 取不到
+    // javaVersion / assetIndex，会静默退回错误的 Java 版本和资产索引 ——
+    // 26.1 需要 Java 25，退成 Java 21 就是 UnsupportedClassVersionError。
+    if (QDir().mkpath(destinationPath)) {
+        const QString jsonPath = destinationPath + "/" + versionId + ".json";
+        QFile jsonFile(jsonPath);
+        if (jsonFile.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            jsonFile.write(QJsonDocument(versionJson).toJson(QJsonDocument::Indented));
+            jsonFile.close();
+            qDebug() << "Saved version JSON to" << jsonPath;
+        } else {
+            qWarning() << "Failed to save version JSON to" << jsonPath
+                       << jsonFile.errorString();
+        }
+    }
+
     // Download client jar
     if (versionJson.contains("downloads") && versionJson["downloads"].isObject()) {
         const QJsonObject downloads = versionJson["downloads"].toObject();
@@ -142,7 +161,32 @@ void VersionManager::downloadVersionAssets(const QString &versionId, const QStri
 }
 
 QJsonObject VersionManager::getVersionJson(const QString &versionId) const {
-    return versionJsons.value(versionId, QJsonObject());
+    const auto cached = versionJsons.constFind(versionId);
+    if (cached != versionJsons.constEnd()) {
+        return cached.value();
+    }
+
+    // 内存里没有就回读磁盘。下载时已经把 JSON 落盘，所以跨会话启动也能拿到
+    // javaVersion 和 assetIndex，不需要先在同一次会话里点一次"下载"。
+    const QString jsonPath = QCoreApplication::applicationDirPath() +
+                             QStringLiteral("/.minecraft/versions/%1/%1.json").arg(versionId);
+    QFile jsonFile(jsonPath);
+    if (!jsonFile.exists() || !jsonFile.open(QIODevice::ReadOnly)) {
+        qWarning() << "Version JSON not found on disk:" << jsonPath;
+        return QJsonObject();
+    }
+
+    QJsonParseError parseError;
+    const QJsonDocument doc = QJsonDocument::fromJson(jsonFile.readAll(), &parseError);
+    jsonFile.close();
+    if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+        qWarning() << "Failed to parse" << jsonPath << ":" << parseError.errorString();
+        return QJsonObject();
+    }
+
+    // 填回缓存，同一次会话里不再重复读盘
+    versionJsons[versionId] = doc.object();
+    return doc.object();
 }
 
 void VersionManager::onVersionManifestFetched(const QList<MinecraftVersion> &versions) {

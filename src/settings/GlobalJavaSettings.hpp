@@ -50,9 +50,12 @@ public:
     /**
      * @brief Ensures the configured Java matches the required major version.
      * @param majorVersion Required Java major version.
+     * @param component Optional runtime component name from version.json
+     *        (for example "java-runtime-epsilon"), used to pick the exact
+     *        runtime Mojang ships for that game version.
      * @return True if matching Java is available.
      */
-    bool ensureJavaForVersion(int majorVersion);
+    bool ensureJavaForVersion(int majorVersion, const QString &component = QString());
 
     /**
      * @brief Scans local installations for Java versions.

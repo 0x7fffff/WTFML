@@ -15,16 +15,77 @@
 #include <QDebug>
 #include <QDir>
 #include <QDirIterator>
+#include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QLocale>
 #include <QSet>
 #include <QStandardPaths>
-#include <QSysInfo>
 #include <QTimer>
 #include <QUuid>
 
 #include "../settings/GlobalJavaSettings.hpp"
+#include "../util/ZipUtil.hpp"
+#include "LibraryRules.hpp"
+
+namespace {
+
+/**
+ * @brief 取某个版本解压 natives 的目标目录。
+ * @param versionId Minecraft version identifier.
+ * @return 返回 versions/<id>/natives 的绝对路径。
+ */
+QString nativesDirectory(const QString &versionId) {
+    const QString base = QCoreApplication::applicationDirPath() + QStringLiteral("/.minecraft");
+    return QDir(base).absoluteFilePath(QStringLiteral("versions/%1/natives").arg(versionId));
+}
+
+/**
+ * @brief 判断目录里是否已经有解压出来的 DLL。
+ * @param dir 待检查的目录。
+ * @return 若目录存在且至少含一个 .dll 则返回 true.
+ */
+bool hasNativeLibraries(const QString &dir) {
+    return !QDir(dir).entryList(QStringList() << QStringLiteral("*.dll"), QDir::Files).isEmpty();
+}
+
+/**
+ * @brief 首次为一个版本创建游戏目录时，把界面语言设成跟随系统。
+ * @param gameDir 该版本的隔离游戏目录。
+ *
+ * 只在 options.txt 不存在时写入，所以玩家自己选过的语言永远不会被覆盖。
+ * Minecraft 读取时会忽略缺失的键并用默认值补齐，因此只写一行 lang 是安全的。
+ */
+void ensureInitialOptions(const QString &gameDir) {
+    const QString optionsPath = QDir(gameDir).absoluteFilePath(QStringLiteral("options.txt"));
+    if (QFileInfo::exists(optionsPath)) {
+        return;
+    }
+    if (!QDir().mkpath(gameDir)) {
+        return;
+    }
+
+    // QLocale::system().name() 形如 "zh_CN"，而 Minecraft 的语言代码是全小写的 "zh_cn"，
+    // 正好和资源包里的 lang/<code>.json 文件名对应。
+    QString lang = QLocale::system().name().toLower();
+    // "C" 区域（从未设置过 locale）或者没有国家/地区后缀时，没有对应的语言文件，
+    // 这时只能用 Minecraft 内置在客户端 jar 里的 en_us。
+    if (lang.isEmpty() || lang == QLatin1String("c") || !lang.contains(QLatin1Char('_'))) {
+        lang = QStringLiteral("en_us");
+    }
+
+    QFile file(optionsPath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        qWarning() << "Failed to create" << optionsPath << file.errorString();
+        return;
+    }
+    file.write(QStringLiteral("lang:%1\n").arg(lang).toUtf8());
+    file.close();
+    qDebug() << "Created initial options.txt with lang" << lang;
+}
+
+}  // namespace
 
 LauncherManager::LauncherManager(QObject *parent)
     : QObject(parent), m_gameProcess(new QProcess(this)) {
@@ -37,7 +98,8 @@ LauncherManager::LauncherManager(QObject *parent)
             &LauncherManager::handleProcessFinished);
 }
 
-bool LauncherManager::checkPreLaunch(const QString &versionId, QStringList *errors) const {
+bool LauncherManager::checkPreLaunch(const QString &versionId, QStringList *errors,
+                                     const QJsonObject &versionJson) const {
     if (errors) {
         errors->clear();
     }
@@ -89,7 +151,105 @@ bool LauncherManager::checkPreLaunch(const QString &versionId, QStringList *erro
         return false;
     }
 
+    // 旧格式（1.18.2 及以下）依赖解压出来的 natives，缺了只会崩在
+    // UnsatisfiedLinkError，不如在这里就说清楚。1.19+ 没有 natives 字段，直接跳过。
+    if (!versionJson.isEmpty()) {
+        bool needsNatives = false;
+        const QJsonArray libraries = versionJson[QStringLiteral("libraries")].toArray();
+        for (const QJsonValue &value : libraries) {
+            if (LibraryRules::nativeClassifier(value.toObject()).valid()) {
+                needsNatives = true;
+                break;
+            }
+        }
+
+        if (needsNatives && !hasNativeLibraries(nativesDirectory(versionId))) {
+            if (errors) {
+                errors->append(tr("该版本需要 natives 组件，但 %1 里没有解压出 DLL。")
+                                   .arg(nativesDirectory(versionId)));
+            }
+            return false;
+        }
+    }
+
     return true;
+}
+
+QString LauncherManager::prepareNatives(const QJsonObject &versionJson, const QString &versionId,
+                                        QStringList *errors) const {
+    if (versionJson.isEmpty()) {
+        return QString();
+    }
+
+    const QJsonArray libraries = versionJson[QStringLiteral("libraries")].toArray();
+    QList<LibraryRules::NativeClassifier> classifiers;
+    for (const QJsonValue &value : libraries) {
+        const LibraryRules::NativeClassifier classifier =
+            LibraryRules::nativeClassifier(value.toObject());
+        if (classifier.valid()) {
+            classifiers.append(classifier);
+        }
+    }
+
+    // 1.19+ 走这里：classifier 写在 name 里、由 LWJGL 自己从 classpath 的 jar 提取，
+    // 既不需要 -Djava.library.path 也不需要解压。
+    if (classifiers.isEmpty()) {
+        return QString();
+    }
+
+    const QString nativesDir = nativesDirectory(versionId);
+    // 守卫：上一次已经解压过就直接复用。除第一次启动外，这里几乎是零开销。
+    if (hasNativeLibraries(nativesDir)) {
+        return nativesDir;
+    }
+
+    const QString librariesRoot =
+        QDir(QCoreApplication::applicationDirPath() + QStringLiteral("/.minecraft"))
+            .absoluteFilePath(QStringLiteral("libraries"));
+
+    QStringList jars;
+    QStringList excludes;
+    QStringList missing;
+    for (const LibraryRules::NativeClassifier &classifier : classifiers) {
+        const QString jarPath = QDir(librariesRoot).absoluteFilePath(classifier.path);
+        if (!QFileInfo::exists(jarPath)) {
+            missing << classifier.path;
+            continue;
+        }
+        jars << QDir::toNativeSeparators(jarPath);
+        for (const QString &exclude : classifier.excludes) {
+            if (!excludes.contains(exclude)) {
+                excludes << exclude;
+            }
+        }
+    }
+
+    if (!missing.isEmpty()) {
+        if (errors) {
+            errors->append(tr("natives 组件尚未下载，请先重新下载该版本。缺少：%1")
+                               .arg(missing.join(QStringLiteral(", "))));
+        }
+        return QString();
+    }
+
+    qDebug() << "Extracting" << jars.size() << "natives archives to" << nativesDir;
+    QString error;
+    if (!ZipUtil::extractArchives(jars, nativesDir, excludes, &error)) {
+        if (errors) {
+            errors->append(tr("解压 natives 失败：%1").arg(error));
+        }
+        return QString();
+    }
+
+    if (!hasNativeLibraries(nativesDir)) {
+        if (errors) {
+            errors->append(tr("natives 解压后未找到 DLL：%1").arg(nativesDir));
+        }
+        return QString();
+    }
+
+    qDebug() << "Natives ready at" << nativesDir;
+    return nativesDir;
 }
 
 /**
@@ -110,12 +270,13 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
                                                   const QString &assetIndexId,
                                                   const QJsonObject &versionJson,
                                                   const GlobalJavaSettings &settings,
-                                                  bool offlineMode) const {
+                                                  bool offlineMode, int javaMajorVersion) const {
     QStringList args;
 
     qDebug() << "=== Generating JVM Arguments ===";
     qDebug() << "Memory settings: -Xms" << settings.xms() << "m -Xmx" << settings.xmx() << "m";
     qDebug() << "Offline mode:" << offlineMode;
+    qDebug() << "Java major version:" << javaMajorVersion;
 
     args << QStringLiteral("-Xms%1m").arg(settings.xms());
     args << QStringLiteral("-Xmx%1m").arg(settings.xmx());
@@ -126,59 +287,13 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     }
 
     args << QStringLiteral("-Dlog4j2.formatMsgNoLookups=true");
-    // 启用对 Java 25+ 的原生兼容性
-    args << QStringLiteral("--enable-native-access=ALL-UNNAMED");
+    // --enable-native-access 是 JDK 17+ 才有的选项，用于启用对 Java 25+ 的原生兼容性。
+    // Java 8（1.16.5 及以下需要）碰到它会直接 Unrecognized option 秒退，连主类都到不了，
+    // 所以必须按实际使用的 Java 版本过滤。javaMajorVersion 为 0 表示调用方没传，沿用旧行为。
+    if (javaMajorVersion >= 17 || javaMajorVersion <= 0) {
+        args << QStringLiteral("--enable-native-access=ALL-UNNAMED");
+    }
     args << QStringLiteral("-Djava.net.preferIPv4Stack=true");
-
-    const auto osName = []() {
-        const QString product = QSysInfo::productType().toLower();
-        if (product.contains("windows")) {
-            return QStringLiteral("windows");
-        }
-        if (product.contains("mac") || product.contains("osx") || product.contains("darwin")) {
-            return QStringLiteral("osx");
-        }
-        if (product.contains("linux")) {
-            return QStringLiteral("linux");
-        }
-        return QStringLiteral("windows");
-    }();
-
-    const auto libraryAllowed = [&](const QJsonObject &libObj) -> bool {
-        auto rules = libObj[QStringLiteral("rules")].toArray();
-        if (rules.isEmpty()) {
-            return true;
-        }
-
-        bool allowed = false;
-        for (const auto &ruleValue : rules) {
-            auto ruleObj = ruleValue.toObject();
-            QString action = ruleObj[QStringLiteral("action")].toString();
-            if (action.isEmpty()) {
-                continue;
-            }
-
-            auto osObj = ruleObj[QStringLiteral("os")].toObject();
-            bool matches = osObj.isEmpty();
-            if (!matches) {
-                QString ruleName = osObj[QStringLiteral("name")].toString().toLower();
-                if (!ruleName.isEmpty()) {
-                    matches = (ruleName == osName);
-                }
-            }
-
-            if (!matches) {
-                continue;
-            }
-
-            if (action == QStringLiteral("allow")) {
-                allowed = true;
-            } else if (action == QStringLiteral("disallow") || action == QStringLiteral("deny")) {
-                allowed = false;
-            }
-        }
-        return allowed;
-    };
 
     const auto addClasspathPath = [&](const QString &path, QStringList &classpath) {
         if (!path.isEmpty() && !classpath.contains(path)) {
@@ -187,6 +302,7 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     };
 
     QStringList classpath;
+    bool needsNativesDir = false;
     // 先添加主版本 JAR 文件
     addClasspathPath(QStringLiteral("versions/%1/%1.jar").arg(versionId), classpath);
 
@@ -196,7 +312,7 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
         for (const auto &value : libs) {
             auto libObj = value.toObject();
             // 跳过不适用这个平台的库
-            if (!libraryAllowed(libObj)) {
+            if (!LibraryRules::libraryAllowed(libObj)) {
                 continue;
             }
 
@@ -209,23 +325,34 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
                     classpath);
             }
 
-            auto classifiers = downloads[QStringLiteral("classifiers")].toObject();
-            auto natives = libObj[QStringLiteral("natives")].toObject();
-            if (!natives.isEmpty()) {
-                QString classifierKey = natives[osName].toString();
-                if (!classifierKey.isEmpty()) {
-                    auto classifierInfo = classifiers[classifierKey].toObject();
-                    QString classifierPath = classifierInfo[QStringLiteral("path")].toString();
-                    if (!classifierPath.isEmpty()) {
-                        addClasspathPath(QDir::toNativeSeparators(
-                                             QStringLiteral("libraries/%1").arg(classifierPath)),
-                                         classpath);
-                    }
-                }
+            // NOTE: 旧格式（1.18.2 及以下）的 natives classifier jar 不进 classpath ——
+            // 它们由 prepareNatives 解压到 versions/<id>/natives/，再通过
+            // -Djava.library.path 提供给 LWJGL。以前把不存在的 classifier 路径塞进
+            // classpath，正是这些版本崩在 UnsatisfiedLinkError 的原因。
+            // 1.19+ 的库没有 natives 字段，走上面的 artifact 分支留在 classpath 上，
+            // 由 LWJGL 自己从 jar 里提取，行为与改动前一致。
+            if (!libObj[QStringLiteral("natives")].toObject().isEmpty()) {
+                needsNativesDir = true;
             }
         }
     } else {
         qDebug() << "Warning: versionJson is empty, classpath will include only the version JAR.";
+    }
+
+    // NOTE: 必须是绝对路径。JVM 在启动早期就读取并缓存 java.library.path，
+    // 相对路径的解析基准是那一刻的工作目录，不可依赖；原版启动器传的也是绝对路径。
+    if (needsNativesDir) {
+        const QString nativesDir = nativesDirectory(versionId);
+        if (hasNativeLibraries(nativesDir)) {
+            const QString nativePath = QDir::toNativeSeparators(nativesDir);
+            args << QStringLiteral("-Djava.library.path=%1").arg(nativePath);
+            // LWJGL 2（1.12.2 及以下）只认 java.library.path，这条是给它的冗余保险
+            args << QStringLiteral("-Dorg.lwjgl.librarypath=%1").arg(nativePath);
+        } else {
+            qWarning() << "Natives directory is missing or empty, the game will most likely fail "
+                          "with UnsatisfiedLinkError:"
+                       << nativesDir;
+        }
     }
 
     const QString classpathStr = classpath.join(";");
@@ -320,6 +447,8 @@ void LauncherManager::startGame(const QStringList &arguments, GlobalJavaSettings
     // 为这个版本创建独立的路径
     QString isolatedPath = minecraftDir + "/versions/" + versionId;
     QDir().mkpath(isolatedPath);
+    // 第一次启动这个版本时，让游戏界面语言跟随系统
+    ensureInitialOptions(isolatedPath);
     qDebug() << "Isolated game directory:" << isolatedPath;
 
     qDebug() << "Starting java process...";

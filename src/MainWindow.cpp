@@ -145,8 +145,40 @@ void MainWindow::onStartButtonClicked() {
         return;
     }
 
+    // version.json 要提前取：natives 的准备和启动前检查都依赖它
+    QJsonObject versionJson = m_versionManager->getVersionJson(versionId);
+
+    // 拿不到 version.json 就不能猜。以前这里会静默用 javaMajorVersion = 21 和
+    // assetIndex = "29" 继续启动，26.1（需要 Java 25）就会崩在
+    // UnsupportedClassVersionError，且看不出原因。
+    if (versionJson.isEmpty()) {
+        appendLog(tr("找不到版本 %1 的 version.json").arg(versionId));
+        QMessageBox::warning(
+            this, tr("版本信息缺失"),
+            tr("找不到版本 %1 的 version.json，无法确定所需的 Java 版本。\n"
+               "请先选中该版本并点击\"下载\"重新获取版本信息。")
+                .arg(versionId));
+        return;
+    }
+
+    // 旧格式（1.18.2 及以下）的 natives 必须先落地，否则会被 checkPreLaunch 拦下。
+    // 该方法自带守卫，已经解压过的版本直接返回，不会重复解压。
+    QStringList nativeErrors;
+    const QString nativesDir =
+        m_launcherManager->prepareNatives(versionJson, versionId, &nativeErrors);
+    if (nativesDir.isEmpty() && !nativeErrors.isEmpty()) {
+        appendLog(tr("准备 natives 失败："));
+        for (const QString &error : nativeErrors) {
+            appendLog(error);
+        }
+        return;
+    }
+    if (!nativesDir.isEmpty()) {
+        appendLog(tr("natives 已就绪：%1").arg(nativesDir));
+    }
+
     QStringList errors;
-    if (!m_launcherManager->checkPreLaunch(versionId, &errors)) {
+    if (!m_launcherManager->checkPreLaunch(versionId, &errors, versionJson)) {
         appendLog(tr("启动前检查失败："));
         for (const QString &error : errors) {
             appendLog(error);
@@ -154,29 +186,34 @@ void MainWindow::onStartButtonClicked() {
         return;
     }
 
+    // 兜底值只在 version.json 没写这两个字段时才用得上
     QString assetIndexId = "29";
     int javaMajorVersion = 21;
-    QJsonObject versionJson = m_versionManager->getVersionJson(versionId);
-    if (!versionJson.isEmpty()) {
-        QJsonObject assetIndexObj = versionJson["assetIndex"].toObject();
-        QString actualAssetIndexId = assetIndexObj["id"].toString();
-        if (!actualAssetIndexId.isEmpty()) {
-            assetIndexId = actualAssetIndexId;
-        }
-        QJsonObject javaVersionObj = versionJson["javaVersion"].toObject();
-        int majorVersion = javaVersionObj["majorVersion"].toInt();
-        if (majorVersion > 0) {
-            javaMajorVersion = majorVersion;
-        }
+    QJsonObject assetIndexObj = versionJson["assetIndex"].toObject();
+    const QString actualAssetIndexId = assetIndexObj["id"].toString();
+    if (!actualAssetIndexId.isEmpty()) {
+        assetIndexId = actualAssetIndexId;
     }
+    // version.json 里的 javaVersion.component 指明了 Mojang 为该版本准备的运行时，
+    // 例如 26.1 是 java-runtime-epsilon（Java 25）。
+    const QJsonObject javaVersionObj = versionJson["javaVersion"].toObject();
+    const int majorVersion = javaVersionObj["majorVersion"].toInt();
+    if (majorVersion > 0) {
+        javaMajorVersion = majorVersion;
+    }
+    const QString javaComponent = javaVersionObj["component"].toString();
 
-    if (!m_javaSettings->ensureJavaForVersion(javaMajorVersion)) {
+    if (!m_javaSettings->ensureJavaForVersion(javaMajorVersion, javaComponent)) {
         appendLog(tr("无法获取所需的 Java 运行时环境：版本 %1").arg(javaMajorVersion));
+        QMessageBox::warning(this, tr("Java 运行时缺失"),
+                             tr("找不到或无法下载 Java %1，请手动指定 Java 路径。")
+                                 .arg(javaMajorVersion));
         return;
     }
 
     const QStringList jvmArgs = m_launcherManager->generateJvmArguments(
-        token, versionId, assetIndexId, versionJson, *m_javaSettings, offlineMode);
+        token, versionId, assetIndexId, versionJson, *m_javaSettings, offlineMode,
+        javaMajorVersion);
     m_launcherManager->startGame(jvmArgs, *m_javaSettings, versionId);
     appendLog(tr("已开始启动游戏，正在执行 JVM 参数..."));
 }

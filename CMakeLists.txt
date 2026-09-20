@@ -17,12 +17,14 @@ set(CMAKE_AUTORCC ON)
 set(HEADER_FILES
     src/MainWindow.hpp
     src/launcher/LauncherManager.hpp
+    src/launcher/LibraryRules.hpp
     src/auth/AuthManager.hpp
     src/manage/FolderManager.hpp
     src/manage/VersionManager.hpp
     src/settings/GlobalJavaSettings.hpp
     src/download/DownloadManager.hpp
     src/download/IntegrityChecker.hpp
+    src/util/ZipUtil.hpp
 )
 
 set(SOURCE_FILES
@@ -35,7 +37,8 @@ set(SOURCE_FILES
     src/settings/GlobalJavaSettings.cpp
     src/download/DownloadManager.cpp
     src/download/IntegrityChecker.cpp
-    ui/MainWindowUI.cpp          
+    src/util/ZipUtil.cpp
+    ui/MainWindowUI.cpp
     ${HEADER_FILES}
 )
 

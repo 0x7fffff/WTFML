@@ -87,6 +87,12 @@ int parseJavaMajorVersion(const QString &versionOutput) {
     // java version "17.0.1" -> 17
     // java version "21.0.1" -> 21
 
+    // Java requirements for games:
+    // 1.6 - 1.16.5 -> Java 8
+    // 1.17 - 1.20.4 -> Java 17
+    // 1.20.5 - 1.21.11 -> Java 21
+    // 26.1 + -> Java 25
+
     QRegularExpression regex("version \"([^\"]+)\"");
     QRegularExpressionMatch match = regex.match(versionOutput);
     if (!match.hasMatch()) {
@@ -116,25 +122,56 @@ int parseJavaMajorVersion(const QString &versionOutput) {
     return majorVersion;
 }
 
-QString findJavaInEnvironment() {
-    const QString javaHome = qEnvironmentVariable("JAVA_HOME");
-    if (!javaHome.isEmpty()) {
-        const QString candidate = QDir(javaHome).absoluteFilePath("bin/java.exe");
-        if (verifyJavaExecutable(candidate)) {
-            return candidate;
-        }
+/**
+ * @brief 判断某个 Java 可执行文件的主版本是否与需求一致。
+ * @param path Java 可执行文件或包含 bin/java.exe 的运行时目录。
+ * @param major 需要的 Java 主版本（如 8 / 17 / 21 / 25），传 -1 表示不限版本。
+ * @return 若路径有效且版本匹配，则返回 true.
+ *
+ * NOTE: 环境变量、PATH、常见安装目录里找到的 Java 都必须先过这一关才能采用。
+ * 否则会静默选中错误的 Java（例如用 Java 21 去启动需要 Java 25 的 26.x，
+ * 最终表现为 UnsupportedClassVersionError 而不是一条能看懂的提示）。
+ */
+bool javaMatchesMajor(const QString &path, int major) {
+    if (path.isEmpty()) {
+        return false;
     }
-    const QString jdkHome = qEnvironmentVariable("JDK_HOME");
-    if (!jdkHome.isEmpty()) {
-        const QString candidate = QDir(jdkHome).absoluteFilePath("bin/java.exe");
-        if (verifyJavaExecutable(candidate)) {
+    QString versionOutput;
+    if (!verifyJavaExecutable(path, &versionOutput)) {
+        return false;
+    }
+    return major < 0 || parseJavaMajorVersion(versionOutput) == major;
+}
+
+/**
+ * @brief 在 JAVA_HOME / JDK_HOME 指向的运行时里查找 Java。
+ * @param requiredMajor 需要的 Java 主版本，-1 表示不限。
+ * @return 若找到匹配的 java.exe 则返回其路径，否则返回空.
+ */
+QString findJavaInEnvironment(int requiredMajor = -1) {
+    const QStringList homeVars = {qEnvironmentVariable("JAVA_HOME"),
+                                  qEnvironmentVariable("JDK_HOME")};
+    for (const QString &home : homeVars) {
+        if (home.isEmpty()) {
+            continue;
+        }
+        const QString candidate = QDir(home).absoluteFilePath("bin/java.exe");
+        if (javaMatchesMajor(candidate, requiredMajor)) {
             return candidate;
         }
     }
     return QString();
 }
 
-QString findJavaInCommonLocations() {
+/**
+ * @brief 在 Program Files 下递归查找常见发行版的 Java。
+ * @param requiredMajor 需要的 Java 主版本，-1 表示不限。
+ * @return 若找到匹配的 java.exe 则返回其路径，否则返回空.
+ *
+ * NOTE: 这里会遍历整个 Program Files，比较慢，因此只在更便宜的候选源
+ * （已配置路径、本地运行时、环境变量、PATH）都没命中时才会走到。
+ */
+QString findJavaInCommonLocations(int requiredMajor = -1) {
     const QStringList rootDirs = {qEnvironmentVariable("ProgramFiles"),
                                   qEnvironmentVariable("ProgramFiles(x86)"),
                                   qEnvironmentVariable("ProgramW6432")};
@@ -160,7 +197,7 @@ QString findJavaInCommonLocations() {
                 candidate.contains("corretto", Qt::CaseInsensitive) ||
                 candidate.contains("microsoft", Qt::CaseInsensitive) ||
                 candidate.contains("zulu", Qt::CaseInsensitive)) {
-                if (verifyJavaExecutable(candidate)) {
+                if (javaMatchesMajor(candidate, requiredMajor)) {
                     return candidate;
                 }
             }
@@ -170,12 +207,58 @@ QString findJavaInCommonLocations() {
     return QString();
 }
 
-QString findJavaOnPath() {
-    QString versionOutput;
-    if (verifyJavaExecutable(QStringLiteral("java"), &versionOutput)) {
-        return QStringLiteral("java");
+/**
+ * @brief 查找 PATH 上的 java。
+ * @param requiredMajor 需要的 Java 主版本，-1 表示不限。
+ * @return 若找到匹配的 java.exe 则返回其绝对路径，否则返回空.
+ *
+ * FIXME: 旧实现直接返回裸命令 "java"，但 verifyJavaExecutable() 第一步就是
+ * QFileInfo::exists()，裸命令永远过不了；即使侥幸通过，startGame() 也会用
+ * QFileInfo(program).exists() 判定"Java 可执行文件未找到"。必须解析成绝对路径。
+ */
+QString findJavaOnPath(int requiredMajor = -1) {
+    const QString resolved = QStandardPaths::findExecutable(QStringLiteral("java"));
+    if (!resolved.isEmpty() && javaMatchesMajor(resolved, requiredMajor)) {
+        return resolved;
     }
     return QString();
+}
+
+/**
+ * @brief 扫描原版启动器已经下载好的运行时目录。
+ *
+ * 原版启动器会把 Mojang 的运行时解压到
+ * %APPDATA%/.minecraft/runtime/<component>/，目录名与 version.json 里的
+ * javaVersion.component 一一对应（jre-legacy / java-runtime-alpha / beta /
+ * gamma / delta / epsilon）。直接复用这些运行时可以省掉一次完整的下载，
+ * 而且它们是 Mojang 针对该游戏版本挑选过的。
+ *
+ * @return 组件名到 java.exe 绝对路径的映射。
+ */
+QMap<QString, QString> scanVanillaRuntimeComponents() {
+    QMap<QString, QString> components;
+
+    QString appData = qEnvironmentVariable("APPDATA");
+    if (appData.isEmpty()) {
+        appData = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
+    }
+    if (appData.isEmpty()) {
+        return components;
+    }
+
+    QDir runtimeRoot(QDir(appData).absoluteFilePath(".minecraft/runtime"));
+    if (!runtimeRoot.exists()) {
+        return components;
+    }
+
+    const QStringList subdirs = runtimeRoot.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+    for (const QString &subdir : subdirs) {
+        const QString exe = QDir(runtimeRoot.absoluteFilePath(subdir)).absoluteFilePath("bin/java.exe");
+        if (verifyJavaExecutable(exe)) {
+            components[subdir] = exe;
+        }
+    }
+    return components;
 }
 
 bool extractZipWithPowerShell(const QString &zipFile, const QString &targetDir) {
@@ -199,6 +282,44 @@ QString findExtractedJava(const QString &rootDir) {
         }
     }
     return QString();
+}
+
+/**
+ * @brief 若目录下只有一个子目录且没有别的文件，则把该子目录的内容上移一层。
+ * @param dir 待压平的目录。
+ * @return 若发生了移动则返回 true.
+ *
+ * 所有 Java 运行时压缩包都自带一层以版本号命名的根目录（如 jdk-21.0.4+7-jre/），
+ * 压平一层之后布局才会稳定成 <base>/<component>/bin/java.exe，
+ * 与 scanLocalJavaVersions() 的目录约定一致。
+ */
+bool flattenSingleRootDir(const QString &dir) {
+    QDir root(dir);
+    if (!root.exists()) {
+        return false;
+    }
+
+    const QStringList entries = root.entryList(QDir::Dirs | QDir::Files | QDir::NoDotAndDotDot);
+    if (entries.size() != 1) {
+        return false;
+    }
+
+    QDir onlyChild(root.absoluteFilePath(entries.first()));
+    if (!onlyChild.exists()) {
+        return false;  // 唯一项是个文件，没什么可压平的
+    }
+
+    const QStringList children =
+        onlyChild.entryList(QDir::Dirs | QDir::Files | QDir::NoDotAndDotDot);
+    for (const QString &child : children) {
+        const QString target = root.absoluteFilePath(child);
+        if (QFileInfo::exists(target)) {
+            continue;
+        }
+        QDir().rename(onlyChild.absoluteFilePath(child), target);
+    }
+    onlyChild.removeRecursively();
+    return true;
 }
 
 bool downloadFileToLocal(const QUrl &url, const QString &destinationPath) {
@@ -225,10 +346,22 @@ bool downloadFileToLocal(const QUrl &url, const QString &destinationPath) {
     return true;
 }
 
+/**
+ * @brief 按 version.json 里声明的 component 名下载对应的 Java 运行时。
+ * @param destinationDir 运行时根目录（通常是 <.minecraft>/java）。
+ * @param component Mojang 的运行时组件名，如 java-runtime-epsilon。
+ * @param javaPathOut 解压后找到的 java.exe 路径。
+ * @return 若下载并解压成功则返回 true.
+ */
 bool downloadJavaRuntime(const QString &destinationDir, const QString &component,
                          QString *javaPathOut) {
     QList<QUrl> urls;
-    if (component == "java-runtime-gamma") {
+    if (component == "java-runtime-epsilon") {
+        // Java 25 —— Minecraft 26.1 及以后要求该运行时
+        urls = {QUrl("https://download.oracle.com/java/25/latest/jdk-25_windows-x64_bin.zip"),
+                QUrl("https://download.bell-sw.com/java/25.0.2+12/"
+                     "bellsoft-jdk25.0.2+12-windows-amd64.zip")};
+    } else if (component == "java-runtime-gamma" || component == "java-runtime-delta") {
         // Java 21
         urls = {
             QUrl("https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.4+7/"
@@ -255,20 +388,28 @@ bool downloadJavaRuntime(const QString &destinationDir, const QString &component
             QUrl("https://download.bell-sw.com/java/21.0.4+7/bellsoft-jre21.0.4+7-win-amd64.zip")};
     }
 
-    QDir().mkpath(destinationDir);
-    QString tempZip = QDir(destinationDir).absoluteFilePath("java_runtime.zip");
+    // 以 component 名为子文件夹，下载和解压内容都放进去
+    const QString subDir = QDir(destinationDir).absoluteFilePath(component);
+    QDir().mkpath(subDir);
+    const QString tempZip = QDir(subDir).absoluteFilePath("java_runtime.zip");
 
     for (const QUrl &url : urls) {
         if (!downloadFileToLocal(url, tempZip)) {
             continue;
         }
 
-        if (!extractZipWithPowerShell(tempZip, destinationDir)) {
+        // 解压到子文件夹
+        if (!extractZipWithPowerShell(tempZip, subDir)) {
             continue;
         }
         QFile::remove(tempZip);
 
-        QString javaPath = findExtractedJava(destinationDir);
+        // 压平压缩包自带的那层版本号根目录，得到 <component>/bin/java.exe
+        flattenSingleRootDir(subDir);
+
+        // NOTE: 必须在刚解压的子目录里找。搜索父目录会命中别的 component
+        // 之前解压好的 java.exe，导致版本看起来"匹配"其实不是这一份。
+        const QString javaPath = findExtractedJava(subDir);
         if (!javaPath.isEmpty()) {
             if (javaPathOut) {
                 *javaPathOut = javaPath;
@@ -328,37 +469,33 @@ QMap<int, QString> GlobalJavaSettings::scanLocalJavaVersions() {
     const QString javaDir = QCoreApplication::applicationDirPath() + "/.minecraft/java";
 
     QDir dir(javaDir);
-    if (!dir.exists()) {
-        return versions;
+    if (dir.exists()) {
+        const QStringList subdirs = dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+        for (const QString &subdir : subdirs) {
+            const QString javaExe = dir.absoluteFilePath(subdir + "/bin/java.exe");
+            QString versionOutput;
+            if (!verifyJavaExecutable(javaExe, &versionOutput)) {
+                continue;
+            }
+            const int majorVersion = parseJavaMajorVersion(versionOutput);
+            if (majorVersion > 0) {
+                versions[majorVersion] = javaExe;
+            }
+        }
     }
 
-    QStringList subdirs = dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
-    for (const QString &subdir : subdirs) {
-        QString versionPath = dir.absoluteFilePath(subdir);
-        QString javaExe = QDir(versionPath).absoluteFilePath("bin/java.exe");
-
-        if (QFileInfo(javaExe).exists()) {
-            // Try to get version from java -version
-            QString versionOutput;
-            if (runProcess(javaExe, {"-version"}, nullptr, &versionOutput, 5000)) {
-                // Parse version, e.g., "java version "1.8.0_412"" or "openjdk version "21.0.3""
-                QRegularExpression regex("version \"([^\"]+)\"");
-                QRegularExpressionMatch match = regex.match(versionOutput);
-                if (match.hasMatch()) {
-                    QString versionStr = match.captured(1);
-                    int majorVersion = 0;
-                    if (versionStr.startsWith("1.")) {
-                        // Java 8: 1.8.0_412 -> 8
-                        majorVersion = versionStr.split(".")[1].toInt();
-                    } else {
-                        // Java 9+: 21.0.3 -> 21
-                        majorVersion = versionStr.split(".")[0].toInt();
-                    }
-                    if (majorVersion > 0) {
-                        versions[majorVersion] = javaExe;
-                    }
-                }
-            }
+    // 原版启动器已经下载好的运行时（jre-legacy / java-runtime-*）同样可以复用，
+    // 省掉一次完整下载。这里用 first-wins，优先保留启动器自己下载的那一份。
+    const QMap<QString, QString> vanillaComponents = scanVanillaRuntimeComponents();
+    for (auto it = vanillaComponents.cbegin(); it != vanillaComponents.cend(); ++it) {
+        QString versionOutput;
+        if (!verifyJavaExecutable(it.value(), &versionOutput)) {
+            continue;
+        }
+        const int majorVersion = parseJavaMajorVersion(versionOutput);
+        if (majorVersion > 0 && !versions.contains(majorVersion)) {
+            qDebug() << "Reusing vanilla launcher runtime" << it.key() << "for Java" << majorVersion;
+            versions[majorVersion] = it.value();
         }
     }
 
@@ -398,6 +535,8 @@ bool GlobalJavaSettings::downloadJavaFromMojang(int majorVersion) {
 
     // Find Windows x64 JRE
     QString downloadUrl;
+    QString jreUrl;
+    QString jdkUrl;
     for (const QJsonValue &asset : assets) {
         QJsonObject assetObj = asset.toObject();
         QJsonObject binary = assetObj["binary"].toObject();
@@ -406,18 +545,28 @@ bool GlobalJavaSettings::downloadJavaFromMojang(int majorVersion) {
         QString arch = binary["architecture"].toString();
         QString imageType = binary["image_type"].toString();
 
-        if (os == "windows" && arch == "x64" && imageType == "jre") {
+        if (os == "windows" && arch == "x64") {
             QJsonObject package = binary["package"].toObject();
-            downloadUrl = package["link"].toString();
-            qDebug() << "Found Windows x64 JRE download URL:" << downloadUrl;
-            break;
+            const QString link = package["link"].toString();
+            if (link.isEmpty()) {
+                continue;
+            }
+            // Adoptium 对较新的 Java（25+）未必发布 JRE 构建，所以优先取 JRE，
+            // 没有 JRE 时退回 JDK —— 两者都能跑游戏，JDK 只是体积大一些。
+            if (imageType == "jre" && jreUrl.isEmpty()) {
+                jreUrl = link;
+            } else if (imageType == "jdk" && jdkUrl.isEmpty()) {
+                jdkUrl = link;
+            }
         }
     }
 
+    downloadUrl = jreUrl.isEmpty() ? jdkUrl : jreUrl;
     if (downloadUrl.isEmpty()) {
-        qDebug() << "No suitable Windows x64 JRE found in Adoptium API response";
+        qDebug() << "No suitable Windows x64 JRE/JDK found in Adoptium API response";
         return false;
     }
+    qDebug() << "Chosen download URL:" << downloadUrl;
 
     // Download the zip
     const QString downloadDir =
@@ -443,6 +592,10 @@ bool GlobalJavaSettings::downloadJavaFromMojang(int majorVersion) {
     qDebug() << "ZIP extracted successfully";
     QFile::remove(tempZip);
 
+    // 压平压缩包自带的版本号根目录，使布局稳定为 java/<majorVersion>/bin/java.exe，
+    // 这样 scanLocalJavaVersions() 下次能直接认得出来。
+    flattenSingleRootDir(downloadDir);
+
     qDebug() << "Finding extracted Java...";
     QString javaPath = findExtractedJava(downloadDir);
     if (!javaPath.isEmpty()) {
@@ -458,31 +611,27 @@ bool GlobalJavaSettings::downloadJavaFromMojang(int majorVersion) {
 /**
  * @brief Ensures the correct Java version is available for the specified Minecraft version.
  *
- * Checks if the currently configured Java matches the required major version.
- * If not, scans local installations, environment variables, and downloads
- * the appropriate Java runtime from Mojang if necessary.
+ * 候选顺序：已配置路径 → 本地已安装运行时（含原版启动器下载的 java-runtime-*）
+ * → JAVA_HOME/JDK_HOME → PATH → 常见安装目录 → 按 component 下载 → 按主版本下载。
+ * 前五个来源找到的 Java **必须主版本匹配**才采用，否则会静默选中错误的 Java
+ * （例如拿 Java 21 去启动需要 Java 25 的 26.x，只会得到 UnsupportedClassVersionError）。
  *
- * @param majorVersion Required Java major version (e.g., 8, 11, 17, 21)
+ * @param majorVersion Required Java major version (e.g., 8, 11, 17, 21, 25)
+ * @param component Optional runtime component name from version.json,
+ *        e.g. "java-runtime-epsilon"
  * @return true if appropriate Java is available and configured, false otherwise
  */
-bool GlobalJavaSettings::ensureJavaForVersion(int majorVersion) {
-    qDebug() << "Ensuring Java for version:" << majorVersion;
+bool GlobalJavaSettings::ensureJavaForVersion(int majorVersion, const QString &component) {
+    qDebug() << "Ensuring Java for version:" << majorVersion << "component:" << component;
 
     // First, check if we already have the correct version configured
-    if (!m_javaPath.isEmpty() && verifyJavaExecutable(m_javaPath)) {
-        // Check if the configured Java matches the required version
-        QString versionOutput;
-        if (verifyJavaExecutable(m_javaPath, &versionOutput)) {
-            int currentVersion = parseJavaMajorVersion(versionOutput);
-            if (currentVersion == majorVersion) {
-                qDebug() << "Using configured Java version" << currentVersion
-                         << "at:" << m_javaPath;
-                return true;
-            } else {
-                qDebug() << "Configured Java version" << currentVersion
-                         << "does not match required version" << majorVersion;
-            }
+    if (!m_javaPath.isEmpty()) {
+        if (javaMatchesMajor(m_javaPath, majorVersion)) {
+            qDebug() << "Using configured Java version" << majorVersion << "at:" << m_javaPath;
+            return true;
         }
+        qDebug() << "Configured Java does not match required version" << majorVersion << ":"
+                 << m_javaPath;
     }
 
     // Scan local Java versions
@@ -496,35 +645,47 @@ bool GlobalJavaSettings::ensureJavaForVersion(int majorVersion) {
     }
 
     // Try to find in environment
-    QString candidate = findJavaInEnvironment();
+    QString candidate = findJavaInEnvironment(majorVersion);
     if (!candidate.isEmpty()) {
-        // TODO: Verify version matches requirement before using
-        qDebug() << "Found Java in environment:" << candidate;
+        qDebug() << "Found matching Java in environment:" << candidate;
         m_javaPath = candidate;
         save();
         return true;
     }
 
-    candidate = findJavaOnPath();
+    candidate = findJavaOnPath(majorVersion);
     if (!candidate.isEmpty()) {
-        // TODO: Verify version matches requirement before using
-        qDebug() << "Found Java on PATH:" << candidate;
+        qDebug() << "Found matching Java on PATH:" << candidate;
         m_javaPath = candidate;
         save();
         return true;
     }
 
-    candidate = findJavaInCommonLocations();
+    candidate = findJavaInCommonLocations(majorVersion);
     if (!candidate.isEmpty()) {
-        // TODO: Verify version matches requirement before using
-        qDebug() << "Found Java in common locations:" << candidate;
+        qDebug() << "Found matching Java in common locations:" << candidate;
         m_javaPath = candidate;
         save();
         return true;
     }
 
-    // Download from Mojang
-    qDebug() << "No matching Java found, downloading version" << majorVersion << "from Mojang...";
+    // 按 version.json 声明的 component 下载对应运行时
+    if (!component.isEmpty()) {
+        qDebug() << "Downloading runtime component" << component << "for Java" << majorVersion;
+        const QString javaBase = QCoreApplication::applicationDirPath() + "/.minecraft/java";
+        QString downloaded;
+        if (downloadJavaRuntime(javaBase, component, &downloaded) &&
+            javaMatchesMajor(downloaded, majorVersion)) {
+            qDebug() << "Downloaded and verified Java" << majorVersion << "at:" << downloaded;
+            m_javaPath = downloaded;
+            save();
+            return true;
+        }
+        qDebug() << "Component" << component << "did not provide a matching Java, falling back";
+    }
+
+    // Download from Adoptium as a last resort
+    qDebug() << "No matching Java found, downloading version" << majorVersion << "from Adoptium...";
     if (downloadJavaFromMojang(majorVersion)) {
         qDebug() << "Downloaded Java version" << majorVersion;
         return true;
