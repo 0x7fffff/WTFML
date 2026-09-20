@@ -24,7 +24,11 @@ public:
     // Version management
     // 扫 .minecraft/versions，返回磁盘上真正装好了的版本号（以 <id>.jar 存在为准）。
     // 一个都没有时返回空列表，不再塞 "自定义版本" 占位项。
-    QStringList installedVersions() const;
+    //
+    // warnings 是可选的收集器：当某个目录里**有 jar、但 jar 名和目录名对不上**时，
+    // 往里追加一句说明。这种实例在真机上真实存在（用户手动改过目录名），判据不放松，
+    // 但用户得知道为什么它没出现在列表里。传 nullptr 时行为与以前完全一致。
+    QStringList installedVersions(QStringList *warnings = nullptr) const;
     QStringList availableVersions() const;
     QString getLatestVersion(const QString &type = "release") const;
 

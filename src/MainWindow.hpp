@@ -70,6 +70,9 @@ private:
     // 下载是否在进行中。注意不能只问 m_versionManager：从点击"下载"到版本 JSON
     // 拉回来之前，VersionManager 那边还没有任何批次，这段时间也得算"忙"。
     bool m_downloadInFlight = false;
+    // "有版本目录但 jar 名对不上"这件事是否已经写过日志。refreshInstalledVersions()
+    // 一次会话会被调三次，不记一笔就是同样的告警刷三遍。
+    bool m_reportedUnrecognizedVersions = false;
     // 进度按网络分片到达（5000 多个 asset），节流一下再刷界面
     QElapsedTimer m_progressThrottle;
 };

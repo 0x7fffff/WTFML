@@ -258,15 +258,27 @@ void MainWindow::appendLog(const QString &text) { m_ui->getLogTextEdit()->append
 
 void MainWindow::refreshInstalledVersions() {
     // 只扫本地磁盘（.minecraft/versions/<id>/<id>.jar），同步返回，随叫随到。
-    const QStringList installed = m_versionManager->installedVersions();
+    //
+    // 识别不出来的版本只在第一次上报：本函数一次会话会被调三次（构造、版本列表到达、
+    // 下载完成），每回都报就是刷屏。第一次报过之后连扫都不扫了 —— 传 nullptr 时
+    // installedVersions() 走的是和加这个参数之前完全一样的那条路径。
+    QStringList warnings;
+    const QStringList installed = m_versionManager->installedVersions(
+        m_reportedUnrecognizedVersions ? nullptr : &warnings);
+    if (!warnings.isEmpty()) {
+        m_reportedUnrecognizedVersions = true;
+        for (const QString &warning : warnings) {
+            appendLog(warning);
+        }
+    }
 
     QComboBox *combo = m_ui->getInstalledVersionCombo();
     QList<VersionDisplayParts> parts;
     parts.reserve(installed.size());
     for (const QString &id : installed) {
-        // 每个版本读一次 <id>/wtfml.meta（几百字节、可选文件）。版本数量是个位数，
-        // 而 refreshInstalledVersions() 一次会话最多被调三次，不值得缓存 —— 缓存了
-        // 反而会变成"重命名之后不生效"。
+        // 每个版本读一次 <id>/wtfml.meta（几百字节的可选文件，绝大多数版本没有）。
+        // 刻意不缓存：这个文件会被"重命名"功能改写，缓存了就会变成"改了名不生效"。
+        // 开销上不必担心 —— 一次会话最多调三次，而真机上实例数可以到 61 个。
         parts.append(m_versionManager->displayParts(id));
     }
     fillVersionCombo(combo, parts, m_settings->versionNameOptions());

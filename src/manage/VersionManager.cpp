@@ -40,7 +40,7 @@ VersionManager::~VersionManager() {
     // DownloadManager is automatically deleted as child
 }
 
-QStringList VersionManager::installedVersions() const {
+QStringList VersionManager::installedVersions(QStringList *warnings) const {
     QStringList versions;
 
     // Scan for installed versions in .minecraft/versions
@@ -55,6 +55,24 @@ QStringList VersionManager::installedVersions() const {
             QString jarPath = AppPaths::versionJarPath(versionDir);
             if (QFile::exists(jarPath)) {
                 versions.append(versionDir);
+                continue;
+            }
+            // 到这里说明目录名和 jar 名对不上。判据本身**不改** —— 放宽成"目录里有任意
+            // .jar 就算已安装"会把下载中途失败留下的半个版本也收进来。但必须让用户知道
+            // 有些东西被忽略了，因为这种实例在真机上确实存在：用户手动改了目录名，
+            // 却没改里面的 jar 名（`原版ATT2地图（无模组）/` 里躺着的是
+            // `ATT2原版地图（无模组）.jar`，388 MB / 851 MB 的整合包各一个）。
+            // 改之前的表现是它们从列表里静默消失，观感就是"启动器少了两三个版本"。
+            if (warnings == nullptr) {
+                continue;
+            }
+            const QStringList jars = QDir(AppPaths::versionDir(versionDir))
+                                         .entryList(QStringList() << QStringLiteral("*.jar"),
+                                                    QDir::Files);
+            if (!jars.isEmpty()) {
+                warnings->append(
+                    tr("目录 %1 里的 jar 叫「%2」，与目录名不一致，已忽略（目录改过名？）。")
+                        .arg(versionDir, jars.join(QStringLiteral("、"))));
             }
         }
     }
@@ -63,6 +81,11 @@ QStringList VersionManager::installedVersions() const {
     // QListWidget 不至于空着。那是界面层的占位职责，混进数据层之后调用方还得反过来
     // 判 versionId == "自定义版本" 才能把它拒掉（MainWindow 里写了两处）。
     // 现在空就是空：界面用下拉框的 placeholderText 表达"没有可选版本"。
+    //
+    // NOTE: versions/ 里除了真正的版本目录，还可能有用户随手丢进去的整合包 .zip
+    // （真机 4 个、共 935 MB）和纯空目录（真机有个 0 字节的 `26.2hyperland`）。
+    // 上面的 QDir::Dirs 过滤 + <id>.jar 判据已经把这两类都正确排除了，jars 为空也就
+    // 不会上报 —— 别为了"看起来更宽松"把 .zip 也当版本收进来。
     return versions;
 }
 
@@ -303,8 +326,10 @@ VersionDisplayParts VersionManager::displayParts(const QString &versionId) const
     }
 
     // NOTE: 这里刻意**不缓存**。getVersionJson() 能缓存是因为版本 JSON 一旦下载就不再变，
-    // 而这个文件将来会被"重命名"功能改写——缓存就会变成"改了名不生效"的 bug。
-    // N 只有个位数，而 refreshInstalledVersions() 一次会话最多被调三次。
+    // 而这个文件会被"重命名"功能改写——缓存就会变成"改了名不生效"的 bug。
+    // 开销不是不缓存的理由：调用方 refreshInstalledVersions() 一次会话最多被调三次，
+    // 每次每个版本一个 exists() 加（有文件时才有的）几百字节读取。真机上实例数可以到
+    // 61 个，也仍然是可忽略的量级 —— 所以别再拿"数量少"当论据，真正的理由是上面那条。
     return parts;
 }
 
