@@ -3,6 +3,8 @@
 #include <QObject>
 #include <QString>
 
+#include "../util/SystemMemory.hpp"
+
 /**
  * @file GlobalJavaSettings.hpp
  * @brief Declares Java runtime configuration and version management.
@@ -112,6 +114,61 @@ public:
      */
     void setXms(int mbytes);
 
+    // ------------------------------------------------------------------
+    // 「内存分配」自动档：按系统内存算 Xmx/Xms
+    // ------------------------------------------------------------------
+    // NOTE: 「自动」是**每次要用的时候现算**，不是启动时算一次就存下来 —— 同一台机器
+    //       开着浏览器和什么都没开，可用内存能差好几 GB，而 JVM 只认启动那一刻的机器状态。
+    //       所以 LauncherManager 生成命令行之前会再算一次（见 MainWindow 里那处调用）。
+
+    /// 自动档是不是开着。默认 true；老配置（没有这个键）按"用户有没有自己调过"判断，
+    /// 见 load()。
+    bool autoMemory() const { return m_memoryAuto; }
+
+    /// 设置自动档并立刻落盘。**不动** m_xmx/m_xms —— 值由 refreshSuggestedMemory() 管。
+    void setAutoMemory(bool autoMemory);
+
+    /**
+     * @brief 自动档下按当前系统内存重算一次 Xmx/Xms。
+     *
+     * 手动档下**什么都不做**（一个数字都不许碰），但仍然返回这次的系统读数 ——
+     * 界面要拿它写"这台机器现在有多少内存"那句说明。
+     *
+     * @return 这次的系统内存读数（读不到时两个字段都是 0）。
+     */
+    SystemMemory::Usage refreshSuggestedMemory();
+
+    /**
+     * @brief 建议的最大内存（MB）。
+     * @param totalMb 系统物理内存总量；<= 0 表示读不到。
+     * @param availableMb 当前可用内存；<= 0 表示读不到。
+     *
+     * 规则（纯函数，验证工程直接钉这张表，不用去问真的系统），按这个先后顺序：
+     *   1. total/4 —— "这台机器该分多少给游戏"的经验值
+     *   2. available/2 —— "现在还剩多少能拿，留一半给别的程序"，和上面取小的
+     *   3. 夹进 [1024, 8192]
+     *   4. 再套物理内存一半的硬顶（小机器上这一步会压过下限，见下）
+     *   5. 向下取整到 256 的整数倍，但不小于 256（JVM 侧 setXmx 的下限）
+     *
+     * 为什么是这几个数：
+     *   - 上限 8192：再往上是要跑几百个模组的人才会用的量，留给手动档自己填。
+     *   - 下限 1024：再小的 Xmx 连原版 1.20 都紧张。
+     *   - 4 排在 3 之后是有意的：2 GB 的机器给 1024 已经是一半内存了，1 GB 的机器只该给
+     *     512 —— 在一条本来就紧张的机器上按"最少 1 GB"硬凑，只会让 JVM 连堆都开不起来。
+     *   - 256 的整数倍：和界面那两个框的步长一致，免得框里出现 3071 这种数。
+     */
+    static int suggestXmxMb(qint64 totalMb, qint64 availableMb);
+
+    /**
+     * @brief 建议的最小内存（MB）：Xmx 的四分之一，夹在 [512, Xmx]。
+     * @param xmxMb 已经定下来的最大内存。
+     *
+     * Xms > Xmx 会让 JVM 拒绝启动（Initial heap size ... larger than the maximum
+     * heap size），所以 Xmx 比 512 还小时下限跟着退到 Xmx 上（setXmx 的下限是 256，
+     * 256 那档就返回 256）—— 返回值**永远不会**大于 xmxMb。
+     */
+    static int suggestXmsMb(int xmxMb);
+
     /**
      * @brief Returns extra JVM arguments configured by the user.
      *
@@ -149,4 +206,7 @@ private:
     /// 「Java 版本」选的是不是自动档。默认 true —— 这就是加这一项之前的唯一行为，
     /// 所以老配置文件（没有这个键）读回来仍然是老行为。
     bool m_autoSelectJava = true;
+    /// 「内存分配」选的是不是自动档（按系统内存算）。默认 true 的理由同上；
+    /// 老配置的例外处理见 load()。
+    bool m_memoryAuto = true;
 };

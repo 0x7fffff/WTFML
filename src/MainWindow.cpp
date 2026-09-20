@@ -42,6 +42,24 @@
 namespace {
 
 /**
+ * @brief 把 MB 数说成人话：1 GB 以上按 GB 显示一位小数，否则按 MB。
+ * @param mb 内存量（MB）；<= 0 表示"读不到"。
+ * @return 给界面看的字符串；读不到时是空串（调用方自己决定怎么说这件事）。
+ *
+ * 只说数字和单位，不带句子 —— 句子在 MainWindow 里拼，那里有 tr()。这个文件里的
+ * 自由函数没有翻译上下文，别在这儿硬塞中文句子。
+ */
+QString humanMemorySize(qint64 mb) {
+    if (mb <= 0) {
+        return QString();
+    }
+    if (mb >= 1024) {
+        return QStringLiteral("%1 GB").arg(QString::number(double(mb) / 1024.0, 'f', 1));
+    }
+    return QStringLiteral("%1 MB").arg(mb);
+}
+
+/**
  * @brief 读下拉框里选中的版本号（**不是**显示文本）。
  * @param combo 版本下拉框。
  * @return 选中的版本号；没选中任何项时返回空串。
@@ -344,7 +362,12 @@ void MainWindow::setupConnections() {
     // 「Java 版本」：选自动，或者钉死一个具体运行时。
     connect(m_ui->getJavaVersionCombo(), &QComboBox::currentIndexChanged, this,
             &MainWindow::onJavaSelectionChanged);
-    // 内存：两个 spin 共用一个槽。谁改的在这里区分不了（也不该区分，见 onMemoryChanged）。
+    // 内存：先接「自动 / 手动」总开关，再接两个数字框。
+    // 自动档下两个框是禁用的（见 refreshMemoryUi），所以"用户改数字"这件事只可能发生在
+    // 手动档，onMemoryChanged 里那句 autoMemory() 守卫是给程序内部 setValue 兜底的。
+    connect(m_ui->getMemoryAutoCheck(), &QCheckBox::toggled, this,
+            &MainWindow::onMemoryAutoChanged);
+    // 两个 spin 共用一个槽。谁改的在这里区分不了（也不该区分，见 onMemoryChanged）。
     connect(m_ui->getMemoryMaxSpin(), &QSpinBox::valueChanged, this,
             &MainWindow::onMemoryChanged);
     connect(m_ui->getMemoryMinSpin(), &QSpinBox::valueChanged, this,
@@ -657,8 +680,6 @@ void MainWindow::applySettingsToUi() {
     // 不挡的话每条 currentIndexChanged/valueChanged 都会触发一遍"保存"，白写几次盘，
     // 更要紧的是那几条槽里还夹着真动作（改「版本名格式」会重刷两张版本列表）。
     const QSignalBlocker blockJava(m_ui->getJavaVersionCombo());
-    const QSignalBlocker blockMax(m_ui->getMemoryMaxSpin());
-    const QSignalBlocker blockMin(m_ui->getMemoryMinSpin());
     const QSignalBlocker blockBehaviour(m_ui->getLauncherBehaviourCombo());
     const QSignalBlocker blockSource(m_ui->getDownloadSourceCombo());
     const QSignalBlocker blockCustom(m_ui->getVersionNameCustomCheck());
@@ -681,8 +702,9 @@ void MainWindow::applySettingsToUi() {
     updateJavaPathLabel();
 
     // ---------- 内存分配 ----------
-    m_ui->getMemoryMaxSpin()->setValue(m_javaSettings->xmx());
-    m_ui->getMemoryMinSpin()->setValue(m_javaSettings->xms());
+    // 交给 refreshMemoryUi()：自动档下它要按当前系统内存算一遍值、禁用两个框、写说明
+    // 文字，还要落盘。两个 spin 的信号在那边自己挡（这里的局部 blocker 就不再重复了）。
+    refreshMemoryUi();
 
     // ---------- 启动后 ----------
     // 枚举值存在 itemData 里，文案是这里的 tr()。两边的对应关系只在这四行里。
@@ -763,7 +785,10 @@ void MainWindow::onMainTabChanged() {
     // 底栏右下角的显示规则依赖"当前是不是在主页"，切页就得重算。
     updateBottomBar();
     if (m_ui->getTabWidget()->currentIndex() == MainWindowUI::settingsTabIndex()) {
+        // 进设置页才做的两件事：扫 Java（要跑几次 `java -version`）、重算自动档内存
+        // （可用内存是个一直在变的数，用户看到的那句说明得是**现在**的）。
         refreshJavaList();
+        refreshMemoryUi();
     }
 }
 
@@ -782,7 +807,74 @@ void MainWindow::onJavaSelectionChanged() {
     updateJavaPathLabel();
 }
 
+void MainWindow::refreshMemoryUi() {
+    // 自动档下这里会按**现在**的系统内存重算一次 Xmx/Xms。手动档下 refreshSuggestedMemory()
+    // 只读不动 —— 用户定好的两个数一个都不许改。
+    const SystemMemory::Usage usage = m_javaSettings->refreshSuggestedMemory();
+    const bool autoMemory = m_javaSettings->autoMemory();
+    if (autoMemory) {
+        // 自动算出来的值也落盘：盘上那份就是"上次按系统内存算出来的值"，用户从自动切到
+        // 手动时正好拿它当起点，也让"界面显示的就是盘上存的"这条一直成立。
+        m_javaSettings->save();
+    }
+
+    const QSignalBlocker blockCheck(m_ui->getMemoryAutoCheck());
+    const QSignalBlocker blockMax(m_ui->getMemoryMaxSpin());
+    const QSignalBlocker blockMin(m_ui->getMemoryMinSpin());
+    m_ui->getMemoryAutoCheck()->setChecked(autoMemory);
+    m_ui->getMemoryMaxSpin()->setValue(m_javaSettings->xmx());
+    m_ui->getMemoryMinSpin()->setValue(m_javaSettings->xms());
+    // 自动档下把两个框禁掉：里面是刚算出来的建议值，让人以为能改就是"改了不生效"。
+    m_ui->getMemoryMaxSpin()->setEnabled(!autoMemory);
+    m_ui->getMemoryMinSpin()->setEnabled(!autoMemory);
+
+    // 说明文字：把"这台机器有多少内存、现在还剩多少、最后给了多少"三件事说全 ——
+    // 自动档下用户看不到（也改不了）那两个数，只能靠这句话知道为什么是这个值。
+    const QString totalText = humanMemorySize(usage.totalMb);
+    const QString availableText = humanMemorySize(usage.availableMb);
+    if (usage.totalMb <= 0) {
+        // 读不到系统内存（非 Windows 平台或系统调用失败）：照实说，别让用户以为是"按你的
+        // 内存算的"。实际用的是内置默认值。
+        m_ui->getMemoryAutoHint()->setText(
+            tr("读不到系统内存，自动分配用的是内置默认值（最大 %1 MB / 最小 %2 MB）。")
+                .arg(m_javaSettings->xmx())
+                .arg(m_javaSettings->xms()));
+        return;
+    }
+    if (autoMemory) {
+        m_ui->getMemoryAutoHint()->setText(
+            tr("系统总内存 %1、当前可用 %2，自动给到 最大 %3 MB / 最小 %4 MB。"
+               "每次启动前都会按当时的可用内存重算。")
+                .arg(totalText, availableText)
+                .arg(m_javaSettings->xmx())
+                .arg(m_javaSettings->xms()));
+        return;
+    }
+    m_ui->getMemoryAutoHint()->setText(
+        tr("系统总内存 %1、当前可用 %2；现在是手动指定（最大 %3 MB / 最小 %4 MB）。")
+            .arg(totalText, availableText)
+            .arg(m_javaSettings->xmx())
+            .arg(m_javaSettings->xms()));
+}
+
+void MainWindow::onMemoryAutoChanged() {
+    const bool autoMemory = m_ui->getMemoryAutoCheck()->isChecked();
+    m_javaSettings->setAutoMemory(autoMemory);  // 内部落盘
+    // 切到自动：按当前系统内存算一次并禁掉两个框。切到手动：**留着**刚才那两个建议值，
+    // 用户是想微调，不是想从内置默认值重来（refreshMemoryUi 里那条 autoMemory() 守卫
+    // 保证手动档下不会去改值）。
+    refreshMemoryUi();
+    appendLog(autoMemory ? tr("内存分配：已改为按系统内存自动分配。")
+                         : tr("内存分配：已改为手动指定。"));
+}
+
 void MainWindow::onMemoryChanged() {
+    if (m_javaSettings->autoMemory()) {
+        // 自动档下这两个框是禁用的，用户改不到这里。真走到这一句（程序内部 setValue）
+        // 也不能把自动算出来的值当成"用户手动调的值"存下去 —— 那样下次进设置页就会看到
+        // 手动档亮着，而用户从没动过它。
+        return;
+    }
     int maxMb = m_ui->getMemoryMaxSpin()->value();
     const int minMb = m_ui->getMemoryMinSpin()->value();
 
@@ -980,6 +1072,11 @@ void MainWindow::onStartButtonClicked() {
                                  .arg(javaMajorVersion));
         return;
     }
+
+    // 自动档内存要**在这里**再算一次（不是开窗时算的那次）：从打开启动器到点下"启动"
+    // 可能过了很久，中间可能开了浏览器、IDE，可用内存差好几 GB，而 JVM 只认这一刻的机器
+    // 状态。手动档下这一句什么都不动。顺手也把设置页那两个框刷成这次实际用的值。
+    refreshMemoryUi();
 
     // 按版本的自定义参数来自 <id>/wtfml.meta 的 "jvmArgs"（PCL 那半边"自定义启动
     // 参数"的对应物）；全局那半边是 GlobalJavaSettings::extraJvmArgs()，在

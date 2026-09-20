@@ -36,6 +36,26 @@ static constexpr const char kXms[] = "Java/Xms";
 static constexpr const char kExtraArgs[] = "Java/ExtraArgs";
 /// 设置界面「Java 版本」那一项：true = 自动（按版本要求挑），false = 手动钉死。
 static constexpr const char kAutoSelect[] = "Java/AutoSelect";
+/// 「内存分配」是不是自动档（按系统内存算）。老配置没有这个键，见 load() 的处理。
+static constexpr const char kMemoryAuto[] = "Java/MemoryAuto";
+
+/// 内置默认内存（构造函数里的初值）。自动档算不出结果时的兜底值也是它，
+/// load() 判断"用户自己调过没有"时还是拿它当基准 —— 一共就这一处定义。
+static constexpr int kBuiltinXmxMb = 4096;
+static constexpr int kBuiltinXmsMb = 1024;
+
+/// 自动档的取值范围与步长（和界面那两个框保持一致：MainWindowUI::memoryLimitMaxMb()
+/// 与 memoryStepMb()）。数字框里的值必须是 256 的整数倍，否则用户会看到一个 3071。
+static constexpr int kAutoXmxMinMb = 1024;
+static constexpr int kAutoXmxMaxMb = 8192;
+static constexpr int kAutoXmsMinMb = 512;
+static constexpr int kAutoXmsMaxMb = 8192;
+static constexpr int kAutoStepMb = 256;
+
+/// 向下取整到步长的整数倍。
+int roundDownToStep(qint64 valueMb) {
+    return static_cast<int>(valueMb / kAutoStepMb * kAutoStepMb);
+}
 
 bool runProcess(const QString &program, const QStringList &arguments, QString *stdOut = nullptr,
                 QString *stdErr = nullptr, int timeoutMs = 5000) {
@@ -430,11 +450,13 @@ bool downloadJavaRuntime(const QString &destinationDir, const QString &component
 
 GlobalJavaSettings::GlobalJavaSettings(QObject *parent)
     : QObject(parent),
-      m_xmx(4096)  // 4GB
+      m_xmx(kBuiltinXmxMb)  // 4GB
       ,
-      m_xms(1024)  // 1GB
+      m_xms(kBuiltinXmsMb)  // 1GB
       ,
       m_extraJvmArgs(QStringLiteral("-XX:+UseG1GC")) {
+    // load() 里读回的 Xmx/Xms 可能是盘上存的值（手动档），也可能之后被自动档重算掉
+    // （第一次读设置页或第一次启动时）。构造函数这里只保证"没读过盘之前也是合法值"。
     load();
 }
 
@@ -463,6 +485,16 @@ void GlobalJavaSettings::load() {
     // 默认值取成员当前值（构造时是 true）：注册表里没这一项就落到"自动"，
     // 也就是加这个开关之前的行为。
     m_autoSelectJava = settings.value(kAutoSelect, m_autoSelectJava).toBool();
+
+    // 内存自动档对这个键做了一点额外的判断，**必须在读完 Xmx/Xms 之后**：
+    //   - 盘上有这个键 → 听用户的。
+    //   - 没有这个键（加自动档之前存下来的老配置）→ 值是内置默认值就说明用户没动过它，
+    //     按自动处理；不是内置默认值就说明用户自己调过（比如手填了 8192），按手动处理，
+    //     免得升级之后静默改掉他已经定好的内存。这条和"识别失败要说出来"是同一个态度：
+    //     不确定的时候不改用户的东西。
+    m_memoryAuto = settings.contains(kMemoryAuto)
+                       ? settings.value(kMemoryAuto).toBool()
+                       : (m_xmx == kBuiltinXmxMb && m_xms == kBuiltinXmsMb);
 }
 
 void GlobalJavaSettings::save() const {
@@ -472,6 +504,63 @@ void GlobalJavaSettings::save() const {
     settings.setValue(kXms, m_xms);
     settings.setValue(kExtraArgs, m_extraJvmArgs);
     settings.setValue(kAutoSelect, m_autoSelectJava);
+    settings.setValue(kMemoryAuto, m_memoryAuto);
+}
+
+void GlobalJavaSettings::setAutoMemory(bool autoMemory) {
+    m_memoryAuto = autoMemory;
+    // 和 setLauncherBehaviour() 一样：改完立刻落盘。注意**不在这里重算** Xmx/Xms ——
+    // 从手动切回自动时由 refreshSuggestedMemory() 算，从自动切到手动时两个框里留着
+    // 刚才的建议值当起点（用户是想微调，不是想从默认值重来）。
+    save();
+}
+
+int GlobalJavaSettings::suggestXmxMb(qint64 totalMb, qint64 availableMb) {
+    if (totalMb <= 0) {
+        // 读不到系统内存（非 Windows 平台、或者系统调用失败）：退回内置默认值。
+        // 这里**不**拿 availableMb 硬凑 —— 连总量都不知道，任何推算都是编的。
+        return kBuiltinXmxMb;
+    }
+
+    qint64 budget = totalMb / 4;
+    if (availableMb > 0) {
+        budget = qMin(budget, availableMb / 2);
+    }
+    // 先在"体面范围"里夹一次。三个参数都写成 qint64：常量是 int，混着传会让 qBound 的
+    // 重载解析变成二义的。
+    budget = qBound(qint64(kAutoXmxMinMb), budget, qint64(kAutoXmxMaxMb));
+    // 再套物理内存一半的硬顶。这一条**排在下限之后**是有意的：小机器上它会压过下限
+    // （2 GB 的机器给 1024 已经是一半了，1 GB 的机器只该给 512）—— 在一条本来就紧张的
+    // 机器上按"最少 1 GB"硬凑，只会让 JVM 连堆都开不起来，比给个小值更糟。
+    budget = qMin(budget, totalMb / 2);
+    // 但绝不小于 JVM 侧的下限（setXmx 会钳到 256）：返回一个会被 setter 悄悄改掉的值，
+    // 就是"界面显示的和实际用的不一致"。
+    return qMax(roundDownToStep(budget), 256);
+}
+
+int GlobalJavaSettings::suggestXmsMb(int xmxMb) {
+    // Xms 给 Xmx 的四分之一：太小会一直扩容（老版本的卡顿来源），太大等于一启动就占满。
+    //
+    // Xms **必须** <= Xmx，否则 JVM 直接起不来：
+    //   Error occurred during initialization of VM
+    //   Initial heap size set to a larger value than the maximum heap size
+    // 所以下限和上限要一起排好序再夹：Xmx 比 512 还小的时候（setXmx 的下限是 256），
+    // 下限得跟着退到 Xmx 上，直接写 qBound(512, x, xmx) 会变成 min > max，取到的值没有意义。
+    const int xmx = qMax(xmxMb, 256);
+    const int upper = qMin(xmx, kAutoXmsMaxMb);
+    const int quarter = roundDownToStep(xmx / 4);
+    return qBound(qMin(kAutoXmsMinMb, upper), quarter, upper);
+}
+
+SystemMemory::Usage GlobalJavaSettings::refreshSuggestedMemory() {
+    const SystemMemory::Usage usage = SystemMemory::read();
+    if (!m_memoryAuto) {
+        // 手动档：读还是要读（界面拿它写说明），但一个数字都不许动。
+        return usage;
+    }
+    setXmx(suggestXmxMb(usage.totalMb, usage.availableMb));
+    setXms(suggestXmsMb(m_xmx));
+    return usage;
 }
 
 QMap<int, QString> GlobalJavaSettings::scanLocalJavaVersions() {

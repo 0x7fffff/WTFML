@@ -62,6 +62,12 @@ private:
     /// 选项卡切换：底栏右下角要不要显示实例名、以及要不要扫 Java，都在这里收口。
     void onMainTabChanged();
     void onJavaSelectionChanged();
+    /// 把「内存分配」那一行画成当前状态：自动档按**现在**的系统内存重算并禁用两个数字框，
+    /// 手动档原样显示用户定的值；两种情况都要写那句"这台机器有多少内存"的说明。
+    /// 调用点：开窗灌值时、切到设置页时、真的要启动游戏之前（那一刻的可用内存才算数）。
+    void refreshMemoryUi();
+    /// 「自动（按系统内存）」勾选框。
+    void onMemoryAutoChanged();
     void onMemoryChanged();
     void onLauncherBehaviourChanged();
     void onDownloadSourceChanged();

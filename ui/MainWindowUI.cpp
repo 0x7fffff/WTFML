@@ -146,8 +146,9 @@ QWidget *makeHintedControl(QWidget *parent) {
     return box;
 }
 
-/// 往 makeHintedControl() 造出来的容器里加一句说明。
-void addHint(QWidget *box, const QString &text, QWidget *parent) {
+/// 往 makeHintedControl() 造出来的容器里加一句说明，并把标签还回去。
+/// 文字会随情况变的那几句用它（比如「内存分配」下面那句要说系统现在有多少内存）。
+QLabel *addDynamicHint(QWidget *box, const QString &text, QWidget *parent) {
     QLabel *hint = new QLabel(text, parent);
     hint->setWordWrap(true);
     QFont hintFont = hint->font();
@@ -157,6 +158,12 @@ void addHint(QWidget *box, const QString &text, QWidget *parent) {
     hintPalette.setColor(QPalette::WindowText, hintPalette.color(QPalette::PlaceholderText));
     hint->setPalette(hintPalette);
     qobject_cast<QVBoxLayout *>(box->layout())->addWidget(hint);
+    return hint;
+}
+
+/// 往 makeHintedControl() 造出来的容器里加一句说明。
+void addHint(QWidget *box, const QString &text, QWidget *parent) {
+    addDynamicHint(box, text, parent);
 }
 
 }  // namespace
@@ -430,6 +437,20 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
 
     // ---------- 内存分配 ----------
     addSectionTitle(grid, row++, QStringLiteral("内存分配"), form);
+    {
+        // 第一行是「自动 / 手动」的总开关。自动档下那两个数字框是**禁用**的 ——
+        // 它们显示的是刚算出来的建议值，让用户以为能改会变成"改了不生效"。
+        QWidget *box = makeHintedControl(form);
+        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        memoryAutoCheck = new QCheckBox(QStringLiteral("自动（按系统内存）"), box);
+        memoryAutoCheck->setObjectName(memoryAutoCheckName());
+        boxLayout->addWidget(memoryAutoCheck, 0, Qt::AlignLeft);
+        // 文字由 MainWindow 填（要说清系统总内存/当前可用/建议值），这里先给一句占位，
+        // 免得空标签把行高压成 0、布局跳一下。
+        memoryAutoHint = addDynamicHint(box, QStringLiteral("正在读取系统内存…"), form);
+        memoryAutoHint->setObjectName(memoryAutoHintName());
+        addSettingRow(grid, row++, QStringLiteral("分配方式"), box, form);
+    }
     {
         QWidget *box = makeHintedControl(form);
         auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());

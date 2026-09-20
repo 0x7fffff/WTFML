@@ -27,6 +27,7 @@ set(HEADER_FILES
     src/download/DownloadManager.hpp
     src/download/IntegrityChecker.hpp
     src/util/AppPaths.hpp
+    src/util/SystemMemory.hpp
     src/util/ZipUtil.hpp
 )
 
@@ -42,6 +43,7 @@ set(SOURCE_FILES
     src/settings/LauncherSettings.cpp
     src/download/DownloadManager.cpp
     src/download/IntegrityChecker.cpp
+    src/util/SystemMemory.cpp
     src/util/ZipUtil.cpp
     ui/MainWindowUI.cpp
     ${HEADER_FILES}

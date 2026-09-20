@@ -89,6 +89,10 @@ public:
     static QString settingsFormName() { return QStringLiteral("settingsForm"); }
     static QString javaVersionComboName() { return QStringLiteral("javaVersionCombo"); }
     static QString javaPathLabelName() { return QStringLiteral("javaPathLabel"); }
+    static QString memoryAutoCheckName() { return QStringLiteral("memoryAutoCheck"); }
+    /// 「内存分配」那一行下面那句说明。文字随系统内存变（可用内存不是一个定值），
+    /// 所以它是唯一一个要 MainWindow 反复改文字的 QLabel，得能按名字取回来。
+    static QString memoryAutoHintName() { return QStringLiteral("memoryAutoHint"); }
     static QString memoryMaxSpinName() { return QStringLiteral("memoryMaxSpin"); }
     static QString memoryMinSpinName() { return QStringLiteral("memoryMinSpin"); }
     static QString launcherBehaviourComboName() { return QStringLiteral("launcherBehaviourCombo"); }
@@ -178,6 +182,8 @@ public:
     // 那些设置存在哪、改了要不要落盘）。
     QComboBox *getJavaVersionCombo() const { return javaVersionCombo; }
     QLabel *getJavaPathLabel() const { return javaPathLabel; }
+    QCheckBox *getMemoryAutoCheck() const { return memoryAutoCheck; }
+    QLabel *getMemoryAutoHint() const { return memoryAutoHint; }
     QSpinBox *getMemoryMaxSpin() const { return memoryMaxSpin; }
     QSpinBox *getMemoryMinSpin() const { return memoryMinSpin; }
     QComboBox *getLauncherBehaviourCombo() const { return launcherBehaviourCombo; }
@@ -221,6 +227,8 @@ private:
     QListWidget *availableVersionList;
     QComboBox *javaVersionCombo;
     QLabel *javaPathLabel;
+    QCheckBox *memoryAutoCheck;
+    QLabel *memoryAutoHint;
     QSpinBox *memoryMaxSpin;
     QSpinBox *memoryMinSpin;
     QComboBox *launcherBehaviourCombo;
