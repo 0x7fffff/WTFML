@@ -1618,6 +1618,18 @@ void MainWindow::onStartButtonClicked() {
         return;
     }
 
+    // 继承链不完整（带模组加载器的版本最常见：它基于的原版没装）时**现在就说清楚**。
+    //
+    // 必须单列这一步，不能靠上面那句"版本信息缺失"：加载器版本自己那份 json 是**在**的，
+    // 缺的是原版那份。用户照着"请重新下载该版本"做，下回来的还是同一个加载器版本，
+    // 问题原样复现。
+    const QString inheritanceProblem = m_versionManager->inheritanceProblem(versionId);
+    if (!inheritanceProblem.isEmpty()) {
+        appendLog(tr("版本继承链不完整：%1").arg(versionId));
+        QMessageBox::warning(this, tr("版本不完整"), inheritanceProblem);
+        return;
+    }
+
     // 旧格式（1.18.2 及以下）的 natives 必须先落地，否则会被 checkPreLaunch 拦下。
     // 该方法自带守卫，已经解压过的版本直接返回，不会重复解压。
     QStringList nativeErrors;

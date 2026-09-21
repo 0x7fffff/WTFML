@@ -503,20 +503,19 @@ QList<Library> DownloadManager::extractLibraries(const QJsonObject &versionJson)
             continue;
         }
 
-        QJsonObject downloads = libObj["downloads"].toObject();
-        QJsonObject artifact = downloads["artifact"].toObject();
-        QString artifactPath = artifact["path"].toString();
-        QString artifactUrl = artifact["url"].toString();
-
         // NOTE: 1.12.2 里有 2 个库完全没有 artifact（只有 classifiers），
         // 旧代码会拿空 url 和 "dir/" 这样的空 path 去发起下载，产生幽灵请求。
-        if (!artifactPath.isEmpty() && !artifactUrl.isEmpty()) {
+        //
+        // 解析（含 maven 风格的库）在 LibraryRules::artifactFor() —— 启动时拼 classpath
+        // 用的是同一个函数，两处的语义不会各自漂移。
+        const LibraryRules::Artifact artifact = LibraryRules::artifactFor(libObj);
+        if (artifact.valid()) {
             Library lib;
             lib.name = libObj["name"].toString();
-            lib.url = artifactUrl;
-            lib.sha1 = artifact["sha1"].toString();
-            lib.size = artifact["size"].toVariant().toLongLong();
-            lib.path = artifactPath;
+            lib.url = artifact.url;
+            lib.sha1 = artifact.sha1;
+            lib.size = artifact.size;
+            lib.path = artifact.path;
             libraries.append(lib);
         }
 

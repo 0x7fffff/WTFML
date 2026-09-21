@@ -53,7 +53,26 @@ public:
     void setUseMirror(bool useMirror);
 
     // Version JSON access
+    //
+    // **返回的是走完继承链、合并好的那一份**（见 VersionInheritance）：带模组加载器的版本
+    // 自己那份 json 里没有主 jar、assetIndex、javaVersion、游戏参数，也没有主类 —— 那些
+    // 全在它基于的原版那份里。要是把原始那份直接交给启动路径，症状是"assetIndex 退回 29、
+    // Java 退回 21、主类还是原版的 Main"，也就是**加载器像没装一样**。
+    //
+    // 合并结果按 id 缓存（版本 JSON 一旦落盘就不再变，合并结果同理）。原始那份另有一个
+    // 缓存，下载路径用的仍是原始的 —— 写进磁盘的必须是原样的 json，不能是我们合并出来的
+    // 那一份（加载器的安装器、别的启动器都按原样读它）。见 rawVersionJson()。
     QJsonObject getVersionJson(const QString &versionId) const;
+
+    // 这个版本的继承链有没有问题：没问题返回空串，有问题返回给用户看的一句话（父版本
+    // 没装 / 链成环 / 链太长）。
+    //
+    // 为什么单独一个函数：`getVersionJson()` 遇到父版本缺失时只能给出"合不完整的那一份"，
+    // 而它的调用方（启动路径）分不出"这份 json 本来就长这样"和"父版本没装" —— 后者
+    // 必须弹窗说清楚（要用户去装原版），照抄原来那句"请重新下载该版本"会把人引到死路上。
+    //
+    // NOTE: 只读，不写盘。它在启动路径上被调用。
+    QString inheritanceProblem(const QString &versionId) const;
 
     // 读某个版本参与"显示名"的那些部分（自定义名、模组加载器名/版本）。
     // 数据源是 <id>/wtfml.meta 这个可选文件，读不到就全是空串、显示名退化成纯版本号。
@@ -195,10 +214,17 @@ private:
     QJsonObject readVersionMeta(const QString &versionId, QString *metaPathOut = nullptr,
                                 bool *unreadableOut = nullptr) const;
 
+    // 磁盘/网络上的那一份，**原样**，不走继承链。getVersionJson() 和继承链的走法都从
+    // 这里取数；下载路径（写 `<id>.json` 落盘）也只用它。
+    QJsonObject rawVersionJson(const QString &versionId) const;
+
     DownloadManager *downloadManager;
     // versionId -> versionJson。mutable 是因为 getVersionJson() 是 const 的，
     // 但它在回读磁盘后要顺手填充这个缓存。
     mutable QMap<QString, QJsonObject> versionJsons;
+    // versionId -> **合并后**的 versionJson（走完 inheritsFrom 链）。单独一张表：
+    // 往 versionJsons 里塞合并结果会把"原始那份"盖掉，而下载路径要靠原始那份落盘。
+    mutable QMap<QString, QJsonObject> mergedVersionJsons;
     QString m_currentVersionDownloading;
     // 正在取 version.json 的版本号。拿到手的 JSON 里没有 "id" 字段时（网络失败、
     // manifest 里没有这个版本），就靠它告诉 UI"这次失败了"，否则 UI 会一直等下去。

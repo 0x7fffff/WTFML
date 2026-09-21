@@ -43,6 +43,12 @@ namespace {
  */
 constexpr char kDefaultPlayerName[] = "Player";
 
+/// version.json 里没有 `mainClass` 时用的主类 —— 也就是**改动前硬编码的那一个**。
+///
+/// NOTE: 别把它当成"原版主类的权威来源"。原版每个版本的 json 里都写着这个字段，
+///       这只是一个让"缺字段的老版本 / 手写的 json"保持原行为的退路。
+constexpr char kDefaultMainClass[] = "net.minecraft.client.main.Main";
+
 /**
  * @brief 取某个版本解压 natives 的目标目录。
  * @param versionId Minecraft version identifier.
@@ -369,13 +375,14 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
 
     QStringList classpath;
     bool needsNativesDir = false;
-    // 先添加主版本 JAR 文件。NOTE: jar 名走 InstanceFiles 解析而**不是**直接写 versionId —
-    // 目录名被外部改过之后里面的 jar 还叫老名字，按 id 硬拼出来的 classpath 会指向一个
-    // 不存在的文件，表现是 JVM 一句 "Could not find or load main class" 就没了。
+    // 先添加主版本 JAR 文件。NOTE: jar 的**名字和目录**都走 InstanceFiles 解析，而不是
+    // 直接写 versionId —— 两个坑：
+    //   1. 目录名被外部改过之后里面的 jar 还叫老名字，按 id 硬拼出来的 classpath 会指向一个
+    //      不存在的文件，表现是 JVM 一句 "Could not find or load main class" 就没了；
+    //   2. **带模组加载器的版本目录里根本没有 jar**（Fabric 装出来的只有一份 json），
+    //      客户端 jar 在原版那个目录里 —— jarRelativePath() 会顺着 inheritsFrom 链找到它。
     // 相对路径的基准是 QProcess 的工作目录（AppPaths::minecraftDir()，见 startGame）。
-    addClasspathPath(
-        QStringLiteral("versions/%1/%2").arg(versionId, InstanceFiles::jarName(versionId)),
-        classpath);
+    addClasspathPath(InstanceFiles::jarRelativePath(versionId), classpath);
 
     // 根据 version.json library 依赖构建 classpath
     if (!versionJson.isEmpty()) {
@@ -387,12 +394,14 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
                 continue;
             }
 
-            auto downloads = libObj[QStringLiteral("downloads")].toObject();
-            auto artifact = downloads[QStringLiteral("artifact")].toObject();
-            QString artifactPath = artifact[QStringLiteral("path")].toString();
-            if (!artifactPath.isEmpty()) {
+            // 解析（含"只有 name+url"的 maven 风格库，加载器版本全是这种）在
+            // LibraryRules::artifactFor() —— 下载时挑库用的是同一个函数。
+            // NOTE: 加载器的库**必须**进 classpath，否则 Knot/Mixin 这些类找不到，
+            // 症状是 "Could not find or load main class net.fabricmc.loader..."。
+            const LibraryRules::Artifact artifact = LibraryRules::artifactFor(libObj);
+            if (artifact.valid()) {
                 addClasspathPath(
-                    QDir::toNativeSeparators(QStringLiteral("libraries/%1").arg(artifactPath)),
+                    QDir::toNativeSeparators(QStringLiteral("libraries/%1").arg(artifact.path)),
                     classpath);
             }
 
@@ -510,7 +519,17 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     }
 
     args << QStringLiteral("-cp") << classpathStr;
-    args << QStringLiteral("net.minecraft.client.main.Main");
+    // 主类**从 version.json 读**，不再硬编码。硬编码的后果是带模组加载器的版本
+    // "装上了但没生效"：Fabric 的 KnotClient / Forge 的 bootstrap 都在这个字段里，
+    // 不看它就是把原版主类跑起来，加载器一行都没执行。
+    //
+    // NOTE: 位置必须在 `-cp` **之后**、游戏参数之前 —— 它是 JVM 的第一个位置参数
+    //       （非选项参数），JVM 拿第一个当主类、其余当程序参数。放进 `-cp` 之前会在
+    //       某些版本上被 JVM 当成"类还没就绪"而报 Could not find or load main class。
+    // NOTE: 取不到字段时退回原版主类。这不是兜底"猜一个"，而是**改动前的行为**：
+    //       没有这个字段的版本（老版本、手写的 json）本来就是跑原版主类。
+    const QString mainClass = versionJson.value(QStringLiteral("mainClass")).toString();
+    args << (mainClass.isEmpty() ? QString::fromLatin1(kDefaultMainClass) : mainClass);
 
     // --gameDir / --assetsDir 传**绝对路径**，而不是"靠 cwd 解析出来的相对路径"。
     //

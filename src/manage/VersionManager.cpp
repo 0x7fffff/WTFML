@@ -18,8 +18,10 @@
 #include <QJsonParseError>
 #include <QJsonValue>
 #include <QSaveFile>
+#include <QSet>
 #include <QUuid>
 
+#include "../launcher/VersionInheritance.hpp"
 #include "../util/AppPaths.hpp"
 #include "InstanceFiles.hpp"
 
@@ -227,7 +229,7 @@ void VersionManager::downloadVersion(const QString &versionId, const QString &de
     downloadManager->endBatch();
 }
 
-QJsonObject VersionManager::getVersionJson(const QString &versionId) const {
+QJsonObject VersionManager::rawVersionJson(const QString &versionId) const {
     const auto cached = versionJsons.constFind(versionId);
     if (cached != versionJsons.constEnd()) {
         return cached.value();
@@ -257,6 +259,90 @@ QJsonObject VersionManager::getVersionJson(const QString &versionId) const {
     // 填回缓存，同一次会话里不再重复读盘
     versionJsons[versionId] = doc.object();
     return doc.object();
+}
+
+QJsonObject VersionManager::getVersionJson(const QString &versionId) const {
+    const auto cached = mergedVersionJsons.constFind(versionId);
+    if (cached != mergedVersionJsons.constEnd()) {
+        return cached.value();
+    }
+
+    QJsonObject merged = rawVersionJson(versionId);
+    if (merged.isEmpty()) {
+        // 取不到就不缓存（同 rawVersionJson 的理由：这次取不到可能只是"还没下载完"，
+        // 缓存一个空对象会让之后下载好了也还是空的）。
+        return merged;
+    }
+
+    // 顺着 inheritsFrom 往上合。三道闸：
+    //   - 访问过的 id 集合：挡环（手写的 json 可以 A 继承 B、B 继承 A）；
+    //   - 深度上限：挡一条长得离谱的链（光有集合挡不住它）；
+    //   - 父版本取不到：停在这儿，把手上这份"合了一部分"的交出去 —— 问题由
+    //     inheritanceProblem() 去说，这一层的职责只是尽量给出能用的东西。
+    //
+    // NOTE: 每一轮都是 `merge(当前结果, 上一层父版本)`，这是在**已经合过**的东西上再合
+    //       一层。这样做是对的（父在前、子覆盖，一层层往外套）而且不会重复拼接 ——
+    //       靠的是 merge() 把 inheritsFrom 丢掉、下一层的 id 从**父版本自己那份**里读。
+    QSet<QString> seen;
+    seen.insert(versionId);
+    QString parentId = VersionInheritance::parentIdOf(merged);
+    for (int depth = 0; depth < VersionInheritance::maxDepth() && !parentId.isEmpty(); ++depth) {
+        if (seen.contains(parentId)) {
+            qWarning() << "Inheritance cycle in version JSON:" << versionId << "-> ... ->"
+                       << parentId;
+            break;
+        }
+        seen.insert(parentId);
+
+        const QJsonObject parent = rawVersionJson(parentId);
+        if (parent.isEmpty()) {
+            qWarning() << "Version" << versionId << "inherits from" << parentId
+                       << "which is not installed — cannot merge";
+            break;
+        }
+        merged = VersionInheritance::merge(merged, parent);
+        parentId = VersionInheritance::parentIdOf(parent);
+    }
+
+    mergedVersionJsons[versionId] = merged;
+    return merged;
+}
+
+QString VersionManager::inheritanceProblem(const QString &versionId) const {
+    QJsonObject json = rawVersionJson(versionId);
+    if (json.isEmpty()) {
+        // 连自己那份都没有：这是"版本信息缺失"那条路的事，不是继承的问题。
+        return QString();
+    }
+
+    QSet<QString> seen;
+    seen.insert(versionId);
+    for (int depth = 0; depth < VersionInheritance::maxDepth(); ++depth) {
+        const QString parentId = VersionInheritance::parentIdOf(json);
+        if (parentId.isEmpty()) {
+            return QString();
+        }
+        if (seen.contains(parentId)) {
+            return tr("版本「%1」的继承链接成环了（指回 %2），没法确定它到底基于什么。\n"
+                      "这个版本的 json 是被改坏过的，建议删掉重装。")
+                .arg(versionId, parentId);
+        }
+        seen.insert(parentId);
+
+        json = rawVersionJson(parentId);
+        if (json.isEmpty()) {
+            // 这句话必须点明"要去装原版"，而不是套用那句"请重新下载该版本" —— 用户照
+            // 后者做，下载的还是这个加载器版本（它的 json 本来就不含原版那份东西），
+            // 于是问题原样复现。
+            return tr("版本「%1」基于「%2」，但本机没有安装「%2」，启动不了。\n"
+                      "请先安装原版「%2」，再启动这个版本。")
+                .arg(versionId, parentId);
+        }
+    }
+
+    return tr("版本「%1」的继承链太长了（超过 %2 层），没法确定它到底基于什么。")
+        .arg(versionId)
+        .arg(VersionInheritance::maxDepth());
 }
 
 QJsonObject VersionManager::readVersionMeta(const QString &versionId, QString *metaPathOut,

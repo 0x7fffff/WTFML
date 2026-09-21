@@ -10,8 +10,14 @@
 #include "InstanceFiles.hpp"
 
 #include <QDir>
+#include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonParseError>
 #include <QLatin1Char>
+#include <QSet>
 
+#include "../launcher/VersionInheritance.hpp"
 #include "../util/AppPaths.hpp"
 
 namespace InstanceFiles {
@@ -33,6 +39,27 @@ QString findNamed(const QStringList &names, const QString &wanted) {
 
 /// 名字的长度上限。见 .hpp 里 validateDirName() 的说明。
 constexpr int kMaxDirNameLength = 64;
+
+/// 读一个实例目录里的版本 JSON，取它声明的父版本（`inheritsFrom`）。
+///
+/// 读不到、读不懂、字段不是字符串，一律返回空串 —— 也就是"这不是一个继承型实例"。
+/// **刻意不告警**：这条路径只在"一个 jar 都认不出来"时才会走到，而那种目录里
+/// 绝大多数本来就是下载残骸（真机上还有 0 字节的空目录），一句告警换不来任何有用信息，
+/// 只会把"认不出来的目录"这件事从安静变成刷屏。真有版本的目录在别处有它自己的说法
+/// （installedVersions 的告警、启动时的"版本信息缺失"）。
+QString readInheritsFrom(const QString &versionId, const QString &jsonName) {
+    const QString name = jsonName.isEmpty() ? versionId + QStringLiteral(".json") : jsonName;
+    QFile file(AppPaths::versionDir(versionId) + QLatin1Char('/') + name);
+    if (!file.open(QIODevice::ReadOnly)) {
+        return QString();
+    }
+    QJsonParseError parseError;
+    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &parseError);
+    if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+        return QString();
+    }
+    return VersionInheritance::parentIdOf(doc.object());
+}
 
 /// Windows 保留设备名（CON / PRN / AUX / NUL / COM1-9 / LPT1-9）。
 /// 判的是**主名**：`CON` 建不出来，`CON.txt` 一样建不出来。大小写不敏感。
@@ -149,6 +176,15 @@ Resolved resolve(const DirListing &listing) {
         out.jsonName = listing.jsonNames.first();
     }
 
+    // ④ 一个 jar 都没有、但 json 声明了父版本 → 认得出。带模组加载器的版本就长这样
+    //    （Fabric 的目录里只有一份 json，主 jar 在原版那边）。
+    //
+    // NOTE: 这条**不吃上面那两条的失败**：顶层有两个 jar、又没同名的那一个时，
+    //       jarNames 非空、认不出 jar，但 json 声明了父版本的话也算数 —— 那两个 jar
+    //       是垃圾（用户丢进来的、装别的加载器剩下的），客户端 jar 反正在父版本那边，
+    //       按 ①/② 挑只会挑错。判据是"声明了父版本"，不是"有没有多余的 jar"。
+    out.inheritsFrom = listing.inheritsFrom;
+
     return out;
 }
 
@@ -171,13 +207,58 @@ DirListing scanDir(const QString &versionId) {
     return out;
 }
 
-Resolved resolveInstance(const QString &versionId) { return resolve(scanDir(versionId)); }
+Resolved resolveInstance(const QString &versionId) {
+    const DirListing listing = scanDir(versionId);
+    Resolved out = resolve(listing);
+    if (!out.recognized()) {
+        // 只有"一个 jar 都认不出来"时才去读 json —— 这一条是热路径（每个已安装版本、
+        // 每次刷新界面都要过一遍，真机上 61 个实例），绝大多数实例在自己目录里就认出了
+        // jar，于是这里一次磁盘读取都不会发生，行为与改动前逐字节相同。
+        out.inheritsFrom = readInheritsFrom(versionId, out.jsonName);
+    }
+    return out;
+}
+
+QString jarOwnerId(const QString &versionId) {
+    Resolved resolved = resolveInstance(versionId);
+    if (!resolved.jarName.isEmpty()) {
+        return versionId;
+    }
+
+    // 自己没有 jar：顺着 inheritsFrom 链往上找第一个"自己有 jar"的那一层。
+    //
+    // 两道闸都是必须的：手写/写错的 json 可以首尾相接成环（A 继承 B、B 继承 A），
+    // 也可以串成一条很长的链。这里不报错，只退化 —— 报错的地方在别处（启动前检查会说
+    // "缺少客户端 JAR"，VersionManager 会说"父版本没装"），这一层的职责只是给一个
+    // 说得通的路径，让那些报错能指着正确的地方。
+    QSet<QString> seen;
+    seen.insert(versionId);
+    QString last = versionId;
+    for (int depth = 0; depth < VersionInheritance::maxDepth(); ++depth) {
+        const QString parent = resolved.inheritsFrom;
+        if (parent.isEmpty() || seen.contains(parent)) {
+            break;
+        }
+        seen.insert(parent);
+        last = parent;
+        resolved = resolveInstance(parent);
+        if (!resolved.jarName.isEmpty()) {
+            return parent;
+        }
+    }
+    // 整条链上都没有 jar：指向链上最后一层，报错时说的就是"1.20.1 的 jar 不在"，
+    // 而不是把责任推给加载器那个目录（它的 json 本来就是不长 jar 的）。
+    return last;
+}
 
 QString jarName(const QString &versionId) {
-    const Resolved resolved = resolveInstance(versionId);
+    const QString owner = jarOwnerId(versionId);
+    const Resolved resolved = resolveInstance(owner);
     // 退回老名字。见 .hpp 的 NOTE —— 这不是"错误处理"，是让只想拿个名字去看看在不在的
     // 调用方在正常目录上逐字节不变。
-    return resolved.recognized() ? resolved.jarName : versionId + QStringLiteral(".jar");
+    return resolved.recognized() && !resolved.jarName.isEmpty()
+               ? resolved.jarName
+               : owner + QStringLiteral(".jar");
 }
 
 QString jsonName(const QString &versionId) {
@@ -186,7 +267,11 @@ QString jsonName(const QString &versionId) {
 }
 
 QString jarPath(const QString &versionId) {
-    return AppPaths::versionDir(versionId) + QLatin1Char('/') + jarName(versionId);
+    return AppPaths::versionDir(jarOwnerId(versionId)) + QLatin1Char('/') + jarName(versionId);
+}
+
+QString jarRelativePath(const QString &versionId) {
+    return QStringLiteral("versions/%1/%2").arg(jarOwnerId(versionId), jarName(versionId));
 }
 
 QString jsonPath(const QString &versionId) {

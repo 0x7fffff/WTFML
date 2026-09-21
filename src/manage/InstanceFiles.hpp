@@ -18,6 +18,16 @@
  * jar / json 的解析散在四处（VersionManager::getVersionJson、LauncherManager 的
  * checkPreLaunch 和 classpath），所以收在这里一份，免得四处各自漂移。
  *
+ * 【第二轮放松：带模组加载器的版本一个 jar 都没有】
+ *
+ * 上面那条判据的第二次撞墙是**继承型实例**：Fabric 装出来的
+ * `versions/fabric-loader-0.15.11-1.20.1/` 里只有一份 json（外加用户丢进去的 mods/），
+ * 客户端 jar 在原版那个目录里。照"顶层有 jar"判，这些实例**一个都进不了列表** ——
+ * 表现和上一次一模一样：装了、磁盘上看得见、启动器里没有。
+ *
+ * 所以 recognized() 多了一条路（声明了 `inheritsFrom` 也算数），jar 的路径也跟着变成
+ * "顺着链找主人"（jarOwnerId()）。这两条是配套的，缺一个就会回到"看得见、点不了"。
+ *
  * NOTE: 判据本身**不看 wtfml.meta**，这是刻意的 —— 元数据文件只有启动器写过才有，
  *       而"被外部改过名"的那些目录恰恰一份都没有，拿它当判据等于救不了它们。
  *       wtfml.meta 负责的是别的事：真名（显示名）与稳定 id（抗改名的分组归属）。
@@ -38,18 +48,33 @@ struct DirListing {
     QStringList jarNames;
     /// 顶层 *.json 的文件名（同上）。
     QStringList jsonNames;
+    /// 顶层那份版本 JSON 声明的父版本（`inheritsFrom`）；没有就是空串。
+    ///
+    /// NOTE: 这个字段**不由 scanDir() 填**（那会让热路径上每个实例多读一次 json），
+    ///       而是 resolveInstance() 在"一个 jar 都认不出来"时才去读出来填上 ——
+    ///       见那里的说明。手工构造 DirListing 的断言可以随便填。
+    QString inheritsFrom;
 };
 
 /// 一个实例该用哪个 jar、哪个 json。
 struct Resolved {
-    /// 客户端 jar 的文件名；**空 = 这个目录不算实例**（recognized() 就是判它）。
+    /// 客户端 jar 的**文件名**；空 = 这个目录里没有自己的客户端 jar
+    /// （可能是"继承型"实例，见 inheritsFrom；也可能就是认不出来）。
     QString jarName;
     /// 版本 JSON 的文件名；空 = 没有版本 JSON。**不影响 recognized()**，理由见 resolve()。
     QString jsonName;
     /// 顶层所有 jar 的名字。认不出来时调用方拿它去写告警，认出来时留着方便排查。
     QStringList jarCandidates;
+    /// 版本 JSON 声明的父版本（`inheritsFrom`）。空 = 这份版本是自立的。
+    QString inheritsFrom;
 
-    bool recognized() const { return !jarName.isEmpty(); }
+    /// 这个目录算不算实例。
+    ///
+    /// 两条路：① 自己有客户端 jar（老判据，绝大多数实例）；② 自己**声明了父版本** ——
+    /// 带模组加载器的版本就长这样：Fabric 装出来的目录里只有一份 json，连 jar 都没有，
+    /// 主 jar 在原版那个目录里（见 jarOwnerId()）。少了 ② 的话，用户用官方安装器装好的
+    /// Fabric / Forge 版本在列表里**一个都看不见**。
+    bool recognized() const { return !jarName.isEmpty() || !inheritsFrom.isEmpty(); }
 };
 
 /**
@@ -80,9 +105,29 @@ DirListing scanDir(const QString &versionId);
 Resolved resolveInstance(const QString &versionId);
 
 /**
+ * @brief 这个实例的**客户端 jar 归哪个版本目录所有**。
+ * @param versionId 实例 id（= 目录名）。
+ * @return 自己目录里就有客户端 jar 时返回它自己；自己没有就顺着 `inheritsFrom` 链往上找，
+ *         返回链上第一个"自己有 jar"的那一层的 id；整条链都没有就返回链上最后一个
+ *         （这样报错信息会指着那个真正该有 jar 的目录，而不是加载器目录）。
+ *
+ * 为什么不能假设"jar 就在自己目录里"：Fabric 装出来的版本目录里**只有一份 json**，
+ * 一个 jar 都没有 —— 客户端 jar 是原版那份（`versions/1.20.1/1.20.1.jar`）。拼 classpath
+ * 和启动前检查都得按"主人"的路径来，否则要么 classpath 指着一个不存在的文件
+ * （JVM 一句 "Could not find or load main class" 就没了），要么直接报"缺少客户端 JAR"。
+ *
+ * NOTE: 环（手写的 json 首尾相接）和超长链都要挡住 —— 挡法是深度上限 + 访问过的 id 集合，
+ *       见实现。这里**不报错**，只是退化成一个"指回自己/最后一个"的答案：真正的报错
+ *       由调用方（启动前检查说"缺 jar"、或 VersionManager 说"父版本没装"）去说。
+ */
+QString jarOwnerId(const QString &versionId);
+
+/**
  * @brief 客户端 jar 的**文件名**（不含路径）。拼 classpath 要的是这个。
  * @param versionId 实例 id（= 目录名）。
  *
+ * NOTE: 名字取自 jarOwnerId() 那个目录 —— 对继承型实例（没有自己的 jar）返回的是
+ *       **父版本那个 jar 的名字**，不是 `<id>.jar`。
  * NOTE: 解析不出来时**退回** `<id>.jar`（老名字），而不是返回空串。想要名字的调用方
  *       （checkPreLaunch、拼 classpath）要的是"一个能拿去看在不在的东西"；在正常目录上这个
  *       退回值就是解析结果本身，所以它们的行为逐字节不变，真解析不出来时报的也还是原来那句错。
@@ -97,10 +142,21 @@ QString jarName(const QString &versionId);
 QString jsonName(const QString &versionId);
 
 /**
- * @brief 客户端 jar 在磁盘上的实际路径（<数据目录>/versions/<id>/<jarName()>）。
+ * @brief 客户端 jar 在磁盘上的实际路径
+ *        （<数据目录>/versions/<jarOwnerId()>/<jarName()>）。
  * @param versionId 实例 id（= 目录名）。
  */
 QString jarPath(const QString &versionId);
+
+/**
+ * @brief 客户端 jar 相对 <数据目录> 的路径（`versions/<主人>/<文件名>`），拼 classpath 用。
+ * @param versionId 实例 id（= 目录名）。
+ *
+ * 单独开一个口而不是让调用方自己拼 `versions/%1/%2`：那两段分别来自 jarOwnerId() 和
+ * jarName()，调用方拼错了（比如拿实例 id 当主人）只在继承型实例上出错 —— 而那正是
+ * 真机上最难碰到的形态。分隔符是正斜杠（Java 在 Windows 上也认），和改动前逐字节一致。
+ */
+QString jarRelativePath(const QString &versionId);
 
 /**
  * @brief 版本 JSON 在磁盘上的实际路径。

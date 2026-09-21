@@ -18,6 +18,7 @@ set(HEADER_FILES
     src/MainWindow.hpp
     src/launcher/LauncherManager.hpp
     src/launcher/LibraryRules.hpp
+    src/launcher/VersionInheritance.hpp
     src/auth/AuthManager.hpp
     src/manage/FolderManager.hpp
     src/manage/InstanceFiles.hpp
@@ -35,6 +36,7 @@ set(SOURCE_FILES
     src/main.cpp
     src/MainWindow.cpp
     src/launcher/LauncherManager.cpp
+    src/launcher/VersionInheritance.cpp
     src/auth/AuthManager.cpp
     src/manage/FolderManager.cpp
     src/manage/InstanceFiles.cpp
