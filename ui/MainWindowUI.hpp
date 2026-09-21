@@ -35,7 +35,14 @@
 #include <QSpinBox>
 #include <QString>
 #include <QTabWidget>
+#include <QTreeWidget>
 #include <QWidget>
+
+// 「一个组在界面上写成什么」这条规则的唯一出处（分组对话框和实例列表那张树都用它）。
+// 让 MainWindowUI 反过来去 include 同一个 ui/ 下的对话框头，比在两边各写一份
+// "%1 (%2)" 强：那种写法不会报错，只会在哪天有人改了其中一处之后让同一个组在两处
+// 显示得不一样。
+#include "GroupDialog.hpp"
 
 class QGridLayout;
 class QScrollArea;
@@ -67,6 +74,22 @@ public:
     static QString renameInstanceText() { return QStringLiteral("重命名…"); }
     static QString groupInstanceText() { return QStringLiteral("分组…"); }
     static QString instanceSettingsText() { return QStringLiteral("实例设置…"); }
+    // ---------- 实例列表那张树里的「组」 ----------
+    // 组头不是实例：选中它不等于选中某个版本。判据是**它有没有组 id**（存在
+    // Qt::UserRole+1 里，见 .cpp），而不是"它的 UserRole 是不是空的"—— 后者在
+    // "某个实例的 id 恰好是空串"时会误判（今天不可能，但判据不该依赖那个）。
+    /// 实例条目上挂着实例 id 的 role（和下拉框同一个约定）。
+    static int instanceIdRole() { return Qt::UserRole; }
+    /// 组头上挂着组 id 的 role。**没有这个 role 的才是实例条目**。
+    static int groupIdRole() { return Qt::UserRole + 1; }
+    /// 「未分组」那一格的名字。它是个**虚拟**的组（不进文件），只在存在真实分组时
+    /// 才画出来 —— 一个组都没有的时候列表是平铺的，不插任何组头。
+    static QString ungroupedGroupText() { return GroupDialog::ungroupedText(); }
+    /// 组头的文字（组名 + 里面有几个实例）。规则和分组对话框里那张列表共用一份。
+    static QString groupItemText(const QString &name, int count) {
+        return GroupDialog::groupItemText(name, count);
+    }
+
     static QString tabWidgetName() { return QStringLiteral("mainTabWidget"); }
     static QString homeTabName() { return QStringLiteral("homeTab"); }
     static QString instanceTabName() { return QStringLiteral("instanceTab"); }
@@ -213,9 +236,11 @@ public:
     QPushButton *getAddFolderButton() const { return addFolderButton; }
     QPushButton *getRemoveFolderButton() const { return removeFolderButton; }
     // 实例页左边那张列表：一行一个「游戏文件夹」，选中的那一份就是启动器当前用的
-    // .minecraft。右边那张列表是它下面扫出来的实例。
+    // .minecraft。右边那张**树**是它下面扫出来的实例（按分组归好）。
     QListWidget *getFolderList() const { return folderList; }
-    QListWidget *getInstanceList() const { return instanceList; }
+    // NOTE: 是 QTreeWidget 不是 QListWidget —— 分组要求两层。一个组都没有的时候
+    //       它是平铺的（不插组头），观感和改动前的列表一样。
+    QTreeWidget *getInstanceList() const { return instanceList; }
     // 右边那句"当前文件夹：<路径>"。换文件夹时它跟着变 —— 没有它的话，右边那些实例
     // 是从哪一份 .minecraft 里扫出来的就说不清了。
     QLabel *getInstanceFolderLabel() const { return instanceFolderLabel; }
@@ -281,7 +306,7 @@ private:
     QPushButton *addFolderButton;
     QPushButton *removeFolderButton;
     QListWidget *folderList;
-    QListWidget *instanceList;
+    QTreeWidget *instanceList;
     QPushButton *renameInstanceButton;
     QPushButton *groupInstanceButton;
     QPushButton *instanceSettingsButton;

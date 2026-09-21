@@ -349,11 +349,21 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         instanceFolderLabel->setWordWrap(true);
         instanceLayout->addWidget(instanceFolderLabel);
 
-        // 就是「主页」右边那张列表的同一份数据，只是摆在这儿配左边的文件夹看。
+        // 主页那个「已安装版本」下拉框的同一份数据，只是摆在这儿配左边的文件夹看。
         // 点击 = 在主页把它选中（两边按 id 双向同步，见 MainWindow::setupConnections）。
-        instanceList = new QListWidget(instanceGroupBox);
+        //
+        // 是**树**不是列表：实例可以归到用户建的组里，组是父节点、实例是子节点。
+        // 一个组都没有的时候它就是平铺的一层（照样不插组头），观感和列表一样。
+        instanceList = new QTreeWidget(instanceGroupBox);
         instanceList->setObjectName(instanceListName());
-        instanceList->setUniformItemSizes(true);
+        instanceList->setHeaderHidden(true);
+        instanceList->setRootIsDecorated(true);
+        // 每一行高度一样（没有多行文本），打开这个能让 QTreeWidget 不用去问每一行的
+        // sizeHint —— 实例多的时候（真机上有 61 个）滚动明显更顺。
+        instanceList->setUniformRowHeights(true);
+        // 组下面的实例缩进多少由它给。默认 20 在窄栏里有点深，收到 14：
+        // 右栏还得和左栏分 7:3 的宽度，缩进多一格就少一格放实例名。
+        instanceList->setIndentation(14);
         instanceLayout->addWidget(instanceList, 1);
 
         // 三个按钮都作用于列表里当前选中的那一个实例。横着排：右栏宽度本来就紧
@@ -365,11 +375,12 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         groupInstanceButton->setObjectName(groupInstanceButtonName());
         instanceSettingsButton = new QPushButton(instanceSettingsText(), instanceGroupBox);
         instanceSettingsButton->setObjectName(instanceSettingsButtonName());
-        // 这两个还没接上（分组、每实例设置另外两批做）。**置灰而不是连着不做事**：
-        // 一个点下去毫无反应的按钮，用户的结论是"启动器坏了"；灰的按钮他会知道
-        // 这功能还没到。tooltip 说清是哪一个在等。
-        groupInstanceButton->setEnabled(false);
-        groupInstanceButton->setToolTip(QStringLiteral("分组功能还没做。"));
+        // 两个按钮一律可点，没选中实例时由 MainWindow 的槽弹一句"先选中一个实例"
+        // （和「重命名…」同一个口径：**几时能点**由状态决定的话，用户会先花时间
+        // 猜"为什么它是灰的"，而那句话直接把原因说了）。
+        //
+        // 「实例设置…」还没接上（另外一批做）。**置灰而不是连着不做事**：一个点下去
+        // 毫无反应的按钮，用户的结论是"启动器坏了"；灰的按钮他会知道这功能还没到。
         instanceSettingsButton->setEnabled(false);
         instanceSettingsButton->setToolTip(QStringLiteral("每实例设置还没做。"));
 
@@ -381,7 +392,8 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         QLabel *instanceHint = new QLabel(
             QStringLiteral("一个实例就是 versions 下的一个目录。判据是「认得出哪个是客户端 jar」"
                            "—— 你自己在资源管理器里改过目录名的实例也认得出来。"
-                           "重命名会真的改磁盘上的目录名。"),
+                           "重命名会真的改磁盘上的目录名；分组只记在启动器自己的文件里，"
+                           "不动磁盘上的目录。"),
             instanceGroupBox);
         instanceHint->setWordWrap(true);
         instanceLayout->addWidget(instanceHint);

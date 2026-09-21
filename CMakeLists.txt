@@ -38,6 +38,7 @@ set(SOURCE_FILES
     src/auth/AuthManager.cpp
     src/manage/FolderManager.cpp
     src/manage/InstanceFiles.cpp
+    src/manage/InstanceGroupStore.cpp
     src/manage/VersionManager.cpp
     src/manage/VersionDisplay.cpp
     src/settings/GlobalJavaSettings.cpp
@@ -46,6 +47,7 @@ set(SOURCE_FILES
     src/util/SystemMemory.cpp
     src/util/ZipUtil.cpp
     ui/MainWindowUI.cpp
+    ui/GroupDialog.cpp
     ${HEADER_FILES}
 )
 

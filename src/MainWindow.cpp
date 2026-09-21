@@ -11,6 +11,7 @@
 
 #include "MainWindow.hpp"
 
+#include "..\ui\GroupDialog.hpp"
 #include "..\ui\MainWindowUI.hpp"
 
 // 添加以下头文件（防止hpp变动导致文件失效）
@@ -33,11 +34,15 @@
 #include <QSignalBlocker>
 #include <QSpinBox>
 #include <QTabWidget>
+#include <QTreeWidget>
+#include <QTreeWidgetItem>
+#include <QTreeWidgetItemIterator>
 
 #include "auth/AuthManager.hpp"
 #include "launcher/LauncherManager.hpp"
 #include "manage/FolderManager.hpp"
 #include "manage/InstanceFiles.hpp"
+#include "manage/InstanceGroupStore.hpp"
 #include "manage/VersionManager.hpp"
 #include "settings/GlobalJavaSettings.hpp"
 #include "settings/LauncherSettings.hpp"
@@ -179,8 +184,11 @@ void syncComboToList(QComboBox *combo, const QListWidget *list) {
  * @param parts 每个版本的显示名组成部分。
  * @param options 全局「版本名格式」开关。
  *
- * 灌完**不动选中项**：怎么收尾由调用方决定 —— 跟下拉框配对的那些走
- * syncListToCombo() 对齐过去，实例页右边那张自己跟着下拉框走。
+ * 灌完**不动选中项**：怎么收尾由调用方决定（跟下拉框配对的那些走 syncListToCombo()
+ * 对齐过去）。
+ *
+ * NOTE: 只剩「下载」页那张可安装版本列表在用它了。实例页那张换成了树（要分组），
+ *       走的是 fillInstanceTree()。
  */
 void fillVersionList(QListWidget *list, const QList<VersionDisplayParts> &parts,
                      const VersionNameOptions &options) {
@@ -211,6 +219,178 @@ void fillVersionViews(QComboBox *combo, QListWidget *list,
     // 重灌之后把列表的选中项对齐到下拉框：下拉框那边已经负责"保住原来选的",
     // 列表跟着它走就行。不对齐的话，用户会看到上面选着 A、下面高亮着 B。
     syncListToCombo(combo, list);
+}
+
+// ======================================================================
+// 实例页那张树（分组）
+// ======================================================================
+//
+// 这一组自由函数对应上面那三个列表版（fillVersionList / syncListToCombo /
+// syncComboToList），但**不能合并**：实例列表要两层（组 + 实例），可安装版本列表
+// 是一层（而且没有分组的概念）。硬合并的写法是"到处判 item 是组还是实例"，那样
+// 每多一个调用点就多一次判错的机会。
+
+/**
+ * @brief 实例树里一个组节点，以及挂在它下面的那些实例。
+ *
+ * 「未分组」用 groupId 为空表示 —— 它是**虚拟**的，不进 wtfml.folders，而且只有存在
+ * 真实分组时才会被画出来（一个组都没有时列表是平铺的，见 fillInstanceTree）。
+ */
+struct InstanceGroupBucket {
+    QString groupId;
+    QString name;
+    QList<VersionDisplayParts> parts;
+};
+
+/**
+ * @brief 一个树条目代表的实例 id；**组头返回空串**。
+ * @param item 树条目；nullptr 也返回空串。
+ *
+ * 所有读这棵树的地方都必须过这一道，不许直接 `currentItem()->data(0, Qt::UserRole)`。
+ * 组头天然能被选中（QTreeWidget::setCurrentItem() 不看 ItemIsSelectable），而组头上
+ * 那个 role 是空的 —— 界面于是悄悄变成"没选中任何实例"，用户按启动得到"未选择版本"，
+ * 而屏幕上明明有一行亮着。
+ *
+ * NOTE: 判据是**它有没有组 id 那个 role**，而不是"实例 id 是不是空的"。后者在
+ *       "某个实例的 id 恰好是空串"时会误判，而这个判据不该依赖那个前提。
+ */
+QString instanceIdOf(const QTreeWidgetItem *item) {
+    if (item == nullptr) {
+        return QString();
+    }
+    if (item->data(0, MainWindowUI::groupIdRole()).isValid()) {
+        return QString();
+    }
+    return item->data(0, MainWindowUI::instanceIdRole()).toString();
+}
+
+/**
+ * @brief 按分组把实例灌进实例页那张树。
+ * @param tree 目标树。
+ * @param buckets 组（含虚拟的「未分组」，见 InstanceGroupBucket）。
+ * @param options 全局「版本名格式」开关。
+ *
+ * 两种形态，由调用方给进来的 buckets 决定（它才知道有没有真实分组）：
+ *   - **只有一格、groupId 为空** → 平铺，不插组头。这是"还没分过组"的样子，
+ *     和换树之前那张列表逐项一致。
+ *   - 否则每格画一个组头，实例挂在它下面。**空组照样画**："先把组建好、再往里
+ *     放东西"是常见顺序，空组不画的话用户会以为没建成。
+ *
+ * NOTE: 灌完**不动选中项**（和 fillVersionList 一致），收尾由调用方 syncTreeToCombo()。
+ * NOTE: 每个实例条目的 tooltip 是**目录的完整路径**。显示名和目录名可能不一样
+ *       （自定义名、拼进去的加载器名、或者用户在资源管理器里改过目录名），而
+ *       "这个实例到底在哪个目录"是排查问题时唯一要问的东西。
+ */
+void fillInstanceTree(QTreeWidget *tree, const QList<InstanceGroupBucket> &buckets,
+                      const VersionNameOptions &options) {
+    const QSignalBlocker blocker(tree);
+    tree->clear();
+
+    const bool flat = buckets.size() == 1 && buckets.first().groupId.isEmpty();
+    for (const InstanceGroupBucket &bucket : buckets) {
+        QTreeWidgetItem *parent = nullptr;
+        if (!flat) {
+            parent = new QTreeWidgetItem(tree);
+            parent->setText(0, MainWindowUI::groupItemText(bucket.name, bucket.parts.size()));
+            parent->setData(0, MainWindowUI::groupIdRole(), bucket.groupId);
+            // 组头**不给选中**：它是"一堆东西的标题"，不是"一个能启动的实例"。
+            // 清掉 ItemIsSelectable 之后，选择模型会拒绝把它放进"被选中"的集合，
+            // 所以点它**不会亮**（ui_check 的 M 段真的发了一次鼠标事件钉住这条）。
+            //
+            // NOTE: 但**它仍然会变成 currentItem()** —— QAbstractItemView 在
+            //       mousePressEvent 里只查 ItemIsEnabled 就把当前项挪过去了，选择命令
+            //       是后一步的事。所以这一行是"别让它高亮"，**不是**"别让它被选中"；
+            //       真正兜住"当前选中的是哪个实例"的是 instanceIdOf() 那道守卫，
+            //       每一个读 currentItem() 的地方都绕不过去。
+            parent->setFlags(parent->flags() & ~Qt::ItemIsSelectable);
+            // 默认展开：折起来的组里有什么，用户得点一下才知道，而这里正是"想让
+            // 用户看见有什么"的地方。他折起来之后的重灌会再展开 —— 重灌本来就
+            // 不负责记状态（连选中项都是显式对齐的）。
+            parent->setExpanded(true);
+        }
+        // 平铺时挂在**不可见的根**下面，那和"顶层条目"是一回事，而且省掉了
+        // "parent 是空的就换一个构造函数"那条分叉（两个构造函数收的类型不一样）。
+        QTreeWidgetItem *holder = parent != nullptr ? parent : tree->invisibleRootItem();
+        for (const VersionDisplayParts &part : bucket.parts) {
+            auto *item = new QTreeWidgetItem(holder);
+            item->setText(0, formatVersionName(part, options));
+            item->setData(0, MainWindowUI::instanceIdRole(), part.id);
+            item->setToolTip(0, QDir::toNativeSeparators(AppPaths::versionDir(part.id)));
+        }
+    }
+}
+
+/**
+ * @brief 让实例树里的选中项跟上下拉框（两边都按 id 找，不按文本）。
+ * @param combo 版本下拉框。
+ * @param tree 实例页那张树。
+ *
+ * 找不到那个 id（清单刚刷新、实例被删了）时**清空选中**，和列表版一样。
+ */
+void syncTreeToCombo(const QComboBox *combo, QTreeWidget *tree) {
+    const QString id = selectedVersionId(combo);
+    // 挡信号：这里是"跟着别人变"，不该反过来再把下拉框动一遍。真正的用户操作才发信号。
+    const QSignalBlocker blocker(tree);
+    if (!id.isEmpty()) {
+        QTreeWidgetItemIterator it(tree);
+        while (*it != nullptr) {
+            if (instanceIdOf(*it) == id) {
+                tree->setCurrentItem(*it);
+                return;
+            }
+            ++it;
+        }
+    }
+    // 没找到（或者下拉框本来就没选）：留空，别硬选一个别的。
+    tree->setCurrentItem(nullptr);
+}
+
+/**
+ * @brief 让下拉框跟上实例树里选中的那一项。
+ * @param combo 版本下拉框。
+ * @param tree 实例页那张树。
+ *
+ * NOTE: 选中的是**组头**时什么都不做 —— 点一个组的标题不是"挑一个版本"。守卫走
+ *       instanceIdOf()，理由见它的说明。
+ */
+void syncComboToTree(QComboBox *combo, const QTreeWidget *tree) {
+    const QString id = instanceIdOf(tree->currentItem());
+    if (id.isEmpty()) {
+        return;
+    }
+    const int index = combo->findData(id);
+    if (index >= 0 && combo->currentIndex() != index) {
+        combo->setCurrentIndex(index);
+    }
+}
+
+// 「一个组」的两份表示之间的转换。看着啰嗦，但它是 ui/ 和业务层解耦的**全部代价**：
+// ui/ 一直不 include src/（ui_check 那个工程只编 ui/MainWindowUI.cpp 就能跑），所以
+// 分组对话框有自己的 Group、存储层有自己的 Group，两边逐字段相同。把它们合成一个
+// 类型就得让 ui/ 依赖业务层，或者反过来 —— 相比之下这两段循环是最便宜的。
+
+QList<InstanceGroupStore::Group> toStoreGroups(const QList<GroupDialog::Group> &from) {
+    QList<InstanceGroupStore::Group> to;
+    to.reserve(from.size());
+    for (const GroupDialog::Group &group : from) {
+        InstanceGroupStore::Group item;
+        item.id = group.id;
+        item.name = group.name;
+        to.append(item);
+    }
+    return to;
+}
+
+QList<GroupDialog::Group> toDialogGroups(const QList<InstanceGroupStore::Group> &from) {
+    QList<GroupDialog::Group> to;
+    to.reserve(from.size());
+    for (const InstanceGroupStore::Group &group : from) {
+        GroupDialog::Group item;
+        item.id = group.id;
+        item.name = group.name;
+        to.append(item);
+    }
+    return to;
 }
 
 /**
@@ -301,7 +481,8 @@ MainWindow::MainWindow(QWidget *parent)
       m_authManager(new AuthManager(this)),
       m_folderManager(new FolderManager(m_settings, this)),
       m_versionManager(new VersionManager(this)),
-      m_javaSettings(new GlobalJavaSettings(this)) {
+      m_javaSettings(new GlobalJavaSettings(this)),
+      m_groupStore(new InstanceGroupStore(this)) {
     setupConnections();
     // 设置页先按盘上的值摆好（不扫 Java，那一段等第一次切到设置页，见
     // refreshJavaList()）。必须在下面 fetchAvailableVersions() **之前**：
@@ -342,6 +523,8 @@ void MainWindow::setupConnections() {
             &MainWindow::onRemoveFolderClicked);
     connect(m_ui->getRenameInstanceButton(), &QPushButton::clicked, this,
             &MainWindow::onRenameInstanceClicked);
+    connect(m_ui->getGroupInstanceButton(), &QPushButton::clicked, this,
+            &MainWindow::onGroupInstanceClicked);
     // 左边列表选中哪一份 .minecraft，启动器就换到哪一份上（PCL 的卡片是同一个交互）。
     connect(m_ui->getFolderList(), &QListWidget::currentRowChanged, this,
             &MainWindow::onFolderSelectionChanged);
@@ -360,8 +543,13 @@ void MainWindow::setupConnections() {
         m_reportedUnrecognizedVersions = false;
         m_javaListScanned = false;
         // 版本列表、实例列表、按钮文字、底栏全都对着新根目录重来一遍。
+        // 分组**不需要**在这里重置或重读：InstanceGroupStore 每个访问器都会比一下
+        // "这次问的是哪一份 .minecraft"，不一样就自己重读（见它的文件头）。
         refreshInstalledVersions();
     });
+    // 分组数据变了（对话框里确定之后、改名之后 rekey）。重灌实例页那张树。
+    connect(m_groupStore, &InstanceGroupStore::groupsChanged, this,
+            &MainWindow::refreshInstalledVersions);
     // 用户在"已安装版本"下拉框里换一个版本，按钮第二行立刻跟着变。
     // NOTE: 这条只管用户手选。fillVersionCombo() 重灌下拉框时信号是被挡住的，
     // 那条路径由 refreshInstalledVersions() 自己收尾，两条路合起来才不会漏。
@@ -376,12 +564,13 @@ void MainWindow::setupConnections() {
                 // 底栏左下角那条状态要看"选中的是不是正在跑的那个实例"，
                 // 所以换版本也得跟着刷一遍。
                 updateBottomBar();
-                // 实例页右边那张列表是同一份数据的另一种看法，跟着一起亮。
-                syncListToCombo(m_ui->getInstalledVersionCombo(), m_ui->getInstanceList());
+                // 实例页右边那张树是同一份数据的另一种看法，跟着一起亮。
+                syncTreeToCombo(m_ui->getInstalledVersionCombo(), m_ui->getInstanceList());
             });
-    // 列表 → 下拉框。点列表里的一行 = 在上面把它选中（用户要求的行为）。
-    connect(m_ui->getInstanceList(), &QListWidget::currentItemChanged, this, [this] {
-        syncComboToList(m_ui->getInstalledVersionCombo(), m_ui->getInstanceList());
+    // 树 → 下拉框。点树里的一行 = 在上面把它选中（用户要求的行为）。
+    // 选中组头时不动作（syncComboToTree 里的守卫）—— 点一个组的标题不是在挑版本。
+    connect(m_ui->getInstanceList(), &QTreeWidget::currentItemChanged, this, [this] {
+        syncComboToTree(m_ui->getInstalledVersionCombo(), m_ui->getInstanceList());
     });
     connect(m_ui->getAvailableVersionCombo(), &QComboBox::currentIndexChanged, this,
             [this] {
@@ -647,15 +836,58 @@ void MainWindow::refreshInstalledVersions() {
     fillVersionCombo(combo, parts, m_settings->versionNameOptions());
 
     // 实例页：顶上写清这是从哪一份 .minecraft 里扫出来的（左边换个文件夹它就跟着变），
-    // 右边那张列表灌同一批数据。列表本身不是"又一份数据源"，它只是同一个东西摆在
-    // 文件夹旁边更好看 —— 点击行为是"点一下等于在主页把它选中"（见 setupConnections）。
+    // 右边那张树灌同一批数据（按分组摆）。它本身不是"又一份数据源"，只是同一个东西
+    // 摆在文件夹旁边更好看 —— 点击行为是"点一下等于在主页把它选中"（见 setupConnections）。
     const QString root = AppPaths::minecraftDir();
     QString folderText = tr("当前文件夹：%1").arg(QDir::toNativeSeparators(root));
     folderText += QDir(root).exists() ? tr("（%1 个实例）").arg(installed.size())
                                       : tr("（这个目录不在盘上了）");
     m_ui->getInstanceFolderLabel()->setText(folderText);
-    fillVersionList(m_ui->getInstanceList(), parts, m_settings->versionNameOptions());
-    syncListToCombo(combo, m_ui->getInstanceList());
+
+    // 按分组摆那张树。归属键走 instanceKey()（稳定 id，没有就退回目录名）。
+    //
+    // NOTE: 每个实例这里要读两次 wtfml.meta（上面 displayParts() 一次、这里 instanceId()
+    //       一次）。看着浪费，但这个文件是几百字节的可选文件、真机上最多 61 个实例，
+    //       而"把两者合并成一次读"要把 instanceId 塞进 VersionDisplayParts ——那是个
+    //       纯显示用的结构，塞一个身份字段进去会让"显示名怎么拼"和"归属怎么认"纠缠在
+    //       一起。分开读，代价是一次小文件打开。
+    const QList<InstanceGroupStore::Group> groups = m_groupStore->groups();
+    QList<InstanceGroupBucket> buckets;
+    QHash<QString, int> bucketOfGroup;
+    for (const InstanceGroupStore::Group &group : groups) {
+        InstanceGroupBucket bucket;
+        bucket.groupId = group.id;
+        bucket.name = group.name;
+        bucketOfGroup.insert(group.id, buckets.size());
+        buckets.append(bucket);
+    }
+    QList<VersionDisplayParts> ungrouped;
+    for (const VersionDisplayParts &part : parts) {
+        const QString groupId = m_groupStore->groupIdOf(instanceKey(part.id));
+        const auto found = bucketOfGroup.constFind(groupId);
+        if (found != bucketOfGroup.constEnd()) {
+            buckets[found.value()].parts.append(part);
+        } else {
+            ungrouped.append(part);
+        }
+    }
+    if (groups.isEmpty()) {
+        // 一个真实分组都没有：平铺，一个组头都不插。没分过组的用户看到的和换树之前
+        // 逐项一致（这也正是 mw_check 里"实例数 == 3"那条断言还成立的原因）。
+        buckets.clear();
+        InstanceGroupBucket all;
+        all.parts = parts;
+        buckets.append(all);
+    } else {
+        // 「未分组」排在有归属的后面：用户建了组，说明那些组是他主要在看的东西。
+        // 它**总是**画出来（哪怕 0 个）——树里少一格、下一帧又出现，比一直留着更难理解。
+        InstanceGroupBucket rest;
+        rest.name = MainWindowUI::ungroupedGroupText();
+        rest.parts = ungrouped;
+        buckets.append(rest);
+    }
+    fillInstanceTree(m_ui->getInstanceList(), buckets, m_settings->versionNameOptions());
+    syncTreeToCombo(combo, m_ui->getInstanceList());
 
     // 占位文案随上下文变。**两个串都必须非空**：空占位文案会让 QComboBox 在往空
     // 模型里插第一批数据时静默选中第 0 项（qcombobox.cpp:1753-1759），而这里必须
@@ -1328,6 +1560,10 @@ bool MainWindow::applyRename(const QString &oldId, const QString &newId) {
         return false;
     }
 
+    // 分组归属的**老键必须在改名之前取**：改名会把老目录名连同"按目录名认人"那条
+    // 退路一起改掉，改完再问它，问的是磁盘上一个已经不存在的目录。
+    const QString oldKey = instanceKey(oldId);
+
     // 执行：改磁盘、含失败回滚，都在数据层。失败原因是给用户看的一整句
     // （可能带"回滚到什么程度"），界面原样弹出来，不再自己加工。
     QString error;
@@ -1345,6 +1581,24 @@ bool MainWindow::applyRename(const QString &oldId, const QString &newId) {
         m_settings->setLastLaunchedVersion(name);
     }
 
+    // 分组归属也要跟着挪。两件事叠在一起，所以这里必须按顺序取两次键：
+    //   - 改名**之前**那个键（上面取的 oldKey）：老实例可能还没有稳定 id，
+    //     那时它的键是**老目录名**；
+    //   - 改名**之后**那个键：renameInstance() 刚好在这一次把稳定 id 生成出来了
+    //     （见它的第 2 步），所以新键多半是那个 uuid，而不是新目录名。
+    // 只取一次（无论是哪一次）都会让归属在改名的同时丢掉 —— 而丢归属的表现是
+    // "改完名它自己从组里出来了"，用户会以为分组没保存上。
+    const QString newKey = instanceKey(name);
+    QString groupError;
+    if (!m_groupStore->rekey(oldKey, newKey, &groupError)) {
+        // 实例本身已经改好名了，只是分组没搬过去。**不能当成改名失败** ——
+        // 那会让用户以为名字没改成功，然后再点一次。说清楚哪一半成了、哪一半没成。
+        QMessageBox::warning(this, tr("分组归属没跟着搬"),
+                             tr("实例已经改名为「%1」，但它原来的分组归属没能搬过去：\n%2\n\n"
+                                "可以在「分组…」里重新归一次。")
+                                 .arg(name, groupError));
+    }
+
     refreshInstalledVersions();
     // 刷新时下拉框那边是"保住原来选中的那个 id"，而那个 id 已经不在了 —— 于是它
     // 会停在空选。显式选中新名字：用户刚改完，看到的应该是刚改完的那个实例。
@@ -1355,6 +1609,94 @@ bool MainWindow::applyRename(const QString &oldId, const QString &newId) {
     }
     updateStartButtonText();
     appendLog(tr("实例已重命名：%1 → %2").arg(oldId, name));
+    return true;
+}
+
+QString MainWindow::instanceKey(const QString &versionId) const {
+    // 有稳定 id 就用它，没有就退回目录名 —— 见 InstanceGroupStore 文件头那段。
+    // NOTE: 退回目录名不是"临时凑合"，它是老实例（2026-09 之前建的，一个都没有稳定 id）
+    //       唯一的现实身份。更要紧的是**读和写必须走同一个函数**：读的时候按目录名找、
+    //       写的时候按 id 存，归属会在存下去的那一刻就对不上，而那个错不报任何东西。
+    const QString id = m_versionManager->instanceId(versionId);
+    return id.isEmpty() ? versionId : id;
+}
+
+void MainWindow::onGroupInstanceClicked() {
+    // 和「重命名…」同一个取值口径：以下拉框为准（它就是"当前选中的那个实例"）。
+    const QString versionId = selectedVersionId(m_ui->getInstalledVersionCombo());
+    if (versionId.isEmpty()) {
+        QMessageBox::information(this, tr("分组"), tr("先选中一个实例。"));
+        return;
+    }
+
+    // 每个组里有多少个实例：从**当前那张树**上数，不重新扫盘。它就是用户此刻看到的
+    // 东西，而且对话框拿它显示「组名 (N)」和"删这个组会有多少实例变成未分组"——
+    // 两处都该和屏幕上的数字一致。
+    QHash<QString, int> counts;
+    const QTreeWidget *tree = m_ui->getInstanceList();
+    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+        const QTreeWidgetItem *item = tree->topLevelItem(i);
+        const QVariant groupId = item->data(0, MainWindowUI::groupIdRole());
+        if (groupId.isValid()) {
+            counts.insert(groupId.toString(), item->childCount());
+        }
+    }
+
+    const QList<InstanceGroupStore::Group> groups = m_groupStore->groups();
+    GroupDialog dialog(toDialogGroups(groups), counts, m_groupStore->groupIdOf(instanceKey(versionId)),
+                       this);
+    if (dialog.exec() != QDialog::Accepted) {
+        // 取消：磁盘一个字节都没动（对话框只改自己手里那份工作副本）。
+        return;
+    }
+    applyGrouping(instanceKey(versionId), dialog);
+}
+
+bool MainWindow::applyGrouping(const QString &key, const GroupDialog &dialog) {
+    const QList<InstanceGroupStore::Group> wanted = toStoreGroups(dialog.groups());
+    const QString wantedGroupId = dialog.assignedGroupId();
+
+    // 两件事分开、都是"变了才写"：组清单和归属是两个独立的字段，用户可能只动了其中一个。
+    // 没变就写的话，每点一次「确定」都会重写一遍文件（连带把 mtime 刷新），
+    // 而"什么都没改"是最常见的一次操作。
+    QString error;
+    bool groupsSaved = false;
+    if (wanted != m_groupStore->groups()) {
+        if (!m_groupStore->replaceGroups(wanted, &error)) {
+            QMessageBox::critical(this, tr("分组保存失败"), error);
+            return false;
+        }
+        groupsSaved = true;
+    }
+
+    if (wantedGroupId != m_groupStore->groupIdOf(key)) {
+        if (!m_groupStore->assign(key, wantedGroupId, &error)) {
+            // 组清单那一半**可能已经落盘了**（上面那次写成功了）。说清楚，别让用户
+            // 以为整件事都没成、然后重开一遍对话框再填一次。
+            QMessageBox::critical(this, tr("分组保存失败"),
+                                  groupsSaved
+                                      ? tr("分组本身已经保存了，但这个实例的归属没能写进去：\n%1")
+                                            .arg(error)
+                                      : error);
+            return false;
+        }
+        QString destination;
+        for (const InstanceGroupStore::Group &group : m_groupStore->groups()) {
+            if (group.id == wantedGroupId) {
+                destination = group.name;
+                break;
+            }
+        }
+        if (destination.isEmpty()) {
+            // 归属是空串 = 取消分组。那句"未分组"是界面上的说法（GroupDialog 也是
+            // 这么写的），不是文件里的值。
+            destination = tr("未分组");
+        }
+        appendLog(tr("实例已分组：%1 → %2").arg(key, destination));
+    }
+    // NOTE: 这里**不**手动重灌那张树。三条写路径成功之后数据层都会发 groupsChanged，
+    //       界面接的是同一个刷新函数（见 setupConnections）—— 在这里再来一次就是
+    //       同一件事做两遍，而且"哪些路径会刷新"会变成两处各自维护的约定。
     return true;
 }
 

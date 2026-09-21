@@ -20,6 +20,10 @@ class FolderManager;
 class VersionManager;
 class GlobalJavaSettings;
 class LauncherSettings;
+class InstanceGroupStore;
+// 「分组…」那个对话框。这里只按 const 引用传，前置声明就够 —— 没必要为了一个参数类型
+// 让每个 include 了 MainWindow.hpp 的地方都把 ui/ 拖进来。
+class GroupDialog;
 // 「版本名格式」开关的数据模型。这里只按 const 引用传，前置声明就够，
 // 不必为了一个参数类型把 VersionDisplay.hpp 拖进每个 include 了 MainWindow.hpp 的地方。
 struct VersionNameOptions;
@@ -54,6 +58,17 @@ private slots:
     ///       里藏着最容易漏的那件事：改完名要同步 Version/LastLaunched，不然用户下次
     ///       打开启动器，选中项会空着，他会以为实例丢了。那条只有真的跑一遍才验得出来。
     bool applyRename(const QString &oldId, const QString &newId);
+    /// 「分组…」：给当前选中的实例选一个组，顺便管组清单（新建/重命名/删除）。
+    ///
+    /// 不分组也能用 —— 对话框里那份工作副本只有在点「确定」之后才由 applyGrouping()
+    /// 落盘，取消的话磁盘一个字节都不动。
+    void onGroupInstanceClicked();
+    /// 分组的**执行部分**：把对话框里摆好的组清单和归属落到磁盘上。失败时弹窗并返回 false。
+    ///
+    /// NOTE: 拆成两步的理由和 applyRename() 一样 —— QDialog::exec() 会阻塞在事件循环里，
+    ///       验证工程驱动不了它。而这一半里藏着真会错的东西（哪一步该写、写失败了怎么
+    ///       说清"另一半成了没有"），必须验得了。
+    bool applyGrouping(const QString &instanceKey, const GroupDialog &dialog);
     /// 用户在左边那张列表里换了「游戏文件夹」。真正干活的是 FolderManager 发出的
     /// currentFolderChanged()，这里只负责把选中项翻译成一次 setCurrentFolder()。
     void onFolderSelectionChanged();
@@ -115,6 +130,13 @@ private:
     /// 一个版本号在界面上的显示名（"已安装版本"下拉框里的那条文本）。
     /// 下拉框里没有它时退回版本号本身。
     QString instanceDisplayName(const QString &versionId) const;
+    /// 分组归属用哪个键认这个实例：有稳定 id（wtfml.meta 的 instanceId）就用它，
+    /// 没有就退回**目录名**。
+    ///
+    /// NOTE: 读归属和写归属必须都走这一个函数。分开写的话，"读的时候按目录名找、
+    ///       写的时候按 id 存"会让归属在存下去的那一刻就对不上，而且不报任何东西 ——
+    ///       表现是"归好组、重开启动器，它又出来了"。
+    QString instanceKey(const QString &versionId) const;
     // 重灌所有"本地已安装实例"的看法：主页那一对（下拉框 + 列表）、实例页右边那张
     // 列表、以及实例页顶上的"当前文件夹"那句。扫的是**当前游戏文件夹**的
     // .minecraft/versions，同步返回。保住用户原来选中的那一项的逻辑在 fillVersionCombo() 里。
@@ -154,6 +176,9 @@ private:
     FolderManager *m_folderManager;
     VersionManager *m_versionManager;
     GlobalJavaSettings *m_javaSettings;
+    // 实例分组（<数据目录>/wtfml.folders）。**不需要**在换游戏文件夹时重置它：
+    // 它每个访问器都会比一下"这次问的是哪一份 .minecraft"，不一样就自己重读。
+    InstanceGroupStore *m_groupStore;
     // 下载是否在进行中。注意不能只问 m_versionManager：从点击"下载"到版本 JSON
     // 拉回来之前，VersionManager 那边还没有任何批次，这段时间也得算"忙"。
     bool m_downloadInFlight = false;

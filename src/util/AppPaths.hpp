@@ -103,6 +103,17 @@ inline QString versionMetaPath(const QString &versionId) {
     return versionDir(versionId) + QStringLiteral("/wtfml.meta");
 }
 
+/// 实例分组：<数据目录>/wtfml.folders（可选文件，没分过组就不存在）。
+///
+/// NOTE: 它挂在**数据根目录**下、不挂在 versions 下，因为分组是"这一份 .minecraft 里
+///       的实例怎么摆"，换了一份 .minecraft 就是另一套分组。挂在 versions 里会让
+///       "删掉 versions 重下一遍"顺手把用户的分组也删了。
+/// NOTE: 和 wtfml.meta 一样**不叫 .json**：它是给启动器读写的配置文件，扩展名跟别的
+///       json 混在一起，早晚有人拿它当"某个版本的元数据"去读。
+inline QString instanceGroupFilePath() {
+    return minecraftDir() + QStringLiteral("/wtfml.folders");
+}
+
 /// 旧格式（1.18.2 及以下）natives classifier jar 的解压目标：versions/<id>/natives
 inline QString nativesDir(const QString &versionId) {
     return versionDir(versionId) + QStringLiteral("/natives");
