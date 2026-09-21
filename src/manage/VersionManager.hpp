@@ -84,6 +84,21 @@ public:
     // **静默不生效**：字符串不匹配不报错，参数就是不进命令行。
     static QString jvmArgsField();
 
+    // 这个实例的「Java 版本与要求不符时不再提醒」开关（wtfml.meta 里可选的
+    // "skipJavaVersionWarning"）。字段缺失、读到坏文件、类型不对，全都是 false = **要提醒**。
+    //
+    // NOTE: 默认为什么是"提醒"而不是"免打扰"：这个键只有用户点过「以后不再提醒这个实例」
+    //       才会被写下，没写过就是"没表过态"；而"没表态"在加这个功能之前等于一律报错拦下。
+    //       反过来默认（缺省即免打扰）会让老实例一升级就静默放行一个版本不对的 Java，
+    //       而静默选错 Java 正是这一层最怕的错。
+    // NOTE: 类型不对（写成字符串、写成数字）也按"没表态"处理，但要 qWarning 一声 ——
+    //       这是用户手写的文件，写错了必须让他看得出来，否则表现成"明明写了却不生效"。
+    bool skipJavaVersionWarning(const QString &versionId) const;
+
+    // meta 里那个开关的字段名。公开的理由和 jvmArgsField() 一样：写侧在 MainWindow 里，
+    // 它得往 updateVersionMeta() 传一个 key，两边各写一遍字面量的错法是**静默不生效**。
+    static QString skipJavaVersionWarningField();
+
     // 读这个实例的整份 wtfml.meta（文件没有、读不到、解析不了都是空对象）。
     //
     // 这是"每实例设置"的读侧入口：MainWindow 拿它喂给 javaOverrideFromJson()。

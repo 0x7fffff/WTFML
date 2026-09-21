@@ -14,7 +14,9 @@ namespace {
 
 /// meta 里的字段名。**只有这一处写它们**，读和写共用，免得哪天有人改了一边。
 /// 和 VersionManager 里 kInstanceIdField / kDisplayNameField 同一个约定。
-const QString kJavaPathField = QStringLiteral("javaPath");
+///
+/// javaPath 那个不在这里：它的写侧在 MainWindow（"改用匹配的 Java"要往该实例写回
+/// 一个路径），所以它是公开的 javaPathMetaField()，这个文件里也走那一个出处。
 const QString kXmxField = QStringLiteral("xmx");
 const QString kXmsField = QStringLiteral("xms");
 const QString kAutoMemoryField = QStringLiteral("autoMemory");
@@ -47,6 +49,8 @@ std::optional<int> readInt(const QJsonObject &meta, const QString &key) {
 
 }  // namespace
 
+QString javaPathMetaField() { return QStringLiteral("javaPath"); }
+
 EffectiveJavaSettings resolveJavaSettings(const EffectiveJavaSettings &global,
                                           const JavaSettingsOverride &override) {
     EffectiveJavaSettings result = global;
@@ -72,7 +76,7 @@ EffectiveJavaSettings resolveJavaSettings(const EffectiveJavaSettings &global,
 
 JavaSettingsOverride javaOverrideFromJson(const QJsonObject &meta) {
     JavaSettingsOverride override;
-    override.javaPath = readString(meta, kJavaPathField);
+    override.javaPath = readString(meta, javaPathMetaField());
     override.xmx = readInt(meta, kXmxField);
     override.xms = readInt(meta, kXmsField);
     override.extraJvmArgs = readString(meta, kExtraJvmArgsField);
@@ -90,9 +94,9 @@ QJsonObject javaOverrideToJson(const JavaSettingsOverride &override) {
     // 每一项：有值写值，没值写 Null（= 让 updateVersionMeta 把这个键删掉）。
     // 五项一个都不能漏 —— 漏掉的那一项会永远留在文件里，用户把它切回「跟随全局」
     // 之后它还在生效，而界面上已经不显示它了。
-    fields.insert(kJavaPathField, override.javaPath.has_value()
-                                      ? QJsonValue(*override.javaPath)
-                                      : QJsonValue(QJsonValue::Null));
+    fields.insert(javaPathMetaField(), override.javaPath.has_value()
+                                           ? QJsonValue(*override.javaPath)
+                                           : QJsonValue(QJsonValue::Null));
     fields.insert(kXmxField, override.xmx.has_value() ? QJsonValue(*override.xmx)
                                                       : QJsonValue(QJsonValue::Null));
     fields.insert(kXmsField, override.xms.has_value() ? QJsonValue(*override.xms)

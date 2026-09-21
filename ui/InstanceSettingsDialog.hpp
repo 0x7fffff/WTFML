@@ -76,11 +76,13 @@ public:
      * @param global 全局有效值（GlobalJavaSettings::effective()），用来写「当前 …」。
      * @param appendJvmArgs 这个实例现有的「追加参数」（wtfml.meta 的 jvmArgs 数组）。
      *        它不是覆盖层的一项，和全局没有"跟随"关系，所以单独一行、没有那对单选钮。
+     * @param warnJavaMismatch 这个实例的「Java 版本不符时提醒」。和 appendJvmArgs 一样
+     *        不是覆盖层的一项（存 meta 的另一个键），所以也没有那对单选钮。
      * @param parent 父窗口。
      */
     InstanceSettingsDialog(const QString &instanceName, const Override &current,
                            const GlobalValues &global, const QStringList &appendJvmArgs,
-                           QWidget *parent = nullptr);
+                           bool warnJavaMismatch, QWidget *parent = nullptr);
 
     /// 用户摆好的覆盖。五项各自：那行选了「自定义」就有值，选了「跟随全局」就没有值。
     ///
@@ -93,6 +95,15 @@ public:
     /// 高级选项里那两行之一：**追加**在命令行最后的 JVM 参数（写进 meta 的 jvmArgs，
     /// 是数组不是空格分隔的串 —— 参数本身可能含空格）。
     QStringList appendJvmArgs() const;
+
+    /// 高级选项里那两行之一：这个实例的「Java 版本不符时提醒」。true = 提醒（默认）。
+    ///
+    /// NOTE: **刻意不进 Override**。那五项是"值覆盖"，每一项都能"跟随全局"；这是一个
+    ///       行为开关，存的是 wtfml.meta 的另一个键（skipJavaVersionWarning），由
+    ///       MainWindow 经 updateVersionMeta() 合并写进去。混进 Override 会让
+    ///       isEmpty()、javaOverrideFromJson/ToJson 都跟着改，而那五项和那个键的
+    ///       生命周期本来就不一样。
+    bool warnJavaMismatch() const;
 
     /// 高级选项那一块现在是不是展开着。默认折叠。
     bool advancedExpanded() const;
@@ -143,6 +154,9 @@ public:
     }
     static QString appendJvmArgsEditName() {
         return QStringLiteral("instanceAppendJvmArgsEdit");
+    }
+    static QString warnJavaMismatchCheckName() {
+        return QStringLiteral("instanceWarnJavaMismatchCheck");
     }
     static QString advancedToggleName() { return QStringLiteral("instanceAdvancedToggle"); }
     static QString advancedBoxName() { return QStringLiteral("instanceAdvancedBox"); }
@@ -199,6 +213,7 @@ private:
     /// 用单行输入就得在"读出来拼成一行"和"存回去切成数组"之间来回切，而那个来回是
     /// **有损**的：`-Dfoo=bar baz` 会被切成两条。一条一行则原样进原样出。
     QPlainTextEdit *m_appendJvmArgsEdit = nullptr;
+    QCheckBox *m_warnJavaMismatchCheck = nullptr;
     QToolButton *m_advancedToggle = nullptr;
     QWidget *m_advancedBox = nullptr;
 

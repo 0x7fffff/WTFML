@@ -505,6 +505,31 @@ QJsonObject VersionManager::versionMeta(const QString &versionId) const {
     return readVersionMeta(versionId);
 }
 
+QString VersionManager::skipJavaVersionWarningField() {
+    return QStringLiteral("skipJavaVersionWarning");
+}
+
+bool VersionManager::skipJavaVersionWarning(const QString &versionId) const {
+    QString metaPath;
+    const QJsonObject meta = readVersionMeta(versionId, &metaPath);
+    if (meta.isEmpty()) {
+        return false;
+    }
+
+    const QJsonValue value = meta.value(skipJavaVersionWarningField());
+    if (value.isUndefined() || value.isNull()) {
+        // 没写过这个键 = 没表过态 = 提醒。
+        return false;
+    }
+    if (!value.isBool()) {
+        // 写成字符串/数字：按"没表态"处理，但要说一声（见头文件里那条 NOTE）。
+        qWarning() << "Version metadata field skipJavaVersionWarning is not a bool in" << metaPath
+                   << "— treated as \"warn\"";
+        return false;
+    }
+    return value.toBool();
+}
+
 QStringList VersionManager::versionJvmArgs(const QString &versionId) const {
     QString metaPath;
     const QJsonObject meta = readVersionMeta(versionId, &metaPath);

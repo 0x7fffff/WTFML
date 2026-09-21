@@ -94,6 +94,19 @@ EffectiveJavaSettings resolveJavaSettings(const EffectiveJavaSettings &global,
                                           const JavaSettingsOverride &override);
 
 /**
+ * @brief wtfml.meta 里 javaPath 那个键的名字。
+ *
+ * 读侧（javaOverrideFromJson / javaOverrideToJson）和写侧共用这一个出处。写侧出现在
+ * MainWindow 里那个"改用匹配的 Java"分支：它拿到一个自动挑中的路径，要写回**该实例**
+ * 的 javaPath 覆盖。两边各写一遍 "javaPath" 这个字面量的错法是**静默不生效** ——
+ * 键名对不上不报错，覆盖就是没写进去，而界面上看起来一切正常。
+ *
+ * NOTE: 另外四个键（xmx/xms/autoMemory/extraJvmArgs）只有这一个文件读写，
+ *       就地定义在 .cpp 的匿名命名空间里即可，不必公开。
+ */
+QString javaPathMetaField();
+
+/**
  * @brief 从 wtfml.meta 的对象里读出覆盖层。
  * @param meta 整个 meta 对象（VersionManager::versionMeta()）。
  *

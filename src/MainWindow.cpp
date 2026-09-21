@@ -1815,7 +1815,8 @@ void MainWindow::onInstanceSettingsClicked() {
         javaOverrideFromJson(m_versionManager->versionMeta(versionId));
     InstanceSettingsDialog dialog(instanceDisplayName(versionId), toDialogOverride(current),
                                   toDialogGlobal(m_javaSettings->effective()),
-                                  m_versionManager->versionJvmArgs(versionId), this);
+                                  m_versionManager->versionJvmArgs(versionId),
+                                  !m_versionManager->skipJavaVersionWarning(versionId), this);
     if (dialog.exec() != QDialog::Accepted) {
         // 取消：wtfml.meta 一个字节都没动（对话框只把控件读成一份值）。
         return;
@@ -1841,9 +1842,15 @@ bool MainWindow::applyInstanceSettings(const QString &versionId,
     // 走了，而他明明选的是「跟随全局」），追加参数为空时那个键也要删。这套判断放在
     // settings/ 那边是有意的 —— 在这里就没法被断言盯上（这个函数收的是对话框引用，
     // 验证工程驱动不了它）。
-    const QJsonObject fields =
+    QJsonObject fields =
         javaOverrideMetaFields(toSettingsOverride(dialog.override()), dialog.appendJvmArgs(),
                                VersionManager::jvmArgsField());
+
+    // 提醒开关：勾着（要提醒）就**删掉**那个键，取消勾选才写 true。
+    // 和那五项同一个约定（Null = 删键）—— 写一个"等于默认值"的 false 进 meta 会让这个
+    // 文件里多出一堆没信息量的键，而且"没写过"和"写过 false"从此分不开。
+    fields.insert(VersionManager::skipJavaVersionWarningField(),
+                  dialog.warnJavaMismatch() ? QJsonValue(QJsonValue::Null) : QJsonValue(true));
 
     QString error;
     if (!m_versionManager->updateVersionMeta(versionId, fields, &error)) {

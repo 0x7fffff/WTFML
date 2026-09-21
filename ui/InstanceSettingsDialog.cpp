@@ -48,7 +48,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                                                const Override &current,
                                                const GlobalValues &global,
                                                const QStringList &appendJvmArgs,
-                                               QWidget *parent)
+                                               bool warnJavaMismatch, QWidget *parent)
     : QDialog(parent), m_global(global) {
     setWindowTitle(tr("实例设置"));
     // 比分组对话框宽一些：有几行是"单选钮 + 控件"并排。
@@ -207,6 +207,30 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             m_appendJvmArgsEdit->setPlainText(appendJvmArgs.join(QLatin1Char('\n')));
             cellLayout->addWidget(m_appendJvmArgsEdit);
             auto *hint = new QLabel(appendJvmArgsHint(), cell);
+            hint->setWordWrap(true);
+            cellLayout->addWidget(hint);
+            advancedGrid->addWidget(cell, advancedRow++, 1);
+        }
+        {
+            // 提醒开关。和上面那行一样：**不是覆盖层的一项**（没有「跟随全局 / 自定义」
+            // 那对单选钮），它写的是 meta 里的另一个键，由 MainWindow 合并写进去。
+            //
+            // 放在「高级选项」里而不是摆在五项旁边：它不是一个"值"，摆在那五行之间会让人
+            // 以为它也能跟随全局。藏在这里的代价是"关了之后不好找回来"，所以启动时那个
+            // 对话框的正文里点名说了它在哪。
+            addRowTitle(advancedGrid, advancedRow, tr("版本提醒"), m_advancedBox);
+            auto *cell = new QWidget(m_advancedBox);
+            auto *cellLayout = new QVBoxLayout(cell);
+            cellLayout->setContentsMargins(0, 0, 0, 0);
+            cellLayout->setSpacing(4);
+            m_warnJavaMismatchCheck = new QCheckBox(tr("Java 版本与版本要求不符时提醒"), cell);
+            m_warnJavaMismatchCheck->setObjectName(warnJavaMismatchCheckName());
+            m_warnJavaMismatchCheck->setChecked(warnJavaMismatch);
+            cellLayout->addWidget(m_warnJavaMismatchCheck);
+            auto *hint = new QLabel(
+                tr("只对这个实例生效。取消勾选之后启动时不再问「这个 Java 版本对不上」，"
+                   "直接按你指定的 Java 启动。"),
+                cell);
             hint->setWordWrap(true);
             cellLayout->addWidget(hint);
             advancedGrid->addWidget(cell, advancedRow++, 1);
@@ -429,4 +453,10 @@ QStringList InstanceSettingsDialog::appendJvmArgs() const {
         }
     }
     return result;
+}
+
+bool InstanceSettingsDialog::warnJavaMismatch() const {
+    // 控件没建出来时返回 true（= 提醒）：读侧默认"要提醒"这个方向是**安全**的那个
+    // ——宁可多问一次，也不要静默放行一个版本不对的 Java。
+    return m_warnJavaMismatchCheck == nullptr || m_warnJavaMismatchCheck->isChecked();
 }
