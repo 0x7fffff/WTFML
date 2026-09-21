@@ -27,6 +27,7 @@ set(HEADER_FILES
     src/settings/GlobalJavaSettings.hpp
     src/settings/LauncherSettings.hpp
     src/download/DownloadManager.hpp
+    src/download/LoaderMeta.hpp
     src/util/AppPaths.hpp
     src/util/SystemMemory.hpp
     src/util/ZipUtil.hpp

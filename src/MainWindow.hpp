@@ -119,6 +119,14 @@ private slots:
     void onProcessError(const QString &text);
     void onGameFinished(int exitCode, QProcess::ExitStatus exitStatus);
     void onDownloadButtonClicked();
+    /// 「下载版本」上点了下载、而左栏「模组加载器」勾着某一个时的那条路。
+    ///
+    /// @param gameVersion 「可安装版本」里选中的原版号（加载器装在这个版本之上）
+    /// @param loaderIndex 勾中的那个钮在 modLoaderOptionNames() 里的下标（= QButtonGroup 的 id）
+    ///
+    /// 为什么拆成一个函数：这里要和"什么都没勾"（装纯原版）那条路分开，而两条路的前半段
+    /// 判断（下拉框选了没有、忙不忙）是共用的 —— 那部分留在 onDownloadButtonClicked。
+    void startLoaderInstall(const QString &gameVersion, int loaderIndex);
     void onVersionsFetched(const QStringList &versions);
     void onVersionDetailsFetched(const QString &versionId, const QJsonObject &versionJson);
     void onVersionDownloadStats(int done, int total, int failed, const QString &currentFile);

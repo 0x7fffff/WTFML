@@ -14,13 +14,20 @@
 #include <QDebug>
 #include <QDir>
 #include <QFile>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonParseError>
 #include <QJsonValue>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QRegularExpression>
 #include <QSaveFile>
 #include <QSet>
+#include <QUrl>
 #include <QUuid>
 
+#include "../download/LoaderMeta.hpp"
 #include "../launcher/VersionInheritance.hpp"
 #include "../util/AppPaths.hpp"
 #include "InstanceFiles.hpp"
@@ -227,6 +234,256 @@ void VersionManager::downloadVersion(const QString &versionId, const QString &de
     downloadManager->downloadAssets(assetIndex);
 
     downloadManager->endBatch();
+}
+
+// ---------------------------------------------------------------------------
+// 带模组加载器的版本（今天只有 Fabric 接通了）
+// ---------------------------------------------------------------------------
+
+bool VersionManager::loaderInstallSupported(LoaderKind kind) {
+    // Forge / NeoForge 是另一回事：它们要跑自己的 installer jar
+    // （`java -jar forge-installer.jar --installClient <目录>`），OptiFine 的 installer
+    // 更麻烦，它不认命令行给的目录、只能给子进程覆盖 APPDATA —— 两条都要起 Java 子进程，
+    // 和这里这条"拉 json + 下库"不是同一种活，分开做（见 README 的待办）。
+    return kind == LoaderKind::Fabric;
+}
+
+QString VersionManager::loaderDisplayName(LoaderKind kind) {
+    switch (kind) {
+    case LoaderKind::Fabric:
+        return QStringLiteral("Fabric");
+    case LoaderKind::Forge:
+        return QStringLiteral("Forge");
+    case LoaderKind::NeoForge:
+        return QStringLiteral("NeoForge");
+    case LoaderKind::OptiFine:
+        return QStringLiteral("OptiFine");
+    }
+    return QString();
+}
+
+int VersionManager::loaderKindCount() { return 4; }
+
+bool VersionManager::loaderKindFromIndex(int index, LoaderKind *out) {
+    // 顺序**就是** MainWindowUI::modLoaderOptionNames() 的顺序（那张表里下标 0..3 是四个
+    // 加载器）。界面上摆控件的顺序和这里翻译的顺序对不上时不会报错，只会"勾了 Fabric
+    // 装出 Forge" —— 所以这张表只有这一处翻译，而且 verify 里按四个名字逐项对过
+    // （名字取的是界面那两张表，不是这里抄的第二份字面量）。
+    static const LoaderKind kOrder[] = {LoaderKind::Fabric, LoaderKind::Forge,
+                                        LoaderKind::NeoForge, LoaderKind::OptiFine};
+    constexpr int kCount = static_cast<int>(sizeof(kOrder) / sizeof(kOrder[0]));
+    static_assert(kCount == 4, "加载器多了一个/少了一个，界面那两张表也要跟着改");
+    if (index < 0 || index >= kCount) {
+        return false;
+    }
+    if (out != nullptr) {
+        *out = kOrder[index];
+    }
+    return true;
+}
+
+bool VersionManager::isLoaderInstalling() const { return m_loaderInstall.active(); }
+
+void VersionManager::installLoaderVersion(const QString &gameVersion, LoaderKind kind) {
+    if (m_loaderInstall.active()) {
+        qWarning() << "A loader install is already running, refusing to start another.";
+        emit loaderInstallMessage(tr("已经有一个加载器正在安装，等它结束再试。"));
+        return;
+    }
+    if (!loaderInstallSupported(kind)) {
+        // 界面那边也会拦下来并弹一个"还没做"，这里再兜一道：数据层不该被绕过去，
+        // 否则症状是"点了某个还没接通的加载器，结果装出来一个纯原版"。
+        emit loaderInstallMessage(
+            tr("%1 的安装还没接通，现在只有 Fabric 能用。").arg(loaderDisplayName(kind)));
+        return;
+    }
+    if (downloadManager->isBusy()) {
+        emit loaderInstallMessage(tr("已有下载任务正在进行，请等它结束。"));
+        return;
+    }
+
+    m_loaderInstall = LoaderInstall();
+    m_loaderInstall.kind = kind;
+    m_loaderInstall.gameVersion = gameVersion;
+    m_loaderInstall.loaderName = loaderDisplayName(kind);
+    m_loaderInstall.phase = LoaderInstall::Phase::FetchingList;
+
+    emit loaderInstallMessage(tr("正在获取 %1 %2 的加载器版本列表...")
+                                  .arg(loaderDisplayName(kind), gameVersion));
+    fetchFabricLoaderList();
+}
+
+void VersionManager::fetchFabricLoaderList() {
+    if (loaderNetwork == nullptr) {
+        loaderNetwork = new QNetworkAccessManager(this);
+    }
+    const QUrl url(LoaderMeta::fabricLoaderListUrl(m_loaderInstall.gameVersion));
+    QNetworkRequest request(url);
+    // 和 DownloadManager 那几处元数据请求同一个超时：卡死的连接会让界面永远停在
+    // "下载中"（按钮是禁用的），而这个请求没有别的兜底。
+    request.setTransferTimeout(30000);
+    QNetworkReply *reply = loaderNetwork->get(request);
+    connect(reply, &QNetworkReply::finished, this,
+            [this, reply] { onFabricLoaderListReply(reply); });
+}
+
+void VersionManager::onFabricLoaderListReply(QNetworkReply *reply) {
+    reply->deleteLater();
+    // 状态已经换过（上一次失败收了尾、或者用户又点了一次）：这份回复没人要了。
+    if (m_loaderInstall.phase != LoaderInstall::Phase::FetchingList) {
+        return;
+    }
+
+    const QByteArray body = reply->readAll();
+    QJsonParseError parseError;
+    const QJsonDocument doc = QJsonDocument::fromJson(body, &parseError);
+    if (reply->error() != QNetworkReply::NoError || !doc.isArray()) {
+        failLoaderInstall(tr("拿不到 %1 的加载器列表（%2）。检查网络后重试。")
+                              .arg(m_loaderInstall.gameVersion, reply->errorString()));
+        return;
+    }
+
+    const LoaderMeta::LoaderPick pick = LoaderMeta::pickFabricLoader(doc.array());
+    if (!pick.ok()) {
+        // 快照、或者比 Fabric 还早的版本：接口会回一个空数组。这不是网络问题，
+        // 也不能退回"装原版"——用户要的是带加载器的版本，装出来一个纯原版是骗人。
+        failLoaderInstall(tr("Fabric 还没有支持 %1 的加载器（拿到的列表是空的）。")
+                              .arg(m_loaderInstall.gameVersion));
+        return;
+    }
+
+    m_loaderInstall.loaderVersion = pick.version;
+    m_loaderInstall.loaderId =
+        LoaderMeta::fabricLoaderId(m_loaderInstall.gameVersion, pick.version);
+    emit loaderInstallMessage(tr("挑中 %1 %2（%3）。")
+                                  .arg(m_loaderInstall.loaderName, pick.version,
+                                       pick.stable ? tr("最新的正式版") : tr("列表里最新的那个")));
+    m_loaderInstall.phase = LoaderInstall::Phase::FetchingProfile;
+    fetchFabricProfile();
+}
+
+void VersionManager::fetchFabricProfile() {
+    const QUrl url(LoaderMeta::fabricProfileUrl(m_loaderInstall.gameVersion,
+                                                m_loaderInstall.loaderVersion));
+    QNetworkRequest request(url);
+    request.setTransferTimeout(30000);
+    QNetworkReply *reply = loaderNetwork->get(request);
+    connect(reply, &QNetworkReply::finished, this,
+            [this, reply] { onFabricProfileReply(reply); });
+}
+
+void VersionManager::onFabricProfileReply(QNetworkReply *reply) {
+    reply->deleteLater();
+    if (m_loaderInstall.phase != LoaderInstall::Phase::FetchingProfile) {
+        return;
+    }
+
+    const QByteArray body = reply->readAll();
+    QJsonParseError parseError;
+    const QJsonDocument doc = QJsonDocument::fromJson(body, &parseError);
+    if (reply->error() != QNetworkReply::NoError || !doc.isObject()) {
+        failLoaderInstall(tr("拿不到 %1 %2 的 profile（%3）。")
+                              .arg(m_loaderInstall.loaderName, m_loaderInstall.loaderVersion,
+                                   reply->errorString()));
+        return;
+    }
+
+    // 这份 json 会**原样**落盘成 versions/<id>/<id>.json —— 它的 id 就是目录名、它的
+    // inheritsFrom 决定启动时去哪找主类和客户端 jar。两条规则（自带注释）都在
+    // LoaderMeta::checkFabricProfile() 里，那边是纯函数，验证工程拿真 profile 跑过。
+    const QJsonObject profile = doc.object();
+    const LoaderMeta::ProfileCheck check =
+        LoaderMeta::checkFabricProfile(profile, m_loaderInstall.gameVersion);
+    if (!check.ok()) {
+        switch (check.problem) {
+        case LoaderMeta::ProfileProblem::BadId:
+            failLoaderInstall(tr("Fabric %1 的 profile 里的版本 id 不能用（%2），没有安装。")
+                                  .arg(m_loaderInstall.loaderVersion, check.id));
+            return;
+        case LoaderMeta::ProfileProblem::WrongParent:
+            failLoaderInstall(tr("Fabric %1 的 profile 是基于「%2」的，不是「%3」，没有安装。")
+                                  .arg(m_loaderInstall.loaderVersion, check.parent,
+                                       m_loaderInstall.gameVersion));
+            return;
+        case LoaderMeta::ProfileProblem::None:
+            break;  // ok() 已经是 true，到不了这里
+        }
+        failLoaderInstall(tr("Fabric %1 的 profile 没通过检查，没有安装。")
+                              .arg(m_loaderInstall.loaderVersion));
+        return;
+    }
+    const QString id = check.id;
+
+    // 落盘由 downloadVersion() 做（它写的正是 versionJsons 里这一份，原样、不合并）。
+    versionJsons[id] = profile;
+    m_loaderInstall.loaderId = id;
+    startParentOrLoaderFiles();
+}
+
+void VersionManager::startParentOrLoaderFiles() {
+    const QString parent = m_loaderInstall.gameVersion;
+    // "原版装过没有"看的是**磁盘上那两份文件**：版本 json（启动路径 getVersionJson →
+    // 继承链要读的就是它）和客户端 jar（启动时真正要喂给 JVM 的那个）。两个都要：
+    //   - 只有目录、没有 json：老下载残骸。以为"装好了"的话，这个加载器版本启动时
+    //     会报"版本信息缺失"。
+    //   - 有 json、没有 jar：**我们自己的下载残骸** —— downloadVersion() 是先写 json
+    //     再下 jar 的，jar 那一批失败就剩这个形态。以为"装好了"的话，用户拿到的是
+    //     一个启动不起来、而且看不出为什么的加载器版本。
+    // 判成"没装"正好走上补齐那条路：downloadVersion() 会校验并只补缺的那些文件，
+    // 不是重下一遍。
+    if (QFile::exists(InstanceFiles::jsonPath(parent)) &&
+        QFile::exists(InstanceFiles::jarPath(parent))) {
+        emit loaderInstallMessage(
+            tr("原版 %1 已经装好了，直接装 %2 自己的文件。").arg(parent, m_loaderInstall.loaderName));
+        startLoaderFiles();
+        return;
+    }
+
+    emit loaderInstallMessage(
+        tr("原版 %1 还没装，先把它的文件下全（客户端 jar + 库 + 资源）...").arg(parent));
+    m_loaderInstall.phase = LoaderInstall::Phase::WaitingParentJson;
+    fetchVersionDetails(parent);
+}
+
+void VersionManager::startLoaderFiles() {
+    const QString id = m_loaderInstall.loaderId;
+    if (id.isEmpty() || !versionJsons.contains(id)) {
+        failLoaderInstall(tr("%1 的 profile 没准备好，安装中止。").arg(m_loaderInstall.loaderName));
+        return;
+    }
+    m_loaderInstall.phase = LoaderInstall::Phase::WaitingLoaderFiles;
+    emit loaderInstallMessage(tr("开始下载 %1 %2 自己的文件（maven 库）...")
+                                  .arg(m_loaderInstall.loaderName, m_loaderInstall.loaderVersion));
+    downloadVersion(id, AppPaths::versionDir(id));
+}
+
+void VersionManager::writeLoaderMeta() {
+    QJsonObject fields;
+    fields[QStringLiteral("realVersion")] = m_loaderInstall.gameVersion;
+    fields[QStringLiteral("loaderName")] = m_loaderInstall.loaderName;
+    fields[QStringLiteral("loaderVersion")] = m_loaderInstall.loaderVersion;
+
+    QString error;
+    if (!updateVersionMeta(m_loaderInstall.loaderId, fields, &error)) {
+        // NOTE: 版本本身已经装好了、能启动 —— 写不进 meta 只是"显示名少一段"，
+        //       所以这不是失败，不该把它算进失败里。但也不能不说（用户会发现名字不对）。
+        qWarning() << "Failed to write wtfml.meta for" << m_loaderInstall.loaderId << ":" << error;
+        emit loaderInstallMessage(tr("装好了，但没能写进 wtfml.meta（%1）——「版本名」里会少一段「%2 %3」。")
+                                      .arg(error, m_loaderInstall.loaderName,
+                                           m_loaderInstall.loaderVersion));
+    }
+}
+
+void VersionManager::failLoaderInstall(const QString &reason) {
+    // 那份 profile 还在内存缓存里、磁盘上却没有对应的目录：留着的话 getVersionJson()
+    // 会给出一个"磁盘上并不存在"的合并结果（它先查缓存）。清掉它。
+    if (!m_loaderInstall.loaderId.isEmpty()) {
+        versionJsons.remove(m_loaderInstall.loaderId);
+    }
+    const QString reportId = m_loaderInstall.reportId();
+    qWarning() << "Loader install failed for" << reportId << ":" << reason;
+    m_loaderInstall.reset();
+    emit versionDownloadFinished(reportId, false, reason);
 }
 
 QJsonObject VersionManager::rawVersionJson(const QString &versionId) const {
@@ -750,6 +1007,17 @@ void VersionManager::onVersionJsonFetched(const QJsonObject &versionJson) {
         QString versionId = versionJson["id"].toString();
         versionJsons[versionId] = versionJson;
         m_pendingVersionId.clear();
+
+        // 加载器安装里"顺便把原版装好"那一步：这次取 json 是**安装流程自己要的**，不是
+        // 用户在界面上下载这个版本。不能再发 versionDetailsFetched —— 发出去界面会当成
+        // "用户点了下载原版"，于是同一个版本下两遍、两个批次互相打架。这里直接接手。
+        if (m_loaderInstall.phase == LoaderInstall::Phase::WaitingParentJson &&
+            versionId == m_loaderInstall.gameVersion) {
+            m_loaderInstall.phase = LoaderInstall::Phase::WaitingParentFiles;
+            downloadVersion(versionId, AppPaths::versionDir(versionId));
+            return;
+        }
+
         emit versionDetailsFetched(versionId, versionJson);
         return;
     }
@@ -764,6 +1032,15 @@ void VersionManager::onVersionJsonFetched(const QJsonObject &versionJson) {
     const QString pending = m_pendingVersionId;
     m_pendingVersionId.clear();
     qWarning() << "Failed to fetch version JSON for" << pending;
+
+    // 安装流程在等原版那份 json：这次失败就是安装失败，而不是"某个人请求的版本没取到"。
+    if (m_loaderInstall.phase == LoaderInstall::Phase::WaitingParentJson &&
+        pending == m_loaderInstall.gameVersion) {
+        failLoaderInstall(tr("拿不到原版 %1 的版本信息，%2 没有安装。").arg(
+            pending, m_loaderInstall.loaderName));
+        return;
+    }
+
     emit versionDetailsFetched(pending, QJsonObject());
 }
 
@@ -786,6 +1063,40 @@ void VersionManager::onAllDownloadsFinished(bool success) {
                     tr("……还有 %1 个").arg(stats.failedPaths.size() - shown.size());
         }
         message = tr("%1 个文件下载失败：").arg(stats.failed) + QLatin1Char('\n') + list;
+    }
+
+    // 加载器安装的两段在这里接续（一次点击 = 两批下载，见 .hpp 里 installLoaderVersion 的 NOTE）。
+    // 这一段**必须排在下面那条信号之前**：用户点的是"安装 Fabric"，中间那批原版文件不该
+    // 单独报一次"下载完成"（日志里会多一句莫名其妙的原版、按钮也会中途解禁）。
+    if (m_loaderInstall.active()) {
+        if (m_loaderInstall.phase == LoaderInstall::Phase::WaitingParentFiles) {
+            if (!success) {
+                failLoaderInstall(tr("原版 %1 的文件没下全，%2 没有安装。先把原版装好再试。\n%3")
+                                      .arg(m_loaderInstall.gameVersion,
+                                           m_loaderInstall.loaderName, message));
+                return;
+            }
+            emit loaderInstallMessage(tr("原版 %1 就绪，接着装 %2 自己的文件...")
+                                          .arg(m_loaderInstall.gameVersion,
+                                               m_loaderInstall.loaderName));
+            startLoaderFiles();
+            return;
+        }
+
+        if (m_loaderInstall.phase == LoaderInstall::Phase::WaitingLoaderFiles) {
+            const QString loaderName = m_loaderInstall.loaderName;
+            const QString loaderVersion = m_loaderInstall.loaderVersion;
+            if (success) {
+                writeLoaderMeta();
+            }
+            // 收尾：下面那条信号既结束这次安装，也结束这次点击 —— 它是**唯一**的终态。
+            m_loaderInstall.reset();
+            emit versionDownloadFinished(
+                m_currentVersionDownloading, success,
+                success ? tr("%1 %2 已就绪。%3").arg(loaderName, loaderVersion, message)
+                        : tr("%1 %2 没有装成。%3").arg(loaderName, loaderVersion, message));
+            return;
+        }
     }
 
     // 一批只发一次。改动前这里由每个文件的 downloadFinished 触发，

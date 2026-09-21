@@ -434,18 +434,21 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     downloadTab->setObjectName(downloadTabName());
     const TwoColumns download = buildTwoColumnPage(downloadTab, QStringLiteral("download"));
     {
-        // 模组加载器：**四选一**（Fabric / Forge / NeoForge / OptiFine），摆在左栏最上面。
-        // 顺序是"先定加载器、再定装在哪个版本上" —— 跟右边那份版本列表读下来才顺。
+        // 模组加载器：四选一（Fabric / Forge / NeoForge / OptiFine）+ 一个「不装（纯原版）」，
+        // 摆在左栏最上面。顺序是"先定加载器、再定装在哪个版本上" —— 跟右边那份版本列表
+        // 读下来才顺。
         //
-        // NOTE: 这一组**现在什么都没接**（见 MainWindowUI.hpp 里那处 NOTE）：勾了不会改变
-        //       「下载版本」装出来的东西，也不会去过滤「可安装版本」那个下拉框。
-        //       而且**初始一个都不勾**，那正是今天的行为 —— 将来接上去时"一个都不勾"
-        //       这个状态也得留着（它就是"装纯原版"），否则从这个页面再也没法下原版了。
+        // NOTE: 那第五个选项**不是凑数**：单选钮一旦勾上就没法用鼠标取消（Qt 的互斥组
+        //       把"点已勾中的那个"当成什么都没发生），没有它的话用户勾过一次 Fabric 就
+        //       再也回不到"装纯原版"了 —— 而「可安装版本」那个下拉框**只**服务于这条路。
+        //       它**初始勾中**，也就是"打开下载页时就是原来那个行为"。
+        //       位置在四个加载器后面（不是最前面）的理由见头文件里 modLoaderOptionNames()。
         QLabel *modLoaderLabel = new QLabel(modLoaderLabelText(), download.left.widget);
         modLoaderLabel->setObjectName(modLoaderLabelName());
         download.left.layout->addWidget(modLoaderLabel);
 
         modLoaderGroup = new QButtonGroup(download.left.widget);
+        modLoaderGroup->setObjectName(modLoaderGroupName());
         // 四个钮之间挨紧一点（栏自己的间距是 10，那是给"标签/控件一段一段"用的；
         // 四个钮是同一条里的四行，拉开反而看不出它们是一组）。外面那层零边距 ——
         // 栏已经留过边距了。
@@ -469,8 +472,11 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         modLoaderForge = addOption(1);
         modLoaderNeoForge = addOption(2);
         modLoaderOptiFine = addOption(3);
+        modLoaderNone = addOption(modLoaderNoneIndex());
+        // 默认勾"不装"：打开下载页时「下载版本」老规矩，装的是纯原版。
+        modLoaderNone->setChecked(true);
         // 单选钮不吃滚轮，所以这里不需要右边那个下拉框要装的 WheelGuard（见它上面那段
-        // 说明：手一滑把一次 GB 级的下载指到别的版本上）。四个钮也不会这么出事。
+        // 说明：手一滑把一次 GB 级的下载指到别的版本上）。几个钮都不会这么出事。
 
         download.left.layout->addWidget(new QLabel(QStringLiteral("可安装版本"),
                                                    download.left.widget));
@@ -485,7 +491,9 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         download.left.layout->addWidget(availableVersionCombo);
 
         QLabel *downloadHint = new QLabel(
-            QStringLiteral("下载进度显示在窗口底部那条状态栏上。已经下过的版本不会从头重下"
+            QStringLiteral("「模组加载器」勾一个 = 装带那个加载器的版本（原版还没装的话会先"
+                           "把原版补齐），勾「不装（纯原版）」= 只装原版。\n"
+                           "下载进度显示在窗口底部那条状态栏上。已经下过的版本不会从头重下"
                            "——点「下载版本」时会先问一句，答「是」就只校验并补齐缺失或损坏"
                            "的文件。"),
             download.left.widget);
@@ -508,6 +516,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // 「下载版本」只吃自己的宽度，靠左贴在列表下面：它的作用对象就是列表里
         // 选中的那一条，挨着列表比挨着上面的下拉框更说得通。
         downloadButton = new QPushButton(QStringLiteral("下载版本"), versionGroupBox);
+        downloadButton->setObjectName(downloadButtonName());
         downloadButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
         downloadButton->setMinimumWidth(kDownloadButtonMinWidth);
         versionLayout->addWidget(downloadButton, 0, Qt::AlignLeft);

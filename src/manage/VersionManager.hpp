@@ -11,6 +11,9 @@
 #include <QObject>
 #include <QStringList>
 
+class QNetworkAccessManager;
+class QNetworkReply;
+
 #include "../download/DownloadManager.hpp"
 #include "VersionDisplay.hpp"
 
@@ -40,6 +43,63 @@ public:
 
     // Version downloading
     void downloadVersion(const QString &versionId, const QString &destinationPath);
+
+    // ---- 带模组加载器的版本 ----
+
+    /// 下载页那四个单选钮对应的加载器。
+    enum class LoaderKind { Fabric, Forge, NeoForge, OptiFine };
+
+    /// 这个加载器现在接通了没有。**目前只有 Fabric。**
+    //
+    // 为什么要有这个函数、而不是让界面自己判断：界面要据此决定"点了下载之后弹哪一种话"
+    // （能做 / 还没做）。两边各写一份 switch 的话，接通一个加载器时漏改一处，症状是
+    // "明明能装却弹一句『还没做』"—— 或者更糟，反过来。
+    static bool loaderInstallSupported(LoaderKind kind);
+
+    /// 写进 wtfml.meta 的 `loaderName`（显示名里那一段）。比如 "Fabric"。
+    static QString loaderDisplayName(LoaderKind kind);
+
+    /// 一共几个加载器（界面那组单选钮里加载器选项的个数）。
+    static int loaderKindCount();
+
+    /**
+     * @brief 界面那组单选钮里的下标 -> 加载器。
+     * @param index QButtonGroup 的 id（= MainWindowUI 那两张表里的下标）
+     * @param out 成功时写入；失败时不碰
+     * @return 这个下标对应一个加载器吗（-1「一个都没勾」、以及「不装」那个下标都是 false）
+     *
+     * 为什么要有这么一层：界面上"勾了哪个"是个下标，而"装什么"是个枚举，中间那次翻译
+     * 要是各写各的 switch，多一个加载器时漏改一处就是"勾了 Fabric 装出 Forge" —— 不报错，
+     * 装完才发现。所以翻译只有这一处，verify 里按名字逐项对过。
+     */
+    static bool loaderKindFromIndex(int index, LoaderKind *out);
+
+    /**
+     * @brief 装一个带模组加载器的版本。
+     * @param gameVersion 它基于的**原版**版本号（必须在"可安装版本"那张清单里）。
+     * @param kind 装哪一种加载器。
+     *
+     * 全过程（一次点击，两批下载）：
+     *   1. 拉加载器列表 → 挑一个版本（Fabric 是"最新那个正式版"）；
+     *   2. 拉它的 profile json —— 那份**薄 json** 就是要落盘的版本 json；
+     *   3. 原版没装就先把它按老路装好（客户端 jar + 库 + 资源，那才是能玩的那一半）；
+     *   4. 再下加载器自己那几个库（maven 风格，见 LibraryRules::artifactFor），
+     *      并把 `realVersion`/`loaderName`/`loaderVersion` 写进 <id>/wtfml.meta。
+     *
+     * NOTE: 第 3 步是**复用** `downloadVersion()` 那条已经验过的老路，不是另写一份；
+     *       所以它绑定的那几个信号（versionDetailsFetched / versionDownloadFinished）
+     *       在安装期间会被本类截住，UI 只会在整件事结束时收到**一个**完成信号 ——
+     *       否则用户会在"原版下完"那一刻看到一个"下载完成"的框，然后加载器还在下，
+     *       而按钮已经重新亮起来能点了。
+     *
+     * 失败一律以 `versionDownloadFinished(loaderId, false, 原因)` 收尾（还没算出
+     * loaderId 时用 gameVersion 当 id），`loaderInstallMessage()` 里说清卡在哪一步。
+     */
+    void installLoaderVersion(const QString &gameVersion, LoaderKind kind);
+
+    /// 有加载器安装正在进行（含"先装原版"那一段）。
+    /// UI 用它来兜住"两批下载之间那一瞬间按钮亮着"的缝。
+    bool isLoaderInstalling() const;
 
     // 是否有一批下载正在进行（含"正在校验并跳过已存在文件"的整批）。
     // UI 用它来决定"启动游戏"能不能点。
@@ -197,6 +257,11 @@ signals:
     // errorMessage 在成功时是给用户看的汇总，失败时是失败文件清单。
     void versionDownloadFinished(const QString &versionId, bool success,
                                  const QString &errorMessage = QString());
+    // 安装加载器期间给用户看的**过程**话术（"正在获取 Fabric 的版本列表…"、
+    // "原版 1.19 还没装，先把它装好…"）。UI 把它写进日志，不弹窗。
+    // 单独一个信号而不是复用 stats：stats 那四个数是给进度条用的，往里塞话术会让
+    // "进度条显示的是文件数" 这件事变得不可信。
+    void loaderInstallMessage(const QString &text);
 
 private slots:
     void onVersionManifestFetched(const QList<MinecraftVersion> &versions);
@@ -218,7 +283,58 @@ private:
     // 这里取数；下载路径（写 `<id>.json` 落盘）也只用它。
     QJsonObject rawVersionJson(const QString &versionId) const;
 
+    // ---- 加载器安装的内部状态机 ----
+
+    // 一次加载器安装走到哪一步了。Idle 之外的任何值都意味着"这件事还没结束" ——
+    // 两个地方靠它做判断：onVersionJsonFetched（拦下"原版"那次取 json 的回复，别让
+    // UI 再发一次下载）和 onAllDownloadsFinished（那一批结束时是收尾还是接着下一段）。
+    struct LoaderInstall {
+        enum class Phase {
+            Idle,
+            FetchingList,        ///< 正在拉加载器版本列表
+            FetchingProfile,     ///< 正在拉它的 profile json
+            WaitingParentJson,   ///< 正在取原版的 version.json（走 fetchVersionDetails）
+            WaitingParentFiles,  ///< 原版那一批正在下（客户端 jar / 库 / 资源）
+            WaitingLoaderFiles,  ///< 加载器自己那几个库正在下
+        };
+
+        Phase phase = Phase::Idle;
+        LoaderKind kind = LoaderKind::Fabric;
+        QString gameVersion;
+        QString loaderName;     ///< wtfml.meta 的 loaderName
+        QString loaderVersion;  ///< wtfml.meta 的 loaderVersion
+        QString loaderId;       ///< 版本目录名，也是最终 finished 信号里的 id
+
+        bool active() const { return phase != Phase::Idle; }
+        // 结算用的 id：还没算出 loaderId 时退化成原版号 —— 失败信号总得带一个 id。
+        QString reportId() const { return loaderId.isEmpty() ? gameVersion : loaderId; }
+
+        // 收尾（成功、失败都走这里）：回到 Idle，也就是"这件事结束了"。
+        // NOTE: 会一起清掉 loaderName/loaderVersion/loaderId —— 要用的字段先在调用前存下来，
+        //       忘了存的表现是消息里那个名字变成空的（不崩，但话就说不清了）。
+        void reset() { *this = LoaderInstall(); }
+    };
+
+    void fetchFabricLoaderList();
+    void onFabricLoaderListReply(QNetworkReply *reply);
+    void fetchFabricProfile();
+    void onFabricProfileReply(QNetworkReply *reply);
+    // profile 拿到手之后：先看原版在不在，在就直接下一段，不在就先装原版。
+    void startParentOrLoaderFiles();
+    // 把加载器 json 落盘并下它自己那几个库（走 downloadVersion 那条老路）。
+    void startLoaderFiles();
+    // 把 realVersion / loaderName / loaderVersion 合并写进 <id>/wtfml.meta。
+    void writeLoaderMeta();
+    // 中途失败：清状态、把缓存里那份"还没落盘的 json"扔掉、发一个失败信号收尾。
+    // @param reason 给用户看的一句话（谁卡住了、下一步能做什么）。
+    void failLoaderInstall(const QString &reason);
+
     DownloadManager *downloadManager;
+    // 加载器元数据那两次 GET 用**自己**的 network manager，不复用 DownloadManager 的：
+    // 后者的 fetchVersionJson 是"一次只等一个回复"的（m_pendingVersionId 那种），
+    // 混用会让两条路互相把对方的等待状态顶掉。
+    QNetworkAccessManager *loaderNetwork = nullptr;
+    LoaderInstall m_loaderInstall;
     // versionId -> versionJson。mutable 是因为 getVersionJson() 是 const 的，
     // 但它在回读磁盘后要顺手填充这个缓存。
     mutable QMap<QString, QJsonObject> versionJsons;
