@@ -17,6 +17,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QQueue>
 #include <QList>
 #include <QMap>
 #include <QNetworkAccessManager>
@@ -210,6 +211,20 @@ private:
     QMap<QNetworkReply *, QString> expectedSha1s;    // reply -> 期望的 SHA1
     int pendingDownloads;
 
+    /// 等着发的资源对象。**只有这一种下载会排队**：一次资源补齐是 3000 多个对象，
+    /// 全塞给 QNetworkAccessManager 的话 Qt 每个主机只开 6 条连接，其余的在它内部
+    /// 干等，而 30 秒的传输超时**从请求建好就开始算**，于是它们排到队尾之前就成批地
+    /// 报 `Operation timed out` —— 网络其实是通的。
+    /// NOTE: 排在这里的作业已经计进 m_totalJobs（进度条的分母），但**不计进**
+    /// pendingDownloads（那是"已经发出去的"），所以 checkAllDownloadsFinished()
+    /// 必须把这条队列也算上，否则会在还排着几千个的时候就宣布整批下完。
+    struct AssetJob {
+        QString url;
+        QString destinationPath;
+        QString expectedSha1;
+    };
+    QQueue<AssetJob> m_pendingAssetJobs;
+
     // 批次记账
     int m_totalJobs = 0;
     int m_doneJobs = 0;
@@ -230,6 +245,12 @@ private:
 
     void startDownload(const QUrl &url, const QString &destinationPath,
                        const QString &expectedSha1 = QString());
+    /// downloadFile() 的本体。@param throttled 为真时**不立刻发请求**，只排进
+    /// m_pendingAssetJobs，等有连接空出来再发（见 pumpAssetQueue()）。
+    void scheduleFile(const QString &url, const QString &destinationPath,
+                      const QString &expectedSha1, qint64 expectedSize, VerifyMode mode,
+                      bool throttled);
+    void pumpAssetQueue();
     void handleDownloadError(QNetworkReply *reply, const QString &errorMessage);
     void checkAllDownloadsFinished();
     void emitBatchProgress(const QString &currentFile);
