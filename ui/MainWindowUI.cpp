@@ -524,12 +524,34 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
         javaPathLabel->setWordWrap(true);
         javaPathLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
         boxLayout->addWidget(javaPathLabel);
+        // NOTE: 这一句说的是**全局**这一层的选择，它和实例覆盖层的行为**不一样**，别把
+        //       两边写成一回事：这里钉的 Java 对不上就是直接报错（不替你换、也不问）；
+        //       而「实例设置…」里给某个实例单独指定的 Java 对不上时，会弹一个框问要不要
+        //       改用匹配的那个（由下面那行提醒开关管）。全局档不问，是因为它不匹配时
+        //       自动档本来就会挑一个替换掉，手动档是用户对**整台机器**的选择 ——
+        //       那种一眼就该是自己配错的，不值得每次启动都问一遍。
         addHint(box, QStringLiteral("「自动」是按版本要求挑（1.16.5 及以下要 Java 8、"
                                     "26.x 要 Java 25，同一个启动器里得能共存）。"
-                                    "选了具体的 Java 就别指望它会替你换一个 —— "
+                                    "这里选了具体的 Java 就别指望它会替你换一个 —— "
                                     "版本对不上会直接报错，不会静默换一个。"),
                 form);
         addSettingRow(grid, row++, QStringLiteral("运行时"), box, form);
+    }
+    {
+        QWidget *box = makeHintedControl(form);
+        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        // 勾选状态由 MainWindow 灌（它才知道这个开关存在哪），这里只搭控件 ——
+        // 和 memoryAutoCheck 同一条约定。
+        javaWarnMismatchCheck =
+            new QCheckBox(QStringLiteral("实例指定的 Java 版本不符时提醒"), box);
+        javaWarnMismatchCheck->setObjectName(javaWarnMismatchCheckName());
+        boxLayout->addWidget(javaWarnMismatchCheck, 0, Qt::AlignLeft);
+        addHint(box, QStringLiteral("只对「实例设置…」里单独指定过 Java 的实例起作用。"
+                                    "关掉之后不再问，直接按你给它指定的那个 Java 启动 ——"
+                                    "版本真的不对时游戏会以 UnsupportedClassVersionError "
+                                    "之类的方式失败，得去「实例设置…」里换回来。"),
+                form);
+        addSettingRow(grid, row++, QStringLiteral("版本提醒"), box, form);
     }
 
     // ---------- 内存分配 ----------

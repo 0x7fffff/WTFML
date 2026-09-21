@@ -628,6 +628,10 @@ void MainWindow::setupConnections() {
     // 「Java 版本」：选自动，或者钉死一个具体运行时。
     connect(m_ui->getJavaVersionCombo(), &QComboBox::currentIndexChanged, this,
             &MainWindow::onJavaSelectionChanged);
+    // 「实例指定的 Java 版本不符时提醒」这个总闸。管的是**启动时那个三岔口**
+    // （onStartButtonClicked 里问的那一次），不是这一页的显示。
+    connect(m_ui->getJavaWarnMismatchCheck(), &QCheckBox::toggled, this,
+            &MainWindow::onJavaWarnMismatchChanged);
     // 内存：先接「自动 / 手动」总开关，再接两个数字框。
     // 自动档下两个框是禁用的（见 refreshMemoryUi），所以"用户改数字"这件事只可能发生在
     // 手动档，onMemoryChanged 里那句 autoMemory() 守卫是给程序内部 setValue 兜底的。
@@ -1049,6 +1053,12 @@ void MainWindow::applySettingsToUi() {
     selectConfiguredJava(m_ui->getJavaVersionCombo(), m_javaSettings->autoSelectJava(),
                          m_javaSettings->javaPath());
     updateJavaPathLabel();
+    // 提醒总闸。挡信号：这是"把值画出来"，不挡的话 setChecked 会触发
+    // onJavaWarnMismatchChanged() 又回头落一次盘。
+    {
+        const QSignalBlocker blockWarn(m_ui->getJavaWarnMismatchCheck());
+        m_ui->getJavaWarnMismatchCheck()->setChecked(m_javaSettings->warnVersionMismatch());
+    }
 
     // ---------- 内存分配 ----------
     // 交给 refreshMemoryUi()：自动档下它要按当前系统内存算一遍值、禁用两个框、写说明
@@ -1207,6 +1217,15 @@ void MainWindow::refreshMemoryUi() {
             .arg(totalText, availableText)
             .arg(m_javaSettings->xmx())
             .arg(m_javaSettings->xms()));
+}
+
+void MainWindow::onJavaWarnMismatchChanged() {
+    const bool warn = m_ui->getJavaWarnMismatchCheck()->isChecked();
+    m_javaSettings->setWarnVersionMismatch(warn);  // 内部落盘
+    // 这个开关只管**下次启动**问不问，当前这一次不受影响（已经在启动路径上了），
+    // 所以这里不碰任何和"正在跑的实例"有关的状态。
+    appendLog(warn ? tr("实例指定的 Java 版本不符时：会提醒。")
+                   : tr("实例指定的 Java 版本不符时：不再提醒，直接按它指定的 Java 启动。"));
 }
 
 void MainWindow::onMemoryAutoChanged() {

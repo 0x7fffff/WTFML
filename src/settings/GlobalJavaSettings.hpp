@@ -57,6 +57,22 @@ public:
      */
     void setAutoSelectJava(bool autoSelect) { m_autoSelectJava = autoSelect; }
 
+    // ------------------------------------------------------------------
+    // 「实例指定的 Java 与版本要求不符」要不要提醒（设置界面：一个勾选框）
+    // ------------------------------------------------------------------
+    // 提醒本身发生在启动路径上（MainWindow::onStartButtonClicked()），这里只存
+    // **总闸**：关掉之后，任何实例都不再问，直接按它自己钉的那个 Java 启动。
+    //
+    // NOTE: 关掉的总闸**不是**"不提醒但仍然拦下" —— 那种读法会把用户唯一的出路堵死：
+    //       实例钉的路径不匹配时，ensureJavaForVersion() 的手动档分支只有"报错"一条路，
+    //       提醒正是他改用匹配 Java 的唯一入口。所以"不提醒"必须等于"照他说的做"。
+
+    /// 实例指定的 Java 与版本要求不符时要不要提醒。默认 true。
+    bool warnVersionMismatch() const { return m_warnVersionMismatch; }
+
+    /// 设置并**立刻落盘**（和 setAutoMemory() 一样：单勾选框，没有「应用」按钮）。
+    void setWarnVersionMismatch(bool warn);
+
     /**
      * @brief 把"自动挑中的 Java 路径"存回**全局**这一层：改内存 + 落盘。
      * @param path 挑中的路径。和当前值一样时**不写盘** —— 每次启动都重写一遍注册表
@@ -283,6 +299,9 @@ private:
     /// 「Java 版本」选的是不是自动档。默认 true —— 这就是加这一项之前的唯一行为，
     /// 所以老配置文件（没有这个键）读回来仍然是老行为。
     bool m_autoSelectJava = true;
+    /// 「实例指定的 Java 版本不符时提醒」这个总闸。默认 true —— 这也是加这个开关之前
+    /// 的行为（那时候一律报错拦下），所以老配置读回来仍然是"该提醒就提醒"。
+    bool m_warnVersionMismatch = true;
     /// 「内存分配」选的是不是自动档（按系统内存算）。默认 true 的理由同上；
     /// 老配置的例外处理见 load()。
     bool m_memoryAuto = true;

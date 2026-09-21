@@ -146,6 +146,7 @@ private:
     /// @param override 这个实例的覆盖（用来判断"自动这一档是谁要的"）。
     void resolveMemoryForLaunch(EffectiveJavaSettings &io, const JavaSettingsOverride &override);
     /// 「自动（按系统内存）」勾选框。
+    void onJavaWarnMismatchChanged();
     void onMemoryAutoChanged();
     void onMemoryChanged();
     void onLauncherBehaviourChanged();

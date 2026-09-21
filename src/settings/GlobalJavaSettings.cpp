@@ -38,6 +38,8 @@ static constexpr const char kExtraArgs[] = "Java/ExtraArgs";
 static constexpr const char kAutoSelect[] = "Java/AutoSelect";
 /// 「内存分配」是不是自动档（按系统内存算）。老配置没有这个键，见 load() 的处理。
 static constexpr const char kMemoryAuto[] = "Java/MemoryAuto";
+/// 实例指定的 Java 与版本要求不符时要不要提醒。老配置没有这个键 = 提醒（默认值）。
+static constexpr const char kWarnVersionMismatch[] = "Java/WarnVersionMismatch";
 
 /// 内置默认内存（构造函数里的初值）。自动档算不出结果时的兜底值也是它，
 /// load() 判断"用户自己调过没有"时还是拿它当基准 —— 一共就这一处定义。
@@ -569,6 +571,10 @@ void GlobalJavaSettings::load() {
     m_memoryAuto = settings.contains(kMemoryAuto)
                        ? settings.value(kMemoryAuto).toBool()
                        : (m_xmx == kBuiltinXmxMb && m_xms == kBuiltinXmsMb);
+
+    // 提醒总闸：没有这个键（加它之前存下来的老配置）就落到成员默认值 true，
+    // 也就是老行为 —— 那时候这类不匹配是一律报错拦下的，等于"总是提醒"。
+    m_warnVersionMismatch = settings.value(kWarnVersionMismatch, m_warnVersionMismatch).toBool();
 }
 
 void GlobalJavaSettings::save() const {
@@ -579,6 +585,13 @@ void GlobalJavaSettings::save() const {
     settings.setValue(kExtraArgs, m_extraJvmArgs);
     settings.setValue(kAutoSelect, m_autoSelectJava);
     settings.setValue(kMemoryAuto, m_memoryAuto);
+    settings.setValue(kWarnVersionMismatch, m_warnVersionMismatch);
+}
+
+void GlobalJavaSettings::setWarnVersionMismatch(bool warn) {
+    m_warnVersionMismatch = warn;
+    // 立刻落盘的理由和 setAutoMemory() 一样：界面上就这么一个勾选框，没有「应用」按钮。
+    save();
 }
 
 void GlobalJavaSettings::setAutoMemory(bool autoMemory) {
