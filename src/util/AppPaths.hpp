@@ -125,6 +125,14 @@ inline QString libraryDir() { return minecraftDir() + QStringLiteral("/libraries
 /// 资源根目录：<数据目录>/assets（objects 索引与哈希文件都在其下）。
 inline QString assetsDir() { return minecraftDir() + QStringLiteral("/assets"); }
 
+/// 玩家皮肤/披风贴图的缓存根目录：<数据目录>/skins（见 PlayerSkinStore）。
+///
+/// NOTE: 跟着当前游戏文件夹走 —— 换一份 .minecraft 就是各存一份缓存，和 java/、assets/
+///       一样。这是接受的：那两样本来就是"每份游戏目录各自一份"，皮肤缓存没理由特殊，
+///       而且真要共用一份反而要多一个跟游戏目录无关的落点（比如 %APPDATA%），
+///       那又和"整个启动器连带数据可以整体拷走"那条打架。
+inline QString skinsDir() { return minecraftDir() + QStringLiteral("/skins"); }
+
 /// 自管 Java 运行时的根目录：<数据目录>/java/<主版本>/…
 inline QString javaDir() { return minecraftDir() + QStringLiteral("/java"); }
 
