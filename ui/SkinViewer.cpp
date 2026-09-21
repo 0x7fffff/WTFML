@@ -214,9 +214,17 @@ void SkinViewer::mouseMoveEvent(QMouseEvent *event) {
     // 是靠取模绕回去的，交界处会跳一下。
     const QPointF delta = event->position() - m_lastMousePos;
     m_lastMousePos = event->position();
-    // 往右拖 = 把小人往右推 = 露出它的左侧。往下拖 = 把小人的头顶扳向自己（相机升高）。
-    // 这两个方向是照大多数三维浏览器的习惯定的，不是随便挑的正负号。
-    setView(m_yaw + delta.x() * kDegreesPerPixel, m_pitch + delta.y() * kDegreesPerPixel, m_zoom);
+    // 水平：**往哪边拖，小人的正面就往哪边走**（按住正面往右推，正面就朝右滑，于是转到
+    // 它的**右侧**去）—— 这是"抓住模型拧"的直觉，三维浏览器都是这个方向。往下拖 = 把
+    // 小人的正面往下扳 = 头顶倒向自己（相机升高，从上面看）。
+    //
+    // NOTE: 水平是**减**、垂直是**加** —— 看着不对称，但这是算出来的，不是挑的。
+    //       yaw 正数 = 相机绕到玩家的左侧（见 makeCamera）。相机往左挪，小人的正面在
+    //       画面上就是往**左**滑（正面那一点在 yaw=+30° 时的屏幕横坐标是负的），
+    //       所以"正面跟着鼠标往右走"要的是 yaw **减小**。俯仰那边正好相反：pitch 正数
+    //       = 相机升高、从上往下看，正面对着的那一块因此往**下**走，跟"往下拖"同向，
+    //       于是那里是加。2026-09-21 之前这里是加号 —— 拖起来是反的（往左拖、小人往右转）。
+    setView(m_yaw - delta.x() * kDegreesPerPixel, m_pitch + delta.y() * kDegreesPerPixel, m_zoom);
     event->accept();
 }
 

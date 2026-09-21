@@ -7,11 +7,11 @@
 
 #include "SkinModel.hpp"
 
-#include <QPolygonF>
-#include <QTransform>
+#include <QPointF>
 #include <QtMath>
 
 #include <algorithm>
+#include <cmath>
 
 namespace SkinModel {
 namespace {
@@ -180,17 +180,49 @@ constexpr double kArmSwingDegrees = 23.0;
 ///       `walkingCape()` 连相位都不收（签名里留着相位的话，读的人会以为它跟步频有关）。
 constexpr double kCapeLiftDegrees = 24.0;
 
-/// 画一个面要用的东西：屏幕上的四边形、贴图上的矩形、离眼睛多远。
+/// 画一个面要用的东西：屏幕上的四边形、贴图上的矩形、每个角离眼睛多远。
 struct DrawFace {
-    QPolygonF screen;
+    /// 四个角在**画布**上的位置（顺序和 geometry.corners 一致，就是贴图矩形的
+    /// (0,0)(w,0)(w,h)(0,h)）。已经减掉画布原点、乘过设备像素比。
+    QPointF screen[4];
+    /// 每个角离眼睛多远（**越大越远**）。
+    double depth[4] = {0, 0, 0, 0};
+    /// 贴图上占的矩形。
     QRect uv;
-    double depth = 0.0;
+    /// 贴图本体（预乘 ARGB，采样直接按这个格式解释）。
     const QImage *texture = nullptr;
+    /// 面中心的深度。只有"半透明那一遍"排序用得上（见 rasterizeFace 的说明）。
+    double meanDepth = 0.0;
+    /// 这块面上有没有**半透明**像素（alpha 既不是 0 也不是 255）。有的话它不能一次画完，
+    /// 见 render() 里两遍的说明。
+    bool translucent = false;
 };
 
-/// 把一个部件的某一面投到屏幕上，塞进 faces 里。
+/// 这块面上有没有半透明像素。查一次是几十个 texel，一帧几十块面，忽略不计。
+///
+/// NOTE: 扫的范围要跟贴图本身取**交集** —— 调用方给的图不一定够大（披风是从网上
+///       下来的，一张比 22×17 还小的图照样是合法 PNG）。以前这一步是
+///       `drawImage(rect, image, srcRect)`，Qt 会自己把源矩形裁到图里；现在取样是
+///       自己做的，不裁就是读越界。
+bool hasTranslucentPixels(const QImage &texture, const QRect &uv) {
+    const QRect area = uv.intersected(QRect(0, 0, texture.width(), texture.height()));
+    for (int y = area.top(); y <= area.bottom(); ++y) {
+        const QRgb *line = reinterpret_cast<const QRgb *>(texture.constScanLine(y));
+        for (int x = area.left(); x <= area.right(); ++x) {
+            const int alpha = qAlpha(line[x]);
+            if (alpha != 0 && alpha != 255) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+/// 把一个部件的某一面投到画布上，塞进 faces 里。
+/// @param origin 画布左上角在画笔坐标系里的位置（投影出来的点是画笔坐标，要减掉它）。
+/// @param scale 设备像素比：画布是按**设备像素**开的（高 DPI 屏上才不糊）。
 void collectFace(QVector<DrawFace> &faces, const Cuboid &box, Face face, bool overlay,
-                 const QImage &texture, const Camera &cam) {
+                 const QImage &texture, const Camera &cam, const QPointF &origin, double scale) {
     const FaceGeometry geometry = faceGeometry(box, face, overlay);
     if (!isFaceVisible(cam, geometry)) {
         return;  // 背面：看不见，连投都不用投
@@ -200,13 +232,129 @@ void collectFace(QVector<DrawFace> &faces, const Cuboid &box, Face face, bool ov
     draw.uv = geometry.uv;
     draw.texture = &texture;
     double depthSum = 0.0;
-    for (const QVector3D &corner : geometry.corners) {
+    for (int i = 0; i < geometry.corners.size(); ++i) {
         double depth = 0.0;
-        draw.screen << project(cam, corner, &depth);
+        const QPointF point = project(cam, geometry.corners[i], &depth);
+        if (depth <= 0.0) {
+            // 角跑到相机背后了（只有把模型缩得极大才可能）：投影出来的点没有意义，
+            // 整块丢掉。以前是靠"四边形退化成一条线、quadToQuad 返回 false"兜住的。
+            return;
+        }
+        draw.screen[i] = (point - origin) * scale;
+        draw.depth[i] = depth;
         depthSum += depth;
     }
-    draw.depth = depthSum / static_cast<double>(geometry.corners.size());
+    draw.meanDepth = depthSum / static_cast<double>(geometry.corners.size());
+    draw.translucent = hasTranslucentPixels(texture, draw.uv);
     faces << draw;
+}
+
+/// 画布 + 深度缓冲。深度缓冲里只记**不透明**像素写进去的深度 —— 半透明的像素不写深度，
+/// 不然它背后那层不透明的面就被挡住了（透明的地方该透出后面的东西）。
+struct Canvas {
+    QImage *image = nullptr;
+    QVector<float> depth;
+    int width = 0;
+    int height = 0;
+};
+
+/// 把一块面**逐像素**画进画布：像素中心落在面里就取它的深度和贴图上的 texel，
+/// 比深度缓冲近才写。@param blendOnly true = 半透明那一遍（见 render()）。
+///
+/// 采样是**最近邻**：贴图坐标取完 floor 就是那个 texel（和以前 drawImage 关掉平滑
+/// 一个意思，皮肤是像素画，插值只会糊）。透视校正是必须的 —— 贴图坐标和深度都要先
+/// 插 1/z 再取倒数，直接线性插会在近处明显偏。
+void rasterizeFace(const DrawFace &face, Canvas &canvas, bool blendOnly) {
+    const int tri[2][3] = {{0, 1, 2}, {0, 2, 3}};
+    const double rectW = face.uv.width();
+    const double rectH = face.uv.height();
+    const double cornerU[4] = {0.0, rectW, rectW, 0.0};
+    const double cornerV[4] = {0.0, 0.0, rectH, rectH};
+
+    for (const auto &t : tri) {
+        double x[3], y[3], iz[3], u[3], v[3];
+        for (int i = 0; i < 3; ++i) {
+            x[i] = face.screen[t[i]].x();
+            y[i] = face.screen[t[i]].y();
+            iz[i] = 1.0 / face.depth[t[i]];
+            u[i] = cornerU[t[i]] * iz[i];
+            v[i] = cornerV[t[i]] * iz[i];
+        }
+        const double area = (x[1] - x[0]) * (y[2] - y[0]) - (x[2] - x[0]) * (y[1] - y[0]);
+        if (qAbs(area) < 1e-9) {
+            continue;  // 这个角度下这条三角形没有面积（正侧对着镜头）
+        }
+        const double invArea = 1.0 / area;
+        const int x0 = qMax(0, static_cast<int>(std::floor(qMin(x[0], qMin(x[1], x[2])))));
+        const int x1 = qMin(canvas.width - 1, static_cast<int>(std::ceil(qMax(x[0], qMax(x[1], x[2])))));
+        const int y0 = qMax(0, static_cast<int>(std::floor(qMin(y[0], qMin(y[1], y[2])))));
+        const int y1 =
+            qMin(canvas.height - 1, static_cast<int>(std::ceil(qMax(y[0], qMax(y[1], y[2])))));
+
+        for (int py = y0; py <= y1; ++py) {
+            const double sy = py + 0.5;
+            QRgb *line = reinterpret_cast<QRgb *>(canvas.image->scanLine(py));
+            float *depthLine = canvas.depth.data() + py * canvas.width;
+            for (int px = x0; px <= x1; ++px) {
+                const double sx = px + 0.5;
+                // 屏幕空间的重心坐标（三个分量和为 1、都非负 = 落在三角形里）。
+                const double l0 = ((x[1] - sx) * (y[2] - sy) - (x[2] - sx) * (y[1] - sy)) * invArea;
+                const double l1 = ((x[2] - sx) * (y[0] - sy) - (x[0] - sx) * (y[2] - sy)) * invArea;
+                const double l2 = 1.0 - l0 - l1;
+                if (l0 < 0.0 || l1 < 0.0 || l2 < 0.0) {
+                    continue;
+                }
+                const double invZ = l0 * iz[0] + l1 * iz[1] + l2 * iz[2];
+                if (invZ <= 0.0) {
+                    continue;
+                }
+                const double depth = 1.0 / invZ;
+                if (blendOnly) {
+                    // 第二遍：只测试，不写。被前面那层不透明的面挡住的半透明像素不画。
+                    if (depth > depthLine[px] + 1e-4) {
+                        continue;
+                    }
+                } else if (depth >= depthLine[px]) {
+                    continue;  // 已经有更近的面了
+                }
+
+                // 透视校正的贴图坐标：u 那边已经乘过 1/z 了，除以 1/z 的和就还原了。
+                const double uu = (l0 * u[0] + l1 * u[1] + l2 * u[2]) / invZ;
+                const double vv = (l0 * v[0] + l1 * v[1] + l2 * v[2]) / invZ;
+                int tu = face.uv.x() + static_cast<int>(std::floor(uu));
+                int tv = face.uv.y() + static_cast<int>(std::floor(vv));
+                // 夹两下：先夹进 uv 矩形（浮点误差可能让边缘那一列/行落到矩形外面，
+                // 落到隔壁那块贴图上就串色了），再夹进贴图本身（图可能比 uv 矩形小，
+                // 见 hasTranslucentPixels 那段说明 —— 这一下是防读越界的，不是防串色的）。
+                tu = qBound(0, qBound(face.uv.x(), tu, face.uv.right()), face.texture->width() - 1);
+                tv =
+                    qBound(0, qBound(face.uv.y(), tv, face.uv.bottom()), face.texture->height() - 1);
+                const QRgb texel =
+                    reinterpret_cast<const QRgb *>(face.texture->constScanLine(tv))[tu];
+                const int alpha = qAlpha(texel);
+                if (alpha == 0) {
+                    continue;  // 透明：不画、也不写深度（后面的东西照样看得见）
+                }
+                if (blendOnly) {
+                    if (alpha == 255) {
+                        continue;  // 不透明的那一遍画过了
+                    }
+                    const QRgb under = line[px];
+                    const int keep = 255 - alpha;
+                    line[px] = qRgba(qRed(texel) + qRed(under) * keep / 255,
+                                     qGreen(texel) + qGreen(under) * keep / 255,
+                                     qBlue(texel) + qBlue(under) * keep / 255,
+                                     alpha + qAlpha(under) * keep / 255);
+                } else {
+                    if (alpha != 255) {
+                        continue;  // 半透明的留到第二遍（那一遍要按远近从后往前混）
+                    }
+                    line[px] = texel;
+                    depthLine[px] = static_cast<float>(depth);
+                }
+            }
+        }
+    }
 }
 
 // ---------- 默认外观的配色 ----------
@@ -525,68 +673,84 @@ void render(QPainter &painter, const QRectF &target, const Scene &scene) {
     // 老格式的皮肤先把左臂左腿补齐（见 completeLegacySkin：那张图里没这两块）。
     // 注意下面判"有没有第二层"用的仍然是**原来那张**（64×32 就是没有第二层），
     // 补齐只是为了让取图不越界。
-    const QImage skin = completeLegacySkin(scene.skin);
+    // 统一转成**预乘 ARGB**：光栅化那一段是自己按字节解释像素的（见 rasterizeFace），
+    // 格式不统一就没法解释。转一次，一帧几十块面共用。
+    const QImage skin =
+        completeLegacySkin(scene.skin).convertToFormat(QImage::Format_ARGB32_Premultiplied);
+    const QImage cape = scene.cape.isNull()
+                            ? QImage()
+                            : scene.cape.convertToFormat(QImage::Format_ARGB32_Premultiplied);
+
+    // 画布按**设备像素**开：高 DPI 屏上（缩放 125%、150%）一个逻辑像素是两三个物理像素，
+    // 按逻辑尺寸开再被放大就会糊 —— 以前是直接把面画到屏幕上，没有这一步。
+    const double scale =
+        painter.device() != nullptr ? painter.device()->devicePixelRatioF() : 1.0;
+    const int canvasW = static_cast<int>(std::ceil(target.width() * scale));
+    const int canvasH = static_cast<int>(std::ceil(target.height() * scale));
+    if (canvasW <= 0 || canvasH <= 0) {
+        return;
+    }
+    const QPointF origin = target.topLeft();
+
+    // 老格式（64×32）没有身体和四肢的第二层（见 Cuboid::overlayInLegacy）。
+    const bool secondLayer = hasSecondLayer(scene.skin);
 
     QVector<DrawFace> faces;
     // 走动的那一帧（scene.walkPhase 默认立正）。覆盖层跟着部件一起摆 ——
     // inflatedBox() 是把整个 Cuboid 拷一份再胀大，pivot/rotation 因此原样带过去。
     for (const Cuboid &box : walkingParts(scene.slim, scene.walkPhase)) {
         for (Face face : allFaces()) {
-            collectFace(faces, box, face, false, skin, cam);
+            collectFace(faces, box, face, false, skin, cam, origin, scale);
         }
         // 覆盖层：老格式的皮肤只有脑袋有第二层（见 Cuboid::overlayInLegacy）。
-        if (box.hasOverlay && (box.overlayInLegacy || hasSecondLayer(scene.skin))) {
+        if (box.hasOverlay && (box.overlayInLegacy || secondLayer)) {
             for (Face face : allFaces()) {
-                collectFace(faces, box, face, true, skin, cam);
+                collectFace(faces, box, face, true, skin, cam, origin, scale);
             }
         }
     }
-    if (!scene.cape.isNull()) {
-        const Cuboid cape = walkingCape();
+    if (!cape.isNull()) {
+        const Cuboid capedBox = walkingCape();
         for (Face face : allFaces()) {
-            collectFace(faces, cape, face, false, scene.cape, cam);
+            collectFace(faces, capedBox, face, false, cape, cam, origin, scale);
         }
     }
 
-    // 画家算法：远的先画。对手模型这种"几个互不相交的凸多面体"来说这个顺序是精确的，
-    // 理由见头文件里 render() 的说明。
-    std::sort(faces.begin(), faces.end(),
-              [](const DrawFace &a, const DrawFace &b) { return a.depth > b.depth; });
+    Canvas canvas;
+    QImage image(canvasW, canvasH, QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::transparent);
+    canvas.image = &image;
+    canvas.width = canvasW;
+    canvas.height = canvasH;
+    canvas.depth.fill(1e30f, canvasW * canvasH);
 
-    painter.save();
-    // 抗锯齿和插值**都关掉**，用最近邻。两个理由：皮肤是像素画（插值只会糊成一团，
-    // 头像那边同一个理由），而且关了之后相邻两面的边缘是硬的、能严丝合缝地接上。
-    painter.setRenderHint(QPainter::Antialiasing, false);
-    painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
-
+    // 不透明的一遍：谁近谁写进去，**跟画的先后无关**（这就是它比画家算法强的地方：
+    // 不再需要"按远近排序"这个前提，也就没有"排错序"这回事）。
     for (const DrawFace &face : faces) {
-        if (face.texture == nullptr || face.texture->isNull()) {
-            continue;
+        if (face.translucent) {
+            continue;  // 带半透明的面走下面那两遍，见 rasterizeFace 的说明
         }
-        // 把这一面的贴图**先裁下来**再画，而不是"画整张图 + 裁到那一块"。
-        // 后者有两个看得见的毛病，都是像素级的缝：
-        //   ① 裁剪是按每个目标像素的采样点判的，采样点落在矩形外的那个像素整个被丢掉 ——
-        //      于是每一面都比它该占的范围小半圈，相邻两面之间露出一条背景色的缝；
-        //   ② 边缘像素的采样会落到隔壁那块贴图上（往往是透明的），边缘被"冲淡"，
-        //      模型轮廓上多出一圈浅色描边。
-        // 裁下来的小图两头都不沾：它的坐标系从 (0,0) 开始，采样永远不会越出这一面
-        // 自己的像素，于是四面接得上、边缘也是干净的。
-        const QImage patch = face.texture->copy(face.uv);
-        if (patch.isNull()) {
-            continue;
-        }
-        QTransform transform;
-        // 四边形退化（几乎侧对着镜头）时这个会返回 false。**必须挡住**：
-        // 用没被写过的 QTransform 画出来的东西会是一团乱。
-        if (!QTransform::quadToQuad(
-                QPolygonF(QRectF(0.0, 0.0, patch.width(), patch.height())), face.screen,
-                transform)) {
-            continue;
-        }
-        painter.setTransform(transform, false);
-        painter.drawImage(QPointF(0.0, 0.0), patch);
+        rasterizeFace(face, canvas, false);
     }
-    painter.restore();
+    // 带半透明像素的面：先按**不透明**那一遍的规矩画一遍（它身上不透明的那些 texel
+    // 该挡谁挡谁），再按远近从后往前画一遍半透明的部分（混上去、不写深度）。
+    QVector<const DrawFace *> layered;
+    for (const DrawFace &face : faces) {
+        if (face.translucent) {
+            layered << &face;
+        }
+    }
+    for (const DrawFace *face : layered) {
+        rasterizeFace(*face, canvas, false);
+    }
+    std::sort(layered.begin(), layered.end(),
+              [](const DrawFace *a, const DrawFace *b) { return a->meanDepth > b->meanDepth; });
+    for (const DrawFace *face : layered) {
+        rasterizeFace(*face, canvas, true);
+    }
+
+    image.setDevicePixelRatio(scale);
+    painter.drawImage(origin, image);
 }
 
 QImage defaultSteveSkin() {
