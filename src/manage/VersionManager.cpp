@@ -18,6 +18,7 @@
 #include <QJsonParseError>
 
 #include "../util/AppPaths.hpp"
+#include "InstanceFiles.hpp"
 
 VersionManager::VersionManager(QObject *parent)
     : QObject(parent), downloadManager(new DownloadManager(this)) {
@@ -50,29 +51,27 @@ QStringList VersionManager::installedVersions(QStringList *warnings) const {
     if (versionsDir.exists()) {
         QStringList versionDirs = versionsDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
         for (const QString &versionDir : versionDirs) {
-            // 判据是客户端 jar 在不在：<id>/<id>.jar 齐了才算装好。光有个版本目录
-            // （下载中途失败留下的）不算。
-            QString jarPath = AppPaths::versionJarPath(versionDir);
-            if (QFile::exists(jarPath)) {
+            // 判据是"认得出客户端 jar 在不在"，**不再要求 jar 名和目录名一致** ——
+            // 放宽的来龙去脉见 InstanceFiles.hpp 的块注释（一句话：用户自己在资源管理器里
+            // 改过目录名的实例，以前会从列表里静默消失，真机上 388 MB / 851 MB 各一个）。
+            //
+            // 判据没有一路放松到"目录里有任意 .jar 就算已安装"：那样"顶层两个 jar、
+            // 认不出哪个是客户端"的目录也会被收进来，点启动时才发现找不着 jar。
+            // 宁可在这里说不认识，也不能让列表里躺着一个点了会炸的条目。
+            const InstanceFiles::Resolved resolved = InstanceFiles::resolveInstance(versionDir);
+            if (resolved.recognized()) {
                 versions.append(versionDir);
                 continue;
             }
-            // 到这里说明目录名和 jar 名对不上。判据本身**不改** —— 放宽成"目录里有任意
-            // .jar 就算已安装"会把下载中途失败留下的半个版本也收进来。但必须让用户知道
-            // 有些东西被忽略了，因为这种实例在真机上确实存在：用户手动改了目录名，
-            // 却没改里面的 jar 名（`原版ATT2地图（无模组）/` 里躺着的是
-            // `ATT2原版地图（无模组）.jar`，388 MB / 851 MB 的整合包各一个）。
-            // 改之前的表现是它们从列表里静默消失，观感就是"启动器少了两三个版本"。
-            if (warnings == nullptr) {
-                continue;
-            }
-            const QStringList jars = QDir(AppPaths::versionDir(versionDir))
-                                         .entryList(QStringList() << QStringLiteral("*.jar"),
-                                                    QDir::Files);
-            if (!jars.isEmpty()) {
-                warnings->append(
-                    tr("目录 %1 里的 jar 叫「%2」，与目录名不一致，已忽略（目录改过名？）。")
-                        .arg(versionDir, jars.join(QStringLiteral("、"))));
+            // 认不出来的目录里**有 jar** 就得说一声：用户看得见磁盘上确实有个 jar，
+            // 却看不见它在列表里，不讲清楚就是又一次静默消失。
+            // 一个 jar 都没有的目录（下载残骸、纯空目录、误丢进 versions/ 的整合包 zip）
+            // 继续静默 —— 那些本来就没人指望它是实例，报了才知道是噪音。
+            if (warnings != nullptr && !resolved.jarCandidates.isEmpty()) {
+                warnings->append(tr("目录 %1 里有 %2 个 jar（%3），认不出哪个是客户端，已忽略。")
+                                     .arg(versionDir)
+                                     .arg(resolved.jarCandidates.size())
+                                     .arg(resolved.jarCandidates.join(QStringLiteral("、"))));
             }
         }
     }
@@ -194,7 +193,11 @@ QJsonObject VersionManager::getVersionJson(const QString &versionId) const {
 
     // 内存里没有就回读磁盘。下载时已经把 JSON 落盘，所以跨会话启动也能拿到
     // javaVersion 和 assetIndex，不需要先在同一次会话里点一次"下载"。
-    const QString jsonPath = AppPaths::versionJsonPath(versionId);
+    //
+    // NOTE: 路径走 InstanceFiles 解析，不按 <id>.json 硬拼 —— 目录名被外部改过之后，
+    //       里面的 json 还叫老名字，硬拼会读不到，表现就是"实例认出来了、启动却说
+    //       版本信息缺失"。认出来和还能启动是两件事。
+    const QString jsonPath = InstanceFiles::jsonPath(versionId);
     QFile jsonFile(jsonPath);
     if (!jsonFile.exists() || !jsonFile.open(QIODevice::ReadOnly)) {
         qWarning() << "Version JSON not found on disk:" << jsonPath;

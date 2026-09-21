@@ -25,6 +25,7 @@
 #include <QTimer>
 #include <QUuid>
 
+#include "../manage/InstanceFiles.hpp"
 #include "../settings/GlobalJavaSettings.hpp"
 #include "../util/AppPaths.hpp"
 #include "../util/ZipUtil.hpp"
@@ -131,7 +132,12 @@ bool LauncherManager::checkPreLaunch(const QString &versionId, QStringList *erro
     }
 
     // 为特定版本检查所需的游戏文件
-    const QString versionJarPath = QString("%1/versions/%2/%2.jar").arg(basePath, versionId);
+    //
+    // NOTE: 这里以前硬拼 "%1/versions/%2/%2.jar"。改成走 InstanceFiles 的理由和
+    //       getVersionJson() 一样：目录名被外部改过之后里面的 jar 还叫老名字，硬拼会
+    //       报"缺少客户端 JAR"，而那个 jar 明明就在目录里躺着。认出来和还能启动是两件事，
+    //       判据放松了，路径解析就得跟着放松，否则只是把失败从"列表里看不见"挪到了"点了报缺 jar"。
+    const QString versionJarPath = InstanceFiles::jarPath(versionId);
     const QFileInfo jarInfo(versionJarPath);
     if (!jarInfo.exists()) {
         if (errors) {
@@ -363,8 +369,13 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
 
     QStringList classpath;
     bool needsNativesDir = false;
-    // 先添加主版本 JAR 文件
-    addClasspathPath(QStringLiteral("versions/%1/%1.jar").arg(versionId), classpath);
+    // 先添加主版本 JAR 文件。NOTE: jar 名走 InstanceFiles 解析而**不是**直接写 versionId —
+    // 目录名被外部改过之后里面的 jar 还叫老名字，按 id 硬拼出来的 classpath 会指向一个
+    // 不存在的文件，表现是 JVM 一句 "Could not find or load main class" 就没了。
+    // 相对路径的基准是 QProcess 的工作目录（AppPaths::minecraftDir()，见 startGame）。
+    addClasspathPath(
+        QStringLiteral("versions/%1/%2").arg(versionId, InstanceFiles::jarName(versionId)),
+        classpath);
 
     // 根据 version.json library 依赖构建 classpath
     if (!versionJson.isEmpty()) {

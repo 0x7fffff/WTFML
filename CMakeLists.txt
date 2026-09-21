@@ -20,6 +20,7 @@ set(HEADER_FILES
     src/launcher/LibraryRules.hpp
     src/auth/AuthManager.hpp
     src/manage/FolderManager.hpp
+    src/manage/InstanceFiles.hpp
     src/manage/VersionManager.hpp
     src/manage/VersionDisplay.hpp
     src/settings/GlobalJavaSettings.hpp
@@ -36,6 +37,7 @@ set(SOURCE_FILES
     src/launcher/LauncherManager.cpp
     src/auth/AuthManager.cpp
     src/manage/FolderManager.cpp
+    src/manage/InstanceFiles.cpp
     src/manage/VersionManager.cpp
     src/manage/VersionDisplay.cpp
     src/settings/GlobalJavaSettings.cpp
