@@ -4,6 +4,7 @@
 #include <QString>
 
 #include "../util/SystemMemory.hpp"
+#include "EffectiveJavaSettings.hpp"
 
 /**
  * @file GlobalJavaSettings.hpp
@@ -56,6 +57,55 @@ public:
      */
     void setAutoSelectJava(bool autoSelect) { m_autoSelectJava = autoSelect; }
 
+    // ------------------------------------------------------------------
+    // 「实例指定的 Java 与版本要求不符」要不要提醒（设置界面：一个勾选框）
+    // ------------------------------------------------------------------
+    // 提醒本身发生在启动路径上（MainWindow::onStartButtonClicked()），这里只存
+    // **总闸**：关掉之后，任何实例都不再问，直接按它自己钉的那个 Java 启动。
+    //
+    // NOTE: 关掉的总闸**不是**"不提醒但仍然拦下" —— 那种读法会把用户唯一的出路堵死：
+    //       实例钉的路径不匹配时，ensureJavaForVersion() 的手动档分支只有"报错"一条路，
+    //       提醒正是他改用匹配 Java 的唯一入口。所以"不提醒"必须等于"照他说的做"。
+
+    /// 实例指定的 Java 与版本要求不符时要不要提醒。默认 true。
+    bool warnVersionMismatch() const { return m_warnVersionMismatch; }
+
+    /// 设置并**立刻落盘**（和 setAutoMemory() 一样：单勾选框，没有「应用」按钮）。
+    void setWarnVersionMismatch(bool warn);
+
+    /**
+     * @brief 把"自动挑中的 Java 路径"存回**全局**这一层：改内存 + 落盘。
+     * @param path 挑中的路径。和当前值一样时**不写盘** —— 每次启动都重写一遍注册表
+     *        没必要，而且那条路径本来就在盘上。
+     *
+     * 只有全局档该调它。实例档挑中的路径要写回那个实例的 wtfml.meta（见
+     * MainWindow::onStartButtonClicked()），写到这里就是跨作用域污染。
+     *
+     * NOTE: 老代码里这段逻辑长在 ensureJavaForVersion(int, QString) 里面（那个签名
+     *       只能改自己，所以它别无选择）。拆出来是为了让值版和它共用同一份
+     *       "全局档怎么存"的定义，而不是在两处各写一遍 setJavaPath + save。
+     */
+    void adoptJavaPath(const QString &path);
+
+    /**
+     * @brief 把这一层的值倒成一份**有效值**，供实例覆盖层当底用。
+     *
+     * 这是"每实例设置"那一层唯一需要全局档提供的东西：合成
+     * （resolveJavaSettings()）和自动挑 Java 都只认 EffectiveJavaSettings。
+     */
+    EffectiveJavaSettings effective() const;
+
+    /**
+     * @brief 隐式转换到有效值。等价于 effective()。
+     *
+     * 选隐式转换而不是让调用方每处都写 effective()，是为了让
+     * LauncherManager::generateJvmArguments() / startGame() 换成收
+     * `const EffectiveJavaSettings &` 之后，**所有现存调用点一个字都不用改**
+     * （验证工程里有二十多处）。顺带 LauncherManager 从此完全不认识这个类，
+     * 依赖方向从"启动器知道全局设置"变成"启动器只知道这次要用的值"。
+     */
+    operator EffectiveJavaSettings() const { return effective(); }
+
     /**
      * @brief Ensures the configured Java matches the required major version.
      * @param majorVersion Required Java major version.
@@ -63,8 +113,46 @@ public:
      *        (for example "java-runtime-epsilon"), used to pick the exact
      *        runtime Mojang ships for that game version.
      * @return True if matching Java is available.
+     *
+     * 这是**全局档**的老签名：挑中的路径写回本对象并落盘（= 注册表）。
+     * 加了实例覆盖之后它变成 ensureJavaForVersion(EffectiveJavaSettings&, ...)
+     * 的一层**转发壳** —— 保留它是为了让 E 段那几条断言、以及所有现存调用点不用改，
+     * 而且全局档的行为逐字节不变。
      */
     bool ensureJavaForVersion(int majorVersion, const QString &component = QString());
+
+    /**
+     * @brief 值版：在一份**给定的**有效值上挑 Java，挑中的路径写回 io。
+     *
+     * @param io 进参是这次要用的值，出参是挑完之后的值（javaPath 可能被换掉）。
+     * @param majorVersion 需要的主版本。
+     * @param component version.json 里声明的运行时组件名（可为空）。
+     * @param allowAutoSelect 允许自动挑吗。false = **手动档**：io.javaPath 不匹配时
+     *        不替用户换一个，直接失败返回 false。
+     * @param errorOut 失败原因（给用户看的一句话）。
+     * @param allowMismatchedPath 用户已经**明确授权**"就用这个不匹配的 Java 启动"。
+     *        置真时 io.javaPath 非空即返回 true，一个探测都不做。
+     * @return 拿到匹配的 Java 返回 true。
+     *
+     * NOTE: allowMismatchedPath **只能**由「Java 版本不符」那个对话框的「仍然用这个
+     *       Java 启动」置真，别的调用点一个都不许传。它判在 javaMatchesMajor() **之前**
+     *       是有意的：那个函数总是冷启一个 JVM（几十上百毫秒），而这个口子开的理由是
+     *       "用户已经在框里表过态了"，没有理由再探一次。也正因为它在前，一个**压根不存在**
+     *       的路径也能从这里返回 true —— 这是这个参数唯一可能的来源是"用户点的"的结构性
+     *       证据（验证工程 S3 那条断言钉的就是这一点）。
+     *
+     * NOTE: 这个函数**不碰** m_javaPath、**不落盘**、**不改任何成员** —— 挑中的路径
+     *       落在哪个作用域由调用方决定：全局档写回注册表（老行为），实例档写回那个
+     *       实例的 wtfml.meta。这正是"跨作用域污染"在结构上不可能发生的原因：
+     *       实例 A 自动挑中的 Java 绝不会写进全局配置，也就不会覆盖用户手填的全局路径。
+     *
+     * NOTE: 实例覆盖了 javaPath 就等于**手动档**，调用方要把 allowAutoSelect 传 false。
+     *       不这么做的话，用户给某个实例钉死的 Java 会被"按版本要求自动挑"覆盖掉，
+     *       那一项覆盖也就白设了。
+     */
+    bool ensureJavaForVersion(EffectiveJavaSettings &io, int majorVersion,
+                              const QString &component, bool allowAutoSelect,
+                              QString *errorOut = nullptr, bool allowMismatchedPath = false);
 
     /**
      * @brief Scans local installations for Java versions.
@@ -91,15 +179,48 @@ public:
     static int majorVersionFromReleaseFile(const QString &releaseText);
 
     /**
+     * @brief 认出一个 java.exe 的主版本：先读 release 文件，读不到才真的跑一次 java -version。
+     * @param javaExe java.exe 的完整路径。
+     * @param versionOutput 退回探测时用来接 java -version 的原始输出（可以传 nullptr）。
+     * @return 主版本号；exe 不存在、或者两种办法都认不出来时返回 -1。
+     *
+     * JDK/JRE 安装时就把版本清单写在自己的根目录里（release 文件），读它是一次文件读取
+     * （微秒级）；而跑 java -version 要冷启一个 JVM —— Windows 上实测约 80~100 ms，
+     * 装了杀软的机器上第一次跑更久。而 scanLocalJavaVersions() 是**同步**跑的（切到设置页
+     * 那一下），本机 5 个运行时就是 0.6 s 的界面冻结 —— 这就是"点开设置卡一下"。
+     * 能读文件就别开进程。
+     *
+     * NOTE: 不是每个运行时都有 release。原版启动器那份 jre-legacy（Java 8 的老布局）就只有
+     *       bin/ 和 lib/，没有这个文件 —— Java 8 那代还没有这个惯例。所以读不到时**必须**
+     *       退回真的跑一次，不能拿目录名（jre-legacy / java-runtime-delta）去猜主版本：
+     *       目录名是别人起的，改名或者往里放了别的东西，猜出来的版本就是错的 ——
+     *       而"静默选错 Java"正是这一层最怕的错。
+     *
+     * NOTE: 走 release 那条快路径时**不回填 versionOutput**（那里压根没有版本串可填），
+     *       所以拿到 > 0 的返回值时 versionOutput 可能还是空的。调用方（启动前那个
+     *       「版本对不上」的提醒框）必须兜住"只有主版本号"这一种。
+     *
+     * NOTE: 公开它是因为启动路径要用它来判断"实例钉的那个 Java 到底是哪个主版本"
+     *       （MainWindow::askAboutJavaMismatch()）。那个判断**不能**改用
+     *       javaMatchesMajor()：后者只回答"是不是这个版本"，而对话框里要写清"他钉的
+     *       是哪个版本"，而且它总是冷启一个 JVM。
+     */
+    static int probeJavaMajorVersion(const QString &javaExe, QString *versionOutput = nullptr);
+
+    /**
      * @brief Downloads a Java runtime from Mojang for the required version.
      * @param majorVersion Required Java major version.
+     * @param javaPathOut 非空时写入下载并解压出来的 java.exe 路径。
      * @return True if the download succeeded.
      *
      * NOTE: 名字里的 "FromMojang" 是历史遗留，**实际来源是 Adoptium**（api.adoptium.net
      *       的 v3 assets/latest API），不是 Mojang 的服务器。函数名先不改 —— 改名要动
      *       调用点，收益只是好看。
+     * NOTE: 它**不**写 m_javaPath、**不**落盘 —— 这条是加实例覆盖时改的。以前它自己
+     *       把路径存进全局配置，于是"给某个实例下载一个运行时"会顺手改掉全局的 Java
+     *       路径；现在下载归下载、存哪由调用方决定（见 ensureJavaForVersion 的值版）。
      */
-    bool downloadJavaFromMojang(int majorVersion);
+    bool downloadJavaFromMojang(int majorVersion, QString *javaPathOut = nullptr);
 
     /**
      * @brief Current maximum heap size in megabytes.
@@ -216,6 +337,9 @@ private:
     /// 「Java 版本」选的是不是自动档。默认 true —— 这就是加这一项之前的唯一行为，
     /// 所以老配置文件（没有这个键）读回来仍然是老行为。
     bool m_autoSelectJava = true;
+    /// 「实例指定的 Java 版本不符时提醒」这个总闸。默认 true —— 这也是加这个开关之前
+    /// 的行为（那时候一律报错拦下），所以老配置读回来仍然是"该提醒就提醒"。
+    bool m_warnVersionMismatch = true;
     /// 「内存分配」选的是不是自动档（按系统内存算）。默认 true 的理由同上；
     /// 老配置的例外处理见 load()。
     bool m_memoryAuto = true;

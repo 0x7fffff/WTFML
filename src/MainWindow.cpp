@@ -11,7 +11,12 @@
 
 #include "MainWindow.hpp"
 
+#include "..\ui\GroupDialog.hpp"
+#include "..\ui\InstanceSettingsDialog.hpp"
+#include "..\ui\JavaMismatchDialog.hpp"
 #include "..\ui\MainWindowUI.hpp"
+// 主页右栏那个小人怎么画：几何、投影、默认外观、头像裁切全在它里面（纯函数 + 值）。
+#include "..\ui\SkinModel.hpp"
 
 // 添加以下头文件（防止hpp变动导致文件失效）
 #include <QCheckBox>
@@ -21,7 +26,9 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QInputDialog>
 #include <QLabel>
+#include <QLineEdit>
 #include <QListWidget>
 #include <QMessageBox>
 #include <QPlainTextEdit>
@@ -31,14 +38,22 @@
 #include <QSignalBlocker>
 #include <QSpinBox>
 #include <QTabWidget>
+#include <QTreeWidget>
+#include <QTreeWidgetItem>
+#include <QTreeWidgetItemIterator>
 
 #include "auth/AuthManager.hpp"
 #include "launcher/LauncherManager.hpp"
 #include "manage/FolderManager.hpp"
+#include "manage/InstanceFiles.hpp"
+#include "manage/InstanceGroupStore.hpp"
+#include "manage/PlayerSkinStore.hpp"
 #include "manage/VersionManager.hpp"
+#include "settings/EffectiveJavaSettings.hpp"
 #include "settings/GlobalJavaSettings.hpp"
 #include "settings/LauncherSettings.hpp"
 #include "util/AppPaths.hpp"
+#include "util/SystemMemory.hpp"
 
 namespace {
 
@@ -176,8 +191,11 @@ void syncComboToList(QComboBox *combo, const QListWidget *list) {
  * @param parts 每个版本的显示名组成部分。
  * @param options 全局「版本名格式」开关。
  *
- * 灌完**不动选中项**：怎么收尾由调用方决定 —— 跟下拉框配对的那些走
- * syncListToCombo() 对齐过去，实例页右边那张自己跟着下拉框走。
+ * 灌完**不动选中项**：怎么收尾由调用方决定（跟下拉框配对的那些走 syncListToCombo()
+ * 对齐过去）。
+ *
+ * NOTE: 只剩「下载」页那张可安装版本列表在用它了。实例页那张换成了树（要分组），
+ *       走的是 fillInstanceTree()。
  */
 void fillVersionList(QListWidget *list, const QList<VersionDisplayParts> &parts,
                      const VersionNameOptions &options) {
@@ -208,6 +226,212 @@ void fillVersionViews(QComboBox *combo, QListWidget *list,
     // 重灌之后把列表的选中项对齐到下拉框：下拉框那边已经负责"保住原来选的",
     // 列表跟着它走就行。不对齐的话，用户会看到上面选着 A、下面高亮着 B。
     syncListToCombo(combo, list);
+}
+
+// ======================================================================
+// 实例页那张树（分组）
+// ======================================================================
+//
+// 这一组自由函数对应上面那三个列表版（fillVersionList / syncListToCombo /
+// syncComboToList），但**不能合并**：实例列表要两层（组 + 实例），可安装版本列表
+// 是一层（而且没有分组的概念）。硬合并的写法是"到处判 item 是组还是实例"，那样
+// 每多一个调用点就多一次判错的机会。
+
+/**
+ * @brief 实例树里一个组节点，以及挂在它下面的那些实例。
+ *
+ * 「未分组」用 groupId 为空表示 —— 它是**虚拟**的，不进 wtfml.folders，而且只有存在
+ * 真实分组时才会被画出来（一个组都没有时列表是平铺的，见 fillInstanceTree）。
+ */
+struct InstanceGroupBucket {
+    QString groupId;
+    QString name;
+    QList<VersionDisplayParts> parts;
+};
+
+/**
+ * @brief 一个树条目代表的实例 id；**组头返回空串**。
+ * @param item 树条目；nullptr 也返回空串。
+ *
+ * 所有读这棵树的地方都必须过这一道，不许直接 `currentItem()->data(0, Qt::UserRole)`。
+ * 组头天然能被选中（QTreeWidget::setCurrentItem() 不看 ItemIsSelectable），而组头上
+ * 那个 role 是空的 —— 界面于是悄悄变成"没选中任何实例"，用户按启动得到"未选择版本"，
+ * 而屏幕上明明有一行亮着。
+ *
+ * NOTE: 判据是**它有没有组 id 那个 role**，而不是"实例 id 是不是空的"。后者在
+ *       "某个实例的 id 恰好是空串"时会误判，而这个判据不该依赖那个前提。
+ */
+QString instanceIdOf(const QTreeWidgetItem *item) {
+    if (item == nullptr) {
+        return QString();
+    }
+    if (item->data(0, MainWindowUI::groupIdRole()).isValid()) {
+        return QString();
+    }
+    return item->data(0, MainWindowUI::instanceIdRole()).toString();
+}
+
+/**
+ * @brief 按分组把实例灌进实例页那张树。
+ * @param tree 目标树。
+ * @param buckets 组（含虚拟的「未分组」，见 InstanceGroupBucket）。
+ * @param options 全局「版本名格式」开关。
+ *
+ * 两种形态，由调用方给进来的 buckets 决定（它才知道有没有真实分组）：
+ *   - **只有一格、groupId 为空** → 平铺，不插组头。这是"还没分过组"的样子，
+ *     和换树之前那张列表逐项一致。
+ *   - 否则每格画一个组头，实例挂在它下面。**空组照样画**："先把组建好、再往里
+ *     放东西"是常见顺序，空组不画的话用户会以为没建成。
+ *
+ * NOTE: 灌完**不动选中项**（和 fillVersionList 一致），收尾由调用方 syncTreeToCombo()。
+ * NOTE: 每个实例条目的 tooltip 是**目录的完整路径**。显示名和目录名可能不一样
+ *       （自定义名、拼进去的加载器名、或者用户在资源管理器里改过目录名），而
+ *       "这个实例到底在哪个目录"是排查问题时唯一要问的东西。
+ */
+void fillInstanceTree(QTreeWidget *tree, const QList<InstanceGroupBucket> &buckets,
+                      const VersionNameOptions &options) {
+    const QSignalBlocker blocker(tree);
+    tree->clear();
+
+    const bool flat = buckets.size() == 1 && buckets.first().groupId.isEmpty();
+    for (const InstanceGroupBucket &bucket : buckets) {
+        QTreeWidgetItem *parent = nullptr;
+        if (!flat) {
+            parent = new QTreeWidgetItem(tree);
+            parent->setText(0, MainWindowUI::groupItemText(bucket.name, bucket.parts.size()));
+            parent->setData(0, MainWindowUI::groupIdRole(), bucket.groupId);
+            // 组头**不给选中**：它是"一堆东西的标题"，不是"一个能启动的实例"。
+            // 清掉 ItemIsSelectable 之后，选择模型会拒绝把它放进"被选中"的集合，
+            // 所以点它**不会亮**（ui_check 的 M 段真的发了一次鼠标事件钉住这条）。
+            //
+            // NOTE: 但**它仍然会变成 currentItem()** —— QAbstractItemView 在
+            //       mousePressEvent 里只查 ItemIsEnabled 就把当前项挪过去了，选择命令
+            //       是后一步的事。所以这一行是"别让它高亮"，**不是**"别让它被选中"；
+            //       真正兜住"当前选中的是哪个实例"的是 instanceIdOf() 那道守卫，
+            //       每一个读 currentItem() 的地方都绕不过去。
+            parent->setFlags(parent->flags() & ~Qt::ItemIsSelectable);
+            // 默认展开：折起来的组里有什么，用户得点一下才知道，而这里正是"想让
+            // 用户看见有什么"的地方。他折起来之后的重灌会再展开 —— 重灌本来就
+            // 不负责记状态（连选中项都是显式对齐的）。
+            parent->setExpanded(true);
+        }
+        // 平铺时挂在**不可见的根**下面，那和"顶层条目"是一回事，而且省掉了
+        // "parent 是空的就换一个构造函数"那条分叉（两个构造函数收的类型不一样）。
+        QTreeWidgetItem *holder = parent != nullptr ? parent : tree->invisibleRootItem();
+        for (const VersionDisplayParts &part : bucket.parts) {
+            auto *item = new QTreeWidgetItem(holder);
+            item->setText(0, formatVersionName(part, options));
+            item->setData(0, MainWindowUI::instanceIdRole(), part.id);
+            item->setToolTip(0, QDir::toNativeSeparators(AppPaths::versionDir(part.id)));
+        }
+    }
+}
+
+/**
+ * @brief 让实例树里的选中项跟上下拉框（两边都按 id 找，不按文本）。
+ * @param combo 版本下拉框。
+ * @param tree 实例页那张树。
+ *
+ * 找不到那个 id（清单刚刷新、实例被删了）时**清空选中**，和列表版一样。
+ */
+void syncTreeToCombo(const QComboBox *combo, QTreeWidget *tree) {
+    const QString id = selectedVersionId(combo);
+    // 挡信号：这里是"跟着别人变"，不该反过来再把下拉框动一遍。真正的用户操作才发信号。
+    const QSignalBlocker blocker(tree);
+    if (!id.isEmpty()) {
+        QTreeWidgetItemIterator it(tree);
+        while (*it != nullptr) {
+            if (instanceIdOf(*it) == id) {
+                tree->setCurrentItem(*it);
+                return;
+            }
+            ++it;
+        }
+    }
+    // 没找到（或者下拉框本来就没选）：留空，别硬选一个别的。
+    tree->setCurrentItem(nullptr);
+}
+
+/**
+ * @brief 让下拉框跟上实例树里选中的那一项。
+ * @param combo 版本下拉框。
+ * @param tree 实例页那张树。
+ *
+ * NOTE: 选中的是**组头**时什么都不做 —— 点一个组的标题不是"挑一个版本"。守卫走
+ *       instanceIdOf()，理由见它的说明。
+ */
+void syncComboToTree(QComboBox *combo, const QTreeWidget *tree) {
+    const QString id = instanceIdOf(tree->currentItem());
+    if (id.isEmpty()) {
+        return;
+    }
+    const int index = combo->findData(id);
+    if (index >= 0 && combo->currentIndex() != index) {
+        combo->setCurrentIndex(index);
+    }
+}
+
+// 「一个组」的两份表示之间的转换。看着啰嗦，但它是 ui/ 和业务层解耦的**全部代价**：
+// ui/ 一直不 include src/（ui_check 那个工程只编 ui/MainWindowUI.cpp 就能跑），所以
+// 分组对话框有自己的 Group、存储层有自己的 Group，两边逐字段相同。把它们合成一个
+// 类型就得让 ui/ 依赖业务层，或者反过来 —— 相比之下这两段循环是最便宜的。
+
+QList<InstanceGroupStore::Group> toStoreGroups(const QList<GroupDialog::Group> &from) {
+    QList<InstanceGroupStore::Group> to;
+    to.reserve(from.size());
+    for (const GroupDialog::Group &group : from) {
+        InstanceGroupStore::Group item;
+        item.id = group.id;
+        item.name = group.name;
+        to.append(item);
+    }
+    return to;
+}
+
+QList<GroupDialog::Group> toDialogGroups(const QList<InstanceGroupStore::Group> &from) {
+    QList<GroupDialog::Group> to;
+    to.reserve(from.size());
+    for (const InstanceGroupStore::Group &group : from) {
+        GroupDialog::Group item;
+        item.id = group.id;
+        item.name = group.name;
+        to.append(item);
+    }
+    return to;
+}
+
+// 「一个实例的启动五项覆盖」的两份表示之间的转换。理由和上面那两段一样：ui/ 不 include
+// src/，所以 InstanceSettingsDialog 有自己的 Override、settings/ 有自己的
+// JavaSettingsOverride，逐字段相同、由这两段循环在两边搬。
+
+JavaSettingsOverride toSettingsOverride(const InstanceSettingsDialog::Override &from) {
+    JavaSettingsOverride to;
+    to.javaPath = from.javaPath;
+    to.xmx = from.xmx;
+    to.xms = from.xms;
+    to.autoMemory = from.autoMemory;
+    to.extraJvmArgs = from.extraJvmArgs;
+    return to;
+}
+
+InstanceSettingsDialog::Override toDialogOverride(const JavaSettingsOverride &from) {
+    InstanceSettingsDialog::Override to;
+    to.javaPath = from.javaPath;
+    to.xmx = from.xmx;
+    to.xms = from.xms;
+    to.autoMemory = from.autoMemory;
+    to.extraJvmArgs = from.extraJvmArgs;
+    return to;
+}
+
+InstanceSettingsDialog::GlobalValues toDialogGlobal(const EffectiveJavaSettings &from) {
+    InstanceSettingsDialog::GlobalValues to;
+    to.javaPath = from.javaPath;
+    to.xmx = from.xmx;
+    to.xms = from.xms;
+    to.autoMemory = from.autoMemory;
+    to.extraJvmArgs = from.extraJvmArgs;
+    return to;
 }
 
 /**
@@ -298,7 +522,9 @@ MainWindow::MainWindow(QWidget *parent)
       m_authManager(new AuthManager(this)),
       m_folderManager(new FolderManager(m_settings, this)),
       m_versionManager(new VersionManager(this)),
-      m_javaSettings(new GlobalJavaSettings(this)) {
+      m_javaSettings(new GlobalJavaSettings(this)),
+      m_groupStore(new InstanceGroupStore(this)),
+      m_skinStore(new PlayerSkinStore(this)) {
     setupConnections();
     // 设置页先按盘上的值摆好（不扫 Java，那一段等第一次切到设置页，见
     // refreshJavaList()）。必须在下面 fetchAvailableVersions() **之前**：
@@ -324,6 +550,11 @@ MainWindow::MainWindow(QWidget *parent)
     // 登录按钮的初始文字也看"上次登过没有"：登过就该是「重新登录」，不然用户会以为
     // 上次的登录没留住（而底下那行用户名明明已经是他的名字了）。
     updateLoginButton();
+    // 主页右栏那个小人 + 底栏头像。放在 updateLoginButton() 之后是因为它要问
+    // AuthManager"登过没有"，而那份状态是在它自己的构造函数里从盘上读回来的。
+    // **必须在 fetchAvailableVersions() 之前**：那一下要发网络请求，外观这条线不该
+    // 排在它后面（离线那条路更是完全不让它走）。
+    startPlayerSkinLoad();
     m_versionManager->fetchAvailableVersions();
 }
 
@@ -337,6 +568,12 @@ void MainWindow::setupConnections() {
             &MainWindow::onAddFolderClicked);
     connect(m_ui->getRemoveFolderButton(), &QPushButton::clicked, this,
             &MainWindow::onRemoveFolderClicked);
+    connect(m_ui->getRenameInstanceButton(), &QPushButton::clicked, this,
+            &MainWindow::onRenameInstanceClicked);
+    connect(m_ui->getGroupInstanceButton(), &QPushButton::clicked, this,
+            &MainWindow::onGroupInstanceClicked);
+    connect(m_ui->getInstanceSettingsButton(), &QPushButton::clicked, this,
+            &MainWindow::onInstanceSettingsClicked);
     // 左边列表选中哪一份 .minecraft，启动器就换到哪一份上（PCL 的卡片是同一个交互）。
     connect(m_ui->getFolderList(), &QListWidget::currentRowChanged, this,
             &MainWindow::onFolderSelectionChanged);
@@ -355,8 +592,13 @@ void MainWindow::setupConnections() {
         m_reportedUnrecognizedVersions = false;
         m_javaListScanned = false;
         // 版本列表、实例列表、按钮文字、底栏全都对着新根目录重来一遍。
+        // 分组**不需要**在这里重置或重读：InstanceGroupStore 每个访问器都会比一下
+        // "这次问的是哪一份 .minecraft"，不一样就自己重读（见它的文件头）。
         refreshInstalledVersions();
     });
+    // 分组数据变了（对话框里确定之后、改名之后 rekey）。重灌实例页那张树。
+    connect(m_groupStore, &InstanceGroupStore::groupsChanged, this,
+            &MainWindow::refreshInstalledVersions);
     // 用户在"已安装版本"下拉框里换一个版本，按钮第二行立刻跟着变。
     // NOTE: 这条只管用户手选。fillVersionCombo() 重灌下拉框时信号是被挡住的，
     // 那条路径由 refreshInstalledVersions() 自己收尾，两条路合起来才不会漏。
@@ -371,12 +613,13 @@ void MainWindow::setupConnections() {
                 // 底栏左下角那条状态要看"选中的是不是正在跑的那个实例"，
                 // 所以换版本也得跟着刷一遍。
                 updateBottomBar();
-                // 实例页右边那张列表是同一份数据的另一种看法，跟着一起亮。
-                syncListToCombo(m_ui->getInstalledVersionCombo(), m_ui->getInstanceList());
+                // 实例页右边那张树是同一份数据的另一种看法，跟着一起亮。
+                syncTreeToCombo(m_ui->getInstalledVersionCombo(), m_ui->getInstanceList());
             });
-    // 列表 → 下拉框。点列表里的一行 = 在上面把它选中（用户要求的行为）。
-    connect(m_ui->getInstanceList(), &QListWidget::currentItemChanged, this, [this] {
-        syncComboToList(m_ui->getInstalledVersionCombo(), m_ui->getInstanceList());
+    // 树 → 下拉框。点树里的一行 = 在上面把它选中（用户要求的行为）。
+    // 选中组头时不动作（syncComboToTree 里的守卫）—— 点一个组的标题不是在挑版本。
+    connect(m_ui->getInstanceList(), &QTreeWidget::currentItemChanged, this, [this] {
+        syncComboToTree(m_ui->getInstalledVersionCombo(), m_ui->getInstanceList());
     });
     connect(m_ui->getAvailableVersionCombo(), &QComboBox::currentIndexChanged, this,
             [this] {
@@ -395,6 +638,10 @@ void MainWindow::setupConnections() {
     // 「Java 版本」：选自动，或者钉死一个具体运行时。
     connect(m_ui->getJavaVersionCombo(), &QComboBox::currentIndexChanged, this,
             &MainWindow::onJavaSelectionChanged);
+    // 「实例指定的 Java 版本不符时提醒」这个总闸。管的是**启动时那个三岔口**
+    // （onStartButtonClicked 里问的那一次），不是这一页的显示。
+    connect(m_ui->getJavaWarnMismatchCheck(), &QCheckBox::toggled, this,
+            &MainWindow::onJavaWarnMismatchChanged);
     // 内存：先接「自动 / 手动」总开关，再接两个数字框。
     // 自动档下两个框是禁用的（见 refreshMemoryUi），所以"用户改数字"这件事只可能发生在
     // 手动档，onMemoryChanged 里那句 autoMemory() 守卫是给程序内部 setValue 兜底的。
@@ -432,6 +679,12 @@ void MainWindow::setupConnections() {
     connect(m_authManager, &AuthManager::loginStarted, this, &MainWindow::onLoginStarted);
     connect(m_authManager, &AuthManager::loginSucceeded, this, &MainWindow::onLoginSucceeded);
     connect(m_authManager, &AuthManager::loginFailed, this, &MainWindow::onLoginFailed);
+
+    // 玩家外观（主页右栏那个小人 + 底栏头像）。三条都只走这一处 —— 数据层不知道界面
+    // 长什么样，界面不知道贴图从哪来。
+    connect(m_skinStore, &PlayerSkinStore::profileReady, this, &MainWindow::onSkinProfileReady);
+    connect(m_skinStore, &PlayerSkinStore::textureReady, this, &MainWindow::onSkinTextureReady);
+    connect(m_skinStore, &PlayerSkinStore::failed, this, &MainWindow::onSkinFailed);
 
     // 游戏进程信号
     connect(m_launcherManager, &LauncherManager::processOutput, this, &MainWindow::onProcessOutput);
@@ -490,11 +743,20 @@ void MainWindow::updateBottomBar() {
     // ---------- 左：头像 + 用户名 ----------
     // 登录过就是档案里的真名（登录那一刻拿到的，或者开窗时从盘上读回来的那份）；
     // 没登录是占位的 "Player" —— 这里不自己造假名字，也不去猜。
-    // NOTE: 头像仍是首字母方块（真皮肤头像要另拉一次皮肤贴图，还没做）。
     const QString name = m_authManager->playerName();
     m_ui->getAccountLabel()->setText(name);
-    m_ui->getAvatarLabel()->setText(name.isEmpty() ? QStringLiteral("?")
-                                                    : name.left(1).toUpper());
+    // 头像优先用**真皮肤**抠出来的那一块（m_avatarPixmap，在 applyPlayerSkin() 里算好
+    // 存着 —— 这里每次进度刷新都会被调到，不能现算）。没有它的时候（未登录、还没取到、
+    // 取不到、贴图载不进来）退回首字母方块：退路必须留着，一块空白的头像比一个首字母
+    // 更像"界面坏了"。
+    // NOTE: setPixmap()/setText() 都会把另一份内容清掉（QLabel 只显示最后设的那一个），
+    //       所以这里不用自己清。
+    if (m_avatarPixmap.isNull()) {
+        m_ui->getAvatarLabel()->setText(name.isEmpty() ? QStringLiteral("?")
+                                                       : name.left(1).toUpper());
+    } else {
+        m_ui->getAvatarLabel()->setPixmap(m_avatarPixmap);
+    }
 
     // ---------- 中：进度（启动优先于下载） ----------
     // 两件事都会占这一格，启动优先 —— 下载可以慢慢来，用户刚点完启动那几秒需要反馈。
@@ -534,6 +796,189 @@ void MainWindow::updateBottomBar() {
         m_ui->isHomeTabCurrent(), selectedVersionId(m_ui->getInstalledVersionCombo()), running);
     runStateDetailLabel->setVisible(showDetail);
     runStateDetailLabel->setText(showDetail ? instanceDisplayName(running) : QString());
+}
+
+void MainWindow::startPlayerSkinLoad() {
+    // 先摆默认外观。**这一步之后，右栏那个小人任何时候都不是空白的** —— 未登录、
+    // 还没取到、取不到，看到的都是它。默认外观是程序画的经典配色（见
+    // SkinModel::defaultSteveSkin()），不是把官方那张 Steve 贴图打进仓库。
+    applyPlayerSkin(QString(), QString(), false);
+    // 上一次那个账号的档案要清掉：换账号登录时它已经没用了，留着会让"贴图回来时
+    // 认领"那一步把上一套外观当成这一套。
+    m_skinProfile = PlayerSkinProfile();
+
+    if (!m_authManager->loggedIn()) {
+        // 没登录就没有 uuid，连问都不用问（问也问不出东西来）。那句话现在是
+        // "未登录，显示的是默认外观"，由上面那次 updateSkinHint() 写好。
+        return;
+    }
+    const QString uuid = m_authManager->playerUuid();
+    // 离线模式那个勾选框的意思是"别联网"（启动时会走离线登录），这时候还发一个外观
+    // 请求是自相矛盾的 —— 所以整条联网路径都跳过，只认已经躺在缓存里的那一份。
+    const bool offline = m_ui->getOfflineModeCheckBox()->isChecked();
+
+    // 1) 盘上那份档案：开窗那一刻零网络把**上次**的样子画出来。贴图是内容寻址的，
+    //    命中缓存时 fetchTexture() 是**同步**发信号回来的，所以这一句之后就画好了。
+    PlayerSkinProfile cached;
+    if (PlayerSkinStore::loadCachedProfile(uuid, &cached)) {
+        m_skinProfile = cached;
+        requestSkinTexture(cached.skinUrl, /*allowDownload=*/!offline);
+        requestSkinTexture(cached.capeUrl, /*allowDownload=*/!offline);
+    }
+
+    // 2) 后台刷一次档案：用户在游戏里换了皮肤，重开启动器就能看到。回来那份和手上
+    //    这份一样时 onSkinProfileReady() 什么都不做。
+    if (!offline) {
+        m_skinStore->refreshForUuid(uuid);
+    }
+    updateSkinHint();
+}
+
+bool MainWindow::requestSkinTexture(const QString &url, bool allowDownload) {
+    if (url.isEmpty()) {
+        // 这个人没有披风（多数账号都没有）。**常态**，不是错误，也不是失败。
+        return false;
+    }
+    if (QFile::exists(PlayerSkinStore::cachePathForUrl(url))) {
+        // 命中缓存：fetchTexture() 会同步发 textureReady 回来，所以这一句之后那张
+        // 贴图已经在屏幕上了。
+        m_skinStore->fetchTexture(url);
+        return true;
+    }
+    if (allowDownload) {
+        // 这一张要真的去下载了 —— 那句话得说"正在获取"，而不是"取不到"。
+        m_skinFetchInFlight = true;
+        m_skinStore->fetchTexture(url);
+    }
+    return false;
+}
+
+void MainWindow::onSkinProfileReady(const PlayerSkinProfile &profile) {
+    const bool sameAsBefore = profile.sameAs(m_skinProfile);
+    const QString previousCapeUrl = m_skinProfile.capeUrl;
+    m_skinProfile = profile;
+    if (sameAsBefore && !m_skinPath.isEmpty()) {
+        // 手上的就是这一份，而且已经在屏幕上 → 这次刷新**完全看不见**：不重下贴图、
+        // 不重画、那句话也不动。用户在游戏里没换皮肤时，绝大多数刷新都走这一条。
+        m_skinFetchInFlight = false;
+        updateSkinHint();
+        return;
+    }
+
+    QString error;
+    if (!PlayerSkinStore::saveProfile(m_authManager->playerUuid(), profile, &error)) {
+        // 存不下来不影响这一次显示（贴图照样下、照样画），只是下次开窗要先重取一遍。
+        appendLog(tr("存玩家外观档案失败：%1").arg(error));
+    }
+    // 披风那一格只在**地址真的换了**的时候才作废。
+    //
+    // 作废是必须的：新档案里没有披风时（用户在游戏里把披风摘了），留着的那条旧路径会让
+    // 下一趟 applyPlayerSkin(skin, m_capePath) 把上一套的披风又画回去，而且再没有哪一趟
+    // 会来纠正它 —— 新的披风那一张根本不会到达。
+    //
+    // 但**不能一律清掉**：披风先到、皮肤还在路上的时候（见 onSkinTextureReady）那一格是
+    // "记忆"，不是"现在画着的东西"，清了就等于把刚记住的那张丢了 —— 于是同一个 bug 换个
+    // 位置又出现一次。所以判据是"地址换没换"，而不是"档案换没换"。
+    //
+    // 皮肤那一格不用管：它下一趟必被新贴图覆盖，留着还能让"新披风先到"那一趟有皮肤可配。
+    if (profile.capeUrl != previousCapeUrl) {
+        m_capePath.clear();
+    }
+    requestSkinTexture(profile.skinUrl, /*allowDownload=*/true);
+    requestSkinTexture(profile.capeUrl, /*allowDownload=*/true);
+    updateSkinHint();
+}
+
+void MainWindow::onSkinTextureReady(const QString &url, const QString &path) {
+    // 两张贴图是**分开**回来的（皮肤一张、披风一张），所以这里做的是"把这一张记到它
+    // 该去的那一格，再用手上这两格重画一遍" —— 谁先到都能画。
+    const bool slim = m_skinProfile.variant == QStringLiteral("slim");
+    if (!url.isEmpty() && url == m_skinProfile.skinUrl) {
+        // 皮肤到手了：不再是"正在获取"。就算这张图后面载不进来，也该由那句
+        // "取不到…"来说，而不是一直停在"正在获取"。
+        m_skinFetchInFlight = false;
+        applyPlayerSkin(path, m_capePath, slim);
+        return;
+    }
+    if (!url.isEmpty() && url == m_skinProfile.capeUrl) {
+        if (m_skinPath.isEmpty()) {
+            // **披风先到了，皮肤还在路上**（披风那张小得多，经常先下完）。
+            //
+            // 这时候千万不能顺手 applyPlayerSkin(m_skinPath, path, slim) —— 皮肤那个参数
+            // 是空的，而 applyPlayerSkin() 里"皮肤载不进来就退回默认外观"那条路会**把
+            // 披风一起清掉**（默认外观本来就没有披风）。等皮肤那一趟回来时 m_capePath
+            // 已经是空的，披风再也补不回来了：表现是**皮肤有了、披风永远没有**，而且
+            // 每一趟都停在默认外观那句话上。2026-09-21 真机上就是这个现象。
+            //
+            // 所以这里只**记住**，不画：皮肤那一趟（上面那个分支）会带上 m_capePath
+            // 一起画出来。这一小段时间里屏幕上是上一套外观（或者默认外观），不闪。
+            m_capePath = path;
+            return;
+        }
+        applyPlayerSkin(m_skinPath, path, slim);
+        return;
+    }
+    // 两个都对不上：这是一次**过期**的回调（档案已经换成别人了）。丢掉 —— 照着它画
+    // 等于把上一个账号的皮肤画回来。
+}
+
+void MainWindow::onSkinFailed(const QString &message) {
+    // 外观是**装饰**：取不到就静默退回默认外观。这是全仓唯一一处不弹窗的错误，
+    // 理由（别的错误都让用户做不成他想做的事，而这个只是不好看）写在
+    // PlayerSkinStore.hpp 文件头。但日志得留一行，否则真出问题无从查起。
+    appendLog(tr("取玩家皮肤失败：%1").arg(message));
+    m_skinFetchInFlight = false;
+    if (m_skinPath.isEmpty()) {
+        // 已经有真皮肤在屏幕上时**不改那句话**：多数失败是**披风**那一张（皮肤早就画
+        // 好了），这时候说"取不到皮肤"是错的。
+        updateSkinHint();
+    }
+}
+
+void MainWindow::applyPlayerSkin(const QString &skinPath, const QString &capePath, bool slim) {
+    QImage skin;
+    if (!skinPath.isEmpty()) {
+        skin = QImage(skinPath);
+    }
+    QImage cape;
+    if (!capePath.isEmpty()) {
+        cape = QImage(capePath);
+    }
+    if (skin.isNull()) {
+        // 载不进来（文件被删了、下了一半、或者路径本来就是空的）→ 退回默认外观。
+        // 这是**正常的一条路**，不是异常：这条路上 UI 什么都不用说，右栏那句话会由
+        // updateSkinHint() 按"手上有没有真皮肤"重新挑一档。
+        skin = SkinModel::defaultSteveSkin();
+        cape = QImage();
+        m_skinPath.clear();
+        m_capePath.clear();
+    } else {
+        // 只记**真的载入成功了的**路径：所以 m_skinPath 为空就等于"现在显示的是默认外观"。
+        m_skinPath = skinPath;
+        m_capePath = cape.isNull() ? QString() : capePath;
+    }
+
+    m_ui->getSkinViewer()->setSkin(skin, cape, slim);
+    // 头像在这里**算一次存起来**：updateBottomBar() 每次进度刷新（几百毫秒一次）都会
+    // 被调，在它里面现算等于一直在重渲染同一张 8×8 的皮肤。裁切和放大都在
+    // SkinModel::headAvatar() 里（最近邻放大，保持像素画的那个方块感）。
+    m_avatarPixmap = QPixmap::fromImage(SkinModel::headAvatar(skin, MainWindowUI::avatarSize()));
+    updateSkinHint();
+    updateBottomBar();
+}
+
+void MainWindow::updateSkinHint() {
+    const QString name = m_authManager->playerName();
+    QLabel *hint = m_ui->getSkinHintLabel();
+    if (!m_skinPath.isEmpty()) {
+        hint->setText(MainWindowUI::skinHintLoadedText(name, !m_capePath.isEmpty()));
+    } else if (!m_authManager->loggedIn()) {
+        hint->setText(MainWindowUI::skinHintNotLoggedInText());
+    } else if (m_skinFetchInFlight) {
+        hint->setText(MainWindowUI::skinHintLoadingText(name));
+    } else {
+        hint->setText(MainWindowUI::skinHintFailedText(name));
+    }
 }
 
 void MainWindow::updateLoginButton() {
@@ -642,15 +1087,58 @@ void MainWindow::refreshInstalledVersions() {
     fillVersionCombo(combo, parts, m_settings->versionNameOptions());
 
     // 实例页：顶上写清这是从哪一份 .minecraft 里扫出来的（左边换个文件夹它就跟着变），
-    // 右边那张列表灌同一批数据。列表本身不是"又一份数据源"，它只是同一个东西摆在
-    // 文件夹旁边更好看 —— 点击行为是"点一下等于在主页把它选中"（见 setupConnections）。
+    // 右边那张树灌同一批数据（按分组摆）。它本身不是"又一份数据源"，只是同一个东西
+    // 摆在文件夹旁边更好看 —— 点击行为是"点一下等于在主页把它选中"（见 setupConnections）。
     const QString root = AppPaths::minecraftDir();
     QString folderText = tr("当前文件夹：%1").arg(QDir::toNativeSeparators(root));
     folderText += QDir(root).exists() ? tr("（%1 个实例）").arg(installed.size())
                                       : tr("（这个目录不在盘上了）");
     m_ui->getInstanceFolderLabel()->setText(folderText);
-    fillVersionList(m_ui->getInstanceList(), parts, m_settings->versionNameOptions());
-    syncListToCombo(combo, m_ui->getInstanceList());
+
+    // 按分组摆那张树。归属键走 instanceKey()（稳定 id，没有就退回目录名）。
+    //
+    // NOTE: 每个实例这里要读两次 wtfml.meta（上面 displayParts() 一次、这里 instanceId()
+    //       一次）。看着浪费，但这个文件是几百字节的可选文件、真机上最多 61 个实例，
+    //       而"把两者合并成一次读"要把 instanceId 塞进 VersionDisplayParts ——那是个
+    //       纯显示用的结构，塞一个身份字段进去会让"显示名怎么拼"和"归属怎么认"纠缠在
+    //       一起。分开读，代价是一次小文件打开。
+    const QList<InstanceGroupStore::Group> groups = m_groupStore->groups();
+    QList<InstanceGroupBucket> buckets;
+    QHash<QString, int> bucketOfGroup;
+    for (const InstanceGroupStore::Group &group : groups) {
+        InstanceGroupBucket bucket;
+        bucket.groupId = group.id;
+        bucket.name = group.name;
+        bucketOfGroup.insert(group.id, buckets.size());
+        buckets.append(bucket);
+    }
+    QList<VersionDisplayParts> ungrouped;
+    for (const VersionDisplayParts &part : parts) {
+        const QString groupId = m_groupStore->groupIdOf(instanceKey(part.id));
+        const auto found = bucketOfGroup.constFind(groupId);
+        if (found != bucketOfGroup.constEnd()) {
+            buckets[found.value()].parts.append(part);
+        } else {
+            ungrouped.append(part);
+        }
+    }
+    if (groups.isEmpty()) {
+        // 一个真实分组都没有：平铺，一个组头都不插。没分过组的用户看到的和换树之前
+        // 逐项一致（这也正是 mw_check 里"实例数 == 3"那条断言还成立的原因）。
+        buckets.clear();
+        InstanceGroupBucket all;
+        all.parts = parts;
+        buckets.append(all);
+    } else {
+        // 「未分组」排在有归属的后面：用户建了组，说明那些组是他主要在看的东西。
+        // 它**总是**画出来（哪怕 0 个）——树里少一格、下一帧又出现，比一直留着更难理解。
+        InstanceGroupBucket rest;
+        rest.name = MainWindowUI::ungroupedGroupText();
+        rest.parts = ungrouped;
+        buckets.append(rest);
+    }
+    fillInstanceTree(m_ui->getInstanceList(), buckets, m_settings->versionNameOptions());
+    syncTreeToCombo(combo, m_ui->getInstanceList());
 
     // 占位文案随上下文变。**两个串都必须非空**：空占位文案会让 QComboBox 在往空
     // 模型里插第一批数据时静默选中第 0 项（qcombobox.cpp:1753-1759），而这里必须
@@ -773,6 +1261,12 @@ void MainWindow::applySettingsToUi() {
     selectConfiguredJava(m_ui->getJavaVersionCombo(), m_javaSettings->autoSelectJava(),
                          m_javaSettings->javaPath());
     updateJavaPathLabel();
+    // 提醒总闸。挡信号：这是"把值画出来"，不挡的话 setChecked 会触发
+    // onJavaWarnMismatchChanged() 又回头落一次盘。
+    {
+        const QSignalBlocker blockWarn(m_ui->getJavaWarnMismatchCheck());
+        m_ui->getJavaWarnMismatchCheck()->setChecked(m_javaSettings->warnVersionMismatch());
+    }
 
     // ---------- 内存分配 ----------
     // 交给 refreshMemoryUi()：自动档下它要按当前系统内存算一遍值、禁用两个框、写说明
@@ -931,6 +1425,15 @@ void MainWindow::refreshMemoryUi() {
             .arg(totalText, availableText)
             .arg(m_javaSettings->xmx())
             .arg(m_javaSettings->xms()));
+}
+
+void MainWindow::onJavaWarnMismatchChanged() {
+    const bool warn = m_ui->getJavaWarnMismatchCheck()->isChecked();
+    m_javaSettings->setWarnVersionMismatch(warn);  // 内部落盘
+    // 这个开关只管**下次启动**问不问，当前这一次不受影响（已经在启动路径上了），
+    // 所以这里不碰任何和"正在跑的实例"有关的状态。
+    appendLog(warn ? tr("实例指定的 Java 版本不符时：会提醒。")
+                   : tr("实例指定的 Java 版本不符时：不再提醒，直接按它指定的 Java 启动。"));
 }
 
 void MainWindow::onMemoryAutoChanged() {
@@ -1157,35 +1660,120 @@ void MainWindow::onStartButtonClicked() {
     }
     const QString javaComponent = javaVersionObj["component"].toString();
 
-    if (!m_javaSettings->ensureJavaForVersion(javaMajorVersion, javaComponent)) {
-        appendLog(tr("无法获取所需的 Java 运行时环境：版本 %1").arg(javaMajorVersion));
-        QMessageBox::warning(this, tr("Java 运行时缺失"),
-                             tr("找不到或无法下载 Java %1，请手动指定 Java 路径。")
-                                 .arg(javaMajorVersion));
+    // ---------- 每实例设置：先把"这次到底用哪一套值"合成出来 ----------
+    //
+    // 这个实例的覆盖来自它自己的 wtfml.meta（「实例设置…」写的那些键）。一个实例
+    // 一个键都不用覆盖时 override.isEmpty()，下面这条路走出来的值和加覆盖层之前
+    // 逐字节一致 —— 那是绝大多数实例的处境，也是这条改动必须保住的性质。
+    const JavaSettingsOverride override =
+        javaOverrideFromJson(m_versionManager->versionMeta(versionId));
+    EffectiveJavaSettings javaSettings =
+        resolveJavaSettings(m_javaSettings->effective(), override);
+
+    // 实例覆盖了 Java 路径 = 这个实例是**手动档**：全局那个「自动」开关不许盖掉它。
+    // 不这么判的话，用户给某个实例钉死的 Java 会在下一次启动时被"按版本要求自动挑"
+    // 悄悄换掉，而那一项覆盖也就白设了。
+    const bool instanceOwnsJavaPath = override.javaPath.has_value();
+    bool allowAutoSelect = m_javaSettings->autoSelectJava() && !instanceOwnsJavaPath;
+
+    // 「问」和「做」分开：这一段只负责拿到用户的答案，值、meta、全局设置一概不动 ——
+    // 那些由下面按答案各走各的。问在合成值之后、挑 Java 之前。
+    const JavaMismatchAnswer answer = askAboutJavaMismatch(versionId, override, javaMajorVersion);
+    if (answer == JavaMismatchAnswer::AbortLaunch) {
         return;
+    }
+    // 「仍然用这个 Java 启动」只有一个后果：把"允许不匹配"那个口子打开。判在
+    // javaMatchesMajor() 之前（见 ensureJavaForVersion 的值版），所以哪怕那条路径
+    // 根本起不来，用户也已经明说了"就用它"。
+    const bool allowMismatchedPath = (answer == JavaMismatchAnswer::KeepInstanceJava);
+    // 「改用匹配的 Java 启动」也是只有一个后果：把实例钉的那条路径**丢掉**，
+    // 让这次走"按版本要求自动挑"。丢掉的只是这次要用的那份值 —— 实例的 meta 要等
+    // 挑出来之后才写回去（那才是用户要的"在实例设置中恢复为匹配的 Java"）。
+    if (answer == JavaMismatchAnswer::UseMatchingJava) {
+        javaSettings.javaPath.clear();
+        allowAutoSelect = true;
+    }
+
+    QString javaError;
+    if (!m_javaSettings->ensureJavaForVersion(javaSettings, javaMajorVersion, javaComponent,
+                                              allowAutoSelect, &javaError, allowMismatchedPath)) {
+        appendLog(tr("无法获取所需的 Java 运行时环境：版本 %1").arg(javaMajorVersion));
+        QMessageBox::warning(
+            this, tr("Java 运行时缺失"),
+            instanceOwnsJavaPath
+                ? tr("「%1」指定的 Java 用不了（路径不存在，或者主版本不是 %2）。\n"
+                     "可以在「实例设置…」里改这个实例的 Java 路径，或者把它切回「跟随全局」。")
+                      .arg(instanceDisplayName(versionId))
+                      .arg(javaMajorVersion)
+                : tr("找不到或无法下载 Java %1，请手动指定 Java 路径。").arg(javaMajorVersion));
+        return;
+    }
+
+    // 「改用匹配的 Java」：把刚挑中的那条路径写回**这个实例**。
+    //
+    // 用户原话是"在实例设置中恢复为匹配的 Java"，所以写的是那个实例的 wtfml.meta，
+    // 不是全局 —— 下面那段 adoptJavaPath 的注释说的就是为什么不能写全局。
+    //
+    // NOTE: 这一步失败**要弹窗而且不启动**。这次启动其实能成（javaSettings 里已经有
+    //       路径了），但下次启动开头又会读到原来的覆盖、又问一遍同一个问题 ——
+    //       看起来就像"他的选择没被记住"。宁可现在说清楚，也别让用户对着一个反复
+    //       出现的框去猜。
+    if (answer == JavaMismatchAnswer::UseMatchingJava) {
+        QString writeError;
+        if (!m_versionManager->updateVersionMeta(
+                versionId, {{javaPathMetaField(), QJsonValue(javaSettings.javaPath)}},
+                &writeError)) {
+            appendLog(tr("把匹配的 Java 写进实例设置失败：%1").arg(writeError));
+            QMessageBox::warning(
+                this, tr("实例设置写入失败"),
+                tr("找到了匹配的 Java（%1），但没能把它记到实例「%2」的设置里：\n%3\n\n"
+                   "没有启动。你可以在「实例设置…」里手动指定这条路径。")
+                    .arg(javaSettings.javaPath, instanceDisplayName(versionId), writeError));
+            return;
+        }
+        appendLog(tr("已把「%1」指定的 Java 换成 %2")
+                      .arg(instanceDisplayName(versionId), javaSettings.javaPath));
+    }
+
+    // 挑中的 Java 路径落在**哪一层** —— 这就是"跨作用域污染"那道坎。
+    //
+    // 实例覆盖了 javaPath 的实例**不需要写回任何地方**（所以没有"实例档写回 meta"
+    // 那一步）：那种情况上面刚判成手动档，而手动档下 ensureJavaForVersion() 只有两种
+    // 结局 —— 原样认可那个路径，或者直接失败返回。**它没有能力换一个路径出来**，
+    // 也就是说只要实例钉了路径，这次启动就不可能改到全局配置，污染在结构上不存在。
+    //
+    // 剩下的就只有全局档：老行为 —— 自动挑中的路径写回全局配置
+    // （adoptJavaPath() 里那句"值没变就不写盘"也是老行为的一部分）。
+    if (!instanceOwnsJavaPath) {
+        m_javaSettings->adoptJavaPath(javaSettings.javaPath);
     }
 
     // 自动档内存要**在这里**再算一次（不是开窗时算的那次）：从打开启动器到点下"启动"
     // 可能过了很久，中间可能开了浏览器、IDE，可用内存差好几 GB，而 JVM 只认这一刻的机器
-    // 状态。手动档下这一句什么都不动。顺手也把设置页那两个框刷成这次实际用的值。
-    refreshMemoryUi();
+    // 状态。手动档下这一句什么都不动。
+    //
+    // NOTE: 这里**不刷设置页**。老代码在这一句之后会把设置页那两个框硬刷成"这次实际
+    //       用的值"，有了实例覆盖之后那句话不再成立：实例覆盖了 2048 而设置页显示
+    //       2048，用户会以为全局被改了。设置页显示的是**全局那一层**，它只由用户自己
+    //       在设置页的改动（和切到设置页时的那次重算）决定。
+    resolveMemoryForLaunch(javaSettings, override);
 
     // 按版本的自定义参数来自 <id>/wtfml.meta 的 "jvmArgs"（PCL 那半边"自定义启动
-    // 参数"的对应物）；全局那半边是 GlobalJavaSettings::extraJvmArgs()，在
+    // 参数"的对应物）；全局那半边是 EffectiveJavaSettings::extraJvmArgs，在
     // generateJvmArguments() 里比它先入列，所以单个实例能盖掉全局默认值。
     // 玩家名和底栏左下角显示的是**同一个**（AuthManager::playerName()），离线与正版
     // 两条分支都用它 —— 以前离线分支自己拼 "Player<时间戳>"、正版分支写死 "Player"，
     // 于是底栏上的名字和游戏里看到的名字可以不一样。
     // UUID 也一样：正版分支用它当 --uuid（没登录时 AuthManager 给空串，那边退回全零）。
     const QStringList jvmArgs = m_launcherManager->generateJvmArguments(
-        token, versionId, assetIndexId, versionJson, *m_javaSettings, offlineMode,
+        token, versionId, assetIndexId, versionJson, javaSettings, offlineMode,
         javaMajorVersion, m_versionManager->versionJvmArgs(versionId),
         m_authManager->playerName(), m_authManager->playerUuid());
     // 记住"上次启动的版本"的时机是**进程真的起来了**，不是"表达式算完了"。
     // startGame() 有三条早退路径（进程已在运行 / 找不到 Java / waitForStarted 超时），
     // 以前它们都会先骗一句"已开始启动游戏"再显示错误。以"起来了"为准也是对的：
     // 因为库缺失之类的原因崩掉，恰恰是最需要下次打开还选着这个版本的时候。
-    if (m_launcherManager->startGame(jvmArgs, *m_javaSettings, versionId)) {
+    if (m_launcherManager->startGame(jvmArgs, javaSettings, versionId)) {
         m_settings->setLastLaunchedVersion(versionId);
         appendLog(tr("已开始启动游戏，正在执行 JVM 参数..."));
         // 启动进度从这里开始走到"游戏自己吐出第一行输出"为止。startGame() 返回之前
@@ -1219,8 +1807,12 @@ void MainWindow::onLoginStarted() {
 
 void MainWindow::onLoginSucceeded(const QString &playerName) {
     updateLoginButton();
-    // 底栏左下的用户名和头像首字母都换成真名 —— 这是"启动器有反应"里最该看见的那一下
+    // 底栏左下的用户名和头像都换成真名 —— 这是"启动器有反应"里最该看见的那一下
     updateBottomBar();
+    // 外观也要跟着换成**这个账号**的：底下那行名字已经变了，右栏还画着上一个人的
+    // 皮肤，是这一屏里最容易看出来"没跟上"的一处。这里走的是和开窗同一条路
+    // （先默认外观兜底，再拿缓存，最后后台刷），所以离线勾着时也一样不联网。
+    startPlayerSkinLoad();
     // 用户刚在浏览器里看到过「登录成功」，这里再说一声是为了把**登录到的是哪个账户**
     // 摆出来：拿错微软账户登录（家里共用的机器上很常见）只有这句话能看出来。
     QMessageBox::information(this, tr("登录成功"), tr("已登录为「%1」。").arg(playerName));
@@ -1271,6 +1863,362 @@ void MainWindow::onRemoveFolderClicked() {
         return;
     }
     appendLog(tr("已删除文件夹：%1").arg(folder));
+}
+
+void MainWindow::onRenameInstanceClicked() {
+    // 作用于"当前选中的实例"。实例页右边那张列表和主页的下拉框是同一份数据的两种
+    // 看法（双向同步，见 setupConnections），所以**以下拉框为准** —— 和"启动游戏"
+    // 取的是同一个值，不会出现"列表里高亮 A、结果改的是 B"。
+    const QString oldId = selectedVersionId(m_ui->getInstalledVersionCombo());
+    if (oldId.isEmpty()) {
+        QMessageBox::information(this, tr("重命名实例"), tr("先选中一个实例。"));
+        return;
+    }
+
+    // 闸口一：正在跑的不能改。放在最前面、并且必须在调 renameInstance() **之前** ——
+    // 运行中的实例在 Windows 上 jar 被 JVM 锁着，改到一半才失败的话用户看到的是一句
+    // "拒绝访问"，而真正该说的是这一句。
+    if (m_launcherManager->runningVersionId() == oldId) {
+        QMessageBox::warning(this, tr("重命名实例"),
+                             tr("「%1」正在运行，先关掉游戏再改名。").arg(instanceDisplayName(oldId)));
+        return;
+    }
+
+    bool ok = false;
+    const QString input =
+        QInputDialog::getText(this, tr("重命名实例"),
+                             tr("新名字会成为 versions 下面那个目录的名字，\n"
+                                "也就是这个实例的版本号。里面的 jar 和 json 会一起改。"),
+                             QLineEdit::Normal, oldId, &ok);
+    if (!ok) {
+        return;
+    }
+    const QString newName = input.trimmed();
+    if (newName == oldId) {
+        // 名字没动就悄悄退出，不弹窗：用户点开、看看、点确定，这不是错误。
+        return;
+    }
+    // 校验和"真的去改"都在 applyRename() 里 —— 那是纯逻辑那一半，验证工程直接驱动它。
+    applyRename(oldId, newName);
+}
+
+bool MainWindow::applyRename(const QString &oldId, const QString &newId) {
+    const QString name = newId.trimmed();
+
+    // 名字合不合法。判据和数据层是**同一份**（InstanceFiles::validateRenameTarget），
+    // 界面绝不自己抄一遍规则 —— 抄一遍的下场是两边慢慢漂开，出现"界面放行、数据层拒绝"
+    // 或者更糟的"界面拒绝、数据层其实能接受"。
+    const QString problem = InstanceFiles::validateRenameTarget(name, oldId);
+    if (!problem.isEmpty()) {
+        // 不循环重问：用户看到原因后可以自己再点一次，那样他能顺便改别的决定。
+        QMessageBox::warning(this, tr("重命名实例"), problem);
+        return false;
+    }
+
+    // 分组归属的**老键必须在改名之前取**：改名会把老目录名连同"按目录名认人"那条
+    // 退路一起改掉，改完再问它，问的是磁盘上一个已经不存在的目录。
+    const QString oldKey = instanceKey(oldId);
+
+    // 执行：改磁盘、含失败回滚，都在数据层。失败原因是给用户看的一整句
+    // （可能带"回滚到什么程度"），界面原样弹出来，不再自己加工。
+    QString error;
+    if (!m_versionManager->renameInstance(oldId, name, &error)) {
+        QMessageBox::critical(this, tr("重命名失败"), error);
+        // NOTE: 失败可能是"回滚干净了"也可能是"停在半路上"。两种都不在这里重刷列表 ——
+        //       刷新只会把界面对着磁盘重画一遍，而用户需要的是先看清弹窗里那句话。
+        return false;
+    }
+
+    // 改完名字要跟着动的状态。漏掉下面这一条的后果很具体：用户下次打开启动器，
+    // restoreLastLaunchedVersion() 拿老 id 去找人找不到，选中项是空的，他会以为
+    // 刚改名的那个实例丢了。
+    if (m_settings->lastLaunchedVersion() == oldId) {
+        m_settings->setLastLaunchedVersion(name);
+    }
+
+    // 分组归属也要跟着挪。两件事叠在一起，所以这里必须按顺序取两次键：
+    //   - 改名**之前**那个键（上面取的 oldKey）：老实例可能还没有稳定 id，
+    //     那时它的键是**老目录名**；
+    //   - 改名**之后**那个键：renameInstance() 刚好在这一次把稳定 id 生成出来了
+    //     （见它的第 2 步），所以新键多半是那个 uuid，而不是新目录名。
+    // 只取一次（无论是哪一次）都会让归属在改名的同时丢掉 —— 而丢归属的表现是
+    // "改完名它自己从组里出来了"，用户会以为分组没保存上。
+    const QString newKey = instanceKey(name);
+    QString groupError;
+    if (!m_groupStore->rekey(oldKey, newKey, &groupError)) {
+        // 实例本身已经改好名了，只是分组没搬过去。**不能当成改名失败** ——
+        // 那会让用户以为名字没改成功，然后再点一次。说清楚哪一半成了、哪一半没成。
+        QMessageBox::warning(this, tr("分组归属没跟着搬"),
+                             tr("实例已经改名为「%1」，但它原来的分组归属没能搬过去：\n%2\n\n"
+                                "可以在「分组…」里重新归一次。")
+                                 .arg(name, groupError));
+    }
+
+    refreshInstalledVersions();
+    // 刷新时下拉框那边是"保住原来选中的那个 id"，而那个 id 已经不在了 —— 于是它
+    // 会停在空选。显式选中新名字：用户刚改完，看到的应该是刚改完的那个实例。
+    QComboBox *combo = m_ui->getInstalledVersionCombo();
+    const int index = combo->findData(name);
+    if (index >= 0) {
+        combo->setCurrentIndex(index);  // 这条连接是活的，按钮文字会跟着刷新
+    }
+    updateStartButtonText();
+    appendLog(tr("实例已重命名：%1 → %2").arg(oldId, name));
+    return true;
+}
+
+QString MainWindow::instanceKey(const QString &versionId) const {
+    // 有稳定 id 就用它，没有就退回目录名 —— 见 InstanceGroupStore 文件头那段。
+    // NOTE: 退回目录名不是"临时凑合"，它是老实例（2026-09 之前建的，一个都没有稳定 id）
+    //       唯一的现实身份。更要紧的是**读和写必须走同一个函数**：读的时候按目录名找、
+    //       写的时候按 id 存，归属会在存下去的那一刻就对不上，而那个错不报任何东西。
+    const QString id = m_versionManager->instanceId(versionId);
+    return id.isEmpty() ? versionId : id;
+}
+
+void MainWindow::onGroupInstanceClicked() {
+    // 和「重命名…」同一个取值口径：以下拉框为准（它就是"当前选中的那个实例"）。
+    const QString versionId = selectedVersionId(m_ui->getInstalledVersionCombo());
+    if (versionId.isEmpty()) {
+        QMessageBox::information(this, tr("分组"), tr("先选中一个实例。"));
+        return;
+    }
+
+    // 每个组里有多少个实例：从**当前那张树**上数，不重新扫盘。它就是用户此刻看到的
+    // 东西，而且对话框拿它显示「组名 (N)」和"删这个组会有多少实例变成未分组"——
+    // 两处都该和屏幕上的数字一致。
+    QHash<QString, int> counts;
+    const QTreeWidget *tree = m_ui->getInstanceList();
+    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+        const QTreeWidgetItem *item = tree->topLevelItem(i);
+        const QVariant groupId = item->data(0, MainWindowUI::groupIdRole());
+        if (groupId.isValid()) {
+            counts.insert(groupId.toString(), item->childCount());
+        }
+    }
+
+    const QList<InstanceGroupStore::Group> groups = m_groupStore->groups();
+    GroupDialog dialog(toDialogGroups(groups), counts, m_groupStore->groupIdOf(instanceKey(versionId)),
+                       this);
+    if (dialog.exec() != QDialog::Accepted) {
+        // 取消：磁盘一个字节都没动（对话框只改自己手里那份工作副本）。
+        return;
+    }
+    applyGrouping(instanceKey(versionId), dialog);
+}
+
+bool MainWindow::applyGrouping(const QString &key, const GroupDialog &dialog) {
+    const QList<InstanceGroupStore::Group> wanted = toStoreGroups(dialog.groups());
+    const QString wantedGroupId = dialog.assignedGroupId();
+
+    // 两件事分开、都是"变了才写"：组清单和归属是两个独立的字段，用户可能只动了其中一个。
+    // 没变就写的话，每点一次「确定」都会重写一遍文件（连带把 mtime 刷新），
+    // 而"什么都没改"是最常见的一次操作。
+    QString error;
+    bool groupsSaved = false;
+    if (wanted != m_groupStore->groups()) {
+        if (!m_groupStore->replaceGroups(wanted, &error)) {
+            QMessageBox::critical(this, tr("分组保存失败"), error);
+            return false;
+        }
+        groupsSaved = true;
+    }
+
+    if (wantedGroupId != m_groupStore->groupIdOf(key)) {
+        if (!m_groupStore->assign(key, wantedGroupId, &error)) {
+            // 组清单那一半**可能已经落盘了**（上面那次写成功了）。说清楚，别让用户
+            // 以为整件事都没成、然后重开一遍对话框再填一次。
+            QMessageBox::critical(this, tr("分组保存失败"),
+                                  groupsSaved
+                                      ? tr("分组本身已经保存了，但这个实例的归属没能写进去：\n%1")
+                                            .arg(error)
+                                      : error);
+            return false;
+        }
+        QString destination;
+        for (const InstanceGroupStore::Group &group : m_groupStore->groups()) {
+            if (group.id == wantedGroupId) {
+                destination = group.name;
+                break;
+            }
+        }
+        if (destination.isEmpty()) {
+            // 归属是空串 = 取消分组。那句"未分组"是界面上的说法（GroupDialog 也是
+            // 这么写的），不是文件里的值。
+            destination = tr("未分组");
+        }
+        appendLog(tr("实例已分组：%1 → %2").arg(key, destination));
+    }
+    // NOTE: 这里**不**手动重灌那张树。三条写路径成功之后数据层都会发 groupsChanged，
+    //       界面接的是同一个刷新函数（见 setupConnections）—— 在这里再来一次就是
+    //       同一件事做两遍，而且"哪些路径会刷新"会变成两处各自维护的约定。
+    return true;
+}
+
+void MainWindow::onInstanceSettingsClicked() {
+    // 取值口径和「重命名…」「分组…」一致：以下拉框为准（它就是"当前选中的那个实例"）。
+    // 顺带一提，这里**不用**去读那张树的 currentItem()，也就绕开了组头那道守卫 ——
+    // 三个按钮的取值口径一致比"少读一个控件"重要。
+    const QString versionId = selectedVersionId(m_ui->getInstalledVersionCombo());
+    if (versionId.isEmpty()) {
+        QMessageBox::information(this, tr("实例设置"), tr("先选中一个实例。"));
+        return;
+    }
+
+    // 已经写了的那部分覆盖从 meta 里读回来当起点，「当前全局是哪个值」由 global 提供。
+    // 读归读，这里一个字节都不写 —— 用户点「取消」时磁盘必须原样。
+    const JavaSettingsOverride current =
+        javaOverrideFromJson(m_versionManager->versionMeta(versionId));
+    InstanceSettingsDialog dialog(instanceDisplayName(versionId), toDialogOverride(current),
+                                  toDialogGlobal(m_javaSettings->effective()),
+                                  m_versionManager->versionJvmArgs(versionId),
+                                  !m_versionManager->skipJavaVersionWarning(versionId), this);
+    if (dialog.exec() != QDialog::Accepted) {
+        // 取消：wtfml.meta 一个字节都没动（对话框只把控件读成一份值）。
+        return;
+    }
+    applyInstanceSettings(versionId, dialog);
+}
+
+bool MainWindow::applyInstanceSettings(const QString &versionId,
+                                      const InstanceSettingsDialog &dialog) {
+    // 先把稳定 id 落下去。**必须排在最前**：这一项覆盖要"跟着这个实例走"，而实例的
+    // 身份就是那个 id（目录名会被改，改名之后按目录名记的东西全丢）。失败就不写 ——
+    // 写成一次"靠目录名认出来的覆盖"比这次没写成糟得多。
+    if (m_versionManager->ensureInstanceId(versionId).isEmpty()) {
+        QMessageBox::critical(this, tr("实例设置没能保存"),
+                              tr("「%1」的 wtfml.meta 写不进去，这次的设置没有保存。\n\n"
+                                 "（这份文件可能被别的程序占着，或者它所在的目录不可写。）")
+                                  .arg(instanceDisplayName(versionId)));
+        return false;
+    }
+
+    // "值 → 要写进 meta 的字段"整批交给 javaOverrideMetaFields()：五项里"跟随全局"
+    // 的要**删键**而不是写一个等于全局的值（写了的话用户之后改全局，这个实例就不跟着
+    // 走了，而他明明选的是「跟随全局」），追加参数为空时那个键也要删。这套判断放在
+    // settings/ 那边是有意的 —— 在这里就没法被断言盯上（这个函数收的是对话框引用，
+    // 验证工程驱动不了它）。
+    QJsonObject fields =
+        javaOverrideMetaFields(toSettingsOverride(dialog.override()), dialog.appendJvmArgs(),
+                               VersionManager::jvmArgsField());
+
+    // 提醒开关：勾着（要提醒）就**删掉**那个键，取消勾选才写 true。
+    // 和那五项同一个约定（Null = 删键）—— 写一个"等于默认值"的 false 进 meta 会让这个
+    // 文件里多出一堆没信息量的键，而且"没写过"和"写过 false"从此分不开。
+    fields.insert(VersionManager::skipJavaVersionWarningField(),
+                  dialog.warnJavaMismatch() ? QJsonValue(QJsonValue::Null) : QJsonValue(true));
+
+    QString error;
+    if (!m_versionManager->updateVersionMeta(versionId, fields, &error)) {
+        // 数据层不弹窗是约定，所以弹在这一层。error 里已经写清了"是哪个文件、为什么"。
+        QMessageBox::critical(this, tr("实例设置没能保存"), error);
+        return false;
+    }
+    appendLog(tr("实例设置已保存：%1").arg(versionId));
+    return true;
+}
+
+MainWindow::JavaMismatchAnswer MainWindow::askAboutJavaMismatch(
+    const QString &versionId, const JavaSettingsOverride &override, int expectedMajor) {
+    // ① 只有"实例钉了 Java"才有这个问题。全局档不匹配时 ensureJavaForVersion() 会
+    //    静默换一个匹配的 —— 那是有意的老行为（用户没钉任何东西，替他挑一个正确的
+    //    运行时不叫"换掉他的选择"），不动它。
+    if (!override.javaPath.has_value()) {
+        return JavaMismatchAnswer::NotAsked;
+    }
+
+    // ② 全局总闸关着，③ 或者这个实例表过态"以后别再问了"。
+    //
+    // 两条的语义**一样**，都是"别问了，照他钉的那个启动" —— 返回 KeepInstanceJava
+    // 正是那个意思（它唯一的作用就是把 allowMismatchedPath 打开）。这里不能返回
+    // NotAsked：那条路会落到手动档的硬错误上（路径不匹配就 fail()），也就是说，
+    // 用户关了提醒之后反而**再也启动不了**这个实例 —— 一个纯负作用的开关。
+    if (!m_javaSettings->warnVersionMismatch() ||
+        m_versionManager->skipJavaVersionWarning(versionId)) {
+        return JavaMismatchAnswer::KeepInstanceJava;
+    }
+
+    // ④ 那条路径到底是不是另一个主版本。探不出主版本（-1）时**不问** —— 那是"路径
+    //    不存在/认不出来"，和"版本不符"是两件事，它继续落到现有的「Java 运行时缺失」
+    //    硬错误那条路上。主版本相同当然更不用问。
+    QString actualVersionText;
+    const int actualMajor =
+        GlobalJavaSettings::probeJavaMajorVersion(*override.javaPath, &actualVersionText);
+    if (actualMajor <= 0 || actualMajor == expectedMajor) {
+        return JavaMismatchAnswer::NotAsked;
+    }
+
+    JavaMismatchDialog dialog(instanceDisplayName(versionId), expectedMajor, actualMajor,
+                              actualVersionText, *override.javaPath, this);
+    dialog.exec();
+    const JavaMismatchDialog::Choice choice = dialog.choice();
+
+    if (choice == JavaMismatchDialog::Choice::Abort) {
+        appendLog(tr("已取消启动：「%1」指定的是 Java %2，而这个版本要求 Java %3。")
+                      .arg(instanceDisplayName(versionId))
+                      .arg(actualMajor)
+                      .arg(expectedMajor));
+        return JavaMismatchAnswer::AbortLaunch;
+    }
+
+    // 「以后不再提醒这个实例」是用户刚点下的一下**表态**，立刻落盘才对得上他的意思
+    // （等他下次想起来去「实例设置…」里关，那个框会一直问下去）。
+    //
+    // NOTE: 写失败**只记日志、不拦启动**。这是全程唯一一处"错误不弹窗"：存不下一个
+    //       偏好和"这次启动能不能跑"是两件事，不该因为它把用户刚授权的启动掐掉；
+    //       而它自己的后果（下次还问一句）是无害的、也是看得见的。
+    //
+    // NOTE: 勾选框是**独立于选了哪条路**的一句表态（它的字面意思就是这样），所以
+    //       「改用匹配的 Java」那一次也照写不误 —— 要是他后来又给这个实例钉了个
+    //       对不上的 Java，"别问了"这句话仍然算数。
+    if (dialog.dontRemindAgain()) {
+        QString error;
+        if (!m_versionManager->updateVersionMeta(
+                versionId, {{VersionManager::skipJavaVersionWarningField(), QJsonValue(true)}},
+                &error)) {
+            appendLog(tr("没能记住「以后不再提醒」：%1").arg(error));
+        } else {
+            appendLog(tr("「%1」以后不再提醒 Java 版本不符。").arg(instanceDisplayName(versionId)));
+        }
+    }
+
+    return choice == JavaMismatchDialog::Choice::UseMatchingJava
+               ? JavaMismatchAnswer::UseMatchingJava
+               : JavaMismatchAnswer::KeepInstanceJava;
+}
+
+void MainWindow::resolveMemoryForLaunch(EffectiveJavaSettings &io,
+                                       const JavaSettingsOverride &override) {
+    if (!io.autoMemory) {
+        // 手动档：io 里那两个数字是"用户定的值"（可能来自全局、也可能来自这个实例
+        // 的覆盖），就是这次要用的值，一个都不许动。
+        return;
+    }
+
+    // NOTE: 自动档下 xmx/xms 的覆盖**在这里被丢掉**，这是有意的：自动档的定义就是
+    //       "按系统内存现算"，用户单独钉一个 Xmx 而让 Xms 自动算，只会得到一对
+    //       谁也说不清的数字。对话框那边是同一件事的另一半 —— 自动档下那两行整行
+    //       禁用，点确定时也不把它们写进 meta。
+    if (!override.autoMemory.has_value()) {
+        // 自动这一档来自**全局**：走老路径。refreshSuggestedMemory() 会重算、落盘
+        // （注册表）、并按全局档更新自己的值 —— 和加实例覆盖之前逐字节一致。
+        m_javaSettings->refreshSuggestedMemory();
+        io.xmx = m_javaSettings->xmx();
+        io.xms = m_javaSettings->xms();
+        return;
+    }
+
+    // 自动这一档是**这个实例**自己要的（全局可能是手动档）。现算一份给这次启动用，
+    // 全局一个字节都不动 —— 实例 A 开着自动，不能让全局那份内存配置跟着变，
+    // 那是跨作用域污染的同一种错（见 ensureJavaForVersion 的值版那段注释）。
+    //
+    // NOTE: 算出来的数**不写回 meta**。写回去的话，那个实例的 meta 里就多出一对
+    //       xmx/xms（它们本来没有），而这对值是死的 —— 自动档每次启动都重算，
+    //       下次读出来只会让「实例设置…」里那两行显示成"自定义 + 一个用户没填过的数"。
+    //       跨作用域污染的反面不是"多写一份"，而是"只写在这次要用的值上"。
+    const SystemMemory::Usage usage = SystemMemory::read();
+    io.xmx = GlobalJavaSettings::suggestXmxMb(usage.totalMb, usage.availableMb);
+    io.xms = GlobalJavaSettings::suggestXmsMb(io.xmx);
 }
 
 void MainWindow::onFolderSelectionChanged() {

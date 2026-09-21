@@ -16,8 +16,51 @@
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonParseError>
+#include <QJsonValue>
+#include <QSaveFile>
+#include <QUuid>
 
 #include "../util/AppPaths.hpp"
+#include "InstanceFiles.hpp"
+
+namespace {
+
+/// wtfml.meta 里那个"从生到死都跟着这个实例"的 id 的字段名。
+///
+/// NOTE: 刻意**不叫 "id"**，理由和这个文件不叫 wtfml.json 是同一件事（见 .hpp 里
+///       displayParts() 那段）：版本 JSON 里的 "id" 有特殊语义，一个文件里出现两个 id
+///       早晚会被读错，而那类错误的形态是"静默选错 Java"级别的。换个不可能撞的名字，
+///       这个错在结构上就不存在。
+const QString kInstanceIdField = QStringLiteral("instanceId");
+
+/// wtfml.meta 里"用户给这个实例起的显示名"的字段名。
+///
+/// NOTE: 文件里叫 `name`，但 VersionDisplayParts 里那个成员叫 `customName`。
+///       这里写、displayParts() 那边读，**两边必须是同一个串** —— 写错一个字不会报错，
+///       表现是"改完名界面上没反应"。改的时候两边一起改（那边在 displayParts() 的
+///       readString("name")）。
+const QString kDisplayNameField = QStringLiteral("name");
+
+/// 一个新的稳定实例 id。只有这一处生成它，免得"生成规则"在改名的路径上被抄第二遍。
+QString newInstanceId() { return QUuid::createUuid().toString(QUuid::WithoutBraces); }
+
+/// 把 from 改名成 to。from 本来就不在时**当成功**（可选文件：json、meta 都可能没有）。
+///
+/// NOTE: 目标已存在时**拒绝**，不能直接交给 QFile::rename —— 它在 Windows 上走的是
+///       MoveFileEx + MOVEFILE_REPLACE_EXISTING，会**静默盖掉**目标，那是丢数据。
+///       唯一的例外是只差大小写：那种"目标已存在"其实是同一个文件（Windows 的路径
+///       比较本来就不区分大小写），而改显示大小写是合法操作。
+bool renameOnto(const QString &from, const QString &to) {
+    if (!QFile::exists(from)) {
+        return true;
+    }
+    if (from.compare(to, Qt::CaseInsensitive) != 0 && QFile::exists(to)) {
+        return false;
+    }
+    return QFile::rename(from, to);
+}
+
+}  // namespace
 
 VersionManager::VersionManager(QObject *parent)
     : QObject(parent), downloadManager(new DownloadManager(this)) {
@@ -50,29 +93,27 @@ QStringList VersionManager::installedVersions(QStringList *warnings) const {
     if (versionsDir.exists()) {
         QStringList versionDirs = versionsDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
         for (const QString &versionDir : versionDirs) {
-            // 判据是客户端 jar 在不在：<id>/<id>.jar 齐了才算装好。光有个版本目录
-            // （下载中途失败留下的）不算。
-            QString jarPath = AppPaths::versionJarPath(versionDir);
-            if (QFile::exists(jarPath)) {
+            // 判据是"认得出客户端 jar 在不在"，**不再要求 jar 名和目录名一致** ——
+            // 放宽的来龙去脉见 InstanceFiles.hpp 的块注释（一句话：用户自己在资源管理器里
+            // 改过目录名的实例，以前会从列表里静默消失，真机上 388 MB / 851 MB 各一个）。
+            //
+            // 判据没有一路放松到"目录里有任意 .jar 就算已安装"：那样"顶层两个 jar、
+            // 认不出哪个是客户端"的目录也会被收进来，点启动时才发现找不着 jar。
+            // 宁可在这里说不认识，也不能让列表里躺着一个点了会炸的条目。
+            const InstanceFiles::Resolved resolved = InstanceFiles::resolveInstance(versionDir);
+            if (resolved.recognized()) {
                 versions.append(versionDir);
                 continue;
             }
-            // 到这里说明目录名和 jar 名对不上。判据本身**不改** —— 放宽成"目录里有任意
-            // .jar 就算已安装"会把下载中途失败留下的半个版本也收进来。但必须让用户知道
-            // 有些东西被忽略了，因为这种实例在真机上确实存在：用户手动改了目录名，
-            // 却没改里面的 jar 名（`原版ATT2地图（无模组）/` 里躺着的是
-            // `ATT2原版地图（无模组）.jar`，388 MB / 851 MB 的整合包各一个）。
-            // 改之前的表现是它们从列表里静默消失，观感就是"启动器少了两三个版本"。
-            if (warnings == nullptr) {
-                continue;
-            }
-            const QStringList jars = QDir(AppPaths::versionDir(versionDir))
-                                         .entryList(QStringList() << QStringLiteral("*.jar"),
-                                                    QDir::Files);
-            if (!jars.isEmpty()) {
-                warnings->append(
-                    tr("目录 %1 里的 jar 叫「%2」，与目录名不一致，已忽略（目录改过名？）。")
-                        .arg(versionDir, jars.join(QStringLiteral("、"))));
+            // 认不出来的目录里**有 jar** 就得说一声：用户看得见磁盘上确实有个 jar，
+            // 却看不见它在列表里，不讲清楚就是又一次静默消失。
+            // 一个 jar 都没有的目录（下载残骸、纯空目录、误丢进 versions/ 的整合包 zip）
+            // 继续静默 —— 那些本来就没人指望它是实例，报了才知道是噪音。
+            if (warnings != nullptr && !resolved.jarCandidates.isEmpty()) {
+                warnings->append(tr("目录 %1 里有 %2 个 jar（%3），认不出哪个是客户端，已忽略。")
+                                     .arg(versionDir)
+                                     .arg(resolved.jarCandidates.size())
+                                     .arg(resolved.jarCandidates.join(QStringLiteral("、"))));
             }
         }
     }
@@ -194,7 +235,11 @@ QJsonObject VersionManager::getVersionJson(const QString &versionId) const {
 
     // 内存里没有就回读磁盘。下载时已经把 JSON 落盘，所以跨会话启动也能拿到
     // javaVersion 和 assetIndex，不需要先在同一次会话里点一次"下载"。
-    const QString jsonPath = AppPaths::versionJsonPath(versionId);
+    //
+    // NOTE: 路径走 InstanceFiles 解析，不按 <id>.json 硬拼 —— 目录名被外部改过之后，
+    //       里面的 json 还叫老名字，硬拼会读不到，表现就是"实例认出来了、启动却说
+    //       版本信息缺失"。认出来和还能启动是两件事。
+    const QString jsonPath = InstanceFiles::jsonPath(versionId);
     QFile jsonFile(jsonPath);
     if (!jsonFile.exists() || !jsonFile.open(QIODevice::ReadOnly)) {
         qWarning() << "Version JSON not found on disk:" << jsonPath;
@@ -214,10 +259,14 @@ QJsonObject VersionManager::getVersionJson(const QString &versionId) const {
     return doc.object();
 }
 
-QJsonObject VersionManager::readVersionMeta(const QString &versionId, QString *metaPathOut) const {
+QJsonObject VersionManager::readVersionMeta(const QString &versionId, QString *metaPathOut,
+                                            bool *unreadableOut) const {
     const QString metaPath = AppPaths::versionMetaPath(versionId);
     if (metaPathOut != nullptr) {
         *metaPathOut = metaPath;
+    }
+    if (unreadableOut != nullptr) {
+        *unreadableOut = false;
     }
 
     QFile metaFile(metaPath);
@@ -228,6 +277,9 @@ QJsonObject VersionManager::readVersionMeta(const QString &versionId, QString *m
     }
     if (!metaFile.open(QIODevice::ReadOnly)) {
         qWarning() << "Version metadata exists but cannot be opened:" << metaPath;
+        if (unreadableOut != nullptr) {
+            *unreadableOut = true;
+        }
         return QJsonObject();
     }
 
@@ -238,9 +290,244 @@ QJsonObject VersionManager::readVersionMeta(const QString &versionId, QString *m
         // 手写的文件写错格式很常见。整个文件当没有，但不静默——这是用户手写的，
         // 不告诉他写错了他会一直以为生效了。
         qWarning() << "Failed to parse version metadata" << metaPath << ":" << parseError.errorString();
+        if (unreadableOut != nullptr) {
+            *unreadableOut = true;
+        }
         return QJsonObject();
     }
     return doc.object();
+}
+
+bool VersionManager::updateVersionMeta(const QString &versionId, const QJsonObject &fields,
+                                       QString *errorOut) {
+    const QString metaPath = AppPaths::versionMetaPath(versionId);
+
+    // 先把现有的读进来当底，再往上盖要改的键 —— **合并**写，不整体替换。
+    // 这个文件是用户可以手写的，里面可能已经有 jvmArgs / nameFormat / realVersion，
+    // 整体覆盖会把它们悄悄抹掉。
+    bool unreadable = false;
+    QJsonObject merged = readVersionMeta(versionId, nullptr, &unreadable);
+    if (unreadable) {
+        // 往一份读不懂的内容上合并 = 把用户手写的部分丢掉。宁可这次不写。
+        if (errorOut != nullptr) {
+            *errorOut = tr("%1 的内容不是合法的 JSON，为避免覆盖掉你写的东西，这次没有改动它。")
+                            .arg(metaPath);
+        }
+        return false;
+    }
+
+    for (auto it = fields.constBegin(); it != fields.constEnd(); ++it) {
+        if (it.value().isNull() || it.value().isUndefined()) {
+            // 约定：null 表示**删掉**这个键（"改回跟随全局"要的就是"这个键不存在"）。
+            merged.remove(it.key());
+        } else {
+            merged.insert(it.key(), it.value());
+        }
+    }
+
+    // 目录理论上一定在（扫描是先认 jar 的），但重命名那条路会在目录刚建好时调过来，
+    // 建不出来就没什么好写的了。
+    if (!QDir().mkpath(AppPaths::versionDir(versionId))) {
+        if (errorOut != nullptr) {
+            *errorOut = tr("无法创建目录 %1。").arg(AppPaths::versionDir(versionId));
+        }
+        return false;
+    }
+
+    // QSaveFile：先写同目录的临时文件、commit() 时才改名覆盖。断电或崩溃只会留下
+    // "旧内容完好"，绝不会留下半截 JSON —— 这个文件坏掉的后果是那个实例的显示名和
+    // 参数整体失效，比"这次没写成"糟得多。
+    //
+    // 缩进输出：这是用户会拿记事本打开看的文件，紧排一行没法读。代价是重写会把
+    // 用户原来的排版统一掉，可以接受。
+    QSaveFile file(metaPath);
+    if (!file.open(QIODevice::WriteOnly)) {
+        if (errorOut != nullptr) {
+            *errorOut = tr("无法写入 %1。").arg(metaPath);
+        }
+        return false;
+    }
+    file.write(QJsonDocument(merged).toJson(QJsonDocument::Indented));
+    if (!file.commit()) {
+        if (errorOut != nullptr) {
+            *errorOut = tr("写入 %1 失败。").arg(metaPath);
+        }
+        return false;
+    }
+    return true;
+}
+
+QString VersionManager::instanceId(const QString &versionId) const {
+    const QJsonValue value = readVersionMeta(versionId).value(kInstanceIdField);
+    // 类型不对就当没有（可能是用户手改坏的）—— 调用方会去生成一个新的覆盖掉它。
+    return value.isString() ? value.toString() : QString();
+}
+
+QString VersionManager::ensureInstanceId(const QString &versionId) {
+    const QString existing = instanceId(versionId);
+    if (!existing.isEmpty()) {
+        return existing;
+    }
+
+    // QUuid 的 WithoutBraces 形式（36 字符带横线）。用它而不是自增整数：分组归属
+    // 存在另一个文件里，自增 id 在"删了一个组再加一个"时会和残留的归属撞上，
+    // 而 UUID 不会。
+    const QString generated = newInstanceId();
+
+    QJsonObject fields;
+    fields.insert(kInstanceIdField, generated);
+    QString error;
+    if (!updateVersionMeta(versionId, fields, &error)) {
+        // 走到这里说明磁盘有问题（目录不可写之类）。返回空串让调用方知道"没拿到"，
+        // 而不是返回一个**没落盘**的 id —— 那个 id 下次会话就对不上了，属于静默错。
+        qWarning() << "Failed to persist instance id for" << versionId << ":" << error;
+        return QString();
+    }
+    return generated;
+}
+
+bool VersionManager::renameInstance(const QString &oldId, const QString &newName,
+                                    QString *errorOut) {
+    const auto fail = [errorOut](const QString &reason) {
+        if (errorOut != nullptr) {
+            *errorOut = reason;
+        }
+        return false;
+    };
+
+    const QString newId = newName.trimmed();
+
+    // ---------- 第 1 步：全部前置检查，磁盘一个字节都不动 ----------
+    //
+    // "正在跑"不在这里判，见 .hpp 里的 NOTE —— 那是 MainWindow 的闸口，必须更早。
+    const QString problem = InstanceFiles::validateRenameTarget(newId, oldId);
+    if (!problem.isEmpty()) {
+        return fail(problem);
+    }
+
+    const QString oldDir = AppPaths::versionDir(oldId);
+    if (!QDir(oldDir).exists()) {
+        return fail(tr("找不到实例目录 %1。").arg(QDir::toNativeSeparators(oldDir)));
+    }
+    // NOTE: 这里**不判** `QDir(newDir).exists()`。目标已经存在的情况
+    //       validateRenameTarget() 里按重名挡过了，而它挡不了、这里也不该挡的正是
+    //       "只差大小写"那一种 —— 那种目标就是它自己，判存在会把唯一合法的改名拒掉。
+    const QString newDir = AppPaths::versionDir(newId);
+
+    // 改名要回滚时得把显示名放回去，所以先把老值记下来（可能是"压根没有"）。
+    const QJsonValue oldDisplayName = readVersionMeta(oldId).value(kDisplayNameField);
+
+    // ---------- 第 2 步：写 meta ----------
+    //
+    // 排在改名字前面：它可能失败，而它失败时我们还什么都没破坏；反过来先改目录名，
+    // 写完 meta 却失败，就留下一个改完了名、显示名还指着老名字的实例。
+    // 顺手把稳定 id 定下来（没有才生成）—— 这一句正是"被启动器碰过一次"的那一次，
+    // 从今往后这个实例的分组归属不再靠目录名认人。两件事合成一次原子写。
+    QJsonObject fields;
+    fields.insert(kDisplayNameField, newId);
+    if (instanceId(oldId).isEmpty()) {
+        fields.insert(kInstanceIdField, newInstanceId());
+    }
+    QString error;
+    if (!updateVersionMeta(oldId, fields, &error)) {
+        return fail(error);
+    }
+
+    // ---------- 第 3~5 步：jar、json、目录，从里往外改 ----------
+    const QString oldJarPath = oldDir + QLatin1Char('/') + InstanceFiles::jarName(oldId);
+    const QString newJarPath = oldDir + QLatin1Char('/') + newId + QStringLiteral(".jar");
+    const QString oldJsonPath = oldDir + QLatin1Char('/') + InstanceFiles::jsonName(oldId);
+    const QString newJsonPath = oldDir + QLatin1Char('/') + newId + QStringLiteral(".json");
+
+    // 只回滚**真做成了**的那几步。两个标志必须在回滚 lambda 之前声明，好让它捕获。
+    bool jarRenamed = false;
+    bool jsonRenamed = false;
+
+    /// 逆序回滚，然后把"磁盘现在到底怎么样了"告诉用户。
+    ///
+    /// 回滚本身也可能失败（文件被别的程序开着，正是刚才那一步失败的原因）。那时
+    /// 绝不能只说一句"失败了" —— 用户需要知道**哪些东西还停在半路上**，否则他
+    /// 在资源管理器里看到的是一个自相矛盾的目录，而且不知道该不该再点一次。
+    const auto rollbackAndFail = [&](const QString &reason) {
+        QStringList stuck;
+        if (jsonRenamed && !QFile::rename(newJsonPath, oldJsonPath)) {
+            stuck.append(QDir::toNativeSeparators(newJsonPath));
+        }
+        if (jarRenamed && !QFile::rename(newJarPath, oldJarPath)) {
+            stuck.append(QDir::toNativeSeparators(newJarPath));
+        }
+        // 显示名跟着回滚：原来是什么就写回什么，原来没有这个键就删掉它。
+        // 稳定 id **留着** —— 改名失败不改变"它是哪个实例"，而 id 正是用来扛这个的。
+        QJsonObject restore;
+        restore.insert(kDisplayNameField, oldDisplayName.isString()
+                                              ? QJsonValue(oldDisplayName.toString())
+                                              : QJsonValue(QJsonValue::Null));
+        QString metaError;
+        if (!updateVersionMeta(oldId, restore, &metaError)) {
+            stuck.append(QDir::toNativeSeparators(AppPaths::versionMetaPath(oldId)));
+        }
+
+        if (stuck.isEmpty()) {
+            return fail(tr("%1\n\n磁盘上的东西已经全部改回去了，可以直接重试。").arg(reason));
+        }
+        return fail(tr("%1\n\n自动回滚也没能做完，下面这些还停在半路上，需要你手动看一眼：\n%2")
+                        .arg(reason, stuck.join(QStringLiteral("\n"))));
+    };
+
+    if (!renameOnto(oldJarPath, newJarPath)) {
+        return rollbackAndFail(tr("无法把 %1 改名成 %2（可能有别的程序正开着它）。")
+                                   .arg(QDir::toNativeSeparators(oldJarPath),
+                                        QDir::toNativeSeparators(newJarPath)));
+    }
+    jarRenamed = true;
+
+    if (!renameOnto(oldJsonPath, newJsonPath)) {
+        return rollbackAndFail(tr("无法把 %1 改名成 %2（可能有别的程序正开着它）。")
+                                   .arg(QDir::toNativeSeparators(oldJsonPath),
+                                        QDir::toNativeSeparators(newJsonPath)));
+    }
+    jsonRenamed = true;
+
+    if (!QDir().rename(oldDir, newDir)) {
+        return rollbackAndFail(tr("无法把目录 %1 改名成 %2（可能有别的程序正开着它）。")
+                                   .arg(QDir::toNativeSeparators(oldDir),
+                                        QDir::toNativeSeparators(newDir)));
+    }
+
+    return true;
+}
+
+QString VersionManager::jvmArgsField() { return QStringLiteral("jvmArgs"); }
+
+QJsonObject VersionManager::versionMeta(const QString &versionId) const {
+    // readVersionMeta() 已经把所有"读不到"的形态（文件不在 / 打不开 / 解析不了）
+    // 收口成空对象了，这里不再重复判断 —— 那些分支的措辞和告警都只该有一处。
+    return readVersionMeta(versionId);
+}
+
+QString VersionManager::skipJavaVersionWarningField() {
+    return QStringLiteral("skipJavaVersionWarning");
+}
+
+bool VersionManager::skipJavaVersionWarning(const QString &versionId) const {
+    QString metaPath;
+    const QJsonObject meta = readVersionMeta(versionId, &metaPath);
+    if (meta.isEmpty()) {
+        return false;
+    }
+
+    const QJsonValue value = meta.value(skipJavaVersionWarningField());
+    if (value.isUndefined() || value.isNull()) {
+        // 没写过这个键 = 没表过态 = 提醒。
+        return false;
+    }
+    if (!value.isBool()) {
+        // 写成字符串/数字：按"没表态"处理，但要说一声（见头文件里那条 NOTE）。
+        qWarning() << "Version metadata field skipJavaVersionWarning is not a bool in" << metaPath
+                   << "— treated as \"warn\"";
+        return false;
+    }
+    return value.toBool();
 }
 
 QStringList VersionManager::versionJvmArgs(const QString &versionId) const {
@@ -250,7 +537,7 @@ QStringList VersionManager::versionJvmArgs(const QString &versionId) const {
         return QStringList();
     }
 
-    const QJsonValue value = meta.value(QStringLiteral("jvmArgs"));
+    const QJsonValue value = meta.value(jvmArgsField());
     if (value.isUndefined() || value.isNull()) {
         return QStringList();
     }

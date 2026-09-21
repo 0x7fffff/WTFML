@@ -8,6 +8,8 @@
 
 #include "MainWindowUI.hpp"
 
+#include "SkinModel.hpp"
+
 #include <QColor>
 #include <QEvent>
 #include <QFont>
@@ -70,8 +72,9 @@ constexpr int kBottomBarHeight = 56;
 /// 底栏左格「实例运行状态」那两行文字的宽度下限，免得内容一变整条就左右跳。
 constexpr int kStatusLabelMinWidth = 260;
 
-/// 左下角头像的边长（正方形）。
-constexpr int kAvatarSize = 32;
+/// 左下角头像的边长（正方形）。**值本身不在这里** —— 它和"主窗口拿什么尺寸去裁头像"
+/// 必须是同一个数，所以唯一的出处是 MainWindowUI::avatarSize()（见头文件）。
+const int kAvatarSize = MainWindowUI::avatarSize();
 
 /// 「启动游戏」按钮的高度。文字是两行（"启动游戏\n<显示名>"），给足高度免得被压成一行半。
 constexpr int kStartButtonMinHeight = 88;
@@ -238,7 +241,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     tabWidget = new QTabWidget(centralWidget);
     tabWidget->setObjectName(tabWidgetName());
 
-    // ---------- 主页：左 = 挑一个已装好的版本，启动；右 = 空着（见下面的说明） ----------
+    // ---------- 主页：左 = 挑一个已装好的版本，启动；右 = 我的角色（皮肤预览） ----------
     QWidget *homeTab = new QWidget(tabWidget);
     homeTab->setObjectName(homeTabName());
     const TwoColumns home = buildTwoColumnPage(homeTab, QStringLiteral("home"));
@@ -284,16 +287,46 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         home.left.layout->addWidget(startButton);
 
         offlineModeCheckBox = new QCheckBox(QStringLiteral("离线模式"), home.left.widget);
+        offlineModeCheckBox->setObjectName(offlineModeCheckBoxName());
         offlineModeCheckBox->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
         home.left.layout->addWidget(offlineModeCheckBox, 0, Qt::AlignLeft);
 
         // 剩下的竖直空间留在底部：按钮不跟着窗口高度一起被拉长
         home.left.layout->addStretch(1);
     }
-    // 主页的右栏**故意是空的**：原来这里有一张「版本列表」，和左边那个下拉框是同一份
-    // 数据的两种看法 —— 而实例页右边现在也有一张同样数据的列表了，留着就是把同一件事
-    // 说三遍（2026-09 去掉的）。这一栏空着不装东西，只按份数把左边那套操作顶到 7 成宽
-    // （主页的比例因此是 7:3，见 leftColumnIsWider()）。
+    // ---------- 主页右栏：我的角色（3D 皮肤预览） ----------
+    // 这里原来是空的：早先放着一张「版本列表」，和左边那个下拉框是同一份数据的两种看法，
+    // 而实例页右边现在也有一张同样数据的列表了，留着就是把同一件事说三遍（2026-09 去掉的）。
+    // 空着的那阵子这一栏的作用只剩"按份数把左边那套操作顶到 7 成宽"，现在拿它装皮肤预览 ——
+    // 三成宽正好够放一个小人（见 SkinModel 里"缩放按控件尺寸自适应"那条，控件多大它多大）。
+    {
+        QLabel *skinTitle = new QLabel(QStringLiteral("我的角色"), home.right.widget);
+        QFont skinTitleFont = skinTitle->font();
+        skinTitleFont.setBold(true);
+        skinTitle->setFont(skinTitleFont);
+        home.right.layout->addWidget(skinTitle);
+
+        skinViewer = new SkinViewer(home.right.widget);
+        skinViewer->setObjectName(skinViewerName());
+        // 立刻喂一套外观。这个控件**任何时候都不该是空白的** —— 没登录、还没取到、
+        // 取不到，这三种情况看到的都是这套默认外观，所以兜底放在这里而不是等业务层来灌：
+        // 少一处"谁忘了设"的可能。业务层拿到真皮肤时再覆盖它。
+        skinViewer->setSkin(SkinModel::defaultSteveSkin(), QImage(), false);
+        // 份数 1：这一栏里竖直方向全是它的（标题和说明那两行是固定高度）。
+        home.right.layout->addWidget(skinViewer, 1);
+
+        skinHintLabel = new QLabel(skinHintNotLoggedInText(), home.right.widget);
+        skinHintLabel->setObjectName(skinHintLabelName());
+        // 必须换行：这句最长的时候（「取不到 <名字> 的皮肤，显示的是默认外观」）有 20 多字，
+        // 而这一栏只有 260 px 上下，不换行就会把整栏顶宽、把左边的 7 份挤掉。
+        skinHintLabel->setWordWrap(true);
+        // 横向上把自己**从布局的度量里摘出去**：wordWrap 的 QLabel 报出来的 sizeHint 是
+        // "整句排成一行"的宽度（好几百 px），而最小宽度又是按最长的一段算的 —— 这一栏是
+        // 3 份（约 260 px），让一个纯说明文字去决定它的宽度是本末倒置。摘掉之后这一栏的
+        // 宽度仍然只由份数决定（主页那个精确的 7:3 就是靠这个成立的）。
+        skinHintLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+        home.right.layout->addWidget(skinHintLabel);
+    }
     // NOTE: 控件一个都不放也得把这栏建出来 —— 验证工程靠 leftColumnName()/rightColumnName()
     //       找这两栏量几何，主页右栏没了就等于主页的比例没地方量。
 
@@ -349,16 +382,47 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         instanceFolderLabel->setWordWrap(true);
         instanceLayout->addWidget(instanceFolderLabel);
 
-        // 就是「主页」右边那张列表的同一份数据，只是摆在这儿配左边的文件夹看。
+        // 主页那个「已安装版本」下拉框的同一份数据，只是摆在这儿配左边的文件夹看。
         // 点击 = 在主页把它选中（两边按 id 双向同步，见 MainWindow::setupConnections）。
-        instanceList = new QListWidget(instanceGroupBox);
+        //
+        // 是**树**不是列表：实例可以归到用户建的组里，组是父节点、实例是子节点。
+        // 一个组都没有的时候它就是平铺的一层（照样不插组头），观感和列表一样。
+        instanceList = new QTreeWidget(instanceGroupBox);
         instanceList->setObjectName(instanceListName());
-        instanceList->setUniformItemSizes(true);
+        instanceList->setHeaderHidden(true);
+        instanceList->setRootIsDecorated(true);
+        // 每一行高度一样（没有多行文本），打开这个能让 QTreeWidget 不用去问每一行的
+        // sizeHint —— 实例多的时候（真机上有 61 个）滚动明显更顺。
+        instanceList->setUniformRowHeights(true);
+        // 组下面的实例缩进多少由它给。默认 20 在窄栏里有点深，收到 14：
+        // 右栏还得和左栏分 7:3 的宽度，缩进多一格就少一格放实例名。
+        instanceList->setIndentation(14);
         instanceLayout->addWidget(instanceList, 1);
 
+        // 三个按钮都作用于列表里当前选中的那一个实例。横着排：右栏宽度本来就紧
+        // （3:7 里的 7 还要和左栏分），竖着堆会把列表挤没。
+        QHBoxLayout *instanceButtons = new QHBoxLayout;
+        renameInstanceButton = new QPushButton(renameInstanceText(), instanceGroupBox);
+        renameInstanceButton->setObjectName(renameInstanceButtonName());
+        groupInstanceButton = new QPushButton(groupInstanceText(), instanceGroupBox);
+        groupInstanceButton->setObjectName(groupInstanceButtonName());
+        instanceSettingsButton = new QPushButton(instanceSettingsText(), instanceGroupBox);
+        instanceSettingsButton->setObjectName(instanceSettingsButtonName());
+        // 三个按钮一律可点，没选中实例时由 MainWindow 的槽弹一句"先选中一个实例"
+        // （和「重命名…」同一个口径：**几时能点**由状态决定的话，用户会先花时间
+        // 猜"为什么它是灰的"，而那句话直接把原因说了）。
+
+        instanceButtons->addWidget(renameInstanceButton);
+        instanceButtons->addWidget(groupInstanceButton);
+        instanceButtons->addWidget(instanceSettingsButton);
+        instanceLayout->addLayout(instanceButtons);
+
         QLabel *instanceHint = new QLabel(
-            QStringLiteral("一个实例就是 versions 下的一个目录（判据是 <id>/<id>.jar 存在）。"
-                           "重命名与分组还没做。"),
+            QStringLiteral("一个实例就是 versions 下的一个目录。判据是「认得出哪个是客户端 jar」"
+                           "—— 你自己在资源管理器里改过目录名的实例也认得出来。"
+                           "重命名会真的改磁盘上的目录名；分组只记在启动器自己的文件里，"
+                           "不动磁盘上的目录。「实例设置…」只影响这一个实例：里面每一项"
+                           "都能选「跟随全局」或者自己填一个值。"),
             instanceGroupBox);
         instanceHint->setWordWrap(true);
         instanceLayout->addWidget(instanceHint);
@@ -492,12 +556,36 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
         javaPathLabel->setWordWrap(true);
         javaPathLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
         boxLayout->addWidget(javaPathLabel);
+        // NOTE: 这一句说的是**全局**这一层的选择，它和实例覆盖层的行为**不一样**，别把
+        //       两边写成一回事：这里钉的 Java 对不上就是直接报错（不替你换、也不问）；
+        //       而「实例设置…」里给某个实例单独指定的 Java 对不上时，会弹一个框问要不要
+        //       改用匹配的那个（由下面那行提醒开关管）。全局档不问，是因为它不匹配时
+        //       自动档本来就会挑一个替换掉，手动档是用户对**整台机器**的选择 ——
+        //       那种一眼就该是自己配错的，不值得每次启动都问一遍。
         addHint(box, QStringLiteral("「自动」是按版本要求挑（1.16.5 及以下要 Java 8、"
                                     "26.x 要 Java 25，同一个启动器里得能共存）。"
-                                    "选了具体的 Java 就别指望它会替你换一个 —— "
-                                    "版本对不上会直接报错，不会静默换一个。"),
+                                    "这一行选的是「全局」那一层：选了具体的 Java 就别指望"
+                                    "它会替你换一个 —— 版本对不上会直接报错，不会静默换一个。"
+                                    "要给某一个实例单独指定 Java，用它的「实例设置…」；"
+                                    "那边对不上时会弹框问一句（由下面「版本提醒」管）。"),
                 form);
         addSettingRow(grid, row++, QStringLiteral("运行时"), box, form);
+    }
+    {
+        QWidget *box = makeHintedControl(form);
+        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        // 勾选状态由 MainWindow 灌（它才知道这个开关存在哪），这里只搭控件 ——
+        // 和 memoryAutoCheck 同一条约定。
+        javaWarnMismatchCheck =
+            new QCheckBox(QStringLiteral("实例指定的 Java 版本不符时提醒"), box);
+        javaWarnMismatchCheck->setObjectName(javaWarnMismatchCheckName());
+        boxLayout->addWidget(javaWarnMismatchCheck, 0, Qt::AlignLeft);
+        addHint(box, QStringLiteral("只对「实例设置…」里单独指定过 Java 的实例起作用。"
+                                    "关掉之后不再问，直接按你给它指定的那个 Java 启动 ——"
+                                    "版本真的不对时游戏会以 UnsupportedClassVersionError "
+                                    "之类的方式失败，得去「实例设置…」里换回来。"),
+                form);
+        addSettingRow(grid, row++, QStringLiteral("版本提醒"), box, form);
     }
 
     // ---------- 内存分配 ----------

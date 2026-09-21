@@ -20,6 +20,7 @@ set(HEADER_FILES
     src/launcher/LibraryRules.hpp
     src/auth/AuthManager.hpp
     src/manage/FolderManager.hpp
+    src/manage/InstanceFiles.hpp
     src/manage/VersionManager.hpp
     src/manage/VersionDisplay.hpp
     src/settings/GlobalJavaSettings.hpp
@@ -36,14 +37,23 @@ set(SOURCE_FILES
     src/launcher/LauncherManager.cpp
     src/auth/AuthManager.cpp
     src/manage/FolderManager.cpp
+    src/manage/InstanceFiles.cpp
+    src/manage/InstanceGroupStore.cpp
+    src/manage/PlayerSkinStore.cpp
     src/manage/VersionManager.cpp
     src/manage/VersionDisplay.cpp
+    src/settings/EffectiveJavaSettings.cpp
     src/settings/GlobalJavaSettings.cpp
     src/settings/LauncherSettings.cpp
     src/download/DownloadManager.cpp
     src/util/SystemMemory.cpp
     src/util/ZipUtil.cpp
     ui/MainWindowUI.cpp
+    ui/GroupDialog.cpp
+    ui/InstanceSettingsDialog.cpp
+    ui/JavaMismatchDialog.cpp
+    ui/SkinModel.cpp
+    ui/SkinViewer.cpp
     ${HEADER_FILES}
 )
 

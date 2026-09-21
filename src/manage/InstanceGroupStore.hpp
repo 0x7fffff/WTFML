@@ -1,0 +1,127 @@
+/**
+ * @file InstanceGroupStore.hpp
+ * @brief 实例分组：把一份 .minecraft 里的实例归到用户自己建的几个组里。
+ * @author 0x7fffff
+ * @date 2026-09-21
+ * @note 落盘在 <数据目录>/wtfml.folders，与 FolderManager 平级（都是"读盘 + 语义 +
+ *       发信号"，界面拿信号去重灌列表）。本文件只管数据与文件，**不弹窗**。
+ *
+ * 【为什么每份 .minecraft 一个文件】
+ *
+ * 分组是"这一份 .minecraft 里的实例怎么摆"，不是"启动器全局的实例怎么摆"——
+ * 用户加了三份游戏目录，每份里那些整合包的分组方式毫无关系。挂在数据根目录下
+ * （而不是 versions/ 下）另有理由：删掉 versions 重下一遍是常见操作，用户的
+ * 分组不该跟着陪葬。
+ *
+ * 【为什么成员键是「稳定 id，没有就退回目录名」】
+ *
+ * 实例的天然身份是目录名，但目录名会被改（启动器里改名、用户在资源管理器里改名）。
+ * 所以长期来看归属得挂在一个不随名字变的 id 上（wtfml.meta 里的 instanceId，见
+ * VersionManager::ensureInstanceId()）。
+ *
+ * NOTE: 但 instanceId 是 2026-09 才有的东西，**现存实例一个都没有**。要求"必须有稳定 id"
+ *       就等于要么在扫描时偷偷写盘（扫描是只读路径，绝不能带副作用），要么老实例一上来
+ *       全丢分组。所以读取时"先按稳定 id 找、再按目录名找"，写入一律用调用方给的键，
+ *       而调用方（MainWindow::instanceKey()）的规则是"有 id 用 id，没有用目录名"。
+ *       于是老实例的分组归属在工作到"被启动器碰过一次"（三条写路径都会顺手生成 id）
+ *       之前是靠目录名认的 —— 这正是它唯一的现实语义。
+ *
+ * 【读盘策略：不缓存，按需读】
+ *
+ * 每个访问器内部比一下 AppPaths::minecraftDir() 和上次读的那份，不一样就重读。于是
+ * "换游戏文件夹 → 分组自动换成那一份"不需要任何显式重置钩子 —— 那种钩子的典型失效
+ * 形态是"某条换目录的路径忘了调它"，而这里它在结构上不可能发生。
+ */
+#pragma once
+
+#include <QJsonObject>
+#include <QList>
+#include <QObject>
+#include <QString>
+
+class InstanceGroupStore : public QObject {
+    Q_OBJECT
+
+public:
+    /// 一个分组。id 是启动器生成的不变标识（组可以改名，id 不变），name 是显示名。
+    struct Group {
+        QString id;
+        QString name;
+
+        // 逐字段比较：MainWindow 靠它判断"用户在对话框里改过组清单没有"，
+        // 没改就不去写盘。
+        friend bool operator==(const Group &, const Group &) = default;
+    };
+
+    explicit InstanceGroupStore(QObject *parent = nullptr);
+
+    /// 全部组，按用户排的顺序。文件不存在 / 读不懂时是空的。
+    ///
+    /// 读出来的东西按不可信数据清洗：没有 id 的条目丢掉（认不出来）、id 重复的只留
+    /// 第一个、名字为空的用 id 顶上（界面上至少还认得出来是哪一个）。
+    QList<Group> groups() const;
+
+    /// @param instanceKey 实例的归属键（见文件头）。
+    /// @return 它归在哪个组；没分组、或者指向一个**已经不存在的组**时返回空串。
+    ///
+    /// 指向不存在的组是"那个组被删了"的正常残留（删组会清成员，但用户手改文件、
+    /// 或者两份文件不同步时会有），当未分组处理，不报错、也不在这一层清理 ——
+    /// 读路径不该有副作用，清理交给下一次写。
+    QString groupIdOf(const QString &instanceKey) const;
+
+    /// 整个组清单换成这一份（新建 / 重命名 / 删除都由它表达）。
+    ///
+    /// NOTE: 是**全量替换**而不是三个细粒度操作。唯一写它的地方是分组对话框，那是个
+    ///       对整张组清单的模态编辑器 —— 细粒度操作会让 MainWindow 拿着编辑前后的
+    ///       两份清单自己 diff 一遍，那份 diff 逻辑里"删组要不要清成员"这类判断
+    ///       必然要和这里抄第二遍。全量替换把规范化收在一处。
+    /// NOTE: 指向被删掉的组的成员条目会**一起清掉**（那个归属已经没有意义了），
+    ///       而**实例本身一个字节都不动** —— 删组从来不删实例。
+    /// @param errorOut 失败原因（给用户看的一句话）。
+    bool replaceGroups(const QList<Group> &groups, QString *errorOut = nullptr);
+
+    /// 把某个实例归到某个组。`groupId` 传空串 = 取消分组。
+    /// @param instanceKey 实例的归属键（见文件头）。
+    /// @return groupId 非空但磁盘上没这个组时返回 false。
+    bool assign(const QString &instanceKey, const QString &groupId, QString *errorOut = nullptr);
+
+    /// 实例改名的同时把它的归属搬运到新键上。
+    /// @param oldKey 改名前的归属键。@param newKey 改名后的。
+    /// @return 老键本来就没有归属（或者两个键一样）时返回 true 且**不写盘**。
+    ///
+    /// NOTE: 目标键上已经有一个归属时会被覆盖。这不是丢数据 —— 两个键指向同一个实例
+    ///       （"同一个实例有两个键"正是改名造成的），那个被覆盖的值本来就是我方的。
+    bool rekey(const QString &oldKey, const QString &newKey, QString *errorOut = nullptr);
+
+    /// 一个新的分组 id。对话框新建组时用它。
+    ///
+    /// 用 UUID 而不是自增整数：成员表里的归属值是**跨会话**的，自增 id 在"删了一个组
+    /// 再加一个"时会和文件里残留的归属撞上（撞上的表现是几个实例莫名其妙钻进新组），
+    /// 而 UUID 不会。和 VersionManager 的实例 id 同一个理由、同一个形式。
+    static QString newGroupId();
+
+signals:
+    /// 分组数据变了（组清单或归属）。界面据此重灌实例列表。
+    /// NOTE: 写成功才发。读从来不发 —— 读不改变任何东西。
+    void groupsChanged();
+
+private:
+    /// 目录换了（或者第一次用）就重读。const 是因为所有访问器都是 const 的，
+    /// 而"按需重读"对调用方来说只是"这次读得慢一点"。
+    void ensureLoaded() const;
+
+    /// 把规范化之后的组清单 + 成员表写出去。三条写路径共用，免得"哪些成员该留"
+    /// 这套判断抄三遍。
+    bool writeThrough(const QList<Group> &groups, const QJsonObject &rawMembers,
+                      QString *errorOut);
+
+    /// 上次读的是哪一份 .minecraft 下的文件。空串 = 还没读过。
+    mutable QString m_loadedFor;
+    /// 文件里除我们认识的键之外的**原样保留**（这是给以后的版本留的余量：更新版本的
+    /// 启动器往里写的新字段，被这一版启动器碰一次就不该消失）。
+    mutable QJsonObject m_root;
+    /// 非空 = 这个文件读不懂（不是合法 JSON / 版本号不认识 / 打不开），值是给用户看的
+    /// 那句话。此时**拒绝写** —— 往一份读不懂的内容上合并等于把用户的东西丢掉，
+    /// 和 VersionManager::updateVersionMeta() 对 wtfml.meta 的处理是同一条规矩。
+    mutable QString m_unreadableReason;
+};

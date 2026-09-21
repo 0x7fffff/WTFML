@@ -38,6 +38,8 @@ static constexpr const char kExtraArgs[] = "Java/ExtraArgs";
 static constexpr const char kAutoSelect[] = "Java/AutoSelect";
 /// 「内存分配」是不是自动档（按系统内存算）。老配置没有这个键，见 load() 的处理。
 static constexpr const char kMemoryAuto[] = "Java/MemoryAuto";
+/// 实例指定的 Java 与版本要求不符时要不要提醒。老配置没有这个键 = 提醒（默认值）。
+static constexpr const char kWarnVersionMismatch[] = "Java/WarnVersionMismatch";
 
 /// 内置默认内存（构造函数里的初值）。自动档算不出结果时的兜底值也是它，
 /// load() 判断"用户自己调过没有"时还是拿它当基准 —— 一共就这一处定义。
@@ -149,52 +151,6 @@ int parseJavaMajorVersion(const QString &versionOutput) {
         return -1;
     }
     return majorFromVersionString(match.captured(1));
-}
-
-/**
- * @brief 认出一个 java.exe 的主版本：先读 release 文件，读不到才真的跑一次 java -version。
- * @param javaExe java.exe 的完整路径。
- * @param versionOutput 退回探测时用来接 java -version 的原始输出（可以传 nullptr）。
- * @return 主版本号；exe 不存在、或者两种办法都认不出来时返回 -1。
- *
- * JDK/JRE 安装时就把版本清单写在自己的根目录里（release 文件），读它是一次文件读取
- * （微秒级）；而跑 java -version 要冷启一个 JVM —— Windows 上实测约 80~100 ms，
- * 装了杀软的机器上第一次跑更久。而 scanLocalJavaVersions() 是**同步**跑的（切到设置页
- * 那一下），本机 5 个运行时就是 0.6 s 的界面冻结 —— 这就是"点开设置卡一下"。
- * 能读文件就别开进程。
- *
- * NOTE: 不是每个运行时都有 release。原版启动器那份 jre-legacy（Java 8 的老布局）就只有
- *       bin/ 和 lib/，没有这个文件 —— Java 8 那代还没有这个惯例。所以读不到时**必须**
- *       退回真的跑一次，不能拿目录名（jre-legacy / java-runtime-delta）去猜主版本：
- *       目录名是别人起的，改名或者往里放了别的东西，猜出来的版本就是错的 ——
- *       而"静默选错 Java"正是这一层最怕的错。
- */
-int probeJavaMajorVersion(const QString &javaExe, QString *versionOutput = nullptr) {
-    if (!QFileInfo::exists(javaExe)) {
-        return -1;
-    }
-
-    // release 文件在 java.exe 的上一层：<运行时根>/bin/java.exe → <运行时根>/release
-    QDir runtimeRoot = QFileInfo(javaExe).absoluteDir();
-    runtimeRoot.cdUp();
-    QFile releaseFile(runtimeRoot.absoluteFilePath(QStringLiteral("release")));
-    if (releaseFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        const int majorVersion = GlobalJavaSettings::majorVersionFromReleaseFile(
-            QString::fromUtf8(releaseFile.readAll()));
-        if (majorVersion > 0) {
-            return majorVersion;
-        }
-    }
-
-    // 没有 release 文件（或者里面没有能认的 JAVA_VERSION）：只能真的问它一次。
-    QString probed;
-    if (!verifyJavaExecutable(javaExe, &probed)) {
-        return -1;
-    }
-    if (versionOutput) {
-        *versionOutput = probed;
-    }
-    return parseJavaMajorVersion(probed);
 }
 
 /**
@@ -342,7 +298,7 @@ QMap<QString, VanillaRuntime> scanVanillaRuntimeComponents() {
     for (const QString &subdir : subdirs) {
         const QString exe =
             QDir(runtimeRoot.absoluteFilePath(subdir)).absoluteFilePath("bin/java.exe");
-        const int majorVersion = probeJavaMajorVersion(exe);
+        const int majorVersion = GlobalJavaSettings::probeJavaMajorVersion(exe);
         if (majorVersion > 0) {
             components[subdir] = VanillaRuntime{exe, majorVersion};
         }
@@ -512,6 +468,34 @@ bool downloadJavaRuntime(const QString &destinationDir, const QString &component
 }
 }  // namespace
 
+int GlobalJavaSettings::probeJavaMajorVersion(const QString &javaExe, QString *versionOutput) {
+    if (!QFileInfo::exists(javaExe)) {
+        return -1;
+    }
+
+    // release 文件在 java.exe 的上一层：<运行时根>/bin/java.exe → <运行时根>/release
+    QDir runtimeRoot = QFileInfo(javaExe).absoluteDir();
+    runtimeRoot.cdUp();
+    QFile releaseFile(runtimeRoot.absoluteFilePath(QStringLiteral("release")));
+    if (releaseFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        const int majorVersion = GlobalJavaSettings::majorVersionFromReleaseFile(
+            QString::fromUtf8(releaseFile.readAll()));
+        if (majorVersion > 0) {
+            return majorVersion;
+        }
+    }
+
+    // 没有 release 文件（或者里面没有能认的 JAVA_VERSION）：只能真的问它一次。
+    QString probed;
+    if (!verifyJavaExecutable(javaExe, &probed)) {
+        return -1;
+    }
+    if (versionOutput) {
+        *versionOutput = probed;
+    }
+    return parseJavaMajorVersion(probed);
+}
+
 GlobalJavaSettings::GlobalJavaSettings(QObject *parent)
     : QObject(parent),
       m_xmx(kBuiltinXmxMb)  // 4GB
@@ -525,6 +509,16 @@ GlobalJavaSettings::GlobalJavaSettings(QObject *parent)
 }
 
 QString GlobalJavaSettings::javaPath() const { return m_javaPath; }
+
+EffectiveJavaSettings GlobalJavaSettings::effective() const {
+    EffectiveJavaSettings settings;
+    settings.javaPath = m_javaPath;
+    settings.xmx = m_xmx;
+    settings.xms = m_xms;
+    settings.autoMemory = m_memoryAuto;
+    settings.extraJvmArgs = m_extraJvmArgs;
+    return settings;
+}
 
 void GlobalJavaSettings::setJavaPath(const QString &path) { m_javaPath = path; }
 
@@ -559,6 +553,10 @@ void GlobalJavaSettings::load() {
     m_memoryAuto = settings.contains(kMemoryAuto)
                        ? settings.value(kMemoryAuto).toBool()
                        : (m_xmx == kBuiltinXmxMb && m_xms == kBuiltinXmsMb);
+
+    // 提醒总闸：没有这个键（加它之前存下来的老配置）就落到成员默认值 true，
+    // 也就是老行为 —— 那时候这类不匹配是一律报错拦下的，等于"总是提醒"。
+    m_warnVersionMismatch = settings.value(kWarnVersionMismatch, m_warnVersionMismatch).toBool();
 }
 
 void GlobalJavaSettings::save() const {
@@ -569,6 +567,13 @@ void GlobalJavaSettings::save() const {
     settings.setValue(kExtraArgs, m_extraJvmArgs);
     settings.setValue(kAutoSelect, m_autoSelectJava);
     settings.setValue(kMemoryAuto, m_memoryAuto);
+    settings.setValue(kWarnVersionMismatch, m_warnVersionMismatch);
+}
+
+void GlobalJavaSettings::setWarnVersionMismatch(bool warn) {
+    m_warnVersionMismatch = warn;
+    // 立刻落盘的理由和 setAutoMemory() 一样：界面上就这么一个勾选框，没有「应用」按钮。
+    save();
 }
 
 void GlobalJavaSettings::setAutoMemory(bool autoMemory) {
@@ -651,7 +656,7 @@ QMap<int, QString> GlobalJavaSettings::scanLocalJavaVersions() {
         const QStringList subdirs = dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
         for (const QString &subdir : subdirs) {
             const QString javaExe = dir.absoluteFilePath(subdir + "/bin/java.exe");
-            const int majorVersion = probeJavaMajorVersion(javaExe);
+            const int majorVersion = GlobalJavaSettings::probeJavaMajorVersion(javaExe);
             if (majorVersion > 0) {
                 versions[majorVersion] = javaExe;
             }
@@ -677,7 +682,7 @@ QMap<int, QString> GlobalJavaSettings::scanLocalJavaVersions() {
     return versions;
 }
 
-bool GlobalJavaSettings::downloadJavaFromMojang(int majorVersion) {
+bool GlobalJavaSettings::downloadJavaFromMojang(int majorVersion, QString *javaPathOut) {
     qDebug() << "Starting Java download from Adoptium for version:" << majorVersion;
 
     // Use Adoptium API to download Java
@@ -774,8 +779,11 @@ bool GlobalJavaSettings::downloadJavaFromMojang(int majorVersion) {
     QString javaPath = findExtractedJava(downloadDir);
     if (!javaPath.isEmpty()) {
         qDebug() << "Found Java at:" << javaPath;
-        m_javaPath = javaPath;
-        save();
+        // 只回填路径，不碰 m_javaPath、不落盘 —— 见 .hpp 里的 NOTE：存到哪个作用域
+        // 是调用方的事。
+        if (javaPathOut != nullptr) {
+            *javaPathOut = javaPath;
+        }
         return true;
     }
 
@@ -796,37 +804,74 @@ bool GlobalJavaSettings::downloadJavaFromMojang(int majorVersion) {
  * @return true if appropriate Java is available and configured, false otherwise
  */
 bool GlobalJavaSettings::ensureJavaForVersion(int majorVersion, const QString &component) {
+    // 老签名 = **全局档**：挑中的路径写回本对象并落盘。除了"值从成员换成一份副本"，
+    // 这一步的行为和加实例覆盖之前逐字节一致（E 段那几条断言钉的就是它）。
+    EffectiveJavaSettings io = effective();
+    QString error;
+    if (!ensureJavaForVersion(io, majorVersion, component, m_autoSelectJava, &error)) {
+        return false;
+    }
+    adoptJavaPath(io.javaPath);
+    return true;
+}
+
+void GlobalJavaSettings::adoptJavaPath(const QString &path) {
+    if (path == m_javaPath) {
+        return;
+    }
+    m_javaPath = path;
+    save();
+}
+
+bool GlobalJavaSettings::ensureJavaForVersion(EffectiveJavaSettings &io, int majorVersion,
+                                              const QString &component, bool allowAutoSelect,
+                                              QString *errorOut, bool allowMismatchedPath) {
+    const auto fail = [errorOut](const QString &reason) {
+        if (errorOut != nullptr) {
+            *errorOut = reason;
+        }
+        return false;
+    };
+
     qDebug() << "Ensuring Java for version:" << majorVersion << "component:" << component;
 
     // First, check if we already have the correct version configured
-    if (!m_javaPath.isEmpty()) {
-        if (javaMatchesMajor(m_javaPath, majorVersion)) {
-            qDebug() << "Using configured Java version" << majorVersion << "at:" << m_javaPath;
+    if (!io.javaPath.isEmpty()) {
+        // 用户在「Java 版本不符」那个框里点了「仍然用这个 Java 启动」：他要的就是这条路径。
+        // 判在 javaMatchesMajor() **之前**是有意的 —— 那个函数总是冷启一个 JVM，而这里
+        // 已经拿到过用户的明确授权，没必要再花那几十毫秒去确认一件他已经决定的事。
+        if (allowMismatchedPath) {
+            qDebug() << "Using the mismatched Java the user explicitly chose:" << io.javaPath;
+            return true;
+        }
+        if (javaMatchesMajor(io.javaPath, majorVersion)) {
+            qDebug() << "Using configured Java version" << majorVersion << "at:" << io.javaPath;
             return true;
         }
         qDebug() << "Configured Java does not match required version" << majorVersion << ":"
-                 << m_javaPath;
+                 << io.javaPath;
     }
 
     // 手动档到此为止：配置的路径不匹配（或者压根没配）时**不替用户换一个**。
     // 自动挑在手动档下是帮倒忙 —— 用户钉 Java 8 就是为了跑 1.16.5，静默换成 Java 21
     // 只会得到 UnsupportedClassVersionError，而且看不出是启动器换的。报错好过猜。
-    if (!m_autoSelectJava) {
-        qWarning() << "Java 选的是「手动指定」，而"
-                   << (m_javaPath.isEmpty() ? QStringLiteral("还没指定路径")
-                                            : m_javaPath + QStringLiteral(" 的主版本不是 ")
-                                                  + QString::number(majorVersion))
-                   << "—— 不自动更换，直接失败。";
-        return false;
+    if (!allowAutoSelect) {
+        const QString reason =
+            QStringLiteral("Java 选的是「手动指定」，而")
+            + (io.javaPath.isEmpty() ? QStringLiteral("还没指定路径")
+                                     : io.javaPath + QStringLiteral(" 的主版本不是 ")
+                                           + QString::number(majorVersion))
+            + QStringLiteral(" —— 不自动更换，直接失败。");
+        qWarning() << reason;
+        return fail(reason);
     }
 
     // Scan local Java versions
     QMap<int, QString> localVersions = scanLocalJavaVersions();
     if (localVersions.contains(majorVersion)) {
-        QString path = localVersions[majorVersion];
+        const QString path = localVersions[majorVersion];
         qDebug() << "Found matching local Java version" << majorVersion << "at:" << path;
-        m_javaPath = path;
-        save();
+        io.javaPath = path;
         return true;
     }
 
@@ -834,24 +879,21 @@ bool GlobalJavaSettings::ensureJavaForVersion(int majorVersion, const QString &c
     QString candidate = findJavaInEnvironment(majorVersion);
     if (!candidate.isEmpty()) {
         qDebug() << "Found matching Java in environment:" << candidate;
-        m_javaPath = candidate;
-        save();
+        io.javaPath = candidate;
         return true;
     }
 
     candidate = findJavaOnPath(majorVersion);
     if (!candidate.isEmpty()) {
         qDebug() << "Found matching Java on PATH:" << candidate;
-        m_javaPath = candidate;
-        save();
+        io.javaPath = candidate;
         return true;
     }
 
     candidate = findJavaInCommonLocations(majorVersion);
     if (!candidate.isEmpty()) {
         qDebug() << "Found matching Java in common locations:" << candidate;
-        m_javaPath = candidate;
-        save();
+        io.javaPath = candidate;
         return true;
     }
 
@@ -863,8 +905,7 @@ bool GlobalJavaSettings::ensureJavaForVersion(int majorVersion, const QString &c
         if (downloadJavaRuntime(javaBase, component, &downloaded) &&
             javaMatchesMajor(downloaded, majorVersion)) {
             qDebug() << "Downloaded and verified Java" << majorVersion << "at:" << downloaded;
-            m_javaPath = downloaded;
-            save();
+            io.javaPath = downloaded;
             return true;
         }
         qDebug() << "Component" << component << "did not provide a matching Java, falling back";
@@ -872,11 +913,16 @@ bool GlobalJavaSettings::ensureJavaForVersion(int majorVersion, const QString &c
 
     // Download from Adoptium as a last resort
     qDebug() << "No matching Java found, downloading version" << majorVersion << "from Adoptium...";
-    if (downloadJavaFromMojang(majorVersion)) {
+    QString downloaded;
+    // NOTE: 这一条**不**再认一次主版本 —— 老代码也没有（downloadJavaFromMojang 内部
+    //       已经确认解压出来的 java.exe 能跑，而 Adoptium 是照 majorVersion 要的包）。
+    //       这里多判一次会让"本来能启动"变成"报错"，那不是这次改动该带来的差别。
+    if (downloadJavaFromMojang(majorVersion, &downloaded)) {
         qDebug() << "Downloaded Java version" << majorVersion;
+        io.javaPath = downloaded;
         return true;
     }
 
     qDebug() << "Failed to obtain Java version" << majorVersion;
-    return false;
+    return fail(QStringLiteral("找不到也下载不到 Java %1。").arg(majorVersion));
 }

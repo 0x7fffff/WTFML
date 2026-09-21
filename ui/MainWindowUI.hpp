@@ -35,11 +35,24 @@
 #include <QSpinBox>
 #include <QString>
 #include <QTabWidget>
+#include <QTreeWidget>
 #include <QWidget>
+
+// 「一个组在界面上写成什么」这条规则的唯一出处（分组对话框和实例列表那张树都用它）。
+// 让 MainWindowUI 反过来去 include 同一个 ui/ 下的对话框头，比在两边各写一份
+// "%1 (%2)" 强：那种写法不会报错，只会在哪天有人改了其中一处之后让同一个组在两处
+// 显示得不一样。
+#include "GroupDialog.hpp"
 
 class QGridLayout;
 class QScrollArea;
 class QVBoxLayout;
+
+// 主页右栏那个 3D 皮肤预览控件。它同样是纯界面（只认 QImage，不认任何业务对象）：
+// 界面只管把贴图喂进去，"贴图从哪来"是业务层的事。
+// NOTE: 这里非得 include 不可（别的控件类型前置声明就够了）：skinViewerName() 里
+//       要调 SkinViewer::viewerName()，而那是个要在头文件里内联展开的静态函数。
+#include "SkinViewer.hpp"
 
 class MainWindowUI {
 public:
@@ -50,19 +63,55 @@ public:
     // 会被产品逻辑改写的显示内容（占位文案现在就要随"有没有可选版本"切换），
     // 拿显示内容当身份标识的测试会在产品改动时以看不懂的方式挂掉。
     static QString loginButtonName() { return QStringLiteral("loginButton"); }
+    /// 主页那个「离线模式」勾选框。**只有它没有 objectName** 的那阵子，验证工程要
+    /// 驱动"离线启动"就只能按文字找控件 —— 而文字是产品文案，会变。
+    static QString offlineModeCheckBoxName() { return QStringLiteral("offlineModeCheckBox"); }
     static QString installedVersionComboName() { return QStringLiteral("installedVersionCombo"); }
     static QString availableVersionComboName() { return QStringLiteral("availableVersionCombo"); }
     static QString availableVersionListName() { return QStringLiteral("availableVersionList"); }
     static QString folderListName() { return QStringLiteral("folderList"); }
     static QString instanceListName() { return QStringLiteral("instanceList"); }
     static QString instanceFolderLabelName() { return QStringLiteral("instanceFolderLabel"); }
+    // 实例页右栏那三个按钮。**全按钮驱动、不做右键菜单** —— 仓库里右键菜单零先例，
+    // 而且验证工程跑在 offscreen 上，QMenu::exec() 会阻塞在事件循环里，几乎驱动不了。
+    static QString renameInstanceButtonName() { return QStringLiteral("renameInstanceButton"); }
+    static QString groupInstanceButtonName() { return QStringLiteral("groupInstanceButton"); }
+    static QString instanceSettingsButtonName() {
+        return QStringLiteral("instanceSettingsButton");
+    }
+    // 按钮上的字。验证工程**不要**拿它们当身份标识（那是显示内容），只用来核对文案。
+    static QString renameInstanceText() { return QStringLiteral("重命名…"); }
+    static QString groupInstanceText() { return QStringLiteral("分组…"); }
+    static QString instanceSettingsText() { return QStringLiteral("实例设置…"); }
+    // ---------- 实例列表那张树里的「组」 ----------
+    // 组头不是实例：选中它不等于选中某个版本。判据是**它有没有组 id**（存在
+    // Qt::UserRole+1 里，见 .cpp），而不是"它的 UserRole 是不是空的"—— 后者在
+    // "某个实例的 id 恰好是空串"时会误判（今天不可能，但判据不该依赖那个）。
+    /// 实例条目上挂着实例 id 的 role（和下拉框同一个约定）。
+    static int instanceIdRole() { return Qt::UserRole; }
+    /// 组头上挂着组 id 的 role。**没有这个 role 的才是实例条目**。
+    static int groupIdRole() { return Qt::UserRole + 1; }
+    /// 「未分组」那一格的名字。它是个**虚拟**的组（不进文件），只在存在真实分组时
+    /// 才画出来 —— 一个组都没有的时候列表是平铺的，不插任何组头。
+    static QString ungroupedGroupText() { return GroupDialog::ungroupedText(); }
+    /// 组头的文字（组名 + 里面有几个实例）。规则和分组对话框里那张列表共用一份。
+    static QString groupItemText(const QString &name, int count) {
+        return GroupDialog::groupItemText(name, count);
+    }
+
     static QString tabWidgetName() { return QStringLiteral("mainTabWidget"); }
     static QString homeTabName() { return QStringLiteral("homeTab"); }
     static QString instanceTabName() { return QStringLiteral("instanceTab"); }
     static QString downloadTabName() { return QStringLiteral("downloadTab"); }
     static QString settingsTabName() { return QStringLiteral("settingsTab"); }
+    static QString skinViewerName() { return SkinViewer::viewerName(); }
+    static QString skinHintLabelName() { return QStringLiteral("skinHintLabel"); }
     static QString bottomBarName() { return QStringLiteral("bottomBar"); }
     static QString avatarLabelName() { return QStringLiteral("avatarLabel"); }
+    /// 底栏头像那一块的边长（像素）。**唯一出处**：主窗口拿它去裁头像
+    /// （SkinModel::headAvatar() 出来必须是这个尺寸，否则图会被 QLabel 缩放）、
+    /// 验证工程拿它断言 pixmap 的大小。三处各写一个数字迟早对不上。
+    static int avatarSize() { return 32; }
     static QString accountLabelName() { return QStringLiteral("accountLabel"); }
     static QString runStateLabelName() { return QStringLiteral("runStateLabel"); }
     static QString runStateDetailLabelName() { return QStringLiteral("runStateDetailLabel"); }
@@ -115,6 +164,7 @@ public:
     static QString settingsFormName() { return QStringLiteral("settingsForm"); }
     static QString javaVersionComboName() { return QStringLiteral("javaVersionCombo"); }
     static QString javaPathLabelName() { return QStringLiteral("javaPathLabel"); }
+    static QString javaWarnMismatchCheckName() { return QStringLiteral("javaWarnMismatchCheck"); }
     static QString memoryAutoCheckName() { return QStringLiteral("memoryAutoCheck"); }
     /// 「内存分配」那一行下面那句说明。文字随系统内存变（可用内存不是一个定值），
     /// 所以它是唯一一个要 MainWindow 反复改文字的 QLabel，得能按名字取回来。
@@ -157,6 +207,28 @@ public:
     // ---------- 底栏左下角"实例运行中"那行的正文 ----------
     // 放在这里当唯一出处：MainWindow 拿它填文字，验证工程拿它做断言，两边不会写歪。
     static QString runStateRunningText() { return QStringLiteral("实例运行中"); }
+
+    // ---------- 主页右栏那个 3D 小人下面那句话 ----------
+    // 和上面那条同一个理由：MainWindow 拿它填文字，验证工程拿它做断言，
+    // 两边共用一个出处，改文案时不会只有一边跟着变。
+    /// 没登录（或者登录过但一直没取到过外观）时显示的是程序画的那套默认外观。
+    static QString skinHintNotLoggedInText() {
+        return QStringLiteral("未登录，显示的是默认外观（经典 Steve）");
+    }
+    /// 正在去官方要。
+    static QString skinHintLoadingText(const QString &name) {
+        return QStringLiteral("正在获取 %1 的外观…").arg(name);
+    }
+    /// 要到了。@param withCape 这人有没有披风（有就在后面缀一句，不然用户会以为是没画出来）。
+    static QString skinHintLoadedText(const QString &name, bool withCape) {
+        return withCape ? QStringLiteral("%1 的正版外观（含披风）").arg(name)
+                        : QStringLiteral("%1 的正版外观").arg(name);
+    }
+    /// 要不到。**不弹窗**（这是可选的外观功能，见 MainWindow.cpp 里的说明），
+    /// 但也不能一声不吭 —— 用户会觉得是画错了。
+    static QString skinHintFailedText(const QString &name) {
+        return QStringLiteral("取不到 %1 的皮肤，显示的是默认外观").arg(name);
+    }
 
     // ---------- 登录按钮的三种文字 ----------
     // 按钮**文字会随状态变**（MainWindow::updateLoginButton()），所以验证工程不能拿
@@ -202,12 +274,18 @@ public:
     QPushButton *getAddFolderButton() const { return addFolderButton; }
     QPushButton *getRemoveFolderButton() const { return removeFolderButton; }
     // 实例页左边那张列表：一行一个「游戏文件夹」，选中的那一份就是启动器当前用的
-    // .minecraft。右边那张列表是它下面扫出来的实例。
+    // .minecraft。右边那张**树**是它下面扫出来的实例（按分组归好）。
     QListWidget *getFolderList() const { return folderList; }
-    QListWidget *getInstanceList() const { return instanceList; }
+    // NOTE: 是 QTreeWidget 不是 QListWidget —— 分组要求两层。一个组都没有的时候
+    //       它是平铺的（不插组头），观感和改动前的列表一样。
+    QTreeWidget *getInstanceList() const { return instanceList; }
     // 右边那句"当前文件夹：<路径>"。换文件夹时它跟着变 —— 没有它的话，右边那些实例
     // 是从哪一份 .minecraft 里扫出来的就说不清了。
     QLabel *getInstanceFolderLabel() const { return instanceFolderLabel; }
+    // 实例页右栏那三个按钮，作用于「实例列表」里当前选中的那一个实例。
+    QPushButton *getRenameInstanceButton() const { return renameInstanceButton; }
+    QPushButton *getGroupInstanceButton() const { return groupInstanceButton; }
+    QPushButton *getInstanceSettingsButton() const { return instanceSettingsButton; }
     // 两个下拉框，数据源互不相干，**也因此不在一页上**：
     //   installedVersionCombo —— 磁盘上已经装好的（.minecraft/versions/<id>/<id>.jar），
     //                            在「主页」，启动用它
@@ -224,6 +302,7 @@ public:
     // 那些设置存在哪、改了要不要落盘）。
     QComboBox *getJavaVersionCombo() const { return javaVersionCombo; }
     QLabel *getJavaPathLabel() const { return javaPathLabel; }
+    QCheckBox *getJavaWarnMismatchCheck() const { return javaWarnMismatchCheck; }
     QCheckBox *getMemoryAutoCheck() const { return memoryAutoCheck; }
     QLabel *getMemoryAutoHint() const { return memoryAutoHint; }
     QSpinBox *getMemoryMaxSpin() const { return memoryMaxSpin; }
@@ -236,6 +315,12 @@ public:
     QCheckBox *getVersionNameRealCheck() const { return versionNameRealCheck; }
     QCheckBox *getVersionNameLoaderCheck() const { return versionNameLoaderCheck; }
     QCheckBox *getVersionNameLoaderVersionCheck() const { return versionNameLoaderVersionCheck; }
+
+    // 主页右栏那个可拖动旋转的 3D 皮肤预览，以及它下面那句说明。
+    // 这个控件是**自己画的**（QWidget 子类 + paintEvent，不是标准控件），
+    // 所以它比别处多一层：界面只管把贴图喂进去，贴图从哪来是业务层的事。
+    SkinViewer *getSkinViewer() const { return skinViewer; }
+    QLabel *getSkinHintLabel() const { return skinHintLabel; }
 
     QTabWidget *getTabWidget() const { return tabWidget; }
     // NOTE: 产品代码没有取过底栏本身（只取它里面的几个标签/进度条），只有验证工程
@@ -266,13 +351,17 @@ private:
     QPushButton *addFolderButton;
     QPushButton *removeFolderButton;
     QListWidget *folderList;
-    QListWidget *instanceList;
+    QTreeWidget *instanceList;
+    QPushButton *renameInstanceButton;
+    QPushButton *groupInstanceButton;
+    QPushButton *instanceSettingsButton;
     QLabel *instanceFolderLabel;
     QComboBox *installedVersionCombo;
     QComboBox *availableVersionCombo;
     QListWidget *availableVersionList;
     QComboBox *javaVersionCombo;
     QLabel *javaPathLabel;
+    QCheckBox *javaWarnMismatchCheck;
     QCheckBox *memoryAutoCheck;
     QLabel *memoryAutoHint;
     QSpinBox *memoryMaxSpin;
@@ -285,6 +374,8 @@ private:
     QCheckBox *versionNameRealCheck;
     QCheckBox *versionNameLoaderCheck;
     QCheckBox *versionNameLoaderVersionCheck;
+    SkinViewer *skinViewer;
+    QLabel *skinHintLabel;
     QTabWidget *tabWidget;
     QFrame *bottomBar;
     QLabel *avatarLabel;

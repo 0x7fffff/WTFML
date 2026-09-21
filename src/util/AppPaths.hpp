@@ -103,6 +103,17 @@ inline QString versionMetaPath(const QString &versionId) {
     return versionDir(versionId) + QStringLiteral("/wtfml.meta");
 }
 
+/// 实例分组：<数据目录>/wtfml.folders（可选文件，没分过组就不存在）。
+///
+/// NOTE: 它挂在**数据根目录**下、不挂在 versions 下，因为分组是"这一份 .minecraft 里
+///       的实例怎么摆"，换了一份 .minecraft 就是另一套分组。挂在 versions 里会让
+///       "删掉 versions 重下一遍"顺手把用户的分组也删了。
+/// NOTE: 和 wtfml.meta 一样**不叫 .json**：它是给启动器读写的配置文件，扩展名跟别的
+///       json 混在一起，早晚有人拿它当"某个版本的元数据"去读。
+inline QString instanceGroupFilePath() {
+    return minecraftDir() + QStringLiteral("/wtfml.folders");
+}
+
 /// 旧格式（1.18.2 及以下）natives classifier jar 的解压目标：versions/<id>/natives
 inline QString nativesDir(const QString &versionId) {
     return versionDir(versionId) + QStringLiteral("/natives");
@@ -113,6 +124,14 @@ inline QString libraryDir() { return minecraftDir() + QStringLiteral("/libraries
 
 /// 资源根目录：<数据目录>/assets（objects 索引与哈希文件都在其下）。
 inline QString assetsDir() { return minecraftDir() + QStringLiteral("/assets"); }
+
+/// 玩家皮肤/披风贴图的缓存根目录：<数据目录>/skins（见 PlayerSkinStore）。
+///
+/// NOTE: 跟着当前游戏文件夹走 —— 换一份 .minecraft 就是各存一份缓存，和 java/、assets/
+///       一样。这是接受的：那两样本来就是"每份游戏目录各自一份"，皮肤缓存没理由特殊，
+///       而且真要共用一份反而要多一个跟游戏目录无关的落点（比如 %APPDATA%），
+///       那又和"整个启动器连带数据可以整体拷走"那条打架。
+inline QString skinsDir() { return minecraftDir() + QStringLiteral("/skins"); }
 
 /// 自管 Java 运行时的根目录：<数据目录>/java/<主版本>/…
 inline QString javaDir() { return minecraftDir() + QStringLiteral("/java"); }

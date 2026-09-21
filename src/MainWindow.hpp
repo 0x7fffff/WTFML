@@ -11,7 +11,13 @@
 #include <QElapsedTimer>
 #include <QJsonObject>
 #include <QMainWindow>
+#include <QPixmap>
 #include <QProcess>
+
+// PlayerSkinStore::PlayerSkinProfile —— 主窗口按值存一份"最近要过的那份档案"（见
+// m_skinProfile），所以这里非得 include 不可（前置声明只够拿指针/引用）。
+// 它是 Core+Network 的头，拖进来的东西不多。
+#include "manage/PlayerSkinStore.hpp"
 
 class MainWindowUI;
 class LauncherManager;
@@ -20,6 +26,17 @@ class FolderManager;
 class VersionManager;
 class GlobalJavaSettings;
 class LauncherSettings;
+class InstanceGroupStore;
+// 「分组…」那个对话框。这里只按 const 引用传，前置声明就够 —— 没必要为了一个参数类型
+// 让每个 include 了 MainWindow.hpp 的地方都把 ui/ 拖进来。
+class GroupDialog;
+// 「实例设置…」那个对话框。同上，只按 const 引用传。
+class InstanceSettingsDialog;
+// 「每实例设置」那两层的值类型（src/settings/EffectiveJavaSettings.hpp）。这里只按
+// const 引用传，前置声明就够 —— 让每个 include 了 MainWindow.hpp 的地方都拖一份
+// 值结构的定义没有意义。
+struct EffectiveJavaSettings;
+struct JavaSettingsOverride;
 // 「版本名格式」开关的数据模型。这里只按 const 引用传，前置声明就够，
 // 不必为了一个参数类型把 VersionDisplay.hpp 拖进每个 include 了 MainWindow.hpp 的地方。
 struct VersionNameOptions;
@@ -40,8 +57,61 @@ private slots:
     void onLoginStarted();
     void onLoginSucceeded(const QString &playerName);
     void onLoginFailed(const QString &errorMessage);
+
+    // ---------- 主页右栏那个小人 + 底栏头像（三个都是 PlayerSkinStore 的信号） ----------
+    /// 官方回的档案到了。和手上这份一样时**什么都不做**（不重下贴图、不重画）——
+    /// 用户在游戏里没换皮肤时，后台那次刷新必须是完全看不见的。
+    void onSkinProfileReady(const PlayerSkinProfile &profile);
+    /// 一张贴图在本地就绪了。皮肤和披风是**分开**回来的，这里按 URL 认领。
+    void onSkinTextureReady(const QString &url, const QString &path);
+    /// 要不到（网络失败、下回来的不是皮肤图、存不下来）。**只记日志、不弹窗** ——
+    /// 这是全仓唯一一处不弹窗的错误，理由见 PlayerSkinStore.hpp 文件头。
+    void onSkinFailed(const QString &message);
+    /// 把一份外观贴到界面上（右栏那个小人 + 底栏头像 + 右栏那句话）。
+    /// @param skinPath 空串 = 用默认外观。载不进来（文件没了/下了一半）也走这一档。
+    /// @param slim 纤细模型（手臂 3 宽）。
+    ///
+    /// NOTE: 是**槽**不只是私有函数：验证工程靠 QMetaObject::invokeMethod 驱动它
+    ///       （沙盒里现写两张 PNG 喂进来），**不联网**就能验完整条界面路径。
+    void applyPlayerSkin(const QString &skinPath, const QString &capePath, bool slim);
     void onAddFolderClicked();
     void onRemoveFolderClicked();
+    /// 「重命名…」：问一个新名字，真的把磁盘上的目录改掉（含 jar / json 一起改）。
+    /// 校验、执行、回滚全在 VersionManager::renameInstance() 里，这里只负责
+    /// 三道闸口（有没有选中、是不是正在跑、名字合不合法）和弹窗。
+    void onRenameInstanceClicked();
+    /// 改名的**执行部分**：校验名字 → 改磁盘 → 同步状态（LastLaunched / 选中项）→ 刷界面。
+    /// 失败时弹窗并返回 false。
+    ///
+    /// NOTE: 和"问新名字"那个 QInputDialog 分成两步，是为了**能被验证工程驱动** ——
+    ///       模态窗在 offscreen 下驱动不了（QInputDialog::getText 会一直等），而这一半
+    ///       里藏着最容易漏的那件事：改完名要同步 Version/LastLaunched，不然用户下次
+    ///       打开启动器，选中项会空着，他会以为实例丢了。那条只有真的跑一遍才验得出来。
+    bool applyRename(const QString &oldId, const QString &newId);
+    /// 「分组…」：给当前选中的实例选一个组，顺便管组清单（新建/重命名/删除）。
+    ///
+    /// 不分组也能用 —— 对话框里那份工作副本只有在点「确定」之后才由 applyGrouping()
+    /// 落盘，取消的话磁盘一个字节都不动。
+    void onGroupInstanceClicked();
+    /// 分组的**执行部分**：把对话框里摆好的组清单和归属落到磁盘上。失败时弹窗并返回 false。
+    ///
+    /// NOTE: 拆成两步的理由和 applyRename() 一样 —— QDialog::exec() 会阻塞在事件循环里，
+    ///       验证工程驱动不了它。而这一半里藏着真会错的东西（哪一步该写、写失败了怎么
+    ///       说清"另一半成了没有"），必须验得了。
+    bool applyGrouping(const QString &instanceKey, const GroupDialog &dialog);
+    /// 「实例设置…」：给当前选中的实例覆盖启动五项（每项两级：跟随全局 / 自定义）。
+    ///
+    /// 对话框只把控件读成一份值，落盘在 applyInstanceSettings() 里 —— 取消的话
+    /// wtfml.meta 一个字节都不动。
+    void onInstanceSettingsClicked();
+    /// 实例设置的**执行部分**：把对话框里摆好的覆盖写进这个实例的 wtfml.meta。
+    /// 失败时弹窗并返回 false，磁盘保持原样。
+    ///
+    /// NOTE: 拆成两步的理由和 applyRename() / applyGrouping() 一样 ——
+    ///       QDialog::exec() 阻塞在事件循环里，offscreen 的验证工程驱动不了它。
+    ///       而这一半里藏着真会错的东西（"跟随全局"的项要**删键**而不是写一个等于
+    ///       全局的值、写盘前得先确保实例有稳定 id），必须验得了。
+    bool applyInstanceSettings(const QString &versionId, const InstanceSettingsDialog &dialog);
     /// 用户在左边那张列表里换了「游戏文件夹」。真正干活的是 FolderManager 发出的
     /// currentFolderChanged()，这里只负责把选中项翻译成一次 setCurrentFolder()。
     void onFolderSelectionChanged();
@@ -78,7 +148,61 @@ private:
     /// 调用点：开窗灌值时（applySettingsToUi）、切到设置页时、用户切自动/手动那一刻、
     /// 真的要启动游戏之前（那一刻的可用内存才算数）。
     void refreshMemoryUi();
+    /// 启动前把这次真正要用的内存定下来，**只改传进来的那份值**。
+    ///
+    /// 自动档下按**现在**的系统内存重算一次（见 refreshSuggestedMemory 那段注释：
+    /// 同一台机器开着浏览器和什么都没开能差好几 GB）。
+    ///
+    /// NOTE: 重算的结果**只写在传进来这份值上**，两个作用域都不落盘：
+    ///       - 自动这一档来自全局 → 走 refreshSuggestedMemory()，它自己会按老行为
+    ///         写全局（那正是"全局是自动档"的意思）；
+    ///       - 自动这一档是这个实例自己要的 → 现算一份给这次启动用，全局一个字节
+    ///         都不动（实例 A 开着自动，不该改到全局那份内存配置）。
+    ///       反过来"顺手写回实例的 meta"也不行：那会给它留下一对死值，下次读出来
+    ///       只会让「实例设置…」里那两行显示成"自定义 + 一个用户没填过的数"。
+    ///
+    /// NOTE: 这是**唯一**该在启动路径上动内存的地方，而且它绝不改设置页。设置页那对
+    ///       数字框以前会被"顺手刷成这次实际用的值"，有了实例覆盖之后那句话不再成立：
+    ///       实例覆盖了 2048，设置页却显示 2048，用户会以为全局被改了。
+    ///
+    /// @param io 进参是合成好的有效值，出参是定下来的内存。
+    /// @param override 这个实例的覆盖（用来判断"自动这一档是谁要的"）。
+    void resolveMemoryForLaunch(EffectiveJavaSettings &io, const JavaSettingsOverride &override);
+    /// 用户在那个「Java 版本对不上」的框里选的哪一条路。
+    enum class JavaMismatchAnswer {
+        /// 没问（绝大多数启动都走这条：实例没钉 Java、总闸关着、这个实例表过态不再问、
+        /// 或者那条路径压根探不出主版本）。
+        NotAsked,
+        /// 「仍然用这个 Java 启动」—— 照他钉的那个启动，一个字节的配置都不改。
+        KeepInstanceJava,
+        /// 「改用匹配的 Java 启动」—— 把自动挑中的匹配路径写回这个实例。
+        UseMatchingJava,
+        /// 取消 / 关窗 / Esc —— 不启动。
+        AbortLaunch,
+    };
+
+    /// 启动前问一句「实例指定的 Java 和这个版本要求对不上，你要怎么办」。
+    ///
+    /// 四个前置条件全满足才问：
+    ///   ① 这个实例**覆盖了** javaPath（全局档不匹配时是静默换一个匹配的，那是有意的
+    ///      老行为，不动）；
+    ///   ② 全局那个总闸开着（GlobalJavaSettings::warnVersionMismatch()）；
+    ///   ③ 这个实例没表过"以后别再问了"（wtfml.meta 的 skipJavaVersionWarning）；
+    ///   ④ 那条路径探得出主版本、**而且**和这个版本要求的不一样。探不出（-1：路径不存在
+    ///      或认不出来）不走这个框 —— "路径无效"和"版本不符"是两件事，前者仍然是现有的
+    ///      硬错误。
+    /// 代价只是一次文件读（probeJavaMajorVersion 的 release 快路径），所以绝大多数启动
+    /// 在这里花的是微秒级。
+    ///
+    /// NOTE: 这一步只**问**，不动任何状态：值、meta、全局设置都由 onStartButtonClicked()
+    ///       按返回的那个答案去改。唯一一处例外是"勾了以后不再提醒"这个长期偏好 ——
+    ///       用户刚点的那一下，立刻落盘才对得上他的意思（而且写失败只记日志、不拦启动：
+    ///       不该因为存不下一个偏好，把他刚授权的启动掐掉）。
+    JavaMismatchAnswer askAboutJavaMismatch(const QString &versionId,
+                                            const JavaSettingsOverride &override,
+                                            int expectedMajor);
     /// 「自动（按系统内存）」勾选框。
+    void onJavaWarnMismatchChanged();
     void onMemoryAutoChanged();
     void onMemoryChanged();
     void onLauncherBehaviourChanged();
@@ -103,6 +227,13 @@ private:
     /// 一个版本号在界面上的显示名（"已安装版本"下拉框里的那条文本）。
     /// 下拉框里没有它时退回版本号本身。
     QString instanceDisplayName(const QString &versionId) const;
+    /// 分组归属用哪个键认这个实例：有稳定 id（wtfml.meta 的 instanceId）就用它，
+    /// 没有就退回**目录名**。
+    ///
+    /// NOTE: 读归属和写归属必须都走这一个函数。分开写的话，"读的时候按目录名找、
+    ///       写的时候按 id 存"会让归属在存下去的那一刻就对不上，而且不报任何东西 ——
+    ///       表现是"归好组、重开启动器，它又出来了"。
+    QString instanceKey(const QString &versionId) const;
     // 重灌所有"本地已安装实例"的看法：主页那一对（下拉框 + 列表）、实例页右边那张
     // 列表、以及实例页顶上的"当前文件夹"那句。扫的是**当前游戏文件夹**的
     // .minecraft/versions，同步返回。保住用户原来选中的那一项的逻辑在 fillVersionCombo() 里。
@@ -132,6 +263,20 @@ private:
     void updateStartButtonText();
     void updateDownloadProgressUi(int done, int total, int failed, const QString &currentFile);
 
+    // ---------- 主页右栏那个小人 + 底栏头像 ----------
+    /// 开窗 / 登录成功之后走一遍：**先默认外观兜底**，再拿缓存档案里的贴图（命中缓存时
+    /// 是同步的，所以开窗那一瞬间就是上次的样子），最后后台刷一次档案。
+    void startPlayerSkinLoad();
+    /// 要一张贴图。@param allowDownload false（离线模式勾着）时**只认已经在缓存里的那一份**
+    /// —— fetchTexture() 在缓存不命中时会真的去下一个，那正是离线模式要求别做的事。
+    /// @return 这一张是不是**已经在手上了**（缓存命中）。不是"发出去请求了"。
+    bool requestSkinTexture(const QString &url, bool allowDownload);
+    /// 右栏那句话现在是哪一档（未登录 / 正在取 / 正版外观 / 取不到）。
+    ///
+    /// **唯一一处**决定它写什么。四句文案要是散在四条路上（开窗、拿到档案、拿到贴图、
+    /// 失败），迟早出现"皮肤换好了、话还停在上一句"。
+    void updateSkinHint();
+
     MainWindowUI *m_ui;
     // NOTE: 声明顺序就是构造顺序。m_settings 必须排在 m_folderManager **前面** ——
     //       后者在构造函数里就要读盘（「游戏文件夹」列表），晚于它构造的话拿到的
@@ -142,6 +287,25 @@ private:
     FolderManager *m_folderManager;
     VersionManager *m_versionManager;
     GlobalJavaSettings *m_javaSettings;
+    // 实例分组（<数据目录>/wtfml.folders）。**不需要**在换游戏文件夹时重置它：
+    // 它每个访问器都会比一下"这次问的是哪一份 .minecraft"，不一样就自己重读。
+    InstanceGroupStore *m_groupStore;
+    // 玩家外观的数据层（免鉴权问官方 + 内容寻址的本地缓存）。
+    PlayerSkinStore *m_skinStore;
+    // 现在屏幕上用的是哪两张贴图（本地路径）。**只记真的载入成功了的** —— 所以空串
+    // 就等于"现在显示的是默认外观"，右栏那句话的判据之一就是它。
+    QString m_skinPath;
+    QString m_capePath;
+    // 最近一次**要过**的那份档案。唯一的用途：贴图是按 URL 分开回来的（皮肤一个、
+    // 披风一个），回来时得知道"这一张是皮肤还是披风"，也有个东西能判"和上次一样吗"。
+    PlayerSkinProfile m_skinProfile;
+    // 去官方问的这一次还在路上（决定那句话是"正在获取"还是"取不到"）。
+    // NOTE: **只表示"真的发出去了一个请求"**，缓存命中不算 —— 命中是同步回来的，
+    //       标成"在路上"会让那句话卡在"正在获取"上下不来。
+    bool m_skinFetchInFlight = false;
+    // 底栏头像那块图。**不能**在 updateBottomBar() 里现算：那个函数每次进度刷新
+    // （几百毫秒一次）都会被调，现算等于一直在重渲染同一张 8×8 的皮肤。
+    QPixmap m_avatarPixmap;
     // 下载是否在进行中。注意不能只问 m_versionManager：从点击"下载"到版本 JSON
     // 拉回来之前，VersionManager 那边还没有任何批次，这段时间也得算"忙"。
     bool m_downloadInFlight = false;
