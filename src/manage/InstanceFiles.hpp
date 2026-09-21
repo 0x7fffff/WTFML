@@ -108,4 +108,44 @@ QString jarPath(const QString &versionId);
  */
 QString jsonPath(const QString &versionId);
 
+/**
+ * @brief 一个名字能不能当 versions 下的目录名。**纯函数**，不碰磁盘。
+ * @param rawName 用户输入的原始文本（内部先 trim 再判）。
+ * @return 合法返回空串；否则返回给用户看的一句原因。
+ *
+ * 挡掉的东西分两类，理由不同：
+ *   - **真会造成事故的**：`/` `\`（同时是路径分隔符，放过去就是路径穿越）、
+ *     空名字、`.` / `..`。这一类漏掉的后果不是"名字难看"，是文件跑到 versions 外面去。
+ *   - **Windows 会阴人的**：结尾的点（系统**静默**删掉）、保留设备名（`CON`、
+ *     `COM1`……根本建不出来）。这一类漏掉的后果是"用户输 A、盘上出现 B"，而且报错
+ *     发生在 rename 那一刻，信息通常只有一句"拒绝访问"。
+ *
+ * 尾随**空格**不在上面那一类里：输入先 trim，所以它根本到不了 Windows 那一步。
+ * 用户多敲一个空格不是错误，替他去掉正是他想要的；而尾随的点 trim 管不着，真交给
+ * Windows 就会被悄悄吃掉 —— 自己拦下来、把决定权交回用户。
+ *
+ * 长度上限 64 是**名字**的，不是完整路径的。真机上最长的实例名
+ * （`原版ATT2地图（无模组）`）是一层十几个字符，`versions/<id>/<id>.jar` 里 id 要
+ * 出现两次，再加上数据目录本身 —— 64 留的余量足够，同时挡掉"把一整句话当名字用"。
+ *
+ * NOTE: **中文名、全角括号、名字里带空格都是合法的**，真机上就长这样，别顺手加
+ *       一条"只许 ASCII"的规则。
+ */
+QString validateDirName(const QString &rawName);
+
+/**
+ * @brief 改名时的完整校验：validateDirName() + "重名了没有 / 是不是没改"。
+ * @param rawName 用户输入的新名字。
+ * @param currentId 现在这个实例的目录名（不参与重名比较的那个）。
+ * @return 合法返回空串；否则返回给用户看的一句原因。
+ *
+ * 重名比较**不区分大小写**：Windows 的文件系统本来就不区分，`versions/Foo` 和
+ * `versions/foo` 是同一个目录，按区分大小写放过去，用户在资源管理器里就会看到
+ * 两个"同名"的实例。
+ * NOTE: 但只差大小写的那种改名（`Foo` → `foo`）是**合法**的，它改的是磁盘上那个
+ *       名字的显示大小写。所以恰好等于 currentId 的那一项不参与比较，也不能因为
+ *       "目标已存在"就直接拒 —— 那个"已存在"的目标就是它自己。
+ */
+QString validateRenameTarget(const QString &rawName, const QString &currentId);
+
 }  // namespace InstanceFiles

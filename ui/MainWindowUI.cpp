@@ -356,9 +356,32 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         instanceList->setUniformItemSizes(true);
         instanceLayout->addWidget(instanceList, 1);
 
+        // 三个按钮都作用于列表里当前选中的那一个实例。横着排：右栏宽度本来就紧
+        // （3:7 里的 7 还要和左栏分），竖着堆会把列表挤没。
+        QHBoxLayout *instanceButtons = new QHBoxLayout;
+        renameInstanceButton = new QPushButton(renameInstanceText(), instanceGroupBox);
+        renameInstanceButton->setObjectName(renameInstanceButtonName());
+        groupInstanceButton = new QPushButton(groupInstanceText(), instanceGroupBox);
+        groupInstanceButton->setObjectName(groupInstanceButtonName());
+        instanceSettingsButton = new QPushButton(instanceSettingsText(), instanceGroupBox);
+        instanceSettingsButton->setObjectName(instanceSettingsButtonName());
+        // 这两个还没接上（分组、每实例设置另外两批做）。**置灰而不是连着不做事**：
+        // 一个点下去毫无反应的按钮，用户的结论是"启动器坏了"；灰的按钮他会知道
+        // 这功能还没到。tooltip 说清是哪一个在等。
+        groupInstanceButton->setEnabled(false);
+        groupInstanceButton->setToolTip(QStringLiteral("分组功能还没做。"));
+        instanceSettingsButton->setEnabled(false);
+        instanceSettingsButton->setToolTip(QStringLiteral("每实例设置还没做。"));
+
+        instanceButtons->addWidget(renameInstanceButton);
+        instanceButtons->addWidget(groupInstanceButton);
+        instanceButtons->addWidget(instanceSettingsButton);
+        instanceLayout->addLayout(instanceButtons);
+
         QLabel *instanceHint = new QLabel(
-            QStringLiteral("一个实例就是 versions 下的一个目录（判据是 <id>/<id>.jar 存在）。"
-                           "重命名与分组还没做。"),
+            QStringLiteral("一个实例就是 versions 下的一个目录。判据是「认得出哪个是客户端 jar」"
+                           "—— 你自己在资源管理器里改过目录名的实例也认得出来。"
+                           "重命名会真的改磁盘上的目录名。"),
             instanceGroupBox);
         instanceHint->setWordWrap(true);
         instanceLayout->addWidget(instanceHint);

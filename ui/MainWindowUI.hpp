@@ -56,6 +56,17 @@ public:
     static QString folderListName() { return QStringLiteral("folderList"); }
     static QString instanceListName() { return QStringLiteral("instanceList"); }
     static QString instanceFolderLabelName() { return QStringLiteral("instanceFolderLabel"); }
+    // 实例页右栏那三个按钮。**全按钮驱动、不做右键菜单** —— 仓库里右键菜单零先例，
+    // 而且验证工程跑在 offscreen 上，QMenu::exec() 会阻塞在事件循环里，几乎驱动不了。
+    static QString renameInstanceButtonName() { return QStringLiteral("renameInstanceButton"); }
+    static QString groupInstanceButtonName() { return QStringLiteral("groupInstanceButton"); }
+    static QString instanceSettingsButtonName() {
+        return QStringLiteral("instanceSettingsButton");
+    }
+    // 按钮上的字。验证工程**不要**拿它们当身份标识（那是显示内容），只用来核对文案。
+    static QString renameInstanceText() { return QStringLiteral("重命名…"); }
+    static QString groupInstanceText() { return QStringLiteral("分组…"); }
+    static QString instanceSettingsText() { return QStringLiteral("实例设置…"); }
     static QString tabWidgetName() { return QStringLiteral("mainTabWidget"); }
     static QString homeTabName() { return QStringLiteral("homeTab"); }
     static QString instanceTabName() { return QStringLiteral("instanceTab"); }
@@ -208,6 +219,10 @@ public:
     // 右边那句"当前文件夹：<路径>"。换文件夹时它跟着变 —— 没有它的话，右边那些实例
     // 是从哪一份 .minecraft 里扫出来的就说不清了。
     QLabel *getInstanceFolderLabel() const { return instanceFolderLabel; }
+    // 实例页右栏那三个按钮，作用于「实例列表」里当前选中的那一个实例。
+    QPushButton *getRenameInstanceButton() const { return renameInstanceButton; }
+    QPushButton *getGroupInstanceButton() const { return groupInstanceButton; }
+    QPushButton *getInstanceSettingsButton() const { return instanceSettingsButton; }
     // 两个下拉框，数据源互不相干，**也因此不在一页上**：
     //   installedVersionCombo —— 磁盘上已经装好的（.minecraft/versions/<id>/<id>.jar），
     //                            在「主页」，启动用它
@@ -267,6 +282,9 @@ private:
     QPushButton *removeFolderButton;
     QListWidget *folderList;
     QListWidget *instanceList;
+    QPushButton *renameInstanceButton;
+    QPushButton *groupInstanceButton;
+    QPushButton *instanceSettingsButton;
     QLabel *instanceFolderLabel;
     QComboBox *installedVersionCombo;
     QComboBox *availableVersionCombo;

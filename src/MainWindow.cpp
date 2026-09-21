@@ -21,7 +21,9 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QInputDialog>
 #include <QLabel>
+#include <QLineEdit>
 #include <QListWidget>
 #include <QMessageBox>
 #include <QPlainTextEdit>
@@ -35,6 +37,7 @@
 #include "auth/AuthManager.hpp"
 #include "launcher/LauncherManager.hpp"
 #include "manage/FolderManager.hpp"
+#include "manage/InstanceFiles.hpp"
 #include "manage/VersionManager.hpp"
 #include "settings/GlobalJavaSettings.hpp"
 #include "settings/LauncherSettings.hpp"
@@ -337,6 +340,8 @@ void MainWindow::setupConnections() {
             &MainWindow::onAddFolderClicked);
     connect(m_ui->getRemoveFolderButton(), &QPushButton::clicked, this,
             &MainWindow::onRemoveFolderClicked);
+    connect(m_ui->getRenameInstanceButton(), &QPushButton::clicked, this,
+            &MainWindow::onRenameInstanceClicked);
     // 左边列表选中哪一份 .minecraft，启动器就换到哪一份上（PCL 的卡片是同一个交互）。
     connect(m_ui->getFolderList(), &QListWidget::currentRowChanged, this,
             &MainWindow::onFolderSelectionChanged);
@@ -1271,6 +1276,86 @@ void MainWindow::onRemoveFolderClicked() {
         return;
     }
     appendLog(tr("已删除文件夹：%1").arg(folder));
+}
+
+void MainWindow::onRenameInstanceClicked() {
+    // 作用于"当前选中的实例"。实例页右边那张列表和主页的下拉框是同一份数据的两种
+    // 看法（双向同步，见 setupConnections），所以**以下拉框为准** —— 和"启动游戏"
+    // 取的是同一个值，不会出现"列表里高亮 A、结果改的是 B"。
+    const QString oldId = selectedVersionId(m_ui->getInstalledVersionCombo());
+    if (oldId.isEmpty()) {
+        QMessageBox::information(this, tr("重命名实例"), tr("先选中一个实例。"));
+        return;
+    }
+
+    // 闸口一：正在跑的不能改。放在最前面、并且必须在调 renameInstance() **之前** ——
+    // 运行中的实例在 Windows 上 jar 被 JVM 锁着，改到一半才失败的话用户看到的是一句
+    // "拒绝访问"，而真正该说的是这一句。
+    if (m_launcherManager->runningVersionId() == oldId) {
+        QMessageBox::warning(this, tr("重命名实例"),
+                             tr("「%1」正在运行，先关掉游戏再改名。").arg(instanceDisplayName(oldId)));
+        return;
+    }
+
+    bool ok = false;
+    const QString input =
+        QInputDialog::getText(this, tr("重命名实例"),
+                             tr("新名字会成为 versions 下面那个目录的名字，\n"
+                                "也就是这个实例的版本号。里面的 jar 和 json 会一起改。"),
+                             QLineEdit::Normal, oldId, &ok);
+    if (!ok) {
+        return;
+    }
+    const QString newName = input.trimmed();
+    if (newName == oldId) {
+        // 名字没动就悄悄退出，不弹窗：用户点开、看看、点确定，这不是错误。
+        return;
+    }
+    // 校验和"真的去改"都在 applyRename() 里 —— 那是纯逻辑那一半，验证工程直接驱动它。
+    applyRename(oldId, newName);
+}
+
+bool MainWindow::applyRename(const QString &oldId, const QString &newId) {
+    const QString name = newId.trimmed();
+
+    // 名字合不合法。判据和数据层是**同一份**（InstanceFiles::validateRenameTarget），
+    // 界面绝不自己抄一遍规则 —— 抄一遍的下场是两边慢慢漂开，出现"界面放行、数据层拒绝"
+    // 或者更糟的"界面拒绝、数据层其实能接受"。
+    const QString problem = InstanceFiles::validateRenameTarget(name, oldId);
+    if (!problem.isEmpty()) {
+        // 不循环重问：用户看到原因后可以自己再点一次，那样他能顺便改别的决定。
+        QMessageBox::warning(this, tr("重命名实例"), problem);
+        return false;
+    }
+
+    // 执行：改磁盘、含失败回滚，都在数据层。失败原因是给用户看的一整句
+    // （可能带"回滚到什么程度"），界面原样弹出来，不再自己加工。
+    QString error;
+    if (!m_versionManager->renameInstance(oldId, name, &error)) {
+        QMessageBox::critical(this, tr("重命名失败"), error);
+        // NOTE: 失败可能是"回滚干净了"也可能是"停在半路上"。两种都不在这里重刷列表 ——
+        //       刷新只会把界面对着磁盘重画一遍，而用户需要的是先看清弹窗里那句话。
+        return false;
+    }
+
+    // 改完名字要跟着动的状态。漏掉下面这一条的后果很具体：用户下次打开启动器，
+    // restoreLastLaunchedVersion() 拿老 id 去找人找不到，选中项是空的，他会以为
+    // 刚改名的那个实例丢了。
+    if (m_settings->lastLaunchedVersion() == oldId) {
+        m_settings->setLastLaunchedVersion(name);
+    }
+
+    refreshInstalledVersions();
+    // 刷新时下拉框那边是"保住原来选中的那个 id"，而那个 id 已经不在了 —— 于是它
+    // 会停在空选。显式选中新名字：用户刚改完，看到的应该是刚改完的那个实例。
+    QComboBox *combo = m_ui->getInstalledVersionCombo();
+    const int index = combo->findData(name);
+    if (index >= 0) {
+        combo->setCurrentIndex(index);  // 这条连接是活的，按钮文字会跟着刷新
+    }
+    updateStartButtonText();
+    appendLog(tr("实例已重命名：%1 → %2").arg(oldId, name));
+    return true;
 }
 
 void MainWindow::onFolderSelectionChanged() {

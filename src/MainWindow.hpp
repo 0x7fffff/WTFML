@@ -42,6 +42,18 @@ private slots:
     void onLoginFailed(const QString &errorMessage);
     void onAddFolderClicked();
     void onRemoveFolderClicked();
+    /// 「重命名…」：问一个新名字，真的把磁盘上的目录改掉（含 jar / json 一起改）。
+    /// 校验、执行、回滚全在 VersionManager::renameInstance() 里，这里只负责
+    /// 三道闸口（有没有选中、是不是正在跑、名字合不合法）和弹窗。
+    void onRenameInstanceClicked();
+    /// 改名的**执行部分**：校验名字 → 改磁盘 → 同步状态（LastLaunched / 选中项）→ 刷界面。
+    /// 失败时弹窗并返回 false。
+    ///
+    /// NOTE: 和"问新名字"那个 QInputDialog 分成两步，是为了**能被验证工程驱动** ——
+    ///       模态窗在 offscreen 下驱动不了（QInputDialog::getText 会一直等），而这一半
+    ///       里藏着最容易漏的那件事：改完名要同步 Version/LastLaunched，不然用户下次
+    ///       打开启动器，选中项会空着，他会以为实例丢了。那条只有真的跑一遍才验得出来。
+    bool applyRename(const QString &oldId, const QString &newId);
     /// 用户在左边那张列表里换了「游戏文件夹」。真正干活的是 FolderManager 发出的
     /// currentFolderChanged()，这里只负责把选中项翻译成一次 setCurrentFolder()。
     void onFolderSelectionChanged();

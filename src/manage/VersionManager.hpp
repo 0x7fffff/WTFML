@@ -110,6 +110,32 @@ public:
     // 不是扫描时。绝大多数实例一辈子不会被写过 meta，也就不该因为这个安静地多出一个文件。
     QString ensureInstanceId(const QString &versionId);
 
+    // 把这个实例改名：**真改磁盘上的目录名**，并把新名字写进 meta 的显示名。
+    //
+    // @param oldId 现在的目录名。
+    // @param newName 新名字（会 trim）。校验规则在 InstanceFiles::validateRenameTarget()。
+    // @param errorOut 失败原因（给用户看的一句话，可能有多行）。
+    // @return 全部成功返回 true。
+    //
+    // 执行顺序是刻意的，每一步都能反悔：
+    //   1. 全部前置检查（名字非法 / 重名 / 目录不在）—— 磁盘一个字节都不动；
+    //   2. 写 meta（显示名 + 稳定 id）—— 排最前是因为它可能失败，而它失败时我们
+    //      **还什么都没破坏**；
+    //   3. `<老名>.jar` → `<新名>.jar`，4. `<老名>.json` → `<新名>.json`，
+    //      5. 目录 `versions/<老名>` → `versions/<新名>`。
+    // 3~5 失败时按 5→4→3 逆序回滚，回滚自身也失败时 errorOut 里会写清**当前磁盘是
+    // 什么状态**，绝不静默留下一半改动。
+    //
+    // 先内后外的另一个好处：崩在第 3、4 步之后留下的状态（jar 名和新目录名还没对上）
+    // 恰好被 InstanceFiles 判据的第 ② 条认得出，用户在列表里看得见、还能再改一次。
+    //
+    // NOTE: "这个实例正在跑"**不在这里判** —— VersionManager 看不见游戏进程，那是
+    //       LauncherManager 的状态。运行中的实例在 Windows 上 jar 被 JVM 锁着，等到
+    //       rename 失败再报错，用户看到的是一句"拒绝访问"，而该说的是"先关掉游戏"。
+    //       所以那道闸口在 MainWindow 的槽里，且必须在调这一句**之前**判完。
+    // NOTE: 非 const —— 它真的改磁盘。
+    bool renameInstance(const QString &oldId, const QString &newName, QString *errorOut = nullptr);
+
 signals:
     void versionsFetched(const QStringList &versions);
     void versionDetailsFetched(const QString &versionId, const QJsonObject &versionJson);

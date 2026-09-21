@@ -33,6 +33,33 @@ namespace {
 ///       这个错在结构上就不存在。
 const QString kInstanceIdField = QStringLiteral("instanceId");
 
+/// wtfml.meta 里"用户给这个实例起的显示名"的字段名。
+///
+/// NOTE: 文件里叫 `name`，但 VersionDisplayParts 里那个成员叫 `customName`。
+///       这里写、displayParts() 那边读，**两边必须是同一个串** —— 写错一个字不会报错，
+///       表现是"改完名界面上没反应"。改的时候两边一起改（那边在 displayParts() 的
+///       readString("name")）。
+const QString kDisplayNameField = QStringLiteral("name");
+
+/// 一个新的稳定实例 id。只有这一处生成它，免得"生成规则"在改名的路径上被抄第二遍。
+QString newInstanceId() { return QUuid::createUuid().toString(QUuid::WithoutBraces); }
+
+/// 把 from 改名成 to。from 本来就不在时**当成功**（可选文件：json、meta 都可能没有）。
+///
+/// NOTE: 目标已存在时**拒绝**，不能直接交给 QFile::rename —— 它在 Windows 上走的是
+///       MoveFileEx + MOVEFILE_REPLACE_EXISTING，会**静默盖掉**目标，那是丢数据。
+///       唯一的例外是只差大小写：那种"目标已存在"其实是同一个文件（Windows 的路径
+///       比较本来就不区分大小写），而改显示大小写是合法操作。
+bool renameOnto(const QString &from, const QString &to) {
+    if (!QFile::exists(from)) {
+        return true;
+    }
+    if (from.compare(to, Qt::CaseInsensitive) != 0 && QFile::exists(to)) {
+        return false;
+    }
+    return QFile::rename(from, to);
+}
+
 }  // namespace
 
 VersionManager::VersionManager(QObject *parent)
@@ -345,7 +372,7 @@ QString VersionManager::ensureInstanceId(const QString &versionId) {
     // QUuid 的 WithoutBraces 形式（36 字符带横线）。用它而不是自增整数：分组归属
     // 存在另一个文件里，自增 id 在"删了一个组再加一个"时会和残留的归属撞上，
     // 而 UUID 不会。
-    const QString generated = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    const QString generated = newInstanceId();
 
     QJsonObject fields;
     fields.insert(kInstanceIdField, generated);
@@ -357,6 +384,117 @@ QString VersionManager::ensureInstanceId(const QString &versionId) {
         return QString();
     }
     return generated;
+}
+
+bool VersionManager::renameInstance(const QString &oldId, const QString &newName,
+                                    QString *errorOut) {
+    const auto fail = [errorOut](const QString &reason) {
+        if (errorOut != nullptr) {
+            *errorOut = reason;
+        }
+        return false;
+    };
+
+    const QString newId = newName.trimmed();
+
+    // ---------- 第 1 步：全部前置检查，磁盘一个字节都不动 ----------
+    //
+    // "正在跑"不在这里判，见 .hpp 里的 NOTE —— 那是 MainWindow 的闸口，必须更早。
+    const QString problem = InstanceFiles::validateRenameTarget(newId, oldId);
+    if (!problem.isEmpty()) {
+        return fail(problem);
+    }
+
+    const QString oldDir = AppPaths::versionDir(oldId);
+    if (!QDir(oldDir).exists()) {
+        return fail(tr("找不到实例目录 %1。").arg(QDir::toNativeSeparators(oldDir)));
+    }
+    // NOTE: 这里**不判** `QDir(newDir).exists()`。目标已经存在的情况
+    //       validateRenameTarget() 里按重名挡过了，而它挡不了、这里也不该挡的正是
+    //       "只差大小写"那一种 —— 那种目标就是它自己，判存在会把唯一合法的改名拒掉。
+    const QString newDir = AppPaths::versionDir(newId);
+
+    // 改名要回滚时得把显示名放回去，所以先把老值记下来（可能是"压根没有"）。
+    const QJsonValue oldDisplayName = readVersionMeta(oldId).value(kDisplayNameField);
+
+    // ---------- 第 2 步：写 meta ----------
+    //
+    // 排在改名字前面：它可能失败，而它失败时我们还什么都没破坏；反过来先改目录名，
+    // 写完 meta 却失败，就留下一个改完了名、显示名还指着老名字的实例。
+    // 顺手把稳定 id 定下来（没有才生成）—— 这一句正是"被启动器碰过一次"的那一次，
+    // 从今往后这个实例的分组归属不再靠目录名认人。两件事合成一次原子写。
+    QJsonObject fields;
+    fields.insert(kDisplayNameField, newId);
+    if (instanceId(oldId).isEmpty()) {
+        fields.insert(kInstanceIdField, newInstanceId());
+    }
+    QString error;
+    if (!updateVersionMeta(oldId, fields, &error)) {
+        return fail(error);
+    }
+
+    // ---------- 第 3~5 步：jar、json、目录，从里往外改 ----------
+    const QString oldJarPath = oldDir + QLatin1Char('/') + InstanceFiles::jarName(oldId);
+    const QString newJarPath = oldDir + QLatin1Char('/') + newId + QStringLiteral(".jar");
+    const QString oldJsonPath = oldDir + QLatin1Char('/') + InstanceFiles::jsonName(oldId);
+    const QString newJsonPath = oldDir + QLatin1Char('/') + newId + QStringLiteral(".json");
+
+    // 只回滚**真做成了**的那几步。两个标志必须在回滚 lambda 之前声明，好让它捕获。
+    bool jarRenamed = false;
+    bool jsonRenamed = false;
+
+    /// 逆序回滚，然后把"磁盘现在到底怎么样了"告诉用户。
+    ///
+    /// 回滚本身也可能失败（文件被别的程序开着，正是刚才那一步失败的原因）。那时
+    /// 绝不能只说一句"失败了" —— 用户需要知道**哪些东西还停在半路上**，否则他
+    /// 在资源管理器里看到的是一个自相矛盾的目录，而且不知道该不该再点一次。
+    const auto rollbackAndFail = [&](const QString &reason) {
+        QStringList stuck;
+        if (jsonRenamed && !QFile::rename(newJsonPath, oldJsonPath)) {
+            stuck.append(QDir::toNativeSeparators(newJsonPath));
+        }
+        if (jarRenamed && !QFile::rename(newJarPath, oldJarPath)) {
+            stuck.append(QDir::toNativeSeparators(newJarPath));
+        }
+        // 显示名跟着回滚：原来是什么就写回什么，原来没有这个键就删掉它。
+        // 稳定 id **留着** —— 改名失败不改变"它是哪个实例"，而 id 正是用来扛这个的。
+        QJsonObject restore;
+        restore.insert(kDisplayNameField, oldDisplayName.isString()
+                                              ? QJsonValue(oldDisplayName.toString())
+                                              : QJsonValue(QJsonValue::Null));
+        QString metaError;
+        if (!updateVersionMeta(oldId, restore, &metaError)) {
+            stuck.append(QDir::toNativeSeparators(AppPaths::versionMetaPath(oldId)));
+        }
+
+        if (stuck.isEmpty()) {
+            return fail(tr("%1\n\n磁盘上的东西已经全部改回去了，可以直接重试。").arg(reason));
+        }
+        return fail(tr("%1\n\n自动回滚也没能做完，下面这些还停在半路上，需要你手动看一眼：\n%2")
+                        .arg(reason, stuck.join(QStringLiteral("\n"))));
+    };
+
+    if (!renameOnto(oldJarPath, newJarPath)) {
+        return rollbackAndFail(tr("无法把 %1 改名成 %2（可能有别的程序正开着它）。")
+                                   .arg(QDir::toNativeSeparators(oldJarPath),
+                                        QDir::toNativeSeparators(newJarPath)));
+    }
+    jarRenamed = true;
+
+    if (!renameOnto(oldJsonPath, newJsonPath)) {
+        return rollbackAndFail(tr("无法把 %1 改名成 %2（可能有别的程序正开着它）。")
+                                   .arg(QDir::toNativeSeparators(oldJsonPath),
+                                        QDir::toNativeSeparators(newJsonPath)));
+    }
+    jsonRenamed = true;
+
+    if (!QDir().rename(oldDir, newDir)) {
+        return rollbackAndFail(tr("无法把目录 %1 改名成 %2（可能有别的程序正开着它）。")
+                                   .arg(QDir::toNativeSeparators(oldDir),
+                                        QDir::toNativeSeparators(newDir)));
+    }
+
+    return true;
 }
 
 QStringList VersionManager::versionJvmArgs(const QString &versionId) const {
