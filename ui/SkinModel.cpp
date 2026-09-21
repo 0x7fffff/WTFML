@@ -114,6 +114,70 @@ Cuboid inflatedBox(const Cuboid &box, double inflate) {
     return out;
 }
 
+// ---------- 姿势：绕关节旋转 ----------
+
+/// 绕 +x 转 degrees 度（右手系）。
+///
+/// NOTE: **正号 = 关节下面那一段往 -z（身后）摆**：取关节正下方一点 (0,-1,0)，
+///       转一个小角度得到 z' = sin(θ)·(-1) < 0。这条"正负号长什么样"是整个走路姿势
+///       里唯一需要推一次的地方 —— 腿、手臂、披风的仰角全都按它读，谁都别再自己定一套。
+QVector3D rotateX(const QVector3D &v, double degrees) {
+    const double r = qDegreesToRadians(degrees);
+    const double c = qCos(r);
+    const double s = qSin(r);
+    return QVector3D(v.x(), static_cast<float>(c * v.y() - s * v.z()),
+                     static_cast<float>(s * v.y() + c * v.z()));
+}
+
+QVector3D rotateY(const QVector3D &v, double degrees) {
+    const double r = qDegreesToRadians(degrees);
+    const double c = qCos(r);
+    const double s = qSin(r);
+    return QVector3D(static_cast<float>(c * v.x() + s * v.z()), v.y(),
+                     static_cast<float>(-s * v.x() + c * v.z()));
+}
+
+QVector3D rotateZ(const QVector3D &v, double degrees) {
+    const double r = qDegreesToRadians(degrees);
+    const double c = qCos(r);
+    const double s = qSin(r);
+    return QVector3D(static_cast<float>(c * v.x() - s * v.y()),
+                     static_cast<float>(s * v.x() + c * v.y()), v.z());
+}
+
+/// 把一个**方向**按部件的姿势转过去。顺序是**先 Y、再 X、最后 Z**。
+///
+/// 这个顺序是有意的，不能换：披风那个 180° 的 Y 是"这块板朝哪边"的一部分（见 capeCuboid），
+/// 得先把它转过去，之后绕 X 的仰角才是"下摆往身后翘"；反过来先翘再翻，翘的方向就跟着翻过去，
+/// 披风会在走路时**朝身体贴**而不是往外抬。
+QVector3D posedDirection(const Cuboid &box, const QVector3D &v) {
+    if (box.rotation.isNull()) {
+        return v;  // 立正：连浮点误差都不留（下面的布局断言靠这个当基准）
+    }
+    return rotateZ(rotateX(rotateY(v, box.rotation.y()), box.rotation.x()), box.rotation.z());
+}
+
+/// 把一个**点**按部件的姿势转过去：先把 pivot 挪到原点、转完再挪回去。
+/// 少了"挪回去"这一步，一个 32° 的抬腿会把整条腿平移到别处去。
+QVector3D posedPoint(const Cuboid &box, const QVector3D &p) {
+    return box.pivot + posedDirection(box, p - box.pivot);
+}
+
+// ---------- 走路的幅度 ----------
+//
+// 这几个数是照游戏里 ModelBiped 的系数折算的，不是随手挑的：
+//   腿 = cos(步频) * 1.4 * 步幅，而正常走路时步幅 ≈ 0.4  ->  1.4 * 0.4 ≈ 0.56 rad ≈ 32°
+//   臂 = cos(步频) * 1.0 * 步幅 * 2 * 0.5  ->  跟腿同源再乘 0.5，于是 ≈ 23°
+// 手臂摆得比腿小是**对的**（游戏里就是这样），照 1:1 摆反而像在走正步。
+constexpr double kLegSwingDegrees = 32.0;
+constexpr double kArmSwingDegrees = 23.0;
+
+/// 披风的基础仰角（度）。游戏里披风**任何时候**都往后翘这么多，不是走路的锅 ——
+/// 所以它进的是 walkingCape(restWalkPhase())，立正那一帧也是这个角度。
+constexpr double kCapeBaseLiftDegrees = 6.0;
+/// 走路时披风**多**翘多少（度）。迈到最大的那一帧最翘。
+constexpr double kCapeSwingDegrees = 5.0;
+
 /// 画一个面要用的东西：屏幕上的四边形、贴图上的矩形、离眼睛多远。
 struct DrawFace {
     QPolygonF screen;
@@ -237,6 +301,20 @@ QVector<Cuboid> playerCuboids(bool slim) {
     leftLeg.base = QPoint(16, 48);
     leftLeg.overlayBase = QPoint(0, 48);
 
+    // 四个关节（见 Cuboid::pivot）：手臂在肩膀那条线上（y=24）、腿在胯那条线上（y=12），
+    // x 取各自的中线、z 取中面 —— 从 lo/hi 现算而不是再抄一遍数字，纤细模型（手臂 3 宽）
+    // 的关节因此自动跟着挪。头和身体不设关节：走路时它们不单独转，整块身子跟着走就是了。
+    const auto setJoint = [](Cuboid &box, double axisY) {
+        box.pivot = QVector3D((box.lo.x() + box.hi.x()) / 2.0f, static_cast<float>(axisY),
+                              (box.lo.z() + box.hi.z()) / 2.0f);
+    };
+    setJoint(rightArm, 24.0);
+    setJoint(leftArm, 24.0);
+    setJoint(rightLeg, 12.0);
+    setJoint(leftLeg, 12.0);
+
+    // NOTE: 这个顺序是**对外承诺**的（walkingParts 按下标往对应部件上填角度，
+    //       ui_check 有一条断言把它钉住）：头、身体、右臂、左臂、右腿、左腿。
     return {head, body, rightArm, leftArm, rightLeg, leftLeg};
 }
 
@@ -252,7 +330,71 @@ Cuboid capeCuboid() {
     cape.hi = QVector3D(5, 24, -2.2f);
     cape.base = QPoint(0, 0);  // 披风自己那张 64×32 的图
     cape.hasOverlay = false;
+
+    // 关节定在肩膀那条横线上，z 取这块板自己的中面（(-3.2 + -2.2)/2 = -2.7）。
+    cape.pivot = QVector3D(0, 24, -2.7f);
+    // **整块板绕 Y 转 180°**。这一条是"披风朝外那面取贴图哪一块"的出处，踩过一次：
+    //
+    // 贴图公式（faceRect）本身没得挑 —— 摊平之后就摆在那儿，前/后两块分别是 (1,1,10,16)
+    // 和 (12,1,10,16)，两条独立旁证都对得上。错的是**这两块分别该贴到哪一面上**：
+    // 直接照"背面那一面取背面那块图"贴，从背后看见的就是披风图的**内侧**那块，
+    // 于是整件披风是反的（用户报的"披风放反了"）。游戏里这块板就是转过来挂的
+    // （原版那一层有一记绕 Y 的转），转了之后贴图左边那块才是朝外给人看的那一面。
+    //
+    // 转 180° 之后**几何一模一样**（pivot 在这块板的中面上，转完这块板落回原处），
+    // 变的只是"哪块贴图落在哪一面" —— 所以 W2 里那些关于披风几何的断言不受影响，
+    // 而"朝外那面取 (1,1,10,16)"这条可以单独钉住（见 ui_check W2）。
+    cape.rotation = QVector3D(0, 180, 0);
+
+    // 顺带一提：走路的仰角（walkingCape）是往 rotation.x() 上填的，也就是"绕同一根
+    // 关节、在转过 180° 之后的那套轴上往后翘"。顺序见 posedDirection。
     return cape;
+}
+
+QVector<Cuboid> walkingParts(bool slim, double walkPhase) {
+    QVector<Cuboid> parts = playerCuboids(slim);
+    // 迈步的"张合"：+1 = 迈到最大、0 = 腿并拢。用 cos 而不是 sin，是为了让**相位 0
+    // 正好是迈得最大的那一帧**（截一张图就是一腿前一腿后、一眼看出在走），
+    // 而"腿正好竖直"落在 restWalkPhase() 上。
+    const double stride = qCos(2.0 * M_PI * walkPhase);
+
+    // playerCuboids() 的固定顺序：0 头、1 身体、2 右臂、3 左臂、4 右腿、5 左腿。
+    // 按**下标**填而不是拿名字去认：这个顺序在 playerCuboids 里是写明的，
+    // ui_check 有一条断言把它钉住，谁改了顺序会当场红。
+    const int kRightArm = 2;
+    const int kLeftArm = 3;
+    const int kRightLeg = 4;
+    const int kLeftLeg = 5;
+
+    // 左右**反相**（一条往前一条往后），手臂跟**同侧的腿**也反相。这两条就是"像在
+    // 走路"的全部：同相的话四条肢体一起前后荡，看起来像在跳。
+    //
+    // NOTE: 正负号照游戏里那一套原样照搬（右腿取 +cos、右臂取 -cos），没有为了"看着顺眼"
+    //       再翻一次。照我们的约定（旋转正号 = 关节下面那段往身后摆，见 rotateX）读出来就是：
+    //       相位 0 那一帧右腿在后、左腿在前、右臂在前、左臂在后 —— 正是一个正常的走路交替，
+    //       而且**同侧的手脚永远一前一后**（右腿在后时右臂在前），这条错了会看着像顺拐。
+    parts[kRightLeg].rotation.setX(kLegSwingDegrees * stride);
+    parts[kLeftLeg].rotation.setX(-kLegSwingDegrees * stride);
+    parts[kRightArm].rotation.setX(-kArmSwingDegrees * stride);
+    parts[kLeftArm].rotation.setX(kArmSwingDegrees * stride);
+    return parts;
+}
+
+Cuboid walkingCape(double walkPhase) {
+    Cuboid cape = capeCuboid();
+    // 用 |cos| 而不是 cos：披风是**每迈一步颠一下**（步频的两倍），而且腿并拢那一帧要
+    // 正好回到基础仰角 —— 拿 cos 的话立正那帧反而成了翘得最小的，跟"走路的时候它翘起来"
+    // 这个现象对不上。
+    const double lift =
+        kCapeBaseLiftDegrees + kCapeSwingDegrees * qAbs(qCos(2.0 * M_PI * walkPhase));
+    cape.rotation.setX(lift);
+    return cape;
+}
+
+double restWalkPhase() {
+    // cos(2π·0.25) = 0 —— 腿正好竖直。用"相位"表示而不是另外给一套立正的数，
+    // 是为了让立正和迈步是同一条曲线上的两个点：改幅度的时候两边不会脱节。
+    return 0.25;
 }
 
 FaceGeometry faceGeometry(const Cuboid &box, Face face, bool overlay) {
@@ -266,7 +408,8 @@ FaceGeometry faceGeometry(const Cuboid &box, Face face, bool overlay) {
     boxSize(box, &w, &h, &d);
 
     FaceGeometry geometry;
-    geometry.normal = basis.normal;
+    // 贴图矩形**不跟着姿势转**：一块布怎么转，它上面那块图案还是从贴图同一个地方取
+    // （转了之后"哪一块落在哪一面上"自然就变了 —— 披风那 180° 正是靠这个起作用的）。
     geometry.uv = faceRect(overlay ? box.overlayBase : box.base, w, h, d, face);
 
     // 面在模型上的两个跨度。膨胀之后这两个跨度也跟着变大（覆盖层比里层大一圈），
@@ -276,9 +419,13 @@ FaceGeometry faceGeometry(const Cuboid &box, Face face, bool overlay) {
     const double spanRight = alongX ? size.x() : size.z();
     const double spanUp = (face == Face::Top || face == Face::Bottom) ? size.z() : size.y();
 
-    const QVector3D center = faceCenter(shaped.lo, shaped.hi, basis.normal);
-    const QVector3D halfRight = basis.right * static_cast<float>(spanRight / 2.0);
-    const QVector3D halfUp = basis.up * static_cast<float>(spanUp / 2.0);
+    // 姿势：中心绕关节转，法线和两个基向量只转不挪（见头文件里那一段）。
+    // 四个量走同一个正交变换，所以 right × up == normal 转完还成立 —— 于是
+    // "这块面没写反"那条判据对摆过姿势的部件同样管用。
+    geometry.normal = posedDirection(shaped, basis.normal);
+    const QVector3D center = posedPoint(shaped, faceCenter(shaped.lo, shaped.hi, basis.normal));
+    const QVector3D halfRight = posedDirection(shaped, basis.right) * static_cast<float>(spanRight / 2.0);
+    const QVector3D halfUp = posedDirection(shaped, basis.up) * static_cast<float>(spanUp / 2.0);
 
     // 顺序照"从外面看"的左上 → 右上 → 右下 → 左下，和 uv 的四个角一一对应。
     geometry.corners = {center - halfRight + halfUp, center + halfRight + halfUp,
@@ -336,11 +483,11 @@ bool isFaceVisible(const Camera &cam, const FaceGeometry &face) {
 }
 
 QRectF projectedBounds(const QRectF &target, double yaw, double pitch, double zoom, bool slim,
-                       bool withCape) {
+                       bool withCape, double walkPhase) {
     const Camera cam = makeCamera(target, yaw, pitch, zoom);
-    QVector<Cuboid> boxes = playerCuboids(slim);
+    QVector<Cuboid> boxes = walkingParts(slim, walkPhase);
     if (withCape) {
-        boxes << capeCuboid();
+        boxes << walkingCape(walkPhase);
     }
 
     double minX = 0.0;
@@ -381,7 +528,9 @@ void render(QPainter &painter, const QRectF &target, const Scene &scene) {
     const QImage skin = completeLegacySkin(scene.skin);
 
     QVector<DrawFace> faces;
-    for (const Cuboid &box : playerCuboids(scene.slim)) {
+    // 走动的那一帧（scene.walkPhase 默认立正）。覆盖层跟着部件一起摆 ——
+    // inflatedBox() 是把整个 Cuboid 拷一份再胀大，pivot/rotation 因此原样带过去。
+    for (const Cuboid &box : walkingParts(scene.slim, scene.walkPhase)) {
         for (Face face : allFaces()) {
             collectFace(faces, box, face, false, skin, cam);
         }
@@ -393,7 +542,7 @@ void render(QPainter &painter, const QRectF &target, const Scene &scene) {
         }
     }
     if (!scene.cape.isNull()) {
-        const Cuboid cape = capeCuboid();
+        const Cuboid cape = walkingCape(scene.walkPhase);
         for (Face face : allFaces()) {
             collectFace(faces, cape, face, false, scene.cape, cam);
         }

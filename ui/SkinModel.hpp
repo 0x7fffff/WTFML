@@ -76,6 +76,19 @@ struct Cuboid {
     /// 多出来的右半边就为了放帽子）。身体和四肢的第二层是 1.8 才有的，老皮肤里那片
     /// 区域根本不存在，照着画会去取一片"贴图外面"的东西。
     bool overlayInLegacy = false;
+
+    // ---- 姿势：让部件绕自己的关节转 ----
+    //
+    // NOTE: 这两个字段是**绕关节转**用的（肩膀、胯、披风那个翻面），不是"整块摆着好看"。
+    //       关节位置是几何事实，所以放在这张表里跟 lo/hi 一起定义；摆多少度是走路姿势
+    //       的事，由 walkingParts()/walkingCape() 现填。全 0（默认）= 立正，此时下面
+    //       那两个变换**是恒等变换、连浮点误差都没有**（isNull() 那一步就挡掉了）。
+    //
+    /// 关节（旋转中心）在模型空间里的位置。要绕关节转就得**先把 pivot 挪到原点**，
+    /// 转完再挪回去 —— 少了这一步，一个 32° 的抬腿会把整条腿平移到别处去。
+    QVector3D pivot = QVector3D(0, 0, 0);
+    /// 绕 pivot 转多少度。顺序是**先 Y、再 X、最后 Z**（见 posedDirection）。
+    QVector3D rotation = QVector3D(0, 0, 0);
 };
 
 /**
@@ -103,7 +116,30 @@ QVector<Cuboid> playerCuboids(bool slim);
 
 /// 披风。贴在背后（**-z 那一侧** —— 玩家面朝 +z，所以背后是负的），从肩膀（y=24）
 /// 垂到 y=8。贴图是另一张 64×32 的图，基准点也是 (0,0)。
+///
+/// NOTE: 它带着一个 **180° 的 Y 旋转**（外加关节定在肩膀那条线上），见实现里那段说明 ——
+///       那是"朝外那一面该取披风图上哪一块"这件事的出处，不是可选的装饰。
 Cuboid capeCuboid();
+
+// ---------- 走路姿势 ----------
+//
+// 官启里那个小人**是动着的**（站在那儿走原地步），静止的立正反而看不出这是个人。
+// 姿势在这里做成**纯函数**：给一个相位，返回摆好角度的部件表。这样"腿摆多少度"
+// "披风翘多少"这些数验证工程能直接钉住，不用去截一帧图数像素。
+//
+// 相位 0..1 是一个来回。**0 = 迈到最大的那一帧**（前腿伸到最远），restWalkPhase()
+// 那一帧则是腿正好竖直 —— 立正那一帧是特意留出来的：投影出来的几何和 playerCuboids()
+// 一模一样，所以"姿势没写歪"这件事可以拿立正那帧当基准比。
+
+/// 摆好姿势的部件表（在 playerCuboids() 的基础上填 rotation）。
+QVector<Cuboid> walkingParts(bool slim, double walkPhase);
+
+/// 摆好姿势的披风（在 capeCuboid() 的基础上填仰角）。
+Cuboid walkingCape(double walkPhase);
+
+/// 腿正好竖直（立正）的那个相位。用相位而不是"少摆一点"，是为了让"立正"和"迈步"
+/// 落在同一根轴上的两个点，随时能互相切换着比对。
+double restWalkPhase();
 
 /// 某个面摊平之后，四个角在模型空间里的位置（顺序：左上、右上、右下、左下 ——
 /// **从外面看**的上下左右）、外法线、以及它在贴图上占的矩形。
@@ -127,6 +163,12 @@ struct FaceGeometry {
  * 沿着贴图 +u 走就是模型空间的 right 方向，沿着贴图 +v（贴图上往下）走就是 -up。
  * 每个面的这对基向量都满足 `right × up == normal`（右手系里"从外面看"的朝向），
  * 这条恒等式就是它们没写反的判据，六个面一条都不能例外。
+ *
+ * `box.rotation` 非零时（站姿/披风那 180°），**中心、两个基向量、法线四个量各自被转过去**
+ * —— 不是"把四个角当成整体转一下"就完事。两件事不一样：中心要绕 pivot 转（才叫绕关节），
+ * 三个方向向量只能转、不能挪。而且四个量得用同一个正交变换转，`right × up == normal`
+ * 这条恒等式才会在转完之后依然成立（旋转不改变手性）—— 上面那条"不会镜像"的判据
+ * 因此对**摆过姿势的部件同样有效**，这正是它值钱的地方。
  */
 FaceGeometry faceGeometry(const Cuboid &box, Face face, bool overlay = false);
 
@@ -166,8 +208,10 @@ QPointF project(const Camera &cam, const QVector3D &modelPoint, double *depthOut
 bool isFaceVisible(const Camera &cam, const FaceGeometry &face);
 
 /// 模型（含披风、含覆盖层）在屏幕上的包围盒。给断言用（"投影高度占控件的多少"）。
+/// @param walkPhase 走路的相位（见 walkingParts）。**没有默认值**：包围盒随姿势变
+///        （腿摆出去之后侧着看就宽一截），要哪个姿势就得写明是哪个，别让它随默认值漂。
 QRectF projectedBounds(const QRectF &target, double yaw, double pitch, double zoom, bool slim,
-                       bool withCape);
+                       bool withCape, double walkPhase);
 
 // ---------- 场景与绘制 ----------
 
@@ -182,6 +226,9 @@ struct Scene {
     double yaw = 0.0;
     double pitch = 0.0;
     double zoom = 1.0;
+    /// 走路的相位（0..1）。默认**立正**：姿势是视角那一层（SkinViewer）的事，几何层
+    /// 给一个可复现的初值 —— 谁想要走动的那一帧就自己传（产品就是 SkinViewer 传的）。
+    double walkPhase = restWalkPhase();
 };
 
 /**

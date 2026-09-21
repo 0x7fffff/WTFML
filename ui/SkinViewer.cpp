@@ -11,8 +11,11 @@
 
 #include <QMouseEvent>
 #include <QPainter>
+#include <QShowEvent>
 #include <QWheelEvent>
 #include <QtMath>
+
+#include <cmath>
 
 namespace {
 
@@ -28,6 +31,14 @@ constexpr double kDegreesPerPixel = 0.5;
 /// 要能原路回到原来的倍数（加法在两头被夹住之后就回不去了）。
 constexpr double kZoomPerNotch = 1.1;
 
+/// 走一个来回要多久（毫秒）。落地一步约半秒 —— 这就是官启里那个小人的节奏：
+/// 再快像在小跑，再慢像在踱步。
+constexpr int kWalkPeriodMs = 1000;
+
+/// 定时器间隔（毫秒）。16 ≈ 60 帧/秒，肉眼看是连续的。**它不决定走多快** ——
+/// 走多快由 kWalkPeriodMs 和真实时间定（见 walkPhase()），这个数只决定画面多久刷一次。
+constexpr int kWalkFrameMs = 16;
+
 }  // namespace
 
 SkinViewer::SkinViewer(QWidget *parent) : QWidget(parent) {
@@ -38,9 +49,77 @@ SkinViewer::SkinViewer(QWidget *parent) : QWidget(parent) {
     m_pitch = defaultPitch();
     m_zoom = defaultZoom();
 
+    // 走路：相位 0 起步（迈得最大的那一帧 —— 第一眼就看得出来他是在走，而不是立正）。
+    // 定时器本身不推进相位，它只负责"该重画了"；相位是现算的。
+    m_walkTimer = new QTimer(this);
+    m_walkTimer->setInterval(kWalkFrameMs);
+    connect(m_walkTimer, &QTimer::timeout, this, [this]() { update(); });
+
     // 鼠标形状是"能抓"的唯一提示（没有别的地方告诉用户这个图能拖）。
     setCursor(Qt::OpenHandCursor);
     setFocusPolicy(Qt::ClickFocus);  // 点一下能拿焦点，免得拖动被当成"划过窗口"
+}
+
+double SkinViewer::walkPhase() const {
+    if (!m_walkTimer->isActive()) {
+        return m_phaseBase;  // 停着的时候"当前那一帧"就是起始相位
+    }
+    const double turns = static_cast<double>(m_walkClock.elapsed()) / kWalkPeriodMs;
+    // 折到 0..1：fmod 而不是取余数运算符（浮点用不了 %）。
+    return std::fmod(m_phaseBase + turns, 1.0);
+}
+
+void SkinViewer::setWalkPhase(double phase) {
+    // 先折到 0..1（相位是个环，传 1.25 和 0.25 是同一帧），再从现在这一帧重新起算，
+    // 这样动画开着的时候也能中途插进去而不跳帧。
+    m_phaseBase = phase - std::floor(phase);
+    m_walkClock.restart();
+    update();
+}
+
+void SkinViewer::setAnimated(bool on) {
+    if (m_animated == on) {
+        return;
+    }
+    m_animated = on;
+    if (!on) {
+        stopWalking();
+    } else if (isVisible()) {
+        // 藏着的控件上打开动画**先不转**：等转到可见那条路（showEvent）再去开定时器。
+        // 少了 isVisible() 这个判断，"只在看得见的时候走"就有一个后门 —— 谁在窗口还没
+        // 显示的时候调一次 setAnimated(true)，这个控件就会在后台一直每秒重画 60 次。
+        startWalking();
+    }
+}
+
+void SkinViewer::startWalking() {
+    if (m_walkTimer->isActive()) {
+        return;
+    }
+    // m_phaseBase 不动 —— 接着上次停下那一帧往下走，而不是每次都从 0 开始。
+    m_walkClock.start();
+    m_walkTimer->start();
+}
+
+void SkinViewer::stopWalking() {
+    if (!m_walkTimer->isActive()) {
+        return;
+    }
+    m_phaseBase = walkPhase();  // 先记下现在停在哪一帧，再收工
+    m_walkTimer->stop();
+}
+
+void SkinViewer::showEvent(QShowEvent *event) {
+    QWidget::showEvent(event);
+    // 只在看得见的时候走：切到别的页、窗口最小化的时候不该还在后台每秒重画 60 次。
+    if (m_animated) {
+        startWalking();
+    }
+}
+
+void SkinViewer::hideEvent(QHideEvent *event) {
+    QWidget::hideEvent(event);
+    stopWalking();
 }
 
 void SkinViewer::setSkin(const QImage &skin, const QImage &cape, bool slim) {
@@ -68,7 +147,8 @@ void SkinViewer::setView(double yaw, double pitch, double zoom) {
     const double nextPitch = qBound(-SkinModel::maxPitch(), pitch, SkinModel::maxPitch());
     const double nextZoom = qBound(SkinModel::minZoom(), zoom, SkinModel::maxZoom());
 
-    // 真的变了才重绘：滚轮滚到头之后继续滚不该一直重画（不自转，所以空闲时零重绘）。
+    // 真的变了才重绘：滚轮滚到头之后继续滚不该一直重画。
+    // （走路那点动画是定时器自己触发的重绘，跟这条无关 —— 这条管的是"视角没变就别画"。）
     // qFuzzyCompare 对 0 不灵（两个 0 会被判成不相等），所以两边各加 1 挪开 0 点。
     const bool changed = !qFuzzyCompare(nextYaw + 1.0, m_yaw + 1.0) ||
                          !qFuzzyCompare(nextPitch + 1.0, m_pitch + 1.0) ||
@@ -109,6 +189,8 @@ void SkinViewer::paintEvent(QPaintEvent *event) {
     scene.yaw = m_yaw;
     scene.pitch = m_pitch;
     scene.zoom = m_zoom;
+    // 走动的那一帧由控件现算（见 walkPhase）：几何层只认"给我一个相位"。
+    scene.walkPhase = walkPhase();
     SkinModel::render(painter, target, scene);
 }
 
