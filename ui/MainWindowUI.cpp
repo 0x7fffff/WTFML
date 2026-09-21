@@ -56,6 +56,35 @@ constexpr int kPageMargin = 9;
 /// 左右两栏之间的间距。
 constexpr int kColumnSpacing = 12;
 
+// ---------- 各处手调的尺寸 ----------
+// 集中放这里是为了"改外观只需看这一处"：这些数值是照着当前样式（Fusion）的控件度量
+// 调出来的，换背景色/字体/控件高度时就是这一组要重估。散在各自的构建代码里每次都得
+// 全文件搜一遍。
+//
+// NOTE: 设置页那个数字框的宽度（kMemorySpinWidth）不在这里 —— 它只服务
+//       addInlineControl() 一个调用点，留在它旁边更好找。
+
+/// 底栏整条的高度。给固定值：栏里三格的内容高度都是自己定的，跟着窗口高变没有意义。
+constexpr int kBottomBarHeight = 56;
+
+/// 底栏左格「实例运行状态」那两行文字的宽度下限，免得内容一变整条就左右跳。
+constexpr int kStatusLabelMinWidth = 260;
+
+/// 左下角头像的边长（正方形）。
+constexpr int kAvatarSize = 32;
+
+/// 「启动游戏」按钮的高度。文字是两行（"启动游戏\n<显示名>"），给足高度免得被压成一行半。
+constexpr int kStartButtonMinHeight = 88;
+
+/// 「额外 JVM 参数」多行输入框的高度，约三四行的样子；再高会把下面那几项挤出可视区。
+constexpr int kJvmArgsEditHeight = 72;
+
+/// 几个按钮的宽度下限：文案长短差得多（「下载版本」/「重新登录」/「应用」），
+/// 不给下限就会各自缩成一小块、排在一起长短不齐。
+constexpr int kDownloadButtonMinWidth = 96;
+constexpr int kLoginButtonMinWidth = 120;
+constexpr int kApplyJvmArgsButtonMinWidth = 72;
+
 /// 一栏：控件本身 + 它自己的竖排布局。
 struct Column {
     QWidget *widget = nullptr;
@@ -231,6 +260,15 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // 版本号长度不定（26.2-snapshot-1 之类），默认的 AdjustToContentsOnFirstShow 会在
         // 第一次显示（那时还是空的）时定一个宽度然后一直沿用，之后灌进上千个长版本号就容易
         // 把窗口顶宽。改成按"最短内容长度"算，宽度确定，灌数据时也不会跳。
+        //
+        // NOTE: "宽度确定"有个前提，很容易踩：**占位文案一旦超过 minimumContentsLength
+        //       就会被算进 sizeHint**。实测（Qt 6.10.1，Fusion）13 字的占位会把框顶宽
+        //       12px，而**条目文本和当前选中文本不影响**（空 / 加了一行超长条目 / 选中
+        //       那行超长条目，量出来都是同一个宽度）。
+        //       所以：给这两个下拉框设的每一条占位文案都必须 ≤12 字。现在共四处 ——
+        //       本文件两处 + MainWindow.cpp 两处（那句取数失败的文案原来是 16 字，会让
+        //       框在失败时突然变宽，2026-09-21 缩成 10 字）。要放长句就写到旁边的 hint
+        //       标签上去，QLabel 没有这个约束。
         installedVersionCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
         installedVersionCombo->setMinimumContentsLength(12);
         // 滚轮防护：见本文件顶部的 WheelGuard
@@ -242,7 +280,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // 文字是两行（"启动游戏\n<显示名>"，由 MainWindow::updateStartButtonText() 维护；
         // 高度固定给足，免得两行被压成一行半。
         startButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-        startButton->setMinimumHeight(88);
+        startButton->setMinimumHeight(kStartButtonMinHeight);
         home.left.layout->addWidget(startButton);
 
         offlineModeCheckBox = new QCheckBox(QStringLiteral("离线模式"), home.left.widget);
@@ -337,7 +375,8 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
 
         availableVersionCombo = new QComboBox(download.left.widget);
         availableVersionCombo->setObjectName(availableVersionComboName());
-        availableVersionCombo->setPlaceholderText(QStringLiteral("正在获取在线版本列表..."));
+        availableVersionCombo->setPlaceholderText(QStringLiteral("正在获取在线版本…"));
+        // 占位文案必须 ≤12 字 —— 完整原因和实测数据见上面 installedVersionCombo 那处。
         availableVersionCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
         availableVersionCombo->setMinimumContentsLength(12);
         availableVersionCombo->installEventFilter(new WheelGuard(availableVersionCombo));
@@ -368,7 +407,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // 选中的那一条，挨着列表比挨着上面的下拉框更说得通。
         downloadButton = new QPushButton(QStringLiteral("下载版本"), versionGroupBox);
         downloadButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-        downloadButton->setMinimumWidth(96);
+        downloadButton->setMinimumWidth(kDownloadButtonMinWidth);
         versionLayout->addWidget(downloadButton, 0, Qt::AlignLeft);
         download.right.layout->addWidget(versionGroupBox, 1);
     }
@@ -429,7 +468,7 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
         // objectName 认它，不能按文案认。
         loginButton->setObjectName(MainWindowUI::loginButtonName());
         loginButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-        loginButton->setMinimumWidth(120);
+        loginButton->setMinimumWidth(kLoginButtonMinWidth);
         boxLayout->addWidget(loginButton, 0, Qt::AlignLeft);
         addHint(box, QStringLiteral("登录后用户名显示在窗口左下角，启动游戏时用的也是它。"
                                     "不登录就用「离线模式」启动，名字是 Player。"),
@@ -530,7 +569,7 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
         extraJvmArgsEdit->setObjectName(extraJvmArgsEditName());
         extraJvmArgsEdit->setPlaceholderText(QStringLiteral("-XX:+UseG1GC -XX:MaxGCPauseMillis=50"));
         // 三四行就够：这一格放的是"顺手加的几条参数"，不是一整份命令行
-        extraJvmArgsEdit->setFixedHeight(72);
+        extraJvmArgsEdit->setFixedHeight(kJvmArgsEditHeight);
         boxLayout->addWidget(extraJvmArgsEdit);
 
         QWidget *buttonRow = new QWidget(box);
@@ -539,7 +578,7 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
         applyExtraJvmArgsButton = new QPushButton(QStringLiteral("应用"), buttonRow);
         applyExtraJvmArgsButton->setObjectName(applyExtraJvmArgsButtonName());
         applyExtraJvmArgsButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-        applyExtraJvmArgsButton->setMinimumWidth(72);
+        applyExtraJvmArgsButton->setMinimumWidth(kApplyJvmArgsButtonMinWidth);
         buttonRowLayout->addWidget(applyExtraJvmArgsButton);
         buttonRowLayout->addStretch(1);
         boxLayout->addWidget(buttonRow);
@@ -620,7 +659,7 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     bottomBar = new QFrame(parent);
     bottomBar->setObjectName(bottomBarName());
     bottomBar->setFrameShape(QFrame::NoFrame);
-    bottomBar->setFixedHeight(56);
+    bottomBar->setFixedHeight(kBottomBarHeight);
     // 底色比窗口底色深一档把它从内容区里分出来。**不写死颜色**：从当前调色板推出来，
     // 浅色主题和深色主题下都成立（darker() 在两种主题上的效果都是"更沉一点"）。
     bottomBar->setAutoFillBackground(true);
@@ -664,7 +703,7 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     statusLabel = new QLabel(bottomBar);
     statusLabel->setObjectName(statusLabelName());
     // 固定一个最小宽度：文件名长短变化时这一格不会再跳来跳去
-    statusLabel->setMinimumWidth(260);
+    statusLabel->setMinimumWidth(kStatusLabelMinWidth);
     progressBar = new QProgressBar(bottomBar);
     progressBar->setObjectName(progressBarName());
     progressBar->setRange(0, 100);
@@ -694,7 +733,7 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     //       方形底比圆形底更接近它以后的样子。
     avatarLabel = new QLabel(QStringLiteral("?"), bottomBar);
     avatarLabel->setObjectName(avatarLabelName());
-    avatarLabel->setFixedSize(32, 32);
+    avatarLabel->setFixedSize(kAvatarSize, kAvatarSize);
     avatarLabel->setAlignment(Qt::AlignCenter);
     const QColor avatarBackground = bottomBar->palette().color(QPalette::Highlight);
     const QColor avatarForeground = bottomBar->palette().color(QPalette::HighlightedText);

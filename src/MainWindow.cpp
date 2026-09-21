@@ -1048,8 +1048,14 @@ void MainWindow::onVersionsFetched(const QStringList &versions) {
         // 拉清单失败时 DownloadManager 也会发这个信号，发的是**上一次成功的结果**
         // （首次拉取就失败才是空的），所以这一支实际拦的是"从来没拉到过"。别让
         // "正在获取..." 一直挂着骗人。列表那边同上：空名单不动它（本来就是空的）。
-        m_ui->getAvailableVersionCombo()->setPlaceholderText(
-            tr("在线版本列表获取失败，请检查网络"));
+        // NOTE: 这句占位文案**必须短**（≤ minimumContentsLength，现在是 12 个字）。
+        //       原因是 AdjustToMinimumContentsLengthWithIcon 会把**超过
+        //       minimumContentsLength 的占位文案算进 sizeHint 宽度** —— 原话
+        //       「在线版本列表获取失败，请检查网络」有 16 字，会让下载页那个下拉框
+        //       在取数失败时突然宽出一截，正是旁边那条"宽度不随占位文案变"的断言
+        //       要防的"窗口抖"。改文案前先数字数；真要放长句，把说明挪到旁边的
+        //       hint 标签上（标签没有这个约束）。
+        m_ui->getAvailableVersionCombo()->setPlaceholderText(tr("获取失败，请检查网络"));
         appendLog(tr("在线版本列表获取失败（网络异常？）。"));
         return;
     }
