@@ -434,6 +434,44 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     downloadTab->setObjectName(downloadTabName());
     const TwoColumns download = buildTwoColumnPage(downloadTab, QStringLiteral("download"));
     {
+        // 模组加载器：**四选一**（Fabric / Forge / NeoForge / OptiFine），摆在左栏最上面。
+        // 顺序是"先定加载器、再定装在哪个版本上" —— 跟右边那份版本列表读下来才顺。
+        //
+        // NOTE: 这一组**现在什么都没接**（见 MainWindowUI.hpp 里那处 NOTE）：勾了不会改变
+        //       「下载版本」装出来的东西，也不会去过滤「可安装版本」那个下拉框。
+        //       而且**初始一个都不勾**，那正是今天的行为 —— 将来接上去时"一个都不勾"
+        //       这个状态也得留着（它就是"装纯原版"），否则从这个页面再也没法下原版了。
+        QLabel *modLoaderLabel = new QLabel(modLoaderLabelText(), download.left.widget);
+        modLoaderLabel->setObjectName(modLoaderLabelName());
+        download.left.layout->addWidget(modLoaderLabel);
+
+        modLoaderGroup = new QButtonGroup(download.left.widget);
+        // 四个钮之间挨紧一点（栏自己的间距是 10，那是给"标签/控件一段一段"用的；
+        // 四个钮是同一条里的四行，拉开反而看不出它们是一组）。外面那层零边距 ——
+        // 栏已经留过边距了。
+        auto *optionColumn = new QWidget(download.left.widget);
+        auto *optionLayout = new QVBoxLayout(optionColumn);
+        optionLayout->setContentsMargins(0, 0, 0, 0);
+        optionLayout->setSpacing(2);
+        download.left.layout->addWidget(optionColumn);
+
+        const auto addOption = [&](int index) {
+            QRadioButton *radio = new QRadioButton(modLoaderOptionTexts().at(index), optionColumn);
+            radio->setObjectName(modLoaderOptionNames().at(index));
+            // id 就是两张表里的下标，将来接线时靠它把"勾了哪个"翻成加载器 id。
+            modLoaderGroup->addButton(radio, index);
+            optionLayout->addWidget(radio);
+            return radio;
+        };
+        // NOTE: 变量名这里照抄上面那张表（第 0 个是 Fabric、第 1 个是 Forge…），
+        //       顺序一乱就是"名字和内容对不上"，而那种错不会报错、只会装错加载器。
+        modLoaderFabric = addOption(0);
+        modLoaderForge = addOption(1);
+        modLoaderNeoForge = addOption(2);
+        modLoaderOptiFine = addOption(3);
+        // 单选钮不吃滚轮，所以这里不需要右边那个下拉框要装的 WheelGuard（见它上面那段
+        // 说明：手一滑把一次 GB 级的下载指到别的版本上）。四个钮也不会这么出事。
+
         download.left.layout->addWidget(new QLabel(QStringLiteral("可安装版本"),
                                                    download.left.widget));
 
