@@ -855,6 +855,7 @@ bool MainWindow::requestSkinTexture(const QString &url, bool allowDownload) {
 
 void MainWindow::onSkinProfileReady(const PlayerSkinProfile &profile) {
     const bool sameAsBefore = profile.sameAs(m_skinProfile);
+    const QString previousCapeUrl = m_skinProfile.capeUrl;
     m_skinProfile = profile;
     if (sameAsBefore && !m_skinPath.isEmpty()) {
         // 手上的就是这一份，而且已经在屏幕上 → 这次刷新**完全看不见**：不重下贴图、
@@ -869,6 +870,20 @@ void MainWindow::onSkinProfileReady(const PlayerSkinProfile &profile) {
         // 存不下来不影响这一次显示（贴图照样下、照样画），只是下次开窗要先重取一遍。
         appendLog(tr("存玩家外观档案失败：%1").arg(error));
     }
+    // 披风那一格只在**地址真的换了**的时候才作废。
+    //
+    // 作废是必须的：新档案里没有披风时（用户在游戏里把披风摘了），留着的那条旧路径会让
+    // 下一趟 applyPlayerSkin(skin, m_capePath) 把上一套的披风又画回去，而且再没有哪一趟
+    // 会来纠正它 —— 新的披风那一张根本不会到达。
+    //
+    // 但**不能一律清掉**：披风先到、皮肤还在路上的时候（见 onSkinTextureReady）那一格是
+    // "记忆"，不是"现在画着的东西"，清了就等于把刚记住的那张丢了 —— 于是同一个 bug 换个
+    // 位置又出现一次。所以判据是"地址换没换"，而不是"档案换没换"。
+    //
+    // 皮肤那一格不用管：它下一趟必被新贴图覆盖，留着还能让"新披风先到"那一趟有皮肤可配。
+    if (profile.capeUrl != previousCapeUrl) {
+        m_capePath.clear();
+    }
     requestSkinTexture(profile.skinUrl, /*allowDownload=*/true);
     requestSkinTexture(profile.capeUrl, /*allowDownload=*/true);
     updateSkinHint();
@@ -876,7 +891,7 @@ void MainWindow::onSkinProfileReady(const PlayerSkinProfile &profile) {
 
 void MainWindow::onSkinTextureReady(const QString &url, const QString &path) {
     // 两张贴图是**分开**回来的（皮肤一张、披风一张），所以这里做的是"把这一张记到它
-    // 该去的那一格，再用手上这两格重画一遍" —— 披风先到、皮肤后到，两次画都有效。
+    // 该去的那一格，再用手上这两格重画一遍" —— 谁先到都能画。
     const bool slim = m_skinProfile.variant == QStringLiteral("slim");
     if (!url.isEmpty() && url == m_skinProfile.skinUrl) {
         // 皮肤到手了：不再是"正在获取"。就算这张图后面载不进来，也该由那句
@@ -886,6 +901,20 @@ void MainWindow::onSkinTextureReady(const QString &url, const QString &path) {
         return;
     }
     if (!url.isEmpty() && url == m_skinProfile.capeUrl) {
+        if (m_skinPath.isEmpty()) {
+            // **披风先到了，皮肤还在路上**（披风那张小得多，经常先下完）。
+            //
+            // 这时候千万不能顺手 applyPlayerSkin(m_skinPath, path, slim) —— 皮肤那个参数
+            // 是空的，而 applyPlayerSkin() 里"皮肤载不进来就退回默认外观"那条路会**把
+            // 披风一起清掉**（默认外观本来就没有披风）。等皮肤那一趟回来时 m_capePath
+            // 已经是空的，披风再也补不回来了：表现是**皮肤有了、披风永远没有**，而且
+            // 每一趟都停在默认外观那句话上。2026-09-21 真机上就是这个现象。
+            //
+            // 所以这里只**记住**，不画：皮肤那一趟（上面那个分支）会带上 m_capePath
+            // 一起画出来。这一小段时间里屏幕上是上一套外观（或者默认外观），不闪。
+            m_capePath = path;
+            return;
+        }
         applyPlayerSkin(m_skinPath, path, slim);
         return;
     }

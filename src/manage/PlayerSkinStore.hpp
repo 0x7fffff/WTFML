@@ -60,6 +60,11 @@ struct PlayerSkinProfile {
     }
 };
 
+/// 这个类型会**跟着信号走出去**（profileReady），所以声明成元类型，让它能跨线程/排队
+/// 连接传（Qt 的规矩：信号里出现的自定义类型都该有这一行）。顺带也让验证工程能拿它
+/// 当 Q_ARG 用 —— 于是"档案到了"那条路能在**不联网**的情况下被驱动（见 mw_check 的 X 节）。
+Q_DECLARE_METATYPE(PlayerSkinProfile)
+
 class PlayerSkinStore : public QObject {
     Q_OBJECT
 
