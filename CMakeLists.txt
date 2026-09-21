@@ -39,6 +39,7 @@ set(SOURCE_FILES
     src/manage/FolderManager.cpp
     src/manage/InstanceFiles.cpp
     src/manage/InstanceGroupStore.cpp
+    src/manage/PlayerSkinStore.cpp
     src/manage/VersionManager.cpp
     src/manage/VersionDisplay.cpp
     src/settings/EffectiveJavaSettings.cpp

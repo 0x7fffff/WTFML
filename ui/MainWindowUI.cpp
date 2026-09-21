@@ -72,8 +72,9 @@ constexpr int kBottomBarHeight = 56;
 /// 底栏左格「实例运行状态」那两行文字的宽度下限，免得内容一变整条就左右跳。
 constexpr int kStatusLabelMinWidth = 260;
 
-/// 左下角头像的边长（正方形）。
-constexpr int kAvatarSize = 32;
+/// 左下角头像的边长（正方形）。**值本身不在这里** —— 它和"主窗口拿什么尺寸去裁头像"
+/// 必须是同一个数，所以唯一的出处是 MainWindowUI::avatarSize()（见头文件）。
+const int kAvatarSize = MainWindowUI::avatarSize();
 
 /// 「启动游戏」按钮的高度。文字是两行（"启动游戏\n<显示名>"），给足高度免得被压成一行半。
 constexpr int kStartButtonMinHeight = 88;

@@ -11,7 +11,13 @@
 #include <QElapsedTimer>
 #include <QJsonObject>
 #include <QMainWindow>
+#include <QPixmap>
 #include <QProcess>
+
+// PlayerSkinStore::PlayerSkinProfile —— 主窗口按值存一份"最近要过的那份档案"（见
+// m_skinProfile），所以这里非得 include 不可（前置声明只够拿指针/引用）。
+// 它是 Core+Network 的头，拖进来的东西不多。
+#include "manage/PlayerSkinStore.hpp"
 
 class MainWindowUI;
 class LauncherManager;
@@ -51,6 +57,23 @@ private slots:
     void onLoginStarted();
     void onLoginSucceeded(const QString &playerName);
     void onLoginFailed(const QString &errorMessage);
+
+    // ---------- 主页右栏那个小人 + 底栏头像（三个都是 PlayerSkinStore 的信号） ----------
+    /// 官方回的档案到了。和手上这份一样时**什么都不做**（不重下贴图、不重画）——
+    /// 用户在游戏里没换皮肤时，后台那次刷新必须是完全看不见的。
+    void onSkinProfileReady(const PlayerSkinProfile &profile);
+    /// 一张贴图在本地就绪了。皮肤和披风是**分开**回来的，这里按 URL 认领。
+    void onSkinTextureReady(const QString &url, const QString &path);
+    /// 要不到（网络失败、下回来的不是皮肤图、存不下来）。**只记日志、不弹窗** ——
+    /// 这是全仓唯一一处不弹窗的错误，理由见 PlayerSkinStore.hpp 文件头。
+    void onSkinFailed(const QString &message);
+    /// 把一份外观贴到界面上（右栏那个小人 + 底栏头像 + 右栏那句话）。
+    /// @param skinPath 空串 = 用默认外观。载不进来（文件没了/下了一半）也走这一档。
+    /// @param slim 纤细模型（手臂 3 宽）。
+    ///
+    /// NOTE: 是**槽**不只是私有函数：验证工程靠 QMetaObject::invokeMethod 驱动它
+    ///       （沙盒里现写两张 PNG 喂进来），**不联网**就能验完整条界面路径。
+    void applyPlayerSkin(const QString &skinPath, const QString &capePath, bool slim);
     void onAddFolderClicked();
     void onRemoveFolderClicked();
     /// 「重命名…」：问一个新名字，真的把磁盘上的目录改掉（含 jar / json 一起改）。
@@ -240,6 +263,20 @@ private:
     void updateStartButtonText();
     void updateDownloadProgressUi(int done, int total, int failed, const QString &currentFile);
 
+    // ---------- 主页右栏那个小人 + 底栏头像 ----------
+    /// 开窗 / 登录成功之后走一遍：**先默认外观兜底**，再拿缓存档案里的贴图（命中缓存时
+    /// 是同步的，所以开窗那一瞬间就是上次的样子），最后后台刷一次档案。
+    void startPlayerSkinLoad();
+    /// 要一张贴图。@param allowDownload false（离线模式勾着）时**只认已经在缓存里的那一份**
+    /// —— fetchTexture() 在缓存不命中时会真的去下一个，那正是离线模式要求别做的事。
+    /// @return 这一张是不是**已经在手上了**（缓存命中）。不是"发出去请求了"。
+    bool requestSkinTexture(const QString &url, bool allowDownload);
+    /// 右栏那句话现在是哪一档（未登录 / 正在取 / 正版外观 / 取不到）。
+    ///
+    /// **唯一一处**决定它写什么。四句文案要是散在四条路上（开窗、拿到档案、拿到贴图、
+    /// 失败），迟早出现"皮肤换好了、话还停在上一句"。
+    void updateSkinHint();
+
     MainWindowUI *m_ui;
     // NOTE: 声明顺序就是构造顺序。m_settings 必须排在 m_folderManager **前面** ——
     //       后者在构造函数里就要读盘（「游戏文件夹」列表），晚于它构造的话拿到的
@@ -253,6 +290,22 @@ private:
     // 实例分组（<数据目录>/wtfml.folders）。**不需要**在换游戏文件夹时重置它：
     // 它每个访问器都会比一下"这次问的是哪一份 .minecraft"，不一样就自己重读。
     InstanceGroupStore *m_groupStore;
+    // 玩家外观的数据层（免鉴权问官方 + 内容寻址的本地缓存）。
+    PlayerSkinStore *m_skinStore;
+    // 现在屏幕上用的是哪两张贴图（本地路径）。**只记真的载入成功了的** —— 所以空串
+    // 就等于"现在显示的是默认外观"，右栏那句话的判据之一就是它。
+    QString m_skinPath;
+    QString m_capePath;
+    // 最近一次**要过**的那份档案。唯一的用途：贴图是按 URL 分开回来的（皮肤一个、
+    // 披风一个），回来时得知道"这一张是皮肤还是披风"，也有个东西能判"和上次一样吗"。
+    PlayerSkinProfile m_skinProfile;
+    // 去官方问的这一次还在路上（决定那句话是"正在获取"还是"取不到"）。
+    // NOTE: **只表示"真的发出去了一个请求"**，缓存命中不算 —— 命中是同步回来的，
+    //       标成"在路上"会让那句话卡在"正在获取"上下不来。
+    bool m_skinFetchInFlight = false;
+    // 底栏头像那块图。**不能**在 updateBottomBar() 里现算：那个函数每次进度刷新
+    // （几百毫秒一次）都会被调，现算等于一直在重渲染同一张 8×8 的皮肤。
+    QPixmap m_avatarPixmap;
     // 下载是否在进行中。注意不能只问 m_versionManager：从点击"下载"到版本 JSON
     // 拉回来之前，VersionManager 那边还没有任何批次，这段时间也得算"忙"。
     bool m_downloadInFlight = false;

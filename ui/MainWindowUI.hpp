@@ -108,6 +108,10 @@ public:
     static QString skinHintLabelName() { return QStringLiteral("skinHintLabel"); }
     static QString bottomBarName() { return QStringLiteral("bottomBar"); }
     static QString avatarLabelName() { return QStringLiteral("avatarLabel"); }
+    /// 底栏头像那一块的边长（像素）。**唯一出处**：主窗口拿它去裁头像
+    /// （SkinModel::headAvatar() 出来必须是这个尺寸，否则图会被 QLabel 缩放）、
+    /// 验证工程拿它断言 pixmap 的大小。三处各写一个数字迟早对不上。
+    static int avatarSize() { return 32; }
     static QString accountLabelName() { return QStringLiteral("accountLabel"); }
     static QString runStateLabelName() { return QStringLiteral("runStateLabel"); }
     static QString runStateDetailLabelName() { return QStringLiteral("runStateDetailLabel"); }

@@ -15,6 +15,8 @@
 #include "..\ui\InstanceSettingsDialog.hpp"
 #include "..\ui\JavaMismatchDialog.hpp"
 #include "..\ui\MainWindowUI.hpp"
+// 主页右栏那个小人怎么画：几何、投影、默认外观、头像裁切全在它里面（纯函数 + 值）。
+#include "..\ui\SkinModel.hpp"
 
 // 添加以下头文件（防止hpp变动导致文件失效）
 #include <QCheckBox>
@@ -45,6 +47,7 @@
 #include "manage/FolderManager.hpp"
 #include "manage/InstanceFiles.hpp"
 #include "manage/InstanceGroupStore.hpp"
+#include "manage/PlayerSkinStore.hpp"
 #include "manage/VersionManager.hpp"
 #include "settings/EffectiveJavaSettings.hpp"
 #include "settings/GlobalJavaSettings.hpp"
@@ -520,7 +523,8 @@ MainWindow::MainWindow(QWidget *parent)
       m_folderManager(new FolderManager(m_settings, this)),
       m_versionManager(new VersionManager(this)),
       m_javaSettings(new GlobalJavaSettings(this)),
-      m_groupStore(new InstanceGroupStore(this)) {
+      m_groupStore(new InstanceGroupStore(this)),
+      m_skinStore(new PlayerSkinStore(this)) {
     setupConnections();
     // 设置页先按盘上的值摆好（不扫 Java，那一段等第一次切到设置页，见
     // refreshJavaList()）。必须在下面 fetchAvailableVersions() **之前**：
@@ -546,6 +550,11 @@ MainWindow::MainWindow(QWidget *parent)
     // 登录按钮的初始文字也看"上次登过没有"：登过就该是「重新登录」，不然用户会以为
     // 上次的登录没留住（而底下那行用户名明明已经是他的名字了）。
     updateLoginButton();
+    // 主页右栏那个小人 + 底栏头像。放在 updateLoginButton() 之后是因为它要问
+    // AuthManager"登过没有"，而那份状态是在它自己的构造函数里从盘上读回来的。
+    // **必须在 fetchAvailableVersions() 之前**：那一下要发网络请求，外观这条线不该
+    // 排在它后面（离线那条路更是完全不让它走）。
+    startPlayerSkinLoad();
     m_versionManager->fetchAvailableVersions();
 }
 
@@ -671,6 +680,12 @@ void MainWindow::setupConnections() {
     connect(m_authManager, &AuthManager::loginSucceeded, this, &MainWindow::onLoginSucceeded);
     connect(m_authManager, &AuthManager::loginFailed, this, &MainWindow::onLoginFailed);
 
+    // 玩家外观（主页右栏那个小人 + 底栏头像）。三条都只走这一处 —— 数据层不知道界面
+    // 长什么样，界面不知道贴图从哪来。
+    connect(m_skinStore, &PlayerSkinStore::profileReady, this, &MainWindow::onSkinProfileReady);
+    connect(m_skinStore, &PlayerSkinStore::textureReady, this, &MainWindow::onSkinTextureReady);
+    connect(m_skinStore, &PlayerSkinStore::failed, this, &MainWindow::onSkinFailed);
+
     // 游戏进程信号
     connect(m_launcherManager, &LauncherManager::processOutput, this, &MainWindow::onProcessOutput);
     connect(m_launcherManager, &LauncherManager::processError, this, &MainWindow::onProcessError);
@@ -728,11 +743,20 @@ void MainWindow::updateBottomBar() {
     // ---------- 左：头像 + 用户名 ----------
     // 登录过就是档案里的真名（登录那一刻拿到的，或者开窗时从盘上读回来的那份）；
     // 没登录是占位的 "Player" —— 这里不自己造假名字，也不去猜。
-    // NOTE: 头像仍是首字母方块（真皮肤头像要另拉一次皮肤贴图，还没做）。
     const QString name = m_authManager->playerName();
     m_ui->getAccountLabel()->setText(name);
-    m_ui->getAvatarLabel()->setText(name.isEmpty() ? QStringLiteral("?")
-                                                    : name.left(1).toUpper());
+    // 头像优先用**真皮肤**抠出来的那一块（m_avatarPixmap，在 applyPlayerSkin() 里算好
+    // 存着 —— 这里每次进度刷新都会被调到，不能现算）。没有它的时候（未登录、还没取到、
+    // 取不到、贴图载不进来）退回首字母方块：退路必须留着，一块空白的头像比一个首字母
+    // 更像"界面坏了"。
+    // NOTE: setPixmap()/setText() 都会把另一份内容清掉（QLabel 只显示最后设的那一个），
+    //       所以这里不用自己清。
+    if (m_avatarPixmap.isNull()) {
+        m_ui->getAvatarLabel()->setText(name.isEmpty() ? QStringLiteral("?")
+                                                       : name.left(1).toUpper());
+    } else {
+        m_ui->getAvatarLabel()->setPixmap(m_avatarPixmap);
+    }
 
     // ---------- 中：进度（启动优先于下载） ----------
     // 两件事都会占这一格，启动优先 —— 下载可以慢慢来，用户刚点完启动那几秒需要反馈。
@@ -772,6 +796,160 @@ void MainWindow::updateBottomBar() {
         m_ui->isHomeTabCurrent(), selectedVersionId(m_ui->getInstalledVersionCombo()), running);
     runStateDetailLabel->setVisible(showDetail);
     runStateDetailLabel->setText(showDetail ? instanceDisplayName(running) : QString());
+}
+
+void MainWindow::startPlayerSkinLoad() {
+    // 先摆默认外观。**这一步之后，右栏那个小人任何时候都不是空白的** —— 未登录、
+    // 还没取到、取不到，看到的都是它。默认外观是程序画的经典配色（见
+    // SkinModel::defaultSteveSkin()），不是把官方那张 Steve 贴图打进仓库。
+    applyPlayerSkin(QString(), QString(), false);
+    // 上一次那个账号的档案要清掉：换账号登录时它已经没用了，留着会让"贴图回来时
+    // 认领"那一步把上一套外观当成这一套。
+    m_skinProfile = PlayerSkinProfile();
+
+    if (!m_authManager->loggedIn()) {
+        // 没登录就没有 uuid，连问都不用问（问也问不出东西来）。那句话现在是
+        // "未登录，显示的是默认外观"，由上面那次 updateSkinHint() 写好。
+        return;
+    }
+    const QString uuid = m_authManager->playerUuid();
+    // 离线模式那个勾选框的意思是"别联网"（启动时会走离线登录），这时候还发一个外观
+    // 请求是自相矛盾的 —— 所以整条联网路径都跳过，只认已经躺在缓存里的那一份。
+    const bool offline = m_ui->getOfflineModeCheckBox()->isChecked();
+
+    // 1) 盘上那份档案：开窗那一刻零网络把**上次**的样子画出来。贴图是内容寻址的，
+    //    命中缓存时 fetchTexture() 是**同步**发信号回来的，所以这一句之后就画好了。
+    PlayerSkinProfile cached;
+    if (PlayerSkinStore::loadCachedProfile(uuid, &cached)) {
+        m_skinProfile = cached;
+        requestSkinTexture(cached.skinUrl, /*allowDownload=*/!offline);
+        requestSkinTexture(cached.capeUrl, /*allowDownload=*/!offline);
+    }
+
+    // 2) 后台刷一次档案：用户在游戏里换了皮肤，重开启动器就能看到。回来那份和手上
+    //    这份一样时 onSkinProfileReady() 什么都不做。
+    if (!offline) {
+        m_skinStore->refreshForUuid(uuid);
+    }
+    updateSkinHint();
+}
+
+bool MainWindow::requestSkinTexture(const QString &url, bool allowDownload) {
+    if (url.isEmpty()) {
+        // 这个人没有披风（多数账号都没有）。**常态**，不是错误，也不是失败。
+        return false;
+    }
+    if (QFile::exists(PlayerSkinStore::cachePathForUrl(url))) {
+        // 命中缓存：fetchTexture() 会同步发 textureReady 回来，所以这一句之后那张
+        // 贴图已经在屏幕上了。
+        m_skinStore->fetchTexture(url);
+        return true;
+    }
+    if (allowDownload) {
+        // 这一张要真的去下载了 —— 那句话得说"正在获取"，而不是"取不到"。
+        m_skinFetchInFlight = true;
+        m_skinStore->fetchTexture(url);
+    }
+    return false;
+}
+
+void MainWindow::onSkinProfileReady(const PlayerSkinProfile &profile) {
+    const bool sameAsBefore = profile.sameAs(m_skinProfile);
+    m_skinProfile = profile;
+    if (sameAsBefore && !m_skinPath.isEmpty()) {
+        // 手上的就是这一份，而且已经在屏幕上 → 这次刷新**完全看不见**：不重下贴图、
+        // 不重画、那句话也不动。用户在游戏里没换皮肤时，绝大多数刷新都走这一条。
+        m_skinFetchInFlight = false;
+        updateSkinHint();
+        return;
+    }
+
+    QString error;
+    if (!PlayerSkinStore::saveProfile(m_authManager->playerUuid(), profile, &error)) {
+        // 存不下来不影响这一次显示（贴图照样下、照样画），只是下次开窗要先重取一遍。
+        appendLog(tr("存玩家外观档案失败：%1").arg(error));
+    }
+    requestSkinTexture(profile.skinUrl, /*allowDownload=*/true);
+    requestSkinTexture(profile.capeUrl, /*allowDownload=*/true);
+    updateSkinHint();
+}
+
+void MainWindow::onSkinTextureReady(const QString &url, const QString &path) {
+    // 两张贴图是**分开**回来的（皮肤一张、披风一张），所以这里做的是"把这一张记到它
+    // 该去的那一格，再用手上这两格重画一遍" —— 披风先到、皮肤后到，两次画都有效。
+    const bool slim = m_skinProfile.variant == QStringLiteral("slim");
+    if (!url.isEmpty() && url == m_skinProfile.skinUrl) {
+        // 皮肤到手了：不再是"正在获取"。就算这张图后面载不进来，也该由那句
+        // "取不到…"来说，而不是一直停在"正在获取"。
+        m_skinFetchInFlight = false;
+        applyPlayerSkin(path, m_capePath, slim);
+        return;
+    }
+    if (!url.isEmpty() && url == m_skinProfile.capeUrl) {
+        applyPlayerSkin(m_skinPath, path, slim);
+        return;
+    }
+    // 两个都对不上：这是一次**过期**的回调（档案已经换成别人了）。丢掉 —— 照着它画
+    // 等于把上一个账号的皮肤画回来。
+}
+
+void MainWindow::onSkinFailed(const QString &message) {
+    // 外观是**装饰**：取不到就静默退回默认外观。这是全仓唯一一处不弹窗的错误，
+    // 理由（别的错误都让用户做不成他想做的事，而这个只是不好看）写在
+    // PlayerSkinStore.hpp 文件头。但日志得留一行，否则真出问题无从查起。
+    appendLog(tr("取玩家皮肤失败：%1").arg(message));
+    m_skinFetchInFlight = false;
+    if (m_skinPath.isEmpty()) {
+        // 已经有真皮肤在屏幕上时**不改那句话**：多数失败是**披风**那一张（皮肤早就画
+        // 好了），这时候说"取不到皮肤"是错的。
+        updateSkinHint();
+    }
+}
+
+void MainWindow::applyPlayerSkin(const QString &skinPath, const QString &capePath, bool slim) {
+    QImage skin;
+    if (!skinPath.isEmpty()) {
+        skin = QImage(skinPath);
+    }
+    QImage cape;
+    if (!capePath.isEmpty()) {
+        cape = QImage(capePath);
+    }
+    if (skin.isNull()) {
+        // 载不进来（文件被删了、下了一半、或者路径本来就是空的）→ 退回默认外观。
+        // 这是**正常的一条路**，不是异常：这条路上 UI 什么都不用说，右栏那句话会由
+        // updateSkinHint() 按"手上有没有真皮肤"重新挑一档。
+        skin = SkinModel::defaultSteveSkin();
+        cape = QImage();
+        m_skinPath.clear();
+        m_capePath.clear();
+    } else {
+        // 只记**真的载入成功了的**路径：所以 m_skinPath 为空就等于"现在显示的是默认外观"。
+        m_skinPath = skinPath;
+        m_capePath = cape.isNull() ? QString() : capePath;
+    }
+
+    m_ui->getSkinViewer()->setSkin(skin, cape, slim);
+    // 头像在这里**算一次存起来**：updateBottomBar() 每次进度刷新（几百毫秒一次）都会
+    // 被调，在它里面现算等于一直在重渲染同一张 8×8 的皮肤。裁切和放大都在
+    // SkinModel::headAvatar() 里（最近邻放大，保持像素画的那个方块感）。
+    m_avatarPixmap = QPixmap::fromImage(SkinModel::headAvatar(skin, MainWindowUI::avatarSize()));
+    updateSkinHint();
+    updateBottomBar();
+}
+
+void MainWindow::updateSkinHint() {
+    const QString name = m_authManager->playerName();
+    QLabel *hint = m_ui->getSkinHintLabel();
+    if (!m_skinPath.isEmpty()) {
+        hint->setText(MainWindowUI::skinHintLoadedText(name, !m_capePath.isEmpty()));
+    } else if (!m_authManager->loggedIn()) {
+        hint->setText(MainWindowUI::skinHintNotLoggedInText());
+    } else if (m_skinFetchInFlight) {
+        hint->setText(MainWindowUI::skinHintLoadingText(name));
+    } else {
+        hint->setText(MainWindowUI::skinHintFailedText(name));
+    }
 }
 
 void MainWindow::updateLoginButton() {
@@ -1600,8 +1778,12 @@ void MainWindow::onLoginStarted() {
 
 void MainWindow::onLoginSucceeded(const QString &playerName) {
     updateLoginButton();
-    // 底栏左下的用户名和头像首字母都换成真名 —— 这是"启动器有反应"里最该看见的那一下
+    // 底栏左下的用户名和头像都换成真名 —— 这是"启动器有反应"里最该看见的那一下
     updateBottomBar();
+    // 外观也要跟着换成**这个账号**的：底下那行名字已经变了，右栏还画着上一个人的
+    // 皮肤，是这一屏里最容易看出来"没跟上"的一处。这里走的是和开窗同一条路
+    // （先默认外观兜底，再拿缓存，最后后台刷），所以离线勾着时也一样不联网。
+    startPlayerSkinLoad();
     // 用户刚在浏览器里看到过「登录成功」，这里再说一声是为了把**登录到的是哪个账户**
     // 摆出来：拿错微软账户登录（家里共用的机器上很常见）只有这句话能看出来。
     QMessageBox::information(this, tr("登录成功"), tr("已登录为「%1」。").arg(playerName));
