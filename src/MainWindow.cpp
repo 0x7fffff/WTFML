@@ -2406,14 +2406,15 @@ void MainWindow::startLoaderInstall(const QString &gameVersion, int loaderIndex)
 
     const QString loaderName = VersionManager::loaderDisplayName(kind);
     if (!VersionManager::loaderInstallSupported(kind)) {
-        // 还没做的那些**不能**退回装纯原版：用户勾着 Forge，装出来一个原版是骗人。
+        // 还没做的那些**不能**退回装纯原版：用户勾着 OptiFine，装出来一个原版是骗人。
         appendLog(tr("%1 的安装还没接通。").arg(loaderName));
         QMessageBox::information(
             this, tr("还没做"),
-            tr("%1 的安装还没做 —— 这一版只接通了 Fabric。\n\n"
-               "Forge 和 NeoForge 要跑它们自己的安装器（会另起一个 Java 进程）；"
-               "OptiFine 的安装器不认命令行给的目录、只能给子进程覆盖 APPDATA。"
-               "这两条都得单独做，不是这里再加一个地址就能通的。\n\n"
+            tr("%1 的安装还没做 —— 现在接通的是 Fabric / Forge / NeoForge。\n\n"
+               "OptiFine 卡在它的安装器上：它把命令行给的目录整个丢掉、只认 APPDATA 下面"
+               "那个 .minecraft（所以得给子进程换 APPDATA、再用目录联接把那个假的指到真"
+               "游戏目录），而且它出错时会弹一个对话框等着人点、进程不退出 —— 这条得单独"
+               "做，不是这里再加一个地址就能通的。\n\n"
                "想装纯原版的话：勾「不装（纯原版）」，再点「下载版本」。")
                 .arg(loaderName));
         return;
@@ -2424,7 +2425,10 @@ void MainWindow::startLoaderInstall(const QString &gameVersion, int loaderIndex)
     appendLog(tr("开始安装 %1 %2...").arg(loaderName, gameVersion));
     setDownloadUiBusy(true);
     m_progressThrottle.invalidate();
-    m_versionManager->installLoaderVersion(gameVersion, kind);
+    // 「设置」里配的那个 Java。Forge/NeoForge 的安装器是**真的起一个 Java 进程**，
+    // 所以这里必须传：机器上 PATH 里没有 java、或者有几个装不同版本的 Java 时，
+    // 用户在这儿指定过哪一个就是哪一个（和启动游戏同一个来源）。
+    m_versionManager->installLoaderVersion(gameVersion, kind, m_javaSettings->javaPath());
 }
 
 void MainWindow::onVersionDownloadFinished(const QString &versionId, bool success,

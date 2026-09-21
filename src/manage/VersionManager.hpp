@@ -13,6 +13,8 @@
 
 class QNetworkAccessManager;
 class QNetworkReply;
+class QProcess;
+class QTimer;
 
 #include "../download/DownloadManager.hpp"
 #include "VersionDisplay.hpp"
@@ -49,11 +51,15 @@ public:
     /// 下载页那四个单选钮对应的加载器。
     enum class LoaderKind { Fabric, Forge, NeoForge, OptiFine };
 
-    /// 这个加载器现在接通了没有。**目前只有 Fabric。**
+    /// 这个加载器现在接通了没有。**Fabric / Forge / NeoForge 接通了，OptiFine 还没有。**
     //
     // 为什么要有这个函数、而不是让界面自己判断：界面要据此决定"点了下载之后弹哪一种话"
     // （能做 / 还没做）。两边各写一份 switch 的话，接通一个加载器时漏改一处，症状是
     // "明明能装却弹一句『还没做』"—— 或者更糟，反过来。
+    //
+    // NOTE: Fabric 和另外两个**不是同一条路**：Fabric 是我们自己拉 json + 下库，
+    //       Forge/NeoForge 是**另起一个 Java 进程跑它们自己的安装器**。这个函数只说
+    //       "能不能装"，不说"怎么装"，所以两者在它眼里一样。
     static bool loaderInstallSupported(LoaderKind kind);
 
     /// 写进 wtfml.meta 的 `loaderName`（显示名里那一段）。比如 "Fabric"。
@@ -78,24 +84,40 @@ public:
      * @brief 装一个带模组加载器的版本。
      * @param gameVersion 它基于的**原版**版本号（必须在"可安装版本"那张清单里）。
      * @param kind 装哪一种加载器。
+     * @param javaPath 用哪个 Java 跑**外部安装器**（Fabric 用不上它，传空即可）。
+     *        空 = 用 PATH 上的 `java`。界面上传的是"设置"里配的那个。
      *
-     * 全过程（一次点击，两批下载）：
-     *   1. 拉加载器列表 → 挑一个版本（Fabric 是"最新那个正式版"）；
+     * 【Fabric】一次点击，两批下载：
+     *   1. 拉加载器列表 → 挑一个版本（"最新那个正式版"）；
      *   2. 拉它的 profile json —— 那份**薄 json** 就是要落盘的版本 json；
      *   3. 原版没装就先把它按老路装好（客户端 jar + 库 + 资源，那才是能玩的那一半）；
      *   4. 再下加载器自己那几个库（maven 风格，见 LibraryRules::artifactFor），
      *      并把 `realVersion`/`loaderName`/`loaderVersion` 写进 <id>/wtfml.meta。
      *
-     * NOTE: 第 3 步是**复用** `downloadVersion()` 那条已经验过的老路，不是另写一份；
-     *       所以它绑定的那几个信号（versionDetailsFetched / versionDownloadFinished）
-     *       在安装期间会被本类截住，UI 只会在整件事结束时收到**一个**完成信号 ——
-     *       否则用户会在"原版下完"那一刻看到一个"下载完成"的框，然后加载器还在下，
-     *       而按钮已经重新亮起来能点了。
+     * 【Forge / NeoForge】它们装出来的东西里有**二进制补丁**（拿原版的客户端 jar 打出一份
+     * srg 名 jar、再打出一份 client jar），不是靠下载能凑出来的，所以这条路是：
+     *   1. 拉版本表（Forge 是 promotions_slim.json、NeoForge 是 maven-metadata.xml）→ 挑一个；
+     *   2. 把它们的安装器 jar 下到 <数据目录>/cache/installers/；
+     *   3. **另起一个 Java 进程**跑 `java -jar <安装器> --installClient <游戏目录>`
+     *      （异步 QProcess + 心跳 + 硬超时，见 runInstaller）；
+     *   4. 核对它留下的那份版本 json（目录名与 inheritsFrom，见 checkInstallerResult）；
+     *   5. 安装器**不下资源文件**，所以再走一遍 `downloadVersion(原版)` 把原版补齐
+     *      （json / 客户端 jar / 库 / 资源，已有的按老规矩校验后跳过）；
+     *   6. 写 wtfml.meta，发完成信号。
+     * 它的前置条件只有一条：游戏目录里得有 `launcher_profiles.json`（安装器拿它认目录），
+     * 没有就补一份最小的（见 ensureLauncherProfiles）。
+     *
+     * NOTE: 两条路都在第 3 步（原版那一批）**复用** `downloadVersion()` 那条已经验过的
+     *       老路，不是另写一份；所以它绑定的那几个信号（versionDetailsFetched /
+     *       versionDownloadFinished）在安装期间会被本类截住，UI 只会在整件事结束时收到
+     *       **一个**完成信号 —— 否则用户会在"原版下完"那一刻看到一个"下载完成"的框，
+     *       然后加载器还在下/还在装，而按钮已经重新亮起来能点了。
      *
      * 失败一律以 `versionDownloadFinished(loaderId, false, 原因)` 收尾（还没算出
      * loaderId 时用 gameVersion 当 id），`loaderInstallMessage()` 里说清卡在哪一步。
      */
-    void installLoaderVersion(const QString &gameVersion, LoaderKind kind);
+    void installLoaderVersion(const QString &gameVersion, LoaderKind kind,
+                              const QString &javaPath = QString());
 
     /// 有加载器安装正在进行（含"先装原版"那一段）。
     /// UI 用它来兜住"两批下载之间那一瞬间按钮亮着"的缝。
@@ -291,11 +313,14 @@ private:
     struct LoaderInstall {
         enum class Phase {
             Idle,
-            FetchingList,        ///< 正在拉加载器版本列表
-            FetchingProfile,     ///< 正在拉它的 profile json
-            WaitingParentJson,   ///< 正在取原版的 version.json（走 fetchVersionDetails）
-            WaitingParentFiles,  ///< 原版那一批正在下（客户端 jar / 库 / 资源）
-            WaitingLoaderFiles,  ///< 加载器自己那几个库正在下
+            FetchingList,           ///< Fabric：正在拉加载器版本列表
+            FetchingProfile,        ///< Fabric：正在拉它的 profile json
+            FetchingInstallerList,  ///< Forge/NeoForge：正在拉版本表
+            WaitingInstallerJar,    ///< Forge/NeoForge：安装器 jar 正在下
+            RunningInstaller,       ///< Forge/NeoForge：安装器那个 Java 进程正在跑
+            WaitingParentJson,      ///< 正在取原版的 version.json（走 fetchVersionDetails）
+            WaitingParentFiles,     ///< 原版那一批正在下（客户端 jar / 库 / 资源）
+            WaitingLoaderFiles,     ///< Fabric：加载器自己那几个库正在下
         };
 
         Phase phase = Phase::Idle;
@@ -304,6 +329,11 @@ private:
         QString loaderName;     ///< wtfml.meta 的 loaderName
         QString loaderVersion;  ///< wtfml.meta 的 loaderVersion
         QString loaderId;       ///< 版本目录名，也是最终 finished 信号里的 id
+        /// 跑外部安装器用哪个 Java（空 = PATH 上的 `java`）。Fabric 用不上。
+        QString javaPath;
+        /// 安装器 jar 要下的地址，以及它落在盘上的哪个文件。两条路都在拉完版本表时填好。
+        QString installerUrl;
+        QString installerPath;
 
         bool active() const { return phase != Phase::Idle; }
         // 结算用的 id：还没算出 loaderId 时退化成原版号 —— 失败信号总得带一个 id。
@@ -323,11 +353,45 @@ private:
     void startParentOrLoaderFiles();
     // 把加载器 json 落盘并下它自己那几个库（走 downloadVersion 那条老路）。
     void startLoaderFiles();
+
+    // ---- Forge / NeoForge：跑它们自己的安装器 ----
+
+    // 拉版本表（Forge 的 promotions_slim.json / NeoForge 的 maven-metadata.xml）。
+    // 两份接口一个 JSON 一个 XML，但都是"拉一段文本、挑一个版本号"，所以共用一条路，
+    // 按 kind 在回复处理里分派。
+    void fetchInstallerList();
+    void onInstallerListReply(QNetworkReply *reply);
+    // 把安装器 jar 下到 cache/installers/（一批下载，完成信号回到 onAllDownloadsFinished）。
+    void startInstallerDownload();
+    // 前置检查 + 起那个 Java 子进程。**异步**：它不阻塞界面，结果由 onInstallerFinished 收。
+    void runInstaller();
+    // 读子进程的输出（只留尾巴，用来在失败时报"卡在哪"）。
+    void onInstallerOutput();
+    // 每秒一跳：报心跳，顺带执行硬超时。
+    void onInstallerTick();
+    void onInstallerError(int processError);
+    void onInstallerFinished(int exitCode, bool crashed);
+    // 收尾那一路（超时 / 起不来）：先把 phase 挪开再杀进程，然后发失败信号。
+    void abortInstaller(const QString &reason);
+    // 安装器装完之后把**原版**补齐：它不下 assets，而且 Forge 连原版的 json 都不写
+    // （只在 versions/<原版>/ 留下一份客户端 jar）。
+    void startParentCompletion();
+
+    // launcher_profiles.json 是那两个安装器的硬前置（缺了它安装器直接拒绝干活）。
+    // 没有就补一份最小的；已经有就一个字都不动 —— 里面可能是用户真正的启动器档案。
+    // @param createdOut 非空时回填"这次是不是我们新建的"（只有新建才值得跟用户说一声）。
+    bool ensureLauncherProfiles(bool *createdOut, QString *errorOut) const;
+
     // 把 realVersion / loaderName / loaderVersion 合并写进 <id>/wtfml.meta。
     void writeLoaderMeta();
+    // 成功/失败的**唯一**终态：写 meta（成功时）、清状态、发 versionDownloadFinished。
+    // @param message 那批下载的汇总（"N 个文件已全部就绪"那种），拼进终态话术里。
+    void finishLoaderInstall(bool success, const QString &message);
     // 中途失败：清状态、把缓存里那份"还没落盘的 json"扔掉、发一个失败信号收尾。
     // @param reason 给用户看的一句话（谁卡住了、下一步能做什么）。
     void failLoaderInstall(const QString &reason);
+    // 安装器输出的最后一行非空内容（心跳和失败报告都用它）。
+    QString installerLastOutputLine() const;
 
     DownloadManager *downloadManager;
     // 加载器元数据那两次 GET 用**自己**的 network manager，不复用 DownloadManager 的：
@@ -335,6 +399,20 @@ private:
     // 混用会让两条路互相把对方的等待状态顶掉。
     QNetworkAccessManager *loaderNetwork = nullptr;
     LoaderInstall m_loaderInstall;
+    // 跑 Forge/NeoForge 的安装器那个子进程。懒建（装 Forge/NeoForge 之前一直是 nullptr）
+    // —— Fabric 那条路一个进程都不起。
+    //
+    // NOTE: 它**不能**同步跑（waitForFinished）。实测 Forge 47.4.10 在空目录上装一次要
+    //       100 秒上下，NeoForge 更久；阻塞在槽里就是界面整体冻住那么久，连"未响应"
+    //       都没有（Qt 的事件循环根本没在转）。所以走异步信号，另外配一个定时器报心跳 +
+    //       兜硬超时。
+    QProcess *installerProcess = nullptr;
+    QTimer *installerTimer = nullptr;
+    /// 安装器输出的尾巴（stdout + stderr 混在一起）。只留最后 64 KB：失败时要报"卡在哪
+    /// 一行"，但没必要把几万行 "Patching xxx 1/1" 都攥在内存里。
+    QByteArray m_installerOutput;
+    qint64 m_installerStartedAt = 0;  ///< QDateTime::currentMSecsSinceEpoch()，算超时用
+    int m_installerTicks = 0;         ///< 定时器跳了几次，用来决定该不该报心跳
     // versionId -> versionJson。mutable 是因为 getVersionJson() 是 const 的，
     // 但它在回读磁盘后要顺手填充这个缓存。
     mutable QMap<QString, QJsonObject> versionJsons;

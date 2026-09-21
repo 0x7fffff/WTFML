@@ -7,6 +7,15 @@
  *       VersionManager::installLoaderVersion()（它才是 QObject），这样这几条规则能在
  *       验证工程里离线钉住 —— 联网的那半边没法在沙箱里跑（要真下几个 GB 的资源）。
  *
+ * 三类加载器各有一套接口形状（全部实测）：
+ *
+ * 【Forge / NeoForge】它们不走"拉一份 json 再下库"那条路，而是**跑它们自己的安装器 jar**
+ *   （`java -jar xxx-installer.jar --installClient <游戏目录>`，见下面的注释）。这里只放
+ *   "版本从哪来、挑哪一个、安装器 jar 在哪个地址、装出来的目录叫什么"这四件事。
+ *
+ * 【OptiFine】它的安装器**不认命令行给的目录**（main 把参数整个丢掉，只从 APPDATA 找），
+ *   所以还没有接通，这里也没有它的函数。
+ *
  * Fabric 的接口形状（2026-09-21 实测）：
  *   GET /v2/versions/loader/<游戏版本>
  *       -> 数组，每个元素 {loader:{version,stable,build,maven}, intermediary:{...},
@@ -19,9 +28,11 @@
  */
 #pragma once
 
+#include <QByteArray>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QJsonValue>
+#include <QList>
 #include <QLatin1Char>
 #include <QRegularExpression>
 #include <QString>
@@ -119,6 +130,42 @@ inline ProfileCheck checkFabricProfile(const QJsonObject &profile, const QString
     return result;
 }
 
+/**
+ * @brief 核对外部安装器装完之后留下的那份版本 json。
+ * @param versionJson `versions/<id>/<id>.json` 的内容。
+ * @param gameVersion 我们打算装在这个原版版本之上。
+ * @param expectedId 我们按约定算出来的版本 id（= 目录名）。
+ * @return 复用 ProfileCheck 那两个字段；problem 的含义和 checkFabricProfile() 一样。
+ *
+ * 为什么退出码 0 还不够：安装器的退出码是它自己说了算的，而**真正被写进磁盘的那份 json
+ * 才是别的启动器和我们自己的启动路径要读的东西**。这里查两条：
+ *
+ * 1. json 里的 `id` 必须**等于我们算出来的那个目录名**。目录名是我们拼的（`forgeLoaderId`),
+ *    而 json 是安装器写的；两者对不上意味着"Forge 换了命名约定"，我们接下来要么把
+ *    wtfml.meta 写到一个不存在的 id 上、要么把一个名字对不上的版本记成"装好了"。
+ * 2. `inheritsFrom` 必须就是 `gameVersion`。对不上就是"装是装上了，但基于的是另一个原版"
+ *    —— 启动时它去找那个原版，而用户以为自己装的是基于这个的。
+ *
+ * NOTE: 和 checkFabricProfile() 用同一个结构体（ProfileCheck）和同一套 problem 枚举是
+ *       刻意的：两处的失败模式一模一样（ID 不可用 / 父版本不对），文案由调用方按
+ *       problem 分派，多一套枚举只会多一处要同步的东西。
+ */
+inline ProfileCheck checkInstallerResult(const QJsonObject &versionJson, const QString &gameVersion,
+                                         const QString &expectedId) {
+    ProfileCheck result;
+    result.id = versionJson.value(QStringLiteral("id")).toString();
+    result.parent = versionJson.value(QStringLiteral("inheritsFrom")).toString();
+    if (result.id != expectedId || !isSafeVersionId(result.id)) {
+        result.problem = ProfileProblem::BadId;
+        return result;
+    }
+    if (result.parent != gameVersion) {
+        result.problem = ProfileProblem::WrongParent;
+        return result;
+    }
+    return result;
+}
+
 /// 从加载器列表里挑出来的那一个。
 struct LoaderPick {
     QString version;    ///< 加载器版本号；空 = 列表里没有能用的
@@ -155,6 +202,264 @@ inline LoaderPick pickFabricLoader(const QJsonArray &list) {
         }
     }
     return fallback;
+}
+
+// ---------------------------------------------------------------------------
+// Forge / NeoForge：跑它们自己的安装器 jar
+// ---------------------------------------------------------------------------
+//
+// 【为什么这一段和上面 Fabric 那段完全不是一回事】
+//
+// Fabric 那边我们能自己拼出结果：一份 2.8 KB 的 profile json 落盘就是版本 json，剩下的
+// 就是下 8 个 maven 库。Forge / NeoForge 不行 —— 它们装出来的东西里有**二进制补丁**
+// （拿 vanilla 的 client jar 打出一份 srg 名 jar，再打出一份 client jar），那不是靠下载
+// 能凑出来的。所以只能把它们的安装器请下来、**另起一个 Java 进程**跑。
+//
+// 【实测到的安装器行为】（2026-09-22，沙箱里真的跑过 Forge 47.4.10 和 NeoForge 21.1.215）
+//
+//   java -jar <安装器>.jar --installClient <游戏目录>
+//
+//   * 目录里**必须已经有 launcher_profiles.json**。没有的话它直接拒绝：
+//     `There is no minecraft launcher profile in "...", you need to run the launcher first!`
+//     + `There was an error during installation`，退出码 1 —— 一个字节的库都不会下。
+//     这是它唯一的前置条件（我们拿一个只有 launcher_profiles.json 的空目录试过，它照样装成）。
+//   * 成功时最后两行是 `Successfully installed client into launcher.` /
+//     `You can delete this installer file now if you wish`，退出码 0。
+//   * **自动的安装器是拿不到的**：真实下载页在广告后面。见下面 URL 那段的说明。
+//
+//   Forge 47.4.10 → `versions/1.20.1-forge-47.4.10/1.20.1-forge-47.4.10.json`
+//                   （inheritsFrom = 1.20.1，mainClass = cpw.mods.bootstraplauncher
+//                   .BootstrapLauncher，29 个库，**没有 downloads 字段**）
+//                 外加 `versions/1.20.1/1.20.1.jar`（vanilla 的客户端 jar，sha1 与官方
+//                   逐字节相同）—— **但没有 1.20.1.json**。
+//   NeoForge 21.1.215 → `versions/neoforge-21.1.215/neoforge-21.1.215.json`
+//                 外加 `versions/1.21.1/` 的 json **和** jar。
+//   * 两个都**不下 assets**。所以"装完加载器"之后必须自己把原版那一套补全（resources
+//     索引 + 5000 个对象），否则用户拿到的是一个启动就崩的版本 —— 补全复用现有的
+//     downloadVersion()，不是另写一份。
+
+/// Forge 的"推广版本"表（`<游戏版本>-recommended` / `<游戏版本>-latest` 两两成对）。
+///
+/// 只有 4 KB，一次把**所有**游戏版本的 Forge 推荐版本都拿回来了。
+inline QString forgePromotionsUrl() {
+    return QStringLiteral(
+        "https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json");
+}
+
+/// 从 promotions_slim.json 里挑一个 Forge 版本。
+/// @param promotions 接口返回的对象（原样，顶层有 `promos`）。
+/// @param gameVersion 原版版本号（就是 `promos` 里键的前半段）。
+/// @return 挑中的版本；这个游戏版本一个都没有时 `ok()` 为 false。
+///
+/// 规则：**优先 recommended，没有才用 latest**。
+///
+/// 为什么不是 latest：这两个键的语义是 Forge 自己给的 —— recommended 是"我们觉得这个
+/// 版本可以日常用"，latest 是"这个游戏版本上最新发出来的"。实测 1.20.1 那一对是
+/// 47.4.10（recommended）和 47.4.23（latest），而真机上装着的正是 47.4.10。
+/// 还**必须**兜底到 latest：真表里有一大批游戏版本只有 latest 一个键（实测 1.20 只有
+/// `46.0.14`、1.19.1 只有 `42.0.9`、1.21.6 只有 `56.0.9`），一个不兜底它们就都装不了。
+/// NOTE: 别拿 1.7.10 当"只有 latest"的例子 —— 我一开始就是这么写的，而真表里它**两个键
+///       都有**（`10.13.4.1614` 各写一遍）。看着像常识的版本号也得回真数据里核一遍。
+/// NOTE: 这里不自己比版本号大小 —— 键的语义是"Forge 推荐的"，不是"数字最大的"，
+///       latest 也可能比 recommended 小（真发生过，见上）。
+inline LoaderPick pickForgeVersion(const QJsonObject &promotions, const QString &gameVersion) {
+    const QJsonObject promos = promotions.value(QStringLiteral("promos")).toObject();
+    const QString recommended =
+        promos.value(gameVersion + QStringLiteral("-recommended")).toString();
+    if (!recommended.isEmpty()) {
+        return LoaderPick{recommended, true};
+    }
+    const QString latest = promos.value(gameVersion + QStringLiteral("-latest")).toString();
+    if (!latest.isEmpty()) {
+        return LoaderPick{latest, false};
+    }
+    return LoaderPick{};
+}
+
+/// Forge 安装器 jar 的地址（maven 上的坐标就是 `<游戏版本>-<Forge 版本>`）。
+///
+/// NOTE: 这是 maven 直链，不是下载页那个地址。安装器 jar 自己开头写着一段
+///       `_comment_`：`Please do not automate the download and installation of Forge.
+///       Our efforts are supported by ads from the download page.` —— 也就是说
+///       **Forge 明确不希望别人自动装**。我们走 maven 直链是刻意的选择：下载页那条路
+///       要先过广告页拿 token，做成"替用户点广告"才是真的不礼貌；maven 上的 jar 是同一个
+///       文件、由 Forge 自己发布，走它至少没绕过任何东西。
+///
+/// NOTE: 这个 host（maven.minecraftforge.net）不在 DownloadManager::mirrorUrl() 认得的那
+///       三个里面，所以它会**原样**过去 —— 镜像源不代理 Forge 的 maven，这是对的。
+inline QString forgeInstallerUrl(const QString &gameVersion, const QString &loaderVersion) {
+    const QString full = gameVersion + QLatin1Char('-') + loaderVersion;
+    return QStringLiteral("https://maven.minecraftforge.net/net/minecraftforge/forge/%1/forge-%1-installer.jar")
+        .arg(full);
+}
+
+/// Forge 装出来的版本目录名。
+///
+/// 和 Fabric 那边一个道理：这个名字**不是我们发明的**，是安装器自己写进 launcher_profiles
+/// 的 profile、也是版本 json 里 `id` 字段的值（实测 1.20.1 + 47.4.10 → `1.20.1-forge-47.4.10`）。
+/// 改一个字就等于"装好了但谁都不认识它"。装完会**核对这个目录真的存在**（见 VersionManager），
+/// 所以万一哪天 Forge 改了约定，报的是"装是装了、但没在预期的地方找到"，不是静默写错地方。
+inline QString forgeLoaderId(const QString &gameVersion, const QString &loaderVersion) {
+    return QStringLiteral("%1-forge-%2").arg(gameVersion, loaderVersion);
+}
+
+/// NeoForge 的 maven 元数据（那 63 KB 的 XML 里就是**全部**版本号）。
+inline QString neoforgeMavenMetadataUrl() {
+    return QStringLiteral(
+        "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml");
+}
+
+/// 把一个点分版本号解析成数字列表。空列表 = 不是版本号。
+///
+/// NOTE: 逐段走正则，不用 QString::toInt() —— 后者接受前导空白、正负号（`"+5"`、`" 5"`
+///       都能过），而这里进来的是 maven 上别人写的东西、出去的用途是拼 URL 和比大小。
+inline QList<int> parseDottedVersion(const QString &text) {
+    QList<int> parts;
+    if (text.isEmpty()) {
+        return parts;
+    }
+    static const QRegularExpression digits(QStringLiteral("^[0-9]+$"));
+    const QStringList segments = text.split(QLatin1Char('.'));
+    for (const QString &segment : segments) {
+        if (!digits.match(segment).hasMatch()) {
+            return QList<int>();
+        }
+        parts.append(segment.toInt());
+    }
+    return parts;
+}
+
+/// 比两个点分版本号。**短的按补零算**（所以 `26.1.2` < `26.1.2.71`）。
+/// @return 负数 / 0 / 正数和 strcmp 一个意思。
+inline int compareDottedVersions(const QList<int> &left, const QList<int> &right) {
+    const int length = qMax(left.size(), right.size());
+    for (int i = 0; i < length; ++i) {
+        const int a = i < left.size() ? left.at(i) : 0;
+        const int b = i < right.size() ? right.at(i) : 0;
+        if (a != b) {
+            return a < b ? -1 : 1;
+        }
+    }
+    return 0;
+}
+
+/// `prefix` 是不是 `full` 的**逐段**前缀（`[21,1]` 是 `[21,1,251]` 的前缀，
+/// 但**不是** `[21,10,64]` 的前缀）。
+///
+/// NOTE: 这里必须是逐段比，不能拿字符串前缀比 —— NeoForge 真有 `21.1.x` 和 `21.10.x`
+///       两族（分别对应 MC 1.21.1 和 1.21.10），按字符串 `"21.1"` 前缀匹配会把
+///       `21.10.64` 也算进来，然后在比大小时把 `21.10.64` 挑成 1.21.1 的加载器。
+inline bool isDottedPrefix(const QList<int> &prefix, const QList<int> &full) {
+    if (prefix.isEmpty() || prefix.size() > full.size()) {
+        return false;
+    }
+    for (int i = 0; i < prefix.size(); ++i) {
+        if (prefix.at(i) != full.at(i)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/// NeoForge 版本号的"游戏版本前缀"。
+///
+/// NeoForge 的版本号刻意跟着游戏版本走，但**不是**同一串数字：
+///   游戏 1.21.1  → NeoForge 21.1.x      （去掉开头的 `1.`）
+///   游戏 1.20.2  → NeoForge 20.2.x
+///   游戏 26.2    → NeoForge 26.2.x      （游戏版本自己就是 26.2，没有 `1.` 可去）
+///   游戏 26.1.2  → NeoForge 26.1.2.x
+/// 所以规则是：去掉开头的 `1.`（如果有），再取前两段；只有一段时补一个 `.0`。
+/// 补 `.0` 那一手是给 `1.21` 这种两段式游戏版本用的 —— 它对应 NeoForge 的 `21.0.x`，
+/// 不补的话前缀会退化成 `[21]`，于是把 `21.1.x`、`21.11.x` 全都算进来。
+inline QList<int> neoForgeVersionPrefix(const QString &gameVersion) {
+    QString text = gameVersion;
+    if (text.startsWith(QLatin1String("1."))) {
+        text.remove(0, 2);
+    }
+    QList<int> parts = parseDottedVersion(text);
+    if (parts.isEmpty()) {
+        return parts;
+    }
+    while (parts.size() < 2) {
+        parts.append(0);
+    }
+    parts = parts.mid(0, 2);
+    return parts;
+}
+
+/// 从 neoforge 的 maven-metadata.xml 里挑一个 NeoForge 版本。
+/// @param mavenMetadata XML 原文（原样，这里只扫 `<version>...</version>`）。
+/// @param gameVersion 原版版本号。
+/// @return 挑中的版本；这个游戏版本一个正式版都没有时 `ok()` 为 false。
+///
+/// 规则：**只认不带后缀的版本号**（`-beta` 那一大堆全部跳过），在剩下的里面挑**数字最大**
+/// 的那个。
+///
+/// 为什么是"比大小"而不是像 Fabric 那样"取第一个"：maven-metadata 的 `<versions>` 是
+/// **按发布时间排的，不是按版本号排的**。实测那一份的末尾是
+/// `26.3.0.6-beta, 21.1.251, 26.3.0.7-beta, 26.3.0.8-beta` —— `21.1.251` 是刚为一个旧
+/// 版本补发的，夹在一堆 26.3 的快照中间。取"最后一个匹配的"会挑出 `21.1.251` 是不小心的
+/// 巧合，换个游戏版本就错了。
+/// NOTE: `-beta` 之外的后缀也一并跳过（maven 上还有别的），理由是"这个后缀能不能日常用"
+///       不是我们能判断的事情，宁可不装也不给用户一个半成品。
+inline LoaderPick pickNeoForgeVersion(const QByteArray &mavenMetadata, const QString &gameVersion) {
+    const QList<int> prefix = neoForgeVersionPrefix(gameVersion);
+    if (prefix.isEmpty()) {
+        return LoaderPick{};
+    }
+
+    LoaderPick best;
+    QList<int> bestParsed;
+    static const QRegularExpression tag(QStringLiteral("<version>([^<]+)</version>"));
+    QRegularExpressionMatchIterator it = tag.globalMatch(QString::fromUtf8(mavenMetadata));
+    while (it.hasNext()) {
+        const QString version = it.next().captured(1).trimmed();
+        if (version.contains(QLatin1Char('-'))) {
+            continue;
+        }
+        const QList<int> parsed = parseDottedVersion(version);
+        if (parsed.isEmpty() || !isDottedPrefix(prefix, parsed)) {
+            continue;
+        }
+        if (best.version.isEmpty() || compareDottedVersions(parsed, bestParsed) > 0) {
+            best = LoaderPick{version, true};
+            bestParsed = parsed;
+        }
+    }
+    return best;
+}
+
+/// NeoForge 安装器 jar 的地址。
+/// NOTE: 这条地址是实测通的（21.1.251 和 26.2.0.57 都 HTTP 200）。和 Forge 那条不一样，
+///       NeoForge 的 maven 就是它官方的发布处，没有广告页那一层。
+inline QString neoforgeInstallerUrl(const QString &loaderVersion) {
+    return QStringLiteral("https://maven.neoforged.net/releases/net/neoforged/neoforge/%1/neoforge-%1-installer.jar")
+        .arg(loaderVersion);
+}
+
+/// NeoForge 装出来的版本目录名。
+///
+/// 和 Forge **不一样**：它不带游戏版本前缀，直接就是 `neoforge-<版本>`
+/// （实测 21.1.215 → `versions/neoforge-21.1.215/`）。这不是笔误，也不能"统一一下"——
+/// 别的启动器按这个名字找目录。
+inline QString neoforgeLoaderId(const QString &loaderVersion) {
+    return QStringLiteral("neoforge-%1").arg(loaderVersion);
+}
+
+/// Forge / NeoForge 的安装器认的那个"启动器档案"文件名。
+///
+/// 它不是一个可选的东西：**没有它安装器直接拒绝干活**（见上面那段实测）。我们的启动器
+/// 自己不需要它，但它旁边的原版启动器、以及这些第三方安装器都按它判断"这是一个
+/// Minecraft 数据目录"。
+inline QString launcherProfilesFileName() { return QStringLiteral("launcher_profiles.json"); }
+
+/// 一份**最小可用**的 launcher_profiles.json。
+///
+/// 只在目标目录里没有这个文件时才写（见 VersionManager::ensureLauncherProfiles）——
+/// 装过任何一个原版启动器/第三方启动器的目录里都有一份内容更全的，覆盖它是把用户的
+/// 东西弄丢。结构照抄安装器认的那三个键：原版启动器写出来就是这个形状。
+inline QByteArray minimalLauncherProfiles() {
+    return QByteArrayLiteral("{\n  \"profiles\": {},\n  \"settings\": {},\n  \"version\": 3\n}\n");
 }
 
 }  // namespace LoaderMeta

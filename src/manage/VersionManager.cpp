@@ -11,9 +11,11 @@
 
 #include "VersionManager.hpp"
 
+#include <QDateTime>
 #include <QDebug>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonParseError>
@@ -21,8 +23,10 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QProcess>
 #include <QRegularExpression>
 #include <QSaveFile>
+#include <QTimer>
 #include <QSet>
 #include <QUrl>
 #include <QUuid>
@@ -52,6 +56,71 @@ const QString kDisplayNameField = QStringLiteral("name");
 
 /// 一个新的稳定实例 id。只有这一处生成它，免得"生成规则"在改名的路径上被抄第二遍。
 QString newInstanceId() { return QUuid::createUuid().toString(QUuid::WithoutBraces); }
+
+/// Forge / NeoForge 的安装器那个 Java 进程最多跑多久。**不是**"失败得快一点"，
+/// 是"别让界面永远停在忙态"（那个进程不结束，界面就一直禁着按钮）。
+///
+/// 实测 Forge 47.4.10 在一个空目录上装一次：100 秒上下（下 29 个库 + 把原版的
+/// 客户端 jar 打两遍补丁）。慢网、机械盘上几分钟很正常，所以给得宽松 —— 三十分钟
+/// 还没结束，那不是慢，那是卡住了（或者弹了个看不见的对话框在等人点）。
+constexpr int kInstallerTimeoutMs = 30 * 60 * 1000;
+
+/// 安装器跑着的时候，每隔这么多秒报一次"还在跑"。
+///
+/// 安装器的输出里绝大部分是 `Patching xxx 1/1` 这种**逐文件**的行，那些不该进日志
+/// （进度归进度条，见产品约定）。但一声不吭地等三分钟也不像话 —— 用户会以为卡死了。
+/// 折中是：一行都不逐条转，但每 20 秒报一次"还在跑 + 它最后打的那一行"。
+constexpr int kInstallerHeartbeatSeconds = 20;
+
+/// 安装器输出的尾巴留多少字节。失败时要报"卡在哪一行"，但没必要把几万行都攥在内存里。
+constexpr int kInstallerOutputKeepBytes = 64 * 1024;
+
+/// 心跳和超时都靠这个定时器，间隔固定 1 秒。
+constexpr int kInstallerTickMs = 1000;
+
+/// 把安装器的输出切成行（两个通道混在一起，所以 `\r` 和 `\n` 都当分隔符 ——
+/// 安装器里那些 "Patching xxx 1/1" 是靠 `\r` 原地刷的）。
+QStringList installerOutputLines(const QByteArray &output) {
+    return QString::fromLocal8Bit(output).split(
+        QRegularExpression(QStringLiteral("[\r\n]+")), Qt::SkipEmptyParts);
+}
+
+/// 安装器输出的**最后几行**（失败时贴给用户看，是"卡在哪"的唯一线索）。
+///
+/// 上限是刻意的：装到一半失败时它可能已经打了几千行 "Patching ... 1/1"，全贴出来
+/// 只会把真正的那一行淹掉。最后几行才是有信息的那几行。
+QString installerOutputTail(const QByteArray &output, int maxLines = 12) {
+    const QStringList lines = installerOutputLines(output);
+    const int from = qMax(0, lines.size() - maxLines);
+    QStringList tail;
+    for (int i = from; i < lines.size(); ++i) {
+        const QString line = lines.at(i).trimmed();
+        if (!line.isEmpty()) {
+            tail.append(line);
+        }
+    }
+    return tail.join(QLatin1Char('\n'));
+}
+
+/// 直接从盘上读一份版本 json，**不**经过 versionJsons 那份内存缓存。
+///
+/// NOTE: 安装完之后的核对必须绕开缓存。装 Forge/NeoForge 的版本往往**本来就是一个
+///       已经存在的版本**（用户重装、或者在一个装过 Forge 的版本上换加载器版本），
+///       那这个 id 早就被读进缓存了 —— 走缓存就等于拿**安装之前**那份 json 去核对
+///       安装之后的产物，核对永远能过，白核。
+QJsonObject readVersionJsonAt(const QString &path) {
+    QFile file(path);
+    if (!file.exists() || !file.open(QIODevice::ReadOnly)) {
+        return QJsonObject();
+    }
+    QJsonParseError parseError;
+    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &parseError);
+    if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+        qWarning() << "Failed to parse" << path << ":" << parseError.errorString();
+        return QJsonObject();
+    }
+    return doc.object();
+}
 
 /// 把 from 改名成 to。from 本来就不在时**当成功**（可选文件：json、meta 都可能没有）。
 ///
@@ -241,11 +310,16 @@ void VersionManager::downloadVersion(const QString &versionId, const QString &de
 // ---------------------------------------------------------------------------
 
 bool VersionManager::loaderInstallSupported(LoaderKind kind) {
-    // Forge / NeoForge 是另一回事：它们要跑自己的 installer jar
-    // （`java -jar forge-installer.jar --installClient <目录>`），OptiFine 的 installer
-    // 更麻烦，它不认命令行给的目录、只能给子进程覆盖 APPDATA —— 两条都要起 Java 子进程，
-    // 和这里这条"拉 json + 下库"不是同一种活，分开做（见 README 的待办）。
-    return kind == LoaderKind::Fabric;
+    // Fabric 是"拉 json + 下库"，Forge/NeoForge 是"另起一个 Java 进程跑它们的安装器"
+    // —— 两条完全不同的路，但都接通了，所以这里一样返回 true（这个函数只说"能不能装"）。
+    //
+    // OptiFine 还没做，理由不是"懒"：它的安装器 main(String[]) **把命令行参数整个丢掉**
+    // （实测反汇编：`Utils.getWorkingDirectory()` 只认 `%APPDATA%/.minecraft`），
+    // 所以只能给子进程覆盖 APPDATA、再把那个假的 .minecraft 用**目录联接**指到真游戏目录；
+    // 而且它在出错时会弹一个 Swing 对话框、**进程因此永不退出**（实测跑满 120 秒被杀）。
+    // 这条路要单独做（连接联的删除都得走 rmdir，不能递归删 —— 删错一步就是用户真实的
+    // .minecraft），见 README 的待办。
+    return kind == LoaderKind::Fabric || kind == LoaderKind::Forge || kind == LoaderKind::NeoForge;
 }
 
 QString VersionManager::loaderDisplayName(LoaderKind kind) {
@@ -284,7 +358,8 @@ bool VersionManager::loaderKindFromIndex(int index, LoaderKind *out) {
 
 bool VersionManager::isLoaderInstalling() const { return m_loaderInstall.active(); }
 
-void VersionManager::installLoaderVersion(const QString &gameVersion, LoaderKind kind) {
+void VersionManager::installLoaderVersion(const QString &gameVersion, LoaderKind kind,
+                                         const QString &javaPath) {
     if (m_loaderInstall.active()) {
         qWarning() << "A loader install is already running, refusing to start another.";
         emit loaderInstallMessage(tr("已经有一个加载器正在安装，等它结束再试。"));
@@ -294,7 +369,8 @@ void VersionManager::installLoaderVersion(const QString &gameVersion, LoaderKind
         // 界面那边也会拦下来并弹一个"还没做"，这里再兜一道：数据层不该被绕过去，
         // 否则症状是"点了某个还没接通的加载器，结果装出来一个纯原版"。
         emit loaderInstallMessage(
-            tr("%1 的安装还没接通，现在只有 Fabric 能用。").arg(loaderDisplayName(kind)));
+            tr("%1 的安装还没接通，现在只有 Fabric / Forge / NeoForge 能用。")
+                .arg(loaderDisplayName(kind)));
         return;
     }
     if (downloadManager->isBusy()) {
@@ -306,11 +382,22 @@ void VersionManager::installLoaderVersion(const QString &gameVersion, LoaderKind
     m_loaderInstall.kind = kind;
     m_loaderInstall.gameVersion = gameVersion;
     m_loaderInstall.loaderName = loaderDisplayName(kind);
-    m_loaderInstall.phase = LoaderInstall::Phase::FetchingList;
+    m_loaderInstall.javaPath = javaPath;
 
-    emit loaderInstallMessage(tr("正在获取 %1 %2 的加载器版本列表...")
-                                  .arg(loaderDisplayName(kind), gameVersion));
-    fetchFabricLoaderList();
+    // 两条路从第一步就分开：Fabric 拉的是"加载器版本列表"，另外两个拉的是
+    // "安装器该用哪个版本"，接口完全不是一回事（见 LoaderMeta.hpp 顶部那段）。
+    if (kind == LoaderKind::Fabric) {
+        m_loaderInstall.phase = LoaderInstall::Phase::FetchingList;
+        emit loaderInstallMessage(tr("正在获取 %1 %2 的加载器版本列表...")
+                                      .arg(m_loaderInstall.loaderName, gameVersion));
+        fetchFabricLoaderList();
+        return;
+    }
+
+    m_loaderInstall.phase = LoaderInstall::Phase::FetchingInstallerList;
+    emit loaderInstallMessage(
+        tr("正在获取 %1 %2 该用哪个版本...").arg(m_loaderInstall.loaderName, gameVersion));
+    fetchInstallerList();
 }
 
 void VersionManager::fetchFabricLoaderList() {
@@ -455,6 +542,400 @@ void VersionManager::startLoaderFiles() {
     emit loaderInstallMessage(tr("开始下载 %1 %2 自己的文件（maven 库）...")
                                   .arg(m_loaderInstall.loaderName, m_loaderInstall.loaderVersion));
     downloadVersion(id, AppPaths::versionDir(id));
+}
+
+// ---------------------------------------------------------------------------
+// Forge / NeoForge：跑它们自己的安装器
+// ---------------------------------------------------------------------------
+
+void VersionManager::fetchInstallerList() {
+    if (loaderNetwork == nullptr) {
+        loaderNetwork = new QNetworkAccessManager(this);
+    }
+    // 两个接口一个回 JSON、一个回 XML，但都是"GET 一段文本，从里面挑一个版本号"，
+    // 所以共用这一条路，分派放在回复处理里按 kind 做。
+    const QUrl url(m_loaderInstall.kind == LoaderKind::Forge ? LoaderMeta::forgePromotionsUrl()
+                                                            : LoaderMeta::neoforgeMavenMetadataUrl());
+    QNetworkRequest request(url);
+    request.setTransferTimeout(30000);
+    QNetworkReply *reply = loaderNetwork->get(request);
+    connect(reply, &QNetworkReply::finished, this,
+            [this, reply] { onInstallerListReply(reply); });
+}
+
+void VersionManager::onInstallerListReply(QNetworkReply *reply) {
+    reply->deleteLater();
+    // 状态已经换过（上一次失败收了尾、或者用户又点了一次）：这份回复没人要了。
+    if (m_loaderInstall.phase != LoaderInstall::Phase::FetchingInstallerList) {
+        return;
+    }
+
+    const QByteArray body = reply->readAll();
+    if (reply->error() != QNetworkReply::NoError) {
+        failLoaderInstall(tr("拿不到 %1 %2 的版本表（%3）。检查网络后重试。")
+                              .arg(m_loaderInstall.loaderName, m_loaderInstall.gameVersion,
+                                   reply->errorString()));
+        return;
+    }
+
+    LoaderMeta::LoaderPick pick;
+    if (m_loaderInstall.kind == LoaderKind::Forge) {
+        QJsonParseError parseError;
+        const QJsonDocument doc = QJsonDocument::fromJson(body, &parseError);
+        if (!doc.isObject()) {
+            failLoaderInstall(tr("Forge 的版本表读不懂（%1）。").arg(parseError.errorString()));
+            return;
+        }
+        pick = LoaderMeta::pickForgeVersion(doc.object(), m_loaderInstall.gameVersion);
+    } else {
+        pick = LoaderMeta::pickNeoForgeVersion(body, m_loaderInstall.gameVersion);
+    }
+
+    if (!pick.ok()) {
+        // 和 Fabric 那条一样：这不是网络问题，也**不能**退回"装原版"——用户要的是带
+        // 加载器的版本，装出来一个纯原版是骗人。
+        failLoaderInstall(tr("%1 还没有支持 %2 的版本。")
+                              .arg(m_loaderInstall.loaderName, m_loaderInstall.gameVersion));
+        return;
+    }
+
+    const bool isForge = m_loaderInstall.kind == LoaderKind::Forge;
+    m_loaderInstall.loaderVersion = pick.version;
+    m_loaderInstall.loaderId = isForge
+                                   ? LoaderMeta::forgeLoaderId(m_loaderInstall.gameVersion,
+                                                               pick.version)
+                                   : LoaderMeta::neoforgeLoaderId(pick.version);
+    m_loaderInstall.installerUrl = isForge
+                                       ? LoaderMeta::forgeInstallerUrl(m_loaderInstall.gameVersion,
+                                                                       pick.version)
+                                       : LoaderMeta::neoforgeInstallerUrl(pick.version);
+
+    emit loaderInstallMessage(tr("挑中 %1 %2（%3）。")
+                                  .arg(m_loaderInstall.loaderName, pick.version,
+                                       pick.stable ? tr("官方推荐的正式版")
+                                                   : tr("版本表里最新的那个")));
+    startInstallerDownload();
+}
+
+void VersionManager::startInstallerDownload() {
+    // 文件名取安装器地址的最后一段，不自己拼 —— 这样盘上那个 jar 和上游叫同一个名字
+    // （forge-1.20.1-47.4.10-installer.jar / neoforge-21.1.215-installer.jar），
+    // 用户去 cache/installers/ 里看一眼能对上。版本目录名那边不这么干是另一回事：
+    // 那个名字是别的启动器认的，不能改。
+    const QString fileName = QFileInfo(QUrl(m_loaderInstall.installerUrl).path()).fileName();
+    m_loaderInstall.installerPath =
+        AppPaths::installerCacheDir() + QLatin1Char('/') + fileName;
+
+    emit loaderInstallMessage(tr("正在下载 %1 %2 的安装器...")
+                                  .arg(m_loaderInstall.loaderName, m_loaderInstall.loaderVersion));
+
+    downloadManager->beginBatch();
+    // phase 放在 beginBatch() **之后**设：beginBatch() 会替上一批收尾并发一次
+    // allDownloadsFinished，那一次不该被当成"安装器下好了"。
+    m_loaderInstall.phase = LoaderInstall::Phase::WaitingInstallerJar;
+    // 安装器 jar 没有公布 sha1（Forge 只在下载页给别的东西，NeoForge 的 maven-metadata
+    // 里也没有），所以这里只能"文件在就算好" —— 第二次装同一个加载器版本时省掉这 6 MB。
+    // 校验不了是**接受**的：这个 jar 只被我们当子进程启动，真下坏了会在退出码和产物核对
+    // 那两道上现形（见 onInstallerFinished）。
+    downloadManager->downloadFile(m_loaderInstall.installerUrl, m_loaderInstall.installerPath,
+                                  QString(), -1, VerifyMode::ExistsOnly);
+    downloadManager->endBatch();
+}
+
+bool VersionManager::ensureLauncherProfiles(bool *createdOut, QString *errorOut) const {
+    if (createdOut != nullptr) {
+        *createdOut = false;
+    }
+    const QString path = AppPaths::minecraftDir() + QLatin1Char('/') +
+                         LoaderMeta::launcherProfilesFileName();
+    if (QFile::exists(path)) {
+        // 已经有就**一个字都不动**：这个文件是原版启动器和 PCL 都在写的东西，里面可能
+        // 是用户真正的启动器档案。安装器会往里面**加**一条 profile，加完照样是有用的；
+        // 我们覆盖它就是把人家的东西弄丢。
+        return true;
+    }
+
+    // 没有才补一份最小的。它是安装器的硬前置，实测缺了这条：
+    //   There is no minecraft launcher profile in "...", you need to run the launcher first!
+    //   There was an error during installation      （退出码 1，一个字节的库都不下）
+    QDir().mkpath(AppPaths::minecraftDir());
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly)) {
+        if (errorOut != nullptr) {
+            *errorOut = tr("这个游戏目录里还没有 %1（%2 的安装器认它才肯干活），而它建不出来"
+                           "（%3）。")
+                            .arg(LoaderMeta::launcherProfilesFileName(),
+                                 m_loaderInstall.loaderName, file.errorString());
+        }
+        return false;
+    }
+    file.write(LoaderMeta::minimalLauncherProfiles());
+    if (!file.commit()) {
+        if (errorOut != nullptr) {
+            *errorOut = tr("这个游戏目录里还没有 %1（%2 的安装器认它才肯干活），而它写不下去"
+                           "（%3）。")
+                            .arg(LoaderMeta::launcherProfilesFileName(),
+                                 m_loaderInstall.loaderName, file.errorString());
+        }
+        return false;
+    }
+    if (createdOut != nullptr) {
+        *createdOut = true;
+    }
+    return true;
+}
+
+void VersionManager::runInstaller() {
+    bool created = false;
+    QString error;
+    if (!ensureLauncherProfiles(&created, &error)) {
+        failLoaderInstall(error);
+        return;
+    }
+    if (created) {
+        emit loaderInstallMessage(
+            tr("这个游戏目录里还没有 %1，先补一份最小的（没有它 %2 的安装器拒绝干活；"
+               "原版启动器、PCL 都往这个文件里记自己的档案，所以补的是最小的一份、"
+               "不动别的东西）。")
+                .arg(LoaderMeta::launcherProfilesFileName(), m_loaderInstall.loaderName));
+    }
+
+    const QString program = m_loaderInstall.javaPath.isEmpty() ? QStringLiteral("java")
+                                                               : m_loaderInstall.javaPath;
+    // 只有"看着像路径"的时候才判它在不在盘上。裸名字（`java`）走的是 PATH 查找，而
+    // QFileInfo("java").exists() 一定返回 false —— 拿它当判据会把"设置里没指定、但 PATH
+    // 上有 java"这种情况误杀，而那正是这条路的默认情形（javaPath 传空就是这么来的）。
+    const bool looksLikePath = program.contains(QLatin1Char('/')) ||
+                               program.contains(QLatin1Char('\\'));
+    if (looksLikePath && !QFileInfo::exists(program)) {
+        failLoaderInstall(tr("找不到 Java 可执行文件（%1），%2 的安装器起不来。\n"
+                             "到「设置」里指定一个 Java，或者让系统 PATH 上有 java。")
+                              .arg(program, m_loaderInstall.loaderName));
+        return;
+    }
+
+    if (installerProcess == nullptr) {
+        installerProcess = new QProcess(this);
+        connect(installerProcess, &QProcess::readyReadStandardOutput, this,
+                [this] { onInstallerOutput(); });
+        connect(installerProcess, &QProcess::readyReadStandardError, this,
+                [this] { onInstallerOutput(); });
+        connect(installerProcess, &QProcess::errorOccurred, this,
+                [this](QProcess::ProcessError code) { onInstallerError(static_cast<int>(code)); });
+        connect(installerProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+                this, [this](int exitCode, QProcess::ExitStatus status) {
+                    onInstallerFinished(exitCode, status != QProcess::NormalExit);
+                });
+        installerTimer = new QTimer(this);
+        installerTimer->setInterval(kInstallerTickMs);
+        connect(installerTimer, &QTimer::timeout, this, &VersionManager::onInstallerTick);
+    }
+
+    m_installerOutput.clear();
+    m_installerTicks = 0;
+    m_installerStartedAt = QDateTime::currentMSecsSinceEpoch();
+
+    // phase 要在 start() **之前**设：进程起不来时 errorOccurred 会回来，那条路要靠
+    // phase 认出"这次是安装器的事"。
+    m_loaderInstall.phase = LoaderInstall::Phase::RunningInstaller;
+    emit loaderInstallMessage(
+        tr("正在运行 %1 %2 的安装器...（这一步最慢：它要下十几个库，还要把原版的"
+           "客户端 jar 打两遍补丁）")
+            .arg(m_loaderInstall.loaderName, m_loaderInstall.loaderVersion));
+
+    // 和原版启动器一样的调用方式。--installClient 那个目录参数**必须**给：不给的话
+    // 安装器会落到 user.home/.minecraft（我们这台机器上是 C:\Users\User\.minecraft），
+    // 装到一个用户根本不知道的地方去。
+    installerProcess->setProgram(program);
+    installerProcess->setArguments({QStringLiteral("-jar"), m_loaderInstall.installerPath,
+                                    QStringLiteral("--installClient"), AppPaths::minecraftDir()});
+    installerProcess->setWorkingDirectory(AppPaths::minecraftDir());
+    installerProcess->start();
+    installerTimer->start();
+}
+
+void VersionManager::onInstallerOutput() {
+    if (installerProcess == nullptr) {
+        return;
+    }
+    // 两个通道都读、都往一个缓冲区里放：安装器的诊断信息 stdout 和 stderr 都有，
+    // 而我们要的只是"最后那几行说了什么"。混在一起的代价是万一两者交替写、行会交错，
+    // 那种情况下报出来的诊断仍然够用。
+    m_installerOutput += installerProcess->readAllStandardOutput();
+    m_installerOutput += installerProcess->readAllStandardError();
+    if (m_installerOutput.size() > kInstallerOutputKeepBytes) {
+        m_installerOutput = m_installerOutput.right(kInstallerOutputKeepBytes);
+    }
+}
+
+QString VersionManager::installerLastOutputLine() const {
+    const QStringList lines = installerOutputLines(m_installerOutput);
+    for (int i = lines.size() - 1; i >= 0; --i) {
+        const QString line = lines.at(i).trimmed();
+        if (!line.isEmpty()) {
+            return line;
+        }
+    }
+    return QString();
+}
+
+void VersionManager::onInstallerTick() {
+    if (m_loaderInstall.phase != LoaderInstall::Phase::RunningInstaller) {
+        return;
+    }
+    const qint64 elapsed = QDateTime::currentMSecsSinceEpoch() - m_installerStartedAt;
+    if (elapsed >= kInstallerTimeoutMs) {
+        abortInstaller(tr("%1 的安装器跑了 %2 分钟还没结束，已经把它停掉了。\n"
+                          "它最后打出来的是：%3\n"
+                          "多半是网络卡住了，过一会儿重试一次；一直这样就把日志发来。")
+                           .arg(m_loaderInstall.loaderName)
+                           .arg(elapsed / 60000)
+                           .arg(installerLastOutputLine()));
+        return;
+    }
+
+    if (++m_installerTicks % kInstallerHeartbeatSeconds != 0) {
+        return;
+    }
+    // 心跳，不是进度：说清"还活着"和"它现在在干什么"，但绝不逐行转安装器的输出。
+    const QString last = installerLastOutputLine();
+    emit loaderInstallMessage(last.isEmpty()
+                                  ? tr("%1 的安装器还在跑（%2 秒）...")
+                                        .arg(m_loaderInstall.loaderName)
+                                        .arg(elapsed / 1000)
+                                  : tr("%1 的安装器还在跑（%2 秒）：%3")
+                                        .arg(m_loaderInstall.loaderName)
+                                        .arg(elapsed / 1000)
+                                        .arg(last));
+}
+
+void VersionManager::onInstallerError(int processError) {
+    if (m_loaderInstall.phase != LoaderInstall::Phase::RunningInstaller) {
+        return;
+    }
+    // FailedToStart 是唯一**不会**跟着一个 finished 信号的错误（进程压根没起来），
+    // 所以要在这里收尾。别的（Crashed / Timedout）都会走到 finished。
+    if (static_cast<QProcess::ProcessError>(processError) != QProcess::FailedToStart) {
+        return;
+    }
+    abortInstaller(tr("%1 的安装器起不来（那个 Java 进程没能启动）。\n"
+                      "到「设置」里换一个 Java 试试。")
+                       .arg(m_loaderInstall.loaderName));
+}
+
+void VersionManager::abortInstaller(const QString &reason) {
+    if (installerTimer != nullptr) {
+        installerTimer->stop();
+    }
+    // 先把 phase 挪开**再**杀：kill() 会让那个进程的 finished 回来，而它一进
+    // onInstallerFinished 就会看到 phase 还是 RunningInstaller —— 于是又收一次尾
+    // （两个完成信号，UI 那边第二个会把刚恢复的界面再按一次）。挪开之后那条被守卫挡掉。
+    m_loaderInstall.phase = LoaderInstall::Phase::Idle;
+    if (installerProcess != nullptr && installerProcess->state() != QProcess::NotRunning) {
+        installerProcess->kill();
+        installerProcess->waitForFinished(5000);
+    }
+    failLoaderInstall(reason);
+}
+
+void VersionManager::onInstallerFinished(int exitCode, bool crashed) {
+    // 超时那一路已经收过尾了（见 abortInstaller）：这里只认还走在 RunningInstaller 上的。
+    if (m_loaderInstall.phase != LoaderInstall::Phase::RunningInstaller) {
+        return;
+    }
+    if (installerTimer != nullptr) {
+        installerTimer->stop();
+    }
+    onInstallerOutput();  // 收尾前把剩下的输出读干净，失败报告才有东西可报
+
+    const QString name = m_loaderInstall.loaderName;
+    const QString version = m_loaderInstall.loaderVersion;
+
+    if (crashed) {
+        failLoaderInstall(tr("%1 %2 的安装器被强行结束了（不是它自己退出的）。\n"
+                             "它最后打出来的是：\n%3")
+                              .arg(name, version, installerOutputTail(m_installerOutput)));
+        return;
+    }
+    if (exitCode != 0) {
+        failLoaderInstall(tr("%1 %2 的安装器报了错（退出码 %3），没有装成。\n"
+                             "它最后打出来的是：\n%4")
+                              .arg(name, version)
+                              .arg(exitCode)
+                              .arg(installerOutputTail(m_installerOutput)));
+        return;
+    }
+
+    // 退出码 0 **还不算**装好：核对它真的把那份 json 放在我们算出来的目录里、而且那份
+    // json 认的父版本就是我们打算装的那个。Forge 哪天改了目录名约定的话，这两条里至少
+    // 有一条会亮 —— 报出来的是"装是装了、但不在预期的地方"，而不是静默把 wtfml.meta
+    // 写到一个不存在的 id 上。
+    const QString id = m_loaderInstall.loaderId;
+    const QJsonObject produced = readVersionJsonAt(InstanceFiles::jsonPath(id));
+    if (produced.isEmpty()) {
+        failLoaderInstall(tr("%1 %2 的安装器跑完了（退出码 0），但 %3 里没有出现 %4，"
+                             "认不出它装到哪去了。\n"
+                             "它最后打出来的是：\n%5")
+                              .arg(name, version, AppPaths::versionDir(id),
+                                   id + QStringLiteral(".json"),
+                                   installerOutputTail(m_installerOutput)));
+        return;
+    }
+    const LoaderMeta::ProfileCheck check =
+        LoaderMeta::checkInstallerResult(produced, m_loaderInstall.gameVersion, id);
+    if (!check.ok()) {
+        if (check.problem == LoaderMeta::ProfileProblem::BadId) {
+            failLoaderInstall(tr("%1 %2 装出来的版本 json 里的 id 是「%3」，和我们算的「%4」"
+                                 "对不上，没有记成装好。")
+                                  .arg(name, version, check.id, id));
+            return;
+        }
+        failLoaderInstall(tr("%1 %2 装出来的版本是基于「%3」的，不是我们选的「%4」，"
+                             "没有记成装好。")
+                              .arg(name, version, check.parent, m_loaderInstall.gameVersion));
+        return;
+    }
+
+    emit loaderInstallMessage(tr("%1 %2 装好了（%3）。").arg(name, version, id));
+    startParentCompletion();
+}
+
+void VersionManager::startParentCompletion() {
+    // 安装器**不下资源文件**（assets）：它自己那份 json 是给启动器读的，资源是启动器的事。
+    // 少了那一半，用户拿到的是一个能装模组、但一进游戏就崩的版本。
+    //
+    // Forge 还会连原版的 json 都不写（只在 versions/<原版>/ 留下一份 sha1 与官方一致的
+    // 客户端 jar），NeoForge 会留 json + jar 两份。所以这里**不看原版装没装**，一律走
+    // 一遍 downloadVersion()：它写 json、校验客户端 jar 与库（已有就跳过，不是重下）、
+    // 再把资源下全。NeoForge 那种"已经齐了"的情况下它也只是校验 + 补资源。
+    const QString parent = m_loaderInstall.gameVersion;
+    m_loaderInstall.phase = LoaderInstall::Phase::WaitingParentJson;
+    emit loaderInstallMessage(tr("%1 装好了，接着把原版 %2 的文件补齐（安装器不下资源文件）...")
+                                  .arg(m_loaderInstall.loaderName, parent));
+    fetchVersionDetails(parent);
+}
+
+void VersionManager::finishLoaderInstall(bool success, const QString &message) {
+    // 先把要用的字段取出来：reset() 会把它们清掉，忘了取的表现是消息里那个名字变空的
+    // （不崩，但话就说不清了）。
+    const QString loaderName = m_loaderInstall.loaderName;
+    const QString loaderVersion = m_loaderInstall.loaderVersion;
+    const QString loaderId = m_loaderInstall.reportId();
+
+    if (success) {
+        writeLoaderMeta();
+        // 装出去的这份 json 是**新的**：在这之前读到的任何缓存（合并结果那张表尤其）
+        // 都是旧的，留着会让"刚装好的版本"用回装之前的样子启动。
+        versionJsons.remove(m_loaderInstall.loaderId);
+        mergedVersionJsons.remove(m_loaderInstall.loaderId);
+    }
+
+    // 收尾：既结束这次安装，也结束这次点击 —— 它是**唯一**的终态。
+    m_loaderInstall.reset();
+    emit versionDownloadFinished(
+        loaderId, success,
+        success ? tr("%1 %2 已就绪。%3").arg(loaderName, loaderVersion, message)
+                : tr("%1 %2 没有装成。%3").arg(loaderName, loaderVersion, message));
 }
 
 void VersionManager::writeLoaderMeta() {
@@ -1065,10 +1546,22 @@ void VersionManager::onAllDownloadsFinished(bool success) {
         message = tr("%1 个文件下载失败：").arg(stats.failed) + QLatin1Char('\n') + list;
     }
 
-    // 加载器安装的两段在这里接续（一次点击 = 两批下载，见 .hpp 里 installLoaderVersion 的 NOTE）。
-    // 这一段**必须排在下面那条信号之前**：用户点的是"安装 Fabric"，中间那批原版文件不该
-    // 单独报一次"下载完成"（日志里会多一句莫名其妙的原版、按钮也会中途解禁）。
+    // 加载器安装的几段在这里接续（一次点击 = 好几件事，见 .hpp 里 installLoaderVersion 的
+    // NOTE）。这一段**必须排在下面那条信号之前**：用户点的是"安装 Forge"，中间那批原版
+    // 文件不该单独报一次"下载完成"（日志里会多一句莫名其妙的原版、按钮也会中途解禁）。
     if (m_loaderInstall.active()) {
+        if (m_loaderInstall.phase == LoaderInstall::Phase::WaitingInstallerJar) {
+            if (!success) {
+                failLoaderInstall(tr("%1 的安装器没下下来，%2 没有安装。检查网络后重试。\n%3")
+                                      .arg(m_loaderInstall.loaderName,
+                                           m_loaderInstall.gameVersion, message));
+                return;
+            }
+            // 这一批结束了，但事情远没完：安装器那个 Java 进程现在才开始跑。
+            runInstaller();
+            return;
+        }
+
         if (m_loaderInstall.phase == LoaderInstall::Phase::WaitingParentFiles) {
             if (!success) {
                 failLoaderInstall(tr("原版 %1 的文件没下全，%2 没有安装。先把原版装好再试。\n%3")
@@ -1076,25 +1569,21 @@ void VersionManager::onAllDownloadsFinished(bool success) {
                                            m_loaderInstall.loaderName, message));
                 return;
             }
-            emit loaderInstallMessage(tr("原版 %1 就绪，接着装 %2 自己的文件...")
-                                          .arg(m_loaderInstall.gameVersion,
-                                               m_loaderInstall.loaderName));
-            startLoaderFiles();
+            if (m_loaderInstall.kind == LoaderKind::Fabric) {
+                emit loaderInstallMessage(tr("原版 %1 就绪，接着装 %2 自己的文件...")
+                                              .arg(m_loaderInstall.gameVersion,
+                                                   m_loaderInstall.loaderName));
+                startLoaderFiles();
+                return;
+            }
+            // Forge / NeoForge：加载器自己那份 json 和库**安装器已经放好了**，这一批只是
+            // 把原版补齐，补完就结束了 —— 没有"加载器自己那几个库"要再下一遍。
+            finishLoaderInstall(true, message);
             return;
         }
 
         if (m_loaderInstall.phase == LoaderInstall::Phase::WaitingLoaderFiles) {
-            const QString loaderName = m_loaderInstall.loaderName;
-            const QString loaderVersion = m_loaderInstall.loaderVersion;
-            if (success) {
-                writeLoaderMeta();
-            }
-            // 收尾：下面那条信号既结束这次安装，也结束这次点击 —— 它是**唯一**的终态。
-            m_loaderInstall.reset();
-            emit versionDownloadFinished(
-                m_currentVersionDownloading, success,
-                success ? tr("%1 %2 已就绪。%3").arg(loaderName, loaderVersion, message)
-                        : tr("%1 %2 没有装成。%3").arg(loaderName, loaderVersion, message));
+            finishLoaderInstall(success, message);
             return;
         }
     }

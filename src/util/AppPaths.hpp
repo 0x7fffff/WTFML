@@ -141,4 +141,17 @@ inline QString javaVersionDir(int majorVersion) {
     return javaDir() + QLatin1Char('/') + QString::number(majorVersion);
 }
 
+/// 下载下来的第三方安装器 jar 的落脚处：<数据目录>/cache/installers。
+///
+/// Forge / NeoForge 的安装器是 6 MB 上下的 jar，而"装一次"和"这个版本上换个加载器版本
+/// 再装一次"往往挨得很近。留在盘上，第二次装就直接命中"文件在就算好"那条判据，不用重下。
+///
+/// NOTE: 挂在**数据根目录**下（不挂在 versions 里），理由和 wtfml.folders 一样：它是"给
+///       这一份 .minecraft 装东西用的工具"，换一份游戏目录就该是另一份工具。而它又不能
+///       丢进 versions/ —— 那底下每一个子目录都会被当成一个实例。
+/// NOTE: 没人会去清它（装坏了也不影响：下一次装会重新下）。用户想清就自己删 cache/。
+inline QString installerCacheDir() {
+    return minecraftDir() + QStringLiteral("/cache/installers");
+}
+
 }  // namespace AppPaths
