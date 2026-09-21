@@ -40,6 +40,9 @@ constexpr int kTransferTimeoutMs = 10000;
 /// 空字段要安全得多（和 wtfml.folders / wtfml.meta 同一条规矩）。
 constexpr int kCacheVersion = 1;
 
+/// 官方贴图那个 host。档案里解出来的地址**必须**指着它才去取（理由见 textureRequestUrl）。
+constexpr char kTextureHost[] = "textures.minecraft.net";
+
 /// 缓存文件里的键名。写成常量是为了和读侧共用同一个出处，不会一边改了另一边没跟。
 const QString kVersionField = QStringLiteral("version");
 const QString kSkinField = QStringLiteral("skin");
@@ -153,6 +156,30 @@ QString PlayerSkinStore::cachePathForUrl(const QString &url) {
     const QByteArray digest = QCryptographicHash::hash(url.toUtf8(), QCryptographicHash::Sha1);
     return AppPaths::skinsDir() + QLatin1Char('/') + QString::fromLatin1(digest.toHex()) +
            QStringLiteral(".png");
+}
+
+QUrl PlayerSkinStore::textureRequestUrl(const QString &url) {
+    const QUrl raw(url);
+    // 只认官方那个 host。协议光看 scheme 是不够的 —— `https://<别人家>/x.png` 一样是
+    // https，而地址是**外面**（我们解出来的档案）给的。host 不认得就当"这个地址不能取"。
+    if (!raw.isValid() || raw.host() != QLatin1String(kTextureHost)) {
+        return QUrl();
+    }
+    const QString scheme = raw.scheme().toLower();
+    if (scheme != QLatin1String("http") && scheme != QLatin1String("https")) {
+        return QUrl();
+    }
+
+    // NOTE: **官方档案里的贴图地址就是 http:// 的**（2026-09-21 真机上取的档案，
+    //       skin 和 cape 两条都是，存下来的 profile-*.json 里白纸黑字）。
+    //       所以"不是 https 就拒"那条规矩的后果不是"挡掉被改过的档案"，而是**每一份真
+    //       档案都被挡掉**：右栏永远画着默认外观、那句话永远说"取不到 <名字> 的皮肤"，
+    //       而缓存目录里只躺着一份 profile-*.json、一张 .png 都没有（真机上看到的就是
+    //       这个样子 —— 那一张 .png 的缺席就是这条 bug 的指纹）。
+    //       同一个内容寻址的地址，https 拿到的字节和 http 一模一样，所以这里升级掉它。
+    QUrl target = raw;
+    target.setScheme(QStringLiteral("https"));
+    return target;
 }
 
 QString PlayerSkinStore::uuidKey(const QString &uuid) {
@@ -342,12 +369,13 @@ void PlayerSkinStore::fetchTexture(const QString &url) {
         return;
     }
 
-    // 地址来自**外面**（我们解出来的档案）。正常就是 https://textures.minecraft.net/...，
-    // 但被改过的档案可以让这里变成任意协议 —— 所以只认 https，别的当失败。
+    // 地址来自**外面**（我们解出来的档案），所以取之前过一遍 textureRequestUrl()：
+    // 它认官方那个 host，并把 http 升级成 https（**官方档案里的地址就是 http 的**，
+    // 那一段是 2026-09-21 真机上一张 .png 都没下下来才发现的）。
     // （贴图不走 BMCLAPI 镜像：那个镜像只镜像 launchermeta/libraries/resources 那三个
     //   host，贴图不在其中，拼出来的地址是假的。）
-    const QUrl target(url);
-    if (!target.isValid() || target.scheme() != QLatin1String("https")) {
+    const QUrl target = textureRequestUrl(url);
+    if (!target.isValid()) {
         emit failed(QStringLiteral("贴图地址不可用：%1").arg(url));
         return;
     }

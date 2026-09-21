@@ -38,6 +38,7 @@
 #include <QByteArray>
 #include <QObject>
 #include <QString>
+#include <QUrl>
 
 class QNetworkAccessManager;
 
@@ -94,6 +95,21 @@ public:
     /// 某个贴图 URL 在本地缓存里的路径：`<skinsDir>/<sha1(url)>.png`（见文件头）。
     /// NOTE: 静态而不是成员：它只依赖 AppPaths（当前游戏目录），不依赖这个对象的任何状态。
     static QString cachePathForUrl(const QString &url);
+
+    /// 把档案里那个贴图地址变成**真去取**时用的 QUrl。无效 QUrl = 这个地址不能取。
+    ///
+    /// 这里干两件事，都是 2026-09-21 真机上撞出来的（见 .cpp 里那段 NOTE）：
+    ///
+    ///   1. **http → https**。官方档案里的地址就是 `http://textures.minecraft.net/...`，
+    ///      所以"不是 https 就拒"那条会把**每一份真档案**都拒掉 —— 表现是右栏永远画着
+    ///      默认外观、那句话永远说"取不到"。同一个内容寻址的地址 https 拿到的字节一模一样。
+    ///   2. **只认官方那个 host**。地址是从外面解出来的，不能让它把请求带到任意 host 上去
+    ///      （协议只认 http/https 还是不够的：`https://<别人家的域名>/x.png` 一样会被放行）。
+    ///
+    /// NOTE: 缓存路径和 textureReady() 发出去的 url 用的都是**档案里原样那个**地址，
+    ///       **不经过这里**。升级只发生在真正发请求那一刻 —— 一旦让两侧不一致，
+    ///       调用方按 URL 认领贴图（MainWindow::onSkinTextureReady）就会认不出来。
+    static QUrl textureRequestUrl(const QString &url);
 
     /// 档案缓存的文件名用的键：去掉横线、转小写（32 位十六进制）。
     ///
