@@ -8,6 +8,8 @@
 
 #include "MainWindowUI.hpp"
 
+#include "SkinModel.hpp"
+
 #include <QColor>
 #include <QEvent>
 #include <QFont>
@@ -238,7 +240,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     tabWidget = new QTabWidget(centralWidget);
     tabWidget->setObjectName(tabWidgetName());
 
-    // ---------- 主页：左 = 挑一个已装好的版本，启动；右 = 空着（见下面的说明） ----------
+    // ---------- 主页：左 = 挑一个已装好的版本，启动；右 = 我的角色（皮肤预览） ----------
     QWidget *homeTab = new QWidget(tabWidget);
     homeTab->setObjectName(homeTabName());
     const TwoColumns home = buildTwoColumnPage(homeTab, QStringLiteral("home"));
@@ -291,10 +293,39 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // 剩下的竖直空间留在底部：按钮不跟着窗口高度一起被拉长
         home.left.layout->addStretch(1);
     }
-    // 主页的右栏**故意是空的**：原来这里有一张「版本列表」，和左边那个下拉框是同一份
-    // 数据的两种看法 —— 而实例页右边现在也有一张同样数据的列表了，留着就是把同一件事
-    // 说三遍（2026-09 去掉的）。这一栏空着不装东西，只按份数把左边那套操作顶到 7 成宽
-    // （主页的比例因此是 7:3，见 leftColumnIsWider()）。
+    // ---------- 主页右栏：我的角色（3D 皮肤预览） ----------
+    // 这里原来是空的：早先放着一张「版本列表」，和左边那个下拉框是同一份数据的两种看法，
+    // 而实例页右边现在也有一张同样数据的列表了，留着就是把同一件事说三遍（2026-09 去掉的）。
+    // 空着的那阵子这一栏的作用只剩"按份数把左边那套操作顶到 7 成宽"，现在拿它装皮肤预览 ——
+    // 三成宽正好够放一个小人（见 SkinModel 里"缩放按控件尺寸自适应"那条，控件多大它多大）。
+    {
+        QLabel *skinTitle = new QLabel(QStringLiteral("我的角色"), home.right.widget);
+        QFont skinTitleFont = skinTitle->font();
+        skinTitleFont.setBold(true);
+        skinTitle->setFont(skinTitleFont);
+        home.right.layout->addWidget(skinTitle);
+
+        skinViewer = new SkinViewer(home.right.widget);
+        skinViewer->setObjectName(skinViewerName());
+        // 立刻喂一套外观。这个控件**任何时候都不该是空白的** —— 没登录、还没取到、
+        // 取不到，这三种情况看到的都是这套默认外观，所以兜底放在这里而不是等业务层来灌：
+        // 少一处"谁忘了设"的可能。业务层拿到真皮肤时再覆盖它。
+        skinViewer->setSkin(SkinModel::defaultSteveSkin(), QImage(), false);
+        // 份数 1：这一栏里竖直方向全是它的（标题和说明那两行是固定高度）。
+        home.right.layout->addWidget(skinViewer, 1);
+
+        skinHintLabel = new QLabel(skinHintNotLoggedInText(), home.right.widget);
+        skinHintLabel->setObjectName(skinHintLabelName());
+        // 必须换行：这句最长的时候（「取不到 <名字> 的皮肤，显示的是默认外观」）有 20 多字，
+        // 而这一栏只有 260 px 上下，不换行就会把整栏顶宽、把左边的 7 份挤掉。
+        skinHintLabel->setWordWrap(true);
+        // 横向上把自己**从布局的度量里摘出去**：wordWrap 的 QLabel 报出来的 sizeHint 是
+        // "整句排成一行"的宽度（好几百 px），而最小宽度又是按最长的一段算的 —— 这一栏是
+        // 3 份（约 260 px），让一个纯说明文字去决定它的宽度是本末倒置。摘掉之后这一栏的
+        // 宽度仍然只由份数决定（主页那个精确的 7:3 就是靠这个成立的）。
+        skinHintLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+        home.right.layout->addWidget(skinHintLabel);
+    }
     // NOTE: 控件一个都不放也得把这栏建出来 —— 验证工程靠 leftColumnName()/rightColumnName()
     //       找这两栏量几何，主页右栏没了就等于主页的比例没地方量。
 

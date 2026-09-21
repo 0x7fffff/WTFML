@@ -48,6 +48,12 @@ class QGridLayout;
 class QScrollArea;
 class QVBoxLayout;
 
+// 主页右栏那个 3D 皮肤预览控件。它同样是纯界面（只认 QImage，不认任何业务对象）：
+// 界面只管把贴图喂进去，"贴图从哪来"是业务层的事。
+// NOTE: 这里非得 include 不可（别的控件类型前置声明就够了）：skinViewerName() 里
+//       要调 SkinViewer::viewerName()，而那是个要在头文件里内联展开的静态函数。
+#include "SkinViewer.hpp"
+
 class MainWindowUI {
 public:
     explicit MainWindowUI(QMainWindow *parent);
@@ -98,6 +104,8 @@ public:
     static QString instanceTabName() { return QStringLiteral("instanceTab"); }
     static QString downloadTabName() { return QStringLiteral("downloadTab"); }
     static QString settingsTabName() { return QStringLiteral("settingsTab"); }
+    static QString skinViewerName() { return SkinViewer::viewerName(); }
+    static QString skinHintLabelName() { return QStringLiteral("skinHintLabel"); }
     static QString bottomBarName() { return QStringLiteral("bottomBar"); }
     static QString avatarLabelName() { return QStringLiteral("avatarLabel"); }
     static QString accountLabelName() { return QStringLiteral("accountLabel"); }
@@ -196,6 +204,28 @@ public:
     // 放在这里当唯一出处：MainWindow 拿它填文字，验证工程拿它做断言，两边不会写歪。
     static QString runStateRunningText() { return QStringLiteral("实例运行中"); }
 
+    // ---------- 主页右栏那个 3D 小人下面那句话 ----------
+    // 和上面那条同一个理由：MainWindow 拿它填文字，验证工程拿它做断言，
+    // 两边共用一个出处，改文案时不会只有一边跟着变。
+    /// 没登录（或者登录过但一直没取到过外观）时显示的是程序画的那套默认外观。
+    static QString skinHintNotLoggedInText() {
+        return QStringLiteral("未登录，显示的是默认外观（经典 Steve）");
+    }
+    /// 正在去官方要。
+    static QString skinHintLoadingText(const QString &name) {
+        return QStringLiteral("正在获取 %1 的外观…").arg(name);
+    }
+    /// 要到了。@param withCape 这人有没有披风（有就在后面缀一句，不然用户会以为是没画出来）。
+    static QString skinHintLoadedText(const QString &name, bool withCape) {
+        return withCape ? QStringLiteral("%1 的正版外观（含披风）").arg(name)
+                        : QStringLiteral("%1 的正版外观").arg(name);
+    }
+    /// 要不到。**不弹窗**（这是可选的外观功能，见 MainWindow.cpp 里的说明），
+    /// 但也不能一声不吭 —— 用户会觉得是画错了。
+    static QString skinHintFailedText(const QString &name) {
+        return QStringLiteral("取不到 %1 的皮肤，显示的是默认外观").arg(name);
+    }
+
     // ---------- 登录按钮的三种文字 ----------
     // 按钮**文字会随状态变**（MainWindow::updateLoginButton()），所以验证工程不能拿
     // 文案去认这个按钮（认了就会在"已登录"时找不到它），要么按它初始那一句找、要么
@@ -282,6 +312,12 @@ public:
     QCheckBox *getVersionNameLoaderCheck() const { return versionNameLoaderCheck; }
     QCheckBox *getVersionNameLoaderVersionCheck() const { return versionNameLoaderVersionCheck; }
 
+    // 主页右栏那个可拖动旋转的 3D 皮肤预览，以及它下面那句说明。
+    // 这个控件是**自己画的**（QWidget 子类 + paintEvent，不是标准控件），
+    // 所以它比别处多一层：界面只管把贴图喂进去，贴图从哪来是业务层的事。
+    SkinViewer *getSkinViewer() const { return skinViewer; }
+    QLabel *getSkinHintLabel() const { return skinHintLabel; }
+
     QTabWidget *getTabWidget() const { return tabWidget; }
     // NOTE: 产品代码没有取过底栏本身（只取它里面的几个标签/进度条），只有验证工程
     //       用它来量底栏的几何。
@@ -334,6 +370,8 @@ private:
     QCheckBox *versionNameRealCheck;
     QCheckBox *versionNameLoaderCheck;
     QCheckBox *versionNameLoaderVersionCheck;
+    SkinViewer *skinViewer;
+    QLabel *skinHintLabel;
     QTabWidget *tabWidget;
     QFrame *bottomBar;
     QLabel *avatarLabel;

@@ -51,6 +51,8 @@ set(SOURCE_FILES
     ui/GroupDialog.cpp
     ui/InstanceSettingsDialog.cpp
     ui/JavaMismatchDialog.cpp
+    ui/SkinModel.cpp
+    ui/SkinViewer.cpp
     ${HEADER_FILES}
 )
 
