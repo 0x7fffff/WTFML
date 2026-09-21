@@ -31,9 +31,9 @@ constexpr double kDegreesPerPixel = 0.5;
 /// 要能原路回到原来的倍数（加法在两头被夹住之后就回不去了）。
 constexpr double kZoomPerNotch = 1.1;
 
-/// 走一个来回要多久（毫秒）。落地一步约半秒 —— 这就是官启里那个小人的节奏：
-/// 再快像在小跑，再慢像在踱步。
-constexpr int kWalkPeriodMs = 1000;
+/// 走一个来回要多久（毫秒）。一步约 0.8 秒 —— 这是**慢走**的节奏（官启那个小人比这快，
+/// 但预览里的小人是给眼睛看的：慢一点才好把皮肤看清，快走看着像在赶路）。
+constexpr int kWalkPeriodMs = 1600;
 
 /// 定时器间隔（毫秒）。16 ≈ 60 帧/秒，肉眼看是连续的。**它不决定走多快** ——
 /// 走多快由 kWalkPeriodMs 和真实时间定（见 walkPhase()），这个数只决定画面多久刷一次。

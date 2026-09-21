@@ -172,11 +172,13 @@ QVector3D posedPoint(const Cuboid &box, const QVector3D &p) {
 constexpr double kLegSwingDegrees = 32.0;
 constexpr double kArmSwingDegrees = 23.0;
 
-/// 披风的基础仰角（度）。游戏里披风**任何时候**都往后翘这么多，不是走路的锅 ——
-/// 所以它进的是 walkingCape(restWalkPhase())，立正那一帧也是这个角度。
-constexpr double kCapeBaseLiftDegrees = 6.0;
-/// 走路时披风**多**翘多少（度）。迈到最大的那一帧最翘。
-constexpr double kCapeSwingDegrees = 5.0;
+/// 披风的仰角（度）：**固定**这么翘，不跟着步频晃。
+///
+/// NOTE: 它曾经是"基础 6° + 走路时多翘 5°"（每迈一步颠一下）。改成固定值是按用户要求
+///       定下来的观感：披风飘起来是为了**别挡住身体**（翘起来之后腿和背都看得见），
+///       而跟着步频一翘一落会让人一直盯着它看、反而看不清皮肤。所以它现在是**常量** ——
+///       `walkingCape()` 连相位都不收（签名里留着相位的话，读的人会以为它跟步频有关）。
+constexpr double kCapeLiftDegrees = 24.0;
 
 /// 画一个面要用的东西：屏幕上的四边形、贴图上的矩形、离眼睛多远。
 struct DrawFace {
@@ -346,7 +348,7 @@ Cuboid capeCuboid() {
     // 而"朝外那面取 (1,1,10,16)"这条可以单独钉住（见 ui_check W2）。
     cape.rotation = QVector3D(0, 180, 0);
 
-    // 顺带一提：走路的仰角（walkingCape）是往 rotation.x() 上填的，也就是"绕同一根
+    // 顺带一提：那个固定的仰角（walkingCape）是往 rotation.x() 上填的，也就是"绕同一根
     // 关节、在转过 180° 之后的那套轴上往后翘"。顺序见 posedDirection。
     return cape;
 }
@@ -380,14 +382,12 @@ QVector<Cuboid> walkingParts(bool slim, double walkPhase) {
     return parts;
 }
 
-Cuboid walkingCape(double walkPhase) {
+Cuboid walkingCape() {
     Cuboid cape = capeCuboid();
-    // 用 |cos| 而不是 cos：披风是**每迈一步颠一下**（步频的两倍），而且腿并拢那一帧要
-    // 正好回到基础仰角 —— 拿 cos 的话立正那帧反而成了翘得最小的，跟"走路的时候它翘起来"
-    // 这个现象对不上。
-    const double lift =
-        kCapeBaseLiftDegrees + kCapeSwingDegrees * qAbs(qCos(2.0 * M_PI * walkPhase));
-    cape.rotation.setX(lift);
+    // 仰角**固定**（见 kCapeLiftDegrees）：绕肩膀那条线往后翘，把背和腿让出来。
+    // 它绕的是转过 180° 之后那套轴上的 X —— 所以是"下摆往身后去"而不是"贴向身体"，
+    // 顺序那件事见 posedDirection。
+    cape.rotation.setX(kCapeLiftDegrees);
     return cape;
 }
 
@@ -487,7 +487,7 @@ QRectF projectedBounds(const QRectF &target, double yaw, double pitch, double zo
     const Camera cam = makeCamera(target, yaw, pitch, zoom);
     QVector<Cuboid> boxes = walkingParts(slim, walkPhase);
     if (withCape) {
-        boxes << walkingCape(walkPhase);
+        boxes << walkingCape();
     }
 
     double minX = 0.0;
@@ -542,7 +542,7 @@ void render(QPainter &painter, const QRectF &target, const Scene &scene) {
         }
     }
     if (!scene.cape.isNull()) {
-        const Cuboid cape = walkingCape(scene.walkPhase);
+        const Cuboid cape = walkingCape();
         for (Face face : allFaces()) {
             collectFace(faces, cape, face, false, scene.cape, cam);
         }

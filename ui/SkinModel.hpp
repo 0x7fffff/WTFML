@@ -127,6 +127,9 @@ Cuboid capeCuboid();
 // 姿势在这里做成**纯函数**：给一个相位，返回摆好角度的部件表。这样"腿摆多少度"
 // "披风翘多少"这些数验证工程能直接钉住，不用去截一帧图数像素。
 //
+// NOTE: 只有**四条肢体**吃相位。披风是常量（见 walkingCape）—— 它翘起来是为了别挡住
+//       身体，跟着步频一翘一落反而把眼睛引到披风上去。
+//
 // 相位 0..1 是一个来回。**0 = 迈到最大的那一帧**（前腿伸到最远），restWalkPhase()
 // 那一帧则是腿正好竖直 —— 立正那一帧是特意留出来的：投影出来的几何和 playerCuboids()
 // 一模一样，所以"姿势没写歪"这件事可以拿立正那帧当基准比。
@@ -134,8 +137,11 @@ Cuboid capeCuboid();
 /// 摆好姿势的部件表（在 playerCuboids() 的基础上填 rotation）。
 QVector<Cuboid> walkingParts(bool slim, double walkPhase);
 
-/// 摆好姿势的披风（在 capeCuboid() 的基础上填仰角）。
-Cuboid walkingCape(double walkPhase);
+/// 摆好姿势的披风（在 capeCuboid() 的基础上填那个**固定**的仰角）。
+///
+/// NOTE: 它不收相位 —— 披风的仰角是常量，不跟着步频晃（理由见实现里 kCapeLiftDegrees
+///       上面那段）。签名里留着相位会让人以为它跟步频有关。
+Cuboid walkingCape();
 
 /// 腿正好竖直（立正）的那个相位。用相位而不是"少摆一点"，是为了让"立正"和"迈步"
 /// 落在同一根轴上的两个点，随时能互相切换着比对。
