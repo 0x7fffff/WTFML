@@ -497,6 +497,14 @@ bool VersionManager::renameInstance(const QString &oldId, const QString &newName
     return true;
 }
 
+QString VersionManager::jvmArgsField() { return QStringLiteral("jvmArgs"); }
+
+QJsonObject VersionManager::versionMeta(const QString &versionId) const {
+    // readVersionMeta() 已经把所有"读不到"的形态（文件不在 / 打不开 / 解析不了）
+    // 收口成空对象了，这里不再重复判断 —— 那些分支的措辞和告警都只该有一处。
+    return readVersionMeta(versionId);
+}
+
 QStringList VersionManager::versionJvmArgs(const QString &versionId) const {
     QString metaPath;
     const QJsonObject meta = readVersionMeta(versionId, &metaPath);
@@ -504,7 +512,7 @@ QStringList VersionManager::versionJvmArgs(const QString &versionId) const {
         return QStringList();
     }
 
-    const QJsonValue value = meta.value(QStringLiteral("jvmArgs"));
+    const QJsonValue value = meta.value(jvmArgsField());
     if (value.isUndefined() || value.isNull()) {
         return QStringList();
     }

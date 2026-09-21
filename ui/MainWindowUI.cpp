@@ -284,6 +284,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         home.left.layout->addWidget(startButton);
 
         offlineModeCheckBox = new QCheckBox(QStringLiteral("离线模式"), home.left.widget);
+        offlineModeCheckBox->setObjectName(offlineModeCheckBoxName());
         offlineModeCheckBox->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
         home.left.layout->addWidget(offlineModeCheckBox, 0, Qt::AlignLeft);
 
@@ -375,14 +376,9 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         groupInstanceButton->setObjectName(groupInstanceButtonName());
         instanceSettingsButton = new QPushButton(instanceSettingsText(), instanceGroupBox);
         instanceSettingsButton->setObjectName(instanceSettingsButtonName());
-        // 两个按钮一律可点，没选中实例时由 MainWindow 的槽弹一句"先选中一个实例"
+        // 三个按钮一律可点，没选中实例时由 MainWindow 的槽弹一句"先选中一个实例"
         // （和「重命名…」同一个口径：**几时能点**由状态决定的话，用户会先花时间
         // 猜"为什么它是灰的"，而那句话直接把原因说了）。
-        //
-        // 「实例设置…」还没接上（另外一批做）。**置灰而不是连着不做事**：一个点下去
-        // 毫无反应的按钮，用户的结论是"启动器坏了"；灰的按钮他会知道这功能还没到。
-        instanceSettingsButton->setEnabled(false);
-        instanceSettingsButton->setToolTip(QStringLiteral("每实例设置还没做。"));
 
         instanceButtons->addWidget(renameInstanceButton);
         instanceButtons->addWidget(groupInstanceButton);
@@ -393,7 +389,8 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
             QStringLiteral("一个实例就是 versions 下的一个目录。判据是「认得出哪个是客户端 jar」"
                            "—— 你自己在资源管理器里改过目录名的实例也认得出来。"
                            "重命名会真的改磁盘上的目录名；分组只记在启动器自己的文件里，"
-                           "不动磁盘上的目录。"),
+                           "不动磁盘上的目录。「实例设置…」只影响这一个实例：里面每一项"
+                           "都能选「跟随全局」或者自己填一个值。"),
             instanceGroupBox);
         instanceHint->setWordWrap(true);
         instanceLayout->addWidget(instanceHint);

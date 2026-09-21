@@ -41,6 +41,7 @@ set(SOURCE_FILES
     src/manage/InstanceGroupStore.cpp
     src/manage/VersionManager.cpp
     src/manage/VersionDisplay.cpp
+    src/settings/EffectiveJavaSettings.cpp
     src/settings/GlobalJavaSettings.cpp
     src/settings/LauncherSettings.cpp
     src/download/DownloadManager.cpp
@@ -48,6 +49,7 @@ set(SOURCE_FILES
     src/util/ZipUtil.cpp
     ui/MainWindowUI.cpp
     ui/GroupDialog.cpp
+    ui/InstanceSettingsDialog.cpp
     ${HEADER_FILES}
 )
 

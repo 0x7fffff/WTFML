@@ -12,7 +12,7 @@
 #include <QProcess>
 #include <QStringList>
 
-class GlobalJavaSettings;
+#include "../settings/EffectiveJavaSettings.hpp"
 
 /**
  * @brief 处理 Minecraft 的 JVM 参数生成和启动过程。
@@ -57,7 +57,10 @@ public:
      * @param versionId Version identifier.
      * @param assetIndexId Asset index identifier.
      * @param versionJson Version JSON manifest.
-     * @param settings Java runtime settings.
+     * @param settings 这次启动**真的要用的**那一套 Java 值（全局按实例覆盖合成之后
+     *        的结果，见 resolveJavaSettings()）。收 EffectiveJavaSettings 而不是
+     *        GlobalJavaSettings 是刻意的：启动器只该知道"这次用什么值"，
+     *        不该知道它是全局档还是某个实例的覆盖 —— 那样每加一层作用域都要改这里。
      * @param offlineMode Whether to launch in offline mode.
      * @param javaMajorVersion 实际使用的 Java 主版本，用于过滤该版本不支持的 JVM 选项。
      * @param versionJvmArgs 该版本自定义的 JVM 参数（wtfml.meta 的 "jvmArgs"），
@@ -83,7 +86,7 @@ public:
      */
     QStringList generateJvmArguments(const QString &token, const QString &versionId,
                                      const QString &assetIndexId, const QJsonObject &versionJson,
-                                     const GlobalJavaSettings &settings,
+                                     const EffectiveJavaSettings &settings,
                                      bool offlineMode = false, int javaMajorVersion = 0,
                                      const QStringList &versionJvmArgs = QStringList(),
                                      const QString &playerName = QString(),
@@ -92,7 +95,8 @@ public:
     /**
      * @brief 启动 Minecraft 游戏进程。
      * @param arguments JVM and game arguments.
-     * @param settings Java runtime settings.
+     * @param settings 这次启动要用的 Java 值（只读它里面的 javaPath；改成 const 引用
+     *        是安全的，也是上一版就有的行为 —— 这里从来不改设置）。
      * @param versionId Version identifier.
      * @return 进程是否真的起来了。三条早退路径（进程已在运行、找不到 Java 可执行
      *         文件、waitForStarted 超时）都返回 false —— 调用方用它决定要不要把
@@ -102,7 +106,7 @@ public:
      *       库不全之类的原因立刻退出时它仍然是 true，这是刻意的：那种情况恰恰
      *       最需要下次打开还选着这个版本。
      */
-    bool startGame(const QStringList &arguments, GlobalJavaSettings &settings,
+    bool startGame(const QStringList &arguments, const EffectiveJavaSettings &settings,
                    const QString &versionId);
 
     /**

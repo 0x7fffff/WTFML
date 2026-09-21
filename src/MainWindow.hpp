@@ -24,6 +24,13 @@ class InstanceGroupStore;
 // 「分组…」那个对话框。这里只按 const 引用传，前置声明就够 —— 没必要为了一个参数类型
 // 让每个 include 了 MainWindow.hpp 的地方都把 ui/ 拖进来。
 class GroupDialog;
+// 「实例设置…」那个对话框。同上，只按 const 引用传。
+class InstanceSettingsDialog;
+// 「每实例设置」那两层的值类型（src/settings/EffectiveJavaSettings.hpp）。这里只按
+// const 引用传，前置声明就够 —— 让每个 include 了 MainWindow.hpp 的地方都拖一份
+// 值结构的定义没有意义。
+struct EffectiveJavaSettings;
+struct JavaSettingsOverride;
 // 「版本名格式」开关的数据模型。这里只按 const 引用传，前置声明就够，
 // 不必为了一个参数类型把 VersionDisplay.hpp 拖进每个 include 了 MainWindow.hpp 的地方。
 struct VersionNameOptions;
@@ -69,6 +76,19 @@ private slots:
     ///       验证工程驱动不了它。而这一半里藏着真会错的东西（哪一步该写、写失败了怎么
     ///       说清"另一半成了没有"），必须验得了。
     bool applyGrouping(const QString &instanceKey, const GroupDialog &dialog);
+    /// 「实例设置…」：给当前选中的实例覆盖启动五项（每项两级：跟随全局 / 自定义）。
+    ///
+    /// 对话框只把控件读成一份值，落盘在 applyInstanceSettings() 里 —— 取消的话
+    /// wtfml.meta 一个字节都不动。
+    void onInstanceSettingsClicked();
+    /// 实例设置的**执行部分**：把对话框里摆好的覆盖写进这个实例的 wtfml.meta。
+    /// 失败时弹窗并返回 false，磁盘保持原样。
+    ///
+    /// NOTE: 拆成两步的理由和 applyRename() / applyGrouping() 一样 ——
+    ///       QDialog::exec() 阻塞在事件循环里，offscreen 的验证工程驱动不了它。
+    ///       而这一半里藏着真会错的东西（"跟随全局"的项要**删键**而不是写一个等于
+    ///       全局的值、写盘前得先确保实例有稳定 id），必须验得了。
+    bool applyInstanceSettings(const QString &versionId, const InstanceSettingsDialog &dialog);
     /// 用户在左边那张列表里换了「游戏文件夹」。真正干活的是 FolderManager 发出的
     /// currentFolderChanged()，这里只负责把选中项翻译成一次 setCurrentFolder()。
     void onFolderSelectionChanged();
@@ -105,6 +125,26 @@ private:
     /// 调用点：开窗灌值时（applySettingsToUi）、切到设置页时、用户切自动/手动那一刻、
     /// 真的要启动游戏之前（那一刻的可用内存才算数）。
     void refreshMemoryUi();
+    /// 启动前把这次真正要用的内存定下来，**只改传进来的那份值**。
+    ///
+    /// 自动档下按**现在**的系统内存重算一次（见 refreshSuggestedMemory 那段注释：
+    /// 同一台机器开着浏览器和什么都没开能差好几 GB）。
+    ///
+    /// NOTE: 重算的结果**只写在传进来这份值上**，两个作用域都不落盘：
+    ///       - 自动这一档来自全局 → 走 refreshSuggestedMemory()，它自己会按老行为
+    ///         写全局（那正是"全局是自动档"的意思）；
+    ///       - 自动这一档是这个实例自己要的 → 现算一份给这次启动用，全局一个字节
+    ///         都不动（实例 A 开着自动，不该改到全局那份内存配置）。
+    ///       反过来"顺手写回实例的 meta"也不行：那会给它留下一对死值，下次读出来
+    ///       只会让「实例设置…」里那两行显示成"自定义 + 一个用户没填过的数"。
+    ///
+    /// NOTE: 这是**唯一**该在启动路径上动内存的地方，而且它绝不改设置页。设置页那对
+    ///       数字框以前会被"顺手刷成这次实际用的值"，有了实例覆盖之后那句话不再成立：
+    ///       实例覆盖了 2048，设置页却显示 2048，用户会以为全局被改了。
+    ///
+    /// @param io 进参是合成好的有效值，出参是定下来的内存。
+    /// @param override 这个实例的覆盖（用来判断"自动这一档是谁要的"）。
+    void resolveMemoryForLaunch(EffectiveJavaSettings &io, const JavaSettingsOverride &override);
     /// 「自动（按系统内存）」勾选框。
     void onMemoryAutoChanged();
     void onMemoryChanged();

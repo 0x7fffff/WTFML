@@ -12,6 +12,7 @@
 #include "MainWindow.hpp"
 
 #include "..\ui\GroupDialog.hpp"
+#include "..\ui\InstanceSettingsDialog.hpp"
 #include "..\ui\MainWindowUI.hpp"
 
 // 添加以下头文件（防止hpp变动导致文件失效）
@@ -44,9 +45,11 @@
 #include "manage/InstanceFiles.hpp"
 #include "manage/InstanceGroupStore.hpp"
 #include "manage/VersionManager.hpp"
+#include "settings/EffectiveJavaSettings.hpp"
 #include "settings/GlobalJavaSettings.hpp"
 #include "settings/LauncherSettings.hpp"
 #include "util/AppPaths.hpp"
+#include "util/SystemMemory.hpp"
 
 namespace {
 
@@ -393,6 +396,40 @@ QList<GroupDialog::Group> toDialogGroups(const QList<InstanceGroupStore::Group> 
     return to;
 }
 
+// 「一个实例的启动五项覆盖」的两份表示之间的转换。理由和上面那两段一样：ui/ 不 include
+// src/，所以 InstanceSettingsDialog 有自己的 Override、settings/ 有自己的
+// JavaSettingsOverride，逐字段相同、由这两段循环在两边搬。
+
+JavaSettingsOverride toSettingsOverride(const InstanceSettingsDialog::Override &from) {
+    JavaSettingsOverride to;
+    to.javaPath = from.javaPath;
+    to.xmx = from.xmx;
+    to.xms = from.xms;
+    to.autoMemory = from.autoMemory;
+    to.extraJvmArgs = from.extraJvmArgs;
+    return to;
+}
+
+InstanceSettingsDialog::Override toDialogOverride(const JavaSettingsOverride &from) {
+    InstanceSettingsDialog::Override to;
+    to.javaPath = from.javaPath;
+    to.xmx = from.xmx;
+    to.xms = from.xms;
+    to.autoMemory = from.autoMemory;
+    to.extraJvmArgs = from.extraJvmArgs;
+    return to;
+}
+
+InstanceSettingsDialog::GlobalValues toDialogGlobal(const EffectiveJavaSettings &from) {
+    InstanceSettingsDialog::GlobalValues to;
+    to.javaPath = from.javaPath;
+    to.xmx = from.xmx;
+    to.xms = from.xms;
+    to.autoMemory = from.autoMemory;
+    to.extraJvmArgs = from.extraJvmArgs;
+    return to;
+}
+
 /**
  * @brief 按 itemData 里的枚举值选中一项。
  * @return 找到并选中了返回 true；没有这一项返回 false（调用方决定要不要兜底）。
@@ -525,6 +562,8 @@ void MainWindow::setupConnections() {
             &MainWindow::onRenameInstanceClicked);
     connect(m_ui->getGroupInstanceButton(), &QPushButton::clicked, this,
             &MainWindow::onGroupInstanceClicked);
+    connect(m_ui->getInstanceSettingsButton(), &QPushButton::clicked, this,
+            &MainWindow::onInstanceSettingsClicked);
     // 左边列表选中哪一份 .minecraft，启动器就换到哪一份上（PCL 的卡片是同一个交互）。
     connect(m_ui->getFolderList(), &QListWidget::currentRowChanged, this,
             &MainWindow::onFolderSelectionChanged);
@@ -1394,35 +1433,76 @@ void MainWindow::onStartButtonClicked() {
     }
     const QString javaComponent = javaVersionObj["component"].toString();
 
-    if (!m_javaSettings->ensureJavaForVersion(javaMajorVersion, javaComponent)) {
+    // ---------- 每实例设置：先把"这次到底用哪一套值"合成出来 ----------
+    //
+    // 这个实例的覆盖来自它自己的 wtfml.meta（「实例设置…」写的那些键）。一个实例
+    // 一个键都不用覆盖时 override.isEmpty()，下面这条路走出来的值和加覆盖层之前
+    // 逐字节一致 —— 那是绝大多数实例的处境，也是这条改动必须保住的性质。
+    const JavaSettingsOverride override =
+        javaOverrideFromJson(m_versionManager->versionMeta(versionId));
+    EffectiveJavaSettings javaSettings =
+        resolveJavaSettings(m_javaSettings->effective(), override);
+
+    // 实例覆盖了 Java 路径 = 这个实例是**手动档**：全局那个「自动」开关不许盖掉它。
+    // 不这么判的话，用户给某个实例钉死的 Java 会在下一次启动时被"按版本要求自动挑"
+    // 悄悄换掉，而那一项覆盖也就白设了。
+    const bool instanceOwnsJavaPath = override.javaPath.has_value();
+    const bool allowAutoSelect = m_javaSettings->autoSelectJava() && !instanceOwnsJavaPath;
+
+    QString javaError;
+    if (!m_javaSettings->ensureJavaForVersion(javaSettings, javaMajorVersion, javaComponent,
+                                              allowAutoSelect, &javaError)) {
         appendLog(tr("无法获取所需的 Java 运行时环境：版本 %1").arg(javaMajorVersion));
-        QMessageBox::warning(this, tr("Java 运行时缺失"),
-                             tr("找不到或无法下载 Java %1，请手动指定 Java 路径。")
-                                 .arg(javaMajorVersion));
+        QMessageBox::warning(
+            this, tr("Java 运行时缺失"),
+            instanceOwnsJavaPath
+                ? tr("「%1」指定的 Java 用不了（路径不存在，或者主版本不是 %2）。\n"
+                     "可以在「实例设置…」里改这个实例的 Java 路径，或者把它切回「跟随全局」。")
+                      .arg(instanceDisplayName(versionId))
+                      .arg(javaMajorVersion)
+                : tr("找不到或无法下载 Java %1，请手动指定 Java 路径。").arg(javaMajorVersion));
         return;
+    }
+
+    // 挑中的 Java 路径落在**哪一层** —— 这就是"跨作用域污染"那道坎。
+    //
+    // 实例覆盖了 javaPath 的实例**不需要写回任何地方**（所以没有"实例档写回 meta"
+    // 那一步）：那种情况上面刚判成手动档，而手动档下 ensureJavaForVersion() 只有两种
+    // 结局 —— 原样认可那个路径，或者直接失败返回。**它没有能力换一个路径出来**，
+    // 也就是说只要实例钉了路径，这次启动就不可能改到全局配置，污染在结构上不存在。
+    //
+    // 剩下的就只有全局档：老行为 —— 自动挑中的路径写回全局配置
+    // （adoptJavaPath() 里那句"值没变就不写盘"也是老行为的一部分）。
+    if (!instanceOwnsJavaPath) {
+        m_javaSettings->adoptJavaPath(javaSettings.javaPath);
     }
 
     // 自动档内存要**在这里**再算一次（不是开窗时算的那次）：从打开启动器到点下"启动"
     // 可能过了很久，中间可能开了浏览器、IDE，可用内存差好几 GB，而 JVM 只认这一刻的机器
-    // 状态。手动档下这一句什么都不动。顺手也把设置页那两个框刷成这次实际用的值。
-    refreshMemoryUi();
+    // 状态。手动档下这一句什么都不动。
+    //
+    // NOTE: 这里**不刷设置页**。老代码在这一句之后会把设置页那两个框硬刷成"这次实际
+    //       用的值"，有了实例覆盖之后那句话不再成立：实例覆盖了 2048 而设置页显示
+    //       2048，用户会以为全局被改了。设置页显示的是**全局那一层**，它只由用户自己
+    //       在设置页的改动（和切到设置页时的那次重算）决定。
+    resolveMemoryForLaunch(javaSettings, override);
 
     // 按版本的自定义参数来自 <id>/wtfml.meta 的 "jvmArgs"（PCL 那半边"自定义启动
-    // 参数"的对应物）；全局那半边是 GlobalJavaSettings::extraJvmArgs()，在
+    // 参数"的对应物）；全局那半边是 EffectiveJavaSettings::extraJvmArgs，在
     // generateJvmArguments() 里比它先入列，所以单个实例能盖掉全局默认值。
     // 玩家名和底栏左下角显示的是**同一个**（AuthManager::playerName()），离线与正版
     // 两条分支都用它 —— 以前离线分支自己拼 "Player<时间戳>"、正版分支写死 "Player"，
     // 于是底栏上的名字和游戏里看到的名字可以不一样。
     // UUID 也一样：正版分支用它当 --uuid（没登录时 AuthManager 给空串，那边退回全零）。
     const QStringList jvmArgs = m_launcherManager->generateJvmArguments(
-        token, versionId, assetIndexId, versionJson, *m_javaSettings, offlineMode,
+        token, versionId, assetIndexId, versionJson, javaSettings, offlineMode,
         javaMajorVersion, m_versionManager->versionJvmArgs(versionId),
         m_authManager->playerName(), m_authManager->playerUuid());
     // 记住"上次启动的版本"的时机是**进程真的起来了**，不是"表达式算完了"。
     // startGame() 有三条早退路径（进程已在运行 / 找不到 Java / waitForStarted 超时），
     // 以前它们都会先骗一句"已开始启动游戏"再显示错误。以"起来了"为准也是对的：
     // 因为库缺失之类的原因崩掉，恰恰是最需要下次打开还选着这个版本的时候。
-    if (m_launcherManager->startGame(jvmArgs, *m_javaSettings, versionId)) {
+    if (m_launcherManager->startGame(jvmArgs, javaSettings, versionId)) {
         m_settings->setLastLaunchedVersion(versionId);
         appendLog(tr("已开始启动游戏，正在执行 JVM 参数..."));
         // 启动进度从这里开始走到"游戏自己吐出第一行输出"为止。startGame() 返回之前
@@ -1698,6 +1778,96 @@ bool MainWindow::applyGrouping(const QString &key, const GroupDialog &dialog) {
     //       界面接的是同一个刷新函数（见 setupConnections）—— 在这里再来一次就是
     //       同一件事做两遍，而且"哪些路径会刷新"会变成两处各自维护的约定。
     return true;
+}
+
+void MainWindow::onInstanceSettingsClicked() {
+    // 取值口径和「重命名…」「分组…」一致：以下拉框为准（它就是"当前选中的那个实例"）。
+    // 顺带一提，这里**不用**去读那张树的 currentItem()，也就绕开了组头那道守卫 ——
+    // 三个按钮的取值口径一致比"少读一个控件"重要。
+    const QString versionId = selectedVersionId(m_ui->getInstalledVersionCombo());
+    if (versionId.isEmpty()) {
+        QMessageBox::information(this, tr("实例设置"), tr("先选中一个实例。"));
+        return;
+    }
+
+    // 已经写了的那部分覆盖从 meta 里读回来当起点，「当前全局是哪个值」由 global 提供。
+    // 读归读，这里一个字节都不写 —— 用户点「取消」时磁盘必须原样。
+    const JavaSettingsOverride current =
+        javaOverrideFromJson(m_versionManager->versionMeta(versionId));
+    InstanceSettingsDialog dialog(instanceDisplayName(versionId), toDialogOverride(current),
+                                  toDialogGlobal(m_javaSettings->effective()),
+                                  m_versionManager->versionJvmArgs(versionId), this);
+    if (dialog.exec() != QDialog::Accepted) {
+        // 取消：wtfml.meta 一个字节都没动（对话框只把控件读成一份值）。
+        return;
+    }
+    applyInstanceSettings(versionId, dialog);
+}
+
+bool MainWindow::applyInstanceSettings(const QString &versionId,
+                                      const InstanceSettingsDialog &dialog) {
+    // 先把稳定 id 落下去。**必须排在最前**：这一项覆盖要"跟着这个实例走"，而实例的
+    // 身份就是那个 id（目录名会被改，改名之后按目录名记的东西全丢）。失败就不写 ——
+    // 写成一次"靠目录名认出来的覆盖"比这次没写成糟得多。
+    if (m_versionManager->ensureInstanceId(versionId).isEmpty()) {
+        QMessageBox::critical(this, tr("实例设置没能保存"),
+                              tr("「%1」的 wtfml.meta 写不进去，这次的设置没有保存。\n\n"
+                                 "（这份文件可能被别的程序占着，或者它所在的目录不可写。）")
+                                  .arg(instanceDisplayName(versionId)));
+        return false;
+    }
+
+    // "值 → 要写进 meta 的字段"整批交给 javaOverrideMetaFields()：五项里"跟随全局"
+    // 的要**删键**而不是写一个等于全局的值（写了的话用户之后改全局，这个实例就不跟着
+    // 走了，而他明明选的是「跟随全局」），追加参数为空时那个键也要删。这套判断放在
+    // settings/ 那边是有意的 —— 在这里就没法被断言盯上（这个函数收的是对话框引用，
+    // 验证工程驱动不了它）。
+    const QJsonObject fields =
+        javaOverrideMetaFields(toSettingsOverride(dialog.override()), dialog.appendJvmArgs(),
+                               VersionManager::jvmArgsField());
+
+    QString error;
+    if (!m_versionManager->updateVersionMeta(versionId, fields, &error)) {
+        // 数据层不弹窗是约定，所以弹在这一层。error 里已经写清了"是哪个文件、为什么"。
+        QMessageBox::critical(this, tr("实例设置没能保存"), error);
+        return false;
+    }
+    appendLog(tr("实例设置已保存：%1").arg(versionId));
+    return true;
+}
+
+void MainWindow::resolveMemoryForLaunch(EffectiveJavaSettings &io,
+                                       const JavaSettingsOverride &override) {
+    if (!io.autoMemory) {
+        // 手动档：io 里那两个数字是"用户定的值"（可能来自全局、也可能来自这个实例
+        // 的覆盖），就是这次要用的值，一个都不许动。
+        return;
+    }
+
+    // NOTE: 自动档下 xmx/xms 的覆盖**在这里被丢掉**，这是有意的：自动档的定义就是
+    //       "按系统内存现算"，用户单独钉一个 Xmx 而让 Xms 自动算，只会得到一对
+    //       谁也说不清的数字。对话框那边是同一件事的另一半 —— 自动档下那两行整行
+    //       禁用，点确定时也不把它们写进 meta。
+    if (!override.autoMemory.has_value()) {
+        // 自动这一档来自**全局**：走老路径。refreshSuggestedMemory() 会重算、落盘
+        // （注册表）、并按全局档更新自己的值 —— 和加实例覆盖之前逐字节一致。
+        m_javaSettings->refreshSuggestedMemory();
+        io.xmx = m_javaSettings->xmx();
+        io.xms = m_javaSettings->xms();
+        return;
+    }
+
+    // 自动这一档是**这个实例**自己要的（全局可能是手动档）。现算一份给这次启动用，
+    // 全局一个字节都不动 —— 实例 A 开着自动，不能让全局那份内存配置跟着变，
+    // 那是跨作用域污染的同一种错（见 ensureJavaForVersion 的值版那段注释）。
+    //
+    // NOTE: 算出来的数**不写回 meta**。写回去的话，那个实例的 meta 里就多出一对
+    //       xmx/xms（它们本来没有），而这对值是死的 —— 自动档每次启动都重算，
+    //       下次读出来只会让「实例设置…」里那两行显示成"自定义 + 一个用户没填过的数"。
+    //       跨作用域污染的反面不是"多写一份"，而是"只写在这次要用的值上"。
+    const SystemMemory::Usage usage = SystemMemory::read();
+    io.xmx = GlobalJavaSettings::suggestXmxMb(usage.totalMb, usage.availableMb);
+    io.xms = GlobalJavaSettings::suggestXmsMb(io.xmx);
 }
 
 void MainWindow::onFolderSelectionChanged() {

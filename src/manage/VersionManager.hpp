@@ -76,6 +76,24 @@ public:
     //       自己写的文件、自己指定的版本，和直接改命令行是一回事。
     QStringList versionJvmArgs(const QString &versionId) const;
 
+    // meta 里"追加 JVM 参数"那个字段名。
+    //
+    // 公开出来只为一件事：写侧（每实例设置对话框点确定时）在 MainWindow 里，它得
+    // 往 updateVersionMeta() 传一个 key。读侧（versionJvmArgs）和写侧各写一遍
+    // "jvmArgs" 这个字面量，迟早会有一边写成 "jvmargs" —— 而那个错的形态是
+    // **静默不生效**：字符串不匹配不报错，参数就是不进命令行。
+    static QString jvmArgsField();
+
+    // 读这个实例的整份 wtfml.meta（文件没有、读不到、解析不了都是空对象）。
+    //
+    // 这是"每实例设置"的读侧入口：MainWindow 拿它喂给 javaOverrideFromJson()。
+    // 单独开一个公开读口而不是让调用方去凑 displayParts + versionJvmArgs 两个
+    // 半截的读侧 —— 覆盖那五项里有四项（javaPath / xmx / xms / autoMemory）现在
+    // **没有**任何专门的读函数，逐个加会变成五个功能重复的小函数。
+    //
+    // NOTE: 只读，不写盘、不生成 instanceId。它在启动路径上被调用。
+    QJsonObject versionMeta(const QString &versionId) const;
+
     // ---- wtfml.meta 的写侧 ----
     //
     // 这个文件以前只有读侧（上面那些）。重命名 / 分组 / 每实例设置三件事都要写它，

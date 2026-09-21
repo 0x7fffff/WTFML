@@ -4,6 +4,7 @@
 #include <QString>
 
 #include "../util/SystemMemory.hpp"
+#include "EffectiveJavaSettings.hpp"
 
 /**
  * @file GlobalJavaSettings.hpp
@@ -57,14 +58,76 @@ public:
     void setAutoSelectJava(bool autoSelect) { m_autoSelectJava = autoSelect; }
 
     /**
+     * @brief 把"自动挑中的 Java 路径"存回**全局**这一层：改内存 + 落盘。
+     * @param path 挑中的路径。和当前值一样时**不写盘** —— 每次启动都重写一遍注册表
+     *        没必要，而且那条路径本来就在盘上。
+     *
+     * 只有全局档该调它。实例档挑中的路径要写回那个实例的 wtfml.meta（见
+     * MainWindow::onStartButtonClicked()），写到这里就是跨作用域污染。
+     *
+     * NOTE: 老代码里这段逻辑长在 ensureJavaForVersion(int, QString) 里面（那个签名
+     *       只能改自己，所以它别无选择）。拆出来是为了让值版和它共用同一份
+     *       "全局档怎么存"的定义，而不是在两处各写一遍 setJavaPath + save。
+     */
+    void adoptJavaPath(const QString &path);
+
+    /**
+     * @brief 把这一层的值倒成一份**有效值**，供实例覆盖层当底用。
+     *
+     * 这是"每实例设置"那一层唯一需要全局档提供的东西：合成
+     * （resolveJavaSettings()）和自动挑 Java 都只认 EffectiveJavaSettings。
+     */
+    EffectiveJavaSettings effective() const;
+
+    /**
+     * @brief 隐式转换到有效值。等价于 effective()。
+     *
+     * 选隐式转换而不是让调用方每处都写 effective()，是为了让
+     * LauncherManager::generateJvmArguments() / startGame() 换成收
+     * `const EffectiveJavaSettings &` 之后，**所有现存调用点一个字都不用改**
+     * （验证工程里有二十多处）。顺带 LauncherManager 从此完全不认识这个类，
+     * 依赖方向从"启动器知道全局设置"变成"启动器只知道这次要用的值"。
+     */
+    operator EffectiveJavaSettings() const { return effective(); }
+
+    /**
      * @brief Ensures the configured Java matches the required major version.
      * @param majorVersion Required Java major version.
      * @param component Optional runtime component name from version.json
      *        (for example "java-runtime-epsilon"), used to pick the exact
      *        runtime Mojang ships for that game version.
      * @return True if matching Java is available.
+     *
+     * 这是**全局档**的老签名：挑中的路径写回本对象并落盘（= 注册表）。
+     * 加了实例覆盖之后它变成 ensureJavaForVersion(EffectiveJavaSettings&, ...)
+     * 的一层**转发壳** —— 保留它是为了让 E 段那几条断言、以及所有现存调用点不用改，
+     * 而且全局档的行为逐字节不变。
      */
     bool ensureJavaForVersion(int majorVersion, const QString &component = QString());
+
+    /**
+     * @brief 值版：在一份**给定的**有效值上挑 Java，挑中的路径写回 io。
+     *
+     * @param io 进参是这次要用的值，出参是挑完之后的值（javaPath 可能被换掉）。
+     * @param majorVersion 需要的主版本。
+     * @param component version.json 里声明的运行时组件名（可为空）。
+     * @param allowAutoSelect 允许自动挑吗。false = **手动档**：io.javaPath 不匹配时
+     *        不替用户换一个，直接失败返回 false。
+     * @param errorOut 失败原因（给用户看的一句话）。
+     * @return 拿到匹配的 Java 返回 true。
+     *
+     * NOTE: 这个函数**不碰** m_javaPath、**不落盘**、**不改任何成员** —— 挑中的路径
+     *       落在哪个作用域由调用方决定：全局档写回注册表（老行为），实例档写回那个
+     *       实例的 wtfml.meta。这正是"跨作用域污染"在结构上不可能发生的原因：
+     *       实例 A 自动挑中的 Java 绝不会写进全局配置，也就不会覆盖用户手填的全局路径。
+     *
+     * NOTE: 实例覆盖了 javaPath 就等于**手动档**，调用方要把 allowAutoSelect 传 false。
+     *       不这么做的话，用户给某个实例钉死的 Java 会被"按版本要求自动挑"覆盖掉，
+     *       那一项覆盖也就白设了。
+     */
+    bool ensureJavaForVersion(EffectiveJavaSettings &io, int majorVersion,
+                              const QString &component, bool allowAutoSelect,
+                              QString *errorOut = nullptr);
 
     /**
      * @brief Scans local installations for Java versions.
@@ -93,13 +156,17 @@ public:
     /**
      * @brief Downloads a Java runtime from Mojang for the required version.
      * @param majorVersion Required Java major version.
+     * @param javaPathOut 非空时写入下载并解压出来的 java.exe 路径。
      * @return True if the download succeeded.
      *
      * NOTE: 名字里的 "FromMojang" 是历史遗留，**实际来源是 Adoptium**（api.adoptium.net
      *       的 v3 assets/latest API），不是 Mojang 的服务器。函数名先不改 —— 改名要动
      *       调用点，收益只是好看。
+     * NOTE: 它**不**写 m_javaPath、**不**落盘 —— 这条是加实例覆盖时改的。以前它自己
+     *       把路径存进全局配置，于是"给某个实例下载一个运行时"会顺手改掉全局的 Java
+     *       路径；现在下载归下载、存哪由调用方决定（见 ensureJavaForVersion 的值版）。
      */
-    bool downloadJavaFromMojang(int majorVersion);
+    bool downloadJavaFromMojang(int majorVersion, QString *javaPathOut = nullptr);
 
     /**
      * @brief Current maximum heap size in megabytes.

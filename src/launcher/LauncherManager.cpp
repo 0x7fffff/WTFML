@@ -26,7 +26,7 @@
 #include <QUuid>
 
 #include "../manage/InstanceFiles.hpp"
-#include "../settings/GlobalJavaSettings.hpp"
+#include "../settings/EffectiveJavaSettings.hpp"
 #include "../util/AppPaths.hpp"
 #include "../util/ZipUtil.hpp"
 #include "LibraryRules.hpp"
@@ -297,7 +297,7 @@ QString LauncherManager::prepareNatives(const QJsonObject &versionJson, const QS
 QStringList LauncherManager::generateJvmArguments(const QString &token, const QString &versionId,
                                                   const QString &assetIndexId,
                                                   const QJsonObject &versionJson,
-                                                  const GlobalJavaSettings &settings,
+                                                  const EffectiveJavaSettings &settings,
                                                   bool offlineMode, int javaMajorVersion,
                                                   const QStringList &versionJvmArgs,
                                                   const QString &playerName,
@@ -305,7 +305,7 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     QStringList args;
 
     qDebug() << "=== Generating JVM Arguments ===";
-    qDebug() << "Memory settings: -Xms" << settings.xms() << "m -Xmx" << settings.xmx() << "m";
+    qDebug() << "Memory settings: -Xms" << settings.xms << "m -Xmx" << settings.xmx << "m";
     qDebug() << "Offline mode:" << offlineMode;
     qDebug() << "Java major version:" << javaMajorVersion;
 
@@ -314,12 +314,12 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     const QString username = playerName.isEmpty() ? QString::fromLatin1(kDefaultPlayerName)
                                                    : playerName;
 
-    args << QStringLiteral("-Xms%1m").arg(settings.xms());
-    args << QStringLiteral("-Xmx%1m").arg(settings.xmx());
+    args << QStringLiteral("-Xms%1m").arg(settings.xms);
+    args << QStringLiteral("-Xmx%1m").arg(settings.xmx);
 
-    if (!settings.extraJvmArgs().isEmpty()) {
-        qDebug() << "Extra JVM args:" << settings.extraJvmArgs();
-        args << settings.extraJvmArgs().split(' ', Qt::SkipEmptyParts);
+    if (!settings.extraJvmArgs.isEmpty()) {
+        qDebug() << "Extra JVM args:" << settings.extraJvmArgs;
+        args << settings.extraJvmArgs.split(' ', Qt::SkipEmptyParts);
     }
 
     // 按版本的自定义参数，**排在全局之后**：JVM 对同一条可重复选项取后写的那个，
@@ -566,7 +566,7 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     return args;
 }
 
-bool LauncherManager::startGame(const QStringList &arguments, GlobalJavaSettings &settings,
+bool LauncherManager::startGame(const QStringList &arguments, const EffectiveJavaSettings &settings,
                                 const QString &versionId) {
     // 返回值 = "进程真的起来了"。三条早退路径都必须 return false：调用方拿它当
     // "这次算不算启动成功"的判据（据此记住上次启动的版本），任何一条漏掉都会把
@@ -590,7 +590,7 @@ bool LauncherManager::startGame(const QStringList &arguments, GlobalJavaSettings
     qDebug() << "Game output is UTF-8:" << m_gameOutputIsUtf8;
 
     const QString program =
-        settings.javaPath().isEmpty() ? QStringLiteral("java") : settings.javaPath();
+        settings.javaPath.isEmpty() ? QStringLiteral("java") : settings.javaPath;
 
     // 记录启动信息
     qDebug() << "=== Game Launch Started ===";

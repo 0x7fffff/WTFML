@@ -57,6 +57,9 @@ public:
     // 会被产品逻辑改写的显示内容（占位文案现在就要随"有没有可选版本"切换），
     // 拿显示内容当身份标识的测试会在产品改动时以看不懂的方式挂掉。
     static QString loginButtonName() { return QStringLiteral("loginButton"); }
+    /// 主页那个「离线模式」勾选框。**只有它没有 objectName** 的那阵子，验证工程要
+    /// 驱动"离线启动"就只能按文字找控件 —— 而文字是产品文案，会变。
+    static QString offlineModeCheckBoxName() { return QStringLiteral("offlineModeCheckBox"); }
     static QString installedVersionComboName() { return QStringLiteral("installedVersionCombo"); }
     static QString availableVersionComboName() { return QStringLiteral("availableVersionCombo"); }
     static QString availableVersionListName() { return QStringLiteral("availableVersionList"); }
