@@ -50,8 +50,8 @@ public:
      * @param actualMajor 实例指定的那个 Java **实际**的主版本（一定 > 0 —— 探不出
      *        主版本的路径根本走不到这个框，那条路仍然是现有的硬错误）。
      * @param actualVersionText 实际那个 Java 的完整版本串（如 "1.8.0_301"）。**可能是空的**：
-     *        probeJavaMajorVersion() 读 release 文件那条快路径**不回填** versionOutput
-     *        （见 GlobalJavaSettings.cpp），所以正文得兜住"只有主版本号"这一种，
+     *        GlobalJavaSettings::probeJavaMajorVersion() 读 release 文件那条快路径
+     *        **不回填** versionOutput，所以正文得兜住"只有主版本号"这一种，
      *        别拼出「Java （）」这种句子。
      * @param javaPath 实例指定的那条路径。只在正文里露出来，让用户知道改的是哪一个文件。
      * @param parent 父窗口。

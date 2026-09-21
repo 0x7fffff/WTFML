@@ -145,6 +145,39 @@ private:
     /// @param io 进参是合成好的有效值，出参是定下来的内存。
     /// @param override 这个实例的覆盖（用来判断"自动这一档是谁要的"）。
     void resolveMemoryForLaunch(EffectiveJavaSettings &io, const JavaSettingsOverride &override);
+    /// 用户在那个「Java 版本对不上」的框里选的哪一条路。
+    enum class JavaMismatchAnswer {
+        /// 没问（绝大多数启动都走这条：实例没钉 Java、总闸关着、这个实例表过态不再问、
+        /// 或者那条路径压根探不出主版本）。
+        NotAsked,
+        /// 「仍然用这个 Java 启动」—— 照他钉的那个启动，一个字节的配置都不改。
+        KeepInstanceJava,
+        /// 「改用匹配的 Java 启动」—— 把自动挑中的匹配路径写回这个实例。
+        UseMatchingJava,
+        /// 取消 / 关窗 / Esc —— 不启动。
+        AbortLaunch,
+    };
+
+    /// 启动前问一句「实例指定的 Java 和这个版本要求对不上，你要怎么办」。
+    ///
+    /// 四个前置条件全满足才问：
+    ///   ① 这个实例**覆盖了** javaPath（全局档不匹配时是静默换一个匹配的，那是有意的
+    ///      老行为，不动）；
+    ///   ② 全局那个总闸开着（GlobalJavaSettings::warnVersionMismatch()）；
+    ///   ③ 这个实例没表过"以后别再问了"（wtfml.meta 的 skipJavaVersionWarning）；
+    ///   ④ 那条路径探得出主版本、**而且**和这个版本要求的不一样。探不出（-1：路径不存在
+    ///      或认不出来）不走这个框 —— "路径无效"和"版本不符"是两件事，前者仍然是现有的
+    ///      硬错误。
+    /// 代价只是一次文件读（probeJavaMajorVersion 的 release 快路径），所以绝大多数启动
+    /// 在这里花的是微秒级。
+    ///
+    /// NOTE: 这一步只**问**，不动任何状态：值、meta、全局设置都由 onStartButtonClicked()
+    ///       按返回的那个答案去改。唯一一处例外是"勾了以后不再提醒"这个长期偏好 ——
+    ///       用户刚点的那一下，立刻落盘才对得上他的意思（而且写失败只记日志、不拦启动：
+    ///       不该因为存不下一个偏好，把他刚授权的启动掐掉）。
+    JavaMismatchAnswer askAboutJavaMismatch(const QString &versionId,
+                                            const JavaSettingsOverride &override,
+                                            int expectedMajor);
     /// 「自动（按系统内存）」勾选框。
     void onJavaWarnMismatchChanged();
     void onMemoryAutoChanged();

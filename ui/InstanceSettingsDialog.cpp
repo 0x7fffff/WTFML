@@ -161,7 +161,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         m_advancedToggle->setChecked(false);
         m_advancedToggle->setArrowType(Qt::RightArrow);
         m_advancedToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-        // 默认折叠。里面两项都是"改错了游戏直接起不来"的东西，一打开对话框就摆在
+        // 默认折叠。里面几项都是"改错了游戏直接起不来"的东西，一打开对话框就摆在
         // 眼前等于诱导用户去动它。
         grid->addWidget(m_advancedToggle, row++, 0, 1, 2, Qt::AlignLeft);
 

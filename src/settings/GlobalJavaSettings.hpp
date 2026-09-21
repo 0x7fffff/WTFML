@@ -179,6 +179,35 @@ public:
     static int majorVersionFromReleaseFile(const QString &releaseText);
 
     /**
+     * @brief 认出一个 java.exe 的主版本：先读 release 文件，读不到才真的跑一次 java -version。
+     * @param javaExe java.exe 的完整路径。
+     * @param versionOutput 退回探测时用来接 java -version 的原始输出（可以传 nullptr）。
+     * @return 主版本号；exe 不存在、或者两种办法都认不出来时返回 -1。
+     *
+     * JDK/JRE 安装时就把版本清单写在自己的根目录里（release 文件），读它是一次文件读取
+     * （微秒级）；而跑 java -version 要冷启一个 JVM —— Windows 上实测约 80~100 ms，
+     * 装了杀软的机器上第一次跑更久。而 scanLocalJavaVersions() 是**同步**跑的（切到设置页
+     * 那一下），本机 5 个运行时就是 0.6 s 的界面冻结 —— 这就是"点开设置卡一下"。
+     * 能读文件就别开进程。
+     *
+     * NOTE: 不是每个运行时都有 release。原版启动器那份 jre-legacy（Java 8 的老布局）就只有
+     *       bin/ 和 lib/，没有这个文件 —— Java 8 那代还没有这个惯例。所以读不到时**必须**
+     *       退回真的跑一次，不能拿目录名（jre-legacy / java-runtime-delta）去猜主版本：
+     *       目录名是别人起的，改名或者往里放了别的东西，猜出来的版本就是错的 ——
+     *       而"静默选错 Java"正是这一层最怕的错。
+     *
+     * NOTE: 走 release 那条快路径时**不回填 versionOutput**（那里压根没有版本串可填），
+     *       所以拿到 > 0 的返回值时 versionOutput 可能还是空的。调用方（启动前那个
+     *       「版本对不上」的提醒框）必须兜住"只有主版本号"这一种。
+     *
+     * NOTE: 公开它是因为启动路径要用它来判断"实例钉的那个 Java 到底是哪个主版本"
+     *       （MainWindow::askAboutJavaMismatch()）。那个判断**不能**改用
+     *       javaMatchesMajor()：后者只回答"是不是这个版本"，而对话框里要写清"他钉的
+     *       是哪个版本"，而且它总是冷启一个 JVM。
+     */
+    static int probeJavaMajorVersion(const QString &javaExe, QString *versionOutput = nullptr);
+
+    /**
      * @brief Downloads a Java runtime from Mojang for the required version.
      * @param majorVersion Required Java major version.
      * @param javaPathOut 非空时写入下载并解压出来的 java.exe 路径。

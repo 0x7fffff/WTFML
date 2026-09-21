@@ -532,8 +532,10 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
         //       那种一眼就该是自己配错的，不值得每次启动都问一遍。
         addHint(box, QStringLiteral("「自动」是按版本要求挑（1.16.5 及以下要 Java 8、"
                                     "26.x 要 Java 25，同一个启动器里得能共存）。"
-                                    "这里选了具体的 Java 就别指望它会替你换一个 —— "
-                                    "版本对不上会直接报错，不会静默换一个。"),
+                                    "这一行选的是「全局」那一层：选了具体的 Java 就别指望"
+                                    "它会替你换一个 —— 版本对不上会直接报错，不会静默换一个。"
+                                    "要给某一个实例单独指定 Java，用它的「实例设置…」；"
+                                    "那边对不上时会弹框问一句（由下面「版本提醒」管）。"),
                 form);
         addSettingRow(grid, row++, QStringLiteral("运行时"), box, form);
     }

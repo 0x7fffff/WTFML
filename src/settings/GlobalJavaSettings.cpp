@@ -154,52 +154,6 @@ int parseJavaMajorVersion(const QString &versionOutput) {
 }
 
 /**
- * @brief 认出一个 java.exe 的主版本：先读 release 文件，读不到才真的跑一次 java -version。
- * @param javaExe java.exe 的完整路径。
- * @param versionOutput 退回探测时用来接 java -version 的原始输出（可以传 nullptr）。
- * @return 主版本号；exe 不存在、或者两种办法都认不出来时返回 -1。
- *
- * JDK/JRE 安装时就把版本清单写在自己的根目录里（release 文件），读它是一次文件读取
- * （微秒级）；而跑 java -version 要冷启一个 JVM —— Windows 上实测约 80~100 ms，
- * 装了杀软的机器上第一次跑更久。而 scanLocalJavaVersions() 是**同步**跑的（切到设置页
- * 那一下），本机 5 个运行时就是 0.6 s 的界面冻结 —— 这就是"点开设置卡一下"。
- * 能读文件就别开进程。
- *
- * NOTE: 不是每个运行时都有 release。原版启动器那份 jre-legacy（Java 8 的老布局）就只有
- *       bin/ 和 lib/，没有这个文件 —— Java 8 那代还没有这个惯例。所以读不到时**必须**
- *       退回真的跑一次，不能拿目录名（jre-legacy / java-runtime-delta）去猜主版本：
- *       目录名是别人起的，改名或者往里放了别的东西，猜出来的版本就是错的 ——
- *       而"静默选错 Java"正是这一层最怕的错。
- */
-int probeJavaMajorVersion(const QString &javaExe, QString *versionOutput = nullptr) {
-    if (!QFileInfo::exists(javaExe)) {
-        return -1;
-    }
-
-    // release 文件在 java.exe 的上一层：<运行时根>/bin/java.exe → <运行时根>/release
-    QDir runtimeRoot = QFileInfo(javaExe).absoluteDir();
-    runtimeRoot.cdUp();
-    QFile releaseFile(runtimeRoot.absoluteFilePath(QStringLiteral("release")));
-    if (releaseFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        const int majorVersion = GlobalJavaSettings::majorVersionFromReleaseFile(
-            QString::fromUtf8(releaseFile.readAll()));
-        if (majorVersion > 0) {
-            return majorVersion;
-        }
-    }
-
-    // 没有 release 文件（或者里面没有能认的 JAVA_VERSION）：只能真的问它一次。
-    QString probed;
-    if (!verifyJavaExecutable(javaExe, &probed)) {
-        return -1;
-    }
-    if (versionOutput) {
-        *versionOutput = probed;
-    }
-    return parseJavaMajorVersion(probed);
-}
-
-/**
  * @brief 判断某个 Java 可执行文件的主版本是否与需求一致。
  * @param path Java 可执行文件或包含 bin/java.exe 的运行时目录。
  * @param major 需要的 Java 主版本（如 8 / 17 / 21 / 25），传 -1 表示不限版本。
@@ -344,7 +298,7 @@ QMap<QString, VanillaRuntime> scanVanillaRuntimeComponents() {
     for (const QString &subdir : subdirs) {
         const QString exe =
             QDir(runtimeRoot.absoluteFilePath(subdir)).absoluteFilePath("bin/java.exe");
-        const int majorVersion = probeJavaMajorVersion(exe);
+        const int majorVersion = GlobalJavaSettings::probeJavaMajorVersion(exe);
         if (majorVersion > 0) {
             components[subdir] = VanillaRuntime{exe, majorVersion};
         }
@@ -514,6 +468,34 @@ bool downloadJavaRuntime(const QString &destinationDir, const QString &component
 }
 }  // namespace
 
+int GlobalJavaSettings::probeJavaMajorVersion(const QString &javaExe, QString *versionOutput) {
+    if (!QFileInfo::exists(javaExe)) {
+        return -1;
+    }
+
+    // release 文件在 java.exe 的上一层：<运行时根>/bin/java.exe → <运行时根>/release
+    QDir runtimeRoot = QFileInfo(javaExe).absoluteDir();
+    runtimeRoot.cdUp();
+    QFile releaseFile(runtimeRoot.absoluteFilePath(QStringLiteral("release")));
+    if (releaseFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        const int majorVersion = GlobalJavaSettings::majorVersionFromReleaseFile(
+            QString::fromUtf8(releaseFile.readAll()));
+        if (majorVersion > 0) {
+            return majorVersion;
+        }
+    }
+
+    // 没有 release 文件（或者里面没有能认的 JAVA_VERSION）：只能真的问它一次。
+    QString probed;
+    if (!verifyJavaExecutable(javaExe, &probed)) {
+        return -1;
+    }
+    if (versionOutput) {
+        *versionOutput = probed;
+    }
+    return parseJavaMajorVersion(probed);
+}
+
 GlobalJavaSettings::GlobalJavaSettings(QObject *parent)
     : QObject(parent),
       m_xmx(kBuiltinXmxMb)  // 4GB
@@ -674,7 +656,7 @@ QMap<int, QString> GlobalJavaSettings::scanLocalJavaVersions() {
         const QStringList subdirs = dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
         for (const QString &subdir : subdirs) {
             const QString javaExe = dir.absoluteFilePath(subdir + "/bin/java.exe");
-            const int majorVersion = probeJavaMajorVersion(javaExe);
+            const int majorVersion = GlobalJavaSettings::probeJavaMajorVersion(javaExe);
             if (majorVersion > 0) {
                 versions[majorVersion] = javaExe;
             }

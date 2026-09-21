@@ -13,6 +13,7 @@
 
 #include "..\ui\GroupDialog.hpp"
 #include "..\ui\InstanceSettingsDialog.hpp"
+#include "..\ui\JavaMismatchDialog.hpp"
 #include "..\ui\MainWindowUI.hpp"
 
 // 添加以下头文件（防止hpp变动导致文件失效）
@@ -1466,11 +1467,29 @@ void MainWindow::onStartButtonClicked() {
     // 不这么判的话，用户给某个实例钉死的 Java 会在下一次启动时被"按版本要求自动挑"
     // 悄悄换掉，而那一项覆盖也就白设了。
     const bool instanceOwnsJavaPath = override.javaPath.has_value();
-    const bool allowAutoSelect = m_javaSettings->autoSelectJava() && !instanceOwnsJavaPath;
+    bool allowAutoSelect = m_javaSettings->autoSelectJava() && !instanceOwnsJavaPath;
+
+    // 「问」和「做」分开：这一段只负责拿到用户的答案，值、meta、全局设置一概不动 ——
+    // 那些由下面按答案各走各的。问在合成值之后、挑 Java 之前。
+    const JavaMismatchAnswer answer = askAboutJavaMismatch(versionId, override, javaMajorVersion);
+    if (answer == JavaMismatchAnswer::AbortLaunch) {
+        return;
+    }
+    // 「仍然用这个 Java 启动」只有一个后果：把"允许不匹配"那个口子打开。判在
+    // javaMatchesMajor() 之前（见 ensureJavaForVersion 的值版），所以哪怕那条路径
+    // 根本起不来，用户也已经明说了"就用它"。
+    const bool allowMismatchedPath = (answer == JavaMismatchAnswer::KeepInstanceJava);
+    // 「改用匹配的 Java 启动」也是只有一个后果：把实例钉的那条路径**丢掉**，
+    // 让这次走"按版本要求自动挑"。丢掉的只是这次要用的那份值 —— 实例的 meta 要等
+    // 挑出来之后才写回去（那才是用户要的"在实例设置中恢复为匹配的 Java"）。
+    if (answer == JavaMismatchAnswer::UseMatchingJava) {
+        javaSettings.javaPath.clear();
+        allowAutoSelect = true;
+    }
 
     QString javaError;
     if (!m_javaSettings->ensureJavaForVersion(javaSettings, javaMajorVersion, javaComponent,
-                                              allowAutoSelect, &javaError)) {
+                                              allowAutoSelect, &javaError, allowMismatchedPath)) {
         appendLog(tr("无法获取所需的 Java 运行时环境：版本 %1").arg(javaMajorVersion));
         QMessageBox::warning(
             this, tr("Java 运行时缺失"),
@@ -1481,6 +1500,32 @@ void MainWindow::onStartButtonClicked() {
                       .arg(javaMajorVersion)
                 : tr("找不到或无法下载 Java %1，请手动指定 Java 路径。").arg(javaMajorVersion));
         return;
+    }
+
+    // 「改用匹配的 Java」：把刚挑中的那条路径写回**这个实例**。
+    //
+    // 用户原话是"在实例设置中恢复为匹配的 Java"，所以写的是那个实例的 wtfml.meta，
+    // 不是全局 —— 下面那段 adoptJavaPath 的注释说的就是为什么不能写全局。
+    //
+    // NOTE: 这一步失败**要弹窗而且不启动**。这次启动其实能成（javaSettings 里已经有
+    //       路径了），但下次启动开头又会读到原来的覆盖、又问一遍同一个问题 ——
+    //       看起来就像"他的选择没被记住"。宁可现在说清楚，也别让用户对着一个反复
+    //       出现的框去猜。
+    if (answer == JavaMismatchAnswer::UseMatchingJava) {
+        QString writeError;
+        if (!m_versionManager->updateVersionMeta(
+                versionId, {{javaPathMetaField(), QJsonValue(javaSettings.javaPath)}},
+                &writeError)) {
+            appendLog(tr("把匹配的 Java 写进实例设置失败：%1").arg(writeError));
+            QMessageBox::warning(
+                this, tr("实例设置写入失败"),
+                tr("找到了匹配的 Java（%1），但没能把它记到实例「%2」的设置里：\n%3\n\n"
+                   "没有启动。你可以在「实例设置…」里手动指定这条路径。")
+                    .arg(javaSettings.javaPath, instanceDisplayName(versionId), writeError));
+            return;
+        }
+        appendLog(tr("已把「%1」指定的 Java 换成 %2")
+                      .arg(instanceDisplayName(versionId), javaSettings.javaPath));
     }
 
     // 挑中的 Java 路径落在**哪一层** —— 这就是"跨作用域污染"那道坎。
@@ -1860,6 +1905,75 @@ bool MainWindow::applyInstanceSettings(const QString &versionId,
     }
     appendLog(tr("实例设置已保存：%1").arg(versionId));
     return true;
+}
+
+MainWindow::JavaMismatchAnswer MainWindow::askAboutJavaMismatch(
+    const QString &versionId, const JavaSettingsOverride &override, int expectedMajor) {
+    // ① 只有"实例钉了 Java"才有这个问题。全局档不匹配时 ensureJavaForVersion() 会
+    //    静默换一个匹配的 —— 那是有意的老行为（用户没钉任何东西，替他挑一个正确的
+    //    运行时不叫"换掉他的选择"），不动它。
+    if (!override.javaPath.has_value()) {
+        return JavaMismatchAnswer::NotAsked;
+    }
+
+    // ② 全局总闸关着，③ 或者这个实例表过态"以后别再问了"。
+    //
+    // 两条的语义**一样**，都是"别问了，照他钉的那个启动" —— 返回 KeepInstanceJava
+    // 正是那个意思（它唯一的作用就是把 allowMismatchedPath 打开）。这里不能返回
+    // NotAsked：那条路会落到手动档的硬错误上（路径不匹配就 fail()），也就是说，
+    // 用户关了提醒之后反而**再也启动不了**这个实例 —— 一个纯负作用的开关。
+    if (!m_javaSettings->warnVersionMismatch() ||
+        m_versionManager->skipJavaVersionWarning(versionId)) {
+        return JavaMismatchAnswer::KeepInstanceJava;
+    }
+
+    // ④ 那条路径到底是不是另一个主版本。探不出主版本（-1）时**不问** —— 那是"路径
+    //    不存在/认不出来"，和"版本不符"是两件事，它继续落到现有的「Java 运行时缺失」
+    //    硬错误那条路上。主版本相同当然更不用问。
+    QString actualVersionText;
+    const int actualMajor =
+        GlobalJavaSettings::probeJavaMajorVersion(*override.javaPath, &actualVersionText);
+    if (actualMajor <= 0 || actualMajor == expectedMajor) {
+        return JavaMismatchAnswer::NotAsked;
+    }
+
+    JavaMismatchDialog dialog(instanceDisplayName(versionId), expectedMajor, actualMajor,
+                              actualVersionText, *override.javaPath, this);
+    dialog.exec();
+    const JavaMismatchDialog::Choice choice = dialog.choice();
+
+    if (choice == JavaMismatchDialog::Choice::Abort) {
+        appendLog(tr("已取消启动：「%1」指定的是 Java %2，而这个版本要求 Java %3。")
+                      .arg(instanceDisplayName(versionId))
+                      .arg(actualMajor)
+                      .arg(expectedMajor));
+        return JavaMismatchAnswer::AbortLaunch;
+    }
+
+    // 「以后不再提醒这个实例」是用户刚点下的一下**表态**，立刻落盘才对得上他的意思
+    // （等他下次想起来去「实例设置…」里关，那个框会一直问下去）。
+    //
+    // NOTE: 写失败**只记日志、不拦启动**。这是全程唯一一处"错误不弹窗"：存不下一个
+    //       偏好和"这次启动能不能跑"是两件事，不该因为它把用户刚授权的启动掐掉；
+    //       而它自己的后果（下次还问一句）是无害的、也是看得见的。
+    //
+    // NOTE: 勾选框是**独立于选了哪条路**的一句表态（它的字面意思就是这样），所以
+    //       「改用匹配的 Java」那一次也照写不误 —— 要是他后来又给这个实例钉了个
+    //       对不上的 Java，"别问了"这句话仍然算数。
+    if (dialog.dontRemindAgain()) {
+        QString error;
+        if (!m_versionManager->updateVersionMeta(
+                versionId, {{VersionManager::skipJavaVersionWarningField(), QJsonValue(true)}},
+                &error)) {
+            appendLog(tr("没能记住「以后不再提醒」：%1").arg(error));
+        } else {
+            appendLog(tr("「%1」以后不再提醒 Java 版本不符。").arg(instanceDisplayName(versionId)));
+        }
+    }
+
+    return choice == JavaMismatchDialog::Choice::UseMatchingJava
+               ? JavaMismatchAnswer::UseMatchingJava
+               : JavaMismatchAnswer::KeepInstanceJava;
 }
 
 void MainWindow::resolveMemoryForLaunch(EffectiveJavaSettings &io,
