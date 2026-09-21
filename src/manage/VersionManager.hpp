@@ -76,6 +76,40 @@ public:
     //       自己写的文件、自己指定的版本，和直接改命令行是一回事。
     QStringList versionJvmArgs(const QString &versionId) const;
 
+    // ---- wtfml.meta 的写侧 ----
+    //
+    // 这个文件以前只有读侧（上面那些）。重命名 / 分组 / 每实例设置三件事都要写它，
+    // 写侧放在同一个类里，是因为"什么算坏文件、坏了要不要吭声、类型不对怎么办"
+    // 这套判断已经在 readVersionMeta 里成文了，另立一处必然要抄第二遍、然后慢慢抄歪。
+
+    // 把一批字段**合并**写进 <id>/wtfml.meta，其余字段原样保留。
+    //
+    // @param fields 要写的字段；值为 QJsonValue::Null 表示**删掉**该字段。
+    //               NULL 这个约定是给"改回跟随全局"用的 —— 那种情况要的是"这个键不存在"，
+    //               而不是"这个键等于全局的值"（后者会让这个实例在用户改全局之后不跟着走）。
+    // @param errorOut 失败原因（给用户看的一句话）。数据层不弹窗、也不只写 qWarning
+    //                 （用户看不见），一律交给调用方去弹。
+    // @return 写成功返回 true。
+    //
+    // NOTE: 合并而不是整体替换。这个文件是用户可以手写的，里面可能已经有 jvmArgs /
+    //       nameFormat / realVersion —— 整体覆盖写会把它们抹掉，而那正是读侧花了力气
+    //       支持的东西。同理，文件**存在但解析不了**时**拒绝写**：往一份读不懂的内容上
+    //       合并等于把用户手写的部分丢掉，比"这次没写成"糟得多。
+    // NOTE: 非 const —— 它真的往磁盘上写东西。"看起来是只读"的假 const 会诱使人在
+    //       扫描路径上调用它，而扫描一次会话要跑无数遍、绝不能带副作用。
+    bool updateVersionMeta(const QString &versionId, const QJsonObject &fields,
+                           QString *errorOut = nullptr);
+
+    // 这个实例的稳定 id（wtfml.meta 里的 "instanceId"）；没有或读不到就是空串。
+    // **只读，不生成、不写盘** —— 它在扫描路径上被调用。
+    QString instanceId(const QString &versionId) const;
+
+    // 确保这个实例有稳定 id：没有就生成一个写进 meta，返回它；写盘失败返回空串。
+    //
+    // 生成时机是**懒的**，只在真正需要它的三条写路径上（重命名 / 加入分组 / 改实例设置），
+    // 不是扫描时。绝大多数实例一辈子不会被写过 meta，也就不该因为这个安静地多出一个文件。
+    QString ensureInstanceId(const QString &versionId);
+
 signals:
     void versionsFetched(const QStringList &versions);
     void versionDetailsFetched(const QString &versionId, const QJsonObject &versionJson);
@@ -96,7 +130,11 @@ private:
     // （格式错会告警）。displayParts() 和 versionJvmArgs() 共用这一份读盘逻辑，
     // 免得把"什么算坏文件、坏了要不要吭声"的判断抄两遍、慢慢抄歪。
     // metaPathOut 非空时回填路径，供调用方在告警里指出是哪个文件。
-    QJsonObject readVersionMeta(const QString &versionId, QString *metaPathOut = nullptr) const;
+    // unreadableOut 非空时回填"文件在、但读不懂"（打不开或格式错）—— 返回空对象有
+    // 两种含义（没有这个文件 / 有这个文件但坏了），写侧必须分得清：前者可以新建，
+    // 后者得拒绝写，否则就是把用户手写的内容覆盖掉。
+    QJsonObject readVersionMeta(const QString &versionId, QString *metaPathOut = nullptr,
+                                bool *unreadableOut = nullptr) const;
 
     DownloadManager *downloadManager;
     // versionId -> versionJson。mutable 是因为 getVersionJson() 是 const 的，

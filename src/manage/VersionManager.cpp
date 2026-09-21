@@ -16,9 +16,24 @@
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonParseError>
+#include <QJsonValue>
+#include <QSaveFile>
+#include <QUuid>
 
 #include "../util/AppPaths.hpp"
 #include "InstanceFiles.hpp"
+
+namespace {
+
+/// wtfml.meta 里那个"从生到死都跟着这个实例"的 id 的字段名。
+///
+/// NOTE: 刻意**不叫 "id"**，理由和这个文件不叫 wtfml.json 是同一件事（见 .hpp 里
+///       displayParts() 那段）：版本 JSON 里的 "id" 有特殊语义，一个文件里出现两个 id
+///       早晚会被读错，而那类错误的形态是"静默选错 Java"级别的。换个不可能撞的名字，
+///       这个错在结构上就不存在。
+const QString kInstanceIdField = QStringLiteral("instanceId");
+
+}  // namespace
 
 VersionManager::VersionManager(QObject *parent)
     : QObject(parent), downloadManager(new DownloadManager(this)) {
@@ -217,10 +232,14 @@ QJsonObject VersionManager::getVersionJson(const QString &versionId) const {
     return doc.object();
 }
 
-QJsonObject VersionManager::readVersionMeta(const QString &versionId, QString *metaPathOut) const {
+QJsonObject VersionManager::readVersionMeta(const QString &versionId, QString *metaPathOut,
+                                            bool *unreadableOut) const {
     const QString metaPath = AppPaths::versionMetaPath(versionId);
     if (metaPathOut != nullptr) {
         *metaPathOut = metaPath;
+    }
+    if (unreadableOut != nullptr) {
+        *unreadableOut = false;
     }
 
     QFile metaFile(metaPath);
@@ -231,6 +250,9 @@ QJsonObject VersionManager::readVersionMeta(const QString &versionId, QString *m
     }
     if (!metaFile.open(QIODevice::ReadOnly)) {
         qWarning() << "Version metadata exists but cannot be opened:" << metaPath;
+        if (unreadableOut != nullptr) {
+            *unreadableOut = true;
+        }
         return QJsonObject();
     }
 
@@ -241,9 +263,100 @@ QJsonObject VersionManager::readVersionMeta(const QString &versionId, QString *m
         // 手写的文件写错格式很常见。整个文件当没有，但不静默——这是用户手写的，
         // 不告诉他写错了他会一直以为生效了。
         qWarning() << "Failed to parse version metadata" << metaPath << ":" << parseError.errorString();
+        if (unreadableOut != nullptr) {
+            *unreadableOut = true;
+        }
         return QJsonObject();
     }
     return doc.object();
+}
+
+bool VersionManager::updateVersionMeta(const QString &versionId, const QJsonObject &fields,
+                                       QString *errorOut) {
+    const QString metaPath = AppPaths::versionMetaPath(versionId);
+
+    // 先把现有的读进来当底，再往上盖要改的键 —— **合并**写，不整体替换。
+    // 这个文件是用户可以手写的，里面可能已经有 jvmArgs / nameFormat / realVersion，
+    // 整体覆盖会把它们悄悄抹掉。
+    bool unreadable = false;
+    QJsonObject merged = readVersionMeta(versionId, nullptr, &unreadable);
+    if (unreadable) {
+        // 往一份读不懂的内容上合并 = 把用户手写的部分丢掉。宁可这次不写。
+        if (errorOut != nullptr) {
+            *errorOut = tr("%1 的内容不是合法的 JSON，为避免覆盖掉你写的东西，这次没有改动它。")
+                            .arg(metaPath);
+        }
+        return false;
+    }
+
+    for (auto it = fields.constBegin(); it != fields.constEnd(); ++it) {
+        if (it.value().isNull() || it.value().isUndefined()) {
+            // 约定：null 表示**删掉**这个键（"改回跟随全局"要的就是"这个键不存在"）。
+            merged.remove(it.key());
+        } else {
+            merged.insert(it.key(), it.value());
+        }
+    }
+
+    // 目录理论上一定在（扫描是先认 jar 的），但重命名那条路会在目录刚建好时调过来，
+    // 建不出来就没什么好写的了。
+    if (!QDir().mkpath(AppPaths::versionDir(versionId))) {
+        if (errorOut != nullptr) {
+            *errorOut = tr("无法创建目录 %1。").arg(AppPaths::versionDir(versionId));
+        }
+        return false;
+    }
+
+    // QSaveFile：先写同目录的临时文件、commit() 时才改名覆盖。断电或崩溃只会留下
+    // "旧内容完好"，绝不会留下半截 JSON —— 这个文件坏掉的后果是那个实例的显示名和
+    // 参数整体失效，比"这次没写成"糟得多。
+    //
+    // 缩进输出：这是用户会拿记事本打开看的文件，紧排一行没法读。代价是重写会把
+    // 用户原来的排版统一掉，可以接受。
+    QSaveFile file(metaPath);
+    if (!file.open(QIODevice::WriteOnly)) {
+        if (errorOut != nullptr) {
+            *errorOut = tr("无法写入 %1。").arg(metaPath);
+        }
+        return false;
+    }
+    file.write(QJsonDocument(merged).toJson(QJsonDocument::Indented));
+    if (!file.commit()) {
+        if (errorOut != nullptr) {
+            *errorOut = tr("写入 %1 失败。").arg(metaPath);
+        }
+        return false;
+    }
+    return true;
+}
+
+QString VersionManager::instanceId(const QString &versionId) const {
+    const QJsonValue value = readVersionMeta(versionId).value(kInstanceIdField);
+    // 类型不对就当没有（可能是用户手改坏的）—— 调用方会去生成一个新的覆盖掉它。
+    return value.isString() ? value.toString() : QString();
+}
+
+QString VersionManager::ensureInstanceId(const QString &versionId) {
+    const QString existing = instanceId(versionId);
+    if (!existing.isEmpty()) {
+        return existing;
+    }
+
+    // QUuid 的 WithoutBraces 形式（36 字符带横线）。用它而不是自增整数：分组归属
+    // 存在另一个文件里，自增 id 在"删了一个组再加一个"时会和残留的归属撞上，
+    // 而 UUID 不会。
+    const QString generated = QUuid::createUuid().toString(QUuid::WithoutBraces);
+
+    QJsonObject fields;
+    fields.insert(kInstanceIdField, generated);
+    QString error;
+    if (!updateVersionMeta(versionId, fields, &error)) {
+        // 走到这里说明磁盘有问题（目录不可写之类）。返回空串让调用方知道"没拿到"，
+        // 而不是返回一个**没落盘**的 id —— 那个 id 下次会话就对不上了，属于静默错。
+        qWarning() << "Failed to persist instance id for" << versionId << ":" << error;
+        return QString();
+    }
+    return generated;
 }
 
 QStringList VersionManager::versionJvmArgs(const QString &versionId) const {
