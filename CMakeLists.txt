@@ -50,6 +50,7 @@ set(SOURCE_FILES
     ui/MainWindowUI.cpp
     ui/GroupDialog.cpp
     ui/InstanceSettingsDialog.cpp
+    ui/JavaMismatchDialog.cpp
     ${HEADER_FILES}
 )
 

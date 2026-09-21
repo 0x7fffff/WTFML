@@ -130,7 +130,16 @@ public:
      * @param allowAutoSelect 允许自动挑吗。false = **手动档**：io.javaPath 不匹配时
      *        不替用户换一个，直接失败返回 false。
      * @param errorOut 失败原因（给用户看的一句话）。
+     * @param allowMismatchedPath 用户已经**明确授权**"就用这个不匹配的 Java 启动"。
+     *        置真时 io.javaPath 非空即返回 true，一个探测都不做。
      * @return 拿到匹配的 Java 返回 true。
+     *
+     * NOTE: allowMismatchedPath **只能**由「Java 版本不符」那个对话框的「仍然用这个
+     *       Java 启动」置真，别的调用点一个都不许传。它判在 javaMatchesMajor() **之前**
+     *       是有意的：那个函数总是冷启一个 JVM（几十上百毫秒），而这个口子开的理由是
+     *       "用户已经在框里表过态了"，没有理由再探一次。也正因为它在前，一个**压根不存在**
+     *       的路径也能从这里返回 true —— 这是这个参数唯一可能的来源是"用户点的"的结构性
+     *       证据（验证工程 S3 那条断言钉的就是这一点）。
      *
      * NOTE: 这个函数**不碰** m_javaPath、**不落盘**、**不改任何成员** —— 挑中的路径
      *       落在哪个作用域由调用方决定：全局档写回注册表（老行为），实例档写回那个
@@ -143,7 +152,7 @@ public:
      */
     bool ensureJavaForVersion(EffectiveJavaSettings &io, int majorVersion,
                               const QString &component, bool allowAutoSelect,
-                              QString *errorOut = nullptr);
+                              QString *errorOut = nullptr, bool allowMismatchedPath = false);
 
     /**
      * @brief Scans local installations for Java versions.
