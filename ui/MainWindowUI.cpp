@@ -82,7 +82,7 @@ constexpr int kStartButtonMinHeight = 88;
 /// 「额外 JVM 参数」多行输入框的高度，约三四行的样子；再高会把下面那几项挤出可视区。
 constexpr int kJvmArgsEditHeight = 72;
 
-/// 几个按钮的宽度下限：文案长短差得多（「下载版本」/「应用」这种），
+/// 几个按钮的宽度下限：文案长短差得多（「安装」/「应用」这种），
 /// 不给下限就会各自缩成一小块、排在一起长短不齐。
 constexpr int kDownloadButtonMinWidth = 96;
 /// 「账号与外观…」那个入口按钮的最小宽度。文案固定，但给一个下限，免得以后换文案时
@@ -505,98 +505,155 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         downloadStack->setObjectName(downloadStackName());
         download.right.layout->addWidget(downloadStack, 1);
 
-        // ---- 第 0 页「游戏」：原来那一摊，控件一个没搬走、一个没改名 ----
+        // ---- 第 0 页「游戏」：里面再分两层（版本树 / 安装页） ----
+        //
+        // 用户原话见头文件里 downloadGameStackName() 上面那段：四个分类各占一条 →
+        // 点开是那条底下的版本号 → 点一个版本号进安装页；安装页顶上是名称框（带重名
+        // 小字提示）、底下是四个加载器各一条（每条右边选它自己的版本）、最下面「安装」。
+        // 左栏那列分类、右栏这份堆叠、底下状态栏都不动。
         QWidget *gamePage = new QWidget(downloadStack);
         gamePage->setObjectName(downloadGamePageName());
         QVBoxLayout *gameLayout = new QVBoxLayout(gamePage);
         gameLayout->setContentsMargins(0, 0, 0, 0);
-        gameLayout->setSpacing(10);
+        gameLayout->setSpacing(0);
 
-        // 模组加载器：四选一（Fabric / Forge / NeoForge / OptiFine）+ 一个「不装（纯原版）」，
-        // 摆在最上面。顺序是"先定加载器、再定装在哪个版本上" —— 跟着下面那份版本列表
-        // 读下来才顺。
+        gameStack = new QStackedWidget(gamePage);
+        gameStack->setObjectName(downloadGameStackName());
+        gameLayout->addWidget(gameStack, 1);
+
+        // ---- [0] 四条分类 + 它们底下的版本号 ----
         //
-        // NOTE: 那第五个选项**不是凑数**：单选钮一旦勾上就没法用鼠标取消（Qt 的互斥组
-        //       把"点已勾中的那个"当成什么都没发生），没有它的话用户勾过一次 Fabric 就
-        //       再也回不到"装纯原版"了 —— 而「可安装版本」那个下拉框**只**服务于这条路。
-        //       它**初始勾中**，也就是"打开下载页时就是原来那个行为"。
-        //       位置在四个加载器后面（不是最前面）的理由见头文件里 modLoaderOptionNames()。
-        QLabel *modLoaderLabel = new QLabel(modLoaderLabelText(), gamePage);
-        modLoaderLabel->setObjectName(modLoaderLabelName());
-        gameLayout->addWidget(modLoaderLabel);
+        // 四条的**内容**（哪四条、各叫什么、底下哪些版本）全部来自
+        // VersionManager::availableVersionChannels()，界面这边一条判据都不写 ——
+        // "什么算愚人节版"那件事只有 VersionCategory 一处（含那张写死的名单）。
+        QWidget *treePage = new QWidget(gameStack);
+        auto *treeLayout = new QVBoxLayout(treePage);
+        treeLayout->setContentsMargins(0, 0, 0, 0);
+        treeLayout->setSpacing(10);
+        versionTree = new QTreeWidget(treePage);
+        versionTree->setObjectName(versionTreeName());
+        // 只有一列、只有一个版本号，表头没有信息量（"1" 那一格纯属噪音）。
+        versionTree->setHeaderHidden(true);
+        // 742 条快照全是同一个行高，让它按第一行算一次就够（省的是滚动时的重算）。
+        versionTree->setUniformRowHeights(true);
+        versionTree->setColumnCount(1);
+        treeLayout->addWidget(versionTree, 1);
+        gameStack->addWidget(treePage);
 
-        modLoaderGroup = new QButtonGroup(gamePage);
+        // ---- [1] 安装页 ----
+        QWidget *installPage = new QWidget(gameStack);
+        installPage->setObjectName(installPageName());
+        QVBoxLayout *installLayout = new QVBoxLayout(installPage);
+        installLayout->setContentsMargins(0, 0, 0, 0);
+        installLayout->setSpacing(10);
+
+        // 顶上那一行：回得去 + 这一份是"基于哪个原版"装的。点的是树里哪个版本，到这里
+        // 必须还看得见 —— 否则"我在给哪个版本装加载器"就全靠记忆了。
+        auto *installTop = new QHBoxLayout();
+        installTop->setSpacing(8);
+        installBackButton = new QPushButton(installBackButtonText(), installPage);
+        installBackButton->setObjectName(installBackButtonName());
+        installBackButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+        installTop->addWidget(installBackButton);
+        installTargetLabel = new QLabel(installPage);
+        installTargetLabel->setObjectName(installTargetLabelName());
+        installTop->addWidget(installTargetLabel);
+        installTop->addStretch(1);
+        installLayout->addLayout(installTop);
+
+        // 版本名称：实例的目录名（`versions/<这个名字>`）。默认名、重名提示、名字不合法
+        // 那句原因，都在 MainWindow::updateInstallNameHint() 一处刷（界面这边不持有
+        // 业务状态：它不知道盘上有哪些目录）。
+        QWidget *nameBox = makeHintedControl(installPage);
+        auto *nameLabel = new QLabel(installNameLabelText(), nameBox);
+        nameBox->layout()->addWidget(nameLabel);
+        installNameEdit = new QLineEdit(nameBox);
+        installNameEdit->setObjectName(installNameEditName());
+        nameBox->layout()->addWidget(installNameEdit);
+        installNameHint = addDynamicHint(nameBox, QString(), nameBox);
+        installNameHint->setObjectName(installNameHintName());
+        installLayout->addWidget(nameBox);
+
+        // 加载器：四个各占**一条**（用户明确要的形状 —— 每个加载器都要有地方显示
+        // 自己那个版本号，横排的选项卡排不下），最后加一条「不装（纯原版）」。
+        //
+        // NOTE: 这一组就是原来左栏那五个钮 —— 表、下标、文案一个字没改（见
+        //       modLoaderOptionNames()），只是从"孤零零五个钮"变成了"一条一个加载器，
+        //       右边跟着它自己的版本"。判据仍然是 modLoaderGroup->checkedId()，
+        //       所以"下标 → 加载器"那层翻译（loaderKindFromIndex）原样可用。
+        QGroupBox *loaderBox = new QGroupBox(modLoaderLabelText(), installPage);
+        auto *loaderLayout = new QVBoxLayout(loaderBox);
+        loaderLayout->setContentsMargins(9, 9, 9, 9);
+        // 每条之间挨紧一点（页面的间距是 10，那是给"标签/控件一段一段"用的；这几条是
+        // 同一组里的几行，拉开反而看不出它们是一组）。
+        loaderLayout->setSpacing(4);
+        installLayout->addWidget(loaderBox);
+
+        modLoaderGroup = new QButtonGroup(installPage);
         modLoaderGroup->setObjectName(modLoaderGroupName());
-        // 四个钮之间挨紧一点（页面的间距是 10，那是给"标签/控件一段一段"用的；
-        // 四个钮是同一条里的四行，拉开反而看不出它们是一组）。外面那层零边距 ——
-        // 页面那一层已经留过边距了。
-        auto *optionColumn = new QWidget(gamePage);
-        auto *optionLayout = new QVBoxLayout(optionColumn);
-        optionLayout->setContentsMargins(0, 0, 0, 0);
-        optionLayout->setSpacing(2);
-        gameLayout->addWidget(optionColumn);
 
-        const auto addOption = [&](int index) {
-            QRadioButton *radio = new QRadioButton(modLoaderOptionTexts().at(index), optionColumn);
+        const auto addLoaderRow = [&](int index) {
+            auto *row = new QWidget(loaderBox);
+            auto *rowLayout = new QHBoxLayout(row);
+            rowLayout->setContentsMargins(0, 0, 0, 0);
+            rowLayout->setSpacing(8);
+
+            QRadioButton *radio = new QRadioButton(modLoaderOptionTexts().at(index), row);
             radio->setObjectName(modLoaderOptionNames().at(index));
-            // id 就是两张表里的下标，将来接线时靠它把"勾了哪个"翻成加载器 id。
+            // id 就是两张表里的下标，接线时靠它把"勾了哪个"翻成加载器枚举。
             modLoaderGroup->addButton(radio, index);
-            optionLayout->addWidget(radio);
+            rowLayout->addWidget(radio);
+
+            if (index == modLoaderNoneIndex()) {
+                // 「不装（纯原版）」那条没有版本可选 —— 原版没有加载器版本。
+                // NOTE: 这一条**不是凑数**：单选钮一旦勾上就没法用鼠标取消（Qt 的互斥组
+                //       把"点已勾中的那个"当成什么都没发生），没有它的话用户勾过一次
+                //       Fabric 就再也回不到"装纯原版"了。它**初始勾中**（见下面）。
+                rowLayout->addStretch(1);
+            } else {
+                QComboBox *combo = new QComboBox(row);
+                combo->setObjectName(loaderVersionComboName(index));
+                // 占位文案（"正在获取…"）必须 ≤12 字 —— 完整原因和实测数据见上面
+                // installedVersionCombo 那处：AdjustToMinimumContentsLengthWithIcon 会把
+                // 超过 minimumContentsLength 的占位文案算进 sizeHint 宽度，于是这个框
+                // 会在"正在获取"和"拿到版本列表"之间抽一下宽度。
+                combo->setPlaceholderText(loaderVersionFetchingText());
+                combo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+                combo->setMinimumContentsLength(12);
+                // 手一滑把一次 GB 级的下载指到别的版本上：和别的下拉框同一道闸。
+                combo->installEventFilter(new WheelGuard(combo));
+                // 开局四条都灰着：默认勾的是「不装（纯原版）」，谁都没被选中，
+                // 那四个组合框现在管不着任何事。勾哪条、亮哪条、哪条去拉版本列表，
+                // 全在 MainWindow::updateLoaderRows() 一处决定。
+                combo->setEnabled(false);
+                rowLayout->addWidget(combo, 1);
+                // 下标就是加载器下标（0..3），和"勾了哪个"用的是同一个数 ——
+                // 不另写一张"哪个组合框是哪个加载器"的表，那种表迟早会有一处对不上。
+                loaderVersionCombos.append(combo);
+            }
+            loaderLayout->addWidget(row);
             return radio;
         };
         // NOTE: 变量名这里照抄上面那张表（第 0 个是 Fabric、第 1 个是 Forge…），
         //       顺序一乱就是"名字和内容对不上"，而那种错不会报错、只会装错加载器。
-        modLoaderFabric = addOption(0);
-        modLoaderForge = addOption(1);
-        modLoaderNeoForge = addOption(2);
-        modLoaderOptiFine = addOption(3);
-        modLoaderNone = addOption(modLoaderNoneIndex());
-        // 默认勾"不装"：打开下载页时「下载版本」老规矩，装的是纯原版。
+        modLoaderFabric = addLoaderRow(0);
+        modLoaderForge = addLoaderRow(1);
+        modLoaderNeoForge = addLoaderRow(2);
+        modLoaderOptiFine = addLoaderRow(3);
+        modLoaderNone = addLoaderRow(modLoaderNoneIndex());
+        // 默认勾「不装」= 打开安装页时就是"装纯原版"，也是原来那个默认行为。
         modLoaderNone->setChecked(true);
-        // 单选钮不吃滚轮，所以这里不需要下面那个下拉框要装的 WheelGuard（见它上面那段
-        // 说明：手一滑把一次 GB 级的下载指到别的版本上）。几个钮都不会这么出事。
+        // 单选钮不吃滚轮，所以那几个钮不需要上面组合框装的 WheelGuard（见它上面那段）。
 
-        // 这一对（标签 + 下拉框）现在在**页面里**竖着排：分类换页之后，左栏已经没有它们
-        // 的位置了。标签紧挨在它的下拉框上面这条关系没变（验证工程钉的就是它）。
-        gameLayout->addWidget(new QLabel(QStringLiteral("可安装版本"), gamePage));
-
-        availableVersionCombo = new QComboBox(gamePage);
-        availableVersionCombo->setObjectName(availableVersionComboName());
-        availableVersionCombo->setPlaceholderText(QStringLiteral("正在获取在线版本…"));
-        // 占位文案必须 ≤12 字 —— 完整原因和实测数据见上面 installedVersionCombo 那处。
-        availableVersionCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
-        availableVersionCombo->setMinimumContentsLength(12);
-        availableVersionCombo->installEventFilter(new WheelGuard(availableVersionCombo));
-        gameLayout->addWidget(availableVersionCombo);
-
-        QLabel *downloadHint = new QLabel(
-            QStringLiteral("「模组加载器」勾一个 = 装带那个加载器的版本（原版还没装的话会先"
-                           "把原版补齐），勾「不装（纯原版）」= 只装原版。\n"
-                           "下载进度显示在窗口底部那条状态栏上。已经下过的版本不会从头重下"
-                           "——点「下载版本」时会先问一句，答「是」就只校验并补齐缺失或损坏"
-                           "的文件。"),
-            gamePage);
-        downloadHint->setWordWrap(true);
-        gameLayout->addWidget(downloadHint);
-
-        QGroupBox *versionGroupBox = new QGroupBox(QStringLiteral("版本下载"), gamePage);
-        QVBoxLayout *versionLayout = new QVBoxLayout(versionGroupBox);
-        versionLayout->setContentsMargins(9, 9, 9, 9);
-        versionLayout->setSpacing(10);
-
-        availableVersionList = new QListWidget(versionGroupBox);
-        availableVersionList->setObjectName(availableVersionListName());
-        availableVersionList->setUniformItemSizes(true);
-        versionLayout->addWidget(availableVersionList, 1);
-
-        // 「下载版本」只吃自己的宽度，靠左贴在列表下面：它的作用对象就是列表里
-        // 选中的那一条，挨着列表比挨着上面的下拉框更说得通。
-        downloadButton = new QPushButton(QStringLiteral("下载版本"), versionGroupBox);
-        downloadButton->setObjectName(downloadButtonName());
-        downloadButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-        downloadButton->setMinimumWidth(kDownloadButtonMinWidth);
-        versionLayout->addWidget(downloadButton, 0, Qt::AlignLeft);
-        gameLayout->addWidget(versionGroupBox, 1);
+        installButton = new QPushButton(installButtonText(), installPage);
+        installButton->setObjectName(installButtonName());
+        installButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+        installButton->setMinimumWidth(kDownloadButtonMinWidth);
+        installLayout->addWidget(installButton, 0, Qt::AlignLeft);
+        // 底下那一大块空着是**刻意**的：几个加载器各自展开之后的版本号有多长说不准，
+        // 给按钮留出"往上顶"的余量，免得它贴着窗口底边。
+        installLayout->addStretch(1);
+        gameStack->addWidget(installPage);
 
         // 第 0 页加在**最前面** —— 下面那个循环按同一个表、同一个顺序往后加，
         // 于是"第 i 个分类 = 第 i 页"这条对应关系成立（验证工程会数一遍两边的条数）。

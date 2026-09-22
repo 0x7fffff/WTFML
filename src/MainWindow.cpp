@@ -148,104 +148,17 @@ void fillVersionCombo(QComboBox *combo, const QList<VersionDisplayParts> &parts,
     }
 }
 
-/**
- * @brief 让列表的选中项跟上下拉框（两边都按 id 找，**不按文本**）。
- * @param combo 版本下拉框。
- * @param list 与它同一份数据的列表。
- *
- * 按 id 而不是文本：同一个版本在两个控件里可能显示得不一样，而且显示名会随
- * 「版本名格式」的开关变。拿文本当身份标识一定找错。
- */
-void syncListToCombo(const QComboBox *combo, QListWidget *list) {
-    const QString id = selectedVersionId(combo);
-    // 挡信号：这里是"跟着别人变"，不该反过来再把下拉框动一遍（两条路互相触发
-    // 就成环了）。真正的用户操作才发信号。
-    const QSignalBlocker blocker(list);
-    if (id.isEmpty()) {
-        list->setCurrentRow(-1);
-        return;
-    }
-    for (int row = 0; row < list->count(); ++row) {
-        if (list->item(row)->data(Qt::UserRole).toString() == id) {
-            list->setCurrentRow(row);
-            return;
-        }
-    }
-    // 列表里没有它（清单里被删掉的版本）：留空，别硬选一个别的。
-    list->setCurrentRow(-1);
-}
-
-/**
- * @brief 让下拉框跟上列表的选中项。
- * @param combo 版本下拉框。
- * @param list 与它同一份数据的列表。
- *
- * 已经是同一项时**什么都不做** —— 这就是"列表 → 下拉框 → 列表"不会死循环的原因：
- * 第二条腿发现两边一致，立刻停。下拉框真被改动时它会发 currentIndexChanged，
- * 按钮文字和底栏跟着刷新的那条链路照跑不误。
- */
-void syncComboToList(QComboBox *combo, const QListWidget *list) {
-    const QListWidgetItem *item = list->currentItem();
-    if (item == nullptr) {
-        return;
-    }
-    const int index = combo->findData(item->data(Qt::UserRole).toString());
-    if (index >= 0 && combo->currentIndex() != index) {
-        combo->setCurrentIndex(index);
-    }
-}
-
-/**
- * @brief 把一批版本灌进一张版本列表。
- * @param list 目标列表。
- * @param parts 每个版本的显示名组成部分。
- * @param options 全局「版本名格式」开关。
- *
- * 灌完**不动选中项**：怎么收尾由调用方决定（跟下拉框配对的那些走 syncListToCombo()
- * 对齐过去）。
- *
- * NOTE: 只剩「下载」页那张可安装版本列表在用它了。实例页那张换成了树（要分组），
- *       走的是 fillInstanceTree()。
- */
-void fillVersionList(QListWidget *list, const QList<VersionDisplayParts> &parts,
-                     const VersionNameOptions &options) {
-    const QSignalBlocker blocker(list);
-    list->clear();
-    for (const VersionDisplayParts &part : parts) {
-        // 版本号存进 Qt::UserRole，和下拉框同一个约定（显示名不是身份标识）。
-        auto *item = new QListWidgetItem(formatVersionName(part, options), list);
-        item->setData(Qt::UserRole, part.id);
-    }
-}
-
-/**
- * @brief 把一批版本同时灌进"下拉框 + 列表"这一对，并让两边选中同一项。
- * @param combo 版本下拉框。
- * @param list 与它同一份数据的列表。
- * @param parts 每个版本的显示名组成部分。
- * @param options 全局「版本名格式」开关。
- *
- * 界面上这两个控件是**同一份数据的两种看法**（下拉框是"选一个"，列表是"看一眼都有
- * 什么"），所以文本也走同一个 formatVersionName()，不许各拼一套 —— 各拼一套就会出现
- * "列表里叫 A、下拉框里叫 B"，用户根本认不出是同一个版本。
- */
-void fillVersionViews(QComboBox *combo, QListWidget *list,
-                      const QList<VersionDisplayParts> &parts, const VersionNameOptions &options) {
-    fillVersionCombo(combo, parts, options);
-    fillVersionList(list, parts, options);
-    // 重灌之后把列表的选中项对齐到下拉框：下拉框那边已经负责"保住原来选的",
-    // 列表跟着它走就行。不对齐的话，用户会看到上面选着 A、下面高亮着 B。
-    syncListToCombo(combo, list);
-}
-
 // ======================================================================
 // 实例页那张树（分组）
 // ======================================================================
 //
-// 这一组自由函数对应上面那三个列表版（fillVersionList / syncListToCombo /
-// syncComboToList），但**不能合并**：实例列表要两层（组 + 实例），可安装版本列表
-// 是一层（而且没有分组的概念）。硬合并的写法是"到处判 item 是组还是实例"，那样
-// 每多一个调用点就多一次判错的机会。
+// 这一组自由函数和上面那些直筒子列表的写法（fillVersionCombo / syncListToCombo 那一类）
+// **不能合并**：实例列表要两层（组 + 实例）。硬合并的写法是"到处判 item 是组还是实例"，
+// 那样每多一个调用点就多一次判错的机会。
+//
+// NOTE: 2026-09-22 下载页那份"可安装版本"从下拉框 + 列表换成了版本树，原来和这一组
+//       配对的那几个（fillVersionList / syncListToCombo / syncComboToList /
+//       fillVersionViews / plainVersionParts）随之删掉了 —— 它们只服务于那一对。
 
 /**
  * @brief 实例树里一个组节点，以及挂在它下面的那些实例。
@@ -504,24 +417,6 @@ void selectConfiguredJava(QComboBox *combo, bool autoSelect, const QString &path
     combo->setCurrentIndex(index >= 0 ? index : 0);
 }
 
-/**
- * @brief 只有版本号、没有自定义名和加载器信息的那些版本（在线清单）。
- * @param versionIds 版本号清单。
- * @return 与 VersionDisplayParts 同长的清单，除 id 外全是空。
- *
- * 在线清单有 800+ 条，这一层刻意不做任何文件 I/O：字段留空，显示名就退化成纯版本号。
- */
-QList<VersionDisplayParts> plainVersionParts(const QStringList &versionIds) {
-    QList<VersionDisplayParts> parts;
-    parts.reserve(versionIds.size());
-    for (const QString &id : versionIds) {
-        VersionDisplayParts part;
-        part.id = id;
-        parts.append(part);
-    }
-    return parts;
-}
-
 }  // namespace
 
 MainWindow::MainWindow(QWidget *parent)
@@ -653,18 +548,50 @@ void MainWindow::setupConnections() {
     connect(m_ui->getInstanceList(), &QTreeWidget::currentItemChanged, this, [this] {
         syncComboToTree(m_ui->getInstalledVersionCombo(), m_ui->getInstanceList());
     });
-    connect(m_ui->getAvailableVersionCombo(), &QComboBox::currentIndexChanged, this,
-            [this] {
-                syncListToCombo(m_ui->getAvailableVersionCombo(),
-                                m_ui->getAvailableVersionList());
+    // ---------- 下载页「游戏」那两层：版本树 → 安装页 ----------
+    //
+    // 点树里**一个版本号**（子条目）进安装页。顶层那四条是分类，点它们不该做任何事
+    // （展开/折叠交给 Qt 自己）—— 判据就是条目里那个 userData：分类存的是分类键、
+    // 版本号存的是版本号，两者都不是空串，所以再加一条"有没有父条目"才分得清。
+    //
+    // 共用一份 lambda 而不是一个槽函数：槽声明里带 QTreeWidgetItem* 就得让 moc 也认得
+    // 这个类型（等于把这个头拖进 QtWidgets 的树控件），而这里类型本来就是完整的。
+    const auto openFromTreeItem = [this](QTreeWidgetItem *item, int) {
+        if (item == nullptr || item->parent() == nullptr) {
+            return;  // 顶层那四条是分类，点了不做任何事
+        }
+        const QString versionId =
+            item->data(MainWindowUI::versionTreeKeyColumn(), Qt::UserRole).toString();
+        if (!versionId.isEmpty()) {
+            openInstallPage(versionId);
+        }
+    };
+    connect(m_ui->getVersionTree(), &QTreeWidget::itemClicked, this, openFromTreeItem);
+    // 键盘走这条路（回车/空格"激活"一个条目）—— 只接鼠标点击的话，键盘用户永远进不了
+    // 安装页。两条路都指向同一份 lambda，重复进去是幂等的（openInstallPage 只是重设一遍）。
+    connect(m_ui->getVersionTree(), &QTreeWidget::itemActivated, this, openFromTreeItem);
+    connect(m_ui->getInstallBackButton(), &QPushButton::clicked, this,
+            &MainWindow::backToVersionTree);
+    connect(m_ui->getInstallButton(), &QPushButton::clicked, this,
+            &MainWindow::onInstallButtonClicked);
+    // 名称框：每敲一个字都要重算那句小字（重名提示要"实时"——用户原话）。
+    connect(m_ui->getInstallNameEdit(), &QLineEdit::textChanged, this,
+            &MainWindow::onInstallNameEdited);
+    // 加载器那几条的单选钮：勾哪条、哪条的组合框亮起来、哪条去拉版本列表，都在
+    // updateLoaderRows() 一处决定（id 就是加载器下标，见 modLoaderOptionNames()）。
+    connect(m_ui->getModLoaderGroup(), &QButtonGroup::idToggled, this,
+            [this](int index, bool checked) {
+                if (checked) {
+                    onLoaderRowChanged(index);
+                }
             });
-    connect(m_ui->getAvailableVersionList(), &QListWidget::currentItemChanged, this,
-            [this] {
-                syncComboToList(m_ui->getAvailableVersionCombo(),
-                                m_ui->getAvailableVersionList());
-            });
-    connect(m_ui->getDownloadButton(), &QPushButton::clicked, this,
-            &MainWindow::onDownloadButtonClicked);
+    // 四个"选版本"的组合框：选中哪个加载器版本**不**单独通知谁，安装那一刻现读
+    // （见 installedLoaderVersion()）。唯一要跟着变的是名称框里的默认名
+    // —— "1.20.1-Forge" 和 "1.20.1-Forge_47.4.10" 是两个不同的默认名。
+    for (QComboBox *combo : m_ui->getLoaderVersionCombos()) {
+        connect(combo, &QComboBox::currentIndexChanged, this,
+                &MainWindow::onLoaderVersionChoiceChanged);
+    }
     // 「下载」页左栏那份分类（游戏 / 整合包 / 模组 / 资源包 / 光影）：点哪个，右栏那份
     // QStackedWidget 就翻到哪一页。**"第几个分类 = 第几页"这条对应关系是界面自己搭出来的**
     // （同一个表、同一个顺序一页一页加进去），这里只做一次越界保护：分类表和页数将来要是
@@ -757,6 +684,23 @@ void MainWindow::setupConnections() {
     // 真正要用户做决定的（装完了、失败了）走 versionDownloadFinished 那条弹窗的路。
     connect(m_versionManager, &VersionManager::modpackImportMessage, this,
             [this](const QString &text) { appendLog(text); });
+    // 装"一个带名字的实例"中间那几句（正在装原版 / 正在装加载器）同上：只写日志、不弹窗。
+    connect(m_versionManager, &VersionManager::instanceInstallMessage, this,
+            [this](const QString &text) { appendLog(text); });
+    // 某个加载器在那个游戏版本上有哪些版本可选（安装页上点开一条加载器 → 拉列表 → 填
+    // 它右边那个组合框）。**每次请求都会回一次**，失败也回 —— 失败时那句原因要写进
+    // 组合框的占位文案里（不能让用户对着一个永远空的框等下去）。
+    // 这里那次"枚举 → 下标"的翻译也在这条链路上做一次：槽收的是下标（见头里的说明），
+    // 而信号带过来的是枚举，中间只有 VersionManager::loaderIndexForKind 这一处。
+    connect(m_versionManager, &VersionManager::loaderVersionsFetched, this,
+            [this](const QString &gameVersion, VersionManager::LoaderKind kind, bool success,
+                   const QStringList &versions, const QString &errorMessage) {
+                const int loaderIndex = VersionManager::loaderIndexForKind(kind);
+                if (loaderIndex < 0) {
+                    return;  // 枚举里新来的那条界面还没跟上（表没改全），当没收到
+                }
+                onLoaderVersionsFetched(gameVersion, loaderIndex, success, versions, errorMessage);
+            });
 }
 
 void MainWindow::enterSyncWait(const QString &statusText) {
@@ -781,15 +725,20 @@ void MainWindow::leaveSyncWait() {
 void MainWindow::setDownloadUiBusy(bool busy) {
     m_downloadInFlight = busy;
     m_ui->getStartButton()->setEnabled(!busy);
-    m_ui->getDownloadButton()->setEnabled(!busy);
+    // 安装页那一整层（名称框、四个加载器、安装按钮、返回）一起灰：在装什么是点击那一刻
+    // 定下的，这时候改名字/换加载器并不会把手上这次安装换掉（真正干活的 VersionManager
+    // 已经拿着那个枚举在跑了），留着能改只会让人以为改生效了。
+    m_ui->getInstallButton()->setEnabled(!busy);
+    m_ui->getInstallNameEdit()->setEnabled(!busy);
+    m_ui->getVersionTree()->setEnabled(!busy);
+    // 从安装页上退回去也不给（退回去那棵树也是灰的）：那会让人以为"这次安装取消了"。
+    m_ui->getInstallBackButton()->setEnabled(!busy);
     // 两个下拉框一起灰掉。在下什么，在点击那一刻就已经交给 VersionManager 了，
     // 这时候改选中项并不会改变在下的是哪个版本 —— 灰掉纯粹是不让"界面显示选的 A、
     // 实际在下的却是 B"这种事发生，免得看的人误判。
     m_ui->getInstalledVersionCombo()->setEnabled(!busy);
-    m_ui->getAvailableVersionCombo()->setEnabled(!busy);
-    // 两张列表是同一份数据的另一种看法，也一起灰掉：不然用户能在列表里点来点去、
+    // 实例页那张树是同一份数据的另一种看法，也一起灰掉：不然用户能在里面点来点去、
     // 看着选中的版本变了，而实际在下的是另一个。
-    m_ui->getAvailableVersionList()->setEnabled(!busy);
     m_ui->getInstanceList()->setEnabled(!busy);
     // 「导入整合包…」也一起灰：导入期间再点一次，选文件和问名字那两个框走完，
     // 数据层才会用一句"已有任务正在进行"把它顶回来 —— 白走一趟对话框。
@@ -798,12 +747,15 @@ void MainWindow::setDownloadUiBusy(bool busy) {
     // 会让这一批文件一半写进 A、一半写进 B。两个按钮的可用性由 updateFolderButtons()
     // 一处说了算（「移除文件夹」还要看选中的是不是自带那份）。
     m_ui->getFolderList()->setEnabled(!busy);
-    // 「模组加载器」四个钮一起灰掉，理由和两个下拉框一样：在装什么是点击那一刻定下的，
-    // 这时候改成 Forge 并不会把手上这次 Fabric 安装换掉（真正干活的 VersionManager
-    // 已经拿着 Fabric 那个枚举在跑了），留着能改只会让人以为改生效了。
+    // 「模组加载器」那一组（单选钮 + 各自那个"选版本"组合框）一起灰，理由同上。
+    // 忙完解禁时**不能**把四个组合框一律点亮 —— 没被勾中的那几条本来就该是灰的
+    // （它们现在管不着任何事），所以走 updateLoaderRows() 一处按"勾了哪个"重算；
+    // 「安装」那个按钮还要看名称合法不合法，走 updateInstallNameHint() 一处。
     for (QRadioButton *option : m_ui->getModLoaderOptions()) {
         option->setEnabled(!busy);
     }
+    updateLoaderRows();
+    updateInstallNameHint();
     updateFolderButtons();
 
     QProgressBar *progressBar = m_ui->getProgressBar();
@@ -1301,19 +1253,427 @@ void MainWindow::updateStartButtonText() {
 }
 
 void MainWindow::refreshAvailableVersions() {
-    // 只填"可安装"那一对控件：它们唯一的数据源就是在线的版本清单。以前清单为空时
-    // 这里会退回显示本地已安装版本，两个数据源混在一个列表里，用户分不清点下去
-    // 到底是启动还是下载 —— 现在两边各管各的。
-    // 在线清单只填 id：800+ 条逐条去读 wtfml.meta 是不可接受的 I/O，而且那些版本
-    // 压根还没下载、磁盘上没有元数据可读。显示名因此退化成纯版本号。
-    const QStringList versions = m_versionManager->availableVersions();
-    if (versions.isEmpty()) {
-        // 名单还没拉回来（或者拉失败了）。这时候**什么都不动**：清空一次既会把
-        // 占位文案（"正在获取..." / "获取失败"）冲掉，也会把用户已经选中的版本丢掉。
+    // 只填树里那四条分类：它们唯一的数据源就是在线的版本清单（和已安装那一摊完全
+    // 不相干 —— 以前清单为空时这里会退回显示本地已安装版本，两个数据源混在一张列表里，
+    // 用户分不清点下去到底是启动还是下载）。四堆怎么分是 VersionManager 的事
+    // （它那边只有 VersionCategory 一处判据，含那张写死的愚人节版名单）。
+    //
+    // 条目文本就是**版本号本身**：在线清单 900+ 条逐条去读 wtfml.meta 是不可接受的
+    // I/O，而且那些版本压根还没下载、磁盘上没有元数据可读。
+    const QList<VersionManager::VersionChannel> channels =
+        m_versionManager->availableVersionChannels();
+
+    // 重灌之前记住"哪些分类是展开的"、"当前选中的是哪一条" —— 清单刷新（每次启动
+    // 一次，拉回来还会再刷一次）不该把用户正在看的那一摊收起来。
+    QSet<QString> expandedKeys;
+    QString selectedVersion;
+    if (QTreeWidgetItem *current = m_ui->getVersionTree()->currentItem()) {
+        QTreeWidgetItem *top = current->parent() != nullptr ? current->parent() : current;
+        expandedKeys.insert(top->data(MainWindowUI::versionTreeKeyColumn(), Qt::UserRole).toString());
+        if (current->parent() != nullptr) {
+            selectedVersion = current->data(MainWindowUI::versionTreeKeyColumn(), Qt::UserRole).toString();
+        }
+    } else {
+        for (int i = 0; i < m_ui->getVersionTree()->topLevelItemCount(); ++i) {
+            QTreeWidgetItem *top = m_ui->getVersionTree()->topLevelItem(i);
+            if (top->isExpanded()) {
+                expandedKeys.insert(
+                    top->data(MainWindowUI::versionTreeKeyColumn(), Qt::UserRole).toString());
+            }
+        }
+    }
+
+    const QSignalBlocker blocker(m_ui->getVersionTree());
+    QTreeWidget *tree = m_ui->getVersionTree();
+    tree->clear();
+    for (const VersionManager::VersionChannel &channel : channels) {
+        auto *top = new QTreeWidgetItem(tree);
+        // 身份在 userData（= 分类键），文字只是给人看的 —— 和左栏那列分类同一个约定。
+        top->setData(MainWindowUI::versionTreeKeyColumn(), Qt::UserRole, channel.key);
+        top->setText(MainWindowUI::versionTreeKeyColumn(),
+                     channel.text.isEmpty() ? channel.key : channel.text);
+        // 一个版本都没有的分类：**照样画出来**（用户要的是四条一条不少，"这条是空的"
+        // 比"这条不见了"好懂），但别让它长得像能点开的 —— 空条目上那个展开箭头会骗人。
+        top->setChildIndicatorPolicy(channel.versions.isEmpty()
+                                         ? QTreeWidgetItem::DontShowIndicator
+                                         : QTreeWidgetItem::ShowIndicator);
+        for (const MinecraftVersion &version : channel.versions) {
+            auto *child = new QTreeWidgetItem(top);
+            child->setData(MainWindowUI::versionTreeKeyColumn(), Qt::UserRole, version.id);
+            child->setText(MainWindowUI::versionTreeKeyColumn(), version.id);
+        }
+        if (expandedKeys.contains(channel.key)) {
+            top->setExpanded(true);
+        }
+        if (!selectedVersion.isEmpty()) {
+            for (int i = 0; i < top->childCount(); ++i) {
+                if (top->child(i)->data(MainWindowUI::versionTreeKeyColumn(), Qt::UserRole)
+                        .toString() == selectedVersion) {
+                    tree->setCurrentItem(top->child(i));
+                    break;
+                }
+            }
+        }
+    }
+}
+
+void MainWindow::openInstallPage(const QString &gameVersion) {
+    if (gameVersion.isEmpty()) {
         return;
     }
-    fillVersionViews(m_ui->getAvailableVersionCombo(), m_ui->getAvailableVersionList(),
-                     plainVersionParts(versions), m_settings->versionNameOptions());
+    m_installGameVersion = gameVersion;
+    m_installNameTouched = false;
+
+    // 这一层只管界面：要装的是哪个版本、名称框里默认写什么、四个加载器各自那格
+    // 现在该是什么状态。真正的安装请求在 onInstallButtonClicked() 里发出去。
+    m_ui->getInstallTargetLabel()->setText(MainWindowUI::installTargetText(gameVersion));
+    // 默认名跟着"勾中的加载器"走（不勾就是原版号本身）—— updateLoaderRows() 会顺手
+    // 把它算出来，所以这里先摆状态、再让它收尾。
+    // 注意每次进安装页都**回到「不装」**：上一个实例勾的是哪条加载器跟这一个没关系，
+    // 留着的话下一个版本会顶着一个"上次顺手勾的 Forge"进来。
+    if (QRadioButton *none = m_ui->getModLoaderOptions().value(MainWindowUI::modLoaderNoneIndex())) {
+        none->setChecked(true);
+    }
+    for (QComboBox *combo : m_ui->getLoaderVersionCombos()) {
+        // 换了一个游戏版本，上一份版本列表就不是这一份的了（Forge 每个游戏版本能装的
+        // 版本完全不同）。清掉，勾到哪条时现拉一次。
+        const QSignalBlocker blocker(combo);
+        combo->clear();
+    }
+    m_loaderVersionCache.clear();
+    updateLoaderRows();
+    // 名称框里的默认值：勾的是「不装」时就是原版号本身（那正是"装原版"这条老路）。
+    updateInstallName();
+
+    // 树那一层留着不动（用户按返回时回的就是它，连展开状态都还在）。
+    m_ui->getGameStack()->setCurrentIndex(MainWindowUI::downloadGameInstallIndex());
+    m_ui->getInstallNameEdit()->setFocus();
+    appendLog(tr("准备安装，基于原版 %1。").arg(gameVersion));
+}
+
+void MainWindow::backToVersionTree() {
+    // 只翻页，什么都不清：树里那份展开状态、名称框里敲过的字都留着 —— 用户按返回
+    // 是想"再看一眼别的版本"，不是想"放弃刚才那些输入"。真要放弃，重进一次就重算了。
+    m_ui->getGameStack()->setCurrentIndex(MainWindowUI::downloadGameTreeIndex());
+}
+
+// ---------------------------------------------------------------------------
+// 安装页：名称框 + 四个加载器（各自选版本）
+// ---------------------------------------------------------------------------
+
+QString MainWindow::defaultInstanceName() const {
+    // 目录名的形状照抄真机上那些实例：`1.18.2-Forge_40.3.12`、`1.21.1-NeoForge_21.1.210`。
+    // 不勾加载器时就是原版号本身 —— 那一份**不写薄 json**（id == 父版本），装出来的就是
+    // 原版那个实例，和改动前「下载版本」的行为一个字不差。
+    //
+    // NOTE: 刻意**不**走 VersionDisplay::formatVersionName()：那是**显示名**的拼法，跟着
+    //       用户在设置页选的"版本名格式"开关走（关掉"实际版本"那一档就会拼出一个不含
+    //       版本号的目录名），而目录名要的是确定、可预期、跟显示开关无关。
+    if (m_installGameVersion.isEmpty()) {
+        return QString();
+    }
+    VersionManager::LoaderKind kind = VersionManager::LoaderKind::Fabric;
+    const int index = loaderCheckedIndex();
+    if (!VersionManager::loaderKindFromIndex(index, &kind)) {
+        return m_installGameVersion;
+    }
+    const QString loaderName = VersionManager::loaderDisplayName(kind);
+    const QString pinned = pinnedLoaderVersion(index);
+    return pinned.isEmpty() ? QStringLiteral("%1-%2").arg(m_installGameVersion, loaderName)
+                            : QStringLiteral("%1-%2_%3").arg(m_installGameVersion, loaderName,
+                                                             pinned);
+}
+
+int MainWindow::loaderCheckedIndex() const {
+    QButtonGroup *group = m_ui->getModLoaderGroup();
+    return group != nullptr ? group->checkedId() : -1;
+}
+
+QString MainWindow::pinnedLoaderVersion(int loaderIndex) const {
+    // 组合框第 0 条（"自动（推荐）"）的 itemData 是**空串** —— 空串就是"不钉版本"，
+    // 那件事不靠一条特判表达。
+    const QVector<QComboBox *> combos = m_ui->getLoaderVersionCombos();
+    if (loaderIndex < 0 || loaderIndex >= combos.size()) {
+        return QString();
+    }
+    QComboBox *combo = combos.at(loaderIndex);
+    if (combo == nullptr || combo->currentIndex() < 0) {
+        return QString();
+    }
+    return combo->currentData().toString();
+}
+
+void MainWindow::updateLoaderRows() {
+    const int checked = loaderCheckedIndex();
+    const QVector<QComboBox *> combos = m_ui->getLoaderVersionCombos();
+    for (int i = 0; i < combos.size(); ++i) {
+        QComboBox *combo = combos.at(i);
+        if (combo == nullptr) {
+            continue;
+        }
+        // 只有"勾中的那一条"是活的：其余几条现在管不着任何事（装的是勾中的那个），
+        // 能改只会让人以为改生效了。下载/安装期间整组都灰（见 setDownloadUiBusy）。
+        combo->setEnabled(i == checked && !m_downloadInFlight);
+    }
+}
+
+void MainWindow::ensureLoaderVersions(int loaderIndex) {
+    VersionManager::LoaderKind kind = VersionManager::LoaderKind::Fabric;
+    if (!VersionManager::loaderKindFromIndex(loaderIndex, &kind)) {
+        return;  // 「不装（纯原版）」那一行：没有版本可拉
+    }
+    if (m_installGameVersion.isEmpty()) {
+        return;
+    }
+    const QVector<QComboBox *> combos = m_ui->getLoaderVersionCombos();
+    if (loaderIndex >= combos.size() || combos.at(loaderIndex) == nullptr) {
+        return;
+    }
+    QComboBox *combo = combos.at(loaderIndex);
+
+    // 已经拉到过就不要再拉一次（用户来回勾两条比一比是常事，每次都发一发 60~250 KB
+    // 的请求纯属浪费）。缓存按"加载器 + 游戏版本"存 —— 换游戏版本时那一份就作废了
+    // （Forge 每个游戏版本能装的版本完全不同），所以 openInstallPage() 会清掉整个缓存。
+    const QString cacheKey = QStringLiteral("%1|%2").arg(int(kind)).arg(m_installGameVersion);
+    if (m_loaderVersionCache.contains(cacheKey)) {
+        fillLoaderVersionCombo(combo, m_loaderVersionCache.value(cacheKey));
+        return;
+    }
+    if (combo->count() > 0) {
+        return;  // 已经在手上（列表来自缓存之外的某次填充），不用重来
+    }
+
+    // 还没到：摆成"正在获取…"，请求发出去。回复在 onLoaderVersionsFetched() 里收
+    // ——它按"加载器 + 游戏版本"认领，所以这里不用记"我在等哪一发"。
+    // 占位文案就是这里的"正在获取…"（那个组合框是空的，占位文案才显出来）。
+    combo->clear();
+    m_versionManager->requestLoaderVersions(m_installGameVersion, kind);
+}
+
+void MainWindow::fillLoaderVersionCombo(QComboBox *combo, const QStringList &versions) {
+    // 别动用户已经选中的那一条：列表可能刚好是"同一条"（缓存命中的那次会走到这里），
+    // 重灌一次把它顶回第 0 条就是"我选的 47.4.10 自己变回自动了"。
+    const QString previous = combo->currentData().toString();
+    const QSignalBlocker blocker(combo);
+    combo->clear();
+    // 第 0 条 = 不钉版本（让安装器按老规矩挑，见 loaderVersionAutoText()）。
+    combo->addItem(MainWindowUI::loaderVersionAutoText(), QString());
+    for (const QString &version : versions) {
+        combo->addItem(version, version);
+    }
+    const int restored = previous.isEmpty() ? 0 : combo->findData(previous);
+    combo->setCurrentIndex(restored >= 0 ? restored : 0);
+}
+
+void MainWindow::onLoaderVersionsFetched(const QString &gameVersion, int loaderIndex, bool success,
+                                         const QStringList &versions, const QString &errorMessage) {
+    // 这一发回复可能已经过时了（用户换了游戏版本、或者又点了别的加载器）。按"这条回复
+    // 讲的是不是现在这一页"来判，过时的直接丢 —— 填错框的下场是"勾着 Fabric 却看到
+    // Forge 的版本号"，那不报错、只会装错东西。
+    if (gameVersion != m_installGameVersion) {
+        return;
+    }
+    // 缓存键、「自动」那一条通知谁、失败时那句"是哪个加载器"的文案都按**枚举**说
+    // （缓存键必须和 ensureLoaderVersions() 里那把一致），所以这里翻译回枚举；
+    // 反函数在这边失手（表没改全）就当没收到 —— 宁可组合框空着，也不要填错框。
+    VersionManager::LoaderKind kind;
+    if (!VersionManager::loaderKindFromIndex(loaderIndex, &kind)) {
+        return;
+    }
+    const QVector<QComboBox *> combos = m_ui->getLoaderVersionCombos();
+    if (loaderIndex >= combos.size() || combos.at(loaderIndex) == nullptr) {
+        return;
+    }
+    QComboBox *combo = combos.at(loaderIndex);
+    if (!success) {
+        // 拉不到：组合框**只留"自动（推荐）"**并说清为什么 —— 不钉版本这条路是不需要
+        // 这份列表的（安装器自己会挑），所以"列不出来"不该把安装整件事堵死。
+        // 那句话写进占位文案（框里现在只有一条真的能选的东西，占位文案正合适），
+        // 但**必须短**：长了会把框撑宽（见 loaderVersionFailedText() 那处 NOTE）。
+        // 具体原因（超时？404？）写进日志 —— 那句话是给排查用的，不是给用户读的。
+        combo->clear();
+        combo->setPlaceholderText(MainWindowUI::loaderVersionFailedText());
+        combo->addItem(MainWindowUI::loaderVersionAutoText(), QString());
+        appendLog(tr("%1 在 %2 上有哪些版本没取到：%3")
+                      .arg(VersionManager::loaderDisplayName(kind), gameVersion, errorMessage));
+        return;
+    }
+    m_loaderVersionCache.insert(QStringLiteral("%1|%2").arg(int(kind)).arg(gameVersion), versions);
+    combo->setPlaceholderText(MainWindowUI::loaderVersionFetchingText());
+    fillLoaderVersionCombo(combo, versions);
+}
+
+void MainWindow::updateInstallName() {
+    QLineEdit *edit = m_ui->getInstallNameEdit();
+    if (!m_installNameTouched) {
+        // 用户还没自己改过名字：默认名跟着"勾中的加载器 + 它选的那个版本"走。
+        // 挡信号是必须的 —— 不挡的话这一句会触发 textChanged，于是"程序填的名字"
+        // 被当成"用户改过"，从此默认名再也不跟着加载器变了。
+        const QSignalBlocker blocker(edit);
+        edit->setText(defaultInstanceName());
+    }
+    updateInstallNameHint();
+}
+
+void MainWindow::updateInstallNameHint() {
+    QLineEdit *edit = m_ui->getInstallNameEdit();
+    const QString name = edit->text().trimmed();
+
+    // 名字合不合法：判据在数据层（InstanceFiles::validateDirName()，和"重命名实例"、
+    // "整合包导入"用的是同一套规矩）。这里只用它的结论，不抄一份规则过来。
+    const QString invalid = InstanceFiles::validateDirName(name);
+    if (invalid.isEmpty() && name.isEmpty()) {
+        // validateDirName("") 回的是"名字不能是空的"那句，所以上面那个判据其实已经包住
+        // 这一支了 —— 这里留着是为了"空名字"这件事在本函数里有个看得见的落点。
+        return;
+    }
+
+    QString hint;
+    bool canInstall = invalid.isEmpty();
+    if (!canInstall) {
+        hint = invalid;
+    } else {
+        // 重名：**只提示、不拦**（用户原话："如果文件夹里有重名则在下方小字提示"）。
+        // 同名就是同一个实例 —— 装下去不是新建一个，而是校验并补齐那个目录里的文件
+        // （「重下 = 校验跳过」）。这句话必须说清这一点，否则用户会以为会多出一个。
+        const QString dir = AppPaths::versionDir(name);
+        if (QDir(dir).exists()) {
+            // 「已经装过了」和「这个目录是别的东西」在用户眼里是两回事，分开说。
+            const bool installed = QFile::exists(AppPaths::versionJsonPath(name));
+            hint = installed ? tr("已经有叫「%1」的实例了：同一个名字就是同一个实例，再装一次"
+                                  "会校验并补齐它的文件（已经下好的跳过）。")
+                                   .arg(name)
+                             : tr("%1 已经存在了，但它不像一个装好的实例。装下去会往这个目录"
+                                  "里写文件。")
+                                   .arg(dir);
+        } else {
+            hint = tr("装好之后在「实例」页里能看到它，目录是 versions/%1。").arg(name);
+        }
+    }
+    m_ui->getInstallNameHint()->setText(hint);
+    // 「安装」按钮：名字不合法就点不动（省掉一次"点了才弹一句名字不对"的往返）。
+    // 忙的时候也不给点（那是 setDownloadUiBusy 的活，这里只是别把它顶回来）。
+    m_ui->getInstallButton()->setEnabled(canInstall && !m_downloadInFlight);
+}
+
+void MainWindow::onInstallNameEdited() {
+    // 用户动过这个名字了：此后默认名不再跟着加载器变（不然他敲到一半的名字会被
+    // 一次"勾了 Forge"顶掉）。
+    m_installNameTouched = true;
+    updateInstallNameHint();
+}
+
+void MainWindow::onLoaderRowChanged(int loaderIndex) {
+    updateLoaderRows();
+    // 默认名里带着加载器名（和它钉的版本号），勾/换一条就得重算一次。
+    updateInstallName();
+    // 勾了一条加载器 = 该把它能装的版本列表拉回来了（拉过的话直接用缓存）。
+    ensureLoaderVersions(loaderIndex);
+}
+
+void MainWindow::onLoaderVersionChoiceChanged() {
+    // 钉的版本号是默认名的一部分（`1.20.1-Forge_47.4.10`），换一条就重算。
+    updateInstallName();
+}
+
+void MainWindow::onInstallButtonClicked() {
+    if (m_downloadInFlight) {
+        appendLog(tr("已有下载任务正在进行，请等它结束。"));
+        return;
+    }
+    const QString gameVersion = m_installGameVersion;
+    if (gameVersion.isEmpty()) {
+        // 正常走不到（安装页只能从树里一个具体版本进来）。真走到了就是界面状态错了，
+        // 宁可不做 —— 猜一个版本装下去会装到用户没点过的东西上。
+        QMessageBox::warning(this, tr("没有选中版本"),
+                             tr("不知道要基于哪个原版安装，请回到版本列表重新挑一个。"));
+        return;
+    }
+
+    const QString name = m_ui->getInstallNameEdit()->text().trimmed();
+    const QString invalid = InstanceFiles::validateDirName(name);
+    if (!invalid.isEmpty()) {
+        QMessageBox::warning(this, tr("名字不能用"), invalid);
+        return;
+    }
+
+    const int loaderIndex = loaderCheckedIndex();
+    VersionManager::LoaderKind kind = VersionManager::LoaderKind::Fabric;
+    const bool withLoader = VersionManager::loaderKindFromIndex(loaderIndex, &kind);
+
+    // 已经下过就不给"直接重下"（几 GB 白跑一趟），改成校验并补齐缺失/损坏的文件 ——
+    // 这是本启动器一贯的规矩。名字和原版号一样时问的是"这个版本"，不一样时问的是
+    // "这个实例"，两句话都得像人说的。
+    if (QFile::exists(AppPaths::versionJsonPath(name))) {
+        const bool sameAsVanilla = name == gameVersion;
+        const auto answer = QMessageBox::question(
+            this, sameAsVanilla ? tr("版本已存在") : tr("实例已存在"),
+            sameAsVanilla
+                ? tr("版本 %1 已经下载过了。\n是否校验并修复缺失或损坏的文件？").arg(name)
+                : tr("实例「%1」已经装过了。\n是否校验并修复缺失或损坏的文件？").arg(name),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+        if (answer != QMessageBox::Yes) {
+            appendLog(tr("已取消对 %1 的校验。").arg(name));
+            return;
+        }
+        appendLog(tr("开始校验 %1 的文件（已存在的会跳过）...").arg(name));
+    }
+
+    QString installerJava = m_javaSettings->javaPath();
+    if (withLoader && !pickInstallerJava(gameVersion, loaderIndex, &installerJava)) {
+        return;  // 里面已经弹过窗说清原因了，界面还没进忙态，直接退出就是干净的状态
+    }
+
+    // 忙要在点击这一刻就置上：版本 json / 加载器列表都是异步拉回来的，中间这段时间
+    // 按钮还能点的话，用户会重复触发（和别处同一个理由）。
+    setDownloadUiBusy(true);
+    m_progressThrottle.invalidate();
+    m_installingInstanceId = name;
+    if (withLoader) {
+        m_versionManager->installNamedLoader(name, gameVersion, kind, pinnedLoaderVersion(loaderIndex),
+                                            installerJava);
+    } else {
+        m_versionManager->installNamedVanilla(name, gameVersion);
+    }
+}
+
+bool MainWindow::pickInstallerJava(const QString &gameVersion, int loaderIndex, QString *out) {
+    // 安装器自己就是个 Java 程序（Forge/NeoForge 是 `java -jar <安装器>.jar --installClient
+    // <目录>`，OptiFine 那个是无界面入口 + 换 APPDATA，见 VersionManager::runInstaller），
+    // 所以要的运行环境和"这个版本要的 Java"是同一件事：版本 json 里的 javaVersion。
+    // Fabric 那条路只拉 json + 下 maven 库，一个进程都不起，所以这一段只管要跑安装器的那些。
+    //
+    // 拿不到版本 json（原版还没装）就不知道要求，此时原样用配的那份 —— 不在这一步拦人：装
+    // 加载器本来就会把原版补齐，而"要哪个 Java"从那份 json 里读最准，猜一个主版本比不猜更
+    // 危险（见启动那条路上"拿不到 version.json 就不能猜"那段注释）。
+    // 参数收下标、在这里翻一次枚举（和界面别处同一处翻译，见 VersionManager 里那段注释）。
+    // 翻不出来 = 没勾加载器 / 勾的是「不装」：一个外部安装器都不跑，直接放行。
+    VersionManager::LoaderKind kind = VersionManager::LoaderKind::Fabric;
+    if (!VersionManager::loaderKindFromIndex(loaderIndex, &kind)) {
+        return true;
+    }
+    if (kind == VersionManager::LoaderKind::Fabric) {
+        return true;
+    }
+    const QString configuredJava = m_javaSettings->javaPath();
+    QString installerJava = configuredJava;
+    int requiredJavaMajor = 0;
+    const QJsonObject gameJson = m_versionManager->getVersionJson(gameVersion);
+    if (!gameJson.isEmpty()) {
+        requiredJavaMajor = gameJson["javaVersion"].toObject()["majorVersion"].toInt();
+    }
+    QString javaReason;
+    if (!m_javaSettings->installerJavaFor(requiredJavaMajor, configuredJava, &installerJava,
+                                          &javaReason)) {
+        appendLog(tr("这个版本要的 Java 拿不到：%1").arg(javaReason));
+        QMessageBox::warning(this, tr("Java 版本不够"), javaReason);
+        return false;
+    }
+    if (installerJava != configuredJava) {
+        appendLog(tr("这个版本要 Java %1，装的时候改用 %2").arg(requiredJavaMajor).arg(installerJava));
+    }
+    *out = installerJava;
+    return true;
 }
 
 // ======================================================================
@@ -1641,20 +2001,11 @@ void MainWindow::onVersionsFetched(const QStringList &versions) {
 
     if (versions.isEmpty()) {
         // 拉清单失败时 DownloadManager 也会发这个信号，发的是**上一次成功的结果**
-        // （首次拉取就失败才是空的），所以这一支实际拦的是"从来没拉到过"。别让
-        // "正在获取..." 一直挂着骗人。列表那边同上：空名单不动它（本来就是空的）。
-        // NOTE: 这句占位文案**必须短**（≤ minimumContentsLength，现在是 12 个字）。
-        //       原因是 AdjustToMinimumContentsLengthWithIcon 会把**超过
-        //       minimumContentsLength 的占位文案算进 sizeHint 宽度** —— 原话
-        //       「在线版本列表获取失败，请检查网络」有 16 字，会让下载页那个下拉框
-        //       在取数失败时突然宽出一截，正是旁边那条"宽度不随占位文案变"的断言
-        //       要防的"窗口抖"。改文案前先数字数；真要放长句，把说明挪到旁边的
-        //       hint 标签上（标签没有这个约束）。
-        m_ui->getAvailableVersionCombo()->setPlaceholderText(tr("获取失败，请检查网络"));
+        // （首次拉取就失败才是空的），所以这一支实际拦的是"从来没拉到过"。别让用户
+        // 对着一棵永远空的树等下去 —— 日志里说清楚，树上那四条照样在（它们本来就是空的）。
         appendLog(tr("在线版本列表获取失败（网络异常？）。"));
         return;
     }
-    m_ui->getAvailableVersionCombo()->setPlaceholderText(tr("请选择要下载的版本"));
     appendLog(tr("已更新在线版本列表 (%1 个版本)。").arg(versions.size()));
 }
 
@@ -2792,122 +3143,6 @@ void MainWindow::onGameFinished(int exitCode, QProcess::ExitStatus exitStatus) {
     }
 }
 
-void MainWindow::onDownloadButtonClicked() {
-    if (m_downloadInFlight) {
-        appendLog(tr("已有下载任务正在进行，请等它结束。"));
-        return;
-    }
-
-    // 只认"可安装版本"下拉框：下载针对的是在线清单里的版本
-    const QString versionId = selectedVersionId(m_ui->getAvailableVersionCombo());
-    if (versionId.isEmpty()) {
-        QMessageBox::warning(this, tr("未选择版本"),
-                             tr("请先在\"可安装版本\"下拉框中选择一个版本。"));
-        return;
-    }
-
-    // 左栏「模组加载器」勾了一个加载器（不是「不装」）= 装带加载器的版本：这条路上
-    // 「原版装过没有」是安装流程自己判断的（它会先看磁盘上有没有那份 <版本>.json，
-    // 没有就先补齐），所以下面那段"已存在？要不要校验"的问答在这条路上不适用。
-    const int loaderIndex = m_ui->getModLoaderGroup()->checkedId();
-    if (loaderIndex >= 0 && loaderIndex != MainWindowUI::modLoaderNoneIndex()) {
-        startLoaderInstall(versionId, loaderIndex);
-        return;
-    }
-
-    const QString versionJsonPath = AppPaths::versionJsonPath(versionId);
-    if (QFile::exists(versionJsonPath)) {
-        // 已经下过：不给"直接重下"（几 GB 白跑一趟），改成校验并补齐缺失/损坏的文件。
-        const auto answer = QMessageBox::question(
-            this, tr("版本已存在"),
-            tr("版本 %1 已经下载过了。\n是否校验并修复缺失或损坏的文件？").arg(versionId),
-            QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
-        if (answer != QMessageBox::Yes) {
-            appendLog(tr("已取消对版本 %1 的校验。").arg(versionId));
-            return;
-        }
-        appendLog(tr("开始校验版本 %1 的文件（已存在的会跳过）...").arg(versionId));
-    } else {
-        appendLog(tr("正在获取版本 %1 的信息...").arg(versionId));
-    }
-
-    // busy 必须在点击这一刻就置上：版本 JSON 是异步拉回来的，
-    // 中间这段时间如果按钮还能点，用户会重复触发。
-    setDownloadUiBusy(true);
-    m_progressThrottle.invalidate();
-    m_versionManager->fetchVersionDetails(versionId);
-}
-
-void MainWindow::startLoaderInstall(const QString &gameVersion, int loaderIndex) {
-    VersionManager::LoaderKind kind = VersionManager::LoaderKind::Fabric;
-    if (!VersionManager::loaderKindFromIndex(loaderIndex, &kind)) {
-        // 走到这里说明界面那张表和 VersionManager 那张表对不上（多一个/少一个选项）。
-        // 猜一个加载器装下去会让用户装到他没选的东西上，宁可不做。
-        qWarning() << "Unknown mod loader index" << loaderIndex;
-        appendLog(tr("认不出勾中的是哪个模组加载器（下标 %1），没有开始下载。").arg(loaderIndex));
-        QMessageBox::warning(this, tr("认不出加载器"),
-                             tr("这个模组加载器选项（下标 %1）启动器不认识，没有开始下载。\n\n"
-                                "这多半是启动器自己的问题，请反馈。").arg(loaderIndex));
-        return;
-    }
-
-    const QString loaderName = VersionManager::loaderDisplayName(kind);
-    if (!VersionManager::loaderInstallSupported(kind)) {
-        // 还没接通的那些**不能**退回装纯原版：用户勾着一个加载器，装出来一个原版是骗人。
-        //
-        // NOTE: 四个加载器都接通之后这里走不到了，守卫却要留着：将来往枚举里加第五个、
-        //       数据层还没写好时，正是它接住那种情况。少了它界面会一直停在忙态上 ——
-        //       点击那一刻按钮就已经禁用了，而数据层那道守卫只发一条消息、不解除忙态。
-        appendLog(tr("%1 的安装还没接通。").arg(loaderName));
-        QMessageBox::information(
-            this, tr("还没做"),
-            tr("%1 的安装还没接通（这个启动器现在能装的是 Fabric / Forge / NeoForge / "
-               "OptiFine）。\n\n"
-               "想装纯原版的话：勾「不装（纯原版）」，再点「下载版本」。")
-                .arg(loaderName));
-        return;
-    }
-
-    // 安装器自己就是个 Java 程序（Forge/NeoForge 是 `java -jar <安装器>.jar --installClient
-    // <目录>`，OptiFine 那个是无界面入口 + 换 APPDATA，见 VersionManager::runInstaller），
-    // 所以要的运行环境和"这个版本要的 Java"是同一件事：版本 json 里的 javaVersion。
-    // Fabric 那条路只拉
-    // json + 下 maven 库，一个进程都不起，所以这一段只管要跑安装器的那些。
-    //
-    // 拿不到版本 json（原版还没装）就不知道要求，此时原样用配的那份 —— 不在这一步拦人：装
-    // 加载器本来就会把原版补齐，而"要哪个 Java"从那份 json 里读最准，猜一个主版本比不猜更
-    // 危险（见启动那条路上"拿不到 version.json 就不能猜"那段注释）。
-    QString installerJava = m_javaSettings->javaPath();
-    if (kind != VersionManager::LoaderKind::Fabric) {
-        int requiredJavaMajor = 0;
-        const QJsonObject gameJson = m_versionManager->getVersionJson(gameVersion);
-        if (!gameJson.isEmpty()) {
-            requiredJavaMajor =
-                gameJson["javaVersion"].toObject()["majorVersion"].toInt();
-        }
-        const QString configuredJava = installerJava;
-        QString javaReason;
-        if (!m_javaSettings->installerJavaFor(requiredJavaMajor, configuredJava, &installerJava,
-                                              &javaReason)) {
-            appendLog(tr("这个版本要的 Java 拿不到：%1").arg(javaReason));
-            QMessageBox::warning(this, tr("Java 版本不够"), javaReason);
-            return;  // 还没进忙态，直接退出就是干净的状态
-        }
-        if (installerJava != configuredJava) {
-            appendLog(tr("这个版本要 Java %1，装的时候改用 %2")
-                          .arg(requiredJavaMajor)
-                          .arg(installerJava));
-        }
-    }
-
-    // 忙要在点击这一刻就置上：加载器的列表/profile 都是异步拉回来的，中间这段时间
-    // 按钮还能点的话，用户会重复触发（和原版那条路同一个理由）。
-    appendLog(tr("开始安装 %1 %2...").arg(loaderName, gameVersion));
-    setDownloadUiBusy(true);
-    m_progressThrottle.invalidate();
-    m_versionManager->installLoaderVersion(gameVersion, kind, installerJava);
-}
-
 void MainWindow::onImportModpackClicked() {
     if (m_downloadInFlight) {
         appendLog(tr("已有下载任务正在进行，请等它结束。"));
@@ -3152,6 +3387,31 @@ void MainWindow::onVersionDownloadFinished(const QString &versionId, bool succes
         } else {
             appendLog(tr("✗ 整合包没有导入：%1").arg(errorMessage));
             QMessageBox::warning(this, tr("导入失败"), errorMessage);
+        }
+        return;
+    }
+
+    // 这一条讲的是"装一个带名字的实例"（安装页上点了「安装」）。它走的也是这同一个
+    // 信号（数据层那边"一次点击 = 一个终态"），收尾那句话说的是**用户起的那个名字**。
+    // 和整合包那段同一个道理：不再往上叠「版本 X 的文件已全部就绪」那一句。
+    if (!m_installingInstanceId.isEmpty() && versionId == m_installingInstanceId) {
+        m_installingInstanceId.clear();
+        if (success) {
+            appendLog(tr("✓ %1").arg(errorMessage));
+            // 装出来的实例要能被启动：刷"已安装版本"那一摊，并把它选上（刷新只保得住
+            // "原来选中的"，保不住"原来压根没选"）。
+            refreshInstalledVersions();
+            QComboBox *installedCombo = m_ui->getInstalledVersionCombo();
+            if (installedCombo->currentIndex() < 0) {
+                if (const int index = installedCombo->findData(versionId); index >= 0) {
+                    installedCombo->setCurrentIndex(index);
+                }
+            }
+            updateStartButtonText();
+            QMessageBox::information(this, tr("安装完成"), errorMessage);
+        } else {
+            appendLog(tr("✗ %1").arg(errorMessage));
+            QMessageBox::warning(this, tr("安装失败"), errorMessage);
         }
         return;
     }

@@ -153,6 +153,17 @@ public:
     static bool loaderKindFromIndex(int index, LoaderKind *out);
 
     /**
+     * @brief 加载器 -> 界面那组选项里的下标（loaderKindFromIndex 的反函数）。
+     * @return 下标；枚举里多了一个、而上面那张表还没跟上时返回 -1。
+     *
+     * 界面那边"每一条加载器一个控件"之后需要这个方向：`loaderVersionsFetched` 回来说的是
+     * **枚举**，而"该填哪一条的控件"是**下标**。反着另写一张表的症状是"勾了 Fabric，
+     * 版本列表填进 Forge 那一条"—— 不报错、只是装错东西。
+     * （verify 里钉着这一对互为反函数。）
+     */
+    static int loaderIndexForKind(LoaderKind kind);
+
+    /**
      * @brief 装一个带模组加载器的版本。
      * @param gameVersion 它基于的**原版**版本号（必须在"可安装版本"那张清单里）。
      * @param kind 装哪一种加载器。
@@ -214,6 +225,63 @@ public:
     void installLoaderVersion(const QString &gameVersion, LoaderKind kind,
                               const QString &javaPath = QString(),
                               const QString &pinnedLoaderVersion = QString());
+
+    /**
+     * @brief 装一个**用户起了名字**的纯原版实例（安装页那个「版本名称」框）。
+     * @param instanceId 用户起的名字，就是 `versions/<名字>` 那个目录名。
+     *        调用方**必须**先过 `InstanceFiles::validateDirName()`（合法的名字才调）——
+     *        这里不查：和 importModpack() 同一个理由，判据只留一处。
+     * @param gameVersion 基于哪个原版。
+     *
+     * 【它和"直接下这个版本"差在哪】`instanceId == gameVersion` 时**一模一样**：把原版那份
+     * json、客户端 jar、库、资源按老路装齐，不发薄 json —— 因为"实例"就是原版本身。用户没改
+     * 名字时走的就是这一支，界面上那个默认值正好等于版本号。
+     *
+     * 名字不一样时才多一步：装完原版，再写 `versions/<名字>/<名字>.json`：
+     *
+     *     {"id": "<名字>", "inheritsFrom": "<原版号>", "type": "release"}
+     *
+     * 【为什么是薄 json 而不是抄一份完整的】和整合包实例、和 Fabric 装出来的那份**同一个
+     * 形状**（见 startModpackFiles 上面那段）。抄一份完整 json 的坏处是它会变旧账：原版升了、
+     * 资源索引换了，抄来的那份对不上。启动时 `getVersionJson()` 会顺着 inheritsFrom 合并，
+     * 主类/jar/assetIndex/游戏参数全从父版本那一层来。
+     *
+     * **父版本那批文件本来就得在盘上**（客户端 jar 在 `versions/<原版号>/`、库和资源是全局
+     * 共享的），所以这永远是两个目录、不是"把文件搬过去"。
+     *
+     * 名字撞上盘上已有的东西时**不在这儿拦**：调用方先问过用户（老规矩那问句："已经装过了，
+     * 要不要校验并修复？"），这里只负责"已有的文件按 sha1 校验后跳过"——也就是「重下=校验
+     * 跳过」那条产品级约束。薄 json 是每次覆盖重写的（它就是一行字，没有"半旧"的问题）。
+     *
+     * 失败一律以 `versionDownloadFinished(instanceId, false, 原因)` 收尾。
+     */
+    void installNamedVanilla(const QString &instanceId, const QString &gameVersion);
+
+    /**
+     * @brief 装一个**用户起了名字**的、带模组加载器的实例。
+     * @param instanceId 同 installNamedVanilla()。
+     * @param gameVersion 它基于的**原版**版本号。
+     * @param kind 装哪一种加载器。
+     * @param pinnedLoaderVersion 钉死加载器版本（安装页上点开加载器选的那个）。空 = 老行为
+     *        （"最新的正式版" / 官方推荐版）。
+     * @param javaPath 同 installLoaderVersion()：跑外部安装器用哪个 Java。
+     *
+     * 全程复用 installLoaderVersion() 那条已经验过的路（它自己会把原版补齐），装完之后只多做
+     * 一步：写 `versions/<名字>/<名字>.json`，`inheritsFrom` 指着**加载器装出来的那个目录**
+     * （它的名字是安装器自己拼的，我们事先算不出来，所以到这一步才知道父版本是谁）。
+     *
+     * NOTE: 实例那份薄 json **刻意不写 wtfml.meta** —— 显示名里那三段（realVersion /
+     *       loaderName / loaderVersion）属于**加载器那个版本**，用户给实例起的名字就显示用户
+     *       起的名字（写了的话会拼成"我的包-26.3-Forge_47.4.10-Forge"这种东西）。用户想看
+     *       它是基于什么的，版本 json 里的 inheritsFrom 就是答案。
+     */
+    void installNamedLoader(const QString &instanceId, const QString &gameVersion, LoaderKind kind,
+                            const QString &pinnedLoaderVersion = QString(),
+                            const QString &javaPath = QString());
+
+    /// 有"装一个带名字的实例"正在进行（含父版本那几段）。
+    /// 和 isLoaderInstalling() / isModpackImporting() 一起进 UI 的忙态判据。
+    bool isNamedInstanceInstalling() const;
 
     /**
      * @brief 问某个加载器在某个游戏版本上有哪些版本可选（安装页那个展开的列表用）。
@@ -519,6 +587,13 @@ signals:
     ///       不是加载器）。两条路各自说话，界面按各自的信号名接。
     void modpackImportMessage(const QString &text);
 
+    /// 装"一个带名字的实例"中间那几句（正在装原版 / 正在装加载器 / 写实例文件）。
+    ///
+    /// NOTE: 和上面两条**分开**的理由同上：收尾那句话该说谁。这一条路最后那句说的是
+    ///       「实例 <用户起的名字> 装好了」，而中间那几句说的也是这个名字 —— 不能借
+    ///       loaderInstallMessage 来说，那几句在底栏会读成"用户在装加载器"。
+    void instanceInstallMessage(const QString &text);
+
 private slots:
     void onVersionManifestFetched(const QList<MinecraftVersion> &versions);
     void onVersionJsonFetched(const QJsonObject &versionJson);
@@ -656,6 +731,43 @@ private:
     /// 失败收尾。会把还在跑的加载器安装一起收掉（导入失败 = 整件事结束）。
     void failModpackImport(const QString &reason);
 
+    // ---- 装"一个用户起了名字的实例"的内部状态机 ----
+    //
+    // 形状和 ModpackInstall 一样、理由也一样（一次点击 = 好几件事，每一步的接续点都在别人的
+    // 信号槽里），但它**只有两步**：装父版本 → 写实例自己那份薄 json。整合包那条路后面的
+    // "下清单那批文件""解压覆盖"这里都没有，所以单独一个小状态，别去挤 ModpackInstall
+    // （挤进去的话"哪些相位算导入"会多出几种只在原版安装时才出现的组合）。
+    //
+    // NOTE: 父版本是**加载器**时这里只有一个相位 WaitingLoader —— 剩下的整段（拉版本表、
+    //       跑安装器、补原版）全在 LoaderInstall 那个状态机里，这里只是**挂在它后面**：
+    //       finishLoaderInstall() 收尾前会看一眼这个状态还在不在。两套状态同时 active 是
+    //       这一条路的**正常**样子，别把它当成"状态串了"。
+    struct NamedInstance {
+        enum class Phase {
+            Idle,
+            WaitingParentJson,  ///< 正在取父版本（原版）的 version.json
+            WaitingParentFiles, ///< 父版本（原版）那一批正在下
+            WaitingLoader,      ///< 父版本是加载器：整段交给 installLoaderVersion()
+        };
+
+        Phase phase = Phase::Idle;
+        QString instanceId;  ///< 用户起的名字 = `versions/<id>` 那个目录名
+        QString parentId;    ///< 实例薄 json 的 `inheritsFrom`
+
+        bool active() const { return phase != Phase::Idle; }
+        void reset() { *this = NamedInstance(); }
+    };
+
+    /// 写实例自己那份薄 json。`instanceId == parentId` 时**什么都不做** —— 那一支就是
+    /// "用户没改名字、装的就是原版本身"，不该在旁边多出一个同名的目录（那是同一个目录）。
+    /// @return 写成功、或者本来就不需要写 → true；写失败 → false，**此时失败终态已经发过了**
+    ///         （调用方只能退出，不能再发一个信号）。
+    bool writeNamedInstanceJson();
+    /// 成功收尾：写薄 json + 发**唯一**那个终态信号（成功）。id 报的是用户的实例名。
+    void finishNamedInstance(const QString &parentId, const QString &parentMessage);
+    /// 失败收尾：清状态 + 发终态信号。加载器那条路上失败由 failLoaderInstall() 接手。
+    void failNamedInstance(const QString &reason);
+
     /// 把一份版本 json 原样写到 `<destinationPath>/<versionId>.json`。
     /// 下载路径和整合包导入共用这一份（QSaveFile：断电只会留下旧内容，不会留下半截 json）。
     static bool writeVersionJson(const QString &versionId, const QString &destinationPath,
@@ -764,6 +876,9 @@ private:
     // 和每个回复处理函数开头那几句"状态已经换过"是同一个判据。
     void deferLoaderStep(LoaderInstall::Phase expected, std::function<void()> step);
 
+    /// deferNextStep() 的"带名字的实例"版本：同上，只在相位还是 expected 时才跑。
+    void deferNamedStep(NamedInstance::Phase expected, std::function<void()> step);
+
     // deferNextStep() 的兜底出口：把排队的这一步抛出来的异常翻成一次失败收尾
     // （abandonBatch() + 终态信号）。见 deferNextStep() 的 NOTE。
     void recoverFromInternalError(const QString &what);
@@ -777,6 +892,10 @@ private:
     QNetworkAccessManager *loaderNetwork = nullptr;
     LoaderInstall m_loaderInstall;
     ModpackInstall m_modpackInstall;
+
+    /// 「装一个带名字的实例」走到哪了（见上面那段）。父版本是加载器时它会和
+    /// m_loaderInstall **同时** active —— 那不是状态串了，是这一条路的正常样子。
+    NamedInstance m_namedInstance;
 
     // ---- "这个加载器有哪些版本可选"那一发 GET 的状态 ----
     //

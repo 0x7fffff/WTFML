@@ -334,6 +334,17 @@ void VersionManager::deferLoaderStep(LoaderInstall::Phase expected, std::functio
     });
 }
 
+void VersionManager::deferNamedStep(NamedInstance::Phase expected, std::function<void()> step) {
+    deferNextStep([this, expected, step = std::move(step)] {
+        // 状态已经被收掉了（用户又点了一次、或者上一步失败了）：这一份续接没人要了。
+        // 少了这道守卫，收尾那句会对着一个已经结束的安装再说一遍"装好了"。
+        if (m_namedInstance.phase != expected) {
+            return;
+        }
+        step();
+    });
+}
+
 void VersionManager::recoverFromInternalError(const QString &what) {
     qWarning() << "Internal error while continuing the next step:" << what;
 
@@ -351,6 +362,13 @@ void VersionManager::recoverFromInternalError(const QString &what) {
     // 上，而此后每一次导入都会被"已有任务正在进行"顶回来，只能重启启动器。
     if (m_modpackInstall.active()) {
         failModpackImport(reason);
+        return;
+    }
+    // 排在加载器**前面**：装一个带名字的实例时，父版本是加载器，于是这两件事同时是活的，
+    // 而用户等的是他起的那个名字。先收掉它（它会连加载器那半截一起收，见 failNamedInstance），
+    // 否则那个状态就永远留在 WaitingLoader 上，之后每次装都"已有任务正在进行"。
+    if (m_namedInstance.active()) {
+        failNamedInstance(reason);
         return;
     }
     if (m_loaderInstall.active()) {
@@ -494,6 +512,18 @@ bool VersionManager::loaderKindFromIndex(int index, LoaderKind *out) {
         *out = kOrder[index];
     }
     return true;
+}
+
+int VersionManager::loaderIndexForKind(LoaderKind kind) {
+    // 反着查同一张表（loaderKindFromIndex 是正着查）—— 反过来各写一张的话，"那张表
+    // 改了、这张没改"会表现成"勾了 Fabric，拉回来的列表填进 Forge 那一条"，不报错。
+    for (int index = 0; index < loaderKindCount(); ++index) {
+        LoaderKind candidate = LoaderKind::Fabric;
+        if (loaderKindFromIndex(index, &candidate) && candidate == kind) {
+            return index;
+        }
+    }
+    return -1;  // 枚举里将来多一个、那张表还没跟上时走这里
 }
 
 bool VersionManager::isLoaderInstalling() const { return m_loaderInstall.active(); }
@@ -733,6 +763,161 @@ void VersionManager::failModpackImport(const QString &reason) {
 
     const QString id = m_modpackInstall.instanceId;
     m_modpackInstall.reset();
+    emit versionDownloadFinished(id, false, reason);
+}
+
+// ---------------------------------------------------------------------------
+// 装一个"用户起了名字的实例"（安装页那个「版本名称」框）
+// ---------------------------------------------------------------------------
+
+bool VersionManager::isNamedInstanceInstalling() const { return m_namedInstance.active(); }
+
+void VersionManager::installNamedVanilla(const QString &instanceId, const QString &gameVersion) {
+    if (m_namedInstance.active() || m_loaderInstall.active() || m_modpackInstall.active() ||
+        downloadManager->isBusy()) {
+        // NOTE: 忙的时候除了那句话，**也必须发终态信号** —— 界面在点下去那一刻就进了忙态，
+        //       只发一条消息的话按钮再也亮不回来（"加载器安装还没接通"那一段踩过同样的坑，
+        //       见 startLoaderInstall 里那段注释）。
+        emit instanceInstallMessage(tr("已有安装或下载正在进行，请等它结束。"));
+        emit versionDownloadFinished(instanceId, false, tr("已有安装或下载正在进行，请等它结束。"));
+        return;
+    }
+    if (instanceId.trimmed().isEmpty() || gameVersion.isEmpty()) {
+        // 名字和原版号都该由调用方验过。走到这里说明调用方漏了 —— 那也不能往下走：
+        // 一个空名字会变成 `versions/` 本身，那是把整个游戏目录当实例目录用。
+        qWarning() << "installNamedVanilla called with an empty name or game version";
+        emit versionDownloadFinished(instanceId, false,
+                                     tr("实例名或原版版本号是空的，没有开始安装。"));
+        return;
+    }
+
+    m_namedInstance = NamedInstance();
+    m_namedInstance.instanceId = instanceId;
+    m_namedInstance.parentId = gameVersion;
+    m_namedInstance.phase = NamedInstance::Phase::WaitingParentJson;
+
+    // 名字和原版号一样 = 用户没改名字、装的就是原版本身。收尾时 writeNamedInstanceJson()
+    // 会跳过那一份薄 json（写出来就是一份"指着自己"的 json），所以这里不用分开走。
+    emit instanceInstallMessage(instanceId == gameVersion
+                                    ? tr("正在装原版 %1...").arg(gameVersion)
+                                    : tr("正在装 %1（基于原版 %2）...").arg(instanceId, gameVersion));
+
+    // 这一次取 json 是**安装流程自己要的**，不是用户在下这个版本：相位上面已经摆好，
+    // onVersionJsonFetched 里那一段会接手（它不发 versionDetailsFetched —— 发了界面会当成
+    // "用户点了下载原版"，于是同一个版本下两遍、两个批次互相打架）。
+    fetchVersionDetails(gameVersion);
+}
+
+void VersionManager::installNamedLoader(const QString &instanceId, const QString &gameVersion,
+                                       LoaderKind kind, const QString &pinnedLoaderVersion,
+                                       const QString &javaPath) {
+    if (m_namedInstance.active() || m_loaderInstall.active() || m_modpackInstall.active() ||
+        downloadManager->isBusy()) {
+        emit instanceInstallMessage(tr("已有安装或下载正在进行，请等它结束。"));
+        emit versionDownloadFinished(instanceId, false, tr("已有安装或下载正在进行，请等它结束。"));
+        return;
+    }
+    if (instanceId.trimmed().isEmpty() || gameVersion.isEmpty()) {
+        qWarning() << "installNamedLoader called with an empty name or game version";
+        emit versionDownloadFinished(instanceId, false,
+                                     tr("实例名或原版版本号是空的，没有开始安装。"));
+        return;
+    }
+    if (!loaderInstallSupported(kind)) {
+        // 和 installLoaderVersion() 里那道守卫同一个理由：界面也拦了一道，但数据层不该被
+        // 绕过去 —— 绕过去的下场是"点了某个还没接通的加载器，结果装出来一个纯原版"。
+        const QString loaderName = loaderDisplayName(kind);
+        emit instanceInstallMessage(tr("%1 的安装还没接通。").arg(loaderName));
+        emit versionDownloadFinished(instanceId, false,
+                                     tr("%1 的安装还没接通，没有安装。").arg(loaderName));
+        return;
+    }
+
+    m_namedInstance = NamedInstance();
+    m_namedInstance.instanceId = instanceId;
+    m_namedInstance.phase = NamedInstance::Phase::WaitingLoader;
+    // parentId 现在**还不知道**：加载器那个目录名是安装器自己拼的（OptiFine）或者我们按
+    // 版本号算的，无论如何都要等装完。收尾的人（finishLoaderInstall）会现取 loaderId 填进来。
+
+    const QString loaderName = loaderDisplayName(kind);
+    emit instanceInstallMessage(pinnedLoaderVersion.isEmpty()
+                                    ? tr("正在装 %1（%2，基于原版 %3）...")
+                                          .arg(instanceId, loaderName, gameVersion)
+                                    : tr("正在装 %1（%2 %3，基于原版 %4）...")
+                                          .arg(instanceId, loaderName, pinnedLoaderVersion,
+                                               gameVersion));
+
+    // 整段交给那条已经验过的路。它自己会把原版补齐（加载器版本要基于原版才跑得起来），
+    // 所以这里不用先下原版。收尾在 finishLoaderInstall() 里 —— 那里会先写实例那份薄 json，
+    // 再发**唯一**那个终态信号。
+    installLoaderVersion(gameVersion, kind, javaPath, pinnedLoaderVersion);
+}
+
+bool VersionManager::writeNamedInstanceJson() {
+    if (!m_namedInstance.active()) {
+        return false;
+    }
+    const QString id = m_namedInstance.instanceId;
+    const QString parentId = m_namedInstance.parentId;
+    if (id == parentId) {
+        // 用户没改名字：实例就是父版本本身。旁边多写一份"指着自己的"json 只会在实例列表里
+        // 多出一个和原版重名的条目（而且那个目录已经存在、是同一份）。
+        return true;
+    }
+
+    // 和整合包实例、和 Fabric 装出来的那份**同一个形状**（见 startModpackFiles 上面那段）：
+    // 只有 id + inheritsFrom。主类、客户端 jar、assetIndex、游戏参数全在父版本那一层，
+    // getVersionJson() 会顺着继承链合并。抄一份完整 json 的坏处是它会变旧账。
+    QJsonObject json;
+    json[QStringLiteral("id")] = id;
+    json[QStringLiteral("inheritsFrom")] = parentId;
+    json[QStringLiteral("type")] = QStringLiteral("release");
+
+    QString error;
+    if (!writeVersionJson(id, AppPaths::versionDir(id), json, &error)) {
+        failNamedInstance(tr("实例的版本文件没能写进 %1：%2\n\n（这份文件是启动器认这个实例的"
+                             "凭据，写不进去就等于没装成。）")
+                              .arg(AppPaths::versionDir(id), error));
+        return false;
+    }
+    // 刚写下的这份是**新的**：在这之前读到的任何缓存（合并结果那张表尤其）都是旧的，
+    // 留着会让"刚装好的实例"用回写之前的样子启动（或者压根读不到）。
+    versionJsons[id] = json;
+    mergedVersionJsons.remove(id);
+    return true;
+}
+
+void VersionManager::finishNamedInstance(const QString &parentId, const QString &parentMessage) {
+    if (!m_namedInstance.active()) {
+        // 状态已经被收掉了（用户又点了一次、或者上一步失败了）：这份续接没人要了。
+        return;
+    }
+    const QString id = m_namedInstance.instanceId;
+    m_namedInstance.parentId = parentId;
+
+    if (!writeNamedInstanceJson()) {
+        // 写不进去时它自己已经发过失败终态了（见上面那个函数）。这里只能退出。
+        return;
+    }
+
+    m_namedInstance.reset();
+    emit versionDownloadFinished(
+        id, true,
+        id == parentId ? tr("原版 %1 已就绪。%2").arg(parentId, parentMessage)
+                       : tr("实例「%1」装好了（基于 %2）。%3").arg(id, parentId, parentMessage));
+}
+
+void VersionManager::failNamedInstance(const QString &reason) {
+    // 父版本是加载器时，加载器那半截可能还在跑：一起收掉。LoaderInstall::reset() **不发**
+    // 任何信号正是为了这里 —— 整件事的终态只能发一个，否则界面会先弹一次"加载器没装成"、
+    // 再弹一次"实例没装成"。
+    m_loaderInstall.reset();
+    // 批次可能正开着（失败正好打在两批之间）：不放弃的话 m_batchOpen 永远是 true，之后每次
+    // 下载都被"已有下载任务正在进行"顶回来（同 failModpackImport 里那段）。
+    downloadManager->abandonBatch();
+
+    const QString id = m_namedInstance.instanceId;
+    m_namedInstance.reset();
     emit versionDownloadFinished(id, false, reason);
 }
 
@@ -2249,6 +2434,24 @@ void VersionManager::finishLoaderInstall(bool success, const QString &message) {
         return;
     }
 
+    // 这一次加载器安装是"装一个**带名字的实例**"的第一步：加载器装完不算完，还得写实例
+    // 自己那份薄 json，而终态信号报的该是**用户起的那个名字**（他等的是那个）。
+    //
+    // NOTE: 这一支和上面整合包那一支是**互斥**的（两条入口都会在对方 active 时拒绝开局），
+    //       所以谁先谁后不影响行为；放在后面只是因为整合包那条路多一步。
+    if (m_namedInstance.active() && m_namedInstance.phase == NamedInstance::Phase::WaitingLoader) {
+        m_loaderInstall.reset();
+        if (!success) {
+            failNamedInstance(tr("%1 %2 没有装成，实例没有装成。%3")
+                                  .arg(loaderName, loaderVersion, message));
+            return;
+        }
+        // 父版本到这一刻才知道是谁（加载器那个目录名是安装器自己拼的）。
+        m_namedInstance.parentId = loaderId;
+        finishNamedInstance(loaderId, tr("%1 %2 已就绪。%3").arg(loaderName, loaderVersion, message));
+        return;
+    }
+
     // 收尾：既结束这次安装，也结束这次点击 —— 它是**唯一**的终态。
     m_loaderInstall.reset();
     emit versionDownloadFinished(
@@ -2285,6 +2488,24 @@ void VersionManager::failLoaderInstall(const QString &reason) {
     }
     const QString reportId = m_loaderInstall.reportId();
     qWarning() << "Loader install failed for" << reportId << ":" << reason;
+
+    // 这一次加载器安装是"装一个带名字的实例"的第一步：终态信号报**用户起的那个名字**
+    // （他等的是那个），而且必须把那个状态一起收掉 —— 不收的话 isNamedInstanceInstalling()
+    // 永远是 true，界面就一直卡在忙态上、之后每次安装都被"已有任务正在进行"顶回来。
+    //
+    // NOTE: loaderName 必须在 reset() **之前**取出来（reset 会把它清掉，症状是那句话里
+    //       加载器的名字变成空的 —— 同 finishLoaderInstall 开头那段）。
+    if (m_namedInstance.active() && m_namedInstance.phase == NamedInstance::Phase::WaitingLoader) {
+        const QString instanceId = m_namedInstance.instanceId;
+        const QString instanceLoaderName = m_loaderInstall.loaderName;
+        m_namedInstance.reset();
+        m_loaderInstall.reset();
+        emit versionDownloadFinished(
+            instanceId, false,
+            tr("实例「%1」没有装成（%2 没装成）。%3").arg(instanceId, instanceLoaderName, reason));
+        return;
+    }
+
     m_loaderInstall.reset();
     emit versionDownloadFinished(reportId, false, reason);
 }
@@ -2855,6 +3076,21 @@ void VersionManager::onVersionJsonFetched(const QJsonObject &versionJson) {
             return;
         }
 
+        // "装一个带名字的实例"里**纯原版**那一条：父版本就是原版自己，这里接手去下它的
+        // 文件。理由同上（不能发 versionDetailsFetched）。
+        //
+        // NOTE: 父版本是**加载器**的那一条永远走不到这里 —— 那整段在 m_loaderInstall 里跑，
+        //       上面的加载器分支先认领了（那时 m_namedInstance.parentId 还空着，是装完才填的）。
+        if (m_namedInstance.active() &&
+            m_namedInstance.phase == NamedInstance::Phase::WaitingParentJson &&
+            versionId == m_namedInstance.parentId) {
+            m_namedInstance.phase = NamedInstance::Phase::WaitingParentFiles;
+            deferNamedStep(NamedInstance::Phase::WaitingParentFiles, [this, versionId] {
+                downloadVersion(versionId, AppPaths::versionDir(versionId));
+            });
+            return;
+        }
+
         emit versionDetailsFetched(versionId, versionJson);
         return;
     }
@@ -2884,6 +3120,18 @@ void VersionManager::onVersionJsonFetched(const QJsonObject &versionJson) {
         pending == m_loaderInstall.gameVersion) {
         failLoaderInstall(tr("拿不到原版 %1 的版本信息，%2 没有安装。").arg(
             pending, m_loaderInstall.loaderName));
+        return;
+    }
+
+    // 带名字的实例（纯原版那一条）在等原版那份 json：这次失败就是安装失败。
+    // 和上面加载器那一段不会撞车：installNamedVanilla 的入口就拒掉了 m_loaderInstall 活着
+    // 的情况，两者不会同时是活的。父版本是加载器的那一条也走不到这里 —— 那次是加载器在等
+    // json，由上面那一小段转给 failLoaderInstall()。
+    if (m_namedInstance.active() &&
+        m_namedInstance.phase == NamedInstance::Phase::WaitingParentJson &&
+        pending == m_namedInstance.parentId) {
+        failNamedInstance(tr("拿不到原版 %1 的版本信息，实例没有装成（检查网络后重试）。")
+                              .arg(pending));
         return;
     }
 
@@ -3017,6 +3265,22 @@ void VersionManager::onAllDownloadsFinished(bool success) {
             deferNextStep([this] { extractModpackOverrides(); });
             return;
         }
+    }
+
+    // 带名字的实例（纯原版那一条）下完了：写实例那份薄 json、发终态。
+    // 排在加载器那一段之后 —— 父版本是加载器时这一段压根不参与（那整件事在
+    // m_loaderInstall 里跑，收尾在 finishLoaderInstall()）。这里只管纯原版。
+    if (m_namedInstance.active() &&
+        m_namedInstance.phase == NamedInstance::Phase::WaitingParentFiles) {
+        if (!success) {
+            failNamedInstance(tr("原版文件没下全，实例没有装成。\n%1").arg(message));
+            return;
+        }
+        // 这一批是从"上一批下完"的信号栈里起来的：排到下一轮（理由同上面几处）。
+        const QString parentId = m_namedInstance.parentId;
+        deferNamedStep(NamedInstance::Phase::WaitingParentFiles,
+                       [this, parentId, message] { finishNamedInstance(parentId, message); });
+        return;
     }
 
     // 一批只发一次。改动前这里由每个文件的 downloadFinished 触发，
