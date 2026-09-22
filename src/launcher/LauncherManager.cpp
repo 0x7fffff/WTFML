@@ -535,6 +535,12 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     const QString mainClass = versionJson.value(QStringLiteral("mainClass")).toString();
     args << (mainClass.isEmpty() ? QString::fromLatin1(kDefaultMainClass) : mainClass);
 
+    // 游戏参数占位符（${auth_uuid} 那一套）要用的三样：下面那两条分支各自定下来，等到
+    // 函数末尾展开 arguments.game 时用同一份。
+    QString argUuid;
+    QString argToken;
+    QString argUserType;
+
     // --gameDir / --assetsDir 传**绝对路径**，而不是"靠 cwd 解析出来的相对路径"。
     //
     // NOTE: 这两条以前是 "versions/<id>" 和 "assets" 两个相对路径，由 startGame() 设的
@@ -554,6 +560,9 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
         //       离线 UUID（由名字推出来）也会每次都被当成新玩家。唯一真的需要"不撞名"
         //       的场合是同一台机器上开两个离线实例，那种情况用户自己会改名字。
         QString fakeUuid = QUuid::createUuid().toString().remove('{').remove('}');
+        argUuid = fakeUuid;
+        argToken = QStringLiteral("0");
+        argUserType = QStringLiteral("legacy");
 
         qDebug() << "Offline mode - Player:" << username << "UUID:" << fakeUuid;
 
@@ -573,6 +582,9 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
         const QString uuid = playerUuid.isEmpty()
                                  ? QStringLiteral("00000000-0000-0000-0000-000000000000")
                                  : playerUuid;
+        argUuid = uuid;
+        argToken = token;
+        argUserType = QStringLiteral("msa");
         qDebug() << "Token length:" << token.length();
         args << QStringLiteral("-Dminecraft.accessToken=%1").arg(token);
         args << QStringLiteral("-Dminecraft.version=%1").arg(versionId);
@@ -583,6 +595,47 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
              << AppPaths::assetsDir() << QStringLiteral("--assetIndex") << assetIndexId
              << QStringLiteral("--uuid") << uuid << QStringLiteral("--accessToken") << token
              << QStringLiteral("--userType") << QStringLiteral("msa");
+    }
+
+    // ------------------------------------------------------------------
+    // version.json 自己声明的游戏参数（arguments.game / 老格式 minecraftArguments）
+    // ------------------------------------------------------------------
+    // NOTE: 这一段是 2026-09-22 补的，而且是**真机上崩出来的**：NeoForge 26.2 的版本 json
+    //       在 arguments.game 里写着 `--fml.neoForgeVersion 26.2.0.88 --fml.mcVersion 26.2
+    //       --fml.neoFormVersion 2`，而这里以前**只展开 arguments.jvm**，于是 FML 报
+    //       "When launching in production, --fml.mcVersion must be present as a
+    //       command-line argument"、`VersionSupportMatrix.<init>` 拿着空版本号 NPE，游戏
+    //       在加载窗口那一步就没了。Forge 走同一条路（--launchTarget forgeclient）。
+    //       纯原版不受影响：那边 arguments.game 就是我们上面硬编码的这一串，一条都不会
+    //       重复（判据在 VersionArguments::extraGameArguments 的注释里）。
+    //
+    //       这里传进去的是**继承链合并过**的那份 json（调用点给的就是这个），merge 把
+    //       arguments.game 按"父在前、子在后"拼在一起、并且丢掉了 inheritsFrom —— 所以
+    //       extraGameArguments 里不能拿 inheritsFrom 当判据（踩过一次，见那边的 NOTE）。
+    //
+    // NOTE: 位置在**最后**（主类和 --gameDir 那一段之后）。游戏参数对 JVM 来说只是"给主类
+    //       的字符串"，顺序上只有"谁盖住谁"的意义；这些加载器参数我们一条都没发过，
+    //       没有覆盖关系，放最后最不打扰上面那两段已经验过的形状。
+    QHash<QString, QString> gamePlaceholders;
+    gamePlaceholders[QStringLiteral("auth_player_name")] = username;
+    gamePlaceholders[QStringLiteral("version_name")] = versionId;
+    gamePlaceholders[QStringLiteral("game_directory")] =
+        QDir::toNativeSeparators(AppPaths::versionDir(versionId));
+    gamePlaceholders[QStringLiteral("assets_root")] =
+        QDir::toNativeSeparators(AppPaths::assetsDir());
+    gamePlaceholders[QStringLiteral("assets_index_name")] = assetIndexId;
+    gamePlaceholders[QStringLiteral("auth_uuid")] = argUuid;
+    gamePlaceholders[QStringLiteral("auth_access_token")] = argToken;
+    gamePlaceholders[QStringLiteral("auth_session")] = argToken;
+    gamePlaceholders[QStringLiteral("user_type")] = argUserType;
+    gamePlaceholders[QStringLiteral("version_type")] =
+        versionJson.value(QStringLiteral("type")).toString(QStringLiteral("release"));
+
+    const QStringList extraGameArgs =
+        VersionArguments::extraGameArguments(versionJson, args, gamePlaceholders);
+    if (!extraGameArgs.isEmpty()) {
+        qDebug() << "Extra game arguments from version.json:" << extraGameArgs;
+        args << extraGameArgs;
     }
 
     qDebug() << "Total arguments count:" << args.length();
