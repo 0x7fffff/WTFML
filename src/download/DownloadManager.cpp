@@ -77,6 +77,15 @@ QString DownloadManager::endpoint(const QString &officialUrl) const {
     return m_useMirror ? mirrorUrl(officialUrl) : officialUrl;
 }
 
+namespace {
+// 同时最多发出去的资源对象数。取 6 = Qt 每个主机的连接上限，是为了让"排队"这件事
+// 只发生在**我们**手里：发出去的请求都立刻拿得到连接，30 秒的传输超时才有意义。
+// 调大只会把请求重新塞进 Qt 内部那个会超时的队列，调小则白白浪费带宽。
+// 实测（本机网络，1.18.2 的 3071 个对象）：不限流时 2545 个报 Operation timed out；
+// 限流后每个对象约 2.5 秒，全程约 20 分钟且不再超时。
+constexpr int kMaxConcurrentAssetDownloads = 6;
+}  // namespace
+
 DownloadManager::DownloadManager(QObject *parent)
     : QObject(parent), networkManager(new QNetworkAccessManager(this)), pendingDownloads(0) {
     // 为信号注册元类型
@@ -97,6 +106,8 @@ DownloadManager::~DownloadManager() {
         reply->deleteLater();
     }
     activeDownloads.clear();
+    // 队列里的作业一个请求都没发出去，abort 那套对它们无效，只能直接丢掉。
+    m_pendingAssetJobs.clear();
 }
 
 void DownloadManager::fetchVersionManifest() {
@@ -194,6 +205,13 @@ bool DownloadManager::fileAlreadyValid(const QString &path, const QString &expec
 void DownloadManager::downloadFile(const QString &url, const QString &destinationPath,
                                    const QString &expectedSha1, qint64 expectedSize,
                                    VerifyMode mode) {
+    // 一单一发：库、jar、索引这些批次都只有几十个作业，没有排队的必要。
+    scheduleFile(url, destinationPath, expectedSha1, expectedSize, mode, false);
+}
+
+void DownloadManager::scheduleFile(const QString &url, const QString &destinationPath,
+                                   const QString &expectedSha1, qint64 expectedSize,
+                                   VerifyMode mode, bool throttled) {
     // 每个作业都重置一次"已发射"，不管是跳过还是真下。不带批次的用法（一次 fetch、
     // 一次 assets）没有 beginBatch 来重置它，只能靠这里。
     m_batchEmitted = false;
@@ -223,7 +241,22 @@ void DownloadManager::downloadFile(const QString &url, const QString &destinatio
         return;
     }
 
-    startDownload(QUrl(url), destinationPath, expectedSha1);
+    if (throttled) {
+        m_pendingAssetJobs.enqueue(AssetJob{url, destinationPath, expectedSha1});
+        pumpAssetQueue();
+    } else {
+        startDownload(QUrl(url), destinationPath, expectedSha1);
+    }
+}
+
+void DownloadManager::pumpAssetQueue() {
+    // 判据用 activeDownloads.size() 而不是另开一个计数器：它是"当下真在飞的作业"
+    // 的唯一事实，别的下载（客户端 jar 之类）占着连接时这里自然少发几个。
+    while (!m_pendingAssetJobs.isEmpty()
+           && activeDownloads.size() < kMaxConcurrentAssetDownloads) {
+        const AssetJob job = m_pendingAssetJobs.dequeue();
+        startDownload(QUrl(job.url), job.destinationPath, job.expectedSha1);
+    }
 }
 
 void DownloadManager::startDownload(const QUrl &url, const QString &destinationPath,
@@ -259,7 +292,10 @@ void DownloadManager::checkAllDownloadsFinished() {
     // m_batchOpen：批次还没封口，等 endBatch() 再判定。
     // m_batchEmitted：这一批已经报过了，别再报。
     // pendingDownloads > 0：还有作业在飞。
-    if (m_shuttingDown || m_batchOpen || m_batchEmitted || pendingDownloads > 0) {
+    // m_pendingAssetJobs：还排着队的资源对象也是"没下完"，漏掉这一条会在还差几千个
+    // 文件的时候发出 allDownloadsFinished。
+    if (m_shuttingDown || m_batchOpen || m_batchEmitted || pendingDownloads > 0
+        || !m_pendingAssetJobs.isEmpty()) {
         return;
     }
     m_batchEmitted = true;
@@ -443,7 +479,8 @@ void DownloadManager::parseAndDownloadAssets(const QString &indexPath) {
         QDir().mkpath(QFileInfo(assetPath).absolutePath());
         // 文件名就是 SHA1，所以只按存在性判断：assets 目录已经 3 GB 出头，
         // 每次点下载都把 5000 多个对象重新哈希一遍会让界面卡死好几秒。
-        downloadFile(assetUrl, assetPath, hash, -1, VerifyMode::ExistsOnly);
+        scheduleFile(assetUrl, assetPath, hash, -1, VerifyMode::ExistsOnly,
+                     /*throttled=*/true);
     }
 }
 
@@ -503,20 +540,19 @@ QList<Library> DownloadManager::extractLibraries(const QJsonObject &versionJson)
             continue;
         }
 
-        QJsonObject downloads = libObj["downloads"].toObject();
-        QJsonObject artifact = downloads["artifact"].toObject();
-        QString artifactPath = artifact["path"].toString();
-        QString artifactUrl = artifact["url"].toString();
-
         // NOTE: 1.12.2 里有 2 个库完全没有 artifact（只有 classifiers），
         // 旧代码会拿空 url 和 "dir/" 这样的空 path 去发起下载，产生幽灵请求。
-        if (!artifactPath.isEmpty() && !artifactUrl.isEmpty()) {
+        //
+        // 解析（含 maven 风格的库）在 LibraryRules::artifactFor() —— 启动时拼 classpath
+        // 用的是同一个函数，两处的语义不会各自漂移。
+        const LibraryRules::Artifact artifact = LibraryRules::artifactFor(libObj);
+        if (artifact.valid()) {
             Library lib;
             lib.name = libObj["name"].toString();
-            lib.url = artifactUrl;
-            lib.sha1 = artifact["sha1"].toString();
-            lib.size = artifact["size"].toVariant().toLongLong();
-            lib.path = artifactPath;
+            lib.url = artifact.url;
+            lib.sha1 = artifact.sha1;
+            lib.size = artifact.size;
+            lib.path = artifact.path;
             libraries.append(lib);
         }
 
@@ -653,6 +689,9 @@ void DownloadManager::onDownloadReplyFinished() {
     m_doneJobs++;
 
     emitBatchProgress(destPath);
+    // 腾出一条连接就补一个排队的资源对象，然后才判定整批是否下完（顺序不能反：
+    // 先判会把"队列里还有、但当下一个都没在飞"误判成整批结束）。
+    pumpAssetQueue();
     checkAllDownloadsFinished();
 }
 

@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include <QButtonGroup>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QFrame>
@@ -32,10 +33,13 @@
 #include <QPlainTextEdit>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QRadioButton>
 #include <QSpinBox>
 #include <QString>
+#include <QStringList>
 #include <QTabWidget>
 #include <QTreeWidget>
+#include <QVector>
 #include <QWidget>
 
 // 「一个组在界面上写成什么」这条规则的唯一出处（分组对话框和实例列表那张树都用它）。
@@ -69,6 +73,46 @@ public:
     static QString installedVersionComboName() { return QStringLiteral("installedVersionCombo"); }
     static QString availableVersionComboName() { return QStringLiteral("availableVersionCombo"); }
     static QString availableVersionListName() { return QStringLiteral("availableVersionList"); }
+
+    // ---------- 下载页左栏那个「模组加载器」单选组 ----------
+    //
+    // 「勾了哪个」决定「下载版本」装什么（0..3 = 加载器，见 VersionManager::loaderKindFromIndex）
+    // 而那一个「不装」选项是**默认勾中的**，它代表今天的路（装纯原版）。
+    //
+    /// 选项的 objectName，**顺序就是界面上从上到下的顺序**。验证工程按这个顺序遍历，
+    /// 界面上摆的顺序也由同一个表驱动，不各写一份。
+    ///
+    /// NOTE: 「不装」排在四个加载器**后面**（不是最前面）是刻意的：这样下标 0..3 和
+    ///       VersionManager::LoaderKind 的枚举顺序一一对应，中间那层翻译
+    ///       （loaderKindFromIndex）就少一个"顺序对不上、勾了 A 装成 B"的机会。
+    static QStringList modLoaderOptionNames() {
+        return {QStringLiteral("modLoaderFabric"), QStringLiteral("modLoaderForge"),
+                QStringLiteral("modLoaderNeoForge"), QStringLiteral("modLoaderOptiFine"),
+                QStringLiteral("modLoaderNone")};
+    }
+    /// 选项上写的字。和上面那张表**一一对应**，顺序不能各排各的。
+    ///
+    /// NOTE: 这是**显示内容**（将来要跟着语言/产品文案走），不是身份标识 —— 验证工程
+    ///       认控件一律用上面的 objectName，这两个函数只在核对文案时用（和
+    ///       renameInstanceText() 那几个一个道理）。
+    static QStringList modLoaderOptionTexts() {
+        return {QStringLiteral("Fabric"), QStringLiteral("Forge"), QStringLiteral("NeoForge"),
+                QStringLiteral("OptiFine"), QStringLiteral("不装（纯原版）")};
+    }
+    /// 「不装（纯原版）」那一个在两张表里的下标。想"回到装纯原版"就得能勾回它 ——
+    /// 单选钮一旦勾上就没法用鼠标取消（见下面 buildTwoColumnPage 里那段），这个选项
+    /// 就是那条退路；写死数字的地方一律用这个函数。
+    static int modLoaderNoneIndex() { return 4; }
+    static QString modLoaderLabelName() { return QStringLiteral("modLoaderLabel"); }
+    static QString modLoaderLabelText() { return QStringLiteral("模组加载器"); }
+    /// 那一组（QButtonGroup）自己的 objectName。验证工程靠它在**真窗口**上把
+    /// "这五个钮是一个互斥组"读回来 —— getModLoaderOptions() 只给得出五个钮，
+    /// 看不出它们互不互斥（那正是"四选一"里唯一一条看代码看不出来的）。
+    static QString modLoaderGroupName() { return QStringLiteral("modLoaderGroup"); }
+    /// 「下载版本」按钮。验证工程要"点它一下"（勾了还没接通的加载器之后点，看弹不弹
+    /// 「还没做」、界面进不进忙态），所以得能按名字取回来 —— 按文案认控件是这套验证
+    /// 里明确不要的做法（文案会随产品改，改完测试挂的方式是"找不到控件，后面全不跑"）。
+    static QString downloadButtonName() { return QStringLiteral("downloadButton"); }
     static QString folderListName() { return QStringLiteral("folderList"); }
     static QString instanceListName() { return QStringLiteral("instanceList"); }
     static QString instanceFolderLabelName() { return QStringLiteral("instanceFolderLabel"); }
@@ -297,6 +341,15 @@ public:
     //   availableVersionList —— 下载页右边（「版本下载」那一组里）
     //   instanceList        —— 实例页右边，见上面 getInstanceList()
     QListWidget *getAvailableVersionList() const { return availableVersionList; }
+    /// 下载页左栏那个「模组加载器」单选组（见上面那段）。
+    ///
+    /// NOTE: 返回的是**那一组**（按钮组 + 每个钮），顺序就是 modLoaderOptionNames() 的
+    ///       顺序。"勾了哪个"从 modLoaderGroup->checkedId() 读，id 就是下标。
+    QButtonGroup *getModLoaderGroup() const { return modLoaderGroup; }
+    QVector<QRadioButton *> getModLoaderOptions() const {
+        return {modLoaderFabric, modLoaderForge, modLoaderNeoForge, modLoaderOptiFine,
+                modLoaderNone};
+    }
 
     // 设置页的控件。**只搭出来、只负责显隐**，值由 MainWindow 灌（它才知道
     // 那些设置存在哪、改了要不要落盘）。
@@ -359,6 +412,19 @@ private:
     QComboBox *installedVersionCombo;
     QComboBox *availableVersionCombo;
     QListWidget *availableVersionList;
+    /// 下载页左栏那个「模组加载器」单选组（见头文件上面那段）。
+    ///
+    /// NOTE: **互斥**由 QButtonGroup 保证（不是靠"同一个父控件下的 QRadioButton 自动
+    ///       互斥"那条不成文的规矩 —— 哪天有人把它们挪进各自的容器，那条就悄悄失效了，
+    ///       而失效的表现是"几个能同时勾上"，丑但不报错）。id 就是
+    ///       modLoaderOptionNames() 里的下标。
+    /// NOTE: modLoaderNone 是**初始勾中**的那一个（"装纯原版"）。
+    QButtonGroup *modLoaderGroup;
+    QRadioButton *modLoaderFabric;
+    QRadioButton *modLoaderForge;
+    QRadioButton *modLoaderNeoForge;
+    QRadioButton *modLoaderOptiFine;
+    QRadioButton *modLoaderNone;
     QComboBox *javaVersionCombo;
     QLabel *javaPathLabel;
     QCheckBox *javaWarnMismatchCheck;

@@ -35,6 +35,7 @@
 #include <QProgressBar>
 #include <QProcess>
 #include <QPushButton>
+#include <QRadioButton>
 #include <QSignalBlocker>
 #include <QSpinBox>
 #include <QTabWidget>
@@ -704,6 +705,11 @@ void MainWindow::setupConnections() {
             &MainWindow::onVersionDownloadStats);
     connect(m_versionManager, &VersionManager::versionDownloadFinished, this,
             &MainWindow::onVersionDownloadFinished);
+    // 加载器安装中间那几步（拉列表、挑版本、先补原版）只写日志、不弹窗：那几件事都在
+    // "一次点击"里面，每步弹一个框等于点着玩。真正要用户做决定的（还没做、失败了）
+    // 才走 versionDownloadFinished 那条弹窗的路。
+    connect(m_versionManager, &VersionManager::loaderInstallMessage, this,
+            [this](const QString &text) { appendLog(text); });
 }
 
 void MainWindow::setDownloadUiBusy(bool busy) {
@@ -723,6 +729,12 @@ void MainWindow::setDownloadUiBusy(bool busy) {
     // 会让这一批文件一半写进 A、一半写进 B。两个按钮的可用性由 updateFolderButtons()
     // 一处说了算（「删除文件夹」还要看选中的是不是自带那份）。
     m_ui->getFolderList()->setEnabled(!busy);
+    // 「模组加载器」四个钮一起灰掉，理由和两个下拉框一样：在装什么是点击那一刻定下的，
+    // 这时候改成 Forge 并不会把手上这次 Fabric 安装换掉（真正干活的 VersionManager
+    // 已经拿着 Fabric 那个枚举在跑了），留着能改只会让人以为改生效了。
+    for (QRadioButton *option : m_ui->getModLoaderOptions()) {
+        option->setEnabled(!busy);
+    }
     updateFolderButtons();
 
     QProgressBar *progressBar = m_ui->getProgressBar();
@@ -1569,7 +1581,11 @@ void MainWindow::onVersionsFetched(const QStringList &versions) {
 void MainWindow::onStartButtonClicked() {
     // 防御：下载期间按钮本来就是灰的，但这里再拦一道。改动前没有任何阻拦，
     // 用户看着日志以为下完了直接点启动，游戏会因为文件不全崩掉。
-    if (m_downloadInFlight || m_versionManager->isDownloading()) {
+    // isLoaderInstalling() 也要看：加载器安装的头两步（拉列表、拉 profile）**没有**
+    // 任何一批下载在跑，isDownloading() 那时是 false —— 只靠它挡不住"刚点了装 Fabric、
+    // 趁拉列表那几秒去点启动"这条缝。
+    if (m_downloadInFlight || m_versionManager->isDownloading() ||
+        m_versionManager->isLoaderInstalling()) {
         QMessageBox::warning(this, tr("下载进行中"),
                              tr("该版本的文件还没有下载完成，请等下载结束后再启动。"));
         return;
@@ -1615,6 +1631,18 @@ void MainWindow::onStartButtonClicked() {
             tr("找不到版本 %1 的 version.json，无法确定所需的 Java 版本。\n"
                "请先选中该版本并点击\"下载\"重新获取版本信息。")
                 .arg(versionId));
+        return;
+    }
+
+    // 继承链不完整（带模组加载器的版本最常见：它基于的原版没装）时**现在就说清楚**。
+    //
+    // 必须单列这一步，不能靠上面那句"版本信息缺失"：加载器版本自己那份 json 是**在**的，
+    // 缺的是原版那份。用户照着"请重新下载该版本"做，下回来的还是同一个加载器版本，
+    // 问题原样复现。
+    const QString inheritanceProblem = m_versionManager->inheritanceProblem(versionId);
+    if (!inheritanceProblem.isEmpty()) {
+        appendLog(tr("版本继承链不完整：%1").arg(versionId));
+        QMessageBox::warning(this, tr("版本不完整"), inheritanceProblem);
         return;
     }
 
@@ -2331,6 +2359,15 @@ void MainWindow::onDownloadButtonClicked() {
         return;
     }
 
+    // 左栏「模组加载器」勾了一个加载器（不是「不装」）= 装带加载器的版本：这条路上
+    // 「原版装过没有」是安装流程自己判断的（它会先看磁盘上有没有那份 <版本>.json，
+    // 没有就先补齐），所以下面那段"已存在？要不要校验"的问答在这条路上不适用。
+    const int loaderIndex = m_ui->getModLoaderGroup()->checkedId();
+    if (loaderIndex >= 0 && loaderIndex != MainWindowUI::modLoaderNoneIndex()) {
+        startLoaderInstall(versionId, loaderIndex);
+        return;
+    }
+
     const QString versionJsonPath = AppPaths::versionJsonPath(versionId);
     if (QFile::exists(versionJsonPath)) {
         // 已经下过：不给"直接重下"（几 GB 白跑一趟），改成校验并补齐缺失/损坏的文件。
@@ -2352,6 +2389,46 @@ void MainWindow::onDownloadButtonClicked() {
     setDownloadUiBusy(true);
     m_progressThrottle.invalidate();
     m_versionManager->fetchVersionDetails(versionId);
+}
+
+void MainWindow::startLoaderInstall(const QString &gameVersion, int loaderIndex) {
+    VersionManager::LoaderKind kind = VersionManager::LoaderKind::Fabric;
+    if (!VersionManager::loaderKindFromIndex(loaderIndex, &kind)) {
+        // 走到这里说明界面那张表和 VersionManager 那张表对不上（多一个/少一个选项）。
+        // 猜一个加载器装下去会让用户装到他没选的东西上，宁可不做。
+        qWarning() << "Unknown mod loader index" << loaderIndex;
+        appendLog(tr("认不出勾中的是哪个模组加载器（下标 %1），没有开始下载。").arg(loaderIndex));
+        QMessageBox::warning(this, tr("认不出加载器"),
+                             tr("这个模组加载器选项（下标 %1）启动器不认识，没有开始下载。\n\n"
+                                "这多半是启动器自己的问题，请反馈。").arg(loaderIndex));
+        return;
+    }
+
+    const QString loaderName = VersionManager::loaderDisplayName(kind);
+    if (!VersionManager::loaderInstallSupported(kind)) {
+        // 还没做的那些**不能**退回装纯原版：用户勾着 OptiFine，装出来一个原版是骗人。
+        appendLog(tr("%1 的安装还没接通。").arg(loaderName));
+        QMessageBox::information(
+            this, tr("还没做"),
+            tr("%1 的安装还没做 —— 现在接通的是 Fabric / Forge / NeoForge。\n\n"
+               "OptiFine 卡在它的安装器上：它把命令行给的目录整个丢掉、只认 APPDATA 下面"
+               "那个 .minecraft（所以得给子进程换 APPDATA、再用目录联接把那个假的指到真"
+               "游戏目录），而且它出错时会弹一个对话框等着人点、进程不退出 —— 这条得单独"
+               "做，不是这里再加一个地址就能通的。\n\n"
+               "想装纯原版的话：勾「不装（纯原版）」，再点「下载版本」。")
+                .arg(loaderName));
+        return;
+    }
+
+    // 忙要在点击这一刻就置上：加载器的列表/profile 都是异步拉回来的，中间这段时间
+    // 按钮还能点的话，用户会重复触发（和原版那条路同一个理由）。
+    appendLog(tr("开始安装 %1 %2...").arg(loaderName, gameVersion));
+    setDownloadUiBusy(true);
+    m_progressThrottle.invalidate();
+    // 「设置」里配的那个 Java。Forge/NeoForge 的安装器是**真的起一个 Java 进程**，
+    // 所以这里必须传：机器上 PATH 里没有 java、或者有几个装不同版本的 Java 时，
+    // 用户在这儿指定过哪一个就是哪一个（和启动游戏同一个来源）。
+    m_versionManager->installLoaderVersion(gameVersion, kind, m_javaSettings->javaPath());
 }
 
 void MainWindow::onVersionDownloadFinished(const QString &versionId, bool success,

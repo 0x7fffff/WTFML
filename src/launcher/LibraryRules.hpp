@@ -8,6 +8,7 @@
  */
 #pragma once
 
+#include <QDebug>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QJsonValue>
@@ -135,6 +136,136 @@ inline bool libraryAllowed(const QJsonObject &libObj,
         }
     }
     return allowed;
+}
+
+/**
+ * @brief 把 maven 坐标（library 的 `name`）翻译成它在 maven 仓库里的相对路径。
+ * @param name 形如 `group:artifact:version`，可带 `:classifier`，末段可带 `@扩展名`。
+ * @return 形如 `group/with/slashes/artifact/version/artifact-version[-classifier].jar`；
+ *         解析不出来（字段不够、有任何一段不干净）时返回**空串**。
+ *
+ * 什么时候用得上：**库对象里只有 `name` 和 `url`、没有 `downloads` 那一块**的时候。
+ * 带模组加载器的版本 json 一律长这样 —— Fabric 的 profile json 里 8 个库全都没有
+ * `downloads.artifact`，只有 maven 坐标和一个仓库地址。这是 maven 那套约定，
+ * 加载器生态（Forge/NeoForge 的 maven、Fabric 的 maven）都按它走。
+ *
+ * NOTE: 每一段都按 `[A-Za-z0-9._+-]+` 白名单过滤，**任何一段不符合就整体返回空**。
+ *       这不是"防御性编程"的姿态：这个字符串来自**下载来的 JSON**，而它的用途是拼
+ *       文件路径，`../../` 这种 group 会让库被写到 libraries/ 外面去。宁可这个库下不下来
+ *       （调用方会跳过它、日志里看得见），也不要往任意路径写文件。
+ * NOTE: 白名单里必须有 `+`。maven 的版本号本来就能带它，而 Fabric 真的在用：
+ *       `net.fabricmc:sponge-mixin:0.17.4+mixin.0.8.7`（jar 的名字里也带 `+`，仓库那边
+ *       就是这么存的）。漏了它这一个库就静默消失，症状还是那句 NoClassDefFoundError。
+ *       反过来说，Windows 上不能进文件名的字符（`<>:"/\|?*`）一个都不在白名单里。
+ * NOTE: **classifier 是可选的**（`group:artifact:version` 三段最常见，Fabric 给的 8 个
+ *       坐标里有 7 个就是三段）—— 所以它不能进上面那个"任何一段为空就拒绝"的循环，
+ *       否则每一个不带 classifier 的坐标都会解析失败。这个坑很容易再踩一次。
+ * NOTE: `@zip` 这类扩展名照收（maven 的坐标本来就允许），classifier 段最多认一个，
+ *       第 5 段往后直接**当作不存在**：maven 没有那种形式，拿它拼只会得到错路径，
+ *       而"错路径"在下载时会 404、界面报错，比"静默少一个库、游戏起来时
+ *       NoClassDefFoundError"更容易查。
+ */
+inline QString mavenPathForName(const QString &name) {
+    QString coordinate = name;
+    QString extension = QStringLiteral("jar");
+    const int at = coordinate.lastIndexOf(QLatin1Char('@'));
+    if (at > 0) {
+        extension = coordinate.mid(at + 1);
+        coordinate = coordinate.left(at);
+    }
+
+    const QStringList parts = coordinate.split(QLatin1Char(':'), Qt::KeepEmptyParts);
+    if (parts.size() < 3) {
+        return QString();
+    }
+    const QString group = parts.at(0);
+    const QString artifact = parts.at(1);
+    const QString version = parts.at(2);
+    const QString classifier = parts.size() > 3 ? parts.at(3) : QString();
+
+    const QRegularExpression safe(QStringLiteral("^[A-Za-z0-9._+-]+$"));
+    for (const QString &segment : {group, artifact, version, extension}) {
+        if (segment.isEmpty() || !safe.match(segment).hasMatch()) {
+            return QString();
+        }
+    }
+    // classifier 允许为空（等于没有），但给了就必须干净
+    if (!classifier.isEmpty() && !safe.match(classifier).hasMatch()) {
+        return QString();
+    }
+
+    QString groupPath = group;
+    groupPath.replace(QLatin1Char('.'), QLatin1Char('/'));
+
+    const QString fileName = artifact + QLatin1Char('-') + version +
+                             (classifier.isEmpty() ? QString()
+                                                   : QLatin1Char('-') + classifier) +
+                             QLatin1Char('.') + extension;
+    return QStringLiteral("%1/%2/%3/%4").arg(groupPath, artifact, version, fileName);
+}
+
+/**
+ * @brief 一个 library 的主 artifact（就是要进 classpath 的那个 jar）。
+ */
+struct Artifact {
+    QString path;   ///< libraries/ 下的相对路径
+    QString url;    ///< 下载地址
+    QString sha1;   ///< 期望的 SHA1，提供方没给时为空
+    qint64 size = 0;
+
+    bool valid() const { return !path.isEmpty() && !url.isEmpty(); }
+};
+
+/**
+ * @brief 解析一个 library 的主 artifact，**兼容两种 json 写法**。
+ * @param libObj version.json 里的一个 library 对象。
+ * @return 路径/地址至少有一个解析不出来时返回一个 invalid 结构。
+ *
+ * 两种写法：
+ *   1. `downloads.artifact` 里给全了 path/url/sha1/size（Mojang 的原版 json 都是这样）；
+ *   2. **只有 `name`（maven 坐标）和 `url`（仓库地址）**。带模组加载器的版本 json 一律
+ *      长这样 —— Fabric 的 profile json 里 8 个库全都没有 `downloads` 那一块。
+ *
+ * 第 2 种照"只认 downloads.artifact"的判据会被**静默跳过**，症状是加载器装好了、
+ * 启动时 NoClassDefFoundError 找不到 net.fabricmc.loader，而下载界面一路绿灯。
+ *
+ * NOTE: 路径按 maven 的规矩从名字拼，而那个名字来自**下载来的 JSON**、用途是拼文件路径，
+ *       `mavenPathForName()` 的逐段白名单正是为此（`../../` 这种 group 会让库被写到
+ *       libraries/ 外面去）。拼不出来时如果仓库地址是有的，**必须吭声** —— 不然就是
+ *       "库静默少了一个"，只有游戏起来时才炸。
+ */
+inline Artifact artifactFor(const QJsonObject &libObj) {
+    Artifact result;
+
+    const QJsonObject artifact = libObj.value(QStringLiteral("downloads"))
+                                     .toObject()
+                                     .value(QStringLiteral("artifact"))
+                                     .toObject();
+    result.path = artifact.value(QStringLiteral("path")).toString();
+    result.url = artifact.value(QStringLiteral("url")).toString();
+    result.sha1 = artifact.value(QStringLiteral("sha1")).toString();
+    result.size = artifact.value(QStringLiteral("size")).toVariant().toLongLong();
+
+    if (!result.path.isEmpty() && !result.url.isEmpty()) {
+        return result;
+    }
+
+    const QString mavenBase = libObj.value(QStringLiteral("url")).toString();
+    const QString mavenName = libObj.value(QStringLiteral("name")).toString();
+    const QString mavenPath = mavenPathForName(mavenName);
+    if (!mavenPath.isEmpty() && !mavenBase.isEmpty()) {
+        result.path = mavenPath;
+        result.url = mavenBase.endsWith(QLatin1Char('/'))
+                         ? mavenBase + mavenPath
+                         : mavenBase + QLatin1Char('/') + mavenPath;
+        // 哈希和大小取库里**顶层**的 sha1/size：Fabric 给了前 6 个库，两个都给了。
+        // 后两个（intermediary / fabric-loader）本来就没有，空 sha1 就是不校验。
+        result.sha1 = libObj.value(QStringLiteral("sha1")).toString();
+        result.size = libObj.value(QStringLiteral("size")).toVariant().toLongLong();
+    } else if (!mavenBase.isEmpty()) {
+        qWarning() << "Cannot derive a maven path from library name:" << mavenName;
+    }
+    return result;
 }
 
 /**
