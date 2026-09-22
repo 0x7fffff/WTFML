@@ -133,6 +133,25 @@ private slots:
     ///       而这一半里藏着真会错的东西（"跟随全局"的项要**删键**而不是写一个等于
     ///       全局的值、写盘前得先确保实例有稳定 id），必须验得了。
     bool applyInstanceSettings(const QString &versionId, const InstanceSettingsDialog &dialog);
+    /// 「导入整合包…」：选文件 → 读清单 → 问名字 → 确认 → 交给 applyModpackImport()。
+    ///
+    /// 读的是压缩包根目录里那一份 modrinth.index.json（ZipUtil::readEntry，**不整包解开**：
+    /// 用户随手选一个几百 MB 的包，为了知道它不是整合包先解压几分钟是白等）。
+    void onImportModpackClicked();
+    /// 导入的**执行部分**：把清单解析出来、该拦的拦掉、算出安装器要的 Java，然后开始导入。
+    /// @param zipPath 用户选的那个整合包文件。
+    /// @param instanceName 落地的实例名（= `versions/<id>` 那个目录名）。
+    /// @param indexJson 压缩包里那份 `modrinth.index.json` 的**原始字节**。
+    ///        传字节而不是传解析结果，是为了让这一半能被验证工程驱动（自定义类型过不了
+    ///        QMetaObject::invokeMethod）；里面会再解析一遍 —— 纯函数，94 KB 的清单也就
+    ///        一瞬，换来的是"确认框里说的那个包"和"真的去装的那个包"是同一串字节。
+    /// @return 真的开始导入了返回 true（失败/被拦下时弹窗并返回 false）。
+    ///
+    /// NOTE: 拆成两步的理由和 applyRename() 一样 —— QFileDialog / QInputDialog / 确认框
+    ///       都是模态的，offscreen 的验证工程驱动不了它们，而这一半里藏着真会错的东西
+    ///       （重名要拦、不支持的加载器要拦、忙态几时置上、结束之后列表要刷）。
+    bool applyModpackImport(const QString &zipPath, const QString &instanceName,
+                            const QByteArray &indexJson);
     /// 用户在左边那张列表里换了「游戏文件夹」。真正干活的是 FolderManager 发出的
     /// currentFolderChanged()，这里只负责把选中项翻译成一次 setCurrentFolder()。
     void onFolderSelectionChanged();
@@ -361,6 +380,14 @@ private:
     // 下载是否在进行中。注意不能只问 m_versionManager：从点击"下载"到版本 JSON
     // 拉回来之前，VersionManager 那边还没有任何批次，这段时间也得算"忙"。
     bool m_downloadInFlight = false;
+    // 正在导入的那个整合包会落在哪个实例名下（空 = 没有导入在进行）。
+    //
+    // 为什么界面要自己记这一笔：导入的那**一个**终态走的是公共的
+    // versionDownloadFinished(id, ok, msg) —— 收尾那句话是说给用户看的（"整合包「X」
+    // 导入好了"），而这里要判断的是"这一条信号讲的是导入，还是普通的一次版本下载"，
+    // 好把那句「版本 X 的文件已全部就绪」换成导入该说的话。数据层那边不另发一个信号，
+    // 是为了让"一次点击 = 一个终态"这条约定继续保持唯一（见 importModpack 的说明）。
+    QString m_importingInstanceId;
     // "有版本目录但 jar 名对不上"这件事是否已经写过日志。refreshInstalledVersions()
     // 一次会话会被调很多次，不记一笔就是同样的告警反复刷。
     bool m_reportedUnrecognizedVersions = false;

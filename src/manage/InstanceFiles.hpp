@@ -39,6 +39,13 @@
 
 namespace InstanceFiles {
 
+/// 实例目录名的长度上限（`validateDirName()` 用的就是它）。
+///
+/// NOTE: 放在头文件里是为了让**别的地方也要收长度**时用的是同一个数 —— 整合包那边从
+///       包名推实例名（ModpackImport::suggestInstanceName）也要收到 64，各写一个 64
+///       的话，改一处漏一处的症状是"候选名字自己就过不了校验"。
+constexpr int kMaxDirNameLength = 64;
+
 /// 扫一个实例目录得到的原始材料。纯数据 —— 判据本体 resolve() 只吃它、不碰磁盘，
 /// 所以真值表能在验证工程里直接钉住，不用先去造目录。
 struct DirListing {
@@ -188,6 +195,20 @@ QString jsonPath(const QString &versionId);
  *       一条"只许 ASCII"的规则。
  */
 QString validateDirName(const QString &rawName);
+
+/**
+ * @brief 一段路径段（目录名或文件名）合不合法 —— 和"实例名"**同一套规矩**，只是不判长度。
+ * @param segment 一段（`mods` / `sodium.jar` 这种），**不含**分隔符。
+ * @return 合法返回空串；否则返回给用户看的一句原因。
+ *
+ * 整合包清单里的相对路径是逐段拿它判的（见 ModpackImport::isSafeRelativePath）：同一个
+ * 判据只写一份，不然"哪些名字建不出来"这件事会在两个地方慢慢漂开。
+ *
+ * NOTE: 长度不在这一层判。名字的长度上限（kMaxDirNameLength）是**实例目录名**的规矩，
+ *       而路径段的长度上限是另一回事（真实的 mod 文件名可以到 60+ 个字符，按 64 判会
+ *       把一个正常的整合包挡在外面）。
+ */
+QString validatePathSegment(const QString &segment);
 
 /**
  * @brief 改名时的完整校验：validateDirName() + "重名了没有 / 是不是没改"。

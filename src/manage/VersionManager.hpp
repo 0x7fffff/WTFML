@@ -20,6 +20,7 @@ class QTemporaryDir;
 class QTimer;
 
 #include "../download/DownloadManager.hpp"
+#include "ModpackImport.hpp"
 #include "VersionDisplay.hpp"
 
 class VersionManager : public QObject {
@@ -166,13 +167,72 @@ public:
      *
      * 失败一律以 `versionDownloadFinished(loaderId, false, 原因)` 收尾（还没算出
      * loaderId 时用 gameVersion 当 id），`loaderInstallMessage()` 里说清卡在哪一步。
+     *
+     * @param pinnedLoaderVersion 钉死加载器版本。空 = 老行为（Fabric 挑"最新的正式版"、
+     *        Forge/NeoForge 挑官方推荐版）。非空时**跳过"拉版本表挑一个"那一步**，
+     *        直接用这个版本号 —— 整合包导入走的就是这条路：它的依赖表里写着
+     *        `fabric-loader: 0.16.14`，而包里那些模组正是按这个版本配的，装"最新那个"
+     *        是另一回事（多半也能跑，但那是猜）。
+     *        NOTE: 纯原版整合包不调这个函数（没有加载器要装），见 importModpack()。
      */
     void installLoaderVersion(const QString &gameVersion, LoaderKind kind,
-                              const QString &javaPath = QString());
+                              const QString &javaPath = QString(),
+                              const QString &pinnedLoaderVersion = QString());
 
     /// 有加载器安装正在进行（含"先装原版"那一段）。
     /// UI 用它来兜住"两批下载之间那一瞬间按钮亮着"的缝。
     bool isLoaderInstalling() const;
+
+    /// 有整合包正在导入（含"先装加载器"和"最后解压覆盖文件"那两段）。
+    /// UI 用它和 isLoaderInstalling() 一起兜忙态 —— 判据只有 MainWindow::updateBottomBar()
+    /// 一处，别在别处再判一遍。
+    bool isModpackImporting() const;
+
+    /**
+     * @brief 导入一个 Modrinth 格式的整合包。
+     * @param zipPath 用户选的那个整合包文件（**只读**：里面的 overrides 由 ZipUtil 解开）。
+     * @param instanceId 落地的实例名，就是 `versions/<id>` 那个目录名。
+     *        调用方**必须**先用 `InstanceFiles::validateRenameTarget(id, 空)` 查过重名 ——
+     *        这里不查：数据层再查一遍的话，两处判据慢慢漂开的下场是"界面放行、这里拒绝"，
+     *        而用户看到的是一句没有落点的报错。
+     * @param pack 已经解析好的清单（`ModpackImport::parseModrinthIndex()` 的产物）。
+     *        界面先解析、拿它弹确认框，再把同一个结果交进来 —— 不解析两遍。
+     * @param installerJavaPath 跑外部安装器（Forge/NeoForge）用哪个 Java，空 = PATH 上的
+     *        `java`。Fabric 和纯原版的整合包用不上它。
+     *
+     * 【一次点击 = 四件事】（和装加载器那条约定的形状一样，中间每一步都不单独报"下载完成"，
+     * 整件事只在最后发**一个** `versionDownloadFinished(instanceId, ...)`）：
+     *   1. 装一个带加载器的版本（`installLoaderVersion()`，**钉住**整合包指定的那个版本）
+     *      —— 它同时会把原版补齐，因为加载器版本要基于原版才跑得起来；
+     *   2. 落实例自己那份薄 json：`{"id": <实例名>, "inheritsFrom": <加载器版本>}`。
+     *      薄到只有两个字段是**刻意**的，Fabric 装出来的那份也这么薄：主类、assetIndex、
+     *      javaVersion、游戏参数全在加载器/原版那一层，`getVersionJson()` 会走继承链合并。
+     *      （真机上那个包是 3 层链：整合包 → fabric-loader-0.16.14-1.20.2 → 1.20.2。）
+     *   3. 按清单下那一批文件（150 条上下）到 `versions/<id>/mods/…`，每条都带 sha1，
+     *      下载管理器会先校验、已有的跳过；
+     *   4. 解开压缩包里的 `overrides/` 和 `client-overrides/`，剥掉那一层前缀摊到
+     *      `versions/<id>/` 底下（后一个盖前一个，这是整合包格式的规矩）。
+     *
+     * 第 3 步之前失败时，磁盘上会留下一个（多半不完整的）实例目录。**刻意不删**：删目录
+     * 是不可逆的，而这个目录里可能有几百 MB 已经下好的文件。失败那句话会把目录在哪说清楚。
+     *
+     * 失败一律以 `versionDownloadFinished(instanceId, false, 原因)` 收尾。
+     */
+    void importModpack(const QString &zipPath, const QString &instanceId,
+                       const ModpackImport::Pack &pack,
+                       const QString &installerJavaPath = QString());
+
+    /**
+     * @brief 整合包依赖表里那个加载器的键 -> LoaderKind（**纯函数**）。
+     * @return 认得返回 true；Quilt 和没见过的键返回 false。
+     *
+     * 键名本身只有 `ModpackImport` 那一份（`fabricLoaderKey()` 这几个），这里只是把
+     * "整合包说的加载器"翻译成"本启动器能装的东西"。翻译写成一张逐条列出的表（不是
+     * 遍历比较），将来多一个加载器时编译器会替你盯一眼。
+     * NOTE: Quilt 走到 false 是**正常路径的一部分**：界面在更早一步就用
+     *       `ModpackImport::unsupportedLoaderText()` 拦下来并说清原因了。
+     */
+    static bool loaderKindForDependencyKey(const QString &key, LoaderKind *out);
 
     // 是否有一批下载正在进行（含"正在校验并跳过已存在文件"的整批）。
     // UI 用它来决定"启动游戏"能不能点。
@@ -372,6 +432,13 @@ signals:
     // "进度条显示的是文件数" 这件事变得不可信。
     void loaderInstallMessage(const QString &text);
 
+    /// 整合包导入中间那几句（装加载器、下清单里那批文件、解压覆盖文件）。
+    ///
+    /// NOTE: 和 loaderInstallMessage 分开，理由是**收尾那句话该说谁**：导入整件事的终态
+    ///       说的是"整合包"，而中间这几句也要一起进底栏那格状态文字（用户等的是整合包，
+    ///       不是加载器）。两条路各自说话，界面按各自的信号名接。
+    void modpackImportMessage(const QString &text);
+
 private slots:
     void onVersionManifestFetched(const QList<MinecraftVersion> &versions);
     void onVersionJsonFetched(const QJsonObject &versionJson);
@@ -419,6 +486,10 @@ private:
         QString loaderName;     ///< wtfml.meta 的 loaderName
         QString loaderVersion;  ///< wtfml.meta 的 loaderVersion
         QString loaderId;       ///< 版本目录名，也是最终 finished 信号里的 id
+        /// 整合包指定的加载器版本（空 = 老行为：拉版本表挑一个）。
+        /// NOTE: 它一非空就连"拉版本表"那一步都不走 —— 挑出来的和钉死的必须泾渭分明，
+        ///       否则镜像那份旧表挑不出 1.16 之后的版本时，会把整合包要的版本悄悄换掉。
+        QString pinnedVersion;
         /// 跑外部安装器用哪个 Java（空 = PATH 上的 `java`）。Fabric 用不上。
         QString javaPath;
         /// 安装器 jar 要下的地址，以及它落在盘上的哪个文件。两条路都在拉完版本表时填好。
@@ -464,6 +535,57 @@ private:
     void startParentOrLoaderFiles();
     // 把加载器 json 落盘并下它自己那几个库（走 downloadVersion 那条老路）。
     void startLoaderFiles();
+
+    // ---- 整合包导入的内部状态机 ----
+    //
+    // 和 LoaderInstall 同一个形状、同一个理由：一次点击 = 好几件事（装加载器 → 落实例
+    // json → 下清单那批文件 → 解压覆盖文件），每一步的接续点都在别人的信号槽里，需要一个
+    // "走到哪了"的记号。少了它，中间那几批会各自被当成一次独立的下载 —— 界面会弹好几次
+    // "下载完成"、按钮中途解禁，用户以为装完了。
+    struct ModpackInstall {
+        enum class Phase {
+            Idle,
+            InstallingLoader,    ///< 交给 installLoaderVersion() 那条路（只有它会装加载器）
+            WaitingParentJson,   ///< 纯原版整合包：正在取原版的 version.json
+            WaitingParentFiles,  ///< 纯原版整合包：原版那一批正在下
+            WritingVersionJson,  ///< 落实例自己那份薄 json（瞬时，但排在事件循环上）
+            DownloadingFiles,    ///< 清单里那批文件正在下
+            ExtractingOverrides, ///< 正在解压 overrides（同步子进程，最慢的一段）
+        };
+
+        Phase phase = Phase::Idle;
+        QString zipPath;    ///< 用户选的那个整合包文件
+        QString instanceId; ///< 落地的实例名（= versions/<id> 那个目录名）
+        QString loaderId;   ///< 实例的父版本：加载器那个目录（纯原版包就是原版号）
+        ModpackImport::Pack pack;
+        int extractedEntries = 0; ///< 解开了几个覆盖文件（收尾那句话要说出来）
+
+        bool active() const { return phase != Phase::Idle; }
+        // 收尾（成功、失败都走这里）：回到 Idle，也就是"这件事结束了"。
+        // NOTE: 和 LoaderInstall::reset() 一样会连 pack 一起清掉 —— 要用的字段先在调用前
+        //       存下来，忘了存的表现是那句话里整合包的名字变成空的。
+        void reset() { *this = ModpackInstall(); }
+    };
+
+    /// 实例那份薄 json 落盘，然后起清单那批下载（也用于纯原版包：父版本是原版号）。
+    void startModpackFiles();
+    /// 解压 overrides/ 与 client-overrides/（剥掉前缀摊到实例目录里）。
+    void extractModpackOverrides();
+    /// 成功收尾：写 wtfml.meta + 发**唯一**那个终态信号。
+    void finishModpackImport();
+    /// 失败收尾。会把还在跑的加载器安装一起收掉（导入失败 = 整件事结束）。
+    void failModpackImport(const QString &reason);
+
+    /// 把一份版本 json 原样写到 `<destinationPath>/<versionId>.json`。
+    /// 下载路径和整合包导入共用这一份（QSaveFile：断电只会留下旧内容，不会留下半截 json）。
+    static bool writeVersionJson(const QString &versionId, const QString &destinationPath,
+                                 const QJsonObject &json, QString *errorOut);
+
+    /// 加载器版本号定了之后那一段（从版本表挑出来的、整合包钉死的，都走这里）：
+    /// 算 loaderId / 安装器地址 / 安装器文件名，再把"下安装器"排到下一轮。
+    /// NOTE: 消息**不在这儿发** —— "挑中 xxx"和"整合包指定的是 xxx"是两句不同的话，
+    ///       由调用方在调它之前自己说。
+    void adoptInstallerVersion(const QString &version);
 
     // ---- Forge / NeoForge / OptiFine：跑它们自己的安装器 ----
     //
@@ -569,6 +691,7 @@ private:
     // 混用会让两条路互相把对方的等待状态顶掉。
     QNetworkAccessManager *loaderNetwork = nullptr;
     LoaderInstall m_loaderInstall;
+    ModpackInstall m_modpackInstall;
     // 跑那三个外部安装器（Forge / NeoForge / OptiFine）的子进程。懒建 —— Fabric 那条路
     // 一个进程都不起，所以装 Fabric 之前它一直是 nullptr。
     //

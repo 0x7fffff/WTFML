@@ -54,6 +54,7 @@
 #include "manage/FolderManager.hpp"
 #include "manage/InstanceFiles.hpp"
 #include "manage/InstanceGroupStore.hpp"
+#include "manage/ModpackImport.hpp"
 #include "manage/PlayerSkinStore.hpp"
 #include "manage/VersionManager.hpp"
 #include "settings/EffectiveJavaSettings.hpp"
@@ -61,6 +62,8 @@
 #include "settings/LauncherSettings.hpp"
 #include "util/AppPaths.hpp"
 #include "util/SystemMemory.hpp"
+// 「导入整合包…」要读压缩包根目录里的 modrinth.index.json（ZipUtil::readEntry）。
+#include "util/ZipUtil.hpp"
 
 namespace {
 
@@ -601,6 +604,8 @@ void MainWindow::setupConnections() {
             &MainWindow::onGroupInstanceClicked);
     connect(m_ui->getInstanceSettingsButton(), &QPushButton::clicked, this,
             &MainWindow::onInstanceSettingsClicked);
+    connect(m_ui->getImportModpackButton(), &QPushButton::clicked, this,
+            &MainWindow::onImportModpackClicked);
     // 左边列表选中哪一份 .minecraft，启动器就换到哪一份上（PCL 的卡片是同一个交互）。
     connect(m_ui->getFolderList(), &QListWidget::currentRowChanged, this,
             &MainWindow::onFolderSelectionChanged);
@@ -736,6 +741,10 @@ void MainWindow::setupConnections() {
     // 才走 versionDownloadFinished 那条弹窗的路。
     connect(m_versionManager, &VersionManager::loaderInstallMessage, this,
             [this](const QString &text) { appendLog(text); });
+    // 整合包导入的中间几句（装加载器、下清单那批文件、解覆盖文件）同上：只写日志、不弹窗。
+    // 真正要用户做决定的（装完了、失败了）走 versionDownloadFinished 那条弹窗的路。
+    connect(m_versionManager, &VersionManager::modpackImportMessage, this,
+            [this](const QString &text) { appendLog(text); });
 }
 
 void MainWindow::enterSyncWait(const QString &statusText) {
@@ -770,6 +779,9 @@ void MainWindow::setDownloadUiBusy(bool busy) {
     // 看着选中的版本变了，而实际在下的是另一个。
     m_ui->getAvailableVersionList()->setEnabled(!busy);
     m_ui->getInstanceList()->setEnabled(!busy);
+    // 「导入整合包…」也一起灰：导入期间再点一次，选文件和问名字那两个框走完，
+    // 数据层才会用一句"已有任务正在进行"把它顶回来 —— 白走一趟对话框。
+    m_ui->getImportModpackButton()->setEnabled(!busy);
     // 实例页左边那列也一起灰：换游戏文件夹 = 换一整套 .minecraft，下载中途换过去
     // 会让这一批文件一半写进 A、一半写进 B。两个按钮的可用性由 updateFolderButtons()
     // 一处说了算（「删除文件夹」还要看选中的是不是自带那份）。
@@ -2859,11 +2871,222 @@ void MainWindow::startLoaderInstall(const QString &gameVersion, int loaderIndex)
     m_versionManager->installLoaderVersion(gameVersion, kind, installerJava);
 }
 
+void MainWindow::onImportModpackClicked() {
+    if (m_downloadInFlight) {
+        appendLog(tr("已有下载任务正在进行，请等它结束。"));
+        return;
+    }
+
+    const QString zipPath = QFileDialog::getOpenFileName(
+        this, tr("选一个整合包"), QString(),
+        tr("整合包 (*.zip *.mrpack);;所有文件 (*)"));
+    if (zipPath.isEmpty()) {
+        return;  // 用户取消：什么都不做，也**不弹**任何提示
+    }
+
+    // 先只看一件事：这个压缩包的根目录里有没有 modrinth.index.json。**不整包解开** ——
+    // 用户随手选一个几百 MB 的包，为了"知道它不是整合包"先解压几分钟是白等。
+    QByteArray indexJson;
+    QString error;
+    const ZipUtil::EntryStatus status =
+        ZipUtil::readEntry(zipPath, ModpackImport::modrinthIndexName(), &indexJson, &error);
+    if (status != ZipUtil::EntryStatus::Ok) {
+        // "里面没有这份清单"和"这个文件根本打不开"是**两句完全不同的话**：前者多半是
+        // 选错了文件（或者那是 CurseForge 格式的包），后者是文件坏了/不是 zip。所以这里
+        // 还要再读一个名字，把 CurseForge 那一类也分出来。
+        ModpackImport::Format format = ModpackImport::Format::Unknown;
+        if (status == ZipUtil::EntryStatus::NotFound) {
+            QByteArray manifest;
+            if (ZipUtil::readEntry(zipPath, ModpackImport::curseForgeManifestName(), &manifest,
+                                   nullptr) == ZipUtil::EntryStatus::Ok) {
+                format = ModpackImport::Format::CurseForge;
+            }
+        }
+        QString text;
+        if (status == ZipUtil::EntryStatus::NotAnArchive) {
+            text = tr("这个文件打不开 —— 它不是 zip 压缩包（也可能是文件坏了）。\n\n"
+                      "整合包得是 zip：Modrinth 的 .mrpack 也是 zip，只是换了个后缀。");
+        } else if (status == ZipUtil::EntryStatus::Failed) {
+            text = tr("读这个压缩包的时候出错了：\n%1").arg(error);
+        } else {
+            text = ModpackImport::unsupportedFormatText(format);
+        }
+        appendLog(tr("没有导入 %1。").arg(QFileInfo(zipPath).fileName()));
+        QMessageBox::warning(this, tr("这不是整合包"), text);
+        return;
+    }
+
+    // 解析（纯函数）。清单读不懂、不是 Minecraft 的包、路径不安全、一条文件都没有，
+    // 四种情况的原因都不一样，都由它一句话说清 —— 界面不自己编第二句。
+    const ModpackImport::Result result = ModpackImport::parseModrinthIndex(indexJson);
+    if (!result.ok) {
+        appendLog(tr("整合包清单读不懂：%1").arg(result.problem));
+        QMessageBox::warning(this, tr("导入整合包"), result.problem);
+        return;
+    }
+    const ModpackImport::Pack &pack = result.pack;
+
+    // 加载器要不上，在**问名字之前**就拦掉：装不了的包，问完名字再说装不了是白耽误他。
+    const QString loaderProblem =
+        ModpackImport::unsupportedLoaderText(pack.loaderKey, pack.loaderVersion);
+    if (!loaderProblem.isEmpty()) {
+        appendLog(tr("没有导入 %1：要 %2，这个启动器装不了。")
+                      .arg(QFileInfo(zipPath).fileName(), pack.loaderKey));
+        QMessageBox::information(this, tr("这个整合包装不了"), loaderProblem);
+        return;
+    }
+
+    // 名字：先拿包名推一个候选（ModpackImport::suggestInstanceName 会把建不出目录的
+    // 字符换掉、收长度），用户改不改都行。校验用**数据层那一份**
+    // （InstanceFiles::validateRenameTarget），界面绝不自己抄一遍规则。
+    QString name = ModpackImport::suggestInstanceName(pack.name);
+    while (true) {
+        bool ok = false;
+        const QString input = QInputDialog::getText(
+            this, tr("导入整合包"),
+            tr("实例叫什么名字？这就是 versions 下面那个目录名，\n"
+               "整合包「%1」的东西会装进它里面。").arg(pack.name),
+            QLineEdit::Normal, name, &ok);
+        if (!ok) {
+            return;
+        }
+        name = input.trimmed();
+        // currentId 传空串 = "这是个新实例，盘上没有它"（见 validateRenameTarget）。
+        const QString problem = InstanceFiles::validateRenameTarget(name, QString());
+        if (problem.isEmpty()) {
+            break;
+        }
+        // 循环重问（和重命名那条路不同，那边是弹一次就要用户自己再点一次）：这里退回
+        // 重来的代价大得多 —— 要从"选文件"重新开始，而选的是哪个包用户未必记得住。
+        QMessageBox::warning(this, tr("换个名字"), problem);
+    }
+
+    // 确认摘要。点下去就是几百 MB 和十几分钟，这是用户**最后**能反悔的地方，
+    // 所以四件事都要说全：装的是哪个包、基于哪个版本、带什么加载器、装到哪去。
+    VersionManager::LoaderKind loaderKind = VersionManager::LoaderKind::Fabric;
+    const QString loaderText =
+        pack.loaderKey.isEmpty()
+            ? tr("（纯原版，没有模组加载器）")
+            : (VersionManager::loaderKindForDependencyKey(pack.loaderKey, &loaderKind)
+                   ? tr(" + %1 %2").arg(VersionManager::loaderDisplayName(loaderKind),
+                                       pack.loaderVersion)
+                   : tr(" + %1 %2").arg(pack.loaderKey, pack.loaderVersion));
+    const auto answer = QMessageBox::question(
+        this, tr("开始导入"),
+        tr("整合包：%1\nMinecraft：%2%3\n要下载的文件：%4 个%5\n装到：%6\n\n开始导入吗？")
+            .arg(pack.name, pack.gameVersion, loaderText)
+            .arg(pack.files.size())
+            .arg(pack.filesSkipped > 0
+                     ? tr("（另有 %1 个按包里的说明跳过）").arg(pack.filesSkipped)
+                     : QString())
+            .arg(QDir::toNativeSeparators(AppPaths::versionDir(name))),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+    if (answer != QMessageBox::Yes) {
+        appendLog(tr("已取消导入 %1。").arg(pack.name));
+        return;
+    }
+
+    applyModpackImport(zipPath, name, indexJson);
+}
+
+bool MainWindow::applyModpackImport(const QString &zipPath, const QString &instanceName,
+                                    const QByteArray &indexJson) {
+    // 把界面上确认过的**同一串字节**再解析一遍（纯函数，一瞬）。好处是"确认框里说的
+    // 那个包"和"真的去装的那个包"不可能不是同一个 —— 不必去维护一份"解析结果"的传递。
+    const ModpackImport::Result result = ModpackImport::parseModrinthIndex(indexJson);
+    if (!result.ok) {
+        QMessageBox::warning(this, tr("导入整合包"), result.problem);
+        return false;
+    }
+    const ModpackImport::Pack pack = result.pack;
+
+    const QString loaderProblem =
+        ModpackImport::unsupportedLoaderText(pack.loaderKey, pack.loaderVersion);
+    if (!loaderProblem.isEmpty()) {
+        QMessageBox::information(this, tr("这个整合包装不了"), loaderProblem);
+        return false;
+    }
+
+    // 重名**在这里再查一遍**：上面那条路（问名字那个循环）查过一次，但两次之间隔着用户
+    // 的输入，而且验证工程直接就能进这一半 —— 而数据层那边是有约定的（见
+    // VersionManager::importModpack 的说明：调用方必须先查过重名，它自己不查）。
+    // 判据是同一份 validateRenameTarget()，不会漂。
+    const QString nameProblem = InstanceFiles::validateRenameTarget(instanceName, QString());
+    if (!nameProblem.isEmpty()) {
+        QMessageBox::warning(this, tr("换个名字"), nameProblem);
+        return false;
+    }
+
+    // 安装器（Forge/NeoForge）自己就是个 Java 程序（`java -jar <安装器>.jar ...`），所以
+    // 要的运行环境和"这个版本要的 Java"是同一件事：版本 json 里的 javaVersion。这一段和
+    // startLoaderInstall() 里那段是同一件事、同一个判据 —— 拿不到版本 json 就不猜主版本
+    // （猜错比不猜更危险）。Fabric 和纯原版那条路一个进程都不起，用不上它。
+    QString installerJava = m_javaSettings->javaPath();
+    VersionManager::LoaderKind kind = VersionManager::LoaderKind::Fabric;
+    const bool hasLoader =
+        !pack.loaderKey.isEmpty() &&
+        VersionManager::loaderKindForDependencyKey(pack.loaderKey, &kind);
+    if (hasLoader && kind != VersionManager::LoaderKind::Fabric) {
+        int requiredJavaMajor = 0;
+        const QJsonObject gameJson = m_versionManager->getVersionJson(pack.gameVersion);
+        if (!gameJson.isEmpty()) {
+            requiredJavaMajor = gameJson["javaVersion"].toObject()["majorVersion"].toInt();
+        }
+        const QString configuredJava = installerJava;
+        QString javaReason;
+        if (!m_javaSettings->installerJavaFor(requiredJavaMajor, configuredJava, &installerJava,
+                                             &javaReason)) {
+            appendLog(tr("这个版本要的 Java 拿不到：%1").arg(javaReason));
+            QMessageBox::warning(this, tr("Java 版本不够"), javaReason);
+            return false;  // 还没进忙态，直接退出就是干净的状态
+        }
+        if (installerJava != configuredJava) {
+            appendLog(tr("这个版本要 Java %1，装的时候改用 %2")
+                          .arg(requiredJavaMajor)
+                          .arg(installerJava));
+        }
+    }
+
+    // 忙要在**点击这一刻**置上：导入的头两步（拉版本表 / 拉 profile）是异步的，中间那段
+    // 时间按钮还能点的话用户会重复触发（和下载、装加载器两条路同一个理由）。
+    m_importingInstanceId = instanceName;
+    setDownloadUiBusy(true);
+    m_progressThrottle.invalidate();
+    appendLog(tr("开始导入整合包 %1 ...").arg(QFileInfo(zipPath).fileName()));
+    m_versionManager->importModpack(zipPath, instanceName, pack, installerJava);
+    return true;
+}
+
 void MainWindow::onVersionDownloadFinished(const QString &versionId, bool success,
                                            const QString &errorMessage) {
     // 整批结束，无论成败都要把界面恢复回来
     setDownloadUiBusy(false);
     m_progressThrottle.invalidate();
+
+    // 这一条讲的是整合包导入（数据层那边"一次点击 = 一个终态"，导入也走这同一个信号）。
+    // 收尾那句话是**说给用户看的**（"整合包「X」导入好了…"），所以这里不再往上叠
+    // 「版本 X 的文件已全部就绪」那一句 —— 对导入来说那句是错的：下的是这个整合包的
+    // 模组，不是"某个版本的文件"。成功的样子是**实例列表里多一个**（顺便选中它）。
+    if (!m_importingInstanceId.isEmpty() && versionId == m_importingInstanceId) {
+        m_importingInstanceId.clear();
+        if (success) {
+            appendLog(tr("✓ %1").arg(errorMessage));
+            // 刷新会把下拉框和实例页那张树一起重灌（同一个函数里做的），新实例就在里面。
+            refreshInstalledVersions();
+            QComboBox *combo = m_ui->getInstalledVersionCombo();
+            if (const int index = combo->findData(versionId); index >= 0) {
+                // 刷新只"保住原来选中的"，保不住"原来压根没选"：刚导入出来的这个
+                // 顶上，省得用户还得自己去列表里找一遍（和下载完成那条路一个口径）。
+                combo->setCurrentIndex(index);
+            }
+            updateStartButtonText();
+            QMessageBox::information(this, tr("导入完成"), errorMessage);
+        } else {
+            appendLog(tr("✗ 整合包没有导入：%1").arg(errorMessage));
+            QMessageBox::warning(this, tr("导入失败"), errorMessage);
+        }
+        return;
+    }
 
     if (success) {
         appendLog(tr("✓ 版本 %1 下载完成：%2").arg(versionId, errorMessage));

@@ -129,10 +129,16 @@ public:
     static QString instanceSettingsButtonName() {
         return QStringLiteral("instanceSettingsButton");
     }
+    /// 「导入整合包…」。它和上面那三个**不是一回事**：那三个作用于列表里选中的实例，
+    /// 这个是造一个新实例出来。所以它单独一行、摆在它们上面（见 .cpp 里那一段）。
+    static QString importModpackButtonName() { return QStringLiteral("importModpackButton"); }
     // 按钮上的字。验证工程**不要**拿它们当身份标识（那是显示内容），只用来核对文案。
     static QString renameInstanceText() { return QStringLiteral("重命名…"); }
     static QString groupInstanceText() { return QStringLiteral("分组…"); }
     static QString instanceSettingsText() { return QStringLiteral("实例设置…"); }
+    /// NOTE: 带省略号 —— 按 Qt 的规矩，点了之后还要弹框问点什么的，文案结尾就带省略号
+    ///       （这个字上传出去的信息是"点下去不等于事情就开始了"，和上面三个一致）。
+    static QString importModpackText() { return QStringLiteral("导入整合包…"); }
     // ---------- 实例列表那张树里的「组」 ----------
     // 组头不是实例：选中它不等于选中某个版本。判据是**它有没有组 id**（存在
     // Qt::UserRole+1 里，见 .cpp），而不是"它的 UserRole 是不是空的"—— 后者在
@@ -364,6 +370,9 @@ public:
     QPushButton *getRenameInstanceButton() const { return renameInstanceButton; }
     QPushButton *getGroupInstanceButton() const { return groupInstanceButton; }
     QPushButton *getInstanceSettingsButton() const { return instanceSettingsButton; }
+    /// 「导入整合包…」。它不看"有没有选中实例"，任何时候都能点（和上面那三个一个口径：
+    /// 能不能点由状态决定的话，用户会先花时间猜"为什么它是灰的"）。
+    QPushButton *getImportModpackButton() const { return importModpackButton; }
     // 两个下拉框，数据源互不相干，**也因此不在一页上**：
     //   installedVersionCombo —— 磁盘上已经装好的（.minecraft/versions/<id>/<id>.jar），
     //                            在「主页」，启动用它
@@ -445,6 +454,7 @@ private:
     QPushButton *renameInstanceButton;
     QPushButton *groupInstanceButton;
     QPushButton *instanceSettingsButton;
+    QPushButton *importModpackButton;
     QLabel *instanceFolderLabel;
     QComboBox *installedVersionCombo;
     QComboBox *availableVersionCombo;

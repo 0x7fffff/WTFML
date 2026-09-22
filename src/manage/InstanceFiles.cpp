@@ -37,9 +37,6 @@ QString findNamed(const QStringList &names, const QString &wanted) {
     return QString();
 }
 
-/// 名字的长度上限。见 .hpp 里 validateDirName() 的说明。
-constexpr int kMaxDirNameLength = 64;
-
 /// 读一个实例目录里的版本 JSON，取它声明的父版本（`inheritsFrom`）。
 ///
 /// 读不到、读不懂、字段不是字符串，一律返回空串 —— 也就是"这不是一个继承型实例"。
@@ -76,10 +73,8 @@ bool isReservedDeviceName(const QString &stem) {
 
 }  // namespace
 
-QString validateDirName(const QString &rawName) {
-    const QString name = rawName.trimmed();
-
-    if (name.isEmpty()) {
+QString validatePathSegment(const QString &segment) {
+    if (segment.isEmpty()) {
         return QStringLiteral("名字不能是空的。");
     }
 
@@ -88,41 +83,54 @@ QString validateDirName(const QString &rawName) {
     // 其余几个是 Windows 文件名的既定禁区，不挡的话会在 rename 那一刻才失败。
     // 0x00-0x1F（控制字符）单列一条：名字里夹一个换行或制表符，界面上看起来是空的，
     // 但这种名字在盘上确实建得出来，之后就再也说不清那是哪个实例了。
-    for (const QChar ch : name) {
+    for (const QChar ch : segment) {
         if (ch.unicode() < 0x20 || QStringLiteral("<>:\"/\\|?*").contains(ch)) {
             return QStringLiteral(
                 "名字里不能有 < > : \" / \\ | ? * 这些字符，也不能有制表符、换行这类控制字符。");
         }
     }
 
-    if (name == QLatin1String(".") || name == QLatin1String("..")) {
+    if (segment == QLatin1String(".") || segment == QLatin1String("..")) {
         return QStringLiteral("“.” 和 “..” 是目录自己的名字，不能拿来用。");
     }
 
     // Windows 会**静默**删掉结尾的空格和点：输入 `abc ` 建出来就是 `abc`。静默是关键 ——
     // 用户看到的目录名和他刚输的不一样，然后就在列表里找不到自己的实例了。
     //
-    // NOTE: 这里只判**点**。尾随空格已经被上面的 trim() 吃掉了（用户就是多敲了个空格，
-    //       那不是错误，替他规整掉正是他想要的），所以"以空格结尾"这一条不可能被触发 ——
-    //       写了也是死代码。点不一样：trim 不管它，真交给 Windows 就会被悄悄吃掉，
+    // NOTE: 这里只判**点**。尾随空格已经被调用方（validateDirName 那条路的 trim）吃掉
+    //       了，所以"以空格结尾"这一条在实例名那条路上不可能被触发 —— 写了也是死代码。
+    //       点不一样：trim 不管它，真交给 Windows 就会被悄悄吃掉，
     //       所以我们自己拦下来，把决定权交回用户。
-    if (name.endsWith(QLatin1Char('.'))) {
+    if (segment.endsWith(QLatin1Char('.'))) {
         return QStringLiteral("名字不能以点结尾（Windows 会把它悄悄去掉）。");
+    }
+
+    // 主名 = 第一个点之前的那一段。用 section 而不是 QFileInfo::baseName()：
+    // 后者对 `CON.txt` 给 `CON`、对没有点的 `CON` 也给 `CON`，两者都对这里合适，
+    // 但它还会做别的规整（比如把 `..x` 当成扩展名），没必要。
+    if (isReservedDeviceName(segment.section(QLatin1Char('.'), 0, 0))) {
+        return QStringLiteral(
+            "“%1”是 Windows 的保留设备名（CON/PRN/AUX/NUL/COM1-9/LPT1-9），建不出目录来。")
+            .arg(segment);
+    }
+
+    return QString();
+}
+
+QString validateDirName(const QString &rawName) {
+    const QString name = rawName.trimmed();
+
+    // 逐条判据全在 validatePathSegment() 里（整合包那条路也用它）。这里只多一条长度 ——
+    // 长度是**实例目录名**独有的规矩，不是"一段路径"的规矩，所以它留在这一层。
+    const QString problem = validatePathSegment(name);
+    if (!problem.isEmpty()) {
+        return problem;
     }
 
     if (name.length() > kMaxDirNameLength) {
         return QStringLiteral("名字太长了，最多 %1 个字符（现在 %2 个）。")
             .arg(kMaxDirNameLength)
             .arg(name.length());
-    }
-
-    // 主名 = 第一个点之前的那一段。用 section 而不是 QFileInfo::baseName()：
-    // 后者对 `CON.txt` 给 `CON`、对没有点的 `CON` 也给 `CON`，两者都对这里合适，
-    // 但它还会做别的规整（比如把 `..x` 当成扩展名），没必要。
-    if (isReservedDeviceName(name.section(QLatin1Char('.'), 0, 0))) {
-        return QStringLiteral(
-            "“%1”是 Windows 的保留设备名（CON/PRN/AUX/NUL/COM1-9/LPT1-9），建不出目录来。")
-            .arg(name);
     }
 
     return QString();

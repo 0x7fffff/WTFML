@@ -412,6 +412,18 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         instanceList->setIndentation(14);
         instanceLayout->addWidget(instanceList, 1);
 
+        // 「导入整合包…」：从 Modrinth 格式的整合包（.zip / .mrpack）装出一个实例。
+        // 单独一行摆在下面那三个**上面**。为什么不挤进那一排：下面那三个都是"对选中的
+        // 实例做什么"（没选中会弹一句"先选中一个实例"），这个是**造**一个新实例 ——
+        // 混在一排里，用户得先猜它作用于选中项还是新建。右栏又本来就窄，四个按钮挤一行
+        // 会把字挤成省略号。
+        importModpackButton = new QPushButton(importModpackText(), instanceGroupBox);
+        importModpackButton->setObjectName(importModpackButtonName());
+        // 宽度贴自己的字（不跟着这一栏长）：右栏那 7 份是分给列表的，让一个按钮去顶宽
+        // 会把列表挤窄 —— 和主页那个「账号与外观…」同一个口径。
+        importModpackButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+        instanceLayout->addWidget(importModpackButton, 0, Qt::AlignLeft);
+
         // 三个按钮都作用于列表里当前选中的那一个实例。横着排：右栏宽度本来就紧
         // （3:7 里的 7 还要和左栏分），竖着堆会把列表挤没。
         QHBoxLayout *instanceButtons = new QHBoxLayout;
@@ -431,7 +443,11 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         instanceLayout->addLayout(instanceButtons);
 
         QLabel *instanceHint = new QLabel(
-            QStringLiteral("一个实例就是 versions 下的一个目录。判据是「认得出哪个是客户端 jar」"
+            QStringLiteral("「导入整合包…」支持 Modrinth 格式的整合包"
+                           "（压缩包根目录里有一份 modrinth.index.json）。"
+                           "它会把整合包整个装成一个新实例：该装的加载器、该下的模组、"
+                           "该解开的 config 和资源包，都在这一次里做完。"
+                           "一个实例就是 versions 下的一个目录。判据是「认得出哪个是客户端 jar」"
                            "—— 你自己在资源管理器里改过目录名的实例也认得出来。"
                            "重命名会真的改磁盘上的目录名；分组只记在启动器自己的文件里，"
                            "不动磁盘上的目录。「实例设置…」只影响这一个实例：里面每一项"
