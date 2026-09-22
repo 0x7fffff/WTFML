@@ -265,6 +265,15 @@ private:
     // 那格的进度条切成"正在准备下载"的不确定态。进度条和底栏的显隐不在这里定
     // （取决于"在下载"和"在启动"两条），统一由 updateBottomBar() 说了算。
     void setDownloadUiBusy(bool busy);
+    // 进/出"同步阻塞"那一段：启动这条路上有三段是在 UI 线程上同步等的（换令牌的网络
+    // 请求、挑/下 Java、startGame() 里等进程起来）。那几段里 Qt 不重绘、不响应输入，
+    // Windows 过几秒还会给窗口标题挂上"(无响应)" —— 用户点了「启动游戏」看到的就是
+    // "卡死"。没有可测量的进度可报，进之前先把"在等什么"写到底栏那格、套上忙指针、
+    // 强制刷一次。
+    // NOTE: 里面那次 processEvents() **排掉了用户输入**，所以不会把"在这期间的第二次
+    //       点击"送回来、把这段路重走一遍。
+    void enterSyncWait(const QString &statusText);
+    void leaveSyncWait();
     // 把"启动游戏"按钮的文字刷成两行：第一行固定是"启动游戏"，第二行是「已安装版本」
     // 下拉框当前选中的**显示名**（可能带自定义名/加载器名，不是版本号；没选时是
     // "未选择版本"）。顺带把裸版本号的 tooltip 挂到同一个下拉框上。见 .cpp 里的说明。
@@ -326,6 +335,10 @@ private:
     bool m_launchInFlight = false;
     // 上面那段进度说的是哪个版本（中间那格要显示"正在启动 <显示名>"）。
     QString m_launchingVersionId;
+    // 现在正卡在哪一段同步等待上（空串 = 没在等）。内容就是底栏那格要写的那句话，
+    // 由 enterSyncWait() 写进来、leaveSyncWait() 清掉 —— 做成字符串而不是布尔量，
+    // 是因为"在等什么"只有进那一段的人知道（换令牌 / 挑 Java / 等进程起来）。
+    QString m_syncWaitStatus;
     // 进度按网络分片到达（5000 多个 asset），节流一下再刷界面
     QElapsedTimer m_progressThrottle;
     // 「设置」页的 Java 列表扫过没有。扫描要逐个跑 `java -version`，只在第一次

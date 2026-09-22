@@ -22,6 +22,7 @@
 #pragma once
 
 #include <QButtonGroup>
+#include <QCoreApplication>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QFrame>
@@ -308,6 +309,30 @@ public:
     static bool runStateShowsDetail(bool homeTabCurrent, const QString &selectedVersionId,
                                     const QString &runningVersionId) {
         return !(homeTabCurrent && selectedVersionId == runningVersionId);
+    }
+
+    /// 底栏中间那格（进度条 + 进度文字）该不该显示。
+    /// @param launching 正在启动游戏（进程起来了、游戏还没出话）。
+    /// @param downloading 正在下载。
+    /// @param blocking 正在**同步阻塞**地等一件事（换令牌、挑/下 Java、startGame()）。
+    /// @return 三种"在忙"任意一种都算。
+    ///
+    /// "同步阻塞"那一种 2026-09-22 才加进来：那几段在 UI 线程上等网络/等进程，界面完全
+    /// 不重绘，用户点了「启动游戏」看到的就是"卡死"（Windows 还会给标题挂上"无响应"）。
+    /// 那几段报不出百分比，但"在忙"这件事必须说出来 —— 见 MainWindow::enterSyncWait()。
+    static bool bottomBarShowsProgress(bool launching, bool downloading, bool blocking) {
+        return launching || downloading || blocking;
+    }
+
+    /// 底栏中间那格"正在启动"那句文案。**唯一一处**拼它。
+    ///
+    /// 两个调用点说的是同一件事：startGame() 之前那次 enterSyncWait()，和进程起来之后
+    /// updateBottomBar()。两处各写一遍字面量，改了其中一处就会出现"文字在启动的一瞬间
+    /// 变一下"。
+    static QString launchingStatusText(const QString &displayName) {
+        // 这个类不是 QObject（没有 tr()），所以用带上下文的静态形式。
+        // NOTE: 上下文写死 "MainWindowUI" 是为了以后真要做翻译时 lupdate 认得这一条。
+        return QCoreApplication::translate("MainWindowUI", "正在启动 %1 ...").arg(displayName);
     }
 
     // 控件访问接口
