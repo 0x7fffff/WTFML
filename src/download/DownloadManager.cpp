@@ -170,6 +170,14 @@ void DownloadManager::endBatch() {
     checkAllDownloadsFinished();
 }
 
+void DownloadManager::abandonBatch() {
+    m_batchOpen = false;
+    // 置真 = "这一批的完成信号已经发过了"：checkAllDownloadsFinished() 之后一个字都不会发
+    // （那几个交完货才回来的回复会走到那里，然后立刻返回）。
+    m_batchEmitted = true;
+    m_currentFile.clear();
+}
+
 bool DownloadManager::isBusy() const { return m_batchOpen || pendingDownloads > 0; }
 
 DownloadStats DownloadManager::stats() const {

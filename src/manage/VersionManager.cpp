@@ -20,6 +20,7 @@
 #include <QJsonDocument>
 #include <QJsonParseError>
 #include <QJsonValue>
+#include <QMetaObject>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
@@ -271,6 +272,55 @@ QStringList VersionManager::availableVersions() const {
         versions.append(version.id);
     }
     return versions;
+}
+
+// ---------------------------------------------------------------------------
+// 从信号里往回接续：排到下一轮事件循环（用法和理由见 .hpp 里 deferNextStep 的 NOTE）
+// ---------------------------------------------------------------------------
+
+void VersionManager::deferNextStep(std::function<void()> step) {
+    // context 传 this：这个对象没了的话，排着的这一步会自动作废（Qt 的行为，不用自己判）。
+    QMetaObject::invokeMethod(
+        this,
+        [this, step = std::move(step)] {
+            try {
+                step();
+            } catch (const std::exception &e) {
+                recoverFromInternalError(QString::fromUtf8(e.what()));
+            } catch (...) {
+                // 不是 std::exception 派生的一律叫不出名字，但也不能就这么穿出去。
+                recoverFromInternalError(tr("未知异常"));
+            }
+        },
+        Qt::QueuedConnection);
+}
+
+void VersionManager::deferLoaderStep(LoaderInstall::Phase expected, std::function<void()> step) {
+    deferNextStep([this, expected, step = std::move(step)] {
+        if (m_loaderInstall.phase != expected) {
+            return;
+        }
+        step();
+    });
+}
+
+void VersionManager::recoverFromInternalError(const QString &what) {
+    qWarning() << "Internal error while continuing the next step:" << what;
+
+    // 批次可能正开着（异常正好打在 beginBatch() 和 endBatch() 中间 —— 实测那次就是这样）。
+    // 先把它放弃掉：不放弃的话 m_batchOpen 永远是 true，之后每一次下载都会被"已有下载任务
+    // 正在进行"顶回来，只能重启启动器。abandonBatch() 是**只给这条路用**的：它不发任何信号。
+    downloadManager->abandonBatch();
+
+    // 用既有的终态出口把话说出去：界面那边照常弹窗（错误要弹窗），用户知道出了事、
+    // 也还能接着用别的功能。
+    const QString reason =
+        tr("下载过程中出了内部错误（%1），这一步已经停下。重启启动器后再试一次。").arg(what);
+    if (m_loaderInstall.active()) {
+        failLoaderInstall(reason);
+        return;
+    }
+    emit versionDownloadFinished(m_currentVersionDownloading, false, reason);
 }
 
 void VersionManager::fetchAvailableVersions() { downloadManager->fetchVersionManifest(); }
@@ -569,7 +619,9 @@ void VersionManager::onFabricProfileReply(QNetworkReply *reply) {
     // 落盘由 downloadVersion() 做（它写的正是 versionJsons 里这一份，原样、不合并）。
     versionJsons[id] = profile;
     m_loaderInstall.loaderId = id;
-    startParentOrLoaderFiles();
+    // 这一步在"原版已经装好"时**直接起加载器那个批次**，而这里还在网络回复的槽里。
+    deferLoaderStep(LoaderInstall::Phase::FetchingProfile,
+                    [this] { startParentOrLoaderFiles(); });
 }
 
 void VersionManager::startParentOrLoaderFiles() {
@@ -685,7 +737,8 @@ void VersionManager::onInstallerListReply(QNetworkReply *reply) {
                                   .arg(m_loaderInstall.loaderName, pick.version,
                                        pick.stable ? tr("官方推荐的正式版")
                                                    : tr("版本表里最新的那个")));
-    startInstallerDownload();
+    deferLoaderStep(LoaderInstall::Phase::FetchingInstallerList,
+                    [this] { startInstallerDownload(); });
 }
 
 void VersionManager::startInstallerDownload() {
@@ -1148,7 +1201,8 @@ void VersionManager::onOptifineVersionListReply(QNetworkReply *reply) {
         // maven 上那个真文件。所以 installerFileName 不能用它来切，上面先填好了。
         m_loaderInstall.installerUrl = LoaderMeta::optifineMirrorFileUrl(
             m_loaderInstall.gameVersion, pick.type, pick.patch);
-        ensureParentForOptifine();
+        deferLoaderStep(LoaderInstall::Phase::FetchingInstallerList,
+                        [this] { ensureParentForOptifine(); });
         return;
     }
 
@@ -1193,7 +1247,8 @@ void VersionManager::onOptifineDownloadTokenReply(QNetworkReply *reply) {
     }
 
     m_loaderInstall.installerUrl = url;
-    ensureParentForOptifine();
+    deferLoaderStep(LoaderInstall::Phase::FetchingInstallerToken,
+                    [this] { ensureParentForOptifine(); });
 }
 
 void VersionManager::ensureParentForOptifine() {
@@ -1997,10 +2052,15 @@ void VersionManager::onVersionJsonFetched(const QJsonObject &versionJson) {
             //       里再开一个临时目录、再起一个 java（实测就是这么转起来的）。
             const bool beforeOptifineInstaller = m_loaderInstall.kind == LoaderKind::OptiFine &&
                                                  m_loaderInstall.loaderId.isEmpty();
-            m_loaderInstall.phase = beforeOptifineInstaller
-                                        ? LoaderInstall::Phase::WaitingParentBefore
+            const LoaderInstall::Phase parentPhase =
+                beforeOptifineInstaller ? LoaderInstall::Phase::WaitingParentBefore
                                         : LoaderInstall::Phase::WaitingParentFiles;
-            downloadVersion(versionId, AppPaths::versionDir(versionId));
+            m_loaderInstall.phase = parentPhase;
+            // 这批原版文件是从"刚收到原版那份 json"的这条栈上起的（上面那条信号链一路都是
+            // 同步的）：排到下一轮再起。相位上面已经定好了，守卫要认的就是它。
+            deferLoaderStep(parentPhase, [this, versionId] {
+                downloadVersion(versionId, AppPaths::versionDir(versionId));
+            });
             return;
         }
 
@@ -2063,7 +2123,8 @@ void VersionManager::onAllDownloadsFinished(bool success) {
                 return;
             }
             // 这一批结束了，但事情远没完：安装器那个 Java 进程现在才开始跑。
-            runInstaller();
+            // 这一句本来就在 allDownloadsFinished 的发射里，起进程也一并排到下一轮。
+            deferLoaderStep(LoaderInstall::Phase::WaitingInstallerJar, [this] { runInstaller(); });
             return;
         }
 
@@ -2080,7 +2141,8 @@ void VersionManager::onAllDownloadsFinished(bool success) {
             emit loaderInstallMessage(tr("原版 %1 就绪，接着跑 %2 的安装器...")
                                           .arg(m_loaderInstall.gameVersion,
                                                m_loaderInstall.loaderName));
-            startInstallerDownload();
+            deferLoaderStep(LoaderInstall::Phase::WaitingParentBefore,
+                            [this] { startInstallerDownload(); });
             return;
         }
 
@@ -2095,7 +2157,11 @@ void VersionManager::onAllDownloadsFinished(bool success) {
                 emit loaderInstallMessage(tr("原版 %1 就绪，接着装 %2 自己的文件...")
                                               .arg(m_loaderInstall.gameVersion,
                                                    m_loaderInstall.loaderName));
-                startLoaderFiles();
+                // NOTE: 2026-09-22 那次崩溃就在这一句上（取证见 build/tools/crashdump/）：
+                //       这里直接 startLoaderFiles() 的话，加载器那个批次是在**上一批的
+                //       信号栈里**起来的。排到下一轮，让它从干净栈上开始。
+                deferLoaderStep(LoaderInstall::Phase::WaitingParentFiles,
+                                [this] { startLoaderFiles(); });
                 return;
             }
             // Forge / NeoForge / OptiFine：加载器自己那份 json 和库**安装器已经放好了**

@@ -11,6 +11,8 @@
 #include <QObject>
 #include <QStringList>
 
+#include <functional>
+
 class QNetworkAccessManager;
 class QNetworkReply;
 class QProcess;
@@ -46,6 +48,33 @@ public:
 
     // Version downloading
     void downloadVersion(const QString &versionId, const QString &destinationPath);
+
+    /// 把"接着干下一件事"排到下一轮事件循环里执行，并给这一步套上异常兜底。
+    ///
+    /// **什么时候必须用它**：从异步回调里往回接续的时候 —— 网络回复的槽、安装器进程的信号、
+    /// DownloadManager 的 allDownloadsFinished。这些回调都是 Qt 在**它自己的分发栈里同步**
+    /// 调过来的，在里面直接起下一个下载批次就等于"在上一批的状态机上重入"：新批次整个跑在
+    /// 上一批的栈里。2026-09-22 那次无日志崩溃正是这个形状 —— Fabric 那一批的原版文件下完
+    /// → allDownloadsFinished → 同步起"加载器自己的库"那一批 → extractAssetIndex()
+    /// → Qt 内部一把 QReadWriteLock 的 unlock() 抛了没接住的 std::system_error
+    /// → std::terminate → abort()（取证的工具和结论在 build/tools/crashdump/）。
+    /// 排到下一轮之后，这一步是在事件循环上从零开始的栈里跑的，外面一把 Qt 的锁都没有。
+    ///
+    /// **什么算"下一步"**（要排队的）：起一个下载批次、起一个子进程、动磁盘上的文件。
+    /// 只**再发一个 GET** 的不排：请求的接续点（收到回复的那个槽）本来就在事件循环上，
+    /// 它不碰批次状态机。
+    ///
+    /// **不排的两样东西**：信号本身的发射（那是"报告"、不是"接着干"，而且队列化会让界面
+    /// 收到信号的顺序变样），以及终态收尾（finishLoaderInstall / failLoaderInstall ——
+    /// 它们只报结果，不再起下一件事）。
+    ///
+    /// 兜底那半（catch）是同一次崩溃的第二个教训：这一步真抛了异常时别再让它一路穿到
+    /// std::terminate —— 那正是"启动器静默消失、一句日志都没留下"的由来。现在异常会被翻成
+    /// 一次正常的失败收尾（发 versionDownloadFinished(false, ...)），界面照常弹窗。
+    ///
+    /// @param step 下一步。用 lambda 捕获 this 传进来；**别传引用** —— 排队的这一步是在
+    ///        调用方返回之后才跑的，那时候它栈上的东西已经没了。
+    void deferNextStep(std::function<void()> step);
 
     // ---- 带模组加载器的版本 ----
 
@@ -453,6 +482,16 @@ private:
     // 中途失败：清状态、把缓存里那份"还没落盘的 json"扔掉、发一个失败信号收尾。
     // @param reason 给用户看的一句话（谁卡住了、下一步能做什么）。
     void failLoaderInstall(const QString &reason);
+
+    // deferNextStep() 的加载器版本：排到下一轮，而且**只在相位还是 expected 的时候才跑**。
+    // 排队的这一步是在调用方返回之后才执行的，中间那一轮里这次安装可能已经被别的东西收了尾
+    // （用户又点了一次、安装器超时那一路报了错）—— 相位对不上就是"这份接续没人要了"，
+    // 和每个回复处理函数开头那几句"状态已经换过"是同一个判据。
+    void deferLoaderStep(LoaderInstall::Phase expected, std::function<void()> step);
+
+    // deferNextStep() 的兜底出口：把排队的这一步抛出来的异常翻成一次失败收尾
+    // （abandonBatch() + 终态信号）。见 deferNextStep() 的 NOTE。
+    void recoverFromInternalError(const QString &what);
     // 安装器输出的最后一行非空内容（心跳和失败报告都用它）。
     QString installerLastOutputLine() const;
 
