@@ -246,13 +246,15 @@ QString httpFailureText(const HttpResult &result, const QString &what) {
 /// 优先报 description —— invalid_grant 这种错误码对用户没有意义，描述里那句
 /// "the user or administrator has not consented" 才有。**不**把正文原样丢出去：
 /// 里面还有 trace id 之类的东西。
-QString oauthErrorText(const HttpResult &result, const QString &what) {
+/// 正文怎么翻在 AuthManager::oauthErrorText() 里（纯函数，验证工程钉得住）；这里只管
+/// 从响应正文里把两个字段取出来，以及"这压根不是 OAuth 的失败正文"那条分支。
+QString oauthFailureText(const HttpResult &result, const QString &what) {
     const QString code = result.json.value("error").toString();
-    const QString description = result.json.value("error_description").toString();
-    if (!code.isEmpty()) {
-        return QObject::tr("%1：%2").arg(what, description.isEmpty() ? code : description);
+    if (code.isEmpty()) {
+        return httpFailureText(result, what);
     }
-    return httpFailureText(result, what);
+    return AuthManager::oauthErrorText(code,
+                                      result.json.value("error_description").toString(), what);
 }
 
 /// XBL/XSTS 的 DisplayClaims.xui[0].uhs —— 账户在 Xbox 那边的标识（user hash）。
@@ -388,6 +390,30 @@ QString AuthManager::dashedUuid(const QString &raw) {
         out.append(hex.at(i));
     }
     return out;
+}
+
+QString AuthManager::oauthErrorText(const QString &code, const QString &description,
+                                    const QString &what) {
+    // 微软的描述尾巴是 "Trace ID: … Correlation ID: … Timestamp: …"：对用户没有意义，
+    // 也和这个文件里别处的规矩一致（httpFailureText 只认几个字段、不把正文原样丢出去）。
+    QString detail = description;
+    const int traceAt = detail.indexOf(QStringLiteral("Trace ID:"));
+    if (traceAt > 0) {
+        detail = detail.left(traceAt).trimmed();
+    }
+
+    // 见头文件那条 NOTE：这张 refresh_token 属于**另一个应用**，换不出来是必然的，
+    // 重试没有意义。说清"只能重新登录"，别让用户去查网络或者账号。
+    if (description.contains(QStringLiteral("AADSTS70000"), Qt::CaseInsensitive)) {
+        return tr("%1：这份登录凭据是另一个应用签发的，当前这个应用换不了它（AADSTS70000）。\n"
+                  "重新登录一次就会作废旧的、存下新的，重试没有用。")
+            .arg(what);
+    }
+
+    if (!code.isEmpty()) {
+        return tr("%1：%2").arg(what, detail.isEmpty() ? code : detail);
+    }
+    return QString();
 }
 
 QString AuthManager::xstsErrorMessage(qint64 xerr) {
@@ -616,7 +642,7 @@ bool AuthManager::exchangeAuthorizationCode(const QString &code, QString *access
                  QByteArray());
 
     if (!result.ok()) {
-        *errorMessage = oauthErrorText(result, tr("换取微软令牌失败"));
+        *errorMessage = oauthFailureText(result, tr("换取微软令牌失败"));
         return false;
     }
 
@@ -651,7 +677,7 @@ bool AuthManager::requestMicrosoftTokenRefresh(const QString &refreshToken, QStr
                  body.query(QUrl::FullyEncoded).toUtf8(), "application/x-www-form-urlencoded",
                  QByteArray());
     if (!result.ok()) {
-        *errorMessage = oauthErrorText(result, tr("刷新微软令牌失败"));
+        *errorMessage = oauthFailureText(result, tr("刷新微软令牌失败"));
         return false;
     }
 
