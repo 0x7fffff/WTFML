@@ -648,6 +648,8 @@ int GlobalJavaSettings::majorVersionFromReleaseFile(const QString &releaseText) 
 }
 
 QMap<int, QString> GlobalJavaSettings::scanLocalJavaVersions() {
+    // NOTE: 定义处按 C++ 的规矩不写 static（.hpp 里那一声才作数）。它是 static 的：
+    //       扫的是这台机器上有什么，不读也不写这个对象的任何状态。
     QMap<int, QString> versions;
     const QString javaDir = AppPaths::javaDir();
 
@@ -680,6 +682,84 @@ QMap<int, QString> GlobalJavaSettings::scanLocalJavaVersions() {
     }
 
     return versions;
+}
+
+QString GlobalJavaSettings::pickMinimalJavaAtLeast(int requiredMajor,
+                                                   const QMap<int, QString> &candidates) {
+    if (requiredMajor <= 0) {
+        return QString();
+    }
+    // QMap 是按 key 升序走的，所以**第一个**够新的就是最小的那个，直接返回。
+    for (auto it = candidates.cbegin(); it != candidates.cend(); ++it) {
+        if (it.key() >= requiredMajor && !it.value().isEmpty()) {
+            return it.value();
+        }
+    }
+    return QString();
+}
+
+bool GlobalJavaSettings::installerJavaFor(int requiredMajor, const QString &configuredPath,
+                                          QString *javaPathOut, QString *reasonOut) {
+    if (javaPathOut != nullptr) {
+        *javaPathOut = configuredPath;
+    }
+    const int configuredMajor = probeJavaMajorVersion(configuredPath);
+    // 三种情况都原样用配的那份：不知道版本要求、压根没配（空 = 走 PATH 上的 java，也就是加
+    // 这一条之前的行为）、以及配的那份已经够新。**这三种之外才去扫本机** ——
+    // scanLocalJavaVersions() 是同步的（本机几十毫秒），能省就省。
+    if (requiredMajor <= 0 || configuredPath.isEmpty() || configuredMajor >= requiredMajor) {
+        return true;
+    }
+
+    QMap<int, QString> candidates = scanLocalJavaVersions();
+    // PATH 上那份和 JAVA_HOME / JDK_HOME 指的那份也算"本机已有的"：用户完全可能装过
+    // Java 21、只是没在设置里指过它。两处都走 probeJavaMajorVersion()（读 release 文件，
+    // 微秒级），**不**走 findJavaOnPath() / findJavaInEnvironment() —— 那两个最后都收口到
+    // javaMatchesMajor()，会为每个候选冷启一次 JVM（本机实测 80~100 ms），而这个函数是在
+    // 点下「下载版本」那一刻同步跑的。
+    //
+    // NOTE: 刻意**不**翻 Program Files（findJavaInCommonLocations()）：它是递归扫整棵树、
+    //       而且每个 java.exe 都要跑一次 java -version，几百毫秒起步。真装在 Program Files
+    //       里的 Java 一般也在 PATH 上，上面那条就够。
+    const auto addCandidate = [&candidates](const QString &path) {
+        const int major = probeJavaMajorVersion(path);
+        if (major > 0 && !candidates.contains(major)) {
+            candidates.insert(major, path);
+        }
+    };
+    addCandidate(QStandardPaths::findExecutable(QStringLiteral("java")));
+    for (const char *var : {"JAVA_HOME", "JDK_HOME"}) {
+        const QString home = qEnvironmentVariable(var);
+        if (!home.isEmpty()) {
+            addCandidate(QDir(home).absoluteFilePath(QStringLiteral("bin/java.exe")));
+        }
+    }
+
+    const QString picked = pickMinimalJavaAtLeast(requiredMajor, candidates);
+    if (picked.isEmpty()) {
+        // 报"本机最高的是多少"，用户才知道该去装哪一个。
+        int highest = 0;
+        for (auto it = candidates.cbegin(); it != candidates.cend(); ++it) {
+            highest = qMax(highest, it.key());
+        }
+        qWarning() << "No Java" << requiredMajor << "for the installer; configured:"
+                   << configuredPath << "highest local:" << highest;
+        if (reasonOut != nullptr) {
+            *reasonOut =
+                QStringLiteral("这个版本要 Java %1，而「设置」里选的那份是 Java %2，本机也没有"
+                               "更合适的（扫到的最高是 Java %3）。\n\n"
+                               "先装一个 Java %1，或者到「设置」里把路径指过去。")
+                    .arg(requiredMajor)
+                    .arg(configuredMajor > 0 ? QString::number(configuredMajor)
+                                             : QStringLiteral("认不出来"))
+                    .arg(highest > 0 ? QString::number(highest) : QStringLiteral("没有"));
+        }
+        return false;
+    }
+    if (javaPathOut != nullptr) {
+        *javaPathOut = picked;
+    }
+    return true;
 }
 
 bool GlobalJavaSettings::downloadJavaFromMojang(int majorVersion, QString *javaPathOut) {
