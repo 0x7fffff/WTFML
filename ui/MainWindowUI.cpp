@@ -9,6 +9,8 @@
 #include "MainWindowUI.hpp"
 
 #include "SkinModel.hpp"
+#include "VersionIcons.hpp"
+#include "VersionTreeDelegate.hpp"
 
 #include <QColor>
 #include <QEvent>
@@ -237,8 +239,9 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     // ================= 选项卡：主页 / 实例 / 下载 / 设置 =================
     // 四页各自只放自己那摊控件，都排成左右两栏：左栏是要操作的那点东西
     // （选版本、按钮），右栏是列表或一整摊设置项。份数按页不同，见 leftColumnIsWider()。
-    // 注意两个版本下拉框被**分到了两页**：「已安装版本」在主页（启动用），
-    // 「可安装版本」在下载页（下载用）。它们本来就是两个互不相干的数据源，
+    // 注意"选版本"这件事现在分在两个地方：「已安装版本」那个**下拉框**在主页、只管启动；
+    // 下载页上不再有下拉框了，是**一棵版本树**（点分类展开、点一个版本号进安装页装它）。
+    // 两边本来就是互不相干的数据源（一个是盘上装好的、一个是清单里能下的），
     // 以前并排放着只是因为都叫"版本"。
     tabWidget = new QTabWidget(centralWidget);
     tabWidget->setObjectName(tabWidgetName());
@@ -535,8 +538,26 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // 只有一列、只有一个版本号，表头没有信息量（"1" 那一格纯属噪音）。
         versionTree->setHeaderHidden(true);
         // 742 条快照全是同一个行高，让它按第一行算一次就够（省的是滚动时的重算）。
+        // NOTE: 行高现在是**常数**（versionTreeRowHeight()）—— 见代理的 sizeHint()：
+        //       分类那一行是一行字、版本号那两行字，按内容算会两边不一样高，两行那种会被裁。
         versionTree->setUniformRowHeights(true);
+        // 左边那个"小三角"不画（展开/收起的箭头我们画在**行最右边**，见下面的代理）。
+        // NOTE: 走 rootIsDecorated(false) 而**不是**条目上的 setChildIndicatorPolicy ——
+        //       QTreeModel::hasChildren() 是按那个 policy 直接 return false 的，那样
+        //       整个分类的版本号一条都排不进布局（树上只剩四行空的分类）。
+        //       这里关掉的只是装饰格：分类从 x=0 起画，子条目照样缩进 indent 那么多。
+        versionTree->setRootIsDecorated(false);
         versionTree->setColumnCount(1);
+        // 每一行长什么样（草方块 + 版本号 + 下面那行发布时间 + 最右边的 >/V）全在这个代理里。
+        // 条目还是普通 QTreeWidgetItem（身份、展开状态、点击那条路一个都没变）。
+        versionTree->setItemDelegate(new VersionTreeDelegate(versionTree));
+        // 字号放大一点（用户要的）。代理里那行小字是从这个字号往下推的，别在这儿单独设它。
+        QFont treeFont = versionTree->font();
+        treeFont.setPointSize(treeFont.pointSize() + versionTreeFontStep());
+        versionTree->setFont(treeFont);
+        // 单击分类就展开/折叠（用户点的是最右边那个 >，那个箭头就画在那一行上）。
+        // 双击**不再**自己展开一次 —— 那会和上面那次单击叠起来，双击等于"展开又收起"。
+        versionTree->setExpandsOnDoubleClick(false);
         treeLayout->addWidget(versionTree, 1);
         gameStack->addWidget(treePage);
 
@@ -600,6 +621,11 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
 
             QRadioButton *radio = new QRadioButton(modLoaderOptionTexts().at(index), row);
             radio->setObjectName(modLoaderOptionNames().at(index));
+            // 每条前面那个标志（Fabric 的织纹 / Forge 的铁砧 / NeoForge 的狐狸 /
+            // OptiFine 的放大镜；「不装」那条是草方块 —— 那条路装出来的就是原版）。
+            // 画法是 ui/VersionIcons.cpp，那几个图标的画法表和这张表**同序**。
+            radio->setIcon(QIcon(VersionIcons::loaderMark(index, versionTreeIconSize())));
+            radio->setIconSize(QSize(versionTreeIconSize(), versionTreeIconSize()));
             // id 就是两张表里的下标，接线时靠它把"勾了哪个"翻成加载器枚举。
             modLoaderGroup->addButton(radio, index);
             rowLayout->addWidget(radio);

@@ -169,6 +169,26 @@ public:
     /// 每一条身份存在第几列。只有一列，写 0 是给"将来加一列（比如发布日期）"留个说明：
     /// 那一列要是插在前面，认条目的代码就全得改。
     static int versionTreeKeyColumn() { return 0; }
+    /// 版本号那条**下面**那行小字（发布时间，精确到日）挂在哪个角色上。
+    /// NOTE: 它和版本号在**同一列**里（由 VersionTreeDelegate 分两行画出来），所以
+    ///       不能拿"第二列"当位置 —— 那会多出半张表、还要处理表头。
+    static int versionTreeDateRole() { return Qt::UserRole + 1; }
+    /// 树上用的字号相对**默认**字号的偏移：用户要"文本放大一点"，+2。
+    /// 默认字号在系统上是 9~12 pt 不等，所以这里记的只能是偏移，不能记死一个点数。
+    static int versionTreeFontStep() { return 2; }
+    /// 发布时间那行小字相对**树**字号的偏移（-3 → = 默认字号 -1，比正文还小一号）。
+    /// 两处的关系写在这里：那行小字是从 option.font（= 树字号）推出来的，见代理。
+    static int versionDateFontDelta() { return -3; }
+    /// 树里每一行的高度：两行字 + 上下留白。用户要"上下间距放大一点"。
+    /// NOTE: 这是个**常数**，不走"按内容算行高" —— 树上开着 uniformRowHeights，
+    ///       第一行（分类，一行字）和底下的版本号（两行字）高度必须一样。
+    static int versionTreeRowHeight() { return 46; }
+    /// 版本号前面那个草方块图标的边长。
+    static int versionTreeIconSize() { return 18; }
+    /// 最右边那个 >/V 的边长。
+    static int versionTreeArrowSize() { return 12; }
+    /// 行内左右留白。
+    static int versionTreeRowPadding() { return 6; }
     /// 安装页那一整页（名称框、四个加载器、安装按钮都在它里面）。
     static QString installPageName() { return QStringLiteral("versionInstallPage"); }
     /// 安装页顶上那句"要装的是基于哪个原版的什么"（点的是哪个版本，到这里必须还看得见）。
@@ -437,6 +457,11 @@ public:
     // 底栏左侧的显示规则要知道"当前是不是在启动界面（主页）"：在主页且选中的就是
     // 正在跑的那个实例时只显示一行，否则加第二行说明是哪个实例。
     static int homeTabIndex() { return 0; }
+    /// 「下载」页（版本树 + 安装页那一整套）的下标。
+    /// NOTE: 这个值本身产品里没人拿它做判断（是"点选项卡"进去的），但验证工程要
+    ///       把它翻到前面 —— 隐藏着的控件不排布局，那种状态下量出来的
+    ///       visualItemRect() 一律是空矩形，"子条目排没排进布局"就量不出来了。
+    static int downloadTabIndex() { return 2; }
     /// 「设置」页的下标。用来做"第一次切到设置页才扫 Java"这条懒加载。
     static int settingsTabIndex() { return 3; }
     /// 当前显示的选项卡是不是主页（即"启动界面"）。

@@ -56,6 +56,7 @@
 #include "manage/InstanceGroupStore.hpp"
 #include "manage/ModpackImport.hpp"
 #include "manage/PlayerSkinStore.hpp"
+#include "manage/VersionDisplay.hpp"
 #include "manage/VersionManager.hpp"
 #include "settings/EffectiveJavaSettings.hpp"
 #include "settings/GlobalJavaSettings.hpp"
@@ -550,15 +551,22 @@ void MainWindow::setupConnections() {
     });
     // ---------- 下载页「游戏」那两层：版本树 → 安装页 ----------
     //
-    // 点树里**一个版本号**（子条目）进安装页。顶层那四条是分类，点它们不该做任何事
-    // （展开/折叠交给 Qt 自己）—— 判据就是条目里那个 userData：分类存的是分类键、
-    // 版本号存的是版本号，两者都不是空串，所以再加一条"有没有父条目"才分得清。
+    // 点树里**一个版本号**（子条目）进安装页；点**分类**（顶层那四条）只展开/折叠 ——
+    // 用户点的是那一行最右边那个 >/V，箭头就画在行上。判据是"有没有父条目"：分类存的是
+    // 分类键、版本号存的是版本号，两者都不是空串，光看 userData 分不清这两种。
+    //
+    // 整个行都是热区（不要求用户精确点在那 12 像素的箭头上）：那一行除了"展开"没有
+    // 别的事可做，而"点了没反应"是用户唯一会当成启动器坏了的情况。
     //
     // 共用一份 lambda 而不是一个槽函数：槽声明里带 QTreeWidgetItem* 就得让 moc 也认得
     // 这个类型（等于把这个头拖进 QtWidgets 的树控件），而这里类型本来就是完整的。
     const auto openFromTreeItem = [this](QTreeWidgetItem *item, int) {
-        if (item == nullptr || item->parent() == nullptr) {
-            return;  // 顶层那四条是分类，点了不做任何事
+        if (item == nullptr) {
+            return;
+        }
+        if (item->parent() == nullptr) {
+            item->setExpanded(!item->isExpanded());
+            return;
         }
         const QString versionId =
             item->data(MainWindowUI::versionTreeKeyColumn(), Qt::UserRole).toString();
@@ -1292,15 +1300,22 @@ void MainWindow::refreshAvailableVersions() {
         top->setData(MainWindowUI::versionTreeKeyColumn(), Qt::UserRole, channel.key);
         top->setText(MainWindowUI::versionTreeKeyColumn(),
                      channel.text.isEmpty() ? channel.key : channel.text);
-        // 一个版本都没有的分类：**照样画出来**（用户要的是四条一条不少，"这条是空的"
-        // 比"这条不见了"好懂），但别让它长得像能点开的 —— 空条目上那个展开箭头会骗人。
-        top->setChildIndicatorPolicy(channel.versions.isEmpty()
-                                         ? QTreeWidgetItem::DontShowIndicator
-                                         : QTreeWidgetItem::ShowIndicator);
+        // NOTE: 这里**不要**去动 setChildIndicatorPolicy —— 想关掉 Qt 自己那个"左边
+        //       一个小三角"的话，那是关错了地方：QTreeModel::hasChildren() 是按这个
+        //       policy 直接 return false 的（QTreeWidget 源码里那条 switch），于是
+        //       **整个分类的版本号一条都排不进布局**，树上只剩四条光秃秃的分类、
+        //       点开也是空的。真要把左边那个三角去掉，走 rootIsDecorated(false)
+        //       （见 MainWindowUI 里建树那一段）：它只影响装饰格的绘制，不动
+        //       "有没有孩子"这件事。
+        //       右边那个箭头仍然由 VersionTreeDelegate 画在行最右边（用户要的位置），
+        //       一个版本都没有的分类它连箭头都不画。
         for (const MinecraftVersion &version : channel.versions) {
             auto *child = new QTreeWidgetItem(top);
             child->setData(MainWindowUI::versionTreeKeyColumn(), Qt::UserRole, version.id);
             child->setText(MainWindowUI::versionTreeKeyColumn(), version.id);
+            // 版本号下面那行小字：发布时间（精确到日）。清单里没有 / 认不出来的，那行就不画。
+            child->setData(MainWindowUI::versionTreeKeyColumn(), MainWindowUI::versionTreeDateRole(),
+                           releaseDateText(version.releaseTime));
         }
         if (expandedKeys.contains(channel.key)) {
             top->setExpanded(true);

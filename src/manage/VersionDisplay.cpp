@@ -8,6 +8,8 @@
 
 #include "VersionDisplay.hpp"
 
+#include <QDate>
+#include <QDateTime>
 #include <QStringList>
 
 namespace {
@@ -104,4 +106,27 @@ QString formatVersionName(const VersionDisplayParts &parts, const VersionNameOpt
     }
 
     return chosen.join(QLatin1Char('-'));
+}
+
+QString releaseDateText(const QString &releaseTime) {
+    const QString trimmed = releaseTime.trimmed();
+    if (trimmed.isEmpty()) {
+        return QString();
+    }
+    // 清单里是 ISO8601（`2026-09-15T11:23:02+00:00`，也有 `…Z` 那种写法）。fromString
+    // 认这两种，而且取出来的**就是那个偏移量下的日期**（Qt 不会偷偷替谁换算一遍），
+    // 所以 UTC 的清单不会因为本机在 UTC+8 就把当天下午发布的版本显示成第二天。
+    const QDateTime parsed = QDateTime::fromString(trimmed, Qt::ISODate);
+    if (parsed.isValid()) {
+        return parsed.date().toString(QStringLiteral("yyyy-MM-dd"));
+    }
+    // 认不出来时还有一条兜底：前 10 个字符正好长得像 `YYYY-MM-DD` 就认它。
+    // （哪天清单换成像 `2026-09-15 11:23:02` 这种不带 T 的写法，fromString 会认不出来，
+    //   但那 10 个字符仍然是对的。）
+    const QString head = trimmed.left(10);
+    if (head.size() == 10 && head.at(4) == QLatin1Char('-') && head.at(7) == QLatin1Char('-') &&
+        QDate::fromString(head, QStringLiteral("yyyy-MM-dd")).isValid()) {
+        return head;
+    }
+    return QString();
 }
