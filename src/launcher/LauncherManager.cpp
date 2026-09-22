@@ -25,6 +25,8 @@
 #include <QTimer>
 #include <QUuid>
 
+#include "../auth/AccountStore.hpp"
+#include "../auth/AuthManager.hpp"
 #include "../manage/InstanceFiles.hpp"
 #include "../settings/EffectiveJavaSettings.hpp"
 #include "../util/AppPaths.hpp"
@@ -559,7 +561,18 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
         //       身份，每次启动换一个的话，单机存档的主人公名字会跟着变，离线服务器的
         //       离线 UUID（由名字推出来）也会每次都被当成新玩家。唯一真的需要"不撞名"
         //       的场合是同一台机器上开两个离线实例，那种情况用户自己会改名字。
-        QString fakeUuid = QUuid::createUuid().toString().remove('{').remove('}');
+        //
+        // NOTE: uuid 这一行以前是 `QUuid::createUuid()` —— 上面那段话说的正是"每次启动
+        //       换一个会被当成新玩家"，而它每次启动都在换。发出去的 `--uuid`、以及命令行
+        //       里 `${auth_uuid}` 那个占位符用的都是它，于是任何采用客户端 uuid 的消费方
+        //       （一部分单机存档、部分服务器和模组）每次都把同一个名字当成新玩家：
+        //       背包、权限、领地全丢。现在按游戏自己那套从名字推（md5("OfflinePlayer:"+名字)
+        //       摆成 RFC 4122 v3）—— 和 AccountStore 里离线账号那份身份**同一个值**，
+        //       启动器界面上显示的、和游戏里用的是同一个身份。
+        //       命令行上的形状不变：仍然是带横线的小写 uuid。
+        // 形状是稳的：名字在上面归一过了（空值退回默认名），offlineUuidFor() 给的是
+        // 32 位十六进制，dashedUuid() 补成 36 字符的标准写法。
+        const QString fakeUuid = AuthManager::dashedUuid(AccountStore::offlineUuidFor(username));
         argUuid = fakeUuid;
         argToken = QStringLiteral("0");
         argUserType = QStringLiteral("legacy");
@@ -730,6 +743,29 @@ bool LauncherManager::startGame(const QStringList &arguments, const EffectiveJav
 }
 
 QString LauncherManager::runningVersionId() const { return m_runningVersionId; }
+
+bool LauncherManager::hasRunningGame() const {
+    return m_gameProcess != nullptr && m_gameProcess->state() != QProcess::NotRunning;
+}
+
+void LauncherManager::detachRunningGame() {
+    if (!hasRunningGame()) {
+        return;  // 没在跑（或者已经交出去过）：什么都不做，也不留日志
+    }
+    qInfo() << "游戏还在跑：把进程交出去，关掉启动器不会把它杀掉。PID:"
+            << m_gameProcess->processId();
+    // 先断信号：交出去之后 handleProcessFinished 之类的槽不该再被调到（那时界面已经在拆了）。
+    m_gameProcess->disconnect();
+    // 脱离 this 的所有权 —— 这才是关键那一步：析构链（MainWindow 是 main() 里的栈对象）
+    // 走到这里时，m_gameProcess 已经不是它的子对象，QProcess 那套"进程还在跑就
+    // kill()+waitForFinished()"的析构逻辑**跑不到**，java.exe 自己继续活在系统里。
+    m_gameProcess->setParent(nullptr);
+    // NOTE: 这个对象是**故意不释放**的（它已经没人管了，泄漏的就是一个 QProcess 壳子，
+    //       进程退出时由系统回收）。释放它就等于执行析构、等于把游戏强杀 —— 那正是这一步
+    //       要避免的事。指针也不置空：置空之后万一还有人调本类的方法就会空指针解引用，
+    //       留着一个活着但没人接信号的对象更安全（这条路只在退出前走一次）。
+    m_runningVersionId.clear();
+}
 
 bool LauncherManager::commandDeclaresUtf8Output(const QStringList &arguments) {
     bool isUtf8 = false;

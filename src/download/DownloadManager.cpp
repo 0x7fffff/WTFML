@@ -46,6 +46,35 @@ constexpr qint64 kStallMinBytesPerTick = 64 * 1024;
 /// 连着几跳"没动"才算数。两跳 = 10 秒 —— 一次 DNS + TLS 建连（本机 1~3 秒）不该被误判。
 constexpr int kStallStrikesToDemote = 2;
 
+/// 从**官方**那条版本 json 的地址里取出 sha1。
+///
+/// 官方那条的形状是 `https://piston-meta.mojang.com/v1/packages/<sha1>/<id>.json`，
+/// 也就是从末尾往前找**第一个正好 40 位十六进制的路径段** —— 不写死"倒数第二段"：
+/// 末尾段的形状（`1.20.1.json` 还是别的）不值得当成约定。
+/// 找不到合适的那一段（镜像自拼的地址、地址形状变了、空串）就返回空串，
+/// 调用方按"没有期望值 → 不核 sha1"处理（和下载其它文件时 expectedSha1 为空一个口径）。
+QString sha1FromVersionUrl(const QString &url) {
+    const QStringList segments = url.split(QLatin1Char('/'), Qt::SkipEmptyParts);
+    for (int i = segments.size() - 1; i >= 0; --i) {
+        const QString candidate = segments.at(i);
+        if (candidate.size() != 40) {
+            continue;
+        }
+        bool looksLikeSha1 = true;
+        for (const QChar &ch : candidate) {
+            const QChar lower = ch.toLower();
+            if (!ch.isDigit() && (lower < QLatin1Char('a') || lower > QLatin1Char('f'))) {
+                looksLikeSha1 = false;
+                break;
+            }
+        }
+        if (looksLikeSha1) {
+            return candidate.toLower();
+        }
+    }
+    return QString();
+}
+
 }  // namespace
 
 QString DownloadManager::mirrorUrl(const QString &officialUrl) {
@@ -180,6 +209,7 @@ DownloadManager::~DownloadManager() {
     m_pendingJobs.clear();
     m_officialFallbacks.clear();
     m_stallMeters.clear();
+    m_metadataReplies.clear();
 }
 
 void DownloadManager::fetchVersionManifest() {
@@ -189,14 +219,28 @@ void DownloadManager::fetchVersionManifest() {
     // 元数据请求也要有超时：下载期间 UI 会禁用按钮，卡死的连接会让它永远禁用下去。
     request.setTransferTimeout(30000);
     QNetworkReply *reply = networkManager->get(request);
-    // 这两个地址不同 = 这条走的是镜像 → 登记官方备用地址 + 交给看门狗看着。
-    // 元数据**必须**有这条：它一发卡住，下游的版本 json / 资源索引 / 几千个资源对象
-    // 一个都还没排上，整条流程就那么挂着（2026-09-22 的 NeoForge 26.2 实测就是这么挂的）。
+    // 元数据作业：**不落盘、也不计进 pendingDownloads / m_totalJobs**（进度条上它不是一个
+    // 作业），但必须进 m_stallMeters，否则卡住的这条没人管。登记进这张表就是为了让看门狗
+    // 收它的时候知道"别动那套计数"（见 DownloadManager.hpp 里 m_metadataReplies 的说明）。
+    MetadataJob job;
+    job.label = QStringLiteral("version_manifest.json");
+    m_metadataReplies[reply] = job;
+    // 元数据**必须**进看门狗，而且这里**不看是不是走镜像**：它一发卡住，下游的版本 json /
+    // 资源索引 / 几千个资源对象一个都还没排上，整条流程就那么挂着（2026-09-22 的 NeoForge
+    // 26.2 实测就是这么挂的）。以前这两条登记都写在"有官方备用地址"那个 if 里面，于是
+    // **官方源下两条元数据请求根本没人看着**：30 秒的传输超时只管"一个字节都没有"，
+    // 而细水长流（每秒几个字节、永远不结束）正好是看门狗要管的那一种。
+    //
+    // NOTE: lastSignOfLifeMs 必须显式写成**现在**：StallMeter 的默认值是 0，而应用跑过
+    //       90 秒之后 0 会被算成"已经 90 秒没动静"—— 第一个 tick（最多 5 秒后）就会把这条
+    //       刚发出去的请求判成卡死。另外三处登记（startDownload / downloadAssets /
+    //       retryWithOfficialUrl）都是显式写当前时刻的，这两处以前跟着那个 if 一起漏了。
+    m_stallMeters[reply].lastSignOfLifeMs = m_clock.elapsed();
+    connect(reply, &QNetworkReply::downloadProgress, this,
+            &DownloadManager::onDownloadReplyProgress);
+    // 这两个地址不同 = 这条走的是镜像 → 记下官方那条地址，取不回来时按它再试一次。
     if (shouldRecordOfficialFallback(url.toString(), officialUrl)) {
         m_officialFallbacks[reply] = officialUrl;
-        m_stallMeters[reply] = StallMeter{};
-        connect(reply, &QNetworkReply::downloadProgress, this,
-                &DownloadManager::onDownloadReplyProgress);
     }
     connect(reply, &QNetworkReply::finished, this,
             &DownloadManager::onVersionManifestReplyFinished);
@@ -219,14 +263,26 @@ void DownloadManager::fetchVersionJson(const QString &versionId) {
             QNetworkRequest request(versionQUrl);
             request.setTransferTimeout(30000);
             QNetworkReply *reply = networkManager->get(request);
-            // 和版本清单同理：镜像这条路由现在会 302 到一条只有几百字节每秒的链子上，
+            // 和版本清单同理：元数据作业，不计进那套计数、但要被看门狗看着（无条件）。
+            MetadataJob job;
+            job.label = QStringLiteral("version_json");
+            // 这一条该是哪个版本、以及它该是什么字节 —— 官方那条 URL 就是
+            // `.../v1/packages/<sha1>/<id>.json`，两样都在里面。**下载完要核**（见
+            // onVersionJsonReplyFinished）：这条 json 决定用哪个 Java、读哪个资源索引，
+            // 半份或者别的版本那份会让游戏起不来，而那种失败现场看不出原因。
+            // NOTE: 镜像那条路由是自己拿版本号拼的（不带 sha1），所以镜像下 sha1 为空
+            //       = 不核 sha1，但 id 照样核。
+            job.expectedId = versionId;
+            job.expectedSha1 = sha1FromVersionUrl(version.url);
+            m_metadataReplies[reply] = job;
+            // 和版本清单同理：镜像这条路由会 302 到一条只有几百字节每秒的链子上，
             // 没有备用地址的话它既不失败也不完成。
             if (shouldRecordOfficialFallback(versionQUrl.toString(), version.url)) {
                 m_officialFallbacks[reply] = version.url;
-                m_stallMeters[reply] = StallMeter{};
-                connect(reply, &QNetworkReply::downloadProgress, this,
-                        &DownloadManager::onDownloadReplyProgress);
             }
+            m_stallMeters[reply].lastSignOfLifeMs = m_clock.elapsed();
+            connect(reply, &QNetworkReply::downloadProgress, this,
+                    &DownloadManager::onDownloadReplyProgress);
             connect(reply, &QNetworkReply::finished, this,
                     &DownloadManager::onVersionJsonReplyFinished);
             return;
@@ -612,6 +668,13 @@ bool DownloadManager::retryWithOfficialUrl(QNetworkReply *reply, const QString &
     const QString expectedSha1 = expectedSha1s.take(reply);
     activeDownloads.remove(reply);
     activeDownloads[retry] = destinationPath;
+    // "这条是元数据作业"这一整条记录（名字 + 该是哪个版本 + 该是什么字节）要**搬**到重发
+    // 出去的那一条上（不是复制）：搬完原来那个指针就从表里没了，不会留下一个指向已释放
+    // 对象的键（同 :907 那段 NOTE 的担心）。核 sha1/id 的那两步在重发的回复回来时照做 ——
+    // 换了一条路不等于可以不核。
+    if (const MetadataJob job = m_metadataReplies.take(reply); !job.label.isEmpty()) {
+        m_metadataReplies[retry] = job;
+    }
     // 看门狗的记账**不搬**：重发出去的这条走官方，没有退路，"太慢就 abort 换一条路"
     // 对它不成立。
     m_stallMeters.remove(reply);
@@ -800,6 +863,12 @@ void DownloadManager::onVersionManifestReplyFinished() {
         return;
     }
     m_stallMeters.remove(reply);
+    m_metadataReplies.remove(reply);
+    // NOTE: 这张表**每一条收尾的路都要摘干净**（这条是成功路径，以前漏了它）。
+    //       键是回复指针，Qt 释放之后下一批复用同一个地址，残留的键会让一条**没有**
+    //       备用地址的新回复被判成"有退路"（看门狗那条慢镜像判据），然后拿着一份**陈旧**的
+    //       官方地址去重发 —— 重发到上一个版本 json 的地址上。
+    m_officialFallbacks.remove(reply);
     if (reply->error() == QNetworkReply::NoError) {
         QJsonParseError error;
         QJsonDocument json = QJsonDocument::fromJson(reply->readAll(), &error);
@@ -827,15 +896,43 @@ void DownloadManager::onVersionJsonReplyFinished() {
                              &DownloadManager::onVersionJsonReplyFinished)) {
         return;
     }
+    // take 而不是 remove：这条作业记着"该是哪个版本、该是什么字节"，下面要拿它核。
+    const MetadataJob job = m_metadataReplies.take(reply);
     m_stallMeters.remove(reply);
+    m_officialFallbacks.remove(reply);
     if (reply->error() == QNetworkReply::NoError) {
-        QJsonParseError error;
-        QJsonDocument json = QJsonDocument::fromJson(reply->readAll(), &error);
-        if (error.error == QJsonParseError::NoError) {
+        const QByteArray bytes = reply->readAll();
+        // **下回来的东西要核**（以前一个字都不核，只要 JSON 解得开就当成功）。
+        // 这一份 json 决定用哪个 Java、读哪个资源索引、启动参数长什么样：半份、或者
+        // 别的版本那一份，都会让游戏起不来，而且现场看不出原因（"版本信息缺失"都算不上，
+        // 它是一个能解析的、错的 json）。姊妹路径资源索引一直是核 SHA1 的，这里对齐。
+        QString problem;
+        if (!job.expectedSha1.isEmpty()) {
+            const QString actual = QString::fromLatin1(
+                QCryptographicHash::hash(bytes, QCryptographicHash::Sha1).toHex());
+            if (actual != job.expectedSha1) {
+                problem = QStringLiteral("sha1 对不上（期望 %1，实际 %2）")
+                              .arg(job.expectedSha1, actual);
+            }
+        }
+        QJsonParseError parseError;
+        const QJsonDocument json = QJsonDocument::fromJson(bytes, &parseError);
+        if (problem.isEmpty() && parseError.error != QJsonParseError::NoError) {
+            problem = QStringLiteral("不是合法的 JSON：%1").arg(parseError.errorString());
+        }
+        if (problem.isEmpty() && !job.expectedId.isEmpty()) {
+            const QString id = json.object().value(QStringLiteral("id")).toString();
+            if (id != job.expectedId) {
+                problem = QStringLiteral("里面写的版本号是「%1」，取的是「%2」")
+                              .arg(id.isEmpty() ? QStringLiteral("（没有这个字段）") : id,
+                                   job.expectedId);
+            }
+        }
+        if (problem.isEmpty()) {
             parseVersionJson(json);
             emit versionJsonFetched(currentVersionJson);
         } else {
-            qDebug() << "JSON parse error:" << error.errorString();
+            qWarning() << "版本 json 下载回来不对，按失败处理：" << problem;
             emit versionJsonFetched(QJsonObject());
         }
     } else {
@@ -965,7 +1062,7 @@ void DownloadManager::onStallWatchdogTick() {
         demoteMirrorForSlowDownload();
         for (QNetworkReply *reply : stalled) {
             qInfo() << "Aborting a stalled mirror download and retrying it from the official url:"
-                    << activeDownloads.value(reply);
+                    << jobLabel(reply);
             // 只 abort，不在这里收尾：finished 那个槽会拿到 OperationCanceledError 并按
             // "镜像那条没成"处理（退回官方重发，作业还是同一个、不算失败）。
             reply->abort();
@@ -973,12 +1070,40 @@ void DownloadManager::onStallWatchdogTick() {
     }
     for (QNetworkReply *reply : wedged) {
         qWarning() << "No data for" << (m_noProgressGiveUpMs / 1000) << "seconds, giving up:"
-                   << activeDownloads.value(reply);
+                   << jobLabel(reply);
         failWedgedDownload(reply);
     }
 }
 
+QString DownloadManager::jobLabel(QNetworkReply *reply) const {
+    if (const QString label = m_metadataReplies.value(reply).label; !label.isEmpty()) {
+        return label;
+    }
+    return activeDownloads.value(reply);
+}
+
 void DownloadManager::failWedgedDownload(QNetworkReply *reply) {
+    // 元数据作业要单独收：它没进过 pendingDownloads / m_totalJobs / m_doneJobs（见
+    // fetchVersionManifest()），走下面那一套会凭空少算一个正在飞的文件作业，让
+    // checkAllDownloadsFinished() 提前宣布整批下完 —— 界面报"下载完成"的时候文件还在路上。
+    // 连接还是要收干净：摘表 + abort + 释放，这一步和文件作业一模一样。
+    if (const MetadataJob job = m_metadataReplies.take(reply); !job.label.isEmpty()) {
+        qWarning() << "No data for" << (m_noProgressGiveUpMs / 1000)
+                   << "seconds, giving up on the metadata request:" << job.label;
+        activeDownloads.remove(reply);
+        m_stallMeters.remove(reply);
+        m_officialFallbacks.remove(reply);
+        // 摘完表再 abort：abort 可能同步回调进 finished 处理函数，那两个槽开头就会把
+        // "没登记的回复"忽略掉（元数据那两个槽靠 activeDownloads 认不出已经是自己的回复，
+        // 但它们只发信号、不动计数，多发一次是安全的：发的是上一次成功的结果 / 空对象）。
+        reply->abort();
+        reply->deleteLater();
+        // 腾出来的连接要还回去（pumpDownloadQueue 用 activeDownloads.size() 当连接预算），
+        // 但不碰计数、也不报进度：这条本来就一个作业都不算。
+        pumpDownloadQueue();
+        return;
+    }
+
     const QString destPath = activeDownloads.value(reply);
     if (destPath.isEmpty()) {
         return;  // 这一条已经结过账了（比如同一跳里被"慢镜像"那段先处理掉了）

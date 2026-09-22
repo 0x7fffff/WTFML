@@ -217,7 +217,14 @@ private:
                                       QString *errorMessage);
 
     /// 微软 access_token → Xbox Live → XSTS → Minecraft 令牌 → 玩家档案。整条链走通才
-    /// 返回 true：中途任何一步失败，**一份令牌都不落盘**（半截的登录状态比没登录更难查）。
+    /// 返回 true：中途任何一步失败，**Minecraft 那份令牌和玩家名一个都不写**
+    /// （半截的登录状态比没登录更难查）。
+    ///
+    /// NOTE: 这里以前写的是"一份令牌都不落盘"，**不准确** —— 微软那份（refresh_token /
+    ///       access_token）在这条链之前就已经落盘了（见 exchangeAuthorizationCode()，
+    ///       同文件实现里那段 NOTE 也记着）。它单独用不了（是"下次续期用的凭据"、不是
+    ///       "已登录"），但盘上确实有它 —— 2026-09-20 真机上正是靠它把失败的链重放了一遍，
+    ///       才查出 login_with_xbox 的 403。
     bool runMinecraftChain(const QString &microsoftAccessToken, QString *errorMessage);
     bool requestXboxLiveToken(const QString &microsoftAccessToken, QString *xblToken,
                               QString *userHash, QString *errorMessage);

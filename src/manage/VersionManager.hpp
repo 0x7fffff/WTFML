@@ -280,7 +280,8 @@ public:
                             const QString &javaPath = QString());
 
     /// 有"装一个带名字的实例"正在进行（含父版本那几段）。
-    /// 和 isLoaderInstalling() / isModpackImporting() 一起进 UI 的忙态判据。
+    /// 和 isLoaderInstalling() / isModpackImporting() 一样，是"现在能不能点启动"那四个
+    /// 判据之一（调用点在 MainWindow::onStartButtonClicked()，**不在** updateBottomBar()）。
     bool isNamedInstanceInstalling() const;
 
     /**
@@ -314,8 +315,11 @@ public:
     bool isLoaderInstalling() const;
 
     /// 有整合包正在导入（含"先装加载器"和"最后解压覆盖文件"那两段）。
-    /// UI 用它和 isLoaderInstalling() 一起兜忙态 —— 判据只有 MainWindow::updateBottomBar()
-    /// 一处，别在别处再判一遍。
+    /// UI 用它和 isLoaderInstalling() 一起兜"能不能点启动" —— 判据只有
+    /// MainWindow::onStartButtonClicked() 一处，别在别处再判一遍。
+    /// NOTE: 这里以前写的是 updateBottomBar()，**不是** —— 底栏那格看的是
+    ///       m_launchInFlight / m_downloadInFlight / m_syncWaitStatus 三个（见
+    ///       MainWindowUI::bottomBarShowsProgress），和这几个 "isXxx" 无关。
     bool isModpackImporting() const;
 
     /**
@@ -826,13 +830,18 @@ private:
 
     // 拉版本表：镜像源是一条 JSON 接口，官方只有那 203 KB 的下载页可读。两边回复的形状
     // （JSON 数组 / HTML）和挑法都不一样，所以按下载源分派，不共用回复处理。
+    // @param fromMirror 这条回复是从哪条源要来的 —— 由**发请求那一处**决定好传进来，
+    //        回复处理里不再重新读下载源（理由见定义处：两次读之间用户能换设置，
+    //        换了就会拿另一种格式去解同一条回复）。
     void fetchOptifineVersionList();
-    void onOptifineVersionListReply(QNetworkReply *reply);
+    void onOptifineVersionListReply(QNetworkReply *reply, bool fromMirror);
     // 版本号定了之后的收尾：填 installerFileName/loaderVersion，再按下载源决定"直接下（镜像）"
     // 还是"先去广告页拿 token（官方）"。**两条路共用**（版本表挑出来的 / 用户钉死的），
     // 差别只在"版本号从哪来"。定义处有详细说明。
+    // @param fromMirror 同上：走镜像还是走官方那条路，由调用方定好传进来。
     void adoptOptifineEdition(const QString &edition,
-                              const LoaderMeta::OptiFineMirrorPath &mirrorPath);
+                              const LoaderMeta::OptiFineMirrorPath &mirrorPath,
+                              bool fromMirror);
     // 官方那条路多一步：真文件在广告页后面，得先把它那条带 token 的地址抠出来。
     void fetchOptifineDownloadToken();
     void onOptifineDownloadTokenReply(QNetworkReply *reply);

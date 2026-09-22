@@ -13,6 +13,7 @@
 #include <QJsonParseError>
 #include <QJsonValue>
 #include <QObject>
+#include <QStringList>
 #include <QUrl>
 
 #include "InstanceFiles.hpp"
@@ -238,6 +239,27 @@ Result parseModrinthIndex(const QByteArray &json) {
             pack.loaderKey = key;
             pack.loaderVersion = dependencies.value(key).toString();
             break;
+        }
+    }
+    // 认不出的加载器键**也得带出去**，不能就这么丢掉。
+    // NOTE: 上面那个循环只在那四个键里挑，于是 dependencies 里写着别的加载器
+    //       （rift-loader / liteloader / 以后新出的……）时 loaderKey 是空串 —— 而空串在
+    //       unsupportedLoaderText() 眼里是"纯原版整合包，放行"，最后装出来一个**进不去**
+    //       的包：一堆 mod 躺在 mods/ 里，游戏按原版起。.hpp 里写着"认不出来的键走和
+    //       Quilt 同一条路、不返回空串"，当时就是被这一步悄悄绕过去的。
+    //       多个认不出的键时取**排序后的第一个**：这种包本身就不合规，报哪个都算报，
+    //       但得报确定的那一个 —— 靠 QJsonObject 的遍历顺序挑，换一次 Qt 就可能换一个。
+    if (pack.loaderKey.isEmpty()) {
+        QStringList unknownKeys;
+        for (auto it = dependencies.constBegin(); it != dependencies.constEnd(); ++it) {
+            if (it.key() != QLatin1String("minecraft")) {
+                unknownKeys.append(it.key());
+            }
+        }
+        unknownKeys.sort();
+        if (!unknownKeys.isEmpty()) {
+            pack.loaderKey = unknownKeys.first();
+            pack.loaderVersion = dependencies.value(pack.loaderKey).toString();
         }
     }
 

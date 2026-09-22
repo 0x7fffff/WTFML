@@ -418,7 +418,6 @@ void VersionManager::downloadVersion(const QString &versionId, const QString &de
     downloadManager->beginBatch();
 
     const QJsonObject &versionJson = versionJsons[versionId];
-    const QString basePath = AppPaths::minecraftDir();
 
     // 把 version.json 落盘。缺了它，下一次启动时 getVersionJson() 取不到
     // javaVersion / assetIndex，会静默退回错误的 Java 版本和资产索引 ——
@@ -446,11 +445,15 @@ void VersionManager::downloadVersion(const QString &versionId, const QString &de
     }
 
     // Download libraries
-    // NOTE: 库走 basePath（= versions/<id>），因为 versions/<id>/<id>.jar 和它旁边的
-    //       那些文件都是"这个版本自己的"；资源（assets）不一样，是全体共用的，
-    //       所以那边的目录由 AppPaths::assetsDir() 说了算，不跟着 basePath 走。
+    // NOTE: 库的目标目录走 AppPaths::libraryDir()（= <数据目录>/libraries），是**全体实例
+    //       共用**的那一份 —— 和官方启动器、和别的启动器都共用同一份。
+    //       这里以前有一句"库走 basePath（= versions/<id>）、库是这个版本自己的"：两句话
+    //       都是错的（当时那个 basePath 其实是 minecraftDir()）。照那句话去"修"代码的代价
+    //       是给每个实例各下一份库 —— 几百 MB 起步，而且和共用那份不一致。
+    //       真正"这个版本自己的"只有 versionDir() 底下那两样（<id>.jar / <id>.json）。
+    //       资源（assets）也共用，那边的目录由 AppPaths::assetsDir() 说了算。
     QList<Library> libraries = downloadManager->extractLibraries(versionJson);
-    downloadManager->downloadLibraries(libraries, basePath + "/libraries");
+    downloadManager->downloadLibraries(libraries, AppPaths::libraryDir());
 
     // Download assets
     AssetIndex assetIndex = downloadManager->extractAssetIndex(versionJson);
@@ -1200,7 +1203,8 @@ void VersionManager::installLoaderVersion(const QString &gameVersion, LoaderKind
                                                m_loaderInstall.pinnedVersion));
             adoptOptifineEdition(m_loaderInstall.pinnedVersion,
                                  LoaderMeta::optifineMirrorPathFromEdition(
-                                     m_loaderInstall.pinnedVersion));
+                                     m_loaderInstall.pinnedVersion),
+                                 downloadManager->mirrorPreferred());
             return;
         }
         fetchOptifineVersionList();
@@ -2046,17 +2050,25 @@ void VersionManager::fetchOptifineVersionList() {
     // 两个源是**两份不同的数据**：镜像是一条 JSON 接口（一个游戏版本一页），官方只有那张
     // 203 KB 的下载页可读（每个游戏版本一节）。连"哪一条是正式版"的挑法都不一样，所以
     // 回复也不共用处理，各走各的（见 LoaderMeta.hpp 里那两个纯函数）。
-    const QUrl url(downloadManager->useMirror()
-                       ? LoaderMeta::optifineMirrorListUrl(m_loaderInstall.gameVersion)
-                       : LoaderMeta::optifineDownloadsPageUrl());
+    //
+    // NOTE: 走哪条源在**发请求这里决定一次**，然后原样传进回复处理函数，那边**不再重新读**。
+    //       以前两边各读一次 useMirror()：这中间用户去设置页换一下「下载源」（安装卡着不动
+    //       时他多半会去换），回复回来就会**按另一条源的格式去解** —— HTML 当 JSON 解，
+    //       报出来是"版本表读不懂"；JSON 当下载页解，报出来是"还没有支持这个版本的正式版"
+    //       （而它明明有，只是我们根本没看）。两句话都在指向错误的方向。
+    //       问的是 mirrorPreferred() 而不是 useMirror()：镜像被降级（太慢）那段时间里，
+    //       这张表也不该再去问镜像 —— 和 Forge 安装器那条 `--mirror` 是同一个判据。
+    const bool fromMirror = downloadManager->mirrorPreferred();
+    const QUrl url(fromMirror ? LoaderMeta::optifineMirrorListUrl(m_loaderInstall.gameVersion)
+                              : LoaderMeta::optifineDownloadsPageUrl());
     QNetworkRequest request(url);
     request.setTransferTimeout(30000);
     QNetworkReply *reply = loaderNetwork->get(request);
     connect(reply, &QNetworkReply::finished, this,
-            [this, reply] { onOptifineVersionListReply(reply); });
+            [this, reply, fromMirror] { onOptifineVersionListReply(reply, fromMirror); });
 }
 
-void VersionManager::onOptifineVersionListReply(QNetworkReply *reply) {
+void VersionManager::onOptifineVersionListReply(QNetworkReply *reply, bool fromMirror) {
     reply->deleteLater();
     // 状态已经换过（上一次失败收了尾、或者用户又点了一次）：这份回复没人要了。
     if (m_loaderInstall.phase != LoaderInstall::Phase::FetchingInstallerList) {
@@ -2071,9 +2083,8 @@ void VersionManager::onOptifineVersionListReply(QNetworkReply *reply) {
         return;
     }
 
-    const bool useMirror = downloadManager->useMirror();
     LoaderMeta::OptiFinePick pick;
-    if (useMirror) {
+    if (fromMirror) {
         QJsonParseError parseError;
         const QJsonDocument doc = QJsonDocument::fromJson(body, &parseError);
         if (!doc.isArray()) {
@@ -2102,14 +2113,14 @@ void VersionManager::onOptifineVersionListReply(QNetworkReply *reply) {
 
     emit loaderInstallMessage(tr("挑中 %1 %2（%3）。")
                                   .arg(m_loaderInstall.loaderName, edition,
-                                       useMirror ? tr("镜像源上最新那条正式版")
-                                                 : tr("官方页面上标着正式版的那一条")));
+                                       fromMirror ? tr("镜像源上最新那条正式版")
+                                                  : tr("官方页面上标着正式版的那一条")));
 
     // 镜像那份数据里带着权威的 type/patch，直接读到的就用它（**不从版本号切**：那两段的切法
     // 和文件名不一样，多一处自己算的就多一处能算错的地方）。用户钉死的版本没有这两个字段，
     // 那时才由版本号切 —— 见下面那个函数的参数说明。
-    adoptOptifineEdition(
-        edition, LoaderMeta::OptiFineMirrorPath{pick.type, pick.patch});
+    adoptOptifineEdition(edition, LoaderMeta::OptiFineMirrorPath{pick.type, pick.patch},
+                         fromMirror);
 }
 
 /**
@@ -2118,6 +2129,10 @@ void VersionManager::onOptifineVersionListReply(QNetworkReply *reply) {
  * @param mirrorPath 镜像那条路的两个路径段。**镜像列表里直接读到的**就传进来（那是权威的）；
  *        用户钉死的版本没有这两个字段，由 optifineMirrorPathFromEdition() 从版本号切出来 ——
  *        那个切法对着那 11 条真实镜像数据逐条核过，和直接读到的完全一致。
+ * @param fromMirror 这一次走的是镜像那条路吗。**由调用方决定好传进来，这里不重新读**
+ *        `downloadManager->mirrorPreferred()` —— 版本表已经按某一条源取回来了，
+ *        "接着按哪条源走"必须和取表时是同一个答案（重现读的话，用户在两次之间换一下
+ *        「下载源」，就会出现"表是按官方页取的、文件却按镜像地址拼"这种半截组合）。
  *
  * 两条路（版本表挑出来的 / 用户钉死的）共用这一段的理由：**挑法和钉死的差别只在"版本号从
  * 哪来"**，后面填文件名、拼地址、走镜像还是广告页，一个字都不该不一样。这里以前是内联在
@@ -2128,12 +2143,13 @@ void VersionManager::onOptifineVersionListReply(QNetworkReply *reply) {
  *       id 的地方走 reportId() 的退化值（原版号）。
  */
 void VersionManager::adoptOptifineEdition(const QString &edition,
-                                         const LoaderMeta::OptiFineMirrorPath &mirrorPath) {
+                                         const LoaderMeta::OptiFineMirrorPath &mirrorPath,
+                                         bool fromMirror) {
     m_loaderInstall.loaderVersion = edition;
     m_loaderInstall.installerFileName =
         LoaderMeta::optifineInstallerFileName(m_loaderInstall.gameVersion, edition);
 
-    if (downloadManager->useMirror()) {
+    if (fromMirror) {
         if (!mirrorPath.ok()) {
             failLoaderInstall(tr("%1 的版本号 %2 认不出下载地址，换一个版本试试。")
                                   .arg(m_loaderInstall.loaderName, edition));
@@ -2585,7 +2601,17 @@ QJsonObject VersionManager::getVersionJson(const QString &versionId) const {
         parentId = VersionInheritance::parentIdOf(parent);
     }
 
-    mergedVersionJsons[versionId] = merged;
+    // 只缓存**链正常走完**的那一份。
+    //
+    // NOTE: 上面两种 break（环、父版本没装）都会留下一份"合了一半"的 json。以前不管走没走完
+    //       都往缓存里塞，于是：启动前 MainWindow 先 getVersionJson() 拿到半份、再问
+    //       inheritanceProblem()，此时用户把缺的那个父版本装上 —— 同一个会话里第二次
+    //       getVersionJson() 直接命中半份缓存（inheritanceProblem() 是重新读盘、这时已经不抱怨了），
+    //       启动器就拿着缺 assets/librarys 的半份 json 去启动，且不报任何错。
+    //       环和深度超限同理：留在盘上的东西没变过，重读一次盘比用错的强。
+    if (parentId.isEmpty()) {
+        mergedVersionJsons[versionId] = merged;
+    }
     return merged;
 }
 

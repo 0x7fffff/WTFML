@@ -46,8 +46,13 @@ static constexpr const char kWarnVersionMismatch[] = "Java/WarnVersionMismatch";
 static constexpr int kBuiltinXmxMb = 4096;
 static constexpr int kBuiltinXmsMb = 1024;
 
-/// 自动档的取值范围与步长（和界面那两个框保持一致：MainWindowUI::memoryLimitMaxMb()
-/// 与 memoryStepMb()）。数字框里的值必须是 256 的整数倍，否则用户会看到一个 3071。
+/// 自动档的取值范围与步长。
+///
+/// 步长和界面那两个数字框**是**一份：MainWindowUI::memoryStepMb() 也是 256（数字框里的值
+/// 必须是它的整数倍，否则用户会看到一个 3071）。
+/// NOTE: **上限不是**。自动档自己封在 8 GB（那是个刻意的天花板：自动算出来的数不该比
+///       用户手动能填的更激进），而界面手动档的上限是 MainWindowUI::memoryLimitMaxMb()
+///       = 65536。以前这条注释把"取值范围"和那个函数绑在一起说"保持一致"，上限那半是假的。
 static constexpr int kAutoXmxMinMb = 1024;
 static constexpr int kAutoXmxMaxMb = 8192;
 static constexpr int kAutoXmsMinMb = 512;
@@ -76,7 +81,12 @@ bool runProcess(const QString &program, const QStringList &arguments, QString *s
     if (stdErr) {
         *stdErr = QString::fromLocal8Bit(process.readAllStandardError());
     }
-    return process.exitStatus() == QProcess::NormalExit;
+    // NOTE: 退出码也要看。以前只看 exitStatus，于是 PowerShell 自己正常退出、但它那条命令
+    //       失败（exitCode != 0，比如 Expand-Archive 解不开那个 zip）会被当成功 ——
+    //       调用方接着去找 java.exe，找不到，报出来的是"找不到也下载不到 Java"，
+    //       而真正的原因（解压失败）一个字都看不见。
+    //       `java -version` 成功时退出码是 0，另一个调用方不受影响。
+    return process.exitStatus() == QProcess::NormalExit && process.exitCode() == 0;
 }
 
 bool verifyJavaExecutable(const QString &path, QString *versionOut = nullptr) {
@@ -113,9 +123,11 @@ bool verifyJavaExecutable(const QString &path, QString *versionOut = nullptr) {
 /// 免得两处各判一次"1.8 该取第二段"、慢慢就判歪一个。
 int majorFromVersionString(const QString &version) {
     // NOTE: 这个函数只把**裸版本号**解析成主版本，和"哪个游戏版本要多新的 Java"无关。
-    //       那张对照表（1.6-1.16.5 → 8、1.17-1.20.4 → 17、1.20.5-1.21.11 → 21、
-    //       26.1+ → 25）不在这里 —— 实际来源是 version.json 的 javaVersion.majorVersion，
-    //       由 MainWindow 读取（另有一处兜底值）。
+    //       那张对照表（1.6-1.16.5 → 8、**1.17 → 16**、1.18-1.20.4 → 17、
+    //       1.20.5-1.21.11 → 21、26.1+ → 25）不在这里 —— 实际来源是 version.json 的
+    //       javaVersion.majorVersion，由 MainWindow 读取（另有一处兜底值）。
+    //       以前这条 NOTE 把 1.17 也写成 17（那是 java-runtime-alpha，实际是 16），
+    //       照它去改下载表会下错版本。
     const QStringList parts = version.split(QLatin1Char('.'));
     if (parts.isEmpty()) {
         return -1;
@@ -306,13 +318,30 @@ QMap<QString, VanillaRuntime> scanVanillaRuntimeComponents() {
     return components;
 }
 
+/// 把一个值放进 PowerShell 的**单引号**字符串里：单引号在单引号串里靠写两个来转义。
+/// NOTE: 两个路径都要过这一道。以前是原样塞进 `'%1'`，于是路径里只要有一个 `'`
+///       （数据目录或 exe 放在这种目录下），那条命令就不是我们想发的那条了 ——
+///       PowerShell 会把它切成别的参数（甚至别的命令），而这里只看"解压成功没有"。
+QString psSingleQuoted(const QString &value) {
+    QString escaped = value;
+    escaped.replace(QLatin1Char('\''), QLatin1String("''"));
+    return QLatin1Char('\'') + escaped + QLatin1Char('\'');
+}
+
 bool extractZipWithPowerShell(const QString &zipFile, const QString &targetDir) {
-    QString command = QStringLiteral("Expand-Archive -Path '%1' -DestinationPath '%2' -Force")
-                          .arg(zipFile, targetDir);
+    QString command = QStringLiteral("Expand-Archive -Path %1 -DestinationPath %2 -Force")
+                          .arg(psSingleQuoted(zipFile), psSingleQuoted(targetDir));
     QString stdOut, stdErr;
     bool ok = runProcess(QStringLiteral("powershell"),
                          {QStringLiteral("-NoProfile"), QStringLiteral("-Command"), command},
                          &stdOut, &stdErr, 60000);
+    if (!ok) {
+        // 解压失败必须留下**为什么**（Expand-Archive 会把它说得很清楚：空间不够、
+        // 压缩包坏了、路径太长……）。以前这段 stderr 抓了却从没读过，用户看到的只有
+        // 后面那句"找不到也下载不到 Java"。
+        qWarning().noquote() << "解压 Java 运行时失败：" << stdErr.trimmed()
+                             << "（zip:" << zipFile << "）";
+    }
     Q_UNUSED(stdOut);
     return ok;
 }
@@ -370,6 +399,13 @@ bool flattenSingleRootDir(const QString &dir) {
 bool downloadFileToLocal(const QUrl &url, const QString &destinationPath) {
     QNetworkAccessManager manager;
     QNetworkRequest request(url);
+    // NOTE: 这个超时**不能省**。这一路是同步的（下面是内嵌事件循环），而且是在 UI 线程上
+    //       下的（几十上百 MB 的 Java 运行时）：没有超时的话，对端连上了却不发数据时
+    //       loop.exec() 没有任何退出条件 —— 界面就那么定住，连"下载中"的进度都不动。
+    //       它是"不活动超时"，一直匀速在下的不会因此被切断。
+    //       全仓联网处只有这里和下面那个 Adoptium 列表没有超时（别处 10/15/30 秒），
+    //       取 30 秒和下载管理器那条约定一致。
+    request.setTransferTimeout(30000);
     QNetworkReply *reply = manager.get(request);
     QEventLoop loop;
     QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
@@ -402,25 +438,39 @@ bool downloadFileToLocal(const QUrl &url, const QString &destinationPath) {
 bool downloadJavaRuntime(const QString &destinationDir, const QString &component,
                          QString *javaPathOut) {
     QList<QUrl> urls;
+    // 每个 component 到底要哪个主版本，**以 version.json 里那份为准**（这个函数只负责
+    // "按 component 名下一份**对得上**的"）：下面这几档是照着 Mojang 那张表来的 ——
+    //   jre-legacy → 8、alpha → 16、beta → 17、gamma → 17、delta → 21、epsilon → 25。
+    // NOTE: gamma 和 delta **不是**一档（以前合在一起当 21，是错的）：1.19~1.20.4 报的是
+    //       gamma 但 majorVersion 是 **17**（仓库里 1.19.json 就是 `gamma / 17`），
+    //       只有 1.20.5 起的 delta 才是 21。合在一起的表现：给 1.19 下了一份 40~100 MB 的
+    //       Java 21，调用方拿 majorVersion 一核（17）对不上，再下一份 17 —— 白下一次。
+    //       同理 1.17 的 alpha 是 **16**（不是 8）。
     if (component == "java-runtime-epsilon") {
         // Java 25 —— Minecraft 26.1 及以后要求该运行时
         urls = {QUrl("https://download.oracle.com/java/25/latest/jdk-25_windows-x64_bin.zip"),
                 QUrl("https://download.bell-sw.com/java/25.0.2+12/"
                      "bellsoft-jdk25.0.2+12-windows-amd64.zip")};
-    } else if (component == "java-runtime-gamma" || component == "java-runtime-delta") {
-        // Java 21
+    } else if (component == "java-runtime-delta") {
+        // Java 21 —— Minecraft 1.20.5 及以后
         urls = {
             QUrl("https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.4+7/"
                  "OpenJDK21U-jre_x64_windows_hotspot_21.0.4_7.zip"),
             QUrl("https://download.bell-sw.com/java/21.0.4+7/bellsoft-jre21.0.4+7-win-amd64.zip")};
-    } else if (component == "java-runtime-beta") {
-        // Java 17
+    } else if (component == "java-runtime-beta" || component == "java-runtime-gamma") {
+        // Java 17 —— 1.18~1.20.4（beta 是 1.18，gamma 是 1.19~1.20.4）
         urls = {
             QUrl("https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.12+7/"
                  "OpenJDK17U-jre_x64_windows_hotspot_17.0.12_7.zip"),
             QUrl(
                 "https://download.bell-sw.com/java/17.0.12+7/bellsoft-jre17.0.12+7-win-amd64.zip")};
-    } else if (component == "java-runtime-alpha" || component == "jre-legacy") {
+    } else if (component == "java-runtime-alpha") {
+        // Java 16 —— 1.17（只有它用 16，是 Mojang 那张表里唯一一个 16 档）
+        urls = {
+            QUrl("https://github.com/adoptium/temurin16-binaries/releases/download/"
+                 "jdk-16.0.2+7/OpenJDK16U-jre_x64_windows_hotspot_16.0.2_7.zip"),
+            QUrl("https://download.bell-sw.com/java/16.0.2+7/bellsoft-jre16.0.2+7-win-amd64.zip")};
+    } else if (component == "jre-legacy") {
         // Java 8
         urls = {
             QUrl("https://github.com/adoptium/temurin8-binaries/releases/download/jdk8u422-b05/"
@@ -772,6 +822,9 @@ bool GlobalJavaSettings::downloadJavaFromMojang(int majorVersion, QString *javaP
 
     QNetworkAccessManager manager;
     QNetworkRequest request(apiUrl);
+    // 同 downloadFileToLocal()：这一路也是 UI 线程上的同步请求，没有超时的话
+    // 对端连上不发数据就永远回不来（这个请求只是取一份 JSON，30 秒足够）。
+    request.setTransferTimeout(30000);
     QNetworkReply *reply = manager.get(request);
     QEventLoop loop;
     QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);

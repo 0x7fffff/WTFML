@@ -25,6 +25,7 @@
 #include <QCoreApplication>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QEvent>
 #include <QFrame>
 #include <QGroupBox>
 #include <QLabel>
@@ -53,6 +54,42 @@
 class QGridLayout;
 class QScrollArea;
 class QVBoxLayout;
+
+/**
+ * @brief 挡掉没有焦点时的滚轮事件，防止鼠标划过就把控件里的值改掉。
+ *
+ * 两种控件都有这个行为，滚轮事件都按**鼠标位置**派发、和焦点无关：
+ *   - QComboBox 把滚轮当成"切换选中项" —— 鼠标从下拉框上滚过（哪怕焦点在别处）
+ *     就静默换一个版本。「下载」页那个下拉框旁边就是「下载版本」，手一滑可能把一次
+ *     GB 级的下载指到别的版本上。设置页那三个下拉框同理（Java 运行时 / 启动后 / 下载源）。
+ *   - QSpinBox（QAbstractSpinBox）把滚轮当成"加一步/减一步" —— 内存那两个数字框就是。
+ *     翻设置页时从"最大内存"上滚过去，值就变了，而**界面上看不出来它变了**（没有焦点
+ *     就没有高亮），下一次启动游戏用的就是那个被滚出来的数。
+ *
+ * 判据只有一个：**没有焦点就不认滚轮**。有焦点时照常放行（用户是特意点进来的）。
+ *
+ * NOTE: QObject::eventFilter 是虚函数、不是槽，所以这里不需要 Q_OBJECT，
+ *       AUTOMOC 不会牵扯进来，也不用在 cpp 末尾补 .moc 包含。
+ *
+ * NOTE: 放在这个头里是为了让 ui/InstanceSettingsDialog 也能用同一份
+ *       （那里两个"只对这个实例生效"的内存数字框一模一样）—— 各写一份的话，
+ *       哪天补一种控件只会补到其中一处。
+ */
+class WheelGuard : public QObject {
+public:
+    using QObject::QObject;
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override {
+        // hasFocus() 是 QWidget 的，eventFilter 交回来的却是 QObject*，所以得转一手。
+        // 转不出来就原样放行（这个过滤器只挂在下面那几种控件上，正常不会走到）。
+        QWidget *widget = qobject_cast<QWidget *>(watched);
+        if (widget != nullptr && event->type() == QEvent::Wheel && !widget->hasFocus()) {
+            return true;  // 吃掉：没有焦点就不认滚轮
+        }
+        return QObject::eventFilter(watched, event);
+    }
+};
 
 // 主页右栏那个 3D 皮肤预览控件。它同样是纯界面（只认 QImage，不认任何业务对象）：
 // 界面只管把贴图喂进去，"贴图从哪来"是业务层的事。

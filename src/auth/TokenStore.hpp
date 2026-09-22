@@ -60,6 +60,17 @@ public:
     /// 读回一份 JSON。键不存在、解不开、解出来不是对象 —— 一律返回空对象（不抛）。
     static QJsonObject readJson(const QString &key);
 
+    /// 和 readJson() 同一件事，但把"读不到"的两种情形分开：
+    ///   - **键不存在**（盘上真没有这一格）→ @p readableOut = true，返回空对象；
+    ///   - **那一格在，但解不开 / 解出来不是对象**（DPAPI 换了 Windows 账户或换了机器、
+    ///     值被写坏了）→ @p readableOut = false，返回空对象。
+    ///
+    /// NOTE: 为什么非要分：**读-改-写**的写方（AccountStore 那几处）拿空对象当底子写回去，
+    ///       等于把整格覆盖掉 —— 账号列表里其它账号那两份 refresh_token 副本就一起没了。
+    ///       那些写方必须先问 readableOut，假就不写。只要"空 = 没登录/没数据"的读者
+    ///       （AuthManager 那几处）继续用 readJson() 就行。
+    static QJsonObject readJsonChecked(const QString &key, bool *readableOut);
+
     /// 盘上有没有这个键（值是空字节也算没有）。
     static bool hasValue(const QString &key);
 

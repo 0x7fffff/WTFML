@@ -24,36 +24,6 @@
 
 namespace {
 
-/**
- * @brief 挡掉没有焦点时的滚轮事件，防止鼠标划过就把下拉框的选中项改掉。
- *
- * QComboBox 默认把滚轮当成"切换选中项"处理，而滚轮事件是按鼠标位置派发的、
- * 跟焦点无关 —— 鼠标从下拉框上滚过（哪怕焦点在别处）就会静默换一个版本。
- * 「下载」页那个下拉框旁边就是「下载版本」，手一滑可能把一次 GB 级的下载指到
- * 别的版本上。设置页那三个下拉框同理（Java 运行时 / 启动后 / 下载源）。
- *
- * NOTE: 内存那两个数字框是 QSpinBox，**没有**装这个过滤器 —— 上面说的都是 QComboBox 的
- *       行为（它把滚轮当成"换选中项"），别顺手以为内存也被护住了。
- *
- * NOTE: QObject::eventFilter 是虚函数、不是槽，所以这里不需要 Q_OBJECT，
- *       AUTOMOC 不会牵扯进来，也不用在 cpp 末尾补 .moc 包含。
- */
-class WheelGuard : public QObject {
-public:
-    using QObject::QObject;
-
-protected:
-    bool eventFilter(QObject *watched, QEvent *event) override {
-        // hasFocus() 是 QWidget 的，eventFilter 交回来的却是 QObject*，所以得转一手。
-        // 转不出来就原样放行（这个过滤器只挂在 QComboBox 上，正常不会走到）。
-        QWidget *widget = qobject_cast<QWidget *>(watched);
-        if (widget != nullptr && event->type() == QEvent::Wheel && !widget->hasFocus()) {
-            return true;  // 吃掉：没有焦点就不认滚轮
-        }
-        return QObject::eventFilter(watched, event);
-    }
-};
-
 /// 每个选项卡页面共用的边距：贴着选项卡内容区留一圈呼吸空间。
 constexpr int kPageMargin = 9;
 
@@ -279,7 +249,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         //       标签上去，QLabel 没有这个约束。
         installedVersionCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
         installedVersionCombo->setMinimumContentsLength(12);
-        // 滚轮防护：见本文件顶部的 WheelGuard
+        // 滚轮防护：见 MainWindowUI.hpp 里的 WheelGuard
         installedVersionCombo->installEventFilter(new WheelGuard(installedVersionCombo));
         installedVersionCombo->setObjectName(installedVersionComboName());
         home.left.layout->addWidget(installedVersionCombo);
@@ -844,6 +814,8 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
         memoryMaxSpin->setRange(memoryMaxMinMb(), memoryLimitMaxMb());
         memoryMaxSpin->setSingleStep(memoryStepMb());
         memoryMaxSpin->setSuffix(QStringLiteral(" MB"));
+        // 数字框也吃滚轮（加一步/减一步），而且没有焦点时改完**看不出来** —— 见 WheelGuard。
+        memoryMaxSpin->installEventFilter(new WheelGuard(memoryMaxSpin));
         addInlineControl(boxLayout, memoryMaxSpin, kMemorySpinWidth);
         addHint(box, QStringLiteral("给 JVM 的 -Xmx。模组多、整合包大就往上调；"
                                     "机器内存不够时先降这一项。"),
@@ -858,6 +830,8 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
         memoryMinSpin->setRange(memoryMinMinMb(), memoryLimitMaxMb());
         memoryMinSpin->setSingleStep(memoryStepMb());
         memoryMinSpin->setSuffix(QStringLiteral(" MB"));
+        // 同上：滚轮防护（见 WheelGuard）。
+        memoryMinSpin->installEventFilter(new WheelGuard(memoryMinSpin));
         addInlineControl(boxLayout, memoryMinSpin, kMemorySpinWidth);
         addHint(box, QStringLiteral("给 JVM 的 -Xms。设成和最大内存一样可以少几次扩容，"
                                     "但会一直占着那些内存。"),

@@ -340,6 +340,25 @@ private:
     QMap<QNetworkReply *, QString> m_officialFallbacks;
     int pendingDownloads;
 
+    /// 一条**元数据作业**（版本清单 / 版本 json）的全部信息。
+    ///
+    /// 元数据作业**不落盘、也不计进 pendingDownloads**（见 fetchVersionManifest()）—— 但它们
+    /// 要进 m_stallMeters，否则一条卡住的元数据请求没人判它失败，整条流程就挂在半路
+    /// （2026-09-22 那次就是这么挂的）。这张表就是给 failWedgedDownload() 用的判据：看门狗
+    /// 收一条回复时，得知道"该不该动那套计数"。以前没有这个判据，看门狗掐掉一条元数据回复
+    /// 时会照样 `--pendingDownloads`（那条计数它从来没加过）→ 真在飞的文件作业就少算一个 →
+    /// checkAllDownloadsFinished() 提前宣布整批下完，而文件还在路上。
+    struct MetadataJob {
+        /// 日志里人看得懂的名字（「version_manifest.json」/「version_json」）。
+        /// 空 = 这条回复不是元数据作业（表里查不到时 .value() 给的就是这个）。
+        QString label;
+        /// 这一份该是哪个版本（版本 json 才有；清单那条为空 = 不核这一项）。
+        QString expectedId;
+        /// 这一份该是什么字节（取自官方 URL 里的 sha1；镜像那条自拼的地址没有 → 空 = 不核）。
+        QString expectedSha1;
+    };
+    QMap<QNetworkReply *, MetadataJob> m_metadataReplies;
+
     /// 等着发的作业。**每一条下载都从这里过**（资源对象、库、客户端 jar、整合包清单里
     /// 那几百个文件都一样）：一次资源补齐是 3000 多个对象，全塞给 QNetworkAccessManager
     /// 的话 Qt 每个主机只开 6 条连接，其余的在它内部干等，而 30 秒的传输超时**从请求
@@ -428,6 +447,9 @@ private:
     /// 记账。为什么不能只 abort() 了等它自己走 finished：这条路的整个前提就是"它可能永远
     /// 不结束"，指着 abort 收尾等于把整批挂死（见 kNoProgressGiveUpMs）。
     void failWedgedDownload(QNetworkReply *reply);
+    /// 日志里给一条回复起个名字：文件作业是落地路径，元数据作业是「版本清单」/「版本 json」。
+    /// 以前这几处日志一律打 activeDownloads 里的路径，元数据那条打出来是空的。
+    QString jobLabel(QNetworkReply *reply) const;
     void handleDownloadError(QNetworkReply *reply, const QString &errorMessage);
     void checkAllDownloadsFinished();
     void emitBatchProgress(const QString &currentFile);
