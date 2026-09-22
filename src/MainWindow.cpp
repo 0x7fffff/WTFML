@@ -2420,15 +2420,42 @@ void MainWindow::startLoaderInstall(const QString &gameVersion, int loaderIndex)
         return;
     }
 
+    // 安装器自己就是个 Java 程序（`java -jar <安装器>.jar --installClient <目录>`），所以要的
+    // 运行环境和"这个版本要的 Java"是同一件事：版本 json 里的 javaVersion。Fabric 那条路只拉
+    // json + 下 maven 库，一个进程都不起，所以这一段只管要跑安装器的那些。
+    //
+    // 拿不到版本 json（原版还没装）就不知道要求，此时原样用配的那份 —— 不在这一步拦人：装
+    // 加载器本来就会把原版补齐，而"要哪个 Java"从那份 json 里读最准，猜一个主版本比不猜更
+    // 危险（见启动那条路上"拿不到 version.json 就不能猜"那段注释）。
+    QString installerJava = m_javaSettings->javaPath();
+    if (kind != VersionManager::LoaderKind::Fabric) {
+        int requiredJavaMajor = 0;
+        const QJsonObject gameJson = m_versionManager->getVersionJson(gameVersion);
+        if (!gameJson.isEmpty()) {
+            requiredJavaMajor =
+                gameJson["javaVersion"].toObject()["majorVersion"].toInt();
+        }
+        const QString configuredJava = installerJava;
+        QString javaReason;
+        if (!m_javaSettings->installerJavaFor(requiredJavaMajor, configuredJava, &installerJava,
+                                              &javaReason)) {
+            appendLog(tr("这个版本要的 Java 拿不到：%1").arg(javaReason));
+            QMessageBox::warning(this, tr("Java 版本不够"), javaReason);
+            return;  // 还没进忙态，直接退出就是干净的状态
+        }
+        if (installerJava != configuredJava) {
+            appendLog(tr("这个版本要 Java %1，装的时候改用 %2")
+                          .arg(requiredJavaMajor)
+                          .arg(installerJava));
+        }
+    }
+
     // 忙要在点击这一刻就置上：加载器的列表/profile 都是异步拉回来的，中间这段时间
     // 按钮还能点的话，用户会重复触发（和原版那条路同一个理由）。
     appendLog(tr("开始安装 %1 %2...").arg(loaderName, gameVersion));
     setDownloadUiBusy(true);
     m_progressThrottle.invalidate();
-    // 「设置」里配的那个 Java。Forge/NeoForge 的安装器是**真的起一个 Java 进程**，
-    // 所以这里必须传：机器上 PATH 里没有 java、或者有几个装不同版本的 Java 时，
-    // 用户在这儿指定过哪一个就是哪一个（和启动游戏同一个来源）。
-    m_versionManager->installLoaderVersion(gameVersion, kind, m_javaSettings->javaPath());
+    m_versionManager->installLoaderVersion(gameVersion, kind, installerJava);
 }
 
 void MainWindow::onVersionDownloadFinished(const QString &versionId, bool success,

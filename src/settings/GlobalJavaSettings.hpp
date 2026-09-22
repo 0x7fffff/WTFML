@@ -161,8 +161,13 @@ public:
      * NOTE: 这是**同步**的，而且每个候选运行时都要认一次主版本（见
      *       majorVersionFromReleaseFile()）。界面在切到设置页那一下调它，
      *       所以它花多少毫秒，界面就冻多少毫秒 —— 认版本那条路快不快要紧。
+     *
+     * NOTE: 它是 static 的：扫的是"这台机器上有什么"，和这个对象的设置（xmx、配的
+     *       Java 路径……）一个字都不相干。标注成 static 正是为了把这一点写死 ——
+     *       顺手也让验证工程不必为了扫一遍而 new 一个对象（那个构造函数会去读用户的
+     *       真实配置）。
      */
-    QMap<int, QString> scanLocalJavaVersions();
+    static QMap<int, QString> scanLocalJavaVersions();
 
     /**
      * @brief 从 JDK/JRE 根目录那个 release 文件的内容里读出主版本。
@@ -206,6 +211,52 @@ public:
      *       是哪个版本"，而且它总是冷启一个 JVM。
      */
     static int probeJavaMajorVersion(const QString &javaExe, QString *versionOutput = nullptr);
+
+    /**
+     * @brief 安装加载器要用的 Java。判据只要"够新"，不像启动那样要**精确**主版本。
+     *
+     * @param requiredMajor 版本 json 里 javaVersion.majorVersion 声明的主版本；
+     *        <= 0 表示不知道（原版还没装、读不到那份 json），此时原样返回 configuredPath。
+     * @param configuredPath 「设置」里配的那份（空字符串 = 没指定，走 PATH 上的 java）。
+     * @param javaPathOut 这次安装该用的路径（可能 == configuredPath，也可能是空）。
+     * @param reasonOut 失败原因（给用户看的一句话）。
+     * @return 能定下来用哪份就返回 true；配的那份太老、本机又找不到够新的，返回 false。
+     *
+     * 为什么不能用 ensureJavaForVersion()：那边的判据是 javaMatchesMajor()，也就是**主版本
+     * 相等**（拿 Java 21 去跑要 Java 8 的 1.16.5 会 UnsupportedClassVersionError，所以启动
+     * 那条路上"精确"是对的）。而安装器只要是够新的 JVM 就能跑，"精确"会把用户手里那份好用
+     * 的 Java 判成不匹配 —— 配着 Java 21 去装 1.18.2 的 Forge，那条路会替他换一个 17 出来，
+     * 还会顺手 adoptJavaPath() 把全局设置改掉。
+     *
+     * 所以这里只处理一种情况：**配的那份太老**。这时从本机已有的运行时里挑一份够新的
+     * （主版本 >= 要求里**最小**的那个，见 pickMinimalJavaAtLeast()）。
+     *
+     * NOTE: 结果**只用于这一次安装**：不写回 m_javaPath、不落盘、不改任何成员。点一下
+     *       「下载版本」就悄悄改掉用户的 Java 路径是说不通的（"挑中的路径写回调用方那一层"
+     *       是启动的语义，只该用在启动上）。
+     * NOTE: 不下载新运行时。downloadJavaRuntime() / downloadJavaFromMojang() 都是**同步**的
+     *       （QEventLoop + 阻塞式写盘），在下载页同步跑一次就是把界面冻住好几分钟 ——
+     *       这一版专门把安装器做成异步的，不能再在这儿开一个同步的重活。挑不到就报清楚。
+     *
+     * NOTE: static 是**有意的**，而且和上面那条"不改任何成员"是同一件事：它要用的东西
+     *       全部从参数和这台机器上取，谁也没法通过它碰到这个对象的设置。编译期钉住。
+     */
+    static bool installerJavaFor(int requiredMajor, const QString &configuredPath,
+                                 QString *javaPathOut, QString *reasonOut);
+
+    /**
+     * @brief 从候选里挑一份"够新"的 Java：主版本 >= requiredMajor 里**最小**的那个。
+     * @param candidates 主版本 -> java.exe 路径。
+     * @return 挑中的路径；一个都不够新时返回空字符串。
+     *
+     * 取最小而不是最大：越接近版本声明的那个主版本越不容易出意外（拿 Java 25 去跑一个只要
+     * 17 的安装器是"能跑但没必要"）。
+     *
+     * 做成公开的纯函数是为了让验证工程能直接钉这张表（理由和 majorVersionFromReleaseFile()
+     * 一样）—— installerJavaFor() 自己要看环境变量、扫目录，结果取决于跑它的那台机器，
+     * 所以它那两条判据只能**在真机器上**验（verify 的 loader-install 模式里那两条）。
+     */
+    static QString pickMinimalJavaAtLeast(int requiredMajor, const QMap<int, QString> &candidates);
 
     /**
      * @brief Downloads a Java runtime from Mojang for the required version.
