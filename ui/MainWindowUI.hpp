@@ -122,6 +122,17 @@ public:
     static QString folderListName() { return QStringLiteral("folderList"); }
     static QString instanceListName() { return QStringLiteral("instanceList"); }
     static QString instanceFolderLabelName() { return QStringLiteral("instanceFolderLabel"); }
+    // 「游戏文件夹」那两个按钮、以及下面那句提示。这里**必须**有 objectName ——
+    // 移除那个按钮的文案这一阵子正在从「删除文件夹」改成「移除文件夹…」（那个词会让人
+    // 以为盘上的文件也没了），按文案找控件的写法会在改文案的第一次跑就变成"找不到控件、
+    // 后面全不跑"。文案另有 *Text()，只用来核对显示内容。
+    static QString addFolderButtonName() { return QStringLiteral("addFolderButton"); }
+    static QString removeFolderButtonName() { return QStringLiteral("removeFolderButton"); }
+    static QString folderHintLabelName() { return QStringLiteral("folderHintLabel"); }
+    static QString addFolderText() { return QStringLiteral("添加文件夹…"); }
+    /// NOTE: 带省略号 —— 点下去先弹一个确认框，而那个框是这一步**唯一**说清
+    ///       "只动列表、盘上文件一个字节都不动"的地方（用户最容易误会的就是这一步）。
+    static QString removeFolderText() { return QStringLiteral("移除文件夹…"); }
     // 实例页右栏那三个按钮。**全按钮驱动、不做右键菜单** —— 仓库里右键菜单零先例，
     // 而且验证工程跑在 offscreen 上，QMenu::exec() 会阻塞在事件循环里，几乎驱动不了。
     static QString renameInstanceButtonName() { return QStringLiteral("renameInstanceButton"); }
@@ -357,6 +368,8 @@ public:
     QCheckBox *getOfflineModeCheckBox() const { return offlineModeCheckBox; }
     QPushButton *getAddFolderButton() const { return addFolderButton; }
     QPushButton *getRemoveFolderButton() const { return removeFolderButton; }
+    /// 列表下面那句提示（「自带的那一份移不掉…盘上的文件夹和文件都留着。」）。
+    QLabel *getFolderHintLabel() const { return folderHintLabel; }
     // 实例页左边那张列表：一行一个「游戏文件夹」，选中的那一份就是启动器当前用的
     // .minecraft。右边那张**树**是它下面扫出来的实例（按分组归好）。
     QListWidget *getFolderList() const { return folderList; }
@@ -448,6 +461,7 @@ private:
     QPushButton *accountSkinSettingsButton;
     QCheckBox *offlineModeCheckBox;
     QPushButton *addFolderButton;
+    QLabel *folderHintLabel;
     QPushButton *removeFolderButton;
     QListWidget *folderList;
     QTreeWidget *instanceList;

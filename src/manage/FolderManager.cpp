@@ -1,6 +1,6 @@
 /**
  * @file FolderManager.cpp
- * @brief 实现「游戏文件夹」列表的读取、增删与切换。
+ * @brief 实现「游戏文件夹」列表的读取、添加、移除与切换。
  * @author LoserKugua
  * @date 2026-04-10
  * @note 见 FolderManager.hpp 的说明。
@@ -95,7 +95,7 @@ bool FolderManager::addFolder(const QString &path) {
 
 bool FolderManager::removeFolder(const QString &path) {
     const QString target = normalized(path);
-    // 自带那份删不掉：它是 AppPaths 的默认值，也是"别的目录都不在盘上"时的唯一退路。
+    // 自带那份移不掉：它是 AppPaths 的默认值，也是"别的目录都不在盘上"时的唯一退路。
     if (target.isEmpty() || target == defaultFolder()) {
         return false;
     }
@@ -107,7 +107,7 @@ bool FolderManager::removeFolder(const QString &path) {
     }
     emit foldersChanged();
 
-    // 删掉的正好是当前在用的那一份 → 退回自带那份。不退回的话启动器会指着一个
+    // 移除掉的正好是当前在用的那一份 → 退回自带那份。不退回的话启动器会指着一个
     // 已经不在列表里的目录（界面上没有它，用户想再选回来都没地方点）。
     if (target == m_current) {
         m_current = defaultFolder();

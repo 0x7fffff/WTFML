@@ -784,7 +784,7 @@ void MainWindow::setDownloadUiBusy(bool busy) {
     m_ui->getImportModpackButton()->setEnabled(!busy);
     // 实例页左边那列也一起灰：换游戏文件夹 = 换一整套 .minecraft，下载中途换过去
     // 会让这一批文件一半写进 A、一半写进 B。两个按钮的可用性由 updateFolderButtons()
-    // 一处说了算（「删除文件夹」还要看选中的是不是自带那份）。
+    // 一处说了算（「移除文件夹」还要看选中的是不是自带那份）。
     m_ui->getFolderList()->setEnabled(!busy);
     // 「模组加载器」四个钮一起灰掉，理由和两个下拉框一样：在装什么是点击那一刻定下的，
     // 这时候改成 Forge 并不会把手上这次 Fabric 安装换掉（真正干活的 VersionManager
@@ -2287,20 +2287,45 @@ void MainWindow::onAddFolderClicked() {
 void MainWindow::onRemoveFolderClicked() {
     const QListWidgetItem *item = m_ui->getFolderList()->currentItem();
     if (item == nullptr) {
-        QMessageBox::information(this, tr("删除文件夹"), tr("请先在列表里选中一个文件夹。"));
+        QMessageBox::information(this, tr("移除文件夹"), tr("请先在列表里选中一个文件夹。"));
         return;
     }
     const QString folder = item->data(Qt::UserRole).toString();
-    if (!m_folderManager->removeFolder(folder)) {
+    if (m_folderManager->isDefaultFolder(folder)) {
         // 只有"自带的那一份"会走到这儿（正常路径下按钮本来就是灰的），照实说明原因，
-        // 不是"删除失败"这种没法处理的消息。
+        // 不是"移除失败"这种没法处理的消息。
         QMessageBox::information(
-            this, tr("删除文件夹"),
-            tr("「%1」是启动器自带的游戏文件夹，删不掉。\n它是别的目录都被移走时唯一的退路。")
+            this, tr("移除文件夹"),
+            tr("「%1」是启动器自带的游戏文件夹，移不掉。\n它是别的目录都被移走时唯一的退路。")
                 .arg(QDir::toNativeSeparators(folder)));
         return;
     }
-    appendLog(tr("已删除文件夹：%1").arg(folder));
+    // 确认框。这一步**不动盘上的任何东西**，但它正是用户最容易误会的一步（以前这个按钮
+    // 叫「删除文件夹」，看到那个词的人会以为点下去几个 GB 的存档就没了）—— 所以正文里把
+    // "只动列表、盘上文件不动"写死，而不是指望用户知道。
+    // NOTE: 默认按钮是「是」：这一步不删东西，弹窗在这儿的作用是**说清楚**，不是拦一道。
+    QString question = tr("「%1」会从上面这个列表里移除。\n\n"
+                          "文件夹本身和里面的文件都不会被删掉 —— 这一步只动启动器的列表，"
+                          "盘上一个字节都不动。")
+                           .arg(QDir::toNativeSeparators(folder));
+    if (m_folderManager->currentFolder() == folder) {
+        question += tr("\n\n它是启动器当前在用的那一份，移除之后改用「%1」。")
+                        .arg(QDir::toNativeSeparators(FolderManager::defaultFolder()));
+    }
+    const auto answer = QMessageBox::question(this, tr("从列表里移除文件夹"), question,
+                                              QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+    if (answer != QMessageBox::Yes) {
+        return;  // 取消不是错误，不写日志（这里也没有"取消了一次删除"可言）
+    }
+    if (!m_folderManager->removeFolder(folder)) {
+        // 正常路径下走不到这儿（上面那道 isDefaultFolder 已经挡住了唯一的失败原因）。
+        // 留着是防"列表变了但一个提示都没有"。
+        QMessageBox::warning(
+            this, tr("移除文件夹"),
+            tr("没能把「%1」从列表里移除。").arg(QDir::toNativeSeparators(folder)));
+        return;
+    }
+    appendLog(tr("已从列表里移除文件夹：%1").arg(folder));
 }
 
 void MainWindow::onRenameInstanceClicked() {

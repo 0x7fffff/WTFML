@@ -369,17 +369,26 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         folderLayout->addWidget(folderList, 1);
 
         QHBoxLayout *folderButtons = new QHBoxLayout;
-        addFolderButton = new QPushButton(QStringLiteral("添加文件夹"), folderGroupBox);
-        removeFolderButton = new QPushButton(QStringLiteral("删除文件夹"), folderGroupBox);
+        addFolderButton = new QPushButton(addFolderText(), folderGroupBox);
+        addFolderButton->setObjectName(addFolderButtonName());
+        removeFolderButton = new QPushButton(removeFolderText(), folderGroupBox);
+        removeFolderButton->setObjectName(removeFolderButtonName());
+        // 「移除」**只是从列表里拿掉**，盘上的东西一个字节都不动。这句是给"不敢按"的人
+        // 看的：按钮上写不下，就在悬停时说出来（同一个意思在确认框和下面那句提示里各有一遍）。
+        removeFolderButton->setToolTip(
+            QStringLiteral("只从列表里移除：文件夹本身和里面的文件都不会被删掉"));
         folderButtons->addWidget(addFolderButton);
         folderButtons->addWidget(removeFolderButton);
         folderLayout->addLayout(folderButtons);
 
         QLabel *folderHint = new QLabel(
             QStringLiteral("选中的就是启动器当前使用的 .minecraft（版本、存档、资源都从这里读）。"
-                           "自带的那一份删不掉。"),
+                           "自带的那一份移不掉；「移除文件夹」只把它从列表里拿掉，"
+                           "盘上的文件夹和文件都留着。"),
             folderGroupBox);
+        folderHint->setObjectName(folderHintLabelName());
         folderHint->setWordWrap(true);
+        folderHintLabel = folderHint;
         folderLayout->addWidget(folderHint);
         instance.left.layout->addWidget(folderGroupBox, 1);
     }
