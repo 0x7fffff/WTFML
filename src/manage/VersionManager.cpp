@@ -24,8 +24,10 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QProcess>
+#include <QProcessEnvironment>
 #include <QRegularExpression>
 #include <QSaveFile>
+#include <QTemporaryDir>
 #include <QTimer>
 #include <QSet>
 #include <QUrl>
@@ -138,6 +140,52 @@ bool renameOnto(const QString &from, const QString &to) {
     return QFile::rename(from, to);
 }
 
+/// 把 from 这棵树**覆盖着**拷进 to（to 不存在就建目录）。任何一步失败返回 false。
+///
+/// 三条规矩都是为"搬进用户真实的游戏目录"这一件事定的：
+///
+///  * **只覆盖同名文件，绝不删 to 底下任何东西。** to 里可能有用户自己放的东西，也可能
+///    有别的版本/加载器的库 —— `<游戏目录>/libraries/` 就是全体版本共用的一份。所以这个
+///    函数里没有一个 removeRecursively，删的只能是它马上要盖掉的那一个文件。
+///  * 目标已存在时**先删那个文件再拷**：QFile::copy() 目标存在时返回 false（不覆盖），
+///    而重装同一个版本正是"目标已存在"的常态。删不掉（被别的进程占着）就当失败报出去，
+///    不装作拷过了。
+///  * 失败如实返回 false，由调用方报"没搬回来"。半途而废的复制**会被留下**（比如版本
+///    目录搬了一半）—— 那种情况下调用方的话里要说清"再装一次能盖好"，而不是说装好了。
+///
+/// NOTE: 空目录不会在 to 里被建出来（不拷文件就没有 mkpath）。这里用不上：搬的两样东西
+///       ——版本目录和 libraries/optifine/ —— 底下的文件一个都不少。
+bool copyTreeInto(const QString &from, const QString &to) {
+    const QFileInfo source(from);
+    if (source.isFile()) {
+        const QString parent = QFileInfo(to).absolutePath();
+        if (!QDir().mkpath(parent)) {
+            qWarning() << "Cannot create directory" << parent;
+            return false;
+        }
+        if (QFile::exists(to) && !QFile::remove(to)) {
+            qWarning() << "Cannot overwrite" << to;
+            return false;
+        }
+        if (!QFile::copy(from, to)) {
+            qWarning() << "Cannot copy" << from << "to" << to;
+            return false;
+        }
+        return true;
+    }
+    if (source.isDir()) {
+        const QFileInfoList entries =
+            QDir(from).entryInfoList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot);
+        for (const QFileInfo &entry : entries) {
+            if (!copyTreeInto(entry.absoluteFilePath(),
+                              to + QLatin1Char('/') + entry.fileName())) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 }  // namespace
 
 VersionManager::VersionManager(QObject *parent)
@@ -159,6 +207,15 @@ VersionManager::VersionManager(QObject *parent)
 
 VersionManager::~VersionManager() {
     // DownloadManager is automatically deleted as child
+    //
+    // 那份临时工作目录（OptiFine 那条路才有）不是 QObject 的子对象，得自己收。正常路径下
+    // 它在安装的终态里已经被删过了（finishLoaderInstall / failLoaderInstall），这里只是
+    // 兜住"装到一半程序被关掉"：不收的话系统临时目录里会积一份几 MB 的假 .minecraft。
+    //
+    // NOTE: 这一刻安装器那个子进程可能还活着（它是 QObject 的子对象，要到 ~QObject 才被
+    //       收），Windows 上文件被占着就删不掉 —— 那种情况下 remove() 会失败，这里是
+    //       析构，没有地方报，也不值得报（QTemporaryDir 下次会自己重试）。
+    delete optifineWorkDir;
 }
 
 QStringList VersionManager::installedVersions(QStringList *warnings) const {
@@ -310,16 +367,20 @@ void VersionManager::downloadVersion(const QString &versionId, const QString &de
 // ---------------------------------------------------------------------------
 
 bool VersionManager::loaderInstallSupported(LoaderKind kind) {
-    // Fabric 是"拉 json + 下库"，Forge/NeoForge 是"另起一个 Java 进程跑它们的安装器"
-    // —— 两条完全不同的路，但都接通了，所以这里一样返回 true（这个函数只说"能不能装"）。
+    // 四个都接通了，所以四个都返回 true（这个函数只说"能不能装"，不说"怎么装"）。
     //
-    // OptiFine 还没做，理由不是"懒"：它的安装器 main(String[]) **把命令行参数整个丢掉**
-    // （实测反汇编：`Utils.getWorkingDirectory()` 只认 `%APPDATA%/.minecraft`），
-    // 所以只能给子进程覆盖 APPDATA、再把那个假的 .minecraft 用**目录联接**指到真游戏目录；
-    // 而且它在出错时会弹一个 Swing 对话框、**进程因此永不退出**（实测跑满 120 秒被杀）。
-    // 这条路要单独做（连接联的删除都得走 rmdir，不能递归删 —— 删错一步就是用户真实的
-    // .minecraft），见 README 的待办。
-    return kind == LoaderKind::Fabric || kind == LoaderKind::Forge || kind == LoaderKind::NeoForge;
+    // 刻意写成**逐个 case 列出来**、末尾 `return false`，而不是一句 `return true`：将来往
+    // LoaderKind 里加第五个加载器时，编译器的 -Wswitch 会提醒这里少了一手，而没写完的那个
+    // 会落到 false —— 界面那句「还没做」和 installLoaderVersion() 里那道守卫正好接住它，
+    // 不会出现"勾了一个没接线的加载器，装出来一个纯原版"。
+    switch (kind) {
+    case LoaderKind::Fabric:
+    case LoaderKind::Forge:
+    case LoaderKind::NeoForge:
+    case LoaderKind::OptiFine:
+        return true;
+    }
+    return false;
 }
 
 QString VersionManager::loaderDisplayName(LoaderKind kind) {
@@ -366,11 +427,10 @@ void VersionManager::installLoaderVersion(const QString &gameVersion, LoaderKind
         return;
     }
     if (!loaderInstallSupported(kind)) {
-        // 界面那边也会拦下来并弹一个"还没做"，这里再兜一道：数据层不该被绕过去，
+        // 界面那边也会拦下来并弹一句"还没做"，这里再兜一道：数据层不该被绕过去，
         // 否则症状是"点了某个还没接通的加载器，结果装出来一个纯原版"。
         emit loaderInstallMessage(
-            tr("%1 的安装还没接通，现在只有 Fabric / Forge / NeoForge 能用。")
-                .arg(loaderDisplayName(kind)));
+            tr("%1 的安装还没接通。").arg(loaderDisplayName(kind)));
         return;
     }
     if (downloadManager->isBusy()) {
@@ -384,8 +444,9 @@ void VersionManager::installLoaderVersion(const QString &gameVersion, LoaderKind
     m_loaderInstall.loaderName = loaderDisplayName(kind);
     m_loaderInstall.javaPath = javaPath;
 
-    // 两条路从第一步就分开：Fabric 拉的是"加载器版本列表"，另外两个拉的是
-    // "安装器该用哪个版本"，接口完全不是一回事（见 LoaderMeta.hpp 顶部那段）。
+    // 第一步就分开了：Fabric 拉的是"加载器版本列表"，Forge/NeoForge 拉的是"安装器该用
+    // 哪个版本"，OptiFine 连"版本表"都和前三个不是一回事（镜像一条 JSON、官方一张 203 KB
+    // 的网页），接口完全不是一回事（见 LoaderMeta.hpp 顶部那段）。
     if (kind == LoaderKind::Fabric) {
         m_loaderInstall.phase = LoaderInstall::Phase::FetchingList;
         emit loaderInstallMessage(tr("正在获取 %1 %2 的加载器版本列表...")
@@ -397,6 +458,10 @@ void VersionManager::installLoaderVersion(const QString &gameVersion, LoaderKind
     m_loaderInstall.phase = LoaderInstall::Phase::FetchingInstallerList;
     emit loaderInstallMessage(
         tr("正在获取 %1 %2 该用哪个版本...").arg(m_loaderInstall.loaderName, gameVersion));
+    if (kind == LoaderKind::OptiFine) {
+        fetchOptifineVersionList();
+        return;
+    }
     fetchInstallerList();
 }
 
@@ -609,6 +674,12 @@ void VersionManager::onInstallerListReply(QNetworkReply *reply) {
                                        ? LoaderMeta::forgeInstallerUrl(m_loaderInstall.gameVersion,
                                                                        pick.version)
                                        : LoaderMeta::neoforgeInstallerUrl(pick.version);
+    // 盘上那个 jar 就叫上游那个名字（forge-1.20.1-47.4.10-installer.jar /
+    // neoforge-21.1.215-installer.jar），用户去 cache/installers/ 里看一眼能对上。OptiFine
+    // 那条路填不出这个名字（它的地址最后两段是 type/patch，不是文件名），由它自己填 ——
+    // 见 onOptifineVersionListReply()。
+    m_loaderInstall.installerFileName =
+        QFileInfo(QUrl(m_loaderInstall.installerUrl).path()).fileName();
 
     emit loaderInstallMessage(tr("挑中 %1 %2（%3）。")
                                   .arg(m_loaderInstall.loaderName, pick.version,
@@ -618,13 +689,17 @@ void VersionManager::onInstallerListReply(QNetworkReply *reply) {
 }
 
 void VersionManager::startInstallerDownload() {
-    // 文件名取安装器地址的最后一段，不自己拼 —— 这样盘上那个 jar 和上游叫同一个名字
-    // （forge-1.20.1-47.4.10-installer.jar / neoforge-21.1.215-installer.jar），
-    // 用户去 cache/installers/ 里看一眼能对上。版本目录名那边不这么干是另一回事：
-    // 那个名字是别的启动器认的，不能改。
-    const QString fileName = QFileInfo(QUrl(m_loaderInstall.installerUrl).path()).fileName();
+    // 文件名是拉版本表那一步定下来的（installerFileName），这里不再从地址里现切：两条路
+    // 的来源本来就不一样——Forge/NeoForge 取地址最后一段（和上游同名），OptiFine 那边地址
+    // 最后两段是 type/patch、只能用它在版本表里挑中的那个文件名。版本目录名那边不这么干
+    // 是另一回事：那个名字是别的启动器认的，不能改。
+    if (m_loaderInstall.installerFileName.isEmpty()) {
+        failLoaderInstall(tr("没有拿到 %1 安装器的文件名，安装中止。")
+                              .arg(m_loaderInstall.loaderName));
+        return;
+    }
     m_loaderInstall.installerPath =
-        AppPaths::installerCacheDir() + QLatin1Char('/') + fileName;
+        AppPaths::installerCacheDir() + QLatin1Char('/') + m_loaderInstall.installerFileName;
 
     emit loaderInstallMessage(tr("正在下载 %1 %2 的安装器...")
                                   .arg(m_loaderInstall.loaderName, m_loaderInstall.loaderVersion));
@@ -642,12 +717,13 @@ void VersionManager::startInstallerDownload() {
     downloadManager->endBatch();
 }
 
-bool VersionManager::ensureLauncherProfiles(bool *createdOut, QString *errorOut) const {
+bool VersionManager::ensureLauncherProfiles(const QString &minecraftDir, bool *createdOut,
+                                           QString *errorOut) const {
     if (createdOut != nullptr) {
         *createdOut = false;
     }
-    const QString path = AppPaths::minecraftDir() + QLatin1Char('/') +
-                         LoaderMeta::launcherProfilesFileName();
+    const QString path =
+        minecraftDir + QLatin1Char('/') + LoaderMeta::launcherProfilesFileName();
     if (QFile::exists(path)) {
         // 已经有就**一个字都不动**：这个文件是原版启动器和 PCL 都在写的东西，里面可能
         // 是用户真正的启动器档案。安装器会往里面**加**一条 profile，加完照样是有用的；
@@ -658,7 +734,7 @@ bool VersionManager::ensureLauncherProfiles(bool *createdOut, QString *errorOut)
     // 没有才补一份最小的。它是安装器的硬前置，实测缺了这条：
     //   There is no minecraft launcher profile in "...", you need to run the launcher first!
     //   There was an error during installation      （退出码 1，一个字节的库都不下）
-    QDir().mkpath(AppPaths::minecraftDir());
+    QDir().mkpath(minecraftDir);
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly)) {
         if (errorOut != nullptr) {
@@ -686,13 +762,39 @@ bool VersionManager::ensureLauncherProfiles(bool *createdOut, QString *errorOut)
 }
 
 void VersionManager::runInstaller() {
+    const bool optifine = m_loaderInstall.kind == LoaderKind::OptiFine;
+
+    // 往哪个目录装：Forge/NeoForge 直接装进真游戏目录（它们的安装器认 `--installClient`
+    // 给的那个目录）；OptiFine 装进**我们自己建的一个临时目录**，因为它的安装器参数整个
+    // 丢掉、只从 APPDATA 算（见 LoaderMeta.hpp 里 OptiFine 那一节）。
+    //
+    // NOTE: 换 APPDATA 这一招**只在 Windows 上成立**。安装器是按 os.name 分支算游戏目录的：
+    //       Windows 走 `%APPDATA%/.minecraft`，Linux 走 `user.home/.minecraft` —— 后者改
+    //       环境变量根本改不动（Java 是从系统里取的，不是从环境变量里读的），于是它会跑到
+    //       用户真实的 ~/.minecraft 里去动手。那种平台上宁可不装，也不能这么干。
+    QString targetDir = AppPaths::minecraftDir();
+    if (optifine) {
+#ifdef Q_OS_WIN
+        QString error;
+        if (!prepareOptifineWorkDir(&error)) {
+            failLoaderInstall(error);
+            return;
+        }
+        targetDir = optifineWorkMinecraftDir();
+#else
+        failLoaderInstall(tr("OptiFine 的安装器只认 Windows 上的 APPDATA，这个平台上还没接通。"));
+        return;
+#endif
+    }
+
     bool created = false;
     QString error;
-    if (!ensureLauncherProfiles(&created, &error)) {
+    if (!ensureLauncherProfiles(targetDir, &created, &error)) {
         failLoaderInstall(error);
         return;
     }
-    if (created) {
+    // OptiFine 那一份是补给我们自己的临时目录的（每次装必然是新建），用户没必要知道。
+    if (created && !optifine) {
         emit loaderInstallMessage(
             tr("这个游戏目录里还没有 %1，先补一份最小的（没有它 %2 的安装器拒绝干活；"
                "原版启动器、PCL 都往这个文件里记自己的档案，所以补的是最小的一份、"
@@ -738,18 +840,49 @@ void VersionManager::runInstaller() {
     // phase 要在 start() **之前**设：进程起不来时 errorOccurred 会回来，那条路要靠
     // phase 认出"这次是安装器的事"。
     m_loaderInstall.phase = LoaderInstall::Phase::RunningInstaller;
-    emit loaderInstallMessage(
-        tr("正在运行 %1 %2 的安装器...（这一步最慢：它要下十几个库，还要把原版的"
-           "客户端 jar 打两遍补丁）")
-            .arg(m_loaderInstall.loaderName, m_loaderInstall.loaderVersion));
+    if (optifine) {
+        emit loaderInstallMessage(
+            tr("正在运行 %1 %2 的安装器...（它本身是个图形程序，我们用的是它的无界面入口；"
+               "这一步最慢：它要把原版的客户端 jar 抄进新版本目录，再把两个库放好）")
+                .arg(m_loaderInstall.loaderName, m_loaderInstall.loaderVersion));
+    } else {
+        emit loaderInstallMessage(
+            tr("正在运行 %1 %2 的安装器...（这一步最慢：它要下十几个库，还要把原版的"
+               "客户端 jar 打两遍补丁）")
+                .arg(m_loaderInstall.loaderName, m_loaderInstall.loaderVersion));
+    }
 
-    // 和原版启动器一样的调用方式。--installClient 那个目录参数**必须**给：不给的话
-    // 安装器会落到 user.home/.minecraft（我们这台机器上是 C:\Users\User\.minecraft），
-    // 装到一个用户根本不知道的地方去。
+    // program 和 arguments 都是**常驻**的（和下面那个环境一样）：`start()` 不带参数走的
+    // 就是上一次设的那个 program。所以这条路每次都得把它设一遍 —— 漏了它的症状是
+    // "安装器起不来（那个 Java 进程没能启动）"，因为 QProcess 拿着一个空 program 去 start。
     installerProcess->setProgram(program);
-    installerProcess->setArguments({QStringLiteral("-jar"), m_loaderInstall.installerPath,
-                                    QStringLiteral("--installClient"), AppPaths::minecraftDir()});
-    installerProcess->setWorkingDirectory(AppPaths::minecraftDir());
+
+    // 环境**每次都显式设一遍**，不是"只在 OptiFine 时设"：QProcess 的环境是常驻的
+    // （set 一次之后每次 start 都用它），OptiFine 那次换过 APPDATA 之后不还原的话，下一次
+    // 装 Forge/NeoForge 会把 APPDATA 指到一个**已经删掉的**临时目录上。
+    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    if (optifine) {
+        // 只有 Windows 能走到这里（上面那道守卫）。
+        //
+        //  * 入口是 `optifine.Installer`：jar 的 Main-Class 是 `optifine.InstallerFrame`
+        //    （Swing 窗口，headless 下当场 HeadlessException），真正的无界面入口是前者，
+        //    而且**一个参数都不用给**（版本号它自己从自己那份 jar 里读）。
+        //  * -Djava.awt.headless=true 是**必须**的：它出错时会弹一个框等人点，不设这个的话
+        //    进程永不退出，只能等我们那个半小时的超时把它杀掉。
+        //  * APPDATA 指到临时目录：它只认这一个地方，命令行里给目录它看都不看。
+        env.insert(QStringLiteral("APPDATA"), optifineWorkRoot());
+        installerProcess->setArguments({QStringLiteral("-Djava.awt.headless=true"),
+                                        QStringLiteral("-cp"), m_loaderInstall.installerPath,
+                                        QStringLiteral("optifine.Installer")});
+    } else {
+        // 和原版启动器一样的调用方式。`--installClient` 后面那个目录**必须**给：不给的话
+        // 安装器会落到 user.home/.minecraft（这台机器上是 C:\Users\User\.minecraft），
+        // 装到一个用户根本不知道的地方去。
+        installerProcess->setArguments({QStringLiteral("-jar"), m_loaderInstall.installerPath,
+                                        QStringLiteral("--installClient"), targetDir});
+    }
+    installerProcess->setProcessEnvironment(env);
+    installerProcess->setWorkingDirectory(targetDir);
     installerProcess->start();
     installerTimer->start();
 }
@@ -866,6 +999,15 @@ void VersionManager::onInstallerFinished(int exitCode, bool crashed) {
         return;
     }
 
+    // OptiFine 的版本目录**叫什么名字我们算不出来**（安装器按自己那份 jar 里的版本号拼的），
+    // 所以它那一套是"先去临时目录里认、核对、搬回来"，出口和下面这段一样：成功就接着补
+    // 原版，失败就收尾。核对仍然做，只是搬到了 adoptOptifineProducts() 里 —— 而且那一步
+    // 做到"核对通过"之前，用户的游戏目录里一个字节都不会多。
+    if (m_loaderInstall.kind == LoaderKind::OptiFine) {
+        adoptOptifineProducts();
+        return;
+    }
+
     // 退出码 0 **还不算**装好：核对它真的把那份 json 放在我们算出来的目录里、而且那份
     // json 认的父版本就是我们打算装的那个。Forge 哪天改了目录名约定的话，这两条里至少
     // 有一条会亮 —— 报出来的是"装是装了、但不在预期的地方"，而不是静默把 wtfml.meta
@@ -915,7 +1057,353 @@ void VersionManager::startParentCompletion() {
     fetchVersionDetails(parent);
 }
 
+// ---------------------------------------------------------------------------
+// OptiFine：跑它自己的安装器（无界面入口 + 换 APPDATA + 对着临时目录装）
+// ---------------------------------------------------------------------------
+//
+// 这一段和上面 Forge/NeoForge 那段**故意长得不一样**，三处实测到的差别（都记在
+// LoaderMeta.hpp 里 OptiFine 那一节）直接决定了下面代码的顺序：
+//
+//  * 它的安装器**不认命令行给的目录**（参数整个丢掉，只从 APPDATA 算）→ 换子进程的
+//    APPDATA、让它对着一个临时目录装，装完把产物搬回真游戏目录。真游戏目录从头到尾没被
+//    它碰过 —— 这比"用目录联接把假目录指过去"稳得多：那一条路要在用户的真目录上做删除，
+//    错一步就是把人家的 .minecraft 删了。
+//  * 它**要拿原版的客户端 jar 当输入** → 所以是"先补原版、再跑安装器"（Forge/NeoForge
+//    正好相反：先跑安装器、最后才补原版）。
+//  * 它的版本目录名**我们算不出来**（安装器按自己那份 jar 里的版本号拼的）→ 装完去盘上认。
+
+void VersionManager::fetchOptifineVersionList() {
+    if (loaderNetwork == nullptr) {
+        loaderNetwork = new QNetworkAccessManager(this);
+    }
+    // 两个源是**两份不同的数据**：镜像是一条 JSON 接口（一个游戏版本一页），官方只有那张
+    // 203 KB 的下载页可读（每个游戏版本一节）。连"哪一条是正式版"的挑法都不一样，所以
+    // 回复也不共用处理，各走各的（见 LoaderMeta.hpp 里那两个纯函数）。
+    const QUrl url(downloadManager->useMirror()
+                       ? LoaderMeta::optifineMirrorListUrl(m_loaderInstall.gameVersion)
+                       : LoaderMeta::optifineDownloadsPageUrl());
+    QNetworkRequest request(url);
+    request.setTransferTimeout(30000);
+    QNetworkReply *reply = loaderNetwork->get(request);
+    connect(reply, &QNetworkReply::finished, this,
+            [this, reply] { onOptifineVersionListReply(reply); });
+}
+
+void VersionManager::onOptifineVersionListReply(QNetworkReply *reply) {
+    reply->deleteLater();
+    // 状态已经换过（上一次失败收了尾、或者用户又点了一次）：这份回复没人要了。
+    if (m_loaderInstall.phase != LoaderInstall::Phase::FetchingInstallerList) {
+        return;
+    }
+
+    const QByteArray body = reply->readAll();
+    if (reply->error() != QNetworkReply::NoError) {
+        failLoaderInstall(tr("拿不到 %1 %2 的版本表（%3）。检查网络后重试。")
+                              .arg(m_loaderInstall.loaderName, m_loaderInstall.gameVersion,
+                                   reply->errorString()));
+        return;
+    }
+
+    const bool useMirror = downloadManager->useMirror();
+    LoaderMeta::OptiFinePick pick;
+    if (useMirror) {
+        QJsonParseError parseError;
+        const QJsonDocument doc = QJsonDocument::fromJson(body, &parseError);
+        if (!doc.isArray()) {
+            failLoaderInstall(tr("OptiFine 的版本表读不懂（%1）。").arg(parseError.errorString()));
+            return;
+        }
+        pick = LoaderMeta::pickOptifineFromMirror(doc.array());
+    } else {
+        pick = LoaderMeta::pickOptifineFromDownloadsPage(QString::fromUtf8(body),
+                                                         m_loaderInstall.gameVersion);
+    }
+
+    if (!pick.ok()) {
+        // 和另外三条一样：这不是网络问题，也**不能**退回"装原版"。NOTE: 这一条**包含**
+        // "只有预览版、还没发正式版"的游戏版本 —— 官方页面上那一节里就没有 main 行，
+        // 镜像那边则是全被 preview_ 过滤掉了。
+        failLoaderInstall(tr("%1 还没有支持 %2 的正式版（预览版不装）。")
+                              .arg(m_loaderInstall.loaderName, m_loaderInstall.gameVersion));
+        return;
+    }
+
+    m_loaderInstall.installerFileName = pick.fileName;
+    // "这个版本叫什么"只有 LoaderMeta::optifineEditionFromFile() 那一处切法，官方/镜像两条路
+    // 都得是同一个值（那是要写进 wtfml.meta 的东西）。
+    //
+    // NOTE: 版本目录名（= loaderId，最终 finished 信号里的 id）这里**故意不填** —— 它是
+    //       安装器自己拼的，我们算不出来。装完认出来再填（见 adoptOptifineProducts），
+    //       在那之前要报 id 的地方走 reportId() 的退化值（原版号）。
+    m_loaderInstall.loaderVersion =
+        LoaderMeta::optifineEditionFromFile(m_loaderInstall.gameVersion, pick.fileName);
+
+    emit loaderInstallMessage(tr("挑中 %1 %2（%3）。")
+                                  .arg(m_loaderInstall.loaderName, m_loaderInstall.loaderVersion,
+                                       useMirror ? tr("镜像源上最新那条正式版")
+                                                 : tr("官方页面上标着正式版的那一条")));
+
+    if (useMirror) {
+        // 镜像那条路的地址最后两段是 type/patch（`/optifine/1.18.2/HD_U/H9`），302 到
+        // maven 上那个真文件。所以 installerFileName 不能用它来切，上面先填好了。
+        m_loaderInstall.installerUrl = LoaderMeta::optifineMirrorFileUrl(
+            m_loaderInstall.gameVersion, pick.type, pick.patch);
+        ensureParentForOptifine();
+        return;
+    }
+
+    // 官方那条路还差一步：真文件在广告页后面，先把那条带 token 的地址抠出来。
+    m_loaderInstall.phase = LoaderInstall::Phase::FetchingInstallerToken;
+    emit loaderInstallMessage(tr("正在取 %1 %2 的下载地址...")
+                                  .arg(m_loaderInstall.loaderName, m_loaderInstall.loaderVersion));
+    fetchOptifineDownloadToken();
+}
+
+void VersionManager::fetchOptifineDownloadToken() {
+    const QUrl url(LoaderMeta::optifineAdPageUrl(m_loaderInstall.installerFileName));
+    QNetworkRequest request(url);
+    request.setTransferTimeout(30000);
+    QNetworkReply *reply = loaderNetwork->get(request);
+    connect(reply, &QNetworkReply::finished, this,
+            [this, reply] { onOptifineDownloadTokenReply(reply); });
+}
+
+void VersionManager::onOptifineDownloadTokenReply(QNetworkReply *reply) {
+    reply->deleteLater();
+    if (m_loaderInstall.phase != LoaderInstall::Phase::FetchingInstallerToken) {
+        return;
+    }
+
+    const QByteArray body = reply->readAll();
+    if (reply->error() != QNetworkReply::NoError) {
+        failLoaderInstall(tr("拿不到 %1 %2 的下载地址（%3）。检查网络后重试。")
+                              .arg(m_loaderInstall.loaderName, m_loaderInstall.loaderVersion,
+                                   reply->errorString()));
+        return;
+    }
+
+    const QString url = LoaderMeta::optifineJarUrlFromAdPage(QString::fromUtf8(body),
+                                                             m_loaderInstall.installerFileName);
+    if (url.isEmpty()) {
+        // 抠不出来就**不猜**：宁可报"拿不到下载地址"，也不给用户下一个不知道是什么的文件。
+        failLoaderInstall(tr("%1 的广告页上没认出 %2 那条下载地址，没有安装。过一会儿重试；"
+                             "一直这样就把下载源换成镜像源。")
+                              .arg(m_loaderInstall.loaderName, m_loaderInstall.installerFileName));
+        return;
+    }
+
+    m_loaderInstall.installerUrl = url;
+    ensureParentForOptifine();
+}
+
+void VersionManager::ensureParentForOptifine() {
+    // 判据和 startParentOrLoaderFiles() 完全一样（版本 json + 客户端 jar 两份都在盘上），
+    // 但**理由和方向都不一样**：那边是"原版在就直接下加载器自己的文件"，这边是"原版不在就
+    // 先补 —— 安装器要拿那份客户端 jar 当输入，它不在的话安装器起不来"。
+    const QString parent = m_loaderInstall.gameVersion;
+    if (QFile::exists(InstanceFiles::jsonPath(parent)) &&
+        QFile::exists(InstanceFiles::jarPath(parent))) {
+        emit loaderInstallMessage(tr("原版 %1 已经装好了，直接跑 %2 的安装器。")
+                                      .arg(parent, m_loaderInstall.loaderName));
+        startInstallerDownload();
+        return;
+    }
+
+    emit loaderInstallMessage(tr("%1 的安装器要拿原版 %2 的客户端 jar 当输入，先把原版装好...")
+                                  .arg(m_loaderInstall.loaderName, parent));
+    m_loaderInstall.phase = LoaderInstall::Phase::WaitingParentJson;
+    fetchVersionDetails(parent);
+}
+
+QString VersionManager::optifineWorkRoot() const {
+    return optifineWorkDir != nullptr ? optifineWorkDir->path() : QString();
+}
+
+QString VersionManager::optifineWorkMinecraftDir() const {
+    // 安装器算的是 `%APPDATA%/.minecraft`（实测：Utils.getWorkingDirectory()），所以 APPDATA
+    // 指的是**外面那层**，它真正往里装的是下面这层 .minecraft。
+    return optifineWorkRoot() + QStringLiteral("/.minecraft");
+}
+
+void VersionManager::cleanupOptifineWorkDir() {
+    if (optifineWorkDir == nullptr) {
+        return;
+    }
+    // 递归删。那底下全是我们自己刚建的东西（见 .hpp 里那个成员的 NOTE），所以这是安全的
+    // —— 换来的正是"真游戏目录一个字节都不删"。
+    //
+    // NOTE: 删不掉（比如子进程还占着文件）也不报错、不当失败：最坏的结果是系统临时目录里
+    //       多留一份几 MB 的假 .minecraft，不值得为这个去打扰用户。
+    if (!optifineWorkDir->remove()) {
+        qWarning() << "Could not remove the OptiFine work dir" << optifineWorkDir->path();
+    }
+    delete optifineWorkDir;
+    optifineWorkDir = nullptr;
+}
+
+bool VersionManager::prepareOptifineWorkDir(QString *errorOut) {
+    // 先清一次：正常路径下不该有残留（两条终态都会清），这里是保险 —— 万一将来某条新加的
+    // 失败路径漏了清，下一次安装不该装进一个脏目录里。
+    cleanupOptifineWorkDir();
+
+    optifineWorkDir =
+        new QTemporaryDir(QDir::tempPath() + QStringLiteral("/wtfml-optifine-XXXXXX"));
+    if (!optifineWorkDir->isValid()) {
+        if (errorOut != nullptr) {
+            *errorOut = tr("建不出临时工作目录（%1）。%2 的安装器只认 APPDATA 指的那个目录，"
+                           "没它装不了。")
+                            .arg(optifineWorkDir->errorString(), m_loaderInstall.loaderName);
+        }
+        return false;
+    }
+
+    // 搬运安装器要的两样**输入**：原版的版本 json 和客户端 jar。它把那份 jar 原样抄进新
+    // 版本目录当"这个版本的客户端 jar"（不往里写补丁），所以它得先在盘上、还得叫那个名字
+    // —— 安装器是按 `versions/<原版>/<原版>.jar` 这个约定去找的。
+    const QString parent = m_loaderInstall.gameVersion;
+    const QString destDir = optifineWorkMinecraftDir() + QStringLiteral("/versions/") + parent;
+    if (!QDir().mkpath(destDir)) {
+        if (errorOut != nullptr) {
+            *errorOut = tr("建不出临时目录里的 versions/%1（%2）。").arg(parent, destDir);
+        }
+        return false;
+    }
+
+    const QString jsonFrom = InstanceFiles::jsonPath(parent);
+    const QString jarFrom = InstanceFiles::jarPath(parent);
+    if (!QFile::exists(jsonFrom) || !QFile::exists(jarFrom)) {
+        if (errorOut != nullptr) {
+            *errorOut = tr("原版 %1 的文件不全（%2 / %3 这两份要拷进临时目录给安装器用），"
+                           "没有安装。")
+                            .arg(parent, jsonFrom, jarFrom);
+        }
+        return false;
+    }
+    if (!QFile::copy(jsonFrom, destDir + QLatin1Char('/') + parent + QStringLiteral(".json")) ||
+        !QFile::copy(jarFrom, destDir + QLatin1Char('/') + parent + QStringLiteral(".jar"))) {
+        if (errorOut != nullptr) {
+            *errorOut = tr("把原版 %1 的版本 json / 客户端 jar 拷进临时目录时失败了，没有安装。")
+                            .arg(parent);
+        }
+        return false;
+    }
+    return true;
+}
+
+void VersionManager::adoptOptifineProducts() {
+    const QString name = m_loaderInstall.loaderName;
+    const QString version = m_loaderInstall.loaderVersion;
+    const QString prefix = m_loaderInstall.gameVersion + QStringLiteral("-OptiFine_");
+
+    // 1. 认它装到哪去了。那个临时目录是全新的，我们只往里放了一份**原版**，所以
+    //    `versions/` 底下除了原版之外多出来的**那一个**目录就是它装的。多了、少了都不猜
+    //    —— 猜错就是把 wtfml.meta 写到一个不存在的 id 上。
+    const QString versionsRoot = optifineWorkMinecraftDir() + QStringLiteral("/versions");
+    QString id;
+    const QFileInfoList entries =
+        QDir(versionsRoot).entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot);
+    for (const QFileInfo &entry : entries) {
+        if (entry.fileName() == m_loaderInstall.gameVersion) {
+            continue;  // 我们自己放进去的原版
+        }
+        if (!id.isEmpty()) {
+            failLoaderInstall(tr("%1 的安装器在临时目录里装出了不止一个版本（%2、%3），"
+                                 "认不出该用哪一个，没有安装。\n"
+                                 "它最后打出来的是：\n%4")
+                                  .arg(name, id, entry.fileName(),
+                                       installerOutputTail(m_installerOutput)));
+            return;
+        }
+        id = entry.fileName();
+    }
+    if (id.isEmpty()) {
+        failLoaderInstall(tr("%1 %2 的安装器跑完了（退出码 0），但临时目录里没有多出任何"
+                             "版本目录，认不出它装到哪去了。\n"
+                             "它最后打出来的是：\n%3")
+                              .arg(name, version, installerOutputTail(m_installerOutput)));
+        return;
+    }
+
+    // 2. 名字得能当目录名（它来自安装器，我们拿它拼路径），而且得是 `<原版>-OptiFine_<版本>`
+    //    这个形状 —— 那是它自己拼目录名的约定，对不上就说明装的不是我们要的那个原版。
+    if (!LoaderMeta::isSafeVersionId(id) || !id.startsWith(prefix)) {
+        failLoaderInstall(tr("%1 %2 的安装器装出来一个「%3」，不是「%4…」那个形状，"
+                             "没有承认它装好了。")
+                              .arg(name, version, id, prefix));
+        return;
+    }
+
+    // 3. 核对那份 json。**从临时目录读**（不经过内存缓存 —— 走缓存就等于拿一份跟这次安装
+    //    无关的东西去核对）。NOTE: checkInstallerResult() 的 id 那一半在这里是**退化的**
+    //    （id 就是我们刚从盘上认出来的那个，必然相等），真正在查的是 inheritsFrom 是不是
+    //    我们选的那个原版、以及 id 能当目录名 —— 上面那两步已经把这两条查过了。
+    const QJsonObject produced = readVersionJsonAt(optifineWorkMinecraftDir() +
+                                                   QStringLiteral("/versions/") + id +
+                                                   QLatin1Char('/') + id +
+                                                   QStringLiteral(".json"));
+    if (produced.isEmpty()) {
+        failLoaderInstall(tr("%1 %2 的安装器装出了 %3 这个目录，但里面没有 %4.json，没有安装。")
+                              .arg(name, version, id, id));
+        return;
+    }
+    const LoaderMeta::ProfileCheck check =
+        LoaderMeta::checkInstallerResult(produced, m_loaderInstall.gameVersion, id);
+    if (!check.ok()) {
+        if (check.problem == LoaderMeta::ProfileProblem::BadId) {
+            failLoaderInstall(tr("%1 %2 装出来的版本 json 里的 id 是「%3」，和目录名「%4」"
+                                 "对不上，没有安装。")
+                                  .arg(name, version, check.id, id));
+            return;
+        }
+        failLoaderInstall(tr("%1 %2 装出来的版本是基于「%3」的，不是我们选的「%4」，没有安装。")
+                              .arg(name, version, check.parent, m_loaderInstall.gameVersion));
+        return;
+    }
+
+    // 4. 搬回真游戏目录。**先核对、后搬**：上面任何一条不过，用户的游戏目录里一个字节都
+    //    不会多出来 —— 这正是"对着临时目录装"换来的东西。
+    //
+    //    两样都要搬，而且**先搬库、后搬版本目录**：
+    //     * 那份 json 里的两个库既没有 `url` 也没有 `downloads`，只能从本机那份
+    //       `libraries/` 里满足。只搬版本目录会得到一个启动就 NoClassDefFound 的版本。
+    //     * 顺序是刻意的：版本目录一出现，这个版本在启动器的版本列表里就"存在"了。库先搬
+    //       的话，中途失败留下的是一份谁都看不见的库；反过来留下的会是一个半成品版本。
+    const QString tmpLibs = optifineWorkMinecraftDir() + QStringLiteral("/libraries/optifine");
+    if (!QDir(tmpLibs).exists()) {
+        failLoaderInstall(tr("%1 %2 装出来的版本目录里少了它的库（临时目录里没有 %3），"
+                             "这样的版本启动时会报找不到类，没有安装。")
+                              .arg(name, version, tmpLibs));
+        return;
+    }
+    if (!copyTreeInto(tmpLibs, AppPaths::libraryDir() + QStringLiteral("/optifine"))) {
+        failLoaderInstall(tr("%1 %2 的库（libraries/optifine/）没能从临时目录搬回游戏目录"
+                             "（%3），没有安装。")
+                              .arg(name, version, AppPaths::libraryDir() + QStringLiteral("/optifine")));
+        return;
+    }
+    if (!copyTreeInto(QDir(versionsRoot).absoluteFilePath(id), AppPaths::versionDir(id))) {
+        failLoaderInstall(tr("%1 %2 的库搬回来了，但版本目录没能搬回 %3，游戏目录里可能留下了"
+                             "半个版本 —— 再装一次就能盖好。")
+                              .arg(name, version, AppPaths::versionDir(id)));
+        return;
+    }
+
+    // 5. 版本号以**盘上那个目录名**为准：目录名是安装器拼的（我们算不出来），而 wtfml.meta
+    //    里记的东西必须和真实装出来的那个版本一致。挑版本时报的那个（从安装器文件名切的）
+    //    正常情况下和它一样。
+    m_loaderInstall.loaderId = id;
+    m_loaderInstall.loaderVersion = id.mid(prefix.size());
+
+    emit loaderInstallMessage(
+        tr("%1 %2 装好了（%3）。").arg(name, m_loaderInstall.loaderVersion, id));
+    startParentCompletion();
+}
+
 void VersionManager::finishLoaderInstall(bool success, const QString &message) {
+    // 那份临时工作目录（OptiFine 那条路才有）到这里就没人要了：产物已经搬回真游戏目录，
+    // 剩下的只是一份几 MB 的假 .minecraft。成功和失败两条终态都清，不留垃圾。
+    cleanupOptifineWorkDir();
+
     // 先把要用的字段取出来：reset() 会把它们清掉，忘了取的表现是消息里那个名字变空的
     // （不崩，但话就说不清了）。
     const QString loaderName = m_loaderInstall.loaderName;
@@ -956,6 +1444,9 @@ void VersionManager::writeLoaderMeta() {
 }
 
 void VersionManager::failLoaderInstall(const QString &reason) {
+    // 同上：不管是哪一步失败的，那个临时目录都该消失。
+    cleanupOptifineWorkDir();
+
     // 那份 profile 还在内存缓存里、磁盘上却没有对应的目录：留着的话 getVersionJson()
     // 会给出一个"磁盘上并不存在"的合并结果（它先查缓存）。清掉它。
     if (!m_loaderInstall.loaderId.isEmpty()) {
@@ -1494,7 +1985,21 @@ void VersionManager::onVersionJsonFetched(const QJsonObject &versionJson) {
         // "用户点了下载原版"，于是同一个版本下两遍、两个批次互相打架。这里直接接手。
         if (m_loaderInstall.phase == LoaderInstall::Phase::WaitingParentJson &&
             versionId == m_loaderInstall.gameVersion) {
-            m_loaderInstall.phase = LoaderInstall::Phase::WaitingParentFiles;
+            // OptiFine 那次是"**装之前**先把原版下全"（它的安装器要拿原版的客户端 jar 当
+            // 输入），所以它用另一个 phase 记着：那一批结束时该起安装器，而不是收尾。
+            // 另外三个都是"装完再补原版"，走 WaitingParentFiles。
+            //
+            // NOTE: 判据是 kind **加上 loaderId 还空着**，不是只看 kind。OptiFine 的 loaderId
+            //       是装完从盘上认出来的（见 adoptOptifineProducts），所以"还空着"正好等于
+            //       "安装器还没跑过"。装完那一次 startParentCompletion() 也要走这条路，那时
+            //       loaderId 已经有值 —— 再判成 WaitingParentBefore 的话，那一批下完会回头
+            //       **再跑一次安装器**，装完又补原版、补完又装：死循环，而且每一圈都往 %TEMP%
+            //       里再开一个临时目录、再起一个 java（实测就是这么转起来的）。
+            const bool beforeOptifineInstaller = m_loaderInstall.kind == LoaderKind::OptiFine &&
+                                                 m_loaderInstall.loaderId.isEmpty();
+            m_loaderInstall.phase = beforeOptifineInstaller
+                                        ? LoaderInstall::Phase::WaitingParentBefore
+                                        : LoaderInstall::Phase::WaitingParentFiles;
             downloadVersion(versionId, AppPaths::versionDir(versionId));
             return;
         }
@@ -1562,6 +2067,23 @@ void VersionManager::onAllDownloadsFinished(bool success) {
             return;
         }
 
+        // OptiFine 独有的一段：这一批是"装之前先把原版下全"那一次，下完才轮到安装器
+        // （它的安装器要拿原版的客户端 jar 当输入）。Forge/NeoForge 那边原版是**最后**
+        // 补的，所以它们永远走不到这里。
+        if (m_loaderInstall.phase == LoaderInstall::Phase::WaitingParentBefore) {
+            if (!success) {
+                failLoaderInstall(tr("原版 %1 的文件没下全，%2 没有安装。先把原版装好再试。\n%3")
+                                      .arg(m_loaderInstall.gameVersion,
+                                           m_loaderInstall.loaderName, message));
+                return;
+            }
+            emit loaderInstallMessage(tr("原版 %1 就绪，接着跑 %2 的安装器...")
+                                          .arg(m_loaderInstall.gameVersion,
+                                               m_loaderInstall.loaderName));
+            startInstallerDownload();
+            return;
+        }
+
         if (m_loaderInstall.phase == LoaderInstall::Phase::WaitingParentFiles) {
             if (!success) {
                 failLoaderInstall(tr("原版 %1 的文件没下全，%2 没有安装。先把原版装好再试。\n%3")
@@ -1576,8 +2098,9 @@ void VersionManager::onAllDownloadsFinished(bool success) {
                 startLoaderFiles();
                 return;
             }
-            // Forge / NeoForge：加载器自己那份 json 和库**安装器已经放好了**，这一批只是
-            // 把原版补齐，补完就结束了 —— 没有"加载器自己那几个库"要再下一遍。
+            // Forge / NeoForge / OptiFine：加载器自己那份 json 和库**安装器已经放好了**
+            // （OptiFine 那两份是我们从临时目录里搬回来的），这一批只是把原版补齐，补完就
+            // 结束了 —— 没有"加载器自己那几个库"要再下一遍。
             finishLoaderInstall(true, message);
             return;
         }

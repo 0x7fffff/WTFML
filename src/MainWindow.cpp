@@ -2406,22 +2406,25 @@ void MainWindow::startLoaderInstall(const QString &gameVersion, int loaderIndex)
 
     const QString loaderName = VersionManager::loaderDisplayName(kind);
     if (!VersionManager::loaderInstallSupported(kind)) {
-        // 还没做的那些**不能**退回装纯原版：用户勾着 OptiFine，装出来一个原版是骗人。
+        // 还没接通的那些**不能**退回装纯原版：用户勾着一个加载器，装出来一个原版是骗人。
+        //
+        // NOTE: 四个加载器都接通之后这里走不到了，守卫却要留着：将来往枚举里加第五个、
+        //       数据层还没写好时，正是它接住那种情况。少了它界面会一直停在忙态上 ——
+        //       点击那一刻按钮就已经禁用了，而数据层那道守卫只发一条消息、不解除忙态。
         appendLog(tr("%1 的安装还没接通。").arg(loaderName));
         QMessageBox::information(
             this, tr("还没做"),
-            tr("%1 的安装还没做 —— 现在接通的是 Fabric / Forge / NeoForge。\n\n"
-               "OptiFine 卡在它的安装器上：它把命令行给的目录整个丢掉、只认 APPDATA 下面"
-               "那个 .minecraft（所以得给子进程换 APPDATA、再用目录联接把那个假的指到真"
-               "游戏目录），而且它出错时会弹一个对话框等着人点、进程不退出 —— 这条得单独"
-               "做，不是这里再加一个地址就能通的。\n\n"
+            tr("%1 的安装还没接通（这个启动器现在能装的是 Fabric / Forge / NeoForge / "
+               "OptiFine）。\n\n"
                "想装纯原版的话：勾「不装（纯原版）」，再点「下载版本」。")
                 .arg(loaderName));
         return;
     }
 
-    // 安装器自己就是个 Java 程序（`java -jar <安装器>.jar --installClient <目录>`），所以要的
-    // 运行环境和"这个版本要的 Java"是同一件事：版本 json 里的 javaVersion。Fabric 那条路只拉
+    // 安装器自己就是个 Java 程序（Forge/NeoForge 是 `java -jar <安装器>.jar --installClient
+    // <目录>`，OptiFine 那个是无界面入口 + 换 APPDATA，见 VersionManager::runInstaller），
+    // 所以要的运行环境和"这个版本要的 Java"是同一件事：版本 json 里的 javaVersion。
+    // Fabric 那条路只拉
     // json + 下 maven 库，一个进程都不起，所以这一段只管要跑安装器的那些。
     //
     // 拿不到版本 json（原版还没装）就不知道要求，此时原样用配的那份 —— 不在这一步拦人：装

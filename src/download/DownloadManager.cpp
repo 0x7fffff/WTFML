@@ -545,6 +545,10 @@ QList<Library> DownloadManager::extractLibraries(const QJsonObject &versionJson)
         //
         // 解析（含 maven 风格的库）在 LibraryRules::artifactFor() —— 启动时拼 classpath
         // 用的是同一个函数，两处的语义不会各自漂移。
+        //
+        // NOTE: 这里用 valid()（要**有下载地址**）是对的，和 classpath 那边的 hasPath() 不是
+        //       一回事：OptiFine 那两个库没有地址、盘上本来就有，它们不该出现在下载列表里
+        //       —— 拿 hasPath() 当判据会造出两条 url 为空的幽灵请求。
         const LibraryRules::Artifact artifact = LibraryRules::artifactFor(libObj);
         if (artifact.valid()) {
             Library lib;
