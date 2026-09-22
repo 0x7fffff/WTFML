@@ -189,8 +189,37 @@ public:
     /// @param installerPath 安装器 jar 在盘上的路径。
     /// @param targetDir `--installClient` 后面那个目录。
     /// @param useMirror 镜像源模式 —— 决定要不要给 `--mirror`。
+    /// @param supportsMirror 探到安装器认不认 `--mirror`（见 parseInstallerHelp）。老安装器
+    ///        不认它，喂过去就是当场报错退出，所以探到不认就**不给**。
     static QStringList forgeInstallerArguments(const QString &installerPath,
-                                               const QString &targetDir, bool useMirror);
+                                               const QString &targetDir, bool useMirror,
+                                               bool supportsMirror = true);
+
+    /// 一个安装器的命令行开关认到什么程度（跑一次 `--help` 探出来的）。
+    ///
+    /// NOTE: 为什么要探：Forge 1.8.9 那个年代的安装器（SimpleInstaller）**没有**
+    ///       `--installClient` 这条路 —— 2026-09-22 拿真机日志里的 1.8.9-11.15.1.1722 实测，
+    ///       它的 `--help` 只有 `--extract` / `-h` / `--installServer` / `--offline`（545 B），
+    ///       把 `--installClient` 喂过去，它当场 joptsimple.UnrecognizedOptionException 退出码 1，
+    ///       用户看到的是一段 Java 堆栈（那次失败的日志就是这么写的）。所以跑安装器之前先
+    ///       问一句它认什么。
+    ///
+    ///       一个一个探下来的边界（2026-09-22 实测，每个都下了 4~5 MB 的安装器跑
+    ///       `java -jar <安装器> --help`）：**1.7.10 / 1.8.9（11.15.1.1722 和 11.15.1.2318
+    ///       两个都试了）/ 1.9.4 / 1.10.2 / 1.11.2 都不认**；1.12.2（14.23.5.2859）和
+    ///       26.2（65.1.0）都认。所以这不是"某个版本坏了"，是整整一代安装器都只有图形界面。
+    ///
+    /// 默认值全是"宁可信其有"：探不出来（进程起不来、超时、输出是空的）就按老样子往下走，
+    /// 让真正那一次安装去撞、去报它自己的错 —— 探针的意义是"少一次莫名其妙的报错"，
+    /// 不能变成"多一道把本来能装的版本拦下来的关"。
+    struct InstallerOptions {
+        bool probed = false;               ///< `--help` 真的跑完并拿到了输出
+        bool supportsInstallClient = true; ///< 认 `--installClient <目录>`
+        bool supportsMirror = true;        ///< 认 `--mirror <根地址>`
+    };
+
+    /// 从 `java -jar <安装器> --help` 的输出里认出它认哪些开关（**纯函数**）。
+    static InstallerOptions parseInstallerHelp(const QString &helpText);
 
     // Version JSON access
     //
@@ -376,6 +405,7 @@ private:
             FetchingInstallerList,  ///< Forge/NeoForge/OptiFine：正在拉版本表
             FetchingInstallerToken, ///< OptiFine（官方源）：正在从广告页里抠下载地址
             WaitingInstallerJar,    ///< 三个都要跑安装器的：安装器 jar 正在下
+            ProbingInstallerOptions, ///< Forge/NeoForge：先跑一次 `--help`，看它认哪些开关
             RunningInstaller,       ///< 三个都要跑安装器的：那个 Java 进程正在跑
             WaitingParentJson,      ///< 正在取原版的 version.json（走 fetchVersionDetails）
             WaitingParentBefore,    ///< OptiFine：原版那一批正在下（它的安装器要拿原版当输入）
@@ -400,6 +430,21 @@ private:
         /// 走镜像源时那个地址的最后两段是 `type`/`patch`（`/optifine/1.18.2/HD_U/H9`），
         /// 不是文件名 —— 照着取会落成一个叫 `H9` 的文件。
         QString installerFileName;
+
+        /// 版本表那条请求的状态（只有 Forge / NeoForge 用得上）。
+        ///
+        /// 为什么要留官方那条地址：镜像（BMCLAPI）上的 Forge 版本表是个**旧文件** ——
+        /// 2026-09-22 实测镜像那份 1782 B、最新的游戏版本停在 1.15.2，官方那份 4111 B、
+        /// 一直到 26.3。拿镜像那份挑 1.16 以后的版本**一个都挑不出来**，界面上就成了
+        /// "每个版本都没有 Forge 支持"（用户报的就是这个）。所以镜像那一发挑不出来
+        /// （或者压根取不到）时，用官方那条再挑一次；两个都挑不出来才说"没有支持"。
+        QString listOfficialUrl;
+        bool listRequestWasMirror = false;
+        bool listRetriedOfficial = false;
+
+        /// 安装器 jar 的常规坐标 404 之后，换 `<游戏>-<加载器>-<游戏>` 那种坐标试过一次没有。
+        /// 只试一次（见 VersionManager::retryInstallerDownloadAlternate）。
+        bool retriedAltCoordinate = false;
 
         bool active() const { return phase != Phase::Idle; }
         // 结算用的 id：还没算出 loaderId 时退化成原版号 —— 失败信号总得带一个 id。
@@ -430,11 +475,27 @@ private:
     // 两份接口一个 JSON 一个 XML，但都是"拉一段文本、挑一个版本号"，所以共用一条路，
     // 按 kind 在回复处理里分派。
     void fetchInstallerList();
+    /// 发一发"取版本表"的请求。url 可能是镜像那条、也可能是官方那条（见
+    /// onInstallerListReply 里"镜像挑不出来就退回官方"那一段）。
+    void requestInstallerList(const QString &url);
+    /// 镜像那份版本表挑不出来时的退路：换官方那条再发一发。
+    /// @return 真的退了（调用方应当直接 return，等下一发回复）返回 true。
+    bool retryInstallerListFromOfficial();
     void onInstallerListReply(QNetworkReply *reply);
     // 把安装器 jar 下到 cache/installers/（一批下载，完成信号回到 onAllDownloadsFinished）。
     void startInstallerDownload();
     // 前置检查 + 起那个 Java 子进程。**异步**：它不阻塞界面，结果由 onInstallerFinished 收。
+    // Forge/NeoForge 会**先**探一次 `--help`（见 probeInstallerOptions），探完才跑真正的安装。
     void runInstaller();
+    // 起一次 `java -jar <安装器> --help`，只为问出这一版安装器认哪些命令行开关。
+    void probeInstallerOptions();
+    // 探针那一次跑完：落定 InstallerOptions，然后接着跑真正的安装（或者报"装不了"）。
+    void onProbeFinished(int exitCode, bool crashed);
+    // 真正跑安装器（探针之后、或者 OptiFine 那种不用探的）：起进程 + 报进度 + 开定时器。
+    void startInstallerProcess();
+    /// 安装器 jar 没下下来时的第二次机会：换 Forge 的另一种 maven 坐标再下一遍。
+    /// @return 真的换了（调用方应当直接 return，等那一批的完成信号）返回 true。
+    bool retryInstallerDownloadAlternate();
     // 读子进程的输出（只留尾巴，用来在失败时报"卡在哪"）。
     void onInstallerOutput();
     // 每秒一跳：报心跳，顺带执行硬超时。
@@ -516,6 +577,16 @@ private:
     //       都没有（Qt 的事件循环根本没在转）。所以走异步信号，另外配一个定时器报心跳 +
     //       兜硬超时。
     QProcess *installerProcess = nullptr;
+    /// 这一次安装用的 Java 和安装目录：runInstaller() 里定下来，探完 `--help` 之后起真正那个
+    /// 进程时要用**同一份**。存成员而不是重算，是因为 OptiFine 那个 targetDir 是临时工作
+    /// 目录（重算要再建一次、还可能不一致）。
+    QString m_installerProgram;
+    QString m_installerTargetDir;
+    /// 探 `--help` 那一次的原始输出。和 m_installerOutput **分开收**：后者是"失败时贴给用户
+    /// 看的那几行"，混进一段 --help 只会把真正有用的东西挤出那 64 KB。
+    QByteArray m_probeOutput;
+    /// 这个安装器认哪些命令行开关（探完 `--help` 才有结论；没探到时按"宁可信其有"）。
+    InstallerOptions m_installerOptions;
     // OptiFine 那次安装的临时工作目录（APPDATA 指过去的那一份）。懒建 —— 只有真去装
     // OptiFine 时才存在，装完（成功或失败）立刻删掉。
     //

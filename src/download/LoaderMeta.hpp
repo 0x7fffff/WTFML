@@ -299,6 +299,27 @@ inline QString forgeInstallerUrl(const QString &gameVersion, const QString &load
         .arg(full);
 }
 
+/// Forge 安装器 jar 的**另一种坐标**：`<游戏>-<加载器>-<游戏>`。
+///
+/// NOTE: 2026-09-22 实测发现的坑（起因是用户那次 1.8.9 的安装失败）：老的游戏版本只发布了
+///       这一种坐标，常规那种（forgeInstallerUrl）**直接 404**。一个一个 curl 出来的表：
+///
+///           坐标                               1.7.10        1.8.9          1.9.4   1.11.2  1.12.2
+///           <游戏>-<加载器>                    404           404            404     200     200
+///           <游戏>-<加载器>-<游戏>              200           200            200     404     404
+///
+///       1.8.9 那两个都是官方推广表里会挑中的版本（11.15.1.1722 / 11.15.1.2318），所以这不是
+///       "某个野生版本"，是这条路的正常输入。判断"该用哪一种"没有便宜的离线判据（两种都有
+///       先例、也不按版本号单调），所以**不猜**：按常规坐标下一遍，404 了就换成这一种再下
+///       （见 VersionManager::startInstallerDownload / retryInstallerDownloadAlternate()）。
+inline QString forgeInstallerUrlAlternate(const QString &gameVersion,
+                                          const QString &loaderVersion) {
+    const QString full = gameVersion + QLatin1Char('-') + loaderVersion;
+    return QStringLiteral("https://maven.minecraftforge.net/net/minecraftforge/forge/%1-%2/"
+                          "forge-%1-%2-installer.jar")
+        .arg(full, gameVersion);
+}
+
 /// Forge 装出来的版本目录名。
 ///
 /// 和 Fabric 那边一个道理：这个名字**不是我们发明的**，是安装器自己写进 launcher_profiles

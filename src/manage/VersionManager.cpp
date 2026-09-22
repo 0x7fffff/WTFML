@@ -68,6 +68,10 @@ QString newInstanceId() { return QUuid::createUuid().toString(QUuid::WithoutBrac
 /// 还没结束，那不是慢，那是卡住了（或者弹了个看不见的对话框在等人点）。
 constexpr int kInstallerTimeoutMs = 30 * 60 * 1000;
 
+/// 探 `--help` 那一次最多等多久。它本该打一段帮助就退出（实测两个安装器都在 1 秒内回来），
+/// 所以给得短：探不出来就按"宁可信其有"往下走，不能为它耽误真正的安装。
+constexpr int kInstallerProbeTimeoutMs = 60 * 1000;
+
 /// 安装器跑着的时候，每隔这么多秒报一次"还在跑"。
 ///
 /// 安装器的输出里绝大部分是 `Patching xxx 1/1` 这种**逐文件**的行，那些不该进日志
@@ -675,15 +679,46 @@ void VersionManager::fetchInstallerList() {
     // 63 KB 在 maven.neoforged.net 上，两个 host 都在 DownloadManager::mirrorUrl() 里认得了。
     // NOTE: 这条路**不是** downloadManager 发的（它只是 GET 一段文本、没有落盘），所以镜像
     //       得在这儿自己换一次 —— downloadFile() 那条路不会替它换。
-    const QString listUrl =
+    //
+    // NOTE: 但镜像那份 Forge 版本表**是旧的**（2026-09-22 实测：镜像 1782 B、最新的游戏
+    //       版本停在 1.15.2；官方 4111 B、一直到 26.3），拿它挑新版本会挑出一个**假**结论
+    //       ——「Forge 还没有支持 26.2 的版本。」所以这里不假定镜像能用：镜像发一发，
+    //       挑不出来就换官方那条再发一发（见 retryInstallerListFromOfficial）。镜像哪天
+    //       跟上了，这条路自动回到镜像。
+    m_loaderInstall.listOfficialUrl =
         m_loaderInstall.kind == LoaderKind::Forge ? LoaderMeta::forgePromotionsUrl()
                                                   : LoaderMeta::neoforgeMavenMetadataUrl();
-    const QUrl url(downloadManager->endpoint(listUrl));
-    QNetworkRequest request(url);
+    const QString url = downloadManager->endpoint(m_loaderInstall.listOfficialUrl);
+    m_loaderInstall.listRequestWasMirror = (url != m_loaderInstall.listOfficialUrl);
+    m_loaderInstall.listRetriedOfficial = false;
+    requestInstallerList(url);
+}
+
+void VersionManager::requestInstallerList(const QString &url) {
+    // NOTE: 这里必须写成"先落到一个具名变量"，不能写成 QNetworkRequest request(QUrl(url)) ——
+    //       那个形状在 C++ 里会被当成函数声明（most vexing parse），报的错还很难认
+    //       （"request 不是类类型"）。
+    const QUrl target(url);
+    QNetworkRequest request(target);
     request.setTransferTimeout(30000);
     QNetworkReply *reply = loaderNetwork->get(request);
     connect(reply, &QNetworkReply::finished, this,
             [this, reply] { onInstallerListReply(reply); });
+}
+
+bool VersionManager::retryInstallerListFromOfficial() {
+    // 只在"这一发是镜像发的、而且还没退过"的时候成立。退过一次还是挑不出来，那就是
+    // 官方那份里真的没有 —— 不能再往回退，否则镜像、官方来回转。
+    if (!m_loaderInstall.listRequestWasMirror || m_loaderInstall.listRetriedOfficial) {
+        return false;
+    }
+    m_loaderInstall.listRetriedOfficial = true;
+    m_loaderInstall.listRequestWasMirror = false;
+    emit loaderInstallMessage(
+        tr("镜像上的 %1 版本表里没有 %2（镜像那份是旧的），改用官方那份再挑一次...")
+            .arg(m_loaderInstall.loaderName, m_loaderInstall.gameVersion));
+    requestInstallerList(m_loaderInstall.listOfficialUrl);
+    return true;
 }
 
 void VersionManager::onInstallerListReply(QNetworkReply *reply) {
@@ -695,6 +730,9 @@ void VersionManager::onInstallerListReply(QNetworkReply *reply) {
 
     const QByteArray body = reply->readAll();
     if (reply->error() != QNetworkReply::NoError) {
+        if (retryInstallerListFromOfficial()) {
+            return;
+        }
         failLoaderInstall(tr("拿不到 %1 %2 的版本表（%3）。检查网络后重试。")
                               .arg(m_loaderInstall.loaderName, m_loaderInstall.gameVersion,
                                    reply->errorString()));
@@ -715,6 +753,11 @@ void VersionManager::onInstallerListReply(QNetworkReply *reply) {
     }
 
     if (!pick.ok()) {
+        // 挑不出来有两种可能：镜像那份是旧的（**多数情况**，见 listOfficialUrl 的注释），
+        // 或者上游真的还没支持这个游戏版本。先问一次官方那份，两个都没有才是后者。
+        if (retryInstallerListFromOfficial()) {
+            return;
+        }
         // 和 Fabric 那条一样：这不是网络问题，也**不能**退回"装原版"——用户要的是带
         // 加载器的版本，装出来一个纯原版是骗人。
         failLoaderInstall(tr("%1 还没有支持 %2 的版本。")
@@ -786,6 +829,30 @@ void VersionManager::startInstallerDownload() {
     downloadManager->endBatch();
 }
 
+bool VersionManager::retryInstallerDownloadAlternate() {
+    if (m_loaderInstall.kind != LoaderKind::Forge || m_loaderInstall.retriedAltCoordinate) {
+        return false;
+    }
+    const QString alt = LoaderMeta::forgeInstallerUrlAlternate(m_loaderInstall.gameVersion,
+                                                              m_loaderInstall.loaderVersion);
+    if (alt.isEmpty() || alt == m_loaderInstall.installerUrl) {
+        return false;
+    }
+    m_loaderInstall.retriedAltCoordinate = true;
+    // 文件名是从地址最后一段切的、两种坐标的文件名不一样（`...11.15.1.2318-installer.jar`
+    // vs `...11.15.1.2318-1.8.9-installer.jar`），所以这三样都得跟着换 —— 只换地址会让
+    // 下载落到上一轮那个名字上，装完核对时对不上。
+    m_loaderInstall.installerUrl = alt;
+    m_loaderInstall.installerFileName = alt.section(QLatin1Char('/'), -1);
+    m_loaderInstall.installerPath = AppPaths::installerCacheDir() + QLatin1Char('/') +
+                                    m_loaderInstall.installerFileName;
+    emit loaderInstallMessage(
+        tr("%1 %2 的安装器不在常规坐标上（老游戏版本是这样），换一种坐标再下一遍...")
+            .arg(m_loaderInstall.loaderName, m_loaderInstall.loaderVersion));
+    startInstallerDownload();
+    return true;
+}
+
 bool VersionManager::ensureLauncherProfiles(const QString &minecraftDir, bool *createdOut,
                                            QString *errorOut) const {
     if (createdOut != nullptr) {
@@ -830,8 +897,20 @@ bool VersionManager::ensureLauncherProfiles(const QString &minecraftDir, bool *c
     return true;
 }
 
+VersionManager::InstallerOptions VersionManager::parseInstallerHelp(const QString &helpText) {
+    InstallerOptions options;
+    options.probed = true;
+    // 只做"整段里有没有这个串"的判断：两个安装器的选项名互不包含（实测 1.8.9 那份帮助
+    // 545 B、`--installClient` 和 `--mirror` 一个都没有；NeoForge 26.2 那份 2572 B、两个都有），
+    // 不需要更细的解析 —— 真要按行解析 joptsimple 的排版反而更容易被下一个版本改坏。
+    options.supportsInstallClient = helpText.contains(QStringLiteral("--installClient"));
+    options.supportsMirror = helpText.contains(QStringLiteral("--mirror"));
+    return options;
+}
+
 QStringList VersionManager::forgeInstallerArguments(const QString &installerPath,
-                                                    const QString &targetDir, bool useMirror) {
+                                                    const QString &targetDir, bool useMirror,
+                                                    bool supportsMirror) {
     // `--installClient` 后面那个目录**必须**给：不给的话安装器会落到 user.home/.minecraft
     // （这台机器上是 C:\Users\User\.minecraft），装到一个用户根本不知道的地方去。
     QStringList args{QStringLiteral("-jar"), installerPath, QStringLiteral("--installClient"),
@@ -839,7 +918,9 @@ QStringList VersionManager::forgeInstallerArguments(const QString &installerPath
     // 镜像模式下把安装器**自己**那条下载路也拨到镜像上。它的默认行为是去问 Forge 的镜像
     // 列表、挑一个第三方镜像（本机上是 creeperhost），实测慢一倍：48 个库 61 秒 vs 30 秒。
     // 它只对库生效 —— 原版那几个库（libraries.minecraft.net）它照旧走自己那条路。
-    if (useMirror) {
+    // 探到它不认 `--mirror` 就**不能给**：老安装器（joptsimple）把不认识的选项当致命错误，
+    // 当场退出码 1。宁可这一条路慢一点，也不能让整个安装死在"多给了一个参数"上。
+    if (useMirror && supportsMirror) {
         args << QStringLiteral("--mirror") << DownloadManager::mirrorMavenRootUrl();
     }
     return args;
@@ -917,6 +998,88 @@ void VersionManager::runInstaller() {
         connect(installerTimer, &QTimer::timeout, this, &VersionManager::onInstallerTick);
     }
 
+    // 这一次用的 Java 和目录存成成员：探完 `--help` 之后还要用同一份起真正的安装（见
+    // probeInstallerOptions / startInstallerProcess）。
+    m_installerProgram = program;
+    m_installerTargetDir = targetDir;
+    m_installerOptions = InstallerOptions();
+
+    // 先探一次安装器的命令行开关（只有 Forge/NeoForge 探：OptiFine 那个入口是类名，
+    // 压根没有 `--help` 这回事）。
+    if (!optifine) {
+        probeInstallerOptions();
+        return;
+    }
+    startInstallerProcess();
+}
+
+void VersionManager::probeInstallerOptions() {
+    m_probeOutput.clear();
+    m_installerStartedAt = QDateTime::currentMSecsSinceEpoch();
+    // phase 要在 start() **之前**设：进程起不来时 errorOccurred 会回来，那条路要靠
+    // phase 认出"这次是探针"（见 onInstallerError）。
+    m_loaderInstall.phase = LoaderInstall::Phase::ProbingInstallerOptions;
+    emit loaderInstallMessage(tr("先问一下 %1 的安装器认哪些命令行开关...")
+                                  .arg(m_loaderInstall.loaderName));
+
+    installerProcess->setProgram(m_installerProgram);
+    installerProcess->setArguments({QStringLiteral("-jar"), m_loaderInstall.installerPath,
+                                    QStringLiteral("--help")});
+    // 环境用**系统的**：探针不该带 OptiFine 那个换过 APPDATA 的环境（那条路本来也不探）。
+    installerProcess->setProcessEnvironment(QProcessEnvironment::systemEnvironment());
+    // 工作目录挑安装器 jar 自己所在的那个目录（cache/installers/）：老安装器起来会往 cwd
+    // 里写一个 `<jar 名>.log`，扔在缓存目录里比扔进用户的游戏目录干净。
+    installerProcess->setWorkingDirectory(
+        QFileInfo(m_loaderInstall.installerPath).absolutePath());
+    installerProcess->start();
+    installerTimer->start();
+}
+
+void VersionManager::onProbeFinished(int exitCode, bool crashed) {
+    if (installerTimer != nullptr) {
+        installerTimer->stop();
+    }
+    onInstallerOutput();  // 收尾前把剩下的输出读干净（这一相位下它读进 m_probeOutput）
+
+    const QString help = QString::fromLocal8Bit(m_probeOutput);
+    if (crashed || exitCode != 0 || help.trimmed().isEmpty()) {
+        // 探不出来（起不来 / 超时被杀 / 一声不吭）：按"宁可信其有"往下走，让真正那一次
+        // 安装去撞南墙、报它自己的错 —— 探针是为了少一次莫名其妙的报错，不能反过来变成
+        // 新的把能装的版本拦下来的关。
+        m_installerOptions = InstallerOptions();
+        qWarning() << "Installer option probe inconclusive: exit" << exitCode << "crashed" << crashed
+                   << installerOutputTail(m_probeOutput);
+    } else {
+        m_installerOptions = parseInstallerHelp(help);
+        qDebug() << "Installer options:" << m_installerOptions.probed
+                 << m_installerOptions.supportsInstallClient << m_installerOptions.supportsMirror;
+    }
+
+    if (!m_installerOptions.supportsInstallClient) {
+        // 老安装器把"装客户端"做成了图形界面（不给参数就弹窗等人点），命令行里没有这条路。
+        // 本启动器没法替用户点那个窗口，所以**明说**，不要拿一段 Java 堆栈糊过去。
+        failLoaderInstall(tr("%1 %2 的安装器没有命令行安装这条路（它的帮助里只有 --extract / "
+                             "--installServer / --offline）—— 那个年代的安装器装客户端只能靠"
+                             "它的图形界面、要人点一下，本启动器替你点不了。\n"
+                             "这个版本请用原版启动器或 PCL 装一次 %1：装完本启动器认得出它、"
+                             "也能正常启动。1.12.2 及更新的游戏版本本启动器都能自动装"
+                             "（1.12.2 / 26.2 实测过）。")
+                              .arg(m_loaderInstall.loaderName, m_loaderInstall.loaderVersion,
+                                   m_loaderInstall.gameVersion));
+        return;
+    }
+
+    if (m_installerOptions.probed && !m_installerOptions.supportsMirror &&
+        downloadManager->mirrorPreferred()) {
+        emit loaderInstallMessage(tr("这个安装器不认 --mirror，它自己下库那一段只好走官方"
+                                     "（启动器这边下的库仍然走镜像）。"));
+    }
+    startInstallerProcess();
+}
+
+void VersionManager::startInstallerProcess() {
+    const bool optifine = m_loaderInstall.kind == LoaderKind::OptiFine;
+
     m_installerOutput.clear();
     m_installerTicks = 0;
     m_installerStartedAt = QDateTime::currentMSecsSinceEpoch();
@@ -939,7 +1102,8 @@ void VersionManager::runInstaller() {
     // program 和 arguments 都是**常驻**的（和下面那个环境一样）：`start()` 不带参数走的
     // 就是上一次设的那个 program。所以这条路每次都得把它设一遍 —— 漏了它的症状是
     // "安装器起不来（那个 Java 进程没能启动）"，因为 QProcess 拿着一个空 program 去 start。
-    installerProcess->setProgram(program);
+    // （探 `--help` 那一次也是同一个 QProcess：它的 program/arguments 就是在这儿被覆盖掉的。）
+    installerProcess->setProgram(m_installerProgram);
 
     // 环境**每次都显式设一遍**，不是"只在 OptiFine 时设"：QProcess 的环境是常驻的
     // （set 一次之后每次 start 都用它），OptiFine 那次换过 APPDATA 之后不还原的话，下一次
@@ -965,10 +1129,11 @@ void VersionManager::runInstaller() {
         // 拨到它那边去 —— 降级的判据是"这条链子慢到 10 秒给不出 64 KB"，和走的是哪条
         // 路由无关（maven 那一支实测快，但真慢起来也不该硬塞）。
         installerProcess->setArguments(forgeInstallerArguments(
-            m_loaderInstall.installerPath, targetDir, downloadManager->mirrorPreferred()));
+            m_loaderInstall.installerPath, m_installerTargetDir,
+            downloadManager->mirrorPreferred(), m_installerOptions.supportsMirror));
     }
     installerProcess->setProcessEnvironment(env);
-    installerProcess->setWorkingDirectory(targetDir);
+    installerProcess->setWorkingDirectory(m_installerTargetDir);
     installerProcess->start();
     installerTimer->start();
 }
@@ -980,10 +1145,15 @@ void VersionManager::onInstallerOutput() {
     // 两个通道都读、都往一个缓冲区里放：安装器的诊断信息 stdout 和 stderr 都有，
     // 而我们要的只是"最后那几行说了什么"。混在一起的代价是万一两者交替写、行会交错，
     // 那种情况下报出来的诊断仍然够用。
-    m_installerOutput += installerProcess->readAllStandardOutput();
-    m_installerOutput += installerProcess->readAllStandardError();
-    if (m_installerOutput.size() > kInstallerOutputKeepBytes) {
-        m_installerOutput = m_installerOutput.right(kInstallerOutputKeepBytes);
+    //
+    // 探 `--help` 那一次是**同一个** QProcess，输出分流到另一个缓冲区（见 m_probeOutput）。
+    QByteArray *sink = m_loaderInstall.phase == LoaderInstall::Phase::ProbingInstallerOptions
+                           ? &m_probeOutput
+                           : &m_installerOutput;
+    *sink += installerProcess->readAllStandardOutput();
+    *sink += installerProcess->readAllStandardError();
+    if (sink->size() > kInstallerOutputKeepBytes) {
+        *sink = sink->right(kInstallerOutputKeepBytes);
     }
 }
 
@@ -999,6 +1169,16 @@ QString VersionManager::installerLastOutputLine() const {
 }
 
 void VersionManager::onInstallerTick() {
+    if (m_loaderInstall.phase == LoaderInstall::Phase::ProbingInstallerOptions) {
+        const qint64 probeElapsed = QDateTime::currentMSecsSinceEpoch() - m_installerStartedAt;
+        if (probeElapsed >= kInstallerProbeTimeoutMs) {
+            // 探针挂住了（它本该打一段帮助就退出）：杀掉它，**不报错** —— finished 那一路会
+            // 把结论落成"宁可信其有"然后接着跑真正的安装（见 onProbeFinished）。
+            qWarning() << "Installer option probe timed out, going with permissive defaults";
+            installerProcess->kill();
+        }
+        return;
+    }
     if (m_loaderInstall.phase != LoaderInstall::Phase::RunningInstaller) {
         return;
     }
@@ -1029,6 +1209,19 @@ void VersionManager::onInstallerTick() {
 }
 
 void VersionManager::onInstallerError(int processError) {
+    if (m_loaderInstall.phase == LoaderInstall::Phase::ProbingInstallerOptions) {
+        // 探针没能起来：**不在这里报错**，按"宁可信其有"往下走 —— 真正那一次安装会撞上
+        // 同一个错、报出给用户看的那句话（"安装器起不来，到设置里换一个 Java"）。
+        if (static_cast<QProcess::ProcessError>(processError) != QProcess::FailedToStart) {
+            return;  // 别的错误都跟着一个 finished 信号，那条路会收尾
+        }
+        if (installerTimer != nullptr) {
+            installerTimer->stop();
+        }
+        m_installerOptions = InstallerOptions();
+        startInstallerProcess();
+        return;
+    }
     if (m_loaderInstall.phase != LoaderInstall::Phase::RunningInstaller) {
         return;
     }
@@ -1058,6 +1251,10 @@ void VersionManager::abortInstaller(const QString &reason) {
 }
 
 void VersionManager::onInstallerFinished(int exitCode, bool crashed) {
+    if (m_loaderInstall.phase == LoaderInstall::Phase::ProbingInstallerOptions) {
+        onProbeFinished(exitCode, crashed);
+        return;
+    }
     // 超时那一路已经收过尾了（见 abortInstaller）：这里只认还走在 RunningInstaller 上的。
     if (m_loaderInstall.phase != LoaderInstall::Phase::RunningInstaller) {
         return;
@@ -2150,6 +2347,12 @@ void VersionManager::onAllDownloadsFinished(bool success) {
     if (m_loaderInstall.active()) {
         if (m_loaderInstall.phase == LoaderInstall::Phase::WaitingInstallerJar) {
             if (!success) {
+                // Forge 有两种 maven 坐标，老的游戏版本只有第二种（实测表见
+                // LoaderMeta::forgeInstallerUrlAlternate）。常规那种 404 时换一次再下，
+                // 换过还不行才按失败报。
+                if (retryInstallerDownloadAlternate()) {
+                    return;
+                }
                 failLoaderInstall(tr("%1 的安装器没下下来，%2 没有安装。检查网络后重试。\n%3")
                                       .arg(m_loaderInstall.loaderName,
                                            m_loaderInstall.gameVersion, message));
