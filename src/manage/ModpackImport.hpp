@@ -139,4 +139,23 @@ bool isSafeRelativePath(const QString &path);
  */
 QString suggestInstanceName(const QString &packName);
 
+/**
+ * @brief 清单里给的那几条地址，按"先试哪条"重排一遍：`cdn.modrinth.com` 排最前。
+ * @param urls 清单里那一条文件的 `downloads`（1~3 条）。
+ * @return 同样那几条，只换次序；认不出 modrinth 的整份原样返回。
+ *
+ * 【为什么要有这个】2026-09-22 真机实测（同一份文件、同一时刻、单条连接）：
+ *     mediafilez.forgecdn.net   22.9 KB/s      edge.forgecdn.net   14.5 KB/s
+ *     cdn.modrinth.com         119.4 KB/s
+ *   另外两份文件是同一个形状（26 vs 262 KB/s、34 vs 88 KB/s）—— **差 3~10 倍**，而且是
+ *   每条连接都差（6 条并发：forgecdn 合计 ~160 KB/s，modrinth 合计 ~600 KB/s）。那个包
+ *   422 个文件里 **332 个、89% 的字节**都有 modrinth 这条地址，可清单把它排在最后，而
+ *   原来只用 `urls.first()` 与 `urls.value(1)` —— 两台 forgecdn，一台都没轮到它。
+ *
+ * NOTE: 只是**换次序**，一条都不丢：换完之后 `urls.value(1)` 仍然是"取不回来时再试一次"
+ *       那一条，只是它成了 forgecdn。谁快谁慢是实测出来的，不是猜的；也别把它当成
+ *       "modrinth 一定对" —— 真取不回来时那条老路（退下一条 + 失速看门狗）照旧。
+ */
+QStringList preferredUrlOrder(const QStringList &urls);
+
 }  // namespace ModpackImport

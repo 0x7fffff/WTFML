@@ -606,11 +606,13 @@ void VersionManager::startModpackFiles() {
     // NOTE: beginBatch() 与 endBatch() 之间**不允许**任何提前 return（见 downloadVersion
     //       顶部那段）：下面这个循环里一句早退都没有，就是为了这个。
     for (const ModpackImport::PackFile &file : files) {
-        // 第一条是主地址，第二条（如果有）当"取不回来时再试一次"那条：整合包的清单里
-        // 两条地址是同一份文件的镜像，所以对调也无所谓（Modrinth 自己生成的一般只有一条）。
-        downloadManager->downloadFile(file.urls.first(), base + QLatin1Char('/') + file.path,
+        // 先试哪一条由 preferredUrlOrder() 定（**优先 cdn.modrinth.com**，实测差 3~10 倍，
+        // 数字在那边）：换完次序后第二条仍然是"取不回来时再试一次"那条。清单里几条地址是
+        // 同一份文件的镜像，对调本身是安全的。
+        const QStringList urls = ModpackImport::preferredUrlOrder(file.urls);
+        downloadManager->downloadFile(urls.value(0), base + QLatin1Char('/') + file.path,
                                       file.sha1, file.size, VerifyMode::SizeAndSha1,
-                                      file.urls.value(1));
+                                      urls.value(1));
     }
     downloadManager->endBatch();
 }

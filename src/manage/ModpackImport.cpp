@@ -13,6 +13,7 @@
 #include <QJsonParseError>
 #include <QJsonValue>
 #include <QObject>
+#include <QUrl>
 
 #include "InstanceFiles.hpp"
 
@@ -103,6 +104,34 @@ bool isSafeRelativePath(const QString &path) {
         }
     }
     return true;
+}
+
+namespace {
+
+/// 这一条地址是不是 Modrinth 自己的 CDN。
+/// 判 host、不判整串：清单里同一个文件的 modrinth 地址带着 `%2B` / `%2b` 两种大小写
+/// （见那两个真包），拿字符串比很容易在某个包上悄悄失效。
+bool isModrinthCdnUrl(const QString &url) {
+    return QUrl(url).host() == QLatin1String("cdn.modrinth.com");
+}
+
+}  // namespace
+
+QStringList preferredUrlOrder(const QStringList &urls) {
+    QStringList ordered;
+    ordered.reserve(urls.size());
+    for (const QString &url : urls) {
+        if (isModrinthCdnUrl(url)) {
+            ordered << url;
+        }
+    }
+    // 一条都不匹配时，下面这个循环会把整份**原样**抄一遍 —— 次序不动，和没调过一样。
+    for (const QString &url : urls) {
+        if (!isModrinthCdnUrl(url)) {
+            ordered << url;
+        }
+    }
+    return ordered;
 }
 
 QString suggestInstanceName(const QString &packName) {
