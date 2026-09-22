@@ -14,6 +14,7 @@
 #include "..\ui\GroupDialog.hpp"
 #include "..\ui\InstanceSettingsDialog.hpp"
 #include "..\ui\JavaMismatchDialog.hpp"
+#include "..\ui\AccountSkinDialog.hpp"
 #include "..\ui\MainWindowUI.hpp"
 // 主页右栏那个小人怎么画：几何、投影、默认外观、头像裁切全在它里面（纯函数 + 值）。
 #include "..\ui\SkinModel.hpp"
@@ -46,7 +47,9 @@
 #include <QTreeWidgetItem>
 #include <QTreeWidgetItemIterator>
 
+#include "auth/AccountStore.hpp"
 #include "auth/AuthManager.hpp"
+#include "auth/SkinApi.hpp"
 #include "launcher/LauncherManager.hpp"
 #include "manage/FolderManager.hpp"
 #include "manage/InstanceFiles.hpp"
@@ -528,12 +531,26 @@ MainWindow::MainWindow(QWidget *parent)
       m_versionManager(new VersionManager(this)),
       m_javaSettings(new GlobalJavaSettings(this)),
       m_groupStore(new InstanceGroupStore(this)),
-      m_skinStore(new PlayerSkinStore(this)) {
+      m_skinStore(new PlayerSkinStore(this)),
+      m_skinApi(new SkinApi(this)) {
     setupConnections();
     // 设置页先按盘上的值摆好（不扫 Java，那一段等第一次切到设置页，见
     // refreshJavaList()）。必须在下面 fetchAvailableVersions() **之前**：
     // 清单请求要不要走镜像就是在这一步交给 VersionManager 的。
     applySettingsToUi();
+    // 上次用的是个**离线账号**：把名字接回 AuthManager，并且把「离线模式」勾上。
+    // 两件事都得在这里做，而且都在下面 updateBottomBar() 之前：
+    //   - AuthManager 构造函数只读活动槽，而离线账号在盘上**没有凭据**，它读出来的是占位
+    //     的 "Player" —— 不接回来的话底栏和 --username 里是个假名字；
+    //   - 不勾「离线模式」的话，启动那条路会去要凭据，而盘上一份都没有，用户拿到的是
+    //     "请先登录"，一个死胡同（底栏却明明写着他的名字，那种状态最没法解释）。
+    {
+        const QString active = AccountStore::activeUuid();
+        if (AccountStore::isOffline(active)) {
+            m_authManager->setOfflinePlayer(AccountStore::nameOf(active));
+            m_ui->getOfflineModeCheckBox()->setChecked(true);
+        }
+    }
     // 「游戏文件夹」：先把当前那一份交给 AppPaths —— 从这一句起，扫版本、下资源、
     // 找 Java 用的都是它。**必须在 refreshInstalledVersions() 之前**，那个函数扫的
     // 就是这个根目录。左边那张列表此刻还没有条目可选，所以要挡着信号灌。
@@ -551,10 +568,7 @@ MainWindow::MainWindow(QWidget *parent)
     // 底栏那三格的初始值：登录名可能已经从存下来的令牌里恢复了，进度两格先藏起来，
     // 运行状态也要等第一次真的启动才有内容。
     updateBottomBar();
-    // 登录按钮的初始文字也看"上次登过没有"：登过就该是「重新登录」，不然用户会以为
-    // 上次的登录没留住（而底下那行用户名明明已经是他的名字了）。
-    updateLoginButton();
-    // 主页右栏那个小人 + 底栏头像。放在 updateLoginButton() 之后是因为它要问
+    // 主页右栏那个小人 + 底栏头像。放在 updateBottomBar() 之后是因为它要问
     // AuthManager"登过没有"，而那份状态是在它自己的构造函数里从盘上读回来的。
     // **必须在 fetchAvailableVersions() 之前**：那一下要发网络请求，外观这条线不该
     // 排在它后面（离线那条路更是完全不让它走）。
@@ -567,7 +581,16 @@ MainWindow::~MainWindow() { delete m_ui; }
 void MainWindow::setupConnections() {
     // UI 按钮信号
     connect(m_ui->getStartButton(), &QPushButton::clicked, this, &MainWindow::onStartButtonClicked);
-    connect(m_ui->getLoginButton(), &QPushButton::clicked, this, &MainWindow::onLoginButtonClicked);
+    // 底栏名字下面那行写的是"这次启动用哪种身份"，勾/取消「离线模式」就得当场跟着变 ——
+    // 不然它要等到下一次进度刷新（几百毫秒一次、而且只有下载/启动时才有）才更新，
+    // 用户看到的是旧答案。
+    connect(m_ui->getOfflineModeCheckBox(), &QCheckBox::toggled, this, [this] { updateBottomBar(); });
+    // 「账号与外观…」那两个入口（主页右栏 3D 预览下面那个 + 设置页「账户」那格里的）。
+    // 同一件事、同一个窗 —— 所以接的是同一个槽。
+    connect(m_ui->getAccountSkinButton(), &QPushButton::clicked, this,
+            &MainWindow::onAccountSkinButtonClicked);
+    connect(m_ui->getAccountSkinSettingsButton(), &QPushButton::clicked, this,
+            &MainWindow::onAccountSkinButtonClicked);
     connect(m_ui->getAddFolderButton(), &QPushButton::clicked, this,
             &MainWindow::onAddFolderClicked);
     connect(m_ui->getRemoveFolderButton(), &QPushButton::clicked, this,
@@ -779,6 +802,17 @@ void MainWindow::updateBottomBar() {
     // 没登录是占位的 "Player" —— 这里不自己造假名字，也不去猜。
     const QString name = m_authManager->playerName();
     m_ui->getAccountLabel()->setText(name);
+    // 名字下面那行：这次启动会用哪种身份。**判据只看两个开关**（离线勾没勾、有没有
+    // 登录态），不自己推"应该用哪个" —— 真正的判据在 onStartButtonClicked() 里，两处
+    // 一旦各写一套就会出现"底栏说正版、启动时却说请先登录"。
+    // NOTE: loggedIn() 是"盘上有账户"的意思（AuthManager::loggedIn() = uuid 非空），
+    //       令牌过期了它照样是 true —— 那没关系：这一行说的是**身份**，令牌过没过期是
+    //       启动那一刻刷新才知道的事（那时失败会有弹窗说清原因）。
+    m_ui->getAccountTypeLabel()->setText(
+        m_ui->getOfflineModeCheckBox()->isChecked()
+            ? MainWindowUI::accountTypeOfflineText()
+            : (m_authManager->loggedIn() ? MainWindowUI::accountTypeOnlineText()
+                                         : MainWindowUI::accountTypeNotLoggedInText()));
     // 头像优先用**真皮肤**抠出来的那一块（m_avatarPixmap，在 applyPlayerSkin() 里算好
     // 存着 —— 这里每次进度刷新都会被调到，不能现算）。没有它的时候（未登录、还没取到、
     // 取不到、贴图载不进来）退回首字母方块：退路必须留着，一块空白的头像比一个首字母
@@ -1006,6 +1040,13 @@ void MainWindow::applyPlayerSkin(const QString &skinPath, const QString &capePat
     // 被调，在它里面现算等于一直在重渲染同一张 8×8 的皮肤。裁切和放大都在
     // SkinModel::headAvatar() 里（最近邻放大，保持像素画的那个方块感）。
     m_avatarPixmap = QPixmap::fromImage(SkinModel::headAvatar(skin, MainWindowUI::avatarSize()));
+    // 那个窗里的 3D 预览跟着**同一份贴图**走：它和这里是同一个东西的两个窗口，
+    // 各下各的、各画各的就会出现"主页换了、那个窗还是旧外观"。挂在 applyPlayerSkin()
+    // 里是因为这是全仓**唯一**一处决定"现在显示的是哪一套外观"的地方（贴图从哪来、
+    // 档案怎么换都不影响这条）。
+    if (m_accountSkinDialog != nullptr) {
+        m_accountSkinDialog->setLooks(skin, cape, slim);
+    }
     updateSkinHint();
     updateBottomBar();
 }
@@ -1022,22 +1063,6 @@ void MainWindow::updateSkinHint() {
     } else {
         hint->setText(MainWindowUI::skinHintFailedText(name));
     }
-}
-
-void MainWindow::updateLoginButton() {
-    QPushButton *button = m_ui->getLoginButton();
-    // "在不在登录中"问 AuthManager，不在这里再存一份 —— 存两份就会出现"按钮说在登录、
-    // 实际早就不等了"（超时那条路尤其容易漏）。
-    const bool inFlight = m_authManager->loginInFlight();
-    button->setEnabled(!inFlight);
-    if (inFlight) {
-        button->setText(MainWindowUI::loginButtonBusyText());
-        return;
-    }
-    // 登录过就写「重新登录」：账户还在（令牌过期了重走一遍链就能续上），但换账户、
-    // 或者凭据被撤销之后重登，都得再点这一次。写着「微软登录」会让人以为还没登录。
-    button->setText(m_authManager->loggedIn() ? MainWindowUI::loginButtonReloginText()
-                                              : MainWindowUI::loginButtonText());
 }
 
 QString MainWindow::instanceDisplayName(const QString &versionId) const {
@@ -1868,36 +1893,359 @@ void MainWindow::onStartButtonClicked() {
     updateBottomBar();
 }
 
-void MainWindow::onLoginButtonClicked() {
+// ============================ 「账号与外观」那个模块 ============================
+//
+// 三件事在这个模块里的分工（写清楚免得下次改错地方）：
+//   - **界面的样子**全在 ui/AccountSkinDialog.{hpp,cpp}（它不 include 任何 src/ 下的头）；
+//   - **盘上的账**在 src/auth/AccountStore（多账号列表）+ TokenStore（凭据字节格式）；
+//   - **下面这一片**是接线：谁来读谁、失败怎么报、哪个动作之后要刷新什么。
+// 所以这里没有任何"界面布局"的代码，那边也没有任何"读注册表"的代码。
+
+void MainWindow::onAccountSkinButtonClicked() {
+    setupAccountSkinDialog();
+    refreshAccountSkin();
+    // 非模态显示：登录那一步会把浏览器推到前台，用户要在这两个窗之间来回切。做成模态的话
+    // 这边会被拦住（而浏览器那个页面本来就在外面，模态拦不住它，只会让这边看着像卡住）。
+    m_accountSkinDialog->show();
+    m_accountSkinDialog->raise();
+    m_accountSkinDialog->activateWindow();
+}
+
+void MainWindow::setupAccountSkinDialog() {
+    if (m_accountSkinDialog != nullptr) {
+        return;
+    }
+    m_accountSkinDialog = new AccountSkinDialog(this);
+    // NOTE: 这个窗只发"用户想做什么"，一件事都不自己干 —— 收到信号之后干什么全在下面
+    //       这几个槽里。所以它能在 ui_check 里被单独构造、单独驱动（不登录、不联网）。
+    connect(m_accountSkinDialog, &AccountSkinDialog::loginRequested, this,
+            &MainWindow::onAccountLoginRequested);
+    connect(m_accountSkinDialog, &AccountSkinDialog::offlineAccountRequested, this,
+            &MainWindow::onOfflineAccountRequested);
+    connect(m_accountSkinDialog, &AccountSkinDialog::switchRequested, this,
+            &MainWindow::onAccountSwitchRequested);
+    connect(m_accountSkinDialog, &AccountSkinDialog::removeRequested, this,
+            &MainWindow::onAccountRemoveRequested);
+    connect(m_accountSkinDialog, &AccountSkinDialog::refreshRequested, this,
+            [this] { refreshAccountSkin(); });
+    connect(m_accountSkinDialog, &AccountSkinDialog::skinUploadRequested, this,
+            &MainWindow::onSkinUploadRequested);
+    connect(m_accountSkinDialog, &AccountSkinDialog::capeSelectRequested, this,
+            &MainWindow::onCapeSelectRequested);
+    connect(m_accountSkinDialog, &AccountSkinDialog::hideCapeRequested, this,
+            &MainWindow::onCapeHideRequested);
+}
+
+QString MainWindow::accountSkinStatusText() const {
+    // 当前账号**本身**是离线账号时先说这一句：它比"勾没勾离线模式"更具体（名字就在上面
+    // 那一列里躺着）。下面那一档说的是另一件事 —— "有正版账号，但这次启动走离线"。
+    // NOTE: 这一句必须排在勾选框那一档**前面**：切到离线账号时勾选框也是勾着的，反过来的
+    //       话用户看到的是泛泛的离线提醒，而看不到自己刚加的那个名字。
+    const QString active = AccountStore::activeUuid();
+    if (AccountStore::isOffline(active)) {
+        return AccountSkinDialog::offlineIdentityText(AccountStore::nameOf(active));
+    }
+    // 离线模式**不是一个账号**：它不改那一列（列表装的是"我保存过哪些账号"），它改的是
+    // "这次启动用哪一种身份"。所以勾着的时候这句话说的是那件事，见下面那两句。
+    if (m_ui->getOfflineModeCheckBox()->isChecked()) {
+        return AccountSkinDialog::offlineModeNote();
+    }
+    if (!m_authManager->loggedIn()) {
+        return AccountSkinDialog::notLoggedInNote();
+    }
+    return AccountSkinDialog::identityText(m_authManager->playerName());
+}
+
+void MainWindow::refreshAccountSkin() {
+    if (m_accountSkinDialog == nullptr) {
+        return;  // 窗还没建（没点过那个入口），没什么可刷的
+    }
+
+    // 1) 账号列表：**纯本地**（读 SavedAccounts 那个键），不联网、不碰令牌。
+    QList<AccountSkinDialog::AccountRow> rows;
+    const QList<SavedAccount> accounts = AccountStore::accounts();
+    rows.reserve(accounts.size());
+    for (const SavedAccount &account : accounts) {
+        AccountSkinDialog::AccountRow row;
+        row.uuid = account.uuid;
+        row.name = account.name;
+        row.savedAt = account.savedAt;
+        row.current = account.isCurrent;
+        row.offline = account.offline;
+        rows.append(row);
+    }
+    m_accountSkinDialog->setAccounts(rows);
+
+    // 2) 状态行回到"当前身份"那一档，忙态也在这里松开 —— 能走到这一句就说明上一步那个
+    //    同步请求已经回来了（下面第 4 步会再离开这个方法去联网）。
+    m_accountSkinDialog->setBusy(false);
+    m_accountSkinDialog->setStatusText(accountSkinStatusText());
+
+    // 3) 3D 预览走**和主页同一条路**（同一份缓存、同一次后台刷新）：applyPlayerSkin()
+    //    会把同一份贴图同时喂给主页那个小人和这个窗里的预览。离线模式勾着时那条路自己
+    //    就不联网，所以这里不用再判一次。
+    startPlayerSkinLoad();
+
+    // 4) 披风列表要令牌，是这一整块里唯一会真的去联网的地方（过期令牌也是在这里顺带刷新的）。
+    if (m_ui->getOfflineModeCheckBox()->isChecked()) {
+        // 离线模式勾着 = "别联网"，而拉披风列表正是联网。跳过。
+        m_accountSkinDialog->setCapes({});
+        return;
+    }
+    QString error;
+    const QString token = m_authManager->loadSavedToken(&error);
+    if (token.isEmpty()) {
+        // 没登录（或者令牌换不出来）。原因写进状态行 —— 它比"当前身份"那句更要紧，
+        // 而"当前是哪个账号"在列表里那个（当前）标记上照样看得到。
+        m_accountSkinDialog->setCapes({});
+        if (!error.isEmpty()) {
+            m_accountSkinDialog->setStatusText(error);
+        }
+        return;
+    }
+
+    QList<OwnedCape> capes;
+    if (!m_skinApi->fetchOwnedCapes(token, &capes, &error)) {
+        // 背景刷新失败**不弹窗**（这是这个窗里唯一一条不弹窗的错误路）：账号列表和预览
+        // 都已经正常出来了，弹一个窗拦在中间会让用户以为整个模块坏了。正文写在状态行里，
+        // 日志留一行备查。
+        appendLog(tr("拉取披风列表失败：%1").arg(error));
+        m_accountSkinDialog->setCapes({});
+        m_accountSkinDialog->setStatusText(error);
+        return;
+    }
+
+    QList<AccountSkinDialog::CapeRow> capeRows;
+    capeRows.reserve(capes.size());
+    for (const OwnedCape &cape : capes) {
+        AccountSkinDialog::CapeRow row;
+        row.id = cape.id;
+        row.alias = cape.alias;
+        row.active = cape.active;
+        capeRows.append(row);
+    }
+    m_accountSkinDialog->setCapes(capeRows);
+}
+
+void MainWindow::onAccountLoginRequested() {
+    // 和设置页那个登录按钮**同一条路**：AuthManager 那三个信号是共用的，所以登录成功
+    // 之后 onLoginSucceeded() 会把凭据收进列表、把这个窗刷新一遍，一个字都不用在这里补。
+    // 返回值 true = 流程开了头；两条 false 的路径 AuthManager 会先发一次 loginFailed()，
+    // 弹窗由 onLoginFailed() 统一负责。
     // 返回值刻意不管：失败那两条路径 AuthManager 会先发一次 loginFailed()，弹窗由
     // onLoginFailed() 统一负责（直接连接，所以这里返回之前那个窗已经弹出来了）。
-    // 在这里再写一句日志就是同一件事说两遍，而且日志不是给用户看的地方。
+    // 忙态也不在这里摆 —— loginMicrosoft() 一起头就会发 loginStarted()，由
+    // onLoginStarted() 统一处理（见那段说明：一个来源，不给界面留第二份状态）。
     m_authManager->loginMicrosoft();
+}
+
+void MainWindow::onOfflineAccountRequested(const QString &name) {
+    QString error;
+    // 名字合不合法在这里判（其实是 AccountStore 判，唯一出处）：空名字、名字里有空格、
+    // 超过 16 个字符。失败按产品约定弹窗 —— 这是用户主动发起、而且被挡住了的操作。
+    if (!AccountStore::addOffline(name, &error)) {
+        QMessageBox::warning(this, tr("添加离线账号失败"), error);
+        return;
+    }
+    const QString trimmed = name.trimmed();
+    // 离线账号 = "用这个名字离线进游戏"，所以「离线模式」必须跟着勾上（不勾的话启动那条路
+    // 会去要凭据，而盘上一份都没有）。addOffline() 已经把它设成当前账号了。
+    if (!m_ui->getOfflineModeCheckBox()->isChecked()) {
+        m_ui->getOfflineModeCheckBox()->setChecked(true);  // 这一下会顺带刷新底栏
+    }
+    // 名字进 AuthManager：底栏左下那行和启动参数里的 --username 取的都是它。
+    m_authManager->setOfflinePlayer(trimmed);
+    if (m_accountSkinDialog != nullptr) {
+        // 添加成功之后才清输入框：失败时留着让用户改一下再点（重打一遍是白费）。
+        m_accountSkinDialog->clearOfflineNameDraft();
+    }
+    updateBottomBar();
+    appendLog(tr("已添加离线账号「%1」并切换到它。").arg(trimmed));
+    // 列表、状态行、预览、披风这一整套刷新 —— 和切换账号之后做的事情一样（离线账号没有
+    // 披风可拉，refreshAccountSkin() 在"离线模式勾着"那一档就返回了，不会联网）。
+    refreshAccountSkin();
+}
+
+void MainWindow::onAccountSwitchRequested(const QString &uuid) {
+    if (uuid.isEmpty() || uuid == AccountStore::activeUuid()) {
+        return;  // 已经是它了：写盘一遍再读回来，白折腾
+    }
+    // 先问清是哪一种：activate() 之后盘上的状态已经变了，那时候再问容易问错。
+    const bool offline = AccountStore::isOffline(uuid);
+    QString error;
+    if (!AccountStore::activate(uuid, &error)) {
+        QMessageBox::warning(this, tr("切换账号失败"), error);
+        return;
+    }
+    // 盘上换人了，内存里那一份也得跟着换 —— 不换的话底栏和启动参数里还是上一个人的名字
+    // （AuthManager 只在构造时读过盘，见 reloadStoredAccount()）。
+    if (offline) {
+        // 离线账号没有凭据可读（活动槽刚被它清空），名字从账号列表里来。
+        m_authManager->setOfflinePlayer(AccountStore::nameOf(uuid));
+        // 切到离线账号必须把「离线模式」勾上：不然启动那条路会去要凭据，而盘上一份都没有，
+        // 用户拿到的是"请先登录"，一个死胡同。
+        // NOTE: 反过来（切到在线账号）**不动**这个勾选框 —— 它可能是用户自己勾的，而
+        //       "有正版账号但这次离线启动"本来就是它的原意。切个号就把别人的选择抹掉才怪。
+        if (!m_ui->getOfflineModeCheckBox()->isChecked()) {
+            m_ui->getOfflineModeCheckBox()->setChecked(true);
+        }
+    } else {
+        m_authManager->reloadStoredAccount();
+    }
+    updateBottomBar();
+    appendLog(tr("已切换到账号「%1」。").arg(AccountStore::nameOf(uuid)));
+    // 外观也得跟着换：新账号是另外一套皮肤和披风。这一步会把预览、披风列表、账号列表
+    // 一起刷一遍。
+    refreshAccountSkin();
+}
+
+void MainWindow::onAccountRemoveRequested(const QString &uuid) {
+    if (uuid.isEmpty()) {
+        return;
+    }
+    const QString name = AccountStore::nameOf(uuid);
+    // 删掉的正好是**当前**账号时，活动槽也一起清空（等于退出登录）—— 这件事必须在确认框
+    // 里说清楚，用户点下去才知道自己会退出登录（见 AccountStore.hpp 文件头）。
+    const bool wasCurrent = AccountStore::activeUuid() == uuid;
+    const QString question =
+        wasCurrent ? tr("删掉当前账号「%1」？\n\n它保存的登录凭据会一并删除，删完之后就是"
+                        "未登录状态（可以重新登录）。")
+                         .arg(name)
+                   : tr("删掉账号「%1」？\n\n它保存的登录凭据会一并删除。").arg(name);
+    if (QMessageBox::question(this, tr("删除账号"), question) != QMessageBox::Yes) {
+        return;
+    }
+    if (!AccountStore::remove(uuid)) {
+        QMessageBox::warning(this, tr("删除账号失败"), tr("这个账号不在已保存的列表里。"));
+        return;
+    }
+    if (wasCurrent) {
+        m_authManager->reloadStoredAccount();
+        updateBottomBar();
+    }
+    appendLog(tr("已删除账号「%1」。").arg(name));
+    refreshAccountSkin();
+}
+
+void MainWindow::onSkinUploadRequested(const QString &path, const QString &variant) {
+    // 先把文件读出来。**尺寸那条规矩只在 SkinApi::isAcceptableSkinSize() 里**（唯一出处），
+    // 这里不自己再判一遍。但"读不出来"得在这里说 —— 它连尺寸都没有。
+    QFile file(path);
+    const QString fileName = QFileInfo(path).fileName();
+    if (!file.open(QIODevice::ReadOnly)) {
+        QMessageBox::warning(this, tr("上传皮肤失败"),
+                             tr("读不到「%1」这个文件。").arg(fileName));
+        return;
+    }
+    const QByteArray png = file.readAll();
+    file.close();
+    const QImage image(path);  // 用 QImage 再读一遍只为拿宽高（下面换的是原始字节）
+    if (image.isNull()) {
+        QMessageBox::warning(this, tr("上传皮肤失败"),
+                             tr("「%1」不是一张能读出来的图片。").arg(fileName));
+        return;
+    }
+    if (!SkinApi::isAcceptableSkinSize(image.width(), image.height())) {
+        QMessageBox::warning(this, tr("上传皮肤失败"),
+                             tr("皮肤图必须是 64×64（新格式）或者 64×32（老格式），这张是 "
+                                "%1×%2。")
+                                 .arg(image.width())
+                                 .arg(image.height()));
+        return;
+    }
+
+    QString error;
+    const QString token = m_authManager->loadSavedToken(&error);
+    if (token.isEmpty()) {
+        QMessageBox::warning(this, tr("上传皮肤失败"), error);
+        return;
+    }
+    if (!m_skinApi->uploadSkin(token, png, variant, &error)) {
+        QMessageBox::warning(this, tr("上传皮肤失败"), error);
+        return;
+    }
+    appendLog(tr("皮肤已上传（模型 %1）。").arg(variant));
+    // 换完立刻重拉一遍：预览要显示**刚传上去的**那一张，而不是等下次开窗。
+    refreshAccountSkin();
+}
+
+void MainWindow::onCapeSelectRequested(const QString &capeId) {
+    if (capeId.isEmpty()) {
+        return;
+    }
+    QString error;
+    const QString token = m_authManager->loadSavedToken(&error);
+    if (token.isEmpty()) {
+        QMessageBox::warning(this, tr("更换披风失败"), error);
+        return;
+    }
+    if (!m_skinApi->setActiveCape(token, capeId, &error)) {
+        QMessageBox::warning(this, tr("更换披风失败"), error);
+        return;
+    }
+    appendLog(tr("已更换披风。"));
+    refreshAccountSkin();
+}
+
+void MainWindow::onCapeHideRequested() {
+    QString error;
+    const QString token = m_authManager->loadSavedToken(&error);
+    if (token.isEmpty()) {
+        QMessageBox::warning(this, tr("取消披风失败"), error);
+        return;
+    }
+    if (!m_skinApi->hideCape(token, &error)) {
+        QMessageBox::warning(this, tr("取消披风失败"), error);
+        return;
+    }
+    appendLog(tr("已取消披风（不显示）。"));
+    refreshAccountSkin();
 }
 
 void MainWindow::onLoginStarted() {
     // 从这一刻到浏览器回调回来可能有几十秒（用户要输账号密码、可能还要过二次验证）。
-    // 界面得说明自己在等什么 —— 按钮变灰、文字换成「正在登录…」。
-    // 超时兜底在 AuthManager 那边：浏览器再也不回来时它会发一次 loginFailed()，
-    // 按钮照样会被这一句放回去。
-    updateLoginButton();
+    // 界面上要说明自己在等什么的地方是**那个窗**：按钮一起变灰、状态行写清在等什么。
+    //
+    // NOTE: 写在这里（信号）而不是点下去那一下（槽）：「在登录中」就只有一个来源
+    //       （AuthManager 自己），以后再多一个入口起这个流程，界面照样跟得上。
+    //       超时兜底也在那边 —— 浏览器再也不回来时它会发一次 loginFailed()，
+    //       忙态由 onLoginFailed() 松开。
+    if (m_accountSkinDialog != nullptr) {
+        m_accountSkinDialog->setBusy(true, tr("正在等浏览器完成登录…"));
+    }
 }
 
 void MainWindow::onLoginSucceeded(const QString &playerName) {
-    updateLoginButton();
     // 底栏左下的用户名和头像都换成真名 —— 这是"启动器有反应"里最该看见的那一下
     updateBottomBar();
     // 外观也要跟着换成**这个账号**的：底下那行名字已经变了，右栏还画着上一个人的
     // 皮肤，是这一屏里最容易看出来"没跟上"的一处。这里走的是和开窗同一条路
     // （先默认外观兜底，再拿缓存，最后后台刷），所以离线勾着时也一样不联网。
     startPlayerSkinLoad();
+    // 这次登录的凭据要**收进多账号列表**（列表里就多一条，或者更新已有的那一条）：
+    // 不收的话，用户切到别的账号之后就再也回不到这一个了 —— 那是这一整块功能最要紧的
+    // 一步，而不是可选的记账。
+    QString accountError;
+    if (!AccountStore::captureActive(&accountError)) {
+        // 收不进列表**不影响这一次登录**（凭据已经在活动槽里，启动游戏照旧），所以不弹窗；
+        // 但要说一声，否则用户下次开那个窗会发现"我刚登录的账号怎么不在列表里"。
+        appendLog(tr("保存账号到列表失败：%1").arg(accountError));
+    }
+    if (m_accountSkinDialog != nullptr) {
+        refreshAccountSkin();
+    }
     // 用户刚在浏览器里看到过「登录成功」，这里再说一声是为了把**登录到的是哪个账户**
     // 摆出来：拿错微软账户登录（家里共用的机器上很常见）只有这句话能看出来。
     QMessageBox::information(this, tr("登录成功"), tr("已登录为「%1」。").arg(playerName));
 }
 
 void MainWindow::onLoginFailed(const QString &errorMessage) {
-    updateLoginButton();
+    if (m_accountSkinDialog != nullptr) {
+        // 那个窗上也可能有一个人在等（它是从「登录新账号…」起的流程）。忙态必须在这里
+        // 松开，否则弹窗关掉之后它那几个按钮一直灰着，看着像卡死了。
+        m_accountSkinDialog->setBusy(false);
+        m_accountSkinDialog->setStatusText(accountSkinStatusText());
+    }
     // 登录失败是**挡住启动**的错误（没有令牌就点不动「启动游戏」），按产品约定必须弹窗。
     // 正文是 AuthManager 那边给的、能直接给用户看的话（"这个微软账户还没注册过 Xbox 账户，
     // 到 xbox.com 登录一次"这种），不是一句"登录失败"。

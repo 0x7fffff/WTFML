@@ -20,6 +20,10 @@ set(HEADER_FILES
     src/launcher/LibraryRules.hpp
     src/launcher/VersionInheritance.hpp
     src/auth/AuthManager.hpp
+    src/auth/AccountStore.hpp
+    src/auth/SkinApi.hpp
+    src/auth/TokenStore.hpp
+    src/net/HttpClient.hpp
     src/manage/FolderManager.hpp
     src/manage/InstanceFiles.hpp
     src/manage/VersionManager.hpp
@@ -39,6 +43,10 @@ set(SOURCE_FILES
     src/launcher/LauncherManager.cpp
     src/launcher/VersionInheritance.cpp
     src/auth/AuthManager.cpp
+    src/auth/AccountStore.cpp
+    src/auth/SkinApi.cpp
+    src/auth/TokenStore.cpp
+    src/net/HttpClient.cpp
     src/manage/FolderManager.cpp
     src/manage/InstanceFiles.cpp
     src/manage/InstanceGroupStore.cpp
@@ -51,6 +59,7 @@ set(SOURCE_FILES
     src/download/DownloadManager.cpp
     src/util/SystemMemory.cpp
     src/util/ZipUtil.cpp
+    ui/AccountSkinDialog.cpp
     ui/MainWindowUI.cpp
     ui/GroupDialog.cpp
     ui/InstanceSettingsDialog.cpp
@@ -76,7 +85,7 @@ target_link_libraries(WTFMinecraftLauncher PRIVATE
     Qt6::Gui
 )
 
-# 令牌落盘用的 DPAPI（CryptProtectData）在这个库里。见 src/auth/AuthManager.cpp 的 protectToken()。
+# 令牌落盘用的 DPAPI（CryptProtectData）在这个库里。见 src/auth/TokenStore.cpp 的 protect()。
 if(WIN32)
     target_link_libraries(WTFMinecraftLauncher PRIVATE crypt32)
 endif()

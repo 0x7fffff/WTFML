@@ -84,6 +84,26 @@ public:
     bool refreshMinecraftToken(QString *errorMessage = nullptr);
 
     /**
+     * @brief 盘上的凭据被换掉了（多账号切换），重新读一遍。
+     *
+     * NOTE: 只读盘，**不碰网络**（走 applyMinecraftTokenData()）—— 换账号那一刻能立刻
+     *       显示出新账号的名字就够了，令牌过没过期是启动那一刻刷新才知道的事
+     *       （那时失败会有弹窗说清原因）。切完之后盘上那份的 uuid/名字是**新账号**的，
+     *       所以这里读得进来；读不进来（副本坏了）就退回未登录，不保留上一个人的状态。
+     */
+    void reloadStoredAccount();
+
+    /**
+     * @brief 把当前玩家设成一个**离线名字**（切到离线账号时用）。
+     * @param name 离线账号的名字。空串退回占位值 "Player"。
+     *
+     * NOTE: 顺手把 uuid 和令牌一起清掉 —— 离线身份没有在线那一半。不清的话底栏会说
+     *       "离线登录"、而 --uuid 里还发着上一个人的 uuid，游戏里那套身份就是两个人的
+     *       拼盘。清完 loggedIn() 变成 false，这是对的：盘上**确实**没有可用的账户。
+     */
+    void setOfflinePlayer(const QString &name);
+
+    /**
      * @brief 启动游戏时写进 --username 的那个名字。
      * @return 登录过就是 Minecraft 档案里的真名（登录那一刻和每次开窗时从盘上读回来的
      *         那份都算）；没登录过就是占位值 "Player"。

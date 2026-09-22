@@ -12,6 +12,9 @@
 
 #include "AuthManager.hpp"
 
+#include "TokenStore.hpp"      // 凭据落盘的字节格式（唯一出处）
+#include "../net/HttpClient.hpp"  // 同步 HTTP（唯一出处）
+
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDebug>
@@ -33,24 +36,11 @@
 #include <QUrl>
 #include <QUrlQuery>
 
-#if defined(Q_OS_WIN)
-// NOTE: 放在所有 Qt 头之后 —— windows.h 定义的东西太多，先于 Qt 包含容易撞名。
-// NOMINMAX 是给 std::min/std::max 让路（windows.h 会定义 min/max 宏）。
-// 先判一下：libstdc++ 的 os_defines.h 已经定义过它了，直接再来一次会有重定义告警。
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
-#include <dpapi.h>
-#endif
-
 namespace {
 static constexpr const char kClientId[] = "1f3dc837-04f1-4389-947e-d698b69571b7";
-// 两份令牌分开存，理由见 AuthManager.hpp 顶上那段 NOTE（微软那份换不出能启动游戏的令牌）。
-static constexpr const char kMicrosoftTokenStoreKey[] = "MicrosoftTokenData";
-static constexpr const char kMinecraftTokenStoreKey[] = "MinecraftTokenData";
-// 旧格式（XOR 混淆）的密钥。只为了还能把老值读出来 —— 新写的一律走 DPAPI，见 protectToken()。
-static constexpr const char kEncryptionKey[] = "WTFMLSecretKey2026";
+// NOTE: 两份凭据落在哪些键上、以及那串字节怎么保护，都**不在这里** ——
+//       见 TokenStore.hpp（多账号列表里的副本必须和活动槽是同一套格式，所以它只有一个
+//       出处）。这一层要知道的只有"键名从 TokenStore 取"。
 static constexpr const char kOAuthAuthorizeUrl[] =
     "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize";
 static constexpr const char kOAuthTokenUrl[] =
@@ -72,161 +62,33 @@ static constexpr int kLoginTimeoutMinutes = 5;
 //       谁都不该 include 对方 —— 改的时候一起改。
 static constexpr const char kDefaultPlayerName[] = "Player";
 
-// ───────────────────────── 令牌落盘的加解密 ─────────────────────────
-//
-// 盘上那份令牌是这个应用最值钱的数据 —— refresh_token 拿到手就等于拿到账号的长期访问权。
-// 所以这里**要真加密**。旧的 obfuscate() 只是"密钥写在二进制里的混淆"：谁捡到那个 ini、
-// 再反汇编一下把密钥读出来，令牌明文就还原了。
-//
-// Windows 上的正解是 DPAPI（CryptProtectData）：它用**当前登录用户**的凭据派生密钥，密文只有
-// 同一个用户在这台机器上解得开。好处是密钥不归我们保管 —— 没有可泄露的密钥，也不用让用户
-// 再记一个密码。代价也说明白：换用户、换机器就解不开（重登一次即可），这是设计的代价，不是 bug。
-//
-// NOTE: 故意**不加** optionalEntropy。熵是写死在二进制里的，挡不住任何能读到二进制的对手，
-//       却会多出一个"两边必须一模一样"的失配点。真正的边界是"同一个 Windows 用户"。
-//
-// 盘上的格式是自描述的，为的是兼容已经存在的旧值：
-//     以 kTokenMagic 开头 → 后面是 DPAPI 密文
-//     其它               → 旧的 XOR 混淆（读得出来；下次写盘就自动升级成新格式）
+/// NOTE: 这里只剩个**名字**：真正的结构在 HttpClient.hpp（那条同步请求的规矩、含"超时了
+///       要 abort、abort 之后别读正文"那一串）只有一份，登录链和皮肤接口共用。留这行别名
+///       是为了让下面那几十处调用点一个都不用动 —— 搬家的改动越小越不容易搬出 bug。
+using HttpResult = HttpClient::Reply;
 
-static constexpr char kTokenMagic[] = "WTFML-PROTECTED-1\n";
-static constexpr int kTokenMagicLen = int(sizeof(kTokenMagic)) - 1;
-
-/// 旧的混淆，只为了还能读出来。加密不再走它。
-QByteArray legacyXor(const QByteArray &data) {
-    const QByteArray key =
-        QCryptographicHash::hash(QByteArray(kEncryptionKey), QCryptographicHash::Sha256);
-    QByteArray result;
-    result.reserve(data.size());
-    for (int i = 0; i < data.size(); ++i) {
-        result.append(data.at(i) ^ key.at(i % key.size()));
-    }
-    return result;
-}
-
-#if defined(Q_OS_WIN)
-/// 调 DPAPI 的公共部分：出参 blob 用 LocalFree 还回去是微软的约定，忘了就是内存泄漏。
-/// @return 成功时是密文/明文；失败返回空 QByteArray（调用方自己决定怎么退）。
-QByteArray dpapiCall(const QByteArray &input, bool protect) {
-    if (input.isEmpty()) {
-        return QByteArray();
-    }
-
-    DATA_BLOB in{};
-    in.pbData = reinterpret_cast<BYTE *>(const_cast<char *>(input.constData()));
-    in.cbData = static_cast<DWORD>(input.size());
-
-    DATA_BLOB out{};
-    // 描述串只有 Windows 自己看得到（凭据管理器里），随手写一个方便辨认。
-    const BOOL ok = protect ? CryptProtectData(&in, L"WTFML 登录令牌", nullptr, nullptr, nullptr,
-                                               CRYPTPROTECT_UI_FORBIDDEN, &out)
-                            : CryptUnprotectData(&in, nullptr, nullptr, nullptr, nullptr,
-                                                 CRYPTPROTECT_UI_FORBIDDEN, &out);
-    if (ok == FALSE) {
-        // 解不开的常见原因不是"坏了"，是"不是这个用户/这台机器加的密"（或者值被改过）。
-        qWarning() << "DPAPI" << (protect ? "加密" : "解密") << "失败，错误码"
-                   << int(GetLastError());
-        return QByteArray();
-    }
-
-    const QByteArray result(reinterpret_cast<const char *>(out.pbData), int(out.cbData));
-    LocalFree(out.pbData);
-    return result;
-}
-#endif
-
-/// 落盘前：明文（base64 之后的 JSON）→ 盘上要写的字节。
-QByteArray protectToken(const QByteArray &plain) {
-#if defined(Q_OS_WIN)
-    const QByteArray blob = dpapiCall(plain, true);
-    if (!blob.isEmpty()) {
-        return QByteArray(kTokenMagic, kTokenMagicLen) + blob;
-    }
-    // DPAPI 极少失败（凭据存储坏了、内存不够）。真失败就退回混淆，**但要让人看见** ——
-    // 悄悄降级成弱保护比直接失败更糟。
-    qWarning() << "DPAPI 加密失败，这次的令牌只能用旧的混淆写盘。";
-#else
-    // 本工程目前只发 Windows（PCL 目录、注册表这些都是 Windows 的东西）。
-    // 其它平台暂时沿用旧的混淆，见上面的说明。
-#endif
-    return legacyXor(plain);
-}
-
-/// 从盘上读回来：自动区分新格式和旧的混淆值。
-/// @return 明文（base64 之后的 JSON），解不开返回空。
-QByteArray unprotectToken(const QByteArray &stored) {
-    if (stored.isEmpty()) {
-        return QByteArray();
-    }
-#if defined(Q_OS_WIN)
-    if (stored.startsWith(QByteArray(kTokenMagic, kTokenMagicLen))) {
-        return dpapiCall(stored.mid(kTokenMagicLen), false);
-    }
-#endif
-    return legacyXor(stored);
-}
-
-/// 一次同步 HTTP 的结果。分成"拿到了 HTTP 响应"（status 有值）和"根本没连上/超时"
-/// （networkError 有值）两种，调用方翻错误话术时要能区分 —— 4xx 的正文里往往带着
-/// 具体的错误码（XErr、error_description），比 Qt 那句"server replied"有用得多。
-struct HttpResult {
-    int status = -1;
-    QJsonObject json;
-    QByteArray raw;
-    QString networkError;
-    bool ok() const { return status >= 200 && status < 300; }
-};
-
-/// 发一个 JSON 请求并同步等结果。
+/// 发一个 JSON 请求并同步等结果（登录链用的都是 GET/POST，所以这里就这一个开关）。
 /// @param post true 发 POST（body 就是请求体），false 发 GET。
 /// @param contentType 空则不加 Content-Type 头（GET 不需要）。
 /// @param bearer 非空则加 Authorization: Bearer 头。
 HttpResult sendJson(QNetworkAccessManager *manager, const QUrl &url, bool post,
                     const QByteArray &body, const QByteArray &contentType,
                     const QByteArray &bearer) {
-    HttpResult result;
-    QNetworkRequest request{url};
-    if (!contentType.isEmpty()) {
-        request.setHeader(QNetworkRequest::ContentTypeHeader, QString::fromLatin1(contentType));
-    }
-    request.setRawHeader("Accept", "application/json");
-    if (!bearer.isEmpty()) {
-        request.setRawHeader("Authorization", QByteArray("Bearer ") + bearer);
-    }
-
-    QNetworkReply *reply = post ? manager->post(request, body) : manager->get(request);
-
-    QEventLoop loop;
-    QTimer timeoutTimer;
-    timeoutTimer.setSingleShot(true);
-    QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
-    QObject::connect(&timeoutTimer, &QTimer::timeout, &loop, &QEventLoop::quit);
-    timeoutTimer.start(kRequestTimeoutMs);
-    loop.exec();
-
-    if (!reply->isFinished()) {
-        // 超时：abort 之后这个 reply 上什么都没有了，别再去读它的正文
-        reply->abort();
-        reply->deleteLater();
-        result.networkError = QObject::tr("连接超时。");
-        return result;
-    }
-
-    result.status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-    result.raw = reply->readAll();
-    result.json = QJsonDocument::fromJson(result.raw).object();
-    // 拿到 HTTP 响应（哪怕 4xx/5xx）就不算网络错误，只看有没有状态码
-    if (result.status <= 0) {
-        result.networkError = reply->errorString();
-    }
-    reply->deleteLater();
-    return result;
+    return HttpClient::send(manager, url, post ? HttpClient::Verb::Post : HttpClient::Verb::Get,
+                            body, contentType, bearer, kRequestTimeoutMs);
 }
 
 /// 失败时那句"…失败：<为什么>"。有网络层的错就说网络层的，否则说 HTTP 状态码。
 QString httpFailureText(const HttpResult &result, const QString &what) {
     if (!result.networkError.isEmpty()) {
         return QObject::tr("%1：%2").arg(what, result.networkError);
+    }
+
+    // 429：限流。**必须**在下面那条通用分支之前拦下 —— 通用分支认的正是正文里那个
+    // `error` 字段（Minecraft 服务 429 时它就是 "TOO_MANY_REQUESTS"），端给用户等于
+    // 说了句他照做不了的话。文案只有一个出处，皮肤披风那条路说的是同一句。
+    if (result.status == HttpClient::kStatusTooManyRequests) {
+        return HttpClient::throttledText(what);
     }
 
     // 有些端点把原因写在正文里（Minecraft 服务是 errorMessage，Xbox 是 Message）。
@@ -276,7 +138,8 @@ AuthManager::AuthManager(QObject *parent)
       m_callbackPort(kCallbackPort) {
     connect(m_callbackServer, &QTcpServer::newConnection, this, &AuthManager::handleNewConnection);
     // 开窗时把上次登录的账户读回来：底栏一上来就显示上次那个名字，而不是占位的 "Player"。
-    // 这一句**不碰网络**（loadMinecraftTokenData() 只读一遍 QSettings 再解一下混淆），
+    // 这一句**不碰网络**（loadMinecraftTokenData() 只读一遍 QSettings、再解一层
+    // DPAPI，见 TokenStore），
     // 所以放构造函数里是安全的 —— 要换令牌得走 loadSavedToken()，那会发请求。
     // NOTE: 以前这一句是 loadStoredTokenData()，const 方法、返回值直接丢掉，等于什么都没做。
     applyMinecraftTokenData(loadMinecraftTokenData());
@@ -309,8 +172,12 @@ bool AuthManager::loginMicrosoft() {
         connect(m_loginTimeout, &QTimer::timeout, this, [this] {
             m_callbackServer->close();
             m_loginInFlight = false;
-            // 走 loginFailed 而不是自己憋着：界面就是靠它把按钮放回可点状态的。
-            emit loginFailed(tr("登录没有完成（等了 %1 分钟）。\n再点一次「微软登录」重来。")
+            // 走 loginFailed 而不是自己憋着：界面就是靠它把几个按钮放回可点状态的。
+            // NOTE: 这句**不许点名某个按钮** —— 原来写的是「再点一次"微软登录"重来」，
+            //       而那个按钮已经并进「账号与外观」那个窗里了（设置页那格现在只是一个
+            //       入口）。用户手上看到的文案会变，这里只说下一步做什么。
+            emit loginFailed(tr("登录没有完成（等了 %1 分钟，浏览器那头一直没回来）。\n"
+                                "再试一次，或者检查一下网络和代理设置。")
                                  .arg(kLoginTimeoutMinutes));
         });
     }
@@ -368,7 +235,26 @@ bool AuthManager::refreshMinecraftToken(QString *errorMessage) {
     return true;
 }
 
+void AuthManager::reloadStoredAccount() {
+    // applyMinecraftTokenData() 认不下来（凭据缺字段）时**什么都不改** —— 那是"没读到"
+    // 而不是"读到一份空的"，所以上一个人的名字得自己清掉，否则底栏会继续显示一个
+    // 已经没有凭据的账号。
+    if (!applyMinecraftTokenData(loadMinecraftTokenData())) {
+        m_accessToken.clear();
+        m_tokenExpiry = QDateTime();
+        m_uuid.clear();
+        m_playerName = QString::fromLatin1(kDefaultPlayerName);
+    }
+}
+
 QString AuthManager::playerName() const { return m_playerName; }
+
+void AuthManager::setOfflinePlayer(const QString &name) {
+    m_accessToken.clear();
+    m_tokenExpiry = QDateTime();
+    m_uuid.clear();
+    m_playerName = name.isEmpty() ? QString::fromLatin1(kDefaultPlayerName) : name;
+}
 
 bool AuthManager::loggedIn() const { return !m_uuid.isEmpty(); }
 
@@ -871,12 +757,9 @@ bool AuthManager::storeMicrosoftTokenData(const QJsonObject &tokenData) {
         return false;
     }
 
-    QSettings settings;
-    const QByteArray rawData = QJsonDocument(tokenData).toJson(QJsonDocument::Compact);
-    settings.setValue(kMicrosoftTokenStoreKey, protectToken(rawData.toBase64()));
-    settings.sync();
-    if (settings.status() != QSettings::NoError) {
-        qWarning() << "微软令牌写盘失败：" << settings.fileName();
+    QString failure;
+    if (!TokenStore::writeJson(TokenStore::microsoftKey(), tokenData, &failure)) {
+        qWarning().noquote() << "微软令牌写盘失败：" << failure;
         return false;
     }
     return true;
@@ -897,41 +780,20 @@ bool AuthManager::storeMinecraftTokenData(const QString &mcToken, int expiresIn,
         return false;
     }
 
-    QSettings settings;
-    const QByteArray rawData = QJsonDocument(tokenData).toJson(QJsonDocument::Compact);
-    settings.setValue(kMinecraftTokenStoreKey, protectToken(rawData.toBase64()));
-    settings.sync();
-    if (settings.status() != QSettings::NoError) {
-        qWarning() << "Minecraft 令牌写盘失败：" << settings.fileName();
+    QString failure;
+    if (!TokenStore::writeJson(TokenStore::minecraftKey(), tokenData, &failure)) {
+        qWarning().noquote() << "Minecraft 令牌写盘失败：" << failure;
         return false;
     }
     return true;
 }
 
 QJsonObject AuthManager::loadMicrosoftTokenData() const {
-    QSettings settings;
-    const QByteArray encrypted = settings.value(kMicrosoftTokenStoreKey).toByteArray();
-    if (encrypted.isEmpty()) {
-        return QJsonObject();
-    }
-
-    const QByteArray decrypted = unprotectToken(encrypted);
-    const QByteArray rawData = QByteArray::fromBase64(decrypted);
-    const QJsonDocument document = QJsonDocument::fromJson(rawData);
-    return document.isObject() ? document.object() : QJsonObject();
+    return TokenStore::readJson(TokenStore::microsoftKey());
 }
 
 QJsonObject AuthManager::loadMinecraftTokenData() const {
-    QSettings settings;
-    const QByteArray encrypted = settings.value(kMinecraftTokenStoreKey).toByteArray();
-    if (encrypted.isEmpty()) {
-        return QJsonObject();
-    }
-
-    const QByteArray decrypted = unprotectToken(encrypted);
-    const QByteArray rawData = QByteArray::fromBase64(decrypted);
-    const QJsonDocument document = QJsonDocument::fromJson(rawData);
-    return document.isObject() ? document.object() : QJsonObject();
+    return TokenStore::readJson(TokenStore::minecraftKey());
 }
 
 bool AuthManager::applyMinecraftTokenData(const QJsonObject &tokenData) {
