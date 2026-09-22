@@ -11,8 +11,13 @@
 #include "DownloadManager.hpp"
 
 #include <QDebug>
+#include <QElapsedTimer>
 #include <QEventLoop>
 #include <QFileInfo>
+#include <QTimer>
+
+#include <cstdio>
+
 #include <QJsonParseError>
 #include <QStandardPaths>
 #include <QTemporaryFile>
@@ -28,6 +33,18 @@ constexpr char kOfficialVersionManifest[] =
 
 /// 镜像源（BMCLAPI，第三方服务）的基址。
 constexpr char kMirrorBase[] = "https://bmclapi2.bangbang93.com";
+
+// ---------------------------------------------------------------------------
+// 失速看门狗的三个数（实测依据见 DownloadManager.hpp 里 mirrorPreferred() 的注释）
+// ---------------------------------------------------------------------------
+/// 多久看一次"在飞的下载动没动"。5 秒是"慢到该退"和"慢但在动"之间的分辨力：
+/// 官方那条 209 KB 的版本清单 2.9 秒（每跳 ~350 KB），镜像那条 21 秒（每跳 ~50 KB）。
+constexpr int kStallTickMs = 5000;
+/// 一跳少于这么多字节就算"没动"。取 64 KB = 12.8 KB/s 的下限：镜像那条慢链子实测
+/// 0.85~10 KB/s（都不够），而它在 maven 那一支上 0.9 秒给 64 KB（够）。
+constexpr qint64 kStallMinBytesPerTick = 64 * 1024;
+/// 连着几跳"没动"才算数。两跳 = 10 秒 —— 一次 DNS + TLS 建连（本机 1~3 秒）不该被误判。
+constexpr int kStallStrikesToDemote = 2;
 
 }  // namespace
 
@@ -45,11 +62,33 @@ QString DownloadManager::mirrorUrl(const QString &officialUrl) {
         return QLatin1String(kMirrorBase) + QStringLiteral("/assets") + path;
     }
     // 库文件：官方就是标准 maven 布局 /com/foo/bar/1.0/bar-1.0.jar → 镜像 /maven/...
-    if (host == QLatin1String("libraries.minecraft.net")) {
+    //
+    // Forge 那两个 host 是**同一个形状**，所以并在一起认：
+    //   maven.minecraftforge.net → 库和安装器 jar（/net/minecraftforge/...）
+    //   files.minecraftforge.net → 那个 1.7 KB 的推广表（/net/minecraftforge/forge/promotions_slim.json）
+    // 2026-09-22 实测：这两条镜像上都 200，而且是**同一个文件** —— 26.2-65.1.0 的安装器 jar
+    // 官方和镜像都恰好 7855558 字节；老版本也在（1.20.1-47.4.10、1.18.2-40.2.0 都 200）。
+    if (host == QLatin1String("libraries.minecraft.net") ||
+        host == QLatin1String("maven.minecraftforge.net") ||
+        host == QLatin1String("files.minecraftforge.net")) {
         return QLatin1String(kMirrorBase) + QStringLiteral("/maven") + path;
+    }
+    // NeoForge 的 maven：官方把 releases / snapshots 分成两支，而镜像只收了 releases ——
+    // 所以**只认这一支**，snapshots 那边原样返回。拼一个镜像上不存在的地址，症状是
+    // "下载失败"，还会让人以为是我们的地址拼错了，比老老实实走官方难查得多。
+    if (host == QLatin1String("maven.neoforged.net") &&
+        path.startsWith(QLatin1String("/releases/"))) {
+        return QLatin1String(kMirrorBase) + QStringLiteral("/maven/") + path.mid(10);
     }
     // 认不出来就原样返回（理由见头文件）。
     return officialUrl;
+}
+
+QString DownloadManager::mirrorMavenRootUrl() {
+    // 结尾那个斜杠**不能省**：这个字符串是原样交给 Forge / NeoForge 安装器的 `--mirror` 的，
+    // 而安装器拿它直接拼路径。漏了斜杠的表现（实测）：它会去要 `.../mavennet/minecraftforge/...`，
+    // 镜像上 404，然后它自己退回官方 —— 看着像"镜像没起作用"，其实是我们给错了。
+    return QLatin1String(kMirrorBase) + QStringLiteral("/maven/");
 }
 
 QString DownloadManager::mirrorVersionJsonUrl(const QString &versionId) {
@@ -74,7 +113,34 @@ QString DownloadManager::officialVersionManifestUrl() {
 }
 
 QString DownloadManager::endpoint(const QString &officialUrl) const {
-    return m_useMirror ? mirrorUrl(officialUrl) : officialUrl;
+    return mirrorPreferred() ? mirrorUrl(officialUrl) : officialUrl;
+}
+
+bool DownloadManager::mirrorPreferred() const {
+    return m_useMirror && !isMirrorDemoted();
+}
+
+bool DownloadManager::isMirrorDemoted() const {
+    return mirrorDemotedAt(m_clock.elapsed(), m_mirrorDemotedUntil);
+}
+
+void DownloadManager::demoteMirrorForSlowDownload() {
+    m_mirrorDemotedUntil = demoteDeadline(m_clock.elapsed(), m_mirrorDemotedUntil);
+    qInfo() << "The mirror is too slow (under" << kStallMinBytesPerTick << "bytes in"
+            << kStallTickMs << "ms); using the official download source for the next"
+            << kMirrorDemoteMs / 1000 << "seconds.";
+}
+
+bool DownloadManager::mirrorDemotedAt(qint64 nowMs, qint64 demotedUntilMs) {
+    return demotedUntilMs != 0 && nowMs < demotedUntilMs;
+}
+
+bool DownloadManager::mirrorStalled(qint64 bytesDelta, qint64 minBytesPerTick) {
+    return bytesDelta < minBytesPerTick;
+}
+
+qint64 DownloadManager::demoteDeadline(qint64 nowMs, qint64 currentUntilMs) {
+    return qMax(currentUntilMs, nowMs + kMirrorDemoteMs);
 }
 
 namespace {
@@ -93,6 +159,14 @@ DownloadManager::DownloadManager(QObject *parent)
     qRegisterMetaType<Library>("Library");
     qRegisterMetaType<AssetIndex>("AssetIndex");
     qRegisterMetaType<QList<MinecraftVersion>>("QList<MinecraftVersion>");
+
+    // 看门狗从对象建好就开始跳：没有"在看之下"的回复时它什么都不做（一次 QHash 判空），
+    // 所以不需要在每条下载的开始/结束处去起停它。
+    m_clock.start();
+    m_stallWatchdog = new QTimer(this);
+    m_stallWatchdog->setInterval(kStallTickMs);
+    connect(m_stallWatchdog, &QTimer::timeout, this, &DownloadManager::onStallWatchdogTick);
+    m_stallWatchdog->start();
 }
 
 DownloadManager::~DownloadManager() {
@@ -108,14 +182,26 @@ DownloadManager::~DownloadManager() {
     activeDownloads.clear();
     // 队列里的作业一个请求都没发出去，abort 那套对它们无效，只能直接丢掉。
     m_pendingAssetJobs.clear();
+    m_officialFallbacks.clear();
+    m_stallMeters.clear();
 }
 
 void DownloadManager::fetchVersionManifest() {
-    QUrl url(endpoint(officialVersionManifestUrl()));
+    const QString officialUrl = officialVersionManifestUrl();
+    QUrl url(endpoint(officialUrl));
     QNetworkRequest request(url);
     // 元数据请求也要有超时：下载期间 UI 会禁用按钮，卡死的连接会让它永远禁用下去。
     request.setTransferTimeout(30000);
     QNetworkReply *reply = networkManager->get(request);
+    // 这两个地址不同 = 这条走的是镜像 → 登记官方备用地址 + 交给看门狗看着。
+    // 元数据**必须**有这条：它一发卡住，下游的版本 json / 资源索引 / 几千个资源对象
+    // 一个都还没排上，整条流程就那么挂着（2026-09-22 的 NeoForge 26.2 实测就是这么挂的）。
+    if (shouldRecordOfficialFallback(url.toString(), officialUrl)) {
+        m_officialFallbacks[reply] = officialUrl;
+        m_stallMeters[reply] = StallMeter{};
+        connect(reply, &QNetworkReply::downloadProgress, this,
+                &DownloadManager::onDownloadReplyProgress);
+    }
     connect(reply, &QNetworkReply::finished, this,
             &DownloadManager::onVersionManifestReplyFinished);
 }
@@ -128,7 +214,7 @@ void DownloadManager::fetchVersionJson(const QString &versionId) {
             // 镜像源下要拿版本号重拼（官方那条 URL 里的 sha1 镜像不认），所以这里
             // 用不上 version.url。
             const QString effectiveUrl =
-                m_useMirror ? mirrorVersionJsonUrl(versionId) : version.url;
+                mirrorPreferred() ? mirrorVersionJsonUrl(versionId) : version.url;
             // 具名 QUrl 只是和下面几处保持一致的写法，**不是**为了躲"最令人烦恼的解析"：
             // 这一行本身编译无警告（实测），`QUrl url(x);` 是对象。会歧义的是
             // `QNetworkRequest request(QUrl(x))` 那种"参数写成了类型名(值)"的形状，
@@ -137,6 +223,14 @@ void DownloadManager::fetchVersionJson(const QString &versionId) {
             QNetworkRequest request(versionQUrl);
             request.setTransferTimeout(30000);
             QNetworkReply *reply = networkManager->get(request);
+            // 和版本清单同理：镜像这条路由现在会 302 到一条只有几百字节每秒的链子上，
+            // 没有备用地址的话它既不失败也不完成。
+            if (shouldRecordOfficialFallback(versionQUrl.toString(), version.url)) {
+                m_officialFallbacks[reply] = version.url;
+                m_stallMeters[reply] = StallMeter{};
+                connect(reply, &QNetworkReply::downloadProgress, this,
+                        &DownloadManager::onDownloadReplyProgress);
+            }
             connect(reply, &QNetworkReply::finished, this,
                     &DownloadManager::onVersionJsonReplyFinished);
             return;
@@ -212,14 +306,15 @@ bool DownloadManager::fileAlreadyValid(const QString &path, const QString &expec
 
 void DownloadManager::downloadFile(const QString &url, const QString &destinationPath,
                                    const QString &expectedSha1, qint64 expectedSize,
-                                   VerifyMode mode) {
+                                   VerifyMode mode, const QString &officialUrl) {
     // 一单一发：库、jar、索引这些批次都只有几十个作业，没有排队的必要。
-    scheduleFile(url, destinationPath, expectedSha1, expectedSize, mode, false);
+    scheduleFile(url, destinationPath, expectedSha1, expectedSize, mode, false, officialUrl);
 }
 
 void DownloadManager::scheduleFile(const QString &url, const QString &destinationPath,
                                    const QString &expectedSha1, qint64 expectedSize,
-                                   VerifyMode mode, bool throttled) {
+                                   VerifyMode mode, bool throttled,
+                                   const QString &officialUrl) {
     // 每个作业都重置一次"已发射"，不管是跳过还是真下。不带批次的用法（一次 fetch、
     // 一次 assets）没有 beginBatch 来重置它，只能靠这里。
     m_batchEmitted = false;
@@ -250,10 +345,10 @@ void DownloadManager::scheduleFile(const QString &url, const QString &destinatio
     }
 
     if (throttled) {
-        m_pendingAssetJobs.enqueue(AssetJob{url, destinationPath, expectedSha1});
+        m_pendingAssetJobs.enqueue(AssetJob{url, destinationPath, expectedSha1, officialUrl});
         pumpAssetQueue();
     } else {
-        startDownload(QUrl(url), destinationPath, expectedSha1);
+        startDownload(QUrl(url), destinationPath, expectedSha1, officialUrl);
     }
 }
 
@@ -263,13 +358,23 @@ void DownloadManager::pumpAssetQueue() {
     while (!m_pendingAssetJobs.isEmpty()
            && activeDownloads.size() < kMaxConcurrentAssetDownloads) {
         const AssetJob job = m_pendingAssetJobs.dequeue();
-        startDownload(QUrl(job.url), job.destinationPath, job.expectedSha1);
+        startDownload(QUrl(job.url), job.destinationPath, job.expectedSha1, job.officialUrl);
     }
 }
 
 void DownloadManager::startDownload(const QUrl &url, const QString &destinationPath,
-                                    const QString &expectedSha1) {
-    QNetworkRequest request(url);
+                                    const QString &expectedSha1, const QString &officialUrl) {
+    // 镜像正被降级、而这条作业知道官方那条地址：**直接改道**，别等它慢 10 秒再退。
+    // 这条判断必须在这里、不能只在"挑地址"的地方：资源对象是几千个一次性排进队列的，
+    // 它们身上的镜像地址在排队那一刻就拼好了（见 AssetJob），等它们一个个撞上慢判据
+    // 再退等于把 10 秒乘以几千。
+    QUrl target = url;
+    QString fallback = officialUrl;
+    if (isMirrorDemoted() && !officialUrl.isEmpty() && officialUrl != url.toString()) {
+        target = QUrl(officialUrl);
+        fallback.clear();  // 已经走官方了，"退回官方"这回事不存在
+    }
+    QNetworkRequest request(target);
     // 没有超时的话，一个卡死的连接会让 pendingDownloads 永远归不了零。UI 在"下载中"
     // 会禁用按钮，那就从"日志刷屏"变成"永久卡死"，比原来的问题更糟。
     request.setTransferTimeout(30000);
@@ -277,6 +382,15 @@ void DownloadManager::startDownload(const QUrl &url, const QString &destinationP
     activeDownloads[reply] = destinationPath;
     if (!expectedSha1.isEmpty()) {
         expectedSha1s[reply] = expectedSha1;
+    }
+    // 走的是镜像、而且调用方知道官方那条地址是什么 —— 记下来，这一发取不回来时
+    // 拿它再试一次（见 m_officialFallbacks 和 retryWithOfficialUrl()）。
+    // NOTE: 两个地址相同就不记：那种情况下"退回官方"等于原样再发一次，只会把
+    //       同一个失败重复一遍，还多花一个超时。
+    if (shouldRecordOfficialFallback(target.toString(), fallback)) {
+        m_officialFallbacks[reply] = fallback;
+        // 在看之下：这条有退路，慢了就 abort 它换官方那条，不用一路等下去。
+        m_stallMeters[reply] = StallMeter{};
     }
     pendingDownloads++;
     connect(reply, &QNetworkReply::finished, this, &DownloadManager::onDownloadReplyFinished);
@@ -326,9 +440,12 @@ void DownloadManager::downloadLibraries(const QList<Library> &libraries, const Q
         QDir().mkpath(QFileInfo(destPath).absolutePath());
         // 空 url 交给 downloadFile 记一笔失败：这种库缺了游戏必然起不来，
         // 静默跳过会让"下载完成"变成谎话。
-        // 这里经 endpoint() 过一道：Mojang 自家 libraries.minecraft.net 上的库走镜像，
-        // 别的 maven（Forge/Fabric）不在 BMCLAPI 的代理范围里，endpoint() 会原样返回。
-        downloadFile(endpoint(lib.url), destPath, lib.sha1, lib.size, VerifyMode::SizeAndSha1);
+        // 这里经 endpoint() 过一道把地址落到当前下载源上（换算规则只写一份）。
+        // 第三个参数是那条**官方**地址：镜像上取不回来时按它再试一次（实测有一次
+        // Forge/NeoForge 的库就是这么慢下来才失败的）。注意 Forge 那几个 maven 从
+        // 2026-09-22 起也认得了（见 mirrorUrl()），认不出来的才会原样返回。
+        downloadFile(endpoint(lib.url), destPath, lib.sha1, lib.size, VerifyMode::SizeAndSha1,
+                     lib.url);
     }
 }
 
@@ -353,10 +470,19 @@ void DownloadManager::downloadAssets(const AssetIndex &assetIndex) {
     // NOTE: 索引文件必须无条件重取（走不了"已存在就跳过"）。Mojang 修订索引后
     // SHA1 和 objects 都会变，只按存在性判断会永远沿用旧索引，新资源一个都下不到。
     //
-    // 镜像源下按索引号重拼。这一条映射是整套镜像里最没把握的一个（/indexes/<id>.json），
-    // 但拼错了会"响亮地失败"而不是静默出错数据：下面的 expectedSha1s 拿官方 sha1 校验，
-    // 内容不对就是一条 SHA1 mismatch 的失败清单。
-    const QString indexUrl = m_useMirror ? mirrorAssetIndexUrl(assetIndex.id) : assetIndex.url;
+    // 镜像源下按索引号重拼。这一条映射是整套镜像里最没把握的一个（/indexes/<id>.json）。
+    //
+    // 2026-09-22 实测：这个路由**整个是坏的** —— /indexes/{legacy,1.18,1.20,1.21,5,32}.json
+    // 全是 404「Not Found」，而同一时刻同一个 host 上 /version/<id>/json 和 /version/<id>/client
+    // 都是 200、资源对象 /assets/<hash> 也是 200。也就是说不是我们拼错了，是它那一边这条路由
+    // 当下没了（它自己的文档里还写着这个地址，以后可能会回来）。
+    //
+    // 所以这里**登记一份官方地址当备用**：镜像那份不管因为什么没拿到（404 / 内容不对 /
+    // 超时），就退回官方再试一次 —— 见 onAssetIndexDownloaded()。不这么做的话，镜像源下
+    // 任何一个版本都装不全（索引拿不到 → 那几千个资源对象一个都不知道要下谁），
+    // 而用户的感受是"换到镜像源之后下载全失败了"。
+    const QString indexUrl =
+        mirrorPreferred() ? mirrorAssetIndexUrl(assetIndex.id) : assetIndex.url;
     // NOTE: 这几个 URL 先落到具名的 QUrl 变量上，不写 `QNetworkRequest request(QUrl(x))`：
     //       那一行会被编译器当成函数声明（最令人烦恼的解析）—— 它读成"形参名叫 x 的
     //       QUrl 类型参数"，于是 request 成了函数名。原来那句能编过只是因为括号里
@@ -366,6 +492,10 @@ void DownloadManager::downloadAssets(const AssetIndex &assetIndex) {
     request.setTransferTimeout(30000);
     QNetworkReply *indexReply = networkManager->get(request);
     activeDownloads[indexReply] = indexPath;
+    if (mirrorPreferred() && !assetIndex.url.isEmpty()) {
+        // 只在镜像源下登记（官方源下 indexUrl 已经是它，没有"备用"这回事）。
+        m_officialFallbacks[indexReply] = assetIndex.url;
+    }
     if (!assetIndex.sha1.isEmpty()) {
         expectedSha1s[indexReply] = assetIndex.sha1;
     }
@@ -422,7 +552,13 @@ void DownloadManager::onAssetIndexDownloaded() {
     }
 
     if (success) {
+        m_officialFallbacks.remove(reply);
+        m_stallMeters.remove(reply);
         emit downloadFinished(indexPath, true, QString());
+    } else if (retryWithOfficialUrl(reply, indexPath, &DownloadManager::onAssetIndexDownloaded)) {
+        // 镜像那条路没成，已经换成官方地址重发了 —— 这一次**不算失败**：作业还在这一个
+        // 里，计数和失败清单都不动，直接返回（下面那些收尾是给"这个 reply 真的结账"用的）。
+        return;
     } else {
         // 索引下载失败也要计入失败，否则整批会被报成"全部完成"。
         // NOTE: 必须在 activeDownloads.remove() 之前调用 —— handleDownloadError
@@ -443,6 +579,40 @@ void DownloadManager::onAssetIndexDownloaded() {
 
     emitBatchProgress(indexPath);
     checkAllDownloadsFinished();
+}
+
+bool DownloadManager::retryWithOfficialUrl(QNetworkReply *reply, const QString &destinationPath,
+                                           void (DownloadManager::*finishedSlot)()) {
+    // 备用地址只在"这条作业走的是镜像"时登记过。没登记 = 这条就是官方地址，
+    // 没得再退，交给调用方按失败处理。
+    const QString officialUrl = m_officialFallbacks.take(reply);
+    if (officialUrl.isEmpty()) {
+        return false;
+    }
+    // 清理掉的原因得说清楚：这一步走的是"换一条路再试"，不是"这次作业失败"。
+    // 所以 pendingDownloads **不加也不减**（作业一直只有一个，只是换了条连接），
+    // m_doneJobs / m_failedJobs 也都不动 —— 都由重发出去的那一次说了算。
+    // NOTE: 新那条回复**不登记**备用地址（take 已经把它拿走了），所以不会来回退。
+    qInfo() << "Mirror download failed, retrying from the official url:" << officialUrl;
+    const QUrl url(officialUrl);
+    QNetworkRequest request(url);
+    request.setTransferTimeout(30000);
+    QNetworkReply *retry = networkManager->get(request);
+    const QString expectedSha1 = expectedSha1s.take(reply);
+    activeDownloads.remove(reply);
+    activeDownloads[retry] = destinationPath;
+    // 看门狗的记账**不搬**：重发出去的这条走官方，没有退路，abort 它只会把下载弄失败。
+    m_stallMeters.remove(reply);
+    if (!expectedSha1.isEmpty()) {
+        expectedSha1s[retry] = expectedSha1;
+    }
+    // 接哪个槽由调用方说：索引有自己那一个（成功了还得解析索引、往下发几千个对象），
+    // 别的都走通用那个。接错了的表现不明显 —— 索引会被当成普通文件落盘就完事。
+    connect(retry, &QNetworkReply::finished, this, finishedSlot);
+    connect(retry, &QNetworkReply::downloadProgress, this,
+            &DownloadManager::onDownloadReplyProgress);
+    reply->deleteLater();
+    return true;
 }
 
 void DownloadManager::parseAndDownloadAssets(const QString &indexPath) {
@@ -480,24 +650,30 @@ void DownloadManager::parseAndDownloadAssets(const QString &indexPath) {
         QString subfolder = hash.left(2);
         QString assetPath = objectsPath + "/" + subfolder + "/" + hash;
 
-        // 官方地址拼出来再经 endpoint() 落到实际源上 —— 两边的路径形状不一样
-        // （镜像多了 /assets 前缀），换算规则只写一份，就在 mirrorUrl() 里。
-        const QString assetUrl = endpoint(QStringLiteral("https://resources.download.minecraft.net/") +
-                                          subfolder + QStringLiteral("/") + hash);
+        // 官方地址先拼出来：它既是"换成镜像之前的那条地址"，也是镜像取不回来时的备用
+        // 地址（这 5000 多个对象里总会有一小撮落在慢节点上，见 m_officialFallbacks）。
+        // 换算规则只写一份，就在 mirrorUrl() 里 —— 两边的路径形状不一样（镜像多了
+        // /assets 前缀）。
+        const QString officialAssetUrl =
+            QStringLiteral("https://resources.download.minecraft.net/") + subfolder +
+            QStringLiteral("/") + hash;
+        const QString assetUrl = endpoint(officialAssetUrl);
         QDir().mkpath(QFileInfo(assetPath).absolutePath());
         // 文件名就是 SHA1，所以只按存在性判断：assets 目录已经 3 GB 出头，
         // 每次点下载都把 5000 多个对象重新哈希一遍会让界面卡死好几秒。
         scheduleFile(assetUrl, assetPath, hash, -1, VerifyMode::ExistsOnly,
-                     /*throttled=*/true);
+                     /*throttled=*/true, officialAssetUrl);
     }
 }
 
 void DownloadManager::downloadClientJar(const QString &versionId, const QString &url,
                                         const QString &destinationPath, const QString &expectedSha1,
                                         qint64 expectedSize) {
-    const QString effectiveUrl = m_useMirror ? mirrorClientJarUrl(versionId) : url;
+    const QString effectiveUrl = mirrorPreferred() ? mirrorClientJarUrl(versionId) : url;
+    // 第三个参数是官方那条地址（镜像那条是**按版本号拼**出来的，形状完全不一样，
+    // 没法由它反推回去）。几十 MB 的 jar 要是取到一半超时，退一步比整批重来划算。
     downloadFile(effectiveUrl, destinationPath, expectedSha1, expectedSize,
-                 VerifyMode::SizeAndSha1);
+                 VerifyMode::SizeAndSha1, url);
 }
 
 bool DownloadManager::verifyFileSha1(const QString &filePath, const QString &expectedSha1) {
@@ -600,6 +776,16 @@ AssetIndex DownloadManager::extractAssetIndex(const QJsonObject &versionJson) {
 
 void DownloadManager::onVersionManifestReplyFinished() {
     QNetworkReply *reply = qobject_cast<QNetworkReply *>(sender());
+    // 元数据的回复平时不在 activeDownloads 里（不落盘），只有"从镜像退到官方"重发出来的
+    // 那一条在。这里统一摘一遍，省得在每条路上都写一次。
+    activeDownloads.remove(reply);
+    // 镜像那条没成（失败 / 被看门狗 abort）→ 用官方地址重发一次，这次不算失败。
+    if (reply->error() != QNetworkReply::NoError &&
+        retryWithOfficialUrl(reply, QStringLiteral("version_manifest.json"),
+                             &DownloadManager::onVersionManifestReplyFinished)) {
+        return;
+    }
+    m_stallMeters.remove(reply);
     if (reply->error() == QNetworkReply::NoError) {
         QJsonParseError error;
         QJsonDocument json = QJsonDocument::fromJson(reply->readAll(), &error);
@@ -621,6 +807,13 @@ void DownloadManager::onVersionManifestReplyFinished() {
 
 void DownloadManager::onVersionJsonReplyFinished() {
     QNetworkReply *reply = qobject_cast<QNetworkReply *>(sender());
+    activeDownloads.remove(reply);
+    if (reply->error() != QNetworkReply::NoError &&
+        retryWithOfficialUrl(reply, QStringLiteral("version_json"),
+                             &DownloadManager::onVersionJsonReplyFinished)) {
+        return;
+    }
+    m_stallMeters.remove(reply);
     if (reply->error() == QNetworkReply::NoError) {
         QJsonParseError error;
         QJsonDocument json = QJsonDocument::fromJson(reply->readAll(), &error);
@@ -683,7 +876,13 @@ void DownloadManager::onDownloadReplyFinished() {
     }
 
     if (success) {
+        m_officialFallbacks.remove(reply);
+        m_stallMeters.remove(reply);
         emit downloadFinished(QFileInfo(destPath).fileName(), true, QString());
+    } else if (retryWithOfficialUrl(reply, destPath, &DownloadManager::onDownloadReplyFinished)) {
+        // 镜像那条路没成，已经换成官方地址重发了 —— 这一次**不算失败**：作业还在这一个
+        // 里，计数和失败清单都不动，直接返回（下面那些收尾是给"这个 reply 真的结账"用的）。
+        return;
     } else {
         // NOTE: 要在 activeDownloads.remove() 之前，handleDownloadError 靠它反查路径。
         handleDownloadError(reply, errorMessage);
@@ -707,8 +906,49 @@ void DownloadManager::onDownloadReplyFinished() {
     checkAllDownloadsFinished();
 }
 
+void DownloadManager::onStallWatchdogTick() {
+    if (m_shuttingDown || m_officialFallbacks.isEmpty()) {
+        return;
+    }
+    // 只走"在看之下"的那些回复（= 走了镜像、而且知道官方那条地址）。就地 abort 会同步
+    // 触发 finished、进而改 m_officialFallbacks / m_stallMeters，所以先把要 abort 的攒起来。
+    QList<QNetworkReply *> stalled;
+    for (auto it = m_stallMeters.begin(); it != m_stallMeters.end(); ++it) {
+        QNetworkReply *reply = it.key();
+        if (!m_officialFallbacks.contains(reply)) {
+            continue;  // 已经不在看之下了（重发出去的那一条就属于这种）
+        }
+        StallMeter &meter = it.value();
+        if (mirrorStalled(meter.bytesSeen - meter.lastTickBytes, kStallMinBytesPerTick)) {
+            if (++meter.strikes >= kStallStrikesToDemote) {
+                stalled.append(reply);
+            }
+        } else {
+            meter.strikes = 0;
+        }
+        meter.lastTickBytes = meter.bytesSeen;
+    }
+    if (stalled.isEmpty()) {
+        return;
+    }
+    // 先降级再 abort：abort 出来的失败会走 onDownloadReplyFinished，那里面退回官方时
+    // 要读的就是"已经降级了"这个状态（排队的那几千个资源对象同理，见 startDownload()）。
+    demoteMirrorForSlowDownload();
+    for (QNetworkReply *reply : stalled) {
+        qInfo() << "Aborting a stalled mirror download and retrying it from the official url:"
+                << activeDownloads.value(reply);
+        // 只 abort，不在这里收尾：finished 那个槽会拿到 OperationCanceledError 并按
+        // "镜像那条没成"处理（退回官方重发，作业还是同一个、不算失败）。
+        reply->abort();
+    }
+}
+
 void DownloadManager::onDownloadReplyProgress(qint64 bytesReceived, qint64 bytesTotal) {
     QNetworkReply *reply = qobject_cast<QNetworkReply *>(sender());
+    // 在看之下的回复要记一份进度给看门狗看。**只有**它们会进这张表（startDownload 里登记）。
+    if (auto meter = m_stallMeters.find(reply); meter != m_stallMeters.end()) {
+        meter->bytesSeen = bytesReceived;
+    }
     QString destPath = activeDownloads.value(reply);
     emit downloadProgress(QFileInfo(destPath).fileName(), bytesReceived, bytesTotal);
     // 单发大文件（41 MB 的客户端 jar）期间也要让进度条动起来，否则界面像是卡住了。

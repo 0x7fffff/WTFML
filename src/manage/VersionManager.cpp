@@ -671,8 +671,14 @@ void VersionManager::fetchInstallerList() {
     }
     // 两个接口一个回 JSON、一个回 XML，但都是"GET 一段文本，从里面挑一个版本号"，
     // 所以共用这一条路，分派放在回复处理里按 kind 做。
-    const QUrl url(m_loaderInstall.kind == LoaderKind::Forge ? LoaderMeta::forgePromotionsUrl()
-                                                            : LoaderMeta::neoforgeMavenMetadataUrl());
+    // 版本表本身也走镜像：Forge 那份 1.7 KB 在 files.minecraftforge.net 上，NeoForge 那份
+    // 63 KB 在 maven.neoforged.net 上，两个 host 都在 DownloadManager::mirrorUrl() 里认得了。
+    // NOTE: 这条路**不是** downloadManager 发的（它只是 GET 一段文本、没有落盘），所以镜像
+    //       得在这儿自己换一次 —— downloadFile() 那条路不会替它换。
+    const QString listUrl =
+        m_loaderInstall.kind == LoaderKind::Forge ? LoaderMeta::forgePromotionsUrl()
+                                                  : LoaderMeta::neoforgeMavenMetadataUrl();
+    const QUrl url(downloadManager->endpoint(listUrl));
     QNetworkRequest request(url);
     request.setTransferTimeout(30000);
     QNetworkReply *reply = loaderNetwork->get(request);
@@ -765,8 +771,18 @@ void VersionManager::startInstallerDownload() {
     // 里也没有），所以这里只能"文件在就算好" —— 第二次装同一个加载器版本时省掉这 6 MB。
     // 校验不了是**接受**的：这个 jar 只被我们当子进程启动，真下坏了会在退出码和产物核对
     // 那两道上现形（见 onInstallerFinished）。
-    downloadManager->downloadFile(m_loaderInstall.installerUrl, m_loaderInstall.installerPath,
-                                  QString(), -1, VerifyMode::ExistsOnly);
+    // 安装器 jar 也走镜像（6 MB 上下，是这条路上最大的一笔）。镜像上那份和官方是同一个
+    // 文件（见 2026-09-22 的实测）。installerUrl 本身**不改**：盘上那个文件名是从它切的，
+    // 两条路上游的文件名一模一样。
+    const QString installerUrl =
+        downloadManager->useMirror()
+            ? downloadManager->endpoint(m_loaderInstall.installerUrl)
+            : m_loaderInstall.installerUrl;
+    // 第六个参数是官方那条地址：安装器 jar 是这条路上最大的一笔（6 MB 上下），
+    // 镜像取不回来时按官方再试一次，比整条安装从头再来划算。
+    downloadManager->downloadFile(installerUrl, m_loaderInstall.installerPath,
+                                  QString(), -1, VerifyMode::ExistsOnly,
+                                  m_loaderInstall.installerUrl);
     downloadManager->endBatch();
 }
 
@@ -812,6 +828,21 @@ bool VersionManager::ensureLauncherProfiles(const QString &minecraftDir, bool *c
         *createdOut = true;
     }
     return true;
+}
+
+QStringList VersionManager::forgeInstallerArguments(const QString &installerPath,
+                                                    const QString &targetDir, bool useMirror) {
+    // `--installClient` 后面那个目录**必须**给：不给的话安装器会落到 user.home/.minecraft
+    // （这台机器上是 C:\Users\User\.minecraft），装到一个用户根本不知道的地方去。
+    QStringList args{QStringLiteral("-jar"), installerPath, QStringLiteral("--installClient"),
+                     targetDir};
+    // 镜像模式下把安装器**自己**那条下载路也拨到镜像上。它的默认行为是去问 Forge 的镜像
+    // 列表、挑一个第三方镜像（本机上是 creeperhost），实测慢一倍：48 个库 61 秒 vs 30 秒。
+    // 它只对库生效 —— 原版那几个库（libraries.minecraft.net）它照旧走自己那条路。
+    if (useMirror) {
+        args << QStringLiteral("--mirror") << DownloadManager::mirrorMavenRootUrl();
+    }
+    return args;
 }
 
 void VersionManager::runInstaller() {
@@ -928,11 +959,13 @@ void VersionManager::runInstaller() {
                                         QStringLiteral("-cp"), m_loaderInstall.installerPath,
                                         QStringLiteral("optifine.Installer")});
     } else {
-        // 和原版启动器一样的调用方式。`--installClient` 后面那个目录**必须**给：不给的话
-        // 安装器会落到 user.home/.minecraft（这台机器上是 C:\Users\User\.minecraft），
-        // 装到一个用户根本不知道的地方去。
-        installerProcess->setArguments({QStringLiteral("-jar"), m_loaderInstall.installerPath,
-                                        QStringLiteral("--installClient"), targetDir});
+        // 和原版启动器一样的调用方式。命令行本体在 forgeInstallerArguments() 里（是个纯
+        // 函数，`--mirror` 那一条就是靠它被钉住的，见 verify 的 V8）。
+        // 传的是 mirrorPreferred() 而不是 useMirror()：镜像正被降级时**不能**再把安装器
+        // 拨到它那边去 —— 降级的判据是"这条链子慢到 10 秒给不出 64 KB"，和走的是哪条
+        // 路由无关（maven 那一支实测快，但真慢起来也不该硬塞）。
+        installerProcess->setArguments(forgeInstallerArguments(
+            m_loaderInstall.installerPath, targetDir, downloadManager->mirrorPreferred()));
     }
     installerProcess->setProcessEnvironment(env);
     installerProcess->setWorkingDirectory(targetDir);

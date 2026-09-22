@@ -185,6 +185,13 @@ public:
     // 在下载期间并没有被禁用。
     void setUseMirror(bool useMirror);
 
+    /// Forge / NeoForge 安装器的命令行（**纯函数**，就是为了能钉住 `--mirror` 那一条）。
+    /// @param installerPath 安装器 jar 在盘上的路径。
+    /// @param targetDir `--installClient` 后面那个目录。
+    /// @param useMirror 镜像源模式 —— 决定要不要给 `--mirror`。
+    static QStringList forgeInstallerArguments(const QString &installerPath,
+                                               const QString &targetDir, bool useMirror);
+
     // Version JSON access
     //
     // **返回的是走完继承链、合并好的那一份**（见 VersionInheritance）：带模组加载器的版本

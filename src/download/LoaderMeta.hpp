@@ -288,8 +288,11 @@ inline LoaderPick pickForgeVersion(const QJsonObject &promotions, const QString 
 ///       要先过广告页拿 token，做成"替用户点广告"才是真的不礼貌；maven 上的 jar 是同一个
 ///       文件、由 Forge 自己发布，走它至少没绕过任何东西。
 ///
-/// NOTE: 这个 host（maven.minecraftforge.net）不在 DownloadManager::mirrorUrl() 认得的那
-///       三个里面，所以它会**原样**过去 —— 镜像源不代理 Forge 的 maven，这是对的。
+/// NOTE: 这个 host 从 2026-09-22 起在 DownloadManager::mirrorUrl() 里**认得了**（镜像源模式
+///       下换成 bmclapi 的 /maven/...）。这一条以前写的是"镜像不代理 Forge 的 maven"，那是
+///       没量过就下的结论：那天实测 48 个库走安装器自己挑的 creeperhost 要 61 秒、走镜像
+///       30 秒，而且镜像上那份和官方**是同一个文件**（26.2-65.1.0 的安装器 jar 两边都是
+///       7855558 字节）。
 inline QString forgeInstallerUrl(const QString &gameVersion, const QString &loaderVersion) {
     const QString full = gameVersion + QLatin1Char('-') + loaderVersion;
     return QStringLiteral("https://maven.minecraftforge.net/net/minecraftforge/forge/%1/forge-%1-installer.jar")
