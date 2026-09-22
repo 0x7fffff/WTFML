@@ -665,6 +665,18 @@ void MainWindow::setupConnections() {
             });
     connect(m_ui->getDownloadButton(), &QPushButton::clicked, this,
             &MainWindow::onDownloadButtonClicked);
+    // 「下载」页左栏那份分类（游戏 / 整合包 / 模组 / 资源包 / 光影）：点哪个，右栏那份
+    // QStackedWidget 就翻到哪一页。**"第几个分类 = 第几页"这条对应关系是界面自己搭出来的**
+    // （同一个表、同一个顺序一页一页加进去），这里只做一次越界保护：分类表和页数将来要是
+    // 对不上，宁可停在原来那页，也不要 setCurrentIndex(-1) 把右栏整片清空 —— 那种"点一下
+    // 界面就空了"的毛病，用户只会当成崩了。
+    connect(m_ui->getDownloadCategoryList(), &QListWidget::currentRowChanged, this,
+            [this](int row) {
+                QStackedWidget *stack = m_ui->getDownloadStack();
+                if (row >= 0 && row < stack->count()) {
+                    stack->setCurrentIndex(row);
+                }
+            });
 
     // ---------- 设置页 ----------
     // 「Java 版本」：选自动，或者钉死一个具体运行时。

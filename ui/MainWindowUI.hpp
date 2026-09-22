@@ -36,6 +36,7 @@
 #include <QPushButton>
 #include <QRadioButton>
 #include <QSpinBox>
+#include <QStackedWidget>
 #include <QString>
 #include <QStringList>
 #include <QTabWidget>
@@ -119,6 +120,54 @@ public:
     /// 「还没做」、界面进不进忙态），所以得能按名字取回来 —— 按文案认控件是这套验证
     /// 里明确不要的做法（文案会随产品改，改完测试挂的方式是"找不到控件，后面全不跑"）。
     static QString downloadButtonName() { return QStringLiteral("downloadButton"); }
+
+    // ---------- 下载页左栏那份「下载分类」（仿 PCL） ----------
+    //
+    // 左栏原来是"挑加载器 + 挑版本"，2026-09-22 换成 PCL 那种**一列分类**：游戏 / 整合包 /
+    // 模组 / 资源包 / 光影。点哪个，右栏那份 QStackedWidget 就换到哪一页。
+    //
+    // NOTE: 现在只有「游戏」那一页是真的 —— 它就是原来那一摊（挑加载器、挑版本、下载）。
+    //       其余四个是**留着的入口**：点进去只有一句"还没做"，位置先占住，免得下次往里
+    //       加东西时又要重排整页。那几页上的话由 downloadPlaceholderText() 单点决定。
+    static QString downloadCategoryListName() { return QStringLiteral("downloadCategoryList"); }
+    static QString downloadStackName() { return QStringLiteral("downloadStack"); }
+    /// 「游戏」那一页（唯一有内容的那页）的 objectName。
+    static QString downloadGamePageName() { return QStringLiteral("downloadGamePage"); }
+    /// 分类的键（进条目的 userData，也是"还没做"那几页的 objectName 前缀）。
+    /// **顺序就是界面上从上到下的顺序**，第 0 个是唯一有内容的那个。
+    static QStringList downloadCategoryKeys() {
+        return {QStringLiteral("game"), QStringLiteral("modpack"), QStringLiteral("mod"),
+                QStringLiteral("resourcepack"), QStringLiteral("shader")};
+    }
+    /// 条目上写的字。和上面那张表**一一对应**，顺序不能各排各的。
+    static QStringList downloadCategoryTexts() {
+        return {QStringLiteral("游戏"), QStringLiteral("整合包"), QStringLiteral("模组"),
+                QStringLiteral("资源包"), QStringLiteral("光影")};
+    }
+    /// 有内容的那个分类的下标（「游戏」）。写死数字的地方一律用它。
+    static int downloadCategoryGameIndex() { return 0; }
+    /// 每个分类**将来**放什么一句话（「游戏」那条是空的：它现在就有内容）。
+    /// 这张表只给"还没做"那几页用，所以它和新加的页一一对应。
+    static QStringList downloadCategoryNotes() {
+        return {QString(),
+                QStringLiteral("搜索 Modrinth / CurseForge 上的整合包，看简介和文件清单，一键导入"),
+                QStringLiteral("按游戏版本和加载器搜模组，装进选中的那个实例"),
+                QStringLiteral("搜资源包，装进选中的那个实例"),
+                QStringLiteral("搜光影包，装进选中的那个实例")};
+    }
+    /// 还没做的那几页上写的那句话。**唯一出处** —— 页上那个标签读的就是它。
+    /// @param index downloadCategoryKeys() 的下标；「游戏」那一条返回空串（它有内容）。
+    static QString downloadPlaceholderText(int index) {
+        const QStringList texts = downloadCategoryTexts();
+        const QStringList notes = downloadCategoryNotes();
+        if (index < 0 || index >= texts.size() || index >= notes.size() ||
+            notes.at(index).isEmpty()) {
+            return QString();
+        }
+        return QStringLiteral("「%1」还没做。\n\n这里的入口先留着，将来放：%2。")
+            .arg(texts.at(index), notes.at(index));
+    }
+
     static QString folderListName() { return QStringLiteral("folderList"); }
     static QString instanceListName() { return QStringLiteral("instanceList"); }
     static QString instanceFolderLabelName() { return QStringLiteral("instanceFolderLabel"); }
@@ -397,6 +446,14 @@ public:
     //   availableVersionList —— 下载页右边（「版本下载」那一组里）
     //   instanceList        —— 实例页右边，见上面 getInstanceList()
     QListWidget *getAvailableVersionList() const { return availableVersionList; }
+    /// 下载页左栏那份「下载分类」（仿 PCL，见上面那一段）。**条目没有 objectName** ——
+    /// 认一个条目用的是它的 `Qt::UserRole`（= downloadCategoryKeys() 里那个键）：
+    /// 条目文字是显示内容，会随产品文案走，不能拿它当身份。
+    QListWidget *getDownloadCategoryList() const { return downloadCategoryList; }
+    /// 右栏那份 QStackedWidget。**下标和 downloadCategoryKeys() 一一对应** ——
+    /// 点第 N 个分类就 setCurrentIndex(N)，这条不变量由界面自己保证（搭的时候就按
+    /// 同一个表、同一个顺序加页），验证工程会数一遍两边的条数。
+    QStackedWidget *getDownloadStack() const { return downloadStack; }
     /// 下载页左栏那个「模组加载器」单选组（见上面那段）。
     ///
     /// NOTE: 返回的是**那一组**（按钮组 + 每个钮），顺序就是 modLoaderOptionNames() 的
@@ -473,6 +530,10 @@ private:
     QComboBox *installedVersionCombo;
     QComboBox *availableVersionCombo;
     QListWidget *availableVersionList;
+    /// 下载页左栏那份「下载分类」（见头文件上面那段）与右栏那份 QStackedWidget。
+    /// 只有「游戏」那一页是真的，其余四页各一句"还没做"。
+    QListWidget *downloadCategoryList;
+    QStackedWidget *downloadStack;
     /// 下载页左栏那个「模组加载器」单选组（见头文件上面那段）。
     ///
     /// NOTE: **互斥**由 QButtonGroup 保证（不是靠"同一个父控件下的 QRadioButton 自动

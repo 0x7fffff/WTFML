@@ -467,13 +467,53 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         instance.right.layout->addWidget(instanceGroupBox, 1);
     }
 
-    // ---------- 下载：左 = 挑可安装的版本；右 = 版本列表 + 下载按钮 ----------
+    // ---------- 下载：左 = 分类入口（仿 PCL）；右 = 那个分类的内容 ----------
+    //
+    // 左栏 2026-09-22 从"挑加载器 + 挑版本"换成了 PCL 那种**一列分类**：游戏 / 整合包 /
+    // 模组 / 资源包 / 光影。点哪个，右栏那份 QStackedWidget 就换到哪一页。
+    //
+    // NOTE: 现在只有「游戏」那一页是真的 —— 它就是原来那一摊（挑加载器、挑版本、下载），
+    //       一个控件都没少。其余四页只有一句"还没做"（那句话的唯一出处是
+    //       downloadPlaceholderText()）：入口先占住，免得下次往里加东西时又要重排整页。
     QWidget *downloadTab = new QWidget(tabWidget);
     downloadTab->setObjectName(downloadTabName());
     const TwoColumns download = buildTwoColumnPage(downloadTab, QStringLiteral("download"));
     {
+        const QStringList categoryKeys = downloadCategoryKeys();
+        const QStringList categoryTexts = downloadCategoryTexts();
+
+        downloadCategoryList = new QListWidget(download.left.widget);
+        downloadCategoryList->setObjectName(downloadCategoryListName());
+        downloadCategoryList->setUniformItemSizes(true);
+        for (int i = 0; i < categoryKeys.size(); ++i) {
+            auto *item = new QListWidgetItem(categoryTexts.value(i), downloadCategoryList);
+            // 身份进 userData：条目文字是显示内容，会随产品文案走，不能拿它当身份。
+            item->setData(Qt::UserRole, categoryKeys.value(i));
+        }
+        // 高度贴着内容：五个两三个字的条目，被拉成一整条空白看着像坏了。行高**交给样式
+        // 算**（sizeHintForRow），别写死数字 —— 换字体/换样式就错（UI 样式基线那件事）。
+        int rowsHeight = 0;
+        for (int i = 0; i < downloadCategoryList->count(); ++i) {
+            rowsHeight += downloadCategoryList->sizeHintForRow(i);
+        }
+        downloadCategoryList->setFixedHeight(rowsHeight +
+                                             2 * downloadCategoryList->frameWidth() + 2);
+        download.left.layout->addWidget(downloadCategoryList);
+        download.left.layout->addStretch(1);
+
+        downloadStack = new QStackedWidget(download.right.widget);
+        downloadStack->setObjectName(downloadStackName());
+        download.right.layout->addWidget(downloadStack, 1);
+
+        // ---- 第 0 页「游戏」：原来那一摊，控件一个没搬走、一个没改名 ----
+        QWidget *gamePage = new QWidget(downloadStack);
+        gamePage->setObjectName(downloadGamePageName());
+        QVBoxLayout *gameLayout = new QVBoxLayout(gamePage);
+        gameLayout->setContentsMargins(0, 0, 0, 0);
+        gameLayout->setSpacing(10);
+
         // 模组加载器：四选一（Fabric / Forge / NeoForge / OptiFine）+ 一个「不装（纯原版）」，
-        // 摆在左栏最上面。顺序是"先定加载器、再定装在哪个版本上" —— 跟右边那份版本列表
+        // 摆在最上面。顺序是"先定加载器、再定装在哪个版本上" —— 跟着下面那份版本列表
         // 读下来才顺。
         //
         // NOTE: 那第五个选项**不是凑数**：单选钮一旦勾上就没法用鼠标取消（Qt 的互斥组
@@ -481,20 +521,20 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         //       再也回不到"装纯原版"了 —— 而「可安装版本」那个下拉框**只**服务于这条路。
         //       它**初始勾中**，也就是"打开下载页时就是原来那个行为"。
         //       位置在四个加载器后面（不是最前面）的理由见头文件里 modLoaderOptionNames()。
-        QLabel *modLoaderLabel = new QLabel(modLoaderLabelText(), download.left.widget);
+        QLabel *modLoaderLabel = new QLabel(modLoaderLabelText(), gamePage);
         modLoaderLabel->setObjectName(modLoaderLabelName());
-        download.left.layout->addWidget(modLoaderLabel);
+        gameLayout->addWidget(modLoaderLabel);
 
-        modLoaderGroup = new QButtonGroup(download.left.widget);
+        modLoaderGroup = new QButtonGroup(gamePage);
         modLoaderGroup->setObjectName(modLoaderGroupName());
-        // 四个钮之间挨紧一点（栏自己的间距是 10，那是给"标签/控件一段一段"用的；
+        // 四个钮之间挨紧一点（页面的间距是 10，那是给"标签/控件一段一段"用的；
         // 四个钮是同一条里的四行，拉开反而看不出它们是一组）。外面那层零边距 ——
-        // 栏已经留过边距了。
-        auto *optionColumn = new QWidget(download.left.widget);
+        // 页面那一层已经留过边距了。
+        auto *optionColumn = new QWidget(gamePage);
         auto *optionLayout = new QVBoxLayout(optionColumn);
         optionLayout->setContentsMargins(0, 0, 0, 0);
         optionLayout->setSpacing(2);
-        download.left.layout->addWidget(optionColumn);
+        gameLayout->addWidget(optionColumn);
 
         const auto addOption = [&](int index) {
             QRadioButton *radio = new QRadioButton(modLoaderOptionTexts().at(index), optionColumn);
@@ -513,20 +553,21 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         modLoaderNone = addOption(modLoaderNoneIndex());
         // 默认勾"不装"：打开下载页时「下载版本」老规矩，装的是纯原版。
         modLoaderNone->setChecked(true);
-        // 单选钮不吃滚轮，所以这里不需要右边那个下拉框要装的 WheelGuard（见它上面那段
+        // 单选钮不吃滚轮，所以这里不需要下面那个下拉框要装的 WheelGuard（见它上面那段
         // 说明：手一滑把一次 GB 级的下载指到别的版本上）。几个钮都不会这么出事。
 
-        download.left.layout->addWidget(new QLabel(QStringLiteral("可安装版本"),
-                                                   download.left.widget));
+        // 这一对（标签 + 下拉框）现在在**页面里**竖着排：分类换页之后，左栏已经没有它们
+        // 的位置了。标签紧挨在它的下拉框上面这条关系没变（验证工程钉的就是它）。
+        gameLayout->addWidget(new QLabel(QStringLiteral("可安装版本"), gamePage));
 
-        availableVersionCombo = new QComboBox(download.left.widget);
+        availableVersionCombo = new QComboBox(gamePage);
         availableVersionCombo->setObjectName(availableVersionComboName());
         availableVersionCombo->setPlaceholderText(QStringLiteral("正在获取在线版本…"));
         // 占位文案必须 ≤12 字 —— 完整原因和实测数据见上面 installedVersionCombo 那处。
         availableVersionCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
         availableVersionCombo->setMinimumContentsLength(12);
         availableVersionCombo->installEventFilter(new WheelGuard(availableVersionCombo));
-        download.left.layout->addWidget(availableVersionCombo);
+        gameLayout->addWidget(availableVersionCombo);
 
         QLabel *downloadHint = new QLabel(
             QStringLiteral("「模组加载器」勾一个 = 装带那个加载器的版本（原版还没装的话会先"
@@ -534,14 +575,11 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
                            "下载进度显示在窗口底部那条状态栏上。已经下过的版本不会从头重下"
                            "——点「下载版本」时会先问一句，答「是」就只校验并补齐缺失或损坏"
                            "的文件。"),
-            download.left.widget);
+            gamePage);
         downloadHint->setWordWrap(true);
-        download.left.layout->addWidget(downloadHint);
-        download.left.layout->addStretch(1);
-    }
-    {
-        QGroupBox *versionGroupBox = new QGroupBox(QStringLiteral("版本下载"),
-                                                   download.right.widget);
+        gameLayout->addWidget(downloadHint);
+
+        QGroupBox *versionGroupBox = new QGroupBox(QStringLiteral("版本下载"), gamePage);
         QVBoxLayout *versionLayout = new QVBoxLayout(versionGroupBox);
         versionLayout->setContentsMargins(9, 9, 9, 9);
         versionLayout->setSpacing(10);
@@ -558,7 +596,31 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         downloadButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
         downloadButton->setMinimumWidth(kDownloadButtonMinWidth);
         versionLayout->addWidget(downloadButton, 0, Qt::AlignLeft);
-        download.right.layout->addWidget(versionGroupBox, 1);
+        gameLayout->addWidget(versionGroupBox, 1);
+
+        // 第 0 页加在**最前面** —— 下面那个循环按同一个表、同一个顺序往后加，
+        // 于是"第 i 个分类 = 第 i 页"这条对应关系成立（验证工程会数一遍两边的条数）。
+        downloadStack->addWidget(gamePage);
+
+        // ---- 其余四页：入口先留着，点进去只说一句"还没做" ----
+        for (int i = 0; i < categoryKeys.size(); ++i) {
+            if (i == downloadCategoryGameIndex()) {
+                continue;
+            }
+            QWidget *page = new QWidget(downloadStack);
+            page->setObjectName(categoryKeys.value(i) + QStringLiteral("Page"));
+            auto *pageLayout = new QVBoxLayout(page);
+            pageLayout->setContentsMargins(0, 0, 0, 0);
+            pageLayout->setSpacing(10);
+            auto *note = new QLabel(downloadPlaceholderText(i), page);
+            note->setWordWrap(true);
+            note->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+            pageLayout->addWidget(note);
+            pageLayout->addStretch(1);
+            downloadStack->addWidget(page);
+        }
+        // 打开下载页时停在「游戏」（= 原来那个行为）。
+        downloadCategoryList->setCurrentRow(downloadCategoryGameIndex());
     }
 
     // ---------- 设置：左 = 选项名称，右 = 选项内容 ----------
