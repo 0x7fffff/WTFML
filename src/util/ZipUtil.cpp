@@ -10,7 +10,9 @@
 #include "ZipUtil.hpp"
 
 #include <QDir>
+#include <QFile>
 #include <QProcess>
+#include <QUuid>
 
 namespace {
 
@@ -54,6 +56,44 @@ QString encodeCommand(const QString &script) {
         utf16le.append(static_cast<char>((ch.unicode() >> 8) & 0xFF));
     }
     return QString::fromLatin1(utf16le.toBase64());
+}
+
+/// 起一次 PowerShell 跑这段脚本。返回 false 时 errorOut 里是原因。
+///
+/// NOTE: 三个 - 号开头的开关一个都不能少，理由见 extractArchives 里原来那段（-NoProfile
+///       挡用户 profile 里的别名、-ExecutionPolicy Bypass 挡执行策略、-EncodedCommand
+///       绕开两层引号转义）。三个调用点共用这一份，免得哪天只给其中一个加了新开关。
+bool runPowershell(const QString &script, int timeoutMs, QByteArray *stdoutOut,
+                   QString *errorOut) {
+    QProcess process;
+    process.start(QStringLiteral("powershell"),
+                  {QStringLiteral("-NoProfile"), QStringLiteral("-NonInteractive"),
+                   QStringLiteral("-ExecutionPolicy"), QStringLiteral("Bypass"),
+                   QStringLiteral("-EncodedCommand"), encodeCommand(script)});
+    if (!process.waitForFinished(timeoutMs)) {
+        process.kill();
+        process.waitForFinished(5000);
+        if (errorOut != nullptr) {
+            *errorOut = QStringLiteral("解压超时");
+        }
+        return false;
+    }
+    if (process.exitStatus() != QProcess::NormalExit || process.exitCode() != 0) {
+        if (errorOut != nullptr) {
+            // NOTE: fromLocal8Bit 是对的，**不要**跟着游戏进程改成 fromUtf8 —— 这里的
+            // 输出来自 PowerShell，不是 JVM，-Dstdout.encoding 管不到它（见
+            // LauncherManager::decodeGameOutput 的说明）。
+            const QString err = QString::fromLocal8Bit(process.readAllStandardError()).trimmed();
+            *errorOut = err.isEmpty()
+                            ? QStringLiteral("PowerShell 退出码 %1").arg(process.exitCode())
+                            : err;
+        }
+        return false;
+    }
+    if (stdoutOut != nullptr) {
+        *stdoutOut = process.readAllStandardOutput();
+    }
+    return true;
 }
 
 }  // namespace
@@ -105,31 +145,193 @@ bool ZipUtil::extractArchives(const QStringList &archives, const QString &target
             .arg(psQuote(QDir(targetDir).absolutePath()), psArray(archives),
                  QStringLiteral("(") + skipConditions.join(QStringLiteral(" -or ")) + QLatin1Char(')'));
 
+    QString failure;
+    if (!runPowershell(script, 180000, nullptr, &failure)) {
+        if (errorOut) {
+            *errorOut = failure.isEmpty()
+                            ? QStringLiteral("解压失败（%1 个压缩包）").arg(archives.size())
+                            : failure;
+        }
+        return false;
+    }
+    return true;
+}
+
+ZipUtil::EntryStatus ZipUtil::readEntry(const QString &archive, const QString &entryName,
+                                        QByteArray *out, QString *errorOut) {
+    if (out != nullptr) {
+        out->clear();
+    }
+    if (errorOut != nullptr) {
+        errorOut->clear();
+    }
+
+    // 条目先落到一个临时文件再读回来，而不是让 PowerShell 把字节打到 stdout：
+    // stdout 是**文本**通道，经过一次编码转换之后，二进制内容（zip 里的 json 是 UTF-8 的
+    // 字节流）就不再是原来的字节了。临时文件没有这一层。
+    const QString tempPath = QDir::tempPath() + QStringLiteral("/wtfml-entry-") +
+                             QUuid::createUuid().toString(QUuid::WithoutBraces);
+    const QByteArray temp = QFile::encodeName(tempPath);
+
+    // 退出码：3 = 没有这个条目，4 = 打不开（不是 zip / 坏了）。两个都要和"别的失败"分开。
+    const QString script =
+        QStringLiteral("$ErrorActionPreference='Stop'\n"
+                       "Add-Type -AssemblyName System.IO.Compression.FileSystem\n"
+                       "$target=%1\n"
+                       "try{ $zip=[System.IO.Compression.ZipFile]::OpenRead(%2) }"
+                       " catch { exit 4 }\n"
+                       "try{\n"
+                       "  $e=$zip.GetEntry($target)\n"
+                       "  if($e -eq $null){\n"
+                       "    $lower=$target.ToLowerInvariant()\n"
+                       "    foreach($c in $zip.Entries){\n"
+                       "      if($c.FullName.ToLowerInvariant() -eq $lower){ $e=$c; break }\n"
+                       "    }\n"
+                       "  }\n"
+                       "  if($e -eq $null){ exit 3 }\n"
+                       "  [System.IO.Compression.ZipFileExtensions]::ExtractToFile"
+                       "($e,%3,$true)\n"
+                       "} finally { $zip.Dispose() }\n")
+            .arg(psQuote(entryName), psQuote(QDir::toNativeSeparators(archive)),
+                 psQuote(QFile::decodeName(temp)));
+
     QProcess process;
     process.start(QStringLiteral("powershell"),
                   {QStringLiteral("-NoProfile"), QStringLiteral("-NonInteractive"),
                    QStringLiteral("-ExecutionPolicy"), QStringLiteral("Bypass"),
                    QStringLiteral("-EncodedCommand"), encodeCommand(script)});
-    if (!process.waitForFinished(180000)) {
+    if (!process.waitForFinished(60000)) {
         process.kill();
         process.waitForFinished(5000);
+        QFile::remove(tempPath);
+        if (errorOut != nullptr) {
+            *errorOut = QStringLiteral("读整合包清单超时");
+        }
+        return EntryStatus::Failed;
+    }
+    const int code = process.exitCode();
+    const QByteArray stderrBytes = process.readAllStandardError();
+    if (process.exitStatus() != QProcess::NormalExit) {
+        QFile::remove(tempPath);
+        if (errorOut != nullptr) {
+            *errorOut = QStringLiteral("读整合包清单时 PowerShell 被强行结束了");
+        }
+        return EntryStatus::Failed;
+    }
+    if (code == 3) {
+        QFile::remove(tempPath);
+        return EntryStatus::NotFound;
+    }
+    if (code == 4) {
+        QFile::remove(tempPath);
+        return EntryStatus::NotAnArchive;
+    }
+    if (code != 0) {
+        QFile::remove(tempPath);
+        if (errorOut != nullptr) {
+            const QString err = QString::fromLocal8Bit(stderrBytes).trimmed();
+            *errorOut = err.isEmpty() ? QStringLiteral("读整合包清单失败（退出码 %1）").arg(code) : err;
+        }
+        return EntryStatus::Failed;
+    }
+
+    QFile file(tempPath);
+    const bool read = file.open(QIODevice::ReadOnly);
+    const QByteArray bytes = read ? file.readAll() : QByteArray();
+    file.close();
+    QFile::remove(tempPath);
+
+    if (!read) {
+        if (errorOut != nullptr) {
+            *errorOut = QStringLiteral("读不出临时文件 %1").arg(tempPath);
+        }
+        return EntryStatus::Failed;
+    }
+    if (out != nullptr) {
+        *out = bytes;
+    }
+    return EntryStatus::Ok;
+}
+
+bool ZipUtil::extractSubtrees(const QStringList &archives, const QString &targetDir,
+                              const QStringList &roots, int *extractedOut, QString *errorOut) {
+    if (extractedOut != nullptr) {
+        *extractedOut = 0;
+    }
+    if (archives.isEmpty() || roots.isEmpty()) {
         if (errorOut) {
-            *errorOut = QStringLiteral("解压超时（%1 个压缩包）").arg(archives.size());
+            *errorOut = QStringLiteral("没有需要解压的压缩包");
+        }
+        return false;
+    }
+    if (!QDir().mkpath(targetDir)) {
+        if (errorOut) {
+            *errorOut = QStringLiteral("无法创建目录：%1").arg(targetDir);
         }
         return false;
     }
 
-    if (process.exitStatus() != QProcess::NormalExit || process.exitCode() != 0) {
+    // 前缀统一成"以 / 结尾"的形状：调用方写 `overrides` 还是 `overrides/` 都得认。
+    QStringList normalized;
+    for (const QString &root : roots) {
+        if (root.isEmpty()) {
+            continue;
+        }
+        normalized << (root.endsWith(QLatin1Char('/')) ? root : root + QLatin1Char('/'));
+    }
+    if (normalized.isEmpty()) {
         if (errorOut) {
-            // NOTE: fromLocal8Bit 是对的，**不要**跟着游戏进程改成 fromUtf8 —— 这里的
-            // 输出来自 PowerShell，不是 JVM，-Dstdout.encoding 管不到它（见
-            // LauncherManager::decodeGameOutput 的说明）。
-            const QString err = QString::fromLocal8Bit(process.readAllStandardError()).trimmed();
-            *errorOut = err.isEmpty()
-                            ? QStringLiteral("解压失败（PowerShell 退出码 %1）").arg(process.exitCode())
-                            : err;
+            *errorOut = QStringLiteral("没有需要解压的目录");
         }
         return false;
+    }
+
+    // NOTE: 这一段是**剥掉前缀之后**的那几条守卫，比 extractArchives 里那条只判 `..` 的
+    //       严一点：剥完之后如果剩下的是 `C:/x` 或 `/x`，.NET 的 Path.Combine 会**丢掉**
+    //       前半截（它认为第二个参数已经是绝对路径了），于是文件被写到 $out 外面去。
+    //       条目名里的 `\` 也先换成 `/` 再判 —— Windows 上它同样是分隔符。
+    const QString script =
+        QStringLiteral("$ErrorActionPreference='Stop'\n"
+                       "Add-Type -AssemblyName System.IO.Compression.FileSystem\n"
+                       "$out=%1\n"
+                       "[void][System.IO.Directory]::CreateDirectory($out)\n"
+                       "$roots=%2\n"
+                       "$count=0\n"
+                       "foreach($z in %3){\n"
+                       "  $zip=[System.IO.Compression.ZipFile]::OpenRead($z)\n"
+                       "  try{\n"
+                       "    foreach($r in $roots){\n"
+                       "      $low=$r.ToLowerInvariant()\n"
+                       "      foreach($e in $zip.Entries){\n"
+                       "        if([string]::IsNullOrEmpty($e.Name)){continue}\n"
+                       "        $full=$e.FullName.Replace('\\','/')\n"
+                       "        if(-not $full.ToLowerInvariant().StartsWith($low)){continue}\n"
+                       "        $rel=$full.Substring($r.Length)\n"
+                       "        if($rel.Contains('..')){continue}\n"
+                       "        if($rel.StartsWith('/') -or $rel.Contains(':')){continue}\n"
+                       "        $dest=[System.IO.Path]::Combine($out,$rel)\n"
+                       "        [void][System.IO.Directory]::CreateDirectory"
+                       "([System.IO.Path]::GetDirectoryName($dest))\n"
+                       "        [System.IO.Compression.ZipFileExtensions]::ExtractToFile"
+                       "($e,$dest,$true)\n"
+                       "        $count=$count+1\n"
+                       "      }\n"
+                       "    }\n"
+                       "  } finally { $zip.Dispose() }\n"
+                       "}\n"
+                       "[Console]::Out.Write($count)\n")
+            .arg(psQuote(QDir(targetDir).absolutePath()), psArray(normalized), psArray(archives));
+
+    QByteArray stdoutBytes;
+    QString failure;
+    if (!runPowershell(script, 30 * 60 * 1000, &stdoutBytes, &failure)) {
+        if (errorOut) {
+            *errorOut = failure;
+        }
+        return false;
+    }
+    if (extractedOut != nullptr) {
+        *extractedOut = QString::fromLatin1(stdoutBytes).trimmed().toInt();
     }
     return true;
 }

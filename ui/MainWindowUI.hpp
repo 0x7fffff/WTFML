@@ -36,6 +36,7 @@
 #include <QPushButton>
 #include <QRadioButton>
 #include <QSpinBox>
+#include <QStackedWidget>
 #include <QString>
 #include <QStringList>
 #include <QTabWidget>
@@ -77,13 +78,15 @@ public:
     /// 驱动"离线启动"就只能按文字找控件 —— 而文字是产品文案，会变。
     static QString offlineModeCheckBoxName() { return QStringLiteral("offlineModeCheckBox"); }
     static QString installedVersionComboName() { return QStringLiteral("installedVersionCombo"); }
-    static QString availableVersionComboName() { return QStringLiteral("availableVersionCombo"); }
-    static QString availableVersionListName() { return QStringLiteral("availableVersionList"); }
 
     // ---------- 下载页左栏那个「模组加载器」单选组 ----------
     //
-    // 「勾了哪个」决定「下载版本」装什么（0..3 = 加载器，见 VersionManager::loaderKindFromIndex）
-    // 而那一个「不装」选项是**默认勾中的**，它代表今天的路（装纯原版）。
+    // 「勾了哪个」决定「安装」装什么（0..3 = 加载器，见 VersionManager::loaderKindFromIndex）
+    // 而那一个「不装」选项是**默认勾中的**，它代表装纯原版那条路。
+    //
+    // NOTE: 2026-09-22 起这一组从"左栏孤零零五个钮"搬进了**安装页**：每个加载器
+    //       各占一条，钮右边跟着一个选它版本的组合框（见 loaderVersionComboName()）。
+    //       组、下标、文案一条都没变 —— 变的是它们现在长在哪一页上。
     //
     /// 选项的 objectName，**顺序就是界面上从上到下的顺序**。验证工程按这个顺序遍历，
     /// 界面上摆的顺序也由同一个表驱动，不各写一份。
@@ -109,19 +112,149 @@ public:
     /// 单选钮一旦勾上就没法用鼠标取消（见下面 buildTwoColumnPage 里那段），这个选项
     /// 就是那条退路；写死数字的地方一律用这个函数。
     static int modLoaderNoneIndex() { return 4; }
-    static QString modLoaderLabelName() { return QStringLiteral("modLoaderLabel"); }
     static QString modLoaderLabelText() { return QStringLiteral("模组加载器"); }
     /// 那一组（QButtonGroup）自己的 objectName。验证工程靠它在**真窗口**上把
     /// "这五个钮是一个互斥组"读回来 —— getModLoaderOptions() 只给得出五个钮，
     /// 看不出它们互不互斥（那正是"四选一"里唯一一条看代码看不出来的）。
     static QString modLoaderGroupName() { return QStringLiteral("modLoaderGroup"); }
-    /// 「下载版本」按钮。验证工程要"点它一下"（勾了还没接通的加载器之后点，看弹不弹
-    /// 「还没做」、界面进不进忙态），所以得能按名字取回来 —— 按文案认控件是这套验证
-    /// 里明确不要的做法（文案会随产品改，改完测试挂的方式是"找不到控件，后面全不跑"）。
-    static QString downloadButtonName() { return QStringLiteral("downloadButton"); }
+    /// 某一个加载器那条上选**加载器版本**的组合框。下标就是上面的表（0..3 = 四个加载器，
+    /// 「不装」那条没有组合框 —— 它没有版本可选）。
+    ///
+    /// 名字由 modLoaderOptionNames() 推出来（`modLoaderFabricVersionCombo` 这种），
+    /// 不另写一张表：两张表迟早会有一处对不上，而"点了 Fabric 那条却填进 Forge 的版本号"
+    /// 不会报错、只会装错东西。
+    static QString loaderVersionComboName(int loaderIndex) {
+        return modLoaderOptionNames().value(loaderIndex) + QStringLiteral("VersionCombo");
+    }
+    /// 那四个组合框里第 0 条写的字：**不指定版本** —— 让安装器按老规矩挑（Fabric 挑最新的
+    /// 正式版、Forge/NeoForge 挑推荐的那个、OptiFine 挑官方页那一行主推的）。
+    /// 它的 itemData 是**空串**，"没钉版本"这件事在数据上就靠这个空串表达。
+    static QString loaderVersionAutoText() {
+        return QCoreApplication::translate("MainWindowUI", "自动（推荐）");
+    }
+    /// 还没拿到版本列表时那个组合框上的占位话（一次请求 60~250 KB，等一会儿是常事）。
+    /// NOTE: 短 —— 那个组合框也设了 AdjustToMinimumContentsLengthWithIcon，长的占位文案
+    ///       会把它撑宽（完整原因见 MainWindow::onVersionsFetched 里那段）；而那条
+    ///       minimumContentsLength 是**按 'x' 的宽度**算的，一个汉字差不多顶两个 'x'，
+    ///       所以"字数不超 12"并不够 —— 放中文就得照着 5~6 个字来。
+    static QString loaderVersionFetchingText() {
+        return QCoreApplication::translate("MainWindowUI", "正在获取…");
+    }
+    /// 版本列表没拉到时那个组合框上的占位话。
+    /// NOTE: 比"正在获取…"长一点点，但都短于那条 minimumContentsLength，所以三种文案
+    ///       （这句 / 「自动（推荐）」/「正在获取…」）之间换来换去，框宽不会抽
+    ///       （ui_check 的 H 节把这条钉住了）。具体原因不去占位文案里说 —— 框里那条
+    ///       「自动（推荐）」本身就是退路，原因写进日志。
+    static QString loaderVersionFailedText() {
+        return QCoreApplication::translate("MainWindowUI", "列表没取到");
+    }
+
+    // ---------- 下载页「游戏」里那两层：版本树 / 安装页 ----------
+    //
+    // 用户原话：「下载版本那里改成四个分类（正式版 快照版 远古版 愚人节版），每一个占一条，
+    // 点开后展开对应版本，再点击具体版本后进入一个新页面……顶上预留版本名称输入框……
+    // 再下面放四个选项卡分别对应加载器（默认不选就是原版）也是可以点开选择加载器版本的」。
+    //
+    // 所以「游戏」那一页里再分两层（QStackedWidget）：
+    //   [0] 版本树 —— 四条分类，点开是版本号；点一个版本号去 [1]
+    //   [1] 安装页 —— 名称框 + 四个加载器（每个一条，右边选版本）+ 「安装」
+    // 左栏那列分类、右栏这份堆叠、底下状态栏都不动（用户明确说了那几样不变）。
+    static QString downloadGameStackName() { return QStringLiteral("downloadGameStack"); }
+    static int downloadGameTreeIndex() { return 0; }
+    static int downloadGameInstallIndex() { return 1; }
+    /// 四条分类 + 版本号那份树。**条目没有 objectName**（QTreeWidgetItem 不是 QObject）——
+    /// 身份读它的 `Qt::UserRole`：顶层是分类键（见 VersionCategory::channelKey()），
+    /// 子条目是版本号。空 = "这一条不是版本号"（顶层那四条就是这个情况）。
+    static QString versionTreeName() { return QStringLiteral("versionChannelTree"); }
+    /// 每一条身份存在第几列。只有一列，写 0 是给"将来加一列（比如发布日期）"留个说明：
+    /// 那一列要是插在前面，认条目的代码就全得改。
+    static int versionTreeKeyColumn() { return 0; }
+    /// 安装页那一整页（名称框、四个加载器、安装按钮都在它里面）。
+    static QString installPageName() { return QStringLiteral("versionInstallPage"); }
+    /// 安装页顶上那句"要装的是基于哪个原版的什么"（点的是哪个版本，到这里必须还看得见）。
+    static QString installTargetLabelName() { return QStringLiteral("installTargetLabel"); }
+    /// 「版本名称」框：实例的目录名（`versions/<这个名字>`），默认名由 MainWindow 按
+    /// "原版号 + 加载器"填（见 MainWindow::defaultInstanceName()）。
+    static QString installNameEditName() { return QStringLiteral("installNameEdit"); }
+    /// 名称框下面那行小字：重名提示 / 名字不合法的原因 / 平时的说明，三种取值一处
+    /// 决定（MainWindow::updateInstallNameHint()）。
+    static QString installNameHintName() { return QStringLiteral("installNameHint"); }
+    static QString installButtonName() { return QStringLiteral("installButton"); }
+    static QString installBackButtonName() { return QStringLiteral("installBackButton"); }
+    static QString installNameLabelText() {
+        return QCoreApplication::translate("MainWindowUI", "版本名称");
+    }
+    static QString installButtonText() { return QCoreApplication::translate("MainWindowUI", "安装"); }
+    static QString installBackButtonText() {
+        return QCoreApplication::translate("MainWindowUI", "← 返回版本列表");
+    }
+    /// 安装页顶上那句话：告诉用户这一份是**基于哪个原版**装的（点了树里哪一条，到这里
+    /// 必须还看得见 —— 否则"我在给哪个版本装加载器"就全靠记忆了）。
+    static QString installTargetText(const QString &gameVersion) {
+        return QCoreApplication::translate("MainWindowUI", "将基于原版 %1 安装").arg(gameVersion);
+    }
+
+    // ---------- 下载页左栏那份「下载分类」（仿 PCL） ----------
+    //
+    // 左栏原来是"挑加载器 + 挑版本"，2026-09-22 换成 PCL 那种**一列分类**：游戏 / 整合包 /
+    // 模组 / 资源包 / 光影。点哪个，右栏那份 QStackedWidget 就换到哪一页。
+    //
+    // NOTE: 现在只有「游戏」那一页是真的 —— 它就是原来那一摊（挑加载器、挑版本、下载）。
+    //       其余四个是**留着的入口**：点进去只有一句"还没做"，位置先占住，免得下次往里
+    //       加东西时又要重排整页。那几页上的话由 downloadPlaceholderText() 单点决定。
+    static QString downloadCategoryListName() { return QStringLiteral("downloadCategoryList"); }
+    static QString downloadStackName() { return QStringLiteral("downloadStack"); }
+    /// 「游戏」那一页（唯一有内容的那页）的 objectName。
+    static QString downloadGamePageName() { return QStringLiteral("downloadGamePage"); }
+    /// 分类的键（进条目的 userData，也是"还没做"那几页的 objectName 前缀）。
+    /// **顺序就是界面上从上到下的顺序**，第 0 个是唯一有内容的那个。
+    static QStringList downloadCategoryKeys() {
+        return {QStringLiteral("game"), QStringLiteral("modpack"), QStringLiteral("mod"),
+                QStringLiteral("resourcepack"), QStringLiteral("shader")};
+    }
+    /// 条目上写的字。和上面那张表**一一对应**，顺序不能各排各的。
+    static QStringList downloadCategoryTexts() {
+        return {QStringLiteral("游戏"), QStringLiteral("整合包"), QStringLiteral("模组"),
+                QStringLiteral("资源包"), QStringLiteral("光影")};
+    }
+    /// 有内容的那个分类的下标（「游戏」）。写死数字的地方一律用它。
+    static int downloadCategoryGameIndex() { return 0; }
+    /// 每个分类**将来**放什么一句话（「游戏」那条是空的：它现在就有内容）。
+    /// 这张表只给"还没做"那几页用，所以它和新加的页一一对应。
+    static QStringList downloadCategoryNotes() {
+        return {QString(),
+                QStringLiteral("搜索 Modrinth / CurseForge 上的整合包，看简介和文件清单，一键导入"),
+                QStringLiteral("按游戏版本和加载器搜模组，装进选中的那个实例"),
+                QStringLiteral("搜资源包，装进选中的那个实例"),
+                QStringLiteral("搜光影包，装进选中的那个实例")};
+    }
+    /// 还没做的那几页上写的那句话。**唯一出处** —— 页上那个标签读的就是它。
+    /// @param index downloadCategoryKeys() 的下标；「游戏」那一条返回空串（它有内容）。
+    static QString downloadPlaceholderText(int index) {
+        const QStringList texts = downloadCategoryTexts();
+        const QStringList notes = downloadCategoryNotes();
+        if (index < 0 || index >= texts.size() || index >= notes.size() ||
+            notes.at(index).isEmpty()) {
+            return QString();
+        }
+        return QStringLiteral("「%1」还没做。\n\n这里的入口先留着，将来放：%2。")
+            .arg(texts.at(index), notes.at(index));
+    }
+
     static QString folderListName() { return QStringLiteral("folderList"); }
     static QString instanceListName() { return QStringLiteral("instanceList"); }
     static QString instanceFolderLabelName() { return QStringLiteral("instanceFolderLabel"); }
+    // 「游戏文件夹」那两个按钮、以及下面那句提示。这里**必须**有 objectName ——
+    // 移除那个按钮的文案这一阵子正在从「删除文件夹」改成「移除文件夹…」（那个词会让人
+    // 以为盘上的文件也没了），按文案找控件的写法会在改文案的第一次跑就变成"找不到控件、
+    // 后面全不跑"。文案另有 *Text()，只用来核对显示内容。
+    static QString addFolderButtonName() { return QStringLiteral("addFolderButton"); }
+    static QString removeFolderButtonName() { return QStringLiteral("removeFolderButton"); }
+    static QString folderHintLabelName() { return QStringLiteral("folderHintLabel"); }
+    static QString addFolderText() { return QStringLiteral("添加文件夹…"); }
+    /// NOTE: 带省略号 —— 点下去先弹一个确认框，而那个框是这一步**唯一**说清
+    ///       "只动列表、盘上文件一个字节都不动"的地方（用户最容易误会的就是这一步）。
+    static QString removeFolderText() { return QStringLiteral("移除文件夹…"); }
     // 实例页右栏那三个按钮。**全按钮驱动、不做右键菜单** —— 仓库里右键菜单零先例，
     // 而且验证工程跑在 offscreen 上，QMenu::exec() 会阻塞在事件循环里，几乎驱动不了。
     static QString renameInstanceButtonName() { return QStringLiteral("renameInstanceButton"); }
@@ -129,10 +262,16 @@ public:
     static QString instanceSettingsButtonName() {
         return QStringLiteral("instanceSettingsButton");
     }
+    /// 「导入整合包…」。它和上面那三个**不是一回事**：那三个作用于列表里选中的实例，
+    /// 这个是造一个新实例出来。所以它单独一行、摆在它们上面（见 .cpp 里那一段）。
+    static QString importModpackButtonName() { return QStringLiteral("importModpackButton"); }
     // 按钮上的字。验证工程**不要**拿它们当身份标识（那是显示内容），只用来核对文案。
     static QString renameInstanceText() { return QStringLiteral("重命名…"); }
     static QString groupInstanceText() { return QStringLiteral("分组…"); }
     static QString instanceSettingsText() { return QStringLiteral("实例设置…"); }
+    /// NOTE: 带省略号 —— 按 Qt 的规矩，点了之后还要弹框问点什么的，文案结尾就带省略号
+    ///       （这个字上传出去的信息是"点下去不等于事情就开始了"，和上面三个一致）。
+    static QString importModpackText() { return QStringLiteral("导入整合包…"); }
     // ---------- 实例列表那张树里的「组」 ----------
     // 组头不是实例：选中它不等于选中某个版本。判据是**它有没有组 id**（存在
     // Qt::UserRole+1 里，见 .cpp），而不是"它的 UserRole 是不是空的"—— 后者在
@@ -346,11 +485,12 @@ public:
 
     // 控件访问接口
     QPushButton *getStartButton() const { return startButton; }
-    QPushButton *getDownloadButton() const { return downloadButton; }
     QPushButton *getAccountSkinSettingsButton() const { return accountSkinSettingsButton; }
     QCheckBox *getOfflineModeCheckBox() const { return offlineModeCheckBox; }
     QPushButton *getAddFolderButton() const { return addFolderButton; }
     QPushButton *getRemoveFolderButton() const { return removeFolderButton; }
+    /// 列表下面那句提示（「自带的那一份移不掉…盘上的文件夹和文件都留着。」）。
+    QLabel *getFolderHintLabel() const { return folderHintLabel; }
     // 实例页左边那张列表：一行一个「游戏文件夹」，选中的那一份就是启动器当前用的
     // .minecraft。右边那张**树**是它下面扫出来的实例（按分组归好）。
     QListWidget *getFolderList() const { return folderList; }
@@ -364,18 +504,44 @@ public:
     QPushButton *getRenameInstanceButton() const { return renameInstanceButton; }
     QPushButton *getGroupInstanceButton() const { return groupInstanceButton; }
     QPushButton *getInstanceSettingsButton() const { return instanceSettingsButton; }
+    /// 「导入整合包…」。它不看"有没有选中实例"，任何时候都能点（和上面那三个一个口径：
+    /// 能不能点由状态决定的话，用户会先花时间猜"为什么它是灰的"）。
+    QPushButton *getImportModpackButton() const { return importModpackButton; }
     // 两个下拉框，数据源互不相干，**也因此不在一页上**：
     //   installedVersionCombo —— 磁盘上已经装好的（.minecraft/versions/<id>/<id>.jar），
     //                            在「主页」，启动用它
-    //   availableVersionCombo —— 在线清单里可下载的版本，在「下载」页，下载用它
+    //   —— 原来下载页那个 availableVersionCombo 没了（2026-09-22 换成版本树 + 安装页，
+    //      见下面那一段）：在线版本现在是**树**里的条目，不再是下拉框里的一行。
     QComboBox *getInstalledVersionCombo() const { return installedVersionCombo; }
-    QComboBox *getAvailableVersionCombo() const { return availableVersionCombo; }
     // 剩下的两张列表和它们各自的下拉框是同一份数据的两种看法（条目文本也是同一套
     // 显示名），选中项双向同步：点列表 = 在下拉框里选中它，反之亦然。
-    //   availableVersionList —— 下载页右边（「版本下载」那一组里）
-    //   instanceList        —— 实例页右边，见上面 getInstanceList()
-    QListWidget *getAvailableVersionList() const { return availableVersionList; }
-    /// 下载页左栏那个「模组加载器」单选组（见上面那段）。
+    //   instanceList —— 实例页右边，见上面 getInstanceList()
+    /// 下载页左栏那份「下载分类」（仿 PCL，见上面那一段）。**条目没有 objectName** ——
+    /// 认一个条目用的是它的 `Qt::UserRole`（= downloadCategoryKeys() 里那个键）：
+    /// 条目文字是显示内容，会随产品文案走，不能拿它当身份。
+    QListWidget *getDownloadCategoryList() const { return downloadCategoryList; }
+    /// 右栏那份 QStackedWidget。**下标和 downloadCategoryKeys() 一一对应** ——
+    /// 点第 N 个分类就 setCurrentIndex(N)，这条不变量由界面自己保证（搭的时候就按
+    /// 同一个表、同一个顺序加页），验证工程会数一遍两边的条数。
+    QStackedWidget *getDownloadStack() const { return downloadStack; }
+    /// 「游戏」那一页里的两层（版本树 / 安装页）。下标见 downloadGameTreeIndex()
+    /// 和 downloadGameInstallIndex()。
+    QStackedWidget *getGameStack() const { return gameStack; }
+    /// 四条分类 + 版本号那份树。身份读每条的 `Qt::UserRole`（顶层是分类键、子条目是
+    /// 版本号，空串 = 这一条不是版本号）—— 见 versionTreeName() 上面那段。
+    QTreeWidget *getVersionTree() const { return versionTree; }
+    /// 「版本名称」框（安装页顶上那个）。
+    QLineEdit *getInstallNameEdit() const { return installNameEdit; }
+    /// 名称框下面那行小字（重名 / 名字不合法 / 平时说明，三种取值一处决定）。
+    QLabel *getInstallNameHint() const { return installNameHint; }
+    /// 安装页顶上那句"将基于原版 X 安装"。
+    QLabel *getInstallTargetLabel() const { return installTargetLabel; }
+    /// 安装页那个「安装」按钮。原来那个「下载版本」按钮的位子 —— 它现在只在这一页上，
+    /// 而"装什么"由这一页上的名称框 + 加载器那几条决定。
+    QPushButton *getInstallButton() const { return installButton; }
+    /// 「← 返回版本列表」：回树那一层（不改任何选择，回去还是原来那棵树）。
+    QPushButton *getInstallBackButton() const { return installBackButton; }
+    /// 下载页安装页那个「模组加载器」单选组（见上面那段）。
     ///
     /// NOTE: 返回的是**那一组**（按钮组 + 每个钮），顺序就是 modLoaderOptionNames() 的
     ///       顺序。"勾了哪个"从 modLoaderGroup->checkedId() 读，id 就是下标。
@@ -384,6 +550,11 @@ public:
         return {modLoaderFabric, modLoaderForge, modLoaderNeoForge, modLoaderOptiFine,
                 modLoaderNone};
     }
+    /// 四个加载器各一条的那个"选版本"组合框，**下标就是加载器下标**（0..3，
+    /// 和 modLoaderOptionNames() 前四个、以及 VersionManager::loaderKindFromIndex 同序）。
+    /// 「不装（纯原版）」那条没有它 —— 原版没有加载器版本可选。
+    /// 第 0 条是 loaderVersionAutoText()（itemData 是空串 = 不钉版本，让安装器自己挑）。
+    QVector<QComboBox *> getLoaderVersionCombos() const { return loaderVersionCombos; }
 
     // 设置页的控件。**只搭出来、只负责显隐**，值由 MainWindow 灌（它才知道
     // 那些设置存在哪、改了要不要落盘）。
@@ -435,21 +606,32 @@ private:
 
     // 控件指针
     QPushButton *startButton;
-    QPushButton *downloadButton;
     QPushButton *accountSkinSettingsButton;
     QCheckBox *offlineModeCheckBox;
     QPushButton *addFolderButton;
+    QLabel *folderHintLabel;
     QPushButton *removeFolderButton;
     QListWidget *folderList;
     QTreeWidget *instanceList;
     QPushButton *renameInstanceButton;
     QPushButton *groupInstanceButton;
     QPushButton *instanceSettingsButton;
+    QPushButton *importModpackButton;
     QLabel *instanceFolderLabel;
     QComboBox *installedVersionCombo;
-    QComboBox *availableVersionCombo;
-    QListWidget *availableVersionList;
-    /// 下载页左栏那个「模组加载器」单选组（见头文件上面那段）。
+    /// 下载页左栏那份「下载分类」（见头文件上面那段）与右栏那份 QStackedWidget。
+    /// 只有「游戏」那一页是真的，其余四页各一句"还没做"。
+    QListWidget *downloadCategoryList;
+    QStackedWidget *downloadStack;
+    /// 「游戏」那一页里的两层：版本树 / 安装页（见头文件上面那段）。
+    QStackedWidget *gameStack;
+    QTreeWidget *versionTree;
+    QLabel *installTargetLabel;
+    QLineEdit *installNameEdit;
+    QLabel *installNameHint;
+    QPushButton *installButton;
+    QPushButton *installBackButton;
+    /// 下载页安装页那个「模组加载器」单选组（见头文件上面那段）。
     ///
     /// NOTE: **互斥**由 QButtonGroup 保证（不是靠"同一个父控件下的 QRadioButton 自动
     ///       互斥"那条不成文的规矩 —— 哪天有人把它们挪进各自的容器，那条就悄悄失效了，
@@ -462,6 +644,13 @@ private:
     QRadioButton *modLoaderNeoForge;
     QRadioButton *modLoaderOptiFine;
     QRadioButton *modLoaderNone;
+    /// 四个加载器各一条的那个"选版本"组合框（下标 = 加载器下标，见
+    /// loaderVersionComboName()）。「不装（纯原版）」那条没有 —— 原版没有加载器版本可选。
+    ///
+    /// NOTE: 用一张表而不是四个具名成员：这一组的身份**就是**下标（和加载器枚举同序），
+    ///       接线时 `combos.at(loaderIndex)` 一个数就够；写成四个成员的话，"哪个成员是
+    ///       哪个加载器"这件事得在每一处用它的人那儿重新对一遍。
+    QVector<QComboBox *> loaderVersionCombos;
     QComboBox *javaVersionCombo;
     QLabel *javaPathLabel;
     QCheckBox *javaWarnMismatchCheck;

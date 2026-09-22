@@ -39,6 +39,13 @@
 
 namespace InstanceFiles {
 
+/// 实例目录名的长度上限（`validateDirName()` 用的就是它）。
+///
+/// NOTE: 放在头文件里是为了让**别的地方也要收长度**时用的是同一个数 —— 整合包那边从
+///       包名推实例名（ModpackImport::suggestInstanceName）也要收到 64，各写一个 64
+///       的话，改一处漏一处的症状是"候选名字自己就过不了校验"。
+constexpr int kMaxDirNameLength = 64;
+
 /// 扫一个实例目录得到的原始材料。纯数据 —— 判据本体 resolve() 只吃它、不碰磁盘，
 /// 所以真值表能在验证工程里直接钉住，不用先去造目录。
 struct DirListing {
@@ -190,6 +197,20 @@ QString jsonPath(const QString &versionId);
 QString validateDirName(const QString &rawName);
 
 /**
+ * @brief 一段路径段（目录名或文件名）合不合法 —— 和"实例名"**同一套规矩**，只是不判长度。
+ * @param segment 一段（`mods` / `sodium.jar` 这种），**不含**分隔符。
+ * @return 合法返回空串；否则返回给用户看的一句原因。
+ *
+ * 整合包清单里的相对路径是逐段拿它判的（见 ModpackImport::isSafeRelativePath）：同一个
+ * 判据只写一份，不然"哪些名字建不出来"这件事会在两个地方慢慢漂开。
+ *
+ * NOTE: 长度不在这一层判。名字的长度上限（kMaxDirNameLength）是**实例目录名**的规矩，
+ *       而路径段的长度上限是另一回事（真实的 mod 文件名可以到 60+ 个字符，按 64 判会
+ *       把一个正常的整合包挡在外面）。
+ */
+QString validatePathSegment(const QString &segment);
+
+/**
  * @brief 改名时的完整校验：validateDirName() + "重名了没有 / 是不是没改"。
  * @param rawName 用户输入的新名字。
  * @param currentId 现在这个实例的目录名（不参与重名比较的那个）。
@@ -203,5 +224,46 @@ QString validateDirName(const QString &rawName);
  *       "目标已存在"就直接拒 —— 那个"已存在"的目标就是它自己。
  */
 QString validateRenameTarget(const QString &rawName, const QString &currentId);
+
+/// 一次整合包导入能不能用这个名字。
+enum class ImportNameVerdict {
+    Ok,        ///< 名字合法、盘上也没有它 —— 正常导入
+    OkResume,  ///< 撞上的是"上一次没下完的导入" —— 可以接着往里下（见 isUnfinishedImport）
+    Taken,     ///< 名字本身不合法、或者被**别的**实例占了 —— 只能换名字
+};
+
+/**
+ * @brief 整合包导入的名字判据：validateRenameTarget() + 一条"接着下"的口子。
+ * @param rawName 用户输入的名字。
+ * @param problemOut 非空时，Taken 那条路会把给用户看的那句话写进来（另两种清空）。
+ *
+ * 和「重命名」判据的差别**只有这一条**：撞上的是"上次没下完的导入"时不算被占 ——
+ * 整合包是几百个文件分着下的，网一断就留下半份（真机上那次是 600+ MB / 300 多个文件），
+ * 而重名判据只认目录名。不让接着下的话，用户唯一的办法是"换个名字重导"，也就是把已经
+ * 下好的那几百 MB 再下一遍 —— 这跟本启动器「重下=校验跳过」那条规矩是相反的。
+ *
+ * NOTE: OkResume **不是**"静默覆盖"：调用方必须问一句再往下走（见 MainWindow 里那个
+ *       确认框）—— 接着下会重新解开包里的 config/资源包，压在用户改过的文件上。
+ */
+ImportNameVerdict checkImportTargetName(const QString &rawName,
+                                        QString *problemOut = nullptr);
+
+/**
+ * @brief 这个目录像不像"一次没下完的整合包导入"。
+ * @param id 目录名（= 实例 id）。
+ *
+ * 三条判据，缺一不可（都只看盘，不联网）：
+ *   ① **没有** `wtfml.meta`：启动器把一份实例做成功过就会留下它（导入是在最后一步写的、
+ *      装加载器是装完写的、改名时也会补）。没有它 = 启动器从没把这一份做完。
+ *   ② **没有**客户端 jar：整合包装出来的实例目录里只有一份薄 json + 下下来的那些文件，
+ *      主 jar 在原版/加载器那一层。顶层出现 jar 说明这一份不是导入留下的（用户自己放的，
+ *      或者手工做的），那种目录不该被导入盖上去。
+ *   ③ 自己的版本 json 声明了父版本（`inheritsFrom`）—— 那正是导入写下的那份 json 的形状。
+ *
+ * 三条都满足时它**仍然可能是**一台机器上手工拼出来的实例（那种目录也没有 meta、也没有
+ * jar），所以调用方要问一句。判据宁可偏保守：认错了的代价是"少一条能接着下的路"，
+ * 而放宽的代价是"把用户的实例盖掉"。
+ */
+bool isUnfinishedImport(const QString &id);
 
 }  // namespace InstanceFiles

@@ -20,6 +20,9 @@ class QTemporaryDir;
 class QTimer;
 
 #include "../download/DownloadManager.hpp"
+#include "../download/LoaderMeta.hpp"
+#include "../download/VersionCategory.hpp"
+#include "ModpackImport.hpp"
 #include "VersionDisplay.hpp"
 
 class VersionManager : public QObject {
@@ -41,6 +44,40 @@ public:
     // 传 nullptr 时只是不收告警，返回的列表逐项一致。
     QStringList installedVersions(QStringList *warnings = nullptr) const;
     QStringList availableVersions() const;
+
+    /// 四个分类里的一个，连同它底下的版本。
+    struct VersionChannel {
+        VersionCategory::Channel channel = VersionCategory::Channel::Release;
+        QString key;    ///< 见 VersionCategory::channelKey()（界面认条目的那个键）
+        QString text;   ///< 见 VersionCategory::channelText()（给用户看的四个字）
+        QList<MinecraftVersion> versions;  ///< 清单**原顺序**（新到旧），不是重排过的
+    };
+
+    /**
+     * @brief 把一份版本清单按下载页那四个分类分好堆（**纯函数**）。
+     * @param versions 清单（`DownloadManager::getAvailableVersions()` 那份，或任何同形状的）。
+     *
+     * 永远是 **4 个**（空的那一堆也在，界面四条一条不少），顺序就是界面上从上到下的顺序。
+     * 每一堆里的顺序**原样保留**（清单本来就是新到旧）。
+     *
+     * 分堆的判据只有一处：VersionCategory::channelFor()（含那张愚人节版的名单，以及
+     * "为什么不能用发布日期当判据"的实测记录）。这里只负责按它分堆 —— 同一套规则抄两遍，
+     * 早晚会一边改一边漏。
+     *
+     * NOTE: 写成**静态**、收一个列表进来，是为了让验证工程能拿真清单（915 条那份夹具）直接
+     *       喂进来断言"四堆加起来一条不丢"。做成成员的话，验证工程就得先能替换掉
+     *       VersionManager 里那个 DownloadManager 才够得着 —— 那种"只给测试开的注入口"
+     *       在生产代码里是纯负担。
+     */
+    static QList<VersionChannel> groupIntoChannels(const QList<MinecraftVersion> &versions);
+
+    /**
+     * @brief 「可安装版本」那份清单，按下载页那四个分类分好堆（走 downloadManager 手上那份）。
+     *
+     * 清单还没拉回来时四堆都是空的（不是"返回空列表"）—— 界面据此照常画四条、只是点开是空的，
+     * 而不是整块消失。
+     */
+    QList<VersionChannel> availableVersionChannels() const;
 
     // Version fetching from Mojang API
     void fetchAvailableVersions();
@@ -116,6 +153,17 @@ public:
     static bool loaderKindFromIndex(int index, LoaderKind *out);
 
     /**
+     * @brief 加载器 -> 界面那组选项里的下标（loaderKindFromIndex 的反函数）。
+     * @return 下标；枚举里多了一个、而上面那张表还没跟上时返回 -1。
+     *
+     * 界面那边"每一条加载器一个控件"之后需要这个方向：`loaderVersionsFetched` 回来说的是
+     * **枚举**，而"该填哪一条的控件"是**下标**。反着另写一张表的症状是"勾了 Fabric，
+     * 版本列表填进 Forge 那一条"—— 不报错、只是装错东西。
+     * （verify 里钉着这一对互为反函数。）
+     */
+    static int loaderIndexForKind(LoaderKind kind);
+
+    /**
      * @brief 装一个带模组加载器的版本。
      * @param gameVersion 它基于的**原版**版本号（必须在"可安装版本"那张清单里）。
      * @param kind 装哪一种加载器。
@@ -166,13 +214,155 @@ public:
      *
      * 失败一律以 `versionDownloadFinished(loaderId, false, 原因)` 收尾（还没算出
      * loaderId 时用 gameVersion 当 id），`loaderInstallMessage()` 里说清卡在哪一步。
+     *
+     * @param pinnedLoaderVersion 钉死加载器版本。空 = 老行为（Fabric 挑"最新的正式版"、
+     *        Forge/NeoForge 挑官方推荐版）。非空时**跳过"拉版本表挑一个"那一步**，
+     *        直接用这个版本号 —— 整合包导入走的就是这条路：它的依赖表里写着
+     *        `fabric-loader: 0.16.14`，而包里那些模组正是按这个版本配的，装"最新那个"
+     *        是另一回事（多半也能跑，但那是猜）。
+     *        NOTE: 纯原版整合包不调这个函数（没有加载器要装），见 importModpack()。
      */
     void installLoaderVersion(const QString &gameVersion, LoaderKind kind,
-                              const QString &javaPath = QString());
+                              const QString &javaPath = QString(),
+                              const QString &pinnedLoaderVersion = QString());
+
+    /**
+     * @brief 装一个**用户起了名字**的纯原版实例（安装页那个「版本名称」框）。
+     * @param instanceId 用户起的名字，就是 `versions/<名字>` 那个目录名。
+     *        调用方**必须**先过 `InstanceFiles::validateDirName()`（合法的名字才调）——
+     *        这里不查：和 importModpack() 同一个理由，判据只留一处。
+     * @param gameVersion 基于哪个原版。
+     *
+     * 【它和"直接下这个版本"差在哪】`instanceId == gameVersion` 时**一模一样**：把原版那份
+     * json、客户端 jar、库、资源按老路装齐，不发薄 json —— 因为"实例"就是原版本身。用户没改
+     * 名字时走的就是这一支，界面上那个默认值正好等于版本号。
+     *
+     * 名字不一样时才多一步：装完原版，再写 `versions/<名字>/<名字>.json`：
+     *
+     *     {"id": "<名字>", "inheritsFrom": "<原版号>", "type": "release"}
+     *
+     * 【为什么是薄 json 而不是抄一份完整的】和整合包实例、和 Fabric 装出来的那份**同一个
+     * 形状**（见 startModpackFiles 上面那段）。抄一份完整 json 的坏处是它会变旧账：原版升了、
+     * 资源索引换了，抄来的那份对不上。启动时 `getVersionJson()` 会顺着 inheritsFrom 合并，
+     * 主类/jar/assetIndex/游戏参数全从父版本那一层来。
+     *
+     * **父版本那批文件本来就得在盘上**（客户端 jar 在 `versions/<原版号>/`、库和资源是全局
+     * 共享的），所以这永远是两个目录、不是"把文件搬过去"。
+     *
+     * 名字撞上盘上已有的东西时**不在这儿拦**：调用方先问过用户（老规矩那问句："已经装过了，
+     * 要不要校验并修复？"），这里只负责"已有的文件按 sha1 校验后跳过"——也就是「重下=校验
+     * 跳过」那条产品级约束。薄 json 是每次覆盖重写的（它就是一行字，没有"半旧"的问题）。
+     *
+     * 失败一律以 `versionDownloadFinished(instanceId, false, 原因)` 收尾。
+     */
+    void installNamedVanilla(const QString &instanceId, const QString &gameVersion);
+
+    /**
+     * @brief 装一个**用户起了名字**的、带模组加载器的实例。
+     * @param instanceId 同 installNamedVanilla()。
+     * @param gameVersion 它基于的**原版**版本号。
+     * @param kind 装哪一种加载器。
+     * @param pinnedLoaderVersion 钉死加载器版本（安装页上点开加载器选的那个）。空 = 老行为
+     *        （"最新的正式版" / 官方推荐版）。
+     * @param javaPath 同 installLoaderVersion()：跑外部安装器用哪个 Java。
+     *
+     * 全程复用 installLoaderVersion() 那条已经验过的路（它自己会把原版补齐），装完之后只多做
+     * 一步：写 `versions/<名字>/<名字>.json`，`inheritsFrom` 指着**加载器装出来的那个目录**
+     * （它的名字是安装器自己拼的，我们事先算不出来，所以到这一步才知道父版本是谁）。
+     *
+     * NOTE: 实例那份薄 json **刻意不写 wtfml.meta** —— 显示名里那三段（realVersion /
+     *       loaderName / loaderVersion）属于**加载器那个版本**，用户给实例起的名字就显示用户
+     *       起的名字（写了的话会拼成"我的包-26.3-Forge_47.4.10-Forge"这种东西）。用户想看
+     *       它是基于什么的，版本 json 里的 inheritsFrom 就是答案。
+     */
+    void installNamedLoader(const QString &instanceId, const QString &gameVersion, LoaderKind kind,
+                            const QString &pinnedLoaderVersion = QString(),
+                            const QString &javaPath = QString());
+
+    /// 有"装一个带名字的实例"正在进行（含父版本那几段）。
+    /// 和 isLoaderInstalling() / isModpackImporting() 一起进 UI 的忙态判据。
+    bool isNamedInstanceInstalling() const;
+
+    /**
+     * @brief 问某个加载器在某个游戏版本上有哪些版本可选（安装页那个展开的列表用）。
+     *
+     * 一次只认一份请求：界面上只有**一处**在选择器里（用户点开另一个加载器 = 换一份列表），
+     * 所以这里再来一发就**把上一发 abort 掉**，只回最后那一发。不然用户快速点两下会先收到
+     * 旧的那份列表，把它填进新的下拉框里 —— 那是"选了 Fabric 却看到 Forge 的版本号"。
+     *
+     * 四条路的数据源（都是实测过的）：
+     *   * Fabric   `/v2/versions/loader/<mc>`（253 条 / 589 KB，接口本来就是新到旧）
+     *   * Forge    maven 清单 5048 条 / 211 KB（**新开的源**：promotions 那张表只回答"推荐哪个"，
+     *              里面根本没有"总共有哪些" —— 1.20.1 那对键是 47.4.10 / 47.4.23，而它底下有 132 个）
+     *   * NeoForge maven 清单 63 KB
+     *   * OptiFine  跟着**下载源**走：镜像源问镜像那条 JSON，否则读官方那 200 KB 的下载页 ——
+     *                必须跟着下载源，因为"列出来的版本"要能用同一个源装下去（见
+     *                LoaderMeta::optifineInstallerFileName 和 VersionManager::adoptOptifineEdition）。
+     *
+     * NOTE: 两份 maven 清单都**只走官方地址、不走镜像**，和安装那条路（fetchInstallerList）
+     *       不一样。理由是那次的实测教训：镜像（BMCLAPI）上那份 Forge 版本表是**旧文件**
+     *       （1782 B、最新只到 1.15.2），照着它列会给用户一个"1.16 以后都没有 Forge"的假结论。
+     *       列表这件事对"全不全"比对"快不快"敏感得多，所以宁可直接问官方。
+     *
+     * @param gameVersion 原版版本号。空的话直接回失败（问的是"这个版本上能装什么"）。
+     * @param kind 哪一个加载器。
+     */
+    void requestLoaderVersions(const QString &gameVersion, LoaderKind kind);
 
     /// 有加载器安装正在进行（含"先装原版"那一段）。
     /// UI 用它来兜住"两批下载之间那一瞬间按钮亮着"的缝。
     bool isLoaderInstalling() const;
+
+    /// 有整合包正在导入（含"先装加载器"和"最后解压覆盖文件"那两段）。
+    /// UI 用它和 isLoaderInstalling() 一起兜忙态 —— 判据只有 MainWindow::updateBottomBar()
+    /// 一处，别在别处再判一遍。
+    bool isModpackImporting() const;
+
+    /**
+     * @brief 导入一个 Modrinth 格式的整合包。
+     * @param zipPath 用户选的那个整合包文件（**只读**：里面的 overrides 由 ZipUtil 解开）。
+     * @param instanceId 落地的实例名，就是 `versions/<id>` 那个目录名。
+     *        调用方**必须**先用 `InstanceFiles::validateRenameTarget(id, 空)` 查过重名 ——
+     *        这里不查：数据层再查一遍的话，两处判据慢慢漂开的下场是"界面放行、这里拒绝"，
+     *        而用户看到的是一句没有落点的报错。
+     * @param pack 已经解析好的清单（`ModpackImport::parseModrinthIndex()` 的产物）。
+     *        界面先解析、拿它弹确认框，再把同一个结果交进来 —— 不解析两遍。
+     * @param installerJavaPath 跑外部安装器（Forge/NeoForge）用哪个 Java，空 = PATH 上的
+     *        `java`。Fabric 和纯原版的整合包用不上它。
+     *
+     * 【一次点击 = 四件事】（和装加载器那条约定的形状一样，中间每一步都不单独报"下载完成"，
+     * 整件事只在最后发**一个** `versionDownloadFinished(instanceId, ...)`）：
+     *   1. 装一个带加载器的版本（`installLoaderVersion()`，**钉住**整合包指定的那个版本）
+     *      —— 它同时会把原版补齐，因为加载器版本要基于原版才跑得起来；
+     *   2. 落实例自己那份薄 json：`{"id": <实例名>, "inheritsFrom": <加载器版本>}`。
+     *      薄到只有两个字段是**刻意**的，Fabric 装出来的那份也这么薄：主类、assetIndex、
+     *      javaVersion、游戏参数全在加载器/原版那一层，`getVersionJson()` 会走继承链合并。
+     *      （真机上那个包是 3 层链：整合包 → fabric-loader-0.16.14-1.20.2 → 1.20.2。）
+     *   3. 按清单下那一批文件（150 条上下）到 `versions/<id>/mods/…`，每条都带 sha1，
+     *      下载管理器会先校验、已有的跳过；
+     *   4. 解开压缩包里的 `overrides/` 和 `client-overrides/`，剥掉那一层前缀摊到
+     *      `versions/<id>/` 底下（后一个盖前一个，这是整合包格式的规矩）。
+     *
+     * 第 3 步之前失败时，磁盘上会留下一个（多半不完整的）实例目录。**刻意不删**：删目录
+     * 是不可逆的，而这个目录里可能有几百 MB 已经下好的文件。失败那句话会把目录在哪说清楚。
+     *
+     * 失败一律以 `versionDownloadFinished(instanceId, false, 原因)` 收尾。
+     */
+    void importModpack(const QString &zipPath, const QString &instanceId,
+                       const ModpackImport::Pack &pack,
+                       const QString &installerJavaPath = QString());
+
+    /**
+     * @brief 整合包依赖表里那个加载器的键 -> LoaderKind（**纯函数**）。
+     * @return 认得返回 true；Quilt 和没见过的键返回 false。
+     *
+     * 键名本身只有 `ModpackImport` 那一份（`fabricLoaderKey()` 这几个），这里只是把
+     * "整合包说的加载器"翻译成"本启动器能装的东西"。翻译写成一张逐条列出的表（不是
+     * 遍历比较），将来多一个加载器时编译器会替你盯一眼。
+     * NOTE: Quilt 走到 false 是**正常路径的一部分**：界面在更早一步就用
+     *       `ModpackImport::unsupportedLoaderText()` 拦下来并说清原因了。
+     */
+    static bool loaderKindForDependencyKey(const QString &key, LoaderKind *out);
 
     // 是否有一批下载正在进行（含"正在校验并跳过已存在文件"的整批）。
     // UI 用它来决定"启动游戏"能不能点。
@@ -372,6 +562,38 @@ signals:
     // "进度条显示的是文件数" 这件事变得不可信。
     void loaderInstallMessage(const QString &text);
 
+    /**
+     * @brief requestLoaderVersions() 的回复。**每次请求都会回一次**（成功、失败都回）。
+     *
+     * @param versions 用户能挑的版本号，按各自加载器的天然次序（两份 maven 清单按版本号新到旧、
+     *        Fabric 按接口给的次序）。空 = 一个都没有。
+     * @param errorMessage 失败时说明原因（界面按它弹窗）；成功时是空串。
+     *
+     * NOTE: **列表里没有"哪个是推荐的"这个标记**，这是刻意留白的。四种加载器里只有 Fabric
+     *       的列表自带这个信息（接口的 `stable` 字段），另外三个的"推荐"都在**别的**数据里
+     *       （Forge 在 promotions_slim.json、NeoForge 在"没有 -beta 后缀"、OptiFine 在官方页
+     *       那一行 `downloadLineMain`）。为 Forge 那份多拉一次 4 KB 的请求、再串一道状态机，
+     *       换来的只是列表里一个高亮 —— 而界面那条「自动（推荐）」选项已经把同一件事说清楚了：
+     *       **不指定版本 = 让安装器按老规矩挑**（installLoaderVersion 不传 pinnedVersion 就是
+     *       这个行为，挑法一处没变）。用户真想指定某个版本时，他本来就知道自己要哪个。
+     */
+    void loaderVersionsFetched(const QString &gameVersion, LoaderKind kind, bool success,
+                               const QStringList &versions, const QString &errorMessage);
+
+    /// 整合包导入中间那几句（装加载器、下清单里那批文件、解压覆盖文件）。
+    ///
+    /// NOTE: 和 loaderInstallMessage 分开，理由是**收尾那句话该说谁**：导入整件事的终态
+    ///       说的是"整合包"，而中间这几句也要一起进底栏那格状态文字（用户等的是整合包，
+    ///       不是加载器）。两条路各自说话，界面按各自的信号名接。
+    void modpackImportMessage(const QString &text);
+
+    /// 装"一个带名字的实例"中间那几句（正在装原版 / 正在装加载器 / 写实例文件）。
+    ///
+    /// NOTE: 和上面两条**分开**的理由同上：收尾那句话该说谁。这一条路最后那句说的是
+    ///       「实例 <用户起的名字> 装好了」，而中间那几句说的也是这个名字 —— 不能借
+    ///       loaderInstallMessage 来说，那几句在底栏会读成"用户在装加载器"。
+    void instanceInstallMessage(const QString &text);
+
 private slots:
     void onVersionManifestFetched(const QList<MinecraftVersion> &versions);
     void onVersionJsonFetched(const QJsonObject &versionJson);
@@ -419,6 +641,10 @@ private:
         QString loaderName;     ///< wtfml.meta 的 loaderName
         QString loaderVersion;  ///< wtfml.meta 的 loaderVersion
         QString loaderId;       ///< 版本目录名，也是最终 finished 信号里的 id
+        /// 整合包指定的加载器版本（空 = 老行为：拉版本表挑一个）。
+        /// NOTE: 它一非空就连"拉版本表"那一步都不走 —— 挑出来的和钉死的必须泾渭分明，
+        ///       否则镜像那份旧表挑不出 1.16 之后的版本时，会把整合包要的版本悄悄换掉。
+        QString pinnedVersion;
         /// 跑外部安装器用哪个 Java（空 = PATH 上的 `java`）。Fabric 用不上。
         QString javaPath;
         /// 安装器 jar 要下的地址，以及它落在盘上的哪个文件。两条路都在拉完版本表时填好。
@@ -464,6 +690,94 @@ private:
     void startParentOrLoaderFiles();
     // 把加载器 json 落盘并下它自己那几个库（走 downloadVersion 那条老路）。
     void startLoaderFiles();
+
+    // ---- 整合包导入的内部状态机 ----
+    //
+    // 和 LoaderInstall 同一个形状、同一个理由：一次点击 = 好几件事（装加载器 → 落实例
+    // json → 下清单那批文件 → 解压覆盖文件），每一步的接续点都在别人的信号槽里，需要一个
+    // "走到哪了"的记号。少了它，中间那几批会各自被当成一次独立的下载 —— 界面会弹好几次
+    // "下载完成"、按钮中途解禁，用户以为装完了。
+    struct ModpackInstall {
+        enum class Phase {
+            Idle,
+            InstallingLoader,    ///< 交给 installLoaderVersion() 那条路（只有它会装加载器）
+            WaitingParentJson,   ///< 纯原版整合包：正在取原版的 version.json
+            WaitingParentFiles,  ///< 纯原版整合包：原版那一批正在下
+            WritingVersionJson,  ///< 落实例自己那份薄 json（瞬时，但排在事件循环上）
+            DownloadingFiles,    ///< 清单里那批文件正在下
+            ExtractingOverrides, ///< 正在解压 overrides（同步子进程，最慢的一段）
+        };
+
+        Phase phase = Phase::Idle;
+        QString zipPath;    ///< 用户选的那个整合包文件
+        QString instanceId; ///< 落地的实例名（= versions/<id> 那个目录名）
+        QString loaderId;   ///< 实例的父版本：加载器那个目录（纯原版包就是原版号）
+        ModpackImport::Pack pack;
+        int extractedEntries = 0; ///< 解开了几个覆盖文件（收尾那句话要说出来）
+
+        bool active() const { return phase != Phase::Idle; }
+        // 收尾（成功、失败都走这里）：回到 Idle，也就是"这件事结束了"。
+        // NOTE: 和 LoaderInstall::reset() 一样会连 pack 一起清掉 —— 要用的字段先在调用前
+        //       存下来，忘了存的表现是那句话里整合包的名字变成空的。
+        void reset() { *this = ModpackInstall(); }
+    };
+
+    /// 实例那份薄 json 落盘，然后起清单那批下载（也用于纯原版包：父版本是原版号）。
+    void startModpackFiles();
+    /// 解压 overrides/ 与 client-overrides/（剥掉前缀摊到实例目录里）。
+    void extractModpackOverrides();
+    /// 成功收尾：写 wtfml.meta + 发**唯一**那个终态信号。
+    void finishModpackImport();
+    /// 失败收尾。会把还在跑的加载器安装一起收掉（导入失败 = 整件事结束）。
+    void failModpackImport(const QString &reason);
+
+    // ---- 装"一个用户起了名字的实例"的内部状态机 ----
+    //
+    // 形状和 ModpackInstall 一样、理由也一样（一次点击 = 好几件事，每一步的接续点都在别人的
+    // 信号槽里），但它**只有两步**：装父版本 → 写实例自己那份薄 json。整合包那条路后面的
+    // "下清单那批文件""解压覆盖"这里都没有，所以单独一个小状态，别去挤 ModpackInstall
+    // （挤进去的话"哪些相位算导入"会多出几种只在原版安装时才出现的组合）。
+    //
+    // NOTE: 父版本是**加载器**时这里只有一个相位 WaitingLoader —— 剩下的整段（拉版本表、
+    //       跑安装器、补原版）全在 LoaderInstall 那个状态机里，这里只是**挂在它后面**：
+    //       finishLoaderInstall() 收尾前会看一眼这个状态还在不在。两套状态同时 active 是
+    //       这一条路的**正常**样子，别把它当成"状态串了"。
+    struct NamedInstance {
+        enum class Phase {
+            Idle,
+            WaitingParentJson,  ///< 正在取父版本（原版）的 version.json
+            WaitingParentFiles, ///< 父版本（原版）那一批正在下
+            WaitingLoader,      ///< 父版本是加载器：整段交给 installLoaderVersion()
+        };
+
+        Phase phase = Phase::Idle;
+        QString instanceId;  ///< 用户起的名字 = `versions/<id>` 那个目录名
+        QString parentId;    ///< 实例薄 json 的 `inheritsFrom`
+
+        bool active() const { return phase != Phase::Idle; }
+        void reset() { *this = NamedInstance(); }
+    };
+
+    /// 写实例自己那份薄 json。`instanceId == parentId` 时**什么都不做** —— 那一支就是
+    /// "用户没改名字、装的就是原版本身"，不该在旁边多出一个同名的目录（那是同一个目录）。
+    /// @return 写成功、或者本来就不需要写 → true；写失败 → false，**此时失败终态已经发过了**
+    ///         （调用方只能退出，不能再发一个信号）。
+    bool writeNamedInstanceJson();
+    /// 成功收尾：写薄 json + 发**唯一**那个终态信号（成功）。id 报的是用户的实例名。
+    void finishNamedInstance(const QString &parentId, const QString &parentMessage);
+    /// 失败收尾：清状态 + 发终态信号。加载器那条路上失败由 failLoaderInstall() 接手。
+    void failNamedInstance(const QString &reason);
+
+    /// 把一份版本 json 原样写到 `<destinationPath>/<versionId>.json`。
+    /// 下载路径和整合包导入共用这一份（QSaveFile：断电只会留下旧内容，不会留下半截 json）。
+    static bool writeVersionJson(const QString &versionId, const QString &destinationPath,
+                                 const QJsonObject &json, QString *errorOut);
+
+    /// 加载器版本号定了之后那一段（从版本表挑出来的、整合包钉死的，都走这里）：
+    /// 算 loaderId / 安装器地址 / 安装器文件名，再把"下安装器"排到下一轮。
+    /// NOTE: 消息**不在这儿发** —— "挑中 xxx"和"整合包指定的是 xxx"是两句不同的话，
+    ///       由调用方在调它之前自己说。
+    void adoptInstallerVersion(const QString &version);
 
     // ---- Forge / NeoForge / OptiFine：跑它们自己的安装器 ----
     //
@@ -514,6 +828,11 @@ private:
     // （JSON 数组 / HTML）和挑法都不一样，所以按下载源分派，不共用回复处理。
     void fetchOptifineVersionList();
     void onOptifineVersionListReply(QNetworkReply *reply);
+    // 版本号定了之后的收尾：填 installerFileName/loaderVersion，再按下载源决定"直接下（镜像）"
+    // 还是"先去广告页拿 token（官方）"。**两条路共用**（版本表挑出来的 / 用户钉死的），
+    // 差别只在"版本号从哪来"。定义处有详细说明。
+    void adoptOptifineEdition(const QString &edition,
+                              const LoaderMeta::OptiFineMirrorPath &mirrorPath);
     // 官方那条路多一步：真文件在广告页后面，得先把它那条带 token 的地址抠出来。
     void fetchOptifineDownloadToken();
     void onOptifineDownloadTokenReply(QNetworkReply *reply);
@@ -557,6 +876,9 @@ private:
     // 和每个回复处理函数开头那几句"状态已经换过"是同一个判据。
     void deferLoaderStep(LoaderInstall::Phase expected, std::function<void()> step);
 
+    /// deferNextStep() 的"带名字的实例"版本：同上，只在相位还是 expected 时才跑。
+    void deferNamedStep(NamedInstance::Phase expected, std::function<void()> step);
+
     // deferNextStep() 的兜底出口：把排队的这一步抛出来的异常翻成一次失败收尾
     // （abandonBatch() + 终态信号）。见 deferNextStep() 的 NOTE。
     void recoverFromInternalError(const QString &what);
@@ -569,6 +891,41 @@ private:
     // 混用会让两条路互相把对方的等待状态顶掉。
     QNetworkAccessManager *loaderNetwork = nullptr;
     LoaderInstall m_loaderInstall;
+    ModpackInstall m_modpackInstall;
+
+    /// 「装一个带名字的实例」走到哪了（见上面那段）。父版本是加载器时它会和
+    /// m_loaderInstall **同时** active —— 那不是状态串了，是这一条路的正常样子。
+    NamedInstance m_namedInstance;
+
+    // ---- "这个加载器有哪些版本可选"那一发 GET 的状态 ----
+    //
+    // 为什么不复用 m_loaderInstall：那一位装的是**一次安装**的状态机（相位、安装器地址、
+    // 钉死的版本……），而"列版本"是安装**之前**的一次只读询问 —— 用户在安装页上把四个加载器
+    // 挨个点开看看，一次安装都还没发生。混进去的话，点开一个加载器就会把 m_loaderInstall
+    // 弄成"正在装"的样子，isLoaderInstalling() 当场变 true，底栏和按钮全跟着错。
+    struct LoaderVersionRequest {
+        LoaderKind kind = LoaderKind::Fabric;
+        QString gameVersion;
+        // 正在飞的那一份。换一个加载器/换一个游戏版本时把它 abort 掉（abort 之后 finished()
+        // 照样会来一发，回复处理函数靠"这一份还是我手上这份吗"把它丢掉）。
+        QNetworkReply *reply = nullptr;
+
+        bool active() const { return reply != nullptr; }
+        void clear() { reply = nullptr; }
+    };
+    LoaderVersionRequest m_loaderVersionRequest;
+
+    // 发那一发 GET，回复交给 onLoaderVersionsReply()。
+    void fetchLoaderVersions(const QString &url);
+    void onLoaderVersionsReply(QNetworkReply *reply);
+    // 按加载器把这一份回复解析成"能挑的版本"。失败时 returned.error 非空（是给用户看的话）。
+    struct LoaderVersionParse {
+        QStringList versions;
+        QString error;
+    };
+    LoaderVersionParse parseLoaderVersions(LoaderKind kind, const QString &gameVersion,
+                                           const QByteArray &body) const;
+
     // 跑那三个外部安装器（Forge / NeoForge / OptiFine）的子进程。懒建 —— Fabric 那条路
     // 一个进程都不起，所以装 Fabric 之前它一直是 nullptr。
     //

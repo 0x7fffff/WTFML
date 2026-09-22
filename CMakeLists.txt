@@ -26,6 +26,7 @@ set(HEADER_FILES
     src/net/HttpClient.hpp
     src/manage/FolderManager.hpp
     src/manage/InstanceFiles.hpp
+    src/manage/ModpackImport.hpp
     src/manage/VersionManager.hpp
     src/manage/VersionDisplay.hpp
     src/settings/GlobalJavaSettings.hpp
@@ -50,6 +51,7 @@ set(SOURCE_FILES
     src/manage/FolderManager.cpp
     src/manage/InstanceFiles.cpp
     src/manage/InstanceGroupStore.cpp
+    src/manage/ModpackImport.cpp
     src/manage/PlayerSkinStore.cpp
     src/manage/VersionManager.cpp
     src/manage/VersionDisplay.cpp

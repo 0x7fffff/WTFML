@@ -4,7 +4,7 @@
  * @author LoserKugua
  * @date 2026-04-10
  * @note 列表的来源是 LauncherSettings（落盘在 QSettings 的 Launcher/Folders），
- *       本类负责列表的**语义**：自带那份永远在第一项且删不掉、当前目录不在盘上时
+ *       本类负责列表的**语义**：自带那份永远在第一项且移不掉、当前目录不在盘上时
  *       退回自带那份、路径归一化与去重。
  *
  * 这个类和 AppPaths 的分工：本类只说"当前应该用哪个根目录"，**不动 AppPaths**（那是
@@ -36,7 +36,7 @@ public:
      * @brief 启动器自带的那一份根目录（<exe 目录>/.minecraft）。
      * @return 归一化之后的绝对路径。
      *
-     * 它永远在列表第一项、也删不掉：别的目录被挪走、U 盘被拔掉的时候，启动器总得有
+     * 它永远在列表第一项、也移不掉：别的目录被挪走、U 盘被拔掉的时候，启动器总得有
      * 一个能落的根目录（AppPaths 的默认值也正是它）。
      */
     static QString defaultFolder();
@@ -69,11 +69,15 @@ public:
     bool addFolder(const QString &path);
 
     /**
-     * @brief 删掉一个用户添加的根目录。
+     * @brief 把一个用户添加的根目录**从列表里移除**。
      * @param path 目录路径。
-     * @return 真删掉了返回 true；自带那份、以及不在列表里的路径返回 false。
+     * @return 真从列表里去掉了返回 true；自带那份、以及不在列表里的路径返回 false。
      *
-     * 删掉的正好是当前用的那一份时，当前目录**退回自带那份**（否则启动器会指向一个
+     * NOTE: 只动列表与设置 —— **盘上的目录和文件一个字节都不碰**。这一条是刻意的（删几百
+     *       GB 的整合包目录不可逆，而这个入口就贴在存档目录旁边），也正是界面上那个按钮叫
+     *       「移除文件夹…」而不是「删除」的原因：名字得说得出这一步到底做了什么。
+     *
+     * 移除掉的正好是当前用的那一份时，当前目录**退回自带那份**（否则启动器会指向一个
      * 已经不在列表里的目录）。
      */
     bool removeFolder(const QString &path);
@@ -88,7 +92,7 @@ public:
     bool setCurrentFolder(const QString &path);
 
 signals:
-    /// 列表本身变了（加/删）—— 界面据此重灌左边那张列表。
+    /// 列表本身变了（加/移除）—— 界面据此重灌左边那张列表。
     void foldersChanged();
     /// 当前根目录变了 —— 界面据此切 AppPaths 并重灌所有跟路径有关的东西。
     void currentFolderChanged(const QString &path);

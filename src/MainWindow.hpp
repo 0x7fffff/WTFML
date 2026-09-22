@@ -9,6 +9,7 @@
 #pragma once
 
 #include <QElapsedTimer>
+#include <QHash>
 #include <QJsonObject>
 #include <QMainWindow>
 #include <QPixmap>
@@ -20,6 +21,10 @@
 #include "manage/PlayerSkinStore.hpp"
 
 class MainWindowUI;
+// 安装页上"某条加载器选哪个版本"那个组合框。这里只在私有函数的参数里按指针用
+// （fillLoaderVersionCombo），前置声明就够 —— 不值得为了一个参数类型让每个 include 了
+// MainWindow.hpp 的地方都把 QtWidgets 里那个大块头拖进来。
+class QComboBox;
 class LauncherManager;
 class AuthManager;
 class FolderManager;
@@ -133,21 +138,62 @@ private slots:
     ///       而这一半里藏着真会错的东西（"跟随全局"的项要**删键**而不是写一个等于
     ///       全局的值、写盘前得先确保实例有稳定 id），必须验得了。
     bool applyInstanceSettings(const QString &versionId, const InstanceSettingsDialog &dialog);
+    /// 「导入整合包…」：选文件 → 读清单 → 问名字 → 确认 → 交给 applyModpackImport()。
+    ///
+    /// 读的是压缩包根目录里那一份 modrinth.index.json（ZipUtil::readEntry，**不整包解开**：
+    /// 用户随手选一个几百 MB 的包，为了知道它不是整合包先解压几分钟是白等）。
+    void onImportModpackClicked();
+    /// 导入的**执行部分**：把清单解析出来、该拦的拦掉、算出安装器要的 Java，然后开始导入。
+    /// @param zipPath 用户选的那个整合包文件。
+    /// @param instanceName 落地的实例名（= `versions/<id>` 那个目录名）。
+    /// @param indexJson 压缩包里那份 `modrinth.index.json` 的**原始字节**。
+    ///        传字节而不是传解析结果，是为了让这一半能被验证工程驱动（自定义类型过不了
+    ///        QMetaObject::invokeMethod）；里面会再解析一遍 —— 纯函数，94 KB 的清单也就
+    ///        一瞬，换来的是"确认框里说的那个包"和"真的去装的那个包"是同一串字节。
+    /// @return 真的开始导入了返回 true（失败/被拦下时弹窗并返回 false）。
+    ///
+    /// NOTE: 拆成两步的理由和 applyRename() 一样 —— QFileDialog / QInputDialog / 确认框
+    ///       都是模态的，offscreen 的验证工程驱动不了它们，而这一半里藏着真会错的东西
+    ///       （重名要拦、不支持的加载器要拦、忙态几时置上、结束之后列表要刷）。
+    bool applyModpackImport(const QString &zipPath, const QString &instanceName,
+                            const QByteArray &indexJson);
     /// 用户在左边那张列表里换了「游戏文件夹」。真正干活的是 FolderManager 发出的
     /// currentFolderChanged()，这里只负责把选中项翻译成一次 setCurrentFolder()。
     void onFolderSelectionChanged();
     void onProcessOutput(const QString &text);
     void onProcessError(const QString &text);
     void onGameFinished(int exitCode, QProcess::ExitStatus exitStatus);
-    void onDownloadButtonClicked();
-    /// 「下载版本」上点了下载、而左栏「模组加载器」勾着某一个时的那条路。
+    // ---------- 下载页「游戏」那两层：版本树 → 安装页 ----------
+    //
+    // 用户原话见 MainWindowUI::downloadGameStackName() 上面那段。这一层只做"界面上的
+    // 走动 + 把用户选的东西翻译成一次请求"，真正干活的是 VersionManager 那三个
+    // installNamed*()（它们自己会把原版补齐、写薄 json、发**唯一**那个终态信号）。
+    /// 点树里一条**版本号**（子条目）→ 进安装页。顶层那四条是分类，点了不做任何事
+    /// （展开/折叠交给 Qt 自己）—— 那条判据在 setupConnections() 里那个 lambda 上
+    /// （那边 QTreeWidgetItem 是完整类型）。
+    /// 进安装页：@param gameVersion 树里点中的那个原版号（这一份要基于它装）。
+    /// 也**允许验证工程直接调**（参数只有字符串，QMetaObject::invokeMethod 认得）。
+    void openInstallPage(const QString &gameVersion);
+    /// 「← 返回版本列表」：回树那一层。**什么都不清** —— 树里那份展开状态、名称框里
+    /// 敲过的字都留着（用户按返回是想再看一眼别的版本，不是想放弃刚才那些输入）。
+    void backToVersionTree();
+    /// 名称框里每敲一个字：记下"用户动过这个名字了"，再重算那句小字（重名提示要"实时"）。
+    void onInstallNameEdited();
+    /// 勾了某一条加载器（id 就是 modLoaderOptionNames() 里的下标）。
+    void onLoaderRowChanged(int loaderIndex);
+    /// 四个"选版本"组合框里任意一个换了选中项（钉的版本号是默认名的一部分）。
+    void onLoaderVersionChoiceChanged();
+    /// 点了「安装」。名字校验、重名那一问、Java 挑选、忙态，都在这里收口。
+    void onInstallButtonClicked();
+    /// requestLoaderVersions() 的回复：填进**勾中的那一条**右边那个组合框。
     ///
-    /// @param gameVersion 「可安装版本」里选中的原版号（加载器装在这个版本之上）
-    /// @param loaderIndex 勾中的那个钮在 modLoaderOptionNames() 里的下标（= QButtonGroup 的 id）
-    ///
-    /// 为什么拆成一个函数：这里要和"什么都没勾"（装纯原版）那条路分开，而两条路的前半段
-    /// 判断（下拉框选了没有、忙不忙）是共用的 —— 那部分留在 onDownloadButtonClicked。
-    void startLoaderInstall(const QString &gameVersion, int loaderIndex);
+    /// 参数收的是**下标**（不是 VersionManager::LoaderKind）：这是给 moc 看的槽，
+    /// 签名里出现别处的枚举就得把 VersionManager.hpp 整个拖进这个头（再说枚举还得
+    /// 先 qRegisterMetaType）。枚举→下标那次翻译在 setupConnections() 那个 lambda 里做
+    /// （VersionManager::loaderIndexForKind），一处收口，和"下标→枚举"同一个方向表。
+    void onLoaderVersionsFetched(const QString &gameVersion, int loaderIndex, bool success,
+                                 const QStringList &versions, const QString &errorMessage);
+
     void onVersionsFetched(const QStringList &versions);
     void onVersionDetailsFetched(const QString &versionId, const QJsonObject &versionJson);
     void onVersionDownloadStats(int done, int total, int failed, const QString &currentFile);
@@ -267,14 +313,45 @@ private:
     // 重灌实例页左边那张「游戏文件夹」列表，并把选中项停在 FolderManager 的当前目录上
     // （内部挡信号：重灌不是用户改选，不该反过来触发一次切换）。
     void refreshFolderList();
-    // 「删除文件夹」能不能点：自带那份删不掉，另外下载期间整列都不给动。
+    // 「移除文件夹」能不能点：自带那份移不掉，另外下载期间整列都不给动。
     void updateFolderButtons();
     // 把 FolderManager 的当前目录交给 AppPaths（此后所有 <数据目录>/... 都对着它），
     // 并打一行日志。换文件夹的那条链路只有这一处改全局路径。
     void applyCurrentFolderToPaths();
-    /// 重灌"可安装版本"那一对控件（下拉框 + 列表）。在线清单是它们唯一的数据源，
-    /// 清单还没拉回来时什么都不动（占位文案得留着）。
+    /// 重灌版本树那四条分类（以及它们底下的版本号）。在线清单是它唯一的数据源，
+    /// 清单还没拉回来时四条都空着（**不消失** —— 用户要的是四条一条不少），
+    /// 展开状态和选中项在重灌之后尽量还原。
     void refreshAvailableVersions();
+
+    // ---------- 安装页（版本树的下一层）----------
+    /// 这份要装的实例默认叫什么：目录名的形状照抄真机上那些实例
+    /// （`1.18.2-Forge_40.3.12`），不勾加载器时就是原版号本身。
+    QString defaultInstanceName() const;
+    /// 现在勾中的是哪一条（modLoaderOptionNames() 的下标；-1 = 一个都没勾）。
+    int loaderCheckedIndex() const;
+    /// 某一条加载器钉住的版本号（组合框里选的那一条）；空串 = 不钉，让安装器按老规矩挑。
+    QString pinnedLoaderVersion(int loaderIndex) const;
+    /// 四个加载器那几条的可用状态：**只有勾中的那一条**的组合框是活的（其余几条现在
+    /// 管不着任何事），下载/安装期间整组都灰。忙态变化之后必须重新调一次 ——
+    /// 一律点亮会把"没勾的那几条本来就该灰着"这件事冲掉。
+    void updateLoaderRows();
+    /// 勾了某一条加载器之后，把它能装的版本列表备好（拉过就直接用缓存）。
+    /// 一次请求 60~250 KB，所以只在"用户真的要挑这条"时才发。
+    void ensureLoaderVersions(int loaderIndex);
+    /// 把一份版本列表灌进某个加载器那条的组合框（第 0 条永远是"自动（推荐）"）。
+    void fillLoaderVersionCombo(QComboBox *combo, const QStringList &versions);
+    /// 名称框里的默认名（用户没自己改过时才动它），再刷下面那句小字。
+    void updateInstallName();
+    /// 名称框下面那句小字 + 「安装」按钮的可用性：名字合不合法、盘上有没有重名的
+    /// （重名**只提示、不拦** —— 同名就是同一个实例，再装一次是校验并补齐它）。
+    void updateInstallNameHint();
+    /// 这次安装要哪个 Java 去跑外部安装器（Fabric 用不上，直接回 true）。
+    /// @param out 成功时写入；失败时**不碰**（调用方那份值保持不变）。
+    /// @return 挑得出来返回 true；挑不出来返回 false（里面已经弹窗说清原因了）。
+    ///
+    /// 拆出来是因为"装一个带名字的实例"和原来那条路都要它 —— 那段判据（读版本 json 的
+    /// javaVersion、按它挑运行时）抄两遍的话，早晚有一处忘了跟着改。
+    bool pickInstallerJava(const QString &gameVersion, int loaderIndex, QString *out);
     // 启动时把"上次启动过的版本"选回来。**只在构造函数里调一次**——
     // 名单每次刷新（清单到达、下载完成）都调它就会变成"用户手选完又被抢回去"。
     // 记着的那个版本已经不在磁盘上时留空不选，占位文案会说明该怎么选。
@@ -361,6 +438,31 @@ private:
     // 下载是否在进行中。注意不能只问 m_versionManager：从点击"下载"到版本 JSON
     // 拉回来之前，VersionManager 那边还没有任何批次，这段时间也得算"忙"。
     bool m_downloadInFlight = false;
+    // 正在导入的那个整合包会落在哪个实例名下（空 = 没有导入在进行）。
+    //
+    // 为什么界面要自己记这一笔：导入的那**一个**终态走的是公共的
+    // versionDownloadFinished(id, ok, msg) —— 收尾那句话是说给用户看的（"整合包「X」
+    // 导入好了"），而这里要判断的是"这一条信号讲的是导入，还是普通的一次版本下载"，
+    // 好把那句「版本 X 的文件已全部就绪」换成导入该说的话。数据层那边不另发一个信号，
+    // 是为了让"一次点击 = 一个终态"这条约定继续保持唯一（见 importModpack 的说明）。
+    QString m_importingInstanceId;
+    // 正在装的那个"带名字的实例"叫什么（空 = 没有这种安装在跑）。和上面那个是同一个
+    // 道理：装一个带名字的实例走的也是公共的 versionDownloadFinished(id, ok, msg)，
+    // 这里要判断"这一条讲的是它，还是普通的一次版本下载"，好把那句「版本 X 的文件已
+    // 全部就绪」换成"实例装好了"该说的话。
+    QString m_installingInstanceId;
+    // ---------- 安装页（版本树的下一层）----------
+    // 安装页现在正对着哪个原版号（空 = 没进过安装页）。四个加载器各自能挑哪些版本、
+    // 默认名怎么拼，都以它为准。
+    QString m_installGameVersion;
+    // 用户**自己改过**名称框没有。改过之后默认名就不再跟着加载器变了（不然他敲到一半
+    // 的名字会被一次"勾了 Forge"顶掉）；每次进安装页重置。
+    bool m_installNameTouched = false;
+    // 已经拉到过的"某加载器在某游戏版本上有哪些版本"。键是 `<加载器枚举值>|<游戏版本>`，
+    // 换游戏版本时整个清掉（Forge 每个游戏版本能装的版本完全不同，留着就是错的）。
+    // 存它的理由：用户来回勾两条加载器比一比是常事，每次都发一发 60~250 KB 的请求
+    // 纯属浪费。
+    QHash<QString, QStringList> m_loaderVersionCache;
     // "有版本目录但 jar 名对不上"这件事是否已经写过日志。refreshInstalledVersions()
     // 一次会话会被调很多次，不记一笔就是同样的告警反复刷。
     bool m_reportedUnrecognizedVersions = false;
