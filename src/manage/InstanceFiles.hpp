@@ -225,4 +225,45 @@ QString validatePathSegment(const QString &segment);
  */
 QString validateRenameTarget(const QString &rawName, const QString &currentId);
 
+/// 一次整合包导入能不能用这个名字。
+enum class ImportNameVerdict {
+    Ok,        ///< 名字合法、盘上也没有它 —— 正常导入
+    OkResume,  ///< 撞上的是"上一次没下完的导入" —— 可以接着往里下（见 isUnfinishedImport）
+    Taken,     ///< 名字本身不合法、或者被**别的**实例占了 —— 只能换名字
+};
+
+/**
+ * @brief 整合包导入的名字判据：validateRenameTarget() + 一条"接着下"的口子。
+ * @param rawName 用户输入的名字。
+ * @param problemOut 非空时，Taken 那条路会把给用户看的那句话写进来（另两种清空）。
+ *
+ * 和「重命名」判据的差别**只有这一条**：撞上的是"上次没下完的导入"时不算被占 ——
+ * 整合包是几百个文件分着下的，网一断就留下半份（真机上那次是 600+ MB / 300 多个文件），
+ * 而重名判据只认目录名。不让接着下的话，用户唯一的办法是"换个名字重导"，也就是把已经
+ * 下好的那几百 MB 再下一遍 —— 这跟本启动器「重下=校验跳过」那条规矩是相反的。
+ *
+ * NOTE: OkResume **不是**"静默覆盖"：调用方必须问一句再往下走（见 MainWindow 里那个
+ *       确认框）—— 接着下会重新解开包里的 config/资源包，压在用户改过的文件上。
+ */
+ImportNameVerdict checkImportTargetName(const QString &rawName,
+                                        QString *problemOut = nullptr);
+
+/**
+ * @brief 这个目录像不像"一次没下完的整合包导入"。
+ * @param id 目录名（= 实例 id）。
+ *
+ * 三条判据，缺一不可（都只看盘，不联网）：
+ *   ① **没有** `wtfml.meta`：启动器把一份实例做成功过就会留下它（导入是在最后一步写的、
+ *      装加载器是装完写的、改名时也会补）。没有它 = 启动器从没把这一份做完。
+ *   ② **没有**客户端 jar：整合包装出来的实例目录里只有一份薄 json + 下下来的那些文件，
+ *      主 jar 在原版/加载器那一层。顶层出现 jar 说明这一份不是导入留下的（用户自己放的，
+ *      或者手工做的），那种目录不该被导入盖上去。
+ *   ③ 自己的版本 json 声明了父版本（`inheritsFrom`）—— 那正是导入写下的那份 json 的形状。
+ *
+ * 三条都满足时它**仍然可能是**一台机器上手工拼出来的实例（那种目录也没有 meta、也没有
+ * jar），所以调用方要问一句。判据宁可偏保守：认错了的代价是"少一条能接着下的路"，
+ * 而放宽的代价是"把用户的实例盖掉"。
+ */
+bool isUnfinishedImport(const QString &id);
+
 }  // namespace InstanceFiles

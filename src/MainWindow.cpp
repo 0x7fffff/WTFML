@@ -2976,10 +2976,29 @@ void MainWindow::onImportModpackClicked() {
             return;
         }
         name = input.trimmed();
-        // currentId 传空串 = "这是个新实例，盘上没有它"（见 validateRenameTarget）。
-        const QString problem = InstanceFiles::validateRenameTarget(name, QString());
-        if (problem.isEmpty()) {
+        // currentId 传空串 = "这是个新实例，盘上没有它"（见 checkImportTargetName）。
+        QString problem;
+        const InstanceFiles::ImportNameVerdict verdict =
+            InstanceFiles::checkImportTargetName(name, &problem);
+        if (verdict == InstanceFiles::ImportNameVerdict::Ok) {
             break;
+        }
+        if (verdict == InstanceFiles::ImportNameVerdict::OkResume) {
+            // 撞上的是**上次没下完的那一份**（下到一半网断了那种）。这是唯一一条不逼用户
+            // 改名的路：改名重导等于把已经下好的几百 MB 再下一遍。仍然要问一句 ——
+            // 这一步会重新解开包里的 config / 资源包，压在用户改过的文件上。
+            const auto resumeAnswer = QMessageBox::question(
+                this, tr("接着上次的导入"),
+                tr("versions 下面已经有一个「%1」了，是上一次**没下完**的导入。\n\n"
+                   "接着往它里面下吗？已经下好的文件会按 sha1 跳过、不会重下，"
+                   "没下成的那几个会重新下。\n\n"
+                   "选「否」就换个名字重新导入 —— 那样已经下好的那些要重下一遍。")
+                    .arg(name),
+                QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+            if (resumeAnswer == QMessageBox::Yes) {
+                break;
+            }
+            continue;  // 回上面重问名字
         }
         // 循环重问（和重命名那条路不同，那边是弹一次就要用户自己再点一次）：这里退回
         // 重来的代价大得多 —— 要从"选文件"重新开始，而选的是哪个包用户未必记得住。
@@ -3035,12 +3054,18 @@ bool MainWindow::applyModpackImport(const QString &zipPath, const QString &insta
     // 重名**在这里再查一遍**：上面那条路（问名字那个循环）查过一次，但两次之间隔着用户
     // 的输入，而且验证工程直接就能进这一半 —— 而数据层那边是有约定的（见
     // VersionManager::importModpack 的说明：调用方必须先查过重名，它自己不查）。
-    // 判据是同一份 validateRenameTarget()，不会漂。
-    const QString nameProblem = InstanceFiles::validateRenameTarget(instanceName, QString());
-    if (!nameProblem.isEmpty()) {
+    // 判据是同一份 checkImportTargetName()，不会漂 —— 包括"接着上次没下完的那一份"
+    // 这条口子：上面那个循环放行了、这一半却按重名拒掉的话，用户看到的是一句
+    // 「已经有一个叫…的实例了」，而他刚才明明点了「接着下」。
+    QString nameProblem;
+    const InstanceFiles::ImportNameVerdict nameVerdict =
+        InstanceFiles::checkImportTargetName(instanceName, &nameProblem);
+    if (nameVerdict == InstanceFiles::ImportNameVerdict::Taken) {
         QMessageBox::warning(this, tr("换个名字"), nameProblem);
         return false;
     }
+    const bool resumingImport =
+        nameVerdict == InstanceFiles::ImportNameVerdict::OkResume;
 
     // 安装器（Forge/NeoForge）自己就是个 Java 程序（`java -jar <安装器>.jar ...`），所以
     // 要的运行环境和"这个版本要的 Java"是同一件事：版本 json 里的 javaVersion。这一段和
@@ -3078,6 +3103,12 @@ bool MainWindow::applyModpackImport(const QString &zipPath, const QString &insta
     setDownloadUiBusy(true);
     m_progressThrottle.invalidate();
     appendLog(tr("开始导入整合包 %1 ...").arg(QFileInfo(zipPath).fileName()));
+    if (resumingImport) {
+        // 用户点的是「接着下」，日志里得留下这句 —— 不然排查的人只会看到"导入了一个已经
+        // 存在的实例"，而那看起来像是覆盖了别人的东西。
+        appendLog(tr("接着「%1」上次没下完的那一份往下下（已经下好的按 sha1 跳过）。")
+                      .arg(instanceName));
+    }
     m_versionManager->importModpack(zipPath, instanceName, pack, installerJava);
     return true;
 }

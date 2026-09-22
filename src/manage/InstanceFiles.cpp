@@ -11,6 +11,7 @@
 
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
@@ -134,6 +135,52 @@ QString validateDirName(const QString &rawName) {
     }
 
     return QString();
+}
+
+bool isUnfinishedImport(const QString &id) {
+    if (!QFileInfo(AppPaths::versionDir(id)).isDir()) {
+        return false;
+    }
+    // ① 启动器把这一份做完过就一定留了 meta（导入最后一步写、装加载器装完写、改名也补）。
+    if (QFileInfo::exists(AppPaths::versionMetaPath(id))) {
+        return false;
+    }
+    // ②③ 交给既有的判据：resolveInstance() 在没有 jar 的时候会去读那份 json 的
+    //     inheritsFrom（见 DirListing::inheritsFrom 的 NOTE），正是这两条要问的东西。
+    const Resolved resolved = resolveInstance(id);
+    if (!resolved.jarName.isEmpty()) {
+        return false;
+    }
+    return !resolved.inheritsFrom.isEmpty();
+}
+
+ImportNameVerdict checkImportTargetName(const QString &rawName, QString *problemOut) {
+    const QString problem = validateRenameTarget(rawName, QString());
+    if (problem.isEmpty()) {
+        if (problemOut != nullptr) {
+            problemOut->clear();
+        }
+        return ImportNameVerdict::Ok;
+    }
+    // 名字本身就不合法（有分隔符、是保留设备名、太长……）时**不查盘**：那种名字拼出来的
+    // 路径本身就不可信，拿它去盘上问"是不是半成品"没有意义。
+    if (!validateDirName(rawName).isEmpty()) {
+        if (problemOut != nullptr) {
+            *problemOut = problem;
+        }
+        return ImportNameVerdict::Taken;
+    }
+    const QString name = rawName.trimmed();
+    if (isUnfinishedImport(name)) {
+        if (problemOut != nullptr) {
+            problemOut->clear();
+        }
+        return ImportNameVerdict::OkResume;
+    }
+    if (problemOut != nullptr) {
+        *problemOut = problem;
+    }
+    return ImportNameVerdict::Taken;
 }
 
 QString validateRenameTarget(const QString &rawName, const QString &currentId) {
