@@ -148,6 +148,27 @@ public:
      */
     static QString appRegistrationHint(const QString &bodyMessage);
 
+    /**
+     * @brief OAuth 令牌端点（/oauth20_token.shtml）失败时，把响应里那两个字段翻成一句
+     *        能直接给用户看的中文。
+     * @param code 响应里的 error 字段（如 invalid_grant）；没有就传空串。
+     * @param description 响应里的 error_description 字段。
+     * @param what 这一步在做什么（"刷新微软令牌失败"这种），拼在这句话最前头。
+     * @return 一句中文说明；**两个字段都是空的**时给空串，调用方走通用那套说法。
+     *
+     * NOTE: 这里有一条**实测**出来的具体成因（2026-09-22）：AADSTS70000 里那句
+     *       "The token was issued for a different client id" —— 盘上那张 refresh_token
+     *       是**另一个 Azure 应用**签发的，而刷新请求带的是本应用的 client id；微软把
+     *       refresh token 绑在签发它的应用上，于是这张令牌换不出任何东西、重试多少次都
+     *       一样（本机 2026-09-22 实测原文见 mw_check 的 Q 节）。通用那套只会把 AADSTS
+     *       原文连同 Trace ID / Correlation ID 一起丢给用户看，用户会以为是自己账号或者
+     *       网络的问题，去查错方向。
+     *       做成静态纯函数是为了能在验证工程里钉住 —— 真机上要先有一张"别人签发的"
+     *       refresh_token 才复现得了。
+     */
+    static QString oauthErrorText(const QString &code, const QString &description,
+                                  const QString &what);
+
 signals:
     // NOTE: 三个信号在 MainWindow 里都接上了（2026-09 补的）—— 原来只有 loginSucceeded
     //       有接收方，于是登录失败只在浏览器那个页面里看得见，启动器界面上什么都不发生。
