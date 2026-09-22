@@ -119,9 +119,14 @@ public:
     static QByteArray skinUploadContentType(const QByteArray &boundary);
 
     /// 失败话术（纯函数，验证工程钉得住）。
-    /// @param status HTTP 状态码。
-    /// @param body 响应正文。
+    /// @param reply 整个请求结果 —— 要的就是两个面都在里面（见下）。
     /// @param what 这一步在做什么（"上传皮肤失败"这种），拼在这句话最前头。
+    ///
+    /// NOTE: 收的是**整个 Reply**（而不是以前那样只收 status + body）："没连上"和
+    ///       "服务器答了个错误"是两回事，而前者没有状态码 —— 只收 status 的话，断网时
+    ///       status 是初值 -1，报出来会是「读取披风失败（HTTP -1）。」，用户既不知道
+    ///       该去查网络，还看见一个不存在的状态码。网络那一句在 AuthManager 的
+    ///       httpFailureText() 里一直是第一条分支，这里现在对齐。
     ///
     /// NOTE: 401 和 403 分开说 —— 它们对用户是两个完全不同的动作：
     ///       401 = 令牌不认了（重新登录），403 = 这个应用没被批准（等审批，见
@@ -129,7 +134,7 @@ public:
     ///       400 之类把正文里那句 errorMessage 带出来（官方会说"必须 64x64 或 64x32"）。
     ///       429 也单拎出来：那是**限流**（用户要做的是等一会儿，不是重登、不是换网络），
     ///       文案的唯一出处是 HttpClient::throttledText()。
-    static QString failureText(int status, const QByteArray &body, const QString &what);
+    static QString failureText(const HttpClient::Reply &reply, const QString &what);
 
     // ---------- 联网（同步，见 HttpClient） ----------
 

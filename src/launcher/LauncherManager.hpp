@@ -119,6 +119,22 @@ public:
      */
     QString runningVersionId() const;
 
+    /// 现在有没有游戏进程在跑。给"关闭启动器"那条路用（见 closeEvent）。
+    bool hasRunningGame() const;
+
+    /// 把正在跑的游戏进程**交出去**：脱离本对象的所有权，之后本对象析构也不会碰它。
+    ///
+    /// 为什么必须有这一步：QProcess 的析构（Qt 6.10，qprocess.cpp）在进程还跑着的时候会
+    /// `kill()` + `waitForFinished()`。游戏进程是 m_gameProcess 的**子进程**，而
+    /// LauncherManager 又是 MainWindow 的子对象、MainWindow 在 main() 里是栈对象 ——
+    /// 于是"关掉启动器"这条最平常的操作会走到那段析构里，把游戏**强杀**（Windows 上
+    /// TerminateProcess，游戏连存档都来不及存）。java.exe 本来活得过启动器，这一步就是
+    /// 让它活得下去。
+    ///
+    /// NOTE: 没有游戏在跑时是**空操作**（这条路径上不该出任何提示）。
+    void detachRunningGame();
+
+
     /**
      * @brief 从最终命令行判断游戏进程的输出是不是 UTF-8。
      * @param arguments 交给 QProcess 的完整参数列表。

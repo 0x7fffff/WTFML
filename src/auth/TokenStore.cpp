@@ -10,6 +10,7 @@
 #include <QCryptographicHash>
 #include <QDebug>
 #include <QJsonDocument>
+#include <QJsonParseError>
 #include <QSettings>
 
 #if defined(Q_OS_WIN)
@@ -139,15 +140,38 @@ bool TokenStore::writeJson(const QString &key, const QJsonObject &json, QString 
 }
 
 QJsonObject TokenStore::readJson(const QString &key) {
+    return readJsonChecked(key, nullptr);
+}
+
+QJsonObject TokenStore::readJsonChecked(const QString &key, bool *readableOut) {
     QSettings settings;
     const QByteArray encrypted = settings.value(key).toByteArray();
     if (encrypted.isEmpty()) {
+        // 盘上没有这一格：这是"真的什么都没有"，不是"读不出来"。
+        if (readableOut != nullptr) {
+            *readableOut = true;
+        }
         return QJsonObject();
     }
 
     const QByteArray rawData = QByteArray::fromBase64(unprotect(encrypted));
-    const QJsonDocument document = QJsonDocument::fromJson(rawData);
-    return document.isObject() ? document.object() : QJsonObject();
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(rawData, &parseError);
+    if (!document.isObject()) {
+        // 这一格在，但解不开。最常见的原因：这份密文不是这台机器/这个 Windows 账户加密的
+        // （DPAPI 的密文绑定到加密它的那个账户），换账户或换机器之后一定解不开 —— 它本来
+        // 也没有"空"的意思。**专门留一行日志**：这种事从界面上看只会是"账号都没了"。
+        if (readableOut != nullptr) {
+            *readableOut = false;
+        }
+        qWarning() << "凭据读不出来（在，但解不开）：" << key << parseError.errorString();
+        return QJsonObject();
+    }
+
+    if (readableOut != nullptr) {
+        *readableOut = true;
+    }
+    return document.object();
 }
 
 bool TokenStore::hasValue(const QString &key) {

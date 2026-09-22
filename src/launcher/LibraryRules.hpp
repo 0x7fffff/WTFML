@@ -112,8 +112,17 @@ inline bool ruleMatches(const QJsonObject &rule, const QSet<QString> &features =
  * @param features 已启用的 feature 集合。
  * @return 若该 library 可用则返回 true.
  *
- * 语义与 Mojang 一致：没有 rules 就一律允许；有 rules 时按顺序处理命中的条目，
- * allow 置为允许、disallow/deny 置为禁止，未命中任何 allow 则视为不允许。
+ * 判据：**没有 rules 这个键**（或者它压根不是数组）就一律允许；有 rules 时按顺序处理命中
+ * 的条目，allow 置为允许、disallow/deny 置为禁止，未命中任何 allow 则视为不允许 ——
+ * 这一段和 Mojang 那套（起手 lastAction = DISALLOW，逐条命中的覆盖它）逐字一致。
+ *
+ * NOTE: **唯一一处和 Mojang 不一样**：`"rules": []`（键在、但是个空数组）这里算**允许**，
+ *       官方那套算**不允许**（它没有"空数组就放行"这条早退）。这条注释以前写的是笼统的
+ *       "语义与 Mojang 一致"，把这个差别盖过去了。
+ *       为什么朝着"允许"这边偏：这两种解释在现实中几乎不会碰上（真实版本 json 里没见过
+ *       空数组），而万一碰上，两种错的代价差得很远 —— 多带一个库上 classpath 顶多是重复，
+ *       少一个库是游戏起来时一句 NoClassDefFoundError（这个项目已经为这一类症状查过好几次）。
+ *       哪天要改成和官方严格一致，判据就是"键在不在"（contains），而不是数组空不空。
  */
 inline bool libraryAllowed(const QJsonObject &libObj,
                            const QSet<QString> &features = QSet<QString>()) {

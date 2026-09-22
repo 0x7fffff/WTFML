@@ -22,6 +22,7 @@
 // 添加以下头文件（防止hpp变动导致文件失效）
 #include <QApplication>
 #include <QCheckBox>
+#include <QCloseEvent>
 #include <QComboBox>
 #include <QDebug>
 #include <QDir>
@@ -476,6 +477,52 @@ MainWindow::MainWindow(QWidget *parent)
 }
 
 MainWindow::~MainWindow() { delete m_ui; }
+
+void MainWindow::closeEvent(QCloseEvent *event) {
+    if (!m_launcherManager->hasRunningGame()) {
+        QMainWindow::closeEvent(event);
+        return;
+    }
+
+    // 游戏还在跑。以前这里什么都不做 —— 而"什么都不做"的实际后果是**把游戏强杀**：
+    // MainWindow 是 main() 里的栈对象，窗口关掉 → exec() 返回 → MainWindow 析构 →
+    // LauncherManager（它的子对象）析构 → m_gameProcess（它的子对象）析构，而
+    // QProcess 的析构是这么写的（Qt 6.10，qprocess.cpp）：
+    //
+    //     if (d->processState != NotRunning) { qWarning() << ...; kill(); waitForFinished(); }
+    //
+    // 也就是说，用户只是想关掉启动器，游戏却收到一个 TerminateProcess（Windows 上
+    // kill() 就是它）—— 游戏来不及存档、没有"保存并退出"。PCL 那种启动器关掉之后游戏
+    // 照跑，java.exe 本来也活得过启动器，这一步只是不让上面那条析构链碰到它。
+    //
+    // 所以这里问一句，而且**默认那一边是"别动游戏"**（回车 = 取消，不关窗口）：用户要
+    // 是真想停游戏，在游戏里按"退出游戏"那条路才是干净的。
+    QMessageBox box(this);
+    box.setIcon(QMessageBox::Question);
+    box.setWindowTitle(tr("游戏正在运行"));
+    const QString versionId = m_launcherManager->runningVersionId();
+    box.setText(versionId.isEmpty()
+                    ? tr("游戏还在运行。\n\n关掉启动器**不会**关掉游戏 —— 它会继续跑，"
+                         "存档、联机都照常。\n要现在关掉启动器吗？")
+                    : tr("游戏「%1」还在运行。\n\n关掉启动器**不会**关掉游戏 —— 它会继续跑，"
+                         "存档、联机都照常。\n要现在关掉启动器吗？")
+                          .arg(versionId));
+    // 按钮文字自己写：启动器没装 Qt 的中文翻译，标准按钮在界面上是英文的 Yes/No。
+    QPushButton *quitButton = box.addButton(tr("关掉启动器"), QMessageBox::AcceptRole);
+    QPushButton *cancelButton = box.addButton(tr("取消"), QMessageBox::RejectRole);
+    box.setDefaultButton(cancelButton);
+    box.exec();
+    if (box.clickedButton() != quitButton) {
+        event->ignore();
+        return;
+    }
+
+    // 顺序要紧：**先**把进程交出去（脱离所有权 + 断信号），再让窗口关掉 —— 关窗口之后
+    // 紧接着就是析构链，交出去那一步必须在那之前做完（见 LauncherManager::detachRunningGame）。
+    m_launcherManager->detachRunningGame();
+    appendLog(tr("已关掉启动器，游戏继续在跑。"));
+    QMainWindow::closeEvent(event);
+}
 
 void MainWindow::setupConnections() {
     // UI 按钮信号
@@ -1273,26 +1320,34 @@ void MainWindow::refreshAvailableVersions() {
 
     // 重灌之前记住"哪些分类是展开的"、"当前选中的是哪一条" —— 清单刷新（每次启动
     // 一次，拉回来还会再刷一次）不该把用户正在看的那一摊收起来。
+    QTreeWidget *tree = m_ui->getVersionTree();
     QSet<QString> expandedKeys;
     QString selectedVersion;
-    if (QTreeWidgetItem *current = m_ui->getVersionTree()->currentItem()) {
-        QTreeWidgetItem *top = current->parent() != nullptr ? current->parent() : current;
-        expandedKeys.insert(top->data(MainWindowUI::versionTreeKeyColumn(), Qt::UserRole).toString());
-        if (current->parent() != nullptr) {
-            selectedVersion = current->data(MainWindowUI::versionTreeKeyColumn(), Qt::UserRole).toString();
+    // 展开状态**逐个顶层条目读**，不区分"有没有选中项"。
+    // NOTE: 以前这里是个 if/else：有选中项就只记"选中项所在的那个分类"、其它分类
+    //       一律不管，只有**没有**选中项时才逐个扫一遍。于是同时展开着"正式版"和
+    //       "快照"、并且在正式版里点过一个版本号之后，下次重灌会把快照那条收起来
+    //       —— 而清单刷新（启动时那一次、以及拉回来之后那一次）本来就不该动用户
+    //       看的那一摊。展开状态和选中项是两件互不相干的事，得分别记。
+    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+        QTreeWidgetItem *top = tree->topLevelItem(i);
+        if (top->isExpanded()) {
+            expandedKeys.insert(
+                top->data(MainWindowUI::versionTreeKeyColumn(), Qt::UserRole).toString());
         }
-    } else {
-        for (int i = 0; i < m_ui->getVersionTree()->topLevelItemCount(); ++i) {
-            QTreeWidgetItem *top = m_ui->getVersionTree()->topLevelItem(i);
-            if (top->isExpanded()) {
-                expandedKeys.insert(
-                    top->data(MainWindowUI::versionTreeKeyColumn(), Qt::UserRole).toString());
-            }
+    }
+    if (QTreeWidgetItem *current = tree->currentItem()) {
+        if (QTreeWidgetItem *parent = current->parent()) {
+            // 选中的是某个分类下的版本号。这个分类必须保住展开 —— 否则重灌之后选中
+            // 的那条藏在收起来的分类里，用户看到的像是"选中的版本丢了"。
+            expandedKeys.insert(
+                parent->data(MainWindowUI::versionTreeKeyColumn(), Qt::UserRole).toString());
+            selectedVersion =
+                current->data(MainWindowUI::versionTreeKeyColumn(), Qt::UserRole).toString();
         }
     }
 
-    const QSignalBlocker blocker(m_ui->getVersionTree());
-    QTreeWidget *tree = m_ui->getVersionTree();
+    const QSignalBlocker blocker(tree);
     tree->clear();
     for (const VersionManager::VersionChannel &channel : channels) {
         auto *top = new QTreeWidgetItem(tree);
@@ -2027,13 +2082,21 @@ void MainWindow::onVersionsFetched(const QStringList &versions) {
 void MainWindow::onStartButtonClicked() {
     // 防御：下载期间按钮本来就是灰的，但这里再拦一道。改动前没有任何阻拦，
     // 用户看着日志以为下完了直接点启动，游戏会因为文件不全崩掉。
-    // isLoaderInstalling() 也要看：加载器安装的头两步（拉列表、拉 profile）**没有**
-    // 任何一批下载在跑，isDownloading() 那时是 false —— 只靠它挡不住"刚点了装 Fabric、
-    // 趁拉列表那几秒去点启动"这条缝。
+    //
+    // 四个判据缺一不可，它们兜的是**同一种缝**：活儿还在进行，但此刻没有任何一批下载
+    // 在跑（isDownloading() 是 false），于是按钮亮着、点下去就启动一个文件不全的实例。
+    //   - isLoaderInstalling()：加载器安装的头两步（拉列表、拉 profile）。
+    //   - isModpackImporting() / isNamedInstanceInstalling()：两者都有"等原版版本 json"
+    //     那一段（那是元数据请求，不算下载）；整合包还多一段"往实例目录里解压覆盖文件"。
+    // NOTE: 后两个判据以前**一个都没写进来** —— VersionManager 那边早就备好了这两个函数
+    //       （连注释都写着"一起进 UI 的忙态判据"），而全仓没有任何调用点：判据写着、
+    //       却没人问。所以"导入整合包的这几秒里点启动"一直是能点下去的。
     if (m_downloadInFlight || m_versionManager->isDownloading() ||
-        m_versionManager->isLoaderInstalling()) {
+        m_versionManager->isLoaderInstalling() || m_versionManager->isModpackImporting() ||
+        m_versionManager->isNamedInstanceInstalling()) {
         QMessageBox::warning(this, tr("下载进行中"),
-                             tr("该版本的文件还没有下载完成，请等下载结束后再启动。"));
+                             tr("该版本的文件还没有下载完成（或者还在安装加载器 / 导入整合包），"
+                                "请等它结束后再启动。"));
         return;
     }
 
@@ -2106,6 +2169,11 @@ void MainWindow::onStartButtonClicked() {
         for (const QString &error : nativeErrors) {
             appendLog(error);
         }
+        // NOTE: 这条以前只写日志。日志面板在主页是收起来的，用户看到的就是"点了启动、什么都没发生"。
+        //       同文件 appendLog 上面那段 NOTE 的规矩：拦下用户操作的消息一律要弹窗。
+        QMessageBox::warning(this, tr("无法启动"),
+                             tr("准备 natives 失败，游戏起不来：\n\n%1")
+                                 .arg(nativeErrors.join(QStringLiteral("\n"))));
         return;
     }
     if (!nativesDir.isEmpty()) {
@@ -2118,6 +2186,10 @@ void MainWindow::onStartButtonClicked() {
         for (const QString &error : errors) {
             appendLog(error);
         }
+        // 同上：缺 Java、游戏目录写不进去这一类都在这里，必须让用户看见。
+        QMessageBox::warning(this, tr("无法启动"),
+                             tr("启动前检查没通过，游戏起不来：\n\n%1")
+                                 .arg(errors.join(QStringLiteral("\n"))));
         return;
     }
 
@@ -2293,12 +2365,17 @@ void MainWindow::onStartButtonClicked() {
 
 void MainWindow::onAccountSkinButtonClicked() {
     setupAccountSkinDialog();
-    refreshAccountSkin();
     // 非模态显示：登录那一步会把浏览器推到前台，用户要在这两个窗之间来回切。做成模态的话
     // 这边会被拦住（而浏览器那个页面本来就在外面，模态拦不住它，只会让这边看着像卡住）。
+    //
+    // NOTE: 顺序是**先开窗、再刷新**，不能倒过来。refreshAccountSkin() 最后那一段会去拉
+    //       披风列表（真联网，最长能等十几秒），跑完才 show 的话，头一次点这个入口就是
+    //       "什么也没发生" —— 窗还没画出来，那个请求已经在跑了，用户只会以为按钮点坏了。
+    //       先 show 出来，那一趟就变成"窗开着、状态行写着在忙"。
     m_accountSkinDialog->show();
     m_accountSkinDialog->raise();
     m_accountSkinDialog->activateWindow();
+    refreshAccountSkin();
 }
 
 void MainWindow::setupAccountSkinDialog() {
@@ -3392,10 +3469,16 @@ void MainWindow::onVersionDownloadFinished(const QString &versionId, bool succes
             // 刷新会把下拉框和实例页那张树一起重灌（同一个函数里做的），新实例就在里面。
             refreshInstalledVersions();
             QComboBox *combo = m_ui->getInstalledVersionCombo();
-            if (const int index = combo->findData(versionId); index >= 0) {
-                // 刷新只"保住原来选中的"，保不住"原来压根没选"：刚导入出来的这个
-                // 顶上，省得用户还得自己去列表里找一遍（和下载完成那条路一个口径）。
-                combo->setCurrentIndex(index);
+            // 刷新只"保住原来选中的"，保不住"原来压根没选"：刚导入出来的这个顶上，
+            // 省得用户还得自己去列表里找一遍（和下载完成那条路一个口径）。
+            // NOTE: 那条口径是**两件事**：不但要"顶上"，还得"原来已经有选中的就别动"
+            //       —— 用户自己挑的版本比"刚做完的那个"更重要。这里以前只有前半句，
+            //       于是导入一个整合包会把他特意选好的版本顶掉（另外两条路都有
+            //       currentIndex() < 0 这道守卫，只有这一条漏了）。
+            if (combo->currentIndex() < 0) {
+                if (const int index = combo->findData(versionId); index >= 0) {
+                    combo->setCurrentIndex(index);
+                }
             }
             updateStartButtonText();
             QMessageBox::information(this, tr("导入完成"), errorMessage);

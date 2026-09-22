@@ -200,6 +200,13 @@ private slots:
     void onVersionDownloadFinished(const QString &versionId, bool success,
                                    const QString &errorMessage);
 
+protected:
+    /// 关窗口 = 退出启动器（全仓没有别的退出路径：没有托盘图标、没有 qApp->quit()）。
+    ///
+    /// 游戏还在跑的时候这里要拦一下，理由见 .cpp 里那段：MainWindow 是 main() 里的栈对象，
+    /// 它一析构，链子上那个 QProcess 的析构就会把游戏 **kill()** 掉。
+    void closeEvent(QCloseEvent *event) override;
+
 private:
     void setupConnections();
     // ---------- 「设置」选项卡 ----------
@@ -356,9 +363,15 @@ private:
     // 名单每次刷新（清单到达、下载完成）都调它就会变成"用户手选完又被抢回去"。
     // 记着的那个版本已经不在磁盘上时留空不选，占位文案会说明该怎么选。
     void restoreLastLaunchedVersion();
-    // 下载期间禁用"启动游戏""下载版本"、两个版本下拉框和两张列表，并把底栏中间
-    // 那格的进度条切成"正在准备下载"的不确定态。进度条和底栏的显隐不在这里定
+    // 下载期间禁用这些：启动按钮、已安装版本下拉框、实例页那棵树 / 文件夹列表、
+    // 以及安装页那一整层（名称框、四个加载器、安装按钮、返回），并把底栏中间那格的
+    // 进度条切成"正在准备下载"的不确定态。进度条和底栏的显隐不在这里定
     // （取决于"在下载"和"在启动"两条），统一由 updateBottomBar() 说了算。
+    //
+    // NOTE: 这条注释以前还点着一个"下载版本"按钮和"两个版本下拉框" —— 都是上一版界面
+    //       的东西了：「下载版本」已经没了（下载页现在是"点版本号进安装页"），下拉框
+    //       也只剩"已安装版本"那一个（另一个是安装页上按加载器分的几个）。清单在下面
+    //       实现里逐条写着，要核对就照着那些 setEnabled() 看。
     void setDownloadUiBusy(bool busy);
     // 进/出"同步阻塞"那一段：启动这条路上有三段是在 UI 线程上同步等的（换令牌的网络
     // 请求、挑/下 Java、startGame() 里等进程起来）。那几段里 Qt 不重绘、不响应输入，

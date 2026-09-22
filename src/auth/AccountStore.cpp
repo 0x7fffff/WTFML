@@ -27,10 +27,35 @@ constexpr const char kMinecraftField[] = "minecraft";
 // 离线账号的标志位。**只有它为 true 的项可以没有上面那两份副本** —— 见 addOffline()。
 constexpr const char kOfflineField[] = "offline";
 
-/// 读列表（整份 JSON）。读不到就是空数组。
-QJsonArray readAccounts() {
-    return TokenStore::readJson(TokenStore::accountsKey()).value(QLatin1String(kAccountsField))
-        .toArray();
+/// 读列表（整份 JSON）。
+///
+/// NOTE: **两种"读不到"必须分开**（所以有 @p readableOut）：盘上就没有这一格（真的还没有
+///       任何账号 —— 这是空列表）和那一格在、但解不开（DPAPI 换了 Windows 账户或换机器
+///       之后解不出来，或者值被写坏了）。以前两种都折成空数组，于是 captureActive() /
+///       addOffline() 这两个"读-改-写"的写方会拿空数组当底子把整份列表覆盖成一项 ——
+///       列表里其它账号那两份 refresh_token 副本一起没了（那些副本是**唯一**能切回去的
+///       东西，抹掉就只剩重新登录一条路）。写方现在先看 readableOut，假就不写。
+///       只当"列表里有没有这个人"用的读者（find/contains/nameOf/accounts/entryFor/activate）
+///       继续忽略它 —— 解不开的时候它们本来就查不到人，行为跟以前一样。
+QJsonArray readAccounts(bool *readableOut = nullptr) {
+    bool readable = false;
+    const QJsonObject root = TokenStore::readJsonChecked(TokenStore::accountsKey(), &readable);
+    if (readableOut != nullptr) {
+        *readableOut = readable;
+    }
+    if (!readable) {
+        return QJsonArray();
+    }
+    return root.value(QLatin1String(kAccountsField)).toArray();
+}
+
+/// 列表读不出来时给用户看的那句话。三个写方（captureActive / addOffline / remove）共用一份，
+/// 免得一处改了另一处还是旧话术。
+QString unreadableListMessage() {
+    return QStringLiteral(
+        "已保存的账号列表读不出来：盘上那一格在，但解不开（换了 Windows 账户或者换了机器"
+        "之后会这样）。现在写回去会把列表里其它账号一起抹掉，所以这次没有保存。"
+        "想重新开始的话，先删掉那个键再试。");
 }
 
 bool writeAccounts(const QJsonArray &accounts, QString *errorOut) {
@@ -183,7 +208,16 @@ bool AccountStore::captureActive(QString *errorOut) {
     entry.insert(QLatin1String(kMinecraftField), minecraft);
 
     // 已有同一个人就**就地更新**（换新令牌、改名字都算同一个人），否则追加到末尾。
-    QJsonArray array = readAccounts();
+    // NOTE: 读不出来就**什么都不写**（理由见 readAccounts()）：这一句是"读-改-写"，
+    //       底子读错 = 把整份列表覆盖掉，而列表里存着别的账号唯一的一份 refresh_token 副本。
+    bool readable = false;
+    QJsonArray array = readAccounts(&readable);
+    if (!readable) {
+        if (errorOut != nullptr) {
+            *errorOut = unreadableListMessage();
+        }
+        return false;
+    }
     bool replaced = false;
     for (int i = 0; i < array.size(); ++i) {
         if (array.at(i).toObject().value(QLatin1String(kUuidField)).toString() == uuid) {
@@ -340,7 +374,15 @@ bool AccountStore::addOffline(const QString &name, QString *errorOut) {
     entry.insert(QLatin1String(kOfflineField), true);
 
     // 同名 = 同一个 uuid = 同一个人，就地更新（改个大小写也算同一个），否则追加。
-    QJsonArray array = readAccounts();
+    // NOTE: 同 captureActive()：列表读不出来就不写，否则这一下会把列表里其它账号抹掉。
+    bool readable = false;
+    QJsonArray array = readAccounts(&readable);
+    if (!readable) {
+        if (errorOut != nullptr) {
+            *errorOut = unreadableListMessage();
+        }
+        return false;
+    }
     bool replaced = false;
     for (int i = 0; i < array.size(); ++i) {
         if (array.at(i).toObject().value(QLatin1String(kUuidField)).toString() == uuid) {

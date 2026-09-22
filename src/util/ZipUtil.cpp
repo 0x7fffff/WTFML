@@ -115,11 +115,23 @@ bool ZipUtil::extractArchives(const QStringList &archives, const QString &target
     }
 
     QStringList skipConditions;
-    // 防 zip slip：正常 Minecraft jar 不会有 .. 条目，但解压工具没理由不设防
-    skipConditions << QStringLiteral("$e.FullName.Contains('..')");
+    // 防 zip slip。这几条和 extractSubtrees() 里那组**一样严**（以前这里只判 `..`，漏了
+    // "条目名本身就是绝对路径"那种 —— 见下面 NOTE）。正常 Minecraft jar 不会有这种条目，
+    // 但解压工具没理由不设防。
+    //
+    // NOTE: 三条各自的来路：
+    //   - `..`：翻到 $out 上面去（`../x`、`a/../../x`，`\` 分隔也一样，因为判的是子串）；
+    //   - 头一个字符是 `/`、或者名字里带 `:`：.NET 的 Path.Combine 认为第二个参数已经是
+    //     绝对路径（`/x`、`\x`、`C:/x` 都算）→ **把 $out 丢掉**，文件写到目标目录外面；
+    //   - 判的必须是**归一过 `\`→`/` 的名字**：Windows 上 `\` 同样是分隔符，不归一的话
+    //     `META-INF\MANIFEST.MF` 这类条目还会从 excludePrefixes 底下溜过去。
+    const QString fullName = QStringLiteral("$e.FullName.Replace('\\','/')");
+    skipConditions << QStringLiteral("%1.Contains('..')").arg(fullName);
+    skipConditions << QStringLiteral("%1.StartsWith('/')").arg(fullName);
+    skipConditions << QStringLiteral("%1.Contains(':')").arg(fullName);
     for (const QString &prefix : excludePrefixes) {
         const QString normalized = prefix.endsWith(QLatin1Char('/')) ? prefix : prefix + QLatin1Char('/');
-        skipConditions << QStringLiteral("$e.FullName.StartsWith(%1)").arg(psQuote(normalized));
+        skipConditions << QStringLiteral("%1.StartsWith(%2)").arg(fullName, psQuote(normalized));
     }
 
     // 用 .NET 的 Path/Directory 而不是 PowerShell 的 Join-Path / New-Item：
@@ -134,8 +146,9 @@ bool ZipUtil::extractArchives(const QStringList &archives, const QString &target
                        "  try{\n"
                        "    foreach($e in $zip.Entries){\n"
                        "      if([string]::IsNullOrEmpty($e.Name)){continue}\n"
+                       "      $full=$e.FullName.Replace('\\','/')\n"
                        "      if(%3){continue}\n"
-                       "      $dest=[System.IO.Path]::Combine($out,$e.FullName)\n"
+                       "      $dest=[System.IO.Path]::Combine($out,$full)\n"
                        "      [void][System.IO.Directory]::CreateDirectory"
                        "([System.IO.Path]::GetDirectoryName($dest))\n"
                        "      [System.IO.Compression.ZipFileExtensions]::ExtractToFile($e,$dest,$true)\n"

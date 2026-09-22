@@ -54,7 +54,6 @@ static constexpr const char kMinecraftProfileUrl[] =
 static constexpr int kCallbackPort = 38226;
 static constexpr const char kRedirectUri[] = "http://localhost:38226/";
 static constexpr const char kOAuthScope[] = "XboxLive.signin offline_access";
-static constexpr int kRequestTimeoutMs = 15000;
 // 等浏览器回来的上限。见 AuthManager::loginInFlight() 的说明。
 static constexpr int kLoginTimeoutMinutes = 5;
 // NOTE: 值和 LauncherManager 的 kDefaultPlayerName 一致。那边用它兜底（调用方没给名字时），
@@ -74,8 +73,12 @@ using HttpResult = HttpClient::Reply;
 HttpResult sendJson(QNetworkAccessManager *manager, const QUrl &url, bool post,
                     const QByteArray &body, const QByteArray &contentType,
                     const QByteArray &bearer) {
+    // 超时用 HttpClient 那一份（kDefaultTimeoutMs，也是 15 秒），**不在这里再写一个常量**：
+    // 以前这里有一份自己的 kRequestTimeoutMs，值和它一样、名字不一样，于是"15 秒"在仓库里
+    // 有两个出处 —— 哪天有人只改了一处，登录链和皮肤接口的超时就会悄悄不一样，而这是
+    // 只有网络慢的时候才看得出来、看出来了也未必查得到的那种差别。
     return HttpClient::send(manager, url, post ? HttpClient::Verb::Post : HttpClient::Verb::Get,
-                            body, contentType, bearer, kRequestTimeoutMs);
+                            body, contentType, bearer, HttpClient::kDefaultTimeoutMs);
 }
 
 /// 失败时那句"…失败：<为什么>"。有网络层的错就说网络层的，否则说 HTTP 状态码。
@@ -170,6 +173,20 @@ bool AuthManager::loginMicrosoft() {
         m_loginTimeout = new QTimer(this);
         m_loginTimeout->setSingleShot(true);
         connect(m_loginTimeout, &QTimer::timeout, this, [this] {
+            // 浏览器那头没回来才算这个超时。**已经回来、正在换令牌**的时候不算：
+            // 回调处理函数这会儿跑在内嵌事件循环里（换令牌要发好几条请求，见
+            // handleNewConnection），它收尾时自己会关服务器、复位 m_loginInFlight、
+            // 停掉这个定时器。
+            // NOTE: 少了这一句，正好卡在这段时间里到点的定时器会**抢先**发一个 loginFailed
+            //       —— 用户看见"登录没有完成（等了 5 分钟）"，几十毫秒之后回调那头发
+            //       loginSucceeded，一次登录发出两个相反的信号：界面先按失败把按钮放回可点，
+            //       再按成功刷一遍底栏，而弹窗是模态的，用户点掉它之后才轮到成功那一步。
+            //       回调那头本来就挡住了重入（handleNewConnection 开头的同一个判据），
+            //       只有这里漏了。换令牌那条链每一条请求都有自己的 15 秒超时
+            //       （见 kRequestTimeoutMs），所以这里不再另设窗口也不会一直挂着。
+            if (m_handlingCallback) {
+                return;
+            }
             m_callbackServer->close();
             m_loginInFlight = false;
             // 走 loginFailed 而不是自己憋着：界面就是靠它把几个按钮放回可点状态的。
@@ -770,7 +787,14 @@ bool AuthManager::storeMinecraftTokenData(const QString &mcToken, int expiresIn,
     QJsonObject tokenData;
     tokenData.insert(QStringLiteral("access_token"), mcToken);
     // 盘上存**到期时刻**而不是 expires_in：下次开窗要判"还能不能用"，存秒数还得自己
-    // 记住是什么时候存的。取 ISO 字符串而不是毫秒时间戳，是为了在 ini 里能看懂。
+    // 记住是什么时候存的。
+    //
+    // NOTE: 这里以前补了一句"取 ISO 字符串而不是毫秒时间戳，是为了在 ini 里能看懂" ——
+    //       两个理由都站不住：盘上那一格是 TokenStore 加密过的密文（DPAPI + base64，
+    //       整个 JSON 一起加），谁都"看不懂"；而且 QSettings 走的是 NativeFormat，
+    //       落在注册表 HKCU\\Software\\WTFML\\WTFML 下，压根不是 ini 文件。
+    //       选 ISO 的真正理由只剩"和别处存时间的方式一致、人用调试工具看到的是个日期"
+    //       （验证工程里读那份 json 也是按 ISODate 解）。
     tokenData.insert(QStringLiteral("expires_at"),
                      QDateTime::currentDateTimeUtc().addSecs(expiresIn).toString(Qt::ISODate));
     tokenData.insert(QStringLiteral("name"), name);

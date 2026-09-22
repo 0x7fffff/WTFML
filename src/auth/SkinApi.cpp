@@ -139,8 +139,18 @@ QByteArray SkinApi::skinUploadContentType(const QByteArray &boundary) {
     return QByteArrayLiteral("multipart/form-data; boundary=") + boundary;
 }
 
-QString SkinApi::failureText(int status, const QByteArray &body, const QString &what) {
-    const QString detail = bodyDetail(body);
+QString SkinApi::failureText(const HttpClient::Reply &reply, const QString &what) {
+    // 第一条分支：**根本没连上**（断网、DNS 解析不了、超时被 abort）。
+    // NOTE: 这一条以前不在 —— 那时参数是 (status, body)，于是这几种情况下 status 是
+    //       HttpClient 给的初值 -1，报出来的是「读取披风失败（HTTP -1）。」：既没说清
+    //       是没连上（用户该去查网络/代理），还端出一个不存在的状态码。登录那条路
+    //       一直有这一条（AuthManager 里 httpFailureText 的第一句），皮肤披风这条路漏了。
+    if (!reply.networkError.isEmpty()) {
+        return tr("%1：%2").arg(what, reply.networkError);
+    }
+
+    const int status = reply.status;
+    const QString detail = bodyDetail(reply.raw);
 
     if (status == 401) {
         // 令牌不认了。**这句不说"重新登录"就够了吗**：不够 —— 用户多半刚换过账号或者
@@ -178,7 +188,7 @@ bool SkinApi::fetchCurrentSkin(const QString &token, SkinSummary *out, QString *
                          HttpClient::Verb::Get, {}, {}, token.toUtf8());
     if (!reply.ok()) {
         if (errorOut != nullptr) {
-            *errorOut = failureText(reply.status, reply.raw, tr("读取皮肤失败"));
+            *errorOut = failureText(reply, tr("读取皮肤失败"));
         }
         return false;
     }
@@ -198,7 +208,7 @@ bool SkinApi::fetchOwnedCapes(const QString &token, QList<OwnedCape> *out, QStri
                          HttpClient::Verb::Get, {}, {}, token.toUtf8());
     if (!reply.ok()) {
         if (errorOut != nullptr) {
-            *errorOut = failureText(reply.status, reply.raw, tr("读取披风失败"));
+            *errorOut = failureText(reply, tr("读取披风失败"));
         }
         return false;
     }
@@ -217,7 +227,7 @@ bool SkinApi::setActiveCape(const QString &token, const QString &capeId, QString
         QByteArrayLiteral("application/json"), token.toUtf8());
     if (!reply.ok()) {
         if (errorOut != nullptr) {
-            *errorOut = failureText(reply.status, reply.raw, tr("更换披风失败"));
+            *errorOut = failureText(reply, tr("更换披风失败"));
         }
         return false;
     }
@@ -230,7 +240,7 @@ bool SkinApi::hideCape(const QString &token, QString *errorOut) {
                          HttpClient::Verb::Delete, {}, {}, token.toUtf8());
     if (!reply.ok()) {
         if (errorOut != nullptr) {
-            *errorOut = failureText(reply.status, reply.raw, tr("取消披风失败"));
+            *errorOut = failureText(reply, tr("取消披风失败"));
         }
         return false;
     }
@@ -247,7 +257,7 @@ bool SkinApi::uploadSkin(const QString &token, const QByteArray &png, const QStr
         skinUploadBody(png, variant, boundary), skinUploadContentType(boundary), token.toUtf8());
     if (!reply.ok()) {
         if (errorOut != nullptr) {
-            *errorOut = failureText(reply.status, reply.raw, tr("上传皮肤失败"));
+            *errorOut = failureText(reply, tr("上传皮肤失败"));
         }
         return false;
     }
