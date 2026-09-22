@@ -19,13 +19,16 @@
 #include "..\ui\SkinModel.hpp"
 
 // 添加以下头文件（防止hpp变动导致文件失效）
+#include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDebug>
 #include <QDir>
+#include <QEventLoop>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QGuiApplication>
 #include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
@@ -712,6 +715,25 @@ void MainWindow::setupConnections() {
             [this](const QString &text) { appendLog(text); });
 }
 
+void MainWindow::enterSyncWait(const QString &statusText) {
+    // 这一段里 UI 线程在等网络或等进程（见 .hpp 里那三种情况），Qt 不重绘、不响应输入，
+    // Windows 过几秒还会给标题挂上"(无响应)"——用户看到的就是"点了启动就卡死"。
+    // 这里能做的只有"进去之前先把话说出来"：底栏那格写上在等什么，再套一个忙指针。
+    m_syncWaitStatus = statusText;
+    updateBottomBar();
+    QGuiApplication::setOverrideCursor(Qt::WaitCursor);
+    // 不刷这一次，上面那些改动要等窗口重新绘制时才看得见 —— 而那要等到这段路走完。
+    // 排掉用户输入是**必须的**：不排的话这次 processEvents() 会把用户在这期间的点击
+    // （比如"再点一次启动"）送回来，于是同一段路走两遍，比卡着更糟。
+    QApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+}
+
+void MainWindow::leaveSyncWait() {
+    m_syncWaitStatus.clear();
+    QGuiApplication::restoreOverrideCursor();
+    updateBottomBar();
+}
+
 void MainWindow::setDownloadUiBusy(bool busy) {
     m_downloadInFlight = busy;
     m_ui->getStartButton()->setEnabled(!busy);
@@ -774,14 +796,23 @@ void MainWindow::updateBottomBar() {
     // 两件事都会占这一格，启动优先 —— 下载可以慢慢来，用户刚点完启动那几秒需要反馈。
     QProgressBar *progressBar = m_ui->getProgressBar();
     QLabel *statusLabel = m_ui->getStatusLabel();
-    const bool showProgress = m_launchInFlight || m_downloadInFlight;
+    // 三种"在忙"都占这一格：启动中、下载中、以及在同步等待段里（见 enterSyncWait()）。
+    // 判据本身放在 MainWindowUI::bottomBarShowsProgress() 里，那儿是它唯一的出处。
+    const bool showProgress = MainWindowUI::bottomBarShowsProgress(
+        m_launchInFlight, m_downloadInFlight, !m_syncWaitStatus.isEmpty());
     progressBar->setVisible(showProgress);
     statusLabel->setVisible(showProgress);
     if (m_launchInFlight) {
         // 启动进度没有可测量的百分比（JVM 和游戏自己在初始化，没有任何进度回调），
         // 所以是不确定态的滚动条。等游戏吐出第一行输出（或进程结束）就收起来。
         progressBar->setRange(0, 0);
-        statusLabel->setText(tr("正在启动 %1 ...").arg(instanceDisplayName(m_launchingVersionId)));
+        statusLabel->setText(
+            MainWindowUI::launchingStatusText(instanceDisplayName(m_launchingVersionId)));
+    } else if (!m_syncWaitStatus.isEmpty()) {
+        // 同步等待那一段：不知道要等多久（网络 / 下 Java / 进程启动），所以也是不确定态。
+        // 文字就是进那一段之前写下的"在等什么"。
+        progressBar->setRange(0, 0);
+        statusLabel->setText(m_syncWaitStatus);
     } else if (!m_downloadInFlight) {
         // 没有下载时把进度条复位：下一次下载开始前它会先显示上次的旧值，闪一下。
         progressBar->setRange(0, 100);
@@ -1599,7 +1630,11 @@ void MainWindow::onStartButtonClicked() {
         // 对应的话完全不同。要一句"请先登录"，用户照做也还是登不上 —— 所以这里把
         // AuthManager 给的原因一起弹出来。
         QString tokenError;
+        // 这一段**是同步的**：令牌需要换的时候它要在 UI 线程上发请求（单次超时 15 秒），
+        // 期间界面完全不重绘。先给用户一句话再进去，别让他以为点了没反应。
+        enterSyncWait(tr("正在校验登录状态..."));
         token = m_authManager->loadSavedToken(&tokenError);
+        leaveSyncWait();
         if (token.isEmpty()) {
             QMessageBox::warning(this, tr("登录缺失"),
                                  tokenError.isEmpty()
@@ -1723,8 +1758,15 @@ void MainWindow::onStartButtonClicked() {
     }
 
     QString javaError;
-    if (!m_javaSettings->ensureJavaForVersion(javaSettings, javaMajorVersion, javaComponent,
-                                              allowAutoSelect, &javaError, allowMismatchedPath)) {
+    // 这一段也可能是同步的、而且可能是**最久**的一段：本机没有匹配的 Java 时它会直接在
+    // UI 线程上下一个完整的运行时（component 那份，或者退到 Adoptium 的那份），几百 MB。
+    // 就算不用下，挑的过程里也要逐个 `java -version` 冷启 JVM、扫盘。
+    enterSyncWait(tr("正在准备 Java 运行时..."));
+    const bool javaReady = m_javaSettings->ensureJavaForVersion(
+        javaSettings, javaMajorVersion, javaComponent, allowAutoSelect, &javaError,
+        allowMismatchedPath);
+    leaveSyncWait();
+    if (!javaReady) {
         appendLog(tr("无法获取所需的 Java 运行时环境：版本 %1").arg(javaMajorVersion));
         QMessageBox::warning(
             this, tr("Java 运行时缺失"),
@@ -1801,12 +1843,20 @@ void MainWindow::onStartButtonClicked() {
     // startGame() 有三条早退路径（进程已在运行 / 找不到 Java / waitForStarted 超时），
     // 以前它们都会先骗一句"已开始启动游戏"再显示错误。以"起来了"为准也是对的：
     // 因为库缺失之类的原因崩掉，恰恰是最需要下次打开还选着这个版本的时候。
-    if (m_launcherManager->startGame(jvmArgs, javaSettings, versionId)) {
+    //
+    // startGame() 返回之前那一段（准备 natives、探 Java、等进程起来）是**同步阻塞**的，
+    // 界面根本没机会重画 —— 所以那一段报不出百分比，只能报"在等什么"。
+    // NOTE: 这里那句和下面 updateBottomBar() 里那句是**同一句话**（都出自
+    //       MainWindowUI::launchingStatusText()），所以进程起来的那一刻文字不会跳。
+    enterSyncWait(MainWindowUI::launchingStatusText(instanceDisplayName(versionId)));
+    const bool started = m_launcherManager->startGame(jvmArgs, javaSettings, versionId);
+    leaveSyncWait();
+    if (started) {
         m_settings->setLastLaunchedVersion(versionId);
         appendLog(tr("已开始启动游戏，正在执行 JVM 参数..."));
         // 启动进度从这里开始走到"游戏自己吐出第一行输出"为止。startGame() 返回之前
-        // 那段（准备 natives、探 Java、等进程起来）是同步阻塞的，界面根本没机会重画，
-        // 所以那一段不可能显示进度 —— 这里能覆盖的是随后的 JVM/游戏初始化。
+        // 那段只能报"在等什么"（见上面那次 enterSyncWait()）—— 这里能覆盖的是随后的
+        // JVM/游戏初始化。
         // 顺序上安全：startGame() 内部那条 "游戏已启动" 的 processOutput 是在它
         // return 之前同步发出的，会先于这次赋值到达，不会被当成"游戏已经出话了"。
         m_launchInFlight = true;
