@@ -36,6 +36,7 @@
 #pragma once
 
 #include <QByteArray>
+#include <QDateTime>
 #include <QObject>
 #include <QString>
 #include <QUrl>
@@ -75,6 +76,11 @@ public:
     enum class ProfileFetchOutcome {
         Ok,           ///< 200，body 里有一份解得出皮肤的档案。
         NoSuchPlayer, ///< 204：官方那边查不到这个人（也用来表达限流）。**不是错误**。
+        /// 429：官方在限流。**也不是错误**（外观那一栏照样沿用上次那份），但它和 204
+        /// 有一处**不一样**：204 说不清是"没这个人"还是"别问了"，而 429 明说了是后者 ——
+        /// 所以接下来要**退避**，不能像别的失败那样"下次刷新再问一遍"（见
+        /// kThrottleBackoffMs：2026-09-22 真机上那个"又429"就是在这儿来的）。
+        Throttled,
         Failed,       ///< 其余（网络失败、5xx、200 但 body 解不出来）。
     };
 
@@ -96,6 +102,18 @@ public:
 
     /// 一次响应属于哪种结果（判据见 ProfileFetchOutcome）。
     static ProfileFetchOutcome classifyProfileResponse(int httpStatus, const QByteArray &body);
+
+    /// 被限流（429）之后，这段时间里**一个请求都不再发**（毫秒）。
+    ///
+    /// NOTE: 2026-09-22 用户真机上撞到的就是它（日志里那句"取档案失败（HTTP 429）"）。
+    ///       当时的表现是：被挡这一下之后，**每次刷新照样再去问一遍**，于是每问一次被挡
+    ///       一次、日志里再添一行 —— 看着像启动器坏了，其实是自己在往限流窗口里撞。
+    ///       退避一分钟：外观那一栏沿用上次那份（和 204 同一套降级），一分钟后再问。
+    static constexpr int kThrottleBackoffMs = 60000;
+
+    /// 现在该不该因为限流而跳过这次请求？
+    /// @param throttledUntil 上次被限流算出来的解禁时刻；**无效 = 从没被限流过**。
+    static bool withinThrottleBackoff(const QDateTime &throttledUntil, const QDateTime &now);
 
     /// 某个贴图 URL 在本地缓存里的路径：`<skinsDir>/<sha1(url)>.png`（见文件头）。
     /// NOTE: 静态而不是成员：它只依赖 AppPaths（当前游戏目录），不依赖这个对象的任何状态。
@@ -152,8 +170,10 @@ public:
     /**
      * @brief 异步要一次档案，回来发 profileReady()。
      *
-     * 查不到（204）**不发信号**，只记一行日志：那多半是限流或者一个已经注销的账号，
-     * 此时手上那份缓存（或者默认外观）比"清空"更接近用户想看到的。其余失败发 failed()。
+     * 查不到（204）和被限流（429）都**不发信号**，只记一行日志：前者多半是限流或者一个
+     * 已经注销的账号，后者明确就是限流 —— 两种情况下手上那份缓存（或者默认外观）都比
+     * "清空"更接近用户想看到的。429 还会顺带**退避**（见 kThrottleBackoffMs），
+     * 退避窗口里连着调用这个方法也不会再发请求。其余失败发 failed()。
      *
      * @param uuid 带不带横线都行（见 uuidKey()）。认不出来直接不发请求。
      */
@@ -184,4 +204,8 @@ private:
     /// 自己的管理器，不和 DownloadManager 共用：那个的超时是 30 s（下载大文件用的），
     /// 而这一个请求是可选的外观请求，不该拖着用户的东西。见 kTransferTimeoutMs。
     QNetworkAccessManager *m_network;
+
+    /// 被限流之后"什么时候可以再问"。从没被限流过就是无效值（见 withinThrottleBackoff：
+    /// 判据是"无效 = 没被限流过"，所以不需要再加一个布尔量）。
+    QDateTime m_throttledUntil;
 };

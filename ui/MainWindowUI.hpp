@@ -67,7 +67,12 @@ public:
     // 验证工程靠这些名字认控件。**不要**改回按占位文案或条目文本去认——那些是
     // 会被产品逻辑改写的显示内容（占位文案现在就要随"有没有可选版本"切换），
     // 拿显示内容当身份标识的测试会在产品改动时以看不懂的方式挂掉。
-    static QString loginButtonName() { return QStringLiteral("loginButton"); }
+    /// 设置页「账户」那一格里的入口按钮：「账号与外观…」。它和主页右栏那个入口打开的是
+    /// **同一个窗**（文案也是同一份，见 accountSkinButtonText()），名字不同只是因为
+    /// objectName 得唯一 —— findChild 靠它认控件。
+    static QString accountSkinSettingsButtonName() {
+        return QStringLiteral("accountSkinSettingsButton");
+    }
     /// 主页那个「离线模式」勾选框。**只有它没有 objectName** 的那阵子，验证工程要
     /// 驱动"离线启动"就只能按文字找控件 —— 而文字是产品文案，会变。
     static QString offlineModeCheckBoxName() { return QStringLiteral("offlineModeCheckBox"); }
@@ -151,6 +156,10 @@ public:
     static QString settingsTabName() { return QStringLiteral("settingsTab"); }
     static QString skinViewerName() { return SkinViewer::viewerName(); }
     static QString skinHintLabelName() { return QStringLiteral("skinHintLabel"); }
+    static QString accountSkinButtonName() { return QStringLiteral("accountSkinButton"); }
+    /// 那个入口按钮上写的字。和其它文案一样做成静态访问器 —— 验证工程引它，
+    /// 产品里改一个字就不用两边各写一遍字面量。
+    static QString accountSkinButtonText() { return QStringLiteral("账号与外观…"); }
     static QString bottomBarName() { return QStringLiteral("bottomBar"); }
     static QString avatarLabelName() { return QStringLiteral("avatarLabel"); }
     /// 底栏头像那一块的边长（像素）。**唯一出处**：主窗口拿它去裁头像
@@ -158,6 +167,16 @@ public:
     /// 验证工程拿它断言 pixmap 的大小。三处各写一个数字迟早对不上。
     static int avatarSize() { return 32; }
     static QString accountLabelName() { return QStringLiteral("accountLabel"); }
+    /// 底栏账户格**第二行**：这次启动用的是哪种身份。
+    static QString accountTypeLabelName() { return QStringLiteral("accountTypeLabel"); }
+    /// 第二行那三种说法。
+    ///
+    /// NOTE: **三种而不是两种** —— 没勾离线、又没登录的时候写「离线登录」是骗人：
+    ///       那种状态点下去会被"请先登录"挡回来（见 MainWindow::onStartButtonClicked()
+    ///       里 token.isEmpty() 那条分支）。照实说「未登录」，用户才知道该去登录。
+    static QString accountTypeOnlineText() { return QStringLiteral("正版登录"); }
+    static QString accountTypeOfflineText() { return QStringLiteral("离线登录"); }
+    static QString accountTypeNotLoggedInText() { return QStringLiteral("未登录"); }
     static QString runStateLabelName() { return QStringLiteral("runStateLabel"); }
     static QString runStateDetailLabelName() { return QStringLiteral("runStateDetailLabel"); }
     static QString progressBarName() { return QStringLiteral("progressBar"); }
@@ -275,16 +294,6 @@ public:
         return QStringLiteral("取不到 %1 的皮肤，显示的是默认外观").arg(name);
     }
 
-    // ---------- 登录按钮的三种文字 ----------
-    // 按钮**文字会随状态变**（MainWindow::updateLoginButton()），所以验证工程不能拿
-    // 文案去认这个按钮（认了就会在"已登录"时找不到它），要么按它初始那一句找、要么
-    // 按别的属性找。这里的三个串是唯一的出处。
-    static QString loginButtonText() { return QStringLiteral("微软登录"); }
-    /// 已经登录过之后：写着「微软登录」会让人以为还没登录。
-    static QString loginButtonReloginText() { return QStringLiteral("重新登录"); }
-    /// 流程正在走（浏览器那头还没回调回来）。这时按钮是灰的。
-    static QString loginButtonBusyText() { return QStringLiteral("正在登录…"); }
-
     // ---------- 选项卡下标 ----------
     // 底栏左侧的显示规则要知道"当前是不是在启动界面（主页）"：在主页且选中的就是
     // 正在跑的那个实例时只显示一行，否则加第二行说明是哪个实例。
@@ -338,7 +347,7 @@ public:
     // 控件访问接口
     QPushButton *getStartButton() const { return startButton; }
     QPushButton *getDownloadButton() const { return downloadButton; }
-    QPushButton *getLoginButton() const { return loginButton; }
+    QPushButton *getAccountSkinSettingsButton() const { return accountSkinSettingsButton; }
     QCheckBox *getOfflineModeCheckBox() const { return offlineModeCheckBox; }
     QPushButton *getAddFolderButton() const { return addFolderButton; }
     QPushButton *getRemoveFolderButton() const { return removeFolderButton; }
@@ -399,6 +408,8 @@ public:
     // 所以它比别处多一层：界面只管把贴图喂进去，贴图从哪来是业务层的事。
     SkinViewer *getSkinViewer() const { return skinViewer; }
     QLabel *getSkinHintLabel() const { return skinHintLabel; }
+    /// 「账号与外观…」：登录多个账号、换皮肤换披风那个模块的入口。
+    QPushButton *getAccountSkinButton() const { return accountSkinButton; }
 
     QTabWidget *getTabWidget() const { return tabWidget; }
     // NOTE: 产品代码没有取过底栏本身（只取它里面的几个标签/进度条），只有验证工程
@@ -406,6 +417,7 @@ public:
     QFrame *getBottomBar() const { return bottomBar; }
     QLabel *getAvatarLabel() const { return avatarLabel; }
     QLabel *getAccountLabel() const { return accountLabel; }
+    QLabel *getAccountTypeLabel() const { return accountTypeLabel; }
     // 进度只出现在底栏中间那一格，不进日志（旧版是钉在 QStatusBar 上的）
     QProgressBar *getProgressBar() const { return progressBar; }
     QLabel *getStatusLabel() const { return statusLabel; }
@@ -424,7 +436,7 @@ private:
     // 控件指针
     QPushButton *startButton;
     QPushButton *downloadButton;
-    QPushButton *loginButton;
+    QPushButton *accountSkinSettingsButton;
     QCheckBox *offlineModeCheckBox;
     QPushButton *addFolderButton;
     QPushButton *removeFolderButton;
@@ -467,10 +479,13 @@ private:
     QCheckBox *versionNameLoaderVersionCheck;
     SkinViewer *skinViewer;
     QLabel *skinHintLabel;
+    QPushButton *accountSkinButton;
     QTabWidget *tabWidget;
     QFrame *bottomBar;
     QLabel *avatarLabel;
     QLabel *accountLabel;
+    // 账户格那两行是**竖直排列**的（名字在上、登录方式在下），和左上角那格同构。
+    QLabel *accountTypeLabel;
     QProgressBar *progressBar;
     QLabel *statusLabel;
     QLabel *runStateLabel;

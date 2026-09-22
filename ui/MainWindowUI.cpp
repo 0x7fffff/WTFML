@@ -82,10 +82,12 @@ constexpr int kStartButtonMinHeight = 88;
 /// 「额外 JVM 参数」多行输入框的高度，约三四行的样子；再高会把下面那几项挤出可视区。
 constexpr int kJvmArgsEditHeight = 72;
 
-/// 几个按钮的宽度下限：文案长短差得多（「下载版本」/「重新登录」/「应用」），
+/// 几个按钮的宽度下限：文案长短差得多（「下载版本」/「应用」这种），
 /// 不给下限就会各自缩成一小块、排在一起长短不齐。
 constexpr int kDownloadButtonMinWidth = 96;
-constexpr int kLoginButtonMinWidth = 120;
+/// 「账号与外观…」那个入口按钮的最小宽度。文案固定，但给一个下限，免得以后换文案时
+/// 按钮缩成一小块。**主页那个和设置页那个共用这一个值** —— 它们说的是同一件事。
+constexpr int kAccountSkinButtonMinWidth = 140;
 constexpr int kApplyJvmArgsButtonMinWidth = 72;
 
 /// 一栏：控件本身 + 它自己的竖排布局。
@@ -326,6 +328,17 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // 宽度仍然只由份数决定（主页那个精确的 7:3 就是靠这个成立的）。
         skinHintLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
         home.right.layout->addWidget(skinHintLabel);
+
+        // 「账号与外观…」：多账号 / 换皮肤换披风的入口，按用户要求放在 3D 预览这一块
+        // 的下方。**说明行（skinHintLabel）在它上面**：那句是预览的图注，紧贴着图才是
+        // 图注该在的位置；把按钮塞进图和图注中间会把「图 + 它的注解」拆成两半。
+        // 宽度**不**跟着这一栏长（这一栏只有 3 份，拉满会顶宽），贴左边固定宽度。
+        accountSkinButton = new QPushButton(MainWindowUI::accountSkinButtonText(),
+                                            home.right.widget);
+        accountSkinButton->setObjectName(MainWindowUI::accountSkinButtonName());
+        accountSkinButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+        accountSkinButton->setMinimumWidth(kAccountSkinButtonMinWidth);
+        home.right.layout->addWidget(accountSkinButton, 0, Qt::AlignLeft);
     }
     // NOTE: 控件一个都不放也得把这栏建出来 —— 验证工程靠 leftColumnName()/rightColumnName()
     //       找这两栏量几何，主页右栏没了就等于主页的比例没地方量。
@@ -568,23 +581,25 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
     int row = 0;
 
     // ---------- 账户 ----------
+    // 这一格原来摆的是个「微软登录」按钮（登录过之后叫「重新登录」）。它**搬进**
+    // 「账号与外观」那个窗里了：那个按钮只会登录一件事 —— 加离线账号、切换账号、删账号、
+    // 换皮肤披风它一件都做不到，而这一格却叫「当前账户」，用户来设置页找"管账号"的地方
+    // 会撞上一个只能登录的按钮。账号那一整块只在一个窗里做（ui/AccountSkinDialog），
+    // 这里留一个入口。
     addSectionTitle(grid, row++, QStringLiteral("账户"), form);
     {
         QWidget *box = makeHintedControl(form);
         auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
-        // 初始文字只是"还没登录"那一种；登录成功之后 MainWindow::updateLoginButton()
-        // 会把它换成「重新登录」，正在登的时候是灰的「正在登录…」。
-        loginButton = new QPushButton(loginButtonText(), box);
-        // 按钮文字会随登录状态变（见 loginButtonText() 那三条），所以验证工程得按
-        // objectName 认它，不能按文案认。
-        loginButton->setObjectName(MainWindowUI::loginButtonName());
-        loginButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-        loginButton->setMinimumWidth(kLoginButtonMinWidth);
-        boxLayout->addWidget(loginButton, 0, Qt::AlignLeft);
-        addHint(box, QStringLiteral("登录后用户名显示在窗口左下角，启动游戏时用的也是它。"
-                                    "不登录就用「离线模式」启动，名字是 Player。"),
+        accountSkinSettingsButton = new QPushButton(accountSkinButtonText(), box);
+        // 文案和主页那个入口**共用一份**（accountSkinButtonText()，见上面那段说明）。
+        accountSkinSettingsButton->setObjectName(accountSkinSettingsButtonName());
+        accountSkinSettingsButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+        accountSkinSettingsButton->setMinimumWidth(kAccountSkinButtonMinWidth);
+        boxLayout->addWidget(accountSkinSettingsButton, 0, Qt::AlignLeft);
+        addHint(box, QStringLiteral("正版登录、添加离线账号、切换账号、换皮肤和披风都在这个窗里。"
+                                    "登录后用户名显示在窗口左下角，启动游戏时用的也是它。"),
                 form);
-        addSettingRow(grid, row++, QStringLiteral("当前账户"), box, form);
+        addSettingRow(grid, row++, QStringLiteral("账号"), box, form);
     }
 
     // ---------- Java 版本 ----------
@@ -878,10 +893,31 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     accountLabel = new QLabel(QStringLiteral("?"), bottomBar);
     accountLabel->setObjectName(accountLabelName());
 
+    // 第二行：这次启动会用哪种身份（正版 / 离线 / 还没登录）。做法**照抄左上角那格**
+    // （小一号 + PlaceholderText 颜色）—— 底栏左右两格在视觉上是对称的两条两行文字。
+    // 文字由 MainWindow::updateBottomBar() 刷，界面这边不持有业务状态。
+    accountTypeLabel = new QLabel(accountTypeNotLoggedInText(), bottomBar);
+    accountTypeLabel->setObjectName(accountTypeLabelName());
+    accountTypeLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    QFont accountTypeFont = accountTypeLabel->font();
+    accountTypeFont.setPointSize(qMax(1, accountTypeFont.pointSize() - 1));
+    accountTypeLabel->setFont(accountTypeFont);
+    QPalette accountTypePalette = accountTypeLabel->palette();
+    accountTypePalette.setColor(QPalette::WindowText,
+                                accountTypePalette.color(QPalette::PlaceholderText));
+    accountTypeLabel->setPalette(accountTypePalette);
+
+    QVBoxLayout *accountTextLayout = new QVBoxLayout();
+    accountTextLayout->setSpacing(0);
+    accountTextLayout->addWidget(accountLabel);
+    accountTextLayout->addWidget(accountTypeLabel);
+
     QHBoxLayout *accountRow = new QHBoxLayout();
     accountRow->setSpacing(8);
     accountRow->addWidget(avatarLabel);
-    accountRow->addWidget(accountLabel);
+    // 头像和那两行文字按竖直居中对齐（QHBoxLayout 默认就是这个），所以名字多一行之后
+    // 那块方头像不会往上看。
+    accountRow->addLayout(accountTextLayout);
 
     // 三格从左到右摆：实例状态（0）· 空档（1）· 进度（4）· 空档（1）· 账户（0）。
     // 两头那两格都按自身宽度靠边站，份数写 0；富余宽度全在中间三份里分。

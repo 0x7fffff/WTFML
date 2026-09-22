@@ -32,6 +32,11 @@ class InstanceGroupStore;
 class GroupDialog;
 // 「实例设置…」那个对话框。同上，只按 const 引用传。
 class InstanceSettingsDialog;
+// 「账号与外观」那个对话框（多账号 + 换皮肤披风）。这里**只按指针**持有它，所以
+// 前置声明就够 —— 它在 MainWindow 的构造函数之后才懒建（第一次点那个入口才建）。
+class AccountSkinDialog;
+// 换皮肤披风那几条要令牌的接口（src/auth/SkinApi.hpp）。同上，只按指针持有。
+class SkinApi;
 // 「每实例设置」那两层的值类型（src/settings/EffectiveJavaSettings.hpp）。这里只按
 // const 引用传，前置声明就够 —— 让每个 include 了 MainWindow.hpp 的地方都拖一份
 // 值结构的定义没有意义。
@@ -50,13 +55,29 @@ public:
 
 private slots:
     void onStartButtonClicked();
-    void onLoginButtonClicked();
     // 登录三态（AuthManager 的三个信号）。登录是异步的：点完按钮到浏览器回调回来之间
     // 可能有几十秒（用户还得输账号密码），所以这三条都得在界面上有反应 ——
     // 尤其 loginFailed，它以前**根本没有人接**，失败只在浏览器那个页面里看得见。
     void onLoginStarted();
     void onLoginSucceeded(const QString &playerName);
     void onLoginFailed(const QString &errorMessage);
+
+    // ---------- 「账号与外观」这个模块（主页右栏那个入口 → AccountSkinDialog） ----------
+    // 入口按钮：第一次点会把这个窗建出来（懒建，没点过就不占内存），然后刷新一遍再显示。
+    void onAccountSkinButtonClicked();
+    // 用户在这个窗里点了「登录新账号…」。走的是和设置页那个登录按钮**同一条路**
+    // （AuthManager::loginMicrosoft()），只是入口在另一个窗上。
+    void onAccountLoginRequested();
+    // 用户在那个窗里填了个离线名字。合法性（空 / 有空白 / 太长）由
+    // AccountStore::addOffline() 判（唯一出处），失败按产品约定弹窗。
+    void onOfflineAccountRequested(const QString &name);
+    void onAccountSwitchRequested(const QString &uuid);
+    void onAccountRemoveRequested(const QString &uuid);
+    // 用户选好了一张皮肤图。**尺寸那条规矩在这条路上判**（SkinApi::isAcceptableSkinSize，
+    // 唯一出处），失败按产品约定弹窗。
+    void onSkinUploadRequested(const QString &path, const QString &variant);
+    void onCapeSelectRequested(const QString &capeId);
+    void onCapeHideRequested();
 
     // ---------- 主页右栏那个小人 + 底栏头像（三个都是 PlayerSkinStore 的信号） ----------
     /// 官方回的档案到了。和手上这份一样时**什么都不做**（不重下贴图、不重画）——
@@ -229,9 +250,6 @@ private:
     /// 刷新底部状态条那三格（头像/用户名、进度、实例运行状态）。
     /// 显示规则见 .cpp；界面那边只负责把控件搭出来。
     void updateBottomBar();
-    /// 设置页那个「微软登录」按钮的文字与可用性：没登录是「微软登录」、登录过是
-    /// 「重新登录」、正在走流程是灰的「正在登录…」。
-    void updateLoginButton();
     /// 一个版本号在界面上的显示名（"已安装版本"下拉框里的那条文本）。
     /// 下拉框里没有它时退回版本号本身。
     QString instanceDisplayName(const QString &versionId) const;
@@ -288,6 +306,16 @@ private:
     /// —— fetchTexture() 在缓存不命中时会真的去下一个，那正是离线模式要求别做的事。
     /// @return 这一张是不是**已经在手上了**（缓存命中）。不是"发出去请求了"。
     bool requestSkinTexture(const QString &url, bool allowDownload);
+    // ---------- 「账号与外观」那个窗 ----------
+    /// 把这个窗建出来并接好线（幂等：已经建过就什么都不做）。
+    void setupAccountSkinDialog();
+    /// 刷新这个窗里的三样东西：账号列表（本地）、3D 预览（走和主页同一条路）、
+    /// 披风列表（**要令牌**，所以这一步会联网）。窗还没建时什么都不做。
+    void refreshAccountSkin();
+    /// 这个窗顶部那句话应该写什么（当前身份）。**唯一一处**决定它 —— 离线模式的
+    /// 提醒、未登录、已登录三种状态要是散在各条路上，迟早出现"底栏说离线、这里说正版"。
+    QString accountSkinStatusText() const;
+
     /// 右栏那句话现在是哪一档（未登录 / 正在取 / 正版外观 / 取不到）。
     ///
     /// **唯一一处**决定它写什么。四句文案要是散在四条路上（开窗、拿到档案、拿到贴图、
@@ -309,6 +337,13 @@ private:
     InstanceGroupStore *m_groupStore;
     // 玩家外观的数据层（免鉴权问官方 + 内容寻址的本地缓存）。
     PlayerSkinStore *m_skinStore;
+    // 改外观那一层（**要令牌**：换皮肤、换披风）。和上面那个是两条路，见 SkinApi.hpp
+    // 文件头那句分工。
+    SkinApi *m_skinApi;
+    // 「账号与外观」那个窗。**懒建**：没点过那个入口就是空的（见
+    // setupAccountSkinDialog()）。它是 this 的子对象、也没开 WA_DeleteOnClose，所以关掉
+    // 之后指针照样有效 —— 再点一次是把它 show 回来，不是重建。
+    AccountSkinDialog *m_accountSkinDialog = nullptr;
     // 现在屏幕上用的是哪两张贴图（本地路径）。**只记真的载入成功了的** —— 所以空串
     // 就等于"现在显示的是默认外观"，右栏那句话的判据之一就是它。
     QString m_skinPath;

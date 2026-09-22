@@ -9,6 +9,7 @@
 #include "PlayerSkinStore.hpp"
 
 #include <QCryptographicHash>
+#include <QDateTime>
 #include <QDebug>
 #include <QDir>
 #include <QFile>
@@ -140,6 +141,13 @@ PlayerSkinStore::ProfileFetchOutcome PlayerSkinStore::classifyProfileResponse(in
     // 两者都不该被当成"错误"弹给用户看 —— 调用方那边的表现是"沿用上次的外观"。
     if (httpStatus == 204) {
         return ProfileFetchOutcome::NoSuchPlayer;
+    }
+    // 429 是**明说**的限流（HTTP 语义就是"请求太频繁"）。它以前跟着下面那条"别的状态码
+    // 一律失败"走，于是真机上限流一次就变成日志里一句"取档案失败（HTTP 429）"—— 而那
+    // 句话还会**每次刷新都再添一行**（每次刷新都重新去问）。204 那条路的降级方式对，
+    // 差别只在"要不要退避"：204 含糊，429 说的是"你问得太勤"，所以要退避。
+    if (httpStatus == 429) {
+        return ProfileFetchOutcome::Throttled;
     }
     if (httpStatus != 200) {
         return ProfileFetchOutcome::Failed;
@@ -312,10 +320,27 @@ bool PlayerSkinStore::looksLikeSkinPng(const QByteArray &bytes) {
     return bigEndianInt(16) == 64 && (bigEndianInt(20) == 64 || bigEndianInt(20) == 32);
 }
 
+bool PlayerSkinStore::withinThrottleBackoff(const QDateTime &throttledUntil,
+                                            const QDateTime &now) {
+    // 没被限流过的默认值是**无效**时间 —— 这条判据让"从没限流过"和"限流窗口已经过去"
+    // 落在同一个分支上，不必再加一个布尔量去记"有没有被限流过"。
+    if (!throttledUntil.isValid()) {
+        return false;
+    }
+    return now < throttledUntil;
+}
+
 void PlayerSkinStore::refreshForUuid(const QString &uuid) {
     const QString key = uuidKey(uuid);
     if (key.isEmpty()) {
         // 没有 uuid 就是"没登录"。那不是错误，连日志都不该写（没登录的人是多数）。
+        return;
+    }
+
+    // 上一次被限流了的话，这一分钟里**一个请求都不发**。这一句要放在最前头：晚一分钟
+    // 看到新外观没什么（那一栏本来就还挂着上次那份），而在限流窗口里接着问才是真的取不到。
+    if (withinThrottleBackoff(m_throttledUntil, QDateTime::currentDateTimeUtc())) {
+        qWarning().noquote() << "官方还在限流（429），这次不问了，沿用上次的外观";
         return;
     }
 
@@ -335,6 +360,16 @@ void PlayerSkinStore::refreshForUuid(const QString &uuid) {
             // 204：查不到这个人，或者被限流了。**不发信号**、也不清掉手上那份缓存 ——
             // 多半是限流，此时"继续用上次那套外观"比"退回默认外观"更接近用户想看到的。
             qWarning().noquote() << "官方查不到这个玩家的档案（204），沿用上次的外观";
+            return;
+        }
+        if (outcome == ProfileFetchOutcome::Throttled) {
+            // 429：官方在限流。**不发 failed()** —— 那会在日志里留一句"取档案失败
+            // （HTTP 429）"，而外观那一栏其实照旧（静默降级的理由同上面 204 那条）。
+            // 和 204 唯一的不同在这里：记下解禁时刻，这段时间内不再问（见
+            // kThrottleBackoffMs）—— "又 429"就是这么来的，一次被挡、后面每次刷新都撞。
+            m_throttledUntil = QDateTime::currentDateTimeUtc().addMSecs(kThrottleBackoffMs);
+            qWarning().noquote()
+                << "官方限流了（429），一分钟后再说，这段时间沿用上次的外观";
             return;
         }
         if (outcome == ProfileFetchOutcome::Failed) {
