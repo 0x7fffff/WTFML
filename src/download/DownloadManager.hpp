@@ -171,6 +171,19 @@ public:
     // 否则 m_batchOpen 永远为真，完成信号永不发射，UI 会一直停在"下载中"。
     void beginBatch();
     void endBatch();
+    /// 放弃当前批次：**一个完成信号都不发**，只把"批次开着"这个状态清掉。
+    ///
+    /// 只有一个调用者：VersionManager 的异常兜底（见那边 deferNextStep() 的 NOTE）。
+    /// 正常的收尾一律走 endBatch()。异常正好打在 beginBatch() 和 endBatch() 之间时，
+    /// m_batchOpen 会一直是 true，之后每一次下载都会被 isBusy() 顶回来（界面表现是
+    /// "已有下载任务正在进行"，只能重启）—— 这个方法就是给那条路兜底的。
+    ///
+    /// 为什么不能拿 endBatch() 代替：endBatch() 会跑 checkAllDownloadsFinished()，那一句
+    /// 有可能**同步**发出 allDownloadsFinished，于是又回到"在槽里接着干下一件事"这件正在
+    /// 收尾的事上，而且那一次并不是真的收尾、报出去的话也是错的。所以这里把 m_batchEmitted
+    /// 直接置真：之后所有"这一批结束了"的判断都会被挡掉。已经在飞的那几个回复照样跑完
+    /// （文件照落盘），只是不再有任何完成信号。
+    void abandonBatch();
     bool isBusy() const;
     DownloadStats stats() const;
 

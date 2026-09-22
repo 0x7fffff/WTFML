@@ -2509,6 +2509,11 @@ void MainWindow::onVersionDetailsFetched(const QString &versionId, const QJsonOb
     }
 
     appendLog(tr("版本信息获取成功，开始下载游戏文件..."));
-    QString versionsPath = AppPaths::versionDir(versionId);
-    m_versionManager->downloadVersion(versionId, versionsPath);
+    const QString versionsPath = AppPaths::versionDir(versionId);
+    // 这条槽是 VersionManager 的 versionDetailsFetched 唤起来的，而那条信号是在
+    // DownloadManager 收完版本 json 的那个槽里同步发出来的 —— 直接在这里起下载批次，
+    // 批次就整个跑在那条栈上。排到下一轮（见 VersionManager::deferNextStep 的 NOTE）。
+    m_versionManager->deferNextStep([this, versionId, versionsPath] {
+        m_versionManager->downloadVersion(versionId, versionsPath);
+    });
 }
