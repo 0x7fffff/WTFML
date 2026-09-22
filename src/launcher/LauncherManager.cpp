@@ -398,8 +398,12 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
             // LibraryRules::artifactFor() —— 下载时挑库用的是同一个函数。
             // NOTE: 加载器的库**必须**进 classpath，否则 Knot/Mixin 这些类找不到，
             // 症状是 "Could not find or load main class net.fabricmc.loader..."。
+            //
+            // 判据用 hasPath() 而不是 valid()：valid() 要求有下载地址（那是"下得动"的意思，
+            // 下载列表用的是它），而 OptiFine 那两个库**没有地址**、jar 就在盘上 —— 拿
+            // valid() 当判据会把它们从 classpath 上漏掉，症状是启动时 launchwrapper 找不到。
             const LibraryRules::Artifact artifact = LibraryRules::artifactFor(libObj);
-            if (artifact.valid()) {
+            if (artifact.hasPath()) {
                 addClasspathPath(
                     QDir::toNativeSeparators(QStringLiteral("libraries/%1").arg(artifact.path)),
                     classpath);

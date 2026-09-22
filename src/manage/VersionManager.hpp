@@ -14,6 +14,7 @@
 class QNetworkAccessManager;
 class QNetworkReply;
 class QProcess;
+class QTemporaryDir;
 class QTimer;
 
 #include "../download/DownloadManager.hpp"
@@ -51,15 +52,20 @@ public:
     /// 下载页那四个单选钮对应的加载器。
     enum class LoaderKind { Fabric, Forge, NeoForge, OptiFine };
 
-    /// 这个加载器现在接通了没有。**Fabric / Forge / NeoForge 接通了，OptiFine 还没有。**
+    /// 这个加载器现在接通了没有。**四个都接通了**（OptiFine 是 2026-09-22 接上的）。
     //
-    // 为什么要有这个函数、而不是让界面自己判断：界面要据此决定"点了下载之后弹哪一种话"
-    // （能做 / 还没做）。两边各写一份 switch 的话，接通一个加载器时漏改一处，症状是
-    // "明明能装却弹一句『还没做』"—— 或者更糟，反过来。
+    // 为什么四个都能装之后还留着这个函数：它回答的是"勾了这个钮会发生什么"，而界面要据此
+    // 决定"点了下载之后弹哪一种话"（能做 / 还没做）—— 两边各写一份 switch 的话，接通一个
+    // 加载器时漏改一处，症状是"明明能装却弹一句『还没做』"，或者更糟，反过来。
     //
-    // NOTE: Fabric 和另外两个**不是同一条路**：Fabric 是我们自己拉 json + 下库，
-    //       Forge/NeoForge 是**另起一个 Java 进程跑它们自己的安装器**。这个函数只说
-    //       "能不能装"，不说"怎么装"，所以两者在它眼里一样。
+    // NOTE: 这里写成**逐个 case 列出来**的 switch，不是 `return true`：将来往枚举里加第五个
+    //       加载器时，这个写法会让编译器替你盯一眼（少一个 case 就有 warning），而新的那个
+    //       默认落到 false —— 界面那句「还没做」和 installLoaderVersion() 里那道守卫就正好
+    //       接住它，不会出现"勾了一个没接线的加载器，装出来一个纯原版"。
+    //
+    // NOTE: 这四条路彼此都不一样（Fabric 是我们自己拉 json + 下库；Forge/NeoForge 是
+    //       `--installClient`；OptiFine 是无界面入口 + 换 APPDATA + 临时目录）。这个函数
+    //       只说"能不能装"，不说"怎么装"，所以它们在它眼里一样。
     static bool loaderInstallSupported(LoaderKind kind);
 
     /// 写进 wtfml.meta 的 `loaderName`（显示名里那一段）。比如 "Fabric"。
@@ -106,6 +112,22 @@ public:
      *   6. 写 wtfml.meta，发完成信号。
      * 它的前置条件只有一条：游戏目录里得有 `launcher_profiles.json`（安装器拿它认目录），
      * 没有就补一份最小的（见 ensureLauncherProfiles）。
+     *
+     * 【OptiFine】同样是"跑别人的安装器"，但那个安装器有三处不一样（实测记录见
+     * LoaderMeta.hpp 里 OptiFine 那一节），所以这一段和上面那条**连顺序都不同**：
+     *   1. 拉版本表（下载源是镜像就问 BMCLAPI 的 JSON 接口，否则读官方那 203 KB 的下载页）
+     *      → 挑一个**正式版**（两边的挑法不一样，见那两个纯函数）；
+     *   2. 官方源还多一步：真文件在广告页后面，先把它那条带 token 的地址抠出来；
+     *   3. 安装器 jar 下到 <数据目录>/cache/installers/（和 Forge 共用一个缓存目录）；
+     *   4. **先把原版补齐** —— 安装器要拿原版的客户端 jar 当输入，这一点和 Forge
+     *      （装完再补）正好相反；
+     *   5. 在系统临时目录里建一个**假的 .minecraft**（原版的 json / jar 各拷一份进去，
+     *      再补一份最小的 launcher_profiles.json），把子进程的 APPDATA 指过去，跑
+     *      `java -Djava.awt.headless=true -cp <安装器> optifine.Installer`；
+     *   6. 装完**去那个临时目录里认**它装出来的版本目录（名字是它自己拼的，我们算不出来），
+     *      核对那份 json，再把版本目录和 `libraries/optifine/` 搬回真游戏目录 ——
+     *      真游戏目录里只覆盖、不删任何东西；
+     *   7. 最后照旧走一遍 `downloadVersion(原版)` 把原版补齐。
      *
      * NOTE: 两条路都在第 3 步（原版那一批）**复用** `downloadVersion()` 那条已经验过的
      *       老路，不是另写一份；所以它绑定的那几个信号（versionDetailsFetched /
@@ -315,10 +337,12 @@ private:
             Idle,
             FetchingList,           ///< Fabric：正在拉加载器版本列表
             FetchingProfile,        ///< Fabric：正在拉它的 profile json
-            FetchingInstallerList,  ///< Forge/NeoForge：正在拉版本表
-            WaitingInstallerJar,    ///< Forge/NeoForge：安装器 jar 正在下
-            RunningInstaller,       ///< Forge/NeoForge：安装器那个 Java 进程正在跑
+            FetchingInstallerList,  ///< Forge/NeoForge/OptiFine：正在拉版本表
+            FetchingInstallerToken, ///< OptiFine（官方源）：正在从广告页里抠下载地址
+            WaitingInstallerJar,    ///< 三个都要跑安装器的：安装器 jar 正在下
+            RunningInstaller,       ///< 三个都要跑安装器的：那个 Java 进程正在跑
             WaitingParentJson,      ///< 正在取原版的 version.json（走 fetchVersionDetails）
+            WaitingParentBefore,    ///< OptiFine：原版那一批正在下（它的安装器要拿原版当输入）
             WaitingParentFiles,     ///< 原版那一批正在下（客户端 jar / 库 / 资源）
             WaitingLoaderFiles,     ///< Fabric：加载器自己那几个库正在下
         };
@@ -334,6 +358,12 @@ private:
         /// 安装器 jar 要下的地址，以及它落在盘上的哪个文件。两条路都在拉完版本表时填好。
         QString installerUrl;
         QString installerPath;
+        /// 它在 cache/installers/ 里叫什么名字。
+        ///
+        /// 为什么不从 installerUrl 的最后一段取（Forge/NeoForge 就是那么干的）：OptiFine
+        /// 走镜像源时那个地址的最后两段是 `type`/`patch`（`/optifine/1.18.2/HD_U/H9`），
+        /// 不是文件名 —— 照着取会落成一个叫 `H9` 的文件。
+        QString installerFileName;
 
         bool active() const { return phase != Phase::Idle; }
         // 结算用的 id：还没算出 loaderId 时退化成原版号 —— 失败信号总得带一个 id。
@@ -354,7 +384,11 @@ private:
     // 把加载器 json 落盘并下它自己那几个库（走 downloadVersion 那条老路）。
     void startLoaderFiles();
 
-    // ---- Forge / NeoForge：跑它们自己的安装器 ----
+    // ---- Forge / NeoForge / OptiFine：跑它们自己的安装器 ----
+    //
+    // NOTE: 这一段里的**前两个**只有 Forge/NeoForge 走（拉版本表 + 起子进程），后面那几个
+    //       是三个共用的：下安装器 jar、读它的输出、心跳/超时、收尾核对。OptiFine 的版本表
+    //       和"装到哪去"完全是另一回事，单独在下面一段里。
 
     // 拉版本表（Forge 的 promotions_slim.json / NeoForge 的 maven-metadata.xml）。
     // 两份接口一个 JSON 一个 XML，但都是"拉一段文本、挑一个版本号"，所以共用一条路，
@@ -377,10 +411,39 @@ private:
     // （只在 versions/<原版>/ 留下一份客户端 jar）。
     void startParentCompletion();
 
-    // launcher_profiles.json 是那两个安装器的硬前置（缺了它安装器直接拒绝干活）。
+    // ---- OptiFine：无界面入口 + 换 APPDATA ----
+
+    // 拉版本表：镜像源是一条 JSON 接口，官方只有那 203 KB 的下载页可读。两边回复的形状
+    // （JSON 数组 / HTML）和挑法都不一样，所以按下载源分派，不共用回复处理。
+    void fetchOptifineVersionList();
+    void onOptifineVersionListReply(QNetworkReply *reply);
+    // 官方那条路多一步：真文件在广告页后面，得先把它那条带 token 的地址抠出来。
+    void fetchOptifineDownloadToken();
+    void onOptifineDownloadTokenReply(QNetworkReply *reply);
+    // OptiFine 的安装器**要拿原版的客户端 jar 当输入**，所以原版必须先在盘上才能起它
+    // （这一点和 Forge 装完再补正好相反）。判据和 startParentOrLoaderFiles() 一样：
+    // 版本 json + 客户端 jar 两份文件都在。
+    void ensureParentForOptifine();
+    // 在系统临时目录里建一个假的 .minecraft：原版的 json / jar 各拷一份进去，再补一份最小
+    // 的 launcher_profiles.json（安装器认它）。子进程的 APPDATA 会指到它上面。
+    bool prepareOptifineWorkDir(QString *errorOut);
+    // 把那个假 .minecraft 里的产物搬回真游戏目录：认版本目录（名字是安装器自己拼的，我们
+    // 算不出来）、核对那份 json、覆盖着拷走版本目录和 libraries/optifine/，然后收尾。
+    void adoptOptifineProducts();
+    QString optifineWorkRoot() const;
+    QString optifineWorkMinecraftDir() const;
+    // 删掉那个临时目录（递归删 —— 它整个是我们自己刚建的，见成员那里的 NOTE）。
+    // 成功和失败两条终态都调用：finishLoaderInstall() / failLoaderInstall()。
+    void cleanupOptifineWorkDir();
+
+    // launcher_profiles.json 是那三个安装器的硬前置（缺了它安装器直接拒绝干活 —— Forge 是
+    // 第一件事就查，OptiFine 是装完最后一步才查）。
     // 没有就补一份最小的；已经有就一个字都不动 —— 里面可能是用户真正的启动器档案。
+    // @param minecraftDir 补到哪个 .minecraft 里。**是个参数、不是 AppPaths::minecraftDir()**：
+    //        OptiFine 那一份是补给我们自己的临时工作目录的（它的安装器只认 APPDATA）。
     // @param createdOut 非空时回填"这次是不是我们新建的"（只有新建才值得跟用户说一声）。
-    bool ensureLauncherProfiles(bool *createdOut, QString *errorOut) const;
+    bool ensureLauncherProfiles(const QString &minecraftDir, bool *createdOut,
+                               QString *errorOut) const;
 
     // 把 realVersion / loaderName / loaderVersion 合并写进 <id>/wtfml.meta。
     void writeLoaderMeta();
@@ -399,14 +462,22 @@ private:
     // 混用会让两条路互相把对方的等待状态顶掉。
     QNetworkAccessManager *loaderNetwork = nullptr;
     LoaderInstall m_loaderInstall;
-    // 跑 Forge/NeoForge 的安装器那个子进程。懒建（装 Forge/NeoForge 之前一直是 nullptr）
-    // —— Fabric 那条路一个进程都不起。
+    // 跑那三个外部安装器（Forge / NeoForge / OptiFine）的子进程。懒建 —— Fabric 那条路
+    // 一个进程都不起，所以装 Fabric 之前它一直是 nullptr。
     //
     // NOTE: 它**不能**同步跑（waitForFinished）。实测 Forge 47.4.10 在空目录上装一次要
     //       100 秒上下，NeoForge 更久；阻塞在槽里就是界面整体冻住那么久，连"未响应"
     //       都没有（Qt 的事件循环根本没在转）。所以走异步信号，另外配一个定时器报心跳 +
     //       兜硬超时。
     QProcess *installerProcess = nullptr;
+    // OptiFine 那次安装的临时工作目录（APPDATA 指过去的那一份）。懒建 —— 只有真去装
+    // OptiFine 时才存在，装完（成功或失败）立刻删掉。
+    //
+    // NOTE: 它**必须**是系统临时目录里的一份真目录。删它是递归删（QTemporaryDir 的
+    //       remove() 就是这么干的），而在这里那是安全的：那底下只有我们自己刚建的东西，
+    //       没有目录联接、没有用户的文件。真游戏目录那边就绝不允许这么删 ——
+    //       "不去动真游戏目录"正是换来的东西（见 LoaderMeta.hpp 里 OptiFine 那一节）。
+    QTemporaryDir *optifineWorkDir = nullptr;
     QTimer *installerTimer = nullptr;
     /// 安装器输出的尾巴（stdout + stderr 混在一起）。只留最后 64 KB：失败时要报"卡在哪
     /// 一行"，但没必要把几万行 "Patching xxx 1/1" 都攥在内存里。

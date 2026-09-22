@@ -7,14 +7,16 @@
  *       VersionManager::installLoaderVersion()（它才是 QObject），这样这几条规则能在
  *       验证工程里离线钉住 —— 联网的那半边没法在沙箱里跑（要真下几个 GB 的资源）。
  *
- * 三类加载器各有一套接口形状（全部实测）：
+ * 四类加载器各有一套接口形状（全部实测）：
  *
  * 【Forge / NeoForge】它们不走"拉一份 json 再下库"那条路，而是**跑它们自己的安装器 jar**
  *   （`java -jar xxx-installer.jar --installClient <游戏目录>`，见下面的注释）。这里只放
  *   "版本从哪来、挑哪一个、安装器 jar 在哪个地址、装出来的目录叫什么"这四件事。
  *
- * 【OptiFine】它的安装器**不认命令行给的目录**（main 把参数整个丢掉，只从 APPDATA 找），
- *   所以还没有接通，这里也没有它的函数。
+ * 【OptiFine】同样是"跑别人的安装器"，但它的安装器**不认命令行给的那个目录**（参数整个
+ *   丢掉，只从 APPDATA 算），而且本身是个 GUI 程序、出错时弹框等人点 —— 所以它那条路是
+ *   "换一个无界面入口 + 给子进程换 APPDATA + 对着一个临时目录装、装完把产物搬出来"
+ *   （实测记录见下面《OptiFine》那一节）。
  *
  * Fabric 的接口形状（2026-09-21 实测）：
  *   GET /v2/versions/loader/<游戏版本>
@@ -36,6 +38,7 @@
 #include <QLatin1Char>
 #include <QRegularExpression>
 #include <QString>
+#include <QStringList>
 
 namespace LoaderMeta {
 
@@ -460,6 +463,263 @@ inline QString launcherProfilesFileName() { return QStringLiteral("launcher_prof
 /// 东西弄丢。结构照抄安装器认的那三个键：原版启动器写出来就是这个形状。
 inline QByteArray minimalLauncherProfiles() {
     return QByteArrayLiteral("{\n  \"profiles\": {},\n  \"settings\": {},\n  \"version\": 3\n}\n");
+}
+
+// ---------------------------------------------------------------------------
+// OptiFine：跑它自己的安装器（无界面入口 + 换 APPDATA）
+// ---------------------------------------------------------------------------
+//
+// 【为什么它和上面 Forge / NeoForge 那段又不一样】（2026-09-22 实测 1.18.2 + HD U H9）
+//
+// 同样是"请下来别人的安装器、另起一个 Java 进程跑它"，但 OptiFine 的安装器有三处要命的
+// 不同：
+//
+//  1. **命令行参数它整个丢掉**：没有 `--installClient` 那种东西可给，游戏目录只从
+//     `%APPDATA%/.minecraft` 算（`Utils.getWorkingDirectory()`）。所以它往哪个目录装
+//     完全由子进程的 APPDATA 决定 —— 我们给它换一个，让它对着一个临时目录干活。
+//  2. **它是 GUI 程序**：jar 的 `Main-Class` 是 `optifine.InstallerFrame`（Swing 窗口，
+//     headless 下当场 HeadlessException）。真正的无界面入口是 **`optifine.Installer`**：
+//     `java -cp <安装器>.jar optifine.Installer`，**不需要任何参数** —— 版本号是它从自己
+//     那份 jar 里读的（把它改名成「随便什么名字.jar」，它照样报 OptiFine_1.18.2_HD_U_H9）。
+//  3. **出错时它弹一个 Swing 对话框等着人点**：不点就永不退出（实测跑满 120 秒被杀）。
+//     所以子进程必须带 `-Djava.awt.headless=true` —— 那些框当场变成异常，进程以退出码 1
+//     结束。**成功那条路一个框都不弹、退出码 0**（实测 headless 下 2 秒装完）。
+//
+// 【实测到的产物】（APPDATA=<临时目录>，那个目录里事先放好原版 1.18.2 的 json + jar）
+//
+//   versions/1.18.2-OptiFine_HD_U_H9/1.18.2-OptiFine_HD_U_H9.json   463 B，见下
+//   versions/1.18.2-OptiFine_HD_U_H9/1.18.2-OptiFine_HD_U_H9.jar    **和原版客户端 jar
+//       逐字节相同**（sha1 一样）。这一条反直觉但很关键：OptiFine **不往这份 jar 里写
+//       补丁**，它只是把原版那份原样放进新目录当"这个版本的客户端 jar"。它自己的代码在
+//       下面那个库里，靠 launchwrapper + `--tweakClass optifine.OptiFineTweaker` 挂进去。
+//   libraries/optifine/OptiFine/1.18.2_HD_U_H9/OptiFine-1.18.2_HD_U_H9.jar   6.2 MB
+//   libraries/optifine/launchwrapper-of/2.3/launchwrapper-of-2.3.jar
+//   外加它往 launcher_profiles.json 里加的一条档案（还顺手把 selectedProfile 改成了它）
+//
+// 那份 json 的 `libraries` 只有两个 `name`，**既没有 `url` 也没有 `downloads`** —— 只能
+// 从本机那份 `libraries/` 里满足，没有"靠下载补齐"这条路。所以搬产物时**必须连带
+// `libraries/optifine/` 一起搬**，只搬版本目录会得到一个启动就 NoClassDefFound 的版本。
+//
+// 【和 Forge 正好相反的两处顺序】
+//
+//  * Forge 是"下安装器 → 跑 → 装完再补原版"。OptiFine 的安装器**要拿原版的客户端 jar
+//    当输入**（上面第二样产物就是它），所以原版必须**先**在盘上。
+//  * Forge 缺 `launcher_profiles.json` 是第一件事就拒绝（一个字节的库都不下）。OptiFine
+//    把它排在**最后一步**：前面整套东西都装完了，它才去更新那个文件，缺了当场弹框报错
+//    —— headless 下就是退出码 1，而**产物其实已经躺在盘上了**。我们的临时目录里自己补
+//    一份最小的，所以走不到那一步。
+//
+// 【版本目录名不是我们算得出来的】
+//
+// Forge/NeoForge 的名字（`1.20.1-forge-47.4.10` / `neoforge-21.1.215`）我们能按约定拼，
+// OptiFine 的不行 —— 它是安装器按 jar 里的版本号自己拼的（`<原版>-OptiFine_<版本>`）。
+// 所以这一条**装完去盘上认**：我们给它那个临时目录是全新的，`versions/` 底下除了自己放
+// 进去的原版之外多出来的那一份就是它装的。见 VersionManager::adoptOptiFineProducts()。
+
+/// OptiFine 的官方下载页：每个游戏版本一节（`<h2>Minecraft <版本></h2>`），整页约 203 KB。
+inline QString optifineDownloadsPageUrl() {
+    return QStringLiteral("https://optifine.net/downloads");
+}
+
+/// 镜像源（BMCLAPI）上某个游戏版本的 OptiFine 列表（JSON 数组，一个游戏版本一页）。
+///
+/// NOTE: 它和官方下载页**不是同一份数据**：这里每条只有文件名和 type/patch，
+///       页面上那套"哪一条是主推的"（`downloadLineMain`）在这里没有对应物。
+inline QString optifineMirrorListUrl(const QString &gameVersion) {
+    return QStringLiteral("https://bmclapi2.bangbang93.com/optifine/") + gameVersion;
+}
+
+/// 镜像源上安装器文件的地址（302 到 `/maven/com/optifine/...`，实测通的）。
+///
+/// NOTE: 最后两段是 `type` / `patch` 两个**字段**，不是文件名 —— 官方页面上那条
+///       `OptiFine_1.18.2_HD_U_H9.jar` 到这里拆成了 `HD_U` 和 `H9`。
+inline QString optifineMirrorFileUrl(const QString &gameVersion, const QString &type,
+                                     const QString &patch) {
+    return optifineMirrorListUrl(gameVersion) + QLatin1Char('/') + type + QLatin1Char('/') + patch;
+}
+
+/// 官方那条路上的广告页：真文件在它后面（页面里那条 `downloadx?...&x=<32 位十六进制>`）。
+inline QString optifineAdPageUrl(const QString &fileName) {
+    return QStringLiteral("https://optifine.net/adloadx?f=") + fileName;
+}
+
+/// 安装器 jar 的文件名能不能直接拿来拼 URL 和拼路径。
+///
+/// 白名单和 isSafeVersionId() 那条是同一个（`[A-Za-z0-9._+-]`），理由也一样：**内容来自
+/// 网络、用途是拼路径**。这里多要求 `.jar` 结尾，因为这个名字会落成
+/// `cache/installers/` 下面的一个文件。
+inline bool isSafeJarFileName(const QString &name) {
+    static const QRegularExpression safe(QStringLiteral("^[A-Za-z0-9._+-]+\\.jar$"));
+    return safe.match(name).hasMatch();
+}
+
+/// 预览版的文件名长这样（`preview_OptiFine_1.18.2_HD_U_H9_pre2.jar`）。
+inline bool isOptifinePreviewFile(const QString &fileName) {
+    return fileName.startsWith(QLatin1String("preview_"));
+}
+
+/// 挑出来的那一个 OptiFine 安装器。
+struct OptiFinePick {
+    QString fileName;  ///< 安装器 jar 的名字（`OptiFine_1.18.2_HD_U_H9.jar`）
+    QString type;      ///< 镜像那条路才有：`HD_U`（预览版是 `HD_U_H9`）
+    QString patch;     ///< 镜像那条路才有：`H9`（预览版是 `pre2`）
+
+    bool ok() const { return !fileName.isEmpty(); }
+};
+
+/// 安装器文件名 → OptiFine 的"版本号"（就是写进 wtfml.meta 的 loaderVersion）。
+///
+/// `OptiFine_1.18.2_HD_U_H9.jar` → `HD_U_H9`；
+/// 预览版 `preview_OptiFine_1.18.2_HD_U_H9_pre2.jar` → `HD_U_H9_pre2`。
+///
+/// NOTE: **刻意不拿镜像那份 `type`/`patch` 拼**。那两个字段的切法和文件名不一样
+///       （预览版那几条的 type 是 `HD_U_H9`、patch 是 `pre2`），而"这个版本叫什么"在
+///       官方/镜像两条路上必须是**同一个值** —— 只有这一处切法才不会两边对不上。
+inline QString optifineEditionFromFile(const QString &gameVersion, const QString &fileName) {
+    QString text = fileName;
+    const QString kPreview = QStringLiteral("preview_");
+    const QString kPrefix = QStringLiteral("OptiFine_");
+    if (text.startsWith(kPreview)) {
+        text.remove(0, kPreview.size());
+    }
+    if (text.startsWith(kPrefix)) {
+        text.remove(0, kPrefix.size());
+    }
+    if (text.endsWith(QLatin1String(".jar"))) {
+        text.chop(4);
+    }
+    const QString versionPrefix = gameVersion + QLatin1Char('_');
+    if (text.startsWith(versionPrefix)) {
+        text.remove(0, versionPrefix.size());
+    }
+    return text;
+}
+
+/// 从官方下载页的原文里挑一个 OptiFine 版本。
+/// @param html `https://optifine.net/downloads` 的原文。
+/// @param gameVersion 原版版本号（页面上那一节 `<h2>Minecraft <版本></h2>`）。
+///
+/// 规则：**只看那一节里标着 `downloadLineMain` 的那一行**，取它的 `adloadx?f=...` 文件名。
+/// 这一行是 OptiFine 自己标出来的"这个游戏版本就用这个"。同一节里另外两类行都要避开：
+///
+///   * `downloadLinePreview` —— 预览版（1.15 之后每节开头都可能有这么一段）
+///   * `downloadLineMore` —— 折叠在「+ More」里的旧版本
+///
+/// 实测 1.18.2 那一节三类同时存在：预览段是空的、main 是 H9、More 里是 H7 / H6。
+/// 挑错哪一类都不至于装不上，但"给用户装个预览版"和"装个旧版本"都不是我们该替他做的决定。
+/// （26.1.2 那种只有预览、还没发正式版的，这一节里就没有 main 行 —— 那时 `ok()` 为 false。）
+///
+/// NOTE: 那一节的边界靠**下一个 `<h2>`** 划。页面上 `<h2>` 只用来分游戏版本，所以这是
+///       稳的；但也正因为如此，找不到小节时要如实返回空，而不是"从整页里随便挑一个"。
+inline OptiFinePick pickOptifineFromDownloadsPage(const QString &html,
+                                                  const QString &gameVersion) {
+    static const QRegularExpression heading(
+        QStringLiteral("<h2>\\s*Minecraft\\s+([^<]+?)\\s*</h2>"),
+        QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression row(QStringLiteral("<tr\\b([^>]*)>(.*?)</tr>"),
+                                        QRegularExpression::DotMatchesEverythingOption);
+    static const QRegularExpression link(QStringLiteral("adloadx\\?f=([^\"'&<>\\s]+)"));
+
+    int sectionStart = -1;
+    int sectionEnd = html.size();
+    QRegularExpressionMatchIterator headings = heading.globalMatch(html);
+    while (headings.hasNext()) {
+        const QRegularExpressionMatch match = headings.next();
+        if (match.captured(1).trimmed() != gameVersion) {
+            continue;
+        }
+        sectionStart = match.capturedEnd();
+        if (headings.hasNext()) {
+            sectionEnd = headings.peekNext().capturedStart();
+        }
+        break;
+    }
+    if (sectionStart < 0) {
+        return OptiFinePick{};
+    }
+
+    const QString section = html.mid(sectionStart, sectionEnd - sectionStart);
+    QRegularExpressionMatchIterator rows = row.globalMatch(section);
+    while (rows.hasNext()) {
+        const QRegularExpressionMatch match = rows.next();
+        if (!match.captured(1).contains(QLatin1String("downloadLineMain"))) {
+            continue;
+        }
+        const QRegularExpressionMatch found = link.match(match.captured(2));
+        if (!found.hasMatch()) {
+            continue;
+        }
+        const QString fileName = found.captured(1);
+        if (!isSafeJarFileName(fileName)) {
+            continue;
+        }
+        return OptiFinePick{fileName, QString(), QString()};
+    }
+    return OptiFinePick{};
+}
+
+/// 从镜像源 `/optifine/<原版版本>` 的回复里挑一个 OptiFine 版本。
+///
+/// 规则：**跳过预览版，取剩下的最后一条**。
+///
+/// 为什么是"最后一条"而不是比大小：OptiFine 的版本号是 `HD_U_H9` 这种"字母代 + 序号"，
+/// 而且换个游戏版本就换成别的字母（I1 / J1 / K1…），自己写个比较器只会更容易挑错。
+/// 实测那份数组是**按发布顺序**排的（1.18.2 那三条是 H6 → H7 → H9，连它们 `_id` 前四个
+/// 字节里的时间戳都是递增的：2022-03-23 → 04-10 → 06-27），所以"最后一条正式版"就是最新
+/// 那条。NOTE: 官方页面上那个"官方主推"的概念（`downloadLineMain`）镜像这边没有，
+/// 所以这条路的挑法**只能**是"最新"，两条路挑出不同版本是可能的（官方 lag 一次就会）。
+///
+/// @param list 那个接口返回的数组（原样）。
+inline OptiFinePick pickOptifineFromMirror(const QJsonArray &list) {
+    OptiFinePick pick;
+    for (const QJsonValue &value : list) {
+        const QJsonObject entry = value.toObject();
+        const QString fileName = entry.value(QStringLiteral("filename")).toString();
+        const QString type = entry.value(QStringLiteral("type")).toString();
+        const QString patch = entry.value(QStringLiteral("patch")).toString();
+        // 少一样就用不了：文件名是给用户看的和落盘用的，type/patch 是拼下载地址用的。
+        if (!isSafeJarFileName(fileName) || type.isEmpty() || patch.isEmpty()) {
+            continue;
+        }
+        if (isOptifinePreviewFile(fileName)) {
+            continue;
+        }
+        pick = OptiFinePick{fileName, type, patch};
+    }
+    return pick;
+}
+
+/// 从广告页的原文里抠出真正的下载地址（`https://optifine.net/downloadx?f=…&x=…`）。
+/// @param html `optifineAdPageUrl()` 那个地址的回复原文。
+/// @param fileName 我们请求的那个文件名（用来在页面里有多条链接时挑对）。
+/// @return 可以直接 GET 的绝对地址；抠不出来时空串。
+///
+/// 页面上那条链接是**相对**的，所以这里补上 host。挑法：优先挑 `f=` 和我们请求的一致的那
+/// 条；页面里只有一条时就用那一条 —— 实测那个 token **不跟文件名绑定**（拿 H7 的 token 去
+/// 请求 H9，下下来的照样是 H9 的 jar，6.7 MB、`application/java-archive`）。有好几条又
+/// 没有一条对得上时**不猜**：宁可报"拿不到下载地址"，也不给用户下一个不知道是什么的文件。
+inline QString optifineJarUrlFromAdPage(const QString &html, const QString &fileName) {
+    static const QRegularExpression link(
+        QStringLiteral("(downloadx\\?f=([^\"'&<>\\s]+)&x=[0-9a-fA-F]{8,})"));
+    QStringList links;
+    QStringList names;
+    QRegularExpressionMatchIterator it = link.globalMatch(html);
+    while (it.hasNext()) {
+        const QRegularExpressionMatch match = it.next();
+        links.append(match.captured(1));
+        names.append(match.captured(2));
+    }
+    if (links.isEmpty()) {
+        return QString();
+    }
+    int index = names.indexOf(fileName);
+    if (index < 0) {
+        if (links.size() != 1) {
+            return QString();
+        }
+        index = 0;
+    }
+    return QStringLiteral("https://optifine.net/") + links.at(index);
 }
 
 }  // namespace LoaderMeta

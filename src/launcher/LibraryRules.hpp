@@ -212,8 +212,16 @@ struct Artifact {
     QString url;    ///< 下载地址
     QString sha1;   ///< 期望的 SHA1，提供方没给时为空
     qint64 size = 0;
+    /// 只有路径、**一个下载地址都没有**的库。OptiFine 的安装器写出来的两个库就是这样：它
+    /// 把 jar 直接放进 libraries/，json 里只留一个 maven 坐标（见 LoaderMeta.hpp 里 OptiFine
+    /// 那一节）。这种库不该去下（没有地址），但**必须进 classpath**。
+    bool localOnly = false;
 
+    /// 下载列表用：有地址才下得动。
     bool valid() const { return !path.isEmpty() && !url.isEmpty(); }
+
+    /// classpath 用：只要解析出了路径就得算它一份 —— localOnly 的那几个正是靠这一条才上得去。
+    bool hasPath() const { return !path.isEmpty(); }
 };
 
 /**
@@ -221,10 +229,11 @@ struct Artifact {
  * @param libObj version.json 里的一个 library 对象。
  * @return 路径/地址至少有一个解析不出来时返回一个 invalid 结构。
  *
- * 两种写法：
+ * 三种写法：
  *   1. `downloads.artifact` 里给全了 path/url/sha1/size（Mojang 的原版 json 都是这样）；
  *   2. **只有 `name`（maven 坐标）和 `url`（仓库地址）**。带模组加载器的版本 json 一律
- *      长这样 —— Fabric 的 profile json 里 8 个库全都没有 `downloads` 那一块。
+ *      长这样 —— Fabric 的 profile json 里 8 个库全都没有 `downloads` 那一块；
+ *   3. **只有 `name`，连 `url` 都没有**（见下面那条）：jar 是别人已经放好的，不下只挂。
  *
  * 第 2 种照"只认 downloads.artifact"的判据会被**静默跳过**，症状是加载器装好了、
  * 启动时 NoClassDefFoundError 找不到 net.fabricmc.loader，而下载界面一路绿灯。
@@ -260,6 +269,18 @@ inline Artifact artifactFor(const QJsonObject &libObj) {
                          : mavenBase + QLatin1Char('/') + mavenPath;
         // 哈希和大小取库里**顶层**的 sha1/size：Fabric 给了前 6 个库，两个都给了。
         // 后两个（intermediary / fabric-loader）本来就没有，空 sha1 就是不校验。
+        result.sha1 = libObj.value(QStringLiteral("sha1")).toString();
+        result.size = libObj.value(QStringLiteral("size")).toVariant().toLongLong();
+    } else if (!mavenPath.isEmpty()) {
+        // 第 3 种写法：**只有 name，连 url 都没有**。实测 OptiFine 的安装器写出来的就是
+        // 这样（两个库：它自己 + launchwrapper-of），因为那两个 jar 是它**自己**放进
+        // libraries/ 的，根本没有仓库地址可写。
+        //
+        // 这种库**必须进 classpath**：少了它，启动时主类 net.minecraft.launchwrapper.Launch
+        // 就找不到（NoClassDefFoundError），而"装"的那一步一切正常 —— 这种错最难查。
+        // 路径照 maven 的规矩拼，拼不出来（名字脏）的仍然是 invalid，不猜。
+        result.path = mavenPath;
+        result.localOnly = true;
         result.sha1 = libObj.value(QStringLiteral("sha1")).toString();
         result.size = libObj.value(QStringLiteral("size")).toVariant().toLongLong();
     } else if (!mavenBase.isEmpty()) {
