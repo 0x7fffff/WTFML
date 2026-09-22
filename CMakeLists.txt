@@ -67,6 +67,8 @@ set(SOURCE_FILES
     ui/InstanceSettingsDialog.cpp
     ui/JavaMismatchDialog.cpp
     ui/SkinModel.cpp
+    ui/VersionIcons.cpp
+    ui/VersionTreeDelegate.cpp
     ui/SkinViewer.cpp
     ${HEADER_FILES}
 )

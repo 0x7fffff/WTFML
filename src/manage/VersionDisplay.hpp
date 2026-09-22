@@ -106,3 +106,20 @@ VersionNameOptions normalizeVersionNameOptions(VersionNameOptions options);
  *       的意义就是让用户手写，而一个含 '\n' 的名字会把"启动游戏"按钮的两行文字撑成三行。
  */
 QString formatVersionName(const VersionDisplayParts &parts, const VersionNameOptions &globalDefault);
+
+/**
+ * @brief 清单里那个 `releaseTime` 变成界面上"精确到日"的那行小字。
+ * @param releaseTime 清单里的原始值，例如 `2026-09-15T11:23:02+00:00`。
+ * @return `2026-09-15`；认不出来就返回**空串**。
+ *
+ * 两个刻意的选择：
+ *   - **按清单里那个日期原样取，不换算成本机时区**。清单给的是 UTC 时刻（`+00:00`），
+ *     换算到 UTC+8 会把当天 16:00 之后发布的版本显示成第二天 —— 而所有人口口相传的
+ *     是清单上那个日期（"26.3 是 9 月 15 号发的"）。
+ *   - 认不出来就回空串，让那行小字**整行不画**。宁可少一行，也不要把一串 ISO
+ *     原样糊到界面上（那行是给"这是什么时候发的"用的，不是给机器看的）。
+ *
+ * NOTE: 调用方是版本树（`MainWindow::refreshAvailableVersions()` 往条目上写、
+ *       `VersionTreeDelegate` 画出来）。纯函数，验证工程可以直接喂真清单那 915 条。
+ */
+QString releaseDateText(const QString &releaseTime);
