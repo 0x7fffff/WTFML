@@ -143,14 +143,10 @@ qint64 DownloadManager::demoteDeadline(qint64 nowMs, qint64 currentUntilMs) {
     return qMax(currentUntilMs, nowMs + kMirrorDemoteMs);
 }
 
-namespace {
-// 同时最多发出去的资源对象数。取 6 = Qt 每个主机的连接上限，是为了让"排队"这件事
-// 只发生在**我们**手里：发出去的请求都立刻拿得到连接，30 秒的传输超时才有意义。
-// 调大只会把请求重新塞进 Qt 内部那个会超时的队列，调小则白白浪费带宽。
-// 实测（本机网络，1.18.2 的 3071 个对象）：不限流时 2545 个报 Operation timed out；
-// 限流后每个对象约 2.5 秒，全程约 20 分钟且不再超时。
-constexpr int kMaxConcurrentAssetDownloads = 6;
-}  // namespace
+bool DownloadManager::mayIssueAnotherDownload(int activeCount, int queuedCount) {
+    // 排空的队列不用问；到顶了不管还排着多少条都不发 —— 后一半是这条函数存在的全部理由。
+    return queuedCount > 0 && activeCount < kMaxConcurrentDownloads;
+}
 
 DownloadManager::DownloadManager(QObject *parent)
     : QObject(parent), networkManager(new QNetworkAccessManager(this)), pendingDownloads(0) {
@@ -181,7 +177,7 @@ DownloadManager::~DownloadManager() {
     }
     activeDownloads.clear();
     // 队列里的作业一个请求都没发出去，abort 那套对它们无效，只能直接丢掉。
-    m_pendingAssetJobs.clear();
+    m_pendingJobs.clear();
     m_officialFallbacks.clear();
     m_stallMeters.clear();
 }
@@ -266,13 +262,22 @@ void DownloadManager::endBatch() {
 
 void DownloadManager::abandonBatch() {
     m_batchOpen = false;
+    // 还排着队的作业**不发了**：这一批已经放弃了，让它们接着跑等于"用户点了取消，
+    // 几百 MB 还在后台往盘上写"。已经在飞的那几条照旧跑完（那几条的 NOTE 见 hpp）。
+    // NOTE: 队列曾经只装资源对象，而资源对象只在批次里排，所以漏掉这一句不要紧；
+    //       现在库、整合包文件也走这条队列，"放弃"就必须把队列一起清掉。
+    m_pendingJobs.clear();
     // 置真 = "这一批的完成信号已经发过了"：checkAllDownloadsFinished() 之后一个字都不会发
     // （那几个交完货才回来的回复会走到那里，然后立刻返回）。
     m_batchEmitted = true;
     m_currentFile.clear();
 }
 
-bool DownloadManager::isBusy() const { return m_batchOpen || pendingDownloads > 0; }
+bool DownloadManager::isBusy() const {
+    // 队列也得算："还排着几百个没发出去"当然还是忙 —— 漏掉它的表现是界面解禁、
+    // 用户以为下载完了，然后再点一次又叠一批上去。
+    return m_batchOpen || pendingDownloads > 0 || !m_pendingJobs.isEmpty();
+}
 
 DownloadStats DownloadManager::stats() const {
     DownloadStats s;
@@ -307,14 +312,14 @@ bool DownloadManager::fileAlreadyValid(const QString &path, const QString &expec
 void DownloadManager::downloadFile(const QString &url, const QString &destinationPath,
                                    const QString &expectedSha1, qint64 expectedSize,
                                    VerifyMode mode, const QString &officialUrl) {
-    // 一单一发：库、jar、索引这些批次都只有几十个作业，没有排队的必要。
-    scheduleFile(url, destinationPath, expectedSha1, expectedSize, mode, false, officialUrl);
+    // 所有下载都走这条排队路（理由见 mayIssueAnotherDownload）：作业少的时候队列当场就
+    // 把它发出去，和"直接发"一模一样；作业一多就只有 6 条在飞。
+    scheduleFile(url, destinationPath, expectedSha1, expectedSize, mode, officialUrl);
 }
 
 void DownloadManager::scheduleFile(const QString &url, const QString &destinationPath,
                                    const QString &expectedSha1, qint64 expectedSize,
-                                   VerifyMode mode, bool throttled,
-                                   const QString &officialUrl) {
+                                   VerifyMode mode, const QString &officialUrl) {
     // 每个作业都重置一次"已发射"，不管是跳过还是真下。不带批次的用法（一次 fetch、
     // 一次 assets）没有 beginBatch 来重置它，只能靠这里。
     m_batchEmitted = false;
@@ -344,20 +349,18 @@ void DownloadManager::scheduleFile(const QString &url, const QString &destinatio
         return;
     }
 
-    if (throttled) {
-        m_pendingAssetJobs.enqueue(AssetJob{url, destinationPath, expectedSha1, officialUrl});
-        pumpAssetQueue();
-    } else {
-        startDownload(QUrl(url), destinationPath, expectedSha1, officialUrl);
-    }
+    // 排进队列之后立刻试着发一次：队列是空的、连接也有富余的时候，这一句就把它发出去了
+    // （所以"只下一两个文件"的那些调用点感觉不到队列存在）。
+    m_pendingJobs.enqueue(PendingJob{url, destinationPath, expectedSha1, officialUrl});
+    pumpDownloadQueue();
 }
 
-void DownloadManager::pumpAssetQueue() {
+void DownloadManager::pumpDownloadQueue() {
     // 判据用 activeDownloads.size() 而不是另开一个计数器：它是"当下真在飞的作业"
-    // 的唯一事实，别的下载（客户端 jar 之类）占着连接时这里自然少发几个。
-    while (!m_pendingAssetJobs.isEmpty()
-           && activeDownloads.size() < kMaxConcurrentAssetDownloads) {
-        const AssetJob job = m_pendingAssetJobs.dequeue();
+    // 的唯一事实 —— 别的下载（资源索引、客户端 jar）占着连接时这里自然少发几个。
+    // 到没到顶由 mayIssueAnotherDownload() 一个纯函数说了算。
+    while (mayIssueAnotherDownload(activeDownloads.size(), m_pendingJobs.size())) {
+        const PendingJob job = m_pendingJobs.dequeue();
         startDownload(QUrl(job.url), job.destinationPath, job.expectedSha1, job.officialUrl);
     }
 }
@@ -366,7 +369,7 @@ void DownloadManager::startDownload(const QUrl &url, const QString &destinationP
                                     const QString &expectedSha1, const QString &officialUrl) {
     // 镜像正被降级、而这条作业知道官方那条地址：**直接改道**，别等它慢 10 秒再退。
     // 这条判断必须在这里、不能只在"挑地址"的地方：资源对象是几千个一次性排进队列的，
-    // 它们身上的镜像地址在排队那一刻就拼好了（见 AssetJob），等它们一个个撞上慢判据
+    // 它们身上的镜像地址在排队那一刻就拼好了（见 PendingJob），等它们一个个撞上慢判据
     // 再退等于把 10 秒乘以几千。
     QUrl target = url;
     QString fallback = officialUrl;
@@ -389,9 +392,11 @@ void DownloadManager::startDownload(const QUrl &url, const QString &destinationP
     //       同一个失败重复一遍，还多花一个超时。
     if (shouldRecordOfficialFallback(target.toString(), fallback)) {
         m_officialFallbacks[reply] = fallback;
-        // 在看之下：这条有退路，慢了就 abort 它换官方那条，不用一路等下去。
-        m_stallMeters[reply] = StallMeter{};
     }
+    // **每一条**发出去的回复都进这张表（不只是有备用地址那些）：看门狗靠 lastSignOfLifeMs
+    // 判"发出去之后一点动静都没有"，那种回复不管有没有退路都不该一直攥着连接
+    // （见 kNoProgressGiveUpMs）。有备用地址的那些另外还会走"太慢就换一条路"那条判据。
+    m_stallMeters[reply].lastSignOfLifeMs = m_clock.elapsed();
     pendingDownloads++;
     connect(reply, &QNetworkReply::finished, this, &DownloadManager::onDownloadReplyFinished);
     connect(reply, &QNetworkReply::downloadProgress, this,
@@ -414,10 +419,10 @@ void DownloadManager::checkAllDownloadsFinished() {
     // m_batchOpen：批次还没封口，等 endBatch() 再判定。
     // m_batchEmitted：这一批已经报过了，别再报。
     // pendingDownloads > 0：还有作业在飞。
-    // m_pendingAssetJobs：还排着队的资源对象也是"没下完"，漏掉这一条会在还差几千个
-    // 文件的时候发出 allDownloadsFinished。
+    // m_pendingJobs：还排着队的作业也是"没下完"，漏掉这一条会在还差几百个文件的
+    // 时候发出 allDownloadsFinished。
     if (m_shuttingDown || m_batchOpen || m_batchEmitted || pendingDownloads > 0
-        || !m_pendingAssetJobs.isEmpty()) {
+        || !m_pendingJobs.isEmpty()) {
         return;
     }
     m_batchEmitted = true;
@@ -492,6 +497,9 @@ void DownloadManager::downloadAssets(const AssetIndex &assetIndex) {
     request.setTransferTimeout(30000);
     QNetworkReply *indexReply = networkManager->get(request);
     activeDownloads[indexReply] = indexPath;
+    // 索引这条也进"在飞"表：它要是发出去之后一直没动静，同样得有人把它判失败 ——
+    // 索引拿不到 = 清单里那几千个资源对象一个都不知道要下谁，整批会静静地什么都不干。
+    m_stallMeters[indexReply].lastSignOfLifeMs = m_clock.elapsed();
     if (mirrorPreferred() && !assetIndex.url.isEmpty()) {
         // 只在镜像源下登记（官方源下 indexUrl 已经是它，没有"备用"这回事）。
         m_officialFallbacks[indexReply] = assetIndex.url;
@@ -568,6 +576,9 @@ void DownloadManager::onAssetIndexDownloaded() {
 
     activeDownloads.remove(reply);
     expectedSha1s.remove(reply);
+    // 和 onDownloadReplyFinished() 一样：失败这条路上也要把在飞表摘干净（理由见那边）。
+    m_stallMeters.remove(reply);
+    m_officialFallbacks.remove(reply);
     reply->deleteLater();
     // NOTE: 计数只对登记过的 reply 生效，上面两道 early return 挡住了没登记的。
     --pendingDownloads;
@@ -601,8 +612,12 @@ bool DownloadManager::retryWithOfficialUrl(QNetworkReply *reply, const QString &
     const QString expectedSha1 = expectedSha1s.take(reply);
     activeDownloads.remove(reply);
     activeDownloads[retry] = destinationPath;
-    // 看门狗的记账**不搬**：重发出去的这条走官方，没有退路，abort 它只会把下载弄失败。
+    // 看门狗的记账**不搬**：重发出去的这条走官方，没有退路，"太慢就 abort 换一条路"
+    // 对它不成立。
     m_stallMeters.remove(reply);
+    // 但"卡死"那条兜底照样管它：发出去之后一直没动静的回复，不管走哪条路都得有人判它失败，
+    // 不然整批永远收不了尾。
+    m_stallMeters[retry].lastSignOfLifeMs = m_clock.elapsed();
     if (!expectedSha1.isEmpty()) {
         expectedSha1s[retry] = expectedSha1;
     }
@@ -661,8 +676,7 @@ void DownloadManager::parseAndDownloadAssets(const QString &indexPath) {
         QDir().mkpath(QFileInfo(assetPath).absolutePath());
         // 文件名就是 SHA1，所以只按存在性判断：assets 目录已经 3 GB 出头，
         // 每次点下载都把 5000 多个对象重新哈希一遍会让界面卡死好几秒。
-        scheduleFile(assetUrl, assetPath, hash, -1, VerifyMode::ExistsOnly,
-                     /*throttled=*/true, officialAssetUrl);
+        scheduleFile(assetUrl, assetPath, hash, -1, VerifyMode::ExistsOnly, officialAssetUrl);
     }
 }
 
@@ -890,6 +904,12 @@ void DownloadManager::onDownloadReplyFinished() {
 
     activeDownloads.remove(reply);
     expectedSha1s.remove(reply);
+    // 这两张也必须在**每一条**路上摘干净。键是回复指针，Qt 释放之后下一批下载可能落在
+    // 同一个地址上，残留的 lastSignOfLifeMs/bytesSeen 会被算成"那条新回复"的账 ——
+    // 表现是一条刚发出去的下载立刻被判成卡死。成功那条支路里已经摘过一次，这里是失败
+    // 与"退回官方"那两条支路。
+    m_stallMeters.remove(reply);
+    m_officialFallbacks.remove(reply);
     reply->deleteLater();
     // NOTE: 计数只对登记过的 reply 生效，上面两道 early return 挡住了没登记的。
     --pendingDownloads;
@@ -900,54 +920,106 @@ void DownloadManager::onDownloadReplyFinished() {
     m_doneJobs++;
 
     emitBatchProgress(destPath);
-    // 腾出一条连接就补一个排队的资源对象，然后才判定整批是否下完（顺序不能反：
+    // 腾出一条连接就补一个排队的作业，然后才判定整批是否下完（顺序不能反：
     // 先判会把"队列里还有、但当下一个都没在飞"误判成整批结束）。
-    pumpAssetQueue();
+    pumpDownloadQueue();
     checkAllDownloadsFinished();
 }
 
 void DownloadManager::onStallWatchdogTick() {
-    if (m_shuttingDown || m_officialFallbacks.isEmpty()) {
+    if (m_shuttingDown) {
         return;
     }
-    // 只走"在看之下"的那些回复（= 走了镜像、而且知道官方那条地址）。就地 abort 会同步
-    // 触发 finished、进而改 m_officialFallbacks / m_stallMeters，所以先把要 abort 的攒起来。
-    QList<QNetworkReply *> stalled;
+    const qint64 now = m_clock.elapsed();
+    // 就地处理会同步触发 finished（abort 那条路就是这么走的）、进而改这几张表，
+    // 所以先把要动的攒起来。
+    QList<QNetworkReply *> stalled;  // 走镜像、有退路、太慢 -> abort 它换官方那条
+    QList<QNetworkReply *> wedged;   // 发出去之后一点动静都没有 -> 判失败
     for (auto it = m_stallMeters.begin(); it != m_stallMeters.end(); ++it) {
         QNetworkReply *reply = it.key();
-        if (!m_officialFallbacks.contains(reply)) {
-            continue;  // 已经不在看之下了（重发出去的那一条就属于这种）
-        }
         StallMeter &meter = it.value();
-        if (mirrorStalled(meter.bytesSeen - meter.lastTickBytes, kStallMinBytesPerTick)) {
-            if (++meter.strikes >= kStallStrikesToDemote) {
-                stalled.append(reply);
+        // (1) 卡死兜底。**不看有没有退路** —— 没有退路的回复以前是没人管的，而它一旦永远
+        //     不结束，pendingDownloads 就永远归不了零：整批永不收尾、界面永远停在"下载中"、
+        //     连个错误都没有（2026-09-22 那次 422 个文件的导入就这么挂了二十分钟，进度条
+        //     停在 1%，用户只能重启）。
+        if (now - meter.lastSignOfLifeMs > m_noProgressGiveUpMs) {
+            wedged.append(reply);
+            continue;
+        }
+        // (2) 慢镜像那条只对"有退路"的回复成立：abort 掉它 = 换一条路再试；没有退路的
+        //     abort 掉就是纯粹把这次下载弄失败。
+        if (m_officialFallbacks.contains(reply)) {
+            if (mirrorStalled(meter.bytesSeen - meter.lastTickBytes, kStallMinBytesPerTick)) {
+                if (++meter.strikes >= kStallStrikesToDemote) {
+                    stalled.append(reply);
+                }
+            } else {
+                meter.strikes = 0;
             }
-        } else {
-            meter.strikes = 0;
         }
         meter.lastTickBytes = meter.bytesSeen;
     }
-    if (stalled.isEmpty()) {
-        return;
+    if (!stalled.isEmpty()) {
+        // 先降级再 abort：abort 出来的失败会走 onDownloadReplyFinished，那里面退回官方时
+        // 要读的就是"已经降级了"这个状态（排队的那几千个资源对象同理，见 startDownload()）。
+        demoteMirrorForSlowDownload();
+        for (QNetworkReply *reply : stalled) {
+            qInfo() << "Aborting a stalled mirror download and retrying it from the official url:"
+                    << activeDownloads.value(reply);
+            // 只 abort，不在这里收尾：finished 那个槽会拿到 OperationCanceledError 并按
+            // "镜像那条没成"处理（退回官方重发，作业还是同一个、不算失败）。
+            reply->abort();
+        }
     }
-    // 先降级再 abort：abort 出来的失败会走 onDownloadReplyFinished，那里面退回官方时
-    // 要读的就是"已经降级了"这个状态（排队的那几千个资源对象同理，见 startDownload()）。
-    demoteMirrorForSlowDownload();
-    for (QNetworkReply *reply : stalled) {
-        qInfo() << "Aborting a stalled mirror download and retrying it from the official url:"
-                << activeDownloads.value(reply);
-        // 只 abort，不在这里收尾：finished 那个槽会拿到 OperationCanceledError 并按
-        // "镜像那条没成"处理（退回官方重发，作业还是同一个、不算失败）。
-        reply->abort();
+    for (QNetworkReply *reply : wedged) {
+        qWarning() << "No data for" << (m_noProgressGiveUpMs / 1000) << "seconds, giving up:"
+                   << activeDownloads.value(reply);
+        failWedgedDownload(reply);
     }
+}
+
+void DownloadManager::failWedgedDownload(QNetworkReply *reply) {
+    const QString destPath = activeDownloads.value(reply);
+    if (destPath.isEmpty()) {
+        return;  // 这一条已经结过账了（比如同一跳里被"慢镜像"那段先处理掉了）
+    }
+    // 顺序不能反：handleDownloadError() 靠 activeDownloads 反查路径来记失败清单，
+    // 所以先报错、再摘表。摘完表之后哪怕 abort() 真的憋出一个迟到的 finished，
+    // 那两个处理函数开头也会把"没登记的回复"直接忽略掉 —— 不会重复计数。
+    handleDownloadError(reply,
+                        QStringLiteral("No data received within %1 s, gave up")
+                            .arg(m_noProgressGiveUpMs / 1000));
+    activeDownloads.remove(reply);
+    expectedSha1s.remove(reply);
+    m_stallMeters.remove(reply);
+    m_officialFallbacks.remove(reply);
+    // abort() 还是要叫一声：能在连接层面收干净最好（收不干净也不影响上面的记账）。
+    reply->abort();
+    reply->deleteLater();
+    --pendingDownloads;
+    if (pendingDownloads < 0) {
+        qWarning() << "pendingDownloads went negative, clamping to 0.";
+        pendingDownloads = 0;
+    }
+    m_doneJobs++;
+
+    emitBatchProgress(destPath);
+    // 和正常收尾同一个顺序：先补一个排队的作业，再判整批是否下完（顺序不能反，
+    // 理由见 onDownloadReplyFinished 尾部）。
+    pumpDownloadQueue();
+    checkAllDownloadsFinished();
 }
 
 void DownloadManager::onDownloadReplyProgress(qint64 bytesReceived, qint64 bytesTotal) {
     QNetworkReply *reply = qobject_cast<QNetworkReply *>(sender());
-    // 在看之下的回复要记一份进度给看门狗看。**只有**它们会进这张表（startDownload 里登记）。
+    // 在看门狗眼皮底下的回复要记两笔：累计字节（判"太慢"用）和"现在还有动静"（判"卡死"
+    // 用）。**只有** startDownload()/downloadAssets()/retryWithOfficialUrl() 里登记过的
+    // 回复会进这张表。
     if (auto meter = m_stallMeters.find(reply); meter != m_stallMeters.end()) {
         meter->bytesSeen = bytesReceived;
+        // 收到字节就是把"卡死"的倒计时清零 —— 一条细水长流、但一直在掉字节的下载（镜像那种
+        // 0.85~10 KB/s 的链子）不该被这条兜底掐掉，它该由"太慢"那条判据管。
+        meter->lastSignOfLifeMs = m_clock.elapsed();
     }
     QString destPath = activeDownloads.value(reply);
     emit downloadProgress(QFileInfo(destPath).fileName(), bytesReceived, bytesTotal);

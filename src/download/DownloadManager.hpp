@@ -140,6 +140,32 @@ public:
     static bool mirrorStalled(qint64 bytesDelta, qint64 minBytesPerTick);
     /// 又发现一次失速之后，降级期该到什么时候 —— 取晚的那个（**顺延**，不提前）。
     static qint64 demoteDeadline(qint64 nowMs, qint64 currentUntilMs);
+    /// 还能不能再往外发一条（排队那一步问它）。
+    ///
+    /// **纯函数**，就为了能钉住那条上限：activeCount 到顶之后**不管还排着多少条**都不发。
+    /// 这不是省资源，是**正确性**问题 —— 交给 QNetworkAccessManager 的请求要是当下拿不到
+    /// 连接，就进了 Qt 内部那个队列，而 30 秒的传输超时**从请求建好就开始算**，于是它们会
+    /// 在拿到连接之前成批地报超时（1.18.2 的 3071 个资源对象实测 2545 个这样失败）。
+    /// 2026-09-22 一个 422 个文件的整合包导入又踩了同一个坑，而且更深一层：排在后面的回复
+    /// 一个字节都收不到，失速看门狗两跳（10 秒）就把它们全判成"镜像太慢"（380 条 abort +
+    /// 重发），重发又是 380 条一起发 —— 最后整批挂死不动、进度条停在 1%。
+    /// verify 的 V6i 按边界钉过。
+    static bool mayIssueAnotherDownload(int activeCount, int queuedCount);
+
+    /// 一条回复"多久一点动静都没有"就判它废了（毫秒）。
+    ///
+    /// 为什么要有**按时间**这一条兜底：QNetworkReply **不保证**一定会发 finished。那次导入
+    /// 里 380 条回复在 HTTP/2 连接被对端掐掉之后就那么挂着，二十分钟没动静、也没有终态，
+    /// pendingDownloads 永远归不了零 → 整批永远不结束（界面表现是"下载中"停在 1%，没有错误、
+    /// 没有弹窗，用户只能重启）。传输超时是"不活动"超时，本该在 30 秒时收拾它们 —— 这一条
+    /// 是**它没收拾干净时的兜底**，所以取它的三倍。
+    /// 只认"一点动静都没有"：downloadProgress 报过一次字节就重新计时，所以一条细水长流、
+    /// 但一直在掉字节的下载不会被它掐掉。
+    static constexpr qint64 kNoProgressGiveUpMs = 90 * 1000;
+
+    /// 改上面那个期限。**只给验证工程用**：那一条只能靠时间验，而 90 秒对这种逐条的用例
+    /// 太贵了（真机上它是固定值，界面上没有、也不该有这个开关）。
+    void setNoProgressGiveUpMs(qint64 ms) { m_noProgressGiveUpMs = ms; }
     /// @}
 
     /// 按**现在这一刻**的下载源，把一条"地址自带身份"的官方地址落到实际请求的地址上
@@ -218,6 +244,10 @@ public:
     QJsonObject getVersionJson() const;
 
     // 下载操作
+    /// NOTE: 每一条下载都是**先排进队列再发**（见 mayIssueAnotherDownload）：作业少的时候
+    ///       队列当场就把它发出去，和"直接发"没有任何区别；作业一多（几千个资源对象、
+    ///       几百个整合包文件）就只有 6 条在飞，其余留在我们自己的队列里等 —— 在 Qt 的
+    ///       队列里等会被它的传输超时算进去，而那正是"成批失败"的来源。
     // @param expectedSize 文件应有的字节数，传 -1 表示未知（旧版本 JSON 和 natives
     //        classifier 都没有 size 字段），此时退化成只比 SHA1。
     // @param mode 见 VerifyMode，决定已存在的文件要不要重下。
@@ -310,21 +340,23 @@ private:
     QMap<QNetworkReply *, QString> m_officialFallbacks;
     int pendingDownloads;
 
-    /// 等着发的资源对象。**只有这一种下载会排队**：一次资源补齐是 3000 多个对象，
-    /// 全塞给 QNetworkAccessManager 的话 Qt 每个主机只开 6 条连接，其余的在它内部
-    /// 干等，而 30 秒的传输超时**从请求建好就开始算**，于是它们排到队尾之前就成批地
-    /// 报 `Operation timed out` —— 网络其实是通的。
+    /// 等着发的作业。**每一条下载都从这里过**（资源对象、库、客户端 jar、整合包清单里
+    /// 那几百个文件都一样）：一次资源补齐是 3000 多个对象，全塞给 QNetworkAccessManager
+    /// 的话 Qt 每个主机只开 6 条连接，其余的在它内部干等，而 30 秒的传输超时**从请求
+    /// 建好就开始算**，于是它们排到队尾之前就成批地报 `Operation timed out` —— 网络其实
+    /// 是通的。发出去的条件只有 mayIssueAnotherDownload() 一处说了算。
     /// NOTE: 排在这里的作业已经计进 m_totalJobs（进度条的分母），但**不计进**
     /// pendingDownloads（那是"已经发出去的"），所以 checkAllDownloadsFinished()
-    /// 必须把这条队列也算上，否则会在还排着几千个的时候就宣布整批下完。
-    struct AssetJob {
+    /// 与 isBusy() 都必须把这条队列也算上，否则会在还排着几百个的时候就宣布
+    /// 整批下完 / 报告"没在忙"。
+    struct PendingJob {
         QString url;
         QString destinationPath;
         QString expectedSha1;
         // 排队时也得把它带上：作业在队列里等的这段时间，是没法回头问调用方要的。
         QString officialUrl;
     };
-    QQueue<AssetJob> m_pendingAssetJobs;
+    QQueue<PendingJob> m_pendingJobs;
 
     // 批次记账
     int m_totalJobs = 0;
@@ -343,18 +375,33 @@ private:
     // ------------------------------------------------------------------
     // 失速看门狗（见 .cpp 顶部那段实测记录）
     // ------------------------------------------------------------------
-    /// 一条"在看之下"的回复的慢不慢记账。**只有**走了镜像、而且登记过官方备用地址的
-    /// 回复才会进这张表 —— 别的回复没有退路，abort 掉它就是纯粹把这次下载弄失败。
+    /// 一条在飞回复的记账。**每一条**发出去的回复都进这张表（不是只有走镜像那些）：
+    ///   - bytesSeen / lastTickBytes / strikes 只有"走了镜像、而且登记过官方备用地址"的
+    ///     回复才看 —— 那种才有退路，abort 掉它是"换一条路再试"；别的回复 abort 掉就是
+    ///     纯粹把这次下载弄失败；
+    ///   - lastSignOfLifeMs 对**所有**回复都看：发出去之后一直没动静的那条，谁都不该一直
+    ///     攥着它（见 kNoProgressGiveUpMs，那一条救的正是"没有退路"的回复）。
     struct StallMeter {
         qint64 bytesSeen = 0;      ///< 最近一次 downloadProgress 报的累计字节
         qint64 lastTickBytes = 0;  ///< 上一跳时看到的那个值
         int strikes = 0;           ///< 连着几跳"没动"
+        /// 最近一次**有任何动静**的时刻（发出去那一刻就先记一次），m_clock 的毫秒读数。
+        qint64 lastSignOfLifeMs = 0;
     };
     QHash<QNetworkReply *, StallMeter> m_stallMeters;
     QTimer *m_stallWatchdog = nullptr;
     QElapsedTimer m_clock;
     /// 降级期的截止时刻（m_clock 的毫秒读数）。0 = 从来没降级过。
     qint64 m_mirrorDemotedUntil = 0;
+    /// 判"卡死"的期限，默认 kNoProgressGiveUpMs（只有验证工程会改它）。
+    qint64 m_noProgressGiveUpMs = kNoProgressGiveUpMs;
+
+    /// 同时最多发出去几个下载。取 6 = Qt 每个主机的连接上限，是为了让"排队"这件事只发生在
+    /// **我们**手里：发出去的请求都立刻拿得到连接，30 秒的传输超时才有意义。调大只会把请求
+    /// 重新塞回 Qt 内部那个会超时的队列（见 mayIssueAnotherDownload），调小则白白浪费带宽。
+    /// 实测（本机网络，1.18.2 的 3071 个资源对象）：不限流时 2545 个报 Operation timed out；
+    /// 限流后每个对象约 2.5 秒，全程约 20 分钟且不再超时。
+    static constexpr int kMaxConcurrentDownloads = 6;
 
 
     /// 从镜像取失败时，用官方地址**重发一次**（作业还是同一个，不算失败）。
@@ -370,12 +417,17 @@ private:
     void startDownload(const QUrl &url, const QString &destinationPath,
                        const QString &expectedSha1 = QString(),
                        const QString &officialUrl = QString());
-    /// downloadFile() 的本体。@param throttled 为真时**不立刻发请求**，只排进
-    /// m_pendingAssetJobs，等有连接空出来再发（见 pumpAssetQueue()）。
+    /// downloadFile() 的本体：登记进批次、跳过已经下好的、剩下的排进 m_pendingJobs，
+    /// 再由 pumpDownloadQueue() 按连接预算发出去。
     void scheduleFile(const QString &url, const QString &destinationPath,
                       const QString &expectedSha1, qint64 expectedSize, VerifyMode mode,
-                      bool throttled, const QString &officialUrl = QString());
-    void pumpAssetQueue();
+                      const QString &officialUrl = QString());
+    /// 把队列里排着的作业发出去，直到连接用完（判据 = mayIssueAnotherDownload()）。
+    void pumpDownloadQueue();
+    /// 把一条"发出去之后一直没有动静、而且大概永远不会结束"的回复**判失败**，自己做完整套
+    /// 记账。为什么不能只 abort() 了等它自己走 finished：这条路的整个前提就是"它可能永远
+    /// 不结束"，指着 abort 收尾等于把整批挂死（见 kNoProgressGiveUpMs）。
+    void failWedgedDownload(QNetworkReply *reply);
     void handleDownloadError(QNetworkReply *reply, const QString &errorMessage);
     void checkAllDownloadsFinished();
     void emitBatchProgress(const QString &currentFile);
