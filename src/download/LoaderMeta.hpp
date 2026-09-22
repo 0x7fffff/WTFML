@@ -40,6 +40,8 @@
 #include <QString>
 #include <QStringList>
 
+#include <algorithm>
+
 namespace LoaderMeta {
 
 /// Fabric 元数据的根地址（没有镜像源：BMCLAPI 不代理 Fabric 的 meta）。
@@ -177,6 +179,52 @@ struct LoaderPick {
     bool ok() const { return !version.isEmpty(); }
 };
 
+/// 列表里的一个加载器版本（"能列出来给用户挑"的那一份，见文件尾部那一节）。
+struct LoaderVersionEntry {
+    QString version;      ///< 加载器版本号（就是会写进 wtfml.meta 的 `loaderVersion`）
+    bool stable = false;  ///< 有明确判据时才是 true，**含义按加载器不同**：
+                          ///< Fabric 用的是接口自己的 `stable` 字段；NeoForge 是"没有 `-beta`
+                          ///< 后缀"；OptiFine 是"不是预览版"；Forge 那份 maven 清单里**没有**
+                          ///< 这个信息，所以 Forge 的条目一律 false（见 listForgeVersions）。
+                          ///< 它**不代表"这个版本一定能用"**，只代表"这一条被上游标着推荐"。
+};
+
+using LoaderVersionList = QList<LoaderVersionEntry>;
+
+/// 把条目列表抽成版本号列表（信号和界面用的一直是 QStringList，不是这个结构体）。
+inline QStringList loaderVersionStrings(const LoaderVersionList &entries) {
+    QStringList versions;
+    versions.reserve(entries.size());
+    for (const LoaderVersionEntry &entry : entries) {
+        versions.append(entry.version);
+    }
+    return versions;
+}
+
+/**
+ * @brief `/v2/versions/loader/<mc>` 的回复 -> 能列给用户挑的全部加载器版本。
+ * @param list 接口返回的数组（原样）。
+ *
+ * **顺序原样保留**（接口本来就是新到旧），不排序：这份列表里 stable 只有最新那条是 true，
+ * 而版本号里带 `+build.N` 那种后缀，自己排序只会更容易排错（理由和 pickFabricLoader 一样）。
+ *
+ * 实测 253 条 / 589 KB —— 也就是说这个列表本身就不小（每条都自带一整份 launcherMeta.libraries）。
+ * 界面拿它填列表没问题，但别每点一下就重新拉一次。
+ */
+inline LoaderVersionList listFabricLoaderVersions(const QJsonArray &list) {
+    LoaderVersionList entries;
+    entries.reserve(list.size());
+    for (const QJsonValue &value : list) {
+        const QJsonObject loader = value.toObject().value(QStringLiteral("loader")).toObject();
+        const QString version = loader.value(QStringLiteral("version")).toString();
+        if (version.isEmpty()) {
+            continue;
+        }
+        entries.append(LoaderVersionEntry{version, loader.value(QStringLiteral("stable")).toBool()});
+    }
+    return entries;
+}
+
 /**
  * @brief 从 `/v2/versions/loader/<mc>` 的回复里挑一个加载器版本。
  * @param list 接口返回的数组（原样）。
@@ -188,23 +236,21 @@ struct LoaderPick {
  * 而 stable 只有最新那个是 true。自己写一个版本号比较器（Fabric 的版本号里有
  * `0.1.0.48` 这种四段、也可能带 `+build.N`）反而更容易挑错 —— 而且"最新"本来就是
  * 这个接口的语义，不是我们要判断的事情。
+ *
+ * NOTE: 挑法只有这一处 —— "默认选中哪个"（这里的挑法）和"能挑哪些"（listFabricLoaderVersions）
+ *       共用同一个解析，少一处抄歪的机会。
  */
 inline LoaderPick pickFabricLoader(const QJsonArray &list) {
-    LoaderPick fallback;
-    for (const QJsonValue &value : list) {
-        const QJsonObject loader = value.toObject().value(QStringLiteral("loader")).toObject();
-        const QString version = loader.value(QStringLiteral("version")).toString();
-        if (version.isEmpty()) {
-            continue;
-        }
-        if (loader.value(QStringLiteral("stable")).toBool()) {
-            return LoaderPick{version, true};
-        }
-        if (fallback.version.isEmpty()) {
-            fallback = LoaderPick{version, false};
+    const LoaderVersionList entries = listFabricLoaderVersions(list);
+    for (const LoaderVersionEntry &entry : entries) {
+        if (entry.stable) {
+            return LoaderPick{entry.version, true};
         }
     }
-    return fallback;
+    if (entries.isEmpty()) {
+        return LoaderPick{};
+    }
+    return LoaderPick{entries.first().version, false};
 }
 
 // ---------------------------------------------------------------------------
@@ -414,29 +460,41 @@ inline QList<int> neoForgeVersionPrefix(const QString &gameVersion) {
     return parts;
 }
 
-/// 从 neoforge 的 maven-metadata.xml 里挑一个 NeoForge 版本。
+/// 把一份加载器版本列表按版本号**从新到旧**排。
+///
+/// maven 那两份清单（Forge 5048 条、NeoForge 63 KB）都是**按发布时间排的，不是按版本号排的**，
+/// 所以"列出能挑哪些版本"这条路必须自己比大小。实测两份都能证明这一点：Forge 那份的末尾是
+/// `... 26.1.2-64.1.3, 1.19.4-45.4.5, 26.3-66.0.0, 26.3-66.0.2`（一个 1.19.4 的补发夹在
+/// 一堆 26.x 中间），NeoForge 那份的末尾同理。
+///
+/// NOTE: 比的是**点分数字**（compareDottedVersions）。比不了的那些（Forge 的
+///       `10.13.3.1401-1710ls` 之类）在各自的分堆里就被挡掉了，所以这里不会拿到空 key。
+inline void sortLoaderVersionsNewestFirst(LoaderVersionList &entries) {
+    std::sort(entries.begin(), entries.end(),
+              [](const LoaderVersionEntry &left, const LoaderVersionEntry &right) {
+                  return compareDottedVersions(parseDottedVersion(left.version),
+                                               parseDottedVersion(right.version)) > 0;
+              });
+}
+
+/// neoforge 的 maven-metadata.xml -> 这个游戏版本能用的**全部** NeoForge 版本（新到旧）。
 /// @param mavenMetadata XML 原文（原样，这里只扫 `<version>...</version>`）。
 /// @param gameVersion 原版版本号。
-/// @return 挑中的版本；这个游戏版本一个正式版都没有时 `ok()` 为 false。
 ///
-/// 规则：**只认不带后缀的版本号**（`-beta` 那一大堆全部跳过），在剩下的里面挑**数字最大**
-/// 的那个。
+/// 规则：**只认不带后缀的版本号**（`-beta` 那一大堆全部跳过），剩下的里面挑出属于这个游戏
+/// 版本的（`isDottedPrefix`），去重后按版本号从新到旧排。
 ///
-/// 为什么是"比大小"而不是像 Fabric 那样"取第一个"：maven-metadata 的 `<versions>` 是
-/// **按发布时间排的，不是按版本号排的**。实测那一份的末尾是
-/// `26.3.0.6-beta, 21.1.251, 26.3.0.7-beta, 26.3.0.8-beta` —— `21.1.251` 是刚为一个旧
-/// 版本补发的，夹在一堆 26.3 的快照中间。取"最后一个匹配的"会挑出 `21.1.251` 是不小心的
-/// 巧合，换个游戏版本就错了。
 /// NOTE: `-beta` 之外的后缀也一并跳过（maven 上还有别的），理由是"这个后缀能不能日常用"
-///       不是我们能判断的事情，宁可不装也不给用户一个半成品。
-inline LoaderPick pickNeoForgeVersion(const QByteArray &mavenMetadata, const QString &gameVersion) {
+///       不是我们能判断的事情，宁可列少一点也不给用户一个半成品。
+inline LoaderVersionList listNeoForgeVersions(const QByteArray &mavenMetadata,
+                                              const QString &gameVersion) {
+    LoaderVersionList entries;
     const QList<int> prefix = neoForgeVersionPrefix(gameVersion);
     if (prefix.isEmpty()) {
-        return LoaderPick{};
+        return entries;
     }
 
-    LoaderPick best;
-    QList<int> bestParsed;
+    QStringList seen;
     static const QRegularExpression tag(QStringLiteral("<version>([^<]+)</version>"));
     QRegularExpressionMatchIterator it = tag.globalMatch(QString::fromUtf8(mavenMetadata));
     while (it.hasNext()) {
@@ -445,15 +503,33 @@ inline LoaderPick pickNeoForgeVersion(const QByteArray &mavenMetadata, const QSt
             continue;
         }
         const QList<int> parsed = parseDottedVersion(version);
-        if (parsed.isEmpty() || !isDottedPrefix(prefix, parsed)) {
+        if (parsed.isEmpty() || !isDottedPrefix(prefix, parsed) || seen.contains(version)) {
             continue;
         }
-        if (best.version.isEmpty() || compareDottedVersions(parsed, bestParsed) > 0) {
-            best = LoaderPick{version, true};
-            bestParsed = parsed;
-        }
+        seen.append(version);
+        // stable = "没有 `-beta` 后缀"（上面已经全都筛过一遍了），所以这里恒为 true。
+        entries.append(LoaderVersionEntry{version, true});
     }
-    return best;
+    sortLoaderVersionsNewestFirst(entries);
+    return entries;
+}
+
+/// 从 neoforge 的 maven-metadata.xml 里挑一个 NeoForge 版本。
+/// @param mavenMetadata XML 原文（原样，这里只扫 `<version>...</version>`）。
+/// @param gameVersion 原版版本号。
+/// @return 挑中的版本；这个游戏版本一个正式版都没有时 `ok()` 为 false。
+///
+/// 规则：**数字最大的那个**（也就是 listNeoForgeVersions 排完之后的第一个）。
+/// 为什么是"比大小"而不是像 Fabric 那样"取第一个"：见 listNeoForgeVersions 上面那段
+/// （maven 清单是按发布时间排的）。
+///
+/// NOTE: 只走这一处解析，"默认选中哪个"和"能挑哪些"不会慢慢漂开。
+inline LoaderPick pickNeoForgeVersion(const QByteArray &mavenMetadata, const QString &gameVersion) {
+    const LoaderVersionList entries = listNeoForgeVersions(mavenMetadata, gameVersion);
+    if (entries.isEmpty()) {
+        return LoaderPick{};
+    }
+    return LoaderPick{entries.first().version, true};
 }
 
 /// NeoForge 安装器 jar 的地址。
@@ -619,54 +695,94 @@ inline QString optifineEditionFromFile(const QString &gameVersion, const QString
     return text;
 }
 
-/// 从官方下载页的原文里挑一个 OptiFine 版本。
-/// @param html `https://optifine.net/downloads` 的原文。
-/// @param gameVersion 原版版本号（页面上那一节 `<h2>Minecraft <版本></h2>`）。
+/// `optifineEditionFromFile()` 的**反函数**：版本号 -> 安装器 jar 的文件名。
 ///
-/// 规则：**只看那一节里标着 `downloadLineMain` 的那一行**，取它的 `adloadx?f=...` 文件名。
-/// 这一行是 OptiFine 自己标出来的"这个游戏版本就用这个"。同一节里另外两类行都要避开：
+/// `HD_U_H9` → `OptiFine_1.18.2_HD_U_H9.jar`；预览版 `HD_U_H9_pre2` →
+/// `preview_OptiFine_1.18.2_HD_U_H9_pre2.jar`。
 ///
-///   * `downloadLinePreview` —— 预览版（1.15 之后每节开头都可能有这么一段）
-///   * `downloadLineMore` —— 折叠在「+ More」里的旧版本
+/// 为什么要反着算一遍：界面上用户挑的是一个**版本号**（`HD_U_H9`，那才是会写进 wtfml.meta 的
+/// 值），而"下哪个文件"要的是文件名。没有这一手的话，"钉死一个 OptiFine 版本"就落不了地
+/// （见 VersionManager::adoptOptifineEdition）。
 ///
-/// 实测 1.18.2 那一节三类同时存在：预览段是空的、main 是 H9、More 里是 H7 / H6。
-/// 挑错哪一类都不至于装不上，但"给用户装个预览版"和"装个旧版本"都不是我们该替他做的决定。
-/// （26.1.2 那种只有预览、还没发正式版的，这一节里就没有 main 行 —— 那时 `ok()` 为 false。）
+/// NOTE: 预览版的判据写成正则 `_pre<数字>$` 而不是 `contains("_pre")` —— 正式版的版本号将来
+///       万一含 `_pre` 这三个字母（`HD_U_PRE...`），按 contains 判就会给一个正式版套上
+///       `preview_` 前缀，下回来一个不存在的文件。
+inline QString optifineInstallerFileName(const QString &gameVersion, const QString &edition) {
+    static const QRegularExpression previewSuffix(QStringLiteral("_pre[0-9]+$"));
+    const QString base =
+        QStringLiteral("OptiFine_%1_%2.jar").arg(gameVersion, edition);
+    if (previewSuffix.match(edition).hasMatch()) {
+        return QStringLiteral("preview_") + base;
+    }
+    return base;
+}
+
+/// 安装器文件名/版本号 -> OptiFine **镜像**那条路要的两个路径段（`type` / `patch`）。
 ///
-/// NOTE: 那一节的边界靠**下一个 `<h2>`** 划。页面上 `<h2>` 只用来分游戏版本，所以这是
-///       稳的；但也正因为如此，找不到小节时要如实返回空，而不是"从整页里随便挑一个"。
-inline OptiFinePick pickOptifineFromDownloadsPage(const QString &html,
-                                                  const QString &gameVersion) {
+/// 镜像的地址是 `/optifine/<游戏版本>/<type>/<patch>`（见 optifineMirrorFileUrl），两段的切法
+/// 和文件名不一样：`HD_U_H9` → `HD_U` / `H9`，预览版 `HD_U_H9_pre2` → `HD_U_H9` / `pre2`
+/// （实测那 11 条镜像数据逐条对过）。所以**不能**切成 `[0], [1]` 两段了事。
+struct OptiFineMirrorPath {
+    QString type;
+    QString patch;
+
+    bool ok() const { return !type.isEmpty() && !patch.isEmpty(); }
+};
+
+inline OptiFineMirrorPath optifineMirrorPathFromEdition(const QString &edition) {
+    const int cut = edition.lastIndexOf(QLatin1Char('_'));
+    if (cut <= 0 || cut + 1 >= edition.size()) {
+        return OptiFineMirrorPath{};
+    }
+    return OptiFineMirrorPath{edition.left(cut), edition.mid(cut + 1)};
+}
+
+/// 官方下载页里某个游戏版本那一节的原文（`<h2>Minecraft <版本></h2>` 到下一个 `<h2>` 之间）。
+///
+/// **找不到这一节时回一个空（null）的 QString** —— 调用方靠 isNull() 区分"页面上压根没有这个
+/// 游戏版本"和"这一节在、但里面一条都没有"。后者是见过的（只有预览、还没发正式版的那些）。
+///
+/// NOTE: 那一节的边界靠**下一个 `<h2>`** 划。页面上 `<h2>` 只用来分游戏版本，所以这是稳的；
+///       也正因为如此，找不到小节时要如实返回空，而不是"从整页里随便挑一个"。
+inline QString optifineDownloadsSection(const QString &html, const QString &gameVersion) {
     static const QRegularExpression heading(
         QStringLiteral("<h2>\\s*Minecraft\\s+([^<]+?)\\s*</h2>"),
         QRegularExpression::CaseInsensitiveOption);
-    static const QRegularExpression row(QStringLiteral("<tr\\b([^>]*)>(.*?)</tr>"),
-                                        QRegularExpression::DotMatchesEverythingOption);
-    static const QRegularExpression link(QStringLiteral("adloadx\\?f=([^\"'&<>\\s]+)"));
-
-    int sectionStart = -1;
-    int sectionEnd = html.size();
     QRegularExpressionMatchIterator headings = heading.globalMatch(html);
     while (headings.hasNext()) {
         const QRegularExpressionMatch match = headings.next();
         if (match.captured(1).trimmed() != gameVersion) {
             continue;
         }
-        sectionStart = match.capturedEnd();
-        if (headings.hasNext()) {
-            sectionEnd = headings.peekNext().capturedStart();
-        }
-        break;
+        const int start = match.capturedEnd();
+        const int end = headings.hasNext() ? headings.peekNext().capturedStart() : html.size();
+        return html.mid(start, end - start);
     }
-    if (sectionStart < 0) {
-        return OptiFinePick{};
-    }
+    return QString();
+}
 
-    const QString section = html.mid(sectionStart, sectionEnd - sectionStart);
+/**
+ * @brief 那一节里标着某一类 class 的行，把安装器文件名抠出来（按页面顺序）。
+ * @param section optifineDownloadsSection() 的产物。
+ * @param classToken 认哪一类行（`downloadLineMain` / `downloadLineMore`，见调用方）。
+ *
+ * 三种行的 class 实测是 `downloadLine downloadLineMain` / `... downloadLineMore` /
+ * `... downloadLinePreview` 连在一起写的，所以 `contains(classToken)` 就能分开它们
+ * （`downloadLineMain` 和 `downloadLineMore` 彼此不是子串关系）。
+ *
+ * NOTE: 这里**不按引号形态挑** —— 页面上那个 class 用的是**单引号**
+ *       （`class='downloadLine downloadLineMain'`），写正则时拿双引号去配会一条都匹配不上
+ *       （我第一遍就是这么读那份夹具的，白读了一轮）。
+ */
+inline QStringList optifineRowFileNames(const QString &section, const QString &classToken) {
+    static const QRegularExpression row(QStringLiteral("<tr\\b([^>]*)>(.*?)</tr>"),
+                                        QRegularExpression::DotMatchesEverythingOption);
+    static const QRegularExpression link(QStringLiteral("adloadx\\?f=([^\"'&<>\\s]+)"));
+    QStringList names;
     QRegularExpressionMatchIterator rows = row.globalMatch(section);
     while (rows.hasNext()) {
         const QRegularExpressionMatch match = rows.next();
-        if (!match.captured(1).contains(QLatin1String("downloadLineMain"))) {
+        if (!match.captured(1).contains(classToken)) {
             continue;
         }
         const QRegularExpressionMatch found = link.match(match.captured(2));
@@ -677,9 +793,39 @@ inline OptiFinePick pickOptifineFromDownloadsPage(const QString &html,
         if (!isSafeJarFileName(fileName)) {
             continue;
         }
-        return OptiFinePick{fileName, QString(), QString()};
+        names.append(fileName);
     }
-    return OptiFinePick{};
+    return names;
+}
+
+/**
+ * @brief 从官方下载页的原文里挑一个 OptiFine 版本。
+ * @param html `https://optifine.net/downloads` 的原文。
+ * @param gameVersion 原版版本号（页面上那一节 `<h2>Minecraft <版本></h2>`）。
+ *
+ * 规则：**只看那一节里标着 `downloadLineMain` 的那一行**，取它的 `adloadx?f=...` 文件名。
+ * 这一行是 OptiFine 自己标出来的"这个游戏版本就用这个"。
+ *
+ * NOTE: 另外两类行都要避开（`downloadLinePreview` 预览版 / `downloadLineMore` 折叠在
+ *       「+ More」里的旧版本）。这里靠"只认 main"天然避开；下面 list 那条路则要 main + More、
+ *       仍然避开预览。两者共用 optifineRowFileNames() 那个解析，才不会一边改了另一边没改。
+ *
+ * NOTE: 那一节的边界靠**下一个 `<h2>`** 划（见 optifineDownloadsSection）。页面上 `<h2>`
+ *       只用来分游戏版本，所以这是稳的；但也正因为如此，找不到小节时要如实返回空，
+ *       而不是"从整页里随便挑一个"。
+ */
+inline OptiFinePick pickOptifineFromDownloadsPage(const QString &html,
+                                                  const QString &gameVersion) {
+    const QString section = optifineDownloadsSection(html, gameVersion);
+    if (section.isNull()) {
+        return OptiFinePick{};
+    }
+    const QStringList names =
+        optifineRowFileNames(section, QStringLiteral("downloadLineMain"));
+    if (names.isEmpty()) {
+        return OptiFinePick{};
+    }
+    return OptiFinePick{names.first(), QString(), QString()};
 }
 
 /// 从镜像源 `/optifine/<原版版本>` 的回复里挑一个 OptiFine 版本。
@@ -713,6 +859,74 @@ inline OptiFinePick pickOptifineFromMirror(const QJsonArray &list) {
     return pick;
 }
 
+/**
+ * @brief 官方下载页 -> 这个游戏版本能挑的**全部** OptiFine 版本（新到旧）。
+ *
+ * 取那一节里的 main 行 + More 行（`downloadLineMore` 就是页面上折叠在「+ More」里的旧版本），
+ * **不取预览版** —— 理由见下面那段"为什么两条路都只列正式版"。
+ * 实测 1.18.2 那一节：main 是 H9、More 里是 H7 / H6，所以列表就是 `H9, H7, H6`。
+ */
+inline LoaderVersionList listOptifineVersionsFromDownloadsPage(const QString &html,
+                                                              const QString &gameVersion) {
+    LoaderVersionList entries;
+    const QString section = optifineDownloadsSection(html, gameVersion);
+    if (section.isNull()) {
+        return entries;
+    }
+    // main 在前、More 在后 —— 页面自己就是这么排的（main 是最新的那条），所以这个顺序
+    // 天然就是"新到旧"，不用再排一遍。
+    QStringList names = optifineRowFileNames(section, QStringLiteral("downloadLineMain"));
+    names += optifineRowFileNames(section, QStringLiteral("downloadLineMore"));
+
+    QStringList seen;
+    for (const QString &fileName : names) {
+        const QString edition = optifineEditionFromFile(gameVersion, fileName);
+        if (edition.isEmpty() || seen.contains(edition)) {
+            continue;
+        }
+        seen.append(edition);
+        entries.append(LoaderVersionEntry{edition, true});
+    }
+    return entries;
+}
+
+/**
+ * @brief 镜像源那份 JSON -> 这个游戏版本能挑的**全部** OptiFine 版本（新到旧）。
+ * @param list 接口返回的数组（原样）。
+ *
+ * 顺序：那份数组是**旧到新**排的（实测 1.18.2 那三条是 H6 → H7 → H9，连它们 `_id` 前四个
+ * 字节里的时间戳都是递增的），而界面上"新到旧"才是有用的次序，所以这里**倒过来**。
+ * 倒过来之后和 listOptifineVersionsFromDownloadsPage() 的结果逐条一致（实测 1.18.2 两条路
+ * 都是 `H9, H7, H6`）—— 用户换个下载源不该看到列表翻个面。
+ *
+ * 【为什么两条路都只列正式版、不列预览版】
+ *
+ * 不是"列不出来"：optifineInstallerFileName() 和 optifineMirrorPathFromEdition() 都能处理
+ * 预览版（`HD_U_H9_pre2` → `preview_OptiFine_1.18.2_HD_U_H9_pre2.jar` / `HD_U_H9` + `pre2`，
+ * 对着那条镜像数据逐条核过）。是**两条路都还没验过**：官方那条路的预览版要走广告页拿 token，
+ * 镜像那条路的预览版 URL 虽然拼得出来但没实跑过。列一个"点了可能装不上"的版本，比不列更糟。
+ * 要开的话，改这两个函数的过滤条件就够了。
+ */
+inline LoaderVersionList listOptifineVersionsFromMirror(const QJsonArray &list,
+                                                        const QString &gameVersion) {
+    LoaderVersionList entries;
+    QStringList seen;
+    for (const QJsonValue &value : list) {
+        const QString fileName = value.toObject().value(QStringLiteral("filename")).toString();
+        if (!isSafeJarFileName(fileName) || isOptifinePreviewFile(fileName)) {
+            continue;
+        }
+        const QString edition = optifineEditionFromFile(gameVersion, fileName);
+        if (edition.isEmpty() || seen.contains(edition)) {
+            continue;
+        }
+        seen.append(edition);
+        entries.append(LoaderVersionEntry{edition, true});
+    }
+    std::reverse(entries.begin(), entries.end());
+    return entries;
+}
+
 /// 从广告页的原文里抠出真正的下载地址（`https://optifine.net/downloadx?f=…&x=…`）。
 /// @param html `optifineAdPageUrl()` 那个地址的回复原文。
 /// @param fileName 我们请求的那个文件名（用来在页面里有多条链接时挑对）。
@@ -744,6 +958,94 @@ inline QString optifineJarUrlFromAdPage(const QString &html, const QString &file
         index = 0;
     }
     return QStringLiteral("https://optifine.net/") + links.at(index);
+}
+
+// ---------------------------------------------------------------------------
+// Forge：把 maven 清单列成"能挑哪些版本"
+// ---------------------------------------------------------------------------
+//
+// 【为什么 Forge 要新开一个源】原来 Forge 只有 promotions_slim.json（4 KB，"官方推荐哪个"），
+// 它**只回答了"默认装哪个"**，里面根本没有"这个游戏版本总共有哪些 Forge" —— 1.20.1 那对键是
+// 47.4.10（recommended）和 47.4.23（latest），而实际上 1.20.1 下有 132 个版本。要列出全部
+// 版本就得去它的 maven 清单（5048 条 / 211 KB，实测）。
+//
+// 【坐标的两种形态，以及为什么不能按字符串前缀切】
+//
+// 清单里**同一个游戏版本下的条目可能是两种形状**（实测）：
+//
+//     1.20.1-47.4.10              常规：<游戏>-<加载器>
+//     1.8.9-11.15.1.2318-1.8.9    老版本：<游戏>-<加载器>-<游戏>
+//
+// 后一种是 forgeInstallerUrlAlternate() 那个坐标（老游戏版本只发布了这一种）。所以"去掉
+// `<游戏>-` 前缀"之后还得把**尾巴上那个游戏版本**再剥掉，否则列表里会出现
+// `11.15.1.2318-1.8.9` 这种带重复游戏号的"版本号"。
+//
+// 尾巴怎么认：不能按字符串比（`1.10` 的尾巴实测是 `1.10.0`，字符串 `"1.10"` 对不上
+// `"1.10.0"`），得按**逐段版本前缀**比（isDottedPrefix）。这一条是实测踩出来的：
+// 1.10 那 18 个版本如果不这么剥，全都会带着 `-1.10.0` 混进列表。
+
+/// Forge 的 maven 清单（**全部** 5048 个版本，211 KB）。
+///
+/// NOTE: 和 promotions_slim.json 的分工是清楚的：那张表回答"默认装哪个"（推荐/最新），
+///       这一份回答"总共有哪些"。两个都要。
+inline QString forgeMavenMetadataUrl() {
+    return QStringLiteral(
+        "https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml");
+}
+
+/// Forge 的 maven 坐标 -> 加载器版本号。不是这个游戏版本的坐标时回空串。
+///
+/// `1.20.1-47.4.10` → `47.4.10`；`1.8.9-11.15.1.2318-1.8.9` → `11.15.1.2318`。
+inline QString forgeLoaderVersionFromCoordinate(const QString &coordinate,
+                                                const QString &gameVersion) {
+    const QString prefix = gameVersion + QLatin1Char('-');
+    if (gameVersion.isEmpty() || !coordinate.startsWith(prefix)) {
+        return QString();
+    }
+    QString rest = coordinate.mid(prefix.size());
+    const int dash = rest.lastIndexOf(QLatin1Char('-'));
+    if (dash > 0) {
+        const QList<int> game = parseDottedVersion(gameVersion);
+        const QList<int> tail = parseDottedVersion(rest.mid(dash + 1));
+        if (!game.isEmpty() && !tail.isEmpty() && isDottedPrefix(game, tail)) {
+            rest = rest.left(dash);
+        }
+    }
+    return rest;
+}
+
+/// Forge 的 maven 清单 -> 这个游戏版本能用的**全部** Forge 版本（新到旧）。
+///
+/// 两条筛选，都是"宁可列少一点"：
+///  1. **只收点分数字的版本号**。清单里有 `10.13.3.1401-1710ls`（1.7.10 的 leakfix 构建）、
+///     `14.23.4.2720-4627`（1.12.2）这种带字母后缀的，它们的"谁更新"没有定义（那个后缀不是
+///     序号），混进"从新到旧"的列表里只会排出一个看着像随机的次序。实测 1.7.10 那 163 个坐标
+///     里有 13 个是这种，滤掉之后还有 150 个。
+///  2. 去重（两种坐标形态理论上可能指同一个加载器版本）。
+///
+/// stable 一律 false：这份清单里**没有**"哪个是推荐的"这个信息（那是 promotions 的活）。
+/// 界面要标"推荐"的话，拿 pickForgeVersion(promotions, gameVersion) 的结果去比。
+inline LoaderVersionList listForgeVersions(const QByteArray &mavenMetadata,
+                                           const QString &gameVersion) {
+    LoaderVersionList entries;
+    if (gameVersion.isEmpty()) {
+        return entries;
+    }
+
+    QStringList seen;
+    static const QRegularExpression tag(QStringLiteral("<version>([^<]+)</version>"));
+    QRegularExpressionMatchIterator it = tag.globalMatch(QString::fromUtf8(mavenMetadata));
+    while (it.hasNext()) {
+        const QString coordinate = it.next().captured(1).trimmed();
+        const QString version = forgeLoaderVersionFromCoordinate(coordinate, gameVersion);
+        if (version.isEmpty() || parseDottedVersion(version).isEmpty() || seen.contains(version)) {
+            continue;
+        }
+        seen.append(version);
+        entries.append(LoaderVersionEntry{version, false});
+    }
+    sortLoaderVersionsNewestFirst(entries);
+    return entries;
 }
 
 }  // namespace LoaderMeta

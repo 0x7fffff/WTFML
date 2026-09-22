@@ -279,6 +279,31 @@ QStringList VersionManager::availableVersions() const {
     return versions;
 }
 
+QList<VersionManager::VersionChannel>
+VersionManager::groupIntoChannels(const QList<MinecraftVersion> &versions) {
+    // 四堆**先全摆出来**（空的那几堆也在）：界面那四条分类是一条都不少的，点开是空的
+    // 和"这一条压根不出现"是两回事。
+    QList<VersionChannel> channels;
+    channels.reserve(VersionCategory::channelCount());
+    for (int i = 0; i < VersionCategory::channelCount(); ++i) {
+        const VersionCategory::Channel channel = VersionCategory::channelAt(i);
+        channels.append(VersionChannel{channel, VersionCategory::channelKey(channel),
+                                       VersionCategory::channelText(channel), {}});
+    }
+    // channelFor() 的返回值是**一个**分类（不是一组标记），所以"一条版本只进一堆"和
+    // "一条都不丢"是同一件事 —— 这里不用再去重、也不用再兜"漏掉的那些"。
+    for (const MinecraftVersion &version : versions) {
+        const int index = VersionCategory::channelIndex(
+            VersionCategory::channelFor(version.id, version.type));
+        channels[index].versions.append(version);
+    }
+    return channels;
+}
+
+QList<VersionManager::VersionChannel> VersionManager::availableVersionChannels() const {
+    return groupIntoChannels(downloadManager->getAvailableVersions());
+}
+
 // ---------------------------------------------------------------------------
 // 从信号里往回接续：排到下一轮事件循环（用法和理由见 .hpp 里 deferNextStep 的 NOTE）
 // ---------------------------------------------------------------------------
@@ -767,6 +792,159 @@ void VersionManager::adoptInstallerVersion(const QString &version) {
                     [this] { startInstallerDownload(); });
 }
 
+// ---------------------------------------------------------------------------
+// "这个加载器有哪些版本可选"：一次只读的询问（安装页那个可展开的列表用）
+// ---------------------------------------------------------------------------
+//
+// 和上面那条安装路的关系：**这条只是问，什么都不装**。用户在安装页上把四个加载器挨个点开
+// 看看，一次安装都还没发生 —— 所以它刻意不复用 m_loaderInstall 那套状态机（用的话点开一个
+// 加载器就会把相位弄成"正在装"，isLoaderInstalling() 当场变 true，底栏和按钮全跟着错）。
+
+void VersionManager::requestLoaderVersions(const QString &gameVersion, LoaderKind kind) {
+    const QString wanted = gameVersion.trimmed();
+
+    // 上一发还在飞就先掐掉：界面上只有**一处**选择器，用户点开另一个加载器就是"换一份列表"，
+    // 两份回复乱序到达会把 Forge 的版本号填进 Fabric 那个列表里。abort 之后 finished()
+    // 照样会来一发，回复处理函数靠"这一份还是我手上这份吗"把它丢掉。
+    if (m_loaderVersionRequest.reply != nullptr) {
+        m_loaderVersionRequest.reply->abort();
+        m_loaderVersionRequest.reply = nullptr;
+    }
+    m_loaderVersionRequest.kind = kind;
+    m_loaderVersionRequest.gameVersion = wanted;
+
+    if (wanted.isEmpty()) {
+        emit loaderVersionsFetched(wanted, kind, false, QStringList(),
+                                   tr("还没选要装哪个版本，先在上面挑一个。"));
+        return;
+    }
+    if (!loaderInstallSupported(kind)) {
+        emit loaderVersionsFetched(wanted, kind, false, QStringList(),
+                                   tr("%1 的安装还没接通。").arg(loaderDisplayName(kind)));
+        return;
+    }
+
+    // OptiFine 的列表**必须跟着下载源**走：列出来的版本要能用同一个源装下去。镜像那条路的
+    // 地址最后两段是 type/patch（见 LoaderMeta::optifineMirrorPathFromEdition），官方那条路
+    // 得先过广告页拿 token —— 两份列表混着用就会"列出来了但下不了"。
+    //
+    // 另外三个没这个问题（Fabric 只有官方一个源；两份 maven 清单官方就是发布处），一律走官方。
+    // NOTE: 两份 maven 清单这里**不换镜像**，和安装那条路（fetchInstallerList，镜像挑不出来
+    //       再退官方）不一样。那条教训是实测的：镜像上那份 Forge 版本表是旧文件（1782 B、
+    //       最新只到 1.15.2），照着它列会给用户一个"1.16 以后都没有 Forge"的假结论。
+    //       列表这件事对"全不全"比对"快不快"敏感得多，所以宁可直接问官方。
+    QString url;
+    switch (kind) {
+    case LoaderKind::Fabric:
+        url = LoaderMeta::fabricLoaderListUrl(wanted);
+        break;
+    case LoaderKind::Forge:
+        url = LoaderMeta::forgeMavenMetadataUrl();
+        break;
+    case LoaderKind::NeoForge:
+        url = LoaderMeta::neoforgeMavenMetadataUrl();
+        break;
+    case LoaderKind::OptiFine:
+        url = downloadManager->useMirror() ? LoaderMeta::optifineMirrorListUrl(wanted)
+                                           : LoaderMeta::optifineDownloadsPageUrl();
+        break;
+    }
+    fetchLoaderVersions(url);
+}
+
+void VersionManager::fetchLoaderVersions(const QString &url) {
+    if (loaderNetwork == nullptr) {
+        loaderNetwork = new QNetworkAccessManager(this);
+    }
+    const QUrl target(url);
+    QNetworkRequest request(target);
+    // 和另外几处元数据请求同一个超时。最大的一份是 Forge 那个 211 KB 的 maven 清单，
+    // 30 秒也够（实测挂代理一两秒）。
+    request.setTransferTimeout(30000);
+    QNetworkReply *reply = loaderNetwork->get(request);
+    m_loaderVersionRequest.reply = reply;
+    connect(reply, &QNetworkReply::finished, this,
+            [this, reply] { onLoaderVersionsReply(reply); });
+}
+
+void VersionManager::onLoaderVersionsReply(QNetworkReply *reply) {
+    reply->deleteLater();
+    // 这一份还是我手上这份吗？不是就说明调用方已经换了目标（abort 掉的那一份也会走到这里），
+    // 这份回复没人要了。
+    if (m_loaderVersionRequest.reply != reply) {
+        return;
+    }
+    // 先把两个字段抄下来再 clear：下面几条 emit 都要用它们，而 clear 之后就没得读了。
+    const LoaderKind kind = m_loaderVersionRequest.kind;
+    const QString gameVersion = m_loaderVersionRequest.gameVersion;
+    m_loaderVersionRequest.clear();
+
+    const QByteArray body = reply->readAll();
+    if (reply->error() != QNetworkReply::NoError) {
+        emit loaderVersionsFetched(
+            gameVersion, kind, false, QStringList(),
+            tr("拿不到 %1 %2 的版本列表（%3）。检查网络后重试。")
+                .arg(loaderDisplayName(kind), gameVersion, reply->errorString()));
+        return;
+    }
+
+    const LoaderVersionParse parsed = parseLoaderVersions(kind, gameVersion, body);
+    if (!parsed.error.isEmpty()) {
+        emit loaderVersionsFetched(gameVersion, kind, false, QStringList(), parsed.error);
+        return;
+    }
+    emit loaderVersionsFetched(gameVersion, kind, true, parsed.versions, QString());
+}
+
+VersionManager::LoaderVersionParse VersionManager::parseLoaderVersions(LoaderKind kind,
+                                                                     const QString &gameVersion,
+                                                                     const QByteArray &body) const {
+    LoaderVersionParse result;
+    LoaderMeta::LoaderVersionList entries;
+    switch (kind) {
+    case LoaderKind::Fabric: {
+        QJsonParseError parseError;
+        const QJsonDocument doc = QJsonDocument::fromJson(body, &parseError);
+        if (!doc.isArray()) {
+            result.error = tr("Fabric 的版本列表读不懂（%1）。").arg(parseError.errorString());
+            return result;
+        }
+        entries = LoaderMeta::listFabricLoaderVersions(doc.array());
+        break;
+    }
+    case LoaderKind::Forge:
+        entries = LoaderMeta::listForgeVersions(body, gameVersion);
+        break;
+    case LoaderKind::NeoForge:
+        entries = LoaderMeta::listNeoForgeVersions(body, gameVersion);
+        break;
+    case LoaderKind::OptiFine:
+        if (downloadManager->useMirror()) {
+            QJsonParseError parseError;
+            const QJsonDocument doc = QJsonDocument::fromJson(body, &parseError);
+            if (!doc.isArray()) {
+                result.error =
+                    tr("OptiFine 的版本列表读不懂（%1）。").arg(parseError.errorString());
+                return result;
+            }
+            entries = LoaderMeta::listOptifineVersionsFromMirror(doc.array(), gameVersion);
+        } else {
+            entries = LoaderMeta::listOptifineVersionsFromDownloadsPage(QString::fromUtf8(body),
+                                                                       gameVersion);
+        }
+        break;
+    }
+
+    result.versions = LoaderMeta::loaderVersionStrings(entries);
+    if (result.versions.isEmpty()) {
+        // 四种加载器里，"这个游戏版本一个能装的都没有"都是**真结论**（不是网络问题）：
+        // 比如 Forge 还没支持某个刚发的快照、OptiFine 只发了预览版。所以这里如实说，
+        // 而且界面**不该**拿它去弹一个"下载失败"的框。
+        result.error = tr("%1 还没有支持 %2 的版本。").arg(loaderDisplayName(kind), gameVersion);
+    }
+    return result;
+}
+
 void VersionManager::installLoaderVersion(const QString &gameVersion, LoaderKind kind,
                                          const QString &javaPath,
                                          const QString &pinnedLoaderVersion) {
@@ -825,6 +1003,21 @@ void VersionManager::installLoaderVersion(const QString &gameVersion, LoaderKind
     emit loaderInstallMessage(
         tr("正在获取 %1 %2 该用哪个版本...").arg(m_loaderInstall.loaderName, gameVersion));
     if (kind == LoaderKind::OptiFine) {
+        // 钉死了就不用去问版本表 —— 和下面 Forge/NeoForge 那条一个道理，只是它得排在
+        // "OptiFine 分支"**里面**（那一段的钉死判断在分支之后，够不着这里）。
+        //
+        // NOTE: 这一条**以前漏了**：OptiFine 的分支无条件去拉版本表，于是"钉死一个 OptiFine
+        //       版本"被无声忽略 —— 用户在安装页上选了 H7，装出来的是版本表里那条最新的 H9。
+        //       症状还特别难认：装是装成了、版本目录也在，只是不是他选的那个。
+        if (!m_loaderInstall.pinnedVersion.isEmpty()) {
+            emit loaderInstallMessage(tr("正在装指定的 %1 %2（不去问版本表了）...")
+                                          .arg(m_loaderInstall.loaderName,
+                                               m_loaderInstall.pinnedVersion));
+            adoptOptifineEdition(m_loaderInstall.pinnedVersion,
+                                 LoaderMeta::optifineMirrorPathFromEdition(
+                                     m_loaderInstall.pinnedVersion));
+            return;
+        }
         fetchOptifineVersionList();
         return;
     }
@@ -1717,26 +1910,54 @@ void VersionManager::onOptifineVersionListReply(QNetworkReply *reply) {
         return;
     }
 
-    m_loaderInstall.installerFileName = pick.fileName;
     // "这个版本叫什么"只有 LoaderMeta::optifineEditionFromFile() 那一处切法，官方/镜像两条路
     // 都得是同一个值（那是要写进 wtfml.meta 的东西）。
-    //
-    // NOTE: 版本目录名（= loaderId，最终 finished 信号里的 id）这里**故意不填** —— 它是
-    //       安装器自己拼的，我们算不出来。装完认出来再填（见 adoptOptifineProducts），
-    //       在那之前要报 id 的地方走 reportId() 的退化值（原版号）。
-    m_loaderInstall.loaderVersion =
+    const QString edition =
         LoaderMeta::optifineEditionFromFile(m_loaderInstall.gameVersion, pick.fileName);
 
     emit loaderInstallMessage(tr("挑中 %1 %2（%3）。")
-                                  .arg(m_loaderInstall.loaderName, m_loaderInstall.loaderVersion,
+                                  .arg(m_loaderInstall.loaderName, edition,
                                        useMirror ? tr("镜像源上最新那条正式版")
                                                  : tr("官方页面上标着正式版的那一条")));
 
-    if (useMirror) {
+    // 镜像那份数据里带着权威的 type/patch，直接读到的就用它（**不从版本号切**：那两段的切法
+    // 和文件名不一样，多一处自己算的就多一处能算错的地方）。用户钉死的版本没有这两个字段，
+    // 那时才由版本号切 —— 见下面那个函数的参数说明。
+    adoptOptifineEdition(
+        edition, LoaderMeta::OptiFineMirrorPath{pick.type, pick.patch});
+}
+
+/**
+ * @brief OptiFine：版本定了之后的收尾（填版本号/文件名，然后按下载源决定下一步）。
+ * @param edition 版本号（`HD_U_H9`，就是写进 wtfml.meta 的 loaderVersion）。
+ * @param mirrorPath 镜像那条路的两个路径段。**镜像列表里直接读到的**就传进来（那是权威的）；
+ *        用户钉死的版本没有这两个字段，由 optifineMirrorPathFromEdition() 从版本号切出来 ——
+ *        那个切法对着那 11 条真实镜像数据逐条核过，和直接读到的完全一致。
+ *
+ * 两条路（版本表挑出来的 / 用户钉死的）共用这一段的理由：**挑法和钉死的差别只在"版本号从
+ * 哪来"**，后面填文件名、拼地址、走镜像还是广告页，一个字都不该不一样。这里以前是内联在
+ * onOptifineVersionListReply() 里的，于是"钉死"那条路根本没有入口 —— 选了 H7 会装成 H9。
+ *
+ * NOTE: 版本目录名（= loaderId，最终 finished 信号里的 id）这里**故意不填** —— 它是安装器
+ *       自己拼的，我们算不出来。装完认出来再填（见 adoptOptifineProducts），在那之前要报
+ *       id 的地方走 reportId() 的退化值（原版号）。
+ */
+void VersionManager::adoptOptifineEdition(const QString &edition,
+                                         const LoaderMeta::OptiFineMirrorPath &mirrorPath) {
+    m_loaderInstall.loaderVersion = edition;
+    m_loaderInstall.installerFileName =
+        LoaderMeta::optifineInstallerFileName(m_loaderInstall.gameVersion, edition);
+
+    if (downloadManager->useMirror()) {
+        if (!mirrorPath.ok()) {
+            failLoaderInstall(tr("%1 的版本号 %2 认不出下载地址，换一个版本试试。")
+                                  .arg(m_loaderInstall.loaderName, edition));
+            return;
+        }
         // 镜像那条路的地址最后两段是 type/patch（`/optifine/1.18.2/HD_U/H9`），302 到
         // maven 上那个真文件。所以 installerFileName 不能用它来切，上面先填好了。
         m_loaderInstall.installerUrl = LoaderMeta::optifineMirrorFileUrl(
-            m_loaderInstall.gameVersion, pick.type, pick.patch);
+            m_loaderInstall.gameVersion, mirrorPath.type, mirrorPath.patch);
         deferLoaderStep(LoaderInstall::Phase::FetchingInstallerList,
                         [this] { ensureParentForOptifine(); });
         return;
@@ -1745,7 +1966,7 @@ void VersionManager::onOptifineVersionListReply(QNetworkReply *reply) {
     // 官方那条路还差一步：真文件在广告页后面，先把那条带 token 的地址抠出来。
     m_loaderInstall.phase = LoaderInstall::Phase::FetchingInstallerToken;
     emit loaderInstallMessage(tr("正在取 %1 %2 的下载地址...")
-                                  .arg(m_loaderInstall.loaderName, m_loaderInstall.loaderVersion));
+                                  .arg(m_loaderInstall.loaderName, edition));
     fetchOptifineDownloadToken();
 }
 

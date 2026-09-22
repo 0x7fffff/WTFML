@@ -20,6 +20,8 @@ class QTemporaryDir;
 class QTimer;
 
 #include "../download/DownloadManager.hpp"
+#include "../download/LoaderMeta.hpp"
+#include "../download/VersionCategory.hpp"
 #include "ModpackImport.hpp"
 #include "VersionDisplay.hpp"
 
@@ -42,6 +44,40 @@ public:
     // 传 nullptr 时只是不收告警，返回的列表逐项一致。
     QStringList installedVersions(QStringList *warnings = nullptr) const;
     QStringList availableVersions() const;
+
+    /// 四个分类里的一个，连同它底下的版本。
+    struct VersionChannel {
+        VersionCategory::Channel channel = VersionCategory::Channel::Release;
+        QString key;    ///< 见 VersionCategory::channelKey()（界面认条目的那个键）
+        QString text;   ///< 见 VersionCategory::channelText()（给用户看的四个字）
+        QList<MinecraftVersion> versions;  ///< 清单**原顺序**（新到旧），不是重排过的
+    };
+
+    /**
+     * @brief 把一份版本清单按下载页那四个分类分好堆（**纯函数**）。
+     * @param versions 清单（`DownloadManager::getAvailableVersions()` 那份，或任何同形状的）。
+     *
+     * 永远是 **4 个**（空的那一堆也在，界面四条一条不少），顺序就是界面上从上到下的顺序。
+     * 每一堆里的顺序**原样保留**（清单本来就是新到旧）。
+     *
+     * 分堆的判据只有一处：VersionCategory::channelFor()（含那张愚人节版的名单，以及
+     * "为什么不能用发布日期当判据"的实测记录）。这里只负责按它分堆 —— 同一套规则抄两遍，
+     * 早晚会一边改一边漏。
+     *
+     * NOTE: 写成**静态**、收一个列表进来，是为了让验证工程能拿真清单（915 条那份夹具）直接
+     *       喂进来断言"四堆加起来一条不丢"。做成成员的话，验证工程就得先能替换掉
+     *       VersionManager 里那个 DownloadManager 才够得着 —— 那种"只给测试开的注入口"
+     *       在生产代码里是纯负担。
+     */
+    static QList<VersionChannel> groupIntoChannels(const QList<MinecraftVersion> &versions);
+
+    /**
+     * @brief 「可安装版本」那份清单，按下载页那四个分类分好堆（走 downloadManager 手上那份）。
+     *
+     * 清单还没拉回来时四堆都是空的（不是"返回空列表"）—— 界面据此照常画四条、只是点开是空的，
+     * 而不是整块消失。
+     */
+    QList<VersionChannel> availableVersionChannels() const;
 
     // Version fetching from Mojang API
     void fetchAvailableVersions();
@@ -178,6 +214,32 @@ public:
     void installLoaderVersion(const QString &gameVersion, LoaderKind kind,
                               const QString &javaPath = QString(),
                               const QString &pinnedLoaderVersion = QString());
+
+    /**
+     * @brief 问某个加载器在某个游戏版本上有哪些版本可选（安装页那个展开的列表用）。
+     *
+     * 一次只认一份请求：界面上只有**一处**在选择器里（用户点开另一个加载器 = 换一份列表），
+     * 所以这里再来一发就**把上一发 abort 掉**，只回最后那一发。不然用户快速点两下会先收到
+     * 旧的那份列表，把它填进新的下拉框里 —— 那是"选了 Fabric 却看到 Forge 的版本号"。
+     *
+     * 四条路的数据源（都是实测过的）：
+     *   * Fabric   `/v2/versions/loader/<mc>`（253 条 / 589 KB，接口本来就是新到旧）
+     *   * Forge    maven 清单 5048 条 / 211 KB（**新开的源**：promotions 那张表只回答"推荐哪个"，
+     *              里面根本没有"总共有哪些" —— 1.20.1 那对键是 47.4.10 / 47.4.23，而它底下有 132 个）
+     *   * NeoForge maven 清单 63 KB
+     *   * OptiFine  跟着**下载源**走：镜像源问镜像那条 JSON，否则读官方那 200 KB 的下载页 ——
+     *                必须跟着下载源，因为"列出来的版本"要能用同一个源装下去（见
+     *                LoaderMeta::optifineInstallerFileName 和 VersionManager::adoptOptifineEdition）。
+     *
+     * NOTE: 两份 maven 清单都**只走官方地址、不走镜像**，和安装那条路（fetchInstallerList）
+     *       不一样。理由是那次的实测教训：镜像（BMCLAPI）上那份 Forge 版本表是**旧文件**
+     *       （1782 B、最新只到 1.15.2），照着它列会给用户一个"1.16 以后都没有 Forge"的假结论。
+     *       列表这件事对"全不全"比对"快不快"敏感得多，所以宁可直接问官方。
+     *
+     * @param gameVersion 原版版本号。空的话直接回失败（问的是"这个版本上能装什么"）。
+     * @param kind 哪一个加载器。
+     */
+    void requestLoaderVersions(const QString &gameVersion, LoaderKind kind);
 
     /// 有加载器安装正在进行（含"先装原版"那一段）。
     /// UI 用它来兜住"两批下载之间那一瞬间按钮亮着"的缝。
@@ -432,6 +494,24 @@ signals:
     // "进度条显示的是文件数" 这件事变得不可信。
     void loaderInstallMessage(const QString &text);
 
+    /**
+     * @brief requestLoaderVersions() 的回复。**每次请求都会回一次**（成功、失败都回）。
+     *
+     * @param versions 用户能挑的版本号，按各自加载器的天然次序（两份 maven 清单按版本号新到旧、
+     *        Fabric 按接口给的次序）。空 = 一个都没有。
+     * @param errorMessage 失败时说明原因（界面按它弹窗）；成功时是空串。
+     *
+     * NOTE: **列表里没有"哪个是推荐的"这个标记**，这是刻意留白的。四种加载器里只有 Fabric
+     *       的列表自带这个信息（接口的 `stable` 字段），另外三个的"推荐"都在**别的**数据里
+     *       （Forge 在 promotions_slim.json、NeoForge 在"没有 -beta 后缀"、OptiFine 在官方页
+     *       那一行 `downloadLineMain`）。为 Forge 那份多拉一次 4 KB 的请求、再串一道状态机，
+     *       换来的只是列表里一个高亮 —— 而界面那条「自动（推荐）」选项已经把同一件事说清楚了：
+     *       **不指定版本 = 让安装器按老规矩挑**（installLoaderVersion 不传 pinnedVersion 就是
+     *       这个行为，挑法一处没变）。用户真想指定某个版本时，他本来就知道自己要哪个。
+     */
+    void loaderVersionsFetched(const QString &gameVersion, LoaderKind kind, bool success,
+                               const QStringList &versions, const QString &errorMessage);
+
     /// 整合包导入中间那几句（装加载器、下清单里那批文件、解压覆盖文件）。
     ///
     /// NOTE: 和 loaderInstallMessage 分开，理由是**收尾那句话该说谁**：导入整件事的终态
@@ -636,6 +716,11 @@ private:
     // （JSON 数组 / HTML）和挑法都不一样，所以按下载源分派，不共用回复处理。
     void fetchOptifineVersionList();
     void onOptifineVersionListReply(QNetworkReply *reply);
+    // 版本号定了之后的收尾：填 installerFileName/loaderVersion，再按下载源决定"直接下（镜像）"
+    // 还是"先去广告页拿 token（官方）"。**两条路共用**（版本表挑出来的 / 用户钉死的），
+    // 差别只在"版本号从哪来"。定义处有详细说明。
+    void adoptOptifineEdition(const QString &edition,
+                              const LoaderMeta::OptiFineMirrorPath &mirrorPath);
     // 官方那条路多一步：真文件在广告页后面，得先把它那条带 token 的地址抠出来。
     void fetchOptifineDownloadToken();
     void onOptifineDownloadTokenReply(QNetworkReply *reply);
@@ -692,6 +777,36 @@ private:
     QNetworkAccessManager *loaderNetwork = nullptr;
     LoaderInstall m_loaderInstall;
     ModpackInstall m_modpackInstall;
+
+    // ---- "这个加载器有哪些版本可选"那一发 GET 的状态 ----
+    //
+    // 为什么不复用 m_loaderInstall：那一位装的是**一次安装**的状态机（相位、安装器地址、
+    // 钉死的版本……），而"列版本"是安装**之前**的一次只读询问 —— 用户在安装页上把四个加载器
+    // 挨个点开看看，一次安装都还没发生。混进去的话，点开一个加载器就会把 m_loaderInstall
+    // 弄成"正在装"的样子，isLoaderInstalling() 当场变 true，底栏和按钮全跟着错。
+    struct LoaderVersionRequest {
+        LoaderKind kind = LoaderKind::Fabric;
+        QString gameVersion;
+        // 正在飞的那一份。换一个加载器/换一个游戏版本时把它 abort 掉（abort 之后 finished()
+        // 照样会来一发，回复处理函数靠"这一份还是我手上这份吗"把它丢掉）。
+        QNetworkReply *reply = nullptr;
+
+        bool active() const { return reply != nullptr; }
+        void clear() { reply = nullptr; }
+    };
+    LoaderVersionRequest m_loaderVersionRequest;
+
+    // 发那一发 GET，回复交给 onLoaderVersionsReply()。
+    void fetchLoaderVersions(const QString &url);
+    void onLoaderVersionsReply(QNetworkReply *reply);
+    // 按加载器把这一份回复解析成"能挑的版本"。失败时 returned.error 非空（是给用户看的话）。
+    struct LoaderVersionParse {
+        QStringList versions;
+        QString error;
+    };
+    LoaderVersionParse parseLoaderVersions(LoaderKind kind, const QString &gameVersion,
+                                           const QByteArray &body) const;
+
     // 跑那三个外部安装器（Forge / NeoForge / OptiFine）的子进程。懒建 —— Fabric 那条路
     // 一个进程都不起，所以装 Fabric 之前它一直是 nullptr。
     //
