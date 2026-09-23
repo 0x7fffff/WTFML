@@ -8,7 +8,6 @@
 
 #include <QDir>
 #include <QFile>
-#include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QNetworkAccessManager>
@@ -44,12 +43,17 @@ QNetworkRequest resourceRequest(const QString &url) {
 /// 不出来、界面还被拖着"。8 秒：正常路况留了三倍余量，坏路况下也别把人按在椅子上。
 constexpr int kIconTimeoutMs = 8000;
 
-/// 图标那一发用的请求（只有超时和上面那条不一样）。
-QNetworkRequest iconRequest(const QString &url) {
-    QNetworkRequest request{QUrl(url)};
-    request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("WTFML"));
-    request.setTransferTimeout(kIconTimeoutMs);
-    return request;
+/// 图标那一发用的请求（超时和上面那条不一样，另外还可能要带"变了没有"那两个头）。
+/// NOTE: 它的**定义在下面**（这个匿名命名空间外面）—— 它是 ResourceStore 的静态成员，
+///       不是这里的一个自由函数。提到类里去是为了让 build/verify 能钉住那张真值表
+///      （"哪条凭据发哪个头"），见 ResourceStore.hpp 里那段说明。
+
+/// 这一发的回复里那两条凭据（下一回核对要用）。
+ResourceStore::IconValidators validatorsOf(QNetworkReply *reply) {
+    ResourceStore::IconValidators validators;
+    validators.etag = QString::fromUtf8(reply->rawHeader("ETag"));
+    validators.lastModified = QString::fromUtf8(reply->rawHeader("Last-Modified"));
+    return validators;
 }
 
 /// 一串图标字节 → 一张图。解不出来回一张 null 的 QPixmap。
@@ -82,6 +86,20 @@ bool isSafeFileStem(const QString &id) {
 }
 
 } // namespace
+
+QNetworkRequest ResourceStore::iconRequest(const QString &url, const IconValidators &validators) {
+    QNetworkRequest request{QUrl(url)};
+    request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("WTFML"));
+    request.setTransferTimeout(kIconTimeoutMs);
+    // 空的那条不发（见声明处那段：一个空的条件头不是"没有凭据"，是一句不成形的话）。
+    if (!validators.etag.isEmpty()) {
+        request.setRawHeader("If-None-Match", validators.etag.toUtf8());
+    }
+    if (!validators.lastModified.isEmpty()) {
+        request.setRawHeader("If-Modified-Since", validators.lastModified.toUtf8());
+    }
+    return request;
+}
 
 /// 这个 reply 上的 HTTP 状态码（没连上时是 0）。
 int statusOf(QNetworkReply *reply) {
@@ -213,13 +231,6 @@ void ResourceStore::fetchVersions(const QString &requestKey, const QString &proj
     });
 }
 
-bool ResourceStore::iconCacheIsFresh(const QDateTime &writtenAt, const QDateTime &now) {
-    if (!writtenAt.isValid()) {
-        return false; // 不知道什么时候存的 = 不敢信（见声明处那条 NOTE）
-    }
-    return writtenAt.msecsTo(now) < kIconCacheFreshMs;
-}
-
 QString ResourceStore::iconCachePath(const QString &projectId) {
     if (!isSafeFileStem(projectId)) {
         return QString(); // 不是文件名安全的那种 id：宁可不缓存（见声明处）
@@ -228,8 +239,7 @@ QString ResourceStore::iconCachePath(const QString &projectId) {
     return AppPaths::iconCacheDir() + QLatin1Char('/') + projectId + QStringLiteral(".icon");
 }
 
-bool ResourceStore::loadIconFromCache(const QString &projectId, QByteArray *bytesOut,
-                                      bool *freshOut) {
+bool ResourceStore::loadIconFromCache(const QString &projectId, QByteArray *bytesOut) {
     const QString path = iconCachePath(projectId);
     if (path.isEmpty()) {
         return false;
@@ -239,15 +249,65 @@ bool ResourceStore::loadIconFromCache(const QString &projectId, QByteArray *byte
         return false;
     }
     const QByteArray bytes = file.readAll();
-    const QDateTime writtenAt = QFileInfo(path).lastModified();
     file.close(); // 见 build/verify 里 writeFileAt 那段 NOTE：句柄不放手，后面删不掉
     if (bytesOut != nullptr) {
         *bytesOut = bytes;
     }
-    if (freshOut != nullptr) {
-        *freshOut = iconCacheIsFresh(writtenAt, QDateTime::currentDateTime());
-    }
     return true;
+}
+
+QString ResourceStore::iconMetaPath(const QString &projectId) {
+    const QString icon = iconCachePath(projectId);
+    if (icon.isEmpty()) {
+        return QString(); // 不是文件名安全的那种 id（和 iconCachePath 同一个理由）
+    }
+    return icon + QStringLiteral(".meta");
+}
+
+ResourceStore::IconValidators ResourceStore::loadIconValidators(const QString &projectId) {
+    IconValidators validators;
+    const QString path = iconMetaPath(projectId);
+    if (path.isEmpty()) {
+        return validators;
+    }
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        return validators; // 没有这个文件 = 没有凭据（正常情况，不是错误）
+    }
+    // 两行纯文本（ETag / Last-Modified），顺序写死。行数不够就只认有的那几行；
+    // 多出来的行不管（将来要加第三条凭据时，老版本读它也只读到前两条）。
+    const QList<QByteArray> lines = file.readAll().split('\n');
+    file.close();
+    if (lines.size() > 0) {
+        validators.etag = QString::fromUtf8(lines.at(0)).trimmed();
+    }
+    if (lines.size() > 1) {
+        validators.lastModified = QString::fromUtf8(lines.at(1)).trimmed();
+    }
+    return validators;
+}
+
+bool ResourceStore::saveIconValidators(const QString &projectId,
+                                       const IconValidators &validators) {
+    const QString path = iconMetaPath(projectId);
+    if (path.isEmpty()) {
+        return false;
+    }
+    if (validators.isEmpty()) {
+        // 两条都没有 = 不留一份空文件（下次读出来同样是空的，盘上却多一个东西）。
+        QFile::remove(path);
+        return true;
+    }
+    QDir().mkpath(AppPaths::iconCacheDir());
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        return false; // best-effort：写不进去只是下次多要一次整张，不是错误
+    }
+    const QByteArray text =
+        validators.etag.toUtf8() + '\n' + validators.lastModified.toUtf8() + '\n';
+    const bool ok = file.write(text) == text.size();
+    file.close();
+    return ok;
 }
 
 bool ResourceStore::saveIconToCache(const QString &projectId, const QByteArray &bytes) {
@@ -269,6 +329,12 @@ void ResourceStore::dropIconFromCache(const QString &projectId) {
     const QString path = iconCachePath(projectId);
     if (!path.isEmpty()) {
         QFile::remove(path);
+    }
+    // 凭据跟着一起删（见声明处那条 NOTE）：留一条"对应着已经不在的那份字节"的 ETag，
+    // 下一发就会问出 304 来 —— 于是这一格永远画不出东西，而且**看起来一个错都没有**。
+    const QString meta = iconMetaPath(projectId);
+    if (!meta.isEmpty()) {
+        QFile::remove(meta);
     }
 }
 
@@ -319,25 +385,34 @@ void ResourceStore::requestIcon(const ResourceCatalog::Hit &hit) {
         return; // 已经在问了，等那一发
     }
 
-    // 盘上那份：先把它顶上（这一发回来之前列表上就有图），新鲜的连请求都不用发。
+    // 盘上那份：先把它顶上（这一发回来之前列表上就有图）。**不问它存了多久** ——
+    // 用户定的是"缓存默认不过期"，换新版靠下面那一次核对，不是靠把旧图作废。
     // NOTE: 这一段**排在"放弃了"那道闸前面** —— 盘上那些一个请求都不用发，没理由跟着
     //       一起放弃（网络不通的时候它们正是唯一还能画出来的图）。
     QByteArray cached;
-    bool fresh = false;
-    if (loadIconFromCache(projectId, &cached, &fresh)) {
+    bool onDisk = false;
+    if (loadIconFromCache(projectId, &cached)) {
         const QPixmap icon = decodeIcon(cached);
         if (icon.isNull()) {
             // 盘上那份读不出图（写到一半、或者被别的东西动过）。删掉当没有 —— 留着的话
             // 每进一次这一页都要白读一遍，而且永远画不出图来。
             dropIconFromCache(projectId);
         } else {
+            onDisk = true;
             m_icons.insert(projectId, icon);
             emit iconReady(projectId, icon);
-            if (fresh) {
-                return; // 一个请求都不发（这个缓存存在的全部意义）
+            // 上面那张已经发出去了，下面这几种情况到此为止：
+            //  * 这一趟运行已经核过它了 —— 用户要的是"每次打开"核一遍，不是每翻一页核一遍；
+            //  * 这一批已经不问了（网络不通那阵子）。**核不了就不核**，别把这一发记进
+            //    m_iconRevalidated：用户把代理打开、又点一下刷新重搜，那时候该给它一次机会
+            //   （重搜会清掉 m_iconGaveUp，见成员那段）。
+            if (m_iconRevalidated.contains(projectId) || m_iconGaveUp) {
+                return;
             }
-            // 不新鲜：图已经画上去了，下面再**后台**问一遍。问到了会再发一次
-            // iconReady（界面把那一格换成新的），没问到也不动它（见 answerIcon）。
+            // 记账**在发之前**：这一趟运行对它的那一次核对就是下面这一发（成了不成、要不要
+            // 退回去重试，都不再问第二遍）。**只有"盘上有那份"的才记** —— 盘上没有的话
+            // 下面那一发是"第一次拿这张图"，它失败了得留下重试的机会（见上面那条）。
+            m_iconRevalidated.insert(projectId);
         }
     }
 
@@ -366,27 +441,44 @@ void ResourceStore::requestIcon(const ResourceCatalog::Hit &hit) {
         return;
     }
 
+    // 这一趟运行对它的那一次核对**已经在上面记过账了**（只有"盘上有那份"的才记）。
+    // 这一发就是本趟唯一的一发：成不成、要不要退回去重试，都不再问第二遍。
     // 兜底只在"这一发要的是 webp"时存在 —— 要 PNG 的时候已经是最坏的那条了，没有下一发。
-    startIconRequest(projectId, url, wantWebp ? ResourceCatalog::iconUrlForProject(projectId)
-                                              : QString());
+    // 盘上那份字节和它的凭据一起带上：带凭据才问得出 304，带字节才比得出"一模一样"。
+    startIconRequest(projectId, url,
+                     wantWebp ? ResourceCatalog::iconUrlForProject(projectId) : QString(),
+                     onDisk ? cached : QByteArray(),
+                     onDisk ? loadIconValidators(projectId) : IconValidators());
 }
 
 void ResourceStore::startIconRequest(const QString &projectId, const QString &url,
-                                     const QString &fallbackUrl) {
+                                     const QString &fallbackUrl, const QByteArray &onDiskBytes,
+                                     const IconValidators &validators) {
     if (url.isEmpty()) {
         emit iconReady(projectId, QPixmap());
         return;
     }
 
     m_iconPending.insert(projectId);
-    QNetworkReply *reply = m_net->get(iconRequest(url));
+    QNetworkReply *reply = m_net->get(iconRequest(url, validators));
     QObject::connect(reply, &QNetworkReply::finished, this,
-                     [this, reply, projectId, fallbackUrl]() {
+                     [this, reply, projectId, fallbackUrl, onDiskBytes]() {
         reply->deleteLater();
         m_iconPending.remove(projectId);
 
         const int status = statusOf(reply);
         const QByteArray body = reply->readAll();
+
+        if (status == HttpClient::kStatusNotModified) {
+            // **没变**。盘上那份就是最新的：不写盘、不发信号、界面上一格都不动
+            //（它上面画的本来就是这一张）。
+            // NOTE: 这个码只可能在"带着凭据去问"时出现。凭据和盘上那份对不上（比如那份
+            //       被别的东西换过）时主机给的是 200，走下面那条路 —— 所以这条路不担心
+            //       "凭据说没变、其实变了"。
+            // NOTE: 也**不算**主机级失败、更不算成功：它就是"问过了，答案是不用动"。
+            //       那道"连着三次不通就放弃"的闸跟它无关（主机明明答话了）。
+            return;
+        }
 
         if (status == HttpClient::kStatusTooManyRequests) {
             // 图标是**次要**的东西：为它弹一个"你问得太勤了"的窗、把用户正在看的列表打断，
@@ -429,6 +521,15 @@ void ResourceStore::startIconRequest(const QString &projectId, const QString &ur
             return;
         }
         m_iconHostFailures = 0; // 这一路是通的（成功一次就把那道闸放回去）
+        // 凭据**先更新**（这一发可能给了新的 ETag：内容没变、标识变了也是常事），
+        // 下面那条"没变就直接走人"的路也得留着它，不然下次这一发就白问了。
+        saveIconValidators(projectId, validatorsOf(reply));
+        // 主机**不认**条件头时会把整张再发一遍 —— 这时候比一下字节，一模一样就等于
+        // "没变"：不写盘、不发信号（重发一遍会让列表上那一格闪一下，而这趟运行里
+        // 它本来就已经是这张图了）。
+        if (!onDiskBytes.isEmpty() && body == onDiskBytes) {
+            return;
+        }
         m_icons.insert(projectId, icon);
         saveIconToCache(projectId, body);
         emit iconReady(projectId, icon);

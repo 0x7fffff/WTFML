@@ -26,9 +26,9 @@
 #pragma once
 
 #include <QByteArray>
-#include <QDateTime>
 #include <QHash>
 #include <QList>
+#include <QNetworkRequest>
 #include <QObject>
 #include <QPixmap>
 #include <QSet>
@@ -80,16 +80,29 @@ public:
      * 取不到（404 / 那条资源本来就没传图标）时发一个**空 QPixmap** —— 那是"没有"，不是"失败"，
      * 界面上画占位方块，也不该弹窗。
      *
-     * 【两级缓存：内存 + 盘上那一份】
+     * 【两级缓存：内存 + 盘上那一份，盘上那份**不过期**】
      *
-     * 盘上有一份**新鲜**的（见 kIconCacheFreshMs）就一个请求都不发、同步把图给出去 ——
-     * "第二次进这一页是秒开"就是这一条。有一份**过期**的也先给出去（用户马上能看到图），
-     * 然后再**后台**问一遍；问到了就再发一次 iconReady，界面把那一格换成新的。
+     * 盘上有一份就**立刻**把它给出去（同步，一个请求都不发）—— "第二次进这一页是秒开"
+     * 就是这一条。**不看它存了多久**：用户 2026-09-23 定的是"缓存默认不过期"。
+     * 换新版的办法是下面这条**核对**，不是把旧图作废。
      *
-     * NOTE: 缓存是**按时间**作废的，不是 PlayerSkinStore 那种"内容寻址、永不失效"：那边
-     *       的 URL 里本来就带内容哈希（同一个地址永远同一张图），图标这条不是 —— 能用的
-     *       那个 PNG 地址是 `data/<project_id>/icon.png`，固定名字、内容会变（作者换了图标）。
-     *       代价是"作者换了图标，用户最迟一周后看到新的"，图标是装饰，这个代价是接受的。
+     * 【每次打开核对一次】
+     *
+     * 同一个图标，**这一趟运行**里第一次被要的时候，后台带条件头再问一句"变了没有"
+     * （`If-None-Match` / `If-Modified-Since`，凭据就是上次存下来那两条，见
+     * loadIconValidators）。三条出路：
+     *   * **304**（没变）→ 什么都不做：不写盘、不发信号、界面上一格都不动；
+     *   * **200 且字节和盘上那份一模一样**（主机不认条件头时就会这样）→ 同上，什么都不做；
+     *   * **200 且字节不一样**（作者换了图标）→ 写盘、存新凭据、再发一次 iconReady，
+     *     界面把那一格换成新的。
+     * 一次运行里每个图标只核这一遍（见 m_iconRevalidated）—— "每次打开"指的是**启动器
+     * 每次启动**，不是每翻一页。
+     *
+     * NOTE: 代价实测过（2026-09-23，真 CDN）：Modrinth 那条链子认这两个头，没变的时候
+     *       一发往返三百来字节（20 个图标 ≈ 6 KB），比整张重下（webp 十来 KB、PNG 35 KB）
+     *       小两个数量级 —— 这就是"每打开一次核一遍"敢做的全部理由。**换一个不认条件头的
+     *       源**时这条要重新量：那时的代价是一页二十来张整图，一页 200 KB 上下。
+     *       （探针：`mw_check.exe icon-live`，它会把 304 的条数和真下回来的字节数打出来。）
      *
      * 【为什么收的是整条 Hit 而不是一个 id：要挑地址】
      *
@@ -109,13 +122,33 @@ public:
 
     // ---------- 图标缓存（纯函数，离线能钉住）----------
 
-    /// 盘上那张图标活多久（毫秒）。过了这个岁数 = 该刷新了（见 requestIcon 的 NOTE）。
-    static constexpr qint64 kIconCacheFreshMs = 7LL * 24 * 60 * 60 * 1000;
+    /// 盘上那份图标的两条"凭据"（HTTP 的 ETag / Last-Modified）——**核对**那一发靠它们
+    /// 问一句"变了没有"。两条都空 = 没有凭据：下一发只能老老实实要整张（主机也就只好
+    /// 把整张再发一遍，那一条路照样是对的，只是费流量）。
+    ///
+    /// NOTE: 凭据是**跟着那一份字节**的：换了一张图，旧凭据立刻就没用了。所以写图标和
+    ///       写凭据永远是同一件事的两半（见 startIconRequest 里那一发成功的那条路）。
+    struct IconValidators {
+        QString etag;
+        QString lastModified;
+        bool isEmpty() const { return etag.isEmpty() && lastModified.isEmpty(); }
+    };
 
-    /// 这份缓存还算不算新鲜？
-    /// NOTE: `writtenAt` 无效 = 文件系统没给出时间（罕见）—— 当成**不新鲜**：宁可多问一次，
-    ///       也不要让一张"不知道什么时候存的"图永远画在那儿。
-    static bool iconCacheIsFresh(const QDateTime &writtenAt, const QDateTime &now);
+    /// 凭据那份旁挂文件：`<数据目录>/cache/icons/<project_id>.icon.meta`。
+    /// 跟着 iconCachePath() 一起走 —— 同样地，project_id 不是文件名安全的那一类时回空串。
+    ///
+    /// NOTE: 为什么另起一个文件而不是塞进 `.icon` 里：那个文件是**整段图片字节**，
+    ///       前面加任何东西都会让"按内容认格式"（ImageDecode，见那条 NOTE）读不出来。
+    ///       `.icon.meta` 是纯文本两行（etag / last-modified），读不懂就当没有。
+    static QString iconMetaPath(const QString &projectId);
+
+    /// 读那两条凭据。读不到（没有 / 读不动 / 内容不成形）一律回**空的** ——
+    /// "没有凭据"和"凭据是空的"是同一件事：下一发整张重来。
+    static IconValidators loadIconValidators(const QString &projectId);
+
+    /// 把这一发拿到的那两条凭据写到盘上。两个都是空 = **删掉**那份 meta（没有凭据还留着
+    /// 一个空文件，下次读出来一样，但盘上多一个东西）。best-effort：写不进去不算错。
+    static bool saveIconValidators(const QString &projectId, const IconValidators &validators);
 
     /// 某个 project_id 的图标缓存路径：`<数据目录>/cache/icons/<project_id>.icon`。
     ///
@@ -130,17 +163,35 @@ public:
 
     /// 读盘上那份图标缓存。
     /// @param bytesOut 命中时写入文件内容（没命中不动它）。
-    /// @param freshOut 命中时写入"还算不算新鲜"（没命中不动它）。
-    /// @return 文件在不在。**"在不在"和"新不新鲜"是两件事**：在但不新鲜 = 先拿它顶上、
-    ///         同时后台再问一遍（见 requestIcon）。
-    static bool loadIconFromCache(const QString &projectId, QByteArray *bytesOut, bool *freshOut);
+    /// @return 文件在不在。**在就一定能用**：这里没有"够不够新"这一说了（见 requestIcon）。
+    static bool loadIconFromCache(const QString &projectId, QByteArray *bytesOut);
 
     /// 把一份刚下回来的（能解码成图的）图标字节写到盘上。
     /// best-effort：写不进去就算了，**不是错误**（这次照样把图发给界面）。
     static bool saveIconToCache(const QString &projectId, const QByteArray &bytes);
 
-    /// 把盘上那份图标缓存删掉（读到坏字节时用，见 requestIcon）。
+    /// 把盘上那份图标缓存删掉（读到坏字节时用，见 requestIcon）。**凭据一起删** ——
+    /// 光删图不删凭据的话，下一次会拿着一条"对应另一份字节"的 ETag 去问，主机答 304，
+    /// 于是这一格永远也画不出东西来。
     static void dropIconFromCache(const QString &projectId);
+
+    /// 图标那一发用的请求：8 秒超时（kIconTimeoutMs，比 kDefaultTimeoutMs 短），
+    /// **可能带**"变了没有"那两个头。
+    ///
+    /// 条件头是把上次存下来的凭据原样送回去：主机认（Modrinth 那条链子认，2026-09-23 实测
+    /// 两种头都回 304）就只回几十个字节；不认也**不是错**，它照旧把整张发过来，靠比字节
+    /// 分得开（见 startIconRequest 里那条成功分支）—— 两种情况走的是同一条路，不在这儿预判。
+    ///
+    /// 【空的那条一律不发】
+    ///
+    /// 一个空的条件头（`If-None-Match:` 后面什么都没有）不是"我没有凭据"，它是一句语法上
+    /// 不成形的话，主机怎么答都不好说。所以两条凭据各自判："有这条才发这个头"，两条都空
+    /// = 一个条件头都不发 = 老老实实要整张（也就是盘上没有那份、或者主机上次没给凭据）。
+    ///
+    /// NOTE: 它放在这里（而不是 .cpp 里那个匿名命名空间）是给 build/verify 看的 —— 上面
+    ///       那张真值表在 ZB 那一节逐条钉着。这个函数是**纯的**：造一个 QNetworkRequest
+    ///       再把头发读回来，一个网络请求都不发。
+    static QNetworkRequest iconRequest(const QString &url, const IconValidators &validators);
 
     // ---------- "别一张张干等"那道闸 ----------
 
@@ -185,6 +236,9 @@ private:
     ///
     /// @param url         这一发要的地址。
     /// @param fallbackUrl 这一发没成时再要一次的那个地址；空 = 没有下一发。
+    /// @param onDiskBytes 盘上那一份的字节（空 = 盘上没有）。两个用处：① 带条件头去问
+    ///        "变了没有"；② 真拿回一整张时**比一下**，一模一样就不写盘、不发信号。
+    /// @param validators  盘上那份的两条凭据（空 = 没有，那一发就老老实实要整张）。
     ///
     /// 【两条地址的那条路，规则都在这】
     ///
@@ -196,8 +250,11 @@ private:
     /// NOTE: **状态 0 和 5xx 不退**（`isHostLevelIconFailure`）。那两条说明整条路都不通，
     ///       换到一个同主机、同一条链子上的地址只会再耗一个 8 秒超时，还白推一格那道闸
     ///      （症状是"明明只是网断了，三次之后这一页再也不问了"）。
-    void startIconRequest(const QString &projectId, const QString &url,
-                          const QString &fallbackUrl);
+    /// NOTE: 退回去那一发**不带 onDiskBytes / validators**（`QByteArray()` / 空的）——
+    ///       换了地址就是换了资源，拿 A 的凭据去问 B 是没有意义的，老老实实要整张。
+    void startIconRequest(const QString &projectId, const QString &url, const QString &fallbackUrl,
+                          const QByteArray &onDiskBytes = QByteArray(),
+                          const IconValidators &validators = IconValidators());
 
     /// 这一发没取到新图标，该怎么回这一发：手上还有一张（内存里的）就把**它**重发一遍，
     /// 确实没有才发空 QPixmap。
@@ -222,6 +279,16 @@ private:
     /// 明确没有图标的（HTTP 404）。注意这和"这次没取到"**不是一回事**：网络失败不进这里，
     /// 下次还会再试一次。
     QSet<QString> m_iconMissing;
+    /// **这一趟运行**里已经核对过的图标（见 requestIcon 那段"每次打开核对一次"）。
+    /// 一道一次性的闸：同一个图标这一趟只核一遍，翻页、重搜、来回换分类都不再问第二遍 ——
+    /// 用户要的是"每次打开"核一遍，不是每翻一页核一遍。
+    ///
+    /// NOTE: 往里记的只有**盘上有那份**的图标 —— 有那份才谈得上"核对"（要拿它的凭据去问、
+    ///       拿它的字节去比）。盘上没有的那些是"第一次拿这张图"，它们成不成由 m_iconMissing
+    ///       和上面那道闸管着；**记进这里反而会把重试的路堵死**：开机时没网、二十张全没拿到，
+    ///       用户把代理打开再点一下刷新重搜，本该重新去要（重搜会清掉 m_iconGaveUp），
+    ///       而"已经核过了"是清不掉的 —— 那一页就会永远停在占位方块上。
+    QSet<QString> m_iconRevalidated;
 
     /// 连着几次图标请求倒在"主机级"的失败上（成功一次就清零）。够 kIconGiveUpAfter 次就
     /// 把 m_iconGaveUp 立起来。

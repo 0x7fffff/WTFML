@@ -262,6 +262,16 @@ private:
     /// 进这一页时调：**只有第一次进才搜**（树上已经有东西就不动 —— 用户来回换分类
     /// 不该每次都重新问，那既慢、又是在拿限流额度换同一份东西）。
     void ensureResourcePageLoaded(ResourceCatalog::Kind kind);
+
+    /// 下载页左栏某个分类条目右边那个刷新按钮被点了一下（用户原话："每一项的右边放一个
+    /// 刷新按钮"）。`row` 是分类列表的行号（**和 downloadCategoryKeys() 同一个下标**）。
+    ///
+    /// 它办的事按分类分两种（见实现里的注释）：
+    ///   · 「游戏」→ 重新拉一次**在线版本清单**（那棵版本树四条分类的内容就是它）；
+    ///   · 其余四类 → 拿搜索框里现在那个词**再搜一次**（和按回车是同一件事）。
+    /// 两种都**不动图标缓存**：重新摆出来的那批条目走的还是 ResourceStore::requestIcon，
+    /// 命中内存/盘上那份就一个请求都不发（用户要的"图标留缓存"）。
+    void refreshDownloadCategory(int row);
     /// 按那一页搜索框里的词搜一次（回车时，或者刚进页面时那句空的）。
     void startResourceSearch(ResourceCatalog::Kind kind);
     /// 树上点了一下（itemClicked 和 itemActivated 都接它）。

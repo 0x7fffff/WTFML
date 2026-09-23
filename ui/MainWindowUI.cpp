@@ -518,10 +518,28 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         downloadCategoryList = new QListWidget(download.left.widget);
         downloadCategoryList->setObjectName(downloadCategoryListName());
         downloadCategoryList->setUniformItemSizes(true);
+        // 2026-09-23：这一列换成**和上面两棵树同一个代理**（用户原话："下载界面左边栏
+        // 每一项做大点，每一项的右边放一个刷新按钮"）。换代理同时办成两件事：
+        //   ① 行高从样式那个"一行文字"（实测 ~24 px）变成 versionTreeRowHeight()（46），
+        //      字号也跟着下面那次 +versionTreeFontStep() 放大 —— "做大点"就是这两条；
+        //   ② 行尾那一格本来就是这个代理画箭头的活，加个刷新字形（rowRefreshRole()）
+        //      不用另起一套控件：QListWidget 的 itemWidget 会盖住选中高亮那层背景，
+        //      那样"现在停在哪一类"就看不出来了。
+        // NOTE: 条目文字是**粗体**（代理对顶层行一律加粗，见 VersionTreeDelegate::paint）——
+        //       和版本树那四条分类一个长相，这一列本来也就是"分类"。
+        downloadCategoryList->setItemDelegate(new VersionTreeDelegate(downloadCategoryList));
+        QFont categoryFont = downloadCategoryList->font();
+        categoryFont.setPointSize(categoryFont.pointSize() + versionTreeFontStep());
+        downloadCategoryList->setFont(categoryFont);
         for (int i = 0; i < categoryKeys.size(); ++i) {
             auto *item = new QListWidgetItem(categoryTexts.value(i), downloadCategoryList);
             // 身份进 userData：条目文字是显示内容，会随产品文案走，不能拿它当身份。
             item->setData(Qt::UserRole, categoryKeys.value(i));
+            // 每个条目右边都有那个刷新按钮（五条一条不落）。点它的那一下由
+            // MainWindow::eventFilter 接 —— 判据是 VersionTreeDelegate::refreshRect()。
+            // NOTE: 这里是**两参数**那个 setData（QListWidgetItem 认的是 role，没有列）——
+            //       三参数那一个是 QTreeWidgetItem 的，写在这儿编不过。
+            item->setData(rowRefreshRole(), true);
         }
         // 高度贴着内容：五个两三个字的条目，被拉成一整条空白看着像坏了。行高**交给样式
         // 算**（sizeHintForRow），别写死数字 —— 换字体/换样式就错（UI 样式基线那件事）。

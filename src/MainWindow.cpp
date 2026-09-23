@@ -736,6 +736,14 @@ void MainWindow::setupConnections() {
     //       "点中了行里的一个按钮"和"点中了这一行"必须是两件事 —— 不然点叉会顺手把那一列
     //       展开/收起，用户看到的是"我按了取消，它却收起来了"。
     m_ui->getLoaderTree()->viewport()->installEventFilter(this);
+    // 下载页左栏那份分类列表的行尾也有"行里的一个按钮"：每个条目右边那个刷新
+    // （见 MainWindow::refreshDownloadCategory()）。同一个理由挂同一个过滤器 —— 那一下
+    // 必须被**吃掉**，不然它会顺着 Qt 那条"点中了这一行"的路再走一遍（切页，以及空页
+    // 自己搜的那一发），和我们自己要做的事叠在一起。"切不切、搜不搜"由
+    // refreshDownloadCategory() 一处说了算。
+    if (QListWidget *categories = m_ui->getDownloadCategoryList()) {
+        categories->viewport()->installEventFilter(this);
+    }
     // 「下载」页左栏那份分类（游戏 / 整合包 / 模组 / 资源包 / 光影）：点哪个，右栏那份
     // QStackedWidget 就翻到哪一页。**"第几个分类 = 第几页"这条对应关系是界面自己搭出来的**
     // （同一个表、同一个顺序一页一页加进去），这里只做一次越界保护：分类表和页数将来要是
@@ -1649,6 +1657,15 @@ void MainWindow::refreshAvailableVersions() {
         //       "有没有孩子"这件事。
         //       右边那个箭头仍然由 VersionTreeDelegate 画在行最右边（用户要的位置），
         //       一个版本都没有的分类它连箭头都不画。
+        // 版本号前面那个小图标**按分类**给（用户 2026-09-23：「快照版的草用白色（覆雪草块），
+        // 远古版就土块，愚人节版用幸运方块，原版不变」）。分类 → 图标那张表在
+        // VersionIcons::versionChannelMark()，这里只把分类的**下标**递过去 —— ui/ 那边
+        // 不认 VersionCategory（见 VersionIcons.hpp 那段"纯函数"的说明），所以分类 → 下标
+        // 这一步必须走 VersionCategory::channelIndex()，别在这儿另写一个 switch：
+        // 写歪了的症状是"快照那一栏前面白草、远古那一栏还是绿草"，不报错、只是难看。
+        const QPixmap channelMark =
+            VersionIcons::versionChannelMark(VersionCategory::channelIndex(channel.channel),
+                                             MainWindowUI::versionTreeIconSize());
         for (const MinecraftVersion &version : channel.versions) {
             auto *child = new QTreeWidgetItem(top);
             child->setData(MainWindowUI::versionTreeKeyColumn(), Qt::UserRole, version.id);
@@ -1656,6 +1673,10 @@ void MainWindow::refreshAvailableVersions() {
             // 版本号下面那行小字：发布时间（精确到日）。清单里没有 / 认不出来的，那行就不画。
             child->setData(MainWindowUI::versionTreeKeyColumn(), MainWindowUI::rowSubTextRole(),
                            releaseDateText(version.releaseTime));
+            if (!channelMark.isNull()) {
+                child->setData(MainWindowUI::versionTreeKeyColumn(), MainWindowUI::rowIconRole(),
+                               channelMark);
+            }
         }
         if (expandedKeys.contains(channel.key)) {
             top->setExpanded(true);
@@ -1902,6 +1923,27 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
                 //       一版，按一下叉就把它忘掉，下次再选中这条加载器还得从头找一遍。
                 //       它只在"这一条被选中"的时候才显示，留着不会让人看到不该看的东西。
                 selectLoader(MainWindowUI::modLoaderNoneIndex());
+            }
+            return true;
+        }
+    }
+    // 下载页左栏那份分类列表：每一行最右边那个刷新按钮（谁画的、画在哪一格，见
+    // VersionTreeDelegate::refreshRect()）。判据和上面那个叉一模一样，只是宿主是个
+    // QListWidget（它的 itemAt/visualItemRect 和 QTreeWidget 那对同名同义）。
+    QListWidget *categories = m_ui->getDownloadCategoryList();
+    if (categories != nullptr && watched == categories->viewport() &&
+        (event->type() == QEvent::MouseButtonPress || event->type() == QEvent::MouseButtonRelease)) {
+        auto *mouse = static_cast<QMouseEvent *>(event);
+        QListWidgetItem *item =
+            mouse->button() == Qt::LeftButton ? categories->itemAt(mouse->position().toPoint())
+                                              : nullptr;
+        if (item != nullptr &&
+            item->data(MainWindowUI::rowRefreshRole()).toBool() &&
+            VersionTreeDelegate::refreshRect(categories->visualItemRect(item))
+                .contains(mouse->position().toPoint())) {
+            if (event->type() == QEvent::MouseButtonPress) {
+                // 按下就动手（松开那一下只负责被吃掉）—— 和那个叉一个规矩。
+                refreshDownloadCategory(categories->row(item));
             }
             return true;
         }
@@ -2217,6 +2259,63 @@ void MainWindow::ensureResourcePageLoaded(ResourceCatalog::Kind kind) {
         // 每次都问一遍，既慢、又是在拿限流额度换同一份东西。
         return;
     }
+    startResourceSearch(kind);
+}
+
+void MainWindow::refreshDownloadCategory(int row) {
+    const QStringList keys = MainWindowUI::downloadCategoryKeys();
+    if (row < 0 || row >= keys.size()) {
+        // 过滤器交上来的行号理论上一定在表里（那一行是 MainWindowUI 按这张表建出来的），
+        // 越界只可能是"表和列表对不上了"那种时候 —— 什么都不做比按错一页去做强。
+        return;
+    }
+    // 点的那一类要是现在没选中的，先切过去 —— 不切的话请求飞出去了、结果落在看不见的
+    // 那一页上，用户看到的就是"点了没反应"。这一条对**五条一视同仁**（「游戏」也是：
+    // 它刷新的是版本树，那棵树就长在它自己那一页上）。
+    //
+    // NOTE: 切过去那一下会触发 currentRowChanged → ensureResourcePageLoaded()，而那一页
+    //       要是还空着，那儿**自己就会搜一次**。所以下面分两半：切过去的路上那一发已经
+    //       发出去了就直接完事（再发一发是同一份东西问两遍，白烧一次限流额度）；页面上
+    //       已经有东西了才轮到我们按现在的搜索词重搜一次 —— 那才是用户按这个按钮要的
+    //       那件事：**重新问一遍**，而不是"第一次问"。
+    QListWidget *categories = m_ui->getDownloadCategoryList();
+    const bool wasCurrent = categories == nullptr || categories->currentRow() == row;
+    if (!wasCurrent) {
+        categories->setCurrentRow(row);
+    }
+    if (row == MainWindowUI::downloadCategoryGameIndex()) {
+        // 「游戏」那一页是**在线版本清单**，不是资源搜索（那张表上根本没有"游戏"这个键，
+        // kindFromCategoryKey 也认不出来，所以它得自己一条分支）。
+        //
+        // 摆不摆"正在…"那一行：**不摆**。版本树那边和资源表不是一回事 ——
+        // refreshAvailableVersions() 每一发都重建**恰好四条分类**（那是它的活），中途插一行
+        // 灰的会被它整个冲掉；而且版本树本来就不会因为"正在等"而空着：老那棵一直挂在
+        // 那儿（fetchAvailableVersions 失败时也保留上一份好清单，见 onVersionsFetched）。
+        // 用户看到的是"点了一下、树没消失、过一会儿多的版本冒出来"，正是要的样子。
+        appendLog(tr("正在重新获取游戏版本列表…"));
+        m_versionManager->fetchAvailableVersions();
+        return;
+    }
+    ResourceCatalog::Kind kind = ResourceCatalog::Kind::Mod;
+    if (!ResourceCatalog::kindFromCategoryKey(keys.at(row), &kind)) {
+        return;  // 认不出来 = 这一行不是我们建的那四类之一，没有"重问一遍"这回事
+    }
+    if (!wasCurrent) {
+        QTreeWidget *tree = m_ui->getDownloadResourceTree(ResourceCatalog::kindKey(kind));
+        if (tree != nullptr && tree->topLevelItemCount() > 0) {
+            startResourceSearch(kind);
+        }
+        return;
+    }
+    // 已经在这一页上：按搜索框里现在那个词重搜（空词 = 这一类里最热门的，和第一次进来同一个规矩）。
+    // NOTE: **图标缓存一个字节都不动**。这一发重新走的是 search()，回来的那批 hit 里
+    //       project_id 和上次多半是同一批，requestIcon() 在内存/磁盘缓存里就命中了
+    //       （见 ResourceStore 里 requestIcon 那段"两级缓存"）—— 用户要的"图标留缓存"正是
+    //       这个：重新问一遍**不会**把已经存下来的图标丢掉、也不会重新下一遍。
+    //       这一下**也不重新核对**（核对的闸是"启动器这一趟运行"一道，重搜不重置它，
+    //       见 m_iconRevalidated）—— 核对要跟着"每次打开启动器"，不能跟着"每点一下"。
+    //       唯一的例外是"这一批刚才放弃了"：那阵子没核成的会在这里得到第二次机会
+    //       （search() 会把那道闸放回去，见它开头那两句）。
     startResourceSearch(kind);
 }
 
