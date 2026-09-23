@@ -21,10 +21,10 @@
 #include "manage/PlayerSkinStore.hpp"
 
 class MainWindowUI;
-// 安装页上"某条加载器选哪个版本"那个组合框。这里只在私有函数的参数里按指针用
-// （fillLoaderVersionCombo），前置声明就够 —— 不值得为了一个参数类型让每个 include 了
-// MainWindow.hpp 的地方都把 QtWidgets 里那个大块头拖进来。
-class QComboBox;
+// 安装页那棵加载器树上的一个条目（loaderItem()）。这里只在私有函数的参数/返回值里按
+// 指针用，前置声明就够 —— 不值得为了一个参数类型让每个 include 了 MainWindow.hpp 的
+// 地方都把 QtWidgets 里那个大块头拖进来。
+class QTreeWidgetItem;
 class LauncherManager;
 class AuthManager;
 class FolderManager;
@@ -179,13 +179,9 @@ private slots:
     void backToVersionTree();
     /// 名称框里每敲一个字：记下"用户动过这个名字了"，再重算那句小字（重名提示要"实时"）。
     void onInstallNameEdited();
-    /// 勾了某一条加载器（id 就是 modLoaderOptionNames() 里的下标）。
-    void onLoaderRowChanged(int loaderIndex);
-    /// 四个"选版本"组合框里任意一个换了选中项（钉的版本号是默认名的一部分）。
-    void onLoaderVersionChoiceChanged();
     /// 点了「安装」。名字校验、重名那一问、Java 挑选、忙态，都在这里收口。
     void onInstallButtonClicked();
-    /// requestLoaderVersions() 的回复：填进**勾中的那一条**右边那个组合框。
+    /// requestLoaderVersions() 的回复：填进**那一条**底下的子条目。
     ///
     /// 参数收的是**下标**（不是 VersionManager::LoaderKind）：这是给 moc 看的槽，
     /// 签名里出现别处的枚举就得把 VersionManager.hpp 整个拖进这个头（再说枚举还得
@@ -332,21 +328,30 @@ private:
 
     // ---------- 安装页（版本树的下一层）----------
     /// 这份要装的实例默认叫什么：目录名的形状照抄真机上那些实例
-    /// （`1.18.2-Forge_40.3.12`），不勾加载器时就是原版号本身。
+    /// （`1.18.2-Forge_40.3.12`），没选加载器时就是原版号本身。
     QString defaultInstanceName() const;
-    /// 现在勾中的是哪一条（modLoaderOptionNames() 的下标；-1 = 一个都没勾）。
-    int loaderCheckedIndex() const;
-    /// 某一条加载器钉住的版本号（组合框里选的那一条）；空串 = 不钉，让安装器按老规矩挑。
+    /// 现在选中的是哪一条（modLoaderOptionNames() 的下标；不会出现 -1 ——
+    /// 那个「不装（纯原版）」就是"没选加载器"这个状态本身）。
+    int selectedLoaderIndex() const;
+    /// 那棵树里某一条加载器的条目（顶层第 @p loaderIndex 条）；找不到回 nullptr。
+    QTreeWidgetItem *loaderItem(int loaderIndex) const;
+    /// 某一条加载器钉住的版本号（它在树上选的那一条）；空串 = 不钉，让安装器按老规矩挑。
     QString pinnedLoaderVersion(int loaderIndex) const;
-    /// 四个加载器那几条的可用状态：**只有勾中的那一条**的组合框是活的（其余几条现在
-    /// 管不着任何事），下载/安装期间整组都灰。忙态变化之后必须重新调一次 ——
-    /// 一律点亮会把"没勾的那几条本来就该灰着"这件事冲掉。
+    /// 刷新那棵树的样子：哪一条选中了、其余几条写着"与 X 不兼容"、选中的那条第二行
+    /// 写着它选的版本号。忙态变化之后必须重新调一次（装到一半时整棵树是灰的）。
+    ///
+    /// NOTE: "选中了哪一条"**不在树上**（QTreeWidget 的选中项是"光标停在哪"，
+    ///       和"我要装哪一个"是两件事）—— 它住在 m_selectedLoaderIndex 里，这里是唯一
+    ///       把它画出来的地方。
     void updateLoaderRows();
-    /// 勾了某一条加载器之后，把它能装的版本列表备好（拉过就直接用缓存）。
+    /// 选中某一条加载器（点顶层那一条走的就是这里）：改选中项、刷那棵树、
+    /// 把它能装的版本列表备好。它在树上**不**负责展开 —— 展开折叠是点击那一下自己的事。
+    void selectLoader(int loaderIndex);
+    /// 备好某一条加载器能装的版本（拉过就直接用缓存），灌进它底下的子条目。
     /// 一次请求 60~250 KB，所以只在"用户真的要挑这条"时才发。
     void ensureLoaderVersions(int loaderIndex);
-    /// 把一份版本列表灌进某个加载器那条的组合框（第 0 条永远是"自动（推荐）"）。
-    void fillLoaderVersionCombo(QComboBox *combo, const QStringList &versions);
+    /// 把一份版本列表灌成某个加载器的子条目（第 0 条永远是"自动（推荐）"）。
+    void fillLoaderVersionItems(int loaderIndex, const QStringList &versions);
     /// 名称框里的默认名（用户没自己改过时才动它），再刷下面那句小字。
     void updateInstallName();
     /// 名称框下面那句小字 + 「安装」按钮的可用性：名字合不合法、盘上有没有重名的
@@ -468,8 +473,21 @@ private:
     // 安装页现在正对着哪个原版号（空 = 没进过安装页）。四个加载器各自能挑哪些版本、
     // 默认名怎么拼，都以它为准。
     QString m_installGameVersion;
+    // 安装页那棵树上**选中**了哪一条（modLoaderOptionNames() 的下标）。「不装（纯原版）」
+    // 就是"不装加载器"这个状态，所以它只有一个合法值、没有 -1 —— 每次进安装页都退回它。
+    //
+    // 为什么不去问那棵树"你选中了哪一条"：QTreeWidget 的 currentItem 是"光标停在哪"，
+    // 用户点一下别处它就变了（而"装什么"不该跟着变）；展开/收起更是和"选中"完全无关。
+    // 这条状态是产品状态，住在产品这一层。
+    // NOTE: 初值在构造函数里给（`MainWindowUI::modLoaderNoneIndex()`）—— 这个头只前置
+    //       声明了 MainWindowUI（见文件顶上那个 class 声明），在这儿调它的静态函数编不过。
+    int m_selectedLoaderIndex;
+    // 每一条加载器**钉住**的版本号（下标 → 版本号；空串 = 不钉，让安装器按老规矩挑）。
+    // 没进过 map 的下标等于没钉。进安装页时整个清掉（换了一个游戏版本，上一份能装的
+    // 版本就完全不是这一份了）。
+    QHash<int, QString> m_chosenLoaderVersion;
     // 用户**自己改过**名称框没有。改过之后默认名就不再跟着加载器变了（不然他敲到一半
-    // 的名字会被一次"勾了 Forge"顶掉）；每次进安装页重置。
+    // 的名字会被一次"选了 Forge"顶掉）；每次进安装页重置。
     bool m_installNameTouched = false;
     // 已经拉到过的"某加载器在某游戏版本上有哪些版本"。键是 `<加载器枚举值>|<游戏版本>`，
     // 换游戏版本时整个清掉（Forge 每个游戏版本能装的版本完全不同，留着就是错的）。

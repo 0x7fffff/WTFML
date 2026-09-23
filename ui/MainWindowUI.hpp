@@ -21,7 +21,6 @@
 
 #pragma once
 
-#include <QButtonGroup>
 #include <QCoreApplication>
 #include <QCheckBox>
 #include <QComboBox>
@@ -35,7 +34,6 @@
 #include <QPlainTextEdit>
 #include <QProgressBar>
 #include <QPushButton>
-#include <QRadioButton>
 #include <QSpinBox>
 #include <QStackedWidget>
 #include <QString>
@@ -116,17 +114,28 @@ public:
     static QString offlineModeCheckBoxName() { return QStringLiteral("offlineModeCheckBox"); }
     static QString installedVersionComboName() { return QStringLiteral("installedVersionCombo"); }
 
-    // ---------- 下载页左栏那个「模组加载器」单选组 ----------
+    // ---------- 安装页那份「模组加载器」（一棵树，和上一页的版本树同一个模式） ----------
     //
-    // 「勾了哪个」决定「安装」装什么（0..3 = 加载器，见 VersionManager::loaderKindFromIndex）
-    // 而那一个「不装」选项是**默认勾中的**，它代表装纯原版那条路。
+    // 「选中哪一条」决定「安装」装什么（0..3 = 加载器，见 VersionManager::loaderKindFromIndex），
+    // 而那一个「不装」选项是**默认选中的**，它代表装纯原版那条路。
     //
-    // NOTE: 2026-09-22 起这一组从"左栏孤零零五个钮"搬进了**安装页**：每个加载器
-    //       各占一条，钮右边跟着一个选它版本的组合框（见 loaderVersionComboName()）。
-    //       组、下标、文案一条都没变 —— 变的是它们现在长在哪一页上。
+    // NOTE: 2026-09-23 起这一组是**一棵树**（用户原话："做成和上一页的版本选择相同的
+    //       模式，点击以后展开版本，选择版本以后收缩，显示版本"）：
+    //         · 顶层五条 = 四个加载器 + 「不装（纯原版）」，前面各挂自己那个标志；
+    //         · 点一条加载器 → 它**展开**，底下列出它能装的版本（第 0 条是「自动（推荐）」）；
+    //         · 点一个版本 → 那一列**收起来**，选中的版本号写回这条的第二行小字。
+    //       换掉的是一组单选钮 + 四个下拉框（`modLoaderGroupName()` /
+    //       `loaderVersionComboName()` 那两个名字随之作废）。下标、文案、那五条的顺序
+    //       一条都没变 —— 变的只是它们现在长成一棵树。上一版是"钮在左、组合框在右"，
+    //       因为那时没能展开/收起；现在展开在**同一行下面**，和版本树那边长得一样。
     //
-    /// 选项的 objectName，**顺序就是界面上从上到下的顺序**。验证工程按这个顺序遍历，
-    /// 界面上摆的顺序也由同一个表驱动，不各写一份。
+    /// 那五条在**代码里**叫什么，顺序就是界面上从上到下的顺序。
+    ///
+    /// NOTE: 树里的条目不是 QObject、没有 objectName —— 所以这已经不是"控件的名字"了。
+    ///       它现在只剩三个用处：①给"第 i 条是哪个加载器"这件事一个写得出来的称呼
+    ///       （注释、日志、验证工程的失败信息里用）；②条数（5 = 四个加载器 + 一个「不装」）；
+    ///       ③和下面那张文案表**一一对应**的那条约束（多一条少一条，界面上就会有条目
+    ///       既没称呼也对不上字）。身份仍然只认下标，见 loaderTreeName() 那一段。
     ///
     /// NOTE: 「不装」排在四个加载器**后面**（不是最前面）是刻意的：这样下标 0..3 和
     ///       VersionManager::LoaderKind 的枚举顺序一一对应，中间那层翻译
@@ -136,11 +145,11 @@ public:
                 QStringLiteral("modLoaderNeoForge"), QStringLiteral("modLoaderOptiFine"),
                 QStringLiteral("modLoaderNone")};
     }
-    /// 选项上写的字。和上面那张表**一一对应**，顺序不能各排各的。
+    /// 界面上那五条**写出来的字**（树是照这张表摆的），和上面那张表**一一对应**，
+    /// 顺序不能各排各的。
     ///
-    /// NOTE: 这是**显示内容**（将来要跟着语言/产品文案走），不是身份标识 —— 验证工程
-    ///       认控件一律用上面的 objectName，这两个函数只在核对文案时用（和
-    ///       renameInstanceText() 那几个一个道理）。
+    /// NOTE: 这是**显示内容**（将来要跟着语言/产品文案走），不是身份标识 —— 选中的是
+    ///       哪一条看下标（见 loaderTreeName() 那一段），核文案时才比这张表。
     static QStringList modLoaderOptionTexts() {
         return {QStringLiteral("Fabric"), QStringLiteral("Forge"), QStringLiteral("NeoForge"),
                 QStringLiteral("OptiFine"), QStringLiteral("不装（纯原版）")};
@@ -150,38 +159,43 @@ public:
     /// 就是那条退路；写死数字的地方一律用这个函数。
     static int modLoaderNoneIndex() { return 4; }
     static QString modLoaderLabelText() { return QStringLiteral("模组加载器"); }
-    /// 那一组（QButtonGroup）自己的 objectName。验证工程靠它在**真窗口**上把
-    /// "这五个钮是一个互斥组"读回来 —— getModLoaderOptions() 只给得出五个钮，
-    /// 看不出它们互不互斥（那正是"四选一"里唯一一条看代码看不出来的）。
-    static QString modLoaderGroupName() { return QStringLiteral("modLoaderGroup"); }
-    /// 某一个加载器那条上选**加载器版本**的组合框。下标就是上面的表（0..3 = 四个加载器，
-    /// 「不装」那条没有组合框 —— 它没有版本可选）。
+    /// 那棵树自己的 objectName。**条目没有 objectName**（QTreeWidgetItem 不是 QObject）——
+    /// 认一条的身份看它 `Qt::UserRole`：顶层是 modLoaderOptionNames() 里的下标（整数），
+    /// 子条目是加载器版本号（空串 = 「自动（推荐）」那一条）。判"这是加载器还是版本号"
+    /// 看的是**有没有父条目**，不是值的类型 —— 两者都是"不是空串"。
+    static QString loaderTreeName() { return QStringLiteral("loaderTree"); }
+    /// 每一条身份存在第几列。只有一列（和版本树同一个约定）。
+    static int loaderTreeKeyColumn() { return 0; }
+    /// 这棵树最高长到几行：五条加载器都收起来时是 5 行，展开其中一条之后按
+    /// "5 + 那条的版本数"往上长，长到这么多行就停（再多就出滚动条）。
+    /// 太小的话展开一条只能看见两三个版本，太大（比如整页铺满）会让「安装」按钮被推到
+    /// 窗口最底下 —— 用户要的是"安装键做大点在右侧居中"，它得一直在看得见的地方。
+    static int loaderTreeMaxRows() { return 10; }
+    /// 选中了某个加载器时，**其余那几个加载器**那条上写的话（用户原话："剩余的加载器
+    /// （如果不兼容的话）显示为与【已选中的加载器名称】不兼容"）。
     ///
-    /// 名字由 modLoaderOptionNames() 推出来（`modLoaderFabricVersionCombo` 这种），
-    /// 不另写一张表：两张表迟早会有一处对不上，而"点了 Fabric 那条却填进 Forge 的版本号"
-    /// 不会报错、只会装错东西。
-    static QString loaderVersionComboName(int loaderIndex) {
-        return modLoaderOptionNames().value(loaderIndex) + QStringLiteral("VersionCombo");
+    /// NOTE: 现在**任何两个加载器都不兼容** —— 本启动器一次只装一个加载器
+    ///       （`VersionManager::installNamedLoader()` 收的就是一个枚举），所以"选中的那个"
+    ///       和"其余的"在安装这件事上就是互斥的。这句小字说的是这条事实，不是"这两家
+    ///       上游合不来"。哪天要支持 Forge + OptiFine 那种搭配，改的是**这一处**和安装
+    ///       那一条路，界面上别的都不用动。
+    static QString loaderConflictText(const QString &selectedName) {
+        return QCoreApplication::translate("MainWindowUI", "与 %1 不兼容").arg(selectedName);
     }
-    /// 那四个组合框里第 0 条写的字：**不指定版本** —— 让安装器按老规矩挑（Fabric 挑最新的
-    /// 正式版、Forge/NeoForge 挑推荐的那个、OptiFine 挑官方页那一行主推的）。
-    /// 它的 itemData 是**空串**，"没钉版本"这件事在数据上就靠这个空串表达。
+    /// 展开之后**第 0 条**那个版本条目上写的字：**不指定版本** —— 让安装器按老规矩挑
+    /// （Fabric 挑最新的正式版、Forge/NeoForge 挑推荐的那个、OptiFine 挑官方页那一行
+    /// 主推的）。它的 userData 是**空串**，"没钉版本"这件事在数据上就靠这个空串表达。
     static QString loaderVersionAutoText() {
         return QCoreApplication::translate("MainWindowUI", "自动（推荐）");
     }
-    /// 还没拿到版本列表时那个组合框上的占位话（一次请求 60~250 KB，等一会儿是常事）。
-    /// NOTE: 短 —— 那个组合框也设了 AdjustToMinimumContentsLengthWithIcon，长的占位文案
-    ///       会把它撑宽（完整原因见 MainWindow::onVersionsFetched 里那段）；而那条
-    ///       minimumContentsLength 是**按 'x' 的宽度**算的，一个汉字差不多顶两个 'x'，
-    ///       所以"字数不超 12"并不够 —— 放中文就得照着 5~6 个字来。
+    /// 版本列表还没回来时，展开的那条底下先摆一个这个（灰的、点不动 —— 它不是能选的东西）。
+    /// NOTE: 一次请求 60~250 KB，等一会儿是常事，所以得有个"在等"的样子，不能让那一条
+    ///       展开之后空着（空树看着像"这个加载器一个版本都没有"）。
     static QString loaderVersionFetchingText() {
         return QCoreApplication::translate("MainWindowUI", "正在获取…");
     }
-    /// 版本列表没拉到时那个组合框上的占位话。
-    /// NOTE: 比"正在获取…"长一点点，但都短于那条 minimumContentsLength，所以三种文案
-    ///       （这句 / 「自动（推荐）」/「正在获取…」）之间换来换去，框宽不会抽
-    ///       （ui_check 的 H 节把这条钉住了）。具体原因不去占位文案里说 —— 框里那条
-    ///       「自动（推荐）」本身就是退路，原因写进日志。
+    /// 版本列表没拉到时的那个灰条目。具体原因（超时？404？）写进日志 ——
+    /// 这条只是告诉用户"列不出来"，而这个加载器照样能装（「自动（推荐）」那条不依赖列表）。
     static QString loaderVersionFailedText() {
         return QCoreApplication::translate("MainWindowUI", "列表没取到");
     }
@@ -194,7 +208,7 @@ public:
     //
     // 所以「游戏」那一页里再分两层（QStackedWidget）：
     //   [0] 版本树 —— 四条分类，点开是版本号；点一个版本号去 [1]
-    //   [1] 安装页 —— 名称框 + 四个加载器（每个一条，右边选版本）+ 「安装」
+    //   [1] 安装页 —— 名称框 + 加载器那棵树（点开选版本）+ 「安装」
     // 左栏那列分类、右栏这份堆叠、底下状态栏都不动（用户明确说了那几样不变）。
     static QString downloadGameStackName() { return QStringLiteral("downloadGameStack"); }
     static int downloadGameTreeIndex() { return 0; }
@@ -206,10 +220,16 @@ public:
     /// 每一条身份存在第几列。只有一列，写 0 是给"将来加一列（比如发布日期）"留个说明：
     /// 那一列要是插在前面，认条目的代码就全得改。
     static int versionTreeKeyColumn() { return 0; }
-    /// 版本号那条**下面**那行小字（发布时间，精确到日）挂在哪个角色上。
-    /// NOTE: 它和版本号在**同一列**里（由 VersionTreeDelegate 分两行画出来），所以
+    /// 条目**下面**那行小字挂在哪个角色上（两棵树共用这一个角色）。
+    /// 版本树上它是发布时间（精确到日）；加载器那棵树上是「与 X 不兼容」或者选中的版本号。
+    /// NOTE: 它和正文在**同一列**里（由 VersionTreeDelegate 分两行画出来），所以
     ///       不能拿"第二列"当位置 —— 那会多出半张表、还要处理表头。
-    static int versionTreeDateRole() { return Qt::UserRole + 1; }
+    /// NOTE: 空串 = 这一行不画第二行（版本树里清单没给时间的、加载器里没选中的都是）。
+    static int rowSubTextRole() { return Qt::UserRole + 1; }
+    /// 条目前面那个图标挂在哪个角色上（`Qt::DecorationRole`）—— 见 VersionTreeDelegate：
+    /// 给了就画它，没给就按"版本号前面是草方块"那条老规矩画。
+    /// 加载器那棵树五条都是给全的（各自那个标志）。
+    static int rowIconRole() { return Qt::DecorationRole; }
     /// 树上用的字号相对**默认**字号的偏移：用户要"文本放大一点"，+2。
     /// 默认字号在系统上是 9~12 pt 不等，所以这里记的只能是偏移，不能记死一个点数。
     static int versionTreeFontStep() { return 2; }
@@ -238,6 +258,12 @@ public:
     static QString installNameHintName() { return QStringLiteral("installNameHint"); }
     static QString installButtonName() { return QStringLiteral("installButton"); }
     static QString installBackButtonName() { return QStringLiteral("installBackButton"); }
+    /// 「安装」按钮的字号相对**默认**字号的偏移。用户原话"安装键做大点"。
+    /// NOTE: 记的是**偏移**不是点数（和 versionTreeFontStep() 一个道理：默认字号在系统上
+    ///       是 9~12 pt 不等）。
+    static int installButtonFontStep() { return 2; }
+    /// 「安装」按钮的最小高度（字大了以后再顶着老高度会显得挤）。
+    static int installButtonMinHeight() { return 40; }
     static QString installNameLabelText() {
         return QCoreApplication::translate("MainWindowUI", "版本名称");
     }
@@ -394,12 +420,23 @@ public:
     static QString rightColumnName(const QString &tab) {
         return tab + QStringLiteral("RightColumn");
     }
-    /// 默认那一套份数：左 3 右 7。实例页/下载页，以及设置页那张两列表格都用它。
+    /// 默认那一套份数：左 3 右 7。实例页，以及设置页那张两列表格都用它。
     static int leftColumnStretch() { return 3; }
     /// 右栏占的份数（默认那一套）。
     static int rightColumnStretch() { return 7; }
     /// 右栏在页面上是不是真的更宽（验证工程拿它当"默认的 3:7 生效了"的判据）。
     static bool rightColumnIsWider() { return rightColumnStretch() > leftColumnStretch(); }
+    /// 主页那一套：7:3（把默认那一对对调过来），见 leftColumnIsWider()。
+    static int homeLeftColumnStretch() { return 7; }
+    static int homeRightColumnStretch() { return 3; }
+    /// 下载页那一套：2:8。用户原话"下载页左右改成 2：8"。
+    ///
+    /// NOTE: 比默认的 3:7 更偏向右栏 —— 左栏那列分类（游戏/整合包/模组/资源包/光影）
+    ///       最多三个字，而右栏现在要装下那棵树（每条还带一行发布日期）、以及安装页那一摊
+    ///       （名称框 + 加载器那棵树）。左栏按 sizeHint 本来也只吃那么点宽度，把份数让给
+    ///       右栏是"分类列表不被拉成一整条空白 + 右栏那棵树不用横向滚动"两边都对的取法。
+    static int downloadLeftColumnStretch() { return 2; }
+    static int downloadRightColumnStretch() { return 8; }
 
     /// 这一页是不是"左宽右窄"。
     /// @param tab "home" / "instance" / "download"。
@@ -410,13 +447,25 @@ public:
     static bool leftColumnIsWider(const QString &tab) {
         return tab == QStringLiteral("home");
     }
-    /// 某一页左栏占的份数：主页把默认那一对**对调**过来用（7:3）。
+    /// 某一页左栏占的份数（三页各一套，见上面那几个常数）。
     static int leftColumnStretch(const QString &tab) {
-        return leftColumnIsWider(tab) ? rightColumnStretch() : leftColumnStretch();
+        if (tab == QStringLiteral("home")) {
+            return homeLeftColumnStretch();
+        }
+        if (tab == QStringLiteral("download")) {
+            return downloadLeftColumnStretch();
+        }
+        return leftColumnStretch();
     }
     /// 某一页右栏占的份数（见 leftColumnStretch(const QString&)）。
     static int rightColumnStretch(const QString &tab) {
-        return leftColumnIsWider(tab) ? leftColumnStretch() : rightColumnStretch();
+        if (tab == QStringLiteral("home")) {
+            return homeRightColumnStretch();
+        }
+        if (tab == QStringLiteral("download")) {
+            return downloadRightColumnStretch();
+        }
+        return rightColumnStretch();
     }
 
     // ---------- 设置页 ----------
@@ -603,20 +652,13 @@ public:
     QPushButton *getInstallButton() const { return installButton; }
     /// 「← 返回版本列表」：回树那一层（不改任何选择，回去还是原来那棵树）。
     QPushButton *getInstallBackButton() const { return installBackButton; }
-    /// 下载页安装页那个「模组加载器」单选组（见上面那段）。
+    /// 安装页那棵「模组加载器」树（见上面那段）。
     ///
-    /// NOTE: 返回的是**那一组**（按钮组 + 每个钮），顺序就是 modLoaderOptionNames() 的
-    ///       顺序。"勾了哪个"从 modLoaderGroup->checkedId() 读，id 就是下标。
-    QButtonGroup *getModLoaderGroup() const { return modLoaderGroup; }
-    QVector<QRadioButton *> getModLoaderOptions() const {
-        return {modLoaderFabric, modLoaderForge, modLoaderNeoForge, modLoaderOptiFine,
-                modLoaderNone};
-    }
-    /// 四个加载器各一条的那个"选版本"组合框，**下标就是加载器下标**（0..3，
-    /// 和 modLoaderOptionNames() 前四个、以及 VersionManager::loaderKindFromIndex 同序）。
-    /// 「不装（纯原版）」那条没有它 —— 原版没有加载器版本可选。
-    /// 第 0 条是 loaderVersionAutoText()（itemData 是空串 = 不钉版本，让安装器自己挑）。
-    QVector<QComboBox *> getLoaderVersionCombos() const { return loaderVersionCombos; }
+    /// NOTE: 界面上那五条**没有 objectName**（条目不是 QObject）：身份读每条的
+    ///       `Qt::UserRole`（顶层是下标、子条目是版本号）。"选中了哪一条"这件事
+    ///       不在这棵树上 —— 它住在 MainWindow 里（`selectedLoaderIndex()`），
+    ///       这一层只管把状态画出来。
+    QTreeWidget *getLoaderTree() const { return loaderTree; }
 
     // 设置页的控件。**只搭出来、只负责显隐**，值由 MainWindow 灌（它才知道
     // 那些设置存在哪、改了要不要落盘）。
@@ -693,26 +735,9 @@ private:
     QLabel *installNameHint;
     QPushButton *installButton;
     QPushButton *installBackButton;
-    /// 下载页安装页那个「模组加载器」单选组（见头文件上面那段）。
-    ///
-    /// NOTE: **互斥**由 QButtonGroup 保证（不是靠"同一个父控件下的 QRadioButton 自动
-    ///       互斥"那条不成文的规矩 —— 哪天有人把它们挪进各自的容器，那条就悄悄失效了，
-    ///       而失效的表现是"几个能同时勾上"，丑但不报错）。id 就是
-    ///       modLoaderOptionNames() 里的下标。
-    /// NOTE: modLoaderNone 是**初始勾中**的那一个（"装纯原版"）。
-    QButtonGroup *modLoaderGroup;
-    QRadioButton *modLoaderFabric;
-    QRadioButton *modLoaderForge;
-    QRadioButton *modLoaderNeoForge;
-    QRadioButton *modLoaderOptiFine;
-    QRadioButton *modLoaderNone;
-    /// 四个加载器各一条的那个"选版本"组合框（下标 = 加载器下标，见
-    /// loaderVersionComboName()）。「不装（纯原版）」那条没有 —— 原版没有加载器版本可选。
-    ///
-    /// NOTE: 用一张表而不是四个具名成员：这一组的身份**就是**下标（和加载器枚举同序），
-    ///       接线时 `combos.at(loaderIndex)` 一个数就够；写成四个成员的话，"哪个成员是
-    ///       哪个加载器"这件事得在每一处用它的人那儿重新对一遍。
-    QVector<QComboBox *> loaderVersionCombos;
+    /// 安装页那棵「模组加载器」树（见头文件上面那段）。顶层五条按 modLoaderOptionNames()
+    /// 的顺序摆，前四条各带自己的版本列表（点开才灌）、第 5 条是「不装（纯原版）」。
+    QTreeWidget *loaderTree;
     QComboBox *javaVersionCombo;
     QLabel *javaPathLabel;
     QCheckBox *javaWarnMismatchCheck;
