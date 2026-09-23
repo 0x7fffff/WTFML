@@ -236,12 +236,37 @@ QPixmap VersionIcons::loaderMark(int index, int size) {
     });
 }
 
-QPixmap VersionIcons::chevron(bool expanded, int size, const QColor &color) {
+namespace {
+
+/// 箭头三个朝向。**笔宽、端头这些只有一份** —— 版本树那两行和底栏那两颗按钮上画的
+/// 必须是同一支笔画出来的箭头，不然同一个界面里的箭头会粗细不一。
+enum class ChevronDir { Right, Down, Up };
+
+/// 那两笔的坐标（都是边长的比例，和原来的 0.3/0.7/0.65 那几个数是同一组）。
+QPolygonF chevronShape(ChevronDir dir, int size) {
+    const auto at = [size](qreal v) { return v * size; };
+    switch (dir) {
+    case ChevronDir::Up:
+        // 展开方向朝上 = 朝下那个 V 翻过来（底栏那两颗按钮点开是**向上**弹的）
+        return QPolygonF({QPointF(at(0.3), at(0.6)), QPointF(at(0.5), at(0.35)),
+                          QPointF(at(0.7), at(0.6))});
+    case ChevronDir::Down:
+        return QPolygonF({QPointF(at(0.3), at(0.4)), QPointF(at(0.5), at(0.65)),
+                          QPointF(at(0.7), at(0.4))});
+    case ChevronDir::Right:
+        break;
+    }
+    return QPolygonF({QPointF(at(0.4), at(0.3)), QPointF(at(0.65), at(0.5)),
+                      QPointF(at(0.4), at(0.7))});
+}
+
+/// 按朝向画一张、带缓存（缓存键里带朝向，三个朝向各存各的）。
+QPixmap chevronPixmap(ChevronDir dir, int size, const QColor &color) {
     if (size <= 0) {
         return QPixmap();
     }
-    return cached(QStringLiteral("chevron/%1/%2/%3").arg(expanded ? 1 : 0).arg(size).arg(color.name()),
-                  [expanded, size, color]() {
+    return cached(QStringLiteral("chevron/%1/%2/%3").arg(int(dir)).arg(size).arg(color.name()),
+                  [dir, size, color]() {
                       QPixmap pixmap(size, size);
                       pixmap.fill(Qt::transparent);
                       QPainter p(&pixmap);
@@ -252,22 +277,19 @@ QPixmap VersionIcons::chevron(bool expanded, int size, const QColor &color) {
                       pen.setCapStyle(Qt::RoundCap);
                       pen.setJoinStyle(Qt::RoundJoin);
                       p.setPen(pen);
-                      const qreal a = size * 0.3;
-                      const qreal b = size * 0.7;
-                      const qreal mid = size * 0.5;
-                      if (expanded) {
-                          // 展开 = 朝下的 V
-                          p.drawPolyline(QPolygonF({QPointF(a, size * 0.4),
-                                                    QPointF(mid, size * 0.65),
-                                                    QPointF(b, size * 0.4)}));
-                      } else {
-                          // 收起 = 朝右的 >
-                          p.drawPolyline(QPolygonF({QPointF(size * 0.4, a),
-                                                    QPointF(size * 0.65, mid),
-                                                    QPointF(size * 0.4, b)}));
-                      }
+                      p.drawPolyline(chevronShape(dir, size));
                       return pixmap;
                   });
+}
+
+}  // namespace
+
+QPixmap VersionIcons::chevron(bool expanded, int size, const QColor &color) {
+    return chevronPixmap(expanded ? ChevronDir::Down : ChevronDir::Right, size, color);
+}
+
+QPixmap VersionIcons::chevronUp(int size, const QColor &color) {
+    return chevronPixmap(ChevronDir::Up, size, color);
 }
 
 QPixmap VersionIcons::cross(int size, const QColor &color) {

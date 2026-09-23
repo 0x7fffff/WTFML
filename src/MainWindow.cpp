@@ -898,10 +898,20 @@ void MainWindow::setDownloadUiBusy(bool busy) {
 
     QProgressBar *progressBar = m_ui->getProgressBar();
     if (busy) {
-        // 还不知道总任务数：先转成不确定态的滚动条，拿到 stats 再换成确定态
+        // 还不知道总任务数：先转成不确定态的滚动条，拿到 stats 再换成确定态。
+        // 顺手把上一批留下的数字清掉 —— 不清的话"置忙"到"第一次 stats"之间那一小段，
+        // 进度条会是新批次的不确定态、而记的数还是上一批的，两者对不上。
+        m_downloadDone = 0;
+        m_downloadTotal = 0;
+        m_downloadFailed = 0;
         progressBar->setRange(0, 0);
         m_ui->getStatusLabel()->setText(tr("正在准备下载..."));
     } else {
+        // 这一批结束了，记下的进度一起作废：再留着的话，下一批还没报数时那一支会拿
+        // 上一批的数去还原（"已经下了 3000/3580"出现在一个刚点下去的下载上）。
+        m_downloadDone = 0;
+        m_downloadTotal = 0;
+        m_downloadFailed = 0;
         progressBar->setRange(0, 100);
         progressBar->setValue(0);
     }
@@ -961,21 +971,47 @@ void MainWindow::updateBottomBar() {
         // 文字就是进那一段之前写下的"在等什么"。
         progressBar->setRange(0, 0);
         statusLabel->setText(m_syncWaitStatus);
-    } else if (!m_downloadInFlight) {
-        // 没有下载时把进度条复位：下一次下载开始前它会先显示上次的旧值，闪一下。
+    } else if (m_downloadInFlight) {
+        // 下载还在跑，这一格还回给它 —— 照**上次记下的进度**还原，不是按回 0。
+        //
+        // NOTE: 以前这里只写"没在下载就复位"，因为"在启动"和"在下载"是互斥的：启动
+        //       那一段开始时下载一定已经停了。解耦之后启动是从下载态里**借走**这一格，
+        //       借完必须原样还回去（游戏吐出第一行输出时走到这一支，见 onProcessOutput）。
+        //       还成一根 setRange(0,100) / setValue(0) 的空条，用户看到的就是"下载没了"。
+        if (m_downloadTotal > 0) {
+            progressBar->setRange(0, m_downloadTotal);
+            progressBar->setValue(m_downloadDone);
+            QString text = tr("已下载 %1 / %2").arg(m_downloadDone).arg(m_downloadTotal);
+            if (m_downloadFailed > 0) {
+                text += tr("，失败 %1").arg(m_downloadFailed);
+            }
+            statusLabel->setText(text);
+        } else {
+            // 这一批还没报过数（刚点下载、版本 json 还在路上）：那一段本来就是不确定态。
+            progressBar->setRange(0, 0);
+            statusLabel->setText(tr("正在准备下载..."));
+        }
+    } else {
+        // 真的没在下载了：把进度条复位，下一次下载开始前它会先显示上次的旧值，闪一下。
         progressBar->setRange(0, 100);
         progressBar->setValue(0);
         statusLabel->clear();
     }
-    // 下载态下的文字和数值由 updateDownloadProgressUi() 维护，这里不覆盖。
+    // 下载态下的字**文件名那一截**由 updateDownloadProgressUi() 维护（它每 200 ms 来一次，
+    // 这里不拼那一截，免得两处各说各的）；上面这一支只把"已下载 d / t"这个数还原回来。
 
     // ---------- 右：当前实例运行状态 ----------
     QLabel *runStateLabel = m_ui->getRunStateLabel();
     QLabel *runStateDetailLabel = m_ui->getRunStateDetailLabel();
     const QList<LauncherManager::GameSession> games = m_launcherManager->runningGames();
     if (games.isEmpty()) {
-        // 没有实例在跑：左下角整格藏起来，不显示"未运行"这种废话
-        runStateLabel->setVisible(false);
+        // 没有实例在跑：写「实例未运行」。**不是藏起来** —— 用户 2026-09-23 要的就是这句话，
+        // 而且那一格现在还兼着"点开看实例列表"那颗按钮，藏起来连按钮一起没了。
+        // NOTE: 连带的好处是那一格的文字**任何时候都非空**，布局上不再有"从无到有"这一步
+        //       （那一步正是"中间那根条突然缩短一截"的来源）。
+        runStateLabel->setText(MainWindowUI::runStateNotRunningText());
+        runStateLabel->setVisible(true);
+        runStateDetailLabel->setText(QString());
         runStateDetailLabel->setVisible(false);
         return;
     }
@@ -1216,6 +1252,12 @@ void MainWindow::updateDownloadProgressUi(int done, int total, int failed,
                                           const QString &currentFile) {
     QProgressBar *progressBar = m_ui->getProgressBar();
     QLabel *statusLabel = m_ui->getStatusLabel();
+
+    // 记下来：启动那一段结束、这一格还回下载态时，updateBottomBar() 靠它还原，
+    // 而不是把进度条按回 0（那会显示成一根没有内容的空条）。见 m_downloadDone 的说明。
+    m_downloadDone = done;
+    m_downloadTotal = total;
+    m_downloadFailed = failed;
 
     if (total <= 0) {
         progressBar->setRange(0, 0);

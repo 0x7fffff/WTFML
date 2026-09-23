@@ -18,6 +18,8 @@
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QMenuBar>
+#include <QMouseEvent>
+#include <QPainter>
 #include <QPalette>
 #include <QScrollArea>
 #include <QVBoxLayout>
@@ -41,7 +43,9 @@ constexpr int kColumnSpacing = 12;
 /// 底栏整条的高度。给固定值：栏里三格的内容高度都是自己定的，跟着窗口高变没有意义。
 constexpr int kBottomBarHeight = 56;
 
-/// 底栏左格「实例运行状态」那两行文字的宽度下限，免得内容一变整条就左右跳。
+/// 进度文字那格（"已下载 1234 / 3580 xxx.jar"）的宽度下限，免得**文件名一换整条就左右跳**。
+/// 它管的是底栏**中间那一格自己**的宽度，不是左右两格的 —— 左右那两格用的是
+/// MainWindowUI::bottomBarRunStateColumnWidth() / bottomBarAccountColumnWidth()。
 constexpr int kStatusLabelMinWidth = 260;
 
 /// 左下角头像的边长（正方形）。**值本身不在这里** —— 它和"主窗口拿什么尺寸去裁头像"
@@ -190,6 +194,48 @@ QLabel *addDynamicErrorHint(QWidget *box, QWidget *parent) {
 void addHint(QWidget *box, const QString &text, QWidget *parent) {
     addDynamicHint(box, text, parent);
 }
+
+/**
+ * @brief 放不下时把尾巴截成省略号的 QLabel。
+ *
+ * 底栏那三行会变的文字（运行状态正文 / 实例名那行 / 用户名）用它。**为什么非它不可**：
+ * 左边那格被钉死了固定宽度、右边那格封了上限（MainWindowUI 的
+ * bottomBarRunStateColumnWidth() / bottomBarAccountColumnWidth()），
+ * 而 QLabel 在控件比文字窄的时候是**硬裁**的 —— 最后一个字被切掉一半、右边什么都没有，
+ * 看着像画坏了。也没法靠 QLabel 自己解决：翻遍 qlabel.h 都没有 elide 相关的 API。
+ *
+ * sizeHint() **不受那三行文字的影响**（宽度被 maxWidth 钉住），这样旁边那根进度条
+ * 就不会跟着文字长短伸缩；超出去的只影响"画出来什么"，不影响布局。
+ */
+class ElidedLabel : public QLabel {
+public:
+    explicit ElidedLabel(QWidget *parent = nullptr) : QLabel(parent) {}
+
+    QSize sizeHint() const override {
+        const QSize full = QLabel::sizeHint();
+        // 宽度上限由 setMaximumWidth() 给。**没设过时它是 QWIDGETSIZE_MAX（16777215），
+        // 不是 -1** —— 拿"有没有设小上限"当判据，别拿"是不是负数"。
+        const int cap = maximumWidth();
+        if (cap >= QWIDGETSIZE_MAX || full.width() <= cap) {
+            return full;
+        }
+        return QSize(cap, full.height());
+    }
+
+protected:
+    void paintEvent(QPaintEvent *) override {
+        // NOTE: 这里**每次都重算**，不缓存。缓存（"宽度没变就接着用上次那串"）看着是省事，
+        //       但这几个格子的宽度是**钉死的**：文字改了宽度也不改，resizeEvent 压根不触发
+        //       —— 缓存就永远不失效，第一句话会一直挂在底栏上（「实例运行中」在三个实例
+        //       都跑着的时候还是「实例运行中」）。
+        //       elidedText() 只在重画时算一次，底栏这几行重画并不频繁，不值当为它冒这个险。
+        const QRect box = contentsRect();
+        const QString shown = fontMetrics().elidedText(text(), Qt::ElideRight, box.width());
+        QPainter painter(this);
+        painter.setPen(palette().color(foregroundRole()));
+        painter.drawText(box, alignment() | Qt::TextSingleLine, shown);
+    }
+};
 
 }  // namespace
 
@@ -984,6 +1030,154 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
     pageLayout->addWidget(scroll);
 }
 
+namespace {
+
+/// 底栏那颗按钮点开之后向上弹出的面板有多大（边距 / 行距 / 和按钮之间的空隙）。
+constexpr int kPanelPadding = 10;
+constexpr int kPanelRowSpacing = 6;
+constexpr int kPanelGap = 6;
+
+/// 「上拉槽」里先放的两行占位文字。**这不是真数据** —— 用户 2026-09-23 的原话是
+/// 「上拉槽先放两文本占位」：左边那块以后放实例列表、右边那块以后放账号列表，
+/// 真数据来了就把这两句换掉，那时"往面板里灌什么"这件事要挪到 MainWindow
+/// （数据在它手里），这里只留"怎么弹出来"。
+QStringList panelPlaceholderRows(bool account) {
+    if (account) {
+        return {QStringLiteral("（占位）这里以后放账号列表"),
+                QStringLiteral("（占位）这里以后放账号设置")};
+    }
+    return {QStringLiteral("（占位）这里以后放实例列表"),
+            QStringLiteral("（占位）这里以后放实例操作")};
+}
+
+/**
+ * @brief 底栏两头那两颗按钮点开之后**向上**弹出来的那块面板（像官启/PCL 那样）。
+ *
+ * 用 Qt::Popup 而不是 QMenu：这里要的是"面板"这么一块地方（以后左边放实例列表、
+ * 右边放账号列表），菜单那种"一行一个 action"的形状套不上。而 Qt::Popup 该白给的一样
+ * 白给：点面板外面自动关、Esc 关、不抢主窗口的焦点。
+ *
+ * NOTE: 它是个**窗口**（Qt::Popup 一定是顶层窗口），但 parent 照旧挂着 —— 这样
+ *       findChild 找得到它（验证工程靠这个量几何），生命周期也不用单独管。
+ */
+class BottomBarPanel : public QWidget {
+public:
+    /// @param anchor 贴着哪颗按钮弹（也决定"至少和按钮一样宽"）。
+    /// @param alignRight true = 右边缘和按钮右边缘对齐（右端那颗按钮用），
+    ///                   false = 左边缘对齐（左端那颗用）。
+    /// @param rows 面板里的几行文字（现在是占位）。
+    BottomBarPanel(QWidget *anchor, bool alignRight, const QStringList &rows, QWidget *parent)
+        : QWidget(parent, Qt::Popup | Qt::FramelessWindowHint), m_anchor(anchor),
+          m_alignRight(alignRight) {
+        setObjectName(MainWindowUI::bottomBarPanelName());
+        // 底色比底栏再深一档：它是压在内容区上面的一块，得从底下那堆东西里分出来。
+        // **不写死颜色**：从当前调色板推出来，浅色/深色主题下都成立（和底栏同一个路数）。
+        setAutoFillBackground(true);
+        QPalette panelPalette = palette();
+        panelPalette.setColor(QPalette::Window, panelPalette.color(QPalette::Window).darker(112));
+        setPalette(panelPalette);
+
+        QVBoxLayout *box = new QVBoxLayout(this);
+        box->setContentsMargins(kPanelPadding, kPanelPadding, kPanelPadding, kPanelPadding);
+        box->setSpacing(kPanelRowSpacing);
+        for (int i = 0; i < rows.size(); ++i) {
+            QLabel *row = new QLabel(rows.at(i), this);
+            row->setObjectName(MainWindowUI::bottomBarPanelRowName(i));
+            // 占位文字用**次要颜色**：一眼看得出这不是真数据（真数据来了换成正文色）。
+            QPalette rowPalette = row->palette();
+            rowPalette.setColor(QPalette::WindowText, rowPalette.color(QPalette::PlaceholderText));
+            row->setPalette(rowPalette);
+            box->addWidget(row);
+        }
+    }
+
+    /// 贴的是哪颗按钮（"再点一次收回"要按它认人：点的是同一颗才算收回）。
+    QWidget *anchor() const { return m_anchor; }
+
+    /// 摆到 anchor 的正上方并显示出来。
+    void popUp() {
+        adjustSize();
+        // 至少和那颗按钮一样宽：以后装实例列表/账号列表，比按钮还窄就没法看了。
+        if (m_anchor != nullptr && width() < m_anchor->width()) {
+            resize(m_anchor->width(), height());
+        }
+        if (m_anchor != nullptr) {
+            const QPoint anchorTopLeft = m_anchor->mapToGlobal(QPoint(0, 0));
+            const int x = m_alignRight ? anchorTopLeft.x() + m_anchor->width() - width()
+                                       : anchorTopLeft.x();
+            move(x, anchorTopLeft.y() - height() - kPanelGap);
+        }
+        show();
+        raise();
+        // 拿焦点只为一件事：Esc 能关（外面点一下 Qt 自己会关，那条不用管）。
+        setFocus(Qt::PopupFocusReason);
+    }
+
+protected:
+    void keyPressEvent(QKeyEvent *event) override {
+        if (event->key() == Qt::Key_Escape) {
+            close();
+            return;
+        }
+        QWidget::keyPressEvent(event);
+    }
+
+    /**
+     * @brief 点在**自己那颗按钮**上 = "再点一次收回"，这里自己把面板关掉。
+     *
+     * NOTE: 这一下也可能是被 Qt 重放给按钮的（见 setupBottomBar 里 togglePanel 那段），
+     *       走哪条路都通向"收回去"：两条路都只关不开，所以怎么点都不会多冒出一块面板。
+     */
+    void mousePressEvent(QMouseEvent *event) override {
+        if (m_anchor != nullptr &&
+            m_anchor->rect().contains(m_anchor->mapFromGlobal(event->globalPosition().toPoint()))) {
+            close();
+            event->accept();
+            return;
+        }
+        QWidget::mousePressEvent(event);
+    }
+
+    /// 一圈细边：同一档深浅在浅色主题下几乎看不出边界，分不出"面板到哪为止"。
+    void paintEvent(QPaintEvent *) override {
+        QPainter painter(this);
+        painter.setPen(palette().color(QPalette::Mid));
+        painter.drawRect(rect().adjusted(0, 0, -1, -1));
+    }
+
+private:
+    QWidget *m_anchor = nullptr;
+    bool m_alignRight = false;
+};
+
+/// 底栏那两颗按钮的**同一套外观**：不画按钮自己的底（它占的是底栏那一格），
+/// 只在鼠标划过/按下时淡淡蒙一层 —— 不然用户根本看不出那一格能点。
+/// 蒙的那层取自调色板的 Highlight（**不写死颜色**），浅色/深色主题下都成立。
+void applyBottomBarButtonStyle(QPushButton *button, const QPalette &barPalette) {
+    QColor hover = barPalette.color(QPalette::Highlight);
+    hover.setAlpha(48);
+    QColor pressed = barPalette.color(QPalette::Highlight);
+    pressed.setAlpha(96);
+    button->setStyleSheet(
+        QStringLiteral("QPushButton { border: none; background: transparent; text-align: left; "
+                       "padding: 0; }"
+                       "QPushButton:hover { background-color: %1; }"
+                       "QPushButton:pressed { background-color: %2; }")
+            .arg(hover.name(QColor::HexArgb), pressed.name(QColor::HexArgb)));
+}
+
+/// 按钮右边那个**朝上**的小箭头（点开是向上弹的，所以箭头朝上）。画的，不是图片文件。
+QLabel *makeChevronLabel(QWidget *parent) {
+    const int size = MainWindowUI::bottomBarChevronSize();
+    QLabel *label = new QLabel(parent);
+    label->setObjectName(MainWindowUI::bottomBarChevronName());
+    label->setPixmap(VersionIcons::chevronUp(size, parent->palette().color(QPalette::WindowText)));
+    label->setFixedSize(size, size);
+    return label;
+}
+
+}  // namespace
+
 void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     // ---------- 底部通栏状态条（Steam 风格） ----------
     // 三个格子：左 = 实例运行状态，中 = 启动/下载进度，右 = 头像与用户名。
@@ -1011,14 +1205,18 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     // ---------- 左：当前实例运行状态 ----------
     // 第一行是状态正文，第二行是实例名。**在主页且选中的就是正在跑的那个实例**时
     // 只显示第一行 —— 那种情况下用户眼前就是那个实例，再说一遍名字是废话。
-    runStateLabel = new QLabel(bottomBar);
+    runStateLabel = new ElidedLabel(bottomBar);
     runStateLabel->setObjectName(runStateLabelName());
     // 贴在底栏最左边，所以文字左对齐（这两行原来在右端，靠的是右对齐）
     runStateLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    // 宽度封顶（理由见头文件那段）：多开之后这几行字会随"跑着几个、都叫什么名字"变长，
+    // 宽度跟着变就会把中间那根进度条挤得长短不一。
+    runStateLabel->setMaximumWidth(MainWindowUI::bottomBarRunStateTextWidth());
 
-    runStateDetailLabel = new QLabel(bottomBar);
+    runStateDetailLabel = new ElidedLabel(bottomBar);
     runStateDetailLabel->setObjectName(runStateDetailLabelName());
     runStateDetailLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    runStateDetailLabel->setMaximumWidth(MainWindowUI::bottomBarRunStateTextWidth());
     // 第二行小一号、灰一点，跟第一行区分开。字号按当前字号减 1（不用点值，
     // 免得不支持点值的平台出现负字号）；颜色用调色板里的 PlaceholderText。
     QFont detailFont = runStateDetailLabel->font();
@@ -1032,15 +1230,50 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     runStateLayout->setSpacing(0);
     runStateLayout->addWidget(runStateLabel);
     runStateLayout->addWidget(runStateDetailLabel);
-    // 没有实例在跑时左下角什么都不显示（不占着一句"未运行"）
+    runStateLayout->setContentsMargins(0, 0, 0, 0);
+
+    // 这一整格是一颗**按钮**：点它向上弹出实例那块面板（用户 2026-09-23 要的）。
+    // 按钮的宽度是**钉死**的，所以这一格的宽度跟"里面有没有字、字有多长"彻底没关系。
+    //
+    // NOTE: 宽度钉在**按钮**上、不钉在里面那两行字上，是量出来的结论：那两行在没有实例
+    //       在跑时是藏起来的，而 **Qt 的布局把藏起来的格子当成宽度 0** —— 钉在字上的话，
+    //       「下载中」到「启动起来」这一步就是 0 → 200，中间那根条当场从 582 缩到 440
+    //       （**142 px**），用户报的「实例运行中一出来条就变长变短」量到的就是这个数。
+    //       钉在按钮上，这一格就一直在。
+    //       按钮里那个 layout 的边距要显式清成 0：**套在控件里的 layout 默认会拿样式给的
+    //       边距**（套在 layout 里的不会），不清的话这格是 200 加左右两条边距。
+    runStateButton = new QPushButton(bottomBar);
+    runStateButton->setObjectName(runStateButtonName());
+    runStateButton->setFixedWidth(MainWindowUI::bottomBarRunStateColumnWidth());
+    // NOTE: **竖直方向必须自己说要铺满**。QPushButton 的竖直 sizePolicy 默认是 Fixed，
+    //       而它这会儿的高度提示只有一行字那么点（QSS 把 padding 和 border 都清零了，
+    //       实测 sizeHint 高 12 px）—— 结果这一格只有 12 px 高，里面那两行字被压成各 6 px
+    //       （"文字和箭头挤在一起、显示不全"，用户 2026-09-23 报的），鼠标划过时那块
+    //       高亮框也成了一长条。宽度钉死 + 高度铺满，这一格才真的是"占住底栏那一块"。
+    runStateButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
+    runStateButton->setCursor(Qt::PointingHandCursor);
+    runStateButton->setToolTip(
+        QCoreApplication::translate("MainWindowUI", "点一下向上展开实例列表"));
+    applyBottomBarButtonStyle(runStateButton, bottomBar->palette());
+    QHBoxLayout *runStateRow = new QHBoxLayout(runStateButton);
+    runStateRow->setContentsMargins(0, 0, 0, 0);
+    runStateRow->setSpacing(MainWindowUI::bottomBarChevronSpacing());
+    runStateRow->addLayout(runStateLayout, 1);
+    runStateRow->addWidget(makeChevronLabel(runStateButton), 0, Qt::AlignVCenter);
+
+    // 没有实例在跑时这两行本来会藏起来（那时 MainWindow 写「实例未运行」）。**藏的是字，
+    // 不是格子** —— 格子（上面那颗按钮）永远占着那 200 px。
     runStateLabel->hide();
     runStateDetailLabel->hide();
 
     // ---------- 中：进度（启动优先于下载） ----------
-    statusLabel = new QLabel(bottomBar);
+    statusLabel = new ElidedLabel(bottomBar);
     statusLabel->setObjectName(statusLabelName());
     // 固定一个最小宽度：文件名长短变化时这一格不会再跳来跳去
     statusLabel->setMinimumWidth(kStatusLabelMinWidth);
+    // NOTE: 它是 ElidedLabel（**不是**普通 QLabel）：中间那格比这句长的时候（文件名长、
+    //       窗口窄）普通 QLabel 是**硬裁**的 —— 最后一个字被切掉一半就杵在那儿。
+    //       超出去的部分由它自己截成省略号。最小宽度上面那条照旧管着布局。
     progressBar = new QProgressBar(bottomBar);
     progressBar->setObjectName(progressBarName());
     progressBar->setRange(0, 100);
@@ -1054,9 +1287,8 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     progressLayout->addWidget(progressBar);
     // 富余宽度**不完全**给中间那格：以前左右两格按自身宽度、中间那格吃掉全部富余，
     // 900 px 的窗口下进度条横跨大半个底栏（实测 789 px，占底栏 88%），太长了。
-    // 现在拉伸因子写成 4 : 1 : 1 —— 中间那格拿 4/(1+4+1) = 2/3 的富余宽度
-    // （实测 526 px = 789 的 2/3），左右各一份空档各自留白，所以它仍然居中，
-    // 窗口拉宽时按同样比例跟着长。
+    // 现在拉伸因子写成 6 : 1 : 1（2026-09-23 从 4:1:1 提上来，理由见底下那段）——
+    // 左右各一份空档各自留白，所以中间那格仍然居中，窗口拉宽时按同样比例跟着长。
     // NOTE: 别把中间那格写成 2 —— Qt 分配富余宽度是按拉伸因子直接切那个池子的，
     //       不是"先满足最小宽度再分剩下的"，2:1:1 拿到的是 1/2 而不是 2/3。
     // 一开始什么都没在下：整格藏起来（"没在下载就看不见进度条"）
@@ -1077,8 +1309,14 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     avatarLabel->setStyleSheet(QStringLiteral("QLabel { background-color: %1; color: %2; }")
                                    .arg(avatarBackground.name(), avatarForeground.name()));
 
-    accountLabel = new QLabel(QStringLiteral("?"), bottomBar);
+    accountLabel = new ElidedLabel(bottomBar);
     accountLabel->setObjectName(accountLabelName());
+    accountLabel->setText(QStringLiteral("?"));
+    // 用户名给一个宽度上限：正版名最长 16 个字符，长度一变右边那格就带着进度条一起动。
+    // 这里**只封顶、不钉死**（和左边那格不一样，理由见头文件那段）：这格右对齐贴着窗边，
+    // 钉死会让短名字在窗口最右边留出一块空白。
+    // 上限之外的名字截成省略号，不硬裁（见 ElidedLabel）。
+    accountLabel->setMaximumWidth(MainWindowUI::bottomBarAccountColumnWidth());
 
     // 第二行：这次启动会用哪种身份（正版 / 离线 / 还没登录）。做法**照抄左上角那格**
     // （小一号 + PlaceholderText 颜色）—— 底栏左右两格在视觉上是对称的两条两行文字。
@@ -1098,21 +1336,80 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     accountTextLayout->setSpacing(0);
     accountTextLayout->addWidget(accountLabel);
     accountTextLayout->addWidget(accountTypeLabel);
+    accountTextLayout->setContentsMargins(0, 0, 0, 0);
 
-    QHBoxLayout *accountRow = new QHBoxLayout();
-    accountRow->setSpacing(8);
+    // 这一格也是**一整颗按钮**：点它向上弹出账号那块面板（和左边那颗对称）。
+    // 宽度同样**钉死**，理由见头文件 bottomBarAccountButtonWidth()：里面那一组靠右摆，
+    // 所以钉死之后短名字看着照样贴着窗边，而中间那根条从此不再受"用户名多长"影响。
+    accountButton = new QPushButton(bottomBar);
+    accountButton->setObjectName(accountButtonName());
+    accountButton->setFixedWidth(MainWindowUI::bottomBarAccountButtonWidth());
+    // 竖直方向铺满，理由同左边那颗（默认 Fixed 会让这一格只有一行字那么高）。
+    accountButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
+    accountButton->setCursor(Qt::PointingHandCursor);
+    accountButton->setToolTip(QCoreApplication::translate("MainWindowUI", "点一下向上展开账号信息"));
+    applyBottomBarButtonStyle(accountButton, bottomBar->palette());
+    QHBoxLayout *accountRow = new QHBoxLayout(accountButton);
+    accountRow->setContentsMargins(0, 0, 0, 0);
+    accountRow->setSpacing(MainWindowUI::bottomBarAccountRowSpacing());
+    // 头像**贴着按钮左边缘**摆（不是靠右摆）：这一格宽 208，而头像 + 名字常态只有
+    // 九十来 px，靠右摆就会在头像左边留出一大段空白 —— 用户 2026-09-23 报的
+    // 「头像那里的左侧有一段空白」就是它（实测空 115 px：头像 x=115、按钮宽 208）。
+    // 弹簧因此摆在**名字和箭头之间**：剩下的那一截落在名字右边的姓名格里
+    // （姓名格自己就是这么宽的），箭头照旧钉在窗口右边，中间那根条的位置一点都不动。
     accountRow->addWidget(avatarLabel);
     // 头像和那两行文字按竖直居中对齐（QHBoxLayout 默认就是这个），所以名字多一行之后
     // 那块方头像不会往上看。
     accountRow->addLayout(accountTextLayout);
+    accountRow->addStretch(1);
+    accountRow->addWidget(makeChevronLabel(accountButton), 0, Qt::AlignVCenter);
 
-    // 三格从左到右摆：实例状态（0）· 空档（1）· 进度（4）· 空档（1）· 账户（0）。
-    // 两头那两格都按自身宽度靠边站，份数写 0；富余宽度全在中间三份里分。
-    barLayout->addLayout(runStateLayout, 0);
+    // 那两颗按钮点开都是**向上**弹一块面板（像官启那样）。面板里的内容现在是占位文字，
+    // 所以接线放在界面这边；等真数据（实例列表 / 账号列表）来了，"往面板里灌什么"要挪到
+    // MainWindow —— 那里才有数据。这里只留"怎么弹、弹在哪"。
+    // 点开是**开关**：已经开着的时候再点**同一颗**按钮要收回去（用户 2026-09-23 原话：
+    // 「那个按钮，点开以后处于展开状态时再次点击按钮收回」）。点另一颗时，这一下要是真落到
+    // 按钮上，就是"这块收、那块开"；被旧那块吃掉（见下面 NOTE）就只收不开，再点一下才开 ——
+    // 两条路都不会把两块一起挂着。
+    //
+    // NOTE: 为什么"收回"得在这里挡一道 —— Qt::Popup 点外面会自己关（点面板外那一下多半不往
+    //       下传：探针 popup_probe 用**真窗口事件**实测，关掉之后按钮收不到 clicked），但它
+    //       也有**把这一下重放给下面那个控件**的路数（QMenu::setNoReplayFor() 就是专门为
+    //       "别重放给开菜单那颗按钮"加的 API，可见默认是重放的）。重放那条路上按钮照样收到
+    //       clicked：不挡就是"关了又立刻开一块新的"，看着像怎么点都收不回去 —— 那才是用户报的
+    //       毛病。这里靠 findChild 认"现在有没有开着"：面板挂在 bottomBar 底下，close 之后要等
+    //       deleteLater 才真删（同一轮事件处理里还找得到，所以挡得住），不用自己记指针。
+    const auto togglePanel = [this](QWidget *anchor, bool alignRight) {
+        if (auto *open = dynamic_cast<BottomBarPanel *>(
+                bottomBar->findChild<QWidget *>(MainWindowUI::bottomBarPanelName()))) {
+            const bool sameAnchor = open->anchor() == anchor;
+            open->close();
+            if (sameAnchor) {
+                return;
+            }
+        }
+        auto *panel = new BottomBarPanel(anchor, alignRight, panelPlaceholderRows(alignRight),
+                                         bottomBar);
+        // 这次弹出来的面板归它自己管：关掉就删（不然点一次攒一个）。
+        panel->setAttribute(Qt::WA_DeleteOnClose);
+        panel->popUp();
+    };
+    QObject::connect(runStateButton, &QPushButton::clicked, runStateButton,
+                     [this, togglePanel]() { togglePanel(runStateButton, false); });
+    QObject::connect(accountButton, &QPushButton::clicked, accountButton,
+                     [this, togglePanel]() { togglePanel(accountButton, true); });
+
+    // 三格从左到右摆：实例状态（0）· 空档（1）· 进度（6）· 空档（1）· 账户（0）。
+    // 两头那两颗按钮的宽度都是钉死的，份数写 0；富余宽度全在中间三份里分。
+    // NOTE: 中间那份**从 4 提到 6**（2026-09-23）：两头那两格原来吃掉 458 px，900 px 的
+    //       窗口里富余只有 370 px，中间拿 4/6 就只有 247 px（实测条 262 px）—— 用户报
+    //       「中间进度条奇小无比」。缩了两头（200+258 → 170+208）之后再让中间拿 6/8，
+    //       实测条 356 px（900 的窗口，从 262 涨上来的），两边各留一份空档所以还居中。
+    barLayout->addWidget(runStateButton, 0);
     barLayout->addStretch(1);
-    barLayout->addLayout(progressLayout, 4);
+    barLayout->addLayout(progressLayout, 6);
     barLayout->addStretch(1);
-    barLayout->addLayout(accountRow, 0);
+    barLayout->addWidget(accountButton, 0);
 
     mainLayout->addWidget(bottomBar);
 }
