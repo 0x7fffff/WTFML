@@ -27,6 +27,19 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
 
     const QRect row = option.rect;
     const QPalette &palette = option.palette;
+    // 不可用的那几条（安装页上"选中了一个加载器之后其余几条"）**整行淡下去**：这一行
+    // 的字和图标都是这儿自己画的，不处理的话"点得动"和"点了没反应"在屏幕上一模一样
+    // —— 2026-09-23 用户报的"点不开了"正是这个形状，别再制造一次。
+    //
+    // 判据用 index.flags() 而不是 option.state：Qt 到底有没有替我们把 State_Enabled
+    // 填进去要看版本和样式，而**这一位是我们自己 setDisabled() 写下去的**，
+    // 读它就是读我们写的那一位。禁用是整行的事（图标、两行字、右边的箭头一起淡），
+    // 所以按透明度来，而不是挨个换调色板里那一档颜色。
+    const bool rowEnabled = (index.flags() & Qt::ItemIsEnabled) != 0;
+    // 0.5：一眼看得出"这条现在点不得"，但字还读得清（那句话本身就是信息 ——
+    // 「与 Forge 不兼容」正是给用户看的）。下面两处画东西的地方各用一次（第二处是
+    // 右边的箭头，它画在 save/restore 之外）。
+    const qreal rowOpacity = rowEnabled ? 1.0 : 0.5;
     // 顶层那四条是**分类**（一行字 + 右边那个能转的箭头），底下的子条目是**版本号**
     // （草方块 + 版本号 + 发布时间）。判据就是"有没有爹"。
     const bool isChannel = !index.parent().isValid();
@@ -66,6 +79,7 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     const QString mainText = index.data(Qt::DisplayRole).toString();
 
     painter->save();
+    painter->setOpacity(rowOpacity);
     // 第二行小字（rowSubTextRole）：版本树上是发布时间，加载器那棵树上是「与 X 不兼容」
     // 或者选中的版本号。两种行**都**看这个角色 —— 分类以前不画第二行只是因为没人给它
     // 塞过值（空串就是不画）。
@@ -111,8 +125,11 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
                                         : palette.color(QPalette::PlaceholderText);
     const QRect arrowRect(row.right() - pad - arrowSize, row.center().y() - arrowSize / 2,
                           arrowSize, arrowSize);
+    painter->save();
+    painter->setOpacity(rowOpacity);
     painter->drawPixmap(arrowRect.topLeft(),
                         VersionIcons::chevron(isChannel && expanded, arrowSize, arrowColor));
+    painter->restore();
 }
 
 QSize VersionTreeDelegate::sizeHint(const QStyleOptionViewItem &option,
