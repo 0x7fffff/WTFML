@@ -681,7 +681,9 @@ void MainWindow::setupConnections() {
         QTreeWidgetItem *loader = item->parent();
         const int index =
             loader->data(MainWindowUI::loaderTreeKeyColumn(), Qt::UserRole).toInt();
-        // 版本号存在 userData 里（空串 = 「自动（推荐）」那一条，见 loaderVersionAutoText()）。
+        // userData 里可能是那两档的键、也可能是一个具体版本号（见
+        // MainWindowUI::loaderVersionLatestText 上面那段）—— 这里原样存下来，认它的是
+        // 数据层（LoaderMeta::loaderRequestFromChoice，安装那条路开头解码一次）。
         const QString version =
             item->data(MainWindowUI::loaderTreeKeyColumn(), Qt::UserRole).toString();
         // 走到这里就是"选中了这条加载器的这个版本"（上面那句 isDisabled() 已经把
@@ -805,7 +807,7 @@ void MainWindow::setupConnections() {
     // 而信号带过来的是枚举，中间只有 VersionManager::loaderIndexForKind 这一处。
     connect(m_versionManager, &VersionManager::loaderVersionsFetched, this,
             [this](const QString &gameVersion, VersionManager::LoaderKind kind, bool success,
-                   const QStringList &versions, const QString &errorMessage) {
+                   const LoaderMeta::LoaderVersionList &versions, const QString &errorMessage) {
                 const int loaderIndex = VersionManager::loaderIndexForKind(kind);
                 if (loaderIndex < 0) {
                     return;  // 枚举里新来的那条界面还没跟上（表没改全），当没收到
@@ -1512,9 +1514,21 @@ QString MainWindow::defaultInstanceName() const {
     }
     const QString loaderName = VersionManager::loaderDisplayName(kind);
     const QString pinned = pinnedLoaderVersion(index);
-    return pinned.isEmpty() ? QStringLiteral("%1-%2").arg(m_installGameVersion, loaderName)
+    // 钉的是一个**具体版本号**时原样写进目录名（`1.18.2-Forge_40.3.12`）。
+    // 钉的是**那两档**（`@latest` / `@stable`）时**不带后缀**（`1.21.4-Forge`）—— 和改动前
+    // 那条「自动（推荐）」写出来的名字一个字不差。两个理由：
+    //   · 那两档最终装到哪个版本号，要等安装那条路联网挑完才知道（见
+    //     VersionManager::installLoaderVersion），这一刻算不出来 —— 写 `_stable` 是拿
+    //     "哪一档"当版本号用，而真实版本号在装完那份 wtfml.meta 的 loaderVersion 里；
+    //   · 名字一样才走得上「已经有叫这个的实例了 → 再装一次是校验并补齐」那条路。带后缀
+    //     的话，用户"同一个游戏同一个加载器"再装一次会多出一个并行实例，而他手上的老实例
+    //     还叫 `1.21.4-Forge`。同一档换个版本装进同一个实例，本来就是这条路支持的用法。
+    LoaderMeta::LoaderChannel channel;
+    const bool byChannel = LoaderMeta::loaderChannelFromKey(pinned, &channel);
+    const QString suffix = byChannel ? QString() : pinned;
+    return suffix.isEmpty() ? QStringLiteral("%1-%2").arg(m_installGameVersion, loaderName)
                             : QStringLiteral("%1-%2_%3").arg(m_installGameVersion, loaderName,
-                                                             pinned);
+                                                             suffix);
 }
 
 int MainWindow::selectedLoaderIndex() const {
@@ -1538,14 +1552,18 @@ QTreeWidgetItem *MainWindow::loaderItem(int loaderIndex) const {
 }
 
 QString MainWindow::pinnedLoaderVersion(int loaderIndex) const {
-    // 空串就是"不钉版本"（第 0 条那个「自动（推荐）」选的也是它）—— 这件事不靠一条
-    // 特判表达，见 loaderVersionAutoText()。没进过 map 的下标等于没钉。
+    // 这一格里有三种东西（见 MainWindowUI::loaderVersionStableText 上面那段）：
+    //   · 一个**具体版本号** —— 用户在那两档下面点的那一条；
+    //   · `@latest` / `@stable` —— 用户点的是上面那两档（LoaderMeta::loaderChannelKey）；
+    //   · **空串** —— 没挑过（没进过安装页、或者版本列表没取到）。空串在数据层那边按
+    //     稳定档算（LoaderMeta::loaderRequestFromChoice），也就是改动前"让安装器按老规矩挑"。
+    // 没进过 map 的下标也是空串。
     return m_chosenLoaderVersion.value(loaderIndex);
 }
 
 void MainWindow::updateLoaderRows() {
     // 那棵树的样子**全部**在这一处决定（别处一个 setText/setData 都不许写）：
-    //   · 选中的那一条：第二行小字写它选的版本号（没钉就是「自动（推荐）」）；
+    //   · 选中的那一条：第二行小字写它选的那一格（版本号 / 「最新版」/「稳定版」）；
     //   · 其余几条加载器：第二行小字写「与 X 不兼容」（用户要的那句话）；
     //   · 「不装（纯原版）」那条：没有第二行（它不是加载器，不跟谁冲突）。
     // NOTE: 选中某一条之后，**其余几条加载器变灰、也点不开**（用户原话："选择以后让其他
@@ -1571,7 +1589,17 @@ void MainWindow::updateLoaderRows() {
         if (isLoader && hasLoader) {
             if (i == selected) {
                 const QString pinned = pinnedLoaderVersion(i);
-                subText = pinned.isEmpty() ? MainWindowUI::loaderVersionAutoText() : pinned;
+                LoaderMeta::LoaderChannel channel;
+                if (LoaderMeta::loaderChannelFromKey(pinned, &channel)) {
+                    // 挑的是那一档：小字写档名（版本号要等装的时候才定下来）。
+                    subText = MainWindowUI::loaderVersionChannelShortText(
+                        channel == LoaderMeta::LoaderChannel::Newest);
+                } else if (pinned.isEmpty()) {
+                    // 没挑过（版本列表没取到）：按默认那一档说 —— 稳定档。
+                    subText = MainWindowUI::loaderVersionChannelShortText(false);
+                } else {
+                    subText = pinned;
+                }
             } else {
                 subText = MainWindowUI::loaderConflictText(selectedName);
             }
@@ -1682,37 +1710,67 @@ void MainWindow::requestAllLoaderVersions() {
     }
 }
 
-void MainWindow::fillLoaderVersionItems(int loaderIndex, const QStringList &versions,
-                                        bool includeAuto) {
+void MainWindow::fillLoaderVersionItems(int loaderIndex,
+                                        const LoaderMeta::LoaderVersionList &versions,
+                                        bool includeChannels) {
     QTreeWidgetItem *item = loaderItem(loaderIndex);
     if (item == nullptr) {
         return;
     }
     // 别动用户已经选中的那一条：列表可能刚好是"同一条"（缓存命中的那次会走到这里），
-    // 重灌一次把它顶回第 0 条就是"我选的 47.4.10 自己变回自动了"。选中的版本号在
+    // 重灌一次把它顶回第 0 条就是"我选的 47.4.10 自己变回最新版了"。选中的版本号在
     // m_chosenLoaderVersion 里，所以重灌只是把条目重建一遍、再把光标放回去。
     const QString chosen = pinnedLoaderVersion(loaderIndex);
     const bool wasExpanded = item->isExpanded();
     // 连"正在获取…"那条一起清掉：它就是等这一份列表用的。
     qDeleteAll(item->takeChildren());
-    // 第 0 条 = 不钉版本（让安装器按老规矩挑，见 loaderVersionAutoText()）；它的
-    // userData 是**空串**，"没钉版本"这件事在数据上就靠这个空串表达。
-    //
-    // includeAuto 为假 = 这一版**一个能装的都没有**（versions 也是空的）：这时候连这条
-    // 都不留 —— 理由写在 onLoaderVersionsFetched() 那段（留着等于让用户挑一条必然装不
-    // 出来的路）。调用方保证"includeAuto 假"只在这种情况出现。
-    QTreeWidgetItem *autoItem = nullptr;
-    if (includeAuto) {
-        autoItem = new QTreeWidgetItem(item);
-        autoItem->setText(MainWindowUI::loaderTreeKeyColumn(),
-                          MainWindowUI::loaderVersionAutoText());
-        autoItem->setData(MainWindowUI::loaderTreeKeyColumn(), Qt::UserRole, QString());
-        autoItem->setIcon(MainWindowUI::loaderTreeKeyColumn(),
-                          QIcon(VersionIcons::loaderMark(
-                              loaderIndex, MainWindowUI::versionTreeIconSize())));
+    // 这一版上有没有正式版 —— 稳定那一行灰不灰就看它。**列表为空时一律当作"不知道"**：
+    // 那时候这份列表根本没取到（下面 includeChannels 为假的那一支是"问到了、就是没有"，
+    // 连这两行都不摆），而"让安装器自己挑"那条路不依赖这份列表，所以不该把用户堵死。
+    bool hasStable = false;
+    for (const LoaderMeta::LoaderVersionEntry &entry : versions) {
+        hasStable = hasStable || entry.stable;
     }
-    QTreeWidgetItem *chosenItem = autoItem;
-    for (const QString &version : versions) {
+    // 头两条 = 那两档（见 MainWindowUI::loaderVersionLatestText 上面那段）。它们的 userData
+    // 是 LoaderMeta::loaderChannelKey() 那两个键，再往下才是具体版本号。
+    //
+    // includeChannels 为假 = 这一版**一个能装的都没有**（versions 也是空的）：连这两档
+    // 都不留 —— 理由写在 onLoaderVersionsFetched() 那段（留着等于让用户挑一条必然装不
+    // 出来的路）。调用方保证"includeChannels 假"只在这种情况出现。
+    QTreeWidgetItem *latestItem = nullptr;
+    QTreeWidgetItem *stableItem = nullptr;
+    if (includeChannels) {
+        const auto mark = [loaderIndex](QTreeWidgetItem *row) {
+            row->setIcon(MainWindowUI::loaderTreeKeyColumn(),
+                         QIcon(VersionIcons::loaderMark(
+                             loaderIndex, MainWindowUI::versionTreeIconSize())));
+        };
+        latestItem = new QTreeWidgetItem(item);
+        latestItem->setText(MainWindowUI::loaderTreeKeyColumn(),
+                            MainWindowUI::loaderVersionLatestText());
+        latestItem->setData(MainWindowUI::loaderTreeKeyColumn(), Qt::UserRole,
+                            LoaderMeta::loaderChannelKey(LoaderMeta::LoaderChannel::Newest));
+        mark(latestItem);
+
+        stableItem = new QTreeWidgetItem(item);
+        stableItem->setText(MainWindowUI::loaderTreeKeyColumn(),
+                            MainWindowUI::loaderVersionStableText());
+        stableItem->setData(MainWindowUI::loaderTreeKeyColumn(), Qt::UserRole,
+                            LoaderMeta::loaderChannelKey(LoaderMeta::LoaderChannel::Stable));
+        mark(stableItem);
+        // **问到了、可一条正式版都没有**（NeoForge + 26.3 就是：11 个构建全是 `-beta`）：
+        // 这一行灰掉、第二行小字把原因写出来。留着能点的它等于让用户挑一条必然装不出来的
+        // 路 —— 装的时候会以"还没有支持 X 的版本"收场。
+        if (!versions.isEmpty() && !hasStable) {
+            stableItem->setDisabled(true);
+            stableItem->setData(MainWindowUI::loaderTreeKeyColumn(),
+                                MainWindowUI::rowSubTextRole(),
+                                MainWindowUI::loaderVersionStableMissingText());
+        }
+    }
+    QTreeWidgetItem *chosenItem = nullptr;
+    for (const LoaderMeta::LoaderVersionEntry &entry : versions) {
+        const QString &version = entry.version;
         auto *child = new QTreeWidgetItem(item);
         child->setText(MainWindowUI::loaderTreeKeyColumn(), version);
         child->setData(MainWindowUI::loaderTreeKeyColumn(), Qt::UserRole, version);
@@ -1721,12 +1779,29 @@ void MainWindow::fillLoaderVersionItems(int loaderIndex, const QStringList &vers
         child->setIcon(MainWindowUI::loaderTreeKeyColumn(),
                        QIcon(VersionIcons::loaderMark(loaderIndex,
                                                       MainWindowUI::versionTreeIconSize())));
+        // 不是正式版的那几条：第二行小字标出「测试版」。**照列、也能装**（用户原话：
+        // "beta 版虽然不稳定，但是也能使用"）—— 这一行小字是"它是什么"，不是"它不行"。
+        if (!entry.stable) {
+            child->setData(MainWindowUI::loaderTreeKeyColumn(), MainWindowUI::rowSubTextRole(),
+                           MainWindowUI::loaderVersionBetaSubText());
+        }
         if (version == chosen) {
             chosenItem = child;
         }
     }
-    // 光标放回"现在钉着的那一条"（没钉就是「自动（推荐）」）—— 展开之后一眼看到的就是
-    // 它。**这不改选中状态**：选中是 m_selectedLoaderIndex 的事，这里只是画光标。
+    // 光标放回"现在钉着的那一条"—— 展开之后一眼看到的就是它。没挑过（空串）时摆在
+    // **默认会走的那一档**上：稳定档（它灰了就是最新档），和安装那条路的默认值一致。
+    // **这不改选中状态**：选中是 m_selectedLoaderIndex 的事，这里只是画光标。
+    if (chosenItem == nullptr) {
+        LoaderMeta::LoaderChannel channel;
+        if (LoaderMeta::loaderChannelFromKey(chosen, &channel)) {
+            chosenItem = channel == LoaderMeta::LoaderChannel::Newest ? latestItem : stableItem;
+        } else {
+            // 没挑过、或者钉的那条这次没列出来（换了游戏版本那种）：退回默认那一档。
+            chosenItem = (stableItem != nullptr && !stableItem->isDisabled()) ? stableItem
+                                                                             : latestItem;
+        }
+    }
     //
     // ★ 这一下**只能在那一行开着的时候做**（2026-09-23 用户报的 bug 就在这儿）。
     //   链路：`QTreeWidget::setCurrentItem()` → currentChanged → QAbstractItemView 的
@@ -1734,13 +1809,13 @@ void MainWindow::fillLoaderVersionItems(int loaderIndex, const QStringList &vers
     //   "Expand all parents if the parent(s) of the node are not expanded"（qtreeview.cpp
     //   里那几行，实测过：把 setCurrentItem 摘掉，那个"点不开了"当场就好了）。
     //   于是"把光标放到一条收着的加载器的子条目上" = **把那一条撑开**。用户看到的是：
-    //   点开 Fabric → 选「自动（推荐）」→ 再点 Fabric，它闪一下就不动了（撑开它的那一下
+    //   点开 Fabric → 选一条版本号 → 再点 Fabric，它闪一下就不动了（撑开它的那一下
     //   正好把点击处理里那句"取反"吃掉了）。
     //   收着的时候不放也没损失 —— 这几个版本号就写在那一行自己的第二行小字上
     //   （"选择版本以后收缩，显示版本"），不靠光标指。
     QTreeWidget *tree = m_ui->getLoaderTree();
-    // chosenItem 可能是空指针（"这一版一个能装的都没有"那次：连「自动（推荐）」都没有，
-    // 底下只剩一条灰的）。那种情况下这一列本来就没有"现在钉着的那一条"可指 —— 什么都不做。
+    // chosenItem 可能是空指针（"这一版一个能装的都没有"那次：连那两档都没有，底下只剩一条
+    // 灰的）。那种情况下这一列本来就没有"现在钉着的那一条"可指 —— 什么都不做。
     if (tree != nullptr && wasExpanded && chosenItem != nullptr) {
         tree->setCurrentItem(chosenItem);
     }
@@ -1754,7 +1829,8 @@ void MainWindow::fillLoaderVersionItems(int loaderIndex, const QStringList &vers
 }
 
 void MainWindow::onLoaderVersionsFetched(const QString &gameVersion, int loaderIndex, bool success,
-                                         const QStringList &versions, const QString &errorMessage) {
+                                         const LoaderMeta::LoaderVersionList &versions,
+                                         const QString &errorMessage) {
     // 这一发回复可能已经过时了（用户换了游戏版本）。按"这条回复讲的是不是现在这一页"来判，
     // 过时的直接丢 —— 填错地方的下场是"点了 Fabric 却看到 Forge 的版本号"，那不报错、
     // 只会装错东西。
@@ -1772,12 +1848,15 @@ void MainWindow::onLoaderVersionsFetched(const QString &gameVersion, int loaderI
         return;
     }
     if (!success) {
-        // 拉不到：那一条底下**只留"自动（推荐）"**，外加一条灰的「列表没取到」把话说到
-        // —— 不钉版本这条路是不需要这份列表的（安装器自己会挑，问的是另一份东西：
+        // 拉不到：那一条底下**只留那两档**，外加一条灰的「列表没取到」把话说到 ——
+        // 不钉版本这条路是不需要这份列表的（安装器自己会挑，问的是另一份东西：
         // promotions / maven 清单，见 installLoaderVersion 那条路），所以"列不出来"不该把
         // 安装整件事堵死，但也不能一声不吭。
+        // 两档都**不灰**：这一刻我们根本不知道有没有正式版（那份列表没到手），而"让安装器
+        // 自己挑"这条路由数据层去挑、挑不出来会在安装那条路上说清楚。
         // 具体原因（超时？404？）写进日志 —— 那是给排查用的，不是给用户读的。
-        fillLoaderVersionItems(loaderIndex, QStringList(), /*includeAuto=*/true);
+        fillLoaderVersionItems(loaderIndex, LoaderMeta::LoaderVersionList(),
+                               /*includeChannels=*/true);
         auto *failed = new QTreeWidgetItem(item);
         failed->setText(MainWindowUI::loaderTreeKeyColumn(), MainWindowUI::loaderVersionFailedText());
         failed->setDisabled(true);
@@ -1786,14 +1865,19 @@ void MainWindow::onLoaderVersionsFetched(const QString &gameVersion, int loaderI
         return;
     }
     if (versions.isEmpty()) {
-        // **问到了、就是没有**（四种加载器上都可能：Forge 还没支持某个刚发的快照、
-        // OptiFine 只发了预览版……）。这时候底下**不留「自动（推荐）」**（用户原话：
-        // "如果对应版本不支持，就不要保留自动了"）：留着它等于让用户挑一条必然装不出来的
-        // 路 —— 安装那条路会以"X 还没有支持 Y 的版本"收场，那一下本来在这一眼就该说完
-        // （用户原话："这个情况下的 列表没取到 换成无可用版本"）。
+        // **问到了、就是没有**（四种加载器上都可能：Forge 还没支持某个刚发的快照）。
+        // 这时候底下**不留那两档**（用户原话："如果对应版本不支持，就不要保留自动了"）：
+        // 留着它等于让用户挑一条必然装不出来的路 —— 安装那条路会以"X 还没有支持 Y 的版本"
+        // 收场，那一下本来在这一眼就该说完（用户原话："这个情况下的 列表没取到 换成无可用
+        // 版本"）。
+        //
+        // NOTE: 2026-09-23 起"**有预览版、没有正式版**"的那种版本**不算**这一支 ——
+        //       用户原话："beta 版虽然不稳定，但是也能使用"，所以那一份列表非空、照列，
+        //       只是稳定那一行是灰的。
         // 于是这条加载器**一个能点的子条目都没有**，也就选不中它 —— 这正是"这一条我装不了"
         // 该有的样子；底下那条灰的「无可用版本」只是把原因写出来。
-        fillLoaderVersionItems(loaderIndex, QStringList(), /*includeAuto=*/false);
+        fillLoaderVersionItems(loaderIndex, LoaderMeta::LoaderVersionList(),
+                               /*includeChannels=*/false);
         auto *none = new QTreeWidgetItem(item);
         none->setText(MainWindowUI::loaderTreeKeyColumn(),
                       MainWindowUI::loaderVersionUnavailableText());
@@ -1802,9 +1886,25 @@ void MainWindow::onLoaderVersionsFetched(const QString &gameVersion, int loaderI
                       .arg(VersionManager::loaderDisplayName(kind), gameVersion));
         return;
     }
+    // 这一版上一条正式版都没有（真实例子：NeoForge + 26.3，11 个构建全是 `-beta`）：
+    // 用户还什么都没挑的时候，把默认那一档**挪到「最新版」**上 —— 不然什么都没点、点安装，
+    // 走的是稳定档那条必然装不出来的路（那一行同时也是灰的，见 fillLoaderVersionItems）。
+    //
+    // NOTE: 只在他**没挑过**的时候改（空串）。他已经挑过的那一格不许动 —— 那是他自己的
+    //       选择，哪怕挑的正是一条现在没列出来的版本号。
+    if (pinnedLoaderVersion(loaderIndex).isEmpty()) {
+        bool hasStable = false;
+        for (const LoaderMeta::LoaderVersionEntry &entry : versions) {
+            hasStable = hasStable || entry.stable;
+        }
+        if (!hasStable) {
+            m_chosenLoaderVersion.insert(
+                loaderIndex, LoaderMeta::loaderChannelKey(LoaderMeta::LoaderChannel::Newest));
+        }
+    }
     // 灌进去就完了 —— 不存缓存：这一批是进安装页时一次性问全的（requestAllLoaderVersions），
     // 每一条在这次安装页里只会被灌这一次。
-    fillLoaderVersionItems(loaderIndex, versions, /*includeAuto=*/true);
+    fillLoaderVersionItems(loaderIndex, versions, /*includeChannels=*/true);
 }
 
 void MainWindow::updateInstallName() {

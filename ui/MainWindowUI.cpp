@@ -589,7 +589,10 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         loaderTree->setUniformRowHeights(true);
         loaderTree->setRootIsDecorated(false);
         loaderTree->setColumnCount(1);
-        loaderTree->setItemDelegate(new VersionTreeDelegate(loaderTree));
+        // 末一个参数 false：这棵树的**叶子**（两档 + 具体版本号）右边不画那个 `>` ——
+        // 那一层是"选中它"，底下没有下一页（见 VersionTreeDelegate 的构造函数）。
+        // 顶层那五条照画（它们是真的能展开）。
+        loaderTree->setItemDelegate(new VersionTreeDelegate(loaderTree, /*leafArrow=*/false));
         loaderTree->setExpandsOnDoubleClick(false);
         // 展开/收起是"点那一条"完成的，而点中一条会把它整行画成选中色（和版本树那边
         // 一样）。这里**不要**再自己画高亮：选中色就是"你现在停在哪一条"。

@@ -215,11 +215,14 @@ public:
      * 失败一律以 `versionDownloadFinished(loaderId, false, 原因)` 收尾（还没算出
      * loaderId 时用 gameVersion 当 id），`loaderInstallMessage()` 里说清卡在哪一步。
      *
-     * @param pinnedLoaderVersion 钉死加载器版本。空 = 老行为（Fabric 挑"最新的正式版"、
-     *        Forge/NeoForge 挑官方推荐版）。非空时**跳过"拉版本表挑一个"那一步**，
-     *        直接用这个版本号 —— 整合包导入走的就是这条路：它的依赖表里写着
-     *        `fabric-loader: 0.16.14`，而包里那些模组正是按这个版本配的，装"最新那个"
-     *        是另一回事（多半也能跑，但那是猜）。
+     * @param pinnedLoaderVersion 钉死加载器版本，或者是频道键（见
+     *        LoaderMeta::loaderChannelKey / loaderRequestFromChoice）：
+     *          * 一个**具体版本号** —— 跳过"拉版本表挑一个"那一步，直接用这个版本号。
+     *            整合包导入走的就是这条路：它的依赖表里写着 `fabric-loader: 0.16.14`，而包里
+     *            那些模组正是按这个版本配的，装"最新那个"是另一回事（多半也能跑，但那是猜）；
+     *          * `@latest` / `@stable` —— 按这一档挑（最新档连 alpha/beta/预览版一起算）；
+     *          * **空串** —— 老行为（Fabric 挑"最新的正式版"、Forge/NeoForge 挑官方推荐版、
+     *            OptiFine 挑官方页那一行），也就是稳定档。
      *        NOTE: 纯原版整合包不调这个函数（没有加载器要装），见 importModpack()。
      */
     void installLoaderVersion(const QString &gameVersion, LoaderKind kind,
@@ -576,19 +579,19 @@ signals:
      * @brief requestLoaderVersions() 的回复。**每次请求都会回一次**（成功、失败都回）。
      *
      * @param versions 用户能挑的版本号，按各自加载器的天然次序（两份 maven 清单按版本号新到旧、
-     *        Fabric 按接口给的次序）。空 = 一个都没有。
+     *        Fabric 按接口给的次序）。每一条都带着 `stable`（是不是正式版）—— 界面靠它标出
+     *        「测试版」、也靠它决定「下载稳定版（release）」那一行能不能点。空 = 一个都没有。
      * @param errorMessage 失败时说明原因（界面按它弹窗）；成功时是空串。
      *
-     * NOTE: **列表里没有"哪个是推荐的"这个标记**，这是刻意留白的。四种加载器里只有 Fabric
-     *       的列表自带这个信息（接口的 `stable` 字段），另外三个的"推荐"都在**别的**数据里
-     *       （Forge 在 promotions_slim.json、NeoForge 在"没有 -beta 后缀"、OptiFine 在官方页
-     *       那一行 `downloadLineMain`）。为 Forge 那份多拉一次 4 KB 的请求、再串一道状态机，
-     *       换来的只是列表里一个高亮 —— 而界面那条「自动（推荐）」选项已经把同一件事说清楚了：
-     *       **不指定版本 = 让安装器按老规矩挑**（installLoaderVersion 不传 pinnedVersion 就是
-     *       这个行为，挑法一处没变）。用户真想指定某个版本时，他本来就知道自己要哪个。
+     * NOTE: 这里曾经只传 QStringList，注释里写着"列表里没有哪个是推荐的、这是刻意留白"——
+     *       2026-09-23 用户拍板要把 alpha/beta 也列出来、并且把「自动（推荐）」换成
+     *       「下载最新版（alpha/beta）」/「下载稳定版（release）」两行，所以那一份留白
+     *       至此填上了：`stable` 现在**从列表里一路带到界面上**（四个加载器的判据见
+     *       LoaderVersionEntry::stable 的注释）。
      */
     void loaderVersionsFetched(const QString &gameVersion, LoaderKind kind, bool success,
-                               const QStringList &versions, const QString &errorMessage);
+                               const LoaderMeta::LoaderVersionList &versions,
+                               const QString &errorMessage);
 
     /// 整合包导入中间那几句（装加载器、下清单里那批文件、解压覆盖文件）。
     ///
@@ -655,6 +658,13 @@ private:
         /// NOTE: 它一非空就连"拉版本表"那一步都不走 —— 挑出来的和钉死的必须泾渭分明，
         ///       否则镜像那份旧表挑不出 1.16 之后的版本时，会把整合包要的版本悄悄换掉。
         QString pinnedVersion;
+        /// 没钉版本时按哪一档挑（安装页那两行「下载最新版（alpha/beta）」/「下载稳定版
+        /// （release）」）。钉了版本时它不起作用 —— 那一格由 pinnedVersion 说了算。
+        ///
+        /// NOTE: 它是**界面那一格**（`@latest` / `@stable` / 空串）在数据层这边解码出来的
+        ///       （LoaderMeta::loaderRequestFromChoice），空串解出来就是 Stable —— 也就是
+        ///       改动前"让安装器按老规矩挑"那个行为，一个字没变。
+        LoaderMeta::LoaderChannel channel = LoaderMeta::LoaderChannel::Stable;
         /// 跑外部安装器用哪个 Java（空 = PATH 上的 `java`）。Fabric 用不上。
         QString javaPath;
         /// 安装器 jar 要下的地址，以及它落在盘上的哪个文件。两条路都在拉完版本表时填好。
@@ -940,7 +950,7 @@ private:
     void onLoaderVersionsReply(LoaderKind kind, QNetworkReply *reply);
     // 按加载器把这一份回复解析成"能挑的版本"。失败时 returned.error 非空（是给用户看的话）。
     struct LoaderVersionParse {
-        QStringList versions;
+        LoaderMeta::LoaderVersionList versions;
         QString error;
     };
     LoaderVersionParse parseLoaderVersions(LoaderKind kind, const QString &gameVersion,

@@ -192,10 +192,36 @@ bool copyTreeInto(const QString &from, const QString &to) {
     return true;
 }
 
+/// 挑中某个加载器版本之后，日志里那句括号里的说明（"这是怎么挑出来的"）。
+///
+/// 为什么要分开说这三句而不是一句"挑中 X"：用户手上那一格可能是**最新档**（连 alpha/beta
+/// 一起算）也可能是**稳定档**，两档挑出来的版本号不一样，日志里不写清楚就分不出"它给我挑的
+/// 是哪个档"——装在盘上的东西可是不一样的（`versions/<id>/wtfml.meta` 里的 loaderVersion）。
+///
+/// @param stable 上游自己标着"正式版/推荐"的那一个吗（Fabric 是接口的 stable 字段、
+///        Forge 是 promotions 的 recommended、NeoForge 是没有 `-beta` 后缀、OptiFine 是
+///        官方页那一行）。**稳定档也可能挑出一条 stable=false 的**：上游这份清单里一条正式版
+///        都没有时，那两档都会退回"最新的那条"（界面上那一行也是灰的，见
+///        MainWindow::fillLoaderVersionItems），这时候话要说成"退回去了"。
+QString pickChannelDetail(LoaderMeta::LoaderChannel channel, bool stable) {
+    if (channel == LoaderMeta::LoaderChannel::Newest) {
+        return QObject::tr("最新那一档，连测试版一起算");
+    }
+    if (stable) {
+        return QObject::tr("稳定那一档，上游自己标着正式版的那个");
+    }
+    return QObject::tr("稳定那一档，可上游一条正式版都没有，退回了最新的那个");
+}
+
 }  // namespace
 
 VersionManager::VersionManager(QObject *parent)
     : QObject(parent), downloadManager(new DownloadManager(this)) {
+    // `loaderVersionsFetched` 那一个信号带的是一份 LoaderVersionList（不是 QStringList）——
+    // Q_DECLARE_METATYPE 在 LoaderMeta.hpp 里，这里把它登记进 Qt 的元类型表：不是为了让当下
+    // 这条直连能用（直连不看元类型表），而是**排队的连接和测试里的 QSignalSpy 要认它** ——
+    // 少了这一句，那两种用法会在运行期回一句"Type not registered"然后收不到东西。
+    qRegisterMetaType<LoaderMeta::LoaderVersionList>("LoaderMeta::LoaderVersionList");
     connect(downloadManager, &DownloadManager::versionManifestFetched, this,
             &VersionManager::onVersionManifestFetched);
     connect(downloadManager, &DownloadManager::versionJsonFetched, this,
@@ -1003,12 +1029,12 @@ void VersionManager::requestLoaderVersions(const QString &gameVersion, LoaderKin
     slot.gameVersion = wanted;
 
     if (wanted.isEmpty()) {
-        emit loaderVersionsFetched(wanted, kind, false, QStringList(),
+        emit loaderVersionsFetched(wanted, kind, false, LoaderMeta::LoaderVersionList(),
                                    tr("还没选要装哪个版本，先在上面挑一个。"));
         return;
     }
     if (!loaderInstallSupported(kind)) {
-        emit loaderVersionsFetched(wanted, kind, false, QStringList(),
+        emit loaderVersionsFetched(wanted, kind, false, LoaderMeta::LoaderVersionList(),
                                    tr("%1 的安装还没接通。").arg(loaderDisplayName(kind)));
         return;
     }
@@ -1072,7 +1098,7 @@ void VersionManager::onLoaderVersionsReply(LoaderKind kind, QNetworkReply *reply
     const QByteArray body = reply->readAll();
     if (reply->error() != QNetworkReply::NoError) {
         emit loaderVersionsFetched(
-            gameVersion, kind, false, QStringList(),
+            gameVersion, kind, false, LoaderMeta::LoaderVersionList(),
             tr("拿不到 %1 %2 的版本列表（%3）。检查网络后重试。")
                 .arg(loaderDisplayName(kind), gameVersion, reply->errorString()));
         return;
@@ -1080,7 +1106,8 @@ void VersionManager::onLoaderVersionsReply(LoaderKind kind, QNetworkReply *reply
 
     const LoaderVersionParse parsed = parseLoaderVersions(kind, gameVersion, body);
     if (!parsed.error.isEmpty()) {
-        emit loaderVersionsFetched(gameVersion, kind, false, QStringList(), parsed.error);
+        emit loaderVersionsFetched(gameVersion, kind, false, LoaderMeta::LoaderVersionList(),
+                                   parsed.error);
         return;
     }
     emit loaderVersionsFetched(gameVersion, kind, true, parsed.versions, QString());
@@ -1125,16 +1152,18 @@ VersionManager::LoaderVersionParse VersionManager::parseLoaderVersions(LoaderKin
         break;
     }
 
-    result.versions = LoaderMeta::loaderVersionStrings(entries);
+    // 直接送那份带 `stable` 标记的列表：界面要用它标「测试版」、也要用它决定
+    // 「下载稳定版（release）」那一行能不能点（见 MainWindow::fillLoaderVersionItems）。
+    result.versions = entries;
     // NOTE: "这个游戏版本一个能装的都没有"**不算读失败**（`error` 留空、按 success 发出去，
     //       版本列表是空的）。四种加载器里都是**真结论**：比如 Forge 还没支持某个刚发的
     //       快照、OptiFine 只发了预览版 —— 不是网络问题、也不是清单读不懂，重试一百次
     //       还是这个答案。2026-09-23 之前这里给的是一个 `error`（"X 还没有支持 Y 的版本"），
-    //       界面那边**认不出**它和"没问到"的区别，只能一律写成「列表没取到」并留着
+    //       界面那边**认不出**它和"没问到"的区别，只能一律写成「列表没取到」并留着一条
     //       「自动（推荐）」—— 用户看到的就是"这一条明明装不了，还给个自动让我挑"。
     //       现在两种答案在数据上分得开：**空列表 = 就是没有**（界面写「无可用版本」、
-    //       底下连「自动（推荐）」都不留）、**success=false = 没问到**（界面写「列表没取到」、
-    //       底下留着「自动（推荐）」，因为"让安装器自己挑"那条路不依赖这份列表）。
+    //       底下连那两档都不留）、**success=false = 没问到**（界面写「列表没取到」、
+    //       底下留着那两档，因为"让安装器自己挑"那条路不依赖这份列表）。
     return result;
 }
 
@@ -1163,7 +1192,14 @@ void VersionManager::installLoaderVersion(const QString &gameVersion, LoaderKind
     m_loaderInstall.gameVersion = gameVersion;
     m_loaderInstall.loaderName = loaderDisplayName(kind);
     m_loaderInstall.javaPath = javaPath;
-    m_loaderInstall.pinnedVersion = pinnedLoaderVersion.trimmed();
+    // 界面那一格可能是三种东西（见 LoaderMeta::loaderRequestFromChoice）：一个具体版本号、
+    // `@latest` / `@stable` 两个频道键、或者空串（没挑过）。在这里**一次**解码成
+    // （要钉的版本号 / 按哪一档挑），后面几条路都只读那两个字段，不再回头看那个字符串 ——
+    // 解码散在多处的话，"选了最新版却装了稳定版"那种错就是对不出来。
+    const LoaderMeta::LoaderRequest choice =
+        LoaderMeta::loaderRequestFromChoice(pinnedLoaderVersion.trimmed());
+    m_loaderInstall.pinnedVersion = choice.pinnedVersion;
+    m_loaderInstall.channel = choice.channel;
 
     // 第一步就分开了：Fabric 拉的是"加载器版本列表"，Forge/NeoForge 拉的是"安装器该用
     // 哪个版本"，OptiFine 连"版本表"都和前三个不是一回事（镜像一条 JSON、官方一张 203 KB
@@ -1258,7 +1294,8 @@ void VersionManager::onFabricLoaderListReply(QNetworkReply *reply) {
         return;
     }
 
-    const LoaderMeta::LoaderPick pick = LoaderMeta::pickFabricLoader(doc.array());
+    const LoaderMeta::LoaderPick pick =
+        LoaderMeta::pickFabricLoader(doc.array(), m_loaderInstall.channel);
     if (!pick.ok()) {
         // 快照、或者比 Fabric 还早的版本：接口会回一个空数组。这不是网络问题，
         // 也不能退回"装原版"——用户要的是带加载器的版本，装出来一个纯原版是骗人。
@@ -1272,7 +1309,7 @@ void VersionManager::onFabricLoaderListReply(QNetworkReply *reply) {
         LoaderMeta::fabricLoaderId(m_loaderInstall.gameVersion, pick.version);
     emit loaderInstallMessage(tr("挑中 %1 %2（%3）。")
                                   .arg(m_loaderInstall.loaderName, pick.version,
-                                       pick.stable ? tr("最新的正式版") : tr("列表里最新的那个")));
+                                       pickChannelDetail(m_loaderInstall.channel, pick.stable)));
     m_loaderInstall.phase = LoaderInstall::Phase::FetchingProfile;
     fetchFabricProfile();
 }
@@ -1456,9 +1493,11 @@ void VersionManager::onInstallerListReply(QNetworkReply *reply) {
             failLoaderInstall(tr("Forge 的版本表读不懂（%1）。").arg(parseError.errorString()));
             return;
         }
-        pick = LoaderMeta::pickForgeVersion(doc.object(), m_loaderInstall.gameVersion);
+        pick = LoaderMeta::pickForgeVersion(doc.object(), m_loaderInstall.gameVersion,
+                                            m_loaderInstall.channel);
     } else {
-        pick = LoaderMeta::pickNeoForgeVersion(body, m_loaderInstall.gameVersion);
+        pick = LoaderMeta::pickNeoForgeVersion(body, m_loaderInstall.gameVersion,
+                                               m_loaderInstall.channel);
     }
 
     if (!pick.ok()) {
@@ -1476,8 +1515,7 @@ void VersionManager::onInstallerListReply(QNetworkReply *reply) {
 
     emit loaderInstallMessage(tr("挑中 %1 %2（%3）。")
                                   .arg(m_loaderInstall.loaderName, pick.version,
-                                       pick.stable ? tr("官方推荐的正式版")
-                                                   : tr("版本表里最新的那个")));
+                                       pickChannelDetail(m_loaderInstall.channel, pick.stable)));
     // 剩下的（loaderId / 安装器地址 / 文件名 / 排下一轮）和"整合包钉死版本"那条路共用一份：
     // 两块地方各写一遍的话，迟早只有一边记得改（比如 installerFileName 那段注释里的坑）。
     adoptInstallerVersion(pick.version);
@@ -2096,18 +2134,24 @@ void VersionManager::onOptifineVersionListReply(QNetworkReply *reply, bool fromM
             failLoaderInstall(tr("OptiFine 的版本表读不懂（%1）。").arg(parseError.errorString()));
             return;
         }
-        pick = LoaderMeta::pickOptifineFromMirror(doc.array());
+        pick = LoaderMeta::pickOptifineFromMirror(doc.array(), m_loaderInstall.gameVersion,
+                                                  m_loaderInstall.channel);
     } else {
         pick = LoaderMeta::pickOptifineFromDownloadsPage(QString::fromUtf8(body),
-                                                         m_loaderInstall.gameVersion);
+                                                         m_loaderInstall.gameVersion,
+                                                         m_loaderInstall.channel);
     }
 
     if (!pick.ok()) {
-        // 和另外三条一样：这不是网络问题，也**不能**退回"装原版"。NOTE: 这一条**包含**
-        // "只有预览版、还没发正式版"的游戏版本 —— 官方页面上那一节里就没有 main 行，
-        // 镜像那边则是全被 preview_ 过滤掉了。
-        failLoaderInstall(tr("%1 还没有支持 %2 的正式版（预览版不装）。")
-                              .arg(m_loaderInstall.loaderName, m_loaderInstall.gameVersion));
+        // 和另外三条一样：这不是网络问题，也**不能**退回"装原版"。NOTE: 到了这一步就只剩
+        // "**稳定档**上一条正式版都没有"这一种可能（2026-09-23 起预览版也列、也装，所以
+        // 官方页那一节里只有预览版的情况在「最新版」那一档是能装下去的）—— 那句提示得把
+        // 退路指出来，不能像以前那样说"预览版不装"（现在装了）。
+        // NOTE: 这句话里**不引界面那两行的原文** —— 数据层不认识 ui/MainWindowUI.hpp
+        //       （那一层依赖是单向的），引一次就等于为了五个字把两层拧在一起。
+        failLoaderInstall(
+            tr("%1 还没有支持 %2 的正式版；去列表里挑最新那一档，那一档连预览版一起算。")
+                .arg(m_loaderInstall.loaderName, m_loaderInstall.gameVersion));
         return;
     }
 
@@ -2116,10 +2160,18 @@ void VersionManager::onOptifineVersionListReply(QNetworkReply *reply, bool fromM
     const QString edition =
         LoaderMeta::optifineEditionFromFile(m_loaderInstall.gameVersion, pick.fileName);
 
-    emit loaderInstallMessage(tr("挑中 %1 %2（%3）。")
-                                  .arg(m_loaderInstall.loaderName, edition,
-                                       fromMirror ? tr("镜像源上最新那条正式版")
-                                                  : tr("官方页面上标着正式版的那一条")));
+    // 挑中预览版时 `stable` 那一栏是 false（见 LoaderMeta::isOptifinePreviewFile），
+    // 于是这句说明会写成"稳定那一档……退回了最新的那个"—— 那正是官方页上那一节只有预览版
+    // 的情况，是真话。两个源共用这一句，只有"哪一条"那半句分源（两份数据的挑法不一样）。
+    emit loaderInstallMessage(
+        tr("挑中 %1 %2（%3）。")
+            .arg(m_loaderInstall.loaderName, edition,
+                 m_loaderInstall.channel == LoaderMeta::LoaderChannel::Newest
+                     ? (LoaderMeta::isOptifinePreviewFile(pick.fileName)
+                            ? tr("最新那一档，挑中的是预览版")
+                            : tr("最新那一档，连预览版一起算"))
+                     : pickChannelDetail(m_loaderInstall.channel,
+                                         !LoaderMeta::isOptifinePreviewFile(pick.fileName))));
 
     // 镜像那份数据里带着权威的 type/patch，直接读到的就用它（**不从版本号切**：那两段的切法
     // 和文件名不一样，多一处自己算的就多一处能算错的地方）。用户钉死的版本没有这两个字段，
