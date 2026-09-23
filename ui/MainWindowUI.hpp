@@ -469,6 +469,68 @@ public:
     static QString accountTypeOnlineText() { return QStringLiteral("正版登录"); }
     static QString accountTypeOfflineText() { return QStringLiteral("离线登录"); }
     static QString accountTypeNotLoggedInText() { return QStringLiteral("未登录"); }
+    /// 底栏**左边那颗按钮（实例运行状态）的固定宽度**（像素）。中间那格（进度）要稳定，
+    /// 就只能让旁边这几格不再跟着自己的文字长短变 —— 拉伸因子管的是「富余宽度怎么分」，
+    /// 管不了「谁的最小宽度更大」，所以光靠 0/4/0 那份比例挡不住左边那几行字
+    /// 把进度条挤短。
+    ///
+    /// NOTE: **多开之后左边那格的内容是真的会变长的**：第一行从「实例运行中」变成
+    ///       「3 个实例运行中」、第二行从实例名变成「A（账号甲）、B（账号乙）」；
+    ///       一变中间那根条就跟着长一截短一截 —— 用户报的「条会变长变短」就是这个。
+    ///       超出去的字由那两行自己截成省略号（QLabel 没有 elide API，硬裁会把最后一个字
+    ///       切成半个，所以那两行用的是 MainWindowUI.cpp 里那个 ElidedLabel），
+    ///       文字能占多宽由 bottomBarRunStateTextWidth() 说了算。
+    ///       **左边这格钉死是安全的**：它贴着窗口左边缘，多出来的空档落在文字右边。
+    ///       另外，钉死的那个是**装字的按钮**（不是那两行字本身）：那两行有藏起来的时候
+    ///       （没有实例在跑时），而布局里藏起来的控件宽度是 0 —— 钉在字上等于没钉
+    ///       （实测条会从 582 跳到 440）。详见 MainWindowUI.cpp 里 runStateButton 那段。
+    ///
+    /// 宽度**从 200 改到 170**（2026-09-23）：两头那两格加起来原来是 458 px，
+    /// 900 px 的窗口里中间那根条只剩 262 px（条还没那两格宽），用户报「奇小无比」。
+    /// 那一格装的是「3 个实例运行中」+ 一行实例名 + 箭头，170 够（文字能占 152）。
+    static int bottomBarRunStateColumnWidth() { return 170; }
+    /// 左边那两行字各自的宽度上限 = 那一格的宽度减掉右边那个箭头和它左边的间距。
+    /// 两行都封这个顶，布局就永远不会被长名字撑开。
+    static int bottomBarRunStateTextWidth() {
+        return bottomBarRunStateColumnWidth() - bottomBarChevronSpacing() - bottomBarChevronSize();
+    }
+    /// 底栏**右边那颗按钮（头像 + 用户名 + 箭头）的固定宽度**（像素）。右边那颗和左边的
+    /// 一样**要钉死**：进度条那一边彻底不再受"用户名多长"的影响（以前只给用户名封了个顶，
+    /// 换账号时这一格仍会变 200 px）。
+    ///
+    /// NOTE: 按钮里的那一组是**贴着按钮左边缘**摆的（头像一个格、名字一个格、箭头钉在
+    ///       右边缘，和左边那颗按钮一个形状）。**不是靠右摆** —— 靠右摆会在头像左边空出
+    ///       一大段（实测 115 px），用户 2026-09-23 报的就是它。
+    static int bottomBarAccountButtonWidth() {
+        return avatarSize() + bottomBarAccountRowSpacing() + bottomBarAccountColumnWidth() +
+               bottomBarChevronSpacing() + bottomBarChevronSize();
+    }
+    /// 底栏那颗账号按钮里**用户名那一格的宽度上限**（像素）：16 个字符的 ID 按当前字体
+    /// 大约就是这么宽，再长的名字截成省略号。
+    ///
+    /// 宽度**从 200 改到 150**（2026-09-23，和左边那格一起收）：右上角那格原来跟左边
+    /// 一样宽（200），可它装的是"32 的头像 + 名字 + 箭头"，200 是上限、不是需要 ——
+    /// 16 个字符的正版名在 150 里放得下（放不下的名字截成省略号，它用的是 ElidedLabel）。
+    static int bottomBarAccountColumnWidth() { return 150; }
+    /// 底栏两颗按钮里**头像和文字之间的间距**（和原来那格一样是 8）。
+    static int bottomBarAccountRowSpacing() { return 8; }
+    /// 底栏两颗按钮右边那个**朝上箭头**的边长（像素）：点开是向上弹的，箭头就朝上。
+    static int bottomBarChevronSize() { return 12; }
+    /// 箭头和它左边那些字之间的间距（像素）。
+    static int bottomBarChevronSpacing() { return 6; }
+
+    static QString runStateButtonName() { return QStringLiteral("runStateButton"); }
+    static QString accountButtonName() { return QStringLiteral("accountButton"); }
+    /// 那两颗按钮点开之后**向上**弹出来的那块面板。名字挂在这里是为了让验证工程
+    /// 能按 objectName 把它找回来量几何（它是个 Qt::Popup 窗口，父子关系照旧）。
+    static QString bottomBarPanelName() { return QStringLiteral("bottomBarPanel"); }
+    /// 面板里第 @p index 行的 objectName（现在放的是占位文字，见 .cpp 里那段）。
+    static QString bottomBarPanelRowName(int index) {
+        return QStringLiteral("bottomBarPanelRow%1").arg(index);
+    }
+    /// 那两颗按钮右边那个朝上箭头的 objectName。两颗**共用**这一个名字 ——
+    /// findChild 只会拿到其中一颗，要两颗一起用 findChildren。
+    static QString bottomBarChevronName() { return QStringLiteral("bottomBarChevron"); }
     static QString runStateLabelName() { return QStringLiteral("runStateLabel"); }
     static QString runStateDetailLabelName() { return QStringLiteral("runStateDetailLabel"); }
     static QString progressBarName() { return QStringLiteral("progressBar"); }
@@ -586,6 +648,13 @@ public:
     // ---------- 底栏左下角"实例运行中"那行的正文 ----------
     // 放在这里当唯一出处：MainWindow 拿它填文字，验证工程拿它做断言，两边不会写歪。
     static QString runStateRunningText() { return QStringLiteral("实例运行中"); }
+    /// 一个实例都没在跑时那一行写什么。
+    ///
+    /// NOTE: 2026-09-23 用户要的：「没有实例运行的时候就写实例未运行」（以前是整格藏起来、
+    ///       底下空一块）。改成一句话还有个连带的好处 —— 那一格的文字**任何时候都非空**，
+    ///       布局上也就没有"从无到有"这一步了（那一步正是"中间那根条突然缩短"的来源，
+    ///       见 MainWindowUI.cpp 里 runStateButton 那段）。
+    static QString runStateNotRunningText() { return QStringLiteral("实例未运行"); }
     /// 两份以上在跑时第一行写什么。**一份时不用这一句**（那时是上面那句），
     /// 所以这个函数只接 count >= 2 的输入。
     static QString runStateRunningCountText(int count) {
@@ -777,6 +846,10 @@ public:
     // NOTE: 产品代码没有取过底栏本身（只取它里面的几个标签/进度条），只有验证工程
     //       用它来量底栏的几何。
     QFrame *getBottomBar() const { return bottomBar; }
+    /// 底栏两头那两颗按钮（左：实例运行状态 · 右：头像/用户名）。点它们会**向上**弹出一块
+    /// 面板，内容现在是占位文字（用户 2026-09-23 要的，见 .cpp 里 buildBottomBarPanel()）。
+    QPushButton *getRunStateButton() const { return runStateButton; }
+    QPushButton *getAccountButton() const { return accountButton; }
     QLabel *getAvatarLabel() const { return avatarLabel; }
     QLabel *getAccountLabel() const { return accountLabel; }
     QLabel *getAccountTypeLabel() const { return accountTypeLabel; }
@@ -847,6 +920,9 @@ private:
     QPushButton *accountSkinButton;
     QTabWidget *tabWidget;
     QFrame *bottomBar;
+    /// 底栏两头那两颗按钮：整格都是一颗按钮（里面装着原来的那几行字 + 右边一个朝上的箭头）。
+    QPushButton *runStateButton;
+    QPushButton *accountButton;
     QLabel *avatarLabel;
     QLabel *accountLabel;
     // 账户格那两行是**竖直排列**的（名字在上、登录方式在下），和左上角那格同构。
