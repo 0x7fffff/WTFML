@@ -176,6 +176,16 @@ QLabel *addDynamicHint(QWidget *box, const QString &text, QWidget *parent) {
     return hint;
 }
 
+/// 和 addDynamicHint() 同一个形状，但字是**红的** —— 名字框底下那行"名字不能用"的原因
+/// 用的就是它（大小、换行、摆放都和旁边那行灰字一套）。
+QLabel *addDynamicErrorHint(QWidget *box, QWidget *parent) {
+    QLabel *hint = addDynamicHint(box, QString(), parent);
+    QPalette errorPalette = hint->palette();
+    errorPalette.setColor(QPalette::WindowText, MainWindowUI::installNameErrorColor());
+    hint->setPalette(errorPalette);
+    return hint;
+}
+
 /// 往 makeHintedControl() 造出来的容器里加一句说明。
 void addHint(QWidget *box, const QString &text, QWidget *parent) {
     addDynamicHint(box, text, parent);
@@ -567,6 +577,15 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         nameBox->layout()->addWidget(installNameEdit);
         installNameHint = addDynamicHint(nameBox, QString(), nameBox);
         installNameHint->setObjectName(installNameHintName());
+        // 名字不能用（有非法字符、空着）时的**原因**另起一行红字，不去顶掉上面那句
+        // 说明（用户 2026-09-23 原话："如果版本名字存在非法字符，不要替换掉那个「装好后
+        // 在实例...」，而是在下面添加一行红色字"）。平时它空着、也藏起来 —— 藏起来而不是
+        // "留一个空行"，是为了正常情况下名字框底下那几行的位置和以前一模一样。
+        // 显隐和文字都由 MainWindow::updateInstallNameHint() 一处刷（界面这边不知道盘上
+        // 有哪些目录、也不知道什么名字算不能用）。
+        installNameError = addDynamicErrorHint(nameBox, nameBox);
+        installNameError->setObjectName(installNameErrorName());
+        installNameError->setVisible(false);
         installLayout->addWidget(nameBox);
 
         // 加载器：**一棵树**，和上一页的版本树同一个模式（用户原话见头文件里那段）：
@@ -589,7 +608,10 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         loaderTree->setUniformRowHeights(true);
         loaderTree->setRootIsDecorated(false);
         loaderTree->setColumnCount(1);
-        loaderTree->setItemDelegate(new VersionTreeDelegate(loaderTree));
+        // 末一个参数 false：这棵树的**叶子**（两档 + 具体版本号）右边不画那个 `>` ——
+        // 那一层是"选中它"，底下没有下一页（见 VersionTreeDelegate 的构造函数）。
+        // 顶层那五条照画（它们是真的能展开）。
+        loaderTree->setItemDelegate(new VersionTreeDelegate(loaderTree, /*leafArrow=*/false));
         loaderTree->setExpandsOnDoubleClick(false);
         // 展开/收起是"点那一条"完成的，而点中一条会把它整行画成选中色（和版本树那边
         // 一样）。这里**不要**再自己画高亮：选中色就是"你现在停在哪一条"。

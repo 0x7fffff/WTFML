@@ -19,6 +19,11 @@
 // m_skinProfile），所以这里非得 include 不可（前置声明只够拿指针/引用）。
 // 它是 Core+Network 的头，拖进来的东西不多。
 #include "manage/PlayerSkinStore.hpp"
+// LoaderMeta::LoaderVersionList —— 下面那个槽和 fillLoaderVersionItems() 都按它收
+// （每一条带着 stable 标记，"哪一条是测试版""稳定那一档有没有货"都要靠它，见
+// MainWindow::fillLoaderVersionItems）。这是个**纯数据的头**（只有 QString/QList/QJson
+// 那些 QtCore 的东西，不拖 QtWidgets），所以按值用就 include，不去走前置声明那一套。
+#include "download/LoaderMeta.hpp"
 
 class MainWindowUI;
 // 安装页那棵加载器树上的一个条目（loaderItem()）。这里只在私有函数的参数/返回值里按
@@ -188,7 +193,8 @@ private slots:
     /// 先 qRegisterMetaType）。枚举→下标那次翻译在 setupConnections() 那个 lambda 里做
     /// （VersionManager::loaderIndexForKind），一处收口，和"下标→枚举"同一个方向表。
     void onLoaderVersionsFetched(const QString &gameVersion, int loaderIndex, bool success,
-                                 const QStringList &versions, const QString &errorMessage);
+                                 const LoaderMeta::LoaderVersionList &versions,
+                                 const QString &errorMessage);
 
     void onVersionsFetched(const QStringList &versions);
     void onVersionDetailsFetched(const QString &versionId, const QJsonObject &versionJson);
@@ -341,7 +347,9 @@ private:
     int selectedLoaderIndex() const;
     /// 那棵树里某一条加载器的条目（顶层第 @p loaderIndex 条）；找不到回 nullptr。
     QTreeWidgetItem *loaderItem(int loaderIndex) const;
-    /// 某一条加载器钉住的版本号（它在树上选的那一条）；空串 = 不钉，让安装器按老规矩挑。
+    /// 某一条加载器"钉住"的那一格（它在树上点的那一条）。三种可能，别当成"一定是版本号"：
+    /// 一个**具体版本号**、那两档的键（`@latest` / `@stable`，见 LoaderMeta::loaderChannelKey）、
+    /// 或者**空串**（没挑过 —— 数据层按稳定档算，和改动前"让安装器按老规矩挑"一个意思）。
     QString pinnedLoaderVersion(int loaderIndex) const;
     /// 刷新那棵树的样子：哪一条选中了、其余几条写着"与 X 不兼容"、选中的那条第二行
     /// 写着它选的版本号、以及**没选中的那几条加载器变灰**（用户原话："选择以后让其他
@@ -363,11 +371,15 @@ private:
     /// 四条各占一格，所以四发真能同时在飞（见 VersionManager::m_loaderVersionRequests）。
     void requestAllLoaderVersions();
     /// 把一份版本列表灌成某个加载器的子条目。
-    /// @param includeAuto 要不要那第 0 条「自动（推荐）」。**"这一版一个能装的都没有"
-    ///        的时候要传 false**（用户原话："如果对应版本不支持，就不要保留自动了"）——
-    ///        理由见 onLoaderVersionsFetched() 里那段（留着它等于让用户挑一条必然装不出来
-    ///        的路），那种情况下 versions 也一定是空的。
-    void fillLoaderVersionItems(int loaderIndex, const QStringList &versions, bool includeAuto);
+    /// @param includeChannels 要不要头两条那两档（「下载最新版（alpha/beta）」/
+    ///        「下载稳定版（release）」）。**"这一版一个能装的都没有"的时候要传 false**
+    ///        （用户原话："如果对应版本不支持，就不要保留自动了"）—— 理由见
+    ///        onLoaderVersionsFetched() 里那段（留着它等于让用户挑一条必然装不出来的路），
+    ///        那种情况下 versions 也一定是空的。列表**没取到**时传 true：那两档不依赖这份
+    ///        列表，所以列表没到手也得让它们能点。
+    /// @param versions 每一条都带着 `stable` —— 稳定那一行灰不灰、哪几条标「测试版」都看它。
+    void fillLoaderVersionItems(int loaderIndex, const LoaderMeta::LoaderVersionList &versions,
+                                bool includeChannels);
     /// 名称框里的默认名（用户没自己改过时才动它），再刷下面那句小字。
     void updateInstallName();
     /// 名称框下面那句小字 + 「安装」按钮的可用性：名字合不合法、盘上有没有重名的

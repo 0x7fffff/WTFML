@@ -9,7 +9,8 @@
 #include "MainWindowUI.hpp"
 #include "VersionIcons.hpp"
 
-VersionTreeDelegate::VersionTreeDelegate(QObject *parent) : QStyledItemDelegate(parent) {}
+VersionTreeDelegate::VersionTreeDelegate(QObject *parent, bool leafArrow)
+    : QStyledItemDelegate(parent), m_leafArrow(leafArrow) {}
 
 QRect VersionTreeDelegate::clearRect(const QRect &row) {
     const int pad = MainWindowUI::versionTreeRowPadding();
@@ -138,6 +139,12 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     if (isChannel && !hasChildren) {
         return;
     }
+    // 叶子那一层的箭头：版本树上是"点进去"（点一个版本号进安装页），安装页那棵加载器树上
+    // **不画** —— 那一层没有下一页，两档和具体版本号都是"选中它"（见构造函数的 @param）。
+    // 注意这一位只管**那一笔箭头**：同一个 save/restore 里还画着那个「取消」小叉，两个
+    // 功能各管各的（把整个块一起 return 掉的话，"叶子不画箭头"会顺手把叉也吃掉 ——
+    // ui_check 里恰好有一条拿叶子行验叉的断言，一跑就红）。
+    const bool drawArrow = isChannel || m_leafArrow;
     const QColor arrowColor = isChannel ? palette.color(QPalette::WindowText)
                                         : palette.color(QPalette::PlaceholderText);
     const QRect arrowRect(row.right() - pad - arrowSize, row.center().y() - arrowSize / 2,
@@ -153,8 +160,10 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
                             VersionIcons::cross(glyph.width(),
                                                 palette.color(QPalette::PlaceholderText)));
     }
-    painter->drawPixmap(arrowRect.topLeft(),
-                        VersionIcons::chevron(isChannel && expanded, arrowSize, arrowColor));
+    if (drawArrow) {
+        painter->drawPixmap(arrowRect.topLeft(),
+                            VersionIcons::chevron(isChannel && expanded, arrowSize, arrowColor));
+    }
     painter->restore();
 }
 

@@ -23,6 +23,7 @@
 
 #include <QCoreApplication>
 #include <QCheckBox>
+#include <QColor>
 #include <QComboBox>
 #include <QEvent>
 #include <QFrame>
@@ -122,7 +123,7 @@ public:
     // NOTE: 2026-09-23 起这一组是**一棵树**（用户原话："做成和上一页的版本选择相同的
     //       模式，点击以后展开版本，选择版本以后收缩，显示版本"）：
     //         · 顶层五条 = 四个加载器 + 「不装（纯原版）」，前面各挂自己那个标志；
-    //         · 点一条加载器 → 它**展开**，底下列出它能装的版本（第 0 条是「自动（推荐）」）；
+    //         · 点一条加载器 → 它**展开**，底下先摆那两档、再列出它能装的版本；
     //         · 点一个版本 → 那一列**收起来**，选中的版本号写回这条的第二行小字。
     //       换掉的是一组单选钮 + 四个下拉框（`modLoaderGroupName()` /
     //       `loaderVersionComboName()` 那两个名字随之作废）。下标、文案、那五条的顺序
@@ -161,8 +162,9 @@ public:
     static QString modLoaderLabelText() { return QStringLiteral("模组加载器"); }
     /// 那棵树自己的 objectName。**条目没有 objectName**（QTreeWidgetItem 不是 QObject）——
     /// 认一条的身份看它 `Qt::UserRole`：顶层是 modLoaderOptionNames() 里的下标（整数），
-    /// 子条目是加载器版本号（空串 = 「自动（推荐）」那一条）。判"这是加载器还是版本号"
-    /// 看的是**有没有父条目**，不是值的类型 —— 两者都是"不是空串"。
+    /// 子条目是"挑哪一档"的键或者一个具体版本号（两种都是非空串，见
+    /// loaderVersionLatestText 上面那段）。判"这是加载器还是版本号"看的是**有没有父条目**，
+    /// 不是值的类型。
     static QString loaderTreeName() { return QStringLiteral("loaderTree"); }
     /// 每一条身份存在第几列。只有一列（和版本树同一个约定）。
     static int loaderTreeKeyColumn() { return 0; }
@@ -182,11 +184,43 @@ public:
     static QString loaderConflictText(const QString &selectedName) {
         return QCoreApplication::translate("MainWindowUI", "与 %1 不兼容").arg(selectedName);
     }
-    /// 展开之后**第 0 条**那个版本条目上写的字：**不指定版本** —— 让安装器按老规矩挑
-    /// （Fabric 挑最新的正式版、Forge/NeoForge 挑推荐的那个、OptiFine 挑官方页那一行
-    /// 主推的）。它的 userData 是**空串**，"没钉版本"这件事在数据上就靠这个空串表达。
-    static QString loaderVersionAutoText() {
-        return QCoreApplication::translate("MainWindowUI", "自动（推荐）");
+    /// 展开之后**头两条**：不钉具体版本号时按哪一档挑（用户 2026-09-23 原话："模组加载器
+    /// 选择界面把自动那一行变成下载最新版（alpha/beta）和下载稳定版（release）两行"）。
+    ///
+    /// NOTE: 那两句里的括号**不上界面**（用户 2026-09-23 又一句："那个稳定版（release）那个
+    ///       括号啥的是给你看的，不用实际放在界面里面"）—— 它解释的是"最新版"连 alpha/beta
+    ///       一起算、"稳定版"就是 release，写给读代码的人看；界面上那两行就四个字 / 五个字。
+    ///
+    /// 这两条的 userData 是 LoaderMeta::loaderChannelKey() 那两个键（`@latest` / `@stable`），
+    /// 再往下那些才是具体版本号。**认得出这两个键的地方只有一处**：
+    /// LoaderMeta::loaderChannelFromKey()（安装那条路在 installLoaderVersion 里解码一次）。
+    ///
+    /// NOTE: 改动前这里是**一条**「自动（推荐）」，userData 是空串。那一档在数据层挑的是
+    ///       "推荐/正式版"（Fabric 最新的正式版、Forge/NeoForge 推荐的那个、OptiFine 官方页
+    ///       那一行），也就是现在这条「下载稳定版」—— 空串这个值仍然有意义
+    ///       （"没取到列表、用户什么都没点"时按稳定档算），只是不再有一条界面条目去写它。
+    static QString loaderVersionLatestText() {
+        return QCoreApplication::translate("MainWindowUI", "下载最新版");
+    }
+    static QString loaderVersionStableText() {
+        return QCoreApplication::translate("MainWindowUI", "下载稳定版");
+    }
+    /// 稳定那一档上**一条正式版都没有**时，那一行第二行写的小字（那一行本身也会变灰、
+    /// 点不动 —— 挑一条必然装不出来的路比不挑更糟）。
+    ///
+    /// NOTE: 只有稳定档会缺。最新档是"上游发过什么就列什么"，列表非空它就一定挑得出东西。
+    static QString loaderVersionStableMissingText() {
+        return QCoreApplication::translate("MainWindowUI", "没有正式版");
+    }
+    /// 某一档被挑中之后，加载器那一行第二行的小字（短一点 —— 那一行本来就窄）。
+    static QString loaderVersionChannelShortText(bool newestChannel) {
+        return newestChannel ? QCoreApplication::translate("MainWindowUI", "最新版")
+                             : QCoreApplication::translate("MainWindowUI", "稳定版");
+    }
+    /// 具体版本号那一条第二行的小字：这一条不是正式版（alpha/beta/快照/预览版）。
+    /// 用户原话是"beta 版虽然不稳定，但是也能使用"—— 所以照列，但得看出来"这不是正式版"。
+    static QString loaderVersionBetaSubText() {
+        return QCoreApplication::translate("MainWindowUI", "测试版");
     }
     /// 版本列表还没回来时，展开的那条底下先摆一个这个（灰的、点不动 —— 它不是能选的东西）。
     /// NOTE: 一次请求 60~250 KB，等一会儿是常事，所以得有个"在等"的样子，不能让那一条
@@ -195,17 +229,21 @@ public:
         return QCoreApplication::translate("MainWindowUI", "正在获取…");
     }
     /// 版本列表没拉到时的那个灰条目。具体原因（超时？404？）写进日志 ——
-    /// 这条只是告诉用户"列不出来"，而这个加载器照样能装（「自动（推荐）」那条不依赖列表）。
+    /// 这条只是告诉用户"列不出来"，而这个加载器照样能装（上面那两档不依赖列表）。
     static QString loaderVersionFailedText() {
         return QCoreApplication::translate("MainWindowUI", "列表没取到");
     }
     /// **这个版本上这个加载器一个能装的都没有**时那个灰条目（用户原话："如果对应版本
     /// 不支持……这个情况下的 列表没取到 换成无可用版本"）。
     /// 它和 loaderVersionFailedText() 是两件事，别混：那是"**没问到**"（网络的事，换一次
-    /// 可能就有了，所以那条底下仍然留着「自动（推荐）」）；这是"**问到了、就是没有**"
-    /// （真结论 —— 比如 Forge 还没支持某个刚发的快照）—— 这种情况下底下**连「自动（推荐）」
-    /// 都不留**：留着它等于让用户挑一条必然装不出来的路（装的时候会以
-    /// "还没有支持 X 的版本"收场），而"这一条我装不了"本来就该在这一眼说完。
+    /// 可能就有了，所以那条底下仍然留着那两档）；这是"**问到了、就是没有**"
+    /// （真结论 —— 比如 Forge 还没支持某个刚发的快照）—— 这种情况下底下**连那两档都不留**：
+    /// 留着它等于让用户挑一条必然装不出来的路（装的时候会以"还没有支持 X 的版本"收场），
+    /// 而"这一条我装不了"本来就该在这一眼说完。
+    ///
+    /// NOTE: 2026-09-23 起"**有预览版、没有正式版**"的那种版本**不算**"一个能装的都没有"
+    ///       （用户原话："beta 版虽然不稳定，但是也能使用，要列出来"）—— 列表非空就摆那两档
+    ///       和实有的版本号，只有稳定档那一行是灰的（第二行写着「没有正式版」）。
     static QString loaderVersionUnavailableText() {
         return QCoreApplication::translate("MainWindowUI", "无可用版本");
     }
@@ -268,9 +306,20 @@ public:
     /// 「版本名称」框：实例的目录名（`versions/<这个名字>`），默认名由 MainWindow 按
     /// "原版号 + 加载器"填（见 MainWindow::defaultInstanceName()）。
     static QString installNameEditName() { return QStringLiteral("installNameEdit"); }
-    /// 名称框下面那行小字：重名提示 / 名字不合法的原因 / 平时的说明，三种取值一处
-    /// 决定（MainWindow::updateInstallNameHint()）。
+    /// 名称框下面那行灰色小字：**说这一份装下去是什么** —— 平时的说明，或者重名提示。
+    /// 两种取值一处决定（MainWindow::updateInstallNameHint()）。
+    ///
+    /// NOTE: 2026-09-23 起它**不再兼职报错**。名字不能用（有非法字符、空着）时那句原因
+    ///       挪到下面那行红字里去了，这一行照旧说"装好之后会在哪儿"（用户原话："如果版本
+    ///       名字存在非法字符，不要替换掉那个「装好后在实例...」，而是在下面添加一行红色字"）。
     static QString installNameHintName() { return QStringLiteral("installNameHint"); }
+    /// 名称框底下那行**红字**：名字不能用时那句原因（`InstanceFiles::validateDirName()` 的
+    /// 返回值，界面这边不抄一份规则）。名字能用的时候它是空的、也藏起来 —— 于是名字框、
+    /// 加载器树、安装按钮在正常情况下一个像素都不动。
+    static QString installNameErrorName() { return QStringLiteral("installNameError"); }
+    /// 那行红字的红。产品里**只有这一处**红字，所以色值放在这儿当唯一出处
+    /// （验证工程量像素时要认的就是它）。
+    static QColor installNameErrorColor() { return QColor(0xc0, 0x39, 0x2b); }
     static QString installButtonName() { return QStringLiteral("installButton"); }
     static QString installBackButtonName() { return QStringLiteral("installBackButton"); }
     /// 「安装」按钮的字号相对**默认**字号的偏移。用户原话"安装键做大点"。
@@ -658,8 +707,10 @@ public:
     QTreeWidget *getVersionTree() const { return versionTree; }
     /// 「版本名称」框（安装页顶上那个）。
     QLineEdit *getInstallNameEdit() const { return installNameEdit; }
-    /// 名称框下面那行小字（重名 / 名字不合法 / 平时说明，三种取值一处决定）。
+    /// 名称框下面那行灰色小字（平时的说明 / 重名提示，两种取值一处决定）。
     QLabel *getInstallNameHint() const { return installNameHint; }
+    /// 名称框底下那行红字（名字不能用时的原因；能用时它空着且藏着）。
+    QLabel *getInstallNameError() const { return installNameError; }
     /// 安装页顶上那句"将基于原版 X 安装"。
     QLabel *getInstallTargetLabel() const { return installTargetLabel; }
     /// 安装页那个「安装」按钮。原来那个「下载版本」按钮的位子 —— 它现在只在这一页上，
@@ -748,6 +799,7 @@ private:
     QLabel *installTargetLabel;
     QLineEdit *installNameEdit;
     QLabel *installNameHint;
+    QLabel *installNameError;
     QPushButton *installButton;
     QPushButton *installBackButton;
     /// 安装页那棵「模组加载器」树（见头文件上面那段）。顶层五条按 modLoaderOptionNames()
