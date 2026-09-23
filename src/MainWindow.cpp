@@ -1926,22 +1926,21 @@ void MainWindow::updateInstallNameHint() {
     // 名字合不合法：判据在数据层（InstanceFiles::validateDirName()，和"重命名实例"、
     // "整合包导入"用的是同一套规矩）。这里只用它的结论，不抄一份规则过来。
     const QString invalid = InstanceFiles::validateDirName(name);
-    if (invalid.isEmpty() && name.isEmpty()) {
-        // validateDirName("") 回的是"名字不能是空的"那句，所以上面那个判据其实已经包住
-        // 这一支了 —— 这里留着是为了"空名字"这件事在本函数里有个看得见的落点。
-        return;
-    }
+    const bool canInstall = invalid.isEmpty();
 
+    // 上面那行**灰字**：说"装下去会怎样"。名字能不能用**都照说** —— 2026-09-23 起名字
+    // 不合法的原因不再顶掉它，而是另起一行红字（用户原话："如果版本名字存在非法字符，
+    // 不要替换掉那个「装好后在实例...」，而是在下面添加一行红色字"）。
+    // 名字空着时这行没话可说（没有名字就没有目录），就让它空着。
     QString hint;
-    bool canInstall = invalid.isEmpty();
-    if (!canInstall) {
-        hint = invalid;
-    } else {
+    if (!name.isEmpty()) {
         // 重名：**只提示、不拦**（用户原话："如果文件夹里有重名则在下方小字提示"）。
         // 同名就是同一个实例 —— 装下去不是新建一个，而是校验并补齐那个目录里的文件
         // （「重下 = 校验跳过」）。这句话必须说清这一点，否则用户会以为会多出一个。
-        const QString dir = AppPaths::versionDir(name);
-        if (QDir(dir).exists()) {
+        // NOTE: 名字不合法时**不查**重名 —— 那个名字当不了目录名，AppPaths::versionDir()
+        //       拼出来的路径没有意义（`..` 那种会拼到数据目录外面去），查了也只是白查。
+        const QString dir = canInstall ? AppPaths::versionDir(name) : QString();
+        if (!dir.isEmpty() && QDir(dir).exists()) {
             // 「已经装过了」和「这个目录是别的东西」在用户眼里是两回事，分开说。
             const bool installed = QFile::exists(AppPaths::versionJsonPath(name));
             hint = installed ? tr("已经有叫「%1」的实例了：同一个名字就是同一个实例，再装一次"
@@ -1954,7 +1953,20 @@ void MainWindow::updateInstallNameHint() {
             hint = tr("装好之后在「实例」页里能看到它，目录是 versions/%1。").arg(name);
         }
     }
-    m_ui->getInstallNameHint()->setText(hint);
+    QLabel *hintLabel = m_ui->getInstallNameHint();
+    hintLabel->setText(hint);
+    // 没话可说的时候连那一**行**一起收掉，别只把字清空。理由：这是 wordWrap 的标签，
+    // 空着照样占一整行（实测 693x14），于是名字清空那一刻底下那行红字上面会凭空多出
+    // 一个空行 —— 用户 2026-09-23 报的正是这个（"把名字弄空了以后上面那行消失了但是
+    // 下面那一行空提示会换行怪怪的"）。空着的时候这一行没内容，收掉不影响别的。
+    hintLabel->setVisible(!hint.isEmpty());
+
+    // 下面那行**红字**：名字不能用的原因（就是 validateDirName() 那句话的字面意思）。
+    // 能用的时候空着 + 藏起来 —— 藏起来（而不是留一个空行）是为了正常情况下名称框底下
+    // 那几行的位置和以前一模一样（这一页上加载器树和安装按钮的位置都跟着它走）。
+    QLabel *error = m_ui->getInstallNameError();
+    error->setText(invalid);
+    error->setVisible(!canInstall);
     // 「安装」按钮：名字不合法就点不动（省掉一次"点了才弹一句名字不对"的往返）。
     // 忙的时候也不给点（那是 setDownloadUiBusy 的活，这里只是别把它顶回来）。
     m_ui->getInstallButton()->setEnabled(canInstall && !m_downloadInFlight);

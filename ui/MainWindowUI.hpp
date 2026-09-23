@@ -306,9 +306,20 @@ public:
     /// 「版本名称」框：实例的目录名（`versions/<这个名字>`），默认名由 MainWindow 按
     /// "原版号 + 加载器"填（见 MainWindow::defaultInstanceName()）。
     static QString installNameEditName() { return QStringLiteral("installNameEdit"); }
-    /// 名称框下面那行小字：重名提示 / 名字不合法的原因 / 平时的说明，三种取值一处
-    /// 决定（MainWindow::updateInstallNameHint()）。
+    /// 名称框下面那行灰色小字：**说这一份装下去是什么** —— 平时的说明，或者重名提示。
+    /// 两种取值一处决定（MainWindow::updateInstallNameHint()）。
+    ///
+    /// NOTE: 2026-09-23 起它**不再兼职报错**。名字不能用（有非法字符、空着）时那句原因
+    ///       挪到下面那行红字里去了，这一行照旧说"装好之后会在哪儿"（用户原话："如果版本
+    ///       名字存在非法字符，不要替换掉那个「装好后在实例...」，而是在下面添加一行红色字"）。
     static QString installNameHintName() { return QStringLiteral("installNameHint"); }
+    /// 名称框底下那行**红字**：名字不能用时那句原因（`InstanceFiles::validateDirName()` 的
+    /// 返回值，界面这边不抄一份规则）。名字能用的时候它是空的、也藏起来 —— 于是名字框、
+    /// 加载器树、安装按钮在正常情况下一个像素都不动。
+    static QString installNameErrorName() { return QStringLiteral("installNameError"); }
+    /// 那行红字的红。产品里**只有这一处**红字，所以色值放在这儿当唯一出处
+    /// （验证工程量像素时要认的就是它）。
+    static QColor installNameErrorColor() { return QColor(0xc0, 0x39, 0x2b); }
     static QString installButtonName() { return QStringLiteral("installButton"); }
     static QString installBackButtonName() { return QStringLiteral("installBackButton"); }
     /// 「安装」按钮的字号相对**默认**字号的偏移。用户原话"安装键做大点"。
@@ -696,8 +707,10 @@ public:
     QTreeWidget *getVersionTree() const { return versionTree; }
     /// 「版本名称」框（安装页顶上那个）。
     QLineEdit *getInstallNameEdit() const { return installNameEdit; }
-    /// 名称框下面那行小字（重名 / 名字不合法 / 平时说明，三种取值一处决定）。
+    /// 名称框下面那行灰色小字（平时的说明 / 重名提示，两种取值一处决定）。
     QLabel *getInstallNameHint() const { return installNameHint; }
+    /// 名称框底下那行红字（名字不能用时的原因；能用时它空着且藏着）。
+    QLabel *getInstallNameError() const { return installNameError; }
     /// 安装页顶上那句"将基于原版 X 安装"。
     QLabel *getInstallTargetLabel() const { return installTargetLabel; }
     /// 安装页那个「安装」按钮。原来那个「下载版本」按钮的位子 —— 它现在只在这一页上，
@@ -786,6 +799,7 @@ private:
     QLabel *installTargetLabel;
     QLineEdit *installNameEdit;
     QLabel *installNameHint;
+    QLabel *installNameError;
     QPushButton *installButton;
     QPushButton *installBackButton;
     /// 安装页那棵「模组加载器」树（见头文件上面那段）。顶层五条按 modLoaderOptionNames()
