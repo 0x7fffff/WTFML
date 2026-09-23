@@ -22,6 +22,7 @@
 // fillLoaderVersionItems()）：那几条是"Fabric 能装哪些版本"，前面顶个草方块会让人
 // 以为是原版号。树的顶层那五条由 MainWindowUI 那边给图标，这里只管子条目。
 #include "..\ui\VersionIcons.hpp"
+#include "..\ui\VersionTreeDelegate.hpp"
 
 // 添加以下头文件（防止hpp变动导致文件失效）
 #include <QApplication>
@@ -40,6 +41,7 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMessageBox>
+#include <QMouseEvent>
 #include <QPlainTextEdit>
 #include <QProgressBar>
 #include <QProcess>
@@ -694,6 +696,13 @@ void MainWindow::setupConnections() {
     connect(m_ui->getLoaderTree(), &QTreeWidget::itemClicked, this, onLoaderTreeClicked);
     // 键盘走这条路（回车/空格"激活"一个条目）：两条路指向同一份 lambda。
     connect(m_ui->getLoaderTree(), &QTreeWidget::itemActivated, this, onLoaderTreeClicked);
+    // 行里那个「取消」小叉（选中那条加载器右边那个 ×，见 updateLoaderRows()）：它不是
+    // "点这一行"，所以不走上面两条路 —— 走**视口上的事件过滤器**，判据是
+    // VersionTreeDelegate::clearRect()（和代理画它的那一格是同一份几何）。
+    // NOTE: 过滤器是为了**吃掉**那一下：Qt 那边 itemClicked 是在鼠标松开时发的，而
+    //       "点中了行里的一个按钮"和"点中了这一行"必须是两件事 —— 不然点叉会顺手把那一列
+    //       展开/收起，用户看到的是"我按了取消，它却收起来了"。
+    m_ui->getLoaderTree()->viewport()->installEventFilter(this);
     // 「下载」页左栏那份分类（游戏 / 整合包 / 模组 / 资源包 / 光影）：点哪个，右栏那份
     // QStackedWidget 就翻到哪一页。**"第几个分类 = 第几页"这条对应关系是界面自己搭出来的**
     // （同一个表、同一个顺序一页一页加进去），这里只做一次越界保护：分类表和页数将来要是
@@ -1569,6 +1578,12 @@ void MainWindow::updateLoaderRows() {
         }
         // 角色是 rowSubTextRole()：空串 = 那一行不画第二行小字（代理那边统一处理）。
         item->setData(MainWindowUI::loaderTreeKeyColumn(), MainWindowUI::rowSubTextRole(), subText);
+        // 选中的那条加载器：行尾（箭头左边）画一个「取消」小叉 —— 点它 = 不装这个加载器了、
+        // 退回「不装（纯原版）」（用户原话："选中以后在那个 > 左侧加一个 x 来取消安装
+        // 对应版本"）。**只有这一条**有这个叉：其余几条（包括「不装」）没有"要取消的东西"。
+        // 点它的那一下由 MainWindow::eventFilter 接（几何是 VersionTreeDelegate::clearRect()）。
+        item->setData(MainWindowUI::loaderTreeKeyColumn(), MainWindowUI::rowClearRole(),
+                      isLoader && hasLoader && i == selected);
         // 灰那几条：选中了某个加载器之后**其余几条加载器**不可用（见上面那段 NOTE）。
         // 顺手把灰掉的那条**收起来** —— 收着的时候它底下的版本号看不见，而"展开着一份
         // 版本列表、整条却是灰的"看着像"点得动、只是不让点"（点一下才知道不是）。
@@ -1599,6 +1614,41 @@ void MainWindow::selectLoader(int loaderIndex) {
     //       点「不装（纯原版）」那一条。点一条加载器**不再**选中它（那一下只展开/收起，
     //       见 onLoaderTreeClicked() 上面那段）—— 点一下就去碰那棵树是 2026-09-23 那个
     //       "点不开了"的成因之一，别再走回去。
+}
+
+bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
+    // 安装页那棵树上**唯一一个"行里的按钮"**：选中那条加载器右边的「取消」小叉
+    // （谁画的、画在哪一格，见 VersionTreeDelegate::clearRect() 那段 NOTE）。
+    //
+    // 为什么不走 itemClicked：它只给"点中了哪个条目"、不给"点在条目里的哪儿"，而这一下
+    // 点的是行里的一个按钮、**不是这一行** —— 点中叉的时候那一行不该跟着展开/收起。
+    // 过滤器能把事件吃掉（返回 true 之后 Qt 那套点击处理整条不走了），两件事就都干净。
+    QTreeWidget *tree = m_ui->getLoaderTree();
+    if (tree != nullptr && watched == tree->viewport() &&
+        (event->type() == QEvent::MouseButtonPress || event->type() == QEvent::MouseButtonRelease)) {
+        auto *mouse = static_cast<QMouseEvent *>(event);
+        QTreeWidgetItem *item = nullptr;
+        if (mouse->button() == Qt::LeftButton) {
+            item = tree->itemAt(mouse->position().toPoint());
+        }
+        if (item != nullptr &&
+            item->data(MainWindowUI::loaderTreeKeyColumn(), MainWindowUI::rowClearRole())
+                .toBool() &&
+            VersionTreeDelegate::clearRect(tree->visualItemRect(item))
+                .contains(mouse->position().toPoint())) {
+            if (event->type() == QEvent::MouseButtonPress) {
+                // 按下就动手（松开那一下只负责被吃掉）：跟普通按钮一样，按下去就该有反应。
+                // 这一下取消的是"装这个加载器"这件事 —— 退回「不装（纯原版）」，也就是
+                // 装纯原版（用户原话："来取消安装对应版本"）。
+                // NOTE: **钉住的版本号留着**（不清 m_chosenLoaderVersion）：那是用户自己挑的
+                //       一版，按一下叉就把它忘掉，下次再选中这条加载器还得从头找一遍。
+                //       它只在"这一条被选中"的时候才显示，留着不会让人看到不该看的东西。
+                selectLoader(MainWindowUI::modLoaderNoneIndex());
+            }
+            return true;
+        }
+    }
+    return QMainWindow::eventFilter(watched, event);
 }
 
 void MainWindow::requestAllLoaderVersions() {
@@ -1632,7 +1682,8 @@ void MainWindow::requestAllLoaderVersions() {
     }
 }
 
-void MainWindow::fillLoaderVersionItems(int loaderIndex, const QStringList &versions) {
+void MainWindow::fillLoaderVersionItems(int loaderIndex, const QStringList &versions,
+                                        bool includeAuto) {
     QTreeWidgetItem *item = loaderItem(loaderIndex);
     if (item == nullptr) {
         return;
@@ -1646,11 +1697,20 @@ void MainWindow::fillLoaderVersionItems(int loaderIndex, const QStringList &vers
     qDeleteAll(item->takeChildren());
     // 第 0 条 = 不钉版本（让安装器按老规矩挑，见 loaderVersionAutoText()）；它的
     // userData 是**空串**，"没钉版本"这件事在数据上就靠这个空串表达。
-    auto *autoItem = new QTreeWidgetItem(item);
-    autoItem->setText(MainWindowUI::loaderTreeKeyColumn(), MainWindowUI::loaderVersionAutoText());
-    autoItem->setData(MainWindowUI::loaderTreeKeyColumn(), Qt::UserRole, QString());
-    autoItem->setIcon(MainWindowUI::loaderTreeKeyColumn(),
-                      QIcon(VersionIcons::loaderMark(loaderIndex, MainWindowUI::versionTreeIconSize())));
+    //
+    // includeAuto 为假 = 这一版**一个能装的都没有**（versions 也是空的）：这时候连这条
+    // 都不留 —— 理由写在 onLoaderVersionsFetched() 那段（留着等于让用户挑一条必然装不
+    // 出来的路）。调用方保证"includeAuto 假"只在这种情况出现。
+    QTreeWidgetItem *autoItem = nullptr;
+    if (includeAuto) {
+        autoItem = new QTreeWidgetItem(item);
+        autoItem->setText(MainWindowUI::loaderTreeKeyColumn(),
+                          MainWindowUI::loaderVersionAutoText());
+        autoItem->setData(MainWindowUI::loaderTreeKeyColumn(), Qt::UserRole, QString());
+        autoItem->setIcon(MainWindowUI::loaderTreeKeyColumn(),
+                          QIcon(VersionIcons::loaderMark(
+                              loaderIndex, MainWindowUI::versionTreeIconSize())));
+    }
     QTreeWidgetItem *chosenItem = autoItem;
     for (const QString &version : versions) {
         auto *child = new QTreeWidgetItem(item);
@@ -1679,7 +1739,9 @@ void MainWindow::fillLoaderVersionItems(int loaderIndex, const QStringList &vers
     //   收着的时候不放也没损失 —— 这几个版本号就写在那一行自己的第二行小字上
     //   （"选择版本以后收缩，显示版本"），不靠光标指。
     QTreeWidget *tree = m_ui->getLoaderTree();
-    if (tree != nullptr && wasExpanded) {
+    // chosenItem 可能是空指针（"这一版一个能装的都没有"那次：连「自动（推荐）」都没有，
+    // 底下只剩一条灰的）。那种情况下这一列本来就没有"现在钉着的那一条"可指 —— 什么都不做。
+    if (tree != nullptr && wasExpanded && chosenItem != nullptr) {
         tree->setCurrentItem(chosenItem);
     }
     // 列表是灌在**已经展开**的那一条底下的：条目换了一批，那棵树的高度得跟着重算
@@ -1711,10 +1773,11 @@ void MainWindow::onLoaderVersionsFetched(const QString &gameVersion, int loaderI
     }
     if (!success) {
         // 拉不到：那一条底下**只留"自动（推荐）"**，外加一条灰的「列表没取到」把话说到
-        // —— 不钉版本这条路是不需要这份列表的（安装器自己会挑），所以"列不出来"不该把
+        // —— 不钉版本这条路是不需要这份列表的（安装器自己会挑，问的是另一份东西：
+        // promotions / maven 清单，见 installLoaderVersion 那条路），所以"列不出来"不该把
         // 安装整件事堵死，但也不能一声不吭。
         // 具体原因（超时？404？）写进日志 —— 那是给排查用的，不是给用户读的。
-        fillLoaderVersionItems(loaderIndex, QStringList());
+        fillLoaderVersionItems(loaderIndex, QStringList(), /*includeAuto=*/true);
         auto *failed = new QTreeWidgetItem(item);
         failed->setText(MainWindowUI::loaderTreeKeyColumn(), MainWindowUI::loaderVersionFailedText());
         failed->setDisabled(true);
@@ -1722,9 +1785,26 @@ void MainWindow::onLoaderVersionsFetched(const QString &gameVersion, int loaderI
                       .arg(VersionManager::loaderDisplayName(kind), gameVersion, errorMessage));
         return;
     }
+    if (versions.isEmpty()) {
+        // **问到了、就是没有**（四种加载器上都可能：Forge 还没支持某个刚发的快照、
+        // OptiFine 只发了预览版……）。这时候底下**不留「自动（推荐）」**（用户原话：
+        // "如果对应版本不支持，就不要保留自动了"）：留着它等于让用户挑一条必然装不出来的
+        // 路 —— 安装那条路会以"X 还没有支持 Y 的版本"收场，那一下本来在这一眼就该说完
+        // （用户原话："这个情况下的 列表没取到 换成无可用版本"）。
+        // 于是这条加载器**一个能点的子条目都没有**，也就选不中它 —— 这正是"这一条我装不了"
+        // 该有的样子；底下那条灰的「无可用版本」只是把原因写出来。
+        fillLoaderVersionItems(loaderIndex, QStringList(), /*includeAuto=*/false);
+        auto *none = new QTreeWidgetItem(item);
+        none->setText(MainWindowUI::loaderTreeKeyColumn(),
+                      MainWindowUI::loaderVersionUnavailableText());
+        none->setDisabled(true);
+        appendLog(tr("%1 还没有支持 %2 的版本。")
+                      .arg(VersionManager::loaderDisplayName(kind), gameVersion));
+        return;
+    }
     // 灌进去就完了 —— 不存缓存：这一批是进安装页时一次性问全的（requestAllLoaderVersions），
     // 每一条在这次安装页里只会被灌这一次。
-    fillLoaderVersionItems(loaderIndex, versions);
+    fillLoaderVersionItems(loaderIndex, versions, /*includeAuto=*/true);
 }
 
 void MainWindow::updateInstallName() {

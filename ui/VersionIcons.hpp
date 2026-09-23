@@ -40,4 +40,11 @@ QPixmap loaderMark(int index, int size);
 /// @param color 线的颜色（树里按"分类 / 版本号"两种深浅给）。
 QPixmap chevron(bool expanded, int size, const QColor &color);
 
+/// 选中那条加载器右边那个**小叉**（在箭头左边）：点它 = 取消装这个加载器、退回纯原版
+/// （用户原话："选中以后在那个 > 左侧加一个 x 来取消安装对应版本"）。两条对角线画的，
+/// 和 chevron 同一个路数（全是代码画的，仓库里没有图片文件）。
+/// @param size 边长（像素）。
+/// @param color 线的颜色（比正文浅一档 —— 它是"次要操作"，别和版本号抢眼睛）。
+QPixmap cross(int size, const QColor &color);
+
 }  // namespace VersionIcons
