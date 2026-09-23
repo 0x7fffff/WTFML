@@ -422,6 +422,11 @@ void VersionManager::fetchVersionDetails(const QString &versionId) {
 
 bool VersionManager::isDownloading() const { return downloadManager->isBusy(); }
 
+QString VersionManager::busyVersionId() const {
+    // 门控的理由见头里那条 NOTE（那个成员收尾后不清空）。
+    return isDownloading() ? m_currentVersionDownloading : QString();
+}
+
 void VersionManager::setUseMirror(bool useMirror) { downloadManager->setUseMirror(useMirror); }
 
 void VersionManager::downloadVersion(const QString &versionId, const QString &destinationPath) {

@@ -341,6 +341,19 @@ private:
     void updateInstanceTreeRunState();
     /// 现在哪些实例**至少有一份会话**在跑（给实例树那几行加"（运行中）"用）。
     QSet<QString> runningVersionIds() const;
+    /// 现在哪些实例**还没落地**（正在下 / 正在装加载器 / 正在导入整合包）。
+    ///
+    /// 「下载完成前该实例不在启动选项中」就靠它：refreshInstalledVersions() 拿它把
+    /// 那几个从下拉框、组合框、实例树和"（N 个实例）"计数里一起滤掉，
+    /// onStartButtonClicked() 那道闸口也读同一份 —— 列表里滤掉的正是闸口拦的，
+    /// 不会出现"列表里能选、点下去被拦"这种自相矛盾。
+    ///
+    /// 四个来源缺一不可，它们兜的是同一种缝：活儿还在进行，但此刻**没有任何一批下载
+    /// 在跑**（isDownloading() 是 false），于是只看下载状态的话，这个实例看起来已经好了。
+    ///   - busyVersionId()：正在下这一批的那一个版本。
+    ///   - m_importingInstanceId / m_installingInstanceId：整合包导入和"带名字的新实例"
+    ///     都有"等原版版本 json"那一段（元数据请求，不算下载），导入还多一段解压覆盖。
+    QSet<QString> installingVersionIds() const;
     /// 分组归属用哪个键认这个实例：有稳定 id（wtfml.meta 的 instanceId）就用它，
     /// 没有就退回**目录名**。
     ///
