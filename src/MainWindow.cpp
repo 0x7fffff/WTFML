@@ -653,8 +653,17 @@ void MainWindow::setupConnections() {
         if (item->parent() == nullptr) {
             // 顶层：先记下"选中的是它"（这是产品状态，见 m_selectedLoaderIndex 那段），
             // 再展开/收起。选中和展开是两件事：收起一条加载器不代表"改成不装它了"。
+            //
+            // NOTE: "这一下是展开还是收起"必须**在动状态之前**算出来。selectLoader()
+            //       里会碰那棵树，而只要碰了，事后读到的 isExpanded() 就可能已经不是用户
+            //       点之前那个值了 —— 2026-09-23 用户报的"选了「自动」以后列表就点不开了"
+            //       就是这么来的（那一次 selectLoader() 走的是"灌一遍列表"那条路，灌完
+            //       它把那一条撑开了，于是这里的取反把它又按回去 —— 净效果是点了没反应）。
+            //       现在 selectLoader() 一行都不碰那棵树了，但"先算再做"这个次序留着：
+            //       它是这一句话唯一安全的写法。
+            const bool expand = !item->isExpanded();
             selectLoader(item->data(MainWindowUI::loaderTreeKeyColumn(), Qt::UserRole).toInt());
-            item->setExpanded(!item->isExpanded());
+            item->setExpanded(expand);
             return;
         }
         QTreeWidgetItem *loader = item->parent();
@@ -1429,22 +1438,25 @@ void MainWindow::openInstallPage(const QString &gameVersion) {
     // 没关系，留着的话下一个版本会顶着一个"上次顺手选的 Forge"进来。
     m_selectedLoaderIndex = MainWindowUI::modLoaderNoneIndex();
     // 钉住的版本号同理：换了一个游戏版本，上一份能装的版本就完全不是这一份了
-    // （Forge 每个游戏版本能装的版本完全不同），连列表一起清掉，展开时现拉一次。
+    // （Forge 每个游戏版本能装的版本完全不同）。
     m_chosenLoaderVersion.clear();
+    // 收起来 + 清掉上次灌进去的子条目（**不能**只 clear 整棵树：那样顶层那五条也一起
+    // 没了）。takeChildren() 交出来的那些条目已经不带爹了，得自己删 —— 不删就是每进一次
+    // 安装页漏一批（几十上百个 QTreeWidgetItem）。requestAllLoaderVersions() 里对每个
+    // 加载器再来一遍，顺手把"正在获取…"占位摆上。
     for (int i = 0; i < MainWindowUI::modLoaderOptionTexts().size(); ++i) {
         QTreeWidgetItem *item = loaderItem(i);
         if (item == nullptr) {
             continue;
         }
-        // 收起来 + 清掉上次灌进去的子条目（**不能**只 clear 整棵树：那样顶层那五条也
-        // 一起没了）。清空本身的意思就是"这一条现在还不知道有哪些版本"。
         item->setExpanded(false);
-        // takeChildren() 交出来的那些条目已经不带爹了，得自己删 —— 不删就是每进一次
-        // 安装页漏一批（几十上百个 QTreeWidgetItem）。
         qDeleteAll(item->takeChildren());
     }
-    m_loaderVersionCache.clear();
     updateLoaderRows();
+    // 四个加载器能装哪些版本：**进这一页就全问出去**（用户原话："获取列表不能点开了再
+    // 获取，得全获取完"）。以前是"点开哪条现拉哪条"，那次实现里还藏着一个"点不开了"
+    // 的 bug（见 fillLoaderVersionItems() 里那段 NOTE）。
+    requestAllLoaderVersions();
     // 名称框里的默认值：勾的是「不装」时就是原版号本身（那正是"装原版"这条老路）。
     updateInstallName();
 
@@ -1559,42 +1571,41 @@ void MainWindow::selectLoader(int loaderIndex) {
     updateLoaderRows();
     // 默认名里带着加载器名（和它钉的版本号），换一条就得重算一次。
     updateInstallName();
-    // 选了一条加载器 = 该把它能装的版本列表备好了（拉过的话直接用缓存）。
-    ensureLoaderVersions(m_selectedLoaderIndex);
+    // NOTE: **这里不发任何请求**。"有哪些版本"是进安装页时一次性全问好的
+    //       （见 requestAllLoaderVersions()，用户原话："获取列表不能点开了再获取，
+    //       得全获取完"）。点一条加载器只做两件事：改"要装哪一个"、展开/收起那一行。
+    //       点一下就去碰那棵树是 2026-09-23 那个"点不开了"的成因之一，别再走回去。
 }
 
-void MainWindow::ensureLoaderVersions(int loaderIndex) {
-    VersionManager::LoaderKind kind = VersionManager::LoaderKind::Fabric;
-    if (!VersionManager::loaderKindFromIndex(loaderIndex, &kind)) {
-        return;  // 「不装（纯原版）」那一条：没有版本可拉
-    }
+void MainWindow::requestAllLoaderVersions() {
+    // 进安装页时把**四个加载器**的版本列表一次性全问出去（用户原话："获取列表不能点开了
+    // 再获取，得全获取完"）。四条各占一格请求（见 VersionManager 里 m_loaderVersionRequests
+    // 那段），所以四条真能同时在飞。
+    //
+    // 代价是进一次安装页约 500 KB（Forge 那份 maven 清单自己就 211 KB）—— 换来的是
+    // "点开哪一条都立刻有东西看"，不再有"点开 → 等一下 → 才出列表"那一下。
     if (m_installGameVersion.isEmpty()) {
-        return;
+        return;  // 没定下来装哪个游戏版本，问不出"这个版本上有哪些加载器版本"
     }
-    QTreeWidgetItem *item = loaderItem(loaderIndex);
-    if (item == nullptr) {
-        return;
+    for (int i = 0; i < MainWindowUI::modLoaderOptionTexts().size(); ++i) {
+        VersionManager::LoaderKind kind = VersionManager::LoaderKind::Fabric;
+        if (!VersionManager::loaderKindFromIndex(i, &kind)) {
+            continue;  // 「不装（纯原版）」那一条：原版没有加载器版本可问
+        }
+        QTreeWidgetItem *item = loaderItem(i);
+        if (item == nullptr) {
+            continue;
+        }
+        // 先摆一条灰的"正在获取…"占住那一条底下的位置：空着一条看着像"这个加载器一个
+        // 版本都没有"。回复在 onLoaderVersionsFetched() 里收，按"加载器 + 游戏版本"认领。
+        item->setExpanded(false);
+        qDeleteAll(item->takeChildren());
+        auto *waiting = new QTreeWidgetItem(item);
+        waiting->setText(MainWindowUI::loaderTreeKeyColumn(),
+                         MainWindowUI::loaderVersionFetchingText());
+        waiting->setDisabled(true);  // 灰的、点不动：它不是能选的东西（选了也不该有反应）
+        m_versionManager->requestLoaderVersions(m_installGameVersion, kind);
     }
-
-    // 已经拉到过就不要再拉一次（用户来回点两条比一比是常事，每次都发一发 60~250 KB
-    // 的请求纯属浪费）。缓存按"加载器 + 游戏版本"存 —— 换游戏版本时那一份就作废了
-    // （Forge 每个游戏版本能装的版本完全不同），所以 openInstallPage() 会清掉整个缓存。
-    const QString cacheKey = QStringLiteral("%1|%2").arg(int(kind)).arg(m_installGameVersion);
-    if (m_loaderVersionCache.contains(cacheKey)) {
-        fillLoaderVersionItems(loaderIndex, m_loaderVersionCache.value(cacheKey));
-        return;
-    }
-    if (item->childCount() > 0) {
-        return;  // 已经在手上（列表来自缓存之外的某次填充），不用重来
-    }
-
-    // 还没到：先摆一条灰的"正在获取…"占住那一条底下的位置（空着一条看着像"这个加载器
-    // 一个版本都没有"），再把请求发出去。回复在 onLoaderVersionsFetched() 里收 ——
-    // 它按"加载器 + 游戏版本"认领，所以这里不用记"我在等哪一发"。
-    auto *waiting = new QTreeWidgetItem(item);
-    waiting->setText(MainWindowUI::loaderTreeKeyColumn(), MainWindowUI::loaderVersionFetchingText());
-    waiting->setDisabled(true);  // 灰的、点不动：它不是能选的东西（选了也不该有反应）
-    m_versionManager->requestLoaderVersions(m_installGameVersion, kind);
 }
 
 void MainWindow::fillLoaderVersionItems(int loaderIndex, const QStringList &versions) {
@@ -1632,8 +1643,19 @@ void MainWindow::fillLoaderVersionItems(int loaderIndex, const QStringList &vers
     }
     // 光标放回"现在钉着的那一条"（没钉就是「自动（推荐）」）—— 展开之后一眼看到的就是
     // 它。**这不改选中状态**：选中是 m_selectedLoaderIndex 的事，这里只是画光标。
+    //
+    // ★ 这一下**只能在那一行开着的时候做**（2026-09-23 用户报的 bug 就在这儿）。
+    //   链路：`QTreeWidget::setCurrentItem()` → currentChanged → QAbstractItemView 的
+    //   `if (d->autoScroll) scrollTo(newCurrent)` → `QTreeView::scrollTo()` 头一句就是
+    //   "Expand all parents if the parent(s) of the node are not expanded"（qtreeview.cpp
+    //   里那几行，实测过：把 setCurrentItem 摘掉，那个"点不开了"当场就好了）。
+    //   于是"把光标放到一条收着的加载器的子条目上" = **把那一条撑开**。用户看到的是：
+    //   点开 Fabric → 选「自动（推荐）」→ 再点 Fabric，它闪一下就不动了（撑开它的那一下
+    //   正好把点击处理里那句"取反"吃掉了）。
+    //   收着的时候不放也没损失 —— 这几个版本号就写在那一行自己的第二行小字上
+    //   （"选择版本以后收缩，显示版本"），不靠光标指。
     QTreeWidget *tree = m_ui->getLoaderTree();
-    if (tree != nullptr) {
+    if (tree != nullptr && wasExpanded) {
         tree->setCurrentItem(chosenItem);
     }
     // 列表是灌在**已经展开**的那一条底下的：条目换了一批，那棵树的高度得跟着重算
@@ -1653,9 +1675,8 @@ void MainWindow::onLoaderVersionsFetched(const QString &gameVersion, int loaderI
     if (gameVersion != m_installGameVersion) {
         return;
     }
-    // 缓存键、失败时那句"是哪个加载器"的文案都按**枚举**说（缓存键必须和
-    // ensureLoaderVersions() 里那把一致），所以这里翻译回枚举；反函数在这边失手
-    // （表没改全）就当没收到 —— 宁可那一条底下空着，也不要填错。
+    // 那棵树是按**下标**摆的，日志里那句"是哪个加载器"要的是名字，所以这里翻译回枚举；
+    // 反函数在这边失手（表没改全）就当没收到 —— 宁可那一条底下空着，也不要填错。
     VersionManager::LoaderKind kind;
     if (!VersionManager::loaderKindFromIndex(loaderIndex, &kind)) {
         return;
@@ -1677,7 +1698,8 @@ void MainWindow::onLoaderVersionsFetched(const QString &gameVersion, int loaderI
                       .arg(VersionManager::loaderDisplayName(kind), gameVersion, errorMessage));
         return;
     }
-    m_loaderVersionCache.insert(QStringLiteral("%1|%2").arg(int(kind)).arg(gameVersion), versions);
+    // 灌进去就完了 —— 不存缓存：这一批是进安装页时一次性问全的（requestAllLoaderVersions），
+    // 每一条在这次安装页里只会被灌这一次。
     fillLoaderVersionItems(loaderIndex, versions);
 }
 

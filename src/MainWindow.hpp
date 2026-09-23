@@ -344,12 +344,14 @@ private:
     ///       和"我要装哪一个"是两件事）—— 它住在 m_selectedLoaderIndex 里，这里是唯一
     ///       把它画出来的地方。
     void updateLoaderRows();
-    /// 选中某一条加载器（点顶层那一条走的就是这里）：改选中项、刷那棵树、
-    /// 把它能装的版本列表备好。它在树上**不**负责展开 —— 展开折叠是点击那一下自己的事。
+    /// 选中某一条加载器（点顶层那一条走的就是这里）：改选中项、刷那棵树。
+    /// 它在树上**不**负责展开（展开折叠是点击那一下自己的事），也**不**发任何请求 ——
+    /// 版本列表是进安装页时一次性全问好的（见 requestAllLoaderVersions()）。
     void selectLoader(int loaderIndex);
-    /// 备好某一条加载器能装的版本（拉过就直接用缓存），灌进它底下的子条目。
-    /// 一次请求 60~250 KB，所以只在"用户真的要挑这条"时才发。
-    void ensureLoaderVersions(int loaderIndex);
+    /// 四个加载器能装哪些版本，**进安装页时一次性全问出去**（用户原话："获取列表不能
+    /// 点开了再获取，得全获取完"）：先给每条摆一个「正在获取…」占位，再各发一发请求。
+    /// 四条各占一格，所以四发真能同时在飞（见 VersionManager::m_loaderVersionRequests）。
+    void requestAllLoaderVersions();
     /// 把一份版本列表灌成某个加载器的子条目（第 0 条永远是"自动（推荐）"）。
     void fillLoaderVersionItems(int loaderIndex, const QStringList &versions);
     /// 名称框里的默认名（用户没自己改过时才动它），再刷下面那句小字。
@@ -489,11 +491,6 @@ private:
     // 用户**自己改过**名称框没有。改过之后默认名就不再跟着加载器变了（不然他敲到一半
     // 的名字会被一次"选了 Forge"顶掉）；每次进安装页重置。
     bool m_installNameTouched = false;
-    // 已经拉到过的"某加载器在某游戏版本上有哪些版本"。键是 `<加载器枚举值>|<游戏版本>`，
-    // 换游戏版本时整个清掉（Forge 每个游戏版本能装的版本完全不同，留着就是错的）。
-    // 存它的理由：用户来回勾两条加载器比一比是常事，每次都发一发 60~250 KB 的请求
-    // 纯属浪费。
-    QHash<QString, QStringList> m_loaderVersionCache;
     // "有版本目录但 jar 名对不上"这件事是否已经写过日志。refreshInstalledVersions()
     // 一次会话会被调很多次，不记一笔就是同样的告警反复刷。
     bool m_reportedUnrecognizedVersions = false;

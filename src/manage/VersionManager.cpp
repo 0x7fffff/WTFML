@@ -991,15 +991,16 @@ void VersionManager::adoptInstallerVersion(const QString &version) {
 void VersionManager::requestLoaderVersions(const QString &gameVersion, LoaderKind kind) {
     const QString wanted = gameVersion.trimmed();
 
-    // 上一发还在飞就先掐掉：界面上只有**一处**选择器，用户点开另一个加载器就是"换一份列表"，
-    // 两份回复乱序到达会把 Forge 的版本号填进 Fabric 那个列表里。abort 之后 finished()
-    // 照样会来一发，回复处理函数靠"这一份还是我手上这份吗"把它丢掉。
-    if (m_loaderVersionRequest.reply != nullptr) {
-        m_loaderVersionRequest.reply->abort();
-        m_loaderVersionRequest.reply = nullptr;
+    // **同一个加载器**上上一发还在飞就先掐掉（换了游戏版本、或者同一局重新问一遍）——
+    // 换局之后旧那一发回来会把上一局的版本号填进这一局的列表里。abort 之后 finished()
+    // 照样会来一发，回复处理函数靠"这一个指针还是我手上这个吗"把它丢掉。
+    // 别的加载器在飞的那几发**不动**：四个各占一格，四条一起问是正常的（见头里那段）。
+    LoaderVersionRequest &slot = m_loaderVersionRequests[int(kind)];
+    if (slot.reply != nullptr) {
+        slot.reply->abort();
+        slot.reply = nullptr;
     }
-    m_loaderVersionRequest.kind = kind;
-    m_loaderVersionRequest.gameVersion = wanted;
+    slot.gameVersion = wanted;
 
     if (wanted.isEmpty()) {
         emit loaderVersionsFetched(wanted, kind, false, QStringList(),
@@ -1037,10 +1038,10 @@ void VersionManager::requestLoaderVersions(const QString &gameVersion, LoaderKin
                                            : LoaderMeta::optifineDownloadsPageUrl();
         break;
     }
-    fetchLoaderVersions(url);
+    fetchLoaderVersions(kind, url);
 }
 
-void VersionManager::fetchLoaderVersions(const QString &url) {
+void VersionManager::fetchLoaderVersions(LoaderKind kind, const QString &url) {
     if (loaderNetwork == nullptr) {
         loaderNetwork = new QNetworkAccessManager(this);
     }
@@ -1050,22 +1051,23 @@ void VersionManager::fetchLoaderVersions(const QString &url) {
     // 30 秒也够（实测挂代理一两秒）。
     request.setTransferTimeout(30000);
     QNetworkReply *reply = loaderNetwork->get(request);
-    m_loaderVersionRequest.reply = reply;
+    m_loaderVersionRequests[int(kind)].reply = reply;
+    // 回复得**带着是哪个加载器的**回来：四发同时在飞，光认指针认不出是谁的回复。
     connect(reply, &QNetworkReply::finished, this,
-            [this, reply] { onLoaderVersionsReply(reply); });
+            [this, reply, kind] { onLoaderVersionsReply(kind, reply); });
 }
 
-void VersionManager::onLoaderVersionsReply(QNetworkReply *reply) {
+void VersionManager::onLoaderVersionsReply(LoaderKind kind, QNetworkReply *reply) {
     reply->deleteLater();
-    // 这一份还是我手上这份吗？不是就说明调用方已经换了目标（abort 掉的那一份也会走到这里），
-    // 这份回复没人要了。
-    if (m_loaderVersionRequest.reply != reply) {
+    // 这一发还是我手上这一发吗？不是就说明调用方已经换了目标（abort 掉的那一发也会走到
+    // 这里），这份回复没人要了。
+    QHash<int, LoaderVersionRequest>::iterator slot = m_loaderVersionRequests.find(int(kind));
+    if (slot == m_loaderVersionRequests.end() || slot->reply != reply) {
         return;
     }
-    // 先把两个字段抄下来再 clear：下面几条 emit 都要用它们，而 clear 之后就没得读了。
-    const LoaderKind kind = m_loaderVersionRequest.kind;
-    const QString gameVersion = m_loaderVersionRequest.gameVersion;
-    m_loaderVersionRequest.clear();
+    // 先把两个字段抄下来再清空那一格：下面几条 emit 都要用它们，清空之后就没得读了。
+    const QString gameVersion = slot->gameVersion;
+    slot->reply = nullptr;
 
     const QByteArray body = reply->readAll();
     if (reply->error() != QNetworkReply::NoError) {

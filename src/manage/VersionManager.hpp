@@ -287,9 +287,15 @@ public:
     /**
      * @brief 问某个加载器在某个游戏版本上有哪些版本可选（安装页那个展开的列表用）。
      *
-     * 一次只认一份请求：界面上只有**一处**在选择器里（用户点开另一个加载器 = 换一份列表），
-     * 所以这里再来一发就**把上一发 abort 掉**，只回最后那一发。不然用户快速点两下会先收到
-     * 旧的那份列表，把它填进新的下拉框里 —— 那是"选了 Fabric 却看到 Forge 的版本号"。
+     * **一个加载器一份请求，四个可以同时在飞**（2026-09-23 改）。同一个加载器上再来一发
+     * 才把上一发 abort 掉（同一个游戏版本重新问、或者换了游戏版本）—— 换局之后旧那一发
+     * 回来会填错地方，那是"选了 Fabric 却看到 Forge 的版本号"。
+     *
+     * NOTE: 以前是"总共只认一份、再来一发就掐上一发"。那是在"界面上只有一处选择器"的年代
+     *       定的（点开另一个加载器 = 换一份列表）。现在安装页上四条加载器是并列的四行、
+     *       一进去就四条一起问，只有一格的话后三发会把前一发掐死 —— 前三条底下永远停在
+     *       「正在获取…」。改成一格一个加载器之后，"换一份列表"这件事由调用方换游戏版本时
+     *       重新问一遍来表达。
      *
      * 四条路的数据源（都是实测过的）：
      *   * Fabric   `/v2/versions/loader/<mc>`（253 条 / 589 KB，接口本来就是新到旧）
@@ -906,27 +912,32 @@ private:
     /// m_loaderInstall **同时** active —— 那不是状态串了，是这一条路的正常样子。
     NamedInstance m_namedInstance;
 
-    // ---- "这个加载器有哪些版本可选"那一发 GET 的状态 ----
+    // ---- "这个加载器有哪些版本可选"那几发 GET 的状态 ----
     //
     // 为什么不复用 m_loaderInstall：那一位装的是**一次安装**的状态机（相位、安装器地址、
     // 钉死的版本……），而"列版本"是安装**之前**的一次只读询问 —— 用户在安装页上把四个加载器
     // 挨个点开看看，一次安装都还没发生。混进去的话，点开一个加载器就会把 m_loaderInstall
     // 弄成"正在装"的样子，isLoaderInstalling() 当场变 true，底栏和按钮全跟着错。
+    //
+    // ★ **每个加载器各占一格，四个可以同时在飞**（2026-09-23 改）。以前只有一格，
+    //   新的一发会把上一发 abort 掉 —— 那是在"界面上只有一处选择器"的年代定的。现在
+    //   四个加载器在安装页上是四条并列的行，一进那一页四条一起问（用户原话："获取列表
+    //   不能点开了再获取，得全获取完"），只有一格的话后三发会把前一发掐死，
+    //   前三条底下就永远停在「正在获取…」。
     struct LoaderVersionRequest {
-        LoaderKind kind = LoaderKind::Fabric;
         QString gameVersion;
-        // 正在飞的那一份。换一个加载器/换一个游戏版本时把它 abort 掉（abort 之后 finished()
-        // 照样会来一发，回复处理函数靠"这一份还是我手上这份吗"把它丢掉）。
+        // 正在飞的那一份。**同一个加载器**上换一局（同一个游戏版本重新问、或者换了
+        // 游戏版本）时把它 abort 掉（abort 之后 finished() 照样会来一发，回复处理函数
+        // 靠"这一个指针还是我手上这个吗"把它丢掉）。
         QNetworkReply *reply = nullptr;
-
-        bool active() const { return reply != nullptr; }
-        void clear() { reply = nullptr; }
     };
-    LoaderVersionRequest m_loaderVersionRequest;
+    // 键是**加载器下标**（VersionManager::loaderIndexForKind 那套），不是枚举 —— 枚举当
+    // QHash 的键要靠 qHash 的特化，下标是 int，省一层。
+    QHash<int, LoaderVersionRequest> m_loaderVersionRequests;
 
     // 发那一发 GET，回复交给 onLoaderVersionsReply()。
-    void fetchLoaderVersions(const QString &url);
-    void onLoaderVersionsReply(QNetworkReply *reply);
+    void fetchLoaderVersions(LoaderKind kind, const QString &url);
+    void onLoaderVersionsReply(LoaderKind kind, QNetworkReply *reply);
     // 按加载器把这一份回复解析成"能挑的版本"。失败时 returned.error 非空（是给用户看的话）。
     struct LoaderVersionParse {
         QStringList versions;
