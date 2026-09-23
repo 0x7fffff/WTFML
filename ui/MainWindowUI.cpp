@@ -525,6 +525,10 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         QFont treeFont = versionTree->font();
         treeFont.setPointSize(treeFont.pointSize() + versionTreeFontStep());
         versionTree->setFont(treeFont);
+        // 图标尺寸：画是代理画的（它自己按 versionTreeIconSize 缩放），这里设的是**视图
+        // 认下的那个尺寸** —— 装上安装页那棵加载器树之后，这两条竖的设置必须成对地
+        // 一样（验证工程拿"两棵树这三条相等"钉"两边是同一个模式"）。
+        versionTree->setIconSize(QSize(versionTreeIconSize(), versionTreeIconSize()));
         // 单击分类就展开/折叠（用户点的是最右边那个 >，那个箭头就画在那一行上）。
         // 双击**不再**自己展开一次 —— 那会和上面那次单击叠起来，双击等于"展开又收起"。
         versionTree->setExpandsOnDoubleClick(false);
@@ -565,88 +569,102 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         installNameHint->setObjectName(installNameHintName());
         installLayout->addWidget(nameBox);
 
-        // 加载器：四个各占**一条**（用户明确要的形状 —— 每个加载器都要有地方显示
-        // 自己那个版本号，横排的选项卡排不下），最后加一条「不装（纯原版）」。
+        // 加载器：**一棵树**，和上一页的版本树同一个模式（用户原话见头文件里那段）：
+        // 顶层五条 = 四个加载器 + 「不装（纯原版）」，点一条展开它底下的版本号，
+        // 点一个版本号就收起来、把选中的版本号写在那一行的第二行小字上。
         //
         // NOTE: 这一组就是原来左栏那五个钮 —— 表、下标、文案一个字没改（见
-        //       modLoaderOptionNames()），只是从"孤零零五个钮"变成了"一条一个加载器，
-        //       右边跟着它自己的版本"。判据仍然是 modLoaderGroup->checkedId()，
-        //       所以"下标 → 加载器"那层翻译（loaderKindFromIndex）原样可用。
+        //       modLoaderOptionNames()），换掉的是"单选钮 + 右边一个组合框"那个形状。
         QGroupBox *loaderBox = new QGroupBox(modLoaderLabelText(), installPage);
         auto *loaderLayout = new QVBoxLayout(loaderBox);
         loaderLayout->setContentsMargins(9, 9, 9, 9);
-        // 每条之间挨紧一点（页面的间距是 10，那是给"标签/控件一段一段"用的；这几条是
-        // 同一组里的几行，拉开反而看不出它们是一组）。
-        loaderLayout->setSpacing(4);
         installLayout->addWidget(loaderBox);
 
-        modLoaderGroup = new QButtonGroup(installPage);
-        modLoaderGroup->setObjectName(modLoaderGroupName());
+        loaderTree = new QTreeWidget(loaderBox);
+        loaderTree->setObjectName(loaderTreeName());
+        // 竖的那几条设置和版本树那边**一模一样**（表头藏起来、行高常数、左边那个小三角
+        // 不画、同一个代理、同一个字号偏移）—— 用户要的就是"和上一页相同的模式"，
+        // 两边长得不一样的话那句话就只兑现了一半。
+        loaderTree->setHeaderHidden(true);
+        loaderTree->setUniformRowHeights(true);
+        loaderTree->setRootIsDecorated(false);
+        loaderTree->setColumnCount(1);
+        loaderTree->setItemDelegate(new VersionTreeDelegate(loaderTree));
+        loaderTree->setExpandsOnDoubleClick(false);
+        // 展开/收起是"点那一条"完成的，而点中一条会把它整行画成选中色（和版本树那边
+        // 一样）。这里**不要**再自己画高亮：选中色就是"你现在停在哪一条"。
+        QFont loaderFont = loaderTree->font();
+        loaderFont.setPointSize(loaderFont.pointSize() + versionTreeFontStep());
+        loaderTree->setFont(loaderFont);
+        // 五条加载器（+ 展开出来的版本号）都用同一个标志尺寸，和版本树上那 18 px 一致。
+        loaderTree->setIconSize(QSize(versionTreeIconSize(), versionTreeIconSize()));
+        loaderLayout->addWidget(loaderTree);
 
-        const auto addLoaderRow = [&](int index) {
-            auto *row = new QWidget(loaderBox);
-            auto *rowLayout = new QHBoxLayout(row);
-            rowLayout->setContentsMargins(0, 0, 0, 0);
-            rowLayout->setSpacing(8);
-
-            QRadioButton *radio = new QRadioButton(modLoaderOptionTexts().at(index), row);
-            radio->setObjectName(modLoaderOptionNames().at(index));
-            // 每条前面那个标志（Fabric 的织纹 / Forge 的铁砧 / NeoForge 的狐狸 /
-            // OptiFine 的放大镜；「不装」那条是草方块 —— 那条路装出来的就是原版）。
-            // 画法是 ui/VersionIcons.cpp，那几个图标的画法表和这张表**同序**。
-            radio->setIcon(QIcon(VersionIcons::loaderMark(index, versionTreeIconSize())));
-            radio->setIconSize(QSize(versionTreeIconSize(), versionTreeIconSize()));
-            // id 就是两张表里的下标，接线时靠它把"勾了哪个"翻成加载器枚举。
-            modLoaderGroup->addButton(radio, index);
-            rowLayout->addWidget(radio);
-
-            if (index == modLoaderNoneIndex()) {
-                // 「不装（纯原版）」那条没有版本可选 —— 原版没有加载器版本。
-                // NOTE: 这一条**不是凑数**：单选钮一旦勾上就没法用鼠标取消（Qt 的互斥组
-                //       把"点已勾中的那个"当成什么都没发生），没有它的话用户勾过一次
-                //       Fabric 就再也回不到"装纯原版"了。它**初始勾中**（见下面）。
-                rowLayout->addStretch(1);
-            } else {
-                QComboBox *combo = new QComboBox(row);
-                combo->setObjectName(loaderVersionComboName(index));
-                // 占位文案（"正在获取…"）必须 ≤12 字 —— 完整原因和实测数据见上面
-                // installedVersionCombo 那处：AdjustToMinimumContentsLengthWithIcon 会把
-                // 超过 minimumContentsLength 的占位文案算进 sizeHint 宽度，于是这个框
-                // 会在"正在获取"和"拿到版本列表"之间抽一下宽度。
-                combo->setPlaceholderText(loaderVersionFetchingText());
-                combo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
-                combo->setMinimumContentsLength(12);
-                // 手一滑把一次 GB 级的下载指到别的版本上：和别的下拉框同一道闸。
-                combo->installEventFilter(new WheelGuard(combo));
-                // 开局四条都灰着：默认勾的是「不装（纯原版）」，谁都没被选中，
-                // 那四个组合框现在管不着任何事。勾哪条、亮哪条、哪条去拉版本列表，
-                // 全在 MainWindow::updateLoaderRows() 一处决定。
-                combo->setEnabled(false);
-                rowLayout->addWidget(combo, 1);
-                // 下标就是加载器下标（0..3），和"勾了哪个"用的是同一个数 ——
-                // 不另写一张"哪个组合框是哪个加载器"的表，那种表迟早会有一处对不上。
-                loaderVersionCombos.append(combo);
+        // 顶层五条：四个加载器 + 最后那条「不装（纯原版）」。顺序、下标、文案全走
+        // modLoaderOptionNames()/modLoaderOptionTexts() 那两张表（见头文件里那段 NOTE）。
+        {
+            const QStringList texts = modLoaderOptionTexts();
+            for (int i = 0; i < texts.size(); ++i) {
+                auto *item = new QTreeWidgetItem(loaderTree);
+                item->setData(loaderTreeKeyColumn(), Qt::UserRole, i);
+                item->setText(loaderTreeKeyColumn(), texts.at(i));
+                // 每条前面那个标志（Fabric 的织纹 / Forge 的铁砧 / NeoForge 的狐狸 /
+                // OptiFine 的放大镜；「不装」那条是草方块 —— 那条路装出来的就是原版）。
+                // 画法是 ui/VersionIcons.cpp，那几个图标的画法表和这张表**同序**；
+                // 给的是整数下标，越界时它自己会退回草方块。
+                item->setIcon(loaderTreeKeyColumn(), QIcon(VersionIcons::loaderMark(i, versionTreeIconSize())));
+                // 「不装（纯原版）」那条**没有**版本可选（原版没有加载器版本），所以它
+                // 底下一直是空的、也不长展开箭头（代理按"有没有孩子"决定画不画）。
+                // NOTE: 这一条**不是凑数**：它是"回到装纯原版"那条路，初始选中的就是它。
             }
-            loaderLayout->addWidget(row);
-            return radio;
+        }
+        // 这棵树的高度**跟着"现在展开了几条"变**：五条全收着就是 5 行高，展开一条之后
+        // 按 5 + 那条的版本数往上长，长到 loaderTreeMaxRows() 行就停（再多出滚动条）。
+        // 不这么做的话：写死 5 行高，展开之后版本号全挤在一条一行高的缝里看不见；
+        // 写死"铺满整页"，那五条收着的时候底下空一大片、安装按钮还被推到窗口最底下。
+        // 挂在 expanded/collapsed 上（而不是让 MainWindow 每次灌完数据记得调一下）：
+        // 展开这件事本来就发生在这棵树自己身上。
+        // NOTE: 这个 lambda 只捕获树的指针、**不捕获 this** —— 它挂在树上（context 也是树），
+        //       而 MainWindowUI 本身不是 QObject（它只是搭界面的那个类，连着两句都用
+        //       树自己当 context）。
+        const auto fitLoaderTreeHeight = [tree = loaderTree]() {
+            if (tree == nullptr) {
+                return;
+            }
+            int rows = 0;
+            for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+                QTreeWidgetItem *top = tree->topLevelItem(i);
+                rows += 1 + (top->isExpanded() ? top->childCount() : 0);
+            }
+            rows = qBound(tree->topLevelItemCount(), rows, loaderTreeMaxRows());
+            const int frame = 2 * tree->frameWidth();
+            tree->setFixedHeight(rows * versionTreeRowHeight() + frame);
         };
-        // NOTE: 变量名这里照抄上面那张表（第 0 个是 Fabric、第 1 个是 Forge…），
-        //       顺序一乱就是"名字和内容对不上"，而那种错不会报错、只会装错加载器。
-        modLoaderFabric = addLoaderRow(0);
-        modLoaderForge = addLoaderRow(1);
-        modLoaderNeoForge = addLoaderRow(2);
-        modLoaderOptiFine = addLoaderRow(3);
-        modLoaderNone = addLoaderRow(modLoaderNoneIndex());
-        // 默认勾「不装」= 打开安装页时就是"装纯原版"，也是原来那个默认行为。
-        modLoaderNone->setChecked(true);
-        // 单选钮不吃滚轮，所以那几个钮不需要上面组合框装的 WheelGuard（见它上面那段）。
+        // NOTE: 写 QObject::connect 而不是 connect —— MainWindowUI **不是** QObject
+        //       （见类声明），成员那版 connect 在这儿不存在；直接写 connect 编译器会
+        //       去找一个叫 connect 的普通函数。这两句用树自己当 context。
+        QObject::connect(loaderTree, &QTreeWidget::itemExpanded, loaderTree,
+                         [fitLoaderTreeHeight]() { fitLoaderTreeHeight(); });
+        QObject::connect(loaderTree, &QTreeWidget::itemCollapsed, loaderTree,
+                         [fitLoaderTreeHeight]() { fitLoaderTreeHeight(); });
+        // NOTE: 「这一棵树现在该显示成什么样」（哪条写着"与 X 不兼容"、哪条写着选中的
+        //       版本号）一件都不在这里做 —— 那是 MainWindow::updateLoaderRows() 的活，
+        //       它按"选中了哪个加载器"一处重算。这里只把五条搭出来。
+        fitLoaderTreeHeight();
 
         installButton = new QPushButton(installButtonText(), installPage);
         installButton->setObjectName(installButtonName());
         installButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
         installButton->setMinimumWidth(kDownloadButtonMinWidth);
-        installLayout->addWidget(installButton, 0, Qt::AlignLeft);
-        // 底下那一大块空着是**刻意**的：几个加载器各自展开之后的版本号有多长说不准，
+        // 用户原话"安装键做大点在右侧居中"：字放大两档、给一个最小高度（字大了还顶着
+        // 老高度会显得挤），再在**这一页上横向居中**摆（安装页就是右栏，所以居中就是
+        // "在这一栏里居中"）。垂直方向仍然靠底下那个 stretch 顶上去。
+        QFont installFont = installButton->font();
+        installFont.setPointSize(installFont.pointSize() + installButtonFontStep());
+        installButton->setFont(installFont);
+        installButton->setMinimumHeight(installButtonMinHeight());
+        installLayout->addWidget(installButton, 0, Qt::AlignHCenter);
+        // 底下那一大块空着是**刻意**的：加载器那条展开之后的版本号有多长说不准，
         // 给按钮留出"往上顶"的余量，免得它贴着窗口底边。
         installLayout->addStretch(1);
         gameStack->addWidget(installPage);

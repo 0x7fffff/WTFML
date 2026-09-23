@@ -18,6 +18,10 @@
 #include "..\ui\MainWindowUI.hpp"
 // 主页右栏那个小人怎么画：几何、投影、默认外观、头像裁切全在它里面（纯函数 + 值）。
 #include "..\ui\SkinModel.hpp"
+// 加载器那棵树底下每一条版本号前面挂的**它自己那个加载器的标志**（见
+// fillLoaderVersionItems()）：那几条是"Fabric 能装哪些版本"，前面顶个草方块会让人
+// 以为是原版号。树的顶层那五条由 MainWindowUI 那边给图标，这里只管子条目。
+#include "..\ui\VersionIcons.hpp"
 
 // 添加以下头文件（防止hpp变动导致文件失效）
 #include <QApplication>
@@ -40,7 +44,6 @@
 #include <QProgressBar>
 #include <QProcess>
 #include <QPushButton>
-#include <QRadioButton>
 #include <QSignalBlocker>
 #include <QSpinBox>
 #include <QTabWidget>
@@ -433,6 +436,10 @@ MainWindow::MainWindow(QWidget *parent)
       m_groupStore(new InstanceGroupStore(this)),
       m_skinStore(new PlayerSkinStore(this)),
       m_skinApi(new SkinApi(this)) {
+    // 安装页那棵树默认停在「不装（纯原版）」那一条（打开安装页时也是它，见
+    // openInstallPage()）—— 没进过安装页之前这一位也得是个真值：updateLoaderRows()
+    // 在下面就会被调到。初值不写在头文件里是因为那边只前置声明了 MainWindowUI。
+    m_selectedLoaderIndex = MainWindowUI::modLoaderNoneIndex();
     setupConnections();
     // 设置页先按盘上的值摆好（不扫 Java，那一段等第一次切到设置页，见
     // refreshJavaList()）。必须在下面 fetchAvailableVersions() **之前**：
@@ -632,21 +639,43 @@ void MainWindow::setupConnections() {
     // 名称框：每敲一个字都要重算那句小字（重名提示要"实时"——用户原话）。
     connect(m_ui->getInstallNameEdit(), &QLineEdit::textChanged, this,
             &MainWindow::onInstallNameEdited);
-    // 加载器那几条的单选钮：勾哪条、哪条的组合框亮起来、哪条去拉版本列表，都在
-    // updateLoaderRows() 一处决定（id 就是加载器下标，见 modLoaderOptionNames()）。
-    connect(m_ui->getModLoaderGroup(), &QButtonGroup::idToggled, this,
-            [this](int index, bool checked) {
-                if (checked) {
-                    onLoaderRowChanged(index);
-                }
-            });
-    // 四个"选版本"的组合框：选中哪个加载器版本**不**单独通知谁，安装那一刻现读
-    // （见 installedLoaderVersion()）。唯一要跟着变的是名称框里的默认名
-    // —— "1.20.1-Forge" 和 "1.20.1-Forge_47.4.10" 是两个不同的默认名。
-    for (QComboBox *combo : m_ui->getLoaderVersionCombos()) {
-        connect(combo, &QComboBox::currentIndexChanged, this,
-                &MainWindow::onLoaderVersionChoiceChanged);
-    }
+    // 加载器那棵树（安装页）：**点一下**那条里的两件事分开办 ——
+    //   · 点顶层（一个加载器）：选中它，然后展开/收起那一条（用户点的是行最右边那个
+    //     >/V，整个行都是热区）—— 和上一页版本树那边的点法一模一样；
+    //   · 点子条目（一个版本号）：把这一条钉在那个版本上，**收起**那条，并把版本号
+    //     写回它的第二行小字（用户原话："选择版本以后收缩，显示版本"）。
+    // 共用一份 lambda 而不是槽：槽签名里带 QTreeWidgetItem* 就得让 moc 也认得这个类型
+    // （版本树那边同一个理由，见 openFromTreeItem 上面那段）。
+    const auto onLoaderTreeClicked = [this](QTreeWidgetItem *item, int) {
+        if (item == nullptr) {
+            return;
+        }
+        if (item->parent() == nullptr) {
+            // 顶层：先记下"选中的是它"（这是产品状态，见 m_selectedLoaderIndex 那段），
+            // 再展开/收起。选中和展开是两件事：收起一条加载器不代表"改成不装它了"。
+            selectLoader(item->data(MainWindowUI::loaderTreeKeyColumn(), Qt::UserRole).toInt());
+            item->setExpanded(!item->isExpanded());
+            return;
+        }
+        QTreeWidgetItem *loader = item->parent();
+        const int index =
+            loader->data(MainWindowUI::loaderTreeKeyColumn(), Qt::UserRole).toInt();
+        // 版本号存在 userData 里（空串 = 「自动（推荐）」那一条，见 loaderVersionAutoText()）。
+        const QString version =
+            item->data(MainWindowUI::loaderTreeKeyColumn(), Qt::UserRole).toString();
+        // 那条"正在获取…"/"列表没取到"是灰的、**不是能选的东西**：点它什么都不该发生
+        // （不然"列表没取到"会被当成一个选中的版本号填进默认名里）。
+        if (!item->isDisabled()) {
+            m_chosenLoaderVersion.insert(index, version);
+            selectLoader(index);
+            loader->setExpanded(false);
+            // 钉的版本号是默认名的一部分（`1.20.1-Forge_47.4.10`），换一条就得重算。
+            updateInstallName();
+        }
+    };
+    connect(m_ui->getLoaderTree(), &QTreeWidget::itemClicked, this, onLoaderTreeClicked);
+    // 键盘走这条路（回车/空格"激活"一个条目）：两条路指向同一份 lambda。
+    connect(m_ui->getLoaderTree(), &QTreeWidget::itemActivated, this, onLoaderTreeClicked);
     // 「下载」页左栏那份分类（游戏 / 整合包 / 模组 / 资源包 / 光影）：点哪个，右栏那份
     // QStackedWidget 就翻到哪一页。**"第几个分类 = 第几页"这条对应关系是界面自己搭出来的**
     // （同一个表、同一个顺序一页一页加进去），这里只做一次越界保护：分类表和页数将来要是
@@ -802,13 +831,10 @@ void MainWindow::setDownloadUiBusy(bool busy) {
     // 会让这一批文件一半写进 A、一半写进 B。两个按钮的可用性由 updateFolderButtons()
     // 一处说了算（「移除文件夹」还要看选中的是不是自带那份）。
     m_ui->getFolderList()->setEnabled(!busy);
-    // 「模组加载器」那一组（单选钮 + 各自那个"选版本"组合框）一起灰，理由同上。
-    // 忙完解禁时**不能**把四个组合框一律点亮 —— 没被勾中的那几条本来就该是灰的
-    // （它们现在管不着任何事），所以走 updateLoaderRows() 一处按"勾了哪个"重算；
-    // 「安装」那个按钮还要看名称合法不合法，走 updateInstallNameHint() 一处。
-    for (QRadioButton *option : m_ui->getModLoaderOptions()) {
-        option->setEnabled(!busy);
-    }
+    // 「模组加载器」那棵树一起灰，理由同上。忙完解禁走 updateLoaderRows() 一处重算
+    // （那棵树的样子全由它一处决定）；「安装」那个按钮还要看名称合法不合法，走
+    // updateInstallNameHint() 一处。
+    m_ui->getLoaderTree()->setEnabled(!busy);
     updateLoaderRows();
     updateInstallNameHint();
     updateFolderButtons();
@@ -1369,7 +1395,7 @@ void MainWindow::refreshAvailableVersions() {
             child->setData(MainWindowUI::versionTreeKeyColumn(), Qt::UserRole, version.id);
             child->setText(MainWindowUI::versionTreeKeyColumn(), version.id);
             // 版本号下面那行小字：发布时间（精确到日）。清单里没有 / 认不出来的，那行就不画。
-            child->setData(MainWindowUI::versionTreeKeyColumn(), MainWindowUI::versionTreeDateRole(),
+            child->setData(MainWindowUI::versionTreeKeyColumn(), MainWindowUI::rowSubTextRole(),
                            releaseDateText(version.releaseTime));
         }
         if (expandedKeys.contains(channel.key)) {
@@ -1394,21 +1420,28 @@ void MainWindow::openInstallPage(const QString &gameVersion) {
     m_installGameVersion = gameVersion;
     m_installNameTouched = false;
 
-    // 这一层只管界面：要装的是哪个版本、名称框里默认写什么、四个加载器各自那格
-    // 现在该是什么状态。真正的安装请求在 onInstallButtonClicked() 里发出去。
+    // 这一层只管界面：要装的是哪个版本、名称框里默认写什么、那五条加载器现在该是什么
+    // 状态。真正的安装请求在 onInstallButtonClicked() 里发出去。
     m_ui->getInstallTargetLabel()->setText(MainWindowUI::installTargetText(gameVersion));
-    // 默认名跟着"勾中的加载器"走（不勾就是原版号本身）—— updateLoaderRows() 会顺手
+    // 默认名跟着"选中的加载器"走（没选就是原版号本身）—— updateLoaderRows() 会顺手
     // 把它算出来，所以这里先摆状态、再让它收尾。
-    // 注意每次进安装页都**回到「不装」**：上一个实例勾的是哪条加载器跟这一个没关系，
-    // 留着的话下一个版本会顶着一个"上次顺手勾的 Forge"进来。
-    if (QRadioButton *none = m_ui->getModLoaderOptions().value(MainWindowUI::modLoaderNoneIndex())) {
-        none->setChecked(true);
-    }
-    for (QComboBox *combo : m_ui->getLoaderVersionCombos()) {
-        // 换了一个游戏版本，上一份版本列表就不是这一份的了（Forge 每个游戏版本能装的
-        // 版本完全不同）。清掉，勾到哪条时现拉一次。
-        const QSignalBlocker blocker(combo);
-        combo->clear();
+    // 注意每次进安装页都**回到「不装（纯原版）」**：上一个实例选的是哪条加载器跟这一个
+    // 没关系，留着的话下一个版本会顶着一个"上次顺手选的 Forge"进来。
+    m_selectedLoaderIndex = MainWindowUI::modLoaderNoneIndex();
+    // 钉住的版本号同理：换了一个游戏版本，上一份能装的版本就完全不是这一份了
+    // （Forge 每个游戏版本能装的版本完全不同），连列表一起清掉，展开时现拉一次。
+    m_chosenLoaderVersion.clear();
+    for (int i = 0; i < MainWindowUI::modLoaderOptionTexts().size(); ++i) {
+        QTreeWidgetItem *item = loaderItem(i);
+        if (item == nullptr) {
+            continue;
+        }
+        // 收起来 + 清掉上次灌进去的子条目（**不能**只 clear 整棵树：那样顶层那五条也
+        // 一起没了）。清空本身的意思就是"这一条现在还不知道有哪些版本"。
+        item->setExpanded(false);
+        // takeChildren() 交出来的那些条目已经不带爹了，得自己删 —— 不删就是每进一次
+        // 安装页漏一批（几十上百个 QTreeWidgetItem）。
+        qDeleteAll(item->takeChildren());
     }
     m_loaderVersionCache.clear();
     updateLoaderRows();
@@ -1433,7 +1466,7 @@ void MainWindow::backToVersionTree() {
 
 QString MainWindow::defaultInstanceName() const {
     // 目录名的形状照抄真机上那些实例：`1.18.2-Forge_40.3.12`、`1.21.1-NeoForge_21.1.210`。
-    // 不勾加载器时就是原版号本身 —— 那一份**不写薄 json**（id == 父版本），装出来的就是
+    // 没选加载器时就是原版号本身 —— 那一份**不写薄 json**（id == 父版本），装出来的就是
     // 原版那个实例，和改动前「下载版本」的行为一个字不差。
     //
     // NOTE: 刻意**不**走 VersionDisplay::formatVersionName()：那是**显示名**的拼法，跟着
@@ -1443,7 +1476,7 @@ QString MainWindow::defaultInstanceName() const {
         return QString();
     }
     VersionManager::LoaderKind kind = VersionManager::LoaderKind::Fabric;
-    const int index = loaderCheckedIndex();
+    const int index = selectedLoaderIndex();
     if (!VersionManager::loaderKindFromIndex(index, &kind)) {
         return m_installGameVersion;
     }
@@ -1454,123 +1487,198 @@ QString MainWindow::defaultInstanceName() const {
                                                              pinned);
 }
 
-int MainWindow::loaderCheckedIndex() const {
-    QButtonGroup *group = m_ui->getModLoaderGroup();
-    return group != nullptr ? group->checkedId() : -1;
+int MainWindow::selectedLoaderIndex() const {
+    return m_selectedLoaderIndex;
+}
+
+QTreeWidgetItem *MainWindow::loaderItem(int loaderIndex) const {
+    QTreeWidget *tree = m_ui->getLoaderTree();
+    if (tree == nullptr) {
+        return nullptr;
+    }
+    // 顺序是界面自己按 modLoaderOptionNames() 摆的（第 i 条就是第 i 个加载器），
+    // 但**身份**仍然从 userData 读 —— 摆的顺序哪天变了，这里不会跟着错。
+    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+        QTreeWidgetItem *item = tree->topLevelItem(i);
+        if (item->data(MainWindowUI::loaderTreeKeyColumn(), Qt::UserRole).toInt() == loaderIndex) {
+            return item;
+        }
+    }
+    return nullptr;
 }
 
 QString MainWindow::pinnedLoaderVersion(int loaderIndex) const {
-    // 组合框第 0 条（"自动（推荐）"）的 itemData 是**空串** —— 空串就是"不钉版本"，
-    // 那件事不靠一条特判表达。
-    const QVector<QComboBox *> combos = m_ui->getLoaderVersionCombos();
-    if (loaderIndex < 0 || loaderIndex >= combos.size()) {
-        return QString();
-    }
-    QComboBox *combo = combos.at(loaderIndex);
-    if (combo == nullptr || combo->currentIndex() < 0) {
-        return QString();
-    }
-    return combo->currentData().toString();
+    // 空串就是"不钉版本"（第 0 条那个「自动（推荐）」选的也是它）—— 这件事不靠一条
+    // 特判表达，见 loaderVersionAutoText()。没进过 map 的下标等于没钉。
+    return m_chosenLoaderVersion.value(loaderIndex);
 }
 
 void MainWindow::updateLoaderRows() {
-    const int checked = loaderCheckedIndex();
-    const QVector<QComboBox *> combos = m_ui->getLoaderVersionCombos();
-    for (int i = 0; i < combos.size(); ++i) {
-        QComboBox *combo = combos.at(i);
-        if (combo == nullptr) {
+    // 那棵树的样子**全部**在这一处决定（别处一个 setText/setData 都不许写）：
+    //   · 选中的那一条：第二行小字写它选的版本号（没钉就是「自动（推荐）」）；
+    //   · 其余几条加载器：第二行小字写「与 X 不兼容」（用户要的那句话）；
+    //   · 「不装（纯原版）」那条：没有第二行（它不是加载器，不跟谁冲突）。
+    // NOTE: 这几条**仍然可点** —— 点它就是改用那一个（本启动器一次只装一个加载器，
+    //       所以"不兼容"说的是"两个不能同时装"，不是"这个点不得"）。今天点它和点
+    //       一个单选钮是一回事，用户不用先绕回「不装」再选。
+    const int selected = selectedLoaderIndex();
+    VersionManager::LoaderKind selectedKind = VersionManager::LoaderKind::Fabric;
+    const bool hasLoader = VersionManager::loaderKindFromIndex(selected, &selectedKind);
+    const QString selectedName =
+        hasLoader ? VersionManager::loaderDisplayName(selectedKind) : QString();
+
+    const int count = MainWindowUI::modLoaderOptionTexts().size();
+    for (int i = 0; i < count; ++i) {
+        QTreeWidgetItem *item = loaderItem(i);
+        if (item == nullptr) {
             continue;
         }
-        // 只有"勾中的那一条"是活的：其余几条现在管不着任何事（装的是勾中的那个），
-        // 能改只会让人以为改生效了。下载/安装期间整组都灰（见 setDownloadUiBusy）。
-        combo->setEnabled(i == checked && !m_downloadInFlight);
+        VersionManager::LoaderKind kind = VersionManager::LoaderKind::Fabric;
+        const bool isLoader = VersionManager::loaderKindFromIndex(i, &kind);
+        QString subText;
+        if (isLoader && hasLoader) {
+            if (i == selected) {
+                const QString pinned = pinnedLoaderVersion(i);
+                subText = pinned.isEmpty() ? MainWindowUI::loaderVersionAutoText() : pinned;
+            } else {
+                subText = MainWindowUI::loaderConflictText(selectedName);
+            }
+        }
+        // 角色是 rowSubTextRole()：空串 = 那一行不画第二行小字（代理那边统一处理）。
+        item->setData(MainWindowUI::loaderTreeKeyColumn(), MainWindowUI::rowSubTextRole(), subText);
     }
+}
+
+void MainWindow::selectLoader(int loaderIndex) {
+    // 「不装（纯原版）」和四个加载器都是合法值；表外的值（界面表和枚举哪天对不上）
+    // 一律当作"没选加载器"—— 宁可装成原版，也不要拿着一个不认识的下标去猜加载器。
+    VersionManager::LoaderKind kind = VersionManager::LoaderKind::Fabric;
+    m_selectedLoaderIndex = VersionManager::loaderKindFromIndex(loaderIndex, &kind)
+                                ? loaderIndex
+                                : MainWindowUI::modLoaderNoneIndex();
+    updateLoaderRows();
+    // 默认名里带着加载器名（和它钉的版本号），换一条就得重算一次。
+    updateInstallName();
+    // 选了一条加载器 = 该把它能装的版本列表备好了（拉过的话直接用缓存）。
+    ensureLoaderVersions(m_selectedLoaderIndex);
 }
 
 void MainWindow::ensureLoaderVersions(int loaderIndex) {
     VersionManager::LoaderKind kind = VersionManager::LoaderKind::Fabric;
     if (!VersionManager::loaderKindFromIndex(loaderIndex, &kind)) {
-        return;  // 「不装（纯原版）」那一行：没有版本可拉
+        return;  // 「不装（纯原版）」那一条：没有版本可拉
     }
     if (m_installGameVersion.isEmpty()) {
         return;
     }
-    const QVector<QComboBox *> combos = m_ui->getLoaderVersionCombos();
-    if (loaderIndex >= combos.size() || combos.at(loaderIndex) == nullptr) {
+    QTreeWidgetItem *item = loaderItem(loaderIndex);
+    if (item == nullptr) {
         return;
     }
-    QComboBox *combo = combos.at(loaderIndex);
 
-    // 已经拉到过就不要再拉一次（用户来回勾两条比一比是常事，每次都发一发 60~250 KB
+    // 已经拉到过就不要再拉一次（用户来回点两条比一比是常事，每次都发一发 60~250 KB
     // 的请求纯属浪费）。缓存按"加载器 + 游戏版本"存 —— 换游戏版本时那一份就作废了
     // （Forge 每个游戏版本能装的版本完全不同），所以 openInstallPage() 会清掉整个缓存。
     const QString cacheKey = QStringLiteral("%1|%2").arg(int(kind)).arg(m_installGameVersion);
     if (m_loaderVersionCache.contains(cacheKey)) {
-        fillLoaderVersionCombo(combo, m_loaderVersionCache.value(cacheKey));
+        fillLoaderVersionItems(loaderIndex, m_loaderVersionCache.value(cacheKey));
         return;
     }
-    if (combo->count() > 0) {
+    if (item->childCount() > 0) {
         return;  // 已经在手上（列表来自缓存之外的某次填充），不用重来
     }
 
-    // 还没到：摆成"正在获取…"，请求发出去。回复在 onLoaderVersionsFetched() 里收
-    // ——它按"加载器 + 游戏版本"认领，所以这里不用记"我在等哪一发"。
-    // 占位文案就是这里的"正在获取…"（那个组合框是空的，占位文案才显出来）。
-    combo->clear();
+    // 还没到：先摆一条灰的"正在获取…"占住那一条底下的位置（空着一条看着像"这个加载器
+    // 一个版本都没有"），再把请求发出去。回复在 onLoaderVersionsFetched() 里收 ——
+    // 它按"加载器 + 游戏版本"认领，所以这里不用记"我在等哪一发"。
+    auto *waiting = new QTreeWidgetItem(item);
+    waiting->setText(MainWindowUI::loaderTreeKeyColumn(), MainWindowUI::loaderVersionFetchingText());
+    waiting->setDisabled(true);  // 灰的、点不动：它不是能选的东西（选了也不该有反应）
     m_versionManager->requestLoaderVersions(m_installGameVersion, kind);
 }
 
-void MainWindow::fillLoaderVersionCombo(QComboBox *combo, const QStringList &versions) {
-    // 别动用户已经选中的那一条：列表可能刚好是"同一条"（缓存命中的那次会走到这里），
-    // 重灌一次把它顶回第 0 条就是"我选的 47.4.10 自己变回自动了"。
-    const QString previous = combo->currentData().toString();
-    const QSignalBlocker blocker(combo);
-    combo->clear();
-    // 第 0 条 = 不钉版本（让安装器按老规矩挑，见 loaderVersionAutoText()）。
-    combo->addItem(MainWindowUI::loaderVersionAutoText(), QString());
-    for (const QString &version : versions) {
-        combo->addItem(version, version);
+void MainWindow::fillLoaderVersionItems(int loaderIndex, const QStringList &versions) {
+    QTreeWidgetItem *item = loaderItem(loaderIndex);
+    if (item == nullptr) {
+        return;
     }
-    const int restored = previous.isEmpty() ? 0 : combo->findData(previous);
-    combo->setCurrentIndex(restored >= 0 ? restored : 0);
+    // 别动用户已经选中的那一条：列表可能刚好是"同一条"（缓存命中的那次会走到这里），
+    // 重灌一次把它顶回第 0 条就是"我选的 47.4.10 自己变回自动了"。选中的版本号在
+    // m_chosenLoaderVersion 里，所以重灌只是把条目重建一遍、再把光标放回去。
+    const QString chosen = pinnedLoaderVersion(loaderIndex);
+    const bool wasExpanded = item->isExpanded();
+    // 连"正在获取…"那条一起清掉：它就是等这一份列表用的。
+    qDeleteAll(item->takeChildren());
+    // 第 0 条 = 不钉版本（让安装器按老规矩挑，见 loaderVersionAutoText()）；它的
+    // userData 是**空串**，"没钉版本"这件事在数据上就靠这个空串表达。
+    auto *autoItem = new QTreeWidgetItem(item);
+    autoItem->setText(MainWindowUI::loaderTreeKeyColumn(), MainWindowUI::loaderVersionAutoText());
+    autoItem->setData(MainWindowUI::loaderTreeKeyColumn(), Qt::UserRole, QString());
+    autoItem->setIcon(MainWindowUI::loaderTreeKeyColumn(),
+                      QIcon(VersionIcons::loaderMark(loaderIndex, MainWindowUI::versionTreeIconSize())));
+    QTreeWidgetItem *chosenItem = autoItem;
+    for (const QString &version : versions) {
+        auto *child = new QTreeWidgetItem(item);
+        child->setText(MainWindowUI::loaderTreeKeyColumn(), version);
+        child->setData(MainWindowUI::loaderTreeKeyColumn(), Qt::UserRole, version);
+        // 子条目前面挂**它自己那个加载器**的标志（那一列列出来的是"Fabric 能装哪些版本"，
+        // 前面顶个草方块会让人以为是原版号）。
+        child->setIcon(MainWindowUI::loaderTreeKeyColumn(),
+                       QIcon(VersionIcons::loaderMark(loaderIndex,
+                                                      MainWindowUI::versionTreeIconSize())));
+        if (version == chosen) {
+            chosenItem = child;
+        }
+    }
+    // 光标放回"现在钉着的那一条"（没钉就是「自动（推荐）」）—— 展开之后一眼看到的就是
+    // 它。**这不改选中状态**：选中是 m_selectedLoaderIndex 的事，这里只是画光标。
+    QTreeWidget *tree = m_ui->getLoaderTree();
+    if (tree != nullptr) {
+        tree->setCurrentItem(chosenItem);
+    }
+    // 列表是灌在**已经展开**的那一条底下的：条目换了一批，那棵树的高度得跟着重算
+    // （MainWindowUI 那边挂在 expanded/collapsed 上，可这一批是原地换的、信号不会响）。
+    // 收起来的那条不用管：它在展开的那一刻会自己算一次。
+    if (wasExpanded) {
+        item->setExpanded(false);
+        item->setExpanded(true);
+    }
 }
 
 void MainWindow::onLoaderVersionsFetched(const QString &gameVersion, int loaderIndex, bool success,
                                          const QStringList &versions, const QString &errorMessage) {
-    // 这一发回复可能已经过时了（用户换了游戏版本、或者又点了别的加载器）。按"这条回复
-    // 讲的是不是现在这一页"来判，过时的直接丢 —— 填错框的下场是"勾着 Fabric 却看到
-    // Forge 的版本号"，那不报错、只会装错东西。
+    // 这一发回复可能已经过时了（用户换了游戏版本）。按"这条回复讲的是不是现在这一页"来判，
+    // 过时的直接丢 —— 填错地方的下场是"点了 Fabric 却看到 Forge 的版本号"，那不报错、
+    // 只会装错东西。
     if (gameVersion != m_installGameVersion) {
         return;
     }
-    // 缓存键、「自动」那一条通知谁、失败时那句"是哪个加载器"的文案都按**枚举**说
-    // （缓存键必须和 ensureLoaderVersions() 里那把一致），所以这里翻译回枚举；
-    // 反函数在这边失手（表没改全）就当没收到 —— 宁可组合框空着，也不要填错框。
+    // 缓存键、失败时那句"是哪个加载器"的文案都按**枚举**说（缓存键必须和
+    // ensureLoaderVersions() 里那把一致），所以这里翻译回枚举；反函数在这边失手
+    // （表没改全）就当没收到 —— 宁可那一条底下空着，也不要填错。
     VersionManager::LoaderKind kind;
     if (!VersionManager::loaderKindFromIndex(loaderIndex, &kind)) {
         return;
     }
-    const QVector<QComboBox *> combos = m_ui->getLoaderVersionCombos();
-    if (loaderIndex >= combos.size() || combos.at(loaderIndex) == nullptr) {
+    QTreeWidgetItem *item = loaderItem(loaderIndex);
+    if (item == nullptr) {
         return;
     }
-    QComboBox *combo = combos.at(loaderIndex);
     if (!success) {
-        // 拉不到：组合框**只留"自动（推荐）"**并说清为什么 —— 不钉版本这条路是不需要
-        // 这份列表的（安装器自己会挑），所以"列不出来"不该把安装整件事堵死。
-        // 那句话写进占位文案（框里现在只有一条真的能选的东西，占位文案正合适），
-        // 但**必须短**：长了会把框撑宽（见 loaderVersionFailedText() 那处 NOTE）。
-        // 具体原因（超时？404？）写进日志 —— 那句话是给排查用的，不是给用户读的。
-        combo->clear();
-        combo->setPlaceholderText(MainWindowUI::loaderVersionFailedText());
-        combo->addItem(MainWindowUI::loaderVersionAutoText(), QString());
+        // 拉不到：那一条底下**只留"自动（推荐）"**，外加一条灰的「列表没取到」把话说到
+        // —— 不钉版本这条路是不需要这份列表的（安装器自己会挑），所以"列不出来"不该把
+        // 安装整件事堵死，但也不能一声不吭。
+        // 具体原因（超时？404？）写进日志 —— 那是给排查用的，不是给用户读的。
+        fillLoaderVersionItems(loaderIndex, QStringList());
+        auto *failed = new QTreeWidgetItem(item);
+        failed->setText(MainWindowUI::loaderTreeKeyColumn(), MainWindowUI::loaderVersionFailedText());
+        failed->setDisabled(true);
         appendLog(tr("%1 在 %2 上有哪些版本没取到：%3")
                       .arg(VersionManager::loaderDisplayName(kind), gameVersion, errorMessage));
         return;
     }
     m_loaderVersionCache.insert(QStringLiteral("%1|%2").arg(int(kind)).arg(gameVersion), versions);
-    combo->setPlaceholderText(MainWindowUI::loaderVersionFetchingText());
-    fillLoaderVersionCombo(combo, versions);
+    fillLoaderVersionItems(loaderIndex, versions);
 }
 
 void MainWindow::updateInstallName() {
@@ -1633,19 +1741,6 @@ void MainWindow::onInstallNameEdited() {
     updateInstallNameHint();
 }
 
-void MainWindow::onLoaderRowChanged(int loaderIndex) {
-    updateLoaderRows();
-    // 默认名里带着加载器名（和它钉的版本号），勾/换一条就得重算一次。
-    updateInstallName();
-    // 勾了一条加载器 = 该把它能装的版本列表拉回来了（拉过的话直接用缓存）。
-    ensureLoaderVersions(loaderIndex);
-}
-
-void MainWindow::onLoaderVersionChoiceChanged() {
-    // 钉的版本号是默认名的一部分（`1.20.1-Forge_47.4.10`），换一条就重算。
-    updateInstallName();
-}
-
 void MainWindow::onInstallButtonClicked() {
     if (m_downloadInFlight) {
         appendLog(tr("已有下载任务正在进行，请等它结束。"));
@@ -1667,7 +1762,7 @@ void MainWindow::onInstallButtonClicked() {
         return;
     }
 
-    const int loaderIndex = loaderCheckedIndex();
+    const int loaderIndex = selectedLoaderIndex();
     VersionManager::LoaderKind kind = VersionManager::LoaderKind::Fabric;
     const bool withLoader = VersionManager::loaderKindFromIndex(loaderIndex, &kind);
 

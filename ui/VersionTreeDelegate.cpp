@@ -39,9 +39,24 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     const int arrowSize = MainWindowUI::versionTreeArrowSize();
     const int iconSize = MainWindowUI::versionTreeIconSize();
 
+    // 前面那个小图标：条目自己给了 `Qt::DecorationRole` 就画它（加载器那棵树五条都是
+    // 这么给的 —— 各自那个标志），没给就按版本树那条老规矩来（**版本号**前面是草方块、
+    // 分类前面什么都没有）。给成空的 QIcon 等于没给。
+    QPixmap mark;
+    const QVariant decoration = index.data(MainWindowUI::rowIconRole());
+    if (decoration.canConvert<QIcon>()) {
+        mark = qvariant_cast<QIcon>(decoration).pixmap(iconSize, iconSize);
+    } else if (decoration.canConvert<QPixmap>()) {
+        mark = qvariant_cast<QPixmap>(decoration).scaled(iconSize, iconSize, Qt::KeepAspectRatio,
+                                                         Qt::SmoothTransformation);
+    }
+    if (mark.isNull() && !isChannel) {
+        mark = VersionIcons::grassBlock(iconSize);
+    }
+
     int textLeft = row.left() + pad;
     QRect iconRect;
-    if (!isChannel) {
+    if (!mark.isNull()) {
         iconRect = QRect(row.left() + pad, row.center().y() - iconSize / 2, iconSize, iconSize);
         textLeft = iconRect.right() + 1 + 8;
     }
@@ -51,35 +66,38 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     const QString mainText = index.data(Qt::DisplayRole).toString();
 
     painter->save();
+    // 第二行小字（rowSubTextRole）：版本树上是发布时间，加载器那棵树上是「与 X 不兼容」
+    // 或者选中的版本号。两种行**都**看这个角色 —— 分类以前不画第二行只是因为没人给它
+    // 塞过值（空串就是不画）。
+    const QString subText = index.data(MainWindowUI::rowSubTextRole()).toString();
+    QFont subFont = option.font;
+    subFont.setPointSize(qMax(6, option.font.pointSize() + MainWindowUI::versionDateFontDelta()));
+    const QFontMetrics mainMetrics(option.font);
+    const QFontMetrics subMetrics(subFont);
+    // 两行合成一块，整块在行里居中（行高是常数，所以"上面一行字下面一行字"看着才稳）。
+    const int gap = 2;
+    const int blockHeight =
+        mainMetrics.height() + (subText.isEmpty() ? 0 : gap + subMetrics.height());
+    int y = row.center().y() - blockHeight / 2;
+
+    QFont mainFont = option.font;
     if (isChannel) {
-        QFont font = option.font;
-        font.setBold(true);
-        painter->setFont(font);
-        painter->setPen(palette.color(QPalette::WindowText));
-        painter->drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter, mainText);
-    } else {
-        const QString date = index.data(MainWindowUI::versionTreeDateRole()).toString();
-        QFont dateFont = option.font;
-        dateFont.setPointSize(
-            qMax(6, option.font.pointSize() + MainWindowUI::versionDateFontDelta()));
-        const QFontMetrics mainMetrics(option.font);
-        const QFontMetrics dateMetrics(dateFont);
-        // 两行合成一块，整块在行里居中（行高是常数，所以"上面一行字下面一行字"看着才稳）。
-        const int gap = 2;
-        const int blockHeight = mainMetrics.height() + (date.isEmpty() ? 0 : gap + dateMetrics.height());
-        int y = row.center().y() - blockHeight / 2;
-        painter->setFont(option.font);
-        painter->setPen(palette.color(QPalette::WindowText));
-        painter->drawText(QRect(textRect.left(), y, textRect.width(), mainMetrics.height()),
-                          Qt::AlignLeft | Qt::AlignVCenter, mainText);
-        y += mainMetrics.height() + gap;
-        if (!date.isEmpty()) {
-            painter->setFont(dateFont);
-            painter->setPen(palette.color(QPalette::PlaceholderText));
-            painter->drawText(QRect(textRect.left(), y, textRect.width(), dateMetrics.height()),
-                              Qt::AlignLeft | Qt::AlignVCenter, date);
-        }
-        painter->drawPixmap(iconRect.topLeft(), VersionIcons::grassBlock(iconSize));
+        // 顶层那几条（分类 / 加载器）是**粗体**：它们和底下的版本号不是一回事。
+        mainFont.setBold(true);
+    }
+    painter->setFont(mainFont);
+    painter->setPen(palette.color(QPalette::WindowText));
+    painter->drawText(QRect(textRect.left(), y, textRect.width(), mainMetrics.height()),
+                      Qt::AlignLeft | Qt::AlignVCenter, mainText);
+    y += mainMetrics.height() + gap;
+    if (!subText.isEmpty()) {
+        painter->setFont(subFont);
+        painter->setPen(palette.color(QPalette::PlaceholderText));
+        painter->drawText(QRect(textRect.left(), y, textRect.width(), subMetrics.height()),
+                          Qt::AlignLeft | Qt::AlignVCenter, subText);
+    }
+    if (!mark.isNull()) {
+        painter->drawPixmap(iconRect.topLeft(), mark);
     }
     painter->restore();
 
@@ -103,15 +121,21 @@ QSize VersionTreeDelegate::sizeHint(const QStyleOptionViewItem &option,
     // 第一行算一次就够），而第一行是分类（一行字）、底下是版本号（两行字）——
     // 两边高度不一样的话，两行那种会被按一行的行高裁掉半行。
     const int height = MainWindowUI::versionTreeRowHeight();
-    const QFontMetrics metrics(option.font);
-    int width = metrics.horizontalAdvance(index.data(Qt::DisplayRole).toString());
-    if (index.parent().isValid()) {
-        // 版本号那一行还要放得下下面那行小字和前面那个草方块。
-        QFont dateFont = option.font;
-        dateFont.setPointSize(
-            qMax(6, option.font.pointSize() + MainWindowUI::versionDateFontDelta()));
-        width = qMax(width, QFontMetrics(dateFont).horizontalAdvance(
-                                index.data(MainWindowUI::versionTreeDateRole()).toString()));
+    // 顶层那几条是粗体画的，宽度也得按粗体量（不然"加载器名 + 右边那个箭头"会差几个像素）。
+    QFont mainFont = option.font;
+    if (!index.parent().isValid()) {
+        mainFont.setBold(true);
+    }
+    int width = QFontMetrics(mainFont).horizontalAdvance(index.data(Qt::DisplayRole).toString());
+    // 第二行小字：两棵树都可能有（版本树上是发布时间，加载器那棵树上是"与 X 不兼容"
+    // 或者选中的版本号），有就按它量。
+    QFont subFont = option.font;
+    subFont.setPointSize(qMax(6, option.font.pointSize() + MainWindowUI::versionDateFontDelta()));
+    width = qMax(width, QFontMetrics(subFont).horizontalAdvance(
+                            index.data(MainWindowUI::rowSubTextRole()).toString()));
+    // 前面那个图标的宽度：子条目一定有（草方块或条目自己给的），顶层条目**给了才有**。
+    const QVariant decoration = index.data(MainWindowUI::rowIconRole());
+    if (index.parent().isValid() || decoration.canConvert<QIcon>()) {
         width += MainWindowUI::versionTreeIconSize() + 8;
     }
     width += 2 * MainWindowUI::versionTreeRowPadding() + MainWindowUI::versionTreeArrowSize() + 6;
