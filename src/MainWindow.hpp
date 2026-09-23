@@ -25,16 +25,20 @@
 // MainWindow::fillLoaderVersionItems）。这是个**纯数据的头**（只有 QString/QList/QJson
 // 那些 QtCore 的东西，不拖 QtWidgets），所以按值用就 include，不去走前置声明那一套。
 #include "download/LoaderMeta.hpp"
+#include "download/ResourceCatalog.hpp"
 
 class MainWindowUI;
 // 安装页那棵加载器树上的一个条目（loaderItem()）。这里只在私有函数的参数/返回值里按
 // 指针用，前置声明就够 —— 不值得为了一个参数类型让每个 include 了 MainWindow.hpp 的
 // 地方都把 QtWidgets 里那个大块头拖进来。
+class QTreeWidget;  // 下载页那四张资源表（只用指针和引用，所以前置声明够）
 class QTreeWidgetItem;
 class LauncherManager;
 class AuthManager;
 class FolderManager;
 class VersionManager;
+// 下载页那四类资源的取数（src/download/ResourceStore.hpp）。同上，只按指针持有。
+class ResourceStore;
 class GlobalJavaSettings;
 class LauncherSettings;
 class InstanceGroupStore;
@@ -216,6 +220,16 @@ private slots:
     void onVersionDownloadStats(int done, int total, int failed, const QString &currentFile);
     void onVersionDownloadFinished(const QString &versionId, bool success,
                                    const QString &errorMessage);
+    /// 「导入整合包…」那个按钮：只是**选文件**，选完交给 importModpackFromFile()。
+    /// 拆成两个函数是因为下载页「整合包」那一页也要走同一条路（那边是"下回来一个 .mrpack"，
+    /// 路径是从下载结果来的，没有文件对话框那一步）—— 整条导入流程只有一份。
+    void importModpackFromFile(const QString &zipPath);
+    /// 下载页那四类资源里挑中的那个版本下完了（见 downloadResourceFiles）。
+    /// label 是「Sodium 0.6.13」这种"下的是什么"，界面上只写日志 + 弹窗，**不碰任何实例的
+    /// 安装状态**（那是 onVersionDownloadFinished 的事，两者语义不同，见 VersionManager 里
+    /// 那个信号的 NOTE）。
+    void onResourceDownloadFinished(const QString &label, bool success,
+                                    const QString &errorMessage);
 
 protected:
     /// 关窗口 = 退出启动器（全仓没有别的退出路径：没有托盘图标、没有 qApp->quit()）。
@@ -232,6 +246,59 @@ protected:
 
 private:
     void setupConnections();
+
+    // ---------- 下载页后面四页：搜索 + 三层资源表 ----------
+    //
+    // 模组 / 整合包 / 资源包 / 光影这四页走的是**同一条路**，只有"搜哪一类"不同，所以
+    // 实现是一份、按 ResourceCatalog::Kind 分。那条路就是用户描述的那条：
+    //   进页面 → 搜一次（空搜索词 = 这一类的热门）→ 摆第一层**资源**
+    //   → 点开一个资源 = 摆第二层**游戏版本**（**不用再问接口**：搜索响应里本来就带着
+    //     "这个资源支持哪些游戏版本"）
+    //   → 点开一个游戏版本 = 这时才去问 → 摆第三层**版本号**
+    //   → 点一个版本号 = 下它、装进实例
+    //
+    // NOTE: 这几个刻意**不是**槽：参数里带着 ResourceCatalog 那几种类型，声明成槽就得
+    //       让 moc 生成一套元调用，而这条路全都用新式 connect（函数指针）连，不需要它。
+    /// 进这一页时调：**只有第一次进才搜**（树上已经有东西就不动 —— 用户来回换分类
+    /// 不该每次都重新问，那既慢、又是在拿限流额度换同一份东西）。
+    void ensureResourcePageLoaded(ResourceCatalog::Kind kind);
+    /// 按那一页搜索框里的词搜一次（回车时，或者刚进页面时那句空的）。
+    void startResourceSearch(ResourceCatalog::Kind kind);
+    /// 树上点了一下（itemClicked 和 itemActivated 都接它）。
+    void onResourceItemActivated(QTreeWidgetItem *item);
+    /// 第三层那一下：把这个版本下回来、装进实例。
+    void downloadResourceVersion(QTreeWidgetItem *item);
+    /// ResourceStore 的三个回复。
+    void onResourceSearchFinished(const QString &requestKey,
+                                  const ResourceCatalog::SearchResult &result);
+    void onResourceVersionsFinished(const QString &requestKey,
+                                    const QList<ResourceCatalog::VersionEntry> &versions,
+                                    const QString &problem);
+    void onResourceIconReady(const QString &projectId, const QPixmap &icon);
+    /// 从请求钥匙反查是哪一类（钥匙是 ResourceCatalog::searchRequestKey() 拼的）。
+    /// 拼和认都走那一个函数，所以这里不解析字符串。
+    bool kindForSearchRequestKey(const QString &key, ResourceCatalog::Kind *out) const;
+    /// 这个条目在第几层（0 = 资源 / 1 = 游戏版本 / 2 = 版本号；不是树上那三层就回 -1）。
+    ///
+    /// NOTE: **唯一出处**。代理里认层用的是"有没有爹"（isChannel），这里认层用的是
+    ///       "往上数几层"——两处必须说的是同一件事，而这句话在这里写一次。
+    static int resourceRowDepth(const QTreeWidgetItem *item);
+    /// 摆一行**占位**（"正在搜索…"、"没有搜到…"、"这个游戏版本上没有可用的版本"）。
+    /// 占位行的定义就是**没有身份**（UserRole 空）—— 点它什么都不会发生，见
+    /// onResourceItemActivated() 开头那个判据。树那一版加在顶层，子那一版加在某一条底下。
+    static QTreeWidgetItem *addResourcePlaceholderRow(QTreeWidget *tree, const QString &text);
+    static QTreeWidgetItem *addResourcePlaceholderChild(QTreeWidgetItem *parent,
+                                                       const QString &text);
+    /// 把搜索结果摆进第一层（每条底下顺手把第二层的游戏版本一起建出来）。
+    /// `kind` 要写进每一条的身份里（MainWindowUI::resourceKindRole()）—— 点第三层那一下
+    /// 靠它算"下到哪儿去"（见那个函数的注释）。
+    void fillResourceHitRows(QTreeWidget *tree, ResourceCatalog::Kind kind,
+                             const ResourceCatalog::SearchResult &result);
+    /// 把版本列表摆进第三层（先清掉"正在获取…"那一行）。
+    void fillResourceVersionRows(QTreeWidgetItem *gameItem,
+                                 const QList<ResourceCatalog::VersionEntry> &versions,
+                                 const QString &problem);
+
     // ---------- 「设置」选项卡 ----------
     /// 把设置对象里的值灌进设置页的控件。构造函数里调一次；**不要**在用户改动之后
     /// 再调它 —— 那会把用户正在编辑的东西顶回盘上的旧值。
@@ -501,6 +568,26 @@ private:
     AuthManager *m_authManager;
     FolderManager *m_folderManager;
     VersionManager *m_versionManager;
+    /// 下载页那四类资源的取数（搜索 / 版本列表 / 图标）。**异步**的 —— 搜索框里连敲几次
+    /// 回车也不会把界面卡住（见 ResourceStore.hpp 文件头那段）。
+    ResourceStore *m_resourceStore;
+    /// 已经问回来的版本列表，按**请求钥匙**存（ResourceCatalog::versionsRequestKey()）。
+    /// 点第三层那一下要拿它换出 URL / sha1 / 大小。
+    /// NOTE: 那些事实**不放在条目上**：条目在重搜时会被整个清掉，而"这一版的文件是哪几个"
+    ///       本来就只属于"那一次请求"的范围。放这儿也不会留悬空指针（值是纯数据）。
+    QHash<QString, QList<ResourceCatalog::VersionEntry>> m_resourceVersions;
+    /// 下载页「整合包」那一页下回来的 .mrpack 落在哪 —— 下完之后要接着走导入那条路
+    /// （importModpackFromFile）。空 = 没有在等导入。
+    ///
+    /// NOTE: 只活一次：onResourceDownloadFinished() 里读完就清。不清的话，用户手动
+    ///       导入一个包之后，下一个下完的模组也会顺手再触发一次导入。
+    QString m_pendingModpackImport;
+    /// 每一页上一次**真的发出去**的搜索词（键 = 分类键）。
+    ///
+    /// 只为一件事：结果回来时那句「没有搜到「xx」」里的 xx 要是**那一次**的词。读编辑框里
+    /// 现在的字是错的 —— 用户完全可能在等结果的时候又敲了几个字（那几下还没发出去，
+    /// 回车才算一发）。
+    QHash<QString, QString> m_resourceQueries;
     GlobalJavaSettings *m_javaSettings;
     // 实例分组（<数据目录>/wtfml.folders）。**不需要**在换游戏文件夹时重置它：
     // 它每个访问器都会比一下"这次问的是哪一份 .minecraft"，不一样就自己重读。

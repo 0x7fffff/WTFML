@@ -575,6 +575,45 @@ public:
     // NOTE: 非 const —— 它真的改磁盘。
     bool renameInstance(const QString &oldId, const QString &newName, QString *errorOut = nullptr);
 
+    // ---------- 下载页那四类资源：把一个文件下到实例里（模组 / 资源包 / 光影）----------
+    //
+    // 一次点击 = 一个（或几个）文件，下完就结束，没有"接着装点什么"的后续 —— 所以它
+    // 不在上面那几套安装状态机里，也不需要调用方分两步。
+    //
+    // NOTE: 这一层**不认识 Modrinth**（不知道 project_id、不知道 dependencies）。这个结构里
+    //       全是"下什么"的物理事实：地址、落盘的文件名、哈希、大小。上游（MainWindow）负责
+    //       把 ResourceCatalog 读出来的那些翻译成它 —— 这样将来接 CurseForge 时，这一层
+    //       一个字节都不用改。
+    struct ResourceFile {
+        QString url;
+        /// 落盘的文件名。**不能带路径分隔符**（带 ".." 的会被拒掉，见实现）。
+        QString filename;
+        /// 可以空（空了就只比大小）。Modrinth 每条文件都给了 sha1，正常不会是空的。
+        QString sha1;
+        qint64 size = -1;
+    };
+
+    /**
+     * @brief 把一批文件下到某个目录里。**异步**，结果走 resourceDownloadFinished。
+     *
+     * @param destinationDir 落盘的目录（绝对的）。实例那条路是
+     *        `<版本目录>/mods`、`.../resourcepacks`、`.../shaderpacks`；整合包那条路是
+     *        缓存目录（下回来的是 .mrpack，接着走导入）。**由调用方拼** —— 这一层不认识
+     *        `AppPaths` 里"实例目录怎么算"这套东西（它只管往一个目录里写文件）。
+     * @param busyInstanceId 这一批在写哪个实例（`versions/<id>` 那个目录名）。**空 = 谁都不锁**
+     *        （往缓存里下 .mrpack 就是这种：盘上没有任何实例在被写）。
+     *        界面的"能不能启动"按它判（busyVersionId()）——写 mods/ 的时候用户在启动游戏，
+     *        JVM 可能正好在读那半截文件。
+     * @param label 收尾那句话里"下的是什么"（「Sodium 0.6.13」这种），原样带回信号。
+     * @param files 要下的文件。
+     *
+     * 一批在跑、或者那三套安装状态机在跑的时候**拒绝开始新的**（和 downloadVersion() /
+     * importModpack() 同一道闸口）：DownloadManager 只有一份批次状态，两批叠在一起会让先那一批
+     * 的完成信号提前发出去（它的相位还没走完）。拒绝时也会发终态信号，界面不会卡在"下载中"。
+     */
+    void downloadResourceFiles(const QString &destinationDir, const QString &busyInstanceId,
+                               const QString &label, const QList<ResourceFile> &files);
+
 signals:
     void versionsFetched(const QStringList &versions);
     void versionDetailsFetched(const QString &versionId, const QJsonObject &versionJson);
@@ -621,6 +660,18 @@ signals:
     ///       「实例 <用户起的名字> 装好了」，而中间那几句说的也是这个名字 —— 不能借
     ///       loaderInstallMessage 来说，那几句在底栏会读成"用户在装加载器"。
     void instanceInstallMessage(const QString &text);
+
+    /// 下载页那四类资源里挑中的一个版本下完了（见 downloadResourceFiles）。**整批只发一次**。
+    ///
+    /// @param label 就是传进去的那个"下的是什么"（「Sodium 0.6.13」），界面照它拼标题。
+    /// @param errorMessage 成功时是那批文件的汇总（"1 个文件已全部就绪。"），失败时是失败清单。
+    ///
+    /// NOTE: 单独一个信号、**不复用 versionDownloadFinished**：那个信号的第一个参数是
+    ///       "哪个版本"，界面按它去清"这个实例正在安装"的标记（见 onVersionDownloadFinished）——
+    ///       而一个模组下完不该去动任何实例的安装状态。语义不同的东西共用一个信号，
+    ///       错法是静默的：界面上看是"下完一个模组，某个正在装的实例忽然被解禁了"。
+    void resourceDownloadFinished(const QString &label, bool success,
+                                  const QString &errorMessage = QString());
 
 private slots:
     void onVersionManifestFetched(const QList<MinecraftVersion> &versions);
@@ -936,6 +987,21 @@ private:
     /// 「装一个带名字的实例」走到哪了（见上面那段）。父版本是加载器时它会和
     /// m_loaderInstall **同时** active —— 那不是状态串了，是这一条路的正常样子。
     NamedInstance m_namedInstance;
+
+    /// 「往实例里下一个资源文件」那一批（见 downloadResourceFiles）。
+    ///
+    /// NOTE: 它**没有相位**，只有一个"在不在"的标记 —— 这条路就是"下一批文件、下完报一次"，
+    ///       没有"接着还要干什么"。所以这里刻意不挤进上面那几套状态机（挤进去的话，
+    ///       onAllDownloadsFinished 里每一段都要多问一句"这个相位会不会是资源下载留下的"）。
+    /// NOTE: 它存在的唯一理由：onAllDownloadsFinished 最后那一句是**无条件**
+    ///       `emit versionDownloadFinished(...)`，不在这里拦一下的话，下一批模组会被报成
+    ///       "版本 xxx 的文件已全部就绪"（而那个版本根本没有在下载）。
+    struct ResourceDownload {
+        bool running = false;
+        QString label;
+        void reset() { *this = ResourceDownload(); }
+    };
+    ResourceDownload m_resourceDownload;
 
     // ---- "这个加载器有哪些版本可选"那几发 GET 的状态 ----
     //

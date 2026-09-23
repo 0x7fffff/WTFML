@@ -42,6 +42,8 @@
 #include <QListWidget>
 #include <QMessageBox>
 #include <QMouseEvent>
+// 下载页那四张资源表前面那个缩略图（onResourceIconReady 里还要造一个全透明的占位）。
+#include <QPixmap>
 #include <QPlainTextEdit>
 #include <QProgressBar>
 #include <QProcess>
@@ -49,6 +51,9 @@
 #include <QSignalBlocker>
 #include <QSpinBox>
 #include <QTabWidget>
+// 整合包那一页下完 .mrpack 之后要"排到下一轮"再走导入（不能在那个信号栈里直接开新批次，
+// 见 onResourceDownloadFinished 里那段 NOTE）。
+#include <QTimer>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QTreeWidgetItemIterator>
@@ -56,6 +61,9 @@
 #include "auth/AccountStore.hpp"
 #include "auth/AuthManager.hpp"
 #include "auth/SkinApi.hpp"
+// 下载页那四类资源的取数（搜索 / 版本列表 / 图标）。头文件那边只前置声明了这个类
+// （那里用不到它的定义），这里要用真的。
+#include "download/ResourceStore.hpp"
 #include "launcher/LauncherManager.hpp"
 #include "manage/FolderManager.hpp"
 #include "manage/InstanceFiles.hpp"
@@ -445,6 +453,7 @@ MainWindow::MainWindow(QWidget *parent)
       m_authManager(new AuthManager(this)),
       m_folderManager(new FolderManager(m_settings, this)),
       m_versionManager(new VersionManager(this)),
+      m_resourceStore(new ResourceStore(this)),
       m_javaSettings(new GlobalJavaSettings(this)),
       m_groupStore(new InstanceGroupStore(this)),
       m_skinStore(new PlayerSkinStore(this)),
@@ -738,7 +747,58 @@ void MainWindow::setupConnections() {
                 if (row >= 0 && row < stack->count()) {
                     stack->setCurrentIndex(row);
                 }
+                // 后面那四页（整合包/模组/资源包/光影）**第一次进页面时**才去搜一次
+                //（空搜索词 = 这一类里最热门的）。理由有两条，第二条才是主要的：
+                //   · 启动时一次发四个请求是白花用户的等待（他多半只会进其中一页）；
+                //   · 那个接口按分钟限流（实测响应头 X-Ratelimit-Limit: 300），
+                //     每个用户每次开启动器都固定烧掉四发额度，换来的东西他一次都没看。
+                // "第一次"的判据在 ensureResourcePageLoaded() 里（树上已经有东西就不动）。
+                // 「游戏」那一页（第 0 页）不是这一类，kindFromCategoryKey 认不出来。
+                const QStringList keys = MainWindowUI::downloadCategoryKeys();
+                ResourceCatalog::Kind kind = ResourceCatalog::Kind::Mod;
+                if (row >= 0 && row < keys.size()
+                    && ResourceCatalog::kindFromCategoryKey(keys.at(row), &kind)) {
+                    ensureResourcePageLoaded(kind);
+                }
             });
+    // ---------- 下载页后面四页：搜索框 + 三层资源表 ----------
+    //
+    // 四页走的是同一条路，所以这里是**一圈循环**：每一页接上"回车就搜"和"点一下就动"，
+    // 三个回复信号接的全是同一个槽（槽里按请求钥匙认回来的是哪一页）。
+    //
+    // NOTE: 那两个 lambda 收的是 Kind 而不是 res 的键 —— 用值捕获，四页各一份，
+    //       不会在循环结束后全都指向最后一页。
+    for (ResourceCatalog::Kind kind : ResourceCatalog::allKinds()) {
+        const QString key = ResourceCatalog::kindKey(kind);
+        QLineEdit *edit = m_ui->getDownloadSearchEdit(key);
+        QTreeWidget *tree = m_ui->getDownloadResourceTree(key);
+        if (edit == nullptr || tree == nullptr) {
+            // MainWindowUI 那边四页是一段循环搭出来的，这里少一个说明"分类键"这套约定
+            // 两边对不上了。**说出来**，不然表现是"某一页点了没反应"，没人查得到。
+            qWarning() << "下载页缺少控件，分类键：" << key;
+            continue;
+        }
+        // 回车（returnPressed）才搜，不是边打字边搜：一次搜索是一条请求，而这个接口按分钟
+        // 限流；边打边搜等于把额度花在"用户打到一半的那些词"上。
+        // NOTE: 信号带一个 QString（编辑框里的文字），这个槽不收参数，多余的那个会被丢掉
+        //       （Qt 的新式 connect 允许槽少收参数）。
+        connect(edit, &QLineEdit::returnPressed, this, [this, kind] { startResourceSearch(kind); });
+        // 点一行：三种行的行为不一样，判据在 onResourceItemActivated() 里（那里是唯一出处）。
+        // itemClicked 和 itemActivated 都接 —— 后者是键盘那条路（回车/空格"激活"一行），
+        // 只接鼠标的话键盘用户在这几页上什么都干不了（版本树那边同一个理由）。
+        connect(tree, &QTreeWidget::itemClicked, this,
+                [this](QTreeWidgetItem *item, int) { onResourceItemActivated(item); });
+        connect(tree, &QTreeWidget::itemActivated, this,
+                [this](QTreeWidgetItem *item, int) { onResourceItemActivated(item); });
+        // 图标是**懒要**的：条目建出来之后才 requestIcon()，不然图标回来时没有行可以放
+        //（而且 store 命中缓存时是同步发的，见 requestIcon 的 NOTE）。
+    }
+    connect(m_resourceStore, &ResourceStore::searchFinished, this,
+            &MainWindow::onResourceSearchFinished);
+    connect(m_resourceStore, &ResourceStore::versionsFinished, this,
+            &MainWindow::onResourceVersionsFinished);
+    connect(m_resourceStore, &ResourceStore::iconReady, this,
+            &MainWindow::onResourceIconReady);
 
     // ---------- 设置页 ----------
     // 「Java 版本」：选自动，或者钉死一个具体运行时。
@@ -811,6 +871,11 @@ void MainWindow::setupConnections() {
             &MainWindow::onVersionDownloadStats);
     connect(m_versionManager, &VersionManager::versionDownloadFinished, this,
             &MainWindow::onVersionDownloadFinished);
+    // 下载页那四类资源（模组/资源包/光影）里挑中的那个版本下完了。**和上面那条分开**
+    // （理由见 VersionManager 里那个信号的 NOTE）：这条路上的 label 不是"哪个版本"，
+    // 接进来的是另一个槽，那个槽不碰任何实例的安装状态。
+    connect(m_versionManager, &VersionManager::resourceDownloadFinished, this,
+            &MainWindow::onResourceDownloadFinished);
     // 加载器安装中间那几步（拉列表、挑版本、先补原版）只写日志、不弹窗：那几件事都在
     // "一次点击"里面，每步弹一个框等于点着玩。真正要用户做决定的（还没做、失败了）
     // 才走 versionDownloadFinished 那条弹窗的路。
@@ -2070,6 +2135,539 @@ void MainWindow::onLoaderVersionsFetched(const QString &gameVersion, int loaderI
     // 灌进去就完了 —— 不存缓存：这一批是进安装页时一次性问全的（requestAllLoaderVersions），
     // 每一条在这次安装页里只会被灌这一次。
     fillLoaderVersionItems(loaderIndex, versions, /*includeChannels=*/true);
+}
+
+// ---------------------------------------------------------------------------
+// 下载页后面四页：搜索 → 挑游戏版本 → 挑版本号 → 装进实例
+// ---------------------------------------------------------------------------
+//
+// 四页（整合包 / 模组 / 资源包 / 光影）走的是**同一条路**，区别只有"搜哪一类"和"下到哪儿去"。
+// 三层树里每一层都是用户点开才动：
+//   第一层 资源   —— 进页面时空搜索词问一次（= 这一类里最热门的），回车重搜
+//   第二层 游戏版本 —— 搜索响应里本来就带着这个资源支持哪些游戏版本，**不用再问接口**
+//   第三层 版本号  —— 点开第二层那一下才问（一个资源 × 一个游戏版本 = 一条请求）
+// 点第三层那一下 = 下它（下到实例的 mods/ 之类；整合包那条走缓存 + 导入）。
+//
+// 三层都是**平条目**（不是自绘控件），用的是版本树/加载器树那同一个代理，所以长得一样
+// （见 VersionTreeDelegate 第三个用户那段）。
+
+/// 「这一条在第几层」。0 = 资源 / 1 = 游戏版本 / 2 = 版本号；不在树上回 -1。
+///
+/// NOTE: 代理那边认层用的是"有没有爹"（isChannel），这边认层用的是"往上数几层" ——
+///       两处必须说的是同一件事，而"往上数几层"这句话在这里写一次（见头文件那段）。
+int MainWindow::resourceRowDepth(const QTreeWidgetItem *item) {
+    if (item == nullptr) {
+        return -1;
+    }
+    int depth = 0;
+    const QTreeWidgetItem *walk = item;
+    while (walk->parent() != nullptr) {
+        walk = walk->parent();
+        ++depth;
+    }
+    return depth;
+}
+
+QTreeWidgetItem *MainWindow::addResourcePlaceholderRow(QTreeWidget *tree, const QString &text) {
+    if (tree == nullptr) {
+        return nullptr;
+    }
+    auto *item = new QTreeWidgetItem(tree);
+    item->setText(MainWindowUI::versionTreeKeyColumn(), text);
+    // 灰的（禁用）—— 和加载器树里「正在获取…」「列表没取到」那两行是同一种样子、
+    // 也是同一种意思："这一行不是能点的东西"。判据见 onResourceItemActivated 开头。
+    // NOTE: 不用 setFlags(Qt::ItemIsEnabled) 那一套"能看不能选"：代理是看 enabled 位
+    //       整行淡 50% 的（见 VersionTreeDelegate 里 rowOpacity），禁用位才是"灰"的唯一出处。
+    item->setDisabled(true);
+    return item;
+}
+
+QTreeWidgetItem *MainWindow::addResourcePlaceholderChild(QTreeWidgetItem *parent,
+                                                        const QString &text) {
+    if (parent == nullptr) {
+        return nullptr;
+    }
+    auto *item = new QTreeWidgetItem(parent);
+    item->setText(MainWindowUI::versionTreeKeyColumn(), text);
+    item->setDisabled(true);
+    return item;
+}
+
+bool MainWindow::kindForSearchRequestKey(const QString &key, ResourceCatalog::Kind *out) const {
+    // 拼钥匙和认钥匙读的是同一个函数（searchRequestKey）—— 所以这里不解析字符串，
+    // 一条一条比。四类，比四次。
+    for (ResourceCatalog::Kind kind : ResourceCatalog::allKinds()) {
+        if (ResourceCatalog::searchRequestKey(kind) == key) {
+            if (out != nullptr) {
+                *out = kind;
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
+void MainWindow::ensureResourcePageLoaded(ResourceCatalog::Kind kind) {
+    QTreeWidget *tree = m_ui->getDownloadResourceTree(ResourceCatalog::kindKey(kind));
+    if (tree == nullptr) {
+        return;
+    }
+    if (tree->topLevelItemCount() > 0) {
+        // 这一页已经有东西了（用户搜过、或者刚才进来时搜了一次）。**不重搜**：来回换分类
+        // 每次都问一遍，既慢、又是在拿限流额度换同一份东西。
+        return;
+    }
+    startResourceSearch(kind);
+}
+
+void MainWindow::startResourceSearch(ResourceCatalog::Kind kind) {
+    const QString key = ResourceCatalog::kindKey(kind);
+    QTreeWidget *tree = m_ui->getDownloadResourceTree(key);
+    if (tree == nullptr) {
+        return;
+    }
+    const QLineEdit *edit = m_ui->getDownloadSearchEdit(key);
+    const QString query = edit == nullptr ? QString() : edit->text().trimmed();
+
+    // 上一批结果连同展开状态一起清掉，换上一行灰的「正在…」。不摆这一行的话，用户按回车
+    // 之后界面**完全没有反应**（请求一秒上下才回来），而"点了没反应"是用户唯一会当成
+    // 启动器坏了的情况。
+    tree->clear();
+    addResourcePlaceholderRow(tree,
+                             query.isEmpty()
+                                 ? tr("正在获取最热门的%1…").arg(ResourceCatalog::kindLabel(kind))
+                                 : tr("正在搜索「%1」…").arg(query));
+    // 记下**这一发真的问了什么**：回来时那句「没有搜到「xx」」里的 xx 要是那一次的词。
+    // 读编辑框里现在的字是错的 —— 用户完全可能在等结果的时候又敲了几个字（那几下还没发出去，
+    // 回车才算一发）。
+    m_resourceQueries.insert(key, query);
+    appendLog(query.isEmpty() ? tr("正在获取最热门的%1…").arg(ResourceCatalog::kindLabel(kind))
+                              : tr("正在搜索%1「%2」…")
+                                    .arg(ResourceCatalog::kindLabel(kind), query));
+
+    m_resourceStore->search(ResourceCatalog::searchRequestKey(kind), kind, query);
+}
+
+void MainWindow::fillResourceHitRows(QTreeWidget *tree, ResourceCatalog::Kind kind,
+                                     const ResourceCatalog::SearchResult &result) {
+    if (tree == nullptr) {
+        return;
+    }
+    const int column = MainWindowUI::versionTreeKeyColumn();
+    for (const ResourceCatalog::Hit &hit : result.hits) {
+        auto *item = new QTreeWidgetItem(tree);
+        // 身份 = project_id：图标回来时按它在树里找回这一行、点开游戏版本时按它拼版本请求。
+        item->setData(column, Qt::UserRole, hit.projectId);
+        // 这一条是哪一类。点最底下那一层要按它算"下到哪儿去"（见 resourceKindRole()）——
+        // 存的是**分类键**（不是枚举的整数值），回来时走 kindFromCategoryKey 认，
+        // 认不出来就是"这一行不是我们建的"。
+        item->setData(column, MainWindowUI::resourceKindRole(), ResourceCatalog::kindKey(kind));
+        item->setText(column, hit.title);
+
+        // 第二行小字：「作者 · 下载量」。下载量那串字只有一处出处（formatDownloads），
+        // 界面上别处显示下载量也要读它。作者缺了就少一段。
+        QStringList bits;
+        if (!hit.author.isEmpty()) {
+            bits.append(hit.author);
+        }
+        bits.append(ResourceCatalog::formatDownloads(hit.downloads));
+        item->setData(column, MainWindowUI::rowSubTextRole(), bits.join(QStringLiteral(" · ")));
+
+        // 简介一行放不下（代理只画一行、超了截断），鼠标停上去看全文。
+        // 空简介不挂 tooltip —— 挂一个空的等于鼠标一停就冒一个空框。
+        if (!hit.description.isEmpty()) {
+            item->setToolTip(column, hit.description);
+        }
+
+        // 第二层：游戏版本。**不用再问接口** —— 搜索响应里本来就带着"这个资源支持哪些
+        // 游戏版本"（Hit::gameVersions）。顺序由 gameVersionChoices() 统一成"新的在前"。
+        const QStringList choices = ResourceCatalog::gameVersionChoices(hit);
+        if (choices.isEmpty()) {
+            // 一个游戏版本都没列（数据包那类）。摆一行灰的说清楚 —— 不然这一行看着能展开、
+            // 点开却是空的。
+            addResourcePlaceholderChild(item, tr("这个%1没有列出支持的游戏版本。")
+                                                  .arg(ResourceCatalog::kindLabel(kind)));
+        }
+        for (const QString &gameVersion : choices) {
+            auto *gameItem = new QTreeWidgetItem(item);
+            // 身份 = 游戏版本号。第三层还不建（点开这一条才去问，见 onResourceItemActivated）。
+            gameItem->setData(column, Qt::UserRole, gameVersion);
+            gameItem->setText(column, gameVersion);
+        }
+
+        // 图标**最后**要：ResourceStore 命中内存缓存时是同步发 iconReady 的，那一行得先在
+        // 那儿（见 requestIcon 的 NOTE）—— 所以这一句必须排在最后。
+        // 收的是整条 hit 不是 id：要挑地址（能用 webp 就走那条小 7 倍的，见 requestIcon）。
+        m_resourceStore->requestIcon(hit);
+    }
+}
+
+void MainWindow::onResourceSearchFinished(const QString &requestKey,
+                                         const ResourceCatalog::SearchResult &result) {
+    ResourceCatalog::Kind kind = ResourceCatalog::Kind::Mod;
+    if (!kindForSearchRequestKey(requestKey, &kind)) {
+        // 不是我们认得的那四页发的（别的东西也用这个 store 时才会走到）。
+        return;
+    }
+    const QString key = ResourceCatalog::kindKey(kind);
+    QTreeWidget *tree = m_ui->getDownloadResourceTree(key);
+    if (tree == nullptr) {
+        return;
+    }
+    // 「正在搜索…」那一行先撤掉（下面每一条分支都会摆上自己那一行/那一批）。
+    tree->clear();
+
+    if (!result.ok) {
+        // 「没搜成」和「没搜到」是**两句不同的话**（加载器树那边「无可用版本」和
+        // 「列表没取到」踩过同一个坑，见记忆里那条）。这里说的是前一句。
+        //
+        // NOTE: 这里**不弹窗**。产品那条"错误要弹窗"管的是"必须让用户看见的东西不能只写
+        //       日志"（日志面板早就没有了，写进去等于没写）；这一句**不是**那种：那一行就
+        //       摆在用户刚点的那一页上、就是他正在看的地方，而且话是接口/网络自己说的
+        //       （超时 / 连不上 / 还是"你问得太勤了，过一分钟再试" —— 最后那种正是最该
+        //       看清、又最不该用一个模态框打断他的）。回车再按一次就是重试。
+        //       这一条和加载器树那条「列表没取到」是同一种形状，所以做法也一样。
+        //       真要弹窗的是那些**没有别的地方能显示**的错（见 onResourceDownloadFinished）。
+        appendLog(tr("✗ 搜索%1失败：%2").arg(ResourceCatalog::kindLabel(kind), result.problem));
+        addResourcePlaceholderRow(tree, result.problem);
+        return;
+    }
+    if (result.hits.isEmpty()) {
+        // **问到了、就是没有** —— 不算错，也**不弹窗**（一个"什么都没发生"的弹窗比没有
+        // 更烦人）。用记下来的那个搜索词，别读编辑框里现在的字（理由见 startResourceSearch）。
+        const QString query = m_resourceQueries.value(key);
+        appendLog(tr("%1 一条也没有搜到（%2）。")
+                      .arg(ResourceCatalog::kindLabel(kind), query.isEmpty() ? tr("空搜索词") : query));
+        addResourcePlaceholderRow(tree, query.isEmpty()
+                                            ? tr("这一类里一条都没有。")
+                                            : tr("没有搜到「%1」。").arg(query));
+        return;
+    }
+    fillResourceHitRows(tree, kind, result);
+}
+
+void MainWindow::onResourceIconReady(const QString &projectId, const QPixmap &icon) {
+    // 没有图标（作者没传过 / 这次没取到 / 被限流）也**要**给这一行挂上东西：一个全透明的
+    // 方块。为什么：代理是"条目给了图标，文字才让出前面那一格"的（见 VersionTreeDelegate
+    // 里 iconRect 那段），什么都不挂的话这一行的字会顶到最左边，和上下那些有图标的行
+    // 参差不齐 —— 而"这一列没对齐"在用户眼里是"这软件做得很糙"，不是"这个模组没图标"。
+    // 全透明是为了不再多画一个"没有图标"的形状（那个形状本身也是要设计的东西）。
+    // NOTE: **不是错误**、不弹窗：项目没上传过图标是完全正常的一件事。
+    QPixmap mark = icon;
+    if (mark.isNull()) {
+        mark = QPixmap(MainWindowUI::resourceTreeIconSize(), MainWindowUI::resourceTreeIconSize());
+        mark.fill(Qt::transparent);
+    }
+    const int column = MainWindowUI::versionTreeKeyColumn();
+    // 按 project_id 找回**现在**树上那一行（不存条目指针：重搜会把整棵树清掉，存下来的
+    // 指针就是悬空的 —— 而按身份找，找得到才画，找不到就什么都不做）。
+    for (ResourceCatalog::Kind kind : ResourceCatalog::allKinds()) {
+        QTreeWidget *tree = m_ui->getDownloadResourceTree(ResourceCatalog::kindKey(kind));
+        if (tree == nullptr) {
+            continue;
+        }
+        for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+            QTreeWidgetItem *item = tree->topLevelItem(i);
+            if (item->data(column, Qt::UserRole).toString() != projectId) {
+                continue;
+            }
+            item->setData(column, MainWindowUI::rowIconRole(), mark);
+        }
+    }
+}
+
+void MainWindow::onResourceItemActivated(QTreeWidgetItem *item) {
+    if (item == nullptr) {
+        return;
+    }
+    // 灰的那些（「正在搜索…」「没有搜到…」「正在获取…」「这个游戏版本上没有…」）不是能点的
+    // 东西：点它什么都不该发生。放在最前面 —— "点不动"这件事对三层是同一个道理。
+    if (item->isDisabled()) {
+        return;
+    }
+    const int depth = resourceRowDepth(item);
+    if (depth == 0 || depth == 1) {
+        // 第一层（一个资源）和第二层（一个游戏版本）都是**只展开 / 收起** ——
+        // 用户原话：「点开模组后是选择游戏版本」。"点开"是"看看有什么"，看一眼不等于选了它。
+        const bool expand = !item->isExpanded();
+        item->setExpanded(expand);
+        if (depth != 1 || !expand || item->childCount() > 0) {
+            return;
+        }
+        // 第二层**第一次**被点开：这时才去问"这个资源在这个游戏版本上，哪些版本可下"。
+        // 判据是"底下一条都没有" —— 这一层点开之前一定是空的，问过之后无论有没有结果都会
+        // 留下至少一行（版本号、或者一句灰的"没有"），所以"空"就等于"还没问过"。
+        // 这也顺带成了"再点一次重试"那条路：没取到时底下留着一行灰的，把那一条删掉
+        // （重搜/重新点开）就会再问一次。
+        const QTreeWidgetItem *resourceItem = item->parent();
+        const QString projectId = resourceItem == nullptr
+                                      ? QString()
+                                      : resourceItem->data(MainWindowUI::versionTreeKeyColumn(),
+                                                           Qt::UserRole).toString();
+        const QString gameVersion =
+            item->data(MainWindowUI::versionTreeKeyColumn(), Qt::UserRole).toString();
+        if (projectId.isEmpty() || gameVersion.isEmpty()) {
+            return;
+        }
+        addResourcePlaceholderChild(item, tr("正在获取…"));
+        // NOTE: **不按加载器筛**（loader 传空）。为什么：这一层的游戏版本是从**搜索响应**
+        //       来的，而那份响应里没有"这个资源的哪个游戏版本属于哪个加载器"这份对应关系
+        //       （categories 是整个资源的标签，不是某个版本的）。要按加载器筛就得先知道
+        //       用户在给哪个实例装 —— 那件事在点版本号那一下才定（见
+        //       downloadResourceVersion 里那道加载器对不上的闸口）。
+        m_resourceStore->fetchVersions(ResourceCatalog::versionsRequestKey(projectId, gameVersion),
+                                       projectId, gameVersion);
+        return;
+    }
+    if (depth == 2) {
+        // 第三层（一个版本号）：**这一下就是"下它"**。
+        downloadResourceVersion(item);
+    }
+}
+
+void MainWindow::fillResourceVersionRows(QTreeWidgetItem *gameItem,
+                                        const QList<ResourceCatalog::VersionEntry> &versions,
+                                        const QString &problem) {
+    if (gameItem == nullptr) {
+        return;
+    }
+    // 先撤掉「正在获取…」。这一层点开之前一定是空的，所以这里清掉的只有那一行占位。
+    while (gameItem->childCount() > 0) {
+        delete gameItem->takeChild(0);
+    }
+    const int column = MainWindowUI::versionTreeKeyColumn();
+
+    if (!problem.isEmpty()) {
+        // 「没取到」（超时 / 限流 / 那条资源被作者删了）。**不弹窗**：用户要的是"展开看看"，
+        // 进来已经有话说了；而且这一层再点一次（收起再展开）就是重新问一次。
+        addResourcePlaceholderChild(gameItem, problem);
+        return;
+    }
+    if (versions.isEmpty()) {
+        addResourcePlaceholderChild(gameItem, tr("这个游戏版本上没有可下载的版本。"));
+        return;
+    }
+
+    // 三层行前面那个图标：跟着它所属的那个资源（同一列里三个草方块会让人以为是三个
+    // Minecraft 版本）。资源那条的图标是异步回来的，这里读到的可能还是空的 —— 那就
+    // 按老规矩留给代理（空的等于没给）。
+    const QVariant resourceIcon =
+        gameItem->parent() == nullptr
+            ? QVariant()
+            : gameItem->parent()->data(column, MainWindowUI::rowIconRole());
+
+    for (const ResourceCatalog::VersionEntry &version : versions) {
+        auto *item = new QTreeWidgetItem(gameItem);
+        // 身份 = 版本 **id**（不是版本号）：点它那一下要拿它回 m_resourceVersions 里换
+        // "这一版的文件是哪几个"，而文件清单是按 id 找的。
+        item->setData(column, Qt::UserRole, version.id);
+        // 正文写**文件名**：接下来要落到 mods/ 里的就是这个名字（作者给这一版起的名字
+        // 常常已经在文件名里写全了，两个都写一行放不下）。
+        const ResourceCatalog::FileEntry *file = version.primaryFile();
+        item->setText(column, file == nullptr ? version.versionNumber : file->filename);
+        // 第二行小字：release/beta/alpha · 加载器 · 发布日期（各缺各的就不补）。
+        QStringList bits;
+        if (!version.versionType.isEmpty()) {
+            bits.append(version.versionType);
+        }
+        if (!version.loaders.isEmpty()) {
+            bits.append(version.loaders.join(QLatin1Char('/')));
+        }
+        if (!version.datePublished.isEmpty()) {
+            // ISO 8601（`2026-06-13T…`）只取日期那一段。
+            bits.append(version.datePublished.left(10));
+        }
+        item->setData(column, MainWindowUI::rowSubTextRole(), bits.join(QStringLiteral(" · ")));
+        if (resourceIcon.isValid()) {
+            item->setData(column, MainWindowUI::rowIconRole(), resourceIcon);
+        }
+    }
+}
+
+void MainWindow::onResourceVersionsFinished(const QString &requestKey,
+                                           const QList<ResourceCatalog::VersionEntry> &versions,
+                                           const QString &problem) {
+    const int column = MainWindowUI::versionTreeKeyColumn();
+    // 不解析那把钥匙（钥匙的格式只有 ResourceCatalog 知道）。改成**按内容重算**：把树上
+    // 每一个"资源 × 游戏版本"重算一次钥匙，和回来的这一把比。四页加起来也就几十对，
+    // 一次线性扫描。这样钥匙的拼法只有一处（versionsRequestKey），而且不必在条目上存
+    // "这一发是谁发的"（那个指针在重搜时会被整个清掉，留着就是悬空的）。
+    for (ResourceCatalog::Kind kind : ResourceCatalog::allKinds()) {
+        QTreeWidget *tree = m_ui->getDownloadResourceTree(ResourceCatalog::kindKey(kind));
+        if (tree == nullptr) {
+            continue;
+        }
+        for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+            QTreeWidgetItem *resourceItem = tree->topLevelItem(i);
+            const QString projectId = resourceItem->data(column, Qt::UserRole).toString();
+            if (projectId.isEmpty()) {
+                continue;
+            }
+            for (int j = 0; j < resourceItem->childCount(); ++j) {
+                QTreeWidgetItem *gameItem = resourceItem->child(j);
+                const QString gameVersion = gameItem->data(column, Qt::UserRole).toString();
+                if (gameVersion.isEmpty()
+                    || ResourceCatalog::versionsRequestKey(projectId, gameVersion) != requestKey) {
+                    continue;
+                }
+                // 就是它。清单存下来（点第三层那一下要用 URL / sha1 / 大小），再摆第三层。
+                // NOTE: 这张表只往里放、不清理（键是"资源 × 游戏版本"，值是一份纯数据的
+                //       小清单）。不清理不会读到旧数据：第三层那些行只在问过之后才存在，
+                //       而问过就一定覆盖过同一个键。
+                m_resourceVersions.insert(requestKey, versions);
+                fillResourceVersionRows(gameItem, versions, problem);
+                return;
+            }
+        }
+    }
+    // 树里找不到对应的行 = 用户重搜过了，这一发的结果已经不是现在这棵树上的东西了。
+    // 丢掉是对的 —— 把旧结果填进新列表比丢掉糟得多。
+}
+
+void MainWindow::downloadResourceVersion(QTreeWidgetItem *item) {
+    if (item == nullptr) {
+        return;
+    }
+    const int column = MainWindowUI::versionTreeKeyColumn();
+    QTreeWidgetItem *gameItem = item->parent();
+    QTreeWidgetItem *resourceItem = gameItem == nullptr ? nullptr : gameItem->parent();
+    if (gameItem == nullptr || resourceItem == nullptr) {
+        return;
+    }
+    const QString versionId = item->data(column, Qt::UserRole).toString();
+    const QString gameVersion = gameItem->data(column, Qt::UserRole).toString();
+    const QString projectId = resourceItem->data(column, Qt::UserRole).toString();
+    ResourceCatalog::Kind kind = ResourceCatalog::Kind::Mod;
+    if (!ResourceCatalog::kindFromCategoryKey(
+            resourceItem->data(column, MainWindowUI::resourceKindRole()).toString(), &kind)) {
+        return;  // 这一行不是我们建的（正常走不到）
+    }
+    const bool isModpack = kind == ResourceCatalog::Kind::Modpack;
+
+    // 目标实例：**以下拉框为准**（树和下拉框是同一份数据的两种看法，见 setupConnections 里
+    // 那条 currentIndexChanged）。整合包那一路不用它 —— 下回来的是 .mrpack，接着走导入，
+    // 实例名是在那条路上问出来的。
+    const QString instanceId =
+        isModpack ? QString() : selectedVersionId(m_ui->getInstalledVersionCombo());
+    if (!isModpack && instanceId.isEmpty()) {
+        QMessageBox::warning(this, tr("没有选中实例"),
+                             tr("先在「已安装版本」里选一个实例，再挑要装进它的版本。"));
+        return;
+    }
+
+    // 下到哪儿去。实例那三类是 `<实例目录>/<子目录>`（mods / resourcepacks / shaderpacks）；
+    // 整合包走缓存目录 —— 它不能进 versions/（那底下每一个子目录都会被当成一个实例）。
+    const QString folder = ResourceCatalog::folderForKind(kind);
+    const QString destinationDir = isModpack
+                                       ? AppPaths::modpackCacheDir()
+                                       : AppPaths::versionDir(instanceId) +
+                                             QLatin1Char('/') + folder;
+    if (!isModpack && folder.isEmpty()) {
+        return;  // folderForKind 说了"这一类不走这条安装路"，而它又不是整合包
+    }
+
+    // 这一版的文件清单：随"点开游戏版本"那一发回来的。没有它就下不了（正常走不到 ——
+    // 有第三层这些行就说明那一发回来过）。说清楚，别静静地什么都不做。
+    const QString requestKey = ResourceCatalog::versionsRequestKey(projectId, gameVersion);
+    const auto cached = m_resourceVersions.constFind(requestKey);
+    if (cached == m_resourceVersions.constEnd()) {
+        QMessageBox::warning(
+            this, tr("下载失败"),
+            tr("这一版的下载信息还没取到。把上面那个游戏版本收起再点开一次，然后重试。"));
+        return;
+    }
+    const ResourceCatalog::VersionEntry *chosen = nullptr;
+    for (const ResourceCatalog::VersionEntry &entry : *cached) {
+        if (entry.id == versionId) {
+            chosen = &entry;
+            break;
+        }
+    }
+    if (chosen == nullptr) {
+        // 行在、清单里没有它 = 这一行是上一次搜索留下的（重搜过）。用户没做错什么，不弹窗。
+        return;
+    }
+    const ResourceCatalog::FileEntry *file = chosen->primaryFile();
+    if (file == nullptr || file->url.isEmpty()) {
+        QMessageBox::warning(this, tr("下载失败"), tr("这一版没有可下载的文件。"));
+        return;
+    }
+
+    // 加载器对不对得上。**这一层没有按加载器筛过**（见 onResourceItemActivated 里那段
+    // NOTE），所以在这儿补一道闸：给一个 Fabric 实例装一个 Forge 的模组，症状是"游戏进去就
+    // 崩"，而那一刻没人会想到是刚才那个模组。
+    // 判据刻意做得**窄**（只拦"知道实例是什么加载器、且这一版只列了另一种"这一种）：
+    //   · 实例没有 wtfml.meta（读不出加载器）→ 放行；
+    //   · 这一版列了不止一种加载器（Quilt 之类兼容好几种）→ 放行；
+    //   · 纯原版实例 + 一个带加载器的模组 → 也放行（读不出加载器的实例和纯原版在这里分不开，
+    //     宁可漏拦也不要拦住一个本来装得上的）。
+    // 拦下来的是**问一句**，不是禁止 —— 用户说"就要这么装"就照装。
+    const VersionDisplayParts parts = m_versionManager->displayParts(instanceId);
+    const QString instanceLoader = parts.loaderName.toLower();
+    if (!instanceLoader.isEmpty() && chosen->loaders.size() == 1
+        && !chosen->loaders.first().contains(instanceLoader)) {
+        const auto answer = QMessageBox::question(
+            this, tr("加载器对不上"),
+            tr("这个实例是 %1 %2，而这一版是给 %3 用的。\n\n"
+               "装进去多半不会生效（游戏进去可能直接崩）。还要装吗？")
+                .arg(parts.loaderName, parts.loaderVersion, chosen->loaders.first()),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (answer != QMessageBox::Yes) {
+            return;
+        }
+    }
+
+    QList<VersionManager::ResourceFile> files;
+    VersionManager::ResourceFile resourceFile;
+    resourceFile.url = file->url;
+    resourceFile.filename = file->filename;
+    resourceFile.sha1 = file->sha1;
+    resourceFile.size = file->size;
+    files.append(resourceFile);
+
+    const QString label =
+        QStringLiteral("%1 %2").arg(resourceItem->text(column), chosen->versionNumber);
+    if (isModpack) {
+        // 下完接着走导入那条路（那边会问实例名、挑 Java，然后解包、下清单里那几百个文件）。
+        // 路径按**接口给的文件名**算 —— 落盘用的就是它（见 downloadResourceFiles），这里
+        // 不另编一套命名。
+        m_pendingModpackImport = destinationDir + QLatin1Char('/') + file->filename;
+    }
+    appendLog(tr("正在下载 %1（%2）。").arg(label, QDir::toNativeSeparators(destinationDir)));
+    // busyInstanceId 传空的那一路：整合包下到缓存里，盘上没有任何实例在被写，不该锁住谁。
+    m_versionManager->downloadResourceFiles(destinationDir, instanceId, label, files);
+}
+
+void MainWindow::onResourceDownloadFinished(const QString &label, bool success,
+                                            const QString &errorMessage) {
+    // 整合包那一页下回来的 .mrpack：下完要接着走导入那条路。这一单**只活一次**，所以先
+    // 取走再判成功与否 —— 不清的话，用户手动导入过一个包之后，下一个下完的模组也会顺手
+    // 再触发一次导入。
+    const QString pendingModpack = m_pendingModpackImport;
+    m_pendingModpackImport.clear();
+
+    if (!success) {
+        appendLog(tr("✗ %1 没有下下来：%2").arg(label, errorMessage));
+        QMessageBox::warning(this, tr("下载失败"),
+                             tr("%1 有文件没能下下来。\n\n%2").arg(label, errorMessage));
+        return;
+    }
+
+    appendLog(tr("✓ %1 下好了：%2").arg(label, errorMessage));
+    if (!pendingModpack.isEmpty()) {
+        // 不弹"下载完成"：整合包下回来只是第一步，紧接着那个导入框就是用户的下一步，
+        // 中间夹一个"下好了"等于让他白点一次。
+        //
+        // NOTE: **排到下一轮**再走导入，不能在这里直接调。这个函数是在
+        //       DownloadManager 的 allDownloadsFinished 信号栈里被调到的，而导入那条路
+        //       马上就会 beginBatch() 开新的一批 —— 在别人的信号栈里开批次正是 2026-09-22
+        //       那次崩溃的形状（取证见 build/tools/crashdump/，VersionManager 里那几处
+        //       deferXxxStep 是同一个理由）。
+        QTimer::singleShot(0, this, [this, pendingModpack] { importModpackFromFile(pendingModpack); });
+        return;
+    }
+    QMessageBox::information(this, tr("下载完成"),
+                             tr("%1 已经装进实例里了。\n\n%2").arg(label, errorMessage));
 }
 
 void MainWindow::updateInstallName() {
@@ -3862,7 +4460,10 @@ void MainWindow::onImportModpackClicked() {
     if (zipPath.isEmpty()) {
         return;  // 用户取消：什么都不做，也**不弹**任何提示
     }
+    importModpackFromFile(zipPath);
+}
 
+void MainWindow::importModpackFromFile(const QString &zipPath) {
     // 先只看一件事：这个压缩包的根目录里有没有 modrinth.index.json。**不整包解开** ——
     // 用户随手选一个几百 MB 的包，为了"知道它不是整合包"先解压几分钟是白等。
     QByteArray indexJson;

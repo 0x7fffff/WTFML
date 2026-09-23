@@ -9,8 +9,13 @@
 #include "MainWindowUI.hpp"
 #include "VersionIcons.hpp"
 
-VersionTreeDelegate::VersionTreeDelegate(QObject *parent, bool leafArrow)
-    : QStyledItemDelegate(parent), m_leafArrow(leafArrow) {}
+VersionTreeDelegate::VersionTreeDelegate(QObject *parent, bool leafArrow, int iconSize)
+    : QStyledItemDelegate(parent), m_leafArrow(leafArrow), m_iconSize(iconSize) {}
+
+int VersionTreeDelegate::rowIconSize() const {
+    // 0 = 没传 = 按老规矩。两棵老树走的就是这一条，取到的值和改动前写死的那个常数一样。
+    return m_iconSize > 0 ? m_iconSize : MainWindowUI::versionTreeIconSize();
+}
 
 QRect VersionTreeDelegate::clearRect(const QRect &row) {
     const int pad = MainWindowUI::versionTreeRowPadding();
@@ -62,7 +67,7 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
 
     const int pad = MainWindowUI::versionTreeRowPadding();
     const int arrowSize = MainWindowUI::versionTreeArrowSize();
-    const int iconSize = MainWindowUI::versionTreeIconSize();
+    const int iconSize = rowIconSize();
 
     // 前面那个小图标：条目自己给了 `Qt::DecorationRole` 就画它（加载器那棵树五条都是
     // 这么给的 —— 各自那个标志），没给就按版本树那条老规矩来（**版本号**前面是草方块、
@@ -145,8 +150,15 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     // 功能各管各的（把整个块一起 return 掉的话，"叶子不画箭头"会顺手把叉也吃掉 ——
     // ui_check 里恰好有一条拿叶子行验叉的断言，一跑就红）。
     const bool drawArrow = isChannel || m_leafArrow;
-    const QColor arrowColor = isChannel ? palette.color(QPalette::WindowText)
-                                        : palette.color(QPalette::PlaceholderText);
+    // 箭头颜色：**真能展开的**那几行用正文色（"这儿点得开"要说清楚），别的用浅一档的
+    //（"点进去"那层意思，次要）。
+    // NOTE: 判据里那个 `hasChildren` 是 2026-09-23 加的。加之前只看 `isChannel`（顶层），
+    //       而下载页那张资源表里"游戏版本"那一层**不是顶层、但真的能展开**（点它才去问
+    //       版本列表），照老判据会画成浅色。对原有的两棵树这是空的：它们的非顶层行全是
+    //       叶子（没有孩子），取到的颜色和以前一模一样。
+    const QColor arrowColor = (isChannel || hasChildren)
+                                  ? palette.color(QPalette::WindowText)
+                                  : palette.color(QPalette::PlaceholderText);
     const QRect arrowRect(row.right() - pad - arrowSize, row.center().y() - arrowSize / 2,
                           arrowSize, arrowSize);
     painter->save();
@@ -161,8 +173,14 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
                                                 palette.color(QPalette::PlaceholderText)));
     }
     if (drawArrow) {
+        // 展开着就画朝下的 V，收着就画朝右的 >。
+        // NOTE: 判据里那个 `expanded` 原来写的是 `isChannel && expanded` —— 那是"非顶层行
+        //       不可能展开"这个假设的产物（原有的两棵树确实如此）。下载页那张资源表里
+        //       "游戏版本"那一层就是非顶层、又要能展开的：照老判据展开之后箭头还朝右，
+        //       和"收着"长得一样。改成只看 expanded 对原有的行是空的（叶子永远 expanded
+        //       为假，取到的还是 >）。
         painter->drawPixmap(arrowRect.topLeft(),
-                            VersionIcons::chevron(isChannel && expanded, arrowSize, arrowColor));
+                            VersionIcons::chevron(expanded, arrowSize, arrowColor));
     }
     painter->restore();
 }
@@ -188,7 +206,7 @@ QSize VersionTreeDelegate::sizeHint(const QStyleOptionViewItem &option,
     // 前面那个图标的宽度：子条目一定有（草方块或条目自己给的），顶层条目**给了才有**。
     const QVariant decoration = index.data(MainWindowUI::rowIconRole());
     if (index.parent().isValid() || decoration.canConvert<QIcon>()) {
-        width += MainWindowUI::versionTreeIconSize() + 8;
+        width += rowIconSize() + 8;
     }
     width += 2 * MainWindowUI::versionTreeRowPadding() + MainWindowUI::versionTreeArrowSize() + 6;
     // 行尾那个「取消」小叉也占宽度（只有选中的那条加载器有，见 rowClearRole()）。

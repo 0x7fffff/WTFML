@@ -15,6 +15,11 @@
  *       相同的模式"）：条目给了 `rowIconRole()` 就画它（没给时"版本号前面是草方块"
  *       那条老规矩照旧），第二行小字两种行**都**看 `rowSubTextRole()`（空串就不画）。
  *       两棵树只有**一处**不一样：叶子那一层右边那个箭头画不画（见构造函数那个开关）。
+ *
+ *       2026-09-23 又多了第三处用户：下载页那四张资源表（模组/整合包/资源包/光影）。
+ *       它和上面两棵树的形状**不一样**（三层：资源 → 游戏版本 → 版本号），于是代理多了
+ *       一个新开关：**图标多大**（见构造函数第三个参数）。上面两棵树不传，取到的还是原来
+ *       那个 18 px，画出来的像素一个都不变。
  */
 
 #pragma once
@@ -35,11 +40,23 @@ public:
     ///        · 安装页那棵加载器树：`false` —— 叶子是那两档和具体版本号，点它们是**选中**、
     ///          底下没有下一页，右边挂个 `>` 等于说"点进去还有东西"（用户 2026-09-23
     ///          原话："模组加载器的具体版本右侧就不用 > 了（毕竟这个层次没有下拉框了）"）。
-    explicit VersionTreeDelegate(QObject *parent = nullptr, bool leafArrow = true);
+    /// @param iconSize 前面那个图标画多大（像素，正方形）。**0 = 按老规矩**
+    ///        （`MainWindowUI::versionTreeIconSize()`，18 px）—— 版本树和加载器树都用这个
+    ///        默认值，所以传 0 和以前完全一样。下载页那几张表要的是"能看清的缩略图"
+    ///        （用户原话「会有图片啥的效仿 pcl 的布局放着」），会显式传一个大一点的数。
+    explicit VersionTreeDelegate(QObject *parent = nullptr, bool leafArrow = true,
+                                 int iconSize = 0);
 
     /// 叶子那一层的箭头画不画（见构造函数）。验证工程用它钉住**产品那边真的传了 false**：
     /// 只验"传 false 就不画箭头"是不够的，那条路自己也能通过。
     bool leafArrow() const { return m_leafArrow; }
+
+    /// 这一行前面那个图标实际画多大（0 表示"用默认那个常数"，见构造函数）。
+    int iconSize() const { return m_iconSize; }
+
+    /// 这一行该按多大的图标留位置（**唯一出处**：paint 和 sizeHint 都读它，不然"画出来了"
+    /// 和"留了几格"会各算各的，症状是图标压着文字或者右边多出一块空）。
+    int rowIconSize() const;
 
     void paint(QPainter *painter, const QStyleOptionViewItem &option,
                const QModelIndex &index) const override;
@@ -56,4 +73,5 @@ public:
 
 private:
     bool m_leafArrow = true;
+    int m_iconSize = 0;
 };
