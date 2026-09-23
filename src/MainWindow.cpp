@@ -218,8 +218,19 @@ QString instanceIdOf(const QTreeWidgetItem *item) {
  *       （自定义名、拼进去的加载器名、或者用户在资源管理器里改过目录名），而
  *       "这个实例到底在哪个目录"是排查问题时唯一要问的东西。
  */
+/// 一个实例在树里那一行该写什么：显示名（后面缀上"（运行中）"当它真的在跑时）。
+///
+/// **唯一一处**拼这一行 —— 灌树（fillInstanceTree）和游戏起落时那次局部刷新
+/// （MainWindow::updateInstanceTreeRunState）都走它。分开写的话，游戏起来那一刻
+/// 后缀会跟灌树时那版慢慢漂开。
+QString instanceTreeItemText(const VersionDisplayParts &part, const VersionNameOptions &options,
+                             bool running) {
+    const QString base = formatVersionName(part, options);
+    return running ? base + MainWindowUI::instanceRunningSuffixText() : base;
+}
+
 void fillInstanceTree(QTreeWidget *tree, const QList<InstanceGroupBucket> &buckets,
-                      const VersionNameOptions &options) {
+                      const VersionNameOptions &options, const QSet<QString> &runningIds) {
     const QSignalBlocker blocker(tree);
     tree->clear();
 
@@ -250,7 +261,7 @@ void fillInstanceTree(QTreeWidget *tree, const QList<InstanceGroupBucket> &bucke
         QTreeWidgetItem *holder = parent != nullptr ? parent : tree->invisibleRootItem();
         for (const VersionDisplayParts &part : bucket.parts) {
             auto *item = new QTreeWidgetItem(holder);
-            item->setText(0, formatVersionName(part, options));
+            item->setText(0, instanceTreeItemText(part, options, runningIds.contains(part.id)));
             item->setData(0, MainWindowUI::instanceIdRole(), part.id);
             item->setToolTip(0, QDir::toNativeSeparators(AppPaths::versionDir(part.id)));
         }
@@ -509,13 +520,22 @@ void MainWindow::closeEvent(QCloseEvent *event) {
     QMessageBox box(this);
     box.setIcon(QMessageBox::Question);
     box.setWindowTitle(tr("游戏正在运行"));
-    const QString versionId = m_launcherManager->runningVersionId();
-    box.setText(versionId.isEmpty()
-                    ? tr("游戏还在运行。\n\n关掉启动器**不会**关掉游戏 —— 它会继续跑，"
+    // 同时开着好几份时，真名报出来（"还有 3 个游戏在跑：A、B、C"）比"游戏还在运行"
+    // 有用得多 —— 用户要判断的正是"我还开着哪些"。
+    const QList<LauncherManager::GameSession> games = m_launcherManager->runningGames();
+    QStringList names;
+    names.reserve(games.size());
+    for (const LauncherManager::GameSession &game : games) {
+        names.append(instanceDisplayName(game.versionId));
+    }
+    box.setText(games.size() == 1
+                    ? tr("游戏「%1」还在运行。\n\n关掉启动器**不会**关掉游戏 —— 它会继续跑，"
                          "存档、联机都照常。\n要现在关掉启动器吗？")
-                    : tr("游戏「%1」还在运行。\n\n关掉启动器**不会**关掉游戏 —— 它会继续跑，"
-                         "存档、联机都照常。\n要现在关掉启动器吗？")
-                          .arg(versionId));
+                          .arg(names.first())
+                    : tr("还有 %1 个游戏在运行：%2。\n\n关掉启动器**不会**关掉游戏 —— "
+                         "它们会继续跑，存档、联机都照常。\n要现在关掉启动器吗？")
+                          .arg(games.size())
+                          .arg(names.join(QStringLiteral("、"))));
     // 按钮文字自己写：启动器没装 Qt 的中文翻译，标准按钮在界面上是英文的 Yes/No。
     QPushButton *quitButton = box.addButton(tr("关掉启动器"), QMessageBox::AcceptRole);
     QPushButton *cancelButton = box.addButton(tr("取消"), QMessageBox::RejectRole);
@@ -556,6 +576,8 @@ void MainWindow::setupConnections() {
             &MainWindow::onGroupInstanceClicked);
     connect(m_ui->getInstanceSettingsButton(), &QPushButton::clicked, this,
             &MainWindow::onInstanceSettingsClicked);
+    connect(m_ui->getStopGameButton(), &QPushButton::clicked, this,
+            &MainWindow::onStopGameClicked);
     connect(m_ui->getImportModpackButton(), &QPushButton::clicked, this,
             &MainWindow::onImportModpackClicked);
     // 左边列表选中哪一份 .minecraft，启动器就换到哪一份上（PCL 的卡片是同一个交互）。
@@ -770,7 +792,8 @@ void MainWindow::setupConnections() {
     connect(m_skinStore, &PlayerSkinStore::textureReady, this, &MainWindow::onSkinTextureReady);
     connect(m_skinStore, &PlayerSkinStore::failed, this, &MainWindow::onSkinFailed);
 
-    // 游戏进程信号
+    // 游戏进程信号。三条都带 sessionId（哪一份会话说的）—— 同时开着好几份时，日志里
+    // 那句"哪来的"和底栏那格"还有谁在跑"全靠它归属。
     connect(m_launcherManager, &LauncherManager::processOutput, this, &MainWindow::onProcessOutput);
     connect(m_launcherManager, &LauncherManager::processError, this, &MainWindow::onProcessError);
     connect(m_launcherManager, &LauncherManager::gameFinished, this, &MainWindow::onGameFinished);
@@ -918,16 +941,16 @@ void MainWindow::updateBottomBar() {
     QLabel *statusLabel = m_ui->getStatusLabel();
     // 三种"在忙"都占这一格：启动中、下载中、以及在同步等待段里（见 enterSyncWait()）。
     // 判据本身放在 MainWindowUI::bottomBarShowsProgress() 里，那儿是它唯一的出处。
+    const bool launching = !m_launchingSessions.isEmpty();
     const bool showProgress = MainWindowUI::bottomBarShowsProgress(
-        m_launchInFlight, m_downloadInFlight, !m_syncWaitStatus.isEmpty());
+        launching, m_downloadInFlight, !m_syncWaitStatus.isEmpty());
     progressBar->setVisible(showProgress);
     statusLabel->setVisible(showProgress);
-    if (m_launchInFlight) {
+    if (launching) {
         // 启动进度没有可测量的百分比（JVM 和游戏自己在初始化，没有任何进度回调），
         // 所以是不确定态的滚动条。等游戏吐出第一行输出（或进程结束）就收起来。
         progressBar->setRange(0, 0);
-        statusLabel->setText(
-            MainWindowUI::launchingStatusText(instanceDisplayName(m_launchingVersionId)));
+        statusLabel->setText(MainWindowUI::launchingStatusText(launchingInstanceName()));
     } else if (!m_syncWaitStatus.isEmpty()) {
         // 同步等待那一段：不知道要等多久（网络 / 下 Java / 进程启动），所以也是不确定态。
         // 文字就是进那一段之前写下的"在等什么"。
@@ -944,21 +967,45 @@ void MainWindow::updateBottomBar() {
     // ---------- 右：当前实例运行状态 ----------
     QLabel *runStateLabel = m_ui->getRunStateLabel();
     QLabel *runStateDetailLabel = m_ui->getRunStateDetailLabel();
-    const QString running = m_launcherManager->runningVersionId();
-    if (running.isEmpty()) {
+    const QList<LauncherManager::GameSession> games = m_launcherManager->runningGames();
+    if (games.isEmpty()) {
         // 没有实例在跑：左下角整格藏起来，不显示"未运行"这种废话
         runStateLabel->setVisible(false);
         runStateDetailLabel->setVisible(false);
         return;
     }
 
-    runStateLabel->setText(MainWindowUI::runStateRunningText());
+    // 只有一份在跑时用老那句话（"实例运行中"），多份时报个数。同一句话在两个地方
+    // 各拼一半，就会出现"跑了三个却说实例运行中"这种没人看得出错的说法。
+    runStateLabel->setText(games.size() == 1
+                               ? MainWindowUI::runStateRunningText()
+                               : MainWindowUI::runStateRunningCountText(games.size()));
     runStateLabel->setVisible(true);
-    // 第二行要不要出，判据在 runStateShowsDetail() 里（那里也是它唯一的出处）。
-    const bool showDetail = MainWindowUI::runStateShowsDetail(
-        m_ui->isHomeTabCurrent(), selectedVersionId(m_ui->getInstalledVersionCombo()), running);
-    runStateDetailLabel->setVisible(showDetail);
-    runStateDetailLabel->setText(showDetail ? instanceDisplayName(running) : QString());
+
+    if (games.size() == 1) {
+        // 第二行要不要出，判据在 runStateShowsDetail() 里（那里也是它唯一的出处）。
+        const bool showDetail = MainWindowUI::runStateShowsDetail(
+            m_ui->isHomeTabCurrent(), selectedVersionId(m_ui->getInstalledVersionCombo()),
+            games.first().versionId);
+        runStateDetailLabel->setVisible(showDetail);
+        runStateDetailLabel->setText(showDetail ? instanceDisplayName(games.first().versionId)
+                                                : QString());
+        return;
+    }
+
+    // 两份以上：这一行**一定**要出，而且**必须带上身份**（"哪个实例是哪个账号"正是
+    // 多开这件事本身要回答的问题 —— 三个同版本实例跑在三个账号上时，光列名字分不出谁是谁）。
+    // NOTE: 只在这一支里带账号，是想让"只开了一个"那种绝大多数情况下的界面一个字都不变。
+    QStringList lines;
+    lines.reserve(games.size());
+    for (const LauncherManager::GameSession &game : games) {
+        const QString name = instanceDisplayName(game.versionId);
+        lines.append(game.accountName.isEmpty()
+                         ? name
+                         : MainWindowUI::runStateDetailWithAccount(name, game.accountName));
+    }
+    runStateDetailLabel->setVisible(true);
+    runStateDetailLabel->setText(lines.join(QStringLiteral("、")));
 }
 
 void MainWindow::startPlayerSkinLoad() {
@@ -1291,7 +1338,8 @@ void MainWindow::refreshInstalledVersions() {
         rest.parts = ungrouped;
         buckets.append(rest);
     }
-    fillInstanceTree(m_ui->getInstanceList(), buckets, m_settings->versionNameOptions());
+    fillInstanceTree(m_ui->getInstanceList(), buckets, m_settings->versionNameOptions(),
+                     runningVersionIds());
     syncTreeToCombo(combo, m_ui->getInstanceList());
 
     // 占位文案随上下文变。**两个串都必须非空**：空占位文案会让 QComboBox 在往空
@@ -1307,6 +1355,35 @@ void MainWindow::refreshInstalledVersions() {
     // 刷完必须手动同步按钮文字和 tooltip：上面 fillVersionCombo() 里套了
     // QSignalBlocker，重灌过程不会发信号，光靠 connect 那条接不到。
     updateStartButtonText();
+}
+
+QSet<QString> MainWindow::runningVersionIds() const {
+    QSet<QString> ids;
+    const QList<LauncherManager::GameSession> games = m_launcherManager->runningGames();
+    for (const LauncherManager::GameSession &game : games) {
+        // 同一个实例多开：这里天然去重（QSet），而"它在跑"这件事本来就只要一个是。
+        ids.insert(game.versionId);
+    }
+    return ids;
+}
+
+void MainWindow::updateInstanceTreeRunState() {
+    QTreeWidget *tree = m_ui->getInstanceList();
+    // 挡信号：改的是文字，不该被当成"用户在树里点了什么"（树上的点击会同步到下拉框）。
+    const QSignalBlocker blocker(tree);
+    const VersionNameOptions options = m_settings->versionNameOptions();
+    QTreeWidgetItemIterator it(tree);
+    while (*it != nullptr) {
+        const QString id = instanceIdOf(*it);
+        if (!id.isEmpty()) {
+            // 重新拼一遍而不是"在旧文本上加减后缀"：加减法要认得旧文本长什么样，
+            // 而显示名本身会随"版本名格式"那一项变（那时 refreshInstalledVersions()
+            // 会整棵重灌，不会走到这里）—— 每回从头拼，两条路的结果就一定一样。
+            (*it)->setText(0, instanceTreeItemText(m_versionManager->displayParts(id), options,
+                                                   m_launcherManager->isVersionRunning(id)));
+        }
+        ++it;
+    }
 }
 
 void MainWindow::restoreLastLaunchedVersion() {
@@ -2660,7 +2737,7 @@ void MainWindow::onStartButtonClicked() {
         javaMajorVersion, m_versionManager->versionJvmArgs(versionId),
         m_authManager->playerName(), m_authManager->playerUuid());
     // 记住"上次启动的版本"的时机是**进程真的起来了**，不是"表达式算完了"。
-    // startGame() 有三条早退路径（进程已在运行 / 找不到 Java / waitForStarted 超时），
+    // startGame() 有三条早退路径（找不到 Java / waitForStarted 超时 / 会话数到顶），
     // 以前它们都会先骗一句"已开始启动游戏"再显示错误。以"起来了"为准也是对的：
     // 因为库缺失之类的原因崩掉，恰恰是最需要下次打开还选着这个版本的时候。
     //
@@ -2669,20 +2746,26 @@ void MainWindow::onStartButtonClicked() {
     // NOTE: 这里那句和下面 updateBottomBar() 里那句是**同一句话**（都出自
     //       MainWindowUI::launchingStatusText()），所以进程起来的那一刻文字不会跳。
     enterSyncWait(MainWindowUI::launchingStatusText(instanceDisplayName(versionId)));
-    const bool started = m_launcherManager->startGame(jvmArgs, javaSettings, versionId);
+    // 身份和实例名都在**启动这一刻**钉进会话里（LauncherManager 的 GameSession 快照）：
+    // 之后切账号、改实例名都不会影响"这一份当初是谁跑的"。多开这件事最要紧的就是这条 ——
+    // 同一个实例挂两个账号各开一个时，两份会话的 accountName 必须是各自的，不能都读
+    // "当前登录的那个"。
+    const int sessionId = m_launcherManager->startGame(
+        jvmArgs, javaSettings, versionId, instanceDisplayName(versionId),
+        m_authManager->playerName(), m_authManager->playerUuid());
     leaveSyncWait();
-    if (started) {
+    if (sessionId > 0) {
         m_settings->setLastLaunchedVersion(versionId);
         appendLog(tr("已开始启动游戏，正在执行 JVM 参数..."));
-        // 启动进度从这里开始走到"游戏自己吐出第一行输出"为止。startGame() 返回之前
+        // 启动进度从这里开始走到"这一份自己吐出第一行输出"为止。startGame() 返回之前
         // 那段只能报"在等什么"（见上面那次 enterSyncWait()）—— 这里能覆盖的是随后的
         // JVM/游戏初始化。
         // 顺序上安全：startGame() 内部那条 "游戏已启动" 的 processOutput 是在它
-        // return 之前同步发出的，会先于这次赋值到达，不会被当成"游戏已经出话了"。
-        m_launchInFlight = true;
-        m_launchingVersionId = versionId;
-        // 这一档只对"真的起来了"生效 —— startGame() 那三条早退路径（进程已在跑 /
-        // 找不到 Java / 超时）下面根本走不到这里。
+        // return 之前同步发出的，那时这一份还不在集合里，所以不会被当成"游戏已经出话了"。
+        m_launchingSessions.insert(sessionId);
+        // 实例树上"（运行中）"要当场出来：这一份已经从"开始启动"走到"进程真的起来了"。
+        updateInstanceTreeRunState();
+        // 这一档只对"真的起来了"生效 —— startGame() 那三条早退路径下面根本走不到这里。
         applyLauncherBehaviourAfterLaunch();
     }
     updateBottomBar();
@@ -3129,7 +3212,7 @@ void MainWindow::onRenameInstanceClicked() {
     // 闸口一：正在跑的不能改。放在最前面、并且必须在调 renameInstance() **之前** ——
     // 运行中的实例在 Windows 上 jar 被 JVM 锁着，改到一半才失败的话用户看到的是一句
     // "拒绝访问"，而真正该说的是这一句。
-    if (m_launcherManager->runningVersionId() == oldId) {
+    if (m_launcherManager->isVersionRunning(oldId)) {
         QMessageBox::warning(this, tr("重命名实例"),
                              tr("「%1」正在运行，先关掉游戏再改名。").arg(instanceDisplayName(oldId)));
         return;
@@ -3527,45 +3610,152 @@ void MainWindow::applyCurrentFolderToPaths() {
     appendLog(tr("当前游戏文件夹：%1").arg(QDir::toNativeSeparators(root)));
 }
 
-void MainWindow::onProcessOutput(const QString &text) {
-    appendLog(tr("[游戏输出] %1").arg(text));
-    // 游戏自己出话了 = JVM 和游戏都初始化到能打日志了，"正在启动"这段到此为止。
+/**
+ * @brief 日志行前面那个"[实例名] "。
+ * @param sessionId 哪一份会话；0 或者查不到（会话已经结束了）时返回空串。
+ *
+ * 同时开着好几份时，一串"[游戏输出] xxx"根本分不出是谁说的 —— 多开这件事本身就把
+ * "哪一行是谁"从显然变成了不显然。
+ *
+ * NOTE: 查不到就**不加前缀**、也不写"(未知)"：那种行是"又开一个被拦下了"这类不挂在
+ *       任何实例上的话（sessionId == 0），或者会话刚好在这一行之前结束了。硬安一个名字
+ *       比不写更糟。
+ */
+static QString sessionLogTag(const LauncherManager::GameSession &game) {
+    if (game.sessionId == 0 || game.displayName.isEmpty()) {
+        return QString();
+    }
+    return QStringLiteral("[%1] ").arg(game.displayName);
+}
+
+void MainWindow::onProcessOutput(int sessionId, const QString &text) {
+    appendLog(tr("[游戏输出] %1%2")
+                  .arg(sessionLogTag(m_launcherManager->session(sessionId)), text));
+    // 游戏自己出话了 = JVM 和游戏都初始化到能打日志了，**那一份**的"正在启动"到此为止。
     // 底栏中间那格让给下载进度（如果有），左下角换成"实例运行中"。
-    if (m_launchInFlight) {
-        m_launchInFlight = false;
+    //
+    // NOTE: 按会话号摘，不按"有没有在启动" —— 同时启动两三个实例时，用布尔量的话第一个
+    //       出话就会把后面那几个的启动进度一起收掉。
+    if (m_launchingSessions.remove(sessionId)) {
         updateBottomBar();
     }
 }
 
-void MainWindow::onProcessError(const QString &text) {
-    appendLog(tr("[游戏错误] %1").arg(text));
+void MainWindow::onProcessError(int sessionId, const QString &text) {
+    appendLog(tr("[游戏错误] %1%2")
+                  .arg(sessionLogTag(m_launcherManager->session(sessionId)), text));
     // stderr 出东西也算"起来了"：有些版本把日志全写 stderr，等 stdout 会一直等下去。
-    if (m_launchInFlight) {
-        m_launchInFlight = false;
+    if (m_launchingSessions.remove(sessionId)) {
         updateBottomBar();
     }
 }
 
-void MainWindow::onGameFinished(int exitCode, QProcess::ExitStatus exitStatus) {
+void MainWindow::onGameFinished(int sessionId, int exitCode, QProcess::ExitStatus exitStatus) {
+    const LauncherManager::GameSession game = m_launcherManager->session(sessionId);
+    const QString tag = sessionLogTag(game);
     if (exitStatus == QProcess::CrashExit) {
-        appendLog(tr("游戏崩溃，退出码：%1").arg(exitCode));
+        appendLog(tr("%1游戏崩溃，退出码：%2").arg(tag).arg(exitCode));
     } else {
-        appendLog(tr("游戏进程已结束，退出码：%1").arg(exitCode));
+        appendLog(tr("%1游戏进程已结束，退出码：%2").arg(tag).arg(exitCode));
     }
-    // 进程没了，"启动中"和左下角那条"实例运行中"都得收起来（runningVersionId() 在
-    // LauncherManager 里已经清了，这里只管重画）。
-    m_launchInFlight = false;
+    // 进程没了，它那一份的"启动中"要收掉；左下角那条"实例运行中"由 runningGames() 现算，
+    // 这里只管重画（那一份在 LauncherManager 里已经从表里摘掉了）。
+    m_launchingSessions.remove(sessionId);
+    updateInstanceTreeRunState();
     updateBottomBar();
 
     // 「收起启动器，游戏退出后自动回来」那一档：见 applyLauncherBehaviourAfterLaunch()。
     // 只有**为了启动游戏才藏起来**的窗口才会被叫回来 —— 用户自己最小化、自己收起来的
     // 窗口不该因为游戏退出就跳出来。
-    if (m_hiddenForGame) {
+    //
+    // NOTE: 还要**一份都不剩**才叫回来。同时开着三个时，第一个退出就把窗口弹到用户脸上
+    //       会打断他正在看的别的东西；那时他在启动器上想知道的是"还剩谁在跑"。
+    if (m_hiddenForGame && m_launcherManager->runningCount() == 0) {
         m_hiddenForGame = false;
         showNormal();
         raise();
         activateWindow();
     }
+}
+
+QString MainWindow::launchingInstanceName() const {
+    // 启动那一下是**同步**的（startGame() 在 UI 线程上等进程起来，见 enterSyncWait），
+    // 所以真正卡在同步等待里时最多只有一份。能同时有两份以上的只有"进程起来了、游戏还
+    // 没出话"那段异步进度 —— 那时报其中一个名字是错的，报个数才诚实。
+    if (m_launchingSessions.size() == 1) {
+        const LauncherManager::GameSession game =
+            m_launcherManager->session(*m_launchingSessions.constBegin());
+        if (game.sessionId != 0) {
+            return instanceDisplayName(game.versionId);
+        }
+    }
+    return tr("%1 个实例").arg(m_launchingSessions.size());
+}
+
+void MainWindow::onStopGameClicked() {
+    // 作用于"当前选中的实例"，理由和「重命名…」一样（下拉框和实例页那张列表是同一份
+    // 数据的两种看法，以下拉框为准）。
+    const QString versionId = selectedVersionId(m_ui->getInstalledVersionCombo());
+    if (versionId.isEmpty()) {
+        QMessageBox::information(this, tr("停止游戏"), tr("先选中一个实例。"));
+        return;
+    }
+    if (!m_launcherManager->isVersionRunning(versionId)) {
+        // 选中的那个没在跑。**不弹窗** —— 用户点开看看、发现不是它，这不是错误；
+        // 而这里恰恰是最容易误伤的地方：旁边就有别的实例在跑，手一滑就把它杀了。
+        appendLog(tr("「%1」没有在跑。").arg(instanceDisplayName(versionId)));
+        return;
+    }
+
+    // 「停」在 Windows 上就是 TerminateProcess（见 LauncherManager::stopGame()），游戏
+    // 来不及存档。**这件事必须在这里说清楚**，默认那一边是"别停"（回车 = 取消）。
+    QMessageBox box(this);
+    box.setIcon(QMessageBox::Warning);
+    box.setWindowTitle(tr("停止游戏"));
+    box.setText(tr("「%1」正在运行。\n\n停止会**直接结束游戏进程** —— 游戏不会存档，"
+                   "没保存的进度会丢。\n要停止它吗？")
+                    .arg(instanceDisplayName(versionId)));
+    QPushButton *stopButton = box.addButton(tr("停止游戏"), QMessageBox::DestructiveRole);
+    QPushButton *cancelButton = box.addButton(tr("取消"), QMessageBox::RejectRole);
+    box.setDefaultButton(cancelButton);
+    box.exec();
+    if (box.clickedButton() != stopButton) {
+        return;
+    }
+    applyStopGame(versionId);
+}
+
+int MainWindow::applyStopGame(const QString &versionId) {
+    // 同一个实例多开时要**全停**：用户点的是那个实例，期待的是它整个停下来
+    // （见头里的说明）。这里先把会话号抄下来再停 —— stopGame() 之后那份会话随时可能
+    // 从表里消失，边遍历边动那张表是不行的。
+    QList<int> targets;
+    const QList<LauncherManager::GameSession> games = m_launcherManager->runningGames();
+    for (const LauncherManager::GameSession &game : games) {
+        if (game.versionId == versionId) {
+            targets.append(game.sessionId);
+        }
+    }
+    int stopped = 0;
+    for (int sessionId : targets) {
+        if (m_launcherManager->stopGame(sessionId)) {
+            ++stopped;
+        }
+    }
+    if (stopped == 0) {
+        appendLog(tr("「%1」没有在跑。").arg(instanceDisplayName(versionId)));
+        return 0;
+    }
+    appendLog(tr("已停止「%1」（%2 个游戏进程）。")
+                  .arg(instanceDisplayName(versionId))
+                  .arg(stopped));
+    // 进程真的没了要等 Qt 把 finished 送回来（onGameFinished 那边会重画），但"正在启动"
+    // 这一格该现在收：用户刚看见的那句话已经不对了。
+    for (int sessionId : targets) {
+        m_launchingSessions.remove(sessionId);
+    }
+    updateBottomBar();
+    return stopped;
 }
 
 void MainWindow::onImportModpackClicked() {

@@ -327,7 +327,7 @@ public:
     /// UI 用它和 isLoaderInstalling() 一起兜"能不能点启动" —— 判据只有
     /// MainWindow::onStartButtonClicked() 一处，别在别处再判一遍。
     /// NOTE: 这里以前写的是 updateBottomBar()，**不是** —— 底栏那格看的是
-    ///       m_launchInFlight / m_downloadInFlight / m_syncWaitStatus 三个（见
+    ///       m_launchingSessions / m_downloadInFlight / m_syncWaitStatus 三个（见
     ///       MainWindowUI::bottomBarShowsProgress），和这几个 "isXxx" 无关。
     bool isModpackImporting() const;
 
