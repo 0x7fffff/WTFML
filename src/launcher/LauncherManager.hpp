@@ -7,7 +7,9 @@
  */
 #pragma once
 
+#include <QHash>
 #include <QJsonObject>
+#include <QList>
 #include <QObject>
 #include <QProcess>
 #include <QStringList>
@@ -18,16 +20,64 @@
  * @brief 处理 Minecraft 的 JVM 参数生成和启动过程。
  *
  * 构建 classpath, 应用平台特定规定，使用配置的 Java运行时环境 启动 Minecraft 进程。
+ *
+ * 【同时管着好几个游戏进程】**一次 startGame() = 一份会话**，本类可以同时持有好几份
+ * （`m_sessions`，每份一个 QProcess）。这是"多账户多实例"那件事的落点：用户想让同一个
+ * 实例用两个账号各开一个、或者一个账号开两个不同实例，都不该被启动器拦住 —— 一个
+ * java.exe 活不活得下去是游戏自己的事（同一个游戏目录开两份会不会坏档由用户判断），
+ * 启动器的职责只是**不替用户做这个决定**，并且把每一份都如实报出来。
+ *
+ * 于是本类里**没有**"已经在跑了所以不能再起"这条早退路径（它以前有，见
+ * runningGames() 的说明）。取而代之的是三条不变式：
+ *   1. 每个进程的输出/结束都带着自己的 sessionId 往外发，界面按 id 归属到具体那一份；
+ *   2. 编码方式（-Dstdout.encoding）**按会话各记一份** —— 两份会话用的 Java 主版本可能
+ *      不同，共用一份状态就会有一份的中文变乱码；
+ *   3. startGame() 返回的是"这次会话的 id"，不是"成功了没有"。0 才是失败。
  */
 class LauncherManager : public QObject {
     Q_OBJECT
 
 public:
     /**
+     * @brief 一份游戏会话：一个跑着的（或者刚起来又立刻没了的）游戏进程。
+     *
+     * 这几个字段全是**启动那一刻**定下来的快照，之后不再变。这样做是有意的：实例可以在
+     * 游戏跑着的时候被改名、账号可以被切换，而"当初是用哪个实例、哪个身份起的"是历史
+     * 事实，界面要报的就是那个事实（底部那句"XXX 运行中"改了名之后跟着变会让人以为
+     * 跑的是另一个进程）。
+     */
+    struct GameSession {
+        /// 会话号，从 1 开始。0 是"没有会话"的哨兵值（startGame() 失败时返回它）。
+        int sessionId = 0;
+        /// 这次启动的版本号（= `versions/` 下面那个目录名，也就是实例的 id）。
+        QString versionId;
+        /// 启动那一刻这个实例的**显示名**（可能带自定义名/加载器名，见 MainWindowUI）。
+        QString displayName;
+        /// 这次启动用的身份（账号名）。离线模式/未登录时是 AuthManager 给的默认名。
+        QString accountName;
+        /// 这次启动用的 UUID（离线为正，可能为空 = 调用方没给）。
+        QString accountUuid;
+        /// 操作系统给的进程号。给界面显示用（"游戏已启动（进程ID：…）"）。
+        qint64 processId = 0;
+        /// 进程起来那一刻的 QDateTime::currentMSecsSinceEpoch()。
+        qint64 startedAtMs = 0;
+    };
+
+    /**
      * @brief 建立一个启动管理实例。
      * @param parent Parent QObject.
      */
     explicit LauncherManager(QObject *parent = nullptr);
+
+    /**
+     * @brief 同时最多允许几份会话。
+     *
+     * 这不是"性能上限"，只是一个**防手滑**的阀门：界面上连点几下、或者脚本里循环调用，
+     * 该有个地方拦住。8 这个数字是拍的 —— 一台能玩 Minecraft 的机器同时开八个
+     * java.exe 已经远超"多开"的合理用法，真撞到它的人知道自己要什么（改成自己的构建
+     * 即可）。撞上时 startGame() 会以 return 0 收尾并往日志里说一句。
+     */
+    static int maxConcurrentSessions() { return 8; }
 
     /**
      * @brief 在启动前验证游戏文件。
@@ -93,45 +143,78 @@ public:
                                      const QString &playerUuid = QString()) const;
 
     /**
-     * @brief 启动 Minecraft 游戏进程。
+     * @brief 启动一个 Minecraft 游戏进程（新增一份会话）。
      * @param arguments JVM and game arguments.
      * @param settings 这次启动要用的 Java 值（只读它里面的 javaPath；改成 const 引用
      *        是安全的，也是上一版就有的行为 —— 这里从来不改设置）。
      * @param versionId Version identifier.
-     * @return 进程是否真的起来了。三条早退路径（进程已在运行、找不到 Java 可执行
-     *         文件、waitForStarted 超时）都返回 false —— 调用方用它决定要不要把
-     *         这个版本记成"上次启动的版本"，所以失败时绝不能返回 true。
+     * @param displayName 启动那一刻这个实例的显示名。空 = 退回 versionId。
+     * @param accountName 这次启动用的身份。空 = 记不着（未登录、测试），界面就不报身份。
+     * @param accountUuid 这次启动用的 UUID。空 = 调用方没给（测试、离线时也可能是正随机值）。
+     * @return **这次会话的 id**（> 0）；没能起来时返回 0。
      *
-     * NOTE: 返回 true 只代表"java 进程起来了"，不代表"游戏没崩"。后面游戏因为
-     *       库不全之类的原因立刻退出时它仍然是 true，这是刻意的：那种情况恰恰
-     *       最需要下次打开还选着这个版本。
+     * NOTE: 返回值从"起没起来"改成了会话号 —— 语义是 `sessionId > 0` 就等于"进程真的
+     *       起来了"。三条早退路径（找不到 Java 可执行文件、waitForStarted 超时、
+     *       会话数到顶）一律 return 0，且**都不会**留下会话。调用方拿它决定要不要把
+     *       这个版本记成"上次启动的版本"，所以失败时绝不能返回非零。
+     *
+     * NOTE: 返回非零只代表"java 进程起来了"，不代表"游戏没崩"。后面游戏因为库不全
+     *       之类的原因立刻退出时会话照样在（界面上会闪一下"运行中"再收掉），这是刻意
+     *       的：那种情况恰恰最需要下次打开还选着这个版本。
      */
-    bool startGame(const QStringList &arguments, const EffectiveJavaSettings &settings,
-                   const QString &versionId);
+    int startGame(const QStringList &arguments, const EffectiveJavaSettings &settings,
+                  const QString &versionId, const QString &displayName = QString(),
+                  const QString &accountName = QString(), const QString &accountUuid = QString());
 
     /**
-     * @brief 当前正在运行的游戏进程是哪个版本。
-     * @return 返回版本号；没有任何游戏在运行时返回空串。
+     * @brief 现在有哪些游戏进程**真的在跑**。
+     * @return 按会话号升序（= 启动顺序）排好的那一串。
      *
-     * 底栏右下角那条"实例运行中"就靠它：它为空 = 没在跑，非空 = 跑的就是这个版本。
-     * 记的时机和 m_gameProcess 的状态是同一个（waitForStarted 成功那一刻），清的时机
-     * 也同一个（handleProcessFinished），所以不会出现"进程没了但这里还留着版本号"。
+     * 判据是"那个 QProcess 的状态不是 NotRunning"，不是"会话表里有几项" —— 两个不一样：
+     * 正在启动中（还没起来）和刚失败要收掉的会话都在表里，但它们不该被报成"运行中"。
+     * 会话表在 startGame() 开头就登记，就是为了让那三条早退路径上的报错**能带上实例名**。
      */
-    QString runningVersionId() const;
+    QList<GameSession> runningGames() const;
+
+    /// 有几个游戏进程在跑。底栏那句"实例运行中"/"N 个实例运行中"就靠它。
+    int runningCount() const;
 
     /// 现在有没有游戏进程在跑。给"关闭启动器"那条路用（见 closeEvent）。
     bool hasRunningGame() const;
 
-    /// 把正在跑的游戏进程**交出去**：脱离本对象的所有权，之后本对象析构也不会碰它。
+    /// 某个实例是不是正在跑（可能不止一份会话在跑它）。重命名那道闸口靠它。
+    bool isVersionRunning(const QString &versionId) const;
+
+    /**
+     * @brief 按会话号取那一份会话的快照。
+     * @return 找不到那个会话（已经结束了）时返回 sessionId == 0 的空结构。
+     *
+     * NOTE: 这个查的是**会话表**，不看进程状态 —— 刚开始启动、以及即将被收掉的那一瞬间
+     *       也查得到。界面用它把一条输出归属到实例名上，那两种情况恰恰都要能查到。
+     */
+    GameSession session(int sessionId) const;
+
+    /**
+     * @brief 停掉某一份会话：**强杀**那个游戏进程。
+     * @param sessionId 会话号。
+     * @return 真发出了终止请求返回 true；那个会话已经不在（或者本来就结束了）返回 false。
+     *
+     * NOTE: 这是 kill()，不是"请游戏自己退出" —— Minecraft 没有能被外部优雅关闭的接口，
+     *       用户从启动器上按"停止"要的就是"现在停"。界面上这句话必须说清楚（见
+     *       MainWindow::onStopGameClicked() 那个确认框），别让人以为是"保存并退出"。
+     */
+    bool stopGame(int sessionId);
+
+    /// 把所有正在跑的游戏进程**交出去**：脱离本对象的所有权，之后本对象析构也不会碰它们。
     ///
     /// 为什么必须有这一步：QProcess 的析构（Qt 6.10，qprocess.cpp）在进程还跑着的时候会
-    /// `kill()` + `waitForFinished()`。游戏进程是 m_gameProcess 的**子进程**，而
-    /// LauncherManager 又是 MainWindow 的子对象、MainWindow 在 main() 里是栈对象 ——
-    /// 于是"关掉启动器"这条最平常的操作会走到那段析构里，把游戏**强杀**（Windows 上
-    /// TerminateProcess，游戏连存档都来不及存）。java.exe 本来活得过启动器，这一步就是
-    /// 让它活得下去。
+    /// `kill()` + `waitForFinished()`。游戏进程是本类的**子进程**，而 LauncherManager
+    /// 又是 MainWindow 的子对象、MainWindow 在 main() 里是栈对象 —— 于是"关掉启动器"这条
+    /// 最平常的操作会走到那段析构里，把游戏**强杀**（Windows 上 TerminateProcess，游戏连
+    /// 存档都来不及存）。java.exe 本来活得过启动器，这一步就是让它活得下去。
     ///
-    /// NOTE: 没有游戏在跑时是**空操作**（这条路径上不该出任何提示）。
+    /// NOTE: 没有游戏在跑时是**空操作**（这条路径上不该出任何提示）。**交出去的是全部** ——
+    ///       同时开着三份时，关掉启动器之后三份都得继续跑。
     void detachRunningGame();
 
 
@@ -148,26 +231,42 @@ public:
     static bool commandDeclaresUtf8Output(const QStringList &arguments);
 
 signals:
-    void processOutput(const QString &text);
-    void processError(const QString &text);
-    void gameFinished(int exitCode, QProcess::ExitStatus exitStatus);
-
-private slots:
-    void handleReadyReadStandardOutput();
-    void handleReadyReadStandardError();
-    void handleProcessFinished(int exitCode, QProcess::ExitStatus exitStatus);
+    /// 某份会话的游戏输出（stdout）。
+    /// @param sessionId 哪一份会话。**startGame() 失败那几条路也会带号发出来**
+    ///        （那时进程根本没起来），界面据此把报错挂到实例名上，所以别假定
+    ///        "收到这个信号的 sessionId 一定在 runningGames() 里"。
+    void processOutput(int sessionId, const QString &text);
+    /// 同上，stderr。
+    void processError(int sessionId, const QString &text);
+    /// 某份会话的游戏进程结束了。发之前那份会话已经从表里摘掉 ——
+    /// 收信号的槽去查 session(id) 会查不到，要用的东西请从参数/自己那边拿。
+    void gameFinished(int sessionId, int exitCode, QProcess::ExitStatus exitStatus);
 
 private:
-    /// 按游戏进程**实际使用的**输出编码解码它的 stdout/stderr。
-    /// 判断依据由 startGame() 从命令行上反推出来，见那里的说明。
-    QString decodeGameOutput(const QByteArray &bytes) const;
+    /// 一次游戏会话的内部记录（对外的快照是 GameSession）。
+    struct Entry {
+        GameSession info;
+        QProcess *process = nullptr;
+        /// 这份会话的输出是不是 UTF-8（= 它的命令行里有 -Dstdout.encoding=utf-8）。
+        /// **按会话各记一份**：两份会话用的 Java 主版本可能不同（同一台机器上装了好几个
+        /// Java 是常态），共用一份状态就会有一份的中文变乱码。
+        bool outputIsUtf8 = false;
+    };
 
-    QProcess *m_gameProcess;
-    /// 正在运行的游戏进程对应的版本号。startGame() 在 waitForStarted() 成功之后
-    /// 才记下它，handleProcessFinished() 里清掉 —— 三条早退路径都不记。
-    QString m_runningVersionId;
-    /// 游戏进程的输出是不是 UTF-8（= 命令行里有 -Dstdout.encoding=utf-8）。
-    /// 由 startGame() 在启动前设置；四个解码点都按它选解码方式。
-    /// 默认 false = 本地代码页，也就是加这个开关之前的行为。
-    bool m_gameOutputIsUtf8 = false;
+    /// 按某份会话**实际使用的**输出编码解码它的 stdout/stderr。
+    /// 判断依据由 startGame() 从命令行上反推出来，见那里的说明。
+    static QString decodeGameOutput(bool utf8, const QByteArray &bytes);
+
+    /// 把一个已经结束/失败的会话从表里摘掉并释放它的 QProcess。
+    /// @param takeProcess 表里那个 QProcess 指针；顺手 deleteLater() 掉。
+    void discardSession(int sessionId);
+
+    void handleReadyReadStandardOutput(int sessionId);
+    void handleReadyReadStandardError(int sessionId);
+    void handleProcessFinished(int sessionId, int exitCode, QProcess::ExitStatus exitStatus);
+
+    /// 会话号 -> 会话。**包含正在启动和即将收掉的**，见 runningGames() 的说明。
+    QHash<int, Entry> m_sessions;
+    /// 下一个会话号。从 1 开始，0 留给"没有会话"。
+    int m_nextSessionId = 1;
 };

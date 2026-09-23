@@ -416,7 +416,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         importModpackButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
         instanceLayout->addWidget(importModpackButton, 0, Qt::AlignLeft);
 
-        // 三个按钮都作用于列表里当前选中的那一个实例。横着排：右栏宽度本来就紧
+        // 四个按钮都作用于列表里当前选中的那一个实例。横着排：右栏宽度本来就紧
         // （3:7 里的 7 还要和左栏分），竖着堆会把列表挤没。
         QHBoxLayout *instanceButtons = new QHBoxLayout;
         renameInstanceButton = new QPushButton(renameInstanceText(), instanceGroupBox);
@@ -425,13 +425,16 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         groupInstanceButton->setObjectName(groupInstanceButtonName());
         instanceSettingsButton = new QPushButton(instanceSettingsText(), instanceGroupBox);
         instanceSettingsButton->setObjectName(instanceSettingsButtonName());
-        // 三个按钮一律可点，没选中实例时由 MainWindow 的槽弹一句"先选中一个实例"
-        // （和「重命名…」同一个口径：**几时能点**由状态决定的话，用户会先花时间
+        stopGameButton = new QPushButton(stopGameText(), instanceGroupBox);
+        stopGameButton->setObjectName(stopGameButtonName());
+        // 四个按钮一律可点，没选中实例（或者那个实例没在跑）时由 MainWindow 的槽弹一句
+        // 说清原因（和「重命名…」同一个口径：**几时能点**由状态决定的话，用户会先花时间
         // 猜"为什么它是灰的"，而那句话直接把原因说了）。
 
         instanceButtons->addWidget(renameInstanceButton);
         instanceButtons->addWidget(groupInstanceButton);
         instanceButtons->addWidget(instanceSettingsButton);
+        instanceButtons->addWidget(stopGameButton);
         instanceLayout->addLayout(instanceButtons);
 
         QLabel *instanceHint = new QLabel(

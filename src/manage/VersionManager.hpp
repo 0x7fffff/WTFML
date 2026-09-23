@@ -327,7 +327,7 @@ public:
     /// UI 用它和 isLoaderInstalling() 一起兜"能不能点启动" —— 判据只有
     /// MainWindow::onStartButtonClicked() 一处，别在别处再判一遍。
     /// NOTE: 这里以前写的是 updateBottomBar()，**不是** —— 底栏那格看的是
-    ///       m_launchInFlight / m_downloadInFlight / m_syncWaitStatus 三个（见
+    ///       m_launchingSessions / m_downloadInFlight / m_syncWaitStatus 三个（见
     ///       MainWindowUI::bottomBarShowsProgress），和这几个 "isXxx" 无关。
     bool isModpackImporting() const;
 
@@ -378,8 +378,23 @@ public:
     static bool loaderKindForDependencyKey(const QString &key, LoaderKind *out);
 
     // 是否有一批下载正在进行（含"正在校验并跳过已存在文件"的整批）。
-    // UI 用它来决定"启动游戏"能不能点。
     bool isDownloading() const;
+
+    /// 现在这一批下载**正在给哪个版本**写文件（空 = 没有）。
+    ///
+    /// 界面靠它把"启动"和"下载"两件事**按版本**分开：装 1.20.1 的这十来分钟里，一个
+    /// 字节早就下完的 1.18.2 照样该能启动（两者之间没有任何关系），而 1.20.1 自己不能。
+    /// 调用点只有 MainWindow::installingVersionIds() 一处 —— 判据别在别处再写一遍。
+    ///
+    /// NOTE: 只在**真的有一批在跑时**才认 m_currentVersionDownloading：那个成员收尾之后
+    ///       **不清空**（它同时是"上一批叫什么名字"，兜底终态那条路要读它，见
+    ///       m_currentVersionDownloading 的注释）。不门控的话，下过一次 1.20.1 之后它就会
+    ///       永远回答"正在装 1.20.1"，那个实例再也点不动 —— 而症状是"下载完了就启动不了"，
+    ///       看着像启动那边坏了。
+    ///
+    /// NOTE: 装加载器 / 装带名字的实例 / 导入整合包这三条路在"拉版本表、拉 profile"的
+    ///       前奏里还没开批次，那几段要靠调用方自己记的实例名（见 installingVersionIds()）。
+    QString busyVersionId() const;
 
     // 下载源：官方 / 镜像。转发给内部的 DownloadManager，界面只跟这一层打交道。
     // 改完立刻对**之后发出的**请求生效：库和客户端 jar 的地址在批次开头一次算完，那部分

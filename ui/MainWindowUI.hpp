@@ -409,6 +409,8 @@ public:
     static QString instanceSettingsButtonName() {
         return QStringLiteral("instanceSettingsButton");
     }
+    /// 「停止游戏…」。和上面三个**同一排**（它作用的也是"列表里选中的那个实例"）。
+    static QString stopGameButtonName() { return QStringLiteral("stopGameButton"); }
     /// 「导入整合包…」。它和上面那三个**不是一回事**：那三个作用于列表里选中的实例，
     /// 这个是造一个新实例出来。所以它单独一行、摆在它们上面（见 .cpp 里那一段）。
     static QString importModpackButtonName() { return QStringLiteral("importModpackButton"); }
@@ -416,6 +418,10 @@ public:
     static QString renameInstanceText() { return QStringLiteral("重命名…"); }
     static QString groupInstanceText() { return QStringLiteral("分组…"); }
     static QString instanceSettingsText() { return QStringLiteral("实例设置…"); }
+    /// NOTE: 带省略号 —— 按 Qt 的规矩，点了之后还要弹框问点什么的，文案结尾就带省略号。
+    ///       这一个的框尤其要紧：它要说清「停」等于**强杀**、游戏不会存档（见
+    ///       MainWindow::onStopGameClicked()）。
+    static QString stopGameText() { return QStringLiteral("停止游戏…"); }
     /// NOTE: 带省略号 —— 按 Qt 的规矩，点了之后还要弹框问点什么的，文案结尾就带省略号
     ///       （这个字上传出去的信息是"点下去不等于事情就开始了"，和上面三个一致）。
     static QString importModpackText() { return QStringLiteral("导入整合包…"); }
@@ -580,6 +586,20 @@ public:
     // ---------- 底栏左下角"实例运行中"那行的正文 ----------
     // 放在这里当唯一出处：MainWindow 拿它填文字，验证工程拿它做断言，两边不会写歪。
     static QString runStateRunningText() { return QStringLiteral("实例运行中"); }
+    /// 两份以上在跑时第一行写什么。**一份时不用这一句**（那时是上面那句），
+    /// 所以这个函数只接 count >= 2 的输入。
+    static QString runStateRunningCountText(int count) {
+        return QCoreApplication::translate("MainWindowUI", "%1 个实例运行中").arg(count);
+    }
+    /// 多开时第二行里每一个实例的写法：名字后面缀上这次启动用的身份。
+    /// 分开成"名字 +（账号）"是因为多开最要紧的一件事就是"哪个是哪个账号"。
+    static QString runStateDetailWithAccount(const QString &name, const QString &account) {
+        return QCoreApplication::translate("MainWindowUI", "%1（%2）").arg(name, account);
+    }
+    /// 实例页那棵树上"这个实例正在跑"的后缀。和上面几条同一个理由：唯一出处。
+    static QString instanceRunningSuffixText() {
+        return QCoreApplication::translate("MainWindowUI", "（运行中）");
+    }
 
     // ---------- 主页右栏那个 3D 小人下面那句话 ----------
     // 和上面那条同一个理由：MainWindow 拿它填文字，验证工程拿它做断言，
@@ -679,6 +699,7 @@ public:
     QPushButton *getRenameInstanceButton() const { return renameInstanceButton; }
     QPushButton *getGroupInstanceButton() const { return groupInstanceButton; }
     QPushButton *getInstanceSettingsButton() const { return instanceSettingsButton; }
+    QPushButton *getStopGameButton() const { return stopGameButton; }
     /// 「导入整合包…」。它不看"有没有选中实例"，任何时候都能点（和上面那三个一个口径：
     /// 能不能点由状态决定的话，用户会先花时间猜"为什么它是灰的"）。
     QPushButton *getImportModpackButton() const { return importModpackButton; }
@@ -786,6 +807,7 @@ private:
     QPushButton *renameInstanceButton;
     QPushButton *groupInstanceButton;
     QPushButton *instanceSettingsButton;
+    QPushButton *stopGameButton;
     QPushButton *importModpackButton;
     QLabel *instanceFolderLabel;
     QComboBox *installedVersionCombo;

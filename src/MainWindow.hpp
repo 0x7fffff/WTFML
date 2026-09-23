@@ -14,6 +14,7 @@
 #include <QMainWindow>
 #include <QPixmap>
 #include <QProcess>
+#include <QSet>
 
 // PlayerSkinStore::PlayerSkinProfile —— 主窗口按值存一份"最近要过的那份档案"（见
 // m_skinProfile），所以这里非得 include 不可（前置声明只够拿指针/引用）。
@@ -165,9 +166,23 @@ private slots:
     /// 用户在左边那张列表里换了「游戏文件夹」。真正干活的是 FolderManager 发出的
     /// currentFolderChanged()，这里只负责把选中项翻译成一次 setCurrentFolder()。
     void onFolderSelectionChanged();
-    void onProcessOutput(const QString &text);
-    void onProcessError(const QString &text);
-    void onGameFinished(int exitCode, QProcess::ExitStatus exitStatus);
+    /// 某一份会话吐了一行 stdout。@param sessionId 哪一份（0 = 连会话都没建起来，
+    /// 那种消息是"又开一个被拦下了"这类，不挂在任何实例名下）。
+    void onProcessOutput(int sessionId, const QString &text);
+    void onProcessError(int sessionId, const QString &text);
+    void onGameFinished(int sessionId, int exitCode, QProcess::ExitStatus exitStatus);
+    /// 「停止游戏…」：把当前选中的那个实例上正在跑的游戏**杀掉**。
+    ///
+    /// 同时开着好几份时，一次只停**选中的那一个** —— 界面上"当前选中"之外的东西一概不动
+    /// （不然用户想看某个实例、顺手点一下停止，结果把另外三个全关了）。分成两个槽的理由和
+    /// applyRename() 一样：确认框是模态的，offscreen 的验证工程驱动不了它。
+    void onStopGameClicked();
+    /// 停止的**执行部分**：停掉这个实例上**所有**正在跑的会话，返回停掉了几个。
+    ///
+    /// NOTE: 是"所有"不是"第一个" —— 同一个实例多开（一个实例同一账号多次启动）时，
+    ///       用户点的是那个实例，期待的是它整个停下来。返回个数是为了那句回执能说实话
+    ///       （"没有在跑的"和"停掉了 2 个"是两件事）。
+    int applyStopGame(const QString &versionId);
     // ---------- 下载页「游戏」那两层：版本树 → 安装页 ----------
     //
     // 用户原话见 MainWindowUI::downloadGameStackName() 上面那段。这一层只做"界面上的
@@ -314,6 +329,31 @@ private:
     /// 一个版本号在界面上的显示名（"已安装版本"下拉框里的那条文本）。
     /// 下拉框里没有它时退回版本号本身。
     QString instanceDisplayName(const QString &versionId) const;
+    /// 底栏中间那格"正在启动 X"里的 X：只有一份在启动时是它的显示名，
+    /// 两份以上时是"N 个实例"。唯一一处拼它（见 .cpp 里的说明）。
+    QString launchingInstanceName() const;
+    /// 只把实例页那棵树上"（运行中）"那几处后缀刷新一遍，**不重灌整棵树**。
+    ///
+    /// 为什么不直接调 refreshInstalledVersions()：那条路会重扫磁盘、还会走
+    /// syncTreeToCombo() 的 setCurrentItem()，而那一下会把用户折起来的组重新撑开
+    /// （见 wtfml-version-tree-ui 那条踩过的坑）。游戏起落时用户没在做"刷新列表"这件事，
+    /// 不该被动了他的树。
+    void updateInstanceTreeRunState();
+    /// 现在哪些实例**至少有一份会话**在跑（给实例树那几行加"（运行中）"用）。
+    QSet<QString> runningVersionIds() const;
+    /// 现在哪些实例**还没落地**（正在下 / 正在装加载器 / 正在导入整合包）。
+    ///
+    /// 「下载完成前该实例不在启动选项中」就靠它：refreshInstalledVersions() 拿它把
+    /// 那几个从下拉框、组合框、实例树和"（N 个实例）"计数里一起滤掉，
+    /// onStartButtonClicked() 那道闸口也读同一份 —— 列表里滤掉的正是闸口拦的，
+    /// 不会出现"列表里能选、点下去被拦"这种自相矛盾。
+    ///
+    /// 四个来源缺一不可，它们兜的是同一种缝：活儿还在进行，但此刻**没有任何一批下载
+    /// 在跑**（isDownloading() 是 false），于是只看下载状态的话，这个实例看起来已经好了。
+    ///   - busyVersionId()：正在下这一批的那一个版本。
+    ///   - m_importingInstanceId / m_installingInstanceId：整合包导入和"带名字的新实例"
+    ///     都有"等原版版本 json"那一段（元数据请求，不算下载），导入还多一段解压覆盖。
+    QSet<QString> installingVersionIds() const;
     /// 分组归属用哪个键认这个实例：有稳定 id（wtfml.meta 的 instanceId）就用它，
     /// 没有就退回**目录名**。
     ///
@@ -520,12 +560,13 @@ private:
     // "有版本目录但 jar 名对不上"这件事是否已经写过日志。refreshInstalledVersions()
     // 一次会话会被调很多次，不记一笔就是同样的告警反复刷。
     bool m_reportedUnrecognizedVersions = false;
-    // 启动进度是否还在走。从"进程真的起来了"（startGame 返回 true）到游戏自己吐出
-    // 第一行输出为止 —— 中间那段是 JVM 和游戏自己在初始化，界面上没别的反馈。
+    // 哪几份会话的启动进度还在走：从"进程真的起来了"（startGame 返回非零）到那一份自己
+    // 吐出第一行输出为止 —— 中间那段是 JVM 和游戏自己在初始化，界面上没别的反馈。
     // 命名刻意不叫 m_launching：它表示的是"这段进度要显示"而不是"正在启动"。
-    bool m_launchInFlight = false;
-    // 上面那段进度说的是哪个版本（中间那格要显示"正在启动 <显示名>"）。
-    QString m_launchingVersionId;
+    //
+    // 存的是**会话号**不是版本号：同一个实例可以被多开，按版本号记的话第二个起来就把
+    // 第一个那笔盖掉了（然后第一份出话时"启动中"照样挂着，直到它退出才收）。
+    QSet<int> m_launchingSessions;
     // 现在正卡在哪一段同步等待上（空串 = 没在等）。内容就是底栏那格要写的那句话，
     // 由 enterSyncWait() 写进来、leaveSyncWait() 清掉 —— 做成字符串而不是布尔量，
     // 是因为"在等什么"只有进那一段的人知道（换令牌 / 挑 Java / 等进程起来）。

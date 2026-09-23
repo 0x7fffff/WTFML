@@ -11,6 +11,7 @@
 #include "LauncherManager.hpp"
 
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QDebug>
 #include <QDir>
 #include <QDirIterator>
@@ -24,6 +25,8 @@
 #include <QStandardPaths>
 #include <QTimer>
 #include <QUuid>
+
+#include <algorithm>
 
 #include "../auth/AccountStore.hpp"
 #include "../auth/AuthManager.hpp"
@@ -106,15 +109,9 @@ void ensureInitialOptions(const QString &gameDir) {
 
 }  // namespace
 
-LauncherManager::LauncherManager(QObject *parent)
-    : QObject(parent), m_gameProcess(new QProcess(this)) {
-    // 把游戏进程的三条信号接到本类的三个槽上：标准输出、标准错误、进程结束。
-    connect(m_gameProcess, &QProcess::readyReadStandardOutput, this,
-            &LauncherManager::handleReadyReadStandardOutput);
-    connect(m_gameProcess, &QProcess::readyReadStandardError, this,
-            &LauncherManager::handleReadyReadStandardError);
-    connect(m_gameProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
-            &LauncherManager::handleProcessFinished);
+LauncherManager::LauncherManager(QObject *parent) : QObject(parent) {
+    // 没有别的初始化：QProcess 是**每份会话一个**，在 startGame() 里现建（见那里的说明）。
+    // 以前这里建的是一个长驻的 m_gameProcess，那正是"同时只能跑一个"的根。
 }
 
 bool LauncherManager::checkPreLaunch(const QString &versionId, QStringList *errors,
@@ -655,16 +652,38 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     return args;
 }
 
-bool LauncherManager::startGame(const QStringList &arguments, const EffectiveJavaSettings &settings,
-                                const QString &versionId) {
-    // 返回值 = "进程真的起来了"。三条早退路径都必须 return false：调用方拿它当
-    // "这次算不算启动成功"的判据（据此记住上次启动的版本），任何一条漏掉都会把
-    // 失败当成功记下来。这个函数里**每一条 return 都要想一遍返回值**。
-    if (m_gameProcess->state() != QProcess::NotRunning) {
-        qWarning() << "Game process is already running";
-        emit processError(tr("游戏进程已在运行"));
-        return false;
+int LauncherManager::startGame(const QStringList &arguments, const EffectiveJavaSettings &settings,
+                               const QString &versionId, const QString &displayName,
+                               const QString &accountName, const QString &accountUuid) {
+    // 返回值 = 这次会话的 id（> 0 就等于"进程真的起来了"）。三条早退路径都必须 return 0：
+    // 调用方拿非零当"这次算不算启动成功"的判据（据此记住上次启动的版本），任何一条漏掉
+    // 都会把失败当成功记下来。这个函数里**每一条 return 都要想一遍返回值**。
+    //
+    // NOTE: 以前这里第一条就是"已经在跑了就拒绝"，返回值是 bool。那条拒绝**去掉了** ——
+    //       多开是这个启动器明确要支持的事（见类头的说明），拦在这儿等于把"同一个实例
+    //       开两份""一个账号开两个实例"全堵死。
+    if (m_nextSessionId <= 0) {
+        // 跑满 21 亿次之后才会到这里，而那一下 0 是"失败"的哨兵值 —— 绕开它。
+        m_nextSessionId = 1;
     }
+    const int sessionId = m_nextSessionId++;
+
+    // 防手滑的阀门，不是性能上限（见头里的说明）。这一支**不登记会话**：它连一行日志
+    // 都不该挂在某个实例名下（被拦下的是"又开一个"这件事本身，不是某个实例）。
+    if (runningCount() >= maxConcurrentSessions()) {
+        qWarning() << "Too many game sessions already running:" << runningCount();
+        emit processError(0, tr("同时运行的游戏已经有 %1 个了（上限 %2），先关掉几个再启动。")
+                                 .arg(runningCount())
+                                 .arg(maxConcurrentSessions()));
+        return 0;
+    }
+
+    // 会话**先登记再干活**：后面几条早退路径上的报错要能带上实例名（界面按 sessionId
+    // 查显示名），所以这一笔必须在第一个 return 之前落下。失败时由 discardSession() 收回。
+    m_sessions.insert(sessionId, Entry{GameSession{sessionId, versionId,
+                                                   displayName.isEmpty() ? versionId : displayName,
+                                                   accountName, accountUuid, 0, 0},
+                                       nullptr, false});
 
     // 游戏进程的输出怎么解码，从**最终命令行**上反推（见下面那个静态函数的说明），
     // 而不是另立一个"我们加没加编码参数"的开关。正常情况下这条判据是自洽的：
@@ -675,8 +694,12 @@ bool LauncherManager::startGame(const QStringList &arguments, const EffectiveJav
     //       手写 -Dstdout.encoding=utf-8 时，Java 8-18 照样忽略它，而这里会判成 UTF-8，
     //       于是中文变乱码。这是**刻意接受**的：宁可跟着实际命令行走，也不要两处各记一份
     //       状态（那种失配更难查）。
-    m_gameOutputIsUtf8 = commandDeclaresUtf8Output(arguments);
-    qDebug() << "Game output is UTF-8:" << m_gameOutputIsUtf8;
+    //
+    // NOTE: 这一笔记在**会话自己**身上（entry.outputIsUtf8），不再是本类的一个成员 ——
+    //       同时开着两份时它们可能用着不同的 Java 主版本，共用一份会导致其中一份乱码。
+    const bool outputIsUtf8 = commandDeclaresUtf8Output(arguments);
+    m_sessions[sessionId].outputIsUtf8 = outputIsUtf8;
+    qDebug() << "Game output is UTF-8:" << outputIsUtf8 << "session" << sessionId;
 
     const QString program =
         settings.javaPath.isEmpty() ? QStringLiteral("java") : settings.javaPath;
@@ -690,8 +713,9 @@ bool LauncherManager::startGame(const QStringList &arguments, const EffectiveJav
     const QFileInfo javaInfo(program);
     if (!javaInfo.exists()) {
         qWarning() << "Java executable not found at:" << program;
-        emit processError(tr("Java可执行文件未找到：%1").arg(program));
-        return false;
+        emit processError(sessionId, tr("Java可执行文件未找到：%1").arg(program));
+        discardSession(sessionId);
+        return 0;
     }
     qDebug() << "Java path verified:" << javaInfo.absoluteFilePath();
 
@@ -709,13 +733,16 @@ bool LauncherManager::startGame(const QStringList &arguments, const EffectiveJav
         }
     }
 
-    m_gameProcess->setProgram(program);
-    m_gameProcess->setArguments(arguments);
+    // 每份会话一个 QProcess。父对象是 this，所以本类析构时它们会被一起收掉
+    // （那条链正是 detachRunningGame() 要绕开的，见那边的说明）。
+    auto *process = new QProcess(this);
+    process->setProgram(program);
+    process->setArguments(arguments);
 
     // 将工作目录设为 .minecraft 文件夹以确保文件能够正确解析
     QString minecraftDir = AppPaths::minecraftDir();
     QDir().mkpath(minecraftDir);
-    m_gameProcess->setWorkingDirectory(minecraftDir);
+    process->setWorkingDirectory(minecraftDir);
     qDebug() << "Working directory:" << minecraftDir;
 
     // 为这个版本创建独立的路径
@@ -725,46 +752,121 @@ bool LauncherManager::startGame(const QStringList &arguments, const EffectiveJav
     ensureInitialOptions(isolatedPath);
     qDebug() << "Isolated game directory:" << isolatedPath;
 
-    qDebug() << "Starting java process...";
-    m_gameProcess->start();
-    if (!m_gameProcess->waitForStarted(3000)) {
+    // 三条信号接在**这一份会话自己**的进程上，用 lambda 把 sessionId 带上 ——
+    // 不走 sender() 反查：那种写法在"进程刚结束、会话已经从表里摘掉"的那一瞬间
+    // 查不到东西（而那一刻恰恰要读剩下的输出）。
+    connect(process, &QProcess::readyReadStandardOutput, this,
+            [this, sessionId]() { handleReadyReadStandardOutput(sessionId); });
+    connect(process, &QProcess::readyReadStandardError, this,
+            [this, sessionId]() { handleReadyReadStandardError(sessionId); });
+    connect(process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
+            [this, sessionId](int exitCode, QProcess::ExitStatus exitStatus) {
+                handleProcessFinished(sessionId, exitCode, exitStatus);
+            });
+    m_sessions[sessionId].process = process;
+
+    qDebug() << "Starting java process... (session" << sessionId << ")";
+    process->start();
+    if (!process->waitForStarted(3000)) {
         qWarning() << "Failed to start game process";
-        qWarning() << "Error:" << m_gameProcess->errorString();
-        emit processError(tr("无法启动游戏进程：%1").arg(m_gameProcess->errorString()));
-        return false;
+        qWarning() << "Error:" << process->errorString();
+        emit processError(sessionId, tr("无法启动游戏进程：%1").arg(process->errorString()));
+        discardSession(sessionId);
+        return 0;
     }
 
-    qDebug() << "Java process started, PID:" << m_gameProcess->processId();
-    // 记"谁在跑"的**唯一**时机：进程真的起来了（三条早退路径都不记）。底栏右下角
-    // 那条状态和"启动中"进度的收尾都读它。
-    m_runningVersionId = versionId;
-    emit processOutput(tr("游戏已启动（进程ID：%1）").arg(m_gameProcess->processId()));
+    qDebug() << "Java process started, PID:" << process->processId();
+    // 记"谁在跑"的**唯一**时机：进程真的起来了（三条早退路径都不记）—— 底栏那条状态和
+    // "启动中"进度的收尾都读它。上一步 discardSession() 过的会话在这里已经不在表里了，
+    // 所以下面这两笔只可能落在**活着**的会话上。
+    m_sessions[sessionId].info.processId = static_cast<qint64>(process->processId());
+    m_sessions[sessionId].info.startedAtMs = QDateTime::currentMSecsSinceEpoch();
+    emit processOutput(sessionId, tr("游戏已启动（进程ID：%1）").arg(process->processId()));
+    return sessionId;
+}
+
+QList<LauncherManager::GameSession> LauncherManager::runningGames() const {
+    // 先按会话号收集：QHash 的遍历顺序不定，而"第几个在跑"这事得稳定 —— 底栏和日志里
+    // 一次列好几个实例时，两次刷新换个顺序看着就像抖动。按号升序 = 按启动顺序。
+    QList<int> ids;
+    ids.reserve(m_sessions.size());
+    for (auto it = m_sessions.constBegin(); it != m_sessions.constEnd(); ++it) {
+        const Entry &entry = it.value();
+        if (entry.process != nullptr && entry.process->state() != QProcess::NotRunning) {
+            ids.append(it.key());
+        }
+    }
+    std::sort(ids.begin(), ids.end());
+
+    QList<GameSession> games;
+    games.reserve(ids.size());
+    for (int id : ids) {
+        games.append(m_sessions.constFind(id)->info);
+    }
+    return games;
+}
+
+int LauncherManager::runningCount() const { return runningGames().size(); }
+
+bool LauncherManager::hasRunningGame() const { return !runningGames().isEmpty(); }
+
+bool LauncherManager::isVersionRunning(const QString &versionId) const {
+    if (versionId.isEmpty()) {
+        return false;
+    }
+    const QList<GameSession> games = runningGames();
+    for (const GameSession &game : games) {
+        if (game.versionId == versionId) {
+            return true;
+        }
+    }
+    return false;
+}
+
+LauncherManager::GameSession LauncherManager::session(int sessionId) const {
+    const auto it = m_sessions.constFind(sessionId);
+    return it == m_sessions.constEnd() ? GameSession() : it->info;
+}
+
+bool LauncherManager::stopGame(int sessionId) {
+    const auto it = m_sessions.constFind(sessionId);
+    if (it == m_sessions.constEnd() || it->process == nullptr ||
+        it->process->state() == QProcess::NotRunning) {
+        return false;  // 已经结束了（或者刚被交出去）：没有可停的东西
+    }
+    qInfo() << "用户要求停止实例:" << it->info.displayName
+            << "PID:" << it->info.processId;
+    // kill() 就是 TerminateProcess，游戏来不及存档 —— 界面那边必须先把这件事说清楚
+    // （见 MainWindow::onStopGameClicked() 那个确认框）。这里不 waitForFinished()：
+    // 结束那条路会走 handleProcessFinished，界面据此收状态，同步等在这里只会卡住界面。
+    it->process->kill();
     return true;
 }
 
-QString LauncherManager::runningVersionId() const { return m_runningVersionId; }
-
-bool LauncherManager::hasRunningGame() const {
-    return m_gameProcess != nullptr && m_gameProcess->state() != QProcess::NotRunning;
-}
-
 void LauncherManager::detachRunningGame() {
-    if (!hasRunningGame()) {
+    const QList<GameSession> games = runningGames();
+    if (games.isEmpty()) {
         return;  // 没在跑（或者已经交出去过）：什么都不做，也不留日志
     }
-    qInfo() << "游戏还在跑：把进程交出去，关掉启动器不会把它杀掉。PID:"
-            << m_gameProcess->processId();
-    // 先断信号：交出去之后 handleProcessFinished 之类的槽不该再被调到（那时界面已经在拆了）。
-    m_gameProcess->disconnect();
-    // 脱离 this 的所有权 —— 这才是关键那一步：析构链（MainWindow 是 main() 里的栈对象）
-    // 走到这里时，m_gameProcess 已经不是它的子对象，QProcess 那套"进程还在跑就
-    // kill()+waitForFinished()"的析构逻辑**跑不到**，java.exe 自己继续活在系统里。
-    m_gameProcess->setParent(nullptr);
-    // NOTE: 这个对象是**故意不释放**的（它已经没人管了，泄漏的就是一个 QProcess 壳子，
-    //       进程退出时由系统回收）。释放它就等于执行析构、等于把游戏强杀 —— 那正是这一步
-    //       要避免的事。指针也不置空：置空之后万一还有人调本类的方法就会空指针解引用，
-    //       留着一个活着但没人接信号的对象更安全（这条路只在退出前走一次）。
-    m_runningVersionId.clear();
+    for (const GameSession &game : games) {
+        const auto it = m_sessions.find(game.sessionId);
+        if (it == m_sessions.end() || it->process == nullptr) {
+            continue;
+        }
+        qInfo() << "游戏还在跑：把进程交出去，关掉启动器不会把它杀掉。实例:"
+                << game.displayName << "PID:" << game.processId;
+        // 先断信号：交出去之后 handleProcessFinished 之类的槽不该再被调到（那时界面已经在拆了）。
+        it->process->disconnect();
+        // 脱离 this 的所有权 —— 这才是关键那一步：析构链（MainWindow 是 main() 里的栈对象）
+        // 走到这里时，这些 QProcess 已经不是它的子对象，那套"进程还在跑就
+        // kill()+waitForFinished()"的析构逻辑**跑不到**，java.exe 自己继续活在系统里。
+        it->process->setParent(nullptr);
+        // NOTE: 这些对象是**故意不释放**的（它们已经没人管了，泄漏的就是几个 QProcess 壳子，
+        //       进程退出时由系统回收）。释放它们就等于执行析构、等于把游戏强杀 —— 那正是这
+        //       一步要避免的事。指针也不置空：留着活着的对象比留一个会空指针解引用的洞安全
+        //       （这条路只在退出前走一次）。清表只是本类不再认它们。
+    }
+    m_sessions.clear();
 }
 
 bool LauncherManager::commandDeclaresUtf8Output(const QStringList &arguments) {
@@ -779,54 +881,89 @@ bool LauncherManager::commandDeclaresUtf8Output(const QStringList &arguments) {
     return isUtf8;
 }
 
-QString LauncherManager::decodeGameOutput(const QByteArray &bytes) const {
-    // 判据来自 startGame() 从命令行反推出来的 m_gameOutputIsUtf8，见那里的说明。
+QString LauncherManager::decodeGameOutput(bool utf8, const QByteArray &bytes) {
+    // 判据来自 startGame() 从命令行反推出来、记在**那份会话自己**身上的 outputIsUtf8。
     //
     // NOTE: 只给游戏进程用这一份。GlobalJavaSettings::runProcess 和 ZipUtil 里的
     //       fromLocal8Bit 不能跟着改 —— 它们解的是 PowerShell / java -version 的输出，
     //       前者根本不是 JVM、不认 -Dstdout.encoding，改了才是引入乱码。
-    return m_gameOutputIsUtf8 ? QString::fromUtf8(bytes) : QString::fromLocal8Bit(bytes);
+    return utf8 ? QString::fromUtf8(bytes) : QString::fromLocal8Bit(bytes);
 }
 
-void LauncherManager::handleReadyReadStandardOutput() {
-    const QString output = decodeGameOutput(m_gameProcess->readAllStandardOutput()).trimmed();
+void LauncherManager::discardSession(int sessionId) {
+    const auto it = m_sessions.find(sessionId);
+    if (it == m_sessions.end()) {
+        return;
+    }
+    QProcess *process = it->process;
+    m_sessions.erase(it);
+    if (process != nullptr) {
+        // 先断信号再删：deleteLater() 是"回到事件循环再释放"，这中间那个进程对象还活着，
+        // 万一它又吐一次 readyRead（结束前最后那几行）就会打到已经摘掉的会话上。
+        process->disconnect();
+        process->deleteLater();
+    }
+}
+
+void LauncherManager::handleReadyReadStandardOutput(int sessionId) {
+    const auto it = m_sessions.constFind(sessionId);
+    if (it == m_sessions.constEnd() || it->process == nullptr) {
+        return;
+    }
+    const QString output =
+        decodeGameOutput(it->outputIsUtf8, it->process->readAllStandardOutput()).trimmed();
     if (!output.isEmpty()) {
-        qDebug().noquote() << "[Game Output]" << output;
-        emit processOutput(output);
+        qDebug().noquote() << "[Game Output]" << it->info.displayName << output;
+        emit processOutput(sessionId, output);
     }
 }
 
-void LauncherManager::handleReadyReadStandardError() {
-    const QString error = decodeGameOutput(m_gameProcess->readAllStandardError()).trimmed();
+void LauncherManager::handleReadyReadStandardError(int sessionId) {
+    const auto it = m_sessions.constFind(sessionId);
+    if (it == m_sessions.constEnd() || it->process == nullptr) {
+        return;
+    }
+    const QString error =
+        decodeGameOutput(it->outputIsUtf8, it->process->readAllStandardError()).trimmed();
     if (!error.isEmpty()) {
-        qWarning().noquote() << "[Game Error]" << error;
-        emit processError(error);
+        qWarning().noquote() << "[Game Error]" << it->info.displayName << error;
+        emit processError(sessionId, error);
     }
 }
 
-void LauncherManager::handleProcessFinished(int exitCode, QProcess::ExitStatus exitStatus) {
+void LauncherManager::handleProcessFinished(int sessionId, int exitCode,
+                                            QProcess::ExitStatus exitStatus) {
+    const auto it = m_sessions.constFind(sessionId);
+    if (it == m_sessions.constEnd() || it->process == nullptr) {
+        return;  // 已经被交出去过（detach）或者收掉了：这一份没有任何可报的
+    }
+    QProcess *process = it->process;
+    const bool outputIsUtf8 = it->outputIsUtf8;
+    const QString displayName = it->info.displayName;
+
     qDebug() << "=== Game Process Finished ===";
+    qDebug() << "Session:" << sessionId << "Instance:" << displayName;
     qDebug() << "Exit code:" << exitCode;
     qDebug() << "Exit status:" << (exitStatus == QProcess::NormalExit ? "Normal" : "Crash");
 
     // 检查剩余的输出
-    const QByteArray remainingOutput = m_gameProcess->readAllStandardOutput();
-    const QByteArray remainingError = m_gameProcess->readAllStandardError();
+    const QByteArray remainingOutput = process->readAllStandardOutput();
+    const QByteArray remainingError = process->readAllStandardError();
 
     if (!remainingOutput.isEmpty()) {
-        const QString output = decodeGameOutput(remainingOutput).trimmed();
+        const QString output = decodeGameOutput(outputIsUtf8, remainingOutput).trimmed();
         qDebug() << "Remaining output:" << output;
-        emit processOutput(output);
+        emit processOutput(sessionId, output);
     }
 
     if (!remainingError.isEmpty()) {
-        const QString error = decodeGameOutput(remainingError).trimmed();
+        const QString error = decodeGameOutput(outputIsUtf8, remainingError).trimmed();
         qDebug() << "Remaining error:" << error;
-        emit processError(error);
+        emit processError(sessionId, error);
     }
 
-    // 清在 emit 之前：接 gameFinished 的槽会去读 runningVersionId() 刷新底栏，
-    // 反过来的话它会读到"刚退出的那个版本还在跑"。
-    m_runningVersionId.clear();
-    emit gameFinished(exitCode, exitStatus);
+    // 摘在 emit 之前：接 gameFinished 的槽会去读 runningGames() 刷新底栏，反过来的话
+    // 它会读到"刚退出的那一份还在跑"。
+    discardSession(sessionId);
+    emit gameFinished(sessionId, exitCode, exitStatus);
 }
