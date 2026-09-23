@@ -5,6 +5,7 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QPolygonF>
+#include <QtMath>
 
 #include <functional>
 
@@ -13,6 +14,10 @@ namespace {
 // ---------------------------------------------------------------------------
 // 草方块：16×16 的像素画，照 MC 那块贴图的侧面（上面一层绿、底下一层土，
 // 草的下沿是锯齿状的）。颜色是挑的近似色，不是从游戏里抠出来的。
+//
+// 快照版用的是同一张底图、只把上面那层换成白色（覆雪草块），远古版一点草都不加
+// （整块土）—— 三张共用 blockImage()，用户 2026-09-23 定：「快照版的草用白色
+// （覆雪草块），远古版就土块，愚人节版用幸运方块，原版不变」。
 // ---------------------------------------------------------------------------
 const QColor kGrassLight(0x8c, 0xc8, 0x5a);
 const QColor kGrassDark(0x5d, 0x9c, 0x3f);
@@ -21,12 +26,80 @@ const QColor kDirtLight(0x9c, 0x70, 0x4a);
 const QColor kDirtMid(0x84, 0x5f, 0x3d);
 const QColor kDirtDark(0x6e, 0x4c, 0x30);
 
+/// 覆雪草块上面那三层（雪白 / 阴面 / 下沿）。照着草方块那三层的位置放，只是换成白的。
+const QColor kSnowLight(0xf4, 0xf9, 0xfc);
+const QColor kSnowDark(0xdd, 0xe9, 0xf2);
+const QColor kSnowEdge(0xbc, 0xcf, 0xdc);
+
+/// 幸运方块那几档金（底 / 深一档的斑 / 边），外加问号那个奶油色。
+const QColor kLuckyLight(0xe9, 0xc2, 0x4c);
+const QColor kLuckyDark(0xd0, 0xa3, 0x2a);
+const QColor kLuckyEdge(0xa5, 0x7a, 0x16);
+const QColor kLuckyInk(0xf8, 0xf2, 0xd2);
+
+/// 幸运方块上那个问号：5 格宽 × 7 格高，`#` 是要画成奶油色的格子（最后那一行是底下那一点，
+/// 中间空的那一行是它和上面那钩子之间的距离）。**写死**，不画字体 —— 字号一缩放就不是这个
+/// 形状了，而且这一格要能对着像素断言。
+const char *const kQuestionRows[7] = {
+    ".###.",
+    "#...#",
+    "....#",
+    "...#.",
+    "..#..",
+    ".....",
+    "..#..",
+};
+
 /// 每一列草有多厚（那个锯齿下沿）。**写死**的，不调随机数 —— 截图要每次一模一样，
-/// 而且"上面绿、下面土"这件事得能对着像素断言。
+/// 而且"上面绿、下面土"这件事得能对着像素断言。覆雪草块和土块共用这张表。
 const int kGrassDepth[16] = {3, 4, 4, 3, 5, 4, 3, 3, 4, 5, 4, 3, 4, 4, 3, 5};
 
-/// 土上那些深浅斑点：看着不规整就行，不是随机数（同样是"每次画出来必须一样"）。
-int dirtShade(int x, int y) { return (x * 7 + y * 13 + (x * y) % 5) % 3; }
+/// 方块上那些深浅斑点（土上、金底上都是它）：看着不规整就行，不是随机数
+/// （同样是"每次画出来必须一样"）。
+int blockShade(int x, int y) { return (x * 7 + y * 13 + (x * y) % 5) % 3; }
+
+/// 土那部分某一个格子什么颜色（三档斑）。草方块、覆雪草块、土块下面那截都是它。
+QColor dirtPixel(int x, int y) {
+    switch (blockShade(x, y)) {
+        case 0:
+            return kDirtLight;
+        case 1:
+            return kDirtMid;
+        default:
+            return kDirtDark;
+    }
+}
+
+/// 一块 16×16 的方块底图。@p withTop 为假 = 上面一点草都没有（土块）；为真时上面那一层
+/// 照 kGrassDepth 分层（顶色 → 阴面色 → 下沿色），底下全是土。
+QImage blockImage(const QColor &topLight, const QColor &topDark, const QColor &topEdge,
+                  bool withTop) {
+    QImage img(16, 16, QImage::Format_ARGB32_Premultiplied);
+    img.fill(Qt::transparent);
+    for (int x = 0; x < 16; ++x) {
+        const int depth = kGrassDepth[x];
+        for (int y = 0; y < 16; ++y) {
+            QColor color = dirtPixel(x, y);
+            if (withTop) {
+                if (y <= depth - 3) {
+                    color = topLight;
+                } else if (y <= depth - 1) {
+                    color = topDark;
+                } else if (y == depth) {
+                    color = topEdge;
+                }
+            }
+            img.setPixelColor(x, y, color);
+        }
+    }
+    return img;
+}
+
+/// 像素画放大到目标边长：最近邻，放大之后还得是方块，不能糊成一团。
+QPixmap scaledBlock(const QImage &img, int size) {
+    return QPixmap::fromImage(
+        img.scaled(size, size, Qt::IgnoreAspectRatio, Qt::FastTransformation));
+}
 
 /// 16 格坐标系（和草方块那块贴图一个尺度）→ 目标边长的像素。
 qreal u(qreal v, int size) { return v * size / 16.0; }
@@ -184,38 +257,77 @@ QPixmap VersionIcons::grassBlock(int size) {
         return QPixmap();
     }
     return cached(QStringLiteral("grass/%1").arg(size), [size]() {
+        return scaledBlock(blockImage(kGrassLight, kGrassDark, kGrassEdge, true), size);
+    });
+}
+
+QPixmap VersionIcons::snowyGrassBlock(int size) {
+    if (size <= 0) {
+        return QPixmap();
+    }
+    return cached(QStringLiteral("snowy/%1").arg(size), [size]() {
+        return scaledBlock(blockImage(kSnowLight, kSnowDark, kSnowEdge, true), size);
+    });
+}
+
+QPixmap VersionIcons::dirtBlock(int size) {
+    if (size <= 0) {
+        return QPixmap();
+    }
+    return cached(QStringLiteral("dirt/%1").arg(size), [size]() {
+        // 上面那三个颜色传土自己那三档：withTop 给的是假，它们一格都用不上 ——
+        // 这么传是有意的，将来谁把那个假改成真，画出来还是土，不会突然冒出一层草。
+        return scaledBlock(blockImage(kDirtLight, kDirtMid, kDirtDark, false), size);
+    });
+}
+
+QPixmap VersionIcons::luckyBlock(int size) {
+    if (size <= 0) {
+        return QPixmap();
+    }
+    return cached(QStringLiteral("lucky/%1").arg(size), [size]() {
         QImage img(16, 16, QImage::Format_ARGB32_Premultiplied);
         img.fill(Qt::transparent);
         for (int x = 0; x < 16; ++x) {
-            const int depth = kGrassDepth[x];
             for (int y = 0; y < 16; ++y) {
-                QColor color;
-                if (y <= depth - 3) {
-                    color = kGrassLight;
-                } else if (y <= depth - 1) {
-                    color = kGrassDark;
-                } else if (y == depth) {
-                    color = kGrassEdge;
+                // 最外一圈深一档：这个方块得看着是"一块"，不能糊成一片金。
+                const bool frame = (x == 0 || y == 0 || x == 15 || y == 15);
+                if (frame) {
+                    img.setPixelColor(x, y, kLuckyEdge);
                 } else {
-                    switch (dirtShade(x, y)) {
-                        case 0:
-                            color = kDirtLight;
-                            break;
-                        case 1:
-                            color = kDirtMid;
-                            break;
-                        default:
-                            color = kDirtDark;
-                            break;
-                    }
+                    img.setPixelColor(x, y,
+                                      blockShade(x, y) == 0 ? kLuckyLight : kLuckyDark);
                 }
-                img.setPixelColor(x, y, color);
             }
         }
-        // 最近邻放大：像素画放大之后还得是方块，不能糊成一团。
-        return QPixmap::fromImage(
-            img.scaled(size, size, Qt::IgnoreAspectRatio, Qt::FastTransformation));
+        // 中间那个问号：5×7 的位图摆在 (5,4)，**写死**（见头文件里那句"不是画的字"）。
+        for (int row = 0; row < 7; ++row) {
+            for (int col = 0; col < 5; ++col) {
+                if (kQuestionRows[row][col] == '#') {
+                    img.setPixelColor(5 + col, 4 + row, kLuckyInk);
+                }
+            }
+        }
+        return scaledBlock(img, size);
     });
+}
+
+QPixmap VersionIcons::versionChannelMark(int channelIndex, int size) {
+    if (size <= 0) {
+        return QPixmap();
+    }
+    switch (channelIndex) {
+        case 0:
+            return grassBlock(size);  // 正式版：原版那个草方块，不变
+        case 1:
+            return snowyGrassBlock(size);
+        case 2:
+            return dirtBlock(size);
+        case 3:
+            return luckyBlock(size);
+        default:
+            return grassBlock(size);  // 越界 = 认不出来 = 当原版（和 loaderMark 一个规矩）
+    }
 }
 
 QPixmap VersionIcons::loaderMark(int index, int size) {
@@ -311,6 +423,67 @@ QPixmap VersionIcons::cross(int size, const QColor &color) {
         const qreal b = size * 0.78;
         p.drawLine(QPointF(a, a), QPointF(b, b));
         p.drawLine(QPointF(b, a), QPointF(a, b));
+        return pixmap;
+    });
+}
+
+QPixmap VersionIcons::refresh(int size, const QColor &color) {
+    if (size <= 0) {
+        return QPixmap();
+    }
+    return cached(QStringLiteral("refresh/%1/%2").arg(size).arg(color.name()), [size, color]() {
+        QPixmap pixmap(size, size);
+        pixmap.fill(Qt::transparent);
+        QPainter p(&pixmap);
+        p.setRenderHint(QPainter::Antialiasing, true);
+
+        // 一笔通到底的粗细：和 chevron / cross 同一个比例（size/7 ≈ 0.14），只是下界
+        // 抬高一点 —— 1.6 是"一条线"的下界，圆环那么细会发虚。
+        const qreal penWidth = qMax(1.5, size * 0.13);
+
+        // 圆心与半径：四周留 20% 边距（和 cross 那个 22% 是同一个打算 —— 贴到边上会
+        // 看着比同一个格里的箭头大一号）。笔宽和箭头都在这圈里，不会顶出去。
+        const QPointF center(size / 2.0, size / 2.0);
+        const qreal radius = size * 0.30;
+        const QRectF box(center.x() - radius, center.y() - radius, 2 * radius, 2 * radius);
+
+        // 角度按 Qt 那套：0° 在正右、逆时针为正、**y 轴朝下**（所以 90° 是正上）。
+        // 缺口留在**正上方偏右**（12 点到 1 点那一带）：起笔 55°、顺时针扫 285°
+        //（Qt 里负角就是顺时针）→ 收在 130°（左上），那 75° 就是缺口 —— 不断开的话
+        // 就只是一个圆圈，读不出"转一圈回来"这层意思。
+        constexpr qreal kHeadDeg = 55.0;
+        constexpr qreal kSweepDeg = -285.0;
+
+        QPen pen(color);
+        pen.setWidthF(penWidth);
+        // 端头用平头：那一头会被下面的三角盖住，圆帽反而会从三角边上冒出来一小截。
+        pen.setCapStyle(Qt::FlatCap);
+        p.setPen(pen);
+        p.setBrush(Qt::NoBrush);
+        p.drawArc(box, int(kHeadDeg * 16), int(kSweepDeg * 16));
+
+        // 箭头画在 55° 那一头（一点半那个位置）：**实心三角**，顶点顺着"顺时针继续转"
+        // 那个方向伸出去一点，底边横在来路上、**按径向**排开。
+        //
+        // NOTE: 原来是"两笔画一个 V"（顶点在弧上、两翼向来路张开）—— 18 px 下那两翼会
+        //       横着穿过圈身，看着像挂在圈上的一个多余疙瘩（用户 2026-09-23 原话：
+        //       "图标能不能重新画一个，好诡异"）。同样大小的实心三角干净得多，也是
+        //       浏览器刷新钮那种通用长相。
+        const qreal headRad = qDegreesToRadians(kHeadDeg);
+        const QPointF onArc(center.x() + radius * qCos(headRad),
+                            center.y() - radius * qSin(headRad));
+        // 顺时针的切向（屏幕坐标，y 朝下）= (sinθ, cosθ)；径向朝外 = (cosθ, −sinθ)。
+        const QPointF travel(qSin(headRad), qCos(headRad));
+        const QPointF outward(qCos(headRad), -qSin(headRad));
+        // 三角的三条边都按边长给比例：长 22%、底边半宽 13%（≈ 两倍笔宽，看着才"实"）。
+        const qreal length = size * 0.22;
+        const qreal halfBase = size * 0.13;
+        const QPointF tip = onArc + travel * (length * 0.15);
+        const QPointF base = tip - travel * length;
+        const QPolygonF head({tip, base + outward * halfBase, base - outward * halfBase});
+        p.setPen(Qt::NoPen);
+        p.setBrush(color);
+        p.drawPolygon(head);
         return pixmap;
     });
 }

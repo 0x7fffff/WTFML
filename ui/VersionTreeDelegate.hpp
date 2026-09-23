@@ -71,6 +71,20 @@ public:
     ///       于是用户以为取消了、其实只是把那一列收了起来）。
     static QRect clearRect(const QRect &row);
 
+    /// 行尾那个**刷新按钮**占哪一格（`row` 是整行的矩形，视口坐标）。只有条目上
+    /// `rowRefreshRole()` 为真的行才画它、也只有那种行才有意义。
+    ///
+    /// 现在是下载页左栏那五个分类条目在用（用户原话："每一项的右边放一个刷新按钮"）。
+    /// 和 clearRect() 一样，**这一格也是唯一出处** —— paint() 按它画、MainWindow 那边
+    /// 按它判断"这一下点中的是不是那个按钮"（见 MainWindow::eventFilter）。
+    ///
+    /// NOTE: 定位是**贴着行右边缘**（不像 clearRect 那样挂在箭头左边）—— 用这个角色的
+    ///       行（分类条目）本来就没有孩子、代理不给它画箭头，那一格是空的。
+    ///       代价是它和 clearRect()（那个「取消」小叉，挂在箭头左边）**占的是同一块地方**：
+    ///       一行同时挂这两个角色的话，两个字形会叠在一起。今天界面上没有任何一行同时挂着，
+    ///       ui_check 里有一条断言把这条互斥钉住（真要有那么一行，那里先红）。
+    static QRect refreshRect(const QRect &row);
+
 private:
     bool m_leafArrow = true;
     int m_iconSize = 0;

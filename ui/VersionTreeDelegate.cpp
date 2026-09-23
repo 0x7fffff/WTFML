@@ -28,6 +28,17 @@ QRect VersionTreeDelegate::clearRect(const QRect &row) {
     return QRect(left, row.center().y() - box / 2, box, box);
 }
 
+QRect VersionTreeDelegate::refreshRect(const QRect &row) {
+    const int pad = MainWindowUI::versionTreeRowPadding();
+    // 画出来的那个圈和**正文前面的图标一样大**（versionTreeIconSize，18 px），命中格比它
+    // 大一圈（四周各留 3 px，和 clearRect 同一个做法）—— 18 px 的点击目标太小了，
+    // 手一抖就点到那一行上（而那一下是"换分类"）。
+    const int box = MainWindowUI::versionTreeIconSize() + 6;
+    // 贴着行右边缘。QRect 的 right() 是"最后一个像素的 x"，所以右边留出 pad 那几格之后，
+    // 起点要 +1 才让这一格的右边缘正好落在 row.right() - pad 上。
+    return QRect(row.right() - pad - box + 1, row.center().y() - box / 2, box, box);
+}
+
 void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option,
                                 const QModelIndex &index) const {
     QStyleOptionViewItem opt(option);
@@ -94,9 +105,16 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     // （rowClearRole()，见下），那一格也要从文字的可用宽度里扣掉。
     const bool showClear = index.data(MainWindowUI::rowClearRole()).toBool();
     const QRect crossBox = clearRect(row);
+    // 行尾那个刷新按钮（rowRefreshRole()）：和上面那个叉一样，它占的那一格也要从文字的
+    // 可用宽度里扣掉 —— 不扣的话长条目会从它底下穿过去。
+    const bool showRefresh = index.data(MainWindowUI::rowRefreshRole()).toBool();
+    const QRect refreshBox = refreshRect(row);
     int textRight = row.right() - pad - arrowSize - 6;
     if (showClear) {
         textRight -= crossBox.width() + 6;
+    }
+    if (showRefresh) {
+        textRight -= refreshBox.width() + 6;
     }
     const QRect textRect(textLeft, row.top(), qMax(0, textRight - textLeft), row.height());
     const QString mainText = index.data(Qt::DisplayRole).toString();
@@ -135,6 +153,18 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     }
     if (!mark.isNull()) {
         painter->drawPixmap(iconRect.topLeft(), mark);
+    }
+    // 行尾那个刷新按钮（见 refreshRect()）。画在**这个** save/restore 里（不是下面画箭头
+    // 那一块）：下面那一块对"没有孩子的顶层"会整块 return 掉（分类条目正是那种行），
+    // 画在那儿的话这一格根本轮不到。用次要那一档颜色 —— 它是行里的一个动作，不是正文。
+    if (showRefresh) {
+        // 画的比同格里其他字形大一号（20 而不是 18）：圆形的字形在同样标称尺寸下
+        // 看着比方的那个小一圈（正文前面那个草方块就是方的），而这一格是纯图标、
+        // 四周还有 2 px 余量，撑不满反倒显得"这一格是空的"。
+        const QRect glyph = refreshBox.adjusted(2, 2, -2, -2);
+        painter->drawPixmap(glyph.topLeft(),
+                            VersionIcons::refresh(glyph.width(),
+                                                  palette.color(QPalette::PlaceholderText)));
     }
     painter->restore();
 
@@ -212,6 +242,11 @@ QSize VersionTreeDelegate::sizeHint(const QStyleOptionViewItem &option,
     // 行尾那个「取消」小叉也占宽度（只有选中的那条加载器有，见 rowClearRole()）。
     if (index.data(MainWindowUI::rowClearRole()).toBool()) {
         width += MainWindowUI::versionTreeArrowSize() + 6 + 6;
+    }
+    // 行尾那个刷新按钮同理（见 rowRefreshRole()/refreshRect()）：它比那个叉大一号
+    //（跟着正文图标那个 18 px 走），间距还是 6。
+    if (index.data(MainWindowUI::rowRefreshRole()).toBool()) {
+        width += MainWindowUI::versionTreeIconSize() + 6 + 6;
     }
     return QSize(width, height);
 }

@@ -51,6 +51,14 @@ public:
     ///       用户看，看着像接口坏了。
     static constexpr int kStatusTooManyRequests = 429;
 
+    /// HTTP 304：**没变**。
+    ///
+    /// 只有带了条件头（`If-None-Match` / `If-Modified-Since`）去问才可能出现这个码 ——
+    /// 它说的不是"出错"，是"你要的东西还是你手上那份，我不再发一遍了"。所以它是**成功**
+    /// 的一种，判据里不能掉进 `!okStatus()` 那个"失败"分支去（那会把"没变"当成"没取到"，
+    /// 症状是作者没换图标、这一格反而被擦掉）。唯一用户是 ResourceStore 的图标核对那一发。
+    static constexpr int kStatusNotModified = 304;
+
     /// 限流那一句（**唯一出处**）。@param what 这一步在做什么（"读取披风失败"这种），
     /// 拼在这句话最前头。
     static QString throttledText(const QString &what);

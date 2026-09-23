@@ -274,7 +274,20 @@ public:
     /// NOTE: 它和正文在**同一列**里（由 VersionTreeDelegate 分两行画出来），所以
     ///       不能拿"第二列"当位置 —— 那会多出半张表、还要处理表头。
     /// NOTE: 空串 = 这一行不画第二行（版本树里清单没给时间的、加载器里没选中的都是）。
-    static int rowSubTextRole() { return Qt::UserRole + 1; }
+    ///
+    /// 【代理那三个"行装饰"角色自成一档：UserRole + 8 / 9 / 10】
+    ///
+    /// 这三个（rowSubTextRole / rowClearRole / rowRefreshRole）是**画**那一层读的，
+    /// 和"条目身份"那一批（`Qt::UserRole` / `+1` / `+2` / `+3`…，各张表各用各的）必须岔开。
+    ///
+    /// Why: 2026-09-23 撞过一次，症状很难认 —— `rowRefreshRole()` 和
+    ///      `resourceKindRole()`（资源表上每一行都写的那一格）都是 `Qt::UserRole + 3`，
+    ///      于是**模组/资源包/光影那三张表的每一行右端都多出一个刷新圈**，正压在展开用的
+    ///      那个 `>` 上（用户原话："这个刷新图标会在模组/…的右侧那个 > 的地方重叠一份"）。
+    ///      两边各自看都写得没错，是**号码撞了**：谁也编不过、谁也不报错，只是屏幕上多一笔。
+    ///      所以这一档整体挪到 8 起步，中间那几格空着不占（将来加角色也先看这里）。
+    ///      ui_check 里有一条断言把"这三个和 resourceKindRole() 两两不同"钉住。
+    static int rowSubTextRole() { return Qt::UserRole + 8; }
     /// 条目前面那个图标挂在哪个角色上（`Qt::DecorationRole`）—— 见 VersionTreeDelegate：
     /// 给了就画它，没给就按"版本号前面是草方块"那条老规矩画。
     /// 加载器那棵树五条都是给全的（各自那个标志）。
@@ -283,7 +296,18 @@ public:
     /// 加载器**"会写真（见 MainWindow::updateLoaderRows()），点了它 = 取消装这个加载器、
     /// 退回「不装（纯原版）」（用户原话："选中以后在那个 > 左侧加一个 x 来取消安装对应版本"）。
     /// NOTE: 版本树从来不写这个角色 —— 那棵树上没有"取消掉这一条"这种事。
-    static int rowClearRole() { return Qt::UserRole + 2; }
+    /// NOTE: 号码为什么从 `UserRole + 1` 挪到 `UserRole + 9`，见 rowSubTextRole() 上面那段。
+    static int rowClearRole() { return Qt::UserRole + 9; }
+    /// 「这一行尾那个**刷新按钮**要画」挂在哪个角色上（真 = 画）。现在是下载页左栏那五个
+    /// 分类条目在用（用户原话："每一项的右边放一个刷新按钮"），点它 = 这一类重新问一遍
+    /// （见 MainWindow::refreshDownloadCategory()）。画在哪一格、怎么认下那一下，
+    /// 见 VersionTreeDelegate::refreshRect()。
+    /// NOTE: 和 rowClearRole()（那个「取消」小叉）是两件不同的事，但**一行不能同时挂这两个**：
+    ///       那两块地方在行尾是重叠的（一个挂在箭头左边、一个贴着右边缘），同时挂会叠在一起。
+    ///       今天界面上没有任何一行同时挂着，ui_check 里有一条断言把这条互斥钉住。
+    /// NOTE: 号码为什么从 `UserRole + 3` 挪到 `UserRole + 10` —— 见 rowSubTextRole() 上面
+    ///       那一段（原来是撞了 resourceKindRole()，资源表上每一行都长出一个圈）。
+    static int rowRefreshRole() { return Qt::UserRole + 10; }
     /// 树上用的字号相对**默认**字号的偏移：用户要"文本放大一点"，+2。
     /// 默认字号在系统上是 9~12 pt 不等，所以这里记的只能是偏移，不能记死一个点数。
     static int versionTreeFontStep() { return 2; }
@@ -420,6 +444,11 @@ public:
     /// 存的为什么是键而不是枚举的整数值：读的时候可以直接走
     /// `ResourceCatalog::kindFromCategoryKey()` —— 那个函数认得出来才是"这一行是我们建的"，
     /// 而把一个 int 硬转成枚举是没有这层校验的（值是脏的就会变成一个不存在的 Kind）。
+    ///
+    /// NOTE: 挑号码的时候看一眼 rowSubTextRole() 上面那段 —— 2026-09-23 这里原来和
+    ///       `rowRefreshRole()` 撞了（都是 `UserRole + 3`），症状是这三张表上**每一行**
+    ///       右端都多画一个刷新圈压在 `>` 上。代理那三个角色现在自成一档（+8/+9/+10），
+    ///       这一档（条目身份）用 +0/+1/+2/+3…，两边别再串。
     static int resourceKindRole() { return Qt::UserRole + 3; }
 
     static QString folderListName() { return QStringLiteral("folderList"); }

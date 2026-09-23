@@ -30,6 +30,31 @@ namespace VersionIcons {
 /// @param size 边长（像素）。画法是 16×16 的像素画再按整数放大，所以大小取 16 的倍数最清楚。
 QPixmap grassBlock(int size);
 
+/// 覆雪草块（上面那层是白的，下面还是土）—— 快照版那一栏版本号前面的图标。
+/// 和 grassBlock() 同一份底图，只有"上面那层是哪三个颜色"不同（下沿那张锯齿表共用）。
+QPixmap snowyGrassBlock(int size);
+
+/// 土块（一点草都没有，整块都是土）—— 远古版那一栏版本号前面的图标。
+QPixmap dirtBlock(int size);
+
+/// 幸运方块（金底 + 深一档的边 + 中间一个奶油色的问号）—— 愚人节版那一栏的图标。
+/// 那个问号是**写死的 5×7 位图**，不是画的字：字号一缩放就不是这个形状了，
+/// 而且这一格要能对着像素断言。
+QPixmap luckyBlock(int size);
+
+/// 版本树上那四栏各自的小图标（用户 2026-09-23 原话：「快照版的草用白色（覆雪草块），
+/// 远古版就土块，愚人节版用幸运方块，原版不变」）。
+/// @param channelIndex 走的是 `VersionCategory::channelAt()` 那个顺序
+///        （0 正式版 / 1 快照版 / 2 远古版 / 3 愚人节版）。**越界给草方块** ——
+///        和 loaderMark() 一个路数：认不出来的时候画"原版"，那条路装出来的就是原版。
+/// @param size 边长（像素）。四张和 grassBlock() 一样都是 16×16 的像素画再放大。
+///
+/// NOTE: 这里收的是**下标**、不是 `VersionCategory::Channel`；本文件不许 include
+///       `src/` 下的头（见上面那段"为什么是画出来的"）。分类 → 下标那一步由
+///       `MainWindow.cpp` 调 `VersionCategory::channelIndex()` 完成，顺序的唯一出处
+///       因此仍然是那个枚举。
+QPixmap versionChannelMark(int channelIndex, int size);
+
 /// 加载器标志。@p index 走的是 MainWindowUI::modLoaderOptionNames() 那张表的顺序
 /// （0 Fabric / 1 Forge / 2 NeoForge / 3 OptiFine），第 4 个（「不装（纯原版）」）
 /// 和越界的下标都给草方块 —— 那条路装的就是原版。
@@ -52,5 +77,12 @@ QPixmap chevronUp(int size, const QColor &color);
 /// @param size 边长（像素）。
 /// @param color 线的颜色（比正文浅一档 —— 它是"次要操作"，别和版本号抢眼睛）。
 QPixmap cross(int size, const QColor &color);
+
+/// 那一圈**刷新箭头**（↻）：下载页左栏每个分类条目右边挂一个，点它 = 这一类重新问一遍
+/// （用户原话："每一项的右边放一个刷新按钮"）。和 cross / chevron 同一个路数 ——
+/// 纯代码画的、带缓存、颜色由调用方给。
+/// @param size 边长（像素）。
+/// @param color 线的颜色（和 cross 一样用次要那一档：它是行里的一个动作，不是正文）。
+QPixmap refresh(int size, const QColor &color);
 
 }  // namespace VersionIcons
