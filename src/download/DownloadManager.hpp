@@ -19,6 +19,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QQueue>
+#include <QSet>
 #include <QList>
 #include <QMap>
 #include <QNetworkAccessManager>
@@ -117,29 +118,109 @@ public:
     /// 而同一时刻官方那条是 1.2~2.9 秒。更要命的是 Qt 的 setTransferTimeout() 是"不活动
     /// 超时"，细水长流地掉字节永远重置它 —— 于是既不失败（等不到兜底）也完不成，整条安装
     /// 挂着不动（实测：三个 socket 挂着、一个文件不落、CPU 冻在 0.125 秒）。
+    ///
+    /// NOTE: 这个函数的调用点全是"镜像地址由本类自己拼出来"的那几处（endpoint()、
+    ///       fetchVersionJson()、资源索引、客户端 jar），它们的镜像主机**都是 BMCLAPI 那一个**
+    ///       —— 所以它问的就是那一个主机的降级状态（见 mirrorDemotedFor()）。
+    ///       整合包那条路不一样：它的首选地址是清单里给的（每条文件一个），那一条走
+    ///       startDownload() 里按主机问的判据。
     bool mirrorPreferred() const;
 
-    /// 镜像是不是正处在"太慢、先不用"的降级期里（见 demoteMirrorForSlowDownload()）。
+    /// 镜像源（BMCLAPI）那个主机是不是正处在"太慢、先不用"的降级期里。
+    /// 见 mirrorDemotedFor() —— 降级是**按主机**记的，这一条问的就是镜像源那个主机。
     bool isMirrorDemoted() const;
 
-    /// 把镜像降级一段时间：这期间所有下载直接走官方。由失速看门狗调用；验证工程也直接调它
+    /// **某一个主机**正不正在降级期里。
+    ///
+    /// 降级为什么必须按主机记（2026-09-23 实测的那次事故）：整合包里的"镜像"是**每条文件
+    /// 各自的首选地址**（Modrinth 的清单给 2~3 条地址，`preferredUrlOrder()` 把
+    /// `cdn.modrinth.com` 排前面），不是全启动器共用的那一个 BMCLAPI。所以一个全局的降级位
+    /// 意味着一件事：**一个慢 CDN 上的几条回复，会把别的 CDN 一起关掉**。那次导入里
+    /// mediafilez.forgecdn.net 上 8 个文件不动（那条 CDN 单连接实测 22.9 KB/s，它确实慢），
+    /// 8 条回复记满 strike 之后降级的是**全体**，把 89% 的字节（1405.9 MB、332 个第一跳本该走
+    /// cdn.modrinth.com 的文件）一起赶到了慢 CDN 上 —— 之后 240 秒只进了 42 MB
+    /// （0.175 MB/s），而那条 CDN 自己单跑 24 路是 7.2 MB/s。
+    ///
+    /// @param host 主机名（空串 = 查不到，返回 false）。
+    bool mirrorDemotedFor(const QString &host) const;
+
+    /// 把**这个主机**降级一段时间：这期间"首选地址是这个主机"的作业直接走备用地址。
+    /// 由失速看门狗按**失速那一条回复自己所在的主机**调用；验证工程也直接调它
     /// （`verify.exe` 的 V6e 那几条，本地造不出"慢到触发看门狗"的服务器）。
     /// NOTE: 重复调用会把期限**往后顺延**（不是每叫一次重开一段），所以连着失速只会让
-    ///       这段降级更长，不会来回切。
-    void demoteMirrorForSlowDownload();
+    ///       这段降级更长，不会来回切。顺延是**按主机**各自算的。
+    void demoteMirrorForSlowDownload(const QString &host);
 
     /// 降级期多长：5 分钟。短了会在"镜像只是刚才那一条慢"上反复切换，长了会在镜像已经
     /// 好了以后还用不上它。
     static constexpr qint64 kMirrorDemoteMs = 5 * 60 * 1000;
 
-    /// 两个**纯函数**（时间与字节数的判据），verify 里按边界钉过。
+    /// 三个**纯函数**（时间与字节数的判据），verify 里按边界钉过。
     /// @{
     /// 降级期过了没有。@param demotedUntilMs 0 = 从来没降级过。
     static bool mirrorDemotedAt(qint64 nowMs, qint64 demotedUntilMs);
     /// 这一跳"没在动"吗（进账不到下限就算）。
     static bool mirrorStalled(qint64 bytesDelta, qint64 minBytesPerTick);
+    /// 这一跳该不该记一次"失速"。**一个字节都还没收到的不算**（bytesSeen 0）。
+    ///
+    /// 为什么要把"还没收到第一个字节"单独摘出去（2026-09-23 那次的直接根因）：这一跳的
+    /// 进账 delta 对一条还没开始吐字节的回复来说**天然是 0**，所以 mirrorStalled() 会把它
+    /// 判成"链子太慢" —— 可它那根本不是慢，是"还没轮到它"（建连、或者排在一条 h2 连接上
+    /// 另外 23 条流后面）。两跳 = 10 秒，于是**任何"建连 + 首字节超过 10 秒"的回复都会记满
+    /// strike**，而 strike 满了的动作是 abort 它 + 把整个主机降级 300 秒。
+    /// 这种回复自己的判据本来就够用，而且都比 10 秒晚：Qt 那条 30 秒传输超时（从请求建好
+    /// 起算）会先掐掉它，走"退回备用地址、不算失败"那条路（见 retryWithOfficialUrl()）；
+    /// 真的一点动静都没有的，还有 kNoProgressGiveUpMs 那条兜底。
+    ///
+    /// NOTE: 这条只摘掉"一次都没报过字节"。**吐了几个字节之后停下来照样算失速** ——
+    ///       镜像那条 302 到 MinIO 的链子（0.85~10 KB/s）正是这种细水长流，它一直是这条
+    ///       判据存在的主要理由（Qt 的不活动超时对细水长流永远不触发）。
+    /// NOTE: `bytesSeen` 的**出处**是 onStallWatchdogTick 里问回复自己要的
+    ///       `bytesAvailable()`，不是 downloadProgress（Qt 那个报数对"头 + 一小段 body
+    ///       同段到达后停住"的形状到超时才报一次，实测见那边的 (0)）。所以这条判据看的是
+    ///       "到手的字节"，跟 Qt 什么时候通知我们无关。
+    static bool countsTowardStallStrike(qint64 bytesSeen, qint64 bytesDelta,
+                                        qint64 minBytesPerTick);
     /// 又发现一次失速之后，降级期该到什么时候 —— 取晚的那个（**顺延**，不提前）。
     static qint64 demoteDeadline(qint64 nowMs, qint64 currentUntilMs);
+
+    /// 同时最多发出去几个下载。
+    ///
+    /// 这个数**不是**"Qt 能开几条连接"，而是"我们允许几条在飞"—— 两者在 HTTP/1.1 时代是同一个
+    /// 数（Qt 每个主机上限 6），今天不是了：官方那几台 CDN 都会 ALPN 协商出 **HTTP/2**，Qt 6
+    /// 默认就用它，几十条流跑在**一条** TCP 连接上（2026-09-23 实测：200 条回复的
+    /// `Http2WasUsedAttribute` 全为真；6/24/48 三档下每文件的往返都是 140~143 ms，与并发无关）。
+    /// 所以"调大就是把请求塞回 Qt 那个会超时的内部队列"这条老顾虑，只在两种情形下还成立：
+    /// 服务端把并发流数（SETTINGS_MAX_CONCURRENT_STREAMS）压得很低（本机实测没有，见下面那组数），
+    /// 或者这个主机**根本不是 h2**。后一种由 kMaxConcurrentPerHost 那条判据守着（它没证明自己
+    /// 是 h2 之前只放 6 条），所以这个 24 是"全局上限"，不是"每个主机都能 24 条"。
+    ///
+    /// 2026-09-23 用真端点 + **本类**量了一遍（1.20.1 的全部 3598 个资源对象 / 620.43 MB，
+    /// 官方源，一次性探针，不进仓库）：
+    ///     并发  6：138.76 s  4.47 MB/s   ← 改之前的值
+    ///     并发 12： 90.52 s  6.85 MB/s
+    ///     并发 24： 72.63 s  8.54 MB/s   ← 选它
+    ///     并发 48： 67.05 s  9.25 MB/s
+    /// 四档全部 0 失败、0 超时。6 那一档是**延迟** bound（每个文件一个 ~150 ms 的往返 ÷ 6 条），
+    /// 24 那一档已经是**带宽** bound（620 MB ÷ 8.54 MB/s = 73 s ≈ 实测 72.63 s）—— 也就是说
+    /// 24 就是这条网线的天花板，48 只再多 8%，不值得再翻一倍并发。
+    /// 顺带把"是不是硬盘"这件事量死了：照本类的写盘顺序（mkpath → 写 → 关 → 重开全读算 SHA1）
+    /// 跑 3000 个 20 KB 文件，两块 NVMe 各只要 0.86~1.15 s，3598 个对象折算 1 秒多。
+    /// **慢的从来不是硬盘，是"每个文件一个网络往返"这件事本身。**
+    ///
+    /// 当初为什么是 6（2026-09-22 之前）：不限流时一次性把 3071 个对象全交给
+    /// QNetworkAccessManager，2545 个报 `Operation timed out` —— 请求拿不到连接，30 秒的
+    /// 不活动超时照样在走。那条**结论**今天仍然成立（排队必须发生在我们自己手里，见
+    /// mayIssueAnotherDownload()），变的只是"我们手里"能放几条。
+    /// NOTE: 那句「限流后每个对象约 2.5 秒、全程约 20 分钟」今天复现不出来了 —— 同样的 6 路
+    ///       今天每对象 39 ms、全程 139 秒，差 8.7 倍；最可能是当时的网络/路由与今天不同。
+    /// NOTE: 镜像源（BMCLAPI）在 24 路下反而会**触发失速看门狗**（它每条要过 302 到 MinIO 预
+    ///       签名，实测每文件 ~500 ms，是官方的 3 倍），降级后自动改走官方 —— 那条兜底就是为
+    ///       这种情形写的，不用跟着调。
+    /// 放在 public 是给验证工程用的：V6i 的边界断言要按**同一个数**钉"到顶就不发"，硬写一个
+    /// 字面量的话，下次调这个数用例会静默失效（2026-09-23 从 6 调到 24 时就是这么发现的）。
+    static constexpr int kMaxConcurrentDownloads = 24;
+
     /// 还能不能再往外发一条（排队那一步问它）。
     ///
     /// **纯函数**，就为了能钉住那条上限：activeCount 到顶之后**不管还排着多少条**都不发。
@@ -151,6 +232,34 @@ public:
     /// 重发），重发又是 380 条一起发 —— 最后整批挂死不动、进度条停在 1%。
     /// verify 的 V6i 按边界钉过。
     static bool mayIssueAnotherDownload(int activeCount, int queuedCount);
+
+    /// 一个**还没证明**自己走 HTTP/2 的主机，一次最多放几条在飞。
+    ///
+    /// 就是 Qt 对 HTTP/1.1 每主机（确切说是每 host:port）的连接上限。超过这个数的请求会被
+    /// Qt 自己排进它的内部队列，而 30 秒的传输超时**从请求建好就开始算** —— 于是它们会在
+    /// 拿到连接之前成批报 `Operation timed out`，正是 kMaxConcurrentDownloads 那段注释里
+    /// 「2545 个对象超时」的形状。2026-09-23 本地用假服务器把这个形状复现了一遍：**h1.1、
+    /// 每条连接 12 秒才回，24 路一放 → 40 条作业里 28 条超时，而且从第 3 轮开始成批死**
+    /// （6 路那条对照是一次都不死）。
+    ///
+    /// 所以"排队必须发生在我们自己的 m_pendingJobs 里"这条不变量，在 kMaxConcurrentDownloads
+    /// 从 6 调大之后要**按主机**守着：全局 24 条，但同一个主机在它证明自己走 h2 之前只放 6 条。
+    static constexpr int kMaxConcurrentPerHost = 6;
+
+    /// 还能不能再往**某一个主机**发一条。和上面那条一起判（两条都过才发）。
+    /// @param activeForHost 这个主机当下有几条在飞。
+    /// @param hostKnownHttp2 这个主机已经证明过走 HTTP/2（见 m_http2Hosts）。
+    ///
+    /// 已知 h2 的主机：能 —— 几十条流跑在**一条** TCP 连接上，放几条由全局上限说了算。
+    /// 还不知道的主机：只能 kMaxConcurrentPerHost 条。这是保守估计，**代价只有一次往返**：
+    /// 这个主机上第一条回复一回来，Http2WasUsedAttribute 就把答案给出来了 —— 真是 h2 就
+    /// 立刻升到全局上限（官方 CDN 上实际等于安装开始时多花约 150 ms），真是 h1.1 就一直按 6 守。
+    ///
+    /// NOTE: 服务端要是把 SETTINGS_MAX_CONCURRENT_STREAMS 压得比 24 小，多出来的流**还是会**
+    ///       排在 Qt 里（这一条判据看不出来）。官方 CDN 实测 ≥48（3598 个对象、0 超时），
+    ///       别的主机没量过；真撞上的表现和上面一样（成批 `Operation timed out`），那时候
+    ///       要么把 kMaxConcurrentDownloads 调小，要么把这条判据改成"第一轮回退"。
+    static bool mayIssueAnotherDownloadToHost(int activeForHost, bool hostKnownHttp2);
 
     /// 一条回复"多久一点动静都没有"就判它废了（毫秒）。
     ///
@@ -246,8 +355,8 @@ public:
     // 下载操作
     /// NOTE: 每一条下载都是**先排进队列再发**（见 mayIssueAnotherDownload）：作业少的时候
     ///       队列当场就把它发出去，和"直接发"没有任何区别；作业一多（几千个资源对象、
-    ///       几百个整合包文件）就只有 6 条在飞，其余留在我们自己的队列里等 —— 在 Qt 的
-    ///       队列里等会被它的传输超时算进去，而那正是"成批失败"的来源。
+    ///       几百个整合包文件）就只有 kMaxConcurrentDownloads 条在飞，其余留在我们自己的
+    ///       队列里等 —— 在 Qt 的队列里等会被它的传输超时算进去，而那正是"成批失败"的来源。
     // @param expectedSize 文件应有的字节数，传 -1 表示未知（旧版本 JSON 和 natives
     //        classifier 都没有 size 字段），此时退化成只比 SHA1。
     // @param mode 见 VerifyMode，决定已存在的文件要不要重下。
@@ -363,7 +472,8 @@ private:
     /// 那几百个文件都一样）：一次资源补齐是 3000 多个对象，全塞给 QNetworkAccessManager
     /// 的话 Qt 每个主机只开 6 条连接，其余的在它内部干等，而 30 秒的传输超时**从请求
     /// 建好就开始算**，于是它们排到队尾之前就成批地报 `Operation timed out` —— 网络其实
-    /// 是通的。发出去的条件只有 mayIssueAnotherDownload() 一处说了算。
+    /// 是通的。发出去的条件就是那两个纯函数（mayIssueAnotherDownload / ...ToHost），
+    /// 一问"全局还有位置吗"、一问"这个主机还有位置吗"。
     /// NOTE: 排在这里的作业已经计进 m_totalJobs（进度条的分母），但**不计进**
     /// pendingDownloads（那是"已经发出去的"），所以 checkAllDownloadsFinished()
     /// 与 isBusy() 都必须把这条队列也算上，否则会在还排着几百个的时候就宣布
@@ -374,8 +484,23 @@ private:
         QString expectedSha1;
         // 排队时也得把它带上：作业在队列里等的这段时间，是没法回头问调用方要的。
         QString officialUrl;
+        // 这个作业要去哪个主机。排队时算一次（QUrl 解析一次），因为发送那一步要拿它按主机
+        // 计数，而那一步发生在**每次**有回复收尾时、要扫一遍队列 —— 几百个作业的时候
+        // 一圈就是几百次解析。
+        // NOTE: 它是**排队那一刻**那条地址的主机（镜像源下就是镜像主机），而真正发出去时
+        //       可能已经被"镜像降级"改道到官方（见 startDownload）。所以极端情况下官方那个
+        //       主机的额度会被少算一条（这条按镜像的额度放过去了）—— 这个方向是**故意**的：
+        //       宁可偶尔多发一条，也不要因为一个对不上的计数把队列卡死。
+        QString host;
     };
     QQueue<PendingJob> m_pendingJobs;
+
+    /// 已经证明过走 HTTP/2 的主机。**只增不减**：一个主机是不是 h2 不会变。
+    ///
+    /// 由 QNetworkAccessManager::finished 一处统一填（见 noteReplyProtocol()），不在这四个
+    /// finished 槽里各写一遍 —— 那四个槽里任何一个漏了，症状都只是"这个主机的并发上不去"，
+    /// 不报警，很难发现。
+    QSet<QString> m_http2Hosts;
 
     // 批次记账
     int m_totalJobs = 0;
@@ -401,7 +526,9 @@ private:
     ///   - lastSignOfLifeMs 对**所有**回复都看：发出去之后一直没动静的那条，谁都不该一直
     ///     攥着它（见 kNoProgressGiveUpMs，那一条救的正是"没有退路"的回复）。
     struct StallMeter {
-        qint64 bytesSeen = 0;      ///< 最近一次 downloadProgress 报的累计字节
+        /// 到手的累计字节（高水位，只增不减）。取的是 `bytesAvailable()` —— 为什么不取
+        /// downloadProgress 报的那个数，见 onStallWatchdogTick 的 (0)。
+        qint64 bytesSeen = 0;
         qint64 lastTickBytes = 0;  ///< 上一跳时看到的那个值
         int strikes = 0;           ///< 连着几跳"没动"
         /// 最近一次**有任何动静**的时刻（发出去那一刻就先记一次），m_clock 的毫秒读数。
@@ -410,17 +537,15 @@ private:
     QHash<QNetworkReply *, StallMeter> m_stallMeters;
     QTimer *m_stallWatchdog = nullptr;
     QElapsedTimer m_clock;
-    /// 降级期的截止时刻（m_clock 的毫秒读数）。0 = 从来没降级过。
-    qint64 m_mirrorDemotedUntil = 0;
+    /// 主机名 → 降级期的截止时刻（m_clock 的毫秒读数）。表里没有 = 没降级过。
+    /// **按主机各记各的**，理由见 mirrorDemotedFor()：整合包那条路上"镜像"是每条文件
+    /// 各自的首选地址，一个全局的降级位会让一个慢 CDN 把别的 CDN 一起关掉。
+    QHash<QString, qint64> m_mirrorDemotedUntilByHost;
     /// 判"卡死"的期限，默认 kNoProgressGiveUpMs（只有验证工程会改它）。
     qint64 m_noProgressGiveUpMs = kNoProgressGiveUpMs;
 
-    /// 同时最多发出去几个下载。取 6 = Qt 每个主机的连接上限，是为了让"排队"这件事只发生在
-    /// **我们**手里：发出去的请求都立刻拿得到连接，30 秒的传输超时才有意义。调大只会把请求
-    /// 重新塞回 Qt 内部那个会超时的队列（见 mayIssueAnotherDownload），调小则白白浪费带宽。
-    /// 实测（本机网络，1.18.2 的 3071 个资源对象）：不限流时 2545 个报 Operation timed out；
-    /// 限流后每个对象约 2.5 秒，全程约 20 分钟且不再超时。
-    static constexpr int kMaxConcurrentDownloads = 6;
+    // kMaxConcurrentDownloads 的声明在上面 public 那一节（紧挨着 mayIssueAnotherDownload），
+    // 因为验证工程要按那个数钉边界；理由和实测记录都写在那一处。
 
 
     /// 从镜像取失败时，用官方地址**重发一次**（作业还是同一个，不算失败）。
@@ -441,8 +566,18 @@ private:
     void scheduleFile(const QString &url, const QString &destinationPath,
                       const QString &expectedSha1, qint64 expectedSize, VerifyMode mode,
                       const QString &officialUrl = QString());
-    /// 把队列里排着的作业发出去，直到连接用完（判据 = mayIssueAnotherDownload()）。
+    /// 把队列里排着的作业发出去，直到连接用完（判据 = mayIssueAnotherDownload() 加
+    /// mayIssueAnotherDownloadToHost()）。
     void pumpDownloadQueue();
+    /// 这个主机当下有几条在飞。**从 activeDownloads 现算**，不另开一个计数器：
+    /// 那张表有一堆摘除点（成功 / 失败 / 退回官方 / 看门狗判死），多一个计数器就多一处
+    /// 能对不上的地方，而对不上的症状是队列**永远发不出去**（整批挂死）。
+    /// 主机名从回复自己的 request() 取 —— 从队列那头是推不出来的，镜像那条 302 之后
+    /// 落在哪个主机上只有回复知道。
+    int activeCountForHost(const QString &host) const;
+    /// 一条回复收尾时，顺手记下它用的是不是 HTTP/2（挂在 QNetworkAccessManager::finished 上，
+    /// 每一条回复都走这里，一条连接的事只问一次）。
+    void noteReplyProtocol(QNetworkReply *reply);
     /// 把一条"发出去之后一直没有动静、而且大概永远不会结束"的回复**判失败**，自己做完整套
     /// 记账。为什么不能只 abort() 了等它自己走 finished：这条路的整个前提就是"它可能永远
     /// 不结束"，指着 abort 收尾等于把整批挂死（见 kNoProgressGiveUpMs）。

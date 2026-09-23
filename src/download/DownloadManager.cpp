@@ -43,7 +43,12 @@ constexpr int kStallTickMs = 5000;
 /// 一跳少于这么多字节就算"没动"。取 64 KB = 12.8 KB/s 的下限：镜像那条慢链子实测
 /// 0.85~10 KB/s（都不够），而它在 maven 那一支上 0.9 秒给 64 KB（够）。
 constexpr qint64 kStallMinBytesPerTick = 64 * 1024;
-/// 连着几跳"没动"才算数。两跳 = 10 秒 —— 一次 DNS + TLS 建连（本机 1~3 秒）不该被误判。
+/// 连着几跳"没动"才算数。两跳 = 10 秒 —— 一条**已经在吐字节**的链子停 10 秒，够说明它不行了。
+///
+/// NOTE: 这里以前还有半句理由「一次 DNS + TLS 建连（本机 1~3 秒）不该被误判」，那半句现在
+///       由 countsTowardStallStrike() 那条判据（一个字节都没收到的不记 strike）承担 ——
+///       10 秒这个余量在 24 路并发下**不够**：一条刚发出去的回复可能几十秒才轮到它吐第一个
+///       字节，而它那几十秒的进账 delta 一直是 0，照样会被这条判据算成失速。
 constexpr int kStallStrikesToDemote = 2;
 
 /// 从**官方**那条版本 json 的地址里取出 sha1。
@@ -150,14 +155,26 @@ bool DownloadManager::mirrorPreferred() const {
 }
 
 bool DownloadManager::isMirrorDemoted() const {
-    return mirrorDemotedAt(m_clock.elapsed(), m_mirrorDemotedUntil);
+    // 镜像源在本类里就是 BMCLAPI 那一个主机（调用点全是自拼镜像地址的那几处，见头文件）。
+    return mirrorDemotedFor(QUrl(QString::fromLatin1(kMirrorBase)).host());
 }
 
-void DownloadManager::demoteMirrorForSlowDownload() {
-    m_mirrorDemotedUntil = demoteDeadline(m_clock.elapsed(), m_mirrorDemotedUntil);
+bool DownloadManager::mirrorDemotedFor(const QString &host) const {
+    if (host.isEmpty()) {
+        return false;  // 查不到主机 = 没有"这个主机的降级记录"，按没降级算
+    }
+    return mirrorDemotedAt(m_clock.elapsed(), m_mirrorDemotedUntilByHost.value(host, 0));
+}
+
+void DownloadManager::demoteMirrorForSlowDownload(const QString &host) {
+    if (host.isEmpty()) {
+        return;  // 连主机名都没有，降级不知道该降到谁头上；宁可什么都不做
+    }
+    m_mirrorDemotedUntilByHost[host] =
+        demoteDeadline(m_clock.elapsed(), m_mirrorDemotedUntilByHost.value(host, 0));
     qInfo() << "The mirror is too slow (under" << kStallMinBytesPerTick << "bytes in"
             << kStallTickMs << "ms); using the official download source for the next"
-            << kMirrorDemoteMs / 1000 << "seconds.";
+            << kMirrorDemoteMs / 1000 << "seconds. Host demoted:" << host;
 }
 
 bool DownloadManager::mirrorDemotedAt(qint64 nowMs, qint64 demotedUntilMs) {
@@ -168,6 +185,12 @@ bool DownloadManager::mirrorStalled(qint64 bytesDelta, qint64 minBytesPerTick) {
     return bytesDelta < minBytesPerTick;
 }
 
+bool DownloadManager::countsTowardStallStrike(qint64 bytesSeen, qint64 bytesDelta,
+                                              qint64 minBytesPerTick) {
+    // 一次都没收到过字节 = 这条回复还没开始传，不是"传得慢"。理由和实测见头文件。
+    return bytesSeen > 0 && mirrorStalled(bytesDelta, minBytesPerTick);
+}
+
 qint64 DownloadManager::demoteDeadline(qint64 nowMs, qint64 currentUntilMs) {
     return qMax(currentUntilMs, nowMs + kMirrorDemoteMs);
 }
@@ -175,6 +198,12 @@ qint64 DownloadManager::demoteDeadline(qint64 nowMs, qint64 currentUntilMs) {
 bool DownloadManager::mayIssueAnotherDownload(int activeCount, int queuedCount) {
     // 排空的队列不用问；到顶了不管还排着多少条都不发 —— 后一半是这条函数存在的全部理由。
     return queuedCount > 0 && activeCount < kMaxConcurrentDownloads;
+}
+
+bool DownloadManager::mayIssueAnotherDownloadToHost(int activeForHost, bool hostKnownHttp2) {
+    // 已知 h2 的主机不受这条管（一条 TCP 连接上多路复用，放几条归全局上限说）。
+    // 还不知道的主机按 Qt 每主机的连接上限守着 —— 多发的那些会进 Qt 内部那个会超时的队列。
+    return hostKnownHttp2 || activeForHost < kMaxConcurrentPerHost;
 }
 
 DownloadManager::DownloadManager(QObject *parent)
@@ -192,6 +221,14 @@ DownloadManager::DownloadManager(QObject *parent)
     m_stallWatchdog->setInterval(kStallTickMs);
     connect(m_stallWatchdog, &QTimer::timeout, this, &DownloadManager::onStallWatchdogTick);
     m_stallWatchdog->start();
+
+    // "这个主机走不走 h2"只在这一处问，四条 finished 槽里一条都不问。
+    // NOTE: 这条信号的连接**必须比我们自己那些 finished 连接早**，而它确实是：它是
+    //       QNetworkAccessManager 在造回复时就接好的，我们是在造出来之后才接的。
+    //       顺序反过来的话，第一条回复收尾时 pumpDownloadQueue() 看到的还是"这个主机
+    //       没证明过 h2"，白等一轮往返（不会错，只是慢）。
+    connect(networkManager, &QNetworkAccessManager::finished, this,
+            &DownloadManager::noteReplyProtocol);
 }
 
 DownloadManager::~DownloadManager() {
@@ -199,6 +236,12 @@ DownloadManager::~DownloadManager() {
     // 对象正在析构，那些回调不该再跑，用这个标志在 checkAllDownloadsFinished
     // 和槽函数入口处挡掉。
     m_shuttingDown = true;
+    // 挂在 QNetworkAccessManager::finished 上那条（noteReplyProtocol）在这里断掉。
+    // 理由和别的槽不一样：那个槽会写 m_http2Hosts，而**成员是在析构函数体跑完之后**才销毁的、
+    // manager 这个子对象还要更晚（在 QObject 基类析构里）—— 中间那一段 manager 只要再发一次
+    // finished（它析构时删掉子回复就可能发），那个槽就会往一个已经没了的 QSet 里插。
+    // m_shuttingDown 挡得住别的槽，挡不住"成员已经销毁"这件事，只能断开。
+    disconnect(networkManager, nullptr, this, nullptr);
     // 清除当前的下载
     for (auto reply : activeDownloads.keys()) {
         reply->abort();
@@ -369,7 +412,7 @@ void DownloadManager::downloadFile(const QString &url, const QString &destinatio
                                    const QString &expectedSha1, qint64 expectedSize,
                                    VerifyMode mode, const QString &officialUrl) {
     // 所有下载都走这条排队路（理由见 mayIssueAnotherDownload）：作业少的时候队列当场就
-    // 把它发出去，和"直接发"一模一样；作业一多就只有 6 条在飞。
+    // 把它发出去，和"直接发"一模一样；作业一多就只有 kMaxConcurrentDownloads 条在飞。
     scheduleFile(url, destinationPath, expectedSha1, expectedSize, mode, officialUrl);
 }
 
@@ -407,29 +450,82 @@ void DownloadManager::scheduleFile(const QString &url, const QString &destinatio
 
     // 排进队列之后立刻试着发一次：队列是空的、连接也有富余的时候，这一句就把它发出去了
     // （所以"只下一两个文件"的那些调用点感觉不到队列存在）。
-    m_pendingJobs.enqueue(PendingJob{url, destinationPath, expectedSha1, officialUrl});
+    m_pendingJobs.enqueue(
+        PendingJob{url, destinationPath, expectedSha1, officialUrl, QUrl(url).host()});
     pumpDownloadQueue();
 }
 
 void DownloadManager::pumpDownloadQueue() {
     // 判据用 activeDownloads.size() 而不是另开一个计数器：它是"当下真在飞的作业"
     // 的唯一事实 —— 别的下载（资源索引、客户端 jar）占着连接时这里自然少发几个。
-    // 到没到顶由 mayIssueAnotherDownload() 一个纯函数说了算。
-    while (mayIssueAnotherDownload(activeDownloads.size(), m_pendingJobs.size())) {
-        const PendingJob job = m_pendingJobs.dequeue();
+    //
+    // 两条判据都要过：全局还有位置（mayIssueAnotherDownload）+ **这个主机**还有位置
+    // （mayIssueAnotherDownloadToHost）。后面那条是 kMaxConcurrentDownloads 调大之后
+    // 必须补上的：全局放 24 条，但一个还没证明自己走 h2 的主机只能放 6 条，否则多出来的
+    // 会进 Qt 内部那个会超时的队列（见那两条常量的注释）。
+    //
+    // 队头那个作业的主机满了、**不等于**后面没有了：整合包导入的队列就是几个 CDN 交错排的
+    // （见 preferredUrlOrder），队头这条排不上而后面那条能排上的情况很常见。所以这里跳过
+    // 去后面的作业找（i 往前走），而不是一条堵住就整个不发了。跳过只是换一个发送次序，
+    // 不丢作业、也不改变谁先谁后之外的任何事。
+    int i = 0;
+    while (i < m_pendingJobs.size()
+           && mayIssueAnotherDownload(activeDownloads.size(), m_pendingJobs.size())) {
+        const PendingJob &candidate = m_pendingJobs.at(i);
+        if (!mayIssueAnotherDownloadToHost(activeCountForHost(candidate.host),
+                                           m_http2Hosts.contains(candidate.host))) {
+            ++i;
+            continue;
+        }
+        // takeAt 之后上面那个引用就悬了，所以先拷出来再删。
+        const PendingJob job = m_pendingJobs.takeAt(i);
         startDownload(QUrl(job.url), job.destinationPath, job.expectedSha1, job.officialUrl);
+    }
+}
+
+int DownloadManager::activeCountForHost(const QString &host) const {
+    int n = 0;
+    for (auto it = activeDownloads.constBegin(); it != activeDownloads.constEnd(); ++it) {
+        // 用**请求自己**的 URL（`request().url()`）：这是"我们这条发给谁"的原话，和队列那头
+        // 的 `PendingJob::host` 是同一个东西，两边才比得到一起。别用 `reply->url()` ——
+        // 那个在跳转之后未必还是我们请求的那个地址（镜像那条 302 到别处之后，按它算就会把
+        // 额度记到另一个主机头上，而发给镜像的那几条一条都没算进去，守卫等于没生效）。
+        if (it.key()->request().url().host() == host) {
+            ++n;
+        }
+    }
+    return n;
+}
+
+void DownloadManager::noteReplyProtocol(QNetworkReply *reply) {
+    if (!reply || m_shuttingDown) {
+        return;
+    }
+    const QVariant h2 = reply->attribute(QNetworkRequest::Http2WasUsedAttribute);
+    if (h2.isValid() && h2.toBool()) {
+        const QString host = reply->request().url().host();
+        if (!host.isEmpty() && !m_http2Hosts.contains(host)) {
+            m_http2Hosts.insert(host);
+            // 这条只是给排查用的：并发上不去的时候，第一件要问的事就是"这个主机认不认 h2"。
+            qDebug() << "Host confirmed HTTP/2 (its per-host cap is now lifted):" << host;
+        }
     }
 }
 
 void DownloadManager::startDownload(const QUrl &url, const QString &destinationPath,
                                     const QString &expectedSha1, const QString &officialUrl) {
-    // 镜像正被降级、而这条作业知道官方那条地址：**直接改道**，别等它慢 10 秒再退。
-    // 这条判断必须在这里、不能只在"挑地址"的地方：资源对象是几千个一次性排进队列的，
-    // 它们身上的镜像地址在排队那一刻就拼好了（见 PendingJob），等它们一个个撞上慢判据
-    // 再退等于把 10 秒乘以几千。
+    // 这条作业的**首选地址那个主机**正被降级、而它还知道备用地址：**直接改道**，别等它慢
+    // 10 秒再退。这条判断必须在这里、不能只在"挑地址"的地方：资源对象是几千个一次性排进
+    // 队列的，它们身上的镜像地址在排队那一刻就拼好了（见 PendingJob），等它们一个个撞上慢
+    // 判据再退等于把 10 秒乘以几千。
+    //
+    // NOTE: 问的是**这条地址自己那个主机**，不是"镜像源降没降级"。整合包的"镜像"是每条文件
+    //       各自的首选地址（见 mirrorDemotedFor()），问全局那一个的话，mediafilez 慢会把
+    //       cdn.modrinth.com 上的作业一起改道 —— 那正是 2026-09-23 那次导入垮掉的地方。
     QUrl target = url;
     QString fallback = officialUrl;
-    if (isMirrorDemoted() && !officialUrl.isEmpty() && officialUrl != url.toString()) {
+    if (mirrorDemotedFor(target.host()) && !officialUrl.isEmpty() &&
+        officialUrl != url.toString()) {
         target = QUrl(officialUrl);
         fallback.clear();  // 已经走官方了，"退回官方"这回事不存在
     }
@@ -655,6 +751,53 @@ bool DownloadManager::retryWithOfficialUrl(QNetworkReply *reply, const QString &
     const QString officialUrl = m_officialFallbacks.take(reply);
     if (officialUrl.isEmpty()) {
         return false;
+    }
+
+    // 备用地址那个主机现在满着的话，**别硬发**：硬发的那些会被 Qt 排进它内部那个队列，而
+    // 30 秒的传输超时**从请求建好就开始算** —— 于是它们会在拿到连接之前成批报
+    // `Operation timed out`，而且**这一次死是真死**：重发出去那条身上已经没有备用地址了
+    // （take 已经把它拿走），超时就是作业失败。
+    // 2026-09-23 那次导入就是 13 条一起退回官方、9 条这么死在 65 秒那一跳上（35 秒 abort 的
+    // 那 8 条 +30 秒整）。所以放回**我们自己**的队列里等泵那一头腾位置，判据和别的作业
+    // 用的是同一个 mayIssueAnotherDownloadToHost()。
+    //
+    // NOTE: 只认**文件**作业这一条路。退回官方之后它就是一条普通作业了（没有备用地址、
+    //       落盘路径和 sha1 都在身上），队列放得下。资源索引那条是元数据作业，得带着
+    //       MetadataJob 和它自己的完成槽走；而它一次只会有一条、堆不起来 —— 为了它给
+    //       PendingJob 塞上元数据字段，换来的收益是零。
+    //
+    // NOTE: 这一段**没有端到端用例**（验证工程里那个 V6f 只钉了降级那两条，钉不到这里）。
+    //       要真区分出"我们拦住了"和"Qt 拦住了"，得让**同时**退回官方的作业数超过
+    //       kMaxConcurrentPerHost —— 也就是一次 tick 里要 abort 掉 6 条以上。而镜像那一侧
+    //       自己也受这条按主机守卫管着（假服务器都只会说 HTTP/1.1，拿不到"已证明 h2"那个
+    //       豁免），所以在飞的永远不超过 6 条、能同时退回的最多 6 条，正好等于官方那个主机
+    //       的上限：拦与不拦都是 6 条上链路，测试是绿的但什么都没证明。
+    //       真要做到，得有一台**真会协商 h2 的假镜像**（h2 主机才有 24 条豁免），本机做不到。
+    //       所以要改写这一段，请按"这条判据没被用例守着"来对待。
+    const QString retryHost = QUrl(officialUrl).host();
+    if (finishedSlot == &DownloadManager::onDownloadReplyFinished &&
+        !mayIssueAnotherDownloadToHost(activeCountForHost(retryHost),
+                                       m_http2Hosts.contains(retryHost))) {
+        const QString expectedSha1 = expectedSha1s.take(reply);
+        activeDownloads.remove(reply);
+        m_stallMeters.remove(reply);
+        // 计数在这里还回去：这条作业回到"排队中"了，发送那一步（startDownload）会再加回来。
+        // 调用方拿到 true 会立刻 return，不会走它自己那次 --pendingDownloads —— 两处只能有
+        // 一处减，减两次数就对不上（症状是整批提前宣布下完）。
+        --pendingDownloads;
+        if (pendingDownloads < 0) {
+            qWarning() << "pendingDownloads went negative, clamping to 0.";
+            pendingDownloads = 0;
+        }
+        // 摘完表再收尾：这条回复已经结账了，晚到的 finished 会在入口处被"没登记"挡掉。
+        reply->deleteLater();
+        m_pendingJobs.enqueue(
+            PendingJob{officialUrl, destinationPath, expectedSha1, QString(), retryHost});
+        // 别的作业可能刚腾出位置（也可能这一条立刻就能发出去），顺手泵一次。
+        pumpDownloadQueue();
+        qInfo() << "The fallback host is busy; this retry waits in our own queue instead:"
+                << officialUrl;
+        return true;
     }
     // 清理掉的原因得说清楚：这一步走的是"换一条路再试"，不是"这次作业失败"。
     // 所以 pendingDownloads **不加也不减**（作业一直只有一个，只是换了条连接），
@@ -1035,6 +1178,23 @@ void DownloadManager::onStallWatchdogTick() {
     for (auto it = m_stallMeters.begin(); it != m_stallMeters.end(); ++it) {
         QNetworkReply *reply = it.key();
         StallMeter &meter = it.value();
+        // (0) 进账从**回复自己**身上取，不信 downloadProgress 的报数时机。
+        //
+        //     Qt 的 downloadProgress 不是"到了字节就报"：2026-09-23 用探针量过（Qt 6.10.1），
+        //     响应头和 body 同一段到达、之后链子停住的那种形状，它**只在超时那一刻报一次**
+        //     （1 KB / 64 KB / 200 KB 都一样，客户端读不读都一样）；连续细流才会逐片报。
+        //     `bytesAvailable()` 那边是 494 ms 就有值的 —— 所以头 + 1 KB 然后卡住的镜像回复，
+        //     在旧口径下这一跳的进账永远是 0，看门狗对它一声不吭（既不算失速、也不算卡死），
+        //     只能干等 Qt 那 30 秒传输超时。改成问回复自己之后，这种回复 10 秒就被判失速、
+        //     降级它自己的那个主机、退回官方地址（正是实测里该发生的事）。
+        //     产品这条路上中途不读回复（收尾才 readAll），所以 bytesAvailable() 就是"到手的字节"。
+        const qint64 availableNow = reply->bytesAvailable();
+        if (availableNow > meter.bytesSeen) {
+            meter.bytesSeen = availableNow;
+            // 有新字节 = 还有动静，"卡死"那条兜底的倒计时清掉。细水长流（镜像 302 到 MinIO
+            // 那种 0.85~10 KB/s）靠这句活着，它该由"太慢"那条判据管，不该被兜底掐掉。
+            meter.lastSignOfLifeMs = now;
+        }
         // (1) 卡死兜底。**不看有没有退路** —— 没有退路的回复以前是没人管的，而它一旦永远
         //     不结束，pendingDownloads 就永远归不了零：整批永不收尾、界面永远停在"下载中"、
         //     连个错误都没有（2026-09-22 那次 422 个文件的导入就这么挂了二十分钟，进度条
@@ -1045,8 +1205,12 @@ void DownloadManager::onStallWatchdogTick() {
         }
         // (2) 慢镜像那条只对"有退路"的回复成立：abort 掉它 = 换一条路再试；没有退路的
         //     abort 掉就是纯粹把这次下载弄失败。
+        //     NOTE: "一个字节都还没收到"的不算数（判据在 countsTowardStallStrike 里，理由和
+        //           2026-09-23 那次实测都写在头文件）—— 那种回复的进账天然是 0，会把
+        //           "还在建连"误判成"链子太慢"。
         if (m_officialFallbacks.contains(reply)) {
-            if (mirrorStalled(meter.bytesSeen - meter.lastTickBytes, kStallMinBytesPerTick)) {
+            if (countsTowardStallStrike(meter.bytesSeen, meter.bytesSeen - meter.lastTickBytes,
+                                        kStallMinBytesPerTick)) {
                 if (++meter.strikes >= kStallStrikesToDemote) {
                     stalled.append(reply);
                 }
@@ -1059,7 +1223,19 @@ void DownloadManager::onStallWatchdogTick() {
     if (!stalled.isEmpty()) {
         // 先降级再 abort：abort 出来的失败会走 onDownloadReplyFinished，那里面退回官方时
         // 要读的就是"已经降级了"这个状态（排队的那几千个资源对象同理，见 startDownload()）。
-        demoteMirrorForSlowDownload();
+        //
+        // 降级是**按主机**的，而且降的是**这一条回复自己所在的那个主机**：一次 tick 里失速的
+        // 回复可能来自好几个 CDN（整合包那条路就是），只降它们各自那个。降错方向的代价是
+        // 2026-09-23 那次事故：一个慢 CDN 上的 8 条回复把别的 CDN 一起关了 300 秒。
+        // 同一个主机只降一次（顺延本身是幂等的，这里只是别把日志刷满）。
+        QSet<QString> demotedHosts;
+        for (QNetworkReply *reply : stalled) {
+            const QString host = reply->request().url().host();
+            if (!host.isEmpty() && !demotedHosts.contains(host)) {
+                demotedHosts.insert(host);
+                demoteMirrorForSlowDownload(host);
+            }
+        }
         for (QNetworkReply *reply : stalled) {
             qInfo() << "Aborting a stalled mirror download and retrying it from the official url:"
                     << jobLabel(reply);
@@ -1141,7 +1317,9 @@ void DownloadManager::onDownloadReplyProgress(qint64 bytesReceived, qint64 bytes
     // 用）。**只有** startDownload()/downloadAssets()/retryWithOfficialUrl() 里登记过的
     // 回复会进这张表。
     if (auto meter = m_stallMeters.find(reply); meter != m_stallMeters.end()) {
-        meter->bytesSeen = bytesReceived;
+        // 取大的那个：正常情况下两个口径一样，但看门狗那一跳是从 bytesAvailable() 取的高水位
+        // （理由见 onStallWatchdogTick 的 (0)），别让它被一次迟到的小数字往回拨。
+        meter->bytesSeen = qMax(meter->bytesSeen, bytesReceived);
         // 收到字节就是把"卡死"的倒计时清零 —— 一条细水长流、但一直在掉字节的下载（镜像那种
         // 0.85~10 KB/s 的链子）不该被这条兜底掐掉，它该由"太慢"那条判据管。
         meter->lastSignOfLifeMs = m_clock.elapsed();
