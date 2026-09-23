@@ -1126,12 +1126,15 @@ VersionManager::LoaderVersionParse VersionManager::parseLoaderVersions(LoaderKin
     }
 
     result.versions = LoaderMeta::loaderVersionStrings(entries);
-    if (result.versions.isEmpty()) {
-        // 四种加载器里，"这个游戏版本一个能装的都没有"都是**真结论**（不是网络问题）：
-        // 比如 Forge 还没支持某个刚发的快照、OptiFine 只发了预览版。所以这里如实说，
-        // 而且界面**不该**拿它去弹一个"下载失败"的框。
-        result.error = tr("%1 还没有支持 %2 的版本。").arg(loaderDisplayName(kind), gameVersion);
-    }
+    // NOTE: "这个游戏版本一个能装的都没有"**不算读失败**（`error` 留空、按 success 发出去，
+    //       版本列表是空的）。四种加载器里都是**真结论**：比如 Forge 还没支持某个刚发的
+    //       快照、OptiFine 只发了预览版 —— 不是网络问题、也不是清单读不懂，重试一百次
+    //       还是这个答案。2026-09-23 之前这里给的是一个 `error`（"X 还没有支持 Y 的版本"），
+    //       界面那边**认不出**它和"没问到"的区别，只能一律写成「列表没取到」并留着
+    //       「自动（推荐）」—— 用户看到的就是"这一条明明装不了，还给个自动让我挑"。
+    //       现在两种答案在数据上分得开：**空列表 = 就是没有**（界面写「无可用版本」、
+    //       底下连「自动（推荐）」都不留）、**success=false = 没问到**（界面写「列表没取到」、
+    //       底下留着「自动（推荐）」，因为"让安装器自己挑"那条路不依赖这份列表）。
     return result;
 }
 

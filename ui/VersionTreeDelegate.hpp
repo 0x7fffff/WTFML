@@ -32,4 +32,13 @@ public:
     void paint(QPainter *painter, const QStyleOptionViewItem &option,
                const QModelIndex &index) const override;
     QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override;
+
+    /// 行尾那个「取消」小叉**占哪一格**（`row` 是整行的矩形，视口坐标）。只有条目上
+    /// `rowClearRole()` 为真的行才画它、也只有那种行才有意义。
+    ///
+    /// NOTE: 这是**唯一出处** —— paint() 按它画、MainWindow 那边按它判断"这一下点中的
+    ///       是不是那个叉"（见 MainWindow::eventFilter）。两边各算一份的话迟早错开，
+    ///       而错开的形状是"看着点中了叉、其实点的是那一行"（那一行点一下是展开/收起，
+    ///       于是用户以为取消了、其实只是把那一列收了起来）。
+    static QRect clearRect(const QRect &row);
 };

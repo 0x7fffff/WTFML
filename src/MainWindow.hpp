@@ -203,6 +203,12 @@ protected:
     /// 它一析构，链子上那个 QProcess 的析构就会把游戏 **kill()** 掉。
     void closeEvent(QCloseEvent *event) override;
 
+    /// 只为一件事挂着：安装页那棵加载器树的视口。选中那条加载器右边那个「取消」小叉
+    /// （`rowClearRole()`）是**行里的一个按钮**、不是"点这一行"，而 `itemClicked` 只给条目
+    /// 不给"点在哪一格" —— 所以那一下得在这里判、在这里吃掉（返回 true），不然点叉会顺手
+    /// 把那一列展开/收起（见 .cpp 里那段 NOTE）。
+    bool eventFilter(QObject *watched, QEvent *event) override;
+
 private:
     void setupConnections();
     // ---------- 「设置」选项卡 ----------
@@ -356,8 +362,12 @@ private:
     /// 点开了再获取，得全获取完"）：先给每条摆一个「正在获取…」占位，再各发一发请求。
     /// 四条各占一格，所以四发真能同时在飞（见 VersionManager::m_loaderVersionRequests）。
     void requestAllLoaderVersions();
-    /// 把一份版本列表灌成某个加载器的子条目（第 0 条永远是"自动（推荐）"）。
-    void fillLoaderVersionItems(int loaderIndex, const QStringList &versions);
+    /// 把一份版本列表灌成某个加载器的子条目。
+    /// @param includeAuto 要不要那第 0 条「自动（推荐）」。**"这一版一个能装的都没有"
+    ///        的时候要传 false**（用户原话："如果对应版本不支持，就不要保留自动了"）——
+    ///        理由见 onLoaderVersionsFetched() 里那段（留着它等于让用户挑一条必然装不出来
+    ///        的路），那种情况下 versions 也一定是空的。
+    void fillLoaderVersionItems(int loaderIndex, const QStringList &versions, bool includeAuto);
     /// 名称框里的默认名（用户没自己改过时才动它），再刷下面那句小字。
     void updateInstallName();
     /// 名称框下面那句小字 + 「安装」按钮的可用性：名字合不合法、盘上有没有重名的

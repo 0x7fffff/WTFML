@@ -11,6 +11,17 @@
 
 VersionTreeDelegate::VersionTreeDelegate(QObject *parent) : QStyledItemDelegate(parent) {}
 
+QRect VersionTreeDelegate::clearRect(const QRect &row) {
+    const int pad = MainWindowUI::versionTreeRowPadding();
+    const int arrowSize = MainWindowUI::versionTreeArrowSize();
+    // 命中格比画出来的那个叉大一圈（x 的边长是 arrowSize，格子里四周各留 3 px）——
+    // 12 px 的点击目标太小了，手一抖就点到旁边的箭头或者那一行上。
+    const int box = arrowSize + 6;
+    // 它紧挨着箭头左边，中间留 6 px（"文字和箭头之间"也是这个数，看着才是一套的）。
+    const int left = row.right() - pad - arrowSize - 6 - box;
+    return QRect(left, row.center().y() - box / 2, box, box);
+}
+
 void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option,
                                 const QModelIndex &index) const {
     QStyleOptionViewItem opt(option);
@@ -73,8 +84,14 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
         iconRect = QRect(row.left() + pad, row.center().y() - iconSize / 2, iconSize, iconSize);
         textLeft = iconRect.right() + 1 + 8;
     }
-    // 右边那个箭头自己占一格，文字不许压过去。
-    const int textRight = row.right() - pad - arrowSize - 6;
+    // 右边那个箭头自己占一格，文字不许压过去；选中的那条加载器右边还多一个「取消」小叉
+    // （rowClearRole()，见下），那一格也要从文字的可用宽度里扣掉。
+    const bool showClear = index.data(MainWindowUI::rowClearRole()).toBool();
+    const QRect crossBox = clearRect(row);
+    int textRight = row.right() - pad - arrowSize - 6;
+    if (showClear) {
+        textRight -= crossBox.width() + 6;
+    }
     const QRect textRect(textLeft, row.top(), qMax(0, textRight - textLeft), row.height());
     const QString mainText = index.data(Qt::DisplayRole).toString();
 
@@ -127,6 +144,15 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
                           arrowSize, arrowSize);
     painter->save();
     painter->setOpacity(rowOpacity);
+    // 选中的那条加载器：箭头**左边**再画一个「取消」小叉（点它 = 不装这个加载器了，
+    // 退回纯原版 —— 用户原话："选中以后在那个 > 左侧加一个 x 来取消安装对应版本"）。
+    // 它比正文浅一档：那是个次要操作，别和版本号抢眼睛。
+    if (showClear) {
+        const QRect glyph = crossBox.adjusted(3, 3, -3, -3);
+        painter->drawPixmap(glyph.topLeft(),
+                            VersionIcons::cross(glyph.width(),
+                                                palette.color(QPalette::PlaceholderText)));
+    }
     painter->drawPixmap(arrowRect.topLeft(),
                         VersionIcons::chevron(isChannel && expanded, arrowSize, arrowColor));
     painter->restore();
@@ -156,5 +182,9 @@ QSize VersionTreeDelegate::sizeHint(const QStyleOptionViewItem &option,
         width += MainWindowUI::versionTreeIconSize() + 8;
     }
     width += 2 * MainWindowUI::versionTreeRowPadding() + MainWindowUI::versionTreeArrowSize() + 6;
+    // 行尾那个「取消」小叉也占宽度（只有选中的那条加载器有，见 rowClearRole()）。
+    if (index.data(MainWindowUI::rowClearRole()).toBool()) {
+        width += MainWindowUI::versionTreeArrowSize() + 6 + 6;
+    }
     return QSize(width, height);
 }

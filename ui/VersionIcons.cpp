@@ -269,3 +269,26 @@ QPixmap VersionIcons::chevron(bool expanded, int size, const QColor &color) {
                       return pixmap;
                   });
 }
+
+QPixmap VersionIcons::cross(int size, const QColor &color) {
+    if (size <= 0) {
+        return QPixmap();
+    }
+    return cached(QStringLiteral("cross/%1/%2").arg(size).arg(color.name()), [size, color]() {
+        QPixmap pixmap(size, size);
+        pixmap.fill(Qt::transparent);
+        QPainter p(&pixmap);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        QPen pen(color);
+        // 和 chevron 同一个比例：细了看不见、粗了糊成一个点。
+        pen.setWidthF(qMax(1.6, size / 7.0));
+        pen.setCapStyle(Qt::RoundCap);
+        p.setPen(pen);
+        // 两条对角线。留 22% 的边距：贴到边上会看着比同一个格里的箭头大一号。
+        const qreal a = size * 0.22;
+        const qreal b = size * 0.78;
+        p.drawLine(QPointF(a, a), QPointF(b, b));
+        p.drawLine(QPointF(b, a), QPointF(a, b));
+        return pixmap;
+    });
+}

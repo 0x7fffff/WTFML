@@ -199,6 +199,16 @@ public:
     static QString loaderVersionFailedText() {
         return QCoreApplication::translate("MainWindowUI", "列表没取到");
     }
+    /// **这个版本上这个加载器一个能装的都没有**时那个灰条目（用户原话："如果对应版本
+    /// 不支持……这个情况下的 列表没取到 换成无可用版本"）。
+    /// 它和 loaderVersionFailedText() 是两件事，别混：那是"**没问到**"（网络的事，换一次
+    /// 可能就有了，所以那条底下仍然留着「自动（推荐）」）；这是"**问到了、就是没有**"
+    /// （真结论 —— 比如 Forge 还没支持某个刚发的快照）—— 这种情况下底下**连「自动（推荐）」
+    /// 都不留**：留着它等于让用户挑一条必然装不出来的路（装的时候会以
+    /// "还没有支持 X 的版本"收场），而"这一条我装不了"本来就该在这一眼说完。
+    static QString loaderVersionUnavailableText() {
+        return QCoreApplication::translate("MainWindowUI", "无可用版本");
+    }
 
     // ---------- 下载页「游戏」里那两层：版本树 / 安装页 ----------
     //
@@ -230,6 +240,11 @@ public:
     /// 给了就画它，没给就按"版本号前面是草方块"那条老规矩画。
     /// 加载器那棵树五条都是给全的（各自那个标志）。
     static int rowIconRole() { return Qt::DecorationRole; }
+    /// 「这一行尾那个小叉要画」挂在哪个角色上（真 = 画）。只有安装页那棵树上"**选中的那条
+    /// 加载器**"会写真（见 MainWindow::updateLoaderRows()），点了它 = 取消装这个加载器、
+    /// 退回「不装（纯原版）」（用户原话："选中以后在那个 > 左侧加一个 x 来取消安装对应版本"）。
+    /// NOTE: 版本树从来不写这个角色 —— 那棵树上没有"取消掉这一条"这种事。
+    static int rowClearRole() { return Qt::UserRole + 2; }
     /// 树上用的字号相对**默认**字号的偏移：用户要"文本放大一点"，+2。
     /// 默认字号在系统上是 9~12 pt 不等，所以这里记的只能是偏移，不能记死一个点数。
     static int versionTreeFontStep() { return 2; }
