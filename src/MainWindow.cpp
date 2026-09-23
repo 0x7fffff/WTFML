@@ -640,29 +640,39 @@ void MainWindow::setupConnections() {
     connect(m_ui->getInstallNameEdit(), &QLineEdit::textChanged, this,
             &MainWindow::onInstallNameEdited);
     // 加载器那棵树（安装页）：**点一下**那条里的两件事分开办 ——
-    //   · 点顶层（一个加载器）：选中它，然后展开/收起那一条（用户点的是行最右边那个
-    //     >/V，整个行都是热区）—— 和上一页版本树那边的点法一模一样；
-    //   · 点子条目（一个版本号）：把这一条钉在那个版本上，**收起**那条，并把版本号
-    //     写回它的第二行小字（用户原话："选择版本以后收缩，显示版本"）。
+    //   · 点顶层（一个加载器）：**只展开/收起**那一条（用户原话："点一下，展开，再点一下
+    //     关闭"）。展开是"看看有哪些版本"，看一眼不等于选了它 —— **选中是点版本号那一下
+    //     的事**（2026-09-23 用户原话："现在是展开以后就自动选择"，那正是要改掉的旧样子）；
+    //   · 点「不装（纯原版）」：它底下没有版本可展开，点它就是选中它。它也是换加载器的
+    //     唯一退路 —— 选中某一条之后其余几条会变灰（见 updateLoaderRows()），
+    //     没有它就走不回去了；
+    //   · 点子条目（一个版本号）：选中它爹那条加载器 + 把这一条钉在这个版本上，**收起**
+    //     那条，并把版本号写回它的第二行小字（用户原话："选择版本以后收缩，显示版本"）。
     // 共用一份 lambda 而不是槽：槽签名里带 QTreeWidgetItem* 就得让 moc 也认得这个类型
     // （版本树那边同一个理由，见 openFromTreeItem 上面那段）。
     const auto onLoaderTreeClicked = [this](QTreeWidgetItem *item, int) {
         if (item == nullptr) {
             return;
         }
+        // 灰的那几条（选中某个加载器之后其余几条、"正在获取…"/"列表没取到"那两个占位）
+        // **不是能点的东西**：点它什么都不该发生。放在最前面是因为"点不动"这件事对
+        // 顶层和子条目是同一个道理。
+        if (item->isDisabled()) {
+            return;
+        }
         if (item->parent() == nullptr) {
-            // 顶层：先记下"选中的是它"（这是产品状态，见 m_selectedLoaderIndex 那段），
-            // 再展开/收起。选中和展开是两件事：收起一条加载器不代表"改成不装它了"。
-            //
-            // NOTE: "这一下是展开还是收起"必须**在动状态之前**算出来。selectLoader()
-            //       里会碰那棵树，而只要碰了，事后读到的 isExpanded() 就可能已经不是用户
-            //       点之前那个值了 —— 2026-09-23 用户报的"选了「自动」以后列表就点不开了"
-            //       就是这么来的（那一次 selectLoader() 走的是"灌一遍列表"那条路，灌完
-            //       它把那一条撑开了，于是这里的取反把它又按回去 —— 净效果是点了没反应）。
-            //       现在 selectLoader() 一行都不碰那棵树了，但"先算再做"这个次序留着：
+            const int index =
+                item->data(MainWindowUI::loaderTreeKeyColumn(), Qt::UserRole).toInt();
+            if (index == MainWindowUI::modLoaderNoneIndex()) {
+                selectLoader(index);
+                return;
+            }
+            // NOTE: 这里**先算再做**（`!item->isExpanded()` 在动状态之前求值）是老账：
+            //       2026-09-23 那次"选了「自动」以后列表就点不开了"就是这一句读到了**已被
+            //       改过**的 isExpanded()（当时这一支里还夹着一次 selectLoader()，它顺手
+            //       把这一条撑开了）。如今这一支除了 setExpanded 一行都不做，写法还是留着：
             //       它是这一句话唯一安全的写法。
             const bool expand = !item->isExpanded();
-            selectLoader(item->data(MainWindowUI::loaderTreeKeyColumn(), Qt::UserRole).toInt());
             item->setExpanded(expand);
             return;
         }
@@ -672,15 +682,14 @@ void MainWindow::setupConnections() {
         // 版本号存在 userData 里（空串 = 「自动（推荐）」那一条，见 loaderVersionAutoText()）。
         const QString version =
             item->data(MainWindowUI::loaderTreeKeyColumn(), Qt::UserRole).toString();
-        // 那条"正在获取…"/"列表没取到"是灰的、**不是能选的东西**：点它什么都不该发生
-        // （不然"列表没取到"会被当成一个选中的版本号填进默认名里）。
-        if (!item->isDisabled()) {
-            m_chosenLoaderVersion.insert(index, version);
-            selectLoader(index);
-            loader->setExpanded(false);
-            // 钉的版本号是默认名的一部分（`1.20.1-Forge_47.4.10`），换一条就得重算。
-            updateInstallName();
-        }
+        // 走到这里就是"选中了这条加载器的这个版本"（上面那句 isDisabled() 已经把
+        // "正在获取…"/"列表没取到"那两个灰占位挡在外面了 —— 不挡的话"列表没取到"会被
+        // 当成一个选中的版本号填进默认名里）。
+        m_chosenLoaderVersion.insert(index, version);
+        selectLoader(index);
+        loader->setExpanded(false);
+        // 钉的版本号是默认名的一部分（`1.20.1-Forge_47.4.10`），换一条就得重算。
+        updateInstallName();
     };
     connect(m_ui->getLoaderTree(), &QTreeWidget::itemClicked, this, onLoaderTreeClicked);
     // 键盘走这条路（回车/空格"激活"一个条目）：两条路指向同一份 lambda。
@@ -1530,9 +1539,11 @@ void MainWindow::updateLoaderRows() {
     //   · 选中的那一条：第二行小字写它选的版本号（没钉就是「自动（推荐）」）；
     //   · 其余几条加载器：第二行小字写「与 X 不兼容」（用户要的那句话）；
     //   · 「不装（纯原版）」那条：没有第二行（它不是加载器，不跟谁冲突）。
-    // NOTE: 这几条**仍然可点** —— 点它就是改用那一个（本启动器一次只装一个加载器，
-    //       所以"不兼容"说的是"两个不能同时装"，不是"这个点不得"）。今天点它和点
-    //       一个单选钮是一回事，用户不用先绕回「不装」再选。
+    // NOTE: 选中某一条之后，**其余几条加载器变灰、也点不开**（用户原话："选择以后让其他
+    //       选项变成不可用（不能点开）的模式"）。改选别的加载器要先点「不装（纯原版）」
+    //       —— 那条**故意不灰**，它既是"回纯原版"，也是唯一那条还点得动的退路；
+    //       换版本则点当前这条底下的版本号。本启动器一次只装一个加载器，所以"不兼容"
+    //       说的是"两个不能同时装"，而灰掉说的是"这一下点了也不会变成装它"。
     const int selected = selectedLoaderIndex();
     VersionManager::LoaderKind selectedKind = VersionManager::LoaderKind::Fabric;
     const bool hasLoader = VersionManager::loaderKindFromIndex(selected, &selectedKind);
@@ -1558,6 +1569,17 @@ void MainWindow::updateLoaderRows() {
         }
         // 角色是 rowSubTextRole()：空串 = 那一行不画第二行小字（代理那边统一处理）。
         item->setData(MainWindowUI::loaderTreeKeyColumn(), MainWindowUI::rowSubTextRole(), subText);
+        // 灰那几条：选中了某个加载器之后**其余几条加载器**不可用（见上面那段 NOTE）。
+        // 顺手把灰掉的那条**收起来** —— 收着的时候它底下的版本号看不见，而"展开着一份
+        // 版本列表、整条却是灰的"看着像"点得动、只是不让点"（点一下才知道不是）。
+        // 「不装（纯原版）」不参与：它不是加载器（isLoader 为假），而且是那条退路。
+        if (isLoader) {
+            const bool locked = hasLoader && i != selected;
+            if (locked && item->isExpanded()) {
+                item->setExpanded(false);
+            }
+            item->setDisabled(locked);
+        }
     }
 }
 
@@ -1573,8 +1595,10 @@ void MainWindow::selectLoader(int loaderIndex) {
     updateInstallName();
     // NOTE: **这里不发任何请求**。"有哪些版本"是进安装页时一次性全问好的
     //       （见 requestAllLoaderVersions()，用户原话："获取列表不能点开了再获取，
-    //       得全获取完"）。点一条加载器只做两件事：改"要装哪一个"、展开/收起那一行。
-    //       点一下就去碰那棵树是 2026-09-23 那个"点不开了"的成因之一，别再走回去。
+    //       得全获取完"）。走这一句的只有两条路：点一条**版本号**（选中它爹那条加载器）、
+    //       点「不装（纯原版）」那一条。点一条加载器**不再**选中它（那一下只展开/收起，
+    //       见 onLoaderTreeClicked() 上面那段）—— 点一下就去碰那棵树是 2026-09-23 那个
+    //       "点不开了"的成因之一，别再走回去。
 }
 
 void MainWindow::requestAllLoaderVersions() {
