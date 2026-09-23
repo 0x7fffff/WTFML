@@ -28,6 +28,7 @@
 #include <QEvent>
 #include <QFrame>
 #include <QGroupBox>
+#include <QHash>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -346,9 +347,10 @@ public:
     // 左栏原来是"挑加载器 + 挑版本"，2026-09-22 换成 PCL 那种**一列分类**：游戏 / 整合包 /
     // 模组 / 资源包 / 光影。点哪个，右栏那份 QStackedWidget 就换到哪一页。
     //
-    // NOTE: 现在只有「游戏」那一页是真的 —— 它就是原来那一摊（挑加载器、挑版本、下载）。
-    //       其余四个是**留着的入口**：点进去只有一句"还没做"，位置先占住，免得下次往里
-    //       加东西时又要重排整页。那几页上的话由 downloadPlaceholderText() 单点决定。
+    // NOTE: 2026-09-23 起五页**全是真的**了：第 0 页「游戏」还是原来那一摊（挑加载器、
+    //       挑版本、下载），其余四页是"一个搜索框 + 一棵三层树"（资源 → 游戏版本 → 版本号，
+    //       见下面 downloadResourceTreeName() 那段）。原来那四句"还没做"的话连同
+    //       downloadPlaceholderText() 一起删掉了 —— 留着就是四页在说假话。
     static QString downloadCategoryListName() { return QStringLiteral("downloadCategoryList"); }
     static QString downloadStackName() { return QStringLiteral("downloadStack"); }
     /// 「游戏」那一页（唯一有内容的那页）的 objectName。
@@ -366,27 +368,59 @@ public:
     }
     /// 有内容的那个分类的下标（「游戏」）。写死数字的地方一律用它。
     static int downloadCategoryGameIndex() { return 0; }
-    /// 每个分类**将来**放什么一句话（「游戏」那条是空的：它现在就有内容）。
-    /// 这张表只给"还没做"那几页用，所以它和新加的页一一对应。
-    static QStringList downloadCategoryNotes() {
+    /// 每个分类**能在这儿干什么**的一句话（「游戏」那条是空的：它没有搜索框）。
+    ///
+    /// 这句话现在的去处是那一页搜索框里的**提示文字** —— 用户原话「上方预留搜索功能
+    ///（如果简单就直接做了）」，做成能用的之后，这句话正好落在最该看见它的地方
+    ///（一个还没输入过的空框里）。
+    /// NOTE: 2026-09-23 之前它是"还没做"那几页上的一句话，措辞是"将来放什么"；现在改成了
+    ///       "在这儿能干什么"。顺手把原来写的 "CurseForge" 去掉了 —— 这一轮只做 Modrinth，
+    ///       提示里写着它、点进去却没有，就是撒谎（CurseForge 那件事另有原因，见 ModpackImport）。
+    static QStringList downloadSearchHints() {
         return {QString(),
-                QStringLiteral("搜索 Modrinth / CurseForge 上的整合包，看简介和文件清单，一键导入"),
-                QStringLiteral("按游戏版本和加载器搜模组，装进选中的那个实例"),
-                QStringLiteral("搜资源包，装进选中的那个实例"),
-                QStringLiteral("搜光影包，装进选中的那个实例")};
+                QStringLiteral("搜整合包名，回车；挑一个游戏版本，再挑一个版本号导入"),
+                QStringLiteral("搜模组名，回车；挑一个游戏版本，再挑一个版本号装进实例"),
+                QStringLiteral("搜资源包名，回车；挑一个游戏版本，再挑一个版本号装进实例"),
+                QStringLiteral("搜光影包名，回车；挑一个游戏版本，再挑一个版本号装进实例")};
     }
-    /// 还没做的那几页上写的那句话。**唯一出处** —— 页上那个标签读的就是它。
-    /// @param index downloadCategoryKeys() 的下标；「游戏」那一条返回空串（它有内容）。
-    static QString downloadPlaceholderText(int index) {
-        const QStringList texts = downloadCategoryTexts();
-        const QStringList notes = downloadCategoryNotes();
-        if (index < 0 || index >= texts.size() || index >= notes.size() ||
-            notes.at(index).isEmpty()) {
-            return QString();
-        }
-        return QStringLiteral("「%1」还没做。\n\n这里的入口先留着，将来放：%2。")
-            .arg(texts.at(index), notes.at(index));
+    /// 第 index 个分类那一页搜索框里提示什么（「游戏」那页没有搜索框，返回空串）。
+    static QString downloadSearchHint(int index) {
+        const QStringList hints = downloadSearchHints();
+        return index >= 0 && index < hints.size() ? hints.at(index) : QString();
     }
+
+    // ---- 后面四页那四张资源表（模组 / 整合包 / 资源包 / 光影）----
+    //
+    // 每页两样东西：一个搜索框 + 一棵**三层**树。三层的走法和用户描述的那条路一一对应：
+    //   第一层 资源（图标 + 名字 + 「作者 · 下载量」）→ 点开
+    //   第二层 游戏版本 → 点开（这时才去问接口）→
+    //   第三层 版本号（文件名 + 「release · 日期 · 加载器」）→ 点它 = 下它
+    // 用户原话：「点开模组后是选择游戏版本，在选择游戏版本后展开下方的版本列表，
+    // 类似模组加载器的样子」。三层用的是**上一页那两棵树的同一个代理**，所以长得一样。
+    //
+    // 控件的名字按分类键拼（`modTree` / `shaderSearchEdit` 这种）：四页的控件一模一样、
+    // 只有那几个字不同，所以下面是一段循环搭四遍，不是抄四份。
+    static QString downloadResourceTreeName(const QString &categoryKey) {
+        return categoryKey + QStringLiteral("Tree");
+    }
+    static QString downloadSearchEditName(const QString &categoryKey) {
+        return categoryKey + QStringLiteral("SearchEdit");
+    }
+    /// 那四张资源表里**前面那个图标画多大**（版本树/加载器树是 18）。
+    /// 用户要"会有图片"，18 px 那个尺寸看不清缩略图；行高仍是 versionTreeRowHeight()（46），
+    /// 32 px 的图在行里上下各留 7 px，不挤。
+    static int resourceTreeIconSize() { return 32; }
+    /// 资源那一行（最上面那一层）上挂的"这是哪一类"：存**分类键**
+    ///（`downloadCategoryKeys()` 里那四个之一，也是 `ResourceCatalog::kindKey()`）。
+    ///
+    /// 为什么要挂在条目上：用户点**第三层**（一个版本号）那一下要算"下到哪儿去"
+    ///（模组 → `mods/`、资源包 → `resourcepacks/`、光影 → `shaderpacks/`、整合包 → 缓存目录），
+    /// 而那一刻手上只有条目 —— 从它往上两层、回到第一层那一行读回来就是了。
+    /// 不反查树控件的 objectName（那是控件的名字，不是数据），也不按页面下标猜。
+    /// 存的为什么是键而不是枚举的整数值：读的时候可以直接走
+    /// `ResourceCatalog::kindFromCategoryKey()` —— 那个函数认得出来才是"这一行是我们建的"，
+    /// 而把一个 int 硬转成枚举是没有这层校验的（值是脏的就会变成一个不存在的 Kind）。
+    static int resourceKindRole() { return Qt::UserRole + 3; }
 
     static QString folderListName() { return QStringLiteral("folderList"); }
     static QString instanceListName() { return QStringLiteral("instanceList"); }
@@ -816,6 +850,21 @@ public:
     ///       这一层只管把状态画出来。
     QTreeWidget *getLoaderTree() const { return loaderTree; }
 
+    /// 后面四页（模组/整合包/资源包/光影）那四张资源表，按分类键取（键就是
+    /// downloadCategoryKeys() 里那四个之一）。认不出来（比如传 "game"）时返回 nullptr ——
+    /// 「游戏」那一页没有这张表，它有它自己那棵树。
+    ///
+    /// NOTE: 条目的身份也读每条的 `Qt::UserRole`，但**含义按层不同**：第一层是 project_id、
+    ///       第二层是游戏版本、第三层是版本号。认层用的是"有没有爹"——和代理里那条
+    ///       isChannel 是同一个判据（别用"UserRole 看着像不像版本号"去猜）。
+    QTreeWidget *getDownloadResourceTree(const QString &categoryKey) const {
+        return downloadResourceTrees.value(categoryKey, nullptr);
+    }
+    /// 那一页上面那个搜索框（回车就搜，见 downloadSearchHint() 那段）。
+    QLineEdit *getDownloadSearchEdit(const QString &categoryKey) const {
+        return downloadResourceSearches.value(categoryKey, nullptr);
+    }
+
     // 设置页的控件。**只搭出来、只负责显隐**，值由 MainWindow 灌（它才知道
     // 那些设置存在哪、改了要不要落盘）。
     QComboBox *getJavaVersionCombo() const { return javaVersionCombo; }
@@ -900,6 +949,10 @@ private:
     /// 安装页那棵「模组加载器」树（见头文件上面那段）。顶层五条按 modLoaderOptionNames()
     /// 的顺序摆，前四条各带自己的版本列表（点开才灌）、第 5 条是「不装（纯原版）」。
     QTreeWidget *loaderTree;
+    /// 后面四页那四张资源表 + 各自的搜索框，按分类键索引（见头文件上面那段）。
+    /// 五页里「游戏」不在里头（它不用搜），所以这里是四对。
+    QHash<QString, QTreeWidget *> downloadResourceTrees;
+    QHash<QString, QLineEdit *> downloadResourceSearches;
     QComboBox *javaVersionCombo;
     QLabel *javaPathLabel;
     QCheckBox *javaWarnMismatchCheck;

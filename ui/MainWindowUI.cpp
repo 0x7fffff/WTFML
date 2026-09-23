@@ -504,9 +504,10 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     // 左栏 2026-09-22 从"挑加载器 + 挑版本"换成了 PCL 那种**一列分类**：游戏 / 整合包 /
     // 模组 / 资源包 / 光影。点哪个，右栏那份 QStackedWidget 就换到哪一页。
     //
-    // NOTE: 现在只有「游戏」那一页是真的 —— 它就是原来那一摊（挑加载器、挑版本、下载），
-    //       一个控件都没少。其余四页只有一句"还没做"（那句话的唯一出处是
-    //       downloadPlaceholderText()）：入口先占住，免得下次往里加东西时又要重排整页。
+    // NOTE: 2026-09-23 起**五页全是真的**了。「游戏」那一页就是原来那一摊（挑加载器、挑版本、
+    //       下载），一个控件都没少；其余四页是"一个搜索框 + 一棵三层树"（资源 → 游戏版本 →
+    //       版本号），在这里一段循环里搭出来（见下面那段）。原来那四句"还没做"的话连同
+    //       downloadPlaceholderText() 一起删掉了 —— 留着就是四页在说假话。
     QWidget *downloadTab = new QWidget(tabWidget);
     downloadTab->setObjectName(downloadTabName());
     const TwoColumns download = buildTwoColumnPage(downloadTab, QStringLiteral("download"));
@@ -744,21 +745,59 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // 于是"第 i 个分类 = 第 i 页"这条对应关系成立（验证工程会数一遍两边的条数）。
         downloadStack->addWidget(gamePage);
 
-        // ---- 其余四页：入口先留着，点进去只说一句"还没做" ----
+        // ---- 其余四页：一个搜索框 + 一棵三层树（资源 → 游戏版本 → 版本号）----
+        //
+        // 四页的控件**一模一样**，只有搜索框里那句提示文字不同，所以这里是循环四遍，
+        // 不是抄四份。三层的那条路就是用户描述的那条（见头文件里 downloadResourceTreeName()
+        // 上面那段）：
+        //   第一层 资源 → 点开是游戏版本 → 点开某个游戏版本**这时才去问接口** → 第三层版本号
+        // 关键是"什么在哪儿灌"：这一层只**搭**（空树），三条路的数据都由 MainWindow 灌
+        //（和版本树/加载器树那两棵一样，界面这边一条业务判据都不写）。
         for (int i = 0; i < categoryKeys.size(); ++i) {
             if (i == downloadCategoryGameIndex()) {
                 continue;
             }
+            const QString categoryKey = categoryKeys.value(i);
             QWidget *page = new QWidget(downloadStack);
-            page->setObjectName(categoryKeys.value(i) + QStringLiteral("Page"));
+            page->setObjectName(categoryKey + QStringLiteral("Page"));
             auto *pageLayout = new QVBoxLayout(page);
             pageLayout->setContentsMargins(0, 0, 0, 0);
             pageLayout->setSpacing(10);
-            auto *note = new QLabel(downloadPlaceholderText(i), page);
-            note->setWordWrap(true);
-            note->setAlignment(Qt::AlignLeft | Qt::AlignTop);
-            pageLayout->addWidget(note);
-            pageLayout->addStretch(1);
+
+            // 上面那一条：搜索框。**回车就搜** —— 用户原话是"上方预留搜索功能（如果简单就
+            // 直接做了）"，那就做成能用的：一个输入框 + 回车，不另加按钮。
+            // NOTE: 不加"清除"那个小叉（setClearButtonEnabled）：它在输入框里塞一个真的
+            //       子按钮，而这个页面上的控件形状是被验证工程一条一条数着的。
+            //       提示文字是那页"能干什么"的一句话（downloadSearchHint，唯一出处）——
+            //       空框里那句话正好在最该看见它的地方。
+            auto *search = new QLineEdit(page);
+            search->setObjectName(downloadSearchEditName(categoryKey));
+            search->setPlaceholderText(downloadSearchHint(i));
+            pageLayout->addWidget(search);
+
+            // 下面那棵树：三层，和上一页那两棵用**同一个代理、同一套竖设置**（表头藏起来、
+            // 行高常数、左边那个小三角不画、同一个字号偏移），所以长得一样。
+            // 只有两处不一样：
+            //   ① 图标大一点（resourceTreeIconSize()）—— 要看清缩略图，18 px 那个不行；
+            //   ② 叶子那一层**画**箭头（leafArrow=true）—— 第三层"点一个版本号"是**下它**，
+            //      是个真动作（"点进去"那层意思），和加载器树上"选中它"不是一回事。
+            QTreeWidget *tree = new QTreeWidget(page);
+            tree->setObjectName(downloadResourceTreeName(categoryKey));
+            tree->setHeaderHidden(true);
+            tree->setUniformRowHeights(true);
+            tree->setRootIsDecorated(false);
+            tree->setColumnCount(1);
+            tree->setItemDelegate(
+                new VersionTreeDelegate(tree, /*leafArrow=*/true, resourceTreeIconSize()));
+            tree->setExpandsOnDoubleClick(false);
+            QFont resourceFont = tree->font();
+            resourceFont.setPointSize(resourceFont.pointSize() + versionTreeFontStep());
+            tree->setFont(resourceFont);
+            tree->setIconSize(QSize(resourceTreeIconSize(), resourceTreeIconSize()));
+            pageLayout->addWidget(tree, 1);
+
+            downloadResourceSearches.insert(categoryKey, search);
+            downloadResourceTrees.insert(categoryKey, tree);
             downloadStack->addWidget(page);
         }
         // 打开下载页时停在「游戏」（= 原来那个行为）。

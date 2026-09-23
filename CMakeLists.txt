@@ -33,7 +33,10 @@ set(HEADER_FILES
     src/settings/LauncherSettings.hpp
     src/download/DownloadManager.hpp
     src/download/LoaderMeta.hpp
+    src/download/ResourceCatalog.hpp
+    src/download/ResourceStore.hpp
     src/util/AppPaths.hpp
+    src/util/ImageDecode.hpp
     src/util/SystemMemory.hpp
     src/util/ZipUtil.hpp
 )
@@ -59,6 +62,9 @@ set(SOURCE_FILES
     src/settings/GlobalJavaSettings.cpp
     src/settings/LauncherSettings.cpp
     src/download/DownloadManager.cpp
+    src/download/ResourceCatalog.cpp
+    src/download/ResourceStore.cpp
+    src/util/ImageDecode.cpp
     src/util/SystemMemory.cpp
     src/util/ZipUtil.cpp
     ui/AccountSkinDialog.cpp
@@ -77,6 +83,28 @@ qt_add_executable(WTFMinecraftLauncher
     ${SOURCE_FILES}
 )
 
+# GUI 子系统（**不弹控制台窗口**）。
+#
+# 不设这一条的话，MinGW 出来的默认是 CUI（Windows 控制台程序），而双击一个 CUI 程序时
+# Windows 会给它开一个黑框：用户 2026-09-23 报的「运行的时候弹了一串消息」就是它 ——
+# 里面刷的是 [WTFML] 的启动日志和 Qt 自己那几句警告。验证工程的 exe（verify / ui_check /
+# mw_check / ui_shot）**不受影响**：它们是各自 CMakeLists 里单独的 target，本来就该是
+# 控制台程序（那一跑就是"看它打什么字"）。
+#
+# 代价是"那些话没人看得见"，由 src/main.cpp 的 installFileLog() 补上：
+# <数据目录>/logs/wtfml.log，每次启动截断重写。
+set_target_properties(WTFMinecraftLauncher PROPERTIES WIN32_EXECUTABLE TRUE)
+
+# 还得把 Qt 自己那个入口（Qt6EntryPoint）关掉，否则 MinGW 这一套链不过去：
+# 它那个 `WinMain → main(__argc, __argv)` 要 `__argc`/`__argv`，而这个工具链上它们
+# 是 dllimport 的、没人提供 —— 症状是链接期一句
+# `undefined reference to __imp___argc`（不是运行期，所以别指望跑起来才发现）。
+#
+# qt_no_entrypoint 是 Qt 自己认的那个开关（Qt6CoreTargets.cmake 里那段 genex 就是按它
+# 决定要不要链 EntryPointPrivate），链上 MinGW 自带的 WinMain 之后 `int main()` 照旧是
+# 入口，GUI 子系统这件事只由上面那条 WIN32_EXECUTABLE 决定。
+set_target_properties(WTFMinecraftLauncher PROPERTIES qt_no_entrypoint TRUE)
+
 target_include_directories(WTFMinecraftLauncher PRIVATE
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/ui      
@@ -90,6 +118,12 @@ target_link_libraries(WTFMinecraftLauncher PRIVATE
 )
 
 # 令牌落盘用的 DPAPI（CryptProtectData）在这个库里。见 src/auth/TokenStore.cpp 的 protect()。
+#
+# 另外三个是 src/util/ImageDecode.cpp 要的（**只有 Windows 上有**，所以整段套在 WIN32 里）：
+#   * ole32          —— CoInitializeEx / CoCreateInstance（起 COM、拿 WIC 工厂）
+#   * shlwapi        —— SHCreateMemStream（把内存里那串图标字节变成一个 IStream，不落盘）
+#   * windowscodecs  —— WIC 本体（IWICImagingFactory 那些）
+# 三个都是系统 DLL（Vista 起就在），**不发任何东西**：见 ImageDecode 文件头那段。
 if(WIN32)
-    target_link_libraries(WTFMinecraftLauncher PRIVATE crypt32)
+    target_link_libraries(WTFMinecraftLauncher PRIVATE crypt32 ole32 shlwapi windowscodecs)
 endif()

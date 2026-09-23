@@ -494,6 +494,81 @@ void VersionManager::downloadVersion(const QString &versionId, const QString &de
 }
 
 // ---------------------------------------------------------------------------
+// 下载页那四类资源：把一个文件下到实例里（模组 / 资源包 / 光影）
+// ---------------------------------------------------------------------------
+
+void VersionManager::downloadResourceFiles(const QString &destinationDir,
+                                           const QString &busyInstanceId, const QString &label,
+                                           const QList<ResourceFile> &files) {
+    // 下面这几道早退**必须在 beginBatch() 之前**（理由见 downloadVersion() 顶部那段 NOTE：
+    // beginBatch() 与 endBatch() 之间提前 return，m_batchOpen 就永远是 true）。
+    // 每一道都要发终态信号 —— 界面那边点一下就在等一个结果，不发就等于"点了没反应"。
+    if (destinationDir.isEmpty()) {
+        emit resourceDownloadFinished(label, false, tr("没有说清要下到哪儿去。"));
+        return;
+    }
+    if (downloadManager->isBusy()) {
+        qWarning() << "A download batch is already running, refusing to start another.";
+        emit resourceDownloadFinished(label, false, tr("已有下载任务正在进行，请等它结束。"));
+        return;
+    }
+    // 那三套安装状态机在**它们的批次之间**是不忙的（比如正在拉版本表、跑安装器），
+    // 光看 isBusy() 拦不住那一刻 —— 那时候插进来一批模组，DownloadManager 那份唯一的批次
+    // 状态就会被两件事同时用（它们的接续点在 allDownloadsFinished 上，谁先收到就说不清了）。
+    // 和 importModpack() / installLoaderVersion() 入口那三道闸同一个道理。
+    if (m_loaderInstall.active() || m_modpackInstall.active() || m_namedInstance.active()) {
+        emit resourceDownloadFinished(label, false,
+                                      tr("已有下载或者安装任务正在进行，请等它结束再装。"));
+        return;
+    }
+    if (files.isEmpty()) {
+        // 正常走不到（能点的那条版本一定有个 primary 文件），但"这个版本一个文件都没有"
+        // 是接口允许的状态 —— 那时候要当场说清，而不是开一个空批次等一个永远不来的收尾。
+        emit resourceDownloadFinished(label, false, tr("这个版本没有可下载的文件。"));
+        return;
+    }
+
+    QStringList paths;
+    paths.reserve(files.size());
+    for (const ResourceFile &file : files) {
+        // 文件名来自接口，**不能**直接往盘上拼：里面出现 `../` 或者一个绝对路径，写出去的
+        // 位置就不在目标目录里了。这不是防谁，是"接口给的东西要当数据看"这条底线 ——
+        // 一个作者把文件名写成 "../../../startup.bat" 是完全做得到的。
+        if (file.filename.isEmpty() || file.filename.contains(QLatin1Char('/'))
+            || file.filename.contains(QLatin1Char('\\'))
+            || file.filename.contains(QStringLiteral(".."))) {
+            emit resourceDownloadFinished(
+                label, false, tr("这一版的文件名没法用（%1），没有装。").arg(file.filename));
+            return;
+        }
+        paths.append(destinationDir + QLatin1Char('/') + file.filename);
+    }
+
+    // 这一批在写哪个实例记进 m_currentVersionDownloading（缓存那一类传空串 = 谁都不锁）。
+    // 界面靠它（busyVersionId()）把这一个实例从"能启动"里滤掉 —— 往 mods/ 里写文件的
+    // 时候用户点了启动，JVM 可能正好在读那半截文件。
+    // NOTE: 写上**空串**也是一次有意为之的赋值：不赋的话，这一批期间 busyVersionId() 会
+    //       回答**上一批版本下载**留下的那个名字（那个成员收尾后不清空），于是"往缓存里下个
+    //       整合包"会把一个毫不相干的实例锁住 —— 而真正在写的那一个照样能启动，两件事都错。
+    m_currentVersionDownloading = busyInstanceId;
+
+    m_resourceDownload.running = true;
+    m_resourceDownload.label = label;
+
+    downloadManager->beginBatch();
+    for (int i = 0; i < files.size(); ++i) {
+        // 第六个参数（官方地址兜底）**不传**：那一条的用处是"镜像取不回来时按官方再试一次"，
+        // 而 Modrinth 的 CDN 不在 BMCLAPI 的覆盖范围里，地址原样发（也**不**过 endpoint()，
+        // 那个只认 Mojang 那几个主机）。
+        // VerifyMode 用 SizeAndSha1：接口每条文件都给了 sha1 和 size（实测 40 位 sha1 全有），
+        // 能校验就校验 —— 模组下坏了在游戏里表现为"加载到一半崩"，比这里报个错难查得多。
+        downloadManager->downloadFile(files.at(i).url, paths.at(i), files.at(i).sha1,
+                                       files.at(i).size, VerifyMode::SizeAndSha1);
+    }
+    downloadManager->endBatch();
+}
+
+// ---------------------------------------------------------------------------
 // 带模组加载器的版本（今天只有 Fabric 接通了）
 // ---------------------------------------------------------------------------
 
@@ -3368,6 +3443,16 @@ void VersionManager::onAllDownloadsFinished(bool success) {
         const QString parentId = m_namedInstance.parentId;
         deferNamedStep(NamedInstance::Phase::WaitingParentFiles,
                        [this, parentId, message] { finishNamedInstance(parentId, message); });
+        return;
+    }
+
+    // 下载页那四类资源（模组 / 资源包 / 光影）的那一批：它不属于上面任何一套安装流程，
+    // 自己报一次就完事。**必须排在最后那一句之前 return** —— 不然一批模组会被报成
+    // 「版本 <那个实例> 的文件已全部就绪」，界面上看是"下完一个模组，实例的安装也完成了"。
+    if (m_resourceDownload.running) {
+        const QString label = m_resourceDownload.label;
+        m_resourceDownload.reset();
+        emit resourceDownloadFinished(label, success, message);
         return;
     }
 

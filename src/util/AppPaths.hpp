@@ -154,4 +154,32 @@ inline QString installerCacheDir() {
     return minecraftDir() + QStringLiteral("/cache/installers");
 }
 
+/// 下载页那些资源的**图标**在本地留一份的目录：<数据目录>/cache/icons。
+///
+/// 为什么图标要落盘：实测（2026-09-23）它这一路很贵 —— `cdn.modrinth.com` 对每一张图
+/// 只回一个 307，真正的字节在 `cdn-alt.modrinth.com` 上，从国内连它 2 秒起步（不通的时候
+/// 就是一个都不出）。而下载页一进去就是二十来个图标、而且**每次都是同一批热门资源**。
+/// 留一份在盘上，第二次进这一页就是一个请求都不发（见 ResourceStore::loadIconFromCache）。
+///
+/// NOTE: 挂在**数据根目录**下（和 cache/installers、cache/modpacks 一样），不挂 %APPDATA%：
+///       "整个启动器连带数据可以整体拷走"这条在这里同样适用。代价是换一份 .minecraft
+///       就重新攒一份图标 —— 和 skinsDir() 那段是同一个取舍，理由也一样。
+/// NOTE: 没人会去清它，清掉也不影响正确性（下一次进那一页重新攒）。过期/读坏的那些
+///       由 ResourceStore 自己换掉或删掉。
+inline QString iconCacheDir() {
+    return minecraftDir() + QStringLiteral("/cache/icons");
+}
+
+/// 从下载页下回来的整合包（.mrpack）的落脚处：<数据目录>/cache/modpacks。
+///
+/// 它只是个中转：下回来紧接着就走「导入整合包…」那条**同一条路**（解包、问实例名、下清单
+/// 里那几百个文件）。留在这儿是为了"导入到一半用户反悔了"时不用重下那几十 MB —— 和安装器
+/// jar 是同一种打算（见上面那段）。
+///
+/// NOTE: 挂在 cache/ 下面，理由和安装器一样：它不能进 versions/（那底下每一个子目录都会被
+///       当成一个实例），也不该跟着实例走。清不清由用户自己决定（重下一次而已）。
+inline QString modpackCacheDir() {
+    return minecraftDir() + QStringLiteral("/cache/modpacks");
+}
+
 }  // namespace AppPaths
