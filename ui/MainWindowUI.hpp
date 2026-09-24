@@ -345,6 +345,15 @@ public:
     /// NOTE: 号码为什么从 `UserRole + 3` 挪到 `UserRole + 10` —— 见 rowSubTextRole() 上面
     ///       那一段（原来是撞了 resourceKindRole()，资源表上每一行都长出一个圈）。
     static int rowRefreshRole() { return Qt::UserRole + 10; }
+    /// 悬停在那两个**行里的按钮**上时弹的那句话（2026-09-24 用户原话：「鼠标悬停在箭头上
+    /// 出现刷新二字，之后不少功能要做悬停」）。谁把它弹出来的、按哪一格判，见
+    /// VersionTreeDelegate::rowActionTip()（那儿是**几何的唯一出处**，这儿只是文案）。
+    ///
+    /// NOTE: 只有"行里的按钮"才有话 —— 整条行不弹。整行弹一句的话，鼠标扫过一列版本号
+    ///       会一路弹个不停，而那条行上真正的按钮只有一小格（用户要的是"对着那个圈/那个
+    ///       叉才有"）。条目自己写 `Qt::ToolTipRole` 的老路照旧（那条走代理的兜底）。
+    static QString rowRefreshTipText() { return QStringLiteral("刷新"); }
+    static QString rowClearTipText() { return QStringLiteral("取消"); }
     /// 树上用的字号相对**默认**字号的偏移：用户要"文本放大一点"，+2。
     /// 默认字号在系统上是 9~12 pt 不等，所以这里记的只能是偏移，不能记死一个点数。
     static int versionTreeFontStep() { return 2; }

@@ -85,6 +85,28 @@ public:
     ///       ui_check 里有一条断言把这条互斥钉住（真要有那么一行，那里先红）。
     static QRect refreshRect(const QRect &row);
 
+    /// 光标落在**行里哪个按钮**上 —— 落在就说那句话（`rowRefreshTipText()` /
+    /// `rowClearTipText()`），没落在任何一个上就是空串。
+    ///
+    /// @param index 那一行的下标（角色挂在它上面）。
+    /// @param row 整行的矩形（视口坐标）。
+    /// @param pos 光标位置（**视口坐标**，和 `row` 同一套）。
+    ///
+    /// NOTE: 这是"行里的按钮"这套东西的**第二处几何读者**（第一处是 paint()、第三处是
+    ///       MainWindow::eventFilter 里认下那一下的判据）。将来再加行内按钮，几何仍然只在
+    ///       clearRect()/refreshRect() 里算，这儿只是"哪个角色对应哪一格"的一张表。
+    ///
+    /// Why 不走 `Qt::ToolTipRole`：那个是**整条行**的，鼠标扫过一列版本号会一路弹。
+    ///       这条路只在"真落在那一小格上"才说话（用户 2026-09-24："鼠标悬停在箭头上出现
+    ///       刷新二字，之后不少功能要做悬停"）。条目自己写 `Qt::ToolTipRole` 的老路还在
+    ///       —— helpEvent() 兜底给基类。
+    static QString rowActionTip(const QModelIndex &index, const QRect &row, const QPoint &pos);
+
+    /// 悬停提示。基类那个只看 `Qt::ToolTipRole`（整条行一句），这里先问一声
+    /// rowActionTip()，问不到才交给基类。
+    bool helpEvent(QHelpEvent *event, QAbstractItemView *view, const QStyleOptionViewItem &option,
+                   const QModelIndex &index) override;
+
 private:
     bool m_leafArrow = true;
     int m_iconSize = 0;
