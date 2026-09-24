@@ -415,8 +415,8 @@ public:
     static QString downloadStackName() { return QStringLiteral("downloadStack"); }
     /// 「游戏」那一页（唯一有内容的那页）的 objectName。
     static QString downloadGamePageName() { return QStringLiteral("downloadGamePage"); }
-    /// 分类的键（进条目的 userData，也是"还没做"那几页的 objectName 前缀）。
-    /// **顺序就是界面上从上到下的顺序**，第 0 个是唯一有内容的那个。
+    /// 分类的键（进条目的 userData，也是那四张资源表的 objectName 前缀）。
+    /// **顺序就是界面上从上到下的顺序**，第 0 个是「游戏」（它没有资源表，有别的两张）。
     static QStringList downloadCategoryKeys() {
         return {QStringLiteral("game"), QStringLiteral("modpack"), QStringLiteral("mod"),
                 QStringLiteral("resourcepack"), QStringLiteral("shader")};

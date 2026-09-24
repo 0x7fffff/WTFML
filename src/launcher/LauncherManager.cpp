@@ -367,27 +367,27 @@ QString LauncherManager::prepareNatives(const QJsonObject &versionJson, const QS
  * 构造完整的 JVM 参数集，包括内存设置、 classpath 、系统属性和游戏特定参数。
  * 使用 version.json 中的依赖项构建 classpath ，并应用针对特定平台的 library 过滤。
  *
- * @param token Authentication token for online mode
- * @param versionId Minecraft version identifier
- * @param assetIndexId Asset index identifier
- * @param versionJson Version manifest JSON object containing library dependencies
- * @param settings Java settings (memory, extra args, etc.)
- * @param offlineMode Whether to run in offline mode with fake credentials
- * @param javaMajorVersion 实际使用的 Java 主版本；<= 0 表示调用方没传
- * @param versionJvmArgs 该版本自定义的 JVM 参数，插在全局 extraJvmArgs 之后
- * @param playerName 玩家名，写进 --username；空则退回 kDefaultPlayerName
- * @return 返回为 QProcess 准备的带有 JVM 参数的 QStringList
+ * **完整的参数说明看 LauncherManager.hpp 上那一段**（那是唯一权威的一份，两边都写着就会
+ * 各漂各的 —— 这一段以前就是那个下场：漏了 @param playerUuid，@param settings / @param
+ * token 的描述也和头文件里的对不上）。这里只留"为什么这么写"的部分。
  *
  * NOTE: 这里刻意**只加硬编码做不到的事**，凡是 version.json 的 arguments.jvm 声明了的
- *       就按它的规则过滤后原样传（见下面那段）。PCL 那套调优值（-XX:G1NewSizePercent=20
- *       -XX:G1ReservePercent=20 -XX:G1HeapRegionSize=32M -XX:MaxGCPauseMillis=50
- *       -XX:+PerfDisableSharedMem -XX:MinHeapFreeRatio=25 -XX:MaxHeapFreeRatio=40，
- *       以及 -XX:+UseCompactObjectHeaders）**不进这里** —— 它们随机器/堆大小/Java
- *       版本而变，硬编码等于替用户做主了，归 versionJvmArgs 和
- *       GlobalJavaSettings::extraJvmArgs() 这两个自定义口子。
- *       其中带版本门槛的那几条，实测结论（21 与 25 两个运行时）：-XX:+PerfDisableSharedMem
- *       全版本可用；-XX:+UseCompactObjectHeaders 只有新 JDK 接受，旧版是 Unrecognized
- *       option。所以谁要往设置界面里放这些预设，必须一并带上版本过滤。
+ *       就按它的规则过滤后原样传（见下面那段）。**没有**任何一份"我们自己的调优预设"
+ *       在这一层硬编码 —— 内存、GC、JIT 这些随机器/堆大小/Java 版本而变的东西，硬编码
+ *       等于替用户做主了，归 versionJvmArgs 和 GlobalJavaSettings::extraJvmArgs() 两个口子。
+ *
+ *       容易看错的一点（2026-09-24 改的注释，只改字不改码）：下面这些常见取值
+ *       -XX:G1NewSizePercent=20 / -XX:G1ReservePercent=20 / -XX:G1HeapRegionSize=32M /
+ *       -XX:MaxGCPauseMillis=50 / -XX:+UseCompactObjectHeaders 是 **Mojang 自己的
+ *       default-user-jvm**（见实测抓下来的 26.1.json：无规则那条给的就是
+ *       -Xms2G -Xmx4G -XX:+UseCompactObjectHeaders -XX:+AlwaysPreTouch
+ *       -XX:+UseStringDeduplication，G1 那组挂在 windows versionRange max 10.0.17134
+ *       那条规则下），不是"PCL 那套调优值"。以前这段注释把它们记成 PCL 的，照着它去
+ *       找"我们从哪抄来的"会找错方向。
+ *
+ *       真要往设置界面放这类预设，得注意版本门槛 —— 实测（21 与 25 两个运行时）：
+ *       -XX:+PerfDisableSharedMem 全版本可用；-XX:+UseCompactObjectHeaders 只有新 JDK
+ *       接受，旧版是 Unrecognized option 直接起不来。所以预设必须一并带上版本过滤。
  */
 QStringList LauncherManager::generateJvmArguments(const QString &token, const QString &versionId,
                                                   const QString &assetIndexId,
@@ -472,6 +472,13 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     //   2. **带模组加载器的版本目录里根本没有 jar**（Fabric 装出来的只有一份 json），
     //      客户端 jar 在原版那个目录里 —— jarRelativePath() 会顺着 inheritsFrom 链找到它。
     // 相对路径的基准是 QProcess 的工作目录（AppPaths::minecraftDir()，见 startGame）。
+    //
+    // NOTE: 这一条和 startGame() 里那个 setWorkingDirectory **是一对**：想把 cwd 换成版本
+    //       目录（PCL 就是那么干的，MCEF 那类按相对路径找文件的模组指望的就是它），必须
+    //       同时把这里几条相对路径钉成绝对路径（`QDir(AppPaths::minecraftDir()).absoluteFilePath()`），
+    //       否则 JVM 会去 versions/<id>/versions/<id>/... 找主类，症状是
+    //       "Could not find or load main class"。2026-09-24 的崩溃取证查到这里，两处留待
+    //       专门一批一起改。
     addClasspathPath(InstanceFiles::jarRelativePath(versionId), classpath);
 
     // 根据 version.json library 依赖构建 classpath
@@ -634,14 +641,14 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     // --gameDir / --assetsDir 传**绝对路径**，而不是"靠 cwd 解析出来的相对路径"。
     //
     // NOTE: 这两条以前是 "versions/<id>" 和 "assets" 两个相对路径，由 startGame() 设的
-    //       cwd（.minecraft）解析 —— 而 startGame() 自己又同时算了一份绝对路径
+    //       cwd 解析 —— 而 startGame() 自己又同时算了一份绝对路径
     //       isolatedPath = <mc>/versions/<id>，同一个目录在两处各算一遍、其中一处依赖
-    //       调用顺序。改成绝对路径后解析结果逐字节相同（cwd 仍是 .minecraft，下面相对
-    //       路径的下场也一样），但不再依赖 cwd，也为以后"切换 .minecraft 文件夹"准备
-    //       了条件 —— 到那时 cwd 反而会变成不能依赖的东西。
+    //       调用顺序。改成绝对路径后解析结果逐字节相同，但不再依赖 cwd，也为"切换
+    //       .minecraft 文件夹"准备了条件。
     //
-    // NOTE: cwd **本身不动**，仍然是 .minecraft。真机 61 个实例里大量模组按 cwd 找相对
-    //       路径，改它是另一回事、有未知的兼容风险，不混进这批加固。
+    // NOTE: cwd **本身不动**，仍然是 .minecraft（见 startGame 里那条 NOTE：真机 61 个
+    //       实例里大量模组按 cwd 找相对路径，而这个 cwd 目前还是 classpath 那几条相对
+    //       路径的解析基准 —— 要动得两处一起动）。
     if (offlineMode) {
         // 离线模式：使用虚假登录证书
         // NOTE: 玩家名现在就是调用方给的那个（底栏上显示的名字），以前是
@@ -879,6 +886,13 @@ int LauncherManager::startGame(const QStringList &arguments, const EffectiveJava
     process->setArguments(arguments);
 
     // 将工作目录设为 .minecraft 文件夹以确保文件能够正确解析
+    //
+    // NOTE: 2026-09-24 那次崩溃取证查到这里过 —— MCEF 是按**相对路径** `mods/mcef-libraries`
+    //       找它那份本地库的（反编译 mcef-forge-2.1.6 确认），所以 cwd 指到根 .minecraft
+    //       时它去的是根 mods/ 底下，而 PCL 启动同一个实例时 cwd 是版本目录、它去的是
+    //       versions/<id>/mods/ 底下那份完好的副本。**没改**：改成版本目录要同时把
+    //       classpath 那几条相对路径改成绝对路径（见下面 addClasspathPath 那段 NOTE），
+    //       两处一起动才自洽，单独改这一行会让 JVM 找不到主类。留待专门一批做。
     QString minecraftDir = AppPaths::minecraftDir();
     QDir().mkpath(minecraftDir);
     process->setWorkingDirectory(minecraftDir);

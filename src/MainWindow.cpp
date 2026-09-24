@@ -464,8 +464,12 @@ MainWindow::MainWindow(QWidget *parent)
       m_skinStore(new PlayerSkinStore(this)),
       m_skinApi(new SkinApi(this)) {
     // 安装页那棵树默认停在「不装（纯原版）」那一条（打开安装页时也是它，见
-    // openInstallPage()）—— 没进过安装页之前这一位也得是个真值：updateLoaderRows()
-    // 在下面就会被调到。初值不写在头文件里是因为那边只前置声明了 MainWindowUI。
+    // openInstallPage()）—— 这一位构造完就得是个真值，免得任何早于安装页读到它的路
+    // （selectedLoaderIndex()）拿到一个没初始化的下标。
+    //
+    // NOTE: 这里原来写着「updateLoaderRows() 在下面就会被调到」，不成立 —— 构造函数里
+    //       没有任何一处调它，第一次是 openInstallPage()（:1744）。初值不写在头文件里
+    //       是因为那边只前置声明了 MainWindowUI。
     m_selectedLoaderIndex = MainWindowUI::modLoaderNoneIndex();
     setupConnections();
     // 设置页先按盘上的值摆好（不扫 Java，那一段等第一次切到设置页，见

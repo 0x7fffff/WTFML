@@ -625,7 +625,10 @@ bool isFaceVisible(const Camera &cam, const FaceGeometry &face) {
     if (face.corners.isEmpty()) {
         return false;
     }
-    // 一条对角线上的两个角的中点就是面中心（矩形对角线的中点）。
+    // 两个对角的中点就是面中心。这里取的是 corners.first()/last()，而 corners 的顺序是
+    // {左上, 右上, 右下, 左下}（见 faceGeometry 里那一行），所以这两个是**左边缘**的两端 ——
+    // 不是一对对角线。结论不受影响：矩形的两条对角线中点重合，取哪一对都是同一个中心点
+    // （原来的注释写成"一条对角线上的两个角"，会让人以为下标 0/3 是一对对角）。
     const QVector3D center = (face.corners.first() + face.corners.last()) / 2.0f;
     return QVector3D::dotProduct(face.normal, cam.eye - center) > 0.0f;
 }
