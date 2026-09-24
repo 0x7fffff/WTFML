@@ -71,8 +71,8 @@ public:
     ///       保留一个 uuid 就得处理"它已经不在列表里了"，而用户看的是"当前账号是哪一条"。
     void setAccounts(const QList<AccountRow> &rows);
 
-    /// 当前身份那一句（"已登录为「X」（正版登录）" / "还没登录" / 离线模式那句）。
-    /// 正文由调用方给（它才知道是不是勾了离线模式），这里只负责显示。
+    /// 当前身份那一句（"已登录为「X」（正版登录）" / "已登录为「X」（离线登录）" /
+    /// "还没登录"）。正文由调用方给（它才知道当前账号是哪种），这里只负责显示。
     void setStatusText(const QString &text);
 
     /// 3D 预览那套外观。**和主页右栏是同一份贴图**（同一份数据两个窗口）。
@@ -162,12 +162,14 @@ public:
     static QString loginHintNote() {
         return QStringLiteral("正版账号走微软登录（会打开浏览器）；离线账号在下面填个名字就行。");
     }
-    /// 勾着「离线模式」时那句提醒 —— 离线模式**不是**一个账号，它不改这一列。
-    static QString offlineModeNote() {
-        return QStringLiteral("「离线模式」勾着：这次启动走离线登录，下面这些账号不会被动用。");
-    }
-    /// 当前身份那一句。**只在这一种情况下用**：没勾离线模式、而且有登录态。
-    /// 另外两种（勾了离线 / 没登录）各自有专门那句，见 offlineModeNote() / notLoggedInNote()。
+    /// 当前身份那一句。**只在这一种情况下用**：当前账号是个正版（微软）账号。
+    /// 另外两种（当前是离线账号 / 没登录）各自有专门那句，见 offlineIdentityText() /
+    /// notLoggedInNote()。
+    ///
+    /// NOTE: 2026-09-24 之前这里还有第三档 —— 「勾着「离线模式」但账号是正版的」，
+    ///       对应的是主页那个勾选框。那个勾选框去掉了（用户原话：「现在不要启动界面那个
+    ///       离线登录勾选框了，在添加账户那里选择添加离线账号」），于是"离线"只剩一种
+    ///       意思：**当前账号本身是离线账号**。那一档连同 offlineModeNote() 一起作废。
     /// @param name 账号名。
     static QString identityText(const QString &name) {
         return QStringLiteral("已登录为「%1」（正版登录）").arg(name);

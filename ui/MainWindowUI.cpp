@@ -324,10 +324,10 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         startButton->setMinimumHeight(kStartButtonMinHeight);
         home.left.layout->addWidget(startButton);
 
-        offlineModeCheckBox = new QCheckBox(QStringLiteral("离线模式"), home.left.widget);
-        offlineModeCheckBox->setObjectName(offlineModeCheckBoxName());
-        offlineModeCheckBox->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-        home.left.layout->addWidget(offlineModeCheckBox, 0, Qt::AlignLeft);
+        // 这里原来有一个「离线模式」勾选框（2026-09-24 去掉的，用户原话：「现在不要启动
+        // 界面那个离线登录勾选框了，在添加账户那里选择添加离线账号」）。它管的是"这次启动
+        // 用哪种身份"，而现在那件事**只由当前账号是什么**决定 —— 离线就去账号窗里加一个
+        // 离线账号、切过去，没有第二个开关。判据的唯一出处是 MainWindow::offlineIdentity()。
 
         // 剩下的竖直空间留在底部：按钮不跟着窗口高度一起被拉长
         home.left.layout->addStretch(1);

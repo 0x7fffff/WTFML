@@ -147,9 +147,6 @@ public:
     static QString accountSkinSettingsButtonName() {
         return QStringLiteral("accountSkinSettingsButton");
     }
-    /// 主页那个「离线模式」勾选框。**只有它没有 objectName** 的那阵子，验证工程要
-    /// 驱动"离线启动"就只能按文字找控件 —— 而文字是产品文案，会变。
-    static QString offlineModeCheckBoxName() { return QStringLiteral("offlineModeCheckBox"); }
     static QString installedVersionComboName() { return QStringLiteral("installedVersionCombo"); }
 
     // ---------- 安装页那份「模组加载器」（一棵树，和上一页的版本树同一个模式） ----------
@@ -820,6 +817,27 @@ public:
     static QString skinHintNotLoggedInText() {
         return QStringLiteral("未登录，显示的是默认外观（经典 Steve）");
     }
+    /// 离线账号要到了一张随机外观。
+    ///
+    /// NOTE: 这一句非有不可：上面那两句都不对 —— skinHintLoadedText() 说的是「正版外观」，
+    ///       而这张图跟正版没有任何关系（它是随机挑的）；skinHintNotLoggedInText() 说的是
+    ///       「显示的是默认外观」，而这时候屏幕上恰恰不是那张默认外观。
+    ///       后面那半句也不是废话：这张图**只在启动器里**显示，游戏里那张脸是游戏自己定的。
+    static QString skinHintOfflineLoadedText(const QString &name) {
+        return QStringLiteral("%1 的外观（离线账号 · 启动器里随机挑的）").arg(name);
+    }
+    /// 离线账号那张**官方默认皮肤** —— 名字算得出游戏会给哪一张的时候走这一句
+    /// （见 DefaultSkin：那是确定的，不是随机的）。
+    ///
+    /// NOTE: 这一句和上面那句的差别是**这张图是从哪来的**：随机那句说的是"启动器里挑的"
+    ///       （跟游戏没关系），这一句说的是"那个版本的客户端本来就会给他分配的这一张"。
+    ///       两张都印同一句话是不行的：随机那张要是写"游戏里就是这张"就是骗人。
+    ///       带上版本号也不是废话 —— 换版本这张脸**真的会变**（两套规矩算出来的不是同一张，
+    ///       见 DefaultSkin.hpp 文件头），那句话要能解释这件事。
+    /// @param versionId 实例的显示名（和启动按钮第二行同一个出处），不是目录名。
+    static QString skinHintOfflineDefaultSkinText(const QString &name, const QString &versionId) {
+        return QStringLiteral("%1 的外观（离线账号 · %2 的默认皮肤）").arg(name, versionId);
+    }
     /// 正在去官方要。
     static QString skinHintLoadingText(const QString &name) {
         return QStringLiteral("正在获取 %1 的外观…").arg(name);
@@ -925,7 +943,6 @@ public:
     // 控件访问接口
     QPushButton *getStartButton() const { return startButton; }
     QPushButton *getAccountSkinSettingsButton() const { return accountSkinSettingsButton; }
-    QCheckBox *getOfflineModeCheckBox() const { return offlineModeCheckBox; }
     QPushButton *getAddFolderButton() const { return addFolderButton; }
     QPushButton *getRemoveFolderButton() const { return removeFolderButton; }
     /// 列表下面那句提示（「自带的那一份移不掉…盘上的文件夹和文件都留着。」）。
@@ -1071,7 +1088,6 @@ private:
     // NOTE: 新加控件指针时**一并写上 = nullptr**，别让它单独破例。
     QPushButton *startButton = nullptr;
     QPushButton *accountSkinSettingsButton = nullptr;
-    QCheckBox *offlineModeCheckBox = nullptr;
     QPushButton *addFolderButton = nullptr;
     QLabel *folderHintLabel = nullptr;
     QPushButton *removeFolderButton = nullptr;

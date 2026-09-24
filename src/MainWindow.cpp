@@ -70,11 +70,13 @@
 // （那里用不到它的定义），这里要用真的。
 #include "download/ResourceStore.hpp"
 #include "launcher/LauncherManager.hpp"
+#include "manage/DefaultSkin.hpp"
 #include "manage/FolderManager.hpp"
 #include "manage/InstanceFiles.hpp"
 #include "manage/InstanceGroupStore.hpp"
 #include "manage/ModpackImport.hpp"
 #include "manage/PlayerSkinStore.hpp"
+#include "manage/RandomSkinStore.hpp"
 #include "manage/VersionDisplay.hpp"
 #include "manage/VersionManager.hpp"
 #include "settings/EffectiveJavaSettings.hpp"
@@ -462,6 +464,7 @@ MainWindow::MainWindow(QWidget *parent)
       m_javaSettings(new GlobalJavaSettings(this)),
       m_groupStore(new InstanceGroupStore(this)),
       m_skinStore(new PlayerSkinStore(this)),
+      m_randomSkinStore(new RandomSkinStore(this)),
       m_skinApi(new SkinApi(this)) {
     // 安装页那棵树默认停在「不装（纯原版）」那一条（打开安装页时也是它，见
     // openInstallPage()）—— 这一位构造完就得是个真值，免得任何早于安装页读到它的路
@@ -476,17 +479,18 @@ MainWindow::MainWindow(QWidget *parent)
     // refreshJavaList()）。必须在下面 fetchAvailableVersions() **之前**：
     // 清单请求要不要走镜像就是在这一步交给 VersionManager 的。
     applySettingsToUi();
-    // 上次用的是个**离线账号**：把名字接回 AuthManager，并且把「离线模式」勾上。
-    // 两件事都得在这里做，而且都在下面 updateBottomBar() 之前：
-    //   - AuthManager 构造函数只读活动槽，而离线账号在盘上**没有凭据**，它读出来的是占位
-    //     的 "Player" —— 不接回来的话底栏和 --username 里是个假名字；
-    //   - 不勾「离线模式」的话，启动那条路会去要凭据，而盘上一份都没有，用户拿到的是
-    //     "请先登录"，一个死胡同（底栏却明明写着他的名字，那种状态最没法解释）。
+    // 上次用的是个**离线账号**：把名字接回 AuthManager。**必须在下面 updateBottomBar()
+    // 之前** —— AuthManager 构造函数只读活动槽，而离线账号在盘上**没有凭据**，它读出来的
+    // 是占位的 "Player"：不接回来的话底栏和 --username 里是个假名字。
+    //
+    // NOTE: 2026-09-24 之前这里还要顺手勾一下主页那个「离线模式」勾选框（不勾的话启动那条
+    //       路会去要凭据，而盘上一份都没有 —— 用户拿到的是"请先登录"，一个死胡同）。
+    //       那个勾选框去掉了，现在"这一趟走离线"这件事**只由"当前账号是离线账号"决定**
+    //       （见 offlineIdentity()），于是这一句就够了。
     {
         const QString active = AccountStore::activeUuid();
         if (AccountStore::isOffline(active)) {
             m_authManager->setOfflinePlayer(AccountStore::nameOf(active));
-            m_ui->getOfflineModeCheckBox()->setChecked(true);
         }
     }
     // 「游戏文件夹」：先把当前那一份交给 AppPaths —— 从这一句起，扫版本、下资源、
@@ -587,10 +591,10 @@ void MainWindow::closeEvent(QCloseEvent *event) {
 void MainWindow::setupConnections() {
     // UI 按钮信号
     connect(m_ui->getStartButton(), &QPushButton::clicked, this, &MainWindow::onStartButtonClicked);
-    // 底栏名字下面那行写的是"这次启动用哪种身份"，勾/取消「离线模式」就得当场跟着变 ——
-    // 不然它要等到下一次进度刷新（几百毫秒一次、而且只有下载/启动时才有）才更新，
-    // 用户看到的是旧答案。
-    connect(m_ui->getOfflineModeCheckBox(), &QCheckBox::toggled, this, [this] { updateBottomBar(); });
+    // NOTE: 这里原来接的是主页那个「离线模式」勾选框 —— 它一变就得重画底栏（名字下面那行
+    //       写的是"这次启动用哪种身份"）。勾选框去掉了，现在让那个身份变的动作是
+    //       **换账号 / 加一个离线账号**，而那两个槽自己就会调 updateBottomBar()，
+    //       所以这里没有对应的接线了。
     // 「账号与外观…」那两个入口（主页右栏 3D 预览下面那个 + 设置页「账户」那格里的）。
     // 同一件事、同一个窗 —— 所以接的是同一个槽。
     connect(m_ui->getAccountSkinButton(), &QPushButton::clicked, this,
@@ -652,6 +656,14 @@ void MainWindow::setupConnections() {
                 updateBottomBar();
                 // 实例页右边那张树是同一份数据的另一种看法，跟着一起亮。
                 syncTreeToCombo(m_ui->getInstalledVersionCombo(), m_ui->getInstanceList());
+                // 离线账号那张脸**跟着选中的版本走**：游戏按客户端 JAR 里那套规矩分配默认
+                // 皮肤，两套规矩算出来的是两张不同的图（见 DefaultSkin.hpp 文件头），所以
+                // 换版本就得重算一遍。**只有离线账号会做实事**：别的账号在
+                // startPlayerSkinLoad() 里当场就返回了（那是网络那条线，和版本无关）。
+                // 算过的那一份在盘上，重算是两次 QFile::exists，不会卡。
+                if (offlineIdentity()) {
+                    startPlayerSkinLoad();
+                }
             });
     // 树 → 下拉框。点树里的一行 = 在上面把它选中（用户要求的行为）。
     // 选中组头时不动作（syncComboToTree 里的守卫）—— 点一个组的标题不是在挑版本。
@@ -892,6 +904,16 @@ void MainWindow::setupConnections() {
     connect(m_skinStore, &PlayerSkinStore::profileReady, this, &MainWindow::onSkinProfileReady);
     connect(m_skinStore, &PlayerSkinStore::textureReady, this, &MainWindow::onSkinTextureReady);
     connect(m_skinStore, &PlayerSkinStore::failed, this, &MainWindow::onSkinFailed);
+    // 离线账号那张随机皮肤。**同一个来源、两条降级路**：skinReady 之后走的是上面那三个
+    // 信号一样的界面路径（挑出来的地址就是官方 CDN 上的地址）；failed 也照样只记日志 ——
+    // 但**不能直接接 onSkinFailed**，那句话的前缀是"取玩家皮肤失败"，而这一条失败的是
+    // "挑一张"这件事，跟某个人的皮肤没关系。
+    connect(m_randomSkinStore, &RandomSkinStore::skinReady, this, &MainWindow::onRandomSkinReady);
+    connect(m_randomSkinStore, &RandomSkinStore::failed, this, [this](const QString &message) {
+        appendLog(tr("取随机皮肤失败：%1").arg(message));
+        m_skinFetchInFlight = false;
+        updateSkinHint();
+    });
 
     // 游戏进程信号。三条都带 sessionId（哪一份会话说的）—— 同时开着好几份时，日志里
     // 那句"哪来的"和底栏那格"还有谁在跑"全靠它归属。
@@ -1032,14 +1054,15 @@ void MainWindow::updateBottomBar() {
     // 没登录是占位的 "Player" —— 这里不自己造假名字，也不去猜。
     const QString name = m_authManager->playerName();
     m_ui->getAccountLabel()->setText(name);
-    // 名字下面那行：这次启动会用哪种身份。**判据只看两个开关**（离线勾没勾、有没有
-    // 登录态），不自己推"应该用哪个" —— 真正的判据在 onStartButtonClicked() 里，两处
-    // 一旦各写一套就会出现"底栏说正版、启动时却说请先登录"。
+    // 名字下面那行：这次启动会用哪种身份。**判据只看一件事**（当前账号是不是离线账号），
+    // 不自己推"应该用哪个" —— 真正的判据在 onStartButtonClicked() 里，两处一旦各写一套
+    // 就会出现"底栏说正版、启动时却说请先登录"。现在两处读的是**同一个函数**
+    // （offlineIdentity()），连"各写一套"的可能都没有了。
     // NOTE: loggedIn() 是"盘上有账户"的意思（AuthManager::loggedIn() = uuid 非空），
     //       令牌过期了它照样是 true —— 那没关系：这一行说的是**身份**，令牌过没过期是
     //       启动那一刻刷新才知道的事（那时失败会有弹窗说清原因）。
     m_ui->getAccountTypeLabel()->setText(
-        m_ui->getOfflineModeCheckBox()->isChecked()
+        offlineIdentity()
             ? MainWindowUI::accountTypeOfflineText()
             : (m_authManager->loggedIn() ? MainWindowUI::accountTypeOnlineText()
                                          : MainWindowUI::accountTypeNotLoggedInText()));
@@ -1165,6 +1188,74 @@ void MainWindow::startPlayerSkinLoad() {
     // 上一次那个账号的档案要清掉：换账号登录时它已经没用了，留着会让"贴图回来时
     // 认领"那一步把上一套外观当成这一套。
     m_skinProfile = PlayerSkinProfile();
+    // 同理：下面重新算出来之前，"这张脸是按哪个版本算的"这件事不能留着上一轮的值 ——
+    // 留着会让右栏那句话拿旧版本的显示名去说新的一张图。
+    m_offlineDefaultSkinVersion.clear();
+
+    // ---------- 离线账号那一档：从库里的随机挑一张 ----------
+    //
+    // 这一档必须在下面 !loggedIn() **之前**：离线账号必然同时是"没有登录态"
+    // （AuthManager::setOfflinePlayer() 把 uuid 和令牌一起清了，见 AuthManager.cpp），
+    // 摆在那句后面就等于永远走不到 —— 以前就是这样，离线账号的预览永远是那张写死的
+    // 内置 Steve。
+    //
+    // 判据是 offlineIdentity()（当前账号本身是不是离线账号），不是"有没有勾某个框"。
+    // **未登录（压根没有当前账号）不走这一档**：没有身份就没有可记的地方（那张图要按
+    // 账号记在盘上），也没人可挑。
+    if (offlineIdentity()) {
+        // ① 先算"游戏会给这个名字分配哪一张官方默认皮肤"（见 DefaultSkin）：那个"随机"其实
+        //    是确定的，图就在**本地那个版本的客户端 JAR** 里，一个字节都不用下。同一个
+        //    (账号, 版本) 算过一次之后连 JAR 都不碰（缓存命中 = 两次 QFile::exists）。
+        //
+        //    名字取的是**进 --username 的那一个**（m_authManager->playerName()）而不是
+        //    AccountStore 里那份存档：游戏是拿前者算 uuid 的，差一个字符就是另一张脸。
+        //    版本取的是当前选中的那个实例 —— 换版本这张脸真的会变（两套规矩算出来的不是
+        //    同一张，见 DefaultSkin.hpp 文件头），所以换版本时下面有一处会重跑这一整段。
+        const QString versionId = selectedVersionId(m_ui->getInstalledVersionCombo());
+        QString defaultPath;
+        bool defaultSlim = false;
+        QString defaultReason;
+        const DefaultSkin::Result resolveResult = DefaultSkin::resolve(
+            m_authManager->playerName(), versionId, &defaultPath, &defaultSlim, &defaultReason);
+        if (resolveResult == DefaultSkin::Result::Resolved) {
+            m_offlineDefaultSkinVersion = versionId;
+            // 这张图**不是一份档案**（它没有地址、离线账号也没有披风），所以 m_skinProfile
+            // 保持空着：上一轮若有别人的贴图回来，地址对不上就丢掉了（见 onSkinTextureReady）。
+            // NOTE: 这条路上 m_skinFetchInFlight 一直是 false —— 图是从盘上（或 JAR 里）
+            //       直接拿的，不是"在路上"，那句话不该说"正在获取"。
+            applyPlayerSkin(defaultPath, QString(), defaultSlim);
+            return;
+        }
+        // Unavailable 是**常态**：没装任何版本、或者那个目录里没有客户端 JAR（不是原版
+        // 客户端，第三方安装器做的薄壳 JAR 就长那样）—— 都不值得报。Failed 才是真出错
+        // （读 JAR 失败、写不出去），那种留一行日志，不然"怎么老是随机那张"无从查起。
+        if (resolveResult == DefaultSkin::Result::Failed) {
+            appendLog(tr("算离线默认皮肤失败：%1").arg(defaultReason));
+        }
+
+        // ② 算不出来才走"随机挑一张"。
+        //
+        // 身份用的是 AccountStore 里那个 uuid，**不是** m_authManager->playerUuid() ——
+        // 后者对离线账号返回空串（它的 m_uuid 被清掉了）。离线账号的 uuid 是
+        // md5("OfflinePlayer:" + 名字)，同名就是同一个 uuid，所以同一个人换不掉那张脸。
+        const QString accountUuid = AccountStore::activeUuid();
+        const QString chosen = RandomSkinStore::loadChosenSkinUrl(accountUuid);
+        if (chosen.isEmpty()) {
+            // 还没挑过（第一次用这个账号）→ 要一页去。回来之后 onRandomSkinReady()
+            // 接着走下面这段。这一格点亮是为了让那句话说"正在获取"。
+            m_skinFetchInFlight = true;
+            m_randomSkinStore->fetchRandomSkin();
+        } else {
+            // 挑过了，还是那一张。**当成一份档案用** —— 于是下不下得来、存哪、怎么画
+            // 全是现成那条路（requestSkinTexture → fetchTexture → onSkinTextureReady）。
+            // 离线账号没有披风，所以 capeUrl 留空。
+            m_skinProfile =
+                PlayerSkinProfile{chosen, QString(), QStringLiteral("classic")};
+            requestSkinTexture(chosen, /*allowDownload=*/true);
+        }
+        updateSkinHint();
+        return;
+    }
 
     if (!m_authManager->loggedIn()) {
         // 没登录就没有 uuid，连问都不用问（问也问不出东西来）。那句话现在是
@@ -1172,9 +1263,13 @@ void MainWindow::startPlayerSkinLoad() {
         return;
     }
     const QString uuid = m_authManager->playerUuid();
-    // 离线模式那个勾选框的意思是"别联网"（启动时会走离线登录），这时候还发一个外观
+    // 当前账号是离线账号的意思是"别联网"（启动时走的就是离线登录），这时候还发一个外观
     // 请求是自相矛盾的 —— 所以整条联网路径都跳过，只认已经躺在缓存里的那一份。
-    const bool offline = m_ui->getOfflineModeCheckBox()->isChecked();
+    //
+    // NOTE: 判据从"勾选框勾没勾"换成了 offlineIdentity()。而且这一档现在**必然**同时是
+    //       "没有登录态"（setOfflinePlayer() 把 uuid 和令牌一起清了），上面那句 !loggedIn()
+    //       其实已经先返回了 —— 留着它是为了这条路自己读起来是完整的，不靠上面的早退。
+    const bool offline = offlineIdentity();
 
     // 1) 盘上那份档案：开窗那一刻零网络把**上次**的样子画出来。贴图是内容寻址的，
     //    命中缓存时 fetchTexture() 是**同步**发信号回来的，所以这一句之后就画好了。
@@ -1281,6 +1376,27 @@ void MainWindow::onSkinTextureReady(const QString &url, const QString &path) {
     // 等于把上一个账号的皮肤画回来。
 }
 
+void MainWindow::onRandomSkinReady(const QString &skinUrl) {
+    // 回来的时候身份可能已经变了：用户在这几百毫秒里换了账号、删掉了那个离线账号，
+    // 或者干脆登录成正式账号了。**不是同一个离线身份就丢掉** —— 记下去等于把 A 的脸
+    // 记到 B 名下，而且再也不会有人来纠正它（那份记录是"永不失效"的）。
+    if (!offlineIdentity()) {
+        return;
+    }
+    const QString accountUuid = AccountStore::activeUuid();
+    QString error;
+    if (!RandomSkinStore::saveChosenSkinUrl(accountUuid, skinUrl, &error)) {
+        // 记不下来**不影响这一次显示**（这一趟照样画得出来），只是下次开启动器会重挑一张。
+        appendLog(tr("记下随机皮肤失败：%1").arg(error));
+    }
+    m_skinProfile = PlayerSkinProfile{skinUrl, QString(), QStringLiteral("classic")};
+    // 走那条公用的路。**缓存命中时它是同步的**（fetchTexture 命中就同步发 textureReady），
+    // 所以挑第二张的时候这一句之后屏幕上就已经换好了；真要下的时候它会自己把
+    // m_skinFetchInFlight 点起来。
+    requestSkinTexture(skinUrl, /*allowDownload=*/true);
+    updateSkinHint();
+}
+
 void MainWindow::onSkinFailed(const QString &message) {
     // 外观是**装饰**：取不到就静默退回默认外观。这是全仓唯一一处不弹窗的错误，
     // 理由（别的错误都让用户做不成他想做的事，而这个只是不好看）写在
@@ -1336,8 +1452,26 @@ void MainWindow::applyPlayerSkin(const QString &skinPath, const QString &capePat
 void MainWindow::updateSkinHint() {
     const QString name = m_authManager->playerName();
     QLabel *hint = m_ui->getSkinHintLabel();
+    // 离线账号有一套自己的话（"正版外观"那句对它是错的，"未登录"那句也不对 ——
+    // 它是**故意**不登录的，读起来像出错了）。判据只有一个：当前账号本身是不是离线账号。
+    const bool offline = offlineIdentity();
     if (!m_skinPath.isEmpty()) {
-        hint->setText(MainWindowUI::skinHintLoadedText(name, !m_capePath.isEmpty()));
+        if (!offline) {
+            hint->setText(MainWindowUI::skinHintLoadedText(name, !m_capePath.isEmpty()));
+        } else if (!m_offlineDefaultSkinVersion.isEmpty()) {
+            // 算出来的那张官方默认皮肤（见 DefaultSkin）：说得比"随机挑的"准一点 —— 这是
+            // 那个版本的客户端本来就会给他分配的那一张。版本号**不是废话**：换版本这张脸
+            // 真的会变（两套规矩算出来的不是同一张），那句话要能解释这件事。
+            hint->setText(MainWindowUI::skinHintOfflineDefaultSkinText(
+                name, instanceDisplayName(m_offlineDefaultSkinVersion)));
+        } else {
+            hint->setText(MainWindowUI::skinHintOfflineLoadedText(name));
+        }
+    } else if (offline) {
+        // 那张随机外观还没画上：不是"还在要"就是"没要到"。这两句都不弹窗（理由同
+        // PlayerSkinStore.hpp 文件头：外观是装饰，取不到也照样能启动游戏）。
+        hint->setText(m_skinFetchInFlight ? MainWindowUI::skinHintLoadingText(name)
+                                          : MainWindowUI::skinHintFailedText(name));
     } else if (!m_authManager->loggedIn()) {
         hint->setText(MainWindowUI::skinHintNotLoggedInText());
     } else if (m_skinFetchInFlight) {
@@ -3406,7 +3540,8 @@ void MainWindow::onStartButtonClicked() {
         return;
     }
 
-    bool offlineMode = m_ui->getOfflineModeCheckBox()->isChecked();
+    // 这一趟走不走离线：**只看当前账号是不是离线账号**（唯一出处，见 offlineIdentity()）。
+    const bool offlineMode = offlineIdentity();
 
     QString token;
     if (!offlineMode) {
@@ -3420,10 +3555,15 @@ void MainWindow::onStartButtonClicked() {
         token = m_authManager->loadSavedToken(&tokenError);
         leaveSyncWait();
         if (token.isEmpty()) {
+            // NOTE: 这两句原来写的是"或使用离线模式" —— 那个开关去掉了（2026-09-24），
+            //       照旧文案去界面上找是找不到东西的。现在指的是**那一个动作**：在
+            //       「账号与外观…」那个窗里填个名字、点「添加离线账号」。
             QMessageBox::warning(this, tr("登录缺失"),
                                  tokenError.isEmpty()
-                                     ? tr("请先登录 Microsoft 账户，或使用离线模式。")
-                                     : tr("%1\n\n请重新登录 Microsoft 账户，或改用离线模式。")
+                                     ? tr("请先登录 Microsoft 账户，或者在「账号与外观…」"
+                                          "里添加一个离线账号。")
+                                     : tr("%1\n\n请重新登录 Microsoft 账户，或者在"
+                                          "「账号与外观…」里添加一个离线账号。")
                                            .arg(tokenError));
             return;
         }
@@ -3711,19 +3851,24 @@ void MainWindow::setupAccountSkinDialog() {
             &MainWindow::onCapeHideRequested);
 }
 
+bool MainWindow::offlineIdentity() const {
+    // 读的是**盘上的活动槽**（AccountStore 那几个函数都是静态的、直接读写盘），不是
+    // AuthManager 里那份内存副本 —— 两者在"切账号"那一刻会短暂不一致（activate() 先写盘，
+    // 紧接着才调 setOfflinePlayer() / reloadStoredAccount()），而盘上那份才是权威。
+    // 没有当前账号（从没登录、或者刚把当前那个删掉）时 activeUuid() 是空串，isOffline()
+    // 对空串回 false —— 那种状态是"未登录"，不是"离线"。
+    return AccountStore::isOffline(AccountStore::activeUuid());
+}
+
 QString MainWindow::accountSkinStatusText() const {
-    // 当前账号**本身**是离线账号时先说这一句：它比"勾没勾离线模式"更具体（名字就在上面
-    // 那一列里躺着）。下面那一档说的是另一件事 —— "有正版账号，但这次启动走离线"。
-    // NOTE: 这一句必须排在勾选框那一档**前面**：切到离线账号时勾选框也是勾着的，反过来的
-    //       话用户看到的是泛泛的离线提醒，而看不到自己刚加的那个名字。
+    // 当前账号是离线账号时先说这一句：名字就在上面那一列里躺着，比任何泛泛的说法都具体。
+    //
+    // NOTE: 2026-09-24 之前这里有两档"离线" —— 这一档，和"账号是正版的、但主页那个
+    //       「离线模式」勾着"那一档。勾选框去掉之后只剩这一档了：**离线 = 当前账号本身
+    //       是离线账号**，没有别的意思。
     const QString active = AccountStore::activeUuid();
     if (AccountStore::isOffline(active)) {
         return AccountSkinDialog::offlineIdentityText(AccountStore::nameOf(active));
-    }
-    // 离线模式**不是一个账号**：它不改那一列（列表装的是"我保存过哪些账号"），它改的是
-    // "这次启动用哪一种身份"。所以勾着的时候这句话说的是那件事，见下面那两句。
-    if (m_ui->getOfflineModeCheckBox()->isChecked()) {
-        return AccountSkinDialog::offlineModeNote();
     }
     if (!m_authManager->loggedIn()) {
         return AccountSkinDialog::notLoggedInNote();
@@ -3757,13 +3902,18 @@ void MainWindow::refreshAccountSkin() {
     m_accountSkinDialog->setStatusText(accountSkinStatusText());
 
     // 3) 3D 预览走**和主页同一条路**（同一份缓存、同一次后台刷新）：applyPlayerSkin()
-    //    会把同一份贴图同时喂给主页那个小人和这个窗里的预览。离线模式勾着时那条路自己
-    //    就不联网，所以这里不用再判一次。
+    //    会把同一份贴图同时喂给主页那个小人和这个窗里的预览。
+    //
+    //    NOTE: 这一句**不保证不联网**（2026-09-24 之前这里是那么写的，现在不成立了）：
+    //          离线账号第一次进来时它要 MineSkin 那一页随机皮肤（见 startPlayerSkinLoad()
+    //          里 offlineIdentity() 那一档）。挑过一次之后就只在盘上读那一行。
+    //          这也正是这个窗**只在离线账号那一档开**的原因（见 onAccountSkinClicked()
+    //          里那段）：正版那一档开窗会顺带拉披风，那才是真联网的那一下。
     startPlayerSkinLoad();
 
     // 4) 披风列表要令牌，是这一整块里唯一会真的去联网的地方（过期令牌也是在这里顺带刷新的）。
-    if (m_ui->getOfflineModeCheckBox()->isChecked()) {
-        // 离线模式勾着 = "别联网"，而拉披风列表正是联网。跳过。
+    if (offlineIdentity()) {
+        // 当前是离线账号 = "别联网"，而拉披风列表正是联网。跳过。
         m_accountSkinDialog->setCapes({});
         return;
     }
@@ -3823,11 +3973,10 @@ void MainWindow::onOfflineAccountRequested(const QString &name) {
         return;
     }
     const QString trimmed = name.trimmed();
-    // 离线账号 = "用这个名字离线进游戏"，所以「离线模式」必须跟着勾上（不勾的话启动那条路
-    // 会去要凭据，而盘上一份都没有）。addOffline() 已经把它设成当前账号了。
-    if (!m_ui->getOfflineModeCheckBox()->isChecked()) {
-        m_ui->getOfflineModeCheckBox()->setChecked(true);  // 这一下会顺带刷新底栏
-    }
+    // 离线账号 = "用这个名字离线进游戏"。**"这一趟走离线"这件事不需要另外打开** ——
+    // addOffline() 已经把它设成当前账号了，而启动那条路读的正是"当前账号是不是离线账号"
+    // （offlineIdentity()）。2026-09-24 之前这里还要顺手勾一下主页那个「离线模式」。
+    //
     // 名字进 AuthManager：底栏左下那行和启动参数里的 --username 取的都是它。
     m_authManager->setOfflinePlayer(trimmed);
     if (m_accountSkinDialog != nullptr) {
@@ -3836,8 +3985,12 @@ void MainWindow::onOfflineAccountRequested(const QString &name) {
     }
     updateBottomBar();
     appendLog(tr("已添加离线账号「%1」并切换到它。").arg(trimmed));
-    // 列表、状态行、预览、披风这一整套刷新 —— 和切换账号之后做的事情一样（离线账号没有
-    // 披风可拉，refreshAccountSkin() 在"离线模式勾着"那一档就返回了，不会联网）。
+    // 列表、状态行、预览、披风这一整套刷新 —— 和切换账号之后做的事情一样。
+    //
+    // NOTE: 离线账号那一档**不是"整条路都不联网"**（2026-09-24 之前这句注释是那么写的，
+    //       现在不成立了）：披风确实不拉（离线账号没有披风可拉），但这个账号**还没挑过**
+    //       随机皮肤时，startPlayerSkinLoad() 会去 MineSkin 要一页列表（见 RandomSkinStore）。
+    //       挑过一次之后就只在盘上读那一行 —— 本地命中，一个包都不发。
     refreshAccountSkin();
 }
 
@@ -3856,14 +4009,9 @@ void MainWindow::onAccountSwitchRequested(const QString &uuid) {
     // （AuthManager 只在构造时读过盘，见 reloadStoredAccount()）。
     if (offline) {
         // 离线账号没有凭据可读（活动槽刚被它清空），名字从账号列表里来。
+        // "这一趟走离线"不用另外记一笔：activate() 已经把当前账号换成它了，
+        // 启动那条路读的就是这个（offlineIdentity()）。
         m_authManager->setOfflinePlayer(AccountStore::nameOf(uuid));
-        // 切到离线账号必须把「离线模式」勾上：不然启动那条路会去要凭据，而盘上一份都没有，
-        // 用户拿到的是"请先登录"，一个死胡同。
-        // NOTE: 反过来（切到在线账号）**不动**这个勾选框 —— 它可能是用户自己勾的，而
-        //       "有正版账号但这次离线启动"本来就是它的原意。切个号就把别人的选择抹掉才怪。
-        if (!m_ui->getOfflineModeCheckBox()->isChecked()) {
-            m_ui->getOfflineModeCheckBox()->setChecked(true);
-        }
     } else {
         m_authManager->reloadStoredAccount();
     }
@@ -4755,8 +4903,12 @@ void MainWindow::importModpackFromFile(const QString &zipPath) {
     // 用户随手选一个几百 MB 的包，为了"知道它不是整合包"先解压几分钟是白等。
     QByteArray indexJson;
     QString error;
-    const ZipUtil::EntryStatus status =
-        ZipUtil::readEntry(zipPath, ModpackImport::modrinthIndexName(), &indexJson, &error);
+    // NOTE: 第五个参数（动作名）是**给用户看的**：下面 Failed 那一路会把 error 原样弹进那个
+    //       警告框（「读这个压缩包的时候出错了：…」），所以这里必须写「读整合包清单」，
+    //       而不是 ZipUtil 那个通用的默认说法。
+    const ZipUtil::EntryStatus status = ZipUtil::readEntry(
+        zipPath, ModpackImport::modrinthIndexName(), &indexJson, &error,
+        QStringLiteral("读整合包清单"));
     if (status != ZipUtil::EntryStatus::Ok) {
         // "里面没有这份清单"和"这个文件根本打不开"是**两句完全不同的话**：前者多半是
         // 选错了文件（或者那是 CurseForge 格式的包），后者是文件坏了/不是 zip。所以这里
