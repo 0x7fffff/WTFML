@@ -394,6 +394,46 @@ QPixmap chevronPixmap(ChevronDir dir, int size, const QColor &color) {
                   });
 }
 
+/// 多边形上离 p 最近的那一点（三条边各投一次影，取最近的那个）。
+/// 只给刷新那个箭头用：转动之后要量"弧的端头离箭头还差多远"。
+QPointF closestPointOnPolygon(const QPolygonF &poly, const QPointF &p) {
+    QPointF best;
+    qreal bestDistance = -1.0;
+    for (int i = 0; i < poly.size(); ++i) {
+        const QPointF a = poly.at(i);
+        const QPointF b = poly.at((i + 1) % poly.size());
+        const QPointF edge = b - a;
+        const qreal length2 = edge.x() * edge.x() + edge.y() * edge.y();
+        qreal t = 0.0;
+        if (length2 > 0.0) {
+            t = qBound(0.0,
+                       ((p.x() - a.x()) * edge.x() + (p.y() - a.y()) * edge.y()) / length2, 1.0);
+        }
+        const QPointF candidate = a + edge * t;
+        const qreal distance = std::hypot(candidate.x() - p.x(), candidate.y() - p.y());
+        if (bestDistance < 0.0 || distance < bestDistance) {
+            bestDistance = distance;
+            best = candidate;
+        }
+    }
+    return best;
+}
+
+/// 把多边形绕 pivot 转 deg 度。正数 = **屏幕上顺时针**（y 轴朝下，所以就是普通的旋转矩阵）。
+QPolygonF rotatedPolygon(const QPolygonF &poly, const QPointF &pivot, qreal deg) {
+    const qreal angle = qDegreesToRadians(deg);
+    const qreal c = qCos(angle);
+    const qreal s = qSin(angle);
+    QPolygonF out;
+    out.reserve(poly.size());
+    for (const QPointF &point : poly) {
+        const qreal dx = point.x() - pivot.x();
+        const qreal dy = point.y() - pivot.y();
+        out.append(QPointF(pivot.x() + dx * c - dy * s, pivot.y() + dx * s + dy * c));
+    }
+    return out;
+}
+
 }  // namespace
 
 QPixmap VersionIcons::chevron(bool expanded, int size, const QColor &color) {
@@ -497,7 +537,33 @@ QPixmap VersionIcons::refresh(int size, const QColor &color) {
         const qreal halfBase = size * 0.165;
         const QPointF tip = onArc + travel * (length * 0.15);
         const QPointF base = tip - travel * length;
-        const QPolygonF head({tip, base + outward * halfBase, base - outward * halfBase});
+        // 摆好之后再整体**绕它自己的重心转 −60°**（符号按 rotatedPolygon 那套：正数是屏幕上
+        // 的顺时针，所以 −60 就是屏幕上逆时针 60°）。
+        //
+        // NOTE: 这个角度是用户 2026-09-24 从一张"每 15° 一格"的扫描图上挑的（原话：「实心
+        //       三角的角度不对，右侧边现在是竖直的，感觉要在现在的状态下顺时针旋转45~60deg
+        //       才好」）。不转的话，底边是顺着**半径**摆的，那条外边（顶点→外底角）正好落到
+        //       竖直上：20 px 那一格里 dx = −0.31、dy = −6.47，看着像面竖着的小旗子。
+        constexpr qreal kHeadTurnDeg = -60.0;
+        const QPointF centroid = tip - travel * (length * 2.0 / 3.0);
+        QPolygonF head({tip, base + outward * halfBase, base - outward * halfBase});
+        head = rotatedPolygon(head, centroid, kHeadTurnDeg);
+
+        // 绕重心转完，三角会从弧的端头**飘开**一小截（用户原话：「三角形由于带一点点白边
+        // 会使得圆圈和三角形连接处有点白色像断开了」）：转之前弧的端点正好埋在三角里
+        // 85% 那一段上，转之后它落到三角外面去了（20 px 那一档差 1.3 px）。
+        //
+        // 挪回去的办法量的是**最小的一步**：找三角边界上离弧端点最近的那一点，沿"从弧端点
+        // 指向三角"这个方向把它推过去，推的比距离多半个笔宽 —— 多埋一点，弧那一笔和三角
+        // 才是**实心叠实心**，相接处不会留下一条比别处浅的线（抗锯齿只在整幅的外轮廓上走）。
+        const QPointF toHead = closestPointOnPolygon(head, onArc) - onArc;
+        const qreal gap = std::hypot(toHead.x(), toHead.y());
+        if (gap > 0.0) {
+            const QPointF shift = -(toHead / gap) * (gap + penWidth * 0.5);
+            for (QPointF &point : head) {
+                point += shift;
+            }
+        }
         p.setPen(Qt::NoPen);
         p.setBrush(color);
         p.drawPolygon(head);
