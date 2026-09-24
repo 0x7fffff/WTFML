@@ -357,16 +357,35 @@ void rasterizeFace(const DrawFace &face, Canvas &canvas, bool blendOnly) {
     }
 }
 
-// ---------- 默认外观的配色 ----------
-// 照经典配色画的，不是官方贴图的复刻（见头文件里的说明）。
-const QColor kSkinTone(0xC8, 0xA0, 0x78);
-const QColor kHair(0x46, 0x2C, 0x16);
-const QColor kShirt(0x00, 0xA8, 0xA8);
-const QColor kPants(0x3F, 0x3F, 0xA5);
-const QColor kShoe(0x54, 0x54, 0x54);
-const QColor kEyeWhite(0xF0, 0xF0, 0xF0);
-const QColor kEyeIris(0x2E, 0x3A, 0x8C);
-const QColor kMouth(0x8C, 0x5A, 0x3C);
+// ---------- 默认外观 ----------
+//
+// 用户 2026-09-24 点名的两格十六进制，原话：「整个人都是 #000000，脸部一个 #ffffff
+// 的问号」。所以这里只有这两个色号，**不许调色** —— 改一个数字就是另一张图，
+// ui_check 里那几条是按这两个值逐像素量的。
+const QColor kPlaceholderBody(0x00, 0x00, 0x00);
+const QColor kPlaceholderInk(0xFF, 0xFF, 0xFF);
+
+/// 脸上那枚问号：5 格宽 × 7 格高，`#` 是要画成白色的格子（最后那一行是底下那一点，
+/// 中间空的那一行是它和上面那钩子之间的距离）。**写死**，不画字体 —— 字号一缩放就不是
+/// 这个形状了，而且这一格要能对着像素断言。
+///
+/// NOTE: 和 `VersionIcons.cpp` 里幸运方块上那枚是**同一个形状**，两处各写一份：一个是版本树
+///       的方块图标、一个是皮肤贴图，为了这 7 行字让两个模块互相 include 不值当。
+///       改了这边别忘了那边（两处都有按像素量的断言，不会静默飘走）。
+const char *const kQuestionRows[7] = {
+    ".###.",
+    "#...#",
+    "....#",
+    "...#.",
+    "..#..",
+    ".....",
+    "..#..",
+};
+
+/// 这枚问号在**脸上那一格里的偏移**（不是贴图上的绝对位置——那一格在哪由 faceRect() 说了算，
+/// 见 defaultSteveSkin()）。字形 5×7 塞进 8×8：横向余 3 格、纵向余 1 格，这儿是分给左边和
+/// 下巴的那份余量。
+const QPoint kQuestionOffset(1, 0);
 
 }  // namespace
 
@@ -776,64 +795,34 @@ QImage defaultSteveSkin() {
         }
     };
 
-    // ---- 脑袋：肤色打底，顶面/背面/四周上半截是头发 ----
-    const QPoint head(0, 0);
-    fillBox(head, 8, 8, 8, kSkinTone);
-    fillFace(head, 8, 8, 8, Face::Top, kHair);
-    fillFace(head, 8, 8, 8, Face::Back, kHair);
-    for (Face face : {Face::Front, Face::Left, Face::Right}) {
-        // 前额那三行。贴图上每一面都是从它的基准角往下数，所以直接在最上面盖一条。
-        painter.fillRect(faceRect(head, 8, 8, 8, face).adjusted(0, 0, 0, -5), kHair);
-    }
-    // 眼睛：一白一蓝，蓝的在靠中间那一侧。
-    painter.fillRect(QRect(9, 12, 1, 1), kEyeWhite);
-    painter.fillRect(QRect(10, 12, 1, 1), kEyeIris);
-    painter.fillRect(QRect(13, 12, 1, 1), kEyeIris);
-    painter.fillRect(QRect(14, 12, 1, 1), kEyeWhite);
-    // 嘴（一条深色的横线）。
-    painter.fillRect(QRect(10, 14, 4, 1), kMouth);
-
-    // ---- 身体：整件上衣 ----
-    const QPoint body(16, 16);
-    fillBox(body, 8, 12, 4, kShirt);
-
-    // ---- 两条手臂和两条腿：一整件衣服打底，再把下面四行换成"袖子/裤脚以下露出来的部分" ----
+    // ---- 整个人：六个部件、每个六面，全刷成同一个黑 ----
     //
-    // NOTE: 下面四行是**把上边往下挪 (h-4)** 得到的，不是"把上边往上挪 4"。
-    //       QRect::adjusted 调的是两条边：adjusted(0,-4,0,0) 是把上边**往上**扩 4 行 ——
-    //       那会画到隔壁那一面（甚至隔壁那个部件）的贴图上。踩过一次：整条手臂变成了
-    //       肤色，因为往上扩的那 4 行正好盖住了它自己的全部。
-    const auto fillLimb = [&painter](const QPoint &base, const QColor &cloth, const QColor &skin) {
-        for (Face face : allFaces()) {
-            const QRect r = faceRect(base, 4, 12, 4, face);
-            painter.fillRect(r, cloth);
-            if (face == Face::Top) {
-                continue;  // 肩膀/胯：还是衣服（那一面本来就贴着身体）
-            }
-            if (face == Face::Bottom) {
-                painter.fillRect(r, skin);  // 手心 / 鞋底
-                continue;
-            }
-            // 四个侧面在贴图上是**同一段行号**（都从基准角往下数），所以四张脸的下四行
-            // 落在同一片区域上，改一次就够 —— 这里还是逐面写，是为了不依赖那个巧合。
-            painter.fillRect(r.adjusted(0, r.height() - 4, 0, 0), skin);
-        }
-    };
-    fillLimb(QPoint(40, 16), kShirt, kSkinTone);  // 右臂
-    fillLimb(QPoint(32, 48), kShirt, kSkinTone);  // 左臂
-    fillLimb(QPoint(0, 16), kPants, kShoe);       // 右腿
-    fillLimb(QPoint(16, 48), kPants, kShoe);      // 左腿
+    // 这六块是 64×64 贴图上"里层"那六块。另外六块（帽子 / 外套 / 两只袖子 / 两条裤脚）
+    // **一个格子都不碰**、全程透明：它们盖在里层外面，涂黑了就会把脸上那枚问号挡住
+    // —— 而且"透明"本来就是那一层的常态（见 render() 里第二层那段）。
+    fillBox(QPoint(0, 0), 8, 8, 8, kPlaceholderBody);     // 脑袋
+    fillBox(QPoint(16, 16), 8, 12, 4, kPlaceholderBody);  // 身体
+    fillBox(QPoint(40, 16), 4, 12, 4, kPlaceholderBody);  // 右臂
+    fillBox(QPoint(32, 48), 4, 12, 4, kPlaceholderBody);  // 左臂
+    fillBox(QPoint(0, 16), 4, 12, 4, kPlaceholderBody);   // 右腿
+    fillBox(QPoint(16, 48), 4, 12, 4, kPlaceholderBody);  // 左腿
 
-    // ---- 覆盖层：只画头发那几块，其余**保持透明**（透明才对：那层是"比里层多出来的
-    //      部分"，没画到的地方本来就该露出里层）。这一层同时也是"alpha 混和没写错"
-    //      的活证据 —— 它盖在头上，而脸还看得见。 ----
-    const QPoint hat(32, 0);
-    fillFace(hat, 8, 8, 8, Face::Top, kHair);
-    fillFace(hat, 8, 8, 8, Face::Back, kHair);
-    for (Face face : {Face::Front, Face::Left, Face::Right}) {
-        // 覆盖层上的刘海比里层窄一行（里层三行、这层两行），不然两层一模一样、
-        // 看不出这一层在起作用。
-        painter.fillRect(faceRect(hat, 8, 8, 8, face).adjusted(0, 0, 0, -6), kHair);
+    // ---- 脸上那枚问号 ----
+    //
+    // 画在脑袋**正面**那一格贴图上（那一面就是渲染时正对着镜头的）。那一格在贴图上的位置
+    // 由 faceRect() 给，和渲染那边**同一个出处** —— 所以"问号落在脸上"不靠"我知道那是 (8,8)"
+    // 这种记忆，面挪了这儿跟着挪。
+    const QRect headFront = faceRect(QPoint(0, 0), 8, 8, 8, Face::Front);
+    for (int row = 0; row < 7; ++row) {
+        const char *const cols = kQuestionRows[row];
+        for (int col = 0; col < 5; ++col) {
+            if (cols[col] != '#') {
+                continue;  // 空的那几格是**黑的**（底色已经刷过），不是"不画"
+            }
+            painter.fillRect(QRect(headFront.x() + kQuestionOffset.x() + col,
+                                   headFront.y() + kQuestionOffset.y() + row, 1, 1),
+                             kPlaceholderInk);
+        }
     }
 
     return skin;
