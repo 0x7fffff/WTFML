@@ -1516,6 +1516,19 @@ constexpr int kFolderRowTopMargin = 6;
 /// 行尾那颗齿轮到自己那两行字的间距。
 constexpr int kFolderRowGearSpacing = 6;
 
+/// 齿轮菜单那块浮层自己的内边距与行距。**不共用 `kPanelPadding`**：那几个数是底栏那两块
+/// 上拉面板的，菜单比它们紧一档（菜单是压在内容上的一小块，四周留白跟面板一样多就显得
+/// 糊在底下那行上了）。
+///
+/// 2026-09-24 用户原话：「点开的那个框在文本左右都有点留白，上下也是，能不能缩小一点点
+/// （减少到 80% 的样子）」+ 紧接着一句「上下不用减那么多，匹配即可」。取值就是照着这两句
+/// 算的 —— 文字左边原来 10 + 8 = 18 px（框内边距 + 按钮内边距），现在 8 + 6 = 14 px
+/// （≈78%）；上边原来 10 + 6 = 16 px，现在 8 + **6** = 14 px（≈88%，就是"不用减那么多"
+/// 那半句：按钮的上下内边距一个像素都没动）—— 于是**上下与左右都是 14 px**，这就是"匹配"
+/// 那两个字要的。行距 6 → 4：行与行之间 6 + 4 + 6 = 16 px（原来 18）。
+constexpr int kFolderMenuPadding = 8;
+constexpr int kFolderMenuRowSpacing = 4;
+
 /**
  * @brief 「游戏文件夹」列表里的一行。
  *
@@ -1650,8 +1663,9 @@ public:
 
         const int iconSize = MainWindowUI::folderMenuIconSize();
         QVBoxLayout *box = new QVBoxLayout(this);
-        box->setContentsMargins(kPanelPadding, kPanelPadding, kPanelPadding, kPanelPadding);
-        box->setSpacing(kPanelRowSpacing);
+        box->setContentsMargins(kFolderMenuPadding, kFolderMenuPadding, kFolderMenuPadding,
+                                kFolderMenuPadding);
+        box->setSpacing(kFolderMenuRowSpacing);
         for (int a = 0; a < MainWindowUI::folderActionCount(); ++a) {
             // 「移除」和「删除」对自带那一份是灰的：它移不掉（FolderManager::removeFolder）
             // 也删不掉（deleteFolder）。灰掉必须**配一句为什么** —— 灰着不说话，用户只会
@@ -1751,12 +1765,14 @@ private:
         hover.setAlpha(48);
         QColor pressed = menuPalette.color(QPalette::Highlight);
         pressed.setAlpha(96);
-        // 左右各留 8 px：图标贴着框边看着像被裁过。
+        // 左右各留 6 px：图标贴着框边看着像被裁过，但再多就显得这块框糊在底下的行上了
+        // （原来是 8，2026-09-24 跟着 kFolderMenuPadding 一起收紧 —— 两个数怎么来的、
+        // 用户那两句话怎么读，都写在 kFolderMenuPadding 上面那段）。
         // NOTE: 加粗走 QSS 的 `font-weight`（别去 setFont() 改控件的字体）—— 这条样式
         //       表的**每一档状态**都是这里出的，字重跟别的属性待在同一个地方才不会漏。
         QString sheet = QStringLiteral("QPushButton { border: none; background: transparent;"
                                        " font-weight: bold;"
-                                       " text-align: left; padding: 6px 8px; }"
+                                       " text-align: left; padding: 6px 6px; }"
                                        "QPushButton:hover:enabled { background-color: %1; }"
                                        "QPushButton:pressed:enabled { background-color: %2; }")
                             .arg(hover.name(QColor::HexArgb), pressed.name(QColor::HexArgb));
