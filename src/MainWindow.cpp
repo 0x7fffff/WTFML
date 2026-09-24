@@ -923,7 +923,12 @@ void MainWindow::setupConnections() {
     // 而且一次手势只进来一次。以前这里是 itemClicked + itemActivated 各接一条 ——
     // Windows 上双击两发都到，于是 openInstallPage() 跑两遍（第二遍把四个在飞的加载器版本
     // 请求 abort 掉重发），分类那一行的展开/收起也会被翻两次（看上去就是"双击没反应"）。
-    connectRowActivation(m_ui->getVersionTree(), openFromTreeItem);
+    // 第三件事只有这一棵树要交待：**哪些行的激活是"开/关"**。分类那四条（顶层）是，
+    // 点得快的时候第二发（以及后面每一发）到的是双击事件、itemClicked 不发它 —— 不补上
+    // 用户看到的就是"一直点，有几次没反应"。版本号那一条是"进安装页"，算做事：双击仍然
+    // 只办一次（不然安装页开两遍）。
+    connectRowActivation(m_ui->getVersionTree(), openFromTreeItem,
+                         [](QTreeWidgetItem *item) { return item->parent() == nullptr; });
     connect(m_ui->getInstallBackButton(), &QPushButton::clicked, this,
             &MainWindow::backToVersionTree);
     connect(m_ui->getInstallButton(), &QPushButton::clicked, this,
@@ -985,8 +990,18 @@ void MainWindow::setupConnections() {
         // 钉的版本号是默认名的一部分（`1.20.1-Forge_47.4.10`），换一条就得重算。
         updateInstallName();
     };
-    // 接线口和版本树那一条完全一样（鼠标单击 + 键盘回车，一次手势只进来一次）。
-    connectRowActivation(m_ui->getLoaderTree(), onLoaderTreeClicked);
+    // 接线口和版本树那一条完全一样（鼠标单击 + 键盘回车），另外交待**哪些行是"开/关"**：
+    // 点得快的第二发到的是双击事件，只有开关行才补那一发。按上面那三条判据划：
+    // 顶层那几条里除「不装」以外都是开关（「不装」点它是选中，算做事），
+    // 灰的那几条点不动（handler 开头就 return 了，不算）；子条目（版本号）是选中，算做事。
+    connectRowActivation(
+        m_ui->getLoaderTree(), onLoaderTreeClicked, [](QTreeWidgetItem *item) {
+            if (item->parent() != nullptr || item->isDisabled()) {
+                return false;
+            }
+            return item->data(MainWindowUI::loaderTreeKeyColumn(), Qt::UserRole).toInt()
+                   != MainWindowUI::modLoaderNoneIndex();
+        });
     // 行里那个「取消」小叉（选中那条加载器右边那个 ×，见 updateLoaderRows()）：它不是
     // "点这一行"，所以不走上面两条路 —— 走**视口上的事件过滤器**，判据是
     // VersionTreeDelegate::clearRect()（和代理画它的那一格是同一份几何）。
@@ -1054,7 +1069,16 @@ void MainWindow::setupConnections() {
         // 第三层那一行"点它就是下它"，而双击的两发里第二发会撞上"已有下载任务正在进行"，
         // 界面于是先弹一句假的「下载失败」，顺手把 m_pendingModpackImport 那笔待导入记录
         // 也吃掉了（真的整合包下完就再也不会走导入）。
-        connectRowActivation(tree, [this](QTreeWidgetItem *item) { onResourceItemActivated(item); });
+        // 哪几行是"开/关"：**上面两层**（资源、游戏版本）是，第三层那一行（版本号）
+        // 是"下它"，算做事 —— 双击仍然只下一次。这个判据和 onResourceItemActivated()
+        // 里那个 resourceRowDepth() 说的是同一件事（那边 2 才是下），两处必须一起看。
+        connectRowActivation(tree, [this](QTreeWidgetItem *item) { onResourceItemActivated(item); },
+                             [](QTreeWidgetItem *item) {
+                                 // 写"0 或 1"而不是"<= 1"：树上认不出来的行回 -1，
+                                 // 那个也**不是**开关行。
+                                 const int depth = resourceRowDepth(item);
+                                 return depth == 0 || depth == 1;
+                             });
         // 图标是**懒要**的：条目建出来之后才 requestIcon()，不然图标回来时没有行可以放
         //（而且 store 命中缓存时是同步发的，见 requestIcon 的 NOTE）。
     }
