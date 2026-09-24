@@ -53,7 +53,59 @@ public:
         friend bool operator==(const Group &, const Group &) = default;
     };
 
+    /// 五个**默认组**的身份（用户 2026-09-24 原话：「可安装mod，原版，快照版，远古版，置顶」）。
+    ///
+    /// 枚举的顺序就是界面上从上到下的顺序（见 defaultGroups()）—— **置顶排在最前**，
+    /// 「置顶」这个名字本身就是"放到最上面去"的意思，排在末尾就名不副实了。
+    enum class DefaultKind {
+        Pinned,     ///< 置顶：唯一一个**不自动往里塞**的（放什么进去是用户自己的事）
+        Moddable,   ///< 可安装mod：装了模组加载器的实例（wtfml.meta 里有 loaderName）
+        Vanilla,    ///< 原版：正式版，没装加载器
+        Snapshot,   ///< 快照版
+        Old,        ///< 远古版
+    };
+
     explicit InstanceGroupStore(QObject *parent = nullptr);
+
+    /// 一个默认组的 id。**写死的字符串、不是 UUID**：自动归类是按 id 找组的，
+    /// 每次启动换一个 id 就等于每次都认不出来（表现是"昨天分好的，今天又全回未分组"）。
+    /// 顺带的好处是用户在文件里一眼能看出哪几个是默认组。
+    static QString defaultGroupId(DefaultKind kind);
+
+    /// 一个默认组的名字（就是用户给的那五个词）。
+    static QString defaultGroupName(DefaultKind kind);
+
+    /// 五个默认组，按**界面上从上到下**的顺序（置顶在最前）。id 见 defaultGroupId()。
+    static QList<Group> defaultGroups();
+
+    /// 把五个默认组**种**进这一份 .minecraft（第一次用它的时候）。
+    ///
+    /// NOTE: 只在 wtfml.folders **不存在**时种。文件在（哪怕里面一个组都没有 —— 用户把
+    ///       五个默认组全删光了）就一个字节都不写。**"默认组可以删"这件要求的全部实现
+    ///       就是这一条**：删了不会再长回来。
+    /// NOTE: 发 groupsChanged（写成功才发）。调用方如果是"因为要重画才来种的"，自己挡信号。
+    /// @param errorOut 失败原因（给用户看的一句话）。文件本来就在 = 直接成功、不写盘。
+    bool seedDefaultGroups(QString *errorOut = nullptr);
+
+    /// 归属表里那个**保留值**：用户**明确**选过「未分组」。
+    ///
+    /// 【为什么"没有这一条"和"这一条写着它"必须分开】
+    ///
+    /// 没有这一条 = 用户从来没给这个实例表过态 → MainWindow 会按版本类型把它归到对应的
+    /// 默认组里去（"可安装mod / 原版 / 快照版 / 远古版"就是靠这个动起来的）。
+    /// 而用户在对话框里选了「未分组」，表的就是"别归类，我就想让它待在未分组里"这个态 ——
+    /// 两者在界面上是同一格（都画在「未分组」底下），在文件里必须是两回事，否则
+    /// "点了确定但没生效"：下一个刷新就又把它拉回默认组去。
+    ///
+    /// 取值是一个**不可能和组 id 撞**的串（组 id 是 UUID 或者 default-* 那五个）。
+    static QString ungroupedMarker();
+
+    /// 这个实例的归属**表过态**没有（不管表的是哪个组、哪怕那个组已经被删了）。
+    ///
+    /// NOTE: 判据刻意**不看那个组还在不在**：组被删掉之后指向它的那条残留（清理要等下一次
+    ///       写）在这条上仍然是"表过态"。于是"删掉一个默认组，它里面的实例落到未分组"是
+    ///       天然的 —— 用不着为它写任何清理代码，也不会被自动归类又抓回别的组去。
+    bool isAssigned(const QString &instanceKey) const;
 
     /// 全部组，按用户排的顺序。文件不存在 / 读不懂时是空的。
     ///
@@ -81,6 +133,10 @@ public:
     bool replaceGroups(const QList<Group> &groups, QString *errorOut = nullptr);
 
     /// 把某个实例归到某个组。`groupId` 传空串 = 取消分组。
+    ///
+    /// NOTE: 空串进去**不是"把这一条删掉"**，而是写成一个 `ungroupedMarker()`（= 用户明确
+    ///       选了「未分组」）。两件事在界面上都画在「未分组」底下，在文件里必须分得开 ——
+    ///       见 ungroupedMarker() 那段。读回来（groupIdOf）仍然是空串，调用方看不出来。
     /// @param instanceKey 实例的归属键（见文件头）。
     /// @return groupId 非空但磁盘上没这个组时返回 false。
     bool assign(const QString &instanceKey, const QString &groupId, QString *errorOut = nullptr);

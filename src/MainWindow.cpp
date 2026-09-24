@@ -481,20 +481,60 @@ QList<MainWindowUI::PanelAction> runningPanelActions(const QColor &ink) {
     return {stop, settings};
 }
 
-/// 这个实例该画哪个分类的方块（草方块 / 覆雪草块 / 土块 / 幸运方块）。
+/// 这个实例属于哪个分类（正式版 / 快照版 / 远古版 / 愚人节版）。
 ///
-/// 分类走 VersionCategory::channelFor()（和下载页那棵树**同一个出处**，别在这儿另写一个
-/// switch：写歪了的症状是"快照那一栏前面白草、远古那一栏还是绿草"，不报错、只是难看）。
+/// 单一出处是 VersionCategory::channelFor()（和下载页那棵树**同一个出处**，别在这儿另写
+/// 一个 switch：写歪了的症状是"快照那一栏前面白草、远古那一栏还是绿草"，不报错、只是难看）。
 /// 那条要一个 `type` 字段，从实例自己的 meta 里读；读不到（meta 丢了/写坏了）就当**正式版**
 /// —— 大多数实例是正式版，而"一个方块都不画"在界面上是个说不清的空白。
-int versionChannelIndexOf(const VersionManager *versions, const QString &versionId) {
+VersionCategory::Channel versionChannelOf(const VersionManager *versions, const QString &versionId) {
     QString type = versions == nullptr
                        ? QString()
                        : versions->versionMeta(versionId).value(QStringLiteral("type")).toString();
     if (type.isEmpty()) {
         type = QStringLiteral("release");
     }
-    return VersionCategory::channelIndex(VersionCategory::channelFor(versionId, type));
+    return VersionCategory::channelFor(versionId, type);
+}
+
+/// 这个实例该画哪个分类的方块（草方块 / 覆雪草块 / 土块 / 幸运方块）。
+int versionChannelIndexOf(const VersionManager *versions, const QString &versionId) {
+    return VersionCategory::channelIndex(versionChannelOf(versions, versionId));
+}
+
+/// 一个实例**默认**该归到哪个默认组 —— 只给"用户还从来没给它表过态"的实例用（见调用点）。
+///
+/// 判据就是用户 2026-09-24 定的那五个组名：
+///   - 装了模组加载器（wtfml.meta 里有 loaderName）→ 可安装mod；
+///   - 否则按版本分类：正式版 → 原版、快照版 → 快照版、远古版 → 远古版；
+///   - **愚人节版没有对应的默认组**，返回空串 = 未分组。用户给的那五个里没有它，而把
+///     它塞进快照版是替用户做主（那九个版本的 type 全是 snapshot，正是这个"顺理成章"
+///     的错法，见 VersionCategory.hpp 文件头）。
+///
+/// @param known 这一份 .minecraft 里**现在真的还在**的那些组 id。默认组被用户删掉之后
+///        它就不在 known 里了，于是一整组实例自动落到「未分组」—— 这正是用户要的
+///        「组被删掉后版本放到未分组里」，为它写任何清理代码都是多余的。
+QString defaultGroupIdFor(const VersionDisplayParts &part, const VersionManager *versions,
+                          const QSet<QString> &known) {
+    const auto existing = [&known](InstanceGroupStore::DefaultKind kind) {
+        const QString id = InstanceGroupStore::defaultGroupId(kind);
+        return known.contains(id) ? id : QString();
+    };
+    // 加载器那一条先判：装了加载器的快照版/远古版也算"可安装mod"（那才是它现在的样子）。
+    if (!part.loaderName.isEmpty()) {
+        return existing(InstanceGroupStore::DefaultKind::Moddable);
+    }
+    switch (versionChannelOf(versions, part.id)) {
+    case VersionCategory::Channel::Release:
+        return existing(InstanceGroupStore::DefaultKind::Vanilla);
+    case VersionCategory::Channel::Snapshot:
+        return existing(InstanceGroupStore::DefaultKind::Snapshot);
+    case VersionCategory::Channel::Old:
+        return existing(InstanceGroupStore::DefaultKind::Old);
+    case VersionCategory::Channel::AprilFools:
+        break;
+    }
+    return QString();
 }
 
 /// 「本机现在跑着的这几份会话」翻成面板里的几行。
@@ -1799,6 +1839,27 @@ void MainWindow::refreshInstalledVersions() {
         // 开销上不必担心 —— 真机上实例数可以到 61 个，而这个函数一次会话没有调用上界。
         parts.append(m_versionManager->displayParts(id));
     }
+    // 第一次用这一份 .minecraft：把五个默认组（置顶 / 可安装mod / 原版 / 快照版 /
+    // 远古版）种进去。
+    //
+    // 时机就选在这里：**有实例可摆**的时候才种（一个实例都没有时种下去，树里就是五个
+    // 空组头加一个「未分组」，纯噪声）。这个函数每次刷实例都走一遍，但种只在文件还不
+    // 存在的那一次真的发生（见 seedDefaultGroups()），代价是一次 QFile::exists。
+    //
+    // NOTE: 挡住信号。这一趟本来就要把树重画一遍（下面那一段），而 groupsChanged 接的
+    //       正是本函数 —— 不挡的话会把自己再叫一遍，白扫一次盘。
+    // NOTE: 只在文件不存在时种，所以这是**一次**的事：用户把那五个删光之后不会再长回来
+    //       （"默认可以删"那条要求的实现就在 seedDefaultGroups() 里）。
+    // NOTE: 种不下去（盘写不了）只说一句日志 —— 默认组是锦上添花，原来那种"没分过组就
+    //       平铺"的样子照样能用，为它弹一个框反而吓人。
+    if (!parts.isEmpty()) {
+        const QSignalBlocker blocker(m_groupStore);
+        QString seedError;
+        if (!m_groupStore->seedDefaultGroups(&seedError)) {
+            appendLog(seedError);
+        }
+    }
+
     // 主页上"已安装版本"只有下拉框这一个控件了（右栏那张列表 2026-09 去掉，见
     // MainWindowUI 里主页那一段），所以这里只灌下拉框，同步选中项也只剩实例页那张列表。
     fillVersionCombo(combo, parts, m_settings->versionNameOptions());
@@ -1825,16 +1886,28 @@ void MainWindow::refreshInstalledVersions() {
     const QList<InstanceGroupStore::Group> groups = m_groupStore->groups();
     QList<InstanceGroupBucket> buckets;
     QHash<QString, int> bucketOfGroup;
+    QSet<QString> knownGroupIds;
     for (const InstanceGroupStore::Group &group : groups) {
         InstanceGroupBucket bucket;
         bucket.groupId = group.id;
         bucket.name = group.name;
         bucketOfGroup.insert(group.id, buckets.size());
+        knownGroupIds.insert(group.id);
         buckets.append(bucket);
     }
     QList<VersionDisplayParts> ungrouped;
     for (const VersionDisplayParts &part : parts) {
-        const QString groupId = m_groupStore->groupIdOf(instanceKey(part.id));
+        const QString key = instanceKey(part.id);
+        QString groupId = m_groupStore->groupIdOf(key);
+        // 用户从来没给这个实例表过态 → 按版本类型把它归到对应的默认组（那个默认组还在
+        // 的话，见 defaultGroupIdFor()）。
+        //
+        // NOTE: 判据是"文件里有没有这一条"（isAssigned），**不是"groupId 是不是空"**：
+        //       用户在对话框里明确选了「未分组」的实例也算表过态（存的是那个保留值，
+        //       读出来是空串），不该被自动归类又拉回默认组去 —— 否则就是"点了确定没生效"。
+        if (groupId.isEmpty() && !m_groupStore->isAssigned(key)) {
+            groupId = defaultGroupIdFor(part, m_versionManager, knownGroupIds);
+        }
         const auto found = bucketOfGroup.constFind(groupId);
         if (found != bucketOfGroup.constEnd()) {
             buckets[found.value()].parts.append(part);

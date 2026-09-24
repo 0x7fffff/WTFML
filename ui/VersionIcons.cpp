@@ -443,15 +443,24 @@ QPixmap VersionIcons::refresh(int size, const QColor &color) {
 
         // 圆心与半径：四周留 20% 边距（和 cross 那个 22% 是同一个打算 —— 贴到边上会
         // 看着比同一个格里的箭头大一号）。笔宽和箭头都在这圈里，不会顶出去。
+        //
+        // NOTE: 半径从 0.30 收到 0.29 是 2026-09-24 跟箭头那次一起改的：箭头变长之后，
+        //       它那个底角会往圆心外那侧顶出去（见下面那段算账），环小一号正好让出地方。
         const QPointF center(size / 2.0, size / 2.0);
-        const qreal radius = size * 0.30;
+        const qreal radius = size * 0.29;
         const QRectF box(center.x() - radius, center.y() - radius, 2 * radius, 2 * radius);
 
         // 角度按 Qt 那套：0° 在正右、逆时针为正、**y 轴朝下**（所以 90° 是正上）。
-        // 缺口留在**正上方偏右**（12 点到 1 点那一带）：起笔 55°、顺时针扫 285°
-        //（Qt 里负角就是顺时针）→ 收在 130°（左上），那 75° 就是缺口 —— 不断开的话
-        // 就只是一个圆圈，读不出"转一圈回来"这层意思。
-        constexpr qreal kHeadDeg = 55.0;
+        // 缺口留在**正上方偏右**：起笔 30°、顺时针扫 285°（Qt 里负角就是顺时针）→ 收在
+        // 105°（左上），那 75° 就是缺口 —— 不断开的话就只是一个圆圈，读不出"转一圈回来"
+        // 这层意思。
+        //
+        // NOTE: 起笔位置 2026-09-24 从 55° 挪到了 30°（用户原话：「刷新键的"箭头"太小，
+        //       调大点」）。箭头是**顺着切向**画的，它的底边落在"来路上"，也就是往
+        //       12 点方向退 —— 箭头一长，那个底角就顶到格子顶上去了（55° 那一档实测已经
+        //       顶出画布外，会被裁掉一个角）。挪到 30° 之后来路偏向右上、上下留白够，
+        //       箭头才敢加大（0.22 → 0.32 长、0.13 → 0.165 半底），缺口还是 75°。
+        constexpr qreal kHeadDeg = 30.0;
         constexpr qreal kSweepDeg = -285.0;
 
         QPen pen(color);
@@ -462,7 +471,7 @@ QPixmap VersionIcons::refresh(int size, const QColor &color) {
         p.setBrush(Qt::NoBrush);
         p.drawArc(box, int(kHeadDeg * 16), int(kSweepDeg * 16));
 
-        // 箭头画在 55° 那一头（一点半那个位置）：**实心三角**，顶点顺着"顺时针继续转"
+        // 箭头画在 30° 那一头（两点那个位置）：**实心三角**，顶点顺着"顺时针继续转"
         // 那个方向伸出去一点，底边横在来路上、**按径向**排开。
         //
         // NOTE: 原来是"两笔画一个 V"（顶点在弧上、两翼向来路张开）—— 18 px 下那两翼会
@@ -475,9 +484,17 @@ QPixmap VersionIcons::refresh(int size, const QColor &color) {
         // 顺时针的切向（屏幕坐标，y 朝下）= (sinθ, cosθ)；径向朝外 = (cosθ, −sinθ)。
         const QPointF travel(qSin(headRad), qCos(headRad));
         const QPointF outward(qCos(headRad), -qSin(headRad));
-        // 三角的三条边都按边长给比例：长 22%、底边半宽 13%（≈ 两倍笔宽，看着才"实"）。
-        const qreal length = size * 0.22;
-        const qreal halfBase = size * 0.13;
+        // 三角的三条边都按边长给比例：长 32%、底边半宽 16.5%（≈ 2.5 倍笔宽，看着才"实"）。
+        // 这一档是 2026-09-24 调大的（原来 22% / 13%）—— 老那一档在界面上那个 18 px 的
+        // 格子里只有 4.0 px 长、2.3 px 半底，和环身差不多粗，读起来更像环上沾了个疙瘩
+        // 而不是"往这儿转"。
+        //
+        // NOTE: 上限是画布：这个三角**沿切向**伸出去，离圆心最远的那个角是整张图里最靠
+        //       边的一点（30° 这一档落在 y = 0.037×size，也就是顶上第二三个像素那一行）。
+        //       再长就出画布被裁掉一个角了——ui_check 有一条断言量"最外一圈一个有色像素
+        //       都没有"，改这两个数之前先跑它。
+        const qreal length = size * 0.32;
+        const qreal halfBase = size * 0.165;
         const QPointF tip = onArc + travel * (length * 0.15);
         const QPointF base = tip - travel * length;
         const QPolygonF head({tip, base + outward * halfBase, base - outward * halfBase});
