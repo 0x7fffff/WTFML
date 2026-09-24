@@ -565,6 +565,77 @@ inline bool isStableLoaderVersion(const QString &version) {
     return !version.contains(QLatin1Char('-')) && !version.contains(QLatin1Char('+'));
 }
 
+/// 两个版本号字符串的**自然序**比较：数字段按数值比，其余字符按码点比。
+///
+/// 为什么不能用 `a < b`（2026-09-24 改的）：下面的 sortLoaderVersionsNewestFirst 最后一级
+/// tie-break 原来是字符串升序，而它接手的恰恰是"切掉后缀之后数字一模一样"的那些 ——
+/// NeoForge 的 `26.1.0.0-alpha.1+snapshot-1` 和 `26.1.0.0-alpha.2+snapshot-1` 过完
+/// dottedVersionKey() 都是 `26.1.0.0`，于是次序退化成按字符串比：`alpha.1` 排在
+/// `alpha.2` **前面**。列表是"新到旧"的，所以「最新档」会挑中一个更旧的快照。
+/// （26.1 那一族正是这种形状；26.3 那族的 `26.3.0.0-beta`…`26.3.0.10-beta` 数字段本来就
+/// 不同，走不到这一级。）
+///
+/// NOTE: 结果是个**全序**（数字段比数值、数值相同再比位数，字符比码点，前缀短的算小），
+///       所以顺带把"std::sort 不是稳定排序、次序要钉死"那件事一起办了。
+/// @return 小于 0 表示 left 更小（更旧）。
+inline int compareVersionStrings(const QString &left, const QString &right) {
+    const auto digitRun = [](const QString &text, int from) {
+        int end = from;
+        while (end < text.size() && text.at(end).isDigit()) {
+            ++end;
+        }
+        return end;
+    };
+    const auto withoutLeadingZeros = [](const QString &digits) {
+        int first = 0;
+        while (first + 1 < digits.size() && digits.at(first) == QLatin1Char('0')) {
+            ++first;
+        }
+        return digits.mid(first);
+    };
+
+    int i = 0;
+    int j = 0;
+    while (i < left.size() && j < right.size()) {
+        const QChar lc = left.at(i);
+        const QChar rc = right.at(j);
+        if (lc.isDigit() && rc.isDigit()) {
+            const int leftEnd = digitRun(left, i);
+            const int rightEnd = digitRun(right, j);
+            const QString leftDigits = left.mid(i, leftEnd - i);
+            const QString rightDigits = right.mid(j, rightEnd - j);
+            const QString leftNumber = withoutLeadingZeros(leftDigits);
+            const QString rightNumber = withoutLeadingZeros(rightDigits);
+            if (leftNumber.size() != rightNumber.size()) {
+                return leftNumber.size() < rightNumber.size() ? -1 : 1;
+            }
+            const int order = leftNumber.compare(rightNumber);
+            if (order != 0) {
+                return order < 0 ? -1 : 1;
+            }
+            // 数值相同（`01` 与 `1`）：位数少的定死算小，别让它变成"相等"。
+            if (leftDigits.size() != rightDigits.size()) {
+                return leftDigits.size() < rightDigits.size() ? -1 : 1;
+            }
+            i = leftEnd;
+            j = rightEnd;
+            continue;
+        }
+        if (lc != rc) {
+            return lc < rc ? -1 : 1;
+        }
+        ++i;
+        ++j;
+    }
+    if (i < left.size()) {
+        return 1;
+    }
+    if (j < right.size()) {
+        return -1;
+    }
+    return 0;
+}
+
 /// 把一份加载器版本列表按版本号**从新到旧**排。
 ///
 /// maven 那两份清单（Forge 5048 条、NeoForge 63 KB）都是**按发布时间排的，不是按版本号排的**，
@@ -589,9 +660,11 @@ inline void sortLoaderVersionsNewestFirst(LoaderVersionList &entries) {
                   if (left.stable != right.stable) {
                       return left.stable;
                   }
-                  // 再一样就按字符串定死一个次序：std::sort **不是**稳定排序，不钉住的话
-                  // 同一份输入两次跑出来的次序可能不同（列表看着会自己跳）。
-                  return left.version < right.version;
+                  // 再一样就按**自然序**（数字段按数值）定死一个次序 —— 这一级接手的正是
+                  // "后缀不同、数字相同"的那些（`26.1.0.0-alpha.N+snapshot-N` 那一族），
+                  // 按字符串比会把 alpha.10 排到 alpha.2 后面，见 compareVersionStrings 上面
+                  // 那段。顺带把"std::sort **不是**稳定排序、次序必须钉死"那件事一起办了。
+                  return compareVersionStrings(left.version, right.version) > 0;
               });
 }
 

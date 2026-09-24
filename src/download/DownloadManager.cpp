@@ -46,9 +46,11 @@ constexpr qint64 kStallMinBytesPerTick = 64 * 1024;
 /// 连着几跳"没动"才算数。两跳 = 10 秒 —— 一条**已经在吐字节**的链子停 10 秒，够说明它不行了。
 ///
 /// NOTE: 这里以前还有半句理由「一次 DNS + TLS 建连（本机 1~3 秒）不该被误判」，那半句现在
-///       由 countsTowardStallStrike() 那条判据（一个字节都没收到的不记 strike）承担 ——
-///       10 秒这个余量在 24 路并发下**不够**：一条刚发出去的回复可能几十秒才轮到它吐第一个
-///       字节，而它那几十秒的进账 delta 一直是 0，照样会被这条判据算成失速。
+///       由 countsTowardStallStrike() 承担 —— 但**那句结论 2026-09-24 改对了，原文写反了**：
+///       判据是 `bytesSeen > 0 && mirrorStalled(...)`（见那个函数的实现，理由在 .hpp 里），
+///       一个字节都还没收到的回复进不了这条判据。所以"一条刚发出去的回复可能几十秒才轮到它
+///       吐第一个字节"这件事**不会**被算成失速，那几十秒里 bytesSeen 一直是 0。照原文
+///      （「照样会被这条判据算成失速」）去改，会去修一个不存在的问题。
 constexpr int kStallStrikesToDemote = 2;
 
 /// 从**官方**那条版本 json 的地址里取出 sha1。
@@ -996,6 +998,11 @@ AssetIndex DownloadManager::extractAssetIndex(const QJsonObject &versionJson) {
 
 void DownloadManager::onVersionManifestReplyFinished() {
     QNetworkReply *reply = qobject_cast<QNetworkReply *>(sender());
+    // 退出途中不碰任何成员（同别的槽）：abort() 会让 finished 同步回调，那时父对象
+    // （就是本对象）已经在析构里了。销毁前那一句 disconnect() 只挡得住队列里的，挡不住这种。
+    if (reply == nullptr || m_shuttingDown) {
+        return;
+    }
     // 元数据的回复平时不在 activeDownloads 里（不落盘），只有"从镜像退到官方"重发出来的
     // 那一条在。这里统一摘一遍，省得在每条路上都写一次。
     activeDownloads.remove(reply);
@@ -1011,18 +1018,28 @@ void DownloadManager::onVersionManifestReplyFinished() {
     //       键是回复指针，Qt 释放之后下一批复用同一个地址，残留的键会让一条**没有**
     //       备用地址的新回复被判成"有退路"（看门狗那条慢镜像判据），然后拿着一份**陈旧**的
     //       官方地址去重发 —— 重发到上一个版本 json 的地址上。
-    m_officialFallbacks.remove(reply);
+    //
+    // NOTE: 摘的时机是**下面那段内容核完之后**，不是紧跟 m_stallMeters（2026-09-24 挪的）：
+    //       镜像的那份清单"HTTP 200 + 截了一半/根本不是 JSON"是它的典型坏法，那种失败也该
+    //       退回官方源再试一次 —— 先摘掉就没有退路了。
     if (reply->error() == QNetworkReply::NoError) {
         QJsonParseError error;
         QJsonDocument json = QJsonDocument::fromJson(reply->readAll(), &error);
         if (error.error == QJsonParseError::NoError) {
             parseVersionManifest(json);
         } else {
-            qDebug() << "JSON parse error:" << error.errorString();
+            qWarning() << "版本清单下载回来解不开，按失败处理：" << error.errorString();
+            // 解不开 = 内容和"网络失败"一样不可用：有备用地址就换一条路再试一次
+            // （镜像那条路会 302 到一个半死不活的链子上，回来半截是常事）。
+            if (retryWithOfficialUrl(reply, QStringLiteral("version_manifest.json"),
+                                     &DownloadManager::onVersionManifestReplyFinished)) {
+                return;
+            }
         }
     } else {
         qDebug() << "Network error:" << reply->errorString();
     }
+    m_officialFallbacks.remove(reply);
     // NOTE: 失败路径也必须发信号。VersionManager::fetchVersionDetails 靠这个信号
     // 接着去取 version.json，漏发就会让整个"下载"流程停在半路：UI 已经进了
     // "下载中"状态，却永远等不到终态，按钮一直是灰的。
@@ -1033,6 +1050,10 @@ void DownloadManager::onVersionManifestReplyFinished() {
 
 void DownloadManager::onVersionJsonReplyFinished() {
     QNetworkReply *reply = qobject_cast<QNetworkReply *>(sender());
+    // 退出途中不碰任何成员（同别的槽，见 onDownloadReplyFinished 那一条）。
+    if (reply == nullptr || m_shuttingDown) {
+        return;
+    }
     activeDownloads.remove(reply);
     if (reply->error() != QNetworkReply::NoError &&
         retryWithOfficialUrl(reply, QStringLiteral("version_json"),
@@ -1042,7 +1063,10 @@ void DownloadManager::onVersionJsonReplyFinished() {
     // take 而不是 remove：这条作业记着"该是哪个版本、该是什么字节"，下面要拿它核。
     const MetadataJob job = m_metadataReplies.take(reply);
     m_stallMeters.remove(reply);
-    m_officialFallbacks.remove(reply);
+    // NOTE: 备用地址**不在这里摘**（2026-09-24 挪到下面那段内容核之后）：内容级失败
+    //       （sha1 / JSON / id 对不上）和网络失败一样该退回官方源再试一次，而镜像源
+    //       "HTTP 200 + 内容不对"正是它的典型坏法。先摘掉的话那种失败直接成了硬失败
+    //       —— 而这条作业的姊妹路径（资源索引）一直是"success == false 就退"的口径。
     if (reply->error() == QNetworkReply::NoError) {
         const QByteArray bytes = reply->readAll();
         // **下回来的东西要核**（以前一个字都不核，只要 JSON 解得开就当成功）。
@@ -1075,13 +1099,27 @@ void DownloadManager::onVersionJsonReplyFinished() {
             parseVersionJson(json);
             emit versionJsonFetched(currentVersionJson);
         } else {
-            qWarning() << "版本 json 下载回来不对，按失败处理：" << problem;
+            // 内容不对 → 先按"换一条路再试"处理：有备用地址（= 这条走的是镜像）就重发一次，
+            // 这次不算失败。重发出去那条带着**同一份** MetadataJob（该是哪个版本、该是什么
+            // 字节都还在），所以核 sha1/id 那两步在它回来时照做。
+            //
+            // NOTE: 作业记录得**放回去**再退：retryWithOfficialUrl() 是 take 出来搬到新回复上
+            //       的（它只在"表格里有这条"时才搬），不放回去这一搬就是空的 —— 表现是重发
+            //       回来那条不再核 sha1/id，正是这一段要防的东西。
+            m_metadataReplies[reply] = job;
+            if (retryWithOfficialUrl(reply, QStringLiteral("version_json"),
+                                     &DownloadManager::onVersionJsonReplyFinished)) {
+                return;
+            }
+            m_metadataReplies.remove(reply);
+            qWarning() << "版本 json 下载回来不对，而且没有备用地址，按失败处理：" << problem;
             emit versionJsonFetched(QJsonObject());
         }
     } else {
         qDebug() << "Network error:" << reply->errorString();
         emit versionJsonFetched(QJsonObject());
     }
+    m_officialFallbacks.remove(reply);
     reply->deleteLater();
 }
 
