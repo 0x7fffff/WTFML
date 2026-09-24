@@ -415,26 +415,30 @@ public:
     // ---------- 下载页左栏那份「下载分类」（仿 PCL） ----------
     //
     // 左栏原来是"挑加载器 + 挑版本"，2026-09-22 换成 PCL 那种**一列分类**：游戏 / 整合包 /
-    // 模组 / 资源包 / 光影。点哪个，右栏那份 QStackedWidget 就换到哪一页。
+    // 模组 / 数据包 / 资源包 / 光影。点哪个，右栏那份 QStackedWidget 就换到哪一页。
     //
-    // NOTE: 2026-09-23 起五页**全是真的**了：第 0 页「游戏」还是原来那一摊（挑加载器、
-    //       挑版本、下载），其余四页是"一个搜索框 + 一棵三层树"（资源 → 游戏版本 → 版本号，
-    //       见下面 downloadResourceTreeName() 那段）。原来那四句"还没做"的话连同
-    //       downloadPlaceholderText() 一起删掉了 —— 留着就是四页在说假话。
+    // NOTE: 2026-09-23 起后面几页**全是真的**了：第 0 页「游戏」还是原来那一摊（挑加载器、
+    //       挑版本、下载），其余几页是"一个搜索框 + 一棵三层树"（资源 → 游戏版本 → 版本号，
+    //       见下面 downloadResourceTreeName() 那段）。原来那几句"还没做"的话连同
+    //       downloadPlaceholderText() 一起删掉了 —— 留着就是那几页在说假话。
+    //       2026-09-25 加了「数据包」一条（用户原话：「下载那一栏少了个数据包类型，把它放在
+    //       模组和资源包中间加上」）—— 插在「模组」和「资源包」之间，其余几条的位置不动
+    //       （「模组」还是第 2 条，写死下标的地方不受影响）。
     static QString downloadCategoryListName() { return QStringLiteral("downloadCategoryList"); }
     static QString downloadStackName() { return QStringLiteral("downloadStack"); }
     /// 「游戏」那一页（唯一有内容的那页）的 objectName。
     static QString downloadGamePageName() { return QStringLiteral("downloadGamePage"); }
-    /// 分类的键（进条目的 userData，也是那四张资源表的 objectName 前缀）。
+    /// 分类的键（进条目的 userData，也是那几张资源表的 objectName 前缀）。
     /// **顺序就是界面上从上到下的顺序**，第 0 个是「游戏」（它没有资源表，有别的两张）。
     static QStringList downloadCategoryKeys() {
         return {QStringLiteral("game"), QStringLiteral("modpack"), QStringLiteral("mod"),
-                QStringLiteral("resourcepack"), QStringLiteral("shader")};
+                QStringLiteral("datapack"), QStringLiteral("resourcepack"),
+                QStringLiteral("shader")};
     }
     /// 条目上写的字。和上面那张表**一一对应**，顺序不能各排各的。
     static QStringList downloadCategoryTexts() {
         return {QStringLiteral("游戏"), QStringLiteral("整合包"), QStringLiteral("模组"),
-                QStringLiteral("资源包"), QStringLiteral("光影")};
+                QStringLiteral("数据包"), QStringLiteral("资源包"), QStringLiteral("光影")};
     }
     /// 有内容的那个分类的下标（「游戏」）。写死数字的地方一律用它。
     static int downloadCategoryGameIndex() { return 0; }
@@ -446,10 +450,15 @@ public:
     /// NOTE: 2026-09-23 之前它是"还没做"那几页上的一句话，措辞是"将来放什么"；现在改成了
     ///       "在这儿能干什么"。顺手把原来写的 "CurseForge" 去掉了 —— 这一轮只做 Modrinth，
     ///       提示里写着它、点进去却没有，就是撒谎（CurseForge 那件事另有原因，见 ModpackImport）。
+    /// NOTE: 数据包那一条**必须**说清"下进实例的 datapacks/、要自己放进存档"：原版只认
+    ///       `<存档>/datapacks/`，而这一轮做的就是"和三个兄弟类一样下进实例目录"
+    ///       （见 ResourceCatalog::folderForKind 那段）。不写的话，用户装完进游戏找不到，
+    ///       只会当成装坏了 —— 那句话是这一页唯一说得出这件事的地方。
     static QStringList downloadSearchHints() {
         return {QString(),
                 QStringLiteral("搜整合包名，回车；挑一个游戏版本，再挑一个版本号导入"),
                 QStringLiteral("搜模组名，回车；挑一个游戏版本，再挑一个版本号装进实例"),
+                QStringLiteral("搜数据包名，回车；下进实例的 datapacks/，用的时候放进存档"),
                 QStringLiteral("搜资源包名，回车；挑一个游戏版本，再挑一个版本号装进实例"),
                 QStringLiteral("搜光影包名，回车；挑一个游戏版本，再挑一个版本号装进实例")};
     }
@@ -459,7 +468,7 @@ public:
         return index >= 0 && index < hints.size() ? hints.at(index) : QString();
     }
 
-    // ---- 后面四页那四张资源表（模组 / 整合包 / 资源包 / 光影）----
+    // ---- 后面那几页的那几张资源表（整合包 / 模组 / 数据包 / 资源包 / 光影）----
     //
     // 每页两样东西：一个搜索框 + 一棵**三层**树。三层的走法和用户描述的那条路一一对应：
     //   第一层 资源（图标 + 名字 + 「作者 · 下载量」）→ 点开
@@ -468,23 +477,24 @@ public:
     // 用户原话：「点开模组后是选择游戏版本，在选择游戏版本后展开下方的版本列表，
     // 类似模组加载器的样子」。三层用的是**上一页那两棵树的同一个代理**，所以长得一样。
     //
-    // 控件的名字按分类键拼（`modTree` / `shaderSearchEdit` 这种）：四页的控件一模一样、
-    // 只有那几个字不同，所以下面是一段循环搭四遍，不是抄四份。
+    // 控件的名字按分类键拼（`modTree` / `shaderSearchEdit` 这种）：这几页的控件一模一样、
+    // 只有那几个字不同，所以下面是一段循环搭几遍，不是抄几份。
     static QString downloadResourceTreeName(const QString &categoryKey) {
         return categoryKey + QStringLiteral("Tree");
     }
     static QString downloadSearchEditName(const QString &categoryKey) {
         return categoryKey + QStringLiteral("SearchEdit");
     }
-    /// 那四张资源表里**前面那个图标画多大**（版本树/加载器树是 18）。
+    /// 那几张资源表里**前面那个图标画多大**（版本树/加载器树是 18）。
     /// 用户要"会有图片"，18 px 那个尺寸看不清缩略图；行高仍是 versionTreeRowHeight()（46），
     /// 32 px 的图在行里上下各留 7 px，不挤。
     static int resourceTreeIconSize() { return 32; }
     /// 资源那一行（最上面那一层）上挂的"这是哪一类"：存**分类键**
-    ///（`downloadCategoryKeys()` 里那四个之一，也是 `ResourceCatalog::kindKey()`）。
+    ///（`downloadCategoryKeys()` 里那几个之一，也是 `ResourceCatalog::kindKey()`）。
     ///
     /// 为什么要挂在条目上：用户点**第三层**（一个版本号）那一下要算"下到哪儿去"
-    ///（模组 → `mods/`、资源包 → `resourcepacks/`、光影 → `shaderpacks/`、整合包 → 缓存目录），
+    ///（模组 → `mods/`、数据包 → `datapacks/`、资源包 → `resourcepacks/`、
+    /// 光影 → `shaderpacks/`、整合包 → 缓存目录），
     /// 而那一刻手上只有条目 —— 从它往上两层、回到第一层那一行读回来就是了。
     /// 不反查树控件的 objectName（那是控件的名字，不是数据），也不按页面下标猜。
     /// 存的为什么是键而不是枚举的整数值：读的时候可以直接走
@@ -492,7 +502,7 @@ public:
     /// 而把一个 int 硬转成枚举是没有这层校验的（值是脏的就会变成一个不存在的 Kind）。
     ///
     /// NOTE: 挑号码的时候看一眼 rowSubTextRole() 上面那段 —— 2026-09-23 这里原来和
-    ///       `rowRefreshRole()` 撞了（都是 `UserRole + 3`），症状是这三张表上**每一行**
+    ///       `rowRefreshRole()` 撞了（都是 `UserRole + 3`），症状是这几张表上**每一行**
     ///       右端都多画一个刷新圈压在 `>` 上。代理那三个角色现在自成一档（+8/+9/+10），
     ///       这一档（条目身份）用 +0/+1/+2/+3…，两边别再串。
     static int resourceKindRole() { return Qt::UserRole + 3; }

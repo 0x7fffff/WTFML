@@ -543,12 +543,13 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     // ---------- 下载：左 = 分类入口（仿 PCL）；右 = 那个分类的内容 ----------
     //
     // 左栏 2026-09-22 从"挑加载器 + 挑版本"换成了 PCL 那种**一列分类**：游戏 / 整合包 /
-    // 模组 / 资源包 / 光影。点哪个，右栏那份 QStackedWidget 就换到哪一页。
+    // 模组 / 数据包 / 资源包 / 光影。点哪个，右栏那份 QStackedWidget 就换到哪一页。
     //
-    // NOTE: 2026-09-23 起**五页全是真的**了。「游戏」那一页就是原来那一摊（挑加载器、挑版本、
-    //       下载），一个控件都没少；其余四页是"一个搜索框 + 一棵三层树"（资源 → 游戏版本 →
-    //       版本号），在这里一段循环里搭出来（见下面那段）。原来那四句"还没做"的话连同
-    //       downloadPlaceholderText() 一起删掉了 —— 留着就是四页在说假话。
+    // NOTE: 2026-09-23 起**后面几页全是真的**了。「游戏」那一页就是原来那一摊（挑加载器、
+    //       挑版本、下载），一个控件都没少；其余几页是"一个搜索框 + 一棵三层树"（资源 →
+    //       游戏版本 → 版本号），在这里一段循环里搭出来（见下面那段）。原来那几句"还没做"
+    //       的话连同 downloadPlaceholderText() 一起删掉了 —— 留着就是那几页在说假话。
+    //       （「数据包」是 2026-09-25 加的，见头文件那张表那段。）
     QWidget *downloadTab = new QWidget(tabWidget);
     downloadTab->setObjectName(downloadTabName());
     const TwoColumns download = buildTwoColumnPage(downloadTab, QStringLiteral("download"));
@@ -576,7 +577,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
             auto *item = new QListWidgetItem(categoryTexts.value(i), downloadCategoryList);
             // 身份进 userData：条目文字是显示内容，会随产品文案走，不能拿它当身份。
             item->setData(Qt::UserRole, categoryKeys.value(i));
-            // 每个条目右边都有那个刷新按钮（五条一条不落）。点它的那一下由
+            // 每个条目右边都有那个刷新按钮（一条不落）。点它的那一下由
             // MainWindow::eventFilter 接 —— 判据是 VersionTreeDelegate::refreshRect()。
             // NOTE: 这里是**两参数**那个 setData（QListWidgetItem 认的是 role，没有列）——
             //       三参数那一个是 QTreeWidgetItem 的，写在这儿编不过。
@@ -804,10 +805,10 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // 于是"第 i 个分类 = 第 i 页"这条对应关系成立（验证工程会数一遍两边的条数）。
         downloadStack->addWidget(gamePage);
 
-        // ---- 其余四页：一个搜索框 + 一棵三层树（资源 → 游戏版本 → 版本号）----
+        // ---- 其余几页：一个搜索框 + 一棵三层树（资源 → 游戏版本 → 版本号）----
         //
-        // 四页的控件**一模一样**，只有搜索框里那句提示文字不同，所以这里是循环四遍，
-        // 不是抄四份。三层的那条路就是用户描述的那条（见头文件里 downloadResourceTreeName()
+        // 这几页的控件**一模一样**，只有搜索框里那句提示文字不同，所以这里是循环几遍，
+        // 不是抄几份。三层的那条路就是用户描述的那条（见头文件里 downloadResourceTreeName()
         // 上面那段）：
         //   第一层 资源 → 点开是游戏版本 → 点开某个游戏版本**这时才去问接口** → 第三层版本号
         // 关键是"什么在哪儿灌"：这一层只**搭**（空树），三条路的数据都由 MainWindow 灌

@@ -96,10 +96,11 @@ const QStringList &loaderFacetNames() {
 
 } // namespace
 
-// ---------- 四类资源 ----------
+// ---------- 几类资源 ----------
 
 QList<Kind> allKinds() {
-    return {Kind::Mod, Kind::Modpack, Kind::Shader, Kind::ResourcePack};
+    // 顺序照下载页左栏那份表（去掉「游戏」）：整合包 / 模组 / 数据包 / 资源包 / 光影。
+    return {Kind::Modpack, Kind::Mod, Kind::DataPack, Kind::ResourcePack, Kind::Shader};
 }
 
 QString kindKey(Kind kind) {
@@ -108,6 +109,9 @@ QString kindKey(Kind kind) {
         return QStringLiteral("mod");
     case Kind::Modpack:
         return QStringLiteral("modpack");
+    case Kind::DataPack:
+        // Modrinth 的 project_type 里就叫 datapack（界面上那一条写「数据包」）。
+        return QStringLiteral("datapack");
     case Kind::Shader:
         return QStringLiteral("shader");
     case Kind::ResourcePack:
@@ -133,6 +137,10 @@ QString folderForKind(Kind kind) {
     switch (kind) {
     case Kind::Mod:
         return QStringLiteral("mods");
+    case Kind::DataPack:
+        // 和三个兄弟类一样下进实例自己的目录。原版只认存档里那份（`<存档>/datapacks/`）——
+        // 这件事写在头文件那段里，界面上那句提示也得说清楚（见 downloadSearchHints）。
+        return QStringLiteral("datapacks");
     case Kind::ResourcePack:
         return QStringLiteral("resourcepacks");
     case Kind::Shader:
@@ -151,6 +159,8 @@ QString kindLabel(Kind kind) {
         return QStringLiteral("模组");
     case Kind::Modpack:
         return QStringLiteral("整合包");
+    case Kind::DataPack:
+        return QStringLiteral("数据包");
     case Kind::Shader:
         return QStringLiteral("光影");
     case Kind::ResourcePack:
