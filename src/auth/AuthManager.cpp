@@ -12,6 +12,7 @@
 
 #include "AuthManager.hpp"
 
+#include "AccountStore.hpp"    // 刷新成功后把新凭据写回列表（M5）
 #include "TokenStore.hpp"      // 凭据落盘的字节格式（唯一出处）
 #include "../net/HttpClient.hpp"  // 同步 HTTP（唯一出处）
 
@@ -248,6 +249,20 @@ bool AuthManager::refreshMinecraftToken(QString *errorMessage) {
         // （用户那边由调用方弹窗，见 loadSavedToken() 的 errorMessage）。
         qWarning().noquote() << "刷新登录失败：" << failure;
         return fail(failure);
+    }
+
+    // 刷新出来的新令牌**要写回列表里那份副本**（2026-09-24 补的）。
+    // 列表里那份是"切回这个账号"时的唯一来路（见 AccountStore 文件头那种两栏结构），
+    // 而在补这句之前，captureActive() 只在"登录成功"那一下被调过一次 —— 于是活动槽里
+    // 的 refresh_token 每隔几天就刷新一轮，列表里那份却永远停在登录那一天。切走再切回来
+    // 把那份旧的写回活动槽，轻的是一次白刷新（微软那边已经轮换作废了），重的就只能重开
+    // 浏览器登录。上面两个 store*TokenData() 已经把新令牌放进活动槽了，这里搬的就是新的。
+    //
+    // NOTE: 收不进列表**不算这次刷新失败**：活动槽里那份是好的、游戏照常能启动，
+    //       为一件"备份没更新"的事拦住启动不值得（原因写一行日志）。
+    QString captureError;
+    if (!AccountStore::captureActive(&captureError)) {
+        qWarning().noquote() << "刷新成功，但没能把凭据写回账号列表：" << captureError;
     }
     return true;
 }

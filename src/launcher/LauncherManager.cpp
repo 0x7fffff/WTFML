@@ -69,6 +69,13 @@ constexpr char kDefaultPlayerName[] = "Player";
 ///       这只是一个让"缺字段的老版本 / 手写的 json"保持原行为的退路。
 constexpr char kDefaultMainClass[] = "net.minecraft.client.main.Main";
 
+/// 带**访问令牌**的那个系统属性（钥匙部分）。
+///
+/// NOTE: 单独拎出来是因为它有两处用途，而两处都必须认得同一条前缀：一处是拼参数
+///       （`-Dminecraft.accessToken=<JWT>`），一处在打日志时把它挡掉（见 startGame()
+///       里那个 -D 循环 —— 那条以前会把令牌前 50 个字符写进日志文件）。
+const QString kAccessTokenProperty = QStringLiteral("-Dminecraft.accessToken=");
+
 /**
  * @brief 取某个版本解压 natives 的目标目录。
  * @param versionId Minecraft version identifier.
@@ -680,7 +687,7 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
         argToken = token;
         argUserType = QStringLiteral("msa");
         qDebug() << "Token length:" << token.length();
-        args << QStringLiteral("-Dminecraft.accessToken=%1").arg(token);
+        args << kAccessTokenProperty + token;
         args << QStringLiteral("-Dminecraft.version=%1").arg(versionId);
 
         args << QStringLiteral("--username") << username << QStringLiteral("--version")
@@ -844,7 +851,18 @@ int LauncherManager::startGame(const QStringList &arguments, const EffectiveJava
     for (int i = 0; i < arguments.length(); ++i) {
         const QString &arg = arguments.at(i);
         if (arg.startsWith("-D")) {
-            qDebug() << "  " << arg.left(50) << (arg.length() > 50 ? "..." : "");
+            // **带令牌的那一条只打钥匙和长度**（2026-09-24 加的）。上面那段原本一律
+            // `arg.left(50)`，于是 `-Dminecraft.accessToken=<JWT>` 的前 50 个字符会跟着这
+            // 一行写进 <数据目录>/logs/wtfml.log（这个进程把它整份都重定向到那个文件，
+            // 见 main.cpp 的 installFileLog）。50 个字符不足以直接拿来用，但那是**凭据的
+            // 一部分**，没有任何理由落盘。:598 那行「Token length:」只打长度，本来就对，
+            // 这条是漏的。
+            if (arg.startsWith(kAccessTokenProperty)) {
+                qDebug() << "  " << kAccessTokenProperty + QStringLiteral("<省略，长度 %1>")
+                                                  .arg(arg.length() - kAccessTokenProperty.length());
+            } else {
+                qDebug() << "  " << arg.left(50) << (arg.length() > 50 ? "..." : "");
+            }
         } else if (arg == "-cp" || arg == "-classpath") {
             qDebug() << "  " << arg;
             if (static_cast<int>(i + 1) < arguments.length()) {

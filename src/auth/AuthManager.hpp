@@ -6,7 +6,9 @@
  * @note 登录流程：起一个本机 HTTP 回调服务器 → 打开浏览器到微软登录页 → 浏览器重定向
  *       回本机、带回授权码 → 用授权码换**微软**令牌 → 再拿它换 **Minecraft** 令牌
  *       （中间要过 Xbox Live 和 XSTS 两道，见 runMinecraftChain()）→ 令牌落盘（QSettings）。
- *       落盘那一步是**真加密**：Windows 上走 DPAPI（见 protectToken() / unprotectToken()），
+ *       落盘那一步是**真加密**：Windows 上走 DPAPI（见 TokenStore::protect() /
+ *       TokenStore::unprotect()；这两个函数是从这个文件搬过去的，原来的名字
+ *       protectToken() / unprotectToken() 已经不存在了），
  *       密文绑定当前 Windows 用户，换用户或换机器都解不开 —— 所以那两份令牌不会跟着 ini
  *       一起被抄走。（2026-09-21 之前是 XOR 混淆，密钥在二进制里，等于没有保护；老值仍然
  *       读得出来，下次写盘自动升级成新格式。）

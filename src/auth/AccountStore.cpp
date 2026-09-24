@@ -94,6 +94,21 @@ QJsonObject entryFor(const QString &uuid) {
 /// 把某个离线账号记成"当前"，并且**清空活动槽**（离开在线身份）。
 /// 切换和添加两条路共用这一句，免得一处改了另一处忘。
 void makeOfflineCurrent(const QString &uuid) {
+    // **清空活动槽之前，先把里面那位在线账号收进列表**（2026-09-24 补的）。
+    // 下面两句一执行，活动槽里那份 refresh_token 就在盘上没有了 —— 而它**可能根本不在
+    // 列表里**：从没有多账号的版本升上来的用户就是这样（那时凭据只存活动槽），
+    // captureActive() 也只在"登录成功"那一下被调过。少了这一句，点一下「添加离线账号」
+    // 或是切到某个离线账号，那份唯一的凭据就被抹掉了，而且盘上再没有任何地方找得回来
+    // （只能重走一遍浏览器登录）。文件头那句"当前那个在线账号不会丢：凭据还在列表里"
+    // 靠的就是这一句成真。
+    //
+    // NOTE: 收不进去**不拦这次切换** —— 离线账号本来就没有凭据，切过去这条路不该被
+    //       盘上的问题挡住；而收不进去的那几种情况都是"列表读不出来"，那时也不该
+    //       拿活动槽里那份去覆盖它（captureActive 自己就是这么设计的，见它的实现）。
+    QString captureError;
+    if (!AccountStore::captureActive(&captureError)) {
+        qWarning().noquote() << "切到离线账号之前，没能把当前账号收进列表：" << captureError;
+    }
     TokenStore::clear(TokenStore::microsoftKey());
     TokenStore::clear(TokenStore::minecraftKey());
     QSettings settings;
@@ -373,7 +388,12 @@ bool AccountStore::addOffline(const QString &name, QString *errorOut) {
     entry.insert(QLatin1String(kSavedAtField), QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
     entry.insert(QLatin1String(kOfflineField), true);
 
-    // 同名 = 同一个 uuid = 同一个人，就地更新（改个大小写也算同一个），否则追加。
+    // 同名 = 同一个 uuid = 同一个人，就地更新，否则追加。
+    //
+    // NOTE: 名字是**逐字节**比的，不是"改个大小写也算同一个"（2026-09-24 把原文那句错的
+    //       括号改掉了）：offlineUuidFor() 是 md5("OfflinePlayer:" + name)，大小写不同就是
+    //       不同的字节、不同的 uuid —— `Steve` 和 `steve` 在这份列表里是两条，点它们进的是
+    //       两个不同的离线身份。照原来那句注释写测试，会写出一个跟代码相反的期望值。
     // NOTE: 同 captureActive()：列表读不出来就不写，否则这一下会把列表里其它账号抹掉。
     bool readable = false;
     QJsonArray array = readAccounts(&readable);
