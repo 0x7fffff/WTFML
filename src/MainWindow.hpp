@@ -274,7 +274,8 @@ private:
     void refreshDownloadCategory(int row);
     /// 按那一页搜索框里的词搜一次（回车时，或者刚进页面时那句空的）。
     void startResourceSearch(ResourceCatalog::Kind kind);
-    /// 树上点了一下（itemClicked 和 itemActivated 都接它）。
+    /// 树上"这一行被激活了"（鼠标单击、双击的第一下、键盘回车）—— 接线口见
+    /// ui/RowActivation.hpp：一次手势只进来一次，所以这里**不需要**再考虑重入。
     void onResourceItemActivated(QTreeWidgetItem *item);
     /// 第三层那一下：把这个版本下回来、装进实例。
     void downloadResourceVersion(QTreeWidgetItem *item);

@@ -23,6 +23,9 @@
 // 以为是原版号。树的顶层那五条由 MainWindowUI 那边给图标，这里只管子条目。
 #include "..\ui\VersionIcons.hpp"
 #include "..\ui\VersionTreeDelegate.hpp"
+// 树上"这一行被激活了"的唯一接线口（鼠标单击 + 键盘回车，一次手势只进来一次）。
+// 三棵树（版本树 / 加载器树 / 下载页那四张资源表）都走它，见那个文件头。
+#include "..\ui\RowActivation.hpp"
 
 // 添加以下头文件（防止hpp变动导致文件失效）
 #include <QApplication>
@@ -647,7 +650,7 @@ void MainWindow::setupConnections() {
     //
     // 共用一份 lambda 而不是一个槽函数：槽声明里带 QTreeWidgetItem* 就得让 moc 也认得
     // 这个类型（等于把这个头拖进 QtWidgets 的树控件），而这里类型本来就是完整的。
-    const auto openFromTreeItem = [this](QTreeWidgetItem *item, int) {
+    const auto openFromTreeItem = [this](QTreeWidgetItem *item) {
         if (item == nullptr) {
             return;
         }
@@ -661,10 +664,11 @@ void MainWindow::setupConnections() {
             openInstallPage(versionId);
         }
     };
-    connect(m_ui->getVersionTree(), &QTreeWidget::itemClicked, this, openFromTreeItem);
-    // 键盘走这条路（回车/空格"激活"一个条目）—— 只接鼠标点击的话，键盘用户永远进不了
-    // 安装页。两条路都指向同一份 lambda，重复进去是幂等的（openInstallPage 只是重设一遍）。
-    connect(m_ui->getVersionTree(), &QTreeWidget::itemActivated, this, openFromTreeItem);
+    // 鼠标和键盘走**同一个**接线口（见 ui/RowActivation.hpp）：两条路都指向上面那份 lambda，
+    // 而且一次手势只进来一次。以前这里是 itemClicked + itemActivated 各接一条 ——
+    // Windows 上双击两发都到，于是 openInstallPage() 跑两遍（第二遍把四个在飞的加载器版本
+    // 请求 abort 掉重发），分类那一行的展开/收起也会被翻两次（看上去就是"双击没反应"）。
+    connectRowActivation(m_ui->getVersionTree(), openFromTreeItem);
     connect(m_ui->getInstallBackButton(), &QPushButton::clicked, this,
             &MainWindow::backToVersionTree);
     connect(m_ui->getInstallButton(), &QPushButton::clicked, this,
@@ -683,7 +687,7 @@ void MainWindow::setupConnections() {
     //     那条，并把版本号写回它的第二行小字（用户原话："选择版本以后收缩，显示版本"）。
     // 共用一份 lambda 而不是槽：槽签名里带 QTreeWidgetItem* 就得让 moc 也认得这个类型
     // （版本树那边同一个理由，见 openFromTreeItem 上面那段）。
-    const auto onLoaderTreeClicked = [this](QTreeWidgetItem *item, int) {
+    const auto onLoaderTreeClicked = [this](QTreeWidgetItem *item) {
         if (item == nullptr) {
             return;
         }
@@ -726,9 +730,8 @@ void MainWindow::setupConnections() {
         // 钉的版本号是默认名的一部分（`1.20.1-Forge_47.4.10`），换一条就得重算。
         updateInstallName();
     };
-    connect(m_ui->getLoaderTree(), &QTreeWidget::itemClicked, this, onLoaderTreeClicked);
-    // 键盘走这条路（回车/空格"激活"一个条目）：两条路指向同一份 lambda。
-    connect(m_ui->getLoaderTree(), &QTreeWidget::itemActivated, this, onLoaderTreeClicked);
+    // 接线口和版本树那一条完全一样（鼠标单击 + 键盘回车，一次手势只进来一次）。
+    connectRowActivation(m_ui->getLoaderTree(), onLoaderTreeClicked);
     // 行里那个「取消」小叉（选中那条加载器右边那个 ×，见 updateLoaderRows()）：它不是
     // "点这一行"，所以不走上面两条路 —— 走**视口上的事件过滤器**，判据是
     // VersionTreeDelegate::clearRect()（和代理画它的那一格是同一份几何）。
@@ -792,12 +795,11 @@ void MainWindow::setupConnections() {
         //       （Qt 的新式 connect 允许槽少收参数）。
         connect(edit, &QLineEdit::returnPressed, this, [this, kind] { startResourceSearch(kind); });
         // 点一行：三种行的行为不一样，判据在 onResourceItemActivated() 里（那里是唯一出处）。
-        // itemClicked 和 itemActivated 都接 —— 后者是键盘那条路（回车/空格"激活"一行），
-        // 只接鼠标的话键盘用户在这几页上什么都干不了（版本树那边同一个理由）。
-        connect(tree, &QTreeWidget::itemClicked, this,
-                [this](QTreeWidgetItem *item, int) { onResourceItemActivated(item); });
-        connect(tree, &QTreeWidget::itemActivated, this,
-                [this](QTreeWidgetItem *item, int) { onResourceItemActivated(item); });
+        // 鼠标和键盘走同一个接线口（见 ui/RowActivation.hpp）—— 这里**必须**只进来一次：
+        // 第三层那一行"点它就是下它"，而双击的两发里第二发会撞上"已有下载任务正在进行"，
+        // 界面于是先弹一句假的「下载失败」，顺手把 m_pendingModpackImport 那笔待导入记录
+        // 也吃掉了（真的整合包下完就再也不会走导入）。
+        connectRowActivation(tree, [this](QTreeWidgetItem *item) { onResourceItemActivated(item); });
         // 图标是**懒要**的：条目建出来之后才 requestIcon()，不然图标回来时没有行可以放
         //（而且 store 命中缓存时是同步发的，见 requestIcon 的 NOTE）。
     }
