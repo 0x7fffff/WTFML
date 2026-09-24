@@ -74,6 +74,14 @@ public:
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow() override;
 
+    /// 这一窗里那个界面对象（`MainWindowUI`，不是 QObject，findChild 找不着它）。
+    ///
+    /// **给验证工程摆界面状态用**（ui_shot 那一类要把底栏摆成某个样子截图：它没有真会话，
+    /// 摆不出"有实例在跑"这个前提，只能直接调 `setRunPanelAvailable()` 之类）。
+    /// 产品代码里**不要拿它抄近路** —— 那个类的方法本来就是给 MainWindow 调的，但绕开
+    /// 这里去直接摆状态，等于把"谁说了算"挪到一个不该有决定权的地方。
+    MainWindowUI *ui() const { return m_ui; }
+
 private slots:
     void onStartButtonClicked();
     // 登录三态（AuthManager 的三个信号）。登录是异步的：点完按钮到浏览器回调回来之间

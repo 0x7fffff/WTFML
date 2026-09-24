@@ -1409,6 +1409,14 @@ void MainWindow::updateBottomBar() {
         MainWindowUI::runStateMarkPixmap(mark, m_ui->getBottomBar()->palette()));
     runStateMarkLabel->setVisible(true);
 
+    // 左下那一格**现在点不点得开**。判据就是"左面板里会不会有行"—— 那几行是拿
+    // runningGames() 翻出来的（见 setBottomBarPanelContent() 里那个 provider），所以
+    // 空不空和这里**同源**。用户 2026-09-25 原话：「没有运行中的实例时让那个实例栏点不开，
+    // 箭头隐藏」。
+    // NOTE: 黄灯那一档（"正在启动"）在这里也是**点得开**的：那一段里会话已经在
+    //       runningGames() 里了（见上面三态那段注释），面板里列得出它。
+    m_ui->setRunPanelAvailable(!games.isEmpty());
+
     if (mark == MainWindowUI::RunStateMark::Launching) {
         // 黄：正在启动。名字的写法**不看「版本名格式」那四个开关**（见 launchingStatusName()）。
         runStateLabel->setText(MainWindowUI::runStateLaunchingText(launchingStatusName()));
