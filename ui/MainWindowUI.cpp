@@ -1366,17 +1366,28 @@ class BottomBarPanel : public QWidget {
 public:
     /// 行尾某个按钮被点了：参数是"那一行是谁（PanelRow::key）、第几颗"。
     using ActionCallback = std::function<void(const QString &, int)>;
+    /// "点在面板外面"那一下要问外面两件事（两个都按**全局坐标**说话 —— 面板自己认不出
+    /// "外面是哪儿"，它只知道用户在框外点了一下）。两问的顺序不能换，理由见
+    /// handleOutsidePress() 的第二段 NOTE：
+    ///   · claimed —— 收回去**之前**问：这一下落在底栏那两颗按钮上吗？（是 ⇒ 把 Qt 那记
+    ///     重放压掉）
+    ///   · dismissed —— 收回去**之后**叫：去开该开的那一块（点的要是同一颗就什么都不开）。
+    struct OutsidePressHandler {
+        std::function<bool(const QPoint &globalPos)> claimed;
+        std::function<void(const QPoint &globalPos)> dismissed;
+    };
 
     /// @param anchor 贴着哪颗按钮弹（也决定"至少和按钮一样宽"）。
     /// @param alignRight true = 右边缘和按钮右边缘对齐（右端那颗按钮用），
     ///                   false = 左边缘对齐（左端那颗用）。
     /// @param rows 面板里的几行（数据由 MainWindow 翻好，见 setBottomBarPanelContent()）。
     /// @param onAction 行尾的按钮被点了该告诉谁（可以给空的 = 这些按钮点了没反应）。
+    /// @param onOutsidePress 点在外面那一下该告诉谁（两个回调都可以给空的 = 只知道"要收回去"）。
     BottomBarPanel(QWidget *anchor, bool alignRight,
                    const QList<MainWindowUI::PanelRow> &rows, const ActionCallback &onAction,
-                   QWidget *parent)
+                   const OutsidePressHandler &onOutsidePress, QWidget *parent)
         : QWidget(parent, Qt::Popup | Qt::FramelessWindowHint), m_anchor(anchor),
-          m_alignRight(alignRight) {
+          m_alignRight(alignRight), m_onOutsidePress(onOutsidePress) {
         setObjectName(MainWindowUI::bottomBarPanelName());
         // 底色比底栏再深一档：它是压在内容区上面的一块，得从底下那堆东西里分出来。
         // **不写死颜色**：从当前调色板推出来，浅色/深色主题下都成立（和底栏同一个路数）。
@@ -1450,20 +1461,63 @@ protected:
         QWidget::keyPressEvent(event);
     }
 
+    /// 点在面板**外面**的那一下（面板开着的时侯，外面那一下是**投递给面板自己**的 ——
+    /// 局部坐标在框外，底下那颗按钮一个事件都收不到；实测见文件头那段）。
+    /// 返回 true = 这一下已经办完了（不要再去走基类那套）。
+    ///
+    /// NOTE: 【为什么要在这里把坐标交出去】外面那一下是"面板该收了"，而"换到另一块面板"
+    ///       只有在这里才办得到（那颗按钮收不到任何事件）。所以认"外面是哪儿"这件事由
+    ///       回调办（它才知道那两颗按钮在哪），面板只管收自己。
+    /// NOTE: 【为什么要压 Qt 的重放】Qt 在关一块 Qt::Popup 的时候，如果光标不在它几何里，
+    ///       会把这同一个 press **重放**给光标底下那个控件（`QApplicationPrivate::closePopup`
+    ///       → `replayMousePress` → `QWidgetWindow::handleMouseEvent` 尾巴上那段；
+    ///       Windows 上那个 style hint 是 true）。那一下落在底栏那颗按钮上就是**又一次点击**：
+    ///         · 点的是**另一颗** → 我们刚替用户把那一块开出来，重放这一下又把它收回去
+    ///           （看上去就是"点了没反应，得点两下"）；
+    ///         · 点的是**同一颗** → 我们刚收回去，重放这一下又开出来（看上去就是"收不回去"）。
+    ///       `Qt::WA_NoMouseReplay` 就是干这个的（QMenu 对它自己那颗按钮也是这么办的，
+    ///       见 `QMenuPrivate::noReplayFor`）。**必须在 close() 之前钉上** —— Qt 是关窗
+    ///       （`hide_helper`）那一刻读这个属性。属性会被 Qt 在"这个控件又收到鼠标事件"时
+    ///       清掉，所以挂在构造里没用，只能在这儿按需要钉。
+    bool handleOutsidePress(QMouseEvent *event) {
+        const QPoint local = event->position().toPoint();
+        if (rect().contains(local)) {
+            return false;  // 落在面板自己身上：照旧往下走
+        }
+        const QPoint global = event->globalPosition().toPoint();
+        const bool claimed = m_onOutsidePress.claimed && m_onOutsidePress.claimed(global);
+        if (claimed) {
+            // **必须赶在这里**（close() 之前）：Qt 是关窗那一刻读这个属性的。
+            setAttribute(Qt::WA_NoMouseReplay, true);
+        }
+        close();
+        // 收回去之后才轮到"要不要接着开另一块"：那一下要开的那一块，是**这一块已经收掉
+        // 之后**才该出现的（顺序反了的话，新面板会被底下那段"收旧"再关一次）。
+        if (claimed && m_onOutsidePress.dismissed) {
+            m_onOutsidePress.dismissed(global);
+        }
+        event->accept();
+        return true;
+    }
+
     /**
-     * @brief 点在**自己那颗按钮**上 = "再点一次收回"，这里自己把面板关掉。
-     *
-     * NOTE: 这一下也可能是被 Qt 重放给按钮的（见 setupBottomBar 里 togglePanel 那段），
-     *       走哪条路都通向"收回去"：两条路都只关不开，所以怎么点都不会多冒出一块面板。
+     * @brief 点在面板外面的那一下 = "面板该收回了"。落点是不是底栏那两颗按钮、要不要换一块，
+     *        由回调说了算（见 handleOutsidePress()）。
      */
     void mousePressEvent(QMouseEvent *event) override {
-        if (m_anchor != nullptr &&
-            m_anchor->rect().contains(m_anchor->mapFromGlobal(event->globalPosition().toPoint()))) {
-            close();
-            event->accept();
+        if (handleOutsidePress(event)) {
             return;
         }
         QWidget::mousePressEvent(event);
+    }
+
+    /// 点得**快**的时候，这"外面的一下"到的是双击事件（Windows 上第二发就是它，见
+    /// ui/RowActivation.hpp 那段）—— 同一个处理，不接的话那一下还是白点。
+    void mouseDoubleClickEvent(QMouseEvent *event) override {
+        if (handleOutsidePress(event)) {
+            return;
+        }
+        QWidget::mouseDoubleClickEvent(event);
     }
 
     /// 一圈细边：同一档深浅在浅色主题下几乎看不出边界，分不出"面板到哪为止"。
@@ -1476,6 +1530,7 @@ protected:
 private:
     QWidget *m_anchor = nullptr;
     bool m_alignRight = false;
+    OutsidePressHandler m_onOutsidePress;
 };
 
 /// 底栏那两颗按钮的**同一套外观**：不画按钮自己的底（它占的是底栏那一格），
@@ -2016,53 +2071,19 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     // （每次点开现问一遍，见 setBottomBarPanelContent()），这里只留"怎么弹、弹在哪、
     // 点了哪一行该告诉谁"。左边那块（account = false）列**正在跑的实例**，右边那块
     // （account = true，也就是右对齐的那块）列**最近用过的账号**。
-    // 点开是**开关**：已经开着的时候再点**同一颗**按钮要收回去（用户 2026-09-23 原话：
-    // 「那个按钮，点开以后处于展开状态时再次点击按钮收回」）。点另一颗时，这一下要是真落到
-    // 按钮上，就是"这块收、那块开"；被旧那块吃掉（见下面 NOTE）就只收不开，再点一下才开 ——
-    // 两条路都不会把两块一起挂着。
-    //
-    // NOTE: 为什么"收回"得在这里挡一道 —— Qt::Popup 点外面会自己关（点面板外那一下多半不往
-    //       下传：探针 popup_probe 用**真窗口事件**实测，关掉之后按钮收不到 clicked），但它
-    //       也有**把这一下重放给下面那个控件**的路数（QMenu::setNoReplayFor() 就是专门为
-    //       "别重放给开菜单那颗按钮"加的 API，可见默认是重放的）。重放那条路上按钮照样收到
-    //       clicked：不挡就是"关了又立刻开一块新的"，看着像怎么点都收不回去 —— 那才是用户报的
-    //       毛病。这里靠 findChild 认"现在有没有开着"：面板挂在 bottomBar 底下，close 之后要等
-    //       deleteLater 才真删（同一轮事件处理里还找得到，所以挡得住），不用自己记指针。
+    // 开关的三种情形都归 toggleBottomBarPanel() 一处：点同一颗 = 收回、点另一颗 = 收旧开新、
+    // 都没开着 = 开。**每一次点击都算数**（用户 2026-09-25 原话：「下面两个上拉槽改成和下载
+    // 版本选择一样的，点击一下展开，再点击就关闭」，以及"点另一颗要一条路走到位"，见
+    // BottomBarPanel::handleOutsidePress() 那两段 NOTE）。
     //
     // NOTE: 行里的按钮点下去不是"立刻做事"，而是"面板先收、动作排到下一轮"（见
     //       BottomBarPanel 里 dispatch 那段）—— 那两个动作都要弹模态窗，压在 Qt::Popup
     //       底下会点不动。所以**别**在这里顺手补一句"点完也 close 一下"：那是同一件事
     //       做两遍，而且顺序反了就白做。
-    const auto togglePanel = [this](QWidget *anchor, bool account) {
-        if (auto *open = dynamic_cast<BottomBarPanel *>(
-                bottomBar->findChild<QWidget *>(MainWindowUI::bottomBarPanelName()))) {
-            const bool sameAnchor = open->anchor() == anchor;
-            open->close();
-            if (sameAnchor) {
-                return;
-            }
-        }
-        // 现问一遍要弹什么（不缓存：实例随时会结束、账号随时会多一个，"上次那几行"
-        // 一旦留着就会弹出早就不是那样的一面板）。
-        const QList<PanelRow> rows =
-            m_panelRowsProvider ? m_panelRowsProvider(account) : QList<PanelRow>();
-        // 面板只知道"第几行第几颗"，"是哪一块面板"由这里补上再转给 MainWindow ——
-        // 一块面板只可能属于一边，所以这个得在**建面板的时候**就绑死。
-        const BottomBarPanel::ActionCallback onAction = [this, account](const QString &key,
-                                                                       int action) {
-            if (m_panelActionHandler) {
-                m_panelActionHandler(account, key, action);
-            }
-        };
-        auto *panel = new BottomBarPanel(anchor, account, rows, onAction, bottomBar);
-        // 这次弹出来的面板归它自己管：关掉就删（不然点一次攒一个）。
-        panel->setAttribute(Qt::WA_DeleteOnClose);
-        panel->popUp();
-    };
     QObject::connect(runStateButton, &QPushButton::clicked, runStateButton,
-                     [this, togglePanel]() { togglePanel(runStateButton, false); });
+                     [this]() { toggleBottomBarPanel({runStateButton, false}); });
     QObject::connect(accountButton, &QPushButton::clicked, accountButton,
-                     [this, togglePanel]() { togglePanel(accountButton, true); });
+                     [this]() { toggleBottomBarPanel({accountButton, true}); });
 
     // 三格从左到右摆：实例状态（0）· 空档（1）· 进度（6）· 空档（1）· 账户（0）。
     // 两头那两颗按钮的宽度都是钉死的，份数写 0；富余宽度全在中间三份里分。
@@ -2236,4 +2257,77 @@ void MainWindowUI::openFolderMenu(const FolderRow &row, QWidget *gear) {
     // 而不是"鼠标点在哪就弹在哪"—— 那样的话同一个齿轮点两次会弹在差几个像素的
     // 地方，而且行高一行只有一次，对齐按钮比对齐鼠标更稳。
     menu->popUpAt(gear->mapToGlobal(QPoint(0, gear->height() + kPanelGap)));
+}
+
+MainWindowUI::BottomBarAnchor MainWindowUI::bottomBarAnchorAt(const QPoint &globalPos) const {
+    // 两颗按钮摆在哪由底栏的布局说了算，所以判据只能是"这个全局坐标落在它自己的矩形里吗"
+    //（mapFromGlobal 之后按 rect() 判 —— 和所有"点在不在这个控件上"的写法一致）。
+    const auto hits = [&globalPos](QPushButton *button) {
+        return button != nullptr
+               && button->rect().contains(button->mapFromGlobal(globalPos));
+    };
+    if (hits(runStateButton)) {
+        return {runStateButton, false};
+    }
+    if (hits(accountButton)) {
+        return {accountButton, true};
+    }
+    return {};
+}
+
+void MainWindowUI::openBottomBarPanel(const BottomBarAnchor &anchor) {
+    if (bottomBar == nullptr || anchor.button == nullptr) {
+        return;
+    }
+    // 现问一遍要弹什么（不缓存：实例随时会结束、账号随时会多一个，"上次那几行"
+    // 一旦留着就会弹出早就不是那样的一面板）。
+    const QList<PanelRow> rows =
+        m_panelRowsProvider ? m_panelRowsProvider(anchor.account) : QList<PanelRow>();
+    // 面板只知道"第几行第几颗"，"是哪一块面板"由这里补上再转给 MainWindow ——
+    // 一块面板只可能属于一边，所以这个得在**建面板的时候**就绑死。
+    const BottomBarPanel::ActionCallback onAction = [this, account = anchor.account](
+                                                        const QString &key, int action) {
+        if (m_panelActionHandler) {
+            m_panelActionHandler(account, key, action);
+        }
+    };
+    // 点在面板外面的那一下：面板自己认不出"外面是哪儿"，所以这里按全局坐标认那一颗按钮。
+    // 认出来了就压掉 Qt 的重放（claimed），收掉之后走**同一个** toggle 换过去（dismissed）——
+    // 点另一颗那条路全靠它：那一下面板底下的按钮**一个事件都收不到**，只有面板收到了
+    //（见 BottomBarPanel::handleOutsidePress() 的第一段 NOTE）。
+    BottomBarPanel::OutsidePressHandler onOutsidePress;
+    onOutsidePress.claimed = [this](const QPoint &globalPos) {
+        return bottomBarAnchorAt(globalPos).button != nullptr;
+    };
+    onOutsidePress.dismissed = [this](const QPoint &globalPos) {
+        const BottomBarAnchor hit = bottomBarAnchorAt(globalPos);
+        if (hit.button != nullptr) {
+            // NOTE: 这里让 toggle 自己去 findChild 认"现在开着哪一块"：刚刚被收掉的那一块
+            //       还在（close 之后要等 deleteLater 才真删），所以"点的是同一颗"那一路它
+            //       认得出来（认出来就什么都不开）；点另一颗则收旧开新。
+            toggleBottomBarPanel(hit);
+        }
+    };
+    auto *panel = new BottomBarPanel(anchor.button, anchor.account, rows, onAction, onOutsidePress,
+                                     bottomBar);
+    // 这次弹出来的面板归它自己管：关掉就删（不然点一次攒一个）。
+    panel->setAttribute(Qt::WA_DeleteOnClose);
+    panel->popUp();
+}
+
+void MainWindowUI::toggleBottomBarPanel(const BottomBarAnchor &anchor) {
+    if (bottomBar == nullptr || anchor.button == nullptr) {
+        return;
+    }
+    // "现在有没有开着一块"靠 findChild 认（和行尾齿轮菜单一个路数）：面板挂在 bottomBar
+    // 底下，close 之后要等 deleteLater 才真删（同一轮事件处理里还找得到），不用自己记指针。
+    if (auto *open = dynamic_cast<BottomBarPanel *>(
+            bottomBar->findChild<QWidget *>(MainWindowUI::bottomBarPanelName()))) {
+        const bool sameAnchor = open->anchor() == anchor.button;
+        open->close();
+        if (sameAnchor) {
+            return;  // 再点一次**同一颗** = 收回去，就这一下
+        }
+    }
+    openBottomBarPanel(anchor);
 }

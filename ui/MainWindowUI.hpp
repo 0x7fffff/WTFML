@@ -1413,6 +1413,24 @@ private:
     /// 而且就是这一颗弹的时候，再点一下是收回，和底栏那两块面板一个路数）。
     void openFolderMenu(const FolderRow &row, QWidget *gear);
 
+    /// 底栏两头那两颗按钮里的一颗：是哪一颗（**按按钮指针认人**，不按"左右"）、
+    /// 点开的是哪一块面板。
+    struct BottomBarAnchor {
+        QPushButton *button = nullptr;
+        /// true = 右边那块（账号列表），false = 左边那块（实例列表）。
+        bool account = false;
+    };
+    /// 底栏那两颗按钮"点开 / 收回"的唯一出处，三种情形都在这里分：
+    /// 已经开着**同一颗**的 → 收回（不再开）；开着**另一颗**的 → 收旧的、开新的；
+    /// 都没开着 → 开。**每一次点击都算数**（点另一颗那一下是面板收到的，见 .cpp 里
+    /// BottomBarPanel::handleOutsidePress() 的第一段 NOTE）。
+    void toggleBottomBarPanel(const BottomBarAnchor &anchor);
+    /// 把 @p anchor 那块面板弹出来。**"收"的那一半在 toggleBottomBarPanel()**：
+    /// 这个函数只负责开，不管现在开着什么。
+    void openBottomBarPanel(const BottomBarAnchor &anchor);
+    /// @p globalPos（全局坐标）落在底栏哪一颗按钮上。没落在任何一颗上 = 返回的 button 是空的。
+    BottomBarAnchor bottomBarAnchorAt(const QPoint &globalPos) const;
+
     // 控件指针
     //
     // NOTE: 全部显式初始化成 nullptr（2026-09-24 加的）。这不是为了好看：下面那些
