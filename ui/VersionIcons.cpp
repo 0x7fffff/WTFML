@@ -662,3 +662,119 @@ QPixmap VersionIcons::gear(int size, const QColor &color) {
         return pixmap;
     });
 }
+
+QPixmap VersionIcons::pen(int size, const QColor &color) {
+    if (size <= 0) {
+        return QPixmap();
+    }
+    return cached(QStringLiteral("pen/%1/%2").arg(size).arg(color.name()), [size, color]() {
+        QPixmap pixmap(size, size);
+        pixmap.fill(Qt::transparent);
+        QPainter p(&pixmap);
+        p.setRenderHint(QPainter::Antialiasing, true);
+
+        // 整支笔先当**笔尖朝下、笔杆竖直**画，最后把坐标系转 −45°：
+        // 这样"杆、箍、尖"三段的坐标全是纵轴上的一维数，比直接算斜着的四个角好读也难写错。
+        // 屏幕坐标 y 朝下，所以 −45° 转出来的笔尖落在**左下**（用户要的"斜着的"）。
+        p.translate(size / 2.0, size / 2.0);
+        p.rotate(-45.0);
+        p.setPen(Qt::NoPen);
+        p.setBrush(color);
+
+        // 一维尺寸全按边长给：长 0.80、杆宽 0.24、尖长 0.20、箍宽 0.06。
+        // 四周留的边距是**转过来之后**最靠外那一点到画布边的余量（0.10×size）——
+        // 45° 下对角长度是边长，直接铺满会被裁掉笔尖和笔尾两个角。
+        const qreal length = size * 0.80;
+        const qreal halfWidth = size * 0.12;
+        const qreal top = -length / 2.0;
+        const qreal tipStart = length / 2.0 - size * 0.20;
+        const qreal bandHeight = size * 0.06;
+        /// 箍和杆之间那道缝（也是"挖"出来的，见 folderMark 里那段）。
+        const qreal gap = qMax(1.0, size * 0.05);
+
+        // 笔尖：一个三角形，顶点在下（转完在左下角）。
+        QPainterPath tip;
+        tip.moveTo(-halfWidth, tipStart);
+        tip.lineTo(halfWidth, tipStart);
+        tip.lineTo(0.0, length / 2.0);
+        tip.closeSubpath();
+        // 杆：笔尾那一截往下、到笔尖为止。
+        const qreal bandBottom = top + bandHeight;
+        p.drawRect(QRectF(-halfWidth, bandBottom + gap, halfWidth * 2,
+                          tipStart - bandBottom - gap));
+        // 笔尾那一小截（箍）：和杆之间留一道透明缝 —— 18 px 下整根实心条读起来像一根
+        // 斜杠，断开一截才看得出是"笔"。
+        p.drawRect(QRectF(-halfWidth, top, halfWidth * 2, bandHeight));
+        p.drawPath(tip);
+        return pixmap;
+    });
+}
+
+QPixmap VersionIcons::folderMark(int size, const QColor &color) {
+    if (size <= 0) {
+        return QPixmap();
+    }
+    return cached(QStringLiteral("folder/%1/%2").arg(size).arg(color.name()), [size, color]() {
+        QPixmap pixmap(size, size);
+        pixmap.fill(Qt::transparent);
+        QPainter p(&pixmap);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        p.setPen(Qt::NoPen);
+        p.setBrush(color);
+
+        // 后背（含左上角那个突出来的标签页）和前面那块之间横着一道**透明缝**。
+        // 缝是"挖掉"的，不是画一条底色线 —— 图标底下是菜单的底色，画死颜色会在
+        // 浅色/深色主题里各错一次。
+        const qreal left = size * 0.10;
+        const qreal right = size * 0.90;
+        const qreal top = size * 0.26;
+        const qreal bottom = size * 0.84;
+        // 标签页：从后背的上沿往上顶出去一块（这就是"文件夹"和"一块方片"的全部区别）。
+        p.drawRect(QRectF(left, top - size * 0.13, size * 0.38, size * 0.13 + size * 0.04));
+        const qreal creaseY = top + (bottom - top) * 0.26;
+        const qreal creaseHeight = qMax(1.5, size * 0.09);
+        // 后背：上沿到那道缝。
+        p.drawRect(QRectF(left, top, right - left, creaseY - top));
+        // 前脸：缝下面到底。
+        p.drawRect(QRectF(left, creaseY + creaseHeight, right - left,
+                          bottom - creaseY - creaseHeight));
+        return pixmap;
+    });
+}
+
+QPixmap VersionIcons::trash(int size, const QColor &color) {
+    if (size <= 0) {
+        return QPixmap();
+    }
+    return cached(QStringLiteral("trash/%1/%2").arg(size).arg(color.name()), [size, color]() {
+        QPixmap pixmap(size, size);
+        pixmap.fill(Qt::transparent);
+        QPainter p(&pixmap);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        p.setPen(Qt::NoPen);
+        p.setBrush(color);
+
+        // 提手（盖子上那个小方块）。
+        p.drawRect(QRectF(size * 0.38, size * 0.14, size * 0.24, size * 0.09));
+        // 盖（比桶身宽一点，才看得出"盖在上面"）。
+        p.drawRect(QRectF(size * 0.10, size * 0.25, size * 0.80, size * 0.10));
+
+        // 桶身：往下收的梯形（上宽下窄）。和桶盖之间留一道透明缝。
+        QPainterPath body;
+        body.moveTo(size * 0.20, size * 0.39);
+        body.lineTo(size * 0.80, size * 0.39);
+        body.lineTo(size * 0.72, size * 0.86);
+        body.lineTo(size * 0.28, size * 0.86);
+        body.closeSubpath();
+
+        // 桶身上两条**挖掉**的竖缝（同样不是画底色线）。
+        // NOTE: 这个局部变量**不能叫 slots** —— `slots` 是 Qt 的关键字宏（空展开），
+        //       `QPainterPath slots;` 会被预处理成 `QPainterPath ;`，编译器报的是
+        //       "declaration does not declare anything"，和真正的原因差得很远。
+        QPainterPath holes;
+        holes.addRect(QRectF(size * 0.39, size * 0.48, size * 0.06, size * 0.28));
+        holes.addRect(QRectF(size * 0.55, size * 0.48, size * 0.06, size * 0.28));
+        p.drawPath(body.subtracted(holes));
+        return pixmap;
+    });
+}

@@ -34,6 +34,7 @@
 #include <QCloseEvent>
 #include <QComboBox>
 #include <QDebug>
+#include <QDesktopServices>
 #include <QDir>
 #include <QEventLoop>
 #include <QFile>
@@ -61,6 +62,7 @@
 // 整合包那一页下完 .mrpack 之后要"排到下一轮"再走导入（不能在那个信号栈里直接开新批次，
 // 见 onResourceDownloadFinished 里那段 NOTE）。
 #include <QTimer>
+#include <QUrl>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QTreeWidgetItemIterator>
@@ -835,6 +837,10 @@ void MainWindow::setupConnections() {
     // 左边列表选中哪一份 .minecraft，启动器就换到哪一份上（PCL 的卡片是同一个交互）。
     connect(m_ui->getFolderList(), &QListWidget::currentRowChanged, this,
             &MainWindow::onFolderSelectionChanged);
+    // 行尾那颗齿轮弹出来的菜单：界面只报"哪一份文件夹、第几项"，做哪件事是这边的事。
+    m_ui->setFolderActionHandler([this](const QString &path, int action) {
+        onFolderActionRequested(path, action);
+    });
     // FolderManager 才是改状态的那一方：加载/删除目录、当前目录不存在时的退回，
     // 都会从它这儿发信号出来，界面只管跟着重画。
     connect(m_folderManager, &FolderManager::foldersChanged, this,
@@ -4578,7 +4584,10 @@ void MainWindow::onRemoveFolderClicked() {
         QMessageBox::information(this, tr("移除文件夹"), tr("请先在列表里选中一个文件夹。"));
         return;
     }
-    const QString folder = item->data(Qt::UserRole).toString();
+    removeFolderFromList(item->data(Qt::UserRole).toString());
+}
+
+void MainWindow::removeFolderFromList(const QString &folder) {
     if (m_folderManager->isDefaultFolder(folder)) {
         // 只有"自带的那一份"会走到这儿（正常路径下按钮本来就是灰的），照实说明原因，
         // 不是"移除失败"这种没法处理的消息。
@@ -4614,6 +4623,149 @@ void MainWindow::onRemoveFolderClicked() {
         return;
     }
     appendLog(tr("已从列表里移除文件夹：%1").arg(folder));
+}
+
+void MainWindow::onFolderActionRequested(const QString &path, int action) {
+    // 齿轮菜单里"第几项"翻译成"做哪件事"。摆在这儿（而不是让界面直接把五项各接一个
+    // 回调）是因为界面只知道位置，而"第几项是刷新"这件事是和 folderActionText() 那一份
+    // 顺序绑在一起的 —— 两处顺序一旦漂开，症状是"点刷新结果把文件夹删了"。
+    switch (action) {
+    case MainWindowUI::FolderActionRefresh:
+        onFolderRefreshRequested(path);
+        return;
+    case MainWindowUI::FolderActionRename:
+        onFolderRenameRequested(path);
+        return;
+    case MainWindowUI::FolderActionOpen:
+        onFolderOpenRequested(path);
+        return;
+    case MainWindowUI::FolderActionRemove:
+        removeFolderFromList(path);
+        return;
+    case MainWindowUI::FolderActionDelete:
+        onFolderDeleteRequested(path);
+        return;
+    }
+    // 越界到不了这儿（菜单是照 folderActionCount() 摆的）。真到了只写一行日志：
+    // 这一下本来就不该有动作，为它弹个框反而像"用户做错了什么"。
+    appendLog(tr("不认识的文件夹动作：%1").arg(action));
+}
+
+void MainWindow::onFolderRefreshRequested(const QString &path) {
+    // 这一份现在还在不在盘上 —— 「刷新」最要紧的那件事就是它（目录被挪走、U 盘被拔掉
+    // 之后列表里那一条还在，但从此扫不出任何实例）。
+    const bool onDisk = QFileInfo(path).isDir();
+    // 先重画列表：下面那句「（目录不在了）」就是这一下加上去的。行里的名字/路径都可能
+    // 被别的地方改过（比如名字是另一处设的），一并重读。
+    refreshFolderList();
+    // 正好是当前在用的那一份 → 右边那张实例树也重扫一遍。用户点「刷新」要的通常正是
+    // 这一下：他在别处往这个文件夹里丢了个版本，想在这儿看到它。
+    if (path == m_folderManager->currentFolder()) {
+        refreshInstalledVersions();
+    }
+    appendLog(onDisk ? tr("已刷新游戏文件夹：%1").arg(QDir::toNativeSeparators(path))
+                     : tr("游戏文件夹不在盘上：%1").arg(QDir::toNativeSeparators(path)));
+}
+
+void MainWindow::onFolderRenameRequested(const QString &path) {
+    // 预填的是**现在真正显示的那个名字**：没起过名字时那一格是空的，而对话框正文里
+    // 会写清"现在显示的是「xxx」"—— 用户看得见自己要改的是哪个名字，也知道清空
+    // 这一格就是恢复默认。
+    const QString custom = m_folderManager->displayName(path);
+    bool ok = false;
+    const QString input = QInputDialog::getText(
+        this, tr("重命名游戏文件夹"),
+        tr("新名字（现在显示的是「%1」）。\n"
+           "它只用在启动器的这个列表上，磁盘上的目录名一个字都不动；\n"
+           "清空这一行就恢复默认的名字。")
+            .arg(folderTitle(path)),
+        QLineEdit::Normal, custom, &ok);
+    if (!ok) {
+        return;  // 用户取消了，不是错误
+    }
+    const QString name = input.trimmed();
+    if (name == custom) {
+        // 名字没动就悄悄退出，不弹窗：用户点开、看看、点确定，这不是错误
+        //（和实例改名那条路同一个取法）。
+        return;
+    }
+    // 校验和数据层是**同一份**（FolderManager::validateDisplayName），界面绝不自己抄
+    // 一遍规则 —— 抄一遍的下场是两边慢慢漂开，出现"界面放行、数据层拒绝"。
+    const QString problem = FolderManager::validateDisplayName(name);
+    if (!problem.isEmpty()) {
+        // 不循环重问：用户看到原因后可以自己再点一次，那样他能顺便改别的决定。
+        QMessageBox::warning(this, tr("重命名游戏文件夹"), problem);
+        return;
+    }
+    if (!m_folderManager->setDisplayName(path, name)) {
+        // 走得到这儿只有一种情况：菜单弹出来之后这一份被别处移掉了（列表已经不是刚才
+        // 那份快照）。照实说，别静默什么都不做。
+        QMessageBox::warning(this, tr("重命名游戏文件夹"),
+                             tr("「%1」已经不在列表里了。").arg(QDir::toNativeSeparators(path)));
+        return;
+    }
+    appendLog(name.isEmpty()
+                  ? tr("游戏文件夹恢复默认名字：%1").arg(QDir::toNativeSeparators(path))
+                  : tr("游戏文件夹改名为「%1」：%2").arg(name, QDir::toNativeSeparators(path)));
+}
+
+void MainWindow::onFolderOpenRequested(const QString &path) {
+    if (!QFileInfo(path).isDir()) {
+        QMessageBox::warning(this, tr("打开游戏文件夹"),
+                             tr("「%1」现在不在盘上（U 盘没插、或者目录被挪走了）。")
+                                 .arg(QDir::toNativeSeparators(path)));
+        return;
+    }
+    // 走 QDesktopServices 而不是自己 QProcess 起 explorer.exe：它就是这个用途
+    // （Windows 上底下就是 ShellExecute），路径里的中文、空格、全角括号一律不用管 ——
+    // 自己拼命令行的话，那段引号迟早会写错一个地方，而且错法随路径变。
+    if (!QDesktopServices::openUrl(QUrl::fromLocalFile(path))) {
+        QMessageBox::warning(this, tr("打开游戏文件夹"),
+                             tr("没能打开「%1」。").arg(QDir::toNativeSeparators(path)));
+    }
+}
+
+void MainWindow::onFolderDeleteRequested(const QString &path) {
+    if (m_folderManager->isDefaultFolder(path)) {
+        // 正常路径下走不到这儿（菜单里那一项对自带那份是灰的），照实说明原因。
+        QMessageBox::information(
+            this, tr("删除游戏文件夹"),
+            tr("「%1」是启动器自带的游戏文件夹，删不掉。\n它是别的目录都被移走时唯一的退路。")
+                .arg(QDir::toNativeSeparators(path)));
+        return;
+    }
+    // 闸口：有游戏在跑就不给删。删的这一刻 JVM 正拿着里面那些 jar 和 natives，删到一半
+    // 失败会留下一个**半截**的目录（前面那些文件已经没了）—— 那种状态比"这次删不了"
+    // 难收拾得多。等游戏关掉再删，代价只是等一会儿。
+    if (m_launcherManager->hasRunningGame()) {
+        QMessageBox::warning(this, tr("删除游戏文件夹"),
+                             tr("现在有游戏正在运行，先关掉游戏再删。\n"
+                                "删的时候游戏正开着，里面的文件会删不干净。"));
+        return;
+    }
+    // 这一步是**不可恢复**的，所以确认框的默认按钮是「否」（和「移除」那一步正好相反：
+    // 那一步不删东西，默认给「是」是为了少点一下）。
+    QString question =
+        tr("「%1」这个文件夹和**里面的全部文件**都会被删掉，删了恢复不了。\n\n"
+           "存档、截图、自己放的模组都在这份目录里。\n"
+           "只想把它从列表里拿掉、盘上的东西留着的话，用「移除」。")
+            .arg(QDir::toNativeSeparators(path));
+    if (m_folderManager->currentFolder() == path) {
+        question += tr("\n\n它是启动器当前在用的那一份，删掉之后改用「%1」。")
+                        .arg(QDir::toNativeSeparators(FolderManager::defaultFolder()));
+    }
+    const auto answer = QMessageBox::question(this, tr("删除游戏文件夹"), question,
+                                              QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (answer != QMessageBox::Yes) {
+        return;  // 取消不是错误，不写日志
+    }
+    QString error;
+    if (!m_folderManager->deleteFolder(path, &error)) {
+        // 失败原因是由数据层给的**一整句**（可能带"删到一半"那种状态说明），原样弹出来。
+        QMessageBox::critical(this, tr("删除游戏文件夹失败"), error);
+        return;
+    }
+    appendLog(tr("已删除游戏文件夹：%1").arg(QDir::toNativeSeparators(path)));
 }
 
 void MainWindow::onRenameInstanceClicked() {
@@ -4986,27 +5138,50 @@ void MainWindow::onFolderSelectionChanged() {
     updateFolderButtons();
 }
 
-void MainWindow::refreshFolderList() {
-    QListWidget *list = m_ui->getFolderList();
-    const QString current = m_folderManager->currentFolder();
-    {
-        // 重灌不是"用户改选"，别把切换逻辑再跑一遍。下面要按当前目录摆选中项。
-        const QSignalBlocker blocker(list);
-        list->clear();
-        for (const QString &path : m_folderManager->folders()) {
-            const bool isDefault = FolderManager::isDefaultFolder(path);
-            // 路径用系统分隔符显示（`D:\MC\.minecraft`），别把 QDir 的 `/` 露给用户。
-            const QString shown = QDir::toNativeSeparators(path);
-            auto *item = new QListWidgetItem(isDefault ? tr("%1（自带）").arg(shown) : shown, list);
-            item->setData(Qt::UserRole, path);
-            // 列表窄，长路径会被省略号截断，所以完整路径挂 tooltip 上。
-            item->setToolTip(isDefault ? tr("%1\n启动器自带的游戏文件夹，删不掉。").arg(shown)
-                                       : shown);
-            if (path == current) {
-                list->setCurrentItem(item);
-            }
-        }
+/**
+ * @brief 一个没起过名字的游戏文件夹在列表**上面那行**默认显示什么。
+ * @param path 根目录的绝对路径。
+ * @return 目录名（`D:\MC\.minecraft` → `.minecraft`）。取不出目录名时（`D:\` 这种根）
+ *         返回整条路径 —— 那一行总得有字，空的会变成一个看不出是什么的空白行。
+ *
+ * NOTE: 这条路只在**没起过 customname** 时走到（起过名字的显示那个名字）。
+ */
+static QString folderDisplayNameOf(const QString &path) {
+    const QString name = QDir(path).dirName();
+    return name.isEmpty() ? path : name;
+}
+
+QString MainWindow::folderTitle(const QString &path) const {
+    // 三档，从最具体的往最泛的排：用户起的名字 → 自带那份那个固定说法 → 目录名。
+    const QString custom = m_folderManager->displayName(path);
+    if (!custom.isEmpty()) {
+        return custom;
     }
+    if (FolderManager::isDefaultFolder(path)) {
+        return MainWindowUI::folderAssistantTitle();
+    }
+    return folderDisplayNameOf(path);
+}
+
+void MainWindow::refreshFolderList() {
+    const QString current = m_folderManager->currentFolder();
+    QList<MainWindowUI::FolderRow> rows;
+    for (const QString &path : m_folderManager->folders()) {
+        MainWindowUI::FolderRow row;
+        row.path = path;
+        row.assistant = FolderManager::isDefaultFolder(path);
+        row.current = (path == current);
+        // 上面那行：用户起的 customname 优先；没起过时是默认那个显示名（见 folderTitle()）。
+        row.title = folderTitle(path);
+        // 下面那行：完整路径（系统分隔符，别把 QDir 的 `/` 露给用户）。目录不在盘上时
+        // 还要缀一句 —— 光看路径看不出"这一份现在扫不出东西"。
+        row.subtitle = QDir::toNativeSeparators(path);
+        if (!QFileInfo(path).isDir()) {
+            row.subtitle += tr("（目录不在了）");
+        }
+        rows.append(row);
+    }
+    m_ui->setFolderRows(rows);
     updateFolderButtons();
 }
 

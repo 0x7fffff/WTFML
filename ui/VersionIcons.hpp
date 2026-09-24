@@ -98,4 +98,23 @@ QPixmap power(int size, const QColor &color);
 /// @param color 填充的颜色。
 QPixmap gear(int size, const QColor &color);
 
+/// 一支**斜着的笔**：实例页左栏每个游戏文件夹行尾那颗齿轮弹出来的菜单里，「重命名」那一行。
+/// 斜 45°（笔尖朝左下），杆上留一道透明的箍把"笔头 / 笔身"分开。
+/// @param size 边长（像素）。
+/// @param color 笔的颜色。
+QPixmap pen(int size, const QColor &color);
+
+/// 一个**文件夹**：同一个菜单里「打开」那一行。
+/// 左上角一个突出来的标签页 + 底下一块面，中间横着一道透明缝把"后背 / 前脸"分开
+/// （18 px 下没有这道缝就只是一块圆角方块，读不出是文件夹）。
+/// @param size 边长（像素）。
+/// @param color 文件夹的颜色。
+QPixmap folderMark(int size, const QColor &color);
+
+/// 一个**垃圾桶**：同一个菜单里「删除」那一行（红色那一行）。
+/// 桶盖 + 桶身（往下收一点的梯形），桶身上挖掉两条竖缝。
+/// @param size 边长（像素）。
+/// @param color 垃圾桶的颜色。
+QPixmap trash(int size, const QColor &color);
+
 }  // namespace VersionIcons

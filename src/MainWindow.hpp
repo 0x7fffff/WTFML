@@ -528,11 +528,30 @@ private:
     // 列表、以及实例页顶上的"当前文件夹"那句。扫的是**当前游戏文件夹**的
     // .minecraft/versions，同步返回。保住用户原来选中的那一项的逻辑在 fillVersionCombo() 里。
     void refreshInstalledVersions();
-    // 重灌实例页左边那张「游戏文件夹」列表，并把选中项停在 FolderManager 的当前目录上
-    // （内部挡信号：重灌不是用户改选，不该反过来触发一次切换）。
+    // 重灌实例页左边那张「游戏文件夹」列表（每一行：上面写 customname、下面写路径、
+    // 行尾一颗齿轮），并把选中项停在 FolderManager 的当前目录上（界面那边挡了信号：
+    // 重灌不是用户改选，不该反过来触发一次切换）。
     void refreshFolderList();
     // 「移除文件夹」能不能点：自带那份移不掉，另外下载期间整列都不给动。
     void updateFolderButtons();
+    /// 某个游戏文件夹在列表**上面那行**显示什么：用户起的 customname → 自带那份那个
+    /// 固定说法（「当前文件夹」）→ 目录名。**唯一出处**：灌列表和重命名对话框正文里
+    /// 都读它（两处各算一遍的话，对话框里写着"现在显示的是 A"而列表上写着 B）。
+    QString folderTitle(const QString &path) const;
+    /// 行尾那颗齿轮弹出来的菜单里某一项被点了（@p action 是 MainWindowUI::FolderAction）。
+    /// 界面那边只知道"第几项"，翻译成具体做哪件事是这里的事。
+    void onFolderActionRequested(const QString &path, int action);
+    /// 「刷新」：重新扫一遍这一份文件夹。它是当前在用的那一份时，右边那张实例树跟着重扫。
+    void onFolderRefreshRequested(const QString &path);
+    /// 「重命名」：改的是**显示用的名字**（FolderManager 里那份 customname），
+    /// 磁盘上的目录名一个字都不动。
+    void onFolderRenameRequested(const QString &path);
+    /// 「打开」：拿系统的文件管理器打开那个目录。
+    void onFolderOpenRequested(const QString &path);
+    /// 「移除」/底下那颗「移除文件夹…」按钮共用的那一段：只从列表里拿掉，盘上不动。
+    void removeFolderFromList(const QString &path);
+    /// 「删除」：**连盘上的目录一起删掉**（红色那一项，不可恢复，先弹确认框）。
+    void onFolderDeleteRequested(const QString &path);
     // 把 FolderManager 的当前目录交给 AppPaths（此后所有 <数据目录>/... 都对着它），
     // 并打一行日志。换文件夹的那条链路只有这一处改全局路径。
     void applyCurrentFolderToPaths();

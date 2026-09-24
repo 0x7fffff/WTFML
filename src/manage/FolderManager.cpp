@@ -1,6 +1,6 @@
 /**
  * @file FolderManager.cpp
- * @brief 实现「游戏文件夹」列表的读取、添加、移除与切换。
+ * @brief 实现「游戏文件夹」列表的读取、添加、移除、改名、删除与切换。
  * @author LoserKugua
  * @date 2026-04-10
  * @note 见 FolderManager.hpp 的说明。
@@ -28,6 +28,24 @@ FolderManager::FolderManager(LauncherSettings *settings, QObject *parent)
             continue;
         }
         m_userFolders.append(path);
+    }
+
+    // 名字表：盘上那份是 `路径 + 制表符 + 名字`（见 LauncherSettings::folderNames()）。
+    // 路径照旧重新归一化一遍，归一化之后认不出来的（那一项已经被挪走、或者盘上的
+    // 路径写法变了）就丢掉 —— 名字是挂在具体某个目录上的，认不出挂给谁了留着没用。
+    const QStringList storedNames =
+        m_settings != nullptr ? m_settings->folderNames() : QStringList();
+    for (const QString &entry : storedNames) {
+        const int tab = entry.indexOf(QLatin1Char('\t'));
+        if (tab <= 0) {
+            continue;  // 连分隔符都没有（手改的）：这一项读不出是给谁起的名字
+        }
+        const QString path = normalized(entry.left(tab));
+        const QString name = entry.mid(tab + 1);
+        if (path.isEmpty() || name.isEmpty()) {
+            continue;
+        }
+        m_names.insert(path, name);
     }
 
     m_current = normalized(m_settings != nullptr ? m_settings->currentFolder() : QString());
@@ -99,12 +117,22 @@ bool FolderManager::removeFolder(const QString &path) {
     if (target.isEmpty() || target == defaultFolder()) {
         return false;
     }
-    if (!m_userFolders.removeOne(target)) {
+    if (!m_userFolders.contains(target)) {
         return false;
     }
+    forgetFolder(target);
+    return true;
+}
+
+void FolderManager::forgetFolder(const QString &target) {
+    m_userFolders.removeOne(target);
+    // 名字跟着一起清：移除之后界面上已经没有这一条了，留着它只是让盘上多一项
+    // 认不出挂给谁的记录（重新加回来是"新加了一份文件夹"，该用默认显示名）。
+    m_names.remove(target);
     if (m_settings != nullptr) {
         m_settings->setFolders(m_userFolders);
     }
+    storeNames();
     emit foldersChanged();
 
     // 移除掉的正好是当前在用的那一份 → 退回自带那份。不退回的话启动器会指着一个
@@ -116,7 +144,98 @@ bool FolderManager::removeFolder(const QString &path) {
         }
         emit currentFolderChanged(m_current);
     }
+}
+
+QString FolderManager::validateDisplayName(const QString &name) {
+    const QString trimmed = name.trimmed();
+    if (trimmed.isEmpty()) {
+        return QString();  // 空名字 = 清掉名字，合法
+    }
+    // 换行和制表符进不去：前者进不了界面上一行那么高的标签，后者是**落盘的字段分隔符**
+    // （见 LauncherSettings::folderNames()），放进去等于把一个名字劈成两半。
+    for (const QChar ch : trimmed) {
+        if (ch == QLatin1Char('\n') || ch == QLatin1Char('\r') || ch == QLatin1Char('\t')) {
+            return tr("名字里不能有换行。");
+        }
+    }
+    if (trimmed.length() > maxDisplayNameLength()) {
+        return tr("名字最多 %1 个字。").arg(maxDisplayNameLength());
+    }
+    return QString();
+}
+
+QString FolderManager::displayName(const QString &path) const {
+    const QString target = normalized(path);
+    if (target.isEmpty()) {
+        return QString();
+    }
+    return m_names.value(target);
+}
+
+bool FolderManager::setDisplayName(const QString &path, const QString &name) {
+    const QString target = normalized(path);
+    if (target.isEmpty() || !folders().contains(target)) {
+        return false;
+    }
+    const QString wanted = name.trimmed();
+    const bool changed = wanted.isEmpty() ? m_names.remove(target) > 0
+                                          : m_names.value(target) != wanted;
+    if (!wanted.isEmpty()) {
+        m_names.insert(target, wanted);
+    }
+    if (changed) {
+        storeNames();
+        emit foldersChanged();
+    }
     return true;
+}
+
+bool FolderManager::deleteFolder(const QString &path, QString *error) {
+    const QString target = normalized(path);
+    // 自带那份删不掉，理由和"移不掉"是同一条（AppPaths 的默认值 + 唯一退路），
+    // 而且它多半正是启动器此刻在用的那一份 —— 日志、设置、缓存都写在里面。
+    if (target.isEmpty() || target == defaultFolder()) {
+        if (error != nullptr) {
+            *error = tr("启动器自带的游戏文件夹删不掉。");
+        }
+        return false;
+    }
+    if (!m_userFolders.contains(target)) {
+        if (error != nullptr) {
+            *error = tr("这一份已经不在列表里了。");
+        }
+        return false;
+    }
+    // 盘上那个目录不存在（U 盘没插、已经被手工删掉）不算失败：列表里那一条照样要清掉。
+    QDir dir(target);
+    if (dir.exists() && !dir.removeRecursively()) {
+        if (error != nullptr) {
+            // 失败原因照实说：删到一半失败时目录是**半截**的（前面那些文件已经没了），
+            // 而用户需要知道现在盘上到底是什么状态。
+            *error = tr("「%1」没能删干净，可能是里面的文件正被别的程序占用"
+                                 "（比如游戏还开着）。")
+                         .arg(QDir::toNativeSeparators(target));
+        }
+        return false;
+    }
+    forgetFolder(target);
+    return true;
+}
+
+void FolderManager::storeNames() {
+    if (m_settings == nullptr) {
+        return;
+    }
+    QStringList entries;
+    // 顺序按 folders() 走（自带那份没有名字、不进这一项）：盘上那份表读起来就是
+    // 界面上从上到下那个顺序，排查的时候对得上。
+    for (const QString &path : folders()) {
+        const QString name = m_names.value(path);
+        if (!name.isEmpty()) {
+            entries.append(path + QLatin1Char('\t') + name);
+        }
+    }
+    m_settings->setFolderNames(entries);
 }
 
 bool FolderManager::setCurrentFolder(const QString &path) {

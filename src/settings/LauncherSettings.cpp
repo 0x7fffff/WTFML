@@ -23,6 +23,7 @@ static constexpr const char kNameShowLoaderVersion[] = "Version/NameShowLoaderVe
 static constexpr const char kAfterLaunch[] = "Launcher/AfterLaunch";
 static constexpr const char kFolders[] = "Launcher/Folders";
 static constexpr const char kCurrentFolder[] = "Launcher/CurrentFolder";
+static constexpr const char kFolderNames[] = "Launcher/FolderNames";
 static constexpr const char kDownloadSource[] = "Download/Source";
 static constexpr const char kShowGameLog[] = "Launcher/ShowGameLog";
 static constexpr const char kGameWindowWidth[] = "Launcher/WindowWidth";
@@ -86,6 +87,16 @@ void LauncherSettings::setCurrentFolder(const QString &dir) {
         return;
     }
     m_currentFolder = dir;
+    save();
+}
+
+QStringList LauncherSettings::folderNames() const { return m_folderNames; }
+
+void LauncherSettings::setFolderNames(const QStringList &names) {
+    if (m_folderNames == names) {
+        return;
+    }
+    m_folderNames = names;
     save();
 }
 
@@ -226,6 +237,7 @@ void LauncherSettings::load() {
     // 默认值同样取当前成员：load() 被调第二次而盘上是空的时，值应该留着而不是被抹掉。
     m_folders = settings.value(kFolders, m_folders).toStringList();
     m_currentFolder = settings.value(kCurrentFolder, m_currentFolder).toString();
+    m_folderNames = settings.value(kFolderNames, m_folderNames).toStringList();
     m_launcherBehaviour = behaviourFromKey(
         settings.value(kAfterLaunch, behaviourKey(m_launcherBehaviour)).toString());
     m_downloadSource = downloadSourceFromKey(
@@ -271,6 +283,7 @@ void LauncherSettings::save() const {
     settings.setValue(kLastLaunched, m_lastLaunchedVersion);
     settings.setValue(kFolders, m_folders);
     settings.setValue(kCurrentFolder, m_currentFolder);
+    settings.setValue(kFolderNames, m_folderNames);
     settings.setValue(kAfterLaunch, behaviourKey(m_launcherBehaviour));
     settings.setValue(kDownloadSource, downloadSourceKey(m_downloadSource));
     settings.setValue(kShowGameLog, m_showGameLog);
