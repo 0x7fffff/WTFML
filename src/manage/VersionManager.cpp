@@ -494,7 +494,7 @@ void VersionManager::downloadVersion(const QString &versionId, const QString &de
 }
 
 // ---------------------------------------------------------------------------
-// 下载页那四类资源：把一个文件下到实例里（模组 / 资源包 / 光影）
+// 下载页那几类资源：把一个文件下到实例里（模组 / 数据包 / 资源包 / 光影）
 // ---------------------------------------------------------------------------
 
 void VersionManager::downloadResourceFiles(const QString &destinationDir,
@@ -3471,7 +3471,7 @@ void VersionManager::onAllDownloadsFinished(bool success) {
         return;
     }
 
-    // 下载页那四类资源（模组 / 资源包 / 光影）的那一批：它不属于上面任何一套安装流程，
+    // 下载页那几类资源（模组 / 数据包 / 资源包 / 光影）的那一批：它不属于上面任何一套安装流程，
     // 自己报一次就完事。**必须排在最后那一句之前 return** —— 不然一批模组会被报成
     // 「版本 <那个实例> 的文件已全部就绪」，界面上看是"下完一个模组，实例的安装也完成了"。
     if (m_resourceDownload.running) {

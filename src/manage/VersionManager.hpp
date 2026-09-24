@@ -575,7 +575,7 @@ public:
     // NOTE: 非 const —— 它真的改磁盘。
     bool renameInstance(const QString &oldId, const QString &newName, QString *errorOut = nullptr);
 
-    // ---------- 下载页那四类资源：把一个文件下到实例里（模组 / 资源包 / 光影）----------
+    // ---------- 下载页那几类资源：把一个文件下到实例里（模组 / 数据包 / 资源包 / 光影）----------
     //
     // 一次点击 = 一个（或几个）文件，下完就结束，没有"接着装点什么"的后续 —— 所以它
     // 不在上面那几套安装状态机里，也不需要调用方分两步。
@@ -661,7 +661,7 @@ signals:
     ///       loaderInstallMessage 来说，那几句在底栏会读成"用户在装加载器"。
     void instanceInstallMessage(const QString &text);
 
-    /// 下载页那四类资源里挑中的一个版本下完了（见 downloadResourceFiles）。**整批只发一次**。
+    /// 下载页那几类资源里挑中的一个版本下完了（见 downloadResourceFiles）。**整批只发一次**。
     ///
     /// @param label 就是传进去的那个"下的是什么"（「Sodium 0.6.13」），界面照它拼标题。
     /// @param errorMessage 成功时是那批文件的汇总（"1 个文件已全部就绪。"），失败时是失败清单。

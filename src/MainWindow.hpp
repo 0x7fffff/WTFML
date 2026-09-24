@@ -31,13 +31,13 @@ class MainWindowUI;
 // 安装页那棵加载器树上的一个条目（loaderItem()）。这里只在私有函数的参数/返回值里按
 // 指针用，前置声明就够 —— 不值得为了一个参数类型让每个 include 了 MainWindow.hpp 的
 // 地方都把 QtWidgets 里那个大块头拖进来。
-class QTreeWidget;  // 下载页那四张资源表（只用指针和引用，所以前置声明够）
+class QTreeWidget;  // 下载页那几张资源表（只用指针和引用，所以前置声明够）
 class QTreeWidgetItem;
 class LauncherManager;
 class AuthManager;
 class FolderManager;
 class VersionManager;
-// 下载页那四类资源的取数（src/download/ResourceStore.hpp）。同上，只按指针持有。
+// 下载页那几类资源的取数（src/download/ResourceStore.hpp）。同上，只按指针持有。
 class ResourceStore;
 class GlobalJavaSettings;
 class LauncherSettings;
@@ -258,7 +258,7 @@ private slots:
     /// 拆成两个函数是因为下载页「整合包」那一页也要走同一条路（那边是"下回来一个 .mrpack"，
     /// 路径是从下载结果来的，没有文件对话框那一步）—— 整条导入流程只有一份。
     void importModpackFromFile(const QString &zipPath);
-    /// 下载页那四类资源里挑中的那个版本下完了（见 downloadResourceFiles）。
+    /// 下载页那几类资源里挑中的那个版本下完了（见 downloadResourceFiles）。
     /// label 是「Sodium 0.6.13」这种"下的是什么"，界面上只写日志 + 弹窗，**不碰任何实例的
     /// 安装状态**（那是 onVersionDownloadFinished 的事，两者语义不同，见 VersionManager 里
     /// 那个信号的 NOTE）。
@@ -281,9 +281,9 @@ protected:
 private:
     void setupConnections();
 
-    // ---------- 下载页后面四页：搜索 + 三层资源表 ----------
+    // ---------- 下载页后面那几页：搜索 + 三层资源表 ----------
     //
-    // 模组 / 整合包 / 资源包 / 光影这四页走的是**同一条路**，只有"搜哪一类"不同，所以
+    // 整合包 / 模组 / 数据包 / 资源包 / 光影这几页走的是**同一条路**，只有"搜哪一类"不同，所以
     // 实现是一份、按 ResourceCatalog::Kind 分。那条路就是用户描述的那条：
     //   进页面 → 搜一次（空搜索词 = 这一类的热门）→ 摆第一层**资源**
     //   → 点开一个资源 = 摆第二层**游戏版本**（**不用再问接口**：搜索响应里本来就带着
@@ -302,7 +302,7 @@ private:
     ///
     /// 它办的事按分类分两种（见实现里的注释）：
     ///   · 「游戏」→ 重新拉一次**在线版本清单**（那棵版本树四条分类的内容就是它）；
-    ///   · 其余四类 → 拿搜索框里现在那个词**再搜一次**（和按回车是同一件事）。
+    ///   · 其余几类 → 拿搜索框里现在那个词**再搜一次**（和按回车是同一件事）。
     /// 两种都**不动图标缓存**：重新摆出来的那批条目走的还是 ResourceStore::requestIcon，
     /// 命中内存/盘上那份就一个请求都不发（用户要的"图标留缓存"）。
     void refreshDownloadCategory(int row);
@@ -707,7 +707,7 @@ private:
     AuthManager *m_authManager;
     FolderManager *m_folderManager;
     VersionManager *m_versionManager;
-    /// 下载页那四类资源的取数（搜索 / 版本列表 / 图标）。**异步**的 —— 搜索框里连敲几次
+    /// 下载页那几类资源的取数（搜索 / 版本列表 / 图标）。**异步**的 —— 搜索框里连敲几次
     /// 回车也不会把界面卡住（见 ResourceStore.hpp 文件头那段）。
     ResourceStore *m_resourceStore;
     /// 已经问回来的版本列表，按**请求钥匙**存（ResourceCatalog::versionsRequestKey()）。

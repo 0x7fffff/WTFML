@@ -1,6 +1,6 @@
 /**
  * @file ResourceCatalog.hpp
- * @brief 下载页「模组 / 整合包 / 资源包 / 光影」四类资源的**纯函数**部分：
+ * @brief 下载页「整合包 / 模组 / 数据包 / 资源包 / 光影」那几类资源的**纯函数**部分：
  *        「哪一类 + 搜什么」→ 请求地址 → 解析出来的结果。不联网、不碰磁盘。
  * @author 0x7fffff
  * @date 2026-09-23
@@ -43,7 +43,7 @@
 
 namespace ResourceCatalog {
 
-/// 下载页那四类能"先搜出来再下"的资源。
+/// 下载页那几类能"先搜出来再下"的资源。
 ///
 /// **顺序不重要，键才重要**：kindKey() 出来的字符串要和下载页左栏那份分类表
 /// （MainWindowUI::downloadCategoryKeys()）里对应的那一条**逐字相同** —— 界面上"点的是
@@ -51,21 +51,34 @@ namespace ResourceCatalog {
 enum class Kind {
     Mod,          ///< 模组
     Modpack,      ///< 整合包（下回来是 .mrpack，接着走既有的导入流程）
+    DataPack,     ///< 数据包（Modrinth 的 datapack，2026-09-25 加的）
     Shader,       ///< 光影
     ResourcePack, ///< 资源包
 };
 
-/// 四类都在这里列一遍（界面按它建页面、验证按它循环）。
+/// 这几类都在这里列一遍（界面按它建页面、验证按它循环）。
+///
+/// NOTE: 2026-09-25 起顺序**照着下载页左栏那份表排**（整合包 / 模组 / 数据包 / 资源包 /
+///       光影，去掉「游戏」那条）—— 原来是一份"差不多"的顺序，跟界面对不上，读代码时要在
+///       两个文件之间来回翻。谁也没靠这个顺序干活（界面按表建、验证按表循环），所以改它
+///       不用动别处；但别再回到各排各的那种写法。
 QList<Kind> allKinds();
 
-/// API 里那一类的名字，也正是下载页分类的键：mod / modpack / shader / resourcepack。
+/// API 里那一类的名字，也正是下载页分类的键：mod / modpack / datapack / shader / resourcepack。
 QString kindKey(Kind kind);
 
-/// 从下载页那份分类键认回 Kind；不是这四类（比如 "game"）时返回 false 并且不动 *out。
+/// 从下载页那份分类键认回 Kind；不是这几类（比如 "game"）时返回 false 并且不动 *out。
 bool kindFromCategoryKey(const QString &key, Kind *out);
 
 /// 这一类下回的文件装进实例的哪个子目录。
+///
 /// 整合包**没有**子目录（它走导入那条路，清单说往哪放就往哪放），所以回空串。
+///
+/// NOTE: 数据包是 `<实例>/datapacks/` —— 和三个兄弟类一样"下进实例自己的目录"。原版只认
+///       存档里那份（`<存档>/datapacks/`），所以这里的产物**不会自动生效**，得用户自己搬进
+///       某个存档（或者用 Modrinth 那类"全局数据包"的模组）。做"挑一个存档再放进去"那条路
+///       要先有存档列表（`<实例>/saves/`）和一次选择，这一轮不做 —— 但界面上那句提示不能
+///       撒谎，见 downloadSearchHints() 里数据包那一条。
 QString folderForKind(Kind kind);
 
 /// 人看的名字（「模组」「整合包」…）。界面上那几个字从这里取，免得两处各写一份。

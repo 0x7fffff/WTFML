@@ -25,7 +25,7 @@
 #include "..\ui\VersionIcons.hpp"
 #include "..\ui\VersionTreeDelegate.hpp"
 // 树上"这一行被激活了"的唯一接线口（鼠标单击 + 键盘回车，一次手势只进来一次）。
-// 三棵树（版本树 / 加载器树 / 下载页那四张资源表）都走它，见那个文件头。
+// 三棵树（版本树 / 加载器树 / 下载页那几张资源表）都走它，见那个文件头。
 #include "..\ui\RowActivation.hpp"
 
 // 添加以下头文件（防止hpp变动导致文件失效）
@@ -49,7 +49,7 @@
 #include <QMouseEvent>
 // 底栏面板里那几行的图标要按"底栏那几行字的墨色"上色（图标是画的，颜色由调用方给）。
 #include <QPalette>
-// 下载页那四张资源表前面那个缩略图（onResourceIconReady 里还要造一个全透明的占位）。
+// 下载页那几张资源表前面那个缩略图（onResourceIconReady 里还要造一个全透明的占位）。
 #include <QPixmap>
 #include <QPlainTextEdit>
 #include <QProgressBar>
@@ -74,7 +74,7 @@
 #include "auth/AccountStore.hpp"
 #include "auth/AuthManager.hpp"
 #include "auth/SkinApi.hpp"
-// 下载页那四类资源的取数（搜索 / 版本列表 / 图标）。头文件那边只前置声明了这个类
+// 下载页那几类资源的取数（搜索 / 版本列表 / 图标）。头文件那边只前置声明了这个类
 // （那里用不到它的定义），这里要用真的。
 #include "download/ResourceStore.hpp"
 #include "launcher/LauncherManager.hpp"
@@ -1028,11 +1028,11 @@ void MainWindow::setupConnections() {
                 if (row >= 0 && row < stack->count()) {
                     stack->setCurrentIndex(row);
                 }
-                // 后面那四页（整合包/模组/资源包/光影）**第一次进页面时**才去搜一次
+                // 后面那几页（整合包/模组/数据包/资源包/光影）**第一次进页面时**才去搜一次
                 //（空搜索词 = 这一类里最热门的）。理由有两条，第二条才是主要的：
-                //   · 启动时一次发四个请求是白花用户的等待（他多半只会进其中一页）；
+                //   · 启动时一次发好几个请求是白花用户的等待（他多半只会进其中一页）；
                 //   · 那个接口按分钟限流（实测响应头 X-Ratelimit-Limit: 300），
-                //     每个用户每次开启动器都固定烧掉四发额度，换来的东西他一次都没看。
+                //     每个用户每次开启动器都固定烧掉几发额度，换来的东西他一次都没看。
                 // "第一次"的判据在 ensureResourcePageLoaded() 里（树上已经有东西就不动）。
                 // 「游戏」那一页（第 0 页）不是这一类，kindFromCategoryKey 认不出来。
                 const QStringList keys = MainWindowUI::downloadCategoryKeys();
@@ -1042,19 +1042,19 @@ void MainWindow::setupConnections() {
                     ensureResourcePageLoaded(kind);
                 }
             });
-    // ---------- 下载页后面四页：搜索框 + 三层资源表 ----------
+    // ---------- 下载页后面那几页：搜索框 + 三层资源表 ----------
     //
-    // 四页走的是同一条路，所以这里是**一圈循环**：每一页接上"回车就搜"和"点一下就动"，
+    // 这几页走的是同一条路，所以这里是**一圈循环**：每一页接上"回车就搜"和"点一下就动"，
     // 三个回复信号接的全是同一个槽（槽里按请求钥匙认回来的是哪一页）。
     //
-    // NOTE: 那两个 lambda 收的是 Kind 而不是 res 的键 —— 用值捕获，四页各一份，
+    // NOTE: 那两个 lambda 收的是 Kind 而不是 res 的键 —— 用值捕获，每页一份，
     //       不会在循环结束后全都指向最后一页。
     for (ResourceCatalog::Kind kind : ResourceCatalog::allKinds()) {
         const QString key = ResourceCatalog::kindKey(kind);
         QLineEdit *edit = m_ui->getDownloadSearchEdit(key);
         QTreeWidget *tree = m_ui->getDownloadResourceTree(key);
         if (edit == nullptr || tree == nullptr) {
-            // MainWindowUI 那边四页是一段循环搭出来的，这里少一个说明"分类键"这套约定
+            // MainWindowUI 那边这几页是一段循环搭出来的，这里少一个说明"分类键"这套约定
             // 两边对不上了。**说出来**，不然表现是"某一页点了没反应"，没人查得到。
             qWarning() << "下载页缺少控件，分类键：" << key;
             continue;
@@ -1182,7 +1182,7 @@ void MainWindow::setupConnections() {
             &MainWindow::onVersionDownloadStats);
     connect(m_versionManager, &VersionManager::versionDownloadFinished, this,
             &MainWindow::onVersionDownloadFinished);
-    // 下载页那四类资源（模组/资源包/光影）里挑中的那个版本下完了。**和上面那条分开**
+    // 下载页那几类资源（模组/数据包/资源包/光影）里挑中的那个版本下完了。**和上面那条分开**
     // （理由见 VersionManager 里那个信号的 NOTE）：这条路上的 label 不是"哪个版本"，
     // 接进来的是另一个槽，那个槽不碰任何实例的安装状态。
     connect(m_versionManager, &VersionManager::resourceDownloadFinished, this,
@@ -2681,15 +2681,16 @@ void MainWindow::onLoaderVersionsFetched(const QString &gameVersion, int loaderI
 }
 
 // ---------------------------------------------------------------------------
-// 下载页后面四页：搜索 → 挑游戏版本 → 挑版本号 → 装进实例
+// 下载页后面那几页：搜索 → 挑游戏版本 → 挑版本号 → 装进实例
 // ---------------------------------------------------------------------------
 //
-// 四页（整合包 / 模组 / 资源包 / 光影）走的是**同一条路**，区别只有"搜哪一类"和"下到哪儿去"。
+// 这几页（整合包 / 模组 / 数据包 / 资源包 / 光影）走的是**同一条路**，区别只有"搜哪一类"
+// 和"下到哪儿去"。
 // 三层树里每一层都是用户点开才动：
 //   第一层 资源   —— 进页面时空搜索词问一次（= 这一类里最热门的），回车重搜
 //   第二层 游戏版本 —— 搜索响应里本来就带着这个资源支持哪些游戏版本，**不用再问接口**
 //   第三层 版本号  —— 点开第二层那一下才问（一个资源 × 一个游戏版本 = 一条请求）
-// 点第三层那一下 = 下它（下到实例的 mods/ 之类；整合包那条走缓存 + 导入）。
+// 点第三层那一下 = 下它（下到实例的 mods/ 、datapacks/ 之类；整合包那条走缓存 + 导入）。
 //
 // 三层都是**平条目**（不是自绘控件），用的是版本树/加载器树那同一个代理，所以长得一样
 // （见 VersionTreeDelegate 第三个用户那段）。
@@ -2738,7 +2739,7 @@ QTreeWidgetItem *MainWindow::addResourcePlaceholderChild(QTreeWidgetItem *parent
 
 bool MainWindow::kindForSearchRequestKey(const QString &key, ResourceCatalog::Kind *out) const {
     // 拼钥匙和认钥匙读的是同一个函数（searchRequestKey）—— 所以这里不解析字符串，
-    // 一条一条比。四类，比四次。
+    // 一条一条比。有几类，比几次。
     for (ResourceCatalog::Kind kind : ResourceCatalog::allKinds()) {
         if (ResourceCatalog::searchRequestKey(kind) == key) {
             if (out != nullptr) {
@@ -2799,7 +2800,7 @@ void MainWindow::refreshDownloadCategory(int row) {
     }
     ResourceCatalog::Kind kind = ResourceCatalog::Kind::Mod;
     if (!ResourceCatalog::kindFromCategoryKey(keys.at(row), &kind)) {
-        return;  // 认不出来 = 这一行不是我们建的那四类之一，没有"重问一遍"这回事
+        return;  // 认不出来 = 这一行不是我们建的那几类之一，没有"重问一遍"这回事
     }
     if (!wasCurrent) {
         QTreeWidget *tree = m_ui->getDownloadResourceTree(ResourceCatalog::kindKey(kind));
@@ -2906,7 +2907,7 @@ void MainWindow::onResourceSearchFinished(const QString &requestKey,
                                          const ResourceCatalog::SearchResult &result) {
     ResourceCatalog::Kind kind = ResourceCatalog::Kind::Mod;
     if (!kindForSearchRequestKey(requestKey, &kind)) {
-        // 不是我们认得的那四页发的（别的东西也用这个 store 时才会走到）。
+        // 不是我们认得的那几页发的（别的东西也用这个 store 时才会走到）。
         return;
     }
     const QString key = ResourceCatalog::kindKey(kind);
@@ -3089,7 +3090,7 @@ void MainWindow::onResourceVersionsFinished(const QString &requestKey,
                                            const QString &problem) {
     const int column = MainWindowUI::versionTreeKeyColumn();
     // 不解析那把钥匙（钥匙的格式只有 ResourceCatalog 知道）。改成**按内容重算**：把树上
-    // 每一个"资源 × 游戏版本"重算一次钥匙，和回来的这一把比。四页加起来也就几十对，
+    // 每一个"资源 × 游戏版本"重算一次钥匙，和回来的这一把比。几页加起来也就几十对，
     // 一次线性扫描。这样钥匙的拼法只有一处（versionsRequestKey），而且不必在条目上存
     // "这一发是谁发的"（那个指针在重搜时会被整个清掉，留着就是悬空的）。
     for (ResourceCatalog::Kind kind : ResourceCatalog::allKinds()) {
@@ -3155,8 +3156,9 @@ void MainWindow::downloadResourceVersion(QTreeWidgetItem *item) {
         return;
     }
 
-    // 下到哪儿去。实例那三类是 `<实例目录>/<子目录>`（mods / resourcepacks / shaderpacks）；
-    // 整合包走缓存目录 —— 它不能进 versions/（那底下每一个子目录都会被当成一个实例）。
+    // 下到哪儿去。实例那几类是 `<实例目录>/<子目录>`（mods / datapacks / resourcepacks /
+    // shaderpacks）；整合包走缓存目录 —— 它不能进 versions/（那底下每一个子目录都会被当成
+    // 一个实例）。
     const QString folder = ResourceCatalog::folderForKind(kind);
     const QString destinationDir = isModpack
                                        ? AppPaths::modpackCacheDir()
@@ -3196,7 +3198,16 @@ void MainWindow::downloadResourceVersion(QTreeWidgetItem *item) {
     // 加载器对不对得上。**这一层没有按加载器筛过**（见 onResourceItemActivated 里那段
     // NOTE），所以在这儿补一道闸：给一个 Fabric 实例装一个 Forge 的模组，症状是"游戏进去就
     // 崩"，而那一刻没人会想到是刚才那个模组。
+    //
+    // NOTE: 这道闸**只管模组**（2026-09-25 加数据包时收的）。理由：`VersionEntry::loaders`
+    //       不是只有模组加载器 —— 资源包那一版列的是 `minecraft`、数据包列的是 `datapack`、
+    //       光影列的是 `iris/optifine`，它们跟"这个实例装的是什么模组加载器"根本没有关系。
+    //       不收的话，给一个 Forge 实例装资源包/数据包会**每次都弹一次**「加载器对不上」，
+    //       而那句话（"这一版是给 minecraft 用的"）本身就说不通 —— 那种框弹多了，用户就
+    //       再也不看这类提醒了，真正该拦的那一次也跟着一起被忽略。
+    const bool loaderMatters = kind == ResourceCatalog::Kind::Mod;
     // 判据刻意做得**窄**（只拦"知道实例是什么加载器、且这一版只列了另一种"这一种）：
+    //   · 不是模组（资源包 / 数据包 / 光影 / 整合包）→ 放行；
     //   · 实例没有 wtfml.meta（读不出加载器）→ 放行；
     //   · 这一版列了不止一种加载器（Quilt 之类兼容好几种）→ 放行；
     //   · 纯原版实例 + 一个带加载器的模组 → 也放行（读不出加载器的实例和纯原版在这里分不开，
@@ -3204,7 +3215,7 @@ void MainWindow::downloadResourceVersion(QTreeWidgetItem *item) {
     // 拦下来的是**问一句**，不是禁止 —— 用户说"就要这么装"就照装。
     const VersionDisplayParts parts = m_versionManager->displayParts(instanceId);
     const QString instanceLoader = parts.loaderName.toLower();
-    if (!instanceLoader.isEmpty() && chosen->loaders.size() == 1
+    if (loaderMatters && !instanceLoader.isEmpty() && chosen->loaders.size() == 1
         && !chosen->loaders.first().contains(instanceLoader)) {
         const auto answer = QMessageBox::question(
             this, tr("加载器对不上"),
