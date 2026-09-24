@@ -210,7 +210,7 @@ public:
      *
      * NOTE: 这是 kill()，不是"请游戏自己退出" —— Minecraft 没有能被外部优雅关闭的接口，
      *       用户从启动器上按"停止"要的就是"现在停"。界面上这句话必须说清楚（见
-     *       MainWindow::onStopGameClicked() 那个确认框），别让人以为是"保存并退出"。
+     *       MainWindow::confirmStopGame() 那个确认框），别让人以为是"保存并退出"。
      */
     bool stopGame(int sessionId);
 

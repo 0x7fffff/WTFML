@@ -517,9 +517,12 @@ public:
     //
     // NOTE: 「移除文件夹…」那个按钮与列表下面那段提示 **2026-09-24 一起删掉了**（用户
     //       原话：「下面那个移除文件夹也可以弃掉了，下面那个文本也删了」）—— 「移除」
-    //       现在只有行尾齿轮菜单里那一项。所以这一列只剩「添加文件夹…」一个按钮，这里
-    //       也不再留有 removeFolderButtonName() / removeFolderText() /
-    //       folderHintLabelName()，别照着旧记性写。
+    //       现在只有行尾齿轮菜单里那一项。这里也不再留有 removeFolderButtonName() /
+    //       removeFolderText() / folderHintLabelName()，别照着旧记性写。
+    //
+    // NOTE: 2026-09-25 起这一列是**两个**按钮：「添加文件夹…」+ 下面那颗「导入整合包…」
+    //       （用户原话：「导入整合包放在左边添加文件夹下面」）。它们俩同处「游戏文件夹」
+    //       这一组、宽度都顶满这一栏 —— 都是"往这一列里添东西"的动作。
     static QString addFolderButtonName() { return QStringLiteral("addFolderButton"); }
     static QString addFolderText() { return QStringLiteral("添加文件夹…"); }
     /// 启动器自带的那一份（和 exe 同一个目录里的 .minecraft）在列表**上面那行**写什么。
@@ -530,24 +533,33 @@ public:
     static QString folderAssistantTitle() { return QStringLiteral("当前文件夹"); }
     // 实例页右栏那三个按钮。**全按钮驱动、不做右键菜单** —— 仓库里右键菜单零先例，
     // 而且验证工程跑在 offscreen 上，QMenu::exec() 会阻塞在事件循环里，几乎驱动不了。
+    //
+    // NOTE: 2026-09-25 起**没有「停止游戏…」**了（用户原话：「实例里停止游戏按钮删了」）。
+    //       停游戏这件事还在，只是入口只剩底栏左面板里那一行的电源（见
+    //       MainWindow::stopGameSession()）—— 那一格本来就写着"哪一个会话在跑"，
+    //       停在哪儿比在这个"对选中实例做什么"的排里更说得清。所以这里也不再留
+    //       stopGameButtonName() / stopGameText()，别照着旧记性写。
     static QString renameInstanceButtonName() { return QStringLiteral("renameInstanceButton"); }
     static QString groupInstanceButtonName() { return QStringLiteral("groupInstanceButton"); }
     static QString instanceSettingsButtonName() {
         return QStringLiteral("instanceSettingsButton");
     }
-    /// 「停止游戏…」。和上面三个**同一排**（它作用的也是"列表里选中的那个实例"）。
-    static QString stopGameButtonName() { return QStringLiteral("stopGameButton"); }
     /// 「导入整合包…」。它和上面那三个**不是一回事**：那三个作用于列表里选中的实例，
-    /// 这个是造一个新实例出来。所以它单独一行、摆在它们上面（见 .cpp 里那一段）。
+    /// 这个是**造**一个新实例出来。所以它不在右栏那一排里 —— 2026-09-25 起它归左栏
+    /// 「游戏文件夹」那一组，紧挨在「添加文件夹…」下面（用户原话：「导入整合包放在左边
+    /// 添加文件夹下面」）。两者都是"往这一列里添东西"。
     static QString importModpackButtonName() { return QStringLiteral("importModpackButton"); }
+    /// 那颗按钮**下面**那句说明（"收 Modrinth 格式的整合包…"）。
+    ///
+    /// ★ 挂名字是为了钉住它**只能这么短**：那句话是折行的，而折行 QLabel 的 sizeHint
+    ///   宽度是横向 advance 的分档 —— 写长一点就会把**整窗**的 sizeHint 顶过 900
+    ///   （ui_check E5）。量到过两个数：第一版 70 个汉字 → 整窗 1042（红），现在这句
+    ///   → 228、整窗 818（绿）。理由全文在 .cpp 那一段。
+    static QString importHintLabelName() { return QStringLiteral("importHintLabel"); }
     // 按钮上的字。验证工程**不要**拿它们当身份标识（那是显示内容），只用来核对文案。
     static QString renameInstanceText() { return QStringLiteral("重命名…"); }
     static QString groupInstanceText() { return QStringLiteral("分组…"); }
     static QString instanceSettingsText() { return QStringLiteral("实例设置…"); }
-    /// NOTE: 带省略号 —— 按 Qt 的规矩，点了之后还要弹框问点什么的，文案结尾就带省略号。
-    ///       这一个的框尤其要紧：它要说清「停」等于**强杀**、游戏不会存档（见
-    ///       MainWindow::onStopGameClicked()）。
-    static QString stopGameText() { return QStringLiteral("停止游戏…"); }
     /// NOTE: 带省略号 —— 按 Qt 的规矩，点了之后还要弹框问点什么的，文案结尾就带省略号
     ///       （这个字上传出去的信息是"点下去不等于事情就开始了"，和上面三个一致）。
     static QString importModpackText() { return QStringLiteral("导入整合包…"); }
@@ -1317,9 +1329,9 @@ public:
     QPushButton *getRenameInstanceButton() const { return renameInstanceButton; }
     QPushButton *getGroupInstanceButton() const { return groupInstanceButton; }
     QPushButton *getInstanceSettingsButton() const { return instanceSettingsButton; }
-    QPushButton *getStopGameButton() const { return stopGameButton; }
     /// 「导入整合包…」。它不看"有没有选中实例"，任何时候都能点（和上面那三个一个口径：
-    /// 能不能点由状态决定的话，用户会先花时间猜"为什么它是灰的"）。
+    /// 能不能点由状态决定的话，用户会先花时间猜"为什么它是灰的"）。**它在左栏那一组里**
+    /// （「游戏文件夹」组，「添加文件夹…」下面），不在上面那三个那一排。
     QPushButton *getImportModpackButton() const { return importModpackButton; }
     // 两个下拉框，数据源互不相干，**也因此不在一页上**：
     //   installedVersionCombo —— 磁盘上已经装好的（.minecraft/versions/<id>/<id>.jar），
@@ -1477,7 +1489,6 @@ private:
     QPushButton *renameInstanceButton = nullptr;
     QPushButton *groupInstanceButton = nullptr;
     QPushButton *instanceSettingsButton = nullptr;
-    QPushButton *stopGameButton = nullptr;
     QPushButton *importModpackButton = nullptr;
     QLabel *instanceFolderLabel = nullptr;
     QComboBox *installedVersionCombo = nullptr;

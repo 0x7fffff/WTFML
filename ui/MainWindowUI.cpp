@@ -448,18 +448,51 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         folderButtons->addWidget(addFolderButton);
         folderLayout->addLayout(folderButtons);
 
+        // 「导入整合包…」：从 Modrinth 格式的整合包（.zip / .mrpack）里**造一个新实例**。
+        // 2026-09-25 从右栏挪到这儿（用户原话：「导入整合包放在左边添加文件夹下面」）：
+        // 它和「添加文件夹…」是同一类动作（往这一列里添东西）—— 而右栏那三个都是
+        // "对选中的实例做什么"，混在一排里用户得先猜它作用于选中项还是新建。
+        //
+        // 宽度**跟着「添加文件夹…」走**（两颗都不设 sizePolicy ⇒ 顶满这一栏）。上一版在
+        // 右栏里用 Fixed + AlignLeft 是怕把列表挤窄，挪到左栏之后这个顾虑没有了：这一栏
+        // 下面就是列表，按钮顶宽不会挤到任何东西。
+        importModpackButton = new QPushButton(importModpackText(), folderGroupBox);
+        importModpackButton->setObjectName(importModpackButtonName());
+        folderLayout->addWidget(importModpackButton);
+
+        // 那颗按钮的说明，**从右栏那段提示里拆出来的头一段**（剩下的几句说的都是重命名 /
+        // 分组 / 实例设置，跟这一组无关）。摆在这儿是因为它讲的就是上面那颗按钮 ——
+        // 2026-09-25 之前它俩隔着两栏，读的人得自己把句子和按钮对起来。
+        //
+        // ★ 这一句**只能这么短**（2026-09-25 实测）：折行 QLabel 的 sizeHint 宽度是横向
+        //   advance 的**分档**（见下面那段 NOTE），而左栏的宽度是按各控件的 sizeHint 分的
+        //   —— 第一版写的是「收的是 Modrinth 格式的整合包（压缩包根目录里有一份
+        //   modrinth.index.json）。它会把加载器、模组、config 和资源包一次装成一个新实例。」
+        //   （约 70 个汉字），当场两条红：整窗 sizeHint 818 → **1042**（ui_check E5 的上限是
+        //   900），实例页左:右 也从 3:7 变成 276:590。
+        //   现在这一句的 sizeHint 是 228x40，整窗仍是 818 —— 也就是说**这一栏里再想加一整
+        //   句话就会顶宽**。真要写长，走那颗按钮的 tooltip（完全不吃布局），别加折行标签。
+        QLabel *importHint = new QLabel(
+            QStringLiteral("收 Modrinth 格式的整合包（.zip / .mrpack），"
+                           "加载器、模组、config 一次装好。"),
+            folderGroupBox);
+        importHint->setObjectName(importHintLabelName());
+        importHint->setWordWrap(true);
+        folderLayout->addWidget(importHint);
+
         // 原来这里还有一段提示（"选中的就是启动器当前使用的 .minecraft…自带的那一份
         // 移不掉…"），2026-09-24 用户说「下面那个文本也删了」，一起拿掉了。
         // 它那两句话现在各有各的出处，一件都没丢：
         //   ① 「这一份就是当前在用的」—— 右边「实例列表」那一组顶上那句
-        //      instanceFolderLabel 就写着当前是哪一份；
+        //       instanceFolderLabel 就写着当前是哪一份；
         //   ② 「移除只动列表、删除才动盘」—— 齿轮菜单那两项各自的 tooltip
-        //      （folderActionTooltip）以及它们弹的那个确认框里各写了一遍。
-        // NOTE: 顺带解掉了一个耦合。那段话是折行的，而**折行 QLabel 的 sizeHint 宽度是
-        //       横向 advance 的分档**（不是线性）：2026-09-24 实测把它写到 1260 px 宽时，
-        //       它自己的 sizeHint 从 240 跳到 480、**整窗**的 sizeHint 从 818 顶到 1042，
-        //       ui_check 的 E5（整窗 sizeHint ≤ 900）当场红。现在左栏里没有折行标签了，
-        //       那条断言重新有了一大截余量 —— 但仍然别在这里加长句子（E5 量的还是整窗）。
+        //       （folderActionTooltip）以及它们弹的那个确认框里各写了一遍。
+        // NOTE: 折行 QLabel 的 sizeHint 宽度是**横向 advance 的分档**（不是线性）：
+        //       2026-09-24 实测把一段话写到 1260 px 宽时，它自己的 sizeHint 从 240 跳到
+        //       480、**整窗**的 sizeHint 从 818 顶到 1042，ui_check 的 E5（整窗 sizeHint
+        //       ≤ 900）当场红。2026-09-25 加上面那段 importHint 时又撞了一次（同一个 1042）
+        //       —— 现在那句短到 sizeHint 228，整窗还是 818。**往这一栏加话之前先量 E5**
+        //       （那条断言量的是整窗，红的现场离你改的地方很远）。
         instance.left.layout->addWidget(folderGroupBox, 1);
     }
     {
@@ -491,20 +524,13 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         instanceList->setIndentation(14);
         instanceLayout->addWidget(instanceList, 1);
 
-        // 「导入整合包…」：从 Modrinth 格式的整合包（.zip / .mrpack）装出一个实例。
-        // 单独一行摆在下面那三个**上面**。为什么不挤进那一排：下面那三个都是"对选中的
-        // 实例做什么"（没选中会弹一句"先选中一个实例"），这个是**造**一个新实例 ——
-        // 混在一排里，用户得先猜它作用于选中项还是新建。右栏又本来就窄，四个按钮挤一行
-        // 会把字挤成省略号。
-        importModpackButton = new QPushButton(importModpackText(), instanceGroupBox);
-        importModpackButton->setObjectName(importModpackButtonName());
-        // 宽度贴自己的字（不跟着这一栏长）：右栏那 7 份是分给列表的，让一个按钮去顶宽
-        // 会把列表挤窄 —— 和主页那个「账号与外观…」同一个口径。
-        importModpackButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-        instanceLayout->addWidget(importModpackButton, 0, Qt::AlignLeft);
-
-        // 四个按钮都作用于列表里当前选中的那一个实例。横着排：右栏宽度本来就紧
+        // 三个按钮都作用于列表里当前选中的那一个实例。横着排：右栏宽度本来就紧
         // （3:7 里的 7 还要和左栏分），竖着堆会把列表挤没。
+        //
+        // NOTE: 「导入整合包…」原来在这一排**上面**单独一行，2026-09-25 挪去了左栏
+        //       「游戏文件夹」那一组（在「添加文件夹…」下面）；「停止游戏…」原来在这一排
+        //       的**末尾**，2026-09-25 用户说「实例里停止游戏按钮删了」，也拿掉了 ——
+        //       停游戏现在只剩底栏左面板里那一行的电源（见下面那段 NOTE）。
         QHBoxLayout *instanceButtons = new QHBoxLayout;
         renameInstanceButton = new QPushButton(renameInstanceText(), instanceGroupBox);
         renameInstanceButton->setObjectName(renameInstanceButtonName());
@@ -512,24 +538,27 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         groupInstanceButton->setObjectName(groupInstanceButtonName());
         instanceSettingsButton = new QPushButton(instanceSettingsText(), instanceGroupBox);
         instanceSettingsButton->setObjectName(instanceSettingsButtonName());
-        stopGameButton = new QPushButton(stopGameText(), instanceGroupBox);
-        stopGameButton->setObjectName(stopGameButtonName());
-        // 四个按钮一律可点，没选中实例（或者那个实例没在跑）时由 MainWindow 的槽弹一句
-        // 说清原因（和「重命名…」同一个口径：**几时能点**由状态决定的话，用户会先花时间
-        // 猜"为什么它是灰的"，而那句话直接把原因说了）。
+        // 三个按钮一律可点，没选中实例时由 MainWindow 的槽弹一句说清原因（和「重命名…」
+        // 同一个口径：**几时能点**由状态决定的话，用户会先花时间猜"为什么它是灰的"，
+        // 而那句话直接把原因说了）。
 
         instanceButtons->addWidget(renameInstanceButton);
         instanceButtons->addWidget(groupInstanceButton);
         instanceButtons->addWidget(instanceSettingsButton);
-        instanceButtons->addWidget(stopGameButton);
         instanceLayout->addLayout(instanceButtons);
 
+        // NOTE: 2026-09-25 起这一页上**没有「停止游戏…」**了（用户原话「实例里停止游戏按钮
+        //       删了」）。为什么删得掉：停在哪儿这件事本来就归底栏左面板里那一行的电源
+        //       （见 MainWindow::stopGameSession()）—— 那一格写着"哪一个会话在跑"，停哪
+        //       一份比在"对选中实例做什么"的排里更说得清，也不会出现"选中的实例根本没在
+        //       跑"这种点了才知道的情况。
+        //       代价（如实记一笔）：原来那颗按钮走的是 applyStopGame(versionId)，能一次
+        //       停掉**同一个实例的多份会话**；底栏那一行的电源只停**这一份**（会话号）。
+        //       那个"一次全停"的能力随按钮一起没了 —— 多开的那几份要逐个停。
+        //       连带删掉的死代码：onStopGameClicked() / applyStopGame()（只有它俩互相调用）；
+        //       confirmStopGame() 留着，底栏那条路还在用它。
         QLabel *instanceHint = new QLabel(
-            QStringLiteral("「导入整合包…」支持 Modrinth 格式的整合包"
-                           "（压缩包根目录里有一份 modrinth.index.json）。"
-                           "它会把整合包整个装成一个新实例：该装的加载器、该下的模组、"
-                           "该解开的 config 和资源包，都在这一次里做完。"
-                           "一个实例就是 versions 下的一个目录。判据是「认得出哪个是客户端 jar」"
+            QStringLiteral("一个实例就是 versions 下的一个目录。判据是「认得出哪个是客户端 jar」"
                            "—— 你自己在资源管理器里改过目录名的实例也认得出来。"
                            "重命名会真的改磁盘上的目录名；分组只记在启动器自己的文件里，"
                            "不动磁盘上的目录。「实例设置…」只影响这一个实例：里面每一项"
