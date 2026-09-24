@@ -31,8 +31,10 @@
 #include <QHash>
 #include <QLabel>
 #include <QLineEdit>
+#include <QList>
 #include <QListWidget>
 #include <QMainWindow>
+#include <QPixmap>
 #include <QPlainTextEdit>
 #include <QProgressBar>
 #include <QPushButton>
@@ -44,6 +46,8 @@
 #include <QTreeWidget>
 #include <QVector>
 #include <QWidget>
+
+#include <functional>
 
 // 「一个组在界面上写成什么」这条规则的唯一出处（分组对话框和实例列表那张树都用它）。
 // 让 MainWindowUI 反过来去 include 同一个 ui/ 下的对话框头，比在两边各写一份
@@ -638,13 +642,131 @@ public:
 
     static QString runStateButtonName() { return QStringLiteral("runStateButton"); }
     static QString accountButtonName() { return QStringLiteral("accountButton"); }
+
+    // ---------- 上拉面板里"一行长什么样" ----------
+    //
+    // 面板**自己不去问数据**（它连 LauncherManager 都认不得，ui/ 不许 include src/）：
+    // MainWindow 每次点开时把"现在有几个实例在跑 / 最近用过哪三个账号"翻成下面这两层
+    // 结构递给它（setBottomBarPanelContent()），回来的是"第几行第几个动作被点了"。
+    // 于是这里只管画：图标 + 一列字 + 行尾几个按钮，怎么弹、弹在哪，也都是这里的事。
+    /// 行尾的一个动作按钮（左面板是电源/齿轮两颗图标，右面板是「选择」「登录」一个词）。
+    /// 图标和文字**二选一**：给了 icon 就画图标，否则画 text。
+    struct PanelAction {
+        QPixmap icon;
+        QString text;
+        /// 鼠标停上去显示的那句话（图标按钮**必须**有 —— 一个电源符号说明不了
+        /// "点了会把游戏杀掉"，文字按钮可省）。
+        QString tooltip;
+        /// false = 灰掉点不动（右面板里"当前账号"那一行就是它）。
+        bool enabled = true;
+    };
+    /// 面板里的一行。
+    struct PanelRow {
+        /// **这一行是谁**。面板不认识它，只在行尾按钮被点时原样还回来 —— 左面板放会话号、
+        /// 右面板放账号 uuid。
+        ///
+        /// NOTE: 认身份得靠它，**不能靠"第几行"**：面板弹出来到某个按钮被点之间隔着用户
+        ///       看那两眼的时间，这中间列表是会变的（一个实例跑完了、后台把账号凭据刷新了），
+        ///       按行号回头去查就会"关掉另一个游戏 / 切到另一个账号"。
+        QString key;
+        /// 行首那个图标。可以给空的 —— 那一行就不留图标位（"什么都没有"那句话用的）。
+        QPixmap icon;
+        /// 主行文字（实例名 / 账号名）。
+        QString title;
+        /// 次行文字（已运行时长 / 账号类型）。空 = 这一行只有一行字。
+        QString subtitle;
+        /// 行尾的动作按钮，从左到右。
+        QList<PanelAction> actions;
+        /// true = 这行是"什么都没有"那句话：文字用次要色、行首没图标、行尾没按钮。
+        /// **不是**给真行用的（真行有图标和按钮，灰掉某一颗走 PanelAction::enabled）。
+        bool placeholder = false;
+    };
+    /// 「点开面板时去哪要这几行」和「行里的按钮被点了」。那个 bool：true = 右边那块
+    /// （账号），false = 左边那块（实例）。动作回调里的 key 就是那一行的 PanelRow::key
+    /// （**不是行号** —— 理由见 PanelRow::key 那段 NOTE）。
+    using PanelRowsProvider = std::function<QList<PanelRow>(bool account)>;
+    using PanelActionHandler = std::function<void(bool account, const QString &key, int action)>;
+    /// 把上面那两个回调装进来。**由 MainWindow 在构造时调一次**（数据在它手里）；
+    /// 没装的话面板就弹一块空的 —— 它不会崩，只是没内容。
+    void setBottomBarPanelContent(PanelRowsProvider provider, PanelActionHandler handler) {
+        m_panelRowsProvider = std::move(provider);
+        m_panelActionHandler = std::move(handler);
+    }
+
     /// 那两颗按钮点开之后**向上**弹出来的那块面板。名字挂在这里是为了让验证工程
     /// 能按 objectName 把它找回来量几何（它是个 Qt::Popup 窗口，父子关系照旧）。
     static QString bottomBarPanelName() { return QStringLiteral("bottomBarPanel"); }
-    /// 面板里第 @p index 行的 objectName（现在放的是占位文字，见 .cpp 里那段）。
+    /// 面板里第 @p index 行的 objectName（行、那一行的两行字、行尾第 @p action 个按钮）。
     static QString bottomBarPanelRowName(int index) {
         return QStringLiteral("bottomBarPanelRow%1").arg(index);
     }
+    /// 行首那个图标（**行没有图标的时候这一格不存在** —— 比如"没有实例在运行"那句、
+    /// 以及右面板那几行账号）。左面板每行的方块由 MainWindow 按那条实例的分类给。
+    static QString bottomBarPanelRowIconName(int index) {
+        return QStringLiteral("bottomBarPanelRowIcon%1").arg(index);
+    }
+    static QString bottomBarPanelRowTitleName(int index) {
+        return QStringLiteral("bottomBarPanelRowTitle%1").arg(index);
+    }
+    static QString bottomBarPanelRowSubtitleName(int index) {
+        return QStringLiteral("bottomBarPanelRowSubtitle%1").arg(index);
+    }
+    static QString bottomBarPanelRowActionName(int index, int action) {
+        return QStringLiteral("bottomBarPanelRowAction%1_%2").arg(index).arg(action);
+    }
+    /// 右面板里那几行右边那颗按钮上的字。**离线账号写「选择」、正版账号写「登录」**
+    /// （用户 2026-09-24 原话：「离线的右侧按钮写 选择，正版的右侧写 登录（链接令牌刷新）」）：
+    /// 离线账号没有凭据，切过去就完事；正版账号切过去之后还要看一眼盘上那张令牌够不够用
+    /// （<6 小时就顺手换一张，见 MainWindow）。
+    static QString bottomBarPanelSelectText() { return QStringLiteral("选择"); }
+    static QString bottomBarPanelLoginText() { return QStringLiteral("登录"); }
+    /// 当前账号那一行：按钮写「当前」并**灰掉** —— 点自己等于什么都不做
+    /// （onAccountSwitchRequested() 开头那句 `uuid == activeUuid()` 就 return）。
+    static QString bottomBarPanelCurrentText() { return QStringLiteral("当前"); }
+    /// 右面板里那一行**第二句**说的"这是个什么账号"。
+    ///
+    /// NOTE: 和底栏那两句（accountTypeOnlineText() = 「正版登录」）**不是一回事**：底栏说的是
+    ///       "这一趟怎么启动"，这里说的是"这个账号是哪一种"。两句混用的话，面板上会出现
+    ///       "正版登录"——那读起来像"这个账号现在是登录状态"，而这一行恰恰是**还没登录**
+    ///       的那个账号。
+    static QString bottomBarPanelOnlineAccountText() { return QStringLiteral("正版账号"); }
+    static QString bottomBarPanelOfflineAccountText() { return QStringLiteral("离线账号"); }
+    /// 左面板里"一份实例都没在跑"时那两句话。
+    static QString bottomBarPanelNoRunningTitle() { return QStringLiteral("现在没有实例在运行"); }
+    static QString bottomBarPanelNoRunningNote() {
+        return QStringLiteral("从主页点「启动游戏」跑一个");
+    }
+    /// 右面板里"一个账号都没保存"时那两句话（不说清"为什么是空的"，用户只能去别处瞎找）。
+    static QString bottomBarPanelNoAccountTitle() { return QStringLiteral("还没有保存的账号"); }
+    static QString bottomBarPanelNoAccountNote() {
+        return QStringLiteral("在「账号与外观…」里登录或添加离线账号");
+    }
+    /// 左面板里每行那句「跑了多久」（用户 2026-09-24 原话：「一行一个会话，有时长是好主意，
+    /// 做进去」）。
+    ///
+    /// 精确到**分钟**是刻意的：面板是弹出来那一刻的一张快照，开着的这几秒里不会自己重画
+    /// （见 MainWindowUI 里 BottomBarPanel 那段），写成"3 分 12 秒"过两秒就成假的了。
+    ///
+    /// NOTE: 放在这里（而不是 MainWindow 里当一个文件级函数）是为了让它**能被验**：
+    ///       四档话术（不到 1 分钟 / N 分钟 / N 小时 M 分钟 / N 天 M 小时）各是一句用户
+    ///       会看到的话，而"已经跑了 3 天"这一档在验证工程里没法靠真的等出来。文案和
+    ///       算它那几行在一起，是本项目一贯的取法（见 skinHint*Text 那几句）。
+    /// @param startedAtMs 那一份会话起来的时刻（LauncherManager::GameSession::startedAtMs）。
+    /// @param nowMs 现在（画这一行那一刻）。
+    static QString runningDurationText(qint64 startedAtMs, qint64 nowMs);
+    /// 面板里那一列文字的宽度上限（像素）。**要封顶**：面板的宽度是"内容多宽就多宽"
+    /// （popUp() 里 adjustSize()），长实例名会长到把面板顶出窗口 —— 超出去的部分由
+    /// 那一行自己截成省略号（ElidedLabel）。
+    static int bottomBarPanelTextWidth() { return 180; }
+    /// 行首那个图标的边长（像素）。和底栏头像一个量级，比字大一号。
+    static int bottomBarPanelIconSize() { return 24; }
+    /// 行尾**图标按钮**的边长（像素）：里面装着下面那个图形，剩下的是点击范围 ——
+    /// 点不中的按钮等于没有（22 减 14 剩下的 8 px 就是那一圈）。
+    static int bottomBarPanelActionSize() { return 22; }
+    /// 行尾图标按钮里那个图形的边长（像素）。**唯一出处**：MainWindow 按它去要字形
+    /// （VersionIcons::power() / gear()），按钮再按图形的实际大小设 iconSize ——
+    /// 两边各写一个数字的结果是"图标被拉变形"或者"按钮里空一圈"。
+    static int bottomBarPanelActionIconSize() { return 14; }
     /// 那两颗按钮右边那个朝上箭头的 objectName。两颗**共用**这一个名字 ——
     /// findChild 只会拿到其中一颗，要两颗一起用 findChildren。
     static QString bottomBarChevronName() { return QStringLiteral("bottomBarChevron"); }
@@ -1058,7 +1180,8 @@ public:
     //       用它来量底栏的几何。
     QFrame *getBottomBar() const { return bottomBar; }
     /// 底栏两头那两颗按钮（左：实例运行状态 · 右：头像/用户名）。点它们会**向上**弹出一块
-    /// 面板，内容现在是占位文字（用户 2026-09-23 要的，见 .cpp 里 buildBottomBarPanel()）。
+    /// 面板（左边那块列在跑的实例、右边那块列最近用过的账号），内容由 MainWindow 灌进来
+    /// （见 setBottomBarPanelContent()）。
     QPushButton *getRunStateButton() const { return runStateButton; }
     QPushButton *getAccountButton() const { return accountButton; }
     QLabel *getAvatarLabel() const { return avatarLabel; }
@@ -1156,4 +1279,8 @@ private:
     QLabel *statusLabel = nullptr;
     QLabel *runStateLabel = nullptr;
     QLabel *runStateDetailLabel = nullptr;
+    /// 「点开面板时去哪要那几行」和「行尾的按钮被点了」。由 MainWindow 在构造时装进来
+    /// （见 setBottomBarPanelContent()）—— 界面这一头**不查数据**，只画。
+    PanelRowsProvider m_panelRowsProvider;
+    PanelActionHandler m_panelActionHandler;
 };

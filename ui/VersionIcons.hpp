@@ -85,4 +85,17 @@ QPixmap cross(int size, const QColor &color);
 /// @param color 线的颜色（和 cross 一样用次要那一档：它是行里的一个动作，不是正文）。
 QPixmap refresh(int size, const QColor &color);
 
+/// 那个**电源**符号（⏻）：左面板每一行右边第一颗按钮，「关闭这个实例」。
+/// 画的是一圈留了缺口的环 + 从缺口穿上去的一竖（就是机箱上那个开关的长相）。
+/// 和别的字形同一个路数：纯代码画的、带缓存、颜色由调用方给。
+/// @param size 边长（像素）。
+/// @param color 线的颜色。
+QPixmap power(int size, const QColor &color);
+
+/// 那个**齿轮**（⚙）：左面板每一行右边第二颗按钮，「进这个实例的设置」。
+/// 八颗平顶的牙 + 中间一个洞（实心填充，不是描边 —— 16 px 下描边会糊成一个圈）。
+/// @param size 边长（像素）。
+/// @param color 填充的颜色。
+QPixmap gear(int size, const QColor &color);
+
 }  // namespace VersionIcons
