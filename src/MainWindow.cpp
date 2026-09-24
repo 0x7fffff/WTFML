@@ -1358,10 +1358,47 @@ void MainWindow::updateBottomBar() {
     // ---------- 右：当前实例运行状态 ----------
     QLabel *runStateLabel = m_ui->getRunStateLabel();
     QLabel *runStateDetailLabel = m_ui->getRunStateDetailLabel();
+    QLabel *runStateMarkLabel = m_ui->getRunStateMarkLabel();
     const QList<LauncherManager::GameSession> games = m_launcherManager->runningGames();
+
+    // 三态的顺序是**唯一的判据**（放这里当唯一出处，下面三支只负责画）：
+    //   · 正在启动优先 —— 那一段里进程已经起来了（所以 runningGames() 里已经有它），
+    //     但用户等的是"游戏窗口出来"，这时候该说的是"启动中"（黄），不是"运行中"（绿）；
+    //   · 然后是"一个都没有"（红）；
+    //   · 剩下的就是真的在跑（绿）。
+    //
+    // NOTE: 判据里**没有**"选中的是哪个实例"——用户 2026-09-24 要的是"这台机器上有没有
+    //       实例在跑"，那件事跟下拉框选着谁没关系（第二行的显示规则才看那个，见
+    //       runStateShowsDetail()）。
+    const MainWindowUI::RunStateMark mark =
+        launching ? MainWindowUI::RunStateMark::Launching
+                  : (games.isEmpty() ? MainWindowUI::RunStateMark::NotRunning
+                                     : MainWindowUI::RunStateMark::Running);
+    // 那颗方块的图**每次重画都重新要一张**（VersionIcons 里按"边长+颜色"缓存着，
+    // 所以这一步不贵）：状态变了颜色就得跟着变，而这里正是"状态唯一定下来"的地方。
+    //
+    // 调色板取**底栏**的，不取那颗按钮的：按钮上挂着一份 QSS（applyBottomBarButtonStyle），
+    // 而带样式表的控件解析出来的 QPalette 里 Window 那个角色是**黑**的（实测亮度 0），
+    // 拿它判深浅就会在浅色主题下也退回深色那一档的取色。方块画在底栏那块底上，
+    // 底栏的调色板才是"它背后那块布"的颜色 —— 深色主题下它自己会跟着变。
+    runStateMarkLabel->setPixmap(
+        MainWindowUI::runStateMarkPixmap(mark, m_ui->getBottomBar()->palette()));
+    runStateMarkLabel->setVisible(true);
+
+    if (mark == MainWindowUI::RunStateMark::Launching) {
+        // 黄：正在启动。名字的写法**不看「版本名格式」那四个开关**（见 launchingStatusName()）。
+        runStateLabel->setText(MainWindowUI::runStateLaunchingText(launchingStatusName()));
+        runStateLabel->setVisible(true);
+        // 第二行在这一档**一律不显示**：第一行那句话里已经带着实例名了（判据在
+        // runStateShowsDetail() 里，和别的那几种情况同一处）。
+        runStateDetailLabel->setText(QString());
+        runStateDetailLabel->setVisible(false);
+        return;
+    }
+
     if (games.isEmpty()) {
-        // 没有实例在跑：写「实例未运行」。**不是藏起来** —— 用户 2026-09-23 要的就是这句话，
-        // 而且那一格现在还兼着"点开看实例列表"那颗按钮，藏起来连按钮一起没了。
+        // 没有实例在跑：写「当前没有运行中的实例」。**不是藏起来** —— 用户 2026-09-23 要的
+        // 就是这句话，而且那一格现在还兼着"点开看实例列表"那颗按钮，藏起来连按钮一起没了。
         // NOTE: 连带的好处是那一格的文字**任何时候都非空**，布局上不再有"从无到有"这一步
         //       （那一步正是"中间那根条突然缩短一截"的来源）。
         runStateLabel->setText(MainWindowUI::runStateNotRunningText());
@@ -1382,7 +1419,7 @@ void MainWindow::updateBottomBar() {
         // 第二行要不要出，判据在 runStateShowsDetail() 里（那里也是它唯一的出处）。
         const bool showDetail = MainWindowUI::runStateShowsDetail(
             m_ui->isHomeTabCurrent(), selectedVersionId(m_ui->getInstalledVersionCombo()),
-            games.first().versionId);
+            games.first().versionId, launching);
         runStateDetailLabel->setVisible(showDetail);
         runStateDetailLabel->setText(showDetail ? instanceDisplayName(games.first().versionId)
                                                 : QString());
@@ -5361,6 +5398,20 @@ QString MainWindow::launchingInstanceName() const {
             m_launcherManager->session(*m_launchingSessions.constBegin());
         if (game.sessionId != 0) {
             return instanceDisplayName(game.versionId);
+        }
+    }
+    return tr("%1 个实例").arg(m_launchingSessions.size());
+}
+
+QString MainWindow::launchingStatusName() const {
+    // 和上面 launchingInstanceName() 同一套判据（"只有一份时才报名字"，理由在那边），
+    // 只有名字的**写法**不同：走 VersionDisplay::launchStatusName()，也就是
+    // "有自定义名就只用它，没有就是 版本号-加载器名"，与「版本名格式」那四个开关无关。
+    if (m_launchingSessions.size() == 1) {
+        const LauncherManager::GameSession game =
+            m_launcherManager->session(*m_launchingSessions.constBegin());
+        if (game.sessionId != 0) {
+            return launchStatusName(m_versionManager->displayParts(game.versionId));
         }
     }
     return tr("%1 个实例").arg(m_launchingSessions.size());

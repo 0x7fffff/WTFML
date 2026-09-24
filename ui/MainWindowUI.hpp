@@ -605,10 +605,17 @@ public:
     /// 900 px 的窗口里中间那根条只剩 262 px（条还没那两格宽），用户报「奇小无比」。
     /// 那一格装的是「3 个实例运行中」+ 一行实例名 + 箭头，170 够（文字能占 152）。
     static int bottomBarRunStateColumnWidth() { return 170; }
-    /// 左边那两行字各自的宽度上限 = 那一格的宽度减掉右边那个箭头和它左边的间距。
-    /// 两行都封这个顶，布局就永远不会被长名字撑开。
+    /// 左边那两行字各自的宽度上限 = 那一格的宽度减掉**最左边那颗状态方块占掉的一段**，
+    /// 再减掉右边那个箭头和它左边的间距。两行都封这个顶，布局就永远不会被长名字撑开。
+    ///
+    /// NOTE: 方块那一段（`bottomBarRunStateMarkWidth()`）**必须一起减掉**（2026-09-24 补的）：
+    ///       方块和第一行文字在同一行里，不减的话那一行的需要宽度变成
+    ///       16 + 152 = 168 > 152，方块要么被压掉、要么把这一格撑出 170 之外。
+    ///       两行减掉**同一个数**是刻意的 —— 第二行还缩进了同样多（见 MainWindowUI.cpp
+    ///       里 runStateDetailLabel 那几行），两行文字的左边因此对得齐。
     static int bottomBarRunStateTextWidth() {
-        return bottomBarRunStateColumnWidth() - bottomBarChevronSpacing() - bottomBarChevronSize();
+        return bottomBarRunStateColumnWidth() - bottomBarChevronSpacing() - bottomBarChevronSize() -
+               bottomBarRunStateMarkWidth();
     }
     /// 底栏**右边那颗按钮（头像 + 用户名 + 箭头）的固定宽度**（像素）。右边那颗和左边的
     /// 一样**要钉死**：进度条那一边彻底不再受"用户名多长"的影响（以前只给用户名封了个顶，
@@ -1045,6 +1052,42 @@ public:
     static QString noInstalledVersionPlaceholder() { return QStringLiteral("暂无已安装版本"); }
     static QString chooseVersionPlaceholder() { return QStringLiteral("请选择一个版本"); }
 
+    // ---------- 底栏左下角那颗状态方块（2026-09-24 加的） ----------
+    /// 那一格最左边那颗小方块的三种状态。
+    ///
+    /// 用户原话（2026-09-24）：「左下角没有实例的时候显示（红色的）■（默认的黑色）当前没有
+    /// 运行中的实例，启动的时候那个符号（也可以画图代替）变成黄色，文本为版本名（没有就
+    /// 版本号-加载器名称，不受名字显示设置影响）启动中... 启动以后符号变成绿色，和原来一样」。
+    ///
+    /// 「（默认的黑色）」说的是**文字**的颜色 —— 那两行字一直用调色板的默认正文色，
+    /// 这一批一个字都没改（别顺手给"没有实例"那种状态把字也染红）。
+    enum class RunStateMark {
+        NotRunning,  ///< 红：一个实例都没在跑
+        Launching,   ///< 黄：正在启动（进程起来了、游戏还没出话，见 m_launchingSessions）
+        Running,     ///< 绿：有实例在跑
+    };
+
+    /// 那颗方块的边长（像素）。取 10 而不是别的图标那个 16：它挨着的是一行正文，
+    /// 16 就长得跟字一样高、看着像又一个图标，而不是"这一格的状态点"。
+    static int runStateMarkSize() { return 10; }
+    /// 方块与第一行文字之间的间距（像素）。
+    static int runStateMarkSpacing() { return 6; }
+    /// 方块（加上右边那点间距）占掉的宽度。**两行文字都要减掉它**（第一行是因为方块跟它
+    /// 同一行，第二行是因为它要缩进同样多才跟第一行对得齐）—— 见
+    /// bottomBarRunStateTextWidth() 那条注释。
+    static int bottomBarRunStateMarkWidth() { return runStateMarkSize() + runStateMarkSpacing(); }
+    /// 那颗方块的 objectName（给验证工程按名字找控件用）。
+    static QString runStateMarkName() { return QStringLiteral("runStateMark"); }
+    /// 三态各自的颜色。深浅两套的判据和 folderDangerColor() 是同一个（窗口底色的明度）：
+    /// 红的那一档**直接调它** —— 同一个界面上两种红各调各的，迟早有一处会看着是脏的。
+    ///
+    /// 黄和绿是各挑的两个值（浅底用深一点的、深底用亮一点的，都是为了"在底色上看得见"）。
+    /// 只说"红/黄/绿"而没有具体色值是可验的：这三个色相分得开（0 / 45 / 130 那一带），
+    /// 验证工程量的就是色相落在哪一段（见 ui_check 的 V 段）。
+    static QColor runStateMarkColor(RunStateMark state, const QPalette &palette);
+    /// 那颗方块画出来的样子。MainWindow 按状态要一张图，取色的规则因此只有一处。
+    static QPixmap runStateMarkPixmap(RunStateMark state, const QPalette &palette);
+
     // ---------- 底栏左下角"实例运行中"那行的正文 ----------
     // 放在这里当唯一出处：MainWindow 拿它填文字，验证工程拿它做断言，两边不会写歪。
     static QString runStateRunningText() { return QStringLiteral("实例运行中"); }
@@ -1054,7 +1097,22 @@ public:
     ///       底下空一块）。改成一句话还有个连带的好处 —— 那一格的文字**任何时候都非空**，
     ///       布局上也就没有"从无到有"这一步了（那一步正是"中间那根条突然缩短"的来源，
     ///       见 MainWindowUI.cpp 里 runStateButton 那段）。
-    static QString runStateNotRunningText() { return QStringLiteral("实例未运行"); }
+    ///
+    /// NOTE: 2026-09-24 用户把这一句改成「当前没有运行中的实例」（原来写的是「实例未运行」）。
+    ///       左边那颗方块因此有了红的那一档 —— 光看字和别的状态分不出"完全没在跑"，
+    ///       一眼看颜色能分出来。
+    static QString runStateNotRunningText() { return QStringLiteral("当前没有运行中的实例"); }
+    /// 正在启动时那一行：`<实例名>启动中...`。
+    /// @param name 实例名。**不受「版本名格式」那四个开关影响**，由
+    ///        MainWindow::launchingStatusName() 走 VersionDisplay::launchStatusName() 算出来
+    ///        （有自定义名就只用它，没有就是"版本号-加载器名"）—— 这里不碰那个规则。
+    ///
+    /// NOTE: 和中间那格的 `launchingStatusText()`（「正在启动 X ...」）**不是同一句话**，
+    ///       两句各有一个出处是刻意的：中间那格说的是"正在做的事"（跟下载/等待挤同一格），
+    ///       这一句是左下角那格的**状态**（和红/绿两个状态同一处说话）。
+    static QString runStateLaunchingText(const QString &name) {
+        return QCoreApplication::translate("MainWindowUI", "%1启动中...").arg(name);
+    }
     /// 两份以上在跑时第一行写什么。**一份时不用这一句**（那时是上面那句），
     /// 所以这个函数只接 count >= 2 的输入。
     static QString runStateRunningCountText(int count) {
@@ -1131,16 +1189,27 @@ public:
     /// @param homeTabCurrent 当前是不是停在主页（启动界面）。
     /// @param selectedVersionId "已安装版本"下拉框当前选中的版本号（没选是空串）。
     /// @param runningVersionId 正在运行的版本号（没有实例在跑是空串）。
-    /// @return 只有"在主页、且选中的就是正在跑的那个实例"这一种情况返回 false。
+    /// @param launching 正在启动（见 RunStateMark::Launching）。
+    /// @return 启动中**一律** false；否则只有"在主页、且选中的就是正在跑的那个实例"
+    ///         这一种情况返回 false。
     ///
-    /// 只有这一种情况能省掉名字：用户眼前这个界面说的就是它。其余情况（在别的选项卡
+    /// 只有这两种情况能省掉名字：用户眼前这个界面说的就是它。其余情况（在别的选项卡
     /// 上，或者下拉框里选着另一个版本）都得靠名字说清楚跑的是谁 —— 尤其是"选中的和
     /// 在跑的不是同一个"这种最容易看错的场面。
     ///
-    /// 做成静态纯函数是为了能把这四种组合逐条钉住：它是这条规则的唯一出处，
+    /// NOTE: `launching` 这一档是 2026-09-24 加的。**启动中必须一律不显示第二行**：
+    ///       第一行那时候已经是「<实例名>启动中...」（见 runStateLaunchingText()），
+    ///       实例名就在那句话里；第二行再报一遍同一个名字看着就像界面出了故障。
+    ///       而且这一档跟"在哪个选项卡""下拉框选的谁"都没关系 —— 那两句问的是
+    ///       "正在跑的是不是眼前这个"，启动中时第一行已经把名字说全了。
+    ///
+    /// 做成静态纯函数是为了能把这几种组合逐条钉住：它是这条规则的唯一出处，
     /// MainWindow::updateBottomBar() 只负责把结果画出来。
     static bool runStateShowsDetail(bool homeTabCurrent, const QString &selectedVersionId,
-                                    const QString &runningVersionId) {
+                                    const QString &runningVersionId, bool launching) {
+        if (launching) {
+            return false;
+        }
         return !(homeTabCurrent && selectedVersionId == runningVersionId);
     }
 
@@ -1325,9 +1394,13 @@ public:
     // 进度只出现在底栏中间那一格，不进日志（旧版是钉在 QStatusBar 上的）
     QProgressBar *getProgressBar() const { return progressBar; }
     QLabel *getStatusLabel() const { return statusLabel; }
-    // 底栏左侧：第一行是状态正文，第二行是实例名（只在需要区分时显示）
+    // 底栏左侧：第一行是状态正文（它左边还有一颗三态的小方块），第二行是实例名
+    // （只在需要区分时显示）
     QLabel *getRunStateLabel() const { return runStateLabel; }
     QLabel *getRunStateDetailLabel() const { return runStateDetailLabel; }
+    // 那颗三态的小方块。**图的颜色由 MainWindow 按状态来要**（runStateMarkPixmap），
+    // 这里只是个装图的格子 —— 它自己不知道现在是哪个状态。
+    QLabel *getRunStateMarkLabel() const { return runStateMarkLabel; }
 
 private:
     void setupUi(QMainWindow *parent);
@@ -1415,6 +1488,7 @@ private:
     QLabel *statusLabel = nullptr;
     QLabel *runStateLabel = nullptr;
     QLabel *runStateDetailLabel = nullptr;
+    QLabel *runStateMarkLabel = nullptr;
     /// 「点开面板时去哪要那几行」和「行尾的按钮被点了」。由 MainWindow 在构造时装进来
     /// （见 setBottomBarPanelContent()）—— 界面这一头**不查数据**，只画。
     PanelRowsProvider m_panelRowsProvider;

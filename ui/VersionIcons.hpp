@@ -117,4 +117,15 @@ QPixmap folderMark(int size, const QColor &color);
 /// @param color 垃圾桶的颜色。
 QPixmap trash(int size, const QColor &color);
 
+/// 一个**实心小方块**（■）：底栏左下角"实例运行状态"那一格最左边那颗状态点
+/// （红 = 没有实例在跑 / 黄 = 正在启动 / 绿 = 有实例在跑，颜色由调用方按状态给）。
+///
+/// 用户原话：「显示（红色的）■…那个符号（也可以画图代替）变成黄色…变成绿色」——
+/// 「也可以画图代替」那句就是许可：这里**画图**而不是摆一个 ■ 字，因为这个字
+/// 得看字体给不给（有的字体的方块带一圈描边、有的字宽不对），画出来的则像素确定、
+/// 能直接对着像素断言"这一格是纯红"。
+/// @param size 边长（像素）。整块铺满，不留边距 —— ■ 这个符号本来就是"占满自己那一格"。
+/// @param color 填充色。
+QPixmap runStateMark(int size, const QColor &color);
+
 }  // namespace VersionIcons
