@@ -625,11 +625,11 @@ QList<MainWindowUI::PanelRow> recentAccountPanelRows(const QList<SavedAccount> &
 
         MainWindowUI::PanelAction use;
         if (account.isCurrent) {
-            // 当前账号：按钮写「当前」、灰掉。**不是**"不显示那颗按钮"—— 三行的按钮位置
-            // 得一样，少一颗的话这一行会看着比别行短。
-            use.text = MainWindowUI::bottomBarPanelCurrentText();
-            use.enabled = false;
-            use.tooltip = QObject::tr("这一行就是当前账号");
+            // 当前账号：按钮写「登出」、**可点**（用户 2026-09-24 原话：「把那个账户管理里的
+            // 当前改成登出」）。原先这儿是「当前」+ 灰掉 —— 灰掉那颗点不动，于是这一行除了
+            // 告诉用户"你就是你"之外没有别的用处。
+            use.text = MainWindowUI::bottomBarPanelLogoutText();
+            use.tooltip = MainWindowUI::bottomBarPanelLogoutTip();
         } else {
             use.text = account.offline ? MainWindowUI::bottomBarPanelSelectText()
                                        : MainWindowUI::bottomBarPanelLoginText();
@@ -4249,7 +4249,14 @@ void MainWindow::onBottomBarPanelAction(bool account, const QString &key, int ac
         if (action != kAccountPanelUseAction) {
             return;  // 右面板那一行只有一颗按钮；别的编号是接线错了，什么都不做
         }
-        useAccountFromPanel(key);  // key = 账号 uuid
+        // 这一行那颗按钮**是哪种**由行的状态决定（当前账号那颗是「登出」，别人是「选择」/
+        // 「登录」），而行的状态是 recentAccountPanelRows() 一家算的 —— 这里用**同一个判据**
+        // 分流，绝不看按钮上画着什么。key = 账号 uuid。
+        if (key == AccountStore::activeUuid()) {
+            logoutCurrentAccount();
+            return;
+        }
+        useAccountFromPanel(key);
         return;
     }
 
@@ -4273,6 +4280,33 @@ void MainWindow::onBottomBarPanelAction(bool account, const QString &key, int ac
         default:
             return;
     }
+}
+
+void MainWindow::logoutCurrentAccount() {
+    // 认人用 activeUuid()，不用面板那一行的 key —— 面板弹出来到用户点下这一颗之间隔着
+    // 他看那两眼的时间，这中间账号是可能被换掉的（recentAccountPanelRows() 那段注释里
+    // 说的是同一件事）。眼下这两个值必然相等（onBottomBarPanelAction() 就是拿它分流的），
+    // 但"登出谁"这件事只该有一个出处。
+    const QString uuid = AccountStore::activeUuid();
+    if (uuid.isEmpty()) {
+        return;  // 本来就没登录（那一行不该长成「登出」）
+    }
+    const QString name = AccountStore::nameOf(uuid);
+    if (!AccountStore::logout()) {
+        QMessageBox::warning(this, tr("退出登录失败"),
+                             tr("盘上的登录状态没能清掉，现在还是登录着「%1」。").arg(name));
+        return;
+    }
+    // 内存里那一份也得跟着清 —— AuthManager 只在构造和换账号那两处读过盘，不重读的话
+    // 底栏、启动参数、外观那几条路拿到的还是**上一个人的名字**（等于"看着登出了，
+    // 手里还攥着他的状态"）。清干净之后 loggedIn() 是 false，界面自己退回未登录那一档。
+    m_authManager->reloadStoredAccount();
+    updateBottomBar();
+    appendLog(tr("已退出账号「%1」（账号还留在列表里，点那一行的「选择」/「登录」就能回来）。")
+                  .arg(name));
+    // 外观也得跟着回默认：预览、账号列表里那个「当前」标记、披风列表都要重画一遍。
+    // 没登录这一档走上半截就返回了（loadSavedToken() 取不到令牌），不会去联网。
+    refreshAccountSkin();
 }
 
 void MainWindow::useAccountFromPanel(const QString &uuid) {

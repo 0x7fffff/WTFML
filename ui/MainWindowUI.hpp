@@ -658,7 +658,7 @@ public:
     // MainWindow 每次点开时把"现在有几个实例在跑 / 最近用过哪三个账号"翻成下面这两层
     // 结构递给它（setBottomBarPanelContent()），回来的是"第几行第几个动作被点了"。
     // 于是这里只管画：图标 + 一列字 + 行尾几个按钮，怎么弹、弹在哪，也都是这里的事。
-    /// 行尾的一个动作按钮（左面板是电源/齿轮两颗图标，右面板是「选择」「登录」一个词）。
+    /// 行尾的一个动作按钮（左面板是电源/齿轮两颗图标，右面板是「选择」「登录」「登出」一个词）。
     /// 图标和文字**二选一**：给了 icon 就画图标，否则画 text。
     struct PanelAction {
         QPixmap icon;
@@ -666,7 +666,9 @@ public:
         /// 鼠标停上去显示的那句话（图标按钮**必须**有 —— 一个电源符号说明不了
         /// "点了会把游戏杀掉"，文字按钮可省）。
         QString tooltip;
-        /// false = 灰掉点不动（右面板里"当前账号"那一行就是它）。
+        /// false = 灰掉点不动。**现在右面板里没有哪一颗走这一档**（当前账号那一行原先
+        /// 灰着，2026-09-24 换成了可点的「登出」）；留着是给将来"这一下现在做不了"
+        /// 那种按钮用的 —— 灰掉必须是真灰（Qt 的 disabled 按钮根本不发 clicked）。
         bool enabled = true;
     };
     /// 面板里的一行。
@@ -729,9 +731,20 @@ public:
     /// （<6 小时就顺手换一张，见 MainWindow）。
     static QString bottomBarPanelSelectText() { return QStringLiteral("选择"); }
     static QString bottomBarPanelLoginText() { return QStringLiteral("登录"); }
-    /// 当前账号那一行：按钮写「当前」并**灰掉** —— 点自己等于什么都不做
-    /// （onAccountSwitchRequested() 开头那句 `uuid == activeUuid()` 就 return）。
-    static QString bottomBarPanelCurrentText() { return QStringLiteral("当前"); }
+    /// 当前账号那一行：按钮写「登出」、**可点**。
+    ///
+    /// NOTE: 用户 2026-09-24 原话：「把那个账户管理里的当前改成登出」—— 原先是写「当前」
+    ///       并把那颗按钮**灰掉**（点自己等于什么都不做）。
+    ///
+    /// NOTE: 登出**不删账号**：只清掉盘上的登录状态，那一项还留在列表里，点它那行的
+    ///       「选择」/「登录」就回来了（见 AccountStore::logout()）。想彻底不要这个账号
+    ///       走「账号与外观…」里的「删除所选」。
+    static QString bottomBarPanelLogoutText() { return QStringLiteral("登出"); }
+    /// 登出那颗按钮的悬停提示。文字按钮本可以不写 —— 但这一颗要说清"账号还在不在"，
+    /// 不然用户不敢点（"登出"听起来像是要把账号弄没）。
+    static QString bottomBarPanelLogoutTip() {
+        return QStringLiteral("退出登录：清掉盘上的登录状态，这个账号还留在列表里");
+    }
     /// 右面板里那一行**第二句**说的"这是个什么账号"。
     ///
     /// NOTE: 和底栏那两句（accountTypeOnlineText() = 「正版登录」）**不是一回事**：底栏说的是

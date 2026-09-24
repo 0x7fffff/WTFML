@@ -482,6 +482,13 @@ private:
     /// 「看令牌需不需要更新，（过期时间小于6h）要的话就刷新」）—— 换不出来就弹窗说原因，
     /// 并指向"重新登录一次"那条路。
     void useAccountFromPanel(const QString &uuid);
+    /// 底栏右面板里点了某个账号那颗「登出」—— 也就是**当前**账号那一行（别人那行写的是
+    /// 「选择」/「登录」，见 recentAccountPanelRows()）。
+    ///
+    /// 清掉盘上的登录状态，但**不删账号**：那一项留在列表里，点它那行的「选择」/「登录」
+    /// 就回来了（见 AccountStore::logout()）。想彻底不要这个账号走「账号与外观…」里的
+    /// 「删除所选」。清完把底栏、日志、外观一起刷一遍。
+    void logoutCurrentAccount();
     /// 一个版本号在界面上的显示名（"已安装版本"下拉框里的那条文本）。
     /// 下拉框里没有它时退回版本号本身。
     QString instanceDisplayName(const QString &versionId) const;
