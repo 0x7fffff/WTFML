@@ -365,27 +365,36 @@ void rasterizeFace(const DrawFace &face, Canvas &canvas, bool blendOnly) {
 const QColor kPlaceholderBody(0x00, 0x00, 0x00);
 const QColor kPlaceholderInk(0xFF, 0xFF, 0xFF);
 
-/// 脸上那枚问号：5 格宽 × 7 格高，`#` 是要画成白色的格子（最后那一行是底下那一点，
+/// 脸上那枚问号：4 格宽 × 6 格高，`#` 是要画成白色的格子（最后那一行是底下那一点，
 /// 中间空的那一行是它和上面那钩子之间的距离）。**写死**，不画字体 —— 字号一缩放就不是
 /// 这个形状了，而且这一格要能对着像素断言。
 ///
-/// NOTE: 和 `VersionIcons.cpp` 里幸运方块上那枚是**同一个形状**，两处各写一份：一个是版本树
-///       的方块图标、一个是皮肤贴图，为了这 7 行字让两个模块互相 include 不值当。
-///       改了这边别忘了那边（两处都有按像素量的断言，不会静默飘走）。
-const char *const kQuestionRows[7] = {
-    ".###.",
-    "#...#",
-    "....#",
-    "...#.",
-    "..#..",
-    ".....",
-    "..#..",
+/// NOTE: 和 `VersionIcons.cpp` 里幸运方块上那枚**不再一样**了 —— 那边还是 5×7（方块是
+///       16×16、四周还有一圈描边，半格的偏差看不出来），这边缩成 4×6 是为了正中（见
+///       kQuestionOffset 那段）。两处各写一份：一个是版本树的方块图标、一个是皮肤贴图，
+///       为了这几行字让两个模块互相 include 不值当。改了哪边，哪边那条按像素量的断言会红。
+constexpr int kQuestionWidth = 4;
+constexpr int kQuestionHeight = 6;
+const char *const kQuestionRows[kQuestionHeight] = {
+    ".##.",
+    "#..#",
+    "...#",
+    "..#.",
+    "....",
+    "..#.",
 };
 
 /// 这枚问号在**脸上那一格里的偏移**（不是贴图上的绝对位置——那一格在哪由 faceRect() 说了算，
-/// 见 defaultSteveSkin()）。字形 5×7 塞进 8×8：横向余 3 格、纵向余 1 格，这儿是分给左边和
-/// 下巴的那份余量。
-const QPoint kQuestionOffset(1, 0);
+/// 见 defaultSteveSkin()）。
+///
+/// 字形是 4×6、脸是 8×8，于是上下左右余量正好各是整数：(8−4)/2 = 2、(8−6)/2 = 1 ——
+/// **这就是它居中的全部理由**。
+///
+/// NOTE: 2026-09-24 用户原话「那个问号能不能再居中一点点，就算小一点也没关系」。原来那版是
+///       5×7 摆在 (1,0)：5 和 7 都是奇数、脸是偶数，**怎么摆都差半格**（那版是左 1 右 2、
+///       上 0 下 1，整个偏左上）。所以"再居中一点点"只有一条路：把字形缩成偶数宽 —— 小
+///       一点是代价，用户认了。想改大的话，宽度必须是 2 / 4 / 6 才可能正中。
+const QPoint kQuestionOffset(2, 1);
 
 }  // namespace
 
@@ -813,9 +822,12 @@ QImage defaultSteveSkin() {
     // 由 faceRect() 给，和渲染那边**同一个出处** —— 所以"问号落在脸上"不靠"我知道那是 (8,8)"
     // 这种记忆，面挪了这儿跟着挪。
     const QRect headFront = faceRect(QPoint(0, 0), 8, 8, 8, Face::Front);
-    for (int row = 0; row < 7; ++row) {
+    // 这两个循环的边界从**表本身**取：表是 `kQuestionRows[kQuestionHeight]`、一行
+    // `kQuestionWidth` 个字符，加宽加高只用改那两行 —— 中间那几行空的是**黑的**（底色
+    // 已经刷过），不是"不画"，所以循环要照样走满。
+    for (int row = 0; row < kQuestionHeight; ++row) {
         const char *const cols = kQuestionRows[row];
-        for (int col = 0; col < 5; ++col) {
+        for (int col = 0; col < kQuestionWidth; ++col) {
             if (cols[col] != '#') {
                 continue;  // 空的那几格是**黑的**（底色已经刷过），不是"不画"
             }
