@@ -13,6 +13,7 @@
  */
 #pragma once
 
+#include <QMap>
 #include <QObject>
 #include <QString>
 #include <QStringList>
@@ -91,8 +92,65 @@ public:
      */
     bool setCurrentFolder(const QString &path);
 
+    // ------------------------------------------------------------------
+    // 各个根目录的**自定义名字**（要的是一行浅显的标签，不是去改磁盘上的目录名）
+    // ------------------------------------------------------------------
+    // 用户 2026-09-24 原话：「文件夹允许重命名（一个 customname，**不是直接改**，毕竟
+    // .minecraft 改起来容易出事）」。所以这一组只动设置、一个字都不碰盘 —— 和
+    // removeFolder() 那条"只动列表"的规矩是同一条。
+    //
+    // 名字的作用域就是这个类：设定、读回、跟着移除一起清掉，界面只管问它要。
+    // ------------------------------------------------------------------
+
+    /// 名字最长多少个字（界面那个输入框和数据层用的是**同一个数**）。
+    static int maxDisplayNameLength() { return 40; }
+
+    /**
+     * @brief 用户给某个根目录起的名字。
+     * @return 起过名字就返回那个名字；没起过、或者路径不在列表里时返回空串。
+     *
+     * NOTE: 空串**不是**一个可以显示的字 —— "没起过名字时显示什么"是界面的事
+     *       （自带那份显示「当前文件夹」，别的显示目录名），数据层不替它编一个。
+     */
+    QString displayName(const QString &path) const;
+
+    /**
+     * @brief 校验一个名字合不合法。**界面和数据层共用这一份判断**（和实例改名那条
+     *        `InstanceFiles::validateRenameTarget` 一个路数）—— 界面绝不自己抄一遍规则。
+     * @return 合不合法都是人话：合法返回空串，不合法返回一句可以直接弹给用户的原因。
+     *
+     * 空名字（或者只有空白）算**合法**：它的意思是"把名字清掉、回到默认那个显示名"，
+     * 不是错误 —— 用户想恢复原样时得有路可走。
+     */
+    static QString validateDisplayName(const QString &name);
+
+    /**
+     * @brief 给一个根目录起名字。传空名字 = 把这一项清掉。
+     * @param path 目录路径（内部先归一化）。
+     * @param name 新名字，调用前应当先过 validateDisplayName()。
+     * @return 这条路径在列表里就返回 true（名字没变也返回 true，和 addFolder() 一样，
+     *         返回值表达的是"现在它叫什么由我说了算"，不是"这次真改了"）。
+     *         名字真变了才发 foldersChanged()。
+     */
+    bool setDisplayName(const QString &path, const QString &name);
+
+    /**
+     * @brief 把一个用户添加的根目录**从列表里拿掉，并且把盘上那个目录整个删掉**。
+     * @param path 目录路径。
+     * @param error 失败时写进一句可以直接弹给用户的原因；可以传空。
+     * @return 删干净了返回 true。
+     *
+     * NOTE: 这正是 removeFolder() 那份文档里写着"刻意不做"的事 —— 所以它是**单独的**
+     *       一个入口，界面上也是单独一项（红色那项），名字就叫「删除」。两者的区别
+     *       必须一眼看得出来：移除只动列表，删除连盘上的东西一起没。
+     *
+     * 自带那份删不掉（和移除同一个理由：它是 AppPaths 的默认值、别的目录都不在盘上时
+     * 唯一的退路）。盘上目录**不存在**时不算失败：列表里那一条还是要清掉。
+     */
+    bool deleteFolder(const QString &path, QString *error = nullptr);
+
 signals:
-    /// 列表本身变了（加/移除）—— 界面据此重灌左边那张列表。
+    /// 列表本身变了（加/移除/改名）—— 界面据此重灌左边那张列表。
     void foldersChanged();
     /// 当前根目录变了 —— 界面据此切 AppPaths 并重灌所有跟路径有关的东西。
     void currentFolderChanged(const QString &path);
@@ -103,7 +161,21 @@ private:
     /// 否则同一份目录会以两种写法同时进列表）。
     static QString normalized(const QString &path);
 
+    /// 把自定义名字表写回设置（原始形态见 LauncherSettings::folderNames()）。
+    void storeNames();
+
+    /// 「这个根目录不归我们管了」的收尾：从列表与名字表里摘掉、落盘、发信号，
+    /// 摘掉的正好是当前在用的那一份时退回自带那份。
+    ///
+    /// NOTE: 摘出来是因为**移除**和**删除**都要走这一段，两边各写一遍的话迟早只剩一边
+    ///       记得要发信号、或者只剩一边记得要退回自带那份（那两种漏法在界面上都表现为
+    ///       "列表变了但右边还是旧的那一份"）。
+    void forgetFolder(const QString &target);
+
     LauncherSettings *m_settings;
     QStringList m_userFolders;  // 用户添加的那些（不含自带那份）
     QString m_current;          // 归一化后的绝对路径，一定非空
+    /// 路径 → 自定义名字。存的是**归一化之后**的路径（和 m_userFolders 同一套写法），
+    /// 不然盘符大小写或斜杠方向换一下就会认不出这个名字。
+    QMap<QString, QString> m_names;
 };

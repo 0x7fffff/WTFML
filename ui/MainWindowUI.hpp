@@ -508,6 +508,12 @@ public:
     static QString removeFolderButtonName() { return QStringLiteral("removeFolderButton"); }
     static QString folderHintLabelName() { return QStringLiteral("folderHintLabel"); }
     static QString addFolderText() { return QStringLiteral("添加文件夹…"); }
+    /// 启动器自带的那一份（和 exe 同一个目录里的 .minecraft）在列表**上面那行**写什么。
+    ///
+    /// NOTE: 用户 2026-09-24 原话：「显示的时候，和启动器在一个目录里的叫当前文件夹」。
+    ///       注意它不是"正在用的那一份"（那一份是**选中**哪一行说了算，两者大多数时候
+    ///       是同一个，但用户加了别的目录之后就不是了）—— 这一份认的是位置，不是状态。
+    static QString folderAssistantTitle() { return QStringLiteral("当前文件夹"); }
     /// NOTE: 带省略号 —— 点下去先弹一个确认框，而那个框是这一步**唯一**说清
     ///       "只动列表、盘上文件一个字节都不动"的地方（用户最容易误会的就是这一步）。
     static QString removeFolderText() { return QStringLiteral("移除文件夹…"); }
@@ -796,6 +802,115 @@ public:
     static QString runStateDetailLabelName() { return QStringLiteral("runStateDetailLabel"); }
     static QString progressBarName() { return QStringLiteral("progressBar"); }
     static QString statusLabelName() { return QStringLiteral("statusLabel"); }
+
+    // ------------------------------------------------------------------
+    // 实例页左栏那张「游戏文件夹」列表（2026-09-24 改造：两行式 + 行尾齿轮菜单）
+    // ------------------------------------------------------------------
+    // 用户原话：「显示的时候和版本下载那里类似，上面（版本名同样的地方）写 customname，
+    // 下面（发布日期那里）写路径，分栏做高一点不要像现在那么小，每个版本右侧有个齿轮，
+    // 点击以后会有个类似右键菜单的页面（框），里面是刷新 重命名 打开（explorer.exe）
+    // 移除 删除（红色字）」。
+    //
+    // 形状照抄版本树那几行：**上面一行正文 + 下面一行小字**，行高因此比原来那条单行
+    // 列表高一倍（见 folderRowHeight()）。行尾那颗齿轮是**真按钮**（不是画出来再靠
+    // 事件过滤器认位置）—— 和底栏面板那几颗同一个理由：真控件白得 hover / 按下 /
+    // disabled 三态，验证工程也能按 objectName 把它找回来点。
+    // ------------------------------------------------------------------
+
+    /// 列表里的一行。
+    struct FolderRow {
+        /// **这一行是谁**：根目录的绝对路径。齿轮菜单里那几个动作原样带着它回来。
+        ///
+        /// NOTE: 认身份必须靠它，**不能靠"第几行"** —— 菜单弹出来到用户点某一下之间
+        ///       隔着看两眼的时间，这中间列表是会变的（别处删掉了一份文件夹）。
+        ///       这和 PanelRow::key 那条 NOTE 是同一个道理。
+        QString path;
+        /// 上面那行字：用户起的 customname；没起过时由 MainWindow 给默认显示名
+        /// （自带那份是「当前文件夹」，别的目录是目录名）。
+        QString title;
+        /// 下面那行字：完整路径（系统分隔符）。目录不在盘上时后面还缀一句。
+        QString subtitle;
+        /// true = 启动器自带的**那一份**。它同时是两件事：行尾齿轮的提示里说明是哪一份，
+        /// 以及菜单里「移除」「删除」两项**灰掉**的理由（那一份移不掉也删不掉）。
+        bool assistant = false;
+        /// true = 这一行就是启动器当前在用的那一份（列表里选中它）。
+        bool current = false;
+    };
+
+    /// 齿轮弹出来那五项，**顺序就是它们显示的顺序**（枚举值不是下标，别拿它去索引）。
+    /// 每一项对应 MainWindow 那边的一个槽；「删除」是红色那项。
+    enum FolderAction {
+        FolderActionRefresh,  ///< 刷新：重新扫一遍这个文件夹
+        FolderActionRename,   ///< 重命名：改的是 customname，不碰磁盘上的目录名
+        FolderActionOpen,     ///< 打开：拿系统资源管理器打开那个目录
+        FolderActionRemove,   ///< 移除：只从列表里拿掉，盘上不动（和下面那个按钮同一件事）
+        FolderActionDelete,   ///< 删除：**连盘上的目录一起删掉**（红色那一项）
+    };
+    /// 一共几项（菜单是照它循环摆的，验证工程也按它数行）。
+    static int folderActionCount() { return 5; }
+    /// 第 @p action 项上写的字。
+    static QString folderActionText(int action);
+    /// 第 @p action 项鼠标停上去显示的那句话。
+    static QString folderActionTooltip(int action);
+    /// 第 @p action 项前面那个图标（全是代码画的字形，见 VersionIcons）。
+    static QPixmap folderActionIcon(int action, int size, const QColor &color);
+    /// 「删除」那一项的字色。**全仓唯一一处红字**，用户点名要的（原话里就写着"红色字"）。
+    ///
+    /// NOTE: 红分两档（浅色主题用深红、深色主题用浅红）：深红落在深色底上只剩一团黑，
+    ///       而这颗红字正是"这一项会把东西删掉"这件事的唯一提示，看不见就等于没有。
+    ///       判据是窗口底色的明度 —— 和 QSS 那几处"从调色板推颜色"同一个路数。
+    static QColor folderDangerColor(const QPalette &palette);
+
+    /// 一行的高度（像素）。两行字 + 上下各一圈边距，比原来那条单行列表高不少 ——
+    /// 用户原话「分栏做高一点不要像现在那么小」。
+    static int folderRowHeight() { return 56; }
+
+    /// 齿轮弹出来那个框。名字挂在这里是为了让验证工程能按 objectName 把它找回来
+    /// （它是个 Qt::Popup 窗口，父子关系照旧，所以 findChild 找得到）。
+    static QString folderMenuName() { return QStringLiteral("folderMenu"); }
+    // NOTE: **不用 QMenu::exec()**。仓库里右键菜单本来是零先例的，原因写在实例页那三个
+    //       按钮那段注释里：验证工程跑在 offscreen 上，exec() 会阻塞在事件循环里，
+    //       几乎驱动不了。所以这里和底栏那两块面板一样 —— Qt::Popup + show()，
+    //       点外面/Esc 自己关，但**不阻塞**，验证工程能把它捞回来逐项点。
+    /// 菜单里第 @p action 项的 objectName。
+    static QString folderMenuActionName(int action) {
+        return QStringLiteral("folderMenuAction%1").arg(action);
+    }
+    /// 菜单每一项的图标边长（像素）。
+    static int folderMenuIconSize() { return 16; }
+    /// 行尾那颗齿轮按钮的边长（像素）。里面装的是 folderMenuIconSize() 那么大一个字形。
+    static int folderRowGearSize() { return 24; }
+
+    /// 列表里第 @p index 行的 objectName（行本身、两行字、行尾那颗齿轮）。
+    static QString folderRowName(int index) { return QStringLiteral("folderRow%1").arg(index); }
+    static QString folderRowTitleName(int index) {
+        return QStringLiteral("folderRowTitle%1").arg(index);
+    }
+    static QString folderRowSubtitleName(int index) {
+        return QStringLiteral("folderRowSubtitle%1").arg(index);
+    }
+    static QString folderRowGearName(int index) {
+        return QStringLiteral("folderRowGear%1").arg(index);
+    }
+
+    /// 「齿轮菜单里某一项被点了」。
+    ///
+    /// NOTE: 只有这一个回调 —— 点行本身（选中那一份文件夹）走的还是 QListWidget 自己那套，
+    ///       界面这一层不插一手（行里的字和图标都是**不吃鼠标**的普通控件，点下去会一路
+    ///       冒泡到 viewport，选中照旧生效；行尾那颗齿轮按钮才吃掉自己的那一下）。
+    using FolderActionHandler = std::function<void(const QString &path, int action)>;
+    /// 装上那个回调。**由 MainWindow 在构造时调一次**（数据在它手里）；没装的话
+    /// 菜单照样弹得出来，只是点了没反应。
+    void setFolderActionHandler(FolderActionHandler handler) {
+        m_folderActionHandler = std::move(handler);
+    }
+
+    /// 把左边那张列表整个重灌一遍（几行、每行写什么，全由 MainWindow 翻好递进来）。
+    ///
+    /// NOTE: 里面**挡住了信号** —— 重灌不是"用户改选"，但为了摆出选中态最后要调一次
+    ///       setCurrentItem()，那个会发 currentRowChanged。不挡的话每刷一次列表就等于
+    ///       又切一次游戏文件夹（而"切换"是要重扫磁盘、重灌界面的）。
+    void setFolderRows(const QList<FolderRow> &rows);
 
     // ---------- 左右两栏（主页/实例/下载三页用；设置页是两列 grid） ----------
     // 栏是**真的控件**（不是裸布局）：这样才能按 objectName 找回来量几何、
@@ -1223,6 +1338,9 @@ private:
     /// 搭底部那条通栏状态条（左：实例运行状态，中：进度，右：头像/用户名 ——
     /// 2026-09 把左右两格对调过，见 .cpp 里的说明）。
     void setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout);
+    /// 行尾那颗齿轮被点了：把菜单贴在那颗按钮上弹出来（或者**收回去** —— 已经弹着、
+    /// 而且就是这一颗弹的时候，再点一下是收回，和底栏那两块面板一个路数）。
+    void openFolderMenu(const FolderRow &row, QWidget *gear);
 
     // 控件指针
     //
@@ -1305,4 +1423,6 @@ private:
     /// （见 setBottomBarPanelContent()）—— 界面这一头**不查数据**，只画。
     PanelRowsProvider m_panelRowsProvider;
     PanelActionHandler m_panelActionHandler;
+    /// 「文件夹齿轮菜单里某一项被点了」该告诉谁（见 setFolderActionHandler()）。
+    FolderActionHandler m_folderActionHandler;
 };

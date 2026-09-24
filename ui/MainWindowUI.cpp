@@ -16,8 +16,10 @@
 #include <QEvent>
 #include <QFont>
 #include <QGridLayout>
+#include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QIcon>
+#include <QScreen>
 #include <QMenuBar>
 #include <QMouseEvent>
 #include <QPainter>
@@ -423,15 +425,18 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // 左边这张列表就是"启动器用哪一份 .minecraft"的选择器：选中哪一项，版本、资源、
         // 库、自管 Java 就全从那一份里找（PCL 左边那几张卡片是同一个意思）。
         // 自带的那一份永远排第一（见 FolderManager），所以列表不会是空的。
+        //
+        // NOTE: 每一行的内容**不是**条目自己画的（条目上没有文字），而是 setItemWidget()
+        //       塞进去的一个 FolderRowWidget（见 setFolderRows()）——两行字 + 行尾一颗
+        //       齿轮需要一个真控件才摆得下。所以下面那两条"文字怎么省略"的老设置现在只管
+        //       "别冒出横向滚动条"这一件事：省略由那一行里的 ElidedLabel 自己做（从中间
+        //       省略：路径两头 —— 盘符和最后一级目录名 —— 都比中间那截有用）。
         folderList = new QListWidget(folderGroupBox);
         folderList->setObjectName(folderListName());
         folderList->setUniformItemSizes(true);
-        // 路径比左栏宽是常态（`D:\MC\.minecraft` 就快 20 个字符了），而左栏只有 3:10。
-        // 不关横向滚动条的话，条目会按文字宽度撑开、滚轮之外还多一条横条，而文字**不会**
-        // 省略 —— 关掉它，条目宽度就跟视口走，省略号才生效。从中间省略：路径两头
-        // （盘符和最后一级目录名）都比中间那截有用，完整路径在 tooltip 里。
         folderList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
         folderList->setTextElideMode(Qt::ElideMiddle);
+        folderList->setSelectionMode(QAbstractItemView::SingleSelection);
         folderLayout->addWidget(folderList, 1);
 
         QHBoxLayout *folderButtons = new QHBoxLayout;
@@ -442,11 +447,21 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // 「移除」**只是从列表里拿掉**，盘上的东西一个字节都不动。这句是给"不敢按"的人
         // 看的：按钮上写不下，就在悬停时说出来（同一个意思在确认框和下面那句提示里各有一遍）。
         removeFolderButton->setToolTip(
-            QStringLiteral("只从列表里移除：文件夹本身和里面的文件都不会被删掉"));
+            QStringLiteral("只从列表里移除：文件夹本身和里面的文件都不会被删掉"
+                           "（要连磁盘上的目录一起删，用那一行右边齿轮里的「删除」）"));
         folderButtons->addWidget(addFolderButton);
         folderButtons->addWidget(removeFolderButton);
         folderLayout->addLayout(folderButtons);
 
+        // 这一段话**不能再加长**（要写新的说明，去写齿轮菜单那五项各自的 tooltip ——
+        // 见 folderActionTooltip）。两个理由：
+        //   ① 它在左栏里（左栏占窗口宽度的 3/13，900 宽的窗口下只有两百来像素），
+        //      现在这几句已经要折五六行；
+        //   ② 它会顶**整窗**的 sizeHint。折行 QLabel 的 sizeHint 宽度是横向 advance 的
+        //      一个分档（1/4），不是线性的：2026-09-24 实测，把这段话写到 1260 px 宽时
+        //      整窗的 sizeHint 从 818 跳到 1042，ui_check 里 E5 那条 900 上限当场红。
+        // 「移除」和「删除」那把尺子（只动列表 vs 连盘上的东西一起没）在齿轮菜单那两项、
+        // 以及它们各自的确认框上各说了一遍，不靠这一句。
         QLabel *folderHint = new QLabel(
             QStringLiteral("选中的就是启动器当前使用的 .minecraft（版本、存档、资源都从这里读）。"
                            "自带的那一份移不掉；「移除文件夹」只把它从列表里拿掉，"
@@ -1500,6 +1515,262 @@ QLabel *makeChevronLabel(QWidget *parent) {
     return label;
 }
 
+// ---------------------------------------------------------------------------
+// 实例页左栏「游戏文件夹」列表：一行 = 上面一个名字、下面那条路径、行尾一颗齿轮。
+// ---------------------------------------------------------------------------
+
+/// 行里两圈边距：外面那圈（行自己的内边距）比组框那圈小一点，里面两行字之间不留缝
+/// （它们是一段话的两行，不是两个控件）。
+constexpr int kFolderRowSideMargin = 8;
+constexpr int kFolderRowTopMargin = 6;
+
+/// 行尾那颗齿轮到自己那两行字的间距。
+constexpr int kFolderRowGearSpacing = 6;
+
+/**
+ * @brief 「游戏文件夹」列表里的一行。
+ *
+ * NOTE: 这两行字和行尾那颗齿轮全是**真控件**，没有一行是自绘的 —— 和底栏面板那几行
+ *       同一个取法（理由也一样：真按钮白得 hover / 按下 / disabled 三态，验证工程还
+ *       能按 objectName 把每一颗找回来点它）。
+ *
+ * NOTE: 这一行里**只有齿轮吃鼠标那一下**。那两行字是普通 QLabel（不吃鼠标事件），
+ *       事件会一路冒泡到列表的 viewport，于是"点行 = 选中这一份文件夹"照旧生效 ——
+ *       这和"取消小叉"那个自绘的格子正好相反（那里非拦不可，因为拦晚了会变成"点进了
+ *       安装页"）。这里不拦是有意的：选中那一份文件夹是这个列表最主要的用途。
+ */
+class FolderRowWidget : public QWidget {
+public:
+    /// @param row 这一行要画什么（数据由 MainWindow 翻好递进来）。
+    /// @param index 第几行（**只用来生成 objectName**）。
+    /// @param onGear 行尾那颗齿轮被点了，参数是"哪一行、那颗按钮"。
+    FolderRowWidget(const MainWindowUI::FolderRow &row, int index,
+                    const std::function<void(const MainWindowUI::FolderRow &, QWidget *)> &onGear,
+                    QWidget *parent)
+        : QWidget(parent) {
+        setObjectName(MainWindowUI::folderRowName(index));
+
+        QHBoxLayout *line = new QHBoxLayout(this);
+        line->setContentsMargins(kFolderRowSideMargin, kFolderRowTopMargin, kFolderRowSideMargin,
+                                 kFolderRowTopMargin);
+        line->setSpacing(kFolderRowGearSpacing);
+
+        QVBoxLayout *texts = new QVBoxLayout;
+        texts->setContentsMargins(0, 0, 0, 0);
+        texts->setSpacing(0);
+
+        // 上面那行：名字。正常字色、正常字号 —— 它是这一行的正文。
+        QLabel *title = new ElidedLabel(this);
+        title->setObjectName(MainWindowUI::folderRowTitleName(index));
+        title->setText(row.title);
+        texts->addWidget(title);
+
+        // 下面那行：路径。小一号、次要颜色（和版本树那几行的第二行一个路数）。
+        QLabel *subtitle = new ElidedLabel(this);
+        subtitle->setObjectName(MainWindowUI::folderRowSubtitleName(index));
+        subtitle->setText(row.subtitle);
+        QFont subtitleFont = subtitle->font();
+        subtitleFont.setPointSize(qMax(1, subtitleFont.pointSize() - 1));
+        subtitle->setFont(subtitleFont);
+        QPalette subtitlePalette = subtitle->palette();
+        subtitlePalette.setColor(QPalette::WindowText,
+                                 subtitlePalette.color(QPalette::PlaceholderText));
+        subtitle->setPalette(subtitlePalette);
+        texts->addWidget(subtitle);
+
+        // 份数 0：这两行字多宽就占多宽，富余的宽度都给齿轮前面那个空档 —— 齿轮因此
+        // 贴在**最右边**（几行的齿轮竖着对齐）。不这么做的话它紧跟着路径，而路径一行
+        // 长一行短，几颗齿轮就会错开。
+        line->addLayout(texts, 0);
+        line->addStretch(1);
+
+        QPushButton *gear = new QPushButton(this);
+        gear->setObjectName(MainWindowUI::folderRowGearName(index));
+        const int iconSize = MainWindowUI::folderMenuIconSize();
+        gear->setIcon(QIcon(VersionIcons::gear(iconSize, palette().color(QPalette::WindowText))));
+        gear->setIconSize(QSize(iconSize, iconSize));
+        gear->setFixedSize(MainWindowUI::folderRowGearSize(), MainWindowUI::folderRowGearSize());
+        gear->setCursor(Qt::PointingHandCursor);
+        gear->setToolTip(row.assistant
+                             ? QCoreApplication::translate(
+                                   "MainWindowUI", "这一份的更多操作（自带的那一份移不掉、"
+                                                   "也删不掉）")
+                             : QCoreApplication::translate("MainWindowUI",
+                                                           "这一份的更多操作"));
+        applyPanelActionStyle(gear, palette(), false);
+        // 点的是**哪一行**靠这里捕下来的值认（不认"第几行"）。菜单弹出来到用户点某一项
+        // 之间隔着看两眼的时间，这中间列表是会变的（见 FolderRow::path 那段 NOTE）。
+        QObject::connect(gear, &QPushButton::clicked, gear,
+                         [onGear, row, gear]() { onGear(row, gear); });
+        line->addWidget(gear, 0, Qt::AlignVCenter);
+
+        // 整行的悬停提示：两行字都可能被省略号截掉（左栏只有窗口宽度的 3/13），
+        // 把没截的那份原文挂在这儿。
+        setToolTip(row.title + QLatin1Char('\n') + row.subtitle);
+    }
+};
+
+/**
+ * @brief 行尾那颗齿轮点出来的那个框（刷新 / 重命名 / 打开 / 移除 / 删除）。
+ *
+ * 用 Qt::Popup 而不是 QMenu：**不是**为了好看，是为了验证工程驱动得了 —— QMenu::exec()
+ * 会阻塞在事件循环里（offscreen 下尤其没法驱动），而 Qt::Popup + show() 该白给的一样
+ * 白给：点框外面自动关、Esc 关、不抢主窗口的焦点，而且**不阻塞**。
+ *
+ * NOTE: 它是个窗口（Qt::Popup 一定是顶层窗口），但 parent 照旧挂着 —— 这样 findChild
+ *       找得到它（验证工程靠这个把它捞回来逐项点），生命周期也不用单独管。
+ */
+class FolderMenu : public QWidget {
+public:
+    /// 某一项被点了：参数是"哪一份文件夹、第几项"。
+    using ActionCallback = std::function<void(const QString &, int)>;
+
+    /// @param row 给谁弹的（决定哪几项是灰的）。
+    /// @param anchor 贴着哪颗齿轮弹（也用来认"再点一次是收回"）。
+    /// @param onAction 某一项被点了该告诉谁（可以给空的 = 点了没反应）。
+    FolderMenu(const MainWindowUI::FolderRow &row, QWidget *anchor,
+               const ActionCallback &onAction, QWidget *parent)
+        : QWidget(parent, Qt::Popup | Qt::FramelessWindowHint), m_anchor(anchor), m_path(row.path) {
+        setObjectName(MainWindowUI::folderMenuName());
+        // 底色比内容区深一档：它是压在列表上面的一块，得从底下那堆东西里分出来。
+        // **不写死颜色**：从当前调色板推出来，浅色/深色主题下都成立（和底栏、面板同一个路数）。
+        setAutoFillBackground(true);
+        QPalette menuPalette = palette();
+        menuPalette.setColor(QPalette::Window, menuPalette.color(QPalette::Window).darker(112));
+        setPalette(menuPalette);
+
+        // 点某一项要**先把自己收回去**，再把动作交给外面 —— 那五项里有两项要弹模态窗
+        // （重命名那个输入框、删除那个确认框），而这块框是个 Qt::Popup，按着鼠标键盘的
+        // grab。模态窗开在一块抓着手柄的东西底下，Windows 上就是"窗出来了但点不动"。
+        //
+        // NOTE: context 用 parent（列表那一头）而**不是** this：这个框是 WA_DeleteOnClose，
+        //       close() 之后它随时会被删掉，捕它等于捕一个随时没了的对象。
+        QWidget *const deferContext = parent;
+        const auto dispatch = [this, deferContext, onAction](int action) {
+            const QString path = m_path;
+            close();
+            if (!onAction) {
+                return;
+            }
+            // 再排到**下一轮事件循环**：close() 只是发了个关闭事件，要等这一轮走完才真的
+            // 没了 —— 当轮就弹模态窗等于没关（上面那条毛病一样在）。
+            QTimer::singleShot(0, deferContext, [onAction, path, action]() {
+                onAction(path, action);
+            });
+        };
+
+        const int iconSize = MainWindowUI::folderMenuIconSize();
+        QVBoxLayout *box = new QVBoxLayout(this);
+        box->setContentsMargins(kPanelPadding, kPanelPadding, kPanelPadding, kPanelPadding);
+        box->setSpacing(kPanelRowSpacing);
+        for (int a = 0; a < MainWindowUI::folderActionCount(); ++a) {
+            QPushButton *button = new QPushButton(this);
+            button->setObjectName(MainWindowUI::folderMenuActionName(a));
+            button->setText(MainWindowUI::folderActionText(a));
+            button->setIcon(QIcon(MainWindowUI::folderActionIcon(
+                a, iconSize, menuPalette.color(QPalette::WindowText))));
+            button->setIconSize(QSize(iconSize, iconSize));
+            // 图标放在文字**前面**：QPushButton 本来就是这个摆法（图标在左、文字在右），
+            // 前提是别把 text-align 设成居中 —— 下面那行 QSS 设的是 left，于是这一整块
+            // （图标 + 文字）从左边起排，看着才是"菜单"而不是"一排居中按钮"。
+            button->setStyleSheet(folderActionStyle(a, menuPalette));
+            // 「移除」和「删除」对自带那一份是灰的：它移不掉（FolderManager::removeFolder）
+            // 也删不掉（deleteFolder）。灰掉必须**配一句为什么** —— 灰着不说话，用户只会
+            // 以为界面坏了。
+            const bool protectedFolder = row.assistant &&
+                                         (a == MainWindowUI::FolderActionRemove ||
+                                          a == MainWindowUI::FolderActionDelete);
+            button->setEnabled(!protectedFolder);
+            button->setToolTip(protectedFolder
+                                   ? QCoreApplication::translate(
+                                         "MainWindowUI", "启动器自带的游戏文件夹，这一项做不了")
+                                   : MainWindowUI::folderActionTooltip(a));
+            button->setCursor(Qt::PointingHandCursor);
+            QObject::connect(button, &QPushButton::clicked, button,
+                             [dispatch, a]() { dispatch(a); });
+            box->addWidget(button);
+        }
+    }
+
+    /// 贴的是哪颗齿轮（"再点一次收回"要按它认人：点的是同一颗才算收回）。
+    QWidget *anchor() const { return m_anchor; }
+
+    /// 摆到 @p globalTopLeft 这个位置并显示出来（超出屏幕时往里收）。
+    void popUpAt(const QPoint &globalTopLeft) {
+        adjustSize();
+        QPoint target = globalTopLeft;
+        // 贴着行尾那颗齿轮弹，左栏又在窗口靠左的位置，所以整块框是往**右**展开的 ——
+        // 窗口窄的时候它会伸到屏幕外，得往回拉一下（拉的是整块框，不是它里面某一项）。
+        if (const QScreen *screen = QGuiApplication::screenAt(globalTopLeft)) {
+            const QRect available = screen->availableGeometry();
+            target.setX(qBound(available.left(), target.x(),
+                               qMax(available.left(), available.right() - width() + 1)));
+            target.setY(qBound(available.top(), target.y(),
+                               qMax(available.top(), available.bottom() - height() + 1)));
+        }
+        move(target);
+        show();
+        raise();
+        // 拿焦点只为一件事：Esc 能关（外面点一下 Qt 自己会关，那条不用管）。
+        setFocus(Qt::PopupFocusReason);
+    }
+
+protected:
+    void keyPressEvent(QKeyEvent *event) override {
+        if (event->key() == Qt::Key_Escape) {
+            close();
+            return;
+        }
+        QWidget::keyPressEvent(event);
+    }
+
+    /// 点在**自己那颗齿轮**上 = "再点一次收回"，这里自己把框关掉（和底栏那块面板同一个
+    /// 理由：Qt::Popup 有把这一下重放给下面控件那条路数，两条路都只关不开，所以怎么点
+    /// 都不会再冒出一块新的）。
+    void mousePressEvent(QMouseEvent *event) override {
+        if (m_anchor != nullptr &&
+            m_anchor->rect().contains(m_anchor->mapFromGlobal(event->globalPosition().toPoint()))) {
+            close();
+            event->accept();
+            return;
+        }
+        QWidget::mousePressEvent(event);
+    }
+
+    /// 一圈细边：同一档深浅在浅色主题下几乎看不出边界，分不出"框到哪为止"。
+    void paintEvent(QPaintEvent *) override {
+        QPainter painter(this);
+        painter.setPen(palette().color(QPalette::Mid));
+        painter.drawRect(rect().adjusted(0, 0, -1, -1));
+    }
+
+private:
+    /// 菜单里一项的外观：不画自己的底、只在鼠标划过时淡淡蒙一层（颜色从调色板取，
+    /// **不写死**），文字一律左对齐。「删除」那一项的字色是全仓唯一一处红字。
+    static QString folderActionStyle(int action, const QPalette &menuPalette) {
+        QColor hover = menuPalette.color(QPalette::Highlight);
+        hover.setAlpha(48);
+        QColor pressed = menuPalette.color(QPalette::Highlight);
+        pressed.setAlpha(96);
+        // 左右各留 8 px：图标贴着框边看着像被裁过。
+        QString sheet = QStringLiteral("QPushButton { border: none; background: transparent;"
+                                       " text-align: left; padding: 6px 8px; }"
+                                       "QPushButton:hover:enabled { background-color: %1; }"
+                                       "QPushButton:pressed:enabled { background-color: %2; }")
+                            .arg(hover.name(QColor::HexArgb), pressed.name(QColor::HexArgb));
+        if (action == MainWindowUI::FolderActionDelete) {
+            // 带 `:enabled` 是必须的：「删除」对自带那一份是**灰的**，红字落在灰按钮上
+            // 会读成"这一项现在能点"（而它点不动）。灰的时候一律跟着样式走（和别的项一样）。
+            sheet += QStringLiteral("QPushButton:enabled { color: %1; }")
+                         .arg(MainWindowUI::folderDangerColor(menuPalette).name());
+        }
+        return sheet;
+    }
+
+    QWidget *m_anchor = nullptr;
+    QString m_path;
+};
+
 }  // namespace
 
 void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
@@ -1759,4 +2030,138 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     barLayout->addWidget(accountButton, 0);
 
     mainLayout->addWidget(bottomBar);
+}
+
+QString MainWindowUI::folderActionText(int action) {
+    // 上下文写死 "MainWindowUI"：这个类不是 QObject（没有 tr()），和 launchingStatusText()
+    // 那几句同一个写法。
+    switch (action) {
+    case FolderActionRefresh:
+        return QCoreApplication::translate("MainWindowUI", "刷新");
+    case FolderActionRename:
+        return QCoreApplication::translate("MainWindowUI", "重命名");
+    case FolderActionOpen:
+        return QCoreApplication::translate("MainWindowUI", "打开");
+    case FolderActionRemove:
+        return QCoreApplication::translate("MainWindowUI", "移除");
+    case FolderActionDelete:
+        return QCoreApplication::translate("MainWindowUI", "删除");
+    }
+    // 越界（理论上到不了：菜单是照 folderActionCount() 循环摆的）。给空串而不是随便
+    // 返回一项 —— 空串在画面上是个空白按钮，一眼看得出不对。
+    return QString();
+}
+
+QString MainWindowUI::folderActionTooltip(int action) {
+    switch (action) {
+    case FolderActionRefresh:
+        return QCoreApplication::translate("MainWindowUI",
+                                           "重新扫一遍这个文件夹（里面多了或少了一个版本，"
+                                           "按一下就能看到）");
+    case FolderActionRename:
+        // 这句是用户最容易误会的一步：「重命名」听起来像要把磁盘上的目录改个名，
+        // 而它改的只是一个**显示用的名字**。所以正文里把"目录名不动"写死。
+        return QCoreApplication::translate("MainWindowUI",
+                                           "只改列表上显示的名字，磁盘上的目录名不动");
+    case FolderActionOpen:
+        return QCoreApplication::translate("MainWindowUI",
+                                           "用文件资源管理器打开这个文件夹");
+    case FolderActionRemove:
+        return QCoreApplication::translate("MainWindowUI",
+                                           "只从列表里移除：文件夹本身和里面的文件都不会被删掉");
+    case FolderActionDelete:
+        return QCoreApplication::translate("MainWindowUI",
+                                           "把这个文件夹和里面的文件从磁盘上删掉（不可恢复）");
+    }
+    return QString();
+}
+
+QPixmap MainWindowUI::folderActionIcon(int action, int size, const QColor &color) {
+    // 刷新和 X 用的是树上早就有的那两个字形（同一个"转一圈回来"、同一个"×"），
+    // 另外三个是本轮新画的（见 VersionIcons 里那三个函数的说明）。
+    switch (action) {
+    case FolderActionRefresh:
+        return VersionIcons::refresh(size, color);
+    case FolderActionRename:
+        return VersionIcons::pen(size, color);
+    case FolderActionOpen:
+        return VersionIcons::folderMark(size, color);
+    case FolderActionRemove:
+        return VersionIcons::cross(size, color);
+    case FolderActionDelete:
+        return VersionIcons::trash(size, color);
+    }
+    return QPixmap();
+}
+
+QColor MainWindowUI::folderDangerColor(const QPalette &palette) {
+    // 判据取的是**窗口底色的明度**（不是某个"主题叫什么"的标志位）：深底用浅红、
+    // 浅底用深红，两种主题下都是"一眼看出是红字"而不是"一团糊在底色里"。
+    if (palette.color(QPalette::Window).lightness() < 128) {
+        return QColor(0xff, 0x6b, 0x6b);
+    }
+    return QColor(0xc0, 0x28, 0x28);
+}
+
+void MainWindowUI::setFolderRows(const QList<FolderRow> &rows) {
+    QListWidget *list = folderList;
+    if (list == nullptr) {
+        return;  // setupUi() 还没跑完（和那几个访问器拿空指针当判据是同一个意思）
+    }
+    // 重灌不是"用户改选"，别让最后那句 setCurrentItem() 把切换逻辑又跑一遍（换了当前
+    // 文件夹等于重扫磁盘、重灌界面）。这一条以前在 MainWindow::refreshFolderList() 里，
+    // 现在填表搬到这里了，挡住信号的这一句就跟着搬过来。
+    const QSignalBlocker blocker(list);
+    list->clear();
+    for (int i = 0; i < rows.size(); ++i) {
+        const FolderRow row = rows.at(i);
+        auto *item = new QListWidgetItem(list);
+        // 身份照旧挂在 UserRole 上（updateFolderButtons() 和点击那条路都按它认人）。
+        item->setData(Qt::UserRole, row.path);
+        // 行高**必须显式给**：setItemWidget() 摆进去的那个控件多高由这一格决定，
+        // 不给的话条目按"没有文字"算高度，那一行会被压成一条缝。
+        item->setSizeHint(QSize(0, folderRowHeight()));
+        // 回调捕的是 row 本身（不是行号）：菜单弹出来到用户点某一项之间列表是会变的。
+        auto *widget = new FolderRowWidget(
+            row, i, [this](const FolderRow &clicked, QWidget *gear) { openFolderMenu(clicked, gear); },
+            list->viewport());
+        list->setItemWidget(item, widget);
+        if (row.current) {
+            list->setCurrentItem(item);
+        }
+    }
+}
+
+void MainWindowUI::openFolderMenu(const FolderRow &row, QWidget *gear) {
+    // 弹出来那一刻现问一遍"这一行长什么样"是做不到的（数据在 MainWindow 手里，
+    // 而这里只是个画界面的）—— 所以用的就是点这颗齿轮时捕下来的那一份快照。
+    // 它可能已经过时了（比如这一份刚被别处删掉）：那几种情况由 MainWindow 那边
+    // 按 path 重新查一遍状态来处理，界面这一层不猜。
+    QListWidget *const list = folderList;
+    if (list == nullptr) {
+        return;  // setupUi() 还没跑完（齿轮是列表里的东西，正常到不了这儿）
+    }
+    // "现在有没有开着一块"靠 findChild 认（和底栏那两块面板同一个路数）：
+    // NOTE: **挂在这个列表底下**，不是挂 MainWindowUI 上面 —— 这个类根本不是 QObject
+    //       （它没有 tr()），没有 findChild()。列表是这一行那个齿轮的宿主，也是全窗口
+    //       寿命的东西，拿它当 popup 的 parent 既找得回来又不会被谁提前删掉。
+    if (auto *open = dynamic_cast<FolderMenu *>(list->findChild<QWidget *>(folderMenuName()))) {
+        const bool sameAnchor = open->anchor() == gear;
+        open->close();
+        if (sameAnchor) {
+            return;
+        }
+    }
+    const FolderMenu::ActionCallback onAction = [this](const QString &path, int action) {
+        if (m_folderActionHandler) {
+            m_folderActionHandler(path, action);
+        }
+    };
+    auto *menu = new FolderMenu(row, gear, onAction, list);
+    // 这次弹出来的框归它自己管：关掉就删（不然点一次攒一个）。
+    menu->setAttribute(Qt::WA_DeleteOnClose);
+    // 开口朝右下：贴着齿轮的**右下角**往下展开一点点。菜单弹在行尾那颗按钮的下方
+    // 而不是"鼠标点在哪就弹在哪"—— 那样的话同一个齿轮点两次会弹在差几个像素的
+    // 地方，而且行高一行只有一次，对齐按钮比对齐鼠标更稳。
+    menu->popUpAt(gear->mapToGlobal(QPoint(0, gear->height() + kPanelGap)));
 }

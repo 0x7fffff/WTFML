@@ -92,6 +92,24 @@ public:
     void setCurrentFolder(const QString &dir);
 
     // ------------------------------------------------------------------
+    // 各个游戏文件夹的**自定义名字**（实例页左栏每行上面那一行字）
+    // ------------------------------------------------------------------
+    // 这是纯显示用的：它**不碰磁盘上的目录名**（用户 2026-09-24 原话：「一个 customname，
+    // 不是直接改，毕竟 .minecraft 改起来容易出事」）。所以它和 folders() 是两条独立的
+    // 记录，谁都不由谁推出来 —— 目录挪走了名字还在列表里，删掉了名字才跟着没。
+    //
+    // 存的是**原始形态**：每项是 `路径 + '\t' + 名字`。用制表符而不是再开一组 QSettings
+    // 键：键里带不了路径（`/` 是 QSettings 的分组分隔符，`D:/MC/.minecraft` 会被切成
+    // 好几层组），而 Windows 的文件名里根本不允许出现制表符，所以这个分隔符永远撞不上。
+    // ------------------------------------------------------------------
+
+    /// 全部自定义名字，原始形态（见上）。**拆开是 FolderManager 的事**。
+    QStringList folderNames() const;
+
+    /// 覆盖整份自定义名字表并立刻落盘。
+    void setFolderNames(const QStringList &names);
+
+    // ------------------------------------------------------------------
     // 「版本名格式」
     // ------------------------------------------------------------------
     // NOTE: 界面入口在设置页的「版本名格式」那一行 —— 四个勾选框
@@ -212,6 +230,7 @@ private:
     QString m_lastLaunchedVersion;
     QStringList m_folders;
     QString m_currentFolder;
+    QStringList m_folderNames;
     VersionNameOptions m_versionNameOptions;
     LauncherBehaviour m_launcherBehaviour = LauncherBehaviour::Unchanged;
     DownloadSource m_downloadSource = DownloadSource::Official;
