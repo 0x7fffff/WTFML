@@ -439,38 +439,27 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         folderList->setSelectionMode(QAbstractItemView::SingleSelection);
         folderLayout->addWidget(folderList, 1);
 
+        // 这一行**只有「添加文件夹…」一个按钮**了：2026-09-24 用户说「下面那个移除文件夹
+        // 也可以弃掉了」—— 「移除」现在只有行尾齿轮菜单里那一项（同一个
+        // MainWindow::removeFolderFromList()，同一个确认框）。
         QHBoxLayout *folderButtons = new QHBoxLayout;
         addFolderButton = new QPushButton(addFolderText(), folderGroupBox);
         addFolderButton->setObjectName(addFolderButtonName());
-        removeFolderButton = new QPushButton(removeFolderText(), folderGroupBox);
-        removeFolderButton->setObjectName(removeFolderButtonName());
-        // 「移除」**只是从列表里拿掉**，盘上的东西一个字节都不动。这句是给"不敢按"的人
-        // 看的：按钮上写不下，就在悬停时说出来（同一个意思在确认框和下面那句提示里各有一遍）。
-        removeFolderButton->setToolTip(
-            QStringLiteral("只从列表里移除：文件夹本身和里面的文件都不会被删掉"
-                           "（要连磁盘上的目录一起删，用那一行右边齿轮里的「删除」）"));
         folderButtons->addWidget(addFolderButton);
-        folderButtons->addWidget(removeFolderButton);
         folderLayout->addLayout(folderButtons);
 
-        // 这一段话**不能再加长**（要写新的说明，去写齿轮菜单那五项各自的 tooltip ——
-        // 见 folderActionTooltip）。两个理由：
-        //   ① 它在左栏里（左栏占窗口宽度的 3/13，900 宽的窗口下只有两百来像素），
-        //      现在这几句已经要折五六行；
-        //   ② 它会顶**整窗**的 sizeHint。折行 QLabel 的 sizeHint 宽度是横向 advance 的
-        //      一个分档（1/4），不是线性的：2026-09-24 实测，把这段话写到 1260 px 宽时
-        //      整窗的 sizeHint 从 818 跳到 1042，ui_check 里 E5 那条 900 上限当场红。
-        // 「移除」和「删除」那把尺子（只动列表 vs 连盘上的东西一起没）在齿轮菜单那两项、
-        // 以及它们各自的确认框上各说了一遍，不靠这一句。
-        QLabel *folderHint = new QLabel(
-            QStringLiteral("选中的就是启动器当前使用的 .minecraft（版本、存档、资源都从这里读）。"
-                           "自带的那一份移不掉；「移除文件夹」只把它从列表里拿掉，"
-                           "盘上的文件夹和文件都留着。"),
-            folderGroupBox);
-        folderHint->setObjectName(folderHintLabelName());
-        folderHint->setWordWrap(true);
-        folderHintLabel = folderHint;
-        folderLayout->addWidget(folderHint);
+        // 原来这里还有一段提示（"选中的就是启动器当前使用的 .minecraft…自带的那一份
+        // 移不掉…"），2026-09-24 用户说「下面那个文本也删了」，一起拿掉了。
+        // 它那两句话现在各有各的出处，一件都没丢：
+        //   ① 「这一份就是当前在用的」—— 右边「实例列表」那一组顶上那句
+        //      instanceFolderLabel 就写着当前是哪一份；
+        //   ② 「移除只动列表、删除才动盘」—— 齿轮菜单那两项各自的 tooltip
+        //      （folderActionTooltip）以及它们弹的那个确认框里各写了一遍。
+        // NOTE: 顺带解掉了一个耦合。那段话是折行的，而**折行 QLabel 的 sizeHint 宽度是
+        //       横向 advance 的分档**（不是线性）：2026-09-24 实测把它写到 1260 px 宽时，
+        //       它自己的 sizeHint 从 240 跳到 480、**整窗**的 sizeHint 从 818 顶到 1042，
+        //       ui_check 的 E5（整窗 sizeHint ≤ 900）当场红。现在左栏里没有折行标签了，
+        //       那条断言重新有了一大截余量 —— 但仍然别在这里加长句子（E5 量的还是整窗）。
         instance.left.layout->addWidget(folderGroupBox, 1);
     }
     {
@@ -1664,22 +1653,30 @@ public:
         box->setContentsMargins(kPanelPadding, kPanelPadding, kPanelPadding, kPanelPadding);
         box->setSpacing(kPanelRowSpacing);
         for (int a = 0; a < MainWindowUI::folderActionCount(); ++a) {
+            // 「移除」和「删除」对自带那一份是灰的：它移不掉（FolderManager::removeFolder）
+            // 也删不掉（deleteFolder）。灰掉必须**配一句为什么** —— 灰着不说话，用户只会
+            // 以为界面坏了。
+            //
+            // NOTE: 这个判断要在**画图标之前**算出来（下面那条彩色规则要用它）。
+            const bool protectedFolder = row.assistant &&
+                                         (a == MainWindowUI::FolderActionRemove ||
+                                          a == MainWindowUI::FolderActionDelete);
             QPushButton *button = new QPushButton(this);
             button->setObjectName(MainWindowUI::folderMenuActionName(a));
             button->setText(MainWindowUI::folderActionText(a));
+            // 字形颜色：「删除」那一项的垃圾桶跟着它的字一起红（2026-09-24 用户要的）。
+            // 灰掉的那一档仍走正文色 —— 和字那边是同一条规矩（见 folderActionStyle 里
+            // 的 `:enabled`）：红图标落在灰按钮上会被读成"这一项现在能点"。
             button->setIcon(QIcon(MainWindowUI::folderActionIcon(
-                a, iconSize, menuPalette.color(QPalette::WindowText))));
+                a, iconSize,
+                (a == MainWindowUI::FolderActionDelete && !protectedFolder)
+                    ? MainWindowUI::folderDangerColor(menuPalette)
+                    : menuPalette.color(QPalette::WindowText))));
             button->setIconSize(QSize(iconSize, iconSize));
             // 图标放在文字**前面**：QPushButton 本来就是这个摆法（图标在左、文字在右），
             // 前提是别把 text-align 设成居中 —— 下面那行 QSS 设的是 left，于是这一整块
             // （图标 + 文字）从左边起排，看着才是"菜单"而不是"一排居中按钮"。
             button->setStyleSheet(folderActionStyle(a, menuPalette));
-            // 「移除」和「删除」对自带那一份是灰的：它移不掉（FolderManager::removeFolder）
-            // 也删不掉（deleteFolder）。灰掉必须**配一句为什么** —— 灰着不说话，用户只会
-            // 以为界面坏了。
-            const bool protectedFolder = row.assistant &&
-                                         (a == MainWindowUI::FolderActionRemove ||
-                                          a == MainWindowUI::FolderActionDelete);
             button->setEnabled(!protectedFolder);
             button->setToolTip(protectedFolder
                                    ? QCoreApplication::translate(
@@ -1746,14 +1743,19 @@ protected:
 
 private:
     /// 菜单里一项的外观：不画自己的底、只在鼠标划过时淡淡蒙一层（颜色从调色板取，
-    /// **不写死**），文字一律左对齐。「删除」那一项的字色是全仓唯一一处红字。
+    /// **不写死**），文字一律左对齐，**字一律加粗**（2026-09-24 用户要的：一块压在上面的
+    /// 浮层，字不沉一点读起来像被底下的内容冲淡了）。「删除」那一项的字色是全仓唯一
+    /// 一处红字。
     static QString folderActionStyle(int action, const QPalette &menuPalette) {
         QColor hover = menuPalette.color(QPalette::Highlight);
         hover.setAlpha(48);
         QColor pressed = menuPalette.color(QPalette::Highlight);
         pressed.setAlpha(96);
         // 左右各留 8 px：图标贴着框边看着像被裁过。
+        // NOTE: 加粗走 QSS 的 `font-weight`（别去 setFont() 改控件的字体）—— 这条样式
+        //       表的**每一档状态**都是这里出的，字重跟别的属性待在同一个地方才不会漏。
         QString sheet = QStringLiteral("QPushButton { border: none; background: transparent;"
+                                       " font-weight: bold;"
                                        " text-align: left; padding: 6px 8px; }"
                                        "QPushButton:hover:enabled { background-color: %1; }"
                                        "QPushButton:pressed:enabled { background-color: %2; }")

@@ -822,8 +822,9 @@ void MainWindow::setupConnections() {
             &MainWindow::onAccountSkinButtonClicked);
     connect(m_ui->getAddFolderButton(), &QPushButton::clicked, this,
             &MainWindow::onAddFolderClicked);
-    connect(m_ui->getRemoveFolderButton(), &QPushButton::clicked, this,
-            &MainWindow::onRemoveFolderClicked);
+    // NOTE: 「移除文件夹」那个按钮 2026-09-24 删掉了（用户原话：「下面那个移除文件夹
+    //       也可以弃掉了」）—— 「移除」现在只有行尾齿轮菜单里那一项，走
+    //       onFolderActionRequested() → removeFolderFromList()，和按钮原来那条是同一个函数。
     connect(m_ui->getRenameInstanceButton(), &QPushButton::clicked, this,
             &MainWindow::onRenameInstanceClicked);
     connect(m_ui->getGroupInstanceButton(), &QPushButton::clicked, this,
@@ -4578,19 +4579,10 @@ void MainWindow::onAddFolderClicked() {
     m_folderManager->setCurrentFolder(folder);
 }
 
-void MainWindow::onRemoveFolderClicked() {
-    const QListWidgetItem *item = m_ui->getFolderList()->currentItem();
-    if (item == nullptr) {
-        QMessageBox::information(this, tr("移除文件夹"), tr("请先在列表里选中一个文件夹。"));
-        return;
-    }
-    removeFolderFromList(item->data(Qt::UserRole).toString());
-}
-
 void MainWindow::removeFolderFromList(const QString &folder) {
     if (m_folderManager->isDefaultFolder(folder)) {
-        // 只有"自带的那一份"会走到这儿（正常路径下按钮本来就是灰的），照实说明原因，
-        // 不是"移除失败"这种没法处理的消息。
+        // 只有"自带的那一份"会走到这儿（正常路径下齿轮里那一项本来就是灰的），照实说明
+        // 原因，不是"移除失败"这种没法处理的消息。
         QMessageBox::information(
             this, tr("移除文件夹"),
             tr("「%1」是启动器自带的游戏文件夹，移不掉。\n它是别的目录都被移走时唯一的退路。")
@@ -5186,12 +5178,14 @@ void MainWindow::refreshFolderList() {
 }
 
 void MainWindow::updateFolderButtons() {
-    const QListWidgetItem *item = m_ui->getFolderList()->currentItem();
-    const bool removable = item != nullptr &&
-                           !FolderManager::isDefaultFolder(item->data(Qt::UserRole).toString());
     // 下载期间整列都不给动（见 setDownloadUiBusy）：换文件夹会把后面那些文件写到
     // 另一份 .minecraft 里去，半批在里面半批在外面，比"这次下不了"难查得多。
-    m_ui->getRemoveFolderButton()->setEnabled(removable && !m_downloadInFlight);
+    //
+    // NOTE: 这里原来还按"当前选中的那一份是不是自带那份"给「移除文件夹」按钮算过
+    //       enabled，那个按钮 2026-09-24 删掉了。「移除」现在不在这儿管：齿轮菜单里
+    //       那一项的灰/亮由它自己按"这颗齿轮属于哪一行"算（见 FolderMenu 里那段
+    //       protectedFolder）—— 菜单是照着**哪一行那颗齿轮**弹的，和"列表当前选中
+    //       哪一行"可以不是同一行，这是它比按钮准的地方。
     m_ui->getAddFolderButton()->setEnabled(!m_downloadInFlight);
 }
 
