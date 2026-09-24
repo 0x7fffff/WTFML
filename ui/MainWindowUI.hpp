@@ -147,9 +147,6 @@ public:
     static QString accountSkinSettingsButtonName() {
         return QStringLiteral("accountSkinSettingsButton");
     }
-    /// 主页那个「离线模式」勾选框。**只有它没有 objectName** 的那阵子，验证工程要
-    /// 驱动"离线启动"就只能按文字找控件 —— 而文字是产品文案，会变。
-    static QString offlineModeCheckBoxName() { return QStringLiteral("offlineModeCheckBox"); }
     static QString installedVersionComboName() { return QStringLiteral("installedVersionCombo"); }
 
     // ---------- 安装页那份「模组加载器」（一棵树，和上一页的版本树同一个模式） ----------
@@ -925,7 +922,6 @@ public:
     // 控件访问接口
     QPushButton *getStartButton() const { return startButton; }
     QPushButton *getAccountSkinSettingsButton() const { return accountSkinSettingsButton; }
-    QCheckBox *getOfflineModeCheckBox() const { return offlineModeCheckBox; }
     QPushButton *getAddFolderButton() const { return addFolderButton; }
     QPushButton *getRemoveFolderButton() const { return removeFolderButton; }
     /// 列表下面那句提示（「自带的那一份移不掉…盘上的文件夹和文件都留着。」）。
@@ -1071,7 +1067,6 @@ private:
     // NOTE: 新加控件指针时**一并写上 = nullptr**，别让它单独破例。
     QPushButton *startButton = nullptr;
     QPushButton *accountSkinSettingsButton = nullptr;
-    QCheckBox *offlineModeCheckBox = nullptr;
     QPushButton *addFolderButton = nullptr;
     QLabel *folderHintLabel = nullptr;
     QPushButton *removeFolderButton = nullptr;
