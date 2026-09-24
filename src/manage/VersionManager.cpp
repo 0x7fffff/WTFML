@@ -886,7 +886,7 @@ void VersionManager::installNamedVanilla(const QString &instanceId, const QStrin
         downloadManager->isBusy()) {
         // NOTE: 忙的时候除了那句话，**也必须发终态信号** —— 界面在点下去那一刻就进了忙态，
         //       只发一条消息的话按钮再也亮不回来（"加载器安装还没接通"那一段踩过同样的坑，
-        //       见 startLoaderInstall 里那段注释）。
+        //       见 installLoaderVersion() 里 loaderInstallSupported 那道闸口旁边的注释）。
         emit instanceInstallMessage(tr("已有安装或下载正在进行，请等它结束。"));
         emit versionDownloadFinished(instanceId, false, tr("已有安装或下载正在进行，请等它结束。"));
         return;
@@ -1618,8 +1618,13 @@ void VersionManager::startInstallerDownload() {
                                   .arg(m_loaderInstall.loaderName, m_loaderInstall.loaderVersion));
 
     downloadManager->beginBatch();
-    // phase 放在 beginBatch() **之后**设：beginBatch() 会替上一批收尾并发一次
-    // allDownloadsFinished，那一次不该被当成"安装器下好了"。
+    // phase 放在 beginBatch() **之后**设：那个函数在"上一批还没收尾就又开一批"那条异常
+    // 支路里会替上一批收尾、并发一次 allDownloadsFinished（见它的实现），那一次不该被
+    // 当成「安装器下好了」。
+    //
+    // NOTE: 这条理由在**正常路径**上走不到（调用方前面已经用 isBusy() 挡过，不可能带着
+    //       一个开着的批次进来），原文把它写成了"每次都会发生"的因果。顺序照旧留着
+    //       （先清场、再进相位本来就是对的），只是别再照原文去找那条不存在的支路。
     m_loaderInstall.phase = LoaderInstall::Phase::WaitingInstallerJar;
     // 安装器 jar 没有公布 sha1（Forge 只在下载页给别的东西，NeoForge 的 maven-metadata
     // 里也没有），所以这里只能"文件在就算好" —— 第二次装同一个加载器版本时省掉这 6 MB。
@@ -1665,7 +1670,7 @@ bool VersionManager::retryInstallerDownloadAlternate() {
 }
 
 bool VersionManager::ensureLauncherProfiles(const QString &minecraftDir, bool *createdOut,
-                                           QString *errorOut) const {
+                                            QString *errorOut) {
     if (createdOut != nullptr) {
         *createdOut = false;
     }
@@ -2641,6 +2646,26 @@ void VersionManager::failLoaderInstall(const QString &reason) {
     }
     const QString reportId = m_loaderInstall.reportId();
     qWarning() << "Loader install failed for" << reportId << ":" << reason;
+
+    // 这一次加载器安装是**整合包导入的第一步**（不是用户单独要装加载器）：整件事到这里
+    // 就是失败了，收尾只能走 failModpackImport() —— 它会把加载器那半截一起收掉，而且发的
+    // 是**实例名**（用户等的是那个名字）。
+    //
+    // NOTE: 这一支以前**漏了**（只有 finishLoaderInstall 那边有），后果不是"少一句话"而是
+    //       **永久卡死**：m_modpackInstall 会一直停在 InstallingLoader 相位上，而它正是
+    //       "谁不能开局"的判据 —— importModpack() / downloadResourceFiles() /
+    //       installNamedVanilla() / installNamedLoader() 四道闸全看它。用户此后导入不了
+    //       整合包、装不了实例、下不了模组，只能重启；同时这一路发出去的终态信号带的是
+    //       **加载器目录名**，而 MainWindow 那边只认实例名，那个实例于是永远点不动。
+    //       加载器安装失败的理由很多（安装器退出码非 0、产物核对不过、版本表拉不到、
+    //       找不到 Java、安装器下不下来…），47 个调用点每一条都会踩到这里。
+    if (m_modpackInstall.active() &&
+        m_modpackInstall.phase == ModpackInstall::Phase::InstallingLoader) {
+        // loaderName 必须在 failModpackImport() 之前取（它会 reset 掉加载器那份状态）。
+        const QString loaderName = m_loaderInstall.loaderName;
+        failModpackImport(tr("%1 没装成，整合包没有导入。%2").arg(loaderName, reason));
+        return;
+    }
 
     // 这一次加载器安装是"装一个带名字的实例"的第一步：终态信号报**用户起的那个名字**
     // （他等的是那个），而且必须把那个状态一起收掉 —— 不收的话 isNamedInstanceInstalling()

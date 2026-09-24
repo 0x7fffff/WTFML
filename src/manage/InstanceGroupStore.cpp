@@ -163,6 +163,16 @@ bool InstanceGroupStore::assign(const QString &instanceKey, const QString &group
 
     ensureLoaded();
 
+    // 文件读不懂这条**先判**（2026-09-24 挪上来的）。它排在"找不到那个分组"后面时，
+    // 真正的因由（文件坏了 / 是更新版本写的，这一版拒绝动它）会被挡在后面说不出口：
+    // 那份读不懂的文件让 groups() 返回空表，于是用户一路都被告知"找不到那个分组，
+    // 可能刚刚被删掉了"—— 而分组一个都没删，是这一版压根没读进来。
+    // 写侧本来就会用同一个理由拒（见 writeThrough() 开头那道闸），所以这里提前说，
+    // 报的就是同一句话。
+    if (!m_unreadableReason.isEmpty()) {
+        return fail(m_unreadableReason);
+    }
+
     if (!groupId.isEmpty()) {
         const QList<Group> known = groups();
         const auto found =
@@ -243,9 +253,16 @@ bool InstanceGroupStore::writeThrough(const QList<Group> &groups, const QJsonObj
     }
 
     // 以原来那个对象为底，只盖我们认识的三个键 —— 更新版本写的别的字段原样留着。
-    m_root.insert(kVersionField, kVersion);
-    m_root.insert(kGroupsField, array);
-    m_root.insert(kMembersField, members);
+    //
+    // NOTE: 盖的是**副本 candidate**，不是 m_root（2026-09-24 改的）。这三句原来排在
+    //       mkpath / open / commit 之前，而下面三条失败路径都不回滚 —— 于是"写盘失败"
+    //       这件事会先在内存里生效（groups() / groupIdOf() 读的正是 m_root），接着**另一次
+    //       成功的写盘**会把这份幽灵状态一起提交：「告知失败的操作在稍后静默生效」。
+    //       内存状态只在确实落盘成功之后才认账。
+    QJsonObject candidate = m_root;
+    candidate.insert(kVersionField, kVersion);
+    candidate.insert(kGroupsField, array);
+    candidate.insert(kMembersField, members);
 
     const QString path = AppPaths::instanceGroupFilePath();
     if (!QDir().mkpath(AppPaths::minecraftDir())) {
@@ -260,11 +277,13 @@ bool InstanceGroupStore::writeThrough(const QList<Group> &groups, const QJsonObj
         return fail(tr("无法写入 %1。").arg(QDir::toNativeSeparators(path)));
     }
     // 缩进输出：这是用户可能拿记事本打开看的文件（里面是他自己起的分组名）。
-    file.write(QJsonDocument(m_root).toJson(QJsonDocument::Indented));
+    file.write(QJsonDocument(candidate).toJson(QJsonDocument::Indented));
     if (!file.commit()) {
         return fail(tr("写入 %1 失败。").arg(QDir::toNativeSeparators(path)));
     }
 
+    // 到这里才认账：内存里那份 = 刚落到盘上的那份（见上面 candidate 那段 NOTE）。
+    m_root = candidate;
     emit groupsChanged();
     return true;
 }
