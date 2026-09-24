@@ -192,14 +192,28 @@ inline QString mavenPathForName(const QString &name) {
     const QString version = parts.at(2);
     const QString classifier = parts.size() > 3 ? parts.at(3) : QString();
 
+    // 字符白名单：允许 `.` 是因为它要做**段内**的分隔（组名的层级、版本号里的点）。
+    //
+    // NOTE: **但整段就是 `.` 或 `..` 的一律拒**（2026-09-24 补的）。`..` 本来就能过
+    //       `[A-Za-z0-9._+-]+`，而 artifact / version 是原样当**路径段**拼进去的
+    //       （见下面那行），于是 `a:..:..` 能拼出 `a/../../a-...jar` —— 越到 libraries/
+    //       外面一层去。这一段拼出来是给 files/ 和 libraries/ 用的相对路径，写出去就是
+    //       把文件丢到别的目录。仓库里没有这样的坐标（那些是被规则过滤掉的垃圾数据才会
+    //       有的形状），所以拒掉它不会少装任何东西。
     const QRegularExpression safe(QStringLiteral("^[A-Za-z0-9._+-]+$"));
-    for (const QString &segment : {group, artifact, version, extension}) {
+    const auto isSafeSegment = [&safe](const QString &segment) {
         if (segment.isEmpty() || !safe.match(segment).hasMatch()) {
+            return false;
+        }
+        return segment != QLatin1String(".") && segment != QLatin1String("..");
+    };
+    for (const QString &segment : {group, artifact, version, extension}) {
+        if (!isSafeSegment(segment)) {
             return QString();
         }
     }
     // classifier 允许为空（等于没有），但给了就必须干净
-    if (!classifier.isEmpty() && !safe.match(classifier).hasMatch()) {
+    if (!classifier.isEmpty() && !isSafeSegment(classifier)) {
         return QString();
     }
 

@@ -116,7 +116,7 @@ QString unsupportedFormatText(Format format);
  * @brief 一条相对路径能不能安全地拼到实例目录底下（**纯判据**）。
  *
  * 逐段按 `InstanceFiles::validatePathSegment()` 判（那一套和"实例名"共用，只有一处）：
- * 非法字符、控制字符、`.`/`..`、结尾的点、Windows 保留设备名。另外这里还管两件
+ * 非法字符、控制字符、`.`/`..`、结尾的点或空格、Windows 保留设备名。另外这里还管两件
  * 路径独有的事：
  *   - **反斜杠一律拒绝**：Modrinth 的清单用 `/`，出现 `\` 只可能是有人想借 Windows 的
  *     分隔符绕过逐段判据（`mods\..\..\x.jar` 按 `/` 切是一段，逐段看起来完全正常）；

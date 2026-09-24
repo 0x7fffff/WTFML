@@ -15,6 +15,7 @@
 #include <QStringList>
 
 #include "../settings/EffectiveJavaSettings.hpp"
+#include "ProcessPriority.hpp"
 
 /**
  * @brief 处理 Minecraft 的 JVM 参数生成和启动过程。
@@ -127,6 +128,9 @@ public:
      *        这是老行为：以前登录流程根本不拉档案，全工程没有 UUID 来源，所以正版分支一
      *        直发全零，正版服上等于一个"谁都不是"的身份。离线分支**不用**它（那边每次
      *        自己随机生成一个）。
+     * @param windowWidth 游戏窗口的初始宽度（像素）。<= 0 = 调用方没指定，这时
+     *        **一条都不加** —— 老行为，游戏自己决定窗口多大。
+     * @param windowHeight 同上，高度。
      * @return 返回 JVM 参数列表。
      *
      * NOTE: 调用方传 javaMajorVersion <= 0（未传）时按"**沿用旧行为**"处理，不是"一条都
@@ -140,7 +144,8 @@ public:
                                      bool offlineMode = false, int javaMajorVersion = 0,
                                      const QStringList &versionJvmArgs = QStringList(),
                                      const QString &playerName = QString(),
-                                     const QString &playerUuid = QString()) const;
+                                     const QString &playerUuid = QString(),
+                                     int windowWidth = 0, int windowHeight = 0) const;
 
     /**
      * @brief 启动一个 Minecraft 游戏进程（新增一份会话）。
@@ -151,6 +156,9 @@ public:
      * @param displayName 启动那一刻这个实例的显示名。空 = 退回 versionId。
      * @param accountName 这次启动用的身份。空 = 记不着（未登录、测试），界面就不报身份。
      * @param accountUuid 这次启动用的 UUID。空 = 调用方没给（测试、离线时也可能是正随机值）。
+     * @param priority 给这个游戏进程设的 CPU 优先级。默认 Normal（= 不设也一样的结果），
+     *        见 ProcessPriority 那段 NOTE：这里**没有**"不设置"这一档，每次都会显式设一遍。
+     *        非 Windows 平台上这个参数被忽略（没有任何等价物）。
      * @return **这次会话的 id**（> 0）；没能起来时返回 0。
      *
      * NOTE: 返回值从"起没起来"改成了会话号 —— 语义是 `sessionId > 0` 就等于"进程真的
@@ -164,7 +172,8 @@ public:
      */
     int startGame(const QStringList &arguments, const EffectiveJavaSettings &settings,
                   const QString &versionId, const QString &displayName = QString(),
-                  const QString &accountName = QString(), const QString &accountUuid = QString());
+                  const QString &accountName = QString(), const QString &accountUuid = QString(),
+                  ProcessPriority priority = ProcessPriority::Normal);
 
     /**
      * @brief 现在有哪些游戏进程**真的在跑**。

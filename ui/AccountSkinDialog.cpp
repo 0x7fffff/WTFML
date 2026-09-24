@@ -7,6 +7,9 @@
 
 #include "AccountSkinDialog.hpp"
 
+// WheelGuard 住在 MainWindowUI.hpp 里（和 InstanceSettingsDialog.cpp 一样，直接引那一份，
+// 不另外抄一个防护类）。它护的是下面那个「模型」下拉框。
+#include "MainWindowUI.hpp"
 #include "SkinModel.hpp"
 #include "SkinViewer.hpp"
 
@@ -128,6 +131,10 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     m_variantCombo->setObjectName(variantComboName());
     m_variantCombo->addItem(variantClassicText(), variantClassicValue());
     m_variantCombo->addItem(variantSlimText(), variantSlimValue());
+    // 滚轮防护（见 MainWindowUI.hpp 里的 WheelGuard）：这一个以前**漏了** —— 而它的后果
+    // 和设置页那几个不一样，不是"显示不对"而是"传错了"：鼠标从它上面划过去会静默换成
+    // 另一种模型，接着点「上传」传上去的就是错的那种（经典/纤细在游戏里是两套手臂宽度）。
+    WheelGuard::install(m_variantCombo);
     uploadRow->addWidget(m_uploadButton);
     uploadRow->addWidget(m_variantCombo);
     uploadRow->addStretch(1);

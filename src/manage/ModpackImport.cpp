@@ -116,6 +116,23 @@ bool isModrinthCdnUrl(const QString &url) {
     return QUrl(url).host() == QLatin1String("cdn.modrinth.com");
 }
 
+/// 清单里那条路径的**去重键**。
+///
+/// 为什么不能直接拿路径当键（2026-09-24 加的）：Windows 的文件系统**不区分大小写**，
+/// `mods/X.jar` 和 `mods/x.jar` 是同一个文件，而按区分大小写的键去重会给它们排出两个
+/// 作业 —— 两个作业抢着写同一个路径（内容一样就白下一遍，不一样就"谁最后写完谁说了算"）。
+/// 别的平台上这两个确实是两个文件，照旧各算一条，所以这一手只在 Windows 上做。
+///
+/// NOTE: toLower() 不是 Windows 那套精确的大小写折叠（它认的是 UpCaseTable），但对整合包
+///       里这种 ASCII 路径足够了 —— 目标是"认得出这是同一个文件"，不是逐字符等价。
+QString pathDedupKey(const QString &path) {
+#ifdef Q_OS_WIN
+    return path.toLower();
+#else
+    return path;
+#endif
+}
+
 }  // namespace
 
 QStringList preferredUrlOrder(const QStringList &urls) {
@@ -174,6 +191,13 @@ QString suggestInstanceName(const QString &packName) {
         name = QObject::tr("整合包 %1").arg(name);
         if (name.length() > InstanceFiles::kMaxDirNameLength) {
             name = name.left(InstanceFiles::kMaxDirNameLength).trimmed();
+            // 截完**还要再砍一次结尾的点**（2026-09-24 补的）：上面那处截断带着这一段，
+            // 这一处原来漏了 —— 截出来的名字可能以点结尾，那就过不了 validateDirName()，
+            // 于是这个函数返回一个"它自己刚拒过一次"的名字。而这里又不许报错（用户什么都没
+            // 输），调用方拿它去建目录，Windows 会悄悄把结尾的点吃掉 = 名字跟返回值不一样。
+            while (name.endsWith(QLatin1Char('.')) || name.endsWith(QLatin1Char(' '))) {
+                name.chop(1);
+            }
         }
     }
     return name;
@@ -278,8 +302,10 @@ Result parseModrinthIndex(const QByteArray &json) {
         // **路径不安全 = 整包拒绝**（不是跳过这一条）。理由写在 .hpp 里。
         if (!isSafeRelativePath(path)) {
             result.problem =
-                QObject::tr("这个整合包的文件清单里有一条不安全的路径：\n%1\n\n"
-                            "它会写到实例目录的外面去，所以整个包都没有导入。")
+                QObject::tr("这个整合包的文件清单里有一条不能用的路径：\n%1\n\n"
+                            "（路径不能跑到实例目录外面去，也不允许某一段以点或空格结尾 —— "
+                            "Windows 会把那些字符悄悄吃掉，写出来的名字和清单里写的不一样。）"
+                            "所以整个包都没有导入。")
                     .arg(path);
             return result;
         }
@@ -319,11 +345,13 @@ Result parseModrinthIndex(const QByteArray &json) {
 
         // 同一个路径出现两次时以**最后**一条为准。合法的清单里不会有重复（Modrinth 自己
         // 生成的那份就没有），这里只是别让两条下载写同一个文件。
-        if (indexesByPath.contains(path)) {
-            pack.files[indexesByPath.value(path)] = file;
+        // 键要走 pathDedupKey()：Windows 上大小写不同的两条是同一个文件，见那个函数。
+        const QString dedupKey = pathDedupKey(path);
+        if (indexesByPath.contains(dedupKey)) {
+            pack.files[indexesByPath.value(dedupKey)] = file;
             continue;
         }
-        indexesByPath.insert(path, pack.files.size());
+        indexesByPath.insert(dedupKey, pack.files.size());
         pack.files.append(file);
     }
 

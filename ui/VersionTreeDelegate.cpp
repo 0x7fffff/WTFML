@@ -233,9 +233,20 @@ QSize VersionTreeDelegate::sizeHint(const QStyleOptionViewItem &option,
     subFont.setPointSize(qMax(6, option.font.pointSize() + MainWindowUI::versionDateFontDelta()));
     width = qMax(width, QFontMetrics(subFont).horizontalAdvance(
                             index.data(MainWindowUI::rowSubTextRole()).toString()));
-    // 前面那个图标的宽度：子条目一定有（草方块或条目自己给的），顶层条目**给了才有**。
+    // 前面那个图标的宽度：子条目一定有（草方块或条目自己给的），顶层条目**真给了才有**。
+    //
+    // NOTE: 认形态必须和 paint() 那条路**一模一样**（2026-09-24 改的）：那边 QIcon 和
+    //       QPixmap 两种都认，这里原来只认 QIcon —— 于是"给的是 QPixmap"的条目画得出
+    //       图标、量宽度时却没算它，右边那个箭头（有「取消」小叉时还有小叉）压掉一截文字。
+    //       产品代码目前全走 setIcon()（QIcon），所以先踩到的是验证代码。
     const QVariant decoration = index.data(MainWindowUI::rowIconRole());
-    if (index.parent().isValid() || decoration.canConvert<QIcon>()) {
+    bool hasIcon = false;
+    if (decoration.canConvert<QIcon>()) {
+        hasIcon = !qvariant_cast<QIcon>(decoration).isNull();
+    } else if (decoration.canConvert<QPixmap>()) {
+        hasIcon = !qvariant_cast<QPixmap>(decoration).isNull();
+    }
+    if (index.parent().isValid() || hasIcon) {
         width += rowIconSize() + 8;
     }
     width += 2 * MainWindowUI::versionTreeRowPadding() + MainWindowUI::versionTreeArrowSize() + 6;

@@ -50,6 +50,9 @@ class InstanceSettingsDialog;
 // 「账号与外观」那个对话框（多账号 + 换皮肤披风）。这里**只按指针**持有它，所以
 // 前置声明就够 —— 它在 MainWindow 的构造函数之后才懒建（第一次点那个入口才建）。
 class AccountSkinDialog;
+// 「游戏日志」窗（一份游戏一个，见 ui/GameLogWindow.hpp）。同上，只按指针持有，
+// 而且是**按需**才建（收到第一行输出那一刻，见 showGameLogLine()）。
+class GameLogWindow;
 // 换皮肤披风那几条要令牌的接口（src/auth/SkinApi.hpp）。同上，只按指针持有。
 class SkinApi;
 // 「每实例设置」那两层的值类型（src/settings/EffectiveJavaSettings.hpp）。这里只按
@@ -274,7 +277,8 @@ private:
     void refreshDownloadCategory(int row);
     /// 按那一页搜索框里的词搜一次（回车时，或者刚进页面时那句空的）。
     void startResourceSearch(ResourceCatalog::Kind kind);
-    /// 树上点了一下（itemClicked 和 itemActivated 都接它）。
+    /// 树上"这一行被激活了"（鼠标单击、双击的第一下、键盘回车）—— 接线口见
+    /// ui/RowActivation.hpp：一次手势只进来一次，所以这里**不需要**再考虑重入。
     void onResourceItemActivated(QTreeWidgetItem *item);
     /// 第三层那一下：把这个版本下回来、装进实例。
     void downloadResourceVersion(QTreeWidgetItem *item);
@@ -389,6 +393,27 @@ private:
     void onMemoryChanged();
     void onLauncherBehaviourChanged();
     void onDownloadSourceChanged();
+    // ---------- 「启动选项」那三项（设置页里同一组） ----------
+    /// 「显示游戏日志」开关。关掉**不关已经开着的那些窗**（用户可能正在读崩溃信息）；
+    /// 打开之后从下一行输出开始就会开窗（这是刻意的，见 showGameLogLine 的说明）。
+    void onShowGameLogChanged();
+    void onProcessPriorityChanged();
+    /// 「窗口大小」那两个数字框共用这一个槽（和内存那两个 spin 同一套写法）。
+    void onGameWindowSizeChanged();
+    /**
+     * @brief 把一行游戏输出写进**那一份会话**的日志窗；窗不在时按需建一个。
+     * @param sessionId 哪一份会话。<= 0（不挂在任何实例上的那句话）直接丢。
+     * @param text 原样写进去的那段字。
+     *
+     * NOTE: 判据是"设置里那个开关现在是不是开着"，不是"启动那一刻开没开"。这样用户在
+     *       游戏跑着的时候把它打开，从下一行输出起就能看见 —— 比"M 要等下次启动"更符合
+     *       「显示游戏日志」这几个字的字面意思。代价是那一窗里没有这个开关打开之前的输出，
+     *       这是**明说的**（见设置页那句说明）。
+     *
+     * NOTE: 用户手动关掉过的窗不会自己再冒出来（m_gameLogDismissedSessions）。
+     *       "我刚把它关了、你又给我弹回来"是这类窗最招人烦的失败模式。
+     */
+    void showGameLogLine(int sessionId, const QString &text);
     void onVersionNameOptionChanged();
     void onApplyExtraJvmArgsClicked();
     /// 把「下载源」交给真正发请求的那一层（VersionManager → DownloadManager）。
@@ -513,15 +538,20 @@ private:
     // 名单每次刷新（清单到达、下载完成）都调它就会变成"用户手选完又被抢回去"。
     // 记着的那个版本已经不在磁盘上时留空不选，占位文案会说明该怎么选。
     void restoreLastLaunchedVersion();
-    // 下载期间禁用这些：启动按钮、已安装版本下拉框、实例页那棵树 / 文件夹列表、
-    // 以及安装页那一整层（名称框、四个加载器、安装按钮、返回），并把底栏中间那格的
-    // 进度条切成"正在准备下载"的不确定态。进度条和底栏的显隐不在这里定
+    // 下载期间禁用这些：安装页那一整层（名称框、加载器树、安装按钮、返回）、左栏那份
+    // 文件夹列表、「导入整合包…」按钮，并把底栏中间那格的进度条切成"正在准备下载"的
+    // 不确定态。进度条和底栏的显隐不在这里定
     // （取决于"在下载"和"在启动"两条），统一由 updateBottomBar() 说了算。
     //
-    // NOTE: 这条注释以前还点着一个"下载版本"按钮和"两个版本下拉框" —— 都是上一版界面
-    //       的东西了：「下载版本」已经没了（下载页现在是"点版本号进安装页"），下拉框
-    //       也只剩"已安装版本"那一个（另一个是安装页上按加载器分的几个）。清单在下面
-    //       实现里逐条写着，要核对就照着那些 setEnabled() 看。
+    // NOTE: 这条注释改过两次，两次都是"注释写着禁、代码故意不禁"：
+    //       ① 以前还点着一个"下载版本"按钮和"两个版本下拉框" —— 都是上一版界面的东西了
+    //          （「下载版本」已经没了，下载页现在是"点版本号进安装页"；下拉框也只剩
+    //          "已安装版本"那一个）；
+    //       ② 以前还把**启动按钮、「已安装版本」下拉框、实例页那棵树**列在"禁用"里 ——
+    //          2026-09-23 多账户多实例那批**明确反过来**了（见 setDownloadUiBusy() 里
+    //          那段"这几项故意不灰"），理由是"在下载"和"能启动什么"是两件事，正在装的那个
+    //          按版本从列表里滤掉就够了。
+    //       清单在下面实现里逐条写着，要核对就照着那些 setEnabled() 看。
     //
     // NOTE: Q_INVOKABLE 只为一件事加的：让 build/verify/mw_check 能在**不联网、不起进程**
     //       的前提下把界面摆进"正在下载"这个态。底栏那格"被启动借走之后要原样还回来"这条
@@ -694,4 +724,19 @@ private:
     // 只有它为真时 onGameFinished() 才会把窗口叫回来 —— 用户自己最小化的窗口
     // 不该被游戏的退出给弹出来。
     bool m_hiddenForGame = false;
+    // 哪几份会话现在开着日志窗（会话号 → 那个窗）。**一份会话一个窗**：多开时两份输出
+    // 混在一个窗里等于没法看，见 ui/GameLogWindow.hpp 的说明。
+    //
+    // NOTE: 那个窗建出来就带 WA_DeleteOnClose（关掉即销毁），所以这里的指针**会**失效 ——
+    //       窗自己在 finished() 里把这一笔摘掉（见 showGameLogLine 里的接法）。不要在这里
+    //       存裸指针却在别处直接用：除了 showGameLogLine() 和 onGameFinished()，
+    //       没有第三处读它。
+    //
+    // NOTE: 那些窗**没有父窗口**（理由见 showGameLogLine 里那段），所以"关启动器顺手关掉
+    //       它们"这件事得在 ~MainWindow 里自己办 —— Qt 不会替我们收。
+    QHash<int, GameLogWindow *> m_gameLogWindows;
+    // 用户**手动关掉过**日志窗的那几份会话。关掉之后这一份不再自动开新窗 ——
+    // "我刚把它关了、下一行输出又给我弹回来"是这类窗最招人烦的失败模式。
+    // 会话结束（onGameFinished）时清掉：下一份游戏是另一回事。
+    QSet<int> m_gameLogDismissedSessions;
 };

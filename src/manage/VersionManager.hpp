@@ -949,8 +949,12 @@ private:
     // @param minecraftDir 补到哪个 .minecraft 里。**是个参数、不是 AppPaths::minecraftDir()**：
     //        OptiFine 那一份是补给我们自己的临时工作目录的（它的安装器只认 APPDATA）。
     // @param createdOut 非空时回填"这次是不是我们新建的"（只有新建才值得跟用户说一声）。
-    bool ensureLauncherProfiles(const QString &minecraftDir, bool *createdOut,
-                               QString *errorOut) const;
+    // NOTE: 非 const（2026-09-24 去掉的）—— 它 mkpath + QSaveFile，真往磁盘上写东西，
+    //       原来那个 const 是假的，而这一份头文件里为别的写侧函数专门立过规矩
+    //       （见 updateVersionMeta / renameInstance 那两条 "非 const —— 它真的改磁盘"）。
+    //       假 const 会诱使人在只读路径（扫描、刷新列表）上调用它，那些路径一次会话要跑
+    //       很多遍、绝不能带副作用。
+    bool ensureLauncherProfiles(const QString &minecraftDir, bool *createdOut, QString *errorOut);
 
     // 把 realVersion / loaderName / loaderVersion 合并写进 <id>/wtfml.meta。
     void writeLoaderMeta();

@@ -98,12 +98,14 @@ QString validatePathSegment(const QString &segment) {
     // Windows 会**静默**删掉结尾的空格和点：输入 `abc ` 建出来就是 `abc`。静默是关键 ——
     // 用户看到的目录名和他刚输的不一样，然后就在列表里找不到自己的实例了。
     //
-    // NOTE: 这里只判**点**。尾随空格已经被调用方（validateDirName 那条路的 trim）吃掉
-    //       了，所以"以空格结尾"这一条在实例名那条路上不可能被触发 —— 写了也是死代码。
-    //       点不一样：trim 不管它，真交给 Windows 就会被悄悄吃掉，
-    //       所以我们自己拦下来，把决定权交回用户。
-    if (segment.endsWith(QLatin1Char('.'))) {
-        return QStringLiteral("名字不能以点结尾（Windows 会把它悄悄去掉）。");
+    // NOTE: 空格和点**这里都判**（2026-09-24 加的空格那一条）。以前只有点，理由写的是
+    //       "尾随空格已经被调用方 trim 吃掉了" —— 那句话只对"实例名"那条路成立
+    //       （validateDirName() 开头就 trim），对**整合包清单里那一条**不成立：
+    //       ModpackImport::isSafeRelativePath() 是逐段原样喂进来的，中间不经过任何 trim，
+    //       于是 `mods/x.jar ` 这一条能过判据、Windows 建出来却是 `mods/x.jar` ——
+    //       名字和清单里写的对不上。两种字符被吃掉的后果一模一样，判据也就该一样。
+    if (segment.endsWith(QLatin1Char('.')) || segment.endsWith(QLatin1Char(' '))) {
+        return QStringLiteral("名字不能以点或空格结尾（Windows 会把它悄悄去掉）。");
     }
 
     // 主名 = 第一个点之前的那一段。用 section 而不是 QFileInfo::baseName()：

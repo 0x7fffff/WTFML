@@ -15,6 +15,7 @@
 #include "..\ui\InstanceSettingsDialog.hpp"
 #include "..\ui\JavaMismatchDialog.hpp"
 #include "..\ui\AccountSkinDialog.hpp"
+#include "..\ui\GameLogWindow.hpp"
 #include "..\ui\MainWindowUI.hpp"
 // 主页右栏那个小人怎么画：几何、投影、默认外观、头像裁切全在它里面（纯函数 + 值）。
 #include "..\ui\SkinModel.hpp"
@@ -23,6 +24,9 @@
 // 以为是原版号。树的顶层那五条由 MainWindowUI 那边给图标，这里只管子条目。
 #include "..\ui\VersionIcons.hpp"
 #include "..\ui\VersionTreeDelegate.hpp"
+// 树上"这一行被激活了"的唯一接线口（鼠标单击 + 键盘回车，一次手势只进来一次）。
+// 三棵树（版本树 / 加载器树 / 下载页那四张资源表）都走它，见那个文件头。
+#include "..\ui\RowActivation.hpp"
 
 // 添加以下头文件（防止hpp变动导致文件失效）
 #include <QApplication>
@@ -48,6 +52,7 @@
 #include <QProgressBar>
 #include <QProcess>
 #include <QPushButton>
+#include <QScreen>
 #include <QSignalBlocker>
 #include <QSpinBox>
 #include <QTabWidget>
@@ -459,8 +464,12 @@ MainWindow::MainWindow(QWidget *parent)
       m_skinStore(new PlayerSkinStore(this)),
       m_skinApi(new SkinApi(this)) {
     // 安装页那棵树默认停在「不装（纯原版）」那一条（打开安装页时也是它，见
-    // openInstallPage()）—— 没进过安装页之前这一位也得是个真值：updateLoaderRows()
-    // 在下面就会被调到。初值不写在头文件里是因为那边只前置声明了 MainWindowUI。
+    // openInstallPage()）—— 这一位构造完就得是个真值，免得任何早于安装页读到它的路
+    // （selectedLoaderIndex()）拿到一个没初始化的下标。
+    //
+    // NOTE: 这里原来写着「updateLoaderRows() 在下面就会被调到」，不成立 —— 构造函数里
+    //       没有任何一处调它，第一次是 openInstallPage()（:1744）。初值不写在头文件里
+    //       是因为那边只前置声明了 MainWindowUI。
     m_selectedLoaderIndex = MainWindowUI::modLoaderNoneIndex();
     setupConnections();
     // 设置页先按盘上的值摆好（不扫 Java，那一段等第一次切到设置页，见
@@ -505,7 +514,20 @@ MainWindow::MainWindow(QWidget *parent)
     m_versionManager->fetchAvailableVersions();
 }
 
-MainWindow::~MainWindow() { delete m_ui; }
+MainWindow::~MainWindow() {
+    // 日志窗**没有父窗口**（理由见 showGameLogLine 里那段），所以 Qt 不会顺手把它们带走 ——
+    // 这里自己收，否则关掉启动器之后屏幕上会留着几扇无主的日志窗。
+    //
+    // NOTE: 先把表清空再逐个 delete。窗的 finished 处理函数会来动这张表
+    //       （m_gameLogWindows.remove），一边删一边被删的容器是未定义行为。
+    //       values() 拿的是一份拷贝，清表在这一刻，所以那几下 remove 落空而不出错。
+    const QList<GameLogWindow *> logWindows = m_gameLogWindows.values();
+    m_gameLogWindows.clear();
+    for (GameLogWindow *window : logWindows) {
+        delete window;
+    }
+    delete m_ui;
+}
 
 void MainWindow::closeEvent(QCloseEvent *event) {
     if (!m_launcherManager->hasRunningGame()) {
@@ -647,7 +669,7 @@ void MainWindow::setupConnections() {
     //
     // 共用一份 lambda 而不是一个槽函数：槽声明里带 QTreeWidgetItem* 就得让 moc 也认得
     // 这个类型（等于把这个头拖进 QtWidgets 的树控件），而这里类型本来就是完整的。
-    const auto openFromTreeItem = [this](QTreeWidgetItem *item, int) {
+    const auto openFromTreeItem = [this](QTreeWidgetItem *item) {
         if (item == nullptr) {
             return;
         }
@@ -661,10 +683,11 @@ void MainWindow::setupConnections() {
             openInstallPage(versionId);
         }
     };
-    connect(m_ui->getVersionTree(), &QTreeWidget::itemClicked, this, openFromTreeItem);
-    // 键盘走这条路（回车/空格"激活"一个条目）—— 只接鼠标点击的话，键盘用户永远进不了
-    // 安装页。两条路都指向同一份 lambda，重复进去是幂等的（openInstallPage 只是重设一遍）。
-    connect(m_ui->getVersionTree(), &QTreeWidget::itemActivated, this, openFromTreeItem);
+    // 鼠标和键盘走**同一个**接线口（见 ui/RowActivation.hpp）：两条路都指向上面那份 lambda，
+    // 而且一次手势只进来一次。以前这里是 itemClicked + itemActivated 各接一条 ——
+    // Windows 上双击两发都到，于是 openInstallPage() 跑两遍（第二遍把四个在飞的加载器版本
+    // 请求 abort 掉重发），分类那一行的展开/收起也会被翻两次（看上去就是"双击没反应"）。
+    connectRowActivation(m_ui->getVersionTree(), openFromTreeItem);
     connect(m_ui->getInstallBackButton(), &QPushButton::clicked, this,
             &MainWindow::backToVersionTree);
     connect(m_ui->getInstallButton(), &QPushButton::clicked, this,
@@ -683,7 +706,7 @@ void MainWindow::setupConnections() {
     //     那条，并把版本号写回它的第二行小字（用户原话："选择版本以后收缩，显示版本"）。
     // 共用一份 lambda 而不是槽：槽签名里带 QTreeWidgetItem* 就得让 moc 也认得这个类型
     // （版本树那边同一个理由，见 openFromTreeItem 上面那段）。
-    const auto onLoaderTreeClicked = [this](QTreeWidgetItem *item, int) {
+    const auto onLoaderTreeClicked = [this](QTreeWidgetItem *item) {
         if (item == nullptr) {
             return;
         }
@@ -726,9 +749,8 @@ void MainWindow::setupConnections() {
         // 钉的版本号是默认名的一部分（`1.20.1-Forge_47.4.10`），换一条就得重算。
         updateInstallName();
     };
-    connect(m_ui->getLoaderTree(), &QTreeWidget::itemClicked, this, onLoaderTreeClicked);
-    // 键盘走这条路（回车/空格"激活"一个条目）：两条路指向同一份 lambda。
-    connect(m_ui->getLoaderTree(), &QTreeWidget::itemActivated, this, onLoaderTreeClicked);
+    // 接线口和版本树那一条完全一样（鼠标单击 + 键盘回车，一次手势只进来一次）。
+    connectRowActivation(m_ui->getLoaderTree(), onLoaderTreeClicked);
     // 行里那个「取消」小叉（选中那条加载器右边那个 ×，见 updateLoaderRows()）：它不是
     // "点这一行"，所以不走上面两条路 —— 走**视口上的事件过滤器**，判据是
     // VersionTreeDelegate::clearRect()（和代理画它的那一格是同一份几何）。
@@ -792,12 +814,11 @@ void MainWindow::setupConnections() {
         //       （Qt 的新式 connect 允许槽少收参数）。
         connect(edit, &QLineEdit::returnPressed, this, [this, kind] { startResourceSearch(kind); });
         // 点一行：三种行的行为不一样，判据在 onResourceItemActivated() 里（那里是唯一出处）。
-        // itemClicked 和 itemActivated 都接 —— 后者是键盘那条路（回车/空格"激活"一行），
-        // 只接鼠标的话键盘用户在这几页上什么都干不了（版本树那边同一个理由）。
-        connect(tree, &QTreeWidget::itemClicked, this,
-                [this](QTreeWidgetItem *item, int) { onResourceItemActivated(item); });
-        connect(tree, &QTreeWidget::itemActivated, this,
-                [this](QTreeWidgetItem *item, int) { onResourceItemActivated(item); });
+        // 鼠标和键盘走同一个接线口（见 ui/RowActivation.hpp）—— 这里**必须**只进来一次：
+        // 第三层那一行"点它就是下它"，而双击的两发里第二发会撞上"已有下载任务正在进行"，
+        // 界面于是先弹一句假的「下载失败」，顺手把 m_pendingModpackImport 那笔待导入记录
+        // 也吃掉了（真的整合包下完就再也不会走导入）。
+        connectRowActivation(tree, [this](QTreeWidgetItem *item) { onResourceItemActivated(item); });
         // 图标是**懒要**的：条目建出来之后才 requestIcon()，不然图标回来时没有行可以放
         //（而且 store 命中缓存时是同步发的，见 requestIcon 的 NOTE）。
     }
@@ -830,6 +851,18 @@ void MainWindow::setupConnections() {
             &MainWindow::onLauncherBehaviourChanged);
     connect(m_ui->getDownloadSourceCombo(), &QComboBox::currentIndexChanged, this,
             &MainWindow::onDownloadSourceChanged);
+    // 「启动选项」那三项。三项都是"下一次启动才读"的设置（日志那个例外：见
+    // showGameLogLine 的说明），所以槽里只落盘，不去碰任何正在跑的东西。
+    connect(m_ui->getShowGameLogCheck(), &QCheckBox::toggled, this,
+            &MainWindow::onShowGameLogChanged);
+    connect(m_ui->getProcessPriorityCombo(), &QComboBox::currentIndexChanged, this,
+            &MainWindow::onProcessPriorityChanged);
+    // 两个数字框共用一个槽（和内存那两个 spin 同一套写法：谁改的在那里区分不了，
+    // 也不该区分 —— 两个值一起存）。
+    connect(m_ui->getGameWindowWidthSpin(), &QSpinBox::valueChanged, this,
+            &MainWindow::onGameWindowSizeChanged);
+    connect(m_ui->getGameWindowHeightSpin(), &QSpinBox::valueChanged, this,
+            &MainWindow::onGameWindowSizeChanged);
     // JVM 参数刻意**不**接 textChanged：边打字边存会把打到一半的半条参数写进配置，
     // 而它是直接塞进命令行的东西，半条参数会让游戏起不来。改完点「应用」。
     connect(m_ui->getApplyExtraJvmArgsButton(), &QPushButton::clicked, this,
@@ -1028,23 +1061,25 @@ void MainWindow::updateBottomBar() {
     QProgressBar *progressBar = m_ui->getProgressBar();
     QLabel *statusLabel = m_ui->getStatusLabel();
     // 三种"在忙"都占这一格：启动中、下载中、以及在同步等待段里（见 enterSyncWait()）。
-    // 判据本身放在 MainWindowUI::bottomBarShowsProgress() 里，那儿是它唯一的出处。
+    // **归谁**这条优先级放在 MainWindowUI::bottomBarProgressOwner() 里，那儿是它唯一的
+    // 出处 —— 下载进度那条回调也拿它判"现在该不该我说话"（见 updateDownloadProgressUi）。
     const bool launching = !m_launchingSessions.isEmpty();
-    const bool showProgress = MainWindowUI::bottomBarShowsProgress(
+    const auto owner = MainWindowUI::bottomBarProgressOwner(
         launching, m_downloadInFlight, !m_syncWaitStatus.isEmpty());
+    const bool showProgress = owner != MainWindowUI::BottomBarProgressOwner::None;
     progressBar->setVisible(showProgress);
     statusLabel->setVisible(showProgress);
-    if (launching) {
+    if (owner == MainWindowUI::BottomBarProgressOwner::Launch) {
         // 启动进度没有可测量的百分比（JVM 和游戏自己在初始化，没有任何进度回调），
         // 所以是不确定态的滚动条。等游戏吐出第一行输出（或进程结束）就收起来。
         progressBar->setRange(0, 0);
         statusLabel->setText(MainWindowUI::launchingStatusText(launchingInstanceName()));
-    } else if (!m_syncWaitStatus.isEmpty()) {
+    } else if (owner == MainWindowUI::BottomBarProgressOwner::Blocking) {
         // 同步等待那一段：不知道要等多久（网络 / 下 Java / 进程启动），所以也是不确定态。
         // 文字就是进那一段之前写下的"在等什么"。
         progressBar->setRange(0, 0);
         statusLabel->setText(m_syncWaitStatus);
-    } else if (m_downloadInFlight) {
+    } else if (owner == MainWindowUI::BottomBarProgressOwner::Download) {
         // 下载还在跑，这一格还回给它 —— 照**上次记下的进度**还原，不是按回 0。
         //
         // NOTE: 以前这里只写"没在下载就复位"，因为"在启动"和"在下载"是互斥的：启动
@@ -1331,6 +1366,20 @@ void MainWindow::updateDownloadProgressUi(int done, int total, int failed,
     m_downloadDone = done;
     m_downloadTotal = total;
     m_downloadFailed = failed;
+
+    // 这一格**现在不归下载**（启动中 / 在同步等待段里）就一个像素都不许动 —— 上面那几个
+    // 数已经记下了，等那两档让开时 updateBottomBar() 会照它还原。
+    //
+    // NOTE: 2026-09-24 补的。以前这里无条件写进度条和文字，于是"边下边开"时
+    //       enterSyncWait() 写的「正在校验登录状态…」「正在准备 Java 运行时…」和进程起来
+    //       之后的「正在启动 X …」会在 200 ms 内被这一句顶掉（这一格的字只有一个标签，
+    //       谁后写谁算数）—— 而那几句话正是 2026-09-22 专为"点了启动就像卡死"做的。
+    //       判据和 updateBottomBar() 用的是**同一个**（bottomBarProgressOwner()）。
+    if (MainWindowUI::bottomBarProgressOwner(!m_launchingSessions.isEmpty(), m_downloadInFlight,
+                                             !m_syncWaitStatus.isEmpty())
+        != MainWindowUI::BottomBarProgressOwner::Download) {
+        return;
+    }
 
     if (total <= 0) {
         progressBar->setRange(0, 0);
@@ -2891,9 +2940,18 @@ void MainWindow::onInstallButtonClicked() {
 
     // 忙要在点击这一刻就置上：版本 json / 加载器列表都是异步拉回来的，中间这段时间
     // 按钮还能点的话，用户会重复触发（和别处同一个理由）。
+    //
+    // NOTE: **顺序不能反**（m_installingInstanceId 必须在 setDownloadUiBusy(true) 之前）。
+    //       setDownloadUiBusy() 内部会调 refreshInstalledVersions()，而那份"能启动的实例"
+    //       列表是按 m_installingInstanceId 过滤出来的（installingVersionIds()）。反过来的
+    //       话，置忙那一刻读到的还是**上一次**的值：对一个已经装好的实例点「安装」（校验并
+    //       修复）时，它整段安装期间都留在可启动列表里 —— 用户点得动它，点下去却被
+    //       onStartButtonClicked() 那道按版本的闸口弹一句"文件还没有下载完成"。
+    //       那正是 MainWindow.hpp 写明不许出现的"列表里能选、点下去被拦"。
+    //       （applyModpackImport() 那边本来就是"先记 id 再置忙"，这里对齐它。）
+    m_installingInstanceId = name;
     setDownloadUiBusy(true);
     m_progressThrottle.invalidate();
-    m_installingInstanceId = name;
     if (withLoader) {
         m_versionManager->installNamedLoader(name, gameVersion, kind, pinnedLoaderVersion(loaderIndex),
                                             installerJava);
@@ -2960,6 +3018,10 @@ void MainWindow::applySettingsToUi() {
     const QSignalBlocker blockJava(m_ui->getJavaVersionCombo());
     const QSignalBlocker blockBehaviour(m_ui->getLauncherBehaviourCombo());
     const QSignalBlocker blockSource(m_ui->getDownloadSourceCombo());
+    const QSignalBlocker blockShowLog(m_ui->getShowGameLogCheck());
+    const QSignalBlocker blockPriority(m_ui->getProcessPriorityCombo());
+    const QSignalBlocker blockWindowWidth(m_ui->getGameWindowWidthSpin());
+    const QSignalBlocker blockWindowHeight(m_ui->getGameWindowHeightSpin());
     const QSignalBlocker blockCustom(m_ui->getVersionNameCustomCheck());
     const QSignalBlocker blockReal(m_ui->getVersionNameRealCheck());
     const QSignalBlocker blockLoader(m_ui->getVersionNameLoaderCheck());
@@ -3002,6 +3064,21 @@ void MainWindow::applySettingsToUi() {
 
     // ---------- JVM 参数 ----------
     m_ui->getExtraJvmArgsEdit()->setPlainText(m_javaSettings->extraJvmArgs());
+
+    // ---------- 启动选项 ----------
+    m_ui->getShowGameLogCheck()->setChecked(m_settings->showGameLog());
+    // 优先级：枚举值存在 itemData 里，文案是这里的 tr()。五档一一对应 ProcessPriority，
+    // 顺序也按枚举来（Low → High）—— 界面从上往下就是"越来越抢 CPU"。
+    QComboBox *priorityCombo = m_ui->getProcessPriorityCombo();
+    priorityCombo->addItem(tr("低（空闲时才算）"), int(ProcessPriority::Low));
+    priorityCombo->addItem(tr("低于正常"), int(ProcessPriority::BelowNormal));
+    priorityCombo->addItem(tr("正常（默认）"), int(ProcessPriority::Normal));
+    priorityCombo->addItem(tr("高于正常"), int(ProcessPriority::AboveNormal));
+    priorityCombo->addItem(tr("高"), int(ProcessPriority::High));
+    selectByEnumData(priorityCombo, m_settings->processPriority());
+    // 窗口大小：两个框各自 setValue（信号已经被上面那两个 blocker 挡上了）。
+    m_ui->getGameWindowWidthSpin()->setValue(m_settings->gameWindowWidth());
+    m_ui->getGameWindowHeightSpin()->setValue(m_settings->gameWindowHeight());
 
     // ---------- 下载源 ----------
     QComboBox *sourceCombo = m_ui->getDownloadSourceCombo();
@@ -3198,6 +3275,28 @@ void MainWindow::onDownloadSourceChanged() {
     const int value = m_ui->getDownloadSourceCombo()->currentData().toInt();
     m_settings->setDownloadSource(static_cast<DownloadSource>(value));
     syncDownloadSource();
+}
+
+void MainWindow::onShowGameLogChanged() {
+    const bool show = m_ui->getShowGameLogCheck()->isChecked();
+    m_settings->setShowGameLog(show);
+    // NOTE: 这里**不去关已经开着的那些窗**。用户可能正对着一个崩溃日志在看，而他在设置页
+    //       把开关关掉的意思是"以后别再自动开了"，不是"把我正在看的那份关掉"。
+    appendLog(show ? tr("游戏日志：启动游戏时会开一个日志窗。")
+                   : tr("游戏日志：不再自动开日志窗。"));
+}
+
+void MainWindow::onProcessPriorityChanged() {
+    const int value = m_ui->getProcessPriorityCombo()->currentData().toInt();
+    // setter 内部会比较，值没变就不写盘（构造时灌值那条路有 QSignalBlocker，走不到这里）。
+    m_settings->setProcessPriority(static_cast<ProcessPriority>(value));
+}
+
+void MainWindow::onGameWindowSizeChanged() {
+    // 两个框一起存（setGameWindowSize 收一对）：只改一个也得能一次落盘，
+    // 而且要落的是一个**自洽的**宽高对。
+    m_settings->setGameWindowSize(m_ui->getGameWindowWidthSpin()->value(),
+                                  m_ui->getGameWindowHeightSpin()->value());
 }
 
 void MainWindow::syncDownloadSource() {
@@ -3521,10 +3620,13 @@ void MainWindow::onStartButtonClicked() {
     // 两条分支都用它 —— 以前离线分支自己拼 "Player<时间戳>"、正版分支写死 "Player"，
     // 于是底栏上的名字和游戏里看到的名字可以不一样。
     // UUID 也一样：正版分支用它当 --uuid（没登录时 AuthManager 给空串，那边退回全零）。
+    // 「启动选项 → 窗口大小」：原样传下去，由 generateJvmArguments() 决定发成哪两个参数
+    // （原版那条 has_custom_resolution 规则**用不上**，理由写在那边的 NOTE 里）。
     const QStringList jvmArgs = m_launcherManager->generateJvmArguments(
         token, versionId, assetIndexId, versionJson, javaSettings, offlineMode,
         javaMajorVersion, m_versionManager->versionJvmArgs(versionId),
-        m_authManager->playerName(), m_authManager->playerUuid());
+        m_authManager->playerName(), m_authManager->playerUuid(),
+        m_settings->gameWindowWidth(), m_settings->gameWindowHeight());
     // 记住"上次启动的版本"的时机是**进程真的起来了**，不是"表达式算完了"。
     // startGame() 有三条早退路径（找不到 Java / waitForStarted 超时 / 会话数到顶），
     // 以前它们都会先骗一句"已开始启动游戏"再显示错误。以"起来了"为准也是对的：
@@ -3541,7 +3643,8 @@ void MainWindow::onStartButtonClicked() {
     // "当前登录的那个"。
     const int sessionId = m_launcherManager->startGame(
         jvmArgs, javaSettings, versionId, instanceDisplayName(versionId),
-        m_authManager->playerName(), m_authManager->playerUuid());
+        m_authManager->playerName(), m_authManager->playerUuid(),
+        m_settings->processPriority());
     leaveSyncWait();
     if (sessionId > 0) {
         m_settings->setLastLaunchedVersion(versionId);
@@ -4420,6 +4523,9 @@ static QString sessionLogTag(const LauncherManager::GameSession &game) {
 void MainWindow::onProcessOutput(int sessionId, const QString &text) {
     appendLog(tr("[游戏输出] %1%2")
                   .arg(sessionLogTag(m_launcherManager->session(sessionId)), text));
+    // 「显示游戏日志」开着时，同一段字也进那一份的游戏日志窗。**放在 appendLog 之后**是
+    // 刻意的：日志文件那一份是永远要写的（用户的排查底账），弹窗是附加的。
+    showGameLogLine(sessionId, text);
     // 游戏自己出话了 = JVM 和游戏都初始化到能打日志了，**那一份**的"正在启动"到此为止。
     // 底栏中间那格让给下载进度（如果有），左下角换成"实例运行中"。
     //
@@ -4433,10 +4539,67 @@ void MainWindow::onProcessOutput(int sessionId, const QString &text) {
 void MainWindow::onProcessError(int sessionId, const QString &text) {
     appendLog(tr("[游戏错误] %1%2")
                   .arg(sessionLogTag(m_launcherManager->session(sessionId)), text));
+    // stderr 也进日志窗（下面那一行），理由和上面那条一样。**不**给它加"错误"前缀：
+    // 游戏往 stderr 写的不全是错误（很多模组把 INFO 也写 stderr），在窗里加前缀反而误导。
+    showGameLogLine(sessionId, text);
     // stderr 出东西也算"起来了"：有些版本把日志全写 stderr，等 stdout 会一直等下去。
     if (m_launchingSessions.remove(sessionId)) {
         updateBottomBar();
     }
+}
+
+void MainWindow::showGameLogLine(int sessionId, const QString &text) {
+    // 没开这个开关就什么都不做 —— 这是绝大多数用户的状态，这条路径上不该有任何开销。
+    if (!m_settings->showGameLog()) {
+        return;
+    }
+    // sessionId <= 0 是"不挂在任何实例上的话"（比如"同时运行的游戏已经有 8 个了"那一句，
+    // 它是 startGame 在登记会话之前发的，见那边的说明）。那种话没有日志窗可言。
+    if (sessionId <= 0) {
+        return;
+    }
+
+    GameLogWindow *window = m_gameLogWindows.value(sessionId, nullptr);
+    if (window == nullptr) {
+        // 用户关掉过这一份的窗就不再开（见 m_gameLogDismissedSessions 的说明）。
+        if (m_gameLogDismissedSessions.contains(sessionId)) {
+            return;
+        }
+        // 第一次收到**这一份**的输出才建窗（不去"启动成功"那一刻建）：这样三条早退路径
+        // 上一个空窗都不会冒出来，而"进程真的起来了"那一句（startGame 内部同步发的第一条
+        // processOutput）正好在建窗这一刻被写上 —— 用户看到的第一行就是"游戏已启动"。
+        const QString name = m_launcherManager->session(sessionId).displayName;
+        // **父窗口传 nullptr**（2026-09-24 改，原来传的是 this）。在 Windows 上"有主的窗"
+        // 永远压在自己的主窗上面，用户点启动器也翻不上来 —— 那正是用户说的「日志一定会
+        // 显示在启动器前面，会遮挡」。这是平台规则，不是能调的风格，所以只能不给它主。
+        // 代价是"跟着启动器一起关掉"要自己接（见析构里那一段）。
+        window = new GameLogWindow(name, nullptr);
+        // 错开的位置数**在插进去之前**取：开第二扇时那是 1（往下错一点，不盖住第一扇）。
+        const int cascade = m_gameLogWindows.size();
+        m_gameLogWindows.insert(sessionId, window);
+        // 窗自己带 WA_DeleteOnClose，所以**关掉就会销毁**。销毁之前先把这一笔摘掉，
+        // 顺便记下"用户关过这一份" —— 两个动作都必须在 finished 里做，不能在 destroyed 里：
+        // finished 是"用户关窗"这一个动作的信号，destroyed 在父窗口析构时也会来一次，
+        // 而那一次不该被当成"用户不想看日志"。
+        connect(window, &QDialog::finished, this, [this, sessionId](int) {
+            m_gameLogWindows.remove(sessionId);
+            m_gameLogDismissedSessions.insert(sessionId);
+        });
+        // 摆到启动器**旁边**（右 → 左 → 居中），别一上来就压住它 —— 用户抱怨的另一半
+        // 正是"挡着"。启动器跨屏时按它在那一块屏的可用区域算（扣掉任务栏）。
+        const QScreen *screen = QGuiApplication::screenAt(frameGeometry().center());
+        if (screen == nullptr) {
+            screen = QGuiApplication::primaryScreen();
+        }
+        if (screen != nullptr) {
+            window->move(GameLogWindow::placementFor(frameGeometry(), window->size(),
+                                                      screen->availableGeometry(), cascade));
+        }
+        window->show();
+        // 非模态（没用 exec()）：游戏跑着的时候用户还要在启动器上干别的。做成模态的话
+        // 那扇窗会把整个启动器挡住 —— 一个"看输出"的窗没有拦人的道理。
+    }
+    window->appendText(text);
 }
 
 void MainWindow::onGameFinished(int sessionId, int exitCode, QProcess::ExitStatus exitStatus) {
@@ -4447,6 +4610,31 @@ void MainWindow::onGameFinished(int sessionId, int exitCode, QProcess::ExitStatu
     } else {
         appendLog(tr("%1游戏进程已结束，退出码：%2").arg(tag).arg(exitCode));
     }
+    // 日志窗那边也收个尾，两种收法：
+    //
+    // - **正常以 0 退出就自己关掉**（2026-09-24 用户说的「如果游戏正常以0退出就自动关闭日志
+    //   界面」）。那一趟没有任何可看的东西（真出了事不会给 0），留一扇只写着一行"已退出"的
+    //   窗等于替用户留了个垃圾。判据是 `GameLogWindow::autoCloseOnExit()`（**唯一出处**，
+    //   验证工程拿真值表钉它）—— 注意崩溃一律不关，哪怕码正好是 0。
+    // - 其余情况**留着**（用户正是要看崩溃前那几行），只补一行"到此为止"，不关窗也不销毁
+    //   —— 关不关是用户的事（他关了就走 finished 那条路）。末尾这行必须是**末行**才读得懂：
+    //   "进程已结束，退出码 -1" 之后还要有东西的话，用户会以为窗口没跟上。
+    //
+    // NOTE: 关窗走的是 close() → WA_DeleteOnClose → finished 那条路（它会顺手把这一笔
+    //       记进"用户关过的不再自动开"）。下面那句 remove 因此**必须在关窗之后**：关窗
+    //       那一刻刚记上的那一笔，紧接着就要清掉（这一份已经结束了，那个集合不该为它留名）。
+    if (GameLogWindow *logWindow = m_gameLogWindows.value(sessionId, nullptr)) {
+        if (GameLogWindow::autoCloseOnExit(exitCode, exitStatus == QProcess::CrashExit)) {
+            logWindow->close();
+        } else {
+            logWindow->appendText(exitStatus == QProcess::CrashExit
+                                      ? tr("\n[游戏已崩溃退出，退出码：%1]\n").arg(exitCode)
+                                      : tr("\n[游戏已退出，退出码：%1]\n").arg(exitCode));
+        }
+    }
+    // 这一份结束了，"用户关过它的日志窗"这件事不再有意义 —— 下一个实例是另一回事，
+    // 不清的话这个集合会随着开过的实例数一直长。
+    m_gameLogDismissedSessions.remove(sessionId);
     // 进程没了，它那一份的"启动中"要收掉；左下角那条"实例运行中"由 runningGames() 现算，
     // 这里只管重画（那一份在 LauncherManager 里已经从表里摘掉了）。
     m_launchingSessions.remove(sessionId);

@@ -139,6 +139,13 @@ void addSectionTitle(QGridLayout *grid, int row, const QString &text, QWidget *p
 /// 设置页里数字框的宽度（够写「65536 MB」再加一对上下箭头）。
 constexpr int kMemorySpinWidth = 130;
 
+/// 「游戏窗口」那一行两个数字框的宽度：装得下「7680」（上限）加一对箭头就够了 ——
+/// 它没有后缀，比 kMemorySpinWidth 窄一些才不像两个空盒子。
+constexpr int kWindowSizeSpinWidth = 90;
+
+/// 「游戏窗口」那一行中间那个「×」。
+constexpr int kWindowSizeRowSpacing = 8;
+
 /// 把一个控件加到设置页那一行的容器里，**只占它需要的那点宽度、靠左**放。
 ///
 /// 为什么不是默认的"填满整格"：右列有 7 份宽（900 px 的窗口下就有 600 多 px），
@@ -306,7 +313,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         installedVersionCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
         installedVersionCombo->setMinimumContentsLength(12);
         // 滚轮防护：见 MainWindowUI.hpp 里的 WheelGuard
-        installedVersionCombo->installEventFilter(new WheelGuard(installedVersionCombo));
+        WheelGuard::install(installedVersionCombo);
         installedVersionCombo->setObjectName(installedVersionComboName());
         home.left.layout->addWidget(installedVersionCombo);
 
@@ -897,7 +904,7 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
         javaVersionCombo->setObjectName(javaVersionComboName());
         javaVersionCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
         javaVersionCombo->setMinimumContentsLength(12);
-        javaVersionCombo->installEventFilter(new WheelGuard(javaVersionCombo));
+        WheelGuard::install(javaVersionCombo);
         boxLayout->addWidget(javaVersionCombo);
         javaPathLabel = new QLabel(box);
         javaPathLabel->setObjectName(javaPathLabelName());
@@ -961,7 +968,7 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
         memoryMaxSpin->setSingleStep(memoryStepMb());
         memoryMaxSpin->setSuffix(QStringLiteral(" MB"));
         // 数字框也吃滚轮（加一步/减一步），而且没有焦点时改完**看不出来** —— 见 WheelGuard。
-        memoryMaxSpin->installEventFilter(new WheelGuard(memoryMaxSpin));
+        WheelGuard::install(memoryMaxSpin);
         addInlineControl(boxLayout, memoryMaxSpin, kMemorySpinWidth);
         addHint(box, QStringLiteral("给 JVM 的 -Xmx。模组多、整合包大就往上调；"
                                     "机器内存不够时先降这一项。"),
@@ -977,7 +984,7 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
         memoryMinSpin->setSingleStep(memoryStepMb());
         memoryMinSpin->setSuffix(QStringLiteral(" MB"));
         // 同上：滚轮防护（见 WheelGuard）。
-        memoryMinSpin->installEventFilter(new WheelGuard(memoryMinSpin));
+        WheelGuard::install(memoryMinSpin);
         addInlineControl(boxLayout, memoryMinSpin, kMemorySpinWidth);
         addHint(box, QStringLiteral("给 JVM 的 -Xms。设成和最大内存一样可以少几次扩容，"
                                     "但会一直占着那些内存。"),
@@ -992,12 +999,82 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
         auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
         launcherBehaviourCombo = new QComboBox(box);
         launcherBehaviourCombo->setObjectName(launcherBehaviourComboName());
-        launcherBehaviourCombo->installEventFilter(new WheelGuard(launcherBehaviourCombo));
+        WheelGuard::install(launcherBehaviourCombo);
         boxLayout->addWidget(launcherBehaviourCombo);
         addHint(box, QStringLiteral("游戏起来之后启动器自己怎么办。「收起」是把窗口藏起来、"
                                     "进程还在（关掉进程会连带杀掉游戏）。"),
                 form);
         addSettingRow(grid, row++, QStringLiteral("启动器行为"), box, form);
+    }
+
+    // ---------- 启动选项 ----------
+    // 这一组三件事都是"这一份游戏进程怎么起来"：看不看它的输出、它占多少 CPU、
+    // 窗口开多大。摆在「启动后」和「JVM 参数」中间是因为它们的**作用对象**是启动那一下
+    // （上面那几组分别是账户、Java、内存、启动器自己）。
+    addSectionTitle(grid, row++, QStringLiteral("启动选项"), form);
+    {
+        QWidget *box = makeHintedControl(form);
+        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        showGameLogCheck = new QCheckBox(showGameLogCheckText(), box);
+        showGameLogCheck->setObjectName(showGameLogCheckName());
+        // 勾选状态由 MainWindow 灌（它才知道这个开关存在哪），这里只搭控件。
+        boxLayout->addWidget(showGameLogCheck, 0, Qt::AlignLeft);
+        addHint(box, QStringLiteral("打开之后，每启动一份游戏都会另外开一个小窗，"
+                                    "把那一份游戏自己的输出实时写进去 —— 崩溃前那几行报错就在那里。"
+                                    "同时开好几份时一份游戏一个窗，不会混在一起。"
+                                    "关掉时游戏输出只进日志文件。"),
+                form);
+        addSettingRow(grid, row++, showGameLogCheckText(), box, form);
+    }
+    {
+        QWidget *box = makeHintedControl(form);
+        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        processPriorityCombo = new QComboBox(box);
+        processPriorityCombo->setObjectName(processPriorityComboName());
+        WheelGuard::install(processPriorityCombo);
+        boxLayout->addWidget(processPriorityCombo);
+        addHint(box, QStringLiteral("游戏进程占 CPU 的优先级。这和任务管理器里「设置优先级」"
+                                    "是同一件事，只是在这里设一次就一直生效。"
+                                    "往低调可以在后台跑着游戏的时候让系统先顾别的；"
+                                    "往高调**不解决卡顿** —— 卡顿多半是内存或显卡的事，"
+                                    "调高只会让别的程序更卡。"),
+                form);
+        addSettingRow(grid, row++, QStringLiteral("进程优先级"), box, form);
+    }
+    {
+        QWidget *box = makeHintedControl(form);
+        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        QWidget *sizeRow = new QWidget(box);
+        QHBoxLayout *sizeLayout = new QHBoxLayout(sizeRow);
+        sizeLayout->setContentsMargins(0, 0, 0, 0);
+        sizeLayout->setSpacing(kWindowSizeRowSpacing);
+        gameWindowWidthSpin = new QSpinBox(sizeRow);
+        gameWindowWidthSpin->setObjectName(gameWindowWidthSpinName());
+        gameWindowWidthSpin->setRange(windowMinWidth(), windowMaxWidth());
+        gameWindowWidthSpin->setSingleStep(windowSizeStep());
+        gameWindowWidthSpin->setMinimumWidth(kWindowSizeSpinWidth);
+        // 数字框也吃滚轮（加一步/减一步），而且没有焦点时改完看不出来 —— 见 WheelGuard。
+        WheelGuard::install(gameWindowWidthSpin);
+        sizeLayout->addWidget(gameWindowWidthSpin);
+        QLabel *timesLabel = new QLabel(QStringLiteral("×"), sizeRow);
+        timesLabel->setObjectName(gameWindowSizeTimesLabelName());
+        sizeLayout->addWidget(timesLabel);
+        gameWindowHeightSpin = new QSpinBox(sizeRow);
+        gameWindowHeightSpin->setObjectName(gameWindowHeightSpinName());
+        gameWindowHeightSpin->setRange(windowMinHeight(), windowMaxHeight());
+        gameWindowHeightSpin->setSingleStep(windowSizeStep());
+        gameWindowHeightSpin->setMinimumWidth(kWindowSizeSpinWidth);
+        WheelGuard::install(gameWindowHeightSpin);
+        sizeLayout->addWidget(gameWindowHeightSpin);
+        // 整行按 sizeHint 靠左摆，不撑满右列（右列有 7 份宽，两个数字框被拉开就是坏的）——
+        // 和 addInlineControl() 是同一条规矩，只是这里那一格是整个小容器而不是单个控件。
+        boxLayout->addWidget(sizeRow, 0, Qt::AlignLeft);
+        addHint(box, QStringLiteral("启动时按这个大小开窗（单位是像素，走的是原版自己的 "
+                                    "--width/--height 那两个参数）。默认的 854×480 就是"
+                                    "原版的默认值 —— 没动过这一项时和以前一模一样。"
+                                    "游戏内自己把窗口拖大过的话，以游戏记住的为准。"),
+                form);
+        addSettingRow(grid, row++, QStringLiteral("窗口大小"), box, form);
     }
 
     // ---------- JVM 参数 ----------
@@ -1038,7 +1115,7 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
         auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
         downloadSourceCombo = new QComboBox(box);
         downloadSourceCombo->setObjectName(downloadSourceComboName());
-        downloadSourceCombo->installEventFilter(new WheelGuard(downloadSourceCombo));
+        WheelGuard::install(downloadSourceCombo);
         boxLayout->addWidget(downloadSourceCombo);
         addHint(box, QStringLiteral("镜像源是第三方服务（BMCLAPI），国内通常快很多。"
                                     "下回来的文件不对时可以换回官方源重下。"),
@@ -1319,7 +1396,8 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     runStateRow->addWidget(makeChevronLabel(runStateButton), 0, Qt::AlignVCenter);
 
     // 没有实例在跑时这两行本来会藏起来（那时 MainWindow 写「实例未运行」）。**藏的是字，
-    // 不是格子** —— 格子（上面那颗按钮）永远占着那 200 px。
+    // 不是格子** —— 格子（上面那颗按钮）永远占着那 170 px（宽度是
+    // bottomBarRunStateColumnWidth()，从 200 缩到 170 那次改的，别照旧数字找）。
     runStateLabel->hide();
     runStateDetailLabel->hide();
 
@@ -1328,9 +1406,14 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     statusLabel->setObjectName(statusLabelName());
     // 固定一个最小宽度：文件名长短变化时这一格不会再跳来跳去
     statusLabel->setMinimumWidth(kStatusLabelMinWidth);
+    // **上限也得有**（2026-09-24 补的）。ElidedLabel 的 sizeHint() 是把宽度封在上限上，
+    // 而上限的来源就是 maximumWidth() —— 不设上限时，一句长文件名会把这一格的 sizeHint
+    // 顶到 3912、把底栏顶到 4338、把**主窗口**顶到 4338（默认窗口只有 900 宽，实测见
+    // ui_check 的 E5 段）。理由全文（含"最小宽度那一半其实不受影响"）见头文件那段。
+    statusLabel->setMaximumWidth(MainWindowUI::bottomBarStatusTextWidth());
     // NOTE: 它是 ElidedLabel（**不是**普通 QLabel）：中间那格比这句长的时候（文件名长、
     //       窗口窄）普通 QLabel 是**硬裁**的 —— 最后一个字被切掉一半就杵在那儿。
-    //       超出去的部分由它自己截成省略号。最小宽度上面那条照旧管着布局。
+    //       超出去的部分由它自己截成省略号。上下两个宽度一夹，布局就钉死了。
     progressBar = new QProgressBar(bottomBar);
     progressBar->setObjectName(progressBarName());
     progressBar->setRange(0, 100);

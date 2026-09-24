@@ -68,6 +68,31 @@ class QVBoxLayout;
  *
  * 判据只有一个：**没有焦点就不认滚轮**。有焦点时照常放行（用户是特意点进来的）。
  *
+ * 【这条判据要成立，必须连焦点策略一起改 —— 只装过滤器是哑的】
+ *
+ * 2026-09-24 修的。以前这里只有 installEventFilter()，判据读到的 hasFocus() 却**永远
+ * 已经是 true**：Qt 对**真滚轮事件**（spontaneous）是"先按焦点策略给焦点、再派发"，
+ *   - qapplication.cpp 的 case QEvent::Wheel 里先调
+ *     QApplicationPrivate::giveFocusAccordingToFocusPolicy(w, e, relpos)（:2887），
+ *     真正的 d->notify_helper(w, &we)（事件过滤器就是在这一句里跑的）在 :2895 之后；
+ *   - giveFocusAccordingToFocusPolicy() 对 wheel 这一档用的策略是 Qt::WheelFocus（:3694），
+ *     shouldSetFocus() 的判据是 (w->focusPolicy() & policy) == policy（:3732）；
+ *   - 偏巧 QComboBox（非 macOS 那条分支）和 QAbstractSpinBox 的**默认焦点策略就是
+ *     WheelFocus**（qcombobox.cpp:1066 / qabstractspinbox.cpp:1625）。
+ * 于是判据通过 → 事件过滤器跑的那一刻 hasFocus() 已经是 true → 一律放行 → 值照样被改。
+ * 改成 StrongFocus（= TabFocus|ClickFocus|0x8，**不含** WheelFocus 多出来的那个 0x4 位）
+ * 之后 shouldSetFocus() 不通过、滚轮不再抢焦点，!hasFocus() 才恢复它字面上的意思：
+ * 鼠标划过（焦点在别处）吃掉、用户点/切进来的那一个照常认滚轮。
+ *
+ * NOTE: 这两件事**必须一起做**，所以入口只有一个 WheelGuard::install()。直接
+ *       new WheelGuard(...) + installEventFilter(...) 会得到一个看着装上了、其实
+ *       一次都不生效的防护 —— 这正是它原来那个样子。
+ *
+ * NOTE: 验证工程里那条用例用的是 QApplication::sendEvent()（合成事件），而
+ *       qapplication.cpp 对 !wheel->spontaneous() 走的是"不给焦点、直接 notify_helper"
+ *       那条岔路 —— 探针里 hasFocus() 仍是 false、防护"看起来生效"。真机上会不会生效
+ *       因此只能靠**焦点策略**那条断言守着（ui_check 里"滚轮防护"那一段）。
+ *
  * NOTE: QObject::eventFilter 是虚函数、不是槽，所以这里不需要 Q_OBJECT，
  *       AUTOMOC 不会牵扯进来，也不用在 cpp 末尾补 .moc 包含。
  *
@@ -78,6 +103,17 @@ class QVBoxLayout;
 class WheelGuard : public QObject {
 public:
     using QObject::QObject;
+
+    /// 装防护的**唯一入口**：改焦点策略 + 装过滤器，两件事一起做（理由见上面那段）。
+    /// @param widget 要护住的控件（下拉框 / 数字框）。空指针什么都不做，调用方不必先判空。
+    static void install(QWidget *widget) {
+        if (widget == nullptr) {
+            return;
+        }
+        // StrongFocus 里**没有** WheelFocus 那一位，滚轮因此不再抢焦点 —— 这是判据成立的前提。
+        widget->setFocusPolicy(Qt::StrongFocus);
+        widget->installEventFilter(new WheelGuard(widget));
+    }
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override {
@@ -379,8 +415,8 @@ public:
     static QString downloadStackName() { return QStringLiteral("downloadStack"); }
     /// 「游戏」那一页（唯一有内容的那页）的 objectName。
     static QString downloadGamePageName() { return QStringLiteral("downloadGamePage"); }
-    /// 分类的键（进条目的 userData，也是"还没做"那几页的 objectName 前缀）。
-    /// **顺序就是界面上从上到下的顺序**，第 0 个是唯一有内容的那个。
+    /// 分类的键（进条目的 userData，也是那四张资源表的 objectName 前缀）。
+    /// **顺序就是界面上从上到下的顺序**，第 0 个是「游戏」（它没有资源表，有别的两张）。
     static QStringList downloadCategoryKeys() {
         return {QStringLiteral("game"), QStringLiteral("modpack"), QStringLiteral("mod"),
                 QStringLiteral("resourcepack"), QStringLiteral("shader")};
@@ -575,6 +611,27 @@ public:
     /// 一样宽（200），可它装的是"32 的头像 + 名字 + 箭头"，200 是上限、不是需要 ——
     /// 16 个字符的正版名在 150 里放得下（放不下的名字截成省略号，它用的是 ElidedLabel）。
     static int bottomBarAccountColumnWidth() { return 150; }
+    /// 底栏**中间那格**进度文字（`已下载 d / t  文件名`）的宽度上限（像素）。
+    ///
+    /// 2026-09-24 补的：那一格原来**只有最小宽度、没有上限**（见 MainWindowUI.cpp 里
+    /// statusLabel 那几行）。它顶宽窗口走的是 **sizeHint** 那条路 —— 那个 ElidedLabel 的
+    /// sizeHint() 就是拿 maximumWidth() 当上限的（见 MainWindowUI.cpp 里那个类）。实测
+    /// （ui_check 的 E5 段）：300 个字符的文件名，不设上限时这一格 sizeHint 3912、
+    /// 底栏 4338、**主窗口 4338**（默认窗口只有 900×620）；设了上限是 320 / 746 / 818。
+    /// 任何走 sizeHint 的路径（adjustSize()、平台给初次尺寸、以后哪天加的"记住窗口大小"）
+    /// 都会因此拿到一个四倍宽的窗口。
+    ///
+    /// NOTE: 报告里"整窗**最小宽度**被顶到 900+、窗口缩不回去"那半句**不成立**，
+    ///       别照着它改：那一格还有 setMinimumWidth(kStatusLabelMinWidth)，而
+    ///       qSmartMinSize() 在 `minSize.width() > 0` 时直接把最小尺寸**钉成**
+    ///       minSize.width()（qlayoutengine.cpp:331）—— 文字再长，这一格的最小贡献都是
+    ///       260，整窗最小宽度实测两态都是 686。填 maxWidth 之前的 `d->sh`/`sizeForWidth`
+    ///       那套（QLabel 的 minimumSizeHint 确实是整句宽度）在布局那一层被那一句挡住了。
+    ///
+    /// 取值按"900 px 的窗口里中间那格大致能有多少"：左右两格（170 + 头像那格）和两头的
+    /// 边距扣掉之后剩下的就是它，取 320 让长文件名一定截得住，同时短句不会被截。
+    static int bottomBarStatusTextWidth() { return 320; }
+
     /// 底栏两颗按钮里**头像和文字之间的间距**（和原来那格一样是 8）。
     static int bottomBarAccountRowSpacing() { return 8; }
     /// 底栏两颗按钮右边那个**朝上箭头**的边长（像素）：点开是向上弹的，箭头就朝上。
@@ -681,6 +738,15 @@ public:
         return QStringLiteral("applyExtraJvmArgsButton");
     }
     static QString downloadSourceComboName() { return QStringLiteral("downloadSourceCombo"); }
+    static QString showGameLogCheckName() { return QStringLiteral("showGameLogCheck"); }
+    static QString processPriorityComboName() { return QStringLiteral("processPriorityCombo"); }
+    static QString gameWindowWidthSpinName() { return QStringLiteral("gameWindowWidthSpin"); }
+    static QString gameWindowHeightSpinName() { return QStringLiteral("gameWindowHeightSpin"); }
+    /// 「宽 × 高」中间那个乘号。它也要有名字：验证工程量这三格的几何时得能取到它。
+    static QString gameWindowSizeTimesLabelName() { return QStringLiteral("gameWindowSizeTimes"); }
+    /// 「启动选项」那一组里那几个勾选框/数字框的文案。
+    /// 「显示游戏日志」这个串是**用户原话**（2026-09-24 提的需求），别改写成别的说法。
+    static QString showGameLogCheckText() { return QStringLiteral("显示游戏日志"); }
     static QString versionNameCustomCheckName() {
         return QStringLiteral("versionNameCustomCheck");
     }
@@ -697,6 +763,20 @@ public:
     static int memoryMinMinMb() { return 128; }
     static int memoryLimitMaxMb() { return 65536; }
     static int memoryStepMb() { return 256; }
+
+    // ---------- 游戏窗口大小的取值范围 ----------
+    // 规矩同上：和 LauncherSettings::gameWindowMinWidth() 那一组**必须一样**（那是
+    // 读盘时的钳位，这边是界面允许填的范围）。ui/ 这一侧不许 include src/，
+    // 所以两份是各写一遍的 —— 改一边就得改另一边，验证工程里有一条断言盯着它们相等。
+    //
+    // 上限不是随手定的：7680×4320 是 8K，比这个还大的游戏窗口没有意义（而且 -width 是
+    // 交给游戏自己的两个整数，给个天文数字只会让某些版本的窗口创建直接失败）。
+    static int windowMinWidth() { return 320; }
+    static int windowMaxWidth() { return 7680; }
+    static int windowMinHeight() { return 240; }
+    static int windowMaxHeight() { return 4320; }
+    /// 点上下箭头一下走多少。16 是"拖一下就能从 854 走到 1920 那类常见值"。
+    static int windowSizeStep() { return 16; }
 
     // ---------- 「已安装版本」下拉框的占位文案 ----------
     // 空状态有两种，由 MainWindow::refreshInstalledVersions() 按当前情形切换：
@@ -796,7 +876,39 @@ public:
     /// 不重绘，用户点了「启动游戏」看到的就是"卡死"（Windows 还会给标题挂上"无响应"）。
     /// 那几段报不出百分比，但"在忙"这件事必须说出来 —— 见 MainWindow::enterSyncWait()。
     static bool bottomBarShowsProgress(bool launching, bool downloading, bool blocking) {
-        return launching || downloading || blocking;
+        return bottomBarProgressOwner(launching, downloading, blocking)
+               != BottomBarProgressOwner::None;
+    }
+
+    /// 底栏中间那格**归谁**（三件事都会占它，优先级从高到低）。
+    enum class BottomBarProgressOwner {
+        None,      ///< 没人在忙：进度条复位、那格清空
+        Download,  ///< 下载 —— 最低的一档（它随时会被上面两档借走，借完要还回来）
+        Blocking,  ///< 同步阻塞等待（换令牌 / 挑 Java / startGame，见 enterSyncWait()）
+        Launch,    ///< 启动中（进程起来了、游戏还没出话）—— 最高的一档
+    };
+
+    /// @brief 底栏中间那格现在归谁。
+    ///
+    /// 这是"谁说话算数"的**唯一出处**：updateBottomBar() 按它画，下载进度那条每 200 ms
+    /// 一帧的回调（MainWindow::updateDownloadProgressUi）也按它判"该不该动这一格"。
+    ///
+    /// 以前这条优先级只写在 updateBottomBar() 的 if 链里，下载进度回调**无条件**覆盖那格
+    /// 文字与进度条 —— "边下边开"时，enterSyncWait() 写的「正在校验登录状态…」「正在准备
+    /// Java 运行时…」和进程起来后的「正在启动 X …」会在 200 ms 内被顶掉，而那几句话正是
+    /// 2026-09-22 专为"点了启动就像卡死"做的。
+    static BottomBarProgressOwner bottomBarProgressOwner(bool launching, bool downloading,
+                                                         bool blocking) {
+        if (launching) {
+            return BottomBarProgressOwner::Launch;
+        }
+        if (blocking) {
+            return BottomBarProgressOwner::Blocking;
+        }
+        if (downloading) {
+            return BottomBarProgressOwner::Download;
+        }
+        return BottomBarProgressOwner::None;
     }
 
     /// 底栏中间那格"正在启动"那句文案。**唯一一处**拼它。
@@ -907,6 +1019,10 @@ public:
     QPlainTextEdit *getExtraJvmArgsEdit() const { return extraJvmArgsEdit; }
     QPushButton *getApplyExtraJvmArgsButton() const { return applyExtraJvmArgsButton; }
     QComboBox *getDownloadSourceCombo() const { return downloadSourceCombo; }
+    QCheckBox *getShowGameLogCheck() const { return showGameLogCheck; }
+    QComboBox *getProcessPriorityCombo() const { return processPriorityCombo; }
+    QSpinBox *getGameWindowWidthSpin() const { return gameWindowWidthSpin; }
+    QSpinBox *getGameWindowHeightSpin() const { return gameWindowHeightSpin; }
     QCheckBox *getVersionNameCustomCheck() const { return versionNameCustomCheck; }
     QCheckBox *getVersionNameRealCheck() const { return versionNameRealCheck; }
     QCheckBox *getVersionNameLoaderCheck() const { return versionNameLoaderCheck; }
@@ -947,70 +1063,81 @@ private:
     void setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout);
 
     // 控件指针
-    QPushButton *startButton;
-    QPushButton *accountSkinSettingsButton;
-    QCheckBox *offlineModeCheckBox;
-    QPushButton *addFolderButton;
-    QLabel *folderHintLabel;
-    QPushButton *removeFolderButton;
-    QListWidget *folderList;
-    QTreeWidget *instanceList;
-    QPushButton *renameInstanceButton;
-    QPushButton *groupInstanceButton;
-    QPushButton *instanceSettingsButton;
-    QPushButton *stopGameButton;
-    QPushButton *importModpackButton;
-    QLabel *instanceFolderLabel;
-    QComboBox *installedVersionCombo;
+    //
+    // NOTE: 全部显式初始化成 nullptr（2026-09-24 加的）。这不是为了好看：下面那些
+    //       访问器和 isHomeTabCurrent() 拿"空指针"当"setupUi() 还没跑完"的判据 ——
+    //       成员没有初值时，那个判据读的是**未初始化的值**（UB），只是现在的调用点
+    //       全都排在 setupUi() 之后才没炸。
+    // NOTE: 新加控件指针时**一并写上 = nullptr**，别让它单独破例。
+    QPushButton *startButton = nullptr;
+    QPushButton *accountSkinSettingsButton = nullptr;
+    QCheckBox *offlineModeCheckBox = nullptr;
+    QPushButton *addFolderButton = nullptr;
+    QLabel *folderHintLabel = nullptr;
+    QPushButton *removeFolderButton = nullptr;
+    QListWidget *folderList = nullptr;
+    QTreeWidget *instanceList = nullptr;
+    QPushButton *renameInstanceButton = nullptr;
+    QPushButton *groupInstanceButton = nullptr;
+    QPushButton *instanceSettingsButton = nullptr;
+    QPushButton *stopGameButton = nullptr;
+    QPushButton *importModpackButton = nullptr;
+    QLabel *instanceFolderLabel = nullptr;
+    QComboBox *installedVersionCombo = nullptr;
     /// 下载页左栏那份「下载分类」（见头文件上面那段）与右栏那份 QStackedWidget。
-    /// 只有「游戏」那一页是真的，其余四页各一句"还没做"。
-    QListWidget *downloadCategoryList;
-    QStackedWidget *downloadStack;
+    /// 五页**全是真**的（2026-09-23 起）：第 0 页「游戏」是版本树 + 安装页，其余四页
+    /// 各是一张「资源 → 游戏版本 → 版本号」的三层表。
+    QListWidget *downloadCategoryList = nullptr;
+    QStackedWidget *downloadStack = nullptr;
     /// 「游戏」那一页里的两层：版本树 / 安装页（见头文件上面那段）。
-    QStackedWidget *gameStack;
-    QTreeWidget *versionTree;
-    QLabel *installTargetLabel;
-    QLineEdit *installNameEdit;
-    QLabel *installNameHint;
-    QLabel *installNameError;
-    QPushButton *installButton;
-    QPushButton *installBackButton;
+    QStackedWidget *gameStack = nullptr;
+    QTreeWidget *versionTree = nullptr;
+    QLabel *installTargetLabel = nullptr;
+    QLineEdit *installNameEdit = nullptr;
+    QLabel *installNameHint = nullptr;
+    QLabel *installNameError = nullptr;
+    QPushButton *installButton = nullptr;
+    QPushButton *installBackButton = nullptr;
     /// 安装页那棵「模组加载器」树（见头文件上面那段）。顶层五条按 modLoaderOptionNames()
     /// 的顺序摆，前四条各带自己的版本列表（点开才灌）、第 5 条是「不装（纯原版）」。
-    QTreeWidget *loaderTree;
+    QTreeWidget *loaderTree = nullptr;
     /// 后面四页那四张资源表 + 各自的搜索框，按分类键索引（见头文件上面那段）。
     /// 五页里「游戏」不在里头（它不用搜），所以这里是四对。
     QHash<QString, QTreeWidget *> downloadResourceTrees;
     QHash<QString, QLineEdit *> downloadResourceSearches;
-    QComboBox *javaVersionCombo;
-    QLabel *javaPathLabel;
-    QCheckBox *javaWarnMismatchCheck;
-    QCheckBox *memoryAutoCheck;
-    QLabel *memoryAutoHint;
-    QSpinBox *memoryMaxSpin;
-    QSpinBox *memoryMinSpin;
-    QComboBox *launcherBehaviourCombo;
-    QPlainTextEdit *extraJvmArgsEdit;
-    QPushButton *applyExtraJvmArgsButton;
-    QComboBox *downloadSourceCombo;
-    QCheckBox *versionNameCustomCheck;
-    QCheckBox *versionNameRealCheck;
-    QCheckBox *versionNameLoaderCheck;
-    QCheckBox *versionNameLoaderVersionCheck;
-    SkinViewer *skinViewer;
-    QLabel *skinHintLabel;
-    QPushButton *accountSkinButton;
-    QTabWidget *tabWidget;
-    QFrame *bottomBar;
+    QComboBox *javaVersionCombo = nullptr;
+    QLabel *javaPathLabel = nullptr;
+    QCheckBox *javaWarnMismatchCheck = nullptr;
+    QCheckBox *memoryAutoCheck = nullptr;
+    QLabel *memoryAutoHint = nullptr;
+    QSpinBox *memoryMaxSpin = nullptr;
+    QSpinBox *memoryMinSpin = nullptr;
+    QComboBox *launcherBehaviourCombo = nullptr;
+    QPlainTextEdit *extraJvmArgsEdit = nullptr;
+    QPushButton *applyExtraJvmArgsButton = nullptr;
+    QComboBox *downloadSourceCombo = nullptr;
+    QCheckBox *showGameLogCheck = nullptr;
+    QComboBox *processPriorityCombo = nullptr;
+    QSpinBox *gameWindowWidthSpin = nullptr;
+    QSpinBox *gameWindowHeightSpin = nullptr;
+    QCheckBox *versionNameCustomCheck = nullptr;
+    QCheckBox *versionNameRealCheck = nullptr;
+    QCheckBox *versionNameLoaderCheck = nullptr;
+    QCheckBox *versionNameLoaderVersionCheck = nullptr;
+    SkinViewer *skinViewer = nullptr;
+    QLabel *skinHintLabel = nullptr;
+    QPushButton *accountSkinButton = nullptr;
+    QTabWidget *tabWidget = nullptr;
+    QFrame *bottomBar = nullptr;
     /// 底栏两头那两颗按钮：整格都是一颗按钮（里面装着原来的那几行字 + 右边一个朝上的箭头）。
-    QPushButton *runStateButton;
-    QPushButton *accountButton;
-    QLabel *avatarLabel;
-    QLabel *accountLabel;
+    QPushButton *runStateButton = nullptr;
+    QPushButton *accountButton = nullptr;
+    QLabel *avatarLabel = nullptr;
+    QLabel *accountLabel = nullptr;
     // 账户格那两行是**竖直排列**的（名字在上、登录方式在下），和左上角那格同构。
-    QLabel *accountTypeLabel;
-    QProgressBar *progressBar;
-    QLabel *statusLabel;
-    QLabel *runStateLabel;
-    QLabel *runStateDetailLabel;
+    QLabel *accountTypeLabel = nullptr;
+    QProgressBar *progressBar = nullptr;
+    QLabel *statusLabel = nullptr;
+    QLabel *runStateLabel = nullptr;
+    QLabel *runStateDetailLabel = nullptr;
 };

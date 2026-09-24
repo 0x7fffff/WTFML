@@ -28,6 +28,21 @@
 
 #include <algorithm>
 
+#if defined(Q_OS_WIN)
+// NOTE: 放在所有 Qt 头之后 —— windows.h 定义的东西太多（min/max 宏、`interface`……），
+//       先于 Qt 包含容易撞名。NOMINMAX 是给 std::min/std::max 让路（windows.h 会定义
+//       min/max 宏），WIN32_LEAN_AND_MEAN 少拉一堆用不上的头（winsock、shellapi……）。
+//       和 TokenStore.cpp 里那一套同一个写法。
+//       用途只有一个：下面的 applyProcessPriority()（OpenProcess / SetPriorityClass）。
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
+
 #include "../auth/AccountStore.hpp"
 #include "../auth/AuthManager.hpp"
 #include "../manage/InstanceFiles.hpp"
@@ -53,6 +68,13 @@ constexpr char kDefaultPlayerName[] = "Player";
 /// NOTE: 别把它当成"原版主类的权威来源"。原版每个版本的 json 里都写着这个字段，
 ///       这只是一个让"缺字段的老版本 / 手写的 json"保持原行为的退路。
 constexpr char kDefaultMainClass[] = "net.minecraft.client.main.Main";
+
+/// 带**访问令牌**的那个系统属性（钥匙部分）。
+///
+/// NOTE: 单独拎出来是因为它有两处用途，而两处都必须认得同一条前缀：一处是拼参数
+///       （`-Dminecraft.accessToken=<JWT>`），一处在打日志时把它挡掉（见 startGame()
+///       里那个 -D 循环 —— 那条以前会把令牌前 50 个字符写进日志文件）。
+const QString kAccessTokenProperty = QStringLiteral("-Dminecraft.accessToken=");
 
 /**
  * @brief 取某个版本解压 natives 的目标目录。
@@ -105,6 +127,74 @@ void ensureInitialOptions(const QString &gameDir) {
     file.write(QStringLiteral("lang:%1\n").arg(lang).toUtf8());
     file.close();
     qDebug() << "Created initial options.txt with lang" << lang;
+}
+
+#ifdef Q_OS_WIN
+/// ProcessPriority → Windows 的 priority class 常量。一一对应，没有别的换算。
+DWORD priorityClassOf(ProcessPriority priority) {
+    switch (priority) {
+    case ProcessPriority::Low:
+        return IDLE_PRIORITY_CLASS;
+    case ProcessPriority::BelowNormal:
+        return BELOW_NORMAL_PRIORITY_CLASS;
+    case ProcessPriority::AboveNormal:
+        return ABOVE_NORMAL_PRIORITY_CLASS;
+    case ProcessPriority::High:
+        return HIGH_PRIORITY_CLASS;
+    case ProcessPriority::Normal:
+        break;
+    }
+    return NORMAL_PRIORITY_CLASS;
+}
+#endif
+
+/**
+ * @brief 给刚起来的游戏进程设 CPU 优先级（设置页「启动选项 → 进程优先级」）。
+ *
+ * @param process 已经 start() 过、而且进程真的起来了的那个 QProcess。
+ * @param priority 要设的档位。
+ *
+ * NOTE: 调用的时机只有一处 —— waitForStarted() 成功之后、紧跟着的那一行。两个理由：
+ *       ① `processId()` 在进程起来之前是 0，那之前 OpenProcess 没东西可开；
+ *       ② 越早设越接近"从第一行代码起就是这个优先级"，晚了的话刚开始那一段初始化
+ *          （分配几个 GB 内存、解压 natives）已经按旧的档位跑过了。
+ *
+ * NOTE: 失败**只写日志、不拦启动**。设优先级是"锦上添花"，没设上不代表游戏不能玩；
+ *       把它变成一条拦下启动的错误，就是拿一个次要功能去堵主流程。常见失败是
+ *       进程刚好在这一瞬间退了（OpenProcess 拿到 ERROR_INVALID_PARAMETER），
+ *       那不是异常。
+ *
+ * NOTE: 非 Windows 平台是**空操作**，不是"用 setpriority 凑一个等价物"：两边的档位
+ *       根本对不上（POSIX 是 nice 值，Windows 是调度类），凑出来的东西没人验证过。
+ */
+void applyProcessPriority(QProcess *process, ProcessPriority priority) {
+#ifdef Q_OS_WIN
+    if (process == nullptr) {
+        return;
+    }
+    const DWORD pid = static_cast<DWORD>(process->processId());
+    if (pid == 0) {
+        qWarning() << "Process is gone before priority could be set, skipping.";
+        return;
+    }
+    // 只要 PROCESS_SET_INFORMATION —— 那是 SetPriorityClass 需要的最小权限。
+    // 不要为了省事去要 PROCESS_ALL_ACCESS：多要的权限对我们没用，而"一个启动器去要
+    // 完全控制另一个进程"正是某些安全软件盯着的形状（见 wtfml-av-pdm 那次）。
+    HANDLE handle = OpenProcess(PROCESS_SET_INFORMATION, FALSE, pid);
+    if (handle == nullptr) {
+        qWarning() << "OpenProcess failed for priority, error:" << GetLastError();
+        return;
+    }
+    if (SetPriorityClass(handle, priorityClassOf(priority)) == 0) {
+        qWarning() << "SetPriorityClass failed, error:" << GetLastError();
+    } else {
+        qDebug() << "Process priority set for PID" << static_cast<qulonglong>(pid);
+    }
+    CloseHandle(handle);
+#else
+    Q_UNUSED(process);
+    Q_UNUSED(priority);
+#endif
 }
 
 }  // namespace
@@ -277,27 +367,27 @@ QString LauncherManager::prepareNatives(const QJsonObject &versionJson, const QS
  * 构造完整的 JVM 参数集，包括内存设置、 classpath 、系统属性和游戏特定参数。
  * 使用 version.json 中的依赖项构建 classpath ，并应用针对特定平台的 library 过滤。
  *
- * @param token Authentication token for online mode
- * @param versionId Minecraft version identifier
- * @param assetIndexId Asset index identifier
- * @param versionJson Version manifest JSON object containing library dependencies
- * @param settings Java settings (memory, extra args, etc.)
- * @param offlineMode Whether to run in offline mode with fake credentials
- * @param javaMajorVersion 实际使用的 Java 主版本；<= 0 表示调用方没传
- * @param versionJvmArgs 该版本自定义的 JVM 参数，插在全局 extraJvmArgs 之后
- * @param playerName 玩家名，写进 --username；空则退回 kDefaultPlayerName
- * @return 返回为 QProcess 准备的带有 JVM 参数的 QStringList
+ * **完整的参数说明看 LauncherManager.hpp 上那一段**（那是唯一权威的一份，两边都写着就会
+ * 各漂各的 —— 这一段以前就是那个下场：漏了 @param playerUuid，@param settings / @param
+ * token 的描述也和头文件里的对不上）。这里只留"为什么这么写"的部分。
  *
  * NOTE: 这里刻意**只加硬编码做不到的事**，凡是 version.json 的 arguments.jvm 声明了的
- *       就按它的规则过滤后原样传（见下面那段）。PCL 那套调优值（-XX:G1NewSizePercent=20
- *       -XX:G1ReservePercent=20 -XX:G1HeapRegionSize=32M -XX:MaxGCPauseMillis=50
- *       -XX:+PerfDisableSharedMem -XX:MinHeapFreeRatio=25 -XX:MaxHeapFreeRatio=40，
- *       以及 -XX:+UseCompactObjectHeaders）**不进这里** —— 它们随机器/堆大小/Java
- *       版本而变，硬编码等于替用户做主了，归 versionJvmArgs 和
- *       GlobalJavaSettings::extraJvmArgs() 这两个自定义口子。
- *       其中带版本门槛的那几条，实测结论（21 与 25 两个运行时）：-XX:+PerfDisableSharedMem
- *       全版本可用；-XX:+UseCompactObjectHeaders 只有新 JDK 接受，旧版是 Unrecognized
- *       option。所以谁要往设置界面里放这些预设，必须一并带上版本过滤。
+ *       就按它的规则过滤后原样传（见下面那段）。**没有**任何一份"我们自己的调优预设"
+ *       在这一层硬编码 —— 内存、GC、JIT 这些随机器/堆大小/Java 版本而变的东西，硬编码
+ *       等于替用户做主了，归 versionJvmArgs 和 GlobalJavaSettings::extraJvmArgs() 两个口子。
+ *
+ *       容易看错的一点（2026-09-24 改的注释，只改字不改码）：下面这些常见取值
+ *       -XX:G1NewSizePercent=20 / -XX:G1ReservePercent=20 / -XX:G1HeapRegionSize=32M /
+ *       -XX:MaxGCPauseMillis=50 / -XX:+UseCompactObjectHeaders 是 **Mojang 自己的
+ *       default-user-jvm**（见实测抓下来的 26.1.json：无规则那条给的就是
+ *       -Xms2G -Xmx4G -XX:+UseCompactObjectHeaders -XX:+AlwaysPreTouch
+ *       -XX:+UseStringDeduplication，G1 那组挂在 windows versionRange max 10.0.17134
+ *       那条规则下），不是"PCL 那套调优值"。以前这段注释把它们记成 PCL 的，照着它去
+ *       找"我们从哪抄来的"会找错方向。
+ *
+ *       真要往设置界面放这类预设，得注意版本门槛 —— 实测（21 与 25 两个运行时）：
+ *       -XX:+PerfDisableSharedMem 全版本可用；-XX:+UseCompactObjectHeaders 只有新 JDK
+ *       接受，旧版是 Unrecognized option 直接起不来。所以预设必须一并带上版本过滤。
  */
 QStringList LauncherManager::generateJvmArguments(const QString &token, const QString &versionId,
                                                   const QString &assetIndexId,
@@ -306,7 +396,8 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
                                                   bool offlineMode, int javaMajorVersion,
                                                   const QStringList &versionJvmArgs,
                                                   const QString &playerName,
-                                                  const QString &playerUuid) const {
+                                                  const QString &playerUuid, int windowWidth,
+                                                  int windowHeight) const {
     QStringList args;
 
     qDebug() << "=== Generating JVM Arguments ===";
@@ -381,6 +472,13 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     //   2. **带模组加载器的版本目录里根本没有 jar**（Fabric 装出来的只有一份 json），
     //      客户端 jar 在原版那个目录里 —— jarRelativePath() 会顺着 inheritsFrom 链找到它。
     // 相对路径的基准是 QProcess 的工作目录（AppPaths::minecraftDir()，见 startGame）。
+    //
+    // NOTE: 这一条和 startGame() 里那个 setWorkingDirectory **是一对**：想把 cwd 换成版本
+    //       目录（PCL 就是那么干的，MCEF 那类按相对路径找文件的模组指望的就是它），必须
+    //       同时把这里几条相对路径钉成绝对路径（`QDir(AppPaths::minecraftDir()).absoluteFilePath()`），
+    //       否则 JVM 会去 versions/<id>/versions/<id>/... 找主类，症状是
+    //       "Could not find or load main class"。2026-09-24 的崩溃取证查到这里，两处留待
+    //       专门一批一起改。
     addClasspathPath(InstanceFiles::jarRelativePath(versionId), classpath);
 
     // 根据 version.json library 依赖构建 classpath
@@ -543,14 +641,14 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     // --gameDir / --assetsDir 传**绝对路径**，而不是"靠 cwd 解析出来的相对路径"。
     //
     // NOTE: 这两条以前是 "versions/<id>" 和 "assets" 两个相对路径，由 startGame() 设的
-    //       cwd（.minecraft）解析 —— 而 startGame() 自己又同时算了一份绝对路径
+    //       cwd 解析 —— 而 startGame() 自己又同时算了一份绝对路径
     //       isolatedPath = <mc>/versions/<id>，同一个目录在两处各算一遍、其中一处依赖
-    //       调用顺序。改成绝对路径后解析结果逐字节相同（cwd 仍是 .minecraft，下面相对
-    //       路径的下场也一样），但不再依赖 cwd，也为以后"切换 .minecraft 文件夹"准备
-    //       了条件 —— 到那时 cwd 反而会变成不能依赖的东西。
+    //       调用顺序。改成绝对路径后解析结果逐字节相同，但不再依赖 cwd，也为"切换
+    //       .minecraft 文件夹"准备了条件。
     //
-    // NOTE: cwd **本身不动**，仍然是 .minecraft。真机 61 个实例里大量模组按 cwd 找相对
-    //       路径，改它是另一回事、有未知的兼容风险，不混进这批加固。
+    // NOTE: cwd **本身不动**，仍然是 .minecraft（见 startGame 里那条 NOTE：真机 61 个
+    //       实例里大量模组按 cwd 找相对路径，而这个 cwd 目前还是 classpath 那几条相对
+    //       路径的解析基准 —— 要动得两处一起动）。
     if (offlineMode) {
         // 离线模式：使用虚假登录证书
         // NOTE: 玩家名现在就是调用方给的那个（底栏上显示的名字），以前是
@@ -596,7 +694,7 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
         argToken = token;
         argUserType = QStringLiteral("msa");
         qDebug() << "Token length:" << token.length();
-        args << QStringLiteral("-Dminecraft.accessToken=%1").arg(token);
+        args << kAccessTokenProperty + token;
         args << QStringLiteral("-Dminecraft.version=%1").arg(versionId);
 
         args << QStringLiteral("--username") << username << QStringLiteral("--version")
@@ -640,6 +738,16 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     gamePlaceholders[QStringLiteral("user_type")] = argUserType;
     gamePlaceholders[QStringLiteral("version_type")] =
         versionJson.value(QStringLiteral("type")).toString(QStringLiteral("release"));
+    // 「游戏窗口大小」那两个占位符。原版 json 里那条
+    // `{"rules":[{"allow","features":{"has_custom_resolution":true}}],
+    //   "value":["--width","${resolution_width}","--height","${resolution_height}"]}`
+    // 用的是这两个名字 —— 填进去是为了**万一**有老版本的 minecraftArguments 里直接写着
+    // `${resolution_width}`（那种拼法见过），不至于把一个没替换的 `${...}` 原样发出去。
+    // 注意：这条占位符**不是**"让原版那条规则生效"的手段，理由见下面 --width 那一段。
+    if (windowWidth > 0 && windowHeight > 0) {
+        gamePlaceholders[QStringLiteral("resolution_width")] = QString::number(windowWidth);
+        gamePlaceholders[QStringLiteral("resolution_height")] = QString::number(windowHeight);
+    }
 
     const QStringList extraGameArgs =
         VersionArguments::extraGameArguments(versionJson, args, gamePlaceholders);
@@ -648,13 +756,40 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
         args << extraGameArgs;
     }
 
+    // ------------------------------------------------------------------
+    // 游戏窗口大小（设置页「启动选项 → 窗口大小」）
+    // ------------------------------------------------------------------
+    // NOTE: 原版 json 里明明有一条现成的 `--width ${resolution_width} --height
+    //       ${resolution_height}` 规则，但这里**不能靠它**，两处都是死的：
+    //         ① 那条规则挂在 `has_custom_resolution` 这个 feature 上，而启动器一律传
+    //            空 feature 集合（见 VersionArguments::expand 的说明），规则根本不命中；
+    //         ② 就算把 feature 打开也没用 —— `--width`/`--height` 在
+    //            isVanillaGameArgument() 那张"原版参数"表里，extraGameArguments 会把它们
+    //            连同值一起跳掉（那张表的语义是"这一条由启动器自己发"）。
+    //       所以**打开 feature 是白做**，真正该做的事就是这一句：由启动器自己发，和上面
+    //       --username 那一段同源。顺带一提，1.12.2 那种老版本（minecraftArguments 里
+    //       压根没有 width/height）走的也是这一句 —— 游戏自己的 main 从 1.6 起就认
+    //       `--width/--height`（1.12.2 的 Main 里那对 defaultsTo(854, 480) 就是默认窗口
+    //       大小的出处），所以两条路发的是同一种参数。
+    //
+    // NOTE: 判据用 contains("--width") 而不是"这条 json 是不是老格式"：老版本的
+    //       minecraftArguments 里**可能**自带 `--width ${resolution_width}`（上面那两个
+    //       占位符就是为它填的），那种情况下这里再加一遍就是**同一个开关发两次** ——
+    //       joptsimple 遇到重复选项会直接报错退出。
+    if (windowWidth > 0 && windowHeight > 0 && !args.contains(QStringLiteral("--width"))) {
+        args << QStringLiteral("--width") << QString::number(windowWidth)
+             << QStringLiteral("--height") << QString::number(windowHeight);
+        qDebug() << "Game window size:" << windowWidth << "x" << windowHeight;
+    }
+
     qDebug() << "Total arguments count:" << args.length();
     return args;
 }
 
 int LauncherManager::startGame(const QStringList &arguments, const EffectiveJavaSettings &settings,
                                const QString &versionId, const QString &displayName,
-                               const QString &accountName, const QString &accountUuid) {
+                               const QString &accountName, const QString &accountUuid,
+                               ProcessPriority priority) {
     // 返回值 = 这次会话的 id（> 0 就等于"进程真的起来了"）。三条早退路径都必须 return 0：
     // 调用方拿非零当"这次算不算启动成功"的判据（据此记住上次启动的版本），任何一条漏掉
     // 都会把失败当成功记下来。这个函数里**每一条 return 都要想一遍返回值**。
@@ -723,7 +858,18 @@ int LauncherManager::startGame(const QStringList &arguments, const EffectiveJava
     for (int i = 0; i < arguments.length(); ++i) {
         const QString &arg = arguments.at(i);
         if (arg.startsWith("-D")) {
-            qDebug() << "  " << arg.left(50) << (arg.length() > 50 ? "..." : "");
+            // **带令牌的那一条只打钥匙和长度**（2026-09-24 加的）。上面那段原本一律
+            // `arg.left(50)`，于是 `-Dminecraft.accessToken=<JWT>` 的前 50 个字符会跟着这
+            // 一行写进 <数据目录>/logs/wtfml.log（这个进程把它整份都重定向到那个文件，
+            // 见 main.cpp 的 installFileLog）。50 个字符不足以直接拿来用，但那是**凭据的
+            // 一部分**，没有任何理由落盘。:598 那行「Token length:」只打长度，本来就对，
+            // 这条是漏的。
+            if (arg.startsWith(kAccessTokenProperty)) {
+                qDebug() << "  " << kAccessTokenProperty + QStringLiteral("<省略，长度 %1>")
+                                                  .arg(arg.length() - kAccessTokenProperty.length());
+            } else {
+                qDebug() << "  " << arg.left(50) << (arg.length() > 50 ? "..." : "");
+            }
         } else if (arg == "-cp" || arg == "-classpath") {
             qDebug() << "  " << arg;
             if (static_cast<int>(i + 1) < arguments.length()) {
@@ -740,6 +886,13 @@ int LauncherManager::startGame(const QStringList &arguments, const EffectiveJava
     process->setArguments(arguments);
 
     // 将工作目录设为 .minecraft 文件夹以确保文件能够正确解析
+    //
+    // NOTE: 2026-09-24 那次崩溃取证查到这里过 —— MCEF 是按**相对路径** `mods/mcef-libraries`
+    //       找它那份本地库的（反编译 mcef-forge-2.1.6 确认），所以 cwd 指到根 .minecraft
+    //       时它去的是根 mods/ 底下，而 PCL 启动同一个实例时 cwd 是版本目录、它去的是
+    //       versions/<id>/mods/ 底下那份完好的副本。**没改**：改成版本目录要同时把
+    //       classpath 那几条相对路径改成绝对路径（见下面 addClasspathPath 那段 NOTE），
+    //       两处一起动才自洽，单独改这一行会让 JVM 找不到主类。留待专门一批做。
     QString minecraftDir = AppPaths::minecraftDir();
     QDir().mkpath(minecraftDir);
     process->setWorkingDirectory(minecraftDir);
@@ -776,6 +929,7 @@ int LauncherManager::startGame(const QStringList &arguments, const EffectiveJava
     }
 
     qDebug() << "Java process started, PID:" << process->processId();
+    applyProcessPriority(process, priority);
     // 记"谁在跑"的**唯一**时机：进程真的起来了（三条早退路径都不记）—— 底栏那条状态和
     // "启动中"进度的收尾都读它。上一步 discardSession() 过的会话在这里已经不在表里了，
     // 所以下面这两笔只可能落在**活着**的会话上。

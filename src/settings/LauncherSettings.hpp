@@ -12,6 +12,7 @@
 #include <QString>
 #include <QStringList>
 
+#include "../launcher/ProcessPriority.hpp"
 #include "../manage/VersionDisplay.hpp"
 
 /**
@@ -38,6 +39,15 @@ enum class DownloadSource {
     Official, ///< Mojang 官方源
     Mirror,   ///< 镜像源（BMCLAPI）
 };
+
+/**
+ * @brief 游戏进程跑在哪个优先级上（Windows 的 priority class）。
+ *
+ * NOTE: 枚举本体在 ../launcher/ProcessPriority.hpp（那边是"进程"那一侧的看法，
+ *       这里是"设置"这一侧的看法，值只有一份）。和 DownloadSource 同一个道理，
+ *       存进盘里的是**字符串**不是下标 —— 优先级存错档轻则影响手感、重则让游戏跟系统
+ *       抢 CPU，不能靠"下标顺序没变"这种默契。
+ */
 
 class LauncherSettings : public QObject {
     Q_OBJECT
@@ -136,6 +146,48 @@ public:
     void setDownloadSource(DownloadSource source);
 
     // ------------------------------------------------------------------
+    // 「启动选项」那三项（设置页里同一组）
+    // ------------------------------------------------------------------
+
+    /// 启动游戏时要不要给它开一个日志窗。默认关（见 ui/GameLogWindow 的说明）。
+    bool showGameLog() const { return m_showGameLog; }
+
+    /// 设置「显示游戏日志」并立刻落盘。
+    void setShowGameLog(bool show);
+
+    /// 游戏窗口的初始宽度（像素）。默认就是原版自己的那个 854。
+    int gameWindowWidth() const { return m_gameWindowWidth; }
+
+    /// 游戏窗口的初始高度（像素）。默认就是原版自己的那个 480。
+    int gameWindowHeight() const { return m_gameWindowHeight; }
+
+    /**
+     * @brief 设置游戏窗口大小并立刻落盘。
+     * @param width 宽度（像素），内部按 gameWindowMinWidth()…gameWindowMaxWidth() 钳位。
+     * @param height 高度（像素），内部按 gameWindowMinHeight()…gameWindowMaxHeight() 钳位。
+     *
+     * 宽高一起收进来是刻意的：一行界面上两个框，只改一个也得能一次落盘。
+     */
+    void setGameWindowSize(int width, int height);
+
+    /// 当前优先级。默认 Normal（**显式设**，理由见 ProcessPriority 的 NOTE）。
+    ProcessPriority processPriority() const { return m_processPriority; }
+
+    /// 设置优先级并立刻落盘。
+    void setProcessPriority(ProcessPriority priority);
+
+    /// 游戏窗口大小的取值范围；load()/save() 都拿它钳位。
+    ///
+    /// NOTE: 界面那一份是 MainWindowUI::windowMinWidth() 那一组 —— **必须和这里一样**
+    ///       （ui/ 不许 include src/，所以是各写一遍，验证工程里有断言盯着它们相等）。
+    ///       和「内存分配」那对上下限是同一个约定：两边不一致的话，界面允许填的值会在
+    ///       读回来时被悄悄改掉，用户看到的是"填了不生效"。
+    static int gameWindowMinWidth() { return 320; }
+    static int gameWindowMaxWidth() { return 7680; }
+    static int gameWindowMinHeight() { return 240; }
+    static int gameWindowMaxHeight() { return 4320; }
+
+    // ------------------------------------------------------------------
     // 枚举 <-> 存储值
     // ------------------------------------------------------------------
     // 两个方向都放在这一处，免得"写进去"和"读回来"各写一套字符串、
@@ -151,6 +203,11 @@ public:
     /// @return 认不出来的值一律当 Official。
     static DownloadSource downloadSourceFromKey(const QString &key);
 
+    /// @return 存进 QSettings 的字符串。
+    static QString processPriorityKey(ProcessPriority priority);
+    /// @return 认不出来的值一律当 Normal。
+    static ProcessPriority processPriorityFromKey(const QString &key);
+
 private:
     QString m_lastLaunchedVersion;
     QStringList m_folders;
@@ -158,4 +215,11 @@ private:
     VersionNameOptions m_versionNameOptions;
     LauncherBehaviour m_launcherBehaviour = LauncherBehaviour::Unchanged;
     DownloadSource m_downloadSource = DownloadSource::Official;
+    bool m_showGameLog = false;
+    /// 默认值取原版的默认窗口大小（1.12.2 的 Main 里那对 defaultsTo(854, 480)）：
+    /// 谁都不动这一项时，启动器发出去的那两个参数就等于游戏自己本来要用的值 ——
+    /// "加了这个功能"不该让任何人的窗口大小变一下。
+    int m_gameWindowWidth = 854;
+    int m_gameWindowHeight = 480;
+    ProcessPriority m_processPriority = ProcessPriority::Normal;
 };

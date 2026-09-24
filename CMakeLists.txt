@@ -18,6 +18,7 @@ set(HEADER_FILES
     src/MainWindow.hpp
     src/launcher/LauncherManager.hpp
     src/launcher/LibraryRules.hpp
+    src/launcher/ProcessPriority.hpp
     src/launcher/VersionInheritance.hpp
     src/auth/AuthManager.hpp
     src/auth/AccountStore.hpp
@@ -68,6 +69,7 @@ set(SOURCE_FILES
     src/util/SystemMemory.cpp
     src/util/ZipUtil.cpp
     ui/AccountSkinDialog.cpp
+    ui/GameLogWindow.cpp
     ui/MainWindowUI.cpp
     ui/GroupDialog.cpp
     ui/InstanceSettingsDialog.cpp
