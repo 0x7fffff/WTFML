@@ -216,6 +216,10 @@ private:
     QCheckBox *m_warnJavaMismatchCheck = nullptr;
     QToolButton *m_advancedToggle = nullptr;
     QWidget *m_advancedBox = nullptr;
+    /// **展开**「高级选项」之前这个窗有多高。折回时按它还原 —— Qt 只在"窗口比内容还小"
+    /// 时把窗口撑大，内容变少时一动不动，不记这一笔的话展开一次再收起，底下就永远留着
+    /// 那一截空白（见 .cpp 里那段 NOTE）。0 = 还没展开过。
+    int m_heightBeforeAdvanced = 0;
 
     // 五行各一对单选钮。存在成员里（而不是每次 findChild）是因为 refreshHints()
     // 每次信号都要读它们算"有效值"，而那是按键最频繁的一条路。

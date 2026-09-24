@@ -22,6 +22,7 @@
 #include <QPushButton>
 #include <QRadioButton>
 #include <QSpinBox>
+#include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
 
@@ -182,8 +183,32 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         grid->addWidget(m_advancedBox, row++, 0, 1, 2);
 
         connect(m_advancedToggle, &QToolButton::toggled, this, [this](bool expanded) {
+            // 展开前这个窗有多高：折回时按它还原（用户自己拉过的也算数 —— 记的是"展开
+            // 那一刻"的高度，不是构造时那个 600x480）。
+            if (expanded) {
+                m_heightBeforeAdvanced = height();
+            }
             m_advancedBox->setHidden(!expanded);
             m_advancedToggle->setArrowType(expanded ? Qt::DownArrow : Qt::RightArrow);
+            // 折回之后得让窗口**缩回去**：Qt 只在"窗口比内容还小"时把它撑大（展开那一下
+            // 就是它干的），内容变少时它一动不动 —— 不补这一句，展开一次再收起，底下就
+            // 永远留着那一截空白。实测（600x480 那个默认大小）：展开 → 600x503、
+            // 折回 → **还是** 600x503（那时布局只要 310，多出来的全是空白）。
+            //
+            // NOTE: 必须**晚一拍**再缩。这一下 setHidden() 只是把"重算布局"排进事件队列，
+            //       此刻这个窗的最小高度还是展开着的那个数（503），当场 resize(480) 会被
+            //       它钳回去 —— 看着像"修了但没生效"。排一发 0 毫秒的：那会儿布局已经
+            //       重算完（最小高度回到 310），缩得下去。收尾那一发挂在 this 上，
+            //       窗先没了就不会再响。
+            if (!expanded) {
+                QTimer::singleShot(0, this, [this] {
+                    if (m_heightBeforeAdvanced > 0) {
+                        // 只动高、不动宽：宽度是用户自己拉的（600 是"比分组对话框宽一点"
+                        // 那个起点），那一块藏在下面，跟宽度没有关系。
+                        resize(width(), m_heightBeforeAdvanced);
+                    }
+                });
+            }
         });
 
         int advancedRow = 0;
