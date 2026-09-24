@@ -1319,7 +1319,8 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     runStateRow->addWidget(makeChevronLabel(runStateButton), 0, Qt::AlignVCenter);
 
     // 没有实例在跑时这两行本来会藏起来（那时 MainWindow 写「实例未运行」）。**藏的是字，
-    // 不是格子** —— 格子（上面那颗按钮）永远占着那 200 px。
+    // 不是格子** —— 格子（上面那颗按钮）永远占着那 170 px（宽度是
+    // bottomBarRunStateColumnWidth()，从 200 缩到 170 那次改的，别照旧数字找）。
     runStateLabel->hide();
     runStateDetailLabel->hide();
 
@@ -1328,9 +1329,14 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     statusLabel->setObjectName(statusLabelName());
     // 固定一个最小宽度：文件名长短变化时这一格不会再跳来跳去
     statusLabel->setMinimumWidth(kStatusLabelMinWidth);
+    // **上限也得有**（2026-09-24 补的）。ElidedLabel 的 sizeHint() 是把宽度封在上限上，
+    // 而上限的来源就是 maximumWidth() —— 不设上限时，一句长文件名会把这一格的 sizeHint
+    // 顶到 3912、把底栏顶到 4338、把**主窗口**顶到 4338（默认窗口只有 900 宽，实测见
+    // ui_check 的 E5 段）。理由全文（含"最小宽度那一半其实不受影响"）见头文件那段。
+    statusLabel->setMaximumWidth(MainWindowUI::bottomBarStatusTextWidth());
     // NOTE: 它是 ElidedLabel（**不是**普通 QLabel）：中间那格比这句长的时候（文件名长、
     //       窗口窄）普通 QLabel 是**硬裁**的 —— 最后一个字被切掉一半就杵在那儿。
-    //       超出去的部分由它自己截成省略号。最小宽度上面那条照旧管着布局。
+    //       超出去的部分由它自己截成省略号。上下两个宽度一夹，布局就钉死了。
     progressBar = new QProgressBar(bottomBar);
     progressBar->setObjectName(progressBarName());
     progressBar->setRange(0, 100);

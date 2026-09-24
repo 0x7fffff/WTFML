@@ -611,6 +611,27 @@ public:
     /// 一样宽（200），可它装的是"32 的头像 + 名字 + 箭头"，200 是上限、不是需要 ——
     /// 16 个字符的正版名在 150 里放得下（放不下的名字截成省略号，它用的是 ElidedLabel）。
     static int bottomBarAccountColumnWidth() { return 150; }
+    /// 底栏**中间那格**进度文字（`已下载 d / t  文件名`）的宽度上限（像素）。
+    ///
+    /// 2026-09-24 补的：那一格原来**只有最小宽度、没有上限**（见 MainWindowUI.cpp 里
+    /// statusLabel 那几行）。它顶宽窗口走的是 **sizeHint** 那条路 —— 那个 ElidedLabel 的
+    /// sizeHint() 就是拿 maximumWidth() 当上限的（见 MainWindowUI.cpp 里那个类）。实测
+    /// （ui_check 的 E5 段）：300 个字符的文件名，不设上限时这一格 sizeHint 3912、
+    /// 底栏 4338、**主窗口 4338**（默认窗口只有 900×620）；设了上限是 320 / 746 / 818。
+    /// 任何走 sizeHint 的路径（adjustSize()、平台给初次尺寸、以后哪天加的"记住窗口大小"）
+    /// 都会因此拿到一个四倍宽的窗口。
+    ///
+    /// NOTE: 报告里"整窗**最小宽度**被顶到 900+、窗口缩不回去"那半句**不成立**，
+    ///       别照着它改：那一格还有 setMinimumWidth(kStatusLabelMinWidth)，而
+    ///       qSmartMinSize() 在 `minSize.width() > 0` 时直接把最小尺寸**钉成**
+    ///       minSize.width()（qlayoutengine.cpp:331）—— 文字再长，这一格的最小贡献都是
+    ///       260，整窗最小宽度实测两态都是 686。填 maxWidth 之前的 `d->sh`/`sizeForWidth`
+    ///       那套（QLabel 的 minimumSizeHint 确实是整句宽度）在布局那一层被那一句挡住了。
+    ///
+    /// 取值按"900 px 的窗口里中间那格大致能有多少"：左右两格（170 + 头像那格）和两头的
+    /// 边距扣掉之后剩下的就是它，取 320 让长文件名一定截得住，同时短句不会被截。
+    static int bottomBarStatusTextWidth() { return 320; }
+
     /// 底栏两颗按钮里**头像和文字之间的间距**（和原来那格一样是 8）。
     static int bottomBarAccountRowSpacing() { return 8; }
     /// 底栏两颗按钮右边那个**朝上箭头**的边长（像素）：点开是向上弹的，箭头就朝上。
@@ -832,7 +853,39 @@ public:
     /// 不重绘，用户点了「启动游戏」看到的就是"卡死"（Windows 还会给标题挂上"无响应"）。
     /// 那几段报不出百分比，但"在忙"这件事必须说出来 —— 见 MainWindow::enterSyncWait()。
     static bool bottomBarShowsProgress(bool launching, bool downloading, bool blocking) {
-        return launching || downloading || blocking;
+        return bottomBarProgressOwner(launching, downloading, blocking)
+               != BottomBarProgressOwner::None;
+    }
+
+    /// 底栏中间那格**归谁**（三件事都会占它，优先级从高到低）。
+    enum class BottomBarProgressOwner {
+        None,      ///< 没人在忙：进度条复位、那格清空
+        Download,  ///< 下载 —— 最低的一档（它随时会被上面两档借走，借完要还回来）
+        Blocking,  ///< 同步阻塞等待（换令牌 / 挑 Java / startGame，见 enterSyncWait()）
+        Launch,    ///< 启动中（进程起来了、游戏还没出话）—— 最高的一档
+    };
+
+    /// @brief 底栏中间那格现在归谁。
+    ///
+    /// 这是"谁说话算数"的**唯一出处**：updateBottomBar() 按它画，下载进度那条每 200 ms
+    /// 一帧的回调（MainWindow::updateDownloadProgressUi）也按它判"该不该动这一格"。
+    ///
+    /// 以前这条优先级只写在 updateBottomBar() 的 if 链里，下载进度回调**无条件**覆盖那格
+    /// 文字与进度条 —— "边下边开"时，enterSyncWait() 写的「正在校验登录状态…」「正在准备
+    /// Java 运行时…」和进程起来后的「正在启动 X …」会在 200 ms 内被顶掉，而那几句话正是
+    /// 2026-09-22 专为"点了启动就像卡死"做的。
+    static BottomBarProgressOwner bottomBarProgressOwner(bool launching, bool downloading,
+                                                         bool blocking) {
+        if (launching) {
+            return BottomBarProgressOwner::Launch;
+        }
+        if (blocking) {
+            return BottomBarProgressOwner::Blocking;
+        }
+        if (downloading) {
+            return BottomBarProgressOwner::Download;
+        }
+        return BottomBarProgressOwner::None;
     }
 
     /// 底栏中间那格"正在启动"那句文案。**唯一一处**拼它。

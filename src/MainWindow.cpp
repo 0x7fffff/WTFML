@@ -1030,23 +1030,25 @@ void MainWindow::updateBottomBar() {
     QProgressBar *progressBar = m_ui->getProgressBar();
     QLabel *statusLabel = m_ui->getStatusLabel();
     // 三种"在忙"都占这一格：启动中、下载中、以及在同步等待段里（见 enterSyncWait()）。
-    // 判据本身放在 MainWindowUI::bottomBarShowsProgress() 里，那儿是它唯一的出处。
+    // **归谁**这条优先级放在 MainWindowUI::bottomBarProgressOwner() 里，那儿是它唯一的
+    // 出处 —— 下载进度那条回调也拿它判"现在该不该我说话"（见 updateDownloadProgressUi）。
     const bool launching = !m_launchingSessions.isEmpty();
-    const bool showProgress = MainWindowUI::bottomBarShowsProgress(
+    const auto owner = MainWindowUI::bottomBarProgressOwner(
         launching, m_downloadInFlight, !m_syncWaitStatus.isEmpty());
+    const bool showProgress = owner != MainWindowUI::BottomBarProgressOwner::None;
     progressBar->setVisible(showProgress);
     statusLabel->setVisible(showProgress);
-    if (launching) {
+    if (owner == MainWindowUI::BottomBarProgressOwner::Launch) {
         // 启动进度没有可测量的百分比（JVM 和游戏自己在初始化，没有任何进度回调），
         // 所以是不确定态的滚动条。等游戏吐出第一行输出（或进程结束）就收起来。
         progressBar->setRange(0, 0);
         statusLabel->setText(MainWindowUI::launchingStatusText(launchingInstanceName()));
-    } else if (!m_syncWaitStatus.isEmpty()) {
+    } else if (owner == MainWindowUI::BottomBarProgressOwner::Blocking) {
         // 同步等待那一段：不知道要等多久（网络 / 下 Java / 进程启动），所以也是不确定态。
         // 文字就是进那一段之前写下的"在等什么"。
         progressBar->setRange(0, 0);
         statusLabel->setText(m_syncWaitStatus);
-    } else if (m_downloadInFlight) {
+    } else if (owner == MainWindowUI::BottomBarProgressOwner::Download) {
         // 下载还在跑，这一格还回给它 —— 照**上次记下的进度**还原，不是按回 0。
         //
         // NOTE: 以前这里只写"没在下载就复位"，因为"在启动"和"在下载"是互斥的：启动
@@ -1333,6 +1335,20 @@ void MainWindow::updateDownloadProgressUi(int done, int total, int failed,
     m_downloadDone = done;
     m_downloadTotal = total;
     m_downloadFailed = failed;
+
+    // 这一格**现在不归下载**（启动中 / 在同步等待段里）就一个像素都不许动 —— 上面那几个
+    // 数已经记下了，等那两档让开时 updateBottomBar() 会照它还原。
+    //
+    // NOTE: 2026-09-24 补的。以前这里无条件写进度条和文字，于是"边下边开"时
+    //       enterSyncWait() 写的「正在校验登录状态…」「正在准备 Java 运行时…」和进程起来
+    //       之后的「正在启动 X …」会在 200 ms 内被这一句顶掉（这一格的字只有一个标签，
+    //       谁后写谁算数）—— 而那几句话正是 2026-09-22 专为"点了启动就像卡死"做的。
+    //       判据和 updateBottomBar() 用的是**同一个**（bottomBarProgressOwner()）。
+    if (MainWindowUI::bottomBarProgressOwner(!m_launchingSessions.isEmpty(), m_downloadInFlight,
+                                             !m_syncWaitStatus.isEmpty())
+        != MainWindowUI::BottomBarProgressOwner::Download) {
+        return;
+    }
 
     if (total <= 0) {
         progressBar->setRange(0, 0);
@@ -2893,9 +2909,18 @@ void MainWindow::onInstallButtonClicked() {
 
     // 忙要在点击这一刻就置上：版本 json / 加载器列表都是异步拉回来的，中间这段时间
     // 按钮还能点的话，用户会重复触发（和别处同一个理由）。
+    //
+    // NOTE: **顺序不能反**（m_installingInstanceId 必须在 setDownloadUiBusy(true) 之前）。
+    //       setDownloadUiBusy() 内部会调 refreshInstalledVersions()，而那份"能启动的实例"
+    //       列表是按 m_installingInstanceId 过滤出来的（installingVersionIds()）。反过来的
+    //       话，置忙那一刻读到的还是**上一次**的值：对一个已经装好的实例点「安装」（校验并
+    //       修复）时，它整段安装期间都留在可启动列表里 —— 用户点得动它，点下去却被
+    //       onStartButtonClicked() 那道按版本的闸口弹一句"文件还没有下载完成"。
+    //       那正是 MainWindow.hpp 写明不许出现的"列表里能选、点下去被拦"。
+    //       （applyModpackImport() 那边本来就是"先记 id 再置忙"，这里对齐它。）
+    m_installingInstanceId = name;
     setDownloadUiBusy(true);
     m_progressThrottle.invalidate();
-    m_installingInstanceId = name;
     if (withLoader) {
         m_versionManager->installNamedLoader(name, gameVersion, kind, pinnedLoaderVersion(loaderIndex),
                                             installerJava);
