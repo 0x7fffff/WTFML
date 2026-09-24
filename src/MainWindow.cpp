@@ -4127,8 +4127,18 @@ QString MainWindow::accountSkinStatusText() const {
 }
 
 void MainWindow::refreshAccountSkin() {
+    // NOTE: **这一句只挡窗里那些东西**（账号列表 / 状态行 / 披风），预览那一份照刷 ——
+    //       2026-09-24 用户报的 bug 就是它挡多了：「现在从未登录切换到选择离线账号不会随机
+    //       给皮肤了」。主页那个小人、底栏头像、那个窗里的 3D 预览**都只在
+    //       startPlayerSkinLoad() → applyPlayerSkin() 里更新**，所以原来这句 return 一挡，
+    //       没点开过「账号与外观…」的会话里切账号根本不换脸，一直停在上一个人的脸上
+    //       （从"未登录"切过去时停的就是那张兜底占位图）。
+    //
+    //       以前没人发现是因为切账号只能从「账号与外观…」里点 —— 那个窗开着，这句 return
+    //       进不去；09-23 把切换搬到右面板之后，这条路才第一次被走到。
     if (m_accountSkinDialog == nullptr) {
-        return;  // 窗还没建（没点过那个入口），没什么可刷的
+        startPlayerSkinLoad();  // 窗没建 → 没有列表/状态行/披风要刷，但脸得换
+        return;
     }
 
     // 1) 账号列表：**纯本地**（读 SavedAccounts 那个键），不联网、不碰令牌。
