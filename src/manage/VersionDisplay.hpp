@@ -108,6 +108,27 @@ VersionNameOptions normalizeVersionNameOptions(VersionNameOptions options);
 QString formatVersionName(const VersionDisplayParts &parts, const VersionNameOptions &globalDefault);
 
 /**
+ * @brief 底栏左下角「启动中」那句里的实例名 —— **不受「版本名格式」四个开关影响**的写法。
+ * @param parts 版本的各个组成部分（和 formatVersionName() 同一份来源）。
+ * @return 有自定义名就是**它本身**；没有就是 `实际版本-加载器名`（加载器名没有就只留版本号）。
+ *
+ * 用户 2026-09-24 原话：「启动的时候…文本为版本名（没有就版本号-加载器名称，**不受名字
+ * 显示设置影响**）启动中...」。
+ *
+ * 为什么不能拿 formatVersionName() 凑一个 options 出来（试过，凑不出这个语义）：
+ *   - 有自定义名时**只要名字**：开关组合 `自定义名 + 实际版本 + 加载器名` 会拼成
+ *     `我的整合包-1.20.1-Forge`，而这句话要说的是"哪个实例在启动"——名字就是它的名字，
+ *     后面那两段是把同一件事再说两遍；
+ *   - 没有自定义名时**要"版本号-加载器名"**：这正是 `只开实际版本 + 加载器名` 那一组。
+ * 两档要的是两组**不同**的开关，而且还都得无视用户当前勾了什么 —— 那就不是"格式"了，
+ * 是另一条规则，所以单独立在这里。
+ *
+ * NOTE: 输入照样过 sanitizeComponent()（同一份清洗：去首尾空白、内部换行折成空格、
+ *       长度封顶）—— 这一串是要摆进底栏那一格里的，界面上那块地方的宽度是钉死的。
+ */
+QString launchStatusName(const VersionDisplayParts &parts);
+
+/**
  * @brief 清单里那个 `releaseTime` 变成界面上"精确到日"的那行小字。
  * @param releaseTime 清单里的原始值，例如 `2026-09-15T11:23:02+00:00`。
  * @return `2026-09-15`；认不出来就返回**空串**。

@@ -108,6 +108,27 @@ QString formatVersionName(const VersionDisplayParts &parts, const VersionNameOpt
     return chosen.join(QLatin1Char('-'));
 }
 
+QString launchStatusName(const VersionDisplayParts &parts) {
+    const QString customName = sanitizeComponent(parts.customName);
+    // 有名字就**只用名字**（理由见 .hpp 里那两条）。
+    if (!customName.isEmpty()) {
+        return customName;
+    }
+
+    // 没有名字才轮到"版本号-加载器名"。实际版本那条兜底和 formatVersionName() 一模一样
+    // （realVersion 为空就退化成目录名）—— 两处必须一致，否则同一个实例在"启动中"这一句
+    // 和下拉框里会报出两个不同的版本号。
+    const QString id = sanitizeComponent(parts.id);
+    const QString base = parts.realVersion.isEmpty() ? id : sanitizeComponent(parts.realVersion);
+    const QString loaderName = sanitizeComponent(parts.loaderName);
+    if (base.isEmpty()) {
+        // 目录名也是空的（理论上不会，id 的注释说它永远非空）—— 有什么给什么，
+        // 别拼出 "-Forge" 这种以分隔符打头的东西。
+        return loaderName;
+    }
+    return loaderName.isEmpty() ? base : QStringLiteral("%1-%2").arg(base, loaderName);
+}
+
 QString releaseDateText(const QString &releaseTime) {
     const QString trimmed = releaseTime.trimmed();
     if (trimmed.isEmpty()) {

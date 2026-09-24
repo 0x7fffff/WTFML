@@ -1818,6 +1818,19 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     // ---------- 左：当前实例运行状态 ----------
     // 第一行是状态正文，第二行是实例名。**在主页且选中的就是正在跑的那个实例**时
     // 只显示第一行 —— 那种情况下用户眼前就是那个实例，再说一遍名字是废话。
+    // 最左边那颗**状态方块**（红/黄/绿，2026-09-24 加的）。它是**第一行的一部分**，
+    // 所以下面把第一行做成"方块 + 文字"的一个横排，而不是把方块摆在整格的最左边 ——
+    // 摆整格最左边的话，显示第二行时方块会停在两行的中间（VB 居中那一档），
+    // 看着不属于任何一行。
+    //
+    // NOTE: 这里**只是把图摆出来**，颜色由 MainWindow 按状态来要（runStateMarkPixmap()）。
+    //       方块自己不知道现在是哪个状态 —— 那件事的判据在 MainWindow::updateBottomBar()
+    //       里（"有没有正在启动的会话、有没有正在跑的进程"），这儿是 ui/ 层，看不到那些。
+    runStateMarkLabel = new QLabel(bottomBar);
+    runStateMarkLabel->setObjectName(runStateMarkName());
+    runStateMarkLabel->setFixedSize(MainWindowUI::runStateMarkSize(),
+                                    MainWindowUI::runStateMarkSize());
+
     runStateLabel = new ElidedLabel(bottomBar);
     runStateLabel->setObjectName(runStateLabelName());
     // 贴在底栏最左边，所以文字左对齐（这两行原来在右端，靠的是右对齐）
@@ -1830,6 +1843,10 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     runStateDetailLabel->setObjectName(runStateDetailLabelName());
     runStateDetailLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     runStateDetailLabel->setMaximumWidth(MainWindowUI::bottomBarRunStateTextWidth());
+    // 第二行**缩进方块那一段**，两行文字的左边才对得齐（宽度上限两行是同一个数，
+    // 减掉方块那一段之后剩下的可用宽度正好也一样）。不缩进的话第一行比第二行多出
+    // 16 px，两行会看着像各说各的。
+    runStateDetailLabel->setContentsMargins(MainWindowUI::bottomBarRunStateMarkWidth(), 0, 0, 0);
     // 第二行小一号、灰一点，跟第一行区分开。字号按当前字号减 1（不用点值，
     // 免得不支持点值的平台出现负字号）；颜色用调色板里的 PlaceholderText。
     QFont detailFont = runStateDetailLabel->font();
@@ -1839,9 +1856,18 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     detailPalette.setColor(QPalette::WindowText, detailPalette.color(QPalette::PlaceholderText));
     runStateDetailLabel->setPalette(detailPalette);
 
+    // 第一行 = 方块 + 文字。方块那一格**不带 stretch**（它是固定的 10 px），文字那格带 1。
+    // 竖直方向上文字是 VCenter、方块也是 VCenter，两者因此居中对齐 —— 方块比文字矮一号，
+    // 居中之后看着就跟这一行是一体的。
+    QHBoxLayout *runStateTitleRow = new QHBoxLayout();
+    runStateTitleRow->setContentsMargins(0, 0, 0, 0);
+    runStateTitleRow->setSpacing(MainWindowUI::runStateMarkSpacing());
+    runStateTitleRow->addWidget(runStateMarkLabel, 0, Qt::AlignVCenter);
+    runStateTitleRow->addWidget(runStateLabel, 1);
+
     QVBoxLayout *runStateLayout = new QVBoxLayout();
     runStateLayout->setSpacing(0);
-    runStateLayout->addWidget(runStateLabel);
+    runStateLayout->addLayout(runStateTitleRow);
     runStateLayout->addWidget(runStateDetailLabel);
     runStateLayout->setContentsMargins(0, 0, 0, 0);
 
@@ -1874,9 +1900,12 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     runStateRow->addLayout(runStateLayout, 1);
     runStateRow->addWidget(makeChevronLabel(runStateButton), 0, Qt::AlignVCenter);
 
-    // 没有实例在跑时这两行本来会藏起来（那时 MainWindow 写「实例未运行」）。**藏的是字，
-    // 不是格子** —— 格子（上面那颗按钮）永远占着那 170 px（宽度是
+    // 没有实例在跑时这几样本来会藏起来（那时 MainWindow 写「当前没有运行中的实例」）。
+    // **藏的是字和那颗方块，不是格子** —— 格子（上面那颗按钮）永远占着那 170 px（宽度是
     // bottomBarRunStateColumnWidth()，从 200 缩到 170 那次改的，别照旧数字找）。
+    // NOTE: 方块和那两行一起 hide() 是初值：产品里 MainWindow 每次重画底栏都会摆一个状态
+    //       （三个状态各有一句话，见 updateBottomBar()），所以这之后它一直是亮的。
+    runStateMarkLabel->hide();
     runStateLabel->hide();
     runStateDetailLabel->hide();
 
@@ -2119,6 +2148,31 @@ QColor MainWindowUI::folderDangerColor(const QPalette &palette) {
         return QColor(0xff, 0x6b, 0x6b);
     }
     return QColor(0xc0, 0x28, 0x28);
+}
+
+QColor MainWindowUI::runStateMarkColor(RunStateMark state, const QPalette &palette) {
+    // 深浅两套的判据和上面 folderDangerColor() 是同一个（窗口底色的明度）。三个色各挑
+    // 一深一浅：浅底上用深的（在浅底上看得见），深底上用亮的。
+    const bool dark = palette.color(QPalette::Window).lightness() < 128;
+    switch (state) {
+    case RunStateMark::NotRunning:
+        // 红这一档**直接复用**「删除」那一项的红（同一个界面上的两种红各调各的没有道理，
+        // 调歪了就是"一处红看着干净、另一处发脏"这种没人查得出的毛病）。
+        return folderDangerColor(palette);
+    case RunStateMark::Launching:
+        // 黄这一档取的是**偏金黄**的琥珀色（不是纯黄 #ffff00）：那块方块的底色是底栏，
+        // 纯黄在浅色底上几乎看不见。色相实测 43(浅)/45(深)，和红那一档（0）差得开，
+        // 一眼能分出"红的是没在跑、黄的是在启动"。
+        return dark ? QColor(0xff, 0xd2, 0x4d) : QColor(0xe0, 0xa0, 0x00);
+    case RunStateMark::Running:
+        return dark ? QColor(0x5e, 0xd1, 0x7a) : QColor(0x1f, 0x9d, 0x4d);
+    }
+    return palette.color(QPalette::WindowText);
+}
+
+QPixmap MainWindowUI::runStateMarkPixmap(RunStateMark state, const QPalette &palette) {
+    // 图按 (边长, 颜色) 缓存（VersionIcons 里那套），所以这个函数每次重画底栏都能随便调。
+    return VersionIcons::runStateMark(runStateMarkSize(), runStateMarkColor(state, palette));
 }
 
 void MainWindowUI::setFolderRows(const QList<FolderRow> &rows) {
