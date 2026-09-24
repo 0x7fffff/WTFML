@@ -672,6 +672,11 @@ public:
     static int bottomBarChevronSize() { return 12; }
     /// 箭头和它左边那些字之间的间距（像素）。
     static int bottomBarChevronSpacing() { return 6; }
+    /// 左下那一格（**能点开的时候**）鼠标停上去显示的那句话。
+    ///
+    /// NOTE: 这里是它的**唯一出处**：装控件的时候挂一次，点不开的时候要把它摘掉
+    ///       （见 setRunPanelAvailable()），两处抄同一句话迟早会对不上。
+    static QString bottomBarRunPanelTip() { return QStringLiteral("点一下向上展开实例列表"); }
 
     static QString runStateButtonName() { return QStringLiteral("runStateButton"); }
     static QString accountButtonName() { return QStringLiteral("accountButton"); }
@@ -727,6 +732,22 @@ public:
         m_panelRowsProvider = std::move(provider);
         m_panelActionHandler = std::move(handler);
     }
+
+    /// 左下那一格（实例列表）现在**能不能点开**。没有实例在跑时点不开、箭头也收起来
+    /// —— 那种时候面板里只有"现在没有实例在运行"那一句话，一个可点的东西都没有。
+    /// （用户 2026-09-25 原话：「没有运行中的实例时让那个实例栏点不开，箭头隐藏」）
+    ///
+    /// **由 MainWindow 每次重画底栏时给**（`updateBottomBar()`，判据是 `runningGames()`
+    /// 空不空 —— 那也正是"左面板里会不会有行"的唯一出处）。界面这一头**不查数据**，只画。
+    ///
+    /// NOTE: 判据里**"正在启动"也算有** —— 那一段里会话已经在 `runningGames()` 里了
+    ///       （见 MainWindow::updateBottomBar() 里三态那段注释），所以黄灯那一档点得开。
+    ///
+    /// NOTE: "点不开"是**收不到鼠标**（`WA_TransparentForMouseEvents`），**不是**
+    ///       `setEnabled(false)`：那一格里「当前没有运行中的实例」是给人看的状态，按钮一
+    ///       灰，装在它里面的那几行字会跟着进 Disabled 调色板一起变暗 —— 用户要的只是
+    ///       那一下点不动，不是把那句话弄糊。连带的：鼠标指针也不会变手型，划过不再高亮。
+    void setRunPanelAvailable(bool available);
 
     /// 那两颗按钮点开之后**向上**弹出来的那块面板。名字挂在这里是为了让验证工程
     /// 能按 objectName 把它找回来量几何（它是个 Qt::Popup 窗口，父子关系照旧）。
@@ -1517,6 +1538,13 @@ private:
     QLabel *runStateLabel = nullptr;
     QLabel *runStateDetailLabel = nullptr;
     QLabel *runStateMarkLabel = nullptr;
+    /// 左下那一格右边那个朝上的箭头。**单独存一份指针**是因为它要跟着
+    /// setRunPanelAvailable() 显隐（右边那颗按钮上那个不需要，一直亮着）。
+    QLabel *runStateChevron = nullptr;
+    /// 左下那一格现在点不点得开。初值 true = 装好就能点 —— 界面**还没被谁摆过**的时候
+    /// 不该是"点不动"的（独立构造 MainWindowUI 的验证工程就吃这个初值，见
+    /// setRunPanelAvailable()）。
+    bool m_runPanelAvailable = true;
     /// 「点开面板时去哪要那几行」和「行尾的按钮被点了」。由 MainWindow 在构造时装进来
     /// （见 setBottomBarPanelContent()）—— 界面这一头**不查数据**，只画。
     PanelRowsProvider m_panelRowsProvider;

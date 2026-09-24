@@ -1947,14 +1947,16 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     //       高亮框也成了一长条。宽度钉死 + 高度铺满，这一格才真的是"占住底栏那一块"。
     runStateButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
     runStateButton->setCursor(Qt::PointingHandCursor);
-    runStateButton->setToolTip(
-        QCoreApplication::translate("MainWindowUI", "点一下向上展开实例列表"));
+    runStateButton->setToolTip(MainWindowUI::bottomBarRunPanelTip());
     applyBottomBarButtonStyle(runStateButton, bottomBar->palette());
     QHBoxLayout *runStateRow = new QHBoxLayout(runStateButton);
     runStateRow->setContentsMargins(0, 0, 0, 0);
     runStateRow->setSpacing(MainWindowUI::bottomBarChevronSpacing());
     runStateRow->addLayout(runStateLayout, 1);
-    runStateRow->addWidget(makeChevronLabel(runStateButton), 0, Qt::AlignVCenter);
+    // 这个箭头**另存一份指针**（右边那颗按钮上那个不用）：没有实例在跑时它要收起来，
+    // 见 setRunPanelAvailable()。
+    runStateChevron = makeChevronLabel(runStateButton);
+    runStateRow->addWidget(runStateChevron, 0, Qt::AlignVCenter);
 
     // 没有实例在跑时这几样本来会藏起来（那时 MainWindow 写「当前没有运行中的实例」）。
     // **藏的是字和那颗方块，不是格子** —— 格子（上面那颗按钮）永远占着那 170 px（宽度是
@@ -2320,15 +2322,46 @@ void MainWindowUI::toggleBottomBarPanel(const BottomBarAnchor &anchor) {
     if (bottomBar == nullptr || anchor.button == nullptr) {
         return;
     }
+    // 左下那一格**没有实例可列时点不开**（箭头也收起来了，见 setRunPanelAvailable()）：
+    // 这一下只当"收"用。
+    //
+    // NOTE: 之所以不只靠那颗按钮收不到鼠标（WA_TransparentForMouseEvents）：面板开着的
+    //       时候，外面那一下是**投递给面板自己的**，它按坐标认出点在哪一颗按钮上再转给
+    //       这里（见 BottomBarPanel::handleOutsidePress()）—— 那条路根本不经过按钮。
+    //       而下面 open->close() 那一步照走，所以点在这颗点不动的格子上时，**已经开着的
+    //       那一块会被收掉**（点外面本来就该收），只是不再开新的 —— 不然那一下看着像
+    //       "点了没反应"，而那一块还杵在那儿。
+    const bool blocked = !anchor.account && !m_runPanelAvailable;
     // "现在有没有开着一块"靠 findChild 认（和行尾齿轮菜单一个路数）：面板挂在 bottomBar
     // 底下，close 之后要等 deleteLater 才真删（同一轮事件处理里还找得到），不用自己记指针。
     if (auto *open = dynamic_cast<BottomBarPanel *>(
             bottomBar->findChild<QWidget *>(MainWindowUI::bottomBarPanelName()))) {
         const bool sameAnchor = open->anchor() == anchor.button;
         open->close();
-        if (sameAnchor) {
+        if (sameAnchor || blocked) {
             return;  // 再点一次**同一颗** = 收回去，就这一下
         }
     }
+    if (blocked) {
+        return;
+    }
     openBottomBarPanel(anchor);
+}
+
+void MainWindowUI::setRunPanelAvailable(bool available) {
+    if (runStateButton == nullptr || m_runPanelAvailable == available) {
+        return;
+    }
+    m_runPanelAvailable = available;
+    // 箭头：没有东西可展开就收起来（用户 2026-09-25：「箭头隐藏」）。**只是藏起来、不删**
+    // —— "底栏那两颗按钮各带一个箭头"有断言钉着（见 ui_check I4 那节），删了那条当场红。
+    if (runStateChevron != nullptr) {
+        runStateChevron->setVisible(available);
+    }
+    // 点不动的那一格**收的是鼠标**（理由见头文件里那段 NOTE：不用 setEnabled 是为了不让
+    // 里面那几行字跟着变灰）。顺带把 hover 高亮、手型指针、tooltip 一起收掉了 —— 它们
+    // 都挂在"这个控件收不收得到鼠标"上。
+    runStateButton->setAttribute(Qt::WA_TransparentForMouseEvents, !available);
+    // 点不动的格子不该再挂着"点一下向上展开实例列表"（鼠标都到不了它身上，也弹不出来）。
+    runStateButton->setToolTip(available ? MainWindowUI::bottomBarRunPanelTip() : QString());
 }
