@@ -62,7 +62,8 @@ QString encodeCommand(const QString &script) {
  * @brief waitForFinished() 返回 false 之后，到底发生了什么。
  * @param failure process.error()（**必须在 kill 之前读**，kill 之后它可能已经变了）。
  * @param detail process.errorString()。
- * @param what 这次动作的名字（「解压」/「读整合包清单」），拼进句子里。
+ * @param what 这次动作的名字（「解压」/「读整合包清单」），拼进句子里。**由调用方给**：这几句
+ *        里有一部分是直接弹给用户看的，主语写错了就是一句说不通的话（见 readEntry 的 what）。
  * @return 返回给用户看的一句话。
  *
  * NOTE: 超时**不是**唯一一种"waitForFinished() 给 false"。进程压根没起来（PowerShell
@@ -197,7 +198,7 @@ bool ZipUtil::extractArchives(const QStringList &archives, const QString &target
 }
 
 ZipUtil::EntryStatus ZipUtil::readEntry(const QString &archive, const QString &entryName,
-                                        QByteArray *out, QString *errorOut) {
+                                        QByteArray *out, QString *errorOut, const QString &what) {
     if (out != nullptr) {
         out->clear();
     }
@@ -247,7 +248,7 @@ ZipUtil::EntryStatus ZipUtil::readEntry(const QString &archive, const QString &e
         process.waitForFinished(5000);
         QFile::remove(tempPath);
         if (errorOut != nullptr) {
-            *errorOut = describeProcessFailure(failure, detail, QStringLiteral("读整合包清单"));
+            *errorOut = describeProcessFailure(failure, detail, what);
         }
         return EntryStatus::Failed;
     }
@@ -256,7 +257,7 @@ ZipUtil::EntryStatus ZipUtil::readEntry(const QString &archive, const QString &e
     if (process.exitStatus() != QProcess::NormalExit) {
         QFile::remove(tempPath);
         if (errorOut != nullptr) {
-            *errorOut = QStringLiteral("读整合包清单时 PowerShell 被强行结束了");
+            *errorOut = QStringLiteral("%1时 PowerShell 被强行结束了").arg(what);
         }
         return EntryStatus::Failed;
     }
@@ -272,7 +273,7 @@ ZipUtil::EntryStatus ZipUtil::readEntry(const QString &archive, const QString &e
         QFile::remove(tempPath);
         if (errorOut != nullptr) {
             const QString err = QString::fromLocal8Bit(stderrBytes).trimmed();
-            *errorOut = err.isEmpty() ? QStringLiteral("读整合包清单失败（退出码 %1）").arg(code) : err;
+            *errorOut = err.isEmpty() ? QStringLiteral("%1失败（退出码 %2）").arg(what).arg(code) : err;
         }
         return EntryStatus::Failed;
     }

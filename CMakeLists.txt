@@ -56,7 +56,9 @@ set(SOURCE_FILES
     src/manage/InstanceFiles.cpp
     src/manage/InstanceGroupStore.cpp
     src/manage/ModpackImport.cpp
+    src/manage/DefaultSkin.cpp
     src/manage/PlayerSkinStore.cpp
+    src/manage/RandomSkinStore.cpp
     src/manage/VersionManager.cpp
     src/manage/VersionDisplay.cpp
     src/settings/EffectiveJavaSettings.cpp

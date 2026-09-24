@@ -55,6 +55,9 @@ class AccountSkinDialog;
 class GameLogWindow;
 // 换皮肤披风那几条要令牌的接口（src/auth/SkinApi.hpp）。同上，只按指针持有。
 class SkinApi;
+// 给**离线账号**挑随机皮肤那一层（src/manage/RandomSkinStore.hpp）。同上，只按指针持有 ——
+// 它挑出来的还是官方 CDN 上的地址，下不下来、画不画得出来都交给 PlayerSkinStore 那条路。
+class RandomSkinStore;
 // 「每实例设置」那两层的值类型（src/settings/EffectiveJavaSettings.hpp）。这里只按
 // const 引用传，前置声明就够 —— 让每个 include 了 MainWindow.hpp 的地方都拖一份
 // 值结构的定义没有意义。
@@ -106,6 +109,12 @@ private slots:
     /// 要不到（网络失败、下回来的不是皮肤图、存不下来）。**只记日志、不弹窗** ——
     /// 这是全仓唯一一处不弹窗的错误，理由见 PlayerSkinStore.hpp 文件头。
     void onSkinFailed(const QString &message);
+    /// 离线账号的随机皮肤挑好了（RandomSkinStore::skinReady）。
+    ///
+    /// 拿到的是**官方 CDN 上的一个地址**，接下来和"官方回的档案"走完全同一条路：记盘 →
+    /// 当成这一份档案的 skinUrl → requestSkinTexture() 去下。离线账号没有披风，
+    /// 所以 capeUrl 留空（那个人没有披风本来就是常态，见 requestSkinTexture）。
+    void onRandomSkinReady(const QString &skinUrl);
     /// 把一份外观贴到界面上（右栏那个小人 + 底栏头像 + 右栏那句话）。
     /// @param skinPath 空串 = 用默认外观。载不进来（文件没了/下了一半）也走这一档。
     /// @param slim 纤细模型（手臂 3 宽）。
@@ -646,6 +655,8 @@ private:
     InstanceGroupStore *m_groupStore;
     // 玩家外观的数据层（免鉴权问官方 + 内容寻址的本地缓存）。
     PlayerSkinStore *m_skinStore;
+    // 给离线账号挑一张随机皮肤（挑的是一个地址，图还是上面那个 Store 去下）。
+    RandomSkinStore *m_randomSkinStore;
     // 改外观那一层（**要令牌**：换皮肤、换披风）。和上面那个是两条路，见 SkinApi.hpp
     // 文件头那句分工。
     SkinApi *m_skinApi;
@@ -660,6 +671,14 @@ private:
     // 最近一次**要过**的那份档案。唯一的用途：贴图是按 URL 分开回来的（皮肤一个、
     // 披风一个），回来时得知道"这一张是皮肤还是披风"，也有个东西能判"和上次一样吗"。
     PlayerSkinProfile m_skinProfile;
+    // 屏幕上这张脸是**按哪个实例算出来的官方默认皮肤**（空 = 不是算出来的那张：可能是
+    // 随机挑的、正版外观、或者默认外观）。
+    //
+    // NOTE: 它有两个用处，都不是可有可无的：① 右栏那句话要在"随机挑的"和"游戏会给的"
+    //       两种离线外观之间选一句说；② 用户换版本时要按新版本**重算**（两套规矩算出来的
+    //       是两张不同的图，见 DefaultSkin.hpp 文件头）。存的是目录名（版本 id），
+    //       显示的时候才换成显示名。
+    QString m_offlineDefaultSkinVersion;
     // 去官方问的这一次还在路上（决定那句话是"正在获取"还是"取不到"）。
     // NOTE: **只表示"真的发出去了一个请求"**，缓存命中不算 —— 命中是同步回来的，
     //       标成"在路上"会让那句话卡在"正在获取"上下不来。

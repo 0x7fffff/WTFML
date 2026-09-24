@@ -44,10 +44,14 @@ bool extractArchives(const QStringList &archives, const QString &targetDir,
  *        不一样，而 zip 的条目名是区分大小写的）。
  * @param out 成功时写入条目的原始字节（会被 clear()）。
  * @param errorOut 失败时的人类可读描述（NotAnArchive 时是空串 —— 那种情况调用方自己有话说）。
+ * @param what 这次动作叫什么，拼进 errorOut 那几句话里（`读 X 超时` / `读 X 时进程被强行结束了`）。
+ *        默认是通用的一句；**调用方要把它写清楚**，因为 Failed 那一路的 errorOut 有一处是
+ *        **直接弹给用户看的**（整合包那条路），句子里的主语换成别人就说不通了。
  * @return 见 EntryStatus。**没这个条目**和**读失败**是两件事，调用方必须分开处理。
  */
 EntryStatus readEntry(const QString &archive, const QString &entryName, QByteArray *out,
-                      QString *errorOut = nullptr);
+                      QString *errorOut = nullptr,
+                      const QString &what = QStringLiteral("读压缩包条目"));
 
 /**
  * @brief 只解压某几个前缀底下的条目，而且**把前缀剥掉**（`overrides/config/x` → `<目标>/config/x`）。

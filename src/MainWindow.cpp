@@ -70,11 +70,13 @@
 // （那里用不到它的定义），这里要用真的。
 #include "download/ResourceStore.hpp"
 #include "launcher/LauncherManager.hpp"
+#include "manage/DefaultSkin.hpp"
 #include "manage/FolderManager.hpp"
 #include "manage/InstanceFiles.hpp"
 #include "manage/InstanceGroupStore.hpp"
 #include "manage/ModpackImport.hpp"
 #include "manage/PlayerSkinStore.hpp"
+#include "manage/RandomSkinStore.hpp"
 #include "manage/VersionDisplay.hpp"
 #include "manage/VersionManager.hpp"
 #include "settings/EffectiveJavaSettings.hpp"
@@ -462,6 +464,7 @@ MainWindow::MainWindow(QWidget *parent)
       m_javaSettings(new GlobalJavaSettings(this)),
       m_groupStore(new InstanceGroupStore(this)),
       m_skinStore(new PlayerSkinStore(this)),
+      m_randomSkinStore(new RandomSkinStore(this)),
       m_skinApi(new SkinApi(this)) {
     // 安装页那棵树默认停在「不装（纯原版）」那一条（打开安装页时也是它，见
     // openInstallPage()）—— 这一位构造完就得是个真值，免得任何早于安装页读到它的路
@@ -653,6 +656,14 @@ void MainWindow::setupConnections() {
                 updateBottomBar();
                 // 实例页右边那张树是同一份数据的另一种看法，跟着一起亮。
                 syncTreeToCombo(m_ui->getInstalledVersionCombo(), m_ui->getInstanceList());
+                // 离线账号那张脸**跟着选中的版本走**：游戏按客户端 JAR 里那套规矩分配默认
+                // 皮肤，两套规矩算出来的是两张不同的图（见 DefaultSkin.hpp 文件头），所以
+                // 换版本就得重算一遍。**只有离线账号会做实事**：别的账号在
+                // startPlayerSkinLoad() 里当场就返回了（那是网络那条线，和版本无关）。
+                // 算过的那一份在盘上，重算是两次 QFile::exists，不会卡。
+                if (offlineIdentity()) {
+                    startPlayerSkinLoad();
+                }
             });
     // 树 → 下拉框。点树里的一行 = 在上面把它选中（用户要求的行为）。
     // 选中组头时不动作（syncComboToTree 里的守卫）—— 点一个组的标题不是在挑版本。
@@ -893,6 +904,16 @@ void MainWindow::setupConnections() {
     connect(m_skinStore, &PlayerSkinStore::profileReady, this, &MainWindow::onSkinProfileReady);
     connect(m_skinStore, &PlayerSkinStore::textureReady, this, &MainWindow::onSkinTextureReady);
     connect(m_skinStore, &PlayerSkinStore::failed, this, &MainWindow::onSkinFailed);
+    // 离线账号那张随机皮肤。**同一个来源、两条降级路**：skinReady 之后走的是上面那三个
+    // 信号一样的界面路径（挑出来的地址就是官方 CDN 上的地址）；failed 也照样只记日志 ——
+    // 但**不能直接接 onSkinFailed**，那句话的前缀是"取玩家皮肤失败"，而这一条失败的是
+    // "挑一张"这件事，跟某个人的皮肤没关系。
+    connect(m_randomSkinStore, &RandomSkinStore::skinReady, this, &MainWindow::onRandomSkinReady);
+    connect(m_randomSkinStore, &RandomSkinStore::failed, this, [this](const QString &message) {
+        appendLog(tr("取随机皮肤失败：%1").arg(message));
+        m_skinFetchInFlight = false;
+        updateSkinHint();
+    });
 
     // 游戏进程信号。三条都带 sessionId（哪一份会话说的）—— 同时开着好几份时，日志里
     // 那句"哪来的"和底栏那格"还有谁在跑"全靠它归属。
@@ -1167,6 +1188,74 @@ void MainWindow::startPlayerSkinLoad() {
     // 上一次那个账号的档案要清掉：换账号登录时它已经没用了，留着会让"贴图回来时
     // 认领"那一步把上一套外观当成这一套。
     m_skinProfile = PlayerSkinProfile();
+    // 同理：下面重新算出来之前，"这张脸是按哪个版本算的"这件事不能留着上一轮的值 ——
+    // 留着会让右栏那句话拿旧版本的显示名去说新的一张图。
+    m_offlineDefaultSkinVersion.clear();
+
+    // ---------- 离线账号那一档：从库里的随机挑一张 ----------
+    //
+    // 这一档必须在下面 !loggedIn() **之前**：离线账号必然同时是"没有登录态"
+    // （AuthManager::setOfflinePlayer() 把 uuid 和令牌一起清了，见 AuthManager.cpp），
+    // 摆在那句后面就等于永远走不到 —— 以前就是这样，离线账号的预览永远是那张写死的
+    // 内置 Steve。
+    //
+    // 判据是 offlineIdentity()（当前账号本身是不是离线账号），不是"有没有勾某个框"。
+    // **未登录（压根没有当前账号）不走这一档**：没有身份就没有可记的地方（那张图要按
+    // 账号记在盘上），也没人可挑。
+    if (offlineIdentity()) {
+        // ① 先算"游戏会给这个名字分配哪一张官方默认皮肤"（见 DefaultSkin）：那个"随机"其实
+        //    是确定的，图就在**本地那个版本的客户端 JAR** 里，一个字节都不用下。同一个
+        //    (账号, 版本) 算过一次之后连 JAR 都不碰（缓存命中 = 两次 QFile::exists）。
+        //
+        //    名字取的是**进 --username 的那一个**（m_authManager->playerName()）而不是
+        //    AccountStore 里那份存档：游戏是拿前者算 uuid 的，差一个字符就是另一张脸。
+        //    版本取的是当前选中的那个实例 —— 换版本这张脸真的会变（两套规矩算出来的不是
+        //    同一张，见 DefaultSkin.hpp 文件头），所以换版本时下面有一处会重跑这一整段。
+        const QString versionId = selectedVersionId(m_ui->getInstalledVersionCombo());
+        QString defaultPath;
+        bool defaultSlim = false;
+        QString defaultReason;
+        const DefaultSkin::Result resolveResult = DefaultSkin::resolve(
+            m_authManager->playerName(), versionId, &defaultPath, &defaultSlim, &defaultReason);
+        if (resolveResult == DefaultSkin::Result::Resolved) {
+            m_offlineDefaultSkinVersion = versionId;
+            // 这张图**不是一份档案**（它没有地址、离线账号也没有披风），所以 m_skinProfile
+            // 保持空着：上一轮若有别人的贴图回来，地址对不上就丢掉了（见 onSkinTextureReady）。
+            // NOTE: 这条路上 m_skinFetchInFlight 一直是 false —— 图是从盘上（或 JAR 里）
+            //       直接拿的，不是"在路上"，那句话不该说"正在获取"。
+            applyPlayerSkin(defaultPath, QString(), defaultSlim);
+            return;
+        }
+        // Unavailable 是**常态**：没装任何版本、或者那个目录里没有客户端 JAR（不是原版
+        // 客户端，第三方安装器做的薄壳 JAR 就长那样）—— 都不值得报。Failed 才是真出错
+        // （读 JAR 失败、写不出去），那种留一行日志，不然"怎么老是随机那张"无从查起。
+        if (resolveResult == DefaultSkin::Result::Failed) {
+            appendLog(tr("算离线默认皮肤失败：%1").arg(defaultReason));
+        }
+
+        // ② 算不出来才走"随机挑一张"。
+        //
+        // 身份用的是 AccountStore 里那个 uuid，**不是** m_authManager->playerUuid() ——
+        // 后者对离线账号返回空串（它的 m_uuid 被清掉了）。离线账号的 uuid 是
+        // md5("OfflinePlayer:" + 名字)，同名就是同一个 uuid，所以同一个人换不掉那张脸。
+        const QString accountUuid = AccountStore::activeUuid();
+        const QString chosen = RandomSkinStore::loadChosenSkinUrl(accountUuid);
+        if (chosen.isEmpty()) {
+            // 还没挑过（第一次用这个账号）→ 要一页去。回来之后 onRandomSkinReady()
+            // 接着走下面这段。这一格点亮是为了让那句话说"正在获取"。
+            m_skinFetchInFlight = true;
+            m_randomSkinStore->fetchRandomSkin();
+        } else {
+            // 挑过了，还是那一张。**当成一份档案用** —— 于是下不下得来、存哪、怎么画
+            // 全是现成那条路（requestSkinTexture → fetchTexture → onSkinTextureReady）。
+            // 离线账号没有披风，所以 capeUrl 留空。
+            m_skinProfile =
+                PlayerSkinProfile{chosen, QString(), QStringLiteral("classic")};
+            requestSkinTexture(chosen, /*allowDownload=*/true);
+        }
+        updateSkinHint();
+        return;
+    }
 
     if (!m_authManager->loggedIn()) {
         // 没登录就没有 uuid，连问都不用问（问也问不出东西来）。那句话现在是
@@ -1287,6 +1376,27 @@ void MainWindow::onSkinTextureReady(const QString &url, const QString &path) {
     // 等于把上一个账号的皮肤画回来。
 }
 
+void MainWindow::onRandomSkinReady(const QString &skinUrl) {
+    // 回来的时候身份可能已经变了：用户在这几百毫秒里换了账号、删掉了那个离线账号，
+    // 或者干脆登录成正式账号了。**不是同一个离线身份就丢掉** —— 记下去等于把 A 的脸
+    // 记到 B 名下，而且再也不会有人来纠正它（那份记录是"永不失效"的）。
+    if (!offlineIdentity()) {
+        return;
+    }
+    const QString accountUuid = AccountStore::activeUuid();
+    QString error;
+    if (!RandomSkinStore::saveChosenSkinUrl(accountUuid, skinUrl, &error)) {
+        // 记不下来**不影响这一次显示**（这一趟照样画得出来），只是下次开启动器会重挑一张。
+        appendLog(tr("记下随机皮肤失败：%1").arg(error));
+    }
+    m_skinProfile = PlayerSkinProfile{skinUrl, QString(), QStringLiteral("classic")};
+    // 走那条公用的路。**缓存命中时它是同步的**（fetchTexture 命中就同步发 textureReady），
+    // 所以挑第二张的时候这一句之后屏幕上就已经换好了；真要下的时候它会自己把
+    // m_skinFetchInFlight 点起来。
+    requestSkinTexture(skinUrl, /*allowDownload=*/true);
+    updateSkinHint();
+}
+
 void MainWindow::onSkinFailed(const QString &message) {
     // 外观是**装饰**：取不到就静默退回默认外观。这是全仓唯一一处不弹窗的错误，
     // 理由（别的错误都让用户做不成他想做的事，而这个只是不好看）写在
@@ -1342,8 +1452,26 @@ void MainWindow::applyPlayerSkin(const QString &skinPath, const QString &capePat
 void MainWindow::updateSkinHint() {
     const QString name = m_authManager->playerName();
     QLabel *hint = m_ui->getSkinHintLabel();
+    // 离线账号有一套自己的话（"正版外观"那句对它是错的，"未登录"那句也不对 ——
+    // 它是**故意**不登录的，读起来像出错了）。判据只有一个：当前账号本身是不是离线账号。
+    const bool offline = offlineIdentity();
     if (!m_skinPath.isEmpty()) {
-        hint->setText(MainWindowUI::skinHintLoadedText(name, !m_capePath.isEmpty()));
+        if (!offline) {
+            hint->setText(MainWindowUI::skinHintLoadedText(name, !m_capePath.isEmpty()));
+        } else if (!m_offlineDefaultSkinVersion.isEmpty()) {
+            // 算出来的那张官方默认皮肤（见 DefaultSkin）：说得比"随机挑的"准一点 —— 这是
+            // 那个版本的客户端本来就会给他分配的那一张。版本号**不是废话**：换版本这张脸
+            // 真的会变（两套规矩算出来的不是同一张），那句话要能解释这件事。
+            hint->setText(MainWindowUI::skinHintOfflineDefaultSkinText(
+                name, instanceDisplayName(m_offlineDefaultSkinVersion)));
+        } else {
+            hint->setText(MainWindowUI::skinHintOfflineLoadedText(name));
+        }
+    } else if (offline) {
+        // 那张随机外观还没画上：不是"还在要"就是"没要到"。这两句都不弹窗（理由同
+        // PlayerSkinStore.hpp 文件头：外观是装饰，取不到也照样能启动游戏）。
+        hint->setText(m_skinFetchInFlight ? MainWindowUI::skinHintLoadingText(name)
+                                          : MainWindowUI::skinHintFailedText(name));
     } else if (!m_authManager->loggedIn()) {
         hint->setText(MainWindowUI::skinHintNotLoggedInText());
     } else if (m_skinFetchInFlight) {
@@ -4775,8 +4903,12 @@ void MainWindow::importModpackFromFile(const QString &zipPath) {
     // 用户随手选一个几百 MB 的包，为了"知道它不是整合包"先解压几分钟是白等。
     QByteArray indexJson;
     QString error;
-    const ZipUtil::EntryStatus status =
-        ZipUtil::readEntry(zipPath, ModpackImport::modrinthIndexName(), &indexJson, &error);
+    // NOTE: 第五个参数（动作名）是**给用户看的**：下面 Failed 那一路会把 error 原样弹进那个
+    //       警告框（「读这个压缩包的时候出错了：…」），所以这里必须写「读整合包清单」，
+    //       而不是 ZipUtil 那个通用的默认说法。
+    const ZipUtil::EntryStatus status = ZipUtil::readEntry(
+        zipPath, ModpackImport::modrinthIndexName(), &indexJson, &error,
+        QStringLiteral("读整合包清单"));
     if (status != ZipUtil::EntryStatus::Ok) {
         // "里面没有这份清单"和"这个文件根本打不开"是**两句完全不同的话**：前者多半是
         // 选错了文件（或者那是 CurseForge 格式的包），后者是文件坏了/不是 zip。所以这里

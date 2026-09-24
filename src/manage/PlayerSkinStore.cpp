@@ -190,6 +190,23 @@ QUrl PlayerSkinStore::textureRequestUrl(const QString &url) {
     return target;
 }
 
+QString PlayerSkinStore::textureUrlForHash(const QString &hash) {
+    // hash 的形态就是官方那一串：64 位十六进制，**小写**（官方一律小写）。判据和 uuidKey()
+    // 同一套（逐字符看、不是正则）：外面来的东西只放行认得出的形态。
+    if (hash.size() != 64) {
+        return QString();
+    }
+    for (const QChar ch : hash) {
+        const bool isHex = (ch >= QLatin1Char('0') && ch <= QLatin1Char('9')) ||
+                           (ch >= QLatin1Char('a') && ch <= QLatin1Char('f'));
+        if (!isHex) {
+            return QString();
+        }
+    }
+    return QStringLiteral("https://") + QLatin1String(kTextureHost) +
+           QStringLiteral("/texture/") + hash;
+}
+
 QString PlayerSkinStore::uuidKey(const QString &uuid) {
     QString key;
     key.reserve(32);

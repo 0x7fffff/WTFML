@@ -134,6 +134,17 @@ public:
     ///       调用方按 URL 认领贴图（MainWindow::onSkinTextureReady）就会认不出来。
     static QUrl textureRequestUrl(const QString &url);
 
+    /// 把官方贴图的**内容哈希**拼成贴图地址：`https://textures.minecraft.net/texture/<hash>`。
+    ///
+    /// NOTE: 这个函数存在的唯一理由是**那个 host 只能有一处知道**（见 textureRequestUrl 里
+    ///       "只认官方那个 host"那一条）。离线账号的随机皮肤是从第三方库里挑出来的，但那张图
+    ///       本身还是躺在官方 CDN 上 —— 挑它的是别人、**装它的是这里**，于是"这个地址算不算
+    ///       数"仍然只有这一个判据。
+    ///
+    /// @param hash 64 位十六进制（官方那个 hash 的形态）。不是这个形态就返回空串 ——
+    ///       它来自外面，不能拿它拼出一个野地址。
+    static QString textureUrlForHash(const QString &hash);
+
     /// 档案缓存的文件名用的键：去掉横线、转小写（32 位十六进制）。
     ///
     /// 两个地方必须用同一个形式，否则会各存一份：**URL** 里官方只认这个没有横线的形式，
