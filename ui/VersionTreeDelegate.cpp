@@ -1,9 +1,12 @@
 #include "VersionTreeDelegate.hpp"
 
+#include <QAbstractItemView>
 #include <QApplication>
 #include <QFontMetrics>
+#include <QHelpEvent>
 #include <QPainter>
 #include <QStyle>
+#include <QToolTip>
 #include <QTreeView>
 
 #include "MainWindowUI.hpp"
@@ -37,6 +40,35 @@ QRect VersionTreeDelegate::refreshRect(const QRect &row) {
     // 贴着行右边缘。QRect 的 right() 是"最后一个像素的 x"，所以右边留出 pad 那几格之后，
     // 起点要 +1 才让这一格的右边缘正好落在 row.right() - pad 上。
     return QRect(row.right() - pad - box + 1, row.center().y() - box / 2, box, box);
+}
+
+QString VersionTreeDelegate::rowActionTip(const QModelIndex &index, const QRect &row,
+                                          const QPoint &pos) {
+    // 一条一条来：每加一个"行里的按钮"，在这儿加一行（几何仍然在 clearRect/refreshRect 里）。
+    // 顺序就是"谁压在谁上面"的顺序 —— 今天两个角色互斥（一行不能同时挂），顺序无所谓，
+    // 将来真叠上了，先判的那个赢。
+    if (index.data(MainWindowUI::rowRefreshRole()).toBool() && refreshRect(row).contains(pos)) {
+        return MainWindowUI::rowRefreshTipText();
+    }
+    if (index.data(MainWindowUI::rowClearRole()).toBool() && clearRect(row).contains(pos)) {
+        return MainWindowUI::rowClearTipText();
+    }
+    return QString();
+}
+
+bool VersionTreeDelegate::helpEvent(QHelpEvent *event, QAbstractItemView *view,
+                                    const QStyleOptionViewItem &option, const QModelIndex &index) {
+    // 只在"光标真落在行里那个按钮那一格上"时说话，别的地方一句都不弹（包括那一行的正文）。
+    if (event != nullptr && event->type() == QEvent::ToolTip) {
+        const QString tip = rowActionTip(index, option.rect, event->pos());
+        if (!tip.isEmpty()) {
+            QToolTip::showText(event->globalPos(), tip, view);
+            return true;
+        }
+    }
+    // 兜底：条目自己写 `Qt::ToolTipRole` 的那条老路（基类就干这个）。这条对"整条行一句"
+    // 仍然有意义（比如将来资源表上"这一行是什么"），所以不能整个吃掉。
+    return QStyledItemDelegate::helpEvent(event, view, option, index);
 }
 
 void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option,
