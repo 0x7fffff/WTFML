@@ -3,9 +3,9 @@
  * @brief Implements the per-session game log window.
  * @author 0x7fffff
  * @date 2026-09-24
- * @note 布局：顶上一排级别开关、一行说明、中间一整块只读文本、底下一排两个按钮。
- *       那块文本是**唯一的正文**，所以它拿走了整份竖直空间（addWidget(..., 1) 那个 1），
- *       说明和按钮都只是一行 —— 日志窗里的每一像素都该给日志。
+ * @note 布局：顶上一排（五档开关 + 行数下拉框 + 清空）、一行说明、中间一整块只读文本、
+ *       底下一排（只有一个右对齐的关闭）。那块文本是**唯一的正文**，所以它拿走了整份竖直
+ *       空间（addWidget(..., 1) 那个 1），说明和按钮都只是一行 —— 日志窗里的每一像素都该给日志。
  *
  * 【这一块文本是"模型 → 视图"重画出来的，不是"往里塞字"】
  *
@@ -24,6 +24,11 @@
 
 #include "GameLogWindow.hpp"
 
+// WheelGuard 住在 MainWindowUI.hpp 里（和 AccountSkinDialog.cpp / InstanceSettingsDialog.cpp
+// 一样，直接引那一份，不为一个三十行的小类再开一个头文件）。
+#include "MainWindowUI.hpp"
+
+#include <QComboBox>
 #include <QCoreApplication>
 #include <QFontDatabase>
 #include <QHBoxLayout>
@@ -273,11 +278,45 @@ GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent) : QDi
         filters->addWidget(button);
     }
     filters->addStretch(1);
-    // 五档全关掉之后视图是空的 —— 一颗兜底的按钮，免得用户以为日志窗坏了。
-    m_showAllButton = new QPushButton(showAllButtonText(), this);
-    m_showAllButton->setObjectName(showAllButtonName());
-    connect(m_showAllButton, &QPushButton::clicked, this, &GameLogWindow::showAllLevels);
-    filters->addWidget(m_showAllButton);
+
+    // 右边这两件：**先摆下拉框，再摆清空**（"把清除放到这个的旁边"）—— 于是清空在最右、
+    // 下拉框紧贴着它左边那一格。
+    //
+    // 这一颗是 2026-09-24 从「显示全部」按钮换过来的：那一颗的位置给行数上限，清空从底下
+    // 那一排挪上来。换掉的代价（五档全关之后没有一键全勾回来）写在 .hpp 里。
+    m_lineLimitCombo = new QComboBox(this);
+    m_lineLimitCombo->setObjectName(lineLimitComboName());
+    for (int limit : lineLimitChoices()) {
+        m_lineLimitCombo->addItem(lineLimitText(limit), limit);
+    }
+    m_lineLimitCombo->setToolTip(lineLimitTooltip());
+    // 和主页那两个下拉框同一套尺寸规矩（见 MainWindowUI.cpp 里 installedVersionCombo 那段）：
+    // 按内容算宽度，灌数据/换档时不会忽然跳一下。这里条目最长的是「10000 条」，
+    // 12 是那边用的数，这里也够。
+    m_lineLimitCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    m_lineLimitCombo->setMinimumContentsLength(12);
+    // 滚轮防护（见 MainWindowUI.hpp 里的 WheelGuard）：**必须装**，而且理由在这个窗里比
+    // 别处更要紧 —— 这是一扇"滚着看日志"的窗，鼠标从那条下拉框上划过的机会多得是，
+    // 不装的话往上翻日志时会被静默换成"只显示 500 条"，而内容一少看起来像日志丢了。
+    WheelGuard::install(m_lineLimitCombo);
+    // 摆到**它的**那一档（默认「全部」）。倒序找第一个数据等于默认值的：产品里「全部」
+    // 排在最后，但这个循环不依赖顺序。
+    for (int i = 0; i < m_lineLimitCombo->count(); ++i) {
+        if (m_lineLimitCombo->itemData(i).toInt() == m_displayLineLimit) {
+            m_lineLimitCombo->setCurrentIndex(i);
+            break;
+        }
+    }
+    connect(m_lineLimitCombo, &QComboBox::currentIndexChanged, this, [this](int index) {
+        // 换一档 = 换视图那一层的闸，然后重画（模型一行不动，见 .hpp 里那段）。
+        setDisplayLineLimit(lineLimitOfIndex(index));
+    });
+    filters->addWidget(m_lineLimitCombo);
+
+    m_clearButton = new QPushButton(clearButtonText(), this);
+    m_clearButton->setObjectName(clearButtonName());
+    filters->addWidget(m_clearButton);
+
     layout->addLayout(filters);
 
     m_hintLabel = new QLabel(hintText(), this);
@@ -306,7 +345,7 @@ GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent) : QDi
     // NOTE: **比模型多一格**。多出来的那一格是"还没等到换行的那半行"（它不在模型里，
     //       见 insertPendingIntoView）。两个上限必须对齐，不然跑满两万行之后模型里最早
     //       那一行会被视图悄悄丢掉、而模型还留着 —— 切一次筛选它就又冒出来了。
-    m_view->setMaximumBlockCount(maxLogBlocks() + 1);
+    m_view->setMaximumBlockCount(viewBlockLimit());
     m_view->setPlaceholderText(emptyPlaceholderText());
     // 等宽字体：日志里有缩进、有对齐的表格（崩栈、模组列表），比例字体读起来是散的。
     // 字号比系统那个大一号（用户 2026-09-24 说的「字号稍微大一点」），见 logFont()。
@@ -315,14 +354,13 @@ GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent) : QDi
     m_view->setLineWrapMode(QPlainTextEdit::NoWrap);
     layout->addWidget(m_view, 1);
 
+    // 底下一排只剩「关闭」，而且**右对齐**（用户 2026-09-24 说的）—— 左边的空档留给
+    // "以后还有别的按钮"（现在是空的，清空已经挪到顶上那一排了）。
     auto *buttons = new QHBoxLayout;
-    m_clearButton = new QPushButton(clearButtonText(), this);
-    m_clearButton->setObjectName(clearButtonName());
-    buttons->addWidget(m_clearButton);
+    buttons->addStretch(1);
     m_closeButton = new QPushButton(closeButtonText(), this);
     m_closeButton->setObjectName(closeButtonName());
     buttons->addWidget(m_closeButton);
-    buttons->addStretch(1);
     layout->addLayout(buttons);
 
     // 「清空」清的是**这个窗看到的东西**：模型、计数、那半行一起清（视图只是模型的投影，
@@ -557,22 +595,34 @@ void GameLogWindow::rebuildView() {
     }
 }
 
-void GameLogWindow::showAllLevels() {
-    bool changed = false;
-    for (int i = 0; i < levelCount(); ++i) {
-        if (!m_levelVisible.at(i)) {
-            m_levelVisible[i] = true;
-            changed = true;
-        }
-        if (QToolButton *button = m_filterButtons.at(i)) {
-            // 灌值不要把处理函数再绕回来（那只会在重画里再重画一次）。
-            const QSignalBlocker blocker(button);
-            button->setChecked(true);
+int GameLogWindow::viewBlockLimit() const {
+    // 「全部」那一档喂的就是模型那个上限（= 改之前的行为）。两条上限对齐是原有的不变量
+    // （见构造函数里那段）：不对齐的话，模型里最早那一行会被视图悄悄丢掉、切一次筛选它
+    // 又冒出来。
+    const int limit =
+        m_displayLineLimit <= 0 ? maxLogBlocks() : qMin(m_displayLineLimit, maxLogBlocks());
+    return limit + 1;  // 多出来那一格留给"还没等到换行的那半行"
+}
+
+void GameLogWindow::setDisplayLineLimit(int limit) {
+    if (limit == m_displayLineLimit) {
+        return;
+    }
+    m_displayLineLimit = limit;
+    if (m_lineLimitCombo != nullptr) {
+        // 灌值不要把处理函数再绕回来（那只会在重建里再重建一次）。
+        const QSignalBlocker blocker(m_lineLimitCombo);
+        for (int i = 0; i < m_lineLimitCombo->count(); ++i) {
+            if (m_lineLimitCombo->itemData(i).toInt() == limit) {
+                m_lineLimitCombo->setCurrentIndex(i);
+                break;
+            }
         }
     }
-    if (changed) {
-        rebuildView();
-    }
+    // 顺序要紧：**先**改上限、再重建。上限调大时 Qt 不会自己补回什么（得靠重建从模型里
+    // 再摆一遍），调小时它自己就砍掉开头那一截 —— 两种都由这一次重建兜住。
+    m_view->setMaximumBlockCount(viewBlockLimit());
+    rebuildView();
 }
 
 void GameLogWindow::setLevelVisible(LogLevel level, bool visible) {
@@ -762,7 +812,7 @@ QPushButton *GameLogWindow::getCloseButton() const { return m_closeButton; }
 
 QLabel *GameLogWindow::getHintLabel() const { return m_hintLabel; }
 
-QPushButton *GameLogWindow::getShowAllButton() const { return m_showAllButton; }
+QComboBox *GameLogWindow::getLineLimitCombo() const { return m_lineLimitCombo; }
 
 QToolButton *GameLogWindow::getFilterButton(LogLevel level) const {
     return m_filterButtons.at(levelIndex(level));
@@ -883,7 +933,36 @@ QString GameLogWindow::filterButtonTooltip() {
         .arg(maxLogBlocks());
 }
 
-QString GameLogWindow::showAllButtonText() { return QStringLiteral("显示全部"); }
+QVector<int> GameLogWindow::lineLimitChoices() {
+    // 六档，从"只想看最后一段"到"全都看"。最后一档是 0（全部）—— 它同时是默认值，
+    // 也就是"打开这个窗看到的和 2026-09-24 之前一样"。
+    //
+    // 第四档是 5000：用户当天原话里打的是「25」，那是**打错了**（他随后订正为 5000）。
+    // 所以这一档**不是**从原话推出来的，是问出来的 —— 别照着「25」去猜 250。
+    return {500, 1000, 2000, 5000, 10000, 0};
+}
+
+QString GameLogWindow::lineLimitText(int limit) {
+    // 数字**写全**（用户 2026-09-24 说的「直接写数字」，别学他打的 1k/2k）。
+    if (limit <= 0) {
+        return QStringLiteral("全部");
+    }
+    return QStringLiteral("%1 条").arg(limit);
+}
+
+int GameLogWindow::lineLimitOfIndex(int index) {
+    const QVector<int> choices = lineLimitChoices();
+    if (index < 0 || index >= choices.size()) {
+        return defaultLineLimit();  // 越界回默认那一档：不为一个越界把上限设成 0
+    }
+    return choices.at(index);
+}
+
+QString GameLogWindow::lineLimitTooltip() {
+    return QStringLiteral("最多显示最后几行。**日志本身一行都不会少**（最多留 %1 行），"
+                          "换回大的一档就看得见。")
+        .arg(maxLogBlocks());
+}
 
 QString GameLogWindow::filterButtonName(LogLevel level) {
     switch (level) {

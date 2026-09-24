@@ -30,8 +30,7 @@
  * 于是"崩在哪一条"要靠眼睛在一屏灰字里找。现在按严重程度给**整行**染底色
  * （Debug 灰蓝 / Info 不染 / Warn 黄 / Error 红 / Fatal 深红配白字，见 levelBackground），
  * 顶上再摆一排带计数的开关：**开着的那颗就是这一档的颜色**（和正文那一行同一个色，不用读字
- * 就知道哪几档开着），点一下就只隐藏那一档、那颗也跟着回到原来那个灰，五档全关还有一颗
- * 「显示全部」兜底。
+ * 就知道哪几档开着），点一下就只隐藏那一档、那颗也跟着回到原来那个灰。
  *
  * 四件事值得先说清：
  *
@@ -57,6 +56,29 @@
  *    等宽字体大 kLogFontPointDelta 号。③ 「允许这个窗口最大化最小化」→ 构造函数里那两行
  *    window flags（QDialog 默认只给一个关闭钮）。④ 「游戏正常以 0 退出就自动关闭日志界面」
  *    → autoCloseOnExit()，接线在 MainWindow::onGameFinished()。
+ *
+ * 【2026-09-24 的第二批：顶上那一排的右边】
+ *
+ * 用户原话：「日志栏右侧那个显示全部改成像主页实例/用户那里的下拉框，显示 500/1k/2k/25/10k/all
+ * 条，把清除放到这个的旁边，关闭按钮改成右对齐」。三件事：
+ *
+ * - **那颗「显示全部」按钮没有了**，原位换成 `QComboBox`（行数上限：500 / 1000 / 2000 /
+ *   5000 / 10000 / 全部，见 lineLimitChoices()），默认「全部」= 改之前的行为。
+ *   NOTE: 原话里那个「25」是打错了的，用户随后订正成 5000（见 lineLimitChoices() 里那段）。
+ * - 「清空」从底下那一排挪到**它旁边**（顶上那一排的最右）；底下那一排只剩「关闭」，右对齐。
+ * - 代价说清楚：**五档全关之后没有"一键全勾回来"了**。回退的路是那句占位本身
+ *   （filteredOutPlaceholderText() 写的就是"上面勾回来就看得见"）。这个取舍是刻意的 ——
+ *   用户点名要把那颗按钮"改成下拉框"，而"五档全关"本来就是个少见状态，勾回五下不算事。
+ *
+ * 【行数上限是"显示"的上限，不是"留多少"的上限】
+ *
+ * 两条上限**不是一回事**，别把它们合并：
+ * - 模型（m_lines）封在 maxLogBlocks() = 20000 行上，超出丢最老的 —— 那是**内存**的闸。
+ * - 视图最多显示 displayLineLimit() 行 —— 那是**可读性**的闸。
+ *
+ * 选了 500 之后模型里那两万行**一行都没少**：切回 10000 当场又多出九千五百行。这正是这个
+ * 控件该有的手感 —— "少看点"是临时的视角，不是"把日志扔了"。所以那条上限走的是**视图的
+ * maximumBlockCount**（这里原来那个数喂的是 maxLogBlocks()），重建视图就能变。
  */
 
 #pragma once
@@ -69,6 +91,7 @@
 #include <QStringList>
 #include <QVector>
 
+class QComboBox;
 class QLabel;
 class QPlainTextEdit;
 class QPushButton;
@@ -175,7 +198,8 @@ public:
     QPushButton *getCloseButton() const;
     QLabel *getHintLabel() const;
     QToolButton *getFilterButton(LogLevel level) const;
-    QPushButton *getShowAllButton() const;
+    /// 顶上那一排最右那颗行数下拉框（验证工程拿它切上限、也拿它量"清空在不在旁边"）。
+    QComboBox *getLineLimitCombo() const;
 
     // ---------- 级别与筛选 ----------
 
@@ -184,8 +208,28 @@ public:
     /// 这一档有几行（含被筛掉的）。
     int lineCountFor(LogLevel level) const;
     bool levelVisible(LogLevel level) const;
-    /// 改一档的显示与否（会顺手把那颗按钮的勾也对上，然后重画）。给验证工程和「显示全部」用。
+    /// 改一档的显示与否（会顺手把那颗按钮的勾也对上，然后重画）。给验证工程用。
     void setLevelVisible(LogLevel level, bool visible);
+
+    // ---------- 行数上限（顶上那颗下拉框） ----------
+
+    /// 下拉框里那几档，**顺序就是界面上从上到下的顺序**；`0` 这一档表示"全部"。
+    static QVector<int> lineLimitChoices();
+    /// 下拉框上那一档写什么。`0`（全部）写「全部」，其余写成数字 + 「条」。
+    ///
+    /// NOTE: 数字**写全**（1000，不是 1k）—— 用户 2026-09-24 的原话是「直接写数字」。
+    static QString lineLimitText(int limit);
+    /// 开窗时的默认档：全部（= 改之前的行为，进来就看得见全部日志）。
+    static int defaultLineLimit() { return 0; }
+    /// 那一档在数据里存什么（`QComboBox::itemData`）。校验工程按它认条目。
+    static int lineLimitOfIndex(int index);
+    /// 现在这个窗最多显示几行（0 = 全部）。
+    int displayLineLimit() const { return m_displayLineLimit; }
+    /// 换一档上限（把下拉框也对上，然后重建视图）。给验证工程和那颗下拉框用。
+    ///
+    /// NOTE: 只影响**视图**，模型一行都不动（见文件头那段）。切到上限更大的那一档时那些行
+    ///       会当场回来 —— 前提是它们还在模型里（模型自己封在 maxLogBlocks() 上）。
+    void setDisplayLineLimit(int limit);
 
     /**
      * @brief 认一行的级别；**认不出来时回 fallback**（调用方传"上一行的级别"）。
@@ -225,7 +269,8 @@ public:
     static QString filterButtonText(LogLevel level, int count);
     /// 那一排开关上那句提示（顺带说明数字是什么）。
     static QString filterButtonTooltip();
-    static QString showAllButtonText();
+    /// 行数下拉框上那句提示（说清"只是少显示几行，日志没扔"）。
+    static QString lineLimitTooltip();
 
     /// 级别名。**用日志自己那套英文词**（不是"警告/错误"）：它要跟日志里的 `[main/WARN]`
     /// 对得上，用户看的正是那一格。
@@ -290,7 +335,7 @@ public:
     static QString clearButtonName() { return QStringLiteral("gameLogClearButton"); }
     static QString closeButtonName() { return QStringLiteral("gameLogCloseButton"); }
     static QString hintLabelName() { return QStringLiteral("gameLogHintLabel"); }
-    static QString showAllButtonName() { return QStringLiteral("gameLogShowAllButton"); }
+    static QString lineLimitComboName() { return QStringLiteral("gameLogLineLimitCombo"); }
     static QString filterButtonName(LogLevel level);
 
 private:
@@ -300,10 +345,11 @@ private:
         QString text;
     };
 
-    /// 全收起 → 全打开（顶上那颗「显示全部」）。
-    void showAllLevels();
     /// 攒够一整行：认级别、进模型、记账、超上限就丢最老的。回它的级别。
     LogLevel rememberLine(const QString &text);
+    /// 视图的块数上限该喂多少 = 现在这一档的行数上限（「全部」时就是 maxLogBlocks()），
+    /// **再留一格**给"还没等到换行的那半行"（见构造函数里那段）。喂给 maximumBlockCount()。
+    int viewBlockLimit() const;
     /// 按现在的筛选从头重画一遍（切筛选那一下走这里）。
     void rebuildView();
     /**
@@ -330,7 +376,9 @@ private:
     QPlainTextEdit *m_view = nullptr;
     QPushButton *m_clearButton = nullptr;
     QPushButton *m_closeButton = nullptr;
-    QPushButton *m_showAllButton = nullptr;
+    QComboBox *m_lineLimitCombo = nullptr;
+    /// 现在最多显示几行（`0` = 全部）。**只是视图那一层的闸**，模型不跟着变。
+    int m_displayLineLimit = defaultLineLimit();
 
     QVector<LogLine> m_lines;          ///< 上限 maxLogBlocks()，超出丢最老的
     QString m_pending;                 ///< 还没等到换行的那半行（不属于任何一条）
