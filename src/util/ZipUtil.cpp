@@ -58,6 +58,29 @@ QString encodeCommand(const QString &script) {
     return QString::fromLatin1(utf16le.toBase64());
 }
 
+/**
+ * @brief waitForFinished() 返回 false 之后，到底发生了什么。
+ * @param failure process.error()（**必须在 kill 之前读**，kill 之后它可能已经变了）。
+ * @param detail process.errorString()。
+ * @param what 这次动作的名字（「解压」/「读整合包清单」），拼进句子里。
+ * @return 返回给用户看的一句话。
+ *
+ * NOTE: 超时**不是**唯一一种"waitForFinished() 给 false"。进程压根没起来（PowerShell
+ *       不存在、被安全软件拦下）也是 false，而三个调用点以前一律报「解压超时」——
+ *       用户和排查的人都会往网络/磁盘上找，而真因在"进程没起来"那一头（2026-09-24 改的）。
+ */
+QString describeProcessFailure(QProcess::ProcessError failure, const QString &detail,
+                               const QString &what) {
+    switch (failure) {
+    case QProcess::FailedToStart:
+        return QStringLiteral("%1没跑起来（%2）。").arg(what, detail);
+    case QProcess::Crashed:
+        return QStringLiteral("%1时进程被强行结束了（%2）。").arg(what, detail);
+    default:
+        return QStringLiteral("%1超时").arg(what);
+    }
+}
+
 /// 起一次 PowerShell 跑这段脚本。返回 false 时 errorOut 里是原因。
 ///
 /// NOTE: 三个 - 号开头的开关一个都不能少，理由见 extractArchives 里原来那段（-NoProfile
@@ -71,10 +94,13 @@ bool runPowershell(const QString &script, int timeoutMs, QByteArray *stdoutOut,
                    QStringLiteral("-ExecutionPolicy"), QStringLiteral("Bypass"),
                    QStringLiteral("-EncodedCommand"), encodeCommand(script)});
     if (!process.waitForFinished(timeoutMs)) {
+        // error() / errorString() 要在 kill 之前读：kill 会把状态改成 Crashed。
+        const QProcess::ProcessError failure = process.error();
+        const QString detail = process.errorString();
         process.kill();
         process.waitForFinished(5000);
         if (errorOut != nullptr) {
-            *errorOut = QStringLiteral("解压超时");
+            *errorOut = describeProcessFailure(failure, detail, QStringLiteral("解压"));
         }
         return false;
     }
@@ -214,11 +240,14 @@ ZipUtil::EntryStatus ZipUtil::readEntry(const QString &archive, const QString &e
                    QStringLiteral("-ExecutionPolicy"), QStringLiteral("Bypass"),
                    QStringLiteral("-EncodedCommand"), encodeCommand(script)});
     if (!process.waitForFinished(60000)) {
+        // 同上：先读 error()/errorString()，再 kill。
+        const QProcess::ProcessError failure = process.error();
+        const QString detail = process.errorString();
         process.kill();
         process.waitForFinished(5000);
         QFile::remove(tempPath);
         if (errorOut != nullptr) {
-            *errorOut = QStringLiteral("读整合包清单超时");
+            *errorOut = describeProcessFailure(failure, detail, QStringLiteral("读整合包清单"));
         }
         return EntryStatus::Failed;
     }
