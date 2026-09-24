@@ -338,6 +338,25 @@ bool AccountStore::remove(const QString &uuid) {
     return true;
 }
 
+bool AccountStore::logout() {
+    // 本来就没登录：别去动盘上那三个键（清一遍是空操作，但返回 true 会让界面说一句
+    // "已退出登录"，而用户看到的界面本来就是未登录 —— 那句话是假的）。
+    if (activeUuid().isEmpty()) {
+        return false;
+    }
+    // 清活动槽之前先把里面那份收进列表，理由见 .hpp —— 和 makeOfflineCurrent() 的写法一样，
+    // 收不进去只留一行日志，不拦这次登出。
+    QString captureError;
+    if (!captureActive(&captureError)) {
+        qWarning().noquote() << "登出之前，没能把当前账号收进列表：" << captureError;
+    }
+    TokenStore::clear(TokenStore::microsoftKey());
+    TokenStore::clear(TokenStore::minecraftKey());
+    TokenStore::clear(TokenStore::currentUuidKey());
+    qInfo().noquote() << "已退出登录（账号仍然留在已保存的列表里）。";
+    return true;
+}
+
 // ============================ 离线账号 ============================
 //
 // 一条离线账号 = 列表里的一项 + 一个名字，盘上没有它的任何凭据。"身份"就是那个 uuid，
