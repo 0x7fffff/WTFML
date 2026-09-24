@@ -41,6 +41,12 @@ inline QString substitutePlaceholders(const QString &raw,
  *
  * 用来避免同一件事发两遍：加载器版本的 arguments.game 是**整份继承下来的**，里面绝大多数
  * 条目原版就有，而启动器那边已经按自己的规则发过一遍（--username / --gameDir / ...）。
+ *
+ * NOTE: `--width`/`--height` 在这张表里是**有活干**的，不是凑数（2026-09-24 补的说明）。
+ *       原版 json 里那条带 `has_custom_resolution` 规则的 width/height 条目就是靠这里被
+ *       丢掉的 —— 去掉它们的话，用户设了窗口大小、而启动器又自己发一遍 `--width`，同一个
+ *       开关就会发两次，joptsimple 遇到重复选项直接报错退出。启动器那一侧发这一对参数的
+ *       地方见 LauncherManager::generateJvmArguments 里「游戏窗口大小」那一段。
  */
 inline bool isVanillaGameArgument(const QString &flag) {
     static const QSet<QString> names = {

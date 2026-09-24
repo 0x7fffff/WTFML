@@ -738,6 +738,15 @@ public:
         return QStringLiteral("applyExtraJvmArgsButton");
     }
     static QString downloadSourceComboName() { return QStringLiteral("downloadSourceCombo"); }
+    static QString showGameLogCheckName() { return QStringLiteral("showGameLogCheck"); }
+    static QString processPriorityComboName() { return QStringLiteral("processPriorityCombo"); }
+    static QString gameWindowWidthSpinName() { return QStringLiteral("gameWindowWidthSpin"); }
+    static QString gameWindowHeightSpinName() { return QStringLiteral("gameWindowHeightSpin"); }
+    /// 「宽 × 高」中间那个乘号。它也要有名字：验证工程量这三格的几何时得能取到它。
+    static QString gameWindowSizeTimesLabelName() { return QStringLiteral("gameWindowSizeTimes"); }
+    /// 「启动选项」那一组里那几个勾选框/数字框的文案。
+    /// 「显示游戏日志」这个串是**用户原话**（2026-09-24 提的需求），别改写成别的说法。
+    static QString showGameLogCheckText() { return QStringLiteral("显示游戏日志"); }
     static QString versionNameCustomCheckName() {
         return QStringLiteral("versionNameCustomCheck");
     }
@@ -754,6 +763,20 @@ public:
     static int memoryMinMinMb() { return 128; }
     static int memoryLimitMaxMb() { return 65536; }
     static int memoryStepMb() { return 256; }
+
+    // ---------- 游戏窗口大小的取值范围 ----------
+    // 规矩同上：和 LauncherSettings::gameWindowMinWidth() 那一组**必须一样**（那是
+    // 读盘时的钳位，这边是界面允许填的范围）。ui/ 这一侧不许 include src/，
+    // 所以两份是各写一遍的 —— 改一边就得改另一边，验证工程里有一条断言盯着它们相等。
+    //
+    // 上限不是随手定的：7680×4320 是 8K，比这个还大的游戏窗口没有意义（而且 -width 是
+    // 交给游戏自己的两个整数，给个天文数字只会让某些版本的窗口创建直接失败）。
+    static int windowMinWidth() { return 320; }
+    static int windowMaxWidth() { return 7680; }
+    static int windowMinHeight() { return 240; }
+    static int windowMaxHeight() { return 4320; }
+    /// 点上下箭头一下走多少。16 是"拖一下就能从 854 走到 1920 那类常见值"。
+    static int windowSizeStep() { return 16; }
 
     // ---------- 「已安装版本」下拉框的占位文案 ----------
     // 空状态有两种，由 MainWindow::refreshInstalledVersions() 按当前情形切换：
@@ -996,6 +1019,10 @@ public:
     QPlainTextEdit *getExtraJvmArgsEdit() const { return extraJvmArgsEdit; }
     QPushButton *getApplyExtraJvmArgsButton() const { return applyExtraJvmArgsButton; }
     QComboBox *getDownloadSourceCombo() const { return downloadSourceCombo; }
+    QCheckBox *getShowGameLogCheck() const { return showGameLogCheck; }
+    QComboBox *getProcessPriorityCombo() const { return processPriorityCombo; }
+    QSpinBox *getGameWindowWidthSpin() const { return gameWindowWidthSpin; }
+    QSpinBox *getGameWindowHeightSpin() const { return gameWindowHeightSpin; }
     QCheckBox *getVersionNameCustomCheck() const { return versionNameCustomCheck; }
     QCheckBox *getVersionNameRealCheck() const { return versionNameRealCheck; }
     QCheckBox *getVersionNameLoaderCheck() const { return versionNameLoaderCheck; }
@@ -1036,70 +1063,81 @@ private:
     void setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout);
 
     // 控件指针
-    QPushButton *startButton;
-    QPushButton *accountSkinSettingsButton;
-    QCheckBox *offlineModeCheckBox;
-    QPushButton *addFolderButton;
-    QLabel *folderHintLabel;
-    QPushButton *removeFolderButton;
-    QListWidget *folderList;
-    QTreeWidget *instanceList;
-    QPushButton *renameInstanceButton;
-    QPushButton *groupInstanceButton;
-    QPushButton *instanceSettingsButton;
-    QPushButton *stopGameButton;
-    QPushButton *importModpackButton;
-    QLabel *instanceFolderLabel;
-    QComboBox *installedVersionCombo;
+    //
+    // NOTE: 全部显式初始化成 nullptr（2026-09-24 加的）。这不是为了好看：下面那些
+    //       访问器和 isHomeTabCurrent() 拿"空指针"当"setupUi() 还没跑完"的判据 ——
+    //       成员没有初值时，那个判据读的是**未初始化的值**（UB），只是现在的调用点
+    //       全都排在 setupUi() 之后才没炸。
+    // NOTE: 新加控件指针时**一并写上 = nullptr**，别让它单独破例。
+    QPushButton *startButton = nullptr;
+    QPushButton *accountSkinSettingsButton = nullptr;
+    QCheckBox *offlineModeCheckBox = nullptr;
+    QPushButton *addFolderButton = nullptr;
+    QLabel *folderHintLabel = nullptr;
+    QPushButton *removeFolderButton = nullptr;
+    QListWidget *folderList = nullptr;
+    QTreeWidget *instanceList = nullptr;
+    QPushButton *renameInstanceButton = nullptr;
+    QPushButton *groupInstanceButton = nullptr;
+    QPushButton *instanceSettingsButton = nullptr;
+    QPushButton *stopGameButton = nullptr;
+    QPushButton *importModpackButton = nullptr;
+    QLabel *instanceFolderLabel = nullptr;
+    QComboBox *installedVersionCombo = nullptr;
     /// 下载页左栏那份「下载分类」（见头文件上面那段）与右栏那份 QStackedWidget。
-    /// 只有「游戏」那一页是真的，其余四页各一句"还没做"。
-    QListWidget *downloadCategoryList;
-    QStackedWidget *downloadStack;
+    /// 五页**全是真**的（2026-09-23 起）：第 0 页「游戏」是版本树 + 安装页，其余四页
+    /// 各是一张「资源 → 游戏版本 → 版本号」的三层表。
+    QListWidget *downloadCategoryList = nullptr;
+    QStackedWidget *downloadStack = nullptr;
     /// 「游戏」那一页里的两层：版本树 / 安装页（见头文件上面那段）。
-    QStackedWidget *gameStack;
-    QTreeWidget *versionTree;
-    QLabel *installTargetLabel;
-    QLineEdit *installNameEdit;
-    QLabel *installNameHint;
-    QLabel *installNameError;
-    QPushButton *installButton;
-    QPushButton *installBackButton;
+    QStackedWidget *gameStack = nullptr;
+    QTreeWidget *versionTree = nullptr;
+    QLabel *installTargetLabel = nullptr;
+    QLineEdit *installNameEdit = nullptr;
+    QLabel *installNameHint = nullptr;
+    QLabel *installNameError = nullptr;
+    QPushButton *installButton = nullptr;
+    QPushButton *installBackButton = nullptr;
     /// 安装页那棵「模组加载器」树（见头文件上面那段）。顶层五条按 modLoaderOptionNames()
     /// 的顺序摆，前四条各带自己的版本列表（点开才灌）、第 5 条是「不装（纯原版）」。
-    QTreeWidget *loaderTree;
+    QTreeWidget *loaderTree = nullptr;
     /// 后面四页那四张资源表 + 各自的搜索框，按分类键索引（见头文件上面那段）。
     /// 五页里「游戏」不在里头（它不用搜），所以这里是四对。
     QHash<QString, QTreeWidget *> downloadResourceTrees;
     QHash<QString, QLineEdit *> downloadResourceSearches;
-    QComboBox *javaVersionCombo;
-    QLabel *javaPathLabel;
-    QCheckBox *javaWarnMismatchCheck;
-    QCheckBox *memoryAutoCheck;
-    QLabel *memoryAutoHint;
-    QSpinBox *memoryMaxSpin;
-    QSpinBox *memoryMinSpin;
-    QComboBox *launcherBehaviourCombo;
-    QPlainTextEdit *extraJvmArgsEdit;
-    QPushButton *applyExtraJvmArgsButton;
-    QComboBox *downloadSourceCombo;
-    QCheckBox *versionNameCustomCheck;
-    QCheckBox *versionNameRealCheck;
-    QCheckBox *versionNameLoaderCheck;
-    QCheckBox *versionNameLoaderVersionCheck;
-    SkinViewer *skinViewer;
-    QLabel *skinHintLabel;
-    QPushButton *accountSkinButton;
-    QTabWidget *tabWidget;
-    QFrame *bottomBar;
+    QComboBox *javaVersionCombo = nullptr;
+    QLabel *javaPathLabel = nullptr;
+    QCheckBox *javaWarnMismatchCheck = nullptr;
+    QCheckBox *memoryAutoCheck = nullptr;
+    QLabel *memoryAutoHint = nullptr;
+    QSpinBox *memoryMaxSpin = nullptr;
+    QSpinBox *memoryMinSpin = nullptr;
+    QComboBox *launcherBehaviourCombo = nullptr;
+    QPlainTextEdit *extraJvmArgsEdit = nullptr;
+    QPushButton *applyExtraJvmArgsButton = nullptr;
+    QComboBox *downloadSourceCombo = nullptr;
+    QCheckBox *showGameLogCheck = nullptr;
+    QComboBox *processPriorityCombo = nullptr;
+    QSpinBox *gameWindowWidthSpin = nullptr;
+    QSpinBox *gameWindowHeightSpin = nullptr;
+    QCheckBox *versionNameCustomCheck = nullptr;
+    QCheckBox *versionNameRealCheck = nullptr;
+    QCheckBox *versionNameLoaderCheck = nullptr;
+    QCheckBox *versionNameLoaderVersionCheck = nullptr;
+    SkinViewer *skinViewer = nullptr;
+    QLabel *skinHintLabel = nullptr;
+    QPushButton *accountSkinButton = nullptr;
+    QTabWidget *tabWidget = nullptr;
+    QFrame *bottomBar = nullptr;
     /// 底栏两头那两颗按钮：整格都是一颗按钮（里面装着原来的那几行字 + 右边一个朝上的箭头）。
-    QPushButton *runStateButton;
-    QPushButton *accountButton;
-    QLabel *avatarLabel;
-    QLabel *accountLabel;
+    QPushButton *runStateButton = nullptr;
+    QPushButton *accountButton = nullptr;
+    QLabel *avatarLabel = nullptr;
+    QLabel *accountLabel = nullptr;
     // 账户格那两行是**竖直排列**的（名字在上、登录方式在下），和左上角那格同构。
-    QLabel *accountTypeLabel;
-    QProgressBar *progressBar;
-    QLabel *statusLabel;
-    QLabel *runStateLabel;
-    QLabel *runStateDetailLabel;
+    QLabel *accountTypeLabel = nullptr;
+    QProgressBar *progressBar = nullptr;
+    QLabel *statusLabel = nullptr;
+    QLabel *runStateLabel = nullptr;
+    QLabel *runStateDetailLabel = nullptr;
 };

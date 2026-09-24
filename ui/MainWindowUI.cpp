@@ -139,6 +139,13 @@ void addSectionTitle(QGridLayout *grid, int row, const QString &text, QWidget *p
 /// 设置页里数字框的宽度（够写「65536 MB」再加一对上下箭头）。
 constexpr int kMemorySpinWidth = 130;
 
+/// 「游戏窗口」那一行两个数字框的宽度：装得下「7680」（上限）加一对箭头就够了 ——
+/// 它没有后缀，比 kMemorySpinWidth 窄一些才不像两个空盒子。
+constexpr int kWindowSizeSpinWidth = 90;
+
+/// 「游戏窗口」那一行中间那个「×」。
+constexpr int kWindowSizeRowSpacing = 8;
+
 /// 把一个控件加到设置页那一行的容器里，**只占它需要的那点宽度、靠左**放。
 ///
 /// 为什么不是默认的"填满整格"：右列有 7 份宽（900 px 的窗口下就有 600 多 px），
@@ -998,6 +1005,76 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
                                     "进程还在（关掉进程会连带杀掉游戏）。"),
                 form);
         addSettingRow(grid, row++, QStringLiteral("启动器行为"), box, form);
+    }
+
+    // ---------- 启动选项 ----------
+    // 这一组三件事都是"这一份游戏进程怎么起来"：看不看它的输出、它占多少 CPU、
+    // 窗口开多大。摆在「启动后」和「JVM 参数」中间是因为它们的**作用对象**是启动那一下
+    // （上面那几组分别是账户、Java、内存、启动器自己）。
+    addSectionTitle(grid, row++, QStringLiteral("启动选项"), form);
+    {
+        QWidget *box = makeHintedControl(form);
+        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        showGameLogCheck = new QCheckBox(showGameLogCheckText(), box);
+        showGameLogCheck->setObjectName(showGameLogCheckName());
+        // 勾选状态由 MainWindow 灌（它才知道这个开关存在哪），这里只搭控件。
+        boxLayout->addWidget(showGameLogCheck, 0, Qt::AlignLeft);
+        addHint(box, QStringLiteral("打开之后，每启动一份游戏都会另外开一个小窗，"
+                                    "把那一份游戏自己的输出实时写进去 —— 崩溃前那几行报错就在那里。"
+                                    "同时开好几份时一份游戏一个窗，不会混在一起。"
+                                    "关掉时游戏输出只进日志文件。"),
+                form);
+        addSettingRow(grid, row++, showGameLogCheckText(), box, form);
+    }
+    {
+        QWidget *box = makeHintedControl(form);
+        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        processPriorityCombo = new QComboBox(box);
+        processPriorityCombo->setObjectName(processPriorityComboName());
+        WheelGuard::install(processPriorityCombo);
+        boxLayout->addWidget(processPriorityCombo);
+        addHint(box, QStringLiteral("游戏进程占 CPU 的优先级。这和任务管理器里「设置优先级」"
+                                    "是同一件事，只是在这里设一次就一直生效。"
+                                    "往低调可以在后台跑着游戏的时候让系统先顾别的；"
+                                    "往高调**不解决卡顿** —— 卡顿多半是内存或显卡的事，"
+                                    "调高只会让别的程序更卡。"),
+                form);
+        addSettingRow(grid, row++, QStringLiteral("进程优先级"), box, form);
+    }
+    {
+        QWidget *box = makeHintedControl(form);
+        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        QWidget *sizeRow = new QWidget(box);
+        QHBoxLayout *sizeLayout = new QHBoxLayout(sizeRow);
+        sizeLayout->setContentsMargins(0, 0, 0, 0);
+        sizeLayout->setSpacing(kWindowSizeRowSpacing);
+        gameWindowWidthSpin = new QSpinBox(sizeRow);
+        gameWindowWidthSpin->setObjectName(gameWindowWidthSpinName());
+        gameWindowWidthSpin->setRange(windowMinWidth(), windowMaxWidth());
+        gameWindowWidthSpin->setSingleStep(windowSizeStep());
+        gameWindowWidthSpin->setMinimumWidth(kWindowSizeSpinWidth);
+        // 数字框也吃滚轮（加一步/减一步），而且没有焦点时改完看不出来 —— 见 WheelGuard。
+        WheelGuard::install(gameWindowWidthSpin);
+        sizeLayout->addWidget(gameWindowWidthSpin);
+        QLabel *timesLabel = new QLabel(QStringLiteral("×"), sizeRow);
+        timesLabel->setObjectName(gameWindowSizeTimesLabelName());
+        sizeLayout->addWidget(timesLabel);
+        gameWindowHeightSpin = new QSpinBox(sizeRow);
+        gameWindowHeightSpin->setObjectName(gameWindowHeightSpinName());
+        gameWindowHeightSpin->setRange(windowMinHeight(), windowMaxHeight());
+        gameWindowHeightSpin->setSingleStep(windowSizeStep());
+        gameWindowHeightSpin->setMinimumWidth(kWindowSizeSpinWidth);
+        WheelGuard::install(gameWindowHeightSpin);
+        sizeLayout->addWidget(gameWindowHeightSpin);
+        // 整行按 sizeHint 靠左摆，不撑满右列（右列有 7 份宽，两个数字框被拉开就是坏的）——
+        // 和 addInlineControl() 是同一条规矩，只是这里那一格是整个小容器而不是单个控件。
+        boxLayout->addWidget(sizeRow, 0, Qt::AlignLeft);
+        addHint(box, QStringLiteral("启动时按这个大小开窗（单位是像素，走的是原版自己的 "
+                                    "--width/--height 那两个参数）。默认的 854×480 就是"
+                                    "原版的默认值 —— 没动过这一项时和以前一模一样。"
+                                    "游戏内自己把窗口拖大过的话，以游戏记住的为准。"),
+                form);
+        addSettingRow(grid, row++, QStringLiteral("窗口大小"), box, form);
     }
 
     // ---------- JVM 参数 ----------

@@ -28,6 +28,21 @@
 
 #include <algorithm>
 
+#if defined(Q_OS_WIN)
+// NOTE: 放在所有 Qt 头之后 —— windows.h 定义的东西太多（min/max 宏、`interface`……），
+//       先于 Qt 包含容易撞名。NOMINMAX 是给 std::min/std::max 让路（windows.h 会定义
+//       min/max 宏），WIN32_LEAN_AND_MEAN 少拉一堆用不上的头（winsock、shellapi……）。
+//       和 TokenStore.cpp 里那一套同一个写法。
+//       用途只有一个：下面的 applyProcessPriority()（OpenProcess / SetPriorityClass）。
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
+
 #include "../auth/AccountStore.hpp"
 #include "../auth/AuthManager.hpp"
 #include "../manage/InstanceFiles.hpp"
@@ -105,6 +120,74 @@ void ensureInitialOptions(const QString &gameDir) {
     file.write(QStringLiteral("lang:%1\n").arg(lang).toUtf8());
     file.close();
     qDebug() << "Created initial options.txt with lang" << lang;
+}
+
+#ifdef Q_OS_WIN
+/// ProcessPriority → Windows 的 priority class 常量。一一对应，没有别的换算。
+DWORD priorityClassOf(ProcessPriority priority) {
+    switch (priority) {
+    case ProcessPriority::Low:
+        return IDLE_PRIORITY_CLASS;
+    case ProcessPriority::BelowNormal:
+        return BELOW_NORMAL_PRIORITY_CLASS;
+    case ProcessPriority::AboveNormal:
+        return ABOVE_NORMAL_PRIORITY_CLASS;
+    case ProcessPriority::High:
+        return HIGH_PRIORITY_CLASS;
+    case ProcessPriority::Normal:
+        break;
+    }
+    return NORMAL_PRIORITY_CLASS;
+}
+#endif
+
+/**
+ * @brief 给刚起来的游戏进程设 CPU 优先级（设置页「启动选项 → 进程优先级」）。
+ *
+ * @param process 已经 start() 过、而且进程真的起来了的那个 QProcess。
+ * @param priority 要设的档位。
+ *
+ * NOTE: 调用的时机只有一处 —— waitForStarted() 成功之后、紧跟着的那一行。两个理由：
+ *       ① `processId()` 在进程起来之前是 0，那之前 OpenProcess 没东西可开；
+ *       ② 越早设越接近"从第一行代码起就是这个优先级"，晚了的话刚开始那一段初始化
+ *          （分配几个 GB 内存、解压 natives）已经按旧的档位跑过了。
+ *
+ * NOTE: 失败**只写日志、不拦启动**。设优先级是"锦上添花"，没设上不代表游戏不能玩；
+ *       把它变成一条拦下启动的错误，就是拿一个次要功能去堵主流程。常见失败是
+ *       进程刚好在这一瞬间退了（OpenProcess 拿到 ERROR_INVALID_PARAMETER），
+ *       那不是异常。
+ *
+ * NOTE: 非 Windows 平台是**空操作**，不是"用 setpriority 凑一个等价物"：两边的档位
+ *       根本对不上（POSIX 是 nice 值，Windows 是调度类），凑出来的东西没人验证过。
+ */
+void applyProcessPriority(QProcess *process, ProcessPriority priority) {
+#ifdef Q_OS_WIN
+    if (process == nullptr) {
+        return;
+    }
+    const DWORD pid = static_cast<DWORD>(process->processId());
+    if (pid == 0) {
+        qWarning() << "Process is gone before priority could be set, skipping.";
+        return;
+    }
+    // 只要 PROCESS_SET_INFORMATION —— 那是 SetPriorityClass 需要的最小权限。
+    // 不要为了省事去要 PROCESS_ALL_ACCESS：多要的权限对我们没用，而"一个启动器去要
+    // 完全控制另一个进程"正是某些安全软件盯着的形状（见 wtfml-av-pdm 那次）。
+    HANDLE handle = OpenProcess(PROCESS_SET_INFORMATION, FALSE, pid);
+    if (handle == nullptr) {
+        qWarning() << "OpenProcess failed for priority, error:" << GetLastError();
+        return;
+    }
+    if (SetPriorityClass(handle, priorityClassOf(priority)) == 0) {
+        qWarning() << "SetPriorityClass failed, error:" << GetLastError();
+    } else {
+        qDebug() << "Process priority set for PID" << static_cast<qulonglong>(pid);
+    }
+    CloseHandle(handle);
+#else
+    Q_UNUSED(process);
+    Q_UNUSED(priority);
+#endif
 }
 
 }  // namespace
@@ -306,7 +389,8 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
                                                   bool offlineMode, int javaMajorVersion,
                                                   const QStringList &versionJvmArgs,
                                                   const QString &playerName,
-                                                  const QString &playerUuid) const {
+                                                  const QString &playerUuid, int windowWidth,
+                                                  int windowHeight) const {
     QStringList args;
 
     qDebug() << "=== Generating JVM Arguments ===";
@@ -640,6 +724,16 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     gamePlaceholders[QStringLiteral("user_type")] = argUserType;
     gamePlaceholders[QStringLiteral("version_type")] =
         versionJson.value(QStringLiteral("type")).toString(QStringLiteral("release"));
+    // 「游戏窗口大小」那两个占位符。原版 json 里那条
+    // `{"rules":[{"allow","features":{"has_custom_resolution":true}}],
+    //   "value":["--width","${resolution_width}","--height","${resolution_height}"]}`
+    // 用的是这两个名字 —— 填进去是为了**万一**有老版本的 minecraftArguments 里直接写着
+    // `${resolution_width}`（那种拼法见过），不至于把一个没替换的 `${...}` 原样发出去。
+    // 注意：这条占位符**不是**"让原版那条规则生效"的手段，理由见下面 --width 那一段。
+    if (windowWidth > 0 && windowHeight > 0) {
+        gamePlaceholders[QStringLiteral("resolution_width")] = QString::number(windowWidth);
+        gamePlaceholders[QStringLiteral("resolution_height")] = QString::number(windowHeight);
+    }
 
     const QStringList extraGameArgs =
         VersionArguments::extraGameArguments(versionJson, args, gamePlaceholders);
@@ -648,13 +742,40 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
         args << extraGameArgs;
     }
 
+    // ------------------------------------------------------------------
+    // 游戏窗口大小（设置页「启动选项 → 窗口大小」）
+    // ------------------------------------------------------------------
+    // NOTE: 原版 json 里明明有一条现成的 `--width ${resolution_width} --height
+    //       ${resolution_height}` 规则，但这里**不能靠它**，两处都是死的：
+    //         ① 那条规则挂在 `has_custom_resolution` 这个 feature 上，而启动器一律传
+    //            空 feature 集合（见 VersionArguments::expand 的说明），规则根本不命中；
+    //         ② 就算把 feature 打开也没用 —— `--width`/`--height` 在
+    //            isVanillaGameArgument() 那张"原版参数"表里，extraGameArguments 会把它们
+    //            连同值一起跳掉（那张表的语义是"这一条由启动器自己发"）。
+    //       所以**打开 feature 是白做**，真正该做的事就是这一句：由启动器自己发，和上面
+    //       --username 那一段同源。顺带一提，1.12.2 那种老版本（minecraftArguments 里
+    //       压根没有 width/height）走的也是这一句 —— 游戏自己的 main 从 1.6 起就认
+    //       `--width/--height`（1.12.2 的 Main 里那对 defaultsTo(854, 480) 就是默认窗口
+    //       大小的出处），所以两条路发的是同一种参数。
+    //
+    // NOTE: 判据用 contains("--width") 而不是"这条 json 是不是老格式"：老版本的
+    //       minecraftArguments 里**可能**自带 `--width ${resolution_width}`（上面那两个
+    //       占位符就是为它填的），那种情况下这里再加一遍就是**同一个开关发两次** ——
+    //       joptsimple 遇到重复选项会直接报错退出。
+    if (windowWidth > 0 && windowHeight > 0 && !args.contains(QStringLiteral("--width"))) {
+        args << QStringLiteral("--width") << QString::number(windowWidth)
+             << QStringLiteral("--height") << QString::number(windowHeight);
+        qDebug() << "Game window size:" << windowWidth << "x" << windowHeight;
+    }
+
     qDebug() << "Total arguments count:" << args.length();
     return args;
 }
 
 int LauncherManager::startGame(const QStringList &arguments, const EffectiveJavaSettings &settings,
                                const QString &versionId, const QString &displayName,
-                               const QString &accountName, const QString &accountUuid) {
+                               const QString &accountName, const QString &accountUuid,
+                               ProcessPriority priority) {
     // 返回值 = 这次会话的 id（> 0 就等于"进程真的起来了"）。三条早退路径都必须 return 0：
     // 调用方拿非零当"这次算不算启动成功"的判据（据此记住上次启动的版本），任何一条漏掉
     // 都会把失败当成功记下来。这个函数里**每一条 return 都要想一遍返回值**。
@@ -776,6 +897,7 @@ int LauncherManager::startGame(const QStringList &arguments, const EffectiveJava
     }
 
     qDebug() << "Java process started, PID:" << process->processId();
+    applyProcessPriority(process, priority);
     // 记"谁在跑"的**唯一**时机：进程真的起来了（三条早退路径都不记）—— 底栏那条状态和
     // "启动中"进度的收尾都读它。上一步 discardSession() 过的会话在这里已经不在表里了，
     // 所以下面这两笔只可能落在**活着**的会话上。

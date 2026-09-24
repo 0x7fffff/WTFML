@@ -24,6 +24,10 @@ static constexpr const char kAfterLaunch[] = "Launcher/AfterLaunch";
 static constexpr const char kFolders[] = "Launcher/Folders";
 static constexpr const char kCurrentFolder[] = "Launcher/CurrentFolder";
 static constexpr const char kDownloadSource[] = "Download/Source";
+static constexpr const char kShowGameLog[] = "Launcher/ShowGameLog";
+static constexpr const char kGameWindowWidth[] = "Launcher/WindowWidth";
+static constexpr const char kGameWindowHeight[] = "Launcher/WindowHeight";
+static constexpr const char kProcessPriority[] = "Launcher/ProcessPriority";
 
 // 枚举存进 QSettings 的字符串。这几个串是**持久化格式的一部分**，不是内部标识：
 // 改掉它们，用户盘上已经存好的值就会被当成"认不出来"、静默退回默认档。
@@ -33,6 +37,23 @@ static constexpr const char kBehaviourClose[] = "close";
 static constexpr const char kBehaviourCloseAndRestore[] = "closeAndRestore";
 static constexpr const char kSourceOfficial[] = "official";
 static constexpr const char kSourceMirror[] = "mirror";
+static constexpr const char kPriorityLow[] = "low";
+static constexpr const char kPriorityBelowNormal[] = "belowNormal";
+static constexpr const char kPriorityNormal[] = "normal";
+static constexpr const char kPriorityAboveNormal[] = "aboveNormal";
+static constexpr const char kPriorityHigh[] = "high";
+
+/// 把窗口大小钳进合法区间。盘上的值是**不可信数据**（用户手改注册表、或者以后
+/// 从别的地方同步过来），而这里放行的值会原样变成游戏命令行上的两个数字。
+int clampWindowWidth(int width) {
+    return qBound(LauncherSettings::gameWindowMinWidth(), width,
+                  LauncherSettings::gameWindowMaxWidth());
+}
+
+int clampWindowHeight(int height) {
+    return qBound(LauncherSettings::gameWindowMinHeight(), height,
+                  LauncherSettings::gameWindowMaxHeight());
+}
 
 }  // namespace
 
@@ -96,6 +117,33 @@ void LauncherSettings::setDownloadSource(DownloadSource source) {
     save();
 }
 
+void LauncherSettings::setShowGameLog(bool show) {
+    if (m_showGameLog == show) {
+        return;
+    }
+    m_showGameLog = show;
+    save();
+}
+
+void LauncherSettings::setGameWindowSize(int width, int height) {
+    const int w = clampWindowWidth(width);
+    const int h = clampWindowHeight(height);
+    if (m_gameWindowWidth == w && m_gameWindowHeight == h) {
+        return;
+    }
+    m_gameWindowWidth = w;
+    m_gameWindowHeight = h;
+    save();
+}
+
+void LauncherSettings::setProcessPriority(ProcessPriority priority) {
+    if (m_processPriority == priority) {
+        return;
+    }
+    m_processPriority = priority;
+    save();
+}
+
 QString LauncherSettings::behaviourKey(LauncherBehaviour behaviour) {
     switch (behaviour) {
     case LauncherBehaviour::Minimize:
@@ -138,6 +186,40 @@ DownloadSource LauncherSettings::downloadSourceFromKey(const QString &key) {
     return DownloadSource::Official;
 }
 
+QString LauncherSettings::processPriorityKey(ProcessPriority priority) {
+    switch (priority) {
+    case ProcessPriority::Low:
+        return QString::fromLatin1(kPriorityLow);
+    case ProcessPriority::BelowNormal:
+        return QString::fromLatin1(kPriorityBelowNormal);
+    case ProcessPriority::AboveNormal:
+        return QString::fromLatin1(kPriorityAboveNormal);
+    case ProcessPriority::High:
+        return QString::fromLatin1(kPriorityHigh);
+    case ProcessPriority::Normal:
+        break;
+    }
+    return QString::fromLatin1(kPriorityNormal);
+}
+
+ProcessPriority LauncherSettings::processPriorityFromKey(const QString &key) {
+    if (key == QLatin1String(kPriorityLow)) {
+        return ProcessPriority::Low;
+    }
+    if (key == QLatin1String(kPriorityBelowNormal)) {
+        return ProcessPriority::BelowNormal;
+    }
+    if (key == QLatin1String(kPriorityAboveNormal)) {
+        return ProcessPriority::AboveNormal;
+    }
+    if (key == QLatin1String(kPriorityHigh)) {
+        return ProcessPriority::High;
+    }
+    // 认不出来就当 Normal：它和"不设置"的默认结果一样，是最没有副作用的一档。
+    // 「高」那一档猜错的代价是把用户的机器拖慢，绝不能当兜底值。
+    return ProcessPriority::Normal;
+}
+
 void LauncherSettings::load() {
     QSettings settings;
     m_lastLaunchedVersion = settings.value(kLastLaunched, m_lastLaunchedVersion).toString();
@@ -148,6 +230,15 @@ void LauncherSettings::load() {
         settings.value(kAfterLaunch, behaviourKey(m_launcherBehaviour)).toString());
     m_downloadSource = downloadSourceFromKey(
         settings.value(kDownloadSource, downloadSourceKey(m_downloadSource)).toString());
+    m_showGameLog = settings.value(kShowGameLog, m_showGameLog).toBool();
+    // 宽高**读回来就钳位**：这两个数会原样进游戏命令行，盘上那份不能当成可信的。
+    // 存进去的值也可能是手改的，所以两边都要兜。
+    m_gameWindowWidth =
+        clampWindowWidth(settings.value(kGameWindowWidth, m_gameWindowWidth).toInt());
+    m_gameWindowHeight =
+        clampWindowHeight(settings.value(kGameWindowHeight, m_gameWindowHeight).toInt());
+    m_processPriority = processPriorityFromKey(
+        settings.value(kProcessPriority, processPriorityKey(m_processPriority)).toString());
 
     // 默认值取当前成员的值（构造时是 struct 默认值），这样"注册表里没这一项"就落到默认档，
     // 和 GlobalJavaSettings::load() 用 m_xmx 当默认值是同一个写法。取成员而不是新造一个
@@ -182,6 +273,10 @@ void LauncherSettings::save() const {
     settings.setValue(kCurrentFolder, m_currentFolder);
     settings.setValue(kAfterLaunch, behaviourKey(m_launcherBehaviour));
     settings.setValue(kDownloadSource, downloadSourceKey(m_downloadSource));
+    settings.setValue(kShowGameLog, m_showGameLog);
+    settings.setValue(kGameWindowWidth, clampWindowWidth(m_gameWindowWidth));
+    settings.setValue(kGameWindowHeight, clampWindowHeight(m_gameWindowHeight));
+    settings.setValue(kProcessPriority, processPriorityKey(m_processPriority));
     settings.setValue(kNameShowCustom, m_versionNameOptions.showCustomName);
     settings.setValue(kNameShowReal, m_versionNameOptions.showRealVersion);
     settings.setValue(kNameShowLoaderName, m_versionNameOptions.showLoaderName);

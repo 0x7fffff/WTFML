@@ -1,0 +1,902 @@
+/**
+ * @file GameLogWindow.cpp
+ * @brief Implements the per-session game log window.
+ * @author 0x7fffff
+ * @date 2026-09-24
+ * @note 布局：顶上一排级别开关、一行说明、中间一整块只读文本、底下一排两个按钮。
+ *       那块文本是**唯一的正文**，所以它拿走了整份竖直空间（addWidget(..., 1) 那个 1），
+ *       说明和按钮都只是一行 —— 日志窗里的每一像素都该给日志。
+ *
+ * 【这一块文本是"模型 → 视图"重画出来的，不是"往里塞字"】
+ *
+ * 加了按级别染底色和筛选之后，"文本控件里有什么"就不再等于"收到过什么"了：
+ * 筛掉的那几档不在里面。于是有一份**自己的模型**（m_lines，一行 = 级别 + 正文），
+ * 视图是它的一个投影；切筛选那一下整块重画。模型和视图都封在 maxLogBlocks() 行上，
+ * 两个上限一起丢最老的，所以它们不会各说各话（视图多留一格的道理见构造函数里那段）。
+ *
+ * 【为什么攒够一整行才认级别】
+ *
+ * 进程输出是按块来的（LauncherManager 把 stdout/stderr 的每一块原样发过来），一个块
+ * 完全可能断在行中间。不攒的话 `[12:34:56] [main/ER` 这一块会被当成一整行 —— 级别认不
+ * 出来，而且摆出去之后还要多一个换行（一行被劈成两行，看着就像游戏自己换的行）。
+ * 所以末尾那半行先原样摆着、不染底色（它的级别还不知道），等换行到了再合成一条。
+ */
+
+#include "GameLogWindow.hpp"
+
+#include <QCoreApplication>
+#include <QFontDatabase>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QPainter>
+#include <QPaintEvent>
+#include <QPlainTextEdit>
+#include <QPushButton>
+#include <QScrollBar>
+#include <QSignalBlocker>
+#include <QTextBlock>
+#include <QTextBlockFormat>
+#include <QTextCursor>
+#include <QTextDocument>
+#include <QToolButton>
+#include <QVBoxLayout>
+
+namespace {
+
+/// 「到底了」的容差（像素/行）。滚到最底时 value() 未必精确等于 maximum()（一行的
+/// 高度可能除不尽），留一点点余量才不会"贴着底却判成没贴着"。
+constexpr int kFollowTailSlack = 4;
+
+/// 级别那几档的底色。**都在这里，一处**（验证工程按它们量像素）。
+/// 挑色的两条：四个染色的档两两看得出来（`0xeef2f6` 和窗口底色白只差 23，那是有意的 ——
+/// Debug 是"最不值得看"的一档），以及深红那档配上白字还读得清。
+constexpr int kDebugBg[] = {0xee, 0xf2, 0xf6};
+constexpr int kWarnBg[] = {0xff, 0xf4, 0xcc};
+constexpr int kErrorBg[] = {0xff, 0xe0, 0xe0};
+constexpr int kFatalBg[] = {0xd3, 0x2f, 0x2f};
+
+/// 顶上那排开关"没开"和"开着但这一档没有颜色"（只有 Info 是后者）那两种灰。
+///
+/// **这两个值是量出来的**：2026-09-24 改成自己画之前，原生 Fusion 画出来就是这个关态
+/// `#ababab`、开态 `#dbdbdb`（ui_check 里量过一整排五颗，五个都一样）。之所以把它们写死
+/// 而不是继续交给样式：**开关的两种状态都得由我们自己画**（理由见 filterButtonStyle），
+/// 一旦交给样式，就必须自己给出这两种灰 —— 不然"关掉之后还是原来那个灰"这件事没有确定的
+/// 去处。哪天换一套样式，两个数字会显得突兀，但那时要改的是这里，不是去猜。
+constexpr int kSwitchOffRgb[] = {0xab, 0xab, 0xab};
+constexpr int kSwitchOnRgb[] = {0xdb, 0xdb, 0xdb};
+/// Info 那颗"开着"时候的颜色（2026-09-24 用户说「info 的按钮再亮一点」）。
+///
+/// 正文区自己的底色就是 `#ffffff`（ui_check 量过：没染色的那一行、以及末尾那半行，
+/// 那一格都是纯白），所以这一档**有颜色可借** —— 只是那个颜色恰好等于窗口底色。
+/// 拿它当 Info 的开关色有三层好处：比原来那个灰亮、还是"这一档的颜色"、而且和
+/// Debug 的 `#eef2f6` 差得开（三通道距离 39，验证工程那条"五档两两不同"的阈值是 20）。
+constexpr int kInfoOnRgb[] = {0xff, 0xff, 0xff};
+/// 开关那一圈边。取 Fusion 的 Dark 那一档（原来的边框也在这一带）。
+constexpr int kSwitchEdgeRgb[] = {0x9f, 0x9f, 0x9f};
+
+/// 行与行之间那条细线的颜色（用户 2026-09-24 说的「日志行与行之间加一条细线分隔一下」）。
+///
+/// 挑这个灰的理由是"两头都得看得见"：白底上差 39*√3 ≈ 67，Debug 那个 `#eef2f6` 上差 45
+/// （验证工程里"五档两两看得出来"的阈值是 20）。**不能比这更深** —— 再深一点整块正文就
+/// 变成表格了，而这里要的只是"两条 INFO 之间有条界线"（相邻两档的底色本来就分得开，
+/// 分不开的恰恰是相邻的两条 INFO：它们都不染底）。
+constexpr int kSeparatorRgb[] = {0xd8, 0xd8, 0xd8};
+
+/// 正文比系统那个等宽字体大几号（点）。"稍微"大一点：再大就一屏放不下几行。
+constexpr qreal kLogFontPointDelta = 1.0;
+
+/// 顶上那排开关的样式。
+///
+/// 【为什么连"没开"那一种也要自己画】
+///
+/// 一开始只写了 `QToolButton:checked { background-color: ... }` 这一条 —— 想的是"关态交给
+/// 原生，别动它"。结果**量出来是花的**：原生的"按下去"那层立体感会照样盖在我们的底色上，
+/// 于是底色被冲淡（`#fff4cc` 量成 `#e8e1c7`、Fatal 那个 `#d32f2f` 被冲成 `#d75a5a`）——
+/// 而"按钮的颜色 == 那一行日志的颜色"正是这件事的全部意义，冲淡了就不成立了。
+/// 所以两种状态都写全（背景 + 边 + 圆角 + 内边距），由我们自己画。**两边的边和内边距必须
+/// 一模一样**：差一点就是"点一下按钮自己变大变小"、整排跟着跳（验证工程里有一条盯着它）。
+QString filterButtonStyle(const QColor &onBg, const QColor &onInk) {
+    // 内边距取 `1px 5px`：两边加起来正好把按钮撑回**改之前那个高度**（19 px，量过），
+    // 这一排不因为换了个画法就长高一点。
+    return QStringLiteral("QToolButton { background-color: %1; color: %2; border: 1px solid %3;"
+                          " border-radius: 3px; padding: 1px 5px; }"
+                          "QToolButton:checked { background-color: %4; color: %5; }")
+        .arg(QColor(kSwitchOffRgb[0], kSwitchOffRgb[1], kSwitchOffRgb[2]).name(),
+             QColor(0x00, 0x00, 0x00).name(),
+             QColor(kSwitchEdgeRgb[0], kSwitchEdgeRgb[1], kSwitchEdgeRgb[2]).name(),
+             onBg.name(), onInk.name());
+}
+
+/// 这一档的**块**格式：底色（铺满整行）在里面。
+///
+/// 【为什么底色挂在"块"上，而不是逐字的字符格式上】
+///
+/// 逐字的底色只染**字占的那一截**：一行比视口短（日志最后那几行、我们自己补的
+/// "游戏已退出，退出码：-1" 都是短的）时，后半截是白的 —— 看着就像"最后一行没染上"。
+/// 块格式是**整行**铺满（Qt 画块底色时按行的宽度填），而且不用往文本里塞空格，
+/// 复制出去还是干净的一行。
+///
+/// NOTE: 没有底色那一档（Info）返回的就是一个**空的**块格式 —— `setBlockFormat` 是
+///       "换掉"不是"合并"，所以空的那份正好把上一行继承下来的底色清掉（不显式清的话，
+///       记在 Fatal 后面的一行会拖一条红底）。
+QTextBlockFormat blockFormatFor(GameLogWindow::LogLevel level) {
+    QTextBlockFormat format;
+    const QColor background = GameLogWindow::levelBackground(level);
+    if (background.isValid()) {
+        format.setBackground(background);
+    }
+    return format;
+}
+
+/// 这一档的**墨色**（只有 Fatal 有：深红底上再写深灰字读不清）。底色不在这里（见上）。
+QTextCharFormat charFormatFor(GameLogWindow::LogLevel level) {
+    QTextCharFormat format;
+    const QColor ink = GameLogWindow::levelForeground(level);
+    if (ink.isValid()) {
+        format.setForeground(ink);
+    }
+    return format;
+}
+
+/// 级别字面量 → 枚举（大小写不分）。认不出来回 false。
+bool levelFromToken(const QString &token, GameLogWindow::LogLevel *out) {
+    struct Entry {
+        const char *token;
+        GameLogWindow::LogLevel level;
+    };
+    // TRACE 归 Debug、WARNING 归 Warn、SEVERE 归 Error：都是同一个意思的不同写法
+    // （log4j2 / java.util.logging / 各家的老代码），对用户来说"该不该看一眼"才重要。
+    static const Entry table[] = {
+        {"TRACE", GameLogWindow::LogLevel::Debug},  {"DEBUG", GameLogWindow::LogLevel::Debug},
+        {"INFO", GameLogWindow::LogLevel::Info},    {"WARN", GameLogWindow::LogLevel::Warn},
+        {"WARNING", GameLogWindow::LogLevel::Warn}, {"ERROR", GameLogWindow::LogLevel::Error},
+        {"SEVERE", GameLogWindow::LogLevel::Error}, {"FATAL", GameLogWindow::LogLevel::Fatal},
+    };
+    const QString upper = token.trimmed().toUpper();
+    if (upper.isEmpty()) {
+        return false;
+    }
+    for (const Entry &entry : table) {
+        if (upper == QLatin1String(entry.token)) {
+            *out = entry.level;
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * @brief 正文那块文本控件：**每一行底下补一条细线**，其余照 QPlainTextEdit 原样。
+ *
+ * 【为什么要自己画】
+ *
+ * 「行与行之间一条线」在 QTextDocument 里**没有对应的写法**：块格式能设底色、能设行距，
+ * 但没有"块的下边框"这一项（`QTextFrameFormat` 那圈边框是**整个文档框**的，不是每一行的）；
+ * 想在文档里造一条线，只能往每一行后面塞一个真正的分隔块 —— 那会把"一行 = 一格"这件事
+ * 毁掉（复制出来多一堆横线，行号、计数、光标位置全跟着偏）。
+ *
+ * 【为什么必须是子类】
+ *
+ * 剩下的路只有自己画，而画这件事要拿到"这一格在视口里的哪一条"：`firstVisibleBlock()` /
+ * `blockBoundingGeometry()` / `contentOffset()` **都是 protected**，外面拿不到。所以是子类。
+ *
+ * 【画在哪儿】
+ *
+ * 遍历视口里看得见的那几格（三十来格，白送），在每一格的下沿画 `separatorHeight()` 像素。
+ * 画在**基类之后**（盖在上面）—— 选中一段文本时那条高亮上会横着过几条线，那正是想要的
+ * 样子：一眼看出选了几行。**最后一格（光标行）底下不画**：那是整份文本的末尾，
+ * 不是"两行之间"。
+ */
+class LogView : public QPlainTextEdit {
+public:
+    using QPlainTextEdit::QPlainTextEdit;
+
+protected:
+    void paintEvent(QPaintEvent *event) override {
+        QPlainTextEdit::paintEvent(event);
+
+        QPainter painter(viewport());
+        painter.setPen(GameLogWindow::separatorColor());
+        const int thickness = GameLogWindow::separatorHeight();
+        const int right = qMax(0, viewport()->width() - 1);
+
+        QTextBlock block = firstVisibleBlock();
+        while (block.isValid()) {
+            const int top =
+                qRound(blockBoundingGeometry(block).translated(contentOffset()).top());
+            if (top > event->rect().bottom()) {
+                break;  // 这一格已经在重画区下面了，再往下只会更远
+            }
+            const int bottom = top + qRound(blockBoundingRect(block).height());
+            if (block.next().isValid() && bottom > event->rect().top()) {
+                for (int i = 0; i < thickness; ++i) {
+                    const int y = bottom - 1 - i;
+                    painter.drawLine(0, y, right, y);
+                }
+            }
+            block = block.next();
+        }
+    }
+};
+
+}  // namespace
+
+GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent) : QDialog(parent) {
+    setWindowTitle(windowTitleText(instanceName));
+    // 允许最大化/最小化（2026-09-24 用户说的「允许这个窗口最大化最小化」）。QDialog 默认
+    // 只给一个关闭钮：一个"想摊开看"的窗，拉到整屏看长崩栈是常态（一行几十个字符，
+    // 820 宽要左右拖）。**必须在 show() 之前设** —— show 之后改 flags 会把窗藏起来。
+    setWindowFlags(windowFlags() | Qt::WindowMinimizeButtonHint | Qt::WindowMaximizeButtonHint);
+    // 关掉即销毁（理由见 .hpp）。父窗口还挂着的那一份所有权随之解除 —— Qt 会自己处理。
+    setAttribute(Qt::WA_DeleteOnClose);
+    // 大小给得比别的对话框宽松：日志是宽行文本，窄了就得左右拖。比只有正文那版高一点点，
+    // 顶上多了一排开关（那一排不从正文里抢，正文那一行拿的是 stretch 1）。
+    resize(820, 520);
+
+    auto *layout = new QVBoxLayout(this);
+
+    m_levelCounts = QVector<int>(levelCount(), 0);
+    m_levelVisible = QVector<bool>(levelCount(), true);
+    m_filterButtons = QVector<QToolButton *>(levelCount(), nullptr);
+
+    // ---------- 顶上那排：五档开关 + 「显示全部」 ----------
+    // 摆在**最顶上**（说明文字之上）：它是"我现在想看哪几档"，先决定这个再看内容。
+    auto *filters = new QHBoxLayout;
+    filters->setSpacing(4);
+    for (int i = 0; i < levelCount(); ++i) {
+        const LogLevel level = levelAt(i);
+        auto *button = new QToolButton(this);
+        button->setObjectName(filterButtonName(level));
+        button->setText(filterButtonText(level, 0));
+        // 勾上 = 显示这一档。开局五档全勾着（用户第一次打开该看到的是全部）。
+        button->setCheckable(true);
+        button->setChecked(true);
+        // 只写字，不画图标、不摆箭头 —— 一排小开关，占了宽度就是挤正文。
+        button->setToolButtonStyle(Qt::ToolButtonTextOnly);
+        // 数字是什么、点一下会怎样，写在这里而不是写进那行说明：
+        // 说明那一行是给"这个窗是干嘛的"用的，计数这件事只在鼠标停在按钮上时才需要。
+        button->setToolTip(filterButtonTooltip());
+        // 勾上的那颗**染成这一档自己的底色** —— 和正文里那一行**同一个色**：这样"哪几档
+        // 开着、哪几档是什么色"不用读字，一眼就看出来（开关和"这一档的颜色"合成了一件事）。
+        // 关掉之后回到原来那个灰（改之前的原生灰），也就是这颗按钮不显眼时的样子。
+        //
+        // 五颗都走同一份样式（**含 INFO 那颗**）：两种状态都由我们自己画，"没开"那个灰也就
+        // 由同一份样式给 —— 单独留一颗走原生的话，它那圈立体感会和旁边四颗不一样。
+        // INFO 那颗的"开"色是原生那个开态灰（它没有颜色可借，见 filterButtonBackground）。
+        button->setStyleSheet(filterButtonStyle(filterButtonBackground(level, true),
+                                               filterButtonForeground(level)));
+        connect(button, &QToolButton::toggled, this, [this, level](bool on) {
+            m_levelVisible[levelIndex(level)] = on;
+            rebuildView();
+        });
+        m_filterButtons[i] = button;
+        filters->addWidget(button);
+    }
+    filters->addStretch(1);
+    // 五档全关掉之后视图是空的 —— 一颗兜底的按钮，免得用户以为日志窗坏了。
+    m_showAllButton = new QPushButton(showAllButtonText(), this);
+    m_showAllButton->setObjectName(showAllButtonName());
+    connect(m_showAllButton, &QPushButton::clicked, this, &GameLogWindow::showAllLevels);
+    filters->addWidget(m_showAllButton);
+    layout->addLayout(filters);
+
+    m_hintLabel = new QLabel(hintText(), this);
+    m_hintLabel->setObjectName(hintLabelName());
+    m_hintLabel->setWordWrap(true);
+    {
+        // 和设置页里那些说明文字同一套写法：小一号、灰色。
+        QFont hintFont = m_hintLabel->font();
+        hintFont.setPointSize(qMax(1, hintFont.pointSize() - 1));
+        m_hintLabel->setFont(hintFont);
+        QPalette hintPalette = m_hintLabel->palette();
+        hintPalette.setColor(QPalette::WindowText,
+                             hintPalette.color(QPalette::PlaceholderText));
+        m_hintLabel->setPalette(hintPalette);
+    }
+    layout->addWidget(m_hintLabel);
+
+    m_view = new LogView(this);
+    m_view->setObjectName(logViewName());
+    // 只读：这是"看输出"的窗，不是输入框。只读之后光标不闪、也打不进字，但它**仍然可以
+    // 选中复制**（那正是用户拿报错去搜的时候要干的）。
+    m_view->setReadOnly(true);
+    // 行数封顶（理由见 .hpp）。用 setMaximumBlockCount 而不是自己数行：它就是这个用途，
+    // 而且丢弃是最老的那些，不需要重排整块文本。
+    //
+    // NOTE: **比模型多一格**。多出来的那一格是"还没等到换行的那半行"（它不在模型里，
+    //       见 insertPendingIntoView）。两个上限必须对齐，不然跑满两万行之后模型里最早
+    //       那一行会被视图悄悄丢掉、而模型还留着 —— 切一次筛选它就又冒出来了。
+    m_view->setMaximumBlockCount(maxLogBlocks() + 1);
+    m_view->setPlaceholderText(emptyPlaceholderText());
+    // 等宽字体：日志里有缩进、有对齐的表格（崩栈、模组列表），比例字体读起来是散的。
+    // 字号比系统那个大一号（用户 2026-09-24 说的「字号稍微大一点」），见 logFont()。
+    m_view->setFont(logFont());
+    // 长行不折行：MC 的日志里有很长的路径和 JSON，折了反而更难认；横向滚动条由它自己出。
+    m_view->setLineWrapMode(QPlainTextEdit::NoWrap);
+    layout->addWidget(m_view, 1);
+
+    auto *buttons = new QHBoxLayout;
+    m_clearButton = new QPushButton(clearButtonText(), this);
+    m_clearButton->setObjectName(clearButtonName());
+    buttons->addWidget(m_clearButton);
+    m_closeButton = new QPushButton(closeButtonText(), this);
+    m_closeButton->setObjectName(closeButtonName());
+    buttons->addWidget(m_closeButton);
+    buttons->addStretch(1);
+    layout->addLayout(buttons);
+
+    // 「清空」清的是**这个窗看到的东西**：模型、计数、那半行一起清（视图只是模型的投影，
+    // 只清视图的话按钮上会留着「ERROR 12」而底下一行都没有 —— 看着像坏的）。游戏进程一个
+    // 都不动：这仍然只是个视图，和"关掉这个窗不会停游戏"是同一件事。
+    // **筛选的勾不动**：那是"我现在想看哪几档"的偏好，不是日志内容。
+    connect(m_clearButton, &QPushButton::clicked, this, [this]() {
+        m_lines.clear();
+        m_levelCounts.fill(0);
+        m_pending.clear();
+        m_view->clear();
+        m_viewLastBlockIsPending = false;
+        updateFilterButtons();
+        refreshPlaceholder();
+    });
+    // 「关闭」走 close()，于是 WA_DeleteOnClose 生效、finished() 发出去 —— 调用方靠
+    // finished() 记住"这一份用户不想再看日志了"（见 MainWindow 里那一段）。
+    connect(m_closeButton, &QPushButton::clicked, this, &QDialog::close);
+}
+
+// ---------------------------------------------------------------------------
+// 数据进来
+// ---------------------------------------------------------------------------
+
+void GameLogWindow::appendText(const QString &text) {
+    if (text.isEmpty()) {
+        return;
+    }
+    QScrollBar *bar = m_view->verticalScrollBar();
+    // 先判"现在在不在底下"，再插字 —— 插完 scrollbar 的 maximum 就变了，那时候再判
+    // 一定是"不在底下"。
+    const bool followTail = bar->value() >= bar->maximum() - kFollowTailSlack;
+
+    // 末尾那半行先撤掉：接下来要么它被补全（撤了再按级别摆一遍），要么后面还有别的行
+    // 要摆 —— 两种情况都不能把那半行留在中间。
+    m_pending += text;
+    dropPendingFromView();
+
+    // 这一块里收完的行按档攒成段，最后（或换档时）一次写出去 —— 理由见 insertRun：
+    // 游戏一次性吐两千行时，一分块一次和一行一次差着一个数量级。
+    QStringList run;
+    LogLevel runLevel = LogLevel::Info;
+    const auto flushRun = [this, &run, &runLevel]() {
+        if (!run.isEmpty()) {
+            insertRun(runLevel, run);
+            run.clear();
+        }
+    };
+
+    int cut = m_pending.indexOf(QLatin1Char('\n'));
+    while (cut >= 0) {
+        QString line = m_pending.left(cut);
+        m_pending.remove(0, cut + 1);
+        // CRLF：游戏在 Windows 上多半是 \r\n，那个 \r 是行尾符不是内容（留着的话
+        // 复制出来每行末尾都躲一个回车，粘到别处就多一行）。
+        if (line.endsWith(QLatin1Char('\r'))) {
+            line.chop(1);
+        }
+        const LogLevel level = rememberLine(line);
+        // 这一档被筛掉的话不摆出来 —— 但**照样进了模型、照样计数**（数字不会因为
+        // 用户关掉某一档就变小，见 .hpp 里那段）。筛掉的这几行不进段，但**也不必**
+        // 把段切断：它们不摆出来，段里剩下的行在视图里本来就是挨着的。
+        if (m_levelVisible.at(levelIndex(level))) {
+            if (!run.isEmpty() && level != runLevel) {
+                flushRun();
+            }
+            runLevel = level;
+            run.append(line);
+        }
+        cut = m_pending.indexOf(QLatin1Char('\n'));
+    }
+
+    // 攒到一定量还没等到换行就当成一整条收下。**这条闸是必需的**：用 \r 刷进度条的模组
+    // 会一直不给换行，不封顶的话 m_pending 就随着输出无限长，一个"看日志的窗"能把内存吃光
+    // （模型那个 maxLogBlocks() 管不到它 —— 它还没成一行）。
+    if (m_pending.size() >= maxPendingChars()) {
+        const QString flushed = m_pending;
+        m_pending.clear();
+        const LogLevel level = rememberLine(flushed);
+        if (m_levelVisible.at(levelIndex(level))) {
+            if (!run.isEmpty() && level != runLevel) {
+                flushRun();
+            }
+            runLevel = level;
+            run.append(flushed);
+        }
+    }
+    flushRun();
+    if (!m_pending.isEmpty()) {
+        insertPendingIntoView();
+    }
+    refreshPlaceholder();
+    if (followTail) {
+        bar->setValue(bar->maximum());
+    }
+}
+
+GameLogWindow::LogLevel GameLogWindow::rememberLine(const QString &text) {
+    // 认不出来就跟上一行：崩栈的 `at net.minecraft...` 续行、我们自己补的那句
+    // "游戏已退出" 都属于上一条日志，跟着上一行的颜色读起来正对。
+    // 模型还是空的（第一行就没级别）时算 Info —— 于是五档的计数加起来**永远**等于总行数。
+    const LogLevel level =
+        classifyLine(text, m_lines.isEmpty() ? LogLevel::Info : m_lines.last().level);
+    m_lines.append(LogLine{level, text});
+    ++m_levelCounts[levelIndex(level)];
+    if (m_lines.size() > maxLogBlocks()) {
+        // 视图那边由它的 maximumBlockCount 同步丢最老的（两个上限对齐，见构造函数里那段）。
+        const LogLine dropped = m_lines.takeFirst();
+        --m_levelCounts[levelIndex(dropped.level)];
+    }
+    updateFilterButtons();
+    return level;
+}
+
+void GameLogWindow::insertRun(LogLevel level, const QStringList &lines) {
+    if (lines.isEmpty()) {
+        return;
+    }
+    // 【为什么是"一段一次"，不是"一行一次"】（2026-09-24 改）
+    //
+    // 文档操作是按**次数**收钱的，ui_check 里逐条量过（两万行）：
+    //   · 一行一次 insertText 248 ms、逐块设底色 357 ms、一行一次 insertBlock 533 ms；
+    //   · 一次 insertText 写完全部 21 ms、一次跨块 setBlockFormat 盖完全部 3 ms。
+    // 而"点一下筛选"原来是把整块重画一遍、每行两次操作 —— 两千行 48 ms、两万行 559 ms，
+    // 用户的原话是「点击按钮变色和隐藏延迟较大」。攒成段之后，操作次数从"行数"降到
+    // "档数变化次数"（典型日志里几十次）。
+    QString text = lines.join(QLatin1Char('\n'));
+    text += QLatin1Char('\n');  // 末尾这一下把"光标行"那一格也造出来（见下）
+
+    QTextCursor cursor(m_view->document());
+    cursor.movePosition(QTextCursor::End);
+    const int startPos = cursor.position();
+    cursor.insertText(text);
+    const int endPos = cursor.position();
+
+    // 底色和墨色各一次盖过这一整段。选区从这段的第一个字到**最后一个换行之前** ——
+    // 末尾那一格空的（光标行）不在选区里，它得留着不带底色。
+    QTextCursor span(m_view->document());
+    span.setPosition(startPos);
+    span.setPosition(endPos - 1, QTextCursor::KeepAnchor);
+    span.setBlockFormat(blockFormatFor(level));
+    span.setCharFormat(charFormatFor(level));
+
+    // 收尾那一格（光标行）**显式清掉格式**：它是上面那个换行分出来的新块，会把这一档的
+    // 底色和墨色继承下去 —— 不清的话"还没写的空行"底下拖着一条彩色的尾巴（Fatal 那一档
+    // 还会把白字也带下去，之后写的字都看不见）。
+    QTextCursor tail(m_view->document());
+    tail.movePosition(QTextCursor::End);
+    tail.setBlockFormat(QTextBlockFormat());
+    tail.setCharFormat(QTextCharFormat());
+}
+
+GameLogWindow::LogLevel GameLogWindow::pendingLevelGuess() const {
+    // 跟"上一行那一档"猜 —— 认不出级别的行本来就跟上一行走（见 classifyLine），半行是
+    // 一条还没写完的行，多数时候它写完就是上一档的续行。真级别已经写在头里了（进程
+    // 按块给输出，多半整行一起到）时，这个函数认出来的就是真级别。
+    return classifyLine(m_pending, m_lines.isEmpty() ? LogLevel::Info : m_lines.last().level);
+}
+
+void GameLogWindow::insertPendingIntoView() {
+    if (m_pending.isEmpty()) {
+        return;
+    }
+    QTextCursor cursor(m_view->document());
+    cursor.movePosition(QTextCursor::End);
+    // 半行**按猜的那一档染**（2026-09-24 改，原来是"不染"）。
+    //
+    // 改的原因是用户那句话：「日志框的最后一行不会被渲染颜色」—— 而"最后一行"这个位置上
+    // 站着的**就是**这半行：进程输出按块到，末尾那一条往往还没等到换行（游戏崩了的那一行
+    // 尤其如此，它可能永远等不到）。不染的话，用户盯着看的那一行正好永远是白的。
+    //
+    // 猜错的代价很小：换行到了会按真级别重摆一遍（rememberLine + insertRun），颜色当场
+    // 改对。且"猜"不是乱猜 —— 就是 classifyLine 在认不出级别时本来会用的那个 fallback。
+    const LogLevel guess = pendingLevelGuess();
+    cursor.setBlockFormat(blockFormatFor(guess));
+    cursor.setCharFormat(charFormatFor(guess));
+    cursor.insertText(m_pending);
+    m_viewLastBlockIsPending = true;
+}
+
+void GameLogWindow::dropPendingFromView() {
+    if (!m_viewLastBlockIsPending) {
+        return;
+    }
+    m_viewLastBlockIsPending = false;
+    // 只撤**那一格里的字**，不撤那一格本身 —— 末尾永远留一格空的当光标行，
+    // 这样"摆一行"永远是同一个动作（写进末尾那一格，再起一格新的）。
+    QTextCursor cursor(m_view->document());
+    cursor.movePosition(QTextCursor::End);
+    cursor.movePosition(QTextCursor::StartOfBlock, QTextCursor::KeepAnchor);
+    cursor.removeSelectedText();
+    // 那一格上的格式跟着清掉：猜的那份底色不能赖在空行上（它又要变回"光标行"了）。
+    cursor.setBlockFormat(QTextBlockFormat());
+    cursor.setCharFormat(QTextCharFormat());
+}
+
+// ---------------------------------------------------------------------------
+// 重画与筛选
+// ---------------------------------------------------------------------------
+
+void GameLogWindow::rebuildView() {
+    QScrollBar *bar = m_view->verticalScrollBar();
+    // 重画之前的卷动位置：本来在底下就继续跟到底；翻着看中间的话，尽量留在原处
+    // （内容变了位置本来就没法完全对上，钳到新范围里就行）。
+    const bool followTail = bar->value() >= bar->maximum() - kFollowTailSlack;
+    const int kept = bar->value();
+
+    m_view->clear();
+    m_viewLastBlockIsPending = false;
+    // 连续同一档的行攒成一段，一段一次写出去（理由见 insertRun）—— 重画一次的代价
+    // 从"行数"降到"档数变化次数"，这正是"点一下筛选要等半秒"那条的解法。
+    QStringList run;
+    LogLevel runLevel = LogLevel::Info;
+    for (const LogLine &line : m_lines) {
+        if (!m_levelVisible.at(levelIndex(line.level))) {
+            continue;  // 筛掉的这几行不摆出来（它们还在模型里，数字也没变）
+        }
+        if (!run.isEmpty() && line.level != runLevel) {
+            insertRun(runLevel, run);
+            run.clear();
+        }
+        runLevel = line.level;
+        run.append(line.text);
+    }
+    insertRun(runLevel, run);  // run 空的话它自己会早退
+    insertPendingIntoView();
+    refreshPlaceholder();
+    if (followTail) {
+        bar->setValue(bar->maximum());
+    } else {
+        bar->setValue(qMin(kept, bar->maximum()));
+    }
+}
+
+void GameLogWindow::showAllLevels() {
+    bool changed = false;
+    for (int i = 0; i < levelCount(); ++i) {
+        if (!m_levelVisible.at(i)) {
+            m_levelVisible[i] = true;
+            changed = true;
+        }
+        if (QToolButton *button = m_filterButtons.at(i)) {
+            // 灌值不要把处理函数再绕回来（那只会在重画里再重画一次）。
+            const QSignalBlocker blocker(button);
+            button->setChecked(true);
+        }
+    }
+    if (changed) {
+        rebuildView();
+    }
+}
+
+void GameLogWindow::setLevelVisible(LogLevel level, bool visible) {
+    const int index = levelIndex(level);
+    if (m_levelVisible.at(index) == visible) {
+        return;
+    }
+    m_levelVisible[index] = visible;
+    if (QToolButton *button = m_filterButtons.at(index)) {
+        const QSignalBlocker blocker(button);
+        button->setChecked(visible);
+    }
+    rebuildView();
+}
+
+bool GameLogWindow::levelVisible(LogLevel level) const {
+    return m_levelVisible.at(levelIndex(level));
+}
+
+int GameLogWindow::lineCountFor(LogLevel level) const { return m_levelCounts.at(levelIndex(level)); }
+
+void GameLogWindow::updateFilterButtons() {
+    for (int i = 0; i < levelCount(); ++i) {
+        if (QToolButton *button = m_filterButtons.at(i)) {
+            button->setText(filterButtonText(levelAt(i), m_levelCounts.at(i)));
+        }
+    }
+}
+
+void GameLogWindow::refreshPlaceholder() {
+    // 「还没有输出」和「都被筛掉了」是**两句不同的话**：前者的下一步是"等游戏出话"，
+    // 后者的下一步是"把上面某几档勾回来"。做成一句的话，用户看到空窗只会以为日志窗坏了。
+    //
+    // 判据是"**现在一行都没有显示**"，不是"模型是不是空的"：还有行、只是全被筛掉的
+    // 时候，那句占位该说的是"这几档都被筛掉了"。反过来只要有行看得见，正文就占着地方，
+    // 占位那句话根本不显形 —— 这时给"还没有输出"（那是"这一份游戏还没说过话"的意思，
+    // 而它显然说过了）。
+    bool anyVisible = false;
+    for (const LogLine &line : m_lines) {
+        if (m_levelVisible.at(levelIndex(line.level))) {
+            anyVisible = true;
+            break;
+        }
+    }
+    const QString want =
+        anyVisible || m_lines.isEmpty() ? emptyPlaceholderText() : filteredOutPlaceholderText();
+    if (m_view->placeholderText() != want) {
+        m_view->setPlaceholderText(want);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 认级别
+// ---------------------------------------------------------------------------
+
+GameLogWindow::LogLevel GameLogWindow::classifyLine(const QString &line, LogLevel fallback) {
+    // ① 行首那串**连着开头**的方括号：`[12:34:56] [main/INFO] [net.minecraft.Foo]`
+    //    只认连着开头的那几格 —— 消息体里出现的方括号不算（理由见 .hpp）。
+    //    这里**不设长度窗口**：线程名长的（`[Chunk Render Task 12/WARN]`）那几格会排到
+    //    四十几个字符之后，切一刀反而把真级别切掉；而"连着开头"这件事本身就已经把
+    //    消息体挡在外面了。
+    int i = 0;
+    while (i < line.size() && line.at(i) == QLatin1Char('[')) {
+        const int close = line.indexOf(QLatin1Char(']'), i + 1);
+        if (close < 0) {
+            break;  // 没闭合的方括号：这句前缀不成立，交给 ② 和 fallback
+        }
+        const QString inside = line.mid(i + 1, close - i - 1);
+        LogLevel level = LogLevel::Info;
+        // `[main/INFO]` 取斜杠后那一段（log4j 的 %t/%level 那套写法，线程名里本身就带
+        // 斜杠的也照切）；`[INFO]` 这种整段就是级别。
+        if (levelFromToken(inside, &level) ||
+            levelFromToken(inside.section(QLatin1Char('/'), -1), &level)) {
+            return level;
+        }
+        i = close + 1;
+        while (i < line.size() && line.at(i).isSpace()) {
+            ++i;
+        }
+    }
+
+    // ② 开头一小段里**带冒号**的裸词（`12:34:56 WARN: msg`）。冒号是必需的：不然
+    //    `Loaded 3 INFO files` 这种正文会被认成级别。
+    const QString head = line.left(levelScanHead());
+    int p = 0;
+    while (p < head.size()) {
+        if (!head.at(p).isLetter()) {
+            ++p;
+            continue;
+        }
+        int end = p;
+        while (end < head.size() && head.at(end).isLetter()) {
+            ++end;
+        }
+        int after = end;
+        while (after < head.size() && head.at(after) == QLatin1Char(' ')) {
+            ++after;
+        }
+        if (after < head.size() && head.at(after) == QLatin1Char(':')) {
+            LogLevel level = LogLevel::Info;
+            if (levelFromToken(head.mid(p, end - p), &level)) {
+                return level;
+            }
+        }
+        p = end;
+    }
+    return fallback;
+}
+
+GameLogWindow::LogLevel GameLogWindow::levelAt(int index) {
+    if (index < 0 || index >= levelCount()) {
+        return LogLevel::Info;
+    }
+    return static_cast<LogLevel>(index);
+}
+
+QString GameLogWindow::levelName(LogLevel level) {
+    switch (level) {
+        case LogLevel::Debug:
+            return QStringLiteral("DEBUG");
+        case LogLevel::Info:
+            return QStringLiteral("INFO");
+        case LogLevel::Warn:
+            return QStringLiteral("WARN");
+        case LogLevel::Error:
+            return QStringLiteral("ERROR");
+        case LogLevel::Fatal:
+            return QStringLiteral("FATAL");
+    }
+    return QStringLiteral("INFO");
+}
+
+QColor GameLogWindow::levelBackground(LogLevel level) {
+    switch (level) {
+        case LogLevel::Debug:
+            return QColor(kDebugBg[0], kDebugBg[1], kDebugBg[2]);
+        case LogLevel::Info:
+            // 不染（用窗口自己的底色）。日志里绝大多数是 INFO，全染上就成了一张色纸，
+            // Warn/Error 反而不显眼了；"没染色的那些"本身就是最自然的一档。
+            return QColor();
+        case LogLevel::Warn:
+            return QColor(kWarnBg[0], kWarnBg[1], kWarnBg[2]);
+        case LogLevel::Error:
+            return QColor(kErrorBg[0], kErrorBg[1], kErrorBg[2]);
+        case LogLevel::Fatal:
+            return QColor(kFatalBg[0], kFatalBg[1], kFatalBg[2]);
+    }
+    return QColor();
+}
+
+QColor GameLogWindow::levelForeground(LogLevel level) {
+    // 只有 Fatal 要换墨：深红底上再写深灰字读不清。
+    return level == LogLevel::Fatal ? QColor(0xff, 0xff, 0xff) : QColor();
+}
+
+QColor GameLogWindow::filterButtonBackground(LogLevel level, bool on) {
+    if (!on) {
+        return QColor(kSwitchOffRgb[0], kSwitchOffRgb[1], kSwitchOffRgb[2]);
+    }
+    // 开着那一格：有底色的档就用**正文那个色**；Info 没有（它返回无效色），用**正文区
+    // 自己的底色**（= 白，见 kInfoOnRgb）—— 那一档"没有颜色"这件事本身就是白的。
+    // kSwitchOnRgb（原生那个开态灰）只留给"哪天再多一档没有底色的"用。
+    const QColor tint = levelBackground(level);
+    if (tint.isValid()) {
+        return tint;
+    }
+    return level == LogLevel::Info ? QColor(kInfoOnRgb[0], kInfoOnRgb[1], kInfoOnRgb[2])
+                                   : QColor(kSwitchOnRgb[0], kSwitchOnRgb[1], kSwitchOnRgb[2]);
+}
+
+QColor GameLogWindow::filterButtonForeground(LogLevel level) {
+    const QColor ink = levelForeground(level);
+    return ink.isValid() ? ink : QColor(0x00, 0x00, 0x00);
+}
+
+// ---------------------------------------------------------------------------
+// 读现场
+// ---------------------------------------------------------------------------
+
+QString GameLogWindow::logText() const { return m_view->toPlainText(); }
+
+QPlainTextEdit *GameLogWindow::getLogView() const { return m_view; }
+
+QPushButton *GameLogWindow::getClearButton() const { return m_clearButton; }
+
+QPushButton *GameLogWindow::getCloseButton() const { return m_closeButton; }
+
+QLabel *GameLogWindow::getHintLabel() const { return m_hintLabel; }
+
+QPushButton *GameLogWindow::getShowAllButton() const { return m_showAllButton; }
+
+QToolButton *GameLogWindow::getFilterButton(LogLevel level) const {
+    return m_filterButtons.at(levelIndex(level));
+}
+
+// ---------------------------------------------------------------------------
+// 摆哪儿
+// ---------------------------------------------------------------------------
+
+namespace {
+/// 贴着启动器留的那条缝（像素）：不留的话两扇窗的阴影/边框会叠在一起。
+constexpr int kPlacementGap = 12;
+/// 同时开出来的第 N 扇窗往下往右错开这么多（不错开的话后开的完全盖住先开的）。
+constexpr int kPlacementCascade = 28;
+}  // namespace
+
+QPoint GameLogWindow::placementFor(const QRect &launcherFrame, const QSize &windowSize,
+                                   const QRect &availableScreen, int index) {
+    // 顺序是**右 → 左 → 居中**：日志是宽行文本，起点离启动器越远越好，但「不遮住启动器」
+    // 优先于「放在右边」。左右都放不下（启动器拉满屏/屏幕很窄）那种情况躲不开重叠，
+    // 那时至少别把它甩到屏幕外面去。
+    //
+    // NOTE: 挑边看的是**不带错开**的那个位置，错开的那点距离（28）不该决定整扇窗去哪一边
+    //       —— 第一版把错开算进"放得下吗"，于是第二扇窗因为右边少了 28 像素就整个翻到左边，
+    //       正好压在左边那扇上。错开只影响挑完边之后往哪偏。
+    const int cascade = qMax(0, index) * kPlacementCascade;
+    const int plainRight = launcherFrame.right() + 1 + kPlacementGap;
+    const int plainLeft = launcherFrame.left() - kPlacementGap - windowSize.width();
+    const int screenRight = availableScreen.right() + 1;
+    const bool fitsRight = plainRight + windowSize.width() <= screenRight;
+    const bool fitsLeft = plainLeft >= availableScreen.left();
+
+    int x = 0;
+    if (fitsRight) {
+        // 右边界那一下钳：screenRight - width ≥ plainRight（就是上面 fitsRight），所以钳完
+        // **永远不会**跑到 plainRight 左边去，也就永远不会压住启动器。
+        x = qMin(plainRight + cascade, screenRight - windowSize.width());
+    } else if (fitsLeft) {
+        x = qMax(plainLeft - cascade, availableScreen.left());  // 同理：钳完仍 ≤ plainLeft
+    } else {
+        // 左右都挤不下：居中（比贴边看着像故意的）。
+        x = launcherFrame.center().x() - windowSize.width() / 2;
+    }
+
+    // 竖直方向：和启动器的上沿对齐（两扇窗的标题栏在一行上，扫过去就是一行），错开的那几扇
+    // 往下走一点。横竖都错开之后，后开的窗不会**完全**盖住先开的（先开的那扇至少露出上面
+    // 一条标题栏，还点得到）—— 屏幕上真摆不下两三扇的时候，这就是能做到的全部。
+    const int y = qBound(availableScreen.top(), launcherFrame.top() + cascade,
+                         qMax(availableScreen.top(),
+                              availableScreen.bottom() + 1 - windowSize.height()));
+    return QPoint(qBound(availableScreen.left(), x,
+                         qMax(availableScreen.left(), screenRight - windowSize.width())),
+                  y);
+}
+
+// ---------------------------------------------------------------------------
+// 退出去之后
+// ---------------------------------------------------------------------------
+
+bool GameLogWindow::autoCloseOnExit(int exitCode, bool crashed) {
+    return !crashed && exitCode == 0;
+}
+
+// ---------------------------------------------------------------------------
+// 正文那一块的长相
+// ---------------------------------------------------------------------------
+
+QFont GameLogWindow::logFont() {
+    QFont font = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+    // 点大小和像素大小二选一（字体表给的可能是任一种）：**两头都照顾**，不然
+    // `pointSizeF()` 回 -1 的那台机器上这个"大一号"会静默失效（界面看着和没说一样）。
+    if (font.pointSizeF() > 0) {
+        font.setPointSizeF(font.pointSizeF() + kLogFontPointDelta);
+    } else if (font.pixelSize() > 0) {
+        // 1 pt = 1/72 英寸、1 px 在 96 dpi 上是 1/96 英寸 ⇒ 1 pt ≈ 1.33 px。
+        font.setPixelSize(font.pixelSize() + qMax(1, qRound(kLogFontPointDelta * 96.0 / 72.0)));
+    }
+    return font;
+}
+
+QColor GameLogWindow::separatorColor() {
+    return QColor(kSeparatorRgb[0], kSeparatorRgb[1], kSeparatorRgb[2]);
+}
+
+// ---------------------------------------------------------------------------
+// 文案与名字
+// ---------------------------------------------------------------------------
+
+QString GameLogWindow::windowTitleText(const QString &instanceName) {
+    // 实例名是空的（会话快照没拿到）时不留一个光秃秃的破折号。
+    if (instanceName.isEmpty()) {
+        return QStringLiteral("游戏日志");
+    }
+    return QCoreApplication::translate("GameLogWindow", "游戏日志 — %1").arg(instanceName);
+}
+
+QString GameLogWindow::hintText() {
+    return QStringLiteral("这里是这一份游戏自己的输出，和日志文件里的是同一份。"
+                          "关掉这个窗口不会停游戏。");
+}
+
+QString GameLogWindow::clearButtonText() { return QStringLiteral("清空"); }
+
+QString GameLogWindow::closeButtonText() { return QStringLiteral("关闭"); }
+
+QString GameLogWindow::emptyPlaceholderText() { return QStringLiteral("还没有输出…"); }
+
+QString GameLogWindow::filteredOutPlaceholderText() {
+    return QStringLiteral("这几档都被筛掉了 —— 上面勾回来就看得见。");
+}
+
+QString GameLogWindow::filterButtonText(LogLevel level, int count) {
+    return QStringLiteral("%1 %2").arg(levelName(level)).arg(qMax(0, count));
+}
+
+QString GameLogWindow::filterButtonTooltip() {
+    return QStringLiteral("点一下就不显示这一档。数字是还留在这里的行数（最多 %1 行）。")
+        .arg(maxLogBlocks());
+}
+
+QString GameLogWindow::showAllButtonText() { return QStringLiteral("显示全部"); }
+
+QString GameLogWindow::filterButtonName(LogLevel level) {
+    switch (level) {
+        case LogLevel::Debug:
+            return QStringLiteral("gameLogFilterDebug");
+        case LogLevel::Info:
+            return QStringLiteral("gameLogFilterInfo");
+        case LogLevel::Warn:
+            return QStringLiteral("gameLogFilterWarn");
+        case LogLevel::Error:
+            return QStringLiteral("gameLogFilterError");
+        case LogLevel::Fatal:
+            return QStringLiteral("gameLogFilterFatal");
+    }
+    return QStringLiteral("gameLogFilterInfo");
+}
