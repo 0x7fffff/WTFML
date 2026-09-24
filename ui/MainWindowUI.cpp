@@ -17,11 +17,13 @@
 #include <QFont>
 #include <QGridLayout>
 #include <QHBoxLayout>
+#include <QIcon>
 #include <QMenuBar>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPalette>
 #include <QScrollArea>
+#include <QTimer>
 #include <QVBoxLayout>
 
 namespace {
@@ -247,6 +249,34 @@ protected:
 }  // namespace
 
 MainWindowUI::MainWindowUI(QMainWindow *parent) { setupUi(parent); }
+
+QString MainWindowUI::runningDurationText(qint64 startedAtMs, qint64 nowMs) {
+    // 负数（时钟被往回调过、或者 startedAtMs 是个没写过的 0）当"刚开始"：这一行是个说明，
+    // 不该出现"已运行 -3 分钟"这种算术漏出来的话。
+    const qint64 seconds = qMax<qint64>(0, (nowMs - startedAtMs) / 1000);
+    if (seconds < 60) {
+        return QCoreApplication::translate("MainWindowUI", "已运行不到 1 分钟");
+    }
+    const qint64 minutes = seconds / 60;
+    if (minutes < 60) {
+        return QCoreApplication::translate("MainWindowUI", "已运行 %1 分钟").arg(minutes);
+    }
+    const qint64 hours = minutes / 60;
+    if (hours < 24) {
+        const qint64 rest = minutes % 60;
+        // 整点就不缀那半句："已运行 2 小时 0 分钟"读起来是台机器写的。
+        return rest == 0 ? QCoreApplication::translate("MainWindowUI", "已运行 %1 小时").arg(hours)
+                         : QCoreApplication::translate("MainWindowUI", "已运行 %1 小时 %2 分钟")
+                               .arg(hours)
+                               .arg(rest);
+    }
+    const qint64 days = hours / 24;
+    // 再往上一档（"N 个月"）没有意义：一个实例连着跑好几天已经是要不要收掉的问题了，
+    // 具体几天几小时够用。
+    return QCoreApplication::translate("MainWindowUI", "已运行 %1 天 %2 小时")
+        .arg(days)
+        .arg(hours % 24);
+}
 
 bool MainWindowUI::isHomeTabCurrent() const {
     // 主页恒定是第一页（下面 addTab 的顺序就是契约），所以比下标就够，
@@ -1171,18 +1201,150 @@ constexpr int kPanelPadding = 10;
 constexpr int kPanelRowSpacing = 6;
 constexpr int kPanelGap = 6;
 
-/// 「上拉槽」里先放的两行占位文字。**这不是真数据** —— 用户 2026-09-23 的原话是
-/// 「上拉槽先放两文本占位」：左边那块以后放实例列表、右边那块以后放账号列表，
-/// 真数据来了就把这两句换掉，那时"往面板里灌什么"这件事要挪到 MainWindow
-/// （数据在它手里），这里只留"怎么弹出来"。
-QStringList panelPlaceholderRows(bool account) {
-    if (account) {
-        return {QStringLiteral("（占位）这里以后放账号列表"),
-                QStringLiteral("（占位）这里以后放账号设置")};
-    }
-    return {QStringLiteral("（占位）这里以后放实例列表"),
-            QStringLiteral("（占位）这里以后放实例操作")};
+/// 面板里一行内部的两处间距：行首图标和那列字之间、那列字和行尾第一颗按钮之间。
+/// 后者取小一点（4）：行尾那几颗按钮是一组，得看着"贴着"那列字，别像两个各管各的。
+constexpr int kPanelRowIconSpacing = 8;
+constexpr int kPanelRowActionSpacing = 4;
+
+/// 行尾那个**文字**按钮的最小宽度（「选择」「登录」「当前」都是两三个字）。
+/// 钉死是为了让同一个面板里几行的按钮**竖着对齐** —— 跟着字宽变的话，三行的「登录」
+/// 和「选择」就会错开几个像素，看着像没对齐的表格。
+constexpr int kPanelActionTextWidth = 56;
+
+/// 「一行都没有」时面板里写的那个字。正常情况下左面板会自己给一行"现在没有实例在跑"
+/// （那是 MainWindow 的事，它知道该怎么说话）；这一句兜的是**没装回调**那种情况
+/// （setBottomBarPanelContent() 没被调过），空白一块比一句话更难查。
+constexpr const char kPanelEmptyText[] = "（没有可显示的内容）";
+
+/**
+ * @brief 面板里行尾那几颗动作按钮的外观。
+ *
+ * 和底栏那两颗按钮同一个路数：不画自己的底（面板本来就有底色）、只在鼠标划过/按下时
+ * 淡淡蒙一层，颜色一律从调色板取（**不写死**），浅色深色主题下都成立。
+ *
+ * NOTE: hover / pressed 那两条都带 `:enabled` —— 灰掉的那一颗（右面板里"当前账号"
+ *       那一行）划过时**不许**亮：亮一下就说明"能点"，点下去却什么都不发生。
+ *
+ * NOTE: 文字按钮要留左右各 6 px 内边距（两三个字贴着边看着像被裁过）；图标按钮不留
+ *       （它的大小已经由 kPanelActionSize 定死了，留了反而把图形挤小）。
+ */
+void applyPanelActionStyle(QPushButton *button, const QPalette &panelPalette, bool hasText) {
+    QColor hover = panelPalette.color(QPalette::Highlight);
+    hover.setAlpha(48);
+    QColor pressed = panelPalette.color(QPalette::Highlight);
+    pressed.setAlpha(96);
+    button->setStyleSheet(
+        QStringLiteral("QPushButton { border: none; background: transparent; padding: %1; }"
+                       "QPushButton:hover:enabled { background-color: %2; }"
+                       "QPushButton:pressed:enabled { background-color: %3; }")
+            .arg(hasText ? QStringLiteral("0 6px") : QStringLiteral("0"),
+                 hover.name(QColor::HexArgb))
+            .arg(pressed.name(QColor::HexArgb)));
 }
+
+/**
+ * @brief 面板里那一行：行首图标 + 一列字（主行/次行）+ 行尾几个动作按钮。
+ *
+ * NOTE: 行尾那几颗用的是**真按钮**（QPushButton），不是自绘 + 事件过滤器 —— 和实例树里
+ *       那个"取消小叉"正好相反（那里只能自绘，因为那是 item view 的一行，`editorEvent`
+ *       压不住 `itemClicked`）。面板不是列表控件，这里放真控件白得 hover / 按下 /
+ *       disabled 三态，验证工程也能按 objectName 把每一颗找回来点它。
+ */
+class BottomBarPanelRowWidget : public QWidget {
+public:
+    /// @param row 这一行要画什么（数据由 MainWindow 翻好递进来）。
+    /// @param index 第几行（**只用来生成 objectName**）。
+    /// @param onAction 行尾第 a 颗按钮被点了（参数是"哪一行是谁、第几颗"）。
+    BottomBarPanelRowWidget(const MainWindowUI::PanelRow &row, int index,
+                            const std::function<void(const QString &, int)> &onAction,
+                            QWidget *parent)
+        : QWidget(parent) {
+        setObjectName(MainWindowUI::bottomBarPanelRowName(index));
+
+        QHBoxLayout *line = new QHBoxLayout(this);
+        line->setContentsMargins(0, 0, 0, 0);
+        line->setSpacing(kPanelRowIconSpacing);
+
+        const int textWidth = MainWindowUI::bottomBarPanelTextWidth();
+        QVBoxLayout *texts = new QVBoxLayout;
+        texts->setContentsMargins(0, 0, 0, 0);
+        texts->setSpacing(0);
+
+        if (!row.icon.isNull()) {
+            QLabel *icon = new QLabel(this);
+            icon->setObjectName(MainWindowUI::bottomBarPanelRowIconName(index));
+            icon->setPixmap(row.icon);
+            icon->setFixedSize(MainWindowUI::bottomBarPanelIconSize(),
+                               MainWindowUI::bottomBarPanelIconSize());
+            // 图标**对着两行字那一整块居中**（对第一行会显得偏高）。
+            line->addWidget(icon, 0, Qt::AlignVCenter);
+        }
+
+        QLabel *title = new ElidedLabel(this);
+        title->setObjectName(MainWindowUI::bottomBarPanelRowTitleName(index));
+        title->setText(row.title);
+        // 宽度**钉死**（不是只封顶）：面板的宽度是"内容多宽就多宽"，钉死之后同一个面板
+        // 在任何数据下都是同一个宽度，几行的按钮也竖着对齐。超出去的截成省略号。
+        title->setFixedWidth(textWidth);
+        if (row.placeholder) {
+            // "什么都没有"那句话用**次要颜色**：它是一句说明，不是一行内容
+            // （和原来那两行占位文字同一个路数）。
+            QPalette titlePalette = title->palette();
+            titlePalette.setColor(QPalette::WindowText,
+                                  titlePalette.color(QPalette::PlaceholderText));
+            title->setPalette(titlePalette);
+        }
+        texts->addWidget(title);
+
+        if (!row.subtitle.isEmpty()) {
+            QLabel *subtitle = new ElidedLabel(this);
+            subtitle->setObjectName(MainWindowUI::bottomBarPanelRowSubtitleName(index));
+            subtitle->setText(row.subtitle);
+            subtitle->setFixedWidth(textWidth);
+            // 次行一律次要颜色（已运行时长 / 账号类型都是"说明"那一档）。
+            QPalette subtitlePalette = subtitle->palette();
+            subtitlePalette.setColor(QPalette::WindowText,
+                                     subtitlePalette.color(QPalette::PlaceholderText));
+            subtitle->setPalette(subtitlePalette);
+            texts->addWidget(subtitle);
+        }
+
+        // 份数 0：这一列字是钉死的，富余宽度都给后面那个空档 —— 行尾那几颗按钮因此
+        // 贴在**最右边**（不这么做的话它们会紧跟着短名字，几行的按钮就对不齐了）。
+        line->addLayout(texts, 0);
+        line->addStretch(1);
+
+        for (int a = 0; a < row.actions.size(); ++a) {
+            const MainWindowUI::PanelAction &action = row.actions.at(a);
+            QPushButton *button = new QPushButton(this);
+            button->setObjectName(MainWindowUI::bottomBarPanelRowActionName(index, a));
+            const bool hasText = action.icon.isNull();
+            if (hasText) {
+                button->setText(action.text);
+                button->setMinimumWidth(kPanelActionTextWidth);
+            } else {
+                button->setIcon(QIcon(action.icon));
+                button->setIconSize(action.icon.size());
+                button->setFixedSize(MainWindowUI::bottomBarPanelActionSize(),
+                                     MainWindowUI::bottomBarPanelActionSize());
+            }
+            button->setEnabled(action.enabled);
+            button->setToolTip(action.tooltip);
+            applyPanelActionStyle(button, palette(), hasText);
+            // 点的是**哪一颗**靠下标认（不认按钮上的字：那两个字会随语言/状态变，
+            // 拿显示内容当身份标识的接线在产品改文案时会以看不懂的方式挂掉）。
+            // 行号**不进这个回调**：见 PanelRow::key 那段 NOTE（行号是"哪一行"，
+            // 外面要的是"哪一个人/哪一份会话"）。
+            const QString key = row.key;
+            QObject::connect(button, &QPushButton::clicked, button,
+                             [onAction, key, a]() { onAction(key, a); });
+            if (a > 0) {
+                line->addSpacing(kPanelRowActionSpacing);
+            }
+            line->addWidget(button, 0, Qt::AlignVCenter);
+        }
+    }
+};
 
 /**
  * @brief 底栏两头那两颗按钮点开之后**向上**弹出来的那块面板（像官启/PCL 那样）。
@@ -1196,11 +1358,17 @@ QStringList panelPlaceholderRows(bool account) {
  */
 class BottomBarPanel : public QWidget {
 public:
+    /// 行尾某个按钮被点了：参数是"那一行是谁（PanelRow::key）、第几颗"。
+    using ActionCallback = std::function<void(const QString &, int)>;
+
     /// @param anchor 贴着哪颗按钮弹（也决定"至少和按钮一样宽"）。
     /// @param alignRight true = 右边缘和按钮右边缘对齐（右端那颗按钮用），
     ///                   false = 左边缘对齐（左端那颗用）。
-    /// @param rows 面板里的几行文字（现在是占位）。
-    BottomBarPanel(QWidget *anchor, bool alignRight, const QStringList &rows, QWidget *parent)
+    /// @param rows 面板里的几行（数据由 MainWindow 翻好，见 setBottomBarPanelContent()）。
+    /// @param onAction 行尾的按钮被点了该告诉谁（可以给空的 = 这些按钮点了没反应）。
+    BottomBarPanel(QWidget *anchor, bool alignRight,
+                   const QList<MainWindowUI::PanelRow> &rows, const ActionCallback &onAction,
+                   QWidget *parent)
         : QWidget(parent, Qt::Popup | Qt::FramelessWindowHint), m_anchor(anchor),
           m_alignRight(alignRight) {
         setObjectName(MainWindowUI::bottomBarPanelName());
@@ -1211,17 +1379,37 @@ public:
         panelPalette.setColor(QPalette::Window, panelPalette.color(QPalette::Window).darker(112));
         setPalette(panelPalette);
 
+        // 点行尾那几颗按钮要**先把自己收回去**，再把动作交给外面 —— 见下面那段 lambda。
+        // context 用 parent（底栏）而**不是** this：这个面板是 WA_DeleteOnClose，
+        // close() 之后它随时会被删掉，捕它等于捕一个随时没了的对象；底栏和主窗口同寿。
+        QWidget *const deferContext = parent;
+        const auto dispatch = [this, deferContext, onAction](const QString &key, int action) {
+            // **先把面板收回去**：这些动作里有两个要弹模态窗（进实例设置、关实例那个
+            // "游戏不会存档"的确认框），而这块面板是个 Qt::Popup —— 它按着鼠标键盘的
+            // grab。模态窗开在一块抓着手柄的东西底下，Windows 上就是"窗出来了但点不动"。
+            close();
+            if (!onAction) {
+                return;
+            }
+            // 再排到**下一轮事件循环**去做事：close() 只是发了个关闭事件，面板要等这一轮
+            // 走完才真的没了 —— 当轮就弹模态窗等于没关（上面那条毛病一样在）。
+            QTimer::singleShot(0, deferContext,
+                               [onAction, key, action]() { onAction(key, action); });
+        };
+
         QVBoxLayout *box = new QVBoxLayout(this);
         box->setContentsMargins(kPanelPadding, kPanelPadding, kPanelPadding, kPanelPadding);
         box->setSpacing(kPanelRowSpacing);
+        if (rows.isEmpty()) {
+            // 兜底：没装回调（或回调给了空列表）时面板里不留一块空白。
+            MainWindowUI::PanelRow empty;
+            empty.title = QString::fromUtf8(kPanelEmptyText);
+            empty.placeholder = true;
+            box->addWidget(new BottomBarPanelRowWidget(empty, 0, dispatch, this));
+            return;
+        }
         for (int i = 0; i < rows.size(); ++i) {
-            QLabel *row = new QLabel(rows.at(i), this);
-            row->setObjectName(MainWindowUI::bottomBarPanelRowName(i));
-            // 占位文字用**次要颜色**：一眼看得出这不是真数据（真数据来了换成正文色）。
-            QPalette rowPalette = row->palette();
-            rowPalette.setColor(QPalette::WindowText, rowPalette.color(QPalette::PlaceholderText));
-            row->setPalette(rowPalette);
-            box->addWidget(row);
+            box->addWidget(new BottomBarPanelRowWidget(rows.at(i), i, dispatch, this));
         }
     }
 
@@ -1504,9 +1692,10 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     accountRow->addStretch(1);
     accountRow->addWidget(makeChevronLabel(accountButton), 0, Qt::AlignVCenter);
 
-    // 那两颗按钮点开都是**向上**弹一块面板（像官启那样）。面板里的内容现在是占位文字，
-    // 所以接线放在界面这边；等真数据（实例列表 / 账号列表）来了，"往面板里灌什么"要挪到
-    // MainWindow —— 那里才有数据。这里只留"怎么弹、弹在哪"。
+    // 那两颗按钮点开都是**向上**弹一块面板（像官启那样）。面板里画什么由 MainWindow 灌
+    // （每次点开现问一遍，见 setBottomBarPanelContent()），这里只留"怎么弹、弹在哪、
+    // 点了哪一行该告诉谁"。左边那块（account = false）列**正在跑的实例**，右边那块
+    // （account = true，也就是右对齐的那块）列**最近用过的账号**。
     // 点开是**开关**：已经开着的时候再点**同一颗**按钮要收回去（用户 2026-09-23 原话：
     // 「那个按钮，点开以后处于展开状态时再次点击按钮收回」）。点另一颗时，这一下要是真落到
     // 按钮上，就是"这块收、那块开"；被旧那块吃掉（见下面 NOTE）就只收不开，再点一下才开 ——
@@ -1519,7 +1708,12 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     //       clicked：不挡就是"关了又立刻开一块新的"，看着像怎么点都收不回去 —— 那才是用户报的
     //       毛病。这里靠 findChild 认"现在有没有开着"：面板挂在 bottomBar 底下，close 之后要等
     //       deleteLater 才真删（同一轮事件处理里还找得到，所以挡得住），不用自己记指针。
-    const auto togglePanel = [this](QWidget *anchor, bool alignRight) {
+    //
+    // NOTE: 行里的按钮点下去不是"立刻做事"，而是"面板先收、动作排到下一轮"（见
+    //       BottomBarPanel 里 dispatch 那段）—— 那两个动作都要弹模态窗，压在 Qt::Popup
+    //       底下会点不动。所以**别**在这里顺手补一句"点完也 close 一下"：那是同一件事
+    //       做两遍，而且顺序反了就白做。
+    const auto togglePanel = [this](QWidget *anchor, bool account) {
         if (auto *open = dynamic_cast<BottomBarPanel *>(
                 bottomBar->findChild<QWidget *>(MainWindowUI::bottomBarPanelName()))) {
             const bool sameAnchor = open->anchor() == anchor;
@@ -1528,8 +1722,19 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
                 return;
             }
         }
-        auto *panel = new BottomBarPanel(anchor, alignRight, panelPlaceholderRows(alignRight),
-                                         bottomBar);
+        // 现问一遍要弹什么（不缓存：实例随时会结束、账号随时会多一个，"上次那几行"
+        // 一旦留着就会弹出早就不是那样的一面板）。
+        const QList<PanelRow> rows =
+            m_panelRowsProvider ? m_panelRowsProvider(account) : QList<PanelRow>();
+        // 面板只知道"第几行第几颗"，"是哪一块面板"由这里补上再转给 MainWindow ——
+        // 一块面板只可能属于一边，所以这个得在**建面板的时候**就绑死。
+        const BottomBarPanel::ActionCallback onAction = [this, account](const QString &key,
+                                                                       int action) {
+            if (m_panelActionHandler) {
+                m_panelActionHandler(account, key, action);
+            }
+        };
+        auto *panel = new BottomBarPanel(anchor, account, rows, onAction, bottomBar);
         // 这次弹出来的面板归它自己管：关掉就删（不然点一次攒一个）。
         panel->setAttribute(Qt::WA_DeleteOnClose);
         panel->popUp();

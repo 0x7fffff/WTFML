@@ -37,6 +37,8 @@
 #include <QUrl>
 #include <QUrlQuery>
 
+#include <limits>  // tokenSecondsLeft() 那个夹取（int 的上界）
+
 namespace {
 static constexpr const char kClientId[] = "1f3dc837-04f1-4389-947e-d698b69571b7";
 // NOTE: 两份凭据落在哪些键上、以及那串字节怎么保护，都**不在这里** ——
@@ -226,6 +228,22 @@ QString AuthManager::loadSavedToken(QString *errorMessage) {
         return fail(failure);
     }
     return m_accessToken;
+}
+
+int AuthManager::tokenSecondsLeft() const {
+    // m_tokenExpiry 只在 applyMinecraftTokenData() 认下盘上那份凭据时才被写上（而且已经
+    // 减掉那 30 秒余量）。认不下来 = 没有可用的到期时刻 = -1（"该换一张了"，见头里那段）。
+    if (!m_tokenExpiry.isValid()) {
+        return -1;
+    }
+    // **夹到 int 里再返回**：secsTo() 是 qint64，而盘上那个 expires_at 是别人给的字节 ——
+    // 一个离谱的远期时刻（几百年的那种）会让这个转换溢出成负数，于是"剩得远远够用"
+    // 会被读成"已经不剩了"，调用方就会去换一张根本不需要换的令牌（拿一个假的到期时刻
+    // 试过：溢出之后取到的是负值）。负数那一头也夹到 0："已经过期"和"剩 0 秒"对调用方
+    // 是同一件事，而 -1 这个哨兵只留给"根本没有可用时刻"那一档。
+    const qint64 left = QDateTime::currentDateTimeUtc().secsTo(m_tokenExpiry);
+    const qint64 cap = std::numeric_limits<int>::max();
+    return static_cast<int>(qBound(qint64(0), left, cap));
 }
 
 bool AuthManager::refreshMinecraftToken(QString *errorMessage) {

@@ -152,6 +152,13 @@ private slots:
     /// 对话框只把控件读成一份值，落盘在 applyInstanceSettings() 里 —— 取消的话
     /// wtfml.meta 一个字节都不动。
     void onInstanceSettingsClicked();
+    /// 实例设置那个窗的**入口**：给某一个实例打开它。取值口径（"哪个实例"）由调用方定：
+    /// 实例页那颗按钮以下拉框为准（= onInstanceSettingsClicked()），底栏左面板那行的齿轮
+    /// 带着**那一行自己的**版本号进来。
+    ///
+    /// NOTE: 两个入口共用这一条（别在入口里另写一遍对话框）—— 里面那段"已经写了的覆盖
+    ///       读回来当起点、当前全局是什么"的口径只有一份。
+    void openInstanceSettings(const QString &versionId);
     /// 实例设置的**执行部分**：把对话框里摆好的覆盖写进这个实例的 wtfml.meta。
     /// 失败时弹窗并返回 false，磁盘保持原样。
     ///
@@ -199,6 +206,22 @@ private slots:
     ///       用户点的是那个实例，期待的是它整个停下来。返回个数是为了那句回执能说实话
     ///       （"没有在跑的"和"停掉了 2 个"是两件事）。
     int applyStopGame(const QString &versionId);
+    /// 停掉**一份**会话（只有底栏左面板里那行电源走它）：先问、再停 ——
+    /// @param sessionId 那一行是谁（面板弹出来时抄下来的会话号，见 PanelRow::key）。
+    ///
+    /// NOTE: 和 applyStopGame() 是**两件事**：那个停"这个实例的全部会话"（实例页那颗
+    ///       「停」点的是实例），这个只停**面板上那一行**（一行 = 一份会话）。同名多开时
+    ///       两下点下去停的本事不一样，问话里也照实说停几个。
+    /// NOTE: 会话号可能在"面板弹出来到现在"这几秒里已经结束了 —— 那种情况**不弹窗**，
+    ///       只写一行日志（用户没做错什么，弹一个框只会让他以为出事了）。
+    void stopGameSession(int sessionId);
+    /// 「关掉这个正在跑的游戏」那个人确认过了没有（默认那一边是"别停"）。
+    /// @param displayName 实例显示名。
+    /// @param sessions 这一下会停掉**几个**游戏进程（同一个实例多开时 >1，问话里得说清）。
+    ///
+    /// 两处共用这一个框：实例页那颗「停」和底栏左面板里那行电源 —— 那句"游戏不会存档"
+    /// 是**产品级约定**（见 .cpp 里那段），两处各写一份迟早会漏掉一处。
+    bool confirmStopGame(const QString &displayName, int sessions);
     // ---------- 下载页「游戏」那两层：版本树 → 安装页 ----------
     //
     // 用户原话见 MainWindowUI::downloadGameStackName() 上面那段。这一层只做"界面上的
@@ -437,6 +460,28 @@ private:
     /// 刷新底部状态条那三格（头像/用户名、进度、实例运行状态）。
     /// 显示规则见 .cpp；界面那边只负责把控件搭出来。
     void updateBottomBar();
+
+    // ---------- 底栏那两块上拉面板（左：正在跑的实例 · 右：最近用过的账号） ----------
+    //
+    // 面板**本身**（怎么弹、弹在哪、一行长什么样）在 MainWindowUI 里；这里只给两样东西：
+    // 点开时现算的"那几行是什么"（setBottomBarPanelContent() 的那个 provider）和
+    // 行尾按钮被点之后的动作。两样都在 setupConnections() 里接进去。
+    /// 面板里某一行的某个按钮被点了。
+    /// @param account true = 右边那块（账号），false = 左边那块（实例）。
+    /// @param key 那一行**是谁**（MainWindowUI::PanelRow::key）—— 不是行号，理由见那边
+    ///        那段 NOTE（面板开着的时候列表是会变的，按行号回头去查会关错游戏/切错账号）。
+    /// @param action 那一行第几颗按钮（下标由放进去的人定义，见 .cpp 里那几个 kXxxAction）。
+    ///
+    /// NOTE: 走到这里时面板**已经收回去了**（见 MainWindowUI 里 BottomBarPanel 那段：
+    ///       这两个动作都要弹模态窗，压在 Qt::Popup 底下会点不动），所以这里可以放心 exec()。
+    void onBottomBarPanelAction(bool account, const QString &key, int action);
+    /// 底栏右面板里点了某个账号那颗「选择」/「登录」。
+    ///
+    /// 离线账号：切过去就完事（它本来就没有凭据）。正版账号：切过去之后**看一眼盘上那张
+    /// 令牌的剩余有效期**，不到 6 小时就顺手换一张新的（用户 2026-09-24 的原话：
+    /// 「看令牌需不需要更新，（过期时间小于6h）要的话就刷新」）—— 换不出来就弹窗说原因，
+    /// 并指向"重新登录一次"那条路。
+    void useAccountFromPanel(const QString &uuid);
     /// 一个版本号在界面上的显示名（"已安装版本"下拉框里的那条文本）。
     /// 下拉框里没有它时退回版本号本身。
     QString instanceDisplayName(const QString &versionId) const;

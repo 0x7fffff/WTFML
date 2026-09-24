@@ -487,3 +487,95 @@ QPixmap VersionIcons::refresh(int size, const QColor &color) {
         return pixmap;
     });
 }
+
+QPixmap VersionIcons::power(int size, const QColor &color) {
+    if (size <= 0) {
+        return QPixmap();
+    }
+    return cached(QStringLiteral("power/%1/%2").arg(size).arg(color.name()), [size, color]() {
+        QPixmap pixmap(size, size);
+        pixmap.fill(Qt::transparent);
+        QPainter p(&pixmap);
+        p.setRenderHint(QPainter::Antialiasing, true);
+
+        // 笔宽和 cross / chevron 同一个比例（size/7 ≈ 0.14）：同一行里几个图标得看着是
+        // 同一支笔画出来的，细一档就会显得"这颗按钮小一号"。
+        QPen pen(color);
+        pen.setWidthF(qMax(1.4, size / 7.0));
+        pen.setCapStyle(Qt::RoundCap);
+        p.setPen(pen);
+        p.setBrush(Qt::NoBrush);
+
+        // 环心**略低于**正中：上面那一竖要从缺口里穿出去，整幅的重心落在格子里才正。
+        const QPointF center(size / 2.0, size * 0.54);
+        const qreal radius = size * 0.30;
+        const QRectF box(center.x() - radius, center.y() - radius, 2 * radius, 2 * radius);
+        // 缺口开在**正上方、左右对称**（50° 起、顺时针扫 280° → 收在 130°，空的是
+        // 50°~130° 那 80°）：机箱上那个开关就是这个长相，缺口偏一边会读成"转圈箭头"。
+        // 角度按 Qt 那套（0° 在正右、逆时针为正、90° 是正上），见 refresh()。
+        p.drawArc(box, 50 * 16, -280 * 16);
+
+        // 那一竖：从环的上沿之上一点点，穿进缺口、落到接近环心。
+        // NOTE: 起点**不能贴着格子上边** —— RoundCap 两头各撑出半个笔宽，贴边那一头会
+        //       顶得比整个环还显眼（这一竖看着比环粗，就是这个）。
+        p.drawLine(QPointF(center.x(), center.y() - radius - size * 0.07),
+                   QPointF(center.x(), center.y() - size * 0.04));
+        return pixmap;
+    });
+}
+
+QPixmap VersionIcons::gear(int size, const QColor &color) {
+    if (size <= 0) {
+        return QPixmap();
+    }
+    return cached(QStringLiteral("gear/%1/%2").arg(size).arg(color.name()), [size, color]() {
+        QPixmap pixmap(size, size);
+        pixmap.fill(Qt::transparent);
+        QPainter p(&pixmap);
+        p.setRenderHint(QPainter::Antialiasing, true);
+
+        // 八颗**平顶**的牙（不是星形）：星形在 16 px 下看着像个雪花，齿顶那一段平的
+        // 才读得出是个齿轮。一颗牙占一个齿距的：齿根 0.10 起、齿顶 0.30~0.70、
+        // 齿根 0.90 收，于是"齿"宽 40%、两颗牙之间那段根宽 20% —— 两条缝一样宽才对称。
+        constexpr int kTeeth = 8;
+        const qreal pitch = 360.0 / kTeeth;
+        const QPointF center(size / 2.0, size / 2.0);
+        const qreal rTip = size * 0.47;
+        const qreal rRoot = size * 0.33;
+
+        // 角度按 Qt 那套（90° 是正上），屏幕坐标 y 朝下所以取负号。
+        const auto at = [&](qreal degree, qreal r) {
+            const qreal rad = qDegreesToRadians(degree);
+            return QPointF(center.x() + r * qCos(rad), center.y() - r * qSin(rad));
+        };
+
+        QPainterPath toothed;
+        for (int i = 0; i < kTeeth; ++i) {
+            const qreal base = i * pitch;
+            const QPointF corner[4] = {at(base + pitch * 0.10, rRoot),
+                                       at(base + pitch * 0.30, rTip),
+                                       at(base + pitch * 0.70, rTip),
+                                       at(base + pitch * 0.90, rRoot)};
+            if (i == 0) {
+                toothed.moveTo(corner[0]);
+            } else {
+                toothed.lineTo(corner[0]);
+            }
+            toothed.lineTo(corner[1]);
+            toothed.lineTo(corner[2]);
+            toothed.lineTo(corner[3]);
+        }
+        // 收口：最后那颗牙的齿根连回第一颗的齿根，跨的也是 0.90~1.10 那 20%。
+        toothed.closeSubpath();
+
+        // 中间那个洞走**减去一个圆**，不是描边一个圆：16 px 下描边那一圈糊成一片，
+        // 整颗齿轮会变成一个实心疙瘩。
+        QPainterPath hole;
+        hole.addEllipse(center, size * 0.15, size * 0.15);
+
+        p.setPen(Qt::NoPen);
+        p.setBrush(color);
+        p.drawPath(toothed.subtracted(hole));
+        return pixmap;
+    });
+}

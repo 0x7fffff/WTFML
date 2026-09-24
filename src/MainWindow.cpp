@@ -46,6 +46,8 @@
 #include <QListWidget>
 #include <QMessageBox>
 #include <QMouseEvent>
+// 底栏面板里那几行的图标要按"底栏那几行字的墨色"上色（图标是画的，颜色由调用方给）。
+#include <QPalette>
 // 下载页那四张资源表前面那个缩略图（onResourceIconReady 里还要造一个全透明的占位）。
 #include <QPixmap>
 #include <QPlainTextEdit>
@@ -62,6 +64,10 @@
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QTreeWidgetItemIterator>
+
+// 底栏右面板那三行要按 saved_at 排序（std::stable_sort：同一秒里存的两个账号要保持
+// 列表里原来的先后，不然每次点开顺序都可能不一样）。
+#include <algorithm>
 
 #include "auth/AccountStore.hpp"
 #include "auth/AuthManager.hpp"
@@ -450,6 +456,153 @@ void selectConfiguredJava(QComboBox *combo, bool autoSelect, const QString &path
     combo->setCurrentIndex(index >= 0 ? index : 0);
 }
 
+// ---------------------------------------------------------------------------
+// 底栏那两块上拉面板（左：正在跑的实例 · 右：最近用过的账号）
+// ---------------------------------------------------------------------------
+
+/// 左面板行尾那两颗按钮的**编号**（onBottomBarPanelAction() 认的就是这两个数）。
+///
+/// NOTE: 编号是"这一行第几颗"，不是"这颗按钮上画着什么" —— 拿图形反认的话，哪天把电源
+///       换成终止、或者两颗换个位置，那一下点下去会静悄悄地做错事（关实例变成开设置）。
+constexpr int kRunningPanelStopAction = 0;
+constexpr int kRunningPanelSettingsAction = 1;
+
+/// 左面板里一行的那两颗按钮（电源 = 关掉这份会话，齿轮 = 进这个实例的设置）。
+/// @param ink 图标那一档颜色（和底栏那几行字同一个墨色 —— 画的图标不带自己的颜色）。
+QList<MainWindowUI::PanelAction> runningPanelActions(const QColor &ink) {
+    const int iconSize = MainWindowUI::bottomBarPanelActionIconSize();
+    MainWindowUI::PanelAction stop;
+    stop.icon = VersionIcons::power(iconSize, ink);
+    // 图标按钮**必须**有 tooltip：一个电源符号说明不了"点了会把游戏直接杀掉、不会存档"。
+    stop.tooltip = QObject::tr("关闭这个实例（直接结束游戏进程，游戏不会存档）");
+    MainWindowUI::PanelAction settings;
+    settings.icon = VersionIcons::gear(iconSize, ink);
+    settings.tooltip = QObject::tr("打开这个实例的设置");
+    return {stop, settings};
+}
+
+/// 这个实例该画哪个分类的方块（草方块 / 覆雪草块 / 土块 / 幸运方块）。
+///
+/// 分类走 VersionCategory::channelFor()（和下载页那棵树**同一个出处**，别在这儿另写一个
+/// switch：写歪了的症状是"快照那一栏前面白草、远古那一栏还是绿草"，不报错、只是难看）。
+/// 那条要一个 `type` 字段，从实例自己的 meta 里读；读不到（meta 丢了/写坏了）就当**正式版**
+/// —— 大多数实例是正式版，而"一个方块都不画"在界面上是个说不清的空白。
+int versionChannelIndexOf(const VersionManager *versions, const QString &versionId) {
+    QString type = versions == nullptr
+                       ? QString()
+                       : versions->versionMeta(versionId).value(QStringLiteral("type")).toString();
+    if (type.isEmpty()) {
+        type = QStringLiteral("release");
+    }
+    return VersionCategory::channelIndex(VersionCategory::channelFor(versionId, type));
+}
+
+/// 「本机现在跑着的这几份会话」翻成面板里的几行。
+///
+/// **一行 = 一份会话**（不是"一个实例"）：同一个实例多开时那两行的名字一样，靠第二行那个
+/// "已运行 …"分开（用户 2026-09-24 定的："一行一个会话，有时长是好主意"）。行尾那颗电源
+/// 关的也就是**这一份**会话。那一行是谁由 `PanelRow::key` 带着（= 会话号，见下面那一段）。
+QList<MainWindowUI::PanelRow> runningGamePanelRows(const QList<LauncherManager::GameSession> &games,
+                                                   const VersionManager *versions, const QColor &ink,
+                                                   qint64 nowMs) {
+    QList<MainWindowUI::PanelRow> rows;
+    rows.reserve(games.size());
+    // 一份都没在跑：摆一句说明（**不是**空白面板 —— 用户点开是想知道"有没有在跑"，
+    // 空白答不了这个问题）。
+    if (games.isEmpty()) {
+        MainWindowUI::PanelRow empty;
+        empty.title = MainWindowUI::bottomBarPanelNoRunningTitle();
+        empty.subtitle = MainWindowUI::bottomBarPanelNoRunningNote();
+        empty.placeholder = true;
+        rows.append(empty);
+        return rows;
+    }
+    for (const LauncherManager::GameSession &game : games) {
+        MainWindowUI::PanelRow row;
+        // 图标按版本分类给（草方块/覆雪草块/土块/幸运方块）：用户 2026-09-24 说的"图标先
+        // 占位"就用它 —— 现成的、而且它本来就说明"这是个什么版本的实例"。真正的"实例自定义
+        // 头像"还没有，等它有了换的是这一处。
+        row.icon = VersionIcons::versionChannelMark(versionChannelIndexOf(versions, game.versionId),
+                                                    MainWindowUI::bottomBarPanelIconSize());
+        row.title = game.displayName;
+        // 那句"跑了多久"在产品侧唯一的一处算它（MainWindowUI::runningDurationText()）——
+        // 放那边是为了让四档话术都能在验证工程里直接量（"已经跑了 3 天"那一档等不出来）。
+        row.subtitle = MainWindowUI::runningDurationText(game.startedAtMs, nowMs);
+        row.actions = runningPanelActions(ink);
+        // 这一行是谁 = 那一份会话的编号（回来时按它认人，**不按"第几行"**：面板开着的时候
+        // 哪个实例先结束是它自己的事，按行号认会关错游戏）。
+        row.key = QString::number(game.sessionId);
+        rows.append(row);
+    }
+    return rows;
+}
+
+/// 右面板里那一行右边的那颗按钮的下标（onBottomBarPanelAction() 认的就是它）。
+constexpr int kAccountPanelUseAction = 0;
+
+/// 「最后登录的三个账户」翻成面板里的几行。
+///
+/// 口径是用户 2026-09-24 定的：「最后登录的三个账户就拿缓存放（包含离线和正版，总共
+/// 三个）」—— 读的就是**账号列表**那一条缓存（AccountStore::accounts()），不另外记账、
+/// 不联网、不碰令牌。
+///
+/// 顺序按 `saved_at` **倒序**：那是这个列表里唯一一个"最近"（它写的是"这份登录凭据最后
+/// 一次取到的时刻"，见 AccountStore::captureActive()）。NOTE: 切账号**不会**刷新它，所以
+/// 准确的说法是"最近登录/添加过的三个"，而不是"最近用过的三个"—— 不新加一个字段是这一轮
+/// 的取舍（新加键就得连带处理老数据、还有"登录取自"那句 tooltip 的语义）。
+/// NOTE: `saved_at` 全是 `QDateTime::currentDateTimeUtc().toString(Qt::ISODate)` 写出来的
+///       （唯一写方），形状一致，所以按文本比就是按时间比。
+QList<MainWindowUI::PanelRow> recentAccountPanelRows(const QList<SavedAccount> &accounts,
+                                                     const QString &activeUuid, int limit) {
+    QList<MainWindowUI::PanelRow> rows;
+    if (accounts.isEmpty()) {
+        MainWindowUI::PanelRow empty;
+        empty.title = MainWindowUI::bottomBarPanelNoAccountTitle();
+        empty.subtitle = MainWindowUI::bottomBarPanelNoAccountNote();
+        empty.placeholder = true;
+        rows.append(empty);
+        return rows;
+    }
+
+    QList<SavedAccount> sorted = accounts;
+    std::stable_sort(sorted.begin(), sorted.end(),
+                     [](const SavedAccount &a, const SavedAccount &b) {
+                         return a.savedAt > b.savedAt;
+                     });
+    if (limit > 0 && sorted.size() > limit) {
+        sorted = sorted.mid(0, limit);
+    }
+
+    rows.reserve(sorted.size());
+    for (const SavedAccount &account : sorted) {
+        MainWindowUI::PanelRow row;
+        // 行首**不留图标**：底栏那个头像是"当前账号"的（SkinModel::headAvatar()），要按行
+        // 显示每个人的脸就得为每个账号各拉一次皮肤（要联网、要令牌）—— 那件事不在这一轮里。
+        row.title = account.name;
+        row.subtitle = account.offline ? MainWindowUI::bottomBarPanelOfflineAccountText()
+                                       : MainWindowUI::bottomBarPanelOnlineAccountText();
+        row.key = account.uuid;
+
+        MainWindowUI::PanelAction use;
+        if (account.isCurrent) {
+            // 当前账号：按钮写「当前」、灰掉。**不是**"不显示那颗按钮"—— 三行的按钮位置
+            // 得一样，少一颗的话这一行会看着比别行短。
+            use.text = MainWindowUI::bottomBarPanelCurrentText();
+            use.enabled = false;
+            use.tooltip = QObject::tr("这一行就是当前账号");
+        } else {
+            use.text = account.offline ? MainWindowUI::bottomBarPanelSelectText()
+                                       : MainWindowUI::bottomBarPanelLoginText();
+            use.tooltip = account.offline
+                              ? QObject::tr("切到这个离线账号（用这个名字离线进游戏）")
+                              : QObject::tr("切到这个正版账号；令牌快到期了会顺手换一张");
+        }
+        row.actions.append(use);
+        rows.append(row);
+    }
+    return rows;
+}
+
 }  // namespace
 
 MainWindow::MainWindow(QWidget *parent)
@@ -515,6 +668,30 @@ MainWindow::MainWindow(QWidget *parent)
     // **必须在 fetchAvailableVersions() 之前**：那一下要发网络请求，外观这条线不该
     // 排在它后面（离线那条路更是完全不让它走）。
     startPlayerSkinLoad();
+    // 底栏那两块上拉面板里画什么、行尾的按钮点了做什么（面板本身在 MainWindowUI 里，
+    // 它不查数据）。**每次点开现算一遍**：面板弹出来那一刻的一张快照，它自己不会跟着
+    // 刷新（实例随时会结束、账号随时会多一个），所以这里不许缓存上一次那几行。
+    //
+    // NOTE: 行里带着的 key 是"**这一行是谁**"（左面板 = 会话号、右面板 = 账号 uuid），不是
+    //       行号 —— 面板弹出来到某个按钮被点之间隔着用户看的那两眼，那中间列表是会变的
+    //       （见 MainWindowUI::PanelRow::key 那段）。
+    m_ui->setBottomBarPanelContent(
+        [this](bool account) -> QList<MainWindowUI::PanelRow> {
+            if (account) {
+                // 「最后登录的三个账户」（用户 2026-09-24 原话）—— 3 这个数只在这一处。
+                return recentAccountPanelRows(AccountStore::accounts(), AccountStore::activeUuid(),
+                                              3);
+            }
+            return runningGamePanelRows(
+                m_launcherManager->runningGames(), m_versionManager,
+                // 图标那一档颜色 = 底栏那几行字的墨色（画的图标不带自己的颜色）。
+                m_ui->getBottomBar()->palette().color(QPalette::WindowText),
+                QDateTime::currentMSecsSinceEpoch());
+        },
+        [this](bool account, const QString &key, int action) {
+            onBottomBarPanelAction(account, key, action);
+        });
+
     m_versionManager->fetchAvailableVersions();
 }
 
@@ -3994,6 +4171,89 @@ void MainWindow::onOfflineAccountRequested(const QString &name) {
     refreshAccountSkin();
 }
 
+void MainWindow::onBottomBarPanelAction(bool account, const QString &key, int action) {
+    if (account) {
+        if (action != kAccountPanelUseAction) {
+            return;  // 右面板那一行只有一颗按钮；别的编号是接线错了，什么都不做
+        }
+        useAccountFromPanel(key);  // key = 账号 uuid
+        return;
+    }
+
+    // 左面板（key = 会话号，见 runningGamePanelRows()）。两个编号各是一颗按钮，
+    // "关"和"改设置"是两件完全不同的事 —— 认编号，不认按钮上画着什么。
+    switch (action) {
+        case kRunningPanelStopAction:
+            stopGameSession(key.toInt());
+            return;
+        case kRunningPanelSettingsAction: {
+            // 进的是**这一行那个实例**的设置 —— 面板那一行自己带着版本号，和"当前选中的
+            // 那个实例"没关系（用户点的就是这一行）。
+            const LauncherManager::GameSession game = m_launcherManager->session(key.toInt());
+            if (game.sessionId == 0) {
+                appendLog(tr("这个实例刚刚已经结束了。"));
+                return;
+            }
+            openInstanceSettings(game.versionId);
+            return;
+        }
+        default:
+            return;
+    }
+}
+
+void MainWindow::useAccountFromPanel(const QString &uuid) {
+    if (uuid.isEmpty() || uuid == AccountStore::activeUuid()) {
+        // 已经是它了。那一行的按钮本来就是灰的（见 recentAccountPanelRows()），走到这儿
+        // 只是防一手。
+        return;
+    }
+    const bool offline = AccountStore::isOffline(uuid);
+    // 切换本身走**现成那一条**：onAccountSwitchRequested() 已经把"离线走 setOfflinePlayer、
+    // 正版走 reloadStoredAccount"和"重画底栏 + 刷外观"都做完了。这里只补正版那半句。
+    onAccountSwitchRequested(uuid);
+    // 没切过去就到此为止。**这一句不是为了兜底而兜底**：onAccountSwitchRequested() 失败时
+    // （列表里那份副本不完整会走那条）没有换人，活动槽里还是**上一个**账号的凭据 ——
+    // 再往下走就会拿上一个人的令牌去做"够不够 6 小时"的判断，甚至去刷新他的令牌，
+    // 而弹出来的话会把那个账号的名字写成这一行的名字。失败的框它自己已经弹过了。
+    if (AccountStore::activeUuid() != uuid) {
+        return;
+    }
+    if (offline) {
+        return;  // 离线身份没有令牌这回事
+    }
+
+    // 正版：看一眼**盘上属于这个账号的那张**令牌还剩多少（onAccountSwitchRequested() 刚
+    // 把这一份读进内存）。还够用（剩 ≥6 小时）就到此为止 —— 这一下不联网。
+    //
+    // NOTE: 这里刻意**不用 loadSavedToken()**：它只在"已经过期"时才去换，而用户要的是
+    //       "剩不到 6 小时就换"（见 AuthManager::tokenRefreshWindowSecs 那段）。
+    if (m_authManager->tokenSecondsLeft() >= AuthManager::tokenRefreshWindowSecs) {
+        return;
+    }
+    QString error;
+    // 这一段**是同步的**（15 秒超时的那种请求），先给用户一句话再进去。
+    enterSyncWait(tr("正在刷新登录令牌..."));
+    const bool refreshed = m_authManager->refreshMinecraftToken(&error);
+    leaveSyncWait();
+    if (refreshed) {
+        appendLog(tr("「%1」的登录令牌剩余不足 6 小时，已经顺手换了一张新的。")
+                      .arg(AccountStore::nameOf(uuid)));
+        return;
+    }
+    // 失败：**账号已经切过去了**，只是令牌没换到新的 —— 这两件事必须分开说，不然用户会
+    // 以为切换失败了（那他就会再点一次，而再点一次还是这个结果）。
+    //
+    // NOTE: 已知的两种失败原因（Azure 应用没被 Mojang 批准 / 盘上凭据属于另一个应用）
+    //       都不是这里能修的，只能重新登录一次 —— 所以那句话得指出**下一步**，不能只说
+    //       "刷新失败"。
+    appendLog(tr("「%1」的登录令牌没能刷新：%2").arg(AccountStore::nameOf(uuid), error));
+    QMessageBox::warning(this, tr("登录令牌没能刷新"),
+                         tr("已经切到账号「%1」，但它保存的登录凭据换不出新令牌：\n\n%2\n\n"
+                            "这个账号在「账号与外观…」里重新登录一次就好了。")
+                             .arg(AccountStore::nameOf(uuid), error));
+}
+
 void MainWindow::onAccountSwitchRequested(const QString &uuid) {
     if (uuid.isEmpty() || uuid == AccountStore::activeUuid()) {
         return;  // 已经是它了：写盘一遍再读回来，白折腾
@@ -4429,11 +4689,7 @@ bool MainWindow::applyGrouping(const QString &key, const GroupDialog &dialog) {
     return true;
 }
 
-void MainWindow::onInstanceSettingsClicked() {
-    // 取值口径和「重命名…」「分组…」一致：以下拉框为准（它就是"当前选中的那个实例"）。
-    // 顺带一提，这里**不用**去读那张树的 currentItem()，也就绕开了组头那道守卫 ——
-    // 三个按钮的取值口径一致比"少读一个控件"重要。
-    const QString versionId = selectedVersionId(m_ui->getInstalledVersionCombo());
+void MainWindow::openInstanceSettings(const QString &versionId) {
     if (versionId.isEmpty()) {
         QMessageBox::information(this, tr("实例设置"), tr("先选中一个实例。"));
         return;
@@ -4452,6 +4708,13 @@ void MainWindow::onInstanceSettingsClicked() {
         return;
     }
     applyInstanceSettings(versionId, dialog);
+}
+
+void MainWindow::onInstanceSettingsClicked() {
+    // 取值口径和「重命名…」「分组…」一致：以下拉框为准（它就是"当前选中的那个实例"）。
+    // 顺带一提，这里**不用**去读那张树的 currentItem()，也就绕开了组头那道守卫 ——
+    // 三个按钮的取值口径一致比"少读一个控件"重要。
+    openInstanceSettings(selectedVersionId(m_ui->getInstalledVersionCombo()));
 }
 
 bool MainWindow::applyInstanceSettings(const QString &versionId,
@@ -4832,22 +5095,67 @@ void MainWindow::onStopGameClicked() {
         return;
     }
 
+    // 这一下会停几个进程：同一个实例多开时是"全部"，问话里得说清（面板那行电源只停一份，
+    // 走的是 stopGameSession()，那条路恒为 1）。
+    int sessions = 0;
+    for (const LauncherManager::GameSession &game : m_launcherManager->runningGames()) {
+        if (game.versionId == versionId) {
+            ++sessions;
+        }
+    }
+    if (!confirmStopGame(instanceDisplayName(versionId), sessions)) {
+        return;
+    }
+    applyStopGame(versionId);
+}
+
+bool MainWindow::confirmStopGame(const QString &displayName, int sessions) {
     // 「停」在 Windows 上就是 TerminateProcess（见 LauncherManager::stopGame()），游戏
     // 来不及存档。**这件事必须在这里说清楚**，默认那一边是"别停"（回车 = 取消）。
+    //
+    // NOTE: 两处共用这一个框（实例页那颗「停」和底栏左面板里那行电源）—— 这句"游戏不会
+    //       存档"是产品级约定，两处各写一份迟早会有一处漏掉它。
     QMessageBox box(this);
     box.setIcon(QMessageBox::Warning);
     box.setWindowTitle(tr("停止游戏"));
-    box.setText(tr("「%1」正在运行。\n\n停止会**直接结束游戏进程** —— 游戏不会存档，"
-                   "没保存的进度会丢。\n要停止它吗？")
-                    .arg(instanceDisplayName(versionId)));
+    box.setText(sessions > 1
+                    ? tr("「%1」正在运行（共 %2 个游戏进程，这一下全部停止）。\n\n停止会"
+                         "**直接结束游戏进程** —— 游戏不会存档，没保存的进度会丢。\n"
+                         "要停止它吗？")
+                          .arg(displayName)
+                          .arg(sessions)
+                    : tr("「%1」正在运行。\n\n停止会**直接结束游戏进程** —— 游戏不会存档，"
+                         "没保存的进度会丢。\n要停止它吗？")
+                          .arg(displayName));
     QPushButton *stopButton = box.addButton(tr("停止游戏"), QMessageBox::DestructiveRole);
     QPushButton *cancelButton = box.addButton(tr("取消"), QMessageBox::RejectRole);
     box.setDefaultButton(cancelButton);
     box.exec();
-    if (box.clickedButton() != stopButton) {
+    return box.clickedButton() == stopButton;
+}
+
+void MainWindow::stopGameSession(int sessionId) {
+    // 面板是**弹出来那一刻**的一张快照（它不会跟着刷新），所以"这一行还在不在"得现问一遍。
+    const LauncherManager::GameSession game = m_launcherManager->session(sessionId);
+    if (game.sessionId == 0) {
+        // 用户看那两眼的时候它自己退出了。**不弹窗**：他什么都没做错，弹一个框只会让他
+        // 以为出事了；面板上那一行也确实已经不在了。
+        appendLog(tr("这个实例刚刚已经结束了。"));
         return;
     }
-    applyStopGame(versionId);
+    if (!confirmStopGame(game.displayName, 1)) {
+        return;
+    }
+    if (!m_launcherManager->stopGame(sessionId)) {
+        // 上面那一问期间它退出了（游戏自己崩了/被别处停了）。
+        appendLog(tr("「%1」刚刚已经结束了。").arg(game.displayName));
+        return;
+    }
+    appendLog(tr("已停止「%1」。").arg(game.displayName));
+    // 和 applyStopGame() 同一个收尾：进程真的没了要等 Qt 把 finished 送回来（onGameFinished
+    // 那边会重画），但"正在启动"这一格该现在收。
+    m_launchingSessions.remove(sessionId);
+    updateBottomBar();
 }
 
 int MainWindow::applyStopGame(const QString &versionId) {

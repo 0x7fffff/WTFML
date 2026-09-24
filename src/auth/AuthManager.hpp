@@ -75,6 +75,25 @@ public:
      */
     QString loadSavedToken(QString *errorMessage = nullptr);
 
+    /// 盘上那张 Minecraft 令牌**离到期还有多少秒**。
+    ///
+    /// NOTE: `-1` = 没有令牌、或者认不出到期时刻（凭据缺字段、从没登录过）—— 调用方把它
+    ///       当成"该换一张了"处理就行：真换不出来的原因由 loadSavedToken() /
+    ///       refreshMinecraftToken() 说得更具体（从没登录过 / 凭据不完整 / 被 XSTS 挡了）。
+    ///
+    /// NOTE: 比的是**去掉那 30 秒余量之后**的时刻（见 applyMinecraftTokenData()）——
+    ///       这里给出的"还剩多少"因此已经把那 30 秒算进去了，调用方不用再减。
+    int tokenSecondsLeft() const;
+
+    /// 剩余有效期**不到这个数**就该换一张了（6 小时）。
+    ///
+    /// 为什么不是"等它真的过期"：一张 Minecraft 令牌能用 24 小时，而"能不能启动游戏"问的是
+    /// **点启动那一刻**。启动器很可能开着不关（用户挂着它过夜、第二天点启动），那时候按
+    /// "还没过期"放过去的就是一张只剩几分钟的令牌 —— 用户要的是"这趟走得顺"，不是
+    /// "这一毫秒还没过期"。6 小时也是用户 2026-09-24 指定的数（原话：
+    /// 「看令牌需不需要更新，（过期时间小于6h）要的话就刷新」）。
+    static constexpr int tokenRefreshWindowSecs = 6 * 60 * 60;
+
     /**
      * @brief 用盘上的微软 refresh_token 把整条链重走一遍，拿一份新的 Minecraft 令牌。
      * @param errorMessage 可选。失败时写进一句能直接给用户看的原因。
