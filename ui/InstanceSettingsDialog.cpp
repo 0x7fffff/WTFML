@@ -125,7 +125,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         m_memoryMaxSpin->setSuffix(QStringLiteral(" MB"));
         // 和设置页那两个内存数字框同一份滚轮防护（见 MainWindowUI.hpp 里的 WheelGuard）：
         // 数字框在没有焦点时也吃滚轮，改完界面上看不出来，下次启动用的就是那个被滚出来的数。
-        m_memoryMaxSpin->installEventFilter(new WheelGuard(m_memoryMaxSpin));
+        WheelGuard::install(m_memoryMaxSpin);
         m_memoryMaxSpin->setFixedWidth(kMemorySpinWidth);
         choiceRow->addWidget(m_memoryMaxSpin);
     }
@@ -140,7 +140,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         m_memoryMinSpin->setSingleStep(MainWindowUI::memoryStepMb());
         m_memoryMinSpin->setSuffix(QStringLiteral(" MB"));
         // 同上：滚轮防护（见 MainWindowUI.hpp 里的 WheelGuard）。
-        m_memoryMinSpin->installEventFilter(new WheelGuard(m_memoryMinSpin));
+        WheelGuard::install(m_memoryMinSpin);
         m_memoryMinSpin->setFixedWidth(kMemorySpinWidth);
         choiceRow->addWidget(m_memoryMinSpin);
     }

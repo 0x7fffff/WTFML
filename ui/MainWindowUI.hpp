@@ -68,6 +68,31 @@ class QVBoxLayout;
  *
  * 判据只有一个：**没有焦点就不认滚轮**。有焦点时照常放行（用户是特意点进来的）。
  *
+ * 【这条判据要成立，必须连焦点策略一起改 —— 只装过滤器是哑的】
+ *
+ * 2026-09-24 修的。以前这里只有 installEventFilter()，判据读到的 hasFocus() 却**永远
+ * 已经是 true**：Qt 对**真滚轮事件**（spontaneous）是"先按焦点策略给焦点、再派发"，
+ *   - qapplication.cpp 的 case QEvent::Wheel 里先调
+ *     QApplicationPrivate::giveFocusAccordingToFocusPolicy(w, e, relpos)（:2887），
+ *     真正的 d->notify_helper(w, &we)（事件过滤器就是在这一句里跑的）在 :2895 之后；
+ *   - giveFocusAccordingToFocusPolicy() 对 wheel 这一档用的策略是 Qt::WheelFocus（:3694），
+ *     shouldSetFocus() 的判据是 (w->focusPolicy() & policy) == policy（:3732）；
+ *   - 偏巧 QComboBox（非 macOS 那条分支）和 QAbstractSpinBox 的**默认焦点策略就是
+ *     WheelFocus**（qcombobox.cpp:1066 / qabstractspinbox.cpp:1625）。
+ * 于是判据通过 → 事件过滤器跑的那一刻 hasFocus() 已经是 true → 一律放行 → 值照样被改。
+ * 改成 StrongFocus（= TabFocus|ClickFocus|0x8，**不含** WheelFocus 多出来的那个 0x4 位）
+ * 之后 shouldSetFocus() 不通过、滚轮不再抢焦点，!hasFocus() 才恢复它字面上的意思：
+ * 鼠标划过（焦点在别处）吃掉、用户点/切进来的那一个照常认滚轮。
+ *
+ * NOTE: 这两件事**必须一起做**，所以入口只有一个 WheelGuard::install()。直接
+ *       new WheelGuard(...) + installEventFilter(...) 会得到一个看着装上了、其实
+ *       一次都不生效的防护 —— 这正是它原来那个样子。
+ *
+ * NOTE: 验证工程里那条用例用的是 QApplication::sendEvent()（合成事件），而
+ *       qapplication.cpp 对 !wheel->spontaneous() 走的是"不给焦点、直接 notify_helper"
+ *       那条岔路 —— 探针里 hasFocus() 仍是 false、防护"看起来生效"。真机上会不会生效
+ *       因此只能靠**焦点策略**那条断言守着（ui_check 里"滚轮防护"那一段）。
+ *
  * NOTE: QObject::eventFilter 是虚函数、不是槽，所以这里不需要 Q_OBJECT，
  *       AUTOMOC 不会牵扯进来，也不用在 cpp 末尾补 .moc 包含。
  *
@@ -78,6 +103,17 @@ class QVBoxLayout;
 class WheelGuard : public QObject {
 public:
     using QObject::QObject;
+
+    /// 装防护的**唯一入口**：改焦点策略 + 装过滤器，两件事一起做（理由见上面那段）。
+    /// @param widget 要护住的控件（下拉框 / 数字框）。空指针什么都不做，调用方不必先判空。
+    static void install(QWidget *widget) {
+        if (widget == nullptr) {
+            return;
+        }
+        // StrongFocus 里**没有** WheelFocus 那一位，滚轮因此不再抢焦点 —— 这是判据成立的前提。
+        widget->setFocusPolicy(Qt::StrongFocus);
+        widget->installEventFilter(new WheelGuard(widget));
+    }
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override {

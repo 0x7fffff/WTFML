@@ -306,7 +306,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         installedVersionCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
         installedVersionCombo->setMinimumContentsLength(12);
         // 滚轮防护：见 MainWindowUI.hpp 里的 WheelGuard
-        installedVersionCombo->installEventFilter(new WheelGuard(installedVersionCombo));
+        WheelGuard::install(installedVersionCombo);
         installedVersionCombo->setObjectName(installedVersionComboName());
         home.left.layout->addWidget(installedVersionCombo);
 
@@ -897,7 +897,7 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
         javaVersionCombo->setObjectName(javaVersionComboName());
         javaVersionCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
         javaVersionCombo->setMinimumContentsLength(12);
-        javaVersionCombo->installEventFilter(new WheelGuard(javaVersionCombo));
+        WheelGuard::install(javaVersionCombo);
         boxLayout->addWidget(javaVersionCombo);
         javaPathLabel = new QLabel(box);
         javaPathLabel->setObjectName(javaPathLabelName());
@@ -961,7 +961,7 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
         memoryMaxSpin->setSingleStep(memoryStepMb());
         memoryMaxSpin->setSuffix(QStringLiteral(" MB"));
         // 数字框也吃滚轮（加一步/减一步），而且没有焦点时改完**看不出来** —— 见 WheelGuard。
-        memoryMaxSpin->installEventFilter(new WheelGuard(memoryMaxSpin));
+        WheelGuard::install(memoryMaxSpin);
         addInlineControl(boxLayout, memoryMaxSpin, kMemorySpinWidth);
         addHint(box, QStringLiteral("给 JVM 的 -Xmx。模组多、整合包大就往上调；"
                                     "机器内存不够时先降这一项。"),
@@ -977,7 +977,7 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
         memoryMinSpin->setSingleStep(memoryStepMb());
         memoryMinSpin->setSuffix(QStringLiteral(" MB"));
         // 同上：滚轮防护（见 WheelGuard）。
-        memoryMinSpin->installEventFilter(new WheelGuard(memoryMinSpin));
+        WheelGuard::install(memoryMinSpin);
         addInlineControl(boxLayout, memoryMinSpin, kMemorySpinWidth);
         addHint(box, QStringLiteral("给 JVM 的 -Xms。设成和最大内存一样可以少几次扩容，"
                                     "但会一直占着那些内存。"),
@@ -992,7 +992,7 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
         auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
         launcherBehaviourCombo = new QComboBox(box);
         launcherBehaviourCombo->setObjectName(launcherBehaviourComboName());
-        launcherBehaviourCombo->installEventFilter(new WheelGuard(launcherBehaviourCombo));
+        WheelGuard::install(launcherBehaviourCombo);
         boxLayout->addWidget(launcherBehaviourCombo);
         addHint(box, QStringLiteral("游戏起来之后启动器自己怎么办。「收起」是把窗口藏起来、"
                                     "进程还在（关掉进程会连带杀掉游戏）。"),
@@ -1038,7 +1038,7 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
         auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
         downloadSourceCombo = new QComboBox(box);
         downloadSourceCombo->setObjectName(downloadSourceComboName());
-        downloadSourceCombo->installEventFilter(new WheelGuard(downloadSourceCombo));
+        WheelGuard::install(downloadSourceCombo);
         boxLayout->addWidget(downloadSourceCombo);
         addHint(box, QStringLiteral("镜像源是第三方服务（BMCLAPI），国内通常快很多。"
                                     "下回来的文件不对时可以换回官方源重下。"),
