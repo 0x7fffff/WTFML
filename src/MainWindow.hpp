@@ -123,7 +123,6 @@ private slots:
     ///       （沙盒里现写两张 PNG 喂进来），**不联网**就能验完整条界面路径。
     void applyPlayerSkin(const QString &skinPath, const QString &capePath, bool slim);
     void onAddFolderClicked();
-    void onRemoveFolderClicked();
     /// 「重命名…」：问一个新名字，真的把磁盘上的目录改掉（含 jar / json 一起改）。
     /// 校验、执行、回滚全在 VersionManager::renameInstance() 里，这里只负责
     /// 三道闸口（有没有选中、是不是正在跑、名字合不合法）和弹窗。
