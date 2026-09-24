@@ -831,8 +831,11 @@ void MainWindow::setupConnections() {
             &MainWindow::onGroupInstanceClicked);
     connect(m_ui->getInstanceSettingsButton(), &QPushButton::clicked, this,
             &MainWindow::onInstanceSettingsClicked);
-    connect(m_ui->getStopGameButton(), &QPushButton::clicked, this,
-            &MainWindow::onStopGameClicked);
+    // NOTE: 实例页那颗「停止游戏…」2026-09-25 删掉了（用户原话），这里原来接
+    //       onStopGameClicked() 的那条线跟着没了 —— 停游戏现在只有底栏左面板里那行电源
+    //       那条路（onBottomBarPanelAction() → stopGameSession()）。
+    // 「导入整合包…」这一颗 2026-09-25 从右栏挪到了左栏「游戏文件夹」那一组（在
+    // 「添加文件夹…」下面），槽没变、接线也没变。
     connect(m_ui->getImportModpackButton(), &QPushButton::clicked, this,
             &MainWindow::onImportModpackClicked);
     // 左边列表选中哪一份 .minecraft，启动器就换到哪一份上（PCL 的卡片是同一个交互）。
@@ -5460,41 +5463,14 @@ QString MainWindow::launchingStatusName() const {
     return tr("%1 个实例").arg(m_launchingSessions.size());
 }
 
-void MainWindow::onStopGameClicked() {
-    // 作用于"当前选中的实例"，理由和「重命名…」一样（下拉框和实例页那张列表是同一份
-    // 数据的两种看法，以下拉框为准）。
-    const QString versionId = selectedVersionId(m_ui->getInstalledVersionCombo());
-    if (versionId.isEmpty()) {
-        QMessageBox::information(this, tr("停止游戏"), tr("先选中一个实例。"));
-        return;
-    }
-    if (!m_launcherManager->isVersionRunning(versionId)) {
-        // 选中的那个没在跑。**不弹窗** —— 用户点开看看、发现不是它，这不是错误；
-        // 而这里恰恰是最容易误伤的地方：旁边就有别的实例在跑，手一滑就把它杀了。
-        appendLog(tr("「%1」没有在跑。").arg(instanceDisplayName(versionId)));
-        return;
-    }
-
-    // 这一下会停几个进程：同一个实例多开时是"全部"，问话里得说清（面板那行电源只停一份，
-    // 走的是 stopGameSession()，那条路恒为 1）。
-    int sessions = 0;
-    for (const LauncherManager::GameSession &game : m_launcherManager->runningGames()) {
-        if (game.versionId == versionId) {
-            ++sessions;
-        }
-    }
-    if (!confirmStopGame(instanceDisplayName(versionId), sessions)) {
-        return;
-    }
-    applyStopGame(versionId);
-}
-
 bool MainWindow::confirmStopGame(const QString &displayName, int sessions) {
     // 「停」在 Windows 上就是 TerminateProcess（见 LauncherManager::stopGame()），游戏
     // 来不及存档。**这件事必须在这里说清楚**，默认那一边是"别停"（回车 = 取消）。
     //
-    // NOTE: 两处共用这一个框（实例页那颗「停」和底栏左面板里那行电源）—— 这句"游戏不会
-    //       存档"是产品级约定，两处各写一份迟早会有一处漏掉它。
+    // NOTE: 2026-09-25 之前就**只有**底栏左面板里那行电源走这儿了（实例页那颗「停」连同
+    //       applyStopGame() 一起删了，见 MainWindowUI.cpp 里那段）。所以 `sessions > 1`
+    //       那半句现在是**死支**—— stopGameSession() 恒传 1。留着它是因为它是这个函数
+    //       的一部分（"一次停几份"这件事问话里要说清），不是因为还有人在用。
     QMessageBox box(this);
     box.setIcon(QMessageBox::Warning);
     box.setWindowTitle(tr("停止游戏"));
@@ -5532,43 +5508,10 @@ void MainWindow::stopGameSession(int sessionId) {
         return;
     }
     appendLog(tr("已停止「%1」。").arg(game.displayName));
-    // 和 applyStopGame() 同一个收尾：进程真的没了要等 Qt 把 finished 送回来（onGameFinished
-    // 那边会重画），但"正在启动"这一格该现在收。
-    m_launchingSessions.remove(sessionId);
-    updateBottomBar();
-}
-
-int MainWindow::applyStopGame(const QString &versionId) {
-    // 同一个实例多开时要**全停**：用户点的是那个实例，期待的是它整个停下来
-    // （见头里的说明）。这里先把会话号抄下来再停 —— stopGame() 之后那份会话随时可能
-    // 从表里消失，边遍历边动那张表是不行的。
-    QList<int> targets;
-    const QList<LauncherManager::GameSession> games = m_launcherManager->runningGames();
-    for (const LauncherManager::GameSession &game : games) {
-        if (game.versionId == versionId) {
-            targets.append(game.sessionId);
-        }
-    }
-    int stopped = 0;
-    for (int sessionId : targets) {
-        if (m_launcherManager->stopGame(sessionId)) {
-            ++stopped;
-        }
-    }
-    if (stopped == 0) {
-        appendLog(tr("「%1」没有在跑。").arg(instanceDisplayName(versionId)));
-        return 0;
-    }
-    appendLog(tr("已停止「%1」（%2 个游戏进程）。")
-                  .arg(instanceDisplayName(versionId))
-                  .arg(stopped));
     // 进程真的没了要等 Qt 把 finished 送回来（onGameFinished 那边会重画），但"正在启动"
     // 这一格该现在收：用户刚看见的那句话已经不对了。
-    for (int sessionId : targets) {
-        m_launchingSessions.remove(sessionId);
-    }
+    m_launchingSessions.remove(sessionId);
     updateBottomBar();
-    return stopped;
 }
 
 void MainWindow::onImportModpackClicked() {

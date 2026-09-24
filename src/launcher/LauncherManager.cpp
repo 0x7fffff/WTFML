@@ -991,7 +991,7 @@ bool LauncherManager::stopGame(int sessionId) {
     qInfo() << "用户要求停止实例:" << it->info.displayName
             << "PID:" << it->info.processId;
     // kill() 就是 TerminateProcess，游戏来不及存档 —— 界面那边必须先把这件事说清楚
-    // （见 MainWindow::onStopGameClicked() 那个确认框）。这里不 waitForFinished()：
+    // （见 MainWindow::confirmStopGame() 那个确认框）。这里不 waitForFinished()：
     // 结束那条路会走 handleProcessFinished，界面据此收状态，同步等在这里只会卡住界面。
     it->process->kill();
     return true;
