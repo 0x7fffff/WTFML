@@ -34,12 +34,90 @@ const QString kMembersField = QStringLiteral("members");
 const QString kIdField = QStringLiteral("id");
 const QString kNameField = QStringLiteral("name");
 
+/// 五个默认组的 id。**写死的**、不是 UUID —— 理由见 .hpp 里 defaultGroupId() 那段。
+/// 前面那个 `default-` 前缀是给用户看的（他拿记事本打开这份文件时一眼能认出哪几个是
+/// 默认组），顺带保证它和 newGroupId() 生成的 UUID 在形式上就不可能撞。
+const QString kDefaultIdPinned = QStringLiteral("default-pinned");
+const QString kDefaultIdModdable = QStringLiteral("default-moddable");
+const QString kDefaultIdVanilla = QStringLiteral("default-vanilla");
+const QString kDefaultIdSnapshot = QStringLiteral("default-snapshot");
+const QString kDefaultIdOld = QStringLiteral("default-old");
+
 }  // namespace
 
 InstanceGroupStore::InstanceGroupStore(QObject *parent) : QObject(parent) {}
 
 QString InstanceGroupStore::newGroupId() {
     return QUuid::createUuid().toString(QUuid::WithoutBraces);
+}
+
+QString InstanceGroupStore::defaultGroupId(DefaultKind kind) {
+    switch (kind) {
+    case DefaultKind::Pinned:
+        return kDefaultIdPinned;
+    case DefaultKind::Moddable:
+        return kDefaultIdModdable;
+    case DefaultKind::Vanilla:
+        return kDefaultIdVanilla;
+    case DefaultKind::Snapshot:
+        return kDefaultIdSnapshot;
+    case DefaultKind::Old:
+        return kDefaultIdOld;
+    }
+    return QString();
+}
+
+QString InstanceGroupStore::defaultGroupName(DefaultKind kind) {
+    switch (kind) {
+    case DefaultKind::Pinned:
+        return QStringLiteral("置顶");
+    case DefaultKind::Moddable:
+        return QStringLiteral("可安装mod");
+    case DefaultKind::Vanilla:
+        return QStringLiteral("原版");
+    case DefaultKind::Snapshot:
+        return QStringLiteral("快照版");
+    case DefaultKind::Old:
+        return QStringLiteral("远古版");
+    }
+    return QString();
+}
+
+QList<InstanceGroupStore::Group> InstanceGroupStore::defaultGroups() {
+    // 顺序就是 DefaultKind 那个枚举的顺序（用户给的那五个词的原样，置顶在最前）。
+    const DefaultKind order[] = {DefaultKind::Pinned, DefaultKind::Moddable, DefaultKind::Vanilla,
+                                DefaultKind::Snapshot, DefaultKind::Old};
+    QList<Group> groups;
+    for (const DefaultKind kind : order) {
+        groups.append({defaultGroupId(kind), defaultGroupName(kind)});
+    }
+    return groups;
+}
+
+QString InstanceGroupStore::ungroupedMarker() {
+    return QStringLiteral("ungrouped");
+}
+
+bool InstanceGroupStore::seedDefaultGroups(QString *errorOut) {
+    ensureLoaded();
+
+    // 文件在 = 这一份 .minecraft 已经分过组了（哪怕里面一个组都没有 —— 用户把默认那五个
+    // 全删光了），一个字节都不写。理由见 .hpp 里那段 NOTE。
+    if (QFile::exists(AppPaths::instanceGroupFilePath())) {
+        return true;
+    }
+    // 成员表照原样带着走（文件不存在时它本来就是空的，这句只是为了和 replaceGroups()
+    // 一个写法 —— 将来"文件不存在但内存里有成员"这种组合冒出来时不会丢东西）。
+    return writeThrough(defaultGroups(), m_root.value(kMembersField).toObject(), errorOut);
+}
+
+bool InstanceGroupStore::isAssigned(const QString &instanceKey) const {
+    if (instanceKey.isEmpty()) {
+        return false;
+    }
+    ensureLoaded();
+    // 只看**有没有这一条**（值非空），不看那个组还在不在 —— 理由见 .hpp 里那段 NOTE。
+    return !m_root.value(kMembersField).toObject().value(instanceKey).toString().isEmpty();
 }
 
 void InstanceGroupStore::ensureLoaded() const {
@@ -184,11 +262,10 @@ bool InstanceGroupStore::assign(const QString &instanceKey, const QString &group
     }
 
     QJsonObject members = m_root.value(kMembersField).toObject();
-    if (groupId.isEmpty()) {
-        members.remove(instanceKey);
-    } else {
-        members.insert(instanceKey, groupId);
-    }
+    // 空串 = 用户明确选了「未分组」→ 写的是那个**保留值**，不是"把这一条删掉"。
+    // 两者在界面上是同一格，在文件里必须分得开：删掉这一条的话，MainWindow 会认为
+    // 用户从来没表过态，下一次刷新就按版本类型把它归类回去了（见 ungroupedMarker()）。
+    members.insert(instanceKey, groupId.isEmpty() ? ungroupedMarker() : groupId);
     return writeThrough(groups(), members, errorOut);
 }
 
@@ -246,7 +323,14 @@ bool InstanceGroupStore::writeThrough(const QList<Group> &groups, const QJsonObj
         const QString groupId = it.value().toString();
         // 指向已经不存在的组的归属**一起清掉** —— 那个归属没有意义了。这就是
         // "删组只删组本身 + 指向它的成员条目，实例一个不动"那半句的实现。
-        if (key.isEmpty() || groupId.isEmpty() || !keptIds.contains(groupId)) {
+        //
+        // NOTE: ungroupedMarker() 那个保留值不在 keptIds 里，但它是一条**正常**的归属
+        //       （用户明确选了未分组），必须原样留着 —— 漏掉这一句的话，用户一按「确定」
+        //       它就被清掉，然后按版本类型归类回去。
+        if (key.isEmpty() || groupId.isEmpty()) {
+            continue;
+        }
+        if (groupId != ungroupedMarker() && !keptIds.contains(groupId)) {
             continue;
         }
         members.insert(key, groupId);
