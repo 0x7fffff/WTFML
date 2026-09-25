@@ -6108,51 +6108,56 @@ bool MainWindow::applyRename(const QString &oldId, const QString &newId) {
 }
 
 void MainWindow::pinInstance(const QString &versionId) {
-    // 「置顶」= 把这个实例挪进**置顶组**（用户 2026-09-25 原话：「置顶以后进选了这个的组」）。
-    // 哪一组当家由 InstanceGroupStore::pinnedGroupId() 回答：清单里勾了「设为置顶组」的那
-    // 一组；一个都没勾就退回名字叫「置顶」的那个默认组（老用户的迁移路）；都没有则是空串。
-    const QString target = m_groupStore->pinnedGroupId();
-    if (target.isEmpty()) {
-        // 没有置顶组 ⇒ 那一格本来就**没画**（fillInstanceTree 里那一格判的就是它）。
-        // 走到这儿只可能是"树画出来之后、点下去之前"用户把那一组删了。什么都不做、
-        // 也不弹窗：这一下本来就没有去处，而屏幕上那颗箭头此刻也已经不在了。
+    // 「置顶」= 把这个实例挪进**置顶组**（用户 2026-09-25 原话：「置顶以后进选了这个的组」），
+    // 同时记下"它置顶之前待在哪一组"（2026-09-26 原话：「加一个记录置顶前这玩意属于哪一组
+    // 的」）。两件事一起做是 store 那一层的实现（InstanceGroupStore::pinInstance()）——
+    // 分两次写的话，中间那一份文件自相矛盾，取消置顶就会给出一个不一样的答案。
+    // 哪一组是置顶组由 store 回答（清单里勾了「设为置顶组」的那一组；一个都没勾就退回名字
+    // 叫「置顶」的那个默认组，那是老用户的迁移路；都没有则是空串）。
+    //
+    // 没有置顶组 ⇒ 那一格本来就**没画**（fillInstanceTree 里那一格判的就是它）。走到这儿
+    // 只可能是"树画出来之后、点下去之前"用户把那一组删了。什么都不做、也不弹窗：这一下
+    // 本来就没有去处，而屏幕上那颗箭头此刻也已经不在了，屏幕底下那条"已置顶"的日志更不该
+    // 写出来（store 那一层同样不写盘，见 InstanceGroupStore::pinInstance()）。
+    if (m_groupStore->pinnedGroupId().isEmpty()) {
         return;
     }
 
     // 归属键走 instanceKey()（有稳定 id 用 id、没有用目录名）—— 读和写必须同一个键，
     // 否则存下去的那一刻就对不上了（见 InstanceGroupStore 文件头）。
     QString error;
-    if (!m_groupStore->assign(instanceKey(versionId), target, &error)) {
+    if (!m_groupStore->pinInstance(instanceKey(versionId), &error)) {
         InlineMessage::critical(m_ui->overlay(), tr("置顶失败"), error);
         return;
     }
-    // assign() 成功会发 groupsChanged ⇒ 整棵树重灌（那个实例挪进置顶组、它那一行那颗上箭头
-    // 消失，因为已经在里面了）。**不再手动刷一遍**：手动刷只会和信号那条路撞在一起。
+    // 写成功会发 groupsChanged ⇒ 整棵树重灌（那个实例挪进置顶组、它那一行那颗上箭头消失，
+    // 因为已经在里面了）。**不再手动刷一遍**：手动刷只会和信号那条路撞在一起。
     appendLog(tr("已置顶：%1").arg(instanceDisplayName(versionId)));
 }
 
 void MainWindow::unpinInstance(const QString &versionId) {
-    // 「取消置顶」= 把这个实例**挪出置顶组**（用户 2026-09-25 原话：「置顶组里的实例悬停时
-    // 右侧显示下箭头，即取消置顶」）。它是 pinInstance() 的反面，落到哪一格只有一条规矩：
-    // 和「移出分组」那件事**逐字同一个落点** —— 写一条"明确选了未分组"（assign 收空串
-    // 时写的就是那个保留值，不是把这一条删掉），于是它**不会再被自动归类拉回去**。
+    // 「取消置顶」= 把这个实例**送回它置顶之前待的那一组**（用户 2026-09-25 原话：
+    // 「置顶组里的实例悬停时右侧显示下箭头，即取消置顶」；落点由 2026-09-26 那句定死：
+    // 「加一个记录置顶前这玩意属于哪一组的，用户直接塞的取消置顶才归进未分类」）。
+    // 三种记录三种落点都写在 InstanceGroupStore::unpinInstance() / 那个文件头那一段里：
+    // 记着组 id ⇒ 回那个组；记着"明确选了未分组"⇒ 回未分组；记着 null（置顶前压根没表过
+    // 态）⇒ 把那一条归属**删掉**、让显示层按版本类型重新归类。
     //
-    // NOTE: 为什么不"删掉这一条归属、让它重新自动归类"（= 恢复成"没表过态"）：那要看
-    //       "这个实例本来该归哪一组"—— 而它此刻正待在置顶组里，那个信息早就没了（用户
-    //       可能是从任何一个组把它置顶过来的，也可能本来就是自动归进「可安装mod」的）。
-    //       猜错的代价是"取消置顶之后它跳去了一个我没选过的组"，比"落在未分组里、
-    //       用户自己再挪一次"糟得多。仓库里另外两处移出动作（clearGroupMembers /
-    //       assignSelectedInstanceToGroup）也都是这个落点。
+    // NOTE: **没有记录**（用户自己用「移入分组」把它塞进置顶组的，或者这一版之前就在里面的
+    //       老数据）⇒ 落未分组，和「移出分组」逐字同一个落点。这一档**不猜**它本来该归哪
+    //       一组：那条信息真的不存在（从来没被记下来过），猜错的表现是"取消置顶之后它跳去
+    //       了一个我没选过的组"，比"落在未分组里、用户自己再挪一次"糟得多 —— 而"用户直接
+    //       塞的才归未分类"正是用户点名要的那一档。
     //
     // NOTE: 不判"它到底在不在置顶组里" —— 那一格只在 rowUnpinRole() 为真的行上画得出来，
     //       走到这儿就说明在。真要在外面，这一下也只是写一条"未分组"，无害。
     QString error;
-    if (!m_groupStore->assign(instanceKey(versionId), QString(), &error)) {
+    if (!m_groupStore->unpinInstance(instanceKey(versionId), &error)) {
         InlineMessage::critical(m_ui->overlay(), tr("取消置顶失败"), error);
         return;
     }
-    // assign() 成功会发 groupsChanged ⇒ 整棵树重灌（那个实例挪出置顶组：落到「未分组」
-    // 那一档、它那一行那颗箭头换回朝上的）。**不再手动刷一遍**，理由同 pinInstance()。
+    // 写成功会发 groupsChanged ⇒ 整棵树重灌（那个实例回到记录里那一组、它那一行那颗箭头
+    // 换回朝上的）。**不再手动刷一遍**，理由同 pinInstance()。
     appendLog(tr("已取消置顶：%1").arg(instanceDisplayName(versionId)));
 }
 

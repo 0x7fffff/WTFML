@@ -40,6 +40,14 @@ const QString kExpandedField = QStringLiteral("expanded");
 /// **文件里没有这一条 = 不是置顶组**（老文件、手写的文件都不认领这个身份）—— 只有一条
 /// 例外在读取口上：一个都没有时退回那个叫「置顶」的默认组，见 pinnedGroupId()。
 const QString kPinnedField = QStringLiteral("pinned");
+/// **置顶前的归属**：那颗上箭头点下去之前，这个实例待在哪儿（用户 2026-09-26 原话：
+/// 「加一个记录置顶前这玩意属于哪一组的，用户直接塞的取消置顶才归进未分类」）。
+/// 与 members 平级的一个对象，键和 members 同一套（实例归属键），值有三种形态 ——
+/// 完整规矩与"为什么第三种必须是 null"见 .hpp 文件头那一段。
+///
+/// **文件里没有这一格 = 一个记录都没有**（老文件、手改的文件都算），此时取消置顶
+/// 一律落未分组 —— 正是用户那句"用户直接塞的才归进未分类"。
+const QString kPinOriginField = QStringLiteral("pinOrigin");
 
 /// 五个默认组的 id。**写死的**、不是 UUID —— 理由见 .hpp 里 defaultGroupId() 那段。
 /// 前面那个 `default-` 前缀是给用户看的（他拿记事本打开这份文件时一眼能认出哪几个是
@@ -267,10 +275,10 @@ QString InstanceGroupStore::groupIdOf(const QString &instanceKey) const {
     return found == known.constEnd() ? QString() : groupId;
 }
 
-QString InstanceGroupStore::pinnedGroupId() const {
-    const QList<Group> known = groups();
-    // 第一条出口：真有组认领了这个身份（groups() 已经保证最多一个）。
-    for (const Group &group : known) {
+QString InstanceGroupStore::pinnedGroupIdOf(const QList<Group> &groups) {
+    // 第一条出口：真有组认领了这个身份（groups() 已经保证最多一个）。**取第一个** ——
+    // 手改出来的"两个都是 true"在这里和第二位读者（写侧自清理）看到的必须是同一个答案。
+    for (const Group &group : groups) {
         if (group.pinned) {
             return group.id;
         }
@@ -285,11 +293,15 @@ QString InstanceGroupStore::pinnedGroupId() const {
     //       用户下次打开还是同一个答案，文件也还是他自己写的那样。
     const QString fallback = defaultGroupId(DefaultKind::Pinned);
     const auto found =
-        std::find_if(known.constBegin(), known.constEnd(),
+        std::find_if(groups.constBegin(), groups.constEnd(),
                      [&fallback](const Group &group) { return group.id == fallback; });
     // 第三条出口：连「置顶」组都被删了（用户把五个默认组删光了，或者自己建的几个组都不
     // 打算当置顶组）⇒ 空串。调用方拿到空串就什么都不做 —— 那颗上箭头此刻没有去处。
-    return found == known.constEnd() ? QString() : fallback;
+    return found == groups.constEnd() ? QString() : fallback;
+}
+
+QString InstanceGroupStore::pinnedGroupId() const {
+    return pinnedGroupIdOf(groups());
 }
 
 bool InstanceGroupStore::replaceGroups(const QList<Group> &groups, QString *errorOut) {
@@ -420,6 +432,107 @@ bool InstanceGroupStore::assign(const QString &instanceKey, const QString &group
     return writeThrough(groups(), members, errorOut);
 }
 
+bool InstanceGroupStore::pinInstance(const QString &instanceKey, QString *errorOut) {
+    const auto fail = [errorOut](const QString &reason) {
+        if (errorOut != nullptr) {
+            *errorOut = reason;
+        }
+        return false;
+    };
+
+    if (instanceKey.isEmpty()) {
+        return fail(tr("内部错误：没有指定要给哪个实例置顶。"));
+    }
+
+    ensureLoaded();
+    if (!m_unreadableReason.isEmpty()) {
+        return fail(m_unreadableReason);
+    }
+
+    const QString pinnedGroup = pinnedGroupId();
+    if (pinnedGroup.isEmpty()) {
+        // 这一份 .minecraft 里没有置顶组 ⇒ 调用方本来就不该走到这儿（界面上那一格压根
+        // 没画）。不写盘、也不给一句"失败"—— 它没失败，只是这件事此刻没有去处
+        // （和 setGroupExpanded() 那几条空操作同一条规矩：没发生的事不留痕迹）。
+        return true;
+    }
+
+    QJsonObject members = m_root.value(kMembersField).toObject();
+    if (members.value(instanceKey).toString().trimmed() == pinnedGroup) {
+        // 本来就在置顶组里：一个字节都不写。**尤其不能盖掉已有的那条记录** ——
+        // 那记的是"上一次置顶之前它在哪"，比此刻这一格有用得多。
+        return true;
+    }
+
+    // ★ 记下"置顶之前它属于哪一组"（用户 2026-09-26 要的那一句）。三种来路三种记法：
+    //   - 有归属、指向一个活着的组 ⇒ 记那个组 id（取消置顶时原样写回去）；
+    //   - 明确选了「未分组」⇒ 记那个**保留值**（原样写回去，见 ungroupedMarker()那段）；
+    //   - **压根没有这一条**（用户从没表过态，显示层按版本类型把它归在某一组里）⇒ 记 null。
+    //     取消置顶时把 members 里那一条**删掉**（不是写 marker）⇒ 显示层按同一套规则再算
+    //     一遍，落回它置顶前**显示**的那一组；而写 marker 会把"我就想待在未分组"这句
+    //     用户没说过的态替他说了，从此它再也不会被自动归类。
+    // NOTE: 记的值**不在这里校验**（指向一个已经删掉的组也是原样记下来）—— 写侧那道自清理
+    //       会把它当"认不出来的值"丢掉，那时取消置顶就按"没记录"处理（落未分组）。
+    QJsonObject origins = m_root.value(kPinOriginField).toObject();
+    const QString before = members.value(instanceKey).toString().trimmed();
+    origins.insert(instanceKey, before.isEmpty() ? QJsonValue(QJsonValue::Null)
+                                                 : QJsonValue(before));
+
+    members.insert(instanceKey, pinnedGroup);
+    return writeThrough(groups(), members, origins, errorOut);
+}
+
+bool InstanceGroupStore::unpinInstance(const QString &instanceKey, QString *errorOut) {
+    const auto fail = [errorOut](const QString &reason) {
+        if (errorOut != nullptr) {
+            *errorOut = reason;
+        }
+        return false;
+    };
+
+    if (instanceKey.isEmpty()) {
+        return fail(tr("内部错误：没有指定要给哪个实例取消置顶。"));
+    }
+
+    ensureLoaded();
+    if (!m_unreadableReason.isEmpty()) {
+        return fail(m_unreadableReason);
+    }
+
+    QJsonObject members = m_root.value(kMembersField).toObject();
+    QJsonObject origins = m_root.value(kPinOriginField).toObject();
+    const bool recorded = origins.contains(instanceKey);
+
+    if (recorded && origins.value(instanceKey).isNull()) {
+        // 置顶前它**根本没表过态** ⇒ 把那一条删掉（不是写 marker）。删掉之后显示层按
+        // 版本类型重新归类 —— 落回它置顶前**显示**的那一组。完整理由见 pinInstance() 那段。
+        members.remove(instanceKey);
+    } else {
+        // 有记录 ⇒ 回记录里的那一组（组 id / ungroupedMarker() 那个保留值）。
+        // 没记录 ⇒ 未分组：这一条是"用户自己塞进置顶组的"（「移入分组」挑的、或者这一版
+        //   之前就在里面的老数据）—— 用户要的就是这一档归未分类。
+        QString target = recorded ? origins.value(instanceKey).toString().trimmed() : QString();
+        if (!target.isEmpty() && target != ungroupedMarker()) {
+            // 记录里那个组可能已经被删了（删组不清这一格 —— 它只在**写盘时**自清理，
+            // 而"取消置顶"可能正好是那之后的第一笔写）。指向一个没有的组等于没有记录，
+            // 落未分组，绝不写一条指向空处的归属。
+            const QList<Group> known = groups();
+            const auto found =
+                std::find_if(known.constBegin(), known.constEnd(),
+                             [&target](const Group &group) { return group.id == target; });
+            if (found == known.constEnd()) {
+                target.clear();
+            }
+        }
+        members.insert(instanceKey, target.isEmpty() ? ungroupedMarker() : target);
+    }
+    // 记录用完就删：它只服务于"这一次取消置顶"，留着的话下一次置顶会把它当成"置顶前的
+    // 归属"再读一遍（那已经是两轮之前的旧账了）。
+    origins.remove(instanceKey);
+
+    return writeThrough(groups(), members, origins, errorOut);
+}
+
 bool InstanceGroupStore::rekey(const QString &oldKey, const QString &newKey, QString *errorOut) {
     // 键没变（改名的只是大小写、或者压根没生成过新 id）就没什么可搬的。
     // 这里**不写盘**也是刻意的：一次改名不该平白多出一个 wtfml.folders。
@@ -429,18 +542,40 @@ bool InstanceGroupStore::rekey(const QString &oldKey, const QString &newKey, QSt
     ensureLoaded();
 
     QJsonObject members = m_root.value(kMembersField).toObject();
-    if (!members.contains(oldKey)) {
-        // 本来就没分组 —— 不写盘，理由同上。
+    // 「置顶前的归属」那一格**跟着一起搬**：不搬的话，一个正在置顶组里的实例改个名，
+    // 记录就留在了老键上（写侧那道自清理会因为它对应的成员已经不在了而把它丢掉）——
+    // 表现是"改完名再取消置顶，它去了未分组"，而用户什么都没做错。
+    QJsonObject origins = m_root.value(kPinOriginField).toObject();
+    const bool hadMember = members.contains(oldKey);
+    const bool hadOrigin = origins.contains(oldKey);
+    if (!hadMember && !hadOrigin) {
+        // 本来就没分组、也没有记录 —— 不写盘，理由同上。
         return true;
     }
-    const QString groupId = members.value(oldKey).toString();
-    members.remove(oldKey);
-    members.insert(newKey, groupId);
-    return writeThrough(groups(), members, errorOut);
+    if (hadMember) {
+        const QString groupId = members.value(oldKey).toString();
+        members.remove(oldKey);
+        members.insert(newKey, groupId);
+    }
+    if (hadOrigin) {
+        const QJsonValue origin = origins.value(oldKey);
+        origins.remove(oldKey);
+        origins.insert(newKey, origin);
+    }
+    return writeThrough(groups(), members, origins, errorOut);
 }
 
 bool InstanceGroupStore::writeThrough(const QList<Group> &groups, const QJsonObject &rawMembers,
                                       QString *errorOut, bool notify) {
+    // 不动「置顶前的归属」的那些写路径走这一个：把盘上那一份原样带过去，由下面那道自清理
+    // 决定谁该留下（组清单/归属一变，多半就有记录该被丢掉）。
+    return writeThrough(groups, rawMembers, m_root.value(kPinOriginField).toObject(), errorOut,
+                        notify);
+}
+
+bool InstanceGroupStore::writeThrough(const QList<Group> &groups, const QJsonObject &rawMembers,
+                                      const QJsonObject &rawPinOrigin, QString *errorOut,
+                                      bool notify) {
     const auto fail = [errorOut](const QString &reason) {
         if (errorOut != nullptr) {
             *errorOut = reason;
@@ -499,7 +634,53 @@ bool InstanceGroupStore::writeThrough(const QList<Group> &groups, const QJsonObj
         members.insert(key, groupId);
     }
 
-    // 以原来那个对象为底，只盖我们认识的三个键 —— 更新版本写的别的字段原样留着。
+    // ★ 「置顶前的归属」那一格的自清理：**只留"这一条此刻确实待在置顶组里"的记录**。
+    //   一条记录的全部意义是"取消置顶时把它写回去"，而只有正在置顶组里的实例才有"取消
+    //   置顶"这个动作 —— 别的任何一次移动（移入分组、移出分组、组被删掉、换一个置顶组、
+    //   恢复默认）都让那条记录变成旧账：它记的是那个实例**上一次**去置顶组之前在哪，
+    //   而此时要"回"的地方是这一轮点上去之前待的地方。
+    //   把它做成写侧的不变量（而不是几个动作各自记得去删）的理由：删记录这件事一旦要
+    //   五个地方各写一遍，漏一个的表现就是"某条路径走完之后取消置顶跳去了一个奇怪的
+    //   组"—— 而那种错误没有声音、也没有界面能看出来。收在这一处，任何一次写盘之后
+    //   盘上那些记录必然都是有效的。
+    QJsonObject pinOrigin;
+    const QString pinnedGroup = pinnedGroupIdOf(groups).trimmed();
+    if (!pinnedGroup.isEmpty()) {
+        for (auto it = rawPinOrigin.constBegin(); it != rawPinOrigin.constEnd(); ++it) {
+            const QString key = it.key();
+            if (key.isEmpty()) {
+                continue;
+            }
+            // 这一条现在不在置顶组里（或者压根没有这一条归属）⇒ 记录作废。
+            // 比的是**清洗过**的 members（上面刚清完），于是"指向已删组的归属"这类
+            // 已经不作数的成员，它的记录也跟着一起作废，两格永远说的是同一件事。
+            if (!members.contains(key) || members.value(key).toString() != pinnedGroup) {
+                continue;
+            }
+            const QJsonValue origin = it.value();
+            // null = "置顶前它根本没表过态"（见 pinInstance() 那段），是一条**正常**的记录，
+            // 不能和下面那些认不出来的值一起丢掉。
+            if (origin.isNull()) {
+                pinOrigin.insert(key, QJsonValue(QJsonValue::Null));
+                continue;
+            }
+            const QString originGroup = origin.toString().trimmed();
+            // 既不是 null、也读不成组 id 的值（数字、对象、空串）：认不出来就丢掉，
+            // 和读侧"认不出来的东西按没有处理，绝不猜"同一条规矩。
+            if (originGroup.isEmpty()) {
+                continue;
+            }
+            // 记的那个组已经没了 ⇒ 这条记录"回不去了"，按没有记录处理（取消置顶落未分组）。
+            // NOTE: ungroupedMarker() 那个保留值不在 keptIds 里，但它是一条**正常**的
+            //       记录（置顶前它明确待在未分组），和成员表那一段的处理逐字同款。
+            if (originGroup != ungroupedMarker() && !keptIds.contains(originGroup)) {
+                continue;
+            }
+            pinOrigin.insert(key, originGroup);
+        }
+    }
+
+    // 以原来那个对象为底，只盖我们认识的四个键 —— 更新版本写的别的字段原样留着。
     //
     // NOTE: 盖的是**副本 candidate**，不是 m_root（2026-09-24 改的）。这三句原来排在
     //       mkpath / open / commit 之前，而下面三条失败路径都不回滚 —— 于是"写盘失败"
@@ -510,6 +691,10 @@ bool InstanceGroupStore::writeThrough(const QList<Group> &groups, const QJsonObj
     candidate.insert(kVersionField, kVersion);
     candidate.insert(kGroupsField, array);
     candidate.insert(kMembersField, members);
+    // 一律写出来（哪怕是空的 {}）：读侧的缺省值只负责"老文件读成一条记录都没有"，
+    // 写侧不靠缺省 —— 和 expanded / pinned 那两格同一条规矩（两处都省的话，"文件里
+    // 没有这一格"就有两种来路说不清了）。
+    candidate.insert(kPinOriginField, pinOrigin);
 
     const QString path = AppPaths::instanceGroupFilePath();
     if (!QDir().mkpath(AppPaths::minecraftDir())) {
