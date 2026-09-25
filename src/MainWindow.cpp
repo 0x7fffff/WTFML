@@ -844,6 +844,10 @@ MainWindow::MainWindow(QWidget *parent)
     //       是因为那边只前置声明了 MainWindowUI。
     m_selectedLoaderIndex = MainWindowUI::modLoaderNoneIndex();
     setupConnections();
+    // 下载页那五页的筛子先灌上（来源 / 类型 / 加载器那三项这一刻就定得下来；「版本」那一栏
+    // 等在线清单一到才有的灌，见 onVersionsFetched）。界面那边只搭空框 —— ui/ 不 include
+    // src/，"每一项是什么"只能由这一层灌进去。
+    fillDownloadFilters();
     // 设置页先按盘上的值摆好（不扫 Java，那一段等第一次切到设置页，见
     // refreshJavaList()）。必须在下面 fetchAvailableVersions() **之前**：
     // 清单请求要不要走镜像就是在这一步交给 VersionManager 的。
@@ -1308,6 +1312,43 @@ void MainWindow::setupConnections() {
         // NOTE: 信号带一个 QString（编辑框里的文字），这个槽不收参数，多余的那个会被丢掉
         //       （Qt 的新式 connect 允许槽少收参数）。
         connect(edit, &QLineEdit::returnPressed, this, [this, kind] { startResourceSearch(kind); });
+
+        // ---------- 旁边那一行筛子（2026-09-25）----------
+        //
+        // 「搜索」那颗键：和名称框里按回车是**同一件事**（用户原话「一个搜索键」）。
+        if (QPushButton *searchButton = m_ui->getDownloadFilterSearchButton(key)) {
+            connect(searchButton, &QPushButton::clicked, this,
+                    [this, kind] { startResourceSearch(kind); });
+        }
+        // 「清空条件」：把名称框和四个筛子退回"不筛"，**不自动搜**（理由见
+        // MainWindowUI::downloadFilterResetText()：清一下就发请求，等于每次收拾界面都白烧
+        // 一发限流额度，而且他清完还要接着改）。
+        if (QPushButton *resetButton = m_ui->getDownloadFilterResetButton(key)) {
+            connect(resetButton, &QPushButton::clicked, this,
+                    [this, kind] { resetDownloadFilters(kind); });
+        }
+        // 「版本」那一格也可输入，在里面按回车**同样等同于按搜索键**（用户原话
+        // 「名字/版本可自行输入，这两个框选中时按回车等同于按搜索键」）。
+        //
+        // NOTE: 必须接 `lineEdit()->returnPressed`，不能接下拉框自己的 `returnPressed` ——
+        //       后者只在"框里那串字正好是列表里选中的那一项"时才发（Qt 的
+        //       QComboBox::returnPressed 就是 `lineEdit()->returnPressed` 加了一道
+        //       "有没有选中项"的闸，见它文档里那句）。而这一格存在的理由正是**用户自己
+        //       打一个列表里没有的版本号**，那一发会被那道闸吃掉：回车下去什么都没发生。
+        // NOTE: `lineEdit()` 只有在 `setEditable(true)` 之后才不是空的（界面那边已经设了，
+        //       见 MainWindowUI 里 makeFilterCombo 那一段），所以这里要判一下。
+        if (QComboBox *versionCombo = m_ui->getDownloadFilterVersionCombo(key)) {
+            if (QLineEdit *versionEdit = versionCombo->lineEdit()) {
+                connect(versionEdit, &QLineEdit::returnPressed, this,
+                        [this, kind] { startResourceSearch(kind); });
+            }
+        }
+        // 「来源」换了一项：这一页的加载器 / 类型跟着换一份选项（两边的键不是一套），
+        // **不自动搜** —— 用户只是把选项换了一份，还没说"就用它搜"。
+        if (QComboBox *sourceCombo = m_ui->getDownloadFilterSourceCombo(key)) {
+            connect(sourceCombo, &QComboBox::currentIndexChanged, this,
+                    [this, kind] { refreshDownloadFilterOptions(kind); });
+        }
         // 点一行：三种行的行为不一样，判据在 onResourceItemActivated() 里（那里是唯一出处）。
         // 鼠标和键盘走同一个接线口（见 ui/RowActivation.hpp）—— 这里**必须**只进来一次：
         // 第三层那一行"点它就是下它"，而双击的两发里第二发会撞上"已有下载任务正在进行"，
@@ -1329,6 +1370,12 @@ void MainWindow::setupConnections() {
                              });
         // 图标是**懒要**的：条目建出来之后才 requestIcon()，不然图标回来时没有行可以放
         //（而且 store 命中缓存时是同步发的，见 requestIcon 的 NOTE）。
+    }
+    // 下载页「整合包」那一页那颗「导入整合包…」（用户原话「整合包那一页带一个导入功能」）
+    // 走的**就是**实例页那颗同一个槽：同一条路、同一套"选文件 → 问实例名 → 挑 Java"，
+    // 没有理由抄两份。两颗按钮的区别只在它们在哪儿，做的事是同一件。
+    if (QPushButton *downloadImport = m_ui->getDownloadFilterImportModpackButton()) {
+        connect(downloadImport, &QPushButton::clicked, this, &MainWindow::onImportModpackClicked);
     }
     connect(m_resourceStore, &ResourceStore::searchFinished, this,
             &MainWindow::onResourceSearchFinished);
@@ -1520,6 +1567,12 @@ void MainWindow::setDownloadUiBusy(bool busy) {
     // 「导入整合包…」也一起灰：导入期间再点一次，选文件和问名字那两个框走完，
     // 数据层才会用一句"已有任务正在进行"把它顶回来 —— 白走一趟对话框。
     m_ui->getImportModpackButton()->setEnabled(!busy);
+    // 下载页「整合包」那一页上那颗是**同一件事的另一个入口**（同一个槽，见
+    // setupConnections 里那条），所以它得跟着一样灰 —— 一个灰着、另一个亮着，用户点的
+    // 正好是亮着那颗，走的是同一条被顶回来的路。
+    if (QPushButton *downloadImport = m_ui->getDownloadFilterImportModpackButton()) {
+        downloadImport->setEnabled(!busy);
+    }
     // 实例页左边那列也一起灰：换游戏文件夹 = 换一整套 .minecraft，下载中途换过去
     // 会让这一批文件一半写进 A、一半写进 B。两个按钮的可用性由 updateFolderButtons()
     // 一处说了算（「移除文件夹」还要看选中的是不是自带那份）。
@@ -3249,15 +3302,26 @@ QTreeWidgetItem *MainWindow::addResourcePlaceholderChild(QTreeWidgetItem *parent
     return item;
 }
 
-bool MainWindow::kindForSearchRequestKey(const QString &key, ResourceCatalog::Kind *out) const {
+bool MainWindow::kindForSearchRequestKey(const QString &key, ResourceCatalog::Kind *out,
+                                         ResourceCatalog::Source *outSource) const {
     // 拼钥匙和认钥匙读的是同一个函数（searchRequestKey）—— 所以这里不解析字符串，
     // 一条一条比。有几类，比几次。
+    //
+    // NOTE: **来源也要比一圈**（2026-09-25）。钥匙里带来源（见 searchRequestKey 那段），
+    //       只比"默认那个来源"的话，CurseForge 那一发回来时一把都对不上 —— 症状是
+    //       "切到 CurseForge 按了搜索，那一页什么都没有、也不报错"（结果被当成"不是我们
+    //       发的"整发丢掉）。
     for (ResourceCatalog::Kind kind : ResourceCatalog::allKinds()) {
-        if (ResourceCatalog::searchRequestKey(kind) == key) {
-            if (out != nullptr) {
-                *out = kind;
+        for (ResourceCatalog::Source source : ResourceCatalog::allSources()) {
+            if (ResourceCatalog::searchRequestKey(kind, source) == key) {
+                if (out != nullptr) {
+                    *out = kind;
+                }
+                if (outSource != nullptr) {
+                    *outSource = source;
+                }
+                return true;
             }
-            return true;
         }
     }
     return false;
@@ -3334,6 +3398,151 @@ void MainWindow::refreshDownloadCategory(int row) {
     startResourceSearch(kind);
 }
 
+// ---------- 每一页顶上那一行筛子（2026-09-25）----------
+//
+// 这一段的整段理由在头文件里那段：界面只搭空框，**内容全在这儿灌**，读也只从下面这几个
+// 访问器读。谁要是绕开它们自己去 `combo->currentText()`，症状是"界面上筛了、请求里没筛"
+// —— 不报错、也看不出哪儿不对。
+
+ResourceCatalog::Source MainWindow::downloadFilterSource(ResourceCatalog::Kind kind) const {
+    ResourceCatalog::Source source = ResourceCatalog::Source::Modrinth;
+    QComboBox *combo = m_ui->getDownloadFilterSourceCombo(ResourceCatalog::kindKey(kind));
+    if (combo != nullptr) {
+        // 认不出来（框是空的 / 里面不是我们灌的那个键）就停在 Modrinth —— 和"这一页
+        // 没有来源框"是同一个结果，也正是加这一栏之前的行为。
+        ResourceCatalog::sourceFromKey(combo->currentData().toString(), &source);
+    }
+    return source;
+}
+
+QString MainWindow::downloadFilterGameVersion(ResourceCatalog::Kind kind) const {
+    // **读框里的字**，不是 currentData()。这一格是可输入的（用户原话「版本可自行输入」），
+    // 手打一个版本号时列表里没有那一项、currentData() 是空的 —— 而框里明明写着那个版本号。
+    QComboBox *combo = m_ui->getDownloadFilterVersionCombo(ResourceCatalog::kindKey(kind));
+    return combo == nullptr ? QString() : combo->currentText().trimmed();
+}
+
+QString MainWindow::downloadFilterLoader(ResourceCatalog::Kind kind) const {
+    // 别的页上这个控件**不存在**（MainWindowUI 里是"只有模组页才建"，不是建了再藏），
+    // 所以空指针就是"这一页没有这一栏"。回空串 = 不筛，正是这一栏没有时该有的行为。
+    QComboBox *combo = m_ui->getDownloadFilterLoaderCombo(ResourceCatalog::kindKey(kind));
+    return combo == nullptr ? QString() : combo->currentData().toString();
+}
+
+QString MainWindow::downloadFilterCategory(ResourceCatalog::Kind kind) const {
+    QComboBox *combo = m_ui->getDownloadFilterTypeCombo(ResourceCatalog::kindKey(kind));
+    return combo == nullptr ? QString() : combo->currentData().toString();
+}
+
+void MainWindow::fillDownloadFilterVersionOptions() {
+    // 版本那一格：**一整份在线清单**，没有「全部」那一项 —— 这一格是可输入的，
+    // "不筛"就是框里空着（那时框里显示灰字「全部版本」，见 downloadFilterVersionPlaceholder）。
+    const QStringList versions = m_versionManager->availableVersions();
+    for (ResourceCatalog::Kind kind : ResourceCatalog::allKinds()) {
+        QComboBox *combo = m_ui->getDownloadFilterVersionCombo(ResourceCatalog::kindKey(kind));
+        if (combo == nullptr) {
+            continue;
+        }
+        // 灌之前把用户手里那串字记下来、灌完放回去。清单是**异步**回来的（开机一次、
+        // 用户按左栏那个刷新按钮又一次），而 clear() 会把框里编辑着的东西一起清掉：
+        // 他刚打完版本号、清单正好回来，那串字就没了，可筛子还在生效 —— 界面和请求对不上。
+        const QString current = combo->currentText();
+        const QSignalBlocker blocker(combo);
+        combo->clear();
+        combo->addItems(versions);
+        if (!current.isEmpty()) {
+            combo->setCurrentText(current);
+        }
+    }
+}
+
+void MainWindow::refreshDownloadFilterOptions(ResourceCatalog::Kind kind) {
+    const QString key = ResourceCatalog::kindKey(kind);
+    const ResourceCatalog::Source source = downloadFilterSource(kind);
+
+    // 「模组加载器」那一栏（**只有模组页有**，别的页 getDownloadFilterLoaderCombo 回空指针）。
+    if (QComboBox *loaderCombo = m_ui->getDownloadFilterLoaderCombo(key)) {
+        const QSignalBlocker blocker(loaderCombo);
+        loaderCombo->clear();
+        for (const ResourceCatalog::FilterOption &option : ResourceCatalog::loaderOptions(source)) {
+            loaderCombo->addItem(option.label, option.key);
+        }
+        // 换来源之后退回「全部」（= 第一项）。两边的键根本不是一套（Modrinth 的 `fabric`
+        // 对 CurseForge 的 `4`），留着上一个来源选中那一项，就是拿 A 家的号去问 B 家 ——
+        // 而且它不报错，只会搜出来一片空。
+        loaderCombo->setCurrentIndex(0);
+    }
+
+    // 「类型」那一栏。**回空表就把整个小组藏起来**（连标签一起，见 MainWindowUI 里那段）：
+    // 摆一个只有「全部」的框等于骗人。现在只有 Modrinth 的数据包会空。
+    QComboBox *typeCombo = m_ui->getDownloadFilterTypeCombo(key);
+    QWidget *typeBox = m_ui->getDownloadFilterTypeBox(key);
+    if (typeCombo != nullptr) {
+        const QSignalBlocker blocker(typeCombo);
+        typeCombo->clear();
+        // 「全部」那一项是 categoryOptions() 自己带的第一项，这里不补也不动顺序。
+        for (const ResourceCatalog::FilterOption &option :
+             ResourceCatalog::categoryOptions(source, kind)) {
+            typeCombo->addItem(option.label, option.key);
+        }
+        typeCombo->setCurrentIndex(typeCombo->count() > 0 ? 0 : -1);
+    }
+    if (typeBox != nullptr) {
+        typeBox->setVisible(typeCombo != nullptr && typeCombo->count() > 0);
+    }
+}
+
+void MainWindow::fillDownloadFilters() {
+    for (ResourceCatalog::Kind kind : ResourceCatalog::allKinds()) {
+        const QString key = ResourceCatalog::kindKey(kind);
+        // 来源那一格：两项，顺序照 allSources()（Modrinth 在前：它是不要 key 的那个、
+        // 也是"原来就能用"的那个）。**没有「全部」这一项** —— 一个页面上同时只搜一个
+        // 来源，那是这一格的语义。
+        if (QComboBox *sourceCombo = m_ui->getDownloadFilterSourceCombo(key)) {
+            const QSignalBlocker blocker(sourceCombo);
+            sourceCombo->clear();
+            for (ResourceCatalog::Source source : ResourceCatalog::allSources()) {
+                sourceCombo->addItem(ResourceCatalog::sourceLabel(source),
+                                     ResourceCatalog::sourceKey(source));
+            }
+            sourceCombo->setCurrentIndex(0);
+        }
+        // 加载器 / 类型那两项跟着来源走，所以灌法是"按当前来源算一遍"。
+        refreshDownloadFilterOptions(kind);
+    }
+    fillDownloadFilterVersionOptions();
+}
+
+void MainWindow::resetDownloadFilters(ResourceCatalog::Kind kind) {
+    const QString key = ResourceCatalog::kindKey(kind);
+    // 名称那一格：就是原来那个搜索框。
+    if (QLineEdit *edit = m_ui->getDownloadSearchEdit(key)) {
+        edit->clear();
+    }
+    // 版本那一格是可输入的，`setCurrentIndex(-1)` 不一定把框里的字清掉（值是从
+    // currentText() 读的），所以**显式**再清一遍那串字。
+    if (QComboBox *versionCombo = m_ui->getDownloadFilterVersionCombo(key)) {
+        const QSignalBlocker blocker(versionCombo);
+        versionCombo->setCurrentIndex(-1);
+        versionCombo->clearEditText();
+    }
+    // 加载器和类型那两格：第一项就是「全部」（键空串），回到它 = 不筛。
+    if (QComboBox *loaderCombo = m_ui->getDownloadFilterLoaderCombo(key)) {
+        const QSignalBlocker blocker(loaderCombo);
+        loaderCombo->setCurrentIndex(loaderCombo->count() > 0 ? 0 : -1);
+    }
+    if (QComboBox *typeCombo = m_ui->getDownloadFilterTypeCombo(key)) {
+        const QSignalBlocker blocker(typeCombo);
+        typeCombo->setCurrentIndex(typeCombo->count() > 0 ? 0 : -1);
+    }
+    // 「来源」**不清**：它不是"条件"，是"去哪儿问"。清成"没有来源"这件事不存在
+    // （这一格只有两项、总有一项是选中的），而且用户刚在设置里配好的 CurseForge key
+    // 就是给这一格用的 —— 清一下把他踢回 Modrinth，那是替他做了个他没说的决定。
+    //
+    // 清完**不自动搜**（理由见 MainWindowUI::downloadFilterResetText()）。
+    appendLog(tr("已清空%1那一页的搜索条件。").arg(ResourceCatalog::kindLabel(kind)));
+}
+
 void MainWindow::startResourceSearch(ResourceCatalog::Kind kind) {
     const QString key = ResourceCatalog::kindKey(kind);
     QTreeWidget *tree = m_ui->getDownloadResourceTree(key);
@@ -3355,11 +3564,42 @@ void MainWindow::startResourceSearch(ResourceCatalog::Kind kind) {
     // 读编辑框里现在的字是错的 —— 用户完全可能在等结果的时候又敲了几个字（那几下还没发出去，
     // 回车才算一发）。
     m_resourceQueries.insert(key, query);
+
+    // 另外四个筛子（版本 / 加载器 / 类型 / 来源）在这儿一次读完。读法全在 downloadFilterXxx()
+    // 那四个访问器里（**唯一出处**），这里只负责把它们递给 store —— 空串一律 = 不筛，
+    // 所以"没选"和"没有这一栏"在这里是同一件事，不用分岔。
+    const ResourceCatalog::Source source = downloadFilterSource(kind);
+    const QString gameVersion = downloadFilterGameVersion(kind);
+    const QString loader = downloadFilterLoader(kind);
+    const QString category = downloadFilterCategory(kind);
+
     appendLog(query.isEmpty() ? tr("正在获取最热门的%1…").arg(ResourceCatalog::kindLabel(kind))
                               : tr("正在搜索%1「%2」…")
                                     .arg(ResourceCatalog::kindLabel(kind), query));
+    // 日志里把这一发**带了哪些条件**说全（那两格的值写的是框里显示的字，不是键 ——
+    // CurseForge 的类型键是 `6814` 这种号，写进日志没人看得懂）。搜出来"怎么是这么几条"，
+    // 十有八九就是某个筛子在起作用；不写下来的话只能对着结果猜。
+    QStringList conditions;
+    conditions.append(tr("来源 %1").arg(ResourceCatalog::sourceLabel(source)));
+    if (!gameVersion.isEmpty()) {
+        conditions.append(tr("版本 %1").arg(gameVersion));
+    }
+    const auto shownText = [this, &key](QComboBox *combo) {
+        return combo == nullptr ? QString() : combo->currentText();
+    };
+    if (!loader.isEmpty()) {
+        conditions.append(
+            tr("模组加载器 %1").arg(shownText(m_ui->getDownloadFilterLoaderCombo(key))));
+    }
+    if (!category.isEmpty()) {
+        conditions.append(tr("类型 %1").arg(shownText(m_ui->getDownloadFilterTypeCombo(key))));
+    }
+    appendLog(tr("搜索条件：%1").arg(conditions.join(QStringLiteral(" · "))));
 
-    m_resourceStore->search(ResourceCatalog::searchRequestKey(kind), kind, query);
+    // 钥匙里要带来源（见 ResourceCatalog::searchRequestKey 那段）：用户刚点完 Modrinth 又
+    // 切成 CurseForge 时，前一趟回来的结果不该被当成"我现在等的那一发"填进树里。
+    m_resourceStore->search(ResourceCatalog::searchRequestKey(kind, source), kind, source, query,
+                            gameVersion, loader, category);
 }
 
 void MainWindow::fillResourceHitRows(QTreeWidget *tree, ResourceCatalog::Kind kind,
@@ -3376,6 +3616,11 @@ void MainWindow::fillResourceHitRows(QTreeWidget *tree, ResourceCatalog::Kind ki
         // 存的是**分类键**（不是枚举的整数值），回来时走 kindFromCategoryKey 认，
         // 认不出来就是"这一行不是我们建的"。
         item->setData(column, MainWindowUI::resourceKindRole(), ResourceCatalog::kindKey(kind));
+        // 这一条是从哪个来源搜出来的（点第二层要问对那一侧，见 resourceSourceRole()）。
+        item->setData(column, MainWindowUI::resourceSourceRole(),
+                      ResourceCatalog::sourceKey(hit.source));
+        // 图标那一格的**身份**（带来源前缀，见 resourceIconIdRole()）：图标回来时按它认行。
+        item->setData(column, MainWindowUI::resourceIconIdRole(), hit.iconCacheId());
         item->setText(column, hit.title);
 
         // 第二行小字：「作者 · 下载量」。下载量那串字只有一处出处（formatDownloads），
@@ -3419,8 +3664,15 @@ void MainWindow::fillResourceHitRows(QTreeWidget *tree, ResourceCatalog::Kind ki
 void MainWindow::onResourceSearchFinished(const QString &requestKey,
                                          const ResourceCatalog::SearchResult &result) {
     ResourceCatalog::Kind kind = ResourceCatalog::Kind::Mod;
-    if (!kindForSearchRequestKey(requestKey, &kind)) {
+    ResourceCatalog::Source fromSource = ResourceCatalog::Source::Modrinth;
+    if (!kindForSearchRequestKey(requestKey, &kind, &fromSource)) {
         // 不是我们认得的那几页发的（别的东西也用这个 store 时才会走到）。
+        return;
+    }
+    // 这一发回来的时候，用户可能已经把来源换成另一个了 —— 两个来源的请求是**各自飞的**
+    // （钥匙不同，store 不会互相掐掉）。不是这一页**现在**选的那个来源就丢掉：留着会把
+    // 上一家那批结果摆在一个写着另一家的页面上，而页面上那句"来源 CurseForge"就成了假话。
+    if (fromSource != downloadFilterSource(kind)) {
         return;
     }
     const QString key = ResourceCatalog::kindKey(kind);
@@ -3460,7 +3712,7 @@ void MainWindow::onResourceSearchFinished(const QString &requestKey,
     fillResourceHitRows(tree, kind, result);
 }
 
-void MainWindow::onResourceIconReady(const QString &projectId, const QPixmap &icon) {
+void MainWindow::onResourceIconReady(const QString &iconId, const QPixmap &icon) {
     // 没有图标（作者没传过 / 这次没取到 / 被限流）也**要**给这一行挂上东西：一个全透明的
     // 方块。为什么：代理是"条目给了图标，文字才让出前面那一格"的（见 VersionTreeDelegate
     // 里 iconRect 那段），什么都不挂的话这一行的字会顶到最左边，和上下那些有图标的行
@@ -3473,8 +3725,10 @@ void MainWindow::onResourceIconReady(const QString &projectId, const QPixmap &ic
         mark.fill(Qt::transparent);
     }
     const int column = MainWindowUI::versionTreeKeyColumn();
-    // 按 project_id 找回**现在**树上那一行（不存条目指针：重搜会把整棵树清掉，存下来的
-    // 指针就是悬空的 —— 而按身份找，找得到才画，找不到就什么都不做）。
+    // 按**图标身份**（`Hit::iconCacheId()`，见 resourceIconIdRole）找回**现在**树上那一行 ——
+    // 不按裸 project_id：两个来源的 id 空间会撞，撞上就是把另一个来源同号那个资源的图标
+    // 画到这一行上（而且不报错）。也不存条目指针：重搜会把整棵树清掉，存下来的指针就是
+    // 悬空的 —— 按身份找，找得到才画，找不到就什么都不做。
     for (ResourceCatalog::Kind kind : ResourceCatalog::allKinds()) {
         QTreeWidget *tree = m_ui->getDownloadResourceTree(ResourceCatalog::kindKey(kind));
         if (tree == nullptr) {
@@ -3482,7 +3736,7 @@ void MainWindow::onResourceIconReady(const QString &projectId, const QPixmap &ic
         }
         for (int i = 0; i < tree->topLevelItemCount(); ++i) {
             QTreeWidgetItem *item = tree->topLevelItem(i);
-            if (item->data(column, Qt::UserRole).toString() != projectId) {
+            if (item->data(column, MainWindowUI::resourceIconIdRole()).toString() != iconId) {
                 continue;
             }
             item->setData(column, MainWindowUI::rowIconRole(), mark);
@@ -3518,6 +3772,16 @@ void MainWindow::onResourceItemActivated(QTreeWidgetItem *item) {
                                       ? QString()
                                       : resourceItem->data(MainWindowUI::versionTreeKeyColumn(),
                                                            Qt::UserRole).toString();
+        // 这一条是从哪个来源搜出来的（见 resourceSourceRole()）：**必须问对那一侧** ——
+        // 两个来源的 id 空间会撞，问错了不报错，只会显示另一个资源的版本列表。
+        // 认不出来（那一行不是我们建的）就当 Modrinth，和"没选来源"的默认一致。
+        ResourceCatalog::Source source = ResourceCatalog::Source::Modrinth;
+        if (resourceItem != nullptr) {
+            ResourceCatalog::sourceFromKey(
+                resourceItem->data(MainWindowUI::versionTreeKeyColumn(),
+                                   MainWindowUI::resourceSourceRole()).toString(),
+                &source);
+        }
         const QString gameVersion =
             item->data(MainWindowUI::versionTreeKeyColumn(), Qt::UserRole).toString();
         if (projectId.isEmpty() || gameVersion.isEmpty()) {
@@ -3529,8 +3793,9 @@ void MainWindow::onResourceItemActivated(QTreeWidgetItem *item) {
         //       （categories 是整个资源的标签，不是某个版本的）。要按加载器筛就得先知道
         //       用户在给哪个实例装 —— 那件事在点版本号那一下才定（见
         //       downloadResourceVersion 里那道加载器对不上的闸口）。
-        m_resourceStore->fetchVersions(ResourceCatalog::versionsRequestKey(projectId, gameVersion),
-                                       projectId, gameVersion);
+        m_resourceStore->fetchVersions(
+            ResourceCatalog::versionsRequestKey(projectId, gameVersion, QString(), source),
+            projectId, source, gameVersion);
         return;
     }
     if (depth == 2) {
@@ -3617,11 +3882,18 @@ void MainWindow::onResourceVersionsFinished(const QString &requestKey,
             if (projectId.isEmpty()) {
                 continue;
             }
+            // 这一条是从哪个来源搜出来的：**必须跟着它算钥匙**。钥匙里带来源（见
+            // versionsRequestKey 那段），拿默认那一档去比的话，CurseForge 那条路上一把都
+            // 对不上 —— 症状是"展开游戏版本，一直停在「正在获取…」"，而请求其实已经回来了。
+            ResourceCatalog::Source source = ResourceCatalog::Source::Modrinth;
+            ResourceCatalog::sourceFromKey(
+                resourceItem->data(column, MainWindowUI::resourceSourceRole()).toString(), &source);
             for (int j = 0; j < resourceItem->childCount(); ++j) {
                 QTreeWidgetItem *gameItem = resourceItem->child(j);
                 const QString gameVersion = gameItem->data(column, Qt::UserRole).toString();
                 if (gameVersion.isEmpty()
-                    || ResourceCatalog::versionsRequestKey(projectId, gameVersion) != requestKey) {
+                    || ResourceCatalog::versionsRequestKey(projectId, gameVersion, QString(), source)
+                           != requestKey) {
                     continue;
                 }
                 // 就是它。清单存下来（点第三层那一下要用 URL / sha1 / 大小），再摆第三层。
@@ -3683,7 +3955,15 @@ void MainWindow::downloadResourceVersion(QTreeWidgetItem *item) {
 
     // 这一版的文件清单：随"点开游戏版本"那一发回来的。没有它就下不了（正常走不到 ——
     // 有第三层这些行就说明那一发回来过）。说清楚，别静静地什么都不做。
-    const QString requestKey = ResourceCatalog::versionsRequestKey(projectId, gameVersion);
+    //
+    // 钥匙里的来源要**从这一行自己读**（和点开时那把一模一样，见 onResourceItemActivated）：
+    // 少带来源的话，CurseForge 那一页上每一版都查不到自己的清单 —— 用户按下去拿到的是
+    // 一句「这一版的下载信息还没取到」，可它明明就摆在眼前。
+    ResourceCatalog::Source source = ResourceCatalog::Source::Modrinth;
+    ResourceCatalog::sourceFromKey(
+        resourceItem->data(column, MainWindowUI::resourceSourceRole()).toString(), &source);
+    const QString requestKey =
+        ResourceCatalog::versionsRequestKey(projectId, gameVersion, QString(), source);
     const auto cached = m_resourceVersions.constFind(requestKey);
     if (cached == m_resourceVersions.constEnd()) {
         InlineMessage::warning(m_ui->overlay(), tr("下载失败"),
@@ -3703,7 +3983,13 @@ void MainWindow::downloadResourceVersion(QTreeWidgetItem *item) {
     }
     const ResourceCatalog::FileEntry *file = chosen->primaryFile();
     if (file == nullptr || file->url.isEmpty()) {
-        InlineMessage::warning(m_ui->overlay(), tr("下载失败"), tr("这一版没有可下载的文件。"));
+        // 「接口没给地址」有两种，**不是同一句话**：一种是这一版真的没有文件；
+        // 另一种是作者在项目设置里关掉了第三方分发（CurseForge 那条路，`downloadUrl`
+        // 给的就是 null，见 FileEntry::unavailableNote）。后者要是也说成"没有可下载的文件"，
+        // 用户会当成启动器坏了，然后一遍遍重试 —— 那句话在那儿就写好了，用它。
+        const QString note = file == nullptr ? QString() : file->unavailableNote;
+        InlineMessage::warning(m_ui->overlay(), tr("下载失败"),
+                               note.isEmpty() ? tr("这一版没有可下载的文件。") : note);
         return;
     }
 
@@ -4333,6 +4619,10 @@ void MainWindow::syncCurseForgeSettings() {
     // 本机的假服务器上）。
     m_versionManager->setCurseForgeApiKey(m_settings->curseForgeApiKey());
     m_versionManager->setCurseForgeApiBaseOverride(m_settings->curseForgeApiBaseOverride());
+    // 下载页那条搜索/版本列表的路**也要这两条**（CurseForge 是很久以后才加进那边的第二个
+    // 来源）：同一份设置、同一条接口根地址，没有理由推给一个、不推给另一个。
+    m_resourceStore->setCurseForgeApiKey(m_settings->curseForgeApiKey());
+    m_resourceStore->setCurseForgeApiBaseOverride(m_settings->curseForgeApiBaseOverride());
 }
 
 void MainWindow::onCurseForgeApiKeyEdited() {
@@ -4393,6 +4683,10 @@ void MainWindow::applyLauncherBehaviourAfterLaunch() {
 
 void MainWindow::onVersionsFetched(const QStringList &versions) {
     refreshAvailableVersions();
+    // 下载页那五页的「版本」筛子也灌一遍：它的选项就是这份在线清单（用户要"按版本搜"，
+    // 而"有哪些版本"这件事只有这一份是一手来源）。放在**失败也照灌**的位置 —— 空清单时
+    // 灌出来是空框，而空框仍然能自己打字（这一格本来就是可输入的）。
+    fillDownloadFilterVersionOptions();
 
     // 顺带把已安装的也刷一遍：一次网络往返之后两个下拉框都是最新的，这条不变式
     // 很便宜（就是一次 QDir 扫描），但能兜住"清单在拉的这段时间用户往

@@ -494,6 +494,15 @@ public:
     }
     /// 有内容的那个分类的下标（「游戏」）。写死数字的地方一律用它。
     static int downloadCategoryGameIndex() { return 0; }
+    /// 另外两条要按"是哪一页"分岔的分类的下标：
+    ///   「整合包」—— 那一页多一颗「导入整合包…」（用户原话「整合包那一页带一个导入功能」）
+    ///   「模组」  —— 只有那一页有「模组加载器」这个筛子（用户原话「模组加载器只在模组那栏存在」）
+    ///
+    /// 判据用**下标**（和 downloadCategoryGameIndex() 一个规矩），不在这里再写一遍分类键的
+    /// 字面量：键只在 downloadCategoryKeys() 那张表里写一次，两处各写一份迟早会写歪，
+    /// 而写歪的症状是"那一页多长了一个控件/少长了一个控件"。表里现在这两条的位子见那张表。
+    static int downloadCategoryModpackIndex() { return 1; }
+    static int downloadCategoryModIndex() { return 2; }
     /// 每个分类**能在这儿干什么**的一句话（「游戏」那条是空的：它没有搜索框）。
     ///
     /// 这句话现在的去处是那一页搜索框里的**提示文字** —— 用户原话「上方预留搜索功能
@@ -537,6 +546,95 @@ public:
     static QString downloadSearchEditName(const QString &categoryKey) {
         return categoryKey + QStringLiteral("SearchEdit");
     }
+
+    // ---- 每一页顶上那一行筛子（2026-09-25）----
+    //
+    // 用户原话：「搜索，加入按版本 模组加载器 来源 类型 名称搜索，一个搜索键和一个清空条件键，
+    // 名字/版本可自行输入，这两个框选中时按回车等同于按搜索键，当然模组加载器只在模组那栏
+    // 存在，整合包那一页带一个导入功能」。
+    //
+    // 一行筛子一共这几件：名称（自由输入，就是原来那个搜索框）/ 版本（可输入的下拉）/
+    // 加载器（只有模组页）/ 来源 / 类型，外加「搜索」和「清空条件」两颗键。
+    // 摆成**两行**（为什么不摆一行见 .cpp 里那一段）：第一行「名称 + 搜索 + 清空条件」，
+    // 第二行四个下拉框。
+    //
+    // 【这一层只知道控件长什么样，不知道每一项是什么】
+    // 四个下拉框里的**内容**一个字都不在这儿：来源是 `ResourceCatalog::allSources()`、类型是
+    // `categoryOptions()`、加载器是 `loaderOptions()`，那些表都在 src/ 那一侧，而 ui/ 不
+    // include src/（见文件头）。所以这一层把空框搭出来，由 MainWindow 灌（和版本树、
+    // 加载器树、目录树那几棵一个规矩）。**"类型那一栏要整个藏起来"也是 MainWindow 做的**
+    // —— 它按 `categoryOptions()` 有没有回空表决定（回空表 = 这一来源 × 这一类没有分类
+    // 可选），藏的是 `getDownloadFilterTypeBox()` 那一个小组（连标签一起，理由见那一段）。
+    //
+    // 【模组加载器只有模组页有】用户点名的一条。摆法上就是"循环里加一个 if"：只有**模组**
+    // 那一页建这个下拉框，别的页连控件都没有（不是建了再藏起来 —— 藏着的控件仍然会被验证
+    // 工程按名字找出来，那就不叫"只在模组那栏存在"了）。
+    static QString downloadFilterVersionComboName(const QString &categoryKey) {
+        return categoryKey + QStringLiteral("VersionCombo");
+    }
+    static QString downloadFilterLoaderComboName(const QString &categoryKey) {
+        return categoryKey + QStringLiteral("LoaderCombo");
+    }
+    static QString downloadFilterSourceComboName(const QString &categoryKey) {
+        return categoryKey + QStringLiteral("SourceCombo");
+    }
+    static QString downloadFilterTypeComboName(const QString &categoryKey) {
+        return categoryKey + QStringLiteral("TypeCombo");
+    }
+    static QString downloadFilterSearchButtonName(const QString &categoryKey) {
+        return categoryKey + QStringLiteral("SearchButton");
+    }
+    static QString downloadFilterResetButtonName(const QString &categoryKey) {
+        return categoryKey + QStringLiteral("ResetButton");
+    }
+    /// 四个筛子前面那四个小标签上的字。顺序和摆法见 .cpp 里那一段。
+    ///
+    /// 「模组加载器」写全称而不是「加载器」：用户原话就是这四个字，而且它只在模组那一页上
+    /// 出现（别的页没有这一栏），说得全一点不占别处的地方。
+    static QString downloadFilterVersionLabel() { return QStringLiteral("版本"); }
+    static QString downloadFilterLoaderLabel() { return QStringLiteral("模组加载器"); }
+    static QString downloadFilterSourceLabel() { return QStringLiteral("来源"); }
+    static QString downloadFilterTypeLabel() { return QStringLiteral("类型"); }
+    /// 「搜索」那颗键上的字。用户原话「一个搜索键」。
+    static QString downloadFilterSearchText() { return QStringLiteral("搜索"); }
+    /// 「清空条件」那颗键上的字。用户原话「一个清空条件键」。
+    ///
+    /// NOTE: 它清的是**筛子**（四个下拉框 + 两个输入框），不是搜索结果 —— 名字里带"条件"
+    ///       就是为了跟"清空列表"分开。清完**不自动搜**（用户自己再按搜索键）：清一下就把
+    ///       请求发出去，等于每次收拾界面都白烧一发限流额度，而且清空之后他还要接着改。
+    static QString downloadFilterResetText() { return QStringLiteral("清空条件"); }
+    /// 版本那一格空着时里面的灰字。**必须 ≤ `downloadFilterMinimumContentsLength()` 个字符**，
+    /// 否则会把框顶宽（那个坑见 .cpp 里 installedVersionCombo 那一段）。
+    static QString downloadFilterVersionPlaceholder() { return QStringLiteral("全部版本"); }
+    /// 四个筛子下拉框的 `minimumContentsLength`（宽度按这个算，不按内容算）。
+    ///
+    /// 为什么不按内容算（`AdjustToContentsOnFirstShow`，也是 Qt 的默认）：那一个在**第一次
+    /// 显示**时把宽度定死，而这一层搭出来的那一刻框还是空的 —— 之后 MainWindow 灌进来的
+    /// 是「1.21.1-pre1」这种长度不定的版本号，宽度就再也跟不上（灌长版本号时框会突然变宽，
+    /// 整行跟着跳）。8 是量着"`1.21.1` 这种版本号放得下"取的。
+    static int downloadFilterMinimumContentsLength() { return 8; }
+
+    /// 四个筛子下拉框的**宽度上限**。上面那个 `minimumContentsLength` 管的是"有多宽"，
+    /// 这一个管的是"不许比这更宽"——两个一起才把这一行的宽度钉住。
+    ///
+    /// 为什么非要有上限：**这一行摆不下就顶大整窗的 sizeHint**，而 E5 那条断言（≤900）
+    /// 是主窗口默认宽度的依据。2026-09-25 量的：加上这一行之后整窗 sizeHint 从 ≤900 涨到
+    /// **934**，正好是"模组那一页四个下拉框"顶出来的（模组页 644，别的页 454）—— 也就是说
+    /// 到了默认那个 900 px 宽的窗口上，这一行会被右边界切掉一块（四个框各自的
+    /// minimumSizeHint 就是它的 sizeHint，挤不下去）。
+    /// 96 是照着"四个框 + 四个标签 + 七道 8 px 间隙 ≤ 610（900 px 窗口下右栏的宽度）"
+    /// 反算的，留了三十来 px 余量。代价：框里那串字会被省略（「CurseForge」显示成
+    /// 「CurseFor…」）—— 展开下拉框看得见全的，而这些框本来就是"点开挑一个"的东西。
+    static int downloadFilterComboMaxWidth() { return 96; }
+    /// 整合包那一页那颗「导入整合包…」的 objectName。用户原话「整合包那一页带一个导入功能」。
+    ///
+    /// NOTE: 字和实例页那颗是**同一句**（`importModpackText()`，一个"导入整合包…"不该有
+    ///       两种说法），但**是两颗不同的按钮**：那一个在实例页左栏、走的是"往当前实例里
+    ///       导入"，这一颗在下载页、走的是同一条路。名字故意不一样（"importModpackButton"
+    ///       已经给实例页那一颗用了），不然 `findChild` 会撞出个先找到谁看运气。
+    static QString downloadFilterImportModpackButtonName() {
+        return QStringLiteral("modpackImportButton");
+    }
     /// 那几张资源表里**前面那个图标画多大**（版本树/加载器树是 18）。
     /// 用户要"会有图片"，18 px 那个尺寸看不清缩略图；行高仍是 versionTreeRowHeight()（46），
     /// 32 px 的图在行里上下各留 7 px，不挤。
@@ -558,6 +656,25 @@ public:
     ///       右端都多画一个刷新圈压在 `>` 上。代理那三个角色现在自成一档（+8/+9/+10），
     ///       这一档（条目身份）用 +0/+1/+2/+3…，两边别再串。
     static int resourceKindRole() { return Qt::UserRole + 3; }
+
+    /// 这一条是**从哪个来源**搜出来的（存 `ResourceCatalog::sourceKey()` 那个键，
+    /// `modrinth` / `curseforge`）。
+    ///
+    /// 为什么要挂在条目上：点开第二层去问"这个资源有哪些版本"时，**必须问对它那一侧** ——
+    /// 两个来源的 id 空间会撞（Modrinth 的 base62 id 里 `238222` 也是合法的，而 CurseForge
+    /// 那边真有这么个号），问错了不会报错，只会显示另一个资源的版本列表。
+    /// 存键不存枚举：理由和 resourceKindRole() 一样（读回来走 `sourceFromKey()`，
+    /// 认不出来才是"这一行不是我们建的"），而且**来源是会变的**（用户换一下下拉框，
+    /// 同一行文字就来自另一边了），键比一个 int 更经得起写进盘、写进日志。
+    static int resourceSourceRole() { return Qt::UserRole + 4; }
+
+    /// 这一格的**图标身份**：`ResourceCatalog::Hit::iconCacheId()`（带来源前缀）。
+    ///
+    /// 为什么要单独挂一格：图标那条频道回来说的是 cacheId（见 ResourceStore::iconReady），
+    /// 而它和 `Qt::UserRole` 里那个 project_id **不是一回事** —— 两个来源的 id 会撞，
+    /// 只按 project_id 找行的症状是"这一格画着另一个来源里同号那个资源的图标"。
+    /// 在这里存一次（灌条目那一刻从 Hit 取），回来时按它直接认，别在两处各拼一遍。
+    static int resourceIconIdRole() { return Qt::UserRole + 5; }
 
     static QString folderListName() { return QStringLiteral("folderList"); }
     static QString instanceListName() { return QStringLiteral("instanceList"); }
@@ -1651,8 +1768,50 @@ public:
         return downloadResourceTrees.value(categoryKey, nullptr);
     }
     /// 那一页上面那个搜索框（回车就搜，见 downloadSearchHint() 那段）。
+    /// 2026-09-25 起它同时是筛子行里的**「名称」那一格**（行的排法见 .cpp 里那一段）。
     QLineEdit *getDownloadSearchEdit(const QString &categoryKey) const {
         return downloadResourceSearches.value(categoryKey, nullptr);
+    }
+    /// 筛子行里那四个下拉框（按分类键取）。**内容全是空白的** —— 里面装什么由 MainWindow
+    /// 灌（来源 = allSources()、类型 = categoryOptions()、加载器 = loaderOptions()，
+    /// 见头文件里 downloadFilterVersionComboName() 那段）。
+    ///
+    /// NOTE: 「模组加载器」那一个**只有模组页有**（别的页回 nullptr）：用户原话
+    ///       「模组加载器只在模组那栏存在」。拿它之前先判空 —— 资源包/光影/数据包/整合包
+    ///       那四页**压根没有这个控件**，不是"有但是藏着"。
+    QComboBox *getDownloadFilterVersionCombo(const QString &categoryKey) const {
+        return downloadFilterVersionCombos.value(categoryKey, nullptr);
+    }
+    QComboBox *getDownloadFilterLoaderCombo(const QString &categoryKey) const {
+        return downloadFilterLoaderCombos.value(categoryKey, nullptr);
+    }
+    QComboBox *getDownloadFilterSourceCombo(const QString &categoryKey) const {
+        return downloadFilterSourceCombos.value(categoryKey, nullptr);
+    }
+    QComboBox *getDownloadFilterTypeCombo(const QString &categoryKey) const {
+        return downloadFilterTypeCombos.value(categoryKey, nullptr);
+    }
+    /// 「类型」那一栏的**整个小组**（标签 + 下拉框）。藏的是它，不是那个下拉框 ——
+    /// 只藏框的话会剩一个「类型」两个字孤零零挂在行里，比不藏还费解。
+    ///
+    /// 什么时候藏：`ResourceCatalog::categoryOptions()` 回空表的时候（那是"这一来源 × 这一类
+    /// 根本没有分类可选"的唯一出处，实测只有 Modrinth 的数据包那一档）。摆一个只有「全部」
+    /// 一项的框等于骗人。**藏不藏由 MainWindow 说了算** —— 这一层不知道那张表长什么样。
+    QWidget *getDownloadFilterTypeBox(const QString &categoryKey) const {
+        return downloadFilterTypeBoxes.value(categoryKey, nullptr);
+    }
+    /// 「搜索」和「清空条件」那两颗键（每一页都有）。按它们干什么见
+    /// downloadFilterSearchText() / downloadFilterResetText() 那两段。
+    QPushButton *getDownloadFilterSearchButton(const QString &categoryKey) const {
+        return downloadFilterSearchButtons.value(categoryKey, nullptr);
+    }
+    QPushButton *getDownloadFilterResetButton(const QString &categoryKey) const {
+        return downloadFilterResetButtons.value(categoryKey, nullptr);
+    }
+    /// 整合包那一页那颗「导入整合包…」。**别的页回 nullptr**（用户要的是"整合包那一页带一个
+    /// 导入功能"，别的页没有这一颗）。它走的路和实例页那颗是**同一条**。
+    QPushButton *getDownloadFilterImportModpackButton() const {
+        return downloadImportModpackButton;
     }
 
     // 设置页的控件。**只搭出来、只负责显隐**，值由 MainWindow 灌（它才知道
@@ -1793,6 +1952,19 @@ private:
     /// 五页里「游戏」不在里头（它不用搜），所以这里是四对。
     QHash<QString, QTreeWidget *> downloadResourceTrees;
     QHash<QString, QLineEdit *> downloadResourceSearches;
+    /// 那几页筛子行里的控件（按分类键索引，键就是 downloadCategoryKeys() 里那几个之一）。
+    /// 「模组加载器」那一份**只有模组页有一个条目**（别的页没有这个键）—— 取的时候回 nullptr，
+    /// 见 getDownloadFilterLoaderCombo() 那段。
+    QHash<QString, QComboBox *> downloadFilterVersionCombos;
+    QHash<QString, QComboBox *> downloadFilterLoaderCombos;
+    QHash<QString, QComboBox *> downloadFilterSourceCombos;
+    QHash<QString, QComboBox *> downloadFilterTypeCombos;
+    /// 「类型」那一栏的整个小组（标签 + 框），为了能一起藏起来（见 getDownloadFilterTypeBox()）。
+    QHash<QString, QWidget *> downloadFilterTypeBoxes;
+    QHash<QString, QPushButton *> downloadFilterSearchButtons;
+    QHash<QString, QPushButton *> downloadFilterResetButtons;
+    /// 整合包那一页那颗「导入整合包…」（见 downloadFilterImportModpackButtonName() 那段）。
+    QPushButton *downloadImportModpackButton = nullptr;
     QComboBox *javaVersionCombo = nullptr;
     QLabel *javaPathLabel = nullptr;
     QCheckBox *javaWarnMismatchCheck = nullptr;
