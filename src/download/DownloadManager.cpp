@@ -83,6 +83,33 @@ QString sha1FromVersionUrl(const QString &url) {
     return QString();
 }
 
+/// 这个目标路径**应该**是一个 zip（jar 就是 zip）。只认后缀，因为这是唯一还能从"我们要
+/// 往哪儿写"推出内容的判据。
+///
+/// **用它的地方只有"一个别的判据都没有"的那两条路**（见 fileAlreadyValid() 与
+/// onDownloadReplyFinished() 里各自的 NOTE）：有 sha1 或字节数的时候轮不到它 —— 那两种
+/// 判据都比"文件头像不像 zip"强，也没必要多读一次盘。
+///
+/// NOTE: 只判 `.jar` / `.zip` 两个后缀是**故意收着**的。资源对象（`objects/ab/abcdef…`）
+///       没有后缀、版本 json 是 `.json`、皮肤是 `.png` —— 拿"zip 头"去要求它们全是错的。
+bool shouldBeZipArchive(const QString &path) {
+    return path.endsWith(QLatin1String(".jar"), Qt::CaseInsensitive) ||
+           path.endsWith(QLatin1String(".zip"), Qt::CaseInsensitive);
+}
+
+/// 文件头是不是 zip 的（`PK\x03\x04` 本地文件头；空档案是 `PK\x05\x06`，一样认）。
+///
+/// 用来挡住"200 + 一段 HTML 错误页"这一类：那种正文既不是空、字节数也可能对不上任何人
+/// 期望值（没人给过期望值），只有前四个字节能一眼说明它不是我们要的东西。
+bool looksLikeZipArchive(const QString &path) {
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        return false;
+    }
+    const QByteArray head = file.read(4);
+    return head.startsWith("PK\x03\x04") || head.startsWith("PK\x05\x06");
+}
+
 }  // namespace
 
 QString DownloadManager::mirrorUrl(const QString &officialUrl) {
@@ -411,7 +438,15 @@ bool DownloadManager::fileAlreadyValid(const QString &path, const QString &expec
         return false;
     }
     if (mode == VerifyMode::ExistsOnly) {
-        return true;
+        // ★ "文件在就算好"这一档里，**该是 zip 的那一类还要真的是 zip**（2026-09-26 补）。
+        //
+        //   这一档喂的是两类东西：资源对象（文件名就是 sha1、没有后缀 —— 上面那条判据对
+        //   它们一个字都不管）和**加载器安装器 jar**（`installs/forge-…-installer.jar`）。
+        //   后者是全仓唯一"既没有 sha1、也没有字节数"的下载，于是它只有"存在"这一条判据。
+        //   一份 200 + HTML 错误页要是落在这儿，`fileAlreadyValid()` 从此每次都点头 ⇒
+        //   用户**永远装不上那个加载器**，而且每次都在同一个地方失败（重下也没用，
+        //   因为根本不会重下）。前四个字节就是这时候唯一还说得上话的东西。
+        return !shouldBeZipArchive(path) || looksLikeZipArchive(path);
     }
     // SizeAndSha1：先比字节数。大小对不上一眼就知道要重下，省掉一次全文件哈希。
     // expectedSize <= 0 表示调用方也不知道该多大，只能退化成只比 SHA1。
@@ -1280,6 +1315,17 @@ void DownloadManager::onDownloadReplyFinished() {
                 // 而且之后因为"已存在"再也不重下。字节数是这时唯一还有的判据。
                 errorMessage = QStringLiteral("Downloaded size does not match the expected size");
                 QFile::remove(destPath);
+            } else if (shouldBeZipArchive(destPath) && !looksLikeZipArchive(destPath)) {
+                // ★ 到这一支 = **一个别的判据都没有**（没 sha1、也没给字节数）。全仓只有
+                //   加载器安装器 jar 走这儿（见 VersionManager 里那句 downloadFile）。
+                //   "200 + 一段正文"从此不再是"下好了"：jar 就得是 zip（`PK` 那四个字节），
+                //   一段 HTML 错误页/推广页会被当场拦下并**从盘上删掉**，下一趟会重下。
+                //
+                //   这条比"等安装器自己失败"值：那边报出来的是 Java 的一句
+                //   `Invalid or corrupt jarfile`，用户看到的是"装到一半崩了"，
+                //   而真正的原因在这一层就已经能说清楚了。
+                errorMessage = QStringLiteral("Not a zip archive (expected a jar/zip body)");
+                QFile::remove(destPath);
             } else {
                 success = true;
             }
@@ -1508,6 +1554,17 @@ void DownloadManager::onDownloadReplyProgress(qint64 bytesReceived, qint64 bytes
         // 0.85~10 KB/s 的链子）不该被这条兜底掐掉，它该由"太慢"那条判据管。
         meter->lastSignOfLifeMs = m_clock.elapsed();
     }
+    // ★ 属于**已经被放弃的那一批**的回复到此为止（2026-09-26 补）。上面那两笔看门狗的记账
+    //   照记（它们判的是"这条链子还行不行"，和批次无关），但**一条进度都不许报**：
+    //   用户点了取消、新的一批已经开起来了，而这两个 emit 会把上一批的文件名和字节数塞进
+    //   新一批的进度里 —— `emitBatchProgress()` 那一头还会顺手把 `m_currentFile` 覆盖掉，
+    //   界面上"正在下载 X"那一行于是指着上一批的文件，每文件那条进度条也跟着上一批的数字
+    //   跳。同一条规矩在另外三个槽里都已经有了（handleDownloadError / failWedgedDownload /
+    //   onDownloadReplyFinished），只有这一处漏了。
+    if (!replyIsFromCurrentBatch(reply)) {
+        return;
+    }
+
     QString destPath = activeDownloads.value(reply);
     emit downloadProgress(QFileInfo(destPath).fileName(), bytesReceived, bytesTotal);
     // 单发大文件（41 MB 的客户端 jar）期间也要让进度条动起来，否则界面像是卡住了。

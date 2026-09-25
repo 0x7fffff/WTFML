@@ -184,8 +184,13 @@ bool copyTreeInto(const QString &from, const QString &to) {
         return true;
     }
     if (source.isDir()) {
-        const QFileInfoList entries =
-            QDir(from).entryInfoList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot);
+        // ★ 带上 QDir::Hidden（2026-09-26 补）：这是一条**搬回来**的路（加载器装失败之后
+        //   把版本目录 / libraries/optifine 还原回去），漏掉的条目**没有第二次机会** ——
+        //   源目录随后就被删了。不带这一位时，盘上凡是带隐藏属性（Windows 属性位，或者
+        //   名字以点开头）的东西都会在"还原"这一步**静默消失**：用户看到的是"装了一次
+        //   加载器，我放在版本目录里的东西少了几样"。删得掉的东西，拷贝时更要一个不落。
+        const QFileInfoList entries = QDir(from).entryInfoList(
+            QDir::Files | QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot);
         for (const QFileInfo &entry : entries) {
             if (!copyTreeInto(entry.absoluteFilePath(),
                               to + QLatin1Char('/') + entry.fileName())) {
@@ -1872,8 +1877,14 @@ void VersionManager::startInstallerDownload() {
     m_loaderInstall.phase = LoaderInstall::Phase::WaitingInstallerJar;
     // 安装器 jar 没有公布 sha1（Forge 只在下载页给别的东西，NeoForge 的 maven-metadata
     // 里也没有），所以这里只能"文件在就算好" —— 第二次装同一个加载器版本时省掉这 6 MB。
-    // 校验不了是**接受**的：这个 jar 只被我们当子进程启动，真下坏了会在退出码和产物核对
-    // 那两道上现形（见 onInstallerFinished）。
+    //
+    // NOTE: 2026-09-26 改了**半条**：原来这里到此为止（"校验不了是接受的"），于是它是全仓
+    //       唯一"既没有 sha1、也没有字节数"的下载 —— 一份 200 + HTML 错误页会被当成"下好了"
+    //       落盘，而且因为"已存在"**再也不会重下**，症状是那个加载器版本永远装不上、
+    //       每次都在同一处失败。现在这一条路上还剩的判据是 **jar 必须是 zip**（`PK` 那四个
+    //       字节），判在 DownloadManager 里那两处"别的判据都没有"的支路上（落盘那一步 +
+    //       fileAlreadyValid）。**不是**真的完整性校验 —— 拿不到 sha1 就是拿不到，这一句
+    //       别读成"已经校验过了"。
     // 安装器 jar 也走镜像（6 MB 上下，是这条路上最大的一笔）。镜像上那份和官方是同一个
     // 文件（见 2026-09-22 的实测）。installerUrl 本身**不改**：盘上那个文件名是从它切的，
     // 两条路上游的文件名一模一样。
