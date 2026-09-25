@@ -190,6 +190,19 @@ private slots:
     /// NOTE: 它写盘但**不发 groupsChanged**（理由见 InstanceGroupStore::setGroupExpanded()）
     ///       —— 所以调用方要自己把那一条的展开状态摆好，这里只管记。
     void rememberGroupExpanded(const QString &groupId, bool expanded);
+    /// 把某一组在顺序里挪动（组行行尾那两颗上/下箭头，几何见
+    /// InstanceGroupDelegate::moveUpRect() / moveDownRect()）。
+    /// @param groupId 哪一组（虚拟的「未分组」没有位置，挪不动）。
+    /// @param up true = 往上，false = 往下。
+    /// @param toEdge true = **直接放到最顶上 / 最底下**（按住 Shift 点那一颗），
+    ///        false = 只挪一格。
+    /// @return 真挪动了返回 true；到那一头了、或者这一组此刻在树上没有行，返回 false。
+    ///
+    /// NOTE: "上一格 / 下一格"按**树上真画出来的那些组行**算，不按文件里的下标 —— 空组是
+    ///       藏着的（见 fillInstanceTree），按文件下标挪会变成"点了什么都没动"。
+    /// NOTE: 写盘成功之后由数据层发 groupsChanged 重灌这张树（和别的分组写路径一样，
+    ///       这里**不**手动重灌）。
+    bool moveGroupInOrder(const QString &groupId, bool up, bool toEdge);
     /// 给某一组弹齿轮菜单（锚点 = 那一行行尾那颗齿轮占的格子）。
     ///
     /// NOTE: 它和 onGroupActionRequested() 之间过的是 MainWindowUI::GroupRow，而那个类型

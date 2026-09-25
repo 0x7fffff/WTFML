@@ -108,6 +108,18 @@ public slots:
     /// 同上，往下挪一格。
     bool moveGroupDown(const QString &groupId);
 
+    /// 把某个组**直接挪到最上面**（用户原话：「按住 shift 时点击就直接放最顶上/底下」）。
+    /// 已经在最上面、或者找不到这个组时什么都不做，返回 false。
+    ///
+    /// NOTE: 和 moveGroupUp() 拆成两个槽（不是给那个加个 bool 参数）：**置顶不是"挪很多
+    ///       格"**，它一步到位、和现在排第几无关；而且这样验证工程能直接驱动这一档
+    ///       —— 界面那条路（按住 Shift 点按钮）读的是 QApplication::keyboardModifiers()，
+    ///       那个在 offscreen 下摆不出来。
+    bool moveGroupToTop(const QString &groupId);
+
+    /// 同上，**直接挪到最下面**。
+    bool moveGroupToBottom(const QString &groupId);
+
     /// 改某一组的「默认展开」。
     ///
     /// NOTE: 摆勾选框的**那一下**会发一次 toggled，那一次不该被当成用户点的（那会绕回去

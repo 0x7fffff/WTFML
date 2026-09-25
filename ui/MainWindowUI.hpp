@@ -366,10 +366,33 @@ public:
     /// 两行式的行，这一行只有一行字，齿轮得装在行高里面。
     ///
     /// NOTE: 这个数是**画出来**的那一圈的边长；命中格还要四周各留 3 px
-    ///       （`InstanceGroupDelegate::gearRect()`）。实例树没有版本树那个行高常数
-    ///       （就是一行字那么高），所以真画的时候还要**按行高再收一收** —— 一行只有
-    ///       十几像素时 16 px 的齿轮会上下各冒出去一半（见 `gearGlyphRect()`）。
+    ///       （`InstanceGroupDelegate::gearRect()`）。实例树的行高 2026-09-25 起**和版本树
+    ///       一样了**（`InstanceGroupDelegate::sizeHint()` 返回的就是 versionTreeRowHeight()，
+    ///       用户原话「每个版本啥的上下高一点，像下载页那样」），16 px 装得下了；
+    ///       `gearGlyphRect()` 里那道"按行高收一收"留着当兜底 —— 行高哪天再变矮，它自己缩。
     static int instanceGroupGearSize() { return 16; }
+    /// 组行行尾那两颗**「上移 / 下移」**箭头能不能点（位掩码，写进 rowGroupMoveRole()）。
+    /// 2026-09-25 用户原话：「上下移能不能做成拖拽的，不好做的话在每个的右侧除了齿轮以外
+    /// 加两个按钮，上箭头和下箭头，功能就是上下移，按住shift时点击就直接放最顶上/底下」。
+    static int groupMoveUpFlag() { return 1; }
+    static int groupMoveDownFlag() { return 2; }
+    /// 「这一组行尾那两颗上/下箭头画哪一颗」挂在哪个角色上。值是一个位掩码
+    /// （groupMoveUpFlag() | groupMoveDownFlag()；**0 = 两颗都不画**）。
+    ///
+    /// 只挂在**真实分组**的组行上：虚拟的「未分组」不进 wtfml.folders，没有顺序可改。
+    /// 判据也不是"它在文件里排第几"，而是"树上看不看得见另一行" —— 一个实例都没有的组
+    /// 那行是藏着的（「空白的分组隐藏」），照文件下标算的话，"上移一格"经常会挪到一行
+    /// 看不见的组前面去，用户点一下屏幕上什么都没有动。算它的地方只有
+    /// `fillInstanceTree()` 一处（它是唯一知道"哪几行真画出来了"的地方）。
+    static int rowGroupMoveRole() { return Qt::UserRole + 12; }
+    /// 悬停在那两颗上/下箭头上弹的话。**带上 Shift 那半句** —— 那是个藏在键盘上的
+    /// 快捷方式，不说没人知道（tooltip 不要钱，正文那句才要省着写）。
+    static QString rowGroupMoveUpTipText() {
+        return QStringLiteral("上移这一组（按住 Shift 直接放到最上面）");
+    }
+    static QString rowGroupMoveDownTipText() {
+        return QStringLiteral("下移这一组（按住 Shift 直接放到最下面）");
+    }
     /// 悬停在那两个**行里的按钮**上时弹的那句话（2026-09-24 用户原话：「鼠标悬停在箭头上
     /// 出现刷新二字，之后不少功能要做悬停」）。谁把它弹出来的、按哪一格判，见
     /// VersionTreeDelegate::rowActionTip()（那儿是**几何的唯一出处**，这儿只是文案）。
