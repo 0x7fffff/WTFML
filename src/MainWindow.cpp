@@ -6660,6 +6660,17 @@ void MainWindow::openInstanceSettings(const QString &versionId) {
 
 bool MainWindow::applyInstanceSettings(const QString &versionId,
                                       const InstanceSettingsDialog &dialog) {
+    // ★ 分组归属的**老键必须在写 meta 之前取**。下面那一句 `ensureInstanceId()` 会给
+    //   "还没有稳定 id"的老实例补一个，而归属是按 `instanceKey()`（有 id 用 id、没有就
+    //   退回目录名）存的 ⇒ 补上 id 之后同一个实例的键**换了一个**，不跟着搬它就会
+    //   **静默掉出原来那一组**。用户看到的是"我只改了个内存设置，它自己从组里出来了"，
+    //   而且没有任何日志、没有任何弹窗 —— 事后才发现。
+    //
+    //   NOTE: 已经走过改名那条路的实例到这里时 id 早就有了（`renameInstance()` 那一步
+    //         生成的），oldKey == newKey —— `rekey()` 自己认得出这是空操作，一个字节
+    //         都不写盘（见它开头那一句）。
+    const QString oldGroupKey = instanceKey(versionId);
+
     // 先把稳定 id 落下去。**必须排在最前**：这一项覆盖要"跟着这个实例走"，而实例的
     // 身份就是那个 id（目录名会被改，改名之后按目录名记的东西全丢）。失败就不写 ——
     // 写成一次"靠目录名认出来的覆盖"比这次没写成糟得多。
@@ -6669,6 +6680,21 @@ bool MainWindow::applyInstanceSettings(const QString &versionId,
                                  "（这份文件可能被别的程序占着，或者它所在的目录不可写。）")
                                   .arg(instanceDisplayName(versionId)));
         return false;
+    }
+
+    // 键换过了（老实例刚拿到 id）就把归属搬过去 —— 这一步**必须在这里**，不能挪到
+    // 下面那次写 meta 之后：`ensureInstanceId()` 已经把 id 落盘了，也就是说"键已经换了"
+    // 是既成事实，再往下走无论成败，归属都只剩这一条路能保住。
+    //
+    // NOTE: 搬失败**不当成"设置没保存"**（照 applyRename 的先例）：那会让用户以为要重来
+    //       一次，而设置那半边马上就写好了。说清楚哪一半没成，让他自己去「分组…」再归一次。
+    const QString newGroupKey = instanceKey(versionId);
+    QString groupError;
+    if (!m_groupStore->rekey(oldGroupKey, newGroupKey, &groupError)) {
+        InlineMessage::warning(m_ui->overlay(), tr("分组归属没跟着搬"),
+                             tr("「%1」的分组归属没能搬过去：\n%2\n\n"
+                                "可以在「分组…」里重新归一次。")
+                                 .arg(instanceDisplayName(versionId), groupError));
     }
 
     // "值 → 要写进 meta 的字段"整批交给 javaOverrideMetaFields()：五项里"跟随全局"
