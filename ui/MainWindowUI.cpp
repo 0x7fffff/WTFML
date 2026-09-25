@@ -336,11 +336,13 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
 
     // ================= 顶上那条自己画的标题栏 =================
     // 系统那条白色标题栏已经由 WindowChrome 去掉了（客户区铺满整窗，见它的文件头），
-    // 顶上这一行就是替它的：左边草方块 + 启动器名字，右边最小化与关闭。
-    // 第一行就是它、第二行才是选项卡 —— 顺序由 addWidget 的先后决定，所以这里先加。
+    // 顶上这一行就是替它的：左边草方块 + 那五个字母（`TitleBar::brandText()`），
+    // 然后是**四个功能的导航按钮**（下面 addTab 完之后 setNavItems() 灌进去），
+    // 右边最小化与关闭。第一行就是它、第二行才是标签页 —— 顺序由 addWidget 的先后决定。
     //
     // NOTE: 覆盖层（OverlayHost）挂在 tabWidget 上、条在 tabWidget 上面那一行，所以开设置页
-    //       时这条**不会被盖住** —— 和"底下那条不用覆盖、顶上四个选项卡也不覆盖"是同一条规矩。
+    //       时这条**不会被盖住** —— 和"底下那一条不用覆盖"是同一条规矩；用户原话里那句
+    //       「顶上四个选项卡也不覆盖」现在由"四个功能在条上、条不被覆盖"接手。
     bar = new TitleBar(centralWidget);
     mainLayout->addWidget(bar);
     // 条只发信号、不自己动手（见 TitleBar.hpp）：谁接这两下是这一层的事。
@@ -976,6 +978,29 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     tabWidget->addTab(downloadTab, QStringLiteral("下载"));
     tabWidget->addTab(settingsTab, QStringLiteral("设置"));
     mainLayout->addWidget(tabWidget, 1);
+
+    // ================= 那四个选项卡搬到顶上那一条上 =================
+    // 用户原话：「把四个选项卡放到最顶上去，通过顶端按钮打开四个功能」。
+    //
+    // 做法是"条上一排按钮 + 把 QTabWidget 自己那条标签栏藏起来"，而不是把 QTabBar 搬出来：
+    // 标签栏的几何归 QTabWidget 管（和内容区那条接缝、圆角都是它画的），搬出来只会得到一个
+    // 位置还会被拽回去的条。藏起来的后果是好的那一半 —— Qt 的 `initStyleOption()` 里那句
+    // `if (d->tabs->isVisibleTo(this))` 一判，`tabBarSize` 归零，于是 `contentsRect` 变成
+    // 整个 QTabWidget：**内容页铺满整块**（所以覆盖层也跟着铺满，见 OverlayHost）。
+    tabWidget->tabBar()->hide();
+    // 标签**就是** tabWidget 自己的那一份：名字、顺序、条数都只有一处出处。
+    // NOTE: 这一句必须在上面四个 addTab **之后** —— tabText() 这会儿才有东西。
+    QStringList navLabels;
+    for (int i = 0; i < tabWidget->count(); ++i) {
+        navLabels << tabWidget->tabText(i);
+    }
+    bar->setNavItems(navLabels);
+    bar->setCurrentNav(tabWidget->currentIndex());
+    // 条只发信号、不自己动手（见 TitleBar.hpp）：翻页是这一层的事。
+    QObject::connect(bar, &TitleBar::navRequested, tabWidget,
+                     [this](int index) { tabWidget->setCurrentIndex(index); });
+    // 反方向也要通：别处（底栏、主页那几个入口）翻页之后，条上标着的也得跟着换。
+    QObject::connect(tabWidget, &QTabWidget::currentChanged, bar, &TitleBar::setCurrentNav);
 
     setupBottomBar(centralWidget, mainLayout);
 

@@ -14,10 +14,15 @@
  *   - 而且**不许出现尺寸不一样的弹窗**（一会儿大一会儿小最难受）。
  *
  * 【这块地方在哪儿】
- * 主窗口 `centralWidget` 的纵向布局是 `[tabWidget(stretch 1)][底栏一条]`（见
- * MainWindowUI::setupUi）。所以"内容区"就是**那个 QTabWidget 里当前页占的那块**，
- * 覆盖层挂在它上面 —— **标签栏和底栏都露着**，正是用户点名的那两句
- * （「底下那一条不用覆盖，顶上四个选项卡也不覆盖」）。
+ * 主窗口 `centralWidget` 的纵向布局是 `[顶上那一条][tabWidget(stretch 1)][底栏一条]`
+ * （见 MainWindowUI::setupUi）。所以"内容区"就是**那个 QTabWidget 里当前页占的那块**，
+ * 覆盖层挂在它上面 —— **顶上那一条和底栏都露着**，也就是用户点名的那句
+ * 「底下那一条不用覆盖」。
+ *
+ * NOTE: 用户原话里还有半句「顶上四个选项卡也不覆盖」——2026-09-25 起那四个选项卡已经
+ *       **搬到顶上的条里**（`tabWidget->tabBar()->hide()` + 条上四颗导航按钮，见
+ *       TitleBar.hpp 文件头），所以"露着"的那一份从标签栏换成了那条，规矩没变：
+ *       四个功能始终点得到。
  *
  * 【为什么是"锚点的兄弟 + eventFilter 现算几何"，不是布局】
  * 覆盖层不能参与 `mainLayout` —— 一进布局就会把 `tabWidget` 挤走（那是"分成上下两半"，
@@ -78,7 +83,7 @@ public:
     bool pageOpen() const { return m_mode == Mode::Page; }
     bool promptOpen() const { return m_mode == Mode::Prompt; }
 
-    /// 内容区（标签栏以下、底栏以上）在**本控件父窗口坐标系**里的矩形。
+    /// 内容区（顶上那一条以下、底栏以上）在**本控件父窗口坐标系**里的矩形。
     /// 公开是给验证工程量的：覆盖层到底盖住了哪一块，只有这一个出处。
     QRect contentRect() const;
 
