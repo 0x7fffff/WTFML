@@ -81,6 +81,13 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     opt.text.clear();
     opt.icon = QIcon();
     opt.features = QStyleOptionViewItem::None;
+    // 悬停那一位**先读走、再抹掉**：它是给"这一行上我们自己画的那个按钮"用的（见下面那段
+    // showRefresh），不是"这一行被指到了"这件事本身。留着的话样式会给整行铺一层悬停底色 ——
+    // 那是用户没要的另一个改动，而且会把"现在停在哪一类"那层选中底色比下去。
+    // 读的是**原样传进来**的那个 option，不是 initStyleOption 之后的那一份：这一位是视图
+    // 填的，它在 initStyleOption 里留没留住不该由我们猜（这条路上我们自己说了算）。
+    const bool hovered = (option.state & QStyle::State_MouseOver) != 0;
+    opt.state &= ~QStyle::State_MouseOver;
     if (QStyle *style = opt.widget != nullptr ? opt.widget->style() : QApplication::style()) {
         style->drawControl(QStyle::CE_ItemViewItem, &opt, painter, opt.widget);
     }
@@ -139,7 +146,16 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     const QRect crossBox = clearRect(row);
     // 行尾那个刷新按钮（rowRefreshRole()）：和上面那个叉一样，它占的那一格也要从文字的
     // 可用宽度里扣掉 —— 不扣的话长条目会从它底下穿过去。
-    const bool showRefresh = index.data(MainWindowUI::rowRefreshRole()).toBool();
+    // ★ 2026-09-25：这个按钮**只在鼠标悬停到这一行时才画**（用户原话：「下载界面只有鼠标
+    //    悬停在按钮上时才显示对应的刷新按钮」）。扣宽度那一条**没有**跟着挂 hovered ——
+    //    宽度一直留着，鼠标挪进来的时候正文不会左右跳一下（那比少一个图标显眼得多）。
+    // NOTE: hovered 是**视图**填的，而视图**默认不填**：量过（探针在 tmp/probe_hover）——
+    //       干净的 QListWidget 视口 WA_Hover=0 / mouseTracking=0，真鼠标移动一个字都不改
+    //       State_MouseOver；给那份列表开 setMouseTracking(true) 之后才会改（真平台的
+    //       windows 与 offscreen 各量一遍，同一个结果）。所以这一段搭在 MainWindowUI 里
+    //       建左栏那份列表时那句 setMouseTracking 上 —— 那句被删掉的话，症状是"刷新按钮
+    //       再也不出现了"，不是报错、也不是断言先红。
+    const bool showRefresh = index.data(MainWindowUI::rowRefreshRole()).toBool() && hovered;
     const QRect refreshBox = refreshRect(row);
     int textRight = row.right() - pad - arrowSize - 6;
     if (showClear) {
@@ -288,6 +304,8 @@ QSize VersionTreeDelegate::sizeHint(const QStyleOptionViewItem &option,
     }
     // 行尾那个刷新按钮同理（见 rowRefreshRole()/refreshRect()）：它比那个叉大一号
     //（跟着正文图标那个 18 px 走），间距还是 6。
+    // NOTE: 判据里**没有** hovered —— 那一格是"这一行有这么一个按钮"占的地方，不是"这会儿
+    //       画不画"。跟着悬停变的话，鼠标一扫过去整行的宽度就跟着变（paint 那段有说明）。
     if (index.data(MainWindowUI::rowRefreshRole()).toBool()) {
         width += MainWindowUI::versionTreeIconSize() + 6 + 6;
     }
