@@ -1359,6 +1359,27 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
                 form);
         addSettingRow(grid, row++, QStringLiteral("来源"), box, form);
     }
+    {
+        // CurseForge 的 API key（2026-09-25 加）。放在「下载源」这一组里是因为它和上面那格
+        // 是同一件事：**下载走哪条路**。那一格管 Minecraft 自己的文件，这一格管整合包
+        // 清单里那批文件的"换地址"那一发。
+        QWidget *box = makeHintedControl(form);
+        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        curseForgeApiKeyEdit = new QLineEdit(box);
+        curseForgeApiKeyEdit->setObjectName(curseForgeApiKeyEditName());
+        curseForgeApiKeyEdit->setPlaceholderText(curseForgeApiKeyPlaceholder());
+        // NOTE: 明文显示（不是 Password 那种圆点）。理由：① 这一格是"用户自己去申请来的一串"，
+        //       贴错了得能看一眼；② 它本来就明文躺在配置里，圆点给的是**假的**安全感。
+        //       它是这一项而不是"账号密码"那一类：泄露的代价是那个用户自己的额度被用掉。
+        boxLayout->addWidget(curseForgeApiKeyEdit);
+        addHint(box, QStringLiteral("只给 CurseForge 格式的整合包用：那种清单里只有编号，"
+                                    "要问一次接口才换得出下载地址。官方接口要 key（在 "
+                                    "console.curseforge.com 免费申请），留空则走社区的公共接口 —— "
+                                    "它不用 key，但可能限流、也可能哪天就停了。"
+                                    "改完按回车（或者点到别处）就记住。"),
+                form);
+        addSettingRow(grid, row++, curseForgeApiKeyRowText(), box, form);
+    }
 
     // ---------- 版本名格式 ----------
     addSectionTitle(grid, row++, QStringLiteral("版本名格式"), form);

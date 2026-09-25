@@ -20,7 +20,9 @@
 #pragma once
 
 #include <QByteArray>
+#include <QHash>
 #include <QList>
+#include <QMetaType>
 #include <QString>
 #include <QStringList>
 
@@ -42,6 +44,15 @@ struct PackFile {
     qint64 size = -1;  ///< 清单里的字节数；-1 = 没写（那就只校验 sha1）
 };
 
+/// CurseForge 清单里的一条：**它只给两个号**（`projectID` / `fileID`），文件名和地址
+/// 都没有 —— 那不是漏了，是这个格式本来就长这样（见 parseCurseForgeManifest 上面那段）。
+/// 所以它得先经过一次"拿号换文件"（`VersionManager::resolveCurseForgeFiles`）才能变成
+/// 上面那个 `PackFile`。
+struct PackRef {
+    int projectId = 0;
+    int fileId = 0;
+};
+
 /// 一份解析好的整合包清单。
 struct Pack {
     Format format = Format::Unknown;
@@ -51,11 +62,33 @@ struct Pack {
     QString loaderKey;     ///< 加载器那一行的键（空 = 这个包是纯原版的，见 loaderKey*()）
     QString loaderVersion; ///< 加载器那一行的值
     QList<PackFile> files; ///< 要下载的那些（已剔掉"只给服务端用"和"没给地址"的）
-    /// 清单里**有、但我们不会下**的文件个数，两个原因：
+    /// CurseForge 专用：还没换成地址的那些（见 PackRef）。解析完 `manifest.json` 之后
+    /// **`files` 是空的、它们全在这儿** —— 换成了才挪过去。其余格式恒为空。
+    QList<PackRef> pendingRefs;
+    /// 清单里**有、但我们不会下**的文件个数，三个原因：
     ///   - `env.client` 写着 `unsupported`（只给服务端用的 mod，装到客户端上会崩）；
-    ///   - `downloads` 是空的（Modrinth 规定这种文件该出现在 overrides 里，让压缩包自己带）。
+    ///   - `downloads` 是空的（Modrinth 规定这种文件该出现在 overrides 里，让压缩包自己带）；
+    ///   - CurseForge 那边它是个**嵌套的整合包**（`fileID` 指着一个 .zip，我们不代装）。
     /// 单独计数是为了在确认框里**如实说出来**：不说的话，用户会以为整合包少装了东西。
     int filesSkipped = 0;
+    /// CurseForge 专用：接口**明确说"不许第三方代下"**的个数（`downloadUrl` 是 null，
+    /// 那是作者在项目设置里关掉了第三方分发）。这一档和上面那种"按规矩跳过"**不是一回事**：
+    /// 用户自己动手是能补齐的，所以那句话得说到"你怎么办"（见 finishModpackImport）。
+    ///
+    /// NOTE: 这些文件在 CDN 上其实是躺着的（`mediafilez.forgecdn.net/files/<id/1000>/<id%1000>/<file>`
+    ///       实测 200），**所以"技术上能下"不是"该下"** —— 接口给你一条 null 就是在说不许，
+    ///       绕过它等于替用户做了他没同意的那个决定，而且做在别人的 CDN 上。
+    int filesNotDistributable = 0;
+    /// CurseForge 专用：接口里**查不到**（或者文件已被作者删除 / 没过审 / 名字拼不出安全
+    /// 路径）的个数。这一档是"这个包本身有问题"，用户除了换包没法处理。
+    int filesMissing = 0;
+    /// 压缩包里覆盖文件那一层目录名（Modrinth 固定 `overrides` / `client-overrides`；
+    /// CurseForge 由清单里的 `overrides` 字段给，**后一个对 CF 恒为空** —— 它没有这个规矩）。
+    QString overridesDir = QStringLiteral("overrides");
+    QString clientOverridesDir = QStringLiteral("client-overrides");
+    /// 清单里点了名的文件总数（**不管下不下得成**）。确认框上那句"要下载的文件：N 个"
+    /// 用它：CurseForge 的 N 条在这一步还只是号，但用户要知道的正是"这个包有多大"。
+    int fileCount() const { return files.size() + pendingRefs.size(); }
 };
 
 /// 解析结果。失败时 `problem` 是**直接弹给用户看**的一句话（不夹错误码，见产品约定）。
@@ -84,6 +117,150 @@ QString curseForgeManifestName();
  */
 Result parseModrinthIndex(const QByteArray &json);
 
+// ---------------------------------------------------------------------------
+// CurseForge：`manifest.json`
+// ---------------------------------------------------------------------------
+//
+// 【这个格式难在哪儿】它的 `files[]` 里**一条地址都没有**，只有两个号：
+//
+//     {"projectID": 238222, "fileID": 8971390, "required": true}
+//
+// 文件名、字节数、sha1、下载地址**全都要去 CurseForge 的接口换**（2026-09-25 实测，
+// 探针与数字见下）。所以这条路上"解析"是两段：先把号和基础信息读出来
+// （parseCurseForgeManifest），再拿号去换文件（parseCurseForgeFileInfo）。
+//
+//     GET  /v1/mods/{modId}/files/{fileId}         一条一条问（200）
+//     POST /v1/mods/files  {"fileIds":[...]}       **批量**，一个包一问就够（200）
+//     POST /v1/mods        {"modIds":[...]}        批量问"这是模组还是资源包"（200）
+//
+// 官方那份 `api.curseforge.com` **要 `x-api-key`**（不带 = 403，实测）。所以默认走的是
+// 一条社区反代（`api.curse.tools`，同一个接口形状、不要 key，实测 200）—— 代价写在
+// curseForgeApiBase() 上面。用户自己填了 key 就改走官方。
+
+/**
+ * @brief 解析一份 CurseForge 的 `manifest.json`。
+ * @param json 那个条目的原始字节。
+ * @return 成功时 ok=true，`pack.files` **是空的** —— 那些号在 `pack.pendingRefs` 里等着换。
+ *
+ * 和 Modrinth 那一条一样，"读不懂"永远是一句用户看得懂的话（少了哪个字段、值是什么）。
+ * 加载器那一行的写法两边**完全不同**：CurseForge 是 `{"id": "forge-47.2.0"}`，一个字符串
+ * 把名字和版本拼在一起，见 curseForgeLoaderKey()。
+ */
+Result parseCurseForgeManifest(const QByteArray &json);
+
+/**
+ * @brief CurseForge 那个 `modLoaders[].id` 拆成 Modrinth 那套键。
+ * @param rawId `forge-47.2.0` / `fabric-0.15.11` / `neoforge-20.4.1` / `quilt-0.20.0` / 光秃秃的 `forge`。
+ * @param keyOut `Pack::loaderKey` 该填什么（fabric → `fabric-loader`、quilt → `quilt-loader`，
+ *        翻译过来之后**下游一个字都不用改**：unsupportedLoaderText / loaderKindForDependencyKey
+ *        认的就是这四个键）。
+ * @param versionOut `Pack::loaderVersion`；`rawId` 里没带版本（老包的 `"forge"`）时是空串，
+ *        空串在安装那一步是"挑最新的"。
+ * @return 认不认识这个加载器。**认不出来也给 keyOut**（原样那个前缀，如 `liteloader`）——
+ *        空串在 unsupportedLoaderText() 眼里是"纯原版包，放行"，装出来一个进不去的整合包。
+ *
+ * NOTE: 拆在**第一个** `-` 上，不是最后一个：`neoForge-20.4.1-beta` 这种带后缀的也得
+ *       把版本整段留住。
+ */
+bool curseForgeLoaderKey(const QString &rawId, QString *keyOut, QString *versionOut);
+
+/// 批量问文件那一发的请求体（`{"fileIds":[…]}`）。纯函数是为了能离线钉住 ——
+/// 这一发的形状写错（键名、号是数字还是字符串）时接口回 400，而 400 的正文里
+/// 只有一句 `{"error":"…"}`，看着和"这个包坏了"一模一样。
+QByteArray curseForgeFilesRequestBody(const QList<PackRef> &refs);
+
+/// 批量问"这是哪一类"那一发的请求体（`{"modIds":[…]}`）。
+QByteArray curseForgeModsRequestBody(const QList<int> &projectIds);
+
+/// 换回来的一个文件。**它和 `PackFile` 差一步**：`path` 里此刻只有一个文件名、还没有目录 ——
+/// 目录得拿 `modId` 去问 classId（文件对象自己不带类目号），见 placeCurseForgeFiles()。
+struct CurseForgeFile {
+    PackFile file;
+    int modId = 0;
+};
+
+/// 一次批量问号的结果。**四条出路必须分得开**（这和"无可用版本 / 列表没取到"是同一课）：
+///   - `problem` 非空 ⇒ 这一发根本没成（网络、限流、正文读不懂）—— 整件事停下来报错；
+///   - 换到的进 `resolved`；
+///   - 换不到的**分两类计数**：作者关了第三方分发（`Pack::filesNotDistributable`）、
+///     接口里查不到（`Pack::filesMissing`）。
+struct CurseForgeFiles {
+    QList<CurseForgeFile> resolved;
+    QList<int> projectIds;   ///< 这批文件属于哪几个项目（去重后，拿它去问 classId）
+    int notDistributable = 0;
+    int missing = 0;
+    QString problem;         ///< 非空 = 这一发没成
+};
+
+/**
+ * @brief 接口正文 → 文件。@param asked 是**这一问问的那些号**（正文里缺哪几条要能算出来）。
+ *
+ * 正文里那条 `hashes` 数组里 `algo` 是 1 的那条就是 sha1（2 是 md5）—— 有它，
+ * 下载那一段的 `VerifyMode::SizeAndSha1` 一个字都不用改。
+ *
+ * NOTE: `fileName` 是**外部输入**，它要拼进路径里（`mods/<fileName>`），所以这里按
+ *       `isSafeRelativePath()` 逐条判过：带 `/`、`\`、`..` 的当场算"查不到"（记进 missing），
+ *       绝不放行到写盘那一步去。名字不安全的文件**整个包不拒绝**（和 Modrinth 那份清单里
+ *       写死路径的情形不同：那边路径是清单作者写的，这边是一个我们控制不了的文件名）。
+ */
+CurseForgeFiles parseCurseForgeFileInfo(const QByteArray &json, const QList<PackRef> &asked);
+
+/**
+ * @brief 这个项目属于哪一类 → 文件该落到实例目录的哪个子目录。
+ * @param classId CurseForge 的类目号（6 模组 / 12 资源包 / 6552 光影 / 17 存档 / 4471 整合包）。
+ * @return 带结尾斜杠的目录名，如 `mods/`；**空串 = 这一条不下**（嵌套的整合包）。
+ *
+ * 6 那一档和"认不出来"合在一起：认不出来的一律落 `mods/`（主流启动器都这么做）——
+ * 落错的代价是"这个文件没用"，而拒绝的代价是"整合包装不全"，后者重得多。
+ *
+ * NOTE: 判据是**类目号，不是文件名的后缀**：`.zip` 既可能是资源包也可能是存档，
+ *       而 `fileName` 是接口给的、可以随便起。
+ */
+QString curseForgeFilePath(int classId);
+
+/// 把换回来的文件摆进目录。**这是"号 → 能下的文件"的最后一步**。
+struct CurseForgePlacement {
+    QList<PackFile> files;   ///< 这一步之后 `path` 才是完整的、能直接下的相对路径
+    int skipped = 0;         ///< 类目是嵌套整合包（见 curseForgeFilePath 的空串那一档）
+    int missing = 0;         ///< 拼出来的路径过不了 isSafeRelativePath()（多半是太长）
+};
+
+/**
+ * @brief 给每个文件补上目录。
+ * @param resolved 上一步换回来的（`file.path` 里此刻只有一个文件名）。
+ * @param classIdByProject `modId → classId`，来自 POST /v1/mods 那一发。
+ *        **里面没有的号一律当"认不出来"**（落 `mods/`）—— 拿不到类目号不该让文件消失。
+ *
+ * NOTE: 同一个路径出现两次时**以最后一条为准**（和 Modrinth 那一份的 `pathDedupKey()`
+ *       是同一课：文件名是外部输入，撞车是可能的，而两条同时写一个文件是数据竞争）。
+ */
+CurseForgePlacement placeCurseForgeFiles(const QList<CurseForgeFile> &resolved,
+                                         const QHash<int, int> &classIdByProject);
+
+/**
+ * @brief `POST /v1/mods` 的答复 → `modId → classId`。
+ * @param problem 非空则这一发没成（正文读不懂 / 没有 data）。
+ *
+ * NOTE: 这一发没成**不该让整个导入停下** —— 缺的只是"落到哪个目录"（退成 `mods/`，
+ *       见 placeCurseForgeFiles），文件本身还是下得下来的。所以 problem 是给调用方
+ *       "说一句"用的，不是"报错"用的。
+ */
+QHash<int, int> parseCurseForgeClassIds(const QByteArray &json, QString *problem = nullptr);
+
+/**
+ * @brief 问哪一台接口。
+ * @param apiKey 用户在设置里填的 key；空 = 走那条社区反代。
+ * @param override 非空则**优先**用它（`Launcher/CurseForgeApiBase`，验证工程拿它把接口
+ *        指到本机的假服务器上）。产品自己**从不写这个键**。
+ *
+ * 【为什么默认是反代】官方那份要 `x-api-key`（不带 = 403，实测 2026-09-25）。而 key 一旦
+ * 编进 exe 就等于公开（谁都能从二进制里抠出来），泄露的 key 会被吊销 —— 所以默认走
+ * `https://api.curse.tools/v1`（同一个接口形状，不要 key）。**代价要说清楚**：那是**别人
+ * 的服务**，可能限流、可能哪天就没了。所以：① 用户填了自己的 key 就改走官方；② 接口那一发
+ * 失败时那句话里要提到"可以在设置里填自己的 CurseForge API key"（见 VersionManager）。
+ */
+QString curseForgeApiBase(const QString &apiKey, const QString &override = QString());
+
 // ---- `dependencies` 里那几个键 ----
 //
 // 键名只有这一份：判断"这是个加载器包还是纯原版包"、映射到 VersionManager::LoaderKind、
@@ -107,9 +284,10 @@ QString quiltLoaderKey();
  */
 QString unsupportedLoaderText(const QString &loaderKey, const QString &loaderVersion);
 
-/// CurseForge 那个 `manifest.json` 现在还不支持（它的清单里**没有文件地址**，得调
-/// CurseForge 的 API 换，那是另一件事）。这一句是给用户看的：说清是什么包、为什么不行、
-/// 以及他现在能做什么。
+/// 认不出格式时给用户看的那一句：说清两种包各自长什么样、他手上这个多半是什么。
+///
+/// NOTE: 2026-09-25 起 CurseForge 那一支**删了**（那个格式已经能装，见上面那一段）。
+///       留着一个"还没支持"的分支，将来只会以"明明支持却说不行"的形式出现。
 QString unsupportedFormatText(Format format);
 
 /**
@@ -170,3 +348,11 @@ QString suggestInstanceName(const QString &packName);
 QStringList preferredUrlOrder(const QStringList &urls);
 
 }  // namespace ModpackImport
+
+// 这个枚举要**过一个 Q_INVOKABLE 的边界**：MainWindow::applyModpackImport() 的第四个参数是
+// 它，而验证工程是拿 QMetaObject::invokeMethod 驱动那一半的（那一半是私有的）。
+// 声明放在**命名空间外面**：放里面声明出来的名字是裸的 `Format`，而 Q_ARG 那侧写的名字是
+// `ModpackImport::Format` —— 对不上就等于没注册（Qt 只在运行时报一句 no such type，
+// 而 invokeMethod 只是**静默返回 false**，看着像"那条路没被拦住"）。
+// 同款先例见 LoaderMeta.hpp 末尾那两行。
+Q_DECLARE_METATYPE(ModpackImport::Format)

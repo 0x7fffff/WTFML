@@ -446,6 +446,35 @@ public:
     // 在下载期间并没有被禁用。
     void setUseMirror(bool useMirror);
 
+    /// CurseForge 的两项设置。**和 setUseMirror 同一个形状**：数据层看不见
+    /// LauncherSettings（那是界面那一层的），设置要由 MainWindow 推过来。
+    ///
+    /// NOTE: `apiKey` 空 = 走社区反代（`api.curse.tools`，不要 key）；非空 = 走官方
+    ///       `api.curseforge.com` 并带上 `x-api-key`。判据与理由都在
+    ///       `ModpackImport::curseForgeApiBase()` 里，这里只负责存。
+    ///       `baseOverride` **只有验证工程会写**（`Launcher/CurseForgeApiBase`，把接口指到
+    ///       本机的假服务器上）；产品自己从不写它。
+    void setCurseForgeApiKey(const QString &apiKey);
+    void setCurseForgeApiBaseOverride(const QString &base);
+
+    /**
+     * @brief 把 CurseForge 清单里那些号（`projectID` / `fileID`）换成能下的文件。
+     * @param pack 解析出来的清单，**就地改**：`pendingRefs` 清空、`files` 填好，
+     *        另外把三种"不下"的计数写进 `filesNotDistributable` / `filesMissing` / `filesSkipped`。
+     * @return 空串 = 成了；非空 = **不能导入**，那句话直接给用户看（含"可以让用户在设置里
+     *         填自己的 CurseForge API key"这一句 —— 反代是别人的服务，它没了、被限流了
+     *         都得给用户一条自己能走的路）。
+     *
+     * 【为什么是同步的、为什么由界面在弹确认框之前调】两发请求、通常一两秒。放在这里
+     * （而不是 importModpack 里）是因为**用户要在点确认之前就看到真实数字**：这个包有多少
+     * 文件、其中几个作者不许第三方代下 —— 那些数只有换完才知道。界面上那一下有底栏的
+     * 「正在…」顶着（enterSyncWait），和启动路径那三段同步等是同一个手法。
+     *
+     * NOTE: 不是 CurseForge 的包、或者已经换过一次的（`pendingRefs` 空）**立刻返回**，
+     *       所以调用点可以对所有格式无脑调它一次。
+     */
+    QString resolveCurseForgeFiles(ModpackImport::Pack *pack);
+
     /// Forge / NeoForge 安装器的命令行（**纯函数**，就是为了能钉住 `--mirror` 那一条）。
     /// @param installerPath 安装器 jar 在盘上的路径。
     /// @param targetDir `--installClient` 后面那个目录。
@@ -1054,6 +1083,10 @@ private:
     QNetworkAccessManager *loaderNetworkManager();
     LoaderInstall m_loaderInstall;
     ModpackInstall m_modpackInstall;
+
+    /// CurseForge 那两发请求要用的设置（见 setCurseForgeApiKey 那一段）。
+    QString m_curseForgeApiKey;
+    QString m_curseForgeApiBaseOverride;
 
     /// 「装一个带名字的实例」走到哪了（见上面那段）。父版本是加载器时它会和
     /// m_loaderInstall **同时** active —— 那不是状态串了，是这一条路的正常样子。
