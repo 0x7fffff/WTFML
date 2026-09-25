@@ -440,7 +440,12 @@ private:
     void onResourceIconReady(const QString &iconId, const QPixmap &icon);
     /// 从请求钥匙反查是哪一类（钥匙是 ResourceCatalog::searchRequestKey() 拼的）。
     /// 拼和认都走那一个函数，所以这里不解析字符串。
-    bool kindForSearchRequestKey(const QString &key, ResourceCatalog::Kind *out) const;
+    ///
+    /// `outSource` 收的是"这把钥匙是发给哪个来源的"（可为空指针）。**回来的结果必须看它**：
+    /// 用户可能在等结果的这段时间里把来源换成另一个，两个来源的请求是各自飞的，不看它就会
+    /// 把上一家那批摆在一个写着另一家的页面上（见 onResourceSearchFinished）。
+    bool kindForSearchRequestKey(const QString &key, ResourceCatalog::Kind *out,
+                                 ResourceCatalog::Source *outSource = nullptr) const;
     /// 这个条目在第几层（0 = 资源 / 1 = 游戏版本 / 2 = 版本号；不是树上那三层就回 -1）。
     ///
     /// NOTE: **唯一出处**。代理里认层用的是"有没有爹"（isChannel），这里认层用的是
@@ -461,6 +466,51 @@ private:
     void fillResourceVersionRows(QTreeWidgetItem *gameItem,
                                  const QList<ResourceCatalog::VersionEntry> &versions,
                                  const QString &problem);
+
+    // ---------- 每一页顶上那一行筛子（2026-09-25）----------
+    //
+    // 用户原话见 MainWindowUI 里 `downloadFilterVersionComboName()` 上面那段。界面那一层
+    // 只把**空框**搭出来（ui/ 不 include src/，见那边的文件头），所以"每一项是什么字、
+    // 是什么键"全在这儿灌：来源是 `ResourceCatalog::allSources()`、类型是 `categoryOptions()`、
+    // 模组加载器是 `loaderOptions()`、版本是 VersionManager 那份在线清单。
+    //
+    // 装配是**两个方向**的，别混：
+    //   · 往下（灌）：`fillDownloadFilters()` 一次把五页都灌满；来源一变、
+    //     版本清单一到，再灌一次（`refreshDownloadFilterOptions()` / onVersionsFetched）。
+    //   · 往上（读）：`downloadFilterXxx()` 那四个访问器是**唯一出处** ——
+    //     startResourceSearch() 和"清空条件"都从它们读，别在各处 `currentText()` 一遍
+    //     （读法不一致的症状是"界面显示筛了、发出去的请求没筛"，而且不报错）。
+    /// 把五页的筛子都灌一遍（构造函数里一次）。来源 / 类型 / 加载器那三项是**当时**按来源
+    /// 算出来的，所以这里也顺手把"类型那一栏要不要藏"定下来。
+    void fillDownloadFilters();
+    /// 灌**某一页**上跟着"来源"变的那两项（模组加载器 / 类型），并把类型那一栏按
+    /// `categoryOptions()` 有没有回空表决定画不画。用户在来源框里换了一下就调它。
+    ///
+    /// NOTE: 它**不搜索**。用户换来源只是把选项换了一份，还没说"就用它搜"；替他搜一发
+    ///       等于每次点开下拉框都烧一次限流额度，而且他多半还要接着改别的筛子。
+    /// NOTE: 换来源会把这一页的加载器/类型两项**退回「全部」**：两边的键根本不是一套
+    ///       （Modrinth 的 `fabric` vs CurseForge 的 `4`），留着上一个来源的选中项就是
+    ///       拿 A 家的号去问 B 家 —— 而且它不报错，只会搜出个空的。
+    void refreshDownloadFilterOptions(ResourceCatalog::Kind kind);
+    /// 把那一份**在线版本清单**灌进五页的「版本」框（构造时一次、清单一到又一次）。
+    ///
+    /// NOTE: 这一格是**可输入**的，所以灌的时候要把用户手里那串字原样放回去（见实现）——
+    ///       清单是异步回来的，把它当成"重新填一遍"就会清掉他刚打的版本号。
+    void fillDownloadFilterVersionOptions();
+    /// 这一页现在选的来源（框里没有值 / 认不出来 = Modrinth，和"没这一栏"时一致）。
+    ResourceCatalog::Source downloadFilterSource(ResourceCatalog::Kind kind) const;
+    /// 这一页现在选的游戏版本（**框里的字**：这一格是可输入的，用户自己打的版本号
+    /// 不在列表里，读 `currentData()` 会读到一个空 —— 那正是"看着筛了、实际没筛"）。
+    /// 空串 = 不筛。
+    QString downloadFilterGameVersion(ResourceCatalog::Kind kind) const;
+    /// 这一页现在选的模组加载器。**只有模组那一页有这一栏**（别的页连控件都没有，
+    /// 见 MainWindowUI 里那段），所以别的页回空串 = 不筛。
+    QString downloadFilterLoader(ResourceCatalog::Kind kind) const;
+    /// 这一页现在选的类型（键来自 `categoryOptions()`）。空串 = 不筛。
+    QString downloadFilterCategory(ResourceCatalog::Kind kind) const;
+    /// 「清空条件」那颗键：名称框和四个筛子都回到"不筛"，**不自动搜**（理由见
+    /// MainWindowUI::downloadFilterResetText()）。
+    void resetDownloadFilters(ResourceCatalog::Kind kind);
 
     // ---------- 「设置」选项卡 ----------
     /// 把设置对象里的值灌进设置页的控件。构造函数里调一次；**不要**在用户改动之后
