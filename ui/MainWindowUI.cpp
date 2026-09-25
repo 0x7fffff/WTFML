@@ -75,6 +75,9 @@ constexpr int kDownloadButtonMinWidth = 96;
 /// 按钮缩成一小块。**主页那个和设置页那个共用这一个值** —— 它们说的是同一件事。
 constexpr int kAccountSkinButtonMinWidth = 140;
 constexpr int kApplyJvmArgsButtonMinWidth = 72;
+/// 下载页每一页顶上那一行筛子里，控件之间（以及那一行里两行之间）的间距。
+/// 比 kColumnSpacing（12）小一点：这一行里的东西是一组，挨着摆才像一组。
+constexpr int kFilterRowSpacing = 8;
 
 /// 一栏：控件本身 + 它自己的竖排布局。
 struct Column {
@@ -913,13 +916,13 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // 于是"第 i 个分类 = 第 i 页"这条对应关系成立（验证工程会数一遍两边的条数）。
         downloadStack->addWidget(gamePage);
 
-        // ---- 其余几页：一个搜索框 + 一棵三层树（资源 → 游戏版本 → 版本号）----
+        // ---- 其余几页：一行筛子 + 一棵三层树（资源 → 游戏版本 → 版本号）----
         //
         // 这几页的控件**一模一样**，只有搜索框里那句提示文字不同，所以这里是循环几遍，
         // 不是抄几份。三层的那条路就是用户描述的那条（见头文件里 downloadResourceTreeName()
         // 上面那段）：
         //   第一层 资源 → 点开是游戏版本 → 点开某个游戏版本**这时才去问接口** → 第三层版本号
-        // 关键是"什么在哪儿灌"：这一层只**搭**（空树），三条路的数据都由 MainWindow 灌
+        // 关键是"什么在哪儿灌"：这一层只**搭**（空树、空框），几条路的数据都由 MainWindow 灌
         //（和版本树/加载器树那两棵一样，界面这边一条业务判据都不写）。
         for (int i = 0; i < categoryKeys.size(); ++i) {
             if (i == downloadCategoryGameIndex()) {
@@ -932,16 +935,126 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
             pageLayout->setContentsMargins(0, 0, 0, 0);
             pageLayout->setSpacing(10);
 
-            // 上面那一条：搜索框。**回车就搜** —— 用户原话是"上方预留搜索功能（如果简单就
-            // 直接做了）"，那就做成能用的：一个输入框 + 回车，不另加按钮。
+            // ---- 顶上那一行筛子（2026-09-25）----
+            //
+            // 用户原话见头文件里 downloadFilterVersionComboName() 上面那段。摆法是**两行**：
+            //   第一行：名称（就是原来那个搜索框，占满剩下的宽度）+「搜索」+「清空条件」
+            //           （**整合包那一页**还多一颗「导入整合包…」）
+            //   第二行：版本 / 模组加载器 / 来源 / 类型 四个下拉框，每个前面带一个小标签
+            // 为什么不摆成一行：七样东西摆不下 —— 900 px 宽的窗口里右栏只剩 600 px 上下，
+            // 七个控件挤进去每个 80 px，下拉框会被压到只剩一个箭头，那还不如不给。
+            // 为什么名称单独占第一行的左边：它是**自由输入**的（用户原话「名字/版本可自行
+            // 输入」），要占满剩下的宽度才好打字。
+            QWidget *filterRow = new QWidget(page);
+            auto *filterLayout = new QVBoxLayout(filterRow);
+            filterLayout->setContentsMargins(0, 0, 0, 0);
+            filterLayout->setSpacing(kFilterRowSpacing);
+            auto *filterTop = new QHBoxLayout;
+            filterTop->setSpacing(kFilterRowSpacing);
+            auto *filterBottom = new QHBoxLayout;
+            filterBottom->setSpacing(kFilterRowSpacing);
+
+            // 名称那一格。**回车就搜** —— 用户原话是"上方预留搜索功能（如果简单就直接做了）"
+            // 加 2026-09-25 那句"这两个框选中时按回车等同于按搜索键"，那就做成能用的。
             // NOTE: 不加"清除"那个小叉（setClearButtonEnabled）：它在输入框里塞一个真的
-            //       子按钮，而这个页面上的控件形状是被验证工程一条一条数着的。
+            //       子按钮，而这个页面上的控件形状是被验证工程一条一条数着的；
+            //       要清空有旁边那颗「清空条件」。
             //       提示文字是那页"能干什么"的一句话（downloadSearchHint，唯一出处）——
             //       空框里那句话正好在最该看见它的地方。
-            auto *search = new QLineEdit(page);
+            auto *search = new QLineEdit(filterRow);
             search->setObjectName(downloadSearchEditName(categoryKey));
             search->setPlaceholderText(downloadSearchHint(i));
-            pageLayout->addWidget(search);
+            filterTop->addWidget(search, 1);
+
+            // 四个下拉框共用一套竖设置：宽度按"最短内容长度"算（不按内容算，理由见
+            // installedVersionCombo 那一段 —— 这一层搭出来的这一刻框还是空的，按内容算就会
+            // 定在"空框"那个宽度上，之后灌进长版本号也再也跟不上）、宽度再来一个上限
+            //（四个框加起来顶不破整窗那个 900 —— 那个 934 就是这么来的，见头文件里
+            // downloadFilterComboMaxWidth() 那段）、装滚轮防护。
+            const auto makeFilterCombo = [&](const QString &objectName) {
+                auto *combo = new QComboBox(filterRow);
+                combo->setObjectName(objectName);
+                combo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+                combo->setMinimumContentsLength(downloadFilterMinimumContentsLength());
+                combo->setMaximumWidth(downloadFilterComboMaxWidth());
+                WheelGuard::install(combo);
+                return combo;
+            };
+            // 一个"标签 + 下拉框"的小组。标签只为说明右边那个框是筛什么用的 —— 这四样
+            // 没有一样能从框里的内容猜出来（尤其「全部」那一项在四个框里长得一模一样）。
+            const auto addFilterLabel = [&](QLayout *row, const QString &text) {
+                auto *label = new QLabel(text, filterRow);
+                label->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+                row->addWidget(label);
+            };
+
+            // 版本：**可编辑的下拉框** —— 上面那张清单里挑一个，也能自己打一个（用户原话
+            // 「版本可自行输入」）。清单由 MainWindow 灌（它才知道有哪些游戏版本），
+            // 灌之前它就是空的一个框。回车这一条也由 MainWindow 接（可编辑下拉框内部那个
+            // QLineEdit 是 `combo->lineEdit()`，这一层不接信号）。
+            addFilterLabel(filterBottom, downloadFilterVersionLabel());
+            QComboBox *versionCombo = makeFilterCombo(downloadFilterVersionComboName(categoryKey));
+            versionCombo->setEditable(true);
+            versionCombo->setPlaceholderText(downloadFilterVersionPlaceholder());
+            filterBottom->addWidget(versionCombo);
+
+            // 模组加载器：**只有模组那一页有**（用户原话「模组加载器只在模组那栏存在」）。
+            // 别的几页连控件都不建 —— 建了再藏起来不叫"只在模组那栏存在"（验证工程按名字
+            // 能把它找出来）。判据是**那一页的下标**（downloadCategoryModIndex()，和
+            // 「游戏」那条一个规矩）：这张表要再插一条，「模组」那个号跟着挪，别在调用点
+            // 再写一遍 "mod" 那个字面量。
+            QComboBox *loaderCombo = nullptr;
+            if (i == downloadCategoryModIndex()) {
+                addFilterLabel(filterBottom, downloadFilterLoaderLabel());
+                loaderCombo = makeFilterCombo(downloadFilterLoaderComboName(categoryKey));
+                filterBottom->addWidget(loaderCombo);
+            }
+
+            // 来源 / 类型：两页都有。类型那一栏**整个会藏起来**（连标签一起）——
+            // `categoryOptions()` 回空表的时候（实测只有 Modrinth 的数据包那一档），
+            // 摆一个只有「全部」的框等于骗人。显隐由 MainWindow 按那张表决定，这一层
+            // 只是把标签也一起放在能藏的地方（标签进 layout、留个指针不管不行，所以这里
+            // 用一个容器把"标签 + 框"包成一件东西）。
+            addFilterLabel(filterBottom, downloadFilterSourceLabel());
+            QComboBox *sourceCombo = makeFilterCombo(downloadFilterSourceComboName(categoryKey));
+            filterBottom->addWidget(sourceCombo);
+
+            QWidget *typeBox = new QWidget(filterRow);
+            auto *typeLayout = new QHBoxLayout(typeBox);
+            typeLayout->setContentsMargins(0, 0, 0, 0);
+            typeLayout->setSpacing(kFilterRowSpacing);
+            addFilterLabel(typeLayout, downloadFilterTypeLabel());
+            QComboBox *typeCombo = makeFilterCombo(downloadFilterTypeComboName(categoryKey));
+            typeLayout->addWidget(typeCombo);
+            filterBottom->addWidget(typeBox);
+
+            filterBottom->addStretch(1);
+
+            // 「搜索」和「清空条件」两颗键（用户原话「一个搜索键和一个清空条件键」）。
+            // 这一层只把它们摆上；点下去干什么、以及"名字/版本那两个框里按回车"这条，
+            // 都接在 MainWindow 那一侧（同一个槽）。
+            auto *searchButton = new QPushButton(downloadFilterSearchText(), filterRow);
+            searchButton->setObjectName(downloadFilterSearchButtonName(categoryKey));
+            // NOTE: 这里**不设** setAutoDefault —— 那个开关只在 QDialog 里有意义（它管的是
+            //       "对话框里按回车走哪颗键"），而这一页住在 QMainWindow 里，设了也是张白纸。
+            //       用户要的那条"名字/版本框里按回车 = 按搜索键"是 MainWindow 显式接的
+            //      （两个框各自的 returnPressed → 同一个槽），不靠默认按钮。
+            filterTop->addWidget(searchButton);
+            auto *resetButton = new QPushButton(downloadFilterResetText(), filterRow);
+            resetButton->setObjectName(downloadFilterResetButtonName(categoryKey));
+            filterTop->addWidget(resetButton);
+
+            // 整合包那一页那颗「导入整合包…」（用户原话「整合包那一页带一个导入功能」）。
+            // 字和实例页那颗共用（importModpackText()），走的路也是同一条。
+            if (i == downloadCategoryModpackIndex()) {
+                downloadImportModpackButton = new QPushButton(importModpackText(), filterRow);
+                downloadImportModpackButton->setObjectName(downloadFilterImportModpackButtonName());
+                filterTop->addWidget(downloadImportModpackButton);
+            }
+
+            filterLayout->addLayout(filterTop);
+            filterLayout->addLayout(filterBottom);
+            pageLayout->addWidget(filterRow);
 
             // 下面那棵树：三层，和上一页那两棵用**同一个代理、同一套竖设置**（表头藏起来、
             // 行高常数、左边那个小三角不画、同一个字号偏移），所以长得一样。
@@ -966,6 +1079,17 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
 
             downloadResourceSearches.insert(categoryKey, search);
             downloadResourceTrees.insert(categoryKey, tree);
+            downloadFilterVersionCombos.insert(categoryKey, versionCombo);
+            downloadFilterSourceCombos.insert(categoryKey, sourceCombo);
+            downloadFilterTypeCombos.insert(categoryKey, typeCombo);
+            downloadFilterTypeBoxes.insert(categoryKey, typeBox);
+            downloadFilterSearchButtons.insert(categoryKey, searchButton);
+            downloadFilterResetButtons.insert(categoryKey, resetButton);
+            // 加载器那一格**只有模组页才登记** —— 别的页没有这一项，按它们的键取回来是
+            // nullptr（那正是"只在模组那栏存在"要的形状，见头文件里那段）。
+            if (loaderCombo != nullptr) {
+                downloadFilterLoaderCombos.insert(categoryKey, loaderCombo);
+            }
             downloadStack->addWidget(page);
         }
         // 打开下载页时停在「游戏」（= 原来那个行为）。
