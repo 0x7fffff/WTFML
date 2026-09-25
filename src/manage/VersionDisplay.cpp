@@ -126,8 +126,17 @@ QString launchStatusName(const VersionDisplayParts &parts) {
     // 没有名字才轮到"版本号-加载器名"。实际版本那条兜底和 formatVersionName() 一模一样
     // （realVersion 为空就退化成目录名）—— 两处必须一致，否则同一个实例在"启动中"这一句
     // 和下拉框里会报出两个不同的版本号。
+    //
+    // ★ 2026-09-26 修：这里原来是 `parts.realVersion.isEmpty() ? id : sanitizeComponent(...)`
+    //   —— **判空在清洗之前**，也就是 formatVersionName 2026-09-25 修掉的那个形状，只修了
+    //   一处、留下这一处。差在 realVersion 非空但清洗完为空（只有空白 / 控制字符，wtfml.meta
+    //   是能手改的文本文件）这一格：两处**当场分开** —— 列表里显示目录名 `1.20.1`，
+    //   底栏"启动中"那一句显示加载器名（或者干脆空白）。上面那句"两处必须一致"当时就是假的。
     const QString id = sanitizeComponent(parts.id);
-    const QString base = parts.realVersion.isEmpty() ? id : sanitizeComponent(parts.realVersion);
+    QString base = sanitizeComponent(parts.realVersion);
+    if (base.isEmpty()) {
+        base = id;
+    }
     const QString loaderName = sanitizeComponent(parts.loaderName);
     if (base.isEmpty()) {
         // 目录名也是空的（理论上不会，id 的注释说它永远非空）—— 有什么给什么，
