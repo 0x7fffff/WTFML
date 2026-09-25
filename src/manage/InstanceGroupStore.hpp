@@ -56,8 +56,19 @@ public:
         ///       收起来的组又撑开 —— 而"点一下打开/关闭"正是用户要的那件事。
         bool expanded = true;
 
+        /// 这一组是**置顶组**：实例行行尾那颗上箭头点了就把实例移进这一组
+        /// （用户 2026-09-25 原话：「置顶以后进选了这个的组」）。
+        ///
+        /// NOTE: 全清单里**最多一个**（哪一组当家由用户在「分组设置」里勾）。文件是可以被
+        ///       手改的，所以两头都把它当"只能有一个"来对待：读侧归一化（见 groups() 里
+        ///       那一段），写侧设上去的时候把别的组这一位清掉（见 setGroupPinned()）。
+        bool pinned = false;
+
         // 逐字段比较：MainWindow 靠它判断"用户在对话框里改过组清单没有"，
         // 没改就不去写盘。**expanded 也算在里面**：折叠状态是用户改出来的一格。
+        // **pinned 也走同一条**（`= default` 会把上面两个 bool 一起比）：置顶组是哪个也
+        // 是用户改出来的一格 —— 不带上它的话，用户在对话框里只换了置顶组、按「确定」，
+        // 两份清单比出来"没变"，那一次修改就被静默丢掉了。
         friend bool operator==(const Group &, const Group &) = default;
     };
 
@@ -130,7 +141,8 @@ public:
     /// 全部组，按用户排的顺序。文件不存在 / 读不懂时是空的。
     ///
     /// 读出来的东西按不可信数据清洗：没有 id 的条目丢掉（认不出来）、id 重复的只留
-    /// 第一个、名字为空的用 id 顶上（界面上至少还认得出来是哪一个）。
+    /// 第一个、名字为空的用 id 顶上（界面上至少还认得出来是哪一个）、**置顶组多了也只留
+    /// 第一个**（`Group::pinned` 最多一个，理由写在 .cpp 里那段 `★ 归一化`）。
     QList<Group> groups() const;
 
     /// @param instanceKey 实例的归属键（见文件头）。
@@ -140,6 +152,21 @@ public:
     /// 或者两份文件不同步时会有），当未分组处理，不报错、也不在这一层清理 ——
     /// 读路径不该有副作用，清理交给下一次写。
     QString groupIdOf(const QString &instanceKey) const;
+
+    /// **置顶组**是哪一个（= 实例行行尾那颗上箭头把实例送进去的那一组）。三条出口：
+    ///   - 清单里有 `pinned == true` 的组 ⇒ 返回那个组的 id；
+    ///   - 一个都没有 ⇒ **退回 id 为 `default-pinned` 的那个组**（前提是它在清单里）。
+    ///     这是给**老用户的迁移路**：`pinned` 这一格是 2026-09-25 才有的，之前写的文件里
+    ///     一个都没有，而那个名字叫「置顶」的默认组从第一天起就摆在那儿 —— 用户升级上来，
+    ///     置顶组默认就是他手上那个「置顶」组，用不着自己去勾一遍；
+    ///   - 都没有（用户把「置顶」组删了、也没勾过别的组）⇒ 空串。调用方拿到空串就该
+    ///     什么都不做（那颗上箭头没有去处）。
+    ///
+    /// NOTE: **读的时候不写盘**。上面第二条退回就是这么实现的 —— 不靠"顺手把用户的文件
+    ///       改写成 `pinned: true`"来迁移。这份文件是用户可能拿记事本打开看的东西（里面
+    ///       是他自己起的组名），他只是开了一次启动器、什么都没点，内容就变了，是这一层
+    ///       最不该做的事；写盘一律只在用户真的按了「确定」之后发生（见 replaceGroups()）。
+    QString pinnedGroupId() const;
 
     /// 整个组清单换成这一份（新建 / 重命名 / 删除都由它表达）。
     ///
@@ -166,6 +193,22 @@ public:
     /// @param expanded 想要的状态。
     /// @param errorOut 失败原因（给用户看的一句话）。
     bool setGroupExpanded(const QString &groupId, bool expanded, QString *errorOut = nullptr);
+
+    /// 把某一组设成**置顶组**（或者取消它）。`pinned == true` 时别的组这一位**一律清成
+    /// false** —— 置顶组只能有一个，这是这件事的全部语义（见 Group::pinned 那段）。
+    ///
+    /// NOTE: 【为什么它也**不发** groupsChanged】和 setGroupExpanded() 逐条同款（完整理由
+    ///       看那一段）：这一格读出来的时候用（那颗上箭头点下去的时候问一句"送去哪一组"），
+    ///       谁都不在重灌树的时候读它 ⇒ 为它重建一次整棵树换来的东西是零，代价却是选择、
+    ///       滚动位置和别的组的展开状态一起抖一下。真要有人开始按这个信号画什么（比如组行
+    ///       上那颗钉子），把下面那个 notify 参数改成缺省就行 —— 改一处。
+    /// NOTE: 值本来就是这个值时**不写盘**（和 setGroupExpanded() / rekey() 那几条空操作
+    ///       同一条规矩）。
+    /// @param groupId 组 id（空串按调用方的 bug 拒掉）。
+    /// @param pinned 想要的状态。
+    /// @param errorOut 失败原因（给用户看的一句话）。
+    /// @return 找不到那个组（比如刚被删了）时返回 false。
+    bool setGroupPinned(const QString &groupId, bool pinned, QString *errorOut = nullptr);
 
     /// 把某个实例归到某个组。`groupId` 传空串 = 取消分组。
     ///
@@ -205,11 +248,11 @@ private:
     /// 这套判断抄三遍。
     /// @param notify 写成功之后发不发 groupsChanged()。
     ///
-    /// NOTE: 只有 setGroupExpanded() 传 false —— 展开/收着那一个字段的读者是"重灌树的
-    ///       时候读它摆状态"，而用户点的那一下界面**已经自己摆好了**，为它重建一次整棵
-    ///       树只会把选择、滚动位置、别的组的展开状态一起抖一下（完整理由见
-    ///       setGroupExpanded() 那段 NOTE）。别的写路径动的都是组清单/归属，界面非重灌
-    ///       不可，一律发。
+    /// NOTE: 只有 setGroupExpanded() 和 setGroupPinned() 传 false —— 那两格（展开/收着、
+    ///       置顶组是哪一个）的读者都不是"重灌树的那一下"（前者由界面自己刚摆好，后者是
+    ///       那颗上箭头点下去的时候才问一句），为它们重建一次整棵树只会把选择、滚动位置、
+    ///       别的组的展开状态一起抖一下（完整理由见 setGroupExpanded() 那段 NOTE）。别的
+    ///       写路径动的都是组清单/归属，界面非重灌不可，一律发。
     bool writeThrough(const QList<Group> &groups, const QJsonObject &rawMembers,
                       QString *errorOut, bool notify = true);
 

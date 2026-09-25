@@ -245,6 +245,12 @@ QString instanceIdOf(const QTreeWidgetItem *item) {
  * @param tree 目标树。
  * @param buckets 组（含虚拟的「未分组」，见 InstanceGroupBucket）。
  * @param options 全局「版本名格式」开关。
+ * @param runningIds 此刻在跑的那些实例 id（显示名后面那句「（运行中）」）。
+ * @param marks 每个实例行前面那个小图标（`id -> QIcon`，由 instanceRowMark() 算好）。
+ *        缺一个不画图标，不影响别的（验证工程直接摆一张只有几个键的表也能灌）。
+ * @param pinnedGroupId **置顶组**是哪一个（InstanceGroupStore::pinnedGroupId()）。空串 =
+ *        这份 .minecraft 里没有置顶组 ⇒ 哪一行都不摆那颗上箭头（点下去没有去处）。
+ *        已经在置顶组里的那一条也不摆（它挪不动了）—— 判据写进 rowPinRole() 那一格。
  *
  * 两种形态，由调用方给进来的 buckets 决定（它才知道有没有真实分组）：
  *   - **只有一格、groupId 为空** → 平铺，不插组头。这是"还没分过组"的样子，
@@ -271,7 +277,8 @@ QString instanceTreeItemText(const VersionDisplayParts &part, const VersionNameO
 }
 
 void fillInstanceTree(QTreeWidget *tree, const QList<InstanceGroupBucket> &buckets,
-                      const VersionNameOptions &options, const QSet<QString> &runningIds) {
+                      const VersionNameOptions &options, const QSet<QString> &runningIds,
+                      const QHash<QString, QIcon> &marks, const QString &pinnedGroupId) {
     const QSignalBlocker blocker(tree);
     tree->clear();
 
@@ -316,6 +323,22 @@ void fillInstanceTree(QTreeWidget *tree, const QList<InstanceGroupBucket> &bucke
             item->setText(0, instanceTreeItemText(part, options, runningIds.contains(part.id)));
             item->setData(0, MainWindowUI::instanceIdRole(), part.id);
             item->setToolTip(0, QDir::toNativeSeparators(AppPaths::versionDir(part.id)));
+            // 行前面那个小图标（原版草方块 / Forge 铁砧…）。谁画的、怎么认出来的
+            // 见 instanceRowMark() 那段 —— 这一层只负责把它挂上去。
+            const auto mark = marks.constFind(part.id);
+            if (mark != marks.constEnd()) {
+                item->setIcon(0, mark.value());
+            }
+            // 「置顶」那颗上箭头的判据（画它的是 InstanceGroupDelegate::paint()、认下那
+            // 一下的是 MainWindow::eventFilter()，三处读的都是**这一格**）：
+            //   - 这一份 .minecraft 里没有置顶组（pinnedGroupId 是空串）⇒ 不画：
+            //     那一格点下去没有去处（见 InstanceGroupStore::pinnedGroupId() 那三条出口）；
+            //   - 已经在置顶组里的那一条也不画 —— 它挪不动了，而"挪不动的那侧不画"
+            //     是仓库里既有的规矩（见 ui/GroupListDelegate 里那两颗上下移三角），
+            //     **不是**画一颗灰的：灰的会让人以为"点一下能置顶、只是现在不行"。
+            // 平铺那一格（bucket.groupId 为空）和"没有置顶组"是两件事，这里都不画。
+            item->setData(0, MainWindowUI::rowPinRole(),
+                          !pinnedGroupId.isEmpty() && bucket.groupId != pinnedGroupId);
         }
     }
 
@@ -387,6 +410,10 @@ QList<InstanceGroupStore::Group> toStoreGroups(const QList<GroupDialog::Group> &
         // 「默认展开」也搬过来：它在两边是同一个字段（不是"界面上的显示状态"），
         // 丢了的话在对话框里摆好的展开状态按一次确定就被重置回默认。
         item.expanded = group.expanded;
+        // 「设为置顶组」同样要搬（2026-09-25）。这一格漏掉的表现很具体：用户在对话框里
+        // 勾了置顶组、按确定，实例行行尾那颗上箭头**还是往老的那一组送** —— 勾选框像是
+        // 没生效，而两份清单比出来"没变"的话连盘都不写（见 Group::operator==）。
+        item.pinned = group.pinned;
         to.append(item);
     }
     return to;
@@ -400,6 +427,7 @@ QList<GroupDialog::Group> toDialogGroups(const QList<InstanceGroupStore::Group> 
         item.id = group.id;
         item.name = group.name;
         item.expanded = group.expanded;  // 见 toStoreGroups() 那段
+        item.pinned = group.pinned;      // 见 toStoreGroups() 那段
         to.append(item);
     }
     return to;
@@ -648,12 +676,45 @@ QList<MainWindowUI::PanelAction> runningPanelActions(const QColor &ink) {
 ///
 /// 单一出处是 VersionCategory::channelFor()（和下载页那棵树**同一个出处**，别在这儿另写
 /// 一个 switch：写歪了的症状是"快照那一栏前面白草、远古那一栏还是绿草"，不报错、只是难看）。
-/// 那条要一个 `type` 字段，从实例自己的 meta 里读；读不到（meta 丢了/写坏了）就当**正式版**
-/// —— 大多数实例是正式版，而"一个方块都不画"在界面上是个说不清的空白。
+/// 那条要一个 `type` 字段，两个地方能给：
+///   - wtfml.meta 里手写的 `type`（**优先**：用户明确写下的东西盖过一切，他也可能是把
+///     一个实例"装作"另一个分类）；
+///   - 没有就回实例自己的 `versions/<id>/<id>.json` 里读 —— 那才是这个字段的出处。
+/// 两个都读不到（meta 丢了、json 也被删了）就当**正式版**：大多数实例是正式版，而
+/// "一个方块都不画"在界面上是个说不清的空白。
+///
+/// 【2026-09-25：第二段是补上的，在那之前这里是个真 bug】
+/// `type` 原来**只从 meta 读，而全项目没有任何一处往 meta 里写过它**（写侧那半从来没做
+/// 出来）。于是这个函数对每一个已装实例都退化成"正式版"，看得见的后果有三处：快照版实例
+/// 自动归类跑进「原版」组、默认组「快照版 / 远古版」永远是空的、实例页那一行的图标
+/// （见 instanceRowMark()）全是草方块。用户这一轮要的正是"给每个版本一个对的图标"，
+/// 而底下的因是这一条。
+///
+/// 修法选的是**回 json 读**，不是"装的时候往 meta 里抄一份 type"：
+///   - json 本来就是这个字段的出处。抄一份出去就有两个可能不一致的地方（用户在资源管理器
+///     里换掉一份 json、或者把同一个版本号重装一遍，meta 里那份就过期了，而且看不出过期）；
+///   - `getVersionJson()` 给的是**合并过**的那一份（顺 inheritsFrom 链），所以整合包实例
+///     的 type 是从它继承的原版那一层来的 —— 那正是它该显示的分类。而装的时候手里只有
+///     `pack.gameVersion` 这个版本号，想写 type 反而要再回清单里查一次。
+/// 代价是每个"meta 里没写 type 的"实例第一次问它时要读+解析一次那份 json；结果在
+/// VersionManager 里带缓存（mergedVersionJsons），所以一次会话里每个实例只读一次。
 VersionCategory::Channel versionChannelOf(const VersionManager *versions, const QString &versionId) {
     QString type = versions == nullptr
                        ? QString()
                        : versions->versionMeta(versionId).value(QStringLiteral("type")).toString();
+    // 先看一眼那份 json 在不在：不在就别问 getVersionJson()（它会 qWarning，而这个函数
+    // 每次刷新实例列表都要对每个实例跑一遍，一句"版本 JSON 找不到"会把日志刷满）。
+    //
+    // NOTE: 这道闸只管"文件不在"那一种 —— **解析不了的**（用户手里是一份坏 json）照样会
+    //       抱怨一句"Failed to parse ..."，而且每次刷新都会再说一遍（解析失败那条路不进
+    //       缓存，见 VersionManager::getVersionJson）。这是**故意留着**的：那份 json 坏掉
+    //       的实例本来就启动不了，日志里说一句比闷着强，而且它跟"缺 jar""缺 java"是同一档
+    //       频率（一次刷新一句，不是每个像素一句）。见 mw_check 的 J 节 —— 那一节的样本
+    //       文件因此必须是**能解析**的 json。
+    if (type.isEmpty() && versions != nullptr
+        && QFile::exists(InstanceFiles::jsonPath(versionId))) {
+        type = versions->getVersionJson(versionId).value(QStringLiteral("type")).toString();
+    }
     if (type.isEmpty()) {
         type = QStringLiteral("release");
     }
@@ -663,6 +724,40 @@ VersionCategory::Channel versionChannelOf(const VersionManager *versions, const 
 /// 这个实例该画哪个分类的方块（草方块 / 覆雪草块 / 土块 / 幸运方块）。
 int versionChannelIndexOf(const VersionManager *versions, const QString &versionId) {
     return VersionCategory::channelIndex(versionChannelOf(versions, versionId));
+}
+
+/// 实例页某一行前面那个小图标（用户 2026-09-25 原话：「为每个版本预设一个图标（默认下载时
+/// 就带，原版草块，forge铁砧等，现有的没有就补上）」）。
+///
+/// 两条路，用的都是**另外两棵树上挂的同一份图标**（别在这儿另画一套）：
+///   - **装了加载器的**（wtfml.meta 里有 loaderName）：给那个加载器的标志（Fabric / Forge /
+///     NeoForge / OptiFine），走 `VersionIcons::loaderMark()` —— 安装页那棵加载器树上挂的
+///     就是它；
+///   - **没装加载器的**（原版 / 快照版 / 远古版 / 愚人节版）：按版本分类给，走
+///     `VersionIcons::versionChannelMark()` —— 下载页那棵版本树上挂的就是它。
+///
+/// 于是"下载时就带"这件事**不需要任何落盘**：图标是从实例自己那份 json 的 `type` 现算的
+/// （见 versionChannelOf()），而那份 json 是下载的时候写下去的 —— 装完第一次刷新就有图标，
+/// 老实例（一个 type 都没写过）也一样算得出来，不用回填任何东西。
+///
+/// NOTE: 加载器名 → 下标那一步用 `loaderKindFromIndex()` 反查，**不自己写一张"Forge 就是 1"
+///       的表**：那张表的唯一出处是 MainWindowUI::modLoaderOptionNames()（图标那边的下标
+///       就是照它排的），抄一遍就会在某次加加载器时慢慢漂开。
+/// NOTE: 认不出来的加载器名（用户手写的别的名字、或者以后新加的加载器）也是草方块 ——
+///       和 loaderMark() 越界那条一个规矩：认不出来就画原版。
+QIcon instanceRowMark(const VersionDisplayParts &part, const VersionManager *versions) {
+    const int size = MainWindowUI::versionTreeIconSize();
+    if (!part.loaderName.isEmpty()) {
+        for (int index = 0; index < MainWindowUI::modLoaderNoneIndex(); ++index) {
+            VersionManager::LoaderKind kind;
+            if (VersionManager::loaderKindFromIndex(index, &kind)
+                && VersionManager::loaderDisplayName(kind) == part.loaderName) {
+                return QIcon(VersionIcons::loaderMark(index, size));
+            }
+        }
+        return QIcon(VersionIcons::grassBlock(size));
+    }
+    return QIcon(VersionIcons::versionChannelMark(versionChannelIndexOf(versions, part.id), size));
 }
 
 /// 一个实例**默认**该归到哪个默认组 —— 只给"用户还从来没给它表过态"的实例用（见调用点）。
@@ -1031,12 +1126,16 @@ void MainWindow::setupConnections() {
     // NOTE: 「移除文件夹」那个按钮 2026-09-24 删掉了（用户原话：「下面那个移除文件夹
     //       也可以弃掉了」）—— 「移除」现在只有行尾齿轮菜单里那一项，走
     //       onFolderActionRequested() → removeFolderFromList()，和按钮原来那条是同一个函数。
-    connect(m_ui->getRenameInstanceButton(), &QPushButton::clicked, this,
-            &MainWindow::onRenameInstanceClicked);
+    // NOTE: 实例页右栏那排按钮 2026-09-25 傍晚从三颗剩下一颗（用户原话：「删掉实例页面
+    //       右侧三个按钮（因为都已经分别有入口了），顺便把下面的文本干掉」）：
+    //         - 「实例设置…」那颗**没有接线了** —— 它的入口改成"点这一条实例行"（行里的
+    //           任意处）和行尾那颗常显的齿轮，两条都落在 MainWindow::eventFilter 里；
+    //         - 「重命名…」那颗也没有接线了 —— 改名搬进了「实例设置」那一页，走
+    //           openInstanceSettings() 里那条路（用户原话：「重命名进实例设置」）；
+    //         - 只有「分组设置…」这一颗还在（它挪到「实例列表」那个框外面的右上角），
+    //           接线**一个字没改**。
     connect(m_ui->getGroupInstanceButton(), &QPushButton::clicked, this,
             &MainWindow::onGroupInstanceClicked);
-    connect(m_ui->getInstanceSettingsButton(), &QPushButton::clicked, this,
-            &MainWindow::onInstanceSettingsClicked);
     // NOTE: 实例页那颗「停止游戏…」2026-09-25 删掉了（用户原话），这里原来接
     //       onStopGameClicked() 的那条线跟着没了 —— 停游戏现在只有底栏左面板里那行电源
     //       那条路（onBottomBarPanelAction() → stopGameSession()）。
@@ -1113,7 +1212,19 @@ void MainWindow::setupConnections() {
     // NOTE: 先算再做（`!item->isExpanded()` 在 setExpanded() 之前求值）—— 和加载器树那
     //       一句同一个写法、同一个教训（见那里的 NOTE）。
     const auto onInstanceTreeActivated = [this](QTreeWidgetItem *item) {
-        if (item == nullptr || !item->data(0, MainWindowUI::rowGroupGearRole()).toBool()) {
+        if (item == nullptr) {
+            return;
+        }
+        if (!item->data(0, MainWindowUI::rowGroupGearRole()).toBool()) {
+            // ★ **实例行**：点这一行（空白处、左边那个图标、版本名 —— 除了行尾那三颗按钮
+            // 之外的任何地方）= 进这个实例的设置。用户 2026-09-25 原话：「直接点空白区域
+            // （和左边图标版本名）进入实例设置」。行尾那三颗由 eventFilter 先吃掉，落不到
+            // 这里来（见那一段；它们三个各自是"别的事"，不该顺带把设置页也开了）。
+            //
+            // NOTE: 这一下**同时**把它选中（视图在按下那一刻就把 currentItem 挪过来了），
+            //       那条路照旧、它同步到主页那个下拉框。两件事不冲突：选中是给"启动"用的，
+            //       进设置是这一下点名的另一件事 —— 用户明确要的是"点这一行就进设置"。
+            openInstanceSettings(item->data(0, MainWindowUI::instanceIdRole()).toString());
             return;
         }
         const bool expand = !item->isExpanded();
@@ -2467,8 +2578,16 @@ void MainWindow::refreshInstalledVersions() {
         rest.parts = ungrouped;
         buckets.append(rest);
     }
+    // 每一行前面那个图标：**在这里一次算好**（而不是让灌树那个自由函数自己去问
+    // VersionManager）—— 算它要读版本 json（见 instanceRowMark() 那段），那是业务层的事，
+    // 而 fillInstanceTree 是只认树和值的自由函数。
+    QHash<QString, QIcon> marks;
+    marks.reserve(parts.size());
+    for (const VersionDisplayParts &part : parts) {
+        marks.insert(part.id, instanceRowMark(part, m_versionManager));
+    }
     fillInstanceTree(m_ui->getInstanceList(), buckets, m_settings->versionNameOptions(),
-                     runningVersionIds());
+                     runningVersionIds(), marks, m_groupStore->pinnedGroupId());
     syncTreeToCombo(combo, m_ui->getInstanceList());
 
     // 占位文案随上下文变。**两个串都必须非空**：空占位文案会让 QComboBox 在往空
@@ -2986,6 +3105,61 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
             return true;
         }
     }
+    // 同一个实例树上**实例行**行尾那一排（用户 2026-09-25 原话：「实例设置也是放在每一条的
+    // 右侧，鼠标悬停时右侧显示上箭头和垃圾桶，分别对应 置顶和删除实例，删除前需要弹窗提示」）。
+    // 行内三颗：**常显的齿轮**（= 实例设置）+ 悬停才出现的**上箭头**（= 置顶）和**垃圾桶**
+    // （= 删除这个实例）。谁画的、画在哪一格，见 InstanceGroupDelegate::instanceGearRect()
+    // 那几个函数 —— 这里读的是**同一个函数**，差一个像素就是"看着点中了垃圾桶、其实点的是
+    // 那一行"（那一行现在也有一件事要做：进实例设置，见 onInstanceTreeActivated）。
+    //
+    // 判据"这是不是实例行"用**没有** groupIdRole()：和代理那边 paint()/sizeHint() 是同一条
+    // （组行有那个角色、实例行没有）。
+    //
+    // NOTE: 三格的命中判定顺序无所谓（探针量过：三格之间零重叠、零空隙），但上箭头那一格
+    //       要先问**这一行到底摆没摆它**（rowPinRole()）—— 已经在置顶组里的实例、以及
+    //       这份 .minecraft 里没有置顶组时，那一格是空的：指着一块空白弹出「置顶」、
+    //       点下去还真的挪了一次，是最难解释的一种。
+    // NOTE: 也接双击，理由和上面组行齿轮那一段逐字相同（点得快时第二发及以后到的是
+    //       双击事件，不接的话会漏给"点中了这一行"那条路，于是连点垃圾桶的第二下变成
+    //       进实例设置）。
+    if (instanceTree != nullptr && watched == instanceTree->viewport()
+        && (event->type() == QEvent::MouseButtonPress
+            || event->type() == QEvent::MouseButtonRelease
+            || event->type() == QEvent::MouseButtonDblClick)) {
+        auto *mouse = static_cast<QMouseEvent *>(event);
+        QTreeWidgetItem *item =
+            mouse->button() == Qt::LeftButton ? instanceTree->itemAt(mouse->position().toPoint())
+                                              : nullptr;
+        // 三格的顺序照代理**画它们的顺序**（齿轮 / 上箭头 / 垃圾桶），一粒一粒判。
+        if (item != nullptr && !item->data(0, MainWindowUI::groupIdRole()).isValid()) {
+            const QRect row = instanceTree->visualItemRect(item);
+            const QPoint pos = mouse->position().toPoint();
+            const QString instanceId = item->data(0, MainWindowUI::instanceIdRole()).toString();
+            const bool pressed = event->type() == QEvent::MouseButtonPress;
+            if (InstanceGroupDelegate::instanceGearRect(row).contains(pos)) {
+                // 按下就动手（松开、以及那几发双击只负责被吃掉）：跟普通按钮一样，按下去
+                // 就该有反应。齿轮 = 进这个实例的设置（用户原话：「直接点空白区域（和左边
+                // 图标版本名）进入实例设置」—— 那一行别的地方也是同一件事）。
+                if (pressed) {
+                    openInstanceSettings(instanceId);
+                }
+                return true;
+            }
+            if (item->data(0, MainWindowUI::rowPinRole()).toBool()
+                && InstanceGroupDelegate::instancePinRect(row).contains(pos)) {
+                if (pressed) {
+                    pinInstance(instanceId);
+                }
+                return true;
+            }
+            if (InstanceGroupDelegate::instanceTrashRect(row).contains(pos)) {
+                if (pressed) {
+                    confirmDeleteInstance(instanceId);
+                }
+                return true;
+            }
+        }
+    }
     // NOTE: 这里原来还有一段：同一个实例树上组行行尾那两颗「上移 / 下移」（齿轮左边那两颗
     //       实心三角）的接线。2026-09-25 用户把它们整个搬进了「分组设置…」那张表（原话：
     //       「这个点击一下就同时展开和调整了，其次这个箭头不应该在这里，而应该在 分组设置
@@ -2993,6 +3167,8 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
     //       moveGroupInOrder() 一起删了 —— 那张表里认下那一下的是
     //       `ui/GroupDialog::eventFilter()`（挂在那张表的视口上），"每一发都算"和
     //       "Shift = 置顶/置底"那两条手势原样跟着搬了过去。
+    //       ★ 2026-09-25 第二轮：实例行行尾那一排的接线加在**上面**（就在组行齿轮那段
+    //         后面）—— 它和这里删掉的那套是同一个位置、同一族判据，别再往下找。
     // 下载页左栏那份分类列表：每一行最右边那个刷新按钮（谁画的、画在哪一格，见
     // VersionTreeDelegate::refreshRect()）。判据和上面那个叉一模一样，只是宿主是个
     // QListWidget（它的 itemAt/visualItemRect 和 QTreeWidget 那对同名同义）。
@@ -5817,44 +5993,32 @@ void MainWindow::onFolderDeleteRequested(const QString &path) {
     appendLog(tr("已删除游戏文件夹：%1").arg(QDir::toNativeSeparators(path)));
 }
 
-void MainWindow::onRenameInstanceClicked() {
-    // 作用于"当前选中的实例"。实例页右边那张列表和主页的下拉框是同一份数据的两种
-    // 看法（双向同步，见 setupConnections），所以**以下拉框为准** —— 和"启动游戏"
-    // 取的是同一个值，不会出现"列表里高亮 A、结果改的是 B"。
-    const QString oldId = selectedVersionId(m_ui->getInstalledVersionCombo());
-    if (oldId.isEmpty()) {
-        InlineMessage::information(m_ui->overlay(), tr("重命名实例"), tr("先选中一个实例。"));
-        return;
-    }
+// NOTE: 这里原来有一个 `onRenameInstanceClicked()` 槽（2026-09-25 删）：它接的是实例页
+//       右栏那颗「重命名…」按钮，而那颗按钮没了 —— 改名现在在**实例设置那一页**里
+//       （用户在对话框里改「实例名」那一格、按确定，落盘走 openInstanceSettings() 里
+//       那一段：先 applyRename() 再写设置）。
+//
+//       这个槽里原来那两件事的去向：
+//         - 「先选中一个实例」那句提示：进设置页的入口（点实例行 / 点行尾齿轮）本来就是
+//           带着一个**具体的** instanceId 进来的，不存在"没选中"这一档；
+//         - 「正在运行的不能改名」那道闸口：**搬进了 applyRename() 前面那一句**（见
+//           openInstanceSettings() 里的注记）—— 那道守卫必须在真正动手的那条路上，
+//           而不是在某个界面的入口上。
 
-    // 闸口一：正在跑的不能改。放在最前面、并且必须在调 renameInstance() **之前** ——
-    // 运行中的实例在 Windows 上 jar 被 JVM 锁着，改到一半才失败的话用户看到的是一句
-    // "拒绝访问"，而真正该说的是这一句。
+bool MainWindow::applyRename(const QString &oldId, const QString &newId) {
+    // 闸口一：**正在跑的不能改名**，而且必须在调 renameInstance() **之前** —— 运行中的
+    // 实例在 Windows 上 jar 被 JVM 锁着，改到一半才失败的话用户看到的是一句"拒绝访问"，
+    // 而真正该说的是这一句。
+    //
+    // NOTE: 这一道原来在 onRenameInstanceClicked() 里（界面的入口上）。改名搬进实例设置
+    //       那一页之后，入口变成了"任何一条点进设置页的路"，守卫放在入口上迟早会漏一条
+    //       —— 放在这里，所有调用点（含验证工程）都绕不过去。
     if (m_launcherManager->isVersionRunning(oldId)) {
         InlineMessage::warning(m_ui->overlay(), tr("重命名实例"),
                              tr("「%1」正在运行，先关掉游戏再改名。").arg(instanceDisplayName(oldId)));
-        return;
+        return false;
     }
 
-    bool ok = false;
-    const QString input = InlineMessage::getText(
-        m_ui->overlay(), tr("重命名实例"),
-        tr("新名字会成为 versions 下面那个目录的名字，\n"
-           "也就是这个实例的版本号。里面的 jar 和 json 会一起改。"),
-        oldId, &ok);
-    if (!ok) {
-        return;
-    }
-    const QString newName = input.trimmed();
-    if (newName == oldId) {
-        // 名字没动就悄悄退出，不弹窗：用户点开、看看、点确定，这不是错误。
-        return;
-    }
-    // 校验和"真的去改"都在 applyRename() 里 —— 那是纯逻辑那一半，验证工程直接驱动它。
-    applyRename(oldId, newName);
-}
-
-bool MainWindow::applyRename(const QString &oldId, const QString &newId) {
     const QString name = newId.trimmed();
 
     // 名字合不合法。判据和数据层是**同一份**（InstanceFiles::validateRenameTarget），
@@ -5916,6 +6080,111 @@ bool MainWindow::applyRename(const QString &oldId, const QString &newId) {
     }
     updateStartButtonText();
     appendLog(tr("实例已重命名：%1 → %2").arg(oldId, name));
+    return true;
+}
+
+void MainWindow::pinInstance(const QString &versionId) {
+    // 「置顶」= 把这个实例挪进**置顶组**（用户 2026-09-25 原话：「置顶以后进选了这个的组」）。
+    // 哪一组当家由 InstanceGroupStore::pinnedGroupId() 回答：清单里勾了「设为置顶组」的那
+    // 一组；一个都没勾就退回名字叫「置顶」的那个默认组（老用户的迁移路）；都没有则是空串。
+    const QString target = m_groupStore->pinnedGroupId();
+    if (target.isEmpty()) {
+        // 没有置顶组 ⇒ 那一格本来就**没画**（fillInstanceTree 里那一格判的就是它）。
+        // 走到这儿只可能是"树画出来之后、点下去之前"用户把那一组删了。什么都不做、
+        // 也不弹窗：这一下本来就没有去处，而屏幕上那颗箭头此刻也已经不在了。
+        return;
+    }
+
+    // 归属键走 instanceKey()（有稳定 id 用 id、没有用目录名）—— 读和写必须同一个键，
+    // 否则存下去的那一刻就对不上了（见 InstanceGroupStore 文件头）。
+    QString error;
+    if (!m_groupStore->assign(instanceKey(versionId), target, &error)) {
+        InlineMessage::critical(m_ui->overlay(), tr("置顶失败"), error);
+        return;
+    }
+    // assign() 成功会发 groupsChanged ⇒ 整棵树重灌（那个实例挪进置顶组、它那一行那颗上箭头
+    // 消失，因为已经在里面了）。**不再手动刷一遍**：手动刷只会和信号那条路撞在一起。
+    appendLog(tr("已置顶：%1").arg(instanceDisplayName(versionId)));
+}
+
+void MainWindow::confirmDeleteInstance(const QString &versionId) {
+    if (versionId.isEmpty()) {
+        return;
+    }
+    const QString name = instanceDisplayName(versionId);
+
+    // 闸口一：**正在跑的不能删**。放在最前面、并且必须排在真正动手之前 —— 运行中的实例在
+    // Windows 上 jar 被 JVM 锁着，删到一半才失败的话用户看到的是一句"拒绝访问"，而真正
+    // 该说的是这一句（和「重命名」那一条逐字同款）。
+    if (m_launcherManager->isVersionRunning(versionId)) {
+        InlineMessage::warning(m_ui->overlay(), tr("删除实例"),
+                              tr("「%1」正在运行，先关掉游戏再删。").arg(name));
+        return;
+    }
+    // 闸口二：**正在装 / 正在导入的也不能删**。判据用的是 `installingVersionIds()` ——
+    // 「现在谁动不得」的唯一出处（底栏那颗启动按钮、下拉框都是问它）。在这里删掉的后果
+    // 很具体：那一路还在往这个目录里写，写到收尾那一步会**把目录重新建出来**（json /
+    // meta 那两笔），用户看到的是"删掉了、过一会儿它自己又回来了，而且是半截的"。
+    if (installingVersionIds().contains(versionId)) {
+        InlineMessage::warning(m_ui->overlay(), tr("删除实例"),
+                              tr("「%1」正在安装，等它装完再删。").arg(name));
+        return;
+    }
+
+    // 这一趟**不可逆**，所以先问一句（用户原话：「删除前需要弹窗提示」）。正文里把目录的
+    // 完整路径写出来：用户要能看清删的是哪一个目录、它长在哪，而不是只知道"某个实例"。
+    const auto answer = InlineMessage::question(
+        m_ui->overlay(), tr("删除实例"),
+        tr("要删除实例「%1」吗？\n\n"
+           "会把 %2 这整个目录删掉（jar、json、以及这个实例自己的设置都在里面），"
+           "删掉之后找不回来。\n\n"
+           "它所在的游戏文件夹、以及别的实例都不受影响。")
+            .arg(name, QDir::toNativeSeparators(AppPaths::versionDir(versionId))),
+        tr("删除"), tr("取消"), false);
+    if (!answer) {
+        return;  // 取消不是错误，不写日志
+    }
+    deleteInstance(versionId);
+}
+
+bool MainWindow::deleteInstance(const QString &versionId) {
+    // 真正动手的那一半（问的那一半在 confirmDeleteInstance() 里）。和「重命名」是同一个
+    // 切法：验证工程直接驱动这一半，弹窗那一半它驱动不了。切在这里的另一个好处是
+    // **守卫和动作在同一个函数里** —— 任何调用点（含以后新加的）都绕不过去。
+    if (versionId.isEmpty()) {
+        return false;
+    }
+    const QString name = instanceDisplayName(versionId);
+    if (m_launcherManager->isVersionRunning(versionId)) {
+        InlineMessage::warning(m_ui->overlay(), tr("删除实例"),
+                              tr("「%1」正在运行，先关掉游戏再删。").arg(name));
+        return false;
+    }
+    // 闸口二（和上面那一半逐字同款，理由也逐字相同）：守卫和动作留在同一个函数里，
+    // 任何调用点都绕不过去 —— 包括以后直接从别处调 deleteInstance() 的那些。
+    if (installingVersionIds().contains(versionId)) {
+        InlineMessage::warning(m_ui->overlay(), tr("删除实例"),
+                              tr("「%1」正在安装，等它装完再删。").arg(name));
+        return false;
+    }
+
+    QString error;
+    if (!m_versionManager->deleteInstance(versionId, &error)) {
+        // 失败原因是数据层给的**一整句**（可能带"删到一半"那种状态说明），原样弹出来
+        // —— 和「删除游戏文件夹」那条路一个规矩。
+        InlineMessage::critical(m_ui->overlay(), tr("删除实例失败"), error);
+        return false;
+    }
+
+    // 分组归属**故意不动**：wtfml.folders 里可能还留着这个实例的一条归属（它指向的组还在，
+    // 所以不会被 store 的清成员规则扫掉）。留着是**有意的**：
+    //   - 它对界面没有任何影响（归属只有在"这个实例还在"的时候才会被问到）；
+    //   - 用户把同一个版本号重装一遍时，它会回到原来那一组里 —— "删了重装还在原来那组"
+    //     正是他要的，而为它写一条"删实例时顺手清归属"的清理，换来的只有一次多余写盘。
+    // 真嫌它脏的话，下一次在「分组设置」里按确定会整份重写这个文件（那时成员表按现有的
+    // 组重建，指向已删实例的那些条目照旧保留 —— 同样是上面那条"删了重装还在原组"）。
+    refreshInstalledVersions();
+    appendLog(tr("已删除实例：%1").arg(versionId));
     return true;
 }
 
@@ -6298,7 +6567,10 @@ void MainWindow::openInstanceSettings(const QString &versionId) {
     // 读归读，这里一个字节都不写 —— 用户点「取消」时磁盘必须原样。
     const JavaSettingsOverride current =
         javaOverrideFromJson(m_versionManager->versionMeta(versionId));
-    InstanceSettingsDialog dialog(instanceDisplayName(versionId), toDialogOverride(current),
+    // 第二个参数是**目录名**（改名要改的就是它），第一个是显示名（页眉上那行字）——
+    // 两个值可以不一样（自定义名、拼进去的加载器名），页面上是分开的两行。
+    InstanceSettingsDialog dialog(instanceDisplayName(versionId), versionId,
+                                  toDialogOverride(current),
                                   toDialogGlobal(m_javaSettings->effective()),
                                   m_versionManager->versionJvmArgs(versionId),
                                   !m_versionManager->skipJavaVersionWarning(versionId), this);
@@ -6310,14 +6582,26 @@ void MainWindow::openInstanceSettings(const QString &versionId) {
         // 取消 / 返回箭头：wtfml.meta 一个字节都没动（对话框只把控件读成一份值）。
         return;
     }
-    applyInstanceSettings(versionId, dialog);
-}
 
-void MainWindow::onInstanceSettingsClicked() {
-    // 取值口径和「重命名…」「分组…」一致：以下拉框为准（它就是"当前选中的那个实例"）。
-    // 顺带一提，这里**不用**去读那张树的 currentItem()，也就绕开了组头那道守卫 ——
-    // 三个按钮的取值口径一致比"少读一个控件"重要。
-    openInstanceSettings(selectedVersionId(m_ui->getInstalledVersionCombo()));
+    // ★ 顺序：**改名排在写设置之前**（用户 2026-09-25 原话：「重命名进实例设置」）。
+    //   反过来先写设置的话，那一次写入会落到老目录上 —— 而改名刚把它搬走，于是
+    //   updateVersionMeta() 会**照着老名字把目录重新建出来**，用户手上就多了一个
+    //   空壳实例（里面只有一份 wtfml.meta）。
+    //
+    //   改名失败（名字不合法 / 目录被占着 / 已经有一个同名的）就**整个停手**：
+    //   applyRename() 已经把原因弹出来了，这里再往下走就是"名字没改成、设置却写进了
+    //   一个用户没预期的实例里"。
+    const QString newName = dialog.instanceName().trimmed();
+    QString targetId = versionId;
+    if (!newName.isEmpty() && newName != versionId) {
+        if (!applyRename(versionId, newName)) {
+            return;
+        }
+        // 改完名之后要写的是**新目录**（applyRename() 里那句 refreshInstalledVersions()
+        // 已经把列表和下拉框都换到新名字上了）。
+        targetId = newName;
+    }
+    applyInstanceSettings(targetId, dialog);
 }
 
 bool MainWindow::applyInstanceSettings(const QString &versionId,

@@ -647,6 +647,29 @@ public:
     // NOTE: 非 const —— 它真的改磁盘。
     bool renameInstance(const QString &oldId, const QString &newName, QString *errorOut = nullptr);
 
+    /// 把一个实例**整个删掉**：`versions/<id>` 那一棵（jar、json、wtfml.meta、以及里面
+    /// 的一切）连同目录一起从盘上抹掉。用户 2026-09-25 原话：「删除前需要弹窗提示」（那句
+    /// 提示在 MainWindow::confirmDeleteInstance()，这一层**不弹窗**，这是本类的老规矩）。
+    ///
+    /// 只做这一件事，别的都不管：
+    ///   - **不碰分组归属**（wtfml.folders 里可能还留着一条指向它的记录，见调用点那段）；
+    ///   - **不碰设置**（Launcher/LastLaunchedVersion 指向它的话，下次启动时那一格找不到人，
+    ///     表现是"启动器没选中任何实例"—— 那是启动路径本来就有的容错，不用在这儿清）；
+    ///   - **不判"它在不在跑"**：和 renameInstance() 同一条（VersionManager 看不见游戏
+    ///     进程，那道闸口在 MainWindow）。
+    ///
+    /// NOTE: 删的是**目录树**，所以走的是 FolderManager 那边那支
+    ///       `removeTreeWithoutFollowingLinks()`（**不追链接**）—— `QDir::removeRecursively()`
+    ///       会跟着 junction/符号链接进到那一头，把游戏文件夹**外面**的东西一起删掉
+    ///       （实测过，理由写在那个函数的注释里）。用户在实例目录里挂一个 junction 是
+    ///       很少见、但后果最严重的一种。
+    /// NOTE: 非 const —— 它真的删盘。
+    /// @param versionId 目录名（会 trim 并校验：空 / `..` / 带路径分隔符的名一律拒掉 ——
+    ///        这个入参直接拼进路径，校验不是形式）。
+    /// @param errorOut 失败原因（给用户看的一句话，可能带"删到一半"那种状态说明）。
+    /// @return 那个目录已经不在盘上了返回 true。
+    bool deleteInstance(const QString &versionId, QString *errorOut = nullptr);
+
     // ---------- 下载页那几类资源：把一个文件下到实例里（模组 / 数据包 / 资源包 / 光影）----------
     //
     // 一次点击 = 一个（或几个）文件，下完就结束，没有"接着装点什么"的后续 —— 所以它

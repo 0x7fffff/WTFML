@@ -444,6 +444,46 @@ QPixmap VersionIcons::chevronUp(int size, const QColor &color) {
     return chevronPixmap(ChevronDir::Up, size, color);
 }
 
+QPixmap VersionIcons::arrowUp(int size, const QColor &color) {
+    if (size <= 0) {
+        return QPixmap();
+    }
+    return cached(QStringLiteral("arrowUp/%1/%2").arg(size).arg(color.name()), [size, color]() {
+        QPixmap pixmap(size, size);
+        pixmap.fill(Qt::transparent);
+        QPainter p(&pixmap);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        // 三角和杆都是**实心填充**（和 triangleUp/gear 一个路数，笔宽在 16 px 下描边会糊）：
+        // 一颗 16 px 的按钮里，"一根杆 + 一个箭头"得是两块实心的面才看得清。
+        p.setPen(Qt::NoPen);
+        p.setBrush(color);
+
+        // 一维尺寸全按边长给比例（别写死像素）：这个字形在实例行里是 16 px，别处要用
+        // 也就是同一个函数换个 size。
+        //
+        // 这几档是**量出来的**（2026-09-25），两个约束一起定死它们：
+        //   ① 最外一圈不留色 ⇒ 三角形的左右两个底角、尖端、杆底，四个方向离画布边
+        //      都得有 2 px 以上（16 px 那一档：左右各到 2.6 / 13.4，上下到 2.4 / 13.6）；
+        //   ② 箭头得比杆宽出一截才读得出"这是个箭头" ⇒ 半底 0.34 对杆半宽 0.10，
+        //      差了 3.4 倍（16 px 下箭头宽 10.9、杆宽 3.2）。
+        // 杆**不画满整格**：从箭头底边一直落到 0.85，底下留出那点余量。
+        const qreal centerX = size * 0.5;
+        const qreal headHalf = size * 0.34;  // 箭头底边的半宽
+        const qreal headTop = size * 0.15;   // 尖端（离上边最近的那一点）
+        const qreal headBase = size * 0.52;  // 底边（杆从这儿往下长）
+        const qreal shaftHalf = size * 0.10; // 杆的半宽
+        const qreal bottom = size * 0.85;    // 杆底
+
+        // 先画箭头、再画杆：杆的顶边和箭头底边**重合在同一条线**上，同色叠上去之后
+        // 接缝处不会留下一条比别处浅的线（抗锯齿只在整幅的外轮廓上走）。
+        QPolygonF head({QPointF(centerX, headTop), QPointF(centerX + headHalf, headBase),
+                        QPointF(centerX - headHalf, headBase)});
+        p.drawPolygon(head);
+        p.drawRect(QRectF(centerX - shaftHalf, headBase, shaftHalf * 2, bottom - headBase));
+        return pixmap;
+    });
+}
+
 namespace {
 
 /// 上移/下移那两颗箭头的形状：一个**实心三角**（▲ / ▼）。

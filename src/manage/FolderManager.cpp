@@ -32,6 +32,8 @@ bool isLinkToElsewhere(const QFileInfo &info) {
     return info.isJunction() || info.isSymLink();
 }
 
+}  // namespace
+
 /// 递归删掉 @p path 这一棵，但**一个链接都不追进去**：链接只把链接本身摘掉，那一头的东西
 /// 一个字节都不动。
 ///
@@ -48,6 +50,12 @@ bool isLinkToElsewhere(const QFileInfo &info) {
 ///
 /// @return 整棵都删干净了没有。删到一半失败时**返回 false 但仍然尽力删完**（剩下的留着，
 ///         调用方照实报"没能删干净"，比留一半还不说话强）。
+///
+/// NOTE: 这个函数**故意留在匿名命名空间外面**（它上面那个 `}  // namespace` 就是为它关的）：
+///       删实例那条路（VersionManager::deleteInstance）要用它，而 FolderManager.hpp 里
+///       已经把它声明成了一个自由函数。放在匿名命名空间里的话，头文件那条声明会和它
+///       变成**两个不同的重载**，调用处直接报 ambiguous。isLinkToElsewhere() 可以留在里面
+///       —— 只有它用，而且它在上面、看得见。
 bool removeTreeWithoutFollowingLinks(const QString &path) {
     const QFileInfo info(path);
     if (isLinkToElsewhere(info)) {
@@ -76,8 +84,6 @@ bool removeTreeWithoutFollowingLinks(const QString &path) {
     }
     return QDir().rmdir(path);
 }
-
-}  // namespace
 
 FolderManager::FolderManager(LauncherSettings *settings, QObject *parent)
     : QObject(parent), m_settings(settings) {

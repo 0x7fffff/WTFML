@@ -380,12 +380,47 @@ public:
     ///       用户原话「每个版本啥的上下高一点，像下载页那样」），16 px 装得下了；
     ///       `gearGlyphRect()` 里那道"按行高收一收"留着当兜底 —— 行高哪天再变矮，它自己缩。
     static int instanceGroupGearSize() { return 16; }
-    // NOTE: **`Qt::UserRole + 12` 空着** —— 它原来是"这一行画哪一颗上/下箭头"那位掩码
-    //       （2026-09-25 上半天的 rowGroupMoveRole() / groupMoveUpFlag() / groupMoveDownFlag()
-    //       和那两句话一起删了）。那两颗箭头当天傍晚搬进了「分组设置…」那张表（用户原话：
-    //       「这个箭头不应该在这里，而应该在 分组设置 里面，这里的删了」），而那张表里
-    //       行序就是组序、**一个别的行都没有** ⇒ "能不能挪"是算出来的，不需要角色位
-    //       （见 ui/GroupListDelegate 文件头）。所以这一档号码空着，别顺手拿它当"下一个"。
+    // ---------- 实例行行尾那一排按钮（2026-09-25 晚） ----------
+    //
+    // 用户原话：「实例页面，实例设置也是放在每一条的右侧，鼠标悬停时右侧显示上箭头和垃圾桶，
+    // 分别对应 置顶和删除实例，删除前需要弹窗提示，直接点空白区域（和左边图标版本名）进入
+    // 实例设置」。于是这一页右边那一排按钮（重命名… / 分组设置… / 实例设置…）整个没了，
+    // 每一条实例行自己带上入口。**一行三颗，右起**：
+    //
+    //   [垃圾桶] [上箭头] [齿轮]      ← 齿轮在**最右边**（这一行的锚）
+    //     悬停     悬停    常显
+    //
+    // 为什么垃圾桶摆最里面（离手最近的那颗是齿轮）：齿轮和上箭头点错了都无害（一个是开设置、
+    // 一个是移进置顶组，都能再点回来），垃圾桶是不可逆的那个。它点下去还要过一次确认框，
+    // 但"少制造一次误点"和"多弹一个框"比，前者更值。
+    //
+    // 为什么齿轮**在最右边**（不是挨着组行那颗齿轮对齐成一列）：实例行是这一页的主要内容，
+    // 一行里的东西一律贴着右边缘站；组行最右边那颗是展开箭头，两边本来就不在同一列上，
+    // 硬对齐反而会留出一截"什么都没有的右边缘" —— 而这一栏宽度是 3:7 里分出来的，一格都紧。
+    /// 实例行行尾那三颗按钮的边长（齿轮 / 上箭头 / 垃圾桶共用）。
+    static int instanceRowActionSize() { return 16; }
+    /// 相邻两颗之间留多少。
+    static int instanceRowActionGap() { return 6; }
+    /// 命中格比**画出来**的字形每边大多少 —— 和 `gearRect()` / `clearRect()` 那个 3 同款
+    /// （字形本身 12~16 px，"点得到的那一圈"得比它大一点）。
+    static int instanceRowActionMargin() { return 3; }
+    /// 这一行的实例**还能置顶**（= 还没在置顶组里）⇒ 悬停时画得出那颗上箭头。
+    ///
+    /// 语义和 `rowRefreshRole()` 一样是"这一行**有**这么一个按钮"，**不是**"这会儿要画"
+    /// （那一刻归悬停态管，见 InstanceGroupDelegate::paint()）。
+    ///
+    /// NOTE: 号码 **`Qt::UserRole + 12`** —— 这一档原来是"这一行画哪一颗上/下箭头"那位掩码
+    ///       （2026-09-25 上半天的 rowGroupMoveRole() 和那两句话一起删了），空到今天。
+    ///       加新角色前先看 rowSubTextRole() 上面那段：撞号的表现是"屏幕上多出一笔"。
+    static int rowPinRole() { return Qt::UserRole + 12; }
+    /// 行尾那三颗按钮各自弹的那句话（和 rowRefreshTipText() 一个规矩：**只在这一格上**才
+    /// 说话，整条行不弹；谁弹的、按哪一格判，见 InstanceGroupDelegate::rowActionTip()）。
+    /// 齿轮那句和那一页自己的页眉（`InstanceSettingsDialog::titleText()`）是**两回事**：
+    /// 这里是提示，那里是标题。原来那颗按钮上写的「实例设置…」带省略号（Qt 的规矩：点下去
+    /// 还要问点什么的才带），这个齿轮点下去直接把那一页开出来、不先问什么，所以不带。
+    static QString rowInstanceSettingsTipText() { return QStringLiteral("实例设置"); }
+    static QString rowPinTipText() { return QStringLiteral("置顶"); }
+    static QString rowDeleteInstanceTipText() { return QStringLiteral("删除这个实例"); }
     /// 悬停在那两个**行里的按钮**上时弹的那句话（2026-09-24 用户原话：「鼠标悬停在箭头上
     /// 出现刷新二字，之后不少功能要做悬停」）。谁把它弹出来的、按哪一格判，见
     /// VersionTreeDelegate::rowActionTip()（那儿是**几何的唯一出处**，这儿只是文案）。
@@ -700,25 +735,25 @@ public:
     ///       注意它不是"正在用的那一份"（那一份是**选中**哪一行说了算，两者大多数时候
     ///       是同一个，但用户加了别的目录之后就不是了）—— 这一份认的是位置，不是状态。
     static QString folderAssistantTitle() { return QStringLiteral("当前文件夹"); }
-    // 实例页右栏那排按钮。**全按钮驱动、不做右键菜单** —— 仓库里右键菜单零先例，
-    // 而且验证工程跑在 offscreen 上，QMenu::exec() 会阻塞在事件循环里，几乎驱动不了。
+    // 实例页**右栏那一排按钮 2026-09-25 傍晚没了**（用户原话：「删掉实例页面右侧三个按钮
+    // （因为都已经分别有入口了），顺便把下面的文本干掉」）。三颗各自的去处：
     //
-    // NOTE: 2026-09-25 起**没有「停止游戏…」**了（用户原话：「实例里停止游戏按钮删了」）。
-    //       停游戏这件事还在，只是入口只剩底栏左面板里那一行的电源（见
-    //       MainWindow::stopGameSession()）—— 那一格本来就写着"哪一个会话在跑"，
-    //       停在哪儿比在这个"对选中实例做什么"的排里更说得清。所以这里也不再留
-    //       stopGameButtonName() / stopGameText()，别照着旧记性写。
+    //   - 「实例设置…」= **点这一条实例行**（空白、左边那个图标、版本名都算），行尾还有
+    //     一颗**常显**的齿轮做同一件事（追加答复：「要，一颗齿轮常显」）；
+    //   - 「重命名…」= 搬进了「实例设置」那一页；
+    //   - 「分组设置…」= 挪到「实例列表」那个框**外面**的右上角（追加答复：「分组设置先放
+    //     右上角框外不删了」），所以只剩它这一颗按钮，名字和文案都留着。
     //
-    // NOTE: 同一天，这一排从"三颗都是实例级的"变成了**两 + 一**：前两颗（重命名… /
-    //       实例设置…）读的是列表里选中的那一个实例，第三颗（分组设置…）**不读它** ——
-    //       用户原话：「下方的分组设置不再是针对单个实例的设置，而是对现有分组数目/
-    //       名称等的设置」。所以"三颗按钮都作用于选中的那个实例"这句话**已经过期**，
-    //       写新代码时别照它想。
-    static QString renameInstanceButtonName() { return QStringLiteral("renameInstanceButton"); }
+    // 所以 `renameInstanceButtonName()` / `instanceSettingsButtonName()` 这两个**已经删了**，
+    // 别照着旧记性写；`instanceSettingsText()` 留着（底栏那行齿轮的 tooltip 还在用它）。
+    //
+    // NOTE: 这里**不做右键菜单**（仓库里右键菜单零先例，而且验证工程跑在 offscreen 上，
+    //       QMenu::exec() 会阻塞在事件循环里几乎驱动不了）—— 行里的东西一律是"画出来的
+    //       一格 + 事件过滤器认下那一下"，见 InstanceGroupDelegate 那三处几何。
+    //
+    // NOTE: 2026-09-25 上半天的「停止游戏…」也不在这排里了（入口只剩底栏左面板里那一行的
+    //       电源，见 MainWindow::stopGameSession()），所以这里也没有 stopGameButtonName()。
     static QString groupInstanceButtonName() { return QStringLiteral("groupInstanceButton"); }
-    static QString instanceSettingsButtonName() {
-        return QStringLiteral("instanceSettingsButton");
-    }
     /// 「导入整合包…」。它和上面那三颗**不是一回事**：那三颗改的是已有的东西（前两颗
     /// 作用于选中的实例、第三颗作用于分组清单），这个是**造**一个新实例出来。所以它不在右栏那一排里 —— 2026-09-25 起它归左栏
     /// 「游戏文件夹」那一组，紧挨在「添加文件夹…」下面（用户原话：「导入整合包放在左边
@@ -732,15 +767,21 @@ public:
     ///   → 228、整窗 818（绿）。理由全文在 .cpp 那一段。
     static QString importHintLabelName() { return QStringLiteral("importHintLabel"); }
     // 按钮上的字。验证工程**不要**拿它们当身份标识（那是显示内容），只用来核对文案。
-    static QString renameInstanceText() { return QStringLiteral("重命名…"); }
+    /// NOTE: 「重命名…」那颗按钮**2026-09-25 傍晚删了** —— 改名搬进了「实例设置」那一页
+    ///       （用户原话：「重命名进实例设置」）。所以 `renameInstanceText()` 也一起没了，
+    ///       别再照着旧记性写；那一页里那行自己的文案在 InstanceSettingsDialog 里。
+    ///
     /// NOTE: 2026-09-25 起它开的那张窗**不再问"这个实例归到哪个组"**，改成了分组自己的
-    ///       设置（有哪些组、叫什么名字、什么顺序、默认展开还是收着）—— 用户原话：
-    ///       「不再是针对单个实例的设置，而是对现有分组数目/名称等的设置」。所以文案
-    ///       跟着从「分组…」变成「分组设置…」，而且它**不读选中的实例**。
+    ///       设置（有哪些组、叫什么名字、什么顺序、默认展开还是收着、**哪一个是置顶组**）
+    ///       —— 用户原话：「不再是针对单个实例的设置，而是对现有分组数目/名称等的设置」。
+    ///       所以文案跟着从「分组…」变成「分组设置…」，而且它**不读选中的实例**。
     ///       想按实例归组走组行行尾那颗齿轮（GroupActionAddSelected）或者分组窗里那条
     ///       归属单选钮原来那一套？—— 那一套**没有了**，别再照旧记性找。
     static QString groupInstanceText() { return QStringLiteral("分组设置…"); }
-    static QString instanceSettingsText() { return QStringLiteral("实例设置…"); }
+    /// NOTE: `instanceSettingsText()`（「实例设置…」，那颗按钮上的字）**2026-09-25 傍晚跟着
+    ///       按钮一起删了**。现在这一页的那句话有**两个**出处，各管一件事，别再合成一个：
+    ///       `rowInstanceSettingsTipText()`（实例行行尾那颗齿轮的悬停提示）和
+    ///       `InstanceSettingsDialog::titleText()`（覆盖层页眉上那行「实例设置：<实例名>」）。
     /// NOTE: 带省略号 —— 按 Qt 的规矩，点了之后还要弹框问点什么的，文案结尾就带省略号
     ///       （这个字上传出去的信息是"点下去不等于事情就开始了"，和上面三个一致）。
     static QString importModpackText() { return QStringLiteral("导入整合包…"); }
@@ -1706,9 +1747,9 @@ public:
     // 是从哪一份 .minecraft 里扫出来的就说不清了。
     QLabel *getInstanceFolderLabel() const { return instanceFolderLabel; }
     // 实例页右栏那三个按钮，作用于「实例列表」里当前选中的那一个实例。
-    QPushButton *getRenameInstanceButton() const { return renameInstanceButton; }
+    /// 「分组设置…」那一颗 —— 2026-09-25 傍晚起它在「实例列表」那个框**外面**的右上角
+    /// （这一页右栏那一排三颗只剩它一颗，见上面那段 NOTE）。
     QPushButton *getGroupInstanceButton() const { return groupInstanceButton; }
-    QPushButton *getInstanceSettingsButton() const { return instanceSettingsButton; }
     /// 「导入整合包…」。它不看"有没有选中实例"，任何时候都能点（和上面那三个一个口径：
     /// 能不能点由状态决定的话，用户会先花时间猜"为什么它是灰的"）。**它在左栏那一组里**
     /// （「游戏文件夹」组，「添加文件夹…」下面），不在上面那三个那一排。
@@ -1925,9 +1966,8 @@ private:
     QPushButton *addFolderButton = nullptr;
     QListWidget *folderList = nullptr;
     QTreeWidget *instanceList = nullptr;
-    QPushButton *renameInstanceButton = nullptr;
+    /// 「分组设置…」。**右栏那一排放按钮的地方现在只剩它一颗**，而且它在框外右上角。
     QPushButton *groupInstanceButton = nullptr;
-    QPushButton *instanceSettingsButton = nullptr;
     QPushButton *importModpackButton = nullptr;
     QLabel *instanceFolderLabel = nullptr;
     QComboBox *installedVersionCombo = nullptr;

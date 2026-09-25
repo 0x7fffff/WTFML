@@ -558,6 +558,26 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         instance.left.layout->addWidget(folderGroupBox, 1);
     }
     {
+        // 「分组设置…」这一颗**不在下面那个框里**：2026-09-25 用户原话「分组设置先放右上角
+        // 框外不删了」。当天右栏那一排三颗（重命名… / 分组设置… / 实例设置…）一起删了，
+        // 另外两颗各有各的新家（「重命名…」进了「实例设置」那一页；「实例设置」= **点这一条
+        // 实例行**，行尾还常显一颗齿轮），只有它留下来，挪到框**外面**的右上角。
+        //
+        // 为什么它本来就不该跟那一排站在一起：那两颗作用于**选中的那一个实例**，它作用于
+        // **分组清单本身**（有哪些组、叫什么名字、什么顺序、默认展开还是收着、哪一个是
+        // 置顶组 —— 见 ui/GroupDialog）。"选中的实例"对它没有意义，混在一排里用户得先猜
+        // 它是"对这条做什么"还是"对这一列做什么"（这句话在 2026-09-25 第一次挪它时就写过
+        // 一遍，当时是把它从"实例级"改成"分组级"）。摆在框外右上角、"实例列表"这个标题
+        // 之上，说的是"下面这一整块怎么组织"。
+        //
+        // 右对齐靠前面垫一条 addStretch()：不垫的话它会横着拉满整栏，看着像另一个组。
+        QHBoxLayout *groupSettingsRow = new QHBoxLayout;
+        groupSettingsRow->addStretch(1);
+        groupInstanceButton = new QPushButton(groupInstanceText(), instance.right.widget);
+        groupInstanceButton->setObjectName(groupInstanceButtonName());
+        groupSettingsRow->addWidget(groupInstanceButton);
+        instance.right.layout->addLayout(groupSettingsRow);
+
         QGroupBox *instanceGroupBox = new QGroupBox(QStringLiteral("实例列表"),
                                                     instance.right.widget);
         QVBoxLayout *instanceLayout = new QVBoxLayout(instanceGroupBox);
@@ -593,50 +613,42 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // 和"这一组的更多操作"都画在那两个格里）。代理只接管挂着 groupIdRole() 的行，
         // 实例行原样走基类（见 InstanceGroupDelegate 文件头）。
         instanceList->setItemDelegate(new InstanceGroupDelegate(instanceList));
+        // 实例行前面那个图标（原版草方块 / Forge 铁砧 / Fabric…）：**这一份树以前从来没设过
+        // iconSize**，用的是样式给的默认值 —— 而图标是按 versionTreeIconSize()（18）画的，
+        // 不设的话它会被缩到默认那一档、和版本树上的方块不是一样大。
+        instanceList->setIconSize(QSize(versionTreeIconSize(), versionTreeIconSize()));
+        // ★ 悬停那两颗按钮（上箭头 / 垃圾桶）**必须**有这一句，而且它是缺一不可的两半里的
+        //   一半（另一半是代理里那个 `&& hovered`，见 InstanceGroupDelegate::paint()）：
+        //   干净的视图 `WA_Hover=0` / `mouseTracking=0`，**真鼠标移动一个字都不改**
+        //   `QStyle::State_MouseOver`（2026-09-25 下载页左栏那六个刷新圈实测过，windows 与
+        //   offscreen 两个平台结论一样）。少这一句的表现是"那两颗按钮再也不出现"，而两边
+        //   各自的断言还都是绿的。
+        instanceList->setMouseTracking(true);
         instanceLayout->addWidget(instanceList, 1);
 
-        // 三个按钮都作用于列表里当前选中的那一个实例。横着排：右栏宽度本来就紧
-        // （3:7 里的 7 还要和左栏分），竖着堆会把列表挤没。
+        // NOTE: 这里原来是三颗按钮的一排（重命名… / 分组设置… / 实例设置…）加下面一段
+        //       折行提示。**2026-09-25 全部拿掉了**，用户原话：「删掉实例页面右侧三个按钮
+        //       （因为都已经分别有入口了），顺便把下面的文本干掉」。
+        //       三颗各自的去处（一个都没丢）：
+        //         - 「实例设置…」= **点这一条实例行**（空白、左边那个图标、版本名都算），
+        //           行尾还会常显一颗齿轮 —— 两颗做的是同一件事（用户原话：「直接点空白区域
+        //           （和左边图标版本名）进入实例设置」+ 追加答复「要，一颗齿轮常显」）；
+        //         - 「重命名…」搬进了「实例设置」那一页（改实例名就在那一页里改）；
+        //         - 「分组设置…」挪到了上面那个框**外面**的右上角（见那一段 NOTE）。
         //
-        // NOTE: 「导入整合包…」原来在这一排**上面**单独一行，2026-09-25 挪去了左栏
-        //       「游戏文件夹」那一组（在「添加文件夹…」下面）；「停止游戏…」原来在这一排
-        //       的**末尾**，2026-09-25 用户说「实例里停止游戏按钮删了」，也拿掉了 ——
-        //       停游戏现在只剩底栏左面板里那一行的电源（见下面那段 NOTE）。
-        QHBoxLayout *instanceButtons = new QHBoxLayout;
-        renameInstanceButton = new QPushButton(renameInstanceText(), instanceGroupBox);
-        renameInstanceButton->setObjectName(renameInstanceButtonName());
-        groupInstanceButton = new QPushButton(groupInstanceText(), instanceGroupBox);
-        groupInstanceButton->setObjectName(groupInstanceButtonName());
-        instanceSettingsButton = new QPushButton(instanceSettingsText(), instanceGroupBox);
-        instanceSettingsButton->setObjectName(instanceSettingsButtonName());
-        // 三个按钮一律可点，没选中实例时由 MainWindow 的槽弹一句说清原因（和「重命名…」
-        // 同一个口径：**几时能点**由状态决定的话，用户会先花时间猜"为什么它是灰的"，
-        // 而那句话直接把原因说了）。
-
-        instanceButtons->addWidget(renameInstanceButton);
-        instanceButtons->addWidget(groupInstanceButton);
-        instanceButtons->addWidget(instanceSettingsButton);
-        instanceLayout->addLayout(instanceButtons);
-
-        // NOTE: 2026-09-25 起这一页上**没有「停止游戏…」**了（用户原话「实例里停止游戏按钮
-        //       删了」）。为什么删得掉：停在哪儿这件事本来就归底栏左面板里那一行的电源
-        //       （见 MainWindow::stopGameSession()）—— 那一格写着"哪一个会话在跑"，停哪
-        //       一份比在"对选中实例做什么"的排里更说得清，也不会出现"选中的实例根本没在
-        //       跑"这种点了才知道的情况。
-        //       代价（如实记一笔）：原来那颗按钮走的是 applyStopGame(versionId)，能一次
-        //       停掉**同一个实例的多份会话**；底栏那一行的电源只停**这一份**（会话号）。
-        //       那个"一次全停"的能力随按钮一起没了 —— 多开的那几份要逐个停。
-        //       连带删掉的死代码：onStopGameClicked() / applyStopGame()（只有它俩互相调用）；
-        //       confirmStopGame() 留着，底栏那条路还在用它。
-        QLabel *instanceHint = new QLabel(
-            QStringLiteral("一个实例就是 versions 下的一个目录。判据是「认得出哪个是客户端 jar」"
-                           "—— 你自己在资源管理器里改过目录名的实例也认得出来。"
-                           "重命名会真的改磁盘上的目录名；分组只记在启动器自己的文件里，"
-                           "不动磁盘上的目录。「实例设置…」只影响这一个实例：里面每一项"
-                           "都能选「跟随全局」或者自己填一个值。"),
-            instanceGroupBox);
-        instanceHint->setWordWrap(true);
-        instanceLayout->addWidget(instanceHint);
+        //       那段提示一起删了：它当初讲的是"重命名会改目录名、分组只记在启动器自己的
+        //       文件里、实例设置每一项都能跟随全局或自己填"—— 前两句现在各有各的出处
+        //       （重命名那一页、分组那一页自己会讲），第三句在「实例设置」页里一眼就能
+        //       看出来（每一行左边都摆着那对「跟随全局 / 自定义」）。
+        //
+        // NOTE: 2026-09-25 之前这里就没有「停止游戏…」了（用户原话「实例里停止游戏按钮
+        //       删了」）。停在哪儿这件事归底栏左面板里那一行的电源（见
+        //       MainWindow::stopGameSession()）：那一格写着"哪一个会话在跑"，停哪一份比在
+        //       "对选中实例做什么"的排里更说得清。代价（如实记一笔）：原来那颗按钮走的是
+        //       applyStopGame(versionId)，能一次停掉**同一个实例的多份会话**；底栏那一行的
+        //       电源只停**这一份**（会话号）—— 多开的那几份要逐个停。
+        //       「导入整合包…」2026-09-25 从这一排挪去了左栏「游戏文件夹」那一组（在
+        //       「添加文件夹…」下面）。
         instance.right.layout->addWidget(instanceGroupBox, 1);
     }
 

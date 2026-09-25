@@ -20,6 +20,21 @@
 
 class LauncherSettings;
 
+/// 递归删掉 @p path 这一棵，但**一个链接都不追进去**（链接只把链接本身摘掉，那一头的东西
+/// 一个字节都不动）。@return 整棵都删干净了没有；删到一半失败时返回 false 但仍然尽力删完。
+///
+/// 【为什么不是 `QDir::removeRecursively()`】
+/// 实测（2026-09-25 探针）：对一个**本身就是 junction** 的目录调用它，junction 指向的那个
+/// 真目录里的文件**没了**；目录**里面**含一个 junction 时同样跟着进去把目标删了。
+/// 于是"删掉这一份游戏文件夹 / 这一个实例"会牵连到外面那块盘上的东西 —— 把 `saves` 挂到
+/// 网盘同步目录、把 `mods` 挂到另一块盘都是常见做法。完整的实测结论写在 .cpp 里那个函数
+/// 上面（判据为什么必须带上 `isJunction()` 也在那里）。
+///
+/// NOTE: 它是自由函数、不属于 FolderManager 这个类：两个调用者（删游戏文件夹、删实例）
+///       都只想要"把一棵目录树删干净"，和文件夹列表没关系。所以声明摆在这里只是给它
+///       一个家 —— 实现和那段最细的注释在 FolderManager.cpp。
+bool removeTreeWithoutFollowingLinks(const QString &path);
+
 class FolderManager : public QObject {
     Q_OBJECT
 
