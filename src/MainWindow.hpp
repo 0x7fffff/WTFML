@@ -888,6 +888,10 @@ private:
     // "有版本目录但 jar 名对不上"这件事是否已经写过日志。refreshInstalledVersions()
     // 一次会话会被调很多次，不记一笔就是同样的告警反复刷。
     bool m_reportedUnrecognizedVersions = false;
+    // 版本树上「最新版本」那一组的"默认展开"是不是已经摆过一次了（见
+    // refreshAvailableVersions() 里那一格）。**只摆第一次**：用户把它收起来之后，
+    // 清单刷新（每次启动那一次、以及手动刷新拉回来那一次）不该又把它撑开。
+    bool mLatestGroupExpandSeeded = false;
     // 哪几份会话的启动进度还在走：从"进程真的起来了"（startGame 返回非零）到那一份自己
     // 吐出第一行输出为止 —— 中间那段是 JVM 和游戏自己在初始化，界面上没别的反馈。
     // 命名刻意不叫 m_launching：它表示的是"这段进度要显示"而不是"正在启动"。

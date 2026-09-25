@@ -330,6 +330,53 @@ QList<VersionManager::VersionChannel> VersionManager::availableVersionChannels()
     return groupIntoChannels(downloadManager->getAvailableVersions());
 }
 
+QList<VersionManager::LatestVersion> VersionManager::latestVersions(
+    const QList<MinecraftVersion> &versions) {
+    // 一条一趟扫完就地收工：清单几百条，两个坑（正式版、快照）都填上就不用再往下看了。
+    // NOTE: 不能"边扫边 append" —— 清单是新到旧交错排的（快照常常排在正式版前面，比如
+    //       26.4-snapshot-1 就压在 26.3 上面），那样出来的顺序会随清单变。这里先各自记下
+    //       来，最后按**固定顺序**（正式版、快照）append，界面上那两行的位置才是稳的。
+    bool gotRelease = false;
+    bool gotSnapshot = false;
+    LatestVersion release;
+    LatestVersion snapshot;
+    for (const MinecraftVersion &version : versions) {
+        const VersionCategory::Channel channel =
+            VersionCategory::channelFor(version.id, version.type);
+        if (channel == VersionCategory::Channel::Release) {
+            if (gotRelease) {
+                continue;
+            }
+            release.channel = channel;
+            release.version = version;
+            gotRelease = true;
+        } else if (channel == VersionCategory::Channel::Snapshot) {
+            if (gotSnapshot) {
+                continue;
+            }
+            snapshot.channel = channel;
+            snapshot.version = version;
+            gotSnapshot = true;
+        }
+        if (gotRelease && gotSnapshot) {
+            break;
+        }
+    }
+
+    QList<LatestVersion> latest;
+    if (gotRelease) {
+        latest.append(release);
+    }
+    if (gotSnapshot) {
+        latest.append(snapshot);
+    }
+    return latest;
+}
+
+QList<VersionManager::LatestVersion> VersionManager::availableLatestVersions() const {
+    return latestVersions(downloadManager->getAvailableVersions());
+}
+
 // ---------------------------------------------------------------------------
 // 从信号里往回接续：排到下一轮事件循环（用法和理由见 .hpp 里 deferNextStep 的 NOTE）
 // ---------------------------------------------------------------------------

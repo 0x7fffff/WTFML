@@ -2370,10 +2370,11 @@ void MainWindow::updateStartButtonText() {
 }
 
 void MainWindow::refreshAvailableVersions() {
-    // 只填树里那四条分类：它们唯一的数据源就是在线的版本清单（和已安装那一摊完全
-    // 不相干 —— 以前清单为空时这里会退回显示本地已安装版本，两个数据源混在一张列表里，
-    // 用户分不清点下去到底是启动还是下载）。四堆怎么分是 VersionManager 的事
-    // （它那边只有 VersionCategory 一处判据，含那张写死的愚人节版名单）。
+    // 只填树里那几条（2026-09-25 起是「最新版本」那一组 + 那四条分类）：它们唯一的数据源
+    // 就是在线的版本清单（和已安装那一摊完全不相干 —— 以前清单为空时这里会退回显示本地
+    // 已安装版本，两个数据源混在一张列表里，用户分不清点下去到底是启动还是下载）。
+    // 四堆怎么分是 VersionManager 的事（它那边只有 VersionCategory 一处判据，含那张写死的
+    // 愚人节版名单），"最新的两条是哪两条"同样是它的事（latestVersions()）。
     //
     // 条目文本就是**版本号本身**：在线清单 900+ 条逐条去读 wtfml.meta 是不可接受的
     // I/O，而且那些版本压根还没下载、磁盘上没有元数据可读。
@@ -2409,8 +2410,59 @@ void MainWindow::refreshAvailableVersions() {
         }
     }
 
+    // 「最新版本」那一组是**默认展开**的（用户原话：「下载游戏那个界面最上方放一个 最新版本 类，
+    // 默认展开，里面放最新的正式版和快照」）。这一格只**摆一次**：用户把它收起来之后，
+    // 清单刷新（每次启动那一次、以及拉回来那一次）不该又把它撑开 —— 而"记住哪些分类是展开的"
+    // 这笔账上面刚记完，靠的就是这份集合，所以这里直接往里面塞一格，走的是**和用户自己展开
+    // 完全一样**的那条路（重灌之后照旧按 isExpanded() 记回来），不是"每一发都强行展开"。
+    //
+    // NOTE: 为什么需要一个成员来记"摆过一次"：头一发时树是空的 ⇒ expandedKeys 也是空的
+    //       ⇒ 不加这一格它从一开始就是收着的。而"树是不是空的"这个判据不能当替身 ——
+    //       refreshAvailableVersions() 之外还有别人能清这棵树（那样用户收起来的东西会被
+    //       又撑开一次），用成员就与"谁清了树"无关。
+    if (!mLatestGroupExpandSeeded) {
+        expandedKeys.insert(VersionManager::latestGroupKey());
+        mLatestGroupExpandSeeded = true;
+    }
+
     const QSignalBlocker blocker(tree);
     tree->clear();
+
+    // ★ 2026-09-25 新加的第一条：**「最新版本」**（用户原话见上面那段）。
+    //
+    // 摆在**最上面**：它讲的是"现在最值得装的这两条"，放在四个分类后面等于没摆（那四栏各自
+    // 几百条，谁也不会滚到底去看）。它不是第五个分类，所以有几件事刻意和那四条不一样：
+    //   · 那四条是清单的**全集划分**（一条版本不重不漏地落进某一栏），这一组是**从里面挑
+    //     两条出来** —— 同一个版本号在这两处各有一份（它自己那一栏里那条还在）；
+    //   · 身份不来自 VersionCategory::channelKey()，走 VersionManager::latestGroupKey()
+    //     （那个键保证和四个分类键两两不同，展开状态那笔账才串不了）；
+    //   · 里面那两条**只认版本号**（和别处的版本号一样：点一下就是"基于它装"），
+    //     所以它前面那个小图标按它**自己属于哪一类**给（正式版草方块 / 快照版覆雪草块）。
+    //
+    // NOTE: 清单没拉回来时（离线、或者第一发就失败）这一组照旧摆着，只是里面空的 ——
+    //       和那四条空分类是同一个规矩（"这一条压根不出现"和"点开是空的"在界面上是两件
+    //       很不一样的事，见 availableVersionChannels() 那段）。
+    auto *latestTop = new QTreeWidgetItem(tree);
+    latestTop->setData(MainWindowUI::versionTreeKeyColumn(), Qt::UserRole,
+                       VersionManager::latestGroupKey());
+    latestTop->setText(MainWindowUI::versionTreeKeyColumn(), VersionManager::latestGroupText());
+    for (const VersionManager::LatestVersion &entry : m_versionManager->availableLatestVersions()) {
+        auto *child = new QTreeWidgetItem(latestTop);
+        child->setData(MainWindowUI::versionTreeKeyColumn(), Qt::UserRole, entry.version.id);
+        child->setText(MainWindowUI::versionTreeKeyColumn(), entry.version.id);
+        child->setData(MainWindowUI::versionTreeKeyColumn(), MainWindowUI::rowSubTextRole(),
+                       releaseDateText(entry.version.releaseTime));
+        const QPixmap mark =
+            VersionIcons::versionChannelMark(VersionCategory::channelIndex(entry.channel),
+                                             MainWindowUI::versionTreeIconSize());
+        if (!mark.isNull()) {
+            child->setData(MainWindowUI::versionTreeKeyColumn(), MainWindowUI::rowIconRole(), mark);
+        }
+    }
+    if (expandedKeys.contains(VersionManager::latestGroupKey())) {
+        latestTop->setExpanded(true);
+    }
+
     for (const VersionManager::VersionChannel &channel : channels) {
         auto *top = new QTreeWidgetItem(tree);
         // 身份在 userData（= 分类键），文字只是给人看的 —— 和左栏那列分类同一个约定。
@@ -2450,6 +2502,13 @@ void MainWindow::refreshAvailableVersions() {
         if (expandedKeys.contains(channel.key)) {
             top->setExpanded(true);
         }
+        // 把选中那条找回来：**只在四条分类里找，不找「最新版本」那一组**。
+        // Why: 同一个版本号在树上有两份（它自己那一栏里一条、最新那一组里可能还有一条），
+        //      两个都是真的、点哪个都是"基于它装"。这一搜要是从头开始（「最新版本」现在在
+        //      第一条），用户本来在"正式版"里选着的那条**每次刷新都会悄悄跳到最上面那一组**
+        //      去 —— 他没动过手，高亮自己跑了。只在分类里找 = 和这次改动之前**一模一样**的
+        //      行为（以前树上只有那四条）。代价：要是用户当初是从「最新版本」那一组点进去的，
+        //      刷新之后高亮会落到它自己那一栏里 —— 那也仍在屏幕上、仍是同一条版本。
         if (!selectedVersion.isEmpty()) {
             for (int i = 0; i < top->childCount(); ++i) {
                 if (top->child(i)->data(MainWindowUI::versionTreeKeyColumn(), Qt::UserRole)
@@ -3136,8 +3195,9 @@ void MainWindow::refreshDownloadCategory(int row) {
         // kindFromCategoryKey 也认不出来，所以它得自己一条分支）。
         //
         // 摆不摆"正在…"那一行：**不摆**。版本树那边和资源表不是一回事 ——
-        // refreshAvailableVersions() 每一发都重建**恰好四条分类**（那是它的活），中途插一行
-        // 灰的会被它整个冲掉；而且版本树本来就不会因为"正在等"而空着：老那棵一直挂在
+        // refreshAvailableVersions() 每一发都重建**恰好那几条顶层**（「最新版本」那一组 +
+        // 四条分类，那是它的活），中途插一行灰的会被它整个冲掉；而且版本树本来就不会因为
+        // "正在等"而空着：老那棵一直挂在
         // 那儿（fetchAvailableVersions 失败时也保留上一份好清单，见 onVersionsFetched）。
         // 用户看到的是"点了一下、树没消失、过一会儿多的版本冒出来"，正是要的样子。
         appendLog(tr("正在重新获取游戏版本列表…"));
