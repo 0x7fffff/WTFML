@@ -1365,7 +1365,9 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
                                     "同时开好几份时一份游戏一个窗，不会混在一起。"
                                     "关掉时游戏输出只进日志文件。"),
                 form);
-        addSettingRow(grid, row++, showGameLogCheckText(), box, form);
+        // 行标题用 RowText() 那一句，**不是**勾选框上的那句话（原来两处共用同一个串，
+        // 同一句话就并排出现两遍；见 showGameLogRowText() 上面那段）。
+        addSettingRow(grid, row++, showGameLogRowText(), box, form);
     }
     {
         QWidget *box = makeHintedControl(form);
@@ -2511,9 +2513,16 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     runStateDetailLabel = new ElidedLabel(bottomBar);
     runStateDetailLabel->setObjectName(runStateDetailLabelName());
     runStateDetailLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    runStateDetailLabel->setMaximumWidth(MainWindowUI::bottomBarRunStateTextWidth());
-    // 第二行**缩进方块那一段**，两行文字的左边才对得齐（宽度上限两行是同一个数，
-    // 减掉方块那一段之后剩下的可用宽度正好也一样）。不缩进的话第一行比第二行多出
+    // ★ 这一格的宽度上限 = **第一行那个数 + 方块那一段**（2026-09-26 修）。
+    //   原来两行封的是同一个数（bottomBarRunStateTextWidth() = 136），可两行的"少掉 16 px"
+    //   不是一回事：第一行那个方块是布局里**单独的控件**（它占的是上限**之外**的位置，
+    //   所以那 136 全是给字的），第二行的缩进走的是 contentsMargins —— 那 16 px 是**从上限
+    //   里面**扣的。于是第二行真正能写的只有 120 px，右边比第一行短一截，而下面那句注释
+    //   一直写着"剩下的可用宽度正好也一样"（承诺和代码相反，见 2026-09-25 那条教训）。
+    //   加回一段之后：两行留给字的宽度都是 136，整格的总宽也都还是 152。
+    runStateDetailLabel->setMaximumWidth(MainWindowUI::bottomBarRunStateTextWidth() +
+                                         MainWindowUI::bottomBarRunStateMarkWidth());
+    // 第二行**缩进方块那一段**，两行文字的左边才对得齐。不缩进的话第一行比第二行多出
     // 16 px，两行会看着像各说各的。
     runStateDetailLabel->setContentsMargins(MainWindowUI::bottomBarRunStateMarkWidth(), 0, 0, 0);
     // 第二行小一号、灰一点，跟第一行区分开。字号按当前字号减 1（不用点值，

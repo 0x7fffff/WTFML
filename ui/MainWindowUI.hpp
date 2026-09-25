@@ -887,14 +887,19 @@ public:
     /// 900 px 的窗口里中间那根条只剩 262 px（条还没那两格宽），用户报「奇小无比」。
     /// 那一格装的是「3 个实例运行中」+ 一行实例名 + 箭头，170 够（文字能占 152）。
     static int bottomBarRunStateColumnWidth() { return 170; }
-    /// 左边那两行字各自的宽度上限 = 那一格的宽度减掉**最左边那颗状态方块占掉的一段**，
-    /// 再减掉右边那个箭头和它左边的间距。两行都封这个顶，布局就永远不会被长名字撑开。
+    /// 左边那两行字**各自留给字**的宽度上限 = 那一格的宽度减掉**最左边那颗状态方块占掉的
+    /// 一段**，再减掉右边那个箭头和它左边的间距。封这个顶，布局就永远不会被长名字撑开。
     ///
     /// NOTE: 方块那一段（`bottomBarRunStateMarkWidth()`）**必须一起减掉**（2026-09-24 补的）：
     ///       方块和第一行文字在同一行里，不减的话那一行的需要宽度变成
     ///       16 + 152 = 168 > 152，方块要么被压掉、要么把这一格撑出 170 之外。
-    ///       两行减掉**同一个数**是刻意的 —— 第二行还缩进了同样多（见 MainWindowUI.cpp
-    ///       里 runStateDetailLabel 那几行），两行文字的左边因此对得齐。
+    ///
+    /// ★ 这个数说的是"**留给字的**宽度"，两行都是它 —— 但两行**控件本身的**上限不是同一个：
+    ///   第一行那个方块是布局里单独的控件（占的是这个上限**之外**的位置，所以这 136 全是给
+    ///   字的），第二行的缩进是 `contentsMargins`（那 16 px 从上限**里面**扣）。所以第二行
+    ///   那个 QLabel 的上限要写 `bottomBarRunStateTextWidth() + bottomBarRunStateMarkWidth()`，
+    ///   两行留给字的宽度才真的都是 136（2026-09-26 修：原来两行都写这个数，第二行实际只有
+    ///   120，右边短一截）。
     static int bottomBarRunStateTextWidth() {
         return bottomBarRunStateColumnWidth() - bottomBarChevronSpacing() - bottomBarChevronSize() -
                bottomBarRunStateMarkWidth();
@@ -1464,6 +1469,11 @@ public:
     /// 「启动选项」那一组里那几个勾选框/数字框的文案。
     /// 「显示游戏日志」这个串是**用户原话**（2026-09-24 提的需求），别改写成别的说法。
     static QString showGameLogCheckText() { return QStringLiteral("显示游戏日志"); }
+    /// 这一行的行标题（左列那一格）。★ 2026-09-26：它原来就是上面那句勾选框文字 ——
+    /// 于是同一句话在界面上并排出现两遍（左列一句、勾选框上一句）。这一组里另外两条
+    /// 勾选框行是"短标题 + 长句子"（「重复启动」/「进度提醒」），这里照那个形状走。
+    /// **勾选框那一句一个字都不许动**（用户原话，ui_check Z2 钉着），改的是行标题。
+    static QString showGameLogRowText() { return QStringLiteral("游戏日志"); }
 
     // ---------- 「启动提醒」那一组（2026-09-25 加的） ----------
     // 两个勾选框各管一条启动前的确认，默认都是勾上的（理由见 LauncherSettings 那一节）。
