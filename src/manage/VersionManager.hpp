@@ -79,6 +79,49 @@ public:
      */
     QList<VersionChannel> availableVersionChannels() const;
 
+    /// 「最新版本」那一组里的一条（清单里最新的正式版 / 最新的快照）。
+    struct LatestVersion {
+        VersionCategory::Channel channel = VersionCategory::Channel::Release;
+        MinecraftVersion version;
+    };
+
+    /// 「最新版本」那一组的**键**（界面拿它当顶层条目那个身份，进 `Qt::UserRole`）。
+    ///
+    /// NOTE: 它和四个分类键（`VersionCategory::channelKey()`）**必须两两不同**：树上那五个
+    ///       顶层身份住在同一个角色里，而 `MainWindow::refreshAvailableVersions()` 记
+    ///       "哪一条是展开的"记的就是这个身份 —— 撞了之后展开状态会串到另一条上
+    ///       （用户展开"远古版"，回来发现是"愚人节版"开着）。
+    ///       还有一条更隐蔽的：**顶层身份不能和任何版本号相同**（子条目拿版本号当身份），
+    ///       所以这个键取的是一个不可能成为版本号的词。
+    static QString latestGroupKey() { return QStringLiteral("latest"); }
+
+    /// 「最新版本」那一组给用户看的名字。
+    static QString latestGroupText() { return QStringLiteral("最新版本"); }
+
+    /**
+     * @brief 挑出「最新版本」那一组的两条（**纯函数**）：清单里最新的正式版与最新的快照。
+     * @param versions 清单（`DownloadManager::getAvailableVersions()` 那份，或任何同形状的）。
+     *
+     * 顺序**固定**：正式版在前、快照在后；缺哪一类就只有一条，清单为空就是空列表
+     * （界面照旧把这一组摆出来，只是里面没东西 —— 和四个空分类是同一个规矩）。
+     *
+     * "最新的某类" = **清单里第一条被 `channelFor()` 判成那一类的**。清单本身就是官方给的
+     * 新到旧顺序（2026-09-25 实测前两条正是 `version_manifest.json` 里 `latest` 那个对象
+     * 点名的 `26.4-snapshot-1` 与 `26.3`），所以这里**不去比 `releaseTime` 字符串** ——
+     * 那是另一条判据（要自己处理格式和时区），而"新到旧"这件事清单已经是答案了。
+     *
+     * NOTE: 判据走 `channelFor()` 而不是 `type == "snapshot"`：愚人节版在清单里也是
+     *       `snapshot`，按 type 判会让它当上"最新快照"（见 VersionCategory 那段说明）。
+     *       同样地，**不分**正式版/快照与"用户想装哪个"——这里只回答"最新的是哪两个"。
+     *
+     * NOTE: 写成**静态**、收一个列表进来，理由和 groupIntoChannels() 那段一模一样
+     *       （验证工程能拿真清单夹具直接喂进来）。
+     */
+    static QList<LatestVersion> latestVersions(const QList<MinecraftVersion> &versions);
+
+    /// 走 downloadManager 手上那份（界面用的）。
+    QList<LatestVersion> availableLatestVersions() const;
+
     // Version fetching from Mojang API
     void fetchAvailableVersions();
     void fetchVersionDetails(const QString &versionId);
