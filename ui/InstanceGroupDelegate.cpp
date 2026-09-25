@@ -51,48 +51,9 @@ QRect InstanceGroupDelegate::gearGlyphRect(const QRect &row) {
     return box.adjusted(inset, inset, -inset, -inset);
 }
 
-QRect InstanceGroupDelegate::moveDownRect(const QRect &row) {
-    // 命中格比画出来的三角大一圈（三角的边长是 versionTreeArrowSize()，四周各留 3 px）——
-    // 和齿轮/那个「取消」小叉同一个做法：12 px 的点击目标太小了，手一抖就点到旁边那颗
-    // （而"把这一组挪到别处去"点错一下是有后果的）。
-    const int box = MainWindowUI::versionTreeArrowSize() + 6;
-    // 紧挨着齿轮左边，中间留 6 px（和"齿轮到展开箭头"是同一个数，看着才是一套的）。
-    const int left = gearRect(row).left() - 6 - box;
-    return QRect(left, row.top() + (row.height() - box) / 2, box, box);
-}
-
-QRect InstanceGroupDelegate::moveUpRect(const QRect &row) {
-    const QRect down = moveDownRect(row);
-    // 上移那颗**紧挨着**下移那颗（中间不留缝）：两颗自己已经各带了 3 px 的手感余量，
-    // 中间再有缝的话会空出一格"点下去什么都没发生"的地方 —— 而那一格正是最容易点到的地方。
-    return QRect(down.left() - down.width(), down.top(), down.width(), down.height());
-}
-
-QRect InstanceGroupDelegate::moveUpGlyphRect(const QRect &row) {
-    const QRect box = moveUpRect(row);
-    const int size = qMin(MainWindowUI::versionTreeArrowSize(), row.height());
-    const int inset = (box.width() - size) / 2;
-    return box.adjusted(inset, inset, -inset, -inset);
-}
-
-QRect InstanceGroupDelegate::moveDownGlyphRect(const QRect &row) {
-    const QRect box = moveDownRect(row);
-    const int size = qMin(MainWindowUI::versionTreeArrowSize(), row.height());
-    const int inset = (box.width() - size) / 2;
-    return box.adjusted(inset, inset, -inset, -inset);
-}
-
 QString InstanceGroupDelegate::rowActionTip(const QModelIndex &index, const QRect &row,
                                             const QPoint &pos) {
-    // 三格一条一条来。顺序就是"谁压在谁上面"的顺序 —— 今天三格互不重叠，顺序无所谓；
-    // 将来真叠上了，先判的那个赢（和 VersionTreeDelegate::rowActionTip() 同一条规矩）。
-    const int moveMask = index.data(MainWindowUI::rowGroupMoveRole()).toInt();
-    if ((moveMask & MainWindowUI::groupMoveUpFlag()) != 0 && moveUpRect(row).contains(pos)) {
-        return MainWindowUI::rowGroupMoveUpTipText();
-    }
-    if ((moveMask & MainWindowUI::groupMoveDownFlag()) != 0 && moveDownRect(row).contains(pos)) {
-        return MainWindowUI::rowGroupMoveDownTipText();
-    }
+    // 这一行现在**只剩齿轮**一格（上下移那两颗 2026-09-25 搬进分组设置窗了，见 .hpp）。
     if (index.data(MainWindowUI::rowGroupGearRole()).toBool() && gearRect(row).contains(pos)) {
         return MainWindowUI::rowGroupGearTipText();
     }
@@ -139,25 +100,15 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
     const int pad = MainWindowUI::versionTreeRowPadding();
     const int arrowSize = MainWindowUI::versionTreeArrowSize();
     const bool hasGear = index.data(MainWindowUI::rowGroupGearRole()).toBool();
-    // 行尾那两颗上/下箭头画哪一颗（位掩码，见 MainWindowUI::rowGroupMoveRole()）。谁写进去的、
-    // 为什么不是"在文件里排第几"，都在那个角色那段。
-    const int moveMask = index.data(MainWindowUI::rowGroupMoveRole()).toInt();
-    const bool canMoveUp = (moveMask & MainWindowUI::groupMoveUpFlag()) != 0;
-    const bool canMoveDown = (moveMask & MainWindowUI::groupMoveDownFlag()) != 0;
     // 展开着就画朝下的 V、收着就画朝右的 >。状态只有视图知道（`isExpanded`）——
     // 和 VersionTreeDelegate 一样从 option.widget 上问，问不到就当收着。
     const auto *view = qobject_cast<const QTreeView *>(option.widget);
     const bool expanded = view != nullptr && view->isExpanded(index);
 
     // 右边那几格从文字的可用宽度里扣掉 —— 不扣的话长组名会从齿轮底下穿过去。
-    //
-    // NOTE: 上/下那两颗**按"两颗都占着"扣**，不管这一行此刻画的是几颗：只画一颗的行
-    //       （最上面那一组没有上移）要是只扣一颗，同一张树上每一行的文字右边界就不一样了
-    //       —— 组名一长，看着就是每行各自截断在不同的地方。
     int textRight = row.right() - pad - arrowSize - 6;
     if (hasGear) {
         textRight -= gearRect(row).width() + 6;
-        textRight -= moveDownRect(row).width() * 2;
     }
     const int textLeft = row.left() + pad;
     const QRect textRect(textLeft, row.top(), qMax(0, textRight - textLeft), row.height());
@@ -171,22 +122,6 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
     painter->setPen(palette.color(QPalette::WindowText));
     painter->drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter,
                       index.data(Qt::DisplayRole).toString());
-    // 行尾那两颗上/下箭头（齿轮左边）：只有这一行真挪得动的那一侧才画 —— 挪不动就没有
-    // 那一颗（不是画成灰的）。理由：这两颗是"这一组在顺序里还能不能动"，一颗都没有的行
-    // 一眼就说明它已经到头了；画成灰的还得先学会"灰 = 点不动"（而它旁边那颗齿轮的颜色
-    // 本来就是灰的那一档，两处灰的含义还不一样）。
-    if (canMoveUp) {
-        const QRect glyph = moveUpGlyphRect(row);
-        painter->drawPixmap(glyph.topLeft(),
-                            VersionIcons::triangleUp(glyph.width(),
-                                                     palette.color(QPalette::PlaceholderText)));
-    }
-    if (canMoveDown) {
-        const QRect glyph = moveDownGlyphRect(row);
-        painter->drawPixmap(glyph.topLeft(),
-                            VersionIcons::triangleDown(glyph.width(),
-                                                       palette.color(QPalette::PlaceholderText)));
-    }
     // 行尾那颗齿轮：画的是 gearGlyphRect()（比命中格小一圈、还要装进行高里），用次要那一档
     // 颜色 —— 它是行里的一个动作，不是正文。
     if (hasGear) {
@@ -222,13 +157,10 @@ QSize InstanceGroupDelegate::sizeHint(const QStyleOptionViewItem &option,
     if (!isGroup) {
         return QSize(size.width(), height);
     }
-    // 宽度按内容加：右边那几格也占地方 —— 展开箭头一律有，齿轮和那两颗上/下箭头看角色。
-    // NOTE: 上/下那两颗**按两颗都占着**加（和 paint() 里扣文字宽度同一个口径），不然
-    //       最上面那一组的行宽会比别的组窄一截，树的横向滚动条会跟着一会儿有一会儿没有。
+    // 宽度按内容加：右边那几格也占地方 —— 展开箭头一律有，齿轮看角色。
     int extra = MainWindowUI::versionTreeArrowSize() + 6;
     if (index.data(MainWindowUI::rowGroupGearRole()).toBool()) {
         extra += MainWindowUI::instanceGroupGearSize() + 6 + 6;
-        extra += (MainWindowUI::versionTreeArrowSize() + 6) * 2;
     }
     return QSize(size.width() + extra, height);
 }

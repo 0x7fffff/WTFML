@@ -159,7 +159,10 @@ private slots:
     /// NOTE: 拆成两步的理由和 applyRename() 一样 —— QDialog::exec() 会阻塞在事件循环里，
     ///       验证工程驱动不了它。而这一半里藏着真会错的东西（组清单和文件里那份怎么比、
     ///       写失败了怎么说），必须验得了。
-    bool applyGroupList(const GroupDialog &dialog);
+    /// NOTE: 过的是**指针**不是引用：验证工程按名字驱动它（QMetaObject::invokeMethod +
+    ///       Q_ARG），而 Q_ARG 要的是一份可拷贝的值 —— QDialog 不可拷贝。调用方那个对象
+    ///       活得好好的（栈上那个 dialog），指针只是"这一半不接管它的生命周期"。
+    bool applyGroupList(const GroupDialog *dialog);
     /// 组行行尾那颗齿轮里某一项被点了。@param groupId 哪一组（虚拟的「未分组」是空串）。
     /// @param action MainWindowUI::GroupAction 那一套里的某一项。
     ///
@@ -192,19 +195,6 @@ private slots:
     /// NOTE: 它写盘但**不发 groupsChanged**（理由见 InstanceGroupStore::setGroupExpanded()）
     ///       —— 所以调用方要自己把那一条的展开状态摆好，这里只管记。
     void rememberGroupExpanded(const QString &groupId, bool expanded);
-    /// 把某一组在顺序里挪动（组行行尾那两颗上/下箭头，几何见
-    /// InstanceGroupDelegate::moveUpRect() / moveDownRect()）。
-    /// @param groupId 哪一组（虚拟的「未分组」没有位置，挪不动）。
-    /// @param up true = 往上，false = 往下。
-    /// @param toEdge true = **直接放到最顶上 / 最底下**（按住 Shift 点那一颗），
-    ///        false = 只挪一格。
-    /// @return 真挪动了返回 true；到那一头了、或者这一组此刻在树上没有行，返回 false。
-    ///
-    /// NOTE: "上一格 / 下一格"按**树上真画出来的那些组行**算，不按文件里的下标 —— 空组是
-    ///       藏着的（见 fillInstanceTree），按文件下标挪会变成"点了什么都没动"。
-    /// NOTE: 写盘成功之后由数据层发 groupsChanged 重灌这张树（和别的分组写路径一样，
-    ///       这里**不**手动重灌）。
-    bool moveGroupInOrder(const QString &groupId, bool up, bool toEdge);
     /// 给某一组弹齿轮菜单（锚点 = 那一行行尾那颗齿轮占的格子）。
     ///
     /// NOTE: 它和 onGroupActionRequested() 之间过的是 MainWindowUI::GroupRow，而那个类型

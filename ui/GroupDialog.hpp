@@ -30,7 +30,14 @@
  * 分组设置…」也要确认，三个都是**模态**的，在 offscreen 的验证工程里驱动不了（会一直等）。
  * 所以真正的逻辑在 createGroup() / renameGroup() / deleteGroup() / moveGroupUp() /
  * moveGroupDown() / setGroupExpanded() / restoreDefaults() 这几个 public 槽里，按钮那条路
- * 只是"问一句 → 调它们"。和 MainWindow::onRenameInstanceClicked() / applyRename() 的拆法
+ * 只是"问一句 → 调它们"。
+ *
+ * 【上移/下移那两条路 2026-09-25 起不是按钮了】
+ *
+ *       那两颗按钮删了，改成点组清单**行尾那两颗三角**（画在 ui/GroupListDelegate 里，
+ *       认下那一下的是下面那个 eventFilter()）—— 用户原话：「这个箭头不应该在这里，而应该
+ *       在 分组设置 里面，这里的删了，去分组设置里面加上，设置那个框下方的上移下移的按钮
+ *       就删了」。上面那几个槽一个没动。和 MainWindow::onRenameInstanceClicked() / applyRename() 的拆法
  * 完全一样，理由也一样：这一半里藏着真会错的东西（重名怎么办、删组要不要连实例一起删、
  * 顺序换到边界上怎么办），它必须验得了。
  */
@@ -42,6 +49,7 @@
 #include <QString>
 
 class QCheckBox;
+class QEvent;
 class QLabel;
 class QListWidget;
 class QPushButton;
@@ -112,9 +120,10 @@ public slots:
     /// 已经在最上面、或者找不到这个组时什么都不做，返回 false。
     ///
     /// NOTE: 和 moveGroupUp() 拆成两个槽（不是给那个加个 bool 参数）：**置顶不是"挪很多
-    ///       格"**，它一步到位、和现在排第几无关；而且这样验证工程能直接驱动这一档
-    ///       —— 界面那条路（按住 Shift 点按钮）读的是 QApplication::keyboardModifiers()，
-    ///       那个在 offscreen 下摆不出来。
+    ///       格"**，它一步到位、和现在排第几无关。
+    /// NOTE: 界面那条路（按住 Shift 点那颗箭头）读的是**那一发鼠标事件上的**修饰键
+    ///       （`QMouseEvent::modifiers()`），不是 QApplication::keyboardModifiers() ——
+    ///       后者读的是"此刻键盘的全局状态"，验证工程造那一发事件时对不上。
     bool moveGroupToTop(const QString &groupId);
 
     /// 同上，**直接挪到最下面**。
@@ -142,8 +151,6 @@ public slots:
     static QString addGroupButtonName() { return QStringLiteral("addGroupButton"); }
     static QString renameGroupButtonName() { return QStringLiteral("renameGroupButton"); }
     static QString removeGroupButtonName() { return QStringLiteral("removeGroupButton"); }
-    static QString moveUpButtonName() { return QStringLiteral("moveGroupUpButton"); }
-    static QString moveDownButtonName() { return QStringLiteral("moveGroupDownButton"); }
     /// 「默认展开」那个勾选框（按选中那一组的状态亮着）。
     static QString expandedCheckName() { return QStringLiteral("groupExpandedCheck"); }
     static QString restoreDefaultsButtonName() {
@@ -170,6 +177,15 @@ public slots:
     static QString groupItemText(const QString &name, int count) {
         return QStringLiteral("%1 (%2)").arg(name).arg(count);
     }
+
+protected:
+    /// 组清单那张表**行尾那两颗箭头**那一下的接线口（挂在 `m_groupList->viewport()` 上）。
+    ///
+    /// 为什么是事件过滤器而不是委托的 editorEvent()：点箭头不能让那一行**顺手被选中**，
+    /// 更不能让点得快的那第二发落到"双击 = 重命名"那条路上（那会弹一个模态框）——
+    /// 而 itemClicked / itemDoubleClicked 是视图自己发的，代理那边压不住（2026-09-25 用户
+    /// 报的「点击一下就同时展开和调整了」正是这个形状，见 ui/RowActivation.hpp 那段）。
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
     /// 重画左边那张组列表（组清单变了之后调用）。选中项按 id 保住。
@@ -201,8 +217,6 @@ private:
     QPushButton *m_addButton = nullptr;
     QPushButton *m_renameButton = nullptr;
     QPushButton *m_removeButton = nullptr;
-    QPushButton *m_moveUpButton = nullptr;
-    QPushButton *m_moveDownButton = nullptr;
     QCheckBox *m_expandedCheck = nullptr;
     QPushButton *m_restoreButton = nullptr;
 };
