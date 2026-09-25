@@ -641,6 +641,17 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // NOTE: 条目文字是**粗体**（代理对顶层行一律加粗，见 VersionTreeDelegate::paint）——
         //       和版本树那四条分类一个长相，这一列本来也就是"分类"。
         downloadCategoryList->setItemDelegate(new VersionTreeDelegate(downloadCategoryList));
+        // ★ 2026-09-25：这一列那五个刷新按钮**只在鼠标悬停到那一行时才显示**（用户原话：
+        //    「下载界面只有鼠标悬停在按钮上时才显示对应的刷新按钮」）。代理读的是视图填的
+        //    QStyle::State_MouseOver，而**视图默认不填** —— 量过（探针在 tmp/probe_hover）：
+        //    干净的 QListWidget 视口 WA_Hover=0 / mouseTracking=0，真鼠标移动一个字都不改；
+        //    开了下面这一句之后，鼠标真挪过去才会把"光标底下是哪一行"交给代理（windows 与
+        //    offscreen 两个平台各量一遍，同一个结果）。
+        // NOTE: 只开给这一份列表：那一格（rowRefreshRole()）全仓只有这里有，版本树、加载器树、
+        //       资源表上都没有，开了只是让它们多收几条鼠标移动事件。
+        //       这一句和 VersionTreeDelegate::paint() 里那段 showRefresh 是一对 —— 少哪一句
+        //       都是"刷新按钮再也不出现"，两边各自的断言都还是绿的。
+        downloadCategoryList->setMouseTracking(true);
         QFont categoryFont = downloadCategoryList->font();
         categoryFont.setPointSize(categoryFont.pointSize() + versionTreeFontStep());
         downloadCategoryList->setFont(categoryFont);
