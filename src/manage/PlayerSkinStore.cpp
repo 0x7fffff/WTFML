@@ -365,7 +365,9 @@ void PlayerSkinStore::refreshForUuid(const QString &uuid) {
     QNetworkRequest request(url);
     request.setTransferTimeout(kTransferTimeoutMs);
     QNetworkReply *reply = m_network->get(request);
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+    // `key` 一起捕获进去：回来的时候"现在是谁"可能已经不是发请求时的那个了，而这份档案
+    // 是**发请求时那个人的** —— 只有把身份跟着信号带出去，调用方才能判断该不该落盘。
+    connect(reply, &QNetworkReply::finished, this, [this, reply, key]() {
         // 先取完要用的东西再放它走（reply->readAll() 之后才 deleteLater）。
         const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         const QByteArray body = reply->readAll();
@@ -402,7 +404,7 @@ void PlayerSkinStore::refreshForUuid(const QString &uuid) {
             emit failed(error);
             return;
         }
-        emit profileReady(profile);
+        emit profileReady(key, profile);
     });
 }
 

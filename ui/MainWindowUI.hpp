@@ -436,9 +436,15 @@ public:
     /// 返回值，界面这边不抄一份规则）。名字能用的时候它是空的、也藏起来 —— 于是名字框、
     /// 加载器树、安装按钮在正常情况下一个像素都不动。
     static QString installNameErrorName() { return QStringLiteral("installNameError"); }
-    /// 那行红字的红。产品里**只有这一处**红字，所以色值放在这儿当唯一出处
-    /// （验证工程量像素时要认的就是它）。
-    static QColor installNameErrorColor() { return QColor(0xc0, 0x39, 0x2b); }
+    /// 那行红字的红。色值放在这儿当唯一出处（验证工程量像素时要认的就是它）。
+    ///
+    /// NOTE: 2026-09-25 起**跟着调色板分深浅两档**，不再是一个写死的值。那句"产品里只有
+    ///       这一处红字"当时就不对（`folderDangerColor()` 早就有了），更要紧的是**它不分
+    ///       深浅这件事本身就是个洞**：这个红是给浅底配的，量出来对窗口底色（浅色主题下
+    ///       `#f0f0f0`）是 4.77:1；同一个色落到深色主题的底上只剩 2.26:1（WCAG 正文要
+    ///       4.5:1）—— 名字写错了却不给原因，正是"用户以为界面坏了"的那一类。
+    ///       现在浅底那一档还是原来那个色，深底那一档借用同一个界面里已经调好的浅红。
+    static QColor installNameErrorColor(const QPalette &palette);
     static QString installButtonName() { return QStringLiteral("installButton"); }
     static QString installBackButtonName() { return QStringLiteral("installBackButton"); }
     /// 「安装」按钮的字号相对**默认**字号的偏移。用户原话"安装键做大点"。
@@ -981,11 +987,20 @@ public:
     static QString folderActionTooltip(int action);
     /// 第 @p action 项前面那个图标（全是代码画的字形，见 VersionIcons）。
     static QPixmap folderActionIcon(int action, int size, const QColor &color);
-    /// 「删除」那一项的字色。**全仓唯一一处红字**，用户点名要的（原话里就写着"红色字"）。
+    /// 这块调色板的底色算不算"深"那一档。
+    ///
+    /// NOTE: 判据**只此一处** —— 红的深浅两档（下面的 `folderDangerColor()`、安装页那行
+    ///       红字）、底栏那颗方块的三态都拿它分档。原来 `folderDangerColor()` 和
+    ///       `runStateMarkColor()` 各写了一遍同一个 `lightness() < 128`，第三个要分档的
+    ///       地方（安装页那行红字）就漏了 —— 阈值这种东西一散开就会这样。
+    ///       取的是**窗口底色的明度**，不是某个"主题叫什么"的标志位：将来是哪套主题谁也
+    ///       不知道，明度是量得出来的、也是真决定了"看不看得见"的那个量。
+    static bool paletteIsDark(const QPalette &palette);
+    /// 「删除」那一项的字色。用户点名要的（原话里就写着"红色字"）。
     ///
     /// NOTE: 红分两档（浅色主题用深红、深色主题用浅红）：深红落在深色底上只剩一团黑，
     ///       而这颗红字正是"这一项会把东西删掉"这件事的唯一提示，看不见就等于没有。
-    ///       判据是窗口底色的明度 —— 和 QSS 那几处"从调色板推颜色"同一个路数。
+    ///       判据走 paletteIsDark() —— 和 QSS 那几处"从调色板推颜色"同一个路数。
     static QColor folderDangerColor(const QPalette &palette);
 
     /// 一行的高度（像素）。两行字 + 上下各一圈边距，比原来那条单行列表高不少 ——
@@ -1016,6 +1031,14 @@ public:
     static QString folderRowSubtitleName(int index) {
         return QStringLiteral("folderRowSubtitle%1").arg(index);
     }
+    /// 第 @p index 行**路径那行**从哪一头省略（Qt::ElideMiddle）。
+    ///
+    /// NOTE: 这是 `folderRowSubtitle%1` 那个标签自己的 `elideMode` 属性（见
+    ///       MainWindowUI.cpp 里的 ElidedLabel），不是 QListWidget 上那个
+    ///       `setTextElideMode()` —— 那一张列表的条目**一个字都没有**（内容全是
+    ///       setItemWidget() 塞进去的真控件），所以 2026-09-25 起那处设置已经删掉了。
+    ///       放在 MainWindowUI 里是为了让验证工程量得到"用户看到的那个标签"。
+    static Qt::TextElideMode folderRowPathElideMode() { return Qt::ElideMiddle; }
     static QString folderRowGearName(int index) {
         return QStringLiteral("folderRowGear%1").arg(index);
     }
@@ -1318,8 +1341,8 @@ public:
     static int bottomBarRunStateMarkWidth() { return runStateMarkSize() + runStateMarkSpacing(); }
     /// 那颗方块的 objectName（给验证工程按名字找控件用）。
     static QString runStateMarkName() { return QStringLiteral("runStateMark"); }
-    /// 三态各自的颜色。深浅两套的判据和 folderDangerColor() 是同一个（窗口底色的明度）：
-    /// 红的那一档**直接调它** —— 同一个界面上两种红各调各的，迟早有一处会看着是脏的。
+    /// 三态各自的颜色。深浅两套的判据走 paletteIsDark()：红的那一档**直接调
+    /// folderDangerColor()** —— 同一个界面上两种红各调各的，迟早有一处会看着是脏的。
     ///
     /// 黄和绿是各挑的两个值（浅底用深一点的、深底用亮一点的，都是为了"在底色上看得见"）。
     /// 只说"红/黄/绿"而没有具体色值是可验的：这三个色相分得开（0 / 45 / 130 那一带），

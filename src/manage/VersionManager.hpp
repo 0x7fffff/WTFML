@@ -610,8 +610,17 @@ public:
      * 一批在跑、或者那三套安装状态机在跑的时候**拒绝开始新的**（和 downloadVersion() /
      * importModpack() 同一道闸口）：DownloadManager 只有一份批次状态，两批叠在一起会让先那一批
      * 的完成信号提前发出去（它的相位还没走完）。拒绝时也会发终态信号，界面不会卡在"下载中"。
+     *
+     * @return **这一批到底开起来没有**。
+     *
+     * NOTE: 2026-09-25 起返回值是有用的，别当它是 void。理由：被拒绝时**照样会发一次
+     *       `resourceDownloadFinished(label, false, …)`**，而那个 label 和"这一单真正跑完"
+     *       那条路上的 label 是**同一个字符串** —— 调用方没法从信号本身分辨"这是我这一单
+     *       失败了"还是"我这一单根本没开始"。它自己的 `m_pendingModpackImports` 就是靠这个
+     *       分辨的：登记待导入记录必须在"真的开起来了"之后（双击那一发的第二下会带着同一个
+     *       label 撞上这道闸，然后拿着同一个 label 发一次假失败，把记录吃掉）。
      */
-    void downloadResourceFiles(const QString &destinationDir, const QString &busyInstanceId,
+    bool downloadResourceFiles(const QString &destinationDir, const QString &busyInstanceId,
                                const QString &label, const QList<ResourceFile> &files);
 
 signals:
@@ -985,6 +994,21 @@ private:
     // 后者的 fetchVersionJson 是"一次只等一个回复"的（m_pendingVersionId 那种），
     // 混用会让两条路互相把对方的等待状态顶掉。
     QNetworkAccessManager *loaderNetwork = nullptr;
+
+    /// `loaderNetwork` 的**唯一出处**（没有就建，建一次就一直用）。
+    ///
+    /// NOTE: 以前是每个 `fetch*` 自己在函数开头写一遍「nullptr 就 new」。那 4 处全在
+    ///       `fetchLoaderVersions` / `fetchFabricLoaderList` / `fetchInstallerList` /
+    ///       `fetchOptifineVersionList` 里，而它们只有 `requestAllLoaderVersions()`
+    ///       一个调用者（= 打开安装页那一下）。可**另有两条路直接从"发请求"开始**：
+    ///       `fetchFabricProfile()` 和 `fetchOptifineDownloadToken()` —— 走这两条的
+    ///       时候它还是 nullptr，解引用当场崩。最要紧的一条入口是整合包导入：
+    ///       `importModpack()` → `installLoaderVersion(..., 包里钉死的版本)` →
+    ///       Fabric 那条「钉死了就别去问版本表」的分支直接调 `fetchFabricProfile()`。
+    ///       所以在"全新启动 → 从没点过安装页 → 导入一个 Fabric 整合包"这条路上，
+    ///       启动器会当场消失（GUI 子系统，连一行日志都没有）。
+    ///       收成这一处之后，谁用谁建，「漏了一个懒建点」不再是可能的错。
+    QNetworkAccessManager *loaderNetworkManager();
     LoaderInstall m_loaderInstall;
     ModpackInstall m_modpackInstall;
 
@@ -1021,6 +1045,14 @@ private:
     //   前三条底下就永远停在「正在获取…」。
     struct LoaderVersionRequest {
         QString gameVersion;
+        // 这一发是走**镜像**那条路问出去的吗。**随请求钉住**，不在回复回来时再读一遍
+        // downloadManager->useMirror()（2026-09-25 修）。
+        //
+        // NOTE: OptiFine 两条路回来的正文**格式不一样**（镜像是 JSON 数组，官方是广告页
+        //       HTML），而"用不用镜像"是用户可以随时点的开关。问出去到回来之间那几百毫秒
+        //       里开关被点一下，正文就会按**另一条路**的规矩解析 —— 症状是「列表读不懂」
+        //       或者列出一份空的，而用户什么都没做错。另外三个加载器不走镜像，这里恒 false。
+        bool fromMirror = false;
         // 正在飞的那一份。**同一个加载器**上换一局（同一个游戏版本重新问、或者换了
         // 游戏版本）时把它 abort 掉（abort 之后 finished() 照样会来一发，回复处理函数
         // 靠"这一个指针还是我手上这个吗"把它丢掉）。
@@ -1030,16 +1062,19 @@ private:
     // QHash 的键要靠 qHash 的特化，下标是 int，省一层。
     QHash<int, LoaderVersionRequest> m_loaderVersionRequests;
 
-    // 发那一发 GET，回复交给 onLoaderVersionsReply()。
-    void fetchLoaderVersions(LoaderKind kind, const QString &url);
+    // 发那一发 GET，回复交给 onLoaderVersionsReply()。@p fromMirror 跟着这一发钉住
+    // （见 LoaderVersionRequest 里那一格）。
+    void fetchLoaderVersions(LoaderKind kind, const QString &url, bool fromMirror);
     void onLoaderVersionsReply(LoaderKind kind, QNetworkReply *reply);
     // 按加载器把这一份回复解析成"能挑的版本"。失败时 returned.error 非空（是给用户看的话）。
     struct LoaderVersionParse {
         LoaderMeta::LoaderVersionList versions;
         QString error;
     };
+    // @param fromMirror 这一份正文是镜像那条路回来的吗。**收参数**，不在这里读
+    //        downloadManager->useMirror() —— 见 LoaderVersionRequest 里那段 NOTE。
     LoaderVersionParse parseLoaderVersions(LoaderKind kind, const QString &gameVersion,
-                                           const QByteArray &body) const;
+                                           const QByteArray &body, bool fromMirror) const;
 
     // 跑那三个外部安装器（Forge / NeoForge / OptiFine）的子进程。懒建 —— Fabric 那条路
     // 一个进程都不起，所以装 Fabric 之前它一直是 nullptr。

@@ -396,6 +396,15 @@ public:
     /// 收尾的事上，而且那一次并不是真的收尾、报出去的话也是错的。所以这里把 m_batchEmitted
     /// 直接置真：之后所有"这一批结束了"的判断都会被挡掉。已经在飞的那几个回复照样跑完
     /// （文件照落盘），只是不再有任何完成信号。
+    ///
+    /// ★ **但"不再有完成信号"只挡住了"这一批的最后一条"那一次**（2026-09-25 修）：
+    ///   已经在飞的那几条回来时仍然是照常 --pendingDownloads / m_doneJobs++ /
+    ///   emit downloadFinished 的。放弃之后如果**又开了一批**（用户点取消、再点一次下载
+    ///   就是这么个次序），上一批那几条残留就会把新批的计数加花：m_doneJobs 可能超过
+    ///   m_totalJobs（进度条上的数字比总数还大），也可能刚好把
+    ///   checkAllDownloadsFinished() 的几条判据凑齐 → **提前宣布整批下完**，界面报"下载
+    ///   完成"而文件还在路上。所以每一条回复都记着"我是第几批发出去的"，不属于当前这一批
+    ///   的那几条只收连接、不记账、不发信号（见 m_batchGeneration）。
     void abandonBatch();
     bool isBusy() const;
     DownloadStats stats() const;
@@ -437,6 +446,12 @@ private:
     // 两张表都以 QNetworkReply* 为键，回复一结束就从表里摘掉（onDownloadReplyFinished）。
     QMap<QNetworkReply *, QString> activeDownloads;  // reply -> 目标路径
     QMap<QNetworkReply *, QString> expectedSha1s;    // reply -> 期望的 SHA1
+    // reply -> 期望的字节数（没登记过 = 不知道）。
+    //
+    // NOTE: 和 expectedSha1s 成对：**两处都要摘**（成功 / 失败 / 退回官方 / 看门狗判死）。
+    //       只摘一张的症状是"一条刚从那条主机发出去的下载立刻被判成字节数不对" —— 键是
+    //       回复指针，Qt 释放之后下一批可能落在同一个地址上。
+    QMap<QNetworkReply *, qint64> expectedSizes;
     /// **官方备用地址**（reply -> 官方 URL）。只在"这条作业走的是镜像"时登记。
     ///
     /// 一开始只为资源索引开这个口子（镜像那条 `/indexes/<id>.json` 路由实测全 404，
@@ -468,6 +483,26 @@ private:
     };
     QMap<QNetworkReply *, MetadataJob> m_metadataReplies;
 
+    /// 批次代次：**每 beginBatch() 加一**。发出去的每一条回复都把自己发出去那一刻的代次
+    /// 记在 m_replyGenerations 里，收尾那几步（计数 / 失败清单 / 进度 / 完成判定）先问一遍
+    /// "这一条属于当前这一批吗"。
+    ///
+    /// NOTE: 为什么需要它：abandonBatch() 只是把 m_batchEmitted 置真，已经在飞的那几条回复
+    ///       回来时**照样**会 --pendingDownloads、m_doneJobs++、发 downloadFinished。之前这些
+    ///       数字没人用（那一批已经报过了），所以看不出来；但现在"放弃之后又开一批"是常事
+    ///       （取消、再点一次下载），上一批的残留就会算进新批 —— 计数错乱，甚至提前宣布整批
+    ///       下完。代次是唯一能分清"这条回复是哪一批的"的东西：指针不行（Qt 会复用地址）、
+    ///       路径不行（同一批里每个文件也各不相同）。
+    quint64 m_batchGeneration = 0;
+    /// 回复 -> 它发出去时的代次。**每一条**发出去的回复都要登记（文件作业在 startDownload，
+    /// 资源索引在 downloadAssets），并在收尾时摘掉；漏登记的那条会按"当前这一批"处理
+    /// （默认值就是当前代次）—— 也就是退回老行为，只影响那一批的计数，不会崩。
+    QHash<QNetworkReply *, quint64> m_replyGenerations;
+
+    /// 这一条回复属于**当前**这一批吗。批次之外的一次性作业（版本清单、加载器版本列表、
+    /// 安装器下载……）查不到记录，按当前这一批处理 —— 它们本来就各算各的，从来不在批次里。
+    bool replyIsFromCurrentBatch(QNetworkReply *reply) const;
+
     /// 等着发的作业。**每一条下载都从这里过**（资源对象、库、客户端 jar、整合包清单里
     /// 那几百个文件都一样）：一次资源补齐是 3000 多个对象，全塞给 QNetworkAccessManager
     /// 的话 Qt 每个主机只开 6 条连接，其余的在它内部干等，而 30 秒的传输超时**从请求
@@ -482,6 +517,14 @@ private:
         QString url;
         QString destinationPath;
         QString expectedSha1;
+        // 期望的字节数，-1 = 调用方也不知道。
+        //
+        // NOTE: 和 expectedSha1 一样**必须排队时就带上** —— 它是"这条回复回来时拿什么核
+        //       这份正文"的一部分（见 onDownloadReplyFinished）。以前它在 scheduleFile()
+        //       这一层就被丢掉了，于是写盘那一步只剩 sha1 一条判据；而拿不到 sha1 的那些
+        //       库（maven 风格的那几个，见 LibraryRules.hpp 里那条说明）就变成"任何 200
+        //       正文都算成功"。
+        qint64 expectedSize = -1;
         // 排队时也得把它带上：作业在队列里等的这段时间，是没法回头问调用方要的。
         QString officialUrl;
         // 这个作业要去哪个主机。排队时算一次（QUrl 解析一次），因为发送那一步要拿它按主机
@@ -559,7 +602,7 @@ private:
                               void (DownloadManager::*finishedSlot)());
 
     void startDownload(const QUrl &url, const QString &destinationPath,
-                       const QString &expectedSha1 = QString(),
+                       const QString &expectedSha1 = QString(), qint64 expectedSize = -1,
                        const QString &officialUrl = QString());
     /// downloadFile() 的本体：登记进批次、跳过已经下好的、剩下的排进 m_pendingJobs，
     /// 再由 pumpDownloadQueue() 按连接预算发出去。

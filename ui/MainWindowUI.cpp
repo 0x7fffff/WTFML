@@ -197,7 +197,10 @@ QLabel *addDynamicHint(QWidget *box, const QString &text, QWidget *parent) {
 QLabel *addDynamicErrorHint(QWidget *box, QWidget *parent) {
     QLabel *hint = addDynamicHint(box, QString(), parent);
     QPalette errorPalette = hint->palette();
-    errorPalette.setColor(QPalette::WindowText, MainWindowUI::installNameErrorColor());
+    // 拿的正是这个标签当下这块调色板（深色主题下它就是深的那一块），所以下面那行红字
+    // 自己会跟着主题换档 —— 不用再去问"现在是什么主题"。
+    errorPalette.setColor(QPalette::WindowText,
+                          MainWindowUI::installNameErrorColor(errorPalette));
     hint->setPalette(errorPalette);
     return hint;
 }
@@ -221,7 +224,28 @@ void addHint(QWidget *box, const QString &text, QWidget *parent) {
  */
 class ElidedLabel : public QLabel {
 public:
-    explicit ElidedLabel(QWidget *parent = nullptr) : QLabel(parent) {}
+    explicit ElidedLabel(QWidget *parent = nullptr) : QLabel(parent) {
+        // 属性在**构造时**就写上（不是等谁调 setElideMode() 才写）：没调过的标签也该读得出
+        // 它当下用的就是默认那一档，否则验证工程读一个没写过的属性只会拿到 0。
+        setProperty("elideMode", static_cast<int>(m_elideMode));
+    }
+
+    /// 从**哪一头**省略。默认是尾巴（底栏那几行是句子，尾巴上的字最不要紧）。
+    ///
+    /// NOTE: 路径那一类的文字要显式改成 Qt::ElideMiddle —— 那句话两头都有用（盘符和
+    ///       最后一级目录名），从尾巴截掉的恰好是"这一份是哪个文件夹"唯一的信息。
+    ///       这个开关是 2026-09-25 补的：在那之前 ElidedLabel 一律 ElideRight，而
+    ///       「当前文件夹」那一列路径行的注释一直写着"从中间省略"（那确实是原意 ——
+    ///       列表还用条目自己画文字的年代，`setTextElideMode(Qt::ElideMiddle)` 就是为
+    ///       这一张列表挑的，改成 setItemWidget() 塞真控件时那件事没有跟过来）。
+    void setElideMode(Qt::TextElideMode mode) {
+        m_elideMode = mode;
+        // 动态属性是给**验证工程**读的（这个类在 .cpp 里，工程那边认不出它的类型）：
+        // 有人把上面那句 setElideMode() 删掉，属性就退回 ElideRight，断言当场红。
+        setProperty("elideMode", static_cast<int>(m_elideMode));
+        update();
+    }
+    Qt::TextElideMode elideMode() const { return m_elideMode; }
 
     QSize sizeHint() const override {
         const QSize full = QLabel::sizeHint();
@@ -242,11 +266,14 @@ protected:
         //       都跑着的时候还是「实例运行中」）。
         //       elidedText() 只在重画时算一次，底栏这几行重画并不频繁，不值当为它冒这个险。
         const QRect box = contentsRect();
-        const QString shown = fontMetrics().elidedText(text(), Qt::ElideRight, box.width());
+        const QString shown = fontMetrics().elidedText(text(), m_elideMode, box.width());
         QPainter painter(this);
         painter.setPen(palette().color(foregroundRole()));
         painter.drawText(box, alignment() | Qt::TextSingleLine, shown);
     }
+
+private:
+    Qt::TextElideMode m_elideMode = Qt::ElideRight;
 };
 
 }  // namespace
@@ -429,14 +456,19 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         //
         // NOTE: 每一行的内容**不是**条目自己画的（条目上没有文字），而是 setItemWidget()
         //       塞进去的一个 FolderRowWidget（见 setFolderRows()）——两行字 + 行尾一颗
-        //       齿轮需要一个真控件才摆得下。所以下面那两条"文字怎么省略"的老设置现在只管
-        //       "别冒出横向滚动条"这一件事：省略由那一行里的 ElidedLabel 自己做（从中间
-        //       省略：路径两头 —— 盘符和最后一级目录名 —— 都比中间那截有用）。
+        //       齿轮需要一个真控件才摆得下。省略因此完全由那一行里的 ElidedLabel 自己做。
+        //
+        // NOTE: 2026-09-25 删掉了这里原来的 `setTextElideMode(Qt::ElideMiddle)`。它是个
+        //       **死设置**：条目上一个字都没有，列表没有任何东西可省略，这一句从来没起过
+        //       作用（真正拦住横向滚动条的是下面那条 ScrollBarAlwaysOff）。留着更糟 ——
+        //       它让人以为"路径从中间省略"这件事已经配好了，而实际干活的那个标签当时一律
+        //       从**尾巴**省略（路径最后一级目录名正是唯一认得出是哪一份的那截）。
+        //       现在这件事放在真正画字的那个标签上：见 FolderRowWidget 里的
+        //       `subtitle->setElideMode(...)`。
         folderList = new QListWidget(folderGroupBox);
         folderList->setObjectName(folderListName());
         folderList->setUniformItemSizes(true);
         folderList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-        folderList->setTextElideMode(Qt::ElideMiddle);
         folderList->setSelectionMode(QAbstractItemView::SingleSelection);
         folderLayout->addWidget(folderList, 1);
 
@@ -1663,8 +1695,12 @@ public:
         texts->addWidget(title);
 
         // 下面那行：路径。小一号、次要颜色（和版本树那几行的第二行一个路数）。
-        QLabel *subtitle = new ElidedLabel(this);
+        ElidedLabel *subtitle = new ElidedLabel(this);
         subtitle->setObjectName(MainWindowUI::folderRowSubtitleName(index));
+        // **从中间省略**：路径的两头都有用（盘符 + 最后一级目录名），从尾巴截掉的恰好是
+        // "这一份是哪个文件夹"唯一认得出的那截 —— 几个文件夹前缀一样时（D:/MC/a、D:/MC/b）
+        // 尾巴省略会让两行看起来一模一样。见 ElidedLabel::setElideMode()。
+        subtitle->setElideMode(MainWindowUI::folderRowPathElideMode());
         subtitle->setText(row.subtitle);
         QFont subtitleFont = subtitle->font();
         subtitleFont.setPointSize(qMax(1, subtitleFont.pointSize() - 1));
@@ -2454,13 +2490,31 @@ QPixmap MainWindowUI::folderActionIcon(int action, int size, const QColor &color
     return QPixmap();
 }
 
-QColor MainWindowUI::folderDangerColor(const QPalette &palette) {
+bool MainWindowUI::paletteIsDark(const QPalette &palette) {
     // 判据取的是**窗口底色的明度**（不是某个"主题叫什么"的标志位）：深底用浅红、
     // 浅底用深红，两种主题下都是"一眼看出是红字"而不是"一团糊在底色里"。
-    if (palette.color(QPalette::Window).lightness() < 128) {
+    return palette.color(QPalette::Window).lightness() < 128;
+}
+
+QColor MainWindowUI::folderDangerColor(const QPalette &palette) {
+    if (paletteIsDark(palette)) {
         return QColor(0xff, 0x6b, 0x6b);
     }
     return QColor(0xc0, 0x28, 0x28);
+}
+
+QColor MainWindowUI::installNameErrorColor(const QPalette &palette) {
+    // 浅底那一档和原来那个写死的 #c0392b **一字不差**（对浅色主题的窗口底色 #f0f0f0
+    // 实测 4.77:1，够 WCAG 正文那条 4.5:1）。
+    //
+    // 深底那一档没法照搬：同一个 #c0392b 落到深色主题的底上只有 2.26:1 —— 名字写错了
+    // 却看不出底下那行写了什么，等于没有。这里**借用同一个界面里已经调好的那个浅红**
+    // （见 folderDangerColor()）：两处红各挑一个提亮度是没道理的，挑歪了就是"一处红看着
+    // 干净、另一处发脏"这种没人查得出的毛病（那条话底栏那颗方块的红已经写过一遍了）。
+    if (paletteIsDark(palette)) {
+        return folderDangerColor(palette);
+    }
+    return QColor(0xc0, 0x39, 0x2b);
 }
 
 QString MainWindowUI::groupActionText(int action, const GroupRow &row) {
@@ -2548,9 +2602,9 @@ QString MainWindowUI::groupActionTooltip(int action, const GroupRow &row) {
 }
 
 QColor MainWindowUI::runStateMarkColor(RunStateMark state, const QPalette &palette) {
-    // 深浅两套的判据和上面 folderDangerColor() 是同一个（窗口底色的明度）。三个色各挑
+    // 深浅两套的判据走 paletteIsDark()（和 folderDangerColor() 同一处）。三个色各挑
     // 一深一浅：浅底上用深的（在浅底上看得见），深底上用亮的。
-    const bool dark = palette.color(QPalette::Window).lightness() < 128;
+    const bool dark = paletteIsDark(palette);
     switch (state) {
     case RunStateMark::NotRunning:
         // 红这一档**直接复用**「删除」那一项的红（同一个界面上的两种红各调各的没有道理，

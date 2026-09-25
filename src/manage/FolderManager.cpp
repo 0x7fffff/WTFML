@@ -10,10 +10,74 @@
 
 #include <QDebug>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 
 #include "../settings/LauncherSettings.hpp"
 #include "../util/AppPaths.hpp"
+
+namespace {
+
+/// 这个目录项是不是一个"指到别处去"的链接（Windows 的 junction / 符号链接，Unix 的符号
+/// 链接）。删目录树的时候必须认它，否则会把链接那一头的东西一起删掉。
+///
+/// NOTE: 判据**不能**只写 `isSymLink()`，也不能用 `canonicalFilePath() !=
+///       absoluteFilePath()` —— 实测（2026-09-25，两个探针见 tmp/probe_symlink/）：
+///         · `mklink /J` 造出来的 junction，`isSymLink()` 是 **false**（Qt 把它报成
+///           普通目录），`canonicalFilePath()` 也**原样返回字面路径**（根本不解链接）；
+///         · 只有 `isJunction()` 认得出它。
+///       junction 恰恰是普通用户（不需要管理员权限）挂目录时最常用的那一种，所以只判
+///       isSymLink() 等于对这一类完全没设防。
+bool isLinkToElsewhere(const QFileInfo &info) {
+    return info.isJunction() || info.isSymLink();
+}
+
+/// 递归删掉 @p path 这一棵，但**一个链接都不追进去**：链接只把链接本身摘掉，那一头的东西
+/// 一个字节都不动。
+///
+/// NOTE: 为什么不能用 `QDir::removeRecursively()`。实测（2026-09-25 探针）：
+///         · 对一个**本身就是 junction** 的目录调用它 → junction 指向的那个真目录里的
+///           文件**没了**（目标是活的，链接没了）；
+///         · 目录**里面**含一个 junction 时 → 同样跟着进去把目标删了。
+///       于是"删掉这一份游戏文件夹"会牵连到游戏文件夹**外面**的东西。把 `saves` 挂到
+///       网盘同步目录、把 `mods` 挂到另一块盘，都是很常见的做法 —— 而用户点的是"删掉这
+///       一份"，不是"删掉那边那块盘上的东西"（别的程序可能还在用同一份数据）。
+///
+/// NOTE: 链接本身用 `QDir().rmdir()` 摘。实测它对 junction 有效：只摘掉那个重解析点，
+///       目标原封不动。`QFile::remove()` 对目录不行（对文件符号链接才是对的那一个）。
+///
+/// @return 整棵都删干净了没有。删到一半失败时**返回 false 但仍然尽力删完**（剩下的留着，
+///         调用方照实报"没能删干净"，比留一半还不说话强）。
+bool removeTreeWithoutFollowingLinks(const QString &path) {
+    const QFileInfo info(path);
+    if (isLinkToElsewhere(info)) {
+        return info.isDir() ? QDir().rmdir(path) : QFile::remove(path);
+    }
+    if (!info.exists()) {
+        return true;  // 已经不在了 = 这一步想要的结果已经达成
+    }
+    if (!info.isDir()) {
+        return QFile::remove(path);
+    }
+    const QDir dir(path);
+    const QStringList entries =
+        dir.entryList(QDir::AllEntries | QDir::Hidden | QDir::System | QDir::NoDotAndDotDot);
+    bool ok = true;
+    for (const QString &entry : entries) {
+        // 注意用 && 的写法（不用短路）：一条失败也要接着删剩下的 —— 早退会把剩下的留下，
+        // 而"剩一小半"比"整棵都在"更难收拾。所以先把结果收集起来，最后一起回答。
+        if (!removeTreeWithoutFollowingLinks(dir.absoluteFilePath(entry))) {
+            ok = false;
+        }
+    }
+    if (!ok) {
+        // 里面有东西没删掉，这一层（多半）也就空不了，别再多试一次 rmdir 掩盖原因。
+        return false;
+    }
+    return QDir().rmdir(path);
+}
+
+}  // namespace
 
 FolderManager::FolderManager(LauncherSettings *settings, QObject *parent)
     : QObject(parent), m_settings(settings) {
@@ -207,8 +271,11 @@ bool FolderManager::deleteFolder(const QString &path, QString *error) {
         return false;
     }
     // 盘上那个目录不存在（U 盘没插、已经被手工删掉）不算失败：列表里那一条照样要清掉。
-    QDir dir(target);
-    if (dir.exists() && !dir.removeRecursively()) {
+    //
+    // NOTE: 走的是 removeTreeWithoutFollowingLinks() 而**不是** QDir::removeRecursively()
+    //       —— 后者会追进 junction / 符号链接，把链接那一头的东西也删掉（实测见上面那个
+    //       函数的说明）。这一份自己就是个链接时，这里只摘掉链接、那边一个字节不动。
+    if (QFileInfo(target).exists() && !removeTreeWithoutFollowingLinks(target)) {
         if (error != nullptr) {
             // 失败原因照实说：删到一半失败时目录是**半截**的（前面那些文件已经没了），
             // 而用户需要知道现在盘上到底是什么状态。

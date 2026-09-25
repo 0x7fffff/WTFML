@@ -76,8 +76,16 @@ QString formatVersionName(const VersionDisplayParts &parts, const VersionNameOpt
     // 加这个字段之前的行为，所以老实例（没有 wtfml.meta）逐字节不变。
     // NOTE: 必须是 realVersion 而不是 id 参与后面两段，否则目录名里已经揉进去的加载器
     //       （`1.18.2-Forge_40.3.12`）会和 loaderName 拼出重复段，见 .hpp 里的说明。
-    const QString realVersion =
-        parts.realVersion.isEmpty() ? id : sanitizeComponent(parts.realVersion);
+    // NOTE: 清洗**要在判空之前**（2026-09-25 修）。原来是"先判空、再清洗"，于是
+    //       realVersion 写着"只有空白 / 控制字符"那种（wtfml.meta 是能手改的文本文件）
+    //       时，清洗完是空串 —— 名称槽和版本段**两段都没人收**，而 chosen 里跳空串的
+    //       那条规矩又把它悄悄吃掉，最后拼出来的名字是空的、界面上一块空白。
+    //       清洗完还是空 = 当没有这一项，退回目录名（这也是没有 wtfml.meta 的老实例
+    //       逐字节不变的那条路）。
+    QString realVersion = sanitizeComponent(parts.realVersion);
+    if (realVersion.isEmpty()) {
+        realVersion = id;
+    }
 
     // 名称槽：没重命名过就退化成实际版本
     const QString label = customName.isEmpty() ? realVersion : customName;

@@ -497,7 +497,7 @@ void VersionManager::downloadVersion(const QString &versionId, const QString &de
 // 下载页那几类资源：把一个文件下到实例里（模组 / 数据包 / 资源包 / 光影）
 // ---------------------------------------------------------------------------
 
-void VersionManager::downloadResourceFiles(const QString &destinationDir,
+bool VersionManager::downloadResourceFiles(const QString &destinationDir,
                                            const QString &busyInstanceId, const QString &label,
                                            const QList<ResourceFile> &files) {
     // 下面这几道早退**必须在 beginBatch() 之前**（理由见 downloadVersion() 顶部那段 NOTE：
@@ -505,12 +505,12 @@ void VersionManager::downloadResourceFiles(const QString &destinationDir,
     // 每一道都要发终态信号 —— 界面那边点一下就在等一个结果，不发就等于"点了没反应"。
     if (destinationDir.isEmpty()) {
         emit resourceDownloadFinished(label, false, tr("没有说清要下到哪儿去。"));
-        return;
+        return false;
     }
     if (downloadManager->isBusy()) {
         qWarning() << "A download batch is already running, refusing to start another.";
         emit resourceDownloadFinished(label, false, tr("已有下载任务正在进行，请等它结束。"));
-        return;
+        return false;
     }
     // 那三套安装状态机在**它们的批次之间**是不忙的（比如正在拉版本表、跑安装器），
     // 光看 isBusy() 拦不住那一刻 —— 那时候插进来一批模组，DownloadManager 那份唯一的批次
@@ -519,13 +519,13 @@ void VersionManager::downloadResourceFiles(const QString &destinationDir,
     if (m_loaderInstall.active() || m_modpackInstall.active() || m_namedInstance.active()) {
         emit resourceDownloadFinished(label, false,
                                       tr("已有下载或者安装任务正在进行，请等它结束再装。"));
-        return;
+        return false;
     }
     if (files.isEmpty()) {
         // 正常走不到（能点的那条版本一定有个 primary 文件），但"这个版本一个文件都没有"
         // 是接口允许的状态 —— 那时候要当场说清，而不是开一个空批次等一个永远不来的收尾。
         emit resourceDownloadFinished(label, false, tr("这个版本没有可下载的文件。"));
-        return;
+        return false;
     }
 
     QStringList paths;
@@ -539,7 +539,7 @@ void VersionManager::downloadResourceFiles(const QString &destinationDir,
             || file.filename.contains(QStringLiteral(".."))) {
             emit resourceDownloadFinished(
                 label, false, tr("这一版的文件名没法用（%1），没有装。").arg(file.filename));
-            return;
+            return false;
         }
         paths.append(destinationDir + QLatin1Char('/') + file.filename);
     }
@@ -566,6 +566,10 @@ void VersionManager::downloadResourceFiles(const QString &destinationDir,
                                        files.at(i).size, VerifyMode::SizeAndSha1);
     }
     downloadManager->endBatch();
+    // 跑到这儿才是"这一批真的开起来了"。上面那五道早退各自发过一次
+    // `resourceDownloadFinished(label, false, …)`，而那个 label 和"真正跑完"那条路带的是
+    // **同一个字符串** —— 调用方只能靠这个返回值分辨"失败了"和"根本没开始"（见头文件）。
+    return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -1103,8 +1107,14 @@ void VersionManager::requestLoaderVersions(const QString &gameVersion, LoaderKin
     // 别的加载器在飞的那几发**不动**：四个各占一格，四条一起问是正常的（见头里那段）。
     LoaderVersionRequest &slot = m_loaderVersionRequests[int(kind)];
     if (slot.reply != nullptr) {
-        slot.reply->abort();
+        // **先摘指针，再 abort()** —— 顺序不能换。原来写的是 abort() 在前、置空在后，
+        // 而 abort() 有可能**当场**把 finished() 发出来（回复已经在手上、只是还没被处理
+        // 时就是这一种）。那一发进来时这一格里还是旧指针，onLoaderVersionsReply() 的
+        // "还是我手上这一发吗"当场判成"是" ⇒ 我们自己掐掉的那一发被当成一次真回复，
+        // 给用户弹一句「拿不到 X 的版本列表（Operation canceled）」。用户什么都没做错。
+        QNetworkReply *stale = slot.reply;
         slot.reply = nullptr;
+        stale->abort();
     }
     slot.gameVersion = wanted;
 
@@ -1129,6 +1139,10 @@ void VersionManager::requestLoaderVersions(const QString &gameVersion, LoaderKin
     //       最新只到 1.15.2），照着它列会给用户一个"1.16 以后都没有 Forge"的假结论。
     //       列表这件事对"全不全"比对"快不快"敏感得多，所以宁可直接问官方。
     QString url;
+    // "这一发走没走镜像"**只在这里读一次**，然后一路带到解析那一步去（同一次读的结果）。
+    // 以前解析那边又读了一遍 downloadManager->useMirror()，两次之间用户点一下开关就会出现
+    // "正文是镜像那份、却按官方那套规矩解析"。见 LoaderVersionRequest 里那段 NOTE。
+    bool fromMirror = false;
     switch (kind) {
     case LoaderKind::Fabric:
         url = LoaderMeta::fabricLoaderListUrl(wanted);
@@ -1140,24 +1154,31 @@ void VersionManager::requestLoaderVersions(const QString &gameVersion, LoaderKin
         url = LoaderMeta::neoforgeMavenMetadataUrl();
         break;
     case LoaderKind::OptiFine:
-        url = downloadManager->useMirror() ? LoaderMeta::optifineMirrorListUrl(wanted)
-                                           : LoaderMeta::optifineDownloadsPageUrl();
+        fromMirror = downloadManager->useMirror();
+        url = fromMirror ? LoaderMeta::optifineMirrorListUrl(wanted)
+                         : LoaderMeta::optifineDownloadsPageUrl();
         break;
     }
-    fetchLoaderVersions(kind, url);
+    fetchLoaderVersions(kind, url, fromMirror);
 }
 
-void VersionManager::fetchLoaderVersions(LoaderKind kind, const QString &url) {
+QNetworkAccessManager *VersionManager::loaderNetworkManager() {
     if (loaderNetwork == nullptr) {
         loaderNetwork = new QNetworkAccessManager(this);
     }
+    return loaderNetwork;
+}
+
+void VersionManager::fetchLoaderVersions(LoaderKind kind, const QString &url, bool fromMirror) {
     const QUrl target(url);
     QNetworkRequest request(target);
     // 和另外几处元数据请求同一个超时。最大的一份是 Forge 那个 211 KB 的 maven 清单，
     // 30 秒也够（实测挂代理一两秒）。
     request.setTransferTimeout(30000);
-    QNetworkReply *reply = loaderNetwork->get(request);
+    QNetworkReply *reply = loaderNetworkManager()->get(request);
     m_loaderVersionRequests[int(kind)].reply = reply;
+    // 走没走镜像跟着这一发钉住：解析要按**问的时候**那条路来（见 hpp 里那一格）。
+    m_loaderVersionRequests[int(kind)].fromMirror = fromMirror;
     // 回复得**带着是哪个加载器的**回来：四发同时在飞，光认指针认不出是谁的回复。
     connect(reply, &QNetworkReply::finished, this,
             [this, reply, kind] { onLoaderVersionsReply(kind, reply); });
@@ -1171,8 +1192,10 @@ void VersionManager::onLoaderVersionsReply(LoaderKind kind, QNetworkReply *reply
     if (slot == m_loaderVersionRequests.end() || slot->reply != reply) {
         return;
     }
-    // 先把两个字段抄下来再清空那一格：下面几条 emit 都要用它们，清空之后就没得读了。
+    // 先把字段抄下来再清空那一格：下面几条 emit 都要用它们，清空之后就没得读了。
     const QString gameVersion = slot->gameVersion;
+    // 走没走镜像读的是**这一发问出去时**记下的那一个（不是现在这个开关值）。
+    const bool fromMirror = slot->fromMirror;
     slot->reply = nullptr;
 
     const QByteArray body = reply->readAll();
@@ -1184,7 +1207,7 @@ void VersionManager::onLoaderVersionsReply(LoaderKind kind, QNetworkReply *reply
         return;
     }
 
-    const LoaderVersionParse parsed = parseLoaderVersions(kind, gameVersion, body);
+    const LoaderVersionParse parsed = parseLoaderVersions(kind, gameVersion, body, fromMirror);
     if (!parsed.error.isEmpty()) {
         emit loaderVersionsFetched(gameVersion, kind, false, LoaderMeta::LoaderVersionList(),
                                    parsed.error);
@@ -1193,9 +1216,8 @@ void VersionManager::onLoaderVersionsReply(LoaderKind kind, QNetworkReply *reply
     emit loaderVersionsFetched(gameVersion, kind, true, parsed.versions, QString());
 }
 
-VersionManager::LoaderVersionParse VersionManager::parseLoaderVersions(LoaderKind kind,
-                                                                     const QString &gameVersion,
-                                                                     const QByteArray &body) const {
+VersionManager::LoaderVersionParse VersionManager::parseLoaderVersions(
+    LoaderKind kind, const QString &gameVersion, const QByteArray &body, bool fromMirror) const {
     LoaderVersionParse result;
     LoaderMeta::LoaderVersionList entries;
     switch (kind) {
@@ -1216,7 +1238,9 @@ VersionManager::LoaderVersionParse VersionManager::parseLoaderVersions(LoaderKin
         entries = LoaderMeta::listNeoForgeVersions(body, gameVersion);
         break;
     case LoaderKind::OptiFine:
-        if (downloadManager->useMirror()) {
+        // 判据是**这一发问出去时**记下的那个（参数），不是现在这个开关值 —— 见 hpp 里那段
+        // NOTE：两次读之间用户点一下开关，正文和解析规矩就会错配。
+        if (fromMirror) {
             QJsonParseError parseError;
             const QJsonDocument doc = QJsonDocument::fromJson(body, &parseError);
             if (!doc.isArray()) {
@@ -1345,15 +1369,12 @@ void VersionManager::installLoaderVersion(const QString &gameVersion, LoaderKind
 }
 
 void VersionManager::fetchFabricLoaderList() {
-    if (loaderNetwork == nullptr) {
-        loaderNetwork = new QNetworkAccessManager(this);
-    }
     const QUrl url(LoaderMeta::fabricLoaderListUrl(m_loaderInstall.gameVersion));
     QNetworkRequest request(url);
     // 和 DownloadManager 那几处元数据请求同一个超时：卡死的连接会让界面永远停在
     // "下载中"（按钮是禁用的），而这个请求没有别的兜底。
     request.setTransferTimeout(30000);
-    QNetworkReply *reply = loaderNetwork->get(request);
+    QNetworkReply *reply = loaderNetworkManager()->get(request);
     connect(reply, &QNetworkReply::finished, this,
             [this, reply] { onFabricLoaderListReply(reply); });
 }
@@ -1399,7 +1420,7 @@ void VersionManager::fetchFabricProfile() {
                                                 m_loaderInstall.loaderVersion));
     QNetworkRequest request(url);
     request.setTransferTimeout(30000);
-    QNetworkReply *reply = loaderNetwork->get(request);
+    QNetworkReply *reply = loaderNetworkManager()->get(request);
     connect(reply, &QNetworkReply::finished, this,
             [this, reply] { onFabricProfileReply(reply); });
 }
@@ -1496,9 +1517,6 @@ void VersionManager::startLoaderFiles() {
 // ---------------------------------------------------------------------------
 
 void VersionManager::fetchInstallerList() {
-    if (loaderNetwork == nullptr) {
-        loaderNetwork = new QNetworkAccessManager(this);
-    }
     // 两个接口一个回 JSON、一个回 XML，但都是"GET 一段文本，从里面挑一个版本号"，
     // 所以共用这一条路，分派放在回复处理里按 kind 做。
     // 版本表本身也走镜像：Forge 那份 1.7 KB 在 files.minecraftforge.net 上，NeoForge 那份
@@ -1527,7 +1545,7 @@ void VersionManager::requestInstallerList(const QString &url) {
     const QUrl target(url);
     QNetworkRequest request(target);
     request.setTransferTimeout(30000);
-    QNetworkReply *reply = loaderNetwork->get(request);
+    QNetworkReply *reply = loaderNetworkManager()->get(request);
     connect(reply, &QNetworkReply::finished, this,
             [this, reply] { onInstallerListReply(reply); });
 }
@@ -2172,9 +2190,6 @@ void VersionManager::startParentCompletion() {
 //  * 它的版本目录名**我们算不出来**（安装器按自己那份 jar 里的版本号拼的）→ 装完去盘上认。
 
 void VersionManager::fetchOptifineVersionList() {
-    if (loaderNetwork == nullptr) {
-        loaderNetwork = new QNetworkAccessManager(this);
-    }
     // 两个源是**两份不同的数据**：镜像是一条 JSON 接口（一个游戏版本一页），官方只有那张
     // 203 KB 的下载页可读（每个游戏版本一节）。连"哪一条是正式版"的挑法都不一样，所以
     // 回复也不共用处理，各走各的（见 LoaderMeta.hpp 里那两个纯函数）。
@@ -2191,7 +2206,7 @@ void VersionManager::fetchOptifineVersionList() {
                               : LoaderMeta::optifineDownloadsPageUrl());
     QNetworkRequest request(url);
     request.setTransferTimeout(30000);
-    QNetworkReply *reply = loaderNetwork->get(request);
+    QNetworkReply *reply = loaderNetworkManager()->get(request);
     connect(reply, &QNetworkReply::finished, this,
             [this, reply, fromMirror] { onOptifineVersionListReply(reply, fromMirror); });
 }
@@ -2317,7 +2332,7 @@ void VersionManager::fetchOptifineDownloadToken() {
     const QUrl url(LoaderMeta::optifineAdPageUrl(m_loaderInstall.installerFileName));
     QNetworkRequest request(url);
     request.setTransferTimeout(30000);
-    QNetworkReply *reply = loaderNetwork->get(request);
+    QNetworkReply *reply = loaderNetworkManager()->get(request);
     connect(reply, &QNetworkReply::finished, this,
             [this, reply] { onOptifineDownloadTokenReply(reply); });
 }

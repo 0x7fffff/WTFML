@@ -264,7 +264,8 @@ QString ResourceStore::iconMetaPath(const QString &projectId) {
     return icon + QStringLiteral(".meta");
 }
 
-ResourceStore::IconValidators ResourceStore::loadIconValidators(const QString &projectId) {
+ResourceStore::IconValidators ResourceStore::loadIconValidators(const QString &projectId,
+                                                               const QString &url) {
     IconValidators validators;
     const QString path = iconMetaPath(projectId);
     if (path.isEmpty()) {
@@ -274,8 +275,8 @@ ResourceStore::IconValidators ResourceStore::loadIconValidators(const QString &p
     if (!file.open(QIODevice::ReadOnly)) {
         return validators; // 没有这个文件 = 没有凭据（正常情况，不是错误）
     }
-    // 两行纯文本（ETag / Last-Modified），顺序写死。行数不够就只认有的那几行；
-    // 多出来的行不管（将来要加第三条凭据时，老版本读它也只读到前两条）。
+    // 三行纯文本（ETag / Last-Modified / 这份凭据是哪条地址给的），顺序写死。行数不够就
+    // 只认有的那几行：老版本写的那些（只有前两行）读出来第三条是空的，按"没记地址"处理。
     const QList<QByteArray> lines = file.readAll().split('\n');
     file.close();
     if (lines.size() > 0) {
@@ -284,11 +285,22 @@ ResourceStore::IconValidators ResourceStore::loadIconValidators(const QString &p
     if (lines.size() > 1) {
         validators.lastModified = QString::fromUtf8(lines.at(1)).trimmed();
     }
+    // 凭据得和"问哪条地址"配成一对（2026-09-25 补）。同一个 project 有**两条**图标地址
+    // （接口那条 96px 的 webp / 自己拼的 icon.png，见 requestIcon），而缓存和凭据都只按
+    // project_id 存 —— 于是"上回问的是哪条"在这份文件里根本没记，这一发就会拿着 **A 的
+    // ETag 去问 B**：主机不认时答 200（白带一个没用的条件头，还得再下一整张，白等），
+    // 万一两条地址的 ETag 撞上了就是 304 —— 于是这一格一直画着"另一条地址的那张图"，
+    // 而且**看起来一个错都没有**（和我们刻意要防的那类事是同一类）。
+    // 所以：记着地址、且对不上，就当**没有**凭据（下一发整张重来，代价只是一次干净的重下）。
+    const QString storedUrl = lines.size() > 2 ? QString::fromUtf8(lines.at(2)).trimmed() : QString();
+    if (!storedUrl.isEmpty() && !url.isEmpty() && storedUrl != url) {
+        return IconValidators();
+    }
     return validators;
 }
 
 bool ResourceStore::saveIconValidators(const QString &projectId,
-                                       const IconValidators &validators) {
+                                       const IconValidators &validators, const QString &url) {
     const QString path = iconMetaPath(projectId);
     if (path.isEmpty()) {
         return false;
@@ -303,8 +315,10 @@ bool ResourceStore::saveIconValidators(const QString &projectId,
     if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
         return false; // best-effort：写不进去只是下次多要一次整张，不是错误
     }
-    const QByteArray text =
-        validators.etag.toUtf8() + '\n' + validators.lastModified.toUtf8() + '\n';
+    // 第三行是**这条凭据对应哪条地址**（2026-09-25 补）：读的那一侧靠它判断"这份凭据
+    // 还是不是问这条地址用的"，见 loadIconValidators 里那条 NOTE。
+    const QByteArray text = validators.etag.toUtf8() + '\n' + validators.lastModified.toUtf8() +
+                            '\n' + url.toUtf8() + '\n';
     const bool ok = file.write(text) == text.size();
     file.close();
     return ok;
@@ -448,7 +462,7 @@ void ResourceStore::requestIcon(const ResourceCatalog::Hit &hit) {
     startIconRequest(projectId, url,
                      wantWebp ? ResourceCatalog::iconUrlForProject(projectId) : QString(),
                      onDisk ? cached : QByteArray(),
-                     onDisk ? loadIconValidators(projectId) : IconValidators());
+                     onDisk ? loadIconValidators(projectId, url) : IconValidators());
 }
 
 void ResourceStore::startIconRequest(const QString &projectId, const QString &url,
@@ -459,11 +473,28 @@ void ResourceStore::startIconRequest(const QString &projectId, const QString &ur
         return;
     }
 
+    // 图标这一发也进"在飞"那张表（2026-09-25 补），见 abortAll() 那条 NOTE：它原来只掐
+    // 接口那几发，图标是**表外**的 —— 于是"把在飞的都掐掉"这句话对图标不成立（今天唯一的
+    // 调用者是析构，所以没现出症状，但契约这么说就得这么做）。顺带白拿一件东西：同一个
+    // project 已经在飞的那一发会被掐掉，和接口那两条请求同款。
+    // 键加个前缀：两边的键都是自己拼的字符串，加前缀是让"这一格是谁"看得出来，也不会撞。
+    const QString requestKey = QStringLiteral("icon:") + projectId;
+    if (QNetworkReply *previous = m_replies.take(requestKey)) {
+        previous->abort();
+    }
     m_iconPending.insert(projectId);
     QNetworkReply *reply = m_net->get(iconRequest(url, validators));
+    m_replies.insert(requestKey, reply);
     QObject::connect(reply, &QNetworkReply::finished, this,
-                     [this, reply, projectId, fallbackUrl, onDiskBytes]() {
+                     [this, reply, projectId, url, fallbackUrl, onDiskBytes, requestKey]() {
         reply->deleteLater();
+        // 被掐掉的那一发（abortAll()，或者同一张图又问了第二遍）到此为止：**不读它**、
+        // 什么都不做（abort 之后读它是 HttpClient 那边的老规矩，见 abortAll 那段）。
+        // 也**不动** m_iconPending —— 那一格现在是新的那一发在管。
+        if (m_replies.value(requestKey) != reply) {
+            return;
+        }
+        m_replies.remove(requestKey);
         m_iconPending.remove(projectId);
 
         const int status = statusOf(reply);
@@ -523,7 +554,7 @@ void ResourceStore::startIconRequest(const QString &projectId, const QString &ur
         m_iconHostFailures = 0; // 这一路是通的（成功一次就把那道闸放回去）
         // 凭据**先更新**（这一发可能给了新的 ETag：内容没变、标识变了也是常事），
         // 下面那条"没变就直接走人"的路也得留着它，不然下次这一发就白问了。
-        saveIconValidators(projectId, validatorsOf(reply));
+        saveIconValidators(projectId, validatorsOf(reply), url);
         // 主机**不认**条件头时会把整张再发一遍 —— 这时候比一下字节，一模一样就等于
         // "没变"：不写盘、不发信号（重发一遍会让列表上那一格闪一下，而这趟运行里
         // 它本来就已经是这张图了）。

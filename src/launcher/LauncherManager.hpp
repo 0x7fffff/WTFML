@@ -266,8 +266,9 @@ private:
     /// 判断依据由 startGame() 从命令行上反推出来，见那里的说明。
     static QString decodeGameOutput(bool utf8, const QByteArray &bytes);
 
-    /// 把一个已经结束/失败的会话从表里摘掉并释放它的 QProcess。
-    /// @param takeProcess 表里那个 QProcess 指针；顺手 deleteLater() 掉。
+    /// 把一个已经结束/失败的会话从表里摘掉并释放它的 QProcess（进程指针从会话自己那一格
+    /// 上取，这里不需要外面再传一个）。
+    /// @param sessionId 要收掉的那个会话号。
     void discardSession(int sessionId);
 
     void handleReadyReadStandardOutput(int sessionId);

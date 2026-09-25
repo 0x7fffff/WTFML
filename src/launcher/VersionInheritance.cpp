@@ -128,6 +128,18 @@ int maxDepth() {
 QJsonObject merge(const QJsonObject &child, const QJsonObject &parent) {
     QJsonObject out = parent;
 
+    // 父那份的 inheritsFrom **也要去掉**（2026-09-25 修）。这里原来只跳了**子**的
+    // （见下面那个循环），而 `out = parent` 已经把父那份的抄进来了 —— 于是三层链
+    // （OptiFine → Forge → 原版这种真的存在：OptiFine 的 json 继承的是它打过补丁那一层）
+    // 合完之后，结果里还留着一个 `inheritsFrom`（指着中间那一层），而 .hpp 里那句
+    // "结果里刻意丢掉 inheritsFrom"就成了一句**看着像真话的假话**。
+    //
+    // 今天没有谁拿"有没有这个字段"当判据（VersionArguments 那条 NOTE 明确写了判据不是它，
+    // VersionManager 那个循环也是从**父版本自己那份**里读下一层 id），所以它现在不现症状 ——
+    // 但那正是这条不变式存在的意义：它是**写给以后读代码的人**的（"合并过的就没有
+    // inheritsFrom，有就是没合过"）。让代码和说明一致，比让说明去迁就代码便宜。
+    out.remove(QStringLiteral("inheritsFrom"));
+
     // 先把子的字段盖上去。这一步的默认语义就是"子优先"，逐字段的特例在下面单独处理 ——
     // 正是因为默认是子优先，以后 Mojang 加一个新字段时不需要动这里，而"新字段被父的
     // 旧值顶掉"这种错也不会出现。

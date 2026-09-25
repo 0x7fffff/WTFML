@@ -42,6 +42,7 @@
 #include <QStringList>
 
 #include <algorithm>
+#include <limits>
 
 namespace LoaderMeta {
 
@@ -474,7 +475,16 @@ inline QList<int> parseDottedVersion(const QString &text) {
         if (!digits.match(segment).hasMatch()) {
             return QList<int>();
         }
-        parts.append(segment.toInt());
+        // 溢出**也得当"不是版本号"**（2026-09-25 修）：`^[0-9]+$` 过得了、toInt() 过不了的
+        // 那一段（maven 上别人写的东西，`26.1.2.99999999999` 这种）原来是静默变成 **0**，
+        // 于是这个版本比谁都小 —— "有新版本"永远消不掉、版本榜上排到最后，而且一声不响。
+        // 这个函数的契约本来就是"空列表 = 认不出来"，认不出来有的是地方处理它。
+        bool ok = false;
+        const qlonglong value = segment.toLongLong(&ok);
+        if (!ok || value > std::numeric_limits<int>::max()) {
+            return QList<int>();
+        }
+        parts.append(static_cast<int>(value));
     }
     return parts;
 }

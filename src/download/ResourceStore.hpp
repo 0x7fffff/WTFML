@@ -139,16 +139,24 @@ public:
     ///
     /// NOTE: 为什么另起一个文件而不是塞进 `.icon` 里：那个文件是**整段图片字节**，
     ///       前面加任何东西都会让"按内容认格式"（ImageDecode，见那条 NOTE）读不出来。
-    ///       `.icon.meta` 是纯文本两行（etag / last-modified），读不懂就当没有。
+    ///       `.icon.meta` 是纯文本三行（etag / last-modified / 这份凭据是哪条地址给的），
+    ///       读不懂就当没有。第三行是 2026-09-25 补的：老版本写的那份只有两行，读出来
+    ///       第三条是空串，按"没记地址"处理（照样用）。
     static QString iconMetaPath(const QString &projectId);
 
     /// 读那两条凭据。读不到（没有 / 读不动 / 内容不成形）一律回**空的** ——
     /// "没有凭据"和"凭据是空的"是同一件事：下一发整张重来。
-    static IconValidators loadIconValidators(const QString &projectId);
+    /// @param url 这一发**要去要的那条地址**（requestIcon 挑出来的那条，不是 project 的
+    ///        唯一地址 —— 同一个 project 有两条）。meta 里第三行记着这份凭据是哪条地址的，
+    ///        **对不上就当没有凭据**：理由见实现处那条 NOTE（拿 A 的 ETag 去问 B，轻则白下
+    ///        一整张，重则问出一个 304 来、这一格从此画着另一条地址的图）。
+    static IconValidators loadIconValidators(const QString &projectId, const QString &url);
 
     /// 把这一发拿到的那两条凭据写到盘上。两个都是空 = **删掉**那份 meta（没有凭据还留着
     /// 一个空文件，下次读出来一样，但盘上多一个东西）。best-effort：写不进去不算错。
-    static bool saveIconValidators(const QString &projectId, const IconValidators &validators);
+    /// @param url 这两条凭据是**哪条地址**给的 —— 和上面读的那一侧配成对。
+    static bool saveIconValidators(const QString &projectId, const IconValidators &validators,
+                                   const QString &url);
 
     /// 某个 project_id 的图标缓存路径：`<数据目录>/cache/icons/<project_id>.icon`。
     ///
