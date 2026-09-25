@@ -228,6 +228,50 @@ inline QString mavenPathForName(const QString &name) {
 }
 
 /**
+ * @brief 一条"从下载来的 JSON 里读出来、要拼到 `libraries/` 底下的相对路径"安不安全。
+ *
+ * 这就是 `mavenPathForName()` 那一套白名单，用在**另一个入口**上：`downloads.artifact.path`
+ * 和 `downloads.classifiers.<k>.path` 这两个字段是**原样收下、原样拼**的（见 artifactFor()
+ * 和 nativeClassifier()），而它们和 maven 那个名字是同一个来路 —— 下载来的 JSON。
+ * 那个白名单的理由（:161 那段）对它一字不差成立：恶意/写坏的 version.json 写一句
+ * `"path": "../../../x.jar"`，库就落到 `libraries/` 外面去了（Windows 上那就是一个
+ * DLL 劫持面）。所以同一把尺子量到底。
+ *
+ * NOTE: **实测过真实数据**（2026-09-25）：本机 `E:\MC\.minecraft\versions` 下 66 份
+ *       version.json、6596 条 path（872 条去重，含 Forge/NeoForge/OptiFine/Fabric 装出来的
+ *       那些）逐段喂进来，**一条都过不了白名单的都没有**；出现过的字符只有
+ *       `+ - . / 0-9 F J M S _ a-z`。所以这条判据不会把任何一个正经库挡在外面。
+ *
+ * NOTE: 判据比 maven 那条多两样（那边是逐段拼、这里的字符串是整条路径）：
+ *   - **反斜杠一律拒** —— 它按 `/` 切是一整段，逐段看起来完全正常（`..\..\x.jar`），
+ *     而 Windows 那边照样当分隔符用；
+ *   - **冒号一律拒** —— 盘符（`C:...`）和 NTFS 的备用数据流（`a.jar:x`）都是靠它。
+ */
+inline bool libraryRelativePathIsSafe(const QString &path) {
+    if (path.isEmpty()) {
+        return false;
+    }
+    if (path.contains(QLatin1Char('\\')) || path.contains(QLatin1Char(':')) ||
+        path.startsWith(QLatin1Char('/'))) {
+        return false;
+    }
+    const QRegularExpression safe(QStringLiteral("^[A-Za-z0-9._+-]+$"));
+    const QStringList segments = path.split(QLatin1Char('/'));
+    for (const QString &segment : segments) {
+        // 空段 = `a//b`；`.` / `..` 单独判 —— 它俩**能过**上面那个字符集（和
+        // mavenPathForName() 里那一条同一个理由）。
+        if (segment.isEmpty() || segment == QLatin1String(".") ||
+            segment == QLatin1String("..")) {
+            return false;
+        }
+        if (!safe.match(segment).hasMatch()) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/**
  * @brief 一个 library 的主 artifact（就是要进 classpath 的那个 jar）。
  */
 struct Artifact {
@@ -277,6 +321,19 @@ inline Artifact artifactFor(const QJsonObject &libObj) {
     result.url = artifact.value(QStringLiteral("url")).toString();
     result.sha1 = artifact.value(QStringLiteral("sha1")).toString();
     result.size = artifact.value(QStringLiteral("size")).toVariant().toLongLong();
+
+    // 这个 path 是**原样收下、原样拼**的（:234 那句就是它），所以先过一遍白名单。
+    // NOTE(2026-09-25)：这里原来**没有**这道闸 —— 白名单只做在下面那条"没有 downloads
+    //       块、按 maven 名字拼"的回退路上，而两条路的字符串是同一个来路、同一个用途。
+    //       给一句 `"path":"../../../x.jar"` 就够了，库会落到 libraries/ 外面。
+    //       拒掉之后**不算完**：把 path 清掉，让下面那条 maven 回退路照样有机会把这个库
+    //       装对（名字干净的话它拼出来的路径是安全的）；名字也拼不出来才真的少一个库 ——
+    //       那种情况上面已经 qWarning 了，不会静默。
+    if (!result.path.isEmpty() && !libraryRelativePathIsSafe(result.path)) {
+        qWarning() << "Refusing an unsafe library path from the version json:" << result.path
+                   << "for" << libObj.value(QStringLiteral("name")).toString();
+        result.path.clear();
+    }
 
     if (!result.path.isEmpty() && !result.url.isEmpty()) {
         return result;
@@ -369,6 +426,15 @@ inline NativeClassifier nativeClassifier(const QJsonObject &libObj) {
     result.path = classifier.value(QStringLiteral("path")).toString();
     result.url = classifier.value(QStringLiteral("url")).toString();
     result.sha1 = classifier.value(QStringLiteral("sha1")).toString();
+
+    // 和 artifactFor() 里那一处同一个理由、同一把尺子：这条 path 也是原样收下、原样拼的
+    // （落盘目标 + 解压来源）。不安全就清掉 —— 调用方按"这个库没有 natives"跳过它，
+    // 而不是把它写到 libraries/ 外面去。
+    if (!result.path.isEmpty() && !libraryRelativePathIsSafe(result.path)) {
+        qWarning() << "Refusing an unsafe natives path from the version json:" << result.path
+                   << "for" << libObj.value(QStringLiteral("name")).toString();
+        result.path.clear();
+    }
 
     const QJsonArray excludes = libObj.value(QStringLiteral("extract"))
                                     .toObject()

@@ -582,6 +582,35 @@ bool AuthManager::exchangeAuthorizationCode(const QString &code, QString *access
         return false;
     }
 
+    // ── 覆盖微软槽之前的两道闸（2026-09-25 补的）──────────────────────────────
+    // 下面这一句写的是"活动槽里那份微软令牌"。而一个账号条目是**两个槽拼出来的**
+    // （AccountStore::captureActive()：uuid 取自 minecraft 槽、微软令牌取自 microsoft
+    // 槽），新登录要等 runMinecraftChain() 一路走到底、:665 才写 minecraft 那一半。
+    // 于是从这一句到那一句之间，盘上那个"账号"是 **A 的 uuid 配 B 的微软令牌**：
+    //   ① 这中间只要有人调 captureActive()（用户在等登录的时候点一下「添加离线账号」，
+    //      makeOfflineCurrent() 里正有一句），写出来的条目就是上面那个错配的东西。
+    //   ② 更要紧的是**失败**那条路：runMinecraftChain() 挂掉（真机上最常见的就是
+    //      login_with_xbox 那条 403）之后没人会再调 captureActive()，盘上就**永久**停在
+    //      这个错配状态 —— activeUuid() 说是 A，而 refreshMinecraftToken() 从 microsoft
+    //      槽读出来的是 B 的 refresh_token，拿它去续 A 的登录必然失败；同时 A 原来那份
+    //      refresh_token 已经被这一句覆盖掉了（老版本升上来的用户凭据**只在活动槽里**，
+    //      盘上再没有第二份，只能重开浏览器登一遍）。
+    // 所以：先把现在这位**收进列表**（凭据留一份），再把 minecraft 槽**清掉**（两个槽不
+    // 再可能错配）。失败时的结果是"没登录"，但上一个账号在列表里、一键就切得回来 ——
+    // 比"错配着继续用 + 凭据丢了"好。
+    //
+    // NOTE: 清掉 minecraft 槽**不影响**这里刻意保留的那半个凭据：文件头那句"失败时盘上
+    //       留着微软那份，好把链重放一遍"说的是 microsoft 槽，它照旧写着新令牌。
+    if (!AccountStore::activeUuid().isEmpty()) {
+        QString captureError;
+        if (!AccountStore::captureActive(&captureError)) {
+            // 收不进去**不拦这次登录**：登录是另一件事，而且"列表读不出来"这种情况
+            // captureActive() 自己会拒绝覆盖（见它的 NOTE），盘上不会更坏。
+            qWarning().noquote() << "登录之前，没能把当前账号收进列表：" << captureError;
+        }
+    }
+    TokenStore::clear(TokenStore::minecraftKey());
+
     if (!storeMicrosoftTokenData(result.json)) {
         *errorMessage = tr("登录信息保存失败（写不进配置文件）。");
         return false;

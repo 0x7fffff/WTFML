@@ -14,6 +14,7 @@
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QFileInfo>
+#include <QSaveFile>
 #include <QTimer>
 
 #include <cstdio>
@@ -250,6 +251,7 @@ DownloadManager::~DownloadManager() {
         reply->deleteLater();
     }
     activeDownloads.clear();
+    m_replyGenerations.clear();
     // 队列里的作业一个请求都没发出去，abort 那套对它们无效，只能直接丢掉。
     m_pendingJobs.clear();
     m_officialFallbacks.clear();
@@ -344,6 +346,9 @@ void DownloadManager::beginBatch() {
         qWarning() << "beginBatch() called while a batch was still open, closing it first.";
         endBatch();
     }
+    // 代次加一：这条线**之后**发出去的回复才算这一批的。上一批还在飞的那几条回来时
+    // 因此会被认出来（见 m_batchGeneration 的说明）。
+    ++m_batchGeneration;
     m_totalJobs = 0;
     m_doneJobs = 0;
     m_failedJobs = 0;
@@ -394,6 +399,15 @@ bool DownloadManager::fileAlreadyValid(const QString &path, const QString &expec
                                        qint64 expectedSize, VerifyMode mode) {
     const QFileInfo info(path);
     if (!info.exists() || !info.isFile()) {
+        return false;
+    }
+    if (info.size() == 0) {
+        // **0 字节的文件永远不算数**，哪一档都不算（2026-09-25 补）。
+        //
+        // NOTE: 这一条要在 ExistsOnly 前面。以前 ExistsOnly 是无条件 true，而"资源对象"
+        //       那几千个就是这么登记的（见 downloadAssets）—— 于是写盘写到一半被中断留下
+        //       的那个 0 字节文件会被永久当成"这个我已经下过了"，而且**再也不会重下**。
+        //       一份真资源的字节数不可能是 0，所以这条判据不会误伤任何好东西。
         return false;
     }
     if (mode == VerifyMode::ExistsOnly) {
@@ -453,7 +467,8 @@ void DownloadManager::scheduleFile(const QString &url, const QString &destinatio
     // 排进队列之后立刻试着发一次：队列是空的、连接也有富余的时候，这一句就把它发出去了
     // （所以"只下一两个文件"的那些调用点感觉不到队列存在）。
     m_pendingJobs.enqueue(
-        PendingJob{url, destinationPath, expectedSha1, officialUrl, QUrl(url).host()});
+        PendingJob{url, destinationPath, expectedSha1, expectedSize, officialUrl,
+                   QUrl(url).host()});
     pumpDownloadQueue();
 }
 
@@ -481,7 +496,8 @@ void DownloadManager::pumpDownloadQueue() {
         }
         // takeAt 之后上面那个引用就悬了，所以先拷出来再删。
         const PendingJob job = m_pendingJobs.takeAt(i);
-        startDownload(QUrl(job.url), job.destinationPath, job.expectedSha1, job.officialUrl);
+        startDownload(QUrl(job.url), job.destinationPath, job.expectedSha1, job.expectedSize,
+                      job.officialUrl);
     }
 }
 
@@ -515,7 +531,8 @@ void DownloadManager::noteReplyProtocol(QNetworkReply *reply) {
 }
 
 void DownloadManager::startDownload(const QUrl &url, const QString &destinationPath,
-                                    const QString &expectedSha1, const QString &officialUrl) {
+                                    const QString &expectedSha1, qint64 expectedSize,
+                                    const QString &officialUrl) {
     // 这条作业的**首选地址那个主机**正被降级、而它还知道备用地址：**直接改道**，别等它慢
     // 10 秒再退。这条判断必须在这里、不能只在"挑地址"的地方：资源对象是几千个一次性排进
     // 队列的，它们身上的镜像地址在排队那一刻就拼好了（见 PendingJob），等它们一个个撞上慢
@@ -537,8 +554,16 @@ void DownloadManager::startDownload(const QUrl &url, const QString &destinationP
     request.setTransferTimeout(30000);
     QNetworkReply *reply = networkManager->get(request);
     activeDownloads[reply] = destinationPath;
+    // 这是"这一条属于第几批"的唯一一处登记（见 m_batchGeneration）。
+    m_replyGenerations[reply] = m_batchGeneration;
     if (!expectedSha1.isEmpty()) {
         expectedSha1s[reply] = expectedSha1;
+    }
+    // 期望字节数单独一张表（不是"有 sha1 才算"）：**拿不到 sha1 的库正是最需要它的一类**
+    // —— maven 风格的那几个（Forge / NeoForge / Fabric 的 loader）本来就没有 sha1，写盘那
+    // 一步以前对它们只剩"HTTP 200 就算成功"这一条判据（见 onDownloadReplyFinished）。
+    if (expectedSize > 0) {
+        expectedSizes[reply] = expectedSize;
     }
     // 走的是镜像、而且调用方知道官方那条地址是什么 —— 记下来，这一发取不回来时
     // 拿它再试一次（见 m_officialFallbacks 和 retryWithOfficialUrl()）。
@@ -557,9 +582,21 @@ void DownloadManager::startDownload(const QUrl &url, const QString &destinationP
             &DownloadManager::onDownloadReplyProgress);
 }
 
+bool DownloadManager::replyIsFromCurrentBatch(QNetworkReply *reply) const {
+    // 查不到记录的按**当前**这一批处理（默认值给当前代次）：批次之外的一次性作业
+    // （版本清单、加载器版本列表、安装器下载……）本来就各算各的，从来不在批次里。
+    return m_replyGenerations.value(reply, m_batchGeneration) == m_batchGeneration;
+}
+
 void DownloadManager::handleDownloadError(QNetworkReply *reply, const QString &errorMessage) {
     const QString destPath = activeDownloads.value(reply);
     qWarning() << "Download failed:" << destPath << errorMessage;
+    // 属于**已经被放弃的那一批**：只留上面那行日志，不进当前批的失败计数、也不往失败清单
+    // 里塞（那两样都是给界面上"这一批下完没有"看的，见 m_batchGeneration）。
+    if (!replyIsFromCurrentBatch(reply)) {
+        qWarning() << "  (this reply belongs to an abandoned batch; not counted)";
+        return;
+    }
     m_failedJobs++;
     // 记完整路径而不是 QFileInfo::fileName()：批量里有 5000 多个 40 位哈希文件名，
     // 只说哈希对排查毫无帮助。
@@ -651,6 +688,9 @@ void DownloadManager::downloadAssets(const AssetIndex &assetIndex) {
     request.setTransferTimeout(30000);
     QNetworkReply *indexReply = networkManager->get(request);
     activeDownloads[indexReply] = indexPath;
+    // 和 startDownload() 一样登记代次：索引这条也有可能落在被放弃的那一批里（见
+    // m_batchGeneration）。
+    m_replyGenerations[indexReply] = m_batchGeneration;
     // 索引这条也进"在飞"表：它要是发出去之后一直没动静，同样得有人把它判失败 ——
     // 索引拿不到 = 清单里那几千个资源对象一个都不知道要下谁，整批会静静地什么都不干。
     m_stallMeters[indexReply].lastSignOfLifeMs = m_clock.elapsed();
@@ -684,27 +724,44 @@ void DownloadManager::onAssetIndexDownloaded() {
         return;
     }
 
+    // 和 onDownloadReplyFinished() 同一个口径：属于已经放弃的那一批的索引，文件照样落盘，
+    // 但不解析、不发信号、不记账（理由见 m_batchGeneration）。
+    const bool stale = !replyIsFromCurrentBatch(reply);
+
     bool success = false;
     QString errorMessage;
 
     if (reply->error() == QNetworkReply::NoError) {
-        QFile file(indexPath);
+        // 和 onDownloadReplyFinished() 是同一套：QSaveFile 原子落盘（半截的索引留在
+        // indexPath 上后果更重 —— parseAndDownloadAssets() 会拿它当"资源列表"去下几千个
+        // 东西，而它本身再也不会被重下）。
+        QSaveFile file(indexPath);
         QDir().mkpath(QFileInfo(indexPath).absolutePath());
-        if (file.open(QIODevice::WriteOnly)) {
-            file.write(reply->readAll());
-            file.close();
-            // 和 onDownloadReplyFinished() 一样必须核 SHA1：镜像源下这条地址是拿索引号
-            // **拼**出来的（/indexes/<id>.json），拼错时回来的可能是一份别的索引，也可能是
-            // 一个 404 页面 —— 不拦住就会拿它去下几千个内容不对的资源。期望值在
-            // downloadAssets() 里就登记好了（version.json 的 assetIndex.sha1）。
-            const QString expectedSha1 = expectedSha1s.value(reply);
-            if (expectedSha1.isEmpty() || verifyFileSha1(indexPath, expectedSha1)) {
-                success = true;
-                parseAndDownloadAssets(indexPath);
+        const QByteArray body = reply->readAll();
+        if (body.isEmpty()) {
+            errorMessage = QStringLiteral("Server returned an empty body");
+        } else if (file.open(QIODevice::WriteOnly)) {
+            file.write(body);
+            if (!file.commit()) {
+                errorMessage = QStringLiteral("Failed to save asset index file");
             } else {
-                // 坏文件不留盘：它是"资源列表"本身，留在那儿没有任何价值，只会误导排查。
-                errorMessage = QStringLiteral("SHA1 verification failed");
-                file.remove();
+                // 和 onDownloadReplyFinished() 一样必须核 SHA1：镜像源下这条地址是拿索引号
+                // **拼**出来的（/indexes/<id>.json），拼错时回来的可能是一份别的索引，也可能是
+                // 一个 404 页面 —— 不拦住就会拿它去下几千个内容不对的资源。期望值在
+                // downloadAssets() 里就登记好了（version.json 的 assetIndex.sha1）。
+                const QString expectedSha1 = expectedSha1s.value(reply);
+                if (expectedSha1.isEmpty() || verifyFileSha1(indexPath, expectedSha1)) {
+                    success = true;
+                    // 已经放弃的那一批**不往下发**资源对象：那几千个作业会被算进**当前**
+                    // 这一批的总数里（用户点了取消却看见进度条的分母又涨了几千）。
+                    if (!stale) {
+                        parseAndDownloadAssets(indexPath);
+                    }
+                } else {
+                    // 坏文件不留盘：它是"资源列表"本身，留在那儿没有任何价值，只会误导排查。
+                    errorMessage = QStringLiteral("SHA1 verification failed");
+                    QFile::remove(indexPath);
+                }
             }
         } else {
             errorMessage = QStringLiteral("Failed to save asset index file");
@@ -716,8 +773,16 @@ void DownloadManager::onAssetIndexDownloaded() {
     if (success) {
         m_officialFallbacks.remove(reply);
         m_stallMeters.remove(reply);
-        emit downloadFinished(indexPath, true, QString());
-    } else if (retryWithOfficialUrl(reply, indexPath, &DownloadManager::onAssetIndexDownloaded)) {
+        if (!stale) {
+            // 报**文件名**，和这个信号别处的每一发一个口径（失败那两处都是
+            // QFileInfo(...).fileName()，见 handleDownloadError）。这一处原来报的是
+            // indexPath（一整条绝对路径）—— 同一个作业成功时给一条路径、失败时给一个名字，
+            // 收信号的那一侧就没法把"这一条报上来的名字"和"那一条报上来的名字"对上
+            //（2026-09-25 修，这个信号的形参就叫 fileName）。
+            emit downloadFinished(QFileInfo(indexPath).fileName(), true, QString());
+        }
+    } else if (!stale &&
+               retryWithOfficialUrl(reply, indexPath, &DownloadManager::onAssetIndexDownloaded)) {
         // 镜像那条路没成，已经换成官方地址重发了 —— 这一次**不算失败**：作业还在这一个
         // 里，计数和失败清单都不动，直接返回（下面那些收尾是给"这个 reply 真的结账"用的）。
         return;
@@ -729,7 +794,9 @@ void DownloadManager::onAssetIndexDownloaded() {
     }
 
     activeDownloads.remove(reply);
+    m_replyGenerations.remove(reply);
     expectedSha1s.remove(reply);
+    expectedSizes.remove(reply);
     // 和 onDownloadReplyFinished() 一样：失败这条路上也要把在飞表摘干净（理由见那边）。
     m_stallMeters.remove(reply);
     m_officialFallbacks.remove(reply);
@@ -740,9 +807,10 @@ void DownloadManager::onAssetIndexDownloaded() {
         qWarning() << "pendingDownloads went negative, clamping to 0.";
         pendingDownloads = 0;
     }
-    m_doneJobs++;
-
-    emitBatchProgress(indexPath);
+    if (!stale) {
+        m_doneJobs++;
+        emitBatchProgress(indexPath);
+    }
     checkAllDownloadsFinished();
 }
 
@@ -752,6 +820,13 @@ bool DownloadManager::retryWithOfficialUrl(QNetworkReply *reply, const QString &
     // 没得再退，交给调用方按失败处理。
     const QString officialUrl = m_officialFallbacks.take(reply);
     if (officialUrl.isEmpty()) {
+        return false;
+    }
+    // 已经放弃的那一批里的回复**不重发**：重发出去的那条会被登记成**当前**代次（它是在
+    // 这一刻发出去的），于是它回来时会算进新批的计数 —— 正是这一套代次要挡的那种污染。
+    // 备用地址已经在上面 take 走了，调用方随后照常收尾（那条路上不会记账、不发信号）。
+    if (!replyIsFromCurrentBatch(reply)) {
+        qInfo() << "Not retrying a reply from an abandoned batch:" << officialUrl;
         return false;
     }
 
@@ -781,7 +856,9 @@ bool DownloadManager::retryWithOfficialUrl(QNetworkReply *reply, const QString &
         !mayIssueAnotherDownloadToHost(activeCountForHost(retryHost),
                                        m_http2Hosts.contains(retryHost))) {
         const QString expectedSha1 = expectedSha1s.take(reply);
+        const qint64 expectedSize = expectedSizes.take(reply);
         activeDownloads.remove(reply);
+        m_replyGenerations.remove(reply);
         m_stallMeters.remove(reply);
         // 计数在这里还回去：这条作业回到"排队中"了，发送那一步（startDownload）会再加回来。
         // 调用方拿到 true 会立刻 return，不会走它自己那次 --pendingDownloads —— 两处只能有
@@ -794,7 +871,8 @@ bool DownloadManager::retryWithOfficialUrl(QNetworkReply *reply, const QString &
         // 摘完表再收尾：这条回复已经结账了，晚到的 finished 会在入口处被"没登记"挡掉。
         reply->deleteLater();
         m_pendingJobs.enqueue(
-            PendingJob{officialUrl, destinationPath, expectedSha1, QString(), retryHost});
+            PendingJob{officialUrl, destinationPath, expectedSha1, expectedSize, QString(),
+                       retryHost});
         // 别的作业可能刚腾出位置（也可能这一条立刻就能发出去），顺手泵一次。
         pumpDownloadQueue();
         qInfo() << "The fallback host is busy; this retry waits in our own queue instead:"
@@ -811,8 +889,11 @@ bool DownloadManager::retryWithOfficialUrl(QNetworkReply *reply, const QString &
     request.setTransferTimeout(30000);
     QNetworkReply *retry = networkManager->get(request);
     const QString expectedSha1 = expectedSha1s.take(reply);
+    const qint64 expectedSize = expectedSizes.take(reply);
     activeDownloads.remove(reply);
+    m_replyGenerations.remove(reply);
     activeDownloads[retry] = destinationPath;
+    m_replyGenerations[retry] = m_replyGenerations.value(reply, m_batchGeneration);
     // "这条是元数据作业"这一整条记录（名字 + 该是哪个版本 + 该是什么字节）要**搬**到重发
     // 出去的那一条上（不是复制）：搬完原来那个指针就从表里没了，不会留下一个指向已释放
     // 对象的键（同 :907 那段 NOTE 的担心）。核 sha1/id 的那两步在重发的回复回来时照做 ——
@@ -828,6 +909,9 @@ bool DownloadManager::retryWithOfficialUrl(QNetworkReply *reply, const QString &
     m_stallMeters[retry].lastSignOfLifeMs = m_clock.elapsed();
     if (!expectedSha1.isEmpty()) {
         expectedSha1s[retry] = expectedSha1;
+    }
+    if (expectedSize > 0) {
+        expectedSizes[retry] = expectedSize;
     }
     // 接哪个槽由调用方说：索引有自己那一个（成功了还得解析索引、往下发几千个对象），
     // 别的都走通用那个。接错了的表现不明显 —— 索引会被当成普通文件落盘就完事。
@@ -1006,6 +1090,7 @@ void DownloadManager::onVersionManifestReplyFinished() {
     // 元数据的回复平时不在 activeDownloads 里（不落盘），只有"从镜像退到官方"重发出来的
     // 那一条在。这里统一摘一遍，省得在每条路上都写一次。
     activeDownloads.remove(reply);
+    m_replyGenerations.remove(reply);
     // 镜像那条没成（失败 / 被看门狗 abort）→ 用官方地址重发一次，这次不算失败。
     if (reply->error() != QNetworkReply::NoError &&
         retryWithOfficialUrl(reply, QStringLiteral("version_manifest.json"),
@@ -1013,7 +1098,6 @@ void DownloadManager::onVersionManifestReplyFinished() {
         return;
     }
     m_stallMeters.remove(reply);
-    m_metadataReplies.remove(reply);
     // NOTE: 这张表**每一条收尾的路都要摘干净**（这条是成功路径，以前漏了它）。
     //       键是回复指针，Qt 释放之后下一批复用同一个地址，残留的键会让一条**没有**
     //       备用地址的新回复被判成"有退路"（看门狗那条慢镜像判据），然后拿着一份**陈旧**的
@@ -1022,6 +1106,15 @@ void DownloadManager::onVersionManifestReplyFinished() {
     // NOTE: 摘的时机是**下面那段内容核完之后**，不是紧跟 m_stallMeters（2026-09-24 挪的）：
     //       镜像的那份清单"HTTP 200 + 截了一半/根本不是 JSON"是它的典型坏法，那种失败也该
     //       退回官方源再试一次 —— 先摘掉就没有退路了。
+    //
+    // NOTE(2026-09-25)：上面那句注释说的挪动**当时只做在了姊妹槽
+    //       onVersionJsonReplyFinished() 里**（那边用的是 take），这一条一直还摘在内容核对
+    //       之前 —— 于是"解不开 → retryWithOfficialUrl()"那条路上 take() 是空的，重发出去
+    //       的那条身上只剩 activeDownloads 里那一笔。它要是再卡死 90 秒，failWedgedDownload()
+    //       认不出这是元数据作业，按**文件**作业收尾：可它从没进过 pendingDownloads
+    //       （见那个函数开头的 NOTE），那一下 --pendingDownloads 吃的是**别人**的计数
+    //       （钳到 0），checkAllDownloadsFinished() 于是在文件还在路上时宣布整批下完。
+    //       现在真挪到这儿，和姊妹槽一个口径。
     if (reply->error() == QNetworkReply::NoError) {
         QJsonParseError error;
         QJsonDocument json = QJsonDocument::fromJson(reply->readAll(), &error);
@@ -1039,6 +1132,9 @@ void DownloadManager::onVersionManifestReplyFinished() {
     } else {
         qDebug() << "Network error:" << reply->errorString();
     }
+    // 走到这儿 = 这条作业真的收尾了（成功、或者没有退路可退了）。上面那两条 return 是
+    // "换一条路再试"，作业已经被 retryWithOfficialUrl() 搬到新回复上，这里**不能**摘。
+    m_metadataReplies.remove(reply);
     m_officialFallbacks.remove(reply);
     // NOTE: 失败路径也必须发信号。VersionManager::fetchVersionDetails 靠这个信号
     // 接着去取 version.json，漏发就会让整个"下载"流程停在半路：UI 已经进了
@@ -1055,6 +1151,7 @@ void DownloadManager::onVersionJsonReplyFinished() {
         return;
     }
     activeDownloads.remove(reply);
+    m_replyGenerations.remove(reply);
     if (reply->error() != QNetworkReply::NoError &&
         retryWithOfficialUrl(reply, QStringLiteral("version_json"),
                              &DownloadManager::onVersionJsonReplyFinished)) {
@@ -1140,23 +1237,49 @@ void DownloadManager::onDownloadReplyFinished() {
         return;
     }
 
+    // 这一条属于**已经被放弃的那一批**吗（用户点了取消、之后又开了一批）。它回来的文件照样
+    // 落盘（数据是好的），但计数、失败清单、进度和"整批下完"的判定一个字都不许碰 ——
+    // 否则上一批的残留会算进新批，甚至提前宣布整批下完。见 m_batchGeneration。
+    const bool stale = !replyIsFromCurrentBatch(reply);
+
     bool success = false;
     QString errorMessage;
 
     if (reply->error() == QNetworkReply::NoError) {
-        QFile file(destPath);
+        // NOTE: 落盘走 QSaveFile（写同目录的临时文件 + 成功后原子改名），**不是**直接写
+        //       destPath。理由：进程被杀、断电、盘满的时候，直接写会在目标路径上留下**半截
+        //       文件**，而那个文件之后会被 fileAlreadyValid() 当成"这个已经下好了"——
+        //       从此再也不会重下，症状是游戏里 NoClassDefFoundError 而重装都修不好。
+        //       资源对象那几千个尤其要命（见 fileAlreadyValid 里那条 0 字节判据）。
+        //       这也是 PlayerSkinStore 存档案、以及全仓别处写配置的同一个做法。
+        QSaveFile file(destPath);
         QDir().mkpath(QFileInfo(destPath).absolutePath());
-        if (file.open(QIODevice::WriteOnly)) {
-            file.write(reply->readAll());
-            file.close();
-            QString expectedSha1 = expectedSha1s.value(reply);
-            if (!expectedSha1.isEmpty()) {
+        const QByteArray body = reply->readAll();
+        const QString expectedSha1 = expectedSha1s.value(reply);
+        const qint64 expectedSize = expectedSizes.value(reply, -1);
+        if (body.isEmpty()) {
+            // 200 + 空正文不是一份文件。镜像源那边"回一个空 200"是已知的坏法之一
+            // （注释里那句"截断/非 JSON 正文"说的是同一类）。
+            errorMessage = QStringLiteral("Server returned an empty body");
+        } else if (file.open(QIODevice::WriteOnly)) {
+            file.write(body);
+            // commit() 才是"真的落到 destPath 上"那一步：它失败 = 目标路径上一个字节都
+            // 没变（临时文件由 QSaveFile 自己收拾），所以下面失败那条路上不需要再 remove()。
+            if (!file.commit()) {
+                errorMessage = QStringLiteral("Failed to write the downloaded file");
+            } else if (!expectedSha1.isEmpty()) {
                 if (verifyFileSha1(destPath, expectedSha1)) {
                     success = true;
                 } else {
                     errorMessage = QStringLiteral("SHA1 verification failed");
-                    file.remove();
+                    QFile::remove(destPath);
                 }
+            } else if (expectedSize > 0 && QFileInfo(destPath).size() != expectedSize) {
+                // 没 sha1 的时候（maven 风格那几个库本来就没有）以前这里是**无条件成功**，
+                // 也就是说任何 200 正文——包括一个错误页——都会被当成那个 jar 存下来，
+                // 而且之后因为"已存在"再也不重下。字节数是这时唯一还有的判据。
+                errorMessage = QStringLiteral("Downloaded size does not match the expected size");
+                QFile::remove(destPath);
             } else {
                 success = true;
             }
@@ -1170,18 +1293,28 @@ void DownloadManager::onDownloadReplyFinished() {
     if (success) {
         m_officialFallbacks.remove(reply);
         m_stallMeters.remove(reply);
-        emit downloadFinished(QFileInfo(destPath).fileName(), true, QString());
-    } else if (retryWithOfficialUrl(reply, destPath, &DownloadManager::onDownloadReplyFinished)) {
+        // 落盘那一步不分成哪一批（数据本身是好东西），**报**这一步才分：上一批的完成信号
+        // 在 abandonBatch() 那一刻就已经不是"这一批的事"了。
+        if (!stale) {
+            emit downloadFinished(QFileInfo(destPath).fileName(), true, QString());
+        }
+    } else if (!stale &&
+               retryWithOfficialUrl(reply, destPath, &DownloadManager::onDownloadReplyFinished)) {
         // 镜像那条路没成，已经换成官方地址重发了 —— 这一次**不算失败**：作业还在这一个
         // 里，计数和失败清单都不动，直接返回（下面那些收尾是给"这个 reply 真的结账"用的）。
+        // NOTE: 已经放弃的那一批不在这里重发（重发出去的那条会被登记成当前代次，等于把一条
+        //       上一批的作业塞进新批）—— retryWithOfficialUrl() 自己那头也拦了一道。
         return;
     } else {
         // NOTE: 要在 activeDownloads.remove() 之前，handleDownloadError 靠它反查路径。
+        //       它自己会认出 stale 的那几条（只留一行日志、不记账）。
         handleDownloadError(reply, errorMessage);
     }
 
     activeDownloads.remove(reply);
+    m_replyGenerations.remove(reply);
     expectedSha1s.remove(reply);
+    expectedSizes.remove(reply);
     // 这两张也必须在**每一条**路上摘干净。键是回复指针，Qt 释放之后下一批下载可能落在
     // 同一个地址上，残留的 lastSignOfLifeMs/bytesSeen 会被算成"那条新回复"的账 ——
     // 表现是一条刚发出去的下载立刻被判成卡死。成功那条支路里已经摘过一次，这里是失败
@@ -1195,11 +1328,16 @@ void DownloadManager::onDownloadReplyFinished() {
         qWarning() << "pendingDownloads went negative, clamping to 0.";
         pendingDownloads = 0;
     }
-    m_doneJobs++;
-
-    emitBatchProgress(destPath);
+    if (!stale) {
+        m_doneJobs++;
+        emitBatchProgress(destPath);
+    }
     // 腾出一条连接就补一个排队的作业，然后才判定整批是否下完（顺序不能反：
     // 先判会把"队列里还有、但当下一个都没在飞"误判成整批结束）。
+    // NOTE: 这两句**不按代次分**：连接预算是全类共用的，排队的作业也还等着发；而
+    //       checkAllDownloadsFinished() 自己就会看 m_batchEmitted / m_batchOpen，
+    //       上一批残留的回复把它叫醒一次不会让它多发一个信号（它们只是把 pendingDownloads
+    //       还回来，而判据是"还有没有在飞的"）。
     pumpDownloadQueue();
     checkAllDownloadsFinished();
 }
@@ -1305,6 +1443,7 @@ void DownloadManager::failWedgedDownload(QNetworkReply *reply) {
         qWarning() << "No data for" << (m_noProgressGiveUpMs / 1000)
                    << "seconds, giving up on the metadata request:" << job.label;
         activeDownloads.remove(reply);
+        m_replyGenerations.remove(reply);
         m_stallMeters.remove(reply);
         m_officialFallbacks.remove(reply);
         // 摘完表再 abort：abort 可能同步回调进 finished 处理函数，那两个槽开头就会把
@@ -1328,8 +1467,12 @@ void DownloadManager::failWedgedDownload(QNetworkReply *reply) {
     handleDownloadError(reply,
                         QStringLiteral("No data received within %1 s, gave up")
                             .arg(m_noProgressGiveUpMs / 1000));
+    // 问代次**必须在摘表之前**：摘完之后查不到记录，默认值就是"当前这一批"，那就等于没判。
+    const bool currentBatch = replyIsFromCurrentBatch(reply);
     activeDownloads.remove(reply);
+    m_replyGenerations.remove(reply);
     expectedSha1s.remove(reply);
+    expectedSizes.remove(reply);
     m_stallMeters.remove(reply);
     m_officialFallbacks.remove(reply);
     // abort() 还是要叫一声：能在连接层面收干净最好（收不干净也不影响上面的记账）。
@@ -1340,9 +1483,12 @@ void DownloadManager::failWedgedDownload(QNetworkReply *reply) {
         qWarning() << "pendingDownloads went negative, clamping to 0.";
         pendingDownloads = 0;
     }
-    m_doneJobs++;
-
-    emitBatchProgress(destPath);
+    // 属于已经放弃的那一批：连接照样收干净，但计数和进度不碰（handleDownloadError 那头已经
+    // 只留了一行日志，见 m_batchGeneration）。
+    if (currentBatch) {
+        m_doneJobs++;
+        emitBatchProgress(destPath);
+    }
     // 和正常收尾同一个顺序：先补一个排队的作业，再判整批是否下完（顺序不能反，
     // 理由见 onDownloadReplyFinished 尾部）。
     pumpDownloadQueue();

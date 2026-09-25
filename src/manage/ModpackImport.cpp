@@ -50,16 +50,25 @@ QString unsupportedLoaderText(const QString &loaderKey, const QString &loaderVer
 
     const QString version =
         loaderVersion.isEmpty() ? QString() : QStringLiteral(" %1").arg(loaderVersion);
+    // 两句话都得说清"哪一条路认得什么"（2026-09-25 修）：原来这两句都写着"能装的是
+    // Fabric / Forge / NeoForge / OptiFine"，那说的是**安装页**那条路（那边四个加载器
+    // 都能装，见 VersionManager::loaderInstallSupported）。可这里判的是**整合包导入**
+    // 这条路，它只认三个加载器键（fabric-loader / forge / neoforge）—— 于是
+    // `dependencies` 里写着 "optifine" 的包会被这里拒绝，而拒绝的话里却说 OptiFine 能装：
+    // 用户按那句话去安装页一看确实能装，就会以为"这个包应该也行，是启动器抽了"。
     if (loaderKey == quiltLoaderKey()) {
         return QObject::tr(
-                   "这个整合包要 Quilt%1，而这个启动器现在能装的是 Fabric / Forge / "
-                   "NeoForge / OptiFine，没有 Quilt。\n\n"
+                   "这个整合包要 Quilt%1，而整合包导入这条路只认得 fabric-loader / forge / "
+                   "neoforge 三个加载器键，没有 Quilt。\n\n"
                    "所以**没有**导入 —— 装出一个进不去的整合包比不装更糟。")
             .arg(version);
     }
     return QObject::tr(
-               "这个整合包要「%1」%2，这个启动器不认识这个模组加载器。\n\n"
-               "能装的是 Fabric / Forge / NeoForge / OptiFine。所以没有导入。")
+               "这个整合包要「%1」%2，而整合包导入这条路只认得 fabric-loader / forge / "
+               "neoforge 三个加载器键。\n\n"
+               "所以没有导入。（安装页里能直接装 Fabric / Forge / NeoForge / OptiFine "
+               "四个加载器，那是另一条路 —— OptiFine 在整合包的依赖表里没有对应的键，"
+               "所以这样写的包不会按 OptiFine 装上。）")
         .arg(loaderKey, version);
 }
 
@@ -332,8 +341,19 @@ Result parseModrinthIndex(const QByteArray &json) {
                         .toObject()
                         .value(QStringLiteral("sha1"))
                         .toString();
+        // fileSize 越界（或者干脆不是数）= **当"不知道字节数"**（-1），不强转。
+        // NOTE: 这一步原来是裸的 `static_cast<qint64>(size.toDouble())`，而越界的 double 转
+        //       qint64 是**未定义行为**（x86 上给出 0x8000…，一个负数）。清单是外部输入，
+        //       写个 1e30 就能撞上，而那个负数会一路走进"这份文件下完了没有"的判断里 ——
+        //       变成一个永远下不完的作业。0 也留着（0 字节的文件确实存在，但那份字节数由
+        //       sha1 那一侧兜），这里只挡"明显不是字节数"的。
+        // 2^63 这个字面量在 double 里表示得**正好**，`<` 它就一定塞得进 qint64。
+        constexpr double kQint64UpperBound = 9223372036854775808.0;
         const QJsonValue size = entry.value(QStringLiteral("fileSize"));
-        file.size = size.isDouble() ? static_cast<qint64>(size.toDouble()) : -1;
+        file.size = -1;
+        if (size.isDouble() && size.toDouble() >= 0.0 && size.toDouble() < kQint64UpperBound) {
+            file.size = static_cast<qint64>(size.toDouble());
+        }
 
         if (file.urls.isEmpty()) {
             // 没有下载地址。Modrinth 的规矩是这种文件由压缩包自己带（overrides 里），

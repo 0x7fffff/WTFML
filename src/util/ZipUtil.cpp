@@ -147,15 +147,28 @@ bool ZipUtil::extractArchives(const QStringList &archives, const QString &target
     // 但解压工具没理由不设防。
     //
     // NOTE: 三条各自的来路：
-    //   - `..`：翻到 $out 上面去（`../x`、`a/../../x`，`\` 分隔也一样，因为判的是子串）；
+    //   - `..`：翻到 $out 上面去（`../x`、`a/../../x`，`\` 分隔也一样）；
     //   - 头一个字符是 `/`、或者名字里带 `:`：.NET 的 Path.Combine 认为第二个参数已经是
     //     绝对路径（`/x`、`\x`、`C:/x` 都算）→ **把 $out 丢掉**，文件写到目标目录外面；
     //   - 判的必须是**归一过 `\`→`/` 的名字**：Windows 上 `\` 同样是分隔符，不归一的话
     //     `META-INF\MANIFEST.MF` 这类条目还会从 excludePrefixes 底下溜过去。
     const QString fullName = QStringLiteral("$e.FullName.Replace('\\','/')");
-    skipConditions << QStringLiteral("%1.Contains('..')").arg(fullName);
+    // `..` 判的是**路径分量**，不是子串（2026-09-25 修）。`.Contains('..')` 会把名字里
+    // 正好带两个点的**正常文件**一并丢掉 —— `mods/foo..bar.jar`、`assets/a..b.png` 都是
+    // 合法名字，而这里的丢弃是**静默的**（`continue`，不报错、不计入任何清单），于是用户
+    // 看到的是"整合包导完了但少东西"。判分量之后 `..` 仍然拦得住（`../x` 拆出来第一段
+    // 就是 `..`），而 `a..b` 拆出来是一段 `a..b`、不等于 `..`，放行。
+    skipConditions << QStringLiteral("(%1.Split('/') -contains '..')").arg(fullName);
     skipConditions << QStringLiteral("%1.StartsWith('/')").arg(fullName);
     skipConditions << QStringLiteral("%1.Contains(':')").arg(fullName);
+    // NOTE: exclude 这几条**区分大小写**（.NET 的 StartsWith(string) 就是区分大小写的），
+    //       和 extractSubtrees() 里那条**前缀**比对不一样 —— 那边是
+    //       `$full.ToLowerInvariant().StartsWith($r.ToLowerInvariant())`，故意不区分
+    //       （真实整合包里 `Overrides/` / `overrides/` 两种写法都有，认不出来就会一条都
+    //       不解压，而那种失败是静默的）。这里不跟着放宽，是因为排的是 `META-INF/` 这种
+    //       规范拼法：放宽只会多丢几个本来也无害的条目，收紧反而可能漏掉签名的目录。
+    //       上面那句"和 extractSubtrees() 里那组一样严"说的是**三条防穿越的判据**，
+    //       前缀比对这一条两边口径不同，这里写明白，别让读的人以为它们逐字一样。
     for (const QString &prefix : excludePrefixes) {
         const QString normalized = prefix.endsWith(QLatin1Char('/')) ? prefix : prefix + QLatin1Char('/');
         skipConditions << QStringLiteral("%1.StartsWith(%2)").arg(fullName, psQuote(normalized));
@@ -329,10 +342,13 @@ bool ZipUtil::extractSubtrees(const QStringList &archives, const QString &target
         return false;
     }
 
-    // NOTE: 这一段是**剥掉前缀之后**的那几条守卫，比 extractArchives 里那条只判 `..` 的
-    //       严一点：剥完之后如果剩下的是 `C:/x` 或 `/x`，.NET 的 Path.Combine 会**丢掉**
-    //       前半截（它认为第二个参数已经是绝对路径了），于是文件被写到 $out 外面去。
+    // NOTE: 这一段是**剥掉前缀之后**的那几条守卫，和 extractArchives 里那三条是同一个口径
+    //       （那边有完整来路）：剥完之后如果剩下的是 `C:/x` 或 `/x`，.NET 的 Path.Combine 会
+    //       **丢掉**前半截（它认为第二个参数已经是绝对路径了），于是文件被写到 $out 外面去。
     //       条目名里的 `\` 也先换成 `/` 再判 —— Windows 上它同样是分隔符。
+    //
+    //       这里以前写的是「比 extractArchives 里那条**只判 `..`** 的严一点」——那句话在
+    //       extractArchives 补上另外两条（绝对路径 / `:`）之后就**说反了**，两边现在一样严。
     const QString script =
         QStringLiteral("$ErrorActionPreference='Stop'\n"
                        "Add-Type -AssemblyName System.IO.Compression.FileSystem\n"
@@ -350,7 +366,7 @@ bool ZipUtil::extractSubtrees(const QStringList &archives, const QString &target
                        "        $full=$e.FullName.Replace('\\','/')\n"
                        "        if(-not $full.ToLowerInvariant().StartsWith($low)){continue}\n"
                        "        $rel=$full.Substring($r.Length)\n"
-                       "        if($rel.Contains('..')){continue}\n"
+                       "        if($rel.Split('/') -contains '..'){continue}\n"
                        "        if($rel.StartsWith('/') -or $rel.Contains(':')){continue}\n"
                        "        $dest=[System.IO.Path]::Combine($out,$rel)\n"
                        "        [void][System.IO.Directory]::CreateDirectory"

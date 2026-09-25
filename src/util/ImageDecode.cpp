@@ -115,12 +115,21 @@ QImage decodeWithWic(const QByteArray &bytes) {
             // 要的那个 —— 别换成 Premultiplied，那是另一个格式。
             QImage buffer(static_cast<int>(width), static_cast<int>(height),
                           QImage::Format_ARGB32);
-            const UINT stride = width * 4;
-            if (SUCCEEDED(converter->CopyPixels(nullptr, stride,
-                                                static_cast<UINT>(buffer.sizeInBytes()),
-                                                buffer.bits()))) {
-                image = buffer; // QImage 是隐式共享的：这一次浅拷贝就让 buffer 那块内存
-                                // 有了第二个主人，buffer 出作用域也不影响它。
+            // NOTE: 分配不出来时 buffer 是**空图**（sizeInBytes() = 0、bits() = nullptr）——
+            //       尺寸大得离谱的图能走到这里（这份字节是从网上来的，按外部输入对待），
+            //       而且 QImage 的构造对"宽度乘高度乘 4 溢出"这种情况也只是回一张空图。
+            //       空图这一路上有两处后果：拿 nullptr 去 CopyPixels 至少是白跑一趟；
+            //       更要紧的是下面那句 `image = buffer` 会把一张**空图**当成"解出来的图"
+            //       带出去 —— 调用方看 isNull() 判不出这是"没解出来"还是"解出来是空的"，
+            //       真出问题时现场就成了"这张图明明下到了却画不出来"，而且没有任何日志。
+            if (!buffer.isNull()) {
+                const UINT stride = width * 4;
+                if (SUCCEEDED(converter->CopyPixels(nullptr, stride,
+                                                    static_cast<UINT>(buffer.sizeInBytes()),
+                                                    buffer.bits()))) {
+                    image = buffer; // QImage 是隐式共享的：这一次浅拷贝就让 buffer 那块内存
+                                    // 有了第二个主人，buffer 出作用域也不影响它。
+                }
             }
         }
     }

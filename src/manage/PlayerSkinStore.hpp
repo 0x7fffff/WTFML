@@ -201,11 +201,20 @@ public:
     void fetchTexture(const QString &url);
 
 signals:
-    /// 拿到一份档案。
+    /// 拿到一份档案。@param uuid 这份是**谁的**（和 refreshForUuid() 收到的是同一个，
+    ///        已经过 uuidKey() 规整）。
+    ///
     /// NOTE: 这里**不做去重**，每次成功都发。理由是"要不要重下贴图"得和手上那份比，
     ///       而手上那份在调用方手里 —— 去重逻辑放在那边一处即可（PlayerSkinProfile::
     ///       sameAs() 就是给它用的），两边各留一份比较反而会不一致。
-    void profileReady(const PlayerSkinProfile &profile);
+    ///
+    /// NOTE: 2026-09-25 起**带上身份**。以前它只带一份 profile，调用方只能拿"当下
+    ///       那个账号"去落盘 —— 于是"刷新还在飞的时候切了账号"这条路会把 A 的档案
+    ///       写进 `profile-<B>.json`（那份文件是**跨重启**的：下次开窗先按它画出 A 的
+    ///       脸，直到下一次刷新成功才纠正）。这是同一个类里已经踩过一次的坑：
+    ///       MainWindow::onRandomSkinReady() 那句 `if (!offlineIdentity()) return;`
+    ///       防的就是同一件事，只不过程序里那处防了、这处没防。
+    void profileReady(const QString &uuid, const PlayerSkinProfile &profile);
     /// 一张贴图在本地就绪了。@param path 本地文件路径 —— 界面自己去读成 QImage。
     void textureReady(const QString &url, const QString &path);
     /// 出错了。**调用方只记日志**（见文件头）。

@@ -171,6 +171,8 @@ inline bool declaresPrefix(const QStringList &args, const QString &prefix) {
  *      参数、上面那段硬编码已经发过了 —— 已经验过的那条路逐字节不变。
  *   2. 老格式（`minecraftArguments` 那个空格分隔的字符串）也吃 —— 1.12.2 那一代的 Forge
  *      就是靠它声明 `--tweakClass` 的，同样从来没被展开过。
+ *   3. 占位符在**过滤之后**才替换（见下面那句故意传空映射的 NOTE）—— 被丢掉的那些参数
+ *      不替换、也就不为它们报「值没填」。
  *
  * NOTE: 2026-09-22 第二版改动：**判据不是 `inheritsFrom`**。第一版写的是"json 里有
  *       inheritsFrom 才展开"，单元测试（拿 meta/ 里那份原样的加载器 profile 喂进去）是过的，
@@ -198,15 +200,19 @@ inline QStringList extraGameArguments(const QJsonObject &versionJson,
     if (!game.isEmpty()) {
         // dropClasspath = false：游戏参数里不该有 ${classpath}（那是 JVM 那边的事），
         // 就算有也不该把前面的 -cp 一起吃掉。
-        declared = expand(game, placeholders, features, false);
+        //
+        // 占位符那一格**故意传空映射**（= 一条都不替换），替换挪到过滤之后做。理由：这一份
+        // 里绝大多数条目是原版那套名字（`--clientId ${clientid}`、`--xuid ${auth_xuid}`、
+        // `--userProperties ${user_properties}`、`--quickPlayPath ${quickPlayPath}` …），
+        // 它们**下一句就会被整条跳掉**（启动器自己发的是另一份），可那几个占位符我们本来就
+        // 不提供 —— 先替换的话，每一次启动都会为这几条打一串「Unresolved placeholder」，
+        // 而那几行**一个字节都不会进命令行**。真出问题的那种（我们会发出去、却没人填值的）
+        // 照样会报，因为它活到了最后那一步。
+        declared = expand(game, QHash<QString, QString>(), features, false);
     } else {
-        const QString legacy = versionJson.value(QStringLiteral("minecraftArguments")).toString();
-        for (const QString &raw : legacy.split(QLatin1Char(' '), Qt::SkipEmptyParts)) {
-            const QString arg = substitutePlaceholders(raw, placeholders);
-            if (!arg.isEmpty()) {
-                declared << arg;
-            }
-        }
+        declared = versionJson.value(QStringLiteral("minecraftArguments"))
+                       .toString()
+                       .split(QLatin1Char(' '), Qt::SkipEmptyParts);
     }
 
     QStringList out;
@@ -226,7 +232,17 @@ inline QStringList extraGameArguments(const QJsonObject &versionJson,
         }
         out << token;
     }
-    return out;
+
+    // 活下来的这些才替换占位符（连同它的值 —— 值和开关一样要走这一遍，`--foo ${x}` 里
+    // 那条是值）。替换成空串的丢掉，和 expand() 里的口径一致。
+    QStringList result;
+    for (const QString &token : out) {
+        const QString arg = substitutePlaceholders(token, placeholders);
+        if (!arg.isEmpty()) {
+            result << arg;
+        }
+    }
+    return result;
 }
 
 }  // namespace VersionArguments

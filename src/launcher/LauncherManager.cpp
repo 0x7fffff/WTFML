@@ -316,8 +316,20 @@ QString LauncherManager::prepareNatives(const QJsonObject &versionJson, const QS
 
     const QString librariesRoot = AppPaths::libraryDir();
 
-    QStringList jars;
-    QStringList excludes;
+    // 按"这一条自己的 extract.exclude"分组解压，**不是**把所有人的排除项并成一份再去解所有
+    // 人的 jar（2026-09-25 修）。
+    //
+    // NOTE: 排除项是**每条库自己的**声明，不是这一组 natives 的公共属性 —— `extract.exclude`
+    //       说的就是"从我这一份里别解出这些路径"。并成一份等于把 A 的排除项也套到 B 上：
+    //       实测本机 66 份 version.json，有 2 份的 natives 库是"一部分带
+    //       `{"exclude":["META-INF/"]}`、一部分完全不写 extract"混着的"，那些不写 extract 的
+    //       jar 的 META-INF 会被无端剥掉（剥多了的表现是某个 DLL/清单文件没解出来，
+    //       而 hasNativeLibraries() 只要看到一个 DLL 就认为解压成功，于是崩在后面）。
+    //
+    //       分组的代价：排除项不同的那几组各起一次 PowerShell（实测那些版本最多两组），
+    //       而这条路**只在第一次启动时走**（上面 hasNativeLibraries 那条守卫会复用已解压的
+    //       目录），所以那点开销付一次就没了。
+    QHash<QString, QStringList> jarsByExcludes;
     QStringList missing;
     for (const LibraryRules::NativeClassifier &classifier : classifiers) {
         const QString jarPath = QDir(librariesRoot).absoluteFilePath(classifier.path);
@@ -325,12 +337,9 @@ QString LauncherManager::prepareNatives(const QJsonObject &versionJson, const QS
             missing << classifier.path;
             continue;
         }
-        jars << QDir::toNativeSeparators(jarPath);
-        for (const QString &exclude : classifier.excludes) {
-            if (!excludes.contains(exclude)) {
-                excludes << exclude;
-            }
-        }
+        QStringList own = classifier.excludes;
+        own.sort();
+        jarsByExcludes[own.join(QLatin1Char('\n'))] << QDir::toNativeSeparators(jarPath);
     }
 
     if (!missing.isEmpty()) {
@@ -341,13 +350,25 @@ QString LauncherManager::prepareNatives(const QJsonObject &versionJson, const QS
         return QString();
     }
 
-    qDebug() << "Extracting" << jars.size() << "natives archives to" << nativesDir;
+    int jarCount = 0;
+    for (const QStringList &group : jarsByExcludes) {
+        jarCount += group.size();
+    }
+    qDebug() << "Extracting" << jarCount << "natives archives to" << nativesDir
+             << "in" << jarsByExcludes.size() << "group(s)";
     QString error;
-    if (!ZipUtil::extractArchives(jars, nativesDir, excludes, &error)) {
-        if (errors) {
-            errors->append(tr("解压 natives 失败：%1").arg(error));
+    for (auto it = jarsByExcludes.constBegin(); it != jarsByExcludes.constEnd(); ++it) {
+        // 键是排序后拼起来的排除项；空键 = 这一组一条排除项都没有（**不是**"排除项为空串"，
+        // 所以要在这里分开处理 —— 空串会被 ZipUtil 归一成 "/"，那是一条匹配不到东西的前缀，
+        // 看着无害，但那是靠巧合）。
+        const QStringList ownExcludes =
+            it.key().isEmpty() ? QStringList() : it.key().split(QLatin1Char('\n'));
+        if (!ZipUtil::extractArchives(it.value(), nativesDir, ownExcludes, &error)) {
+            if (errors) {
+                errors->append(tr("解压 natives 失败：%1").arg(error));
+            }
+            return QString();
         }
-        return QString();
     }
 
     if (!hasNativeLibraries(nativesDir)) {
@@ -512,7 +533,17 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
             // classpath，正是这些版本崩在 UnsatisfiedLinkError 的原因。
             // 1.19+ 的库没有 natives 字段，走上面的 artifact 分支留在 classpath 上，
             // 由 LWJGL 自己从 jar 里提取，行为与改动前一致。
-            if (!libObj[QStringLiteral("natives")].toObject().isEmpty()) {
+            //
+            // 判据**必须**和 prepareNatives()（决定"到底解压了没有"）以及
+            // verifyGameFiles()（决定"缺了要不要提前拦"）用的是**同一条**：
+            // LibraryRules::nativeClassifier(...).valid()。原来这里是
+            // `!libObj["natives"].toObject().isEmpty()`，比那两边**宽** —— 它只问"有没有
+            // natives 字段"，不问**这一台机器**用不用得上：1.12.2 的
+            // lwjgl-platform:2.9.2-nightly 在 Windows 上被 rules 禁掉、只有 Linux 的
+            // classifier 时，它照样让这里要一个 natives 目录，而 prepareNatives() 那份
+            // 一个 DLL 都不会解出来；两边对不上的表现是"verify 说这个版本没问题、启动时
+            // 只留一句 qWarning、进游戏崩在 UnsatisfiedLinkError"。
+            if (LibraryRules::nativeClassifier(libObj).valid()) {
                 needsNativesDir = true;
             }
         }
@@ -741,9 +772,13 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     // 「游戏窗口大小」那两个占位符。原版 json 里那条
     // `{"rules":[{"allow","features":{"has_custom_resolution":true}}],
     //   "value":["--width","${resolution_width}","--height","${resolution_height}"]}`
-    // 用的是这两个名字 —— 填进去是为了**万一**有老版本的 minecraftArguments 里直接写着
-    // `${resolution_width}`（那种拼法见过），不至于把一个没替换的 `${...}` 原样发出去。
-    // 注意：这条占位符**不是**"让原版那条规则生效"的手段，理由见下面 --width 那一段。
+    // 用的是这两个名字。注意：**不是**"让原版那条规则生效"的手段（理由见下面 --width
+    // 那一段），而在今天的代码里它俩其实已经用不上了 —— 凡是带这两个占位符的条目，它前面
+    // 那个开关一定是 `--width`/`--height`，而那两位在 isVanillaGameArgument() 表里，整条
+    // （连同值）都会被 extraGameArguments 丢掉；占位符替换现在也挪到了过滤之后（见那边
+    // 第 3 条规矩），丢掉的不再替换，所以连告警都不会有。
+    // 留着它是**兜底**：将来若真有一条发 `${resolution_width}` 的路活下来，填了值总比把
+    // `${...}` 原样交给游戏强（那种"参数凭空变形"正是 26.3 崩溃的成因）。
     if (windowWidth > 0 && windowHeight > 0) {
         gamePlaceholders[QStringLiteral("resolution_width")] = QString::number(windowWidth);
         gamePlaceholders[QStringLiteral("resolution_height")] = QString::number(windowHeight);
@@ -772,10 +807,11 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     //       `--width/--height`（1.12.2 的 Main 里那对 defaultsTo(854, 480) 就是默认窗口
     //       大小的出处），所以两条路发的是同一种参数。
     //
-    // NOTE: 判据用 contains("--width") 而不是"这条 json 是不是老格式"：老版本的
-    //       minecraftArguments 里**可能**自带 `--width ${resolution_width}`（上面那两个
-    //       占位符就是为它填的），那种情况下这里再加一遍就是**同一个开关发两次** ——
-    //       joptsimple 遇到重复选项会直接报错退出。
+    // NOTE: 那个 `!args.contains("--width")` 是**兜底**，按现在这两条路它永远成立 ——
+    //       别拿"老版本 json 会自带一对 width/height"当它的理由：老格式 json 里那一条
+    //       `--width ${resolution_width}` 已经被上面 ② 整条丢掉了（连同它的值），根本走不到
+    //       这里。留着它的意义只是"这一对参数在列表里已经有人发过了，就别再发一遍"这个写法
+    //       本身：真出现第二条会发它的路时，重复的选项会让 joptsimple 直接报错退出。
     if (windowWidth > 0 && windowHeight > 0 && !args.contains(QStringLiteral("--width"))) {
         args << QStringLiteral("--width") << QString::number(windowWidth)
              << QStringLiteral("--height") << QString::number(windowHeight);
@@ -836,8 +872,28 @@ int LauncherManager::startGame(const QStringList &arguments, const EffectiveJava
     m_sessions[sessionId].outputIsUtf8 = outputIsUtf8;
     qDebug() << "Game output is UTF-8:" << outputIsUtf8 << "session" << sessionId;
 
-    const QString program =
-        settings.javaPath.isEmpty() ? QStringLiteral("java") : settings.javaPath;
+    // javaPath 为空 = "用系统 PATH 上的那个 java"，这时候交给 QProcess 的应该是裸名字
+    // （它自己会按 PATH 找）—— 但下面那道存在性预检是 `QFileInfo(program).exists()`，
+    // 它把相对名字**按当前工作目录解**（CWD 是数据目录，那儿不会躺着 java.exe），于是这一
+    // 支**永远**报「Java可执行文件未找到：java」：兜底路径一次都没成功过。
+    //
+    // NOTE: 判据要跟着"谁负责去找这个文件"走。裸名字的找法只有一个出处：
+    //       QStandardPaths::findExecutable()，和 GlobalJavaSettings 挑 java 时用的是同
+    //       一个函数（那边 :264）。这里把解析结果直接写回 program，下面那道预检和
+    //       QProcess 拿到的就是同一个绝对路径。
+    QString program = settings.javaPath;
+    if (program.isEmpty()) {
+        program = QStandardPaths::findExecutable(QStringLiteral("java"));
+        if (program.isEmpty()) {
+            qWarning() << "Java executable not found on PATH and no path is configured.";
+            emit processError(sessionId,
+                              tr("没有找到 Java：设置里没有指定 Java 路径，系统 PATH 上也没"
+                                 "有 java。请在「设置 → Java」里指定一份。"));
+            discardSession(sessionId);
+            return 0;
+        }
+        qDebug() << "Java resolved from PATH:" << program;
+    }
 
     // 记录启动信息
     qDebug() << "=== Game Launch Started ===";

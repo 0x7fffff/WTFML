@@ -1286,8 +1286,12 @@ void MainWindow::setupConnections() {
         // 点一行：三种行的行为不一样，判据在 onResourceItemActivated() 里（那里是唯一出处）。
         // 鼠标和键盘走同一个接线口（见 ui/RowActivation.hpp）—— 这里**必须**只进来一次：
         // 第三层那一行"点它就是下它"，而双击的两发里第二发会撞上"已有下载任务正在进行"，
-        // 界面于是先弹一句假的「下载失败」，顺手把 m_pendingModpackImport 那笔待导入记录
-        // 也吃掉了（真的整合包下完就再也不会走导入）。
+        // 界面于是先弹一句假的「下载失败」，顺手把待导入记录也吃掉了（真的整合包下完就
+        // 再也不会走导入）。
+        // NOTE: 2026-09-25 起那笔记录只在"这一批真的开起来了"之后才登记（见
+        //       downloadResourceVersion 里那句），假失败那一发带的是同一个 label，
+        //       但它根本没开出批次，登记这一步压根没走到 —— 吃不到它了。
+        //       这里仍然只该进来一次：假失败本身是假的，双击仍只该下一次。
         // 哪几行是"开/关"：**上面两层**（资源、游戏版本）是，第三层那一行（版本号）
         // 是"下它"，算做事 —— 双击仍然只下一次。这个判据和 onResourceItemActivated()
         // 里那个 resourceRowDepth() 说的是同一件事（那边 2 才是下），两处必须一起看。
@@ -1819,7 +1823,18 @@ bool MainWindow::requestSkinTexture(const QString &url, bool allowDownload) {
     return false;
 }
 
-void MainWindow::onSkinProfileReady(const PlayerSkinProfile &profile) {
+void MainWindow::onSkinProfileReady(const QString &uuid, const PlayerSkinProfile &profile) {
+    // 回来的时候身份可能已经变了：用户在请求飞着的时候换了账号、删掉了那个账号，或者
+    // 登出了。**不是同一个身份就整份丢掉** —— 这份档案是发请求时那个人的，照着它落盘
+    // 会把 A 的脸写进 profile-<B>.json（那份文件跨重启生效：下次开窗先按它画出 A 的
+    // 外观，直到下一次刷新成功才纠正），照着它画就是"切了账号，脸还是上一个人的"。
+    //
+    // NOTE: 和 onRandomSkinReady() 那句 `if (!offlineIdentity()) return;` 是同一件事，
+    //       那边早就防了，这条路一直没防（2026-09-25 补）。判据取 uuidKey()：它和
+    //       refreshForUuid() 里用的是同一个规整函数，所以"带不带横线"不会让这一比较失败。
+    if (uuid.isEmpty() || uuid != PlayerSkinStore::uuidKey(m_authManager->playerUuid())) {
+        return;
+    }
     const bool sameAsBefore = profile.sameAs(m_skinProfile);
     const QString previousCapeUrl = m_skinProfile.capeUrl;
     m_skinProfile = profile;
@@ -1832,7 +1847,9 @@ void MainWindow::onSkinProfileReady(const PlayerSkinProfile &profile) {
     }
 
     QString error;
-    if (!PlayerSkinStore::saveProfile(m_authManager->playerUuid(), profile, &error)) {
+    // 落盘用**信号带回来的那个身份**，不用 m_authManager 里当下那个（上面那道闸之后
+    // 它俩本来就相等了 —— 写 uuid 是让"这份是谁的"在读者眼里只有一处出处）。
+    if (!PlayerSkinStore::saveProfile(uuid, profile, &error)) {
         // 存不下来不影响这一次显示（贴图照样下、照样画），只是下次开窗要先重取一遍。
         appendLog(tr("存玩家外观档案失败：%1").arg(error));
     }
@@ -1863,6 +1880,22 @@ void MainWindow::onSkinTextureReady(const QString &url, const QString &path) {
         // 皮肤到手了：不再是"正在获取"。就算这张图后面载不进来，也该由那句
         // "取不到…"来说，而不是一直停在"正在获取"。
         m_skinFetchInFlight = false;
+        // 随机挑的那一张**到这里才记账**（2026-09-25 修）：能走到这一句就说明字节已经在
+        // 盘上了（这个信号的契约就是"本地就绪"，fetchTexture() 里那几条失败路一条都不发它），
+        // 而那条记录是永不失效的 —— 记一条"图上没有"的地址，等于把这个账号钉死在重下同
+        // 一个失败地址上。挑的那一刻只把它放进了 m_pendingRandomSkin*，见 onRandomSkinReady()。
+        // NOTE: 记的是**挑的时候那个账号**（不是当下这个）：用户在这几百毫秒里换了账号时，
+        //       这张图仍然是那个人挑的那一张，记在他名下才对（记错人就没用了 —— 下次
+        //       没人会去读它）。两个都对得上才记，所以中途切过账号的情况这里天然放过。
+        if (!m_pendingRandomSkinUrl.isEmpty() && url == m_pendingRandomSkinUrl) {
+            QString error;
+            if (!RandomSkinStore::saveChosenSkinUrl(m_pendingRandomSkinUuid, url, &error)) {
+                // 记不下来不影响这一次显示（这一趟照样画得出来），只是下次开启动器会重挑一张。
+                appendLog(tr("记下随机皮肤失败：%1").arg(error));
+            }
+            m_pendingRandomSkinUrl.clear();
+            m_pendingRandomSkinUuid.clear();
+        }
         applyPlayerSkin(path, m_capePath, slim);
         return;
     }
@@ -1895,12 +1928,15 @@ void MainWindow::onRandomSkinReady(const QString &skinUrl) {
     if (!offlineIdentity()) {
         return;
     }
-    const QString accountUuid = AccountStore::activeUuid();
-    QString error;
-    if (!RandomSkinStore::saveChosenSkinUrl(accountUuid, skinUrl, &error)) {
-        // 记不下来**不影响这一次显示**（这一趟照样画得出来），只是下次开启动器会重挑一张。
-        appendLog(tr("记下随机皮肤失败：%1").arg(error));
-    }
+    // 挑中的这一张**先记在内存里**，等贴图真的落在盘上再写那行记录（见
+    // onSkinTextureReady 里那一段）。原来是在这里就写的，而这一句之前图一个字节都还没到：
+    // requestSkinTexture() 会因为超时、非 200、或者"不是一张 64 宽的皮肤 PNG"
+    // （PlayerSkinStore::fetchTexture）**一个字节都不落盘**，而记录已经写下了 —— 那条记录
+    // 是永不失效的，于是这个账号从此每次都去重下同一条永远失败的地址、永远停在默认外观，
+    // 而且"换一张"没有界面入口（要手动删 skins/random-<uuid>.txt）。记账的语义本来是
+    // "这个人挑过哪一张、那张是好的"，那就该等它好。
+    m_pendingRandomSkinUrl = skinUrl;
+    m_pendingRandomSkinUuid = AccountStore::activeUuid();
     m_skinProfile = PlayerSkinProfile{skinUrl, QString(), QStringLiteral("classic")};
     // 走那条公用的路。**缓存命中时它是同步的**（fetchTexture 命中就同步发 textureReady），
     // 所以挑第二张的时候这一句之后屏幕上就已经换好了；真要下的时候它会自己把
@@ -3548,15 +3584,23 @@ void MainWindow::downloadResourceVersion(QTreeWidgetItem *item) {
 
     const QString label =
         QStringLiteral("%1 %2").arg(resourceItem->text(column), chosen->versionNumber);
-    if (isModpack) {
-        // 下完接着走导入那条路（那边会问实例名、挑 Java，然后解包、下清单里那几百个文件）。
-        // 路径按**接口给的文件名**算 —— 落盘用的就是它（见 downloadResourceFiles），这里
-        // 不另编一套命名。
-        m_pendingModpackImport = destinationDir + QLatin1Char('/') + file->filename;
-    }
+    // 下完接着走导入那条路（那边会问实例名、挑 Java，然后解包、下清单里那几百个文件）。
+    // 路径按**接口给的文件名**算 —— 落盘用的就是它（见 downloadResourceFiles），这里
+    // 不另编一套命名。
+    const QString modpackPath =
+        isModpack ? destinationDir + QLatin1Char('/') + file->filename : QString();
     appendLog(tr("正在下载 %1（%2）。").arg(label, QDir::toNativeSeparators(destinationDir)));
     // busyInstanceId 传空的那一路：整合包下到缓存里，盘上没有任何实例在被写，不该锁住谁。
-    m_versionManager->downloadResourceFiles(destinationDir, instanceId, label, files);
+    const bool started =
+        m_versionManager->downloadResourceFiles(destinationDir, instanceId, label, files);
+    // ★ 登记**必须**在这一批真的开起来之后。被拒绝时上面那次调用**照样会发**一个
+    //   `resourceDownloadFinished(label, false, …)`，label 还是同一个字符串 —— 先登记的话，
+    //   那一下就会把记录 take() 走。这不是假想的：双击那一行"点它就是下它"时，第二发
+    //   撞的正是这道闸，于是真的整合包下完时记录已经没了 → 界面弹「已经装进实例里了」，
+    //   而实际**一个字节都没导入**。先问"开起来没有"就没有这个窗口。
+    if (started && !modpackPath.isEmpty()) {
+        m_pendingModpackImports.insert(label, modpackPath);
+    }
 }
 
 void MainWindow::onResourceDownloadFinished(const QString &label, bool success,
@@ -3564,8 +3608,12 @@ void MainWindow::onResourceDownloadFinished(const QString &label, bool success,
     // 整合包那一页下回来的 .mrpack：下完要接着走导入那条路。这一单**只活一次**，所以先
     // 取走再判成功与否 —— 不清的话，用户手动导入过一个包之后，下一个下完的模组也会顺手
     // 再触发一次导入。
-    const QString pendingModpack = m_pendingModpackImport;
-    m_pendingModpackImport.clear();
+    //
+    // NOTE: 按 `label` **只取自己那一单**（不是整根成员一刀切）。以前不分单，于是任何一次
+    //       下载完成都会把这笔记录读走：整合包还在下、用户又点了个模组，模组先下完就把
+    //       记录吃了 —— 拿半截 .mrpack 去导入，而且整合包真下完时再没人接它。
+    //       用 take() 而不是 value()+remove()：这一单**只活一次**，取走本身就是"用掉了"。
+    const QString pendingModpack = m_pendingModpackImports.take(label);
 
     if (!success) {
         appendLog(tr("✗ %1 没有下下来：%2").arg(label, errorMessage));
@@ -4566,6 +4614,19 @@ void MainWindow::refreshAccountSkin() {
         m_accountSkinDialog->setCapes({});
         return;
     }
+    // 下面这两下是**同步**的（2026-09-25 补忙态）：loadSavedToken() 可能要真去换一次令牌、
+    // fetchOwnedCapes() 一定发一次 GET —— 两个函数都是"调完才返回"，于是点「刷新」之后的
+    // 这几秒钟里 UI 线程一直在这两行里面出不来：窗不重绘、什么都按不动，Windows 过一会儿
+    // 还会给标题挂上"(无响应)"。
+    //
+    // NOTE: 上面 onAccountSkinClicked() 那段写着"先 show 出来，那一趟就变成『窗开着、
+    //       状态行写着在忙』"—— 那句在改动前是**不成立**的：第 2 步的 setBusy(false)
+    //       之后到这里谁也没把忙态点起来，用户看到的是一个画着旧内容、点什么都没反应的窗。
+    //       忙态 + 一次 processEvents（排掉用户输入）和 enterSyncWait() 是同一个手法：
+    //       进去之前先把话说出来。下面每条返回路上都要松开它。
+    m_accountSkinDialog->setBusy(true, tr("正在获取披风列表…"));
+    QApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+
     QString error;
     const QString token = m_authManager->loadSavedToken(&error);
     if (token.isEmpty()) {
@@ -4575,6 +4636,7 @@ void MainWindow::refreshAccountSkin() {
         if (!error.isEmpty()) {
             m_accountSkinDialog->setStatusText(error);
         }
+        m_accountSkinDialog->setBusy(false);
         return;
     }
 
@@ -4586,6 +4648,7 @@ void MainWindow::refreshAccountSkin() {
         appendLog(tr("拉取披风列表失败：%1").arg(error));
         m_accountSkinDialog->setCapes({});
         m_accountSkinDialog->setStatusText(error);
+        m_accountSkinDialog->setBusy(false);
         return;
     }
 
@@ -4599,6 +4662,8 @@ void MainWindow::refreshAccountSkin() {
         capeRows.append(row);
     }
     m_accountSkinDialog->setCapes(capeRows);
+    // 到这里那一趟联网才算走完（这一条是上面那个忙态唯一的"成功"出口）。
+    m_accountSkinDialog->setBusy(false);
 }
 
 void MainWindow::onAccountLoginRequested() {

@@ -111,7 +111,9 @@ private slots:
     // ---------- 主页右栏那个小人 + 底栏头像（三个都是 PlayerSkinStore 的信号） ----------
     /// 官方回的档案到了。和手上这份一样时**什么都不做**（不重下贴图、不重画）——
     /// 用户在游戏里没换皮肤时，后台那次刷新必须是完全看不见的。
-    void onSkinProfileReady(const PlayerSkinProfile &profile);
+    /// @param uuid 这份档案是**谁的**（PlayerSkinStore 已经规整过的那一串）。回来的时候
+    ///        "当下是谁"可能已经变了，落盘和画都得认它，不能认 m_authManager 里那个。
+    void onSkinProfileReady(const QString &uuid, const PlayerSkinProfile &profile);
     /// 一张贴图在本地就绪了。皮肤和披风是**分开**回来的，这里按 URL 认领。
     void onSkinTextureReady(const QString &url, const QString &path);
     /// 要不到（网络失败、下回来的不是皮肤图、存不下来）。**只记日志、不弹窗** ——
@@ -770,11 +772,25 @@ private:
     ///       本来就只属于"那一次请求"的范围。放这儿也不会留悬空指针（值是纯数据）。
     QHash<QString, QList<ResourceCatalog::VersionEntry>> m_resourceVersions;
     /// 下载页「整合包」那一页下回来的 .mrpack 落在哪 —— 下完之后要接着走导入那条路
-    /// （importModpackFromFile）。空 = 没有在等导入。
+    /// （importModpackFromFile）。键是**那一单的 label**（`downloadResourceFiles()` 收的
+    /// 第三个参数，`resourceDownloadFinished` 原样带回来），空表 = 没有在等导入。
     ///
-    /// NOTE: 只活一次：onResourceDownloadFinished() 里读完就清。不清的话，用户手动
-    ///       导入一个包之后，下一个下完的模组也会顺手再触发一次导入。
-    QString m_pendingModpackImport;
+    /// NOTE: 只活一次：onResourceDownloadFinished() 里按 label `take()` 走。不 take 的话，
+    ///       用户手动导入一个包之后，下一个下完的模组也会顺手再触发一次导入。
+    ///
+    /// NOTE: 2026-09-25 之前它是一根 `QString`，**不分是哪一单**：任何一次
+    ///       onResourceDownloadFinished（普通模组、资源包、数据包…都算）都会把它读走并清掉。
+    ///       整合包还在下、用户又点了个模组，模组先下完 → 那笔记录被模组吃掉，于是
+    ///       ①拿一个还没下完的半截 .mrpack 去走导入（导入那条路会当场失败），
+    ///       ②等整合包真正下完时记录已经没了 → 弹一句「已经装进实例里了」而**实际没装**。
+    ///       按 label 键控之后，"这一单是不是在等导入的那一单"是个能判的问题。
+    ///
+    /// NOTE: 光键控还不够，还有**登记时机**这一半：记录只在 `downloadResourceFiles()`
+    ///       回答"开起来了"之后才写（见 downloadResourceVersion）。被拒绝的那一发会带着
+    ///       **同一个 label** 发一个假失败 —— 双击那一行的第二下正是这样。两半都要，
+    ///       少一半就还是会被吃掉。
+    ///       顺带的好处：两个整合包前后脚开始下也各自记得住（键不同，take() 各取各的）。
+    QHash<QString, QString> m_pendingModpackImports;
     /// 每一页上一次**真的发出去**的搜索词（键 = 分类键）。
     ///
     /// 只为一件事：结果回来时那句「没有搜到「xx」」里的 xx 要是**那一次**的词。读编辑框里
@@ -811,6 +827,11 @@ private:
     //       是两张不同的图，见 DefaultSkin.hpp 文件头）。存的是目录名（版本 id），
     //       显示的时候才换成显示名。
     QString m_offlineDefaultSkinVersion;
+    // 随机挑中的那一张（地址 + 它该记在哪个账号名下）。**挑的那一刻不落盘** ——
+    // 等贴图真的到了盘上再由 onSkinTextureReady() 记账，见那边那段。
+    // 空串 = 没有待记的（正常态）。
+    QString m_pendingRandomSkinUrl;
+    QString m_pendingRandomSkinUuid;
     // 去官方问的这一次还在路上（决定那句话是"正在获取"还是"取不到"）。
     // NOTE: **只表示"真的发出去了一个请求"**，缓存命中不算 —— 命中是同步回来的，
     //       标成"在路上"会让那句话卡在"正在获取"上下不来。

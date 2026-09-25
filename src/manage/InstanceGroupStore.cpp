@@ -372,7 +372,13 @@ bool InstanceGroupStore::writeThrough(const QList<Group> &groups, const QJsonObj
     QJsonObject members;
     for (auto it = rawMembers.constBegin(); it != rawMembers.constEnd(); ++it) {
         const QString key = it.key();
-        const QString groupId = it.value().toString();
+        // 值**先 trim**（2026-09-25 修）。读侧（groupIdOf）读出来的是 trim 过的值，而下面
+        // 那句 keptIds.contains(groupId) 比的是**清洗过的**组 id —— 两边不一致时，手改过的
+        // `"1.20.1": " default-mod "`（记事本里多打两个空格就会这样）在界面上是一条正常
+        // 归属，而**任何一次写盘**（改别的实例的分组就会重写整个文件）都会把它当成"指向
+        // 一个不存在的组"悄悄丢掉：用户下次打开就成了"这个实例怎么又回未分组了"，
+        // 而且没有任何提示。上面那句"规则和读侧逐条对应"说的就是这件事。
+        const QString groupId = it.value().toString().trimmed();
         // 指向已经不存在的组的归属**一起清掉** —— 那个归属没有意义了。这就是
         // "删组只删组本身 + 指向它的成员条目，实例一个不动"那半句的实现。
         //

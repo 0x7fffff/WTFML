@@ -37,14 +37,25 @@ std::optional<QString> readString(const QJsonObject &meta, const QString &key) {
     return value.toString();
 }
 
-/// 读一个整数项：类型不对当没有。JSON 没有整数类型，只认能当整数用的数
-/// （4096.0 收下，4096.5 也收下 —— toInt() 截断；写坏成字符串的当没写）。
+/// 读一个整数项：类型不对当没有。JSON 没有整数类型，只认"塞得进 int"的数
+/// （4096.0 收下、4096.5 收下并按截断算 4096；写坏成字符串的当没写）。
+///
+/// NOTE: 那句"toInt() 截断"原来是**错的**（2026-09-25 实测，探针见 tmp/probe_toint）：
+///       QJsonValue::toInt() 遇到非整数的 double 返回的是**默认值**（不给就 0），它不截断 ——
+///       4096.5 → 0、-1024.7 → 0、1e30 → 0，而 4096.0 → 4096。这个 0 **不是**一个显眼的
+///       错值：它一路走到下面夹取那一段，最后变成"用户设了 4096 MB、起步内存 256 MB"这种
+///       没人报错的错值（Xmx 被钳成下限）。所以截断自己来，越界（和 NaN，比较对它恒假）
+///       当**没写** —— "没写"是这里唯一说得清、下游也认得的意思。
 std::optional<int> readInt(const QJsonObject &meta, const QString &key) {
     const QJsonValue value = meta.value(key);
     if (!value.isDouble()) {
         return std::nullopt;
     }
-    return value.toInt();
+    const double raw = value.toDouble();
+    if (!(raw >= -2147483648.0 && raw <= 2147483647.0)) {
+        return std::nullopt;
+    }
+    return static_cast<int>(raw);
 }
 
 }  // namespace

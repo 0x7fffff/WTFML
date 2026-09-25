@@ -59,17 +59,32 @@ QString readInheritsFrom(const QString &versionId, const QString &jsonName) {
     return VersionInheritance::parentIdOf(doc.object());
 }
 
-/// Windows 保留设备名（CON / PRN / AUX / NUL / COM1-9 / LPT1-9）。
+/// Windows 保留设备名（CON / PRN / AUX / NUL / CONIN$ / CONOUT$ / COM1-9 / LPT1-9）。
 /// 判的是**主名**：`CON` 建不出来，`CON.txt` 一样建不出来。大小写不敏感。
+///
+/// NOTE: 上标那一档是 2026-09-25 按实测补的：`COM¹` / `COM²` / `COM³` 和
+///       `LPT¹`/`LPT²`/`LPT³` 是**同一批设备**（Windows 认 U+00B9/U+00B2/U+00B3 这三个
+///       字符；长得像的 `COM´`（U+00B4）不是）。原来这一档漏了，于是"COM¹"这种名字一路
+///       过判据，而到建目录那一步会**悄悄**被解析成设备（不是报错 —— 是"看着建了、
+///       盘上什么也没有"），用户拿到的就是"导入完了但实例不见了"。
+///       同一轮实测还核了另外两种写法，一起写进上面那张表：`COM0`/`LPT0` **不是**设备
+///       （老文档里那句"COM0-9"在这台机器上不成立，所以别照着文档把它补进来），
+///       而 `CONIN$`/`CONOUT$` 是。
 bool isReservedDeviceName(const QString &stem) {
     const QString upper = stem.toUpper();
     if (upper == QLatin1String("CON") || upper == QLatin1String("PRN") ||
-        upper == QLatin1String("AUX") || upper == QLatin1String("NUL")) {
+        upper == QLatin1String("AUX") || upper == QLatin1String("NUL") ||
+        upper == QLatin1String("CONIN$") || upper == QLatin1String("CONOUT$")) {
         return true;
     }
-    return upper.size() == 4 &&
-           (upper.startsWith(QLatin1String("COM")) || upper.startsWith(QLatin1String("LPT"))) &&
-           upper.at(3) >= QLatin1Char('1') && upper.at(3) <= QLatin1Char('9');
+    if (upper.size() != 4 ||
+        !(upper.startsWith(QLatin1String("COM")) || upper.startsWith(QLatin1String("LPT")))) {
+        return false;
+    }
+    // 末位是 1-9，或者上面说的那三个上标（它们是**一个** QChar，不是 '1' 折出来的两倍宽）。
+    const QChar last = upper.at(3);
+    return (last >= QLatin1Char('1') && last <= QLatin1Char('9')) || last == QChar(0x00B9) ||
+           last == QChar(0x00B2) || last == QChar(0x00B3);
 }
 
 }  // namespace
@@ -198,8 +213,13 @@ QString validateRenameTarget(const QString &rawName, const QString &currentId) {
 
     // 重名比较不区分大小写，理由见 .hpp。`entry` 用磁盘上的真实拼写，
     // 那句提示要指得出到底撞上了哪一个。
+    // 带上 QDir::Hidden（2026-09-25 修）：不带的话，盘上有个 `.foo`（用户自己建的、
+    // 或者别的工具留下的）时这里**看不见它**，于是"重命名成 .foo"和"整合包叫 .foo"
+    // 都判成"不重名"—— 而下一步是往那个目录里搬东西（整合包那条路是解压合并、不是
+    // 建新目录），几秒钟后用户的账上就多了一个半新半旧、而且在实例列表里根本看不见的
+    // 目录。看不见的东西更要在这里挡住：这一句的用途就是"告诉用户这个名字有主了"。
     const QStringList entries =
-        QDir(AppPaths::versionsDir()).entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+        QDir(AppPaths::versionsDir()).entryList(QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot);
     for (const QString &entry : entries) {
         if (entry.compare(name, Qt::CaseInsensitive) == 0 &&
             entry.compare(currentId, Qt::CaseInsensitive) != 0) {
