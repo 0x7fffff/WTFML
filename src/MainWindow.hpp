@@ -265,11 +265,14 @@ private slots:
     ///       先 applyRename() 再写设置，顺序的理由写在实现里。
     void openInstanceSettings(const QString &versionId);
     /// 实例行行尾那颗**上箭头**：把这个实例移进置顶组（哪一组当家见
-    /// InstanceGroupStore::pinnedGroupId()）。没有置顶组时什么都不做。
+    /// InstanceGroupStore::pinnedGroupId()），**并记下它置顶之前待在哪一组**（见那个类的
+    /// 文件头那一段）。没有置顶组时什么都不做。
     void pinInstance(const QString &versionId);
-    /// 同一格反过来那一颗（**下箭头**）：把这个实例挪**出**置顶组（用户 2026-09-25 原话：
-    /// 「置顶组里的实例悬停时右侧显示下箭头，即取消置顶」）。落点 = 未分组，和「移出分组」
-    /// 那件事逐字同一个（写一条"明确选了未分组"，不是把归属删掉）。
+    /// 同一格反过来那一颗（**下箭头**）：把这个实例送回它**置顶之前**待的那一组（用户
+    /// 2026-09-25 原话：「置顶组里的实例悬停时右侧显示下箭头，即取消置顶」；落点由
+    /// 2026-09-26 那句定死：「加一个记录置顶前这玩意属于哪一组的，用户直接塞的取消置顶才
+    /// 归进未分类」）。**没有记录**（用户自己用「移入分组」塞进去的、或者这一版之前的老
+    /// 数据）时落未分组 —— 和「移出分组」逐字同一个落点。
     void unpinInstance(const QString &versionId);
     /// 实例行行尾那个**垃圾桶**：先问一句（这一趟不可逆）再调 deleteInstance()。
     void confirmDeleteInstance(const QString &versionId);
