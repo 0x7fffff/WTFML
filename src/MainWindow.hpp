@@ -20,6 +20,9 @@
 // m_skinProfile），所以这里非得 include 不可（前置声明只够拿指针/引用）。
 // 它是 Core+Network 的头，拖进来的东西不多。
 #include "manage/PlayerSkinStore.hpp"
+// SavedAccount —— accountFacePixmap() 收的就是它（底栏账号面板里那一行是谁）。
+// 这个头是**纯数据 + 静态函数**（QList/QString，连 QtGui 都不碰），所以按值用就 include。
+#include "auth/AccountStore.hpp"
 // LoaderMeta::LoaderVersionList —— 下面那个槽和 fillLoaderVersionItems() 都按它收
 // （每一条带着 stable 标记，"哪一条是测试版""稳定那一档有没有货"都要靠它，见
 // MainWindow::fillLoaderVersionItems）。这是个**纯数据的头**（只有 QString/QList/QJson
@@ -82,6 +85,27 @@ public:
     /// 这里去直接摆状态，等于把"谁说了算"挪到一个不该有决定权的地方。
     MainWindowUI *ui() const { return m_ui; }
 
+    /**
+     * @brief **给验证工程摆现场用**：把"上一次点启动是什么时刻"直接摆成某个值。
+     * @param identity 身份键（`launchIdentityKey()` 那个规矩：正版是 uuid、离线是账号名）。
+     * @param versionId 实例（= versions/ 下面那个目录名）。
+     * @param ms 毫秒时间戳（`QDateTime::currentMSecsSinceEpoch()`）；**0 或负数 = 抹掉这一格**。
+     *
+     * 「十秒内重复启动」那个窗口只有两种量法：真等十秒（验证工程每一跑多花十秒），或者把
+     * 这一格的输入直接摆出来。判据的**全部**输入就是这一个时刻，所以摆它 == 摆现场；而
+     * "窗口外那一侧"和"时钟被往回拨"这两档，只有摆得出来才验得到（等是等不出来的）。
+     *
+     * NOTE: 产品代码里**不要**调它 —— 真正的写点只有 confirmLaunchWhileRunning() 末尾
+     *       那一处（写在"两条都放行了之后"，见那里的说明）。
+     */
+    void seedLastLaunchAttemptForTest(const QString &identity, const QString &versionId, qint64 ms) {
+        if (ms <= 0) {
+            m_lastLaunchAttempts[identity].remove(versionId);
+            return;
+        }
+        m_lastLaunchAttempts[identity][versionId] = ms;
+    }
+
 private slots:
     void onStartButtonClicked();
     // 登录三态（AuthManager 的三个信号）。登录是异步的：点完按钮到浏览器回调回来之间
@@ -132,6 +156,34 @@ private slots:
     /// NOTE: 是**槽**不只是私有函数：验证工程靠 QMetaObject::invokeMethod 驱动它
     ///       （沙盒里现写两张 PNG 喂进来），**不联网**就能验完整条界面路径。
     void applyPlayerSkin(const QString &skinPath, const QString &capePath, bool slim);
+
+    /**
+     * @brief 底栏账号面板里某一行的行首头像（24×24，就是 `bottomBarPanelIconSize()`）。
+     * @param account 那一行是谁（用 `uuid` 认人 —— 名字可以重复）。
+     * @return 一张一定有东西的图；实在什么都没有时是**自己画的首字母方块**。
+     *
+     * 用户原话（2026-09-25）：「在右下角那个上拉框里名字左边加一个头像（因为选择/登录过，
+     * 所以肯定会有缓存，应该不会遇到丢失的情况）」—— 于是这条路**只认缓存**，
+     * 联网 / 换令牌 / 读客户端 JAR 一个都不做，取不到就自己画（那不算出错）。
+     *
+     * 五个来源，按优先级：
+     *   ① 当前账号 —— 底栏那颗头像现成的（`m_avatarPixmap`），缩一下；
+     *   ② 正版账号 —— 缓存里那份档案的 `skinUrl` 对应的贴图（PlayerSkinStore 的两级缓存）；
+     *   ③ 离线账号 —— `RandomSkinStore` 记着他挑中的那张；
+     *   ④ 离线账号 —— `DefaultSkin` **算出来的**那张官方默认皮肤的缓存图（**只拼路径探测，
+     *      绝不走 resolve()**：那一条要起 PowerShell 读 JAR，几百毫秒，不能挂在开面板上）；
+     *   ⑤ 都没有 —— `SkinModel::letterAvatar()` 画的首字母方块。
+     *
+     * NOTE: 每次开面板都要给**全部**账号各算一张（面板里只显示三个，但哪三个是那个
+     *       函数按 `saved_at` 排出来的，不在这里再排一遍）。代价是几次本地文件探测，
+     *       可以接受；**换来的好处**是这条路永远不会"卡在网络上"。
+     */
+    QPixmap accountFacePixmap(const SavedAccount &account) const;
+
+    /// 猜"某个离线账号当初是按哪个实例算的官方默认皮肤"（见 accountFacePixmap() ④）。
+    /// @param currentVersionId 现在选中的那个实例（由调用方给，好让这个函数不碰界面）。
+    /// @return 按可能性从高到低的几个版本号，去重；一个都猜不出来时是空表。
+    QStringList offlineDefaultSkinCacheVersions(const QString &currentVersionId) const;
     void onAddFolderClicked();
     /// 「重命名…」：问一个新名字，真的把磁盘上的目录改掉（含 jar / json 一起改）。
     /// 校验、执行、回滚全在 VersionManager::renameInstance() 里，这里只负责
@@ -487,6 +539,13 @@ private:
     /// 「显示游戏日志」开关。关掉**不关已经开着的那些窗**（用户可能正在读崩溃信息）；
     /// 打开之后从下一行输出开始就会开窗（这是刻意的，见 showGameLogLine 的说明）。
     void onShowGameLogChanged();
+    // ---------- 「启动提醒」那两条（设置页里同一组） ----------
+    /// 十秒内重复启动同一实例时要不要先问一句。改了这一项**不影响已经开着的那些游戏**，
+    /// 也不清 m_lastLaunchAttempts —— 那个表只是"上次点启动是什么时候"，关掉开关不该
+    /// 把它抹掉（再打开时那十秒窗口可能正好还没过）。
+    void onWarnDuplicateLaunchChanged();
+    /// 同一实例已经在跑时要不要提醒可能丢进度。
+    void onWarnWorldLossChanged();
     void onProcessPriorityChanged();
     /// 「窗口大小」那两个数字框共用这一个槽（和内存那两个 spin 同一套写法）。
     void onGameWindowSizeChanged();
@@ -587,6 +646,56 @@ private:
     ///   - m_importingInstanceId / m_installingInstanceId：整合包导入和"带名字的新实例"
     ///     都有"等原版版本 json"那一段（元数据请求，不算下载），导入还多一段解压覆盖。
     QSet<QString> installingVersionIds() const;
+
+    // ------------------------------------------------------------------
+    // 启动前那两条提醒（设置页「启动提醒」那一组，2026-09-25 加的）
+    // ------------------------------------------------------------------
+    // 两条挡的都是**同一件事**：同一份存档被两个进程同时打开。这件事事后救不回来
+    // （后保存的那一份盖掉先保存的），所以只有"点在启动上那一下"挡得住才算数 ——
+    // 两条都在 onStartButtonClicked() 里、**在换令牌之前**（见那里的调用点）。
+
+    /// 「十秒内重复启动同一实例」那个十秒（毫秒）。**唯一出处**：判据在这里、
+    /// 验证工程摆边界也读这里。
+    static int duplicateLaunchWindowMs() { return 10000; }
+
+    /**
+     * @brief 这一下点启动要不要继续（false = 用户在提示里选了「取消」）。
+     * @param versionId 正要启动的那个实例。
+     *
+     * 按顺序问两条，各自受设置页里那个开关管：
+     *   ① 「重复启动」：这个实例**已经有一份是我开的**（同一个身份），而且我上一次点启动
+     *      就在十秒之内 ⇒ 手快连点的形状。标题说"已经有一个相同的运行中游戏进程了"，
+     *      前提是那一份真的在跑 —— 所以判据里带着"确实有那么一份"，不会报一句假话。
+     *   ② 「进度提醒」：这个实例**已经有任何一份在跑**（我开的、别人开的、上一问刚放行的）
+     *      ⇒ 单人存档可能被两份游戏同时打开。
+     *
+     * 两条**都在**这个函数里，不是"二选一"：用户原话要的就是"上一问选了『仍要启动』之后
+     * 接着问下一问"（「在启动同一个实例时（在前面选择仍要启动的情况下/不同账户）弹出
+     * 进入单人世界可能会丢失进度的提示」）。所以同一个实例上连点两下、两条都开着时，
+     * 框是前后两个，不是一个。
+     *
+     * NOTE: 两条都过了之后这里**记一笔时间**（m_lastLaunchAttempts）—— ① 那个十秒窗口
+     *       读的就是它。记在"过了之后"而不是"启动成功之后"是刻意的：这一笔记的是
+     *       **点下去的意图**，而下一步（换令牌 / 挑 Java / 起进程）失败与否和"用户现在
+     *       想不想再点一下"没关系。
+     */
+    bool confirmLaunchWhileRunning(const QString &versionId);
+
+    /**
+     * @brief 当前账号的身份键（跨账号区分"是不是同一个人"用）。
+     *
+     * **离线账号的 uuid 是空的**（`AuthManager::setOfflinePlayer()` 会把 uuid 和令牌一起
+     * 清掉），所以拿 uuid 当键会把所有离线账号撞成同一个 ⇒ 那种情况退回账号名。
+     * 会话那一侧（`GameSession::accountUuid` / `accountName`）用的是同一个规矩，
+     * 两处**必须**一致：不一致的症状是"我自己刚启动的那一份被当成别人开的"，于是
+     * 「重复启动」那条永远不响，而它恰恰是最该响的那一条。
+     */
+    QString launchIdentityKey() const;
+
+    /// 上一次点启动的时刻，按 **身份 → 版本 → 毫秒**（`QDateTime::currentMSecsSinceEpoch()`）。
+    /// 只增不减（没人清它）：条目数 = 这台机器上"点过启动的 (身份, 实例) 组合"数，
+    /// 几十项封顶，清不清都一样。
+    QHash<QString, QHash<QString, qint64>> m_lastLaunchAttempts;
     /// 分组归属用哪个键认这个实例：有稳定 id（wtfml.meta 的 instanceId）就用它，
     /// 没有就退回**目录名**。
     ///

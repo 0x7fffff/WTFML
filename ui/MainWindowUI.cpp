@@ -1282,6 +1282,38 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
         addSettingRow(grid, row++, QStringLiteral("窗口大小"), box, form);
     }
 
+    // ---------- 启动提醒 ----------
+    // 这一组两条都是**点启动之后、游戏起来之前**挡一下的那种确认框：挡的是"同一份存档被
+    // 两个进程同时打开"这件事，而这件事**事后没有任何办法补救**（后写的那一份覆盖先写的）。
+    // 所以两条默认都开着；嫌烦的可以在这里各关各的（提示框上那句小字就是告诉他来这儿关）。
+    // 摆在这儿是因为它们和上面「启动选项」一样，作用对象都是"启动那一下"。
+    addSectionTitle(grid, row++, QStringLiteral("启动提醒"), form);
+    {
+        QWidget *box = makeHintedControl(form);
+        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        warnDuplicateLaunchCheck = new QCheckBox(warnDuplicateLaunchCheckText(), box);
+        warnDuplicateLaunchCheck->setObjectName(warnDuplicateLaunchCheckName());
+        // 勾选状态由 MainWindow 灌（它才知道这个开关存在哪），这里只搭控件。
+        boxLayout->addWidget(warnDuplicateLaunchCheck, 0, Qt::AlignLeft);
+        addHint(box, QStringLiteral("用同一个账号、在十秒之内再点一次启动同一个实例时，"
+                                    "先问一句再启动 —— 手快连点两下会开出两份一模一样的游戏，"
+                                    "而它们开着同一份存档。"),
+                form);
+        addSettingRow(grid, row++, warnDuplicateLaunchRowText(), box, form);
+    }
+    {
+        QWidget *box = makeHintedControl(form);
+        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        warnWorldLossCheck = new QCheckBox(warnWorldLossCheckText(), box);
+        warnWorldLossCheck->setObjectName(warnWorldLossCheckName());
+        boxLayout->addWidget(warnWorldLossCheck, 0, Qt::AlignLeft);
+        addHint(box, QStringLiteral("这个实例已经有一份在跑时提醒一句：单人存档被两份游戏同时"
+                                    "打开可能会丢进度。换账号启动、或者上一问选了「仍要启动」，"
+                                    "走到的都是这一条。"),
+                form);
+        addSettingRow(grid, row++, warnWorldLossRowText(), box, form);
+    }
+
     // ---------- JVM 参数 ----------
     addSectionTitle(grid, row++, QStringLiteral("JVM 参数"), form);
     {

@@ -93,10 +93,29 @@ public:
     /// 那一行现在写的是什么。没插过输入框就是空串。
     QString lineEditText() const;
 
+    /**
+     * @brief 在正文下面、按钮行上面补一行**小字**（比正文小一号、颜色浅一档）。
+     * @param text 那句话。**空串 = 不补**（视图里不留一行空的）。
+     *
+     * 「可以在设置里关掉」这一类**附注**：它必须看得见，但不该和正文抢注意力 ——
+     * 正文是"现在要出什么事"，这一行是"以后不想看见它去哪儿关"。
+     * 字号和颜色都取自本控件的调色板（`QPalette::PlaceholderText`，全仓"比正文浅一档"的
+     * 唯一去处），所以换主题时它跟着走，不用在调用点各写一遍颜色。
+     *
+     * NOTE: 和 `setLineEdit()` 一样是**可选的一步**，不进 ctor：ctor 那六个参数已经够长了，
+     *       而这一行只有"带附注"的那两处要。
+     */
+    void setNote(const QString &text);
+
+    /// 那一行小字现在写的是什么。没设过就是空串。
+    QString noteText() const;
+
     // ---------- objectName（验证工程靠它们认控件） ----------
     static QString titleLabelName() { return QStringLiteral("inlineMessageTitle"); }
     /// 插进来的那一行输入框。**只有"问名字"那一档有。**
     static QString lineEditName() { return QStringLiteral("inlineMessageEdit"); }
+    /// 正文下面那一行小字。**只有走过 `setNote()` 的才有。**
+    static QString noteLabelName() { return QStringLiteral("inlineMessageNote"); }
     static QString textLabelName() { return QStringLiteral("inlineMessageText"); }
     static QString buttonRowName() { return QStringLiteral("inlineMessageButtons"); }
     /// 第 index 颗按钮的名字。**位置是能变的**（按钮表由调用方给），所以认按钮要按下标，
@@ -124,6 +143,7 @@ private:
     QLabel *m_titleLabel = nullptr;
     QLabel *m_textLabel = nullptr;
     QLineEdit *m_lineEdit = nullptr;
+    QLabel *m_noteLabel = nullptr;
 };
 
 namespace InlineMessage {
@@ -167,10 +187,13 @@ QString getText(OverlayHost *host, const QString &title, const QString &label,
  * @param defaultIndex 默认按钮下标，-1 = 没有（危险动作那两颗一律给 -1：误按回车不该把事办了）。
  * @param destructiveIndex 危险动作那一颗，-1 = 没有。v1 只记账不上色（见 .cpp 的 NOTE）。
  * @param dismissOnOutsideClick 点框外面算不算"关掉它"。**默认 false**。
+ * @param note 正文下面那行**小字**（`InlineMessageBox::setNote()`）。**空串 = 不补**。
+ *        放在最后是因为它和上面那几格不是一类：上面几格决定"这个框是什么"，这一格只是
+ *        附注一下 —— 两处用到它的调用点（启动前那两条确认）写的也都是"提醒本身 + 去哪儿关"。
  * @return 被点中的下标；关掉 / Esc / 点外面 = **-1**。
  */
 int ask(OverlayHost *host, MessageKind kind, const QString &title, const QString &text,
         const QStringList &buttons, int defaultIndex = -1, int destructiveIndex = -1,
-        bool dismissOnOutsideClick = false);
+        bool dismissOnOutsideClick = false, const QString &note = QString());
 
 }  // namespace InlineMessage
