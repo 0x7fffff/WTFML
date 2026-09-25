@@ -32,10 +32,33 @@ constexpr int kLogoSize = 16;
 constexpr int kLeftPadding = 12;
 /// 草方块和名字之间空多少。
 constexpr int kLogoGap = 8;
-/// 名字和第一颗导航按钮之间空多少。
+/// 名字和导航那一组之间**至少**空多少（画名字时的右边留白，见 `paintEvent`）。
 /// NOTE: 这一格**是量出来的**：名字那几个字母一长、"主页"就贴到它脸上（中间连一口气都
 ///       没有），所以这儿的留白比 kLogoGap 大一倍。
 constexpr int kBrandGap = 16;
+
+/// 导航那一组的**左边距**。
+///
+/// ★ 这个数不是审美，是「四个按钮的正中 == 整条的正中」（用户原话「上面的四个居中」）
+///   的解法，也是**唯一**的调法。布局是
+///
+///       [这一格留白][stretchA][导航那一组][stretchB][最小化][关闭]
+///
+///   两段 stretch 的因子都是 1 ⇒ 导航那一组的正中
+///
+///       = L + (W - L - R - B) / 2
+///
+///   （W = 条宽、L/R = 布局左右边距、B = 右边那两颗窗口按钮占的宽）。要它等于 W/2，
+///   等价于
+///
+///       L - R = B
+///
+///   右边距 R = 0（那两颗按钮顶到条的最右边），而 B = 2 * buttonSize()
+///   ⇒ 左边距就**必须是** `2 * buttonSize()`。
+///
+///   NOTE: 导航那一组自己的宽 N **消掉了** —— 加一颗按钮、改一次 `navItemWidth()` 都不用
+///         回来调这个数。ui_check 里那条"组的中正 == 条的中正"就是照着这句量的。
+constexpr int kNavGroupLeftMargin = 2 * kButtonSize;
 /// 当前那一颗底下那条横线的高。
 constexpr int kCurrentMarkHeight = 2;
 /// 那条横线左右各缩进多少（贴着字的宽度不好看，缩一点像"这一格被标住了"）。
@@ -50,18 +73,11 @@ QColor barColor(const QPalette &palette) {
     return palette.color(QPalette::Window).darker(105);
 }
 
-/// 那五个字母的宽度（按它实际会被画出来的那个粗体字号算）。
-/// `TitleBar` 的构造和 `paintEvent` 各要一次，所以放在一处。
-int brandWidth(const QFont &baseFont) {
-    QFont bold = baseFont;
-    bold.setBold(true);
-    return QFontMetrics(bold).horizontalAdvance(TitleBar::brandText());
-}
-
 }  // namespace
 
-QString TitleBar::brandText() {
-    // 用户原话：「现在把顶上标题换成五个字母」。就这五个，**写死**。
+QString TitleBar::defaultBrandText() {
+    // 用户原话：「现在把顶上标题换成五个字母」+「左上角五个字母默认是这五个」。就这五个，
+    // **写死**（要改成别的走设置页「外观」，见 `setBrandText()`）。
     return QStringLiteral("WTFML");
 }
 
@@ -185,16 +201,22 @@ TitleBar::TitleBar(QWidget *parent) : QWidget(parent) {
     // 条上的子控件**只有按钮**（四颗导航 + 最小化 + 关闭）。**这不是随手摆的**：
     // `WindowChrome::handleNativeEvent()` 判"这一手是不是落在控件上"用的就是
     // `strip->childAt()`，多一个子控件（哪怕是个铺满的空白 label）就会把拖窗区从它底下
-    // 抢走。中间那一片必须是空的，草方块和那五个字母都是 paintEvent 画的。
+    // 抢走。草方块、名字、以及导航组左右那两片空白都是 paintEvent 画的。
     m_layout = new QHBoxLayout(this);
-    // 左边那一段留白 = 草方块 + 五个字母占掉的地方（导航按钮从它右边开始）：
-    // 导航按钮要**紧跟着名字**，所以这一段不能用 stretch 摆（stretch 会各占一半）。
-    // 宽度按同一個粗体字号算，和 paintEvent 里画名字用的是同一支笔（`brandWidth()`）。
-    const int navLeft = kLeftPadding + kLogoSize + kLogoGap + brandWidth(font()) + kBrandGap;
-    m_layout->setContentsMargins(navLeft, 0, 0, 0);
+    // 左边那一段留白就是"居中"的全部秘密（推导见 kNavGroupLeftMargin）—— 它和名字有多宽
+    // **没关系**：名字画在条的左头（paintEvent），导航那一组自己居中，两边互不干扰。
+    m_layout->setContentsMargins(kNavGroupLeftMargin, 0, 0, 0);
     m_layout->setSpacing(0);
-    // NOTE: 导航按钮是**插在 stretch 之前**的（`setNavItems()` 里 insertWidget(0..n)），
-    //       所以那一段 stretch 顶在"最后一颗导航按钮"和"最小化"之间 —— 拖窗区就是它。
+    // 导航那一组**自己一层布局**，夹在两段等长 stretch 中间 ⇒ 它就是条的中正。
+    // NOTE: 为什么不是把四颗按钮直接 addWidget 到主布局里：主布局上还挂着右边那两颗窗口
+    //       按钮，往中间插控件要按下标算，而"一共几颗导航"是 setupUi 灌进来的
+    //       （0 到 4 颗都合法，见 setNavItems）。独立一层之后 setNavItems() 只管这一层。
+    m_navLayout = new QHBoxLayout;
+    m_navLayout->setContentsMargins(0, 0, 0, 0);
+    m_navLayout->setSpacing(0);
+    m_layout->addStretch(1);
+    m_layout->addLayout(m_navLayout);
+    // 这一段 stretch 顶在"最后一颗导航按钮"和"最小化"之间 —— 拖窗区就是它和左边那一段。
     m_layout->addStretch(1);
     // 显式 AlignVCenter：靠尺寸策略去居中是在赌 QBoxLayout 对 Fixed 那一档的摆法。
     m_layout->addWidget(m_minimize, 0, Qt::AlignVCenter);
@@ -208,7 +230,7 @@ void TitleBar::setNavItems(const QStringList &labels) {
     for (QAbstractButton *button : m_navButtons) {
         // 先摘出布局再删：留在布局里的控件被 deleteLater 之后，那一格会空到下一次
         // 布局重算，中间那一下量出来的几何是没有这几颗按钮的。
-        m_layout->removeWidget(button);
+        m_navLayout->removeWidget(button);
         button->setParent(nullptr);
         button->deleteLater();
     }
@@ -230,8 +252,10 @@ void TitleBar::setNavItems(const QStringList &labels) {
         // （不然构造到 setCurrentNav() 之间那一瞬，四颗都是正文色）。
         button->setInkColor(palette().color(QPalette::PlaceholderText));
         m_navButtons.append(button);
-        // 插在 0..n-1 这几格上：也就是**紧跟着左边那段留白**、在 stretch 之前。
-        m_layout->insertWidget(i, button, 0, Qt::AlignVCenter);
+        // 从左到右挨着摆在那一层自己的布局里（那一层被两段等长 stretch 夹在条的中正）。
+        // 显式 AlignVCenter：这一层的**高**是整条（44），按钮只有 28 —— 不写对齐就是
+        // 赌 QBoxLayout 对 Fixed 那一档的摆法（constructor 里那颗窗口按钮同一个道理）。
+        m_navLayout->addWidget(button, 0, Qt::AlignVCenter);
         connect(button, &QAbstractButton::clicked, this, [this, i]() { emit navRequested(i); });
     }
 }
@@ -253,8 +277,20 @@ QAbstractButton *TitleBar::navButton(int index) const {
     return index >= 0 && index < m_navButtons.size() ? m_navButtons.at(index) : nullptr;
 }
 
+void TitleBar::setBrandText(const QString &text) {
+    const QString trimmed = text.trimmed();
+    if (m_brand == trimmed) {
+        return;
+    }
+    m_brand = trimmed;
+    // 位置不用重算：名字那一段地方是**画出来**的（左留白不跟着它变，见 constructor），
+    // 所以这里只有"重画一次"。
+    update();
+}
+
 QString TitleBar::titleText() const {
-    return brandText();
+    // 空 = 没换过（也含"用户把框清空了"）⇒ 回默认那五个字母。
+    return m_brand.isEmpty() ? defaultBrandText() : m_brand;
 }
 
 void TitleBar::paintEvent(QPaintEvent *) {
@@ -267,8 +303,10 @@ void TitleBar::paintEvent(QPaintEvent *) {
     if (brand.isEmpty()) {
         return;
     }
-    // 右边到哪儿为止：**第一颗导航按钮**的左边缘（不是最小化那颗 —— 那几颗导航按钮就在
-    // 名字右边）。布局摆完之后 x() 才是准的；一颗导航都没有时退到最小化那颗，再退到整条。
+    // 右边到哪儿为止：**第一颗导航按钮**的左边缘（不是最小化那颗 —— 那一段是拖窗区）。
+    // 导航那一组居中之后名字能用的地方长了，但一样要有个头：名字是用户自己填的
+    // （最长 MainWindowUI::titleTextMaxLength()），撞上导航组就省略号截掉。
+    // 布局摆完之后 x() 才是准的；一颗导航都没有时退到最小化那颗，再退到整条。
     int right = width();
     if (m_navButtons.isEmpty()) {
         right = m_minimize != nullptr && m_minimize->x() > 0 ? m_minimize->x() : width();
