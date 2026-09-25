@@ -437,7 +437,7 @@ private:
     void onResourceVersionsFinished(const QString &requestKey,
                                     const QList<ResourceCatalog::VersionEntry> &versions,
                                     const QString &problem);
-    void onResourceIconReady(const QString &projectId, const QPixmap &icon);
+    void onResourceIconReady(const QString &iconId, const QPixmap &icon);
     /// 从请求钥匙反查是哪一类（钥匙是 ResourceCatalog::searchRequestKey() 拼的）。
     /// 拼和认都走那一个函数，所以这里不解析字符串。
     bool kindForSearchRequestKey(const QString &key, ResourceCatalog::Kind *out) const;

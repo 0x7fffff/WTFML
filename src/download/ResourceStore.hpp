@@ -22,6 +22,17 @@
  * 界面按 key 判断"这是不是我现在那一页要的"。
  * 和 VersionManager 那边"看 reply 指针还是不是手上这个"是同一个道理，只是这里跨了函数边界，
  * 得有个名字。
+ *
+ * 【两个来源（2026-09-25 加的）】
+ *
+ * 这一层的每个入口都带一个 `ResourceCatalog::Source`：地址怎么拼、正文怎么读都在
+ * ResourceCatalog 那一层按来源分叉了，这里要管的只有三件事 ——
+ *   ① CurseForge 的接口根地址和 `x-api-key`（**默认走社区反代，不要 key**：那件事的取舍
+ *      写在 ModpackImport::curseForgeApiBase 上面）；地址和头都跟着 source 走，别的来源
+ *      一个字母都不发；
+ *   ② 版本列表那边"200 但正文不是一个数组"的判据要按来源分（Modrinth 是数组、
+ *      CurseForge 是对象），分错了的症状是"CurseForge 那一页永远说版本列表读不懂"；
+ *   ③ 图标那几条按 `Hit::iconCacheId()`（带来源前缀）走，见下面那段。
  */
 #pragma once
 
@@ -46,23 +57,45 @@ public:
     explicit ResourceStore(QObject *parent = nullptr);
     ~ResourceStore() override;
 
+    /// CurseForge 那两发请求要用的设置（**和 VersionManager 那一对是同一件事、同一个来源**：
+    /// 都是 MainWindow 从 LauncherSettings 推过来，判断和取舍都在
+    /// `ModpackImport::curseForgeApiBase()` 上面，这里只负责存）。
+    ///
+    /// NOTE: `apiKey` 空 = 走社区反代（不要 key）；非空 = 走官方并带 `x-api-key`。
+    ///       `baseOverride` **只有验证工程会写**（`Launcher/CurseForgeApiBase`，把接口指到
+    ///       本机的假服务器上）；产品自己从不写它。
+    /// NOTE: 这两条只影响**之后**发的请求 —— 改完不重发已经飞出去的那一发（用户在设置页
+    ///       填完 key 回到下载页得自己再点一下搜索，这和"设置页改完什么都是下一次生效"
+    ///       是一致的）。
+    void setCurseForgeApiKey(const QString &apiKey);
+    void setCurseForgeApiBaseOverride(const QString &base);
+
     /**
      * @brief 搜一次。
      * @param requestKey 这一发的钥匙（界面自己定，信号会原样带回来）。同一个 key 上还有
      *        一发没回来就先掐掉 —— 用户又敲了一次回车，他要的是后一次的结果。
-     * @param kind 搜哪一类（决定 project_type 那个 facet）。
+     * @param kind 搜哪一类（决定 project_type 那个 facet / CurseForge 的类目号）。
+     * @param source 搜哪个资源站（地址、要不要 key、正文怎么读都跟着它走）。
      * @param query 搜索词；**空串是合法的**（那就是"这类里最热门的"，进页面时就是这么问的）。
      * @param gameVersion 非空则只搜支持这个游戏版本的。
-     * @param loader 非空则只搜这个加载器的（fabric/forge/...）。
+     * @param loader 非空则只搜这个加载器的（fabric/forge/...）。**界面上只有模组那一页会给它**，
+     *        而 ResourceCatalog 那一侧本来也不认其它几类的加载器。
+     * @param category 非空则只搜这个类型（键来自 `ResourceCatalog::categoryOptions()` ——
+     *        一个 slug 或者一个类目号，**别自己拼**）。
      *
      * 结果走 searchFinished（**成功和失败都发**，"没搜到"和"没搜成"在 result 里分得开）。
      */
-    void search(const QString &requestKey, ResourceCatalog::Kind kind, const QString &query,
-                const QString &gameVersion = QString(), const QString &loader = QString());
+    void search(const QString &requestKey, ResourceCatalog::Kind kind,
+                ResourceCatalog::Source source, const QString &query,
+                const QString &gameVersion = QString(), const QString &loader = QString(),
+                const QString &category = QString());
 
     /**
      * @brief 问一个资源在某个游戏版本下有哪些版本可下。
      * @param requestKey 这一发的钥匙（用 ResourceCatalog::versionsRequestKey() 拼的那把）。
+     * @param source 去哪儿问（地址、要不要 key 跟着它走）。**必须和这条 Hit 的来源一样** ——
+     *        两个来源的 id 空间会撞（见 Hit::iconCacheId 那段），问错边问出来的东西
+     *        是另一个资源的版本列表，而且不报错。
      * @param gameVersion 空 = 不筛（"这个资源的全部版本"，界面上还没选游戏版本时不该这么问）。
      *
      * 结果走 versionsFinished。**三条路要分得开**：失败（problem 非空）/ 问到了但一条都没有
@@ -70,7 +103,8 @@ public:
      *（加载器树那边「无可用版本」和「列表没取到」踩过同一个坑）。
      */
     void fetchVersions(const QString &requestKey, const QString &projectId,
-                       const QString &gameVersion, const QString &loader = QString());
+                       ResourceCatalog::Source source, const QString &gameVersion,
+                       const QString &loader = QString());
 
     /**
      * @brief 要一个图标。
@@ -104,19 +138,29 @@ public:
      *       源**时这条要重新量：那时的代价是一页二十来张整图，一页 200 KB 上下。
      *       （探针：`mw_check.exe icon-live`，它会把 304 的条数和真下回来的字节数打出来。）
      *
-     * 【为什么收的是整条 Hit 而不是一个 id：要挑地址】
+     * 【为什么收的是整条 Hit 而不是一个 id：要挑地址，而地址要按来源挑】
      *
      * 同一个图标有两条地址（见 ResourceCatalog 文件头）：接口给的 `Hit::iconUrl` 大多是
-     * 一条**小得多**的 96px 缩略图 webp（样张 4800 B，而同一张的 PNG 是 35 KB；按张会变），
-     * 自己拼的 `Hit::iconPngUrl()` 是 PNG。**怎么选**：
-     *   * 这台机器解得了 webp（ImageDecode::webpAvailable）**而且**接口给的这条确实是
-     *     webp → 先要那条小的；
-     *   * 否则 → 直接要 PNG（一次请求，别为一条解不动的地址白发一发）。
-     * 先要 webp 的那条路**带一个兜底**：那一条没解出来（或者 404）就再要一次 PNG，
-     * 而这一发**不计失败**（详见 startIconRequest）。
+     * 一条**小得多**的缩略图（Modrinth 那边是 96px 的 webp，样张 4800 B，而同一张的 PNG
+     * 是 35 KB；CurseForge 那边是 256px 的 png），`Hit::iconPngUrl()` 是兜底那条
+     *（Modrinth 自己按 id 拼、CurseForge 是接口给的 `logo.url` 原图）。**怎么选**：
+     *   * 接口给的那条**这一台用得了** → 先要它；
+     *   * 用不了（没有地址，或者是一条本机没有解码器的 webp）→ 直接要兜底那条
+     *     （一次请求，别为一条解不动的地址白发一发）。
+     * 先要接口给的那条时**带一个兜底**：那一条没取到/没解出来就再要一次 iconPngUrl()，
+     * 而这一发**不计失败**（详见 startIconRequest）。两条地址是同一个东西时（CurseForge
+     * 只给了一条、Modrinth 那条本来就是 icon.png）**不追第二发**。
      *
      * 盘上那份缓存的扩展名是 `.icon` 不是 `.png` —— 里面两种字节都可能躺着（见
      * iconCachePath），叫什么名字只说明「这是个图标」，格式由 ImageDecode 按内容判。
+     *
+     * 【缓存键是 `Hit::iconCacheId()`，不是裸 project_id】
+     *
+     * 两个来源的 id 空间会撞（Modrinth 的 base62 id 里 `238222` 也是合法的，而
+     * CurseForge 那边真有这么个号）。图标缓存默认不过期，撞上的症状是"这一格永远画着
+     * 另一个资源的图标"。所以下面那一排静态函数收的都是 **cacheId**（
+     * `<sourceKey>-<projectId>`），`iconReady` 带回去的也是它 —— 界面按 cacheId 认那一行
+     * （见 MainWindow 的 resourceIconIdRole）。
      */
     void requestIcon(const ResourceCatalog::Hit &hit);
 
@@ -134,15 +178,15 @@ public:
         bool isEmpty() const { return etag.isEmpty() && lastModified.isEmpty(); }
     };
 
-    /// 凭据那份旁挂文件：`<数据目录>/cache/icons/<project_id>.icon.meta`。
-    /// 跟着 iconCachePath() 一起走 —— 同样地，project_id 不是文件名安全的那一类时回空串。
+    /// 凭据那份旁挂文件：`<数据目录>/cache/icons/<cacheId>.icon.meta`。
+    /// 跟着 iconCachePath() 一起走 —— 同样地，cacheId 不是文件名安全的那一类时回空串。
     ///
     /// NOTE: 为什么另起一个文件而不是塞进 `.icon` 里：那个文件是**整段图片字节**，
     ///       前面加任何东西都会让"按内容认格式"（ImageDecode，见那条 NOTE）读不出来。
     ///       `.icon.meta` 是纯文本三行（etag / last-modified / 这份凭据是哪条地址给的），
     ///       读不懂就当没有。第三行是 2026-09-25 补的：老版本写的那份只有两行，读出来
     ///       第三条是空串，按"没记地址"处理（照样用）。
-    static QString iconMetaPath(const QString &projectId);
+    static QString iconMetaPath(const QString &cacheId);
 
     /// 读那两条凭据。读不到（没有 / 读不动 / 内容不成形）一律回**空的** ——
     /// "没有凭据"和"凭据是空的"是同一件事：下一发整张重来。
@@ -150,38 +194,39 @@ public:
     ///        唯一地址 —— 同一个 project 有两条）。meta 里第三行记着这份凭据是哪条地址的，
     ///        **对不上就当没有凭据**：理由见实现处那条 NOTE（拿 A 的 ETag 去问 B，轻则白下
     ///        一整张，重则问出一个 304 来、这一格从此画着另一条地址的图）。
-    static IconValidators loadIconValidators(const QString &projectId, const QString &url);
+    static IconValidators loadIconValidators(const QString &cacheId, const QString &url);
 
     /// 把这一发拿到的那两条凭据写到盘上。两个都是空 = **删掉**那份 meta（没有凭据还留着
     /// 一个空文件，下次读出来一样，但盘上多一个东西）。best-effort：写不进去不算错。
     /// @param url 这两条凭据是**哪条地址**给的 —— 和上面读的那一侧配成对。
-    static bool saveIconValidators(const QString &projectId, const IconValidators &validators,
+    static bool saveIconValidators(const QString &cacheId, const IconValidators &validators,
                                    const QString &url);
 
-    /// 某个 project_id 的图标缓存路径：`<数据目录>/cache/icons/<project_id>.icon`。
+    /// 某个图标的缓存路径：`<数据目录>/cache/icons/<cacheId>.icon`。
+    /// cacheId 一律走 `Hit::iconCacheId()`（带来源前缀，见上面那段）。
     ///
-    /// project_id 不是文件名安全的那一类（含 `/`、`\`、`:`、`..` 之类）时回**空串** ——
+    /// cacheId 不是文件名安全的那一类（含 `/`、`\`、`:`、`..` 之类）时回**空串** ——
     /// 宁可不在盘上缓存，也不要拼出一个能写到别的目录去的路径。这个 id 是从接口正文里来的，
-    /// 按"外部输入"对待。
+    /// 按"外部输入"对待（来源前缀是我们自己加的，但 project_id 那一半不是）。
     ///
     /// NOTE: 后缀是 `.icon` 不是 `.png`。这一格两种字节都会落进来（先要 webp 那条成功的
     ///       话存的就是 webp），叫 `.png` 就是一句假话 —— 而这个假话会害到下一个「看见
     ///       .png 就当 PNG 去读」的人。**认格式一律按内容**（ImageDecode::decode）。
-    static QString iconCachePath(const QString &projectId);
+    static QString iconCachePath(const QString &cacheId);
 
     /// 读盘上那份图标缓存。
     /// @param bytesOut 命中时写入文件内容（没命中不动它）。
     /// @return 文件在不在。**在就一定能用**：这里没有"够不够新"这一说了（见 requestIcon）。
-    static bool loadIconFromCache(const QString &projectId, QByteArray *bytesOut);
+    static bool loadIconFromCache(const QString &cacheId, QByteArray *bytesOut);
 
     /// 把一份刚下回来的（能解码成图的）图标字节写到盘上。
     /// best-effort：写不进去就算了，**不是错误**（这次照样把图发给界面）。
-    static bool saveIconToCache(const QString &projectId, const QByteArray &bytes);
+    static bool saveIconToCache(const QString &cacheId, const QByteArray &bytes);
 
     /// 把盘上那份图标缓存删掉（读到坏字节时用，见 requestIcon）。**凭据一起删** ——
     /// 光删图不删凭据的话，下一次会拿着一条"对应另一份字节"的 ETag 去问，主机答 304，
     /// 于是这一格永远也画不出东西来。
-    static void dropIconFromCache(const QString &projectId);
+    static void dropIconFromCache(const QString &cacheId);
 
     /// 图标那一发用的请求：8 秒超时（kIconTimeoutMs，比 kDefaultTimeoutMs 短），
     /// **可能带**"变了没有"那两个头。
@@ -232,16 +277,35 @@ signals:
                           const QString &problem);
 
     /// 图标到了（空 QPixmap = 这条资源没有图标，画占位）。
-    void iconReady(const QString &projectId, const QPixmap &icon);
+    ///
+    /// @param iconId `Hit::iconCacheId()`（带来源前缀）—— 界面按它认那一行，见 requestIcon
+    ///        那段"缓存键"。
+    void iconReady(const QString &iconId, const QPixmap &icon);
 
 private:
     /// 失败话术（**不是** 429：那条有自己唯一的一句话，见 HttpClient::throttledText）。
     /// 正文里带着接口自己那句 `description` 时把它带上 —— 实测接口报错就是这个形状，
     /// 它比我们编的"搜索失败"有用得多。
-    static QString failureText(QNetworkReply *reply, const QByteArray &body, const QString &what);
+    ///
+    /// @param source CurseForge 那一趟**再带一句"可以去设置里填自己的 key"**：默认那条路
+    ///        是社区反代（别人的服务），它没了、被限流了、或者官方那边改了规矩，用户手上有
+    ///        一条自己能走的路 —— 这句话不给的话，界面上就只剩"搜索失败"四个字
+    ///        （和 VersionManager::resolveCurseForgeFiles 那条路的说法保持一致）。
+    /// @param hasKey 手上有没有用户自己填的那份 CurseForge key —— 它决定那句话指向哪条出路
+    ///        （有 key 就是"这份可能不对/失效了"，没有就是"可以填一份").**收的是这个事实、
+    ///        不是 key 本身**：这个函数是静态的（不碰成员），而且话术里一个字都不该出现 key。
+    static QString failureText(QNetworkReply *reply, const QByteArray &body, const QString &what,
+                               ResourceCatalog::Source source = ResourceCatalog::Source::Modrinth,
+                               bool hasKey = false);
+
+    /// CurseForge 那一趟的接口根地址（`…/v1`）。**唯一出处是
+    /// `ModpackImport::curseForgeApiBase()`** —— 这里只把手上那两条设置递进去，
+    /// 不自己拼域名、也不判 key 空不空（那个判断在那边一处）。
+    QString curseForgeApiBase() const;
 
     /// 发一发图标请求（`requestIcon` 挑完地址之后的那一步，**自己会往 m_iconPending 里记**）。
     ///
+    /// @param iconId      这一格是谁（`Hit::iconCacheId()`）。
     /// @param url         这一发要的地址。
     /// @param fallbackUrl 这一发没成时再要一次的那个地址；空 = 没有下一发。
     /// @param onDiskBytes 盘上那一份的字节（空 = 盘上没有）。两个用处：① 带条件头去问
@@ -250,17 +314,18 @@ private:
     ///
     /// 【两条地址的那条路，规则都在这】
     ///
-    /// 只有"先要 webp"那一条路会带 fallbackUrl（见 requestIcon）。什么时候真退回去：
-    /// **这一发答话了、但那不是一张能解的图** —— 404（地址不在）、403、或者 200 配一段
-    /// 解不出来的正文（本机没有 webp 编解码器时理论上不会走到这，但"理论上"不该当判据）。
-    /// 这一退**不计失败**：它不是"这一路不通"，是"这条地址这条格式不行，换一条"。
+    /// 只有"接口给的那条这一台用得了"那一条路会带 fallbackUrl（见 requestIcon）。
+    /// 什么时候真退回去：**这一发答话了、但那不是一张能解的图** —— 404（地址不在）、403、
+    /// 或者 200 配一段解不出来的正文（本机没有 webp 编解码器时理论上不会走到这，但
+    /// "理论上"不该当判据）。这一退**不计失败**：它不是"这一路不通"，是"这条地址这条格式
+    /// 不行，换一条"。
     ///
     /// NOTE: **状态 0 和 5xx 不退**（`isHostLevelIconFailure`）。那两条说明整条路都不通，
     ///       换到一个同主机、同一条链子上的地址只会再耗一个 8 秒超时，还白推一格那道闸
     ///      （症状是"明明只是网断了，三次之后这一页再也不问了"）。
     /// NOTE: 退回去那一发**不带 onDiskBytes / validators**（`QByteArray()` / 空的）——
     ///       换了地址就是换了资源，拿 A 的凭据去问 B 是没有意义的，老老实实要整张。
-    void startIconRequest(const QString &projectId, const QString &url, const QString &fallbackUrl,
+    void startIconRequest(const QString &iconId, const QString &url, const QString &fallbackUrl,
                           const QByteArray &onDiskBytes = QByteArray(),
                           const IconValidators &validators = IconValidators());
 
@@ -271,7 +336,7 @@ private:
     ///       过期刷新那一条路上，盘上那张旧的**已经画在界面上了** —— 这时候再发一个空
     ///       QPixmap 会把那一格擦成透明方块（症状是"作者换了图标、这次没问到，图标反而
     ///       没了"）。重发同一张 = 契约不破，那一格也不动。
-    void answerIcon(const QString &projectId);
+    void answerIcon(const QString &iconId);
 
     /// 记一次"主机级"的图标失败，够数了就**放弃这一批**（见 m_iconGaveUp）。
     void noteIconFailure(int httpStatus);
@@ -279,10 +344,10 @@ private:
     QNetworkAccessManager *m_net = nullptr;
     /// 每个频道手上那一发（key -> reply）。回来的东西不是这一发就丢掉。
     QHash<QString, QNetworkReply *> m_replies;
-    /// 图标：projectId -> 图。前面还有一层盘上的（见上面的静态函数），这里是这一趟运行
-    /// 的副本，命中它连盘都不用读。
+    /// 图标：`Hit::iconCacheId()` -> 图。前面还有一层盘上的（见上面的静态函数），这里是
+    /// 这一趟运行的副本，命中它连盘都不用读。
     QHash<QString, QPixmap> m_icons;
-    /// 正在问的图标（同一个别问两遍）。
+    /// 正在问的图标（同一格别问两遍）。
     QSet<QString> m_iconPending;
     /// 明确没有图标的（HTTP 404）。注意这和"这次没取到"**不是一回事**：网络失败不进这里，
     /// 下次还会再试一次。
@@ -310,4 +375,10 @@ private:
     /// 已经放下了。**不是永久状态**：下一次搜索会清掉它（用户又动了 = 网络可能刚变好，
     /// 比如他刚把代理打开）—— 这道闸只管"这一次、这一屏别干等"，不该管一整个会话。
     bool m_iconGaveUp = false;
+
+    /// CurseForge 那两发要用的设置（见 setCurseForgeApiKey 那一段）。都是 MainWindow 从
+    /// LauncherSettings 推过来的 —— 这一层不读设置（和 VersionManager 一个规矩）。
+    QString m_curseForgeApiKey;
+    /// **只有验证工程会写它**（`Launcher/CurseForgeApiBase`，把接口指到本机的假服务器上）。
+    QString m_curseForgeApiBaseOverride;
 };

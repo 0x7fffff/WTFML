@@ -13,8 +13,10 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QPair>
 #include <QUrl>
 
+#include "manage/ModpackImport.hpp"  // curseForgeApiBase() —— 那条接口根地址的唯一出处
 #include "net/HttpClient.hpp"
 #include "util/AppPaths.hpp"
 #include "util/ImageDecode.hpp"
@@ -27,11 +29,33 @@ namespace {
 /// 那边都不发这个头，所以只在这里加。
 /// 超时走 HttpClient::kDefaultTimeoutMs（15 秒，**唯一出处**）—— 这里用的是 Qt 自己的
 /// transferTimeout，不用再搭一个 QTimer：HttpClient 那边手写超时是因为它在跑内嵌事件循环。
-QNetworkRequest resourceRequest(const QString &url) {
+///
+/// @param headers 额外要带的（现在只有 CurseForge 的 `x-api-key`，见 apiKeyHeaders）。
+///        传空表就是一个头都不加 —— 两个来源里只有 CurseForge 认这个头，别的来源带上
+///        它是白发一个别人看不懂的头。
+QNetworkRequest resourceRequest(const QString &url,
+                                const QList<QPair<QByteArray, QByteArray>> &headers = {}) {
     QNetworkRequest request{QUrl(url)};
     request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("WTFML"));
+    for (const QPair<QByteArray, QByteArray> &header : headers) {
+        request.setRawHeader(header.first, header.second);
+    }
     request.setTransferTimeout(HttpClient::kDefaultTimeoutMs);
     return request;
+}
+
+/// CurseForge 那条路要额外带的头：`x-api-key`（**只有用户自己填了 key 才有**）。
+///
+/// 默认那条路是社区反代、不要 key（见 ModpackImport::curseForgeApiBase）：那时候一个头都
+/// 不发。用户填了 key 就改走官方，官方**不带这个头一律 403**（实测 2026-09-25）——
+/// 头名和 VersionManager 那边一字不差（两处都是"问 CurseForge 要东西"，没有理由不一样）。
+QList<QPair<QByteArray, QByteArray>> apiKeyHeaders(const QString &apiKey) {
+    QList<QPair<QByteArray, QByteArray>> headers;
+    const QString trimmed = apiKey.trimmed();
+    if (!trimmed.isEmpty()) {
+        headers.append({QByteArrayLiteral("x-api-key"), trimmed.toUtf8()});
+    }
+    return headers;
 }
 
 /// 图标那一发的超时：**比** kDefaultTimeoutMs 短得多，理由和 PlayerSkinStore 那边同一个
@@ -114,6 +138,18 @@ ResourceStore::ResourceStore(QObject *parent)
 
 ResourceStore::~ResourceStore() { abortAll(); }
 
+void ResourceStore::setCurseForgeApiKey(const QString &apiKey) { m_curseForgeApiKey = apiKey.trimmed(); }
+
+void ResourceStore::setCurseForgeApiBaseOverride(const QString &base) {
+    m_curseForgeApiBaseOverride = base.trimmed();
+}
+
+QString ResourceStore::curseForgeApiBase() const {
+    // **唯一出处**：key 空不空、走反代还是官方，全在 ModpackImport 那一处判（和
+    // VersionManager::resolveCurseForgeFiles 调的是同一个函数）—— 这里只是把手上那两条递进去。
+    return ModpackImport::curseForgeApiBase(m_curseForgeApiKey, m_curseForgeApiBaseOverride);
+}
+
 void ResourceStore::abortAll() {
     const QList<QNetworkReply *> replies = m_replies.values();
     m_replies.clear();
@@ -129,23 +165,42 @@ void ResourceStore::abortAll() {
 }
 
 QString ResourceStore::failureText(QNetworkReply *reply, const QByteArray &body,
-                                   const QString &what) {
+                                   const QString &what, ResourceCatalog::Source source,
+                                   bool hasKey) {
     const int status = statusOf(reply);
     const QString description =
         QJsonDocument::fromJson(body).object().value(QStringLiteral("description")).toString();
+
+    /// CurseForge 那一趟要**多给一句**用户自己能走的路（见声明处那段）：默认走的是社区
+    /// 反代，它限流了、停了、或者官方那边改了规矩，用户在设置里填一份自己的 key 就能绕过去。
+    /// 措辞和 VersionManager::resolveCurseForgeFiles 那条路对齐（同一个来源、同一个出口）。
+    QString hint;
+    if (source == ResourceCatalog::Source::CurseForge) {
+        hint = !hasKey
+                   ? QStringLiteral("\n\n网络本身没问题的话，多半是那个公共接口的事了 —— 可以在设置页"
+                                    "「下载源」那一组里填一份自己的 CurseForge API key（免费申请），"
+                                    "填了就改走官方接口。")
+                   : QStringLiteral("\n\n设置里那份 CurseForge API key 可能不对、或者已经失效了，"
+                                    "可以换一份。");
+    }
+
     if (status > 0) {
         if (!description.isEmpty()) {
-            return QStringLiteral("%1失败（HTTP %2）：%3").arg(what).arg(status).arg(description);
+            return QStringLiteral("%1失败（HTTP %2）：%3%4")
+                .arg(what)
+                .arg(status)
+                .arg(description, hint);
         }
-        return QStringLiteral("%1失败（HTTP %2）").arg(what).arg(status);
+        return QStringLiteral("%1失败（HTTP %2）%3").arg(what).arg(status).arg(hint);
     }
     // 压根没连上（断网、DNS、超时）。errorString() 是 Qt 给的那句英文，带上比不带强。
-    return QStringLiteral("%1失败：%2").arg(what, reply->errorString());
+    return QStringLiteral("%1失败：%2%3").arg(what, reply->errorString(), hint);
 }
 
 void ResourceStore::search(const QString &requestKey, ResourceCatalog::Kind kind,
-                           const QString &query, const QString &gameVersion,
-                           const QString &loader) {
+                           ResourceCatalog::Source source, const QString &query,
+                           const QString &gameVersion, const QString &loader,
+                           const QString &category) {
     if (QNetworkReply *previous = m_replies.take(requestKey)) {
         previous->abort();
     }
@@ -156,12 +211,19 @@ void ResourceStore::search(const QString &requestKey, ResourceCatalog::Kind kind
     m_iconHostFailures = 0;
     m_iconGaveUp = false;
 
+    const bool isCurseForge = source == ResourceCatalog::Source::CurseForge;
+    // 接口根地址**只给 CurseForge 那一条**（Modrinth 那条路的地址是写死的）：key 空不空、
+    // 走反代还是官方，都在 curseForgeApiBase() 里一处判。
     const QString url = ResourceCatalog::searchUrl(kind, query, 0, kSearchPageSize, gameVersion,
-                                                  loader);
-    QNetworkReply *reply = m_net->get(resourceRequest(url));
+                                                  loader, source, category,
+                                                  isCurseForge ? curseForgeApiBase() : QString());
+    QNetworkReply *reply = m_net->get(
+        resourceRequest(url, isCurseForge ? apiKeyHeaders(m_curseForgeApiKey)
+                                          : QList<QPair<QByteArray, QByteArray>>()));
     m_replies.insert(requestKey, reply);
 
-    QObject::connect(reply, &QNetworkReply::finished, this, [this, reply, requestKey]() {
+    QObject::connect(reply, &QNetworkReply::finished, this,
+                     [this, reply, requestKey, source]() {
         reply->deleteLater();
         if (m_replies.value(requestKey) != reply) {
             return; // 又搜了一次（或者被 abortAll 掐了）：这一发的结果已经没人要了
@@ -178,25 +240,34 @@ void ResourceStore::search(const QString &requestKey, ResourceCatalog::Kind kind
         } else if (okStatus(status)) {
             // 2xx 才交给解析器。它读不懂时会自己报「接口返回的数据读不懂」——
             // 那是对的：拿到 200 却读不出 hits，问题就在正文上。
-            result = ResourceCatalog::parseSearch(body);
+            result = source == ResourceCatalog::Source::CurseForge
+                         ? ResourceCatalog::parseCurseForgeSearch(body)
+                         : ResourceCatalog::parseSearch(body);
         } else {
-            result.problem = failureText(reply, body, QStringLiteral("搜索"));
+            result.problem = failureText(reply, body, QStringLiteral("搜索"), source,
+                                         !m_curseForgeApiKey.isEmpty());
         }
         emit searchFinished(requestKey, result);
     });
 }
 
 void ResourceStore::fetchVersions(const QString &requestKey, const QString &projectId,
-                                  const QString &gameVersion, const QString &loader) {
+                                  ResourceCatalog::Source source, const QString &gameVersion,
+                                  const QString &loader) {
     if (QNetworkReply *previous = m_replies.take(requestKey)) {
         previous->abort();
     }
 
-    const QString url = ResourceCatalog::versionsUrl(projectId, gameVersion, loader);
-    QNetworkReply *reply = m_net->get(resourceRequest(url));
+    const bool isCurseForge = source == ResourceCatalog::Source::CurseForge;
+    const QString url = ResourceCatalog::versionsUrl(
+        projectId, gameVersion, loader, source, isCurseForge ? curseForgeApiBase() : QString());
+    QNetworkReply *reply = m_net->get(
+        resourceRequest(url, isCurseForge ? apiKeyHeaders(m_curseForgeApiKey)
+                                          : QList<QPair<QByteArray, QByteArray>>()));
     m_replies.insert(requestKey, reply);
 
-    QObject::connect(reply, &QNetworkReply::finished, this, [this, reply, requestKey]() {
+    QObject::connect(reply, &QNetworkReply::finished, this,
+                     [this, reply, requestKey, source]() {
         reply->deleteLater();
         if (m_replies.value(requestKey) != reply) {
             return;
@@ -214,15 +285,26 @@ void ResourceStore::fetchVersions(const QString &requestKey, const QString &proj
         }
         if (!okStatus(status)) {
             emit versionsFinished(requestKey, QList<ResourceCatalog::VersionEntry>(),
-                                  failureText(reply, body, what));
+                                  failureText(reply, body, what, source,
+                                              !m_curseForgeApiKey.isEmpty()));
             return;
         }
-        // 200 也分两种情况：真给了一份版本清单（哪怕是空数组 = 这个版本下确实没有），
+        // 200 也分两种情况：真给了一份版本清单（哪怕是空的 = 这个版本下确实没有），
         // 还是给了个别的东西（网关的拦截页之类）。
         // **这两种在界面上必须是两句话**：前者是"这个资源在 1.21.1 上没有"，后者是
         // "没问到"。混成一句的话，用户会以为自己选错了版本，而问题在网络上
         //（同一个坑在加载器树那边踩过：见 MainWindow 里「无可用版本」那句 NOTE）。
-        if (!QJsonDocument::fromJson(body).isArray()) {
+        //
+        // NOTE: "一份版本清单"长什么样**是按来源分的**（见声明处那段）：Modrinth 是一整个
+        //       数组，CurseForge 是 `{"data":[…]}` 那个对象。只看 `isArray()` 的话，
+        //       CurseForge 那一页每次都会说"版本列表读不懂" —— 而它其实好得很。
+        const QJsonDocument document = QJsonDocument::fromJson(body);
+        const bool looksLikeList =
+            source == ResourceCatalog::Source::CurseForge
+                ? (document.isObject() &&
+                   document.object().value(QStringLiteral("data")).isArray())
+                : document.isArray();
+        if (!looksLikeList) {
             emit versionsFinished(requestKey, QList<ResourceCatalog::VersionEntry>(),
                                   QStringLiteral("版本列表读不懂（接口回的不是一份版本清单）"));
             return;
@@ -231,16 +313,16 @@ void ResourceStore::fetchVersions(const QString &requestKey, const QString &proj
     });
 }
 
-QString ResourceStore::iconCachePath(const QString &projectId) {
-    if (!isSafeFileStem(projectId)) {
+QString ResourceStore::iconCachePath(const QString &cacheId) {
+    if (!isSafeFileStem(cacheId)) {
         return QString(); // 不是文件名安全的那种 id：宁可不缓存（见声明处）
     }
     // 后缀 `.icon` 不是 `.png` —— 里面可能是 webp（见声明处那条 NOTE）。
-    return AppPaths::iconCacheDir() + QLatin1Char('/') + projectId + QStringLiteral(".icon");
+    return AppPaths::iconCacheDir() + QLatin1Char('/') + cacheId + QStringLiteral(".icon");
 }
 
-bool ResourceStore::loadIconFromCache(const QString &projectId, QByteArray *bytesOut) {
-    const QString path = iconCachePath(projectId);
+bool ResourceStore::loadIconFromCache(const QString &cacheId, QByteArray *bytesOut) {
+    const QString path = iconCachePath(cacheId);
     if (path.isEmpty()) {
         return false;
     }
@@ -256,18 +338,18 @@ bool ResourceStore::loadIconFromCache(const QString &projectId, QByteArray *byte
     return true;
 }
 
-QString ResourceStore::iconMetaPath(const QString &projectId) {
-    const QString icon = iconCachePath(projectId);
+QString ResourceStore::iconMetaPath(const QString &cacheId) {
+    const QString icon = iconCachePath(cacheId);
     if (icon.isEmpty()) {
         return QString(); // 不是文件名安全的那种 id（和 iconCachePath 同一个理由）
     }
     return icon + QStringLiteral(".meta");
 }
 
-ResourceStore::IconValidators ResourceStore::loadIconValidators(const QString &projectId,
+ResourceStore::IconValidators ResourceStore::loadIconValidators(const QString &cacheId,
                                                                const QString &url) {
     IconValidators validators;
-    const QString path = iconMetaPath(projectId);
+    const QString path = iconMetaPath(cacheId);
     if (path.isEmpty()) {
         return validators;
     }
@@ -299,9 +381,9 @@ ResourceStore::IconValidators ResourceStore::loadIconValidators(const QString &p
     return validators;
 }
 
-bool ResourceStore::saveIconValidators(const QString &projectId,
+bool ResourceStore::saveIconValidators(const QString &cacheId,
                                        const IconValidators &validators, const QString &url) {
-    const QString path = iconMetaPath(projectId);
+    const QString path = iconMetaPath(cacheId);
     if (path.isEmpty()) {
         return false;
     }
@@ -324,8 +406,8 @@ bool ResourceStore::saveIconValidators(const QString &projectId,
     return ok;
 }
 
-bool ResourceStore::saveIconToCache(const QString &projectId, const QByteArray &bytes) {
-    const QString path = iconCachePath(projectId);
+bool ResourceStore::saveIconToCache(const QString &cacheId, const QByteArray &bytes) {
+    const QString path = iconCachePath(cacheId);
     if (path.isEmpty()) {
         return false;
     }
@@ -339,14 +421,14 @@ bool ResourceStore::saveIconToCache(const QString &projectId, const QByteArray &
     return ok;
 }
 
-void ResourceStore::dropIconFromCache(const QString &projectId) {
-    const QString path = iconCachePath(projectId);
+void ResourceStore::dropIconFromCache(const QString &cacheId) {
+    const QString path = iconCachePath(cacheId);
     if (!path.isEmpty()) {
         QFile::remove(path);
     }
     // 凭据跟着一起删（见声明处那条 NOTE）：留一条"对应着已经不在的那份字节"的 ETag，
     // 下一发就会问出 304 来 —— 于是这一格永远画不出东西，而且**看起来一个错都没有**。
-    const QString meta = iconMetaPath(projectId);
+    const QString meta = iconMetaPath(cacheId);
     if (!meta.isEmpty()) {
         QFile::remove(meta);
     }
@@ -373,29 +455,31 @@ void ResourceStore::noteIconFailure(int httpStatus) {
     }
 }
 
-void ResourceStore::answerIcon(const QString &projectId) {
+void ResourceStore::answerIcon(const QString &iconId) {
     // 见声明处那条 NOTE：手上那张（旧的但没坏）重发一遍，别把已经画上去的那一格擦掉。
-    if (m_icons.contains(projectId)) {
-        emit iconReady(projectId, m_icons.value(projectId));
+    if (m_icons.contains(iconId)) {
+        emit iconReady(iconId, m_icons.value(iconId));
         return;
     }
-    emit iconReady(projectId, QPixmap());
+    emit iconReady(iconId, QPixmap());
 }
 
 void ResourceStore::requestIcon(const ResourceCatalog::Hit &hit) {
-    const QString &projectId = hit.projectId;
-    if (projectId.isEmpty()) {
+    if (hit.projectId.isEmpty()) {
+        return; // 没有 id 就认不了这一格（缓存路径也拼不出来）
+    }
+    // 认这一格用的是**缓存键**（带来源前缀），不是裸 project_id —— 两个来源的 id 空间会撞，
+    // 撞上的症状是"这一格永远画着另一个资源的图标"（见声明处那段）。
+    const QString iconId = hit.iconCacheId();
+    if (m_icons.contains(iconId)) {
+        emit iconReady(iconId, m_icons.value(iconId));
         return;
     }
-    if (m_icons.contains(projectId)) {
-        emit iconReady(projectId, m_icons.value(projectId));
+    if (m_iconMissing.contains(iconId)) {
+        emit iconReady(iconId, QPixmap());
         return;
     }
-    if (m_iconMissing.contains(projectId)) {
-        emit iconReady(projectId, QPixmap());
-        return;
-    }
-    if (m_iconPending.contains(projectId)) {
+    if (m_iconPending.contains(iconId)) {
         return; // 已经在问了，等那一发
     }
 
@@ -405,71 +489,78 @@ void ResourceStore::requestIcon(const ResourceCatalog::Hit &hit) {
     //       一起放弃（网络不通的时候它们正是唯一还能画出来的图）。
     QByteArray cached;
     bool onDisk = false;
-    if (loadIconFromCache(projectId, &cached)) {
+    if (loadIconFromCache(iconId, &cached)) {
         const QPixmap icon = decodeIcon(cached);
         if (icon.isNull()) {
             // 盘上那份读不出图（写到一半、或者被别的东西动过）。删掉当没有 —— 留着的话
             // 每进一次这一页都要白读一遍，而且永远画不出图来。
-            dropIconFromCache(projectId);
+            dropIconFromCache(iconId);
         } else {
             onDisk = true;
-            m_icons.insert(projectId, icon);
-            emit iconReady(projectId, icon);
+            m_icons.insert(iconId, icon);
+            emit iconReady(iconId, icon);
             // 上面那张已经发出去了，下面这几种情况到此为止：
             //  * 这一趟运行已经核过它了 —— 用户要的是"每次打开"核一遍，不是每翻一页核一遍；
             //  * 这一批已经不问了（网络不通那阵子）。**核不了就不核**，别把这一发记进
             //    m_iconRevalidated：用户把代理打开、又点一下刷新重搜，那时候该给它一次机会
             //   （重搜会清掉 m_iconGaveUp，见成员那段）。
-            if (m_iconRevalidated.contains(projectId) || m_iconGaveUp) {
+            if (m_iconRevalidated.contains(iconId) || m_iconGaveUp) {
                 return;
             }
             // 记账**在发之前**：这一趟运行对它的那一次核对就是下面这一发（成了不成、要不要
             // 退回去重试，都不再问第二遍）。**只有"盘上有那份"的才记** —— 盘上没有的话
             // 下面那一发是"第一次拿这张图"，它失败了得留下重试的机会（见上面那条）。
-            m_iconRevalidated.insert(projectId);
+            m_iconRevalidated.insert(iconId);
         }
     }
 
     if (m_iconGaveUp) {
         // 见成员那段：这一批已经不问了。盘上那张（上面那一段）该发的已经发过。
-        if (!m_icons.contains(projectId)) {
-            emit iconReady(projectId, QPixmap());
+        if (!m_icons.contains(iconId)) {
+            emit iconReady(iconId, QPixmap());
         }
         return;
     }
 
-    // 挑这一发要哪条地址。**两条地址的差别只在大小**：接口那条是 96px 缩略图（样张实测
-    // 4800 B，而同一张的 icon.png 是 35218 B），但它是 webp，得这台机器解得了才有意义。
+    // 挑这一发要哪条地址。**两条地址的差别是"主次"**，而"这一台用不用得了那条主的"是
+    // 一次探测就定下来的事实：
+    //  * 接口给的那条（`hit.iconUrl`）**这一台用得了** → 先要它。Modrinth 给的大多是
+    //    96px 的 webp（样张实测 4800 B，而同一张的 icon.png 是 35218 B），它是 webp，
+    //    得这台机器解得了才有意义；CurseForge 给的是 256px 的 png，直接就能要。
+    //  * 用不了（压根没给地址，或者是一条本机没有解码器的 webp）→ **直接**要兜底那条
+    //   （`hit.iconPngUrl()`：Modrinth 自己按 id 拼、CurseForge 是接口给的 logo.url）。
+    //    不是"试了失败再退"—— 那会白等一个超时。
+    //    挑错了的代价只有"少省那 1.1 秒"，挑不动才是问题。
     //
     // NOTE: 小多少是**按张**变的（2026-09-23 icon-live 真跑 20 张：18 份 webp 一共
     //       189 KB，平均十来 KB；同一批走 PNG 要大好几倍）。别把"7 倍"当成常数写进
     //       别的地方 —— 那是 AANobbMI 那一张的数。
-    //
-    // NOTE: 解不了的时候**不试**那条 webp（不是"试了失败再退"）—— 那会白等一个超时，而
-    //       "解不了"是个一次探测就定下来的事实（ImageDecode::webpAvailable 记着结论）。
-    //       挑错了的代价只有"少省那 1.1 秒"，挑不动才是问题。
-    const bool wantWebp = ImageDecode::webpAvailable() && ResourceCatalog::isWebpUrl(hit.iconUrl);
-    const QString url = wantWebp ? hit.iconUrl : ResourceCatalog::iconUrlForProject(projectId);
+    const QString givenUrl = hit.iconUrl;
+    const bool givenUsable = !givenUrl.isEmpty() &&
+                             (!ResourceCatalog::isWebpUrl(givenUrl) ||
+                              ImageDecode::webpAvailable());
+    const QString fallbackUrl = hit.iconPngUrl();
+    const QString url = givenUsable ? givenUrl : fallbackUrl;
     if (url.isEmpty()) {
-        emit iconReady(projectId, QPixmap());
+        emit iconReady(iconId, QPixmap());
         return;
     }
 
     // 这一趟运行对它的那一次核对**已经在上面记过账了**（只有"盘上有那份"的才记）。
     // 这一发就是本趟唯一的一发：成不成、要不要退回去重试，都不再问第二遍。
-    // 兜底只在"这一发要的是 webp"时存在 —— 要 PNG 的时候已经是最坏的那条了，没有下一发。
+    // 兜底只在**两条地址不是同一个东西**时留着（CurseForge 只给了一条、或者接口给的那条
+    // 本来就是 icon.png 时，退回去还是同一发请求）—— 详见声明处 startIconRequest 那段。
     // 盘上那份字节和它的凭据一起带上：带凭据才问得出 304，带字节才比得出"一模一样"。
-    startIconRequest(projectId, url,
-                     wantWebp ? ResourceCatalog::iconUrlForProject(projectId) : QString(),
+    startIconRequest(iconId, url, url == fallbackUrl ? QString() : fallbackUrl,
                      onDisk ? cached : QByteArray(),
-                     onDisk ? loadIconValidators(projectId, url) : IconValidators());
+                     onDisk ? loadIconValidators(iconId, url) : IconValidators());
 }
 
-void ResourceStore::startIconRequest(const QString &projectId, const QString &url,
+void ResourceStore::startIconRequest(const QString &iconId, const QString &url,
                                      const QString &fallbackUrl, const QByteArray &onDiskBytes,
                                      const IconValidators &validators) {
     if (url.isEmpty()) {
-        emit iconReady(projectId, QPixmap());
+        emit iconReady(iconId, QPixmap());
         return;
     }
 
@@ -478,15 +569,15 @@ void ResourceStore::startIconRequest(const QString &projectId, const QString &ur
     // 调用者是析构，所以没现出症状，但契约这么说就得这么做）。顺带白拿一件东西：同一个
     // project 已经在飞的那一发会被掐掉，和接口那两条请求同款。
     // 键加个前缀：两边的键都是自己拼的字符串，加前缀是让"这一格是谁"看得出来，也不会撞。
-    const QString requestKey = QStringLiteral("icon:") + projectId;
+    const QString requestKey = QStringLiteral("icon:") + iconId;
     if (QNetworkReply *previous = m_replies.take(requestKey)) {
         previous->abort();
     }
-    m_iconPending.insert(projectId);
+    m_iconPending.insert(iconId);
     QNetworkReply *reply = m_net->get(iconRequest(url, validators));
     m_replies.insert(requestKey, reply);
     QObject::connect(reply, &QNetworkReply::finished, this,
-                     [this, reply, projectId, url, fallbackUrl, onDiskBytes, requestKey]() {
+                     [this, reply, iconId, url, fallbackUrl, onDiskBytes, requestKey]() {
         reply->deleteLater();
         // 被掐掉的那一发（abortAll()，或者同一张图又问了第二遍）到此为止：**不读它**、
         // 什么都不做（abort 之后读它是 HttpClient 那边的老规矩，见 abortAll 那段）。
@@ -495,7 +586,7 @@ void ResourceStore::startIconRequest(const QString &projectId, const QString &ur
             return;
         }
         m_replies.remove(requestKey);
-        m_iconPending.remove(projectId);
+        m_iconPending.remove(iconId);
 
         const int status = statusOf(reply);
         const QByteArray body = reply->readAll();
@@ -521,7 +612,7 @@ void ResourceStore::startIconRequest(const QString &projectId, const QString &ur
             //       唯独这一条不发的话，被限流的那批行会永远比别的行少一格。
             //       429 **不算**主机级失败（主机明明答话了），也不换地址重试（换一条也是
             //       同一个主机，这一分钟它照样不给你）。
-            answerIcon(projectId);
+            answerIcon(iconId);
             return;
         }
 
@@ -532,37 +623,37 @@ void ResourceStore::startIconRequest(const QString &projectId, const QString &ur
         if (icon.isNull()) {
             // "没解出一张图"。**先看要不要换一条地址** —— 见声明处那段：主机答话了、
             // 而且手上还有另一条地址，就再要一次（这一次不算失败）。pending 位在重发那一
-            // 发里重新立起来，所以这中间"同一个 project_id 别问第二遍"的规矩不破。
+            // 发里重新立起来，所以这中间"同一格别问第二遍"的规矩不破。
             if (!fallbackUrl.isEmpty() && !isHostLevelIconFailure(status)) {
-                startIconRequest(projectId, fallbackUrl, QString());
+                startIconRequest(iconId, fallbackUrl, QString());
                 return;
             }
             if (status == 404) {
                 // 作者没传过图标（或者删了）。这是"没有"，别再问第二遍 —— 顺手把盘上那张
                 // 旧的也丢掉：真删了的话，留着它只会每次进这一页重演一遍"画出来又被撤掉"。
-                m_iconMissing.insert(projectId);
-                m_icons.remove(projectId);
-                dropIconFromCache(projectId);
-                emit iconReady(projectId, QPixmap());
+                m_iconMissing.insert(iconId);
+                m_icons.remove(iconId);
+                dropIconFromCache(iconId);
+                emit iconReady(iconId, QPixmap());
                 return;
             }
             // 别的失败（断网、超时、5xx）**不进** m_iconMissing：那是一次没成，下次还该再试。
             noteIconFailure(status);
-            answerIcon(projectId);
+            answerIcon(iconId);
             return;
         }
         m_iconHostFailures = 0; // 这一路是通的（成功一次就把那道闸放回去）
         // 凭据**先更新**（这一发可能给了新的 ETag：内容没变、标识变了也是常事），
         // 下面那条"没变就直接走人"的路也得留着它，不然下次这一发就白问了。
-        saveIconValidators(projectId, validatorsOf(reply), url);
+        saveIconValidators(iconId, validatorsOf(reply), url);
         // 主机**不认**条件头时会把整张再发一遍 —— 这时候比一下字节，一模一样就等于
         // "没变"：不写盘、不发信号（重发一遍会让列表上那一格闪一下，而这趟运行里
         // 它本来就已经是这张图了）。
         if (!onDiskBytes.isEmpty() && body == onDiskBytes) {
             return;
         }
-        m_icons.insert(projectId, icon);
-        saveIconToCache(projectId, body);
-        emit iconReady(projectId, icon);
+        m_icons.insert(iconId, icon);
+        saveIconToCache(iconId, body);
+        emit iconReady(iconId, icon);
     });
 }

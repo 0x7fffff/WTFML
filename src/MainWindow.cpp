@@ -3359,7 +3359,10 @@ void MainWindow::startResourceSearch(ResourceCatalog::Kind kind) {
                               : tr("正在搜索%1「%2」…")
                                     .arg(ResourceCatalog::kindLabel(kind), query));
 
-    m_resourceStore->search(ResourceCatalog::searchRequestKey(kind), kind, query);
+    // NOTE: 这一趟的来源（和"版本/类型/加载器/名称"那几个筛子一样）还没接上筛选行 ——
+    //       它们是下一步那件事，这里先钉死在默认来源上（行为与加筛选行之前完全一样）。
+    m_resourceStore->search(ResourceCatalog::searchRequestKey(kind), kind,
+                            ResourceCatalog::Source::Modrinth, query);
 }
 
 void MainWindow::fillResourceHitRows(QTreeWidget *tree, ResourceCatalog::Kind kind,
@@ -3376,6 +3379,11 @@ void MainWindow::fillResourceHitRows(QTreeWidget *tree, ResourceCatalog::Kind ki
         // 存的是**分类键**（不是枚举的整数值），回来时走 kindFromCategoryKey 认，
         // 认不出来就是"这一行不是我们建的"。
         item->setData(column, MainWindowUI::resourceKindRole(), ResourceCatalog::kindKey(kind));
+        // 这一条是从哪个来源搜出来的（点第二层要问对那一侧，见 resourceSourceRole()）。
+        item->setData(column, MainWindowUI::resourceSourceRole(),
+                      ResourceCatalog::sourceKey(hit.source));
+        // 图标那一格的**身份**（带来源前缀，见 resourceIconIdRole()）：图标回来时按它认行。
+        item->setData(column, MainWindowUI::resourceIconIdRole(), hit.iconCacheId());
         item->setText(column, hit.title);
 
         // 第二行小字：「作者 · 下载量」。下载量那串字只有一处出处（formatDownloads），
@@ -3460,7 +3468,7 @@ void MainWindow::onResourceSearchFinished(const QString &requestKey,
     fillResourceHitRows(tree, kind, result);
 }
 
-void MainWindow::onResourceIconReady(const QString &projectId, const QPixmap &icon) {
+void MainWindow::onResourceIconReady(const QString &iconId, const QPixmap &icon) {
     // 没有图标（作者没传过 / 这次没取到 / 被限流）也**要**给这一行挂上东西：一个全透明的
     // 方块。为什么：代理是"条目给了图标，文字才让出前面那一格"的（见 VersionTreeDelegate
     // 里 iconRect 那段），什么都不挂的话这一行的字会顶到最左边，和上下那些有图标的行
@@ -3473,8 +3481,10 @@ void MainWindow::onResourceIconReady(const QString &projectId, const QPixmap &ic
         mark.fill(Qt::transparent);
     }
     const int column = MainWindowUI::versionTreeKeyColumn();
-    // 按 project_id 找回**现在**树上那一行（不存条目指针：重搜会把整棵树清掉，存下来的
-    // 指针就是悬空的 —— 而按身份找，找得到才画，找不到就什么都不做）。
+    // 按**图标身份**（`Hit::iconCacheId()`，见 resourceIconIdRole）找回**现在**树上那一行 ——
+    // 不按裸 project_id：两个来源的 id 空间会撞，撞上就是把另一个来源同号那个资源的图标
+    // 画到这一行上（而且不报错）。也不存条目指针：重搜会把整棵树清掉，存下来的指针就是
+    // 悬空的 —— 按身份找，找得到才画，找不到就什么都不做。
     for (ResourceCatalog::Kind kind : ResourceCatalog::allKinds()) {
         QTreeWidget *tree = m_ui->getDownloadResourceTree(ResourceCatalog::kindKey(kind));
         if (tree == nullptr) {
@@ -3482,7 +3492,7 @@ void MainWindow::onResourceIconReady(const QString &projectId, const QPixmap &ic
         }
         for (int i = 0; i < tree->topLevelItemCount(); ++i) {
             QTreeWidgetItem *item = tree->topLevelItem(i);
-            if (item->data(column, Qt::UserRole).toString() != projectId) {
+            if (item->data(column, MainWindowUI::resourceIconIdRole()).toString() != iconId) {
                 continue;
             }
             item->setData(column, MainWindowUI::rowIconRole(), mark);
@@ -3518,6 +3528,16 @@ void MainWindow::onResourceItemActivated(QTreeWidgetItem *item) {
                                       ? QString()
                                       : resourceItem->data(MainWindowUI::versionTreeKeyColumn(),
                                                            Qt::UserRole).toString();
+        // 这一条是从哪个来源搜出来的（见 resourceSourceRole()）：**必须问对那一侧** ——
+        // 两个来源的 id 空间会撞，问错了不报错，只会显示另一个资源的版本列表。
+        // 认不出来（那一行不是我们建的）就当 Modrinth，和"没选来源"的默认一致。
+        ResourceCatalog::Source source = ResourceCatalog::Source::Modrinth;
+        if (resourceItem != nullptr) {
+            ResourceCatalog::sourceFromKey(
+                resourceItem->data(MainWindowUI::versionTreeKeyColumn(),
+                                   MainWindowUI::resourceSourceRole()).toString(),
+                &source);
+        }
         const QString gameVersion =
             item->data(MainWindowUI::versionTreeKeyColumn(), Qt::UserRole).toString();
         if (projectId.isEmpty() || gameVersion.isEmpty()) {
@@ -3529,8 +3549,9 @@ void MainWindow::onResourceItemActivated(QTreeWidgetItem *item) {
         //       （categories 是整个资源的标签，不是某个版本的）。要按加载器筛就得先知道
         //       用户在给哪个实例装 —— 那件事在点版本号那一下才定（见
         //       downloadResourceVersion 里那道加载器对不上的闸口）。
-        m_resourceStore->fetchVersions(ResourceCatalog::versionsRequestKey(projectId, gameVersion),
-                                       projectId, gameVersion);
+        m_resourceStore->fetchVersions(
+            ResourceCatalog::versionsRequestKey(projectId, gameVersion, QString(), source),
+            projectId, source, gameVersion);
         return;
     }
     if (depth == 2) {
@@ -4333,6 +4354,10 @@ void MainWindow::syncCurseForgeSettings() {
     // 本机的假服务器上）。
     m_versionManager->setCurseForgeApiKey(m_settings->curseForgeApiKey());
     m_versionManager->setCurseForgeApiBaseOverride(m_settings->curseForgeApiBaseOverride());
+    // 下载页那条搜索/版本列表的路**也要这两条**（CurseForge 是很久以后才加进那边的第二个
+    // 来源）：同一份设置、同一条接口根地址，没有理由推给一个、不推给另一个。
+    m_resourceStore->setCurseForgeApiKey(m_settings->curseForgeApiKey());
+    m_resourceStore->setCurseForgeApiBaseOverride(m_settings->curseForgeApiBaseOverride());
 }
 
 void MainWindow::onCurseForgeApiKeyEdited() {

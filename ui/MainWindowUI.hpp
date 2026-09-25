@@ -559,6 +559,25 @@ public:
     ///       这一档（条目身份）用 +0/+1/+2/+3…，两边别再串。
     static int resourceKindRole() { return Qt::UserRole + 3; }
 
+    /// 这一条是**从哪个来源**搜出来的（存 `ResourceCatalog::sourceKey()` 那个键，
+    /// `modrinth` / `curseforge`）。
+    ///
+    /// 为什么要挂在条目上：点开第二层去问"这个资源有哪些版本"时，**必须问对它那一侧** ——
+    /// 两个来源的 id 空间会撞（Modrinth 的 base62 id 里 `238222` 也是合法的，而 CurseForge
+    /// 那边真有这么个号），问错了不会报错，只会显示另一个资源的版本列表。
+    /// 存键不存枚举：理由和 resourceKindRole() 一样（读回来走 `sourceFromKey()`，
+    /// 认不出来才是"这一行不是我们建的"），而且**来源是会变的**（用户换一下下拉框，
+    /// 同一行文字就来自另一边了），键比一个 int 更经得起写进盘、写进日志。
+    static int resourceSourceRole() { return Qt::UserRole + 4; }
+
+    /// 这一格的**图标身份**：`ResourceCatalog::Hit::iconCacheId()`（带来源前缀）。
+    ///
+    /// 为什么要单独挂一格：图标那条频道回来说的是 cacheId（见 ResourceStore::iconReady），
+    /// 而它和 `Qt::UserRole` 里那个 project_id **不是一回事** —— 两个来源的 id 会撞，
+    /// 只按 project_id 找行的症状是"这一格画着另一个来源里同号那个资源的图标"。
+    /// 在这里存一次（灌条目那一刻从 Hit 取），回来时按它直接认，别在两处各拼一遍。
+    static int resourceIconIdRole() { return Qt::UserRole + 5; }
+
     static QString folderListName() { return QStringLiteral("folderList"); }
     static QString instanceListName() { return QStringLiteral("instanceList"); }
     static QString instanceFolderLabelName() { return QStringLiteral("instanceFolderLabel"); }
