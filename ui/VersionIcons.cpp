@@ -444,11 +444,21 @@ QPixmap VersionIcons::chevronUp(int size, const QColor &color) {
     return chevronPixmap(ChevronDir::Up, size, color);
 }
 
-QPixmap VersionIcons::arrowUp(int size, const QColor &color) {
+namespace {
+
+/// ↑ / ↓ 这一对箭头的形状（带杆的实心箭头）—— **只有这一份**，两个方向由 `up` 挑。
+///
+/// 为什么合成一个函数（2026-09-25 晚上加 ↓ 的时候）：这两颗在**同一格里轮流出现**
+/// （不在置顶组 → ↑「置顶」，在置顶组 → ↓「取消置顶」），比例必须逐像素对称 ——
+/// 谁照着一份手抄一遍，改了一边比例之后另一边就不动了，而屏幕上表现成"两颗箭头
+/// 长得不太一样"（很难认出是哪一处没跟上）。所以上下两个方向由**同一组比例**翻过来：
+/// 上箭头里"离上边 0.15 的那个"就是下箭头里"离下边 0.15 的那个"。
+QPixmap arrowPixmap(bool up, int size, const QColor &color) {
     if (size <= 0) {
         return QPixmap();
     }
-    return cached(QStringLiteral("arrowUp/%1/%2").arg(size).arg(color.name()), [size, color]() {
+    return cached(QStringLiteral("arrow/%1/%2/%3").arg(up ? 1 : 0).arg(size).arg(color.name()),
+                  [up, size, color]() {
         QPixmap pixmap(size, size);
         pixmap.fill(Qt::transparent);
         QPainter p(&pixmap);
@@ -466,22 +476,34 @@ QPixmap VersionIcons::arrowUp(int size, const QColor &color) {
         //      都得有 2 px 以上（16 px 那一档：左右各到 2.6 / 13.4，上下到 2.4 / 13.6）；
         //   ② 箭头得比杆宽出一截才读得出"这是个箭头" ⇒ 半底 0.34 对杆半宽 0.10，
         //      差了 3.4 倍（16 px 下箭头宽 10.9、杆宽 3.2）。
-        // 杆**不画满整格**：从箭头底边一直落到 0.85，底下留出那点余量。
+        // 杆**不画满整格**：从箭头底边一直伸到 0.85，那一头留出同样的余量。
         const qreal centerX = size * 0.5;
         const qreal headHalf = size * 0.34;  // 箭头底边的半宽
-        const qreal headTop = size * 0.15;   // 尖端（离上边最近的那一点）
-        const qreal headBase = size * 0.52;  // 底边（杆从这儿往下长）
         const qreal shaftHalf = size * 0.10; // 杆的半宽
-        const qreal bottom = size * 0.85;    // 杆底
+        // 尖端 / 底边 / 杆末：下箭头就是整条竖直翻过来（`1 - x`），**不是**另给一组数。
+        const qreal tip = up ? size * 0.15 : size * 0.85;
+        const qreal headBase = up ? size * 0.52 : size * 0.48;
+        const qreal shaftEnd = up ? size * 0.85 : size * 0.15;
 
-        // 先画箭头、再画杆：杆的顶边和箭头底边**重合在同一条线**上，同色叠上去之后
+        // 先画箭头、再画杆：杆的那条边和箭头底边**重合在同一条线**上，同色叠上去之后
         // 接缝处不会留下一条比别处浅的线（抗锯齿只在整幅的外轮廓上走）。
-        QPolygonF head({QPointF(centerX, headTop), QPointF(centerX + headHalf, headBase),
+        QPolygonF head({QPointF(centerX, tip), QPointF(centerX + headHalf, headBase),
                         QPointF(centerX - headHalf, headBase)});
         p.drawPolygon(head);
-        p.drawRect(QRectF(centerX - shaftHalf, headBase, shaftHalf * 2, bottom - headBase));
+        p.drawRect(QRectF(centerX - shaftHalf, qMin(headBase, shaftEnd), shaftHalf * 2,
+                          qAbs(shaftEnd - headBase)));
         return pixmap;
     });
+}
+
+}  // namespace
+
+QPixmap VersionIcons::arrowUp(int size, const QColor &color) {
+    return arrowPixmap(true, size, color);
+}
+
+QPixmap VersionIcons::arrowDown(int size, const QColor &color) {
+    return arrowPixmap(false, size, color);
 }
 
 namespace {

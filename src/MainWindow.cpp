@@ -249,8 +249,10 @@ QString instanceIdOf(const QTreeWidgetItem *item) {
  * @param marks 每个实例行前面那个小图标（`id -> QIcon`，由 instanceRowMark() 算好）。
  *        缺一个不画图标，不影响别的（验证工程直接摆一张只有几个键的表也能灌）。
  * @param pinnedGroupId **置顶组**是哪一个（InstanceGroupStore::pinnedGroupId()）。空串 =
- *        这份 .minecraft 里没有置顶组 ⇒ 哪一行都不摆那颗上箭头（点下去没有去处）。
- *        已经在置顶组里的那一条也不摆（它挪不动了）—— 判据写进 rowPinRole() 那一格。
+ *        这份 .minecraft 里没有置顶组 ⇒ 哪一行都不摆那格箭头（点下去没有去处）。
+ *        非空时按**在不在里面**给两个互斥的角色：不在 ⇒ `rowPinRole()`（悬停画 ↑ 置顶）、
+ *        在里面 ⇒ `rowUnpinRole()`（悬停画 ↓ 取消置顶）。两个角色都由 fillInstanceTree 写，
+ *        代理/eventFilter 两边读。
  *
  * 两种形态，由调用方给进来的 buckets 决定（它才知道有没有真实分组）：
  *   - **只有一格、groupId 为空** → 平铺，不插组头。这是"还没分过组"的样子，
@@ -329,16 +331,26 @@ void fillInstanceTree(QTreeWidget *tree, const QList<InstanceGroupBucket> &bucke
             if (mark != marks.constEnd()) {
                 item->setIcon(0, mark.value());
             }
-            // 「置顶」那颗上箭头的判据（画它的是 InstanceGroupDelegate::paint()、认下那
-            // 一下的是 MainWindow::eventFilter()，三处读的都是**这一格**）：
-            //   - 这一份 .minecraft 里没有置顶组（pinnedGroupId 是空串）⇒ 不画：
-            //     那一格点下去没有去处（见 InstanceGroupStore::pinnedGroupId() 那三条出口）；
-            //   - 已经在置顶组里的那一条也不画 —— 它挪不动了，而"挪不动的那侧不画"
-            //     是仓库里既有的规矩（见 ui/GroupListDelegate 里那两颗上下移三角），
-            //     **不是**画一颗灰的：灰的会让人以为"点一下能置顶、只是现在不行"。
-            // 平铺那一格（bucket.groupId 为空）和"没有置顶组"是两件事，这里都不画。
+            // 中间那一格（**一对反义词共用的一格**，见 MainWindowUI::rowUnpinRole() 那段）
+            // 的判据：画它的是 InstanceGroupDelegate::paint()、认下那一下的是
+            // MainWindow::eventFilter()，三处读的都是**这两个角色**。
+            //   - `rowPinRole()` = 还没在置顶组里 ⇒ 悬停画 ↑「置顶」；
+            //   - `rowUnpinRole()` = 已经在里面 ⇒ 悬停画 ↓「取消置顶」（用户 2026-09-25
+            //     原话：「置顶组里的实例悬停时右侧显示下箭头，即取消置顶」）；
+            //   - 两个都假 = **这一份 .minecraft 里没有置顶组**（pinnedGroupId 是空串：
+            //     那一格点下去没有去处，见 InstanceGroupStore::pinnedGroupId() 那三条出口）
+            //     ⇒ 这一格空着、也不弹话。
+            // 两个判据互斥（同一个 pinnedGroupId，一个判 `!=`、一个判 `==`），所以这一格
+            // 永远只有一个方向。
+            //
+            // NOTE: "已经在置顶组里 ⇒ 不画上箭头"这条老规矩现在换个说法活着 —— 它仍然是
+            //       "不画 ↑"，只是改成画 ↓ 了（原来那档什么都不画：挪不动的不画，这条
+            //       先例在 ui/GroupListDelegate 里）。平铺那一格（bucket.groupId 为空）
+            //       和"没有置顶组"是两件事：前者走 `!=` 拿到真（画 ↑），后者才什么都不画。
             item->setData(0, MainWindowUI::rowPinRole(),
                           !pinnedGroupId.isEmpty() && bucket.groupId != pinnedGroupId);
+            item->setData(0, MainWindowUI::rowUnpinRole(),
+                          !pinnedGroupId.isEmpty() && bucket.groupId == pinnedGroupId);
         }
     }
 
@@ -3115,10 +3127,13 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
     // 判据"这是不是实例行"用**没有** groupIdRole()：和代理那边 paint()/sizeHint() 是同一条
     // （组行有那个角色、实例行没有）。
     //
-    // NOTE: 三格的命中判定顺序无所谓（探针量过：三格之间零重叠、零空隙），但上箭头那一格
-    //       要先问**这一行到底摆没摆它**（rowPinRole()）—— 已经在置顶组里的实例、以及
-    //       这份 .minecraft 里没有置顶组时，那一格是空的：指着一块空白弹出「置顶」、
-    //       点下去还真的挪了一次，是最难解释的一种。
+    // NOTE: 三格的命中判定顺序无所谓（探针量过：三格之间零重叠、零空隙），但中间那一格
+    //       要先问**这一行到底摆没摆它**（rowPinRole() / rowUnpinRole()）—— 这份
+    //       .minecraft 里没有置顶组时那一格是空的：指着一块空白弹出「置顶」、点下去还
+    //       真的挪了一次，是最难解释的一种。
+    // NOTE: 中间那一格是**两个动作共用的一格**（不在置顶组 ⇒ ↑ 置顶 / 已经在了 ⇒ ↓
+    //       取消置顶，见 MainWindowUI::rowUnpinRole()）—— 所以这里比的是"在里面不在里面"，
+    //       不是"角色号是哪一个"。
     // NOTE: 也接双击，理由和上面组行齿轮那一段逐字相同（点得快时第二发及以后到的是
     //       双击事件，不接的话会漏给"点中了这一行"那条路，于是连点垃圾桶的第二下变成
     //       进实例设置）。
@@ -3145,10 +3160,19 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
                 }
                 return true;
             }
-            if (item->data(0, MainWindowUI::rowPinRole()).toBool()
-                && InstanceGroupDelegate::instancePinRect(row).contains(pos)) {
+            // 中间那一格：↑「置顶」和 ↓「取消置顶」**共用的一格**（见 MainWindowUI::
+            // rowUnpinRole()）。判据是"这一行摆没摆它"那两个角色里**有一个为真**，
+            // 按下去调谁看的是**在里面还是不在**（canUnpin 优先，两个都真时不可能，
+            // 代理那边同一个约定）。
+            const bool canPin = item->data(0, MainWindowUI::rowPinRole()).toBool();
+            const bool canUnpin = item->data(0, MainWindowUI::rowUnpinRole()).toBool();
+            if ((canPin || canUnpin) && InstanceGroupDelegate::instancePinRect(row).contains(pos)) {
                 if (pressed) {
-                    pinInstance(instanceId);
+                    if (canUnpin) {
+                        unpinInstance(instanceId);
+                    } else {
+                        pinInstance(instanceId);
+                    }
                 }
                 return true;
             }
@@ -6105,6 +6129,31 @@ void MainWindow::pinInstance(const QString &versionId) {
     // assign() 成功会发 groupsChanged ⇒ 整棵树重灌（那个实例挪进置顶组、它那一行那颗上箭头
     // 消失，因为已经在里面了）。**不再手动刷一遍**：手动刷只会和信号那条路撞在一起。
     appendLog(tr("已置顶：%1").arg(instanceDisplayName(versionId)));
+}
+
+void MainWindow::unpinInstance(const QString &versionId) {
+    // 「取消置顶」= 把这个实例**挪出置顶组**（用户 2026-09-25 原话：「置顶组里的实例悬停时
+    // 右侧显示下箭头，即取消置顶」）。它是 pinInstance() 的反面，落到哪一格只有一条规矩：
+    // 和「移出分组」那件事**逐字同一个落点** —— 写一条"明确选了未分组"（assign 收空串
+    // 时写的就是那个保留值，不是把这一条删掉），于是它**不会再被自动归类拉回去**。
+    //
+    // NOTE: 为什么不"删掉这一条归属、让它重新自动归类"（= 恢复成"没表过态"）：那要看
+    //       "这个实例本来该归哪一组"—— 而它此刻正待在置顶组里，那个信息早就没了（用户
+    //       可能是从任何一个组把它置顶过来的，也可能本来就是自动归进「可安装mod」的）。
+    //       猜错的代价是"取消置顶之后它跳去了一个我没选过的组"，比"落在未分组里、
+    //       用户自己再挪一次"糟得多。仓库里另外两处移出动作（clearGroupMembers /
+    //       assignSelectedInstanceToGroup）也都是这个落点。
+    //
+    // NOTE: 不判"它到底在不在置顶组里" —— 那一格只在 rowUnpinRole() 为真的行上画得出来，
+    //       走到这儿就说明在。真要在外面，这一下也只是写一条"未分组"，无害。
+    QString error;
+    if (!m_groupStore->assign(instanceKey(versionId), QString(), &error)) {
+        InlineMessage::critical(m_ui->overlay(), tr("取消置顶失败"), error);
+        return;
+    }
+    // assign() 成功会发 groupsChanged ⇒ 整棵树重灌（那个实例挪出置顶组：落到「未分组」
+    // 那一档、它那一行那颗箭头换回朝上的）。**不再手动刷一遍**，理由同 pinInstance()。
+    appendLog(tr("已取消置顶：%1").arg(instanceDisplayName(versionId)));
 }
 
 void MainWindow::confirmDeleteInstance(const QString &versionId) {

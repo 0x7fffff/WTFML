@@ -49,6 +49,12 @@
  *       * 垃圾桶**悬停才画** = 删除这一条实例（点下去还要过一次确认框，那一下由
  *         `MainWindow::eventFilter` 接）。
  *
+ *       ★ 2026-09-25 晚（第二轮）：用户原话「置顶组里的实例悬停时右侧显示下箭头，
+ *       即取消置顶」。于是**上箭头那一格变成一对反义词共用的一格** —— 不在置顶组里画
+ *       ↑「置顶」、已经在里面画 ↓「取消置顶」（两个角色见 `MainWindowUI::rowUnpinRole()`
+ *       那段：它们互斥，所以这一格永远只有一个方向，一行里也没有第四颗的位置）。
+ *       于是"这一格什么都不画"现在只剩**一种**情形：这一份 .minecraft 里压根没有置顶组。
+ *
  *       NOTE: 三颗按钮**没有**变成控件，还是"画出来的一格"—— 这一页跟下载页一样，
  *             行里的动作一律走 `MainWindow::eventFilter` 认坐标（见 MainWindowUI 里
  *             那段"这里不做右键菜单"的 NOTE）。
@@ -117,8 +123,10 @@ public:
 
     /// 行尾那颗**齿轮**的命中格（最右边那一颗 = 这一行的锚，**常显**）。
     static QRect instanceGearRect(const QRect &row);
-    /// 中间那颗**上箭头**的命中格。只有 `rowPinRole()` 为真的实例行才画它（已经在置顶组里
-    /// 的挪不动 ⇒ 不画，不是画灰的）。
+    /// 中间那一格的命中格 —— ↑「置顶」和 ↓「取消置顶」**共用的一格**（见文件头那段）。
+    /// 只有 `rowPinRole()` 或 `rowUnpinRole()` 为真的实例行才画得出来；两个都为假
+    /// （这份 .minecraft 里没有置顶组）时它是空的、也不该弹话。位置和边长只有一份，
+    /// 换方向不换格子。
     static QRect instancePinRect(const QRect &row);
     /// 最里面那颗**垃圾桶**的命中格（离手最远 —— 它点下去不可逆，见 MainWindowUI 那段
     /// "为什么垃圾桶摆在最里面"）。
@@ -134,9 +142,9 @@ public:
     /// 光标落在**行里某一个按钮**上就说那一句，没落在任何一个上就是空串。
     ///
     /// 组行那一半：只有那颗齿轮（`rowGroupGearTipText()`）。
-    /// 实例行那一半：齿轮 → `rowInstanceSettingsTipText()`、上箭头 → `rowPinTipText()`
-    /// （**只在 `rowPinRole()` 为真时** —— 没画出来的那一格不该说话）、垃圾桶 →
-    /// `rowDeleteInstanceTipText()`。
+    /// 实例行那一半：齿轮 → `rowInstanceSettingsTipText()`、中间那一格 →
+    /// `rowPinTipText()` 或 `rowUnpinTipText()`（**只在 `rowPinRole()`/`rowUnpinRole()`
+    /// 有一个为真时** —— 没画出来的那一格不该说话）、垃圾桶 → `rowDeleteInstanceTipText()`。
     /// 和 VersionTreeDelegate::rowActionTip() 一个路数（那儿是上一族的第二处几何读者）：
     /// 一条一条往下判，文案常量全从 MainWindowUI 取，这儿不出现字面量。
     static QString rowActionTip(const QModelIndex &index, const QRect &row, const QPoint &pos);
