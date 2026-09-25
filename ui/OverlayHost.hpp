@@ -191,7 +191,13 @@ signals:
     /// 返回箭头被点了。`execPage()` 把它接到 reject 上；自己搭页面的调用方直接接。
     void backPressed();
 
-    /// 提示被"点外面 / 按 Esc"关掉了（只有 dismissOnOutsideClick 那一档会发）。
+    /// 提示被"点外面 / 按 Esc"关掉了（只有 `dismissOnOutsideClick` 那一档会发）。
+    ///
+    /// **只有提示那一层（`execPrompt` / `openPrompt`）该接它**：发这一发的两处
+    /// （`mousePressEvent` / `keyPressEvent`）都钉着 `m_mode == Mode::Prompt`，页面那层
+    /// 永远等不到。`execEmbedded` 早先两层都接，于是"点提示框外面 = 连底下那一页一起
+    /// reject"（页面那一次的 `execEmbedded` 还卡在自己的事件循环里、连接还活着）。详见
+    /// 实现里那段 ★ 注释。
     void promptDismissed();
 
 protected:
