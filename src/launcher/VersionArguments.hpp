@@ -65,30 +65,21 @@ inline bool isVanillaGameArgument(const QString &flag) {
 }
 
 /**
- * @brief 把一个 arguments 数组展开成参数列表。
+ * @brief 只做"规则过滤"这一步：把 arguments 数组里**适用**的条目按原顺序摊平成原始 token
+ *        列表，**一个占位符都不替换**。
  *
- * NOTE: 两种数组它都能吃，但启动器给它的主要是 arguments.jvm（调用点在 LauncherManager）。
- *       version.json 的 arguments.game 走的是下面 extraGameArguments 那一条 —— 那是
- *       2026-09-22 补的（NeoForge 26.2 启动即崩，缺的正是 arguments.game 里的 --fml.*）。
- * @param entries version.json 里 arguments 下的数组，可同时含字符串和规则对象。
- * @param placeholders ${...} 占位符到实际值的映射。
- * @param features 已启用的 feature 集合，启动器不启用任何 feature，传空即可。
- * @param dropClasspath 是否丢弃 ${classpath}（连同紧邻它前面的 -cp）。
- * @return 返回可以直接交给 QProcess 的参数列表。
+ * 抽出来是为了让"替换"能排到调用方自己的过滤之后去做（见 extraGameArguments 那段 NOTE）：
+ * `expand()` 是"过滤 + 替换"一步到位，而 `substitutePlaceholders()` 会给每条还带着 `${}`
+ * 的参数打一句 qWarning —— 中间那一步先替换的话，明知下一句就要整条跳过的那些原版参数
+ * 会**每次启动都刷一屏警告**（实测 1.18.2 / 1.20.1 各 11 条、1.21.11+ 有 10 条），
+ * 而那几行一个字节都不会进命令行。
  *
- * 数组里每个元素有两种形态：
- *   - 字符串：无条件使用，例如 '-XX:StackShadowPages=32'；
- *   - 对象：{"rules": [...], "value": <字符串或字符串数组>}，只有规则命中当前平台才使用。
- *
- * NOTE: 规则对象的形状和 library 的 rules 完全一致（rules 数组 + allow/disallow
- * 折叠），所以这里直接复用 LibraryRules::libraryAllowed —— 绝不写第二份规则逻辑，
- * 否则两处的语义迟早各自漂移。顺带一提，--add-exports 和它的值在 JSON 里是两个
- * 独立元素，展开时保持原顺序、原样成对传递即可，不要去"配对"它们。
+ * NOTE: `dropClasspath` 那一格**不在这里**（它挪不掉）—— 它要在替换之前看着"上一条是不是
+ *       已经被丢了"，所以留在 `expand()` 里。调用它的只有 extraGameArguments，而那边
+ *       本来就是 `dropClasspath = false`。
  */
-inline QStringList expand(const QJsonArray &entries, const QHash<QString, QString> &placeholders,
-                          const QSet<QString> &features = QSet<QString>(),
-                          bool dropClasspath = true) {
-    // 先按顺序挑出适用的原始条目，再做替换 —— 分开两步，规则判定不用关心占位符。
+inline QStringList declaredArguments(const QJsonArray &entries,
+                                     const QSet<QString> &features = QSet<QString>()) {
     QStringList declared;
     for (const QJsonValue &entry : entries) {
         if (entry.isString()) {
@@ -113,6 +104,35 @@ inline QStringList expand(const QJsonArray &entries, const QHash<QString, QStrin
             declared << value.toString();
         }
     }
+    return declared;
+}
+
+/**
+ * @brief 把一个 arguments 数组展开成参数列表。
+ *
+ * NOTE: 两种数组它都能吃，但启动器给它的主要是 arguments.jvm（调用点在 LauncherManager）。
+ *       version.json 的 arguments.game 走的是下面 extraGameArguments 那一条 —— 那是
+ *       2026-09-22 补的（NeoForge 26.2 启动即崩，缺的正是 arguments.game 里的 --fml.*）。
+ * @param entries version.json 里 arguments 下的数组，可同时含字符串和规则对象。
+ * @param placeholders ${...} 占位符到实际值的映射。
+ * @param features 已启用的 feature 集合，启动器不启用任何 feature，传空即可。
+ * @param dropClasspath 是否丢弃 ${classpath}（连同紧邻它前面的 -cp）。
+ * @return 返回可以直接交给 QProcess 的参数列表。
+ *
+ * 数组里每个元素有两种形态：
+ *   - 字符串：无条件使用，例如 '-XX:StackShadowPages=32'；
+ *   - 对象：{"rules": [...], "value": <字符串或字符串数组>}，只有规则命中当前平台才使用。
+ *
+ * NOTE: 规则对象的形状和 library 的 rules 完全一致（rules 数组 + allow/disallow
+ * 折叠），所以这里直接复用 LibraryRules::libraryAllowed —— 绝不写第二份规则逻辑，
+ * 否则两处的语义迟早各自漂移。顺带一提，--add-exports 和它的值在 JSON 里是两个
+ * 独立元素，展开时保持原顺序、原样成对传递即可，不要去"配对"它们。
+ */
+inline QStringList expand(const QJsonArray &entries, const QHash<QString, QString> &placeholders,
+                          const QSet<QString> &features = QSet<QString>(),
+                          bool dropClasspath = true) {
+    // 先按顺序挑出适用的原始条目，再做替换 —— 分开两步，规则判定不用关心占位符。
+    const QStringList declared = declaredArguments(entries, features);
 
     QStringList result;
     for (const QString &raw : declared) {
@@ -171,7 +191,7 @@ inline bool declaresPrefix(const QStringList &args, const QString &prefix) {
  *      参数、上面那段硬编码已经发过了 —— 已经验过的那条路逐字节不变。
  *   2. 老格式（`minecraftArguments` 那个空格分隔的字符串）也吃 —— 1.12.2 那一代的 Forge
  *      就是靠它声明 `--tweakClass` 的，同样从来没被展开过。
- *   3. 占位符在**过滤之后**才替换（见下面那句故意传空映射的 NOTE）—— 被丢掉的那些参数
+ *   3. 占位符在**过滤之后**才替换（下面那一段说的是怎么做到的）—— 被丢掉的那些参数
  *      不替换、也就不为它们报「值没填」。
  *
  * NOTE: 2026-09-22 第二版改动：**判据不是 `inheritsFrom`**。第一版写的是"json 里有
@@ -198,17 +218,20 @@ inline QStringList extraGameArguments(const QJsonObject &versionJson,
     const QJsonArray game = arguments.value(QStringLiteral("game")).toArray();
     QStringList declared;
     if (!game.isEmpty()) {
-        // dropClasspath = false：游戏参数里不该有 ${classpath}（那是 JVM 那边的事），
-        // 就算有也不该把前面的 -cp 一起吃掉。
+        // ★ 这一份**只过滤、不替换**（`declaredArguments()` 而不是 `expand()`）—— 替换挪到
+        //   最后那一步去做。理由：这一份里绝大多数条目是原版那套名字（`--clientId
+        //   ${clientid}`、`--xuid ${auth_xuid}`、`--userProperties ${user_properties}`、
+        //   `--quickPlayPath ${quickPlayPath}` …），它们**下一句就会被整条跳掉**（启动器
+        //   自己发的是另一份），可那几个占位符我们本来就不提供 —— 先替换的话，每一次启动
+        //   都会为这几条打一句「Unresolved placeholder」（实测 10~11 条），而那几行
+        //   **一个字节都不会进命令行**。真出问题的那种（我们会发出去、却没人填值的）照样
+        //   会报，因为它活到了最后那一步。
         //
-        // 占位符那一格**故意传空映射**（= 一条都不替换），替换挪到过滤之后做。理由：这一份
-        // 里绝大多数条目是原版那套名字（`--clientId ${clientid}`、`--xuid ${auth_xuid}`、
-        // `--userProperties ${user_properties}`、`--quickPlayPath ${quickPlayPath}` …），
-        // 它们**下一句就会被整条跳掉**（启动器自己发的是另一份），可那几个占位符我们本来就
-        // 不提供 —— 先替换的话，每一次启动都会为这几条打一串「Unresolved placeholder」，
-        // 而那几行**一个字节都不会进命令行**。真出问题的那种（我们会发出去、却没人填值的）
-        // 照样会报，因为它活到了最后那一步。
-        declared = expand(game, QHash<QString, QString>(), features, false);
+        //   NOTE: 2026-09-26 修的那一版**原来是错的**：这里传的是 `expand(game, 空映射,
+        //         features, false)`——`expand()` 里那句 `substitutePlaceholders()` 是**无条件
+        //         调的**，空映射只是"一条都换不掉"，警告照发 ⇒ 注释逐字承诺的事一件没做到，
+        //         反而每次启动多刷 10~11 条。**空映射不等于"不替换"**，这个坑就是那句话。
+        declared = declaredArguments(game, features);
     } else {
         declared = versionJson.value(QStringLiteral("minecraftArguments"))
                        .toString()

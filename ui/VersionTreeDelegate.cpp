@@ -190,14 +190,22 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     }
     painter->setFont(mainFont);
     painter->setPen(palette.color(QPalette::WindowText));
+    // ★ 两行都要**先截成省略号再画**（2026-09-26 修）。`drawText(rect, 文字)` 在装不下时
+    //   是**硬裁**：最后那个字被切掉半个、右边那一小截贴在图标上，看着像"字画坏了"，
+    //   而不是"这里还有更多"。版本名和加载器名都能长过这一格（自定义名更长），
+    //   资源表那几张也一样 —— 四张表都用这一个代理。
+    //   同一份写法在 GroupListDelegate 里（那是 2026-09-25 加的新代理，一开始就带截断），
+    //   这里当时漏了。宽度的算法一个字没动，只多这一步。
     painter->drawText(QRect(textRect.left(), y, textRect.width(), mainMetrics.height()),
-                      Qt::AlignLeft | Qt::AlignVCenter, mainText);
+                      Qt::AlignLeft | Qt::AlignVCenter,
+                      mainMetrics.elidedText(mainText, Qt::ElideRight, textRect.width()));
     y += mainMetrics.height() + gap;
     if (!subText.isEmpty()) {
         painter->setFont(subFont);
         painter->setPen(palette.color(QPalette::PlaceholderText));
         painter->drawText(QRect(textRect.left(), y, textRect.width(), subMetrics.height()),
-                          Qt::AlignLeft | Qt::AlignVCenter, subText);
+                          Qt::AlignLeft | Qt::AlignVCenter,
+                          subMetrics.elidedText(subText, Qt::ElideRight, textRect.width()));
     }
     if (!mark.isNull()) {
         painter->drawPixmap(iconRect.topLeft(), mark);

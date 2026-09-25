@@ -113,28 +113,87 @@ QList<FilterOption> filterOptions(const QList<QPair<QString, QString>> &pairs) {
     return out;
 }
 
+/// 版本号里的一段：**前导数字** + 后面剩下那截。`1.20.5-pre1` 的第二段 → (5, "-pre1")；
+/// `Forge` / `pre1` 这种一位数字都不带的 → (没有数字, 原文)。
+///
+/// NOTE: 拆出"前导数字"而不是"整段是不是数"，正是为了 `5-pre1` 和 `6` 能按 **5 < 6** 比
+///       （`1.20.5-pre1` 该排在 `1.20.6` 前面）。整段判类型的写法在这里会退回字符串比，
+///       于是 `5-pre1` 大于 `6` —— 那是另一套次序（见下面那段）。
+struct VersionSegment {
+    bool numbered = false;  ///< 有没有前导数字
+    qint64 number = 0;      ///< 那个数（没有前导数字时无意义）
+    QString rest;           ///< 前导数字之后剩下的那截（没有前导数字时是原文）
+};
+
+/// 前导数字最多读这么多个字符。更长的（一份 20 位的"版本号"）**当它没有前导数字**：
+/// 折成 0 会让两个不同的巨数比成相等，而"按剩下的那截比"至少还是个全序。
+constexpr int kMaxVersionDigits = 18;
+
+VersionSegment splitVersionSegment(const QString &text) {
+    int digits = 0;
+    while (digits < text.size()) {
+        const QChar ch = text.at(digits);
+        if (ch < QLatin1Char('0') || ch > QLatin1Char('9')) {
+            break;
+        }
+        ++digits;
+    }
+    VersionSegment out;
+    out.rest = text;
+    if (digits > 0 && digits <= kMaxVersionDigits) {
+        out.numbered = true;
+        out.number = text.left(digits).toLongLong();
+        out.rest = text.mid(digits);
+    }
+    return out;
+}
+
+/// 两段的次序：**带前导数字的在前**，然后比那个数，最后比剩下的那截。
+///
+/// 三个判据各自都是全序，按这个优先级拼起来就是全序 —— 这一条是硬要求，见下面那段。
+int compareVersionSegment(const VersionSegment &a, const VersionSegment &b) {
+    if (a.numbered != b.numbered) {
+        return a.numbered ? -1 : 1;
+    }
+    if (a.numbered && a.number != b.number) {
+        return a.number < b.number ? -1 : 1;
+    }
+    const int compared = QString::compare(a.rest, b.rest);
+    if (compared != 0) {
+        return compared < 0 ? -1 : 1;
+    }
+    return 0;
+}
+
 /// 「1.9 比 1.10 旧」那件事：按 `.` 切成段比。**只给 gameVersionsOldestFirst 用。**
 ///
-/// 段里全是数字就按数比（字符串比会把 1.10 判成小于 1.9），否则按字符串比
-/// （`1.21-pre1` 那种）；前面几段一样时**段数少的在前**（1.21 < 1.21.1）。
+/// 前面几段一样时**段数少的在前**（1.21 < 1.21.1）。段与段之间走
+/// compareVersionSegment()：带前导数字的按数比（字符串比会把 1.10 判成小于 1.9），
+/// 5-pre1 这种"数 + 后缀"先比数、再比后缀。
+///
+/// ★ 2026-09-26 修：这个函数以前是**一段一段"要么都按数比、要么都按字符串比"**的写法 ——
+///   而两段**类型不同的那一次**落到字符串比，字符串比的次序和数比的次序不是同一个
+///   （`9` 用数比小于 `10`、用字符串比大于 `10`）。三段之间于是能比出**圈**来：
+///     1.9 < 1.10（数比）  ·  1.10 < 1.10-pre1（字符串比，`10` 是 `10-pre1` 的前缀）
+///     ·  1.10-pre1 < 1.9（字符串比，`1` < `9`）—— 三条同时成立。
+///   而它喂的正是 std::stable_sort（gameVersionsOldestFirst）：**非传递的比较器进任何
+///   标准排序都是未定义行为**，introsort 会按"这个圈"去分区，结果是次序随机（同一份入参
+///   换个排列能排出不同答案）、真机上还能读到数组外面去。
+///   新的写法**不靠字面值决定用哪把尺子**（先看"有没有前导数字"，再看数，再看后缀），
+///   圈就没了；真实数据上的次序和改之前一致（`1.20.5-pre1` < `1.20.6`、`1.21` < `1.21-pre1`、
+///   `Forge` 排在数字版本后面，都是原来那个答案）。
+///
+/// NOTE: 已知的、和改之前一致的近似：**预发布被排在它自己的正式版后面**（1.21 < 1.21-pre1，
+///       语义上该反过来）。这是原来就有的行为，这次只动"圈"，没动它。
 int compareVersionText(const QString &left, const QString &right) {
     const QStringList a = left.split(QLatin1Char('.'));
     const QStringList b = right.split(QLatin1Char('.'));
     const int shared = qMin(a.size(), b.size());
     for (int i = 0; i < shared; ++i) {
-        bool aIsNumber = false;
-        bool bIsNumber = false;
-        const int aNumber = a.at(i).toInt(&aIsNumber);
-        const int bNumber = b.at(i).toInt(&bIsNumber);
-        if (aIsNumber && bIsNumber) {
-            if (aNumber != bNumber) {
-                return aNumber < bNumber ? -1 : 1;
-            }
-            continue;
-        }
-        const int compared = QString::compare(a.at(i), b.at(i));
+        const int compared = compareVersionSegment(splitVersionSegment(a.at(i)),
+                                                  splitVersionSegment(b.at(i)));
         if (compared != 0) {
-            return compared < 0 ? -1 : 1;
+            return compared;
         }
     }
     if (a.size() != b.size()) {

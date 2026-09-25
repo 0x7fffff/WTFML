@@ -514,6 +514,27 @@ void AuthManager::handleNewConnection() {
         qInfo().noquote() << "登录成功：" << m_playerName;
         emit loginSucceeded(m_playerName);
     } else {
+        // ★ 2026-09-26：登录没成的时候，**内存里那份身份要跟着盘走**。
+        //
+        //   这一趟开头的 exchangeAuthorizationCode() 已经把盘上那份 Minecraft 凭据清掉了
+        //   （那是 2026-09-25 有意的一步，为的是不让"旧账号的 uuid 配新账号的刷新令牌"
+        //   这种错配留在盘上）。可 **m_uuid / m_playerName / m_accessToken 是另一份**，
+        //   谁都没去动它 —— 于是盘上写着"没登录"、内存里还登着上一个账号：
+        //     · 底栏左下照旧显示上一个账号，而点启动时那句判据（offlineIdentity()，
+        //       读的是盘）走的是"在线"那一支；
+        //     · 接着 loadSavedToken() 会拿 microsoft 槽里那份**新账号**的刷新令牌换出
+        //       新账号来 —— 一次"失败"的登录，点一下启动就悄悄成了另一个人的登录。
+        //   reloadStoredAccount() 正是"内存跟着盘走"的唯一出处（切账号那条路用的是它），
+        //   盘上那份刚被清空 ⇒ 它会退回未登录。
+        //
+        //   NOTE: 当前账号是**离线账号**时不能走那一句：盘上那份凭据本来就没被动过
+        //         （离线账号没有凭据），而 reloadStoredAccount() 会把 m_playerName 抹成
+        //         占位值 "Player"，底栏那句"离线登录"照旧说着 —— 名字和身份当场对不上，
+        //         启动参数里 --username 也会变成 Player。那种情况什么都不用做。
+        const QString activeAfterFailure = AccountStore::activeUuid();
+        if (!AccountStore::isOffline(activeAfterFailure)) {
+            reloadStoredAccount();
+        }
         qWarning().noquote() << "登录失败：" << failureMessage;
         emit loginFailed(failureMessage);
     }
@@ -601,7 +622,15 @@ bool AuthManager::exchangeAuthorizationCode(const QString &code, QString *access
     //
     // NOTE: 清掉 minecraft 槽**不影响**这里刻意保留的那半个凭据：文件头那句"失败时盘上
     //       留着微软那份，好把链重放一遍"说的是 microsoft 槽，它照旧写着新令牌。
-    if (!AccountStore::activeUuid().isEmpty()) {
+    // ★ 2026-09-26：这道闸的判据原来只有"活动槽里有人"（`activeUuid()` 非空）——
+    //   而**离线账号也满足它**（它靠 `CurrentAccountUuid` 那一格算"当前"，见
+    //   AccountStore::activeUuid() 第二档）。于是"用着离线账号去登微软"这条路上，
+    //   captureActive() 必然失败（离线账号本来就没有凭据可存，makeOfflineCurrent() 把两个
+    //   槽都清空了），每次都在命令行甩一句"盘上没有可保存的登录凭据。"。
+    //   那句话既不是错误也不新 —— 真正读日志的人会被它骗着去找一个不存在的故障。
+    //   判据换成"当前这位是个**在线**账号"：只有它才有凭据要保。
+    const QString currentUuid = AccountStore::activeUuid();
+    if (!currentUuid.isEmpty() && !AccountStore::isOffline(currentUuid)) {
         QString captureError;
         if (!AccountStore::captureActive(&captureError)) {
             // 收不进去**不拦这次登录**：登录是另一件事，而且"列表读不出来"这种情况

@@ -137,6 +137,26 @@ QString FolderManager::normalized(const QString &path) {
     }
     const QFileInfo info(path);
     if (info.exists()) {
+        // ★ 这一格**本身就是个链接**时不许解（2026-09-26 修）。canonicalFilePath() 会把
+        //   符号链接解析成它指向的那个目录 —— 于是用户添加进来的 `D:\MC\link` 在列表里
+        //   变成 `E:\real`，而"删除这一份游戏文件夹"随后调的就是
+        //   `removeTreeWithoutFollowingLinks(E:\real)`：链接本身还在，**另一块盘上的东西
+        //   没了**。上面 isLinkToElsewhere() 那个 guard 判的正是 `isJunction() ||
+        //   isSymLink()`，可它**在更早的这一步就被解掉了**，所以它一辈子也看不到符号链接。
+        //
+        //   NOTE: junction 不受影响 —— 实测（探针 linkprobe，2026-09-26，和 2026-09-25
+        //         那次结论一致）`canonicalFilePath()` 对 junction **原样返回字面路径**，
+        //         根本不解释链接，所以它在下面那条路上活得好好的。这个不对称正是"自测
+        //         全绿"的原因：能造的那一类（junction）防住了，防不住的那一类没进过测试。
+        //
+        //   只把**父目录**归一（盘符大小写、`..` 这些照旧收拾掉），最后那一段原样留着 ——
+        //   列表里那条还是用户亲手加进来的那一条，删的时候也只是把链接摘掉。
+        if (isLinkToElsewhere(info)) {
+            const QFileInfo parent(info.absolutePath());
+            const QString parentPath = parent.canonicalFilePath();
+            const QString base = parentPath.isEmpty() ? info.absolutePath() : parentPath;
+            return QDir::cleanPath(base + QLatin1Char('/') + info.fileName());
+        }
         // 目录真在的时候用 canonicalFilePath：它顺带统一盘符大小写、解掉符号链接和
         // `..`，否则 `D:/mc/.minecraft` 和 `d:\mc\.minecraft` 会被当成两个文件夹。
         const QString canonical = info.canonicalFilePath();

@@ -388,8 +388,26 @@ int OverlayHost::execEmbedded(QDialog *dialog, const QString &title, bool asPage
         backConnection = connect(this, &OverlayHost::backPressed, &loop,
                                  [dialog] { dialog->reject(); });
     }
-    const QMetaObject::Connection dismissConnection =
-        connect(this, &OverlayHost::promptDismissed, &loop, [dialog] { dialog->reject(); });
+    // ★ 这一发**只有提示那一层接**（`asPage == false`）。信号的名字和它的 doc 说的都是
+    //   "最上面那条提示被点外面/按 Esc 关掉了"，而 `mousePressEvent()` / `keyPressEvent()`
+    //   也只在 `m_mode == Mode::Prompt` 时才发它 —— 页面那层永远等不到这一发，接了就是接了个
+    //   不该有的东西。
+    //
+    //   原来的形状是**两层都接**，症状是"点一下提示框外面，底下那一页跟着一起没了"：
+    //   提示叠在页上的时候，页那一次的 `execEmbedded` 还卡在 `loop.exec()` 里、它那条连接
+    //   还活着 ⇒ 这一发 `emit` 让两条 lambda 同时跑，页的对话框被 `reject()`。
+    //   `QDialog::done()` 里**没有可见性判断**（只有一层 `QPointer` 保护），所以哪怕
+    //   那一页此刻正被提示盖着、`m_pageFrame` 是收着的，照样 `finished(Rejected)` ⇒ 页那次
+    //   `loop.quit()` ⇒ `execEmbedded` 返回 Rejected。用户看到的是"我只点关了一条提示，
+    //   刚编辑了半天的分组设置全丢了"（GroupDialog 那条重名警告就叠在它自己这一页上）。
+    //
+    //   NOTE: 返回箭头那条（`backConnection`）**没有**这个问题：`backPressed` 只有那六颗
+    //         按钮会发，而页面被提示盖住时页眉整个是收着的，点不到。
+    QMetaObject::Connection dismissConnection;
+    if (!asPage) {
+        dismissConnection =
+            connect(this, &OverlayHost::promptDismissed, &loop, [dialog] { dialog->reject(); });
+    }
     const QMetaObject::Connection finishedConnection =
         connect(dialog, &QDialog::finished, &loop, [&result, &loop](int code) {
             result = code;
@@ -399,7 +417,10 @@ int OverlayHost::execEmbedded(QDialog *dialog, const QString &title, bool asPage
     loop.exec();
 
     disconnect(backConnection);
-    disconnect(dismissConnection);
+    // 页面那一层压根没接（见上面那段），空连接交给 disconnect 是白白一句。
+    if (dismissConnection) {
+        disconnect(dismissConnection);
+    }
     disconnect(finishedConnection);
     // 收**这一层**：提示收掉之后，底下压着的那一页还在（那是它的调用方在等的）。
     closeOverlay();

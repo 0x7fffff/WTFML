@@ -5806,6 +5806,25 @@ void MainWindow::onLoginFailed(const QString &errorMessage) {
         m_accountSkinDialog->setBusy(false);
         m_accountSkinDialog->setStatusText(accountSkinStatusText());
     }
+    // ★ 2026-09-26：登录失败还可能是"**上一个在线账号已经不在盘上了**"。
+    //   登录那一趟开头会把活动槽里的 Minecraft 凭据清掉（防"旧 uuid 配新刷新令牌"的错配，
+    //   见 AuthManager::exchangeAuthorizationCode），而 AuthManager 在失败那条路上已经把
+    //   内存里那份身份跟着盘清了（见 handleNewConnection 里那段）。**界面得跟着画一遍**：
+    //   底栏那个名字是上一次 updateBottomBar() 摆上去的，不重画就会一直停在上一个人的名字
+    //   上，而底栏第二行"未登录"的判断（offlineIdentity()，读盘）与启动那句判据都说"没人"。
+    //
+    //   条件写全是为了**别动离线账号那一档**：那时候盘上什么都没变（离线账号没有凭据），
+    //   底栏该继续写离线那个名字。而"从来没登录过 + 登录失败"也会走进来一次，那一趟是
+    //   幂等的：画出来还是原来那张默认脸、占位名字。
+    if (!offlineIdentity() && !m_authManager->loggedIn()) {
+        updateBottomBar();
+        // 外观同理：脸还是上一个人的（m_avatarPixmap 只在 applyPlayerSkin() 里换），
+        // 这里走的是"未登录 ⇒ 默认外观"那一支，**不联网**（见 startPlayerSkinLoad() 里
+        // !loggedIn() 那个早退）。刻意**不调** refreshAccountSkin()：那一支最后会去
+        // loadSavedToken() 拉披风，而盘上此刻正躺着**新账号**那半份微软凭据 —— 一次同步的
+        // 令牌刷新会把"登录失败"当场变成"其实登上了另一个人"，用户看到的弹窗就成了假话。
+        startPlayerSkinLoad();
+    }
     // 登录失败是**挡住启动**的错误（没有令牌就点不动「启动游戏」），按产品约定必须弹窗。
     // 正文是 AuthManager 那边给的、能直接给用户看的话（"这个微软账户还没注册过 Xbox 账户，
     // 到 xbox.com 登录一次"这种），不是一句"登录失败"。
@@ -6660,6 +6679,17 @@ void MainWindow::openInstanceSettings(const QString &versionId) {
 
 bool MainWindow::applyInstanceSettings(const QString &versionId,
                                       const InstanceSettingsDialog &dialog) {
+    // ★ 分组归属的**老键必须在写 meta 之前取**。下面那一句 `ensureInstanceId()` 会给
+    //   "还没有稳定 id"的老实例补一个，而归属是按 `instanceKey()`（有 id 用 id、没有就
+    //   退回目录名）存的 ⇒ 补上 id 之后同一个实例的键**换了一个**，不跟着搬它就会
+    //   **静默掉出原来那一组**。用户看到的是"我只改了个内存设置，它自己从组里出来了"，
+    //   而且没有任何日志、没有任何弹窗 —— 事后才发现。
+    //
+    //   NOTE: 已经走过改名那条路的实例到这里时 id 早就有了（`renameInstance()` 那一步
+    //         生成的），oldKey == newKey —— `rekey()` 自己认得出这是空操作，一个字节
+    //         都不写盘（见它开头那一句）。
+    const QString oldGroupKey = instanceKey(versionId);
+
     // 先把稳定 id 落下去。**必须排在最前**：这一项覆盖要"跟着这个实例走"，而实例的
     // 身份就是那个 id（目录名会被改，改名之后按目录名记的东西全丢）。失败就不写 ——
     // 写成一次"靠目录名认出来的覆盖"比这次没写成糟得多。
@@ -6669,6 +6699,21 @@ bool MainWindow::applyInstanceSettings(const QString &versionId,
                                  "（这份文件可能被别的程序占着，或者它所在的目录不可写。）")
                                   .arg(instanceDisplayName(versionId)));
         return false;
+    }
+
+    // 键换过了（老实例刚拿到 id）就把归属搬过去 —— 这一步**必须在这里**，不能挪到
+    // 下面那次写 meta 之后：`ensureInstanceId()` 已经把 id 落盘了，也就是说"键已经换了"
+    // 是既成事实，再往下走无论成败，归属都只剩这一条路能保住。
+    //
+    // NOTE: 搬失败**不当成"设置没保存"**（照 applyRename 的先例）：那会让用户以为要重来
+    //       一次，而设置那半边马上就写好了。说清楚哪一半没成，让他自己去「分组…」再归一次。
+    const QString newGroupKey = instanceKey(versionId);
+    QString groupError;
+    if (!m_groupStore->rekey(oldGroupKey, newGroupKey, &groupError)) {
+        InlineMessage::warning(m_ui->overlay(), tr("分组归属没跟着搬"),
+                             tr("「%1」的分组归属没能搬过去：\n%2\n\n"
+                                "可以在「分组…」里重新归一次。")
+                                 .arg(instanceDisplayName(versionId), groupError));
     }
 
     // "值 → 要写进 meta 的字段"整批交给 javaOverrideMetaFields()：五项里"跟随全局"

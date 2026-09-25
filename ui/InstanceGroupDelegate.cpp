@@ -2,6 +2,7 @@
 
 #include <QAbstractItemView>
 #include <QApplication>
+#include <QFontMetrics>
 #include <QHelpEvent>
 #include <QPainter>
 #include <QStyle>
@@ -257,11 +258,16 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
     // 也是这么画的）。
     QFont mainFont = option.font;
     mainFont.setBold(true);
+    const QFontMetrics mainFontMetrics(mainFont);
     painter->save();
     painter->setFont(mainFont);
     painter->setPen(palette.color(QPalette::WindowText));
+    // 组名太长时截成省略号（2026-09-26 修；和 VersionTreeDelegate 里那两行同一个理由 ——
+    // `drawText(rect, 文字)` 装不下是硬裁，最后一个字被切掉半个）。组名是用户自己起的名字，
+    // 比版本号更容易长过这一格。
     painter->drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter,
-                      index.data(Qt::DisplayRole).toString());
+                      mainFontMetrics.elidedText(index.data(Qt::DisplayRole).toString(),
+                                                 Qt::ElideRight, textRect.width()));
     // 行尾那颗齿轮：画的是 gearGlyphRect()（比命中格小一圈、还要装进行高里），用次要那一档
     // 颜色 —— 它是行里的一个动作，不是正文。
     if (hasGear) {
