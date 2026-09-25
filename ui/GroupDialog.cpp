@@ -60,7 +60,8 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
     auto *hint = new QLabel(
         tr("这里管的是分组本身：有哪些分组、各叫什么、按什么顺序排、画出来是展开的还是"
            "收着的。删掉一个分组不会删掉里面的实例 —— 它们只是回到未分组。\n"
-           "行尾那两颗三角把这一组往上/往下挪一格（按住 Shift 点 = 直接放到最上面/最下面）。"),
+           "行尾那个方框里上、下两颗三角把这一组往上/往下挪一格（按住 Shift 点 = 直接放到最上面/"
+           "最下面）。"),
         this);
     hint->setWordWrap(true);
     mainLayout->addWidget(hint);
@@ -237,6 +238,12 @@ bool GroupDialog::eventFilter(QObject *watched, QEvent *event) {
     // 不用 `m_groups.at(row)`：行和组是两个东西摆在一起而已，认行只认视图。
     const QModelIndex index = m_groupList->indexAt(mouse->position().toPoint());
     if (!index.isValid()) {
+        return QDialog::eventFilter(watched, event);
+    }
+    // 这一行整块没有方框（两颗都挪不动：表里只剩一条分组）时就当普通一行 —— 不吃这一发、
+    // 也不弹提示。判据和代理画不画那个框、弹不弹话读的是同一句
+    // （GroupListDelegate::showsMoveBox()），不会出现「看着什么都没有、点下去却被吃掉」。
+    if (!GroupListDelegate::showsMoveBox(index)) {
         return QDialog::eventFilter(watched, event);
     }
     const QRect row = m_groupList->visualRect(index);
@@ -463,7 +470,13 @@ void GroupDialog::rebuildGroupList() {
         // 行高和版本下载那棵树一样（用户 2026-09-25 原话：「每个版本啥的上下高一点，像
         // 下载页那样，分组设置界面也是」）。这儿的行只有一行字，不给的话就是字那么高 ——
         // 同一份组名在实例页那棵树上和在这张表里高矮不一样，看着像两个东西。
-        const int rowHeight = MainWindowUI::versionTreeRowHeight();
+        //
+        // **条目还要再加一条缝**（GroupListDelegate::rowGap()）：46 高一行紧挨着一行码
+        // 起来，两条组名之间只剩行内那点余量，扫一眼分不出这是两条（用户 2026-09-25 原话
+        // 「给组和组之间留一点距离，不然粘在一起分辨不开」）。画出来的那一块仍然是 46 高
+        // —— 代理按 contentRect() 把底下那一条收掉（字、背景、行尾那个方框都按它摆）。
+        const int rowHeight =
+            MainWindowUI::versionTreeRowHeight() + GroupListDelegate::rowGap();
         for (const Group &group : m_groups) {
             auto *item = new QListWidgetItem(
                 groupItemText(group.name, m_memberCounts.value(group.id)), m_groupList);
