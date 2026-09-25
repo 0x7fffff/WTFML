@@ -60,6 +60,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     outer->setSpacing(10);
 
     auto *title = new QLabel(tr("实例设置：%1").arg(instanceName), this);
+    m_titleLabel = title;
     title->setObjectName(titleLabelName());
     QFont titleFont = title->font();
     titleFont.setBold(true);
@@ -100,6 +101,10 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         connect(browse, &QPushButton::clicked, this, [this]() {
             // 模态，验证工程驱动不了它 —— 那一半是"问路径"，可测的那一半是这个框里的
             // 文字（override() 直接读它）。和 GroupDialog 里问组名的拆法一样。
+            // NOTE: "驱动不了"的原因和内嵌提示那几条不一样：这里开的是 **Windows 自己的
+            //       文件选择框**，不是我们的窗（同选文件夹 / 选整合包 / 选皮肤图，2026-09-25
+            //       之后全项目就剩这四处独立窗）。理由和取舍见 MainWindow.cpp 里
+            //       onAddFolderClicked() 上面那一段。
             const QString picked = QFileDialog::getOpenFileName(
                 this, tr("选择 java.exe"), m_javaPathEdit->text(),
                 tr("Java 可执行文件 (java.exe);;所有文件 (*)"));
@@ -308,6 +313,16 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
 
     connect(cancel, &QPushButton::clicked, this, &QDialog::reject);
     connect(confirm, &QPushButton::clicked, this, &QDialog::accept);
+}
+
+QString InstanceSettingsDialog::titleText() const {
+    return m_titleLabel != nullptr ? m_titleLabel->text() : QString();
+}
+
+void InstanceSettingsDialog::setTitleVisible(bool visible) {
+    if (m_titleLabel != nullptr) {
+        m_titleLabel->setVisible(visible);
+    }
 }
 
 QWidget *InstanceSettingsDialog::addOverrideRow(QGridLayout *grid, int row, const QString &field,

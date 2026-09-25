@@ -18,11 +18,9 @@
 #include <QCheckBox>
 #include <QGroupBox>
 #include <QHBoxLayout>
-#include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
-#include <QMessageBox>
 #include <QMouseEvent>
 #include <QPushButton>
 #include <QStringList>
@@ -30,6 +28,10 @@
 #include <QVBoxLayout>
 
 #include "GroupListDelegate.hpp"
+// 内嵌提示那一套（2026-09-25）：这个对话框自己就是"一页"，所以要弹的那两句
+// 得从自己往上找那一层覆盖层 —— 见 OverlayHost::forWidget。
+#include "InlineMessage.hpp"
+#include "OverlayHost.hpp"
 #include "MainWindowUI.hpp"
 
 namespace {
@@ -52,7 +54,7 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
       m_memberCounts(memberCounts),
       m_defaultGroups(defaultGroups),
       m_defaultCounts(defaultCounts) {
-    setWindowTitle(tr("分组设置"));
+    setWindowTitle(windowTitle());
     resize(460, 460);
 
     auto *mainLayout = new QVBoxLayout(this);
@@ -112,8 +114,9 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
         // （它连"已经在最上面了就别给上移"也一起管）。
         connect(m_addButton, &QPushButton::clicked, this, [this] {
             bool ok = false;
-            const QString name = QInputDialog::getText(this, tr("新建分组"), tr("组名："),
-                                                      QLineEdit::Normal, QString(), &ok);
+            const QString name = InlineMessage::getText(OverlayHost::forWidget(this),
+                                                        tr("新建分组"), tr("组名："), QString(),
+                                                        &ok);
             if (ok) {
                 createGroup(name);
             }
@@ -125,8 +128,9 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
             }
             // 初始文本是现在的名字 —— 用户多半只是想改一两个字。
             bool ok = false;
-            const QString name = QInputDialog::getText(this, tr("重命名分组"), tr("组名："),
-                                                       QLineEdit::Normal, groupName(groupId), &ok);
+            const QString name = InlineMessage::getText(
+                OverlayHost::forWidget(this), tr("重命名分组"), tr("组名："), groupName(groupId),
+                &ok);
             if (ok) {
                 renameGroup(groupId, name);
             }
@@ -138,14 +142,12 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
             }
             // 先问再删，而且说清**实例不会被删**：用户看到"删除"两个字时的第一反应
             // 就是怕连里面的东西一起没了，而这里确实不会。
-            const QMessageBox::StandardButton answer = QMessageBox::question(
-                this, tr("删除分组"),
+            const bool answer = InlineMessage::question(OverlayHost::forWidget(this), tr("删除分组"),
                 tr("「%1」会被删除，组里的 %2 个实例不会被删掉，它们只是变成未分组。\n\n"
                    "确定要删除吗？")
                     .arg(groupName(groupId))
-                    .arg(m_memberCounts.value(groupId)),
-                QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-            if (answer == QMessageBox::Yes) {
+                    .arg(m_memberCounts.value(groupId)), tr("是"), tr("否"), false);
+            if (answer) {
                 deleteGroup(groupId);
             }
         });
@@ -198,16 +200,14 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
         for (const Group &group : m_defaultGroups) {
             names.append(group.name);
         }
-        const QMessageBox::StandardButton answer = QMessageBox::question(
-            this, tr("恢复默认分组设置"),
+        const bool answer = InlineMessage::question(OverlayHost::forWidget(this), tr("恢复默认分组设置"),
             tr("现在的分组会被换成这 %1 个默认分组：%2。\n\n"
                "自己建的分组会消失，组里的实例一个都不会被删 —— 它们会按版本类型回到各自"
                "的默认分组或者未分组。\n\n"
                "确定要恢复吗？")
                 .arg(names.size())
-                .arg(names.join(tr("、"))),
-            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-        if (answer == QMessageBox::Yes) {
+                .arg(names.join(tr("、"))), tr("是"), tr("否"), false);
+        if (answer) {
             restoreDefaults();
         }
     });
@@ -341,7 +341,7 @@ QString GroupDialog::validateGroupName(const QString &rawName, const QString &ex
 bool GroupDialog::createGroup(const QString &name) {
     const QString problem = validateGroupName(name, QString());
     if (!problem.isEmpty()) {
-        QMessageBox::warning(this, tr("新建分组失败"), problem);
+        InlineMessage::warning(OverlayHost::forWidget(this), tr("新建分组失败"), problem);
         return false;
     }
 
@@ -365,7 +365,7 @@ bool GroupDialog::renameGroup(const QString &groupId, const QString &name) {
     }
     const QString problem = validateGroupName(name, groupId);
     if (!problem.isEmpty()) {
-        QMessageBox::warning(this, tr("重命名分组失败"), problem);
+        InlineMessage::warning(OverlayHost::forWidget(this), tr("重命名分组失败"), problem);
         return false;
     }
 

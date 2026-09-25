@@ -76,12 +76,16 @@ set(SOURCE_FILES
     ui/GroupDialog.cpp
     ui/GroupListDelegate.cpp
     ui/InstanceSettingsDialog.cpp
+    ui/InlineMessage.cpp
     ui/JavaMismatchDialog.cpp
+    ui/OverlayHost.cpp
     ui/SkinModel.cpp
     ui/VersionIcons.cpp
     ui/VersionTreeDelegate.cpp
     ui/InstanceGroupDelegate.cpp
     ui/SkinViewer.cpp
+    ui/TitleBar.cpp
+    ui/WindowChrome.cpp
     ${HEADER_FILES}
 )
 
@@ -130,6 +134,9 @@ target_link_libraries(WTFMinecraftLauncher PRIVATE
 #   * shlwapi        —— SHCreateMemStream（把内存里那串图标字节变成一个 IStream，不落盘）
 #   * windowscodecs  —— WIC 本体（IWICImagingFactory 那些）
 # 三个都是系统 DLL（Vista 起就在），**不发任何东西**：见 ImageDecode 文件头那段。
+#
+# dwmapi 是外框那一份要的（ui/WindowChrome.cpp 里的 DwmSetWindowAttribute，把圆角明说一遍）。
+# 同样是系统 DLL（Vista 起就有）。
 if(WIN32)
-    target_link_libraries(WTFMinecraftLauncher PRIVATE crypt32 ole32 shlwapi windowscodecs)
+    target_link_libraries(WTFMinecraftLauncher PRIVATE crypt32 ole32 shlwapi windowscodecs dwmapi)
 endif()

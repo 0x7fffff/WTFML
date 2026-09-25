@@ -166,6 +166,17 @@ public:
     }
     static QString cancelButtonName() { return QStringLiteral("instanceSettingsCancelButton"); }
 
+    /// 这一页叫什么（`「实例设置：<实例名>」`）。页面型覆盖层要把这一句写在自己那条
+    /// 页眉上，所以它得能问出来 —— 不然两边就各写各的了。
+    QString titleText() const;
+
+    /// 嵌进覆盖层那一页的时候把这行标题收起来。
+    ///
+    /// NOTE: 覆盖层的页眉**就是这个页面的标题栏**（那行字和窗口的标题栏是同一件事）。
+    ///       不收的话屏幕上会紧接着出现两行一模一样的字。收不收由调用方说了算 ——
+    ///       单独拿出来用（验证工程那种）时它还是要有标题的。
+    void setTitleVisible(bool visible);
+
     /// 那一对单选钮的文字。**这两句是产品文案**，验证工程按它们核对而不是自己拼。
     static QString followText() { return QStringLiteral("跟随全局"); }
     static QString customText() { return QStringLiteral("自定义"); }
@@ -202,6 +213,10 @@ private:
 
     /// 全局那一层的值，用来写「跟随全局（当前 …）」。构造之后不再变。
     GlobalValues m_global;
+
+    /// 这一页自己那行标题。页面型覆盖层用的是**它的字**（页眉 = 这个页面的标题栏），
+    /// 所以它得留着给人问（见 titleText / setTitleVisible）。
+    QLabel *m_titleLabel = nullptr;
 
     QLineEdit *m_javaPathEdit = nullptr;
     QSpinBox *m_memoryMaxSpin = nullptr;

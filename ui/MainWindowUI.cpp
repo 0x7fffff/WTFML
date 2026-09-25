@@ -9,9 +9,12 @@
 #include "MainWindowUI.hpp"
 
 #include "InstanceGroupDelegate.hpp"
+#include "OverlayHost.hpp"
 #include "SkinModel.hpp"
+#include "TitleBar.hpp"
 #include "VersionIcons.hpp"
 #include "VersionTreeDelegate.hpp"
+#include "WindowChrome.hpp"
 
 #include <QColor>
 #include <QEvent>
@@ -32,7 +35,9 @@
 namespace {
 
 /// 每个选项卡页面共用的边距：贴着选项卡内容区留一圈呼吸空间。
-constexpr int kPageMargin = 9;
+/// **值本身在 MainWindowUI::pageMargin()** —— 内容区那个覆盖层（OverlayHost）也是一整个
+/// "页面"，它留白得和别的页面一样，所以那一边读的是同一个出处。
+const int kPageMargin = MainWindowUI::pageMargin();
 
 /// 左右两栏之间的间距。
 constexpr int kColumnSpacing = 12;
@@ -328,6 +333,20 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     QVBoxLayout *mainLayout = new QVBoxLayout(centralWidget);
     mainLayout->setContentsMargins(0, 0, 0, 0);
     mainLayout->setSpacing(0);
+
+    // ================= 顶上那条自己画的标题栏 =================
+    // 系统那条白色标题栏已经由 WindowChrome 去掉了（客户区铺满整窗，见它的文件头），
+    // 顶上这一行就是替它的：左边草方块 + 启动器名字，右边最小化与关闭。
+    // 第一行就是它、第二行才是选项卡 —— 顺序由 addWidget 的先后决定，所以这里先加。
+    //
+    // NOTE: 覆盖层（OverlayHost）挂在 tabWidget 上、条在 tabWidget 上面那一行，所以开设置页
+    //       时这条**不会被盖住** —— 和"底下那条不用覆盖、顶上四个选项卡也不覆盖"是同一条规矩。
+    bar = new TitleBar(centralWidget);
+    mainLayout->addWidget(bar);
+    // 条只发信号、不自己动手（见 TitleBar.hpp）：谁接这两下是这一层的事。
+    // NOTE: 这个类**不是 QObject**（没有 tr()、没有自己的信号槽），所以得写全 `QObject::connect`。
+    QObject::connect(bar, &TitleBar::minimizeRequested, parent, &QMainWindow::showMinimized);
+    QObject::connect(bar, &TitleBar::closeRequested, parent, &QMainWindow::close);
 
     // ================= 选项卡：主页 / 实例 / 下载 / 设置 =================
     // 四页各自只放自己那摊控件，都排成左右两栏：左栏是要操作的那点东西
@@ -959,6 +978,18 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     mainLayout->addWidget(tabWidget, 1);
 
     setupBottomBar(centralWidget, mainLayout);
+
+    // ---------- 内容区上面那一层 ----------
+    // 设置界面和各种提示都开在这儿，不再另开窗口（见 OverlayHost.hpp 开头那段）。
+    // NOTE: 建在**最后**：它不吃布局，几何靠盯住 tabWidget 的 Resize/Move 现算，所以
+    //       搭它的时候上面那四个 addTab 必须已经跑完了。
+    overlayHost = new OverlayHost(tabWidget, centralWidget);
+
+    // ---------- 外框 ----------
+    // 客户区铺满整窗 + 条上哪一片能拖（见 WindowChrome.hpp 开头那两段）。**建在最后**：
+    // 它的构造会把窗口标志加上 FramelessWindowHint（外框归谁管、标志就谁设），
+    // 等上面那些控件都挂完了再动标志，少一层"改到一半"的心。
+    windowChrome = new WindowChrome(parent, bar, parent);
 
     // 空的菜单栏：窗口上那条菜单现在什么都没挂。
     // TODO: 菜单里放"打开 .minecraft 目录 / 关于"这类动作；设置项已经全部搬进
