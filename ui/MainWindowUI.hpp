@@ -58,6 +58,9 @@
 class QGridLayout;
 class QScrollArea;
 class QVBoxLayout;
+class OverlayHost;
+class TitleBar;
+class WindowChrome;
 
 /**
  * @brief 挡掉没有焦点时的滚轮事件，防止鼠标划过就把控件里的值改掉。
@@ -437,6 +440,11 @@ public:
     static QColor installNameErrorColor(const QPalette &palette);
     static QString installButtonName() { return QStringLiteral("installButton"); }
     static QString installBackButtonName() { return QStringLiteral("installBackButton"); }
+    /// 每个选项卡页面贴着内容区留的那一圈边距。
+    /// **唯一出处** —— 内容区那个覆盖层（`OverlayHost`）也是一整个"页面"，它那边留白
+    /// 必须和别的页面一样，所以它读的是这一个数，而不是自己再写一个 9。
+    static int pageMargin() { return 9; }
+
     /// 「安装」按钮的字号相对**默认**字号的偏移。用户原话"安装键做大点"。
     /// NOTE: 记的是**偏移**不是点数（和 versionTreeFontStep() 一个道理：默认字号在系统上
     ///       是 9~12 pt 不等）。
@@ -1633,6 +1641,17 @@ public:
     QPushButton *getAccountSkinButton() const { return accountSkinButton; }
 
     QTabWidget *getTabWidget() const { return tabWidget; }
+
+    /// 内容区上面那一层。**设置界面和各种提示的唯一去处** —— 业务层要开一个"整页"或者
+    /// 问一句，一律走它，别再 `new` 一个对话框出来（见 OverlayHost.hpp 开头那段）。
+    OverlayHost *overlay() const { return overlayHost; }
+
+    /// 顶上那条自己画的标题栏（草方块 + 名字 + 最小化/关闭）。**它不在覆盖层的范围里** ——
+    /// 覆盖层挂在 tabWidget 上，条在 tabWidget 上面那一行（见 setupUi 里的 addWidget 顺序）。
+    TitleBar *titleBar() const { return bar; }
+    /// 外框那一份（把系统的标题栏去掉、客户区铺满整窗、条上哪一片能拖）。`MainWindow::nativeEvent()`
+    /// 转给它的 handleNativeEvent()，`setupUi` 之外没有任何人碰它。
+    WindowChrome *chrome() const { return windowChrome; }
     // NOTE: 产品代码没有取过底栏本身（只取它里面的几个标签/进度条），只有验证工程
     //       用它来量底栏的几何。
     QFrame *getBottomBar() const { return bottomBar; }
@@ -1746,6 +1765,10 @@ private:
     QLabel *skinHintLabel = nullptr;
     QPushButton *accountSkinButton = nullptr;
     QTabWidget *tabWidget = nullptr;
+    OverlayHost *overlayHost = nullptr;
+    // 顶上那条自己画的标题栏 + 外框那一份（见各自的文件头）。两个都是 setupUi 里建的。
+    TitleBar *bar = nullptr;
+    WindowChrome *windowChrome = nullptr;
     QFrame *bottomBar = nullptr;
     /// 底栏两头那两颗按钮：整格都是一颗按钮（里面装着原来的那几行字 + 右边一个朝上的箭头）。
     QPushButton *runStateButton = nullptr;

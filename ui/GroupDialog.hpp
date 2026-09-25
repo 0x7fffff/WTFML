@@ -26,11 +26,16 @@
  *
  * 【约定：按钮那半和干活那半分开】
  *
- * 「新建…」要弹出 QInputDialog 问名字、「删除」要 QMessageBox::question 确认、「恢复默认
- * 分组设置…」也要确认，三个都是**模态**的，在 offscreen 的验证工程里驱动不了（会一直等）。
- * 所以真正的逻辑在 createGroup() / renameGroup() / deleteGroup() / moveGroupUp() /
- * moveGroupDown() / setGroupExpanded() / restoreDefaults() 这几个 public 槽里，按钮那条路
- * 只是"问一句 → 调它们"。
+ * 「新建…」要问一句名字、「删除」要问一句确认、「恢复默认分组设置…」也要确认。这三下现在
+ * 都是**内嵌**在内容区里的（`InlineMessage::getText()` / `question()`），不再是独立窗口 ——
+ * 但它们照旧**卡住调用方**（内部一个嵌套事件循环），所以真正的逻辑还是分开放在
+ * createGroup() / renameGroup() / deleteGroup() / moveGroupUp() / moveGroupDown() /
+ * setGroupExpanded() / restoreDefaults() 这几个 public 槽里，按钮那条路只是"问一句 → 调它们"。
+ * 验证工程驱动的也一直是后者。
+ *
+ * NOTE: 2026-09-25 之前上面那段写的是"三个都是模态的、在 offscreen 里驱动不了"——"驱动不了"
+ *       这一半从换成内嵌提示起就**不成立了**（问名字那一格现在是能找得到、能打字的
+ *       QLineEdit），但"问/做分开"这个约定留着：干活那一半不该依赖界面在不在。
  *
  * 【上移/下移那两条路 2026-09-25 起不是按钮了】
  *
@@ -147,6 +152,10 @@ public slots:
 
     // ---------- 控件的 objectName ----------
     // 验证工程靠这些名字认控件，别改回按条目文本去认（组名是用户起的，随时会变）。
+    /// 这一页叫什么。**唯一出处** —— 覆盖层的页眉和这个窗自己的标题栏写的是同一句
+    /// （页面型那一档里页眉就是标题栏，两边各写各的迟早会对不上）。
+    static QString windowTitle() { return QStringLiteral("分组设置"); }
+
     static QString groupListName() { return QStringLiteral("groupList"); }
     static QString addGroupButtonName() { return QStringLiteral("addGroupButton"); }
     static QString renameGroupButtonName() { return QStringLiteral("renameGroupButton"); }

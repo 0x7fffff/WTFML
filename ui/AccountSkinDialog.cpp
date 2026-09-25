@@ -319,6 +319,8 @@ QString AccountSkinDialog::selectedVariant() const {
 }
 
 void AccountSkinDialog::pickSkinFile() {
+    // NOTE: 这一处也是独立窗（Windows 自己的文件选择框）—— 理由和取舍见
+    //       MainWindow::onAddFolderClicked() 上面那一段。
     const QString path = QFileDialog::getOpenFileName(this, tr("选择皮肤图片"), QString(),
                                                       tr("PNG 图片 (*.png)"));
     if (path.isEmpty()) {

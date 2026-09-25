@@ -521,6 +521,27 @@ QPixmap VersionIcons::cross(int size, const QColor &color) {
     });
 }
 
+QPixmap VersionIcons::windowMinimize(int size, const QColor &color) {
+    if (size <= 0) {
+        return QPixmap();
+    }
+    return cached(QStringLiteral("winMin/%1/%2").arg(size).arg(color.name()), [size, color]() {
+        QPixmap pixmap(size, size);
+        pixmap.fill(Qt::transparent);
+        QPainter p(&pixmap);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        QPen pen(color);
+        // 和 cross 一支笔：同样的 size/7 + 圆头。两颗按钮就挨着，粗细不一样看得出来。
+        pen.setWidthF(qMax(1.6, size / 7.0));
+        pen.setCapStyle(Qt::RoundCap);
+        p.setPen(pen);
+        // 左右各留 22%（cross 也是 22%）：只画中间那一段横杠，不顶到格子边上。
+        const qreal y = size * 0.5;
+        p.drawLine(QPointF(size * 0.22, y), QPointF(size * 0.78, y));
+        return pixmap;
+    });
+}
+
 QPixmap VersionIcons::refresh(int size, const QColor &color) {
     if (size <= 0) {
         return QPixmap();

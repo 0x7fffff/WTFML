@@ -140,10 +140,12 @@ private slots:
     /// 改名的**执行部分**：校验名字 → 改磁盘 → 同步状态（LastLaunched / 选中项）→ 刷界面。
     /// 失败时弹窗并返回 false。
     ///
-    /// NOTE: 和"问新名字"那个 QInputDialog 分成两步，是为了**能被验证工程驱动** ——
-    ///       模态窗在 offscreen 下驱动不了（QInputDialog::getText 会一直等），而这一半
-    ///       里藏着最容易漏的那件事：改完名要同步 Version/LastLaunched，不然用户下次
-    ///       打开启动器，选中项会空着，他会以为实例丢了。那条只有真的跑一遍才验得出来。
+    /// NOTE: 和"问新名字"那一步分成两步，是为了**能被验证工程驱动** —— 这一半里藏着最容易
+    ///       漏的那件事：改完名要同步 Version/LastLaunched，不然用户下次打开启动器，选中项
+    ///       会空着，他会以为实例丢了。那条只有真的跑一遍才验得出来。
+    ///       （2026-09-25 之前这里写的是"因为 QInputDialog 在 offscreen 下驱动不了"——
+    ///       那一档换成 InlineMessage::getText() 之后这个理由**不成立了**：问名字那一格现在
+    ///       是能按 objectName 找得到、能真的打字的 QLineEdit。见 InlineMessage.hpp。）
     bool applyRename(const QString &oldId, const QString &newId);
     /// 「分组设置…」：管**分组本身**（新建 / 重命名 / 删除 / 上下移 / 默认展开 / 恢复默认）。
     ///
@@ -236,9 +238,11 @@ private slots:
     ///        一瞬，换来的是"确认框里说的那个包"和"真的去装的那个包"是同一串字节。
     /// @return 真的开始导入了返回 true（失败/被拦下时弹窗并返回 false）。
     ///
-    /// NOTE: 拆成两步的理由和 applyRename() 一样 —— QFileDialog / QInputDialog / 确认框
-    ///       都是模态的，offscreen 的验证工程驱动不了它们，而这一半里藏着真会错的东西
-    ///       （重名要拦、不支持的加载器要拦、忙态几时置上、结束之后列表要刷）。
+    /// NOTE: 拆成两步的理由和 applyRename() 一样 —— 这一半里藏着真会错的东西（重名要拦、
+    ///       不支持的加载器要拦、忙态几时置上、结束之后列表要刷）。
+    ///       （这里原来还写着"QFileDialog / QInputDialog 都是模态的、驱动不了"——问名字那
+    ///       一格 2026-09-25 已经换成能驱动的内嵌提示了；**QFileDialog 那一步还是驱动不了的**
+    ///       ：它开的是 Windows 自己的文件选择框，不是我们的窗，见那个调用点上面那段。）
     bool applyModpackImport(const QString &zipPath, const QString &instanceName,
                             const QByteArray &indexJson);
     /// 用户在左边那张列表里换了「游戏文件夹」。真正干活的是 FolderManager 发出的
@@ -312,6 +316,15 @@ private slots:
                                     const QString &errorMessage);
 
 protected:
+    /// 只为一件事挂着：外框那两条 Win32 消息（WM_NCCALCSIZE / WM_NCHITTEST，见
+    /// `ui/WindowChrome.hpp` 开头那两段）。接到手的是**这个窗口**的消息，Qt 已经替我们把
+    /// HWND 对上号了，所以这里只是转手，没别的。
+    ///
+    /// NOTE: 这一条**必须在 MainWindow 上**（不能改挂到别的控件上）：Qt 只把消息交给顶层
+    ///       部件 —— `QWidgetWindow::nativeEvent()` 那一句就是 `m_widget->nativeEvent(...)`，
+    ///       而 `m_widget` 是那个顶层窗。
+    bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override;
+
     /// 关窗口 = 退出启动器（全仓没有别的退出路径：没有托盘图标、没有 qApp->quit()）。
     ///
     /// 游戏还在跑的时候这里要拦一下，理由见 .cpp 里那段：MainWindow 是 main() 里的栈对象，

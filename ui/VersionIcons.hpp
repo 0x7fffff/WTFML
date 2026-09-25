@@ -89,6 +89,13 @@ QPixmap triangleDown(int size, const QColor &color);
 /// @param color 线的颜色（比正文浅一档 —— 它是"次要操作"，别和版本号抢眼睛）。
 QPixmap cross(int size, const QColor &color);
 
+/// 顶上那条自己画的标题栏里，**最小化**那一格里的那条横杠（—）。
+/// 画法和 cross 同一支笔、同一套边距（左右各 22%、笔宽 size/7）—— 这两颗按钮挨着摆，
+/// 笔画粗细和留白必须一样，不然一颗看着比另一颗大一号。
+/// @param size 边长（像素）。
+/// @param color 线的颜色。
+QPixmap windowMinimize(int size, const QColor &color);
+
 /// 那一圈**刷新箭头**（↻）：下载页左栏每个分类条目右边挂一个，点它 = 这一类重新问一遍
 /// （用户原话："每一项的右边放一个刷新按钮"）。和 cross / chevron 同一个路数 ——
 /// 纯代码画的、带缓存、颜色由调用方给。

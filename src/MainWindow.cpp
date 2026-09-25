@@ -18,6 +18,13 @@
 #include "..\ui\AccountSkinDialog.hpp"
 #include "..\ui\GameLogWindow.hpp"
 #include "..\ui\MainWindowUI.hpp"
+// 内容区上面那一层（2026-09-25）：设置界面和各种提示都开在它里面，不再另开独立窗口。
+// 见它的文件头 —— ui/ 那边只管"开在哪儿、长什么样"，不认识业务。
+#include "..\ui\OverlayHost.hpp"
+// QMessageBox 的替身（2026-09-25 换过来的）：`InlineMessage::warning(overlay, 标题, 正文)`
+// 顶掉原来的 `QMessageBox::warning(this, 标题, 正文)`。原来那些调用点**一行一行**对得上，
+// 语义一个字没变 —— 变的是"这一句说在哪"。
+#include "..\ui\InlineMessage.hpp"
 // 主页右栏那个小人怎么画：几何、投影、默认外观、头像裁切全在它里面（纯函数 + 值）。
 #include "..\ui\SkinModel.hpp"
 // 加载器那棵树底下每一条版本号前面挂的**它自己那个加载器的标志**（见
@@ -25,6 +32,7 @@
 // 以为是原版号。树的顶层那五条由 MainWindowUI 那边给图标，这里只管子条目。
 #include "..\ui\VersionIcons.hpp"
 #include "..\ui\VersionTreeDelegate.hpp"
+#include "..\ui\WindowChrome.hpp"
 // 树上"这一行被激活了"的唯一接线口（鼠标单击 + 键盘回车，一次手势只进来一次）。
 // 三棵树（版本树 / 加载器树 / 下载页那几张资源表）都走它，见那个文件头。
 #include "..\ui\RowActivation.hpp"
@@ -42,11 +50,9 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QGuiApplication>
-#include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
-#include <QMessageBox>
 #include <QMouseEvent>
 // 底栏面板里那几行的图标要按"底栏那几行字的墨色"上色（图标是画的，颜色由调用方给）。
 #include <QPalette>
@@ -904,6 +910,21 @@ MainWindow::~MainWindow() {
     delete m_ui;
 }
 
+bool MainWindow::nativeEvent(const QByteArray &eventType, void *message, qintptr *result) {
+    // 外框那两条消息（WM_NCCALCSIZE / WM_NCHITTEST）转给 ui/WindowChrome —— 那一份的
+    // 文件头把"为什么走这条路、为什么不走 Qt 那条 ExpandedClientAreaHint"写全了。
+    //
+    // 时机上多说一句：Qt 是在**处理这两条消息之前**把消息交到这里来的
+    // （qwindowscontext.cpp 那句 `filterNativeEvent(platformWindow->window(), &msg, result)`
+    // 排在它自己那个大 switch 前面），所以这里回的"这一条到此为止"是算数的 —— Qt 那套
+    // 非客户区处理和我们自己的外框不会打架。
+    WindowChrome *chrome = m_ui != nullptr ? m_ui->chrome() : nullptr;
+    if (chrome != nullptr && chrome->handleNativeEvent(message, result)) {
+        return true;
+    }
+    return QMainWindow::nativeEvent(eventType, message, result);
+}
+
 void MainWindow::closeEvent(QCloseEvent *event) {
     if (!m_launcherManager->hasRunningGame()) {
         QMainWindow::closeEvent(event);
@@ -923,9 +944,6 @@ void MainWindow::closeEvent(QCloseEvent *event) {
     //
     // 所以这里问一句，而且**默认那一边是"别动游戏"**（回车 = 取消，不关窗口）：用户要
     // 是真想停游戏，在游戏里按"退出游戏"那条路才是干净的。
-    QMessageBox box(this);
-    box.setIcon(QMessageBox::Question);
-    box.setWindowTitle(tr("游戏正在运行"));
     // 同时开着好几份时，真名报出来（"还有 3 个游戏在跑：A、B、C"）比"游戏还在运行"
     // 有用得多 —— 用户要判断的正是"我还开着哪些"。
     const QList<LauncherManager::GameSession> games = m_launcherManager->runningGames();
@@ -934,20 +952,27 @@ void MainWindow::closeEvent(QCloseEvent *event) {
     for (const LauncherManager::GameSession &game : games) {
         names.append(instanceDisplayName(game.versionId));
     }
-    box.setText(games.size() == 1
-                    ? tr("游戏「%1」还在运行。\n\n关掉启动器**不会**关掉游戏 —— 它会继续跑，"
-                         "存档、联机都照常。\n要现在关掉启动器吗？")
-                          .arg(names.first())
-                    : tr("还有 %1 个游戏在运行：%2。\n\n关掉启动器**不会**关掉游戏 —— "
-                         "它们会继续跑，存档、联机都照常。\n要现在关掉启动器吗？")
-                          .arg(games.size())
-                          .arg(names.join(QStringLiteral("、"))));
+    const QString text =
+        games.size() == 1
+            ? tr("游戏「%1」还在运行。\n\n关掉启动器**不会**关掉游戏 —— 它会继续跑，"
+                 "存档、联机都照常。\n要现在关掉启动器吗？")
+                  .arg(names.first())
+            : tr("还有 %1 个游戏在运行：%2。\n\n关掉启动器**不会**关掉游戏 —— "
+                 "它们会继续跑，存档、联机都照常。\n要现在关掉启动器吗？")
+                  .arg(games.size())
+                  .arg(names.join(QStringLiteral("、")));
     // 按钮文字自己写：启动器没装 Qt 的中文翻译，标准按钮在界面上是英文的 Yes/No。
-    QPushButton *quitButton = box.addButton(tr("关掉启动器"), QMessageBox::AcceptRole);
-    QPushButton *cancelButton = box.addButton(tr("取消"), QMessageBox::RejectRole);
-    box.setDefaultButton(cancelButton);
-    box.exec();
-    if (box.clickedButton() != quitButton) {
+    // NOTE: 关掉窗口这一发**本身**在跑 closeEvent，不能开独立窗（用户给的方向是最终
+    //       只有内容区那一块覆盖层）—— 内嵌提示在 closeEvent 里同样作数：窗口这时候
+    //       还没关掉，`execPrompt` 那个嵌套事件循环照转，"事件循环里再开事件循环"
+    //       这件事和原来 `box.exec()` 一模一样。
+    //       默认那一边照旧是**取消**（下标 1），回车 = 别动游戏。
+    //       第三格是 destructiveIndex —— 两个都不是危险动作（关的是启动器，游戏照跑），
+    //       所以给 -1。
+    const int choice = InlineMessage::ask(
+        m_ui->overlay(), MessageKind::Question, tr("游戏正在运行"), text,
+        QStringList{tr("关掉启动器"), tr("取消")}, 1, -1);
+    if (choice != 0) {
         event->ignore();
         return;
     }
@@ -3491,7 +3516,7 @@ void MainWindow::downloadResourceVersion(QTreeWidgetItem *item) {
     const QString instanceId =
         isModpack ? QString() : selectedVersionId(m_ui->getInstalledVersionCombo());
     if (!isModpack && instanceId.isEmpty()) {
-        QMessageBox::warning(this, tr("没有选中实例"),
+        InlineMessage::warning(m_ui->overlay(), tr("没有选中实例"),
                              tr("先在「已安装版本」里选一个实例，再挑要装进它的版本。"));
         return;
     }
@@ -3513,8 +3538,7 @@ void MainWindow::downloadResourceVersion(QTreeWidgetItem *item) {
     const QString requestKey = ResourceCatalog::versionsRequestKey(projectId, gameVersion);
     const auto cached = m_resourceVersions.constFind(requestKey);
     if (cached == m_resourceVersions.constEnd()) {
-        QMessageBox::warning(
-            this, tr("下载失败"),
+        InlineMessage::warning(m_ui->overlay(), tr("下载失败"),
             tr("这一版的下载信息还没取到。把上面那个游戏版本收起再点开一次，然后重试。"));
         return;
     }
@@ -3531,7 +3555,7 @@ void MainWindow::downloadResourceVersion(QTreeWidgetItem *item) {
     }
     const ResourceCatalog::FileEntry *file = chosen->primaryFile();
     if (file == nullptr || file->url.isEmpty()) {
-        QMessageBox::warning(this, tr("下载失败"), tr("这一版没有可下载的文件。"));
+        InlineMessage::warning(m_ui->overlay(), tr("下载失败"), tr("这一版没有可下载的文件。"));
         return;
     }
 
@@ -3557,13 +3581,11 @@ void MainWindow::downloadResourceVersion(QTreeWidgetItem *item) {
     const QString instanceLoader = parts.loaderName.toLower();
     if (loaderMatters && !instanceLoader.isEmpty() && chosen->loaders.size() == 1
         && !chosen->loaders.first().contains(instanceLoader)) {
-        const auto answer = QMessageBox::question(
-            this, tr("加载器对不上"),
+        const auto answer = InlineMessage::question(m_ui->overlay(), tr("加载器对不上"),
             tr("这个实例是 %1 %2，而这一版是给 %3 用的。\n\n"
                "装进去多半不会生效（游戏进去可能直接崩）。还要装吗？")
-                .arg(parts.loaderName, parts.loaderVersion, chosen->loaders.first()),
-            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-        if (answer != QMessageBox::Yes) {
+                .arg(parts.loaderName, parts.loaderVersion, chosen->loaders.first()), tr("是"), tr("否"), false);
+        if (!answer) {
             return;
         }
     }
@@ -3611,7 +3633,7 @@ void MainWindow::onResourceDownloadFinished(const QString &label, bool success,
 
     if (!success) {
         appendLog(tr("✗ %1 没有下下来：%2").arg(label, errorMessage));
-        QMessageBox::warning(this, tr("下载失败"),
+        InlineMessage::warning(m_ui->overlay(), tr("下载失败"),
                              tr("%1 有文件没能下下来。\n\n%2").arg(label, errorMessage));
         return;
     }
@@ -3629,7 +3651,7 @@ void MainWindow::onResourceDownloadFinished(const QString &label, bool success,
         QTimer::singleShot(0, this, [this, pendingModpack] { importModpackFromFile(pendingModpack); });
         return;
     }
-    QMessageBox::information(this, tr("下载完成"),
+    InlineMessage::information(m_ui->overlay(), tr("下载完成"),
                              tr("%1 已经装进实例里了。\n\n%2").arg(label, errorMessage));
 }
 
@@ -3714,7 +3736,7 @@ void MainWindow::onInstallButtonClicked() {
     if (gameVersion.isEmpty()) {
         // 正常走不到（安装页只能从树里一个具体版本进来）。真走到了就是界面状态错了，
         // 宁可不做 —— 猜一个版本装下去会装到用户没点过的东西上。
-        QMessageBox::warning(this, tr("没有选中版本"),
+        InlineMessage::warning(m_ui->overlay(), tr("没有选中版本"),
                              tr("不知道要基于哪个原版安装，请回到版本列表重新挑一个。"));
         return;
     }
@@ -3722,7 +3744,7 @@ void MainWindow::onInstallButtonClicked() {
     const QString name = m_ui->getInstallNameEdit()->text().trimmed();
     const QString invalid = InstanceFiles::validateDirName(name);
     if (!invalid.isEmpty()) {
-        QMessageBox::warning(this, tr("名字不能用"), invalid);
+        InlineMessage::warning(m_ui->overlay(), tr("名字不能用"), invalid);
         return;
     }
 
@@ -3735,13 +3757,11 @@ void MainWindow::onInstallButtonClicked() {
     // "这个实例"，两句话都得像人说的。
     if (QFile::exists(AppPaths::versionJsonPath(name))) {
         const bool sameAsVanilla = name == gameVersion;
-        const auto answer = QMessageBox::question(
-            this, sameAsVanilla ? tr("版本已存在") : tr("实例已存在"),
+        const auto answer = InlineMessage::question(m_ui->overlay(), sameAsVanilla ? tr("版本已存在") : tr("实例已存在"),
             sameAsVanilla
                 ? tr("版本 %1 已经下载过了。\n是否校验并修复缺失或损坏的文件？").arg(name)
-                : tr("实例「%1」已经装过了。\n是否校验并修复缺失或损坏的文件？").arg(name),
-            QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
-        if (answer != QMessageBox::Yes) {
+                : tr("实例「%1」已经装过了。\n是否校验并修复缺失或损坏的文件？").arg(name), tr("是"), tr("否"), true);
+        if (!answer) {
             appendLog(tr("已取消对 %1 的校验。").arg(name));
             return;
         }
@@ -3804,7 +3824,7 @@ bool MainWindow::pickInstallerJava(const QString &gameVersion, int loaderIndex, 
     if (!m_javaSettings->installerJavaFor(requiredJavaMajor, configuredJava, &installerJava,
                                           &javaReason)) {
         appendLog(tr("这个版本要的 Java 拿不到：%1").arg(javaReason));
-        QMessageBox::warning(this, tr("Java 版本不够"), javaReason);
+        InlineMessage::warning(m_ui->overlay(), tr("Java 版本不够"), javaReason);
         return false;
     }
     if (installerJava != configuredJava) {
@@ -4193,7 +4213,7 @@ void MainWindow::onStartButtonClicked() {
     // 只认"已安装版本"下拉框：启动只可能发生在本地已经装好的版本上。
     const QString versionId = selectedVersionId(m_ui->getInstalledVersionCombo());
     if (versionId.isEmpty()) {
-        QMessageBox::warning(this, tr("未选择版本"),
+        InlineMessage::warning(m_ui->overlay(), tr("未选择版本"),
                              tr("请先在「已安装版本」下拉框中选择一个版本。"));
         return;
     }
@@ -4213,7 +4233,7 @@ void MainWindow::onStartButtonClicked() {
     //       这一道是兜底：滤掉那份列表和这道闸口读的是**同一个**
     //       installingVersionIds()，两边不可能各说各的。
     if (installingVersionIds().contains(versionId)) {
-        QMessageBox::warning(this, tr("下载进行中"),
+        InlineMessage::warning(m_ui->overlay(), tr("下载进行中"),
                              tr("「%1」的文件还没有下载完成（或者还在安装加载器 / "
                                 "导入整合包），请等它结束后再启动。\n\n"
                                 "别的实例不受影响，可以直接启动。")
@@ -4239,7 +4259,7 @@ void MainWindow::onStartButtonClicked() {
             // NOTE: 这两句原来写的是"或使用离线模式" —— 那个开关去掉了（2026-09-24），
             //       照旧文案去界面上找是找不到东西的。现在指的是**那一个动作**：在
             //       「账号与外观…」那个窗里填个名字、点「添加离线账号」。
-            QMessageBox::warning(this, tr("登录缺失"),
+            InlineMessage::warning(m_ui->overlay(), tr("登录缺失"),
                                  tokenError.isEmpty()
                                      ? tr("请先登录 Microsoft 账户，或者在「账号与外观…」"
                                           "里添加一个离线账号。")
@@ -4258,8 +4278,7 @@ void MainWindow::onStartButtonClicked() {
     // UnsupportedClassVersionError，且看不出原因。
     if (versionJson.isEmpty()) {
         appendLog(tr("找不到版本 %1 的 version.json").arg(versionId));
-        QMessageBox::warning(
-            this, tr("版本信息缺失"),
+        InlineMessage::warning(m_ui->overlay(), tr("版本信息缺失"),
             tr("找不到版本 %1 的 version.json，无法确定所需的 Java 版本。\n"
                "请先选中该版本并点击\"下载\"重新获取版本信息。")
                 .arg(versionId));
@@ -4274,7 +4293,7 @@ void MainWindow::onStartButtonClicked() {
     const QString inheritanceProblem = m_versionManager->inheritanceProblem(versionId);
     if (!inheritanceProblem.isEmpty()) {
         appendLog(tr("版本继承链不完整：%1").arg(versionId));
-        QMessageBox::warning(this, tr("版本不完整"), inheritanceProblem);
+        InlineMessage::warning(m_ui->overlay(), tr("版本不完整"), inheritanceProblem);
         return;
     }
 
@@ -4290,7 +4309,7 @@ void MainWindow::onStartButtonClicked() {
         }
         // NOTE: 这条以前只写日志。日志面板在主页是收起来的，用户看到的就是"点了启动、什么都没发生"。
         //       同文件 appendLog 上面那段 NOTE 的规矩：拦下用户操作的消息一律要弹窗。
-        QMessageBox::warning(this, tr("无法启动"),
+        InlineMessage::warning(m_ui->overlay(), tr("无法启动"),
                              tr("准备 natives 失败，游戏起不来：\n\n%1")
                                  .arg(nativeErrors.join(QStringLiteral("\n"))));
         return;
@@ -4306,7 +4325,7 @@ void MainWindow::onStartButtonClicked() {
             appendLog(error);
         }
         // 同上：缺 Java、游戏目录写不进去这一类都在这里，必须让用户看见。
-        QMessageBox::warning(this, tr("无法启动"),
+        InlineMessage::warning(m_ui->overlay(), tr("无法启动"),
                              tr("启动前检查没通过，游戏起不来：\n\n%1")
                                  .arg(errors.join(QStringLiteral("\n"))));
         return;
@@ -4374,8 +4393,7 @@ void MainWindow::onStartButtonClicked() {
     leaveSyncWait();
     if (!javaReady) {
         appendLog(tr("无法获取所需的 Java 运行时环境：版本 %1").arg(javaMajorVersion));
-        QMessageBox::warning(
-            this, tr("Java 运行时缺失"),
+        InlineMessage::warning(m_ui->overlay(), tr("Java 运行时缺失"),
             instanceOwnsJavaPath
                 ? tr("「%1」指定的 Java 用不了（路径不存在，或者主版本不是 %2）。\n"
                      "可以在「实例设置…」里改这个实例的 Java 路径，或者把它切回「跟随全局」。")
@@ -4400,8 +4418,7 @@ void MainWindow::onStartButtonClicked() {
                 versionId, {{javaPathMetaField(), QJsonValue(javaSettings.javaPath)}},
                 &writeError)) {
             appendLog(tr("把匹配的 Java 写进实例设置失败：%1").arg(writeError));
-            QMessageBox::warning(
-                this, tr("实例设置写入失败"),
+            InlineMessage::warning(m_ui->overlay(), tr("实例设置写入失败"),
                 tr("找到了匹配的 Java（%1），但没能把它记到实例「%2」的设置里：\n%3\n\n"
                    "没有启动。你可以在「实例设置…」里手动指定这条路径。")
                     .arg(javaSettings.javaPath, instanceDisplayName(versionId), writeError));
@@ -4494,17 +4511,23 @@ void MainWindow::onStartButtonClicked() {
 
 void MainWindow::onAccountSkinButtonClicked() {
     setupAccountSkinDialog();
-    // 非模态显示：登录那一步会把浏览器推到前台，用户要在这两个窗之间来回切。做成模态的话
-    // 这边会被拦住（而浏览器那个页面本来就在外面，模态拦不住它，只会让这边看着像卡住）。
+    OverlayHost *overlay = m_ui->overlay();
+    if (overlay == nullptr || overlay->isOpen()) {
+        // 已经有覆盖层开着（另一页、或者一条提示）。这一层不做页面栈，这一次就不开了
+        // —— 和 `openPage()` 返回 nullptr 是同一件事，见 OverlayHost.hpp 那段。
+        return;
+    }
+    // 从"另开一个窗"改成"把内容区整块盖掉"（2026-09-25 用户给的方向：最终不出现独立窗口）。
+    // 原来是**非模态** show()，理由是登录那一步会把浏览器推到前台、用户要在两边来回切；
+    // 嵌进内容区之后这一点照旧成立 —— execPage 内部那个嵌套事件循环一直在转，界面是活的，
+    // 浏览器本来也是外面的独立窗，谁都拦不着它。
     //
-    // NOTE: 顺序是**先开窗、再刷新**，不能倒过来。refreshAccountSkin() 最后那一段会去拉
-    //       披风列表（真联网，最长能等十几秒），跑完才 show 的话，头一次点这个入口就是
-    //       "什么也没发生" —— 窗还没画出来，那个请求已经在跑了，用户只会以为按钮点坏了。
-    //       先 show 出来，那一趟就变成"窗开着、状态行写着在忙"。
-    m_accountSkinDialog->show();
-    m_accountSkinDialog->raise();
-    m_accountSkinDialog->activateWindow();
-    refreshAccountSkin();
+    // NOTE: 顺序照旧是**先摆出来、再刷新**。refreshAccountSkin() 最后那一段会去拉披风列表
+    //       （真联网，最长能等十几秒），倒过来做的话头一次点这个入口就是"什么也没发生"
+    //       —— 页面还没画出来，那个请求已经在跑了，用户只会以为按钮点坏了。
+    //       这里排一发队：execPage 一进它自己的嵌套循环就先跑这一发，那时页面已经在屏幕上了。
+    QMetaObject::invokeMethod(this, [this] { refreshAccountSkin(); }, Qt::QueuedConnection);
+    overlay->execPage(m_accountSkinDialog, AccountSkinDialog::windowTitle());
 }
 
 void MainWindow::setupAccountSkinDialog() {
@@ -4677,7 +4700,7 @@ void MainWindow::onOfflineAccountRequested(const QString &name) {
     // 名字合不合法在这里判（其实是 AccountStore 判，唯一出处）：空名字、名字里有空格、
     // 超过 16 个字符。失败按产品约定弹窗 —— 这是用户主动发起、而且被挡住了的操作。
     if (!AccountStore::addOffline(name, &error)) {
-        QMessageBox::warning(this, tr("添加离线账号失败"), error);
+        InlineMessage::warning(m_ui->overlay(), tr("添加离线账号失败"), error);
         return;
     }
     const QString trimmed = name.trimmed();
@@ -4751,7 +4774,7 @@ void MainWindow::logoutCurrentAccount() {
     }
     const QString name = AccountStore::nameOf(uuid);
     if (!AccountStore::logout()) {
-        QMessageBox::warning(this, tr("退出登录失败"),
+        InlineMessage::warning(m_ui->overlay(), tr("退出登录失败"),
                              tr("盘上的登录状态没能清掉，现在还是登录着「%1」。").arg(name));
         return;
     }
@@ -4813,7 +4836,7 @@ void MainWindow::useAccountFromPanel(const QString &uuid) {
     //       都不是这里能修的，只能重新登录一次 —— 所以那句话得指出**下一步**，不能只说
     //       "刷新失败"。
     appendLog(tr("「%1」的登录令牌没能刷新：%2").arg(AccountStore::nameOf(uuid), error));
-    QMessageBox::warning(this, tr("登录令牌没能刷新"),
+    InlineMessage::warning(m_ui->overlay(), tr("登录令牌没能刷新"),
                          tr("已经切到账号「%1」，但它保存的登录凭据换不出新令牌：\n\n%2\n\n"
                             "这个账号在「账号与外观…」里重新登录一次就好了。")
                              .arg(AccountStore::nameOf(uuid), error));
@@ -4827,7 +4850,7 @@ void MainWindow::onAccountSwitchRequested(const QString &uuid) {
     const bool offline = AccountStore::isOffline(uuid);
     QString error;
     if (!AccountStore::activate(uuid, &error)) {
-        QMessageBox::warning(this, tr("切换账号失败"), error);
+        InlineMessage::warning(m_ui->overlay(), tr("切换账号失败"), error);
         return;
     }
     // 盘上换人了，内存里那一份也得跟着换 —— 不换的话底栏和启动参数里还是上一个人的名字
@@ -4860,11 +4883,11 @@ void MainWindow::onAccountRemoveRequested(const QString &uuid) {
                         "未登录状态（可以重新登录）。")
                          .arg(name)
                    : tr("删掉账号「%1」？\n\n它保存的登录凭据会一并删除。").arg(name);
-    if (QMessageBox::question(this, tr("删除账号"), question) != QMessageBox::Yes) {
+    if (!InlineMessage::question(m_ui->overlay(), tr("删除账号"), question, tr("是"), tr("否"), true)) {
         return;
     }
     if (!AccountStore::remove(uuid)) {
-        QMessageBox::warning(this, tr("删除账号失败"), tr("这个账号不在已保存的列表里。"));
+        InlineMessage::warning(m_ui->overlay(), tr("删除账号失败"), tr("这个账号不在已保存的列表里。"));
         return;
     }
     if (wasCurrent) {
@@ -4881,7 +4904,7 @@ void MainWindow::onSkinUploadRequested(const QString &path, const QString &varia
     QFile file(path);
     const QString fileName = QFileInfo(path).fileName();
     if (!file.open(QIODevice::ReadOnly)) {
-        QMessageBox::warning(this, tr("上传皮肤失败"),
+        InlineMessage::warning(m_ui->overlay(), tr("上传皮肤失败"),
                              tr("读不到「%1」这个文件。").arg(fileName));
         return;
     }
@@ -4889,12 +4912,12 @@ void MainWindow::onSkinUploadRequested(const QString &path, const QString &varia
     file.close();
     const QImage image(path);  // 用 QImage 再读一遍只为拿宽高（下面换的是原始字节）
     if (image.isNull()) {
-        QMessageBox::warning(this, tr("上传皮肤失败"),
+        InlineMessage::warning(m_ui->overlay(), tr("上传皮肤失败"),
                              tr("「%1」不是一张能读出来的图片。").arg(fileName));
         return;
     }
     if (!SkinApi::isAcceptableSkinSize(image.width(), image.height())) {
-        QMessageBox::warning(this, tr("上传皮肤失败"),
+        InlineMessage::warning(m_ui->overlay(), tr("上传皮肤失败"),
                              tr("皮肤图必须是 64×64（新格式）或者 64×32（老格式），这张是 "
                                 "%1×%2。")
                                  .arg(image.width())
@@ -4905,11 +4928,11 @@ void MainWindow::onSkinUploadRequested(const QString &path, const QString &varia
     QString error;
     const QString token = m_authManager->loadSavedToken(&error);
     if (token.isEmpty()) {
-        QMessageBox::warning(this, tr("上传皮肤失败"), error);
+        InlineMessage::warning(m_ui->overlay(), tr("上传皮肤失败"), error);
         return;
     }
     if (!m_skinApi->uploadSkin(token, png, variant, &error)) {
-        QMessageBox::warning(this, tr("上传皮肤失败"), error);
+        InlineMessage::warning(m_ui->overlay(), tr("上传皮肤失败"), error);
         return;
     }
     appendLog(tr("皮肤已上传（模型 %1）。").arg(variant));
@@ -4924,11 +4947,11 @@ void MainWindow::onCapeSelectRequested(const QString &capeId) {
     QString error;
     const QString token = m_authManager->loadSavedToken(&error);
     if (token.isEmpty()) {
-        QMessageBox::warning(this, tr("更换披风失败"), error);
+        InlineMessage::warning(m_ui->overlay(), tr("更换披风失败"), error);
         return;
     }
     if (!m_skinApi->setActiveCape(token, capeId, &error)) {
-        QMessageBox::warning(this, tr("更换披风失败"), error);
+        InlineMessage::warning(m_ui->overlay(), tr("更换披风失败"), error);
         return;
     }
     appendLog(tr("已更换披风。"));
@@ -4939,11 +4962,11 @@ void MainWindow::onCapeHideRequested() {
     QString error;
     const QString token = m_authManager->loadSavedToken(&error);
     if (token.isEmpty()) {
-        QMessageBox::warning(this, tr("取消披风失败"), error);
+        InlineMessage::warning(m_ui->overlay(), tr("取消披风失败"), error);
         return;
     }
     if (!m_skinApi->hideCape(token, &error)) {
-        QMessageBox::warning(this, tr("取消披风失败"), error);
+        InlineMessage::warning(m_ui->overlay(), tr("取消披风失败"), error);
         return;
     }
     appendLog(tr("已取消披风（不显示）。"));
@@ -4984,7 +5007,7 @@ void MainWindow::onLoginSucceeded(const QString &playerName) {
     }
     // 用户刚在浏览器里看到过「登录成功」，这里再说一声是为了把**登录到的是哪个账户**
     // 摆出来：拿错微软账户登录（家里共用的机器上很常见）只有这句话能看出来。
-    QMessageBox::information(this, tr("登录成功"), tr("已登录为「%1」。").arg(playerName));
+    InlineMessage::information(m_ui->overlay(), tr("登录成功"), tr("已登录为「%1」。").arg(playerName));
 }
 
 void MainWindow::onLoginFailed(const QString &errorMessage) {
@@ -4997,20 +5020,29 @@ void MainWindow::onLoginFailed(const QString &errorMessage) {
     // 登录失败是**挡住启动**的错误（没有令牌就点不动「启动游戏」），按产品约定必须弹窗。
     // 正文是 AuthManager 那边给的、能直接给用户看的话（"这个微软账户还没注册过 Xbox 账户，
     // 到 xbox.com 登录一次"这种），不是一句"登录失败"。
-    QMessageBox::warning(this, tr("登录失败"), errorMessage);
+    InlineMessage::warning(m_ui->overlay(), tr("登录失败"), errorMessage);
 }
 
 void MainWindow::onAddFolderClicked() {
     // 用目录选择对话框而不是让用户手打路径：路径里有中文、空格、全角括号（真机上的
     // 实例目录就是这样），打错一个字符得到的是一个"加进去了但一个实例都没有"的空文件夹，
     // 而界面上看不出区别。
+    //
+    // ★ 这一处是 2026-09-25「不出现独立窗口」那一轮之后**剩下的四处独立窗之一**
+    //   （另外三处：选整合包 / 选皮肤图 / 实例设置里选 java.exe）。它不是我们的窗 ——
+    //   `QFileDialog` 不指定 `DontUseNativeDialog` 时开的是 **Windows 自己那个选择框**，
+    //   和点「启动游戏」时弹出来的浏览器是同一类东西（用户没抱怨过那一个）。
+    //   要它也进内容区，办法是有的：`QFileDialog` 本身就是 QDialog，`execPage()` 那一套
+    //   能收，只要把 `DontUseNativeDialog` 打开（`QFileDialog` 的头文件里写着这个属性
+    //   必须在构造后、设完 model 之前设才有效）。但那是拿一个**更好用的系统选择框**去换
+    //   "界面上再少一个窗"—— 没做，留这段说明在这儿，将来想收就从这一处开始。
     const QString folder = QFileDialog::getExistingDirectory(
         this, tr("选择 Minecraft 游戏文件夹"), QDir::homePath());
     if (folder.isEmpty()) {
         return;  // 用户取消了，不是错误
     }
     if (!m_folderManager->addFolder(folder)) {
-        QMessageBox::warning(this, tr("添加文件夹失败"),
+        InlineMessage::warning(m_ui->overlay(), tr("添加文件夹失败"),
                              tr("「%1」不是一个存在的目录。").arg(folder));
         return;
     }
@@ -5024,8 +5056,7 @@ void MainWindow::removeFolderFromList(const QString &folder) {
     if (m_folderManager->isDefaultFolder(folder)) {
         // 只有"自带的那一份"会走到这儿（正常路径下齿轮里那一项本来就是灰的），照实说明
         // 原因，不是"移除失败"这种没法处理的消息。
-        QMessageBox::information(
-            this, tr("移除文件夹"),
+        InlineMessage::information(m_ui->overlay(), tr("移除文件夹"),
             tr("「%1」是启动器自带的游戏文件夹，移不掉。\n它是别的目录都被移走时唯一的退路。")
                 .arg(QDir::toNativeSeparators(folder)));
         return;
@@ -5042,16 +5073,14 @@ void MainWindow::removeFolderFromList(const QString &folder) {
         question += tr("\n\n它是启动器当前在用的那一份，移除之后改用「%1」。")
                         .arg(QDir::toNativeSeparators(FolderManager::defaultFolder()));
     }
-    const auto answer = QMessageBox::question(this, tr("从列表里移除文件夹"), question,
-                                              QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
-    if (answer != QMessageBox::Yes) {
+    const auto answer = InlineMessage::question(m_ui->overlay(), tr("从列表里移除文件夹"), question, tr("是"), tr("否"), true);
+    if (!answer) {
         return;  // 取消不是错误，不写日志（这里也没有"取消了一次删除"可言）
     }
     if (!m_folderManager->removeFolder(folder)) {
         // 正常路径下走不到这儿（上面那道 isDefaultFolder 已经挡住了唯一的失败原因）。
         // 留着是防"列表变了但一个提示都没有"。
-        QMessageBox::warning(
-            this, tr("移除文件夹"),
+        InlineMessage::warning(m_ui->overlay(), tr("移除文件夹"),
             tr("没能把「%1」从列表里移除。").arg(QDir::toNativeSeparators(folder)));
         return;
     }
@@ -5106,13 +5135,13 @@ void MainWindow::onFolderRenameRequested(const QString &path) {
     // 这一格就是恢复默认。
     const QString custom = m_folderManager->displayName(path);
     bool ok = false;
-    const QString input = QInputDialog::getText(
-        this, tr("重命名游戏文件夹"),
+    const QString input = InlineMessage::getText(
+        m_ui->overlay(), tr("重命名游戏文件夹"),
         tr("新名字（现在显示的是「%1」）。\n"
            "它只用在启动器的这个列表上，磁盘上的目录名一个字都不动；\n"
            "清空这一行就恢复默认的名字。")
             .arg(folderTitle(path)),
-        QLineEdit::Normal, custom, &ok);
+        custom, &ok);
     if (!ok) {
         return;  // 用户取消了，不是错误
     }
@@ -5127,13 +5156,13 @@ void MainWindow::onFolderRenameRequested(const QString &path) {
     const QString problem = FolderManager::validateDisplayName(name);
     if (!problem.isEmpty()) {
         // 不循环重问：用户看到原因后可以自己再点一次，那样他能顺便改别的决定。
-        QMessageBox::warning(this, tr("重命名游戏文件夹"), problem);
+        InlineMessage::warning(m_ui->overlay(), tr("重命名游戏文件夹"), problem);
         return;
     }
     if (!m_folderManager->setDisplayName(path, name)) {
         // 走得到这儿只有一种情况：菜单弹出来之后这一份被别处移掉了（列表已经不是刚才
         // 那份快照）。照实说，别静默什么都不做。
-        QMessageBox::warning(this, tr("重命名游戏文件夹"),
+        InlineMessage::warning(m_ui->overlay(), tr("重命名游戏文件夹"),
                              tr("「%1」已经不在列表里了。").arg(QDir::toNativeSeparators(path)));
         return;
     }
@@ -5144,7 +5173,7 @@ void MainWindow::onFolderRenameRequested(const QString &path) {
 
 void MainWindow::onFolderOpenRequested(const QString &path) {
     if (!QFileInfo(path).isDir()) {
-        QMessageBox::warning(this, tr("打开游戏文件夹"),
+        InlineMessage::warning(m_ui->overlay(), tr("打开游戏文件夹"),
                              tr("「%1」现在不在盘上（U 盘没插、或者目录被挪走了）。")
                                  .arg(QDir::toNativeSeparators(path)));
         return;
@@ -5153,7 +5182,7 @@ void MainWindow::onFolderOpenRequested(const QString &path) {
     // （Windows 上底下就是 ShellExecute），路径里的中文、空格、全角括号一律不用管 ——
     // 自己拼命令行的话，那段引号迟早会写错一个地方，而且错法随路径变。
     if (!QDesktopServices::openUrl(QUrl::fromLocalFile(path))) {
-        QMessageBox::warning(this, tr("打开游戏文件夹"),
+        InlineMessage::warning(m_ui->overlay(), tr("打开游戏文件夹"),
                              tr("没能打开「%1」。").arg(QDir::toNativeSeparators(path)));
     }
 }
@@ -5161,8 +5190,7 @@ void MainWindow::onFolderOpenRequested(const QString &path) {
 void MainWindow::onFolderDeleteRequested(const QString &path) {
     if (m_folderManager->isDefaultFolder(path)) {
         // 正常路径下走不到这儿（菜单里那一项对自带那份是灰的），照实说明原因。
-        QMessageBox::information(
-            this, tr("删除游戏文件夹"),
+        InlineMessage::information(m_ui->overlay(), tr("删除游戏文件夹"),
             tr("「%1」是启动器自带的游戏文件夹，删不掉。\n它是别的目录都被移走时唯一的退路。")
                 .arg(QDir::toNativeSeparators(path)));
         return;
@@ -5171,7 +5199,7 @@ void MainWindow::onFolderDeleteRequested(const QString &path) {
     // 失败会留下一个**半截**的目录（前面那些文件已经没了）—— 那种状态比"这次删不了"
     // 难收拾得多。等游戏关掉再删，代价只是等一会儿。
     if (m_launcherManager->hasRunningGame()) {
-        QMessageBox::warning(this, tr("删除游戏文件夹"),
+        InlineMessage::warning(m_ui->overlay(), tr("删除游戏文件夹"),
                              tr("现在有游戏正在运行，先关掉游戏再删。\n"
                                 "删的时候游戏正开着，里面的文件会删不干净。"));
         return;
@@ -5187,15 +5215,14 @@ void MainWindow::onFolderDeleteRequested(const QString &path) {
         question += tr("\n\n它是启动器当前在用的那一份，删掉之后改用「%1」。")
                         .arg(QDir::toNativeSeparators(FolderManager::defaultFolder()));
     }
-    const auto answer = QMessageBox::question(this, tr("删除游戏文件夹"), question,
-                                              QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-    if (answer != QMessageBox::Yes) {
+    const auto answer = InlineMessage::question(m_ui->overlay(), tr("删除游戏文件夹"), question, tr("是"), tr("否"), false);
+    if (!answer) {
         return;  // 取消不是错误，不写日志
     }
     QString error;
     if (!m_folderManager->deleteFolder(path, &error)) {
         // 失败原因是由数据层给的**一整句**（可能带"删到一半"那种状态说明），原样弹出来。
-        QMessageBox::critical(this, tr("删除游戏文件夹失败"), error);
+        InlineMessage::critical(m_ui->overlay(), tr("删除游戏文件夹失败"), error);
         return;
     }
     appendLog(tr("已删除游戏文件夹：%1").arg(QDir::toNativeSeparators(path)));
@@ -5207,7 +5234,7 @@ void MainWindow::onRenameInstanceClicked() {
     // 取的是同一个值，不会出现"列表里高亮 A、结果改的是 B"。
     const QString oldId = selectedVersionId(m_ui->getInstalledVersionCombo());
     if (oldId.isEmpty()) {
-        QMessageBox::information(this, tr("重命名实例"), tr("先选中一个实例。"));
+        InlineMessage::information(m_ui->overlay(), tr("重命名实例"), tr("先选中一个实例。"));
         return;
     }
 
@@ -5215,17 +5242,17 @@ void MainWindow::onRenameInstanceClicked() {
     // 运行中的实例在 Windows 上 jar 被 JVM 锁着，改到一半才失败的话用户看到的是一句
     // "拒绝访问"，而真正该说的是这一句。
     if (m_launcherManager->isVersionRunning(oldId)) {
-        QMessageBox::warning(this, tr("重命名实例"),
+        InlineMessage::warning(m_ui->overlay(), tr("重命名实例"),
                              tr("「%1」正在运行，先关掉游戏再改名。").arg(instanceDisplayName(oldId)));
         return;
     }
 
     bool ok = false;
-    const QString input =
-        QInputDialog::getText(this, tr("重命名实例"),
-                             tr("新名字会成为 versions 下面那个目录的名字，\n"
-                                "也就是这个实例的版本号。里面的 jar 和 json 会一起改。"),
-                             QLineEdit::Normal, oldId, &ok);
+    const QString input = InlineMessage::getText(
+        m_ui->overlay(), tr("重命名实例"),
+        tr("新名字会成为 versions 下面那个目录的名字，\n"
+           "也就是这个实例的版本号。里面的 jar 和 json 会一起改。"),
+        oldId, &ok);
     if (!ok) {
         return;
     }
@@ -5247,7 +5274,7 @@ bool MainWindow::applyRename(const QString &oldId, const QString &newId) {
     const QString problem = InstanceFiles::validateRenameTarget(name, oldId);
     if (!problem.isEmpty()) {
         // 不循环重问：用户看到原因后可以自己再点一次，那样他能顺便改别的决定。
-        QMessageBox::warning(this, tr("重命名实例"), problem);
+        InlineMessage::warning(m_ui->overlay(), tr("重命名实例"), problem);
         return false;
     }
 
@@ -5259,7 +5286,7 @@ bool MainWindow::applyRename(const QString &oldId, const QString &newId) {
     // （可能带"回滚到什么程度"），界面原样弹出来，不再自己加工。
     QString error;
     if (!m_versionManager->renameInstance(oldId, name, &error)) {
-        QMessageBox::critical(this, tr("重命名失败"), error);
+        InlineMessage::critical(m_ui->overlay(), tr("重命名失败"), error);
         // NOTE: 失败可能是"回滚干净了"也可能是"停在半路上"。两种都不在这里重刷列表 ——
         //       刷新只会把界面对着磁盘重画一遍，而用户需要的是先看清弹窗里那句话。
         return false;
@@ -5284,7 +5311,7 @@ bool MainWindow::applyRename(const QString &oldId, const QString &newId) {
     if (!m_groupStore->rekey(oldKey, newKey, &groupError)) {
         // 实例本身已经改好名了，只是分组没搬过去。**不能当成改名失败** ——
         // 那会让用户以为名字没改成功，然后再点一次。说清楚哪一半成了、哪一半没成。
-        QMessageBox::warning(this, tr("分组归属没跟着搬"),
+        InlineMessage::warning(m_ui->overlay(), tr("分组归属没跟着搬"),
                              tr("实例已经改名为「%1」，但它原来的分组归属没能搬过去：\n%2\n\n"
                                 "可以在「分组…」里重新归一次。")
                                  .arg(name, groupError));
@@ -5356,8 +5383,10 @@ void MainWindow::onGroupInstanceClicked() {
     //       把实例放进某个组是组行行尾那颗齿轮的事（见 onGroupActionRequested()）。
     GroupDialog dialog(toDialogGroups(m_groupStore->groups()), counts, toDialogGroups(defaults),
                        defaultCounts, this);
-    if (dialog.exec() != QDialog::Accepted) {
-        // 取消：磁盘一个字节都没动（对话框只改自己手里那份工作副本）。
+    // 整页盖在内容区上（见 OverlayHost::execPage）。这一页自己没有标题行，页眉那句
+    // 就是它唯一一处标题（和它自己的窗口标题同一个出处）。
+    if (m_ui->overlay()->execPage(&dialog, GroupDialog::windowTitle()) != QDialog::Accepted) {
+        // 取消 / 返回箭头：磁盘一个字节都没动（对话框只改自己手里那份工作副本）。
         return;
     }
     applyGroupList(&dialog);
@@ -5377,7 +5406,7 @@ bool MainWindow::applyGroupList(const GroupDialog *dialog) {
     }
     QString error;
     if (!m_groupStore->replaceGroups(wanted, &error)) {
-        QMessageBox::critical(this, tr("分组保存失败"), error);
+        InlineMessage::critical(m_ui->overlay(), tr("分组保存失败"), error);
         return false;
     }
     // NOTE: 这里**不**手动重灌那张树。这条写路径成功之后数据层会发 groupsChanged，
@@ -5400,7 +5429,7 @@ void MainWindow::onGroupActionRequested(const QString &groupId, int action) {
         // "把选中的实例移进哪一组"：列的是**全部**分组（含树上一个实例都没有、藏起来的
         // 那些）—— 那是把实例放进一个空组的唯一入口（见 MainWindowUI::openGroupPicker()）。
         if (selectedVersionId(m_ui->getInstalledVersionCombo()).isEmpty()) {
-            QMessageBox::information(this, tr("移入分组"), tr("先选中一个实例。"));
+            InlineMessage::information(m_ui->overlay(), tr("移入分组"), tr("先选中一个实例。"));
             return;
         }
         // 弹在**原来那颗齿轮**下面（用户看到的是"刚才那块框换了个内容"）。那一行理论上
@@ -5421,10 +5450,16 @@ void MainWindow::onGroupActionRequested(const QString &groupId, int action) {
         return;
     case MainWindowUI::GroupActionRename: {
         // 「问」和「做」分开（和实例页那颗「重命名…」同一个拆法）：做的那一半
-        // renameGroupTo() 能在验证工程里直接驱动，而 QInputDialog 在 offscreen 下驱动不了。
+        // renameGroupTo() 能在验证工程里直接驱动。
+        //
+        // NOTE: 原来这半句还写着"因为 QInputDialog 在 offscreen 下驱动不了" —— 2026-09-25
+        //       那一档换成 InlineMessage::getText() 之后，**这个理由不成立了**：问名字的那一格
+        //       现在就是一个能按 objectName 找得到的 QLineEdit（见 InlineMessageBox::
+        //       setLineEdit），验证工程可以真的把字打进去再点确定。拆成两步照旧有它的道理
+        //       （"做"那一半不用开界面就能验），但不再是"因为没法驱动"。
         bool ok = false;
-        const QString name = QInputDialog::getText(this, tr("重命名分组"), tr("组名："),
-                                                   QLineEdit::Normal, row.name, &ok);
+        const QString name =
+            InlineMessage::getText(m_ui->overlay(), tr("重命名分组"), tr("组名："), row.name, &ok);
         if (ok) {
             renameGroupTo(groupId, name);
         }
@@ -5456,14 +5491,12 @@ void MainWindow::onGroupActionRequested(const QString &groupId, int action) {
     case MainWindowUI::GroupActionDelete: {
         // 先问再删，而且说清**实例不会被删**：用户看到"删除"两个字时的第一反应就是怕
         // 连里面的东西一起没了，而这里确实不会（和对话框里那句一模一样）。
-        const QMessageBox::StandardButton answer = QMessageBox::question(
-            this, tr("删除分组"),
+        const bool answer = InlineMessage::question(m_ui->overlay(), tr("删除分组"),
             tr("「%1」会被删除，组里的 %2 个实例不会被删掉，它们只是变成未分组。\n\n"
                "确定要删除吗？")
                 .arg(row.name)
-                .arg(row.memberCount),
-            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-        if (answer == QMessageBox::Yes) {
+                .arg(row.memberCount), tr("是"), tr("否"), false);
+        if (answer) {
             deleteGroupById(groupId);
         }
         return;
@@ -5517,8 +5550,7 @@ void MainWindow::clearGroupMembers(const QString &groupId, const QString &groupN
     if (moved < keys.size()) {
         // 半路写失败了。**已经写下去的那些是落盘了的**（说不说它都变了），所以只说清
         // 哪几个没成，别让用户以为整件事都没发生。
-        QMessageBox::critical(
-            this, tr("移出分组失败"),
+        InlineMessage::critical(m_ui->overlay(), tr("移出分组失败"),
             tr("「%1」里还有 %2 个实例没能移出来：\n%3").arg(groupName).arg(keys.size() - moved).arg(error));
         return;
     }
@@ -5532,7 +5564,7 @@ bool MainWindow::assignSelectedInstanceToGroup(const QString &groupId) {
     if (versionId.isEmpty()) {
         // 挑目标那个框只在"有选中的实例"时才点得动（groupActionEnabled 那一条），
         // 而菜单开着的时候那个实例可能被删掉了 —— 真走到这儿就说一句，别静默。
-        QMessageBox::information(this, tr("移入分组"), tr("先选中一个实例。"));
+        InlineMessage::information(m_ui->overlay(), tr("移入分组"), tr("先选中一个实例。"));
         return false;
     }
     const QString key = instanceKey(versionId);
@@ -5548,7 +5580,7 @@ bool MainWindow::assignSelectedInstanceToGroup(const QString &groupId) {
 
     QString error;
     if (!m_groupStore->assign(key, groupId, &error)) {
-        QMessageBox::critical(this, tr("移入分组失败"), error);
+        InlineMessage::critical(m_ui->overlay(), tr("移入分组失败"), error);
         return false;
     }
     QString destination = MainWindowUI::ungroupedGroupText();
@@ -5582,11 +5614,11 @@ bool MainWindow::renameGroupTo(const QString &groupId, const QString &newName) {
     // 是反过来也成立的（那边给的是 main 这一侧拿不到的类型），所以这两句是各写一份的
     // —— 改了这边记得连那边一起改。
     if (name.isEmpty()) {
-        QMessageBox::warning(this, tr("重命名分组失败"), tr("组名不能是空的。"));
+        InlineMessage::warning(m_ui->overlay(), tr("重命名分组失败"), tr("组名不能是空的。"));
         return false;
     }
     if (name.size() > GroupDialog::maxGroupNameLength()) {
-        QMessageBox::warning(this, tr("重命名分组失败"),
+        InlineMessage::warning(m_ui->overlay(), tr("重命名分组失败"),
                              tr("组名最多 %1 个字，现在有 %2 个。")
                                  .arg(GroupDialog::maxGroupNameLength())
                                  .arg(name.size()));
@@ -5594,7 +5626,7 @@ bool MainWindow::renameGroupTo(const QString &groupId, const QString &newName) {
     }
     for (const InstanceGroupStore::Group &group : groups) {
         if (group.id != groupId && group.name.compare(name, Qt::CaseInsensitive) == 0) {
-            QMessageBox::warning(this, tr("重命名分组失败"),
+            InlineMessage::warning(m_ui->overlay(), tr("重命名分组失败"),
                                  tr("已经有一个叫「%1」的组了。").arg(group.name));
             return false;
         }
@@ -5607,7 +5639,7 @@ bool MainWindow::renameGroupTo(const QString &groupId, const QString &newName) {
     groups[row].name = name;
     QString error;
     if (!m_groupStore->replaceGroups(groups, &error)) {
-        QMessageBox::critical(this, tr("重命名分组失败"), error);
+        InlineMessage::critical(m_ui->overlay(), tr("重命名分组失败"), error);
         return false;
     }
     return true;
@@ -5629,7 +5661,7 @@ bool MainWindow::deleteGroupById(const QString &groupId) {
 
     QString error;
     if (!m_groupStore->replaceGroups(groups, &error)) {
-        QMessageBox::critical(this, tr("删除分组失败"), error);
+        InlineMessage::critical(m_ui->overlay(), tr("删除分组失败"), error);
         return false;
     }
     // 组里的实例**一个都不删**：它们指向的组没了，那些归属按 replaceGroups() 的规矩一起
@@ -5669,7 +5701,7 @@ void MainWindow::openGroupMenuFor(QTreeWidgetItem *item) {
 
 void MainWindow::openInstanceSettings(const QString &versionId) {
     if (versionId.isEmpty()) {
-        QMessageBox::information(this, tr("实例设置"), tr("先选中一个实例。"));
+        InlineMessage::information(m_ui->overlay(), tr("实例设置"), tr("先选中一个实例。"));
         return;
     }
 
@@ -5681,8 +5713,12 @@ void MainWindow::openInstanceSettings(const QString &versionId) {
                                   toDialogGlobal(m_javaSettings->effective()),
                                   m_versionManager->versionJvmArgs(versionId),
                                   !m_versionManager->skipJavaVersionWarning(versionId), this);
-    if (dialog.exec() != QDialog::Accepted) {
-        // 取消：wtfml.meta 一个字节都没动（对话框只把控件读成一份值）。
+    // 这一页盖在内容区上（标签栏和底栏都留着），左上角那颗返回箭头 = 取消（见
+    // OverlayHost::execPage）。标题写在页眉上，所以这一页自己那行标题要收起来 ——
+    // 两行一模一样的字挨着是重复，不是强调。
+    dialog.setTitleVisible(false);
+    if (m_ui->overlay()->execPage(&dialog, dialog.titleText()) != QDialog::Accepted) {
+        // 取消 / 返回箭头：wtfml.meta 一个字节都没动（对话框只把控件读成一份值）。
         return;
     }
     applyInstanceSettings(versionId, dialog);
@@ -5701,7 +5737,7 @@ bool MainWindow::applyInstanceSettings(const QString &versionId,
     // 身份就是那个 id（目录名会被改，改名之后按目录名记的东西全丢）。失败就不写 ——
     // 写成一次"靠目录名认出来的覆盖"比这次没写成糟得多。
     if (m_versionManager->ensureInstanceId(versionId).isEmpty()) {
-        QMessageBox::critical(this, tr("实例设置没能保存"),
+        InlineMessage::critical(m_ui->overlay(), tr("实例设置没能保存"),
                               tr("「%1」的 wtfml.meta 写不进去，这次的设置没有保存。\n\n"
                                  "（这份文件可能被别的程序占着，或者它所在的目录不可写。）")
                                   .arg(instanceDisplayName(versionId)));
@@ -5726,7 +5762,7 @@ bool MainWindow::applyInstanceSettings(const QString &versionId,
     QString error;
     if (!m_versionManager->updateVersionMeta(versionId, fields, &error)) {
         // 数据层不弹窗是约定，所以弹在这一层。error 里已经写清了"是哪个文件、为什么"。
-        QMessageBox::critical(this, tr("实例设置没能保存"), error);
+        InlineMessage::critical(m_ui->overlay(), tr("实例设置没能保存"), error);
         return false;
     }
     appendLog(tr("实例设置已保存：%1").arg(versionId));
@@ -5763,9 +5799,12 @@ MainWindow::JavaMismatchAnswer MainWindow::askAboutJavaMismatch(
         return JavaMismatchAnswer::NotAsked;
     }
 
+    // 从"另开一个窗"改成"内容区中间那一块"（用户点名的「像 java 设置这种小弹窗」）。
+    // 关掉 / 按 Esc / 点外面都**不动 `choice`**，它的初值就是 Abort —— 和原来
+    // `dialog.exec()` 被关掉时是同一个结果（见那个对话框的 .cpp 末尾）。
     JavaMismatchDialog dialog(instanceDisplayName(versionId), expectedMajor, actualMajor,
-                              actualVersionText, *override.javaPath, this);
-    dialog.exec();
+                              actualVersionText, *override.javaPath);
+    m_ui->overlay()->execPrompt(&dialog, false);
     const JavaMismatchDialog::Choice choice = dialog.choice();
 
     if (choice == JavaMismatchDialog::Choice::Abort) {
@@ -6105,23 +6144,22 @@ bool MainWindow::confirmStopGame(const QString &displayName, int sessions) {
     //       applyStopGame() 一起删了，见 MainWindowUI.cpp 里那段）。所以 `sessions > 1`
     //       那半句现在是**死支**—— stopGameSession() 恒传 1。留着它是因为它是这个函数
     //       的一部分（"一次停几份"这件事问话里要说清），不是因为还有人在用。
-    QMessageBox box(this);
-    box.setIcon(QMessageBox::Warning);
-    box.setWindowTitle(tr("停止游戏"));
-    box.setText(sessions > 1
-                    ? tr("「%1」正在运行（共 %2 个游戏进程，这一下全部停止）。\n\n停止会"
-                         "**直接结束游戏进程** —— 游戏不会存档，没保存的进度会丢。\n"
-                         "要停止它吗？")
-                          .arg(displayName)
-                          .arg(sessions)
-                    : tr("「%1」正在运行。\n\n停止会**直接结束游戏进程** —— 游戏不会存档，"
-                         "没保存的进度会丢。\n要停止它吗？")
-                          .arg(displayName));
-    QPushButton *stopButton = box.addButton(tr("停止游戏"), QMessageBox::DestructiveRole);
-    QPushButton *cancelButton = box.addButton(tr("取消"), QMessageBox::RejectRole);
-    box.setDefaultButton(cancelButton);
-    box.exec();
-    return box.clickedButton() == stopButton;
+    const QString text =
+        sessions > 1
+            ? tr("「%1」正在运行（共 %2 个游戏进程，这一下全部停止）。\n\n停止会"
+                 "**直接结束游戏进程** —— 游戏不会存档，没保存的进度会丢。\n"
+                 "要停止它吗？")
+                  .arg(displayName)
+                  .arg(sessions)
+            : tr("「%1」正在运行。\n\n停止会**直接结束游戏进程** —— 游戏不会存档，"
+                 "没保存的进度会丢。\n要停止它吗？")
+                  .arg(displayName);
+    // 内嵌提示（不再另开一个窗）。默认那一边照旧是**取消**（下标 1），
+    // 「停止游戏」是那一档里的危险动作（下标 0）。
+    const int choice = InlineMessage::ask(
+        m_ui->overlay(), MessageKind::Warning, tr("停止游戏"), text,
+        QStringList{tr("停止游戏"), tr("取消")}, 1, 0);
+    return choice == 0;
 }
 
 void MainWindow::stopGameSession(int sessionId) {
@@ -6154,6 +6192,8 @@ void MainWindow::onImportModpackClicked() {
         return;
     }
 
+    // NOTE: 这一处也是独立窗（Windows 自己的文件选择框）—— 理由和取舍见
+    //       onAddFolderClicked() 上面那一段。
     const QString zipPath = QFileDialog::getOpenFileName(
         this, tr("选一个整合包"), QString(),
         tr("整合包 (*.zip *.mrpack);;所有文件 (*)"));
@@ -6196,7 +6236,7 @@ void MainWindow::importModpackFromFile(const QString &zipPath) {
             text = ModpackImport::unsupportedFormatText(format);
         }
         appendLog(tr("没有导入 %1。").arg(QFileInfo(zipPath).fileName()));
-        QMessageBox::warning(this, tr("这不是整合包"), text);
+        InlineMessage::warning(m_ui->overlay(), tr("这不是整合包"), text);
         return;
     }
 
@@ -6205,7 +6245,7 @@ void MainWindow::importModpackFromFile(const QString &zipPath) {
     const ModpackImport::Result result = ModpackImport::parseModrinthIndex(indexJson);
     if (!result.ok) {
         appendLog(tr("整合包清单读不懂：%1").arg(result.problem));
-        QMessageBox::warning(this, tr("导入整合包"), result.problem);
+        InlineMessage::warning(m_ui->overlay(), tr("导入整合包"), result.problem);
         return;
     }
     const ModpackImport::Pack &pack = result.pack;
@@ -6216,7 +6256,7 @@ void MainWindow::importModpackFromFile(const QString &zipPath) {
     if (!loaderProblem.isEmpty()) {
         appendLog(tr("没有导入 %1：要 %2，这个启动器装不了。")
                       .arg(QFileInfo(zipPath).fileName(), pack.loaderKey));
-        QMessageBox::information(this, tr("这个整合包装不了"), loaderProblem);
+        InlineMessage::information(m_ui->overlay(), tr("这个整合包装不了"), loaderProblem);
         return;
     }
 
@@ -6226,11 +6266,11 @@ void MainWindow::importModpackFromFile(const QString &zipPath) {
     QString name = ModpackImport::suggestInstanceName(pack.name);
     while (true) {
         bool ok = false;
-        const QString input = QInputDialog::getText(
-            this, tr("导入整合包"),
+        const QString input = InlineMessage::getText(
+            m_ui->overlay(), tr("导入整合包"),
             tr("实例叫什么名字？这就是 versions 下面那个目录名，\n"
                "整合包「%1」的东西会装进它里面。").arg(pack.name),
-            QLineEdit::Normal, name, &ok);
+            name, &ok);
         if (!ok) {
             return;
         }
@@ -6246,22 +6286,20 @@ void MainWindow::importModpackFromFile(const QString &zipPath) {
             // 撞上的是**上次没下完的那一份**（下到一半网断了那种）。这是唯一一条不逼用户
             // 改名的路：改名重导等于把已经下好的几百 MB 再下一遍。仍然要问一句 ——
             // 这一步会重新解开包里的 config / 资源包，压在用户改过的文件上。
-            const auto resumeAnswer = QMessageBox::question(
-                this, tr("接着上次的导入"),
+            const auto resumeAnswer = InlineMessage::question(m_ui->overlay(), tr("接着上次的导入"),
                 tr("versions 下面已经有一个「%1」了，是上一次**没下完**的导入。\n\n"
                    "接着往它里面下吗？已经下好的文件会按 sha1 跳过、不会重下，"
                    "没下成的那几个会重新下。\n\n"
                    "选「否」就换个名字重新导入 —— 那样已经下好的那些要重下一遍。")
-                    .arg(name),
-                QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
-            if (resumeAnswer == QMessageBox::Yes) {
+                    .arg(name), tr("是"), tr("否"), true);
+            if (resumeAnswer) {
                 break;
             }
             continue;  // 回上面重问名字
         }
         // 循环重问（和重命名那条路不同，那边是弹一次就要用户自己再点一次）：这里退回
         // 重来的代价大得多 —— 要从"选文件"重新开始，而选的是哪个包用户未必记得住。
-        QMessageBox::warning(this, tr("换个名字"), problem);
+        InlineMessage::warning(m_ui->overlay(), tr("换个名字"), problem);
     }
 
     // 确认摘要。点下去就是几百 MB 和十几分钟，这是用户**最后**能反悔的地方，
@@ -6274,17 +6312,15 @@ void MainWindow::importModpackFromFile(const QString &zipPath) {
                    ? tr(" + %1 %2").arg(VersionManager::loaderDisplayName(loaderKind),
                                        pack.loaderVersion)
                    : tr(" + %1 %2").arg(pack.loaderKey, pack.loaderVersion));
-    const auto answer = QMessageBox::question(
-        this, tr("开始导入"),
+    const auto answer = InlineMessage::question(m_ui->overlay(), tr("开始导入"),
         tr("整合包：%1\nMinecraft：%2%3\n要下载的文件：%4 个%5\n装到：%6\n\n开始导入吗？")
             .arg(pack.name, pack.gameVersion, loaderText)
             .arg(pack.files.size())
             .arg(pack.filesSkipped > 0
                      ? tr("（另有 %1 个按包里的说明跳过）").arg(pack.filesSkipped)
                      : QString())
-            .arg(QDir::toNativeSeparators(AppPaths::versionDir(name))),
-        QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
-    if (answer != QMessageBox::Yes) {
+            .arg(QDir::toNativeSeparators(AppPaths::versionDir(name))), tr("是"), tr("否"), true);
+    if (!answer) {
         appendLog(tr("已取消导入 %1。").arg(pack.name));
         return;
     }
@@ -6298,7 +6334,7 @@ bool MainWindow::applyModpackImport(const QString &zipPath, const QString &insta
     // 那个包"和"真的去装的那个包"不可能不是同一个 —— 不必去维护一份"解析结果"的传递。
     const ModpackImport::Result result = ModpackImport::parseModrinthIndex(indexJson);
     if (!result.ok) {
-        QMessageBox::warning(this, tr("导入整合包"), result.problem);
+        InlineMessage::warning(m_ui->overlay(), tr("导入整合包"), result.problem);
         return false;
     }
     const ModpackImport::Pack pack = result.pack;
@@ -6306,7 +6342,7 @@ bool MainWindow::applyModpackImport(const QString &zipPath, const QString &insta
     const QString loaderProblem =
         ModpackImport::unsupportedLoaderText(pack.loaderKey, pack.loaderVersion);
     if (!loaderProblem.isEmpty()) {
-        QMessageBox::information(this, tr("这个整合包装不了"), loaderProblem);
+        InlineMessage::information(m_ui->overlay(), tr("这个整合包装不了"), loaderProblem);
         return false;
     }
 
@@ -6320,7 +6356,7 @@ bool MainWindow::applyModpackImport(const QString &zipPath, const QString &insta
     const InstanceFiles::ImportNameVerdict nameVerdict =
         InstanceFiles::checkImportTargetName(instanceName, &nameProblem);
     if (nameVerdict == InstanceFiles::ImportNameVerdict::Taken) {
-        QMessageBox::warning(this, tr("换个名字"), nameProblem);
+        InlineMessage::warning(m_ui->overlay(), tr("换个名字"), nameProblem);
         return false;
     }
     const bool resumingImport =
@@ -6346,7 +6382,7 @@ bool MainWindow::applyModpackImport(const QString &zipPath, const QString &insta
         if (!m_javaSettings->installerJavaFor(requiredJavaMajor, configuredJava, &installerJava,
                                              &javaReason)) {
             appendLog(tr("这个版本要的 Java 拿不到：%1").arg(javaReason));
-            QMessageBox::warning(this, tr("Java 版本不够"), javaReason);
+            InlineMessage::warning(m_ui->overlay(), tr("Java 版本不够"), javaReason);
             return false;  // 还没进忙态，直接退出就是干净的状态
         }
         if (installerJava != configuredJava) {
@@ -6415,10 +6451,10 @@ void MainWindow::onVersionDownloadFinished(const QString &versionId, bool succes
                 }
             }
             updateStartButtonText();
-            QMessageBox::information(this, tr("导入完成"), errorMessage);
+            InlineMessage::information(m_ui->overlay(), tr("导入完成"), errorMessage);
         } else {
             appendLog(tr("✗ 整合包没有导入：%1").arg(errorMessage));
-            QMessageBox::warning(this, tr("导入失败"), errorMessage);
+            InlineMessage::warning(m_ui->overlay(), tr("导入失败"), errorMessage);
         }
         return;
     }
@@ -6439,10 +6475,10 @@ void MainWindow::onVersionDownloadFinished(const QString &versionId, bool succes
                 }
             }
             updateStartButtonText();
-            QMessageBox::information(this, tr("安装完成"), errorMessage);
+            InlineMessage::information(m_ui->overlay(), tr("安装完成"), errorMessage);
         } else {
             appendLog(tr("✗ %1").arg(errorMessage));
-            QMessageBox::warning(this, tr("安装失败"), errorMessage);
+            InlineMessage::warning(m_ui->overlay(), tr("安装失败"), errorMessage);
         }
         return;
     }
@@ -6469,12 +6505,12 @@ void MainWindow::onVersionDownloadFinished(const QString &versionId, bool succes
             }
         }
 
-        QMessageBox::information(this, tr("下载完成"),
+        InlineMessage::information(m_ui->overlay(), tr("下载完成"),
                                  tr("版本 %1 的文件已全部就绪。\n\n%2").arg(versionId, errorMessage));
     } else {
         // 失败就不刷新了：没成功就不该有新条目冒出来（jar 大概率没落地）
         appendLog(tr("✗ 版本 %1 下载失败：%2").arg(versionId, errorMessage));
-        QMessageBox::warning(this, tr("下载失败"),
+        InlineMessage::warning(m_ui->overlay(), tr("下载失败"),
                              tr("版本 %1 有文件未能下载完成。\n\n%2").arg(versionId, errorMessage));
     }
 }
@@ -6483,7 +6519,7 @@ void MainWindow::onVersionDetailsFetched(const QString &versionId, const QJsonOb
     if (versionJson.isEmpty()) {
         appendLog(tr("获取版本 %1 的信息失败。").arg(versionId));
         setDownloadUiBusy(false);
-        QMessageBox::warning(this, tr("下载失败"),
+        InlineMessage::warning(m_ui->overlay(), tr("下载失败"),
                              tr("无法获取版本 %1 的信息，请检查网络后重试。").arg(versionId));
         return;
     }
