@@ -6,6 +6,10 @@
  * @note 布局：一列 —— 上面一句说明、中间是组清单和它那排按钮、底下一条「恢复默认分组设置…」
  *       加取消/确定。2026-09-25 之前这里是左右并排（右边是"这个实例归到哪个组"那排单选钮），
  *       那半整个搬走了（见 .hpp 文件头），于是只剩一列。
+ * @note 2026-09-25 傍晚：那排按钮里的「上移」「下移」删了，改成点清单**行尾那两颗三角**
+ *       （画在 ui/GroupListDelegate 里、认下那一下的是下面那个 eventFilter()）。用户原话：
+ *       「这个点击一下就同时展开和调整了，其次这个箭头不应该在这里，而应该在 分组设置
+ *       里面，这里的删了，去分组设置里面加上，设置那个框下方的上移下移的按钮就删了」。
  */
 
 #include "GroupDialog.hpp"
@@ -19,11 +23,13 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMessageBox>
+#include <QMouseEvent>
 #include <QPushButton>
 #include <QStringList>
 #include <QUuid>
 #include <QVBoxLayout>
 
+#include "GroupListDelegate.hpp"
 #include "MainWindowUI.hpp"
 
 namespace {
@@ -53,7 +59,8 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
 
     auto *hint = new QLabel(
         tr("这里管的是分组本身：有哪些分组、各叫什么、按什么顺序排、画出来是展开的还是"
-           "收着的。删掉一个分组不会删掉里面的实例 —— 它们只是回到未分组。"),
+           "收着的。删掉一个分组不会删掉里面的实例 —— 它们只是回到未分组。\n"
+           "行尾那两颗三角把这一组往上/往下挪一格（按住 Shift 点 = 直接放到最上面/最下面）。"),
         this);
     hint->setWordWrap(true);
     mainLayout->addWidget(hint);
@@ -64,6 +71,11 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
 
         m_groupList = new QListWidget(groupBox);
         m_groupList->setObjectName(groupListName());
+        // 行尾那两颗「上移 / 下移」三角（2026-09-25 从实例树搬过来的，见 GroupListDelegate
+        // 文件头）。代理只管画，认下那一下的是 GroupDialog::eventFilter() —— 挂的是**视口**，
+        // 因为鼠标事件是按光标位置投给最上面那个孩子的（挂在表上收不到）。
+        m_groupList->setItemDelegate(new GroupListDelegate(m_groupList));
+        m_groupList->viewport()->installEventFilter(this);
         layout->addWidget(m_groupList, 1);
 
         // 第一排：对**这一个组**做的事（新建 / 改建 / 删掉）。
@@ -79,20 +91,15 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
         buttons->addWidget(m_removeButton);
         layout->addLayout(buttons);
 
-        // 第二排：管**顺序**和"画出来是展开还是收着"（用户原话里的「给组排列展示顺序，
-        // 默认展开/关闭」）。这两件事作用在选中的那一组上，和上面那一排同一个口径。
+        // 第二排：只剩"画出来是展开还是收着"（用户原话里的「默认展开/关闭」）。**顺序**
+        // 那一半 2026-09-25 起是行尾那两颗三角（原来这里那两颗「上移」「下移」按钮删了，
+        // 用户原话：「设置那个框下方的上移下移的按钮就删了」）。
         auto *orderRow = new QHBoxLayout;
-        m_moveUpButton = new QPushButton(tr("上移"), groupBox);
-        m_moveUpButton->setObjectName(moveUpButtonName());
-        m_moveDownButton = new QPushButton(tr("下移"), groupBox);
-        m_moveDownButton->setObjectName(moveDownButtonName());
         m_expandedCheck = new QCheckBox(tr("默认展开"), groupBox);
         m_expandedCheck->setObjectName(expandedCheckName());
         m_expandedCheck->setToolTip(
             tr("这一组在实例列表里画成展开的还是收着的。点组头那一下也算数 —— 两处改的"
                "是同一个状态。"));
-        orderRow->addWidget(m_moveUpButton);
-        orderRow->addWidget(m_moveDownButton);
         orderRow->addStretch(1);
         orderRow->addWidget(m_expandedCheck);
         layout->addLayout(orderRow);
@@ -141,32 +148,9 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
                 deleteGroup(groupId);
             }
         });
-        // 上移/下移平时是**一次一格**（用户要的是"排一下顺序"，而一格一格挪看得见自己
-        // 挪到哪儿了）；**按住 Shift** 点就是"直接放到最顶上 / 最底下"（用户原话，和实例树
-        // 上那两颗箭头同一套手势）。挪到头/尾那两个按钮自动灰掉（见 refreshActionButtons）。
-        //
-        // NOTE: `clicked` 不带修饰键，只能去问 QApplication::keyboardModifiers()（"此刻
-        //       键盘上按着什么"）—— 这条路 offscreen 下摆不出来，所以真正办事的是
-        //       moveGroupToTop/Bottom() 那两个槽，验证工程直接驱动它们。
-        m_moveUpButton->setToolTip(tr("把选中的分组往上挪一格。按住 Shift 点 = 直接放到最上面。"));
-        m_moveDownButton->setToolTip(
-            tr("把选中的分组往下挪一格。按住 Shift 点 = 直接放到最下面。"));
-        connect(m_moveUpButton, &QPushButton::clicked, this, [this] {
-            const QString groupId = selectedGroupId();
-            if (QApplication::keyboardModifiers().testFlag(Qt::ShiftModifier)) {
-                moveGroupToTop(groupId);
-            } else {
-                moveGroupUp(groupId);
-            }
-        });
-        connect(m_moveDownButton, &QPushButton::clicked, this, [this] {
-            const QString groupId = selectedGroupId();
-            if (QApplication::keyboardModifiers().testFlag(Qt::ShiftModifier)) {
-                moveGroupToBottom(groupId);
-            } else {
-                moveGroupDown(groupId);
-            }
-        });
+        // 上移/下移那两颗按钮 2026-09-25 删了 —— 挪动改成点组清单**行尾那两颗三角**
+        // （一次一格；**按住 Shift** 点就是"直接放到最顶上 / 最底下"，用户原话）。
+        // 那一套手势整个在 eventFilter() 里，这里不再有按钮可接。
         connect(m_expandedCheck, &QCheckBox::toggled, this, [this](bool checked) {
             // m_updatingExpanded：这是 refreshActionButtons() 在摆状态（跟着选中的组），
             // 不是用户点的 —— 不挡的话每选一行都会把那一行的状态"改"成它本来就有的值。
@@ -178,6 +162,10 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
         connect(m_groupList, &QListWidget::currentRowChanged, this,
                 [this] { refreshActionButtons(); });
         // 双击一行 = 重命名它（列表上的常规手势，省一次"先选中再点按钮"）。
+        //
+        // NOTE: 行尾那一带（两颗箭头占的那两格）**到不了这里** —— eventFilter() 把那几发
+        //       整个吃掉了。不这样的话，用户连点两下那颗三角想挪两格，第二发会弹出一个
+        //       重命名框（挪一格 + 挡住手上的事，正是 2026-09-25 用户在实例树上报的那个形状）。
         connect(m_groupList, &QListWidget::itemDoubleClicked, this, [this] {
             if (m_renameButton->isEnabled()) {
                 m_renameButton->click();
@@ -230,6 +218,63 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
     connect(cancelButton, &QPushButton::clicked, this, &QDialog::reject);
 
     rebuildGroupList();
+}
+
+bool GroupDialog::eventFilter(QObject *watched, QEvent *event) {
+    if (m_groupList == nullptr || watched != m_groupList->viewport() || event == nullptr) {
+        return QDialog::eventFilter(watched, event);
+    }
+    const QEvent::Type type = event->type();
+    if (type != QEvent::MouseButtonPress && type != QEvent::MouseButtonRelease
+        && type != QEvent::MouseButtonDblClick) {
+        return QDialog::eventFilter(watched, event);
+    }
+    auto *mouse = static_cast<QMouseEvent *>(event);
+    if (mouse->button() != Qt::LeftButton) {
+        return QDialog::eventFilter(watched, event);
+    }
+    // 哪一行、点在行里哪儿 —— 用视图自己的 indexAt()（滚动位置、代理的布局都在它手里），
+    // 不用 `m_groups.at(row)`：行和组是两个东西摆在一起而已，认行只认视图。
+    const QModelIndex index = m_groupList->indexAt(mouse->position().toPoint());
+    if (!index.isValid()) {
+        return QDialog::eventFilter(watched, event);
+    }
+    const QRect row = m_groupList->visualRect(index);
+    const QPoint pos = mouse->position().toPoint();
+    const bool inUp = GroupListDelegate::moveUpRect(row).contains(pos);
+    const bool inDown = !inUp && GroupListDelegate::moveDownRect(row).contains(pos);
+    if (!inUp && !inDown) {
+        return QDialog::eventFilter(watched, event);  // 点的不是那两格：这一行该怎样还怎样
+    }
+    // ★ 落在那两格里以后**一律吃掉**，哪怕这一侧挪不动（第一行没有上移、最后一行没有
+    //   下移）。不吃的话那一带会漏给"点这一行"：那一行会顺手被选中，连点的第二发还会弹出
+    //   重命名框 —— 用户 2026-09-25 报的「点击一下就同时展开和调整了」就是这个形状。
+    //   漏出去的那几格**本来就没有画箭头**（见 GroupListDelegate::canMoveUp()），所以
+    //   "点下去什么都没发生"是这里唯一说得过去的解释。
+    if (type == QEvent::MouseButtonPress || type == QEvent::MouseButtonDblClick) {
+        // 点得快的时候，第二发（以及后面每一发）到的是**双击**事件而不是按下事件（见
+        // ui/RowActivation.hpp 那段）—— 这里要**每一发都算**：用户连点三下就是想挪三格。
+        // 放下（Release）那一发只负责被吃掉，不然松手时视图还会补一发 clicked。
+        const QListWidgetItem *item = m_groupList->item(index.row());
+        const QString groupId = item != nullptr ? item->data(Qt::UserRole).toString() : QString();
+        // Shift 就读**这一发事件上**的修饰键（不是 QApplication::keyboardModifiers()：
+        // 后者读的是"此刻键盘的全局状态"，验证工程造这一发事件时对不上）。
+        const bool toEdge = mouse->modifiers().testFlag(Qt::ShiftModifier);
+        if (inUp && GroupListDelegate::canMoveUp(index)) {
+            if (toEdge) {
+                moveGroupToTop(groupId);
+            } else {
+                moveGroupUp(groupId);
+            }
+        } else if (inDown && GroupListDelegate::canMoveDown(index)) {
+            if (toEdge) {
+                moveGroupToBottom(groupId);
+            } else {
+                moveGroupDown(groupId);
+            }
+        }
+    }
+    return true;
 }
 
 QString GroupDialog::selectedGroupId() const {
@@ -441,9 +486,10 @@ void GroupDialog::refreshActionButtons() {
     const bool hasSelection = row >= 0;
     m_renameButton->setEnabled(hasSelection);
     m_removeButton->setEnabled(hasSelection);
-    // 到头/到尾那一边灰掉：灰着就是"再挪就出去了"，点一下没反应才是毛病。
-    m_moveUpButton->setEnabled(row > 0);
-    m_moveDownButton->setEnabled(row >= 0 && row < m_groups.size() - 1);
+    // NOTE: 上移/下移**不在这儿启用/禁用** —— 它们画在每一行自己的行尾，挪不动的那一侧
+    //       根本不画（判据是 ui/GroupListDelegate::canMoveUp()/canMoveDown()，和
+    //       eventFilter() 认下那一下读的是同一对函数）。这一点和"选中的那一组"没关系，
+    //       所以刷按钮可用性这条路上没有它们的事。
 
     // 勾选框跟着选中的那一组走。摆状态**必须挡一下**：setChecked() 会发 toggled，
     // 而那个槽会把这次"摆"当成用户点的一下，绕回去改一遍状态（然后又是下一次刷新……）。

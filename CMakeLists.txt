@@ -74,6 +74,7 @@ set(SOURCE_FILES
     ui/GameLogWindow.cpp
     ui/MainWindowUI.cpp
     ui/GroupDialog.cpp
+    ui/GroupListDelegate.cpp
     ui/InstanceSettingsDialog.cpp
     ui/JavaMismatchDialog.cpp
     ui/SkinModel.cpp

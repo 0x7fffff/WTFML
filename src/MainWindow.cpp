@@ -270,9 +270,6 @@ void fillInstanceTree(QTreeWidget *tree, const QList<InstanceGroupBucket> &bucke
     // 真实分组），不看下面滤掉空组之后剩下什么：分组全空的那一档确实一行都不画，
     // 但那仍然是"分过组的"，形态不该因此翻过来。
     const bool flat = buckets.size() == 1 && buckets.first().groupId.isEmpty();
-    // 这一趟**真画出来的**组行（按画出来的先后）。收尾那一段拿它数"上/下移那两颗箭头"，
-    // 见下面。
-    QList<QTreeWidgetItem *> paintedGroupRows;
     for (const InstanceGroupBucket &bucket : buckets) {
         // 一个实例都没有的组**不画**（见函数头）。平铺那一格不参与：那不是一个组。
         if (!flat && bucket.parts.isEmpty()) {
@@ -281,7 +278,6 @@ void fillInstanceTree(QTreeWidget *tree, const QList<InstanceGroupBucket> &bucke
         QTreeWidgetItem *parent = nullptr;
         if (!flat) {
             parent = new QTreeWidgetItem(tree);
-            paintedGroupRows.append(parent);
             parent->setText(0, MainWindowUI::groupItemText(bucket.name, bucket.parts.size()));
             parent->setData(0, MainWindowUI::groupIdRole(), bucket.groupId);
             // 行尾那颗**齿轮**：几何的唯一出处是 InstanceGroupDelegate::gearRect()，
@@ -314,34 +310,13 @@ void fillInstanceTree(QTreeWidget *tree, const QList<InstanceGroupBucket> &bucke
         }
     }
 
-    // 行尾那两颗「上移 / 下移」箭头画哪一颗（位掩码，见 MainWindowUI::rowGroupMoveRole()）。
-    //
-    // 数的是**画出来的组行**：藏起来的空组不占位置 —— 按文件里的下标算的话，用户点"上移"
-    // 会看到"什么都没动"（上面的那一格是藏着的，换过去以后这一组还是停在原地）。
-    //
-    // 虚拟的「未分组」**不参与**：它在 wtfml.folders 里没有位置，挪不动（`groupId` 是空串
-    // 正是它"不是一个真组"的判据，见 InstanceGroupBucket）。所以下面这一遍把它跳过，
-    // 于是它一颗箭头都没有 —— 而它永远排在最后，跳过它不会让别组的相邻关系算错。
-    //
-    // NOTE: 只有一格真组时两颗都不画（上下都到头了）。这和"挪不动的那一侧不画"是同一条：
-    //       一颗箭头都没有的行，一眼就说明它在顺序里动不了，而不用先学会"灰的 = 点不动"
-    //       （它旁边那颗齿轮的颜色本来就是灰的那一档，两处灰的含义还不一样）。
-    QList<QTreeWidgetItem *> movable;
-    for (QTreeWidgetItem *row : paintedGroupRows) {
-        if (!row->data(0, MainWindowUI::groupIdRole()).toString().isEmpty()) {
-            movable.append(row);
-        }
-    }
-    for (int i = 0; i < movable.size(); ++i) {
-        int mask = 0;
-        if (i > 0) {
-            mask |= MainWindowUI::groupMoveUpFlag();
-        }
-        if (i + 1 < movable.size()) {
-            mask |= MainWindowUI::groupMoveDownFlag();
-        }
-        movable.at(i)->setData(0, MainWindowUI::rowGroupMoveRole(), mask);
-    }
+    // NOTE: 这里原来还有一段收尾：给**画出来的**组行写一格位掩码，说明"行尾那两颗上/下
+    //       箭头该画哪一颗"。2026-09-25 用户把两颗箭头整个搬进了「分组设置…」那张表
+    //       （原话：「这个箭头不应该在这里，而应该在 分组设置 里面，这里的删了，去分组设置
+    //       里面加上，设置那个框下方的上移下移的按钮就删了」），于是这一段连同
+    //       `paintedGroupRows` 整个没了 —— 组行现在**只有两个动作**：点这一行=展开/收起、
+    //       点齿轮=那一组的更多操作。那张表里"能不能挪"是算出来的（行序就是组序），
+    //       不需要角色位，见 ui/GroupListDelegate。
 }
 
 /**
@@ -2785,54 +2760,13 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
             return true;
         }
     }
-    // 同一个实例树上另外两颗"行里的按钮"：组行行尾的**上移 / 下移**（齿轮左边两颗实心三角，
-    // 谁画的、画在哪一格，见 InstanceGroupDelegate::moveUpRect() / moveDownRect()）。
-    //
-    // ★ 和上面那颗齿轮**有意不一样的一处**：这里**要**补"点得快时那第二发"。
-    //   Windows 上一串快点的第二发到的是 MouseButtonDblClick（视图不发 clicked，见
-    //   ui/RowActivation.hpp 那段），只接 Press 的话"连点三下"只会挪两格 —— 而按住不放 /
-    //   连点正是用户挪一组时的习惯动作，少一格是看得出来的。齿轮那两颗不能补是因为补了
-    //   就成了"连点两下把菜单收回去"；这两颗箭头没有那个翻转语义，每一下都该算一下。
-    //
-    // ★ 另一处：**按住 Shift = 直接放到最顶上 / 最底下**（用户原话）。Shift 就从这一发
-    //   鼠标事件上取（`mouse->modifiers()`），不读 QApplication::keyboardModifiers() ——
-    //   后者读的是"此刻键盘的全局状态"，验证工程伪造那一发时对不上（而这一档正是要验的）。
-    if (instanceTree != nullptr && watched == instanceTree->viewport()
-        && (event->type() == QEvent::MouseButtonPress
-            || event->type() == QEvent::MouseButtonRelease
-            || event->type() == QEvent::MouseButtonDblClick)) {
-        auto *mouse = static_cast<QMouseEvent *>(event);
-        QTreeWidgetItem *item =
-            mouse->button() == Qt::LeftButton ? instanceTree->itemAt(mouse->position().toPoint())
-                                              : nullptr;
-        if (item != nullptr) {
-            const int moveMask = item->data(0, MainWindowUI::rowGroupMoveRole()).toInt();
-            if (moveMask != 0) {
-                const QRect row = instanceTree->visualItemRect(item);
-                const QPoint pos = mouse->position().toPoint();
-                // 先分"点的是哪一颗"（上移先判 —— 和 InstanceGroupDelegate::rowActionTip()
-                // 同一个顺序），再分"挪一格还是到头"（Shift）。
-                bool up = false;
-                bool hit = false;
-                if ((moveMask & MainWindowUI::groupMoveUpFlag()) != 0
-                    && InstanceGroupDelegate::moveUpRect(row).contains(pos)) {
-                    up = true;
-                    hit = true;
-                } else if ((moveMask & MainWindowUI::groupMoveDownFlag()) != 0
-                           && InstanceGroupDelegate::moveDownRect(row).contains(pos)) {
-                    hit = true;
-                }
-                if (hit) {
-                    if (event->type() == QEvent::MouseButtonPress
-                        || event->type() == QEvent::MouseButtonDblClick) {
-                        moveGroupInOrder(item->data(0, MainWindowUI::groupIdRole()).toString(), up,
-                                         mouse->modifiers().testFlag(Qt::ShiftModifier));
-                    }
-                    return true;
-                }
-            }
-        }
-    }
+    // NOTE: 这里原来还有一段：同一个实例树上组行行尾那两颗「上移 / 下移」（齿轮左边那两颗
+    //       实心三角）的接线。2026-09-25 用户把它们整个搬进了「分组设置…」那张表（原话：
+    //       「这个点击一下就同时展开和调整了，其次这个箭头不应该在这里，而应该在 分组设置
+    //       里面，这里的删了，去分组设置里面加上」），于是这一段和它调的
+    //       moveGroupInOrder() 一起删了 —— 那张表里认下那一下的是
+    //       `ui/GroupDialog::eventFilter()`（挂在那张表的视口上），"每一发都算"和
+    //       "Shift = 置顶/置底"那两条手势原样跟着搬了过去。
     // 下载页左栏那份分类列表：每一行最右边那个刷新按钮（谁画的、画在哪一格，见
     // VersionTreeDelegate::refreshRect()）。判据和上面那个叉一模一样，只是宿主是个
     // QListWidget（它的 itemAt/visualItemRect 和 QTreeWidget 那对同名同义）。
@@ -5426,11 +5360,14 @@ void MainWindow::onGroupInstanceClicked() {
         // 取消：磁盘一个字节都没动（对话框只改自己手里那份工作副本）。
         return;
     }
-    applyGroupList(dialog);
+    applyGroupList(&dialog);
 }
 
-bool MainWindow::applyGroupList(const GroupDialog &dialog) {
-    const QList<InstanceGroupStore::Group> wanted = toStoreGroups(dialog.groups());
+bool MainWindow::applyGroupList(const GroupDialog *dialog) {
+    if (dialog == nullptr) {
+        return false;
+    }
+    const QList<InstanceGroupStore::Group> wanted = toStoreGroups(dialog->groups());
 
     // 变了才写：每点一次「确定」都重写一遍文件（连带刷新 mtime）而其实什么都没改，是
     // 最常见的一次操作。比较是**逐字段**的（连"展开还是收着"那一格一起比）—— 用户完全
@@ -5712,78 +5649,6 @@ void MainWindow::rememberGroupExpanded(const QString &groupId, bool expanded) {
         // 从手上的事里打断（产品约束管的是"会挡住操作"的那一类错误）。
         appendLog(error);
     }
-}
-
-bool MainWindow::moveGroupInOrder(const QString &groupId, bool up, bool toEdge) {
-    QList<InstanceGroupStore::Group> groups = m_groupStore->groups();
-    int fromFile = -1;
-    for (int i = 0; i < groups.size(); ++i) {
-        if (groups.at(i).id == groupId) {
-            fromFile = i;
-            break;
-        }
-    }
-    if (fromFile < 0) {
-        return false;  // 这一组已经被别处删掉了：什么都不做，也不弹窗（不是用户此刻做的事）
-    }
-
-    if (toEdge) {
-        // 「放到最顶上 / 最底下」是个**绝对**的位置：落到文件里那一头，不是"落到最上面那个
-        // 看得见的组的外面"。差别只在"最外面还藏着几个空组"这一档上（眼下看不出区别，
-        // 但那个空组哪天进了实例就会冒到这一组前面去 —— 而用户当时说的是"放最顶上"）。
-        const int edge = up ? 0 : groups.size() - 1;
-        if (edge == fromFile) {
-            return false;  // 已经在那一头了（那一侧本来就没画箭头）
-        }
-        groups.move(fromFile, edge);
-    } else {
-        // 挪一格：目标是**树上相邻的那一条组行**，不是文件里相邻的那一条 —— 空组是藏着的
-        // （见 fillInstanceTree 那道滤），按文件下标换会变成"点了什么都没动"（跟藏在上面
-        // 那一格换了位，而这一组在用户看的那一列里还在原地）。
-        //
-        // NOTE: 这一列和画那两颗箭头时数的是**同一列**（fillInstanceTree 收尾那一段数的
-        //       也是这棵树上的组行），所以"哪一侧画了箭头"和"哪一侧真挪得动"永远一致。
-        QStringList visible;
-        QTreeWidget *tree = m_ui->getInstanceList();
-        for (int i = 0; i < tree->topLevelItemCount(); ++i) {
-            const QString id =
-                tree->topLevelItem(i)->data(0, MainWindowUI::groupIdRole()).toString();
-            if (!id.isEmpty()) {
-                visible.append(id);  // 虚拟的「未分组」不是真组，没有位置（和画箭头时同一判据）
-            }
-        }
-        const int from = visible.indexOf(groupId);
-        if (from < 0) {
-            return false;  // 藏着的空组（或者刚被别处删了）：没有"看得见的那一行"
-        }
-        const int to = up ? from - 1 : from + 1;
-        if (to < 0 || to >= visible.size()) {
-            return false;  // 已经在那一头了
-        }
-        const QString anchorId = visible.at(to);
-        int anchorFile = -1;
-        for (int i = 0; i < groups.size(); ++i) {
-            if (groups.at(i).id == anchorId) {
-                anchorFile = i;
-                break;
-            }
-        }
-        if (anchorFile < 0 || anchorFile == fromFile) {
-            return false;  // 数据层和树上那份对不上了：什么都不做
-        }
-        // 摘出来插到目标那一格：`move(from, to)` 之后这一组恰好落在目标那一组**原来**的
-        // 位置上 —— 上移时落到它前面、下移时落到它后面，两边正好都是"换成用户看到的那一格"。
-        groups.move(fromFile, anchorFile);
-    }
-
-    QString error;
-    if (!m_groupStore->replaceGroups(groups, &error)) {
-        // 这一下会挡住用户操作（他点了箭头，什么都没发生，也不知道为什么）⇒ 必须弹出来。
-        QMessageBox::critical(this, tr("分组排序失败"), error);
-        return false;
-    }
-    // NOTE: 这里**不**手动重灌那张树 —— 写成功之后数据层会发 groupsChanged（见上面那段）。
-    return true;
 }
 
 void MainWindow::openGroupMenuFor(QTreeWidgetItem *item) {
