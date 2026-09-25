@@ -207,7 +207,8 @@ CurseForgeFiles parseCurseForgeFileInfo(const QByteArray &json, const QList<Pack
 
 /**
  * @brief 这个项目属于哪一类 → 文件该落到实例目录的哪个子目录。
- * @param classId CurseForge 的类目号（6 模组 / 12 资源包 / 6552 光影 / 17 存档 / 4471 整合包）。
+ * @param classId CurseForge 的类目号（6 模组 / 12 资源包 / 6552 光影 / 6945 数据包 /
+ *        17 存档 / 4471 整合包）。
  * @return 带结尾斜杠的目录名，如 `mods/`；**空串 = 这一条不下**（嵌套的整合包）。
  *
  * 6 那一档和"认不出来"合在一起：认不出来的一律落 `mods/`（主流启动器都这么做）——

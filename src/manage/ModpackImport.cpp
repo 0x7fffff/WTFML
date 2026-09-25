@@ -708,14 +708,21 @@ CurseForgeFiles parseCurseForgeFileInfo(const QByteArray &json, const QList<Pack
 }
 
 QString curseForgeFilePath(int classId) {
-    // 类目号来自 CurseForge 自己（`classId`）：6 模组 / 12 资源包 / 6552 光影 /
-    // 17 存档 / 4546 Customization / 4471 整合包。
+    // 类目号来自 CurseForge 自己（`classId`，九条 `isClass=true` 里我们用得上的那几条）：
+    // 6 模组 / 12 资源包 / 6552 光影 / 6945 数据包 / 17 存档 / 4546 Customization /
+    // 4471 整合包。
     switch (classId) {
     case 12:    // Resource Packs
     case 4546:  // Customization（披风、皮肤那一类贴图包，本质就是资源包）
         return QStringLiteral("resourcepacks/");
     case 6552:  // Shaders
         return QStringLiteral("shaderpacks/");
+    case 6945:  // Data Packs —— 和下载页那一类的落点**必须一致**（见
+                // ResourceCatalog::folderForKind）：同一个东西两条路放进两个目录，
+                // 症状是"从下载页下的能生效、从整合包里来的不生效"。
+        // 注意原版只认存档里那份（`<存档>/datapacks/`），这里的产物要用户自己搬进存档 ——
+        // 和 ResourceCatalog 那边同一句话，别在这儿说成"装好了"。
+        return QStringLiteral("datapacks/");
     case 17:    // Worlds（存档）
         return QStringLiteral("saves/");
     case 4471:  // Modpacks —— 嵌套的整合包，**不代装**

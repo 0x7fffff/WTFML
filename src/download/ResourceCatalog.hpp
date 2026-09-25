@@ -84,11 +84,107 @@ QString folderForKind(Kind kind);
 /// 人看的名字（「模组」「整合包」…）。界面上那几个字从这里取，免得两处各写一份。
 QString kindLabel(Kind kind);
 
+// ---------- 来源（2026-09-25 加的第二个数据源）----------
+//
+// 在此之前这一层**只有一个数据源**（Modrinth），所以"从哪儿搜的"这件事压根没有名字。
+// 用户要「按来源搜」（原话见 downloadFilterRow 那段）之后它就得是个东西了：一个页面上
+// 同时只搜一个来源，但**同一个资源在两边是两个不同的 id**，而且两边能筛的东西、
+// 回来的形状、连"哪个字段是加载器"都不一样。
+//
+// 【两个来源的形状差异（都是实测的，2026-09-25）】
+//
+// | | Modrinth | CurseForge |
+// |---|---|---|
+// | 搜索 | `GET /v2/search?query=&facets=…` | `GET /v1/mods/search?gameId=432&classId=…` |
+// | 筛游戏版本 | facets `versions:1.21.1` | 查询参数 `gameVersion=1.21.1` |
+// | 筛加载器 | facets `categories:fabric`（**不是** `loaders:`） | `modLoaderType=1`（**数字**） |
+// | 筛类型 | facets `categories:optimization` | `categoryId=6814`（**数字**） |
+// | 排序 | `index=relevance` / `downloads` | `sortField=6`（**两边都只用它**，见 searchUrl） |
+// | 要不要 key | 不要 | 官方那份要（默认走反代，见 ModpackImport::curseForgeApiBase） |
+// | 答复根 | `{"hits":[…]}` | `{"data":[…],"pagination":{…}}` |
+//
+// 所以下面凡是"两边不一样"的地方都是一个**按来源分叉的函数**，不是两套平行的函数名：
+// 界面上只有"来源"这一个下拉框在变，跟着它变的东西不该在调用点各写一遍。
+
+/// 去哪儿搜。
+enum class Source {
+    Modrinth,   ///< 官方 v2 接口，不要 key（一直以来的那一个）
+    CurseForge, ///< 官方要 key、默认走社区反代（见 ModpackImport::curseForgeApiBase）
+};
+
+/// 两个来源都在这里列一遍。**顺序就是界面上那个下拉框的顺序**（Modrinth 在前面：
+/// 它是不要 key 的那个，也是"原来就能用"的那个）。
+QList<Source> allSources();
+
+/// 稳定的键（`modrinth` / `curseforge`）。进条目的 userData、拼请求钥匙都用它。
+QString sourceKey(Source source);
+
+/// 下拉框里那一行字（`Modrinth` / `CurseForge`）—— 这两个是专有名词，不翻译。
+QString sourceLabel(Source source);
+
+/// 从键认回来；认不出来返回 false 并且不动 *out（和 kindFromCategoryKey 一个规矩）。
+bool sourceFromKey(const QString &key, Source *out);
+
+/// 这一类在 CurseForge 那边是哪个类目（**搜索必须带它** —— 它的 `/mods/search`
+/// 没有"项目类型"这个概念，只有类目号）。
+///
+/// NOTE: 这几个号是把 `/v1/categories?gameId=432` 里 `isClass=true` 那九条抄下来的
+///       （2026-09-25 实测）：5 Bukkit 插件 / 17 存档 / 12 资源包 / 4546 定制 /
+///       **6945 数据包** / 4559 附加 / 4471 整合包 / 6552 光影 / 6 模组。
+///       它们和 ModpackImport::curseForgeFilePath() 用的**是同一套号** —— 那边管
+///       "清单里的文件落到哪个目录"，这边管"去哪个类目里搜"。两边不一致的症状是
+///       "搜出来的是模组、装进去却是资源包"。
+int curseForgeClassId(Kind kind);
+
+// ---------- 那一行筛选项（版本 / 加载器 / 来源 / 类型）----------
+
+/// 一个下拉框里的一项。
+///
+/// `key` 空串 = 「全部」（不筛）。**不是每个来源都认得同一个键**：Modrinth 那个是 facet
+/// 里那个词（`optimization` / `fabric`），CurseForge 那个是**数字**（类目号 6814、
+/// modLoaderType 1）—— 所以选项表是"按来源"取的，别自己拼一个键塞进去。
+struct FilterOption {
+    QString key;
+    QString label; ///< 给用户看的（「优化」「Forge」）
+
+    /// 这一项是不是「全部」（键是空串）。界面上那一项永远排第一。
+    bool isAll() const { return key.isEmpty(); }
+};
+
+/// 「类型」那一栏的选项。**写死的一份常用分类**，不是从接口拉的（用户 2026-09-25 选的：
+/// 选项稳定、离线可测、不额外发请求）。
+///
+/// 【返回的表长什么样】第一项**永远是「全部」**（键空串）—— 界面上那一格直接照抄这张表，
+/// 不用自己再补一项、也不用自己保证它排第一。回**空表**的情况只有一种：这一来源 × 这一类
+/// 根本没有分类可选（见下），那时界面上该把整个「类型」框**藏起来**
+/// （摆一个只有「全部」的框等于骗人）。
+///
+/// 那个例外是 **Modrinth 的数据包**：它的分类表里根本没有 datapack 那一档（实测
+/// `/v2/tag/category` 只给 mod / modpack / resourcepack / shader / 服务器那几类）。
+/// **CurseForge 那边反而不空**（它有 6945 这个类目，底下八条子类）。
+///
+/// NOTE: 表里那些键**原样来自接口**（Modrinth 是 slug / CurseForge 是类目号），一个字母
+///       都不能自己编：`optimization` 写成 `optimisation` 不会报错，只是搜出来是空的。
+///       中文标签是我们起的（接口给的是英文名）。两张表**不一样长**，别按行号对齐。
+QList<FilterOption> categoryOptions(Source source, Kind kind);
+
+/// 「模组加载器」那一栏的选项（**只有模组那一页有这一栏** —— 资源包/数据包/光影/整合包
+/// 谈不上加载器，用户原话「模组加载器只在模组那栏存在」）。
+///
+/// 形状和 categoryOptions 一样：第一项是「全部」，**回空表 = 这一栏别画**
+/// （这两个来源的模组都有加载器可选，所以现在永远不会空 —— 留着这条是为了"哪一来源 × 哪一
+/// 类没有这一栏"将来还能有一个出处，而不是让界面自己判断）。
+///
+/// 四个加载器两边的键不一样：Modrinth 要 `fabric`，CurseForge 要 `4`（数字）。
+/// **两边顺序一样**（fabric / forge / neoforge / quilt），所以那个下拉框在两个来源之间
+/// 来回切时行不会跳。
+QList<FilterOption> loaderOptions(Source source);
+
 // ---------- 搜索 ----------
 
 /// 一条搜索结果。这里每个字段都是搜索接口**本来就给了**的 —— 没有为了它多发一次请求。
 struct Hit {
-    QString projectId; ///< 唯一 id（图标地址、版本查询都靠它）
+    QString projectId; ///< 唯一 id（图标地址、版本查询都靠它）—— **只在同一个来源里唯一**
     QString slug;      ///< 网址里的那一段（`/mod/sodium` 的 sodium），出错时给用户看更认得出
     QString title;
     QString description; ///< 一行简介（界面上按一行省略号画）
@@ -97,19 +193,54 @@ struct Hit {
     QStringList categories;   ///< 原始的那一串（加载器 + 分类标签混在一起）
     QStringList gameVersions; ///< 它支持哪些 MC 版本 —— "选游戏版本"那一步就用它
 
-    /// 接口给的那个图标地址（实测大多是 `…_96.webp`，也有直接给 `icon.png` 的）。
+    /// 这一条是从哪儿搜出来的。默认是 Modrinth（老调用点不用改），但**读的人必须看它**：
+    /// 图标在哪条域名上、版本列表问哪个接口、下载地址给不给 sha1，三件事都跟着它变。
+    Source source = Source::Modrinth;
+
+    /// 加载器**原样**：接口自己说的那一串（CurseForge 的搜索响应里加载器根本不在
+    /// `categories` 里 —— 它在每条 file 的 `modLoader` 数字上，解析时已经换成名字了）。
+    ///
+    /// NOTE: 为什么不能全靠 categories 现推（老路子 `loaders()`）：CurseForge 的
+    ///       categories 装的是「Performance」「Technology」那种**分类标签**，一个加载器
+    ///       名字都没有。空着的时候 `loaders()` 照旧按 categories 认（Modrinth 那条路）。
+    QStringList explicitLoaders;
+
+    /// 接口给的那个图标地址（实测大多是 `…_96.webp`，也有直接给 `icon.png` 的；
+    /// CurseForge 给的是 `logo.thumbnailUrl`，256px 的 png）。
     ///
     /// NOTE: **存的是原样那一串**，只在 isUsableIconUrl() 过不去时留空 —— 它是什么格式、
     ///       这一台解不解得动，都不该在这一层判（这一层不碰网络、也不碰解码器）。
     ///       解不动那件事的处置在 ResourceStore 里：走不通就退回 iconPngUrl()。
     QString iconUrl;
 
+    /// 接口给的**第二条**图标地址（只有 CurseForge 有：`logo.url`，比上面那条 256px
+    /// 缩略图大）。
+    ///
+    /// NOTE: 为什么不塞进 `iconUrl` 就完事：那两条是**主次**关系（先试小的、解不动/取不到
+    ///       再退大的），而 Modrinth 那条路的"第二条"是自己按 id 拼出来的
+    ///       （`iconUrlForProject`）。两条路都得有"退哪去"这个答案，所以 iconPngUrl()
+    ///       统一回答它 —— 这一项就是 CurseForge 那个答案的出处。
+    QString iconFallbackUrl;
+
     /// 加载器（`categories` 里属于加载器的那几个）。界面上当标签显示、以及挑版本时筛。
+    ///
+    /// NOTE: `explicitLoaders` 非空就**只认它**（CurseForge 那条路）—— 那边的 categories
+    ///       是分类标签，按老规矩去里面找 `fabric` 会一个都找不到，症状是"点击那一下
+    ///       不报错、只是加载器那道闸再也不拦了"。
     QStringList loaders() const;
 
-    /// 兜底那个图标地址：`https://cdn.modrinth.com/data/{id}/icon.png`（**200 image/png**）。
-    /// 项目没传过图标时它是 404 —— 那不算错，画占位方块。
+    /// 兜底那个图标地址：Modrinth 是 `https://cdn.modrinth.com/data/{id}/icon.png`
+    ///（**200 image/png**），CurseForge 是接口给的 `logo.url`（`iconFallbackUrl`）；
+    /// 两边都没有时回空串（画占位方块）。
+    /// 项目没传过图标时它是 404 —— 那不算错。
     QString iconPngUrl() const;
+
+    /// 图标在**盘上那两级缓存**里叫什么（`<来源>-<id>`）。
+    ///
+    /// 为什么要带来源：两个来源的 id 各在自己那一套里唯一，`238222` 这种**纯数字 id 在
+    /// Modrinth 那条 base62 里也是合法的**。不带来源的话，一旦两边撞上，症状是"这一格的
+    /// 图标是另一个模组的"，而且缓存不过期 ⇒ 一直错下去。
+    QString iconCacheId() const;
 };
 
 struct SearchResult {
@@ -122,13 +253,58 @@ struct SearchResult {
 };
 
 /// 搜索请求的地址。`limit` 由调用方定（界面上是一页 20 条，`offset` 用于"加载更多"）。
-/// `gameVersion` / `loader` 为空 = 不按它筛（facets 里就不出现那一段）。
+/// 四个筛子**空串一律 = 不筛**（那一段就不出现在地址里，而不是发一个空值上去 ——
+/// 两个接口对空值的反应都不一样，`gameVersion=` 实测是按"没有这个参数"处理的，
+/// 但那是巧合，不该靠）。
+/// @param source Modrinth 那条走 facets，CurseForge 那条走查询参数（见文件上面那张表）。
+/// @param category 类型（`categoryOptions` 给的键：一个 slug，或者一个类目号）。
+/// @param apiBase **只给 CurseForge 用**：接口根地址（`…/v1`）。空 = 走默认那条
+///        （社区反代）—— 那件事只有一处出处（ModpackImport::curseForgeApiBase），
+///        这里不自己拼一个域名。验证工程拿它把请求指到本机的假服务器上。
+///
+/// 【CurseForge 的排序：两种情况都用 `sortField=6`（TotalDownloads），实测的】
+///
+/// 2026-09-25 量的（search=jei）：
+///   * `sortField=2`（Popularity）→ 头一条是 **GeckoLib**（搜索词基本被无视了）；
+///   * `sortField=6`（TotalDownloads）→ 头一条是 **JEI**，后面几条也都是名字里带 jei 的。
+/// 也就是说这一家把"相关度"折进了"按下载量排"里，而 Popularity 那个是另一个东西。
+/// 空搜索词时 sortField=6 也正好是"这一类里最热门的" —— 和 Modrinth 那条
+///（空词按 downloads 排、有词按 relevance 排）落在同一个效果上，所以这边一个值就够，
+/// 不用跟着 query 空不空分叉。
 QString searchUrl(Kind kind, const QString &query, int offset, int limit,
-                  const QString &gameVersion = QString(), const QString &loader = QString());
+                  const QString &gameVersion = QString(), const QString &loader = QString(),
+                  Source source = Source::Modrinth, const QString &category = QString(),
+                  const QString &apiBase = QString());
 
-/// 解析搜索响应。**读不懂就如实报**（`problem` 里写清缺了什么），不半懂不懂地返回空列表 ——
-/// 空列表在界面上就是"什么都没搜到"，那是另一句话。
+/// 解析 Modrinth 的搜索响应。**读不懂就如实报**（`problem` 里写清缺了什么），不半懂不懂地
+/// 返回空列表 —— 空列表在界面上就是"什么都没搜到"，那是另一句话。
 SearchResult parseSearch(const QByteArray &json);
+
+/// 解析 CurseForge 的搜索响应（`{"data":[…],"pagination":{…}}`）。
+///
+/// 三处和 Modrinth 不一样，都是实测的形状：
+///   * **根在 `data`**，不是 `hits`；总数在 `pagination.totalCount`（那一家上限 10000）。
+///   * **加载器不在 categories 里**（categories 是「Technology」那种分类标签）—— 它在每个
+///     项目 `latestFilesIndexes[].modLoader` 那个**数字**上（1 Forge / 4 Fabric / 5 Quilt /
+///     6 NeoForge）。这里把它换成名字放进 `explicitLoaders`。
+///   * **游戏版本也从 latestFilesIndexes 来**（那一家一次不给整张 supported-versions 表）——
+///     那是"每个版本各有一条最新文件"的小表，去掉重、按**从旧到新**排好放进
+///     `gameVersions`（和 Modrinth 那份同一个方向，界面上那一步（gameVersionChoices）
+///     才不必知道这一条是从哪儿来的）。**那条排序是我们自己做的**（接口给的顺序是乱的），
+///     见 gameVersionsOldestFirst()。
+/// @param categoryProblem 非空时写入"接口自己那句话"（没成的时候）。
+SearchResult parseCurseForgeSearch(const QByteArray &json);
+
+/// 把一串游戏版本按**从旧到新**排（新的在后）。**只给 CurseForge 那条路用。**
+///
+/// 为什么要有它：Modrinth 那份搜索响应里 `versions` 本来就是旧的在前（有断言钉着，
+/// 界面直接倒着画就是"新的在前"）；而 CurseForge 的 `latestFilesIndexes` 顺序是随机的，
+/// 不排的话第二层会是"1.21.1 / 1.20.1 / 1.21 / 1.19.2"这种。**两边最后必须落到同一个
+/// 方向**，否则"新的在前"这件事就变成两个来源各说各的。
+///
+/// 比法是**按 `.` 切成数字段比大小**（1.9 < 1.10 —— 字符串比会得到反的），段数不同时
+/// 短的那个在前（1.21 < 1.21.1），数字段之外的那一段按字符串比（`1.21-pre1` 这类）。
+QStringList gameVersionsOldestFirst(const QStringList &versions);
 
 /// 「选游戏版本」那一步要摆的一串（**新的在前**）。
 ///
@@ -155,12 +331,16 @@ bool isWebpUrl(const QString &url);
 
 /// 接口给的图标地址能不能拿来发请求。
 ///
-/// NOTE: 这是**外部输入**（从接口正文里读的），所以只放行 `https` + `cdn.modrinth.com`，
+/// NOTE: 这是**外部输入**（从接口正文里读的），所以只放行 `https` + **这一家自己的域名**，
 ///       别的域名、别的协议、以及空串一律当"没给"（那一步退回自己拼的 iconPngUrl()）。
 ///       理由和 ResourceStore 里 isSafeFileStem() 那段一样：这个字符串的下一个用途是
 ///       "拿去发一个请求"，是整条链上最不该由别人说了算的地方。顺带也挡住
 ///       `cdn.modrinth.com.别的什么.com` 这种看着像的域名（比的是 host 全等）。
-bool isUsableIconUrl(const QString &url);
+/// @param source 两个来源的图在不同域名上：Modrinth 是 `cdn.modrinth.com`，
+///        CurseForge 是 `media.forgecdn.net`（实测搜索响应里的 `logo.url` /
+///        `logo.thumbnailUrl` 都在这个域下）。**不是"多放行一个域"**：CurseForge
+///        那条路上收到一条 cdn.modrinth.com 的地址是不该发生的事，就当没给。
+bool isUsableIconUrl(const QString &url, Source source = Source::Modrinth);
 
 /// 下载量那串字（`2.3 亿` / `1234 万` / `5678`）。
 /// 这是个纯函数是有缘故的：它是**唯一**一处决定"多少万以上换个单位"的地方，
@@ -176,6 +356,14 @@ struct FileEntry {
     qint64 size = -1;
     QString sha1;
     bool primary = false; ///< 主文件（一个版本里通常只有一个；界面默认下它）
+
+    /// 这一条**下不了**时给用户的那句话（空 = 下得了）。
+    ///
+    /// 现在只有一个来源会填它：CurseForge 的 `downloadUrl` 是 **null** = 作者在项目设置里
+    /// 关掉了"第三方分发"（那一家的规矩，见 ModpackImport 里那条许可闸）。这不是"网络
+    /// 不通"、也不是"作者忘了传"，所以界面上不能只说一句「没有可下载的文件」——
+    /// 那句话会让用户以为是启动器坏了，然后一遍遍重试。
+    QString unavailableNote;
 };
 
 /// 前置模组（这一轮只读出来，不出按钮，见 requiredDependenciesOf）。
@@ -205,8 +393,13 @@ struct VersionEntry {
 
 /// 某个资源在某个 MC 版本（+可选加载器）下的版本列表地址。
 /// `gameVersion` / `loader` 为空 = 不筛（界面在没选游戏版本时不该问这条，见调用点注释）。
+///
+/// NOTE: CurseForge 那条是 `GET {base}/mods/{id}/files?gameVersion=&modLoaderType=`，
+///       加载器那里也要**数字**（不是名字）。答复的顺序两边**都是新的在前**（实测：
+///       JEI 那条回的是 19.57.0.449 → .448），所以界面那条路不用按来源分叉。
 QString versionsUrl(const QString &projectId, const QString &gameVersion,
-                    const QString &loader = QString());
+                    const QString &loader = QString(),
+                    Source source = Source::Modrinth, const QString &apiBase = QString());
 
 // ---- 请求的"钥匙" ----
 //
@@ -214,12 +407,18 @@ QString versionsUrl(const QString &projectId, const QString &gameVersion,
 // 第二发晚的话，晚到的那份会把新的那份盖掉（屏幕上显示的是上一个搜索词的结果，而且不报错）。
 // 所以每一发都带一把钥匙（见 ResourceStore），这两把是拼钥匙的**唯一出处**。
 
-/// 一次搜索的钥匙（按分类分，一个页面上同时只有一发）。
-QString searchRequestKey(Kind kind);
+/// 一次搜索的钥匙（按分类 + 来源分，一个页面上同时只有一发）。
+///
+/// 带上来源是**必须**的：同一个页面上用户可能刚点完 Modrinth 又切成 CurseForge，
+/// 钥匙不带来源的话，前一趟回来的结果会被当成"我现在等的那一发"填进树里 ——
+/// 界面上就是"切到 CurseForge，显示的还是 Modrinth 那批"。
+QString searchRequestKey(Kind kind, Source source = Source::Modrinth);
 
-/// 一次"问某个资源的版本列表"的钥匙。带上游戏版本和加载器，因为它们会改变问出来的东西。
+/// 一次"问某个资源的版本列表"的钥匙。带上游戏版本、加载器和来源，因为它们都会改变
+/// 问出来的东西（两个来源的 id 空间还可能撞上，见 Hit::iconCacheId 那段）。
 QString versionsRequestKey(const QString &projectId, const QString &gameVersion,
-                           const QString &loader = QString());
+                           const QString &loader = QString(),
+                           Source source = Source::Modrinth);
 
 /// 解析版本列表。返回的顺序**就是接口给的顺序**：实测量过，是**新的在前**。
 ///
@@ -229,7 +428,26 @@ QString versionsRequestKey(const QString &projectId, const QString &gameVersion,
 ///
 /// 这一层刻意不自己排 —— 写一个"1.9 和 1.10 谁新"的比较器，错了同样不会有任何东西报警，
 /// 而接口本来就是按发布时间排好的。
+///
+/// 【两个来源的形状：按根判，调用方不用管】
+/// 响应根是**数组** = Modrinth（`/project/{id}/version`）；是**对象里带 `data`** =
+/// CurseForge（`/mods/{id}/files`）。两边回来的是同一样东西（"这个资源有哪些版本可下"），
+/// 所以分岔放在这个函数里面 —— 让调用方先判来源再挑一个解析器，等于把"哪个接口回哪种形状"
+/// 这件事抄到调用点上，抄错了的症状是"CurseForge 那一页永远是空的"。
+///
+/// CurseForge 那一边有三处要翻译（都是实测的形状差异，见 parseCurseForgeVersions）：
+///   * 那边的 `data[]` **一条就是一个文件**（不是"一个版本里带几个文件"），所以一条直接
+///     变成一个 VersionEntry，`files` 里只有它自己；
+///   * `gameVersions` 里混着 `Client` / `Server` / `Forge` 这种**不是游戏版本**的东西
+///     （Modrinth 那边是干净的），要挑出来：游戏版本那几项长得像版本号（以数字开头），
+///     加载器那几项顺带翻成小写（`Forge` → `forge`，加载器那道闸比的是小写）；
+///   * `releaseType` 是个**数字**（1 release / 2 beta / 3 alpha），翻成和 Modrinth 一样的词。
 QList<VersionEntry> parseVersions(const QByteArray &json);
+
+/// 解析 CurseForge 的版本（文件）列表（`{"data":[…]}`）。**根不是数组时回空表** ——
+/// 那一发没成的话形状根本不对（错误正文是个对象），`parseVersions` 就是把这一条当"这份不是
+/// 版本清单"处理的。单独有个函数是为了能拿真响应当夹具离线钉住那三处翻译（见 parseVersions）。
+QList<VersionEntry> parseCurseForgeVersions(const QByteArray &json);
 
 // ---------- 前置模组（这一轮只留接口）----------
 
