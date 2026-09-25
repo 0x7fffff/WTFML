@@ -10,6 +10,7 @@
 
 #include "GroupDialog.hpp"
 
+#include <QApplication>
 #include <QCheckBox>
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -22,6 +23,8 @@
 #include <QStringList>
 #include <QUuid>
 #include <QVBoxLayout>
+
+#include "MainWindowUI.hpp"
 
 namespace {
 
@@ -138,12 +141,32 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
                 deleteGroup(groupId);
             }
         });
-        // 上移/下移是**一次一格**（不是"置顶/置底"）：用户要的是"排一下顺序"，而一格一格
-        // 挪看得见自己挪到哪儿了。挪到头/尾那两个按钮自动灰掉（见 refreshActionButtons）。
-        connect(m_moveUpButton, &QPushButton::clicked, this,
-                [this] { moveGroupUp(selectedGroupId()); });
-        connect(m_moveDownButton, &QPushButton::clicked, this,
-                [this] { moveGroupDown(selectedGroupId()); });
+        // 上移/下移平时是**一次一格**（用户要的是"排一下顺序"，而一格一格挪看得见自己
+        // 挪到哪儿了）；**按住 Shift** 点就是"直接放到最顶上 / 最底下"（用户原话，和实例树
+        // 上那两颗箭头同一套手势）。挪到头/尾那两个按钮自动灰掉（见 refreshActionButtons）。
+        //
+        // NOTE: `clicked` 不带修饰键，只能去问 QApplication::keyboardModifiers()（"此刻
+        //       键盘上按着什么"）—— 这条路 offscreen 下摆不出来，所以真正办事的是
+        //       moveGroupToTop/Bottom() 那两个槽，验证工程直接驱动它们。
+        m_moveUpButton->setToolTip(tr("把选中的分组往上挪一格。按住 Shift 点 = 直接放到最上面。"));
+        m_moveDownButton->setToolTip(
+            tr("把选中的分组往下挪一格。按住 Shift 点 = 直接放到最下面。"));
+        connect(m_moveUpButton, &QPushButton::clicked, this, [this] {
+            const QString groupId = selectedGroupId();
+            if (QApplication::keyboardModifiers().testFlag(Qt::ShiftModifier)) {
+                moveGroupToTop(groupId);
+            } else {
+                moveGroupUp(groupId);
+            }
+        });
+        connect(m_moveDownButton, &QPushButton::clicked, this, [this] {
+            const QString groupId = selectedGroupId();
+            if (QApplication::keyboardModifiers().testFlag(Qt::ShiftModifier)) {
+                moveGroupToBottom(groupId);
+            } else {
+                moveGroupDown(groupId);
+            }
+        });
         connect(m_expandedCheck, &QCheckBox::toggled, this, [this](bool checked) {
             // m_updatingExpanded：这是 refreshActionButtons() 在摆状态（跟着选中的组），
             // 不是用户点的 —— 不挡的话每选一行都会把那一行的状态"改"成它本来就有的值。
@@ -339,6 +362,27 @@ bool GroupDialog::moveGroupDown(const QString &groupId) {
     return true;
 }
 
+bool GroupDialog::moveGroupToTop(const QString &groupId) {
+    const int row = rowOfGroup(groupId);
+    if (row <= 0) {
+        return false;  // 已经在最上面（或者压根没这个组）：和 moveGroupUp() 同一档
+    }
+    // 一步到位：摘出来插到最前面（不是"swap 很多次"—— 那样中间那几格会被换乱）。
+    m_groups.move(row, 0);
+    rebuildGroupList();
+    return true;
+}
+
+bool GroupDialog::moveGroupToBottom(const QString &groupId) {
+    const int row = rowOfGroup(groupId);
+    if (row < 0 || row >= m_groups.size() - 1) {
+        return false;
+    }
+    m_groups.move(row, m_groups.size() - 1);
+    rebuildGroupList();
+    return true;
+}
+
 void GroupDialog::setGroupExpanded(const QString &groupId, bool expanded) {
     const int row = rowOfGroup(groupId);
     if (row < 0) {
@@ -371,10 +415,15 @@ void GroupDialog::rebuildGroupList() {
     {
         const QSignalBlocker blocker(m_groupList);
         m_groupList->clear();
+        // 行高和版本下载那棵树一样（用户 2026-09-25 原话：「每个版本啥的上下高一点，像
+        // 下载页那样，分组设置界面也是」）。这儿的行只有一行字，不给的话就是字那么高 ——
+        // 同一份组名在实例页那棵树上和在这张表里高矮不一样，看着像两个东西。
+        const int rowHeight = MainWindowUI::versionTreeRowHeight();
         for (const Group &group : m_groups) {
             auto *item = new QListWidgetItem(
                 groupItemText(group.name, m_memberCounts.value(group.id)), m_groupList);
             item->setData(Qt::UserRole, group.id);
+            item->setSizeHint(QSize(0, rowHeight));
         }
         const int row = rowOfGroup(previous);
         if (row >= 0) {

@@ -444,6 +444,56 @@ QPixmap VersionIcons::chevronUp(int size, const QColor &color) {
     return chevronPixmap(ChevronDir::Up, size, color);
 }
 
+namespace {
+
+/// 上移/下移那两颗箭头的形状：一个**实心三角**（▲ / ▼）。
+///
+/// 为什么不用现成的那两支 chevron（^ / V）：组行行尾本来就有一个 chevron（展开/收起的
+/// 那个），再摆两个同一支笔画的 V，一行里三个 V，用户分不出哪个是"展开"、哪个是"挪"。
+/// 实心三角是另一族的形状（滚动条/数字框那两个小箭头就是它），一眼就分得开。
+///
+/// 尺寸取边长的 64% × 50%（宽一点、扁一点，和旁边 12 px 的 chevron 摆在一起才配得上），
+/// 上下各留 25% 的边距 —— 贴到边上会看着比同一个格里的箭头大一号。
+QPolygonF triangleShape(bool up, int size) {
+    const qreal s = size;
+    const qreal left = s * 0.18;
+    const qreal right = s * 0.82;
+    const qreal near = s * 0.28;   // 底边（朝下那个的上沿）
+    const qreal apex = s * 0.72;   // 尖端
+    if (up) {
+        return QPolygonF({QPointF(s * 0.5, near), QPointF(right, apex), QPointF(left, apex)});
+    }
+    return QPolygonF({QPointF(left, near), QPointF(right, near), QPointF(s * 0.5, apex)});
+}
+
+/// 画一个实心三角，带缓存（两个朝向各存各的）。
+QPixmap trianglePixmap(bool up, int size, const QColor &color) {
+    if (size <= 0) {
+        return QPixmap();
+    }
+    return cached(QStringLiteral("triangle/%1/%2/%3").arg(up ? 1 : 0).arg(size).arg(color.name()),
+                  [up, size, color]() {
+                      QPixmap pixmap(size, size);
+                      pixmap.fill(Qt::transparent);
+                      QPainter p(&pixmap);
+                      p.setRenderHint(QPainter::Antialiasing, true);
+                      p.setPen(Qt::NoPen);
+                      p.setBrush(color);
+                      p.drawPolygon(triangleShape(up, size));
+                      return pixmap;
+                  });
+}
+
+}  // namespace
+
+QPixmap VersionIcons::triangleUp(int size, const QColor &color) {
+    return trianglePixmap(true, size, color);
+}
+
+QPixmap VersionIcons::triangleDown(int size, const QColor &color) {
+    return trianglePixmap(false, size, color);
+}
+
 QPixmap VersionIcons::cross(int size, const QColor &color) {
     if (size <= 0) {
         return QPixmap();

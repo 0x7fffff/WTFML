@@ -71,6 +71,17 @@ QPixmap chevron(bool expanded, int size, const QColor &color);
 /// @param color 线的颜色。
 QPixmap chevronUp(int size, const QColor &color);
 
+/// 组行行尾那两颗「上移 / 下移」箭头：**实心三角**（▲ / ▼）。2026-09-25 加的，
+/// 用户原话：「在每个的右侧除了齿轮以外加两个按钮，上箭头和下箭头，功能就是上下移」。
+///
+/// NOTE: 特意**不**用 chevron/chevronUp —— 组行行尾本来就有一个 chevron（展开/收起），
+///       一行里三个同一支笔画的 V 分不出谁是谁。实心三角是另一族的形状（滚动条上那两颗
+///       就是它），一眼分得开。纯代码画的、带缓存、颜色由调用方给（和别的字形一样）。
+/// @param size 边长（像素）。
+/// @param color 填充的颜色。
+QPixmap triangleUp(int size, const QColor &color);
+QPixmap triangleDown(int size, const QColor &color);
+
 /// 选中那条加载器右边那个**小叉**（在箭头左边）：点它 = 取消装这个加载器、退回纯原版
 /// （用户原话："选中以后在那个 > 左侧加一个 x 来取消安装对应版本"）。两条对角线画的，
 /// 和 chevron 同一个路数（全是代码画的，仓库里没有图片文件）。
