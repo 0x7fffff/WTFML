@@ -7,6 +7,8 @@
 
 #include "SkinModel.hpp"
 
+#include <QFont>
+#include <QHash>
 #include <QPointF>
 #include <QtMath>
 
@@ -910,6 +912,51 @@ QImage completeLegacySkin(const QImage &skin) {
 }
 
 bool hasSecondLayer(const QImage &skin) { return skin.height() >= 64; }
+
+QColor avatarFallbackColor(const QString &name) {
+    // 色相铺满一圈（qHash 的分散度够用），明度/饱和度**钉死**：这两个数一变，上面的白字
+    // 就会在某一档上糊掉（亮黄底上写白字是最典型的）。170/150 是"中间偏暗一档"——
+    // 白字压得住，又不至于暗到和底栏那片深色糊在一起。
+    //
+    // NOTE: HSV 只是**输入**，回来的那一份是**按 8 位量化过的 RGB**。这一步不是装饰：
+    //       `QColor::operator==` 比的是内部那一对 ushort，而 Qt 6 的色值是 16 位的 ——
+    //       `fromHsv()` 算出来的分量大多不是"8 位值 × 257"，于是
+    //       `fromHsv(...) == image.pixelColor(...)` 会**假不相等**（图里存的是 8 位，
+    //       取回来是 8 位精确值）。名字、rgba()、redF() 一路看着都一模一样，只有 `==`
+    //       说不一样 —— 这个坑已经吃掉过一整轮排查（2026-09-25，mw_check 的 AH7b）。
+    //       量化成 8 位之后，"画出来的那个色"和"这个函数给的那个色"就恒等，
+    //       而且这一格本来就只画在一块 24×24 的方格里，多出来的精度没有意义。
+    const QColor hsv = QColor::fromHsv(static_cast<int>(qHash(name, 0) % 360), 150, 170);
+    return QColor(hsv.red(), hsv.green(), hsv.blue());
+}
+
+QImage letterAvatar(const QString &name, int size) {
+    if (size <= 0) {
+        return {};
+    }
+    QImage image(size, size, QImage::Format_ARGB32_Premultiplied);
+    image.fill(avatarFallbackColor(name));
+
+    // 一个字符都没有的名字（理论上不该出现：加离线账号时那一格不许空）也给一块**有色**的
+    // 方块 + 一个问号，而不是一块空白 —— 行首那一格"什么都没有"和"有一个占位"在界面上
+    // 是分不出来的，而后者至少说明这一行加载过了。
+    const QString letter =
+        name.isEmpty() ? QStringLiteral("?") : name.left(1).toUpper();
+
+    QPainter painter(&image);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setRenderHint(QPainter::TextAntialiasing, true);
+    QFont font = painter.font();
+    font.setBold(true);
+    // 字号**按边长算**（不写死点数）：这个方块在底栏面板里是 24、以后别处要更大的时候
+    // 字得跟着长，而不是在大方块里缩成一小点。13/24 是量出来的：字高大约占方块的一半
+    // 多一点，四周留白均匀。
+    font.setPixelSize(qMax(1, size * 13 / 24));
+    painter.setFont(font);
+    painter.setPen(Qt::white);
+    painter.drawText(QRect(0, 0, size, size), Qt::AlignCenter, letter);
+    return image;
+}
 
 bool isSlimVariant(const QString &model) {
     return model.compare(QLatin1String("slim"), Qt::CaseInsensitive) == 0;

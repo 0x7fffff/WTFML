@@ -743,6 +743,14 @@ QList<MainWindowUI::PanelRow> runningGamePanelRows(const QList<LauncherManager::
 /// 右面板里那一行右边的那颗按钮的下标（onBottomBarPanelAction() 认的就是它）。
 constexpr int kAccountPanelUseAction = 0;
 
+/// 一份**会话**的身份键：这个人是谁。
+///
+/// 和 `MainWindow::launchIdentityKey()` 是同一个规矩，**两处必须一致**（那边有整段说明）：
+/// 离线会话的 `accountUuid` 是空的，拿 uuid 当键会把所有离线账号撞成同一个。
+QString sessionIdentityKey(const LauncherManager::GameSession &session) {
+    return session.accountUuid.isEmpty() ? session.accountName : session.accountUuid;
+}
+
 /// 「最后登录的三个账户」翻成面板里的几行。
 ///
 /// 口径是用户 2026-09-24 定的：「最后登录的三个账户就拿缓存放（包含离线和正版，总共
@@ -756,7 +764,8 @@ constexpr int kAccountPanelUseAction = 0;
 /// NOTE: `saved_at` 全是 `QDateTime::currentDateTimeUtc().toString(Qt::ISODate)` 写出来的
 ///       （唯一写方），形状一致，所以按文本比就是按时间比。
 QList<MainWindowUI::PanelRow> recentAccountPanelRows(const QList<SavedAccount> &accounts,
-                                                     const QString &activeUuid, int limit) {
+                                                     const QString &activeUuid, int limit,
+                                                     const QHash<QString, QPixmap> &faces) {
     QList<MainWindowUI::PanelRow> rows;
     if (accounts.isEmpty()) {
         MainWindowUI::PanelRow empty;
@@ -779,8 +788,12 @@ QList<MainWindowUI::PanelRow> recentAccountPanelRows(const QList<SavedAccount> &
     rows.reserve(sorted.size());
     for (const SavedAccount &account : sorted) {
         MainWindowUI::PanelRow row;
-        // 行首**不留图标**：底栏那个头像是"当前账号"的（SkinModel::headAvatar()），要按行
-        // 显示每个人的脸就得为每个账号各拉一次皮肤（要联网、要令牌）—— 那件事不在这一轮里。
+        // 行首那个头像**由调用方给**（`faces`，按 uuid 认人）：这里是纯函数，不能自己去
+        // 读缓存、更不该去联网（见 MainWindow::accountFacePixmap() 那段 —— 它只碰本地
+        // 已经躺着的图，一张都不下）。认人用 uuid 而不是名字：名字是可以重复的。
+        // 取不到就是一张空图，那一行的行首**什么都不画**；这一档不该出现（最差也有一个
+        // 首字母方块），只是不留"这里必须有一张图"的隐含前提。
+        row.icon = faces.value(account.uuid);
         row.title = account.name;
         row.subtitle = account.offline ? MainWindowUI::bottomBarPanelOfflineAccountText()
                                        : MainWindowUI::bottomBarPanelOnlineAccountText();
@@ -882,8 +895,17 @@ MainWindow::MainWindow(QWidget *parent)
         [this](bool account) -> QList<MainWindowUI::PanelRow> {
             if (account) {
                 // 「最后登录的三个账户」（用户 2026-09-24 原话）—— 3 这个数只在这一处。
-                return recentAccountPanelRows(AccountStore::accounts(), AccountStore::activeUuid(),
-                                              3);
+                const QList<SavedAccount> saved = AccountStore::accounts();
+                // 每个人的脸**一次算完**再交给 recentAccountPanelRows()：那个函数是纯函数
+                // （它不认识缓存目录、也不该认识）。这里给**全部**账号各算一张、不是只算
+                // 要显示的那三张 —— 挑哪三张是那个函数的事（它按 saved_at 倒序取前三个），
+                // 在调它之前再排一遍序就是两处各算一遍。
+                QHash<QString, QPixmap> faces;
+                faces.reserve(saved.size());
+                for (const SavedAccount &one : saved) {
+                    faces.insert(one.uuid, accountFacePixmap(one));
+                }
+                return recentAccountPanelRows(saved, AccountStore::activeUuid(), 3, faces);
             }
             return runningGamePanelRows(
                 m_launcherManager->runningGames(), m_versionManager,
@@ -1349,6 +1371,11 @@ void MainWindow::setupConnections() {
             &MainWindow::onGameWindowSizeChanged);
     connect(m_ui->getGameWindowHeightSpin(), &QSpinBox::valueChanged, this,
             &MainWindow::onGameWindowSizeChanged);
+    // 「启动提醒」那两条。和上面三项一样是"下一次启动才读"，槽里只落盘。
+    connect(m_ui->getWarnDuplicateLaunchCheck(), &QCheckBox::toggled, this,
+            &MainWindow::onWarnDuplicateLaunchChanged);
+    connect(m_ui->getWarnWorldLossCheck(), &QCheckBox::toggled, this,
+            &MainWindow::onWarnWorldLossChanged);
     // JVM 参数刻意**不**接 textChanged：边打字边存会把打到一半的半条参数写进配置，
     // 而它是直接塞进命令行的东西，半条参数会让游戏起不来。改完点「应用」。
     connect(m_ui->getApplyExtraJvmArgsButton(), &QPushButton::clicked, this,
@@ -1966,6 +1993,113 @@ void MainWindow::onSkinFailed(const QString &message) {
         // 好了），这时候说"取不到皮肤"是错的。
         updateSkinHint();
     }
+}
+
+QPixmap MainWindow::accountFacePixmap(const SavedAccount &account) const {
+    // ★ 这条路**只读本地已经躺着的东西**：不联网、不换令牌、不读客户端 JAR。
+    //   面板是"点一下就弹出来"的，用户原话的前提也是「（因为选择/登录过，所以肯定会有缓存，
+    //   应该不会遇到丢失的情况）」—— 所以这里按"缓存里有就用、没有就自己画一个"来收尾，
+    //   而不是去把缺的那张拉下来（拉皮肤要网络、要令牌，还要为每一行各等一次）。
+    const int size = MainWindowUI::bottomBarPanelIconSize();
+    // 缓存图 → 头像。图上取不到（文件不在 / 不是一张皮肤）就是一张空图，让调用方接着退。
+    const auto faceFromTexture = [size](const QString &path) -> QPixmap {
+        if (path.isEmpty() || !QFile::exists(path)) {
+            return {};
+        }
+        const QImage texture(path);
+        if (texture.isNull()) {
+            return {};
+        }
+        // headAvatar() 自己认 64×32 的老格式（那一档只取头和帽子，是同一块区域）。
+        const QImage head = SkinModel::headAvatar(texture, size);
+        return head.isNull() ? QPixmap() : QPixmap::fromImage(head);
+    };
+
+    // ① 当前账号：底栏那颗头像是**现成的**（m_avatarPixmap，applyPlayerSkin() 里算好的），
+    //    缩一下就是这一行的图。
+    //
+    //    这一条必须排在最前面。它是"面板上这一行"和"底栏那颗"是同一张脸的**唯一保证** ——
+    //    走下面那几条缓存路的话，当前账号正在"随机皮肤还没下回来"那一档时，面板会给出一张
+    //    缓存里的旧图（或者干脆一个首字母方块），同一个窗口里同一个人两种脸。
+    //    NOTE: 缩放的插值方式跟着 headAvatar() 那套走（最近邻）—— 那张图本来就是 8×8
+    //          放大出来的像素画，平滑插值只会把脸糊掉。
+    if (account.isCurrent && !m_avatarPixmap.isNull()) {
+        return m_avatarPixmap.scaled(size, size, Qt::IgnoreAspectRatio, Qt::FastTransformation);
+    }
+
+    if (!account.offline) {
+        // ② 正版账号：缓存里那份档案写着他的皮肤地址，图按地址的 sha1 躺在同一个缓存目录里
+        //    （PlayerSkinStore 的两级缓存，见那边的文件头）。地址是内容哈希，所以"本地有这张
+        //    图"就等于"这是他当前的皮肤"。
+        PlayerSkinProfile profile;
+        if (PlayerSkinStore::loadCachedProfile(account.uuid, &profile) &&
+            !profile.skinUrl.isEmpty()) {
+            const QPixmap face = faceFromTexture(PlayerSkinStore::cachePathForUrl(profile.skinUrl));
+            if (!face.isNull()) {
+                return face;
+            }
+        }
+    } else {
+        // ③ 离线账号优先用**他自己挑的那张**（RandomSkinStore 记在盘上的地址）。挑过就有
+        //    地址，图和正版走同一个缓存 —— 同一个账号在底栏、面板、主页看到的是同一张脸。
+        //    NOTE: 认人用 account.uuid（离线账号的 uuid 是 md5("OfflinePlayer:"+名字)，
+        //          和 startPlayerSkinLoad() 里读的是同一个值），不是 m_authManager 那个
+        //          —— 后者对离线账号是空串。
+        const QString chosen = RandomSkinStore::loadChosenSkinUrl(account.uuid);
+        if (!chosen.isEmpty()) {
+            const QPixmap face = faceFromTexture(PlayerSkinStore::cachePathForUrl(chosen));
+            if (!face.isNull()) {
+                return face;
+            }
+        }
+        // ④ 再退一步：**算出来的**那张官方默认皮肤的缓存图（见 DefaultSkin）。
+        //
+        //    它的缓存名带三段（账号 / 版本 / 条目），所以这里得先猜"当初是按哪个实例算的"。
+        //    猜错只是 QFile::exists 落空，**绝不会触发读 JAR** —— 那一条路要起一次
+        //    PowerShell（几百毫秒），挂在"点开面板"这一下上是不行的。所以这里**直接拼
+        //    cachePathFor()**，一步都不走 resolve()。
+        const QStringList versions =
+            offlineDefaultSkinCacheVersions(selectedVersionId(m_ui->getInstalledVersionCombo()));
+        for (const QString &versionId : versions) {
+            for (const DefaultSkin::Rule rule :
+                 {DefaultSkin::Rule::Eighteen, DefaultSkin::Rule::Two}) {
+                const DefaultSkin::Prediction prediction = DefaultSkin::predict(account.uuid, rule);
+                if (!prediction.valid) {
+                    continue;
+                }
+                const QPixmap face = faceFromTexture(
+                    DefaultSkin::cachePathFor(account.uuid, versionId, prediction.entryPath));
+                if (!face.isNull()) {
+                    return face;
+                }
+            }
+        }
+    }
+
+    // ⑤ 一张图都没有 —— 自己画一个首字母方块。**这是常态，不是出错**：从没登录过的正版
+    //    账号（列表里那条只是个凭据副本）、刚加进来还没挑过皮肤的离线账号，本来就没有图。
+    //    面板不能因为某一项没图就空着那一格（三行的行首一高一低比一个方块更难认）。
+    return QPixmap::fromImage(SkinModel::letterAvatar(account.name, size));
+}
+
+QStringList MainWindow::offlineDefaultSkinCacheVersions(const QString &currentVersionId) const {
+    // 猜"当初按哪个实例算的那张官方默认皮肤"，**按可能性从高到低**：
+    //   · 上一轮真的算过的那一个（m_offlineDefaultSkinVersion）—— 最准的一个；
+    //   · 现在选中的那个实例 —— 用户切到谁身上就按谁算；
+    //   · 上次启动过的版本 —— 换过实例、或者那会儿没选中任何版本时的兜底。
+    // 三档都空就是空表（那时候这条路直接落空，退回首字母方块）。
+    // NOTE: 一个账号只要**当过**当前账号，它的那张图就躺在盘上，而这三种猜测里总有一个
+    //       能命中 —— 这正是"面板里三个人的脸都能画出来"的来源。
+    QStringList versions;
+    const auto add = [&versions](const QString &versionId) {
+        if (!versionId.isEmpty() && !versions.contains(versionId)) {
+            versions.append(versionId);
+        }
+    };
+    add(m_offlineDefaultSkinVersion);
+    add(currentVersionId);
+    add(m_settings->lastLaunchedVersion());
+    return versions;
 }
 
 void MainWindow::applyPlayerSkin(const QString &skinPath, const QString &capePath, bool slim) {
@@ -3864,6 +3998,8 @@ void MainWindow::applySettingsToUi() {
     const QSignalBlocker blockBehaviour(m_ui->getLauncherBehaviourCombo());
     const QSignalBlocker blockSource(m_ui->getDownloadSourceCombo());
     const QSignalBlocker blockShowLog(m_ui->getShowGameLogCheck());
+    const QSignalBlocker blockWarnDuplicate(m_ui->getWarnDuplicateLaunchCheck());
+    const QSignalBlocker blockWarnWorldLoss(m_ui->getWarnWorldLossCheck());
     const QSignalBlocker blockPriority(m_ui->getProcessPriorityCombo());
     const QSignalBlocker blockWindowWidth(m_ui->getGameWindowWidthSpin());
     const QSignalBlocker blockWindowHeight(m_ui->getGameWindowHeightSpin());
@@ -3920,6 +4056,10 @@ void MainWindow::applySettingsToUi() {
 
     // ---------- 启动选项 ----------
     m_ui->getShowGameLogCheck()->setChecked(m_settings->showGameLog());
+    // 两条启动提醒（上面那两个 blocker 已经挡上了）。这里**不能**顺手把值抄成
+    // "界面 = 盘上"以外的任何默认：默认开这件事只有 LauncherSettings 一处出处。
+    m_ui->getWarnDuplicateLaunchCheck()->setChecked(m_settings->warnDuplicateLaunch());
+    m_ui->getWarnWorldLossCheck()->setChecked(m_settings->warnWorldLoss());
     // 优先级：枚举值存在 itemData 里，文案是这里的 tr()。五档一一对应 ProcessPriority，
     // 顺序也按枚举来（Low → High）—— 界面从上往下就是"越来越抢 CPU"。
     QComboBox *priorityCombo = m_ui->getProcessPriorityCombo();
@@ -4139,6 +4279,14 @@ void MainWindow::onShowGameLogChanged() {
                    : tr("游戏日志：不再自动开日志窗。"));
 }
 
+void MainWindow::onWarnDuplicateLaunchChanged() {
+    m_settings->setWarnDuplicateLaunch(m_ui->getWarnDuplicateLaunchCheck()->isChecked());
+}
+
+void MainWindow::onWarnWorldLossChanged() {
+    m_settings->setWarnWorldLoss(m_ui->getWarnWorldLossCheck()->isChecked());
+}
+
 void MainWindow::onProcessPriorityChanged() {
     const int value = m_ui->getProcessPriorityCombo()->currentData().toInt();
     // setter 内部会比较，值没变就不写盘（构造时灌值那条路有 QSignalBlocker，走不到这里）。
@@ -4235,6 +4383,90 @@ void MainWindow::onVersionsFetched(const QStringList &versions) {
     appendLog(tr("已更新在线版本列表 (%1 个版本)。").arg(versions.size()));
 }
 
+QString MainWindow::launchIdentityKey() const {
+    // 规矩的整段理由在头文件里。这里只强调一处：**会话那一侧走的是同一份算法**
+    // （sessionIdentityKey()，就在本文件顶上那个匿名 namespace 里）—— 两处不一致的症状
+    // 是"我自己刚启动的那一份被当成别人开的"，于是「重复启动」那条永远不响。
+    if (offlineIdentity()) {
+        return m_authManager->playerName();
+    }
+    const QString uuid = m_authManager->playerUuid();
+    return uuid.isEmpty() ? m_authManager->playerName() : uuid;
+}
+
+bool MainWindow::confirmLaunchWhileRunning(const QString &versionId) {
+    const QString identity = launchIdentityKey();
+
+    // 这个实例现在在跑的都有哪几份，**一次取完**：下面两条问话读的是同一份快照。
+    // 卡片是嵌套事件循环里跑的（`execPrompt`），但它回来之前外面这一层不会往下走 ——
+    // 所以不存在"第一问的时候还好好的、第二问的时候那一份已经退了"这种时序缝。
+    bool sameInstanceRunning = false;
+    bool sameIdentityRunning = false;
+    for (const LauncherManager::GameSession &session : m_launcherManager->runningGames()) {
+        if (session.versionId != versionId) {
+            continue;
+        }
+        sameInstanceRunning = true;
+        if (sessionIdentityKey(session) == identity) {
+            sameIdentityRunning = true;
+        }
+    }
+
+    const QString displayName = instanceDisplayName(versionId);
+
+    // ① 「重复启动」：同一个身份、同一个实例，而且**我上一次点启动就在十秒之内**。
+    //
+    // NOTE: 要判"确实有那么一份在跑"（sameIdentityRunning）而不是只看时间戳。只看时间戳的话
+    //       上一次启动失败（登录缺失 / 版本不完整那些早退路径都在这两问**后面**）时，
+    //       用户十秒内再点一下就会被问"已经有一个相同的运行中游戏进程了" —— 而那句话是假的，
+    //       界面上一个游戏进程都没有。
+    if (m_settings->warnDuplicateLaunch() && sameIdentityRunning) {
+        const qint64 last = m_lastLaunchAttempts.value(identity).value(versionId, 0);
+        const qint64 now = QDateTime::currentMSecsSinceEpoch();
+        // `now >= last` 挡的是时钟被往回拨（对时）那一档：负的间隔不该被当成"刚刚点过"，
+        // 否则一次对时就能让这个框冒出来。
+        const bool withinWindow =
+            last > 0 && now >= last && now - last <= duplicateLaunchWindowMs();
+        if (withinWindow) {
+            const int choice = InlineMessage::ask(
+                m_ui->overlay(), MessageKind::Question,
+                tr("已经有一个相同的运行中游戏进程了！"),
+                tr("「%1」刚刚才启动过一次，那一份现在还在跑。\n\n"
+                   "再启动一份会开出第二个一模一样的游戏进程：同一个账号、同一个实例，"
+                   "两份游戏开着同一份存档。")
+                    .arg(displayName),
+                QStringList{tr("取消"), tr("仍要启动")}, -1, 1, false,
+                tr("可以在设置中关闭此提示（设置页「启动提醒」→「重复启动」）。"));
+            if (choice != 1) {
+                return false;
+            }
+        }
+    }
+
+    // ② 「进度提醒」：这个实例**已经有任何一份在跑** —— 我开的、别人开的、上一问刚放行的
+    //    都算。用户原话要的就是"上一问选了『仍要启动』之后接着问这一句"
+    //    （「在前面选择仍要启动的情况下/不同账户」），所以这不是"二选一"：连点两下、两个
+    //    开关都开着时，框是前后两个。
+    if (m_settings->warnWorldLoss() && sameInstanceRunning) {
+        const int choice = InlineMessage::ask(
+            m_ui->overlay(), MessageKind::Warning, tr("进入单人世界可能会丢失进度"),
+            tr("「%1」现在还有一份在跑。\n\n"
+               "两份游戏同时打开同一份存档时，后保存（或者后退出）的那一份会盖掉另一份的"
+               "进度 —— 存档可能回退，也可能坏掉。")
+                .arg(displayName),
+            QStringList{tr("取消"), tr("仍要启动")}, -1, 1, false,
+            tr("可以在设置中关闭此提示（设置页「启动提醒」→「进度提醒」）。"));
+        if (choice != 1) {
+            return false;
+        }
+    }
+
+    // 记一笔：① 那个十秒窗口下一次读的就是它。记在**两问都过了之后**，所以"用户在这一问上
+    // 选了取消"不会被当成一次"想启动"—— 他在那一问上的意思显然就是不想再开一份。
+    m_lastLaunchAttempts[identity][versionId] = QDateTime::currentMSecsSinceEpoch();
+    return true;
+}
+
 void MainWindow::onStartButtonClicked() {
     // 先认"启动哪一个"：下面那道闸口是按版本判的（见那段说明），所以版本号要在它前面拿到。
     // 只认"已安装版本"下拉框：启动只可能发生在本地已经装好的版本上。
@@ -4265,6 +4497,16 @@ void MainWindow::onStartButtonClicked() {
                                 "导入整合包），请等它结束后再启动。\n\n"
                                 "别的实例不受影响，可以直接启动。")
                                  .arg(instanceDisplayName(versionId)));
+        return;
+    }
+
+    // 启动提醒（设置页「启动提醒」那一组）：同一份存档被两个进程同时打开这件事**事后救不
+    // 回来**（后保存的那一份盖掉先保存的），所以只有"点在启动上那一下"挡得住才算数。
+    //
+    // NOTE: 摆在**换令牌之前**是刻意的。那一段是同步的（可能要发请求、单次超时 15 秒），
+    //       让用户先等十几秒再被告知"你已经开过了"是最差的顺序 —— 而且这两问的答案不受
+    //       令牌影响（取消了就什么都不用做）。
+    if (!confirmLaunchWhileRunning(versionId)) {
         return;
     }
 

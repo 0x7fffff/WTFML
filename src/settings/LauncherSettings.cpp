@@ -30,6 +30,8 @@ static constexpr const char kGameWindowWidth[] = "Launcher/WindowWidth";
 static constexpr const char kGameWindowHeight[] = "Launcher/WindowHeight";
 static constexpr const char kProcessPriority[] = "Launcher/ProcessPriority";
 static constexpr const char kTitleText[] = "Launcher/TitleText";
+static constexpr const char kWarnDuplicateLaunch[] = "Launcher/WarnDuplicateLaunch";
+static constexpr const char kWarnWorldLoss[] = "Launcher/WarnWorldLoss";
 
 // 枚举存进 QSettings 的字符串。这几个串是**持久化格式的一部分**，不是内部标识：
 // 改掉它们，用户盘上已经存好的值就会被当成"认不出来"、静默退回默认档。
@@ -175,6 +177,22 @@ void LauncherSettings::setTitleText(const QString &text) {
     save();
 }
 
+void LauncherSettings::setWarnDuplicateLaunch(bool warn) {
+    if (m_warnDuplicateLaunch == warn) {
+        return;
+    }
+    m_warnDuplicateLaunch = warn;
+    save();
+}
+
+void LauncherSettings::setWarnWorldLoss(bool warn) {
+    if (m_warnWorldLoss == warn) {
+        return;
+    }
+    m_warnWorldLoss = warn;
+    save();
+}
+
 QString LauncherSettings::behaviourKey(LauncherBehaviour behaviour) {
     switch (behaviour) {
     case LauncherBehaviour::Minimize:
@@ -274,8 +292,12 @@ void LauncherSettings::load() {
     // 顶上那行字也**读回来就收拾**：盘上那一份会被原样画到条上，多长、带不带空格都不该
     // 信它（和宽高那两个数同一个理由）。
     m_titleText = clampTitleText(settings.value(kTitleText, m_titleText).toString());
+    // 两个提醒开关：默认值同样取当前成员（构造时是 true）。盘上那一份是布尔，
+    // 手改成一个不认识的值时 toBool() 给 false —— 那正好等于"用户关掉了"，
+    // 不会把一个"看不懂的值"变成弹窗，这个方向是安全的。
+    m_warnDuplicateLaunch = settings.value(kWarnDuplicateLaunch, m_warnDuplicateLaunch).toBool();
+    m_warnWorldLoss = settings.value(kWarnWorldLoss, m_warnWorldLoss).toBool();
 
-    // 默认值取当前成员的值（构造时是 struct 默认值），这样"注册表里没这一项"就落到默认档，
     // 和 GlobalJavaSettings::load() 用 m_xmx 当默认值是同一个写法。取成员而不是新造一个
     // struct：万一 load() 被调第二次而注册表是空的，值应该留着，而不是被重置回默认。
     VersionNameOptions options = m_versionNameOptions;
@@ -314,6 +336,8 @@ void LauncherSettings::save() const {
     settings.setValue(kGameWindowHeight, clampWindowHeight(m_gameWindowHeight));
     settings.setValue(kProcessPriority, processPriorityKey(m_processPriority));
     settings.setValue(kTitleText, clampTitleText(m_titleText));
+    settings.setValue(kWarnDuplicateLaunch, m_warnDuplicateLaunch);
+    settings.setValue(kWarnWorldLoss, m_warnWorldLoss);
     settings.setValue(kNameShowCustom, m_versionNameOptions.showCustomName);
     settings.setValue(kNameShowReal, m_versionNameOptions.showRealVersion);
     settings.setValue(kNameShowLoaderName, m_versionNameOptions.showLoaderName);

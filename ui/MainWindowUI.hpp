@@ -1274,6 +1274,28 @@ public:
     /// 「启动选项」那一组里那几个勾选框/数字框的文案。
     /// 「显示游戏日志」这个串是**用户原话**（2026-09-24 提的需求），别改写成别的说法。
     static QString showGameLogCheckText() { return QStringLiteral("显示游戏日志"); }
+
+    // ---------- 「启动提醒」那一组（2026-09-25 加的） ----------
+    // 两个勾选框各管一条启动前的确认，默认都是勾上的（理由见 LauncherSettings 那一节）。
+    // 行标题与勾选框文字**只此一处** —— 界面、验证工程、提示框上那句小字都引这里。
+
+    /// 第一条：十秒内用同一个身份再启动同一个实例。
+    static QString warnDuplicateLaunchCheckName() {
+        return QStringLiteral("warnDuplicateLaunchCheck");
+    }
+    /// 这一行的行标题（左列那一格）。
+    static QString warnDuplicateLaunchRowText() { return QStringLiteral("重复启动"); }
+    /// 勾选框自己的文字。
+    static QString warnDuplicateLaunchCheckText() {
+        return QStringLiteral("十秒内重复启动同一实例时先问一句");
+    }
+
+    /// 第二条：这个实例已经有进程在跑。
+    static QString warnWorldLossCheckName() { return QStringLiteral("warnWorldLossCheck"); }
+    static QString warnWorldLossRowText() { return QStringLiteral("进度提醒"); }
+    static QString warnWorldLossCheckText() {
+        return QStringLiteral("同一实例已在运行时提醒可能丢进度");
+    }
     static QString versionNameCustomCheckName() {
         return QStringLiteral("versionNameCustomCheck");
     }
@@ -1637,6 +1659,8 @@ public:
     QPushButton *getApplyExtraJvmArgsButton() const { return applyExtraJvmArgsButton; }
     QComboBox *getDownloadSourceCombo() const { return downloadSourceCombo; }
     QCheckBox *getShowGameLogCheck() const { return showGameLogCheck; }
+    QCheckBox *getWarnDuplicateLaunchCheck() const { return warnDuplicateLaunchCheck; }
+    QCheckBox *getWarnWorldLossCheck() const { return warnWorldLossCheck; }
     QComboBox *getProcessPriorityCombo() const { return processPriorityCombo; }
     QSpinBox *getGameWindowWidthSpin() const { return gameWindowWidthSpin; }
     QSpinBox *getGameWindowHeightSpin() const { return gameWindowHeightSpin; }
@@ -1770,6 +1794,8 @@ private:
     QPushButton *applyExtraJvmArgsButton = nullptr;
     QComboBox *downloadSourceCombo = nullptr;
     QCheckBox *showGameLogCheck = nullptr;
+    QCheckBox *warnDuplicateLaunchCheck = nullptr;
+    QCheckBox *warnWorldLossCheck = nullptr;
     QComboBox *processPriorityCombo = nullptr;
     QSpinBox *gameWindowWidthSpin = nullptr;
     QSpinBox *gameWindowHeightSpin = nullptr;

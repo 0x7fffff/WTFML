@@ -114,6 +114,55 @@ QString InlineMessageBox::lineEditText() const {
     return m_lineEdit != nullptr ? m_lineEdit->text() : QString();
 }
 
+void InlineMessageBox::setNote(const QString &text) {
+    if (text.isEmpty()) {
+        // 空串 = **不补**。已经补过一行的话把它撤掉：否则"这次不带附注"会留着一个空标签，
+        // 卡片底下多出一段白白的高度。
+        if (m_noteLabel != nullptr) {
+            delete m_noteLabel;
+            m_noteLabel = nullptr;
+        }
+        return;
+    }
+    if (m_noteLabel == nullptr) {
+        auto *layout = qobject_cast<QVBoxLayout *>(this->layout());
+        Q_ASSERT(layout != nullptr);  // 同 setLineEdit()：布局是本类的实现细节。
+        m_noteLabel = new QLabel(this);
+        m_noteLabel->setObjectName(noteLabelName());
+        m_noteLabel->setWordWrap(true);
+        // 和正文一样钉住宽度：卡片的高矮才算得准（理由见 ctor 里那段）。
+        m_noteLabel->setFixedWidth(OverlayHost::promptContentWidth());
+        m_noteLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+
+        // 小一号 + 浅一档。字号在**这份调色板自己的字体**上算（不是写死点数）：
+        // 系统字号调大调小、或者以后换主题，这一行都跟着正文一起动，不会变成"正文 11pt
+        // 而附注还是 10pt"那种歪掉的比例。
+        QFont noteFont = m_noteLabel->font();
+        if (noteFont.pointSizeF() > 0) {
+            noteFont.setPointSizeF(qMax(1.0, noteFont.pointSizeF() - 1.0));
+        } else if (noteFont.pixelSize() > 0) {
+            noteFont.setPixelSize(qMax(1, noteFont.pixelSize() - 1));
+        }
+        m_noteLabel->setFont(noteFont);
+        // 浅一档的颜色走 QPalette::PlaceholderText —— 全仓"比正文浅一档的次要操作"就是它
+        // （版本树那个取消小叉、导航按钮那几颗没选中的，用的都是同一个）。
+        // NOTE: 这里要**先 setFont 再取调色板**，理由和别处那个坑一样：调色板是从字体上算的。
+        QPalette notePalette = m_noteLabel->palette();
+        notePalette.setColor(QPalette::WindowText, notePalette.color(QPalette::PlaceholderText));
+        m_noteLabel->setPalette(notePalette);
+
+        // 插在**按钮行前面**：布局顺序是「标题 / 正文 / 按钮行」，所以"最后一个"就是按钮行。
+        // 写成 `count() - 1` 而不是写死下标，和 setLineEdit() 同一个理由（将来上面再加一行，
+        // 这两处都不用跟着改）。
+        layout->insertWidget(layout->count() - 1, m_noteLabel);
+    }
+    m_noteLabel->setText(text);
+}
+
+QString InlineMessageBox::noteText() const {
+    return m_noteLabel != nullptr ? m_noteLabel->text() : QString();
+}
+
 void InlineMessageBox::showEvent(QShowEvent *event) {
     QDialog::showEvent(event);
     if (m_lineEdit == nullptr) {
@@ -130,7 +179,7 @@ namespace InlineMessage {
 
 int ask(OverlayHost *host, MessageKind kind, const QString &title, const QString &text,
         const QStringList &buttons, int defaultIndex, int destructiveIndex,
-        bool dismissOnOutsideClick) {
+        bool dismissOnOutsideClick, const QString &note) {
     if (host == nullptr) {
         // 没有覆盖层可摆（构造中途、或者验证工程单独测某个控件）。**不许静默吞掉** ——
         // "该说的话没说"是最难查的那一类故障。写一行日志，调用方照旧拿到"什么都没选"。
@@ -146,6 +195,9 @@ int ask(OverlayHost *host, MessageKind kind, const QString &title, const QString
         return -1;
     }
     InlineMessageBox box(kind, title, text, buttons, defaultIndex, destructiveIndex);
+    // 那行小字**在 execPrompt 之前**补上：卡片摆上去之后几何就定了，之后再插一行会让
+    // 它开在原来的高度上、把按钮行挤出边框。
+    box.setNote(note);
     host->execPrompt(&box, dismissOnOutsideClick);
     return box.clickedIndex();
 }
