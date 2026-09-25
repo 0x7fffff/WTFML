@@ -1387,6 +1387,10 @@ void MainWindow::setupConnections() {
     //       代价是每个字符一次 QSettings 写（最多 titleTextMaxLength() 次），可以接受。
     connect(m_ui->getTitleTextEdit(), &QLineEdit::textChanged, this,
             &MainWindow::onTitleTextChanged);
+    // CurseForge 的 API key：**编辑完才存**（editingFinished = 回车或者焦点离开）。
+    // 理由写在 onCurseForgeApiKeyEdited() 里。
+    connect(m_ui->getCurseForgeApiKeyEdit(), &QLineEdit::editingFinished, this,
+            &MainWindow::onCurseForgeApiKeyEdited);
     // 四个「版本名格式」勾选框共用一个槽：归一化要同时看四个值。
     const auto nameOptionChanged = [this] { onVersionNameOptionChanged(); };
     connect(m_ui->getVersionNameCustomCheck(), &QCheckBox::toggled, this, nameOptionChanged);
@@ -4079,12 +4083,17 @@ void MainWindow::applySettingsToUi() {
     sourceCombo->addItem(tr("镜像源（BMCLAPI）"), int(DownloadSource::Mirror));
     selectByEnumData(sourceCombo, m_settings->downloadSource());
 
+    // CurseForge 的 API key（同一个「下载源」组里）。信号已经被上面那几个 blocker 挡上了。
+    m_ui->getCurseForgeApiKeyEdit()->setText(m_settings->curseForgeApiKey());
+
     // ---------- 版本名格式 ----------
     pushVersionNameOptionsToUi(m_settings->versionNameOptions());
 
     // 下载源得立刻交给发请求的那一层：构造函数里紧接着的
     // fetchAvailableVersions() 就会走它。
     syncDownloadSource();
+    // CurseForge 那两项同理（虽然要等到导入整合包才用得上）。
+    syncCurseForgeSettings();
 }
 
 void MainWindow::pushVersionNameOptionsToUi(const VersionNameOptions &options) {
@@ -4315,6 +4324,23 @@ void MainWindow::syncDownloadSource() {
     // 批次的 URL 在入队那一刻就定死了"（downloadFile 收到的是一整个字符串），所以代价是
     // 这次下载开始之后再改设置，要等下一次下载才见效。
     m_versionManager->setUseMirror(m_settings->downloadSource() == DownloadSource::Mirror);
+}
+
+void MainWindow::syncCurseForgeSettings() {
+    // 和 syncDownloadSource() 同一个形状：数据层看不见 LauncherSettings（那是这一层的），
+    // 所以两项设置由这里推过去。**两个键都推**：`Launcher/CurseForgeApiBase` 是验证工程
+    // 的口子（产品从不写它，只把它读出来转给数据层 —— 离线端到端那条路就靠它把接口指到
+    // 本机的假服务器上）。
+    m_versionManager->setCurseForgeApiKey(m_settings->curseForgeApiKey());
+    m_versionManager->setCurseForgeApiBaseOverride(m_settings->curseForgeApiBaseOverride());
+}
+
+void MainWindow::onCurseForgeApiKeyEdited() {
+    // **不边打字边存**（和上面 JVM 参数那条同一个理由的反面）：半串 key 存进去的后果是
+    // 一次 403，而用户看到的现象是"导入整合包失败"，那句话里说的是"key 可能不对" ——
+    // 他自己刚打的字，会以为启动器坏了。所以等这一格编辑完（回车或者焦点离开）。
+    m_settings->setCurseForgeApiKey(m_ui->getCurseForgeApiKeyEdit()->text());
+    syncCurseForgeSettings();
 }
 
 void MainWindow::onVersionNameOptionChanged() {
@@ -6473,28 +6499,37 @@ void MainWindow::onImportModpackClicked() {
 }
 
 void MainWindow::importModpackFromFile(const QString &zipPath) {
-    // 先只看一件事：这个压缩包的根目录里有没有 modrinth.index.json。**不整包解开** ——
-    // 用户随手选一个几百 MB 的包，为了"知道它不是整合包"先解压几分钟是白等。
-    QByteArray indexJson;
-    QString error;
+    // 先只看一件事：这个压缩包的根目录里有没有清单。**不整包解开** —— 用户随手选一个
+    // 几百 MB 的包，为了"知道它不是整合包"先解压几分钟是白等。
+    //
+    // 两种格式各读一个名字（哪一侧有就是哪一种）：Modrinth 的 modrinth.index.json、
+    // CurseForge 的 manifest.json。**先读 Modrinth 那个**，读不到再读 CF 那个 ——
+    // 次序只影响"两个都有"这种怪包报成哪一种，无所谓。
+    //
     // NOTE: 第五个参数（动作名）是**给用户看的**：下面 Failed 那一路会把 error 原样弹进那个
     //       警告框（「读这个压缩包的时候出错了：…」），所以这里必须写「读整合包清单」，
     //       而不是 ZipUtil 那个通用的默认说法。
-    const ZipUtil::EntryStatus status = ZipUtil::readEntry(
-        zipPath, ModpackImport::modrinthIndexName(), &indexJson, &error,
+    QByteArray manifestJson;
+    QString error;
+    ModpackImport::Format format = ModpackImport::Format::Unknown;
+    ZipUtil::EntryStatus status = ZipUtil::readEntry(
+        zipPath, ModpackImport::modrinthIndexName(), &manifestJson, &error,
         QStringLiteral("读整合包清单"));
-    if (status != ZipUtil::EntryStatus::Ok) {
-        // "里面没有这份清单"和"这个文件根本打不开"是**两句完全不同的话**：前者多半是
-        // 选错了文件（或者那是 CurseForge 格式的包），后者是文件坏了/不是 zip。所以这里
-        // 还要再读一个名字，把 CurseForge 那一类也分出来。
-        ModpackImport::Format format = ModpackImport::Format::Unknown;
-        if (status == ZipUtil::EntryStatus::NotFound) {
-            QByteArray manifest;
-            if (ZipUtil::readEntry(zipPath, ModpackImport::curseForgeManifestName(), &manifest,
-                                   nullptr) == ZipUtil::EntryStatus::Ok) {
-                format = ModpackImport::Format::CurseForge;
-            }
+    if (status == ZipUtil::EntryStatus::Ok) {
+        format = ModpackImport::Format::Modrinth;
+    } else if (status == ZipUtil::EntryStatus::NotFound) {
+        // 里面没有 Modrinth 那份清单。**这一档才值得再读第二个名字**：`NotAnArchive` /
+        // `Failed` 说明这个文件根本打不开或者读坏了，再读一个名字是白读（而且会把
+        // "不是 zip"那句换成"认不出格式"，把话说歪）。
+        status = ZipUtil::readEntry(zipPath, ModpackImport::curseForgeManifestName(),
+                                    &manifestJson, &error, QStringLiteral("读整合包清单"));
+        if (status == ZipUtil::EntryStatus::Ok) {
+            format = ModpackImport::Format::CurseForge;
         }
+    }
+    if (status != ZipUtil::EntryStatus::Ok) {
+        // "里面没有清单"和"这个文件根本打不开"是**两句完全不同的话**：前者多半是选错了
+        // 文件，后者是文件坏了/不是 zip。
         QString text;
         if (status == ZipUtil::EntryStatus::NotAnArchive) {
             text = tr("这个文件打不开 —— 它不是 zip 压缩包（也可能是文件坏了）。\n\n"
@@ -6511,13 +6546,18 @@ void MainWindow::importModpackFromFile(const QString &zipPath) {
 
     // 解析（纯函数）。清单读不懂、不是 Minecraft 的包、路径不安全、一条文件都没有，
     // 四种情况的原因都不一样，都由它一句话说清 —— 界面不自己编第二句。
-    const ModpackImport::Result result = ModpackImport::parseModrinthIndex(indexJson);
+    const auto parseManifest = [](ModpackImport::Format which, const QByteArray &json) {
+        return which == ModpackImport::Format::CurseForge
+                   ? ModpackImport::parseCurseForgeManifest(json)
+                   : ModpackImport::parseModrinthIndex(json);
+    };
+    ModpackImport::Result result = parseManifest(format, manifestJson);
     if (!result.ok) {
         appendLog(tr("整合包清单读不懂：%1").arg(result.problem));
         InlineMessage::warning(m_ui->overlay(), tr("导入整合包"), result.problem);
         return;
     }
-    const ModpackImport::Pack &pack = result.pack;
+    ModpackImport::Pack &pack = result.pack;
 
     // 加载器要不上，在**问名字之前**就拦掉：装不了的包，问完名字再说装不了是白耽误他。
     const QString loaderProblem =
@@ -6571,6 +6611,24 @@ void MainWindow::importModpackFromFile(const QString &zipPath) {
         InlineMessage::warning(m_ui->overlay(), tr("换个名字"), problem);
     }
 
+    // 这一步只有 CurseForge 需要：那一份清单里**一个下载地址都没有**，只有一串编号
+    // （projectID / fileID），得先问一次接口才换得出来（判据与实测见
+    // ModpackImport.hpp 顶上那段）。放在这里、而不是数据层里，是因为**用户要在点确认
+    // 之前看到真实数字**：这个包要下多少个文件、其中几个作者不许第三方代下 —— 那些数
+    // 只有换完才知道。其他格式这一句立刻返回，不联网。
+    if (format == ModpackImport::Format::CurseForge) {
+        // 同步等一两发请求（通常一两秒）。底栏那格要顶着"在等什么"，不然用户看到的是
+        // 点完确认之后界面卡住（和启动路径那三段同步等是同一个手法）。
+        enterSyncWait(tr("正在向 CurseForge 换取文件清单..."));
+        const QString problem = m_versionManager->resolveCurseForgeFiles(&pack);
+        leaveSyncWait();
+        if (!problem.isEmpty()) {
+            appendLog(tr("没有导入 %1：%2").arg(QFileInfo(zipPath).fileName(), problem));
+            InlineMessage::warning(m_ui->overlay(), tr("拿不到文件清单"), problem);
+            return;
+        }
+    }
+
     // 确认摘要。点下去就是几百 MB 和十几分钟，这是用户**最后**能反悔的地方，
     // 所以四件事都要说全：装的是哪个包、基于哪个版本、带什么加载器、装到哪去。
     VersionManager::LoaderKind loaderKind = VersionManager::LoaderKind::Fabric;
@@ -6584,7 +6642,10 @@ void MainWindow::importModpackFromFile(const QString &zipPath) {
     const auto answer = InlineMessage::question(m_ui->overlay(), tr("开始导入"),
         tr("整合包：%1\nMinecraft：%2%3\n要下载的文件：%4 个%5\n装到：%6\n\n开始导入吗？")
             .arg(pack.name, pack.gameVersion, loaderText)
-            .arg(pack.files.size())
+            // 判据是 fileCount()（= 要下的 + 还没换成地址的）：CurseForge 那一档走到
+            // 这里已经换过了（上面那一发），两者相等；**万一**换完一条都不剩（接口说
+            // "一个都不许代下"），这里报出来的就是 0 —— 那正是用户该看到的数。
+            .arg(pack.fileCount())
             .arg(pack.filesSkipped > 0
                      ? tr("（另有 %1 个按包里的说明跳过）").arg(pack.filesSkipped)
                      : QString())
@@ -6593,26 +6654,56 @@ void MainWindow::importModpackFromFile(const QString &zipPath) {
         appendLog(tr("已取消导入 %1。").arg(pack.name));
         return;
     }
+    // 作者不许第三方代下的那些**要在动手之前说**（换完才知道有几个，所以只能在这儿说）：
+    // 点下去之后那几十个文件里会少这几条，而"少装了东西"是这个流程里最容易到进游戏才
+    // 发现的。选「是」不是同意"接受少装"，只是知道了。
+    if (pack.filesNotDistributable > 0) {
+        InlineMessage::information(m_ui->overlay(), tr("有文件作者不许代下"),
+            tr("这个整合包里有 %1 个文件，作者在 CurseForge 上关掉了「允许第三方分发」，"
+               "启动器不会替你下。\n\n装完之后你可能得自己去 CurseForge 上那个整合包的页面把"
+               "它们下下来，手动放进 %2 里（模组放 mods/、资源包放 resourcepacks/、光影放 "
+               "shaderpacks/）。收尾那句话里会再提醒一次。")
+                .arg(pack.filesNotDistributable)
+                .arg(QDir::toNativeSeparators(AppPaths::versionDir(name))));
+    }
 
-    applyModpackImport(zipPath, name, indexJson);
+    applyModpackImport(zipPath, name, manifestJson, format);
 }
 
 bool MainWindow::applyModpackImport(const QString &zipPath, const QString &instanceName,
-                                    const QByteArray &indexJson) {
+                                    const QByteArray &manifestJson,
+                                    ModpackImport::Format format) {
     // 把界面上确认过的**同一串字节**再解析一遍（纯函数，一瞬）。好处是"确认框里说的
     // 那个包"和"真的去装的那个包"不可能不是同一个 —— 不必去维护一份"解析结果"的传递。
-    const ModpackImport::Result result = ModpackImport::parseModrinthIndex(indexJson);
+    ModpackImport::Result result =
+        format == ModpackImport::Format::CurseForge
+            ? ModpackImport::parseCurseForgeManifest(manifestJson)
+            : ModpackImport::parseModrinthIndex(manifestJson);
     if (!result.ok) {
         InlineMessage::warning(m_ui->overlay(), tr("导入整合包"), result.problem);
         return false;
     }
-    const ModpackImport::Pack pack = result.pack;
+    ModpackImport::Pack pack = result.pack;
 
     const QString loaderProblem =
         ModpackImport::unsupportedLoaderText(pack.loaderKey, pack.loaderVersion);
     if (!loaderProblem.isEmpty()) {
         InlineMessage::information(m_ui->overlay(), tr("这个整合包装不了"), loaderProblem);
         return false;
+    }
+
+    // CurseForge 那一档在这里要**再换一次**地址（上面确认框那一步换过一次）。代价是
+    // 一发重复的请求，换来的是和上面那句"同一串字节再解析一遍"一模一样的东西：这一半
+    // 自己手里的那份 `pack` 是完整的，不靠外面传进来的任何解析结果。数据层那边也有
+    // 第二道闸（importModpack 里那句"没换过就报错"），所以这里漏了也不会装出一个空实例。
+    if (format == ModpackImport::Format::CurseForge) {
+        enterSyncWait(tr("正在向 CurseForge 换取文件清单..."));
+        const QString problem = m_versionManager->resolveCurseForgeFiles(&pack);
+        leaveSyncWait();
+        if (!problem.isEmpty()) {
+            InlineMessage::warning(m_ui->overlay(), tr("拿不到文件清单"), problem);
+            return false;
+        }
     }
 
     // 重名**在这里再查一遍**：上面那条路（问名字那个循环）查过一次，但两次之间隔着用户

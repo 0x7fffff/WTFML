@@ -36,6 +36,7 @@
 
 #include "../download/LoaderMeta.hpp"
 #include "../launcher/VersionInheritance.hpp"
+#include "../net/HttpClient.hpp"
 #include "../util/AppPaths.hpp"
 #include "../util/ZipUtil.hpp"
 #include "InstanceFiles.hpp"
@@ -476,6 +477,136 @@ QString VersionManager::busyVersionId() const {
 
 void VersionManager::setUseMirror(bool useMirror) { downloadManager->setUseMirror(useMirror); }
 
+void VersionManager::setCurseForgeApiKey(const QString &apiKey) {
+    m_curseForgeApiKey = apiKey.trimmed();
+}
+
+void VersionManager::setCurseForgeApiBaseOverride(const QString &base) {
+    m_curseForgeApiBaseOverride = base.trimmed();
+}
+
+QString VersionManager::resolveCurseForgeFiles(ModpackImport::Pack *pack) {
+    if (pack == nullptr || pack->format != ModpackImport::Format::CurseForge ||
+        pack->pendingRefs.isEmpty()) {
+        // 不是 CF 的包、或者已经换过一次（pendingRefs 空了）：调用点可以对所有格式无脑调一次。
+        return QString();
+    }
+    const QString base =
+        ModpackImport::curseForgeApiBase(m_curseForgeApiKey, m_curseForgeApiBaseOverride);
+    const bool hasKey = !m_curseForgeApiKey.isEmpty();
+    QList<QPair<QByteArray, QByteArray>> headers;
+    if (hasKey) {
+        headers.append({QByteArrayLiteral("x-api-key"), m_curseForgeApiKey.toUtf8()});
+    }
+
+    /// 这一发没成时那句话（**必须给出一条用户自己能走的路**：反代是别人的服务）。
+    const auto failureText = [hasKey](const HttpClient::Reply &reply) {
+        const QString hint =
+            hasKey ? tr("设置里那份 CurseForge API key 可能不对、或者已经失效了，可以换一份。")
+                   : tr("网络本身没问题的话，多半是那个公共接口的事了 —— 可以在设置页「下载源」"
+                        "那一组里填一份自己的 CurseForge API key（免费申请），填了就改走官方接口。"
+                        "现在这一发走的是社区提供的公共反代，它可能限流、也可能哪天就停了。");
+        if (!reply.networkError.isEmpty()) {
+            return tr("问 CurseForge 要文件清单时没连上：%1\n\n%2").arg(reply.networkError, hint);
+        }
+        if (reply.status == HttpClient::kStatusTooManyRequests) {
+            return HttpClient::throttledText(tr("问 CurseForge 要文件清单"));
+        }
+        const QString apiError =
+            reply.json.value(QStringLiteral("error")).toString().trimmed();
+        return tr("CurseForge 的接口回了 HTTP %1%2\n\n%3")
+            .arg(reply.status)
+            .arg(apiError.isEmpty() ? QString() : tr("（%1）").arg(apiError), hint);
+    };
+
+    // 一发问多少条。接口那一侧对一批的条数有上限（官方文档是 1000，反代更保守），
+    // 我们自己定 100：正文小、重来代价小，而一个大包（几百条）也就三四发。
+    constexpr int kChunk = 100;
+
+    // ---- 第一发：号 → 文件（地址、字节数、sha1 都在这一发的答复里）----
+    const QList<ModpackImport::PackRef> refs = pack->pendingRefs;
+    ModpackImport::CurseForgeFiles files;
+    for (int offset = 0; offset < refs.size(); offset += kChunk) {
+        const QList<ModpackImport::PackRef> chunk = refs.mid(offset, kChunk);
+        const HttpClient::Reply reply = HttpClient::send(
+            loaderNetworkManager(), QUrl(base + QStringLiteral("/mods/files")),
+            HttpClient::Verb::Post, ModpackImport::curseForgeFilesRequestBody(chunk),
+            QByteArrayLiteral("application/json"), QByteArray(), HttpClient::kDefaultTimeoutMs,
+            headers);
+        if (!reply.ok()) {
+            // **整件事停下**：一条地址都没换回来的话，"导入"就是装一个没有 mod 的实例，
+            // 而用户看到的是"导入好了"。这里是"会挡住用户操作"的那一类，如实报。
+            return failureText(reply);
+        }
+        const ModpackImport::CurseForgeFiles part = ModpackImport::parseCurseForgeFileInfo(reply.raw, chunk);
+        if (!part.problem.isEmpty()) {
+            return part.problem;
+        }
+        files.resolved += part.resolved;
+        files.projectIds += part.projectIds;
+        files.notDistributable += part.notDistributable;
+        files.missing += part.missing;
+    }
+
+    // ---- 第二发：这些项目是哪一类（决定文件落到哪个子目录）----
+    //
+    // 去重：同一个项目可能在不同的分块里各出现一次（一个 mod 有两个文件），问两遍白花时间。
+    QList<int> projectIds;
+    {
+        QSet<int> seen;
+        for (const int projectId : files.projectIds) {
+            if (!seen.contains(projectId)) {
+                seen.insert(projectId);
+                projectIds.append(projectId);
+            }
+        }
+    }
+    QHash<int, int> classIds;
+    QString classIdProblem;
+    for (int offset = 0; offset < projectIds.size(); offset += kChunk) {
+        const QList<int> chunk = projectIds.mid(offset, kChunk);
+        const HttpClient::Reply reply = HttpClient::send(
+            loaderNetworkManager(), QUrl(base + QStringLiteral("/mods")), HttpClient::Verb::Post,
+            ModpackImport::curseForgeModsRequestBody(chunk),
+            QByteArrayLiteral("application/json"), QByteArray(), HttpClient::kDefaultTimeoutMs,
+            headers);
+        if (!reply.ok()) {
+            // NOTE: 这一发没成**不拦整件事** —— 缺的只是"落到哪个目录"（退成 mods/，
+            //       见 placeCurseForgeFiles），文件本身下得下来。停在这里等于因为一个
+            //       "放哪儿"的问题把一个能装的包拒了。
+            classIdProblem = failureText(reply);
+            break;
+        }
+        QString problem;
+        const QHash<int, int> part = ModpackImport::parseCurseForgeClassIds(reply.raw, &problem);
+        if (!problem.isEmpty()) {
+            classIdProblem = problem;
+            break;
+        }
+        for (auto it = part.constBegin(); it != part.constEnd(); ++it) {
+            classIds.insert(it.key(), it.value());
+        }
+    }
+
+    // ---- 落地：补上目录，写回 pack ----
+    const ModpackImport::CurseForgePlacement placement =
+        ModpackImport::placeCurseForgeFiles(files.resolved, classIds);
+    pack->files = placement.files;
+    pack->pendingRefs.clear();
+    pack->filesNotDistributable = files.notDistributable;
+    // 两类"没换到"合在一起：接口说没有的 + 拼不出安全路径的（多半是路径太长）。
+    pack->filesMissing = files.missing + placement.missing;
+    pack->filesSkipped += placement.skipped;
+
+    if (!classIdProblem.isEmpty()) {
+        emit modpackImportMessage(
+            tr("%1\n\n有 %2 个文件没能确认该放进哪个目录，都按模组放进 mods/ 了。")
+                .arg(classIdProblem)
+                .arg(placement.files.size()));
+    }
+    return QString();
+}
+
 void VersionManager::downloadVersion(const QString &versionId, const QString &destinationPath) {
     // NOTE: 这两道早退必须在 beginBatch() 之前。beginBatch() 与 endBatch() 之间
     // 不允许有任何提前 return —— 一旦漏掉 endBatch()，m_batchOpen 就永远是 true，
@@ -751,6 +882,19 @@ void VersionManager::importModpack(const QString &zipPath, const QString &instan
         return;
     }
 
+    // CurseForge 的清单在"换"之前 `files` 是空的（界面在弹确认框之前已经调过一次
+    // resolveCurseForgeFiles，见它的注释）。这里这第二道**不是多余的**：漏了它，
+    // 走到 startModpackFiles() 就是一个只有加载器、一个 mod 都没有的实例，
+    // 而用户看到的终态是"导入好了"。
+    if (pack.format == ModpackImport::Format::CurseForge && pack.files.isEmpty()) {
+        emit versionDownloadFinished(
+            instanceId, false,
+            tr("这个 CurseForge 整合包的文件清单没有换成下载地址：那种清单里只有编号，"
+               "要先问一次 CurseForge 的接口才换得出来。没有导入，再试一次；一直这样的话，"
+               "在设置页「下载源」那一组里填一份自己的 CurseForge API key。"));
+        return;
+    }
+
     m_modpackInstall = ModpackInstall();
     m_modpackInstall.zipPath = zipPath;
     m_modpackInstall.instanceId = instanceId;
@@ -844,11 +988,25 @@ void VersionManager::extractModpackOverrides() {
     // "谁在后谁赢"这一条是格式的一部分，不能调换。
     // NOTE: 这一步是同步起 PowerShell 等它（最慢的一段，几百 MB 的包解起来要一会儿），
     //       界面在这期间是卡住的 —— 和既有那几处解压一个形状，不是新问题。
-    const QStringList roots = {QStringLiteral("overrides/"),
-                               QStringLiteral("client-overrides/")};
+    //
+    // NOTE: 这两个目录名来自清单，**不是写死的**（2026-09-25 起）：CurseForge 的清单里
+    //       `overrides` 那一项是自己写的（真包见过 `overrides` / `overrides-1.20.1` 这种），
+    //       而它**没有** client-overrides 这个规矩 —— 那种包的 clientOverridesDir 是空串，
+    //       下面那个判断会把它跳过（空串拼出来的前缀是 `/`，那是从压缩包根目录往下解，
+    //       = 把整包的目录结构摊到实例里，正好是错的）。
+    const QStringList roots = {m_modpackInstall.pack.overridesDir + QLatin1Char('/'),
+                               m_modpackInstall.pack.clientOverridesDir.isEmpty()
+                                   ? QString()
+                                   : m_modpackInstall.pack.clientOverridesDir + QLatin1Char('/')};
+    QStringList layers;
+    for (const QString &root : roots) {
+        if (!root.isEmpty()) {
+            layers.append(root);
+        }
+    }
     QString error;
     int extracted = 0;
-    if (!ZipUtil::extractSubtrees({m_modpackInstall.zipPath}, AppPaths::versionDir(id), roots,
+    if (!ZipUtil::extractSubtrees({m_modpackInstall.zipPath}, AppPaths::versionDir(id), layers,
                                   &extracted, &error)) {
         failModpackImport(tr("整合包里的覆盖文件没能解开：%1\n\n（清单里那些文件已经下好在 %2 "
                              "里了，缺的是 config、资源包、光影这些。）")
@@ -864,6 +1022,8 @@ void VersionManager::finishModpackImport() {
     const QString id = m_modpackInstall.instanceId;
     const ModpackImport::Pack pack = m_modpackInstall.pack;
     const int skipped = pack.filesSkipped;
+    const int notDistributable = pack.filesNotDistributable;
+    const int missing = pack.filesMissing;
     const int extracted = m_modpackInstall.extractedEntries;
 
     // 自检：装完的东西得真的能被列表认出来。判据用**读侧那一份**（InstanceFiles::
@@ -900,11 +1060,27 @@ void VersionManager::finishModpackImport() {
     // 变成"进了游戏才发现少个 mod"。
     QString extra;
     if (skipped > 0) {
-        extra = tr("（清单里有 %1 个文件按包里的说明跳过了：只给服务端用、或者没有下载地址）")
-                    .arg(skipped);
+        extra += tr("（清单里有 %1 个文件按包里的说明跳过了：只给服务端用、没有下载地址、"
+                    "或者它自己是一个要单独装的整合包）")
+                     .arg(skipped);
     }
     if (extracted > 0) {
         extra += tr("（解开了 %1 个覆盖文件）").arg(extracted);
+    }
+    // 那两种"没下成"要**分开说**（.hpp 里那两条 NOTE）：一种是作者不许代下（用户自己能补，
+    // 所以得说清"怎么办"），另一种是接口里查不到（用户补不了，只能换包或者认了）。
+    if (notDistributable > 0) {
+        extra += tr("\n\n有 %1 个文件作者关了「允许第三方分发」，没有替你下。少了它们这个包"
+                    "多半进不去游戏：去 CurseForge 上那个整合包的页面把它们下下来，手动放进"
+                    "%2 里（模组放 mods/、资源包放 resourcepacks/、光影放 shaderpacks/ —— "
+                    "对照那个整合包页面上的文件列表。清单里只有它们的编号，没有名字）。")
+                     .arg(notDistributable)
+                     .arg(AppPaths::versionDir(id));
+    }
+    if (missing > 0) {
+        extra += tr("\n\n还有 %1 个文件在 CurseForge 上已经查不到了（作者删了、或者没过审）——"
+                    "这一部分没有办法补，这个整合包可能已经过期。")
+                     .arg(missing);
     }
 
     m_modpackInstall.reset();

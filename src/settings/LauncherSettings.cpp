@@ -32,6 +32,11 @@ static constexpr const char kProcessPriority[] = "Launcher/ProcessPriority";
 static constexpr const char kTitleText[] = "Launcher/TitleText";
 static constexpr const char kWarnDuplicateLaunch[] = "Launcher/WarnDuplicateLaunch";
 static constexpr const char kWarnWorldLoss[] = "Launcher/WarnWorldLoss";
+/// 用户自己填的 CurseForge API key（空 = 走社区反代）。
+static constexpr const char kCurseForgeApiKey[] = "Launcher/CurseForgeApiKey";
+/// CurseForge 接口的地址覆盖。**只有验证工程会写它**（见 .hpp 里那条 NOTE）：
+/// 这里的 `load()` 读、`save()` **刻意不写**。
+static constexpr const char kCurseForgeApiBase[] = "Launcher/CurseForgeApiBase";
 
 // 枚举存进 QSettings 的字符串。这几个串是**持久化格式的一部分**，不是内部标识：
 // 改掉它们，用户盘上已经存好的值就会被当成"认不出来"、静默退回默认档。
@@ -137,6 +142,17 @@ void LauncherSettings::setDownloadSource(DownloadSource source) {
         return;
     }
     m_downloadSource = source;
+    save();
+}
+
+void LauncherSettings::setCurseForgeApiKey(const QString &apiKey) {
+    // 存下来的就是用户打进去的那串，但两头的空白修掉（从网页上复制 key 时很容易带一个
+    // 尾随空格，而带空格的 key 会一路变成一个 403，看着像"key 不对"）。
+    const QString trimmed = apiKey.trimmed();
+    if (m_curseForgeApiKey == trimmed) {
+        return;
+    }
+    m_curseForgeApiKey = trimmed;
     save();
 }
 
@@ -297,6 +313,11 @@ void LauncherSettings::load() {
     // 不会把一个"看不懂的值"变成弹窗，这个方向是安全的。
     m_warnDuplicateLaunch = settings.value(kWarnDuplicateLaunch, m_warnDuplicateLaunch).toBool();
     m_warnWorldLoss = settings.value(kWarnWorldLoss, m_warnWorldLoss).toBool();
+    // 两头的空白在**读回来的这一侧也修**：盘上那份可以是手改的（见 setCurseForgeApiKey()）。
+    m_curseForgeApiKey = settings.value(kCurseForgeApiKey, m_curseForgeApiKey).toString().trimmed();
+    // NOTE: 这一项**只有验证工程会写**（见头里那条），产品从不写它（save() 里没有它）。
+    m_curseForgeApiBaseOverride =
+        settings.value(kCurseForgeApiBase, m_curseForgeApiBaseOverride).toString().trimmed();
 
     // 和 GlobalJavaSettings::load() 用 m_xmx 当默认值是同一个写法。取成员而不是新造一个
     // struct：万一 load() 被调第二次而注册表是空的，值应该留着，而不是被重置回默认。
@@ -338,6 +359,9 @@ void LauncherSettings::save() const {
     settings.setValue(kTitleText, clampTitleText(m_titleText));
     settings.setValue(kWarnDuplicateLaunch, m_warnDuplicateLaunch);
     settings.setValue(kWarnWorldLoss, m_warnWorldLoss);
+    settings.setValue(kCurseForgeApiKey, m_curseForgeApiKey);
+    // NOTE: `kCurseForgeApiBase` **刻意不在这里** —— 那个键是验证工程的口子，
+    //       产品一写就等于把用户自己指的地址抹掉（见 .hpp 里那条 NOTE）。
     settings.setValue(kNameShowCustom, m_versionNameOptions.showCustomName);
     settings.setValue(kNameShowReal, m_versionNameOptions.showRealVersion);
     settings.setValue(kNameShowLoaderName, m_versionNameOptions.showLoaderName);

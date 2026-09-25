@@ -29,6 +29,9 @@
 // 那些 QtCore 的东西，不拖 QtWidgets），所以按值用就 include，不去走前置声明那一套。
 #include "download/LoaderMeta.hpp"
 #include "download/ResourceCatalog.hpp"
+// 只为了 applyModpackImport() 签名里那个 ModpackImport::Format（两种整合包清单）。
+// 那个枚举没有固定的底层类型，前置声明不了，所以这里带进来。
+#include "manage/ModpackImport.hpp"
 
 class MainWindowUI;
 // 安装页那棵加载器树上的一个条目（loaderItem()）。这里只在私有函数的参数/返回值里按
@@ -276,18 +279,22 @@ private slots:
     ///       而这一半里藏着真会错的东西（"跟随全局"的项要**删键**而不是写一个等于
     ///       全局的值、写盘前得先确保实例有稳定 id），必须验得了。
     bool applyInstanceSettings(const QString &versionId, const InstanceSettingsDialog &dialog);
-    /// 「导入整合包…」：选文件 → 读清单 → 问名字 → 确认 → 交给 applyModpackImport()。
+    /// 「导入整合包…」：选文件 → 读清单 → 问名字 → 换地址 → 确认 → 交给 applyModpackImport()。
     ///
-    /// 读的是压缩包根目录里那一份 modrinth.index.json（ZipUtil::readEntry，**不整包解开**：
-    /// 用户随手选一个几百 MB 的包，为了知道它不是整合包先解压几分钟是白等）。
+    /// 读的是压缩包根目录里那一份清单（ZipUtil::readEntry，**不整包解开**：用户随手选一个
+    /// 几百 MB 的包，为了知道它不是整合包先解压几分钟是白等）。**两种格式各读一个名字**：
+    /// Modrinth 是 `modrinth.index.json`，CurseForge 是 `manifest.json`。
     void onImportModpackClicked();
     /// 导入的**执行部分**：把清单解析出来、该拦的拦掉、算出安装器要的 Java，然后开始导入。
     /// @param zipPath 用户选的那个整合包文件。
     /// @param instanceName 落地的实例名（= `versions/<id>` 那个目录名）。
-    /// @param indexJson 压缩包里那份 `modrinth.index.json` 的**原始字节**。
+    /// @param manifestJson 压缩包里那份清单的**原始字节**（哪个清单看 format）。
     ///        传字节而不是传解析结果，是为了让这一半能被验证工程驱动（自定义类型过不了
     ///        QMetaObject::invokeMethod）；里面会再解析一遍 —— 纯函数，94 KB 的清单也就
     ///        一瞬，换来的是"确认框里说的那个包"和"真的去装的那个包"是同一串字节。
+    /// @param format 这份字节是哪个清单。**CurseForge 那一档在这里还要再换一次地址**
+    ///        （那一发的详情见 VersionManager::resolveCurseForgeFiles）—— 于是导入一个
+    ///        CF 包会问两次接口，换来的还是上面那句"同一串字节"。
     /// @return 真的开始导入了返回 true（失败/被拦下时弹窗并返回 false）。
     ///
     /// NOTE: 拆成两步的理由和 applyRename() 一样 —— 这一半里藏着真会错的东西（重名要拦、
@@ -296,7 +303,7 @@ private slots:
     ///       一格 2026-09-25 已经换成能驱动的内嵌提示了；**QFileDialog 那一步还是驱动不了的**
     ///       ：它开的是 Windows 自己的文件选择框，不是我们的窗，见那个调用点上面那段。）
     bool applyModpackImport(const QString &zipPath, const QString &instanceName,
-                            const QByteArray &indexJson);
+                            const QByteArray &manifestJson, ModpackImport::Format format);
     /// 用户在左边那张列表里换了「游戏文件夹」。真正干活的是 FolderManager 发出的
     /// currentFolderChanged()，这里只负责把选中项翻译成一次 setCurrentFolder()。
     void onFolderSelectionChanged();
@@ -535,6 +542,9 @@ private:
     void onMemoryChanged();
     void onLauncherBehaviourChanged();
     void onDownloadSourceChanged();
+    /// CurseForge 的 API key 那一格编辑完了（回车 / 焦点离开）。**不是** per-character：
+    /// 半串 key 存进去只会换来一次 403，而用户会以为是启动器坏了（见 .cpp 里那段）。
+    void onCurseForgeApiKeyEdited();
     // ---------- 「启动选项」那三项（设置页里同一组） ----------
     /// 「显示游戏日志」开关。关掉**不关已经开着的那些窗**（用户可能正在读崩溃信息）；
     /// 打开之后从下一行输出开始就会开窗（这是刻意的，见 showGameLogLine 的说明）。
@@ -572,6 +582,8 @@ private:
     /// 把「下载源」交给真正发请求的那一层（VersionManager → DownloadManager）。
     /// 启动时读盘、用户在设置页改，两条路都走这一句，别各写一遍。
     void syncDownloadSource();
+    /// 把 CurseForge 那两项设置交给数据层（VersionManager）。同上：读盘和用户改都走这一句。
+    void syncCurseForgeSettings();
     /// 启动成功后按「启动后」那一项处理启动器自己。
     void applyLauncherBehaviourAfterLaunch();
 

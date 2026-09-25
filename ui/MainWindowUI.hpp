@@ -1263,6 +1263,16 @@ public:
         return QStringLiteral("applyExtraJvmArgsButton");
     }
     static QString downloadSourceComboName() { return QStringLiteral("downloadSourceCombo"); }
+
+    // ---------- CurseForge API key（2026-09-25 加的，在「下载源」那一组里） ----------
+    // CurseForge 格式的整合包只能靠接口换出下载地址（那份清单里只有编号），而官方接口
+    // 要 key。默认走社区反代，这一格是给用户"自己填一份走官方"的退路 —— 所以它是
+    // **可留空的一格**，不是必填项（空 = 反代）。
+    static QString curseForgeApiKeyEditName() { return QStringLiteral("curseForgeApiKeyEdit"); }
+    /// 这一行的行标题（左列那一格）。
+    static QString curseForgeApiKeyRowText() { return QStringLiteral("CurseForge API key"); }
+    /// 输入框里的占位文字（空着的时候显示那一句）。
+    static QString curseForgeApiKeyPlaceholder() { return QStringLiteral("留空则用公共接口"); }
     static QString showGameLogCheckName() { return QStringLiteral("showGameLogCheck"); }
     static QString processPriorityComboName() { return QStringLiteral("processPriorityCombo"); }
     static QString gameWindowWidthSpinName() { return QStringLiteral("gameWindowWidthSpin"); }
@@ -1658,6 +1668,7 @@ public:
     QPlainTextEdit *getExtraJvmArgsEdit() const { return extraJvmArgsEdit; }
     QPushButton *getApplyExtraJvmArgsButton() const { return applyExtraJvmArgsButton; }
     QComboBox *getDownloadSourceCombo() const { return downloadSourceCombo; }
+    QLineEdit *getCurseForgeApiKeyEdit() const { return curseForgeApiKeyEdit; }
     QCheckBox *getShowGameLogCheck() const { return showGameLogCheck; }
     QCheckBox *getWarnDuplicateLaunchCheck() const { return warnDuplicateLaunchCheck; }
     QCheckBox *getWarnWorldLossCheck() const { return warnWorldLossCheck; }
@@ -1793,6 +1804,7 @@ private:
     QPlainTextEdit *extraJvmArgsEdit = nullptr;
     QPushButton *applyExtraJvmArgsButton = nullptr;
     QComboBox *downloadSourceCombo = nullptr;
+    QLineEdit *curseForgeApiKeyEdit = nullptr;
     QCheckBox *showGameLogCheck = nullptr;
     QCheckBox *warnDuplicateLaunchCheck = nullptr;
     QCheckBox *warnWorldLossCheck = nullptr;

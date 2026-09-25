@@ -16,7 +16,8 @@
 
 HttpClient::Reply HttpClient::send(QNetworkAccessManager *manager, const QUrl &url, Verb verb,
                                    const QByteArray &body, const QByteArray &contentType,
-                                   const QByteArray &bearer, int timeoutMs) {
+                                   const QByteArray &bearer, int timeoutMs,
+                                   const QList<QPair<QByteArray, QByteArray>> &extraHeaders) {
     Reply result;
     QNetworkRequest request{url};
     if (!contentType.isEmpty()) {
@@ -25,6 +26,10 @@ HttpClient::Reply HttpClient::send(QNetworkAccessManager *manager, const QUrl &u
     request.setRawHeader("Accept", "application/json");
     if (!bearer.isEmpty()) {
         request.setRawHeader("Authorization", QByteArray("Bearer ") + bearer);
+    }
+    // 额外的头放在最后设置：调用方明确给了什么就照原样盖上去（上面那几个是默认值）。
+    for (const QPair<QByteArray, QByteArray> &header : extraHeaders) {
+        request.setRawHeader(header.first, header.second);
     }
 
     QNetworkReply *reply = nullptr;

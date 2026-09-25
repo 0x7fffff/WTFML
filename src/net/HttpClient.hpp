@@ -19,6 +19,8 @@
 
 #include <QByteArray>
 #include <QJsonObject>
+#include <QList>
+#include <QPair>
 #include <QString>
 #include <QUrl>
 
@@ -72,11 +74,17 @@ public:
      * @param contentType 空则不加 Content-Type 头（GET 不需要）。
      * @param bearer 非空则加 Authorization: Bearer 头。
      * @param timeoutMs 见 kDefaultTimeoutMs。
+     * @param extraHeaders 额外的请求头（**追加式**：放在最后，既有调用点一个字都不用改）。
+     *        现在唯一的用户是 CurseForge 的 `x-api-key` —— 用户自己在设置里填了 key 时
+     *        才带（见 ModpackImport::curseForgeApiBase 与 VersionManager::resolveCurseForgeFiles）。
+     *        NOTE: 名字里带连字符的头**必须**走 setRawHeader（QNetworkRequest 那几个枚举
+     *              里没有它），这也正是这里收原始字节对而不是 QVariant 的原因。
      * @return 见 Reply。超时会把请求 abort 掉（**之后别再去读那个 reply**）。
      */
     static Reply send(QNetworkAccessManager *manager, const QUrl &url, Verb verb,
                       const QByteArray &body = QByteArray(),
                       const QByteArray &contentType = QByteArray(),
                       const QByteArray &bearer = QByteArray(),
-                      int timeoutMs = kDefaultTimeoutMs);
+                      int timeoutMs = kDefaultTimeoutMs,
+                      const QList<QPair<QByteArray, QByteArray>> &extraHeaders = {});
 };
