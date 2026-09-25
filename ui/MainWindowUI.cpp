@@ -8,6 +8,7 @@
 
 #include "MainWindowUI.hpp"
 
+#include "InstanceGroupDelegate.hpp"
 #include "SkinModel.hpp"
 #include "VersionIcons.hpp"
 #include "VersionTreeDelegate.hpp"
@@ -515,13 +516,22 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         instanceList = new QTreeWidget(instanceGroupBox);
         instanceList->setObjectName(instanceListName());
         instanceList->setHeaderHidden(true);
-        instanceList->setRootIsDecorated(true);
+        // 左边**不画** Qt 自带那个展开三角：展开/收起这件事画在行的**右**端（一个箭头，
+        // 见 InstanceGroupDelegate），和版本树那几条分类长得一样（用户原话：「每一个组和
+        // 版本下载几乎一致」）。开着的话一行上会有两个箭头，而且左边那个还会把组名往里推。
+        // NOTE: 正路就是 setRootIsDecorated(false) —— 拿 `DontShowIndicator` 那条 item flag
+        //       顶替会让整条分类的子条目一起消失（版本树那边踩过）。
+        instanceList->setRootIsDecorated(false);
         // 每一行高度一样（没有多行文本），打开这个能让 QTreeWidget 不用去问每一行的
         // sizeHint —— 实例多的时候（真机上有 61 个）滚动明显更顺。
         instanceList->setUniformRowHeights(true);
         // 组下面的实例缩进多少由它给。默认 20 在窄栏里有点深，收到 14：
         // 右栏还得和左栏分 7:3 的宽度，缩进多一格就少一格放实例名。
         instanceList->setIndentation(14);
+        // 分组头那一行不是默认画法：组名粗体、右边一个箭头 + 一颗齿轮（"点一下打开/关闭"
+        // 和"这一组的更多操作"都画在那两个格里）。代理只接管挂着 groupIdRole() 的行，
+        // 实例行原样走基类（见 InstanceGroupDelegate 文件头）。
+        instanceList->setItemDelegate(new InstanceGroupDelegate(instanceList));
         instanceLayout->addWidget(instanceList, 1);
 
         // 三个按钮都作用于列表里当前选中的那一个实例。横着排：右栏宽度本来就紧
@@ -1874,6 +1884,256 @@ private:
     QString m_path;
 };
 
+/**
+ * @brief 实例页右栏那张树里**组行行尾那颗齿轮**点出来的框。
+ *
+ * 两套构造，同一个类：
+ *   * **动作菜单**（默认）：这一组能做什么（移入分组… / 都移出分组 / 重命名 / 默认展开 /
+ *     删除）；
+ *   * **挑目标**：把**选中的那个实例**移进哪一组（列出全部组，含一个实例都没有的
+ *     那些 —— 空组在树里是藏着的，这是唯一能把第一个实例放进去的入口）。
+ *
+ * NOTE: 骨架是从 FolderMenu 抄的（Qt::Popup + 点框外/Esc 自己关 + "再点同一颗齿轮
+ *       收回" + 按屏幕收边 + 点某项先关窗、排到下一轮事件循环再交出去；那边每一条的
+ *       **理由**都写在它的注释里，这里不重复）。两块真正的差别只有两点：
+ *         · 认"点的是不是同一颗齿轮"用的是一个**锚点矩形**（行是代理画的，压根没有
+ *           控件可指）；于是"收回"那一下还得压 Qt 的重放 —— 见 handleAnchorPress()；
+ *         · 动作菜单里有一项（移入分组…）要**再弹第二个框**，所以这一块的父窗口
+ *           底下可能同时存在两"代"。
+ *       **要改这套骨架时两块一起改**（文件夹那一块叫 FolderMenu，就在上面）。
+ */
+class GroupMenu : public QWidget {
+public:
+    /// 动作菜单里某一项被点了：参数是"哪一组、第几项"。
+    using ActionCallback = std::function<void(const QString &, int)>;
+    /// 挑目标那个框里某一组被点了：参数是目标组 id（空串 = 未分组）。
+    using PickCallback = std::function<void(const QString &)>;
+
+    /// @param row 给哪一组弹的（决定哪几项显示、哪几项是灰的）。
+    /// @param anchorGlobal 那颗齿轮占的**全局**矩形（贴它弹，也用来认"再点一次是收回"）。
+    /// @param replayHost 接得住 Qt 那记重放的控件（树的 viewport，见 handleAnchorPress()）。
+    GroupMenu(const MainWindowUI::GroupRow &row, const QRect &anchorGlobal,
+              const ActionCallback &onAction, QWidget *replayHost, QWidget *parent)
+        : QWidget(parent, Qt::Popup | Qt::FramelessWindowHint),
+          m_anchorGlobal(anchorGlobal),
+          m_groupId(row.groupId),
+          m_replayHost(replayHost) {
+        setObjectName(MainWindowUI::groupMenuName());
+        applyMenuPalette();
+
+        QWidget *const deferContext = parent;
+        const auto dispatch = [this, deferContext, onAction](int action) {
+            const QString groupId = m_groupId;
+            close();
+            if (!onAction) {
+                return;
+            }
+            // 再排到**下一轮事件循环**：close() 只是发了个关闭事件，要等这一轮走完才真的
+            // 没了 —— 当轮就弹模态窗等于没关（和文件夹那块一模一样，那里有完整一段）。
+            QTimer::singleShot(0, deferContext, [onAction, groupId, action]() {
+                onAction(groupId, action);
+            });
+        };
+
+        QVBoxLayout *box = new QVBoxLayout(this);
+        box->setContentsMargins(kFolderMenuPadding, kFolderMenuPadding, kFolderMenuPadding,
+                                kFolderMenuPadding);
+        box->setSpacing(kFolderMenuRowSpacing);
+        const QPalette menuPalette = palette();
+        for (int a = 0; a < MainWindowUI::groupActionCount(); ++a) {
+            // 虚拟的「未分组」只剩第一项（见 groupActionVisible 那段）。
+            if (!MainWindowUI::groupActionVisible(a, row)) {
+                continue;
+            }
+            QPushButton *button = new QPushButton(this);
+            button->setObjectName(MainWindowUI::groupMenuActionName(a));
+            button->setText(MainWindowUI::groupActionText(a, row));
+            button->setStyleSheet(entryStyle(a == MainWindowUI::GroupActionDelete, menuPalette));
+            // 灰掉的那几项必须**配一句为什么**（灰着不说话用户只会以为界面坏了）——
+            // 提示那一句由 MainWindowUI::groupActionTooltip() 给，它那边已经分好了
+            // "能点时说什么 / 不能点时说什么"。
+            button->setEnabled(MainWindowUI::groupActionEnabled(a, row));
+            button->setToolTip(MainWindowUI::groupActionTooltip(a, row));
+            button->setCursor(Qt::PointingHandCursor);
+            QObject::connect(button, &QPushButton::clicked, button, [dispatch, a]() { dispatch(a); });
+            box->addWidget(button);
+        }
+    }
+
+    /// 挑目标：@p rows 是**全部**分组（含一个实例都没有的、含虚拟的「未分组」），
+    /// 顺序就是显示顺序。
+    GroupMenu(const QList<MainWindowUI::GroupRow> &rows, const QRect &anchorGlobal,
+              const PickCallback &onPick, QWidget *replayHost, QWidget *parent)
+        : QWidget(parent, Qt::Popup | Qt::FramelessWindowHint),
+          m_anchorGlobal(anchorGlobal),
+          m_pick(true),
+          m_replayHost(replayHost) {
+        setObjectName(MainWindowUI::groupMenuName());
+        applyMenuPalette();
+
+        QWidget *const deferContext = parent;
+        const auto dispatch = [this, deferContext, onPick](const QString &groupId) {
+            close();
+            if (!onPick) {
+                return;
+            }
+            QTimer::singleShot(0, deferContext, [onPick, groupId]() { onPick(groupId); });
+        };
+
+        QVBoxLayout *box = new QVBoxLayout(this);
+        box->setContentsMargins(kFolderMenuPadding, kFolderMenuPadding, kFolderMenuPadding,
+                                kFolderMenuPadding);
+        box->setSpacing(kFolderMenuRowSpacing);
+        const QPalette menuPalette = palette();
+        for (int i = 0; i < rows.size(); ++i) {
+            const MainWindowUI::GroupRow &row = rows.at(i);
+            QPushButton *button = new QPushButton(this);
+            // 名字按下标给（0 起，就是递进来的顺序）：验证工程按它取控件，而组名是用户
+            // 起的、随时会变，拿文字当身份标识必错（和文件夹那几行同一条）。
+            button->setObjectName(MainWindowUI::groupPickRowName(i));
+            // 文字带上实例数（和树上那个组头一模一样）：挑的时候"这一组里已经有几个了"
+            // 是个有用的信息，而空组在这张表里是**看得见的**（树上它藏着）。
+            button->setText(MainWindowUI::groupItemText(row.name, row.memberCount));
+            button->setStyleSheet(entryStyle(false, menuPalette));
+            // 选中的那个实例**已经在这一组里**的那一条灰掉：点它等于什么都没做，
+            // 而"什么都没做"和"点了没反应"在用户眼里是一回事。
+            button->setEnabled(!row.containsSelected);
+            button->setToolTip(row.containsSelected
+                                   ? QCoreApplication::translate("MainWindowUI",
+                                                                 "选中的实例已经在这一组里了")
+                                   : QCoreApplication::translate("MainWindowUI",
+                                                                 "把这个实例放到这一组里"));
+            button->setCursor(Qt::PointingHandCursor);
+            const QString groupId = row.groupId;
+            QObject::connect(button, &QPushButton::clicked, button,
+                             [dispatch, groupId]() { dispatch(groupId); });
+            box->addWidget(button);
+        }
+    }
+
+    /// 这块框是"挑目标"那一套吗（真假两块共用一个 objectName，验证工程靠它分开）。
+    bool pickMode() const { return m_pick; }
+
+    /// "再点一次同一颗齿轮 = 收回"认的人：动作菜单是它伺候的那一组，挑目标那个框是空串
+    /// （它不认人 —— 同一颗齿轮下第二次点进来时，上面那块动作菜单已经不在了）。
+    QString groupId() const { return m_groupId; }
+
+    /// 摆到 @p globalTopLeft 这个位置并显示出来（超出屏幕时往里收）。理由和 FolderMenu
+    /// 那个 ::popUpAt() 一模一样：贴着行尾那颗齿轮弹，而它在窗口靠右的位置。
+    void popUpAt(const QPoint &globalTopLeft) {
+        adjustSize();
+        QPoint target = globalTopLeft;
+        if (const QScreen *screen = QGuiApplication::screenAt(globalTopLeft)) {
+            const QRect available = screen->availableGeometry();
+            target.setX(qBound(available.left(), target.x(),
+                               qMax(available.left(), available.right() - width() + 1)));
+            target.setY(qBound(available.top(), target.y(),
+                               qMax(available.top(), available.bottom() - height() + 1)));
+        }
+        move(target);
+        show();
+        raise();
+        // 拿焦点只为一件事：Esc 能关（外面点一下 Qt 自己会关，那条不用管）。
+        setFocus(Qt::PopupFocusReason);
+    }
+
+protected:
+    void keyPressEvent(QKeyEvent *event) override {
+        if (event->key() == Qt::Key_Escape) {
+            close();
+            return;
+        }
+        QWidget::keyPressEvent(event);
+    }
+
+    void mousePressEvent(QMouseEvent *event) override {
+        if (handleAnchorPress(event)) {
+            return;
+        }
+        QWidget::mousePressEvent(event);
+    }
+
+    /// 点得**快**的时候，第二发及以后到的是双击事件（Windows 上就是它，见
+    /// ui/RowActivation.hpp 那段）—— 同一个处理，不接的话"再点一下收回"就成了白点。
+    void mouseDoubleClickEvent(QMouseEvent *event) override {
+        if (handleAnchorPress(event)) {
+            return;
+        }
+        QWidget::mouseDoubleClickEvent(event);
+    }
+
+    /// 一圈细边（和 FolderMenu 那条同一个理由）：同一档深浅在浅色主题下几乎看不出边界，
+    /// 分不出"框到哪为止"。
+    void paintEvent(QPaintEvent *) override {
+        QPainter painter(this);
+        painter.setPen(palette().color(QPalette::Mid));
+        painter.drawRect(rect().adjusted(0, 0, -1, -1));
+    }
+
+private:
+    /// 底色比内容区深一档（从调色板推，**不写死颜色**）—— 和 FolderMenu 那条一样。
+    void applyMenuPalette() {
+        setAutoFillBackground(true);
+        QPalette menuPalette = palette();
+        menuPalette.setColor(QPalette::Window, menuPalette.color(QPalette::Window).darker(112));
+        setPalette(menuPalette);
+    }
+
+    /// 菜单里一项的外观。**和 FolderMenu::folderActionStyle() 逐字同形** —— 两块框是
+    /// 同一族浮层（都是行尾齿轮弹出来的一列按钮），字重/对齐/留白/红字那几条理由写在
+    /// 那边，这里不重复。差别只有"哪一项是红的"由参数给（那边写死是「删除」）。
+    static QString entryStyle(bool danger, const QPalette &menuPalette) {
+        QColor hover = menuPalette.color(QPalette::Highlight);
+        hover.setAlpha(48);
+        QColor pressed = menuPalette.color(QPalette::Highlight);
+        pressed.setAlpha(96);
+        QString sheet = QStringLiteral("QPushButton { border: none; background: transparent;"
+                                       " font-weight: bold;"
+                                       " text-align: left; padding: 6px 6px; }"
+                                       "QPushButton:hover:enabled { background-color: %1; }"
+                                       "QPushButton:pressed:enabled { background-color: %2; }")
+                            .arg(hover.name(QColor::HexArgb), pressed.name(QColor::HexArgb));
+        if (danger) {
+            // 带 `:enabled` 是必须的：红字落在灰按钮上会被读成"这一项现在能点"（和
+            // folderActionStyle() 里那条注释同一个理由）。
+            sheet += QStringLiteral("QPushButton:enabled { color: %1; }")
+                         .arg(MainWindowUI::groupDangerColor(menuPalette).name());
+        }
+        return sheet;
+    }
+
+    /// 落在**自己那颗齿轮**上 = "再点一次收回"。
+    ///
+    /// NOTE: 【为什么要压 Qt 的重放】和底栏那两块面板同一条：Qt 关一块 Qt::Popup 的时候，
+    ///       如果光标不在它几何里，会把这同一个 press **重放**给光标底下那个控件。那颗
+    ///       齿轮在**树的行里**，重放那一下落到 viewport 上 —— 而那一格正是"点齿轮"的
+    ///       命中格（见 MainWindow::eventFilter），于是菜单刚收回去又会被自己弹开，看着
+    ///       就是"收不回去"。`WA_NoMouseReplay` 干的就是这个，**必须在 close() 之前钉**
+    ///       （Qt 是关窗那一刻读它；属性会被 Qt 在"这个控件又收到鼠标事件"时清掉，所以
+    ///       挂在构造里没用）。popup 这一侧和**接重放那一侧**都钉：文档说这个属性是给
+    ///       popup 用的，但重放是"投递给下面那个控件"的，两处都钉才两种路径都盖住。
+    /// @return true = 这一下已经办完了（不要再去走基类那套）。
+    bool handleAnchorPress(QMouseEvent *event) {
+        if (!m_anchorGlobal.contains(event->globalPosition().toPoint())) {
+            return false;  // 落在框自己身上（或者别处）：照旧往下走
+        }
+        setAttribute(Qt::WA_NoMouseReplay, true);
+        if (m_replayHost != nullptr) {
+            m_replayHost->setAttribute(Qt::WA_NoMouseReplay, true);
+        }
+        close();
+        event->accept();
+        return true;
+    }
+
+    /// 那颗齿轮占的全局矩形（贴它弹、也按它认"再点一次"）。
+    QRect m_anchorGlobal;
+    /// 动作菜单伺候的是哪一组（挑目标那个框不用它，留空串）。
+    QString m_groupId;
+    bool m_pick = false;
+    QWidget *m_replayHost = nullptr;
+};
+
 }  // namespace
 
 void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
@@ -2203,6 +2463,90 @@ QColor MainWindowUI::folderDangerColor(const QPalette &palette) {
     return QColor(0xc0, 0x28, 0x28);
 }
 
+QString MainWindowUI::groupActionText(int action, const GroupRow &row) {
+    // 上下文写死 "MainWindowUI"：这个类不是 QObject（没有 tr()），和上面那几张
+    // 文件夹的表同一个写法。
+    switch (action) {
+    case GroupActionMoveInto:
+        // 带省略号：点了之后还要弹一个"移进哪一组"的小框问点什么（和「重命名…」同一条
+        // 规矩）。那一项**必须**有 —— 一个实例都没有的组在树里是藏着的，把它放进第一个
+        // 实例这件事只有这一个入口（见 openGroupPicker）。
+        return QCoreApplication::translate("MainWindowUI", "把选中的实例移入分组…");
+    case GroupActionClearMembers:
+        return QCoreApplication::translate("MainWindowUI", "把这一组里的实例都移出分组");
+    case GroupActionRename:
+        return QCoreApplication::translate("MainWindowUI", "重命名这一组…");
+    case GroupActionToggleExpand:
+        // 状态**写在字里**（而不是摆一个勾字形）：菜单里只有这一项有状态，摆勾会变成
+        // "有的项前面有东西、有的没有"，右边那列文字全对不齐。
+        return row.expanded ? QCoreApplication::translate("MainWindowUI", "默认展开：开")
+                            : QCoreApplication::translate("MainWindowUI", "默认展开：关");
+    case GroupActionDelete:
+        return QCoreApplication::translate("MainWindowUI", "删除这一组…");
+    }
+    // 越界（理论上到不了：菜单是照 groupActionCount() 循环摆的）。给空串而不是随便
+    // 返回一项 —— 空串在画面上是个空白按钮，一眼看得出不对。
+    return QString();
+}
+
+bool MainWindowUI::groupActionEnabled(int action, const GroupRow &row) {
+    switch (action) {
+    case GroupActionMoveInto:
+        // 没有选中的实例就没什么可移的。
+        return row.hasSelection;
+    case GroupActionClearMembers:
+        // 空组**在树里是看不见的**，所以这一条真正拦的是"菜单开着的时候实例被别处
+        // 搬走了"那种过期快照。
+        return row.memberCount > 0;
+    case GroupActionRename:
+    case GroupActionToggleExpand:
+    case GroupActionDelete:
+        // 这三项什么时候都办得到（删一个有实例的组也只是把那些实例放回未分组，
+        // 不删任何东西 —— 见下面那句提示）。
+        return true;
+    }
+    return false;
+}
+
+QString MainWindowUI::groupActionTooltip(int action, const GroupRow &row) {
+    // 点不动的那几项要在**这里**说清为什么（菜单那边照着这个把话挂上去）。
+    switch (action) {
+    case GroupActionMoveInto:
+        if (!row.hasSelection) {
+            return QCoreApplication::translate("MainWindowUI",
+                                               "先在列表里选中一个实例，再回这儿挑一组");
+        }
+        return QCoreApplication::translate(
+            "MainWindowUI", "挑一个组把选中的实例放进去（它只能属于一个组，原来在别的组的话就换过来）");
+    case GroupActionClearMembers:
+        if (row.memberCount <= 0) {
+            return QCoreApplication::translate("MainWindowUI", "这一组里一个实例都没有");
+        }
+        return QCoreApplication::translate("MainWindowUI",
+                                           "这一组里的 %1 个实例会回到未分组"
+                                           "（组留着，实例一个都不删）")
+            .arg(row.memberCount);
+    case GroupActionRename:
+        return QCoreApplication::translate("MainWindowUI",
+                                           "给这一组换个名字（只改名字，组里的实例不动）");
+    case GroupActionToggleExpand:
+        // 这一步同时是"默认"和"当前"：树每次重灌都按它画（所以点完那一下，收着的组
+        // 不会在下次刷新时自己弹开）。
+        return row.expanded ? QCoreApplication::translate("MainWindowUI",
+                                                          "这一组现在画成展开的。"
+                                                          "点一下改成默认收起")
+                            : QCoreApplication::translate("MainWindowUI",
+                                                          "这一组现在画成收着的。"
+                                                          "点一下改成默认展开");
+    case GroupActionDelete:
+        return QCoreApplication::translate("MainWindowUI",
+                                           "删掉这一组：里面的 %1 个实例会回到未分组，"
+                                           "一个实例都不会被删掉")
+            .arg(row.memberCount);
+    }
+    return QString();
+}
+
 QColor MainWindowUI::runStateMarkColor(RunStateMark state, const QPalette &palette) {
     // 深浅两套的判据和上面 folderDangerColor() 是同一个（窗口底色的明度）。三个色各挑
     // 一深一浅：浅底上用深的（在浅底上看得见），深底上用亮的。
@@ -2289,6 +2633,64 @@ void MainWindowUI::openFolderMenu(const FolderRow &row, QWidget *gear) {
     // 而不是"鼠标点在哪就弹在哪"—— 那样的话同一个齿轮点两次会弹在差几个像素的
     // 地方，而且行高一行只有一次，对齐按钮比对齐鼠标更稳。
     menu->popUpAt(gear->mapToGlobal(QPoint(0, gear->height() + kPanelGap)));
+}
+
+void MainWindowUI::openGroupMenu(const GroupRow &row, const QRect &anchorGlobal) {
+    // 和文件夹那一块同一个路数：弹出来那一刻**不重新查数据**（数据在 MainWindow 手里），
+    // 用的就是点这颗齿轮时捕下来的那一份快照；过期的那几种情况由 MainWindow 按组 id
+    // 重新查一遍来处理，界面这一层不猜。
+    QTreeWidget *const tree = instanceList;
+    if (tree == nullptr) {
+        return;  // setupUi() 还没跑完（组行是树里的东西，正常到不了这儿）
+    }
+    // "现在有没有开着一块"靠 findChild 认，**挂在这棵树底下**（这个类不是 QObject，
+    // 没有 findChild；树是那颗齿轮的宿主，也是全窗口寿命的东西）。
+    //
+    // NOTE: 两块框（动作菜单 / 挑目标）**共用一个 objectName** —— 同一颗齿轮下只可能
+    //       开着其中一个，按名字捞回来的就该是当下那一个。捞回来的是"挑目标"那块时
+    //       groupId() 是空串，于是它永远不认"再点同一颗齿轮"，直接收掉重开动作菜单
+    //       （那正是"想换个操作"时该发生的事）。
+    if (auto *open = dynamic_cast<GroupMenu *>(tree->findChild<QWidget *>(groupMenuName()))) {
+        const bool sameAnchor = !open->pickMode() && open->groupId() == row.groupId;
+        open->close();
+        if (sameAnchor) {
+            return;
+        }
+    }
+    const GroupMenu::ActionCallback onAction = [this](const QString &groupId, int action) {
+        if (m_groupActionHandler) {
+            m_groupActionHandler(groupId, action);
+        }
+    };
+    // 重放那一侧就是这棵树的 viewport（见 GroupMenu::handleAnchorPress()）。
+    auto *menu = new GroupMenu(row, anchorGlobal, onAction, tree->viewport(), tree);
+    // 这次弹出来的框归它自己管：关掉就删（不然点一次攒一个）。
+    menu->setAttribute(Qt::WA_DeleteOnClose);
+    menu->popUpAt(QPoint(anchorGlobal.left(), anchorGlobal.bottom() + kPanelGap));
+}
+
+void MainWindowUI::openGroupPicker(const QList<GroupRow> &rows, const QRect &anchorGlobal) {
+    QTreeWidget *const tree = instanceList;
+    if (tree == nullptr) {
+        return;
+    }
+    // 挨个换菜单时（动作菜单 → 移入分组… → 这个框）前一块**已经在关的路上了**
+    // （GroupMenu 里是"先 close() 再排到下一轮事件循环交给回调"），正常捞不到它；
+    // 捞到了就是"同一颗齿轮下还开着一块"，收掉再开新的。
+    if (auto *open = dynamic_cast<GroupMenu *>(tree->findChild<QWidget *>(groupMenuName()))) {
+        open->close();
+    }
+    const GroupMenu::PickCallback onPick = [this](const QString &groupId) {
+        if (m_groupPickHandler) {
+            m_groupPickHandler(groupId);
+        }
+    };
+    auto *menu = new GroupMenu(rows, anchorGlobal, onPick, tree->viewport(), tree);
+    menu->setAttribute(Qt::WA_DeleteOnClose);
+    // 和动作菜单弹在**同一个位置**：那颗齿轮下面。用户看到的是"刚才那块框换了个内容"，
+    // 而不是"又冒出来一块"（这也是"挑目标"不做成二级子菜单的代价换来的好处：
+    // 二级子菜单在 Qt::Popup 上要另立一套抓取/收回，验证工程也驱动不动）。
+    menu->popUpAt(QPoint(anchorGlobal.left(), anchorGlobal.bottom() + kPanelGap));
 }
 
 MainWindowUI::BottomBarAnchor MainWindowUI::bottomBarAnchorAt(const QPoint &globalPos) const {

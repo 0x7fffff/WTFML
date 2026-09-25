@@ -345,6 +345,31 @@ public:
     /// NOTE: 号码为什么从 `UserRole + 3` 挪到 `UserRole + 10` —— 见 rowSubTextRole() 上面
     ///       那一段（原来是撞了 resourceKindRole()，资源表上每一行都长出一个圈）。
     static int rowRefreshRole() { return Qt::UserRole + 10; }
+    /// 「这一组行尾那颗**齿轮**要画」挂在哪个角色上（真 = 画）。2026-09-25 加的，
+    /// 用户原话：「每一个组和版本下载几乎一致，点一下打开/关闭，右侧有个箭头和齿轮，
+    /// 齿轮可以批量管理实例或者编辑该分组的设置」。
+    ///
+    /// 它挂在实例页那张树的**每一个分组头**上（`groupIdRole()` 有值的那种行），**虚拟的
+    /// 「未分组」那一格也挂** —— 那一格能做的事只有一件（把选中的实例移进某个组），
+    /// 可那一件是**唯一的一件**：一个组里一个实例都没有时那个组头是藏着的，当所有真实
+    /// 分组都空着的时候，这格齿轮是"把实例放进某个组"的最后一条路（见 GroupRow::
+    /// virtualGroup 那段）。它那一档的菜单因此只剩一项，见 groupActionVisible()。
+    /// 画在哪一格、怎么认下那一下，见 `InstanceGroupDelegate::gearRect()`（几何的唯一出处）。
+    ///
+    /// NOTE: 号码从 `UserRole + 11` 起（前三个行装饰占 8/9/10，见 rowSubTextRole() 那段）。
+    ///       加新角色时先看上面那段 —— 撞号的表现是"屏幕上多出一笔"，不报任何东西。
+    static int rowGroupGearRole() { return Qt::UserRole + 11; }
+    /// 悬停在那个齿轮上时弹的那句话（和 rowRefreshTipText() 一个规矩：只在**真落在
+    /// 那一格上**才说话，整条行不弹）。
+    static QString rowGroupGearTipText() { return QStringLiteral("这一组的更多操作"); }
+    /// 分组头行尾那颗齿轮的边长（像素）。比文件夹行那颗（24）小一号 —— 那是一行 56 px 的
+    /// 两行式的行，这一行只有一行字，齿轮得装在行高里面。
+    ///
+    /// NOTE: 这个数是**画出来**的那一圈的边长；命中格还要四周各留 3 px
+    ///       （`InstanceGroupDelegate::gearRect()`）。实例树没有版本树那个行高常数
+    ///       （就是一行字那么高），所以真画的时候还要**按行高再收一收** —— 一行只有
+    ///       十几像素时 16 px 的齿轮会上下各冒出去一半（见 `gearGlyphRect()`）。
+    static int instanceGroupGearSize() { return 16; }
     /// 悬停在那两个**行里的按钮**上时弹的那句话（2026-09-24 用户原话：「鼠标悬停在箭头上
     /// 出现刷新二字，之后不少功能要做悬停」）。谁把它弹出来的、按哪一格判，见
     /// VersionTreeDelegate::rowActionTip()（那儿是**几何的唯一出处**，这儿只是文案）。
@@ -531,7 +556,7 @@ public:
     ///       注意它不是"正在用的那一份"（那一份是**选中**哪一行说了算，两者大多数时候
     ///       是同一个，但用户加了别的目录之后就不是了）—— 这一份认的是位置，不是状态。
     static QString folderAssistantTitle() { return QStringLiteral("当前文件夹"); }
-    // 实例页右栏那三个按钮。**全按钮驱动、不做右键菜单** —— 仓库里右键菜单零先例，
+    // 实例页右栏那排按钮。**全按钮驱动、不做右键菜单** —— 仓库里右键菜单零先例，
     // 而且验证工程跑在 offscreen 上，QMenu::exec() 会阻塞在事件循环里，几乎驱动不了。
     //
     // NOTE: 2026-09-25 起**没有「停止游戏…」**了（用户原话：「实例里停止游戏按钮删了」）。
@@ -539,13 +564,19 @@ public:
     //       MainWindow::stopGameSession()）—— 那一格本来就写着"哪一个会话在跑"，
     //       停在哪儿比在这个"对选中实例做什么"的排里更说得清。所以这里也不再留
     //       stopGameButtonName() / stopGameText()，别照着旧记性写。
+    //
+    // NOTE: 同一天，这一排从"三颗都是实例级的"变成了**两 + 一**：前两颗（重命名… /
+    //       实例设置…）读的是列表里选中的那一个实例，第三颗（分组设置…）**不读它** ——
+    //       用户原话：「下方的分组设置不再是针对单个实例的设置，而是对现有分组数目/
+    //       名称等的设置」。所以"三颗按钮都作用于选中的那个实例"这句话**已经过期**，
+    //       写新代码时别照它想。
     static QString renameInstanceButtonName() { return QStringLiteral("renameInstanceButton"); }
     static QString groupInstanceButtonName() { return QStringLiteral("groupInstanceButton"); }
     static QString instanceSettingsButtonName() {
         return QStringLiteral("instanceSettingsButton");
     }
-    /// 「导入整合包…」。它和上面那三个**不是一回事**：那三个作用于列表里选中的实例，
-    /// 这个是**造**一个新实例出来。所以它不在右栏那一排里 —— 2026-09-25 起它归左栏
+    /// 「导入整合包…」。它和上面那三颗**不是一回事**：那三颗改的是已有的东西（前两颗
+    /// 作用于选中的实例、第三颗作用于分组清单），这个是**造**一个新实例出来。所以它不在右栏那一排里 —— 2026-09-25 起它归左栏
     /// 「游戏文件夹」那一组，紧挨在「添加文件夹…」下面（用户原话：「导入整合包放在左边
     /// 添加文件夹下面」）。两者都是"往这一列里添东西"。
     static QString importModpackButtonName() { return QStringLiteral("importModpackButton"); }
@@ -558,7 +589,13 @@ public:
     static QString importHintLabelName() { return QStringLiteral("importHintLabel"); }
     // 按钮上的字。验证工程**不要**拿它们当身份标识（那是显示内容），只用来核对文案。
     static QString renameInstanceText() { return QStringLiteral("重命名…"); }
-    static QString groupInstanceText() { return QStringLiteral("分组…"); }
+    /// NOTE: 2026-09-25 起它开的那张窗**不再问"这个实例归到哪个组"**，改成了分组自己的
+    ///       设置（有哪些组、叫什么名字、什么顺序、默认展开还是收着）—— 用户原话：
+    ///       「不再是针对单个实例的设置，而是对现有分组数目/名称等的设置」。所以文案
+    ///       跟着从「分组…」变成「分组设置…」，而且它**不读选中的实例**。
+    ///       想按实例归组走组行行尾那颗齿轮（GroupActionAddSelected）或者分组窗里那条
+    ///       归属单选钮原来那一套？—— 那一套**没有了**，别再照旧记性找。
+    static QString groupInstanceText() { return QStringLiteral("分组设置…"); }
     static QString instanceSettingsText() { return QStringLiteral("实例设置…"); }
     /// NOTE: 带省略号 —— 按 Qt 的规矩，点了之后还要弹框问点什么的，文案结尾就带省略号
     ///       （这个字上传出去的信息是"点下去不等于事情就开始了"，和上面三个一致）。
@@ -571,9 +608,25 @@ public:
     static int instanceIdRole() { return Qt::UserRole; }
     /// 组头上挂着组 id 的 role。**没有这个 role 的才是实例条目**。
     static int groupIdRole() { return Qt::UserRole + 1; }
-    /// 「未分组」那一格的名字。它是个**虚拟**的组（不进文件），只在存在真实分组时
+
+    /// 这一条目是不是一个**分组头**（而不是一个实例）。
+    ///
+    /// 判据是**它有没有组 id 那个 role** —— 和 `instanceIdOf()` 那道守卫是同一条
+    /// （`instanceIdOf()` 返回空串的两种情形里，只有"组头"是正常的）。做成唯一一处
+    /// 是因为读它的地方已经有三个：灌树（决定挂不挂齿轮）、代理（决定按哪种行画）、
+    /// 开关行的判据（组行的激活是"开/关"，见 ui/RowActivation.hpp）。
+    static bool isGroupItem(const QTreeWidgetItem *item) {
+        return item != nullptr && item->data(0, groupIdRole()).isValid();
+    }
+    /// 「未分组」那一格的名字。它是个**虚拟**的组（不进文件），只在它下面真的挂着实例时
     /// 才画出来 —— 一个组都没有的时候列表是平铺的，不插任何组头。
-    static QString ungroupedGroupText() { return GroupDialog::ungroupedText(); }
+    ///
+    /// NOTE: 这一句原来住在 GroupDialog 里（跟着"这个实例归到哪个组"那排单选钮一起）。
+    ///       2026-09-25 那半搬走了，分组设置窗也**不再认得**「未分组」这个东西（它只认
+    ///       真实的分组），于是这句话搬到这里 —— 现在唯一的读者是灌树那个函数和
+    ///       "移到未分组"那条提示。文件里的那个保留值另有出处（InstanceGroupStore::
+    ///       ungroupedMarker()），和这一句是两回事，别混。
+    static QString ungroupedGroupText() { return QStringLiteral("未分组"); }
     /// 组头的文字（组名 + 里面有几个实例）。规则和分组对话框里那张列表共用一份。
     static QString groupItemText(const QString &name, int count) {
         return GroupDialog::groupItemText(name, count);
@@ -962,6 +1015,127 @@ public:
     ///       setCurrentItem()，那个会发 currentRowChanged。不挡的话每刷一次列表就等于
     ///       又切一次游戏文件夹（而"切换"是要重扫磁盘、重灌界面的）。
     void setFolderRows(const QList<FolderRow> &rows);
+
+    // ------------------------------------------------------------------
+    // 实例页右栏那张树里的**组行**：右边一个箭头 + 一颗齿轮，齿轮弹一个框。
+    //
+    // 用户原话：「每一个组和版本下载几乎一致，点一下打开/关闭，右侧有个箭头和齿轮，
+    // 齿轮可以批量管理实例或者编辑该分组的设置」。
+    //
+    // 做法照左栏那个文件夹齿轮（Qt::Popup + findChild 认"现在开着的是哪一块"、
+    // 灰着的项必须配一句为什么）。三处不同：
+    //   * 那块框贴在**行**上，而行是代理画出来的（不是控件）⇒ 锚点交给的是一个**全局
+    //     矩形**（InstanceGroupDelegate::gearRect()），不是一颗按钮；
+    //   * 认人靠组 id（文件夹那边是路径）；
+    //   * 多一个"挑目标"的模式：那颗齿轮里有一项要弹**第二个**框（把实例移进哪一组）——
+    //     见下面 GroupMenu 的两套构造。
+    // ------------------------------------------------------------------
+
+    /// 弹菜单那一刻捕下来的**一个组**的快照。
+    struct GroupRow {
+        /// 这一行是谁：组 id（`default-*` 是内置那五个；空串 = 虚拟的「未分组」）。
+        /// 动作原样带着它回来，界面这一层不猜。
+        ///
+        /// NOTE: 和 FolderRow::path 同一条：认身份靠 id，**不能靠"第几行"** ——
+        ///       菜单开着的时候用户看两眼，这中间别处一行代码就可能把组删了。
+        QString groupId;
+        /// 组名（不带后面那个计数）。
+        QString name;
+        /// 这一组里几个实例。**0 个的组在树里根本不画**（用户要的"空白的分组隐藏"），
+        /// 所以它只可能是"菜单开着的时候实例被别处搬走了"这种过期快照 —— 那几个动作
+        /// 落到 MainWindow 那头会按 id 重新查一遍，查不到就当没发生。
+        int memberCount = 0;
+        /// 这一组现在在树里是展开的还是收着的。「默认展开：开/关」那一项写的字、
+        /// 以及点了之后要翻成什么，都用它。
+        bool expanded = true;
+        /// 此刻列表里**有没有**"选中的实例"，以及那个实例**是不是就在这一组里**。
+        /// 「把选中的实例移入分组…」能不能点看第一个；挑目标那个框里"就是本组"那一条
+        /// 灰掉看第二个。
+        bool hasSelection = false;
+        bool containsSelected = false;
+        /// true = 这是那个**虚拟的「未分组」**（组 id 是空串）。
+        ///
+        /// NOTE: 它不是真的组：不能改名、不能删、不能排序、也没有"默认展开"这一说
+        ///       （它收起来这件事不落盘 —— 文件里没有它的记录，每次重灌树它都是展开的）。
+        ///       它那一档的菜单因此只剩「把选中的实例移入分组…」一项 —— 那一项是
+        ///       **回到分组里的唯一入口**：一个组里一个实例都没有时那个组头是藏着的，
+        ///       想往空组里放第一个实例就得从这儿进（见 groupActionVisible）。
+        bool virtualGroup = false;
+    };
+
+    /// 组行行尾那颗齿轮弹出来的动作，**顺序就是它们显示的顺序**
+    /// （枚举值不是下标，别拿它去索引）。
+    enum GroupAction {
+        GroupActionMoveInto,     ///< 把选中的实例移入分组…（再弹一个"移进哪一组"的框）
+        GroupActionClearMembers, ///< 把这一组里的实例都移出分组（组留着、实例一个不删）
+        GroupActionRename,       ///< 重命名这一组…
+        GroupActionToggleExpand, ///< 默认展开：开 / 关（这一项的字**带着状态**）
+        GroupActionDelete,       ///< 删除这一组…（红色那一项；里面的实例一个都不删）
+    };
+    /// 一共几项（菜单照它循环摆，"未分组"那一档再按 groupActionVisible 滤一遍）。
+    static int groupActionCount() { return 5; }
+    /// 第 @p action 项对 @p row 这一组**显不显示**。
+    ///
+    /// NOTE: 虚拟的「未分组」只有第一项 —— 上面那四条理由写在 GroupRow::virtualGroup
+    ///       那段。**是"不显示"而不是"灰着"**：灰着还要配一句"为什么不能给未分组改名"，
+    ///       而这件事没有为什么，它压根不是一个组。
+    static bool groupActionVisible(int action, const GroupRow &row) {
+        return !(row.virtualGroup && action != GroupActionMoveInto);
+    }
+    /// 第 @p action 项上写的字。**要用到 @p row**：展开那一项把状态写在字里
+    /// （「默认展开：开」/「默认展开：关」）—— 不摆勾字形，免得菜单里"有的项前面有
+    /// 东西、有的没有"，文字对不齐。
+    static QString groupActionText(int action, const GroupRow &row);
+    /// 第 @p action 项现在能不能点。
+    static bool groupActionEnabled(int action, const GroupRow &row);
+    /// 第 @p action 项鼠标停上去显示的那句话。**点不动的那几项由它说清为什么**
+    /// （灰着不说话，用户只会以为界面坏了 —— 和文件夹齿轮那条同一个规矩）。
+    static QString groupActionTooltip(int action, const GroupRow &row);
+    /// 「删除这一组…」那一项的字色。复用文件夹齿轮那一处红（同一个调色板规则）。
+    static QColor groupDangerColor(const QPalette &palette) { return folderDangerColor(palette); }
+
+    /// 齿轮弹出来的那块框的 objectName，以及里面每一项的 objectName。
+    ///
+    /// NOTE: 那块框和"挑目标"那块框**共用同一个名字** —— 同一颗齿轮下只可能开着
+    ///       其中一个，验证工程按名字捞回来的就该是当下那一个（它再按 pickMode() 分开）。
+    static QString groupMenuName() { return QStringLiteral("groupMenu"); }
+    static QString groupMenuActionName(int action) {
+        return QStringLiteral("groupMenuAction%1").arg(action);
+    }
+    /// "挑目标"那块框里，第 @p index 行的 objectName（0 起，顺序就是我们递进去的顺序）。
+    static QString groupPickRowName(int index) {
+        return QStringLiteral("groupPickRow%1").arg(index);
+    }
+    /// 这两块框里每一项的图标边长（像素）。和文件夹那块一样 16。
+    static int groupMenuIconSize() { return 16; }
+
+    /// 「组齿轮菜单里某一项被点了」。
+    ///
+    /// NOTE: 点组行**本身**（展开/收起）不走这里 —— 那条由 MainWindow 接
+    ///       ui/RowActivation.hpp 那套。这儿只有齿轮弹出框里那几项。
+    using GroupActionHandler = std::function<void(const QString &groupId, int action)>;
+    /// 「挑目标框里某一组被点了」：把选中的实例移进 @p groupId（空串 = 未分组）。
+    using GroupPickHandler = std::function<void(const QString &groupId)>;
+    /// 装上这两个回调（MainWindow 构造时各调一次）。没装的话框照样弹得出来，
+    /// 只是点了没反应。
+    void setGroupActionHandler(GroupActionHandler handler) {
+        m_groupActionHandler = std::move(handler);
+    }
+    void setGroupPickHandler(GroupPickHandler handler) {
+        m_groupPickHandler = std::move(handler);
+    }
+
+    /// 在 @p anchorGlobal 那一格（组行行尾那颗齿轮，**全局坐标**；形状见
+    /// InstanceGroupDelegate::gearRect()）弹出 @p row 这一组的动作菜单。
+    ///
+    /// NOTE: "再点一次同一颗齿轮 = 收回"靠 groupId 认人（锚点矩形是按行算的，
+    ///       同一行滚动一下就不一样了，拿它当身份不牢）。
+    void openGroupMenu(const GroupRow &row, const QRect &anchorGlobal);
+
+    /// 在 @p anchorGlobal 那一格弹出"把选中的实例移进哪一组"（@p rows 是**全部**
+    /// 分组 + 虚拟的「未分组」，含**一个实例都没有**的那些 —— 一个空组在树里是藏着
+    /// 的，这个框是把它放进第一个实例的唯一入口）。
+    void openGroupPicker(const QList<GroupRow> &rows, const QRect &anchorGlobal);
 
     // ---------- 左右两栏（主页/实例/下载三页用；设置页是两列 grid） ----------
     // 栏是**真的控件**（不是裸布局）：这样才能按 objectName 找回来量几何、
@@ -1562,4 +1736,8 @@ private:
     PanelActionHandler m_panelActionHandler;
     /// 「文件夹齿轮菜单里某一项被点了」该告诉谁（见 setFolderActionHandler()）。
     FolderActionHandler m_folderActionHandler;
+    /// 「组齿轮菜单里某一项被点了」和「挑目标框里某一组被点了」该告诉谁
+    /// （见 setGroupActionHandler() / setGroupPickHandler()）。
+    GroupActionHandler m_groupActionHandler;
+    GroupPickHandler m_groupPickHandler;
 };

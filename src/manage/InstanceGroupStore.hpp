@@ -47,9 +47,17 @@ public:
     struct Group {
         QString id;
         QString name;
+        /// 这一组在实例树里**画成展开的还是收着的**（用户 2026-09-25 原话里的
+        /// 「默认展开/关闭」）。
+        ///
+        /// NOTE: 它既是"默认"也是"当前"——**只有这一份状态**。用户点一下组行（或者齿轮
+        ///       菜单里那一项）就把它翻过来并落盘，下一次重灌那张树照着它摆。两处各记一份
+        ///       的话，树每次刷新（装完一个版本、改个名、换个目录都会重灌）就会把用户刚
+        ///       收起来的组又撑开 —— 而"点一下打开/关闭"正是用户要的那件事。
+        bool expanded = true;
 
         // 逐字段比较：MainWindow 靠它判断"用户在对话框里改过组清单没有"，
-        // 没改就不去写盘。
+        // 没改就不去写盘。**expanded 也算在里面**：折叠状态是用户改出来的一格。
         friend bool operator==(const Group &, const Group &) = default;
     };
 
@@ -86,6 +94,18 @@ public:
     /// NOTE: 发 groupsChanged（写成功才发）。调用方如果是"因为要重画才来种的"，自己挡信号。
     /// @param errorOut 失败原因（给用户看的一句话）。文件本来就在 = 直接成功、不写盘。
     bool seedDefaultGroups(QString *errorOut = nullptr);
+
+    /// 把组清单**恢复成五个默认组**（用户 2026-09-25 原话里的「恢复默认分组设置」）。
+    ///
+    /// 它是 `replaceGroups(defaultGroups())` 的一个有名字的说法，单独列出来是为了让
+    /// "这一件事"在调用处读得出来，也为了让两个后果在唯一一处写清楚：
+    ///   - **用户自己建的组会消失**，组里那些实例**一个都不会被删**：它们指向的组没了，
+    ///     按 replaceGroups() 的规矩那条归属一起被清掉 —— 于是它们回到"没表过态"，
+    ///     下一次刷新按版本类型自动归类（可安装mod / 原版 / 快照版 / 远古版）。
+    ///   - **五个默认组的 id 是写死的**（defaultGroupId），所以原来归在默认组里的实例
+    ///     还在原处：哪怕用户把「原版」改过名，恢复之后名字回到「原版」、成员不变。
+    /// @param errorOut 失败原因（给用户看的一句话）。
+    bool restoreDefaultGroups(QString *errorOut = nullptr);
 
     /// 归属表里那个**保留值**：用户**明确**选过「未分组」。
     ///
@@ -132,6 +152,21 @@ public:
     /// @param errorOut 失败原因（给用户看的一句话）。
     bool replaceGroups(const QList<Group> &groups, QString *errorOut = nullptr);
 
+    /// 把某一组的「展开还是收着」（Group::expanded）改掉并落盘。
+    ///
+    /// NOTE: 【为什么它**不发** groupsChanged】
+    ///       那个信号的意思是"组清单变了，界面该重灌"（加组、删组、改名、换顺序、换归属）。
+    ///       而这里改的是**界面刚刚自己摆好的那一个状态**（用户点的那一下就是这个新状态），
+    ///       重灌一遍只会把整棵树重建一次：选择、滚动位置、正在展开的另一条都跟着抖一下，
+    ///       换来的东西是零。剩下的一处读者（重灌树时读它摆展开状态）本来就会在这次之后
+    ///       的任意一次重灌里读到新值。
+    /// NOTE: 状态本来就是那个值时**不写盘**（双击那两发里第二发会走到这儿），和 rekey()
+    ///       那几条空操作同一条规矩。
+    /// @param groupId 组 id（空串按调用方的 bug 拒掉）。
+    /// @param expanded 想要的状态。
+    /// @param errorOut 失败原因（给用户看的一句话）。
+    bool setGroupExpanded(const QString &groupId, bool expanded, QString *errorOut = nullptr);
+
     /// 把某个实例归到某个组。`groupId` 传空串 = 取消分组。
     ///
     /// NOTE: 空串进去**不是"把这一条删掉"**，而是写成一个 `ungroupedMarker()`（= 用户明确
@@ -166,10 +201,17 @@ private:
     /// 而"按需重读"对调用方来说只是"这次读得慢一点"。
     void ensureLoaded() const;
 
-    /// 把规范化之后的组清单 + 成员表写出去。三条写路径共用，免得"哪些成员该留"
+    /// 把规范化之后的组清单 + 成员表写出去。几条写路径共用，免得"哪些成员该留"
     /// 这套判断抄三遍。
+    /// @param notify 写成功之后发不发 groupsChanged()。
+    ///
+    /// NOTE: 只有 setGroupExpanded() 传 false —— 展开/收着那一个字段的读者是"重灌树的
+    ///       时候读它摆状态"，而用户点的那一下界面**已经自己摆好了**，为它重建一次整棵
+    ///       树只会把选择、滚动位置、别的组的展开状态一起抖一下（完整理由见
+    ///       setGroupExpanded() 那段 NOTE）。别的写路径动的都是组清单/归属，界面非重灌
+    ///       不可，一律发。
     bool writeThrough(const QList<Group> &groups, const QJsonObject &rawMembers,
-                      QString *errorOut);
+                      QString *errorOut, bool notify = true);
 
     /// 上次读的是哪一份 .minecraft 下的文件。空串 = 还没读过。
     mutable QString m_loadedFor;

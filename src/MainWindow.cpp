@@ -12,6 +12,7 @@
 #include "MainWindow.hpp"
 
 #include "..\ui\GroupDialog.hpp"
+#include "..\ui\InstanceGroupDelegate.hpp"
 #include "..\ui\InstanceSettingsDialog.hpp"
 #include "..\ui\JavaMismatchDialog.hpp"
 #include "..\ui\AccountSkinDialog.hpp"
@@ -199,6 +200,12 @@ void fillVersionCombo(QComboBox *combo, const QList<VersionDisplayParts> &parts,
 struct InstanceGroupBucket {
     QString groupId;
     QString name;
+    /// 这一组在树里**画成展开的还是收着的**（用户 2026-09-25 原话里的「默认展开/关闭」）。
+    ///
+    /// NOTE: 它的出处是 wtfml.folders 里那一格（InstanceGroupStore::Group::expanded），
+    ///       用户点一下组行（或者齿轮菜单里那一项）就翻过来并落盘 —— 于是"下次重灌还
+    ///       照这样画"。虚拟的「未分组」没有记录，恒为 true（它收起来这件事不落盘）。
+    bool expanded = true;
     QList<VersionDisplayParts> parts;
 };
 
@@ -233,8 +240,10 @@ QString instanceIdOf(const QTreeWidgetItem *item) {
  * 两种形态，由调用方给进来的 buckets 决定（它才知道有没有真实分组）：
  *   - **只有一格、groupId 为空** → 平铺，不插组头。这是"还没分过组"的样子，
  *     和换树之前那张列表逐项一致。
- *   - 否则每格画一个组头，实例挂在它下面。**空组照样画**："先把组建好、再往里
- *     放东西"是常见顺序，空组不画的话用户会以为没建成。
+ *   - 否则每格画一个组头，实例挂在它下面。**一个实例都没有的组不画**（用户 2026-09-25
+ *     原话：「空白的分组隐藏」）—— 藏起来的只是那行标题，组本身还在 wtfml.folders 里、
+ *     还在「分组设置…」里，也照样能被接收实例（那颗齿轮的第一项列的是**全部**组，
+ *     含这些藏着的，见 MainWindowUI::openGroupPicker()）。
  *
  * NOTE: 灌完**不动选中项**（和 fillVersionList 一致），收尾由调用方 syncTreeToCombo()。
  * NOTE: 每个实例条目的 tooltip 是**目录的完整路径**。显示名和目录名可能不一样
@@ -257,13 +266,24 @@ void fillInstanceTree(QTreeWidget *tree, const QList<InstanceGroupBucket> &bucke
     const QSignalBlocker blocker(tree);
     tree->clear();
 
+    // 平铺还是插组头，按**调用方给的** buckets 判（它才知道那一份 .minecraft 里有没有
+    // 真实分组），不看下面滤掉空组之后剩下什么：分组全空的那一档确实一行都不画，
+    // 但那仍然是"分过组的"，形态不该因此翻过来。
     const bool flat = buckets.size() == 1 && buckets.first().groupId.isEmpty();
     for (const InstanceGroupBucket &bucket : buckets) {
+        // 一个实例都没有的组**不画**（见函数头）。平铺那一格不参与：那不是一个组。
+        if (!flat && bucket.parts.isEmpty()) {
+            continue;
+        }
         QTreeWidgetItem *parent = nullptr;
         if (!flat) {
             parent = new QTreeWidgetItem(tree);
             parent->setText(0, MainWindowUI::groupItemText(bucket.name, bucket.parts.size()));
             parent->setData(0, MainWindowUI::groupIdRole(), bucket.groupId);
+            // 行尾那颗**齿轮**：几何的唯一出处是 InstanceGroupDelegate::gearRect()，
+            // 认下那一下的是 MainWindow::eventFilter()。虚拟的「未分组」那一格也挂
+            // （它是"把实例放进某个组"的最后一条路，见 MainWindowUI::rowGroupGearRole()）。
+            parent->setData(0, MainWindowUI::rowGroupGearRole(), true);
             // 组头**不给选中**：它是"一堆东西的标题"，不是"一个能启动的实例"。
             // 清掉 ItemIsSelectable 之后，选择模型会拒绝把它放进"被选中"的集合，
             // 所以点它**不会亮**（ui_check 的 M 段真的发了一次鼠标事件钉住这条）。
@@ -274,10 +294,10 @@ void fillInstanceTree(QTreeWidget *tree, const QList<InstanceGroupBucket> &bucke
             //       真正兜住"当前选中的是哪个实例"的是 instanceIdOf() 那道守卫，
             //       每一个读 currentItem() 的地方都绕不过去。
             parent->setFlags(parent->flags() & ~Qt::ItemIsSelectable);
-            // 默认展开：折起来的组里有什么，用户得点一下才知道，而这里正是"想让
-            // 用户看见有什么"的地方。他折起来之后的重灌会再展开 —— 重灌本来就
-            // 不负责记状态（连选中项都是显式对齐的）。
-            parent->setExpanded(true);
+            // 展开还是收着**由那一组自己记着**（bucket.expanded ← wtfml.folders 里那一格）：
+            // 用户点一下组行就翻过来并落盘，于是"下次打开还照这样画"。默认那五个组都是
+            // 展开的（新组的默认值也一样）—— 折起来的组里有什么，用户得点一下才知道。
+            parent->setExpanded(bucket.expanded);
         }
         // 平铺时挂在**不可见的根**下面，那和"顶层条目"是一回事，而且省掉了
         // "parent 是空的就换一个构造函数"那条分叉（两个构造函数收的类型不一样）。
@@ -347,6 +367,9 @@ QList<InstanceGroupStore::Group> toStoreGroups(const QList<GroupDialog::Group> &
         InstanceGroupStore::Group item;
         item.id = group.id;
         item.name = group.name;
+        // 「默认展开」也搬过来：它在两边是同一个字段（不是"界面上的显示状态"），
+        // 丢了的话在对话框里摆好的展开状态按一次确定就被重置回默认。
+        item.expanded = group.expanded;
         to.append(item);
     }
     return to;
@@ -359,6 +382,7 @@ QList<GroupDialog::Group> toDialogGroups(const QList<InstanceGroupStore::Group> 
         GroupDialog::Group item;
         item.id = group.id;
         item.name = group.name;
+        item.expanded = group.expanded;  // 见 toStoreGroups() 那段
         to.append(item);
     }
     return to;
@@ -367,6 +391,126 @@ QList<GroupDialog::Group> toDialogGroups(const QList<InstanceGroupStore::Group> 
 // 「一个实例的启动五项覆盖」的两份表示之间的转换。理由和上面那两段一样：ui/ 不 include
 // src/，所以 InstanceSettingsDialog 有自己的 Override、settings/ 有自己的
 // JavaSettingsOverride，逐字段相同、由这两段循环在两边搬。
+
+/**
+ * @brief 组齿轮菜单（以及它里面"移入分组…"弹出的挑目标框）那一刻的那份**快照**。
+ * @param ui 主界面（组行都长在它的实例树里）。
+ * @param store 分组存储（组的清单、顺序、展开状态从这儿来）。
+ * @param selectedKey 此刻选中的那个实例的归属键（instanceKey()）；空串 = 没选中。
+ *
+ * NOTE: 实例数是在**当前那张树**上数的（它就是用户此刻看到的东西）：藏起来的组不在树上
+ *       ⇒ 它是 0 —— 那正好也是"这一组里有几个实例"在那一刻的实话。"选中的那个实例在哪一组
+ *       下面"同样是在树上看的：树上那一份已经算过自动归类，而存储层里"没表过态"和"明确
+ *       选了未分组"是两种不同的记录、读出来都是空串。
+ *
+ * NOTE: 它是个自由函数（不是 MainWindow 的成员），因为 MainWindowUI::GroupRow 是 ui/ 里的
+ *       嵌套类型，而 MainWindow.hpp **不 include ui/ 的头**（见那个文件头那几条前置声明）。
+ *       摆在这儿的那几个私有成员函数只收窄（组 id / 一整行）就不必把它写进头文件。
+ */
+QList<MainWindowUI::GroupRow> groupRowsForMenu(const MainWindowUI *ui,
+                                               const InstanceGroupStore *store,
+                                               const QString &selectedKey) {
+    QHash<QString, int> counts;
+    // 选中的那个实例此刻显示在哪个组下面（空串 = 未分组，也含"平铺"那一档）。
+    QString selectedBucket;
+    const QTreeWidget *tree = ui->getInstanceList();
+    const auto consider = [&selectedKey, &selectedBucket](const QTreeWidgetItem *item,
+                                                          const QString &bucket) {
+        // 空 id 一律不算：组头没有实例 id（instanceIdOf 的守卫），而"没选中实例"时
+        // selectedKey 也是空串 —— 两条都不该在这儿配成一对。
+        const QString id = instanceIdOf(item);
+        if (!id.isEmpty() && id == selectedKey) {
+            selectedBucket = bucket;
+        }
+    };
+    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+        const QTreeWidgetItem *top = tree->topLevelItem(i);
+        const QVariant groupId = top->data(0, MainWindowUI::groupIdRole());
+        if (!groupId.isValid()) {
+            // 平铺那一档（一个真实分组都没有时）：顶层条目**就是**实例本身。
+            consider(top, QString());
+            continue;
+        }
+        const QString bucket = groupId.toString();
+        counts.insert(bucket, top->childCount());
+        for (int j = 0; j < top->childCount(); ++j) {
+            consider(top->child(j), bucket);
+        }
+    }
+
+    const bool hasSelection = !selectedKey.isEmpty();
+    QList<MainWindowUI::GroupRow> rows;
+    const QList<InstanceGroupStore::Group> groups = store->groups();
+    rows.reserve(groups.size() + 1);
+    for (const InstanceGroupStore::Group &group : groups) {
+        MainWindowUI::GroupRow row;
+        row.groupId = group.id;
+        row.name = group.name;
+        row.memberCount = counts.value(group.id, 0);
+        row.expanded = group.expanded;
+        row.hasSelection = hasSelection;
+        row.containsSelected = hasSelection && selectedBucket == group.id;
+        rows.append(row);
+    }
+    // 虚拟的「未分组」排在最后（和树上同一个位置）。**只有真的分过组才摆它** ——
+    // 一个真实分组都没有时列表是平铺的，那颗齿轮压根没地方挂，这张表也就没人看得见。
+    if (!groups.isEmpty()) {
+        MainWindowUI::GroupRow rest;
+        rest.name = MainWindowUI::ungroupedGroupText();
+        rest.memberCount = counts.value(QString(), 0);
+        // 它没有记录（那一格不落盘），树上每次都是展开的 —— 快照照实说。
+        rest.expanded = true;
+        rest.hasSelection = hasSelection;
+        rest.containsSelected = hasSelection && selectedBucket.isEmpty();
+        rest.virtualGroup = true;
+        rows.append(rest);
+    }
+    return rows;
+}
+
+/**
+ * @brief 某一组此刻的那份快照（groupRowsForMenu() 里对应的那一条）。
+ * @param row 拿到的那一行。@param selectedKey 见 groupRowsForMenu()（缺省 = 没选中实例）。
+ * @return 这一组不在（菜单开着的时候被别处删了）时返回 false，@p row 原样不动。
+ *
+ * NOTE: 虚拟的「未分组」的组 id 就是空串，所以传空串进来拿到的是**它**，不是"没找到"。
+ *       两个调用点要的都是"这一刻的样子"，所以它每次都重新翻一遍快照，不复用菜单里
+ *       那一份 —— 菜单摆出来之后用户可能看两眼才点，这中间别处一行代码就能把它删了。
+ */
+bool groupRowFor(const MainWindowUI *ui, const InstanceGroupStore *store, const QString &groupId,
+                 MainWindowUI::GroupRow *row, const QString &selectedKey = QString()) {
+    const QList<MainWindowUI::GroupRow> rows = groupRowsForMenu(ui, store, selectedKey);
+    for (const MainWindowUI::GroupRow &item : rows) {
+        if (item.groupId == groupId) {
+            if (row != nullptr) {
+                *row = item;
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * @brief 某一组那一行行尾**齿轮**占的那一格，全局坐标（弹挑目标框时的锚点）。
+ * @return 那一行不在树上（一个实例都没有的组是藏着的）时返回空矩形。
+ *
+ * 几何的唯一出处是 InstanceGroupDelegate::gearRect() —— 和代理画它、eventFilter 认下
+ * 那一下用的是同一个式子（写歪了的症状就是"看着点中了齿轮、其实点的是那一行"）。
+ */
+QRect gearAnchorFor(const MainWindowUI *ui, const QString &groupId) {
+    QTreeWidget *tree = ui->getInstanceList();
+    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+        QTreeWidgetItem *item = tree->topLevelItem(i);
+        if (item->data(0, MainWindowUI::groupIdRole()).toString() != groupId
+            || !item->data(0, MainWindowUI::rowGroupGearRole()).toBool()) {
+            continue;
+        }
+        const QRect gear = InstanceGroupDelegate::gearRect(tree->visualItemRect(item));
+        return QRect(tree->viewport()->mapToGlobal(gear.topLeft()), gear.size());
+    }
+    return QRect();
+}
 
 JavaSettingsOverride toSettingsOverride(const InstanceSettingsDialog::Override &from) {
     JavaSettingsOverride to;
@@ -896,6 +1040,45 @@ void MainWindow::setupConnections() {
     // 选中组头时不动作（syncComboToTree 里的守卫）—— 点一个组的标题不是在挑版本。
     connect(m_ui->getInstanceList(), &QTreeWidget::currentItemChanged, this, [this] {
         syncComboToTree(m_ui->getInstalledVersionCombo(), m_ui->getInstanceList());
+    });
+    // 点**组头**那一下 = 展开/收起（用户原话：「每一个组和版本下载几乎一致，点一下
+    // 打开/关闭」），而且当场记下来 —— 下次打开还照这样画（见 InstanceGroupStore::
+    // Group::expanded）。点实例那一行仍旧只是"把它选中"（上面那条 currentItemChanged）。
+    //
+    // 整条行都是热区：那一行除了"展开/收起"没有别的事可做，而"点了没反应"是用户唯一会
+    // 当成启动器坏了的情况（和版本树那几条分类同一条规矩）。
+    //
+    // NOTE: 先算再做（`!item->isExpanded()` 在 setExpanded() 之前求值）—— 和加载器树那
+    //       一句同一个写法、同一个教训（见那里的 NOTE）。
+    const auto onInstanceTreeActivated = [this](QTreeWidgetItem *item) {
+        if (item == nullptr || !item->data(0, MainWindowUI::rowGroupGearRole()).toBool()) {
+            return;
+        }
+        const bool expand = !item->isExpanded();
+        item->setExpanded(expand);
+        rememberGroupExpanded(item->data(0, MainWindowUI::groupIdRole()).toString(), expand);
+    };
+    // 接线口和另外三棵树同一条（鼠标单击 + 键盘回车），另外交待**哪些行是"开/关"**：
+    // 点得快的第二发（以及后面每一发）到的是双击事件，只有开关行才补那一发。
+    // 组头就是开关行；实例行是"选中它"，算做事（那是 currentItemChanged 那条路的事，
+    // 双击不该办两遍）。
+    connectRowActivation(m_ui->getInstanceList(), onInstanceTreeActivated,
+                         [](QTreeWidgetItem *item) {
+                             return item != nullptr
+                                    && item->data(0, MainWindowUI::rowGroupGearRole()).toBool();
+                         });
+    // 组行行尾那颗**齿轮**：它不是"点这一行"，所以不走上面那条路 —— 走**视口上的事件
+    // 过滤器**，判据是 InstanceGroupDelegate::gearRect()（和代理画它的那一格是同一份
+    // 几何）。过滤器是为了**吃掉**那一下：不然点齿轮会顺手把这一组展开/收起
+    //（和加载器树上那个「取消」小叉、下载页那几个刷新圈完全同一个路数）。
+    m_ui->getInstanceList()->viewport()->installEventFilter(this);
+    // 组行行尾那颗齿轮里那几项点了做什么（界面只报"哪一组、第几项"）。
+    m_ui->setGroupActionHandler([this](const QString &groupId, int action) {
+        onGroupActionRequested(groupId, action);
+    });
+    // 齿轮里「把选中的实例移入分组…」弹出的**第二个**框（挑目标）点了哪一组。
+    m_ui->setGroupPickHandler([this](const QString &groupId) {
+        assignSelectedInstanceToGroup(groupId);
     });
     // ---------- 下载页「游戏」那两层：版本树 → 安装页 ----------
     //
@@ -1970,6 +2153,7 @@ void MainWindow::refreshInstalledVersions() {
         InstanceGroupBucket bucket;
         bucket.groupId = group.id;
         bucket.name = group.name;
+        bucket.expanded = group.expanded;
         bucketOfGroup.insert(group.id, buckets.size());
         knownGroupIds.insert(group.id);
         buckets.append(bucket);
@@ -2003,7 +2187,11 @@ void MainWindow::refreshInstalledVersions() {
         buckets.append(all);
     } else {
         // 「未分组」排在有归属的后面：用户建了组，说明那些组是他主要在看的东西。
-        // 它**总是**画出来（哪怕 0 个）——树里少一格、下一帧又出现，比一直留着更难理解。
+        //
+        // NOTE: 它和真实分组一样**空着就不画**（fillInstanceTree 那道滤）。2026-09-25
+        //       之前它是"总是画出来"，那条理由（"少一格又出现比一直留着更难理解"）在
+        //       用户要求「空白的分组隐藏」之后就不成立了：现在藏起来的是**所有**空组，
+        //       一视同仁，而一格都没有的树本来就空着（没什么可画的）。
         InstanceGroupBucket rest;
         rest.name = MainWindowUI::ungroupedGroupText();
         rest.parts = ungrouped;
@@ -2435,6 +2623,35 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
                 //       一版，按一下叉就把它忘掉，下次再选中这条加载器还得从头找一遍。
                 //       它只在"这一条被选中"的时候才显示，留着不会让人看到不该看的东西。
                 selectLoader(MainWindowUI::modLoaderNoneIndex());
+            }
+            return true;
+        }
+    }
+    // 实例页那张树上**唯一一个"行里的按钮"**：组行行尾那颗齿轮（谁画的、画在哪一格，
+    // 见 InstanceGroupDelegate::gearRect()）。判据和上面那个叉一模一样 —— 包括"吃掉
+    // 那一下"：不吃的话点齿轮会顺手把这一组展开/收起（那正是"点组行"要干的事）。
+    //
+    // NOTE: 这里**也接双击**。点得快的时候第二发及以后到的是 MouseButtonDblClick
+    //       （见 ui/RowActivation.hpp 那段），只接 Press/Release 的话"连点两下齿轮"
+    //       的第二下会漏给下面那条"点中了这一行"的路。
+    QTreeWidget *instanceTree = m_ui->getInstanceList();
+    if (instanceTree != nullptr && watched == instanceTree->viewport()
+        && (event->type() == QEvent::MouseButtonPress
+            || event->type() == QEvent::MouseButtonRelease
+            || event->type() == QEvent::MouseButtonDblClick)) {
+        auto *mouse = static_cast<QMouseEvent *>(event);
+        QTreeWidgetItem *item =
+            mouse->button() == Qt::LeftButton ? instanceTree->itemAt(mouse->position().toPoint())
+                                              : nullptr;
+        if (item != nullptr && item->data(0, MainWindowUI::rowGroupGearRole()).toBool()
+            && InstanceGroupDelegate::gearRect(instanceTree->visualItemRect(item))
+                   .contains(mouse->position().toPoint())) {
+            // 按下就动手（松开、以及那几发双击只负责被吃掉）：跟普通按钮一样，按下去就该
+            // 有反应。双击那几发**不能**再弹一遍 —— 弹第二遍时上面那块框已经开着，
+            // openGroupMenu() 认到"还是同一组"就把它收回去了，用户看到的是"连点两下齿轮
+            // 反而没了"（那一处正是"再点同一颗齿轮 = 收回"，别在门口把它挡掉）。
+            if (event->type() == QEvent::MouseButtonPress) {
+                openGroupMenuFor(item);
             }
             return true;
         }
@@ -4955,16 +5172,12 @@ QString MainWindow::instanceKey(const QString &versionId) const {
 }
 
 void MainWindow::onGroupInstanceClicked() {
-    // 和「重命名…」同一个取值口径：以下拉框为准（它就是"当前选中的那个实例"）。
-    const QString versionId = selectedVersionId(m_ui->getInstalledVersionCombo());
-    if (versionId.isEmpty()) {
-        QMessageBox::information(this, tr("分组"), tr("先选中一个实例。"));
-        return;
-    }
-
     // 每个组里有多少个实例：从**当前那张树**上数，不重新扫盘。它就是用户此刻看到的
-    // 东西，而且对话框拿它显示「组名 (N)」和"删这个组会有多少实例变成未分组"——
+    // 东西，而对话框拿它显示「组名 (N)」和"删这个组会有多少实例变成未分组"——
     // 两处都该和屏幕上的数字一致。
+    //
+    // NOTE: 一个实例都没有的组**不在树上**（用户要的"空白的分组隐藏"）⇒ 这里数出来是 0，
+    //       那也正是实话；它在对话框里照样列着、照样能改名排序，只是括号里写着 0。
     QHash<QString, int> counts;
     const QTreeWidget *tree = m_ui->getInstanceList();
     for (int i = 0; i < tree->topLevelItemCount(); ++i) {
@@ -4975,62 +5188,339 @@ void MainWindow::onGroupInstanceClicked() {
         }
     }
 
-    const QList<InstanceGroupStore::Group> groups = m_groupStore->groups();
-    GroupDialog dialog(toDialogGroups(groups), counts, m_groupStore->groupIdOf(instanceKey(versionId)),
-                       this);
+    // 「恢复默认分组设置」之后每个组里会有几个实例：恢复 = 用户自己建的组全没了 ⇒ 那些
+    // 实例回到"没表过态"，于是按版本类型自动归类（defaultGroupIdFor()）—— 落点只有这里
+    // 算得出来，而对话框要在那一句话里说清"是不是真的一个实例都不删"。
+    //
+    // 取的实例集合和上面那张树是同一份（在装的那几个不算）：两处数的要是同一批东西，
+    // 不然"恢复之后原版有 3 个"和屏幕上看到的数字对不上。
+    const QList<InstanceGroupStore::Group> defaults = InstanceGroupStore::defaultGroups();
+    QSet<QString> defaultIds;
+    for (const InstanceGroupStore::Group &group : defaults) {
+        defaultIds.insert(group.id);
+    }
+    const QSet<QString> installing = installingVersionIds();
+    QHash<QString, int> defaultCounts;
+    for (const QString &id : m_versionManager->installedVersions()) {
+        if (installing.contains(id)) {
+            continue;
+        }
+        const QString groupId =
+            defaultGroupIdFor(m_versionManager->displayParts(id), m_versionManager, defaultIds);
+        defaultCounts[groupId] = defaultCounts.value(groupId) + 1;
+    }
+
+    // NOTE: 这张窗**不读选中的实例**（用户原话：「不再是针对单个实例的设置」）——
+    //       一个实例都没选也开得出来，那是"先建几个组、再往里放东西"的正常顺序。
+    //       把实例放进某个组是组行行尾那颗齿轮的事（见 onGroupActionRequested()）。
+    GroupDialog dialog(toDialogGroups(m_groupStore->groups()), counts, toDialogGroups(defaults),
+                       defaultCounts, this);
     if (dialog.exec() != QDialog::Accepted) {
         // 取消：磁盘一个字节都没动（对话框只改自己手里那份工作副本）。
         return;
     }
-    applyGrouping(instanceKey(versionId), dialog);
+    applyGroupList(dialog);
 }
 
-bool MainWindow::applyGrouping(const QString &key, const GroupDialog &dialog) {
+bool MainWindow::applyGroupList(const GroupDialog &dialog) {
     const QList<InstanceGroupStore::Group> wanted = toStoreGroups(dialog.groups());
-    const QString wantedGroupId = dialog.assignedGroupId();
 
-    // 两件事分开、都是"变了才写"：组清单和归属是两个独立的字段，用户可能只动了其中一个。
-    // 没变就写的话，每点一次「确定」都会重写一遍文件（连带把 mtime 刷新），
-    // 而"什么都没改"是最常见的一次操作。
+    // 变了才写：每点一次「确定」都重写一遍文件（连带刷新 mtime）而其实什么都没改，是
+    // 最常见的一次操作。比较是**逐字段**的（连"展开还是收着"那一格一起比）—— 用户完全
+    // 可能只动了那一格，而它一样要留住。
+    if (wanted == m_groupStore->groups()) {
+        return true;
+    }
     QString error;
-    bool groupsSaved = false;
-    if (wanted != m_groupStore->groups()) {
-        if (!m_groupStore->replaceGroups(wanted, &error)) {
-            QMessageBox::critical(this, tr("分组保存失败"), error);
-            return false;
-        }
-        groupsSaved = true;
+    if (!m_groupStore->replaceGroups(wanted, &error)) {
+        QMessageBox::critical(this, tr("分组保存失败"), error);
+        return false;
     }
-
-    if (wantedGroupId != m_groupStore->groupIdOf(key)) {
-        if (!m_groupStore->assign(key, wantedGroupId, &error)) {
-            // 组清单那一半**可能已经落盘了**（上面那次写成功了）。说清楚，别让用户
-            // 以为整件事都没成、然后重开一遍对话框再填一次。
-            QMessageBox::critical(this, tr("分组保存失败"),
-                                  groupsSaved
-                                      ? tr("分组本身已经保存了，但这个实例的归属没能写进去：\n%1")
-                                            .arg(error)
-                                      : error);
-            return false;
-        }
-        QString destination;
-        for (const InstanceGroupStore::Group &group : m_groupStore->groups()) {
-            if (group.id == wantedGroupId) {
-                destination = group.name;
-                break;
-            }
-        }
-        if (destination.isEmpty()) {
-            // 归属是空串 = 取消分组。那句"未分组"是界面上的说法（GroupDialog 也是
-            // 这么写的），不是文件里的值。
-            destination = tr("未分组");
-        }
-        appendLog(tr("实例已分组：%1 → %2").arg(key, destination));
-    }
-    // NOTE: 这里**不**手动重灌那张树。三条写路径成功之后数据层都会发 groupsChanged，
+    // NOTE: 这里**不**手动重灌那张树。这条写路径成功之后数据层会发 groupsChanged，
     //       界面接的是同一个刷新函数（见 setupConnections）—— 在这里再来一次就是
     //       同一件事做两遍，而且"哪些路径会刷新"会变成两处各自维护的约定。
     return true;
+}
+
+void MainWindow::onGroupActionRequested(const QString &groupId, int action) {
+    // 这一组此刻的样子（名字、实例数、展开状态）。**动作菜单里每一格都用的同一份**：
+    // 菜单是照快照摆的，而这里要的是"现在"—— 菜单开着的时候别处可能已经把它删了，
+    // 那几种情况一律当"什么都没发生"（点了个过期的菜单项不该弹一个用户看不懂的框）。
+    MainWindowUI::GroupRow row;
+    if (!groupRowFor(m_ui, m_groupStore, groupId, &row)) {
+        return;
+    }
+
+    switch (action) {
+    case MainWindowUI::GroupActionMoveInto: {
+        // "把选中的实例移进哪一组"：列的是**全部**分组（含树上一个实例都没有、藏起来的
+        // 那些）—— 那是把实例放进一个空组的唯一入口（见 MainWindowUI::openGroupPicker()）。
+        if (selectedVersionId(m_ui->getInstalledVersionCombo()).isEmpty()) {
+            QMessageBox::information(this, tr("移入分组"), tr("先选中一个实例。"));
+            return;
+        }
+        // 弹在**原来那颗齿轮**下面（用户看到的是"刚才那块框换了个内容"）。那一行理论上
+        // 一定还在（菜单就是从它那儿弹出来的）；万一不在了就退回光标那里，框照样出得来，
+        // 不会神秘消失。
+        QRect anchor = gearAnchorFor(m_ui, groupId);
+        if (anchor.isEmpty()) {
+            anchor = QRect(QCursor::pos(), QSize(1, 1));
+        }
+        m_ui->openGroupPicker(
+            groupRowsForMenu(m_ui, m_groupStore,
+                             instanceKey(selectedVersionId(m_ui->getInstalledVersionCombo()))),
+            anchor);
+        return;
+    }
+    case MainWindowUI::GroupActionClearMembers:
+        clearGroupMembers(groupId, row.name);
+        return;
+    case MainWindowUI::GroupActionRename: {
+        // 「问」和「做」分开（和实例页那颗「重命名…」同一个拆法）：做的那一半
+        // renameGroupTo() 能在验证工程里直接驱动，而 QInputDialog 在 offscreen 下驱动不了。
+        bool ok = false;
+        const QString name = QInputDialog::getText(this, tr("重命名分组"), tr("组名："),
+                                                   QLineEdit::Normal, row.name, &ok);
+        if (ok) {
+            renameGroupTo(groupId, name);
+        }
+        return;
+    }
+    case MainWindowUI::GroupActionToggleExpand: {
+        // 先摆树里那一行，再记 —— rememberGroupExpanded() 只管写盘（见它的 NOTE），
+        // 所以"这一下要让用户看见什么"是调用方的事。两处管的是同一格，摆完就是它。
+        //
+        // NOTE: 状态从**那一行自己**读（`!item->isExpanded()`）而不是拿菜单那份快照里的
+        //       `row.expanded`：菜单是弹出来的那一刻拍的，中间用户完全可能又点了一下组头
+        //       （那一下也会落盘）。和版本树/加载器树那几处"先算再做"同一个教训。
+        QTreeWidget *tree = m_ui->getInstanceList();
+        for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+            QTreeWidgetItem *item = tree->topLevelItem(i);
+            if (item->data(0, MainWindowUI::groupIdRole()).toString() != groupId) {
+                continue;
+            }
+            const bool expand = !item->isExpanded();
+            item->setExpanded(expand);
+            rememberGroupExpanded(groupId, expand);
+            return;
+        }
+        // 那一行不在树上（这一组空了 —— 空组是藏着的 —— 或者刚被别处删了）：没有"看得见的
+        // 那一行"要摆，把状态记下来就好。
+        rememberGroupExpanded(groupId, !row.expanded);
+        return;
+    }
+    case MainWindowUI::GroupActionDelete: {
+        // 先问再删，而且说清**实例不会被删**：用户看到"删除"两个字时的第一反应就是怕
+        // 连里面的东西一起没了，而这里确实不会（和对话框里那句一模一样）。
+        const QMessageBox::StandardButton answer = QMessageBox::question(
+            this, tr("删除分组"),
+            tr("「%1」会被删除，组里的 %2 个实例不会被删掉，它们只是变成未分组。\n\n"
+               "确定要删除吗？")
+                .arg(row.name)
+                .arg(row.memberCount),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (answer == QMessageBox::Yes) {
+            deleteGroupById(groupId);
+        }
+        return;
+    }
+    }
+    // 越界（理论上到不了：菜单是照 MainWindowUI::groupActionCount() 循环摆的）。
+}
+
+void MainWindow::clearGroupMembers(const QString &groupId, const QString &groupName) {
+    QTreeWidget *tree = m_ui->getInstanceList();
+    QTreeWidgetItem *groupItem = nullptr;
+    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+        QTreeWidgetItem *item = tree->topLevelItem(i);
+        if (item->data(0, MainWindowUI::groupIdRole()).toString() == groupId) {
+            groupItem = item;
+            break;
+        }
+    }
+    if (groupItem == nullptr) {
+        return;  // 藏起来的空组（或者刚被删了）：没有可移的东西
+    }
+    QStringList keys;
+    for (int i = 0; i < groupItem->childCount(); ++i) {
+        const QString versionId = instanceIdOf(groupItem->child(i));
+        if (!versionId.isEmpty()) {
+            keys.append(instanceKey(versionId));
+        }
+    }
+    if (keys.isEmpty()) {
+        return;
+    }
+
+    // 「移出分组」对**没表过态**的那些实例也得写一条：不写的话它们下一次刷新又被自动归类
+    // 拉回这一组来（写下去的是"明确选了未分组"那个保留值，见 InstanceGroupStore::
+    // ungroupedMarker()）—— 表现就是"点了移出，可它们还在里面"。
+    QString error;
+    int moved = 0;
+    {
+        // 挡信号：下面每写一条都会发一次 groupsChanged，而界面接的那条路是**重灌整棵树**
+        // （连带重扫一遍盘）。不挡的话 N 个实例就是 N 次全盘重扫，而真机上实例可以有 61 个。
+        // 写完自己刷一次就够 —— 和 seedDefaultGroups() 那一段同一个路数。
+        const QSignalBlocker blocker(m_groupStore);
+        for (const QString &key : keys) {
+            if (!m_groupStore->assign(key, QString(), &error)) {
+                break;
+            }
+            ++moved;
+        }
+    }
+    refreshInstalledVersions();
+    if (moved < keys.size()) {
+        // 半路写失败了。**已经写下去的那些是落盘了的**（说不说它都变了），所以只说清
+        // 哪几个没成，别让用户以为整件事都没发生。
+        QMessageBox::critical(
+            this, tr("移出分组失败"),
+            tr("「%1」里还有 %2 个实例没能移出来：\n%3").arg(groupName).arg(keys.size() - moved).arg(error));
+        return;
+    }
+    appendLog(tr("已把「%1」里的 %2 个实例移出分组").arg(groupName).arg(moved));
+}
+
+bool MainWindow::assignSelectedInstanceToGroup(const QString &groupId) {
+    // 取值口径和另外两颗实例级按钮一样：**下拉框**说了算（它就是"当前选中的那个实例"），
+    // 不是树的 currentItem()（点一下组头它也会变）。
+    const QString versionId = selectedVersionId(m_ui->getInstalledVersionCombo());
+    if (versionId.isEmpty()) {
+        // 挑目标那个框只在"有选中的实例"时才点得动（groupActionEnabled 那一条），
+        // 而菜单开着的时候那个实例可能被删掉了 —— 真走到这儿就说一句，别静默。
+        QMessageBox::information(this, tr("移入分组"), tr("先选中一个实例。"));
+        return false;
+    }
+    const QString key = instanceKey(versionId);
+    // 已经在这一组里了（挑目标那个框里那一格本来就灰着，这儿是给别的入口的保险）。
+    //
+    // NOTE: 目标非空时"没表过态"和"明确选了它"要分开看 —— 光比 groupIdOf() 会把
+    //       "归到这个组"当成已经做好了；目标为空（未分组）时**一律写**：那条保留值
+    //       才是"别再自动归类"的意思，而一个从来没表过态的实例正需要它（不写的话它
+    //       下一次刷新又被拉回默认组去，表现就是"选了未分组但没生效"）。
+    if (!groupId.isEmpty() && m_groupStore->groupIdOf(key) == groupId) {
+        return true;
+    }
+
+    QString error;
+    if (!m_groupStore->assign(key, groupId, &error)) {
+        QMessageBox::critical(this, tr("移入分组失败"), error);
+        return false;
+    }
+    QString destination = MainWindowUI::ungroupedGroupText();
+    for (const InstanceGroupStore::Group &group : m_groupStore->groups()) {
+        if (group.id == groupId) {
+            destination = group.name;
+            break;
+        }
+    }
+    appendLog(tr("实例已分组：%1 → %2").arg(key, destination));
+    // NOTE: 这里**不**手动重灌那张树 —— 写成功之后数据层会发 groupsChanged（见上面那段）。
+    return true;
+}
+
+bool MainWindow::renameGroupTo(const QString &groupId, const QString &newName) {
+    QList<InstanceGroupStore::Group> groups = m_groupStore->groups();
+    int row = -1;
+    for (int i = 0; i < groups.size(); ++i) {
+        if (groups.at(i).id == groupId) {
+            row = i;
+            break;
+        }
+    }
+    if (row < 0) {
+        return false;  // 这一组已经被别处删掉了：什么都不做，也不弹窗（不是用户此刻做的事）
+    }
+
+    const QString name = newName.trimmed();
+    // 两条规矩和 GroupDialog 里那一份**逐字一样**（名字是用户认这个组的东西，两个入口
+    // 得用同一把尺子）：空名字和重名都不收。那份校验在 ui/ 里，而 ui/ 不 include src/
+    // 是反过来也成立的（那边给的是 main 这一侧拿不到的类型），所以这两句是各写一份的
+    // —— 改了这边记得连那边一起改。
+    if (name.isEmpty()) {
+        QMessageBox::warning(this, tr("重命名分组失败"), tr("组名不能是空的。"));
+        return false;
+    }
+    if (name.size() > GroupDialog::maxGroupNameLength()) {
+        QMessageBox::warning(this, tr("重命名分组失败"),
+                             tr("组名最多 %1 个字，现在有 %2 个。")
+                                 .arg(GroupDialog::maxGroupNameLength())
+                                 .arg(name.size()));
+        return false;
+    }
+    for (const InstanceGroupStore::Group &group : groups) {
+        if (group.id != groupId && group.name.compare(name, Qt::CaseInsensitive) == 0) {
+            QMessageBox::warning(this, tr("重命名分组失败"),
+                                 tr("已经有一个叫「%1」的组了。").arg(group.name));
+            return false;
+        }
+    }
+    if (groups.at(row).name == name) {
+        return true;  // 改成一模一样的名字：不写盘
+    }
+
+    // 组改名**不动归属** —— 归属挂的是组的 id，不是名字（见 InstanceGroupStore::Group）。
+    groups[row].name = name;
+    QString error;
+    if (!m_groupStore->replaceGroups(groups, &error)) {
+        QMessageBox::critical(this, tr("重命名分组失败"), error);
+        return false;
+    }
+    return true;
+}
+
+bool MainWindow::deleteGroupById(const QString &groupId) {
+    QList<InstanceGroupStore::Group> groups = m_groupStore->groups();
+    QString name;
+    for (int i = 0; i < groups.size(); ++i) {
+        if (groups.at(i).id == groupId) {
+            name = groups.at(i).name;
+            groups.removeAt(i);
+            break;
+        }
+    }
+    if (name.isEmpty()) {
+        return false;  // 找不到（已经被别处删了）
+    }
+
+    QString error;
+    if (!m_groupStore->replaceGroups(groups, &error)) {
+        QMessageBox::critical(this, tr("删除分组失败"), error);
+        return false;
+    }
+    // 组里的实例**一个都不删**：它们指向的组没了，那些归属按 replaceGroups() 的规矩一起
+    // 被清掉 —— 于是回到"没表过态"，下一次刷新按版本类型自动归类。和对话框里删一个组
+    // 走的是同一条路、同一个说法。
+    appendLog(tr("分组已删除：%1").arg(name));
+    return true;
+}
+
+void MainWindow::rememberGroupExpanded(const QString &groupId, bool expanded) {
+    QString error;
+    // NOTE: 写盘但**不发 groupsChanged**（理由见 InstanceGroupStore::setGroupExpanded()）——
+    //       所以那一行的展开状态由调用方自己摆好，这里只管记。
+    if (!m_groupStore->setGroupExpanded(groupId, expanded, &error)) {
+        // 只记一句日志、不弹窗：这一下**已经生效了**（树上那一格就是刚摆的），没留住的
+        // 只是"下次打开还照这样"——它挡不住用户做任何事，而每点一下弹一个框反倒是把用户
+        // 从手上的事里打断（产品约束管的是"会挡住操作"的那一类错误）。
+        appendLog(error);
+    }
+}
+
+void MainWindow::openGroupMenuFor(QTreeWidgetItem *item) {
+    if (item == nullptr || !item->data(0, MainWindowUI::rowGroupGearRole()).toBool()) {
+        return;
+    }
+    const QString groupId = item->data(0, MainWindowUI::groupIdRole()).toString();
+    // 快照里带上"此刻有没有选中的实例、它在不在这组里"：菜单第一项能不能点、挑目标那个
+    // 框里哪一格灰着，都由它决定。
+    MainWindowUI::GroupRow row;
+    if (!groupRowFor(m_ui, m_groupStore, groupId, &row,
+                     instanceKey(selectedVersionId(m_ui->getInstalledVersionCombo())))) {
+        return;  // 那一组已经不在了（菜单还没来得及弹它就被删了）
+    }
+    // 锚点 = 那一行行尾那颗齿轮占的格子（几何的唯一出处见 InstanceGroupDelegate::gearRect()）。
+    m_ui->openGroupMenu(row, gearAnchorFor(m_ui, groupId));
 }
 
 void MainWindow::openInstanceSettings(const QString &versionId) {
