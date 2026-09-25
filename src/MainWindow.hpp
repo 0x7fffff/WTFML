@@ -143,17 +143,60 @@ private slots:
     ///       里藏着最容易漏的那件事：改完名要同步 Version/LastLaunched，不然用户下次
     ///       打开启动器，选中项会空着，他会以为实例丢了。那条只有真的跑一遍才验得出来。
     bool applyRename(const QString &oldId, const QString &newId);
-    /// 「分组…」：给当前选中的实例选一个组，顺便管组清单（新建/重命名/删除）。
+    /// 「分组设置…」：管**分组本身**（新建 / 重命名 / 删除 / 上下移 / 默认展开 / 恢复默认）。
     ///
-    /// 不分组也能用 —— 对话框里那份工作副本只有在点「确定」之后才由 applyGrouping()
+    /// NOTE: 2026-09-25 起它**不读选中的实例**（用户原话：「下方的分组设置不再是针对单个
+    ///       实例的设置」）—— 从哪儿进来都是同一张表，没选中实例也能开。把实例放进某个组
+    ///       是**组行行尾那颗齿轮**的事（见 onGroupActionRequested()）。
+    ///
+    /// 不分组也能用 —— 对话框里那份工作副本只有在点「确定」之后才由 applyGroupList()
     /// 落盘，取消的话磁盘一个字节都不动。
     void onGroupInstanceClicked();
-    /// 分组的**执行部分**：把对话框里摆好的组清单和归属落到磁盘上。失败时弹窗并返回 false。
+    /// 分组的**执行部分**：把对话框里摆好的那份组清单落到磁盘上。失败时弹窗并返回 false。
     ///
     /// NOTE: 拆成两步的理由和 applyRename() 一样 —— QDialog::exec() 会阻塞在事件循环里，
-    ///       验证工程驱动不了它。而这一半里藏着真会错的东西（哪一步该写、写失败了怎么
-    ///       说清"另一半成了没有"），必须验得了。
-    bool applyGrouping(const QString &instanceKey, const GroupDialog &dialog);
+    ///       验证工程驱动不了它。而这一半里藏着真会错的东西（组清单和文件里那份怎么比、
+    ///       写失败了怎么说），必须验得了。
+    bool applyGroupList(const GroupDialog &dialog);
+    /// 组行行尾那颗齿轮里某一项被点了。@param groupId 哪一组（虚拟的「未分组」是空串）。
+    /// @param action MainWindowUI::GroupAction 那一套里的某一项。
+    ///
+    /// NOTE: 这几项**都是立刻生效**的（不等谁按确定）：齿轮菜单不是对话框，它是"点一下
+    ///       就办事"的一列动作。要问一句的那两项（重命名、删除）自己弹自己的框。
+    void onGroupActionRequested(const QString &groupId, int action);
+    /// 把某一组里的实例**都移出分组**（齿轮菜单里「把这一组里的实例都移出分组」）。
+    /// 组留着、实例一个都不删，它们只是变成未分组。
+    /// @param groupName 那一组的名字（只用来写日志和弹窗 —— 名字得是**菜单弹出来那一刻**
+    ///        用户的叫法，所以由调用方带着，这里不再查一遍）。
+    ///
+    /// NOTE: 它动的是"树上挂在这一组底下的那些"实例 —— 那正是用户眼睛里"这一组里的东西"。
+    ///       每个实例都要**明确写一条"未分组"**：不写的话没表过态的那些下一次刷新又被
+    ///       自动归类拉回来（理由写在实现里那段）。
+    void clearGroupMembers(const QString &groupId, const QString &groupName);
+    /// 把当前选中的那个实例移进 @p groupId 这一组（空串 = 未分组）。挑目标那个框的回调。
+    ///
+    /// 取值口径和另外两颗实例级按钮一样：**下拉框**说了算（它就是"当前选中的那个实例"），
+    /// 不是树的 currentItem()（点一下组头它也会变）。
+    /// @return 写成功了返回 true（失败弹窗并返回 false）。
+    bool assignSelectedInstanceToGroup(const QString &groupId);
+    /// 把某一组的组名改掉（齿轮菜单里「重命名这一组…」）。
+    /// @return 改成功了返回 true。
+    bool renameGroupTo(const QString &groupId, const QString &newName);
+    /// 删掉某一组（齿轮菜单里「删除这一组…」）。组里的实例一个都不删。
+    /// @return 删掉了返回 true。
+    bool deleteGroupById(const QString &groupId);
+    /// 把某一组的「展开还是收着」记下来（点组行那一格、或者齿轮菜单里那一项）。
+    ///
+    /// NOTE: 它写盘但**不发 groupsChanged**（理由见 InstanceGroupStore::setGroupExpanded()）
+    ///       —— 所以调用方要自己把那一条的展开状态摆好，这里只管记。
+    void rememberGroupExpanded(const QString &groupId, bool expanded);
+    /// 给某一组弹齿轮菜单（锚点 = 那一行行尾那颗齿轮占的格子）。
+    ///
+    /// NOTE: 它和 onGroupActionRequested() 之间过的是 MainWindowUI::GroupRow，而那个类型
+    ///       在 MainWindowUI.hpp 里 —— 本文件**不 include 它**（见文件头那几条前置声明的
+    ///       说明），所以"翻快照"那一步是 .cpp 里的一个文件级自由函数
+    ///       （groupRowsForMenu()），不在这里出现。
+    void openGroupMenuFor(QTreeWidgetItem *item);
     /// 「实例设置…」：给当前选中的实例覆盖启动五项（每项两级：跟随全局 / 自定义）。
     ///
     /// 对话框只把控件读成一份值，落盘在 applyInstanceSettings() 里 —— 取消的话

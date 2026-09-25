@@ -33,6 +33,9 @@ const QString kGroupsField = QStringLiteral("groups");
 const QString kMembersField = QStringLiteral("members");
 const QString kIdField = QStringLiteral("id");
 const QString kNameField = QStringLiteral("name");
+/// 组在实例树里展开/收着（用户 2026-09-25 要的「默认展开/关闭」）。
+/// **文件里没有这一条 = 展开**（老文件、手写的文件都算展开）—— 见 groups() 里那一行。
+const QString kExpandedField = QStringLiteral("expanded");
 
 /// 五个默认组的 id。**写死的**、不是 UUID —— 理由见 .hpp 里 defaultGroupId() 那段。
 /// 前面那个 `default-` 前缀是给用户看的（他拿记事本打开这份文件时一眼能认出哪几个是
@@ -109,6 +112,13 @@ bool InstanceGroupStore::seedDefaultGroups(QString *errorOut) {
     // 成员表照原样带着走（文件不存在时它本来就是空的，这句只是为了和 replaceGroups()
     // 一个写法 —— 将来"文件不存在但内存里有成员"这种组合冒出来时不会丢东西）。
     return writeThrough(defaultGroups(), m_root.value(kMembersField).toObject(), errorOut);
+}
+
+bool InstanceGroupStore::restoreDefaultGroups(QString *errorOut) {
+    // 只是 replaceGroups() 的一个有名字的说法（两个后果写在 .hpp 里）。
+    // **不走 seedDefaultGroups()**：那个在文件已经存在时一个字节都不写，而这里要的
+    // 恰恰是"把现在这份清单换掉"—— 用户按的就是"恢复默认"。
+    return replaceGroups(defaultGroups(), errorOut);
 }
 
 bool InstanceGroupStore::isAssigned(const QString &instanceKey) const {
@@ -196,6 +206,9 @@ QList<InstanceGroupStore::Group> InstanceGroupStore::groups() const {
         // 而空名字在树里就是一行空白。
         const QString name = object.value(kNameField).toString().trimmed();
         group.name = name.isEmpty() ? id : name;
+        // **缺省是展开**（toBool 的缺省值）：这一条是 2026-09-25 才有的，之前写的文件
+        // 里一个都没有，而那时界面上组一律是展开的 —— 缺省值就把老文件读成了老样子。
+        group.expanded = object.value(kExpandedField).toBool(true);
         result.append(group);
     }
     return result;
@@ -222,6 +235,42 @@ bool InstanceGroupStore::replaceGroups(const QList<Group> &groups, QString *erro
     ensureLoaded();
     // 成员表整个留着，由 writeThrough() 按新的组清单清掉指向已删组的那些。
     return writeThrough(groups, m_root.value(kMembersField).toObject(), errorOut);
+}
+
+bool InstanceGroupStore::setGroupExpanded(const QString &groupId, bool expanded,
+                                          QString *errorOut) {
+    const auto fail = [errorOut](const QString &reason) {
+        if (errorOut != nullptr) {
+            *errorOut = reason;
+        }
+        return false;
+    };
+
+    // 空 id 是调用方的 bug（拿一个空的组 id 过来），不是用户操作失误。静默放过的话，
+    // 表现是"点了那一下没反应"，而真正的原因（谁传了个空的）就查不出来了。
+    if (groupId.isEmpty()) {
+        return fail(tr("内部错误：没有指定要改哪个分组的展开状态。"));
+    }
+
+    ensureLoaded();
+    if (!m_unreadableReason.isEmpty()) {
+        return fail(m_unreadableReason);
+    }
+
+    QList<Group> list = groups();
+    const auto found = std::find_if(list.begin(), list.end(),
+                                    [&groupId](const Group &group) { return group.id == groupId; });
+    if (found == list.end()) {
+        return fail(tr("找不到那个分组，可能刚刚被删掉了。"));
+    }
+    if (found->expanded == expanded) {
+        // 已经就是这个状态了（比如双击那两发里第二发又点了一次）：不写盘。
+        return true;
+    }
+    found->expanded = expanded;
+    // notify = false：这一格改的是"界面刚刚自己摆好的那个状态"，重灌整棵树只会把选择、
+    // 滚动位置和别的组的展开状态一起抖一下（理由见 .hpp 里那段 NOTE）。
+    return writeThrough(list, m_root.value(kMembersField).toObject(), errorOut, false);
 }
 
 bool InstanceGroupStore::assign(const QString &instanceKey, const QString &groupId,
@@ -289,7 +338,7 @@ bool InstanceGroupStore::rekey(const QString &oldKey, const QString &newKey, QSt
 }
 
 bool InstanceGroupStore::writeThrough(const QList<Group> &groups, const QJsonObject &rawMembers,
-                                      QString *errorOut) {
+                                      QString *errorOut, bool notify) {
     const auto fail = [errorOut](const QString &reason) {
         if (errorOut != nullptr) {
             *errorOut = reason;
@@ -314,6 +363,9 @@ bool InstanceGroupStore::writeThrough(const QList<Group> &groups, const QJsonObj
         QJsonObject object;
         object.insert(kIdField, id);
         object.insert(kNameField, group.name.trimmed());
+        // 一律写出来（哪怕值是 true）：读侧的缺省值只负责"老文件读成展开"，
+        // 写侧不靠缺省 —— 两处都省的话，"文件里没有这一条"就有两种来路说不清了。
+        object.insert(kExpandedField, group.expanded);
         array.append(object);
     }
 
@@ -368,6 +420,8 @@ bool InstanceGroupStore::writeThrough(const QList<Group> &groups, const QJsonObj
 
     // 到这里才认账：内存里那份 = 刚落到盘上的那份（见上面 candidate 那段 NOTE）。
     m_root = candidate;
-    emit groupsChanged();
+    if (notify) {
+        emit groupsChanged();
+    }
     return true;
 }

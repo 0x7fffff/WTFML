@@ -1,17 +1,16 @@
 /**
  * @file GroupDialog.cpp
- * @brief Implements the instance-group editor dialog.
+ * @brief Implements the instance-group settings dialog.
  * @author 0x7fffff
  * @date 2026-09-21
- * @note 布局：左边管组清单（列表 + 新建/重命名/删除），右边挑这个实例归哪个组。
- *       为什么左右并排而不是上下：右边那排单选钮的条数等于组数，用户建上十几个组
- *       就是十几行；竖着堆会把下面那两个按钮挤出屏幕。
+ * @note 布局：一列 —— 上面一句说明、中间是组清单和它那排按钮、底下一条「恢复默认分组设置…」
+ *       加取消/确定。2026-09-25 之前这里是左右并排（右边是"这个实例归到哪个组"那排单选钮），
+ *       那半整个搬走了（见 .hpp 文件头），于是只剩一列。
  */
 
 #include "GroupDialog.hpp"
 
-#include <QAbstractButton>
-#include <QButtonGroup>
+#include <QCheckBox>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QInputDialog>
@@ -20,16 +19,11 @@
 #include <QListWidget>
 #include <QMessageBox>
 #include <QPushButton>
-#include <QRadioButton>
+#include <QStringList>
 #include <QUuid>
 #include <QVBoxLayout>
 
 namespace {
-
-/// 组名的长度上限。比实例目录名的 64 短，因为组名只出现在界面上（不进路径）、
-/// 而且它和实例数一起挤在同一行里。超过这个长度的名字只会被省略号截掉，
-/// 挡下来是为了让用户当场知道"名字太长了"，而不是过一会儿才发现看不全。
-constexpr int kMaxGroupNameLength = 32;
 
 /// 一个新的组 id。
 ///
@@ -42,22 +36,24 @@ QString newGroupId() { return QUuid::createUuid().toString(QUuid::WithoutBraces)
 }  // namespace
 
 GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &memberCounts,
-                         const QString &currentGroupId, QWidget *parent)
-    : QDialog(parent), m_groups(groups), m_memberCounts(memberCounts) {
-    setWindowTitle(tr("分组"));
-    resize(560, 420);
+                         const QList<Group> &defaultGroups,
+                         const QHash<QString, int> &defaultCounts, QWidget *parent)
+    : QDialog(parent),
+      m_groups(groups),
+      m_memberCounts(memberCounts),
+      m_defaultGroups(defaultGroups),
+      m_defaultCounts(defaultCounts) {
+    setWindowTitle(tr("分组设置"));
+    resize(460, 460);
 
     auto *mainLayout = new QVBoxLayout(this);
 
     auto *hint = new QLabel(
-        tr("一个实例只能属于一个组。组的归属跟着实例走 —— 给实例改名不会把它抖出组，"
-           "删掉组也不会删掉里面的实例。"),
+        tr("这里管的是分组本身：有哪些分组、各叫什么、按什么顺序排、画出来是展开的还是"
+           "收着的。删掉一个分组不会删掉里面的实例 —— 它们只是回到未分组。"),
         this);
     hint->setWordWrap(true);
     mainLayout->addWidget(hint);
-
-    auto *columns = new QHBoxLayout;
-    mainLayout->addLayout(columns, 1);
 
     {
         auto *groupBox = new QGroupBox(tr("分组"), this);
@@ -67,6 +63,7 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
         m_groupList->setObjectName(groupListName());
         layout->addWidget(m_groupList, 1);
 
+        // 第一排：对**这一个组**做的事（新建 / 改建 / 删掉）。
         auto *buttons = new QHBoxLayout;
         m_addButton = new QPushButton(tr("新建…"), groupBox);
         m_addButton->setObjectName(addGroupButtonName());
@@ -79,10 +76,29 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
         buttons->addWidget(m_removeButton);
         layout->addLayout(buttons);
 
-        columns->addWidget(groupBox, 1);
+        // 第二排：管**顺序**和"画出来是展开还是收着"（用户原话里的「给组排列展示顺序，
+        // 默认展开/关闭」）。这两件事作用在选中的那一组上，和上面那一排同一个口径。
+        auto *orderRow = new QHBoxLayout;
+        m_moveUpButton = new QPushButton(tr("上移"), groupBox);
+        m_moveUpButton->setObjectName(moveUpButtonName());
+        m_moveDownButton = new QPushButton(tr("下移"), groupBox);
+        m_moveDownButton->setObjectName(moveDownButtonName());
+        m_expandedCheck = new QCheckBox(tr("默认展开"), groupBox);
+        m_expandedCheck->setObjectName(expandedCheckName());
+        m_expandedCheck->setToolTip(
+            tr("这一组在实例列表里画成展开的还是收着的。点组头那一下也算数 —— 两处改的"
+               "是同一个状态。"));
+        orderRow->addWidget(m_moveUpButton);
+        orderRow->addWidget(m_moveDownButton);
+        orderRow->addStretch(1);
+        orderRow->addWidget(m_expandedCheck);
+        layout->addLayout(orderRow);
 
-        // 「新建」永远可点（一个组都没有的时候它是唯一的出路）；另外两个要有选中项
-        // 才有意义，可用性由 refreshActionButtons() 统一管。
+        mainLayout->addWidget(groupBox, 1);
+
+        // 「新建」永远可点（一个组都没有的时候它是唯一的出路，而"组一个都没有"是删得
+        // 出来的状态）；别的要有选中的组才有意义，可用性由 refreshActionButtons() 统一管
+        // （它连"已经在最上面了就别给上移"也一起管）。
         connect(m_addButton, &QPushButton::clicked, this, [this] {
             bool ok = false;
             const QString name = QInputDialog::getText(this, tr("新建分组"), tr("组名："),
@@ -122,6 +138,20 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
                 deleteGroup(groupId);
             }
         });
+        // 上移/下移是**一次一格**（不是"置顶/置底"）：用户要的是"排一下顺序"，而一格一格
+        // 挪看得见自己挪到哪儿了。挪到头/尾那两个按钮自动灰掉（见 refreshActionButtons）。
+        connect(m_moveUpButton, &QPushButton::clicked, this,
+                [this] { moveGroupUp(selectedGroupId()); });
+        connect(m_moveDownButton, &QPushButton::clicked, this,
+                [this] { moveGroupDown(selectedGroupId()); });
+        connect(m_expandedCheck, &QCheckBox::toggled, this, [this](bool checked) {
+            // m_updatingExpanded：这是 refreshActionButtons() 在摆状态（跟着选中的组），
+            // 不是用户点的 —— 不挡的话每选一行都会把那一行的状态"改"成它本来就有的值。
+            if (m_updatingExpanded) {
+                return;
+            }
+            setGroupExpanded(selectedGroupId(), checked);
+        });
         connect(m_groupList, &QListWidget::currentRowChanged, this,
                 [this] { refreshActionButtons(); });
         // 双击一行 = 重命名它（列表上的常规手势，省一次"先选中再点按钮"）。
@@ -131,26 +161,13 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
             }
         });
     }
-    {
-        auto *box = new QGroupBox(tr("这个实例归到"), this);
-        box->setObjectName(assignmentBoxName());
-        auto *boxLayout = new QVBoxLayout(box);
-
-        // 单选钮放在**自己的容器**里，下面那个 addStretch 才不会被重画弄成好几个：
-        // 重画只清空这个容器，容器外面的弹簧从头到尾只有一个。
-        m_assignmentBox = box;
-        m_choices = new QWidget(box);
-        m_choiceLayout = new QVBoxLayout(m_choices);
-        m_choiceLayout->setContentsMargins(0, 0, 0, 0);
-        boxLayout->addWidget(m_choices);
-        boxLayout->addStretch(1);
-
-        m_assignmentGroup = new QButtonGroup(this);
-        m_assignmentGroup->setExclusive(true);
-        columns->addWidget(box, 1);
-    }
 
     auto *buttons = new QHBoxLayout;
+    // 「恢复默认分组设置…」摆在最左边（离取消/确定远远的）：它是个"把整张表推倒重来"的
+    // 动作，和那两颗"这一趟改完了没有"的按钮不是一类东西，挨着摆会点错。
+    m_restoreButton = new QPushButton(tr("恢复默认分组设置…"), this);
+    m_restoreButton->setObjectName(restoreDefaultsButtonName());
+    buttons->addWidget(m_restoreButton);
     buttons->addStretch(1);
     auto *cancelButton = new QPushButton(tr("取消"), this);
     cancelButton->setObjectName(cancelButtonName());
@@ -161,24 +178,35 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
     buttons->addWidget(confirmButton);
     mainLayout->addLayout(buttons);
 
+    // 恢复默认是个**不可逆**的动作（自己建的组全没了），而且用户此刻多半以为自己只是
+    // 在改一个名字 —— 所以先问，而且把两件事说清：会换成哪五个、实例一个都不删。
+    connect(m_restoreButton, &QPushButton::clicked, this, [this] {
+        QStringList names;
+        names.reserve(m_defaultGroups.size());
+        for (const Group &group : m_defaultGroups) {
+            names.append(group.name);
+        }
+        const QMessageBox::StandardButton answer = QMessageBox::question(
+            this, tr("恢复默认分组设置"),
+            tr("现在的分组会被换成这 %1 个默认分组：%2。\n\n"
+               "自己建的分组会消失，组里的实例一个都不会被删 —— 它们会按版本类型回到各自"
+               "的默认分组或者未分组。\n\n"
+               "确定要恢复吗？")
+                .arg(names.size())
+                .arg(names.join(tr("、"))),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (answer == QMessageBox::Yes) {
+            restoreDefaults();
+        }
+    });
+
     // 「确定」接 accept()、「取消」接 reject()。QDialog::exec() 的返回值区分得开，
-    // 调用方只在 Accepted 时才去看 groups()/assignedGroupId()。
+    // 调用方只在 Accepted 时才去看 groups()。**注意**：这里所有槽改的都只是工作副本，
+    // 「恢复默认」也一样 —— 半路按取消 = 这一趟什么都没发生。
     connect(confirmButton, &QPushButton::clicked, this, &QDialog::accept);
     connect(cancelButton, &QPushButton::clicked, this, &QDialog::reject);
 
-    // 进参的归属可能指向一个已经不存在的组（那种残留是正常的）。当未分组处理，
-    // 免得下面那排单选钮一条都选不中，用户看着像"没得选"。
-    m_assignedGroupId = currentGroupId;
-    if (!m_assignedGroupId.isEmpty() && rowOfGroup(m_assignedGroupId) < 0) {
-        m_assignedGroupId.clear();
-    }
-
     rebuildGroupList();
-    rebuildAssignment();
-}
-
-QWidget *GroupDialog::assignmentButtonAt(int index) const {
-    return m_assignmentGroup != nullptr ? m_assignmentGroup->button(index) : nullptr;
 }
 
 QString GroupDialog::selectedGroupId() const {
@@ -219,8 +247,8 @@ QString GroupDialog::validateGroupName(const QString &rawName, const QString &ex
     if (name.isEmpty()) {
         return tr("组名不能是空的。");
     }
-    if (name.size() > kMaxGroupNameLength) {
-        return tr("组名最多 %1 个字，现在有 %2 个。").arg(kMaxGroupNameLength).arg(name.size());
+    if (name.size() > maxGroupNameLength()) {
+        return tr("组名最多 %1 个字，现在有 %2 个。").arg(maxGroupNameLength()).arg(name.size());
     }
     for (const Group &group : m_groups) {
         if (group.id == exceptGroupId) {
@@ -248,8 +276,7 @@ bool GroupDialog::createGroup(const QString &name) {
     m_groups.append(group);
 
     rebuildGroupList();
-    rebuildAssignment();
-    // 新建完就选中它：用户刚建完一个组，下一步大概率是把这个实例放进去。
+    // 新建完就选中它：用户刚建完一个组，下一步多半是给它换个名字或者挪个位置。
     m_groupList->setCurrentRow(m_groups.size() - 1);
     return true;
 }
@@ -268,10 +295,13 @@ bool GroupDialog::renameGroup(const QString &groupId, const QString &name) {
     }
 
     m_groups[row].name = name.trimmed();
-    // 归属挂的是 id 不是名字，所以这里**不动** m_assignedGroupId —— 给组改个名
-    // 不该把正在编辑的这个实例抖出去。
-    rebuildGroupList();
-    rebuildAssignment();
+    // 名字和**展开状态**都不在列表文字里（文字是「组名 (N)」），所以只把那一行的字换了 ——
+    // 重建整张列表会把选中项和滚动位置都抖一下，而这里什么都没多。
+    if (QListWidgetItem *item = m_groupList->item(row)) {
+        const QSignalBlocker blocker(m_groupList);
+        item->setText(groupItemText(m_groups.at(row).name, m_memberCounts.value(groupId)));
+    }
+    refreshActionButtons();
     return true;
 }
 
@@ -280,48 +310,62 @@ bool GroupDialog::deleteGroup(const QString &groupId) {
     if (row < 0) {
         return false;
     }
-
     m_groups.removeAt(row);
     m_memberCounts.remove(groupId);
-    if (m_assignedGroupId == groupId) {
-        // 正在编辑的这个实例本来在这个组里 —— 组没了，它跟着变成未分组。
-        // 这是**界面上**的归属变了，不是删实例（谁都没删）。
-        m_assignedGroupId.clear();
-    }
 
     rebuildGroupList();
-    rebuildAssignment();
     return true;
 }
 
-void GroupDialog::setAssignedGroupId(const QString &groupId) {
-    if (m_assignedGroupId == groupId) {
+bool GroupDialog::moveGroupUp(const QString &groupId) {
+    const int row = rowOfGroup(groupId);
+    if (row <= 0) {
+        // 已经在最上面（或者压根没这个组）：什么都不做。**不弹窗也不返回错误文字** ——
+        // 界面上那颗按钮在到顶时就是灰的，这条路只有验证工程会走。
+        return false;
+    }
+    m_groups.swapItemsAt(row, row - 1);
+    rebuildGroupList();
+    return true;
+}
+
+bool GroupDialog::moveGroupDown(const QString &groupId) {
+    const int row = rowOfGroup(groupId);
+    if (row < 0 || row >= m_groups.size() - 1) {
+        return false;
+    }
+    m_groups.swapItemsAt(row, row + 1);
+    rebuildGroupList();
+    return true;
+}
+
+void GroupDialog::setGroupExpanded(const QString &groupId, bool expanded) {
+    const int row = rowOfGroup(groupId);
+    if (row < 0) {
         return;
     }
-    // 工作副本里的实例数跟着走：这个实例从老组挪到新组（空串那一头是"未分组"，
-    // 它不是组，不进计数）。
-    if (!m_assignedGroupId.isEmpty()) {
-        m_memberCounts[m_assignedGroupId] = qMax(0, m_memberCounts.value(m_assignedGroupId) - 1);
+    if (m_groups.at(row).expanded == expanded) {
+        return;
     }
-    m_assignedGroupId = groupId;
-    if (!groupId.isEmpty()) {
-        m_memberCounts[groupId] = m_memberCounts.value(groupId) + 1;
-    }
+    m_groups[row].expanded = expanded;
+    // 别的不动：列表文字里没有"展开还是收着"（那一格是树上画出来的），勾选框就是刚被点的
+    // 那个东西。真要重画的是**勾选框另一头**（比如验证工程直接调这个槽）—— 那种情况下
+    // refreshActionButtons() 会把勾选框摆正，顺手也把"上移/下移"的灰不灰重算一遍。
+    refreshActionButtons();
+}
 
-    // 把单选钮的选中状态摆正。**只摆状态、不重建那排控件** —— 这段代码可能是从
-    // 某个单选钮自己的 toggled 里进来的，这时候把发出信号的控件删掉是未定义行为。
-    // m_updatingAssignment 挡的是"摆状态又触发一遍 toggled"的回环。
-    if (QAbstractButton *button = m_assignmentGroup->button(m_assignmentIds.indexOf(groupId))) {
-        m_updatingAssignment = true;
-        button->setChecked(true);
-        m_updatingAssignment = false;
-    }
-    refreshCounts();
+bool GroupDialog::restoreDefaults() {
+    m_groups = m_defaultGroups;
+    // 实例数跟着换成"恢复之后每个默认组里会有几个"（进参里那段说明：这一格只有调用方
+    // 算得出来）。不换的话，列表上会显示恢复**之前**那些组里的数字，而那几个组已经没了。
+    m_memberCounts = m_defaultCounts;
+    rebuildGroupList();
+    return true;
 }
 
 void GroupDialog::rebuildGroupList() {
-    // 重建之后把选中项停在原来那个组上（按 id 找回）：改个名、删一个别的组之后
-    // 选中项跳到第一行，用户就得重新找一遍。
+    // 重建之后把选中项停在原来那个组上（按 id 找回）：改个名、挪一下、恢复默认之后
+    // 选中项跳到别处，用户就得重新找一遍。
     const QString previous = selectedGroupId();
 
     {
@@ -337,61 +381,25 @@ void GroupDialog::rebuildGroupList() {
             m_groupList->setCurrentRow(row);
         }
     }
-    // 选中项是在挡着信号的时候摆的，那两条 currentRowChanged 收不到，
-    // 两个按钮的可用性得在这里收尾。
+    // 选中项是在挡着信号的时候摆的，那条 currentRowChanged 收不到，
+    // 那几颗按钮的可用性得在这里收尾。
     refreshActionButtons();
 }
 
-void GroupDialog::refreshCounts() {
-    // 只改文字，不重建列表（重建会把选中项和滚动位置都抖一下）。
-    const QSignalBlocker blocker(m_groupList);
-    for (int row = 0; row < m_groupList->count() && row < m_groups.size(); ++row) {
-        const Group &group = m_groups.at(row);
-        m_groupList->item(row)->setText(groupItemText(group.name, m_memberCounts.value(group.id)));
-    }
-}
-
-void GroupDialog::rebuildAssignment() {
-    // 整排重画（理由见 .hpp）：先清空旧的，再按"未分组 + 每个组"各来一条。
-    //
-    // NOTE: 这里是**立即 delete** 而不是 deleteLater()。走到这一段的调用链是
-    //       "某个按钮被点了" 或 "构造函数"，没有一条是从这排单选钮自己的信号里进来的
-    //       （那条路只摆状态、不重建，见 setAssignedGroupId），所以现在删它们是安全的；
-    //       用 deleteLater() 反而会让旧按钮多活一个事件循环、在新的那排上面画一帧。
-    const QList<QAbstractButton *> old = m_assignmentGroup->buttons();
-    for (QAbstractButton *button : old) {
-        m_assignmentGroup->removeButton(button);
-        delete button;
-    }
-    m_assignmentIds.clear();
-
-    const auto addChoice = [this](const QString &text, const QString &groupId) {
-        auto *button = new QRadioButton(text, m_choices);
-        // objectName 带下标（"assignmentChoice0/1/…"），验证工程按它取控件 ——
-        // 单选钮的文字就是组名，而组名是用户起的、随时会变，拿它当身份标识必错。
-        button->setObjectName(QStringLiteral("assignmentChoice%1").arg(m_assignmentIds.size()));
-        m_assignmentIds.append(groupId);
-        m_assignmentGroup->addButton(button, m_assignmentIds.size() - 1);
-        m_choiceLayout->addWidget(button);
-        button->setChecked(groupId == m_assignedGroupId);
-        connect(button, &QRadioButton::toggled, this, [this, groupId](bool checked) {
-            // m_updatingAssignment：这是 setAssignedGroupId() 在摆状态，不是用户点的。
-            if (checked && !m_updatingAssignment) {
-                setAssignedGroupId(groupId);
-            }
-        });
-    };
-
-    m_updatingAssignment = true;
-    addChoice(ungroupedText(), QString());
-    for (const Group &group : m_groups) {
-        addChoice(group.name, group.id);
-    }
-    m_updatingAssignment = false;
-}
-
 void GroupDialog::refreshActionButtons() {
-    const bool hasSelection = !selectedGroupId().isEmpty();
+    const QString groupId = selectedGroupId();
+    const int row = rowOfGroup(groupId);
+    const bool hasSelection = row >= 0;
     m_renameButton->setEnabled(hasSelection);
     m_removeButton->setEnabled(hasSelection);
+    // 到头/到尾那一边灰掉：灰着就是"再挪就出去了"，点一下没反应才是毛病。
+    m_moveUpButton->setEnabled(row > 0);
+    m_moveDownButton->setEnabled(row >= 0 && row < m_groups.size() - 1);
+
+    // 勾选框跟着选中的那一组走。摆状态**必须挡一下**：setChecked() 会发 toggled，
+    // 而那个槽会把这次"摆"当成用户点的一下，绕回去改一遍状态（然后又是下一次刷新……）。
+    m_updatingExpanded = true;
+    m_expandedCheck->setEnabled(hasSelection);
+    m_expandedCheck->setChecked(hasSelection && m_groups.at(row).expanded);
+    m_updatingExpanded = false;
 }
