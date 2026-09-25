@@ -39,6 +39,9 @@
 #include "../net/HttpClient.hpp"
 #include "../util/AppPaths.hpp"
 #include "../util/ZipUtil.hpp"
+// 删实例那条路要"不追链接的删树"（见 deleteInstance() 里那条 NOTE）—— 它和"删掉一份游戏
+// 文件夹"共用同一个函数（声明在 FolderManager.hpp，实现和那段实测结论在 FolderManager.cpp）。
+#include "FolderManager.hpp"
 #include "InstanceFiles.hpp"
 
 namespace {
@@ -3287,6 +3290,48 @@ bool VersionManager::renameInstance(const QString &oldId, const QString &newName
                                         QDir::toNativeSeparators(newDir)));
     }
 
+    return true;
+}
+
+bool VersionManager::deleteInstance(const QString &versionId, QString *errorOut) {
+    const QString id = versionId.trimmed();
+
+    // 这个入参直接拼成一条**要删掉的路径**，所以校验不是形式主义：空串会拼出 versions/
+    // 本身，`..` 或者带分隔符的名字会指到那一份 .minecraft 外面去。只认"一个普通的目录名"。
+    if (id.isEmpty() || id == QStringLiteral(".") || id == QStringLiteral("..")
+        || id.contains(QLatin1Char('/')) || id.contains(QLatin1Char('\\'))) {
+        if (errorOut != nullptr) {
+            *errorOut = tr("「%1」不是一个合法的实例名，什么都没有删。").arg(versionId);
+        }
+        return false;
+    }
+
+    const QString dir = AppPaths::versionDir(id);
+    if (!QFileInfo::exists(dir)) {
+        // 已经不在了 —— 调用方要的结果（这个实例不在了）其实已经达成，但**不当成功**：
+        // 用户点的是"删掉它"，而它不在盘上说明列表和磁盘不是同一份东西，说清楚比装作
+        // 删成功了好（不然"我明明删了"和"它本来就没有"从此分不开）。
+        if (errorOut != nullptr) {
+            *errorOut = tr("这个实例的目录已经不在了：%1").arg(QDir::toNativeSeparators(dir));
+        }
+        return false;
+    }
+
+    // 走 FolderManager 那支"不追链接"的删树（理由见头文件那条 NOTE）。
+    if (!removeTreeWithoutFollowingLinks(dir)) {
+        if (errorOut != nullptr) {
+            *errorOut = tr("没能把 %1 整个删掉（可能还有程序开着里面的文件）。\n"
+                           "已经删掉的那部分不会恢复。")
+                            .arg(QDir::toNativeSeparators(dir));
+        }
+        return false;
+    }
+
+    // 内存里那两份缓存也要跟着清。不清的后果很具体：删掉之后**重装同一个版本号**，
+    // getVersionJson() 会先看缓存，于是启动用的是上一次那份 json（老的 javaVersion、
+    // 老的 classpath）—— 而那一次下载明明写了新的一份在盘上。
+    versionJsons.remove(id);
+    mergedVersionJsons.remove(id);
     return true;
 }
 

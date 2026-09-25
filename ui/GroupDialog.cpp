@@ -105,7 +105,22 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
                "是同一个状态。"));
         orderRow->addStretch(1);
         orderRow->addWidget(m_expandedCheck);
+        // 紧挨着「默认展开」右边：用户原话「分组设置里面那个默认展开旁边整一个『设为置顶组』」
+        // —— 「旁边」就是这一行、这一格。勾上的那一组变成**置顶组**（全清单只能有一个，
+        // 所以勾这一颗会把别组那一颗清掉，见 setGroupPinned()）。
+        m_pinnedCheck = new QCheckBox(pinnedCheckText(), groupBox);
+        m_pinnedCheck->setObjectName(pinnedCheckName());
+        m_pinnedCheck->setToolTip(
+            tr("这一组是置顶组：实例行行尾那颗上箭头一点，就把那个实例移进这一组。\n"
+               "只能有一个置顶组 —— 勾了这一颗，别的组就不是了。"));
+        orderRow->addWidget(m_pinnedCheck);
         layout->addLayout(orderRow);
+
+        // 底下那句说明紧跟着这一行（中间不隔东西）。**必须短**：这是一个新概念，但为了说清
+        // 它而写长一句，代价是这张窗整个变宽（理由与 40 个字的上限见 pinnedHintText()）。
+        auto *pinHint = new QLabel(pinnedHintText(), groupBox);
+        pinHint->setWordWrap(true);
+        layout->addWidget(pinHint);
 
         mainLayout->addWidget(groupBox, 1);
 
@@ -161,6 +176,13 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
                 return;
             }
             setGroupExpanded(selectedGroupId(), checked);
+        });
+        connect(m_pinnedCheck, &QCheckBox::toggled, this, [this](bool checked) {
+            // m_updatingPinned：同上 —— 这一发是 refreshActionButtons() 在摆状态。
+            if (m_updatingPinned) {
+                return;
+            }
+            setGroupPinned(selectedGroupId(), checked);
         });
         connect(m_groupList, &QListWidget::currentRowChanged, this,
                 [this] { refreshActionButtons(); });
@@ -450,6 +472,29 @@ void GroupDialog::setGroupExpanded(const QString &groupId, bool expanded) {
     refreshActionButtons();
 }
 
+void GroupDialog::setGroupPinned(const QString &groupId, bool pinned) {
+    const int row = rowOfGroup(groupId);
+    if (row < 0) {
+        // 找不到这个组（比如它刚被删掉了）：什么都不做。这张窗里选中的那一行一定认得出来，
+        // 所以这条只有验证工程拿一个过期的 id 来调才会走到。
+        return;
+    }
+    if (m_groups.at(row).pinned == pinned) {
+        return;
+    }
+    // ★ 置顶组只能有一个 —— 一句把目标那一组和别的所有组一起摆好：pinned 为 true 时只有
+    //   目标留下 true，为 false 时全清（含目标自己）。和 InstanceGroupStore::setGroupPinned()
+    //   里那句**逐字对应**：两边对"谁当家"的看法必须一样，否则对话框里看到的那一份
+    //   （按「确定」会落盘的正是它）和存储层自己算出来的那一份会对不上。
+    for (Group &group : m_groups) {
+        group.pinned = pinned && group.id == groupId;
+    }
+    // 整张表重画（和 setGroupExpanded() 只刷按钮不同）：这一下动的不止选中的那一组 ——
+    // 别的组这一位也被清了，而勾选框是跟着选中的那一行摆的，重画一遍顺带让
+    // refreshActionButtons() 再走一次，"现在谁是置顶组"立刻是对的。
+    rebuildGroupList();
+}
+
 bool GroupDialog::restoreDefaults() {
     m_groups = m_defaultGroups;
     // 实例数跟着换成"恢复之后每个默认组里会有几个"（进参里那段说明：这一格只有调用方
@@ -510,4 +555,12 @@ void GroupDialog::refreshActionButtons() {
     m_expandedCheck->setEnabled(hasSelection);
     m_expandedCheck->setChecked(hasSelection && m_groups.at(row).expanded);
     m_updatingExpanded = false;
+
+    // 「设为置顶组」和上面那颗同一个写法、同一个理由（既挡"用代码摆状态"那一下，也管
+    // "没选中任何组"时那颗灰着、摆成 false）。两颗**各自一个** m_updating*：摆第一颗时
+    // 的复位不能把第二颗那一发也放过去。
+    m_updatingPinned = true;
+    m_pinnedCheck->setEnabled(hasSelection);
+    m_pinnedCheck->setChecked(hasSelection && m_groups.at(row).pinned);
+    m_updatingPinned = false;
 }

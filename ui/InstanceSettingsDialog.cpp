@@ -46,6 +46,7 @@ void addRowTitle(QGridLayout *grid, int row, const QString &title, QWidget *pare
 }  // namespace
 
 InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
+                                               const QString &instanceId,
                                                const Override &current,
                                                const GlobalValues &global,
                                                const QStringList &appendJvmArgs,
@@ -82,6 +83,32 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     outer->addLayout(grid);
 
     int row = 0;
+
+    // ---------- 实例名（= 改名，2026-09-25 从实例页右栏那颗「重命名…」按钮搬进来的）----------
+    //
+    // 它不是一项"覆盖"：别的几行都有「跟随全局 / 自定义」那对单选钮（那些是启动参数，
+    // 全局有一份、实例可以盖过它），而这个是这个实例自己的身份，没有"全局"可比 ——
+    // 所以它不走 addOverrideRow()，直接一行名字 + 一个输入框 + 一句解释。
+    //
+    // 真的动手改名的是 MainWindow（先改名、再写设置），这一层只负责让用户改到那个格子
+    // （见 instanceName()）。
+    {
+        addRowTitle(grid, row, instanceNameText(), this);
+        auto *cell = new QWidget(this);
+        auto *column = new QVBoxLayout(cell);
+        column->setContentsMargins(0, 0, 0, 0);
+        column->setSpacing(4);
+        m_instanceNameEdit = new QLineEdit(instanceId, cell);
+        m_instanceNameEdit->setObjectName(instanceNameEditName());
+        // 初值是**目录名**（不是页眉上那个显示名）—— 见构造函数的 @param instanceId。
+        m_instanceNameEdit->setPlaceholderText(instanceNameText());
+        column->addWidget(m_instanceNameEdit);
+        auto *nameHint = new QLabel(instanceNameHint(), cell);
+        nameHint->setWordWrap(true);
+        column->addWidget(nameHint);
+        grid->addWidget(cell, row, 1);
+        ++row;
+    }
 
     // ---------- Java 路径 ----------
     {
@@ -317,6 +344,13 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
 
 QString InstanceSettingsDialog::titleText() const {
     return m_titleLabel != nullptr ? m_titleLabel->text() : QString();
+}
+
+QString InstanceSettingsDialog::instanceName() const {
+    // 现场读控件（和 override() 一样，没有影子状态）：验证工程摆好那一格直接读它。
+    // **不 trim**：去掉空格是多一层判断，而"只有空格差别"那一档由调用方（MainWindow）
+    // 按 trimmed() 之后的结果比 —— 那是它的事，这里原样给。
+    return m_instanceNameEdit != nullptr ? m_instanceNameEdit->text() : QString();
 }
 
 void InstanceSettingsDialog::setTitleVisible(bool visible) {

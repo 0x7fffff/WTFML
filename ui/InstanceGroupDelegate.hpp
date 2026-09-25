@@ -31,6 +31,30 @@
  *       那两颗画在 `ui/GroupListDelegate` 里（那张表里行序就是组序，"能不能挪"是算出来的，
  *       不像这张树要写角色位）。
  *
+ *       【2026-09-25 晚：实例行也在行尾长出一排三颗按钮】
+ *
+ *       以前这一层**只管组行**，实例行原样交给基类（一个像素都不画）。用户当天原话：
+ *       「实例页面，实例设置也是放在每一条的右侧，鼠标悬停时右侧显示上箭头和垃圾桶，
+ *       分别对应 置顶和删除实例，删除前需要弹窗提示，直接点空白区域（和左边图标版本名）
+ *       进入实例设置」，追加答复「要，一颗齿轮常显」。于是**一行三颗，右起**：
+ *
+ *         [垃圾桶] [上箭头] [齿轮]      ← 最右边那颗是齿轮（定死，见 MainWindowUI 那段
+ *           悬停     悬停    常显          注释里"为什么齿轮在最右边"那半）
+ *
+ *       * 齿轮**常显** = 打开这一条实例的设置 —— 和"点这一行任何别的地方"是同一件事，
+ *         它只是给那件事一个看得见的入口；
+ *       * 上箭头**悬停才画、且只在 `rowPinRole()` 为真的行上画** = 置顶。已经在置顶组里
+ *         的那一条挪不动 ⇒ **不画**，不是画一颗灰的（"挪不动的那侧不画"这条先例在
+ *         `ui/GroupListDelegate` 里）；
+ *       * 垃圾桶**悬停才画** = 删除这一条实例（点下去还要过一次确认框，那一下由
+ *         `MainWindow::eventFilter` 接）。
+ *
+ *       NOTE: 三颗按钮**没有**变成控件，还是"画出来的一格"—— 这一页跟下载页一样，
+ *             行里的动作一律走 `MainWindow::eventFilter` 认坐标（见 MainWindowUI 里
+ *             那段"这里不做右键菜单"的 NOTE）。
+ *       NOTE: 组行那一半**一个像素都没动**（paint() 里两条分支各走各的），实例行那三颗
+ *             是另起的一段；两处的几何互不借用。
+ *
  *       【行高 = 版本树那个常数】
  *
  *       sizeHint() 对**每一行**（组行和实例行都算）都返回 versionTreeRowHeight()：
@@ -76,8 +100,45 @@ public:
     /// 竖着恒在行内，理由见 .cpp）。
     static QRect chevronRect(const QRect &row);
 
-    /// 光标落在**行里那颗齿轮**上就说那句话（`rowGroupGearTipText()`），没落在就是空串。
-    /// 和 VersionTreeDelegate::rowActionTip() 一个路数（那儿是上一族的第二处几何读者）。
+    // ---------- 实例行行尾那一排三颗按钮（2026-09-25 晚，见文件头） ----------
+    //
+    // 布局是**定死**的（用户原话的次序，别改）：一行三颗，**右起**：齿轮 / 上箭头 /
+    // 垃圾桶。三个 `...Rect()` 是**命中格**（比画出来的字形四周各大 `instanceRowActionMargin()`），
+    // 三个 `...GlyphRect()` 才是真正 drawPixmap 的那一圈。和组行那两颗同一个规矩：
+    // **几何的唯一出处就是这儿** —— 代理按它们画、`MainWindow::eventFilter` 按它们认下
+    // 那一下、`helpEvent()` 按它们决定弹不弹话，三处不许各算一份（差一像素的症状就是
+    // "看着点中了垃圾桶、其实点的是那一行"，而那一行点一下是进实例设置）。
+    //
+    // NOTE: 那一整排的几何是**一次算完**的（收在 .cpp 里那个私有的
+    //       `instanceActionGlyphRects()`，三个格子一次返回）—— 三处各写一遍的写法只要
+    //       改一处间距就会错位一格，而错位在屏幕上完全看不出来是哪一段写错了。
+    // NOTE: 三个**命中格之间不许互相重叠**：间隔 6、四周 margin 3 ⇒ 正好相接（邻格共享
+    //       一条边界、不叠 1 px）。写成 7 的话中间会漏一条点不到的空隙。
+
+    /// 行尾那颗**齿轮**的命中格（最右边那一颗 = 这一行的锚，**常显**）。
+    static QRect instanceGearRect(const QRect &row);
+    /// 中间那颗**上箭头**的命中格。只有 `rowPinRole()` 为真的实例行才画它（已经在置顶组里
+    /// 的挪不动 ⇒ 不画，不是画灰的）。
+    static QRect instancePinRect(const QRect &row);
+    /// 最里面那颗**垃圾桶**的命中格（离手最远 —— 它点下去不可逆，见 MainWindowUI 那段
+    /// "为什么垃圾桶摆在最里面"）。
+    static QRect instanceTrashRect(const QRect &row);
+
+    /// 上面那三格**画出来**的那一圈（比命中格四周各小 `instanceRowActionMargin()`）。
+    /// 边长还会照 `gearGlyphRect()` 那样按行高收一收（`min(边长, 行高)`）—— 兜底，行高
+    /// 平时是 `versionTreeRowHeight()`（46），这一缩不生效。
+    static QRect instanceGearGlyphRect(const QRect &row);
+    static QRect instancePinGlyphRect(const QRect &row);
+    static QRect instanceTrashGlyphRect(const QRect &row);
+
+    /// 光标落在**行里某一个按钮**上就说那一句，没落在任何一个上就是空串。
+    ///
+    /// 组行那一半：只有那颗齿轮（`rowGroupGearTipText()`）。
+    /// 实例行那一半：齿轮 → `rowInstanceSettingsTipText()`、上箭头 → `rowPinTipText()`
+    /// （**只在 `rowPinRole()` 为真时** —— 没画出来的那一格不该说话）、垃圾桶 →
+    /// `rowDeleteInstanceTipText()`。
+    /// 和 VersionTreeDelegate::rowActionTip() 一个路数（那儿是上一族的第二处几何读者）：
+    /// 一条一条往下判，文案常量全从 MainWindowUI 取，这儿不出现字面量。
     static QString rowActionTip(const QModelIndex &index, const QRect &row, const QPoint &pos);
 
     void paint(QPainter *painter, const QStyleOptionViewItem &option,
@@ -88,4 +149,15 @@ public:
     /// 问不到才交给基类。
     bool helpEvent(QHelpEvent *event, QAbstractItemView *view, const QStyleOptionViewItem &option,
                    const QModelIndex &index) override;
+
+private:
+    /// 实例行那三颗按钮的**字形**格子，从右往左**一次算完**（右起：齿轮 / 上箭头 / 垃圾桶）。
+    ///
+    /// 三个 `instanceXxxGlyphRect()` 和三个 `instanceXxxRect()` 都是它的薄壳（前者原样、
+    /// 后者四周各加 `instanceRowActionMargin()`）—— 这就是上面那段"一次算完"说的那一处。
+    ///
+    /// NOTE: 右边缘取 `row.x() + row.width()`、**不用 `row.right()`** —— 后者等于
+    ///       `left + width - 1`，用它当锚整排会往左挪一个像素，而这个"差一个像素"正好是
+    ///       调用方（`eventFilter`）与代理对不齐的那种错。
+    static void instanceActionGlyphRects(const QRect &row, QRect &gear, QRect &pin, QRect &trash);
 };

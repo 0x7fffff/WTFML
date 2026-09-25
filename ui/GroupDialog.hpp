@@ -1,6 +1,7 @@
 /**
  * @file GroupDialog.hpp
- * @brief 「分组设置…」对话框：管**分组本身** —— 有哪些组、叫什么、什么顺序、默认展开还是收着。
+ * @brief 「分组设置…」对话框：管**分组本身** —— 有哪些组、叫什么、什么顺序、默认展开还是
+ *        收着、哪一个是置顶组。
  * @author 0x7fffff
  * @date 2026-09-21
  * @note 【它不管实例】
@@ -75,6 +76,15 @@ public:
         ///       而且改完要等用户按「确定」才落盘（对话框不碰磁盘那条约定）。
         bool expanded = true;
 
+        /// 这一组是**置顶组**：实例行行尾那颗上箭头点了就把实例移进这一组
+        /// （用户 2026-09-25 原话：「置顶以后进选了这个的组」）。
+        ///
+        /// NOTE: 全清单里**最多一个** —— 这一格改的不是"这一组怎么样"，而是"别的组都不是
+        ///       置顶组了"，所以 setGroupPinned() 把别人一起清掉（和
+        ///       InstanceGroupStore::setGroupPinned() 那句逐字对应）。这份工作副本和
+        ///       store 那份逐字段相同（见文件头），包括这一格。
+        bool pinned = false;
+
         friend bool operator==(const Group &, const Group &) = default;
     };
 
@@ -141,6 +151,17 @@ public slots:
     ///       m_updatingAssignment 同一个路数。
     void setGroupExpanded(const QString &groupId, bool expanded);
 
+    /// 把某一组设成**置顶组**（或者取消它）。设上去时**别的组这一位一律清掉** ——
+    /// 置顶组只能有一个，而这一格的位置在文件里、在界面上都是"谁当家"这一件事。
+    ///
+    /// NOTE: 和 setGroupExpanded() **完全对称**：改的是 m_groups 这份**工作副本**，
+    ///       **一个字节都不碰磁盘**（等用户按「确定」，见文件头那条约定），勾选框那一发
+    ///       toggled 由 m_updatingPinned 挡。唯一的差别是它改完要 rebuildGroupList()：
+    ///       这一下动的**不止选中的那一组**（别组这一位全被清掉了），重画一遍顺带把
+    ///       refreshActionButtons() 再走一次，于是"现在谁是置顶组"立刻是对的 —— 而勾选框
+    ///       本来就是跟着选中的那一行摆的，用户切到哪个组看到的就是那一组的实话。
+    void setGroupPinned(const QString &groupId, bool pinned);
+
     /// 把整份清单换成五个默认分组（用户原话里的「恢复默认分组设置」）。
     ///
     /// NOTE: 这是**工作副本**上的动作，和别的槽一样等「确定」才落盘 —— 半路按「取消」
@@ -162,6 +183,19 @@ public slots:
     static QString removeGroupButtonName() { return QStringLiteral("removeGroupButton"); }
     /// 「默认展开」那个勾选框（按选中那一组的状态亮着）。
     static QString expandedCheckName() { return QStringLiteral("groupExpandedCheck"); }
+    /// 「设为置顶组」那个勾选框（就在「默认展开」右边，同一行）。
+    static QString pinnedCheckName() { return QStringLiteral("groupPinnedCheck"); }
+    /// 那颗勾选框上的字。**唯一出处** —— 勾选框、验证工程认的那句话都念它。
+    static QString pinnedCheckText() { return QStringLiteral("设为置顶组"); }
+    /// 勾选框底下那句极短的说明。
+    ///
+    /// NOTE: 「置顶组」是个新概念（2026-09-25 才有的），光看那五个字不知道勾上会怎样 ——
+    ///       所以紧挨着它写一句。**上限 40 个汉字，而且这个数字是量出来的、不是随便定的**：
+    ///       这张窗只有 460 宽，折行的 QLabel 一长就把整窗的 sizeHint 顶宽（这个仓库有过
+    ///       一次"一句话把整窗顶破"的记录）。现在这句 21 个字，一行放得下。
+    static QString pinnedHintText() {
+        return QStringLiteral("实例行行尾那颗上箭头点了会把它移进这一组。");
+    }
     static QString restoreDefaultsButtonName() {
         return QStringLiteral("restoreDefaultsButton");
     }
@@ -199,7 +233,7 @@ protected:
 private:
     /// 重画左边那张组列表（组清单变了之后调用）。选中项按 id 保住。
     void rebuildGroupList();
-    /// 「重命名」「删除」「上移」「下移」能不能点，以及「默认展开」勾选框怎么摆。
+    /// 「重命名」「删除」能不能点，以及那两个勾选框（「默认展开」「设为置顶组」）怎么摆。
     /// 列表的选中项一变就调（勾选框那一半顺手在这儿对齐）。
     void refreshActionButtons();
     /// 当前选中的是哪个组（没选中返回空串）。列表上选中的那一行对应的组 id。
@@ -221,11 +255,15 @@ private:
     QHash<QString, int> m_defaultCounts;
     /// true = 此刻正在用代码摆勾选框的状态，那一次 toggled 不算用户操作。
     bool m_updatingExpanded = false;
+    /// 同上，管「设为置顶组」那颗（两颗各一个：一次刷新的两个勾选框摆的是**不同**的两格，
+    /// 共用一个的话摆完第一颗的复位会把第二颗那一发也放过去）。
+    bool m_updatingPinned = false;
 
     QListWidget *m_groupList = nullptr;
     QPushButton *m_addButton = nullptr;
     QPushButton *m_renameButton = nullptr;
     QPushButton *m_removeButton = nullptr;
     QCheckBox *m_expandedCheck = nullptr;
+    QCheckBox *m_pinnedCheck = nullptr;
     QPushButton *m_restoreButton = nullptr;
 };

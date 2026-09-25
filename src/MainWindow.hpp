@@ -188,10 +188,6 @@ private slots:
     /// @return 按可能性从高到低的几个版本号，去重；一个都猜不出来时是空表。
     QStringList offlineDefaultSkinCacheVersions(const QString &currentVersionId) const;
     void onAddFolderClicked();
-    /// 「重命名…」：问一个新名字，真的把磁盘上的目录改掉（含 jar / json 一起改）。
-    /// 校验、执行、回滚全在 VersionManager::renameInstance() 里，这里只负责
-    /// 三道闸口（有没有选中、是不是正在跑、名字合不合法）和弹窗。
-    void onRenameInstanceClicked();
     /// 改名的**执行部分**：校验名字 → 改磁盘 → 同步状态（LastLaunched / 选中项）→ 刷界面。
     /// 失败时弹窗并返回 false。
     ///
@@ -259,18 +255,26 @@ private slots:
     ///       说明），所以"翻快照"那一步是 .cpp 里的一个文件级自由函数
     ///       （groupRowsForMenu()），不在这里出现。
     void openGroupMenuFor(QTreeWidgetItem *item);
-    /// 「实例设置…」：给当前选中的实例覆盖启动五项（每项两级：跟随全局 / 自定义）。
+    /// 实例设置那一页的**入口**：给某一个实例打开它。进来的每一处都带着一个具体的
+    /// instanceId —— 点实例页那一行（任意处）、那一行行尾那颗常显的齿轮、底栏左面板那行
+    /// 的齿轮，三条路都走它。
     ///
-    /// 对话框只把控件读成一份值，落盘在 applyInstanceSettings() 里 —— 取消的话
-    /// wtfml.meta 一个字节都不动。
-    void onInstanceSettingsClicked();
-    /// 实例设置那个窗的**入口**：给某一个实例打开它。取值口径（"哪个实例"）由调用方定：
-    /// 实例页那颗按钮以下拉框为准（= onInstanceSettingsClicked()），底栏左面板那行的齿轮
-    /// 带着**那一行自己的**版本号进来。
-    ///
-    /// NOTE: 两个入口共用这一条（别在入口里另写一遍对话框）—— 里面那段"已经写了的覆盖
-    ///       读回来当起点、当前全局是什么"的口径只有一份。
+    /// NOTE: 所有入口共用这一条（别在入口里另写一遍对话框）—— 里面那段"已经写了的覆盖
+    ///       读回来当起点、当前全局是什么"的口径只有一份；**改名也在这条路上**（用户
+    ///       2026-09-25 原话「重命名进实例设置」）：页面上改「实例名」那一格、按确定之后
+    ///       先 applyRename() 再写设置，顺序的理由写在实现里。
     void openInstanceSettings(const QString &versionId);
+    /// 实例行行尾那颗**上箭头**：把这个实例移进置顶组（哪一组当家见
+    /// InstanceGroupStore::pinnedGroupId()）。没有置顶组时什么都不做。
+    void pinInstance(const QString &versionId);
+    /// 实例行行尾那个**垃圾桶**：先问一句（这一趟不可逆）再调 deleteInstance()。
+    void confirmDeleteInstance(const QString &versionId);
+    /// 删除实例的**执行部分**：把 versions/<id> 整个目录删掉 + 刷界面。失败返回 false。
+    ///
+    /// NOTE: 拆成两步的理由和 applyRename() / applyInstanceSettings() 一样 —— 问的那一半
+    ///       在覆盖层里跑一个嵌套事件循环，验证工程驱动不了它；而"守卫 + 真的删"这一半
+    ///       必须验得了（运行中不许删、删完列表要跟着变）。
+    bool deleteInstance(const QString &versionId);
     /// 实例设置的**执行部分**：把对话框里摆好的覆盖写进这个实例的 wtfml.meta。
     /// 失败时弹窗并返回 false，磁盘保持原样。
     ///

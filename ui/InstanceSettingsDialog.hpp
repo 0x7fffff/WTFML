@@ -72,6 +72,13 @@ public:
     /**
      * @brief 构造对话框。
      * @param instanceName 显示在标题里的实例名（用户认得出改的是哪一个）。
+     * @param instanceId 这个实例**现在的目录名**（`versions/<它>`），也是「实例名」那一格
+     *        的初值 —— 改了它就是要改名（见 instanceName()）。
+     *
+     * NOTE: 它和 instanceName 是**两个不同的东西**，都要传：显示名可能被用户改过、
+     *       也可能被"版本名格式"那套开关拼成了别的东西，而目录名是磁盘上真正的身份。
+     *       拿显示名当初值的话，用户点进设置页什么都没改、按一下确定，实例就被改成了
+     *       一个奇怪的名字。
      * @param current 这个实例**现在**的覆盖（wtfml.meta 里读出来的）。
      * @param global 全局有效值（GlobalJavaSettings::effective()），用来写「当前 …」。
      * @param appendJvmArgs 这个实例现有的「追加参数」（wtfml.meta 的 jvmArgs 数组）。
@@ -80,9 +87,10 @@ public:
      *        不是覆盖层的一项（存 meta 的另一个键），所以也没有那对单选钮。
      * @param parent 父窗口。
      */
-    InstanceSettingsDialog(const QString &instanceName, const Override &current,
-                           const GlobalValues &global, const QStringList &appendJvmArgs,
-                           bool warnJavaMismatch, QWidget *parent = nullptr);
+    InstanceSettingsDialog(const QString &instanceName, const QString &instanceId,
+                           const Override &current, const GlobalValues &global,
+                           const QStringList &appendJvmArgs, bool warnJavaMismatch,
+                           QWidget *parent = nullptr);
 
     /// 用户摆好的覆盖。五项各自：那行选了「自定义」就有值，选了「跟随全局」就没有值。
     ///
@@ -107,6 +115,14 @@ public:
 
     /// 高级选项那一块现在是不是展开着。默认折叠。
     bool advancedExpanded() const;
+
+    /// 用户在「实例名」那一格里现在写着什么（**没有** trim）。它和构造进来的 instanceId
+    /// 不一样时 = 用户要改名；一样（或者只有空格差别）时 = 不改名。
+    ///
+    /// NOTE: **改名这件事不在这里做** —— 这一层只把控件读成一份值（和 override() 一样），
+    ///       真的改目录在 MainWindow::openInstanceSettings() 那一段里（先改名再写设置）。
+    ///       本文件不 include 任何 src/ 下的头，也就够不着 renameInstance()。
+    QString instanceName() const;
 
     /// 自动内存是不是**有效**开着（这一行自定义了就听它的，否则听全局的）。
     /// 界面用它决定下面两个数字框禁不禁用；验证工程用它当"这个实例这次是自动还是手动"
@@ -157,6 +173,15 @@ public:
     }
     static QString warnJavaMismatchCheckName() {
         return QStringLiteral("instanceWarnJavaMismatchCheck");
+    }
+    /// 「实例名」那一格（改名）。**它在最上面一行**：它改的是这个实例的身份，别的几项
+    /// 改的都是它的启动参数 —— 先看清改的是哪一个，再谈别的。
+    static QString instanceNameEditName() { return QStringLiteral("instanceNameEdit"); }
+    static QString instanceNameText() { return QStringLiteral("实例名"); }
+    /// 那一格下面那句解释（**唯一一处**说清"改这里 = 改磁盘上的目录名"）。
+    static QString instanceNameHint() {
+        return QStringLiteral("改这里就是给这个实例改名：它会成为 versions 下那个目录的名字，"
+                              "里面的 jar 和 json 会一起改。");
     }
     static QString advancedToggleName() { return QStringLiteral("instanceAdvancedToggle"); }
     static QString advancedBoxName() { return QStringLiteral("instanceAdvancedBox"); }
@@ -218,6 +243,8 @@ private:
     /// 所以它得留着给人问（见 titleText / setTitleVisible）。
     QLabel *m_titleLabel = nullptr;
 
+    /// 「实例名」那一格（见 instanceName()）。
+    QLineEdit *m_instanceNameEdit = nullptr;
     QLineEdit *m_javaPathEdit = nullptr;
     QSpinBox *m_memoryMaxSpin = nullptr;
     QSpinBox *m_memoryMinSpin = nullptr;
