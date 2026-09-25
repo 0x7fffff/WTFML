@@ -1646,8 +1646,10 @@ public:
     /// 问一句，一律走它，别再 `new` 一个对话框出来（见 OverlayHost.hpp 开头那段）。
     OverlayHost *overlay() const { return overlayHost; }
 
-    /// 顶上那条自己画的标题栏（草方块 + 名字 + 最小化/关闭）。**它不在覆盖层的范围里** ——
-    /// 覆盖层挂在 tabWidget 上，条在 tabWidget 上面那一行（见 setupUi 里的 addWidget 顺序）。
+    /// 顶上那条自己画的标题栏（草方块 + 那五个字母 + 四颗导航按钮 + 最小化/关闭）。
+    /// **它不在覆盖层的范围里** —— 覆盖层挂在 tabWidget 上，条在 tabWidget 上面那一行
+    /// （见 setupUi 里的 addWidget 顺序）。四颗导航按钮就是"四个功能"的入口，标签栏
+    /// 自己藏起来了（`setupUi` 里 `tabWidget->tabBar()->hide()`）。
     TitleBar *titleBar() const { return bar; }
     /// 外框那一份（把系统的标题栏去掉、客户区铺满整窗、条上哪一片能拖）。`MainWindow::nativeEvent()`
     /// 转给它的 handleNativeEvent()，`setupUi` 之外没有任何人碰它。
