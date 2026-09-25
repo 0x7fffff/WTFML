@@ -29,6 +29,7 @@ static constexpr const char kShowGameLog[] = "Launcher/ShowGameLog";
 static constexpr const char kGameWindowWidth[] = "Launcher/WindowWidth";
 static constexpr const char kGameWindowHeight[] = "Launcher/WindowHeight";
 static constexpr const char kProcessPriority[] = "Launcher/ProcessPriority";
+static constexpr const char kTitleText[] = "Launcher/TitleText";
 
 // 枚举存进 QSettings 的字符串。这几个串是**持久化格式的一部分**，不是内部标识：
 // 改掉它们，用户盘上已经存好的值就会被当成"认不出来"、静默退回默认档。
@@ -54,6 +55,15 @@ int clampWindowWidth(int width) {
 int clampWindowHeight(int height) {
     return qBound(LauncherSettings::gameWindowMinHeight(), height,
                   LauncherSettings::gameWindowMaxHeight());
+}
+
+/// 把顶上那行字收拾干净：去掉两头的空白，再截到长度上限。
+///
+/// 两头空白要去掉是因为**它会被画在条上**（名字是从条的最左边开始画的，" WTFML " 看着
+/// 就是没对齐）；截断是因为那一格地方是量的（见 MainWindowUI::titleTextMaxLength()），
+/// 而盘上那份是**不可信数据**（用户手改过注册表、或者以后从别处同步过来）。
+QString clampTitleText(const QString &text) {
+    return text.trimmed().left(LauncherSettings::titleTextMaxLength());
 }
 
 }  // namespace
@@ -155,6 +165,16 @@ void LauncherSettings::setProcessPriority(ProcessPriority priority) {
     save();
 }
 
+void LauncherSettings::setTitleText(const QString &text) {
+    const QString cleaned = clampTitleText(text);
+    // 比的是**收拾过的**那一份：用户接着打一个空格（"名字 " → "名字"）不该白写一次盘。
+    if (m_titleText == cleaned) {
+        return;
+    }
+    m_titleText = cleaned;
+    save();
+}
+
 QString LauncherSettings::behaviourKey(LauncherBehaviour behaviour) {
     switch (behaviour) {
     case LauncherBehaviour::Minimize:
@@ -251,6 +271,9 @@ void LauncherSettings::load() {
         clampWindowHeight(settings.value(kGameWindowHeight, m_gameWindowHeight).toInt());
     m_processPriority = processPriorityFromKey(
         settings.value(kProcessPriority, processPriorityKey(m_processPriority)).toString());
+    // 顶上那行字也**读回来就收拾**：盘上那一份会被原样画到条上，多长、带不带空格都不该
+    // 信它（和宽高那两个数同一个理由）。
+    m_titleText = clampTitleText(settings.value(kTitleText, m_titleText).toString());
 
     // 默认值取当前成员的值（构造时是 struct 默认值），这样"注册表里没这一项"就落到默认档，
     // 和 GlobalJavaSettings::load() 用 m_xmx 当默认值是同一个写法。取成员而不是新造一个
@@ -290,6 +313,7 @@ void LauncherSettings::save() const {
     settings.setValue(kGameWindowWidth, clampWindowWidth(m_gameWindowWidth));
     settings.setValue(kGameWindowHeight, clampWindowHeight(m_gameWindowHeight));
     settings.setValue(kProcessPriority, processPriorityKey(m_processPriority));
+    settings.setValue(kTitleText, clampTitleText(m_titleText));
     settings.setValue(kNameShowCustom, m_versionNameOptions.showCustomName);
     settings.setValue(kNameShowReal, m_versionNameOptions.showRealVersion);
     settings.setValue(kNameShowLoaderName, m_versionNameOptions.showLoaderName);

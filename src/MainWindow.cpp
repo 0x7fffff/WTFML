@@ -27,6 +27,9 @@
 #include "..\ui\InlineMessage.hpp"
 // 主页右栏那个小人怎么画：几何、投影、默认外观、头像裁切全在它里面（纯函数 + 值）。
 #include "..\ui\SkinModel.hpp"
+// 顶上那条自己画的标题栏。这个头是 2026-09-25 加的：`MainWindowUI::titleBar()` 只前置
+// 声明了 `class TitleBar`，而"设置页改名字 → 条上立刻跟着变"那两处要调它的 setBrandText()。
+#include "..\ui\TitleBar.hpp"
 // 加载器那棵树底下每一条版本号前面挂的**它自己那个加载器的标志**（见
 // fillLoaderVersionItems()）：那几条是"Fabric 能装哪些版本"，前面顶个草方块会让人
 // 以为是原版号。树的顶层那五条由 MainWindowUI 那边给图标，这里只管子条目。
@@ -1350,6 +1353,13 @@ void MainWindow::setupConnections() {
     // 而它是直接塞进命令行的东西，半条参数会让游戏起不来。改完点「应用」。
     connect(m_ui->getApplyExtraJvmArgsButton(), &QPushButton::clicked, this,
             &MainWindow::onApplyExtraJvmArgsClicked);
+    // 「外观」那一格（条上那行字）：**反着来** —— 边打字边生效、也边落盘。
+    // NOTE: 为什么不跟上面那条 JVM 参数走"点应用才存"：那边怕的是"半条参数进命令行"，
+    //       半条 JVM 参数会让游戏起不来；这里存的只是一行**显示用的**名字，半路的名字
+    //       没有任何副作用，而"打着字就能看见条上变了"正是这一项该有的手感。
+    //       代价是每个字符一次 QSettings 写（最多 titleTextMaxLength() 次），可以接受。
+    connect(m_ui->getTitleTextEdit(), &QLineEdit::textChanged, this,
+            &MainWindow::onTitleTextChanged);
     // 四个「版本名格式」勾选框共用一个槽：归一化要同时看四个值。
     const auto nameOptionChanged = [this] { onVersionNameOptionChanged(); };
     connect(m_ui->getVersionNameCustomCheck(), &QCheckBox::toggled, this, nameOptionChanged);
@@ -3857,6 +3867,7 @@ void MainWindow::applySettingsToUi() {
     const QSignalBlocker blockPriority(m_ui->getProcessPriorityCombo());
     const QSignalBlocker blockWindowWidth(m_ui->getGameWindowWidthSpin());
     const QSignalBlocker blockWindowHeight(m_ui->getGameWindowHeightSpin());
+    const QSignalBlocker blockTitleText(m_ui->getTitleTextEdit());
     const QSignalBlocker blockCustom(m_ui->getVersionNameCustomCheck());
     const QSignalBlocker blockReal(m_ui->getVersionNameRealCheck());
     const QSignalBlocker blockLoader(m_ui->getVersionNameLoaderCheck());
@@ -3899,6 +3910,13 @@ void MainWindow::applySettingsToUi() {
 
     // ---------- JVM 参数 ----------
     m_ui->getExtraJvmArgsEdit()->setPlainText(m_javaSettings->extraJvmArgs());
+
+    // ---------- 外观 ----------
+    // 条上那行字有**两个**去处：设置页那一格、还有条自己。同一次调用里一起灌 ——
+    // 分成两处写的话，以后改一处就会出现"框里是用户改过的名字、条上还是默认那五个字母"。
+    // 两边喂的都是盘上那份（空串 = 没改过，条自己会退回 defaultBrandText()）。
+    m_ui->getTitleTextEdit()->setText(m_settings->titleText());
+    m_ui->titleBar()->setBrandText(m_settings->titleText());
 
     // ---------- 启动选项 ----------
     m_ui->getShowGameLogCheck()->setChecked(m_settings->showGameLog());
@@ -4132,6 +4150,15 @@ void MainWindow::onGameWindowSizeChanged() {
     // 而且要落的是一个**自洽的**宽高对。
     m_settings->setGameWindowSize(m_ui->getGameWindowWidthSpin()->value(),
                                   m_ui->getGameWindowHeightSpin()->value());
+}
+
+void MainWindow::onTitleTextChanged() {
+    // 存的是**框里那串原文**：去空白、截长度都由 setTitleText() 自己做（归一化只有那
+    // 一处，界面这一层不改用户的字）。取回来的才是"盘上那一份"，条上画的就是它 ——
+    // 于是条上显示的字和盘上存着的字永远是同一个（不然"打了 17 个字、条上是前 16 个、
+    // 框里是 17 个"这种事迟早会发生）。
+    m_settings->setTitleText(m_ui->getTitleTextEdit()->text());
+    m_ui->titleBar()->setBrandText(m_settings->titleText());
 }
 
 void MainWindow::syncDownloadSource() {

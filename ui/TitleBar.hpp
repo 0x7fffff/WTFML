@@ -13,15 +13,23 @@
  * 所以这里一个 Win32 调用都没有 —— 搬不走的东西在 WindowChrome 里，这一份是纯控件。
  *
  * 【条上有几样东西】
- *   1. 左边一颗草方块（`VersionIcons::grassBlock`，和版本树那几行同一张图）+ 那五个字母
- *      （`brandText()`，**写死的品牌名**，不再跟窗口标题走）；
- *   2. 紧跟着**四个导航按钮**（主页 / 实例 / 下载 / 设置）—— 也就是把原来贴在内容区顶上
- *      那条选项卡栏搬到这儿来（用户原话：「把四个选项卡放到最顶上去，通过顶端按钮打开
- *      四个功能」）。按钮只发 `navRequested(下标)`，谁去翻页是调用方的事；
+ *   1. 左边一颗草方块（`VersionIcons::grassBlock`，和版本树那几行同一张图）+ 启动器名字
+ *      （默认是 `defaultBrandText()` 那五个字母，**可以在设置页「外观」里改成别的** ——
+ *      用户原话「左上角五个字母默认是这五个，在设置里允许自定义」，见 `setBrandText()`）；
+ *   2. **正中间是那四颗导航按钮**（主页 / 实例 / 下载 / 设置）—— 也就是把原来贴在内容区
+ *      顶上那条选项卡栏搬到这儿来（用户原话：「把四个选项卡放到最顶上去，通过顶端按钮
+ *      打开四个功能」），而且要**居中**（「上面的四个居中」；那个"正中"怎么算出来的，
+ *      只有 `TitleBar.cpp` 里 `kNavGroupLeftMargin` 一处）。按钮只发 `navRequested(下标)`，
+ *      谁去翻页是调用方的事；
  *   3. 右边两颗按钮：最小化（—）与关闭（×），字形同样出自 `VersionIcons`（自己画的，
  *      仓库里没有图片文件）；
- *   4. 中间那一片**什么都没有** —— 拖窗靠的是 `WindowChrome::handleNativeEvent()` 把这一片
- *      判成 HTCAPTION（系统拖窗 + 贴边吸附白拿），这里不需要任何代码。
+ *   4. 条上除了那六颗按钮**没有别的子控件**：名字与导航之间、导航与窗口按钮之间那两片
+ *      空白都是 `paintEvent` 画出来的底（草方块和名字也是画的）—— 拖窗靠的是
+ *      `WindowChrome::handleNativeEvent()` 把这两片判成 HTCAPTION（系统拖窗 + 贴边吸附
+ *      白拿），这里不需要任何代码。
+ *
+ * NOTE: 名字可以在设置里改，**窗口标题不跟着动**：窗口标题还得在 Alt-Tab / 任务栏里读得
+ *       出来（`MainWindowUI::setupUi` 里那句 `setWindowTitle`），那是**另一件事**。
  *
  * 【为什么导航按钮摆在这儿而不是把 QTabBar 搬出来】
  * `QTabWidget::setTabBar()` 换得掉那一份，但标签栏的**几何**仍然归 QTabWidget 管
@@ -72,8 +80,10 @@ public:
     static int buttonInset();
     /// 每一颗导航按钮的宽（逻辑像素）。
     static int navItemWidth();
-    /// 品牌那五个字母。**唯一出处** —— 画的是它，断言比的是它。
-    static QString brandText();
+    /// **默认**那五个字母。**唯一出处** —— 条上画的是它（除非 `setBrandText()` 换过）、
+    /// 设置页那一格的占位文字也是它、断言比的还是它。
+    /// 用户原话：「左上角五个字母默认是这五个」。
+    static QString defaultBrandText();
 
     /// 右边那两颗按钮。验证工程靠它们点那两下。
     QAbstractButton *minimizeButton() const { return m_minimize; }
@@ -94,8 +104,18 @@ public:
     /// 第 @p index 颗导航按钮（越界给 nullptr）。
     QAbstractButton *navButton(int index) const;
 
-    /// 条上写着的那行字 —— 就是 `brandText()`（**不再跟窗口标题走**：用户要的是"顶上标题
-    /// 换成五个字母"，而窗口标题还要在 Alt-Tab/任务栏里能读，见 `MainWindow::setWindowTitle`）。
+    /**
+     * @brief 换掉条上那行字（设置页「外观」那一项接的就是它）。
+     * @param text 新名字；**两头的空白会去掉**，去掉之后为空 = **回到默认那五个字母**
+     *        （所以"把输入框清空"是"恢复默认"，不是"条上什么都不写"）。
+     *
+     * 只影响条自己。窗口标题（Alt-Tab / 任务栏里那一份）不跟着动 —— 那是两件事，
+     * 见文件头那条 NOTE。
+     */
+    void setBrandText(const QString &text);
+
+    /// 条上现在写着的那行字（**已经把默认值算进去了**：换过就是换的那个，
+    /// 没换过/清空过就是 `defaultBrandText()`）。
     QString titleText() const;
 
 signals:
@@ -111,10 +131,16 @@ protected:
 
 private:
     QHBoxLayout *m_layout = nullptr;
+    /// 导航那几颗**自己一层**（夹在主布局的两段等长 stretch 中间）：这一层就是"居中"的
+    /// 实现，也是 `setNavItems()` 唯一动的东西（主布局从头到尾不变）。
+    QHBoxLayout *m_navLayout = nullptr;
     QAbstractButton *m_minimize = nullptr;
     QAbstractButton *m_close = nullptr;
     QList<QAbstractButton *> m_navButtons;
     int m_currentNav = -1;
+    /// 用户换过的名字。**空 = 没换过**（`titleText()` 于是回默认那五个字母）——
+    /// 所以这里存的不是"条上会画的那串"，别拿它当显示值。
+    QString m_brand;
 };
 
 /**

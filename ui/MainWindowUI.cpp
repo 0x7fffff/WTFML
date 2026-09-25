@@ -156,6 +156,10 @@ constexpr int kWindowSizeSpinWidth = 90;
 /// 「游戏窗口」那一行中间那个「×」。
 constexpr int kWindowSizeRowSpacing = 8;
 
+/// 「外观」那一行那个文本框的宽。装得下 `titleTextMaxLength()` 个字（16 个汉字约 224 px）
+/// 就够 —— 再宽就是在暗示"这里可以写很长"，而条上那一格是量的。
+constexpr int kTitleTextEditWidth = 220;
+
 /// 把一个控件加到设置页那一行的容器里，**只占它需要的那点宽度、靠左**放。
 ///
 /// 为什么不是默认的"填满整格"：右列有 7 份宽（900 px 的窗口下就有 600 多 px），
@@ -336,7 +340,8 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
 
     // ================= 顶上那条自己画的标题栏 =================
     // 系统那条白色标题栏已经由 WindowChrome 去掉了（客户区铺满整窗，见它的文件头），
-    // 顶上这一行就是替它的：左边草方块 + 那五个字母（`TitleBar::brandText()`），
+    // 顶上这一行就是替它的：左边草方块 + 启动器名字（默认是 `TitleBar::defaultBrandText()`
+    // 那五个字母，设置页「外观」里可以改），
     // 然后是**四个功能的导航按钮**（下面 addTab 完之后 setNavItems() 灌进去），
     // 右边最小化与关闭。第一行就是它、第二行才是标签页 —— 顺序由 addWidget 的先后决定。
     //
@@ -1023,8 +1028,8 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
 }
 
 void MainWindowUI::setupSettingsPage(QWidget *page) {
-    // 设置项多起来之后一屏放不下（账户 / Java / 内存 / 启动后 / JVM 参数 / 下载源 /
-    // 版本名格式），所以套一层滚动区：窗口初始高度只有 620（只 resize 过、没有
+    // 设置项多起来之后一屏放不下（外观 / 账户 / Java / 内存 / 启动后 / 启动选项 /
+    // JVM 参数 / 下载源 / 版本名格式），所以套一层滚动区：窗口初始高度只有 620（只 resize 过、没有
     // setFixedSize），不给滚动就等于把最后那几项一直藏在可视区外，用户不拖大窗口
     // 根本看不见。
     QScrollArea *scroll = new QScrollArea(page);
@@ -1045,6 +1050,33 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
     scroll->setWidget(form);
 
     int row = 0;
+
+    // ---------- 外观 ----------
+    // 2026-09-25 加的。用户原话：「上面的四个居中，左上角五个字母默认是这五个，在设置里
+    // 允许自定义」—— 后半句就是这一行：条上那行字（`TitleBar::defaultBrandText()` 那五个
+    // 字母）能在这儿改成别的，**留空就是默认那五个**。
+    // 摆在最上面是因为它和下面那些"启动行为"型的设置不是一类东西（它只管长什么样），
+    // 而"顶上写着什么"又是用户一眼就能看见、最容易想改的那一样。
+    addSectionTitle(grid, row++, QStringLiteral("外观"), form);
+    {
+        QWidget *box = makeHintedControl(form);
+        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        titleTextEdit = new QLineEdit(box);
+        titleTextEdit->setObjectName(titleTextEditName());
+        // 长度上限在**两个地方**各写一遍（ui/ 不许 include src/，见 titleTextMaxLength()）。
+        titleTextEdit->setMaxLength(titleTextMaxLength());
+        // 占位文字就是默认那五个字母：一个不知所以的空框会被当成"这里还没做完"。
+        titleTextEdit->setPlaceholderText(TitleBar::defaultBrandText());
+        titleTextEdit->setMinimumWidth(kTitleTextEditWidth);
+        // 文本框和下拉框不往整格里撑（右列有 7 份宽，一个名字框被拉到 600 px 看着就是坏的）——
+        // 和 addInlineControl() 是同一条规矩。
+        boxLayout->addWidget(titleTextEdit, 0, Qt::AlignLeft);
+        addHint(box,
+                QStringLiteral("窗口左上角那行字。留空就是默认的 %1。")
+                    .arg(TitleBar::defaultBrandText()),
+                form);
+        addSettingRow(grid, row++, QStringLiteral("标题文字"), box, form);
+    }
 
     // ---------- 账户 ----------
     // 这一格原来摆的是个「微软登录」按钮（登录过之后叫「重新登录」）。它**搬进**

@@ -206,6 +206,28 @@ public:
     static int gameWindowMaxHeight() { return 4320; }
 
     // ------------------------------------------------------------------
+    // 顶上那行字（设置页「外观」那一项，2026-09-25 加的）
+    // ------------------------------------------------------------------
+
+    /// 条上写着的那行字。
+    ///
+    /// **默认是空串** = "没改过"，条上那时候用的是 `TitleBar::defaultBrandText()` 那五个
+    /// 字母 —— 所以这里刻意**不抄一份默认值**：默认值只有条那一个出处（`ui/TitleBar.hpp`），
+    /// 抄一份在这里就会出现"两边都叫默认、改了一边就对不上"。
+    QString titleText() const { return m_titleText; }
+
+    /// 设置条上那行字并立刻落盘。内部先去掉两头的空白、再按 titleTextMaxLength() 截断。
+    void setTitleText(const QString &text);
+
+    /// 这一项的长度上限；load()/save() 都拿它截断（界面那一侧是输入框的 maxLength）。
+    ///
+    /// NOTE: 界面那一份是 MainWindowUI::titleTextMaxLength() —— **必须和这里一样**，
+    ///       理由和上面那对窗口大小一模一样（ui/ 不许 include src/，所以是各写一遍，
+    ///       验证工程里有断言盯着它们相等）。不一样的话症状是"打上去的字自己少了几个"。
+    ///       16 是按条上留给名字的那点地方量的，见 MainWindowUI 那一处的说明。
+    static int titleTextMaxLength() { return 16; }
+
+    // ------------------------------------------------------------------
     // 枚举 <-> 存储值
     // ------------------------------------------------------------------
     // 两个方向都放在这一处，免得"写进去"和"读回来"各写一套字符串、
@@ -241,4 +263,6 @@ private:
     int m_gameWindowWidth = 854;
     int m_gameWindowHeight = 480;
     ProcessPriority m_processPriority = ProcessPriority::Normal;
+    /// 顶上那行字。**空串是默认档**（= 条上那五个字母），不是"没有名字"。
+    QString m_titleText;
 };
