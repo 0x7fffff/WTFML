@@ -129,10 +129,18 @@ QString InstanceGroupDelegate::rowActionTip(const QModelIndex &index, const QRec
         if (instanceGearRect(row).contains(pos)) {
             return MainWindowUI::rowInstanceSettingsTipText();
         }
-        // 上箭头那一格**只在画得出来的行上**才算数（rowPinRole() 为假 = 已经在置顶组里 =
-        // 这一格根本没画），不然会出现"指着一块空白弹出了「置顶」"。
-        if (index.data(MainWindowUI::rowPinRole()).toBool() && instancePinRect(row).contains(pos)) {
-            return MainWindowUI::rowPinTipText();
+        // 那一格（上箭头 / 下箭头**共用的一格**，见 MainWindowUI::rowUnpinRole()）
+        // **只在画得出来的行上**才算数 —— 两个角色都为假 = 这一格根本没画（这份
+        // .minecraft 里没有置顶组），不然会出现"指着一块空白弹出了「置顶」"。
+        // 两个角色互斥（同一个 pinnedGroupId 一个判 `!=`、一个判 `==`），先判哪个都行；
+        // 真两个都真了的话先判的那个赢（和上面那条"三条互斥分支"同一个约定）。
+        if (instancePinRect(row).contains(pos)) {
+            if (index.data(MainWindowUI::rowUnpinRole()).toBool()) {
+                return MainWindowUI::rowUnpinTipText();
+            }
+            if (index.data(MainWindowUI::rowPinRole()).toBool()) {
+                return MainWindowUI::rowPinTipText();
+            }
         }
         if (instanceTrashRect(row).contains(pos)) {
             return MainWindowUI::rowDeleteInstanceTipText();
@@ -187,13 +195,23 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
         const QRect gearGlyph = instanceGearGlyphRect(option.rect);
         painter->drawPixmap(gearGlyph.topLeft(),
                             VersionIcons::gear(gearGlyph.width(), ink));
-        // 上箭头：悬停才画，而且**只有 rowPinRole() 为真的行才画**（已经在置顶组里的那一条
-        // 挪不动 ⇒ 不画 —— "挪不动的那侧不画"这条先例在 ui/GroupListDelegate 里，
-        // 不是画一颗灰的：画灰的会让人以为"点一下就能置顶、只是现在不行"）。
-        if (hovered && index.data(MainWindowUI::rowPinRole()).toBool()) {
+        // 中间那一格：悬停才画，而且是**一对反义词共用的一格**（见 MainWindowUI::
+        // rowUnpinRole() 那段）—— 还没在置顶组里 ⇒ ↑「置顶」；已经在里面 ⇒ ↓「取消置顶」。
+        // 两个角色都为假 = 这一格空着，那就不画（这份 .minecraft 里没有置顶组：
+        // 那一格点下去没有去处）。
+        //
+        // NOTE: 上箭头那一半的判据和原来逐字一样（只有 rowPinRole() 为真的行才画 ——
+        //       已经在置顶组里的那一条挪不动 ⇒ 不画，因为"挪不动的那侧不画"这条先例在
+        //       ui/GroupListDelegate 里；**不是**画一颗灰的）。下箭头那一半是新加的，
+        //       它正好补上了原来那一档"什么都不画"里的一半：现在只剩"根本没有置顶组"
+        //       这一种什么都不画的情形。
+        const bool canPin = index.data(MainWindowUI::rowPinRole()).toBool();
+        const bool canUnpin = index.data(MainWindowUI::rowUnpinRole()).toBool();
+        if (hovered && (canPin || canUnpin)) {
             const QRect pinGlyph = instancePinGlyphRect(option.rect);
             painter->drawPixmap(pinGlyph.topLeft(),
-                                VersionIcons::arrowUp(pinGlyph.width(), ink));
+                                canUnpin ? VersionIcons::arrowDown(pinGlyph.width(), ink)
+                                         : VersionIcons::arrowUp(pinGlyph.width(), ink));
         }
         // 垃圾桶：悬停才画。它点下去还要过一次确认框（那一下由 MainWindow::eventFilter 接），
         // 但它一趟操作是**不可逆**的，所以"鼠标没指到这一行时就不摆出来"。

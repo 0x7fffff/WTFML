@@ -267,6 +267,10 @@ private slots:
     /// 实例行行尾那颗**上箭头**：把这个实例移进置顶组（哪一组当家见
     /// InstanceGroupStore::pinnedGroupId()）。没有置顶组时什么都不做。
     void pinInstance(const QString &versionId);
+    /// 同一格反过来那一颗（**下箭头**）：把这个实例挪**出**置顶组（用户 2026-09-25 原话：
+    /// 「置顶组里的实例悬停时右侧显示下箭头，即取消置顶」）。落点 = 未分组，和「移出分组」
+    /// 那件事逐字同一个（写一条"明确选了未分组"，不是把归属删掉）。
+    void unpinInstance(const QString &versionId);
     /// 实例行行尾那个**垃圾桶**：先问一句（这一趟不可逆）再调 deleteInstance()。
     void confirmDeleteInstance(const QString &versionId);
     /// 删除实例的**执行部分**：把 versions/<id> 整个目录删掉 + 刷界面。失败返回 false。

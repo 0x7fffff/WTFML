@@ -413,6 +413,25 @@ public:
     ///       （2026-09-25 上半天的 rowGroupMoveRole() 和那两句话一起删了），空到今天。
     ///       加新角色前先看 rowSubTextRole() 上面那段：撞号的表现是"屏幕上多出一笔"。
     static int rowPinRole() { return Qt::UserRole + 12; }
+
+    /// 这一行的实例**已经在置顶组里** ⇒ 悬停时**同一格**画得出那颗下箭头，
+    /// 点它 = 取消置顶（挪出置顶组，落到「未分组」）。
+    ///
+    /// ★ 用户 2026-09-25 原话：「置顶组里的实例悬停时右侧显示下箭头，即取消置顶」。
+    ///   于是那一格现在是**一对反义词共用一格**：不在里面 → ↑「置顶」，在里面 → ↓
+    ///   「取消置顶」。一个实例**永远只可能是其中一边**（`groupId` 要么等于置顶组、要么
+    ///   不等于），所以这一格没有"两颗都画"或者"一颗都不画"的中间态 ——
+    ///   这也正是当初只留一格的原因：那一排右边紧贴着就是垃圾桶，一行里塞不下第四颗。
+    ///
+    /// NOTE: 它和 rowPinRole() 是**两格相反的角色**，不是"同一个含义的两个写法"：
+    ///       `rowPinRole()` = 还挪得动（画 ↑），`rowUnpinRole()` = 已经在里面（画 ↓）。
+    ///       **两者互斥**（fillInstanceTree 里一个判 `!=`、一个判 `==`，同一个
+    ///       `pinnedGroupId`）。拆成两格而不是"一格 + 另一个方向位"的理由：代理和
+    ///       eventFilter 两边各自读一个字就能决定画什么、按下去调谁，不用再对着
+    ///       枚举解一遍方向。
+    ///
+    /// NOTE: 号码 **`Qt::UserRole + 13`**（紧挨着 rowPinRole()，见上一段那两条）。
+    static int rowUnpinRole() { return Qt::UserRole + 13; }
     /// 行尾那三颗按钮各自弹的那句话（和 rowRefreshTipText() 一个规矩：**只在这一格上**才
     /// 说话，整条行不弹；谁弹的、按哪一格判，见 InstanceGroupDelegate::rowActionTip()）。
     /// 齿轮那句和那一页自己的页眉（`InstanceSettingsDialog::titleText()`）是**两回事**：
@@ -420,6 +439,9 @@ public:
     /// 还要问点什么的才带），这个齿轮点下去直接把那一页开出来、不先问什么，所以不带。
     static QString rowInstanceSettingsTipText() { return QStringLiteral("实例设置"); }
     static QString rowPinTipText() { return QStringLiteral("置顶"); }
+    /// 同一格反过来那一颗（下箭头）弹的话。它是 `rowPinTipText()` 的反义词，**不是**
+    /// 「取消置顶」四个字以外的东西 —— 用户原话就把它写成"即取消置顶"。
+    static QString rowUnpinTipText() { return QStringLiteral("取消置顶"); }
     static QString rowDeleteInstanceTipText() { return QStringLiteral("删除这个实例"); }
     /// 悬停在那两个**行里的按钮**上时弹的那句话（2026-09-24 用户原话：「鼠标悬停在箭头上
     /// 出现刷新二字，之后不少功能要做悬停」）。谁把它弹出来的、按哪一格判，见
