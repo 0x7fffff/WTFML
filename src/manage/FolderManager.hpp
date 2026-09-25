@@ -174,6 +174,11 @@ private:
     /// 把用户输入/盘上读来的路径归一化成可比对的形式：绝对路径 + cleanPath；
     /// 目录真的存在时再取一次 canonicalFilePath（顺带统一盘符大小写、解掉符号链接，
     /// 否则同一份目录会以两种写法同时进列表）。
+    ///
+    /// **例外：这一格本身就是链接（junction / 符号链接）的，不解**（2026-09-26）——
+    /// 解了就变成"用户加的是 `D:\MC\link`、列表里却是 `E:\real`"，接着"删除这一份"
+    /// 删掉的就是链接那一头的东西。只归一它的**父目录**，最后那一段原样留着。
+    /// 详见 .cpp 里那一格。
     static QString normalized(const QString &path);
 
     /// 把自定义名字表写回设置（原始形态见 LauncherSettings::folderNames()）。
