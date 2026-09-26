@@ -644,6 +644,13 @@ void VersionManager::downloadVersion(const QString &versionId, const QString &de
     //       明确的终态，所以那边看返回值（见 startModpackFiles）。
     writeVersionJson(versionId, destinationPath, versionJson, nullptr);
 
+    registerVersionFiles(versionJson, versionId, destinationPath + "/" + versionId + ".jar");
+
+    downloadManager->endBatch();
+}
+
+void VersionManager::registerVersionFiles(const QJsonObject &versionJson,
+                                          const QString &jarOwnerId, const QString &jarPath) {
     // Download client jar
     if (versionJson.contains("downloads") && versionJson["downloads"].isObject()) {
         const QJsonObject downloads = versionJson["downloads"].toObject();
@@ -653,11 +660,10 @@ void VersionManager::downloadVersion(const QString &versionId, const QString &de
             const QString sha1 = client["sha1"].toString();
             const qint64 size = client["size"].toVariant().toLongLong();
 
-            const QString jarPath = destinationPath + "/" + versionId + ".jar";
             // 带上 size：重新点下载时先比字节数，对得上才算"已经下过"，
             // 省掉一次 41 MB 的全文件哈希。
             // 版本号要一起传：镜像源下客户端 jar 是按版本号取的，不是按 sha1。
-            downloadManager->downloadClientJar(versionId, url, jarPath, sha1, size);
+            downloadManager->downloadClientJar(jarOwnerId, url, jarPath, sha1, size);
         }
     }
 
@@ -675,6 +681,29 @@ void VersionManager::downloadVersion(const QString &versionId, const QString &de
     // Download assets
     AssetIndex assetIndex = downloadManager->extractAssetIndex(versionJson);
     downloadManager->downloadAssets(assetIndex);
+}
+
+void VersionManager::repairVersionFiles(const QString &versionId) {
+    // 两道早退都在 beginBatch() 之前，而且都要发终态（理由见 downloadVersion() 顶部那段 NOTE）。
+    const QJsonObject versionJson = getVersionJson(versionId);
+    if (versionJson.isEmpty()) {
+        qWarning() << "No version json on disk for" << versionId << ". Cannot repair.";
+        emit versionDownloadFinished(versionId, false,
+                                     tr("读不出这个实例的 version.json，没法校验它要哪些文件。"));
+        return;
+    }
+    if (downloadManager->isBusy()) {
+        qWarning() << "A download batch is already running, refusing to start another.";
+        emit versionDownloadFinished(versionId, false, tr("已有下载任务正在进行，请等它结束。"));
+        return;
+    }
+
+    m_currentVersionDownloading = versionId;
+    downloadManager->beginBatch();
+
+    // 不写 json（见头文件里的 ②）；jar 的主人可能是父版本（见 ③）。
+    registerVersionFiles(versionJson, InstanceFiles::jarOwnerId(versionId),
+                         InstanceFiles::jarPath(versionId));
 
     downloadManager->endBatch();
 }

@@ -129,6 +129,33 @@ public:
     // Version downloading
     void downloadVersion(const QString &versionId, const QString &destinationPath);
 
+    /**
+     * @brief 校验一个**已经装好的**实例，只补缺的和损坏的（实例设置「补全文件」那颗按钮）。
+     *
+     * 和 downloadVersion() 干的是同一件事的两半：同一个批次、同一批文件、同一套
+     * "已有且校验通过就跳过"的规矩，收尾也走同一个 versionDownloadFinished。区别只有三处，
+     * 每处都是"装一个新的"与"修一个旧的"本来的差别：
+     *
+     *  ① **json 从盘上读**（getVersionJson()，走继承链合并），不是从 versionJsons 那张内存表
+     *     取。那张表只装了"这一次运行里拉过详情"的版本，而"补全一个早就装好的实例"恰恰
+     *     最常发生在重开启动器之后 —— 那时候表是空的，照 downloadVersion() 的做法会直接
+     *     报"尚未获取到该版本的 version.json"。盘上那份 json 是这个实例的权威（启动读的
+     *     也是它），补文件这件事不该要求先联网。
+     *  ② **不写 version.json**：这一趟只要"文件齐了"，盘上那份原样留着。
+     *  ③ **jar 的落点走 InstanceFiles::jarPath()**：加载器实例自己没有 jar，它的客户端 jar
+     *     是**父版本**那一份（InstanceFiles::jarOwnerId()）。downloadVersion() 里那句
+     *     `destinationPath + "/" + versionId + ".jar"` 对"新装一个版本"是对的，照搬到这里
+     *     却会给加载器实例多写一个没人读的 jar。
+     *
+     * @param versionId 实例 id（= versions 下的目录名）。
+     *
+     * NOTE: 收尾信号被调用方当成两用（见 MainWindow 里 m_repairingInstanceId 那段），所以
+     *       这里的早退**必须**发终态 —— 界面点一下就在等一个结果，不发就是"点了没反应"。
+     * NOTE: 想先把 json 拉一遍再补的老路走不通：那要求联网，而损坏的文件里就有可能是网络
+     *       本身弄坏的。盘上那份 json 足够算出要找哪些文件。
+     */
+    void repairVersionFiles(const QString &versionId);
+
     /// 把"接着干下一件事"排到下一轮事件循环里执行，并给这一步套上异常兜底。
     ///
     /// **什么时候必须用它**：从异步回调里往回接续的时候 —— 网络回复的槽、安装器进程的信号、
@@ -982,6 +1009,19 @@ private:
     /// 下载路径和整合包导入共用这一份（QSaveFile：断电只会留下旧内容，不会留下半截 json）。
     static bool writeVersionJson(const QString &versionId, const QString &destinationPath,
                                  const QJsonObject &json, QString *errorOut);
+
+    /// 按一份**已经合并好的** json 把"这个版本要哪些文件"登记进当前批次：客户端 jar、库、资源。
+    /// **不 beginBatch / 不 endBatch / 不写 json** —— 那些分别是调用方自己的事。
+    ///
+    /// 单独开一个口是因为 downloadVersion()（装一个新的）和 repairVersionFiles()（修一个旧的）
+    /// 对"要哪些文件"必须给出**逐字节一样**的答案：两条各写一份的下场是将来加一类文件只加到
+    /// 其中一条上，而那种 bug 的形状是"点了补全还是起不来"——查起来最费劲的那种。
+    ///
+    /// @param versionJson 已经走完继承链合并的 json。
+    /// @param jarOwnerId 客户端 jar 在镜像源里算哪个版本号取（= 磁盘上那份 jar 的主人）。
+    /// @param jarPath 客户端 jar 落到的完整路径。
+    void registerVersionFiles(const QJsonObject &versionJson, const QString &jarOwnerId,
+                              const QString &jarPath);
 
     /// 加载器版本号定了之后那一段（从版本表挑出来的、整合包钉死的，都走这里）：
     /// 算 loaderId / 安装器地址 / 安装器文件名，再把"下安装器"排到下一轮。

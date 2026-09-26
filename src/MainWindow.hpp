@@ -270,6 +270,28 @@ private slots:
     ///       2026-09-25 原话「重命名进实例设置」）：页面上改「实例名」那一格、按确定之后
     ///       先 applyRename() 再写设置，顺序的理由写在实现里。
     void openInstanceSettings(const QString &versionId);
+    /// 「导出启动脚本」：把"按这个实例现在的这套参数启动"写成**一个 .bat**。
+    ///
+    /// 用户 2026-09-26 原话：「弹窗让用户选保存位置，出 .bat」。问路径那一半在对话框里
+    /// （那一步开的是 Windows 自己的保存框，见 ui/InstanceSettingsDialog.cpp 里那个调用点），
+    /// **这一半是"拿一条路径真的去写"** —— 收两个字符串，所以验证工程可以直接
+    /// `invokeMethod` 进来喂一条临时路径，不用去驱动那个保存框。
+    ///
+    /// @param versionId 实例 id（= 目录名）。
+    /// @param path 用户挑好的完整路径（带 .bat）。
+    ///
+    /// NOTE: 脚本的内容必须和**真正启动那一次**逐字一致（两边调的是同一个
+    ///       launchArguments()，见 MainWindow.cpp 里那两处调用点），
+    ///       否则"导出来的能跑"这句话就没有依据。唯一**故意**不同的地方是程序名那一格：
+    ///       那边由 LauncherManager 从 PATH 兜底，这边写的是同一个兜底值（裸 `java`）。
+    void exportLaunchScript(const QString &versionId, const QString &path);
+    /// 「补全文件」：校验这个实例的文件，只补缺的和损坏的（用户原话：「校验已装的，
+    /// 缺哪个补哪个」）。
+    ///
+    /// 干活的在 VersionManager::repairVersionFiles()，这里管的是"该不该开始、开始之后
+    /// 界面成什么样"：三道守卫（这个实例自己在忙 / 别的批次在跑 / 继承链不完整），
+    /// 置 m_repairingInstanceId + 界面忙态，收尾在 onVersionDownloadFinished() 里。
+    void repairInstanceFiles(const QString &versionId);
     /// 实例行行尾那颗**上箭头**：把这个实例移进置顶组（哪一组当家见
     /// InstanceGroupStore::pinnedGroupId()），**并记下它置顶之前待在哪一组**（见那个类的
     /// 文件头那一段）。没有置顶组时什么都不做。
@@ -570,6 +592,25 @@ private:
     /// @param io 进参是合成好的有效值，出参是定下来的内存。
     /// @param override 这个实例的覆盖（用来判断"自动这一档是谁要的"）。
     void resolveMemoryForLaunch(EffectiveJavaSettings &io, const JavaSettingsOverride &override);
+    /// 这一次启动到底执行什么：**程序**（Java 可执行文件）+ **那一串参数**。
+    ///
+    /// 收在一个函数里是因为有两个消费者，而它们必须给出**逐字节一样**的答案：
+    ///   - onStartButtonClicked()：真的启动，把 arguments 交给 startGame()（program 那一格
+    ///     由 LauncherManager 自己从 settings.javaPath 取，取不到就退 PATH 上的 java ——
+    ///     和下面那个兜底是同一件事）。
+    ///   - exportLaunchScript()：把这两个字段写成 .bat（用户要的是"双击就按这套参数启动"，
+    ///     导出一份和启动器**不一样**的命令行等于导出一份假的）。
+    ///
+    /// @param javaSettings 这次启动要用的那一套 Java 值（全局按实例覆盖合成之后的结果）。
+    ///        program 就是它里面的 javaPath（空 = 还没挑过，用裸 `java` 让 cmd 走 PATH）。
+    /// @param offlineMode 这一趟走不走离线（判据只有一处：offlineIdentity()）。
+    ///
+    /// NOTE: assetIndexId 与 javaMajorVersion 的兜底值（"29" / 21）也在这条路上算，见
+    ///       versionRuntimeIds()。它**不**去挑 Java、也不下运行时 —— 那两件事分别是
+    ///       ensureJavaForVersion 和 startGame 的事，都不属于"拼命令行"。
+    QStringList launchArguments(const QString &versionId, const QJsonObject &versionJson,
+                                const EffectiveJavaSettings &javaSettings, const QString &token,
+                                bool offlineMode) const;
     /// 用户在那个「Java 版本对不上」的框里选的哪一条路。
     enum class JavaMismatchAnswer {
         /// 没问（绝大多数启动都走这条：实例没钉 Java、总闸关着、这个实例表过态不再问、
@@ -719,11 +760,15 @@ private:
     /// onStartButtonClicked() 那道闸口也读同一份 —— 列表里滤掉的正是闸口拦的，
     /// 不会出现"列表里能选、点下去被拦"这种自相矛盾。
     ///
-    /// 四个来源缺一不可，它们兜的是同一种缝：活儿还在进行，但此刻**没有任何一批下载
+    /// 这几个来源缺一不可，它们兜的是同一种缝：活儿还在进行，但此刻**没有任何一批下载
     /// 在跑**（isDownloading() 是 false），于是只看下载状态的话，这个实例看起来已经好了。
     ///   - busyVersionId()：正在下这一批的那一个版本。
     ///   - m_importingInstanceId / m_installingInstanceId：整合包导入和"带名字的新实例"
     ///     都有"等原版版本 json"那一段（元数据请求，不算下载），导入还多一段解压覆盖。
+    ///   - m_repairingInstanceId（2026-09-26，「补全文件」那颗按钮）：它**是**一批下载在跑，
+    ///     所以 busyVersionId() 那一份本来就盖住它 —— 列在这里是给"按钮点下去、批次还没
+    ///     起来"那一小段兜底（那之间隔着一道 isBusy() 判据）。那一段里这个实例的文件马上
+    ///     就要被重写，照样不该被启动。
     QSet<QString> installingVersionIds() const;
 
     // ------------------------------------------------------------------
@@ -1063,6 +1108,11 @@ private:
     // 这里要判断"这一条讲的是它，还是普通的一次版本下载"，好把那句「版本 X 的文件已
     // 全部就绪」换成"实例装好了"该说的话。
     QString m_installingInstanceId;
+    // 正在**校验/补全**的那个实例（空 = 没有补全在跑）。来路和上面那个一模一样：补全走的
+    // 也是公共的 versionDownloadFinished(id, ok, msg)，这里要判断"这一条讲的是补全，还是
+    // 普通的一次版本下载"，好把那句「版本 X 的文件已全部就绪」换成"都齐了 / 缺哪几个"。
+    // 它也进 installingVersionIds()（见那边），所以补全期间这个实例不在启动列表里。
+    QString m_repairingInstanceId;
     // ---------- 安装页（版本树的下一层）----------
     // 安装页现在正对着哪个原版号（空 = 没进过安装页）。四个加载器各自能挑哪些版本、
     // 默认名怎么拼，都以它为准。

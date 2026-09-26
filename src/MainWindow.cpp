@@ -2558,6 +2558,11 @@ QSet<QString> MainWindow::installingVersionIds() const {
     if (!m_installingInstanceId.isEmpty()) {
         ids.insert(m_installingInstanceId);
     }
+    // 「补全文件」那颗按钮（2026-09-26）：它**是**一批下载在跑，所以上面那个 busy 那一份
+    // 通常已经盖住它了；记这一笔是给"点下去、批次还没起来"那一小段兜底（见头文件）。
+    if (!m_repairingInstanceId.isEmpty()) {
+        ids.insert(m_repairingInstanceId);
+    }
     return ids;
 }
 
@@ -5089,6 +5094,59 @@ bool MainWindow::confirmLaunchWhileRunning(const QString &versionId) {
     return true;
 }
 
+/// 从 version.json 里取这次启动要用的 assetIndexId 与 javaMajorVersion，各自带兜底值。
+///
+/// **唯一出处**：真的启动（onStartButtonClicked）和「导出启动脚本」都走它 —— 两条路各写一份
+/// 兜底的下场是导出来的 .bat 和启动器真正执行的那条命令行悄悄分家，而那种分家只在**没写
+/// 这两个字段的版本**上才看得出来（写了就都一样，改错了也测不出来）。
+///
+/// NOTE: 兜底值（assetIndex "29" / Java 21）只在 json 里没写那两级字段时才用得上。
+/// NOTE: 两个出参都可以给 nullptr（调用方只关心其中一个时）。
+static void versionRuntimeIds(const QJsonObject &versionJson, QString *assetIndexId,
+                              int *javaMajorVersion) {
+    QString index = QStringLiteral("29");
+    int major = 21;
+    const QJsonObject assetIndexObj = versionJson["assetIndex"].toObject();
+    const QString actualAssetIndexId = assetIndexObj["id"].toString();
+    if (!actualAssetIndexId.isEmpty()) {
+        index = actualAssetIndexId;
+    }
+    const QJsonObject javaVersionObj = versionJson["javaVersion"].toObject();
+    const int declaredMajor = javaVersionObj["majorVersion"].toInt();
+    if (declaredMajor > 0) {
+        major = declaredMajor;
+    }
+    if (assetIndexId != nullptr) {
+        *assetIndexId = index;
+    }
+    if (javaMajorVersion != nullptr) {
+        *javaMajorVersion = major;
+    }
+}
+
+QStringList MainWindow::launchArguments(const QString &versionId, const QJsonObject &versionJson,
+                                        const EffectiveJavaSettings &javaSettings,
+                                        const QString &token, bool offlineMode) const {
+    // 兜底值只在这一份 json 没写那两个字段时才用得上（唯一出处在 versionRuntimeIds）。
+    QString assetIndexId;
+    int javaMajorVersion = 0;
+    versionRuntimeIds(versionJson, &assetIndexId, &javaMajorVersion);
+
+    // 按版本的自定义参数来自 <id>/wtfml.meta 的 "jvmArgs"（PCL 那半边"自定义启动参数"的
+    // 对应物）；全局那半边是 EffectiveJavaSettings::extraJvmArgs，在
+    // generateJvmArguments() 里比它先入列，所以单个实例能盖掉全局默认值。
+    // 玩家名和底栏左下角显示的是**同一个**（AuthManager::playerName()），离线与正版
+    // 两条分支都用它 —— 以前离线分支自己拼 "Player<时间戳>"、正版分支写死 "Player"，
+    // 于是底栏上的名字和游戏里看到的名字可以不一样。
+    // UUID 也一样：正版分支用它当 --uuid（没登录时 AuthManager 给空串，那边退回全零）。
+    // 「启动选项 → 窗口大小」：原样传下去，由 generateJvmArguments() 决定发成哪两个参数
+    // （原版那条 has_custom_resolution 规则**用不上**，理由写在那边的 NOTE 里）。
+    return m_launcherManager->generateJvmArguments(
+        token, versionId, assetIndexId, versionJson, javaSettings, offlineMode, javaMajorVersion,
+        m_versionManager->versionJvmArgs(versionId), m_authManager->playerName(),
+        m_authManager->playerUuid(), m_settings->gameWindowWidth(), m_settings->gameWindowHeight());
+}
+
 void MainWindow::onStartButtonClicked() {
     // 先认"启动哪一个"：下面那道闸口是按版本判的（见那段说明），所以版本号要在它前面拿到。
     // 只认"已安装版本"下拉框：启动只可能发生在本地已经装好的版本上。
@@ -5222,22 +5280,14 @@ void MainWindow::onStartButtonClicked() {
         return;
     }
 
-    // 兜底值只在 version.json 没写这两个字段时才用得上
-    QString assetIndexId = "29";
-    int javaMajorVersion = 21;
-    QJsonObject assetIndexObj = versionJson["assetIndex"].toObject();
-    const QString actualAssetIndexId = assetIndexObj["id"].toString();
-    if (!actualAssetIndexId.isEmpty()) {
-        assetIndexId = actualAssetIndexId;
-    }
+    // 兜底值只在 version.json 没写这个字段时才用得上（两处兜底的唯一出处是
+    // versionRuntimeIds()）—— 这里要**提前**拿到 javaMajorVersion，下面挑 Java 就得用它。
+    // assetIndex 那一半这里不取：它只进命令行，而那串参数是 launchArguments() 拼的。
+    int javaMajorVersion = 0;
+    versionRuntimeIds(versionJson, nullptr, &javaMajorVersion);
     // version.json 里的 javaVersion.component 指明了 Mojang 为该版本准备的运行时，
     // 例如 26.1 是 java-runtime-epsilon（Java 25）。
-    const QJsonObject javaVersionObj = versionJson["javaVersion"].toObject();
-    const int majorVersion = javaVersionObj["majorVersion"].toInt();
-    if (majorVersion > 0) {
-        javaMajorVersion = majorVersion;
-    }
-    const QString javaComponent = javaVersionObj["component"].toString();
+    const QString javaComponent = versionJson["javaVersion"].toObject()["component"].toString();
 
     // ---------- 每实例设置：先把"这次到底用哪一套值"合成出来 ----------
     //
@@ -5342,20 +5392,11 @@ void MainWindow::onStartButtonClicked() {
     //       在设置页的改动（和切到设置页时的那次重算）决定。
     resolveMemoryForLaunch(javaSettings, override);
 
-    // 按版本的自定义参数来自 <id>/wtfml.meta 的 "jvmArgs"（PCL 那半边"自定义启动
-    // 参数"的对应物）；全局那半边是 EffectiveJavaSettings::extraJvmArgs，在
-    // generateJvmArguments() 里比它先入列，所以单个实例能盖掉全局默认值。
-    // 玩家名和底栏左下角显示的是**同一个**（AuthManager::playerName()），离线与正版
-    // 两条分支都用它 —— 以前离线分支自己拼 "Player<时间戳>"、正版分支写死 "Player"，
-    // 于是底栏上的名字和游戏里看到的名字可以不一样。
-    // UUID 也一样：正版分支用它当 --uuid（没登录时 AuthManager 给空串，那边退回全零）。
-    // 「启动选项 → 窗口大小」：原样传下去，由 generateJvmArguments() 决定发成哪两个参数
-    // （原版那条 has_custom_resolution 规则**用不上**，理由写在那边的 NOTE 里）。
-    const QStringList jvmArgs = m_launcherManager->generateJvmArguments(
-        token, versionId, assetIndexId, versionJson, javaSettings, offlineMode,
-        javaMajorVersion, m_versionManager->versionJvmArgs(versionId),
-        m_authManager->playerName(), m_authManager->playerUuid(),
-        m_settings->gameWindowWidth(), m_settings->gameWindowHeight());
+    // 这一串就是"这一次启动到底执行什么"的参数那半边。它和「导出启动脚本」导出的那份
+    // 是**同一个函数**给的（见 launchArguments 的说明）—— 那边还要程序名，程序名在这里
+    // 由 LauncherManager 自己从 javaSettings.javaPath 取（取不到退 PATH 上的 java）。
+    const QStringList jvmArgs =
+        launchArguments(versionId, versionJson, javaSettings, token, offlineMode);
     // 记住"上次启动的版本"的时机是**进程真的起来了**，不是"表达式算完了"。
     // startGame() 有三条早退路径（找不到 Java / waitForStarted 超时 / 会话数到顶），
     // 以前它们都会先骗一句"已开始启动游戏"再显示错误。以"起来了"为准也是对的：
@@ -6782,6 +6823,21 @@ void MainWindow::openInstanceSettings(const QString &versionId) {
     const QString pinnedGroupId = m_groupStore->pinnedGroupId();
     dialog.setPinned(!pinnedGroupId.isEmpty() && groupAtOpen == pinnedGroupId, pinnedGroupId);
 
+    // 两条**动作**信号（2026-09-26）：这一页里那两颗按钮（导出启动脚本 / 补全文件）不自己
+    // 干活 —— ui/ 那边不 include src/、也不碰磁盘，"这一次到底执行什么"只有这一层知道
+    // （authManager / versionManager / launcherManager 都在这儿）。
+    //
+    // 接在 execPage **之前**：那一下会阻塞在一个嵌套事件循环里（用户在页面上点按钮时，
+    // 这一句还没返回），接晚了就一辈子收不到。
+    //
+    // NOTE: dialog 是**栈上的局部对象**，所以这两条 connect 用 lambda 捕获 versionId ——
+    //       这里没有 m_instanceSettingsDialog 那种成员（也刻意不加：加了就得管生命周期，
+    //       而这一页每次都是新开一个）。
+    connect(&dialog, &InstanceSettingsDialog::exportLaunchScriptRequested, this,
+            [this, versionId](const QString &path) { exportLaunchScript(versionId, path); });
+    connect(&dialog, &InstanceSettingsDialog::repairFilesRequested, this,
+            [this, versionId]() { repairInstanceFiles(versionId); });
+
     // 这一页盖在内容区上（标签栏和底栏都留着），左上角那颗返回箭头 = 取消（见
     // OverlayHost::execPage）。标题写在页眉上，所以这一页自己那行标题要收起来 ——
     // 两行一模一样的字挨着是重复，不是强调。
@@ -6950,6 +7006,203 @@ bool MainWindow::applyInstanceSettings(const QString &versionId,
         }
     }
     return true;
+}
+
+/// 把一个参数按 cmd.exe 的规矩包起来（「导出启动脚本」那一串参数要用它）。
+///
+/// 两条规矩，都得照做：
+///   - `%` 在批处理里是**变量展开**（`%PATH%`），而且写在双引号里**照样展开** ⇒ 一律写 `%%`；
+///   - 含空格/制表符、空串、或者带 `&|<>()^"` 的参数要加双引号（不加的话那个参数会被 cmd
+///     拆成好几段，或者整个消失）。
+///
+/// NOTE: 参数里真出现一个 `"` 是**没救**的 —— cmd 没有"引号里的引号"这种写法。这条路上
+///       的参数来自版本 json 和用户设置（路径、UUID、玩家名），到不了那一步；真到了也只是
+///       那一个参数被拆开，脚本里看得见，不是静默错。
+/// NOTE: 故意**不**动 `!`：它只在"开了延迟展开"的 cmd 里有意义（脚本自己 `@echo off`，
+///       默认就没开），而按延迟展开去转义（`^^!`）会让正常那一档凭空多出一个 `^`。
+static QString batchQuote(const QString &arg) {
+    QString escaped = arg;
+    escaped.replace(QLatin1Char('%'), QStringLiteral("%%"));
+    static const QString kSpecial = QStringLiteral(" \t&|<>()^\"");
+    bool needsQuotes = escaped.isEmpty();
+    for (const QChar &ch : escaped) {
+        if (kSpecial.contains(ch)) {
+            needsQuotes = true;
+            break;
+        }
+    }
+    if (!needsQuotes) {
+        return escaped;
+    }
+    return QLatin1Char('"') + escaped + QLatin1Char('"');
+}
+
+void MainWindow::exportLaunchScript(const QString &versionId, const QString &path) {
+    if (versionId.isEmpty() || path.isEmpty()) {
+        // 产品里走不到（对话框那边是"问出来的路径非空才算数"）。验证工程打一条空路径进来时
+        // 什么都不做，比去写一个叫 "" 的文件强。
+        return;
+    }
+
+    const QJsonObject versionJson = m_versionManager->getVersionJson(versionId);
+    if (versionJson.isEmpty()) {
+        appendLog(tr("导出启动脚本失败：找不到版本 %1 的 version.json").arg(versionId));
+        InlineMessage::warning(m_ui->overlay(), tr("导出失败"),
+                               tr("找不到版本 %1 的 version.json，导出来的脚本跑不起来。")
+                                   .arg(versionId));
+        return;
+    }
+
+    // 身份照**启动那条路**判（唯一出处 offlineIdentity()），令牌也一样要换 —— 这一份脚本
+    // 要能直接跑起来，就得带着和启动那一刻同一个身份。
+    const bool offlineMode = offlineIdentity();
+    QString token;
+    if (!offlineMode) {
+        QString tokenError;
+        // 这一段是同步的（要换令牌时它要在 UI 线程上发请求，单次超时 15 秒）—— 和启动一样
+        // 先给一句话再进去。
+        enterSyncWait(tr("正在校验登录状态..."));
+        token = m_authManager->loadSavedToken(&tokenError);
+        leaveSyncWait();
+        if (token.isEmpty()) {
+            // 导一份没有令牌的脚本 = 导一份起不来的脚本，所以这一档**不导**，说清为什么。
+            appendLog(tr("导出启动脚本失败：%1").arg(tokenError));
+            InlineMessage::warning(
+                m_ui->overlay(), tr("导出失败"),
+                tokenError.isEmpty()
+                    ? tr("导出启动脚本要先能拿到登录令牌。请先登录 Microsoft 账户，"
+                         "或者在「账号与外观…」里添加一个离线账号。")
+                    : tr("%1\n\n导出启动脚本要先能拿到登录令牌，请重新登录后再试。")
+                          .arg(tokenError));
+            return;
+        }
+    }
+
+    // 这次要用的那一套 Java 值：和启动一样合成（全局 + 这个实例的覆盖），自动档的内存也在
+    // 这一步按**这一刻**的机器状态定下来。
+    // NOTE: 这里**不挑 Java、也不下运行时**（ensureJavaForVersion 那一整套）：用户点的是
+    //       "导出这个文件"，顺手在后台下几百 MB 的运行时不是他要的。路径空着就写裸 `java`，
+    //       和 LauncherManager 那边"从 PATH 找"是同一个兜底。
+    const JavaSettingsOverride override =
+        javaOverrideFromJson(m_versionManager->versionMeta(versionId));
+    EffectiveJavaSettings javaSettings =
+        resolveJavaSettings(m_javaSettings->effective(), override);
+    resolveMemoryForLaunch(javaSettings, override);
+
+    const QString program = javaSettings.javaPath.isEmpty()
+                                ? QStringLiteral("java")
+                                : QDir::toNativeSeparators(javaSettings.javaPath);
+    const QStringList args =
+        launchArguments(versionId, versionJson, javaSettings, token, offlineMode);
+
+    // ---------- 拼那个 .bat ----------
+    //
+    // 编码写**本地 8 位**，不写 UTF-8 + `chcp 65001`：cmd 是按当前代码页读文件的，而"双击
+    // 一个 .bat"时先跑起来的正是 cmd 自己 —— 代码页要等它读到那一行 `chcp` 才能改，在那之前
+    // 的字节已经按旧代码页解过了。写本地代码页则两边天然一致。
+    //
+    // 第一句必须是 `cd /d`：参数里 classpath 那几段是**相对 <数据目录>** 写的（启动器那边
+    // 靠 QProcess 的 setWorkingDirectory(minecraftDir) 兜住），脚本不在那个目录下跑就找不到
+    // jar。`/d` 是连盘符一起换 —— 数据目录在 E 盘、脚本导到 C 盘桌面上是最常见的情形。
+    QString script;
+    script += QStringLiteral("@echo off\r\n");
+    script += QStringLiteral("rem 由 WTFML 导出：按这个实例现在的参数启动。\r\n");
+    if (!offlineMode) {
+        script += QStringLiteral("rem 这个脚本里带着你的登录令牌，别发给别人。\r\n");
+    }
+    script += QStringLiteral("cd /d ") +
+              batchQuote(QDir::toNativeSeparators(AppPaths::minecraftDir())) +
+              QStringLiteral("\r\n");
+    script += batchQuote(program);
+    for (const QString &arg : args) {
+        script += QLatin1Char(' ') + batchQuote(arg);
+    }
+    script += QStringLiteral("\r\n");
+
+    // QSaveFile：写不下去时**不会留下一个半截的 .bat**（那个东西双击起来的行为是随机的，
+    // 而用户会以为"导出的就是用不了的"）。和写版本 json 那边同一个理由。
+    const QByteArray bytes = script.toLocal8Bit();
+    QSaveFile file(path);
+    bool written = file.open(QIODevice::WriteOnly | QIODevice::Truncate);
+    if (written) {
+        written = file.write(bytes) == bytes.size() && file.commit();
+    }
+    if (!written) {
+        QString writeError = file.errorString();
+        if (writeError.isEmpty()) {
+            writeError = tr("系统没给出原因。");
+        }
+        appendLog(tr("导出启动脚本失败：%1").arg(writeError));
+        InlineMessage::warning(m_ui->overlay(), tr("导出失败"),
+                               tr("这个文件没能写出来（%1）：\n%2")
+                                   .arg(QDir::toNativeSeparators(path), writeError));
+        return;
+    }
+
+    const QString shown = QDir::toNativeSeparators(path);
+    appendLog(tr("✓ 启动脚本已导出：%1").arg(shown));
+    QStringList notes;
+    notes.append(offlineMode ? tr("这一份用的是离线身份（游戏里就是这个名字）。")
+                             : tr("★ 这份脚本里带着你的登录令牌：别发给别人，也别传网盘。"));
+    if (javaSettings.javaPath.isEmpty()) {
+        notes.append(tr("脚本里写的是 PATH 上的 java（这个实例还没挑过 Java）。"));
+    }
+    notes.append(tr("参数和启动器这次启动用的那一份是同一份；要改就改完再导一遍。"));
+    InlineMessage::information(
+        m_ui->overlay(), tr("导出完成"),
+        tr("已经写到：\n%1\n\n%2").arg(shown, notes.join(QStringLiteral("\n"))));
+}
+
+void MainWindow::repairInstanceFiles(const QString &versionId) {
+    if (versionId.isEmpty()) {
+        return;
+    }
+
+    // 三道守卫，各说各的：用户点的是"检查这个实例"，说清"现在为什么不行"比一句笼统的
+    // "忙"有用。第一道看的是**这个实例自己**（不等于"有下载在跑"——别的实例在装不该拦它，
+    // 但这里点的是补全，而补全要开一批下载，所以第二道照样得拦）。
+    const bool thisInstanceBusy = versionId == m_installingInstanceId ||
+                                  versionId == m_importingInstanceId ||
+                                  versionId == m_repairingInstanceId;
+    if (thisInstanceBusy) {
+        InlineMessage::information(
+            m_ui->overlay(), tr("现在做不了"),
+            tr("「%1」这会儿正在装（或者正在导入 / 正在检查）。等它完了再来。")
+                .arg(instanceDisplayName(versionId)));
+        return;
+    }
+    if (m_downloadInFlight || m_versionManager->isDownloading()) {
+        InlineMessage::information(
+            m_ui->overlay(), tr("现在做不了"),
+            tr("已经有一个下载或者安装任务在跑了，等它结束再检查这个实例。"));
+        return;
+    }
+
+    // 读不出 json / 继承链不完整：**先说清楚**，别把忙态置上再让数据层回一句内部话。
+    // 尤其继承链那一条 —— "缺文件"和"父版本整个没装"是两件事，后者补不出来。
+    const QString inheritanceProblem = m_versionManager->inheritanceProblem(versionId);
+    if (!inheritanceProblem.isEmpty()) {
+        appendLog(tr("无法校验 %1 的文件：版本继承链不完整").arg(versionId));
+        InlineMessage::warning(m_ui->overlay(), tr("版本不完整"), inheritanceProblem);
+        return;
+    }
+    const QJsonObject versionJson = m_versionManager->getVersionJson(versionId);
+    if (versionJson.isEmpty()) {
+        appendLog(tr("无法校验 %1 的文件：找不到 version.json").arg(versionId));
+        InlineMessage::warning(
+            m_ui->overlay(), tr("版本信息缺失"),
+            tr("找不到版本 %1 的 version.json，没法知道它要哪些文件。").arg(versionId));
+        return;
+    }
+
+    // 不弹一次"确定吗"：这颗按钮自己就是那一下确认（它写着"开始检查…"，下面那句说明也把
+    // 要干的事说全了），再问一遍只是让用户多点一次。真的会花时间的地方在底栏那根进度条上。
+    appendLog(tr("开始校验「%1」的文件（已存在的会跳过）...").arg(instanceDisplayName(versionId)));
+    // 顺序：**先记名字再置忙**。setDownloadUiBusy() 里那句 refreshInstalledVersions() 读的
+    // 就是这个判据（正在补全的实例不该出现在启动列表里），反过来的话它漏得出那一次刷新。
+    m_repairingInstanceId = versionId;
+    setDownloadUiBusy(true);
+    m_versionManager->repairVersionFiles(versionId);
 }
 
 MainWindow::JavaMismatchAnswer MainWindow::askAboutJavaMismatch(
@@ -7672,6 +7925,14 @@ void MainWindow::onVersionDownloadFinished(const QString &versionId, bool succes
     if (wasInstallingInstance) {
         m_installingInstanceId.clear();
     }
+    // 「补全文件」那颗按钮那一笔（2026-09-26）。理由和上面两条逐字一样：它也走公共的
+    // versionDownloadFinished(id, ok, msg)，也得在 setDownloadUiBusy(false)（那把"能启动的
+    // 实例"重灌一遍，判据里就有它）之前清掉。
+    const bool wasRepairing =
+        !m_repairingInstanceId.isEmpty() && versionId == m_repairingInstanceId;
+    if (wasRepairing) {
+        m_repairingInstanceId.clear();
+    }
 
     // 整批结束，无论成败都要把界面恢复回来
     setDownloadUiBusy(false);
@@ -7727,6 +7988,36 @@ void MainWindow::onVersionDownloadFinished(const QString &versionId, bool succes
         } else {
             appendLog(tr("✗ %1").arg(errorMessage));
             InlineMessage::warning(m_ui->overlay(), tr("安装失败"), errorMessage);
+        }
+        return;
+    }
+
+    // 这一条讲的是「补全文件」（实例设置页「启动」栏那颗按钮，2026-09-26）。走的也是公共的
+    // versionDownloadFinished(id, ok, msg)：数据层那边"一次点击 = 一个终态"这条约定不破。
+    // 这里要说的是**用户认得的那个名字**（实例名，不是目录名），而且不能说"下载完成" ——
+    // 用户点的是"检查"，那就报"检查完"。
+    if (wasRepairing) {
+        const QString displayName = instanceDisplayName(versionId);
+        if (success) {
+            appendLog(tr("✓ 实例「%1」的文件校验完成：%2").arg(displayName, errorMessage));
+            // 补全期间它被滤出了"能启动的实例"（installingVersionIds() 里有它），回来之后
+            // 把它选中 —— 和上面那条同一种情况：刷新只保得住"原来选中的"，保不住"原来被
+            // 滤掉、选中的那一格顺位落到了别人身上"。
+            QComboBox *installedCombo = m_ui->getInstalledVersionCombo();
+            if (installedCombo->currentIndex() < 0) {
+                if (const int index = installedCombo->findData(versionId); index >= 0) {
+                    installedCombo->setCurrentIndex(index);
+                }
+            }
+            updateStartButtonText();
+            InlineMessage::information(m_ui->overlay(), tr("检查完成"),
+                                       tr("实例「%1」的文件都齐了。\n\n%2")
+                                           .arg(displayName, errorMessage));
+        } else {
+            appendLog(tr("✗ 实例「%1」的文件没补齐：%2").arg(displayName, errorMessage));
+            InlineMessage::warning(m_ui->overlay(), tr("文件没补齐"),
+                                   tr("实例「%1」有文件没能拿到。\n\n%2")
+                                       .arg(displayName, errorMessage));
         }
         return;
     }
