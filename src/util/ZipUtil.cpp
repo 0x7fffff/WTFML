@@ -82,6 +82,44 @@ QString describeProcessFailure(QProcess::ProcessError failure, const QString &de
     }
 }
 
+/**
+ * @brief 从 PowerShell 的错误输出里挑一句能给用户看的话。
+ * @param raw runPowershell() 写进 errorOut 的东西。
+ * @return 挑出来的那一句；**一句都挑不出来时返回空串**，让调用方用它自己那句兜底
+ *         （宁可少说，也不要把 `#< CLIXML` 这种内部形状弹到用户脸上）。
+ *
+ * NOTE: **stderr 上从来不止我们那一句**。PowerShell 第一次跑起来时会往 stderr 上塞一条
+ *       **进度记录**（「Preparing modules for first use.」），而进度/错误流在 stderr 被
+ *       重定向（QProcess 就是重定向）时会被**序列化成 CLIXML**。实测拿到的是这个形状：
+ *
+ *           #< CLIXML
+ *           The compression mode specified in GZip header is unknown.
+ *           <Objs Version="1.1.0.1" xmlns="...">...</Objs>
+ *
+ *       —— **人话夹在中间那两行机器话之间**。只取第一行得到的是 `#< CLIXML` 七个字符
+ *       （等于什么也没说）；只判「头一行是不是 CLIXML 就整段丢掉」会把真因一起丢掉
+ *       （这个坑踩过：脚本里加了 catch、原因也写出来了，用户看到的还是兜底那句话，
+ *       原因就在这儿）。所以按行过一遍，把机器话那两种行跳过，取第一条活下来的。
+ * NOTE: 脚本 catch 里那句是 `[Console]::Error.WriteLine()` 写的，走**原生 stderr**、
+ *       不经过 PowerShell 的错误流序列化，所以它自己能干净地占一行 —— 上面那个形状
+ *       就是这么来的。没被 catch 住的错则整个躺在 `<Objs>` 的那条 XML 里（换行写成
+ *       `_x000D__x000A_` 那种转义），那种**不解**：解出来是给排查的人看的，不是给用户
+ *       看的；那种形态只说明脚本自己就没跑起来，弹给用户的框里说不了。
+ */
+QString readProcessError(const QString &raw) {
+    const QStringList lines = raw.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+    for (const QString &line : lines) {
+        const QString text = line.trimmed();
+        // 机器话那两种：CLIXML 的头，和序列化出来的那条 XML（整条就一行）。
+        if (text.isEmpty() || text == QLatin1String("#< CLIXML") ||
+            text.startsWith(QLatin1String("<Objs"))) {
+            continue;
+        }
+        return text;
+    }
+    return QString();
+}
+
 /// 起一次 PowerShell 跑这段脚本。返回 false 时 errorOut 里是原因。
 ///
 /// NOTE: 三个 - 号开头的开关一个都不能少，理由见 extractArchives 里原来那段（-NoProfile
@@ -110,7 +148,13 @@ bool runPowershell(const QString &script, int timeoutMs, QByteArray *stdoutOut,
             // NOTE: fromLocal8Bit 是对的，**不要**跟着游戏进程改成 fromUtf8 —— 这里的
             // 输出来自 PowerShell，不是 JVM，-Dstdout.encoding 管不到它（见
             // LauncherManager::decodeGameOutput 的说明）。
-            const QString err = QString::fromLocal8Bit(process.readAllStandardError()).trimmed();
+            //
+            // ★ 这一段**不能直接交给用户看**：stderr 被重定向时 PowerShell 会把错误流
+            //   序列化成 CLIXML（见 readProcessError() 上面那段），原文的头一行是
+            //   `#< CLIXML` 七个字符。三个调用点全都走这里，所以过滤放在这一层 ——
+            //   调用方拿到的永远是一句人话（挑不出来时才回它自己那句兜底的）。
+            const QString raw = QString::fromLocal8Bit(process.readAllStandardError());
+            const QString err = readProcessError(raw);
             *errorOut = err.isEmpty()
                             ? QStringLiteral("PowerShell 退出码 %1").arg(process.exitCode())
                             : err;
@@ -391,6 +435,71 @@ bool ZipUtil::extractSubtrees(const QStringList &archives, const QString &target
     }
     if (extractedOut != nullptr) {
         *extractedOut = QString::fromLatin1(stdoutBytes).trimmed().toInt();
+    }
+    return true;
+}
+
+bool ZipUtil::gunzipTo(const QString &sourceGz, const QString &targetPath, QString *errorOut) {
+    if (errorOut != nullptr) {
+        errorOut->clear();
+    }
+
+    // 解到目标路径，**不让 PowerShell 把字节打到 stdout** —— 理由和 readEntry 里那段
+    // 一样（stdout 是文本通道，二进制过一趟就不再是原来的字节）。
+    //
+    // NOTE: 两个 Add-Type 都要有：GZipStream 与 CompressionMode 在
+    //       System.IO.Compression 里，只加 FileSystem 的话在只装了 .NET Framework
+    //       的机器上这一步会报「找不到类型」（FileSystem 依赖它，但别指望程序集
+    //       加载顺序替我们把类型也带进来）。
+    // NOTE: $dest 只出现一次（先赋给变量再用），不让同一个 %2 在脚本里出现两遍 ——
+    //       QString::arg 的占位符替换对「同一个编号出现多次」这件事不好读，绕开它。
+    // NOTE: **整段脚本**（连 Add-Type 和建目录）都包在那一个 try 里，catch 里把原因
+    //       用 [Console]::Error.WriteLine() 写到**原生 stderr** 上再 exit 3。
+    //       两个原因：① 不兜住的话 PowerShell 把错误流序列化成 CLIXML 丢到 stderr 上
+    //       （见 readProcessError 的说明），调用方拿到的是 `#< CLIXML` 这种没人看得懂的
+    //       东西；② 退出码要和"进程没起来/超时"分开 —— 那两档 runPowershell 自己会说。
+    const QString script =
+        QStringLiteral("$ErrorActionPreference='Stop'\n"
+                       "try{\n"
+                       "  Add-Type -AssemblyName System.IO.Compression\n"
+                       "  Add-Type -AssemblyName System.IO.Compression.FileSystem\n"
+                       "  $dest=%1\n"
+                       "  $dir=[System.IO.Path]::GetDirectoryName($dest)\n"
+                       "  if(-not [string]::IsNullOrEmpty($dir)){\n"
+                       "    [void][System.IO.Directory]::CreateDirectory($dir)\n"
+                       "  }\n"
+                       "  $in=[System.IO.File]::OpenRead(%2)\n"
+                       "  try{\n"
+                       "    $gz=New-Object System.IO.Compression.GZipStream"
+                       "($in,[System.IO.Compression.CompressionMode]::Decompress)\n"
+                       "    try{\n"
+                       "      $out=[System.IO.File]::Create($dest)\n"
+                       "      try{ $gz.CopyTo($out) } finally { $out.Dispose() }\n"
+                       "    } finally { $gz.Dispose() }\n"
+                       "  } finally { $in.Dispose() }\n"
+                       "} catch {\n"
+                       // GetBaseException() 取的是**最里面**那一层：CopyTo 抛出来的是个
+                       // 包装（MethodInvocationException），真正有用的那句（比如「这不是
+                       // gzip」）在它里面；只取 Message 会拿到「Exception calling CopyTo…」
+                       // 这种把真因埋在引号里的话。
+                       "  $msg=$_.Exception.GetBaseException().Message\n"
+                       "  if([string]::IsNullOrEmpty($msg)){ $msg=$_.Exception.Message }\n"
+                       "  [Console]::Error.WriteLine($msg)\n"
+                       "  exit 3\n"
+                       "}\n")
+            .arg(psQuote(QDir::toNativeSeparators(targetPath)),
+                 psQuote(QDir::toNativeSeparators(sourceGz)));
+
+    // 15 秒。这个数不是随便定的：真机上 servers.dat 是几百字节，连起进程算上也就
+    // 一秒出头；给它 15 秒是为了"机器正忙"时别误判，同时"没装 PowerShell / 被安全
+    // 软件拦下"那一档不会让用户干等（那一档根本不进等待，直接 FailedToStart）。
+    QString failure;
+    if (!runPowershell(script, 15000, nullptr, &failure)) {
+        if (errorOut != nullptr) {
+            const QString reason = readProcessError(failure);
+            *errorOut = reason.isEmpty() ? QStringLiteral("解压 gzip 失败") : reason;
+        }
+        return false;
     }
     return true;
 }

@@ -69,4 +69,20 @@ bool extractSubtrees(const QStringList &archives, const QString &targetDir,
                      const QStringList &roots, int *extractedOut = nullptr,
                      QString *errorOut = nullptr);
 
+/**
+ * @brief 把一个 gzip 文件解成普通文件（@p targetPath 会被覆盖写）。成功返回 true。
+ * @param sourceGz 待解压的 .gz 绝对路径。
+ * @param targetPath 解出来的落点。父目录不存在时会建，已存在的文件**直接盖掉**。
+ * @param errorOut 失败时的描述（没跑起来 / 超时 / 退出码 / PowerShell 自己那句异常）。
+ * @return 成功返回 true。**失败不重试** —— 解不动就是解不动。
+ *
+ * 为什么单独开一个口而不是走 extractArchives()：那一条收的是 zip，gzip 不是 zip
+ * （一个 gz 里通常就一份裸数据，没有条目名可挑）。.NET 里对应的是 GZipStream，
+ * 接口对不上，硬塞进那个循环只会让两边都变难读。
+ *
+ * NOTE: 别把它当「通用解压」用 —— 这里**只管 gzip 这一层**：`.tar.gz` 解出来还是
+ *       一份 tar，那层 tar 得调用方自己处理；zip 走 extractArchives()。
+ */
+bool gunzipTo(const QString &sourceGz, const QString &targetPath, QString *errorOut = nullptr);
+
 }  // namespace ZipUtil

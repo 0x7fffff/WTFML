@@ -40,6 +40,7 @@ set(HEADER_FILES
     src/util/ImageDecode.hpp
     src/util/SystemMemory.hpp
     src/util/ZipUtil.hpp
+    src/util/NbtUtil.hpp
 )
 
 set(SOURCE_FILES
@@ -70,12 +71,14 @@ set(SOURCE_FILES
     src/util/ImageDecode.cpp
     src/util/SystemMemory.cpp
     src/util/ZipUtil.cpp
+    src/util/NbtUtil.cpp
     ui/AccountSkinDialog.cpp
     ui/GameLogWindow.cpp
     ui/MainWindowUI.cpp
     ui/GroupDialog.cpp
     ui/GroupListDelegate.cpp
     ui/InstanceSettingsDialog.cpp
+    ui/InstanceFilesPage.cpp
     ui/InlineMessage.cpp
     ui/JavaMismatchDialog.cpp
     ui/OverlayHost.cpp
