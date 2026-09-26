@@ -1,7 +1,8 @@
 /**
  * @file ModpackExport.cpp
- * @brief 见 .hpp。这里只有三样东西：murmur2 那台小状态机、两份清单的序列化、
- *        以及两张"哪些文件要问接口"的判据表。
+ * @brief 见 .hpp。从上往下四层：murmur2 那台小状态机 → 两份清单的序列化 →
+ *        枚举与"哪些文件要问接口"的判据表 → 把前几层串成一次导出的 buildExportPlan()。
+ *        全篇**不联网、不写文件**（反查走注入进来的 query），所以这一层整体可离线验。
  * @author 0x7fffff
  * @date 2026-09-26
  */
@@ -339,6 +340,14 @@ QHash<quint32, CurseForgeHit> parseCurseForgeFingerprints(const QByteArray &json
             continue;
         }
         const quint32 key = static_cast<quint32>(fingerprint.toDouble());
+        // 毒指纹（见 isPoisonFingerprint）：**这一条记录不代表任何一个具体文件**，所以
+        // 不能拿它当键插进表里 —— 插了就等于给我们某个"恰好算出这个指纹"的文件安排了一个
+        // 假匹配（那个号配着的项目号和本地那份文件没有关系）。切在解析这一层是因为
+        // 信息就在**这条记录自己的** `fileFingerprint` 上：再往下走，这个值已经被当成
+        // "我们发过去的某个指纹"了，那时候再拦就晚了。
+        if (isPoisonFingerprint(key)) {
+            continue;
+        }
         CurseForgeHit hit;
         hit.projectId = file.value(QStringLiteral("modId")).toInt(0);
         hit.fileId = file.value(QStringLiteral("id")).toInt(0);
@@ -553,6 +562,12 @@ bool looksLikeResolvableResource(const QString &relativePath) {
     return false;
 }
 
+bool reimportable(const Spec &spec) {
+    // 两种格式的判据是同一条：清单里得有东西。CF 那边进清单的是 `refs`（那次"拿号换文件"
+    // 的路），Modrinth 那边是 `files`。
+    return !spec.files.isEmpty() || !spec.refs.isEmpty();
+}
+
 bool writableAsIndexFile(const MatchedFile &file) {
     if (file.path.trimmed().isEmpty()) {
         return false;  // 没路径的条目导入方会直接跳过（等于没这条）
@@ -756,6 +771,217 @@ bool hashFile(const QString &path, bool needFingerprint, FileHashes *out, QStrin
     out->sha1 = QString::fromLatin1(sha1.result().toHex());
     out->sha512 = QString::fromLatin1(sha512.result().toHex());
     return true;
+}
+
+// ---------------------------------------------------------------------------
+// 组合层：枚举 → 算哈希 → 批量反查 → 拼清单
+// ---------------------------------------------------------------------------
+
+namespace {
+
+/// Modrinth 那条 `environment` → 清单里 `env` 那一对。
+///
+/// 接口那一边的值是这五种：`client_and_server` / `client_only` / `server_only` /
+/// `client_or_server` / `client_or_server_prefers_both`（真回复里见到的是最后一种）。
+/// **只有 `client_only` 这一种写 `env`**，而且只写 `server: unsupported` 那一半 ——
+/// 理由是不对称的：
+///   * `client_only` 写下去与事实一致（本地就有这个文件，两边都不吃亏）；
+///   * `server_only` **故意不写**。照上游那句话写 `client: unsupported` 看着更"忠实"，
+///     可导入方见到 unsupported 会**直接跳过这个文件** —— 于是一个本地确实躺着的模组
+///     在"导出再导入"之后凭空消失。`environment` 只是提示、不是规范强制要求的东西，
+///     而"导出不许丢文件"是我们自己钉死的不变量，两者冲突时丢文件那一侧输。
+///   * 认不出的值一律不写（不写 = 两边都要 = 导入方都装，不会少装）。
+void applyEnvironment(const QString &environment, MatchedFile *file) {
+    if (file == nullptr) {
+        return;
+    }
+    if (environment.trimmed().toLower() == QLatin1String("client_only")) {
+        file->envClient = QStringLiteral("required");
+        file->envServer = QStringLiteral("unsupported");
+    }
+}
+
+/// 反查没成（或者用户叫停）时，候选文件该往哪去。
+void pushOverride(const InstanceFile &file, QList<InstanceFile> *out) {
+    if (out != nullptr) {
+        out->append(file);
+    }
+}
+
+}  // namespace
+
+ExportPlan buildExportPlan(const ExportRequest &request, const ModrinthQuery &queryModrinth,
+                           const CurseForgeQuery &queryCurseForge, const ExportProgress &progress,
+                           const ExportCancel &cancel) {
+    ExportPlan plan;
+    plan.collect = collectInstanceFiles(request.instanceDir, request.include);
+    if (!plan.collect.problem.isEmpty()) {
+        plan.problem = plan.collect.problem;
+        return plan;
+    }
+
+    // 第一趟：把候选挑出来、顺手把请求表拼好。**顺序就是 collect 的顺序**（按路径排过），
+    // 所以最后进清单的条目顺序是可复现的。
+    QList<InstanceFile> candidates;
+    for (const InstanceFile &file : plan.collect.files) {
+        if (looksLikeResolvableResource(file.path)) {
+            candidates.append(file);
+        } else {
+            // 打不开也不问接口的那些（config/、options.txt…）在这儿就定了：它们本来
+            // 就只可能进 overrides。放在这一趟是为了让"要算哈希的"与"不用的"分开，
+            // 后面报的 `total` 才等于真正要读的文件的个数。
+            pushOverride(file, &plan.overrides);
+        }
+    }
+
+    // 第二趟：算哈希。失败的**不算错**（照样进 overrides），但要照实报出来。
+    const bool needFingerprint = request.format == Format::CurseForge;
+    QHash<QString, QString> sha1OfPath;              ///< 相对路径 → sha1
+    QHash<QString, quint32> fingerprintOfPath;       ///< 相对路径 → 指纹
+    int done = 0;
+    const int total = candidates.size();
+    for (const InstanceFile &file : candidates) {
+        // 取消**在文件之间**看：一个文件读到一半掐掉会把半份数据算成一个哈希。
+        if (cancel && cancel()) {
+            plan.cancelled = true;
+            return plan;
+        }
+        if (progress) {
+            progress(done, total, file.path);
+        }
+        FileHashes hashes;
+        QString error;
+        const QString absolute = QDir(request.instanceDir).filePath(file.path);
+        if (!hashFile(absolute, needFingerprint, &hashes, &error) || hashes.sha1.isEmpty()) {
+            plan.hashFailures.append(file.path);
+            pushOverride(file, &plan.overrides);
+            ++done;
+            continue;
+        }
+        if (needFingerprint) {
+            if (!hashes.fingerprintOk) {
+                plan.hashFailures.append(file.path);
+                pushOverride(file, &plan.overrides);
+                ++done;
+                continue;
+            }
+            fingerprintOfPath.insert(file.path, hashes.fingerprint);
+        } else {
+            sha1OfPath.insert(file.path, hashes.sha1);
+        }
+        ++done;
+    }
+
+    // 第三趟：反查。**一次发完**（两条路都是）：Modrinth 那一发就是按 sha1 列表来的，
+    // CurseForge 那一发也是收一串指纹 —— 一个文件一发会让 400 个模组变成 400 个 RTT。
+    bool lookupOk = true;
+    QString lookupProblem;
+    QHash<QString, ModrinthHit> modrinthHits;
+    QHash<quint32, CurseForgeHit> curseForgeHits;
+    plan.queried = needFingerprint ? fingerprintOfPath.size() : sha1OfPath.size();
+    if (plan.queried > 0) {
+        if (progress) {
+            progress(total, total, QString());  // 没有具体文件了：界面该显示"正在问接口"
+        }
+        if (needFingerprint) {
+            QList<quint32> fingerprints;
+            for (auto it = fingerprintOfPath.constBegin(); it != fingerprintOfPath.constEnd(); ++it) {
+                fingerprints.append(it.value());
+            }
+            lookupOk = queryCurseForge ? queryCurseForge(fingerprints, &curseForgeHits, &lookupProblem)
+                                       : false;
+            if (!queryCurseForge) {
+                lookupProblem = QObject::tr("没有接上 CurseForge 的查询接口。");
+            }
+        } else {
+            QStringList sha1s;
+            for (auto it = sha1OfPath.constBegin(); it != sha1OfPath.constEnd(); ++it) {
+                sha1s.append(it.value());
+            }
+            lookupOk = queryModrinth ? queryModrinth(sha1s, &modrinthHits, &lookupProblem) : false;
+            if (!queryModrinth) {
+                lookupProblem = QObject::tr("没有接上 Modrinth 的查询接口。");
+            }
+        }
+    }
+    if (!lookupOk) {
+        // **不是错误**：认不出信息的那一份照样能打包（躺在 overrides 里），断网也能出包。
+        // 要不要接着做，由调用点去问用户（PCL 那个「是否继续导出？」的形状）。
+        plan.lookupFailed = true;
+        plan.lookupProblem = lookupProblem.trimmed().isEmpty()
+                                 ? QObject::tr("联网获取部分文件信息失败。")
+                                 : lookupProblem;
+    }
+
+    // 第四趟：认领。认出来的进清单，**其余一个不落**全进 overrides。
+    plan.spec.format = request.format;
+    plan.spec.name = request.name;
+    plan.spec.version = request.version;
+    plan.spec.summary = request.summary;
+    plan.spec.author = request.author;
+    plan.spec.gameVersion = request.gameVersion;
+    plan.spec.loaderKey = request.loaderKey;
+    plan.spec.loaderVersion = request.loaderVersion;
+    for (const InstanceFile &file : candidates) {
+        if (plan.hashFailures.contains(file.path)) {
+            continue;  // 上面已经放进 overrides 了
+        }
+        if (needFingerprint) {
+            const quint32 fingerprint = fingerprintOfPath.value(file.path, 0u);
+            // 毒指纹那一刀切在解析那一层（见 parseCurseForgeFingerprints），这里不用再拦。
+            const bool hit = lookupOk && curseForgeHits.contains(fingerprint);
+            const CurseForgeHit found = hit ? curseForgeHits.value(fingerprint) : CurseForgeHit();
+            // 号得是两个正整数才写得进清单（`projectID` / `fileID` 都是必需项），
+            // 并且 `isAvailable` 要为真 —— 假的那是作者关了第三方分发，写进去等于给出
+            // 一个装不上的包，退回 overrides 并单独报数（调用点要在报告里说出来）。
+            if (!hit || found.projectId <= 0 || found.fileId <= 0) {
+                pushOverride(file, &plan.overrides);
+                continue;
+            }
+            if (!found.available) {
+                ++plan.notDistributable;
+                pushOverride(file, &plan.overrides);
+                continue;
+            }
+            MatchedRef ref;
+            ref.projectId = found.projectId;
+            ref.fileId = found.fileId;
+            plan.spec.refs.append(ref);
+            ++plan.matched;
+            continue;
+        }
+        const QString sha1 = sha1OfPath.value(file.path);
+        const bool hit = lookupOk && modrinthHits.contains(sha1);
+        if (!hit) {
+            pushOverride(file, &plan.overrides);
+            continue;
+        }
+        const ModrinthHit found = modrinthHits.value(sha1);
+        MatchedFile matched;
+        matched.path = file.path;
+        matched.sha1 = found.sha1.trimmed().isEmpty() ? sha1 : found.sha1.trimmed();
+        matched.sha512 = found.sha512;
+        if (!found.url.trimmed().isEmpty()) {
+            matched.urls.append(found.url);
+        }
+        matched.size = found.size >= 0 ? found.size : file.size;
+        applyEnvironment(found.environment, &matched);
+        if (!writableAsIndexFile(matched)) {
+            // 缺地址或缺哈希的回复**不写进清单**：导入方要么下不了它，要么没有完整性判据。
+            // 退回 overrides，一份文件都不丢。
+            pushOverride(file, &plan.overrides);
+            continue;
+        }
+        plan.spec.files.append(matched);
+        ++plan.matched;
+    }
+
+    // 清单里的条目顺序照旧钉死（与 overrides 同一个口径：按路径排）。
+    std::sort(plan.spec.files.begin(), plan.spec.files.end(),
+              [](const MatchedFile &left, const MatchedFile &right) { return left.path < right.path; });
+    std::sort(plan.overrides.begin(), plan.overrides.end(),
+              [](const InstanceFile &left, const InstanceFile &right) { return left.path < right.path; });
+    return plan;
 }
 
 }  // namespace ModpackExport

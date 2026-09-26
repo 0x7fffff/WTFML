@@ -1,7 +1,8 @@
 /**
  * @file ModpackExport.hpp
- * @brief 「导出…」那一半：把一个已装好的实例打成整合包。**只有拼清单和算指纹**，
- *        不枚举目录、不联网、不碰 zip —— 那三件事在调用点（见 exportInstance）。
+ * @brief 「导出…」那一半：把一个已装好的实例打成整合包。**从枚举到清单都在这一层**，
+ *        但**不联网、不碰 zip**：反查那两发由调用点传进来的 query 走（buildExportPlan
+ *        的入参），zip 由调用点在它上面再套一层（见 .cpp 末尾那段）。
  * @author 0x7fffff
  * @date 2026-09-26
  * @note 导出和导入是**同一件事的两个方向**，所以这份代码的判据来源就是这个仓库自己的
@@ -29,9 +30,12 @@
 #pragma once
 
 #include <QByteArray>
+#include <QHash>
 #include <QList>
 #include <QString>
 #include <QStringList>
+
+#include <functional>
 
 namespace ModpackExport {
 
@@ -53,8 +57,9 @@ struct MatchedFile {
     QString sha512;       ///< 同上
     QStringList urls;     ///< 下载地址，按顺序试
     qint64 size = -1;     ///< 字节数；-1 = 不知道（那就只写哈希）
-    /// `env` 那一对（Modrinth 才有）：空串 = 不写这一段。只在"这个文件只给客户端用"
-    /// 这类明确知道的情况下才填（见 .cpp 里 envClientOf 那一套说法）。
+    /// `env` 那一对（Modrinth 才有）：空串 = 不写这一段。填的规则只有一种 ——
+    /// 接口说这个文件 `client_only` 时（见 .cpp 里 applyEnvironment()，那里也写了
+    /// 为什么 `server_only` 反而**故意不写**）。
     QString envClient;
     QString envServer;
 };
@@ -277,12 +282,97 @@ struct CurseForgeHit {
 /// 解析 CurseForge 的反查回复。**键是那个文件自己的 `fileFingerprint`**（接口会原样
 /// 回给我们）—— 不按位置对：批量回来的次序没有承诺，按位置取会静默错位。
 /// 认不出来的指纹**不在表里**（接口把它们列在 `unmatchedFingerprints` 里）。
+/// 毒指纹那一条也**不在**（见 isPoisonFingerprint）。
 QHash<quint32, CurseForgeHit> parseCurseForgeFingerprints(const QByteArray &json,
                                                           QString *problemOut);
 
 /// 那个"毒指纹"。它本来应该是某个具体文件的值，但接口偶尔会把它当"匹配上了"回来
 /// （HMCL 专门为 issue #4597 打过这个补丁）—— 见到就当没找到，别往清单里写。
+/// 拦的位置是 parseCurseForgeFingerprints：信息在**回复里那条记录自己**的
+/// `fileFingerprint` 上，再往下走就已经被当成"我们发过去的某个指纹"了。
 bool isPoisonFingerprint(quint32 fingerprint);
+
+// ---------------------------------------------------------------------------
+// 把上面这些串成一次导出
+// ---------------------------------------------------------------------------
+
+/// 一次导出要的输入（界面上那几个框 + 实例自己的元数据）。
+struct ExportRequest {
+    Format format = Format::Modrinth;
+    QString instanceDir;  ///< 我们的实例目录（`versions/<实例名>/`）
+    QString name;         ///< 整合包名字（配置框里填的）
+    QString version;      ///< 整合包自己的版本号
+    QString summary;      ///< Modrinth 那份有；CF 那份没有这一格
+    QString author;       ///< CF 那份有
+    QString gameVersion;  ///< `wtfml.meta` 的 realVersion
+    QString loaderKey;    ///< 用 ModpackImport 那套键（`fabric-loader` / `forge` / …）
+    QString loaderVersion;
+    IncludeOptions include;
+};
+
+/// 进度：`done` / `total` 按**要算哈希的文件**计，`current` 是正在处理的相对路径。
+/// NOTE: 从**调用 buildExportPlan 的那个线程**同步回调（不会蹦到别的线程上去）——
+///       界面上要刷新就自己把它挪到主线程（或者干脆整个 buildExportPlan 都放后台线程跑，
+///       那是最省事的用法：它本来就是一段"慢但不需要界面"的活）。
+using ExportProgress = std::function<void(int done, int total, const QString &current)>;
+
+/// 取消：返回真 = 用户叫停（在文件之间检查）。空函数 = 不取消。
+using ExportCancel = std::function<bool()>;
+
+/// 两条反查路的"接口"。返回假 + `problemOut` 里一句人话 = **这一发没成**
+/// （网络断了、限流、回复读不懂）。产品里由 HttpClient 那一侧实现，验证工程里给假的。
+using ModrinthQuery = std::function<bool(const QStringList &sha1s,
+                                        QHash<QString, ModrinthHit> *out, QString *problemOut)>;
+using CurseForgeQuery = std::function<bool(const QList<quint32> &fingerprints,
+                                          QHash<quint32, CurseForgeHit> *out, QString *problemOut)>;
+
+/**
+ * @brief 这份清单「我们自己装得回来吗」= 清单里**有没有条目**。
+ *
+ * 空清单的包在规范里合法（一个纯 overrides 的包），但**我们自己的解析器一律拒收**
+ * （Modrinth 那一侧见 `ModpackImport.cpp:379`，CF 那一侧见 `:597`）—— 所以调用点
+ * 导出前必须拿它问一句：假的时候要给用户一句人话，而不是给出一个连自己都装不回来的包。
+ * 用户手上那个包也可能是这么来的（别人的工具导的），那时候走的是导入方的话术，不归这里管。
+ */
+bool reimportable(const Spec &spec);
+
+/// 一次导出的产物：清单要的东西 + 哪些文件要原样打进 overrides/。
+struct ExportPlan {
+    Spec spec;
+    /// 要原样打进 `overrides/` 的（相对路径口径与 `spec.files` 的 `path` 一致）。
+    /// **认出来的文件绝不在这里**（重复内容），认不出来的一个都不会丢。
+    QList<InstanceFile> overrides;
+    CollectResult collect;      ///< 枚举那一层原样带出来（被排掉的目录要照实报）
+    QStringList hashFailures;   ///< 连哈希都算不出来的文件（它们也只能进 overrides）
+    int matched = 0;            ///< 认出来几条
+    int notDistributable = 0;   ///< CF：认出来了，但作者关了第三方分发
+    int queried = 0;            ///< 一共问了几个（报告里要写"问了 N 个，认出来 M 个"）
+    bool lookupFailed = false;  ///< 反查那一发没成 —— 要不要继续**由用户决定**（不是错误）
+    QString lookupProblem;      ///< 没成的那一句（直接给用户看）
+    /// 用户叫停了。**这时候整份 plan 都作废**（`overrides` 里可能有半截的东西，
+    /// 别拿来用、也别拿来报数）—— 调用点该做的是把临时产物删掉、当没这回事。
+    bool cancelled = false;
+    QString problem;            ///< 非空 = 整件事停下来（枚举那一层就出错了）
+};
+
+/**
+ * @brief 跑完一次导出：枚举 → 算哈希 → 批量反查 → 拼出清单与 overrides。
+ *
+ * 全程**不碰网络**（反查那两发由传进来的 query 走）、**不写文件** —— 所以这一整层
+ * 可以在验证工程里用假接口跑，把"认出来的进清单、认不出来的进 overrides"这条
+ * 一条一条钉住。
+ *
+ * NOTE: 反查失败（`lookupFailed`）**不是**错误：照 PCL 那套，界面要问一句
+ *       「联网获取部分文件信息失败，是否继续导出？（继续的话，认不出信息的文件会被
+ *       直接打包进去）」—— 用户说继续，那就是一个挂在 overrides 上、断网也能做出来的包。
+ * NOTE: 哈希这一步现在是**串行**的。并行（QThreadPool）是留给以后的优化，不是漏了：
+ *       进度回调是从调用线程同步发的，多线程之后"进度从哪个线程来"就成了契约的一部分，
+ *       而这一步的 90% 时间在等网络（反查那一发）而不是在算哈希。
+ */
+ExportPlan buildExportPlan(const ExportRequest &request, const ModrinthQuery &queryModrinth,
+                           const CurseForgeQuery &queryCurseForge,
+                           const ExportProgress &progress = ExportProgress(),
+                           const ExportCancel &cancel = ExportCancel());
 
 /// 「这个文件值不值得拿去反查」—— 一个**代价**上的取舍，不是正确性上的：
 /// 只对像资源的文件（几种扩展名 + 路径里带 mods/resource 之类）算哈希，否则一个包里
