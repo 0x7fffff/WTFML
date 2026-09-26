@@ -40,6 +40,10 @@ struct ZipSource {
  * NOTE: 压缩级别用的是 Optimal（.cpp 里那个常数就是旋钮）。包里绝大多数是**已经压过的**
  *       jar，这一档换来的只是几个百分点 —— 真要抠速度，改成 NoCompression 是安全的，
  *       只是给出一个"和大家不一样"的包，没那个必要。
+ * NOTE: 条目表**走临时文件**，不进脚本正文 —— 脚本是用命令行递给 PowerShell 的，而
+ *       Windows 一条命令行只有 32767 个字符（Base64 + UTF-16LE 之后脚本正文只剩一万二千
+ *       来个字符），一个几百文件的实例的表就超过它了（2026-09-26 撞的，见 .cpp 里那段）。
+ *       ⇒ **别为了"省一次写盘"把表改回拼进脚本**。
  */
 bool createZip(const QString &targetZip, const QList<ZipSource> &entries,
                QString *errorOut = nullptr);
