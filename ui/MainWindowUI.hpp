@@ -57,6 +57,9 @@
 // "%1 (%2)" 强：那种写法不会报错，只会在哪天有人改了其中一处之后让同一个组在两处
 // 显示得不一样。
 #include "GroupDialog.hpp"
+// 「最大内存」那一行左半边那根条（见 MemorySlider.hpp 开头那段）。它和上面的对话框头
+// 一样属于 ui/ 自己的东西，不是业务层的。
+#include "MemorySlider.hpp"
 
 class QGridLayout;
 class QScrollArea;
@@ -75,6 +78,8 @@ class WindowChrome;
  *   - QSpinBox（QAbstractSpinBox）把滚轮当成"加一步/减一步" —— 内存那两个数字框就是。
  *     翻设置页时从"最大内存"上滚过去，值就变了，而**界面上看不出来它变了**（没有焦点
  *     就没有高亮），下一次启动游戏用的就是那个被滚出来的数。
+ *   - QSlider（QAbstractSlider）同理：滚一格就是一档 —— 「最大内存」那根条装上它，
+ *     鼠标从条上滚过去就把内存挪了（而且和别的控件一样，没焦点时看不出来）。
  *
  * 判据只有一个：**没有焦点就不认滚轮**。有焦点时照常放行（用户是特意点进来的）。
  *
@@ -115,7 +120,7 @@ public:
     using QObject::QObject;
 
     /// 装防护的**唯一入口**：改焦点策略 + 装过滤器，两件事一起做（理由见上面那段）。
-    /// @param widget 要护住的控件（下拉框 / 数字框）。空指针什么都不做，调用方不必先判空。
+    /// @param widget 要护住的控件（下拉框 / 数字框 / 条）。空指针什么都不做，调用方不必先判空。
     static void install(QWidget *widget) {
         if (widget == nullptr) {
             return;
@@ -1492,7 +1497,13 @@ public:
     /// 所以它是唯一一个要 MainWindow 反复改文字的 QLabel，得能按名字取回来。
     static QString memoryAutoHintName() { return QStringLiteral("memoryAutoHint"); }
     static QString memoryMaxSpinName() { return QStringLiteral("memoryMaxSpin"); }
-    static QString memoryMinSpinName() { return QStringLiteral("memoryMinSpin"); }
+    /// 「最大内存」这一行是**一根条 + 一个数字框**（两件东西说的是同一件事）。★ 2026-09-26：
+    /// 条是这一笔加的（用户要 PCL 那种拖着改的），数字框留着 —— 精细那几下还是打字快，
+    /// 而且验证工程一直是按 objectName 找它、拿它的范围当"上限真是本机物理内存"的凭据。
+    static QString memoryMaxSliderName() { return QStringLiteral("memoryMaxSlider"); }
+    // NOTE: 「最小内存」（-Xms）那个数字框**没有了**（2026-09-26）—— 用户原话是「不要 xms 了
+    // （或者隐藏起来），按照默认值」。值仍然存在设置里、命令行照发 -Xms（见
+    // LauncherManager 里那两行），少的只是界面上那一格。
     static QString launcherBehaviourComboName() { return QStringLiteral("launcherBehaviourCombo"); }
     static QString extraJvmArgsEditName() { return QStringLiteral("extraJvmArgsEdit"); }
     static QString applyExtraJvmArgsButtonName() {
@@ -1954,7 +1965,7 @@ public:
     QCheckBox *getMemoryAutoCheck() const { return memoryAutoCheck; }
     QLabel *getMemoryAutoHint() const { return memoryAutoHint; }
     QSpinBox *getMemoryMaxSpin() const { return memoryMaxSpin; }
-    QSpinBox *getMemoryMinSpin() const { return memoryMinSpin; }
+    MemorySlider *getMemoryMaxSlider() const { return memoryMaxSlider; }
     QComboBox *getLauncherBehaviourCombo() const { return launcherBehaviourCombo; }
     QPlainTextEdit *getExtraJvmArgsEdit() const { return extraJvmArgsEdit; }
     QPushButton *getApplyExtraJvmArgsButton() const { return applyExtraJvmArgsButton; }
@@ -2118,7 +2129,7 @@ private:
     QCheckBox *memoryAutoCheck = nullptr;
     QLabel *memoryAutoHint = nullptr;
     QSpinBox *memoryMaxSpin = nullptr;
-    QSpinBox *memoryMinSpin = nullptr;
+    MemorySlider *memoryMaxSlider = nullptr;
     QComboBox *launcherBehaviourCombo = nullptr;
     QPlainTextEdit *extraJvmArgsEdit = nullptr;
     QPushButton *applyExtraJvmArgsButton = nullptr;

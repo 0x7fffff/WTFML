@@ -674,8 +674,23 @@ private:
     /// 把「内存分配」那一行画成当前状态：自动档按**现在**的系统内存重算并落盘、禁用两个
     /// 数字框，手动档原样显示用户定的值；两种情况都要写那句"这台机器有多少内存"的说明。
     /// 调用点：开窗灌值时（applySettingsToUi）、切到设置页时、用户切自动/手动那一刻、
-    /// 真的要启动游戏之前（那一刻的可用内存才算数）。
+    /// 用户拖/填「最大内存」那一刻、真的要启动游戏之前（那一刻的可用内存才算数）。
     void refreshMemoryUi();
+    /// 把「最大内存」那一行的**上限**收到这台机器真有那么多上（用户原话：「上限=本机物理
+    /// 内存」）。传进来的就是 SystemMemory 读到的物理总量（MB，读不到时 <= 0）。
+    ///
+    /// 为什么上限得由业务层喂给界面：`ui/` 不许依赖 `src/`（那条老规矩），界面里那个
+    /// 65536 是"单独搭出来时"的天花板，不是这台机器的天花板 —— 一台 16 GB 的机器上让它
+    /// 能拖到 65536，用户拖到那儿只会在启动时拿到一句 JVM 的内存分配错误。
+    ///
+    /// NOTE: 它**只改上下限、不动值**（信号也挡着），值由调用方紧接着灌（见 refreshMemoryUi）。
+    void applyMemoryLimits(qint64 totalMb);
+    /// 让「最小内存 ≤ 最大内存」这条一直成立 —— JVM 会拒绝相反的组合：
+    ///   Error occurred during initialization of VM
+    ///   Initial heap size set to a larger value than the maximum heap size
+    /// ★ 2026-09-26 起界面上**没有**最小内存那一格了（用户要求撤掉），替它把门的就是这里：
+    /// 凡是改到 Xmx 的地方都得过一下。@return 夹下来了没有（调用方据此决定要不要落盘）。
+    bool clampXmsToXmx(int xmxMb);
     /// 启动前把这次真正要用的内存定下来，**只改传进来的那份值**。
     ///
     /// 自动档下按**现在**的系统内存重算一次（见 refreshSuggestedMemory 那段注释：
@@ -752,6 +767,8 @@ private:
     void onJavaWarnMismatchChanged();
     void onMemoryAutoChanged();
     void onMemoryChanged();
+    /// 「最大内存」那根条动了（见 .cpp 里那段：拖动中只跟着走数字、落盘留给松手那一下）。
+    void onMemorySliderMoved();
     void onLauncherBehaviourChanged();
     void onDownloadSourceChanged();
     /// CurseForge 的 API key 那一格编辑完了（回车 / 焦点离开）。**不是** per-character：

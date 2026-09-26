@@ -9,6 +9,7 @@
 #include "MainWindowUI.hpp"
 
 #include "InstanceGroupDelegate.hpp"
+#include "MemorySlider.hpp"
 #include "OverlayHost.hpp"
 #include "SkinModel.hpp"
 #include "TitleBar.hpp"
@@ -152,6 +153,10 @@ void addSectionTitle(QGridLayout *grid, int row, const QString &text, QWidget *p
 
 /// 设置页里数字框的宽度（够写「65536 MB」再加一对上下箭头）。
 constexpr int kMemorySpinWidth = 130;
+
+/// 内存那根条的最短宽度。太短就拖不准：32 GB 的机器上那张档位表有五十多格，
+/// 260 px 摊下来一格才 5 px 上下（够点得着），再窄就要靠键盘挪档了。
+constexpr int kMemorySliderMinWidth = 260;
 
 /// 「游戏窗口」那一行两个数字框的宽度：装得下「7680」（上限）加一对箭头就够了 ——
 /// 它没有后缀，比 kMemorySpinWidth 窄一些才不像两个空盒子。
@@ -1336,37 +1341,53 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
         addSettingRow(grid, row++, QStringLiteral("分配方式"), box, form);
     }
     {
+        // 「最大内存」这一行是**一根条 + 一个数字框**（两件东西说的是同一件事）。
+        // 条是主要入口（用户原话：「像 pcl 那样子的灵活变通的拖动条」），数字框留着是为了
+        // "我就要 6144 这个数"的时候能直接打进去 —— 少了它，拖是拖不到精确值的。
         QWidget *box = makeHintedControl(form);
         auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
-        memoryMaxSpin = new QSpinBox(box);
+
+        QWidget *line = new QWidget(box);
+        auto *lineLayout = new QHBoxLayout(line);
+        lineLayout->setContentsMargins(0, 0, 0, 0);
+        lineLayout->setSpacing(8);
+
+        memoryMaxSlider = new MemorySlider(line);
+        memoryMaxSlider->setObjectName(memoryMaxSliderName());
+        // 上限这里是 built-in 那个常数（65536）。**真跑起来时 MainWindow 会按本机物理内存
+        // 再收一次口**（见 MainWindow::applyMemoryLimits）：界面层不许读系统内存（它不依赖
+        // src/），而"这台机器有多少内存"只有业务层知道。界面单独搭出来时（验证工程里那样）
+        // 就是这条常数，够宽、也不假。
+        memoryMaxSlider->setRangeMb(memoryMaxMinMb(), memoryLimitMaxMb());
+        memoryMaxSlider->setMinimumWidth(kMemorySliderMinWidth);
+        // 条也吃滚轮（挪一档）：滚过去扫一眼就把内存挪了，而且没有焦点时**看不出来**
+        // —— 和那两个数字框是同一条理由（见 WheelGuard）。
+        WheelGuard::install(memoryMaxSlider);
+        // 条占满剩下的宽度（stretch 1），数字框按 sizeHint 摆 —— 顺序也是这个：条在左边。
+        lineLayout->addWidget(memoryMaxSlider, 1);
+
+        memoryMaxSpin = new QSpinBox(line);
         memoryMaxSpin->setObjectName(memoryMaxSpinName());
         memoryMaxSpin->setRange(memoryMaxMinMb(), memoryLimitMaxMb());
         memoryMaxSpin->setSingleStep(memoryStepMb());
         memoryMaxSpin->setSuffix(QStringLiteral(" MB"));
         // 数字框也吃滚轮（加一步/减一步），而且没有焦点时改完**看不出来** —— 见 WheelGuard。
         WheelGuard::install(memoryMaxSpin);
-        addInlineControl(boxLayout, memoryMaxSpin, kMemorySpinWidth);
-        addHint(box, QStringLiteral("给 JVM 的 -Xmx。模组多、整合包大就往上调；"
-                                    "机器内存不够时先降这一项。"),
+        memoryMaxSpin->setMinimumWidth(kMemorySpinWidth);
+        lineLayout->addWidget(memoryMaxSpin, 0);
+
+        // 这一行要**撑满**右列（不是 addInlineControl 那种"按 sizeHint 靠左"）：条的长度
+        // 就是它的精度，短了拖不准。
+        boxLayout->addWidget(line);
+        addHint(box, QStringLiteral("给 JVM 的 -Xmx。左边拖着改，也可以直接填数字。"
+                                    "模组多、整合包大就往上调；机器内存不够时先降这一项。"),
                 form);
         addSettingRow(grid, row++, QStringLiteral("最大内存"), box, form);
     }
-    {
-        QWidget *box = makeHintedControl(form);
-        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
-        memoryMinSpin = new QSpinBox(box);
-        memoryMinSpin->setObjectName(memoryMinSpinName());
-        memoryMinSpin->setRange(memoryMinMinMb(), memoryLimitMaxMb());
-        memoryMinSpin->setSingleStep(memoryStepMb());
-        memoryMinSpin->setSuffix(QStringLiteral(" MB"));
-        // 同上：滚轮防护（见 WheelGuard）。
-        WheelGuard::install(memoryMinSpin);
-        addInlineControl(boxLayout, memoryMinSpin, kMemorySpinWidth);
-        addHint(box, QStringLiteral("给 JVM 的 -Xms。设成和最大内存一样可以少几次扩容，"
-                                    "但会一直占着那些内存。"),
-                form);
-        addSettingRow(grid, row++, QStringLiteral("最小内存"), box, form);
-    }
+    // NOTE: 「最小内存」（-Xms）**这一行没有了**（2026-09-26）。用户原话：「不要 xms 了
+    //       （或者隐藏起来），按照默认值」—— 界面上不再让他管这一项，值照旧存在设置里
+    //       （默认 1024 MB，命令行照发 -Xms），所以"这一项现在是多少"改由「分配方式」
+    //       那一行的说明文字说全（见 MainWindow::refreshMemoryUi 里那三支 setText）。
 
     // ---------- 启动后 ----------
     addSectionTitle(grid, row++, QStringLiteral("启动后"), form);

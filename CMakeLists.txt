@@ -77,6 +77,7 @@ set(SOURCE_FILES
     ui/AccountSkinDialog.cpp
     ui/GameLogWindow.cpp
     ui/MainWindowUI.cpp
+    ui/MemorySlider.cpp
     ui/GroupDialog.cpp
     ui/GroupListDelegate.cpp
     ui/InstanceSettingsDialog.cpp

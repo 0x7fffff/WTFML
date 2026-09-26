@@ -51,6 +51,7 @@
 
 #include "InstanceFilesPage.hpp"
 #include "MainWindowUI.hpp"
+#include "MemorySlider.hpp"
 #include "VersionIcons.hpp"
 #include "VersionTreeDelegate.hpp"
 
@@ -59,6 +60,9 @@ namespace {
 /// 数字框的宽度。和设置页那两个用同一个值 —— 同一个"内存 MB 数"在两处宽度不一样
 /// 会显得像是两种东西。
 constexpr int kMemorySpinWidth = 120;
+/// 「最大内存」那一行那根条的最短宽度。比设置页那份（260）窄一点：这一页那一格左边还占着
+/// [跟随全局][自定义] 两个单选钮，条再要 260 就得把数字框挤出门外了。
+constexpr int kMemorySliderMinWidth = 200;
 /// 追加参数那一行的输入高度（三四行够放几条常见参数）。
 constexpr int kAppendJvmArgsHeight = 76;
 /// 左栏那两条导航列在算出来的宽度上再加多少余量（左右各一半）。
@@ -647,6 +651,16 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         row += 2;
         m_xmxFollowCell = cell;
         auto *choiceRow = choiceRowOf(xmxField());
+        // 这一格和设置页那一行一样：**一根条 + 一个数字框**（用户要 PCL 那种拖着改的手感）。
+        // 条占满剩下的宽度，数字框窄窄一条 —— 顺序也是这个，条在左边。
+        m_memoryMaxSlider = new MemorySlider(cell);
+        m_memoryMaxSlider->setObjectName(memoryMaxSliderName());
+        m_memoryMaxSlider->setRangeMb(MainWindowUI::memoryMaxMinMb(),
+                                      MainWindowUI::memoryLimitMaxMb());
+        m_memoryMaxSlider->setMinimumWidth(kMemorySliderMinWidth);
+        // 没有焦点时滚轮也会改值（见 MainWindowUI.hpp 里的 WheelGuard）。
+        WheelGuard::install(m_memoryMaxSlider);
+        choiceRow->addWidget(m_memoryMaxSlider, 1);
         m_memoryMaxSpin = new QSpinBox(cell);
         m_memoryMaxSpin->setObjectName(memoryMaxSpinName());
         m_memoryMaxSpin->setRange(MainWindowUI::memoryMaxMinMb(), MainWindowUI::memoryLimitMaxMb());
@@ -657,8 +671,38 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         WheelGuard::install(m_memoryMaxSpin);
         m_memoryMaxSpin->setFixedWidth(kMemorySpinWidth);
         choiceRow->addWidget(m_memoryMaxSpin);
+
+        // 条和数字框是同一个值的两半 ⇒ 双向同步，各自挡掉回头那一发（不挡就会来回弹）。
+        connect(m_memoryMaxSlider, &QSlider::valueChanged, this, [this]() {
+            const QSignalBlocker block(m_memoryMaxSpin);
+            m_memoryMaxSpin->setValue(m_memoryMaxSlider->valueMb());
+        });
+        connect(m_memoryMaxSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, [this]() {
+            const QSignalBlocker block(m_memoryMaxSlider);
+            m_memoryMaxSlider->setValueMb(m_memoryMaxSpin->value());
+        });
+
+        // 「改了就写」这一页是**每一发都写盘**的（见 .hpp 里 valueSignature() 那段），
+        // 所以拖动中那几十发不能每一发都写一次 —— 和设置页同一个拆法：
+        //   - 拖动中：只跟着走数字（上面那条同步线），落盘等松手；
+        //   - 不是拖动中（键盘、滚轮、点滑槽跳一格）：一次就是一格，立刻报"值变了"。
+        // 上面那条同步线用的是**挡了信号**的 setValue，所以 watchEditors() 按类型接的那条
+        // 线在拖动时一发都不响 —— 报"值变了"这件事得由条自己说。
+        connect(m_memoryMaxSlider, &QSlider::valueChanged, this, [this]() {
+            if (!m_memoryMaxSlider->isSliderDown()) {
+                notifyEdited();
+            }
+        });
+        connect(m_memoryMaxSlider, &QSlider::sliderReleased, this,
+                [this]() { notifyEdited(); });
     }
     {
+        // ★ 2026-09-26：这一整行**不显示了**（用户原话：「不要 xms 了（或者隐藏起来），
+        //   按照默认值」）。对象照旧建、照旧跟着盘上的值走 —— 撤掉的是"给人改"这一件事，
+        //   不是替用户删掉某个实例上已经存过的那份覆盖：那条覆盖照样由 override() 透传回
+        //   去（见 override() 里那段）。整行 hide() 而不是不建，也是为了让验证工程还能按
+        //   objectName 把它找回来 —— "这一项查得到、但看不见"正是现在的意思。
+        const int titleRow = row;   // 标题在 addTitledRow() 里就摆在 (row, 0) 这一格上
         QWidget *cell = addOverrideRow(grid, row, xmsField(), tr("最小内存"),
                                        tr("只对这个实例生效（给 JVM 的 -Xms）。"));
         row += 2;
@@ -673,6 +717,16 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         WheelGuard::install(m_memoryMinSpin);
         m_memoryMinSpin->setFixedWidth(kMemorySpinWidth);
         choiceRow->addWidget(m_memoryMinSpin);
+        // 连**标题**一起藏。只藏下面那一格的话，表上会留下孤零零一个「最小内存」（底下
+        // 空一块），看着像界面坏了 —— 藏的是"这一行"，不是"这一行里的控件"。
+        // 标题是 addTitledRow() 摆在 (titleRow, 0) 上那个 QLabel；QGridLayout 对藏起来的
+        // 控件不算高度，所以这两下一做，那一行就整个塌掉、不留空隙。
+        if (QLayoutItem *titleItem = grid->itemAtPosition(titleRow, 0)) {
+            if (QWidget *title = titleItem->widget()) {
+                title->hide();
+            }
+        }
+        cell->hide();
     }
     {
         QWidget *cell = addOverrideRow(grid, row, autoMemoryField(), tr("内存分配"),
@@ -1045,6 +1099,15 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     m_xmxFollow->setChecked(!current.xmx.has_value());
     m_xmxCustom->setChecked(current.xmx.has_value());
     m_memoryMaxSpin->setValue(current.xmx.value_or(global.xmx));
+    // 条那半边也要摆过来：数字框本来就已经是这个值时上面那一句不发信号，光靠同步那条线
+    // 等不到（条会停在上一次那一格上）—— 一进这一页看见的条和数字框就不是一个数。
+    // 挡信号：这一发是**灌值**，不是用户改的 —— 不挡的话它会顺手报一次"值变了"
+    // （条自己接的那条线，见上面那段），而那时候 `m_lastSignature` 还是空的，
+    // 于是打开这一页本身就等于替用户写了一次盘。
+    {
+        const QSignalBlocker blockSlider(m_memoryMaxSlider);
+        m_memoryMaxSlider->setValueMb(m_memoryMaxSpin->value());
+    }
 
     m_xmsFollow->setChecked(!current.xms.has_value());
     m_xmsCustom->setChecked(current.xms.has_value());
@@ -1742,7 +1805,14 @@ InstanceSettingsDialog::Override InstanceSettingsDialog::override() const {
             result.xmx = m_memoryMaxSpin->value();
         }
         if (m_xmsCustom->isChecked()) {
-            result.xms = m_memoryMinSpin->value();
+            // ★ 2026-09-26：这一行从界面上撤掉了（整行隐藏），但盘上存过的值**照样透传** ——
+            //   撤掉界面不等于替用户删掉他的设置。唯一不能原样透传的是"比最大内存还大"的
+            //   那些：Xms > Xmx 是 JVM 直接拒绝启动的组合（Initial heap size set to a
+            //   larger value than the maximum heap size），而用户现在在界面上根本看不到
+            //   自己存过这么一对 —— 那一行是隐藏的，没有人在旁边替他看着。
+            const int effectiveXmx = m_xmxCustom->isChecked() ? m_memoryMaxSpin->value()
+                                                              : m_global.xmx;
+            result.xms = qMin(m_memoryMinSpin->value(), effectiveXmx);
         }
     }
 

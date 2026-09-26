@@ -1698,15 +1698,22 @@ void MainWindow::setupConnections() {
     // （onStartButtonClicked 里问的那一次），不是这一页的显示。
     connect(m_ui->getJavaWarnMismatchCheck(), &QCheckBox::toggled, this,
             &MainWindow::onJavaWarnMismatchChanged);
-    // 内存：先接「自动 / 手动」总开关，再接两个数字框。
-    // 自动档下两个框是禁用的（见 refreshMemoryUi），所以"用户改数字"这件事只可能发生在
+    // 内存：先接「自动 / 手动」总开关，再接「最大内存」那一行的**一根条 + 一个数字框**。
+    // 自动档下那两件都是禁用的（见 refreshMemoryUi），所以"用户改数字"这件事只可能发生在
     // 手动档，onMemoryChanged 里那句 autoMemory() 守卫是给程序内部 setValue 兜底的。
     connect(m_ui->getMemoryAutoCheck(), &QCheckBox::toggled, this,
             &MainWindow::onMemoryAutoChanged);
-    // 两个 spin 共用一个槽。谁改的在这里区分不了（也不该区分，见 onMemoryChanged）。
+    // 条和数字框说的是同一件事 ⇒ 走同一个槽，谁改的在那儿看当前值就知道（见 onMemoryChanged：
+    // "另一个还停在旧值上"的那一侧会被挪过去）。条多走一道 onMemorySliderMoved 只是为了把
+    // **拖动中**（还没松手）那一串 valueChanged 和"松手了、该落盘了"分开。
     connect(m_ui->getMemoryMaxSpin(), &QSpinBox::valueChanged, this,
             &MainWindow::onMemoryChanged);
-    connect(m_ui->getMemoryMinSpin(), &QSpinBox::valueChanged, this,
+    connect(m_ui->getMemoryMaxSlider(), &QSlider::valueChanged, this,
+            &MainWindow::onMemorySliderMoved);
+    // 松手这一发**必须**单独接：拖动中 valueChanged 已经响过了，松手时位置没再变就不会
+    // 再来一发 —— 只接 valueChanged 的话，拖到哪儿、界面上数字也变了，盘上却一个字节
+    // 都没写（下一次启动用的还是老值）。这一发就是"拖完了、可以落盘了"。
+    connect(m_ui->getMemoryMaxSlider(), &QSlider::sliderReleased, this,
             &MainWindow::onMemoryChanged);
     connect(m_ui->getLauncherBehaviourCombo(), &QComboBox::currentIndexChanged, this,
             &MainWindow::onLauncherBehaviourChanged);
@@ -5183,41 +5190,71 @@ void MainWindow::refreshMemoryUi() {
     // 只读不动 —— 用户定好的两个数一个都不许改。
     const SystemMemory::Usage usage = m_javaSettings->refreshSuggestedMemory();
     const bool autoMemory = m_javaSettings->autoMemory();
-    if (autoMemory) {
+
+    // 上限先按这台机器收口，**再**灌值：盘上可能存着一个比物理内存还大的 Xmx（换过机器、
+    // 或者在界面上限是 65536 的那些版本里手动填过），先把上限压下来，下面 setValue 才是
+    // 个合法值（数字框 setRange 时自己会夹一次，但那是副作用，不是这里的意思）。
+    applyMemoryLimits(usage.totalMb);
+    const int capMb = m_ui->getMemoryMaxSpin()->maximum();
+    int xmxMb = m_javaSettings->xmx();
+    bool clamped = false;
+    if (xmxMb > capMb) {
+        // **静默**改用户的配置是不行的：他下次会在游戏日志里看到 JVM 实际拿到的内存和
+        // 自己填的不是一个数。落盘 + 记一行日志，至少有一处说得出这件事发生过。
+        appendLog(tr("内存：盘上记的最大内存 %1 MB 超过这台机器的物理内存，已降到 %2 MB。")
+                      .arg(xmxMb)
+                      .arg(capMb));
+        m_javaSettings->setXmx(capMb);
+        xmxMb = capMb;
+        clamped = true;
+    }
+    if (clampXmsToXmx(xmxMb)) {
+        // 这一句过去是接在"用户改数字框"那一路上的（那一格现在没了）。拖动条的机器上
+        // 它照样会响：把最大内存拖到最小内存以下时，最小内存跟着降。
+        appendLog(tr("内存：最小内存不能超过最大内存，已跟着降到 %1 MB。").arg(xmxMb));
+        clamped = true;
+    }
+    if (autoMemory || clamped) {
         // 自动算出来的值也落盘：盘上那份就是"上次按系统内存算出来的值"，用户从自动切到
         // 手动时正好拿它当起点，也让"界面显示的就是盘上存的"这条一直成立。
+        // 手动档下走到这儿只有一种可能：上面那两条夹过值。
         m_javaSettings->save();
     }
 
     const QSignalBlocker blockCheck(m_ui->getMemoryAutoCheck());
     const QSignalBlocker blockMax(m_ui->getMemoryMaxSpin());
-    const QSignalBlocker blockMin(m_ui->getMemoryMinSpin());
+    const QSignalBlocker blockSlider(m_ui->getMemoryMaxSlider());
     m_ui->getMemoryAutoCheck()->setChecked(autoMemory);
-    m_ui->getMemoryMaxSpin()->setValue(m_javaSettings->xmx());
-    m_ui->getMemoryMinSpin()->setValue(m_javaSettings->xms());
-    // 自动档下把两个框禁掉：里面是刚算出来的建议值，让人以为能改就是"改了不生效"。
+    m_ui->getMemoryMaxSpin()->setValue(xmxMb);
+    m_ui->getMemoryMaxSlider()->setValueMb(xmxMb);
+    // 自动档下把这一整行禁掉：里面是刚算出来的建议值，让人以为能改就是"改了不生效"。
     m_ui->getMemoryMaxSpin()->setEnabled(!autoMemory);
-    m_ui->getMemoryMinSpin()->setEnabled(!autoMemory);
+    m_ui->getMemoryMaxSlider()->setEnabled(!autoMemory);
 
     // 说明文字：把"这台机器有多少内存、现在还剩多少、最后给了多少"三件事说全 ——
-    // 自动档下用户看不到（也改不了）那两个数，只能靠这句话知道为什么是这个值。
+    // 自动档下用户看不到（也改不了）上面那个数，只能靠这句话知道为什么是这个值。
+    // ★ 2026-09-26：最小内存那一格从界面上撤掉了（用户要求），但它**仍然发给 JVM**，
+    //   所以这句话要把它现在的值说全 —— 否则"启动器到底给了多少 -Xms"在整个界面上
+    //   一个字都找不到，只能去翻注册表。
     const QString totalText = humanMemorySize(usage.totalMb);
     const QString availableText = humanMemorySize(usage.availableMb);
     if (usage.totalMb <= 0) {
         // 读不到系统内存（非 Windows 平台或系统调用失败）：照实说，别让用户以为是"按你的
         // 内存算的"。实际用的是内置默认值。
         // NOTE: 这一支**不看 autoMemory**，是照着自动档写的：手动档下会对着用户自己刚
-        //       定的那两个数说"自动分配用的是内置默认值"。手动档下那句话两头都不对，
-        //       只是数值本身在上面两个框里能直接看到，就先这么写着。
+        //       定的那个数说"自动分配用的是内置默认值"。手动档下那句话两头都不对，
+        //       只是数值本身在上面那一行里能直接看到，就先这么写着。
         m_ui->getMemoryAutoHint()->setText(
-            tr("读不到系统内存，自动分配用的是内置默认值（最大 %1 MB / 最小 %2 MB）。")
+            tr("读不到系统内存，自动分配用的是内置默认值（最大 %1 MB）。"
+               "最小内存由启动器定（%2 MB），不用管它。")
                 .arg(m_javaSettings->xmx())
                 .arg(m_javaSettings->xms()));
         return;
     }
     if (autoMemory) {
         m_ui->getMemoryAutoHint()->setText(
-            tr("系统总内存 %1、当前可用 %2，自动给到 最大 %3 MB / 最小 %4 MB。"
+            tr("系统总内存 %1、当前可用 %2，自动给到最大 %3 MB。"
+               "最小内存由启动器定（%4 MB），不用管它。"
                "每次启动前都会按当时的可用内存重算。")
                 .arg(totalText, availableText)
                 .arg(m_javaSettings->xmx())
@@ -5225,10 +5262,48 @@ void MainWindow::refreshMemoryUi() {
         return;
     }
     m_ui->getMemoryAutoHint()->setText(
-        tr("系统总内存 %1、当前可用 %2；现在是手动指定（最大 %3 MB / 最小 %4 MB）。")
+        tr("系统总内存 %1、当前可用 %2；现在是手动指定（最大 %3 MB）。"
+           "最小内存由启动器定（%4 MB），不用管它。"
+           "上面那条拖到哪儿就是哪儿，也可以直接填数字。")
             .arg(totalText, availableText)
             .arg(m_javaSettings->xmx())
             .arg(m_javaSettings->xms()));
+}
+
+void MainWindow::applyMemoryLimits(qint64 totalMb) {
+    // 条上的档位和数字框的步长都是 256 ⇒ 上限也往下取到 256 的整数倍：不然一台物理内存
+    // 16257 MB 的机器上，上限写 16257、条拖到头只能停在 16128（档位表最后一格），
+    // 而数字框里打得进 16257 —— 同一件事两个数，用户只会觉得是坏的。
+    int capMb = MainWindowUI::memoryLimitMaxMb();
+    if (totalMb > 0) {
+        const qint64 aligned = (totalMb / 256) * 256;
+        capMb = aligned < capMb ? int(aligned) : capMb;
+    }
+    // 兜底：读出来的数小得离谱时别把上限压到下限以下（qBound 那种 min > max 会取到没意义的
+    // 值），上下限至少是"一格"。真出现这种情况时上限等于下限，那一行就是灰的动不了，
+    // 比"能拖到一个起不来的数"强。
+    const int minMb = MainWindowUI::memoryMaxMinMb();
+    if (capMb < minMb) {
+        capMb = minMb;
+    }
+
+    // 只改上下限、不动值：调用方紧接着就灌值了（见 refreshMemoryUi）。挡信号是因为
+    // 改上限时数字框会自己夹一下当前值、条也会跟着重排档位 —— 那两发都不该被当成
+    // "用户改了内存"（真按用户改的处理，会顺手把这次夹的值落盘）。
+    const QSignalBlocker blockMax(m_ui->getMemoryMaxSpin());
+    const QSignalBlocker blockSlider(m_ui->getMemoryMaxSlider());
+    m_ui->getMemoryMaxSpin()->setRange(minMb, capMb);
+    m_ui->getMemoryMaxSlider()->setRangeMb(minMb, capMb);
+}
+
+bool MainWindow::clampXmsToXmx(int xmxMb) {
+    if (m_javaSettings->xms() <= xmxMb) {
+        return false;
+    }
+    // 永远拉最小、不去顶最大。两根都是"用户刚改的那一根"，猜错的代价是把用户正在输入的
+    // 那个数改掉 —— 而现在界面上只剩一根了（最大内存），更没得猜。
+    m_javaSettings->setXms(xmxMb);
+    return true;
 }
 
 void MainWindow::onJavaWarnMismatchChanged() {
@@ -5253,26 +5328,46 @@ void MainWindow::onMemoryAutoChanged() {
 
 void MainWindow::onMemoryChanged() {
     if (m_javaSettings->autoMemory()) {
-        // 自动档下这两个框是禁用的，用户改不到这里。真走到这一句（程序内部 setValue）
+        // 自动档下这一行是禁用的，用户改不到这里。真走到这一句（程序内部 setValue）
         // 也不能把自动算出来的值当成"用户手动调的值"存下去 —— 那样下次进设置页就会看到
         // 手动档亮着，而用户从没动过它。
         return;
     }
-    int maxMb = m_ui->getMemoryMaxSpin()->value();
-    const int minMb = m_ui->getMemoryMinSpin()->value();
+    const int maxMb = m_ui->getMemoryMaxSpin()->value();
 
-    if (minMb > maxMb) {
-        // 最大 < 最小是 JVM 直接拒绝启动的配置。越界时**总是**把最小内存拉下来，
-        // 不去顶用户刚填的那个数：两个 spin 共用一个槽，这里区分不了是谁刚被改的
-        // （猜错的代价是把用户正在输入的那个数改掉，比"最小内存被拉平"难受得多）。
-        // 同时挡信号：下面还要手动把两个值一起写回设置，不需要再来一轮。
-        const QSignalBlocker blocker(m_ui->getMemoryMinSpin());
-        m_ui->getMemoryMinSpin()->setValue(maxMb);
+    // 数字框和条说的是同一件事：用户直接打了 6144 时条还停在刚才那一格上，得挪过去
+    // （反过来那条路走 onMemorySliderMoved，它也会把数字框带过来）。挡信号：这一发是
+    // "跟着走"，不是"又改了一次"。
+    if (m_ui->getMemoryMaxSlider()->valueMb() != maxMb) {
+        const QSignalBlocker blockSlider(m_ui->getMemoryMaxSlider());
+        m_ui->getMemoryMaxSlider()->setValueMb(maxMb);
     }
 
     m_javaSettings->setXmx(maxMb);
-    m_javaSettings->setXms(m_ui->getMemoryMinSpin()->value());
+    // Xms ≤ Xmx 这条不许破（见 .hpp 里 clampXmsToXmx 那段）。把最大内存拖到 256 时，
+    // 盘上那个 1024 的最小内存得跟着降 —— 不然后面每次启动 JVM 都直接报错退出。
+    clampXmsToXmx(maxMb);
     m_javaSettings->save();
+    // 说明文字里写着"最大 %3 MB、最小 %4 MB"，改了数不重画它就一直是旧值。手动档下
+    // refreshMemoryUi() 只读不动（见它开头那段），不会把刚改出来的数冲掉。
+    refreshMemoryUi();
+}
+
+void MainWindow::onMemorySliderMoved() {
+    const int maxMb = m_ui->getMemoryMaxSlider()->valueMb();
+    if (m_ui->getMemoryMaxSpin()->value() != maxMb) {
+        const QSignalBlocker blockSpin(m_ui->getMemoryMaxSpin());
+        m_ui->getMemoryMaxSpin()->setValue(maxMb);
+    }
+    if (m_ui->getMemoryMaxSlider()->isSliderDown()) {
+        // 还在拖：数字框跟着走就够了。落盘留给松手那一下（见 ctor 里 sliderReleased 那条线）
+        // —— 一次拖动会发几十上百发 valueChanged，每一发都写一遍注册表、还顺带重算一次
+        // 系统内存，是不行的。
+        return;
+    }
+    // 不是拖动中：键盘左右键、滚轮、PgUp/PgDn 都走这里 —— 那几种一次就是一格，
+    // 本来就该立刻落盘（也正好是"松手了"的等价物）。
+    onMemoryChanged();
 }
 
 void MainWindow::onLauncherBehaviourChanged() {

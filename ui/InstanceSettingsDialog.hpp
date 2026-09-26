@@ -49,6 +49,7 @@
 #include <optional>
 
 class InstanceFilesPage;
+class MemorySlider;
 
 class QCheckBox;
 class QComboBox;
@@ -401,6 +402,11 @@ public:
         return QStringLiteral("instanceBrowseJavaButton");
     }
     static QString memoryMaxSpinName() { return QStringLiteral("instanceMemoryMaxSpin"); }
+    /// 「最大内存」那一行左半边那根条（和设置页同一套，见 MemorySlider.hpp）。
+    static QString memoryMaxSliderName() { return QStringLiteral("instanceMemoryMaxSlider"); }
+    /// ★ 2026-09-26：对象还在、还在跟着盘上的值走，但**整行不显示了**（用户要求撤掉这一
+    /// 项）。名字留着是因为验证工程还按它找这个控件 —— 找得到、但不该看得见（见 .cpp 里
+    /// 「最小内存」那一行上面那段）。
     static QString memoryMinSpinName() { return QStringLiteral("instanceMemoryMinSpin"); }
     static QString memoryAutoCheckName() { return QStringLiteral("instanceMemoryAutoCheck"); }
     static QString extraJvmArgsEditName() {
@@ -929,6 +935,7 @@ private:
     QString m_pinnedGroupId;
     QLineEdit *m_javaPathEdit = nullptr;
     QSpinBox *m_memoryMaxSpin = nullptr;
+    MemorySlider *m_memoryMaxSlider = nullptr;
     QSpinBox *m_memoryMinSpin = nullptr;
     QCheckBox *m_memoryAutoCheck = nullptr;
     QLineEdit *m_extraJvmArgsEdit = nullptr;
