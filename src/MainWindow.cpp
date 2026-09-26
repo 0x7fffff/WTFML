@@ -7571,8 +7571,10 @@ void MainWindow::exportModpack(const QString &versionId, const QString &targetPa
         appendLog(tr("导出失败：读不出 %1 基于哪个原版").arg(versionId));
         InlineMessage::warning(
             m_ui->overlay(), tr("读不出这个实例基于哪个原版"),
-            tr("整合包清单里必须写清楚「基于哪个原版游戏」，而这一份读不出来："
-               "wtfml.meta 里没有 realVersion，版本 json 里也没有 inheritsFrom。\n\n"
+            tr("整合包清单里必须写清楚「基于哪个原版游戏」，而这一份读不出来 —— 要么本地"
+               "没有一处写着它（wtfml.meta 里没有 realVersion，版本 json 里没有 clientVersion、"
+               "也顺不出指得到原版的 inheritsFrom 链），要么写着的那个**不是一个真能装出来的"
+               "版本号**（自己改过的名字就属于这种：清单里记着它，别人那边却没有这个版本可装）。\n\n"
                "这个实例多半是很早以前装的、或者被手动改过。在「实例设置…」里看不出版本号"
                "的话，建议重装一份再导出。"));
         return;

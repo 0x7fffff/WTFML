@@ -123,6 +123,27 @@ public:
     /// 走 downloadManager 手上那份（界面用的）。
     QList<LatestVersion> availableLatestVersions() const;
 
+    /**
+     * @brief 这一格值不值得写进整合包清单的 `gameVersion`（**纯函数**，导出那两格共用）。
+     * @param id 候选（`wtfml.meta` 的 realVersion / json 的 clientVersion / 链末端的 id /
+     *           实例目录名）。
+     * @param knownVersions 在线清单（`DownloadManager::getAvailableVersions()` 那份，或空表）。
+     * @return 能不能当版本号用。
+     *
+     * 两种情形，看清单在不在手上：
+     *   ① **清单非空 ⇒ 以它为准**（`knownVersions` 里有这个 id 才算数）。这一条同时管两件
+     *      相反的事：放行不以数字开头的老版本号（`rd-132211`，清单里真有、也装得出来），
+     *      拦住"长得像版本号但 Mojang 没这个 id"的东西（真机上的 `20w14∞`，正式 id 是
+     *      `20w14infinite`）。详见 .cpp 里那段；
+     *   ② **清单是空表 ⇒ 看长相**：以数字开头且一个空白都没有。这一条是离线第一趟的退路，
+     *      挡着 `原版ATT2地图（无模组）` 和 `1.20.2-Fabric 0.17.2` 这类最明显的假版本号。
+     *
+     * NOTE: 写成**静态**、收一个列表进来，理由和 groupIntoChannels() 那段一模一样
+     *       （验证工程能拿真清单夹具直接喂进来）。
+     */
+    static bool isKnownGameVersion(const QString &id,
+                                   const QList<MinecraftVersion> &knownVersions);
+
     // Version fetching from Mojang API
     void fetchAvailableVersions();
     void fetchVersionDetails(const QString &versionId);
@@ -521,12 +542,18 @@ public:
      * @param versionOut 加载器版本；纯原版时是空串。
      * @return 空串 = 认出来了（也可能是"确实是原版"）；非空 = 认不出来，那句话给用户看。
      *
-     * 两条路，按顺序问：
+     * 三条路，按顺序问：
      *   1. **顺着版本 json 的继承链看那一串 id**：`fabric-loader-0.16.14-1.20.1` /
      *      `1.20.1-forge-47.4.10` / `neoforge-21.1.215`（三个 id 的拼法都有唯一出处，
      *      见 LoaderMeta）。这一条排在前面，因为它是**装在盘上的东西自己说的** ——
      *      装加载器出来的目录名就是那个 id，导入整合包出来的薄 json 也指着它。
-     *   2. 拿不到就看 `wtfml.meta` 里的 `loaderName` / `loaderVersion`（我们自己写进去的，
+     *   2. **从那份 json 自己身上认**：`libraries` 里的 maven 坐标
+     *      （`net.fabricmc:fabric-loader` / `net.minecraftforge:forge` / `…:fmlloader` /
+     *      `net.neoforged.fancymodloader:loader` / `optifine:OptiFine`）＋ `arguments.game`
+     *      里的 `--fml.neoForgeVersion`。它罩的是 PCL / HMCL 那类"整份 json 都合进实例
+     *      目录"的实例（真机上绝大多数都是）—— 那些实例的 id 是用户起的名字、没有
+     *      `inheritsFrom`，第 1 条从头到尾问不出东西。判据的取舍写在 loaderEvidenceFromJson()。
+     *   3. 拿不到就看 `wtfml.meta` 里的 `loaderName` / `loaderVersion`（我们自己写进去的，
      *      见 updateVersionMeta）。那一段本来是给界面看的显示名，所以这张反查表是照着
      *      loaderDisplayName() 拼出来的，不可能和写进去的那一份漂。它罩的是"链上没有、
      *      但 meta 里记着"的那一类（比如用户手写过一个 meta）。
@@ -543,16 +570,20 @@ public:
      * @return 版本号（如 `1.20.1`）。空串 = 什么都没读到（调用点该停下来问一句，别拿一个
      *         空串去拼清单）。
      *
-     * 两条路，和 instanceLoaderInfo() 同一个顺序：
+     * 几条路，和 instanceLoaderInfo() 同一个顺序：
      *   1. `wtfml.meta` 里那一格 `realVersion`（装的时候写下的，也是显示名用的那一个）；
-     *   2. 顺 `inheritsFrom` 走到**最深的那一个 id** —— 原版那一份自己就是链的末端。
+     *   2. 顺 `inheritsFrom` 走到链的末端，看链上每一份 json 的 `clientVersion` —— 合并过的
+     *      实例（PCL / HMCL 那类）只有这一格说得出口，它们的 id 是用户起的名字；
+     *   3. 链末端那个 **id** —— 薄 json 的最后一步就是原版那一份；
+     *   4. 实例自己的**目录名**（最不可信的那一个，见下面那条 NOTE）。
      *
      * NOTE: 第 2 条不能用 getVersionJson()：那个是**合并过的**（见它自己的说明），
      *       `inheritsFrom` 已经被吃掉，走一步就到底了。所以这里用的是 rawVersionJson()。
-     * NOTE: 两条都问不出东西时，**目录名只有在以数字开头时才顶上来**（所有 Mojang 的版本号
-     *       都这样：`1.20.1` / `24w14a` / `1.21.2-rc1`），否则返回空串。理由是目录名可以完全
-     *       不像版本号（真机上有 `原版ATT2地图（无模组）` 这种），写进清单就是个假版本号
-     *       —— 收包的人那边会去找一个不存在的游戏版本，而包看上去是好的。
+     * NOTE: **每一格都要过 isKnownGameVersion()**（判据的出处是那一段说明）。一句话版本：
+     *       在线清单在手时以清单为准，清单没取到时看长相。**写进清单的必须是一个真的能装
+     *       出来的版本号** —— 假版本号（`原版ATT2地图（无模组）` / `20w14∞`）的后果是"包看上去
+     *       是好的、收包的人那边找不到这个版本"，那正是这个功能最怕的失败。
+     *       几条路都问不出来时返回空串，调用点该停下来报一句。
      */
     QString instanceGameVersion(const QString &instanceId);
 

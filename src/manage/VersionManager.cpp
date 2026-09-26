@@ -36,6 +36,7 @@
 
 #include "../download/LoaderMeta.hpp"
 #include "../download/ResourceCatalog.hpp"
+#include "../launcher/VersionArguments.hpp"
 #include "../launcher/VersionInheritance.hpp"
 #include "../net/HttpClient.hpp"
 #include "../util/AppPaths.hpp"
@@ -3984,7 +3985,198 @@ QString modrinthLookupFailureText(const HttpClient::Reply &reply) {
 /// 一发问多少条。两条路都定 100：正文小、重来代价小，而一个大包（几百条）也就三四发。
 constexpr int kLookupChunk = 100;
 
+/// 长得像不像一个原版版本号。
+///
+/// 两条判据：**以数字开头**（Mojang 的版本号全都以数字开头 —— `1.20.1` / `24w14a` /
+/// `26.2-snapshot-1`）＋ **一个空白都没有**。
+///
+/// 第二条是给 PCL 那种"目录名就是用户起的名字"的实例兜底的：`1.20.2-Fabric 0.17.2`
+/// 以数字开头，可它**不是一个游戏版本** —— 写进清单之后收包的人那边会去找一个没有的版本，
+/// 而包看上去是好的（这就是为什么不能只看第一个字符）。
+static bool looksLikeGameVersion(const QString &text) {
+    if (text.isEmpty() || !text.at(0).isDigit()) {
+        return false;
+    }
+    for (const QChar ch : text) {
+        if (ch.isSpace()) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/// 从 maven 坐标那一格（`<原版>-<加载器版本>`）里切出加载器版本。
+///
+/// NOTE: 切的是**第一个**横杠，不是最后一个：`1.12.2-14.23.5.2860` 要 `14.23.5.2860`，
+///       而 GTNH 那种 `1.7.10-10.13.4.1614-1.7.10` 后面还挂着一个游戏版本 —— 按最后一个
+///       横杠切会切出 `1.7.10`，正好是反的。没有横杠时整串就是版本号。
+static QString loaderVersionFromMaven(const QString &mavenVersion) {
+    const QString text = mavenVersion.trimmed();
+    const int dash = text.indexOf(QLatin1Char('-'));
+    return dash > 0 ? text.mid(dash + 1) : text;
+}
+
+/**
+ * @brief 从一份**合并过的**版本 json 自己身上认加载器。
+ *
+ * 【这条路为什么必须有】PCL / HMCL 那一类启动器把整份 json 合进实例目录（真机上绝大多数
+ * 实例都是这样）：它们的 `inheritsFrom` 是空的，`id` 就是用户给实例起的名字（`海波篮子`、
+ * `1.21.11-Fabric 0.19.3`），于是按 id 认的那条路一步都走不出去 —— 走不出去的结果是
+ * 「纯原版」，于是一个装着 133 个模组的 Fabric 实例会被导成一个**原版包**：收包的人那边
+ * 模组都在、游戏起不来，而包看上去是好的（2026-09-26 用户报的那次就是这个形状的前一半）。
+ *
+ * 判据只取"真正会进 classpath 的东西"，外加加载器自己声明的启动参数：
+ *   · `net.fabricmc:fabric-loader:<版本>`
+ *   · `net.minecraftforge:forge:<原版>-<版本>`（1.12 及以前）
+ *   · `net.minecraftforge:fmlloader:<原版>-<版本>`（1.13 以后）
+ *   · `net.neoforged.fancymodloader:loader:<FML 版本>` ⇒ 只当"这是 NeoForge"的凭据：
+ *     它那个 4.x 是 FML 的版本号，**不是** `neoforge-<版本>` 那个号，写进清单是错的
+ *   · `arguments.game` 里的 `--fml.neoForgeVersion` / `--fml.forgeVersion`（加载器安装器
+ *     自己写进去的，实测 `--fml.neoForgeVersion` 紧跟着就是版本号）
+ *   · `optifine:OptiFine:<版本>` / `org.quiltmc:quilt-loader:<版本>` ⇒ 认得出来、写不下去
+ *     （和 id 那条路共用同一句话：OptiFine 是清单里没那一格，Quilt 是清单写得下但我们装不了）
+ *
+ * 【`mainClass` 不能当判据】`cpw.mods.bootstraplauncher.BootstrapLauncher` 是 Forge 与
+ * NeoForge **共用**的，而 `net.minecraft.launchwrapper.Launch` 连纯原版 1.12.2 都是它。
+ *
+ * @param json 一份**没合并过**的版本 json（`rawVersionJson` 读回来的那份）。
+ * @return 这份 json 有没有说出加载器（含"是 OptiFine，导不了"那一档 —— 那也算说出来了）。
+ *         说出来时 `problemOut` 是"能不能导出"那一句：**空 = 能**（键与版本在另外两个出参里）。
+ */
+bool loaderEvidenceFromJson(const QJsonObject &json, QString *keyOut, QString *versionOut,
+                            QString *problemOut) {
+    *problemOut = QString();
+
+    QString fabricVersion;
+    QString legacyForgeVersion;  ///< net.minecraftforge:forge:<原版>-<版本>（1.12 及以前）
+    QString modernForgeVersion;  ///< net.minecraftforge:fmlloader:<原版>-<版本>（1.13 以后）
+    QString optifineVersion;
+    QString quiltVersion;
+    bool neoForgeSeen = false;
+    for (const QJsonValue &entry : json.value(QStringLiteral("libraries")).toArray()) {
+        const QStringList parts =
+            entry.toObject().value(QStringLiteral("name")).toString().split(QLatin1Char(':'));
+        if (parts.size() < 3) {
+            continue;
+        }
+        const QString group = parts.at(0);
+        const QString artifact = parts.at(1);
+        const QString version = parts.at(2);
+        if (group == QLatin1String("net.fabricmc") && artifact == QLatin1String("fabric-loader")) {
+            fabricVersion = version;
+        } else if (group == QLatin1String("net.minecraftforge") &&
+                   artifact == QLatin1String("forge")) {
+            legacyForgeVersion = version;
+        } else if (group == QLatin1String("net.minecraftforge") &&
+                   artifact == QLatin1String("fmlloader")) {
+            modernForgeVersion = version;
+        } else if (group == QLatin1String("net.neoforged.fancymodloader") &&
+                   artifact == QLatin1String("loader")) {
+            neoForgeSeen = true;
+        } else if (group == QLatin1String("optifine") && artifact == QLatin1String("OptiFine")) {
+            optifineVersion = version;
+        } else if (group == QLatin1String("org.quiltmc") &&
+                   artifact == QLatin1String("quilt-loader")) {
+            quiltVersion = version;
+        }
+    }
+
+    // OptiFine 排在最前面：装了加载器**又**装了 OptiFine 的实例两种都会命中，而按规范它
+    // 是"导不了"的那一档（id 那条路也是先看 OptiFine 再看别的加载器，顺序保持一致）。
+    if (!optifineVersion.isEmpty()) {
+        *problemOut = optifineExportProblem(optifineVersion);
+        return true;
+    }
+    if (!quiltVersion.isEmpty()) {
+        // 那句"清单写得下、我们装不了"的说明只有一份（loaderKeyExportProblem 里）。
+        *problemOut = loaderKeyExportProblem(ModpackImport::quiltLoaderKey(), quiltVersion);
+        return true;
+    }
+
+    QStringList declared;
+    const QJsonValue arguments = json.value(QStringLiteral("arguments"));
+    if (arguments.isObject()) {
+        declared = VersionArguments::declaredArguments(
+            arguments.toObject().value(QStringLiteral("game")).toArray());
+    }
+    const auto declaredValue = [&declared](const QString &flag) {
+        const int at = declared.indexOf(flag);
+        return (at >= 0 && at + 1 < declared.size()) ? declared.at(at + 1) : QString();
+    };
+
+    const auto fill = [keyOut, versionOut](const QString &key, const QString &version) {
+        *keyOut = key;
+        *versionOut = version;
+        return true;
+    };
+
+    if (!fabricVersion.isEmpty()) {
+        return fill(ModpackImport::fabricLoaderKey(), fabricVersion);
+    }
+
+    if (neoForgeSeen) {
+        const QString neoForgeVersion = declaredValue(QStringLiteral("--fml.neoForgeVersion"));
+        if (neoForgeVersion.isEmpty()) {
+            // 宁可明说导不了，也不要拿 FML 那个 4.x 顶上去：清单里那一格是"别人照着装的
+            // 版本号"，写错的话收包的人装出来的是另一个 NeoForge。
+            *problemOut = QObject::tr(
+                "这个实例是 NeoForge 装的，但读不出是哪一版 —— 这份 json 里没有 "
+                "--fml.neoForgeVersion，而 fancymodloader 那个版本号（4.x）和 neoforge-<版本> "
+                "不是同一个号，填进清单就是错的。");
+            return true;
+        }
+        return fill(ModpackImport::neoforgeLoaderKey(), neoForgeVersion);
+    }
+
+    const QString forgeFromMaven =
+        loaderVersionFromMaven(modernForgeVersion.isEmpty() ? legacyForgeVersion
+                                                           : modernForgeVersion);
+    if (!forgeFromMaven.isEmpty()) {
+        return fill(ModpackImport::forgeLoaderKey(), forgeFromMaven);
+    }
+    const QString forgeDeclared = declaredValue(QStringLiteral("--fml.forgeVersion"));
+    if (!forgeDeclared.isEmpty()) {
+        return fill(ModpackImport::forgeLoaderKey(), forgeDeclared);
+    }
+
+    return false;
+}
+
 }  // namespace
+
+bool VersionManager::isKnownGameVersion(const QString &id,
+                                        const QList<MinecraftVersion> &knownVersions) {
+    const QString text = id.trimmed();
+    if (text.isEmpty()) {
+        return false;
+    }
+    // ① 清单在手（启动时取过一次，见 MainWindow::onVersionsFetched 那句日志）：**以它为准**。
+    //
+    //    这一条治的是两件**相反**的事，两件都在真机上量到过（只读探针
+    //    `mw_check instance-scan <数据目录>`，2026-09-26 拿用户的盘跑出来的）：
+    //      · **放行不以数字开头的老版本号**：`rd-132211` / `c0.30_01c` / `inf-20100618`
+    //        都是清单里真有、也装得出来的版本，光看长相会把这一档整个漏掉；
+    //      · **拦住"长得像版本号、但 Mojang 根本没这个 id"的东西**：真机上有 `20w14∞`
+    //        （它的正式 id 是 `20w14infinite`）和 `26.2hyperland`（Hyperlands 那个私服客户端）
+    //        —— 写进清单收包的人那边没有这个版本可装，和"目录名不像版本号"是同一个病，
+    //        只是长得更像、光看长相拦不住。
+    //
+    //    严格到这一步的代价只有"清单比实例旧"这一种情形（刚出的快照不在缓存里），而清单是
+    //    启动时取的、能装出来的版本必然在里面，所以那种情形实际上要"用户手工丢进来一个
+    //    比清单还新的目录"才会撞上 —— 撞上了也只是**报一句、不写假版本号**，重启就恢复。
+    if (!knownVersions.isEmpty()) {
+        for (const MinecraftVersion &version : knownVersions) {
+            if (version.id == text) {
+                return true;
+            }
+        }
+        return false;
+    }
+    // ② 清单没取到（离线第一趟）：只能看长相，**这里的放宽是有意的** —— 宁可放行一个可疑的
+    //    版本号，也不要"离线时一个实例都导不出去"。挡着的还是 `原版ATT2地图（无模组）` /
+    //    `1.20.2-Fabric 0.17.2` 这类最明显的假版本号。
+    return looksLikeGameVersion(text);
+}
 
 QString VersionManager::instanceLoaderInfo(const QString &instanceId, QString *keyOut,
                                            QString *versionOut) {
@@ -4005,6 +4197,10 @@ QString VersionManager::instanceLoaderInfo(const QString &instanceId, QString *k
     // id，导入整合包出来的薄 json 的 inheritsFrom 也指着它。
     QSet<QString> seen;
     QString id = start;
+    // 链上每一份**没合并过**的 json，从实例自己那份开始。第三条路要用（见下），顺手存着
+    // 免得再读一遍盘。注意：认出来了就 return 了，所以攒下来的那些一定是"还没认出来"时
+    // 走过的整条链。
+    QList<QJsonObject> chainJsons;
     for (int depth = 0; depth < VersionInheritance::maxDepth() && !id.isEmpty(); ++depth) {
         if (seen.contains(id)) {
             // 环（手写的 json 可以是 A→B→A）。上面几层里该认的已经认过了，往下没有信息
@@ -4035,10 +4231,39 @@ QString VersionManager::instanceLoaderInfo(const QString &instanceId, QString *k
             }
             return problem;
         }
-        id = VersionInheritance::parentIdOf(rawVersionJson(id));
+        const QJsonObject json = rawVersionJson(id);
+        chainJsons.append(json);
+        id = VersionInheritance::parentIdOf(json);
     }
 
-    // ---- 第二条路：wtfml.meta 里我们自己记的那一段 ----
+    // ---- 第二条路：从**那份 json 自己身上**认（libraries + arguments.game）----
+    //
+    // 罩的是 PCL / HMCL 那一类"整份 json 都合进实例目录"的实例 —— 真机上绝大多数都是。
+    // 它们的链上一步都走不出去（`inheritsFrom` 是空的，`id` 是用户给实例起的名字），
+    // 所以第一条路问不出任何东西；而它们**照样**把加载器明明白白写在 libraries 里。
+    // 少了这一条，一个装着 133 个模组的 Fabric 实例会被下面那条 meta 路当成**纯原版**
+    // 导出去（2026-09-26 用户报的那次就是这个形状）。
+    //
+    // 顺序是**从实例自己那份开始**（链越靠前越贴着这个实例），一份一份往下看。
+    for (const QJsonObject &json : chainJsons) {
+        QString key;
+        QString version;
+        QString problem;
+        if (!loaderEvidenceFromJson(json, &key, &version, &problem)) {
+            continue;
+        }
+        if (problem.isEmpty()) {
+            if (keyOut != nullptr) {
+                *keyOut = key;
+            }
+            if (versionOut != nullptr) {
+                *versionOut = version;
+            }
+        }
+        return problem;
+    }
+
+    // ---- 第三条路：wtfml.meta 里我们自己记的那一段 ----
     //
     // 罩的是"链上没有、但 meta 里记着"的那一类（用户手写过一个 meta）。这张反查表是照着
     // loaderDisplayName() 拼出来的，所以不可能和写进去的那一份漂。
@@ -4089,38 +4314,67 @@ QString VersionManager::instanceGameVersion(const QString &instanceId) {
     if (start.isEmpty()) {
         return QString();
     }
+    // 在线清单那一份（没取到就是空表）。判据里那一半"清单里真有这个 id"要用它。
+    const QList<MinecraftVersion> knownVersions = downloadManager->getAvailableVersions();
+    const auto usable = [&knownVersions](const QString &text) {
+        return isKnownGameVersion(text, knownVersions);
+    };
 
     // ① 我们自己记的那一格。它是**最准的**：装的时候就是从清单里抄下来的，显示名用的也是它。
     const QJsonObject meta = readVersionMeta(start);
     const QString realVersion = meta.value(QStringLiteral("realVersion")).toString().trimmed();
-    if (!realVersion.isEmpty()) {
+    if (usable(realVersion)) {
         return realVersion;
     }
 
-    // ② 兜底：走到继承链的末端。链上每一层的 id 都得从**没合并过**的那份 json 里读
-    //    （getVersionJson() 会把 inheritsFrom 吃掉，走一步就到底了，见它自己的说明）。
-    //    防环 + 深度上限和别处同一对常量（VersionInheritance 里那两个）。
+    // ② 顺继承链走到末端，顺手把每一份 json 存下来给 ③ 用。链上每一层的 id 都得从
+    //    **没合并过**的那份 json 里读（getVersionJson() 会把 inheritsFrom 吃掉，
+    //    走一步就到底了，见它自己的说明）。防环 + 深度上限和别处同一对常量
+    //    （VersionInheritance 里那两个）。
     QSet<QString> seen;
     QString id = start;
     QString last;
+    QList<QJsonObject> chainJsons;
     for (int depth = 0; depth < VersionInheritance::maxDepth() && !id.isEmpty(); ++depth) {
         if (seen.contains(id)) {
             break;
         }
         seen.insert(id);
         last = id;
-        id = VersionInheritance::parentIdOf(rawVersionJson(id));
+        const QJsonObject json = rawVersionJson(id);
+        chainJsons.append(json);
+        id = VersionInheritance::parentIdOf(json);
     }
 
-    // ③ 链上一步都没走出去（读不到 json、或者确实就是一份完整的原版 json）：那 last 就是
-    //    实例自己那个目录名。它**只有在长得像版本号时才敢用** —— 目录名可以是
-    //    `原版ATT2地图（无模组）` 这种（真机上就有），把它写进清单是个假版本号，
-    //    收包的人那边会去找一个不存在的游戏版本。所有 Mojang 的版本号都以数字开头
-    //    （`1.20.1` / `24w14a` / `1.21.2-rc1`），拿这一条当闸足够了。
-    if (last.isEmpty() || !last.at(0).isDigit()) {
-        return QString();
+    // ③ 链上某一份 json 自己写着它基于哪个原版 —— `clientVersion` 那一格。
+    //
+    // 这是 PCL / HMCL 那类**合并过的**实例唯一说得出口的地方（真机上绝大多数实例都是）：
+    // 它们的 `id` 就是用户给实例起的名字（`海波篮子`、`1.21.11-Fabric 0.19.3`）、
+    // `inheritsFrom` 是空的，所以 ① 没有、② 走不动，而 `clientVersion` 是真值。
+    // 少了这一条，这些实例一个都导不出去（2026-09-26 用户报的那次就是这个：日志里那句
+    // 「导出失败：读不出 海波篮子 基于哪个原版」）。
+    //
+    // 从**末端**往前找：链越靠末越接近原版那一份。Mojang 自己那份 json 里没有这一格，
+    // 所以薄 json（我们自己的整合包导入、加载器安装）不受影响，照旧落到 ④。
+    for (auto it = chainJsons.crbegin(); it != chainJsons.crend(); ++it) {
+        const QString clientVersion =
+            it->value(QStringLiteral("clientVersion")).toString().trimmed();
+        if (usable(clientVersion)) {
+            return clientVersion;
+        }
     }
-    return last;
+
+    // ④ 再兜一层：链的末端那个 **id**。薄 json 走的正是这里 —— 它的 inheritsFrom 最后
+    //    指到原版那一份，而原版那份目录名就是版本号。
+    if (usable(last)) {
+        return last;
+    }
+
+    // ⑤ 最后一层：实例自己的目录名。这是几条路里最不可信的一个（真机上有
+    //    `原版ATT2地图（无模组）`、`1.20.2-Fabric 0.17.2` 这种），所以除了"在清单里"
+    //    就只有"清单里有"或者"长得像版本号"（以数字开头 + 没有空白）才敢用 ——
+    //    判据的出处是 isKnownGameVersion()。
+    return usable(start) ? start : QString();
 }
 
 QString VersionManager::lookupModrinthVersionFiles(
