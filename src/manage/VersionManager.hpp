@@ -485,6 +485,12 @@ public:
     void setCurseForgeApiKey(const QString &apiKey);
     void setCurseForgeApiBaseOverride(const QString &base);
 
+    /// 把 Modrinth 的接口指到别的地址上（`Launcher/ModrinthApiBase`，**只有验证工程会写**）。
+    ///
+    /// 和上面那条同一个形状，罩的是导出整合包那条反查路（`POST {base}/version_files`）：
+    /// 没有这个口子，那一整趟就只能对着真接口跑，验证工程里没法验。产品自己从不写它。
+    void setModrinthApiBaseOverride(const QString &base);
+
     /**
      * @brief 把 CurseForge 清单里那些号（`projectID` / `fileID`）换成能下的文件。
      * @param pack 解析出来的清单，**就地改**：`pendingRefs` 清空、`files` 填好，
@@ -531,6 +537,24 @@ public:
      *       它走的就是这条"报一句人话"的路。
      */
     QString instanceLoaderInfo(const QString &instanceId, QString *keyOut, QString *versionOut);
+
+    /**
+     * @brief 这个实例**基于哪个原版** —— 导出清单里 `gameVersion` / `minecraft` 那一格。
+     * @return 版本号（如 `1.20.1`）。空串 = 什么都没读到（调用点该停下来问一句，别拿一个
+     *         空串去拼清单）。
+     *
+     * 两条路，和 instanceLoaderInfo() 同一个顺序：
+     *   1. `wtfml.meta` 里那一格 `realVersion`（装的时候写下的，也是显示名用的那一个）；
+     *   2. 顺 `inheritsFrom` 走到**最深的那一个 id** —— 原版那一份自己就是链的末端。
+     *
+     * NOTE: 第 2 条不能用 getVersionJson()：那个是**合并过的**（见它自己的说明），
+     *       `inheritsFrom` 已经被吃掉，走一步就到底了。所以这里用的是 rawVersionJson()。
+     * NOTE: 两条都问不出东西时，**目录名只有在以数字开头时才顶上来**（所有 Mojang 的版本号
+     *       都这样：`1.20.1` / `24w14a` / `1.21.2-rc1`），否则返回空串。理由是目录名可以完全
+     *       不像版本号（真机上有 `原版ATT2地图（无模组）` 这种），写进清单就是个假版本号
+     *       —— 收包的人那边会去找一个不存在的游戏版本，而包看上去是好的。
+     */
+    QString instanceGameVersion(const QString &instanceId);
 
     /**
      * @brief 反查：本地 sha1 → Modrinth 的版本。
@@ -1232,6 +1256,8 @@ private:
     /// CurseForge 那两发请求要用的设置（见 setCurseForgeApiKey 那一段）。
     QString m_curseForgeApiKey;
     QString m_curseForgeApiBaseOverride;
+    /// Modrinth 那条反查路的地址覆盖（见 setModrinthApiBaseOverride）。空 = 官方地址。
+    QString m_modrinthApiBaseOverride;
 
     /// 「装一个带名字的实例」走到哪了（见上面那段）。父版本是加载器时它会和
     /// m_loaderInstall **同时** active —— 那不是状态串了，是这一条路的正常样子。

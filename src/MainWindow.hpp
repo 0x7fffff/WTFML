@@ -292,6 +292,25 @@ private slots:
     ///       否则"导出来的能跑"这句话就没有依据。唯一**故意**不同的地方是程序名那一格：
     ///       那边由 LauncherManager 从 PATH 兜底，这边写的是同一个兜底值（裸 `java`）。
     void exportLaunchScript(const QString &versionId, const QString &path);
+    /**
+     * @brief 「导出…」：把这个实例按**整合包规范**打包成一个能直接导入的文件。
+     *
+     * 和上面那颗 `exportLaunchScript` **不是一件事**（名字像，做的是两件事：那一颗出的是
+     * .bat，这一颗出的是整合包）。同一条切法：问路径在对话框里（Windows 自己的保存框），
+     * 这一半收一条路径把事情做完 —— 所以验证工程能直接喂一条临时路径把整趟跑完。
+     *
+     * 格式**从扩展名读**（`.mrpack` = Modrinth / `.zip` = CurseForge），不做第三档参数：
+     * 那正是对话框里那两个筛选项已经在问的东西（见那个信号的 NOTE）。
+     *
+     * 这一趟要枚举实例目录、算哈希、联网反查、再打一个 zip，是全项目最重的同步动作之一。
+     * 于是：进度写**底栏那一格**（`m_syncWaitStatus` + `updateBottomBar()`，和启动路径那三段
+     * 同步等同一个手法 —— 不另开进度窗，用户给的方向是"不出现独立窗口"），中途不弹框
+     * （弹框只能在进去之前或出来之后），收尾用一句提示把数报清楚。
+     *
+     * @param versionId 实例 id（= 目录名）。
+     * @param path 用户挑好的完整路径（带 `.mrpack` 或 `.zip`）。
+     */
+    void exportModpack(const QString &versionId, const QString &path);
     /// 「补全文件」：校验这个实例的文件，只补缺的和损坏的（用户原话：「校验已装的，
     /// 缺哪个补哪个」）。
     ///

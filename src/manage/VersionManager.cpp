@@ -509,6 +509,10 @@ void VersionManager::setCurseForgeApiBaseOverride(const QString &base) {
     m_curseForgeApiBaseOverride = base.trimmed();
 }
 
+void VersionManager::setModrinthApiBaseOverride(const QString &base) {
+    m_modrinthApiBaseOverride = base.trimmed();
+}
+
 QString VersionManager::resolveCurseForgeFiles(ModpackImport::Pack *pack) {
     if (pack == nullptr || pack->format != ModpackImport::Format::CurseForge ||
         pack->pendingRefs.isEmpty()) {
@@ -4080,6 +4084,45 @@ QString VersionManager::instanceLoaderInfo(const QString &instanceId, QString *k
         .arg(metaName);
 }
 
+QString VersionManager::instanceGameVersion(const QString &instanceId) {
+    const QString start = instanceId.trimmed();
+    if (start.isEmpty()) {
+        return QString();
+    }
+
+    // ① 我们自己记的那一格。它是**最准的**：装的时候就是从清单里抄下来的，显示名用的也是它。
+    const QJsonObject meta = readVersionMeta(start);
+    const QString realVersion = meta.value(QStringLiteral("realVersion")).toString().trimmed();
+    if (!realVersion.isEmpty()) {
+        return realVersion;
+    }
+
+    // ② 兜底：走到继承链的末端。链上每一层的 id 都得从**没合并过**的那份 json 里读
+    //    （getVersionJson() 会把 inheritsFrom 吃掉，走一步就到底了，见它自己的说明）。
+    //    防环 + 深度上限和别处同一对常量（VersionInheritance 里那两个）。
+    QSet<QString> seen;
+    QString id = start;
+    QString last;
+    for (int depth = 0; depth < VersionInheritance::maxDepth() && !id.isEmpty(); ++depth) {
+        if (seen.contains(id)) {
+            break;
+        }
+        seen.insert(id);
+        last = id;
+        id = VersionInheritance::parentIdOf(rawVersionJson(id));
+    }
+
+    // ③ 链上一步都没走出去（读不到 json、或者确实就是一份完整的原版 json）：那 last 就是
+    //    实例自己那个目录名。它**只有在长得像版本号时才敢用** —— 目录名可以是
+    //    `原版ATT2地图（无模组）` 这种（真机上就有），把它写进清单是个假版本号，
+    //    收包的人那边会去找一个不存在的游戏版本。所有 Mojang 的版本号都以数字开头
+    //    （`1.20.1` / `24w14a` / `1.21.2-rc1`），拿这一条当闸足够了。
+    if (last.isEmpty() || !last.at(0).isDigit()) {
+        return QString();
+    }
+    return last;
+}
+
 QString VersionManager::lookupModrinthVersionFiles(
     const QStringList &sha1s, QHash<QString, ModpackExport::ModrinthHit> *out) {
     if (out == nullptr) {
@@ -4102,9 +4145,13 @@ QString VersionManager::lookupModrinthVersionFiles(
         if (body.isEmpty()) {
             continue;
         }
+        // 根地址：验证工程的口子优先（见 setModrinthApiBaseOverride），否则官方那一份
+        // （唯一出处仍是 ResourceCatalog 里那个 apiRoot()）。
+        const QString root = m_modrinthApiBaseOverride.isEmpty()
+                                 ? ResourceCatalog::modrinthApiRoot()
+                                 : m_modrinthApiBaseOverride;
         const HttpClient::Reply reply = HttpClient::send(
-            loaderNetworkManager(),
-            QUrl(ResourceCatalog::modrinthApiRoot() + QStringLiteral("/version_files")),
+            loaderNetworkManager(), QUrl(root + QStringLiteral("/version_files")),
             HttpClient::Verb::Post, body, QByteArrayLiteral("application/json"), QByteArray(),
             HttpClient::kDefaultTimeoutMs, headers);
         if (!reply.ok()) {

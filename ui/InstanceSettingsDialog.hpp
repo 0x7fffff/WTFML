@@ -449,10 +449,12 @@ public:
     }
     /// 第三行那个勾选框。
     static QString pinCheckName() { return QStringLiteral("instancePinCheck"); }
-    /// 第四行那个「导出…」**占位**按钮（灰的、点了什么都不发生）。
-    static QString exportPlaceholderButtonName() {
-        return QStringLiteral("instanceExportPlaceholderButton");
-    }
+    /// 第四行那个「导出…」按钮（2026-09-26 从灰占位换成真的）。
+    ///
+    /// NOTE: 它**不叫** `exportScript*` 那一套 —— 「导出启动脚本」是同一个页面上另一件事
+    ///       （导出的是 .bat，和整合包规范一点关系都没有）。两个名字长得像过一次，
+    ///       断言认错过控件。
+    static QString exportButtonName() { return QStringLiteral("instanceExportButton"); }
 
     // ---- 启动栏那两颗「动作」按钮（导出启动脚本 / 补全版本文件，2026-09-26）----
     //
@@ -536,7 +538,9 @@ public:
     static QString pinCheckText() { return QStringLiteral("显示在置顶组中"); }
     /// 「更改图标」/「导出…」两颗按钮上的字。
     static QString changeIconText() { return QStringLiteral("更改图标"); }
-    static QString exportPlaceholderText() { return QStringLiteral("导出…"); }
+    /// 第四行那颗按钮上的字。**用户 2026-09-26 给这一行起的名字就是「导出」**
+    /// （「第四行 导出（还没做，可行的话顺便做了）」），所以这里不改成「导出整合包」。
+    static QString exportText() { return QStringLiteral("导出…"); }
     /// 浮层里那两个动作按钮上的字。
     static QString iconPickText() { return QStringLiteral("选一张图片…"); }
     static QString iconResetText() { return QStringLiteral("恢复默认"); }
@@ -561,10 +565,21 @@ public:
                               "置顶组里再摆一条同名的（置顶组永远排在最前面）。"
                               "取消勾选，置顶组里那一条就没了，原来那一组从头到尾不动。");
     }
-    /// 第四行那个占位按钮下面那句话。
-    static QString exportPlaceholderHint() {
-        return QStringLiteral("还没做。以后会把整个实例（版本文件、模组、配置、存档）打包成"
-                              "一个能直接导入的文件。");
+    /// 第四行那颗按钮下面那句话（**看得见的那一行**，短）。
+    ///
+    /// NOTE: 一句两用的写法在这里**不成立**：那行字要短（它在这儿是**窄栏里的折行标签**，
+    ///       长了会把整页的 sizeHint 顶起来 —— 页面上那条 E5 断言钉的就是它），而 tooltip
+    ///       该说全（.mrpack / .zip 的区别、认不出来的东西会怎样）。所以拆成两个函数。
+    static QString exportHint() {
+        return QStringLiteral("把整个实例打包成一个整合包文件（含模组和配置），别人用"
+                              "「导入整合包」就能装回来。");
+    }
+    /// 那颗按钮的 tooltip（**说全的那一份**）。
+    static QString exportButtonTooltip() {
+        return QStringLiteral("按整合包规范打包：保存框里挑 .mrpack 走 Modrinth 规范、"
+                              "挑 .zip 走 CurseForge 规范，两个都能被「导入整合包…」装回来。"
+                              "能认出来源的模组写进清单（装的人那边直接下），认不出来的"
+                              "原样打进包里，一个都不会丢。存档和截图不进包。");
     }
     /// 那一格下面那句解释（**唯一一处**说清"改这里 = 改磁盘上的目录名"）。
     static QString instanceNameHint() {
@@ -684,6 +699,21 @@ signals:
      * @param path 用户挑的完整路径（带 .bat；用户没写扩展名时保存框自己会补）。
      */
     void exportLaunchScriptRequested(const QString &path);
+
+    /**
+     * @brief 用户点了概览那一栏的「导出…」，并且已经在 Windows 自己的保存框里挑好了路径。
+     *
+     * 和上面 `exportLaunchScriptRequested` **同一个形状、同一套理由**（这一层只问路径，
+     * 干活在 MainWindow）；区别是这一件要慢得多 —— 枚举实例目录、算哈希、联网反查、
+     * 打包，都在那边，进度写底栏那一格。
+     *
+     * NOTE: **格式是从扩展名读出来的**，不另设一档：保存框里那两个筛选项各自带着扩展名
+     *       （`.mrpack` / `.zip`），用户挑了哪个、或者自己敲了哪个，选的就是哪套规范。
+     *       这一层保证交出去的路径**一定**带这两个之一（见 .cpp），所以那边不用兜底。
+     *
+     * @param path 用户挑的完整路径（带 `.mrpack` 或 `.zip`）。
+     */
+    void exportModpackRequested(const QString &path);
 
     /**
      * @brief 用户点了「开始检查」。

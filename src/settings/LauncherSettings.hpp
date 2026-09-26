@@ -186,6 +186,13 @@ public:
     ///       不可能"因为某个 bug 把用户的接口地址改掉"。填了它时它的优先级最高。
     QString curseForgeApiBaseOverride() const { return m_curseForgeApiBaseOverride; }
 
+    /// 把 Modrinth 的接口（`https://api.modrinth.com/v2`）指到别的地址上。**和上面那条
+    /// 同一个形状、同一条 NOTE**：只读不写、只有验证工程会填、填了优先级最高。
+    ///
+    /// 它罩的是**导出整合包**那一半：导入那半走 CurseForge 那个口子（`/fingerprints`），
+    /// 而 Modrinth 那条反查（`POST /v2/version_files`）没有别的办法离线跑。
+    QString modrinthApiBaseOverride() const { return m_modrinthApiBaseOverride; }
+
     // ------------------------------------------------------------------
     // 「启动选项」那三项（设置页「游戏」栏里那一组）
     // ------------------------------------------------------------------
@@ -321,4 +328,6 @@ private:
     /// 走那台不要 key 的社区镜像。
     QString m_curseForgeApiKey;
     QString m_curseForgeApiBaseOverride;
+    /// Modrinth 那条路的地址覆盖（见 `modrinthApiBaseOverride()`）。同样是「空 = 默认档」。
+    QString m_modrinthApiBaseOverride;
 };

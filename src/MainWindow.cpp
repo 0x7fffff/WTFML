@@ -49,6 +49,7 @@
 #include <QDebug>
 #include <QDesktopServices>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QEventLoop>
 #include <QFile>
 #include <QFileDialog>
@@ -97,6 +98,7 @@
 #include "manage/FolderManager.hpp"
 #include "manage/InstanceFiles.hpp"
 #include "manage/InstanceGroupStore.hpp"
+#include "manage/ModpackExport.hpp"
 #include "manage/ModpackImport.hpp"
 #include "manage/PlayerSkinStore.hpp"
 #include "manage/RandomSkinStore.hpp"
@@ -5015,6 +5017,10 @@ void MainWindow::syncCurseForgeSettings() {
     // 来源）：同一份设置、同一条接口根地址，没有理由推给一个、不推给另一个。
     m_resourceStore->setCurseForgeApiKey(m_settings->curseForgeApiKey());
     m_resourceStore->setCurseForgeApiBaseOverride(m_settings->curseForgeApiBaseOverride());
+    // Modrinth 那一侧只有一个口子（导出整合包的反查），而且**只有 VersionManager 要它** ——
+    // 下载页那几页的 Modrinth 地址不是一个可配的东西（那边没有第二个来源可选）。放在这个
+    // 函数里纯粹是"和上面那两条一起推"：同一个时机、同一份设置对象，另起一个函数只有坏处。
+    m_versionManager->setModrinthApiBaseOverride(m_settings->modrinthApiBaseOverride());
 }
 
 void MainWindow::onCurseForgeApiKeyEdited() {
@@ -6977,6 +6983,10 @@ void MainWindow::openInstanceSettings(const QString &versionId) {
             [this, &targetId](const QString &path) { exportLaunchScript(targetId, path); });
     connect(&dialog, &InstanceSettingsDialog::repairFilesRequested, this,
             [this, &targetId]() { repairInstanceFiles(targetId); });
+    // 第三条同类：概览那一栏的「导出…」（2026-09-26 从灰占位换成真的）。**和上面第一条
+    // 不是一件事** —— 那个出的是 .bat，这个出的是整合包。
+    connect(&dialog, &InstanceSettingsDialog::exportModpackRequested, this,
+            [this, &targetId](const QString &path) { exportModpack(targetId, path); });
 
     // 「文件管理」那三发（2026-09-26）：开文件夹 / 启用·禁用一条 / 删一条。
     //
@@ -7512,6 +7522,206 @@ void MainWindow::exportLaunchScript(const QString &versionId, const QString &pat
     InlineMessage::information(
         m_ui->overlay(), tr("导出完成"),
         tr("已经写到：\n%1\n\n%2").arg(shown, notes.join(QStringLiteral("\n"))));
+}
+
+void MainWindow::exportModpack(const QString &versionId, const QString &targetPath) {
+    if (versionId.isEmpty() || targetPath.isEmpty()) {
+        return;
+    }
+
+    // ---------- ① 这个实例自己正在被改的时候不许导 ----------
+    //
+    // 判据用 `installingVersionIds()`（"现在谁在动盘"的**唯一出处**），而不是"有没有下载
+    // 在跑"：导出只读盘、只发两发反查，**别的实例在装和它一点冲突都没有**，没必要跟着拦
+    // （这一点和「补全文件」那道闸故意不同 —— 那个要开一批下载，所以那边还有第二道）。
+    if (installingVersionIds().contains(versionId)) {
+        InlineMessage::information(
+            m_ui->overlay(), tr("现在做不了"),
+            tr("「%1」这会儿正在装（或者正在导入 / 正在检查）。等它完了再导出 —— "
+               "打包要读的正是这会儿正在被改的那些文件。")
+                .arg(instanceDisplayName(versionId)));
+        return;
+    }
+
+    // ---------- ② 格式只看扩展名 ----------
+    //
+    // 不讲第三档参数：那个分岔在对话框里已经问过了（保存框里那两个筛选项带的就是扩展名，
+    // 见 InstanceSettingsDialog::exportModpackRequested 那条 NOTE），再多一处状态就是
+    // 多一处"文件名叫 manifest.json、正文却是 Modrinth 那份"的机会。
+    const ModpackExport::Format format =
+        targetPath.endsWith(QStringLiteral(".zip"), Qt::CaseInsensitive)
+            ? ModpackExport::Format::CurseForge
+            : ModpackExport::Format::Modrinth;
+
+    // ---------- ③ 三件本地的事先问清楚，任何一件不成立就不必往下走 ----------
+    //
+    // 顺序是**从便宜到贵**，而且都是"读本地"。三件都在 `enterSyncWait()` **之前** ——
+    // 进去之后 UI 线程是卡着的，那时候弹框会叠在忙指针上。
+    const QString instanceDir = AppPaths::versionDir(versionId);
+    if (!QFileInfo(instanceDir).isDir()) {
+        appendLog(tr("导出失败：找不到实例目录 %1").arg(instanceDir));
+        InlineMessage::warning(m_ui->overlay(), tr("导出失败"),
+                               tr("找不到这个实例的目录：\n%1")
+                                   .arg(QDir::toNativeSeparators(instanceDir)));
+        return;
+    }
+
+    const QString gameVersion = m_versionManager->instanceGameVersion(versionId);
+    if (gameVersion.isEmpty()) {
+        appendLog(tr("导出失败：读不出 %1 基于哪个原版").arg(versionId));
+        InlineMessage::warning(
+            m_ui->overlay(), tr("读不出这个实例基于哪个原版"),
+            tr("整合包清单里必须写清楚「基于哪个原版游戏」，而这一份读不出来："
+               "wtfml.meta 里没有 realVersion，版本 json 里也没有 inheritsFrom。\n\n"
+               "这个实例多半是很早以前装的、或者被手动改过。在「实例设置…」里看不出版本号"
+               "的话，建议重装一份再导出。"));
+        return;
+    }
+
+    QString loaderKey;
+    QString loaderVersion;
+    const QString loaderProblem =
+        m_versionManager->instanceLoaderInfo(versionId, &loaderKey, &loaderVersion);
+    if (!loaderProblem.isEmpty()) {
+        // 数据层那句已经是人话了（含"改成什么就能导"），原样给它。
+        appendLog(tr("导出失败：认不出 %1 的加载器").arg(versionId));
+        InlineMessage::warning(m_ui->overlay(), tr("这个实例没法按整合包规范导出"),
+                               loaderProblem);
+        return;
+    }
+
+    // ---------- ④ 干活 ----------
+    //
+    // 清单里那两格（名字 / 版本号）：名字用**显示名**（用户在界面上看到的就是它），版本号
+    // 给一个固定值 —— 今天还没有"这个整合包自己的版本"这个概念，编一个数字出来不如写死
+    // 一个有据可依的初值（改法就在下面这一行）。
+    ModpackExport::ExportRequest request;
+    request.format = format;
+    request.instanceDir = instanceDir;
+    request.name = instanceDisplayName(versionId);
+    request.version = QStringLiteral("1.0.0");
+    request.gameVersion = gameVersion;
+    request.loaderKey = loaderKey;
+    request.loaderVersion = loaderVersion;
+    // `include` 保持默认（存档 / 截图不进包）：这两样是**这个人的**东西，不是这个整合包的，
+    // 打进 overrides 之后收包的人一装就把自己的存档盖了。被排掉的那几个目录名下面会照实报。
+
+    // 进度写**底栏那一格**（不另开进度窗 —— 用户给的方向是"不出现独立窗口"）。手法和启动
+    // 路径那三段同步等一样：进去之前先把话说出来，之后每次刷新都配一次 processEvents
+    // （**排掉用户输入**，理由见 enterSyncWait 里那段）。
+    //
+    // NOTE: 因此这一趟**中途不能取消**：取消要一个收得到点击的框，而这一趟 UI 线程是卡着
+    //       的（能收点击的那套是"嵌进覆盖层的提示 + 嵌套事件循环"，那是另一件事了）。
+    //       一个实例几百兆到一两 G，实测几秒到几十秒。
+    appendLog(tr("开始导出「%1」（%2）...")
+                  .arg(instanceDisplayName(versionId),
+                       format == ModpackExport::Format::CurseForge ? tr("CurseForge 规范")
+                                                                  : tr("Modrinth 规范")));
+    enterSyncWait(tr("正在导出整合包…"));
+    QElapsedTimer throttle;
+    const ModpackExport::ExportProgress progress =
+        [this, &throttle](int done, int total, const QString &current) {
+            // 节流 100 ms：底栏那一格重排一次不便宜，而一个实例有几百上千个文件。
+            // 最后一条**必刷**（done == total 那一发），否则进度会停在"少一格"上。
+            if (throttle.isValid() && throttle.elapsed() < 100 && done < total) {
+                return;
+            }
+            throttle.start();
+            m_syncWaitStatus = tr("正在导出整合包…（%1/%2）%3")
+                                   .arg(done)
+                                   .arg(total)
+                                   .arg(current.isEmpty() ? QString()
+                                                          : QFileInfo(current).fileName());
+            updateBottomBar();
+            QApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+        };
+    const ModpackExport::ExportPlan plan =
+        m_versionManager->buildExportPlan(request, progress, ModpackExport::ExportCancel());
+    leaveSyncWait();
+
+    if (plan.cancelled) {
+        // 今天没有能取消的界面（见上面那段 NOTE），所以这一支到不了。留着是因为**数据层
+        // 有这一档**：真接了取消的界面之后，这里就是那个出口，别让它静默地往下走成
+        // "一个文件都没认出来的包"。
+        appendLog(tr("导出已取消。"));
+        return;
+    }
+    if (!plan.problem.isEmpty()) {
+        appendLog(tr("导出失败：%1").arg(plan.problem));
+        InlineMessage::warning(m_ui->overlay(), tr("导出失败"), plan.problem);
+        return;
+    }
+
+    // ---------- ⑤ 两个"要不要照样导"的问句 ----------
+    //
+    // 合成**一个**问句：两条理由可能同时成立（断网 + 一个都没认出来），分两次问就是让用户
+    // 连点两次取消。默认那一边是**取消**（危险的那条路必须刻意点）。
+    QStringList reasons;
+    if (plan.lookupFailed) {
+        reasons.append(plan.lookupProblem);
+    }
+    if (!ModpackExport::reimportable(plan.spec)) {
+        reasons.append(
+            tr("一个资源都没认出来 —— 这样的包里没有任何一条能自动下载的条目，我们自己的"
+               "「导入整合包…」会直接判它无效。"));
+    }
+    if (!reasons.isEmpty()) {
+        const int choice = InlineMessage::ask(
+            m_ui->overlay(), MessageKind::Question, tr("继续导出吗"),
+            tr("%1\n\n继续的话，认不出出处的文件会原样打进包里：别人装上照样能用，"
+               "只是启动器不能替他单独更新或者去重。")
+                .arg(reasons.join(QStringLiteral("\n\n"))),
+            QStringList{tr("继续导出"), tr("取消")}, 1, -1);
+        if (choice != 0) {
+            appendLog(tr("已取消导出。"));
+            return;
+        }
+    }
+
+    // ---------- ⑥ 落盘 ----------
+    //
+    // 打包**另起一段同步等**（底栏那句换成"正在打包"）：它是这一趟里最慢的一步
+    // （ZipUtil 走 PowerShell 压一遍，一两 G 的实例要几十秒），而且**没有进度点** ——
+    // 里面是一次调用，插不进去东西（数据层里那个 lambda 只报"包好了没"）。
+    enterSyncWait(tr("正在打包整合包…"));
+    const QString writeProblem = m_versionManager->writePackArchive(plan, targetPath);
+    leaveSyncWait();
+    if (!writeProblem.isEmpty()) {
+        appendLog(tr("导出失败：%1").arg(writeProblem));
+        InlineMessage::warning(m_ui->overlay(), tr("导出失败"), writeProblem);
+        return;
+    }
+
+    // ---------- ⑦ 报告 ----------
+    const QString shown = QDir::toNativeSeparators(targetPath);
+    appendLog(tr("✓ 整合包已导出：%1").arg(shown));
+    QStringList lines;
+    lines.append(tr("已经写到：\n%1").arg(shown));
+    lines.append(tr("问过 %1 个文件，认出来 %2 个（写进清单，装的人那边自己去下）；"
+                    "其余 %3 个原样打进了包里（模组本体、配置、资源包都在）。")
+                     .arg(plan.queried)
+                     .arg(plan.matched)
+                     .arg(plan.overrides.size()));
+    if (plan.notDistributable > 0) {
+        lines.append(tr("其中 %1 个的作者关掉了第三方分发 —— 它们只能跟着包走。")
+                         .arg(plan.notDistributable));
+    }
+    if (!plan.hashFailures.isEmpty()) {
+        lines.append(tr("有 %1 个文件连哈希都没算出来（读取失败），它们也原样进了包。")
+                         .arg(plan.hashFailures.size()));
+    }
+    if (!plan.collect.skippedDirs.isEmpty()) {
+        lines.append(tr("没进包：%1（共 %2 个文件）。存档和截图是**你自己**的东西，"
+                        "打进包里会盖掉收包那个人的。")
+                         .arg(plan.collect.skippedDirs.join(QStringLiteral("、")),
+                              QString::number(plan.collect.skippedFileCount)));
+    }
+    lines.append(tr("这是 %1 的包：别人在启动器里用「导入整合包…」就能装回来。")
+                     .arg(format == ModpackExport::Format::CurseForge
+                              ? tr("CurseForge 规范")
+                              : tr("Modrinth 规范")));
+    InlineMessage::information(m_ui->overlay(), tr("导出完成"),
+                               lines.join(QStringLiteral("\n\n")));
 }
 
 void MainWindow::repairInstanceFiles(const QString &versionId) {

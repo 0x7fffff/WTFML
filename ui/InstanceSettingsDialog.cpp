@@ -527,23 +527,59 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         grid->addWidget(cell, row++, 0, 1, 2);
     }
 
-    // ---------- 第四行：导出（**占位**）----------
+    // ---------- 第四行：导出整合包 ----------
     //
-    // 用户原话：「第四行 导出（还没做，可行的话顺便做了，麻烦的话先放着）」，当场问过之后
-    // 选的是「现在放占位符」。所以这里是一颗**灰的**按钮 + 一句"还没做" ——
-    // 摆一颗按得下去、却什么都不发生的按钮比灰着更糟（用户会以为坏了），而灰着不说话同样
-    // 糟（那是这一层的另一条规矩：灰掉的每一项都得配一句为什么）。
+    // 用户原话：「第四行 导出（还没做，可行的话顺便做了，麻烦的话先放着）」—— 当时选的是
+    // 「现在放占位符」，2026-09-26 数据层做完之后**换成真的**：规范那一侧（两种清单、
+    // 反查、打包）在 ModpackExport / VersionManager 里，这一层仍然只干它一直干的那件事
+    // ——问路径。
     {
         auto *cell = new QWidget(this);
         auto *column = new QVBoxLayout(cell);
         column->setContentsMargins(0, 0, 0, 0);
         column->setSpacing(4);
-        auto *button = new QPushButton(exportPlaceholderText(), cell);
-        button->setObjectName(exportPlaceholderButtonName());
-        button->setEnabled(false);
-        button->setToolTip(exportPlaceholderHint());
+        auto *button = new QPushButton(exportText(), cell);
+        button->setObjectName(exportButtonName());
+        button->setToolTip(exportButtonTooltip());
+        connect(button, &QPushButton::clicked, this, [this]() {
+            // 默认文件名用**这个实例的目录名**（同「导出启动脚本」那一段的理由：它一定
+            // 是合法文件名）。扩展名给 `.mrpack`：两个筛选项里 Modrinth 那一份是默认，
+            // 而 Windows 的保存框会按**当前选中的筛选项**补扩展名。
+            QString dir = QStandardPaths::writableLocation(QStandardPaths::DesktopLocation);
+            if (dir.isEmpty()) {
+                dir = QDir::homePath();
+            }
+            const QString suggested =
+                dir + QLatin1Char('/') + m_instanceId + QStringLiteral(".mrpack");
+            // 开的是 **Windows 自己的保存框**（和「导出启动脚本」「浏览…选 java.exe」
+            // 同一档：全项目就剩这几处独立窗）。那个框上的「取消」= 什么都不做。
+            //
+            // NOTE: 两个筛选项的顺序**就是默认格式的顺序**（保存框默认选第一个），所以
+            //       Modrinth 那一份排在前面 —— 它不需要 API key、也不受"作者关了第三方
+            //       分发"影响，是能完整还原的那一份。
+            const QString modrinthFilter = tr("Modrinth 整合包 (*.mrpack)");
+            const QString curseForgeFilter = tr("CurseForge 整合包 (*.zip)");
+            QString selectedFilter = modrinthFilter;
+            QString picked = QFileDialog::getSaveFileName(
+                this, exportText(), suggested,
+                modrinthFilter + QStringLiteral(";;") + curseForgeFilter, &selectedFilter);
+            if (picked.isEmpty()) {
+                return;
+            }
+            // 格式这一件事**只认扩展名**（见 .hpp 里那个信号的 NOTE）。用户自己敲一个
+            // `我的包` 时保存框不一定补扩展名（补不补是那个框的事，我们管不着）——
+            // 那就按他选中的筛选项补一个，别让盘上出现一个叫 `我的包`、内容是 Modrinth
+            // 清单的文件：名字和正文对不上，正是这一整套里最容易悄悄发生的一种错。
+            const QString lower = picked.toLower();
+            if (!lower.endsWith(QStringLiteral(".mrpack")) &&
+                !lower.endsWith(QStringLiteral(".zip"))) {
+                picked += selectedFilter == curseForgeFilter ? QStringLiteral(".zip")
+                                                             : QStringLiteral(".mrpack");
+            }
+            emit exportModpackRequested(picked);
+        });
         column->addWidget(button, 0, Qt::AlignLeft);
-        auto *hint = new QLabel(exportPlaceholderHint(), cell);
+        auto *hint = new QLabel(exportHint(), cell);
         hint->setWordWrap(true);
         column->addWidget(hint);
         grid->addWidget(cell, row++, 0, 1, 2);
