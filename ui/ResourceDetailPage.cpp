@@ -411,6 +411,14 @@ void ResourceDetailPage::setHeader(const Header &header) {
         m_open->setVisible(true);
     } else {
         m_open->setVisible(false);
+        // ★ 2026-09-27：**文字也要清掉**，不能光藏。这一颗的文字是 openButtonText() 的唯一
+        //   出处，而那个访问器的约定是"没摆 = 空串"（见 .hpp）—— 光藏不清的话，先看过一个
+        //   有来源页的资源、再翻到一个没有的（CurseForge 那一类），那一格**看不见**但
+        //   openButtonText() 照旧答「转到 Modrinth」：界面和读它的人各说各的，
+        //   而验证工程正是照着那句话断言"这一页有没有可跳转的来源"。
+        //   NOTE: 判"摆没摆"**不能**改成去看 isVisible() —— 这一页自己收起来的时候，
+        //         子控件跟着一起 isVisible()=false，那样答出来的空串是假的。
+        m_open->setText(QString());
     }
     m_mcmod->setVisible(!header.mcmodUrl.isEmpty());
     m_copyName->setVisible(!header.nameToCopy.isEmpty());

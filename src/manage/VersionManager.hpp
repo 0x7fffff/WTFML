@@ -547,6 +547,11 @@ public:
      *      `1.20.1-forge-47.4.10` / `neoforge-21.1.215`（三个 id 的拼法都有唯一出处，
      *      见 LoaderMeta）。这一条排在前面，因为它是**装在盘上的东西自己说的** ——
      *      装加载器出来的目录名就是那个 id，导入整合包出来的薄 json 也指着它。
+     *
+     *      NOTE: 这一条要读的 id 里**混着用户自己起的名字**（PCL 那类合并实例的 id 就是
+     *      目录名），而 Forge / OptiFine 那两种拼法的分隔符（`-forge-` / `-OptiFine_`）是
+     *      **不带头锚点**的子串 ⇒ 认了左边那半必须是**真游戏版本**（`isKnownGameVersion()`，
+     *      清单里有它才算数）这一道，见 loaderIdParts() 里那段。
      *   2. **从那份 json 自己身上认**：`libraries` 里的 maven 坐标
      *      （`net.fabricmc:fabric-loader` / `net.minecraftforge:forge` / `…:fmlloader` /
      *      `net.neoforged.fancymodloader:loader` / `optifine:OptiFine`）＋ `arguments.game`

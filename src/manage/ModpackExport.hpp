@@ -174,8 +174,11 @@ struct InstanceFile {
 struct CollectResult {
     /// 要进包的文件，**按路径排序**（打包是可复现的：同一个实例两次导出条目顺序一样）。
     QList<InstanceFile> files;
-    /// 被排除掉的**顶层**目录名（去重、保持顺序），以及被排除的文件个数。
-    /// 这两个数只为了在结果里**如实说**："`logs/`、`natives/`、存档没进包"。
+    /// 被排除掉的目录名（去重、保持顺序），以及**没进包的文件个数**。
+    /// 这两个数只为了在结果里**如实说**："`logs/`、`natives/`、存档没进包（共 N 个文件）"。
+    /// NOTE: `skippedFileCount` 的**口径是"没进包的文件"**，不只是"被排除表拦下来的文件"：
+    ///       被排除掉的目录**里面的**文件也数进去（一个 `saves/` 是三百个文件，不是 0 个）。
+    ///       那个数是给用户看"少了多少东西"的，只数直接命中的那些等于把大头漏掉。
     QStringList skippedDirs;
     int skippedFileCount = 0;
     /// 非空 = 这个目录根本没读成（枚举本身失败）。**不是**"包里一个文件都没有"。
@@ -279,9 +282,16 @@ QHash<QString, ModrinthHit> parseModrinthVersionFiles(const QByteArray &json, QS
 struct CurseForgeHit {
     int projectId = 0;
     int fileId = 0;
-    /// `isAvailable`。假 = 作者关了第三方分发：**不写进清单**（写了等于给出一个装不上的
-    /// 包），退回 overrides 并单独报数。
+    /// `isAvailable` 为假 = 不能分发：**不写进清单**（写了等于给出一个装不上的包），
+    /// 退回 overrides 并单独报数。
+    /// ★ 2026-09-27：假的**原因有两种**，报告里那句话只能认其中一种 —— 所以还带
+    /// `availableKnown`：接口这一项**缺席**时 `toBool(false)` 也是假，而"接口没给这一项"
+    /// 与"作者关掉了第三方分发"是两回事。不分开的话，报告会替接口认下一个它没做的决定
+    /// （"作者关掉了"），而真实原因可能是接口换了字段名 —— 用户照着这句话去查作者的设置，
+    /// 永远查不出所以然。
     bool available = false;
+    /// 回复里**真的**有 `isAvailable` 这一项（见上面那段）。假 = 不知道能不能分发。
+    bool availableKnown = false;
     QString displayName;
     QString fileName;
     QString downloadUrl;
@@ -359,8 +369,18 @@ struct ExportPlan {
     CollectResult collect;      ///< 枚举那一层原样带出来（被排掉的目录要照实报）
     QStringList hashFailures;   ///< 连哈希都算不出来的文件（它们也只能进 overrides）
     int matched = 0;            ///< 认出来几条
-    int notDistributable = 0;   ///< CF：认出来了，但作者关了第三方分发
-    int queried = 0;            ///< 一共问了几个（报告里要写"问了 N 个，认出来 M 个"）
+    int notDistributable = 0;   ///< CF：认出来了，**而且接口明说**作者关了第三方分发
+    /// CF：认出来了，但接口**没说**能不能分发（回复里没有 `isAvailable` 这一项）——
+    /// 和上面那个同样退回 overrides，但**不能**报成"作者关掉了"（见 CurseForgeHit 那段）。
+    int notDistributableUnknown = 0;
+    /// CF：认出来了，但**这个名字带不住状态**（`.disabled` / `.old` 后缀，或者用户自己
+    /// 改过名）—— 写进清单等于让收包的人那边落回作者给的原名（禁用着的会变成启用的）。
+    /// 退回 overrides 原样带上（见 .cpp 里判那一条那段）。
+    int keptLocalState = 0;
+    /// **真的发出去问过的**文件个数（报告里要写"问了 N 个，认出来 M 个"）。
+    /// NOTE: 接口没接上（一个字节都没发）时是 0，不是"本来打算问几个"—— 见 .cpp 里
+    ///       赋值那一段：把"没问"报成"问了、没答话"会让人去查网络。
+    int queried = 0;
     bool lookupFailed = false;  ///< 反查那一发没成 —— 要不要继续**由用户决定**（不是错误）
     QString lookupProblem;      ///< 没成的那一句（直接给用户看）
     /// 用户叫停了。**这时候整份 plan 都作废**（`overrides` 里可能有半截的东西，

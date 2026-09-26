@@ -1593,6 +1593,29 @@ public:
     static int memoryLimitMaxMb() { return 65536; }
     static int memoryStepMb() { return 256; }
 
+    /// 这台机器的物理内存总量（MB）→「最大内存」那一格实际允许拖到的上限。
+    ///
+    /// NOTE: **两处都要按它收口** —— 设置页那一行（MainWindow::applyMemoryLimits）和实例
+    ///       设置里那一行（InstanceSettingsDialog）。从前只有设置页收口，实例页的上限一直是
+    ///       写死的 65536，用户能给一个实例填出比整机内存还大的数，而 JVM 那边只会
+    ///       "内存不足"地起不来（见 2026-09-27 审计）。
+    ///
+    /// NOTE: 条上的档位和数字框的步长都是 memoryStepMb() ⇒ 上限也**往下取到它的整数倍**：
+    ///       一台物理内存 16257 MB 的机器上，上限写 16257、条拖到头只能停在 16128（档位表最后
+    ///       一格），而数字框里打得进 16257 —— 同一件事两个数，用户只会觉得是坏的。
+    ///
+    /// NOTE: `totalMb <= 0`（读不到系统内存）时给内置上限，**不能**当成"这台机器没有内存"。
+    ///       反过来总数小得离谱时至少留"一格"（下限），不然 min > max 会让 qBound/setRange
+    ///       取到没意义的值。
+    static int memoryCapForTotalMb(qint64 totalMb) {
+        int capMb = memoryLimitMaxMb();
+        if (totalMb > 0) {
+            const qint64 aligned = (totalMb / memoryStepMb()) * memoryStepMb();
+            capMb = aligned < capMb ? int(aligned) : capMb;
+        }
+        return capMb < memoryMaxMinMb() ? memoryMaxMinMb() : capMb;
+    }
+
     // ---------- 游戏窗口大小的取值范围 ----------
     // 规矩同上：和 LauncherSettings::gameWindowMinWidth() 那一组**必须一样**（那是
     // 读盘时的钳位，这边是界面允许填的范围）。ui/ 这一侧不许 include src/，

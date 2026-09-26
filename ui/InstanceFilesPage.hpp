@@ -33,6 +33,7 @@
 #include <QWidget>
 
 class QDateTime;
+class ElidedLabel;
 class QLabel;
 class QListWidget;
 class QListWidgetItem;
@@ -94,6 +95,12 @@ public:
     QPushButton *refreshButton() const { return m_refresh; }
     QPushButton *openFolderButton() const { return m_openFolder; }
     QLabel *noticeLabel() const { return m_notice; }
+    /// 上面那一排最左边那格（写的是这一页在看哪个目录）。文字由 refresh() 灌 ——
+    /// 验证工程按它核"切到哪一页、那一格就写哪个目录"这一条。
+    /// NOTE: 定义在 .cpp 里（不在这儿就地写）：它那一格的真身份是 ElidedLabel，
+    ///       就地写就得把 ElidedLabel.hpp 拖进每一个用到这一页的地方 —— 对外仍旧
+    ///       只当它是个 `QLabel`（调用方要的是 setText / text）。
+    QLabel *pathLabel() const;
 
     static int pathRole() { return Qt::UserRole; }
     static int disabledRole() { return Qt::UserRole + 1; }
@@ -179,7 +186,9 @@ private:
 
     /// 上面那一排（路径 + 两颗按钮）。「用不上」的时候整排一起收起来。
     QWidget *m_pathRow = nullptr;
-    QLabel *m_pathLabel = nullptr;
+    /// 是 ElidedLabel（从中间省略，见 .cpp 里构造那段的理由）；对外仍旧只当它是个 QLabel
+    /// （见 pathLabel() 为什么定义在 .cpp 里）。
+    ElidedLabel *m_pathLabel = nullptr;
     QPushButton *m_refresh = nullptr;
     QPushButton *m_openFolder = nullptr;
     QListWidget *m_list = nullptr;

@@ -25,6 +25,7 @@
 #include <QGuiApplication>
 #include <QGridLayout>
 #include <QHBoxLayout>
+#include <QIcon>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
@@ -432,6 +433,12 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             // 图在上、字在下：这一排是"挑哪一张"，光看图认不出 Fabric 和 NeoForge。
             button->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
             button->setIconSize(QSize(kIconCandidateSize, kIconCandidateSize));
+            // ★ 2026-09-27：**这张图从前没人画**（`setIconSize` 摆了尺度、`TextUnderIcon`
+            //   摆了位置，偏偏没 `setIcon`）—— 八颗按钮全是光秃秃一个词，用户看着「草方块 /
+            //   覆雪草块 / 土块 / 幸运方块」选图，而上面那一格预览的是**另一张**（默认图标）。
+            //   这一格的全部意义就是"挑哪一张"，看不见图等于没得挑。
+            //   图由 VersionIcons 按同一份候选表解出来（键和画法都只有那一处），这里只管贴。
+            button->setIcon(QIcon(VersionIcons::iconCandidateMark(i, kIconCandidateSize)));
             button->setCheckable(true);
             // 和设置页那些"点一下换个样子"的按钮同一条：不该抢键盘焦点（抢了之后
             // 键盘上那几下就不再是"在这张浮层上操作"了）。
@@ -653,17 +660,23 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         auto *choiceRow = choiceRowOf(xmxField());
         // 这一格和设置页那一行一样：**一根条 + 一个数字框**（用户要 PCL 那种拖着改的手感）。
         // 条占满剩下的宽度，数字框窄窄一条 —— 顺序也是这个，条在左边。
+        // ★ 2026-09-27：上限是**这台机器的物理内存**（调用方算好放在 global 里），不是写死的
+        //   65536。从前这一页的上限一直是内置那个数，于是"设置页最多拖到 16256、实例页能拖到
+        //   65536"——用户给一个实例填出比整机内存还大的数，启动时只会拿到一句 JVM 的内存分配
+        //   错误，而界面上从头到尾没有一个字拦过他（见 2026-09-27 审计）。
+        //   `<= 0` 是"调用方没给"（只验结构的构造点），退回内置上限。
+        const int memoryCapMb = m_global.memoryCapMb > 0 ? m_global.memoryCapMb
+                                                         : MainWindowUI::memoryLimitMaxMb();
         m_memoryMaxSlider = new MemorySlider(cell);
         m_memoryMaxSlider->setObjectName(memoryMaxSliderName());
-        m_memoryMaxSlider->setRangeMb(MainWindowUI::memoryMaxMinMb(),
-                                      MainWindowUI::memoryLimitMaxMb());
+        m_memoryMaxSlider->setRangeMb(MainWindowUI::memoryMaxMinMb(), memoryCapMb);
         m_memoryMaxSlider->setMinimumWidth(kMemorySliderMinWidth);
         // 没有焦点时滚轮也会改值（见 MainWindowUI.hpp 里的 WheelGuard）。
         WheelGuard::install(m_memoryMaxSlider);
         choiceRow->addWidget(m_memoryMaxSlider, 1);
         m_memoryMaxSpin = new QSpinBox(cell);
         m_memoryMaxSpin->setObjectName(memoryMaxSpinName());
-        m_memoryMaxSpin->setRange(MainWindowUI::memoryMaxMinMb(), MainWindowUI::memoryLimitMaxMb());
+        m_memoryMaxSpin->setRange(MainWindowUI::memoryMaxMinMb(), memoryCapMb);
         m_memoryMaxSpin->setSingleStep(MainWindowUI::memoryStepMb());
         m_memoryMaxSpin->setSuffix(QStringLiteral(" MB"));
         // 和设置页那两个内存数字框同一份滚轮防护（见 MainWindowUI.hpp 里的 WheelGuard）：
@@ -1834,6 +1847,26 @@ void InstanceSettingsDialog::refreshHints() {
     // 内存那两行：自动档下**整格**禁用（单选钮 + 数字框），提示换成"为什么它由不得你"。
     m_xmxFollowCell->setEnabled(!autoMemory);
     m_xmsFollowCell->setEnabled(!autoMemory);
+
+    // ★ 2026-09-27：手动档 + **「跟随全局」** 时，那一格里的条和数字框要**灰掉**。
+    //   从前它们只在自动档下禁用，于是在"跟随全局"这一档上照样能拖、能填 —— 而拖完那一发
+    //   `override()` 根本不会读（它只在选了「自定义」时才把 `m_memoryMaxSpin->value()` 装进
+    //   结果，见下面那段），用户看着数字变了、松手、关页，什么都没发生。这正是设置页那条
+    //   注释明确反对的"让人以为能改"。
+    //
+    //   **整格**不能跟着禁（那对单选钮得留着），所以只点这两个控件；单选钮本身照旧能点，
+    //   想要填数就点「自定义」，一按下去这两个就活了（`setEnabled` 的实效是"父与自身都为真"，
+    //   所以自动档下这里的 true 也翻不过上面那句整格禁用）。
+    //
+    // NOTE: 「实例名 / Java 路径」那几行是"跟随全局时编辑框里就摆着全局值、改了等于自定义"
+    //       的另一种拆法（那边靠「浏览…」那一按顺手切档），内存这一行**不用**那个拆法：
+    //       条目上滚一下滚轮就在盘上凭空多出一份覆盖，这种事不能有。
+    const bool memoryEditable = !autoMemory && m_xmxCustom->isChecked();
+    m_memoryMaxSlider->setEnabled(memoryEditable);
+    m_memoryMaxSpin->setEnabled(memoryEditable);
+    // 最小内存那一格整个是隐藏的（2026-09-26 撤掉的那一行），但控件照旧跟着同一个规矩 ——
+    // 它现在唯一的作用就是把盘上那份值透传回去，多一个能改它的入口就是多一条静默改写的路。
+    m_memoryMinSpin->setEnabled(memoryEditable);
 
     // 每一行下面那句话：选「跟随全局」时写清"当前跟随的是什么值"，选「自定义」时
     // 说明"这一项只对这个实例生效"。两种都要有 —— 只有"跟随全局"四个字的话，

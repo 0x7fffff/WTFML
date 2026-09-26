@@ -66,8 +66,16 @@ InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
     auto *pathRow = new QHBoxLayout(m_pathRow);
     pathRow->setContentsMargins(0, 0, 0, 0);
     pathRow->setSpacing(8);
-    m_pathLabel = new QLabel(m_pathRow);
+    // ★ 2026-09-27：这一格从前**一个字都没有**（建出来、上了色、给了宽度策略，就是没人
+    //   setText）—— 上面那一排看着是「…… [刷新] [打开文件夹]」，用户不知道这一页在看哪个
+    //   目录，而这一页叫「文件管理」。文字由 refresh() 灌（目录是从 setDirectory() 来的，
+    //   只有那一处知道）。
+    //   用 ElidedLabel 而不是普通 QLabel：路径一定比这一格长（实例名本身能到 64 个字），
+    //   普通 QLabel 装不下是**硬裁**（最后一级目录名被切掉一半），而这一段文字两头都有用
+    //   （盘符那头说明是哪个游戏目录，尾巴那头是 mods / saves 哪一页）⇒ 从**中间**省略。
+    m_pathLabel = new ElidedLabel(m_pathRow);
     m_pathLabel->setObjectName(pathLabelName());
+    m_pathLabel->setElideMode(Qt::ElideMiddle);
     makeSecondary(m_pathLabel);
     // ★ 路径可能很长（实例名本身就能到 64 个字），而它这一格**不许**把整页顶宽：
     //   横向按 Ignored 算 = 布局完全不管它要多大，只给它剩下来的地方，多出来的字被裁掉。
@@ -75,7 +83,11 @@ InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
     //   不能让它要宽度，这边是不能让它给宽度。）
     m_pathLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     m_pathLabel->setMinimumWidth(0);
-    m_pathLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    // NOTE: 这里从前挂着 `setTextInteractionFlags(Qt::TextSelectableByMouse)`（"路径能选能复
+    //       制"）。换 ElidedLabel 之后那个开关等于没开：文字是 paintEvent 自己画的，选中
+    //       高亮画不出来 —— 用户拖一遍什么反应都没有，比一开始就不给还费解。整条完整路径
+    //       改由**悬停提示**给（见 refresh() 里 setToolTip 那句），那是这一格现在唯一
+    //       "看得全"的路。
     pathRow->addWidget(m_pathLabel, 1);
 
     m_refresh = new QPushButton(refreshText(), m_pathRow);
@@ -167,6 +179,14 @@ void InstanceFilesPage::refresh() {
     if (m_list == nullptr) {
         return;
     }
+    // 上面那一排那一格写"A 在看哪个目录"。**在目录存在性判断之前**就写：目录还不存在
+    // （第一次开 mods/ 之前它本来就不在盘上）也得让人看见路径 —— 那时候这一页正是
+    // "这个目录是空的/不存在"，路径恰恰是最该看见的东西。
+    // 分隔符统一成 Windows 那种反斜杠：这是给用户看的字，不是喂给接口的路径。
+    const QString shownDir = QDir::toNativeSeparators(m_directory);
+    m_pathLabel->setText(shownDir);
+    // 装不下时是从中间省略的，两头那几段还能看；整条路径靠悬停提示给（见构造里那段 NOTE）。
+    m_pathLabel->setToolTip(shownDir);
     // clear() 会连同 setItemWidget() 挂上去的那些行控件一起删掉（列表持有它们）。
     m_list->clear();
     // 先当空的，下面每加一条翻过来 —— 这样"目录不存在"和"目录是空的"自然走同一条路。
@@ -302,6 +322,12 @@ QWidget *InstanceFilesPage::makeRow(const QString &shownName, const QString &pat
     }
 
     return row;
+}
+
+QLabel *InstanceFilesPage::pathLabel() const {
+    // 只在**这里**把 ElidedLabel 当成 QLabel 交出去（见 .hpp 里那段）：那一格的确是
+    // ElidedLabel，但调用方要的只有 setText / text，不必知道它是怎么画出来的。
+    return m_pathLabel;
 }
 
 void InstanceFilesPage::applyState() {

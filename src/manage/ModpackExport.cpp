@@ -9,6 +9,7 @@
 
 #include "ModpackExport.hpp"
 
+#include "InstanceFiles.hpp"
 #include "ModpackImport.hpp"
 
 #include <QByteArrayView>
@@ -151,6 +152,23 @@ bool readFileChunks(const QString &path, Sink &&sink, QString *errorOut) {
 // 清单序列化
 // ---------------------------------------------------------------------------
 
+/// 接口回的字节数那一格（Modrinth 的 `size` / CurseForge 的 `fileLength`）→ 字节数。
+/// 不是数、或者是负数、或者大到塞不进 qint64 ⇒ **-1 = "不知道字节数"**（不强转）。
+///
+/// NOTE: 判据和 ModpackImport::parseModrinthIndex() 里那一份**逐字相同**，两处都必须有：
+///       那边读的是**清单文件**、这边读的是**接口的回复**，都是外部输入。裸的
+///       `static_cast<qint64>(double)` 对越界的值是**未定义行为**（x86 上给出 0x8000…，
+///       一个负数），而那个负数会一路走进"这份文件下完了没有"的判断里 —— 变成一个永远
+///       下不完的作业。2^63 这个字面量在 double 里表示得**正好**，`<` 它就一定塞得进。
+///       NOTE: 0 留着（0 字节的文件确实存在，那份字节数由 sha1 那一侧兜）。
+qint64 fileSizeFromJson(const QJsonValue &value) {
+    constexpr double kQint64UpperBound = 9223372036854775808.0;
+    if (value.isDouble() && value.toDouble() >= 0.0 && value.toDouble() < kQint64UpperBound) {
+        return static_cast<qint64>(value.toDouble());
+    }
+    return -1;
+}
+
 /// `hashes` 那一段。sha1 与 sha512 **两个都必须有**（规范原文是 MUST）——
 /// 缺哪个都不该写成一条，理由见 writableAsIndexFile()。
 QJsonObject hashesOf(const MatchedFile &file) {
@@ -289,8 +307,7 @@ QHash<QString, ModrinthHit> parseModrinthVersionFiles(const QByteArray &json, QS
             hit.sha1 = fileSha1;
             hit.sha512 = hashes.value(QStringLiteral("sha512")).toString().toLower();
             hit.url = file.value(QStringLiteral("url")).toString();
-            const QJsonValue size = file.value(QStringLiteral("size"));
-            hit.size = size.isDouble() ? static_cast<qint64>(size.toDouble()) : -1;
+            hit.size = fileSizeFromJson(file.value(QStringLiteral("size")));
             hit.environment = version.value(QStringLiteral("environment")).toString();
             if (!hit.url.isEmpty() && !hit.sha512.isEmpty()) {
                 hits.insert(key, hit);
@@ -351,14 +368,18 @@ QHash<quint32, CurseForgeHit> parseCurseForgeFingerprints(const QByteArray &json
         CurseForgeHit hit;
         hit.projectId = file.value(QStringLiteral("modId")).toInt(0);
         hit.fileId = file.value(QStringLiteral("id")).toInt(0);
-        hit.available = file.value(QStringLiteral("isAvailable")).toBool(false);
+        // ★ 2026-09-27：**"这一项在不在"和"它是不是真的"要分开记**（见 CurseForgeHit
+        //   里那段）。缺席时 toBool(false) 照样给假，直接拿这个假去报"作者关了第三方分发"
+        //   就是替接口认下一个它没做的决定。
+        const QJsonValue availableValue = file.value(QStringLiteral("isAvailable"));
+        hit.availableKnown = !availableValue.isUndefined() && !availableValue.isNull();
+        hit.available = availableValue.toBool(false);
         hit.displayName = file.value(QStringLiteral("displayName")).toString();
         hit.fileName = file.value(QStringLiteral("fileName")).toString();
         // 作者关了第三方分发时这一条就是 null —— 那**不是**"读不懂"，是接口在明说
         // "不许代下"。照样收进表里（`available` 是假），让调用方单独报数。
         hit.downloadUrl = file.value(QStringLiteral("downloadUrl")).toString();
-        const QJsonValue length = file.value(QStringLiteral("fileLength"));
-        hit.size = length.isDouble() ? static_cast<qint64>(length.toDouble()) : -1;
+        hit.size = fileSizeFromJson(file.value(QStringLiteral("fileLength")));
         // `hashes` 里 `algo == 1` 的那一条是 sha1（2 是 md5）。
         const QJsonArray hashes = file.value(QStringLiteral("hashes")).toArray();
         for (const QJsonValue &hashValue : hashes) {
@@ -463,6 +484,40 @@ QString instanceExclusionReason(const QString &relativePath, const QString &inst
     return QString();
 }
 
+namespace {
+
+/// 一个被排除掉的目录**连里面的东西**一共有多少个文件（只数，不读内容）。
+///
+/// ★ 2026-09-27：报告里那句是「没进包：存档、截图（共 N 个文件）」，而 N 从前只数**被排除
+///   的文件**、不算**被排除的目录里面**的东西 —— 可 `logs/` / `saves/` / `screenshots/`
+///   这些正是"整个目录被排除"的那一档，于是那句话几乎永远是「共 0 个文件」：用户看见
+///   "存档和截图没进包"很安心，却不知道那是三百个文件（这个数的全部意义就是让他知道
+///   少了多少东西）。
+///
+/// NOTE: 目录**不跟符号链接**（和主枚举同一份 flags，那里有完整来路）：跟了可能绕回自己，
+///       而"数出无限多个文件"这种事既没法报错也没法收场。文件那一边跟着（一个指向文件的
+///       链接就是一份文件）。用显式栈而不是递归，理由和主枚举一样。
+int countFilesUnder(const QString &dirPath) {
+    int count = 0;
+    QStringList stack;
+    stack.append(dirPath);
+    while (!stack.isEmpty()) {
+        const QDir dir(stack.takeLast());
+        count += dir.entryInfoList(QDir::Files | QDir::NoDotAndDotDot | QDir::Hidden,
+                                   QDir::NoSort)
+                     .size();
+        const QFileInfoList subs =
+            dir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot | QDir::NoSymLinks | QDir::Hidden,
+                              QDir::NoSort);
+        for (const QFileInfo &sub : subs) {
+            stack.append(sub.absoluteFilePath());
+        }
+    }
+    return count;
+}
+
+}  // namespace
+
 CollectResult collectInstanceFiles(const QString &instanceDir, const IncludeOptions &options) {
     CollectResult result;
     const QDir root(instanceDir);
@@ -472,6 +527,23 @@ CollectResult collectInstanceFiles(const QString &instanceDir, const IncludeOpti
         return result;
     }
     const QString instanceId = QFileInfo(QDir::cleanPath(instanceDir)).fileName();
+
+    // 顶层那两份"这个实例自己的版本文件"叫什么 —— 判据**不在这儿自己写一份**：走
+    // InstanceFiles::resolve()，也就是启动器认客户端 jar 的那一条路（① 同名 ② 顶层恰好
+    // 一个 jar）。这个结构是纯数据、那个函数是纯函数，所以这里只是把顶层那份列出来的
+    // 名字交给它，不额外读一次盘。
+    //
+    // ★ 2026-09-27：从前这里只按 instanceExclusionReason 里那条"名字正好叫 `<目录名>.jar`"
+    //   判（= resolve() 的 ①），于是**用户自己在资源管理器里改过目录名**的那类实例
+    //   （顶层 jar 还叫 `1.20.1.jar`，正是 resolve() 的 ② 专门要救的那一类）会把它那份
+    //   客户端 jar 原样打进包：包里凭空多出十几 MB，而收包的人那边解出来是一份**谁都不
+    //   认识的顶层 jar** —— 启动器认客户端 jar 的判据是"顶层恰好一个 jar"，于是它会被
+    //   当成这个实例的客户端 jar，把"缺少客户端 JAR"那句报错顶掉，装的是一个错的 jar。
+    InstanceFiles::DirListing listing;
+    listing.dirName = instanceId;
+    listing.jarNames = root.entryList(QStringList() << QStringLiteral("*.jar"), QDir::Files);
+    listing.jsonNames = root.entryList(QStringList() << QStringLiteral("*.json"), QDir::Files);
+    const InstanceFiles::Resolved resolved = InstanceFiles::resolve(listing);
 
     // 显式栈的深度优先（不递归：实例目录可以很深，而栈溢出没法报成一句人话）。
     struct Frame {
@@ -505,8 +577,16 @@ CollectResult collectInstanceFiles(const QString &instanceDir, const IncludeOpti
             const QString reason = instanceExclusionReason(prefix, instanceId, options);
             if (!reason.isEmpty()) {
                 const QString shown = prefix.left(prefix.size() - 1);
+                // ★ 2026-09-27：**这个目录里那些文件也要数进去**。从前这里只有一句
+                //   `continue` —— 目录不进去，里面有几个文件从来没人问过，于是报告里
+                //   「没进包：存档、截图（共 N 个文件）」的 N 只数得到"被排除的**文件**"，
+                //   而 logs / saves / screenshots 这一档整个是目录 —— 那句话几乎永远是
+                //   「共 0 个文件」。数的口径见上面 countFilesUnder() 那段。
+                // 去重和 skippedDirs 同一处：同一个目录只数一次（重复 append 的那一路
+                // 连数都不该数）。
                 if (!result.skippedDirs.contains(shown)) {
                     result.skippedDirs.append(shown);
+                    result.skippedFileCount += countFilesUnder(entry.absoluteFilePath());
                 }
                 continue;
             }
@@ -514,7 +594,15 @@ CollectResult collectInstanceFiles(const QString &instanceDir, const IncludeOpti
         }
         for (const QFileInfo &entry : files) {
             const QString relative = frame.prefix + entry.fileName();
-            if (!instanceExclusionReason(relative, instanceId, options).isEmpty()) {
+            // 顶层那两个走 resolve() 判出来的名字（见上面那段 NOTE），其余照样问排除表。
+            // 两处都问过一遍不算"两份判据"：resolve() 的 ① 与排除表那一条**是同一件事**
+            // （名字等于目录名），② 是排除表那条纯函数**看不见**的（它只看一条路径、看不到
+            // "顶层一共有几个 jar"），所以这一道只有枚举这一层补得上。
+            const bool isOwnVersionFile =
+                frame.prefix.isEmpty() &&
+                ((!resolved.jarName.isEmpty() && entry.fileName() == resolved.jarName) ||
+                 (!resolved.jsonName.isEmpty() && entry.fileName() == resolved.jsonName));
+            if (isOwnVersionFile || !instanceExclusionReason(relative, instanceId, options).isEmpty()) {
                 ++result.skippedFileCount;
                 continue;
             }
@@ -607,6 +695,17 @@ bool reimportable(const Spec &spec) {
 bool writableAsIndexFile(const MatchedFile &file) {
     if (file.path.trimmed().isEmpty()) {
         return false;  // 没路径的条目导入方会直接跳过（等于没这条）
+    }
+    // ★ 2026-09-27：**路径必须过得了读侧那条判据**，判据本身从读侧那一处来（不在这儿
+    //   抄第二份数字）。从前这一条漏了：`files[].path` 是写进清单的，而读侧对清单里的
+    //   每一条路径都跑 isSafeRelativePath()，**不过就是整包拒绝**（ModpackImport.cpp 里
+    //   那句"所以整个包都没有导入"）。于是"实例里有个名字特别长的文件"（整条相对路径
+    //   >240 —— 段名没超，是嵌套拼起来超的）能让我们导出一个人家装不进去的包，
+    //   而且**当场看不出来**：包打得出来、我们自己（写的那一半）也不读它。
+    //   退回 overrides 就没事：overrides 里那条路不经过这条判据（那些文件是照名字
+    //   原样解出来的），文件一个不少，包也装得进去。
+    if (!ModpackImport::isSafeRelativePath(file.path)) {
+        return false;
     }
     if (file.sha1.trimmed().isEmpty() || file.sha512.trimmed().isEmpty()) {
         // 规范原文是 MUST 两条都有。缺了**不写**：清单里的 sha1 是安装时唯一的完整性
@@ -923,8 +1022,15 @@ ExportPlan buildExportPlan(const ExportRequest &request, const ModrinthQuery &qu
     QString lookupProblem;
     QHash<QString, ModrinthHit> modrinthHits;
     QHash<quint32, CurseForgeHit> curseForgeHits;
-    plan.queried = needFingerprint ? fingerprintOfPath.size() : sha1OfPath.size();
-    if (plan.queried > 0) {
+    // ★ 2026-09-27：`plan.queried` **只在真的要发出去那一处**赋值（见下面两个分支）。
+    //   从前它在进这一节之前就赋好了，于是接口**没接上**的时候（`queryModrinth` /
+    //   `queryCurseForge` 是空函数，`lookupProblem` 那句"没有接上查询接口"就是说这个）
+    //   我们一个字节都没发出去，报告里却写着「问过 12 个文件，认出来 0 个」——
+    //   用户拿着这句话去查网络、查限流、等着重试，而真相是"这一趟根本没联网"。
+    //   这个数的含义钉死成：**真的发出去问过的文件个数**（发出去了但没答话的也算，
+    //   那是"问了没回"，和"没问"不是一回事）。
+    const int toAsk = needFingerprint ? fingerprintOfPath.size() : sha1OfPath.size();
+    if (toAsk > 0) {
         if (progress) {
             progress(total, total, QString());  // 没有具体文件了：界面该显示"正在问接口"
         }
@@ -933,9 +1039,11 @@ ExportPlan buildExportPlan(const ExportRequest &request, const ModrinthQuery &qu
             for (auto it = fingerprintOfPath.constBegin(); it != fingerprintOfPath.constEnd(); ++it) {
                 fingerprints.append(it.value());
             }
-            lookupOk = queryCurseForge ? queryCurseForge(fingerprints, &curseForgeHits, &lookupProblem)
-                                       : false;
-            if (!queryCurseForge) {
+            if (queryCurseForge) {
+                plan.queried = toAsk;
+                lookupOk = queryCurseForge(fingerprints, &curseForgeHits, &lookupProblem);
+            } else {
+                lookupOk = false;
                 lookupProblem = QObject::tr("没有接上 CurseForge 的查询接口。");
             }
         } else {
@@ -943,8 +1051,11 @@ ExportPlan buildExportPlan(const ExportRequest &request, const ModrinthQuery &qu
             for (auto it = sha1OfPath.constBegin(); it != sha1OfPath.constEnd(); ++it) {
                 sha1s.append(it.value());
             }
-            lookupOk = queryModrinth ? queryModrinth(sha1s, &modrinthHits, &lookupProblem) : false;
-            if (!queryModrinth) {
+            if (queryModrinth) {
+                plan.queried = toAsk;
+                lookupOk = queryModrinth(sha1s, &modrinthHits, &lookupProblem);
+            } else {
+                lookupOk = false;
                 lookupProblem = QObject::tr("没有接上 Modrinth 的查询接口。");
             }
         }
@@ -977,14 +1088,50 @@ ExportPlan buildExportPlan(const ExportRequest &request, const ModrinthQuery &qu
             const bool hit = lookupOk && curseForgeHits.contains(fingerprint);
             const CurseForgeHit found = hit ? curseForgeHits.value(fingerprint) : CurseForgeHit();
             // 号得是两个正整数才写得进清单（`projectID` / `fileID` 都是必需项），
-            // 并且 `isAvailable` 要为真 —— 假的那是作者关了第三方分发，写进去等于给出
-            // 一个装不上的包，退回 overrides 并单独报数（调用点要在报告里说出来）。
+            // 并且 `isAvailable` 要为真 —— 假的时候写进去等于给出一个装不上的包，
+            // 退回 overrides 并单独报数（调用点要在报告里说出来）。
+            // ★ 2026-09-27：假的**那两种来路分开报**：接口明说不能分发（`availableKnown`）
+            //   才是"作者关掉了第三方分发"；接口根本没给这一项是**另一回事**，报成前者
+            //   是替接口认下一个它没做的决定（见 CurseForgeHit 里那段）。两种都进
+            //   overrides，只是报告里那两句话不能混。
             if (!hit || found.projectId <= 0 || found.fileId <= 0) {
                 pushOverride(file, &plan.overrides);
                 continue;
             }
             if (!found.available) {
-                ++plan.notDistributable;
+                if (found.availableKnown) {
+                    ++plan.notDistributable;
+                } else {
+                    ++plan.notDistributableUnknown;
+                }
+                pushOverride(file, &plan.overrides);
+                continue;
+            }
+            // ★ 2026-09-27：**改过名字 / 禁用着的** mod 不能写进 CF 清单。清单里那一条
+            //   只有 projectID + fileID，收包的人那边是拿这两个号去 CurseForge 换一份文件
+            //   回来，落到盘上的是**作者给的那个文件名**（CF 那份规范里根本没有"文件叫
+            //   什么"这一格，只有号）。于是：
+            //     - `foo.jar.disabled`（用户自己禁用的那个）到了那边叫 `foo.jar`，
+            //       装好就是**启用**的 —— 用户特意关掉的 mod 自己开了；
+            //     - 用户改过名的（`bar.jar`）到了那边叫回 `foo.jar`。
+            //   两种都是"我们手里的状态被无声地改掉"，而改过的名字/后缀只有**原样带过去**
+            //   才留得住 ⇒ 这一个退回 overrides（跟着包走，字节一模一样，名字也是用户那个）。
+            //   代价是它不再被启动器单独更新/去重 —— 那个代价是对的：用户自己动过的名字，
+            //   比"下次更新时自动改回来"要紧。
+            // NOTE: 名字对不上才算"改过名"；接口没给 `fileName` 时**不猜**（那一种只能靠
+            //       后缀认，见下面 stateInName）。大小写不算改名（Windows 上那是同一个
+            //       名字，为它多塞一份文件进包不值）。
+            const QString localName = QFileInfo(file.path).fileName();
+            const QString localSuffix = QFileInfo(file.path).suffix();
+            const bool stateInName =
+                localSuffix.compare(QLatin1String("disabled"), Qt::CaseInsensitive) == 0 ||
+                localSuffix.compare(QLatin1String("old"), Qt::CaseInsensitive) == 0;
+            const QString remoteName = found.fileName.trimmed();
+            const bool renamed =
+                !remoteName.isEmpty() &&
+                localName.compare(remoteName, Qt::CaseInsensitive) != 0;
+            if (stateInName || renamed) {
+                ++plan.keptLocalState;
                 pushOverride(file, &plan.overrides);
                 continue;
             }

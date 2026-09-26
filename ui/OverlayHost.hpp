@@ -203,6 +203,16 @@ public:
      */
     void setPageTitle(const QString &title);
 
+    /// 页眉上现在那行标题（没有页时是空串）。
+    ///
+    /// 给**挡在门口的那一句提示**用的：用户点了个开不起来的页，那句话要说清"现在开着的是
+    /// 哪一页"（见 `MainWindow::overlayAcceptsNewPage()`）—— 光说"还有一页开着"，用户在
+    /// 别的选项卡上根本看不见它长什么样。
+    /// NOTE: 定义在 .cpp 里（不在这儿就地写）：这一句要问 `QLabel::text()`，而这一层
+    ///       只用得到 QLabel 这个名字（见上面那个前置声明）—— 就地写就得把 <QLabel>
+    ///       拖进每一个用到覆盖层的地方，为一行取值不值得。
+    QString pageTitle() const;
+
     /// 同上，但按"提示"摆（中间 + 四周变暗）。
     int execPrompt(QDialog *dialog, bool dismissOnOutsideClick = false);
 
@@ -271,8 +281,12 @@ private:
     void applyVisibility();
     /// 锚点换了一页（顶上那四颗导航按钮点了、或者别处翻的页）。
     void onAnchorTabChanged();
-    /// 提示那一档换底图（锚点换页了，下面那块像素已经不是原来那一块）。
+    /// 提示那一档换底图（锚点换页了、或者底下那一页收起来了）。
     void refreshBackdrop();
+    /// 现在该拍的"底下那一块"是哪一块（提示那一档要变暗的东西）。**唯一出处**：
+    /// `openPrompt()` 开的那一下和 `refreshBackdrop()` 换的那一下都走它 —— 两处各写一遍
+    /// 的话，"页收着"这一档迟早会在其中一处漏掉（2026-09-27 之前 refreshBackdrop 就是这么错的）。
+    QPixmap captureBackdrop() const;
     /// 开页那一刻的选项卡下标（锚点不是 QTabWidget 时 -1）。整页那一档只在它上面露面。
     int anchorTabIndex() const;
     /// 现在是不是在**开这一页的那颗选项卡**上（锚点不是 QTabWidget / 手上没有页面时恒真）。

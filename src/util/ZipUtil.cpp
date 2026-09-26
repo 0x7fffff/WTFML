@@ -254,8 +254,9 @@ bool ZipUtil::extractArchives(const QStringList &archives, const QString &target
                        "$out=%1\n"
                        "[void][System.IO.Directory]::CreateDirectory($out)\n"
                        "foreach($z in %2){\n"
-                       "  $zip=[System.IO.Compression.ZipFile]::OpenRead($z)\n"
+                       "  $zip=$null\n"
                        "  try{\n"
+                       "    $zip=[System.IO.Compression.ZipFile]::OpenRead($z)\n"
                        "    foreach($e in $zip.Entries){\n"
                        "      if([string]::IsNullOrEmpty($e.Name)){continue}\n"
                        "      $full=$e.FullName.Replace('\\','/')\n"
@@ -265,7 +266,21 @@ bool ZipUtil::extractArchives(const QStringList &archives, const QString &target
                        "([System.IO.Path]::GetDirectoryName($dest))\n"
                        "      [System.IO.Compression.ZipFileExtensions]::ExtractToFile($e,$dest,$true)\n"
                        "    }\n"
-                       "  } finally { $zip.Dispose() }\n"
+                       "  } catch {\n"
+                       // ★ 2026-09-27：这一段 catch 是**必须的**，理由和 gunzipTo / createZip
+                       //   里那两段一模一样（见 readProcessError 上面那段）：没兜住的话 PowerShell
+                       //   会把错误流序列化成 `#< CLIXML` + 一整条 `<Objs>` XML，而真因（路径太长、
+                       //   目标被占用、包是半截下载）**就埋在那条 XML 里**，readProcessError 按行
+                       //   过滤时连同机器话一起跳过 ⇒ 用户拿到的是「解压失败：PowerShell 退出码 1」，
+                       //   一个字都说不出是哪个包怎么了 —— 而这一条是要弹给他看的。
+                       //   GetBaseException() 取最里面那一层（真因在包装里，和那两段同一个理由）。
+                       //   退出码 3 和 gunzipTo / createZip 保持一致（"脚本跑到了、里面出错了"，
+                       //   和"进程没起来/超时"分开）。
+                       "    $msg=$_.Exception.GetBaseException().Message\n"
+                       "    if([string]::IsNullOrEmpty($msg)){ $msg=$_.Exception.Message }\n"
+                       "    [Console]::Error.WriteLine(('解压「' + $z + '」时出错：' + $msg))\n"
+                       "    exit 3\n"
+                       "  } finally { if($zip){ $zip.Dispose() } }\n"
                        "}\n")
             .arg(psQuote(QDir(targetDir).absolutePath()), psArray(archives),
                  QStringLiteral("(") + skipConditions.join(QStringLiteral(" -or ")) + QLatin1Char(')'));
@@ -429,8 +444,9 @@ bool ZipUtil::extractSubtrees(const QStringList &archives, const QString &target
                        "$roots=%2\n"
                        "$count=0\n"
                        "foreach($z in %3){\n"
-                       "  $zip=[System.IO.Compression.ZipFile]::OpenRead($z)\n"
+                       "  $zip=$null\n"
                        "  try{\n"
+                       "    $zip=[System.IO.Compression.ZipFile]::OpenRead($z)\n"
                        "    foreach($r in $roots){\n"
                        "      $low=$r.ToLowerInvariant()\n"
                        "      foreach($e in $zip.Entries){\n"
@@ -448,7 +464,15 @@ bool ZipUtil::extractSubtrees(const QStringList &archives, const QString &target
                        "        $count=$count+1\n"
                        "      }\n"
                        "    }\n"
-                       "  } finally { $zip.Dispose() }\n"
+                       "  } catch {\n"
+                       // 同上（整包解压那一段的 NOTE 逐条适用）。整合包导入这条路走的**就是**
+                       // 这一段：`overrides/` 里出现一个超长路径或者被占用的文件时，从前用户
+                       // 拿到的是「PowerShell 退出码 1」，现在拿得到是哪个包、哪句 .NET 的原话。
+                       "    $msg=$_.Exception.GetBaseException().Message\n"
+                       "    if([string]::IsNullOrEmpty($msg)){ $msg=$_.Exception.Message }\n"
+                       "    [Console]::Error.WriteLine(('解压「' + $z + '」时出错：' + $msg))\n"
+                       "    exit 3\n"
+                       "  } finally { if($zip){ $zip.Dispose() } }\n"
                        "}\n"
                        "[Console]::Out.Write($count)\n")
             .arg(psQuote(QDir(targetDir).absolutePath()), psArray(normalized), psArray(archives));
@@ -589,7 +613,22 @@ bool ZipUtil::createZip(const QString &targetZip, const QList<ZipSource> &entrie
             }
             return false;
         }
-        tableFile.write(QJsonDocument(table).toJson(QJsonDocument::Compact));
+        // ★ 2026-09-27：这一发的返回值**从前是丢掉的**。写不进去（磁盘满、临时目录没有写
+        //   权限、被安全软件拦下）时 `write()` 回 -1，而流程照旧往下走：PowerShell 那一侧
+        //   拿到一个空文件，`ConvertFrom-Json` 报「不能对 Null 值表达式调用方法」，用户看到
+        //   的是这么一句和真因（盘满）毫无关系的话，而目标 zip 里**一个条目都没有**。
+        //   这里当场拦下。NOTE: 短写（盘刚好在半路满）也一并算失败 —— 半截 JSON 同样过不了
+        //   ConvertFrom-Json，早点说清楚比让它去猜强。
+        const QByteArray payload = QJsonDocument(table).toJson(QJsonDocument::Compact);
+        if (tableFile.write(payload) != payload.size()) {
+            if (errorOut != nullptr) {
+                *errorOut = QStringLiteral("打包的条目表写不完整：%1（临时目录还剩多少空间？）")
+                                .arg(tablePath);
+            }
+            tableFile.close();
+            QFile::remove(tablePath);
+            return false;
+        }
     }
 
     const QString script =

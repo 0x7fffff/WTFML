@@ -382,6 +382,16 @@ private slots:
     ///       前者要说清为什么，后者才能说"你还没加过服务器"。
     void loadServerList(InstanceSettingsDialog *dialog, const QString &versionId) const;
 
+    /// 现在能不能再开一页（覆盖层那一层只放得下一个页面）。
+    ///
+    /// @return true = 开着（调用方接着 `execPage()`）；false = 已经有一页开着，**并且已经
+    ///         弹了一句说清怎么办**。
+    ///
+    /// NOTE: 三个入口都得先问它一声（实例设置 / 分组设置 —— 皮肤那一页自己有一份同样的
+    ///       判据，见 onAccountSkinButtonClicked()）。少了这一句就是**静默失灵**：`execPage()`
+    ///       返回 Rejected，对话框原地销毁、盘上什么都没动、屏幕上什么都没发生。
+    bool overlayAcceptsNewPage();
+
     /// 这个实例的服务器列表（名字 + 地址，按文件里的顺序）。servers.dat 读不动时是空的。
     ///
     /// NOTE: 和 serverListProblem() 分两个函数是因为**它们读的是同一份文件**，而调用方
@@ -717,6 +727,9 @@ private:
     /// 能拖到 65536，用户拖到那儿只会在启动时拿到一句 JVM 的内存分配错误。
     ///
     /// NOTE: 它**只改上下限、不动值**（信号也挡着），值由调用方紧接着灌（见 refreshMemoryUi）。
+    /// NOTE: 真要算"这台机器该给到多少"的是 MainWindowUI::memoryCapForTotalMb() —— 实例设置
+    ///       那一页也要按同一个上限收口（见 InstanceSettingsDialog 里那段），所以算法只有
+    ///       那一份，这里只是把它贴到设置页那两个控件上。
     void applyMemoryLimits(qint64 totalMb);
     /// 让「最小内存 ≤ 最大内存」这条一直成立 —— JVM 会拒绝相反的组合：
     ///   Error occurred during initialization of VM

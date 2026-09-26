@@ -166,13 +166,20 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     //       windows 与 offscreen 各量一遍，同一个结果）。所以这一段搭在 MainWindowUI 里
     //       建左栏那份列表时那句 setMouseTracking 上 —— 那句被删掉的话，症状是"刷新按钮
     //       再也不出现了"，不是报错、也不是断言先红。
-    const bool showRefresh = index.data(MainWindowUI::rowRefreshRole()).toBool() && hovered;
+    //
+    // ★ 2026-09-27：上面那句话（"扣宽度没跟着挂 hovered"）在代码里**曾经是相反的** ——
+    //   扣宽度用的就是 `showRefresh`，而它带着 `&& hovered`。于是鼠标一进这一行：图标
+    //   冒出来（对的）+ 文字宽度当场变窄 ⇒ 长条目的省略号位置左右跳一下，正是上面那句
+    //   "那比少一个图标显眼得多"要避免的。两个判据拆开：**这一行有没有这一格**（一直扣）、
+    //   **这一刻画不画它**（跟着 hovered）。
+    const bool hasRefresh = index.data(MainWindowUI::rowRefreshRole()).toBool();
+    const bool showRefresh = hasRefresh && hovered;
     const QRect refreshBox = refreshRect(row);
     int textRight = row.right() - pad - arrowSize - 6;
     if (showClear) {
         textRight -= crossBox.width() + 6;
     }
-    if (showRefresh) {
+    if (hasRefresh) {
         textRight -= refreshBox.width() + 6;
     }
     const QRect textRect(textLeft, row.top(), qMax(0, textRight - textLeft), row.height());

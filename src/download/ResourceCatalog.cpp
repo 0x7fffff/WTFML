@@ -862,42 +862,131 @@ QStringList gameVersionsOldestFirst(const QStringList &versions) {
     return out;
 }
 
-bool isSnapshotGameVersion(const QString &version) {
-    const QString text = version.trimmed();
-    if (text.isEmpty()) {
+namespace {
+
+/// 老式周号快照：两位年 + 'w' + 两位周 + 一个小写字母（24w14a / 13w41b）。
+/// **只认这一个长度**：`20w14infinite` 那种愚人节版是另一回事（见头文件里那段"不猜"）。
+bool isWeeklySnapshotId(const QString &lower) {
+    if (lower.size() != 6 || lower.at(2) != QLatin1Char('w')) {
         return false;
     }
-    const QString lower = text.toLower();
-    // 新老两套命名里的预览版和候选版都长这样：1.21.4-pre3 / 26.2-rc1。
-    if (lower.contains(QStringLiteral("-pre")) || lower.contains(QStringLiteral("-rc"))) {
-        return true;
+    const bool digits = lower.at(0).isDigit() && lower.at(1).isDigit() &&
+                        lower.at(3).isDigit() && lower.at(4).isDigit();
+    const QChar suffix = lower.at(5);
+    return digits && suffix >= QLatin1Char('a') && suffix <= QLatin1Char('z');
+}
+
+/// `1.21.4` / `26.2` 这种"纯数字加点"的前缀才认。
+///
+/// NOTE: **不认的就不折**。愚人节版 `1.RV-Pre1` 里那一段是 `1.RV`，折出来是一个谁也不
+///       是的大版本 —— 摆在"游戏版本"那一排里，用户点进去什么都搜不到，而且看不出哪里
+///       错了。`20w14infinite` 那一路用的是同一条规矩（见头文件那段"不猜"）。
+bool isPlainVersionStem(const QString &text) {
+    if (text.isEmpty() || !text.at(0).isDigit()) {
+        return false;
     }
-    // 老式快照号：两位年 + 'w' + 两位周 + 一个小写字母（24w14a / 13w41b）。
-    // **只认这一个长度**：`20w14infinite` 那种愚人节版是另一回事（见头文件里那段"不猜"）。
-    if (lower.size() == 6 && lower.at(2) == QLatin1Char('w')) {
-        const bool digits = lower.at(0).isDigit() && lower.at(1).isDigit() &&
-                            lower.at(3).isDigit() && lower.at(4).isDigit();
-        const QChar suffix = lower.at(5);
-        if (digits && suffix >= QLatin1Char('a') && suffix <= QLatin1Char('z')) {
-            return true;
+    bool lastWasDot = false;
+    for (const QChar c : text) {
+        if (c.isDigit()) {
+            lastWasDot = false;
+            continue;
         }
+        if (c == QLatin1Char('.') && !lastWasDot) {
+            lastWasDot = true;
+            continue;
+        }
+        return false;
     }
-    return false;
+    return !lastWasDot;
+}
+
+/// 快照号长什么样。两件事一起算，是因为"折出来的那一半"正是这两个公开函数唯一的区别。
+struct SnapshotShape {
+    bool snapshot = false;  ///< 这是不是一个快照号
+    QString stem;           ///< 它属于哪个大版本（空串 = 折不出来，比如 24w14a）
+};
+
+/**
+ * @brief 认四套写法，都是 Mojang 真用过的。
+ *
+ * ① 新式快照 `26.2-snapshot-1` / `26.1-snapshot-11` —— 2026-09-27 之前**一条都不认**：
+ *    它们既没有 `-pre`/`-rc`、长度也不是 6，于是不勾「显示快照版」时照样摆在那一排
+ *    chip 上，下载页那棵树的第二层也一家伙多出十来行（26.3-snapshot-1…10 各占一行）。
+ * ② 预览与候选 `1.21.4-pre3` / `26.2-rc1`（新老两套命名都长这样）。
+ * ③ 空格式的预览版 `1.14 Pre-Release 3`、`1.14.2 Pre-Release 4` —— 老 Mojang 的写法：
+ *    分隔符是**空格**、词也写全了。同样是以前一条都不认。
+ * ④ 老式周号 `24w14a`：认得出是快照，但读不出属于哪个大版本（`stem` 留空 = 折不了）。
+ *
+ * 尾巴必须是**末尾那一段**（`1.21.4-pre3`，不是 `1.21.4-pre3-1`），前缀必须是纯数字加点
+ * （见 isPlainVersionStem）。这两条合起来挡掉的就是"把看不懂的号悄悄折成别的号"。
+ */
+SnapshotShape snapshotShapeOf(const QString &version) {
+    SnapshotShape shape;
+    const QString text = version.trimmed();
+    if (text.isEmpty()) {
+        return shape;
+    }
+    const QString lower = text.toLower();
+    if (isWeeklySnapshotId(lower)) {
+        shape.snapshot = true;
+        return shape;
+    }
+    // **长关键词排前面**：`pre-release` 要是排在 `pre` 后面，`1.14 pre-release 3` 会先被
+    // `pre` 那一支认下来，尾巴变成 `-release 3`（不是纯数字）⇒ 整条认不出来。
+    static const QStringList keywords{QStringLiteral("snapshot"), QStringLiteral("pre-release"),
+                                      QStringLiteral("pre"), QStringLiteral("rc")};
+    for (const QString &keyword : keywords) {
+        // 从**最后一次出现**取：`26.2-snapshot-1` 里 `snapshot` 只有一处，这个写法只是
+        // 免得将来有个 `snapshot` 出现在大版本号里（不存在，但取最后一次总是对的）。
+        const int at = lower.lastIndexOf(keyword);
+        if (at <= 0) {
+            continue;  // 没有这个词，或者它就在开头（前面没有"大版本"那一段）
+        }
+        const QString head = lower.left(at);
+        const QChar separator = head.at(head.size() - 1);
+        if (separator != QLatin1Char('-') && separator != QLatin1Char(' ')) {
+            continue;  // `1.21.4pre3` 这种连在一块儿的不认（真没这么写的）
+        }
+        QString suffix = lower.mid(at + keyword.size());
+        if (suffix.startsWith(QLatin1Char('-')) || suffix.startsWith(QLatin1Char(' '))) {
+            suffix = suffix.mid(1);  // `-snapshot-1` / ` Pre-Release 3` 的第二个分隔符
+        }
+        if (suffix.isEmpty()) {
+            continue;
+        }
+        bool allDigits = true;
+        for (const QChar c : suffix) {
+            allDigits = allDigits && c.isDigit();
+        }
+        if (!allDigits) {
+            continue;
+        }
+        const QString stem = head.left(head.size() - 1);
+        if (!isPlainVersionStem(stem)) {
+            continue;  // 折出来不是个版本号（`1.RV-Pre1`）⇒ 当它不是快照
+        }
+        shape.snapshot = true;
+        shape.stem = stem;
+        return shape;
+    }
+    return shape;
+}
+
+}  // namespace
+
+bool isSnapshotGameVersion(const QString &version) {
+    return snapshotShapeOf(version).snapshot;
 }
 
 QString majorGameVersionOf(const QString &version) {
-    if (!isSnapshotGameVersion(version)) {
-        // 正式版原样还回去 —— 调用方因此不必先判一次"这是不是快照"。
+    const SnapshotShape shape = snapshotShapeOf(version);
+    if (!shape.snapshot || shape.stem.isEmpty()) {
+        // 不是快照：原样还回去（调用方因此不必先判一次"这是不是快照"）。
+        // 是快照但折不出来（`24w14a`，前面那个版本号谁都猜不出来）：也原样还回去 ——
+        // 调用方看它"还是快照"就知道这一条折不了（见 gameVersionChoices 里那段）。
         return version;
     }
-    const QString text = version.trimmed();
-    const int dash = text.indexOf(QLatin1Char('-'));
-    if (dash <= 0) {
-        // `24w14a`：老式快照号里读不出"它属于哪个大版本"，原样还回去。调用方看它
-        // "还是快照"就知道这一条折不了（见 gameVersionChoices 里那段）。
-        return text;
-    }
-    return text.left(dash);
+    return shape.stem;
 }
 
 QStringList gameVersionChoices(const QStringList &declaredGameVersions, bool showSnapshots) {

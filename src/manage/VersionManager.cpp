@@ -3888,6 +3888,26 @@ QString dependencyKeyForLoaderKind(VersionManager::LoaderKind kind) {
     return QString();
 }
 
+/// 加载器版本号长得像不像一个版本号：**点分数字**（`47.4.10` / `10.13.4.1614`）。
+///
+/// 判据抄的是 LoaderMeta::listForgeVersions 里那条"只收点分数字的版本号"：Forge 自己的
+/// maven 上带字母后缀的那几个（`10.13.3.1401-1710ls`）连**排序**都没有定义，我们那份列表
+/// 本来就不会把它们交出来，所以"点分数字"对真值是充分的。
+static bool looksLikeLoaderVersion(const QString &text) {
+    if (text.isEmpty()) {
+        return false;
+    }
+    bool sawDigit = false;
+    for (const QChar ch : text) {
+        if (ch.isDigit()) {
+            sawDigit = true;
+        } else if (ch != QLatin1Char('.')) {
+            return false;
+        }
+    }
+    return sawDigit;
+}
+
 /// 一个版本 id 是不是某个**我们装得了的**加载器装出来的，是的话把键和版本号拆出来。
 ///
 /// 三种拼法都有唯一出处（LoaderMeta 里那三个函数），这里只是把它们**反过来读**：
@@ -3898,7 +3918,12 @@ QString dependencyKeyForLoaderKind(VersionManager::LoaderKind kind) {
 /// NOTE: Fabric / Quilt 那两条**从左边切第一刀**（加载器版本到第一个 `-` 为止，剩下的
 ///       都算游戏版本）：游戏版本里真能带 `-`（`1.21-pre1`），加载器版本不会。反过来切的话
 ///       `0.16.14` 会被拆成 `0.16.14` 和空。
-bool loaderIdParts(const QString &id, QString *keyOut, QString *versionOut) {
+///
+/// @param knownVersions 在线清单里那些版本（没取到就是空表）。**只有 Forge 那一条用得上**：
+///        它的分隔符是一个**不带头锚点**的子串（见下面那段 NOTE），光看长相不足以判断
+///        左边那半是不是游戏版本。
+bool loaderIdParts(const QString &id, const QList<MinecraftVersion> &knownVersions,
+                   QString *keyOut, QString *versionOut) {
     const auto fill = [keyOut, versionOut](const QString &key, const QString &version) {
         if (keyOut != nullptr) {
             *keyOut = key;
@@ -3928,10 +3953,24 @@ bool loaderIdParts(const QString &id, QString *keyOut, QString *versionOut) {
     if (loaderLoaderForm(kQuilt, ModpackImport::quiltLoaderKey())) {
         return true;
     }
+    // ★ 2026-09-27：Forge 这条和上面三条**不一样**：它的分隔符 `-forge-` 是个**不带头锚点**
+    //   的子串（`<游戏版本>-forge-<加载器版本>` 只能从中间认），而这一条路要读的 id 里
+    //   混着**用户自己起的名字**（PCL 那类合并实例的 `id` 就是目录名，见 instanceGameVersion
+    //   里那段），于是「1.20.1-forge-版」「26.2hyperland-forge-47.4.10」这种名字从前会被当成
+    //   一个真的 Forge 实例：清单里写上一个不存在的 Forge 版本号，收包的人那边整包装不上，
+    //   而包看上去是好的（正是 .hpp 里那段最怕的失败形态）。
+    //   两道判据一起上，左边那半走**全项目同一套** isKnownGameVersion（清单里有它才算数，
+    //   清单没取到时它自己退回"以数字开头 + 没有空白"的长相判据），右边那半必须是点分数字。
     static const QString kForge = QStringLiteral("-forge-");
     const int forge = id.indexOf(kForge);
     if (forge > 0 && forge + kForge.size() < id.size()) {
-        return fill(ModpackImport::forgeLoaderKey(), id.mid(forge + kForge.size()));
+        const QString gamePart = id.left(forge);
+        const QString loaderPart = id.mid(forge + kForge.size());
+        if (VersionManager::isKnownGameVersion(gamePart, knownVersions) &&
+            looksLikeLoaderVersion(loaderPart)) {
+            return fill(ModpackImport::forgeLoaderKey(), loaderPart);
+        }
+        return false;
     }
     static const QString kNeoForge = QStringLiteral("neoforge-");
     if (id.startsWith(kNeoForge) && id.size() > kNeoForge.size()) {
@@ -4198,6 +4237,11 @@ QString VersionManager::instanceLoaderInfo(const QString &instanceId, QString *k
         return tr("没有给出实例名，不知道要导出哪一个实例。");
     }
 
+    // 在线清单那一份（没取到就是空表），只给 loaderIdParts 里 Forge 那一条用：那条的判据
+    // 要问"左边那半是不是一个真游戏版本"，出处是 isKnownGameVersion()。取法和
+    // instanceGameVersion() 里那句逐字相同（它也是**现取**，不缓存 —— 清单是启动时那一份）。
+    const QList<MinecraftVersion> knownVersions = downloadManager->getAvailableVersions();
+
     // ---- 第一条路：顺着版本 json 的继承链看那一串 id ----
     //
     // 这一条排在前面，因为它是**装在盘上的东西自己说的**：装加载器出来的目录名就是那个
@@ -4218,15 +4262,23 @@ QString VersionManager::instanceLoaderInfo(const QString &instanceId, QString *k
 
         // OptiFine 单独认一次：它那个 id 是安装器自己拼的（`1.18.2-OptiFine_HD_U_H9`），
         // 而且在两种清单里都没有对应的键，loaderIdParts 里根本没有它那一档。
+        //
+        // ★ 2026-09-27：同一个**不带头锚点**的毛病（和 loaderIdParts 里 Forge 那条一样，那
+        //   边有完整来路）—— 左边那半也得是一个真游戏版本。不收这一下的话，用户把实例改名
+        //   成「我的-OptiFine_版」就会被当成"OptiFine 实例"，而这个分支的出路是**拒绝导出**：
+        //   一个好好的实例，因为名字里带了几个字，就一个包都导不出去，报的还是"两种清单里
+        //   都没有 OptiFine 那一格"。右边那半不另判长相 —— OptiFine 的版本名
+        //   （`HD_U_H9`）是它自己一套写法，没有能便宜判出来的形状。
         static const QString kOptiFine = QStringLiteral("-OptiFine_");
         const int optifine = id.indexOf(kOptiFine);
-        if (optifine > 0) {
+        if (optifine > 0 &&
+            VersionManager::isKnownGameVersion(id.left(optifine), knownVersions)) {
             return optifineExportProblem(id.mid(optifine + kOptiFine.size()));
         }
 
         QString key;
         QString version;
-        if (loaderIdParts(id, &key, &version)) {
+        if (loaderIdParts(id, knownVersions, &key, &version)) {
             const QString problem = loaderKeyExportProblem(key, version);
             if (problem.isEmpty()) {
                 if (keyOut != nullptr) {

@@ -250,16 +250,29 @@ void OverlayHost::applyVisibility() {
     relayout();
 }
 
-void OverlayHost::refreshBackdrop() {
-    if (m_overPage) {
-        // 底下压着的是**整页那一档**：要变暗的是那一页，而它一直没动过（收着/摆着都不影响
-        // 那几张像素），开提示那一刻拍的那张照样对。
-        return;
+QPixmap OverlayHost::captureBackdrop() const {
+    // 要变暗的那一块**现在**是谁：整页那一档**正摆在眼前**时是那一层自己（它才是盖在
+    // 底下那些内容上面的东西），其余情况都是当前选项卡那一页。
+    //
+    // NOTE: 判据里那半句 `onOwnersTab()` 不能少。在这之前 refreshBackdrop() 写的是
+    //       `if (m_overPage) return;` —— 它把"底下压着一页"和"那一页正铺在屏幕上"当成
+    //       了同一件事，而页面**收着**（用户在别的选项卡上逛）恰恰把这两件事分开了：
+    //       用户在新选项卡上看到的会是一张**上一个选项卡那一页**的变暗快照。
+    if (m_overPage && onOwnersTab() && m_pageFrame != nullptr) {
+        return snapshot(m_pageFrame);
     }
-    // 底下是普通内容页：换选项卡就是把底下**换成了另一块像素**，重拍一张（不重拍的话，
-    // 用户在别的选项卡上看到的是一张糊着别的页面的底图）。
     QWidget *page = coveredPage();
-    m_backdrop = page != nullptr ? snapshot(page) : QPixmap();
+    return page != nullptr ? snapshot(page) : QPixmap();
+}
+
+void OverlayHost::refreshBackdrop() {
+    // 换选项卡 / 那一页收起来 / 又摆出来 —— 底下那一块**换了**，重拍一张。
+    //
+    // NOTE: 这里以前是一句 `if (m_overPage) return;`，理由是"底下那一页一直没动过"。
+    //       那个理由在"页摆在眼前"时成立，在"页收着"时不成立：**收着**的意思是那一页
+    //       此刻不在屏幕上（见头文件那段），底下压着的是当前选项卡自己的内容。所以现在
+    //       和 openPrompt() 共用同一个判据（captureBackdrop）。
+    m_backdrop = captureBackdrop();
     update();
 }
 
@@ -348,12 +361,7 @@ QWidget *OverlayHost::openPrompt(bool dismissOnOutsideClick) {
     // NOTE: 底下压着一页、而那一页**正收在别的选项卡上**的时候（用户切走之后又冒出来一条
     //       提示），拍的是**现在这一页**：那一页此刻不露面，要变暗的是用户正看着的这块。
     //       `m_overPage` 照旧是 true —— 提示收掉之后还是回到那一页（它只是收着）。
-    if (overPage && onOwnersTab()) {
-        // 底下是整页覆盖层、而且就摆在眼前：拍那一层自己（它才是要变暗的东西）。
-        m_backdrop = snapshot(m_pageFrame);
-    } else {
-        m_backdrop = coveredPage() != nullptr ? snapshot(coveredPage()) : QPixmap();
-    }
+    m_backdrop = captureBackdrop();
 
     m_mode = Mode::Prompt;
     // 整页那一层就此收起来（不是"藏起来就行" —— 藏起来之后底下那些控件还能收到键盘焦点
@@ -452,6 +460,12 @@ void OverlayHost::setPageTitle(const QString &title) {
     if (m_titleLabel != nullptr) {
         m_titleLabel->setText(title);
     }
+}
+
+QString OverlayHost::pageTitle() const {
+    // 页眉上那行字就是"现在开着的是哪一页"的**唯一出处**（`openPage()` / `execPage()`
+    // 灌进来、`setPageTitle()` 改的就是它）—— 这儿不另存一份成员，存两份迟早对不上。
+    return m_titleLabel != nullptr ? m_titleLabel->text() : QString();
 }
 
 int OverlayHost::execPrompt(QDialog *dialog, bool dismissOnOutsideClick) {

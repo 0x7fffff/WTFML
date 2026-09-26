@@ -90,6 +90,12 @@ public:
         int xms = 0;
         bool autoMemory = true;
         QString extraJvmArgs;
+        /// 「最大内存」那一格允许拖到的上限（MB）—— 这台机器的物理内存，**由调用方算好
+        /// 喂进来**。`ui/` 不许依赖 `src/`，这一页自己也读不到系统内存。
+        ///
+        /// NOTE: <= 0 表示调用方没给（验证工程里那些只验结构的构造点），退回内置的
+        ///       MainWindowUI::memoryLimitMaxMb()。**别**把 0 当成"这台机器没有内存"。
+        int memoryCapMb = 0;
     };
 
     /**

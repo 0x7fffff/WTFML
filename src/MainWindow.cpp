@@ -4568,10 +4568,17 @@ void MainWindow::installResourceVersion(ResourceCatalog::Kind kind, const QStrin
     //   · 纯原版实例 + 一个带加载器的模组 → 也放行（读不出加载器的实例和纯原版在这里分不开，
     //     宁可漏拦也不要拦住一个本来装得上的）。
     // 拦下来的是**问一句**，不是禁止 —— 用户说"就要这么装"就照装。
+    //
+    // ★ 2026-09-27：比的这一下从前是 `contains()` —— 子串比较。于是这一个闸**恰好漏掉了它
+    //   最该拦的那一对**：实例是 Forge、这一版是 NeoForge 的模组时，
+    //   `"neoforge".contains("forge")` 为真 ⇒ 不报，直接装下去；而反过来（NeoForge 实例装
+    //   只列了 forge 的模组）也一样漏。两个名字是**互为子串**的，这一对照的是"同一族里的
+    //   另一个"，恰恰是症状最像"装上了、进去就崩"的那一种。
+    //   改成一字不差地比（大小写不敏感：实例那边是显示名 `NeoForge`，模组那边是小写）。
     const VersionDisplayParts parts = m_versionManager->displayParts(instanceId);
     const QString instanceLoader = parts.loaderName.toLower();
     if (loaderMatters && !instanceLoader.isEmpty() && version.loaders.size() == 1
-        && !version.loaders.first().contains(instanceLoader)) {
+        && version.loaders.first().compare(instanceLoader, Qt::CaseInsensitive) != 0) {
         const auto answer = InlineMessage::question(m_ui->overlay(), tr("加载器对不上"),
             tr("这个实例是 %1 %2，而这一版是给 %3 用的。\n\n"
                "装进去多半不会生效（游戏进去可能直接崩）。还要装吗？")
@@ -5369,21 +5376,11 @@ void MainWindow::refreshMemoryUi() {
 }
 
 void MainWindow::applyMemoryLimits(qint64 totalMb) {
-    // 条上的档位和数字框的步长都是 256 ⇒ 上限也往下取到 256 的整数倍：不然一台物理内存
-    // 16257 MB 的机器上，上限写 16257、条拖到头只能停在 16128（档位表最后一格），
-    // 而数字框里打得进 16257 —— 同一件事两个数，用户只会觉得是坏的。
-    int capMb = MainWindowUI::memoryLimitMaxMb();
-    if (totalMb > 0) {
-        const qint64 aligned = (totalMb / 256) * 256;
-        capMb = aligned < capMb ? int(aligned) : capMb;
-    }
-    // 兜底：读出来的数小得离谱时别把上限压到下限以下（qBound 那种 min > max 会取到没意义的
-    // 值），上下限至少是"一格"。真出现这种情况时上限等于下限，那一行就是灰的动不了，
-    // 比"能拖到一个起不来的数"强。
+    // 算法是 MainWindowUI::memoryCapForTotalMb() —— **不是**这里现算一遍：实例设置那一页
+    // 也要按同一个上限收口（见 InstanceSettingsDialog 里那段），两处各写一份的话迟早会
+    // 长得不一样，而"设置页能填 4096、实例页能填 16384"这种不一致用户一眼就能看出来。
+    int capMb = MainWindowUI::memoryCapForTotalMb(totalMb);
     const int minMb = MainWindowUI::memoryMaxMinMb();
-    if (capMb < minMb) {
-        capMb = minMb;
-    }
 
     // 只改上下限、不动值：调用方紧接着就灌值了（见 refreshMemoryUi）。挡信号是因为
     // 改上限时数字框会自己夹一下当前值、条也会跟着重排档位 —— 那两发都不该被当成
@@ -7026,6 +7023,9 @@ QString MainWindow::instanceKey(const QString &versionId) const {
 }
 
 void MainWindow::onGroupInstanceClicked() {
+    if (!overlayAcceptsNewPage()) {
+        return;
+    }
     // 每个组里有多少个实例：从**当前那张树**上数，不重新扫盘。它就是用户此刻看到的
     // 东西，而对话框拿它显示「组名 (N)」和"删这个组会有多少实例变成未分组"——
     // 两处都该和屏幕上的数字一致。
@@ -7413,6 +7413,9 @@ void MainWindow::openInstanceSettings(const QString &versionId) {
         InlineMessage::information(m_ui->overlay(), tr("实例设置"), tr("先选中一个实例。"));
         return;
     }
+    if (!overlayAcceptsNewPage()) {
+        return;
+    }
 
     // 已经写了的那部分覆盖从 meta 里读回来当起点，「当前全局是哪个值」由 global 提供。
     // 读归读，**这里一个字节都不写** —— 写盘只发生在下面那两条接线里（2026-09-26 起这一页
@@ -7421,9 +7424,14 @@ void MainWindow::openInstanceSettings(const QString &versionId) {
         javaOverrideFromJson(m_versionManager->versionMeta(versionId));
     // 第二个参数是**目录名**（改名要改的就是它），第一个是显示名（页眉上那行字）——
     // 两个值可以不一样（自定义名、拼进去的加载器名），页面上是分开的两行。
+    InstanceSettingsDialog::GlobalValues global = toDialogGlobal(m_javaSettings->effective());
+    // 「最大内存」那一格能拖到哪儿 = **设置页那一格能拖到哪儿**，取的是设置页那个数字框现在的
+    // 上限（开窗时 applyMemoryLimits 已经按这台机器的物理内存收过口，见 refreshMemoryUi）。
+    // 不在这儿另读一次系统内存，是为了两页**逐字同一个数**：用户刚在设置页看见"最多 16256"，
+    // 切到实例页又是另一个上限的话，两页各说各的。
+    global.memoryCapMb = m_ui->getMemoryMaxSpin()->maximum();
     InstanceSettingsDialog dialog(instanceDisplayName(versionId), versionId,
-                                  toDialogOverride(current),
-                                  toDialogGlobal(m_javaSettings->effective()),
+                                  toDialogOverride(current), global,
                                   m_versionManager->versionJvmArgs(versionId),
                                   !m_versionManager->skipJavaVersionWarning(versionId), this);
     // ---------- 概览栏那四行的初值（2026-09-26）----------
@@ -7794,6 +7802,31 @@ bool MainWindow::toggleInstanceFile(const QString &path) {
     return true;
 }
 
+bool MainWindow::overlayAcceptsNewPage() {
+    OverlayHost *overlay = m_ui->overlay();
+    if (overlay == nullptr || !overlay->isOpen()) {
+        return true;
+    }
+    // 挡在这儿的是**已经开着的那一页**（一层只放得下一个页面，见 OverlayHost.hpp 那段）。
+    // 它可能是"正铺在眼前"（用户点的是底栏那些没被盖住的按钮），也可能是"收着"——用户在
+    // 别的选项卡上逛的时候，顶上那四颗导航按钮会把页面收起来，而**收着也照样占着这一层**。
+    //
+    // NOTE: **这一条不能不出声。** 在这之前这两个入口一个判据都没有：`execPage()` 拿到
+    //       nullptr 直接返回 Rejected，对话框建了、一个字节没写、原地销毁 —— 用户点了实例
+    //       行（或者组行那颗齿轮），屏幕上**什么都没发生**，也没有任何提示。挡住用户操作的
+    //       事必须说清楚，而且得说清"怎么办"：收着的页面连返回箭头都不认
+    //       （见 OverlayHost::dismiss()：那一发落在它头上 = "我在主页点了一下主页，下载页
+    //       那个详情页自己没了"），所以唯一的出路是回它自己那颗选项卡上去关。
+    const QString title = overlay->pageTitle();
+    InlineMessage::warning(overlay, tr("先关掉现在这一页"),
+                           tr("「%1」那一页还开着。切到别的选项卡时它会收起来，但它一直占着"
+                              "这个位置 —— 顶上那四颗导航按钮一次只放得下一个页面。\n\n"
+                              "回到「%1」那一颗选项卡，点左上角的「←」把它关掉，再回来开"
+                              "这个。")
+                               .arg(title));
+    return false;
+}
+
 bool MainWindow::deleteInstanceFile(const QString &path) {
     const QFileInfo info(path);
     if (!info.exists()) {
@@ -7812,7 +7845,13 @@ bool MainWindow::deleteInstanceFile(const QString &path) {
                                  tr("取消"), false)) {
         return false;
     }
-    const bool removed = isDir ? QDir(path).removeRecursively() : QFile::remove(path);
+    // **不能**用 `QDir::removeRecursively()`：实测（见 FolderManager.cpp 里那段）它会跟着
+    // junction / 符号链接走进目标目录，把**实例目录外面**的东西删掉。把 `saves` 挂到网盘、
+    // 把 `mods` 挂到另一块盘都是常见做法，而这一页的目录行（模组 / 资源包 / 数据包 / 光影包
+    // / 原理图那几页）都挂着删除按钮 ⇒ 用户点的是"删掉这个文件夹"，落点却跨出了实例。
+    // 另外两条销毁路径（删游戏文件夹、删版本）走的也是这个函数。
+    const bool removed =
+        isDir ? removeTreeWithoutFollowingLinks(path) : QFile::remove(path);
     if (!removed) {
         InlineMessage::warning(m_ui->overlay(), tr("删除失败"),
                                tr("没能删掉「%1」：多半是它正被游戏占着。先把游戏关掉再试。")
@@ -8309,6 +8348,22 @@ void MainWindow::exportModpack(const QString &versionId, const QString &targetPa
     if (plan.notDistributable > 0) {
         lines.append(tr("其中 %1 个的作者关掉了第三方分发 —— 它们只能跟着包走。")
                          .arg(plan.notDistributable));
+    }
+    // 「其中」串的是上面那句「其余 N 个原样打进了包里」—— 这几句说的都是那一堆里的
+    // （所以它们摆在「另外…」那句前面，那一句说的是**不在**那一堆里的）。
+    if (plan.keptLocalState > 0) {
+        lines.append(tr("其中 %1 个是你改过名字（或者禁用着）的 —— 它们也原样进包，"
+                        "名字和状态都照你盘上那样留着，装的人那边不会被改回启用。")
+                         .arg(plan.keptLocalState));
+    }
+    // ★ 2026-09-27：这一句和上面「作者关掉了第三方分发」那句**不能合成一句**。那一句
+    //   说的是"接口明说了原因"，这一句说的是"接口没说" —— 接口没给 `isAvailable` 这一项时
+    //   （字段改名、回复被截断等等），从前也算进那个数里，于是报告凭空替作者认下一个
+    //   "关了第三方分发"。用户拿着那句话去 CurseForge 上翻作者设置，是永远翻不出所以然的。
+    if (plan.notDistributableUnknown > 0) {
+        lines.append(tr("另外 %1 个没能问出能不能分发（CurseForge 的回复里没有这一项）—— "
+                        "它们也原样进了包，装的人照样能用，只是不能替他单独更新或者去重。")
+                         .arg(plan.notDistributableUnknown));
     }
     if (!plan.hashFailures.isEmpty()) {
         lines.append(tr("有 %1 个文件连哈希都没算出来（读取失败），它们也原样进了包。")
