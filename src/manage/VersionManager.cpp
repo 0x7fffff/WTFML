@@ -3809,10 +3809,17 @@ void VersionManager::onAllDownloadsFinished(bool success) {
         if (m_modpackInstall.phase == ModpackInstall::Phase::DownloadingFiles) {
             if (!success) {
                 // 半成品目录**刻意留着**（几百 MB 已经下好的文件在里面，删是不逆的）：
-                // 失败那句话得说清它在哪、以及想重试要先删掉它（重名会拦下第二次导入）。
+                // 失败那句话得说清它在哪、以及**怎么接着下**。
+                // NOTE: 原来这里写的是「先把那个目录删掉，再导入一次」—— 那是「接着下」
+                //       （`ImportNameVerdict::OkResume`，2026-09-22 加的）**之前**留下来的
+                //       说法，照它做等于把几百 MB 白删、还把唯一能续的点毁了。这一支失败时
+                //       实例那份薄 json 已经落盘（`startModpackFiles()` 的第一步就是写它），
+                //       所以 `isUnfinishedImport()` 认得出这个目录 ⇒ 同一个包、同一个名字
+                //       再导入一次就走 OkResume，已经下好的按 sha1 跳过。
                 failModpackImport(
                     tr("整合包里有 %1 个文件没下下来，没有装完。\n%2\n\n已经下好的那些留在 %3 "
-                       "里了 —— 想重试的话，先把那个目录删掉，再导入一次。")
+                       "里了 —— 拿同一个整合包、同一个实例名再导入一次就会接着下"
+                       "（已经下好的按 sha1 跳过）。")
                         .arg(stats.failed)
                         .arg(message, AppPaths::versionDir(m_modpackInstall.instanceId)));
                 return;
