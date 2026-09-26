@@ -6888,7 +6888,8 @@ void MainWindow::openInstanceSettings(const QString &versionId) {
     }
 
     // 已经写了的那部分覆盖从 meta 里读回来当起点，「当前全局是哪个值」由 global 提供。
-    // 读归读，这里一个字节都不写 —— 用户点「取消」时磁盘必须原样。
+    // 读归读，**这里一个字节都不写** —— 写盘只发生在下面那两条接线里（2026-09-26 起这一页
+    // 没有「确定」，改一格就写一格）。
     const JavaSettingsOverride current =
         javaOverrideFromJson(m_versionManager->versionMeta(versionId));
     // 第二个参数是**目录名**（改名要改的就是它），第一个是显示名（页眉上那行字）——
@@ -6941,13 +6942,26 @@ void MainWindow::openInstanceSettings(const QString &versionId) {
     //
     // **所有路径都由这一层算好递进去**：那几个目录名是 MC 的约定，出处是
     // ResourceCatalog::folderForKind()（见 instanceFileDirs()），ui/ 不抄第二份。
-    dialog.setInstanceDir(AppPaths::versionDir(versionId));
-    dialog.setFileDirs(instanceFileDirs(versionId));
-    // 「光影包」和「原理图」这两页要**装了东西才有意义** —— 判据得读 wtfml.meta 的加载器名
-    // 和扫 mods/ 目录，两样都在这一层。
-    dialog.setShaderUsable(instanceShaderUsable(versionId));
-    dialog.setSchematicUsable(instanceHasMod(versionId, QStringLiteral("litematica")));
-    loadServerList(&dialog, versionId);
+    //
+    // ★ 收成一个 lambda 而不是直接写四句：**改完名要整份重算**（下面那条改名线里调它）。
+    //   改名会把整个实例换到另一个目录，那八条路径、那两页的可用性、"这九颗按钮开的是
+    //   哪儿"全都跟着换 —— 不重算的话，用户改完名点「模组」，看的是那个**已经不在了**
+    //   的老目录；再点一下「打开文件夹」，`mkpath()` 会把老目录重新建出来（一个只有几个
+    //   空文件夹的空壳实例）。这是改名和"实时写"凑到一起才会露出来的一类坑。
+    //
+    // NOTE: 它按**引用**收 targetId（而不是收一个 QString）：改名之后那个值变了，重算
+    //       必须看新值。下面那些 lambda 也是同一个理由全都按引用捕获它。
+    QString targetId = versionId;
+    const auto refreshInstanceDirs = [this, &dialog](const QString &id) {
+        dialog.setInstanceDir(AppPaths::versionDir(id));
+        dialog.setFileDirs(instanceFileDirs(id));
+        // 「光影包」和「原理图」这两页要**装了东西才有意义** —— 判据得读 wtfml.meta 的
+        // 加载器名和扫 mods/ 目录，两样都在这一层。
+        dialog.setShaderUsable(instanceShaderUsable(id));
+        dialog.setSchematicUsable(instanceHasMod(id, QStringLiteral("litematica")));
+        loadServerList(&dialog, id);
+    };
+    refreshInstanceDirs(targetId);
 
     // 两条**动作**信号（2026-09-26）：这一页里那两颗按钮（导出启动脚本 / 补全文件）不自己
     // 干活 —— ui/ 那边不 include src/、也不碰磁盘，"这一次到底执行什么"只有这一层知道
@@ -6956,13 +6970,13 @@ void MainWindow::openInstanceSettings(const QString &versionId) {
     // 接在 execPage **之前**：那一下会阻塞在一个嵌套事件循环里（用户在页面上点按钮时，
     // 这一句还没返回），接晚了就一辈子收不到。
     //
-    // NOTE: dialog 是**栈上的局部对象**，所以这两条 connect 用 lambda 捕获 versionId ——
+    // NOTE: dialog 是**栈上的局部对象**，所以这几条 connect 用 lambda 捕获它和 targetId ——
     //       这里没有 m_instanceSettingsDialog 那种成员（也刻意不加：加了就得管生命周期，
     //       而这一页每次都是新开一个）。
     connect(&dialog, &InstanceSettingsDialog::exportLaunchScriptRequested, this,
-            [this, versionId](const QString &path) { exportLaunchScript(versionId, path); });
+            [this, &targetId](const QString &path) { exportLaunchScript(targetId, path); });
     connect(&dialog, &InstanceSettingsDialog::repairFilesRequested, this,
-            [this, versionId]() { repairInstanceFiles(versionId); });
+            [this, &targetId]() { repairInstanceFiles(targetId); });
 
     // 「文件管理」那三发（2026-09-26）：开文件夹 / 启用·禁用一条 / 删一条。
     //
@@ -6994,36 +7008,69 @@ void MainWindow::openInstanceSettings(const QString &versionId) {
             });
     // 服务器列表那一页的「刷新」：重读一遍 servers.dat 再递进去。
     connect(&dialog, &InstanceSettingsDialog::refreshServerListRequested, this,
-            [this, versionId, &dialog]() { loadServerList(&dialog, versionId); });
+            [this, &dialog, &targetId]() { loadServerList(&dialog, targetId); });
 
-    // 这一页盖在内容区上（标签栏和底栏都留着），左上角那颗返回箭头 = 取消（见
+    // ---------- 「改了就写」那两条（2026-09-26）----------
+    //
+    // ★ 用户原话：「实例设置里面的那个取消和确定删了，修改了的设置实时写入」。从前收尾那
+    //   一段（`execPage` 返回之后读对话框、改名、写设置）**整个搬到这两条 lambda 里** ——
+    //   写什么、按什么顺序写，一个字没变，只是时机从"点确定"变成了"值真的变了"
+    //   （对话框那边保证：值没变不发，见 notifyEdited()）。
+    //
+    // NOTE: `targetId` 是**活到 execPage 结束**的那个局部变量（上面算目录时就摆好了；
+    //       下面 execPage 会阻塞在嵌套事件循环里，这一层的栈一直站着），改名成功之后它
+    //       跟着换 —— 不换的话，改完名之后动任何一个开关都会写到**老目录名**上，而
+    //       updateVersionMeta() 会照着老名字把目录重新建出来，用户手上就多一个只有一份
+    //       wtfml.meta 的空壳实例。
+    connect(&dialog, &InstanceSettingsDialog::settingsEdited, this,
+            [this, &dialog, &targetId]() { applyInstanceSettings(targetId, dialog); });
+
+    // 改名：**排在写设置之外自己一条**（用户 2026-09-25 原话「重命名进实例设置」）。
+    // 两件事不能合成一条 —— 改名的副作用是**整个实例换了个目录**，写设置必须发生在它
+    // 之后（顺序反了就是上面那个空壳实例）。对话框那边也把这两件事分成了两条信号：
+    // 那一格走 `editingFinished`（回车 / 失焦），正好是"这次改名想清楚了"的那一刻。
+    connect(&dialog, &InstanceSettingsDialog::renameRequested, this,
+            [this, &dialog, &targetId, &refreshInstanceDirs](const QString &name) {
+                const QString wanted = name.trimmed();
+                // 空 = 用户把那一格清空了（不是"想改成没有名字"），等于没改。
+                if (wanted.isEmpty() || wanted == targetId) {
+                    dialog.setInstanceName(targetId);
+                    return;
+                }
+                if (!applyRename(targetId, wanted)) {
+                    // ★ 失败要把那一格退回原样。不退回的话，用户眼前那一格写着新名字、
+                    //   而磁盘上还是老名字 —— 他接着动任何一个开关，那一次写入就落到一个
+                    //   **不存在的目录**上（updateVersionMeta() 会照着它把目录建出来）。
+                    //   applyRename() 已经把原因弹出来了，这里只负责让界面别撒谎。
+                    dialog.setInstanceName(targetId);
+                    return;
+                }
+                // 改完名之后写的是**新目录**（applyRename() 里那句 refreshInstalledVersions()
+                // 已经把列表和下拉框都换到新名字上了）。
+                targetId = wanted;
+                dialog.setInstanceName(targetId);
+                // 「文件管理」那八页说的也是**这个实例的目录**，整份跟着重算 ——
+                // 重算之前它们还指着那个已经不在了的老目录（见上面那个 lambda 的 NOTE）。
+                refreshInstanceDirs(targetId);
+                // 页眉上那行字也是"这个实例叫什么"，跟着换 —— 不换的话页面上最高处还写着
+                // 老名字，而它底下那一格已经是新的了。
+                //
+                // NOTE: 先让对话框把**它自己那行标题**重拼一遍（`titleText()` 读的就是它），
+                //       再拿它去问覆盖层要那行字。`titleText()` 在改名前是**构造时按当时那个
+                //       名字拼好的死字符串** —— 不重拼就直接递给 setPageTitle，页眉上写的
+                //       还是老名字（而且看不出来哪里错了：两边调的是同一个函数）。
+                dialog.setInstanceDisplayName(instanceDisplayName(targetId));
+                m_ui->overlay()->setPageTitle(dialog.titleText());
+            });
+
+    // 这一页盖在内容区上（标签栏和底栏都留着），左上角那颗返回箭头 = 关掉这一页（见
     // OverlayHost::execPage）。标题写在页眉上，所以这一页自己那行标题要收起来 ——
     // 两行一模一样的字挨着是重复，不是强调。
-    dialog.setTitleVisible(false);
-    if (m_ui->overlay()->execPage(&dialog, dialog.titleText()) != QDialog::Accepted) {
-        // 取消 / 返回箭头：wtfml.meta 一个字节都没动（对话框只把控件读成一份值）。
-        return;
-    }
-
-    // ★ 顺序：**改名排在写设置之前**（用户 2026-09-25 原话：「重命名进实例设置」）。
-    //   反过来先写设置的话，那一次写入会落到老目录上 —— 而改名刚把它搬走，于是
-    //   updateVersionMeta() 会**照着老名字把目录重新建出来**，用户手上就多了一个
-    //   空壳实例（里面只有一份 wtfml.meta）。
     //
-    //   改名失败（名字不合法 / 目录被占着 / 已经有一个同名的）就**整个停手**：
-    //   applyRename() 已经把原因弹出来了，这里再往下走就是"名字没改成、设置却写进了
-    //   一个用户没预期的实例里"。
-    const QString newName = dialog.instanceName().trimmed();
-    QString targetId = versionId;
-    if (!newName.isEmpty() && newName != versionId) {
-        if (!applyRename(versionId, newName)) {
-            return;
-        }
-        // 改完名之后要写的是**新目录**（applyRename() 里那句 refreshInstalledVersions()
-        // 已经把列表和下拉框都换到新名字上了）。
-        targetId = newName;
-    }
-    applyInstanceSettings(targetId, dialog);
+    // NOTE: 这一页**不再 accept**（没有「确定」了），所以这里**不看返回值** —— 关页
+    //       不等于放弃（该写的早就在上面那些 lambda 里写完了），"关掉"就是"关掉"。
+    dialog.setTitleVisible(false);
+    m_ui->overlay()->execPage(&dialog, dialog.titleText());
 }
 
 // ---------- 实例设置「文件管理」那八页（见 .hpp 里那一段）----------
@@ -7227,7 +7274,11 @@ bool MainWindow::applyInstanceSettings(const QString &versionId,
     // NOTE: 拷失败**不把整次保存赔进去**（只报一声、meta 里那一格保持原样）：用户改的内存 /
     //       Java 路径和图标是两件事，为前者把后者一起丢掉是替用户做主。写回去的那个值是
     //       **磁盘上现在是什么**、不是"这次没改"，所以这一次写入不会动它 —— 而要是直接写
-    //       dialog.iconChoice()，用户按一次确定就会把原来那张图从 meta 里抹掉。
+    //       dialog.iconChoice()，用户清掉图标就会把盘上那张删了却还以为换成了默认的。
+    //
+    // ★ `iconBefore` 是**这一次写之前** disk 上那个值，用来回答"这次改动里包含图标吗"
+    //   （见函数末尾那一发 refreshInstalledVersions()）。
+    const QString iconBefore = m_versionManager->versionIcon(versionId);
     QString iconValue = dialog.iconChoice();
     const QString pickedIcon = dialog.pickedIconPath();
     if (!pickedIcon.isEmpty()) {
@@ -7250,6 +7301,21 @@ bool MainWindow::applyInstanceSettings(const QString &versionId,
         return false;
     }
     appendLog(tr("实例设置已保存：%1").arg(versionId));
+
+    // 图标换了，就得让实例树上那一格跟着换。`updateVersionMeta()` **没有任何"meta 变了"
+    // 的信号**（它是数据层，不认得上层谁在看），而写入 Meta 之后树上那一格的图标是从
+    // meta 现读的 —— 不重扫的话用户回到实例页看到的还是老图标，得等下一次下载或者重启。
+    //
+    // 判据是"写之前那个值和现在盘上那个值一样不一样"，**不是**"这次有没有碰图标那一格"：
+    // 实时写盘之后 applyInstanceSettings() 每次值一变就会被调一次（改个内存数字也算），
+    // 无条件重扫等于每敲一下就全盘扫一遍目录。
+    //
+    // NOTE: 只有图标这一项在这儿重扫。名字那一项走 renameRequested → applyRename，
+    //       那边自己会刷（`applyRename()` 里那句）。分组/置顶在下面，它们各自走
+    //       setInstanceHomeGroup / pin / unpin，那三个会发 groupsChanged 把树重灌。
+    if (m_versionManager->versionIcon(versionId) != iconBefore) {
+        refreshInstalledVersions();
+    }
 
     // ---------- 分组 / 置顶（2026-09-26，当天晚些时候改成"两边都显示"）----------
     //

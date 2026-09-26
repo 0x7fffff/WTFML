@@ -5,8 +5,11 @@
  * @date 2026-09-21
  * @note 这里**不落盘、不碰 src/**：值从控件读，落盘在 MainWindow 那边。
  *
- * 这一层唯一的"业务判断"是内存那两行在自动档下的表现（禁用 + 点确定时不写覆盖），
+ * 这一层唯一的"业务判断"是内存那两行在自动档下的表现（禁用 + 不写覆盖），
  * 理由写在 .hpp 的 override() 上。
+ *
+ * 2026-09-26 起这一页**没有「确定 / 取消」**：值一改就发 `settingsEdited()`，写盘那边
+ * 接住就写（见 .hpp 里那个信号）。所以这一层的出口是**两条信号**加那一堆读值的函数。
  *
  * 2026-09-26 起这一页是**三栏**（大类 | 小类 | 内容，见 .hpp 里 categoryKeys() 那一段）：
  * 控件全部直接挂在 `this` 上、按 objectName 认，所以分栏对"读值"这一侧一个字都没改
@@ -33,6 +36,7 @@
 #include <QPushButton>
 #include <QRadioButton>
 #include <QScreen>
+#include <QScrollArea>
 #include <QSignalBlocker>
 #include <QSize>
 #include <QSpinBox>
@@ -73,6 +77,12 @@ constexpr int kIconPreviewSize = 64;
 constexpr int kIconCandidateSize = 32;
 /// 候选按钮一排摆几颗。八颗正好两排。
 constexpr int kIconCandidatesPerRow = 4;
+
+/// 这一页顶上那行标题长什么样。**唯一出处**：构造时那一行和 `setInstanceDisplayName()`
+/// 那一行都走它（两边各拼一次的话，改完名之后那行字的格式迟早会飘）。
+QString titleTextFor(const QString &displayName) {
+    return InstanceSettingsDialog::tr("实例设置：%1").arg(displayName);
+}
 
 /// 把一列导航（左栏大类 / 中栏小类）摆进三栏那一行。
 ///
@@ -242,7 +252,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     outer->setContentsMargins(12, 12, 12, 12);
     outer->setSpacing(10);
 
-    auto *title = new QLabel(tr("实例设置：%1").arg(instanceName), this);
+    auto *title = new QLabel(titleTextFor(instanceName), this);
     m_titleLabel = title;
     title->setObjectName(titleLabelName());
     QFont titleFont = title->font();
@@ -330,7 +340,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         line->setContentsMargins(0, 0, 0, 0);
         line->setSpacing(12);
 
-        // 预览：这张图就是"点确定之后树上会长什么样"。定死边长，换图时整行不跟着跳。
+        // 预览：这张图就是"换完图标之后树上会长什么样"。定死边长，换图时整行不跟着跳。
         m_iconPreview = new QLabel(cell);
         m_iconPreview->setObjectName(iconPreviewName());
         m_iconPreview->setFixedSize(kIconPreviewSize, kIconPreviewSize);
@@ -419,14 +429,15 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             button->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
             button->setIconSize(QSize(kIconCandidateSize, kIconCandidateSize));
             button->setCheckable(true);
-            // 和底下那排「确定 / 取消」同一条：点一下换个样子，不该抢键盘焦点
-            // （抢了之后回车就不再是"确定"了）。
+            // 和设置页那些"点一下换个样子"的按钮同一条：不该抢键盘焦点（抢了之后
+            // 键盘上那几下就不再是"在这张浮层上操作"了）。
             button->setFocusPolicy(Qt::NoFocus);
             const QString key = keys.at(i);
             connect(button, &QToolButton::clicked, this, [this, key]() {
                 m_iconChoice = VersionIcons::iconValueForKey(key);
                 // 换了内置候选 = 用户不要刚才挑的那张本地图了。**不删盘上那份**：
-                // 它现在还在原处，而实例目录里那份要等点确定才动（见 pickedIconPath()）。
+                // 它现在还在原处，而实例目录里那份要等这一次改动落到盘上才被换掉
+                // （见 pickedIconPath()）。
                 m_pickedIconPath.clear();
                 refreshIconRow();
                 // 挑完就收：这颗按钮是"选一个"，不是"切换一个开关"。留着框开着挡住的
@@ -455,6 +466,9 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             m_iconChoice = localIconValue();
             m_pickedIconPath = picked;
             refreshIconRow();
+            // 这一发 `clicked` **在框弹出来之前**就发完了（用户挑完图是那之后的事）
+            // ⇒ 改完自己补一发（见 .hpp 里 watchEditors() 那段 NOTE 点的第二处）。
+            notifyEdited();
             m_iconMenu->close();
         });
         actions->addWidget(pick);
@@ -578,8 +592,13 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             if (!picked.isEmpty()) {
                 m_javaPathEdit->setText(picked);
                 // 选了一个具体文件 = 用户明确要这个，顺手把这一行切成「自定义」。
-                // 不切的话他选了路径、这一行还在"跟随全局"，点确定等于什么都没发生。
+                // 不切的话他选了路径、这一行还在"跟随全局"，这一次选择等于什么都没发生。
                 m_javaPathCustom->setChecked(true);
+                // ★ 这两句都是**程序化**改值（`setText` 不发 editingFinished，`setChecked`
+                //   只在单选钮**从没选中变成选中**时才发 toggled）⇒ watchEditors() 那几条
+                //   按类型的线一条都不响。改完自己补一发（见 .hpp 里 watchEditors() 那段
+                //   NOTE 里点名的两处，这是第一处）。
+                notifyEdited();
             }
         });
         choiceRow->addWidget(browse);
@@ -793,7 +812,8 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                 dir + QLatin1Char('/') + m_instanceId + QStringLiteral(".bat");
             // 开的是 **Windows 自己的保存框**（和上面「浏览…」选 java.exe 同一档：全项目
             // 就剩这几处独立窗，理由见 MainWindow.cpp 里 onAddFolderClicked() 上面那段）。
-            // 取消 = 什么都不做，和点了返回箭头是同一件事。
+            // 那个框上的「取消」= 什么都不做（**不是"取消这一页的设置"** —— 这一页没有
+            // 那种东西了，改过的值早写进盘里了，见文件头那一段）。
             const QString picked = QFileDialog::getSaveFileName(
                 this, exportScriptText(), suggested, tr("批处理文件 (*.bat)"));
             if (picked.isEmpty()) {
@@ -1011,24 +1031,42 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     // 八颗按钮也得是**八颗都没勾**的样子，而不是停在某个随机状态上。
     refreshIconRow();
 
-    // ---------- 确定 / 取消 ----------
-    auto *buttons = new QHBoxLayout;
-    buttons->addStretch(1);
-    auto *cancel = new QPushButton(tr("取消"), this);
-    cancel->setObjectName(cancelButtonName());
-    auto *confirm = new QPushButton(tr("确定"), this);
-    confirm->setObjectName(confirmButtonName());
-    confirm->setDefault(true);
-    buttons->addWidget(cancel);
-    buttons->addWidget(confirm);
-    outer->addLayout(buttons);
-
-    connect(cancel, &QPushButton::clicked, this, &QDialog::reject);
-    connect(confirm, &QPushButton::clicked, this, &QDialog::accept);
+    // ---------- 「改了就写」那套 ----------
+    //
+    // ★ 2026-09-26：**底下那排「取消 / 确定」删了**（用户原话「实例设置里面的那个取消和
+    //   确定删了，修改了的设置实时写入」）。于是这一页只剩两条出口，都由覆盖层那一层管：
+    //   左上角那颗返回箭头 = 关页（`execPage` 的 reject），Esc 同它。没有"提交"这一下，
+    //   也不再有"改了一堆又后悔"—— 改一格就落一格，这是用户点名要的。
+    //
+    // NOTE: 删掉那排按钮之后，**这个对话框自己不再 accept**（从前那颗「确定」是
+    //       `confirm->setDefault(true)` 的默认按钮）。`execPage` 那边判的是 Accepted /
+    //       Rejected，现在永远是后者 —— 而那正是"这一页关掉了"的意思，它不看返回值
+    //       做什么（见 MainWindow::openInstanceSettings() 收尾那一段）。
+    watchEditors();
+    // 起点 = 现在这一份（灌值那一串 setChecked/setText 都已经跑完）。不记这一笔的话，
+    // 打开页面之后的第一次交互会把"整份值"当成一次改动写一遍盘。
+    m_lastSignature = valueSignature();
 }
 
 QString InstanceSettingsDialog::titleText() const {
     return m_titleLabel != nullptr ? m_titleLabel->text() : QString();
+}
+
+void InstanceSettingsDialog::setInstanceName(const QString &name) {
+    m_instanceId = name;
+    if (m_instanceNameEdit == nullptr) {
+        return;
+    }
+    // **不当成"用户改了这一格"**：程序化 `setText()` 本来也不发 editingFinished，这里
+    // 也不需要挡什么 —— 这一句只是让控件和"磁盘上现在叫什么"重新对上（改名成功之后是
+    // 新名字，失败之后退回老名字）。
+    m_instanceNameEdit->setText(name);
+}
+
+void InstanceSettingsDialog::setInstanceDisplayName(const QString &displayName) {
+    if (m_titleLabel != nullptr) {
+        m_titleLabel->setText(titleTextFor(displayName));
+    }
 }
 
 QString InstanceSettingsDialog::instanceName() const {
@@ -1047,12 +1085,28 @@ void InstanceSettingsDialog::setTitleVisible(bool visible) {
 // ---------- 分栏（见 .hpp 里 categoryKeys() 上面那一段）----------
 
 QWidget *InstanceSettingsDialog::addPage(const QString &key) {
-    auto *page = new QWidget(m_stack);
+    // **一页一层滚动区**（不是整页套一层）—— 和设置页的 addSettingsPanel() 同一套写法、
+    // 同一条理由（见 MainWindowUI.cpp 里那段）。
+    //
+    // ★ 2026-09-26 用户报的 bug 就是"反过来"那一版：整页（含左栏那两条导航列）被
+    //   OverlayHost 那一层 pageScroll 包着，右栏内容一高，滚轮滚的是**整页** —— 左栏
+    //   那两条跟着滚走了，而它们是这个页面的导航。滚轮落在哪一栏就滚哪一栏才是对的。
+    //
+    // NOTE: 页面自己是 `scroll->widget()`（objectName 还是 panelName(key)）—— 堆叠页里
+    //       加进去的仍然是**一页一个控件**，所以那些按 index 认页的代码（filePageFirstIndex()
+    //       那套）一位都不动。验证工程按 panelName() 找回来的也还是那一页。
+    auto *scroll = new QScrollArea(m_stack);
+    scroll->setObjectName(scrollName(key));
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+
+    auto *page = new QWidget(scroll);
     page->setObjectName(panelName(key));
     auto *layout = new QVBoxLayout(page);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(10);
-    m_stack->addWidget(page);
+    scroll->setWidget(page);
+    m_stack->addWidget(scroll);
     return page;
 }
 
@@ -1383,6 +1437,10 @@ void InstanceSettingsDialog::chooseGroup(int index) {
     if (m_groupMenu != nullptr) {
         m_groupMenu->close();
     }
+    // ★ 这一发是**自己补的**：浮层里那几行是 setGroupChoices() 每次重建出来的，构造
+    //   函数跑 watchEditors() 的时候它们还不存在（按类型的线接不到以后才建的控件）。
+    //   反正这一个动作只有一个入口，接在这儿比"每次重建再补一遍接线"直白。
+    notifyEdited();
 }
 
 void InstanceSettingsDialog::refreshGroupMenuState() {
@@ -1680,4 +1738,97 @@ bool InstanceSettingsDialog::warnJavaMismatch() const {
     // 控件没建出来时返回 true（= 提醒）：读侧默认"要提醒"这个方向是**安全**的那个
     // ——宁可多问一次，也不要静默放行一个版本不对的 Java。
     return m_warnJavaMismatchCheck == nullptr || m_warnJavaMismatchCheck->isChecked();
+}
+
+// ---------- 「改了就写」那套（见 .hpp 里 settingsEdited() 那一段）----------
+
+void InstanceSettingsDialog::watchEditors() {
+    // 四类各一条线。**按类型接、不按对象接**：往这一页加控件时不用记得回来补一行。
+    // 代价是这里面有两处接不到的（程序化改值），它们各自补一发 —— 见下面那段 NOTE。
+    for (QAbstractButton *button : findChildren<QAbstractButton *>()) {
+        // 勾选框 / 单选钮 / 各种按钮一并算上。「值变了没有」由 notifyEdited() 判，
+        // 所以那些**不改值**的按钮（打开文件夹 / 导出脚本 / 高级选项那个折叠开关）
+        // 多接一条线是白接，不会多写一次盘。
+        connect(button, &QAbstractButton::clicked, this, &InstanceSettingsDialog::notifyEdited);
+    }
+    for (QLineEdit *edit : findChildren<QLineEdit *>()) {
+        // 「实例名」那一格走改名那条路（renameRequested），**不接在这儿**：它改的是目录名，
+        // 不能和别的值挤在同一次写盘里。
+        if (edit == m_instanceNameEdit) {
+            continue;
+        }
+        // `editingFinished`（回车 / 离开这一格）而不是 `textChanged`：路径和额外参数都是
+        // "一段字"，打字打到一半就写盘等于每次按键改一次磁盘上的设置。改名那一格是同一条
+        // 理由（见 .hpp 里 renameRequested()）。
+        connect(edit, &QLineEdit::editingFinished, this, &InstanceSettingsDialog::notifyEdited);
+    }
+    // QSpinBox 的两条 valueChanged 重载里挑 int 那条（另一个是 QString，Qt 6 已经删了，
+    // 但 QOverload 写成 int 这一条在两边都编得过）。
+    for (QSpinBox *spin : findChildren<QSpinBox *>()) {
+        connect(spin, QOverload<int>::of(&QSpinBox::valueChanged), this,
+                &InstanceSettingsDialog::notifyEdited);
+    }
+    for (QPlainTextEdit *text : findChildren<QPlainTextEdit *>()) {
+        // 这个没有 editingFinished，只能用 textChanged —— 于是"追加参数"那一格是这一页上
+        // **唯一一处按每个按键写盘**的（一条一行，本来就短）。值没变还是不发（空格、回车这
+        // 种改动会被签名里那句 `appendJvmArgs()` 归一掉）。
+        connect(text, &QPlainTextEdit::textChanged, this, &InstanceSettingsDialog::notifyEdited);
+    }
+
+    // 「实例名」那一格：回车 / 离开这一格 ⇒ 报"用户要改名"（不是"值变了"）。
+    if (m_instanceNameEdit != nullptr) {
+        connect(m_instanceNameEdit, &QLineEdit::editingFinished, this, [this]() {
+            emit renameRequested(m_instanceNameEdit->text());
+        });
+    }
+
+    // NOTE: 【上面两条按类型的线接不到两种改动，各自在动手的地方补一发 notifyEdited()】
+    //       ①「浏览…」选完 java.exe：那是 `setText()`（程序化，不发 editingFinished）；
+    //       ②「选一张图片…」挑完图：`clicked` 在**框弹出来之前**就发完了，等用户挑完，
+    //         那一发早过去了（值是在那之后才变的）。
+    //       往这一页再加"点一下、然后弹个系统框问点什么"的按钮时，记住同一件事。
+}
+
+QStringList InstanceSettingsDialog::valueSignature() const {
+    // 拼的就是**写盘那边会读的那几问**（`override()` / `appendJvmArgs()` /
+    // `warnJavaMismatch()` / `iconChoice()` / `pickedIconPath()` / `chosenGroupId()` /
+    // `pinned()`）。改一处要看得见另一处 —— 所以这个函数摆在它们旁边。
+    const Override values = override();
+    // std::optional 的写法：先摆"有没有值"，再摆那个值。摆成一个空串是不够的 ——
+    // javaPath 的"自定义成空串"和"跟随全局"在 override() 里已经是两回事（前者被那一层
+    // 归一成了后者），但 xmx 那一档 4 和"跟随全局"用同一个写法就得靠这一位分开。
+    const auto optionalText = [](const std::optional<QString> &value) {
+        return value.has_value() ? QStringLiteral("v:") + *value : QStringLiteral("-");
+    };
+    const auto optionalNumber = [](const std::optional<int> &value) {
+        return value.has_value() ? QStringLiteral("v:%1").arg(*value) : QStringLiteral("-");
+    };
+    const auto optionalFlag = [](const std::optional<bool> &value) {
+        return value.has_value() ? QStringLiteral("v:%1").arg(*value ? 1 : 0) : QStringLiteral("-");
+    };
+
+    QStringList result;
+    result << optionalText(values.javaPath) << optionalNumber(values.xmx)
+           << optionalNumber(values.xms) << optionalFlag(values.autoMemory)
+           << optionalText(values.extraJvmArgs)
+           // 追加参数按条摆：`appendJvmArgs()` 已经把空行和首尾空白归一掉了，两条顺序不同
+           // 的清单在这里就是两份签名（那正是两件不同的设置）。
+           << appendJvmArgs()
+           << QStringLiteral("warn:%1").arg(warnJavaMismatch() ? 1 : 0);
+    // 图标：挑本地那张时**连路径一起算**（换一张图 = 换一次设置），否则只算那一档的键。
+    result << (m_pickedIconPath.isEmpty() ? iconChoice()
+                                          : localIconValue() + QLatin1Char('|') + m_pickedIconPath);
+    // 分组与置顶：分组按 id（组名会变，id 才是身份），置顶只算那一位。
+    result << QStringLiteral("group:") + chosenGroupId()
+           << QStringLiteral("pin:%1").arg(pinned() ? 1 : 0);
+    return result;
+}
+
+void InstanceSettingsDialog::notifyEdited() {
+    const QStringList now = valueSignature();
+    if (now == m_lastSignature) {
+        return;
+    }
+    m_lastSignature = now;
+    emit settingsEdited();
 }
