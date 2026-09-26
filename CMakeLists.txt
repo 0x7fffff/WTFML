@@ -42,6 +42,7 @@ set(HEADER_FILES
     src/util/SystemMemory.hpp
     src/util/ZipUtil.hpp
     src/util/NbtUtil.hpp
+    src/util/ServerPing.hpp
 )
 
 set(SOURCE_FILES
@@ -74,6 +75,7 @@ set(SOURCE_FILES
     src/util/SystemMemory.cpp
     src/util/ZipUtil.cpp
     src/util/NbtUtil.cpp
+    src/util/ServerPing.cpp
     ui/AccountSkinDialog.cpp
     ui/GameLogWindow.cpp
     ui/MainWindowUI.cpp

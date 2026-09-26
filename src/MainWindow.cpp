@@ -112,6 +112,8 @@
 #include "util/AppPaths.hpp"
 // 「服务器列表」那一页要读 servers.dat（NBT，老版本还是 gzip 过的）。
 #include "util/NbtUtil.hpp"
+// 同一页的「测速」：真的连上去问一遍每台现在什么样（图标 / MOTD / 人数 / 延迟）。
+#include "util/ServerPing.hpp"
 #include "util/SystemMemory.hpp"
 // 「导入整合包…」要读压缩包根目录里的 modrinth.index.json（ZipUtil::readEntry）。
 #include "util/ZipUtil.hpp"
@@ -7535,9 +7537,17 @@ void MainWindow::openInstanceSettings(const QString &versionId) {
                     dialog.refreshFilePages();
                 }
             });
-    // 服务器列表那一页的「刷新」：重读一遍 servers.dat 再递进去。
+    // 服务器列表那一页的「刷新」：重读一遍 servers.dat 再递进去，**顺手测一遍**
+    // （2026-09-27）—— 「刷新」的意思是"把这一页刷新成现在的样子"，而这一页现在不只是
+    // 那份文件的镜像（图标 / MOTD / 延迟都是刚问来的）。只重测不重读走「测速」。
     connect(&dialog, &InstanceSettingsDialog::refreshServerListRequested, this,
-            [this, &dialog, &targetId]() { loadServerList(&dialog, targetId); });
+            [this, &dialog, &targetId]() {
+                loadServerList(&dialog, targetId);
+                pingServers(&dialog, targetId);
+            });
+    // 「测速」：只重测。两条都排在 execPage 之前（见上面那段 NOTE）。
+    connect(&dialog, &InstanceSettingsDialog::pingServersRequested, this,
+            [this, &dialog, &targetId]() { pingServers(&dialog, targetId); });
 
     // ---------- 「改了就写」那两条（2026-09-26）----------
     //
@@ -7664,19 +7674,92 @@ void MainWindow::loadServerList(InstanceSettingsDialog *dialog, const QString &v
     if (dialog == nullptr) {
         return;
     }
+    // 「文件不在盘上」（Missing）不算 problem：那一页会说「这个实例还没有加过服务器。」
+    // —— 那正是实话。只有"文件在但是读不动"才把原因递过去。
+    dialog->setServerList(serverListOf(versionId), serverListProblem(versionId));
+}
+
+QList<QPair<QString, QString>> MainWindow::serverListOf(const QString &versionId) const {
     QList<NbtUtil::ServerEntry> entries;
     QString problem;
     NbtUtil::readServerList(AppPaths::versionDir(versionId) + QStringLiteral("/servers.dat"),
                             &entries, &problem);
-
     QList<QPair<QString, QString>> servers;
     servers.reserve(entries.size());
     for (const NbtUtil::ServerEntry &entry : entries) {
         servers.append(qMakePair(entry.name, entry.address));
     }
-    // 「文件不在盘上」（Missing）不算 problem：那一页会说「这个实例还没有加过服务器。」
-    // —— 那正是实话。只有"文件在但是读不动"才把原因递过去。
-    dialog->setServerList(servers, problem);
+    return servers;
+}
+
+QString MainWindow::serverListProblem(const QString &versionId) const {
+    QList<NbtUtil::ServerEntry> entries;
+    QString problem;
+    NbtUtil::readServerList(AppPaths::versionDir(versionId) + QStringLiteral("/servers.dat"),
+                            &entries, &problem);
+    return problem;
+}
+
+void MainWindow::pingServers(InstanceSettingsDialog *dialog, const QString &versionId) {
+    if (dialog == nullptr) {
+        return;
+    }
+    const QList<QPair<QString, QString>> servers = serverListOf(versionId);
+    if (servers.isEmpty()) {
+        // 一台都没有（或者那份文件读不动）：那一页本来就摆着一句"还没有加过服务器"，
+        // 没有什么可问的。**不弹话** —— 点「测速」不是错误操作。
+        return;
+    }
+
+    // ---------- 一、先把整张表摆成"正在测" ----------
+    //
+    // 一条一条问、问到哪条填哪条（见下面那个 processEvents）：这样用户看得见它在往下走，
+    // 而不是盯着一个不动的表等四秒。
+    QList<InstanceSettingsDialog::ServerRowStatus> running;
+    running.resize(servers.size());
+    dialog->setServerStatuses(running);
+    dialog->setServerPinging(true);
+
+    // ---------- 二、一台一台问 ----------
+    //
+    // **同步、串行**（和 ServerPing 那条"为什么同步"同源）：服务器列表通常就是几条，
+    // 串起来问已经够快；为了省那几百毫秒去养一套并发状态机，值不当。每台之间让界面转
+    // 一圈 —— 转的是**除用户输入以外**的事件（光标 / 重画都会走），所以用户看到的这张表
+    // 是活的，而"测到一半把设置页关掉"这条不会从这儿进来（关窗也是用户输入）。
+    //
+    // NOTE: 每一台都先把结果写进去再问下一台 —— 顺序反过来（问完一起写）的话，一行
+    //       "还在测"的也没有，用户看到的是四秒钟的静止画面。
+    QList<InstanceSettingsDialog::ServerRowStatus> results;
+    results.reserve(servers.size());
+    for (const QPair<QString, QString> &server : servers) {
+        const ServerPing::Status pinged = ServerPing::ping(server.second);
+
+        InstanceSettingsDialog::ServerRowStatus row;
+        row.tested = true;
+        row.online = pinged.ok;
+        row.error = pinged.error;
+        row.latencyMs = pinged.latencyMs;
+        row.playersOnline = pinged.playersOnline;
+        row.playersMax = pinged.playersMax;
+        row.motd = pinged.motd;
+        if (!pinged.iconPng.isEmpty()) {
+            QPixmap icon;
+            // 解不出来就**不画图标**（而不是画一张破图）：favicon 是服务器给的字节，
+            // 我们只是把它画出来，它坏掉不是我们的错，但把它画成一团乱码会让人以为
+            // 是我们画错了。`loadFromData` 失败时 pixmap 是空的，正好走这一档。
+            if (icon.loadFromData(pinged.iconPng, "PNG")) {
+                row.icon = QIcon(icon);
+            }
+        }
+        results.append(row);
+
+        // 已经问过的这几条立刻上屏（还没问的那几条保持"还没测"）。
+        dialog->setServerStatuses(results);
+        QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+    }
+
+    dialog->setServerStatuses(results);
+    dialog->setServerPinging(false);
 }
 
 bool MainWindow::toggleInstanceFile(const QString &path) {

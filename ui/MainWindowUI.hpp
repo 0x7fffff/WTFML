@@ -712,6 +712,12 @@ public:
     /// 用户要"会有图片"，18 px 那个尺寸看不清缩略图；行高仍是 versionTreeRowHeight()（46），
     /// 32 px 的图在行里上下各留 7 px，不挤。
     static int resourceTreeIconSize() { return 32; }
+    /// 实例设置「文件管理 → 服务器列表」那一页前面那个**服务器图标**画多大（2026-09-27）。
+    ///
+    /// 和资源表那一条同一个理由（18 px 看不清图）：那一格现在是服务器自己给的
+    /// **favicon**（64×64 起步的 PNG），画成 18 px 就是一团分不出是什么的色块。
+    /// 行高仍是 versionTreeRowHeight()（46）—— 32 px 上下各留 7 px，不挤。
+    static int serverIconSize() { return 32; }
     /// 资源那一行（最上面那一层）上挂的"这是哪一类"：存**分类键**
     ///（`downloadCategoryKeys()` 里那几个之一，也是 `ResourceCatalog::kindKey()`）。
     ///

@@ -1031,6 +1031,17 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                 auto *top = new QHBoxLayout;
                 top->setContentsMargins(0, 0, 0, 0);
                 top->addStretch(1);
+                // 「测速」：真的连上去问一句（2026-09-27）。**它和「刷新」都在** ——
+                // 那一页从这一天起不只是 servers.dat 的一面镜子（图标 / MOTD / 延迟都是
+                // 刚问来的），「刷新」= 重读 + 重测，「测速」= 只重测。
+                m_serverPing = new QPushButton(serverPingText(), page);
+                m_serverPing->setObjectName(serverPingButtonName());
+                m_serverPing->setToolTip(tr("连上去问一遍每台服务器现在通不通、多少人、"
+                                            "那两行字是什么。只读状态，不进游戏。"));
+                connect(m_serverPing, &QPushButton::clicked, this,
+                        &InstanceSettingsDialog::pingServersRequested);
+                top->addWidget(m_serverPing);
+
                 m_serverRefresh = new QPushButton(serverRefreshText(), page);
                 m_serverRefresh->setObjectName(serverRefreshButtonName());
                 // 重读要碰 NBT 解析（在 src/ 里），所以这一发只能交给 MainWindow。
@@ -1046,13 +1057,24 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
 
                 m_serverTree = new QTreeWidget(page);
                 m_serverTree->setObjectName(serverTreeName());
-                m_serverTree->setHeaderLabels(
-                    {serverNameColumnText(), serverAddressColumnText()});
+                m_serverTree->setHeaderLabels({serverNameColumnText(), serverAddressColumnText(),
+                                               serverStatusColumnText()});
                 // 「一行一个服务器」是平表不是树：不要每行前面那个展开三角。
                 m_serverTree->setRootIsDecorated(false);
                 m_serverTree->setUniformRowHeights(true);
                 m_serverTree->setSelectionMode(QAbstractItemView::SingleSelection);
                 m_serverTree->setEditTriggers(QAbstractItemView::NoEditTriggers);
+                // 名字那一格画成**两行式的行**：前面一枚服务器图标、名字一行、底下小字一行
+                // （那就是 MOTD）。和版本树/下载页那几张表是同一个代理 —— 一份实现多处用。
+                // 只有第 0 列挂它（另外两列是普通的地址和状态）。
+                m_serverTree->setItemDelegateForColumn(
+                    0, new VersionTreeDelegate(m_serverTree, /*leafArrow=*/false,
+                                               MainWindowUI::serverIconSize()));
+                // 行高是那个代理给的常数（versionTreeRowHeight() = 46），这一句是按同一档
+                // 告诉控件"图标那一格有多大" —— 下载页那几张表也是这么配的（见 MainWindowUI
+                // 里 resourceTreeIconSize() 那两行），不配的话条目自带的图标会被另算一遍尺寸。
+                m_serverTree->setIconSize(
+                    QSize(MainWindowUI::serverIconSize(), MainWindowUI::serverIconSize()));
                 layout->addWidget(m_serverTree, 1);
 
                 auto *hint = new QLabel(filesHint(QStringLiteral("server")), page);
@@ -1310,7 +1332,11 @@ QString InstanceSettingsDialog::filesHint(const QString &key) {
                   "文件夹里删。");
     }
     if (key == QStringLiteral("server")) {
-        return tr("servers.dat 是游戏自己写的，启动器只读不改。");
+        // 2026-09-27 起这一页不只是那份文件的一面镜子：图标 / MOTD / 延迟都是**刚问来的**
+        // （见 pingServersRequested()）。所以这句话得说清"哪儿来的"和"点了会发生什么"。
+        return tr("servers.dat 是游戏自己写的，启动器只读不改。「测速」会连上去问一遍每台"
+                  "现在什么样（图标、那两行字、多少人、多少毫秒），只读状态、不进游戏；"
+                  "「刷新」是重读文件再问一遍。");
     }
     return QString();
 }
@@ -1402,11 +1428,18 @@ void InstanceSettingsDialog::setServerList(const QList<QPair<QString, QString>> 
     if (m_serverTree == nullptr) {
         return;
     }
+    // 这一份是**换掉整张表**：那些"现在什么样"配的是旧的行，一起清掉（见 .hpp 那条 NOTE）。
+    m_serverStatuses.clear();
+    m_serverStatuses.resize(servers.size());
+
     m_serverTree->clear();
     for (const QPair<QString, QString> &server : servers) {
         auto *item = new QTreeWidgetItem(m_serverTree);
         item->setText(0, server.first.isEmpty() ? unnamedMark() : server.first);
         item->setText(1, server.second);
+        // 状态那一格**一开始就有字**（「还没测」）。空着和"测了没通"在屏幕上是同一个样子，
+        // 而这两件事对用户完全不是一回事（一个是"点一下测速"、一个是"这台死了"）。
+        item->setText(2, serverUntestedText());
     }
     // ★「读不动」和「读到了但一条都没有」是**两句不同的话**（和版本树那条"问到了就是
     //   没有" / "列表没取到"同一条规矩）：说成一句的话，用户会照着错的那句去修 ——
@@ -1416,6 +1449,61 @@ void InstanceSettingsDialog::setServerList(const QList<QPair<QString, QString>> 
     m_serverTree->setVisible(readable && !empty);
     m_serverNotice->setVisible(!readable || empty);
     m_serverNotice->setText(!readable ? problem : (empty ? serverEmptyText() : QString()));
+}
+
+QString InstanceSettingsDialog::serverStatusText(const ServerRowStatus &status) {
+    if (!status.tested) {
+        return serverUntestedText();
+    }
+    if (!status.online) {
+        // 理由来自 ServerPing（中文，见那边的 connectionErrorText）。真要是空的也别留一格
+        // 空白 —— 那就是"看着像没测过"。
+        return status.error.isEmpty() ? QStringLiteral("连不上") : status.error;
+    }
+    QString text = status.latencyMs >= 0 ? QStringLiteral("在线 · %1 ms").arg(status.latencyMs)
+                                         : QStringLiteral("在线");
+    if (status.playersOnline >= 0 && status.playersMax >= 0) {
+        text += QStringLiteral(" · %1/%2 人").arg(status.playersOnline).arg(status.playersMax);
+    } else if (status.playersOnline >= 0) {
+        text += QStringLiteral(" · %1 人").arg(status.playersOnline);
+    }
+    return text;
+}
+
+void InstanceSettingsDialog::setServerStatuses(const QList<ServerRowStatus> &statuses) {
+    if (m_serverTree == nullptr) {
+        return;
+    }
+    // 行数是"盘上那份 servers.dat"说了算，状态是"刚问回来的那一趟"说了算 —— 两边对不上
+    // 时**按行来写**：多出来的状态丢掉，行多出来的那些回到「还没测」（不是留着上一次那几句
+    // ——那些话配的是上一份列表的行）。两条都不越界。
+    m_serverStatuses = statuses;
+    const int rows = m_serverTree->topLevelItemCount();
+    for (int i = 0; i < rows; ++i) {
+        QTreeWidgetItem *item = m_serverTree->topLevelItem(i);
+        if (item == nullptr) {
+            continue;
+        }
+        const ServerRowStatus status = i < statuses.size() ? statuses.at(i) : ServerRowStatus();
+        // 图标走 `Qt::DecorationRole`（就是 setIcon 那一格）—— 代理读的正是它；
+        // 第二行小字走 rowSubTextRole()（版本树上放的是发布时间，这里放 MOTD）。
+        item->setIcon(0, status.icon);
+        item->setData(0, MainWindowUI::rowSubTextRole(), status.motd);
+        item->setText(2, serverStatusText(status));
+        // 名字单独给一句 tooltip：MOTD 那一行装不下时是被代理省略掉的，而这一行**没有**
+        // 别的地方能看全（那一格只画得下一行）。**无条件写**（MOTD 是空串时这一句就是把
+        // 上一次那行字抹掉）—— 不然"上一次那台有 MOTD、这一台没有"会留下一句别人的话。
+        item->setToolTip(0, status.motd);
+    }
+}
+
+void InstanceSettingsDialog::setServerPinging(bool pinging) {
+    if (m_serverPing == nullptr) {
+        return;
+    }
+    m_serverPing->setText(pinging ? serverPingingText() : serverPingText());
+    // 连点三下发三遍请求是用户没要的，而且每一遍都要等满超时。
+    m_serverPing->setEnabled(!pinging);
 }
 
 void InstanceSettingsDialog::refreshFilePages() {

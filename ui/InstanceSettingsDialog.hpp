@@ -41,6 +41,7 @@
 
 #include <QDialog>
 #include <QHash>
+#include <QIcon>  // ServerRowStatus 里那一枚（服务器图标）
 #include <QList>
 #include <QPair>
 #include <QPixmap>
@@ -255,7 +256,37 @@ public:
     ///
     /// NOTE: 「读到了但是一条都没有」和「没读到」要分开给 —— 前者那一页说"还没加过服务器"，
     ///       后者说清楚为什么没读到（像版本树那条"问到了就是没有"与"列表没取到"）。
+    ///
+    /// NOTE: 这个函数**把每一行的"现在什么样"清空**（图标、MOTD、状态那一格都回到
+    ///       「还没测」）—— 它换掉的是整张表，旧的那些状态配的是旧的那些行。
     void setServerList(const QList<QPair<QString, QString>> &servers, const QString &problem);
+
+    /// 一台服务器**现在**什么样（一次 ping 的结果，2026-09-27）。
+    ///
+    /// NOTE: 「连上去问一句」那一半在 `src/util/ServerPing` 里 —— 这一层连 QTcpSocket 都
+    ///       够不着（ui/ 不 include src/），也**不该**自己去连：一次点击发多少网络请求是
+    ///       调用方说了算的事。这一层只负责把结果画出来。
+    struct ServerRowStatus {
+        bool tested = false;    ///< 测过没有（没测过那一格写「还没测」）
+        bool online = false;    ///< 通了没有（false 时看 error）
+        QString error;          ///< 没通的理由（人话，来自 ServerPing）
+        int latencyMs = -1;     ///< 延迟（毫秒；-1 = 不知道）
+        int playersOnline = -1; ///< 在线人数（**-1 = 服务器没说**，和 0 个人不是一回事）
+        int playersMax = -1;    ///< 人数上限（-1 = 服务器没说）
+        QString motd;           ///< MOTD（已经洗过：颜色码去掉、多行合成一行）
+        QIcon icon;             ///< 服务器图标（favicon；服务器没给就是空的）
+    };
+
+    /// 把每台服务器现在的样子灌进去（**下标和 setServerList() 那一份一一对应**）。
+    /// 短了的话后面那几条回到「还没测」、长了多出来的丢掉 —— 绝不按下标越界写。
+    void setServerStatuses(const QList<ServerRowStatus> &statuses);
+
+    /// 正在测速。true 时那颗「测速」换成「测速中…」并且点不动（连点三下发三遍请求是
+    /// 用户没要的，而且每一遍都要等满超时）。
+    void setServerPinging(bool pinging);
+
+    /// 状态那一格该写什么。**唯一出处**（验证工程也按它核对）。
+    static QString serverStatusText(const ServerRowStatus &status);
 
     /// 把六页目录列表**重新列一遍**。MainWindow 动过盘（删了 / 改了名）之后喊它。
     void refreshFilePages();
@@ -266,6 +297,7 @@ public:
     QTreeWidget *serverTree() const { return m_serverTree; }
     QLabel *serverNotice() const { return m_serverNotice; }
     QPushButton *serverRefreshButton() const { return m_serverRefresh; }
+    QPushButton *serverPingButton() const { return m_serverPing; }
 
     // ---------- 概览栏那三行（图标 / 分组 / 置顶，2026-09-26）----------
     //
@@ -524,9 +556,19 @@ public:
     static QString serverRefreshButtonName() {
         return QStringLiteral("instanceServerRefreshButton");
     }
+    static QString serverPingButtonName() {
+        return QStringLiteral("instanceServerPingButton");
+    }
     static QString serverRefreshText() { return QStringLiteral("刷新"); }
+    /// 「测速」：真的连上去问一句每台服务器现在什么样（2026-09-27）。
+    static QString serverPingText() { return QStringLiteral("测速"); }
+    /// 正在测的时候那颗按钮上的字。
+    static QString serverPingingText() { return QStringLiteral("测速中…"); }
+    /// 还没测过的那一格写什么（**不是空着**：空着和"测了没通"在屏幕上是同一个样子）。
+    static QString serverUntestedText() { return QStringLiteral("还没测"); }
     static QString serverNameColumnText() { return QStringLiteral("名称"); }
     static QString serverAddressColumnText() { return QStringLiteral("地址"); }
+    static QString serverStatusColumnText() { return QStringLiteral("状态"); }
     static QString serverEmptyText() { return QStringLiteral("这个实例还没有加过服务器。"); }
     /// 服务器名字那一格是空的的时候顶上什么字。servers.dat 里的 name 真能是空串。
     static QString unnamedMark() { return QStringLiteral("（无名）"); }
@@ -762,6 +804,18 @@ signals:
      */
     void refreshServerListRequested();
 
+    /**
+     * @brief 用户按了服务器列表那一页的「测速」（2026-09-27）。
+     *
+     * 「连上去问一句每台现在什么样」是**调用方的事**：socket 在 src/ 里，而"一次点击发
+     * 多少请求、要不要限并发"也不该由这一层说了算。
+     *
+     * NOTE: 那一页的「刷新」**也会**发这一条 —— 「刷新」的意思是"把这一页刷新成现在的
+     *       样子"，而这一页从 2026-09-27 起不只是那份 servers.dat 的镜像（图标、MOTD、
+     *       延迟都是刚问来的）。只重测不重读走「测速」，只重读不重测就没有了。
+     */
+    void pingServersRequested();
+
 private:
     /// 造一行「跟随全局 / 自定义 + 控件」。返回值是**整格**（档位行 + 提示），控件要加进
     /// 里面的「档位那一行」（`choiceRowOf()` 取），内存那两行整格禁用靠的就是这个返回值。
@@ -893,6 +947,12 @@ private:
     QTreeWidget *m_serverTree = nullptr;
     QLabel *m_serverNotice = nullptr;
     QPushButton *m_serverRefresh = nullptr;
+    /// 「测速」（见 pingServersRequested()）。
+    QPushButton *m_serverPing = nullptr;
+    /// 每台服务器现在什么样（下标同 setServerList() 那一份）。**状态在这儿存着**：
+    /// 「刷新」重读一遍 servers.dat 时那些条目是重建的，而这一份是"上一次问到的结果"，
+    /// 由 setServerStatuses() 单独灌。行数对不上时以少的为准（见 setServerStatuses()）。
+    QList<ServerRowStatus> m_serverStatuses;
 
     // ---- 概览栏那三行（见上面 setIcon 那一段）----
     /// 图标那一行**唯一的出处**：空串 / `builtin:<键>` / `local`。

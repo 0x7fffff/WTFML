@@ -382,6 +382,23 @@ private slots:
     ///       前者要说清为什么，后者才能说"你还没加过服务器"。
     void loadServerList(InstanceSettingsDialog *dialog, const QString &versionId) const;
 
+    /// 这个实例的服务器列表（名字 + 地址，按文件里的顺序）。servers.dat 读不动时是空的。
+    ///
+    /// NOTE: 和 serverListProblem() 分两个函数是因为**它们读的是同一份文件**，而调用方
+    ///       要的东西不一样：setServerList() 两样都要（列表 + 读不动的那句话），
+    ///       而 pingServers() 只要地址那一半。合起来收一个"结果结构"也不难，只是这一层
+    ///       的文件读得很便宜（几 KB），宁可写成两个一眼看得出在干什么的函数。
+    QList<QPair<QString, QString>> serverListOf(const QString &versionId) const;
+    /// 上面那份列表读不动的原因（空串 = 读到了）。见 loadServerList() 那条 NOTE。
+    QString serverListProblem(const QString &versionId) const;
+
+    /// 问一遍每台服务器现在什么样，把结果灌回那一页（2026-09-27，见 .cpp 里那段）。
+    ///
+    /// NOTE: **同步**跑完（一台接一台，最多 N × ServerPing::timeoutMs()），每台之间让
+    ///       界面转一圈。所以它只能从界面上那一发（「测速」/「刷新」）进来 —— 别在
+    ///       启动、下载那些路上顺手调它。
+    void pingServers(InstanceSettingsDialog *dialog, const QString &versionId);
+
     /// 启用 / 禁用一条：把文件名改成 `<原名>.disabled`，或者反过来。
     /// @return **动过盘没有** —— 真了调用点才需要让那一页重列（没动过还重列会让用户
     ///         以为"刚才那一下生效了"）。
