@@ -103,6 +103,17 @@ inline QString versionMetaPath(const QString &versionId) {
     return versionDir(versionId) + QStringLiteral("/wtfml.meta");
 }
 
+/// 实例图标：versions/<id>/icon.png（可选文件，用户自己挑的那张图存在这儿）。
+///
+/// NOTE: 挑中的那张图要**拷进实例目录**、meta 里只记一句"用本地那张"（见
+///       VersionManager::iconField()），而不是记原图的绝对路径 —— 后者在改名
+///       （整个目录连带搬家）之后就失效了，而那正是这个项目里天天发生的事。
+/// NOTE: 固定叫 icon.png、不跟着原图的扩展名走：读的一侧只认这一个名字，用户挑了 jpg
+///       也照样按 PNG 存（QImage 读进来再写出去，格式由我们定，写不出来就报错不落盘）。
+inline QString versionIconPath(const QString &versionId) {
+    return versionDir(versionId) + QStringLiteral("/icon.png");
+}
+
 /// 实例分组：<数据目录>/wtfml.folders（可选文件，没分过组就不存在）。
 ///
 /// NOTE: 它挂在**数据根目录**下、不挂在 versions 下，因为分组是"这一份 .minecraft 里

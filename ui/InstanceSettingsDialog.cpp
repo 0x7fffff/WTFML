@@ -16,6 +16,7 @@
 
 #include <QButtonGroup>
 #include <QCheckBox>
+#include <QComboBox>
 #include <QFileDialog>
 #include <QFont>
 #include <QGridLayout>
@@ -23,9 +24,12 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QPixmap>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QRadioButton>
+#include <QSignalBlocker>
+#include <QSize>
 #include <QSpinBox>
 #include <QStackedWidget>
 #include <QTimer>
@@ -33,6 +37,7 @@
 #include <QVBoxLayout>
 
 #include "MainWindowUI.hpp"
+#include "VersionIcons.hpp"
 #include "VersionTreeDelegate.hpp"
 
 namespace {
@@ -51,6 +56,13 @@ constexpr int kColumnSpacing = 12;
 /// （见 .cpp 构造函数里那句 NOTE：嵌进覆盖层时这个数不作数）。
 constexpr int kDialogWidth = 820;
 constexpr int kDialogHeight = 560;
+/// 图标预览那一格的边长（唯一出口是 InstanceSettingsDialog::iconPreviewSize()，外面按它
+/// 解图递进来）。
+constexpr int kIconPreviewSize = 64;
+/// 八颗候选按钮上那张图多大。比预览小一档 —— 它们是"挑哪一类"，预览才是"结果"。
+constexpr int kIconCandidateSize = 32;
+/// 候选按钮一排摆几颗。八颗正好两排。
+constexpr int kIconCandidatesPerRow = 4;
 
 /// 把一列导航（左栏大类 / 中栏小类）摆进三栏那一行。
 ///
@@ -181,6 +193,145 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         auto *nameHint = new QLabel(instanceNameHint(), cell);
         nameHint->setWordWrap(true);
         column->addWidget(nameHint);
+        grid->addWidget(cell, row, 1);
+        ++row;
+    }
+
+    // ---------- 图标（2026-09-26）----------
+    //
+    // 用户原话：「图标（选一张本地图片文件）」「使用实际的那几个 mc 草块 / fabric 布料等的
+    // 图片文件，不用担心侵权问题，同时允许用户自主上传」。所以十档：默认 + 八个内置候选
+    // + 本地那张。**每一档都有对应的按钮**（八个候选各一颗、「恢复默认」、「选一张图片…」），
+    // 没有"换过去就回不来"的死角。
+    //
+    // NOTE: 那一排按钮**不是**当前值的出处（它们只是 m_iconChoice 的一幅画）—— 理由见 .hpp
+    //       里 setInstanceDir() 上面那一段：本地那一档没有控件能表示它。
+    {
+        addRowTitle(grid, row, iconRowText(), this);
+        auto *cell = new QWidget(this);
+        auto *column = new QVBoxLayout(cell);
+        column->setContentsMargins(0, 0, 0, 0);
+        column->setSpacing(8);
+
+        auto *top = new QHBoxLayout;
+        top->setSpacing(10);
+        // 预览：这张图就是"点确定之后树上会长什么样"。定死边长，换图时整行不跟着跳。
+        m_iconPreview = new QLabel(cell);
+        m_iconPreview->setObjectName(iconPreviewName());
+        m_iconPreview->setFixedSize(kIconPreviewSize, kIconPreviewSize);
+        m_iconPreview->setAlignment(Qt::AlignCenter);
+        top->addWidget(m_iconPreview, 0, Qt::AlignTop);
+
+        auto *candidates = new QGridLayout;
+        candidates->setSpacing(4);
+        const QStringList keys = VersionIcons::iconCandidateKeys();
+        const QStringList names = iconCandidateTexts();
+        for (int i = 0; i < keys.size(); ++i) {
+            auto *button = new QToolButton(cell);
+            button->setObjectName(iconCandidateButtonName(i));
+            button->setText(names.value(i));
+            // 图在上、字在下：这一排是"挑哪一张"，光看图认不出 Fabric 和 NeoForge。
+            button->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
+            button->setIconSize(QSize(kIconCandidateSize, kIconCandidateSize));
+            button->setCheckable(true);
+            // 和底下那排「确定 / 取消」同一条：点一下换个样子，不该抢键盘焦点
+            // （抢了之后回车就不再是"确定"了）。
+            button->setFocusPolicy(Qt::NoFocus);
+            const QString key = keys.at(i);
+            connect(button, &QToolButton::clicked, this, [this, key]() {
+                m_iconChoice = VersionIcons::iconValueForKey(key);
+                // 换了内置候选 = 用户不要刚才挑的那张本地图了。**不删盘上那份**：
+                // 它现在还在原处，而实例目录里那份要等点确定才动（见 pickedIconPath()）。
+                m_pickedIconPath.clear();
+                refreshIconRow();
+            });
+            m_iconButtons.append(button);
+            candidates->addWidget(button, i / kIconCandidatesPerRow, i % kIconCandidatesPerRow);
+        }
+        // 给 1：这八颗吃掉右边剩下的横向空间，别把它们拉成八个大块。
+        top->addLayout(candidates, 1);
+        column->addLayout(top);
+
+        auto *actions = new QHBoxLayout;
+        actions->setSpacing(8);
+        auto *pick = new QPushButton(iconPickText(), cell);
+        pick->setObjectName(iconPickButtonName());
+        connect(pick, &QPushButton::clicked, this, [this]() {
+            // 模态，验证工程驱动不了它 —— 和「浏览…」选 java.exe 同一个道理（开的是
+            // Windows 自己的文件选择框，不是我们的窗）。可测的那一半是"挑完之后
+            // iconChoice() / pickedIconPath() 变成什么"，那两问都是现场读成员、不碰盘。
+            const QString picked = QFileDialog::getOpenFileName(
+                this, iconPickText(), pickedIconPath(),
+                tr("图片 (*.png *.jpg *.jpeg *.bmp *.gif *.webp);;所有文件 (*)"));
+            if (picked.isEmpty()) {
+                return;  // 取消：一个字都不改（当前那一档原样留着）
+            }
+            m_iconChoice = localIconValue();
+            m_pickedIconPath = picked;
+            refreshIconRow();
+        });
+        actions->addWidget(pick);
+        auto *reset = new QPushButton(iconResetText(), cell);
+        reset->setObjectName(iconResetButtonName());
+        connect(reset, &QPushButton::clicked, this, [this]() {
+            // 「默认」= **这个键不存在**（而不是"写一个等于默认的值"）—— 全项目同一个约定，
+            // 见 VersionManager::updateVersionMeta() 里那段关于 QJsonValue::Null 的说明。
+            // 存成"等于默认"的话，用户之后换了版本分类（比如从原版换成一个 Fabric 实例），
+            // 这个实例就不会跟着换标志了，而他要的明明是"默认"。
+            m_iconChoice.clear();
+            m_pickedIconPath.clear();
+            refreshIconRow();
+        });
+        actions->addWidget(reset);
+        actions->addStretch(1);
+        column->addLayout(actions);
+
+        auto *hint = new QLabel(iconHint(), cell);
+        hint->setWordWrap(true);
+        column->addWidget(hint);
+        grid->addWidget(cell, row, 1);
+        ++row;
+    }
+
+    // ---------- 分组（2026-09-26）----------
+    //
+    // 候选项由调用方灌（setGroupChoices）—— 组名是用户可以改的、id 是稳定身份，这一页
+    // 只负责显示。第一项「未分组」由这里自己加（它是保留值，不是某一组）。
+    {
+        addRowTitle(grid, row, groupRowText(), this);
+        auto *cell = new QWidget(this);
+        auto *column = new QVBoxLayout(cell);
+        column->setContentsMargins(0, 0, 0, 0);
+        column->setSpacing(4);
+        m_groupCombo = new QComboBox(cell);
+        m_groupCombo->setObjectName(groupComboName());
+        // 和实例页那一列的宽度同一档：这是"选一个名字"，不是输入框。
+        m_groupCombo->setFixedWidth(kMemorySpinWidth + 80);
+        column->addWidget(m_groupCombo);
+        auto *hint = new QLabel(
+            tr("这个实例归在实例页的哪一组里。组的排序和增删在实例页左栏的「分组设置…」里。"),
+            cell);
+        hint->setWordWrap(true);
+        column->addWidget(hint);
+        grid->addWidget(cell, row, 1);
+        ++row;
+    }
+
+    // ---------- 置顶（2026-09-26）----------
+    {
+        addRowTitle(grid, row, pinRowText(), this);
+        auto *cell = new QWidget(this);
+        auto *column = new QVBoxLayout(cell);
+        column->setContentsMargins(0, 0, 0, 0);
+        column->setSpacing(4);
+        m_pinCheck = new QCheckBox(pinCheckText(), cell);
+        m_pinCheck->setObjectName(pinCheckName());
+        // 勾上/取消都要把分组那一格摆好（勾上 = 挪到置顶组上并禁用）。
+        connect(m_pinCheck, &QCheckBox::toggled, this, &InstanceSettingsDialog::applyPinState);
+        column->addWidget(m_pinCheck);
+        auto *hint = new QLabel(pinHint(), cell);
+        hint->setWordWrap(true);
+        column->addWidget(hint);
         grid->addWidget(cell, row, 1);
         ++row;
     }
@@ -494,6 +645,11 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     // 已经触发过一轮 refreshHints 了，但那时候另一个单选钮还是空的。
     refreshHints();
 
+    // 图标那一行的初值走 setIcon()（调用方在后头调，见 .hpp 里那段"为什么用 setter"）。
+    // 这里先按"默认"画一遍：没被 setIcon() 叫过的时候（验证工程里那些只验结构的构造点）
+    // 八颗按钮也得是**八颗都没勾**的样子，而不是停在某个随机状态上。
+    refreshIconRow();
+
     // ---------- 确定 / 取消 ----------
     auto *buttons = new QHBoxLayout;
     buttons->addStretch(1);
@@ -587,6 +743,147 @@ void InstanceSettingsDialog::applyFilePage(int row) {
         return;
     }
     m_stack->setCurrentIndex(filePageFirstIndex() + row);
+}
+
+// ---------- 概览栏那三行（见 .hpp 里 setIcon() 上面那一段）----------
+
+QStringList InstanceSettingsDialog::iconCandidateTexts() {
+    // 顺序与 VersionIcons::iconCandidateKeys() 一一对应（前四个是版本分类那四张，后四个
+    // 是四个加载器）。名字和版本树 / 安装页上用的是同一批词。
+    return {tr("草方块"), tr("覆雪草块"), tr("土块"), tr("幸运方块"),
+            tr("Fabric"), tr("Forge"), tr("NeoForge"), tr("OptiFine")};
+}
+
+QString InstanceSettingsDialog::ungroupedGroupText() {
+    // 转手给 MainWindowUI —— 那一句话的唯一出处在那儿（实例树那边也是同一个词）。
+    return MainWindowUI::ungroupedGroupText();
+}
+
+int InstanceSettingsDialog::iconPreviewSize() { return kIconPreviewSize; }
+
+void InstanceSettingsDialog::setIcon(const QString &icon, const QPixmap &defaultMark,
+                                     const QPixmap &localMark) {
+    m_iconChoice = icon;
+    m_defaultIconMark = defaultMark;
+    m_localIconMark = localMark;
+    // 初值不是"本地那张"就把那一份丢掉：留着它只会让人以为挑过了。
+    if (m_iconChoice != localIconValue()) {
+        m_pickedIconPath.clear();
+    }
+    refreshIconRow();
+}
+
+void InstanceSettingsDialog::setGroupChoices(const QList<QPair<QString, QString>> &groups,
+                                             const QString &currentGroupId) {
+    if (m_groupCombo == nullptr) {
+        return;
+    }
+    m_groupCombo->clear();
+    // 「未分组」排在最前：它是这一列的"没有归属"，和别的组不是一类东西，摆在末尾会让人
+    // 以为它也是一个能排序的组。
+    m_groupCombo->addItem(ungroupedGroupText(), QString());
+    for (const QPair<QString, QString> &group : groups) {
+        m_groupCombo->addItem(group.first, group.second);
+    }
+    // 按 **userData** 找（组名会变），找不到就停在第一项「未分组」—— 那一组刚被删掉的
+    // 实例自然落到未分组，和实例树那边同一条规矩，不为它写清理代码。
+    const int index = m_groupCombo->findData(currentGroupId);
+    m_groupCombo->setCurrentIndex(index >= 0 ? index : 0);
+}
+
+void InstanceSettingsDialog::setPinned(bool pinned, const QString &pinnedGroupId) {
+    m_pinnedGroupId = pinnedGroupId;
+    if (m_pinCheck != nullptr) {
+        // 挡掉 toggled：那一发会调 applyPinState()，而它这时候读到的 m_pinCheck 还是旧值
+        // （setChecked 里那句赋值发生在发信号之后）。摆状态只走下面那一处，两处都摆容易
+        // 摆出两个不一样的结果来。
+        const QSignalBlocker blocker(m_pinCheck);
+        m_pinCheck->setChecked(pinned);
+    }
+    applyPinState();
+}
+
+void InstanceSettingsDialog::applyPinState() {
+    if (m_groupCombo == nullptr || m_pinCheck == nullptr) {
+        return;
+    }
+    const bool pinned = m_pinCheck->isChecked();
+    // 这一份 .minecraft 里没有置顶组（用户把它删了）：勾上这一下真的没有去处
+    // （MainWindow::pinInstance() 直接返回），所以下拉框一个字都不动 —— 把它挪到一个不存在
+    // 的组上、或者禁用它，都比"看起来什么也没发生"更让人糊涂。
+    if (m_pinnedGroupId.isEmpty()) {
+        return;
+    }
+    m_groupCombo->setEnabled(!pinned);
+    if (!pinned) {
+        // 取消置顶之后下拉框**不动**：回到置顶前那一组是写的那一侧的事（那条记录在这一层
+        // 够不着，见 .hpp 里 setGroupChoices() 那段）。它恢复可用之后，用户想改就自己改；
+        // 不改的话那边会把"下拉框和打开时一样"读成"用户没表过态"、只做取消置顶。
+        return;
+    }
+    const int index = m_groupCombo->findData(m_pinnedGroupId);
+    if (index >= 0) {
+        m_groupCombo->setCurrentIndex(index);
+    }
+}
+
+QString InstanceSettingsDialog::iconChoice() const { return m_iconChoice; }
+
+QString InstanceSettingsDialog::pickedIconPath() const { return m_pickedIconPath; }
+
+QString InstanceSettingsDialog::chosenGroupId() const {
+    if (m_groupCombo == nullptr) {
+        return QString();
+    }
+    // 读 userData、不读文字：组名用户随时能改，拿文字当身份当场就散。
+    return m_groupCombo->currentData().toString();
+}
+
+bool InstanceSettingsDialog::pinned() const {
+    return m_pinCheck != nullptr && m_pinCheck->isChecked();
+}
+
+void InstanceSettingsDialog::refreshIconRow() {
+    if (m_iconPreview == nullptr) {
+        return;
+    }
+
+    // 当前该画哪一张。三档的先后是有讲究的：
+    //   ① 手上有一张**刚挑的**图 → 画它（用户要立刻看见自己选了什么，而它这会儿还在原处）；
+    //      读不动（不是图 / 半截文件）就往下走，退回这一档原本的样子。
+    //   ② 内置候选 → 那一张。
+    //   ③ 本地那一档 → 调用方解好的那张；它要是空的（文件没了）→ 退回默认那张。
+    //   ④ 默认 → 调用方算好的 defaultMark。
+    QPixmap mark;
+    if (!m_pickedIconPath.isEmpty()) {
+        const QPixmap picked(m_pickedIconPath);
+        if (!picked.isNull()) {
+            mark = picked;
+        }
+    }
+    if (mark.isNull()) {
+        const QString key = VersionIcons::iconKeyFromValue(m_iconChoice);
+        if (!key.isEmpty()) {
+            mark = VersionIcons::iconMarkForKey(key, kIconPreviewSize);
+        } else if (m_iconChoice == localIconValue()) {
+            mark = m_localIconMark;
+        }
+    }
+    if (mark.isNull()) {
+        mark = m_defaultIconMark;
+    }
+    // 按**保持长宽比**缩到那一格：用户挑的图多半不是正方形，拉成方的会把人像 / 图标压扁。
+    m_iconPreview->setPixmap(mark.isNull()
+                                 ? QPixmap()
+                                 : mark.scaled(kIconPreviewSize, kIconPreviewSize,
+                                               Qt::KeepAspectRatio, Qt::SmoothTransformation));
+
+    // 八颗按钮的勾选状态跟着走（"按下去了哪一颗"必须和预览说的是同一件事）。
+    const QStringList keys = VersionIcons::iconCandidateKeys();
+    const QString checkedKey = VersionIcons::iconKeyFromValue(m_iconChoice);
+    for (int i = 0; i < m_iconButtons.size(); ++i) {
+        m_iconButtons.at(i)->setChecked(keys.value(i) == checkedKey);
+    }
 }
 
 void InstanceSettingsDialog::showCategory(const QString &key) {

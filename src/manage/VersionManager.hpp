@@ -577,6 +577,26 @@ public:
     // 它得往 updateVersionMeta() 传一个 key，两边各写一遍字面量的错法是**静默不生效**。
     static QString skipJavaVersionWarningField();
 
+    // 这个实例自己挑的图标（wtfml.meta 里可选的 "icon"）。空串 = **没挑过**，用默认那张
+    // （按版本分类 / 加载器算，见 MainWindow::instanceRowMark()）。
+    //
+    // 取值是带前缀的串，三种形态：
+    //   - 空串               → 默认
+    //   - "builtin:<候选键>" → 内置候选里那一张（键见 VersionIcons::iconCandidateKeys()）
+    //   - "local"            → 用实例目录下那份 icon.png（AppPaths::versionIconPath()）
+    //
+    // NOTE: 为什么"本地图片"存的是一个**固定名字**而不是用户挑的那张图的路径：实例改名会
+    //       把整个目录搬走，绝对路径当场失效 —— 而改名在这个项目里是常规操作（设置对话框
+    //       第一行就是它）。挑中的图在点确定那一刻就被拷进实例目录了，所以"用本地那张"
+    //       这句话永远有对应的东西。
+    //
+    // NOTE: 类型不对（写成数字/对象）按"没挑过"处理，但要 qWarning 一声 —— 理由同
+    //       skipJavaVersionWarning()：用户手写的文件写错了必须让他看得出来。
+    QString versionIcon(const QString &versionId) const;
+
+    // meta 里那个图标字段名。公开的理由和 jvmArgsField() 一样：写侧在 MainWindow 里。
+    static QString iconField();
+
     // 读这个实例的整份 wtfml.meta（文件没有、读不到、解析不了都是空对象）。
     //
     // 这是"每实例设置"的读侧入口：MainWindow 拿它喂给 javaOverrideFromJson()。

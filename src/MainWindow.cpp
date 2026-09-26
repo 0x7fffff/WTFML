@@ -53,6 +53,8 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QGuiApplication>
+// 用户挑的实例图标要**解码再编码**成实例目录下那份 icon.png（见 writeInstanceIcon()）。
+#include <QImage>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -65,6 +67,8 @@
 #include <QProgressBar>
 #include <QProcess>
 #include <QPushButton>
+// 写图标那张图走它（写临时文件 → 原子替换），见 writeInstanceIcon()。
+#include <QSaveFile>
 #include <QScreen>
 #include <QSignalBlocker>
 #include <QSpinBox>
@@ -738,8 +742,8 @@ int versionChannelIndexOf(const VersionManager *versions, const QString &version
     return VersionCategory::channelIndex(versionChannelOf(versions, versionId));
 }
 
-/// 实例页某一行前面那个小图标（用户 2026-09-25 原话：「为每个版本预设一个图标（默认下载时
-/// 就带，原版草块，forge铁砧等，现有的没有就补上）」）。
+/// 这个实例**没挑过图标**时该画哪一个方块（草方块 / 覆雪草块 / 土块 / 幸运方块，或者
+/// 某个加载器的标志）—— 也叫它的「默认图标」。
 ///
 /// 两条路，用的都是**另外两棵树上挂的同一份图标**（别在这儿另画一套）：
 ///   - **装了加载器的**（wtfml.meta 里有 loaderName）：给那个加载器的标志（Fabric / Forge /
@@ -757,19 +761,104 @@ int versionChannelIndexOf(const VersionManager *versions, const QString &version
 ///       就是照它排的），抄一遍就会在某次加加载器时慢慢漂开。
 /// NOTE: 认不出来的加载器名（用户手写的别的名字、或者以后新加的加载器）也是草方块 ——
 ///       和 loaderMark() 越界那条一个规矩：认不出来就画原版。
-QIcon instanceRowMark(const VersionDisplayParts &part, const VersionManager *versions) {
-    const int size = MainWindowUI::versionTreeIconSize();
+QPixmap defaultInstanceMark(const VersionDisplayParts &part, const VersionManager *versions,
+                            int size) {
     if (!part.loaderName.isEmpty()) {
         for (int index = 0; index < MainWindowUI::modLoaderNoneIndex(); ++index) {
             VersionManager::LoaderKind kind;
             if (VersionManager::loaderKindFromIndex(index, &kind)
                 && VersionManager::loaderDisplayName(kind) == part.loaderName) {
-                return QIcon(VersionIcons::loaderMark(index, size));
+                return VersionIcons::loaderMark(index, size);
             }
         }
-        return QIcon(VersionIcons::grassBlock(size));
+        return VersionIcons::grassBlock(size);
     }
-    return QIcon(VersionIcons::versionChannelMark(versionChannelIndexOf(versions, part.id), size));
+    return VersionIcons::versionChannelMark(versionChannelIndexOf(versions, part.id), size);
+}
+
+/// 实例页某一行前面那个小图标（用户 2026-09-25 原话：「为每个版本预设一个图标（默认下载时
+/// 就带，原版草块，forge铁砧等，现有的没有就补上）」；2026-09-26 加上了"用户可以自己换一张"，
+/// 那一条在「实例设置 → 概览 → 图标」里）。
+///
+/// **挑过的压过没挑过的**：wtfml.meta 里有 icon 就按它走，没有才落到上面那个默认图标。
+/// 三种形态的判据与写法见 VersionManager::iconField()（那是唯一出处，这里不再抄一遍）。
+///
+/// NOTE: 收 @p size 而不是自己去问两个 size 常量里的哪一个 —— 同一个实例的图标在实例树上和
+///       底栏「正在运行」那一行里**是同一张图**，只是边长不同（那两处各有各的常量）。
+///       让调用方递边长，这里就只需要一处判断。
+/// NOTE: `builtin:` 那个前缀认不出来（用户手写了个 `builtin:草方块`）时**落到默认**而不是
+///       画一张空图 —— 和那几处"认不出来就当原版"同一个态度：屏幕上宁可显示一个不对的
+///       方块，也不要一个空洞。
+/// NOTE: 本地那张走 VersionIcons::fileMark()（按路径 + 修改时间缓存）。**不在这儿直接
+///       QPixmap(path)**：这个函数实例树每一行都要问一次，而每刷新一次整棵树重建一遍，
+///       用户挑的那张 1024×1024 的图会被解上成百遍。
+QPixmap instanceRowMark(const VersionDisplayParts &part, const VersionManager *versions, int size) {
+    const QString iconKey = VersionIcons::iconKeyFromValue(part.icon);
+    if (!iconKey.isEmpty()) {
+        const QPixmap mark = VersionIcons::iconMarkForKey(iconKey, size);
+        if (!mark.isNull()) {
+            return mark;
+        }
+    } else if (part.icon == InstanceSettingsDialog::localIconValue()) {
+        // 「本地那张」= 实例目录下那份 icon.png（名字的唯一出处是 AppPaths::versionIconPath）。
+        const QPixmap mark = VersionIcons::fileMark(AppPaths::versionIconPath(part.id), size);
+        if (!mark.isNull()) {
+            return mark;
+        }
+    }
+    return defaultInstanceMark(part, versions, size);
+}
+
+/// 这一份 .minecraft 里**现在真的还在**的那些组 id。默认组被用户删掉之后它就不在里面了，
+/// 于是一整组实例自动落到「未分组」—— 这正是用户要的「组被删掉后版本放到未分组里」。
+QSet<QString> knownGroupIdsOf(const InstanceGroupStore *groups) {
+    QSet<QString> known;
+    for (const InstanceGroupStore::Group &group : groups->groups()) {
+        known.insert(group.id);
+    }
+    return known;
+}
+
+/// 把用户挑的那张图落成实例目录下的 icon.png（用户 2026-09-26 原话：「选一张本地图片文件」）。
+///
+/// **解码再编码，不是原字节复制**：用户挑的可能是 jpg / webp / bmp，而读的那一侧只认
+/// icon.png 这一个名字（见 AppPaths::versionIconPath()）。原字节拷过去的话，盘上就有一个
+/// 扩展名写着 .png、内容却是 JPEG 的文件 —— 今天 Qt 按内容认、照样解得开，但那个名字从此
+/// 是一句假话，谁照着它去写解析都会踩空。
+///
+/// NOTE: 走 QSaveFile（写临时文件 → 原子替换）：写到一半失败时盘上留着的要么是原来那张、
+///       要么是新那张，不会是一张半截的图 —— 那东西下次启动会被当成"这张图坏了"，而用户
+///       完全不知道自己哪里做错了。
+///
+/// @return 写成功了返回 true。失败时填 @p errorOut，调用方**必须把它说出来**：用户刚挑完
+///         图、按了确定，图标没换上却一声不响，正是最难查的那种"没生效"。
+bool writeInstanceIcon(const QString &versionId, const QString &sourcePath, QString *errorOut) {
+    const QImage source(sourcePath);
+    if (source.isNull()) {
+        if (errorOut != nullptr) {
+            *errorOut = QObject::tr("读不出这张图：%1\n\n"
+                                    "（它可能不是图片格式，也可能已经不在那儿了。）")
+                            .arg(QDir::toNativeSeparators(sourcePath));
+        }
+        return false;
+    }
+    QSaveFile file(AppPaths::versionIconPath(versionId));
+    if (!file.open(QIODevice::WriteOnly)) {
+        if (errorOut != nullptr) {
+            *errorOut = QObject::tr("图标写不进去：%1").arg(file.errorString());
+        }
+        return false;
+    }
+    // QSaveFile 的 commit() 失败时自己会把临时文件撤掉，所以这两句之间不用再清理一遍。
+    if (!source.save(&file, "PNG") || !file.commit()) {
+        if (errorOut != nullptr) {
+            *errorOut = QObject::tr("图标没能放到 %1：%2")
+                            .arg(QDir::toNativeSeparators(AppPaths::versionIconPath(versionId)),
+                                 file.errorString());
+        }
+        return false;
+    }
+    return true;
 }
 
 /// 一个实例**默认**该归到哪个默认组 —— 只给"用户还从来没给它表过态"的实例用（见调用点）。
@@ -807,6 +896,26 @@ QString defaultGroupIdFor(const VersionDisplayParts &part, const VersionManager 
     return QString();
 }
 
+/// 一个实例**显示在**哪一组里 —— 也叫它的「归属」，树上摆在哪一组就是它。
+///
+/// 和 `InstanceGroupStore::groupIdOf()`（**存的是**哪一组）不是一回事：从来没表过态的实例
+/// 由显示层按版本分类自动归类（defaultGroupIdFor）。凡是"要说清这个实例现在归在哪"的地方
+/// 都得走这一个函数 —— 设置对话框那一格和实例树各说各的话，用户就会看到"对话框里写着未
+/// 分组、而树上明明把它摆在「原版」里"。
+///
+/// NOTE: 判据是"文件里有没有这一条"（isAssigned）、**不是"groupId 是不是空"**：用户在对话框
+///       里明确选了「未分组」的实例也算表过态（存的是那个保留值，读出来是空串），不该被自动
+///       归类又拉回默认组去 —— 否则就是"点了确定没生效"。
+QString displayGroupIdOf(const InstanceGroupStore *groups, const QString &key,
+                         const VersionDisplayParts &part, const VersionManager *versions,
+                         const QSet<QString> &knownGroupIds) {
+    QString groupId = groups->groupIdOf(key);
+    if (groupId.isEmpty() && !groups->isAssigned(key)) {
+        groupId = defaultGroupIdFor(part, versions, knownGroupIds);
+    }
+    return groupId;
+}
+
 /// 「本机现在跑着的这几份会话」翻成面板里的几行。
 ///
 /// **一行 = 一份会话**（不是"一个实例"）：同一个实例多开时那两行的名字一样，靠第二行那个
@@ -829,11 +938,11 @@ QList<MainWindowUI::PanelRow> runningGamePanelRows(const QList<LauncherManager::
     }
     for (const LauncherManager::GameSession &game : games) {
         MainWindowUI::PanelRow row;
-        // 图标按版本分类给（草方块/覆雪草块/土块/幸运方块）：用户 2026-09-24 说的"图标先
-        // 占位"就用它 —— 现成的、而且它本来就说明"这是个什么版本的实例"。真正的"实例自定义
-        // 头像"还没有，等它有了换的是这一处。
-        row.icon = VersionIcons::versionChannelMark(versionChannelIndexOf(versions, game.versionId),
-                                                    MainWindowUI::bottomBarPanelIconSize());
+        // 图标走**和实例树同一个函数**（instanceRowMark）：用户挑过就画他挑的那张，没挑过
+        // 才按版本分类 / 加载器给。这里原来写的是「图标先占位，等实例自定义头像有了换的是
+        // 这一处」—— 2026-09-26 头像有了，换的就是这一处。
+        row.icon = instanceRowMark(versions->displayParts(game.versionId), versions,
+                                   MainWindowUI::bottomBarPanelIconSize());
         row.title = game.displayName;
         // 那句"跑了多久"在产品侧唯一的一处算它（MainWindowUI::runningDurationText()）——
         // 放那边是为了让四档话术都能在验证工程里直接量（"已经跑了 3 天"那一档等不出来）。
@@ -2541,29 +2650,21 @@ void MainWindow::refreshInstalledVersions() {
     const QList<InstanceGroupStore::Group> groups = m_groupStore->groups();
     QList<InstanceGroupBucket> buckets;
     QHash<QString, int> bucketOfGroup;
-    QSet<QString> knownGroupIds;
+    const QSet<QString> knownGroupIds = knownGroupIdsOf(m_groupStore);
     for (const InstanceGroupStore::Group &group : groups) {
         InstanceGroupBucket bucket;
         bucket.groupId = group.id;
         bucket.name = group.name;
         bucket.expanded = group.expanded;
         bucketOfGroup.insert(group.id, buckets.size());
-        knownGroupIds.insert(group.id);
         buckets.append(bucket);
     }
     QList<VersionDisplayParts> ungrouped;
     for (const VersionDisplayParts &part : parts) {
-        const QString key = instanceKey(part.id);
-        QString groupId = m_groupStore->groupIdOf(key);
-        // 用户从来没给这个实例表过态 → 按版本类型把它归到对应的默认组（那个默认组还在
-        // 的话，见 defaultGroupIdFor()）。
-        //
-        // NOTE: 判据是"文件里有没有这一条"（isAssigned），**不是"groupId 是不是空"**：
-        //       用户在对话框里明确选了「未分组」的实例也算表过态（存的是那个保留值，
-        //       读出来是空串），不该被自动归类又拉回默认组去 —— 否则就是"点了确定没生效"。
-        if (groupId.isEmpty() && !m_groupStore->isAssigned(key)) {
-            groupId = defaultGroupIdFor(part, m_versionManager, knownGroupIds);
-        }
+        // 归到哪一组由 displayGroupIdOf() 回答（"存的是哪一组"和"显示在哪一组"是两回事，
+        // 那一段 NOTE 就在它上面）；实例设置对话框里那个下拉框走的是同一个函数。
+        const QString groupId = displayGroupIdOf(m_groupStore, instanceKey(part.id), part,
+                                                 m_versionManager, knownGroupIds);
         const auto found = bucketOfGroup.constFind(groupId);
         if (found != bucketOfGroup.constEnd()) {
             buckets[found.value()].parts.append(part);
@@ -2596,7 +2697,8 @@ void MainWindow::refreshInstalledVersions() {
     QHash<QString, QIcon> marks;
     marks.reserve(parts.size());
     for (const VersionDisplayParts &part : parts) {
-        marks.insert(part.id, instanceRowMark(part, m_versionManager));
+        marks.insert(part.id, QIcon(instanceRowMark(part, m_versionManager,
+                                                    MainWindowUI::versionTreeIconSize())));
     }
     fillInstanceTree(m_ui->getInstanceList(), buckets, m_settings->versionNameOptions(),
                      runningVersionIds(), marks, m_groupStore->pinnedGroupId());
@@ -6491,7 +6593,10 @@ void MainWindow::clearGroupMembers(const QString &groupId, const QString &groupN
 bool MainWindow::assignSelectedInstanceToGroup(const QString &groupId) {
     // 取值口径和另外两颗实例级按钮一样：**下拉框**说了算（它就是"当前选中的那个实例"），
     // 不是树的 currentItem()（点一下组头它也会变）。
-    const QString versionId = selectedVersionId(m_ui->getInstalledVersionCombo());
+    return assignInstanceToGroup(selectedVersionId(m_ui->getInstalledVersionCombo()), groupId);
+}
+
+bool MainWindow::assignInstanceToGroup(const QString &versionId, const QString &groupId) {
     if (versionId.isEmpty()) {
         // 挑目标那个框只在"有选中的实例"时才点得动（groupActionEnabled 那一条），
         // 而菜单开着的时候那个实例可能被删掉了 —— 真走到这儿就说一句，别静默。
@@ -6647,6 +6752,36 @@ void MainWindow::openInstanceSettings(const QString &versionId) {
                                   toDialogGlobal(m_javaSettings->effective()),
                                   m_versionManager->versionJvmArgs(versionId),
                                   !m_versionManager->skipJavaVersionWarning(versionId), this);
+    // ---------- 概览栏那三行的初值（2026-09-26）----------
+    //
+    // 三张图标**由这里解好递进去**：ui/ 不做"这个实例默认该长什么样"那个判断（它要读版本
+    // json 的 type 和加载器名，是业务层的事），也够不着实例目录下那份 icon.png 的名字
+    // （AppPaths 在 src/ 里）。这一层解好、那一层只管画。
+    const VersionDisplayParts parts = m_versionManager->displayParts(versionId);
+    const int previewSize = InstanceSettingsDialog::iconPreviewSize();
+    QPixmap localIcon;
+    if (parts.icon == InstanceSettingsDialog::localIconValue()) {
+        localIcon = VersionIcons::fileMark(AppPaths::versionIconPath(versionId), previewSize);
+    }
+    dialog.setIcon(parts.icon, defaultInstanceMark(parts, m_versionManager, previewSize), localIcon);
+
+    // 分组那一行：候选项是**现在所有的组**（含空组 —— 「往空组里放第一个实例」正是用户会
+    // 干的事，那是它唯一的入口之一），当前值是"它**显示**在哪一组"而不是"存的是哪一组"
+    // （见 displayGroupIdOf()：两者对"从来没表过态"的实例不是一个答案）。
+    const QSet<QString> knownGroupIds = knownGroupIdsOf(m_groupStore);
+    QList<QPair<QString, QString>> groupChoices;
+    for (const InstanceGroupStore::Group &group : m_groupStore->groups()) {
+        groupChoices.append(qMakePair(group.name, group.id));
+    }
+    const QString groupAtOpen = displayGroupIdOf(m_groupStore, instanceKey(versionId), parts,
+                                                 m_versionManager, knownGroupIds);
+    dialog.setGroupChoices(groupChoices, groupAtOpen);
+
+    // 置顶那一行：判据是"它现在就在置顶组里"。没有置顶组（用户把它删了）时恒假，而且那一格
+    // 勾了也去不了任何地方（见 MainWindow::pinInstance()）。
+    const QString pinnedGroupId = m_groupStore->pinnedGroupId();
+    dialog.setPinned(!pinnedGroupId.isEmpty() && groupAtOpen == pinnedGroupId, pinnedGroupId);
+
     // 这一页盖在内容区上（标签栏和底栏都留着），左上角那颗返回箭头 = 取消（见
     // OverlayHost::execPage）。标题写在页眉上，所以这一页自己那行标题要收起来 ——
     // 两行一模一样的字挨着是重复，不是强调。
@@ -6731,6 +6866,31 @@ bool MainWindow::applyInstanceSettings(const QString &versionId,
     fields.insert(VersionManager::skipJavaVersionWarningField(),
                   dialog.warnJavaMismatch() ? QJsonValue(QJsonValue::Null) : QJsonValue(true));
 
+    // ---------- 图标（2026-09-26）----------
+    //
+    // 用户刚挑了一张图 ⇒ **先把它拷进实例目录**，再往 meta 里写"用本地那张"。顺序反过来的话，
+    // 写成功、拷失败会在盘上留下一句指向一个不存在的文件的 meta（树那一格从此永远是默认图标，
+    // 而文件里明明写着 local）。
+    //
+    // NOTE: 拷失败**不把整次保存赔进去**（只报一声、meta 里那一格保持原样）：用户改的内存 /
+    //       Java 路径和图标是两件事，为前者把后者一起丢掉是替用户做主。写回去的那个值是
+    //       **磁盘上现在是什么**、不是"这次没改"，所以这一次写入不会动它 —— 而要是直接写
+    //       dialog.iconChoice()，用户按一次确定就会把原来那张图从 meta 里抹掉。
+    QString iconValue = dialog.iconChoice();
+    const QString pickedIcon = dialog.pickedIconPath();
+    if (!pickedIcon.isEmpty()) {
+        QString iconError;
+        if (writeInstanceIcon(versionId, pickedIcon, &iconError)) {
+            iconValue = InstanceSettingsDialog::localIconValue();
+        } else {
+            InlineMessage::warning(m_ui->overlay(), tr("图标没能保存"), iconError);
+            iconValue = m_versionManager->versionIcon(versionId);
+        }
+    }
+    // 空串 = 「默认」= **删掉那个键**，不写一个"等于默认"的值 —— 和上面两项同一个约定。
+    fields.insert(VersionManager::iconField(),
+                  iconValue.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(iconValue));
+
     QString error;
     if (!m_versionManager->updateVersionMeta(versionId, fields, &error)) {
         // 数据层不弹窗是约定，所以弹在这一层。error 里已经写清了"是哪个文件、为什么"。
@@ -6738,6 +6898,57 @@ bool MainWindow::applyInstanceSettings(const QString &versionId,
         return false;
     }
     appendLog(tr("实例设置已保存：%1").arg(versionId));
+
+    // ---------- 分组 / 置顶（2026-09-26）----------
+    //
+    // 排在写 meta **之后**、`rekey()` **之后**（那一步在上面）：归属的键刚刚才定下来，在它
+    // 之前写等于写到旧键上。
+    //
+    // 三条规则，合起来就是"用户在下拉框和勾选框上摆成什么样，结果就是什么样"：
+    //   ① 原来没置顶、现在勾上了 → 置顶（挪进置顶组，并记下"置顶前在哪一组"）；
+    //   ② 原来置顶、现在取消了   → 取消置顶（回到记着的那一组）；
+    //   ③ 下拉框被**用户改过**   → 归到它选的那一组。
+    //
+    // NOTE: 判"下拉框改没改"是拿它当前的值和**打开对话框时**那一格的值比，不是拿它和"现在
+    //       存在哪一组"比。差别在②那一档：取消置顶时下拉框还写着置顶组名（勾选那一下它被
+    //       挪过去、跟着禁用了），照"存的是哪一组"比就会判成"用户改了"，于是取消置顶的
+    //       结果被立刻按回置顶组里 —— 用户明明是想退出来。
+    //
+    // NOTE: 两条路都走**现有那几个入口**（pinInstance / unpinInstance / assignInstanceToGroup），
+    //       不在这里另写一遍 wtfml.folders 的读写：它们各自会发 groupsChanged、自己把树重灌，
+    //       而且"没有置顶组时什么都不做""认不出来就落未分组"这些判断都已经在那儿了。
+    const QString key = instanceKey(versionId);
+    const QSet<QString> knownGroupIds = knownGroupIdsOf(m_groupStore);
+    const QString groupAtOpen =
+        displayGroupIdOf(m_groupStore, key, m_versionManager->displayParts(versionId),
+                         m_versionManager, knownGroupIds);
+    const QString pinnedGroupId = m_groupStore->pinnedGroupId();
+    // ★ 「这一份 .minecraft 里有没有置顶组」是下面三条规则共同的闸。用户把「置顶」那一组
+    //   删掉之后，那个勾选框还在、也勾得上（界面那一半见 applyPinState()），可是勾上这一下
+    //   **真的没有去处**（InstanceGroupStore::pinInstance() 直接返回）。这一档必须整个绕开
+    //   ① —— 否则勾一下就能把用户**明确选的那个组**一起吞掉：那一档里 applyPinState() 一个字
+    //   都不动（下拉框还是用户自己选的那一格），于是"和打开时不一样"是**用户改的**，
+    //   照 ① 办就把它当成"置顶顺手摆的那一下"忽略了。
+    const bool hasPinGroup = !pinnedGroupId.isEmpty();
+    const bool wasPinned = hasPinGroup && groupAtOpen == pinnedGroupId;
+    const bool nowPinned = dialog.pinned();
+    if (hasPinGroup && nowPinned && !wasPinned) {
+        // ① 刚勾上置顶。**这一档不能再往下走 assign**：勾上那一下对话框把下拉框挪到置顶组
+        //    上了（见 applyPinState()），于是"下拉框和打开时不一样"——照 ③ 办就会再 assign
+        //    一次，而 assign 不记"置顶前在哪一组"，之后取消置顶就回不到原来那一组了。
+        pinInstance(versionId);
+    } else {
+        // ② 原来置顶、现在取消了：回到记着的那一组。下拉框那一格这时**没动**（它是被禁用
+        //    之后再恢复可用的），所以下面 ③ 那句不会把它按回置顶组去。
+        if (wasPinned && !nowPinned) {
+            unpinInstance(versionId);
+        }
+        // ③ 用户挑了一个新的组。判据是"和打开对话框时那一格不一样"，不是"和磁盘上那个值
+        //    不一样"——后者在②那一档会误判（理由见上面那条 NOTE）。
+        if (dialog.chosenGroupId() != groupAtOpen) {
+            assignInstanceToGroup(versionId, dialog.chosenGroupId());
+        }
+    }
     return true;
 }
 
