@@ -21,9 +21,16 @@
  *
  * 【约定：对话框只改自己手里那份值，不碰磁盘】
  *
- * 用户点「确定」之前，wtfml.meta 一个字节都不动 —— 和其它对话框一样。这里连"确定"
- * 都不写盘：它只把控件读成一份值（override() / appendJvmArgs()），落盘在
- * MainWindow::applyInstanceSettings() 里。
+ * **这一层一个字节都不写盘**：它把控件读成一份值（override() / appendJvmArgs() /
+ * iconChoice() …），落盘在 MainWindow::applyInstanceSettings() 里。
+ *
+ * ★ 2026-09-26 起这一页**没有「确定」也没有「取消」**（用户原话：「实例设置里面的那个
+ * 取消和确定删了，修改了的设置实时写入」）。于是"什么时候写"从"点确定那一刻"变成了
+ * "值一改就写" —— 报信的机制是 `settingsEdited()` 那一发，而"写什么"一个字都没变：
+ * 仍是上面那几问现读（所以实时写和从前按确定写，落到盘上的字节是一样的）。
+ *
+ * 唯一的例外是**改名**：那一格动的是磁盘上的目录名，它走自己那条信号
+ * （renameRequested()，回车 / 失焦才发），理由写在那个信号上面。
  *
  * 【约定：控件的值就是结果（没有内部影子状态）】
  *
@@ -91,7 +98,7 @@ public:
      *
      * NOTE: 它和 instanceName 是**两个不同的东西**，都要传：显示名可能被用户改过、
      *       也可能被"版本名格式"那套开关拼成了别的东西，而目录名是磁盘上真正的身份。
-     *       拿显示名当初值的话，用户点进设置页什么都没改、按一下确定，实例就被改成了
+     *       拿显示名当初值的话，用户点进设置页什么都没改、顺手改了别的某一格，实例就被改成了
      *       一个奇怪的名字。
      * @param current 这个实例**现在**的覆盖（wtfml.meta 里读出来的）。
      * @param global 全局有效值（GlobalJavaSettings::effective()），用来写「当前 …」。
@@ -203,6 +210,10 @@ public:
     /// 堆叠页里某一页的 objectName（@param key 见 categoryKeys() / filePageKeys()）。
     static QString panelName(const QString &key) {
         return QStringLiteral("instanceSettingsPanel-") + key;
+    }
+    /// 包着那一页的那层滚动区的 objectName（**一页一层**，见 .cpp 里 addPage() 那段）。
+    static QString scrollName(const QString &key) {
+        return QStringLiteral("instanceSettingsScroll-") + key;
     }
     /// 那一页里那张表单的 objectName（概览 / 启动 各有一张；文件管理那几页还没有）。
     static QString formName(const QString &key) {
@@ -347,9 +358,10 @@ public:
 
     /// 用户从盘上挑的那张图的路径（没挑过 = 空）。
     ///
-    /// NOTE: 挑完**不在这里**拷走 —— 拷进实例目录是调用方在用户按「确定」之后的事
-    ///       （MainWindow::applyInstanceSettings()）。摆好控件就动盘的话，用户按「取消」
-    ///       之后磁盘上会多出一个他没要的文件，而那正是"取消 = 磁盘原样"要防的。
+    /// NOTE: 挑完**不在这里**拷走 —— 拷进实例目录是调用方的事
+    ///       （MainWindow::applyInstanceSettings()：挑完当场拷一份，见那边 `pickedIcon`
+    ///       那一段）。这一层碰不了盘（ui/ 够不着 AppPaths），也**不该**碰：它手上的是
+    ///       "用户挑了这张"，"这张要不要真的占住那个文件名"是落盘那一侧的决定。
     QString pickedIconPath() const;
 
     /// 分组那一行选的是哪一组（空串 = 未分组）。判据是那一格的 **userData**、不是文字 ——
@@ -562,14 +574,27 @@ public:
     static QString advancedToggleName() { return QStringLiteral("instanceAdvancedToggle"); }
     static QString advancedBoxName() { return QStringLiteral("instanceAdvancedBox"); }
     static QString titleLabelName() { return QStringLiteral("instanceSettingsTitle"); }
-    static QString confirmButtonName() {
-        return QStringLiteral("instanceSettingsConfirmButton");
-    }
-    static QString cancelButtonName() { return QStringLiteral("instanceSettingsCancelButton"); }
+    // NOTE: 2026-09-26 起这一页**没有「确定」也没有「取消」**（用户原话：「实例设置里面的
+    //       那个取消和确定删了，修改了的设置实时写入」）⇒ 那两个 objectName 一起删了，
+    //       覆盖层页眉上那颗返回箭头就是这一页唯一的出口（Esc 同它）。
 
     /// 这一页叫什么（`「实例设置：<实例名>」`）。页面型覆盖层要把这一句写在自己那条
     /// 页眉上，所以它得能问出来 —— 不然两边就各写各的了。
     QString titleText() const;
+
+    /// 把上面那句里的**实例名**换成新的（@param displayName 是**显示名**，不是目录名 ——
+    /// 标题上写的一直是用户认得的那一串）。
+    ///
+    /// ★ 为什么必须有它：这一页开出来之后**实例自己会改名**（「实例名」那一格）。改名那
+    ///   一刻 MainWindow 会把覆盖层页眉上那行字跟着换（`OverlayHost::setPageTitle()`），
+    ///   而它问的就是 `titleText()` —— 那行字是构造时按**当时那个名字**拼好就再没人管过
+    ///   的死字符串，不在这儿重拼一个的话，改完名之后页眉上写的还是老名字（用户看到的是
+    ///   "最高处写着那个已经不在了的名字，底下那一格却是新的"）。
+    ///
+    /// NOTE: 和 `setInstanceName()` 是两件事、也没互相调用：那个换的是**控件上那一格**和
+    ///       `m_instanceId`（拿的是目录名），这个换的是那行标题（拿的是显示名）——
+    ///       带自定义名的实例这两个值本来就不是一回事。
+    void setInstanceDisplayName(const QString &displayName);
 
     /// 嵌进覆盖层那一页的时候把这行标题收起来。
     ///
@@ -577,6 +602,14 @@ public:
     ///       不收的话屏幕上会紧接着出现两行一模一样的字。收不收由调用方说了算 ——
     ///       单独拿出来用（验证工程那种）时它还是要有标题的。
     void setTitleVisible(bool visible);
+
+    /// 把「实例名」那一格改成 @p name（**控件上那一格**，不碰盘）。
+    ///
+    /// 两个调用点都在 MainWindow 那条改名路上：改成功了要让它显示新名字（那一格从此
+    /// 就是新目录名）、改失败了要**把它退回原样**（否则用户眼前那一格写着"改好了"，
+    /// 而磁盘上还是老名字 —— 下一次动任何一个开关都会拿这一个不存在的名字去写 meta）。
+    /// 它顺手把导出脚本那个默认文件名用的 `m_instanceId` 一起换掉。
+    void setInstanceName(const QString &name);
 
     /// 那一对单选钮的文字。**这两句是产品文案**，验证工程按它们核对而不是自己拼。
     static QString followText() { return QStringLiteral("跟随全局"); }
@@ -604,6 +637,41 @@ public:
     }
 
 signals:
+    /**
+     * @brief 页面上的值**改完了**，该写盘了（2026-09-26 起这一页没有「确定」）。
+     *
+     * 用户原话：「实例设置里面的那个取消和确定删了，修改了的设置实时写入」。于是这一页
+     * 从"改一堆、按确定一次性提交"变成了"改哪一格就写哪一格"：
+     *
+     *   - 这一发**只是"值变了"**，不含任何"该写成什么" —— 写成什么由 MainWindow 拿
+     *     `override()` / `appendJvmArgs()` / `iconChoice()` 那几问现读（和从前按确定
+     *     那一刻读的是同一批函数，所以"实时写"和"按确定写"落到盘上的字节是一样的）。
+     *   - **值没变就不发**（见 .cpp 里 notifyEdited() 那段）：点一下已经选中的单选钮、
+     *     把一个数改回原样，都不该让磁盘动一次。
+     *   - 同一发可能由"用户操作完成"以外的原因触发（回车 / 离开那一格），这条线只认值，
+     *     不认手势。
+     *
+     * NOTE: 改名**不走这一发**（见 renameRequested()）：那一格动的是目录名，不能和
+     *       别的值挤在同一个"写一次设置"里 —— 顺序错了会在盘上留下一个空壳实例
+     *       （理由写在 MainWindow::openInstanceSettings() 那段）。
+     */
+    void settingsEdited();
+
+    /**
+     * @brief 「实例名」那一格改完了（用户按下回车，或者离开那一格）。
+     *
+     * @param name 那一格里的字（**原样**，不 trim、不改大小写 —— 合不合法由
+     *        `InstanceFiles::validateRenameTarget()` 判，界面不抄第二份规则）。
+     *
+     * 这一发是**改名那条路**的入口（从前是"点确定"那一半）：接了的人负责改目录名、
+     * 失败时把这一格退回去（setInstanceName()）。
+     *
+     * NOTE: 每一格按键都发的话，用户打字打到一半目录就被改一次（"我"→"我的"→
+     *       "我的整合包"），中间那几次全是白改，而且失败一次就会打断打字。所以这一发
+     *       挂在 `QLineEdit::editingFinished` 上（回车 / 失焦），不是 `textChanged`。
+     */
+    void renameRequested(const QString &name);
+
     /**
      * @brief 用户点了「导出…」，并且已经在 Windows 自己的保存框里挑好了一个路径。
      *
@@ -719,6 +787,40 @@ private:
     ///       弹开来会看到"当前那一组也能点"（点下去什么都没发生）。和 refreshIconRow()
     ///       同一条路数：控件的样子只有一个出处，改完影子状态就调一次。
     void refreshGroupMenuState();
+
+    // ---------- 「改了就写」那套（见 signals 里 settingsEdited() 那段）----------
+
+    /// 把这一页上**所有能改值的控件**接到 notifyEdited() 上。构造函数最后调一次。
+    ///
+    /// 按控件的**类型**接，不按对象一个个接：往这一页加控件时只要它属于这几类就自动
+    /// 跟上（漏接一个的表现是"这一项改了不写盘"，界面上看不出来 —— 那正是最该防的
+    /// 一种坏）。四类各自的信号在函数里写着。
+    ///
+    /// NOTE: 「实例名」那一格**故意排除在外**（它走 renameRequested()，见 signals 那段）。
+    void watchEditors();
+
+    /// 值变了吗：变了就把这一份记下来、发一发 settingsEdited()。
+    ///
+    /// **判据是"和上一次发出去的那一份比"，不是"有没有人动过控件"**：
+    ///   - 点一下已经选中的那颗单选钮、把数字改回原样、在一个框里打一个字又删掉 ——
+    ///     值没变就不该让磁盘动一次；
+    ///   - 反过来，`setChecked()` 这类程序化的改动也照样算数（这一页上那些只发生在
+    ///     构造期，构造函数最后会把当时的签名记下来当起点，所以打开页面不会立刻写一次）。
+    ///
+    /// NOTE: 它**不发 settingsEdited() 的"哪一项变了"**：写盘那边读的是整份覆盖
+    ///       （`override()` 那一套），不关心是哪一格动的 —— 那两个问题分开问，将来
+    ///       加一项就不用同时改两处。
+    void notifyEdited();
+
+    /// 这一页此刻的**值签名**（把每个会写进 wtfml.meta 的值拼成一串）。
+    ///
+    /// 用它而不是给那几个值类型写 `operator==`：签名的唯一用处就是"和上一次比一比"，
+    /// 而这个比法**不依赖**那几个结构体将来加不加字段（加了字段、拼签名那一行忘记改的话，
+    /// 漏掉的那一项会变成"改了不写盘"—— 所以它和 `override()` 摆在一起，改一处看得见另一处）。
+    QStringList valueSignature() const;
+
+    /// 上一次**发出去**（= 写盘那边看见过的）那一份签名。见 notifyEdited()。
+    QStringList m_lastSignature;
 
     /// 全局那一层的值，用来写「跟随全局（当前 …）」。构造之后不再变。
     GlobalValues m_global;

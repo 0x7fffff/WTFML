@@ -146,6 +146,18 @@ public:
      */
     int execPage(QDialog *dialog, const QString &title);
 
+    /**
+     * @brief 换掉页眉上那行标题（页面已经开着的时候用）。
+     *
+     * 开页那一刻标题是定死的（`openPage()` / `execPage()` 收的那一个），可**页面上那件事
+     * 物自己会改名**：实例设置页里那一格改的就是实例名，改完之后页眉上那行字要是还写着
+     * 老名字，用户看到的是"最高处写着一个已经不存在的实例，底下那一格却是新的"。
+     *
+     * NOTE: 只改字，不动几何（页眉的高度是定死的，标题长了也是它自己截断 —— 和开页那
+     *       一刻完全一样）。
+     */
+    void setPageTitle(const QString &title);
+
     /// 同上，但按"提示"摆（中间 + 四周变暗）。
     int execPrompt(QDialog *dialog, bool dismissOnOutsideClick = false);
 

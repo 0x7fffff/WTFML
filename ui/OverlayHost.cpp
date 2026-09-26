@@ -349,6 +349,12 @@ int OverlayHost::execPage(QDialog *dialog, const QString &title) {
     return execEmbedded(dialog, title, true, false);
 }
 
+void OverlayHost::setPageTitle(const QString &title) {
+    if (m_titleLabel != nullptr) {
+        m_titleLabel->setText(title);
+    }
+}
+
 int OverlayHost::execPrompt(QDialog *dialog, bool dismissOnOutsideClick) {
     return execEmbedded(dialog, QString(), false, dismissOnOutsideClick);
 }
