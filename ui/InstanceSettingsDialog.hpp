@@ -1,7 +1,10 @@
 /**
  * @file InstanceSettingsDialog.hpp
- * @brief 「实例设置…」对话框：给单个实例覆盖启动五项（Java 路径 / Xmx / Xms / 内存自动 /
- *        额外 JVM 参数），每项都是两级「跟随全局 / 自定义」。
+ * @brief 「实例设置…」对话框。**2026-09-26 起分栏**：左栏大类（概览 / 启动 / 文件管理）、
+ *        选到「文件管理」时中间再长出一列小类、右边一块堆叠页（见下面 categoryKeys()）。
+ *        分栏之前它是一张通到底的表：上面一行实例名，下面给单个实例覆盖启动五项
+ *        （Java 路径 / Xmx / Xms / 内存自动 / 额外 JVM 参数），每项都是两级
+ *        「跟随全局 / 自定义」。
  * @author 0x7fffff
  * @date 2026-09-21
  * @note 进参出参都是**值**，本文件不 include 任何 src/ 下的头 —— 和 GroupDialog 同一条
@@ -36,14 +39,18 @@
 #include <optional>
 
 class QCheckBox;
+class QGridLayout;
 class QHBoxLayout;
 class QLabel;
 class QLineEdit;
+class QListWidget;
 class QPlainTextEdit;
 class QPushButton;
 class QRadioButton;
 class QSpinBox;
+class QStackedWidget;
 class QToolButton;
+class QVBoxLayout;
 class QWidget;
 
 class InstanceSettingsDialog : public QDialog {
@@ -133,6 +140,77 @@ public:
     /// 每次那对单选钮或自动勾选框变化都会调它。
     void refreshHints();
 
+    // ---------- 分栏（2026-09-26）----------
+    //
+    // 用户原话：「实例设置里也这么改，概览（版本名、图标，分组，置顶/取消置顶）启动（Java
+    // 选项，游戏窗口标题，内存分配，导出启动脚本，补全文件）文件管理（**再做一个类似的
+    // 左侧菜单叠在已有的左边栏上**，…）」。
+    //
+    // 所以这一页长成三栏：**左栏大类**（概览 / 启动 / 文件管理）、**中栏小类**（只有选到
+    // 「文件管理」时才出现）、**右栏内容**（一份堆叠页）。形状和设置页那一套是同一个套路
+    // ——「左栏一列分类、右栏一份堆叠页」，只是这儿中间能再长出一列来。
+    //
+    // 键表与 objectName 的写法照抄设置页（settingsCategoryKeys / settingsPanelName）：
+    // **两张按下标对齐的表**，加一栏要同时动两处；身份走 objectName，验证工程不靠位置认控件。
+
+    /// 左栏那三条大类的键。**顺序就是界面上从上到下的顺序**。
+    static QString overviewCategoryKey() { return QStringLiteral("overview"); }
+    static QString launchCategoryKey() { return QStringLiteral("launch"); }
+    static QString filesCategoryKey() { return QStringLiteral("files"); }
+    static QStringList categoryKeys() {
+        return {overviewCategoryKey(), launchCategoryKey(), filesCategoryKey()};
+    }
+    static QStringList categoryTexts() {
+        return {QStringLiteral("概览"), QStringLiteral("启动"), QStringLiteral("文件管理")};
+    }
+
+    /// 「文件管理」下面那一列小类的键。**顺序就是界面上的顺序。**
+    ///
+    /// NOTE: 用户给的那一串（快捷方式 / 资源包·模组 / 数据包 / 光影包 / 原理图 / 存档 /
+    ///       服务器列表）是他自己说了「我这个不合理」的，所以这儿是重排过的：把**跳板**
+    ///       （快捷方式：开文件夹）摆在最前，然后是**往实例里加东西**的那几类（模组最常用
+    ///       → 资源包 → 数据包 → 光影包 → 原理图），最后是**这个实例自己攒出来的**那两样
+    ///       （存档、服务器列表）。前六类是"往里放"，后两类是"从里面看"。
+    static QStringList filePageKeys() {
+        return {QStringLiteral("shortcut"), QStringLiteral("mod"),    QStringLiteral("resourcepack"),
+                QStringLiteral("datapack"), QStringLiteral("shader"), QStringLiteral("schematic"),
+                QStringLiteral("save"),     QStringLiteral("server")};
+    }
+    static QStringList filePageTexts() {
+        return {QStringLiteral("快捷方式"), QStringLiteral("模组"),   QStringLiteral("资源包"),
+                QStringLiteral("数据包"),   QStringLiteral("光影包"), QStringLiteral("原理图"),
+                QStringLiteral("存档"),     QStringLiteral("服务器列表")};
+    }
+
+    /// 堆叠页里「文件管理」那些页的起始下标（0/1 是概览与启动，排在前面）。
+    /// 换言之 `stackIndex = filePageFirstIndex() + 小类下标`。
+    static int filePageFirstIndex() { return 2; }
+    /// 堆叠页一共有几页。
+    static int pageCount() { return filePageFirstIndex() + filePageKeys().size(); }
+
+    static QString categoryListName() { return QStringLiteral("instanceSettingsCategoryList"); }
+    static QString subCategoryListName() {
+        return QStringLiteral("instanceSettingsSubCategoryList");
+    }
+    static QString stackName() { return QStringLiteral("instanceSettingsStack"); }
+    /// 堆叠页里某一页的 objectName（@param key 见 categoryKeys() / filePageKeys()）。
+    static QString panelName(const QString &key) {
+        return QStringLiteral("instanceSettingsPanel-") + key;
+    }
+    /// 那一页里那张表单的 objectName（概览 / 启动 各有一张；文件管理那几页还没有）。
+    static QString formName(const QString &key) {
+        return QStringLiteral("instanceSettingsForm-") + key;
+    }
+
+    /// 摆到 @p key 那一栏上（等价于点左栏里那一条）。越界 / 认不出来的键 = 什么都不做。
+    /// 验证工程用它跳栏 —— 它比"数第几条"稳（键表将来插一条也不会错位）。
+    void showCategory(const QString &key);
+
+    /// 这三条给验证工程问几何用（认控件主要还是按 objectName）。
+    QListWidget *categoryList() const { return m_categoryList; }
+    QListWidget *subCategoryList() const { return m_subCategoryList; }
+    QStackedWidget *stack() const { return m_stack; }
+
     // ---------- 控件的 objectName ----------
     // 验证工程靠这些名字认控件，别改回按文字去认（文字会随全局值变）。
     /// 某一项的「跟随全局」/「自定义」单选钮。@param field 见下面那五个常量。
@@ -174,8 +252,9 @@ public:
     static QString warnJavaMismatchCheckName() {
         return QStringLiteral("instanceWarnJavaMismatchCheck");
     }
-    /// 「实例名」那一格（改名）。**它在最上面一行**：它改的是这个实例的身份，别的几项
-    /// 改的都是它的启动参数 —— 先看清改的是哪一个，再谈别的。
+    /// 「实例名」那一格（改名）。**它在「概览」栏的第一行**（2026-09-26 分栏之前它在整页
+    /// 最上面）：它改的是这个实例的身份，别的几项改的都是它的启动参数 —— 先看清改的是
+    /// 哪一个，再谈别的。打开对话框默认停在「概览」，所以它还是第一眼看到的那一格。
     static QString instanceNameEditName() { return QStringLiteral("instanceNameEdit"); }
     static QString instanceNameText() { return QStringLiteral("实例名"); }
     /// 那一格下面那句解释（**唯一一处**说清"改这里 = 改磁盘上的目录名"）。
@@ -236,6 +315,27 @@ private:
     ///       再往下就是空指针解引用 —— 这张表里每一行都写着那一句，所以收口成一个函数。
     QHBoxLayout *choiceRowOf(const QString &field) const;
 
+    /// 往堆叠页里加一页（objectName = `panelName(key)`），返回那一页自己。
+    /// **加进去的顺序必须就是 pageCount() 那个顺序**（有一条断言钉着）。
+    QWidget *addPage(const QString &key);
+
+    /// 在 @p page 里加一张「左名右控件」的两列表格（3:7，和设置页栏内那一层同一套），
+    /// 返回那张表格。控件加进它自己的 `formName(key)` 子控件里。
+    ///
+    /// NOTE: 中间夹一层 form（而不是直接把表格挂在页上）是为了以后要往页里加表格之外的
+    ///       东西（一句话说明、一颗按钮）时不用把表格拆开 —— 设置页那一层就是这个形状。
+    QGridLayout *addForm(const QString &key, QWidget *page);
+
+    /// 左栏那两条导航列的宽度：按最长的一条条目算（`sizeHintForColumn`），不写死像素
+    /// —— 换字体 / 换样式就错。再加一点左右余量，条目的字离边太近看着像被切了。
+    static int navListWidth(const QListWidget *list);
+
+    /// 左栏选中第 @p row 条之后要做的事：换页 + （只有「文件管理」才）露出中栏那一列。
+    /// 越界 = 什么都不做（见 .cpp 里那段 NOTE）。
+    void applyCategory(int row);
+    /// 中栏选中第 @p row 条之后要做的事：把右栏换到那一页。
+    void applyFilePage(int row);
+
     /// 全局那一层的值，用来写「跟随全局（当前 …）」。构造之后不再变。
     GlobalValues m_global;
 
@@ -243,7 +343,16 @@ private:
     /// 所以它得留着给人问（见 titleText / setTitleVisible）。
     QLabel *m_titleLabel = nullptr;
 
-    /// 「实例名」那一格（见 instanceName()）。
+    // ---------- 三栏那几件（见 categoryKeys() 上面那一段）----------
+    /// 左栏那三条大类。当前行 = 界面上的当前栏。
+    QListWidget *m_categoryList = nullptr;
+    /// 中栏那八条小类。**只在「文件管理」那一栏里显示** —— 其余两栏里它是隐藏的，
+    /// 但 `currentRow` 留着（切走再切回来还停在刚才那一页）。
+    QListWidget *m_subCategoryList = nullptr;
+    /// 右栏那份堆叠页，下标见 pageCount() / filePageFirstIndex()。
+    QStackedWidget *m_stack = nullptr;
+
+    /// 「实例名」那一格（见 instanceName()）。现在长在「概览」栏里。
     QLineEdit *m_instanceNameEdit = nullptr;
     QLineEdit *m_javaPathEdit = nullptr;
     QSpinBox *m_memoryMaxSpin = nullptr;
