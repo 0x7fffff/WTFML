@@ -476,7 +476,7 @@ public:
     /// CurseForge 的两项设置。**和 setUseMirror 同一个形状**：数据层看不见
     /// LauncherSettings（那是界面那一层的），设置要由 MainWindow 推过来。
     ///
-    /// NOTE: `apiKey` 空 = 走社区反代（`api.curse.tools`，不要 key）；非空 = 走官方
+    /// NOTE: `apiKey` 空 = 走那台不要 key 的社区镜像；非空 = 走官方
     ///       `api.curseforge.com` 并带上 `x-api-key`。判据与理由都在
     ///       `ModpackImport::curseForgeApiBase()` 里，这里只负责存。
     ///       `baseOverride` **只有验证工程会写**（`Launcher/CurseForgeApiBase`，把接口指到
@@ -489,7 +489,7 @@ public:
      * @param pack 解析出来的清单，**就地改**：`pendingRefs` 清空、`files` 填好，
      *        另外把三种"不下"的计数写进 `filesNotDistributable` / `filesMissing` / `filesSkipped`。
      * @return 空串 = 成了；非空 = **不能导入**，那句话直接给用户看（含"可以让用户在设置里
-     *         填自己的 CurseForge API key"这一句 —— 反代是别人的服务，它没了、被限流了
+     *         填自己的 CurseForge API key"这一句 —— 镜像是别人的服务，它没了、被限流了
      *         都得给用户一条自己能走的路）。
      *
      * 【为什么是同步的、为什么由界面在弹确认框之前调】两发请求、通常一两秒。放在这里

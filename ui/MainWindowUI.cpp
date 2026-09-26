@@ -1689,9 +1689,10 @@ void MainWindowUI::setupSettingsDownloadPanel(QStackedWidget *stack) {
         //       贴错了得能看一眼；② 它本来就明文躺在配置里，圆点给的是**假的**安全感。
         //       它是这一项而不是"账号密码"那一类：泄露的代价是那个用户自己的额度被用掉。
         boxLayout->addWidget(curseForgeApiKeyEdit);
-        addHint(box, QStringLiteral("只给 CurseForge 格式的整合包用：那种清单里只有编号，"
-                                    "要问一次接口才换得出下载地址。官方接口要 key（在 "
-                                    "console.curseforge.com 免费申请），留空则走社区的公共接口 —— "
+        addHint(box, QStringLiteral("CurseForge 那一条路要用它：下载页把来源选成 CurseForge 时"
+                                    "搜项目靠接口，CurseForge 格式的整合包导入也要靠接口把"
+                                    "清单里那些编号换成下载地址。官方接口要 key（在 "
+                                    "console.curseforge.com 免费申请），留空则走一台社区镜像 —— "
                                     "它不用 key，但可能限流、也可能哪天就停了。"
                                     "改完按回车（或者点到别处）就记住。"),
                 form);

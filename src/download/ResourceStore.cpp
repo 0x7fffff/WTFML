@@ -46,7 +46,7 @@ QNetworkRequest resourceRequest(const QString &url,
 
 /// CurseForge 那条路要额外带的头：`x-api-key`（**只有用户自己填了 key 才有**）。
 ///
-/// 默认那条路是社区反代、不要 key（见 ModpackImport::curseForgeApiBase）：那时候一个头都
+/// 默认那条路是社区镜像、不要 key（见 ModpackImport::curseForgeApiBase）：那时候一个头都
 /// 不发。用户填了 key 就改走官方，官方**不带这个头一律 403**（实测 2026-09-25）——
 /// 头名和 VersionManager 那边一字不差（两处都是"问 CurseForge 要东西"，没有理由不一样）。
 QList<QPair<QByteArray, QByteArray>> apiKeyHeaders(const QString &apiKey) {
@@ -145,7 +145,7 @@ void ResourceStore::setCurseForgeApiBaseOverride(const QString &base) {
 }
 
 QString ResourceStore::curseForgeApiBase() const {
-    // **唯一出处**：key 空不空、走反代还是官方，全在 ModpackImport 那一处判（和
+    // **唯一出处**：key 空不空、走镜像还是官方，全在 ModpackImport 那一处判（和
     // VersionManager::resolveCurseForgeFiles 调的是同一个函数）—— 这里只是把手上那两条递进去。
     return ModpackImport::curseForgeApiBase(m_curseForgeApiKey, m_curseForgeApiBaseOverride);
 }
@@ -172,7 +172,7 @@ QString ResourceStore::failureText(QNetworkReply *reply, const QByteArray &body,
         QJsonDocument::fromJson(body).object().value(QStringLiteral("description")).toString();
 
     /// CurseForge 那一趟要**多给一句**用户自己能走的路（见声明处那段）：默认走的是社区
-    /// 反代，它限流了、停了、或者官方那边改了规矩，用户在设置里填一份自己的 key 就能绕过去。
+    /// 镜像，它限流了、停了、或者官方那边改了规矩，用户在设置里填一份自己的 key 就能绕过去。
     /// 措辞和 VersionManager::resolveCurseForgeFiles 那条路对齐（同一个来源、同一个出口）。
     QString hint;
     if (source == ResourceCatalog::Source::CurseForge) {
@@ -213,7 +213,7 @@ void ResourceStore::search(const QString &requestKey, ResourceCatalog::Kind kind
 
     const bool isCurseForge = source == ResourceCatalog::Source::CurseForge;
     // 接口根地址**只给 CurseForge 那一条**（Modrinth 那条路的地址是写死的）：key 空不空、
-    // 走反代还是官方，都在 curseForgeApiBase() 里一处判。
+    // 走镜像还是官方，都在 curseForgeApiBase() 里一处判。
     const QString url = ResourceCatalog::searchUrl(kind, query, 0, kSearchPageSize, gameVersion,
                                                   loader, source, category,
                                                   isCurseForge ? curseForgeApiBase() : QString());

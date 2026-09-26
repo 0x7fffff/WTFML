@@ -134,8 +134,8 @@ Result parseModrinthIndex(const QByteArray &json);
 //     POST /v1/mods        {"modIds":[...]}        批量问"这是模组还是资源包"（200）
 //
 // 官方那份 `api.curseforge.com` **要 `x-api-key`**（不带 = 403，实测）。所以默认走的是
-// 一条社区反代（`api.curse.tools`，同一个接口形状、不要 key，实测 200）—— 代价写在
-// curseForgeApiBase() 上面。用户自己填了 key 就改走官方。
+// 一台不要 key 的社区镜像（同一个接口形状，连 `{"data":[…]}` 那一层都一样）—— 现在用的
+// 是哪一台、为什么换过，写在 curseForgeApiBase() 上面。用户自己填了 key 就改走官方。
 
 /**
  * @brief 解析一份 CurseForge 的 `manifest.json`。
@@ -250,15 +250,16 @@ QHash<int, int> parseCurseForgeClassIds(const QByteArray &json, QString *problem
 
 /**
  * @brief 问哪一台接口。
- * @param apiKey 用户在设置里填的 key；空 = 走那条社区反代。
+ * @param apiKey 用户在设置里填的 key；空 = 走那台不要 key 的社区镜像。
  * @param override 非空则**优先**用它（`Launcher/CurseForgeApiBase`，验证工程拿它把接口
  *        指到本机的假服务器上）。产品自己**从不写这个键**。
  *
- * 【为什么默认是反代】官方那份要 `x-api-key`（不带 = 403，实测 2026-09-25）。而 key 一旦
- * 编进 exe 就等于公开（谁都能从二进制里抠出来），泄露的 key 会被吊销 —— 所以默认走
- * `https://api.curse.tools/v1`（同一个接口形状，不要 key）。**代价要说清楚**：那是**别人
- * 的服务**，可能限流、可能哪天就没了。所以：① 用户填了自己的 key 就改走官方；② 接口那一发
- * 失败时那句话里要提到"可以在设置里填自己的 CurseForge API key"（见 VersionManager）。
+ * 【为什么默认是镜像】官方那份要 `x-api-key`（不带 = 403，实测 2026-09-25）。而 key 一旦
+ * 编进 exe 就等于公开（谁都能从二进制里抠出来），泄露的 key 会被吊销 —— 所以默认走一台
+ * 不要 key 的镜像。**代价要说清楚**：那是**别人的服务**，可能限流、可能哪天就没了
+ * （2026-09-26 就换过一次，见 .cpp 里那段实测）。所以：① 用户填了自己的 key 就改走官方；
+ * ② 接口那一发失败时那句话里要提到"可以在设置里填自己的 CurseForge API key"
+ * （见 VersionManager）。
  */
 QString curseForgeApiBase(const QString &apiKey, const QString &override = QString());
 

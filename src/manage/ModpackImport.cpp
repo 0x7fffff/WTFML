@@ -809,8 +809,29 @@ QString curseForgeApiBase(const QString &apiKey, const QString &override) {
     // 但填了它就得最优先 —— 那是"把接口指到本机的假服务器上"的唯一办法。
     QString base = override.trimmed();
     if (base.isEmpty()) {
-        base = apiKey.trimmed().isEmpty() ? QStringLiteral("https://api.curse.tools/v1")
-                                          : QStringLiteral("https://api.curseforge.com/v1");
+        // ★ 没填 key 时走的那一台（2026-09-26 换过一次，原因是**上一台整个死了**）：
+        //   · 旧的那台 `api.curse.tools` —— 2026-09-25 实测 200，2026-09-26 再测**整站 403**
+        //     （Cloudflare 的拦截页，不带 UA、带浏览器 UA、带全套浏览器头都一样）。
+        //     它的症状是"CurseForge 那一栏什么都搜不出来 / 整合包导入说换不到文件"，
+        //     而那句话里只会看到 HTTP 403。
+        //   · 现在这台 `mod.mcimirror.top/curseforge/v1` —— 实测 200，而且是**照着官方那份
+        //     做的镜像**（`{"data":[…]}`、`pagination`、`downloadUrl`、`hashes`、
+        //     `latestFilesIndexes` 一层不差），所以上层一个字都不用改。同一趟实测过的还有：
+        //     搜索（`searchFilter=jei` 377 条）、版本列表（`/mods/{id}/files` 带 gameVersion +
+        //     modLoaderType）、单文件（`/mods/{id}/files/{id}`）、两个批量 POST
+        //     （`/mods/files`、`/mods`）与分类表（`/categories`）—— 这条路用到的每一发都问过。
+        //   · ★ **结尾那个 `/v1` 一个字符都不能少**。这个函数的约定是"返回到 `/v1` 为止的
+        //     那一段"，调用点只往后接 `/mods/search` / `/mods/files` / `/mods/{id}/files` ——
+        //     少这一段就变成 `/curseforge/mods/search`，**每一发都是 404**。
+        //     2026-09-26 实测：`/curseforge/mods/search?…` → 404、`/curseforge/v1/mods/search?…`
+        //     → 200。它坑人的地方在于**症状和"服务挂了"长得一模一样**（CurseForge 那一栏搜不出
+        //     东西、整合包导入说换不到文件），而这条路的每一发都是拿假服务器验的 ——
+        //     本机那个假接口的 base 就是 `…:/v1`，所以少一段这种事**只有真网络那一跑能看见**
+        //     （mw_check 的 `cf-resolve-live` 当场报 404）。ZG5 有一条断言钉着 `/v1` 这个尾巴。
+        //   · **它也可能哪天就没了**（上一台就是这么没的）：换的时候只改下面这一行。
+        base = apiKey.trimmed().isEmpty()
+                   ? QStringLiteral("https://mod.mcimirror.top/curseforge/v1")
+                   : QStringLiteral("https://api.curseforge.com/v1");
     }
     // 结尾那个 `/` 去掉：拼 URL 的地方一律自己带上它（`%1/mods/%2/files/%3`），
     // 两种写法都收下，免得用户在设置里多打或者少打一个斜杠就 404。

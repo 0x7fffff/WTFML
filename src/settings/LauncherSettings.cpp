@@ -32,7 +32,7 @@ static constexpr const char kProcessPriority[] = "Launcher/ProcessPriority";
 static constexpr const char kTitleText[] = "Launcher/TitleText";
 static constexpr const char kWarnDuplicateLaunch[] = "Launcher/WarnDuplicateLaunch";
 static constexpr const char kWarnWorldLoss[] = "Launcher/WarnWorldLoss";
-/// 用户自己填的 CurseForge API key（空 = 走社区反代）。
+/// 用户自己填的 CurseForge API key（空 = 走那台不要 key 的社区镜像）。
 static constexpr const char kCurseForgeApiKey[] = "Launcher/CurseForgeApiKey";
 /// CurseForge 接口的地址覆盖。**只有验证工程会写它**（见 .hpp 里那条 NOTE）：
 /// 这里的 `load()` 读、`save()` **刻意不写**。

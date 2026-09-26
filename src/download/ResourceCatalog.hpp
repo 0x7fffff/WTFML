@@ -100,7 +100,7 @@ QString kindLabel(Kind kind);
 // | 筛加载器 | facets `categories:fabric`（**不是** `loaders:`） | `modLoaderType=1`（**数字**） |
 // | 筛类型 | facets `categories:optimization` | `categoryId=6814`（**数字**） |
 // | 排序 | `index=relevance` / `downloads` | `sortField=6`（**两边都只用它**，见 searchUrl） |
-// | 要不要 key | 不要 | 官方那份要（默认走反代，见 ModpackImport::curseForgeApiBase） |
+// | 要不要 key | 不要 | 官方那份要（默认走一台不要 key 的社区镜像，见 curseForgeApiBase） |
 // | 答复根 | `{"hits":[…]}` | `{"data":[…],"pagination":{…}}` |
 //
 // 所以下面凡是"两边不一样"的地方都是一个**按来源分叉的函数**，不是两套平行的函数名：
@@ -109,7 +109,7 @@ QString kindLabel(Kind kind);
 /// 去哪儿搜。
 enum class Source {
     Modrinth,   ///< 官方 v2 接口，不要 key（一直以来的那一个）
-    CurseForge, ///< 官方要 key、默认走社区反代（见 ModpackImport::curseForgeApiBase）
+    CurseForge, ///< 官方要 key、默认走社区镜像（见 ModpackImport::curseForgeApiBase）
 };
 
 /// 两个来源都在这里列一遍。**顺序就是界面上那个下拉框的顺序**（Modrinth 在前面：
@@ -259,7 +259,7 @@ struct SearchResult {
 /// @param source Modrinth 那条走 facets，CurseForge 那条走查询参数（见文件上面那张表）。
 /// @param category 类型（`categoryOptions` 给的键：一个 slug，或者一个类目号）。
 /// @param apiBase **只给 CurseForge 用**：接口根地址（`…/v1`）。空 = 走默认那条
-///        （社区反代）—— 那件事只有一处出处（ModpackImport::curseForgeApiBase），
+///        （社区镜像）—— 那件事只有一处出处（ModpackImport::curseForgeApiBase），
 ///        这里不自己拼一个域名。验证工程拿它把请求指到本机的假服务器上。
 ///
 /// 【CurseForge 的排序：两种情况都用 `sortField=6`（TotalDownloads），实测的】

@@ -507,13 +507,13 @@ QString VersionManager::resolveCurseForgeFiles(ModpackImport::Pack *pack) {
         headers.append({QByteArrayLiteral("x-api-key"), m_curseForgeApiKey.toUtf8()});
     }
 
-    /// 这一发没成时那句话（**必须给出一条用户自己能走的路**：反代是别人的服务）。
+    /// 这一发没成时那句话（**必须给出一条用户自己能走的路**：镜像是别人的服务）。
     const auto failureText = [hasKey](const HttpClient::Reply &reply) {
         const QString hint =
             hasKey ? tr("设置里那份 CurseForge API key 可能不对、或者已经失效了，可以换一份。")
-                   : tr("网络本身没问题的话，多半是那个公共接口的事了 —— 可以在设置页「下载」"
+                   : tr("网络本身没问题的话，多半是那台公共接口的事了 —— 可以在设置页「下载」"
                         "栏里填一份自己的 CurseForge API key（免费申请），填了就改走官方接口。"
-                        "现在这一发走的是社区提供的公共反代，它可能限流、也可能哪天就停了。");
+                        "现在这一发走的是别人搭的一台社区镜像，它可能限流、也可能哪天就停了。");
         if (!reply.networkError.isEmpty()) {
             return tr("问 CurseForge 要文件清单时没连上：%1\n\n%2").arg(reply.networkError, hint);
         }
@@ -527,7 +527,7 @@ QString VersionManager::resolveCurseForgeFiles(ModpackImport::Pack *pack) {
             .arg(apiError.isEmpty() ? QString() : tr("（%1）").arg(apiError), hint);
     };
 
-    // 一发问多少条。接口那一侧对一批的条数有上限（官方文档是 1000，反代更保守），
+    // 一发问多少条。接口那一侧对一批的条数有上限（官方文档是 1000，镜像更保守），
     // 我们自己定 100：正文小、重来代价小，而一个大包（几百条）也就三四发。
     constexpr int kChunk = 100;
 

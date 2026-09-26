@@ -90,10 +90,10 @@ QString unreadableText(const QJsonParseError &error) {
 ///       modloader / rift，那边有 quilt。
 /// CurseForge 那一家的接口根（`…/v1`，**带 v1 那一段**）。
 ///
-/// 这里刻意**不写域名**：默认走哪一台（社区反代还是官方 + key）、用户在设置里填没填 key，
-/// 全是 `ModpackImport::curseForgeApiBase()` 一处说了算（见那个函数的注释）。
+/// 这里刻意**不写域名**：默认走哪一台（不要 key 的社区镜像、还是官方 + key）、用户在设置里
+/// 填没填 key，全是 `ModpackImport::curseForgeApiBase()` 一处说了算（见那个函数的注释）。
 /// 把 `apiBase` 当 override 传进去，三种情形就都落在那一个函数里了：
-/// 传进来的非空 → 就用它（验证工程指本机假服务器）；空 → 没填 key 的那一套（社区反代）。
+/// 传进来的非空 → 就用它（验证工程指本机假服务器）；空 → 没填 key 的那一套（社区镜像）。
 ///
 /// 症状提醒：这里要是自己拼一个 `https://api.curseforge.com/v1`，看起来"更直接"，
 /// 但那一条**不带 key 就是 403**，而界面上只会显示"搜索失败"。
@@ -645,7 +645,14 @@ QString searchUrl(Kind kind, const QString &query, int offset, int limit,
         QStringList params;
         params.append(QStringLiteral("gameId=432"));  // Minecraft（写死的，这家还管别的游戏）
         params.append(QStringLiteral("classId=") + QString::number(curseForgeClassId(kind)));
-        params.append(QStringLiteral("search=") + enc(query));
+        // ★ 名称那一段叫 **`searchFilter`**，不是 `search`。2026-09-26 实测：发 `search=jei`
+        //   这一家**一个字都不筛**，安安静静地把这一类**最热门的那一批**回给你（`totalCount`
+        //   是 10000 = 整类的数，而不是 "jei" 那 377 条）—— 界面上看起来"搜出来了"，
+        //   其实搜什么都是同一批。**它不报错**，所以这个错只能靠"地址里那一段叫什么"来钉住
+        //   （见 build/verify 里 Z7e 那两条）。
+        //   （比它更早的那句"实测 Popularity 会把搜索词无视掉"是同一个错的另一副面孔：
+        //   词压根没送到，换哪个排序都一样。更正过之后 sortField=6 只是为了"按总下载量"。）
+        params.append(QStringLiteral("searchFilter=") + enc(query));
         if (!gameVersion.isEmpty()) {
             params.append(QStringLiteral("gameVersion=") + enc(gameVersion));
         }
@@ -659,8 +666,9 @@ QString searchUrl(Kind kind, const QString &query, int offset, int limit,
         }
         params.append(QStringLiteral("index=") + QString::number(qMax(0, offset)));
         params.append(QStringLiteral("pageSize=") + QString::number(qBound(1, limit, 50)));
-        // 排序：一个值就够（实测，见 .hpp 那段）。`sortOrder=desc` 不能省 —— 这一家的默认
-        // 方向是 asc，那样头一条会变成"这一类里最没人用的"。
+        // 排序：按**总下载量**倒序（界面那一页默认搜的就是「最热门」，两处口径要一致）。
+        // `sortOrder=desc` 不能省 —— 这一家的默认方向是 asc，那样头一条会变成"这一类里
+        // 最没人用的"。
         params.append(QStringLiteral("sortField=6"));
         params.append(QStringLiteral("sortOrder=desc"));
 
@@ -762,7 +770,7 @@ SearchResult parseCurseForgeSearch(const QByteArray &json) {
 
     const QJsonObject root = document.object();
     if (!root.contains(QStringLiteral("data"))) {
-        // 不是一份搜索结果。出错时那一家回的是 `{"error":"…"}`，而**社区反代**在超时 /
+        // 不是一份搜索结果。出错时那一家回的是 `{"error":"…"}`，而**社区镜像**在超时 /
         // 过载时回的可能是别的形状（比如一个 Cloudflare 的页面被当成 json 塞进来）。
         // 两条都带出去：接口自己的那句话优先，没有就如实说形状不对。
         const QString apiError = root.value(QStringLiteral("error")).toString();
