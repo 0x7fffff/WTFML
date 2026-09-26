@@ -27,9 +27,9 @@
  *
  * 这一层的每个入口都带一个 `ResourceCatalog::Source`：地址怎么拼、正文怎么读都在
  * ResourceCatalog 那一层按来源分叉了，这里要管的只有三件事 ——
- *   ① CurseForge 的接口根地址和 `x-api-key`（**默认走社区反代，不要 key**：那件事的取舍
- *      写在 ModpackImport::curseForgeApiBase 上面）；地址和头都跟着 source 走，别的来源
- *      一个字母都不发；
+ *   ① CurseForge 的接口根地址和 `x-api-key`（**默认走一台不要 key 的社区镜像**：那件事的
+ *      取舍、以及 2026-09-26 换过一次的实测都写在 ModpackImport::curseForgeApiBase 上面）；
+ *      地址和头都跟着 source 走，别的来源一个字母都不发；
  *   ② 版本列表那边"200 但正文不是一个数组"的判据要按来源分（Modrinth 是数组、
  *      CurseForge 是对象），分错了的症状是"CurseForge 那一页永远说版本列表读不懂"；
  *   ③ 图标那几条按 `Hit::iconCacheId()`（带来源前缀）走，见下面那段。
@@ -61,7 +61,7 @@ public:
     /// 都是 MainWindow 从 LauncherSettings 推过来，判断和取舍都在
     /// `ModpackImport::curseForgeApiBase()` 上面，这里只负责存）。
     ///
-    /// NOTE: `apiKey` 空 = 走社区反代（不要 key）；非空 = 走官方并带 `x-api-key`。
+    /// NOTE: `apiKey` 空 = 走那台不要 key 的社区镜像；非空 = 走官方并带 `x-api-key`。
     ///       `baseOverride` **只有验证工程会写**（`Launcher/CurseForgeApiBase`，把接口指到
     ///       本机的假服务器上）；产品自己从不写它。
     /// NOTE: 这两条只影响**之后**发的请求 —— 改完不重发已经飞出去的那一发（用户在设置页
@@ -288,7 +288,7 @@ private:
     /// 它比我们编的"搜索失败"有用得多。
     ///
     /// @param source CurseForge 那一趟**再带一句"可以去设置里填自己的 key"**：默认那条路
-    ///        是社区反代（别人的服务），它没了、被限流了、或者官方那边改了规矩，用户手上有
+    ///        是社区镜像（别人的服务），它没了、被限流了、或者官方那边改了规矩，用户手上有
     ///        一条自己能走的路 —— 这句话不给的话，界面上就只剩"搜索失败"四个字
     ///        （和 VersionManager::resolveCurseForgeFiles 那条路的说法保持一致）。
     /// @param hasKey 手上有没有用户自己填的那份 CurseForge key —— 它决定那句话指向哪条出路

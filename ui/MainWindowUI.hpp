@@ -1501,9 +1501,11 @@ public:
     static QString downloadSourceComboName() { return QStringLiteral("downloadSourceCombo"); }
 
     // ---------- CurseForge API key（2026-09-25 加的，在「下载源」那一组里） ----------
-    // CurseForge 格式的整合包只能靠接口换出下载地址（那份清单里只有编号），而官方接口
-    // 要 key。默认走社区反代，这一格是给用户"自己填一份走官方"的退路 —— 所以它是
-    // **可留空的一格**，不是必填项（空 = 反代）。
+    // CurseForge 那一条路（下载页把来源选成 CurseForge、以及 CurseForge 格式的整合包导入）
+    // 都要靠接口：前者搜项目、后者把那份只有编号的清单换成下载地址 —— 而官方接口要 key。
+    // 默认走一台不要 key 的社区镜像，这一格是给用户"自己填一份走官方"的退路 —— 所以它是
+    // **可留空的一格**，不是必填项（空 = 镜像）。**现在用的是哪一台、为什么换过**，
+    // 见 ModpackImport::curseForgeApiBase（2026-09-26 换过一次）。
     static QString curseForgeApiKeyEditName() { return QStringLiteral("curseForgeApiKeyEdit"); }
     /// 这一行的行标题（左列那一格）。
     static QString curseForgeApiKeyRowText() { return QStringLiteral("CurseForge API key"); }

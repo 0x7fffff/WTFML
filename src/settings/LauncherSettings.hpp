@@ -167,16 +167,16 @@ public:
     // CurseForge
     // ------------------------------------------------------------------
 
-    /// 用户自己填的 CurseForge API key。**空 = 走社区反代**（`api.curse.tools`，不要 key）。
+    /// 用户自己填的 CurseForge API key。**空 = 走那台不要 key 的社区镜像**。
     ///
     /// 【为什么要用户自己填】官方那份 `api.curseforge.com` 要 `x-api-key`（不带 = 403，
     /// 2026-09-25 实测）。而 key 一旦编进 exe 就等于公开（谁都能从二进制里抠出来），
-    /// 泄露的 key 会被吊销 —— 所以默认走反代，用户想走官方就自己填一份。
-    /// 判据、两条路的取舍、以及"反代可能哪天就没了"那件事写在
-    /// `ModpackImport::curseForgeApiBase()` 上面。
+    /// 泄露的 key 会被吊销 —— 所以默认走镜像，用户想走官方就自己填一份。
+    /// 判据、两条路的取舍、以及"镜像可能哪天就没了"那件事写在
+    /// `ModpackImport::curseForgeApiBase()` 上面（2026-09-26 就换过一次）。
     QString curseForgeApiKey() const { return m_curseForgeApiKey; }
 
-    /// 设置 CurseForge 的 key 并立刻落盘。传空串 = 回到默认那条路（社区反代）。
+    /// 设置 CurseForge 的 key 并立刻落盘。传空串 = 回到默认那条路（社区镜像）。
     void setCurseForgeApiKey(const QString &apiKey);
 
     /// 把 CurseForge 的接口指到别的地址上（如 `http://127.0.0.1:8080/v1`）。
@@ -318,7 +318,7 @@ private:
     bool m_warnDuplicateLaunch = true;
     bool m_warnWorldLoss = true;
     /// CurseForge 那两项（见上面那两个访问器）。**都是空串 = 默认档**：
-    /// 走社区反代、不要 key。
+    /// 走那台不要 key 的社区镜像。
     QString m_curseForgeApiKey;
     QString m_curseForgeApiBaseOverride;
 };
