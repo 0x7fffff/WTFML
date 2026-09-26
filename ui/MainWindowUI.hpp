@@ -15,8 +15,14 @@
  * 份数，不各写一份。
  *
  * NOTE: 2026-09-26 起「设置」页也走这条路（它原来是**一张通到底的两列表格**，栏不是控件）：
- *       左栏是五条分类（启动/游戏/提示/个性化/下载），右栏是堆叠页 —— 每一栏里仍是那张
- *       3:7 的两列表格，但那张表现在只管**栏内**那一层（见「设置页」那一段）。
+ *       左栏是五条分类（启动/游戏/提示/个性化/下载），右栏是堆叠页 —— 每一栏里是一张
+ *       grid，但那张表现在只管**栏内**那一层（见「设置页」那一段）。
+ *
+ * NOTE: 2026-09-26 同日稍后，设置页每一栏里那些行也改成了**上下结构**（行名独占一行、
+ *       内容在下一行，见 cpp 里的 addSettingRow()）—— 从前是"名字在左、控件在右"的
+ *       两列行。于是栏内那张 grid 的 3:7 现在**一行都没在用它分列**（每一格都跨两列），
+ *       留着它是为了让五个分栏的表长得一样、也为了让验证工程量得着（见
+ *       leftColumnStretch()/rightColumnStretch()）。
  *
  * NOTE: 比例**按页不同** —— 实例页是默认的"左 3 右 7"，主页是"左 7 右 3"
  *       （见 leftColumnIsWider()），下载页与设置页都是"左 2 右 8"（左栏都只是一列分类）。
@@ -404,7 +410,7 @@ public:
     //
     // 为什么齿轮**在最右边**（不是挨着组行那颗齿轮对齐成一列）：实例行是这一页的主要内容，
     // 一行里的东西一律贴着右边缘站；组行最右边那颗是展开箭头，两边本来就不在同一列上，
-    // 硬对齐反而会留出一截"什么都没有的右边缘" —— 而这一栏宽度是 3:7 里分出来的，一格都紧。
+    // 硬对齐反而会留出一截"什么都没有的右边缘" —— 而这一栏宽度是左右两栏里分出来的，一格都紧。
     /// 实例行行尾那三颗按钮的边长（齿轮 / 上箭头 / 垃圾桶共用）。
     static int instanceRowActionSize() { return 16; }
     /// 相邻两颗之间留多少。
@@ -1382,9 +1388,10 @@ public:
     //
     // NOTE: 2026-09-26 起「设置」页也用 buildTwoColumnPage() 了 —— 左栏是那五条分类、
     //       右栏是一个堆叠页（原来它是一张通到底的两列 grid，见 setupSettingsPage 那段）。
-    //       所以「选项名称在列 0、控件在列 1」那张 3:7 的两列 grid 现在**每一栏各有一张**
-    //       （objectName 见 settingsFormName(key)），它管的是**栏内**那一层；
-    //       而左右两栏之间那一层是这一对份数。
+    //       所以栏内那张 grid 现在**每一栏各有一张**（objectName 见 settingsFormName(key)），
+    //       它管的是**栏内**那一层；而左右两栏之间那一层是这一对份数。
+    //       栏内那些行 2026-09-26 又改成了上下结构（每格跨两列，见 cpp 的 addSettingRow()），
+    //       所以这张 grid 的列份数如今只摆形状、不再分隔任何一行。
     /// @param tab "home" / "instance" / "download" / "settings"。
     static QString leftColumnName(const QString &tab) {
         return tab + QStringLiteral("LeftColumn");
@@ -1393,7 +1400,7 @@ public:
     static QString rightColumnName(const QString &tab) {
         return tab + QStringLiteral("RightColumn");
     }
-    /// 默认那一套份数：左 3 右 7。实例页（以及**栏内**那张两列表格，见「设置页」那一段）用它。
+    /// 默认那一套份数：左 3 右 7。实例页（以及设置页**栏内**那张 grid，见「设置页」那一段）用它。
     static int leftColumnStretch() { return 3; }
     /// 右栏占的份数（默认那一套）。
     static int rightColumnStretch() { return 7; }
@@ -1482,7 +1489,8 @@ public:
     static QString settingsPanelName(const QString &key) {
         return QStringLiteral("settingsPanel-") + key;
     }
-    /// 某一栏里那张两列表格（列 0 选项名称、列 1 控件，3:7）的 objectName。
+    /// 某一栏里那张 grid（3:7；**每一行都跨两列** —— 行名一行、内容下一行，见 cpp 的
+    /// addSettingRow()）的 objectName。
     static QString settingsFormName(const QString &key) {
         return QStringLiteral("settingsForm-") + key;
     }
@@ -2032,13 +2040,13 @@ public:
 private:
     void setupUi(QMainWindow *parent);
     /// 搭设置页：左栏一列分类（启动/游戏/提示/个性化/下载）、右栏一份堆叠页，两边下标
-    /// 一一对应（见头文件上面「设置页：左栏那几条分类」那段）。每个分栏里才是那张
-    /// 「列 0 选项名称、列 1 控件」的两列表格（3:7）。
+    /// 一一对应（见头文件上面「设置页：左栏那几条分类」那段）。每个分栏里才是那张 grid
+    /// （3:7，行是上下结构），见 addSettingsPanel()。
     void setupSettingsPage(QWidget *page);
     /// 设置页那五个分栏的**内容**（各自往堆叠页里加一页，顺序就是 settingsCategoryKeys()
     /// 的顺序）。拆成五个函数只为一件事：`row` 那个行号计数本来就是"每个分栏各数各的"
     /// （从前是十个花括号块顺序往下数），一个函数一个分栏之后那件事就不言自明了。
-    /// 每个分栏都是"自己的滚动区 + 自己的两列表格"，页面从 addSettingsPanel() 拿。
+    /// 每个分栏都是"自己的滚动区 + 自己的表格"，页面从 addSettingsPanel() 拿。
     void setupSettingsLaunchPanel(QStackedWidget *stack);
     void setupSettingsGamePanel(QStackedWidget *stack);
     void setupSettingsWarnPanel(QStackedWidget *stack);

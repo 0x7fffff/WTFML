@@ -1216,7 +1216,8 @@ QGridLayout *InstanceSettingsDialog::addForm(const QString &key, QWidget *page) 
     grid->setContentsMargins(0, 0, 0, 0);
     grid->setHorizontalSpacing(12);
     grid->setVerticalSpacing(10);
-    // 和设置页栏内那一层同一套比例（名字在左、控件在右）。
+    // 和设置页栏内那一层同一套比例（两边每一行都是上下结构、每格跨两列，所以这一对
+    // 份数在两边都只摆表格的形状，见各自那张 grid 上面那段说明）。
     grid->setColumnStretch(0, MainWindowUI::leftColumnStretch());
     grid->setColumnStretch(1, MainWindowUI::rightColumnStretch());
     if (auto *layout = qobject_cast<QVBoxLayout *>(page->layout())) {
