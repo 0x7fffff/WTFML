@@ -7,15 +7,19 @@
 
 #include "ResourceDetailPage.hpp"
 
+#include <QApplication>
+#include <QCheckBox>
 #include <QFrame>
 #include <QFontMetrics>
 #include <QHBoxLayout>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QPainter>
 #include <QPushButton>
 #include <QResizeEvent>
 #include <QScrollArea>
 #include <QShowEvent>
+#include <QSignalBlocker>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QVBoxLayout>
@@ -198,6 +202,12 @@ using ResourceDetail::Row;
 
 ResourceDetailPage::ResourceDetailPage(QWidget *parent) : QDialog(parent) {
     setWindowTitle(tr("资源详情"));
+    // ★ 这一页自己要收键盘：那颗「显示快照版」还配着一个裸 Alt（见 keyPressEvent），
+    //   而**嵌进覆盖层的时候焦点不在这一页身上** —— `openPage()` 把焦点给了页眉那颗返回
+    //   箭头（覆盖层那一层的控件），键事件只沿着"父控件链"往上传，返回箭头和这一页是
+    //   兄弟，它在的那条链上根本没有这一页。所以：允许拿焦点（下面那一行）+ 开页时把焦点
+    //   摆回来（showEvent 里那段）。
+    setFocusPolicy(Qt::StrongFocus);
     // 只影响"单独拿出来用"（验证工程那几处）：嵌进覆盖层的时候，这一页拿到的是内容区的
     // 整幅宽（见 OverlayHost::execEmbedded 里那句 area->layout()->addWidget(dialog)）。
     resize(kPageWidth, kPageHeight);
@@ -309,7 +319,23 @@ ResourceDetailPage::ResourceDetailPage(QWidget *parent) : QDialog(parent) {
     chipLayout->setSpacing(6);
     chipLayout->addStretch(1);
     chipScroll->setWidget(m_chipRow);
-    outer->addWidget(chipScroll);
+    // 那一排 chip 的**右边**挂着「显示快照版」—— 用户要的位置（「上方右侧放一个勾选框」），
+    // 而且它和那一排是同一件事（见 ResourceDetailPage.hpp 里那段）：放在滚动区**外面**，
+    // 版本多的资源横向滚起来时这颗勾选框不会跟着滚走。
+    auto *chipLine = new QHBoxLayout;
+    chipLine->setContentsMargins(0, 0, 0, 0);
+    chipLine->setSpacing(8);
+    chipLine->addWidget(chipScroll, 1);
+
+    m_showSnapshots = new QCheckBox(tr("显示快照版"), this);
+    m_showSnapshots->setObjectName(showSnapshotsCheckBoxName());
+    // 鼠标提示里点明快捷键 —— 用户要的那句「鼠标悬停里提到这点」。
+    m_showSnapshots->setToolTip(tr("按 Alt 键也能切换"));
+    m_showSnapshots->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    connect(m_showSnapshots, &QCheckBox::toggled, this,
+            [this](bool checked) { emit showSnapshotsChanged(checked); });
+    chipLine->addWidget(m_showSnapshots, 0, Qt::AlignVCenter);
+    outer->addLayout(chipLine);
 
     // ---------- 版本列表 ----------
     //
@@ -358,6 +384,9 @@ QString ResourceDetailPage::copyNameButtonName() {
 QString ResourceDetailPage::chipRowName() { return QStringLiteral("resourceDetailChips"); }
 QString ResourceDetailPage::chipButtonNamePrefix() {
     return QStringLiteral("resourceDetailChip");
+}
+QString ResourceDetailPage::showSnapshotsCheckBoxName() {
+    return QStringLiteral("resourceDetailShowSnapshots");
 }
 QString ResourceDetailPage::versionListName() { return QStringLiteral("resourceDetailVersions"); }
 int ResourceDetailPage::rowKeyRole() { return Qt::UserRole; }
@@ -495,6 +524,21 @@ void ResourceDetailPage::applyChipChecked(const QString &key) {
 QString ResourceDetailPage::currentChip() const { return m_currentChip; }
 QList<QPushButton *> ResourceDetailPage::chips() const { return m_chipButtons; }
 
+bool ResourceDetailPage::showSnapshots() const {
+    return m_showSnapshots != nullptr && m_showSnapshots->isChecked();
+}
+
+void ResourceDetailPage::setShowSnapshots(bool showSnapshots) {
+    if (m_showSnapshots == nullptr || m_showSnapshots->isChecked() == showSnapshots) {
+        return;
+    }
+    // 挡掉那一发 `toggled`：这是调用方在摆初始值（开页那一下），不是"用户拨了" ——
+    // 和 setChips 不发 chipChanged 是同一条规矩（不挡的话开页会立刻绕回调用方一次，
+    // 而那时候它手上那份 chip 表才刚刚摆好）。
+    const QSignalBlocker block(m_showSnapshots);
+    m_showSnapshots->setChecked(showSnapshots);
+}
+
 QString ResourceDetailPage::chipTextAt(int index) const {
     return index >= 0 && index < m_chipButtons.size() ? m_chipButtons.at(index)->text()
                                                      : QString();
@@ -613,4 +657,28 @@ void ResourceDetailPage::showEvent(QShowEvent *event) {
     m_title->update();
     m_description->update();
     m_meta->update();
+    // ★ 焦点摆回这一页自己身上（理由见构造函数里那段 + keyPressEvent）。**只在焦点不在这一页
+    //   里面的时候拿** —— 焦点已经在本页某个控件上（用户点了某颗 chip、或者上面那条提示关掉
+    //   之后这一页又露出来）时不该把它抢走。
+    QWidget *focus = QApplication::focusWidget();
+    if (focus == nullptr || !isAncestorOf(focus)) {
+        setFocus(Qt::OtherFocusReason);
+    }
+}
+
+void ResourceDetailPage::keyPressEvent(QKeyEvent *event) {
+    // 裸 Alt = 拨一下「显示快照版」（用户要的那条，鼠标提示上也写着）。Ctrl/Shift/Meta 同按
+    // 的那几发**不算** —— 那是别的快捷键，放给下面那一层。
+    const Qt::KeyboardModifiers others =
+        event->modifiers() & ~(Qt::AltModifier | Qt::KeypadModifier);
+    if (event->key() == Qt::Key_Alt && others == Qt::NoModifier) {
+        if (m_showSnapshots != nullptr) {
+            // 走 setChecked：`toggled` 那一发会照常发出去（这一下就是"用户拨了"）。
+            m_showSnapshots->setChecked(!m_showSnapshots->isChecked());
+        }
+        event->accept();
+        return;
+    }
+    // 别的一律交给基类（Esc 归它管）。
+    QDialog::keyPressEvent(event);
 }

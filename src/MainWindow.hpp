@@ -570,6 +570,22 @@ private:
     void openResourceDetailPage(const QString &iconKey, const QString &kindKey);
     /// 详情页上某一颗 chip 被按了（参数是那颗的 key，空串 = 「全部」）：重算筛 + 分组。
     void onResourcePageChipChanged(const QString &gameVersion);
+    /// 详情页上方那个「显示快照版」勾选框被拨了（点它、或者按 Alt 键）。
+    ///
+    /// 它换的是**那一排 chip 的表**（折着的那一份 ↔ 原样那一份），所以三件事一起做：
+    /// 存下这一位、把 chip 那一排整个换一份（按着的那一颗换算成同一大版本在另一档里的
+    /// 说法）、再按新的这一份重算筛 + 分组。**不发请求** —— 版本列表是开页时就整份取回来
+    /// 的，折与不折都是在本地的这一份上算。
+    void onResourcePageShowSnapshotsChanged(bool showSnapshots);
+    /// 把那一排 chip 摆成「这一份声明表 + 这一档（折 / 不折）」该有的样子：第一颗是
+    /// 「全部」，其余按 `gameVersionChoices` 摆；@p wanted 是要按下去的那一颗（表里没有、
+    /// 或者给的是空串，页面自己会挑「全部」）。
+    ///
+    /// **两个调用点**（开页、拨勾选框）共用这一份，免得两处各拼一遍、拼出两种表来。
+    /// NOTE: 做成"摆到页面上去"而不是"返回一份表"，是为了让这个头**一个 ui/ 的类型都不用
+    ///       带进来**（这一整个头对 ui/ 那边只按指针持有，见上面那几行前置声明）。
+    void applyResourcePageChips(const QStringList &declaredGameVersions, bool showSnapshots,
+                                const QString &wanted);
     /// 按当下这颗 chip 从**全量**那份清单里筛出来、分组、摆进页面（空的那一对也走它）。
     void fillResourcePageGroups();
     /// 详情页上点了某一个具体版本（`Row::key` = `VersionEntry::id`）= 下它。
@@ -1192,6 +1208,12 @@ private:
         bool showSnapshots = false;
         /// 头卡上那个资源名。下载时拼 label 的前半截要用它。
         QString title;
+        /// 开页时接口给的那一串**声明过的游戏版本**（`Hit::gameVersions`，旧的在前）。
+        ///
+        /// 留着它只为一件事：勾「显示快照版」那一下要把 chip 那一排整个换一份，而那时候
+        /// 手上只有这一份声明表（`Hit` 存在 m_resourceHits 里，但那一份会被后来的重搜
+        /// 换掉，而这一页还开着）。
+        QStringList declaredGameVersions;
         /// **全量**那份版本清单（chip 只是从它里面筛）。
         QList<ResourceCatalog::VersionEntry> versions;
         /// 那份清单**回来过**了（哪怕回来的是空的）。

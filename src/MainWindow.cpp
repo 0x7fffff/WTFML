@@ -4109,7 +4109,7 @@ void MainWindow::fillResourceHitRows(QTreeWidget *tree, ResourceCatalog::Kind ki
         // 游戏版本"（Hit::gameVersions）。顺序由 gameVersionChoices() 统一成"新的在前"。
         // 第二层**一律折**（`false`）：那枚「显示快照版」勾选框在详情页顶上，这一棵树
         // 没有它 —— 用户要的是"快照版归到对应的大版本里"，这一层就是那句话的落点。
-        const QStringList choices = ResourceCatalog::gameVersionChoices(hit, false);
+        const QStringList choices = ResourceCatalog::gameVersionChoices(hit.gameVersions, false);
         if (choices.isEmpty()) {
             // 一个游戏版本都没列（数据包那类）。摆一行灰的说清楚 —— 不然这一行看着能展开、
             // 点开却是空的。
@@ -4581,6 +4581,8 @@ void MainWindow::setupResourceDetailPage() {
     //       这几个槽里。所以它能在 ui_check 里被单独构造、单独驱动（不联网、不读盘）。
     connect(m_resourceDetailPage, &ResourceDetailPage::chipChanged, this,
             &MainWindow::onResourcePageChipChanged);
+    connect(m_resourceDetailPage, &ResourceDetailPage::showSnapshotsChanged, this,
+            &MainWindow::onResourcePageShowSnapshotsChanged);
     connect(m_resourceDetailPage, &ResourceDetailPage::rowActivated, this,
             &MainWindow::downloadResourcePageVersion);
     // 开浏览器 / 复制名字**由这一层动手**（那一页只发信号）：开浏览器要走
@@ -4612,6 +4614,27 @@ void MainWindow::setupResourceDetailPage() {
                     appendLog(tr("已复制名称：%1").arg(text));
                 }
             });
+}
+
+void MainWindow::applyResourcePageChips(const QStringList &declaredGameVersions,
+                                        bool showSnapshots, const QString &wanted) {
+    if (m_resourceDetailPage == nullptr) {
+        return;
+    }
+    // 第一颗是「全部」（key 空串 = 不筛）。其余每一颗的 key **和文字是同一串** ——
+    // 这一排上没有"显示名"这回事（游戏版本号本身就是用户在界面上要找的那个东西）。
+    QList<ResourceDetail::Chip> chips;
+    ResourceDetail::Chip all;
+    all.text = tr("全部");
+    chips.append(all);
+    for (const QString &gameVersion :
+         ResourceCatalog::gameVersionChoices(declaredGameVersions, showSnapshots)) {
+        ResourceDetail::Chip chip;
+        chip.key = gameVersion;
+        chip.text = gameVersion;
+        chips.append(chip);
+    }
+    m_resourceDetailPage->setChips(chips, wanted);
 }
 
 void MainWindow::openResourceDetailPage(const QString &iconKey, const QString &kindKey) {
@@ -4671,20 +4694,15 @@ void MainWindow::openResourceDetailPage(const QString &iconKey, const QString &k
 
     // 中间那一排游戏版本 chip：**搜索响应里本来就带着**"这个资源支持哪些游戏版本"
     // （`Hit::gameVersions`，顺序由 gameVersionChoices 统一成新的在前），所以开页这一下
-    // 不用为它多发一条请求。第一颗是「全部」（key 空串）。
-    QList<ResourceDetail::Chip> chips;
-    ResourceDetail::Chip all;
-    all.text = tr("全部");
-    chips.append(all);
-    for (const QString &gameVersion :
-         ResourceCatalog::gameVersionChoices(*hit, m_resourcePage.showSnapshots)) {
-        ResourceDetail::Chip chip;
-        chip.key = gameVersion;
-        chip.text = gameVersion;
-        chips.append(chip);
-    }
-    // 开页一律从「全部」开始（用户在下载页选的是"哪个资源"，还没说"哪个游戏版本"）。
-    page->setChips(chips, QString());
+    // 不用为它多发一条请求 —— 勾「显示快照版」那一下也一样，重算用的是存下来的这一份。
+    //
+    // NOTE: 这一份**声明表要留着**（不止是拿来摆一次 chip）：勾选框一拨，chip 那一排整个
+    //       换一份（折 / 不折是两份不一样的表），那时候手上只有开页时存下来的它。
+    m_resourcePage.declaredGameVersions = hit->gameVersions;
+    // 开页一律从「全部」开始（用户在下载页选的是"哪个资源"，还没说"哪个游戏版本"），
+    // 勾选框也一律从不勾开始（那一页自己的默认值，见 ResourcePageState::showSnapshots）。
+    page->setShowSnapshots(false);
+    applyResourcePageChips(hit->gameVersions, m_resourcePage.showSnapshots, QString());
     // 图标是异步来的：先清掉上一次那一张（不然会留着上一个资源的图标，比空着糟），
     // 那一格的位置照旧留着，图回来时整张卡不会往左跳一下。
     page->setIcon(QPixmap());
@@ -4714,6 +4732,31 @@ void MainWindow::onResourcePageChipChanged(const QString &gameVersion) {
         return;
     }
     m_resourcePage.chip = gameVersion;
+    fillResourcePageGroups();
+}
+
+void MainWindow::onResourcePageShowSnapshotsChanged(bool showSnapshots) {
+    if (!m_resourcePage.open || m_resourceDetailPage == nullptr) {
+        return;
+    }
+    if (m_resourcePage.showSnapshots == showSnapshots) {
+        // 值没变（比如开页那一下把勾选框摆回去）。**不往下走**：下面那一段会把 chip 那一排
+        // 整个重建，而重建会清掉用户正按着的那一颗的按压状态（虽然换算之后还是它）——
+        // 白白闪一下不值当。
+        return;
+    }
+    m_resourcePage.showSnapshots = showSnapshots;
+    // chip 那一排整个换一份（折与不折是两份不一样的表），现在按着的那一颗**换算成同一个
+    // 大版本在另一档里的说法**（26.2-rc1 ↔ 26.2）—— 勾这一下不该把用户从他正在看的
+    // 那条线上甩回「全部」。换算的规则只有一处，见 ResourceCatalog::gameVersionAfterToggle。
+    const QString wanted = ResourceCatalog::gameVersionAfterToggle(
+        m_resourcePage.declaredGameVersions, showSnapshots, m_resourcePage.chip);
+    applyResourcePageChips(m_resourcePage.declaredGameVersions, showSnapshots, wanted);
+    // 按着的是哪一颗**以页面为准**：换算出来的那一颗要是表里没有（对不上），`setChips`
+    // 会把它纠正成「全部」，这儿跟着抄回来 —— 两个状态各说各的才是真出问题的地方。
+    m_resourcePage.chip = m_resourceDetailPage->currentChip();
+    // setChips **不发** chipChanged（它不是"用户点了"那一发）—— 所以这一句得自己来，
+    // 它就是用户要的「更改以后自动刷新版本列表」。
     fillResourcePageGroups();
 }
 

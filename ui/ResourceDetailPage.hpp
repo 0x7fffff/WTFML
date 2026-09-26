@@ -52,6 +52,8 @@
 #include <QString>
 #include <QStringList>
 
+class QCheckBox;
+class QKeyEvent;
 class QLabel;
 class QPushButton;
 class QTreeWidget;
@@ -133,6 +135,21 @@ public:
     /// 现在按下去的是哪一个的 **key**（「全部」= 空串）。验证工程和 MainWindow 都读它。
     QString currentChip() const;
 
+    /// 那一排 chip 右边那个「显示快照版」勾选框（用户要的那一颗）。
+    ///
+    /// **它和 chip 那一排是同一件事的两半**：勾上 = 每一条声明过的版本各摆一颗（`26.2` 和
+    /// `26.2-rc1` 各是各的）、不勾 = 快照归到对应的大版本（只剩一颗 `26.2`）。所以拨它
+    /// **不只是换个勾** —— 调用方要重摆那一排 chip 并重算下面那份列表（见
+    /// `showSnapshotsChanged`）。
+    ///
+    /// NOTE: 这一页自己不重摆（"哪些版本归到哪一个"是业务层的事，见
+    ///       ResourceCatalog::gameVersionChoices）—— 它只把新状态发出去，摆什么由 MainWindow
+    ///       再 `setChips()` 回来。
+    bool showSnapshots() const;
+    /// 摆上/摘下那个勾。**不发信号**（和 setChips 同一条规矩：开页那一下是"调用方在摆
+    /// 初始值"，不是"用户拨了"）。
+    void setShowSnapshots(bool showSnapshots);
+
     /// 版本列表那一块。**空表 = 摆一句「这个资源一个版本都没发过」**。
     void setGroups(const QList<ResourceDetail::Group> &groups);
 
@@ -154,6 +171,7 @@ public:
     static QString chipRowName();
     /// chip 那颗按钮的 objectName 是「前缀 + 下标」（0 起）。
     static QString chipButtonNamePrefix();
+    static QString showSnapshotsCheckBoxName();
     static QString versionListName();
 
     /// 版本行上那一条身份（`Row::key`）挂的**角色号**。
@@ -190,6 +208,11 @@ public:
 signals:
     /// 用户点了一颗 chip（参数是那颗的 **key**，空串 = 「全部」）。
     void chipChanged(const QString &gameVersion);
+    /// 用户拨了「显示快照版」（点它、或者按 Alt 键都算 —— 见 keyPressEvent）。
+    ///
+    /// 收到这一发之后调用方要重摆 chip 那一排（`setChips`）再重算列表，**别只记下这一位**
+    /// —— 那样界面看着像没反应（这一页不自己动手，见 showSnapshots() 那段）。
+    void showSnapshotsChanged(bool showSnapshots);
     /// 头卡上那三颗按钮：要开浏览器 / 要复制名字。**都不由这一页自己动手**
     /// （开浏览器要能被验证工程拦，复制要能写日志 —— 两边都是 MainWindow 的事）。
     void openExternalRequested(const QString &url);
@@ -207,6 +230,15 @@ private:
 
     void resizeEvent(QResizeEvent *event) override;
     void showEvent(QShowEvent *event) override;
+    /// 单独接**裸的 Alt**（`Qt::Key_Alt`，不带别的修饰键）= 拨一下「显示快照版」。
+    ///
+    /// 为什么一个勾选框还要配一个快捷键：用户原话「按 alt 键可以切换其显示（鼠标悬停里
+    /// 提到这点）」—— 那一排 chip 上有一颗是"整条线"，勾上/摘下看的是同一件事的两种形状，
+    /// 手不用离开键盘。鼠标提示上写着这件事（见构造函数里那个 setToolTip）。
+    ///
+    /// NOTE: 这儿**只认裸 Alt 那一发**（Ctrl/Shift/Meta 同按一律放过去），而且**必须
+    ///       调一次基类** —— QDialog 的基类实现管着 Esc（和别的那几档）。
+    void keyPressEvent(QKeyEvent *event) override;
 
     QLabel *m_icon = nullptr;
     QLabel *m_title = nullptr;
@@ -216,6 +248,7 @@ private:
     QPushButton *m_mcmod = nullptr;
     QPushButton *m_copyName = nullptr;
     QWidget *m_chipRow = nullptr;
+    QCheckBox *m_showSnapshots = nullptr;
     QTreeWidget *m_list = nullptr;
 
     ResourceDetail::Header m_header;

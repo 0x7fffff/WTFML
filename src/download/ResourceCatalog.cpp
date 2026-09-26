@@ -900,13 +900,13 @@ QString majorGameVersionOf(const QString &version) {
     return text.left(dash);
 }
 
-QStringList gameVersionChoices(const Hit &hit, bool showSnapshots) {
+QStringList gameVersionChoices(const QStringList &declaredGameVersions, bool showSnapshots) {
     QStringList out;
-    out.reserve(hit.gameVersions.size());
+    out.reserve(declaredGameVersions.size());
     // 倒着抄一遍（接口给的是旧的在前）。**不是排序** —— 见头文件那段，这两种顺序都是
     // 接口自己定的，我们只是把要显示的那个方向挑出来。
-    for (int i = hit.gameVersions.size() - 1; i >= 0; --i) {
-        const QString declared = hit.gameVersions.at(i);
+    for (int i = declaredGameVersions.size() - 1; i >= 0; --i) {
+        const QString declared = declaredGameVersions.at(i);
         if (showSnapshots) {
             out.append(declared);
             continue;
@@ -927,6 +927,36 @@ QStringList gameVersionChoices(const Hit &hit, bool showSnapshots) {
         }
     }
     return out;
+}
+
+QString gameVersionAfterToggle(const QStringList &declaredGameVersions, bool showSnapshots,
+                               const QString &current) {
+    // 「全部」永远是「全部」：两颗表里都有它，没有什么可换算的。
+    if (current.isEmpty()) {
+        return QString();
+    }
+    const QStringList choices = gameVersionChoices(declaredGameVersions, showSnapshots);
+    // ① 这一颗在另一档里还在（正式版两边都有）—— 绝大多数情况到这儿就回去了。
+    if (choices.contains(current)) {
+        return current;
+    }
+    if (!showSnapshots) {
+        // ② 勾 → 不勾：把现在这一颗折一下再找（26.2-rc1 → 26.2）。
+        const QString folded = majorGameVersionOf(current);
+        return choices.contains(folded) ? folded : QString();
+    }
+    // ③ 不勾 → 勾：这条线上**没有正式版**（只声明过 rc / pre）。挑最新的那一条快照，
+    //    让用户留在同一条线上。声明表是**旧的在前**，所以从尾巴往前走，遇到的第一条
+    //    就是最新的那一条。
+    for (int i = declaredGameVersions.size() - 1; i >= 0; --i) {
+        const QString declared = declaredGameVersions.at(i);
+        if (isSnapshotGameVersion(declared) && majorGameVersionOf(declared) == current) {
+            return declared;
+        }
+    }
+    // 都对不上（调用方给了一个表里根本没有的 key）：回「全部」。这儿**不猜** —— 和
+    // applyChipChecked 里那条"挑不中就按全部"是同一条规矩。
+    return QString();
 }
 
 QString iconUrlForProject(const QString &projectId) {
