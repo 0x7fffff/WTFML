@@ -366,6 +366,26 @@ public:
     /// 置顶那个勾选框。
     static QString pinCheckName() { return QStringLiteral("instancePinCheck"); }
 
+    // ---- 启动栏那两颗「动作」按钮（导出启动脚本 / 补全文件，2026-09-26）----
+    /// 「导出…」（开的是 Windows 自己的保存框）。
+    static QString exportScriptButtonName() { return QStringLiteral("instanceExportScriptButton"); }
+    /// 「开始检查…」（校验并补齐这个实例的文件）。
+    static QString repairFilesButtonName() { return QStringLiteral("instanceRepairFilesButton"); }
+    /// 那两行的行名。**用用户自己说的那两句**（「导出启动脚本」「补全文件」）。
+    static QString exportScriptRowText() { return QStringLiteral("导出启动脚本"); }
+    static QString repairFilesRowText() { return QStringLiteral("补全文件"); }
+    static QString exportScriptText() { return QStringLiteral("导出…"); }
+    static QString repairFilesText() { return QStringLiteral("开始检查…"); }
+    /// 那两行下面那句话。
+    static QString exportScriptHint() {
+        return QStringLiteral("导出一个 .bat：双击就按这套参数启动这个版本，不用启动器。"
+                              "正版账号导出的那份里带着登录令牌，别发给别人。");
+    }
+    static QString repairFilesHint() {
+        return QStringLiteral("校验这个版本的客户端 jar、库和资源，缺哪个补哪个；已经完好的"
+                              "会跳过。要有下载或者安装任务在跑时用不了。");
+    }
+
     static QString iconRowText() { return QStringLiteral("图标"); }
     static QString groupRowText() { return QStringLiteral("分组"); }
     static QString pinRowText() { return QStringLiteral("置顶"); }
@@ -435,6 +455,28 @@ public:
                               "不覆盖全局那一份。");
     }
 
+signals:
+    /**
+     * @brief 用户点了「导出…」，并且已经在 Windows 自己的保存框里挑好了一个路径。
+     *
+     * 这一层只**问路径**（它本来就在用 QFileDialog 问 java.exe 和图标），真正的
+     * "这一次启动到底执行什么"在 MainWindow 里 —— 那边才有 authManager / versionManager
+     * / launcherManager。这样切还有一条实在的好处：保存框是**驱动不了**的（见 .cpp 里
+     * browseJavaButtonName 那段 NOTE），把"问"留在这一层之后，MainWindow 那一半就能被
+     * 验证工程拿一条路径直接驱动。
+     *
+     * @param path 用户挑的完整路径（带 .bat；用户没写扩展名时保存框自己会补）。
+     */
+    void exportLaunchScriptRequested(const QString &path);
+
+    /**
+     * @brief 用户点了「开始检查」。
+     *
+     * **能不能开始、要不要先问一句，全由 MainWindow 说了算** —— 只有它知道有没有下载在跑、
+     * 这个实例这会儿装没装。这一层只报"用户想干这件事"。
+     */
+    void repairFilesRequested();
+
 private:
     /// 造一行「跟随全局 / 自定义 + 控件」。返回值是**整格**（档位行 + 提示），控件要加进
     /// 里面的「档位那一行」（`choiceRowOf()` 取），内存那两行整格禁用靠的就是这个返回值。
@@ -495,6 +537,10 @@ private:
 
     /// 「实例名」那一格（见 instanceName()）。现在长在「概览」栏里。
     QLineEdit *m_instanceNameEdit = nullptr;
+
+    /// 这个实例现在的目录名（构造时那个 instanceId）。留着是为了"导出启动脚本"那条路
+    /// 的默认文件名 —— 它一定是合法文件名（validateDirName 那一关挡过），而显示名不一定。
+    QString m_instanceId;
 
     // ---- 概览栏那三行（见上面 setIcon 那一段）----
     /// 这个实例的目录（setInstanceDir()）。图标那一行的预览要读它下面的 icon.png。

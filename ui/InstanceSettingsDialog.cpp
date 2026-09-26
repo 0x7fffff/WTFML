@@ -17,6 +17,7 @@
 #include <QButtonGroup>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDir>
 #include <QFileDialog>
 #include <QFont>
 #include <QGridLayout>
@@ -32,6 +33,7 @@
 #include <QSize>
 #include <QSpinBox>
 #include <QStackedWidget>
+#include <QStandardPaths>
 #include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -95,7 +97,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                                                const GlobalValues &global,
                                                const QStringList &appendJvmArgs,
                                                bool warnJavaMismatch, QWidget *parent)
-    : QDialog(parent), m_global(global) {
+    : QDialog(parent), m_global(global), m_instanceId(instanceId) {
     setWindowTitle(tr("实例设置"));
     // 比分组对话框宽得多：从左到右是**三栏**（大类 | 小类 | 内容），600 那个宽度放不下。
     // NOTE: 嵌进覆盖层的时候这个尺寸**不作数** —— 那一层给它的是内容区的整幅宽（见
@@ -552,6 +554,71 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             cellLayout->addWidget(hint);
             advancedGrid->addWidget(cell, advancedRow++, 1);
         }
+    }
+
+    // ---------- 导出启动脚本 / 补全文件（2026-09-26）----------
+    //
+    // 这两行是**动作**，不是设置项：它们不改 wtfml.meta 里的任何一格，所以没有
+    // 「跟随全局 / 自定义」那一对单选钮 —— 和上面「追加参数」「版本提醒」同一个形状
+    // （那两个也不是覆盖层的一项）。
+    //
+    // NOTE: 摆在「高级选项」**之后**：这一页从上到下是"这个实例拿什么启动"（Java、内存、
+    //       额外参数），两件动作是收尾。而且高级选项默认折叠着，所以打开这一页看到的
+    //       顺序是 Java 路径 → 最大内存 → 最小内存 → 内存分配 → 两件动作。
+    {
+        addRowTitle(grid, row, exportScriptRowText(), this);
+        auto *cell = new QWidget(this);
+        auto *column = new QVBoxLayout(cell);
+        column->setContentsMargins(0, 0, 0, 0);
+        column->setSpacing(4);
+        auto *button = new QPushButton(exportScriptText(), cell);
+        button->setObjectName(exportScriptButtonName());
+        connect(button, &QPushButton::clicked, this, [this]() {
+            // 默认文件名用**这个实例的目录名**（= 构造时那个 instanceId）：它一定是合法
+            // 文件名（建/改名那一关挡过非法字符），而显示名不一定。目录也顺带兜一层底。
+            QString dir = QStandardPaths::writableLocation(QStandardPaths::DesktopLocation);
+            if (dir.isEmpty()) {
+                dir = QDir::homePath();
+            }
+            const QString suggested =
+                dir + QLatin1Char('/') + m_instanceId + QStringLiteral(".bat");
+            // 开的是 **Windows 自己的保存框**（和上面「浏览…」选 java.exe 同一档：全项目
+            // 就剩这几处独立窗，理由见 MainWindow.cpp 里 onAddFolderClicked() 上面那段）。
+            // 取消 = 什么都不做，和点了返回箭头是同一件事。
+            const QString picked = QFileDialog::getSaveFileName(
+                this, tr("导出启动脚本"), suggested, tr("批处理文件 (*.bat)"));
+            if (picked.isEmpty()) {
+                return;
+            }
+            // 真正"写什么"在 MainWindow 里：这一层够不着 authManager / versionManager
+            // （ui/ 不 include src/ 下的头）。见 .hpp 里那个信号的说明。
+            emit exportLaunchScriptRequested(picked);
+        });
+        column->addWidget(button, 0, Qt::AlignLeft);
+        auto *hint = new QLabel(exportScriptHint(), cell);
+        hint->setWordWrap(true);
+        column->addWidget(hint);
+        grid->addWidget(cell, row, 1);
+        ++row;
+    }
+    {
+        addRowTitle(grid, row, repairFilesRowText(), this);
+        auto *cell = new QWidget(this);
+        auto *column = new QVBoxLayout(cell);
+        column->setContentsMargins(0, 0, 0, 0);
+        column->setSpacing(4);
+        auto *button = new QPushButton(repairFilesText(), cell);
+        button->setObjectName(repairFilesButtonName());
+        // 只报"用户想干这件事"：能不能开始（有没有下载在跑 / 这个实例装没装）由
+        // MainWindow 说了算，它才知道。**不问路径**，所以这一层没什么可问的了。
+        connect(button, &QPushButton::clicked, this,
+                &InstanceSettingsDialog::repairFilesRequested);
+        column->addWidget(button, 0, Qt::AlignLeft);
+        auto *hint = new QLabel(repairFilesHint(), cell);
+        hint->setWordWrap(true);
+        column->addWidget(hint);
+        grid->addWidget(cell, row, 1);
+        ++row;
     }
 
     // ---------- 文件管理（八页）----------
