@@ -94,15 +94,16 @@ struct TwoColumns {
 /**
  * @brief 把页面摆成左右两栏（仿 PCL）。
  * @param page 选项卡页面。
- * @param tab 页面代号（"home" / "instance" / "download"），进 objectName，**也决定份数**。
+ * @param tab 页面代号（"home" / "instance" / "download" / "settings"），进 objectName，
+ *            **也决定份数**。
  * @return 两栏的控件与布局；调用方往 layout 里塞东西即可。
  *
  * 份数按页不同（主页左宽右窄、另两页左窄右宽，见 MainWindowUI::leftColumnIsWider()），
  * 所以这里把 tab 一路传下去，不自己写死。
  *
- * **只有主页/实例/下载这三个**走这条路；「设置」页走 setupSettingsPage()，它的 3:7 是在
- * 那张两列 grid 上用 setColumnStretch() 表达的（份数取自默认那一对 leftColumnStretch/
- * rightColumnStretch，所以比例仍是单点决定，但栏控件只有这三页有）。
+ * **四个选项卡都走这条路**（2026-09-26 起「设置」页也走：左栏是那五条分类、右栏是堆叠页，
+ * 见 setupSettingsPage()）。设置页里那张 3:7 的两列 grid 现在管的是**栏内**那一层
+ * （addSettingsPanel() 里 setColumnStretch 的那一对，份数取自默认那一对）。
  * 栏做成真控件而不是裸布局，是为了验证工程能按 objectName 找回来量几何。
  */
 TwoColumns buildTwoColumnPage(QWidget *page, const QString &tab) {
@@ -131,7 +132,7 @@ TwoColumns buildTwoColumnPage(QWidget *page, const QString &tab) {
 
 /// 设置页里一行：名字在左、控件在右。**没有返回值** —— "下一个空行号"由调用方自己
 /// `row++` 推进（每次调用照样把它摆在 grid 的第 row 行）。
-/// @note 3:7 是靠 grid 的列拉伸因子实现的（见 setupSettingsPage），这里只负责摆。
+/// @note 3:7 是靠 grid 的列拉伸因子实现的（见 addSettingsPanel），这里只负责摆。
 void addSettingRow(QGridLayout *grid, int row, const QString &labelText, QWidget *control,
                    QWidget *parent) {
     QLabel *label = new QLabel(labelText, parent);
@@ -344,7 +345,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     // ================= 顶上那条自己画的标题栏 =================
     // 系统那条白色标题栏已经由 WindowChrome 去掉了（客户区铺满整窗，见它的文件头），
     // 顶上这一行就是替它的：左边草方块 + 启动器名字（默认是 `TitleBar::defaultBrandText()`
-    // 那五个字母，设置页「外观」里可以改），
+    // 那五个字母，设置页「个性化」栏的「外观」里可以改），
     // 然后是**四个功能的导航按钮**（下面 addTab 完之后 setNavItems() 灌进去），
     // 右边最小化与关闭。第一行就是它、第二行才是标签页 —— 顺序由 addWidget 的先后决定。
     //
@@ -1163,80 +1164,130 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     parent->setMenuBar(new QMenuBar(parent));
 }
 
-void MainWindowUI::setupSettingsPage(QWidget *page) {
-    // 设置项多起来之后一屏放不下（外观 / 账户 / Java / 内存 / 启动后 / 启动选项 /
-    // JVM 参数 / 下载源 / 版本名格式），所以套一层滚动区：窗口初始高度只有 620（只 resize 过、没有
-    // setFixedSize），不给滚动就等于把最后那几项一直藏在可视区外，用户不拖大窗口
-    // 根本看不见。
-    QScrollArea *scroll = new QScrollArea(page);
-    scroll->setObjectName(settingsScrollName());
+namespace {
+
+/// 设置页里一栏那一页的两样东西：表单控件（说明文字的父窗）与它那张两列表格。
+struct SettingsPanel {
+    QWidget *form = nullptr;
+    QGridLayout *grid = nullptr;
+};
+
+/**
+ * @brief 往设置页右栏那份堆叠页里加一栏。
+ * @param stack 右栏那份堆叠页。**加进去的顺序就是左栏分类列表的下标顺序**。
+ * @param key 分栏的键（settingsCategoryKeys() 里那一个），进两个 objectName。
+ * @return 那一页的表单与表格。调用方从第 0 行开始铺，**收尾自己做**
+ *         （`grid->setRowStretch(row, 1)`：剩下的竖直空间留底部，设置项不跟着窗高被拉长）。
+ *
+ * 每一栏**各自**套一层滚动区，不是整页套一层 —— 整页套一层的话，左栏那五条分类会跟着
+ * 右栏的内容一起滚走，而那五条是导航。这条和下载页左栏那一列是同一条理由。
+ */
+SettingsPanel addSettingsPanel(QStackedWidget *stack, const QString &key) {
+    QScrollArea *scroll = new QScrollArea(stack);
+    scroll->setObjectName(MainWindowUI::settingsPanelName(key));
     scroll->setWidgetResizable(true);
     scroll->setFrameShape(QFrame::NoFrame);
 
-    QWidget *form = new QWidget(scroll);
-    form->setObjectName(settingsFormName());
+    SettingsPanel panel;
+    panel.form = new QWidget(scroll);
+    panel.form->setObjectName(MainWindowUI::settingsFormName(key));
 
-    QGridLayout *grid = new QGridLayout(form);
-    grid->setContentsMargins(0, 0, 0, 0);
-    grid->setHorizontalSpacing(12);
-    grid->setVerticalSpacing(10);
-    // 「选项名称放左边、设置内容放右边」的比例就是这一对 3:7。
-    grid->setColumnStretch(0, leftColumnStretch());
-    grid->setColumnStretch(1, rightColumnStretch());
-    scroll->setWidget(form);
+    panel.grid = new QGridLayout(panel.form);
+    panel.grid->setContentsMargins(0, 0, 0, 0);
+    panel.grid->setHorizontalSpacing(12);
+    panel.grid->setVerticalSpacing(10);
+    // 「选项名称放左边、设置内容放右边」的比例就是这一对 3:7 —— 从前它管整页，现在管**栏内**。
+    panel.grid->setColumnStretch(0, MainWindowUI::leftColumnStretch());
+    panel.grid->setColumnStretch(1, MainWindowUI::rightColumnStretch());
+    scroll->setWidget(panel.form);
 
+    stack->addWidget(scroll);
+    return panel;
+}
+
+} // namespace
+
+void MainWindowUI::setupSettingsPage(QWidget *page) {
+    // 2026-09-26：设置页**拆成了几条分类**（用户原话：「将设置分栏，分为启动/提示/个性化/…
+    // 然后分门别类放进去」）。形状照下载页来：左栏一列分类、右栏一份堆叠页，点哪条换哪页。
+    //
+    // 从前它是**一张通到底的两列表格**（外观 / 账户 / Java 版本 / 内存分配 / 启动后 /
+    // 启动选项 / 启动提醒 / JVM 参数 / 下载源 / 版本名格式，十节一路往下排）。十节连成
+    // 一竖条之后"找一个开关"只能靠滚，而且"哪几项是一回事"只能靠相邻关系去猜 —— 分栏把
+    // 这件事说明白了：每一栏各自成一页、各滚各的。
+    //
+    // NOTE: 从前整页靠一层 QScrollArea 才放得下（窗口初始高度只有 620，只 resize 过、
+    //       没有 setFixedSize），不给滚动就等于把最后那几项一直藏在可视区外。现在滚动
+    //       归**栏**管（addSettingsPanel 里那段），理由见它上面。
+    const TwoColumns columns = buildTwoColumnPage(page, QStringLiteral("settings"));
+
+    const QStringList categoryKeys = settingsCategoryKeys();
+    const QStringList categoryTexts = settingsCategoryTexts();
+
+    // ---- 左栏：那五条分类（和下载页左栏那一列同一个代理、同一套写法）----
+    settingsCategoryList = new QListWidget(columns.left.widget);
+    settingsCategoryList->setObjectName(settingsCategoryListName());
+    settingsCategoryList->setUniformItemSizes(true);
+    // 同一个代理 = 一样高的行、大一号的字、"分类"那种粗体 —— 两栏里是同一种东西。
+    // NOTE: **不设** rowRefreshRole()。那一格里画的刷新圈是下载页专有的（这一列没有
+    //       "重新拉一遍"这回事），代理见到没设就不画。
+    settingsCategoryList->setItemDelegate(new VersionTreeDelegate(settingsCategoryList));
+    QFont categoryFont = settingsCategoryList->font();
+    categoryFont.setPointSize(categoryFont.pointSize() + versionTreeFontStep());
+    settingsCategoryList->setFont(categoryFont);
+    for (int i = 0; i < categoryKeys.size(); ++i) {
+        auto *item = new QListWidgetItem(categoryTexts.value(i), settingsCategoryList);
+        // 身份进 userData：条目文字是显示内容、会随文案改，不能拿它当身份。
+        item->setData(Qt::UserRole, categoryKeys.value(i));
+    }
+    // 高度贴着内容：五条两三个字的条目被拉成一整条空白看着像坏了。行高**交给样式算**
+    // （sizeHintForRow），别写死数字 —— 换字体/换样式就错。和下载页那一列同一条规矩。
+    int rowsHeight = 0;
+    for (int i = 0; i < settingsCategoryList->count(); ++i) {
+        rowsHeight += settingsCategoryList->sizeHintForRow(i);
+    }
+    settingsCategoryList->setFixedHeight(rowsHeight + 2 * settingsCategoryList->frameWidth() + 2);
+    columns.left.layout->addWidget(settingsCategoryList);
+    columns.left.layout->addStretch(1);
+
+    // ---- 右栏：那一堆页 ----
+    settingsCategoryStack = new QStackedWidget(columns.right.widget);
+    settingsCategoryStack->setObjectName(settingsCategoryStackName());
+    columns.right.layout->addWidget(settingsCategoryStack, 1);
+
+    // 加页的顺序**必须**就是 categoryKeys 的顺序（"点第 N 条 = 第 N 页"是条不变量；
+    // ui_check 把两边的条数、以及每一页的 objectName 都核一遍）。
+    setupSettingsLaunchPanel(settingsCategoryStack);
+    setupSettingsGamePanel(settingsCategoryStack);
+    setupSettingsWarnPanel(settingsCategoryStack);
+    setupSettingsLookPanel(settingsCategoryStack);
+    setupSettingsDownloadPanel(settingsCategoryStack);
+
+    // 越界保护的理由和下载页那条一模一样（见 MainWindow 里那段）：分类表和页数将来要是
+    // 对不上，宁可停在原来那页，也不要 setCurrentIndex(-1) 把右栏整片清空 —— 那种
+    // "点一下界面就空了"的毛病，用户只会当成崩了。
+    QObject::connect(settingsCategoryList, &QListWidget::currentRowChanged, settingsCategoryList,
+                     [this](int row) {
+                         if (row >= 0 && row < settingsCategoryStack->count()) {
+                             settingsCategoryStack->setCurrentIndex(row);
+                         }
+                     });
+    // 打开就是第一条：左栏亮着哪一条、右栏就是哪一页，两边不能各说各的。
+    settingsCategoryList->setCurrentRow(0);
+    settingsCategoryStack->setCurrentIndex(0);
+}
+
+void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
+    // 这一栏的键。**必须**和 settingsCategoryKeys() 里那一格一字不差（面板的 objectName
+    // 由它拼出来），ui_check 拿那张表逐页核。
+    const SettingsPanel panel = addSettingsPanel(stack, QStringLiteral("launch"));
+    QWidget *form = panel.form;
+    QGridLayout *grid = panel.grid;
     int row = 0;
 
-    // ---------- 外观 ----------
-    // 2026-09-25 加的。用户原话：「上面的四个居中，左上角五个字母默认是这五个，在设置里
-    // 允许自定义」—— 后半句就是这一行：条上那行字（`TitleBar::defaultBrandText()` 那五个
-    // 字母）能在这儿改成别的，**留空就是默认那五个**。
-    // 摆在最上面是因为它和下面那些"启动行为"型的设置不是一类东西（它只管长什么样），
-    // 而"顶上写着什么"又是用户一眼就能看见、最容易想改的那一样。
-    addSectionTitle(grid, row++, QStringLiteral("外观"), form);
-    {
-        QWidget *box = makeHintedControl(form);
-        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
-        titleTextEdit = new QLineEdit(box);
-        titleTextEdit->setObjectName(titleTextEditName());
-        // 长度上限在**两个地方**各写一遍（ui/ 不许 include src/，见 titleTextMaxLength()）。
-        titleTextEdit->setMaxLength(titleTextMaxLength());
-        // 占位文字就是默认那五个字母：一个不知所以的空框会被当成"这里还没做完"。
-        titleTextEdit->setPlaceholderText(TitleBar::defaultBrandText());
-        titleTextEdit->setMinimumWidth(kTitleTextEditWidth);
-        // 文本框和下拉框不往整格里撑（右列有 7 份宽，一个名字框被拉到 600 px 看着就是坏的）——
-        // 和 addInlineControl() 是同一条规矩。
-        boxLayout->addWidget(titleTextEdit, 0, Qt::AlignLeft);
-        addHint(box,
-                QStringLiteral("窗口左上角那行字。留空就是默认的 %1。")
-                    .arg(TitleBar::defaultBrandText()),
-                form);
-        addSettingRow(grid, row++, QStringLiteral("标题文字"), box, form);
-    }
-
-    // ---------- 账户 ----------
-    // 这一格原来摆的是个「微软登录」按钮（登录过之后叫「重新登录」）。它**搬进**
-    // 「账号与外观」那个窗里了：那个按钮只会登录一件事 —— 加离线账号、切换账号、删账号、
-    // 换皮肤披风它一件都做不到，而这一格却叫「当前账户」，用户来设置页找"管账号"的地方
-    // 会撞上一个只能登录的按钮。账号那一整块只在一个窗里做（ui/AccountSkinDialog），
-    // 这里留一个入口。
-    addSectionTitle(grid, row++, QStringLiteral("账户"), form);
-    {
-        QWidget *box = makeHintedControl(form);
-        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
-        accountSkinSettingsButton = new QPushButton(accountSkinButtonText(), box);
-        // 文案和主页那个入口**共用一份**（accountSkinButtonText()，见上面那段说明）。
-        accountSkinSettingsButton->setObjectName(accountSkinSettingsButtonName());
-        accountSkinSettingsButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-        accountSkinSettingsButton->setMinimumWidth(kAccountSkinButtonMinWidth);
-        boxLayout->addWidget(accountSkinSettingsButton, 0, Qt::AlignLeft);
-        addHint(box, QStringLiteral("正版登录、添加离线账号、切换账号、换皮肤和披风都在这个窗里。"
-                                    "登录后用户名显示在窗口左下角，启动游戏时用的也是它。"),
-                form);
-        addSettingRow(grid, row++, QStringLiteral("账号"), box, form);
-    }
-
     // ---------- Java 版本 ----------
+    // 2026-09-26 分栏时这一节拆成两半：**这一行**（运行时）留在这儿，那行"实例的 Java
+    // 对不上时要不要问一句"搬去了「提示」栏 —— 它挡的是启动那一下，和那两条提醒是一回事。
     addSectionTitle(grid, row++, QStringLiteral("Java 版本"), form);
     {
         QWidget *box = makeHintedControl(form);
@@ -1255,7 +1306,7 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
         // NOTE: 这一句说的是**全局**这一层的选择，它和实例覆盖层的行为**不一样**，别把
         //       两边写成一回事：这里钉的 Java 对不上就是直接报错（不替你换、也不问）；
         //       而「实例设置…」里给某个实例单独指定的 Java 对不上时，会弹一个框问要不要
-        //       改用匹配的那个（由下面那行提醒开关管）。全局档不问，是因为它不匹配时
+        //       改用匹配的那个（那个开关在「提示」栏里）。全局档不问，是因为它不匹配时
         //       自动档本来就会挑一个替换掉，手动档是用户对**整台机器**的选择 ——
         //       那种一眼就该是自己配错的，不值得每次启动都问一遍。
         addHint(box, QStringLiteral("「自动」是按版本要求挑（1.16.5 及以下要 Java 8、"
@@ -1263,25 +1314,9 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
                                     "这一行选的是「全局」那一层：选了具体的 Java 就别指望"
                                     "它会替你换一个 —— 版本对不上会直接报错，不会静默换一个。"
                                     "要给某一个实例单独指定 Java，用它的「实例设置…」；"
-                                    "那边对不上时会弹框问一句（由下面「版本提醒」管）。"),
+                                    "那边对不上时会弹框问一句（那个开关在「提示」栏里）。"),
                 form);
         addSettingRow(grid, row++, QStringLiteral("运行时"), box, form);
-    }
-    {
-        QWidget *box = makeHintedControl(form);
-        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
-        // 勾选状态由 MainWindow 灌（它才知道这个开关存在哪），这里只搭控件 ——
-        // 和 memoryAutoCheck 同一条约定。
-        javaWarnMismatchCheck =
-            new QCheckBox(QStringLiteral("实例指定的 Java 版本不符时提醒"), box);
-        javaWarnMismatchCheck->setObjectName(javaWarnMismatchCheckName());
-        boxLayout->addWidget(javaWarnMismatchCheck, 0, Qt::AlignLeft);
-        addHint(box, QStringLiteral("只对「实例设置…」里单独指定过 Java 的实例起作用。"
-                                    "关掉之后不再问，直接按你给它指定的那个 Java 启动 ——"
-                                    "版本真的不对时游戏会以 UnsupportedClassVersionError "
-                                    "之类的方式失败，得去「实例设置…」里换回来。"),
-                form);
-        addSettingRow(grid, row++, QStringLiteral("版本提醒"), box, form);
     }
 
     // ---------- 内存分配 ----------
@@ -1348,10 +1383,52 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
         addSettingRow(grid, row++, QStringLiteral("启动器行为"), box, form);
     }
 
+    // ---------- JVM 参数 ----------
+    addSectionTitle(grid, row++, QStringLiteral("JVM 参数"), form);
+    {
+        QWidget *box = makeHintedControl(form);
+        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        extraJvmArgsEdit = new QPlainTextEdit(box);
+        extraJvmArgsEdit->setObjectName(extraJvmArgsEditName());
+        extraJvmArgsEdit->setPlaceholderText(QStringLiteral("-XX:+UseG1GC -XX:MaxGCPauseMillis=50"));
+        // 三四行就够：这一格放的是"顺手加的几条参数"，不是一整份命令行
+        extraJvmArgsEdit->setFixedHeight(kJvmArgsEditHeight);
+        boxLayout->addWidget(extraJvmArgsEdit);
+
+        QWidget *buttonRow = new QWidget(box);
+        QHBoxLayout *buttonRowLayout = new QHBoxLayout(buttonRow);
+        buttonRowLayout->setContentsMargins(0, 0, 0, 0);
+        applyExtraJvmArgsButton = new QPushButton(QStringLiteral("应用"), buttonRow);
+        applyExtraJvmArgsButton->setObjectName(applyExtraJvmArgsButtonName());
+        applyExtraJvmArgsButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+        applyExtraJvmArgsButton->setMinimumWidth(kApplyJvmArgsButtonMinWidth);
+        buttonRowLayout->addWidget(applyExtraJvmArgsButton);
+        buttonRowLayout->addStretch(1);
+        boxLayout->addWidget(buttonRow);
+
+        addHint(box, QStringLiteral("多条参数用空格分隔。改完点「应用」生效 —— "
+                                    "不边打字边存，免得打到一半的半条参数被写进配置。"
+                                    "按版本的那份写在 .minecraft/versions/<版本>/wtfml.meta "
+                                    "的 jvmArgs 里，排在全局之后（同一条以后写的为准）。"),
+                form);
+        addSettingRow(grid, row++, QStringLiteral("全局额外参数"), box, form);
+    }
+
+    // 剩下的竖直空间留在底部：设置项不跟着窗口高度一起被拉长
+    grid->setRowStretch(row, 1);
+}
+
+void MainWindowUI::setupSettingsGamePanel(QStackedWidget *stack) {
+    const SettingsPanel panel = addSettingsPanel(stack, QStringLiteral("game"));
+    QWidget *form = panel.form;
+    QGridLayout *grid = panel.grid;
+    int row = 0;
+
     // ---------- 启动选项 ----------
-    // 这一组三件事都是"这一份游戏进程怎么起来"：看不看它的输出、它占多少 CPU、
-    // 窗口开多大。摆在「启动后」和「JVM 参数」中间是因为它们的**作用对象**是启动那一下
-    // （上面那几组分别是账户、Java、内存、启动器自己）。
+    // 这三件事都是"这一份游戏进程怎么起来"：看不看它的输出、它占多少 CPU、窗口开多大。
+    // NOTE: 2026-09-26 分栏时这三项单独成了一栏（这一栏的**全部**内容就是它们）—— 从前的
+    //       相邻关系里，它们一边挨着「启动后」（那是启动器自己）、一边挨着「启动提醒」
+    //       （那是要不要问一句），三件事各自的性质都还没这么清楚。
     addSectionTitle(grid, row++, QStringLiteral("启动选项"), form);
     {
         QWidget *box = makeHintedControl(form);
@@ -1420,12 +1497,42 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
         addSettingRow(grid, row++, QStringLiteral("窗口大小"), box, form);
     }
 
-    // ---------- 启动提醒 ----------
-    // 这一组两条都是**点启动之后、游戏起来之前**挡一下的那种确认框：挡的是"同一份存档被
-    // 两个进程同时打开"这件事，而这件事**事后没有任何办法补救**（后写的那一份覆盖先写的）。
-    // 所以两条默认都开着；嫌烦的可以在这里各关各的（提示框上那句小字就是告诉他来这儿关）。
-    // 摆在这儿是因为它们和上面「启动选项」一样，作用对象都是"启动那一下"。
-    addSectionTitle(grid, row++, QStringLiteral("启动提醒"), form);
+    // 剩下的竖直空间留在底部：设置项不跟着窗口高度一起被拉长
+    grid->setRowStretch(row, 1);
+}
+
+void MainWindowUI::setupSettingsWarnPanel(QStackedWidget *stack) {
+    const SettingsPanel panel = addSettingsPanel(stack, QStringLiteral("warn"));
+    QWidget *form = panel.form;
+    QGridLayout *grid = panel.grid;
+    int row = 0;
+
+    // ---------- 启动前提醒 ----------
+    // 这三条都是**点启动之后、游戏起来之前**挡一下的那种确认框：挡的是"同一份存档被两个
+    // 进程同时打开"这件事，而这件事**事后没有任何办法补救**（后写的那一份覆盖先写的）。
+    // 所以三条默认都开着；嫌烦的可以在这里各关各的（提示框上那句小字就是告诉他来这儿关）。
+    //
+    // NOTE: 2026-09-26 分栏时三条并到一栏。前两条（重复启动 / 进度提醒）原来和「启动选项」
+    //       挤在同一张表里，第三条（Java 版本）原来挂在「启动」栏的 Java 那一节底下 ——
+    //       它们管的是同一件事："现在这一下要不要再问一句"。**勾选框上那句话一个字都没动**，
+    //       动的是"它摆在哪儿"和第三条那一行的行标题（原来叫「版本提醒」，说不清是提醒什么）。
+    addSectionTitle(grid, row++, QStringLiteral("启动前提醒"), form);
+    {
+        QWidget *box = makeHintedControl(form);
+        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        // 勾选状态由 MainWindow 灌（它才知道这个开关存在哪），这里只搭控件 ——
+        // 和 memoryAutoCheck 同一条约定。
+        javaWarnMismatchCheck =
+            new QCheckBox(QStringLiteral("实例指定的 Java 版本不符时提醒"), box);
+        javaWarnMismatchCheck->setObjectName(javaWarnMismatchCheckName());
+        boxLayout->addWidget(javaWarnMismatchCheck, 0, Qt::AlignLeft);
+        addHint(box, QStringLiteral("只对「实例设置…」里单独指定过 Java 的实例起作用。"
+                                    "关掉之后不再问，直接按你给它指定的那个 Java 启动 ——"
+                                    "版本真的不对时游戏会以 UnsupportedClassVersionError "
+                                    "之类的方式失败，得去「实例设置…」里换回来。"),
+                form);
+        addSettingRow(grid, row++, javaWarnMismatchRowText(), box, form);
+    }
     {
         QWidget *box = makeHintedControl(form);
         auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
@@ -1452,36 +1559,108 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
         addSettingRow(grid, row++, warnWorldLossRowText(), box, form);
     }
 
-    // ---------- JVM 参数 ----------
-    addSectionTitle(grid, row++, QStringLiteral("JVM 参数"), form);
+    // 剩下的竖直空间留在底部：设置项不跟着窗口高度一起被拉长
+    grid->setRowStretch(row, 1);
+}
+
+void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
+    const SettingsPanel panel = addSettingsPanel(stack, QStringLiteral("look"));
+    QWidget *form = panel.form;
+    QGridLayout *grid = panel.grid;
+    int row = 0;
+
+    // ---------- 外观 ----------
+    // 2026-09-25 加的。用户原话：「上面的四个居中，左上角五个字母默认是这五个，在设置里
+    // 允许自定义」—— 后半句就是这一行：条上那行字（`TitleBar::defaultBrandText()` 那五个
+    // 字母）能在这儿改成别的，**留空就是默认那五个**。
+    // 2026-09-26 分栏时它连同「账户」「版本名格式」一起并进「个性化」：这三节管的都不是
+    // "游戏怎么起来"，而是"这东西看起来是什么样 / 我叫什么名字"。
+    addSectionTitle(grid, row++, QStringLiteral("外观"), form);
     {
         QWidget *box = makeHintedControl(form);
         auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
-        extraJvmArgsEdit = new QPlainTextEdit(box);
-        extraJvmArgsEdit->setObjectName(extraJvmArgsEditName());
-        extraJvmArgsEdit->setPlaceholderText(QStringLiteral("-XX:+UseG1GC -XX:MaxGCPauseMillis=50"));
-        // 三四行就够：这一格放的是"顺手加的几条参数"，不是一整份命令行
-        extraJvmArgsEdit->setFixedHeight(kJvmArgsEditHeight);
-        boxLayout->addWidget(extraJvmArgsEdit);
-
-        QWidget *buttonRow = new QWidget(box);
-        QHBoxLayout *buttonRowLayout = new QHBoxLayout(buttonRow);
-        buttonRowLayout->setContentsMargins(0, 0, 0, 0);
-        applyExtraJvmArgsButton = new QPushButton(QStringLiteral("应用"), buttonRow);
-        applyExtraJvmArgsButton->setObjectName(applyExtraJvmArgsButtonName());
-        applyExtraJvmArgsButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-        applyExtraJvmArgsButton->setMinimumWidth(kApplyJvmArgsButtonMinWidth);
-        buttonRowLayout->addWidget(applyExtraJvmArgsButton);
-        buttonRowLayout->addStretch(1);
-        boxLayout->addWidget(buttonRow);
-
-        addHint(box, QStringLiteral("多条参数用空格分隔。改完点「应用」生效 —— "
-                                    "不边打字边存，免得打到一半的半条参数被写进配置。"
-                                    "按版本的那份写在 .minecraft/versions/<版本>/wtfml.meta "
-                                    "的 jvmArgs 里，排在全局之后（同一条以后写的为准）。"),
+        titleTextEdit = new QLineEdit(box);
+        titleTextEdit->setObjectName(titleTextEditName());
+        // 长度上限在**两个地方**各写一遍（ui/ 不许 include src/，见 titleTextMaxLength()）。
+        titleTextEdit->setMaxLength(titleTextMaxLength());
+        // 占位文字就是默认那五个字母：一个不知所以的空框会被当成"这里还没做完"。
+        titleTextEdit->setPlaceholderText(TitleBar::defaultBrandText());
+        titleTextEdit->setMinimumWidth(kTitleTextEditWidth);
+        // 文本框和下拉框不往整格里撑（右列有 7 份宽，一个名字框被拉到 600 px 看着就是坏的）——
+        // 和 addInlineControl() 是同一条规矩。
+        boxLayout->addWidget(titleTextEdit, 0, Qt::AlignLeft);
+        addHint(box,
+                QStringLiteral("窗口左上角那行字。留空就是默认的 %1。")
+                    .arg(TitleBar::defaultBrandText()),
                 form);
-        addSettingRow(grid, row++, QStringLiteral("全局额外参数"), box, form);
+        addSettingRow(grid, row++, QStringLiteral("标题文字"), box, form);
     }
+
+    // ---------- 账户 ----------
+    // 这一格原来摆的是个「微软登录」按钮（登录过之后叫「重新登录」）。它**搬进**
+    // 「账号与外观」那个窗里了：那个按钮只会登录一件事 —— 加离线账号、切换账号、删账号、
+    // 换皮肤披风它一件都做不到，而这一格却叫「当前账户」，用户来设置页找"管账号"的地方
+    // 会撞上一个只能登录的按钮。账号那一整块只在一个窗里做（ui/AccountSkinDialog），
+    // 这里留一个入口。
+    addSectionTitle(grid, row++, QStringLiteral("账户"), form);
+    {
+        QWidget *box = makeHintedControl(form);
+        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        accountSkinSettingsButton = new QPushButton(accountSkinButtonText(), box);
+        // 文案和主页那个入口**共用一份**（accountSkinButtonText()，见上面那段说明）。
+        accountSkinSettingsButton->setObjectName(accountSkinSettingsButtonName());
+        accountSkinSettingsButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+        accountSkinSettingsButton->setMinimumWidth(kAccountSkinButtonMinWidth);
+        boxLayout->addWidget(accountSkinSettingsButton, 0, Qt::AlignLeft);
+        addHint(box, QStringLiteral("正版登录、添加离线账号、切换账号、换皮肤和披风都在这个窗里。"
+                                    "登录后用户名显示在窗口左下角，启动游戏时用的也是它。"),
+                form);
+        addSettingRow(grid, row++, QStringLiteral("账号"), box, form);
+    }
+
+    // ---------- 版本名格式 ----------
+    // 实例名长什么样，也是"看起来是什么样"那一类 —— 和「外观」同一栏。
+    addSectionTitle(grid, row++, QStringLiteral("版本名格式"), form);
+    {
+        QWidget *box = makeHintedControl(form);
+        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+
+        QWidget *checks = new QWidget(box);
+        QGridLayout *checkLayout = new QGridLayout(checks);
+        checkLayout->setContentsMargins(0, 0, 0, 0);
+        checkLayout->setHorizontalSpacing(12);
+        checkLayout->setVerticalSpacing(4);
+        versionNameCustomCheck = new QCheckBox(QStringLiteral("自定义名"), checks);
+        versionNameCustomCheck->setObjectName(versionNameCustomCheckName());
+        versionNameRealCheck = new QCheckBox(QStringLiteral("版本名"), checks);
+        versionNameRealCheck->setObjectName(versionNameRealCheckName());
+        versionNameLoaderCheck = new QCheckBox(QStringLiteral("加载器名"), checks);
+        versionNameLoaderCheck->setObjectName(versionNameLoaderCheckName());
+        versionNameLoaderVersionCheck = new QCheckBox(QStringLiteral("加载器版本"), checks);
+        versionNameLoaderVersionCheck->setObjectName(versionNameLoaderVersionCheckName());
+        checkLayout->addWidget(versionNameCustomCheck, 0, 0);
+        checkLayout->addWidget(versionNameRealCheck, 0, 1);
+        checkLayout->addWidget(versionNameLoaderCheck, 1, 0);
+        checkLayout->addWidget(versionNameLoaderVersionCheck, 1, 1);
+        checkLayout->setColumnStretch(2, 1);
+        boxLayout->addWidget(checks);
+
+        addHint(box, QStringLiteral("上面这些名字是按「自定义名-实际版本-加载器名-加载器版本」"
+                                    "拼出来的，勾掉哪一项哪一段就不显示。"
+                                    "数据来自 .minecraft/versions/<版本>/wtfml.meta。"),
+                form);
+        addSettingRow(grid, row++, QStringLiteral("显示哪些字段"), box, form);
+    }
+
+    // 剩下的竖直空间留在底部：设置项不跟着窗口高度一起被拉长
+    grid->setRowStretch(row, 1);
+}
+
+void MainWindowUI::setupSettingsDownloadPanel(QStackedWidget *stack) {
+    const SettingsPanel panel = addSettingsPanel(stack, QStringLiteral("download"));
+    QWidget *form = panel.form;
+    QGridLayout *grid = panel.grid;
+    int row = 0;
 
     // ---------- 下载源 ----------
     addSectionTitle(grid, row++, QStringLiteral("下载源"), form);
@@ -1519,45 +1698,8 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
         addSettingRow(grid, row++, curseForgeApiKeyRowText(), box, form);
     }
 
-    // ---------- 版本名格式 ----------
-    addSectionTitle(grid, row++, QStringLiteral("版本名格式"), form);
-    {
-        QWidget *box = makeHintedControl(form);
-        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
-
-        QWidget *checks = new QWidget(box);
-        QGridLayout *checkLayout = new QGridLayout(checks);
-        checkLayout->setContentsMargins(0, 0, 0, 0);
-        checkLayout->setHorizontalSpacing(12);
-        checkLayout->setVerticalSpacing(4);
-        versionNameCustomCheck = new QCheckBox(QStringLiteral("自定义名"), checks);
-        versionNameCustomCheck->setObjectName(versionNameCustomCheckName());
-        versionNameRealCheck = new QCheckBox(QStringLiteral("版本名"), checks);
-        versionNameRealCheck->setObjectName(versionNameRealCheckName());
-        versionNameLoaderCheck = new QCheckBox(QStringLiteral("加载器名"), checks);
-        versionNameLoaderCheck->setObjectName(versionNameLoaderCheckName());
-        versionNameLoaderVersionCheck = new QCheckBox(QStringLiteral("加载器版本"), checks);
-        versionNameLoaderVersionCheck->setObjectName(versionNameLoaderVersionCheckName());
-        checkLayout->addWidget(versionNameCustomCheck, 0, 0);
-        checkLayout->addWidget(versionNameRealCheck, 0, 1);
-        checkLayout->addWidget(versionNameLoaderCheck, 1, 0);
-        checkLayout->addWidget(versionNameLoaderVersionCheck, 1, 1);
-        checkLayout->setColumnStretch(2, 1);
-        boxLayout->addWidget(checks);
-
-        addHint(box, QStringLiteral("上面这些名字是按「自定义名-实际版本-加载器名-加载器版本」"
-                                    "拼出来的，勾掉哪一项哪一段就不显示。"
-                                    "数据来自 .minecraft/versions/<版本>/wtfml.meta。"),
-                form);
-        addSettingRow(grid, row++, QStringLiteral("显示哪些字段"), box, form);
-    }
-
     // 剩下的竖直空间留在底部：设置项不跟着窗口高度一起被拉长
     grid->setRowStretch(row, 1);
-
-    QVBoxLayout *pageLayout = new QVBoxLayout(page);
-    pageLayout->setContentsMargins(kPageMargin, kPageMargin, kPageMargin, kPageMargin);
-    pageLayout->addWidget(scroll);
 }
 
 namespace {

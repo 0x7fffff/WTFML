@@ -1127,7 +1127,7 @@ void MainWindow::setupConnections() {
     //       写的是"这次启动用哪种身份"）。勾选框去掉了，现在让那个身份变的动作是
     //       **换账号 / 加一个离线账号**，而那两个槽自己就会调 updateBottomBar()，
     //       所以这里没有对应的接线了。
-    // 「账号与外观…」那两个入口（主页右栏 3D 预览下面那个 + 设置页「账户」那格里的）。
+    // 「账号与外观…」那两个入口（主页右栏 3D 预览下面那个 + 设置页「个性化」栏里「账户」那格的）。
     // 同一件事、同一个窗 —— 所以接的是同一个槽。
     connect(m_ui->getAccountSkinButton(), &QPushButton::clicked, this,
             &MainWindow::onAccountSkinButtonClicked);
@@ -4956,7 +4956,7 @@ bool MainWindow::confirmLaunchWhileRunning(const QString &versionId) {
                    "两份游戏开着同一份存档。")
                     .arg(displayName),
                 QStringList{tr("取消"), tr("仍要启动")}, -1, 1, false,
-                tr("可以在设置中关闭此提示（设置页「启动提醒」→「重复启动」）。"));
+                tr("可以在设置中关闭此提示（设置页「提示」→「重复启动」）。"));
             if (choice != 1) {
                 return false;
             }
@@ -4975,7 +4975,7 @@ bool MainWindow::confirmLaunchWhileRunning(const QString &versionId) {
                "进度 —— 存档可能回退，也可能坏掉。")
                 .arg(displayName),
             QStringList{tr("取消"), tr("仍要启动")}, -1, 1, false,
-            tr("可以在设置中关闭此提示（设置页「启动提醒」→「进度提醒」）。"));
+            tr("可以在设置中关闭此提示（设置页「提示」→「进度提醒」）。"));
         if (choice != 1) {
             return false;
         }
@@ -5020,7 +5020,7 @@ void MainWindow::onStartButtonClicked() {
         return;
     }
 
-    // 启动提醒（设置页「启动提醒」那一组）：同一份存档被两个进程同时打开这件事**事后救不
+    // 启动提醒（设置页「提示」栏）：同一份存档被两个进程同时打开这件事**事后救不
     // 回来**（后保存的那一份盖掉先保存的），所以只有"点在启动上那一下"挡得住才算数。
     //
     // NOTE: 摆在**换令牌之前**是刻意的。那一段是同步的（可能要发请求、单次超时 15 秒），

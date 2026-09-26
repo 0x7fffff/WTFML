@@ -149,7 +149,7 @@ DWORD priorityClassOf(ProcessPriority priority) {
 #endif
 
 /**
- * @brief 给刚起来的游戏进程设 CPU 优先级（设置页「启动选项 → 进程优先级」）。
+ * @brief 给刚起来的游戏进程设 CPU 优先级（设置页「游戏」栏 →「进程优先级」）。
  *
  * @param process 已经 start() 过、而且进程真的起来了的那个 QProcess。
  * @param priority 要设的档位。
@@ -792,7 +792,7 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     }
 
     // ------------------------------------------------------------------
-    // 游戏窗口大小（设置页「启动选项 → 窗口大小」）
+    // 游戏窗口大小（设置页「游戏」栏 →「窗口大小」）
     // ------------------------------------------------------------------
     // NOTE: 原版 json 里明明有一条现成的 `--width ${resolution_width} --height
     //       ${resolution_height}` 规则，但这里**不能靠它**，两处都是死的：

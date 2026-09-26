@@ -358,7 +358,7 @@ public:
      * 的那一份，"按版本"的那份（wtfml.meta 的 jvmArgs）排在它之后，所以同一条选项
      * 写两遍时单个实例胜出。
      *
-     * NOTE: 界面入口在设置页的「JVM 参数」那一行（ui/MainWindowUI.cpp 的 extraJvmArgsEdit
+     * NOTE: 界面入口在设置页「启动」栏里的「JVM 参数」那一行（ui/MainWindowUI.cpp 的 extraJvmArgsEdit
      *       ＋旁边那个「应用」按钮），经 MainWindow::onApplyExtraJvmArgsClicked() 落盘。
      *       它**不跟 textChanged 存**，必须点「应用」才进配置 —— 免得半条参数进了命令行。
      */

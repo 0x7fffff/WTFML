@@ -178,7 +178,7 @@ QString ResourceStore::failureText(QNetworkReply *reply, const QByteArray &body,
     if (source == ResourceCatalog::Source::CurseForge) {
         hint = !hasKey
                    ? QStringLiteral("\n\n网络本身没问题的话，多半是那个公共接口的事了 —— 可以在设置页"
-                                    "「下载源」那一组里填一份自己的 CurseForge API key（免费申请），"
+                                    "「下载」栏里填一份自己的 CurseForge API key（免费申请），"
                                     "填了就改走官方接口。")
                    : QStringLiteral("\n\n设置里那份 CurseForge API key 可能不对、或者已经失效了，"
                                     "可以换一份。");

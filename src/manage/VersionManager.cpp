@@ -511,8 +511,8 @@ QString VersionManager::resolveCurseForgeFiles(ModpackImport::Pack *pack) {
     const auto failureText = [hasKey](const HttpClient::Reply &reply) {
         const QString hint =
             hasKey ? tr("设置里那份 CurseForge API key 可能不对、或者已经失效了，可以换一份。")
-                   : tr("网络本身没问题的话，多半是那个公共接口的事了 —— 可以在设置页「下载源」"
-                        "那一组里填一份自己的 CurseForge API key（免费申请），填了就改走官方接口。"
+                   : tr("网络本身没问题的话，多半是那个公共接口的事了 —— 可以在设置页「下载」"
+                        "栏里填一份自己的 CurseForge API key（免费申请），填了就改走官方接口。"
                         "现在这一发走的是社区提供的公共反代，它可能限流、也可能哪天就停了。");
         if (!reply.networkError.isEmpty()) {
             return tr("问 CurseForge 要文件清单时没连上：%1\n\n%2").arg(reply.networkError, hint);
@@ -899,7 +899,7 @@ void VersionManager::importModpack(const QString &zipPath, const QString &instan
             instanceId, false,
             tr("这个 CurseForge 整合包的文件清单没有换成下载地址：那种清单里只有编号，"
                "要先问一次 CurseForge 的接口才换得出来。没有导入，再试一次；一直这样的话，"
-               "在设置页「下载源」那一组里填一份自己的 CurseForge API key。"));
+               "在设置页「下载」栏里填一份自己的 CurseForge API key。"));
         return;
     }
 
