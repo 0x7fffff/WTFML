@@ -148,8 +148,9 @@ OverlayHost::OverlayHost(QWidget *anchor, QWidget *parent) : QWidget(parent), m_
         // 没人会替它做这件事。
         m_anchor->installEventFilter(this);
         if (auto *tabs = qobject_cast<QTabWidget *>(m_anchor)) {
+            // 翻页了：整页那一档要么"摆出来"要么"收着"（见头文件那段），提示那一档换底图。
             connect(tabs, &QTabWidget::currentChanged, this,
-                    [this](int) { retargetCoveredPage(); });
+                    [this](int) { onAnchorTabChanged(); });
         }
     }
 }
@@ -194,9 +195,86 @@ void OverlayHost::releaseCoveredPage() {
     }
 }
 
+int OverlayHost::anchorTabIndex() const {
+    if (auto *tabs = qobject_cast<QTabWidget *>(m_anchor)) {
+        return tabs->currentIndex();
+    }
+    return -1;
+}
+
+bool OverlayHost::onOwnersTab() const {
+    const int current = anchorTabIndex();
+    if (current < 0 || m_pageOwnerTab < 0) {
+        // 锚点不是选项卡 / 压根没有页面（纯提示那一档）：没有"别的选项卡"这回事。
+        return true;
+    }
+    return current == m_pageOwnerTab;
+}
+
+bool OverlayHost::parked() const {
+    return m_mode == Mode::Page && !onOwnersTab();
+}
+
+void OverlayHost::applyVisibility() {
+    // 整页那一档**只在开它的那颗选项卡上露面**。切到别的选项卡上就"收着"：不关、不销毁
+    // —— 这一页正卡在 `execPage()` 的嵌套事件循环里，收掉了调用方会一直等下去，而用户要的
+    // 「再点回来还是那一个界面（连滚到哪儿都在）」也就没了（见头文件那段）。
+    const bool pageShown = (m_mode == Mode::Page) && onOwnersTab();
+    // 提示那一档不跟着选项卡走：它是要人回答的一句话，收起来 = 让调用方在用户看不见的
+    // 地方干等。切页时它换的只是底图（见 refreshBackdrop）。
+    const bool promptShown = (m_mode == Mode::Prompt);
+
+    if (m_pageFrame != nullptr) {
+        if (m_pageFrame->isVisible() && !pageShown) {
+            // 要收起来了：**先记一笔焦点在页里哪个控件上**。Qt 的焦点是跟着"看得见"走的
+            // （父控件一藏起来就清掉），回来时没人给它摆回去 —— 症状是"切一趟选项卡，
+            // 我正在打字的那个格子丢了焦点"（字还在，光标没了）。
+            QWidget *focus = QApplication::focusWidget();
+            m_pageFocus = (focus != nullptr && m_pageFrame->isAncestorOf(focus)) ? focus : nullptr;
+        }
+        m_pageFrame->setVisible(pageShown);
+        if (pageShown && m_pageFocus != nullptr && m_pageFrame->isAncestorOf(m_pageFocus)) {
+            m_pageFocus->setFocus();
+        }
+    }
+    if (m_promptCard != nullptr) {
+        m_promptCard->setVisible(promptShown);
+    }
+    setVisible(promptShown || pageShown);
+    if (isVisible()) {
+        // 浮在上面这一条**每回露面都得重申**：锚点换了一页，新那一页在子控件次序上可能
+        // 压过我们（Qt 新加的子控件默认排在最后，也就是"最上面"）。
+        raise();
+    }
+    retargetCoveredPage();
+    relayout();
+}
+
+void OverlayHost::refreshBackdrop() {
+    if (m_overPage) {
+        // 底下压着的是**整页那一档**：要变暗的是那一页，而它一直没动过（收着/摆着都不影响
+        // 那几张像素），开提示那一刻拍的那张照样对。
+        return;
+    }
+    // 底下是普通内容页：换选项卡就是把底下**换成了另一块像素**，重拍一张（不重拍的话，
+    // 用户在别的选项卡上看到的是一张糊着别的页面的底图）。
+    QWidget *page = coveredPage();
+    m_backdrop = page != nullptr ? snapshot(page) : QPixmap();
+    update();
+}
+
+void OverlayHost::onAnchorTabChanged() {
+    if (m_mode == Mode::Prompt) {
+        refreshBackdrop();
+    }
+    applyVisibility();
+}
+
 void OverlayHost::retargetCoveredPage() {
     releaseCoveredPage();
-    if (!isOpen()) {
+    // 判据是"**现在真摆在眼前**"（不是"开着"）：整页那一档收在别的选项卡上的时候，
+    // 它没盖住任何东西 —— 用户正要用下面那一页，这时候按住它就是"界面活着但点不动"。
+    if (!isVisible()) {
         return;
     }
     QWidget *page = coveredPage();
@@ -232,16 +310,16 @@ void OverlayHost::releaseContent(QVBoxLayout *content) {
 QWidget *OverlayHost::openPage(const QString &title) {
     if (m_mode != Mode::None) {
         // 一层只放得下一个页面（见头文件那段）。返回 nullptr，调用方当"没开成"。
+        // NOTE: 页面**收着**的时候（用户在别的选项卡上逛）也算"有人占着这一层"，
+        //       照样是 nullptr —— 那一位没被释放，收起来的页面只是看不见而已。
         return nullptr;
     }
     m_mode = Mode::Page;
+    // 这一页是**哪一颗选项卡**开出来的：它决定这一页在哪儿露面（见头文件那段）。
+    m_pageOwnerTab = anchorTabIndex();
+    m_pageFocus = nullptr;
     m_titleLabel->setText(title);
-    m_pageFrame->setVisible(true);
-    m_promptCard->setVisible(false);
-    setVisible(true);
-    raise();
-    retargetCoveredPage();
-    relayout();
+    applyVisibility();
     if (m_backButton != nullptr) {
         m_backButton->setFocus();
     }
@@ -266,24 +344,21 @@ QWidget *OverlayHost::openPrompt(bool dismissOnOutsideClick) {
     // NOTE: 拍的是"开之前"的样子，所以底下那些会自己动的东西（下载进度）在提示开着的
     //       期间是**冻住的**。提示期间下面本来也点不动，冻住不算问题；反过来"抓完再禁用"
     //       这个顺序要紧 —— 颠倒过来拍到的就是变灰之后的样子了。
-    if (overPage) {
-        // 底下是整页覆盖层：拍那一层自己（页面还开着，它才是要变暗的东西）。
+    //
+    // NOTE: 底下压着一页、而那一页**正收在别的选项卡上**的时候（用户切走之后又冒出来一条
+    //       提示），拍的是**现在这一页**：那一页此刻不露面，要变暗的是用户正看着的这块。
+    //       `m_overPage` 照旧是 true —— 提示收掉之后还是回到那一页（它只是收着）。
+    if (overPage && onOwnersTab()) {
+        // 底下是整页覆盖层、而且就摆在眼前：拍那一层自己（它才是要变暗的东西）。
         m_backdrop = snapshot(m_pageFrame);
-        // 整页那一层收起来（不是藏起来就行 —— 藏起来之后底下那些控件还能收到键盘
-        // 焦点和 Tab）。收的是**显示**，`m_mode` 说"现在最上面是提示"。
-        m_pageFrame->setVisible(false);
     } else {
         m_backdrop = coveredPage() != nullptr ? snapshot(coveredPage()) : QPixmap();
     }
 
     m_mode = Mode::Prompt;
-    m_promptCard->setVisible(true);
-    setVisible(true);
-    raise();
-    if (!overPage) {
-        retargetCoveredPage();
-    }
-    relayout();
+    // 整页那一层就此收起来（不是"藏起来就行" —— 藏起来之后底下那些控件还能收到键盘焦点
+    // 和 Tab）。收的是**显示**，`m_mode` 说"现在最上面是提示"。
+    applyVisibility();
     if (m_promptContent != nullptr) {
         m_promptContent->setFocus();
     }
@@ -296,30 +371,54 @@ void OverlayHost::closeOverlay() {
         releaseContent(m_promptContentLayout);
         m_dismissOnOutsideClick = false;
         m_backdrop = QPixmap();
-        m_promptCard->setVisible(false);
         if (m_overPage) {
             m_overPage = false;
             m_mode = Mode::Page;
-            m_pageFrame->setVisible(true);
-            relayout();
-            if (m_backButton != nullptr) {
+            // 回到那一页（它可能是收在别的选项卡上的 —— 那就还是收着，见 applyVisibility）。
+            applyVisibility();
+            // 焦点：优先摆回"提示盖上来之前那一格"（applyVisibility 已经做过一遍），
+            // 没有记录在案的就按老规矩把它摆到返回箭头上（键盘一进来就归页眉管）。
+            if (m_pageFocus == nullptr && m_backButton != nullptr && !parked()) {
                 m_backButton->setFocus();
             }
             return;
         }
         m_mode = Mode::None;
-        setVisible(false);
-        releaseCoveredPage();
+        applyVisibility();
         return;
     }
     if (m_mode == Mode::Page) {
         releaseContent(m_pageContentLayout);
-        m_pageFrame->setVisible(false);
         m_mode = Mode::None;
-        setVisible(false);
-        releaseCoveredPage();
+        m_pageOwnerTab = -1;
+        m_pageFocus = nullptr;
+        applyVisibility();
         return;
     }
+}
+
+bool OverlayHost::dismiss() {
+    if (m_mode == Mode::Prompt) {
+        // 提示那一档：和"按 Esc / 点框外面"**同一发**（`execEmbedded` 接它去 reject，
+        // 那些自己搭提示的调用方也接它）。
+        emit promptDismissed();
+        return true;
+    }
+    if (m_mode == Mode::Page) {
+        if (!onOwnersTab()) {
+            // 收在别的选项卡上：用户看不见它，这一发不该落在它头上（不然就是"我在主页
+            // 点了一下主页，下载页那个详情页自己没了"）。
+            return false;
+        }
+        // 页面那一档：和"点返回箭头"**同一发**。★ 这里**绝不能改成 `closeOverlay()`** ——
+        // 用 `execPage()` 开出来的那一页正卡在自己的嵌套事件循环里，`closeOverlay()` 只把
+        // 外壳收了、一个信号都不发 ⇒ 调用方一直等下去（`MainWindow::openResourceDetailPage`
+        // 那一段的 `m_resourcePage.open` 永远归不了 false）。mw_check 里那句"收的必须是
+        // 返回箭头（= reject），不能是 closeOverlay()"说的就是这一件事。
+        emit backPressed();
+        return true;
+    }
+    return false;
 }
 
 void OverlayHost::relayout() {

@@ -1144,8 +1144,24 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     bar->setNavItems(navLabels);
     bar->setCurrentNav(tabWidget->currentIndex());
     // 条只发信号、不自己动手（见 TitleBar.hpp）：翻页是这一层的事。
-    QObject::connect(bar, &TitleBar::navRequested, tabWidget,
-                     [this](int index) { tabWidget->setCurrentIndex(index); });
+    QObject::connect(bar, &TitleBar::navRequested, tabWidget, [this](int index) {
+        // 用户原话：「顶端四个按钮点击以后自动到达对应选项卡的首页（比如说我现在正点开
+        // sodium 的下载页面，现在我点击启动选项卡，直接切到那个页面，下载这个"弹窗"自动
+        // 收起）」+「在下载页点击 下载（顶上那个，不是下载确认键），那就回到下载页的首页
+        // （四个都适用）」。于是这一颗有两种意思：
+        //
+        // ① 点的**不是**现在这一颗 ⇒ 翻页。切走之后那页不会丢，只是"收着"（见
+        //    OverlayHost.hpp 那段），切回来还是原来那个界面、连滚到哪儿都在；
+        // ② 点的**就是**现在这一颗 ⇒ "回到这个功能的首页"：把上面那一层收掉 —— 页面那一档
+        //    走"返回箭头"那一发（`execPage()` 的那一次才醒得过来，理由见 dismiss()）。
+        if (index == tabWidget->currentIndex()) {
+            if (overlayHost != nullptr) {
+                overlayHost->dismiss();
+            }
+            return;
+        }
+        tabWidget->setCurrentIndex(index);
+    });
     // 反方向也要通：别处（底栏、主页那几个入口）翻页之后，条上标着的也得跟着换。
     QObject::connect(tabWidget, &QTabWidget::currentChanged, bar, &TitleBar::setCurrentNav);
 
