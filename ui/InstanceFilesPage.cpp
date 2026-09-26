@@ -6,6 +6,7 @@
  */
 #include "InstanceFilesPage.hpp"
 
+#include "ElidedLabel.hpp"
 #include "MainWindowUI.hpp"
 
 #include <QDateTime>
@@ -33,6 +34,24 @@ void makeSecondary(QLabel *label) {
     QPalette palette = label->palette();
     palette.setColor(QPalette::WindowText, palette.color(QPalette::PlaceholderText));
     label->setPalette(palette);
+}
+
+/// 比正文字号小一档 —— **行里那第二行小字**专用的（现在只有「大小 · 时间」在用）。
+///
+/// 档位是 `MainWindowUI::versionDateFontDelta()`，和版本树那两行式的行**同一档**
+/// （VersionTreeDelegate::paint 里给 rowSubTextRole() 那行算字号用的就是它）：
+/// 实例设置里这一页和版本树是并排的两种列表，行高也都是 46，字号差一档就不像一套东西。
+/// 两行一样大的话，"上面一行名字、下面一行细节"看着只像一行被折了。
+///
+/// 顺带也是**行高够用**的前提：46 px 那一格里要装两行（19 + 2 + 15 上下），
+/// 第二行照正文那么大就顶到边了。
+void makeSmallLine(QLabel *label) {
+    if (label == nullptr) {
+        return;
+    }
+    QFont font = label->font();
+    font.setPointSize(qMax(6, font.pointSize() + MainWindowUI::versionDateFontDelta()));
+    label->setFont(font);
 }
 
 }  // namespace
@@ -202,27 +221,59 @@ QWidget *InstanceFilesPage::makeRow(const QString &shownName, const QString &pat
     layout->setContentsMargins(8, 0, 8, 0);
     layout->setSpacing(8);
 
-    auto *name = new QLabel(shownName, row);
-    // 名字长的时候让它自己缩，别把行尾那两颗按钮顶出行外。整条路径挂在 tooltip 上，
-    // 名字被裁掉的那一截还能看全。
+    // ---------- 左边那半：**名字一行、大小·时间一行** ----------
+    //
+    // 用户 2026-09-26 报的「实例设置里模组列表模组名称显示存在错误」，根子在这儿：
+    // 从前这三样是**一行**里排的（名字 + 「12.3 MB · 2026-09-26 12:00」+ 两颗按钮）。
+    // 那个大小·时间那一截在 150% 缩放的字号下要 300 px，而行宽只有 450 上下 ——
+    // 于是名字那一格被挤成 **0 宽**，一整列的名字全看不见（`fabric-api-0.119.3+1.21.4.jar`
+    // 这类名字在盘上是常态）。行高本来就是 46 px（versionTreeRowHeight()），
+    // 装两行字够 —— 摆成上下两行，名字那一格就能拿到整幅宽度（按钮除外）。
+    auto *textColumn = new QWidget(row);
+    auto *textLayout = new QVBoxLayout(textColumn);
+    textLayout->setContentsMargins(0, 0, 0, 0);
+    textLayout->setSpacing(2);
+
+    // 名字那一格是**会省略号收尾**的（ElidedLabel，不是普通 QLabel）：普通 QLabel 在控件
+    // 比文字窄的时候是**硬裁**的 —— 最后一个字被切掉一半，看着像这一条的名字就是那串
+    // 半截的字。真名字有 47 个字符（约 650 px），这一格给不了那么宽。
+    //
+    // 从**中间**截（不是尾巴）：这一串两头都有用 —— 前头是哪个 mod，尾巴上是 `.jar`
+    // 那一截；而被禁用的那几条尾巴上还挂着「（已禁用）」四个字，
+    // 从尾巴截掉恰好把「这一条是关着的」这个最要紧的信息先扔了。
+    auto *name = new ElidedLabel(textColumn);
+    name->setObjectName(nameLabelName());
+    name->setText(shownName);
+    name->setElideMode(Qt::ElideMiddle);
+    // 名字长的时候让它自己缩（`Ignored` = 别拿它的 sizeHint 去撑这一行），
+    // 但不许被挤成 0：这一格是这一行的主要内容。整条路径挂在 tooltip 上，
+    // 名字被截掉的那一截还能看全（省略号只说明"这里短了"，短的是什么只有它说得清）。
     name->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-    name->setMinimumWidth(0);
+    name->setMinimumWidth(nameLabelMinWidth());
     name->setToolTip(QDir::toNativeSeparators(path));
     if (isDisabled) {
         // 被禁用的一整行**名字也灰掉**：光靠名字后面那四个字，扫一眼看不出这一条是关着的。
         makeSecondary(name);
     }
-    layout->addWidget(name, 1);
+    textLayout->addWidget(name);
 
     // 「12.3 MB · 2026-09-26 12:00」。文件夹没有有意义的大小（Windows 上 info.size() 对
     // 目录给的是目录项自己的字节数，不是里面东西的总和），给一个破折号比给一个假数字好。
+    // 这一行也会省略（尾巴那头）：字号大 / 窗口窄的时候它比这一格还长，硬裁同样是"看着
+    // 像画坏了"。它的 hint 不封顶 —— 它是下面那行小字，让名字那一格先拿够。
     QString meta = isDir ? QStringLiteral("—") : formatSize(size);
     if (modified.isValid()) {
         meta += QStringLiteral(" · ") + modified.toString(QStringLiteral("yyyy-MM-dd HH:mm"));
     }
-    auto *metaLabel = new QLabel(meta, row);
+    auto *metaLabel = new ElidedLabel(textColumn);
+    metaLabel->setObjectName(metaLabelName());
+    metaLabel->setText(meta);
+    metaLabel->setElideMode(Qt::ElideRight);
     makeSecondary(metaLabel);
-    layout->addWidget(metaLabel);
+    makeSmallLine(metaLabel);
+    textLayout->addWidget(metaLabel);
+
+    layout->addWidget(textColumn, 1);
 
     if (m_canToggle && !isDir) {
         auto *toggle = new QToolButton(row);

@@ -116,6 +116,21 @@ public:
         return QStringLiteral("instanceFilesOpenFolderButton");
     }
     static QString noticeLabelName() { return QStringLiteral("instanceFilesNotice"); }
+    /// 行首那个**名字**（ElidedLabel）。一页里有很多个、名字都一样 —— 取法和下面那两颗
+    /// 一样按行取（`list()->itemWidget(item)->findChild<QLabel*>(nameLabelName())`）。
+    /// 验证工程靠它核三件事：名字装不下时是**省略号**收尾（不是硬裁）、省略是从
+    /// **中间**截的（尾巴上挂着「（已禁用）」那四个字，截尾巴等于把状态先说没了），
+    /// 以及它**确实拿到了宽度**（大于 nameLabelMinWidth()；曾经它被挤成过 0 宽，
+    /// 一整列名字全看不见 —— 见 InstanceFilesPage.cpp::makeRow 里那段）。
+    static QString nameLabelName() { return QStringLiteral("instanceFilesNameLabel"); }
+
+    /// 名字那一格**至少**要有这么宽（px）。名字那一格是这一行的主要内容，宁可让这一行
+    /// 溢出被裁，也不许它缩到看不见。
+    static int nameLabelMinWidth() { return 120; }
+
+    /// 名字底下那一行小字（大小 · 时间，ElidedLabel）。和名字同一列 —— 名字在上、
+    /// 它在下（从前这两样和那两颗按钮挤在同一行里，字号一大名字就没地方了）。
+    static QString metaLabelName() { return QStringLiteral("instanceFilesMetaLabel"); }
     /// 行尾那两颗。**一页里有很多颗、名字都一样** —— 认它们要按行取（见上面那个
     /// toggleButtonAt()），从页上 findChild 拿到的只是第一行那一颗。
     static QString toggleButtonName() { return QStringLiteral("instanceFilesToggleButton"); }
@@ -143,7 +158,8 @@ signals:
     void deleteRequested(const QString &path);
 
 private:
-    /// 造一条行（名字 + 大小·时间 + 那两颗按钮），已经按状态摆好。
+    /// 造一条行：**左边一列两行字**（名字一行、大小 · 时间一行，见 nameLabelName() /
+    /// metaLabelName()）+ 尾巴上那两颗按钮，已经按状态摆好。
     QWidget *makeRow(const QString &shownName, const QString &path, bool isDir, bool isDisabled,
                      qint64 size, const QDateTime &modified);
 

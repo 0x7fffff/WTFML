@@ -8,6 +8,7 @@
 
 #include "MainWindowUI.hpp"
 
+#include "ElidedLabel.hpp"
 #include "InstanceGroupDelegate.hpp"
 #include "MemorySlider.hpp"
 #include "OverlayHost.hpp"
@@ -243,72 +244,6 @@ QLabel *addDynamicErrorHint(QWidget *box, QWidget *parent) {
 void addHint(QWidget *box, const QString &text, QWidget *parent) {
     addDynamicHint(box, text, parent);
 }
-
-/**
- * @brief 放不下时把尾巴截成省略号的 QLabel。
- *
- * 底栏那三行会变的文字（运行状态正文 / 实例名那行 / 用户名）用它。**为什么非它不可**：
- * 左边那格被钉死了固定宽度、右边那格封了上限（MainWindowUI 的
- * bottomBarRunStateColumnWidth() / bottomBarAccountColumnWidth()），
- * 而 QLabel 在控件比文字窄的时候是**硬裁**的 —— 最后一个字被切掉一半、右边什么都没有，
- * 看着像画坏了。也没法靠 QLabel 自己解决：翻遍 qlabel.h 都没有 elide 相关的 API。
- *
- * sizeHint() **不受那三行文字的影响**（宽度被 maxWidth 钉住），这样旁边那根进度条
- * 就不会跟着文字长短伸缩；超出去的只影响"画出来什么"，不影响布局。
- */
-class ElidedLabel : public QLabel {
-public:
-    explicit ElidedLabel(QWidget *parent = nullptr) : QLabel(parent) {
-        // 属性在**构造时**就写上（不是等谁调 setElideMode() 才写）：没调过的标签也该读得出
-        // 它当下用的就是默认那一档，否则验证工程读一个没写过的属性只会拿到 0。
-        setProperty("elideMode", static_cast<int>(m_elideMode));
-    }
-
-    /// 从**哪一头**省略。默认是尾巴（底栏那几行是句子，尾巴上的字最不要紧）。
-    ///
-    /// NOTE: 路径那一类的文字要显式改成 Qt::ElideMiddle —— 那句话两头都有用（盘符和
-    ///       最后一级目录名），从尾巴截掉的恰好是"这一份是哪个文件夹"唯一的信息。
-    ///       这个开关是 2026-09-25 补的：在那之前 ElidedLabel 一律 ElideRight，而
-    ///       「当前文件夹」那一列路径行的注释一直写着"从中间省略"（那确实是原意 ——
-    ///       列表还用条目自己画文字的年代，`setTextElideMode(Qt::ElideMiddle)` 就是为
-    ///       这一张列表挑的，改成 setItemWidget() 塞真控件时那件事没有跟过来）。
-    void setElideMode(Qt::TextElideMode mode) {
-        m_elideMode = mode;
-        // 动态属性是给**验证工程**读的（这个类在 .cpp 里，工程那边认不出它的类型）：
-        // 有人把上面那句 setElideMode() 删掉，属性就退回 ElideRight，断言当场红。
-        setProperty("elideMode", static_cast<int>(m_elideMode));
-        update();
-    }
-    Qt::TextElideMode elideMode() const { return m_elideMode; }
-
-    QSize sizeHint() const override {
-        const QSize full = QLabel::sizeHint();
-        // 宽度上限由 setMaximumWidth() 给。**没设过时它是 QWIDGETSIZE_MAX（16777215），
-        // 不是 -1** —— 拿"有没有设小上限"当判据，别拿"是不是负数"。
-        const int cap = maximumWidth();
-        if (cap >= QWIDGETSIZE_MAX || full.width() <= cap) {
-            return full;
-        }
-        return QSize(cap, full.height());
-    }
-
-protected:
-    void paintEvent(QPaintEvent *) override {
-        // NOTE: 这里**每次都重算**，不缓存。缓存（"宽度没变就接着用上次那串"）看着是省事，
-        //       但这几个格子的宽度是**钉死的**：文字改了宽度也不改，resizeEvent 压根不触发
-        //       —— 缓存就永远不失效，第一句话会一直挂在底栏上（「实例运行中」在三个实例
-        //       都跑着的时候还是「实例运行中」）。
-        //       elidedText() 只在重画时算一次，底栏这几行重画并不频繁，不值当为它冒这个险。
-        const QRect box = contentsRect();
-        const QString shown = fontMetrics().elidedText(text(), m_elideMode, box.width());
-        QPainter painter(this);
-        painter.setPen(palette().color(foregroundRole()));
-        painter.drawText(box, alignment() | Qt::TextSingleLine, shown);
-    }
-
-private:
-    Qt::TextElideMode m_elideMode = Qt::ElideRight;
-};
 
 }  // namespace
 
