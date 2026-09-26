@@ -77,7 +77,7 @@ QColor barColor(const QPalette &palette) {
 
 QString TitleBar::defaultBrandText() {
     // 用户原话：「现在把顶上标题换成五个字母」+「左上角五个字母默认是这五个」。就这五个，
-    // **写死**（要改成别的走设置页「外观」，见 `setBrandText()`）。
+    // **写死**（要改成别的走设置页「个性化」栏的「外观」，见 `setBrandText()`）。
     return QStringLiteral("WTFML");
 }
 

@@ -9,14 +9,17 @@
  * 底部一条通栏状态条（左：实例运行状态；中：启动/下载进度；右：头像与用户名）。
  * 原先的「日志输出」面板已经去掉 —— 日志走 Qt 的日志系统，在命令行里看。
  *
- * 四个选项卡**都是左右两栏**（仿 PCL）：左栏是要操作的那点东西（选版本、按钮），
- * 右栏是列表或一整摊设置项。前三个（主页/实例/下载）由 buildTwoColumnPage() 搭出**真控件**，
- * 比例取自 leftColumnStretch(tab)/rightColumnStretch(tab)；「设置」页是一张两列的
- * QGridLayout，用默认那一对份数（3:7）表达比例（栏不是控件）。界面和验证工程都引这几对
+ * 四个选项卡**都是左右两栏**（仿 PCL）：左栏是要操作的那点东西（选版本、一列分类、
+ * 按钮），右栏是列表或一整摊设置项。四页**一律**由 buildTwoColumnPage() 搭出**真控件**，
+ * 比例取自 leftColumnStretch(tab)/rightColumnStretch(tab)。界面和验证工程都引这几对
  * 份数，不各写一份。
  *
- * NOTE: 比例**按页不同** —— 实例页/下载页是默认的"左 3 右 7"，主页是"左 7 右 3"
- *       （见 leftColumnIsWider()）。
+ * NOTE: 2026-09-26 起「设置」页也走这条路（它原来是**一张通到底的两列表格**，栏不是控件）：
+ *       左栏是五条分类（启动/游戏/提示/个性化/下载），右栏是堆叠页 —— 每一栏里仍是那张
+ *       3:7 的两列表格，但那张表现在只管**栏内**那一层（见「设置页」那一段）。
+ *
+ * NOTE: 比例**按页不同** —— 实例页是默认的"左 3 右 7"，主页是"左 7 右 3"
+ *       （见 leftColumnIsWider()），下载页与设置页都是"左 2 右 8"（左栏都只是一列分类）。
  */
 
 #pragma once
@@ -148,7 +151,7 @@ public:
     // 验证工程靠这些名字认控件。**不要**改回按占位文案或条目文本去认——那些是
     // 会被产品逻辑改写的显示内容（占位文案现在就要随"有没有可选版本"切换），
     // 拿显示内容当身份标识的测试会在产品改动时以看不懂的方式挂掉。
-    /// 设置页「账户」那一格里的入口按钮：「账号与外观…」。它和主页右栏那个入口打开的是
+    /// 设置页「个性化」栏里「账户」那一格的入口按钮：「账号与外观…」。它和主页右栏那个入口打开的是
     /// **同一个窗**（文案也是同一份，见 accountSkinButtonText()），名字不同只是因为
     /// objectName 得唯一 —— findChild 靠它认控件。
     static QString accountSkinSettingsButtonName() {
@@ -1366,15 +1369,16 @@ public:
     /// 的，这个框是把它放进第一个实例的唯一入口）。
     void openGroupPicker(const QList<GroupRow> &rows, const QRect &anchorGlobal);
 
-    // ---------- 左右两栏（主页/实例/下载三页用；设置页是两列 grid） ----------
+    // ---------- 左右两栏（四个选项卡都用） ----------
     // 栏是**真的控件**（不是裸布局）：这样才能按 objectName 找回来量几何、
     // 也才能在验证工程里断言左右两栏的份数（每一页各自的那一对）。
     //
-    // NOTE: 只有前三个选项卡用 buildTwoColumnPage() 搭出这两个栏控件；「设置」页是
-    //       一张两列的 QGridLayout（选项名称在列 0、控件在列 1），栏没有对应的控件，
-    //       所以那两列**没有** objectName 可找 —— 设置页的比例靠 settingsForm 上
-    //       setColumnStretch() 的两份份数表达，验证工程去量列 0/列 1 里控件的几何。
-    /// @param tab "home" / "instance" / "download"。
+    // NOTE: 2026-09-26 起「设置」页也用 buildTwoColumnPage() 了 —— 左栏是那五条分类、
+    //       右栏是一个堆叠页（原来它是一张通到底的两列 grid，见 setupSettingsPage 那段）。
+    //       所以「选项名称在列 0、控件在列 1」那张 3:7 的两列 grid 现在**每一栏各有一张**
+    //       （objectName 见 settingsFormName(key)），它管的是**栏内**那一层；
+    //       而左右两栏之间那一层是这一对份数。
+    /// @param tab "home" / "instance" / "download" / "settings"。
     static QString leftColumnName(const QString &tab) {
         return tab + QStringLiteral("LeftColumn");
     }
@@ -1382,7 +1386,7 @@ public:
     static QString rightColumnName(const QString &tab) {
         return tab + QStringLiteral("RightColumn");
     }
-    /// 默认那一套份数：左 3 右 7。实例页，以及设置页那张两列表格都用它。
+    /// 默认那一套份数：左 3 右 7。实例页（以及**栏内**那张两列表格，见「设置页」那一段）用它。
     static int leftColumnStretch() { return 3; }
     /// 右栏占的份数（默认那一套）。
     static int rightColumnStretch() { return 7; }
@@ -1399,6 +1403,11 @@ public:
     ///       右栏是"分类列表不被拉成一整条空白 + 右栏那棵树不用横向滚动"两边都对的取法。
     static int downloadLeftColumnStretch() { return 2; }
     static int downloadRightColumnStretch() { return 8; }
+    /// 设置页那一套：2:8。**理由和下载页那条一模一样** —— 左栏是一列分类名
+    /// （启动/游戏/提示/个性化/下载，最多三个字），按 sizeHint 本来也只吃那么点，
+    /// 把份数让给右栏，那一列就不会被拉成一整条空白。
+    static int settingsLeftColumnStretch() { return 2; }
+    static int settingsRightColumnStretch() { return 8; }
 
     /// 这一页是不是"左宽右窄"。
     /// @param tab "home" / "instance" / "download"。
@@ -1417,6 +1426,9 @@ public:
         if (tab == QStringLiteral("download")) {
             return downloadLeftColumnStretch();
         }
+        if (tab == QStringLiteral("settings")) {
+            return settingsLeftColumnStretch();
+        }
         return leftColumnStretch();
     }
     /// 某一页右栏占的份数（见 leftColumnStretch(const QString&)）。
@@ -1427,15 +1439,54 @@ public:
         if (tab == QStringLiteral("download")) {
             return downloadRightColumnStretch();
         }
+        if (tab == QStringLiteral("settings")) {
+            return settingsRightColumnStretch();
+        }
         return rightColumnStretch();
     }
 
-    // ---------- 设置页 ----------
-    static QString settingsScrollName() { return QStringLiteral("settingsScroll"); }
-    static QString settingsFormName() { return QStringLiteral("settingsForm"); }
+    // ---------- 设置页：左栏那几条分类 ----------
+    // 2026-09-26 起设置页**分了栏**（用户原话：「将设置分栏，分为启动/提示/个性化/… 然后
+    // 分门别类放进去」）。形状和下载页一模一样：左栏一列分类、右栏一份堆叠页，
+    // **两边的下标一一对应**（搭的时候按同一张表、同一个顺序加页，点第 N 条就
+    // setCurrentIndex(N)）—— 验证工程会数一遍两边的条数。
+    //
+    // NOTE: 从前这里只有 settingsScrollName()/settingsFormName() 两个名字 —— 那时候
+    //       整页就是**一张通到底的两列表格**（列 0 选项名称、列 1 控件、3:7），
+    //       没有栏的概念。现在那张表格**每一栏各有一张**（objectName 见
+    //       settingsFormName(key)），它管的是**栏内**那一层；栏与栏之间那一层换成
+    //       真控件（settingsCategoryList + settingsCategoryStack），比例走
+    //       settingsLeftColumnStretch()/settingsRightColumnStretch()。
+    /// 分栏的键。**顺序就是界面上从上到下的顺序**，也是堆叠页的下标顺序。
+    /// 进条目的 `Qt::UserRole`（条目文字是显示内容、会随文案改，不能拿它当身份）。
+    static QStringList settingsCategoryKeys() {
+        return {QStringLiteral("launch"), QStringLiteral("game"), QStringLiteral("warn"),
+                QStringLiteral("look"), QStringLiteral("download")};
+    }
+    /// 同上的显示文字（左栏上看到的）。**和键一条一条对齐**（两边条数一样是条不变量）。
+    static QStringList settingsCategoryTexts() {
+        return {QStringLiteral("启动"), QStringLiteral("游戏"), QStringLiteral("提示"),
+                QStringLiteral("个性化"), QStringLiteral("下载")};
+    }
+    static QString settingsCategoryListName() { return QStringLiteral("settingsCategoryList"); }
+    static QString settingsCategoryStackName() { return QStringLiteral("settingsCategoryStack"); }
+    /// 某一栏那一整页的 objectName（堆叠页里的一页 = 一层滚动区，见 cpp 里的
+    /// addSettingsPanel()）。
+    static QString settingsPanelName(const QString &key) {
+        return QStringLiteral("settingsPanel-") + key;
+    }
+    /// 某一栏里那张两列表格（列 0 选项名称、列 1 控件，3:7）的 objectName。
+    static QString settingsFormName(const QString &key) {
+        return QStringLiteral("settingsForm-") + key;
+    }
     static QString javaVersionComboName() { return QStringLiteral("javaVersionCombo"); }
     static QString javaPathLabelName() { return QStringLiteral("javaPathLabel"); }
     static QString javaWarnMismatchCheckName() { return QStringLiteral("javaWarnMismatchCheck"); }
+    /// 这一行的行标题（左列那一格）。★ 2026-09-26：它原来叫「版本提醒」—— 说不清是提醒
+    /// 什么，而这一行自己说的是"实例指定的 Java 对不上"。分栏之后它和「重复启动」
+    /// 「进度提醒」并排（都在「提示」栏里），标题跟着改成同一族的说法（说的是"什么时候
+    /// 会被问一句"）。**勾选框上那句话一个字都没动**。
+    static QString javaWarnMismatchRowText() { return QStringLiteral("Java 版本"); }
     static QString memoryAutoCheckName() { return QStringLiteral("memoryAutoCheck"); }
     /// 「内存分配」那一行下面那句说明。文字随系统内存变（可用内存不是一个定值），
     /// 所以它是唯一一个要 MainWindow 反复改文字的 QLabel，得能按名字取回来。
@@ -1803,6 +1854,12 @@ public:
     /// 点第 N 个分类就 setCurrentIndex(N)，这条不变量由界面自己保证（搭的时候就按
     /// 同一个表、同一个顺序加页），验证工程会数一遍两边的条数。
     QStackedWidget *getDownloadStack() const { return downloadStack; }
+    /// 设置页左栏那份「分类」与右栏那份堆叠页（2026-09-26 加）。形状与上面那两份一一对应，
+    /// 认一个条目的身份同样看 `Qt::UserRole`（= settingsCategoryKeys() 里那个键），
+    /// 下标同样和 settingsCategoryKeys() 一一对应。**两个都可能是 nullptr** ——
+    /// setupSettingsPage() 里才建。
+    QListWidget *getSettingsCategoryList() const { return settingsCategoryList; }
+    QStackedWidget *getSettingsCategoryStack() const { return settingsCategoryStack; }
     /// 「游戏」那一页里的两层（版本树 / 安装页）。下标见 downloadGameTreeIndex()
     /// 和 downloadGameInstallIndex()。
     QStackedWidget *getGameStack() const { return gameStack; }
@@ -1959,8 +2016,19 @@ public:
 
 private:
     void setupUi(QMainWindow *parent);
-    /// 搭设置页：滚动区里一张两列表格，列 0 是选项名称、列 1 是控件（3:7）。
+    /// 搭设置页：左栏一列分类（启动/游戏/提示/个性化/下载）、右栏一份堆叠页，两边下标
+    /// 一一对应（见头文件上面「设置页：左栏那几条分类」那段）。每个分栏里才是那张
+    /// 「列 0 选项名称、列 1 控件」的两列表格（3:7）。
     void setupSettingsPage(QWidget *page);
+    /// 设置页那五个分栏的**内容**（各自往堆叠页里加一页，顺序就是 settingsCategoryKeys()
+    /// 的顺序）。拆成五个函数只为一件事：`row` 那个行号计数本来就是"每个分栏各数各的"
+    /// （从前是十个花括号块顺序往下数），一个函数一个分栏之后那件事就不言自明了。
+    /// 每个分栏都是"自己的滚动区 + 自己的两列表格"，页面从 addSettingsPanel() 拿。
+    void setupSettingsLaunchPanel(QStackedWidget *stack);
+    void setupSettingsGamePanel(QStackedWidget *stack);
+    void setupSettingsWarnPanel(QStackedWidget *stack);
+    void setupSettingsLookPanel(QStackedWidget *stack);
+    void setupSettingsDownloadPanel(QStackedWidget *stack);
     /// 搭底部那条通栏状态条（左：实例运行状态，中：进度，右：头像/用户名 ——
     /// 2026-09 把左右两格对调过，见 .cpp 里的说明）。
     void setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout);
@@ -2008,6 +2076,11 @@ private:
     /// 各是一张「资源 → 游戏版本 → 版本号」的三层表。
     QListWidget *downloadCategoryList = nullptr;
     QStackedWidget *downloadStack = nullptr;
+    /// 设置页左栏那份「分类」与右栏那份堆叠页（见头文件上面「设置页：左栏那几条分类」那段）。
+    /// 五页全是真的，每一页是一层滚动区（addSettingsPanel() 搭），堆叠页的下标就是
+    /// settingsCategoryKeys() 的下标。
+    QListWidget *settingsCategoryList = nullptr;
+    QStackedWidget *settingsCategoryStack = nullptr;
     /// 「游戏」那一页里的两层：版本树 / 安装页（见头文件上面那段）。
     QStackedWidget *gameStack = nullptr;
     QTreeWidget *versionTree = nullptr;

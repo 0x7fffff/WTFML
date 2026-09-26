@@ -15,7 +15,7 @@
 /**
  * @brief 「版本名格式」的四个开关。
  *
- * NOTE: 这是**版本名格式**设置的数据模型，界面入口在设置页的「版本名格式」那一行 ——
+ * NOTE: 这是**版本名格式**设置的数据模型，界面入口在设置页「个性化」栏里的「版本名格式」那一行 ——
  *       摆的正是四个勾选框（ui/MainWindowUI.cpp 的 versionNameCustomCheck/RealCheck/
  *       LoaderCheck/LoaderVersionCheck），改动经 MainWindow::onVersionNameOptionChanged()
  *       归一化后落盘。当初留的那条余地依然有效：这四个布尔也可以改摆成一个"预设档位"的
