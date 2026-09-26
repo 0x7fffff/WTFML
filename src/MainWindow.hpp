@@ -231,18 +231,25 @@ private slots:
     ///       每个实例都要**明确写一条"未分组"**：不写的话没表过态的那些下一次刷新又被
     ///       自动归类拉回来（理由写在实现里那段）。
     void clearGroupMembers(const QString &groupId, const QString &groupName);
-    /// 把当前选中的那个实例移进 @p groupId 这一组（空串 = 未分组）。挑目标那个框的回调。
+    /// 把当前选中的那个实例的**老家**改成 @p groupId 这一组（空串 = 未分组）。
+    /// 挑目标那个框的回调。
     ///
     /// 取值口径和另外两颗实例级按钮一样：**下拉框**说了算（它就是"当前选中的那个实例"），
     /// 不是树的 currentItem()（点一下组头它也会变）。
     /// @return 写成功了返回 true（失败弹窗并返回 false）。
-    bool assignSelectedInstanceToGroup(const QString &groupId);
-    /// 把一个**指定**的实例移进 @p groupId 这一组（空串 = 未分组）。
+    bool setSelectedInstanceHomeGroup(const QString &groupId);
+    /// 把一个**指定**的实例的**老家**改成 @p groupId 这一组（空串 = 未分组）。
     ///
     /// NOTE: 拆出来的理由是实例设置对话框那条路 —— 它手上是**那个实例的 id**，而"当前选中的
     ///       是哪一个"（上面那个函数的口径）在对话框开着的时候完全可能已经被改过了。
     ///       两条路必须写同一份归属逻辑，不然"从菜单里移"和"从设置里移"迟早会不一样。
-    bool assignInstanceToGroup(const QString &versionId, const QString &groupId);
+    ///
+    /// NOTE: 【为什么叫"老家"而不是 2026-09-26 之前的"移入分组"】那时候"在不在置顶组里"和
+    ///       "归在哪一组"是同一格，所以"移进某一组"就等于"把它从置顶组里拿出来"。两边都
+    ///       显示之后这两件事分开了：「显示在置顶组中」是勾选框管的，这个函数**一个字都不
+    ///       动它**。所以置顶着的实例被"移进 Y"之后仍然置着顶、仍然在置顶组里多摆一条，
+    ///       只是老家换成了 Y —— 这正是用户说的"两边都显示"。
+    bool setInstanceHomeGroup(const QString &versionId, const QString &groupId);
     /// 把某一组的组名改掉（齿轮菜单里「重命名这一组…」）。
     /// @return 改成功了返回 true。
     bool renameGroupTo(const QString &groupId, const QString &newName);

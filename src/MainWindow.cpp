@@ -257,9 +257,20 @@ QString instanceIdOf(const QTreeWidgetItem *item) {
  *        缺一个不画图标，不影响别的（验证工程直接摆一张只有几个键的表也能灌）。
  * @param pinnedGroupId **置顶组**是哪一个（InstanceGroupStore::pinnedGroupId()）。空串 =
  *        这份 .minecraft 里没有置顶组 ⇒ 哪一行都不摆那格箭头（点下去没有去处）。
- *        非空时按**在不在里面**给两个互斥的角色：不在 ⇒ `rowPinRole()`（悬停画 ↑ 置顶）、
- *        在里面 ⇒ `rowUnpinRole()`（悬停画 ↓ 取消置顶）。两个角色都由 fillInstanceTree 写，
- *        代理/eventFilter 两边读。
+ *        非空时按 @p pinnedInstanceIds 给两个互斥的角色：不在里面 ⇒ `rowPinRole()`
+ *        （悬停画 ↑ 置顶）、在里面 ⇒ `rowUnpinRole()`（悬停画 ↓ 取消置顶）。两个角色都由
+ *        fillInstanceTree 写，代理/eventFilter 两边读。
+ * @param pinnedInstanceIds 此刻**正在置顶**的那些实例 id（`InstanceGroupStore::isPinned()`）。
+ *        它和 @p pinnedGroupId 是**两件事**：前者是"哪些实例置着顶"、后者只是"这一份
+ *        .minecraft 里有没有置顶组"。有置顶组但一个实例都没置顶时前者是空的、后者非空。
+ *
+ * NOTE: 【那两个角色为什么按**实例**给，不再按"这一行画在哪一组"给】
+ *       2026-09-26 之前置顶 = 把它挪进置顶组，所以"这一行的组 id 就是置顶组"和"这个实例
+ *       置着顶"是同一句话，判据写成前者（`bucket.groupId == / != pinnedGroupId`）。
+ *       两边都显示之后这两句**不再等值**：置着顶的那个实例在**两个组里各有一行**，两行
+ *       说的是同一个实例的同一个状态。按"画在哪一组"给的话老家那一行会画成 ↑（= 置顶），
+ *       而它其实已经置着顶了 —— 点下去是"再置一次"（空操作），在用户眼里就是"这颗按了
+ *       没用"。所以判据换成**实例自己**置没置顶，两行拿到同一个答案（都画 ↓）。
  *
  * 两种形态，由调用方给进来的 buckets 决定（它才知道有没有真实分组）：
  *   - **只有一格、groupId 为空** → 平铺，不插组头。这是"还没分过组"的样子，
@@ -287,7 +298,8 @@ QString instanceTreeItemText(const VersionDisplayParts &part, const VersionNameO
 
 void fillInstanceTree(QTreeWidget *tree, const QList<InstanceGroupBucket> &buckets,
                       const VersionNameOptions &options, const QSet<QString> &runningIds,
-                      const QHash<QString, QIcon> &marks, const QString &pinnedGroupId) {
+                      const QHash<QString, QIcon> &marks, const QString &pinnedGroupId,
+                      const QSet<QString> &pinnedInstanceIds) {
     const QSignalBlocker blocker(tree);
     tree->clear();
 
@@ -341,23 +353,24 @@ void fillInstanceTree(QTreeWidget *tree, const QList<InstanceGroupBucket> &bucke
             // 中间那一格（**一对反义词共用的一格**，见 MainWindowUI::rowUnpinRole() 那段）
             // 的判据：画它的是 InstanceGroupDelegate::paint()、认下那一下的是
             // MainWindow::eventFilter()，三处读的都是**这两个角色**。
-            //   - `rowPinRole()` = 还没在置顶组里 ⇒ 悬停画 ↑「置顶」；
-            //   - `rowUnpinRole()` = 已经在里面 ⇒ 悬停画 ↓「取消置顶」（用户 2026-09-25
+            //   - `rowPinRole()` = 还没置顶 ⇒ 悬停画 ↑「置顶」；
+            //   - `rowUnpinRole()` = 已经置顶了 ⇒ 悬停画 ↓「取消置顶」（用户 2026-09-25
             //     原话：「置顶组里的实例悬停时右侧显示下箭头，即取消置顶」）；
             //   - 两个都假 = **这一份 .minecraft 里没有置顶组**（pinnedGroupId 是空串：
             //     那一格点下去没有去处，见 InstanceGroupStore::pinnedGroupId() 那三条出口）
             //     ⇒ 这一格空着、也不弹话。
-            // 两个判据互斥（同一个 pinnedGroupId，一个判 `!=`、一个判 `==`），所以这一格
-            // 永远只有一个方向。
+            // 两个判据互斥（同一个 pinned，一正一反），所以这一格永远只有一个方向。
             //
-            // NOTE: "已经在置顶组里 ⇒ 不画上箭头"这条老规矩现在换个说法活着 —— 它仍然是
-            //       "不画 ↑"，只是改成画 ↓ 了（原来那档什么都不画：挪不动的不画，这条
-            //       先例在 ui/GroupListDelegate 里）。平铺那一格（bucket.groupId 为空）
-            //       和"没有置顶组"是两件事：前者走 `!=` 拿到真（画 ↑），后者才什么都不画。
+            // NOTE: 判据是**这个实例**置没置顶（见函数头那条 NOTE）—— 所以置着顶的那个实例
+            //       在老家和置顶组里的**那两行画的是同一颗 ↓**，不是一个 ↑ 一个 ↓。
+            // NOTE: "已经在置顶组里 ⇒ 不画上箭头"这条老规矩换个说法活着 —— 它仍然是"不画 ↑"，
+            //       只是改成画 ↓ 了（原来那档什么都不画：挪不动的不画，这条先例在
+            //       ui/GroupListDelegate 里）。
+            const bool pinned = pinnedInstanceIds.contains(part.id);
             item->setData(0, MainWindowUI::rowPinRole(),
-                          !pinnedGroupId.isEmpty() && bucket.groupId != pinnedGroupId);
+                          !pinnedGroupId.isEmpty() && !pinned);
             item->setData(0, MainWindowUI::rowUnpinRole(),
-                          !pinnedGroupId.isEmpty() && bucket.groupId == pinnedGroupId);
+                          !pinnedGroupId.isEmpty() && pinned);
         }
     }
 
@@ -461,11 +474,22 @@ QList<GroupDialog::Group> toDialogGroups(const QList<InstanceGroupStore::Group> 
  * @param ui 主界面（组行都长在它的实例树里）。
  * @param store 分组存储（组的清单、顺序、展开状态从这儿来）。
  * @param selectedKey 此刻选中的那个实例的归属键（instanceKey()）；空串 = 没选中。
+ * @param selectedHomeGroupId 那个实例的**老家**在哪一组（`homeGroupIdOf()`）；空串 = 未分组
+ *        （也含"没选中"那一档，见下面的 NOTE）。挑目标那个框里被灰掉、写着「已经在这一组
+ *        里了」的就是它。
  *
  * NOTE: 实例数是在**当前那张树**上数的（它就是用户此刻看到的东西）：藏起来的组不在树上
- *       ⇒ 它是 0 —— 那正好也是"这一组里有几个实例"在那一刻的实话。"选中的那个实例在哪一组
- *       下面"同样是在树上看的：树上那一份已经算过自动归类，而存储层里"没表过态"和"明确
- *       选了未分组"是两种不同的记录、读出来都是空串。
+ *       ⇒ 它是 0 —— 那正好也是"这一组里有几个实例"在那一刻的实话。置顶着的那一条在两个
+ *       组里各画一行，所以那两个数里各算它一次 —— 这正是"那一组里有几行"的实话。
+ *
+ * NOTE: 【为什么老家由调用方给，不在这张树上现看】2026-09-26 之前看的是"选中的那一条画在
+ *       哪个组下面"，因为那时候一行只画在一个组里、那个组就是它的归属。两边都显示之后
+ *       同一个实例有**两行**（老家一行 + 置顶组里一行），"画在哪一组"取决于用户点的是
+ *       哪一行 —— 同一个实例会给出两个不同的答案：点老家那行时「置顶」那格亮着，点置顶
+ *       组那行时又变成老家那格亮着。而这一格灰掉的意思是"已经在这一组里了、点它没用"，
+ *       跟"你刚好点的是哪一行"没关系。所以判据换成老家 —— 它是实例自己的属性，两行拿到
+ *       同一个答案。老家那个值 `homeGroupIdOf()` 只有 MainWindow 算得出来（要 VersionManager
+ *       和版本类型），这个自由函数手上只有 ui/ 和 store，所以由调用方递进来。
  *
  * NOTE: 它是个自由函数（不是 MainWindow 的成员），因为 MainWindowUI::GroupRow 是 ui/ 里的
  *       嵌套类型，而 MainWindow.hpp **不 include ui/ 的头**（见那个文件头那几条前置声明）。
@@ -473,33 +497,20 @@ QList<GroupDialog::Group> toDialogGroups(const QList<InstanceGroupStore::Group> 
  */
 QList<MainWindowUI::GroupRow> groupRowsForMenu(const MainWindowUI *ui,
                                                const InstanceGroupStore *store,
-                                               const QString &selectedKey) {
+                                               const QString &selectedKey,
+                                               const QString &selectedHomeGroupId) {
     QHash<QString, int> counts;
-    // 选中的那个实例此刻显示在哪个组下面（空串 = 未分组，也含"平铺"那一档）。
-    QString selectedBucket;
     const QTreeWidget *tree = ui->getInstanceList();
-    const auto consider = [&selectedKey, &selectedBucket](const QTreeWidgetItem *item,
-                                                          const QString &bucket) {
-        // 空 id 一律不算：组头没有实例 id（instanceIdOf 的守卫），而"没选中实例"时
-        // selectedKey 也是空串 —— 两条都不该在这儿配成一对。
-        const QString id = instanceIdOf(item);
-        if (!id.isEmpty() && id == selectedKey) {
-            selectedBucket = bucket;
-        }
-    };
     for (int i = 0; i < tree->topLevelItemCount(); ++i) {
         const QTreeWidgetItem *top = tree->topLevelItem(i);
         const QVariant groupId = top->data(0, MainWindowUI::groupIdRole());
         if (!groupId.isValid()) {
-            // 平铺那一档（一个真实分组都没有时）：顶层条目**就是**实例本身。
-            consider(top, QString());
+            // 平铺那一档（一个真实分组都没有时）：顶层条目**就是**实例本身，没有组头
+            // 可数 —— 那一档连「未分组」那格都不摆（见下面 `!groups.isEmpty()` 那道闸），
+            // 所以这儿一个数都不记，谁也不会来问。
             continue;
         }
-        const QString bucket = groupId.toString();
-        counts.insert(bucket, top->childCount());
-        for (int j = 0; j < top->childCount(); ++j) {
-            consider(top->child(j), bucket);
-        }
+        counts.insert(groupId.toString(), top->childCount());
     }
 
     const bool hasSelection = !selectedKey.isEmpty();
@@ -513,7 +524,7 @@ QList<MainWindowUI::GroupRow> groupRowsForMenu(const MainWindowUI *ui,
         row.memberCount = counts.value(group.id, 0);
         row.expanded = group.expanded;
         row.hasSelection = hasSelection;
-        row.containsSelected = hasSelection && selectedBucket == group.id;
+        row.containsSelected = hasSelection && selectedHomeGroupId == group.id;
         rows.append(row);
     }
     // 虚拟的「未分组」排在最后（和树上同一个位置）。**只有真的分过组才摆它** ——
@@ -525,7 +536,7 @@ QList<MainWindowUI::GroupRow> groupRowsForMenu(const MainWindowUI *ui,
         // 它没有记录（那一格不落盘），树上每次都是展开的 —— 快照照实说。
         rest.expanded = true;
         rest.hasSelection = hasSelection;
-        rest.containsSelected = hasSelection && selectedBucket.isEmpty();
+        rest.containsSelected = hasSelection && selectedHomeGroupId.isEmpty();
         rest.virtualGroup = true;
         rows.append(rest);
     }
@@ -534,7 +545,8 @@ QList<MainWindowUI::GroupRow> groupRowsForMenu(const MainWindowUI *ui,
 
 /**
  * @brief 某一组此刻的那份快照（groupRowsForMenu() 里对应的那一条）。
- * @param row 拿到的那一行。@param selectedKey 见 groupRowsForMenu()（缺省 = 没选中实例）。
+ * @param row 拿到的那一行。@param selectedKey / @param selectedHomeGroupId 见
+ *        groupRowsForMenu()（两个都缺省 = 没选中实例）。
  * @return 这一组不在（菜单开着的时候被别处删了）时返回 false，@p row 原样不动。
  *
  * NOTE: 虚拟的「未分组」的组 id 就是空串，所以传空串进来拿到的是**它**，不是"没找到"。
@@ -542,8 +554,10 @@ QList<MainWindowUI::GroupRow> groupRowsForMenu(const MainWindowUI *ui,
  *       那一份 —— 菜单摆出来之后用户可能看两眼才点，这中间别处一行代码就能把它删了。
  */
 bool groupRowFor(const MainWindowUI *ui, const InstanceGroupStore *store, const QString &groupId,
-                 MainWindowUI::GroupRow *row, const QString &selectedKey = QString()) {
-    const QList<MainWindowUI::GroupRow> rows = groupRowsForMenu(ui, store, selectedKey);
+                 MainWindowUI::GroupRow *row, const QString &selectedKey = QString(),
+                 const QString &selectedHomeGroupId = QString()) {
+    const QList<MainWindowUI::GroupRow> rows =
+        groupRowsForMenu(ui, store, selectedKey, selectedHomeGroupId);
     for (const MainWindowUI::GroupRow &item : rows) {
         if (item.groupId == groupId) {
             if (row != nullptr) {
@@ -917,6 +931,45 @@ QString displayGroupIdOf(const InstanceGroupStore *groups, const QString &key,
         groupId = defaultGroupIdFor(part, versions, knownGroupIds);
     }
     return groupId;
+}
+
+/// 一个实例的「老家」—— 它**本来**属于哪一组（置顶组里那一条同名的只是多出来的）。
+///
+/// 2026-09-26 用户把置顶改成**两边都显示**之前，这件事根本不需要回答：那时候"归属"只有
+/// 一格（`groupIdOf()`），置顶就是把那一格改成置顶组。现在置顶着的那一条在盘上是
+/// "members 指着置顶组 + pinOrigin 记着老家"，于是"它本来在哪一组"成了**显示层要问的问题**
+/// （树上那一条留在老家、实例设置里「分组…」那一格显示的也是它）。
+///
+/// 判据就是 `pinOriginOf()` 那三种形态，**逐条**对应 `unpinInstance()` 的落点 —— 两处必须
+/// 看到同一个答案，否则"取消置顶之后它跳去了一个和对话框里写着的不一样的组"。所以：
+///   - 没在置顶 ⇒ 就是 displayGroupIdOf()（和以前一样，一个字没变）；
+///   - 在置顶 + 记着一个组 ⇒ 那个组（**组已经没了就按"没有记录"处理**，见下）；
+///   - 在置顶 + 记的是 null ⇒ 它置顶前没表过态 ⇒ 按版本类型现算一个（defaultGroupIdFor）；
+///   - 在置顶 + 压根没有这一条 ⇒ 未分组（"用户自己塞进置顶组的"那一档）。
+///
+/// NOTE: 那个组被删掉之后**不写盘**（删组只清 members、pinOrigin 那一格要等下一次写盘的
+///       自清理）⇒ 这里必须自己判一次"那一组还在不在"，不然会返回一个**树上没有的组 id**，
+///       于是那一条同名的哪儿都不出现、看着像凭空少了一行。`unpinInstance()` 之所以不用
+///       判，是因为它紧接着就要写盘、那一次写盘本身就会把悬空的记录清掉。
+QString homeGroupIdOf(const InstanceGroupStore *groups, const QString &key,
+                      const VersionDisplayParts &part, const VersionManager *versions,
+                      const QSet<QString> &knownGroupIds) {
+    if (!groups->isPinned(key)) {
+        return displayGroupIdOf(groups, key, part, versions, knownGroupIds);
+    }
+    QString origin;
+    switch (groups->pinOriginOf(key, &origin)) {
+    case InstanceGroupStore::PinOrigin::None:
+        return QString();
+    case InstanceGroupStore::PinOrigin::Auto:
+        return defaultGroupIdFor(part, versions, knownGroupIds);
+    case InstanceGroupStore::PinOrigin::Group:
+        break;
+    }
+    if (origin == InstanceGroupStore::ungroupedMarker()) {
+        return QString();
+    }
+    return knownGroupIds.contains(origin) ? origin : QString();
 }
 
 /// 「本机现在跑着的这几份会话」翻成面板里的几行。
@@ -1375,7 +1428,7 @@ void MainWindow::setupConnections() {
     });
     // 齿轮里「把选中的实例移入分组…」弹出的**第二个**框（挑目标）点了哪一组。
     m_ui->setGroupPickHandler([this](const QString &groupId) {
-        assignSelectedInstanceToGroup(groupId);
+        setSelectedInstanceHomeGroup(groupId);
     });
     // ---------- 下载页「游戏」那两层：版本树 → 安装页 ----------
     //
@@ -2667,17 +2720,46 @@ void MainWindow::refreshInstalledVersions() {
         bucketOfGroup.insert(group.id, buckets.size());
         buckets.append(bucket);
     }
+    // 置顶组是哪一个（这一份 .minecraft 里没有就空串）。**这里读一次就够**：下面那圈
+    // 循环里每一行都要问两遍，而且它保证指向一个**还在清单里**的组（见它的三条出口），
+    // 所以 bucketOfGroup 里一定找得到。
+    const QString pinnedGroupId = m_groupStore->pinnedGroupId();
+    // 此刻**正在置顶**的那些实例（判据是 isPinned()，不是"这一行画在哪一组"）。它和上面
+    // 那个字段是两件事：有置顶组但一个实例都没置顶时它是空的。灌树那一步要它 ——
+    // 理由见 fillInstanceTree() 文件头那条 NOTE。
+    QSet<QString> pinnedInstanceIds;
     QList<VersionDisplayParts> ungrouped;
     for (const VersionDisplayParts &part : parts) {
-        // 归到哪一组由 displayGroupIdOf() 回答（"存的是哪一组"和"显示在哪一组"是两回事，
-        // 那一段 NOTE 就在它上面）；实例设置对话框里那个下拉框走的是同一个函数。
-        const QString groupId = displayGroupIdOf(m_groupStore, instanceKey(part.id), part,
-                                                 m_versionManager, knownGroupIds);
-        const auto found = bucketOfGroup.constFind(groupId);
+        // 摆在哪一组由 homeGroupIdOf() 回答 —— 也就是它的「老家」（置顶着的那一条老家
+        // 不动，多出来的那一条才摆进置顶组，见下面那段）。没置顶时它就是 displayGroupIdOf()
+        // 逐字的结果：改这一处**不会**动到任何一个没置顶的实例（那一段 NOTE 就在它上面）。
+        const QString key = instanceKey(part.id);
+        const QString homeId = homeGroupIdOf(m_groupStore, key, part, m_versionManager,
+                                             knownGroupIds);
+        const auto found = bucketOfGroup.constFind(homeId);
         if (found != bucketOfGroup.constEnd()) {
             buckets[found.value()].parts.append(part);
         } else {
             ungrouped.append(part);
+        }
+
+        // ★ 两边都显示（用户 2026-09-26 定的）：置顶着的那一个在置顶组里**再摆一条同名
+        // 的**，老家那一条（上面刚摆完）从头到尾不动。取消置顶就是把这一条去掉。
+        if (pinnedGroupId.isEmpty() || !m_groupStore->isPinned(key)) {
+            continue;
+        }
+        pinnedInstanceIds.insert(part.id);
+        if (homeId == pinnedGroupId) {
+            // 老家**本来就在置顶组里**（用户自己把它塞进去的，pinOrigin 那一格是"压根
+            // 没有记录"）⇒ 上面那条已经摆过了。不判这一下的话同一行会出现两次。
+            continue;
+        }
+        // 置顶组一定在 bucketOfGroup 里（见上面那段），这里其实找不到 —— 但写出来是
+        // 为了让"找不到就什么都不做"这条规矩在纸面上也成立（真找不到时宁可少一条，
+        // 也不能往一个不存在的桶里写）。
+        const auto pinnedBucket = bucketOfGroup.constFind(pinnedGroupId);
+        if (pinnedBucket != bucketOfGroup.constEnd()) {
+            buckets[pinnedBucket.value()].parts.append(part);
         }
     }
     if (groups.isEmpty()) {
@@ -2709,7 +2791,7 @@ void MainWindow::refreshInstalledVersions() {
                                                     MainWindowUI::versionTreeIconSize())));
     }
     fillInstanceTree(m_ui->getInstanceList(), buckets, m_settings->versionNameOptions(),
-                     runningVersionIds(), marks, m_groupStore->pinnedGroupId());
+                     runningVersionIds(), marks, pinnedGroupId, pinnedInstanceIds);
     syncTreeToCombo(combo, m_ui->getInstanceList());
 
     // 占位文案随上下文变。**两个串都必须非空**：空占位文案会让 QComboBox 在往空
@@ -6505,7 +6587,8 @@ void MainWindow::onGroupActionRequested(const QString &groupId, int action) {
     case MainWindowUI::GroupActionMoveInto: {
         // "把选中的实例移进哪一组"：列的是**全部**分组（含树上一个实例都没有、藏起来的
         // 那些）—— 那是把实例放进一个空组的唯一入口（见 MainWindowUI::openGroupPicker()）。
-        if (selectedVersionId(m_ui->getInstalledVersionCombo()).isEmpty()) {
+        const QString selectedId = selectedVersionId(m_ui->getInstalledVersionCombo());
+        if (selectedId.isEmpty()) {
             InlineMessage::information(m_ui->overlay(), tr("移入分组"), tr("先选中一个实例。"));
             return;
         }
@@ -6516,9 +6599,14 @@ void MainWindow::onGroupActionRequested(const QString &groupId, int action) {
         if (anchor.isEmpty()) {
             anchor = QRect(QCursor::pos(), QSize(1, 1));
         }
+        // 灰哪一格按那个实例的**老家**判（不是"它那一条画在哪个组下面"—— 置顶着的有两行，
+        // 点哪一行会给出不同答案，理由见 groupRowsForMenu() 那条 NOTE）。
+        const QString selectedKey = instanceKey(selectedId);
         m_ui->openGroupPicker(
-            groupRowsForMenu(m_ui, m_groupStore,
-                             instanceKey(selectedVersionId(m_ui->getInstalledVersionCombo()))),
+            groupRowsForMenu(m_ui, m_groupStore, selectedKey,
+                             homeGroupIdOf(m_groupStore, selectedKey,
+                                           m_versionManager->displayParts(selectedId),
+                                           m_versionManager, knownGroupIdsOf(m_groupStore))),
             anchor);
         return;
     }
@@ -6634,13 +6722,13 @@ void MainWindow::clearGroupMembers(const QString &groupId, const QString &groupN
     appendLog(tr("已把「%1」里的 %2 个实例移出分组").arg(groupName).arg(moved));
 }
 
-bool MainWindow::assignSelectedInstanceToGroup(const QString &groupId) {
+bool MainWindow::setSelectedInstanceHomeGroup(const QString &groupId) {
     // 取值口径和另外两颗实例级按钮一样：**下拉框**说了算（它就是"当前选中的那个实例"），
     // 不是树的 currentItem()（点一下组头它也会变）。
-    return assignInstanceToGroup(selectedVersionId(m_ui->getInstalledVersionCombo()), groupId);
+    return setInstanceHomeGroup(selectedVersionId(m_ui->getInstalledVersionCombo()), groupId);
 }
 
-bool MainWindow::assignInstanceToGroup(const QString &versionId, const QString &groupId) {
+bool MainWindow::setInstanceHomeGroup(const QString &versionId, const QString &groupId) {
     if (versionId.isEmpty()) {
         // 挑目标那个框只在"有选中的实例"时才点得动（groupActionEnabled 那一条），
         // 而菜单开着的时候那个实例可能被删掉了 —— 真走到这儿就说一句，别静默。
@@ -6650,16 +6738,26 @@ bool MainWindow::assignInstanceToGroup(const QString &versionId, const QString &
     const QString key = instanceKey(versionId);
     // 已经在这一组里了（挑目标那个框里那一格本来就灰着，这儿是给别的入口的保险）。
     //
-    // NOTE: 目标非空时"没表过态"和"明确选了它"要分开看 —— 光比 groupIdOf() 会把
-    //       "归到这个组"当成已经做好了；目标为空（未分组）时**一律写**：那条保留值
+    // ★ 置顶着的那一档**不在这里返回**：它的老家和 members 指着的是两个组，而"盘上已经是
+    //   什么样"这件事得由 store 那一层按老家判（下面那句 setInstanceHomeGroup() 自己做）。
+    //   在这里拿 groupIdOf() 当代替的话，"把它移进它老家那一组"会被判成"已经做好了"而
+    //   直接返回 —— 看着像没事，其实是要写的那一格没写。
+    //
+    // NOTE: 目标非空时"没表过态"和"明确选了它"要分开看 —— 光比"存的是不是它"会把
+    //       "明确选了它"当成已经做好了；目标为空（未分组）时**一律写**：那条保留值
     //       才是"别再自动归类"的意思，而一个从来没表过态的实例正需要它（不写的话它
     //       下一次刷新又被拉回默认组去，表现就是"选了未分组但没生效"）。
-    if (!groupId.isEmpty() && m_groupStore->groupIdOf(key) == groupId) {
+    if (!groupId.isEmpty() && !m_groupStore->isPinned(key) &&
+        m_groupStore->groupIdOf(key) == groupId) {
         return true;
     }
 
     QString error;
-    if (!m_groupStore->assign(key, groupId, &error)) {
+    // ★ 走 setInstanceHomeGroup() 而不是 assign()：置顶着的实例这一档**只改老家那一格**，
+    //   members 继续指着置顶组（那是在不在置顶组里的判据）。理由（以及"走 assign 会把老家
+    //   一起丢掉"那两条）写在 InstanceGroupStore::setInstanceHomeGroup() 上面。没置顶的
+    //   实例它内部就是原样委托给 assign()，一个字都没变。
+    if (!m_groupStore->setInstanceHomeGroup(key, groupId, &error)) {
         InlineMessage::critical(m_ui->overlay(), tr("移入分组失败"), error);
         return false;
     }
@@ -6771,8 +6869,12 @@ void MainWindow::openGroupMenuFor(QTreeWidgetItem *item) {
     // 快照里带上"此刻有没有选中的实例、它在不在这组里"：菜单第一项能不能点、挑目标那个
     // 框里哪一格灰着，都由它决定。
     MainWindowUI::GroupRow row;
-    if (!groupRowFor(m_ui, m_groupStore, groupId, &row,
-                     instanceKey(selectedVersionId(m_ui->getInstalledVersionCombo())))) {
+    const QString selectedId = selectedVersionId(m_ui->getInstalledVersionCombo());
+    const QString selectedKey = instanceKey(selectedId);
+    if (!groupRowFor(m_ui, m_groupStore, groupId, &row, selectedKey,
+                     homeGroupIdOf(m_groupStore, selectedKey,
+                                   m_versionManager->displayParts(selectedId),
+                                   m_versionManager, knownGroupIdsOf(m_groupStore)))) {
         return;  // 那一组已经不在了（菜单还没来得及弹它就被删了）
     }
     // 锚点 = 那一行行尾那颗齿轮占的格子（几何的唯一出处见 InstanceGroupDelegate::gearRect()）。
@@ -6796,7 +6898,7 @@ void MainWindow::openInstanceSettings(const QString &versionId) {
                                   toDialogGlobal(m_javaSettings->effective()),
                                   m_versionManager->versionJvmArgs(versionId),
                                   !m_versionManager->skipJavaVersionWarning(versionId), this);
-    // ---------- 概览栏那三行的初值（2026-09-26）----------
+    // ---------- 概览栏那四行的初值（2026-09-26）----------
     //
     // 三张图标**由这里解好递进去**：ui/ 不做"这个实例默认该长什么样"那个判断（它要读版本
     // json 的 type 和加载器名，是业务层的事），也够不着实例目录下那份 icon.png 的名字
@@ -6809,22 +6911,31 @@ void MainWindow::openInstanceSettings(const QString &versionId) {
     }
     dialog.setIcon(parts.icon, defaultInstanceMark(parts, m_versionManager, previewSize), localIcon);
 
-    // 分组那一行：候选项是**现在所有的组**（含空组 —— 「往空组里放第一个实例」正是用户会
-    // 干的事，那是它唯一的入口之一），当前值是"它**显示**在哪一组"而不是"存的是哪一组"
-    // （见 displayGroupIdOf()：两者对"从来没表过态"的实例不是一个答案）。
+    // 「分组…」那一格：候选项是**现在所有的组**（含空组 —— 「往空组里放第一个实例」正是用户
+    // 会干的事，那是它唯一的入口之一），当前值是那个实例的**老家**。
+    //
+    // NOTE: 走 homeGroupIdOf() 而**不是** displayGroupIdOf()。对没置顶的实例两者逐字相同；
+    //       对置顶着的那一个，displayGroupIdOf() 答的是置顶组（盘上 members 指着它），而
+    //       用户在这一格里说的永远是"它本来属于哪儿" —— 摆上置顶组的话，用户点开看见
+    //       「置顶」被灰着、还以为是这一格出了问题，同时"想给它换个老家"这件事**做不了**
+    //       （选了别的组又会被 applyInstanceSettings 当成"老家改了"，而它本来就是"老家改了"，
+    //       只是起点显示错了）。
     const QSet<QString> knownGroupIds = knownGroupIdsOf(m_groupStore);
     QList<QPair<QString, QString>> groupChoices;
     for (const InstanceGroupStore::Group &group : m_groupStore->groups()) {
         groupChoices.append(qMakePair(group.name, group.id));
     }
-    const QString groupAtOpen = displayGroupIdOf(m_groupStore, instanceKey(versionId), parts,
-                                                 m_versionManager, knownGroupIds);
+    const QString key = instanceKey(versionId);
+    const QString groupAtOpen = homeGroupIdOf(m_groupStore, key, parts, m_versionManager,
+                                              knownGroupIds);
     dialog.setGroupChoices(groupChoices, groupAtOpen);
 
-    // 置顶那一行：判据是"它现在就在置顶组里"。没有置顶组（用户把它删了）时恒假，而且那一格
-    // 勾了也去不了任何地方（见 MainWindow::pinInstance()）。
+    // 置顶那一行：判据是"它此刻在不在置顶组里"（isPinned()，不是"老家等于置顶组"——
+    // 两边都显示之后那两句话不再等值：老家的的确确可以和置顶组是同一个组，而那时它
+    // 也照样是置顶着的）。没有置顶组（用户把它删了）时恒假，而且那一格会灰掉
+    // （见 setPinned()）。
     const QString pinnedGroupId = m_groupStore->pinnedGroupId();
-    dialog.setPinned(!pinnedGroupId.isEmpty() && groupAtOpen == pinnedGroupId, pinnedGroupId);
+    dialog.setPinned(m_groupStore->isPinned(key), pinnedGroupId);
 
     // ---------- 「文件管理」那八页的目录与可用性（2026-09-26）----------
     //
@@ -7140,55 +7251,54 @@ bool MainWindow::applyInstanceSettings(const QString &versionId,
     }
     appendLog(tr("实例设置已保存：%1").arg(versionId));
 
-    // ---------- 分组 / 置顶（2026-09-26）----------
+    // ---------- 分组 / 置顶（2026-09-26，当天晚些时候改成"两边都显示"）----------
     //
     // 排在写 meta **之后**、`rekey()` **之后**（那一步在上面）：归属的键刚刚才定下来，在它
     // 之前写等于写到旧键上。
     //
-    // 三条规则，合起来就是"用户在下拉框和勾选框上摆成什么样，结果就是什么样"：
-    //   ① 原来没置顶、现在勾上了 → 置顶（挪进置顶组，并记下"置顶前在哪一组"）；
-    //   ② 原来置顶、现在取消了   → 取消置顶（回到记着的那一组）；
-    //   ③ 下拉框被**用户改过**   → 归到它选的那一组。
+    // 三条规则，合起来就是"用户在「分组…」和那颗勾选框上摆成什么样，结果就是什么样"：
+    //   ① 老家被**用户改过** → 改老家（setInstanceHomeGroup：置顶着的那一档只改"老家"那
+    //      一格，members 继续指着置顶组）；
+    //   ② 原来没置顶、现在勾上了 → 置顶（记下"置顶前老家在哪一组"，老家那一条不动）；
+    //   ③ 原来置顶、现在取消了   → 取消置顶（回到记着的那一组）。
     //
-    // NOTE: 判"下拉框改没改"是拿它当前的值和**打开对话框时**那一格的值比，不是拿它和"现在
-    //       存在哪一组"比。差别在②那一档：取消置顶时下拉框还写着置顶组名（勾选那一下它被
-    //       挪过去、跟着禁用了），照"存的是哪一组"比就会判成"用户改了"，于是取消置顶的
-    //       结果被立刻按回置顶组里 —— 用户明明是想退出来。
+    // NOTE: 判"改没改"是拿对话框里那一格的值和**打开对话框时**那一格的值比，不是拿它和
+    //       "现在存在哪一组"比 —— 和验证工程驱动这颗按钮时同一个口径，见 .hpp 里
+    //       setGroupChoices() 那段。
     //
-    // NOTE: 两条路都走**现有那几个入口**（pinInstance / unpinInstance / assignInstanceToGroup），
+    // NOTE: ②③ 和 ① 现在**互不相干**了。旧语义（置顶 = 把它挪进置顶组）里这两件事抢同一格：
+    //       勾上置顶会把「分组」那一格当场挪到置顶组上去（旧代码里那个 applyPinState()），
+    //       于是"分组被改过"这一问必须有额外的规矩才分得清是用户改的还是置顶顺手摆的。
+    //       现在那一格是老家、勾选框只管多摆一条，两者不再打架，那段规矩连同 hasPinGroup
+    //       那道闸一起删了 —— 没有置顶组时勾选框本来就是灰的（setPinned()），勾不上。
+    //
+    // NOTE: 三条路都走**现有那几个入口**（setInstanceHomeGroup / pinInstance / unpinInstance），
     //       不在这里另写一遍 wtfml.folders 的读写：它们各自会发 groupsChanged、自己把树重灌，
     //       而且"没有置顶组时什么都不做""认不出来就落未分组"这些判断都已经在那儿了。
+    //
+    // NOTE: 顺序是**先改老家、再摆置顶**。这一版两种顺序算出来的答案是同一个（理由写在
+    //       InstanceGroupStore::setInstanceHomeGroup() 上面那段 NOTE 里），钉死它只是为了让
+    //       读代码的人不用先在脑子里把那四种组合各跑一遍。
     const QString key = instanceKey(versionId);
     const QSet<QString> knownGroupIds = knownGroupIdsOf(m_groupStore);
     const QString groupAtOpen =
-        displayGroupIdOf(m_groupStore, key, m_versionManager->displayParts(versionId),
-                         m_versionManager, knownGroupIds);
-    const QString pinnedGroupId = m_groupStore->pinnedGroupId();
-    // ★ 「这一份 .minecraft 里有没有置顶组」是下面三条规则共同的闸。用户把「置顶」那一组
-    //   删掉之后，那个勾选框还在、也勾得上（界面那一半见 applyPinState()），可是勾上这一下
-    //   **真的没有去处**（InstanceGroupStore::pinInstance() 直接返回）。这一档必须整个绕开
-    //   ① —— 否则勾一下就能把用户**明确选的那个组**一起吞掉：那一档里 applyPinState() 一个字
-    //   都不动（下拉框还是用户自己选的那一格），于是"和打开时不一样"是**用户改的**，
-    //   照 ① 办就把它当成"置顶顺手摆的那一下"忽略了。
-    const bool hasPinGroup = !pinnedGroupId.isEmpty();
-    const bool wasPinned = hasPinGroup && groupAtOpen == pinnedGroupId;
+        homeGroupIdOf(m_groupStore, key, m_versionManager->displayParts(versionId),
+                      m_versionManager, knownGroupIds);
+    const bool wasPinned = m_groupStore->isPinned(key);
     const bool nowPinned = dialog.pinned();
-    if (hasPinGroup && nowPinned && !wasPinned) {
-        // ① 刚勾上置顶。**这一档不能再往下走 assign**：勾上那一下对话框把下拉框挪到置顶组
-        //    上了（见 applyPinState()），于是"下拉框和打开时不一样"——照 ③ 办就会再 assign
-        //    一次，而 assign 不记"置顶前在哪一组"，之后取消置顶就回不到原来那一组了。
+
+    // ① 老家被改过。
+    if (dialog.chosenGroupId() != groupAtOpen) {
+        setInstanceHomeGroup(versionId, dialog.chosenGroupId());
+    }
+    // ② 刚勾上置顶。
+    if (nowPinned && !wasPinned) {
         pinInstance(versionId);
-    } else {
-        // ② 原来置顶、现在取消了：回到记着的那一组。下拉框那一格这时**没动**（它是被禁用
-        //    之后再恢复可用的），所以下面 ③ 那句不会把它按回置顶组去。
-        if (wasPinned && !nowPinned) {
-            unpinInstance(versionId);
-        }
-        // ③ 用户挑了一个新的组。判据是"和打开对话框时那一格不一样"，不是"和磁盘上那个值
-        //    不一样"——后者在②那一档会误判（理由见上面那条 NOTE）。
-        if (dialog.chosenGroupId() != groupAtOpen) {
-            assignInstanceToGroup(versionId, dialog.chosenGroupId());
-        }
+    }
+    // ③ 原来置顶、现在取消了：回到记着的那一组（判据在本函数进来的那一刻，所以上面 ① 改
+    //    没改过老家都不影响这一档 —— 换过老家之后再取消置顶，回的就是刚换的那一组）。
+    if (wasPinned && !nowPinned) {
+        unpinInstance(versionId);
     }
     return true;
 }

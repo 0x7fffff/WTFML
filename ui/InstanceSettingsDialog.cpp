@@ -16,19 +16,23 @@
 
 #include <QButtonGroup>
 #include <QCheckBox>
-#include <QComboBox>
 #include <QDir>
 #include <QFileDialog>
 #include <QFont>
+#include <QGuiApplication>
 #include <QGridLayout>
 #include <QHBoxLayout>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QMouseEvent>
+#include <QPainter>
 #include <QPixmap>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QRadioButton>
+#include <QScreen>
 #include <QSignalBlocker>
 #include <QSize>
 #include <QSpinBox>
@@ -86,11 +90,126 @@ void addNavColumn(QHBoxLayout *columns, QListWidget *list) {
     columns->addWidget(column);
 }
 
-/// 把一行左边那一格（项目名称）加进网格：列 0 是名字、列 1 是控件，和设置页同一套排法。
-void addRowTitle(QGridLayout *grid, int row, const QString &title, QWidget *parent) {
+/// 往表格里加一行：**行名独占一行、内容在下一行**（2026-09-26 用户原话「上一行设置名称，
+/// 下一行设置选项」）。跨度都是两列 —— 「启动」这一栏从此不再有"名字在左、控件在右"那一套。
+///
+/// @param row 行名那一行的下标。**内容占的是 `row + 1`** —— 调用方要 `row += 2`，不是
+///        `row++`（少加的那一行会被下一项盖掉，界面上少一整行而没有任何报错）。
+/// @param layoutOut 内容那一格的竖排布局（外面那层格子已经建好了，直接拿去加东西）。
+/// @return 内容那一格（控件的父控件）。
+QWidget *addTitledRow(QGridLayout *grid, int row, const QString &title, QWidget *parent,
+                      QVBoxLayout **layoutOut = nullptr) {
     auto *label = new QLabel(title, parent);
-    // 顶部对齐：右边那一格有两行（单选钮那一行 + 提示），名字应该跟第一行齐。
-    grid->addWidget(label, row, 0, Qt::AlignLeft | Qt::AlignTop);
+    grid->addWidget(label, row, 0, 1, 2, Qt::AlignLeft);
+
+    auto *cell = new QWidget(parent);
+    auto *column = new QVBoxLayout(cell);
+    column->setContentsMargins(0, 0, 0, 0);
+    column->setSpacing(4);
+    grid->addWidget(cell, row + 1, 0, 1, 2);
+    if (layoutOut != nullptr) {
+        *layoutOut = column;
+    }
+    return cell;
+}
+
+/// 浮层和它上面那颗按钮之间空多少（px）。和实例页那几块齿轮菜单同一档。
+constexpr int kMenuGap = 2;
+/// 浮层自己的内边距与行距。**和实例页那几块齿轮菜单同两个数**（`kFolderMenuPadding` /
+/// `kFolderMenuRowSpacing`，见 MainWindowUI.cpp 那段说明）—— 同一族浮层留白不一样，用户
+/// 一眼就看得出是两个东西。
+///
+/// NOTE: 这两个数在 MainWindowUI.cpp 里是**文件内**的常量（匿名 namespace），这一层拿不到；
+///       抄一份在这儿是这一版最省的做法，但**它们是一份值** —— 那边改了这边要一起改。
+constexpr int kMenuPadding = 8;
+constexpr int kMenuRowSpacing = 4;
+
+/**
+ * @brief 「实例设置」里那两个浮层（更改图标 / 分组…）共用的外壳。
+ *
+ * 形状照着实例页那几块齿轮菜单（MainWindowUI.cpp 里的 FolderMenu / GroupMenu）：Qt::Popup
+ * + 一圈细边 + 比内容区深一档的底色 + Esc 能关。**没抄过来的只有一样**：那两块的"再点同一
+ * 颗齿轮收回"靠的是锚点矩形 + 重放压制，而这里的两颗按钮是**真的控件**，不需要那套几何。
+ *
+ * NOTE: 【为什么要有这个类，而不是直接 new QWidget(…, Qt::Popup)】只有一件事需要拦：
+ *       **外面那一下不许重放**。Qt 把一块 popup 关掉时，如果光标不在它的几何里，就会把
+ *       同一发 press **重放**给光标底下那个控件 —— 在这一页上那意味着"点一下空白处想收起
+ *       浮层，结果顺手按到了底下的东西"，最坏的一发是落在覆盖层左上角那颗**返回箭头**上
+ *       （浮层收起来的同时，整个对话框跟着被关掉）。
+ *       `WA_NoMouseReplay` 干的正是这件事，但**钉的时机**很刁：Qt 是"关的那一刻"读它，而
+ *       这个属性会被 Qt 在"这个控件又收到鼠标事件"时清掉（那条实测经验写在
+ *       MainWindowUI.cpp 里 GroupMenu::handleAnchorPress() 上面）—— 所以挂在构造里没用，
+ *       得拦在 mousePressEvent 里、落在框外面的那一发上。
+ */
+class MenuPopup : public QWidget {
+public:
+    explicit MenuPopup(QWidget *parent) : QWidget(parent, Qt::Popup | Qt::FramelessWindowHint) {
+        // 底色比内容区深一档（从调色板推，**不写死颜色**）—— 和那两块菜单逐字同款。
+        setAutoFillBackground(true);
+        QPalette menuPalette = palette();
+        menuPalette.setColor(QPalette::Window, menuPalette.color(QPalette::Window).darker(112));
+        setPalette(menuPalette);
+    }
+
+    /// 贴着 @p anchor 那一格的**下边缘**弹出来（超出屏幕时往里收）。
+    void popUpBelow(const QWidget *anchor) {
+        adjustSize();
+        QPoint target = anchor->mapToGlobal(QPoint(0, anchor->height() + kMenuGap));
+        if (const QScreen *screen = QGuiApplication::screenAt(target)) {
+            const QRect available = screen->availableGeometry();
+            target.setX(qBound(available.left(), target.x(),
+                               qMax(available.left(), available.right() - width() + 1)));
+            target.setY(qBound(available.top(), target.y(),
+                               qMax(available.top(), available.bottom() - height() + 1)));
+        }
+        move(target);
+        show();
+        raise();
+        // 拿焦点只为一件事：Esc 能关（点外面那一下 Qt 自己会关）。
+        setFocus(Qt::PopupFocusReason);
+    }
+
+protected:
+    void keyPressEvent(QKeyEvent *event) override {
+        if (event->key() == Qt::Key_Escape) {
+            close();
+            return;
+        }
+        QWidget::keyPressEvent(event);
+    }
+
+    void mousePressEvent(QMouseEvent *event) override {
+        if (!rect().contains(event->position().toPoint())) {
+            // 落在框外面的那一发：Qt 接下来就会把这块 popup 关掉，而它读 WA_NoMouseReplay
+            // 正是在那一刻（理由见类头那段）。**钉在基类之前**。
+            setAttribute(Qt::WA_NoMouseReplay, true);
+        }
+        QWidget::mousePressEvent(event);
+    }
+
+    /// 一圈细边（和齿轮菜单那条同一个理由）：同一档深浅在浅色主题下几乎看不出边界，
+    /// 分不出"框到哪为止"。
+    void paintEvent(QPaintEvent *) override {
+        QPainter painter(this);
+        painter.setPen(palette().color(QPalette::Mid));
+        painter.drawRect(rect().adjusted(0, 0, -1, -1));
+    }
+};
+
+/// 浮层里那一列按钮的外观。**和 GroupMenu::entryStyle() 逐字同形**（字重 / 对齐 / 悬停与
+/// 按下那两档底色 / `:enabled` 那一条的理由都写在那边）—— 这里只有"不画红字"这一处差别
+/// （这两个浮层里没有能删东西的项）。
+QString menuEntryStyle(const QPalette &menuPalette) {
+    QColor hover = menuPalette.color(QPalette::Highlight);
+    hover.setAlpha(48);
+    QColor pressed = menuPalette.color(QPalette::Highlight);
+    pressed.setAlpha(96);
+    return QStringLiteral("QPushButton { border: none; background: transparent;"
+                          " font-weight: bold;"
+                          " text-align: left; padding: 6px 6px; }"
+                          "QPushButton:hover:enabled { background-color: %1; }"
+                          "QPushButton:pressed:enabled { background-color: %2; }")
+        .arg(hover.name(QColor::HexArgb), pressed.name(QColor::HexArgb));
 }
 
 /// 「文件管理」里哪几页有「启用 / 禁用」。
@@ -179,41 +298,90 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     // 三栏吃掉整页剩下的竖直空间（底下那排按钮按自己的高排）。
     outer->addLayout(columns, 1);
 
-    // ---------- 概览（版本名 / 图标 / 分组 / 置顶·取消置顶）----------
+    // ---------- 概览（2026-09-26 重排成四行）----------
     //
-    // NOTE: `grid` 与 `row` 在这三栏之间**是复用的**：换一栏就是"换一份表格、行号从 0 数"。
+    // 用户原话（逐字）：「实例设置 概览里 / 第一行 图标 名称（可编辑文本）/ 第二行 更改图标
+    // （按钮）分组...（按钮）/ 第三行 显示在置顶组中（勾选框，就是在被设为置顶组的那个组里
+    // 再放一个同名的，下面给到注释提醒）/ 第四行 导出（还没做，可行的话顺便做了，麻烦的话
+    // 先放着）」。
+    //
+    // 于是这一栏**没有"标题在左、内容在右"的行名了**：四行分别是名称输入框、两颗按钮、
+    // 勾选框上的字、第四行那颗占位按钮 —— 名字都在控件自己身上。这也是这一栏和别的那几栏
+    // 长得不一样的原因，是刻意的。
+    //
+    // NOTE: `grid` 与 `row` 在这几栏之间**是复用的**：换一栏就是"换一份表格、行号从 0 数"。
     //       每一栏各自一张表格（各自的 objectName），互不干扰 —— 只是在同一个函数里搭，
     //       没必要给每一栏各起一个名字。
     QGridLayout *grid = addForm(overviewCategoryKey(), addPage(overviewCategoryKey()));
     int row = 0;
 
-    // ---------- 实例名（= 改名，2026-09-25 从实例页右栏那颗「重命名…」按钮搬进来的）----------
+    // ---------- 第一行：图标预览 + 实例名 ----------
     //
-    // 它不是一项"覆盖"：别的几行都有「跟随全局 / 自定义」那对单选钮（那些是启动参数，
-    // 全局有一份、实例可以盖过它），而这个是这个实例自己的身份，没有"全局"可比 ——
-    // 所以它不走 addOverrideRow()，直接一行名字 + 一个输入框 + 一句解释。
+    // 名字（= 改名）2026-09-25 从实例页右栏那颗「重命名…」按钮搬进来，2026-09-26 和图标
+    // 并排摆成一行。它不是一项"覆盖"：别的几行都有「跟随全局 / 自定义」那对单选钮（那些是
+    // 启动参数，全局有一份、实例可以盖过它），而这个是这个实例自己的身份，没有"全局"可比
+    // —— 所以它不走 addOverrideRow()。
     //
     // 真的动手改名的是 MainWindow（先改名、再写设置），这一层只负责让用户改到那个格子
     // （见 instanceName()）。
     {
-        addRowTitle(grid, row, instanceNameText(), this);
         auto *cell = new QWidget(this);
-        auto *column = new QVBoxLayout(cell);
-        column->setContentsMargins(0, 0, 0, 0);
-        column->setSpacing(4);
+        auto *line = new QHBoxLayout(cell);
+        line->setContentsMargins(0, 0, 0, 0);
+        line->setSpacing(12);
+
+        // 预览：这张图就是"点确定之后树上会长什么样"。定死边长，换图时整行不跟着跳。
+        m_iconPreview = new QLabel(cell);
+        m_iconPreview->setObjectName(iconPreviewName());
+        m_iconPreview->setFixedSize(kIconPreviewSize, kIconPreviewSize);
+        m_iconPreview->setAlignment(Qt::AlignCenter);
+        // 顶部对齐：右边那一列（输入框 + 一句解释）多半比 64 px 高，预览图不该被拉到中间。
+        line->addWidget(m_iconPreview, 0, Qt::AlignTop);
+
+        auto *nameColumn = new QVBoxLayout;
+        nameColumn->setContentsMargins(0, 0, 0, 0);
+        nameColumn->setSpacing(4);
         m_instanceNameEdit = new QLineEdit(instanceId, cell);
         m_instanceNameEdit->setObjectName(instanceNameEditName());
         // 初值是**目录名**（不是页眉上那个显示名）—— 见构造函数的 @param instanceId。
+        // 这一格现在**没有行名**了，所以那句占位文字就是它唯一的名字。
         m_instanceNameEdit->setPlaceholderText(instanceNameText());
-        column->addWidget(m_instanceNameEdit);
+        nameColumn->addWidget(m_instanceNameEdit);
         auto *nameHint = new QLabel(instanceNameHint(), cell);
         nameHint->setWordWrap(true);
-        column->addWidget(nameHint);
-        grid->addWidget(cell, row, 1);
-        ++row;
+        nameColumn->addWidget(nameHint);
+        line->addLayout(nameColumn, 1);
+
+        grid->addWidget(cell, row++, 0, 1, 2);
     }
 
-    // ---------- 图标（2026-09-26）----------
+    // ---------- 第二行：两颗按钮（更改图标 / 分组…），各开一个浮层 ----------
+    //
+    // 用户原话：「第二行 更改图标（按钮） 分组...（按钮）」，当场问过之后两个都选了
+    // **"点了弹浮层"**（而不是把候选项铺在这一页上）。
+    {
+        auto *cell = new QWidget(this);
+        auto *line = new QHBoxLayout(cell);
+        line->setContentsMargins(0, 0, 0, 0);
+        line->setSpacing(8);
+        m_changeIconButton = new QPushButton(changeIconText(), cell);
+        m_changeIconButton->setObjectName(changeIconButtonName());
+        m_changeIconButton->setToolTip(iconHint());
+        connect(m_changeIconButton, &QPushButton::clicked, this,
+                [this]() { popUpMenuBelow(m_iconMenu, m_changeIconButton); });
+        line->addWidget(m_changeIconButton);
+
+        m_groupButton = new QPushButton(groupButtonText(), cell);
+        m_groupButton->setObjectName(groupButtonName());
+        // tooltip 由 refreshGroupMenuState() 写（它要说清"现在归在哪一组"）。
+        connect(m_groupButton, &QPushButton::clicked, this,
+                [this]() { popUpMenuBelow(m_groupMenu, m_groupButton); });
+        line->addWidget(m_groupButton);
+        line->addStretch(1);
+        grid->addWidget(cell, row++, 0, 1, 2);
+    }
+
+    // ---------- 「更改图标」那个浮层 ----------
     //
     // 用户原话：「图标（选一张本地图片文件）」「使用实际的那几个 mc 草块 / fabric 布料等的
     // 图片文件，不用担心侵权问题，同时允许用户自主上传」。所以十档：默认 + 八个内置候选
@@ -222,28 +390,29 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     //
     // NOTE: 那一排按钮**不是**当前值的出处（它们只是 m_iconChoice 的一幅画）—— 理由见 .hpp
     //       里 setIcon() 上面那一段：本地那一档没有控件能表示它。
+    //
+    // NOTE: 【浮层是**常驻**的 —— 一次建好、以后每次点按钮只是再弹一遍】
+    //       三件事都指望这个：①验证工程按 objectName 找得到里面那几颗按钮（**没弹出来的
+    //       时候也要能找**，那些断言关心的是"按了会变成什么"，不是"它当时开没开"）；
+    //       ②每点一次就新建一个的话，连点两次就会同时存在两个同名浮层，按名字找控件的
+    //       那一套当场失去意义；③refreshIconRow() 在关着的时候也得把勾选状态摆对（否则
+    //       弹出来那一瞬间画的是上一次的样子）。
+    //       **判"此刻开着没开着"的判据是 isVisible()**，不是它存不存在。
+    //       同一段理由对整个这一页的两个浮层都成立。
     {
-        addRowTitle(grid, row, iconRowText(), this);
-        auto *cell = new QWidget(this);
-        auto *column = new QVBoxLayout(cell);
-        column->setContentsMargins(0, 0, 0, 0);
-        column->setSpacing(8);
-
-        auto *top = new QHBoxLayout;
-        top->setSpacing(10);
-        // 预览：这张图就是"点确定之后树上会长什么样"。定死边长，换图时整行不跟着跳。
-        m_iconPreview = new QLabel(cell);
-        m_iconPreview->setObjectName(iconPreviewName());
-        m_iconPreview->setFixedSize(kIconPreviewSize, kIconPreviewSize);
-        m_iconPreview->setAlignment(Qt::AlignCenter);
-        top->addWidget(m_iconPreview, 0, Qt::AlignTop);
+        auto *menu = new MenuPopup(this);
+        m_iconMenu = menu;
+        m_iconMenu->setObjectName(iconMenuName());
+        auto *box = new QVBoxLayout(menu);
+        box->setContentsMargins(kMenuPadding, kMenuPadding, kMenuPadding, kMenuPadding);
+        box->setSpacing(kMenuRowSpacing);
 
         auto *candidates = new QGridLayout;
         candidates->setSpacing(4);
         const QStringList keys = VersionIcons::iconCandidateKeys();
         const QStringList names = iconCandidateTexts();
         for (int i = 0; i < keys.size(); ++i) {
-            auto *button = new QToolButton(cell);
+            auto *button = new QToolButton(menu);
             button->setObjectName(iconCandidateButtonName(i));
             button->setText(names.value(i));
             // 图在上、字在下：这一排是"挑哪一张"，光看图认不出 Fabric 和 NeoForge。
@@ -260,17 +429,18 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                 // 它现在还在原处，而实例目录里那份要等点确定才动（见 pickedIconPath()）。
                 m_pickedIconPath.clear();
                 refreshIconRow();
+                // 挑完就收：这颗按钮是"选一个"，不是"切换一个开关"。留着框开着挡住的
+                // 正是用户接下来要看的地方（那一行里的预览）。
+                m_iconMenu->close();
             });
             m_iconButtons.append(button);
             candidates->addWidget(button, i / kIconCandidatesPerRow, i % kIconCandidatesPerRow);
         }
-        // 给 1：这八颗吃掉右边剩下的横向空间，别把它们拉成八个大块。
-        top->addLayout(candidates, 1);
-        column->addLayout(top);
+        box->addLayout(candidates);
 
         auto *actions = new QHBoxLayout;
         actions->setSpacing(8);
-        auto *pick = new QPushButton(iconPickText(), cell);
+        auto *pick = new QPushButton(iconPickText(), menu);
         pick->setObjectName(iconPickButtonName());
         connect(pick, &QPushButton::clicked, this, [this]() {
             // 模态，验证工程驱动不了它 —— 和「浏览…」选 java.exe 同一个道理（开的是
@@ -285,9 +455,10 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             m_iconChoice = localIconValue();
             m_pickedIconPath = picked;
             refreshIconRow();
+            m_iconMenu->close();
         });
         actions->addWidget(pick);
-        auto *reset = new QPushButton(iconResetText(), cell);
+        auto *reset = new QPushButton(iconResetText(), menu);
         reset->setObjectName(iconResetButtonName());
         connect(reset, &QPushButton::clicked, this, [this]() {
             // 「默认」= **这个键不存在**（而不是"写一个等于默认的值"）—— 全项目同一个约定，
@@ -297,59 +468,71 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             m_iconChoice.clear();
             m_pickedIconPath.clear();
             refreshIconRow();
+            m_iconMenu->close();
         });
         actions->addWidget(reset);
         actions->addStretch(1);
-        column->addLayout(actions);
-
-        auto *hint = new QLabel(iconHint(), cell);
-        hint->setWordWrap(true);
-        column->addWidget(hint);
-        grid->addWidget(cell, row, 1);
-        ++row;
+        box->addLayout(actions);
     }
 
-    // ---------- 分组（2026-09-26）----------
+    // ---------- 「分组…」那个浮层 ----------
     //
     // 候选项由调用方灌（setGroupChoices）—— 组名是用户可以改的、id 是稳定身份，这一页
     // 只负责显示。第一项「未分组」由这里自己加（它是保留值，不是某一组）。
+    // 浮层里那几行**是每次 setGroupChoices() 的时候重建的**（行数会变），理由写在那个
+    // 函数里。
     {
-        addRowTitle(grid, row, groupRowText(), this);
-        auto *cell = new QWidget(this);
-        auto *column = new QVBoxLayout(cell);
-        column->setContentsMargins(0, 0, 0, 0);
-        column->setSpacing(4);
-        m_groupCombo = new QComboBox(cell);
-        m_groupCombo->setObjectName(groupComboName());
-        // 和实例页那一列的宽度同一档：这是"选一个名字"，不是输入框。
-        m_groupCombo->setFixedWidth(kMemorySpinWidth + 80);
-        column->addWidget(m_groupCombo);
-        auto *hint = new QLabel(
-            tr("这个实例归在实例页的哪一组里。组的排序和增删在实例页左栏的「分组设置…」里。"),
-            cell);
-        hint->setWordWrap(true);
-        column->addWidget(hint);
-        grid->addWidget(cell, row, 1);
-        ++row;
+        auto *menu = new MenuPopup(this);
+        m_groupMenu = menu;
+        m_groupMenu->setObjectName(groupMenuName());
+        auto *box = new QVBoxLayout(menu);
+        box->setContentsMargins(kMenuPadding, kMenuPadding, kMenuPadding, kMenuPadding);
+        box->setSpacing(kMenuRowSpacing);
     }
 
-    // ---------- 置顶（2026-09-26）----------
+    // ---------- 第三行：显示在置顶组中（勾选框 + 注释）----------
+    //
+    // 用户原话：「第三行 显示在置顶组中（勾选框，**就是在被设为置顶组的那个组里再放一个
+    // 同名的**，下面给到注释提醒）」。那句解释必须留着 —— 他特意点名的就是"下面给到注释"。
     {
-        addRowTitle(grid, row, pinRowText(), this);
         auto *cell = new QWidget(this);
         auto *column = new QVBoxLayout(cell);
         column->setContentsMargins(0, 0, 0, 0);
         column->setSpacing(4);
         m_pinCheck = new QCheckBox(pinCheckText(), cell);
         m_pinCheck->setObjectName(pinCheckName());
-        // 勾上/取消都要把分组那一格摆好（勾上 = 挪到置顶组上并禁用）。
-        connect(m_pinCheck, &QCheckBox::toggled, this, &InstanceSettingsDialog::applyPinState);
+        // **没有 toggled 那条接线了**（原来接 applyPinState()：勾上就把「分组」那一格挪到
+        // 置顶组上并禁用）。旧的语义是"置顶 = 搬进置顶组"，两边都显示之后勾选框和「分组」
+        // 那一格说的**是两件互不相干的事**（一个管"要不要在置顶组里多摆一条"，一个管
+        // "老家在哪"）—— 它们之间没有任何要同步的东西。那一整段搬走的代码见 .hpp 里
+        // setPinned() 那段。
         column->addWidget(m_pinCheck);
         auto *hint = new QLabel(pinHint(), cell);
         hint->setWordWrap(true);
         column->addWidget(hint);
-        grid->addWidget(cell, row, 1);
-        ++row;
+        grid->addWidget(cell, row++, 0, 1, 2);
+    }
+
+    // ---------- 第四行：导出（**占位**）----------
+    //
+    // 用户原话：「第四行 导出（还没做，可行的话顺便做了，麻烦的话先放着）」，当场问过之后
+    // 选的是「现在放占位符」。所以这里是一颗**灰的**按钮 + 一句"还没做" ——
+    // 摆一颗按得下去、却什么都不发生的按钮比灰着更糟（用户会以为坏了），而灰着不说话同样
+    // 糟（那是这一层的另一条规矩：灰掉的每一项都得配一句为什么）。
+    {
+        auto *cell = new QWidget(this);
+        auto *column = new QVBoxLayout(cell);
+        column->setContentsMargins(0, 0, 0, 0);
+        column->setSpacing(4);
+        auto *button = new QPushButton(exportPlaceholderText(), cell);
+        button->setObjectName(exportPlaceholderButtonName());
+        button->setEnabled(false);
+        button->setToolTip(exportPlaceholderHint());
+        column->addWidget(button, 0, Qt::AlignLeft);
+        auto *hint = new QLabel(exportPlaceholderHint(), cell);
+        hint->setWordWrap(true);
+        column->addWidget(hint);
+        grid->addWidget(cell, row++, 0, 1, 2);
     }
 
     // ---------- 启动（Java 选项 / 内存分配 / 高级选项）----------
@@ -368,9 +551,10 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
 
     // ---------- Java 路径 ----------
     {
-        QWidget *cell = addOverrideRow(grid, row++, javaPathField(), tr("Java 路径"),
+        QWidget *cell = addOverrideRow(grid, row, javaPathField(), tr("Java 路径"),
                                        tr("只对这个实例生效。留空 = 这个实例不指定路径"
                                           "（跟着全局那份走）。"));
+        row += 2;
         auto *choiceRow = choiceRowOf(javaPathField());
         m_javaPathEdit = new QLineEdit(cell);
         m_javaPathEdit->setObjectName(javaPathEditName());
@@ -403,8 +587,9 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
 
     // ---------- 内存：最大 / 最小 / 分配方式 ----------
     {
-        QWidget *cell = addOverrideRow(grid, row++, xmxField(), tr("最大内存"),
+        QWidget *cell = addOverrideRow(grid, row, xmxField(), tr("最大内存"),
                                        tr("只对这个实例生效（给 JVM 的 -Xmx）。"));
+        row += 2;
         m_xmxFollowCell = cell;
         auto *choiceRow = choiceRowOf(xmxField());
         m_memoryMaxSpin = new QSpinBox(cell);
@@ -419,8 +604,9 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         choiceRow->addWidget(m_memoryMaxSpin);
     }
     {
-        QWidget *cell = addOverrideRow(grid, row++, xmsField(), tr("最小内存"),
+        QWidget *cell = addOverrideRow(grid, row, xmsField(), tr("最小内存"),
                                        tr("只对这个实例生效（给 JVM 的 -Xms）。"));
+        row += 2;
         m_xmsFollowCell = cell;
         auto *choiceRow = choiceRowOf(xmsField());
         m_memoryMinSpin = new QSpinBox(cell);
@@ -434,8 +620,9 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         choiceRow->addWidget(m_memoryMinSpin);
     }
     {
-        QWidget *cell = addOverrideRow(grid, row++, autoMemoryField(), tr("内存分配"),
+        QWidget *cell = addOverrideRow(grid, row, autoMemoryField(), tr("内存分配"),
                                        tr("只对这个实例生效（勾上 = 按系统内存现算）。"));
+        row += 2;
         auto *choiceRow = choiceRowOf(autoMemoryField());
         m_memoryAutoCheck = new QCheckBox(tr("自动（按系统内存）"), cell);
         m_memoryAutoCheck->setObjectName(memoryAutoCheckName());
@@ -514,11 +701,14 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             }
         });
 
+        // 高级选项里这三行也照「上一行设置名称，下一行设置选项」排（用户说的是**这一栏
+        // 整个**，不只是上面那四项）——所以 `advancedRow` 一律 `+= 2`。
         int advancedRow = 0;
         {
-            QWidget *cell = addOverrideRow(
-                advancedGrid, advancedRow++, extraJvmArgsField(), tr("额外 JVM 参数"),
-                tr("只对这个实例生效：**取代**全局那一份，不是叠加。多条用空格分隔。"));
+            QWidget *cell =
+                addOverrideRow(advancedGrid, advancedRow, extraJvmArgsField(), tr("额外 JVM 参数"),
+                               tr("只对这个实例生效：取代全局那一份，不是叠加。多条用空格分隔。"));
+            advancedRow += 2;
             auto *choiceRow = choiceRowOf(extraJvmArgsField());
             m_extraJvmArgsEdit = new QLineEdit(cell);
             m_extraJvmArgsEdit->setObjectName(extraJvmArgsEditName());
@@ -529,11 +719,10 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             // 追加参数**没有**「跟随全局 / 自定义」那一对按钮：它不是覆盖层的一项，
             // meta 里也没有对应的全局值可以跟随 —— 全局那一份是 extraJvmArgs，两个是
             // 不同的东西（一个取代、一个追加）。
-            addRowTitle(advancedGrid, advancedRow, tr("追加参数"), m_advancedBox);
-            auto *cell = new QWidget(m_advancedBox);
-            auto *cellLayout = new QVBoxLayout(cell);
-            cellLayout->setContentsMargins(0, 0, 0, 0);
-            cellLayout->setSpacing(4);
+            QVBoxLayout *cellLayout = nullptr;
+            QWidget *cell =
+                addTitledRow(advancedGrid, advancedRow, tr("追加参数"), m_advancedBox, &cellLayout);
+            advancedRow += 2;
             m_appendJvmArgsEdit = new QPlainTextEdit(cell);
             m_appendJvmArgsEdit->setObjectName(appendJvmArgsEditName());
             m_appendJvmArgsEdit->setFixedHeight(kAppendJvmArgsHeight);
@@ -542,7 +731,6 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             auto *hint = new QLabel(appendJvmArgsHint(), cell);
             hint->setWordWrap(true);
             cellLayout->addWidget(hint);
-            advancedGrid->addWidget(cell, advancedRow++, 1);
         }
         {
             // 提醒开关。和上面那行一样：**不是覆盖层的一项**（没有「跟随全局 / 自定义」
@@ -551,11 +739,10 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             // 放在「高级选项」里而不是摆在五项旁边：它不是一个"值"，摆在那五行之间会让人
             // 以为它也能跟随全局。藏在这里的代价是"关了之后不好找回来"，所以启动时那个
             // 对话框的正文里点名说了它在哪。
-            addRowTitle(advancedGrid, advancedRow, tr("版本提醒"), m_advancedBox);
-            auto *cell = new QWidget(m_advancedBox);
-            auto *cellLayout = new QVBoxLayout(cell);
-            cellLayout->setContentsMargins(0, 0, 0, 0);
-            cellLayout->setSpacing(4);
+            QVBoxLayout *cellLayout = nullptr;
+            QWidget *cell = addTitledRow(advancedGrid, advancedRow, tr("版本提醒"), m_advancedBox,
+                                         &cellLayout);
+            advancedRow += 2;
             m_warnJavaMismatchCheck = new QCheckBox(tr("Java 版本与版本要求不符时提醒"), cell);
             m_warnJavaMismatchCheck->setObjectName(warnJavaMismatchCheckName());
             m_warnJavaMismatchCheck->setChecked(warnJavaMismatch);
@@ -566,28 +753,36 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                 cell);
             hint->setWordWrap(true);
             cellLayout->addWidget(hint);
-            advancedGrid->addWidget(cell, advancedRow++, 1);
         }
     }
 
-    // ---------- 导出启动脚本 / 补全文件（2026-09-26）----------
+    // ---------- 导出启动脚本 / 补全版本文件（2026-09-26，两颗按钮并排一行）----------
     //
-    // 这两行是**动作**，不是设置项：它们不改 wtfml.meta 里的任何一格，所以没有
+    // 这两件是**动作**，不是设置项：它们不改 wtfml.meta 里的任何一格，所以没有
     // 「跟随全局 / 自定义」那一对单选钮 —— 和上面「追加参数」「版本提醒」同一个形状
     // （那两个也不是覆盖层的一项）。
     //
+    // 用户原话「按钮文本直接做成设置名称」，给的例子就是「导出启动脚本（按钮）
+    // 补全版本文件（按钮）」并排一行 ⇒ 这一对**没有行名**（按钮上那几个字就是名字），
+    // 两句解释挪去 tooltip + 底下那一行合起来的说明。
+    //
+    // NOTE: 说明**不能只放 tooltip**：「导出的那份里带着登录令牌，别发给别人」是一句安全
+    //       警告，而 tooltip 得悬停才看得见（理由见 .hpp 里 actionsHint() 那段）。
     // NOTE: 摆在「高级选项」**之后**：这一页从上到下是"这个实例拿什么启动"（Java、内存、
     //       额外参数），两件动作是收尾。而且高级选项默认折叠着，所以打开这一页看到的
     //       顺序是 Java 路径 → 最大内存 → 最小内存 → 内存分配 → 两件动作。
     {
-        addRowTitle(grid, row, exportScriptRowText(), this);
         auto *cell = new QWidget(this);
         auto *column = new QVBoxLayout(cell);
         column->setContentsMargins(0, 0, 0, 0);
         column->setSpacing(4);
-        auto *button = new QPushButton(exportScriptText(), cell);
-        button->setObjectName(exportScriptButtonName());
-        connect(button, &QPushButton::clicked, this, [this]() {
+
+        auto *line = new QHBoxLayout;
+        line->setSpacing(8);
+        auto *exportScript = new QPushButton(exportScriptText(), cell);
+        exportScript->setObjectName(exportScriptButtonName());
+        exportScript->setToolTip(exportScriptHint());
+        connect(exportScript, &QPushButton::clicked, this, [this]() {
             // 默认文件名用**这个实例的目录名**（= 构造时那个 instanceId）：它一定是合法
             // 文件名（建/改名那一关挡过非法字符），而显示名不一定。目录也顺带兜一层底。
             QString dir = QStandardPaths::writableLocation(QStandardPaths::DesktopLocation);
@@ -600,7 +795,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             // 就剩这几处独立窗，理由见 MainWindow.cpp 里 onAddFolderClicked() 上面那段）。
             // 取消 = 什么都不做，和点了返回箭头是同一件事。
             const QString picked = QFileDialog::getSaveFileName(
-                this, tr("导出启动脚本"), suggested, tr("批处理文件 (*.bat)"));
+                this, exportScriptText(), suggested, tr("批处理文件 (*.bat)"));
             if (picked.isEmpty()) {
                 return;
             }
@@ -608,31 +803,22 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             // （ui/ 不 include src/ 下的头）。见 .hpp 里那个信号的说明。
             emit exportLaunchScriptRequested(picked);
         });
-        column->addWidget(button, 0, Qt::AlignLeft);
-        auto *hint = new QLabel(exportScriptHint(), cell);
-        hint->setWordWrap(true);
-        column->addWidget(hint);
-        grid->addWidget(cell, row, 1);
-        ++row;
-    }
-    {
-        addRowTitle(grid, row, repairFilesRowText(), this);
-        auto *cell = new QWidget(this);
-        auto *column = new QVBoxLayout(cell);
-        column->setContentsMargins(0, 0, 0, 0);
-        column->setSpacing(4);
-        auto *button = new QPushButton(repairFilesText(), cell);
-        button->setObjectName(repairFilesButtonName());
+        line->addWidget(exportScript);
+
+        auto *repair = new QPushButton(repairFilesText(), cell);
+        repair->setObjectName(repairFilesButtonName());
+        repair->setToolTip(repairFilesHint());
         // 只报"用户想干这件事"：能不能开始（有没有下载在跑 / 这个实例装没装）由
         // MainWindow 说了算，它才知道。**不问路径**，所以这一层没什么可问的了。
-        connect(button, &QPushButton::clicked, this,
-                &InstanceSettingsDialog::repairFilesRequested);
-        column->addWidget(button, 0, Qt::AlignLeft);
-        auto *hint = new QLabel(repairFilesHint(), cell);
+        connect(repair, &QPushButton::clicked, this, &InstanceSettingsDialog::repairFilesRequested);
+        line->addWidget(repair);
+        line->addStretch(1);
+        column->addLayout(line);
+
+        auto *hint = new QLabel(actionsHint(), cell);
         hint->setWordWrap(true);
         column->addWidget(hint);
-        grid->addWidget(cell, row, 1);
-        ++row;
+        grid->addWidget(cell, row++, 0, 1, 2);
     }
 
     // ---------- 文件管理（八页）----------
@@ -1121,55 +1307,124 @@ void InstanceSettingsDialog::setIcon(const QString &icon, const QPixmap &default
 
 void InstanceSettingsDialog::setGroupChoices(const QList<QPair<QString, QString>> &groups,
                                              const QString &currentGroupId) {
-    if (m_groupCombo == nullptr) {
+    if (m_groupMenu == nullptr) {
         return;
     }
-    m_groupCombo->clear();
+    auto *box = qobject_cast<QVBoxLayout *>(m_groupMenu->layout());
+    if (box == nullptr) {
+        return;
+    }
+    // 浮层里那几行**整个重建** —— 行数是照这份清单来的（用户在「分组设置」里加组 / 删组
+    // 之后再调一次这里，旧的几行就没意义了）。
+    //
+    // NOTE: **当场 delete，不是 deleteLater**。悬着的那几行和新的几行**同名**（objectName
+    //       按下标给），而按名字找控件的验证工程会先撞上旧那个 —— 那个窗口只在"事件循环
+    //       转起来之前"存在，短到没法调试。代价是这一招**不能在一行自己的槽里调**
+    //       （那一行还站在栈上）：产品里只有 MainWindow 在 execPage() 之前调一次。
+    for (QPushButton *row : m_groupRows) {
+        delete row;
+    }
+    m_groupRows.clear();
+    m_groupIds.clear();
+
+    const auto addRow = [this, box](const QString &text, const QString &groupId) {
+        auto *button = new QPushButton(text, m_groupMenu);
+        // 名字按下标给（0 起 = 递进来的顺序）：验证工程按它取控件，而组名是用户起的、
+        // 随时会变，拿文字当身份必错（和实例页那块「挑目标」浮层同一条）。
+        button->setObjectName(groupMenuRowName(m_groupRows.size()));
+        button->setStyleSheet(menuEntryStyle(m_groupMenu->palette()));
+        button->setCursor(Qt::PointingHandCursor);
+        const int index = m_groupRows.size();
+        connect(button, &QPushButton::clicked, this, [this, index]() { chooseGroup(index); });
+        box->addWidget(button);
+        m_groupRows.append(button);
+        m_groupIds.append(groupId);
+    };
     // 「未分组」排在最前：它是这一列的"没有归属"，和别的组不是一类东西，摆在末尾会让人
     // 以为它也是一个能排序的组。
-    m_groupCombo->addItem(ungroupedGroupText(), QString());
+    addRow(ungroupedGroupText(), QString());
     for (const QPair<QString, QString> &group : groups) {
-        m_groupCombo->addItem(group.first, group.second);
+        addRow(group.first, group.second);
     }
-    // 按 **userData** 找（组名会变），找不到就停在第一项「未分组」—— 那一组刚被删掉的
+    // 当前值按 **组 id** 找（组名会变），找不到就停在第一项「未分组」—— 那一组刚被删掉的
     // 实例自然落到未分组，和实例树那边同一条规矩，不为它写清理代码。
-    const int index = m_groupCombo->findData(currentGroupId);
-    m_groupCombo->setCurrentIndex(index >= 0 ? index : 0);
+    const int index = m_groupIds.indexOf(currentGroupId);
+    m_chosenGroupIndex = index >= 0 ? index : 0;
+    refreshGroupMenuState();
 }
 
 void InstanceSettingsDialog::setPinned(bool pinned, const QString &pinnedGroupId) {
     m_pinnedGroupId = pinnedGroupId;
-    if (m_pinCheck != nullptr) {
-        // 挡掉 toggled：那一发会调 applyPinState()，而它这时候读到的 m_pinCheck 还是旧值
-        // （setChecked 里那句赋值发生在发信号之后）。摆状态只走下面那一处，两处都摆容易
-        // 摆出两个不一样的结果来。
-        const QSignalBlocker blocker(m_pinCheck);
-        m_pinCheck->setChecked(pinned);
+    if (m_pinCheck == nullptr) {
+        return;
     }
-    applyPinState();
+    // 挡掉 toggled。**这一版没有谁接那一发了**（旧版接的是 applyPinState()），留着这层
+    // 挡板是为了"以后谁接上"的时候两条路不会各摆一份状态 —— 和 refreshHints() 那两处
+    // 同一个套路。
+    const QSignalBlocker blocker(m_pinCheck);
+    m_pinCheck->setChecked(pinned);
+    // 这一份 .minecraft 里没有置顶组（用户把它删了）：勾上这一下真的没有去处
+    // （MainWindow::pinInstance() 直接返回）⇒ **灰掉它并说清为什么**。灰着不说话是这一层
+    // 另一条明令禁止的（用户只会以为界面坏了），所以 tooltip 必须给上。
+    m_pinCheck->setEnabled(!pinnedGroupId.isEmpty());
+    m_pinCheck->setToolTip(
+        pinnedGroupId.isEmpty()
+            ? tr("这一份 .minecraft 里没有置顶组。先去实例页左栏的「分组设置…」里勾一个。")
+            : QString());
 }
 
-void InstanceSettingsDialog::applyPinState() {
-    if (m_groupCombo == nullptr || m_pinCheck == nullptr) {
+void InstanceSettingsDialog::chooseGroup(int index) {
+    if (index < 0 || index >= m_groupIds.size()) {
         return;
     }
-    const bool pinned = m_pinCheck->isChecked();
-    // 这一份 .minecraft 里没有置顶组（用户把它删了）：勾上这一下真的没有去处
-    // （MainWindow::pinInstance() 直接返回），所以下拉框一个字都不动 —— 把它挪到一个不存在
-    // 的组上、或者禁用它，都比"看起来什么也没发生"更让人糊涂。
-    if (m_pinnedGroupId.isEmpty()) {
+    m_chosenGroupIndex = index;
+    refreshGroupMenuState();
+    // 挑完就收（和图标那个浮层同一条：它是"选一个"，不是"切换一个开关"）。
+    if (m_groupMenu != nullptr) {
+        m_groupMenu->close();
+    }
+}
+
+void InstanceSettingsDialog::refreshGroupMenuState() {
+    for (int i = 0; i < m_groupRows.size(); ++i) {
+        const bool current = i == m_chosenGroupIndex;
+        // 当前那一行**灰掉**：点它等于什么都没做，而"什么都没做"和"点了没反应"在用户
+        // 眼里是一回事。这是实例页那块「挑目标」浮层早就定下的规矩（那边叫
+        // `containsSelected`），两处的措辞也照抄：灰着必须配一句为什么。
+        m_groupRows.at(i)->setEnabled(!current);
+        m_groupRows.at(i)->setToolTip(current ? tr("已经在这一组里了")
+                                              : tr("把这个实例放到这一组里"));
+    }
+    if (m_groupButton == nullptr) {
         return;
     }
-    m_groupCombo->setEnabled(!pinned);
-    if (!pinned) {
-        // 取消置顶之后下拉框**不动**：回到置顶前那一组是写的那一侧的事（那条记录在这一层
-        // 够不着，见 .hpp 里 setGroupChoices() 那段）。它恢复可用之后，用户想改就自己改；
-        // 不改的话那边会把"下拉框和打开时一样"读成"用户没表过态"、只做取消置顶。
+    // 按钮上那几个字是**固定的**（用户原话就是「分组...（按钮）」），所以"现在归在哪一组"
+    // 只能走 tooltip —— 不写这一句的话，用户不点开就完全看不出当前值（那个下拉框被换掉
+    // 之前的唯一用处就是这个）。
+    const QString name = m_chosenGroupIndex >= 0 && m_chosenGroupIndex < m_groupRows.size()
+                             ? m_groupRows.at(m_chosenGroupIndex)->text()
+                             : ungroupedGroupText();
+    m_groupButton->setToolTip(tr("现在归在「%1」里。点开可以换一组。").arg(name));
+}
+
+void InstanceSettingsDialog::popUpMenuBelow(QWidget *menu, const QWidget *anchor) {
+    if (menu == nullptr || anchor == nullptr) {
         return;
     }
-    const int index = m_groupCombo->findData(m_pinnedGroupId);
-    if (index >= 0) {
-        m_groupCombo->setCurrentIndex(index);
+    // 只有 MenuPopup 知道怎么摆（贴着按钮下边缘、超出屏幕往里收）。这一句是"两个成员在
+    // .hpp 里是 QWidget*"和"那个类是 .cpp 里的实现细节"之间的桥。
+    //
+    // NOTE: 用 dynamic_cast 而**不是** qobject_cast：MenuPopup 是这个 .cpp 里的一个
+    //       anonymous-namespace 类，**没有 Q_OBJECT**（它不需要信号槽），而 qobject_cast
+    //       要求那个宏（编不过：static_assert HasQ_OBJECT_Macro）。给它补上 Q_OBJECT 是
+    //       另一条路，代价是这个 .cpp 结尾要多一行 `#include "...moc"` —— 全仓库没有第二处
+    //       这么干的，为一次向下转型不值得。dynamic_cast 认的是 C++ 的类型系统，够用。
+    auto *popup = dynamic_cast<MenuPopup *>(menu);
+    // 走不到：那两个成员在构造函数里各被赋值一次、都是 MenuPopup。写成断言而不是"没有就
+    // 什么都不做"—— 后者是"点了没反应"，而这一页上每一处"点了没反应"都得配一句话。
+    Q_ASSERT(popup != nullptr);
+    if (popup != nullptr) {
+        popup->popUpBelow(anchor);
     }
 }
 
@@ -1178,15 +1433,22 @@ QString InstanceSettingsDialog::iconChoice() const { return m_iconChoice; }
 QString InstanceSettingsDialog::pickedIconPath() const { return m_pickedIconPath; }
 
 QString InstanceSettingsDialog::chosenGroupId() const {
-    if (m_groupCombo == nullptr) {
+    if (m_chosenGroupIndex < 0 || m_chosenGroupIndex >= m_groupIds.size()) {
+        // 还没灌过候选（setGroupChoices() 没调过）⇒ 空串 = 未分组。调用方（MainWindow）
+        // 拿它和"打开对话框时那一格"比，两边都是空串时结论是"用户没改过"，正确。
         return QString();
     }
-    // 读 userData、不读文字：组名用户随时能改，拿文字当身份当场就散。
-    return m_groupCombo->currentData().toString();
+    return m_groupIds.at(m_chosenGroupIndex);
 }
 
 bool InstanceSettingsDialog::pinned() const {
     return m_pinCheck != nullptr && m_pinCheck->isChecked();
+}
+
+QString InstanceSettingsDialog::actionsHint() {
+    // 两句各自还有一份，落在那儿（tooltip）和这儿的是**同一句话的两个出口** —— 不是
+    // 抄了两份。要改就改上面那两个。
+    return exportScriptHint() + QLatin1Char(' ') + repairFilesHint();
 }
 
 void InstanceSettingsDialog::refreshIconRow() {
@@ -1244,16 +1506,14 @@ void InstanceSettingsDialog::showCategory(const QString &key) {
 
 QWidget *InstanceSettingsDialog::addOverrideRow(QGridLayout *grid, int row, const QString &field,
                                                 const QString &title, const QString &customHint) {
-    addRowTitle(grid, row, title, this);
+    // **两行**：上面那一行是这个设置的名字（独占一整行），下面那一行才是它的选项
+    // （「跟随全局 / 自定义」那对单选钮 + 控件）——用户 2026-09-26 原话「上一行设置名称，
+    // 下一行设置选项」。**调用方因此要 `row += 2`**（见 addTitledRow() 那段）。
+    QVBoxLayout *cellLayout = nullptr;
+    QWidget *cell = addTitledRow(grid, row, title, this, &cellLayout);
 
-    // 一行 = 「跟随全局 / 自定义」那一对单选钮 + 控件（都在右边那一格里）。
-    // 控件也加在这一格，是为了内存那两行"整行禁用"能一次把单选钮和数字框都灰掉 ——
+    // 控件和单选钮在同一格，是为了内存那两行"整行禁用"能一次把两者都灰掉 ——
     // 只禁数字框会留下一个能选的「自定义」，选了却什么都不发生。
-    auto *cell = new QWidget(this);
-    auto *cellLayout = new QVBoxLayout(cell);
-    cellLayout->setContentsMargins(0, 0, 0, 0);
-    cellLayout->setSpacing(4);
-
     auto *choiceRow = new QWidget(cell);
     choiceRow->setObjectName(choiceRowName(field));
     auto *choiceLayout = new QHBoxLayout(choiceRow);
@@ -1306,7 +1566,6 @@ QWidget *InstanceSettingsDialog::addOverrideRow(QGridLayout *grid, int row, cons
     connect(follow, &QRadioButton::toggled, this, &InstanceSettingsDialog::refreshHints);
     connect(custom, &QRadioButton::toggled, this, &InstanceSettingsDialog::refreshHints);
 
-    grid->addWidget(cell, row, 1);
     return cell;
 }
 
