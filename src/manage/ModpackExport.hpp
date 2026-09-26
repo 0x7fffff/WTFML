@@ -136,6 +136,81 @@ bool curseForgeFingerprint(const QString &path, quint32 *out, QString *errorOut)
 /// 单独开这个口子是给验证工程用的：钉住算法本身，不依赖任何外部文件。
 quint32 curseForgeFingerprintOfBytes(const QByteArray &bytes);
 
+// ---------------------------------------------------------------------------
+// 枚举：实例目录里哪些文件要进包
+// ---------------------------------------------------------------------------
+
+/// 打包时的两个可选项。默认值**照 PCL**（存档与截图不进包）：这两个目录是"用户的
+/// 个人数据 + 体积大头"，跟"这个实例用了哪些资源"没关系。关掉的那种要**照实数出来**
+/// （见 CollectResult），不能悄悄少一堆文件。
+struct IncludeOptions {
+    bool saves = false;        ///< `saves/`（存档）
+    bool screenshots = false;  ///< `screenshots/`（截图）
+};
+
+/// 要打进包的一个文件。`path` 用 `/` 分隔、相对实例目录 —— 正好就是两份清单里
+/// `path` / `overrides/` 后面那一段，也是 ZipUtil 那套要写进压缩包的条目名。
+struct InstanceFile {
+    QString path;
+    qint64 size = -1;
+};
+
+/// 一次枚举的结果。
+struct CollectResult {
+    /// 要进包的文件，**按路径排序**（打包是可复现的：同一个实例两次导出条目顺序一样）。
+    QList<InstanceFile> files;
+    /// 被排除掉的**顶层**目录名（去重、保持顺序），以及被排除的文件个数。
+    /// 这两个数只为了在结果里**如实说**："`logs/`、`natives/`、存档没进包"。
+    QStringList skippedDirs;
+    int skippedFileCount = 0;
+    /// 非空 = 这个目录根本没读成（枚举本身失败）。**不是**"包里一个文件都没有"。
+    QString problem;
+};
+
+/**
+ * @brief 把实例目录里该进包的文件列出来（排除表见 instanceExclusionReason）。
+ * @param instanceDir 我们的实例目录（`versions/<实例名>/`）—— 它本身就是规范里那个
+ *        "Minecraft instance directory"，所以路径**不需要**任何换算。
+ */
+CollectResult collectInstanceFiles(const QString &instanceDir, const IncludeOptions &options);
+
+/**
+ * @brief 这条相对路径要不要排除。纯函数，为的是能直接断言（枚举那层只是照着它走）。
+ * @param instanceId 实例目录名：`<实例名>.jar` 与 `<实例名>.json` 是这个实例自己的
+ *        版本文件（真正该装什么由清单里的依赖管），**不**进包。
+ * @return 空串 = 不排除；非空 = 排除的理由（一句给用户看的话）。**只按顶层那一段判** ——
+ *         规则说的都是实例根底下的东西，`mods/logs/` 这种是另一回事，不跟着一起排。
+ */
+QString instanceExclusionReason(const QString &relativePath, const QString &instanceId,
+                                const IncludeOptions &options);
+
+// ---------------------------------------------------------------------------
+// 哈希
+// ---------------------------------------------------------------------------
+
+/// 一个文件的哈希。导出要的三样：Modrinth 清单要 sha1 + sha512，CurseForge 要指纹。
+struct FileHashes {
+    QString sha1;
+    QString sha512;
+    /// `needFingerprint` 为假、或者算不出来时是 0（`fingerprintOk` 说了算）。
+    quint32 fingerprint = 0;
+    bool fingerprintOk = false;
+};
+
+/**
+ * @brief 一个文件读**两趟**，把要的哈希全算出来。
+ *
+ * 为什么是两趟：指纹（murmur2）的初值是 `1 ^ 非空白字节数`，长度得先知道；
+ * 而 sha1/sha512 是流式的。所以第一趟只数"剔掉空白之后有几个字节"，第二趟同时喂
+ * 两个 QCryptographicHash 和那台指纹状态机。**不**把文件读进内存：一个 200 MB 的
+ * mod 乘以并行线程数就是几个 GB。
+ *
+ * NOTE: `needFingerprint` 为假时只读一趟（Modrinth 那条路要的 sha1/sha512 一趟就够）。
+ * NOTE: 同一个文件的两条路（这一趟 / `curseForgeFingerprint`）算出来的指纹必须一样 ——
+ *       build/verify 里钉着这一条，因为它俩是两份代码。
+ */
+bool hashFile(const QString &path, bool needFingerprint, FileHashes *out, QString *errorOut);
+
 /// 「这个文件值不值得拿去反查」—— 一个**代价**上的取舍，不是正确性上的：
 /// 只对像资源的文件（几种扩展名 + 路径里带 mods/resource 之类）算哈希，否则一个包里
 /// config/ 底下成千上万个小文件都要算一遍、发一遍，导出会慢到没法用。

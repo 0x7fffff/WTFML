@@ -10,13 +10,19 @@
 
 #include "ModpackImport.hpp"
 
+#include <QByteArrayView>
+#include <QCoreApplication>
+#include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QSet>
 #include <QStringList>
+
+#include <algorithm>
 
 namespace ModpackExport {
 namespace {
@@ -100,10 +106,21 @@ private:
     qsizetype m_tailSize = 0;
 };
 
-/// 读文件的那一趟：`countOnly` 为真就只数非空白字节，否则喂给状态机。
-/// 两趟走的是同一个函数，省得"数"和"喂"两边的过滤规则哪天走岔。
-bool scanFile(const QString &path, bool countOnly, Murmur2Stream *stream, qint64 *countOut,
-              QString *errorOut) {
+/// 非空白字节有几个。
+qint64 countStrippedBytes(const char *data, qsizetype size) {
+    qint64 count = 0;
+    for (qsizetype i = 0; i < size; ++i) {
+        if (!isStrippedByte(static_cast<quint8>(data[i]))) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+/// **唯一**的读文件循环（64 KiB 一块）。一趟数、一趟喂、还有"同时算三个哈希"那趟
+/// 走的都是它 —— 省得"缓冲开多大、读一半算不算成功"这种细节在三处各写一遍。
+template <typename Sink>
+bool readFileChunks(const QString &path, Sink &&sink, QString *errorOut) {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) {
         if (errorOut != nullptr) {
@@ -113,7 +130,6 @@ bool scanFile(const QString &path, bool countOnly, Murmur2Stream *stream, qint64
     }
     QByteArray buffer;
     buffer.resize(64 * 1024);
-    qint64 count = 0;
     for (;;) {
         const qint64 read = file.read(buffer.data(), buffer.size());
         if (read < 0) {
@@ -123,21 +139,9 @@ bool scanFile(const QString &path, bool countOnly, Murmur2Stream *stream, qint64
             return false;
         }
         if (read == 0) {
-            break;
+            break;  // 读到头
         }
-        if (countOnly) {
-            const char *data = buffer.constData();
-            for (qint64 i = 0; i < read; ++i) {
-                if (!isStrippedByte(static_cast<quint8>(data[i]))) {
-                    ++count;
-                }
-            }
-        } else if (stream != nullptr) {
-            stream->add(buffer.constData(), read);
-        }
-    }
-    if (countOut != nullptr) {
-        *countOut = count;
+        sink(buffer.constData(), read);
     }
     return true;
 }
@@ -205,6 +209,164 @@ QString curseForgeLoaderId(const QString &loaderKey, const QString &loaderVersio
         return prefix + QLatin1Char('-') + gameVersion.trimmed() + QLatin1Char('-') + version;
     }
     return prefix + QLatin1Char('-') + version;
+}
+
+QString instanceExclusionReason(const QString &relativePath, const QString &instanceId,
+                                const IncludeOptions &options) {
+    // 规则**都只按顶层那一段判**：说的都是实例根底下的东西。所以 `mods/logs/` 这种
+    // 是"mod 自己的日志"，不跟着 `logs/` 一起排掉。
+    //
+    // 目录那几条命中之后，**底下的内容一起排**（判据是首段，天然如此）。
+    struct Rule {
+        const char *name;
+        const char *reason;
+    };
+    static const Rule kDirRules[] = {
+        {"logs", QT_TRANSLATE_NOOP("ModpackExport", "日志")},
+        {"crash-reports", QT_TRANSLATE_NOOP("ModpackExport", "崩溃报告")},
+        {"natives", QT_TRANSLATE_NOOP("ModpackExport", "启动器解出来的运行时文件")},
+        {"libraries", QT_TRANSLATE_NOOP("ModpackExport", "游戏库文件")},
+        {".mixin.out", QT_TRANSLATE_NOOP("ModpackExport", "Mixin 的调试输出")},
+        {".cache", QT_TRANSLATE_NOOP("ModpackExport", "加载器的缓存")},
+        // `.fabric` / `.quilt` 底下是**重映射过的 mod 副本**：原样进包等于把一个改过的
+        // jar 发出去，而且体积翻倍（原 jar 已经在 mods/ 里、已经进包了）。
+        {".fabric", QT_TRANSLATE_NOOP("ModpackExport", "Fabric 的重映射缓存")},
+        {".quilt", QT_TRANSLATE_NOOP("ModpackExport", "Quilt 的重映射缓存")},
+        // 别的启动器的状态。**尤其是凭据** —— 打包是把登录信息泄出去最容易的一条路：
+        // 这些名字底下放的是账号、令牌、上一次登录取到的档案。
+        {".hmcl", QT_TRANSLATE_NOOP("ModpackExport", "别的启动器的账号状态")},
+        {"PCL", QT_TRANSLATE_NOOP("ModpackExport", "别的启动器的账号状态")},
+        {".curseclient", QT_TRANSLATE_NOOP("ModpackExport", "别的启动器的账号状态")},
+    };
+    static const Rule kFileRules[] = {
+        {".ds_store", QT_TRANSLATE_NOOP("ModpackExport", "系统的垃圾文件")},
+        {"thumbs.db", QT_TRANSLATE_NOOP("ModpackExport", "系统的垃圾文件")},
+        // 启动器自己的状态：instanceId / jvmArgs / 分组 / 图标。导出去等于把上一个人的
+        // 实例设置抄给下一个人（而且 `icon.png` 是我们自己那份缓存，不是包的内容）。
+        {"wtfml.meta", QT_TRANSLATE_NOOP("ModpackExport", "启动器自己的实例设置")},
+        {"icon.png", QT_TRANSLATE_NOOP("ModpackExport", "启动器自己的实例图标")},
+        {"launcher_accounts.json", QT_TRANSLATE_NOOP("ModpackExport", "登录凭据")},
+        {"launcher_msa_credentials.bin", QT_TRANSLATE_NOOP("ModpackExport", "登录凭据")},
+        {"launcher_profiles.json", QT_TRANSLATE_NOOP("ModpackExport", "别的启动器的账号状态")},
+        {"usernamecache.json", QT_TRANSLATE_NOOP("ModpackExport", "账号名缓存")},
+        {"minecraftinstance.json", QT_TRANSLATE_NOOP("ModpackExport", "别的启动器的账号状态")},
+        {"pcl.ini", QT_TRANSLATE_NOOP("ModpackExport", "别的启动器的账号状态")},
+        // Prism 那份「打这个实例时别带哪些东西」的名单。它自己**不**进包（这是上一个
+        // 导出者的状态，不是包的内容），而且**它的内容我们也不看** —— 这一点是条已知的
+        // 缺口：真照它办的话，是我们替用户决定少带哪些文件，而界面上没有那一套勾选项。
+        {".packignore", QT_TRANSLATE_NOOP("ModpackExport", "别的启动器的打包设置")},
+    };
+
+    QString path = relativePath;
+    path.replace(QLatin1Char('\\'), QLatin1Char('/'));
+    while (path.startsWith(QLatin1String("./"))) {
+        path.remove(0, 2);
+    }
+    const QStringList parts = path.split(QLatin1Char('/'), Qt::SkipEmptyParts);
+    if (parts.isEmpty()) {
+        return QString();
+    }
+    const QString first = parts.first();
+    const QString lower = first.toLower();
+
+    for (const Rule &rule : kDirRules) {
+        if (lower == QLatin1String(rule.name)) {
+            return QCoreApplication::translate("ModpackExport", rule.reason);
+        }
+    }
+    if (!options.saves && lower == QLatin1String("saves")) {
+        return QCoreApplication::translate("ModpackExport", "存档（没勾上才排）");
+    }
+    if (!options.screenshots && lower == QLatin1String("screenshots")) {
+        return QCoreApplication::translate("ModpackExport", "截图（没勾上才排）");
+    }
+    // 文件那几条要求**正好是顶层那一个文件**：`mods/icon.png` 是 mod 自己的资源，
+    // 不能因为名字撞上就把它排掉。
+    if (parts.size() == 1) {
+        for (const Rule &rule : kFileRules) {
+            if (lower == QLatin1String(rule.name)) {
+                return QCoreApplication::translate("ModpackExport", rule.reason);
+            }
+        }
+        // 这个实例自己的版本文件：`<实例名>.jar` 与 `<实例名>.json`。**装什么由清单里的
+        // 依赖管**（`dependencies` / `modLoaders`），把 jar 塞进包一份既没地方放、
+        // 又会和导入方自己下下来的那一份打架。
+        const QString id = instanceId.trimmed();
+        if (!id.isEmpty() &&
+            (first == id + QLatin1String(".jar") || first == id + QLatin1String(".json"))) {
+            return QCoreApplication::translate("ModpackExport", "这个实例自己的版本文件");
+        }
+    }
+    return QString();
+}
+
+CollectResult collectInstanceFiles(const QString &instanceDir, const IncludeOptions &options) {
+    CollectResult result;
+    const QDir root(instanceDir);
+    if (!root.exists()) {
+        result.problem =
+            QObject::tr("找不到这个实例目录：%1").arg(QDir::toNativeSeparators(instanceDir));
+        return result;
+    }
+    const QString instanceId = QFileInfo(QDir::cleanPath(instanceDir)).fileName();
+
+    // 显式栈的深度优先（不递归：实例目录可以很深，而栈溢出没法报成一句人话）。
+    struct Frame {
+        QString absolute;
+        QString prefix;  ///< 相对实例目录的前缀，带尾斜杠；顶层是空
+    };
+    QList<Frame> stack;
+    stack.append({QDir::cleanPath(instanceDir), QString()});
+    QSet<QString> seenDirs;  // 去重（. 和大小写这类）：同一个目录只走一遍
+    while (!stack.isEmpty()) {
+        const Frame frame = stack.takeLast();
+        const QString dirKey = QDir::cleanPath(frame.absolute).toLower();
+        if (seenDirs.contains(dirKey)) {
+            continue;
+        }
+        seenDirs.insert(dirKey);
+
+        const QDir dir(frame.absolute);
+        // 目录**不跟符号链接**（跟了可能绕回自己，而"枚举出无限深"是没法报错的东西）；
+        // 文件那一边跟着（一个指向文件的符号链接就是一份文件，Prism 也是这么做的）。
+        // `QDir::Hidden`：**隐藏文件也要收**。实例里带点的东西不少（`.packignore`、
+        // 加载器自己写的状态文件），而"这一个该不该进包"由排除表说了算 —— 让"名字带不带点"
+        // 这个跟我们无关的差别去决定要不要，是最容易漏文件的那种漏法。
+        const QFileInfoList dirs = dir.entryInfoList(
+            QDir::Dirs | QDir::NoDotAndDotDot | QDir::NoSymLinks | QDir::Hidden, QDir::Name);
+        const QFileInfoList files =
+            dir.entryInfoList(QDir::Files | QDir::NoDotAndDotDot | QDir::Hidden, QDir::Name);
+
+        for (const QFileInfo &entry : dirs) {
+            const QString prefix = frame.prefix + entry.fileName() + QLatin1Char('/');
+            const QString reason = instanceExclusionReason(prefix, instanceId, options);
+            if (!reason.isEmpty()) {
+                const QString shown = prefix.left(prefix.size() - 1);
+                if (!result.skippedDirs.contains(shown)) {
+                    result.skippedDirs.append(shown);
+                }
+                continue;
+            }
+            stack.append({entry.absoluteFilePath(), prefix});
+        }
+        for (const QFileInfo &entry : files) {
+            const QString relative = frame.prefix + entry.fileName();
+            if (!instanceExclusionReason(relative, instanceId, options).isEmpty()) {
+                ++result.skippedFileCount;
+                continue;
+            }
+            result.files.append({relative, entry.size()});
+        }
+    }
+
+    // 顺序**钉死**（按路径排序）：同一个实例两次导出，条目顺序必须一样 —— 否则
+    // "同一个包导出两次应该是同一份东西"这句话就没法验，出问题也没法对。
+    std::sort(result.files.begin(), result.files.end(),
+              [](const InstanceFile &left, const InstanceFile &right) {
+                  return left.path < right.path;
+              });
+    result.skippedDirs.sort();
+    return result;
 }
 
 bool looksLikeResolvableResource(const QString &relativePath) {
@@ -372,16 +534,73 @@ bool curseForgeFingerprint(const QString &path, quint32 *out, QString *errorOut)
         return false;
     }
     qint64 count = 0;
-    if (!scanFile(path, true, nullptr, &count, errorOut)) {
+    if (!readFileChunks(
+            path,
+            [&count](const char *data, qsizetype size) { count += countStrippedBytes(data, size); },
+            errorOut)) {
         return false;
     }
     // 长度要先知道，所以这里才开第二趟。上限按 32 位截断：murmur2 的初值就是
     // `1 ^ (uint32)长度`，超 4 GB 的文件在算法里本来也是这么截的。
     Murmur2Stream stream(static_cast<quint32>(count));
-    if (!scanFile(path, false, &stream, nullptr, errorOut)) {
+    if (!readFileChunks(
+            path, [&stream](const char *data, qsizetype size) { stream.add(data, size); },
+            errorOut)) {
         return false;
     }
     *out = stream.finish();
+    return true;
+}
+
+bool hashFile(const QString &path, bool needFingerprint, FileHashes *out, QString *errorOut) {
+    if (out == nullptr) {
+        if (errorOut != nullptr) {
+            *errorOut = QObject::tr("内部错误：没有给出放哈希的地方。");
+        }
+        return false;
+    }
+    *out = FileHashes();
+    QCryptographicHash sha1(QCryptographicHash::Sha1);
+    QCryptographicHash sha512(QCryptographicHash::Sha512);
+    // 两个流量哈希和指纹状态机在**同一趟**里喂：文件只读那么多次，而 IO 是这里最贵的东西。
+    const auto feed = [&sha1, &sha512](const char *data, qsizetype size, Murmur2Stream *stream) {
+        // QByteArrayView 那一版是这个 API 的现在时（Qt 6.10 起旧的那版标了 deprecated）。
+        sha1.addData(QByteArrayView(data, size));
+        sha512.addData(QByteArrayView(data, size));
+        if (stream != nullptr) {
+            stream->add(data, size);
+        }
+    };
+    if (!needFingerprint) {
+        if (!readFileChunks(
+                path, [&feed](const char *data, qsizetype size) { feed(data, size, nullptr); },
+                errorOut)) {
+            return false;
+        }
+    } else {
+        // 指纹要的"非空白字节数"得先知道 ⇒ 第一趟**只数**。
+        // NOTE: 这一趟不能顺手喂那两个哈希 —— 喂了它们就把文件吃两遍了（哈希当然全错，
+        //       而且错得很有迷惑性：长度对得上，就是值不对）。
+        qint64 count = 0;
+        if (!readFileChunks(
+                path,
+                [&count](const char *data, qsizetype size) {
+                    count += countStrippedBytes(data, size);
+                },
+                errorOut)) {
+            return false;
+        }
+        Murmur2Stream stream(static_cast<quint32>(count));
+        if (!readFileChunks(
+                path, [&feed, &stream](const char *data, qsizetype size) { feed(data, size, &stream); },
+                errorOut)) {
+            return false;
+        }
+        out->fingerprint = stream.finish();
+        out->fingerprintOk = true;
+    }
+    out->sha1 = QString::fromLatin1(sha1.result().toHex());
+    out->sha512 = QString::fromLatin1(sha512.result().toHex());
     return true;
 }
 
