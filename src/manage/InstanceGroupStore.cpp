@@ -304,6 +304,49 @@ QString InstanceGroupStore::pinnedGroupId() const {
     return pinnedGroupIdOf(groups());
 }
 
+bool InstanceGroupStore::isPinned(const QString &instanceKey) const {
+    if (instanceKey.isEmpty()) {
+        return false;
+    }
+    // 判据就是 pinInstance() 写进去的那件事："它的归属此刻指着置顶组"。用 groupIdOf() 而
+    // 不是直接读 members —— 它多做了"那个组还在不在"这一问，于是**置顶组被删掉之后**
+    // members 里那条残留（清理要等下一次写）不算置顶。不清这一条和 isAssigned() 那段
+    // 同一条规矩：读路径不做清理，残留留给下一次写。
+    const QString pinnedGroup = pinnedGroupId();
+    return !pinnedGroup.isEmpty() && groupIdOf(instanceKey) == pinnedGroup;
+}
+
+InstanceGroupStore::PinOrigin InstanceGroupStore::pinOriginOf(const QString &instanceKey,
+                                                              QString *groupIdOut) const {
+    if (groupIdOut != nullptr) {
+        groupIdOut->clear();
+    }
+    if (instanceKey.isEmpty()) {
+        return PinOrigin::None;
+    }
+    ensureLoaded();
+
+    const QJsonObject origins = m_root.value(kPinOriginField).toObject();
+    if (!origins.contains(instanceKey)) {
+        return PinOrigin::None;
+    }
+    const QJsonValue origin = origins.value(instanceKey);
+    // null = "置顶前它根本没表过态"（见 pinInstance() 那段）。它和"压根没有这一条"是
+    // 两件事：前者要按版本类型重新归类，后者落未分组。
+    if (origin.isNull()) {
+        return PinOrigin::Auto;
+    }
+    const QString groupId = origin.toString().trimmed();
+    // 读不成组 id 的值（数字、对象、空串）：和读侧其余各处一样按没有处理，绝不猜。
+    if (groupId.isEmpty()) {
+        return PinOrigin::None;
+    }
+    if (groupIdOut != nullptr) {
+        *groupIdOut = groupId;
+    }
+    return PinOrigin::Group;
+}
+
 bool InstanceGroupStore::replaceGroups(const QList<Group> &groups, QString *errorOut) {
     ensureLoaded();
     // 成员表整个留着，由 writeThrough() 按新的组清单清掉指向已删组的那些。
@@ -533,8 +576,59 @@ bool InstanceGroupStore::unpinInstance(const QString &instanceKey, QString *erro
     return writeThrough(groups(), members, origins, errorOut);
 }
 
-bool InstanceGroupStore::rekey(const QString &oldKey, const QString &newKey, QString *errorOut) {
-    // 键没变（改名的只是大小写、或者压根没生成过新 id）就没什么可搬的。
+bool InstanceGroupStore::setInstanceHomeGroup(const QString &instanceKey, const QString &groupId,
+                                              QString *errorOut) {
+    const auto fail = [errorOut](const QString &reason) {
+        if (errorOut != nullptr) {
+            *errorOut = reason;
+        }
+        return false;
+    };
+
+    if (instanceKey.isEmpty()) {
+        return fail(tr("内部错误：没有指定要给哪个实例分组。"));
+    }
+
+    ensureLoaded();
+    // 和 assign() 里那一道同款、同一条顺序（完整理由见 assign()）：先判"文件读不懂"，
+    // 否则真正的原因会被挡在后面 —— 那个文件让 groups() 返回空表，于是用户一路都被告知
+    // "找不到那个分组"，而分组一个都没删。
+    if (!m_unreadableReason.isEmpty()) {
+        return fail(m_unreadableReason);
+    }
+
+    if (!isPinned(instanceKey)) {
+        // 没在置顶组里 ⇒ 用户改的这一格就是 members 那一格，走 assign() 那一套。
+        // 它自己会把上面那两道闸再判一遍 —— 重判是有意的：这两条路必须**逐字**落成同一种
+        // 写盘，而把校验抄一份在这儿迟早会和那边分家。
+        return assign(instanceKey, groupId, errorOut);
+    }
+
+    // —— 以下只在"正在置顶"这一档走到 ——
+    // members 一动不动继续指着置顶组（"在不在置顶组里"正是靠它判的），只改"老家"那一格。
+    // 这一档**不能**走 assign()：它会把 members 挪走 ⇒ ①它当场不再算置顶；②下面那一次
+    // 写盘里那道自清理不变量发现"这一条此刻不在置顶组里"，顺手把老家一起丢掉 ⇒ 用户只是
+    // 改了个分组，取消置顶却落进未分组（见 .hpp 里那段 NOTE）。
+    if (!groupId.isEmpty()) {
+        const QList<Group> known = groups();
+        const auto found =
+            std::find_if(known.constBegin(), known.constEnd(),
+                         [&groupId](const Group &group) { return group.id == groupId; });
+        if (found == known.constEnd()) {
+            return fail(tr("找不到那个分组，可能刚刚被删掉了。"));
+        }
+    }
+
+    QJsonObject origins = m_root.value(kPinOriginField).toObject();
+    // 空串 = 用户选了「未分组」⇒ 写那个**保留值**，和 assign() 那条规矩逐字同款
+    // （见 ungroupedMarker() 那段）：写成 null 的话显示层会当场按版本类型归类回去 ——
+    // 而 null 在这儿另有含义（"置顶前没表过态"）。
+    origins.insert(instanceKey,
+                   groupId.isEmpty() ? QJsonValue(ungroupedMarker()) : QJsonValue(groupId));
+    return writeThrough(groups(), m_root.value(kMembersField).toObject(), origins, errorOut);
+}
+
+bool InstanceGroupStore::rekey(const QString &oldKey, const QString &newKey, QString *errorOut) {    // 键没变（改名的只是大小写、或者压根没生成过新 id）就没什么可搬的。
     // 这里**不写盘**也是刻意的：一次改名不该平白多出一个 wtfml.folders。
     if (oldKey.isEmpty() || newKey.isEmpty() || oldKey == newKey) {
         return true;

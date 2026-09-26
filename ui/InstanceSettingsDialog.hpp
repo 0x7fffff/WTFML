@@ -309,26 +309,30 @@ public:
     void setIcon(const QString &icon, const QPixmap &defaultMark,
                  const QPixmap &localMark = QPixmap());
 
-    /// 分组那一行的候选项。
+    /// 「分组…」那一格可选的那几组（**点了按钮才看得见**，见 .cpp 里那两个浮层）。
     /// @param groups **组名 → 组 id**，按用户在「分组设置」里排的顺序。
     ///        第一项「未分组」由这一层自己加在最前面（它的 id 是空串），调用方不用管。
-    /// @param currentGroupId 现在归在哪一组（空 = 未分组）。
+    /// @param currentGroupId 它**老家**在哪一组（空 = 未分组）。
     ///
     /// NOTE: 传 (名字, id) 成对而不是只传一串 id：组名用户可以改、id 才是身份，而这一页
     ///       只负责**显示** —— 名字从哪来（读盘？显示格式？）是调用方的事。
     /// NOTE: 认不出来的 currentGroupId（那一组刚被删掉）落在「未分组」上 —— 和实例树那边
     ///       「组被删之后它自然落到未分组」是同一条规矩，不为它写清理代码。
+    /// NOTE: **传的是「老家」不是「存的是哪一组」**。这两个对"正在置顶"的实例不是一个答案
+    ///       （存的那一格指着置顶组），而用户在这一格说的永远是"它本来属于哪儿"—— 两边都
+    ///       显示之后，勾上置顶不再挪这一格（见 setPinned()）。
     void setGroupChoices(const QList<QPair<QString, QString>> &groups, const QString &currentGroupId);
 
     /// 置顶那一行的初值。
-    /// @param pinned 这个实例现在在不在置顶组里。
-    /// @param pinnedGroupId 置顶组是哪一组。**勾上时下拉框跟着挪到它上面并禁用** —— 置顶
-    ///        决定了它归在哪一组，那一格这时候说什么都不作数（见 .cpp 里 applyPinState()）。
-    ///        空串 = 这一份 .minecraft 里没有置顶组（用户把它删了）：那时候勾选框照旧能勾，
-    ///        但下拉框不动也不禁用 —— 勾上这一下真的什么都不会发生
-    ///        （MainWindow::pinInstance() 直接返回），把它挪到一个不存在的地方只会更糊涂。
+    /// @param pinned 这个实例现在在不在置顶组里（「显示在置顶组中」勾没勾）。
+    /// @param pinnedGroupId 置顶组是哪一组，只用来写进那一句解释里（"会在「置顶」里也摆
+    ///        一条"）。**它不再影响任何控件** —— 早先勾上置顶会把「分组」那一格挪到置顶组
+    ///        上并禁用，那是"置顶 = 搬进置顶组"那套旧语义留下的；现在两边都显示，分组那
+    ///        一格是**老家**，和勾选框互不相干。空串 = 这一份 .minecraft 里没有置顶组
+    ///        （用户把它删了）：勾选框照旧能勾，但勾上这一下真的什么都不会发生
+    ///        （MainWindow::pinInstance() 直接返回）。
     ///
-    /// NOTE: 必须在 setGroupChoices() **之后**调 —— 置顶要把下拉框挪到置顶组那一格上。
+    /// NOTE: 和 setGroupChoices() **没有先后要求**了（旧版有：置顶要把下拉框挪过去）。
     void setPinned(bool pinned, const QString &pinnedGroupId);
 
     /// 图标那一行现在选的是什么：空串 = 默认、`builtin:<键>` = 内置候选、`local` = 本地那张。
@@ -402,33 +406,55 @@ public:
     static QString instanceNameEditName() { return QStringLiteral("instanceNameEdit"); }
     static QString instanceNameText() { return QStringLiteral("实例名"); }
 
-    // ---- 概览栏那三行（见上面 setIcon 那一段）----
-    /// 图标那一行的预览（一张固定边长的图，当前选的是哪一张就画哪一张）。
+    // ---- 概览栏那四行（见上面 setIcon 那一段）----
+    //
+    // 排法（用户 2026-09-26 原话「第一行 图标 名称 / 第二行 更改图标 分组… / 第三行
+    // 显示在置顶组中 / 第四行 导出」）：概览这一栏**不再有"标题在左、内容在右"的行名**，
+    // 那三句话变成了第一行的控件自己（名称输入框）、第二行两颗按钮、第三行勾选框上的字。
+    /// 第一行：图标预览（一张固定边长的图，当前选的是哪一张就画哪一张）+ 名称输入框
+    /// （`instanceNameEditName()`，就是「实例名」那一格，2026-09-26 搬到它旁边）。
     static QString iconPreviewName() { return QStringLiteral("instanceIconPreview"); }
-    /// 第 @p index 张内置候选那颗按钮（下标见 VersionIcons::iconCandidateKeys()）。
+    /// 第二行左边那颗「更改图标」——点了在它底下开 @c iconMenuName() 那个浮层。
+    static QString changeIconButtonName() { return QStringLiteral("instanceChangeIconButton"); }
+    /// 那个浮层本身（**常驻**：构造函数里建好一次，以后每次点按钮只是再弹一遍 —— 见
+    /// .cpp 里那段 NOTE。`isVisible()` 才表示"此刻开着没开着"）。
+    static QString iconMenuName() { return QStringLiteral("instanceIconMenu"); }
+    /// 浮层里第 @p index 张内置候选那颗按钮（下标见 VersionIcons::iconCandidateKeys()）。
     static QString iconCandidateButtonName(int index) {
         return QStringLiteral("instanceIconCandidate%1").arg(index);
     }
-    /// 「选一张图片…」（开的是 Windows 自己的文件选择框）。
+    /// 浮层里的「选一张图片…」（开的是 Windows 自己的文件选择框）。
     static QString iconPickButtonName() { return QStringLiteral("instanceIconPickButton"); }
-    /// 「恢复默认」。
+    /// 浮层里的「恢复默认」。
     static QString iconResetButtonName() { return QStringLiteral("instanceIconResetButton"); }
-    /// 分组那一行那个下拉框（每一格的 **userData** 是组 id，空串 = 未分组）。
-    static QString groupComboName() { return QStringLiteral("instanceGroupCombo"); }
-    /// 置顶那个勾选框。
+    /// 第二行右边那颗「分组…」——点了在它底下开 @c groupMenuName() 那个浮层。
+    static QString groupButtonName() { return QStringLiteral("instanceGroupButton"); }
+    /// 「分组…」那个浮层本身（同样常驻）+ 里面第 @p index 行的 objectName。
+    /// **下标 0 是「未分组」**，后面按 setGroupChoices() 递进来的顺序。
+    static QString groupMenuName() { return QStringLiteral("instanceGroupMenu"); }
+    static QString groupMenuRowName(int index) {
+        return QStringLiteral("instanceGroupMenuRow%1").arg(index);
+    }
+    /// 第三行那个勾选框。
     static QString pinCheckName() { return QStringLiteral("instancePinCheck"); }
+    /// 第四行那个「导出…」**占位**按钮（灰的、点了什么都不发生）。
+    static QString exportPlaceholderButtonName() {
+        return QStringLiteral("instanceExportPlaceholderButton");
+    }
 
-    // ---- 启动栏那两颗「动作」按钮（导出启动脚本 / 补全文件，2026-09-26）----
-    /// 「导出…」（开的是 Windows 自己的保存框）。
+    // ---- 启动栏那两颗「动作」按钮（导出启动脚本 / 补全版本文件，2026-09-26）----
+    //
+    // 它们是**动作**不是设置项（不改 wtfml.meta 里任何一格），所以没有「跟随全局 /
+    // 自定义」那一对单选钮。用户 2026-09-26 追加的那句「按钮文本直接做成设置名称」说的就是
+    // 它们：**不再有单独一行行名**，按钮上那几个字就是这一项的名字，两句话挪去 tooltip。
+    /// 「导出启动脚本」（开的是 Windows 自己的保存框）。
     static QString exportScriptButtonName() { return QStringLiteral("instanceExportScriptButton"); }
-    /// 「开始检查…」（校验并补齐这个实例的文件）。
+    /// 「补全版本文件」（校验并补齐这个实例的文件）。
     static QString repairFilesButtonName() { return QStringLiteral("instanceRepairFilesButton"); }
-    /// 那两行的行名。**用用户自己说的那两句**（「导出启动脚本」「补全文件」）。
-    static QString exportScriptRowText() { return QStringLiteral("导出启动脚本"); }
-    static QString repairFilesRowText() { return QStringLiteral("补全文件"); }
-    static QString exportScriptText() { return QStringLiteral("导出…"); }
-    static QString repairFilesText() { return QStringLiteral("开始检查…"); }
-    /// 那两行下面那句话。
+    /// 两颗按钮上的字（= 它们的行名，也是这两件事的**唯一名字**）。
+    static QString exportScriptText() { return QStringLiteral("导出启动脚本"); }
+    static QString repairFilesText() { return QStringLiteral("补全版本文件"); }
+    /// 两颗按钮的 tooltip，以及那一行下面那句合起来的说明。
     static QString exportScriptHint() {
         return QStringLiteral("导出一个 .bat：双击就按这套参数启动这个版本，不用启动器。"
                               "正版账号导出的那份里带着登录令牌，别发给别人。");
@@ -437,6 +463,9 @@ public:
         return QStringLiteral("校验这个版本的客户端 jar、库和资源，缺哪个补哪个；已经完好的"
                               "会跳过。要有下载或者安装任务在跑时用不了。");
     }
+    /// 两颗按钮下面那一句。**两句都要留着**：上面那一颗带着"导出的脚本里有令牌"这句
+    /// 安全警告，光放 tooltip 里会有人一辈子看不到。
+    static QString actionsHint();
 
     // ---- 文件管理那八页的文案与 objectName（2026-09-26）----
 
@@ -487,29 +516,43 @@ public:
     /// 「原理图」那一页用不上时那句话。
     static QString schematicUnavailableText();
 
-    static QString iconRowText() { return QStringLiteral("图标"); }
-    static QString groupRowText() { return QStringLiteral("分组"); }
-    static QString pinRowText() { return QStringLiteral("置顶"); }
-    /// 置顶那个勾选框上的字。
-    static QString pinCheckText() { return QStringLiteral("置顶（固定在最前面）"); }
-    /// 三个按钮上的字。
+    /// 第二行右边那颗按钮上的字（**唯一出处**：它是打开那个浮层的按钮，也是这一项的
+    /// 名字 —— 概览这一栏不再有单独的行名）。
+    static QString groupButtonText() { return QStringLiteral("分组…"); }
+    /// 第三行那个勾选框上的字。**用户 2026-09-26 点名的这一句**（原来叫「置顶（固定在最
+    /// 前面）」，那是"置顶 = 搬进置顶组"那套旧语义留下的说法）。
+    static QString pinCheckText() { return QStringLiteral("显示在置顶组中"); }
+    /// 「更改图标」/「导出…」两颗按钮上的字。
+    static QString changeIconText() { return QStringLiteral("更改图标"); }
+    static QString exportPlaceholderText() { return QStringLiteral("导出…"); }
+    /// 浮层里那两个动作按钮上的字。
     static QString iconPickText() { return QStringLiteral("选一张图片…"); }
     static QString iconResetText() { return QStringLiteral("恢复默认"); }
     /// 八个内置候选在界面上叫什么（顺序与 VersionIcons::iconCandidateKeys() 一一对应；
     /// 后四个故意同一个字：加载器名在设置页 / 安装页里就叫这个）。
     static QStringList iconCandidateTexts();
-    /// 分组下拉框里第一项那两个字。**唯一出处是 MainWindowUI::ungroupedGroupText()**，
+    /// 「分组…」那个浮层里第一项那两个字。**唯一出处是 MainWindowUI::ungroupedGroupText()**，
     /// 这里只是把它转出来（本文件不 include MainWindowUI.hpp，所以实现写在 .cpp 里）。
     static QString ungroupedGroupText();
-    /// 图标那一行下面那句话。
+    /// 「更改图标」那个浮层下面那句话。
     static QString iconHint() {
         return QStringLiteral("挑一张图当这个实例的标志。它会出现在实例树上，以及底栏"
                               "「正在运行」那一行里。");
     }
-    /// 置顶那一行下面那句话（说明勾掉之后会落到哪）。
+    /// 勾选框下面那句话（**新语义**：两边各摆一条，说明白"原组那份不动"）。
+    ///
+    /// NOTE: 用户 2026-09-26 特意点名的就是这一句（原话：「下面给到注释提醒」）。它得说清
+    ///       三件事：勾上之后**哪儿多出一条**、**原来那份不动**、取消勾选之后哪一条没了 ——
+    ///       少说中间那一件，用户就会以为勾上等于"搬家"（那是这一版之前的语义）。
     static QString pinHint() {
-        return QStringLiteral("置顶的实例固定在这一组列表的最前面。取消置顶之后它会回到置顶前"
-                              "所在的那一组。");
+        return QStringLiteral("勾上之后这个实例会在两个地方各有一条：原来那一组里留一条，"
+                              "置顶组里再摆一条同名的（置顶组永远排在最前面）。"
+                              "取消勾选，置顶组里那一条就没了，原来那一组从头到尾不动。");
+    }
+    /// 第四行那个占位按钮下面那句话。
+    static QString exportPlaceholderHint() {
+        return QStringLiteral("还没做。以后会把整个实例（版本文件、模组、配置、存档）打包成"
+                              "一个能直接导入的文件。");
     }
     /// 那一格下面那句解释（**唯一一处**说清"改这里 = 改磁盘上的目录名"）。
     static QString instanceNameHint() {
@@ -551,8 +594,12 @@ public:
     static QString advancedToggleText() { return QStringLiteral("高级选项"); }
 
     /// 追加参数那行提示的正文（也是"一条一行"这条约定的唯一出处）。
+    ///
+    /// NOTE: 「之后」那两个字**不许写成 `**之后**`** —— 这一页上没有任何一处设过
+    ///       `setTextFormat(Qt::MarkdownText)`，星号会原样画在用户眼前（全项目同一条，
+    ///       2026-09-26 顺手清掉了几处）。
     static QString appendJvmArgsHint() {
-        return QStringLiteral("一条一行。排在全局额外参数**之后**（同一条以后写的为准），"
+        return QStringLiteral("一条一行。排在全局额外参数之后（同一条以后写的为准），"
                               "不覆盖全局那一份。");
     }
 
@@ -649,13 +696,29 @@ private:
     /// @param reason 空串 = 用得上（把 tooltip 摘掉）。见 setShaderUsable()。
     void markPageUnusable(const QString &key, const QString &reason);
 
-    /// 把图标那一行按 m_iconChoice 重画一遍：预览换图、八颗按钮的勾选状态跟着换。
+    /// 把图标那一行按 m_iconChoice 重画一遍：预览换图、八颗浮层里那颗按钮的勾选状态跟着换。
     /// 唯一出处是 m_iconChoice —— 按钮和预览都是它的画（见上面那段"影子状态"）。
+    /// NOTE: 浮层**没弹出来的时候也要调到它**（预览和按钮的勾选状态在关着的时候也要对，
+    ///       否则弹出来那一瞬间是上一次的样子）。
     void refreshIconRow();
 
-    /// 按置顶那个勾选框**现在**的状态把分组那一格摆好（勾着 = 挪到置顶组上并禁用）。
-    /// setPinned() 和那个勾选框的 toggled 都走这一处，免得两条路上摆得不一样。
-    void applyPinState();
+    /// 在 @p anchor 那颗按钮底下弹出 @p menu 那个浮层。两颗按钮（更改图标 / 分组…）共用。
+    ///
+    /// NOTE: 浮层是**常驻**的（构造函数里建好，这里只负责弹），所以这一个函数没有"建"
+    ///       那一半。理由见 .cpp 里那段 NOTE。
+    static void popUpMenuBelow(QWidget *menu, const QWidget *anchor);
+
+    /// 「分组…」那个浮层里第 @p index 行被点了：记住选的是哪一组（下标 0 = 未分组）。
+    /// 只改这一层的影子状态 `m_chosenGroupIndex` —— 落盘是 MainWindow 的事。
+    void chooseGroup(int index);
+
+    /// 把「分组…」那个浮层里每一行的可用性、以及那颗按钮上的 tooltip，按此刻的
+    /// `m_chosenGroupIndex` 重摆一遍（当前那一行灰掉 + 一句「已经在这一组里了」）。
+    ///
+    /// NOTE: setGroupChoices() 末尾也要调它一次 —— 重建完那几行是**全亮**的，不刷的话
+    ///       弹开来会看到"当前那一组也能点"（点下去什么都没发生）。和 refreshIconRow()
+    ///       同一条路数：控件的样子只有一个出处，改完影子状态就调一次。
+    void refreshGroupMenuState();
 
     /// 全局那一层的值，用来写「跟随全局（当前 …）」。构造之后不再变。
     GlobalValues m_global;
@@ -709,9 +772,28 @@ private:
     QLabel *m_iconPreview = nullptr;
     /// 八颗候选按钮，下标与 VersionIcons::iconCandidateKeys() 一一对应。
     QList<QToolButton *> m_iconButtons;
-    QComboBox *m_groupCombo = nullptr;
+    /// 「更改图标」那颗按钮，以及它底下那个**常驻**浮层（见 .cpp 里那段 NOTE）。
+    QPushButton *m_changeIconButton = nullptr;
+    QWidget *m_iconMenu = nullptr;
+    /// 「分组…」那颗按钮 + 它底下那个常驻浮层。
+    QPushButton *m_groupButton = nullptr;
+    QWidget *m_groupMenu = nullptr;
+    /// 「分组…」浮层里那几行按钮（下标 0 = 未分组，其余按 setGroupChoices() 的顺序）。
+    QList<QPushButton *> m_groupRows;
+    /// **选的是第几行**（下标，不是组 id）。这一格和图标那一格同一类：浮层里那几行是
+    /// 现场按调用方递进来的清单建的，行数会变（用户能在另一个框里加组/删组），所以值的
+    /// 出处只能是这一格。`-1` = 还没灌过（没弹过任何一次）—— 那时 chosenGroupId() 回空串。
+    ///
+    /// NOTE: 存的是**下标**而不是 id：id 那一份在 setGroupChoices() 进的 `m_groupIds` 里，
+    ///       两个成员一起改，中间不会出现"下标指着另一行"的窗口。
+    int m_chosenGroupIndex = -1;
+    /// 「分组…」浮层里每一行的组 id（下标 0 是空串 = 未分组）。和 m_groupRows 一一对应。
+    QStringList m_groupIds;
     QCheckBox *m_pinCheck = nullptr;
     /// 置顶组是哪一组（setPinned() 灌进来）。空串 = 这一份 .minecraft 里没有置顶组。
+    ///
+    /// NOTE: 它**只管那一句解释怎么写**（"会在「置顶」里也摆一条"），不再影响任何控件 ——
+    ///       见 .hpp 里 setPinned() 那段。
     QString m_pinnedGroupId;
     QLineEdit *m_javaPathEdit = nullptr;
     QSpinBox *m_memoryMaxSpin = nullptr;
