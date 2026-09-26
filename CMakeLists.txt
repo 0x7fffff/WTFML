@@ -28,6 +28,7 @@ set(HEADER_FILES
     src/manage/FolderManager.hpp
     src/manage/InstanceFiles.hpp
     src/manage/ModpackImport.hpp
+    src/manage/ModpackExport.hpp
     src/manage/VersionManager.hpp
     src/manage/VersionDisplay.hpp
     src/settings/GlobalJavaSettings.hpp
@@ -57,6 +58,7 @@ set(SOURCE_FILES
     src/manage/InstanceFiles.cpp
     src/manage/InstanceGroupStore.cpp
     src/manage/ModpackImport.cpp
+    src/manage/ModpackExport.cpp
     src/manage/DefaultSkin.cpp
     src/manage/PlayerSkinStore.cpp
     src/manage/RandomSkinStore.cpp
