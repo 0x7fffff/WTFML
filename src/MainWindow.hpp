@@ -237,6 +237,12 @@ private slots:
     /// 不是树的 currentItem()（点一下组头它也会变）。
     /// @return 写成功了返回 true（失败弹窗并返回 false）。
     bool assignSelectedInstanceToGroup(const QString &groupId);
+    /// 把一个**指定**的实例移进 @p groupId 这一组（空串 = 未分组）。
+    ///
+    /// NOTE: 拆出来的理由是实例设置对话框那条路 —— 它手上是**那个实例的 id**，而"当前选中的
+    ///       是哪一个"（上面那个函数的口径）在对话框开着的时候完全可能已经被改过了。
+    ///       两条路必须写同一份归属逻辑，不然"从菜单里移"和"从设置里移"迟早会不一样。
+    bool assignInstanceToGroup(const QString &versionId, const QString &groupId);
     /// 把某一组的组名改掉（齿轮菜单里「重命名这一组…」）。
     /// @return 改成功了返回 true。
     bool renameGroupTo(const QString &groupId, const QString &newName);

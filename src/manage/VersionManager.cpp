@@ -3348,6 +3348,31 @@ bool VersionManager::deleteInstance(const QString &versionId, QString *errorOut)
 
 QString VersionManager::jvmArgsField() { return QStringLiteral("jvmArgs"); }
 
+QString VersionManager::iconField() { return QStringLiteral("icon"); }
+
+QString VersionManager::versionIcon(const QString &versionId) const {
+    QString metaPath;
+    const QJsonObject meta = readVersionMeta(versionId, &metaPath);
+    if (meta.isEmpty()) {
+        return QString();
+    }
+
+    const QJsonValue value = meta.value(iconField());
+    if (value.isUndefined() || value.isNull()) {
+        // 没写过这个键 = 没挑过 = 用默认那张（和 skipJavaVersionWarning 同一套态度：
+        // 缺省的那一侧是"什么都没发生"）。
+        return QString();
+    }
+    if (!value.isString()) {
+        // 写成数字/对象：按"没挑过"处理，但要说一声 —— 这是用户手写的文件，写错了
+        // 不吭声就表现成"明明写了却不生效"。
+        qWarning() << "Version metadata field icon is not a string in" << metaPath
+                   << "— treated as \"default\"";
+        return QString();
+    }
+    return value.toString();
+}
+
 QJsonObject VersionManager::versionMeta(const QString &versionId) const {
     // readVersionMeta() 已经把所有"读不到"的形态（文件不在 / 打不开 / 解析不了）
     // 收口成空对象了，这里不再重复判断 —— 那些分支的措辞和告警都只该有一处。
@@ -3431,8 +3456,10 @@ VersionDisplayParts VersionManager::displayParts(const QString &versionId) const
     // 逐字段读。类型不对时给一句告警：QJsonValue::toString() 对数字/对象会安静地
     // 返回空串，手写 JSON 时把 "name" 写成数字是最容易犯的错，不提示的话表现成
     // "明明写了却不生效"。
-    const auto readString = [&meta, &metaPath](const char *key) -> QString {
-        const QJsonValue value = meta.value(QLatin1String(key));
+    // NOTE: key 收 QString（不是 const char*）是为了让调用方能把 iconField() 这类
+    //       字段名函数的结果直接递进来 —— 字面量写两遍正是那几个 Field() 存在的理由。
+    const auto readString = [&meta, &metaPath](const QString &key) -> QString {
+        const QJsonValue value = meta.value(key);
         if (value.isUndefined() || value.isNull()) {
             return QString();
         }
@@ -3444,10 +3471,12 @@ VersionDisplayParts VersionManager::displayParts(const QString &versionId) const
         return value.toString();
     };
 
-    parts.customName = readString("name");
-    parts.realVersion = readString("realVersion");
-    parts.loaderName = readString("loaderName");
-    parts.loaderVersion = readString("loaderVersion");
+    parts.customName = readString(QStringLiteral("name"));
+    parts.realVersion = readString(QStringLiteral("realVersion"));
+    parts.loaderName = readString(QStringLiteral("loaderName"));
+    parts.loaderVersion = readString(QStringLiteral("loaderVersion"));
+    // 走 iconField() 而不是再写一遍字面量（理由同上）。
+    parts.icon = readString(iconField());
 
     // 预留：按实例覆盖全局的显示格式。现在没有任何代码会写它，但读的这一侧先接好，
     // 以后做"分开实例管理"时只要往 wtfml.meta 里写 "nameFormat" 就能生效。

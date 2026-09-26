@@ -1,7 +1,10 @@
 /**
  * @file InstanceSettingsDialog.hpp
- * @brief 「实例设置…」对话框：给单个实例覆盖启动五项（Java 路径 / Xmx / Xms / 内存自动 /
- *        额外 JVM 参数），每项都是两级「跟随全局 / 自定义」。
+ * @brief 「实例设置…」对话框。**2026-09-26 起分栏**：左栏大类（概览 / 启动 / 文件管理）、
+ *        选到「文件管理」时中间再长出一列小类、右边一块堆叠页（见下面 categoryKeys()）。
+ *        分栏之前它是一张通到底的表：上面一行实例名，下面给单个实例覆盖启动五项
+ *        （Java 路径 / Xmx / Xms / 内存自动 / 额外 JVM 参数），每项都是两级
+ *        「跟随全局 / 自定义」。
  * @author 0x7fffff
  * @date 2026-09-21
  * @note 进参出参都是**值**，本文件不 include 任何 src/ 下的头 —— 和 GroupDialog 同一条
@@ -31,19 +34,27 @@
 
 #include <QDialog>
 #include <QHash>
+#include <QList>
+#include <QPair>
+#include <QPixmap>
 #include <QString>
 #include <QStringList>
 #include <optional>
 
 class QCheckBox;
+class QComboBox;
+class QGridLayout;
 class QHBoxLayout;
 class QLabel;
 class QLineEdit;
+class QListWidget;
 class QPlainTextEdit;
 class QPushButton;
 class QRadioButton;
 class QSpinBox;
+class QStackedWidget;
 class QToolButton;
+class QVBoxLayout;
 class QWidget;
 
 class InstanceSettingsDialog : public QDialog {
@@ -133,6 +144,165 @@ public:
     /// 每次那对单选钮或自动勾选框变化都会调它。
     void refreshHints();
 
+    // ---------- 分栏（2026-09-26）----------
+    //
+    // 用户原话：「实例设置里也这么改，概览（版本名、图标，分组，置顶/取消置顶）启动（Java
+    // 选项，游戏窗口标题，内存分配，导出启动脚本，补全文件）文件管理（**再做一个类似的
+    // 左侧菜单叠在已有的左边栏上**，…）」。
+    //
+    // 所以这一页长成三栏：**左栏大类**（概览 / 启动 / 文件管理）、**中栏小类**（只有选到
+    // 「文件管理」时才出现）、**右栏内容**（一份堆叠页）。形状和设置页那一套是同一个套路
+    // ——「左栏一列分类、右栏一份堆叠页」，只是这儿中间能再长出一列来。
+    //
+    // 键表与 objectName 的写法照抄设置页（settingsCategoryKeys / settingsPanelName）：
+    // **两张按下标对齐的表**，加一栏要同时动两处；身份走 objectName，验证工程不靠位置认控件。
+
+    /// 左栏那三条大类的键。**顺序就是界面上从上到下的顺序**。
+    static QString overviewCategoryKey() { return QStringLiteral("overview"); }
+    static QString launchCategoryKey() { return QStringLiteral("launch"); }
+    static QString filesCategoryKey() { return QStringLiteral("files"); }
+    static QStringList categoryKeys() {
+        return {overviewCategoryKey(), launchCategoryKey(), filesCategoryKey()};
+    }
+    static QStringList categoryTexts() {
+        return {QStringLiteral("概览"), QStringLiteral("启动"), QStringLiteral("文件管理")};
+    }
+
+    /// 「文件管理」下面那一列小类的键。**顺序就是界面上的顺序。**
+    ///
+    /// NOTE: 用户给的那一串（快捷方式 / 资源包·模组 / 数据包 / 光影包 / 原理图 / 存档 /
+    ///       服务器列表）是他自己说了「我这个不合理」的，所以这儿是重排过的：把**跳板**
+    ///       （快捷方式：开文件夹）摆在最前，然后是**往实例里加东西**的那几类（模组最常用
+    ///       → 资源包 → 数据包 → 光影包 → 原理图），最后是**这个实例自己攒出来的**那两样
+    ///       （存档、服务器列表）。前六类是"往里放"，后两类是"从里面看"。
+    static QStringList filePageKeys() {
+        return {QStringLiteral("shortcut"), QStringLiteral("mod"),    QStringLiteral("resourcepack"),
+                QStringLiteral("datapack"), QStringLiteral("shader"), QStringLiteral("schematic"),
+                QStringLiteral("save"),     QStringLiteral("server")};
+    }
+    static QStringList filePageTexts() {
+        return {QStringLiteral("快捷方式"), QStringLiteral("模组"),   QStringLiteral("资源包"),
+                QStringLiteral("数据包"),   QStringLiteral("光影包"), QStringLiteral("原理图"),
+                QStringLiteral("存档"),     QStringLiteral("服务器列表")};
+    }
+
+    /// 堆叠页里「文件管理」那些页的起始下标（0/1 是概览与启动，排在前面）。
+    /// 换言之 `stackIndex = filePageFirstIndex() + 小类下标`。
+    static int filePageFirstIndex() { return 2; }
+    /// 堆叠页一共有几页。
+    static int pageCount() { return filePageFirstIndex() + filePageKeys().size(); }
+
+    static QString categoryListName() { return QStringLiteral("instanceSettingsCategoryList"); }
+    static QString subCategoryListName() {
+        return QStringLiteral("instanceSettingsSubCategoryList");
+    }
+    static QString stackName() { return QStringLiteral("instanceSettingsStack"); }
+    /// 堆叠页里某一页的 objectName（@param key 见 categoryKeys() / filePageKeys()）。
+    static QString panelName(const QString &key) {
+        return QStringLiteral("instanceSettingsPanel-") + key;
+    }
+    /// 那一页里那张表单的 objectName（概览 / 启动 各有一张；文件管理那几页还没有）。
+    static QString formName(const QString &key) {
+        return QStringLiteral("instanceSettingsForm-") + key;
+    }
+
+    /// 摆到 @p key 那一栏上（等价于点左栏里那一条）。越界 / 认不出来的键 = 什么都不做。
+    /// 验证工程用它跳栏 —— 它比"数第几条"稳（键表将来插一条也不会错位）。
+    void showCategory(const QString &key);
+
+    /// 这三条给验证工程问几何用（认控件主要还是按 objectName）。
+    QListWidget *categoryList() const { return m_categoryList; }
+    QListWidget *subCategoryList() const { return m_subCategoryList; }
+    QStackedWidget *stack() const { return m_stack; }
+
+    // ---------- 概览栏那三行（图标 / 分组 / 置顶，2026-09-26）----------
+    //
+    // 它们和「实例名」是一类东西：说的都是**这个实例自己是谁**（叫什么、长什么样、摆在
+    // 哪儿），不是它的启动参数。所以归「概览」，不归「启动」。
+    //
+    // 【为什么用 setter 灌初值，而不是往构造函数塞参数】
+    // 这个东西有十几处构造点（ui_check 那一片 + mw_check + ui_shot），加三个参数等于让
+    // 每一处都改一行 —— 而其中绝大多数根本不关心图标和分组。构造函数只收"这一页一定
+    // 要有的东西"，可选的那几样走 setter：和 MainWindowUI::setFolderRows() /
+    // setGroupPickHandler() 是同一个套路。
+    //
+    // 【出参：控件的值就是结果（图标那一行是唯一的例外）】
+    // 分组和置顶照旧"现场读控件"。图标那一行有十档（默认 + 八个内置 + 本地那张），其中
+    // **「本地图片」这一档没有任何一个控件能表示它**（它是一张从盘上读来的图，不是一个
+    // 勾选状态），所以这一行的当前值落在 m_iconChoice 里，八个按钮只是它的一幅画。
+    // 这是全页唯一一处影子状态，别的每一行都还是"控件的值就是结果"。
+
+    /// 这个实例的目录（绝对路径，`versions/<实例名>`）。图标那一行的预览要读里面的
+    /// icon.png，文件管理那八页往后也要用它。
+    ///
+    /// NOTE: 必须在 setIcon() **之前**调 —— 「本地图片」那一档的预览就是从这个目录下
+    ///       那份 icon.png 读出来的（见 AppPaths::versionIconPath()）。
+    void setInstanceDir(const QString &dir);
+
+    /// 图标预览那一格的边长（像素）。**外面要按这个边长把图解好递进来** —— 递一张 16×16 的
+    /// 进来会被放大成一团糊（那几张方块是像素画，而用户挑的照片本来就有的是像素）。
+    static int iconPreviewSize();
+
+    /// 图标那一行的初值。
+    /// @param icon wtfml.meta 里那个 icon 键的原文（空 = 默认）。
+    /// @param defaultMark 「默认」那一档画什么。**由调用方算好递进来**：它取决于这个实例
+    ///        的版本分类 / 加载器（见 MainWindow::instanceRowMark()），而 ui/ 够不着那个
+    ///        判断（本文件不 include 任何 src/ 下的头）。
+    /// @param localMark 「本地图片」那一档现在长什么样（调用方把实例目录下那份 icon.png
+    ///        读出来递进来；没有那份文件、或者它读不动，给一张空图 —— 那一档会自动退回
+    ///        defaultMark，预览是给人看的，空着一块方格比"显示上一张"更让人以为选上了）。
+    ///
+    /// NOTE: 三张图都由调用方解好，这一层不碰盘 —— 它只在用户**刚挑了一张新图**的时候
+    ///       读那个路径（那一下它手上只有一条路径，见 pickedIconPath()）。
+    void setIcon(const QString &icon, const QPixmap &defaultMark,
+                 const QPixmap &localMark = QPixmap());
+
+    /// 分组那一行的候选项。
+    /// @param groups **组名 → 组 id**，按用户在「分组设置」里排的顺序。
+    ///        第一项「未分组」由这一层自己加在最前面（它的 id 是空串），调用方不用管。
+    /// @param currentGroupId 现在归在哪一组（空 = 未分组）。
+    ///
+    /// NOTE: 传 (名字, id) 成对而不是只传一串 id：组名用户可以改、id 才是身份，而这一页
+    ///       只负责**显示** —— 名字从哪来（读盘？显示格式？）是调用方的事。
+    /// NOTE: 认不出来的 currentGroupId（那一组刚被删掉）落在「未分组」上 —— 和实例树那边
+    ///       「组被删之后它自然落到未分组」是同一条规矩，不为它写清理代码。
+    void setGroupChoices(const QList<QPair<QString, QString>> &groups, const QString &currentGroupId);
+
+    /// 置顶那一行的初值。
+    /// @param pinned 这个实例现在在不在置顶组里。
+    /// @param pinnedGroupId 置顶组是哪一组。**勾上时下拉框跟着挪到它上面并禁用** —— 置顶
+    ///        决定了它归在哪一组，那一格这时候说什么都不作数（见 .cpp 里 applyPinState()）。
+    ///        空串 = 这一份 .minecraft 里没有置顶组（用户把它删了）：那时候勾选框照旧能勾，
+    ///        但下拉框不动也不禁用 —— 勾上这一下真的什么都不会发生
+    ///        （MainWindow::pinInstance() 直接返回），把它挪到一个不存在的地方只会更糊涂。
+    ///
+    /// NOTE: 必须在 setGroupChoices() **之后**调 —— 置顶要把下拉框挪到置顶组那一格上。
+    void setPinned(bool pinned, const QString &pinnedGroupId);
+
+    /// 图标那一行现在选的是什么：空串 = 默认、`builtin:<键>` = 内置候选、`local` = 本地那张。
+    /// 形态与 VersionManager::iconField() 逐字一致（那也是写进 wtfml.meta 的东西）。
+    QString iconChoice() const;
+
+    /// 「本地图片」那一档在 wtfml.meta 里写成什么（`local`）。
+    ///
+    /// NOTE: 拼它的地方是这一页，认它的地方在 MainWindow::instanceRowMark() ——
+    ///       这就是它有唯一出处的理由（和 VersionIcons::iconKeyFromValue() 同一个道理）。
+    static QString localIconValue() { return QStringLiteral("local"); }
+
+    /// 用户从盘上挑的那张图的路径（没挑过 = 空）。
+    ///
+    /// NOTE: 挑完**不在这里**拷走 —— 拷进实例目录是调用方在用户按「确定」之后的事
+    ///       （MainWindow::applyInstanceSettings()）。摆好控件就动盘的话，用户按「取消」
+    ///       之后磁盘上会多出一个他没要的文件，而那正是"取消 = 磁盘原样"要防的。
+    QString pickedIconPath() const;
+
+    /// 分组那一行选的是哪一组（空串 = 未分组）。判据是那一格的 **userData**、不是文字 ——
+    /// 组名会因为改名 / 换语言而变。
+    QString chosenGroupId() const;
+
+    /// 置顶那一行勾没勾。
+    bool pinned() const;
+
     // ---------- 控件的 objectName ----------
     // 验证工程靠这些名字认控件，别改回按文字去认（文字会随全局值变）。
     /// 某一项的「跟随全局」/「自定义」单选钮。@param field 见下面那五个常量。
@@ -174,10 +344,52 @@ public:
     static QString warnJavaMismatchCheckName() {
         return QStringLiteral("instanceWarnJavaMismatchCheck");
     }
-    /// 「实例名」那一格（改名）。**它在最上面一行**：它改的是这个实例的身份，别的几项
-    /// 改的都是它的启动参数 —— 先看清改的是哪一个，再谈别的。
+    /// 「实例名」那一格（改名）。**它在「概览」栏的第一行**（2026-09-26 分栏之前它在整页
+    /// 最上面）：它改的是这个实例的身份，别的几项改的都是它的启动参数 —— 先看清改的是
+    /// 哪一个，再谈别的。打开对话框默认停在「概览」，所以它还是第一眼看到的那一格。
     static QString instanceNameEditName() { return QStringLiteral("instanceNameEdit"); }
     static QString instanceNameText() { return QStringLiteral("实例名"); }
+
+    // ---- 概览栏那三行（见上面 setIcon 那一段）----
+    /// 图标那一行的预览（一张固定边长的图，当前选的是哪一张就画哪一张）。
+    static QString iconPreviewName() { return QStringLiteral("instanceIconPreview"); }
+    /// 第 @p index 张内置候选那颗按钮（下标见 VersionIcons::iconCandidateKeys()）。
+    static QString iconCandidateButtonName(int index) {
+        return QStringLiteral("instanceIconCandidate%1").arg(index);
+    }
+    /// 「选一张图片…」（开的是 Windows 自己的文件选择框）。
+    static QString iconPickButtonName() { return QStringLiteral("instanceIconPickButton"); }
+    /// 「恢复默认」。
+    static QString iconResetButtonName() { return QStringLiteral("instanceIconResetButton"); }
+    /// 分组那一行那个下拉框（每一格的 **userData** 是组 id，空串 = 未分组）。
+    static QString groupComboName() { return QStringLiteral("instanceGroupCombo"); }
+    /// 置顶那个勾选框。
+    static QString pinCheckName() { return QStringLiteral("instancePinCheck"); }
+
+    static QString iconRowText() { return QStringLiteral("图标"); }
+    static QString groupRowText() { return QStringLiteral("分组"); }
+    static QString pinRowText() { return QStringLiteral("置顶"); }
+    /// 置顶那个勾选框上的字。
+    static QString pinCheckText() { return QStringLiteral("置顶（固定在最前面）"); }
+    /// 三个按钮上的字。
+    static QString iconPickText() { return QStringLiteral("选一张图片…"); }
+    static QString iconResetText() { return QStringLiteral("恢复默认"); }
+    /// 八个内置候选在界面上叫什么（顺序与 VersionIcons::iconCandidateKeys() 一一对应；
+    /// 后四个故意同一个字：加载器名在设置页 / 安装页里就叫这个）。
+    static QStringList iconCandidateTexts();
+    /// 分组下拉框里第一项那两个字。**唯一出处是 MainWindowUI::ungroupedGroupText()**，
+    /// 这里只是把它转出来（本文件不 include MainWindowUI.hpp，所以实现写在 .cpp 里）。
+    static QString ungroupedGroupText();
+    /// 图标那一行下面那句话。
+    static QString iconHint() {
+        return QStringLiteral("挑一张图当这个实例的标志。它会出现在实例树上，以及底栏"
+                              "「正在运行」那一行里。");
+    }
+    /// 置顶那一行下面那句话（说明勾掉之后会落到哪）。
+    static QString pinHint() {
+        return QStringLiteral("置顶的实例固定在这一组列表的最前面。取消置顶之后它会回到置顶前"
+                              "所在的那一组。");
+    }
     /// 那一格下面那句解释（**唯一一处**说清"改这里 = 改磁盘上的目录名"）。
     static QString instanceNameHint() {
         return QStringLiteral("改这里就是给这个实例改名：它会成为 versions 下那个目录的名字，"
@@ -236,6 +448,35 @@ private:
     ///       再往下就是空指针解引用 —— 这张表里每一行都写着那一句，所以收口成一个函数。
     QHBoxLayout *choiceRowOf(const QString &field) const;
 
+    /// 往堆叠页里加一页（objectName = `panelName(key)`），返回那一页自己。
+    /// **加进去的顺序必须就是 pageCount() 那个顺序**（有一条断言钉着）。
+    QWidget *addPage(const QString &key);
+
+    /// 在 @p page 里加一张「左名右控件」的两列表格（3:7，和设置页栏内那一层同一套），
+    /// 返回那张表格。控件加进它自己的 `formName(key)` 子控件里。
+    ///
+    /// NOTE: 中间夹一层 form（而不是直接把表格挂在页上）是为了以后要往页里加表格之外的
+    ///       东西（一句话说明、一颗按钮）时不用把表格拆开 —— 设置页那一层就是这个形状。
+    QGridLayout *addForm(const QString &key, QWidget *page);
+
+    /// 左栏那两条导航列的宽度：按最长的一条条目算（`sizeHintForColumn`），不写死像素
+    /// —— 换字体 / 换样式就错。再加一点左右余量，条目的字离边太近看着像被切了。
+    static int navListWidth(const QListWidget *list);
+
+    /// 左栏选中第 @p row 条之后要做的事：换页 + （只有「文件管理」才）露出中栏那一列。
+    /// 越界 = 什么都不做（见 .cpp 里那段 NOTE）。
+    void applyCategory(int row);
+    /// 中栏选中第 @p row 条之后要做的事：把右栏换到那一页。
+    void applyFilePage(int row);
+
+    /// 把图标那一行按 m_iconChoice 重画一遍：预览换图、八颗按钮的勾选状态跟着换。
+    /// 唯一出处是 m_iconChoice —— 按钮和预览都是它的画（见上面那段"影子状态"）。
+    void refreshIconRow();
+
+    /// 按置顶那个勾选框**现在**的状态把分组那一格摆好（勾着 = 挪到置顶组上并禁用）。
+    /// setPinned() 和那个勾选框的 toggled 都走这一处，免得两条路上摆得不一样。
+    void applyPinState();
+
     /// 全局那一层的值，用来写「跟随全局（当前 …）」。构造之后不再变。
     GlobalValues m_global;
 
@@ -243,8 +484,40 @@ private:
     /// 所以它得留着给人问（见 titleText / setTitleVisible）。
     QLabel *m_titleLabel = nullptr;
 
-    /// 「实例名」那一格（见 instanceName()）。
+    // ---------- 三栏那几件（见 categoryKeys() 上面那一段）----------
+    /// 左栏那三条大类。当前行 = 界面上的当前栏。
+    QListWidget *m_categoryList = nullptr;
+    /// 中栏那八条小类。**只在「文件管理」那一栏里显示** —— 其余两栏里它是隐藏的，
+    /// 但 `currentRow` 留着（切走再切回来还停在刚才那一页）。
+    QListWidget *m_subCategoryList = nullptr;
+    /// 右栏那份堆叠页，下标见 pageCount() / filePageFirstIndex()。
+    QStackedWidget *m_stack = nullptr;
+
+    /// 「实例名」那一格（见 instanceName()）。现在长在「概览」栏里。
     QLineEdit *m_instanceNameEdit = nullptr;
+
+    // ---- 概览栏那三行（见上面 setIcon 那一段）----
+    /// 这个实例的目录（setInstanceDir()）。图标那一行的预览要读它下面的 icon.png。
+    QString m_instanceDir;
+    /// 图标那一行**唯一的出处**：空串 / `builtin:<键>` / `local`。
+    ///
+    /// NOTE: 这是全页唯一一处影子状态，「本地图片」那一档没有控件能表示它（理由见上面
+    ///       setInstanceDir() 上面那一段）。八颗按钮和那张预览都由 refreshIconRow()
+    ///       照着它画。
+    QString m_iconChoice;
+    /// 用户刚挑的那张图在盘上的原处（没挑过 = 空）。拷进实例目录是调用方的事。
+    QString m_pickedIconPath;
+    /// 「默认」和「本地那张」两档画什么。setIcon() 灌进来，之后不变。
+    QPixmap m_defaultIconMark;
+    QPixmap m_localIconMark;
+    /// 那一张预览。边长固定（见 .cpp 里 kIconPreviewSize）—— 换图时整行不该跟着跳。
+    QLabel *m_iconPreview = nullptr;
+    /// 八颗候选按钮，下标与 VersionIcons::iconCandidateKeys() 一一对应。
+    QList<QToolButton *> m_iconButtons;
+    QComboBox *m_groupCombo = nullptr;
+    QCheckBox *m_pinCheck = nullptr;
+    /// 置顶组是哪一组（setPinned() 灌进来）。空串 = 这一份 .minecraft 里没有置顶组。
+    QString m_pinnedGroupId;
     QLineEdit *m_javaPathEdit = nullptr;
     QSpinBox *m_memoryMaxSpin = nullptr;
     QSpinBox *m_memoryMinSpin = nullptr;

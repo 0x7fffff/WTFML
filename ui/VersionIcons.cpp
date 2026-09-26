@@ -1,5 +1,6 @@
 #include "VersionIcons.hpp"
 
+#include <QFileInfo>
 #include <QHash>
 #include <QImage>
 #include <QPainter>
@@ -309,6 +310,75 @@ QPixmap VersionIcons::luckyBlock(int size) {
             }
         }
         return scaledBlock(img, size);
+    });
+}
+
+QStringList VersionIcons::iconCandidateKeys() {
+    // 前四个走 versionChannelMark() 那个顺序（正式版 / 快照版 / 远古版 / 愚人节版），
+    // 后四个走 loaderMark() 那个顺序（Fabric / Forge / NeoForge / OptiFine）。
+    // 两张表各自的唯一出处都在它们自己的注释里，这里只是把两组键拼起来。
+    return {QStringLiteral("grass"),    QStringLiteral("snowy"), QStringLiteral("dirt"),
+            QStringLiteral("lucky"),    QStringLiteral("fabric"), QStringLiteral("forge"),
+            QStringLiteral("neoforge"), QStringLiteral("optifine")};
+}
+
+QPixmap VersionIcons::iconCandidateMark(int index, int size) {
+    if (index < 0 || index >= iconCandidateKeys().size()) {
+        return grassBlock(size);  // 越界 = 认不出来 = 当原版（和 loaderMark 一个规矩）
+    }
+    if (index < 4) {
+        return versionChannelMark(index, size);
+    }
+    return loaderMark(index - 4, size);
+}
+
+QPixmap VersionIcons::iconMarkForKey(const QString &key, int size) {
+    const int index = iconCandidateKeys().indexOf(key);
+    if (index < 0) {
+        return QPixmap();  // 认不出来：空图，让调用方自己决定退回什么
+    }
+    return iconCandidateMark(index, size);
+}
+
+QString VersionIcons::iconKeyFromValue(const QString &value) {
+    const QString prefix = QStringLiteral("builtin:");
+    if (!value.startsWith(prefix)) {
+        return QString();
+    }
+    return value.mid(prefix.size());
+}
+
+QString VersionIcons::iconValueForKey(const QString &key) {
+    return QStringLiteral("builtin:") + key;
+}
+
+QPixmap VersionIcons::fileMark(const QString &path, int size) {
+    if (path.isEmpty() || size <= 0) {
+        return QPixmap();
+    }
+    const QFileInfo info(path);
+    if (!info.exists()) {
+        return QPixmap();  // 文件没了：空图（调用方退回默认那张）
+    }
+    const QString key = QStringLiteral("file/%1/%2/%3")
+                            .arg(path)
+                            .arg(info.lastModified().toMSecsSinceEpoch())
+                            .arg(size);
+    return cached(key, [path, size]() {
+        const QPixmap source(path);
+        if (source.isNull()) {
+            // 认不出来的格式（用户挑了个 .txt）或半截文件：**空图**，不是一张黑图。
+            // 调用方退回默认那张，用户看到的是"它没生效"，而不是"我的图变成黑的了"。
+            return QPixmap();
+        }
+        // 先按长宽比缩，再补成方的：树上那一格是方的，直接把一张扁图塞进去会被拉变形。
+        const QPixmap scaled =
+            source.scaled(size, size, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        QPixmap canvas(size, size);
+        canvas.fill(Qt::transparent);
+        QPainter p(&canvas);
+        p.drawPixmap((size - scaled.width()) / 2, (size - scaled.height()) / 2, scaled);
+        return canvas;
     });
 }
 

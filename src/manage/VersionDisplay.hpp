@@ -65,6 +65,19 @@ struct VersionDisplayParts {
     /// 为空表示"跟随全局默认"。这就是以后"分开实例管理时自行调整特定实例的名称展示"
     /// 的挂点——现在没有任何代码会填它，`displayParts()` 已经会解析它。
     std::optional<VersionNameOptions> nameFormatOverride;
+    /// 这个实例自定义的图标，对应 wtfml.meta 里可选的 "icon"。为空表示"用默认那张"
+    /// （按版本分类 / 加载器算出来 —— 见 MainWindow::instanceRowMark()）。
+    ///
+    /// 取值是带前缀的串，三种形态（唯一出处见 VersionManager::iconField()）：
+    ///   - 空串              → 默认
+    ///   - `builtin:<候选键>` → 内置候选里那一张（键见 VersionIcons::iconCandidateKeys()）
+    ///   - `local`           → 用实例目录下那份 icon.png（AppPaths::versionIconPath()）
+    ///
+    /// NOTE: 放在这个结构里而不是让每个调用方自己去 versionMeta() 里掏：`displayParts()`
+    ///       已经把这个文件读过一遍了（它就在读 name / realVersion / loaderName），再有
+    ///       一个地方单独去读一次，实例树每一行就多一次文件打开。图标和显示名是同一次
+    ///       读取的两半。
+    QString icon;
 };
 
 /**

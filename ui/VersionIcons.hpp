@@ -22,6 +22,8 @@
 
 #include <QColor>
 #include <QPixmap>
+#include <QString>
+#include <QStringList>
 
 /// 版本树 / 加载器那几行前面的小图标。
 namespace VersionIcons {
@@ -59,6 +61,51 @@ QPixmap versionChannelMark(int channelIndex, int size);
 /// （0 Fabric / 1 Forge / 2 NeoForge / 3 OptiFine），第 4 个（「不装（纯原版）」）
 /// 和越界的下标都给草方块 —— 那条路装的就是原版。
 QPixmap loaderMark(int index, int size);
+
+// ---------- 实例图标（2026-09-26）----------
+//
+// 用户原话：「使用实际的那几个 mc 草块 / fabric 布料等的图片文件，不用担心侵权问题，
+// 同时允许用户自主上传」。所以"给一个实例挑图标"这件事有两半：**八个内置候选**（就是
+// 上面那两排字形）和**用户自己挑的一张图**（那一半在 MainWindow 里，落成实例目录下的
+// icon.png）。
+//
+// NOTE: 这几个键**要写进 wtfml.meta**（见 VersionManager::iconField()），所以它们是稳定
+//       身份 —— 界面上的名字（"草方块""Fabric"）会随文案改，键不会。用户挑过的实例
+//       在下次改文案时必须还认得出自己挑的是哪一张。
+// NOTE: 这正是用户说的那批"真图"将来的挂点：换成 .qrc 里的图片时，**变的只是
+//       iconCandidateMark() 里那一层**（键和候选表一个字都不动），盘上已经写好的
+//       wtfml.meta 因此一个字节都不用改。
+
+/// 八个内置候选的键，**顺序就是界面上从左到右、从上到下的顺序**。
+/// 前四个是版本分类那四张（正式版草方块 / 快照版覆雪草块 / 远古版土块 / 愚人节版幸运
+/// 方块），后四个是四个加载器的标志 —— 和实例树上那两处用的是同一批字形。
+QStringList iconCandidateKeys();
+
+/// 按下标取候选图。越界 = 草方块（和 loaderMark() 越界那条一个规矩：认不出来给原版）。
+QPixmap iconCandidateMark(int index, int size);
+
+/// 按**键**取候选图。认不出来的键（包括空串）给一张**空** pixmap —— 调用方要把"认不出来"
+/// 和"认出来是草方块"分开（前者要退回默认那张，后者就是草方块本身）。
+QPixmap iconMarkForKey(const QString &key, int size);
+
+/// 把 wtfml.meta 里那个 icon 值里的内置键剥出来（`builtin:<键>` → `<键>`）。
+/// 不是内置那一档（空串 / `local` / 别的什么）给空串。
+///
+/// NOTE: 前缀这一句话只有这一处 —— 拼它的地方（实例设置对话框）和认它的地方（实例树）
+///       各写一遍字面量的话，写错的形态是**静默失效**：树上的图标安安静静地不换。
+QString iconKeyFromValue(const QString &value);
+
+/// 把候选键拼成写进 wtfml.meta 的那个值（`builtin:<键>`）。
+QString iconValueForKey(const QString &key);
+
+/// 把盘上的一张图读成图标那一格要的样子：**保持长宽比**缩到 @p size 见方，再补成正方形
+/// （四周透明）。读不动（文件不在 / 不是图 / 半截文件）给一张空图，调用方自己决定退回什么。
+///
+/// NOTE: 这一层**按 (路径, 修改时间, 边长) 缓存**，是必需的而不是优化 —— 实例树每一行都
+///       要问一次、每次刷新整棵树重建一遍，用户挑的那张图会被解成百上千遍。带上修改时间
+///       是为了"同一个文件名换了内容"这一档：只按路径键住的话，用户第二次挑一张同名的图
+///       会一直看到第一次那张。
+QPixmap fileMark(const QString &path, int size);
 
 /// 最右边那个箭头：收起时朝右（>）、展开时朝下（V）。
 /// @param expanded 这一条现在是不是展开的。
