@@ -41,6 +41,8 @@
 #include <QStringList>
 #include <optional>
 
+class InstanceFilesPage;
+
 class QCheckBox;
 class QComboBox;
 class QGridLayout;
@@ -54,6 +56,7 @@ class QRadioButton;
 class QSpinBox;
 class QStackedWidget;
 class QToolButton;
+class QTreeWidget;
 class QVBoxLayout;
 class QWidget;
 
@@ -215,6 +218,43 @@ public:
     QListWidget *subCategoryList() const { return m_subCategoryList; }
     QStackedWidget *stack() const { return m_stack; }
 
+    // ---------- 文件管理那八页（2026-09-26，见上面 filePageKeys()）----------
+    //
+    // 八页分成三种形状：
+    //   - **快捷方式**：一排按钮，每颗开一个文件夹。没有目录可列。
+    //   - **服务器列表**：读 servers.dat，一行一个服务器。**它读不了盘**（那一层不 include
+    //     src/），所以列表是调用方解析好递进来的（setServerList()）。
+    //   - 中间那六页：同一个 InstanceFilesPage，只是喂进去的目录不同（见 setFileDirs()）。
+
+    /// 这一页暂时用不上：**装了 Iris 或者 OptiFine 才谈得上光影包**。
+    /// @param usable false 时那一页换成一句解释（"要装 Iris 或者 OptiFine"）。
+    ///
+    /// NOTE: 判据由调用方算 —— 它要读 wtfml.meta 的加载器名、还要扫 mods/ 里有没有
+    ///       `iris*.jar`，而 ui/ 够不着这两样（见 .hpp 开头那段"本文件不 include 任何
+    ///       src/ 下的头"）。这一层只负责把结果画出来。
+    void setShaderUsable(bool usable);
+
+    /// 同上：**装了 Litematica 才谈得上原理图**（那是 Litematica 自己的目录）。
+    void setSchematicUsable(bool usable);
+
+    /// 服务器列表那一页的内容。
+    /// @param servers 名字 → 地址，按文件里原来的顺序。
+    /// @param problem 读不动的原因（空串 = 读到了）。
+    ///
+    /// NOTE: 「读到了但是一条都没有」和「没读到」要分开给 —— 前者那一页说"还没加过服务器"，
+    ///       后者说清楚为什么没读到（像版本树那条"问到了就是没有"与"列表没取到"）。
+    void setServerList(const QList<QPair<QString, QString>> &servers, const QString &problem);
+
+    /// 把六页目录列表**重新列一遍**。MainWindow 动过盘（删了 / 改了名）之后喊它。
+    void refreshFilePages();
+
+    /// 给验证工程用的访问器：某一页那个文件列表控件（键见 filePageKeys()）。
+    InstanceFilesPage *filesPage(const QString &key) const;
+    QList<QWidget *> shortcutButtons() const { return m_shortcutButtons; }
+    QTreeWidget *serverTree() const { return m_serverTree; }
+    QLabel *serverNotice() const { return m_serverNotice; }
+    QPushButton *serverRefreshButton() const { return m_serverRefresh; }
+
     // ---------- 概览栏那三行（图标 / 分组 / 置顶，2026-09-26）----------
     //
     // 它们和「实例名」是一类东西：说的都是**这个实例自己是谁**（叫什么、长什么样、摆在
@@ -232,12 +272,24 @@ public:
     // 勾选状态），所以这一行的当前值落在 m_iconChoice 里，八个按钮只是它的一幅画。
     // 这是全页唯一一处影子状态，别的每一行都还是"控件的值就是结果"。
 
-    /// 这个实例的目录（绝对路径，`versions/<实例名>`）。图标那一行的预览要读里面的
-    /// icon.png，文件管理那八页往后也要用它。
+    /// 这个实例的目录（绝对路径，`versions/<实例名>`）。
     ///
-    /// NOTE: 必须在 setIcon() **之前**调 —— 「本地图片」那一档的预览就是从这个目录下
-    ///       那份 icon.png 读出来的（见 AppPaths::versionIconPath()）。
+    /// NOTE: 它和「概览」栏那行图标**没有关系** —— 那一行的预览是调用方把图解好递进来的
+    ///       （见 setIcon()：实例目录下那份 icon.png 由 MainWindow 读，ui/ 够不着 AppPaths）。
+    ///       这一份是「文件管理」用的：快捷方式那一页的「版本目录」开的就是它。
     void setInstanceDir(const QString &dir);
+
+    /// 「文件管理」那几页各看哪个目录：**键 → 绝对路径**。
+    ///
+    /// 一共**八条**：中间那六页各一条（`mod` / `resourcepack` / `datapack` / `shader` /
+    /// `schematic` / `save`），外加两个**只有快捷方式那一页用得上**的（`screenshots` /
+    /// `logs` —— 它们没有自己的页）。`shortcut` 和 `server` 两个键不用给：前者开的是
+    /// setInstanceDir() 那一份（`dir`），后者给的是**解析好的一份列表**（见 setServerList()）。
+    ///
+    /// NOTE: 路径**由调用方算好递进来**，这一层不自己拼 `<实例目录>/mods` —— 那几个目录名
+    ///       是 MC 的约定，仓库里已经有唯一一份出处（src/download/ResourceCatalog 的
+    ///       folderForKind()，整合包那一路也照着它写），ui/ 抄第二份迟早会跟它对不上。
+    void setFileDirs(const QHash<QString, QString> &dirs);
 
     /// 图标预览那一格的边长（像素）。**外面要按这个边长把图解好递进来** —— 递一张 16×16 的
     /// 进来会被放大成一团糊（那几张方块是像素画，而用户挑的照片本来就有的是像素）。
@@ -386,6 +438,55 @@ public:
                               "会跳过。要有下载或者安装任务在跑时用不了。");
     }
 
+    // ---- 文件管理那八页的文案与 objectName（2026-09-26）----
+
+    /// 快捷方式那一页的九颗按钮：**两张按下标对齐的表**（按钮上的字 / 路径键）。
+    /// 路径键见 setFileDirs() 与 setInstanceDir()。
+    ///
+    /// NOTE: 顺序是排过的（用户原话「前面这些按照合理顺序排，我这个不合理」）：先是**这个
+    ///       实例自己**（版本目录），再是**游戏玩出来的**那两样（存档、截图），然后是
+    ///       **往里放东西**的那一串（模组 → 资源包 → 数据包 → 光影包 → 原理图，和左栏那列
+    ///       小类同一个顺序），最后是**出事时去翻**的日志。
+    static QStringList shortcutTexts();
+    static QStringList shortcutPathKeys();
+    /// 快捷方式一排摆几颗（九颗正好三排）。
+    static int shortcutPerRow() { return 3; }
+    /// 第 @p index 颗快捷方式按钮。
+    static QString shortcutButtonName(int index) {
+        return QStringLiteral("instanceShortcutButton%1").arg(index);
+    }
+
+    /// 六页目录列表控件的 objectName。**面板本身仍叫 `panelName(key)`**（那是堆叠页里
+    /// 那一格的名字），这个是挂在他里面的列表控件。
+    static QString filesPageName(const QString &key) {
+        return QStringLiteral("instanceFilesPage-") + key;
+    }
+    /// 那一页底下那行说明（"数据包要自己搬进存档"这类）。
+    static QString filesHintName(const QString &key) {
+        return QStringLiteral("instanceFilesHint-") + key;
+    }
+    /// 第 @p key 那一页底下那行说明的正文。
+    static QString filesHint(const QString &key);
+    /// 第 @p key 那一页空着时那句话。
+    static QString filesEmptyText(const QString &key);
+
+    static QString serverTreeName() { return QStringLiteral("instanceServerTree"); }
+    static QString serverNoticeName() { return QStringLiteral("instanceServerNotice"); }
+    static QString serverRefreshButtonName() {
+        return QStringLiteral("instanceServerRefreshButton");
+    }
+    static QString serverRefreshText() { return QStringLiteral("刷新"); }
+    static QString serverNameColumnText() { return QStringLiteral("名称"); }
+    static QString serverAddressColumnText() { return QStringLiteral("地址"); }
+    static QString serverEmptyText() { return QStringLiteral("这个实例还没有加过服务器。"); }
+    /// 服务器名字那一格是空的的时候顶上什么字。servers.dat 里的 name 真能是空串。
+    static QString unnamedMark() { return QStringLiteral("（无名）"); }
+
+    /// 「光影包」那一页用不上时那句话（唯一出处，验证工程也按它核对）。
+    static QString shaderUnavailableText();
+    /// 「原理图」那一页用不上时那句话。
+    static QString schematicUnavailableText();
+
     static QString iconRowText() { return QStringLiteral("图标"); }
     static QString groupRowText() { return QStringLiteral("分组"); }
     static QString pinRowText() { return QStringLiteral("置顶"); }
@@ -477,6 +578,39 @@ signals:
      */
     void repairFilesRequested();
 
+    /**
+     * @brief 用户在一个文件夹上按了「打开」（快捷方式那九颗按钮，或者某一页的「打开文件夹」）。
+     *
+     * **这一层不自己开**：开目录是 QDesktopServices 的事，开不了要弹一句，而弹话的
+     * InlineMessage 每一个入口都要 OverlayHost —— 那个在 MainWindow 手里。
+     * @param path 要打开的目录（绝对路径）。
+     */
+    void openInstanceFolderRequested(const QString &path);
+
+    /**
+     * @brief 用户按了某一条行尾的「禁用」/「启用」。
+     *
+     * 加后缀还是去后缀**由接的人判**（看路径是不是以 `.disabled` 结尾就行，不用另一格数据）。
+     * 这一层连读都没读，所以它不知道那个文件现在是什么状态 —— 只有"用户点了这一条"。
+     * @param path 这一条**现在**的绝对路径。
+     */
+    void toggleInstanceFileRequested(const QString &path);
+
+    /**
+     * @brief 用户按了某一条行尾的「删除」。
+     *
+     * **"真的要删吗"那句由接的人问** —— 理由同上（这一层没有 OverlayHost）。
+     */
+    void deleteInstanceFileRequested(const QString &path);
+
+    /**
+     * @brief 用户按了服务器列表那一页的「刷新」。
+     *
+     * 那一页的内容是**解析好的结果**递进来的（setServerList()），重读一遍要碰 src/ 里的
+     * NBT 解析，所以只能由 MainWindow 接。
+     */
+    void refreshServerListRequested();
+
 private:
     /// 造一行「跟随全局 / 自定义 + 控件」。返回值是**整格**（档位行 + 提示），控件要加进
     /// 里面的「档位那一行」（`choiceRowOf()` 取），内存那两行整格禁用靠的就是这个返回值。
@@ -511,6 +645,10 @@ private:
     /// 中栏选中第 @p row 条之后要做的事：把右栏换到那一页。
     void applyFilePage(int row);
 
+    /// 在中栏那一条上挂（或者摘掉）「这一页为什么用不上」的 tooltip。
+    /// @param reason 空串 = 用得上（把 tooltip 摘掉）。见 setShaderUsable()。
+    void markPageUnusable(const QString &key, const QString &reason);
+
     /// 把图标那一行按 m_iconChoice 重画一遍：预览换图、八颗按钮的勾选状态跟着换。
     /// 唯一出处是 m_iconChoice —— 按钮和预览都是它的画（见上面那段"影子状态"）。
     void refreshIconRow();
@@ -542,13 +680,24 @@ private:
     /// 的默认文件名 —— 它一定是合法文件名（validateDirName 那一关挡过），而显示名不一定。
     QString m_instanceId;
 
-    // ---- 概览栏那三行（见上面 setIcon 那一段）----
-    /// 这个实例的目录（setInstanceDir()）。图标那一行的预览要读它下面的 icon.png。
+    // ---- 文件管理那八页（见上面 filePageKeys() / setFileDirs() 那两段）----
+    /// 这个实例的目录（setInstanceDir()）：快捷方式那一页的「版本目录」开的就是它。
     QString m_instanceDir;
+    /// 「文件管理」那几页各自的目录（见 setFileDirs()）：**页键 → 绝对路径**。
+    QHash<QString, QString> m_fileDirs;
+    /// 六页目录列表控件（键见 filePageKeys()）。refreshFilePages() 走它。
+    QHash<QString, InstanceFilesPage *> m_filesPages;
+    /// 快捷方式那一页那九颗按钮（顺序同 shortcutTexts()）。
+    QList<QWidget *> m_shortcutButtons;
+    QTreeWidget *m_serverTree = nullptr;
+    QLabel *m_serverNotice = nullptr;
+    QPushButton *m_serverRefresh = nullptr;
+
+    // ---- 概览栏那三行（见上面 setIcon 那一段）----
     /// 图标那一行**唯一的出处**：空串 / `builtin:<键>` / `local`。
     ///
     /// NOTE: 这是全页唯一一处影子状态，「本地图片」那一档没有控件能表示它（理由见上面
-    ///       setInstanceDir() 上面那一段）。八颗按钮和那张预览都由 refreshIconRow()
+    ///       setIcon() 上面那一段）。八颗按钮和那张预览都由 refreshIconRow()
     ///       照着它画。
     QString m_iconChoice;
     /// 用户刚挑的那张图在盘上的原处（没挑过 = 空）。拷进实例目录是调用方的事。

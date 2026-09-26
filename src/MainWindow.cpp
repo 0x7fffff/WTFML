@@ -13,6 +13,7 @@
 
 #include "..\ui\GroupDialog.hpp"
 #include "..\ui\InstanceGroupDelegate.hpp"
+#include "..\ui\InstanceFilesPage.hpp"
 #include "..\ui\InstanceSettingsDialog.hpp"
 #include "..\ui\JavaMismatchDialog.hpp"
 #include "..\ui\AccountSkinDialog.hpp"
@@ -105,6 +106,8 @@
 #include "settings/GlobalJavaSettings.hpp"
 #include "settings/LauncherSettings.hpp"
 #include "util/AppPaths.hpp"
+// 「服务器列表」那一页要读 servers.dat（NBT，老版本还是 gzip 过的）。
+#include "util/NbtUtil.hpp"
 #include "util/SystemMemory.hpp"
 // 「导入整合包…」要读压缩包根目录里的 modrinth.index.json（ZipUtil::readEntry）。
 #include "util/ZipUtil.hpp"
@@ -6823,6 +6826,18 @@ void MainWindow::openInstanceSettings(const QString &versionId) {
     const QString pinnedGroupId = m_groupStore->pinnedGroupId();
     dialog.setPinned(!pinnedGroupId.isEmpty() && groupAtOpen == pinnedGroupId, pinnedGroupId);
 
+    // ---------- 「文件管理」那八页的目录与可用性（2026-09-26）----------
+    //
+    // **所有路径都由这一层算好递进去**：那几个目录名是 MC 的约定，出处是
+    // ResourceCatalog::folderForKind()（见 instanceFileDirs()），ui/ 不抄第二份。
+    dialog.setInstanceDir(AppPaths::versionDir(versionId));
+    dialog.setFileDirs(instanceFileDirs(versionId));
+    // 「光影包」和「原理图」这两页要**装了东西才有意义** —— 判据得读 wtfml.meta 的加载器名
+    // 和扫 mods/ 目录，两样都在这一层。
+    dialog.setShaderUsable(instanceShaderUsable(versionId));
+    dialog.setSchematicUsable(instanceHasMod(versionId, QStringLiteral("litematica")));
+    loadServerList(&dialog, versionId);
+
     // 两条**动作**信号（2026-09-26）：这一页里那两颗按钮（导出启动脚本 / 补全文件）不自己
     // 干活 —— ui/ 那边不 include src/、也不碰磁盘，"这一次到底执行什么"只有这一层知道
     // （authManager / versionManager / launcherManager 都在这儿）。
@@ -6837,6 +6852,38 @@ void MainWindow::openInstanceSettings(const QString &versionId) {
             [this, versionId](const QString &path) { exportLaunchScript(versionId, path); });
     connect(&dialog, &InstanceSettingsDialog::repairFilesRequested, this,
             [this, versionId]() { repairInstanceFiles(versionId); });
+
+    // 「文件管理」那三发（2026-09-26）：开文件夹 / 启用·禁用一条 / 删一条。
+    //
+    // NOTE: 这两条**要多捕获一个 &dialog** —— 动完盘得让那几页重列一遍（不然删掉的那一行
+    //       还在屏幕上，用户会以为没删掉）。dialog 是栈上的局部对象、这一句又写在
+    //       execPage 之前，所以引用一直活着；那几发也只在 execPage 期间可能发生。
+    connect(&dialog, &InstanceSettingsDialog::openInstanceFolderRequested, this,
+            [this](const QString &path) {
+                if (path.isEmpty()) {
+                    return;
+                }
+                // 先建出来再开：新实例的 saves/ screenshots/ 多半还不存在，而这九颗按钮
+                // 就是给"我要往里面放东西"用的 —— 在这儿弹一句"这个文件夹不在盘上"
+                // 正好挡住用户要做的事。建一个空目录也正是游戏第一次跑起来会做的事。
+                QDir().mkpath(path);
+                onFolderOpenRequested(path);
+            });
+    connect(&dialog, &InstanceSettingsDialog::toggleInstanceFileRequested, this,
+            [this, &dialog](const QString &path) {
+                if (toggleInstanceFile(path)) {
+                    dialog.refreshFilePages();
+                }
+            });
+    connect(&dialog, &InstanceSettingsDialog::deleteInstanceFileRequested, this,
+            [this, &dialog](const QString &path) {
+                if (deleteInstanceFile(path)) {
+                    dialog.refreshFilePages();
+                }
+            });
+    // 服务器列表那一页的「刷新」：重读一遍 servers.dat 再递进去。
+    connect(&dialog, &InstanceSettingsDialog::refreshServerListRequested, this,
+            [this, versionId, &dialog]() { loadServerList(&dialog, versionId); });
 
     // 这一页盖在内容区上（标签栏和底栏都留着），左上角那颗返回箭头 = 取消（见
     // OverlayHost::execPage）。标题写在页眉上，所以这一页自己那行标题要收起来 ——
@@ -6866,6 +6913,144 @@ void MainWindow::openInstanceSettings(const QString &versionId) {
         targetId = newName;
     }
     applyInstanceSettings(targetId, dialog);
+}
+
+// ---------- 实例设置「文件管理」那八页（见 .hpp 里那一段）----------
+
+QHash<QString, QString> MainWindow::instanceFileDirs(const QString &versionId) const {
+    const QString root = AppPaths::versionDir(versionId);
+    QHash<QString, QString> dirs;
+
+    // 能下载的那四类走 ResourceCatalog 那张表 —— 那是目录名的**唯一出处**
+    // （整合包那一路 curseForgeFilePath() 也照它写，注释里点名要求一致）。
+    const QList<QPair<QString, ResourceCatalog::Kind>> downloadable = {
+        {QStringLiteral("mod"), ResourceCatalog::Kind::Mod},
+        {QStringLiteral("resourcepack"), ResourceCatalog::Kind::ResourcePack},
+        {QStringLiteral("datapack"), ResourceCatalog::Kind::DataPack},
+        {QStringLiteral("shader"), ResourceCatalog::Kind::Shader},
+    };
+    for (const QPair<QString, ResourceCatalog::Kind> &entry : downloadable) {
+        dirs.insert(entry.first,
+                    root + QLatin1Char('/') + ResourceCatalog::folderForKind(entry.second));
+    }
+
+    // 这四样下载页里没有对应的"类"（没有"存档"这一类资源），目录名直接写在这儿。
+    // 「原理图」用的是 Litematica 的默认目录名；另外三个是游戏自己建的。
+    const QList<QPair<QString, QString>> plain = {
+        {QStringLiteral("schematic"), QStringLiteral("schematics")},
+        {QStringLiteral("save"), QStringLiteral("saves")},
+        {QStringLiteral("screenshots"), QStringLiteral("screenshots")},
+        {QStringLiteral("logs"), QStringLiteral("logs")},
+    };
+    for (const QPair<QString, QString> &entry : plain) {
+        dirs.insert(entry.first, root + QLatin1Char('/') + entry.second);
+    }
+    return dirs;
+}
+
+bool MainWindow::instanceHasMod(const QString &versionId, const QString &namePrefix) const {
+    const QString modsDir =
+        AppPaths::versionDir(versionId) + QLatin1Char('/') +
+        ResourceCatalog::folderForKind(ResourceCatalog::Kind::Mod);
+    // 只认 `.jar`：被禁用的那些现在叫 `.jar.disabled`，扫不到 —— 那正是禁用的意思。
+    const QStringList jars = QDir(modsDir).entryList({QStringLiteral("*.jar")}, QDir::Files);
+    for (const QString &jar : jars) {
+        if (jar.startsWith(namePrefix, Qt::CaseInsensitive)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool MainWindow::instanceShaderUsable(const QString &versionId) const {
+    // 两条路：OptiFine 是**加载器**（它自己就认 shaderpacks/），Iris 是一个普通模组。
+    // 加载器名比对的基准走 VersionManager::loaderDisplayName()，不写一遍字面量 ——
+    // 写进 wtfml.meta 的 `loaderName` 就是它给的（见 loaderDisplayName 那段）。
+    const QString loader = m_versionManager->displayParts(versionId).loaderName;
+    if (loader == VersionManager::loaderDisplayName(VersionManager::LoaderKind::OptiFine)) {
+        return true;
+    }
+    return instanceHasMod(versionId, QStringLiteral("iris"));
+}
+
+void MainWindow::loadServerList(InstanceSettingsDialog *dialog, const QString &versionId) const {
+    if (dialog == nullptr) {
+        return;
+    }
+    QList<NbtUtil::ServerEntry> entries;
+    QString problem;
+    NbtUtil::readServerList(AppPaths::versionDir(versionId) + QStringLiteral("/servers.dat"),
+                            &entries, &problem);
+
+    QList<QPair<QString, QString>> servers;
+    servers.reserve(entries.size());
+    for (const NbtUtil::ServerEntry &entry : entries) {
+        servers.append(qMakePair(entry.name, entry.address));
+    }
+    // 「文件不在盘上」（Missing）不算 problem：那一页会说「这个实例还没有加过服务器。」
+    // —— 那正是实话。只有"文件在但是读不动"才把原因递过去。
+    dialog->setServerList(servers, problem);
+}
+
+bool MainWindow::toggleInstanceFile(const QString &path) {
+    const QFileInfo info(path);
+    if (!info.exists()) {
+        // 正常路径下走不到（那一行是刚列出来的），照实说明原因。
+        InlineMessage::warning(m_ui->overlay(), tr("改动失败"),
+                               tr("「%1」现在不在盘上。").arg(QDir::toNativeSeparators(path)));
+        return false;
+    }
+    const QString suffix = InstanceFilesPage::disabledSuffix();
+    const QString target = info.fileName().endsWith(suffix, Qt::CaseInsensitive)
+                               ? path.left(path.size() - suffix.size())
+                               : path + suffix;
+    if (QFileInfo::exists(target)) {
+        InlineMessage::warning(
+            m_ui->overlay(), tr("改动失败"),
+            tr("「%1」已经有一个了 —— 先把那一份删掉或者改个名，再动这一份。")
+                .arg(QDir::toNativeSeparators(target)));
+        return false;
+    }
+    // 走 QFile::rename 而不是 QDir 那套：文件、目录它都能搬，而且同一个卷里改名不搬数据。
+    if (!QFile::rename(path, target)) {
+        InlineMessage::warning(m_ui->overlay(), tr("改动失败"),
+                               tr("没能改「%1」的名字：多半是它正被游戏占着。先把游戏关掉再试。")
+                                   .arg(QDir::toNativeSeparators(path)));
+        return false;
+    }
+    appendLog(target.endsWith(suffix, Qt::CaseInsensitive)
+                  ? tr("禁用文件：%1").arg(QDir::toNativeSeparators(path))
+                  : tr("启用文件：%1").arg(QDir::toNativeSeparators(target)));
+    return true;
+}
+
+bool MainWindow::deleteInstanceFile(const QString &path) {
+    const QFileInfo info(path);
+    if (!info.exists()) {
+        InlineMessage::warning(m_ui->overlay(), tr("删除失败"),
+                               tr("「%1」现在不在盘上。").arg(QDir::toNativeSeparators(path)));
+        return false;
+    }
+    const bool isDir = info.isDir();
+    const QString question = isDir
+                                 ? tr("把文件夹「%1」连同里面的东西一起删掉？删了就没了。")
+                                       .arg(info.fileName())
+                                 : tr("把「%1」从盘上删掉？删了就没了。").arg(info.fileName());
+    // 默认**不**落在「删除」上：误按一下回车不该把用户的东西删掉（和"从列表里移除文件夹"
+    // 那两处一个方向）。
+    if (!InlineMessage::question(m_ui->overlay(), tr("删除文件"), question, tr("删除"),
+                                 tr("取消"), false)) {
+        return false;
+    }
+    const bool removed = isDir ? QDir(path).removeRecursively() : QFile::remove(path);
+    if (!removed) {
+        InlineMessage::warning(m_ui->overlay(), tr("删除失败"),
+                               tr("没能删掉「%1」：多半是它正被游戏占着。先把游戏关掉再试。")
+                                   .arg(QDir::toNativeSeparators(path)));
+        return false;
+    }
+    appendLog(tr("删除文件：%1").arg(QDir::toNativeSeparators(path)));
+    return true;
 }
 
 bool MainWindow::applyInstanceSettings(const QString &versionId,

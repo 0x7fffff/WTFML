@@ -318,6 +318,48 @@ private slots:
     ///       而这一半里藏着真会错的东西（"跟随全局"的项要**删键**而不是写一个等于
     ///       全局的值、写盘前得先确保实例有稳定 id），必须验得了。
     bool applyInstanceSettings(const QString &versionId, const InstanceSettingsDialog &dialog);
+
+    // ---------- 实例设置「文件管理」那八页（2026-09-26）----------
+    //
+    // 那八页说的是**这个实例自己的目录**（`--gameDir` 就是 `versions/<id>/`，见
+    // LauncherManager 里那两处），所以动它们不会碰到别的实例。
+    //
+    // 分工和「导出启动脚本」那两颗按钮一样：对话框只**显示**和**报"用户想干这件事"**，
+    // 真正碰盘、真正弹话的都在这一层 —— 弹话要 OverlayHost，而它在 MainWindow 手里。
+    // 动完盘之后由调用点喊 dialog.refreshFilePages() 让它重列一遍。
+
+    /// 「文件管理」那六页各看哪个目录：**页键 → 绝对路径**。
+    ///
+    /// 四个能下载的类走 ResourceCatalog::folderForKind()（那是目录名的唯一出处，整合包
+    /// 那一路也照着它写），原理图 / 存档 / 截图 / 日志不在下载页那几类里，目录名写在这儿。
+    QHash<QString, QString> instanceFileDirs(const QString &versionId) const;
+
+    /// 这个实例的 mods/ 里有没有名字以 @p namePrefix 开头的 **.jar**（忽略大小写）。
+    ///
+    /// NOTE: 判据是**文件名的前缀**，不是"这个模组是谁"—— 我们没有模组元数据（那要读
+    ///       jar 里的 fabric.mod.json）。够用：Iris 的 jar 叫 `iris-<版本>.jar`，
+    ///       Litematica 的叫 `litematica-<加载器>-<版本>.jar`。被禁用（`.jar.disabled`）
+    ///       的不算 —— 那正是"禁用"的意思。
+    bool instanceHasMod(const QString &versionId, const QString &namePrefix) const;
+
+    /// 这个实例能不能用光影包：装了 **Iris**（一个普通模组）或者装的是 **OptiFine**
+    /// （它是加载器，自己就认 shaderpacks/）。判据由这一层算好递给对话框 —— ui/ 够不着
+    /// wtfml.meta 和 mods/ 目录。
+    bool instanceShaderUsable(const QString &versionId) const;
+
+    /// 读一次 servers.dat 递给对话框（解析在 src/util/NbtUtil 里）。
+    ///
+    /// NOTE: 「读不动」和「读到了但一条都没有」分开给（见 setServerList()）——
+    ///       前者要说清为什么，后者才能说"你还没加过服务器"。
+    void loadServerList(InstanceSettingsDialog *dialog, const QString &versionId) const;
+
+    /// 启用 / 禁用一条：把文件名改成 `<原名>.disabled`，或者反过来。
+    /// @return **动过盘没有** —— 真了调用点才需要让那一页重列（没动过还重列会让用户
+    ///         以为"刚才那一下生效了"）。
+    bool toggleInstanceFile(const QString &path);
+
+    /// 删掉一条（**先问一句**；文件夹连同里面的东西一起删）。@return 同 toggleInstanceFile()。
+    bool deleteInstanceFile(const QString &path);
     /// 「导入整合包…」：选文件 → 读清单 → 问名字 → 换地址 → 确认 → 交给 applyModpackImport()。
     ///
     /// 读的是压缩包根目录里那一份清单（ZipUtil::readEntry，**不整包解开**：用户随手选一个

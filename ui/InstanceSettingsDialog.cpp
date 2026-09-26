@@ -36,8 +36,12 @@
 #include <QStandardPaths>
 #include <QTimer>
 #include <QToolButton>
+#include <QTreeWidget>
+#include <QTreeWidgetItem>
 #include <QVBoxLayout>
+#include <utility>
 
+#include "InstanceFilesPage.hpp"
 #include "MainWindowUI.hpp"
 #include "VersionIcons.hpp"
 #include "VersionTreeDelegate.hpp"
@@ -87,6 +91,16 @@ void addRowTitle(QGridLayout *grid, int row, const QString &title, QWidget *pare
     auto *label = new QLabel(title, parent);
     // 顶部对齐：右边那一格有两行（单选钮那一行 + 提示），名字应该跟第一行齐。
     grid->addWidget(label, row, 0, Qt::AlignLeft | Qt::AlignTop);
+}
+
+/// 「文件管理」里哪几页有「启用 / 禁用」。
+///
+/// **只有游戏会自己扫的那三个目录**：模组（`mods/*.jar`）、资源包、光影包。另外三页给
+/// 了也没用 —— 数据包要自己搬进存档，原理图要 Litematica 主动去读，存档干脆不是一个文件；
+/// 给它们一颗"禁用"只会让用户以为改名就等于不生效了。
+bool fileKeyCanToggle(const QString &key) {
+    return key == QStringLiteral("mod") || key == QStringLiteral("resourcepack") ||
+           key == QStringLiteral("shader");
 }
 
 }  // namespace
@@ -207,7 +221,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     // 没有"换过去就回不来"的死角。
     //
     // NOTE: 那一排按钮**不是**当前值的出处（它们只是 m_iconChoice 的一幅画）—— 理由见 .hpp
-    //       里 setInstanceDir() 上面那一段：本地那一档没有控件能表示它。
+    //       里 setIcon() 上面那一段：本地那一档没有控件能表示它。
     {
         addRowTitle(grid, row, iconRowText(), this);
         auto *cell = new QWidget(this);
@@ -627,38 +641,132 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     // `mods/ resourcepacks/ shaderpacks/ datapacks/ saves/` 都在里头 —— 实例之间天然隔离，
     // 在这一页里动什么都不会碰到别的实例。
     //
-    // NOTE: 每页**真正的内容**（列目录 / 启停 / 删除 / 添加 / 打开文件夹）还没做，下一轮填。
-    //       现在先把八页的骨架与说明摆上，让"点左栏第 N 条 = 右栏第 N 页"这条不变量当场
-    //       就能验（见 ui_check 那几条）。
+    // 八页分三种形状（见 .hpp 里"文件管理那八页"那一段）：快捷方式是按钮网格，服务器列表
+    // 读一份递进来的解析结果，中间六页是同一个 InstanceFilesPage。**目录一律由调用方
+    // 算好递进来**（setInstanceDir / setFileDirs）—— 那几个目录名是 MC 的约定，
+    // src/download/ResourceCatalog::folderForKind() 是唯一出处，这一层不抄第二份。
+    //
+    // NOTE: 页面标题（那行粗体）**故意没有** —— 左栏那一列小类一直亮着，写在这里是把
+    //       同一句话挨着说两遍。每一页正文底下那行小字才是这一页**特有**的那句。
     {
-        const QHash<QString, QString> hints = {
-            {QStringLiteral("shortcut"),
-             tr("一排按钮，每颗打开一个文件夹：版本目录、存档、截图、资源包、光影包……")},
-            {QStringLiteral("mod"), tr("这个实例的 mods 文件夹：装了什么、开没开、删掉哪一个。")},
-            {QStringLiteral("resourcepack"), tr("这个实例的 resourcepacks 文件夹。")},
-            {QStringLiteral("datapack"), tr("这个实例的 datapacks 文件夹。")},
-            {QStringLiteral("shader"), tr("这个实例的 shaderpacks 文件夹。")},
-            {QStringLiteral("schematic"), tr("这个实例的 schematics 文件夹（Litematica 那些投影）。")},
-            {QStringLiteral("save"), tr("这个实例的 saves 文件夹：一个一个存档。")},
-            {QStringLiteral("server"), tr("这个实例的 servers.dat：服务器列表。")},
-        };
+        // ① 快捷方式：一排按钮，每颗开一个文件夹。
+        {
+            QWidget *page = addPage(QStringLiteral("shortcut"));
+            auto *layout = qobject_cast<QVBoxLayout *>(page->layout());
+            if (layout != nullptr) {
+                auto *grid = new QGridLayout;
+                grid->setContentsMargins(0, 0, 0, 0);
+                grid->setHorizontalSpacing(8);
+                grid->setVerticalSpacing(8);
+                const QStringList texts = shortcutTexts();
+                const QStringList keys = shortcutPathKeys();
+                for (int i = 0; i < texts.size(); ++i) {
+                    auto *button = new QPushButton(texts.value(i), page);
+                    button->setObjectName(shortcutButtonName(i));
+                    const QString key = keys.value(i);
+                    // 路径**现场问 m_instanceDir / m_fileDirs**（不是捕获一份快照）：
+                    // setInstanceDir() 是在构造函数之后才被调的，捕获快照的话拿到的
+                    // 永远是空串 —— 这颗按钮点了什么都不会发生，而且不报错。
+                    connect(button, &QPushButton::clicked, this, [this, key] {
+                        emit openInstanceFolderRequested(
+                            key == QStringLiteral("dir") ? m_instanceDir : m_fileDirs.value(key));
+                    });
+                    // 按钮**不给它抻**：默认尺寸（和右下角那两颗一样），三颗一排靠左。
+                    grid->addWidget(button, i / shortcutPerRow(), i % shortcutPerRow(),
+                                    Qt::AlignLeft);
+                    m_shortcutButtons.append(button);
+                }
+                auto *rowWrap = new QHBoxLayout;
+                rowWrap->setContentsMargins(0, 0, 0, 0);
+                rowWrap->addLayout(grid);
+                // 底下这一条 stretch 是"三颗一排靠左"的另一半：没有它，网格会把三列
+                // 摊平分给整幅宽，每颗按钮都被抻成一大条。
+                rowWrap->addStretch(1);
+                layout->addLayout(rowWrap);
+                auto *hint = new QLabel(filesHint(QStringLiteral("shortcut")), page);
+                hint->setObjectName(filesHintName(QStringLiteral("shortcut")));
+                hint->setWordWrap(true);
+                layout->addWidget(hint);
+                layout->addStretch(1);
+            }
+        }
+
+        // ② 中间六页：同一个控件，喂不同的目录与三条开关。
         const QStringList keys = filePageKeys();
-        const QStringList texts = filePageTexts();
-        for (int i = 0; i < keys.size(); ++i) {
-            QWidget *page = addPage(keys.at(i));
+        for (const QString &key : keys) {
+            if (key == QStringLiteral("shortcut") || key == QStringLiteral("server")) {
+                continue;
+            }
+            QWidget *page = addPage(key);
             auto *layout = qobject_cast<QVBoxLayout *>(page->layout());
             if (layout == nullptr) {
                 continue;
             }
-            auto *heading = new QLabel(texts.value(i), page);
-            QFont headingFont = heading->font();
-            headingFont.setBold(true);
-            heading->setFont(headingFont);
-            layout->addWidget(heading);
-            auto *hint = new QLabel(hints.value(keys.at(i)), page);
+            auto *files = new InstanceFilesPage(page);
+            files->setObjectName(filesPageName(key));
+            // 存档只列文件夹（saves 底下那些 level.dat / session.lock 不是存档）。
+            files->setMode(key == QStringLiteral("save") ? InstanceFilesPage::Mode::DirsOnly
+                                                          : InstanceFilesPage::Mode::FilesAndDirs);
+            // 只有游戏会自己扫的那三个目录给「禁用」；存档**不给删**（理由见
+            // InstanceFilesPage::setCanDelete()）。
+            files->setCanToggle(fileKeyCanToggle(key));
+            files->setCanDelete(key != QStringLiteral("save"));
+            files->setEmptyText(filesEmptyText(key));
+            files->setDirectory(m_fileDirs.value(key));
+            connect(files, &InstanceFilesPage::openFolderRequested, this,
+                    &InstanceSettingsDialog::openInstanceFolderRequested);
+            connect(files, &InstanceFilesPage::toggleRequested, this,
+                    &InstanceSettingsDialog::toggleInstanceFileRequested);
+            connect(files, &InstanceFilesPage::deleteRequested, this,
+                    &InstanceSettingsDialog::deleteInstanceFileRequested);
+            m_filesPages.insert(key, files);
+            layout->addWidget(files, 1);
+            auto *hint = new QLabel(filesHint(key), page);
+            hint->setObjectName(filesHintName(key));
             hint->setWordWrap(true);
             layout->addWidget(hint);
-            layout->addStretch(1);
+        }
+
+        // ③ 服务器列表：读 servers.dat 的结果由调用方递进来（这一层不 include src/）。
+        {
+            QWidget *page = addPage(QStringLiteral("server"));
+            auto *layout = qobject_cast<QVBoxLayout *>(page->layout());
+            if (layout != nullptr) {
+                auto *top = new QHBoxLayout;
+                top->setContentsMargins(0, 0, 0, 0);
+                top->addStretch(1);
+                m_serverRefresh = new QPushButton(serverRefreshText(), page);
+                m_serverRefresh->setObjectName(serverRefreshButtonName());
+                // 重读要碰 NBT 解析（在 src/ 里），所以这一发只能交给 MainWindow。
+                connect(m_serverRefresh, &QPushButton::clicked, this,
+                        &InstanceSettingsDialog::refreshServerListRequested);
+                top->addWidget(m_serverRefresh);
+                layout->addLayout(top);
+
+                m_serverNotice = new QLabel(page);
+                m_serverNotice->setObjectName(serverNoticeName());
+                m_serverNotice->setWordWrap(true);
+                layout->addWidget(m_serverNotice);
+
+                m_serverTree = new QTreeWidget(page);
+                m_serverTree->setObjectName(serverTreeName());
+                m_serverTree->setHeaderLabels(
+                    {serverNameColumnText(), serverAddressColumnText()});
+                // 「一行一个服务器」是平表不是树：不要每行前面那个展开三角。
+                m_serverTree->setRootIsDecorated(false);
+                m_serverTree->setUniformRowHeights(true);
+                m_serverTree->setSelectionMode(QAbstractItemView::SingleSelection);
+                m_serverTree->setEditTriggers(QAbstractItemView::NoEditTriggers);
+                layout->addWidget(m_serverTree, 1);
+
+                auto *hint = new QLabel(filesHint(QStringLiteral("server")), page);
+                hint->setObjectName(filesHintName(QStringLiteral("server")));
+                hint->setWordWrap(true);
+                layout->addWidget(hint);
+            }
+            // 没被 setServerList() 叫过的时候（验证工程里那些只验结构的构造点）先摆成
+            // "还没读到" —— 露出一张空表格比说一句话更像坏了。
+            setServerList({}, QString());
         }
     }
 
@@ -810,6 +918,177 @@ void InstanceSettingsDialog::applyFilePage(int row) {
         return;
     }
     m_stack->setCurrentIndex(filePageFirstIndex() + row);
+    // 切到这一页就**当场重列一遍**：打开这个对话框的这段时间里，盘上那些文件夹完全可能
+    // 被别的东西动过（游戏正在写日志、用户自己开了个资源管理器）。列目录只有读，很便宜，
+    // 而"我看见的和盘上不一样"是这一页最没道理的一种错。
+    if (InstanceFilesPage *page = m_filesPages.value(filePageKeys().at(row))) {
+        page->refresh();
+    }
+}
+
+// ---------- 文件管理那八页（见 .hpp 里 filePageKeys() 上面那一段）----------
+
+QStringList InstanceSettingsDialog::shortcutTexts() {
+    return {tr("版本目录"), tr("存档"),     tr("截图"),     tr("模组"), tr("资源包"),
+            tr("数据包"),   tr("光影包"),   tr("原理图"),   tr("日志")};
+}
+
+QStringList InstanceSettingsDialog::shortcutPathKeys() {
+    // 和 shortcutTexts() **逐位对齐**。这些键由 MainWindow 从 setInstanceDir() /
+    // setFileDirs() 灌进来（它才知道那些目录在哪儿）。
+    return {QStringLiteral("dir"),        QStringLiteral("save"),
+            QStringLiteral("screenshots"), QStringLiteral("mod"),
+            QStringLiteral("resourcepack"), QStringLiteral("datapack"),
+            QStringLiteral("shader"),     QStringLiteral("schematic"),
+            QStringLiteral("logs")};
+}
+
+QString InstanceSettingsDialog::filesHint(const QString &key) {
+    if (key == QStringLiteral("shortcut")) {
+        return tr("这几颗只是把文件夹打开 —— 看里面有什么、禁用一个、删掉一个，都在旁边那一列"
+                  "里（模组 / 资源包 / 光影包那几页）。");
+    }
+    if (key == QStringLiteral("mod")) {
+        return tr("游戏会自己扫这里面的 .jar。「禁用」只是把文件名改成 .jar.disabled —— "
+                  "文件还在，改回来就又生效了。");
+    }
+    if (key == QStringLiteral("resourcepack")) {
+        return tr("游戏会自己扫这里：.zip 和文件夹都算一个资源包。");
+    }
+    if (key == QStringLiteral("datapack")) {
+        return tr("下载到这儿不等于生效：要自己把它（或者它里面的文件夹）搬进对应存档的"
+                  "datapacks 文件夹里。");
+    }
+    if (key == QStringLiteral("shader")) {
+        return tr("游戏会自己扫这里，但要有 Iris 或者 OptiFine 才加载得了。");
+    }
+    if (key == QStringLiteral("schematic")) {
+        return tr("Litematica 装好的话它默认就读这个文件夹。");
+    }
+    if (key == QStringLiteral("save")) {
+        return tr("一个文件夹就是一个存档。启动器不删存档 —— 这里只看得见，要删得自己去"
+                  "文件夹里删。");
+    }
+    if (key == QStringLiteral("server")) {
+        return tr("servers.dat 是游戏自己写的，启动器只读不改。");
+    }
+    return QString();
+}
+
+QString InstanceSettingsDialog::filesEmptyText(const QString &key) {
+    if (key == QStringLiteral("mod")) {
+        return tr("这个实例还没装模组。去「下载」页找一个装进来。");
+    }
+    if (key == QStringLiteral("resourcepack")) {
+        return tr("这个实例还没有资源包。");
+    }
+    if (key == QStringLiteral("datapack")) {
+        return tr("这个实例还没有数据包。");
+    }
+    if (key == QStringLiteral("shader")) {
+        return tr("这个实例还没有光影包。");
+    }
+    if (key == QStringLiteral("schematic")) {
+        return tr("这个实例还没有原理图。");
+    }
+    if (key == QStringLiteral("save")) {
+        return tr("这个实例还没有存档。进游戏存一个就有了。");
+    }
+    if (key == QStringLiteral("server")) {
+        return serverEmptyText();
+    }
+    return QString();
+}
+
+QString InstanceSettingsDialog::shaderUnavailableText() {
+    return tr("光影包要由 Iris 或者 OptiFine 来加载，这个实例两个都没有 —— 装进去了也不会"
+              "生效。先去「下载」页装一个 Iris，或者给这个实例装 OptiFine。");
+}
+
+QString InstanceSettingsDialog::schematicUnavailableText() {
+    return tr("原理图（投影）是 Litematica 用的，这个实例没装它 —— 这个文件夹现在没人会读。"
+              "先去「下载」页装一个。");
+}
+
+void InstanceSettingsDialog::setInstanceDir(const QString &dir) {
+    // 只是记下来：快捷方式那九颗按钮**点的时候现场读**（见构造函数里那段 NOTE），
+    // 所以这里不用重画什么。
+    m_instanceDir = dir;
+}
+
+void InstanceSettingsDialog::setFileDirs(const QHash<QString, QString> &dirs) {
+    m_fileDirs = dirs;
+    // 六页在构造函数里就搭好了，那会儿还不知道目录在哪儿（这一份是构造之后才灌的）——
+    // 所以灌完必须让它们各列一遍，否则每一页都停在"这个文件夹还是空的"上。
+    const QList<QString> keys = m_filesPages.keys();
+    for (const QString &key : keys) {
+        if (InstanceFilesPage *page = m_filesPages.value(key)) {
+            page->setDirectory(m_fileDirs.value(key));
+        }
+    }
+}
+
+void InstanceSettingsDialog::setShaderUsable(bool usable) {
+    const QString reason = usable ? QString() : shaderUnavailableText();
+    if (InstanceFilesPage *page = m_filesPages.value(QStringLiteral("shader"))) {
+        page->setUnavailable(reason);
+    }
+    markPageUnusable(QStringLiteral("shader"), reason);
+}
+
+void InstanceSettingsDialog::setSchematicUsable(bool usable) {
+    const QString reason = usable ? QString() : schematicUnavailableText();
+    if (InstanceFilesPage *page = m_filesPages.value(QStringLiteral("schematic"))) {
+        page->setUnavailable(reason);
+    }
+    markPageUnusable(QStringLiteral("schematic"), reason);
+}
+
+void InstanceSettingsDialog::markPageUnusable(const QString &key, const QString &reason) {
+    // 中栏那一条也挂上原因：用户在这一条上停一下就该知道为什么这一页是空的，
+    // 不用点进去再退出来。**不把条目禁用掉** —— 禁用了就点不进去，那句话也就永远
+    // 看不见了（灰掉一条"用不上"既没说是什么、也没说怎么办）。
+    for (int i = 0; i < m_subCategoryList->count(); ++i) {
+        QListWidgetItem *item = m_subCategoryList->item(i);
+        if (item->data(Qt::UserRole).toString() == key) {
+            item->setToolTip(reason);
+            return;
+        }
+    }
+}
+
+void InstanceSettingsDialog::setServerList(const QList<QPair<QString, QString>> &servers,
+                                           const QString &problem) {
+    if (m_serverTree == nullptr) {
+        return;
+    }
+    m_serverTree->clear();
+    for (const QPair<QString, QString> &server : servers) {
+        auto *item = new QTreeWidgetItem(m_serverTree);
+        item->setText(0, server.first.isEmpty() ? unnamedMark() : server.first);
+        item->setText(1, server.second);
+    }
+    // ★「读不动」和「读到了但一条都没有」是**两句不同的话**（和版本树那条"问到了就是
+    //   没有" / "列表没取到"同一条规矩）：说成一句的话，用户会照着错的那句去修 ——
+    //   一边是"我确实没加过服务器"，另一边是"你的 servers.dat 坏了，加多少条都白搭"。
+    const bool readable = problem.isEmpty();
+    const bool empty = servers.isEmpty();
+    m_serverTree->setVisible(readable && !empty);
+    m_serverNotice->setVisible(!readable || empty);
+    m_serverNotice->setText(!readable ? problem : (empty ? serverEmptyText() : QString()));
+}
+
+void InstanceSettingsDialog::refreshFilePages() {
+    const QList<InstanceFilesPage *> pages = m_filesPages.values();
+    for (InstanceFilesPage *page : pages) {
+        if (page != nullptr) {
+            page->refresh();
+        }
+    }
+}
+
+InstanceFilesPage *InstanceSettingsDialog::filesPage(const QString &key) const {
+    return m_filesPages.value(key);
 }
 
 // ---------- 概览栏那三行（见 .hpp 里 setIcon() 上面那一段）----------
