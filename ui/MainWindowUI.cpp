@@ -1013,6 +1013,12 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
             addFilterLabel(filterBottom, downloadFilterVersionLabel());
             QComboBox *versionCombo = makeFilterCombo(downloadFilterVersionComboName(categoryKey));
             versionCombo->setEditable(true);
+            // NOTE: 可输入的框上**必须**把"回车就把框里的字追进清单"这条关掉（Qt 的默认是
+            //       `InsertAtBottom`，而且 duplicatesEnabled 默认开着 ⇒ 连重复项都照追）。
+            //       这一格存在的理由正是"手打一个清单里没有的版本号"（用户原话「版本可自行
+            //       输入」），于是每按一次回车就多一项：清单越用越脏，而追进去的那一项永远
+            //       也搜不出东西来（它不在任何一家接口的版本表里）。
+            versionCombo->setInsertPolicy(QComboBox::NoInsert);
             versionCombo->setPlaceholderText(downloadFilterVersionPlaceholder());
             filterBottom->addWidget(versionCombo);
 

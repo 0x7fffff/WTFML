@@ -1612,12 +1612,14 @@ void MainWindow::setupConnections() {
             connect(searchButton, &QPushButton::clicked, this,
                     [this, kind] { startResourceSearch(kind); });
         }
-        // 「清空条件」：把名称框和四个筛子退回"不筛"，**不自动搜**（理由见
-        // MainWindowUI::downloadFilterResetText()：清一下就发请求，等于每次收拾界面都白烧
-        // 一发限流额度，而且他清完还要接着改）。
+        // 「清空条件」：把名称框和四个筛子退回"不筛"，然后**重搜一发**（2026-09-26 用户原话
+        // 「修改任何内容（不论是来源网站还是…）都刷新一下」；从前这里是"清完不动"，于是
+        // 清完的界面和列表对不上 —— 六个框全空着，底下还摆着上一批按老条件筛出来的结果）。
         if (QPushButton *resetButton = m_ui->getDownloadFilterResetButton(key)) {
-            connect(resetButton, &QPushButton::clicked, this,
-                    [this, kind] { resetDownloadFilters(kind); });
+            connect(resetButton, &QPushButton::clicked, this, [this, kind] {
+                resetDownloadFilters(kind);
+                startResourceSearch(kind);
+            });
         }
         // 「版本」那一格也可输入，在里面按回车**同样等同于按搜索键**（用户原话
         // 「名字/版本可自行输入，这两个框选中时按回车等同于按搜索键」）。
@@ -1626,20 +1628,66 @@ void MainWindow::setupConnections() {
         //       后者只在"框里那串字正好是列表里选中的那一项"时才发（Qt 的
         //       QComboBox::returnPressed 就是 `lineEdit()->returnPressed` 加了一道
         //       "有没有选中项"的闸，见它文档里那句）。而这一格存在的理由正是**用户自己
-        //       打一个列表里没有的版本号**，那一发会被那道闸吃掉：回车下去什么都没发生。
+        //       打一个清单里没有的版本号**，那一发会被那道闸吃掉：回车下去什么都没发生。
         // NOTE: `lineEdit()` 只有在 `setEditable(true)` 之后才不是空的（界面那边已经设了，
         //       见 MainWindowUI 里 makeFilterCombo 那一段），所以这里要判一下。
         if (QComboBox *versionCombo = m_ui->getDownloadFilterVersionCombo(key)) {
             if (QLineEdit *versionEdit = versionCombo->lineEdit()) {
-                connect(versionEdit, &QLineEdit::returnPressed, this,
-                        [this, kind] { startResourceSearch(kind); });
+                connect(versionEdit, &QLineEdit::returnPressed, this, [this, kind, key] {
+                    // 先记一笔，理由见下面那个 activated 里那段（同一按回车会来两发）。
+                    m_versionEnterSearches.insert(key);
+                    QTimer::singleShot(0, this,
+                                       [this, key] { m_versionEnterSearches.remove(key); });
+                    startResourceSearch(kind);
+                });
             }
+            // 「版本」是从下拉里挑的（而不是手打的字）⇒ 挑完就搜。
+            //
+            // NOTE: 这一发**和上面那一发会撞**：这一格是**可输入的**，在框里按回车时 Qt
+            //       先发 `QLineEdit::returnPressed`（上面那条路），紧接着发
+            //       `editingFinished`，而 QComboBox 自己接了后者 —— 框里那串字正好是清单里
+            //       某一项时它补一次 setCurrentIndex + activated（见 Qt 6.10 的
+            //       QComboBoxPrivate::editingFinished 与 QLineEditPrivate::controlEditingFinished
+            //       那两句的先后）。两发都通到"搜一发"，不拦的话同一按回车会搜两次、
+            //       烧两发限流额度。判据就是上面 `returnPressed` 记的那一笔 —— **同一回合里
+            //       只认第一发**（那一笔由 0 毫秒的单次定时器抹掉）。
+            connect(versionCombo, &QComboBox::activated, this, [this, kind, key](int) {
+                if (m_versionEnterSearches.contains(key)) {
+                    return;
+                }
+                startResourceSearch(kind);
+            });
         }
+        // ---------- 四个筛子：在下拉里挑了一项 ⇒ 立刻重搜（2026-09-26）----------
+        //
+        // 用户原话：「修改任何内容（不论是来源网站还是…）都刷新一下」+「下拉即搜，文字回车才搜」。
+        // 于是分工是：**筛子（下拉）挑一项 = 立刻搜；框里打的字 = 只有回车那一下搜**。
+        //
+        // NOTE: 这四格接的是 `activated` 而不是 `currentIndexChanged`。后者在**程序**改
+        //       的时候也发（灌清单、换来源时把加载器/类型退回「全部」、清空条件），而"用户
+        //       在下拉里挑了一项"只有 activated 说得清（Qt 只在 itemSelected /
+        //       editingFinished 里发它）。两个好处：灌数据不会自己搜自己，而
+        //       `setCurrentIndex()` 这种"改到一半"的中间态也不会漏出去一发。
+        //
         // 「来源」换了一项：这一页的加载器 / 类型跟着换一份选项（两边的键不是一套），
-        // **不自动搜** —— 用户只是把选项换了一份，还没说"就用它搜"。
+        // 换完**就按新来源搜一发**。
         if (QComboBox *sourceCombo = m_ui->getDownloadFilterSourceCombo(key)) {
+            // 顺序是**对的**：用户挑那一项时 Qt 先 setCurrentIndex（⇒ 下面这条先把选项
+            // 换掉）再发 activated（⇒ 这一发读到的已经是新选项），见 QComboBoxPrivate::
+            // itemSelected 那两句的先后。
             connect(sourceCombo, &QComboBox::currentIndexChanged, this,
                     [this, kind] { refreshDownloadFilterOptions(kind); });
+            connect(sourceCombo, &QComboBox::activated, this,
+                    [this, kind](int) { startResourceSearch(kind); });
+        }
+        // 「模组加载器」（**只有模组那一页有这个控件**，别的页回空指针）和「类型」。
+        if (QComboBox *loaderCombo = m_ui->getDownloadFilterLoaderCombo(key)) {
+            connect(loaderCombo, &QComboBox::activated, this,
+                    [this, kind](int) { startResourceSearch(kind); });
+        }
+        if (QComboBox *typeCombo = m_ui->getDownloadFilterTypeCombo(key)) {
+            connect(typeCombo, &QComboBox::activated, this,
+                    [this, kind](int) { startResourceSearch(kind); });
         }
         // 点一行：三种行的行为不一样，判据在 onResourceItemActivated() 里（那里是唯一出处）。
         // 鼠标和键盘走同一个接线口（见 ui/RowActivation.hpp）—— 这里**必须**只进来一次：
@@ -4006,7 +4054,8 @@ void MainWindow::resetDownloadFilters(ResourceCatalog::Kind kind) {
     // （这一格只有两项、总有一项是选中的），而且用户刚在设置里配好的 CurseForge key
     // 就是给这一格用的 —— 清一下把他踢回 Modrinth，那是替他做了个他没说的决定。
     //
-    // 清完**不自动搜**（理由见 MainWindowUI::downloadFilterResetText()）。
+    // NOTE: 这一层**只清**，搜不搜是调用方的事 —— 那颗键上接着"清完重搜一发"（2026-09-26
+    //       用户原话「修改任何内容…都刷新一下」，接线见构造函数里那段）。
     appendLog(tr("已清空%1那一页的搜索条件。").arg(ResourceCatalog::kindLabel(kind)));
 }
 

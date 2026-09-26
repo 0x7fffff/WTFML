@@ -645,8 +645,8 @@ private:
     /// 灌**某一页**上跟着"来源"变的那两项（模组加载器 / 类型），并把类型那一栏按
     /// `categoryOptions()` 有没有回空表决定画不画。用户在来源框里换了一下就调它。
     ///
-    /// NOTE: 它**不搜索**。用户换来源只是把选项换了一份，还没说"就用它搜"；替他搜一发
-    ///       等于每次点开下拉框都烧一次限流额度，而且他多半还要接着改别的筛子。
+    /// NOTE: 它**自己不搜索**（这一层只管把选项换一份）。"换完就按新来源搜一发"接在
+    ///       构造函数里那条 `activated` 上 —— 「下拉即搜」这条规矩在那一处收口。
     /// NOTE: 换来源会把这一页的加载器/类型两项**退回「全部」**：两边的键根本不是一套
     ///       （Modrinth 的 `fabric` vs CurseForge 的 `4`），留着上一个来源的选中项就是
     ///       拿 A 家的号去问 B 家 —— 而且它不报错，只会搜出个空的。
@@ -667,8 +667,8 @@ private:
     QString downloadFilterLoader(ResourceCatalog::Kind kind) const;
     /// 这一页现在选的类型（键来自 `categoryOptions()`）。空串 = 不筛。
     QString downloadFilterCategory(ResourceCatalog::Kind kind) const;
-    /// 「清空条件」那颗键：名称框和四个筛子都回到"不筛"，**不自动搜**（理由见
-    /// MainWindowUI::downloadFilterResetText()）。
+    /// 「清空条件」那颗键：名称框和四个筛子都回到"不筛"。**这一层只清、不搜** —— 搜是
+    /// 调用方的事（那颗键上接着"清完重搜一发"，见构造函数里那段接线）。
     void resetDownloadFilters(ResourceCatalog::Kind kind);
 
     // ---------- 「设置」选项卡 ----------
@@ -1230,6 +1230,14 @@ private:
     /// 现在的字是错的 —— 用户完全可能在等结果的时候又敲了几个字（那几下还没发出去，
     /// 回车才算一发）。
     QHash<QString, QString> m_resourceQueries;
+    /// 「版本」那一格**刚按过回车**的那几页（键 = 分类键，进的是 `QSet`）。
+    ///
+    /// 只为一件事：那一格是可输入的，在框里按回车时 Qt 会连发两发 —— 先是
+    /// `QLineEdit::returnPressed`（我们接的那一发），紧接着 `editingFinished`，而 QComboBox
+    /// 自己接了后者、并在"框里那串字正好是清单里某一项"时补一次 setCurrentIndex + activated。
+    /// 两条路都通到"搜一发"，所以按一下回车会搜两次。记的这一笔就是那道闸：**同一回合里
+    /// 只认第一发**（那一笔由 0 毫秒的单次定时器抹掉，所以不会留到下一次操作）。
+    QSet<QString> m_versionEnterSearches;
     GlobalJavaSettings *m_javaSettings;
     // 实例分组（<数据目录>/wtfml.folders）。**不需要**在换游戏文件夹时重置它：
     // 它每个访问器都会比一下"这次问的是哪一份 .minecraft"，不一样就自己重读。
