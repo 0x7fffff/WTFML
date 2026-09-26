@@ -862,13 +862,69 @@ QStringList gameVersionsOldestFirst(const QStringList &versions) {
     return out;
 }
 
-QStringList gameVersionChoices(const Hit &hit) {
+bool isSnapshotGameVersion(const QString &version) {
+    const QString text = version.trimmed();
+    if (text.isEmpty()) {
+        return false;
+    }
+    const QString lower = text.toLower();
+    // 新老两套命名里的预览版和候选版都长这样：1.21.4-pre3 / 26.2-rc1。
+    if (lower.contains(QStringLiteral("-pre")) || lower.contains(QStringLiteral("-rc"))) {
+        return true;
+    }
+    // 老式快照号：两位年 + 'w' + 两位周 + 一个小写字母（24w14a / 13w41b）。
+    // **只认这一个长度**：`20w14infinite` 那种愚人节版是另一回事（见头文件里那段"不猜"）。
+    if (lower.size() == 6 && lower.at(2) == QLatin1Char('w')) {
+        const bool digits = lower.at(0).isDigit() && lower.at(1).isDigit() &&
+                            lower.at(3).isDigit() && lower.at(4).isDigit();
+        const QChar suffix = lower.at(5);
+        if (digits && suffix >= QLatin1Char('a') && suffix <= QLatin1Char('z')) {
+            return true;
+        }
+    }
+    return false;
+}
+
+QString majorGameVersionOf(const QString &version) {
+    if (!isSnapshotGameVersion(version)) {
+        // 正式版原样还回去 —— 调用方因此不必先判一次"这是不是快照"。
+        return version;
+    }
+    const QString text = version.trimmed();
+    const int dash = text.indexOf(QLatin1Char('-'));
+    if (dash <= 0) {
+        // `24w14a`：老式快照号里读不出"它属于哪个大版本"，原样还回去。调用方看它
+        // "还是快照"就知道这一条折不了（见 gameVersionChoices 里那段）。
+        return text;
+    }
+    return text.left(dash);
+}
+
+QStringList gameVersionChoices(const Hit &hit, bool showSnapshots) {
     QStringList out;
     out.reserve(hit.gameVersions.size());
     // 倒着抄一遍（接口给的是旧的在前）。**不是排序** —— 见头文件那段，这两种顺序都是
     // 接口自己定的，我们只是把要显示的那个方向挑出来。
     for (int i = hit.gameVersions.size() - 1; i >= 0; --i) {
-        out.append(hit.gameVersions.at(i));
+        const QString declared = hit.gameVersions.at(i);
+        if (showSnapshots) {
+            out.append(declared);
+            continue;
+        }
+        // 不显示快照版：折到大版本上。
+        const QString folded = majorGameVersionOf(declared);
+        // 折完**还是快照** = 这一条折不动（`24w14a` 这种读不出属于哪个大版本）⇒ 不摆它。
+        // 勾选框叫「显示快照版」，不勾的时候就不该有快照版露在外面（它们照样在「全部」里
+        // 看得到）。**判据就是这个**（Z8h 钉着）：写成 `folded != declared && …` 是错的 ——
+        // 折不动的那一条恰恰是"折完跟没折一样"，那个写法会把它原样摆出来。
+        if (isSnapshotGameVersion(folded)) {
+            continue;
+        }
+        // 同一个大版本下声明过几个快照（26.2-rc1、26.2-rc2）时只留一颗。**去重在这里做**：
+        // 上面是倒着走的（新的在前），所以留下的是先遇到的那一颗，而几颗折出来的字是同一个。
+        if (!out.contains(folded)) {
+            out.append(folded);
+        }
     }
     return out;
 }
@@ -1088,7 +1144,7 @@ QString versionRowSubText(const VersionEntry &version) {
 }
 
 QList<VersionEntry> versionsForGameVersion(const QList<VersionEntry> &versions,
-                                           const QString &gameVersion) {
+                                           const QString &gameVersion, bool showSnapshots) {
     // 空串 = 不筛（「全部」那一颗）。**原样还回去**，不是"筛一个空串"（那会一条都不剩）。
     if (gameVersion.isEmpty()) {
         return versions;
@@ -1101,6 +1157,18 @@ QList<VersionEntry> versionsForGameVersion(const QList<VersionEntry> &versions,
         //   的两步（先按 chip 筛、再分组），别合并成一步。
         if (version.gameVersions.contains(gameVersion)) {
             out.append(version);
+            continue;
+        }
+        // 不勾「显示快照版」时，这一排上的 `26.2` 代表的是"26.2 那条线"，声明的快照也要算
+        // 进来（勾上时 `26.2` 就只是 `26.2`，快照各去点自己那一颗 —— 见头文件那段）。
+        // 折出来还是快照的那些（24w14a）在这一支里自然落空：它们没被折过。
+        if (!showSnapshots) {
+            for (const QString &declared : version.gameVersions) {
+                if (majorGameVersionOf(declared) == gameVersion) {
+                    out.append(version);
+                    break;
+                }
+            }
         }
     }
     return out;
@@ -1142,10 +1210,14 @@ QString VersionGroup::title() const {
     return gameVersion.isEmpty() ? name : name + QLatin1Char(' ') + gameVersion;
 }
 
-QList<VersionGroup> groupVersions(const QList<VersionEntry> &versions) {
+QList<VersionGroup> groupVersions(const QList<VersionEntry> &versions, bool showSnapshots) {
     QList<VersionGroup> groups;
     for (const VersionEntry &version : versions) {
-        const QString gameVersion = newestGameVersionOf(version);
+        // 不勾「显示快照版」时组头也归到大版本（一条只声明到 26.2-rc1 的版本落在
+        // 「Fabric 26.2」那一组）—— 和那一排 chip 折的是同一个东西，见头文件那段。
+        // **先取最新再折**：折完再比大小的话，"最新"就变成按折过的那串排的了。
+        const QString declared = newestGameVersionOf(version);
+        const QString gameVersion = showSnapshots ? declared : majorGameVersionOf(declared);
         const QString loader = primaryLoaderOf(version);
         int found = -1;
         for (int i = 0; i < groups.size(); ++i) {

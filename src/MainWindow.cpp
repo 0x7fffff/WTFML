@@ -4107,7 +4107,9 @@ void MainWindow::fillResourceHitRows(QTreeWidget *tree, ResourceCatalog::Kind ki
 
         // 第二层：游戏版本。**不用再问接口** —— 搜索响应里本来就带着"这个资源支持哪些
         // 游戏版本"（Hit::gameVersions）。顺序由 gameVersionChoices() 统一成"新的在前"。
-        const QStringList choices = ResourceCatalog::gameVersionChoices(hit);
+        // 第二层**一律折**（`false`）：那枚「显示快照版」勾选框在详情页顶上，这一棵树
+        // 没有它 —— 用户要的是"快照版归到对应的大版本里"，这一层就是那句话的落点。
+        const QStringList choices = ResourceCatalog::gameVersionChoices(hit, false);
         if (choices.isEmpty()) {
             // 一个游戏版本都没列（数据包那类）。摆一行灰的说清楚 —— 不然这一行看着能展开、
             // 点开却是空的。
@@ -4644,6 +4646,7 @@ void MainWindow::openResourceDetailPage(const QString &iconKey, const QString &k
     m_resourcePage.iconKey = iconKey;
     m_resourcePage.title = hit->title;
     m_resourcePage.chip.clear();
+    m_resourcePage.showSnapshots = false;   // 开页一律从"不显示快照版"开始（勾选框的默认值）
     m_resourcePage.versions.clear();
     m_resourcePage.loaded = false;
     // 钥匙里游戏版本和加载器都空 = **不筛**（"这个资源一共发过哪些版本"）。
@@ -4673,7 +4676,8 @@ void MainWindow::openResourceDetailPage(const QString &iconKey, const QString &k
     ResourceDetail::Chip all;
     all.text = tr("全部");
     chips.append(all);
-    for (const QString &gameVersion : ResourceCatalog::gameVersionChoices(*hit)) {
+    for (const QString &gameVersion :
+         ResourceCatalog::gameVersionChoices(*hit, m_resourcePage.showSnapshots)) {
         ResourceDetail::Chip chip;
         chip.key = gameVersion;
         chip.text = gameVersion;
@@ -4726,11 +4730,11 @@ void MainWindow::fillResourcePageGroups() {
     // 筛（看的是这一版**声明过**的每一个游戏版本，不是它落在哪个组里 —— 那条规矩和它的
     // 坑都在 versionsForGameVersion 的注释里），再按「游戏版本 + 加载器」分组。
     // 两步**分开**：合并了就是上面那条坑（筛 1.20.1 会漏掉一半支持它的版本）。
-    const QList<ResourceCatalog::VersionEntry> filtered =
-        ResourceCatalog::versionsForGameVersion(m_resourcePage.versions, m_resourcePage.chip);
+    const QList<ResourceCatalog::VersionEntry> filtered = ResourceCatalog::versionsForGameVersion(
+        m_resourcePage.versions, m_resourcePage.chip, m_resourcePage.showSnapshots);
     QList<ResourceDetail::Group> groups;
     for (const ResourceCatalog::VersionGroup &group :
-         ResourceCatalog::groupVersions(filtered)) {
+         ResourceCatalog::groupVersions(filtered, m_resourcePage.showSnapshots)) {
         ResourceDetail::Group out;
         // 组头写的是**这一条落在哪个游戏版本下**（分组规则见 groupVersions）。和上面选的
         // 那一档不一致是正常的（一条支持两档的版本落在新的那一档下），**不加**「（所选

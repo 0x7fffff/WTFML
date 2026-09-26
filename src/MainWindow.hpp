@@ -1186,6 +1186,10 @@ private:
         /// 现在按着哪一颗 chip（空 = 「全部」）。筛和分组都由 MainWindow 重算
         /// （`ResourceCatalog::groupVersions` 是那一份规则）。
         QString chip;
+        /// 上方右侧那个「显示快照版」勾选框（**默认不勾**）。一位同时管三件事 ——
+        /// 那一排 chip 摆哪几颗、chip 怎么筛、组头写什么（见 ResourceCatalog 那三个函数的
+        /// 文件注释）；三处传的必须是**同一个值**，不然症状是「点了 26.2 少了几个版本」。
+        bool showSnapshots = false;
         /// 头卡上那个资源名。下载时拼 label 的前半截要用它。
         QString title;
         /// **全量**那份版本清单（chip 只是从它里面筛）。

@@ -326,6 +326,25 @@ SearchResult parseCurseForgeSearch(const QByteArray &json);
 /// 短的那个在前（1.21 < 1.21.1），数字段之外的那一段按字符串比（`1.21-pre1` 这类）。
 QStringList gameVersionsOldestFirst(const QStringList &versions);
 
+/// 这一串是不是**快照/预览版**那一类（`26.2-rc1` / `1.21.4-pre3` / `24w14a`）。
+///
+/// 两种形状，都是照着**版本号自己**判的（接口不给这一栏）：
+///   * 尾巴上带 `-preN` / `-rcN` 的（1.21.4-pre3、26.2-rc1）—— 新老两套命名都长这样；
+///   * 老式快照号 `24w14a` / `13w41b`（两位年 + 'w' + 两位周 + 一个小写字母）。
+///
+/// **认不出来的都算"不是快照"**（`1.14.3 - Combat Test`、`20w14∞`、`26.2hyperland` 这些
+/// 愚人节/实验版一律不算）。不猜的理由和 `releaseChannelRank` 那条一样：把一条正式版说成
+/// 快照，用户会在那一排 chip 里**找不到**它（它被折进大版本了），而这件事在界面上没有
+/// 任何提示。宁可多显示一个。
+bool isSnapshotGameVersion(const QString &version);
+
+/// 快照版归到**对应的大版本**：`26.2-rc1` → `26.2`、`1.21.4-pre3` → `1.21.4`。
+///
+/// 不是快照的**原样还回去**（`1.21.4` → `1.21.4`），认不出来的也原样还回去。老式快照号
+/// 没有大版本可归（`24w14a` 前面那个版本号谁都猜不出来），也原样还回去 —— 调用方据此
+/// 判断"这一条折不了"（见 gameVersionChoices 里那段：折不了的快照在不显示快照时就不摆）。
+QString majorGameVersionOf(const QString &version);
+
 /// 「选游戏版本」那一步要摆的一串（**新的在前**）。
 ///
 /// NOTE: 接口给的 `Hit::gameVersions` 是**旧的在前**（Sodium 那份实测从 1.16.3 一路排到
@@ -333,7 +352,15 @@ QStringList gameVersionsOldestFirst(const QStringList &versions);
 ///       parseVersions）。同一个"版本"两个字，两个接口的顺序不一样 —— 所以这里单独有个
 ///       函数、单独钉一条断言，而不是在各个调用点上就地反向一次：就地反的话，将来谁多反
 ///       一次、谁少反一次，症状都只是"顺序有点怪"，没人会去查。
-QStringList gameVersionChoices(const Hit &hit);
+///
+/// ★ `showSnapshots`（用户要的「显示快照版」勾选框，2026-09-26）：
+///   * **false（默认那一档）**：快照版**归到对应的大版本里**（用户原话「把快照版本的模组
+///     放到对应的大版本里（如 26.2rc1 放在 26.2 里）」）—— 声明了 `26.2-rc1` 的资源，
+///     这一排上出现的是 `26.2` 那一颗；同一个大版本下声明过的几个快照（26.2-rc1、
+///     26.2-rc2）合成一颗。**折不了的那些（24w14a 这种没有大版本的）不摆** —— 勾选框叫
+///     「显示快照版」，不勾的时候就不该有快照版露在外面；它们照样在「全部」里看得到。
+///   * **true**：每一条声明过的版本各摆一颗，原样（`26.2` 和 `26.2-rc1` 各是各的）。
+QStringList gameVersionChoices(const Hit &hit, bool showSnapshots);
 
 /// 兜底那个图标地址（`https://cdn.modrinth.com/data/{id}/icon.png`）。
 ///
@@ -474,8 +501,14 @@ QString versionRowSubText(const VersionEntry &version);
 ///   而界面上看起来只是"这个模组少列了几版"。
 ///
 /// `gameVersion` 空串 = 不筛（「全部」那一颗，原样还回去）。
+///
+/// ★ `showSnapshots` 必须和 `gameVersionChoices` 收到的是**同一个值**（就是那个勾选框）：
+///   不勾时这一排上的 `26.2` 那一颗代表的是"26.2 这条线"（含它的 rc / pre 快照），所以
+///   声明了 `26.2-rc1` 的版本也要算在 `26.2` 里；勾上时 `26.2` 就只是 `26.2`，
+///   `26.2-rc1` 得去点它自己那一颗。两处传得不一样的话症状是"点了 26.2 少了几个版本"，
+///   而那一排 chip 本身看着是对的。
 QList<VersionEntry> versionsForGameVersion(const QList<VersionEntry> &versions,
-                                           const QString &gameVersion);
+                                           const QString &gameVersion, bool showSnapshots);
 
 /// 详情页头卡上那行元信息：「Fabric / NeoForge · 下载 2.31 亿次 · 更新于 5 天前 · Modrinth」。
 ///
@@ -503,6 +536,12 @@ QString hitMetaLine(const Hit &hit);
 /// 组的次序：游戏版本**新的在前**，同一个游戏版本里按加载器的固定次序
 ///（fabric / forge / neoforge / quilt），通用那一组排最后。组**里面**的顺序原样保留
 /// （接口给的是新的在前，见 parseVersions）。
+///
+/// ★ `showSnapshots`（和那一排 chip 收到的是同一个值）：不勾时组头写的那个游戏版本也
+///   **归到大版本** —— 一条最新只声明到 `26.2-rc1` 的版本，组头写「Fabric 26.2」，而不是
+///   「Fabric 26.2-rc1」。用户原话是「把快照版本的模组放到对应的大版本里」，而分组就是
+///   "这个模组落在哪个大版本下"这件事的出处；只有这一排 chip 折了、组头不折的话，
+///   用户点 `26.2` 进去看见的是「Fabric 26.2-rc1」那一组，两处各说各的。
 struct VersionGroup {
     QString gameVersion; ///< 组头里那个游戏版本；一条都没有时是空串
     QString loader;      ///< 组头里那个加载器（小写，空 = 通用）
@@ -512,7 +551,7 @@ struct VersionGroup {
     QString title() const;
 };
 
-QList<VersionGroup> groupVersions(const QList<VersionEntry> &versions);
+QList<VersionGroup> groupVersions(const QList<VersionEntry> &versions, bool showSnapshots);
 
 /// 这个项目在**它自己那一家**的网页地址（详情页那颗「转到 Modrinth / CurseForge」用）。
 ///
