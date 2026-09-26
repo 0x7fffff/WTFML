@@ -85,6 +85,22 @@ public:
     ///       ui_check 里有一条断言把这条互斥钉住（真要有那么一行，那里先红）。
     static QRect refreshRect(const QRect &row);
 
+    /// 行尾那个**展开箭头**占哪一格（`row` 是整行的矩形，视口坐标）。
+    ///
+    /// 和上面两个不一样：这一格是代理**替 Qt 画的**（`isChannel || m_leafArrow` 那两档），
+    /// 所以它一直在那儿 —— 原先它的定位是写在 paint() 里的一串算术，2026-09-26 提出来变成
+    /// 这个函数，只因为**下载页那四张资源表要用它**：那一层里"点行身"是"打开这个资源的
+    /// 详情页"、"点箭头"才是"展开/收起"（见 MainWindow::eventFilter 里那一段）。
+    ///
+    /// NOTE: 返回的是**命中格**，比画出来的那个箭头四周各宽 3 px（和 clearRect /
+    ///       refreshRect 一个规矩）—— 12 px 的点击目标太小了。paint() 按它画（居中），
+    ///       所以"画出来的"和"点得到的"永远是同一处。
+    ///
+    /// NOTE: 代理不给**没有孩子的顶层行**画箭头（`isChannel && !hasChildren` 那一条直接
+    ///       return）。这一格在这些行上依然是"留出来的那块地方"—— 文字本来就没铺到那儿
+    ///       （paint() 里 textRight 一直扣着它），所以在那一格上按下算"点箭头"是自洽的。
+    static QRect arrowRect(const QRect &row);
+
     /// 光标落在**行里哪个按钮**上 —— 落在就说那句话（`rowRefreshTipText()` /
     /// `rowClearTipText()`），没落在任何一个上就是空串。
     ///

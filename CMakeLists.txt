@@ -87,6 +87,7 @@ set(SOURCE_FILES
     ui/SkinModel.cpp
     ui/VersionIcons.cpp
     ui/VersionTreeDelegate.cpp
+    ui/ResourceDetailPage.cpp
     ui/InstanceGroupDelegate.cpp
     ui/SkinViewer.cpp
     ui/TitleBar.cpp

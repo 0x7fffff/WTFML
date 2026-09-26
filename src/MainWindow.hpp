@@ -56,6 +56,9 @@ class InstanceSettingsDialog;
 // 「账号与外观」那个对话框（多账号 + 换皮肤披风）。这里**只按指针**持有它，所以
 // 前置声明就够 —— 它在 MainWindow 的构造函数之后才懒建（第一次点那个入口才建）。
 class AccountSkinDialog;
+// 「资源详情」那一整页（下载页点一个模组进去看的那一页）。同上：只按指针持有，
+// 懒建（第一次点开才建）。
+class ResourceDetailPage;
 // 「游戏日志」窗（一份游戏一个，见 ui/GameLogWindow.hpp）。同上，只按指针持有，
 // 而且是**按需**才建（收到第一行输出那一刻，见 showGameLogLine()）。
 class GameLogWindow;
@@ -538,6 +541,39 @@ private:
     void onResourceItemActivated(QTreeWidgetItem *item);
     /// 第三层那一下：把这个版本下回来、装进实例。
     void downloadResourceVersion(QTreeWidgetItem *item);
+    /// 真正下它的那一段（上面那个树版本、和详情页那一行，两条路都走到这儿）。
+    ///
+    /// 树那一条把身份、游戏版本、清单都从条目上读出来再调它；详情页那一条直接给值
+    /// （那一页没有树条目）。**加载器那道闸、「没有可下载的文件」那句话、整合包下完接导入
+    /// 那笔登记**全在这一个函数里 —— 两条路必须是同一份规矩，抄一份迟早抄岔。
+    ///
+    /// @param kind 是哪一类资源（决定落到哪个目录、要不要过加载器那道闸）
+    /// @param displayTitle 界面上这一个资源叫什么（下载 label 的前半截，另一半是版本号）
+    /// @param version 要下的那一版（`primaryFile()` 是它的文件清单）
+    void installResourceVersion(ResourceCatalog::Kind kind, const QString &displayTitle,
+                                const ResourceCatalog::VersionEntry &version);
+
+    // ---------- 资源详情页（2026-09-26）----------
+    //
+    // 用户原话：「下载页选择了模组以后进入一个独立界面，上方写模组图像 名字 来源，然后有
+    // 转到 modrinth/curseforge/mcmod.cn 的选项，中间一排版本，下方排列版本，和 pcl 类似」。
+    // "独立界面"按项目那条总目标落成**整页覆盖层**（`OverlayHost::execPage`，不另开窗）。
+    //
+    // 界面那一层（ui/ResourceDetailPage）一个字节都不上网，进参出参全是值；下面这四个
+    // 函数是它和业务层之间那层皮。
+    void setupResourceDetailPage();
+    /// 打开这一条资源的详情页（`iconKey` / `kindKey` 是条子上那两个角色）。
+    ///
+    /// NOTE: **必须排在事件投递之后**再调（调用点走 `QTimer::singleShot(0, …)`）：里面那句
+    ///       `execPage` 会转起一个嵌套事件循环，而调用它的地方（树的事件过滤器）正处在
+    ///       一发鼠标事件的投递途中 —— 在那里面再进一层事件循环，视图那一侧的状态机就悬了。
+    void openResourceDetailPage(const QString &iconKey, const QString &kindKey);
+    /// 详情页上某一颗 chip 被按了（参数是那颗的 key，空串 = 「全部」）：重算筛 + 分组。
+    void onResourcePageChipChanged(const QString &gameVersion);
+    /// 按当下这颗 chip 从**全量**那份清单里筛出来、分组、摆进页面（空的那一对也走它）。
+    void fillResourcePageGroups();
+    /// 详情页上点了某一个具体版本（`Row::key` = `VersionEntry::id`）= 下它。
+    void downloadResourcePageVersion(const QString &versionId);
     /// ResourceStore 的三个回复。
     void onResourceSearchFinished(const QString &requestKey,
                                   const ResourceCatalog::SearchResult &result);
@@ -1102,6 +1138,49 @@ private:
     ///       少一半就还是会被吃掉。
     ///       顺带的好处：两个整合包前后脚开始下也各自记得住（键不同，take() 各取各的）。
     QHash<QString, QString> m_pendingModpackImports;
+    /// 树上每一个资源**完整**的那一条（按 `Hit::iconCacheId()` 存，也就是条目上
+    /// `resourceIconIdRole()` 里那串）。
+    ///
+    /// 为什么条目上那四个角色还不够：点开一个资源的详情页要简介、slug（拼"转到 Modrinth /
+    /// CurseForge"那条网址）、更新时间（头卡上那行元信息），而条目上扣着放不下这些
+    /// （简介挂在 tooltip 上，slug 根本没写进条目）。
+    ///
+    /// NOTE: 和上面 m_resourceVersions 一样**只往里放、不清理**。键是 `<来源>-<id>`，值是
+    ///       一条纯数据；重搜换一批之后旧的那些再也没人问（那些行已经不在了）。要清的话
+    ///       得先知道"哪几条属于上一批"，而那件事现在没有出处 —— 靠"清空整张表"会在重搜
+    ///       另一页时把别的页正在用的条目一起清掉（那四页各有一棵树，搜索是分开发起的）。
+    QHash<QString, ResourceCatalog::Hit> m_resourceHits;
+    /// 「资源详情」那一页**这次开着的时候**说的是哪个资源、列的是哪一份版本。
+    ///
+    /// 一个 struct 装在一起而不是散成六个成员：这六样是**同一份状态**，散开之后
+    /// "开页/关页"要记得挨个改，漏一个的症状（比如 open 忘了落下去）很难认。
+    struct ResourcePageState {
+        bool open = false;
+        /// 这一条是从哪一栏点开的。拼网址（`projectPageUrl` 要 kind）、下载时判
+        /// "要不要过加载器那道闸"都要它。
+        ResourceCatalog::Kind kind = ResourceCatalog::Kind::Mod;
+        ResourceCatalog::Source source = ResourceCatalog::Source::Modrinth;
+        QString projectId;
+        /// 在 m_resourceHits 里的那把钥匙（`iconCacheId()`）。**同时也是"这一发版本列表
+        /// 回来时该不该填进页面"的判据** —— 和树那条路的请求钥匙不是一套（那边带游戏版本）。
+        QString iconKey;
+        /// 问版本的**请求钥匙**：游戏版本和加载器都空（= 不筛，整份列表）。
+        QString requestKey;
+        /// 现在按着哪一颗 chip（空 = 「全部」）。筛和分组都由 MainWindow 重算
+        /// （`ResourceCatalog::groupVersions` 是那一份规则）。
+        QString chip;
+        /// 头卡上那个资源名。下载时拼 label 的前半截要用它。
+        QString title;
+        /// **全量**那份版本清单（chip 只是从它里面筛）。
+        QList<ResourceCatalog::VersionEntry> versions;
+        /// 那份清单**回来过**了（哪怕回来的是空的）。
+        ///
+        /// 为什么要单记这一位："还没回来"和"这个资源一个版本都没发过"都表现为 versions
+        /// 是空的，而这两件事在界面上是**两句不一样的话**（「正在读版本列表…」和
+        /// 「这个资源一个版本都没发过」）。靠 versions.isEmpty() 分不开。
+        bool loaded = false;
+    };
+    ResourcePageState m_resourcePage;
     /// 每一页上一次**真的发出去**的搜索词（键 = 分类键）。
     ///
     /// 只为一件事：结果回来时那句「没有搜到「xx」」里的 xx 要是**那一次**的词。读编辑框里
@@ -1123,6 +1202,9 @@ private:
     // setupAccountSkinDialog()）。它是 this 的子对象、也没开 WA_DeleteOnClose，所以关掉
     // 之后指针照样有效 —— 再点一次是把它 show 回来，不是重建。
     AccountSkinDialog *m_accountSkinDialog = nullptr;
+    /// 「资源详情」那一整页（下载页点一个资源进去）。和上面那个一样：懒建、是 this 的子对象、
+    /// 没开 WA_DeleteOnClose —— 关掉之后指针照样有效（见 setupResourceDetailPage）。
+    ResourceDetailPage *m_resourceDetailPage = nullptr;
     // 现在屏幕上用的是哪两张贴图（本地路径）。**只记真的载入成功了的** —— 所以空串
     // 就等于"现在显示的是默认外观"，右栏那句话的判据之一就是它。
     QString m_skinPath;

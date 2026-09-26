@@ -17,6 +17,7 @@
 #include "..\ui\InstanceSettingsDialog.hpp"
 #include "..\ui\JavaMismatchDialog.hpp"
 #include "..\ui\AccountSkinDialog.hpp"
+#include "..\ui\ResourceDetailPage.hpp"
 #include "..\ui\GameLogWindow.hpp"
 #include "..\ui\MainWindowUI.hpp"
 // 内容区上面那一层（2026-09-25）：设置界面和各种提示都开在它里面，不再另开独立窗口。
@@ -44,6 +45,7 @@
 // 添加以下头文件（防止hpp变动导致文件失效）
 #include <QApplication>
 #include <QCheckBox>
+#include <QClipboard>
 #include <QCloseEvent>
 #include <QComboBox>
 #include <QDebug>
@@ -1658,6 +1660,20 @@ void MainWindow::setupConnections() {
                                  const int depth = resourceRowDepth(item);
                                  return depth == 0 || depth == 1;
                              });
+        // 点行身 = 打开详情页，点箭头 = 展开/收起（2026-09-26）。这一发走**事件过滤器**
+        // 而不是上面那个接线口：接线的那个只给"点中了哪个条目"、不给"点在条目里的哪儿"
+        // （箭头是行里的一格），和加载器树上那个「取消」小叉是同一个形状的判据
+        // —— 见 MainWindow::eventFilter 里"下载页那四张资源表"那一段。
+        //
+        // NOTE: 装的是**视口**（鼠标事件按光标位置投递给视口）—— 和实例树、加载器树、
+        //       左栏那份分类列表三处一模一样。
+        // ★ 这一句**必须排在上面那句 connectRowActivation 之后**：Qt 的事件过滤器是
+        //   "后装的先跑"，而上面那个接线口会给**开关行**的每一发双击补一次激活
+        //   （见 RowActivation.hpp 里那段"点得快的时候每一下都要算"）。排在它前面的话，
+        //   "双击行身"那一发会先被它当成展开/收起办掉、再被我们吃掉 —— 症状是"点开这一页
+        //   之前，底下那棵树自己展开又收起了一下"。位置反过来就没有这个窗口。
+        //   （那个接线口自己也挂在视口上，所以这两句的先后**就是**那两条过滤器的先后。）
+        tree->viewport()->installEventFilter(this);
         // 图标是**懒要**的：条目建出来之后才 requestIcon()，不然图标回来时没有行可以放
         //（而且 store 命中缓存时是同步发的，见 requestIcon 的 NOTE）。
     }
@@ -3408,6 +3424,56 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
             return true;
         }
     }
+    // 下载页那四张资源表：**点行身 = 打开这一条资源的详情页**（用户原话：「下载页选择了
+    // 模组以后进入一个独立界面…和 pcl 类似」）；点行尾那个箭头仍然是老规矩（展开 / 收起，
+    // 判据是同一个 arrowRect()）—— 于是"展开这一条"这件事从此只挂在箭头上。
+    //
+    // NOTE: 这一块**只认第一层**（一个资源）。第二层（游戏版本）点开是"问这个资源在这个
+    //       游戏版本上有哪些版本可下"、第三层（版本号）点它是"下它"，两条老路原样留着
+    //       （用户要的详情页是**另一条**看整份清单的路，不是把树上那条拆掉）。
+    // NOTE: 三发都吃掉（按下 / 松开 / 双击）：`connectRowActivation` 那边给"开关行"补的
+    //       那一发双击也会落到"展开"上 —— 而这一下已经算"进这一页"了，不该再翻一次树。
+    if (event->type() == QEvent::MouseButtonPress || event->type() == QEvent::MouseButtonRelease
+        || event->type() == QEvent::MouseButtonDblClick) {
+        auto *mouse = static_cast<QMouseEvent *>(event);
+        for (ResourceCatalog::Kind treeKind : ResourceCatalog::allKinds()) {
+            const QString treeKey = ResourceCatalog::kindKey(treeKind);
+            QTreeWidget *tree = m_ui->getDownloadResourceTree(treeKey);
+            if (tree == nullptr || watched != tree->viewport()) {
+                continue;
+            }
+            const QPoint pos = mouse->position().toPoint();
+            QTreeWidgetItem *item =
+                mouse->button() == Qt::LeftButton ? tree->itemAt(pos) : nullptr;
+            if (item == nullptr || resourceRowDepth(item) != 0) {
+                continue;
+            }
+            // "这一行是不是我们建的"：占位行（「正在搜索…」那几行）没有这一位。
+            const int column = MainWindowUI::versionTreeKeyColumn();
+            const QString kindKey =
+                item->data(column, MainWindowUI::resourceKindRole()).toString();
+            if (kindKey.isEmpty()) {
+                continue;
+            }
+            // 箭头那一格**交回去**（展开 / 收起还是它）：判据和代理画它用的是同一个函数，
+            // 两边各算一份的话迟早错开，而错开的形状是"看着点的是箭头、其实进了一页"。
+            if (VersionTreeDelegate::arrowRect(tree->visualItemRect(item)).contains(pos)) {
+                continue;
+            }
+            if (event->type() == QEvent::MouseButtonPress) {
+                // 按下就动手（松开和那几发双击只负责被吃掉）—— 和实例行上那三颗一个规矩。
+                const QString iconKey =
+                    item->data(column, MainWindowUI::resourceIconIdRole()).toString();
+                // **排到下一轮事件循环**再开页：`execPage` 里面要转起一个嵌套事件循环，
+                // 而这一发还在视图的事件处理里（列表那一侧的状态机悬在半路）。这里传的是
+                // 两个字符串**值**，不是条目指针 —— 下一轮里树可能已经被重搜清空了。
+                QTimer::singleShot(0, this, [this, iconKey, kindKey] {
+                    openResourceDetailPage(iconKey, kindKey);
+                });
+            }
+            return true;
+        }
+    }
     return QMainWindow::eventFilter(watched, event);
 }
 
@@ -4048,6 +4114,10 @@ void MainWindow::fillResourceHitRows(QTreeWidget *tree, ResourceCatalog::Kind ki
             gameItem->setText(column, gameVersion);
         }
 
+        // 整条 hit 存一份（键就是上面那个图标身份，也是"这一行是哪个资源"的钥匙）。
+        // 条目上那四个角色装不下简介 / slug / 更新时间，而点开详情页三样都要
+        // （见 m_resourceHits 那段 NOTE）。
+        m_resourceHits.insert(hit.iconCacheId(), hit);
         // 图标**最后**要：ResourceStore 命中内存缓存时是同步发 iconReady 的，那一行得先在
         // 那儿（见 requestIcon 的 NOTE）—— 所以这一句必须排在最后。
         // 收的是整条 hit 不是 id：要挑地址（能用 webp 就走那条小 7 倍的，见 requestIcon）。
@@ -4135,6 +4205,15 @@ void MainWindow::onResourceIconReady(const QString &iconId, const QPixmap &icon)
             }
             item->setData(column, MainWindowUI::rowIconRole(), mark);
         }
+    }
+    // 详情页正开着、回来的又正好是它那一张 → 换上头卡那一格。
+    //
+    // NOTE: 判据是**图标身份**而不是"页开着"就换：图标是一条一条回来的，页上那一格只该
+    //       认自己这一条（换个说法：这是同一套"按身份认行"的规矩，只不过这儿认的是那一页）。
+    //       头卡那一格比列表大（64 vs 32），缩放由那一页自己做（见 setIcon）。
+    if (m_resourcePage.open && iconId == m_resourcePage.iconKey
+        && m_resourceDetailPage != nullptr) {
+        m_resourceDetailPage->setIcon(icon);
     }
 }
 
@@ -4261,6 +4340,23 @@ void MainWindow::onResourceVersionsFinished(const QString &requestKey,
                                            const QList<ResourceCatalog::VersionEntry> &versions,
                                            const QString &problem) {
     const int column = MainWindowUI::versionTreeKeyColumn();
+    // 先看是不是**详情页**那一发（钥匙里游戏版本、加载器都是空的，和树上那些一定带一个
+    // 游戏版本的钥匙不会撞，见 openResourceDetailPage）。
+    if (m_resourcePage.open && requestKey == m_resourcePage.requestKey) {
+        if (!problem.isEmpty()) {
+            // 「没取到」（超时 / 限流 / 那条资源被作者删了）。**不弹窗**：用户是点进这一页
+            // 来看东西的，页上已经有话说了；再点一次这个资源就是重新问一次。
+            m_resourcePage.versions.clear();
+            m_resourcePage.loaded = true;   // 回来过了（回的是"没取到"）
+            m_resourceDetailPage->setPlaceholder(problem);
+            return;
+        }
+        m_resourcePage.versions = versions;
+        m_resourcePage.loaded = true;
+        // 摆哪一份由 chip 决定（这一步同时也处理"筛完一条都不剩"和"一条都没发过"两种空）。
+        fillResourcePageGroups();
+        return;
+    }
     // 不解析那把钥匙（钥匙的格式只有 ResourceCatalog 知道）。改成**按内容重算**：把树上
     // 每一个"资源 × 游戏版本"重算一次钥匙，和回来的这一把比。几页加起来也就几十对，
     // 一次线性扫描。这样钥匙的拼法只有一处（versionsRequestKey），而且不必在条目上存
@@ -4322,31 +4418,6 @@ void MainWindow::downloadResourceVersion(QTreeWidgetItem *item) {
             resourceItem->data(column, MainWindowUI::resourceKindRole()).toString(), &kind)) {
         return;  // 这一行不是我们建的（正常走不到）
     }
-    const bool isModpack = kind == ResourceCatalog::Kind::Modpack;
-
-    // 目标实例：**以下拉框为准**（树和下拉框是同一份数据的两种看法，见 setupConnections 里
-    // 那条 currentIndexChanged）。整合包那一路不用它 —— 下回来的是 .mrpack，接着走导入，
-    // 实例名是在那条路上问出来的。
-    const QString instanceId =
-        isModpack ? QString() : selectedVersionId(m_ui->getInstalledVersionCombo());
-    if (!isModpack && instanceId.isEmpty()) {
-        InlineMessage::warning(m_ui->overlay(), tr("没有选中实例"),
-                             tr("先在「已安装版本」里选一个实例，再挑要装进它的版本。"));
-        return;
-    }
-
-    // 下到哪儿去。实例那几类是 `<实例目录>/<子目录>`（mods / datapacks / resourcepacks /
-    // shaderpacks）；整合包走缓存目录 —— 它不能进 versions/（那底下每一个子目录都会被当成
-    // 一个实例）。
-    const QString folder = ResourceCatalog::folderForKind(kind);
-    const QString destinationDir = isModpack
-                                       ? AppPaths::modpackCacheDir()
-                                       : AppPaths::versionDir(instanceId) +
-                                             QLatin1Char('/') + folder;
-    if (!isModpack && folder.isEmpty()) {
-        return;  // folderForKind 说了"这一类不走这条安装路"，而它又不是整合包
-    }
-
     // 这一版的文件清单：随"点开游戏版本"那一发回来的。没有它就下不了（正常走不到 ——
     // 有第三层这些行就说明那一发回来过）。说清楚，别静静地什么都不做。
     //
@@ -4375,7 +4446,39 @@ void MainWindow::downloadResourceVersion(QTreeWidgetItem *item) {
         // 行在、清单里没有它 = 这一行是上一次搜索留下的（重搜过）。用户没做错什么，不弹窗。
         return;
     }
-    const ResourceCatalog::FileEntry *file = chosen->primaryFile();
+    // 剩下的（选哪个实例、落到哪个目录、文件清单、加载器那道闸）详情页那条路也要走一遍，
+    // 全在 installResourceVersion 里 —— **这一条路不自己再算一份**。
+    installResourceVersion(kind, resourceItem->text(column), *chosen);
+}
+
+void MainWindow::installResourceVersion(ResourceCatalog::Kind kind, const QString &displayTitle,
+                                        const ResourceCatalog::VersionEntry &version) {
+    const bool isModpack = kind == ResourceCatalog::Kind::Modpack;
+
+    // 目标实例：**以下拉框为准**（树和下拉框是同一份数据的两种看法，见 setupConnections 里
+    // 那条 currentIndexChanged）。整合包那一路不用它 —— 下回来的是 .mrpack，接着走导入，
+    // 实例名是在那条路上问出来的。
+    const QString instanceId =
+        isModpack ? QString() : selectedVersionId(m_ui->getInstalledVersionCombo());
+    if (!isModpack && instanceId.isEmpty()) {
+        InlineMessage::warning(m_ui->overlay(), tr("没有选中实例"),
+                             tr("先在「已安装版本」里选一个实例，再挑要装进它的版本。"));
+        return;
+    }
+
+    // 下到哪儿去。实例那几类是 `<实例目录>/<子目录>`（mods / datapacks / resourcepacks /
+    // shaderpacks）；整合包走缓存目录 —— 它不能进 versions/（那底下每一个子目录都会被当成
+    // 一个实例）。
+    const QString folder = ResourceCatalog::folderForKind(kind);
+    const QString destinationDir = isModpack
+                                       ? AppPaths::modpackCacheDir()
+                                       : AppPaths::versionDir(instanceId) +
+                                             QLatin1Char('/') + folder;
+    if (!isModpack && folder.isEmpty()) {
+        return;  // folderForKind 说了"这一类不走这条安装路"，而它又不是整合包
+    }
+
+    const ResourceCatalog::FileEntry *file = version.primaryFile();
     if (file == nullptr || file->url.isEmpty()) {
         // 「接口没给地址」有两种，**不是同一句话**：一种是这一版真的没有文件；
         // 另一种是作者在项目设置里关掉了第三方分发（CurseForge 那条路，`downloadUrl`
@@ -4407,12 +4510,12 @@ void MainWindow::downloadResourceVersion(QTreeWidgetItem *item) {
     // 拦下来的是**问一句**，不是禁止 —— 用户说"就要这么装"就照装。
     const VersionDisplayParts parts = m_versionManager->displayParts(instanceId);
     const QString instanceLoader = parts.loaderName.toLower();
-    if (loaderMatters && !instanceLoader.isEmpty() && chosen->loaders.size() == 1
-        && !chosen->loaders.first().contains(instanceLoader)) {
+    if (loaderMatters && !instanceLoader.isEmpty() && version.loaders.size() == 1
+        && !version.loaders.first().contains(instanceLoader)) {
         const auto answer = InlineMessage::question(m_ui->overlay(), tr("加载器对不上"),
             tr("这个实例是 %1 %2，而这一版是给 %3 用的。\n\n"
                "装进去多半不会生效（游戏进去可能直接崩）。还要装吗？")
-                .arg(parts.loaderName, parts.loaderVersion, chosen->loaders.first()), tr("是"), tr("否"), false);
+                .arg(parts.loaderName, parts.loaderVersion, version.loaders.first()), tr("是"), tr("否"), false);
         if (!answer) {
             return;
         }
@@ -4427,7 +4530,7 @@ void MainWindow::downloadResourceVersion(QTreeWidgetItem *item) {
     files.append(resourceFile);
 
     const QString label =
-        QStringLiteral("%1 %2").arg(resourceItem->text(column), chosen->versionNumber);
+        QStringLiteral("%1 %2").arg(displayTitle, version.versionNumber);
     // 下完接着走导入那条路（那边会问实例名、挑 Java，然后解包、下清单里那几百个文件）。
     // 路径按**接口给的文件名**算 —— 落盘用的就是它（见 downloadResourceFiles），这里
     // 不另编一套命名。
@@ -4445,6 +4548,231 @@ void MainWindow::downloadResourceVersion(QTreeWidgetItem *item) {
     if (started && !modpackPath.isEmpty()) {
         m_pendingModpackImports.insert(label, modpackPath);
     }
+}
+
+// ============================ 资源详情页 ============================
+//
+// 用户原话：「下载页选择了模组以后进入一个独立界面，上方写模组图像 名字 来源，然后有转到
+// modrinth/curseforge/mcmod.cn 的选项，中间一排版本，下方排列版本，和 pcl 类似」。
+// "独立界面"按那条总目标落成**整页覆盖层**（`OverlayHost::execPage`，顶上四个选项卡和
+// 底栏照旧露着，不另开窗）。
+//
+// 三件事的分工（写清楚免得下次改错地方）：
+//   - **界面的样子**全在 ui/ResourceDetailPage.{hpp,cpp}（它不 include 任何 src/ 下的头）；
+//   - **数据**全在 src/download/ResourceCatalog（拼网址、分组、时间那句、渠道那一档）；
+//   - **下面这一片**是接线：谁去问网络、点哪颗按钮干什么、哪一行是"下它"。
+//     所以这里没有一行"这一页长什么样"的代码，那一页也没有一处"要不要联网"的决定。
+
+void MainWindow::setupResourceDetailPage() {
+    if (m_resourceDetailPage != nullptr) {
+        return;
+    }
+    m_resourceDetailPage = new ResourceDetailPage(this);
+    // NOTE: 这一页只发"用户想做什么"，一件事都不自己干 —— 收到信号之后干什么全在下面
+    //       这几个槽里。所以它能在 ui_check 里被单独构造、单独驱动（不联网、不读盘）。
+    connect(m_resourceDetailPage, &ResourceDetailPage::chipChanged, this,
+            &MainWindow::onResourcePageChipChanged);
+    connect(m_resourceDetailPage, &ResourceDetailPage::rowActivated, this,
+            &MainWindow::downloadResourcePageVersion);
+    // 开浏览器 / 复制名字**由这一层动手**（那一页只发信号）：开浏览器要走
+    // QDesktopServices（验证工程把 url handler 换掉就能拦，见那一页的文件头），
+    // 复制要能进日志。
+    connect(m_resourceDetailPage, &ResourceDetailPage::openExternalRequested, this,
+            [this](const QString &url) {
+                if (url.isEmpty()) {
+                    return;
+                }
+                appendLog(tr("正在打开 %1。").arg(url));
+                // 和"打开实例文件夹"那条走的是同一个东西（都是"把这件事交给系统"）。
+                // 开不了要说一句：那颗按钮看着像是我们自己开的页面，静静地什么都不发生，
+                // 用户只会一遍遍点它。
+                if (!QDesktopServices::openUrl(QUrl(url))) {
+                    InlineMessage::warning(m_ui->overlay(), tr("打不开浏览器"),
+                                           tr("没能打开这一条网址：\n%1").arg(url));
+                }
+            });
+    connect(m_resourceDetailPage, &ResourceDetailPage::copyNameRequested, this,
+            [this](const QString &text) {
+                if (text.isEmpty()) {
+                    return;
+                }
+                // 复制完**不弹话**：这一下是用户自己按的，而剪贴板里那串东西他自己
+                // 粘一下就看得见。进日志留个痕就够（排查"我复制的怎么不对"时有用）。
+                if (QClipboard *clipboard = QApplication::clipboard()) {
+                    clipboard->setText(text);
+                    appendLog(tr("已复制名称：%1").arg(text));
+                }
+            });
+}
+
+void MainWindow::openResourceDetailPage(const QString &iconKey, const QString &kindKey) {
+    OverlayHost *overlay = m_ui->overlay();
+    if (overlay == nullptr || overlay->isOpen()) {
+        // 已经有覆盖层开着（另一页、或者一条提示）。这一层不做页面栈，这一次就不开了 ——
+        // 和 `openPage()` 返回 nullptr 是同一件事（见 OverlayHost.hpp 那段）。
+        return;
+    }
+    ResourceCatalog::Kind kind = ResourceCatalog::Kind::Mod;
+    if (!ResourceCatalog::kindFromCategoryKey(kindKey, &kind)) {
+        return;  // 这一行不是我们建的（正常走不到）
+    }
+    const auto hit = m_resourceHits.constFind(iconKey);
+    if (iconKey.isEmpty() || hit == m_resourceHits.constEnd()) {
+        // 条目上那把钥匙在表里找不到 = 这一行是上一批搜索留下的（重搜过）。用户没做错
+        // 什么，不弹窗（和点第三层时那句"清单里没它"同一个规矩）。
+        return;
+    }
+    setupResourceDetailPage();
+    ResourceDetailPage *page = m_resourceDetailPage;
+    if (page == nullptr) {
+        return;
+    }
+
+    // 这一次说的是哪个资源、列的是哪一份。**开页之前就要摆好**：下面 execPage 一进去
+    // 就卡住了，那之后写的每一句都只有等用户点返回才执行得到。
+    m_resourcePage.open = true;
+    m_resourcePage.kind = kind;
+    m_resourcePage.source = hit->source;
+    m_resourcePage.projectId = hit->projectId;
+    m_resourcePage.iconKey = iconKey;
+    m_resourcePage.title = hit->title;
+    m_resourcePage.chip.clear();
+    m_resourcePage.versions.clear();
+    m_resourcePage.loaded = false;
+    // 钥匙里游戏版本和加载器都空 = **不筛**（"这个资源一共发过哪些版本"）。
+    // 这也正是它和树那条路的钥匙不会撞的原因：树上那把一定带着一个游戏版本号。
+    m_resourcePage.requestKey = ResourceCatalog::versionsRequestKey(
+        hit->projectId, QString(), QString(), hit->source);
+
+    ResourceDetail::Header header;
+    header.title = hit->title;
+    header.description = hit->description;
+    header.metaLine = ResourceCatalog::hitMetaLine(*hit);
+    // 「转到 Modrinth / CurseForge」那两颗：网址是**那家自己网页的形状**（见
+    // projectPageUrl，类名拼错了回 404 而不报错）。拼不出来（slug 空）那一页就不画那颗
+    // 按钮 —— 摆一颗点了没反应的键比不摆糟。
+    header.openLabel = ResourceCatalog::sourceLabel(hit->source);
+    header.openUrl = ResourceCatalog::projectPageUrl(hit->source, kind, hit->slug);
+    // MC 百科那边**没有按 id 直接跳的路**（它是另一套号），只能拿名字去搜 —— 这是
+    // "跳到那儿附近"，不是"跳到那一页"。
+    header.mcmodUrl = ResourceCatalog::mcmodSearchUrl(hit->title);
+    header.nameToCopy = hit->title;
+    page->setHeader(header);
+
+    // 中间那一排游戏版本 chip：**搜索响应里本来就带着**"这个资源支持哪些游戏版本"
+    // （`Hit::gameVersions`，顺序由 gameVersionChoices 统一成新的在前），所以开页这一下
+    // 不用为它多发一条请求。第一颗是「全部」（key 空串）。
+    QList<ResourceDetail::Chip> chips;
+    ResourceDetail::Chip all;
+    all.text = tr("全部");
+    chips.append(all);
+    for (const QString &gameVersion : ResourceCatalog::gameVersionChoices(*hit)) {
+        ResourceDetail::Chip chip;
+        chip.key = gameVersion;
+        chip.text = gameVersion;
+        chips.append(chip);
+    }
+    // 开页一律从「全部」开始（用户在下载页选的是"哪个资源"，还没说"哪个游戏版本"）。
+    page->setChips(chips, QString());
+    // 图标是异步来的：先清掉上一次那一张（不然会留着上一个资源的图标，比空着糟），
+    // 那一格的位置照旧留着，图回来时整张卡不会往左跳一下。
+    page->setIcon(QPixmap());
+    page->setPlaceholder(tr("正在读版本列表…"));
+
+    // 图标：列表那几行早就为这一条要过了（见 fillResourceHitRows 最后那句），内存/盘上
+    // 命中就是**同步**回来的 —— 于是这一句常常在下面 execPage 之前就把图摆好了。
+    m_resourceStore->requestIcon(*hit);
+    // 版本列表（整份，不筛）。答复落在 onResourceVersionsFinished 里，判据是
+    // `m_resourcePage.requestKey` —— 和树那条路按行重算钥匙的做法不同：那一页没有
+    // 条目可查（它自己那份清单是空的），所以这儿直接比钥匙。
+    m_resourceStore->fetchVersions(m_resourcePage.requestKey, hit->projectId, hit->source,
+                                   QString());
+
+    // **最后**才开页：这一句会一直卡在这儿（内部那个嵌套事件循环）转到用户点返回。
+    // NOTE: 上面发出去的两条请求都是异步的，答复会在那个循环里落地 —— 所以"先发请求、
+    //       再开页"和"先开页、再发请求"对用户是同一件事；写成这样只是因为这一句之后
+    //       的控制流要等用户。
+    overlay->execPage(page, page->titleText());
+    // 点了返回（或者 Esc）：状态落下去。**页面本身留着**（它是懒建的那一份），下次点开
+    // 还是它，setHeader/setChips 会把上一次那些字全换掉。
+    m_resourcePage.open = false;
+}
+
+void MainWindow::onResourcePageChipChanged(const QString &gameVersion) {
+    if (!m_resourcePage.open) {
+        return;
+    }
+    m_resourcePage.chip = gameVersion;
+    fillResourcePageGroups();
+}
+
+void MainWindow::fillResourcePageGroups() {
+    if (!m_resourcePage.open || m_resourceDetailPage == nullptr) {
+        return;
+    }
+    // 还没回来：chip 是在这一页上点的，而版本列表可能还在路上（用户手快）。
+    // **不能**在这儿说"这一档没有版本" —— 那是在替一份还没到的数据回答。
+    if (!m_resourcePage.loaded) {
+        m_resourceDetailPage->setPlaceholder(tr("正在读版本列表…"));
+        return;
+    }
+    // 筛（看的是这一版**声明过**的每一个游戏版本，不是它落在哪个组里 —— 那条规矩和它的
+    // 坑都在 versionsForGameVersion 的注释里），再按「游戏版本 + 加载器」分组。
+    // 两步**分开**：合并了就是上面那条坑（筛 1.20.1 会漏掉一半支持它的版本）。
+    const QList<ResourceCatalog::VersionEntry> filtered =
+        ResourceCatalog::versionsForGameVersion(m_resourcePage.versions, m_resourcePage.chip);
+    QList<ResourceDetail::Group> groups;
+    for (const ResourceCatalog::VersionGroup &group :
+         ResourceCatalog::groupVersions(filtered)) {
+        ResourceDetail::Group out;
+        // 组头写的是**这一条落在哪个游戏版本下**（分组规则见 groupVersions）。和上面选的
+        // 那一档不一致是正常的（一条支持两档的版本落在新的那一档下），**不加**「（所选
+        // 版本）」那种后缀：每一组都挂一句一样的话，那一句就不是信息了。
+        out.title = group.title();
+        for (const ResourceCatalog::VersionEntry &entry : group.versions) {
+            ResourceDetail::Row row;
+            row.key = entry.id;
+            // 正文写**版本号**（不是文件名）：这一页一屏几十条版本，认人的是版本号；
+            // 文件名在小字那一截里（versionRowSubText 的第二截）。树那条路正相反
+            // （那一层是"挑一个文件下来"，写的就是落盘那个名字）—— 两处不一样是有意的。
+            row.title = entry.versionNumber;
+            row.subText = ResourceCatalog::versionRowSubText(entry);
+            row.channel = ResourceCatalog::releaseChannelRank(entry.versionType);
+            const ResourceCatalog::FileEntry *file = entry.primaryFile();
+            if (file != nullptr && !file->filename.isEmpty()) {
+                // 鼠标停上去看**要下哪个文件**（正文放不下、也不该放）。
+                row.tooltip = file->filename;
+            }
+            out.rows.append(row);
+        }
+        groups.append(out);
+    }
+    if (groups.isEmpty()) {
+        // 两种"空"**不是同一句话**：选了某一档之后一条都没有（这一档上没有），和这个资源
+        // 一条版本都没发过（那一页自己那句，`setGroups()` 收到空表时摆的就是它）。
+        if (m_resourcePage.chip.isEmpty()) {
+            m_resourceDetailPage->setGroups({});
+        } else {
+            m_resourceDetailPage->setPlaceholder(tr("这个游戏版本上没有可下载的版本。"));
+        }
+        return;
+    }
+    m_resourceDetailPage->setGroups(groups);
+}
+
+void MainWindow::downloadResourcePageVersion(const QString &versionId) {
+    if (!m_resourcePage.open || versionId.isEmpty()) {
+        return;
+    }
+    for (const ResourceCatalog::VersionEntry &entry : m_resourcePage.versions) {
+        if (entry.id == versionId) {
+            // 和树上点第三层那一下**是同一件事**（选哪个实例、落到哪个目录、加载器那道闸、
+            // 整合包下完接导入，全在那边那一个函数里）。
+            installResourceVersion(m_resourcePage.kind, m_resourcePage.title, entry);
+            return;
+        }
+    }
+    // 行在、这份清单里没有它：正常走不到（那些行就是从这份清单摆出来的）。
 }
 
 void MainWindow::onResourceDownloadFinished(const QString &label, bool success,

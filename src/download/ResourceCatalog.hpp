@@ -37,6 +37,7 @@
 #pragma once
 
 #include <QByteArray>
+#include <QDateTime>
 #include <QList>
 #include <QString>
 #include <QStringList>
@@ -231,6 +232,16 @@ struct Hit {
     ///       统一回答它 —— 这一项就是 CurseForge 那个答案的出处。
     QString iconFallbackUrl;
 
+    /// 这个项目**最后一次更新**是什么时候（ISO 8601 串）。
+    ///
+    /// 两个来源都有这一栏，只是名字不同（Modrinth 是 `date_modified`、CurseForge 是
+    /// `dateModified`），解析的时候都读到这一栏来 —— 界面上那句「↑ 5 天前」不需要知道
+    /// 这条 hit 是从哪一家搜出来的。
+    ///
+    /// NOTE: 空串 = 接口没给（字段没了 / 响应被人改过）。界面上那一截就**不显示**，
+    ///       不要拿它当"很久以前"编一句话出来。
+    QString updatedIso;
+
     /// 加载器（`categories` 里属于加载器的那几个）。界面上当标签显示、以及挑版本时筛。
     ///
     /// NOTE: `explicitLoaders` 非空就**只认它**（CurseForge 那条路）—— 那边的 categories
@@ -396,9 +407,129 @@ struct VersionEntry {
     QList<FileEntry> files;
     QList<Dependency> dependencies;
 
+    /// 这一版自己被下过多少次。
+    ///
+    /// 两个来源的名字不一样（Modrinth 那份版本对象里是 `downloads`、CurseForge 那条文件是
+    /// `downloadCount`），解析时都读到这一栏 —— 界面上那句「下载 113 万次」不必按来源分叉。
+    ///
+    /// NOTE: **0 = 接口没给这一栏**，不是"没人下过"。界面上 0 就把那一截省掉：
+    ///       真写成「下载 0 次」看着像这一版有问题。
+    qint64 downloads = 0;
+
     /// 界面上默认要下的那个文件（`primary` 那条；一个都没有时回第一条；空清单回 nullptr）。
     const FileEntry *primaryFile() const;
 };
+
+// ---------- 资源详情页要用的那几件（都是纯函数，离线钉得住）----------
+
+/// 把一个 ISO 时间串说成「14 天前」这种话。
+///
+/// 分档：不到一分钟「刚刚」、不到一小时「N 分钟前」、不到一天「N 小时前」、不到一个月
+/// 「N 天前」、不到一年「N 个月前」、再往上「N 年前」。
+///
+/// **空串 / 读不懂 / 是将来时间都回空串**：调用点把空串理解成"这一截不显示"。将来时间
+/// 也回空串是刻意的 —— 那说明这台机器的钟或者接口的时间戳有一个是错的，说「-3 天前」
+/// 比不说更让人困惑。
+QString relativeTimeText(const QString &isoTime);
+
+/// 同上，"现在"由调用方给（验证工程拿它钉那几档的边界 —— 真跑的话每一条都会随
+/// 当下时间漂移，只有把 now 钉死才测得准）。
+QString relativeTimeText(const QString &isoTime, const QDateTime &now);
+
+/// 发布渠道那两个字：`release` 回**空串**（正式版什么都不写，界面上就少一截）、
+/// `beta` →「测试版」、`alpha` →「早期测试版」。认不出来的也回空串（**不猜**）。
+///
+/// 为什么正式版回空串而不是「正式版」：一屏里绝大多数是正式版，人人都有那三个字的时候
+/// 它就不是信息了，而屏幕左边那个字母方块已经把渠道说了一遍。
+QString releaseChannelNote(const QString &versionType);
+
+/// 发布渠道落在**哪一档**：`release` → 0、`beta` → 1、`alpha` → 2。
+///
+/// 详情页那个版本行左边的字母方块按它取色（`ResourceDetailMarks::channelColor`：0 绿 /
+/// 1 橙 / 2 红）。那三个数字是**次序**不是枚举值，两处必须说的是同一件事。
+///
+/// 认不出来（空串 / 没见过的词 / CurseForge 那边 `releaseType` 是 0 没写）回 **-1** ——
+/// 不是 0。回 0 等于把一条不知道是什么渠道的版本画成绿色的"正式版"，那是把"不知道"
+/// 说成了"很稳"；-1 在界面上是一块**灰的、不写字母**的方块（见那边的 `channelColor`）。
+int releaseChannelRank(const QString &versionType);
+
+/// 加载器名（接口给的小写）→ 界面上那个显示名（`Fabric` / `Forge` / `NeoForge` / `Quilt`）。
+/// **认不出来就原样还回去** —— 显示一个 `optifine` 也比显示空串强（空串在界面上是
+/// 「这个版本没有加载器」，那是另一件事）。
+QString loaderDisplayName(const QString &loader);
+
+/// 版本列表里那一行的小字：
+/// 「Fabric, sodium-fabric-0.9.2+mc26.2, 下载 113 万次, 更新于 14 天前, 测试版」。
+///
+/// 哪几截在、哪几截不在全看数据：没有文件名就不写、下载量是 0（= 接口没给）不写、
+/// 时间读不懂不写、正式版不写渠道。**每一截都在这里决定**，界面上那一行只负责画。
+QString versionRowSubText(const VersionEntry &version);
+
+/// 按游戏版本筛一份清单（详情页中间那一排 chip，每一颗就是一次这个）。
+///
+/// ★ 看的是 `VersionEntry::gameVersions`（这一版**声明过**的每一个游戏版本），**不是**
+///   "它落在哪个组里"（`groupVersions` 那个归属）。一条同时支持 1.20.1 / 1.20.2 的版本
+///   落在 1.20.2 那一组，但选了 1.20.1 那一格时它照样该在。两件事在详情页里是分开的两步
+///   （先筛、再分组），别合并 —— 合并了之后"按 1.20.1 筛"会漏掉一半它本来支持的版本，
+///   而界面上看起来只是"这个模组少列了几版"。
+///
+/// `gameVersion` 空串 = 不筛（「全部」那一颗，原样还回去）。
+QList<VersionEntry> versionsForGameVersion(const QList<VersionEntry> &versions,
+                                           const QString &gameVersion);
+
+/// 详情页头卡上那行元信息：「Fabric / NeoForge · 下载 2.31 亿次 · 更新于 5 天前 · Modrinth」。
+///
+/// 四截各缺各的：一个加载器都没有（数据包那类）不写第一截、下载量 0（接口没给）不写、
+/// 时间空/读不懂不写；**来源那一截总在**（这一行是"这是哪一家来的"，图标域名和版本列表
+/// 都跟着它走，用户要拿它对照网页）。
+///
+/// 用的字和版本列表那一行**是同一套**（`formatDownloads` / `relativeTimeText` /
+/// `loaderDisplayName` / `sourceLabel`）—— 同一页上同一个东西两种说法最扎眼。
+QString hitMetaLine(const Hit &hit);
+
+/// 版本列表怎么分组：**一组 = 一个游戏版本 + 一个加载器**（就是详情页里那个
+/// 「Fabric 26.2」的组头）。
+///
+/// 一条版本只进**一个**组：进它自己声明的**最新**那个游戏版本、和它的**主加载器**
+/// （`loaders` 里按 fabric / forge / neoforge / quilt 的次序取第一个；一个都没有 = 通用）。
+/// 之所以不"每个声明过的游戏版本各进一次"：那样同一条会在一屏里出现好几遍，
+/// 用户数不清自己到底有几个版本。
+///
+/// NOTE: 所以**筛某个游戏版本要看 `VersionEntry::gameVersions`**（它声明过的每一个），
+///       不是看它落在哪个组里 —— 一条同时支持 1.20.1 和 1.20.2 的版本，落在 1.20.2 那一组，
+///       但选了 1.20.1 那一格时它照样该在。这两件事在详情页里是分开的两步
+///       （先按 chip 筛、再分组），别合并。
+///
+/// 组的次序：游戏版本**新的在前**，同一个游戏版本里按加载器的固定次序
+///（fabric / forge / neoforge / quilt），通用那一组排最后。组**里面**的顺序原样保留
+/// （接口给的是新的在前，见 parseVersions）。
+struct VersionGroup {
+    QString gameVersion; ///< 组头里那个游戏版本；一条都没有时是空串
+    QString loader;      ///< 组头里那个加载器（小写，空 = 通用）
+    QList<VersionEntry> versions;
+
+    /// 组头那行字：「Fabric 26.2」/「通用 1.21.1」/（两个都没有时）「其它版本」。
+    QString title() const;
+};
+
+QList<VersionGroup> groupVersions(const QList<VersionEntry> &versions);
+
+/// 这个项目在**它自己那一家**的网页地址（详情页那颗「转到 Modrinth / CurseForge」用）。
+///
+/// 两家的网址形状不一样：Modrinth 是 `modrinth.com/<类>/<slug>`、CurseForge 是
+/// `curseforge.com/minecraft/<那家的类名>/<slug>`，两张类名表都在这里（**类名是网址的
+/// 一部分，拼错了回 404 而不报错**，所以只此一处）。拼不出来（slug 空）回空串，
+/// 那颗按钮就不画。
+///
+/// NOTE: 为什么收 kind 而不是整条 Hit：类名这一段跟着"这一条是从哪一栏搜出来的"走，
+///       而栏位不在 Hit 里（它在树条目的 resourceKindRole 上）。
+QString projectPageUrl(Source source, Kind kind, const QString &slug);
+
+/// MC 百科按名字搜的那条地址（详情页那颗「转到 MC 百科」用）。
+///
+/// 那一家**没有按项目 id 直接跳的路**（它是另一套号，和对面的 id 对不上），所以只能拿
+/// 名字去搜 —— 这是"跳到那儿附近"而不是"跳到那一页"，名字里带中文/空格都照原样转义。
+QString mcmodSearchUrl(const QString &name);
 
 /// 某个资源在某个 MC 版本（+可选加载器）下的版本列表地址。
 /// `gameVersion` / `loader` 为空 = 不筛（界面在没选游戏版本时不该问这条，见调用点注释）。

@@ -42,6 +42,17 @@ QRect VersionTreeDelegate::refreshRect(const QRect &row) {
     return QRect(row.right() - pad - box + 1, row.center().y() - box / 2, box, box);
 }
 
+QRect VersionTreeDelegate::arrowRect(const QRect &row) {
+    const int pad = MainWindowUI::versionTreeRowPadding();
+    const int arrowSize = MainWindowUI::versionTreeArrowSize();
+    // 命中格比画出来的那个箭头四周各大 3 px（和 clearRect / refreshRect 一个做法）。
+    const int box = arrowSize + 6;
+    // 命中格**以画出来的那一格为中心**：画出来的是贴右边缘留 pad 的那一块
+    //（`row.right() - pad - arrowSize` 起、宽 arrowSize），中心就在它中间。
+    const int centerX = row.right() - pad - arrowSize / 2;
+    return QRect(centerX - box / 2, row.center().y() - box / 2, box, box);
+}
+
 QString VersionTreeDelegate::rowActionTip(const QModelIndex &index, const QRect &row,
                                           const QPoint &pos) {
     // 一条一条来：每加一个"行里的按钮"，在这儿加一行（几何仍然在 clearRect/refreshRect 里）。
@@ -245,8 +256,12 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     const QColor arrowColor = (isChannel || hasChildren)
                                   ? palette.color(QPalette::WindowText)
                                   : palette.color(QPalette::PlaceholderText);
-    const QRect arrowRect(row.right() - pad - arrowSize, row.center().y() - arrowSize / 2,
-                          arrowSize, arrowSize);
+    // 箭头那一格：**几何只有 arrowRect() 一处** —— 它给的是命中格（比画出来的大一圈），
+    // 画的是它居中那一块。下载页那四张表按同一个函数认"这一下点的是不是箭头"
+    // （见 MainWindow::eventFilter 里那一段），两处就是同一处。
+    const QRect arrowBox = arrowRect(row);
+    const QRect arrowGlyph(arrowBox.center().x() - arrowSize / 2,
+                           row.center().y() - arrowSize / 2, arrowSize, arrowSize);
     painter->save();
     painter->setOpacity(rowOpacity);
     // 选中的那条加载器：箭头**左边**再画一个「取消」小叉（点它 = 不装这个加载器了，
@@ -265,7 +280,7 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
         //       "游戏版本"那一层就是非顶层、又要能展开的：照老判据展开之后箭头还朝右，
         //       和"收着"长得一样。改成只看 expanded 对原有的行是空的（叶子永远 expanded
         //       为假，取到的还是 >）。
-        painter->drawPixmap(arrowRect.topLeft(),
+        painter->drawPixmap(arrowGlyph.topLeft(),
                             VersionIcons::chevron(expanded, arrowSize, arrowColor));
     }
     painter->restore();
