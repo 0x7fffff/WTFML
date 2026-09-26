@@ -84,6 +84,15 @@ QString folderForKind(Kind kind);
 /// 人看的名字（「模组」「整合包」…）。界面上那几个字从这里取，免得两处各写一份。
 QString kindLabel(Kind kind);
 
+/// Modrinth 接口的根地址（`https://api.modrinth.com/v2`，**不带结尾斜杠**）。
+///
+/// NOTE: 唯一出处仍然是本文件 .cpp 里那个匿名命名空间的 `apiRoot()` —— 这里只是把它露
+///       出来给"导出整合包"那条反查路用（`POST /version_files`，见
+///       VersionManager::lookupModrinthVersionFiles）。**别在别处再写一遍这个字符串**：
+///       哪天要换镜像（mcimirror 那个也认 `/modrinth/v2/...`），改漏一处的症状是
+///       "搜索走了镜像、反查直连官方"，而两边都不会报错，只在慢网下才看得出来。
+QString modrinthApiRoot();
+
 // ---------- 来源（2026-09-25 加的第二个数据源）----------
 //
 // 在此之前这一层**只有一个数据源**（Modrinth），所以"从哪儿搜的"这件事压根没有名字。

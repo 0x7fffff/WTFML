@@ -354,6 +354,8 @@ QString kindLabel(Kind kind) {
     return QString();
 }
 
+QString modrinthApiRoot() { return apiRoot(); }
+
 // ---------- 来源 ----------
 
 QList<Source> allSources() {

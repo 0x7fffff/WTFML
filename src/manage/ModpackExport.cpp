@@ -578,8 +578,7 @@ QString overridesPrefix(const Spec &spec) {
     return QStringLiteral("overrides");
 }
 
-QList<ZipUtil::ZipSource> archiveEntries(const ExportPlan &plan, const QString &instanceDir,
-                                         const QString &manifestPath) {
+QList<ZipUtil::ZipSource> archiveEntries(const ExportPlan &plan, const QString &manifestPath) {
     QList<ZipUtil::ZipSource> entries;
     ZipUtil::ZipSource manifest;
     manifest.entryName = indexFileName(plan.spec.format);
@@ -587,7 +586,7 @@ QList<ZipUtil::ZipSource> archiveEntries(const ExportPlan &plan, const QString &
     entries.append(manifest);
 
     const QString prefix = overridesPrefix(plan.spec);
-    const QDir root(instanceDir);
+    const QDir root(plan.instanceDir);
     // `plan.overrides` 在 buildExportPlan 里已经排过序了，这里不再排（**排序的唯一出处
     // 是那一处**，两处各排一次的话，哪天口径变了就会两边不一致）。
     for (const InstanceFile &file : plan.overrides) {
@@ -717,6 +716,14 @@ QByteArray buildCurseForgeManifest(const Spec &spec) {
     // （各家实现都自己写死）。所以我们也不赌，写出来。
     root.insert(QStringLiteral("overrides"), spec.overridesDir);
     return QJsonDocument(root).toJson(QJsonDocument::Compact);
+}
+
+QByteArray buildIndexFile(const Spec &spec) {
+    // 唯一的分岔（见 .hpp）：写在名字旁边，别再让调用点自己判一次。
+    if (spec.format == Format::CurseForge) {
+        return buildCurseForgeManifest(spec);
+    }
+    return buildModrinthIndex(spec);
 }
 
 quint32 curseForgeFingerprintOfBytes(const QByteArray &bytes) {
@@ -851,6 +858,7 @@ ExportPlan buildExportPlan(const ExportRequest &request, const ModrinthQuery &qu
                            const CurseForgeQuery &queryCurseForge, const ExportProgress &progress,
                            const ExportCancel &cancel) {
     ExportPlan plan;
+    plan.instanceDir = request.instanceDir;
     plan.collect = collectInstanceFiles(request.instanceDir, request.include);
     if (!plan.collect.problem.isEmpty()) {
         plan.problem = plan.collect.problem;

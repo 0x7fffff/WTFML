@@ -102,6 +102,14 @@ QByteArray buildModrinthIndex(const Spec &spec);
 /// 拼出 `manifest.json`（UTF-8，紧凑）。`spec.refs` 为空也合法。
 QByteArray buildCurseForgeManifest(const Spec &spec);
 
+/// 清单的**正文** —— 按 `spec.format` 挑上面那两位里的一位。
+///
+/// NOTE: 它和 indexFileName() **是一对**：一个给名字、一个给内容，两边认的是同一个枚举。
+///       调用点（写 zip 那一步）因此**不必自己写一个 `format ==` 的分岔** —— 分岔多一处，
+///       就多一处"文件名叫 manifest.json、正文却是 Modrinth 那份"的机会，而那种包**打得
+///       出来、也读得回来**（.NET 读 zip 不看内容），只有别人的启动器会当场说不认识。
+QByteArray buildIndexFile(const Spec &spec);
+
 /// 这条能不能作为一条 `files[]` 写进 Modrinth 清单。**这是调用方的分岔口**，
 /// 不是给序列化函数用的：假的时候那个文件要**进 overrides**，不是丢掉。
 ///
@@ -341,6 +349,10 @@ bool reimportable(const Spec &spec);
 /// 一次导出的产物：清单要的东西 + 哪些文件要原样打进 overrides/。
 struct ExportPlan {
     Spec spec;
+    /// 实例目录**原样带上**：`overrides` 里的条目只有相对路径，打包那一步要拿它拼出盘上的
+    /// 位置（见 archiveEntries）—— 于是 `writePackArchive()` 只吃一份 plan 就够，不必
+    /// 让调用点把 request 再传一遍。
+    QString instanceDir;
     /// 要原样打进 `overrides/` 的（相对路径口径与 `spec.files` 的 `path` 一致）。
     /// **认出来的文件绝不在这里**（重复内容），认不出来的一个都不会丢。
     QList<InstanceFile> overrides;
@@ -389,9 +401,8 @@ QString overridesPrefix(const Spec &spec);
 
 /**
  * @brief 把一份 plan 摊成"归档条目表"：清单一条 + 每个 overrides 文件一条。
- * @param plan 跑完的那一趟。
- * @param instanceDir 实例目录（`overrides` 里那些文件在这底下 —— `InstanceFile` 只记
- *        了相对路径，所以得让调用点把根给回来）。
+ * @param plan 跑完的那一趟（实例目录从 `plan.instanceDir` 拿 —— `InstanceFile` 里只有
+ *        相对路径）。
  * @param manifestPath 清单**已经写到盘上**的那份（调用点先按 indexFileName() 写进
  *        暂存目录 —— 这一层不写盘，见 .hpp 顶上那句）。
  * @return 条目名一律 `/` 分隔、**清单在第一条**、其余按路径排序（同一个实例两次导出的
@@ -400,8 +411,7 @@ QString overridesPrefix(const Spec &spec);
  * NOTE: 名字拼错是**静默**的：包照样打得出来、我们自己（.NET）也读得回来，只有别人的
  *       启动器认不出 —— 所以条目名这几条规则在这儿是纯函数，验证工程里一条一条钉着。
  */
-QList<ZipUtil::ZipSource> archiveEntries(const ExportPlan &plan, const QString &instanceDir,
-                                         const QString &manifestPath);
+QList<ZipUtil::ZipSource> archiveEntries(const ExportPlan &plan, const QString &manifestPath);
 
 /// 「这个文件值不值得拿去反查」—— 一个**代价**上的取舍，不是正确性上的：
 /// 只对像资源的文件（几种扩展名 + 路径里带 mods/resource 之类）算哈希，否则一个包里

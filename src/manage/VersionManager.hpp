@@ -22,6 +22,7 @@ class QTimer;
 #include "../download/DownloadManager.hpp"
 #include "../download/LoaderMeta.hpp"
 #include "../download/VersionCategory.hpp"
+#include "ModpackExport.hpp"
 #include "ModpackImport.hpp"
 #include "VersionDisplay.hpp"
 
@@ -501,6 +502,67 @@ public:
      *       所以调用点可以对所有格式无脑调它一次。
      */
     QString resolveCurseForgeFiles(ModpackImport::Pack *pack);
+
+    // ---------------------------------------------------------------------
+    // 导出整合包（清单/枚举/打包都在 ModpackExport 那一层，这里只做"要联网和要读盘"的三件）
+    // ---------------------------------------------------------------------
+
+    /**
+     * @brief 这个实例装的是什么加载器 —— 导出时写进清单的那一行。
+     * @param instanceId 实例目录名。
+     * @param keyOut `ModpackImport` 那套词（`fabric-loader` / `forge` / `neoforge`）；
+     *        空串 = 纯原版（那是**正常**结果，不是失败）。
+     * @param versionOut 加载器版本；纯原版时是空串。
+     * @return 空串 = 认出来了（也可能是"确实是原版"）；非空 = 认不出来，那句话给用户看。
+     *
+     * 两条路，按顺序问：
+     *   1. **顺着版本 json 的继承链看那一串 id**：`fabric-loader-0.16.14-1.20.1` /
+     *      `1.20.1-forge-47.4.10` / `neoforge-21.1.215`（三个 id 的拼法都有唯一出处，
+     *      见 LoaderMeta）。这一条排在前面，因为它是**装在盘上的东西自己说的** ——
+     *      装加载器出来的目录名就是那个 id，导入整合包出来的薄 json 也指着它。
+     *   2. 拿不到就看 `wtfml.meta` 里的 `loaderName` / `loaderVersion`（我们自己写进去的，
+     *      见 updateVersionMeta）。那一段本来是给界面看的显示名，所以这张反查表是照着
+     *      loaderDisplayName() 拼出来的，不可能和写进去的那一份漂。它罩的是"链上没有、
+     *      但 meta 里记着"的那一类（比如用户手写过一个 meta）。
+     *
+     * NOTE: **认不出来就停下来**，不许"当成纯原版"接着导 —— 一个装了几百个模组的实例
+     *       被导成纯原版包，用户装回来会发现所有模组都在、游戏起不来（加载器那一行不在），
+     *       而包看上去是好的。OptiFine 是明确认得出来但两种格式都没法表达的那一个，
+     *       它走的就是这条"报一句人话"的路。
+     */
+    QString instanceLoaderInfo(const QString &instanceId, QString *keyOut, QString *versionOut);
+
+    /**
+     * @brief 反查：本地 sha1 → Modrinth 的版本。
+     * @param sha1s 本地算出来的 sha1（大小写不敏感）。
+     * @param out 命中的写在这里，**键是发过去的那个 sha1**（见 parseModrinthVersionFiles）。
+     * @return 空串 = 这一发成了（**一个都没认出来也是成了**）；非空 = 没成，那句话给用户看。
+     */
+    QString lookupModrinthVersionFiles(const QStringList &sha1s,
+                                       QHash<QString, ModpackExport::ModrinthHit> *out);
+
+    /// 上一条的 CurseForge 版（指纹 → 文件）。同样：一个都没认出来也算成了。
+    QString lookupCurseForgeFingerprints(const QList<quint32> &fingerprints,
+                                         QHash<quint32, ModpackExport::CurseForgeHit> *out);
+
+    /// 跑完一次导出的前半段：枚举 → 算哈希 → 反查。**不写盘、不建目录**（清单和 zip 在
+    /// writePackArchive 里）。两条反查路就是上面那两个方法，验证工程能拿假的换掉它们 ——
+    /// 所以这个方法自己也是可测的（见 build/verify 里 V5i/V5j 那种跑法）。
+    ModpackExport::ExportPlan buildExportPlan(const ModpackExport::ExportRequest &request,
+                                             const ModpackExport::ExportProgress &progress = {},
+                                             const ModpackExport::ExportCancel &cancel = {});
+
+    /**
+     * @brief 后半段：清单写进暂存目录 → 打成一个 zip → 改成 @p targetZip。
+     * @param plan 前半段的产物。
+     * @param targetZip 用户挑的目标路径（`.mrpack` / `.zip` 随他）。
+     * @return 空串 = 成了；非空 = 那句给用户看的话。**失败时盘上不会留下半成品**。
+     *
+     * 「先写临时名、成功了再改名」是这里做的：用户中途关掉启动器、或者磁盘满了，盘上留下的
+     * 是一个 `xxx.mrpack.part`，而不是一个能双击、打不开的"整合包"。清单本身也先写进那个
+     * 暂存目录，再从那儿打进去（打包那一步只认盘上的文件，见 ZipUtil::createZip）。
+     */
+    QString writePackArchive(const ModpackExport::ExportPlan &plan, const QString &targetZip);
 
     /// Forge / NeoForge 安装器的命令行（**纯函数**，就是为了能钉住 `--mirror` 那一条）。
     /// @param installerPath 安装器 jar 在盘上的路径。
