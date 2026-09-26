@@ -211,6 +211,79 @@ struct FileHashes {
  */
 bool hashFile(const QString &path, bool needFingerprint, FileHashes *out, QString *errorOut);
 
+// ---------------------------------------------------------------------------
+// 反查：本地文件换回"它是哪个项目/哪一版"
+// ---------------------------------------------------------------------------
+//
+// 两份规范各有一条路，都是批量一发（不是一文件一发）：
+//   - Modrinth：`POST /v2/version_files`，体是 sha1 表，回一个"哈希 → 版本"的 map；
+//     认不出来的哈希**不在 map 里**（不是报错）。
+//   - CurseForge：`POST /v1/fingerprints`，体是指纹表，回 `exactMatches[]` +
+//     `unmatchedFingerprints[]`。
+// 两条路的请求体和回复解析都在这儿（纯函数），发请求那一步在调用点（要 HttpClient）。
+
+/// Modrinth 的批量反查请求体：`{"hashes":[...],"algorithm":"sha1"}`。
+/// 空表返回空 QByteArray —— 那一发**不该发出去**（空表的回复必然是空 map）。
+QByteArray modrinthVersionFilesRequestBody(const QStringList &sha1s);
+
+/**
+ * @brief CurseForge 的批量反查请求体：`{"fingerprints":["…", …]}`。
+ *
+ * NOTE: 数组里是**字符串**（十进制数字的文本），不是 JSON 数字。这个写错了那边回 400，
+ *       而 400 的正文只有一句 `{"error":"…"}`，看着和"这个包本身有问题"一模一样。
+ */
+QByteArray curseForgeFingerprintsRequestBody(const QList<quint32> &fingerprints);
+
+/// 反查命中的一个 Modrinth 版本文件 —— 清单里那一条要的字段全在这儿。
+struct ModrinthHit {
+    QString projectId;      ///< 只为了在结果里报数/说名字（mrpack 的 `files[]` 用不上它）
+    QString versionNumber;  ///< 同上
+    QString filename;
+    QString sha1;           ///< 是**接口给的那一份**的哈希，不是我们本地算的
+    QString sha512;
+    QString url;            ///< 下载地址（就写进 `downloads[]`）
+    qint64 size = -1;
+    /// 接口给的 `environment`。映射成清单里 `env` 那一对的规则见 .cpp：**只有在
+    /// "只给客户端用"时才写那一段**，别的都不写（不写 = 两边都要，导入方不会少装）。
+    QString environment;
+};
+
+/**
+ * @brief 解析 Modrinth 的反查回复。
+ * @return **键是那份文件自己的 sha1**（小写）—— 调用方拿本地那个文件的 sha1 去查。
+ *         解析不了时 `problemOut` 非空（此时返回空表）。
+ *
+ * NOTE: 用的是回复里"哈希 → 版本"的**那一层键**（规范就是这么定义的），但取哪一份
+ *       文件是按"文件自己的 sha1 与那个键相同"挑的。挑不到（理论上不该发生）**不认
+ *       这一条**，绝不退回"版本里的第一个文件" —— 认错了的后果是往清单里写一个错的
+ *       sha1，导入方会**永远**校不过、每次都重下同一个文件。
+ */
+QHash<QString, ModrinthHit> parseModrinthVersionFiles(const QByteArray &json, QString *problemOut);
+
+/// 反查命中的一个 CurseForge 文件。
+struct CurseForgeHit {
+    int projectId = 0;
+    int fileId = 0;
+    /// `isAvailable`。假 = 作者关了第三方分发：**不写进清单**（写了等于给出一个装不上的
+    /// 包），退回 overrides 并单独报数。
+    bool available = false;
+    QString displayName;
+    QString fileName;
+    QString downloadUrl;
+    QString sha1;  ///< 接口 `hashes` 里 `algo == 1` 的那一条
+    qint64 size = -1;
+};
+
+/// 解析 CurseForge 的反查回复。**键是那个文件自己的 `fileFingerprint`**（接口会原样
+/// 回给我们）—— 不按位置对：批量回来的次序没有承诺，按位置取会静默错位。
+/// 认不出来的指纹**不在表里**（接口把它们列在 `unmatchedFingerprints` 里）。
+QHash<quint32, CurseForgeHit> parseCurseForgeFingerprints(const QByteArray &json,
+                                                          QString *problemOut);
+
+/// 那个"毒指纹"。它本来应该是某个具体文件的值，但接口偶尔会把它当"匹配上了"回来
+/// （HMCL 专门为 issue #4597 打过这个补丁）—— 见到就当没找到，别往清单里写。
+bool isPoisonFingerprint(quint32 fingerprint);
+
 /// 「这个文件值不值得拿去反查」—— 一个**代价**上的取舍，不是正确性上的：
 /// 只对像资源的文件（几种扩展名 + 路径里带 mods/resource 之类）算哈希，否则一个包里
 /// config/ 底下成千上万个小文件都要算一遍、发一遍，导出会慢到没法用。

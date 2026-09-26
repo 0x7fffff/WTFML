@@ -211,6 +211,160 @@ QString curseForgeLoaderId(const QString &loaderKey, const QString &loaderVersio
     return prefix + QLatin1Char('-') + version;
 }
 
+QByteArray modrinthVersionFilesRequestBody(const QStringList &sha1s) {
+    QJsonArray hashes;
+    for (const QString &sha1 : sha1s) {
+        const QString trimmed = sha1.trimmed();
+        if (!trimmed.isEmpty()) {
+            hashes.append(trimmed);
+        }
+    }
+    if (hashes.isEmpty()) {
+        return QByteArray();
+    }
+    QJsonObject body;
+    body.insert(QStringLiteral("hashes"), hashes);
+    body.insert(QStringLiteral("algorithm"), QStringLiteral("sha1"));
+    return QJsonDocument(body).toJson(QJsonDocument::Compact);
+}
+
+QByteArray curseForgeFingerprintsRequestBody(const QList<quint32> &fingerprints) {
+    QJsonArray list;
+    for (quint32 value : fingerprints) {
+        // **字符串**，不是数字（见 .hpp 里那条 NOTE）。
+        list.append(QString::number(value));
+    }
+    if (list.isEmpty()) {
+        return QByteArray();
+    }
+    QJsonObject body;
+    body.insert(QStringLiteral("fingerprints"), list);
+    return QJsonDocument(body).toJson(QJsonDocument::Compact);
+}
+
+bool isPoisonFingerprint(quint32 fingerprint) {
+    return fingerprint == 811513880u;
+}
+
+QHash<QString, ModrinthHit> parseModrinthVersionFiles(const QByteArray &json, QString *problemOut) {
+    QHash<QString, ModrinthHit> hits;
+    if (problemOut != nullptr) {
+        problemOut->clear();
+    }
+    QJsonParseError parseError;
+    const QJsonDocument doc = QJsonDocument::fromJson(json, &parseError);
+    if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+        if (problemOut != nullptr) {
+            *problemOut =
+                QObject::tr("Modrinth 的接口回了一句读不懂的话（%1）。").arg(parseError.errorString());
+        }
+        return hits;
+    }
+
+    const QJsonObject root = doc.object();
+    for (auto it = root.constBegin(); it != root.constEnd(); ++it) {
+        // 键就是**我们发过去的那个 sha1**（规范原话：a map from hashes to versions）。
+        // 不是 40 位十六进制的东西不猜（那说明这不是这一发的回复）。
+        const QString key = it.key().trimmed().toLower();
+        if (key.size() != 40) {
+            continue;
+        }
+        const QJsonObject version = it.value().toObject();
+
+        // 在这个版本的文件里挑**就是那一份**的：文件自己的 sha1 与那个键相同。
+        // 挑不到就不认这一条（理由见 .hpp 里那条 NOTE）。
+        const QJsonArray files = version.value(QStringLiteral("files")).toArray();
+        for (const QJsonValue &value : files) {
+            const QJsonObject file = value.toObject();
+            const QJsonObject hashes = file.value(QStringLiteral("hashes")).toObject();
+            const QString fileSha1 = hashes.value(QStringLiteral("sha1")).toString().toLower();
+            if (fileSha1 != key) {
+                continue;
+            }
+            ModrinthHit hit;
+            hit.projectId = version.value(QStringLiteral("project_id")).toString();
+            hit.versionNumber = version.value(QStringLiteral("version_number")).toString();
+            hit.filename = file.value(QStringLiteral("filename")).toString();
+            hit.sha1 = fileSha1;
+            hit.sha512 = hashes.value(QStringLiteral("sha512")).toString().toLower();
+            hit.url = file.value(QStringLiteral("url")).toString();
+            const QJsonValue size = file.value(QStringLiteral("size"));
+            hit.size = size.isDouble() ? static_cast<qint64>(size.toDouble()) : -1;
+            hit.environment = version.value(QStringLiteral("environment")).toString();
+            if (!hit.url.isEmpty() && !hit.sha512.isEmpty()) {
+                hits.insert(key, hit);
+            }
+            break;
+        }
+    }
+    return hits;
+}
+
+QHash<quint32, CurseForgeHit> parseCurseForgeFingerprints(const QByteArray &json,
+                                                          QString *problemOut) {
+    QHash<quint32, CurseForgeHit> hits;
+    if (problemOut != nullptr) {
+        problemOut->clear();
+    }
+    QJsonParseError parseError;
+    const QJsonDocument doc = QJsonDocument::fromJson(json, &parseError);
+    if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+        if (problemOut != nullptr) {
+            *problemOut = QObject::tr("CurseForge 的接口回了一句读不懂的话（%1）。")
+                              .arg(parseError.errorString());
+        }
+        return hits;
+    }
+
+    const QJsonObject root = doc.object();
+    const QJsonValue data = root.value(QStringLiteral("data"));
+    if (!data.isObject()) {
+        // 出错时那边回 `{"error":"…"}`（没有 data）：让用户看见接口说了什么。
+        const QString error = root.value(QStringLiteral("error")).toString().trimmed();
+        if (problemOut != nullptr) {
+            *problemOut = error.isEmpty()
+                              ? QObject::tr("CurseForge 的接口回的话里没有指纹表。")
+                              : QObject::tr("CurseForge 的接口拒绝了这一问：%1").arg(error);
+        }
+        return hits;
+    }
+
+    const QJsonArray matches = data.toObject().value(QStringLiteral("exactMatches")).toArray();
+    for (const QJsonValue &value : matches) {
+        // 取的是**里面那条 file 记录**（那一层 `id` 是项目号，不是指纹；按它归档会和
+        // 文件号混起来）。文件记录自己带 `fileFingerprint`，那才是我们要的那个键。
+        const QJsonObject file = value.toObject().value(QStringLiteral("file")).toObject();
+        const QJsonValue fingerprint = file.value(QStringLiteral("fileFingerprint"));
+        if (!fingerprint.isDouble()) {
+            continue;
+        }
+        const quint32 key = static_cast<quint32>(fingerprint.toDouble());
+        CurseForgeHit hit;
+        hit.projectId = file.value(QStringLiteral("modId")).toInt(0);
+        hit.fileId = file.value(QStringLiteral("id")).toInt(0);
+        hit.available = file.value(QStringLiteral("isAvailable")).toBool(false);
+        hit.displayName = file.value(QStringLiteral("displayName")).toString();
+        hit.fileName = file.value(QStringLiteral("fileName")).toString();
+        // 作者关了第三方分发时这一条就是 null —— 那**不是**"读不懂"，是接口在明说
+        // "不许代下"。照样收进表里（`available` 是假），让调用方单独报数。
+        hit.downloadUrl = file.value(QStringLiteral("downloadUrl")).toString();
+        const QJsonValue length = file.value(QStringLiteral("fileLength"));
+        hit.size = length.isDouble() ? static_cast<qint64>(length.toDouble()) : -1;
+        // `hashes` 里 `algo == 1` 的那一条是 sha1（2 是 md5）。
+        const QJsonArray hashes = file.value(QStringLiteral("hashes")).toArray();
+        for (const QJsonValue &hashValue : hashes) {
+            const QJsonObject hash = hashValue.toObject();
+            if (hash.value(QStringLiteral("algo")).toInt(0) == 1) {
+                hit.sha1 = hash.value(QStringLiteral("value")).toString().toLower();
+            }
+        }
+        if (hit.projectId > 0 && hit.fileId > 0) {
+            hits.insert(key, hit);
+        }
+    }
+    return hits;
+}
+
 QString instanceExclusionReason(const QString &relativePath, const QString &instanceId,
                                 const IncludeOptions &options) {
     // 规则**都只按顶层那一段判**：说的都是实例根底下的东西。所以 `mods/logs/` 这种
