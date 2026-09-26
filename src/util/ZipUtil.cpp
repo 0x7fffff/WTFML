@@ -503,3 +503,84 @@ bool ZipUtil::gunzipTo(const QString &sourceGz, const QString &targetPath, QStri
     }
     return true;
 }
+
+bool ZipUtil::createZip(const QString &targetZip, const QList<ZipSource> &entries,
+                        QString *errorOut) {
+    if (targetZip.trimmed().isEmpty()) {
+        if (errorOut != nullptr) {
+            *errorOut = QStringLiteral("没有给出要写到哪去。");
+        }
+        return false;
+    }
+    for (const ZipSource &entry : entries) {
+        if (entry.entryName.trimmed().isEmpty() || entry.sourcePath.trimmed().isEmpty()) {
+            if (errorOut != nullptr) {
+                *errorOut = QStringLiteral("打包的条目表里有空名字或者空来源。");
+            }
+            return false;
+        }
+        // 名字里带 `\` 的条目在别的启动器眼里就是一个**名字里带反斜杠的文件**（zip 规范
+        // 只用 `/`），等于整层 overrides 全废 —— 而那种包我们自己读得回来（.NET 读的时候
+        // 会归一），所以这种错在自测里是看不见的。在这里直接拦掉。
+        if (entry.entryName.contains(QLatin1Char('\\'))) {
+            if (errorOut != nullptr) {
+                *errorOut = QStringLiteral("打包的条目名里有反斜杠：%1").arg(entry.entryName);
+            }
+            return false;
+        }
+    }
+
+    QStringList pairs;
+    for (const ZipSource &entry : entries) {
+        pairs << QStringLiteral("@(%1,%2)")
+                     .arg(psQuote(entry.entryName),
+                          psQuote(QDir::toNativeSeparators(entry.sourcePath)));
+    }
+    const QString pairArray =
+        QStringLiteral("@(") + pairs.join(QLatin1Char(',')) + QLatin1Char(')');
+
+    const QString script =
+        QStringLiteral("$ErrorActionPreference='Stop'\n"
+                       "Add-Type -AssemblyName System.IO.Compression.FileSystem\n"
+                       "$target=%1\n"
+                       "$pairs=%2\n"
+                       "$dir=[System.IO.Path]::GetDirectoryName($target)\n"
+                       "if(-not [string]::IsNullOrEmpty($dir)){\n"
+                       "  [void][System.IO.Directory]::CreateDirectory($dir)\n"
+                       "}\n"
+                       "$current=''\n"
+                       "try{\n"
+                       "  $zip=[System.IO.Compression.ZipFile]::Open($target,'Create')\n"
+                       "  try{\n"
+                       "    foreach($p in $pairs){\n"
+                       "      $current=$p[0]\n"
+                       "      [void][System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile"
+                       "($zip,$p[1],$p[0],[System.IO.Compression.CompressionLevel]::Optimal)\n"
+                       "    }\n"
+                       "  } finally { $zip.Dispose() }\n"
+                       "} catch {\n"
+                       // 同上：GetBaseException() 取最里面那一层（缺文件/被占用那些真因
+                       // 在包装里面）。
+                       "  $msg=$_.Exception.GetBaseException().Message\n"
+                       "  if([string]::IsNullOrEmpty($msg)){ $msg=$_.Exception.Message }\n"
+                       // 那一句 .NET 的原文（英文、带着完整路径）**照旧带上** —— 它是唯一
+                       // 说得出"哪个文件怎么了"的东西；前面这半句是给用户看的主语，因为
+                       // 这一条最后是要**弹出来的**（能挡住用户操作的那种错）。
+                       "  [Console]::Error.WriteLine(('打包「' + $current + '」时出错：' + $msg))\n"
+                       "  exit 3\n"
+                       "}\n")
+            .arg(psQuote(QDir::toNativeSeparators(targetZip)), pairArray);
+
+    // 10 分钟。这个数按**大包**来定：实测一个 1.66 GB / 422 个文件的整合包（导入那一次）
+    // 解压就跑了十几分钟，打包只会更慢（Optimal 要真去压一遍）。
+    QString failure;
+    if (!runPowershell(script, 600000, nullptr, &failure)) {
+        // 半成品删掉（见 .hpp）。NOTE: 删的是**我们写的那个目标路径**，不碰别的。
+        QFile::remove(targetZip);
+        if (errorOut != nullptr) {
+            *errorOut = failure.isEmpty() ? QStringLiteral("打包失败") : failure;
+        }
+        return false;
+    }
+    return true;
+}

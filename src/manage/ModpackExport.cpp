@@ -562,6 +562,43 @@ bool looksLikeResolvableResource(const QString &relativePath) {
     return false;
 }
 
+QString indexFileName(Format format) {
+    return format == Format::CurseForge ? QStringLiteral("manifest.json")
+                                        : QStringLiteral("modrinth.index.json");
+}
+
+QString overridesPrefix(const Spec &spec) {
+    // 两边现在都是 `overrides`，但来路不一样：Modrinth 那份规范把它**钉死**成
+    // `overrides/`（清单里根本没有这一格），CF 那份清单自己写着 `overrides` 一格
+    // （= `Spec::overridesDir`）。所以这里不是"反正都是 overrides"，是**分别**给的 ——
+    // 哪天 overridesDir 真变成可配置的，Modrinth 那一侧不许跟着动。
+    if (spec.format == Format::CurseForge && !spec.overridesDir.trimmed().isEmpty()) {
+        return spec.overridesDir.trimmed();
+    }
+    return QStringLiteral("overrides");
+}
+
+QList<ZipUtil::ZipSource> archiveEntries(const ExportPlan &plan, const QString &instanceDir,
+                                         const QString &manifestPath) {
+    QList<ZipUtil::ZipSource> entries;
+    ZipUtil::ZipSource manifest;
+    manifest.entryName = indexFileName(plan.spec.format);
+    manifest.sourcePath = manifestPath;
+    entries.append(manifest);
+
+    const QString prefix = overridesPrefix(plan.spec);
+    const QDir root(instanceDir);
+    // `plan.overrides` 在 buildExportPlan 里已经排过序了，这里不再排（**排序的唯一出处
+    // 是那一处**，两处各排一次的话，哪天口径变了就会两边不一致）。
+    for (const InstanceFile &file : plan.overrides) {
+        ZipUtil::ZipSource entry;
+        entry.entryName = prefix + QLatin1Char('/') + file.path;
+        entry.sourcePath = root.filePath(file.path);
+        entries.append(entry);
+    }
+    return entries;
+}
+
 bool reimportable(const Spec &spec) {
     // 两种格式的判据是同一条：清单里得有东西。CF 那边进清单的是 `refs`（那次"拿号换文件"
     // 的路），Modrinth 那边是 `files`。

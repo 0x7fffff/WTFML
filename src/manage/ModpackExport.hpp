@@ -29,6 +29,8 @@
 
 #pragma once
 
+#include "util/ZipUtil.hpp"
+
 #include <QByteArray>
 #include <QHash>
 #include <QList>
@@ -373,6 +375,33 @@ ExportPlan buildExportPlan(const ExportRequest &request, const ModrinthQuery &qu
                            const CurseForgeQuery &queryCurseForge,
                            const ExportProgress &progress = ExportProgress(),
                            const ExportCancel &cancel = ExportCancel());
+
+// ---------------------------------------------------------------------------
+// 落成 zip 的条目表（条目名这一层是纯函数，真去写 zip 的是 ZipUtil::createZip）
+// ---------------------------------------------------------------------------
+
+/// 清单在 zip 根叫什么。Modrinth 那份的名字是规范钉死的，CF 那份也是。
+QString indexFileName(Format format);
+
+/// overrides 那一层的目录名（zip 里那个前缀）。**吃的是整份 spec**：两边口径不同，
+/// 见 .cpp 里那段（Modrinth 钉死 `overrides`，CF 读 `overridesDir`）。
+QString overridesPrefix(const Spec &spec);
+
+/**
+ * @brief 把一份 plan 摊成"归档条目表"：清单一条 + 每个 overrides 文件一条。
+ * @param plan 跑完的那一趟。
+ * @param instanceDir 实例目录（`overrides` 里那些文件在这底下 —— `InstanceFile` 只记
+ *        了相对路径，所以得让调用点把根给回来）。
+ * @param manifestPath 清单**已经写到盘上**的那份（调用点先按 indexFileName() 写进
+ *        暂存目录 —— 这一层不写盘，见 .hpp 顶上那句）。
+ * @return 条目名一律 `/` 分隔、**清单在第一条**、其余按路径排序（同一个实例两次导出的
+ *         归档顺序一样）。`overrides` 里那些文件本身就带相对路径，前面补一层前缀。
+ *
+ * NOTE: 名字拼错是**静默**的：包照样打得出来、我们自己（.NET）也读得回来，只有别人的
+ *       启动器认不出 —— 所以条目名这几条规则在这儿是纯函数，验证工程里一条一条钉着。
+ */
+QList<ZipUtil::ZipSource> archiveEntries(const ExportPlan &plan, const QString &instanceDir,
+                                         const QString &manifestPath);
 
 /// 「这个文件值不值得拿去反查」—— 一个**代价**上的取舍，不是正确性上的：
 /// 只对像资源的文件（几种扩展名 + 路径里带 mods/resource 之类）算哈希，否则一个包里
