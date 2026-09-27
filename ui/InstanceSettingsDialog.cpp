@@ -25,6 +25,7 @@
 #include <QGuiApplication>
 #include <QGridLayout>
 #include <QHBoxLayout>
+#include <QHeaderView>
 #include <QIcon>
 #include <QKeyEvent>
 #include <QLabel>
@@ -1077,6 +1078,29 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                 m_serverTree->setUniformRowHeights(true);
                 m_serverTree->setSelectionMode(QAbstractItemView::SingleSelection);
                 m_serverTree->setEditTriggers(QAbstractItemView::NoEditTriggers);
+                // ★ 状态那一格是两行（`在线 · 42 ms` / `7/20 人`，见 setServerStatuses）：
+                //   这一句是那个换行**真的会换行**的前提 —— 条目代理只在开了 wordWrap 时
+                //   才把正文按 QTextLayout 摆，否则那一格里会是"在线 · 42 ms 7/20 人"一行
+                //   （`\n` 被当成一个看不见的字符）。第 0 列不受影响：那两行是代理自己画的。
+                m_serverTree->setWordWrap(true);
+
+                // ---------- 三栏的宽度怎么分 ----------
+                //
+                // 默认是"最后一列吃掉多出来的宽度"，那样一来左边两行 MOTD 会被状态那一栏
+                // 挤掉一大截，动不动就出省略号（用户原话「保证左侧的 motd 能显示全」）。
+                // 改成：**第 0 列把剩下的全吃掉**，另外两列各占自己需要的那点地方 ——
+                //   · 地址那一栏是遮过的（`m-.h-.c-`），本来就窄；
+                //   · 状态那一栏按内容定宽（两行里更宽的那一行），文字**靠右**，所以整栏
+                //     贴着右边停住、不跟着窗口一起长。
+                QHeaderView *header = m_serverTree->header();
+                if (header != nullptr) {
+                    header->setStretchLastSection(false);
+                    header->setSectionResizeMode(0, QHeaderView::Stretch);
+                    header->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+                    header->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+                }
+                // 表头那一格也跟着靠右，不然「状态」两个字会和它底下的数字错开一个身位。
+                m_serverTree->headerItem()->setTextAlignment(2, Qt::AlignRight | Qt::AlignVCenter);
                 // 名字那一格画成**两行式的行**：前面一枚服务器图标、名字一行、底下小字一行
                 // （那就是 MOTD）。和版本树/下载页那几张表是同一个代理 —— 一份实现多处用。
                 // 只有第 0 列挂它（另外两列是普通的地址和状态）。
@@ -1454,10 +1478,17 @@ void InstanceSettingsDialog::setServerList(const QList<QPair<QString, QString>> 
     for (const QPair<QString, QString> &server : servers) {
         auto *item = new QTreeWidgetItem(m_serverTree);
         item->setText(0, server.first.isEmpty() ? unnamedMark() : server.first);
-        item->setText(1, server.second);
+        // 地址那一栏写**遮过的**（`m-.h-.c-`），完整的那一串只在悬停时给（见
+        // maskedServerAddress 那段）。左边那两行 MOTD 因此能多占一大截宽度 —— 用户原话
+        // 「保证左侧的 motd 能显示全」。
+        item->setText(1, maskedServerAddress(server.second));
+        item->setToolTip(1, server.second);
         // 状态那一格**一开始就有字**（「还没测」）。空着和"测了没通"在屏幕上是同一个样子，
         // 而这两件事对用户完全不是一回事（一个是"点一下测速"、一个是"这台死了"）。
         item->setText(2, serverUntestedText());
+        // 靠右（和 setServerStatuses 里那几行同一条规矩）。每一行都要写一次 —— 这事
+        // 记在**条目**上，不是记在列上。
+        item->setTextAlignment(2, Qt::AlignRight | Qt::AlignVCenter);
         // 行高**比别处那张表高一档**：这一行底下那一格画的是 MOTD，而 MOTD 是**两行**
         // （游戏里就是两行，见 MotdText::parse 的 maxLines）。46 px 装不下"标题 + 两行小字"。
         // 走 `Qt::SizeHintRole`（也就是 setSizeHint 这一句）交给代理 —— 它学会了读这一格
@@ -1476,9 +1507,9 @@ void InstanceSettingsDialog::setServerList(const QList<QPair<QString, QString>> 
     m_serverNotice->setText(!readable ? problem : (empty ? serverEmptyText() : QString()));
 }
 
-QString InstanceSettingsDialog::serverStatusText(const ServerRowStatus &status) {
+QStringList InstanceSettingsDialog::serverStatusLines(const ServerRowStatus &status) {
     if (!status.tested) {
-        return serverUntestedText();
+        return {serverUntestedText()};
     }
     // 缓存里那一份是**上一次**问到的样子（见 ServerRowStatus::fromCache()）。加一句「上次：」
     // 是这一格唯一能说清"现在还没问、这几个数字是过去时"的办法 —— 不加的话，那一行
@@ -1488,20 +1519,114 @@ QString InstanceSettingsDialog::serverStatusText(const ServerRowStatus &status) 
         // 缓存里"没连上"那一档**不重说理由**：那句话是**当时**的（"连接被拒绝"指的是上一次
         // 那一刻），搬到现在来说等于替这一次下结论。就说"上次没连上"，理由等真的测完那一趟。
         if (status.fromCache) {
-            return prefix + QStringLiteral("没连上");
+            return {prefix + QStringLiteral("没连上")};
         }
         // 理由来自 ServerPing（中文，见那边的 connectionErrorText）。真要是空的也别留一格
-        // 空白 —— 那就是"看着像没测过"。
-        return status.error.isEmpty() ? QStringLiteral("连不上") : status.error;
+        // 空白 —— 那就是"看着像没测过"。没通这一档**只有一行**：那句话本来就长（
+        // 「超时（连上了，但服务器没有回答）」），拆成两行反而更难读。
+        return {status.error.isEmpty() ? QStringLiteral("连不上") : status.error};
     }
-    QString text = status.latencyMs >= 0 ? QStringLiteral("在线 · %1 ms").arg(status.latencyMs)
-                                         : QStringLiteral("在线");
+    // 通了就是两行：第一行"在不在线、多快"，第二行几个人。**上线的那个 `·` 留在第一行
+    // 里面**（`在线 · 42 ms` 是一件事的两种说法），人数是另一件事 —— 这正是用户说的
+    // "在线延迟和人数换到两行来"。
+    QStringList lines;
+    lines.append(prefix + (status.latencyMs >= 0
+                               ? QStringLiteral("在线 · %1 ms").arg(status.latencyMs)
+                               : QStringLiteral("在线")));
     if (status.playersOnline >= 0 && status.playersMax >= 0) {
-        text += QStringLiteral(" · %1/%2 人").arg(status.playersOnline).arg(status.playersMax);
+        lines.append(QStringLiteral("%1/%2 人").arg(status.playersOnline).arg(status.playersMax));
     } else if (status.playersOnline >= 0) {
-        text += QStringLiteral(" · %1 人").arg(status.playersOnline);
+        lines.append(QStringLiteral("%1 人").arg(status.playersOnline));
     }
-    return prefix + text;
+    return lines;
+}
+
+QString InstanceSettingsDialog::serverStatusText(const ServerRowStatus &status) {
+    return serverStatusLines(status).join(QStringLiteral(" · "));
+}
+
+QString InstanceSettingsDialog::maskedServerAddress(const QString &address) {
+    const QString trimmed = address.trimmed();
+    if (trimmed.isEmpty()) {
+        return QString();
+    }
+
+    // ---------- ① 把"要遮的那个主机"和"照抄的尾巴"分开 ----------
+    //
+    // 方括号那一档（`[2001:db8::1]:25566`）**方括号要留着**，这一格和连接那一步是两回事：
+    // 不带方括号的 IPv6 后面又跟端口时，哪几个冒号是地址、哪一个是端口分不出来
+    // （ServerPing::splitAddress 里那条"看不懂就不猜"的规矩就是为这个）。其余情况按
+    // **最后一个**冒号分 —— 而那个冒号左边要是还带着冒号，那这串本来就是裸的 IPv6，
+    // 没有端口可拆。
+    bool bracketed = false;
+    QString host = trimmed;
+    QString tail;  // 端口那一截（**带**冒号），没有就是空
+    if (trimmed.startsWith(QLatin1Char('['))) {
+        const int close = trimmed.indexOf(QLatin1Char(']'));
+        if (close > 0) {
+            bracketed = true;
+            host = trimmed.mid(1, close - 1);
+            tail = trimmed.mid(close + 1);
+        }
+    } else {
+        const int colon = trimmed.lastIndexOf(QLatin1Char(':'));
+        if (colon > 0 && !trimmed.left(colon).contains(QLatin1Char(':'))) {
+            host = trimmed.left(colon);
+            tail = trimmed.mid(colon);
+        }
+    }
+
+    // ---------- ② 这一截是"名字"还是"数字地址" ----------
+    //
+    // 两种要遮的东西不是一回事，所以判据也不是一条。带冒号的（`[::1]` 是这一支）和"正好
+    // 四段、段段是数字"的按数字地址处理 —— 数字地址留头两段就够认出网段了，剩下的打掉。
+    // 别的一律当域名：域名要遮的是**那个名字**。
+    const QChar separator = host.contains(QLatin1Char(':')) ? QLatin1Char(':') : QLatin1Char('.');
+    const QStringList groups = host.split(separator);
+    bool numeric = separator == QLatin1Char(':');
+    if (!numeric && groups.size() == 4) {
+        numeric = true;
+        for (const QString &group : groups) {
+            if (group.isEmpty() || group.size() > 3) {
+                numeric = false;
+                break;
+            }
+            for (const QChar character : group) {
+                if (!character.isDigit()) {
+                    numeric = false;
+                    break;
+                }
+            }
+            if (!numeric) {
+                break;
+            }
+        }
+    }
+
+    QStringList masked;
+    if (numeric) {
+        for (int i = 0; i < groups.size(); ++i) {
+            if (i < 2) {
+                masked.append(groups.at(i));
+            } else {
+                // 空的那一段保持空 —— 数字地址里那个空段就是 `::`（压缩写法）本身，
+                // 填成 `*` 的话 `[2001:db8::1]` 会遮成 `[2001:db8:*:*]`：四个段、一个
+                // 双冒号都没有，看着像另一个地址。留着空段，遮出来是 `[2001:db8::*]`。
+                masked.append(groups.at(i).isEmpty() ? QString() : QStringLiteral("*"));
+            }
+        }
+    } else {
+        for (const QString &group : groups) {
+            // 空的那一段保持空（`a..b` 这种坏地址不该被我们连成 `a-.b-` 那样的假名字）
+            masked.append(group.isEmpty() ? QString() : group.left(1) + QStringLiteral("-"));
+        }
+    }
+
+    QString out = masked.join(separator);
+    if (bracketed) {
+        out = QStringLiteral("[") + out + QStringLiteral("]");
+    }
+    return out + tail;
 }
 
 void InstanceSettingsDialog::setServerStatuses(const QList<ServerRowStatus> &statuses) {
@@ -1527,7 +1652,13 @@ void InstanceSettingsDialog::setServerStatuses(const QList<ServerRowStatus> &sta
         //   （见 VersionTreeDelegate 里 rowMotdRawRole() 那一段）。两个都写 —— 代理那边
         //   是"有原串就画原串、没有才退回洗过那一行"，而 tooltip 用的永远是洗过那一份。
         item->setData(0, MainWindowUI::rowMotdRawRole(), status.motdRaw);
-        item->setText(2, serverStatusText(status));
+        // ★ 状态那一格是**两行**（`在线 · 42 ms` / `7/20 人`）：`\n` 在这里不是排版上的
+        //   小把戏 —— 控件是开了 wordWrap 的，条目代理照 QTextLayout 摆，一个换行就是
+        //   真的一行（见建表那段）。悬停提示仍旧给**单行**那份：提示框里没有"两行"这回事，
+        //   它要的是一句话。
+        item->setText(2, serverStatusLines(status).join(QLatin1Char('\n')));
+        item->setToolTip(2, serverStatusText(status));
+        item->setTextAlignment(2, Qt::AlignRight | Qt::AlignVCenter);
         // 名字单独给一句 tooltip：MOTD 那一行装不下时是被代理省略掉的，而这一行**没有**
         // 别的地方能看全（那一格只画得下一行）。**无条件写**（MOTD 是空串时这一句就是把
         // 上一次那行字抹掉）—— 不然"上一次那台有 MOTD、这一台没有"会留下一句别人的话。

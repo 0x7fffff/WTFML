@@ -52,6 +52,18 @@ constexpr int kDefaultPort = 25565;
 int timeoutMs();
 void setTimeoutMs(int ms);
 
+/// 一趟里**同时**问几台。**唯一出处** —— `Pinger::start()` 按它决定开几条线程。
+///
+/// 为什么要并发（用户 2026-09-27：「能多线程一起 ping 吗，一个个 ping 效率有点低」）：
+/// 一次 ping 最多等满 timeoutMs()（默认 4 秒），而**等**这件事几乎全是网络往返 —— 一台
+/// 一台问的话，20 台里有 3 台丢包就是 12 秒，而这三段等待本来可以互相盖住。8 路并发把
+/// 最坏情况从"台数 × 4 秒"压到"台数 / 8 × 4 秒"。
+///
+/// 取 8：一个桌面程序同时开 8 条 TCP 出去是极轻的事（浏览器每个域名就开 6 条），而正常人
+/// 手上的服务器列表远不到 8 台 —— 到不到，等的时长都一样。**别调成几百**：那是拿用户的
+/// 路由器当压测目标，而且对方看到的会是"同一个 IP 一瞬间连了我几十次"。
+constexpr int kMaxConcurrentPings = 8;
+
 /// 一个地址拆出来的两半（见 splitAddress）。
 struct Address {
     QString host;
@@ -117,6 +129,13 @@ Status ping(const QString &address);
  * 全问完发 `allFinished()`。**两个信号都是从工作线程发出来的**，接的人在主线程，Qt 自己
  * 按队列投递（所以 `Status` 注册过元类型，见 .cpp）。
  *
+ * 【几条线程一起问，结果按"第几台"认人】
+ *
+ * 开 `min(台数, kMaxConcurrentPings)` 条线程，它们**抢同一串下标**（谁先问完谁拿下一个号）
+ * —— 所以慢的那一台堵不住别人，也不会出现"第 3 条线程摊到的恰好是那三台慢的"这种事。
+ * 代价只有一个：**`oneFinished` 的次序不再是 0、1、2…**（快的那台先回来）。接的人本来就
+ * 该按 `index` 认人（MainWindow 那边正是这么写的），不许按下标收到的先后去推。
+ *
  * NOTE: 这个类**不认识界面**（util 层一贯如此）：它不知道"测速中…"那几个字、也不知道
  *       那颗按钮该不该灰。那些都是接的人的事。
  */
@@ -131,8 +150,9 @@ public:
     /// 空表 = 立刻发一次 allFinished()（"一台都没有"也是走完了）。
     void start(const QStringList &addresses);
 
-    /// 叫停：**当前这一台会问完**（同步的 socket 等没法从外面掐断，最多 timeoutMs()），
-    /// 后面那些不再问，然后照常发一次 allFinished()。
+    /// 叫停：**每一条线程手上那一台会问完**（同步的 socket 等没法从外面掐断，最多
+    /// timeoutMs()），还没被抢走的那些不再问，然后照常发一次 allFinished()。
+    /// 并发之后"手上那一台"最多有 kMaxConcurrentPings 台 —— 这是那一句的代价。
     void abort();
 
     bool running() const;
@@ -144,7 +164,9 @@ signals:
     void allFinished();
 
 private:
-    QThread *m_thread = nullptr;
+    /// 这一趟开着的那几条线程（并发之后就不是一条了）。跑完的那些留在表里等 deleteLater，
+    /// 下一趟 start() 之前统一放走。
+    QList<QThread *> m_threads;
     QAtomicInt m_running{0};
 };
 

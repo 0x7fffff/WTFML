@@ -15,6 +15,8 @@
 #include <QTcpSocket>
 #include <QThread>
 
+#include <memory>
+
 namespace {
 
 /// 一次 ping 的超时。见 timeoutMs()（唯一出处）。
@@ -541,11 +543,13 @@ Pinger::Pinger(QObject *parent) : QObject(parent) {
 }
 
 Pinger::~Pinger() {
-    // **必须先叫停再等**：`QThread` 析构时还在跑会打一句警告，而且那个 lambda 手里攥着
+    // **必须先叫停再等**：`QThread` 析构时还在跑会打一句警告，而且那些 lambda 手里攥着
     // `this` —— 线程没停就把它删了，下一句 `emit` 就是野指针。
     abort();
-    if (m_thread != nullptr) {
-        m_thread->wait();
+    for (QThread *thread : m_threads) {
+        if (thread != nullptr) {
+            thread->wait();
+        }
     }
 }
 
@@ -558,36 +562,68 @@ void Pinger::start(const QStringList &addresses) {
         return;
     }
 
-    // 上一趟那个线程对象还挂着（跑完了，但 deletion 还排着队）：先放它走。不管它的话，
-    // 用户每点一次「测速」就在父对象底下攒一个僵尸 QThread（一整个会话下来能攒几十个），
-    // 而且 `m_thread` 这个指针会被下一行覆盖、再也没人认领它。
-    // NOTE: 从**主线程**调 deleteLater 是安全的 —— 这个对象本来就住在主线程（它是在
+    // 上一趟那些线程对象还挂着（跑完了，但 deletion 还排着队）：先放它们走。不管的话，
+    // 用户每点一次「测速」就在父对象底下攒一堆僵尸 QThread（一整个会话下来能攒几十个），
+    // 而且 `m_threads` 会被下一段清掉、再也没人认领它们。
+    // NOTE: 从**主线程**调 deleteLater 是安全的 —— 这些对象本来就住在主线程（它们是在
     //       start() 里 new 出来的），线程跑完了不欠任何东西。
-    if (m_thread != nullptr) {
-        m_thread->deleteLater();
-        m_thread = nullptr;
+    for (QThread *thread : m_threads) {
+        if (thread != nullptr) {
+            thread->deleteLater();
+        }
     }
+    m_threads.clear();
 
     m_running.storeRelease(1);
     const int total = addresses.size();
+    // 同时开几条：**不超过台数**（三台就开三条，不开八条在那儿抢一个空号）。
+    const int workers = qMin(total, kMaxConcurrentPings);
+    // 这一趟"下一个该问第几号"那个号牌。几条线程一起抢它 —— 所以慢的那一台堵不住别人，
+    // 也不会出现"某一条线程摊到的恰好是那三台慢的"这种事。抓在 shared_ptr 里是因为几条
+    // 线程都要拿着它，而它该活到最后一条线程收摊为止（下面那几个 lambda 里没有别的东西
+    // 能管这件事：它们只是各自的副本）。
+    auto cursor = std::make_shared<QAtomicInt>(0);
+    // 还活着几条线程。**最后一条收摊的**（`deref()` 回假）负责收尾 —— running 放下来、
+    // 发 allFinished()。**不能让每条线程都发一次**：接的人按 allFinished 收掉"测速中"，
+    // 收八次和收一次在屏幕上是一个样子，但那个信号的意思是"这一趟完了"，一份信号发八遍
+    // 不是这个意思。
+    // ★ 这里的方向**唯一出处就是 deref() 自己的语义**：它等价于 `--i != 0`（减完还有人在
+    //   就回真），所以"最后一条"是**回假**那一条。2026-09-27 写成"回真"了 —— 症状是
+    //   最先收摊的那条线程（往往是号牌发完、一台都没轮上的那条，几乎立刻就退出）抢先把
+    //   allFinished 发出去，接的人当这一趟完了：**屏幕上只有最先回来的那一台有结果**，
+    //   其余几台永远停在「还没测」，而按钮已经变回「测速」、看着像跑完了。
+    //   验证工程 T20.6（三台：答话的/不答话的/没人听的）抓的就是这一条。
+    auto live = std::make_shared<QAtomicInt>(workers);
+
     // `QThread::create` 那个重载收的是一个函数对象（Qt 5.10 起）—— **它省掉了"再写一个
     // QThread 子类 + 在 .cpp 里 moc"**，而这个类本来也不需要线程自己有信号：结果是从
     // 工作线程里 `emit` 主线程那个对象的信号，Qt 按接收方所在线程自动排队（这就是"跨线程
     // 发信号"唯一要守的规矩）。
-    m_thread = QThread::create([this, addresses, total]() {
-        for (int i = 0; i < total; ++i) {
-            // 每一台之前查一次"被叫停没有"：abort() 之后最多再跑完手上这一台。
-            if (m_running.loadAcquire() == 0) {
-                break;
+    for (int w = 0; w < workers; ++w) {
+        QThread *thread = QThread::create([this, addresses, total, cursor, live]() {
+            for (;;) {
+                // 每一台之前查一次"被叫停没有"：abort() 之后每条线程最多再跑完手上这一台。
+                if (m_running.loadAcquire() == 0) {
+                    break;
+                }
+                const int i = cursor->fetchAndAddRelaxed(1);
+                if (i >= total) {
+                    break;  // 号牌发完了（别人已经把剩下的都领走了）
+                }
+                const ServerPing::Status status = ServerPing::ping(addresses.at(i));
+                emit oneFinished(i, status);
             }
-            const ServerPing::Status status = ServerPing::ping(addresses.at(i));
-            emit oneFinished(i, status);
-        }
-        m_running.storeRelease(0);
-        emit allFinished();
-    });
-    m_thread->setParent(this);
-    m_thread->start();
+            // ★ `deref()` 是 `--i != 0`（**还有人在**）—— 所以"最后一条"是**回假**那一条。
+            //   反着写的代价见上面 `live` 那一段。
+            if (!live->deref()) {
+                m_running.storeRelease(0);
+                emit allFinished();
+            }
+        });
+        thread->setParent(this);
+        m_threads.append(thread);
+        thread->start();
+    }
 }
 
 void Pinger::abort() {

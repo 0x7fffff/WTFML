@@ -308,7 +308,16 @@ public:
     /// 用户没要的，而且每一遍都要等满超时）。
     void setServerPinging(bool pinging);
 
-    /// 状态那一格该写什么。**唯一出处**（验证工程也按它核对）。
+    /// 状态那一格要写的**那几行**（用户 2026-09-27：「在线延迟和人数换到两行来」）。
+    ///
+    /// 第一行是"通没通、多快"（`在线 · 42 ms`），第二行是人数（`7/20 人`）。没通那一档
+    /// 只有一行（那句话本来就长）。**唯一出处** —— 格子、悬停提示、验证工程都看它。
+    static QStringList serverStatusLines(const ServerRowStatus &status);
+
+    /// 上面那几行的**单行写法**（用「 · 」串起来）—— 悬停提示用。验证工程也按它核对。
+    ///
+    /// NOTE: 它就是 `serverStatusLines().join(" · ")`，所以格子从那几行变成两行之后，
+    ///       这里**一个字都没变**（`在线 · 42 ms · 7/20 人` 还是这一句）。
     static QString serverStatusText(const ServerRowStatus &status);
 
     /// 把六页目录列表**重新列一遍**。MainWindow 动过盘（删了 / 改了名）之后喊它。
@@ -601,6 +610,25 @@ public:
     static QString serverNameColumnText() { return QStringLiteral("名称"); }
     static QString serverAddressColumnText() { return QStringLiteral("地址"); }
     static QString serverStatusColumnText() { return QStringLiteral("状态"); }
+
+    /// 地址那一栏显示的**遮过的**写法。**唯一出处**（完整地址只在悬停提示里给）。
+    ///
+    /// 用户 2026-09-27 原话：「域名就显示首个字母+一条横杠（如 m-.h-.c- 来表示
+    /// mc.hyperlands.cloud），悬停在上方时才显示完整的，ipv4 的显示为 123.45.*.*，
+    /// ipv6 显示为 [123:123:*:*:*:*:*:*]」。
+    ///
+    /// 规矩：
+    ///   - **域名** —— 每一个点分开的段取**首字母 + 一条横杠**（`mc.hyperlands.cloud`
+    ///     ⇒ `m-.h-.c-`）。域名要遮的是**那个名字**，留个首字母已经足够认人；
+    ///   - **数字地址**（四段全数字的 IPv4 / 带冒号的 IPv6）—— 留头两段、后面一律 `*`
+    ///     （`123.45.67.89` ⇒ `123.45.*.*`）。数字地址要遮的是**后面那几段**：头两段留着
+    ///     还看得出是哪个网段 / 哪个机房，认不出的部分才该打掉；
+    ///   - `[...]` 那种方括号**留着**，`:` 后面那个端口**照抄** —— 它们不是身份，而且
+    ///     端口不写的话有些服务器根本分不出来（同一个域名上开好几个）。
+    ///
+    /// NOTE: 认不出来（空串、光一个方括号）就**原样回**，不猜也不报错：这一格只是个显示，
+    ///       真正的"这个地址能不能用"由 ServerPing::splitAddress 说了算。
+    static QString maskedServerAddress(const QString &address);
     static QString serverEmptyText() { return QStringLiteral("这个实例还没有加过服务器。"); }
     /// 服务器名字那一格是空的的时候顶上什么字。servers.dat 里的 name 真能是空串。
     static QString unnamedMark() { return QStringLiteral("（无名）"); }
