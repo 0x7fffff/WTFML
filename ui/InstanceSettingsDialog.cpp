@@ -51,6 +51,7 @@
 #include <QVBoxLayout>
 #include <utility>
 
+#include "ConfigFileEditorPage.hpp"
 #include "InstanceFilesPage.hpp"
 #include "MainWindowUI.hpp"
 #include "MemorySlider.hpp"
@@ -1012,17 +1013,64 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             if (layout == nullptr) {
                 continue;
             }
-            auto *files = new InstanceFilesPage(page);
+
+            // ★ 「配置文件」那一页是**两格子**（见 .hpp 里 configFilePage() 上面那一段：
+            //   开不出第二个整页覆盖层）。第 0 格是这一张列表（连「上一级」和底下那行小字
+            //   一起），第 1 格是编辑器。别的几页只有一格 —— 所以下面这些"摆进这一页"的
+            //   动作全部改摆进 `target`，而不是一律摆进 `layout`。
+            const bool isConfig = key == QStringLiteral("config");
+            QWidget *listHost = page;
+            QVBoxLayout *target = layout;
+            if (isConfig) {
+                m_configStack = new QStackedWidget(page);
+                listHost = new QWidget(m_configStack);
+                auto *listLayout = new QVBoxLayout(listHost);
+                // 第 0 格自己不留白：它四周的留白本来就是外面那一页给的，这一格和那一页
+                // 是同一块地方（切过来切过去不该看见内容整体缩一下）。
+                listLayout->setContentsMargins(0, 0, 0, 0);
+                listLayout->setSpacing(layout->spacing());
+                m_configStack->addWidget(listHost);
+                target = listLayout;
+            }
+
+            auto *files = new InstanceFilesPage(listHost);
             files->setObjectName(filesPageName(key));
             // 存档只列文件夹（saves 底下那些 level.dat / session.lock 不是存档）。
             files->setMode(key == QStringLiteral("save") ? InstanceFilesPage::Mode::DirsOnly
                                                           : InstanceFilesPage::Mode::FilesAndDirs);
             // 只有游戏会自己扫的那三个目录给「禁用」；存档**不给删**（理由见
             // InstanceFilesPage::setCanDelete()）。
+            //
+            // ★ 「配置文件」也不给删（2026-09-27）：这一页的存在意义就是**改**（点一行开
+            //   编辑器），行尾再挂一颗垃圾桶等于在"只想改一个数"的动线上摆一个删了就没了
+            //   的键 —— 而这一页没有"恢复默认"（模组下次启动会重写一份默认的，但那要等它
+            //   启动，而且不保证每个模组都这么干）。要删，那颗「打开文件夹」就在上面。
             files->setCanToggle(fileKeyCanToggle(key));
-            files->setCanDelete(key != QStringLiteral("save"));
+            files->setCanDelete(key != QStringLiteral("save") && key != QStringLiteral("config"));
             files->setEmptyText(filesEmptyText(key));
             files->setDirectory(m_fileDirs.value(key));
+
+            // ★ 「配置文件」那一页多两样（2026-09-27）：上面一颗「上级」，以及"双击/回车
+            //   有反应"。别的几页看的是一个平铺的目录，config/ 底下却还有层级
+            //   （`config/ftbquests/`、`config/paxi/`…），得能进去也得出得来。
+            if (isConfig) {
+                auto *navRow = new QHBoxLayout;
+                navRow->setContentsMargins(0, 0, 0, 0);
+                navRow->setSpacing(8);
+                m_configUp = new QPushButton(configUpText(), listHost);
+                m_configUp->setObjectName(configUpButtonName());
+                connect(m_configUp, &QPushButton::clicked, this,
+                        &InstanceSettingsDialog::leaveConfigDir);
+                navRow->addWidget(m_configUp);
+                // 右边那条 stretch 是"靠左"的另一半（和快捷方式那一页同一个写法）。
+                navRow->addStretch(1);
+                target->addLayout(navRow);
+                // 摆到"还没接过目录"那一档（m_configRoot 要等 setFileDirs 才有）。
+                updateConfigUpButton();
+
+                connect(files, &InstanceFilesPage::activateRequested, this,
+                        &InstanceSettingsDialog::onConfigEntryActivated);
+            }
             connect(files, &InstanceFilesPage::openFolderRequested, this,
                     &InstanceSettingsDialog::openInstanceFolderRequested);
             connect(files, &InstanceFilesPage::toggleRequested, this,
@@ -1030,11 +1078,19 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             connect(files, &InstanceFilesPage::deleteRequested, this,
                     &InstanceSettingsDialog::deleteInstanceFileRequested);
             m_filesPages.insert(key, files);
-            layout->addWidget(files, 1);
-            auto *hint = new QLabel(filesHint(key), page);
+            target->addWidget(files, 1);
+            auto *hint = new QLabel(filesHint(key), listHost);
             hint->setObjectName(filesHintName(key));
             hint->setWordWrap(true);
-            layout->addWidget(hint);
+            target->addWidget(hint);
+
+            // 第 1 格：编辑器。**建一次留着**（见 .hpp 里 configFilePage() 那两条 NOTE）
+            // —— 每一趟开文件只是往里灌内容（openConfigEditor()），接线只有一次。
+            if (isConfig) {
+                m_configEditor = new ConfigFileEditorPage(m_configStack);
+                m_configStack->addWidget(m_configEditor);
+                layout->addWidget(m_configStack, 1);
+            }
         }
 
         // ③ 服务器列表：读 servers.dat 的结果由调用方递进来（这一层不 include src/）。
@@ -1196,6 +1252,10 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     //   左上角那颗返回箭头 = 关页（`execPage` 的 reject），Esc 同它。没有"提交"这一下，
     //   也不再有"改了一堆又后悔"—— 改一格就落一格，这是用户点名要的。
     //
+    // NOTE: 2026-09-27 起有一个例外：**「配置文件」那一格里改过还没保存的时候**，
+    //       `reject()` 会把这一关挡下来先问一句（见那边）。那一格是这一页上唯一一处
+    //       "改动没有实时落盘"的地方（它的「保存」是一颗按钮），所以也只有它需要问。
+    //
     // NOTE: 删掉那排按钮之后，**这个对话框自己不再 accept**（从前那颗「确定」是
     //       `confirm->setDefault(true)` 的默认按钮）。`execPage` 那边判的是 Accepted /
     //       Rejected，现在永远是后者 —— 而那正是"这一页关掉了"的意思，它不看返回值
@@ -1204,6 +1264,22 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     // 起点 = 现在这一份（灌值那一串 setChecked/setText 都已经跑完）。不记这一笔的话，
     // 打开页面之后的第一次交互会把"整份值"当成一次改动写一遍盘。
     m_lastSignature = valueSignature();
+}
+
+void InstanceSettingsDialog::reject() {
+    // ★ 走这条路的**不是**编辑器自己那颗「返回」（那颗发 backRequested()、由 MainWindow
+    //   接到 leaveConfigEditor() 上），而是**覆盖层页眉那颗返回箭头** —— 它接的是
+    //   `dialog->reject()`（见 OverlayHost::execPage 里那段），点一下关掉的是**整个
+    //   「实例设置」**。而那一格里可能正压着改了一半的东西。
+    //
+    //   这一层没有覆盖层、弹不出"要丢掉吗"那一句，所以只能**先挡住这一关**、把这一发交
+    //   出去（见 .hpp 里 reject() 那一段）。接的人问完，用户答"丢掉"之后拿
+    //   `done(QDialog::Rejected)` 关 —— 绕开这儿，不然又回到"问一句、再问一句"。
+    if (m_configEditor != nullptr && m_configEditor->isDirty()) {
+        emit closeBlockedByUnsavedConfigFile();
+        return;
+    }
+    QDialog::reject();
 }
 
 QString InstanceSettingsDialog::titleText() const {
@@ -1369,6 +1445,14 @@ QString InstanceSettingsDialog::filesHint(const QString &key) {
     if (key == QStringLiteral("schematic")) {
         return tr("Litematica 装好的话它默认就读这个文件夹。");
     }
+    if (key == QStringLiteral("config")) {
+        // 这一句得把"能干什么"和"为什么是这么个界面"都说清楚 —— 用户问的就是后半句
+        // （见 ConfigFileEditorPage.hpp 那段：模组把类型和范围声明在代码里，只有游戏进程
+        // 拿得到，所以启动器这边做不出勾选框那一套）。
+        return tr("点一个文件就能直接改（双击，或者选中之后按回车）。里面按模组原样排版，"
+                  "启动器不改它的格式、不动它的注释 —— 看清楚再改，改错了没有撤销。"
+                  "文件夹可以点进去。");
+    }
     if (key == QStringLiteral("save")) {
         return tr("一个文件夹就是一个存档。启动器不删存档 —— 这里只看得见，要删得自己去"
                   "文件夹里删。");
@@ -1399,6 +1483,12 @@ QString InstanceSettingsDialog::filesEmptyText(const QString &key) {
     if (key == QStringLiteral("schematic")) {
         return tr("这个实例还没有原理图。");
     }
+    if (key == QStringLiteral("config")) {
+        // 「还没有」在这里有**两种**原因，都说得出口：这个实例从来没进过游戏（模组还没
+        // 跑过一次，也就还没写配置），或者它确实一个能配的模组都没有。第二种更常见 ——
+        // 原版客户端本来就没有 config 这个目录。
+        return tr("这个实例里还没有配置文件。进一次游戏，模组自己会把默认配置写进来。");
+    }
     if (key == QStringLiteral("save")) {
         return tr("这个实例还没有存档。进游戏存一个就有了。");
     }
@@ -1426,14 +1516,103 @@ void InstanceSettingsDialog::setInstanceDir(const QString &dir) {
 
 void InstanceSettingsDialog::setFileDirs(const QHash<QString, QString> &dirs) {
     m_fileDirs = dirs;
+    // ★ `config/` 的根**在这儿**认下来（不是在构造函数里）—— 那会儿这一份还没灌进来，
+    //   抓到的永远是空串，"不许越过 config/"那道墙就形同虚设了（见 .hpp 里 m_configRoot
+    //   那一 NOTE）。
+    m_configRoot = m_fileDirs.value(QStringLiteral("config"));
     // 六页在构造函数里就搭好了，那会儿还不知道目录在哪儿（这一份是构造之后才灌的）——
     // 所以灌完必须让它们各列一遍，否则每一页都停在"这个文件夹还是空的"上。
     const QList<QString> keys = m_filesPages.keys();
     for (const QString &key : keys) {
         if (InstanceFilesPage *page = m_filesPages.value(key)) {
+            // setDirectory() 一律回到**根** —— 换了一个实例再回来，不该还停在上一个实例
+            // 翻到的那个子目录里（那个路径在新实例上多半根本不存在）。
             page->setDirectory(m_fileDirs.value(key));
         }
     }
+    updateConfigUpButton();
+}
+
+void InstanceSettingsDialog::openConfigEditor(const QString &path,
+                                              const ConfigFileText::Loaded &loaded) {
+    if (m_configStack == nullptr || m_configEditor == nullptr) {
+        return;
+    }
+    m_configEditor->setFile(path, loaded);
+    m_configStack->setCurrentWidget(m_configEditor);
+}
+
+void InstanceSettingsDialog::closeConfigEditor() {
+    if (m_configStack == nullptr) {
+        return;
+    }
+    // 回第 0 格，并让那一页**重新列一遍当前目录**：用户待在编辑器那一格的时候，这个目录
+    // 可能在外面（「打开文件夹」开出去的那个窗口）被动过，而这一页只在切进来那一下列一次。
+    // 重列一次最省事，也一定不会显示一份旧的清单。
+    //
+    // NOTE: 走的是 `refresh()` 而**不是** `setDirectory()` —— 后者会回到根，而用户可能是从
+    //       `config/ftbquests/` 底下点开一个文件的，返回时该还停在那儿。
+    if (InstanceFilesPage *files = m_filesPages.value(QStringLiteral("config"))) {
+        files->refresh();
+    }
+    m_configStack->setCurrentIndex(0);
+    updateConfigUpButton();
+}
+
+void InstanceSettingsDialog::onConfigEntryActivated(const QString &path, bool isDir) {
+    if (!isDir) {
+        // 文件：**这一层读不了盘**（也没有 OverlayHost，读失败要弹的那一句得有人弹），
+        // 所以绕出去让 MainWindow 读了再拿 openConfigEditor() 递回来。
+        emit openConfigFileRequested(path);
+        return;
+    }
+    // 目录：**这一层自己就办得了** —— 换一个目录再列一遍，纯显示层的事（不碰盘、不联网，
+    // 也不问 MainWindow）。所以"点进去看"这一下是同步的、没有往返。
+    if (InstanceFilesPage *files = m_filesPages.value(QStringLiteral("config"))) {
+        files->setDirectory(path);
+        updateConfigUpButton();
+    }
+}
+
+void InstanceSettingsDialog::leaveConfigDir() {
+    InstanceFilesPage *files = m_filesPages.value(QStringLiteral("config"));
+    if (files == nullptr) {
+        return;
+    }
+    const QString current = QDir::cleanPath(files->directory());
+    const QString root = QDir::cleanPath(m_configRoot);
+    if (root.isEmpty() || current == root) {
+        return;
+    }
+    QDir up(current);
+    if (!up.cdUp()) {
+        files->setDirectory(root);
+        updateConfigUpButton();
+        return;
+    }
+    const QString parent = QDir::cleanPath(up.absolutePath());
+    // 到了根的下一层再点「上级」就**停在根上**，不往上走（`config/` 上面是这个实例自己，
+    // 再上面是整个 .minecraft —— 走到那儿"这是配置文件"这件事就走丢了）。
+    files->setDirectory(parent.startsWith(root + QLatin1Char('/')) ? parent : root);
+    updateConfigUpButton();
+}
+
+void InstanceSettingsDialog::updateConfigUpButton() {
+    if (m_configUp == nullptr) {
+        return;
+    }
+    InstanceFilesPage *files = m_filesPages.value(QStringLiteral("config"));
+    if (files == nullptr) {
+        m_configUp->setVisible(false);
+        return;
+    }
+    const QString root = QDir::cleanPath(m_configRoot);
+    const QString current = QDir::cleanPath(files->directory());
+    // 两个条件缺一不可：根认出来了（setFileDirs 来过），而且现在**在根以下**。
+    // 目录还没接上（构造那一会儿）、或者 config/ 根本不存在（原版实例）时，两边都是
+    // 空串 —— 那时候也不该画这颗按钮。
+    m_configUp->setVisible(!root.isEmpty() && current != root &&
+                           current.startsWith(root + QLatin1Char('/')));
 }
 
 void InstanceSettingsDialog::setShaderUsable(bool usable) {

@@ -181,6 +181,28 @@ InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
     // 行是**真控件**（见 .hpp 里那段"为什么每行是一个真控件"），宽度由它自己说了算；
     // 不许出现横向滚动条，否则那一排按钮会跟着来回滑。
     m_list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    // ★ 2026-09-27：「打开这一条」的出口（见 .hpp 里 activateRequested）。
+    //
+    //   用 itemActivated 而不是 itemDoubleClicked：前者是 Qt 说的「用户激活了这一条」
+    //   —— 双击**和**选中之后按回车都会发它（各平台按自己的习惯），而那正是"打开一个
+    //   文件"该有的两种手势。
+    //
+    //   NOTE: 这一条能成立有一个**前提**：每一行的内容是 setItemWidget() 摆上去的一个
+    //         真控件，而它对鼠标事件是"不处理"的（QWidget 默认把 mousePressEvent
+    //         ignore 掉）⇒ 事件往上冒到 viewport，列表才收得到这一发。同一件事的另一个
+    //         表现是**这些行一直点得中、选中高亮也一直透得上来**（那一层控件是透明的）。
+    //         哪一天有人让行控件去 accept 鼠标事件（比如给它自己接个点击），**这一发就会
+    //         静默失效** —— 双击没反应，不报错。ui_check 里有一条合成双击的断言钉着它。
+    connect(m_list, &QListWidget::itemActivated, this, [this](QListWidgetItem *item) {
+        if (item == nullptr) {
+            return;
+        }
+        const QString path = item->data(pathRole()).toString();
+        if (path.isEmpty()) {
+            return;
+        }
+        emit activateRequested(path, QFileInfo(path).isDir());
+    });
     outer->addWidget(m_list, 1);
 
     // ---------- 空 / 用不上时那一段话 ----------

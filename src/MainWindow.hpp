@@ -378,6 +378,48 @@ private slots:
     /// 那一路也照着它写），原理图 / 存档 / 截图 / 日志不在下载页那几类里，目录名写在这儿。
     QHash<QString, QString> instanceFileDirs(const QString &versionId) const;
 
+    // ---------- 「配置文件」那一页的编辑器（2026-09-27）----------
+    //
+    // 三件都是"接的人碰盘、弹话"那一套（同上那一段的分工）。**为什么编辑器那一格在
+    // 对话框里、而读和写在这儿**：那一层手上没有 OverlayHost（读失败、写失败都得弹一句），
+    // 也没有盘（ui/ 不 include src/，AppPaths 够不着）。而"切格子"是纯显示层的事，留在
+    // 对话框自己那边（见 InstanceSettingsDialog::openConfigEditor()）。
+    //
+    // NOTE: 三件的 `dialog` 都是**栈上的那个局部对象**（openInstanceSettings() 里那一句
+    //       `InstanceSettingsDialog dialog(...)`）—— 和上面那几条 lambda 捕获的是同一个，
+    //       它活到 execPage 返回为止。
+
+    /// 用户点开了 config/ 底下的一条文件：读进来、解码，然后摆进编辑器那一格。
+    ///
+    /// NOTE: **解码不等于"看得懂"**（见 ConfigFileText 那一段：这一页压根不解析格式）——
+    ///       它只做三件事：认 BOM、认行尾、认这一份是不是 UTF-8。前两样要原样存着，改完
+    ///       写回去时一个字都不能变。
+    void openConfigFile(InstanceSettingsDialog *dialog, const QString &path);
+
+    /// 用户点了「保存」：把 @p bytes 写到 @p path 上，成功了再告诉那一格。
+    ///
+    /// NOTE: 走 `QSaveFile`（先写同目录下一个临时文件、最后原子改名）—— 直接 `QFile`
+    ///       写一半失败的话，用户手上的配置文件就毁了，而这一页**没有"恢复默认"**
+    ///       （模组下次启动重写一份那要等它启动，也不保证每个模组都这么干）。
+    void saveConfigFile(InstanceSettingsDialog *dialog, const QString &path, const QByteArray &bytes);
+
+    /// 用户想从编辑器退回文件列表（点了「返回」，或者按了 Esc）。
+    ///
+    /// ★ **改过的东西不许悄悄没掉**：改过就弹一句问，用户说"丢掉"才真回去。这一问在这儿
+    ///   而不是在编辑器里，理由是那一层没有 OverlayHost（见 InstanceSettingsDialog::
+    ///   closeConfigEditor() 那条 NOTE）。
+    void leaveConfigEditor(InstanceSettingsDialog *dialog);
+
+    /// 弹那句「改过还没保存，要丢掉吗」。
+    ///
+    /// @return true = 用户选了"丢掉"。
+    ///
+    /// NOTE: **两个调用点共用这一份字**（`leaveConfigEditor()` 退到列表、以及顶上那颗返回
+    ///       箭头要关整页那一趟）—— 同一件事在两处问出两套说法，用户会以为是两件事。
+    /// NOTE: 默认那一颗是**「留在这儿」**（`defaultYes = false`）：手一滑按到 Esc、或者点
+    ///       到卡片外面，不该把用户刚改的东西丢掉。
+    bool confirmDiscardConfigEdits();
+
     /// 这个实例的 mods/ 里有没有名字以 @p namePrefix 开头的 **.jar**（忽略大小写）。
     ///
     /// NOTE: 判据是**文件名的前缀**，不是"这个模组是谁"—— 我们没有模组元数据（那要读

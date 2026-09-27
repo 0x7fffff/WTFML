@@ -11,6 +11,8 @@
 
 #include "MainWindow.hpp"
 
+#include "..\ui\ConfigFileEditorPage.hpp"
+#include "..\ui\ConfigFileText.hpp"
 #include "..\ui\GroupDialog.hpp"
 #include "..\ui\InstanceGroupDelegate.hpp"
 #include "..\ui\InstanceFilesPage.hpp"
@@ -7579,6 +7581,52 @@ void MainWindow::openInstanceSettings(const QString &versionId) {
                     dialog.refreshFilePages();
                 }
             });
+
+    // ---------- 「配置文件」那一页（2026-09-27）----------
+    //
+    // ★ 这一页和别的几页不是一回事：点一行**不是"重列一遍"**，而是"读那个文件、把它摆进
+    //   编辑器"。编辑器和那张列表是**同一页里的两格**（开不出第二个整页覆盖层 —— 见
+    //   InstanceSettingsDialog::configFilePage() 上面那一段），所以这一趟没有"开页 / 关页"，
+    //   只有"读进来灌进去"和"切回第一格"。
+    //
+    // NOTE: `configFilePage()` 是**构造时就建好、一直留着**的那一个（那把 NOTE 说了不要
+    //       把它当一次性的）—— 所以这三条 connect 只连这一次，之后每开一个文件都复用。
+    connect(&dialog, &InstanceSettingsDialog::openConfigFileRequested, this,
+            [this, &dialog](const QString &path) { openConfigFile(&dialog, path); });
+    if (ConfigFileEditorPage *editor = dialog.configFilePage()) {
+        connect(editor, &ConfigFileEditorPage::saveRequested, this,
+                [this, &dialog](const QString &path, const QByteArray &bytes) {
+                    saveConfigFile(&dialog, path, bytes);
+                });
+        // 编辑器给的是**文件**路径，开文件夹要的是它所在的那个目录。
+        //
+        // NOTE: 这儿**不 mkpath**（不像上面那九颗快捷方式按钮）：那个目录一定是存在的
+        //       ——这一格能开着，说明刚从这个目录底下读出来过一个文件。
+        connect(editor, &ConfigFileEditorPage::openFolderRequested, this,
+                [this](const QString &path) {
+                    const QString dir = QFileInfo(path).absolutePath();
+                    if (!dir.isEmpty()) {
+                        onFolderOpenRequested(dir);
+                    }
+                });
+        connect(editor, &ConfigFileEditorPage::backRequested, this,
+                [this, &dialog]() { leaveConfigEditor(&dialog); });
+    }
+    // ★ 顶上那颗返回箭头（覆盖层页眉上那一颗）走的是 `dialog->reject()`，点一下关掉的是
+    //   **整个「实例设置」** —— 而编辑器那一格里可能正压着改了一半的东西。对话框把那一关
+    //   挡下来了（见它那条 reject()）：这一发就是"挡下来了、你说怎么办"。
+    //
+    // NOTE: 用户说"丢掉"之后要用 `done(QDialog::Rejected)` 而不是 `reject()` —— 后者会
+    //       又走回对话框那条 override 上，于是又发一次这一发（问不完的问）。
+    connect(&dialog, &InstanceSettingsDialog::closeBlockedByUnsavedConfigFile, this,
+            [this, &dialog]() {
+                ConfigFileEditorPage *editor = dialog.configFilePage();
+                if (editor == nullptr || !confirmDiscardConfigEdits()) {
+                    return;  // 留在这儿：页照旧开着，编辑器那一格原样。
+                }
+                editor->discardChanges();
+                dialog.done(QDialog::Rejected);
+            });
     // 服务器列表那一页的「刷新」：重读一遍 servers.dat 再递进去，**顺手测一遍**
     // （2026-09-27）—— 「刷新」的意思是"把这一页刷新成现在的样子"，而这一页现在不只是
     // 那份文件的镜像（图标 / MOTD / 延迟都是刚问来的）。只重测不重读走「测速」。
@@ -7679,10 +7727,14 @@ QHash<QString, QString> MainWindow::instanceFileDirs(const QString &versionId) c
                     root + QLatin1Char('/') + ResourceCatalog::folderForKind(entry.second));
     }
 
-    // 这四样下载页里没有对应的"类"（没有"存档"这一类资源），目录名直接写在这儿。
-    // 「原理图」用的是 Litematica 的默认目录名；另外三个是游戏自己建的。
+    // 这五样下载页里没有对应的"类"（没有"存档"/"配置文件"这一类资源），目录名直接写在这儿。
+    // 「原理图」用的是 Litematica 的默认目录名；另外四个是游戏自己建的。
+    //
+    // ★ `config` 是 2026-09-27 加的（实例设置里那一页「配置文件」）。**它不是游戏建的** ——
+    //   是模组自己建的（原版客户端根本没有这个目录，那时候那一页会说"进一次游戏"）。
     const QList<QPair<QString, QString>> plain = {
         {QStringLiteral("schematic"), QStringLiteral("schematics")},
+        {QStringLiteral("config"), QStringLiteral("config")},
         {QStringLiteral("save"), QStringLiteral("saves")},
         {QStringLiteral("screenshots"), QStringLiteral("screenshots")},
         {QStringLiteral("logs"), QStringLiteral("logs")},
@@ -7691,6 +7743,96 @@ QHash<QString, QString> MainWindow::instanceFileDirs(const QString &versionId) c
         dirs.insert(entry.first, root + QLatin1Char('/') + entry.second);
     }
     return dirs;
+}
+
+void MainWindow::openConfigFile(InstanceSettingsDialog *dialog, const QString &path) {
+    if (dialog == nullptr) {
+        return;
+    }
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        // 会挡住用户要做的事 ⇒ 必须弹出来（见 .hpp 那条硬约束）。多半是文件在那一下被
+        // 别的东西独占着（游戏正开着、杀毒在扫），或者是权限。
+        InlineMessage::warning(m_ui->overlay(), tr("打不开这个文件"),
+                               tr("%1\n\n%2").arg(QDir::toNativeSeparators(path),
+                                                  file.errorString()));
+        return;
+    }
+    const QByteArray raw = file.readAll();
+    const QString readError = file.errorString();
+    const bool readFailed = file.error() != QFileDevice::NoError;
+    file.close();
+    if (readFailed) {
+        InlineMessage::warning(m_ui->overlay(), tr("读不完这个文件"),
+                               tr("%1\n\n%2").arg(QDir::toNativeSeparators(path), readError));
+        return;
+    }
+    // 解码**不是解析**（这一页压根不认格式，见 ConfigFileText 那一段）：它只认 BOM、认
+    // 行尾、认这一份是不是 UTF-8 —— 前两样要原样存着，改完写回去时一个字都不能变。
+    dialog->openConfigEditor(path, ConfigFileText::decode(raw));
+}
+
+void MainWindow::saveConfigFile(InstanceSettingsDialog *dialog, const QString &path,
+                                const QByteArray &bytes) {
+    if (dialog == nullptr) {
+        return;
+    }
+    // ★ `QSaveFile` 而不是 `QFile`：它先往同一个目录下写一个临时文件，最后**原子地**改名
+    //   过去。直接写的话，写到一半失败（盘满 / 被杀毒拦下 / 断电）会把用户手上那份配置
+    //   毁成半截 —— 而这一页没有"恢复默认"（模组的默认值是它下次启动时自己重写一份，
+    //   那要等它启动，也不保证每个模组都这么干）。
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly)) {
+        InlineMessage::warning(m_ui->overlay(), tr("保存失败"),
+                               tr("%1\n\n%2").arg(QDir::toNativeSeparators(path),
+                                                  file.errorString()));
+        return;
+    }
+    if (file.write(bytes) != bytes.size()) {
+        const QString reason = file.errorString();
+        file.cancelWriting();
+        InlineMessage::warning(m_ui->overlay(), tr("保存失败"),
+                               tr("%1\n\n%2").arg(QDir::toNativeSeparators(path), reason));
+        return;
+    }
+    if (!file.commit()) {
+        InlineMessage::warning(m_ui->overlay(), tr("保存失败"),
+                               tr("%1\n\n%2").arg(QDir::toNativeSeparators(path),
+                                                  file.errorString()));
+        return;
+    }
+    // 写成了才告诉那一格 —— 它那一句"已保存（时:分:秒）"就是**盘上真的变了**的意思，
+    // 写失败的时候不许出现（那一档由上面那几句话负责）。
+    if (ConfigFileEditorPage *editor = dialog->configFilePage()) {
+        editor->markSaved();
+    }
+}
+
+void MainWindow::leaveConfigEditor(InstanceSettingsDialog *dialog) {
+    if (dialog == nullptr) {
+        return;
+    }
+    ConfigFileEditorPage *editor = dialog->configFilePage();
+    if (editor == nullptr) {
+        return;
+    }
+    // ★ 改过的东西**不许悄悄没掉**（那一问的字见 confirmDiscardConfigEdits()）。
+    if (editor->isDirty()) {
+        if (!confirmDiscardConfigEdits()) {
+            return;
+        }
+        // 退回读进来那一份 —— 不退回的话，isDirty() 还是 true，用户下一次点「返回」又会被
+        // 问一遍（"我不是刚说了丢掉吗"）。
+        editor->discardChanges();
+    }
+    dialog->closeConfigEditor();
+}
+
+bool MainWindow::confirmDiscardConfigEdits() {
+    return InlineMessage::question(
+        m_ui->overlay(), tr("改过还没保存"),
+        tr("这个文件刚才改的地方还没写到盘上，离开就会丢掉这些改动。\n\n要丢掉吗？"),
+        tr("丢掉改动"), tr("留在这儿"), false);
 }
 
 bool MainWindow::instanceHasMod(const QString &versionId, const QString &namePrefix) const {

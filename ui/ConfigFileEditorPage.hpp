@@ -1,0 +1,158 @@
+/**
+ * @file ConfigFileEditorPage.hpp
+ * @brief 「实例设置 → 文件管理 → 配置文件」点开一个文件之后那一块：行号 + 纯文本编辑框
+ *        +「返回」+「打开文件夹」+「保存」。
+ * @author 0x7fffff
+ * @date 2026-09-27
+ * @note 用户的那句是「能不能做到在启动器就直接编辑模组的 config.json（或类似的设置文件）？
+ *       正常来说这个东西应该都是格式化的比较好识别？」，后面又补了关键的一句
+ *       「这些文件不都是以文本形式存储的吗，不能直接以 txt 来解析吗」—— **后一句是对的**，
+ *       这一块就是照它做的：**不解析、不重排、不"识别"**，就是一个文本编辑器。
+ *
+ * 【为什么不做成"勾选框 / 滑条"那种界面】
+ *
+ * 因为那是**做不到**的，不是没做。查过 ModMenu（用户让看的那一个）：它的
+ * `com/terraformersmc/modmenu/api/ConfigScreenFactory` 是个 `@FunctionalInterface`，唯一
+ * 方法 `Screen create(Screen parent)` —— 它把"给我一个配置界面"这件事**转交给模组自己的
+ * Java 代码**，界面上的类型、范围、翻译全是模组用 Cloth Config / YACL 在**代码里**声明的。
+ * 那份声明只存在于**游戏进程**里，启动器在外面拿不到。（ModMenu 自己唯一跟文件沾边的功能
+ * 是 `modmenu.configsFolder` = 「打开配置文件夹」。）
+ *
+ * 【为什么它是 QWidget，不是像资源详情页那样一个 QDialog】
+ *
+ * 因为**开不出第二页**：`OverlayHost::openPage()` 在已经有人占着那一层的时候直接返回
+ * nullptr（一层只放一个页面，见 OverlayHost.hpp 那段），而点这一行的那一刻，「实例设置」
+ * 自己正占着那一层。所以这一块是**嵌在「配置文件」那一页里面**的 —— 那一页是一个两格子的
+ * 堆叠：① 文件列表 ② 这一块。点一个文件 = 换到第二格，点「返回」= 换回第一格。
+ *
+ * NOTE: 正因为嵌在里面，它**自己带一颗「返回」**（覆盖层那颗返回到的是整个实例设置，不是
+ *       这一张列表）。那颗两格之间来回切的事由 InstanceSettingsDialog 办，这一层只发
+ *       `backRequested()`。
+ *
+ * 【这一层不碰盘】
+ *
+ * 和 InstanceSettingsDialog 同一条约定：**读盘、写盘、开文件夹、弹话**都是 MainWindow 的
+ * 事（这一层手上没有 OverlayHost，而弹一句话必须有它）。但有**一半**不是 I/O：把编辑框里
+ * 的正文合回字节（行尾、BOM）—— 那是纯计算，和 `ConfigFileText` 是同一套东西，所以落在这
+ * 一层。分工是：
+ *
+ *   - 这一层：`Loaded`（原字节 + 正文 + 行尾 + BOM）在手，**算出要写哪些字节**；
+ *   - MainWindow：把那些字节写到那个路径上，回一句结果。
+ */
+#pragma once
+
+#include <QByteArray>
+#include <QString>
+#include <QWidget>
+
+#include "ConfigFileText.hpp"
+
+class QLabel;
+class QPlainTextEdit;
+class QPushButton;
+
+class ConfigFileEditorPage : public QWidget {
+    Q_OBJECT
+
+public:
+    explicit ConfigFileEditorPage(QWidget *parent = nullptr);
+
+    /// 摆一份文件（点开一条时由 InstanceSettingsDialog 调）。
+    ///
+    /// @param path   绝对路径（「打开文件夹」要用它算目录，保存要写回它）。
+    /// @param loaded 那**一份字节**解出来的东西（见 ConfigFileText::decode）。这一块把它
+    ///        **留着**（`isDirty()` 要拿它比、保存时要拿它拼行尾），所以进参是值不是引用。
+    void setFile(const QString &path, const ConfigFileText::Loaded &loaded);
+
+    /// 现在框里的正文（行尾按 `'\n'`）。**唯一出处是那个编辑框** —— 调用方别自己拼
+    /// "用户改了什么"，问它就够了。
+    QString text() const;
+    /// 和读进来那一份不一样了没有。
+    bool isDirty() const;
+    /// 这个文件现在给不给改（见 ConfigFileText::Loaded::editable）。只读时「保存」
+    /// **不画**（不是画成灰的 —— 灰按钮说的是"还没资格点"，而这儿的问题是"点了也没意义"）。
+    bool isEditable() const;
+    /// 这一块现在开着的是哪个文件（空串 = 还没 setFile）。
+    QString path() const;
+
+    /// 写盘**成功了** —— 底下那行字换成「已保存（时:分:秒）」。由 MainWindow 在
+    /// `saveRequested` 之后调回来（它是唯一知道写成了没有的人）。
+    ///
+    /// NOTE: **没有"写失败了"的那一半**，这是有意的：写不进去（盘满、只读、被占用）是一件
+    ///       **挡住用户操作**的事 —— 用户以为改好了、盘上其实还是旧的。所以按产品那条硬
+    ///       约束（「会挡住用户操作的错误必须弹出来」）它走 MainWindow 的弹窗，不在这一块
+    ///       角上写一行小字。这一层也不为它造第二种颜色（仓库里"红"只有日志窗那一档）。
+    void markSaved();
+
+    /// 用户选了"不保存"：把编辑框退回**读进来那一份**，于是 `isDirty()` 变 false。
+    ///
+    /// NOTE: 这一条和「改过就不许悄悄关掉」是一对：点「返回」时 MainWindow 先看 isDirty()，
+    ///       改过就弹一句问，用户说"不保存"才走这儿再切回列表 —— **改过的东西不许悄悄没掉**。
+    void discardChanges();
+
+    // ---------- 名字（验证工程按这些 objectName 找控件）----------
+    /// **这一块自己**那个 objectName（`editorName()` 是里面那个编辑框的，别混）。
+    static QString pageName();
+    static QString editorName();
+    static QString pathLabelName();
+    static QString noteLabelName();
+    static QString saveButtonName();
+    static QString openFolderButtonName();
+    static QString backButtonName();
+
+    static QString backText();
+    static QString saveText();
+    static QString openFolderText();
+    /// 只读时那行字的前缀（后面接原因）。验证工程拿它认"这一块现在只读"。
+    static QString readOnlyPrefix();
+    /// 可编辑、还没存过的时候那行字。
+    static QString hintText();
+    /// 存成功之后那行字的前缀。
+    static QString savedPrefix();
+
+    /// 行号那一格现在有多宽（0 = 没有）。验证工程拿它量"行号真的留出位置了、而且行数变多
+    /// 它会变宽"。
+    int gutterWidth() const;
+
+    // ---------- 给验证工程用的访问器 ----------
+    QPlainTextEdit *editor() const;
+    QPushButton *saveButton() const { return m_save; }
+    QPushButton *openFolderButton() const { return m_openFolder; }
+    QPushButton *backButton() const { return m_back; }
+    QLabel *noteLabel() const { return m_note; }
+    QLabel *pathLabel() const { return m_pathLabel; }
+
+signals:
+    /// 用户点了「保存」。@param bytes 是**已经合好的整份字节**（行尾、BOM 都还完了，见
+    /// `ConfigFileText::encode`）—— 接的人直接写到 @param path 上就行，不要自己再拼一遍。
+    void saveRequested(const QString &path, const QByteArray &bytes);
+    /// 用户点了「打开文件夹」。
+    void openFolderRequested(const QString &path);
+    /// 用户想回到文件列表（点了「返回」，或者按了 Esc）。**这一层不自己切** —— 切回列表是
+    /// InstanceSettingsDialog 那两格的事，而且"改过没有"要不要问一句是 MainWindow 的判断。
+    void backRequested();
+
+protected:
+    /// Esc = 返回列表。**得在这一层接住**：不然它会一路冒到「实例设置」那个 QDialog 上去，
+    /// 那一下关掉的是**整个实例设置页** —— 用户想的是"退回文件列表"，结果整个页面没了。
+    void keyPressEvent(QKeyEvent *event) override;
+    /// ★ **焦点只能在这一刻补**。这一块是嵌在堆叠里的，切到它那一格时 Qt 会把焦点给新露面
+    ///   的控件，而这一块**不拿到焦点就打不了字**（这是它唯一的主要功能）。切回来的时候
+    ///   也要补 —— 用户在列表上点了一下，焦点在那张列表上。
+    void showEvent(QShowEvent *event) override;
+
+private:
+    /// 底下那行字回到"这个文件现在该说什么"（只读的原因 / 那句默认提示）。
+    void refreshNote();
+
+    QPlainTextEdit *m_editor = nullptr;
+    QLabel *m_pathLabel = nullptr;
+    QLabel *m_note = nullptr;
+    QPushButton *m_back = nullptr;
+    QPushButton *m_openFolder = nullptr;
+    QPushButton *m_save = nullptr;
+
+    QString m_path;
+    ConfigFileText::Loaded m_loaded;
+    bool m_hasFile = false;
+};

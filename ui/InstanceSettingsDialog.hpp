@@ -49,6 +49,11 @@
 #include <QStringList>
 #include <optional>
 
+// `openConfigEditor()` 那个进参是**按值**要一份 `ConfigFileText::Loaded`（见 .cpp 里
+// 那段说明：`encode()` 要靠它还原行尾和 BOM），所以这儿不能只前置声明。
+#include "ConfigFileText.hpp"
+
+class ConfigFileEditorPage;
 class InstanceFilesPage;
 class MemorySlider;
 
@@ -191,17 +196,21 @@ public:
     /// NOTE: 用户给的那一串（快捷方式 / 资源包·模组 / 数据包 / 光影包 / 原理图 / 存档 /
     ///       服务器列表）是他自己说了「我这个不合理」的，所以这儿是重排过的：把**跳板**
     ///       （快捷方式：开文件夹）摆在最前，然后是**往实例里加东西**的那几类（模组最常用
-    ///       → 资源包 → 数据包 → 光影包 → 原理图），最后是**这个实例自己攒出来的**那两样
-    ///       （存档、服务器列表）。前六类是"往里放"，后两类是"从里面看"。
+    ///       → 资源包 → 数据包 → 光影包 → 原理图），最后是**这个实例自己攒出来的**那几样
+    ///       （配置文件、存档、服务器列表）。前六类是"往里放"，后三类是"从里面看"。
+    ///
+    /// NOTE: 「配置文件」是 2026-09-27 加的那一页（用户要的："在启动器就直接编辑模组的
+    ///       config.json"）。**插在原理图与存档之间**，不是为了好看：`serverPageKey()` 的
+    ///       唯一出处是"最后那一个"，往尾巴上接会把它那句话变成假的。
     static QStringList filePageKeys() {
         return {QStringLiteral("shortcut"), QStringLiteral("mod"),    QStringLiteral("resourcepack"),
                 QStringLiteral("datapack"), QStringLiteral("shader"), QStringLiteral("schematic"),
-                QStringLiteral("save"),     QStringLiteral("server")};
+                QStringLiteral("config"),   QStringLiteral("save"),   QStringLiteral("server")};
     }
     static QStringList filePageTexts() {
         return {QStringLiteral("快捷方式"), QStringLiteral("模组"),   QStringLiteral("资源包"),
                 QStringLiteral("数据包"),   QStringLiteral("光影包"), QStringLiteral("原理图"),
-                QStringLiteral("存档"),     QStringLiteral("服务器列表")};
+                QStringLiteral("配置文件"), QStringLiteral("存档"),   QStringLiteral("服务器列表")};
     }
 
     /// 「服务器列表」那一页的键（也就是 filePageKeys() 里最后那一个）。
@@ -323,6 +332,14 @@ public:
     /// 把六页目录列表**重新列一遍**。MainWindow 动过盘（删了 / 改了名）之后喊它。
     void refreshFilePages();
 
+    // ---- 「配置文件」那一页的两条（见 openConfigFileRequested 那段）----
+    /// 用户打开了 `config/` 底下的一条：目录 = 进去（这一层自己办），文件 = 发信号。
+    void onConfigEntryActivated(const QString &path, bool isDir);
+    /// 点「上级」：退到上一层（到根为止）。
+    void leaveConfigDir();
+    /// 按"现在在哪"决定那颗「上级」画不画。**进来、出去、换实例（setFileDirs）之后都要喊**。
+    void updateConfigUpButton();
+
     /// 给某一条文件行换上它的**真图标**（见 InstanceFilesPage::setIconForPath）。
     ///
     /// 收在这一层是因为**路径属于哪一页只有六页自己知道** —— 调用方（MainWindow）手上
@@ -373,6 +390,46 @@ public:
     ///       是 MC 的约定，仓库里已经有唯一一份出处（src/download/ResourceCatalog 的
     ///       folderForKind()，整合包那一路也照着它写），ui/ 抄第二份迟早会跟它对不上。
     void setFileDirs(const QHash<QString, QString> &dirs);
+
+    // ---------- 「配置文件」那一页的第二个格子（2026-09-27）----------
+    //
+    // 【为什么是"格子里再嵌一格"，而不是再开一整页覆盖层】
+    //
+    // 因为**开不出来**：`OverlayHost::openPage()` 在已经有人占着那一层时直接返回 nullptr
+    // （一层只放一个页面，见 OverlayHost.hpp 那段），而用户点这一行的那一刻，「实例设置」
+    // 自己正占着那一层。所以「配置文件」这一页是个**两格子的堆叠**：
+    //
+    //   ① 文件列表（+「上一级」+底下那行小字）  ② 编辑器
+    //
+    // 点一个文件 = 切到 ②，点「返回」（或按 Esc）= 切回 ①。切的事由这一层办（它俩都是
+    // 它的孩子），而**盘上的事不办** —— 读、写、开目录、弹话都还是 MainWindow 的
+    // （这一层没有 OverlayHost）。所以这一层只提供"把编辑器切出来 / 切回去"两个动作，
+    // 外加一个把它**露出来**给 MainWindow 接线的口子。
+
+    /// 那一格编辑器（**一次建好、一直留着**）。
+    ///
+    /// NOTE: 给的是裸指针是为了让 MainWindow **接一次线就完事**：它在摆好这一页的时候
+    ///       连上 `saveRequested` / `backRequested` 两发，之后每次开文件只是往这一格里
+    ///       灌内容（`openConfigEditor()`），不再重新连。所以**接回来的时候不要把它当
+    ///       一次性的**（那会连第二遍，于是保存一次写两个盘）。
+    ///
+    /// NOTE: 读它之前先确认这一页开着没有 —— 没开的话它一样在（构造时就建了），只是
+    ///       没露脸。这和"资源详情页那一个对象建一次留着"是同一条规矩。
+    ConfigFileEditorPage *configFilePage() const { return m_configEditor; }
+
+    /// 把编辑器切出来，并摆上这一份文件。
+    /// @param path   绝对路径。
+    /// @param loaded 那一份字节解出来的东西（见 ConfigFileText::decode）。**由 MainWindow
+    ///        读盘 + 解码之后递进来** —— 这一层不碰盘。
+    void openConfigEditor(const QString &path, const ConfigFileText::Loaded &loaded);
+
+    /// 切回文件列表那一格（并让那一页重新列一遍目录）。
+    ///
+    /// NOTE: **调用它之前先看 `configFilePage()->isDirty()`**：改过的东西不许悄悄没掉，
+    ///       那一问（"改了没保存，还返回吗"）得由 MainWindow 弹（这一层没有覆盖层），
+    ///       用户答"不保存"之后要先 `discardChanges()` 再走这儿。这一层不自己问 ——
+    ///       它连"现在是脏的"这件事都不看，谁调谁负责。
+    void closeConfigEditor();
 
     /// 图标预览那一格的边长（像素）。**外面要按这个边长把图解好递进来** —— 递一张 16×16 的
     /// 进来会被放大成一团糊（那几张方块是像素画，而用户挑的照片本来就有的是像素）。
@@ -590,6 +647,14 @@ public:
     /// 第 @p key 那一页空着时那句话。
     static QString filesEmptyText(const QString &key);
 
+    /// 「配置文件」那一页上面那颗「上级」（2026-09-27）。**只有这一页有** —— 别的几页
+    /// 看的是一个平铺的目录，而 `config/` 底下还有层级（`config/ftbquests/` 这种），
+    /// 得能进去也得出得来。
+    static QString configUpButtonName() {
+        return QStringLiteral("instanceConfigUpButton");
+    }
+    static QString configUpText() { return QStringLiteral("上一级"); }
+
     static QString serverTreeName() { return QStringLiteral("instanceServerTree"); }
     static QString serverNoticeName() { return QStringLiteral("instanceServerNotice"); }
     static QString serverRefreshButtonName() {
@@ -718,6 +783,20 @@ public:
     ///       `m_instanceId`（拿的是目录名），这个换的是那行标题（拿的是显示名）——
     ///       带自定义名的实例这两个值本来就不是一回事。
     void setInstanceDisplayName(const QString &displayName);
+
+    /// ★ 关页之前先看一眼「配置文件」那一格里有没有没保存的改动（2026-09-27）。
+    ///
+    /// 走这条路的**不是**编辑器自己那颗「返回」（那颗发 `backRequested()`，由 MainWindow
+    /// 接到 `leaveConfigEditor()` 上），而是**覆盖层页眉那颗返回箭头** —— 它接的是
+    /// `dialog->reject()`（见 `OverlayHost::execPage` 里那段），点一下关掉的是**整个
+    /// 「实例设置」**。而那一格里可能正压着改了一半的东西。
+    ///
+    /// 这一层没有覆盖层、弹不出"要丢掉吗"那一句，所以它只能**先不关**、把这一发交出去：
+    /// 接的人问完，用户答"丢掉"之后拿 `done(QDialog::Rejected)` 关页（**不是** `reject()`
+    /// —— 那会又走回这儿）。
+    ///
+    /// NOTE: 编辑器那一格没开着、或者它是干净的，这一条一个字都不做（照旧正常关页）。
+    void reject() override;
 
     /// 嵌进覆盖层那一页的时候把这行标题收起来。
     ///
@@ -855,6 +934,31 @@ signals:
      * **"真的要删吗"那句由接的人问** —— 理由同上（这一层没有 OverlayHost）。
      */
     void deleteInstanceFileRequested(const QString &path);
+
+    /**
+     * @brief 用户在「配置文件」那一页**打开了一个文件**（双击，或者选中之后按回车）。
+     *
+     * 接的人负责**读那个文件**，然后拿它调 `openConfigEditor()` 把编辑器那一格切出来
+     * —— 这一层手上没有 OverlayHost，也没有盘（读、解码、失败要弹的那一句，全是
+     * MainWindow 的）。
+     *
+     * NOTE: **这一发不是"开一整页覆盖层"**。点这一行的那一刻，「实例设置」自己正占着
+     *       覆盖层那唯一的一层，开不出第二个整页（见 configFilePage() 上面那一段）。
+     *
+     * NOTE: **只有文件走这一发**。点一个目录是"进去看"，那件事这一层自己就办完了
+     *       （换一个目录再列一遍，纯显示层的事，不碰盘不联网），不会绕到这儿来。
+     * @param path 这一条的**绝对路径**。
+     */
+    void openConfigFileRequested(const QString &path);
+
+    /**
+     * @brief 用户想关掉整个「实例设置」，而**「配置文件」那一格里还有没保存的改动**。
+     *
+     * 见 `reject()` 上面那一段：这一层已经把那一关**挡下来**了（没关），接的人问完那一句
+     * 之后自己决定 —— 用户说"丢掉"就 `done(QDialog::Rejected)`，说"留在这儿"就什么都不做
+     * （页继续开着，编辑器那一格原样）。
+     */
+    void closeBlockedByUnsavedConfigFile();
 
     /**
      * @brief 用户按了服务器列表那一页的「刷新」。
@@ -1017,6 +1121,26 @@ private:
     QHash<QString, InstanceFilesPage *> m_filesPages;
     /// 快捷方式那一页那九颗按钮（顺序同 shortcutTexts()）。
     QList<QWidget *> m_shortcutButtons;
+
+    // ---- 「配置文件」那一页独有的两样（2026-09-27）----
+    /// `config/` 的**根**。进去、出来都拿它当墙 —— 不许走到 `config/` 上面去（再往上是
+    /// 这个实例自己、然后是整个 `.minecraft`，走到那儿"这是配置文件"这件事就走丢了）。
+    ///
+    /// NOTE: **不能在构造函数里从 m_fileDirs 抓** —— 那会儿 setFileDirs() 还没被调过，
+    ///       抓到的永远是空串，于是"上级"那道墙形同虚设。和快捷方式那几颗按钮踩的是
+    ///       同一个坑（见那边注释里那句"捕获快照的话拿到的永远是空串"）。所以它在
+    ///       setFileDirs() 里赋值。
+    QString m_configRoot;
+    /// 那一页上面那颗「上级」。**到了根就整颗不画**（不是画成灰的 —— 和"组里挪不动的
+    /// 那一侧不画"同一条规矩）。
+    QPushButton *m_configUp = nullptr;
+    /// 那一页的两格子（0 = 列表 1 = 编辑器，见 configFilePage() 那段）。
+    ///
+    /// NOTE: 「上一级」和那张列表都在第 0 格里，所以 `m_configUp` 的可见性只管第 0 格 ——
+    ///       切到编辑器那一格时它整格都不在画面上，不必额外藏一遍。
+    QStackedWidget *m_configStack = nullptr;
+    /// 第 1 格那个编辑器（**建一次留着**，见 configFilePage() 的 NOTE）。
+    ConfigFileEditorPage *m_configEditor = nullptr;
     QTreeWidget *m_serverTree = nullptr;
     QLabel *m_serverNotice = nullptr;
     QPushButton *m_serverRefresh = nullptr;
