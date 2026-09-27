@@ -440,6 +440,17 @@ Status ping(const QString &address) {
         return status;
     }
 
+    // ★ 延迟从**这儿**起算，不是从进这个函数起算（2026-09-27 改）：上面那一段（DNS 解析 +
+    //   TCP 三次握手）不算进 `latencyMs`。原来两样一起算，于是那一格写的是"解析域名 +
+    //   建连 + 握手一个来回"—— 一个 RTT 的服务器在我们这儿看着像两个 RTT，用户
+    //   2026-09-27 报的「服务器的延迟有问题」就是它（见 .hpp 里 latencyMs 那一段：
+    //   游戏里那一列量的也是连上之后的一个来回）。
+    //
+    // NOTE: **两把表各管各的**。`clock` 管整趟预算（超时还得从进函数起算，否则一个连不
+    //       上的地址会连着超时两回），`roundTrip` 只量延迟。
+    QElapsedTimer roundTrip;
+    roundTrip.start();
+
     // ① 握手 ② 状态请求。两发一起写出去（服务器那边一个 read 就能收全）。
     const QByteArray handshakeBody =
         varIntBytes(0x00) + varIntBytes(kUnknownProtocolVersion) + stringBytes(target.host) +
@@ -512,7 +523,7 @@ Status ping(const QString &address) {
     const QJsonObject root = document.object();
 
     status.ok = true;
-    status.latencyMs = static_cast<int>(clock.elapsed());
+    status.latencyMs = static_cast<int>(roundTrip.elapsed());
     status.motd = motdText(root.value(QStringLiteral("description")));
     // 同一格东西的**另一种写法**：留着 `§` 码和换行，给"照游戏里的样子画出来"用
     // （见 motdRaw 那段）。两个都留着是有意的 —— 洗过的那份进 tooltip 和日志（一行、

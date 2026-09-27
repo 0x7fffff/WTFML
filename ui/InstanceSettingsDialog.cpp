@@ -1694,10 +1694,11 @@ void InstanceSettingsDialog::markPageUnusable(const QString &key, const QString 
     // 不用点进去再退出来。**不把条目禁用掉** —— 禁用了就点不进去，那句话也就永远
     // 看不见了（灰掉一条"用不上"既没说是什么、也没说怎么办）。
     //
-    // NOTE: 现在**找不到那一行是正常的** —— 三页收起来了（hiddenFilePageKeys()），中栏那
-    //       一列里就没有它们的条目。这一发于是什么都不做，那句话照旧只落在页里（上面
-    //       setShaderUsable()/setSchematicUsable() 那一半），所以别把这里的 return 当成
-    //       "出错了"：页一放回来它就自己接着有效。
+    // NOTE: 找不到那一行时这一发什么都不做，**那不是出错**：被收起来的那几页
+    //       （hiddenFilePageKeys()）在中栏里没有条目 —— 现在收着的是「配置文件」，它没人
+    //       挂原因；哪天再收起来一页挂着原因的（光影包/原理图那两页），这句话照旧只落在
+    //       页里（上面 setShaderUsable()/setSchematicUsable() 那一半），页一放回来它就自己
+    //       接着有效。
     for (int i = 0; i < m_subCategoryList->count(); ++i) {
         QListWidgetItem *item = m_subCategoryList->item(i);
         if (item->data(Qt::UserRole).toString() == key) {

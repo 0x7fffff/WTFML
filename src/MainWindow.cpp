@@ -8133,14 +8133,54 @@ bool MainWindow::confirmDiscardConfigEdits() {
         tr("丢掉改动"), tr("留在这儿"), false);
 }
 
-bool MainWindow::instanceHasMod(const QString &versionId, const QString &namePrefix) const {
+namespace {
+
+/// 文件名切出来的"词"里有没有 @p token（忽略大小写）。
+///
+/// ★ 2026-09-27 新加的。原来 `instanceHasMod()` 是拿文件名跟 token 做 `startsWith()` ——
+///   在一个"jar 可以随便改名"的世界里不够：**中文整合包和 PCL 都会给 jar 前面挂一个
+///   中文名**，用户盘上真有的两例就是 `[投影] litematica-fabric-26.2-0.28.7.jar` 和
+///   `[虹膜] iris-fabric-1.11.4+mc26.2.jar`。按前缀认的话这两样都算"没装"，而它们明明
+///   装着 —— 于是「光影包」「原理图」那两页谎报"用不上"（用户 2026-09-27 报的
+///   「原理图和光影包没正常显示」）。
+///
+/// 切词规则：**只有 ASCII 的字母数字算"词里的字"**，别的一律当分隔符 —— `-` `_` `+` `.`
+/// 空格、方括号，以及**中日韩字**（那一档是刻意的：`虹膜iris-….jar` 这种一个分隔符都不
+/// 带的写法也切得出来，中文不会粘住后面的词）。
+/// 命中判据两条：词**等于**它，或者词**以它开头**（`irisfly.jar` / `litematicafoo.jar`
+/// 这种粘连写法照旧算 —— 和从前那个前缀语义对齐，不多不少）。
+bool fileNameHasToken(const QString &fileName, const QString &token) {
+    if (token.isEmpty()) {
+        return false;
+    }
+    const QString wanted = token.toLower();
+    const auto hit = [&wanted](const QString &word) {
+        return word == wanted || word.startsWith(wanted);
+    };
+    QString word;
+    for (const QChar character : fileName.toLower()) {
+        if (character.isLetterOrNumber() && character.unicode() < 128) {
+            word += character;
+            continue;
+        }
+        if (hit(word)) {
+            return true;
+        }
+        word.clear();
+    }
+    return hit(word);
+}
+
+}  // namespace
+
+bool MainWindow::instanceHasMod(const QString &versionId, const QString &nameToken) const {
     const QString modsDir =
         AppPaths::versionDir(versionId) + QLatin1Char('/') +
         ResourceCatalog::folderForKind(ResourceCatalog::Kind::Mod);
     // 只认 `.jar`：被禁用的那些现在叫 `.jar.disabled`，扫不到 —— 那正是禁用的意思。
     const QStringList jars = QDir(modsDir).entryList({QStringLiteral("*.jar")}, QDir::Files);
     for (const QString &jar : jars) {
-        if (jar.startsWith(namePrefix, Qt::CaseInsensitive)) {
+        if (fileNameHasToken(jar, nameToken)) {
             return true;
         }
     }
@@ -8148,14 +8188,31 @@ bool MainWindow::instanceHasMod(const QString &versionId, const QString &namePre
 }
 
 bool MainWindow::instanceShaderUsable(const QString &versionId) const {
-    // 两条路：OptiFine 是**加载器**（它自己就认 shaderpacks/），Iris 是一个普通模组。
-    // 加载器名比对的基准走 VersionManager::loaderDisplayName()，不写一遍字面量 ——
-    // 写进 wtfml.meta 的 `loaderName` 就是它给的（见 loaderDisplayName 那段）。
+    // ① 加载器**就是** OptiFine（它自己就认 shaderpacks/）。加载器名比对的基准走
+    //    VersionManager::loaderDisplayName()，不写一遍字面量 —— 写进 wtfml.meta 的
+    //    `loaderName` 就是它给的（见 loaderDisplayName 那段）。
     const QString loader = m_versionManager->displayParts(versionId).loaderName;
     if (loader == VersionManager::loaderDisplayName(VersionManager::LoaderKind::OptiFine)) {
         return true;
     }
-    return instanceHasMod(versionId, QStringLiteral("iris"));
+    // ② mods/ 里装了一个"加载光影的模组"。这三个名字**都是用户盘上真见过的**：
+    //    `iris`（Fabric / NeoForge / Quilt 上那个）、`oculus`（Forge 上那个 Iris 移植 ——
+    //    「落幕曲」「香草纪元」「魔改版ATT2」三个整合包用的都是它）、`optifine`
+    //    （1.12.2 及以前 OptiFine 是**当普通模组装进 mods/** 的，
+    //    `OptiFine_1.12.2_HD_U_G5.jar`）。三条原来一条都不认。
+    // NOTE: 没有 `optifabric`（Fabric 上那个把 OptiFine 塞进来的桥）：它要求 OptiFine
+    //       的 jar 也在 mods/ 里，所以上面那条 `optifine` 本来就盖住了它。
+    static const QStringList loaders = {
+        QStringLiteral("iris"),
+        QStringLiteral("oculus"),
+        QStringLiteral("optifine"),
+    };
+    for (const QString &token : loaders) {
+        if (instanceHasMod(versionId, token)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 void MainWindow::loadServerList(InstanceSettingsDialog *dialog, const QString &versionId) const {

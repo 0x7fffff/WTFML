@@ -228,18 +228,17 @@ public:
 
     /// 现在**收着不给看**的那几页（键见 filePageKeys()）。
     ///
-    /// 用户 2026-09-27 原话：「这个功能先隐藏了别放出来，服务器的延迟有问题，原理图和光影包
-    /// 没正常显示」—— 列的正是那三页。这一份表就是"哪几页先不露"的**唯一出处**：修好了把它
-    /// 清空就全回来了（别的地方一个字都不用改）。
+    /// 用户 2026-09-27 原话：「我说配置文件收起来，另外三个bug修了」—— 收的是「配置文件」
+    /// 那一页（**不是**服务器列表/原理图/光影包那三页：那三页是"有 bug 要修"，不是"别露"）。
+    /// 这一份表就是"哪几页先不露"的**唯一出处**：那一页改好了把它清空就回来了（别的地方
+    /// 一个字都不用改）。
     ///
     /// NOTE: 收着**不是删掉**。那几页照样建、接线照样接、`pageCount()` 照样算它们 ——
     ///       隐藏只发生在中栏那一列上（那一列里没有这一条，用户就点不进去）。这么做的理由：
     ///       堆叠页的下标、`serverPageKey()` 那句"最后那一个"、MainWindow 那两条接线全都
     ///       还依赖这几页在键表里的位置；把键从 filePageKeys() 里删掉会**同时**改坏这三样，
     ///       而那是"以后再想放出来"时最难还原的一种改法。
-    static QStringList hiddenFilePageKeys() {
-        return {QStringLiteral("shader"), QStringLiteral("schematic"), serverPageKey()};
-    }
+    static QStringList hiddenFilePageKeys() { return {QStringLiteral("config")}; }
     /// 中栏那一列**真正摆出来**的页（= filePageKeys() 去掉 hiddenFilePageKeys()）。
     ///
     /// NOTE: 行号只对**这一张**表有意义 —— 中栏选中第几行的那一发（applyFilePage）走的就是

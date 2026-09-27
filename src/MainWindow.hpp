@@ -456,17 +456,29 @@ private slots:
     ///       到卡片外面，不该把用户刚改的东西丢掉。
     bool confirmDiscardConfigEdits();
 
-    /// 这个实例的 mods/ 里有没有名字以 @p namePrefix 开头的 **.jar**（忽略大小写）。
+    /// 这个实例的 mods/ 里有没有"名字里带 @p nameToken 这个词"的 **.jar**（忽略大小写）。
     ///
-    /// NOTE: 判据是**文件名的前缀**，不是"这个模组是谁"—— 我们没有模组元数据（那要读
+    /// NOTE: 判据是**文件名里的词**，不是"这个模组是谁"—— 我们没有模组元数据（那要读
     ///       jar 里的 fabric.mod.json）。够用：Iris 的 jar 叫 `iris-<版本>.jar`，
     ///       Litematica 的叫 `litematica-<加载器>-<版本>.jar`。被禁用（`.jar.disabled`）
     ///       的不算 —— 那正是"禁用"的意思。
-    bool instanceHasMod(const QString &versionId, const QString &namePrefix) const;
+    ///
+    /// ★ 2026-09-27 从"前缀"改成"词"：jar 是可以随便改名的，而**中文整合包和 PCL 真的
+    ///   会改** —— 用户盘上就有 `[投影] litematica-fabric-26.2-0.28.7.jar` 和
+    ///   `[虹膜] iris-fabric-1.11.4+mc26.2.jar`（前面挂一个中文名是那儿的常态）。按前缀
+    ///   认的话这两样都算"没装"，而它们明明装着 —— 那两页于是谎报"用不上"，用户
+    ///   2026-09-27 报的「原理图和光影包没正常显示」就是这个。切词规则见 .cpp 里
+    ///   `fileNameHasToken()`。
+    bool instanceHasMod(const QString &versionId, const QString &nameToken) const;
 
-    /// 这个实例能不能用光影包：装了 **Iris**（一个普通模组）或者装的是 **OptiFine**
-    /// （它是加载器，自己就认 shaderpacks/）。判据由这一层算好递给对话框 —— ui/ 够不着
-    /// wtfml.meta 和 mods/ 目录。
+    /// 这个实例能不能用光影包：mods/ 里装了 **Iris / Oculus / OptiFine**（都是"加载
+    /// shaderpacks/ 的东西"），或者这个实例装的加载器**就是 OptiFine**（它自己认
+    /// shaderpacks/）。判据由这一层算好递给对话框 —— ui/ 够不着 wtfml.meta 和 mods/ 目录。
+    ///
+    /// NOTE: Oculus 是 Forge 上那个 Iris 移植（用户盘上「落幕曲」「香草纪元」
+    ///       「魔改版ATT2」三个包用的都是它），而 OptiFine 在 1.12.2 及以前是**当普通
+    ///       模组装进 mods/** 的（`OptiFine_1.12.2_HD_U_G5.jar`）—— 这两样原来一条都不认，
+    ///       于是那三页在装了光影的实例上照样说"用不上"（2026-09-27 修）。
     bool instanceShaderUsable(const QString &versionId) const;
 
     /// 读一次 servers.dat 递给对话框（解析在 src/util/NbtUtil 里）。
