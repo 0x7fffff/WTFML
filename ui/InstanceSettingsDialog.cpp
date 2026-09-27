@@ -1115,6 +1115,26 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             files->setCanDelete(key != QStringLiteral("save") && key != QStringLiteral("config"));
             files->setEmptyText(filesEmptyText(key));
             files->setDirectory(m_fileDirs.value(key));
+            // ★ 顶上那颗「下载新 X」（2026-09-27）：只有下载页里真有对应一栏的那四页有
+            //   （见 filesDownloadText()）。按下去**只报一个分类键**，切选项卡、挑那
+            //   一行都在 MainWindow 那一层 —— 这一层够不着选项卡，也不该知道下载页左栏
+            //   有几栏（见 browseDownloadsRequested() 那段）。
+            files->setDownloadText(filesDownloadText(key), filesDownloadTip(key));
+            connect(files, &InstanceFilesPage::downloadRequested, this, [this, key] {
+                const QString category = filesDownloadCategoryKey(key);
+                if (!category.isEmpty()) {
+                    emit browseDownloadsRequested(category);
+                }
+            });
+            // ★ 行上的名字点得动（2026-09-27）：**只有"点得动"的那几页接**。判据就是
+            //   filesNameOpensResource()（模组 2026-09-27 起也在表里了）—— 不在表里的那几页
+            //   名字照旧只是一行字，连事件过滤器都不给它装（见 setResourceForPath()：
+            //   没记过 tip 的那一行不变成链接）。
+            //   接线这一层是多余的：真的按下去是 InstanceFilesPage 那边认出路径才发的。
+            if (filesNameOpensResource(key)) {
+                connect(files, &InstanceFilesPage::resourceRequested, this,
+                        [this, key](const QString &path) { emit fileResourceRequested(key, path); });
+            }
 
             // ★ 「配置文件」那一页多两样（2026-09-27）：上面一颗「上级」，以及"双击/回车
             //   有反应"。别的几页看的是一个平铺的目录，config/ 底下却还有层级
@@ -1234,6 +1254,33 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                 // 里 resourceTreeIconSize() 那两行），不配的话条目自带的图标会被另算一遍尺寸。
                 m_serverTree->setIconSize(
                     QSize(MainWindowUI::serverIconSize(), MainWindowUI::serverIconSize()));
+                // ★ 地址那一格**右键 = 复制那一串完整的地址**（用户 2026-09-27：「ip地址
+                //   右键可以复制」）。走 `Qt::CustomContextMenu` 只是为了拿到"在哪儿按的"
+                //   这一个坐标 —— **不弹菜单**：这一页上右键只有这一件事可做，而悬停提示
+                //   （serverAddressCopyHint()）已经把这句话告诉用户了。
+                //
+                // NOTE: 不用 QMenu（更别说 QMenu::exec()）：仓库里那几块浮层一律是
+                //       Qt::Popup 手搭的，理由写在 MainWindowUI.hpp 里 folderMenuName()
+                //       那段（offscreen 上的验证工程驱动不了 exec()）。
+                m_serverTree->setContextMenuPolicy(Qt::CustomContextMenu);
+                connect(m_serverTree, &QTreeWidget::customContextMenuRequested, this,
+                        [this](const QPoint &pos) {
+                            if (m_serverTree == nullptr) {
+                                return;
+                            }
+                            // pos 是**viewport 坐标**（条目视图自己就是这么发的），
+                            // itemAt()/columnAt() 要的也正是它。
+                            QTreeWidgetItem *item = m_serverTree->itemAt(pos);
+                            if (item == nullptr || m_serverTree->columnAt(pos.x()) != 1) {
+                                return;
+                            }
+                            const QString address =
+                                item->data(1, MainWindowUI::serverAddressRole()).toString();
+                            if (address.isEmpty()) {
+                                return;
+                            }
+                            emit copyServerAddressRequested(address);
+                        });
                 layout->addWidget(m_serverTree, 1);
 
                 auto *hint = new QLabel(filesHint(QStringLiteral("server")), page);
@@ -1645,17 +1692,30 @@ QString InstanceSettingsDialog::filesHint(const QString &key) {
                   "列里对应的那几页（模组 / 资源包 / 光影包…）。下面那几格决定它们露不露出来。");
     }
     if (key == QStringLiteral("mod")) {
+        // 末尾那句是「名字点得动」（2026-09-27 补，见 filesNameHint()）。**四页都有**
+        // —— 差别就是 filesNameOpensResource() 那张表（2026-09-27 起模组也在表里了）。
         return tr("游戏会自己扫这里面的 .jar。「禁用」只是把文件名改成 .jar.disabled —— "
-                  "文件还在，改回来就又生效了。");
+                  "文件还在，改回来就又生效了。上面那颗「%1」直接切到下载页去找。%2")
+            .arg(filesDownloadText(key), filesNameHint());
     }
     if (key == QStringLiteral("resourcepack")) {
-        return tr("游戏会自己扫这里：.zip 和文件夹都算一个资源包。");
+        // 末尾那句是「名字点得动」（2026-09-27 补，见 filesNameHint()）。
+        return tr("游戏会自己扫这里：.zip 和文件夹都算一个资源包。上面那颗「%1」直接切到"
+                  "下载页去找。%2")
+            .arg(filesDownloadText(key), filesNameHint());
     }
     if (key == QStringLiteral("datapack")) {
         return tr("下载到这儿不等于生效：要自己把它（或者它里面的文件夹）搬进对应存档的"
-                  "datapacks 文件夹里。");
+                  "datapacks 文件夹里。上面那颗「%1」直接切到下载页去找。%2")
+            .arg(filesDownloadText(key), filesNameHint());
     }
     if (key == QStringLiteral("shader")) {
+        // ★ 这一句**故意不提**上面那颗「下载新光影」（另外三页都提）：光影包这一页有
+        //   「用不上」那一档（setUnavailable()），而那一档里**整排按钮连它一起收起来了**
+        //   （理由见 InstanceFilesPage::setDownloadText() 的 NOTE：这一页正在说"这个实例
+        //   装不了光影"，此时把人送去下载页找光影包是指错路）。这句小字在那一档上照样挂着
+        //   —— 写着"上面那颗"就是**指着不存在的东西**，而那一页顶上那句解释已经把该去哪儿
+        //   说清楚了（"先去「下载」页装一个 Iris"）。别照着另外三页把它补齐。
         return tr("游戏会自己扫这里，但要有 Iris 或者 OptiFine 才加载得了。");
     }
     if (key == QStringLiteral("schematic")) {
@@ -1678,23 +1738,24 @@ QString InstanceSettingsDialog::filesHint(const QString &key) {
         // （见 pingServersRequested()）。所以这句话得说清"哪儿来的"和"点了会发生什么"。
         return tr("servers.dat 是游戏自己写的，启动器只读不改。「测速」会连上去问一遍每台"
                   "现在什么样（图标、那两行字、多少人、多少毫秒），只读状态、不进游戏；"
-                  "「刷新」是重读文件再问一遍。");
+                  "「刷新」是重读文件再问一遍。地址那一格显示的是遮过的，"
+                  "在上面按右键能把完整的那个复制下来。");
     }
     return QString();
 }
 
 QString InstanceSettingsDialog::filesEmptyText(const QString &key) {
     if (key == QStringLiteral("mod")) {
-        return tr("这个实例还没装模组。去「下载」页找一个装进来。");
+        return tr("这个实例还没装模组。按上面的「%1」去找一个。").arg(filesDownloadText(key));
     }
     if (key == QStringLiteral("resourcepack")) {
-        return tr("这个实例还没有资源包。");
+        return tr("这个实例还没有资源包。按上面的「%1」去找一个。").arg(filesDownloadText(key));
     }
     if (key == QStringLiteral("datapack")) {
-        return tr("这个实例还没有数据包。");
+        return tr("这个实例还没有数据包。按上面的「%1」去找一个。").arg(filesDownloadText(key));
     }
     if (key == QStringLiteral("shader")) {
-        return tr("这个实例还没有光影包。");
+        return tr("这个实例还没有光影包。按上面的「%1」去找一个。").arg(filesDownloadText(key));
     }
     if (key == QStringLiteral("schematic")) {
         return tr("这个实例还没有原理图。");
@@ -1731,6 +1792,79 @@ QString InstanceSettingsDialog::modUnavailableText() {
 
 QString InstanceSettingsDialog::datapackUnavailableText() {
     return tr("数据包是 1.13 才有的东西，这个实例的版本比它老 —— 这个文件夹没有人会读。");
+}
+
+QString InstanceSettingsDialog::filesDownloadText(const QString &key) {
+    // ★ 「光影包」那一页上写的是「下载新光影」（用户原话就是这么说的）—— 这四个字要和
+    //   **落地那一栏**对得上：下载页左栏那一栏叫「光影」（MainWindowUI::downloadCategoryTexts()），
+    //   而实例设置左边那一列里这一页仍旧叫「光影包」。
+    if (key == QStringLiteral("mod")) {
+        return tr("下载新模组");
+    }
+    if (key == QStringLiteral("resourcepack")) {
+        return tr("下载新资源包");
+    }
+    if (key == QStringLiteral("datapack")) {
+        return tr("下载新数据包");
+    }
+    if (key == QStringLiteral("shader")) {
+        return tr("下载新光影");
+    }
+    return QString();
+}
+
+QString InstanceSettingsDialog::filesDownloadTip(const QString &key) {
+    const QString category = filesDownloadCategoryKey(key);
+    if (category.isEmpty()) {
+        return QString();
+    }
+    const int index = MainWindowUI::downloadCategoryKeys().indexOf(category);
+    const QStringList texts = MainWindowUI::downloadCategoryTexts();
+    if (index < 0 || index >= texts.size()) {
+        return QString();
+    }
+    // 提示里得说清"这一页会关掉"：用户按它是为了**换个地方**，不是就地多出一个东西。
+    return tr("切到「下载」页的「%1」那一栏去找新的（这一页会关掉）。").arg(texts.at(index));
+}
+
+QString InstanceSettingsDialog::filesDownloadCategoryKey(const QString &key) {
+    // 认的就是这四个页键，回的**就是**下载页那一栏的键（见 .hpp 里那张说明：两套键现在
+    // 恰好同名，可这张表是"这两处是一回事"的唯一出处）。
+    if (key == QStringLiteral("mod") || key == QStringLiteral("resourcepack") ||
+        key == QStringLiteral("datapack") || key == QStringLiteral("shader")) {
+        return key;
+    }
+    return QString();
+}
+
+bool InstanceSettingsDialog::filesNameOpensResource(const QString &key) {
+    // ★ 用户原话（2026-09-27）：「除了模组以外的几个都是点击模组名称自动进入下载界面
+    //   （前提是匹配上了，**模组的待会再说**）」—— "待会"就是这一天到了：模组**接上**
+    //   （用户：「对于模组，点进去和资源包差不多，但是右上角显示快照版那里替换为模组设置
+    //   （先占位）」）。名字点开和资源包三页走的是**同一条路**，唯一的分别落在那一页右上角
+    //   那一格上（`MainWindow::DetailSource::InstanceFiles` + 种类是模组 ⇒ 摆「模组设置」，
+    //   见 ResourceDetailPage::setModSettingsSlot）。
+    //
+    //   要接别的页时改的只有这一处（setFileResource() 那个循环和构造里那条 connect 都读它）。
+    //
+    // NOTE: 原理图 / 存档 / 配置文件不在：前两个在下载页里没有"它自己的那一页"可去
+    //       （原理图压根没有那一栏、存档不是一个能下载的资源），配置文件不是资源。
+    return key == QStringLiteral("mod") || key == QStringLiteral("resourcepack") ||
+           key == QStringLiteral("datapack") || key == QStringLiteral("shader");
+}
+
+QString InstanceSettingsDialog::filesResourceTip(const QString &title) {
+    if (title.isEmpty()) {
+        // 没认出来 ⇒ 没有这一颗（见 setFileResource()）。
+        return QString();
+    }
+    // 和 filesDownloadTip() 同一句话的规矩：**说清这一页会关掉** —— 用户点它是为了换个
+    // 地方，不是就地多出一个东西。
+    return tr("打开「%1」的下载页（这一页会关掉）。").arg(title);
+}
+
+QString InstanceSettingsDialog::filesNameHint() {
+    return tr("认得出是哪个资源的那几条，点一下名字就能进它自己的那一页。");
 }
 
 QString InstanceSettingsDialog::pageUnavailableText(const QString &key) {
@@ -1923,7 +2057,13 @@ void InstanceSettingsDialog::setServerList(const QList<QPair<QString, QString>> 
         // maskedServerAddress 那段）。左边那两行 MOTD 因此能多占一大截宽度 —— 用户原话
         // 「保证左侧的 motd 能显示全」。
         item->setText(1, maskedServerAddress(server.second));
-        item->setToolTip(1, server.second);
+        // 那一串**完整的**地址挂在这一格上：屏幕上写的是遮过的，而右键要复制的是真的那一串
+        // （见 MainWindowUI::serverAddressRole()）。悬停提示给的是同一串 + 一句"右键能复制"
+        // ——用户要的"这一点在悬停文本上也告知"就是后半句（serverAddressCopyHint()）。
+        item->setData(1, MainWindowUI::serverAddressRole(), server.second);
+        item->setToolTip(1, server.second.isEmpty()
+                                ? QString()
+                                : server.second + QLatin1Char('\n') + serverAddressCopyHint());
         // 状态那一格**一开始就有字**（「还没测」）。空着和"测了没通"在屏幕上是同一个样子，
         // 而这两件事对用户完全不是一回事（一个是"点一下测速"、一个是"这台死了"）。
         item->setText(2, serverUntestedText());
@@ -1952,33 +2092,54 @@ QStringList InstanceSettingsDialog::serverStatusLines(const ServerRowStatus &sta
     if (!status.tested) {
         return {serverUntestedText()};
     }
-    // 缓存里那一份是**上一次**问到的样子（见 ServerRowStatus::fromCache()）。加一句「上次：」
-    // 是这一格唯一能说清"现在还没问、这几个数字是过去时"的办法 —— 不加的话，那一行
-    // 「在线 · 42 ms · 3/20 人」会被当成现在的事实（那一格本来就是"现在什么样"）。
-    const QString prefix = status.fromCache ? serverCachedPrefix() : QString();
+    // ★★ 2026-09-27 用户原话：「‘上次’两个字也不要」。那一句过去时的前缀**整个删掉**
+    //    （连 `serverCachedPrefix()` 一起没了）—— 这一格从现在起**只有一种写法**，缓存里
+    //    那一份和当场测出来那一份说同一句话。（前一批加的那一位 `Entry::timedOut` 得留着：
+    //    正因为没了前缀，"超时"和"没连上"必须是**同一个判据**得出的同一句字，不然同一台
+    //    服务器前后两次进这一页看见的还是两个说法。）
     if (!status.online) {
         // 缓存里"没连上"那一档**不重说理由**：那句话是**当时**的（"连接被拒绝"指的是上一次
-        // 那一刻），搬到现在来说等于替这一次下结论。就说"上次没连上"，理由等真的测完那一趟。
+        // 那一刻），搬到现在来说等于替这一次下结论。就写结论，理由等真的测完那一趟。
+        //
+        // NOTE: 这一支和下面"当场测出来"那一支**看着几乎一样**，可别合并：这一支只认
+        //       `timedOut` 这一位（盘上只存了这一位，见 ServerStatusCache::Entry），而下面
+        //       那一支拿得到 `error` 那句全话。
         if (status.fromCache) {
-            return {prefix + QStringLiteral("没连上")};
+            return {status.timedOut ? serverTimeoutText() : QStringLiteral("没连上")};
         }
-        // 理由来自 ServerPing（中文，见那边的 connectionErrorText）。真要是空的也别留一格
-        // 空白 —— 那就是"看着像没测过"。没通这一档**只有一行**：那句话本来就长（
-        // 「超时（连上了，但服务器没有回答）」），拆成两行反而更难读。
+        // ★ 超时那一档**只写两个字**（用户 2026-09-27：「超时的只写超时」）。判据是
+        //   `Status::timedOut` 那一位，不是这句 error 的前缀 —— 「网络不通」和「它连上了却
+        //   不答话」在 ServerPing 里是两处不同的判定（见那边 isTimeoutError()），只是对这个
+        //   格子来说结论是同一个：现在连不上。
+        if (status.timedOut) {
+            return {serverTimeoutText()};
+        }
+        // 其余没通的**理由来自 ServerPing**（中文，见那边的 connectionErrorText）。真要是
+        // 空的也别留一格空白 —— 那就是"看着像没测过"。没通这一档**只有一行**：那句话本来
+        // 就长（「没有回应（对面没开，或者端口不对）」），拆成两行反而更难读。
         return {status.error.isEmpty() ? QStringLiteral("连不上") : status.error};
     }
-    // 通了就是两行：第一行"在不在线、多快"，第二行几个人。**上线的那个 `·` 留在第一行
-    // 里面**（`在线 · 42 ms` 是一件事的两种说法），人数是另一件事 —— 这正是用户说的
-    // "在线延迟和人数换到两行来"。
+    // 通了就是两行：第一行延迟、第二行几个人。人**不并进第一行**（那是另一件事，而且这一格
+    // 窄），这正是用户说的"在线延迟和人数换到两行来"。
+    //
+    // ★ 「在线」那两个字 2026-09-27 傍晚删了（用户原话：「把服务器那个 在线 文本删了，
+    //   只保留延迟和人数」）：`42 ms` 摆在那儿本来就说明它通着，那两个字占的是这一栏的宽度。
     QStringList lines;
-    lines.append(prefix + (status.latencyMs >= 0
-                               ? QStringLiteral("在线 · %1 ms").arg(status.latencyMs)
-                               : QStringLiteral("在线")));
+    if (status.latencyMs >= 0) {
+        lines.append(QStringLiteral("%1 ms").arg(status.latencyMs));
+    }
     if (status.playersOnline >= 0 && status.playersMax >= 0) {
         lines.append(QStringLiteral("%1/%2 人").arg(status.playersOnline).arg(status.playersMax));
     } else if (status.playersOnline >= 0) {
         lines.append(QStringLiteral("%1 人").arg(status.playersOnline));
     }
+    if (lines.isEmpty()) {
+        // 通了、但一个数都没量到。**这一档生产里到不了**（ok 为真时 latencyMs 必然是量过的，
+        // 见 ServerPing.cpp），可这一格里空着一行和"还没测"在屏幕上是同一个样子 —— 留一句
+        // 兜底，也正好是「在线」那两个字唯一还说得通的地方。
+        lines.append(QStringLiteral("在线"));
+    }
+    // 通了这一档**两处（缓存 / 当场）写的是同一份字**，没有任何前缀可加（见上面那段）。
     return lines;
 }
 
@@ -2139,6 +2300,24 @@ void InstanceSettingsDialog::setFileIcon(const QString &path, const QPixmap &ico
 
 InstanceFilesPage *InstanceSettingsDialog::filesPage(const QString &key) const {
     return m_filesPages.value(key);
+}
+
+void InstanceSettingsDialog::setFileResource(const QString &path, const QString &title) {
+    // ★ 走**带键**的遍历（不像 setFileIcon() 那样 `values()` 一把梭）：哪几页接这件事是
+    //   有讲究的（见 filesNameOpensResource()）—— 同一份路径当然只会在一个目录里，
+    //   所以"过滤掉哪几页"这件事靠的不是路径，而是**规矩**：不在 filesNameOpensResource()
+    //   那张表里的页连 tip 都不会喂给它（于是那一行连链接的样子都不会有）。
+    const QString tip = filesResourceTip(title);
+    for (auto it = m_filesPages.constBegin(); it != m_filesPages.constEnd(); ++it) {
+        if (it.value() == nullptr || !filesNameOpensResource(it.key())) {
+            continue;
+        }
+        // 返回值**不看**，理由同 setFileIcon()：不在这页的那一条本来就会回 false，而
+        // "盘上已经没有这个文件了"那一档由"下一趟刷新会把它抹掉"解释掉了。
+        // 空 tip 也要往下走 —— 那是"把上一趟戴上的链接摘掉"（同一个路径换了内容、
+        // 认不出来了；这一趟的负结果得覆盖上一趟的正结果）。
+        it.value()->setResourceForPath(path, tip);
+    }
 }
 
 // ---------- 概览栏那三行（见 .hpp 里 setIcon() 上面那一段）----------

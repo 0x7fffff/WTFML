@@ -1087,27 +1087,62 @@ QString projectsRequestUrl(const QStringList &projectIds, const QString &apiBase
            jsonArrayParam(projectIds);
 }
 
-QHash<QString, QString> parseProjectIconUrls(const QByteArray &json) {
-    QHash<QString, QString> icons;
+QList<Hit> parseProjects(const QByteArray &json) {
+    QList<Hit> hits;
     QJsonParseError error{};
     const QJsonDocument document = QJsonDocument::fromJson(json, &error);
     // ★ 回复是一个**数组**（`GET /projects?ids=…` 是这个形状），不是搜索那种 `{hits:[…]}`。
     //   按对象读会一条都读不出来 —— 而"没有图标"和"读不懂"在屏幕上是一个样子。
     if (error.error != QJsonParseError::NoError || !document.isArray()) {
-        return icons;
+        return hits;
     }
     for (const QJsonValue &value : document.array()) {
         const QJsonObject object = value.toObject();
         const QString id = object.value(QStringLiteral("id")).toString();
         if (id.isEmpty()) {
+            // 没有项目号就没有身份 —— 这一条进了界面也找不回任何一行（见 .hpp 那条 NOTE）。
             continue;
         }
+        Hit hit;
+        hit.source = Source::Modrinth;
+        hit.projectId = id;
+        hit.slug = object.value(QStringLiteral("slug")).toString();
+        hit.title = object.value(QStringLiteral("title")).toString();
+        hit.description = object.value(QStringLiteral("description")).toString();
+        // 下载量可能大过 int（9 位数的有的是），所以走 double 再截断 —— 和 parseSearch 一样。
+        hit.downloads = static_cast<qint64>(object.value(QStringLiteral("downloads")).toDouble());
+        // ★ 更新时间这一栏在这一份响应里叫 `updated`（搜索那份叫 `date_modified`，
+        //   CurseForge 那边叫 `dateModified`）—— 三个名字，读到**同一栏**里去。
+        hit.updatedIso = object.value(QStringLiteral("updated")).toString();
+        hit.categories = stringList(object.value(QStringLiteral("categories")));
+        hit.gameVersions = stringList(object.value(QStringLiteral("game_versions")));
+        // 加载器：这一份自己有一栏（`loaders`），不像搜索那边要按 categories 现推
+        // （见 Hit::explicitLoaders 那段 —— 非空就只认它）。
+        hit.explicitLoaders = stringList(object.value(QStringLiteral("loaders")));
         // 图标地址是外部输入，过一遍域名闸（见 isUsableIconUrl）；过不去就当这个项目
         // 没给图标地址 —— 和搜索那边读 icon_url 是同一个规矩。
         const QString icon = object.value(QStringLiteral("icon_url")).toString();
-        icons.insert(id, isUsableIconUrl(icon) ? icon : QString());
+        hit.iconUrl = isUsableIconUrl(icon) ? icon : QString();
+        hits.append(hit);
+    }
+    return hits;
+}
+
+QHash<QString, QString> parseProjectIconUrls(const QByteArray &json) {
+    // 同一份响应（`GET /projects?ids=…`）只读第一格。**空着也插进去**（"这个项目没给
+    // 图标地址"和"回复里根本没有这个项目"在调用方那边是两件事，见 .hpp 那条 NOTE）。
+    QHash<QString, QString> icons;
+    for (const Hit &hit : parseProjects(json)) {
+        icons.insert(hit.projectId, hit.iconUrl);
     }
     return icons;
+}
+
+QList<Hit> parseCurseForgeMods(const QByteArray &json) {
+    // 那一家的"按 id 问"和"搜"回的是**同一个对象形状**（`data[]`），所以不抄第二份解析
+    // （见 .hpp 那条 NOTE）：`parseCurseForgeSearch()` 里那些字段名、空数组兜底、图标那两条
+    // 地址的域名闸，全都在它那儿。
+    return parseCurseForgeSearch(json).hits;
 }
 
 bool isWebpUrl(const QString &url) {

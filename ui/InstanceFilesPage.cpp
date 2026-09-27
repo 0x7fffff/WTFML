@@ -19,6 +19,7 @@
 #include <QLabel>
 #include <QListWidget>
 #include <QListWidgetItem>
+#include <QMouseEvent>
 #include <QPalette>
 #include <QPixmap>
 #include <QPushButton>
@@ -27,6 +28,12 @@
 #include <QVBoxLayout>
 
 namespace {
+
+/// 名字那一格上"上链接之前那个颜色"存在哪儿（见 makeLink / unmakeLink）。
+///
+/// NOTE: 走动态属性而不是在页上再开一张 `QHash<QLabel*, QColor>`：色和那一格是**同生共死**
+///       的（行一重建，键就悬空了），而 Qt 的控件本来就能挂自己的一份数据。
+constexpr char kLinkPreviousColorProperty[] = "instanceFileLinkPreviousColor";
 
 /// 比正文浅一档的那个颜色。**全仓唯一去处是 `QPalette::PlaceholderText`**（见
 /// InlineMessage::setNote() 上面那段 NOTE）—— 这里只是把它挪到"路径"和"大小·时间"
@@ -38,6 +45,61 @@ void makeSecondary(QLabel *label) {
     QPalette palette = label->palette();
     palette.setColor(QPalette::WindowText, palette.color(QPalette::PlaceholderText));
     label->setPalette(palette);
+}
+
+/// 把一格名字弄成**能点的样子**：调色板里"链接"那一档的颜色 + 手指光标 + 悬停提示。
+///
+/// ★ 2026-09-27 补（见 setResourceForPath()）。三样都是**看得见的承诺**，缺一样用户就
+///   不知道该不该点：颜色和光标说"这一格能点"，悬停提示说"点了会去哪儿"（这一下要
+///   **离开这一页**，不说清楚就是把人突然送走）。
+///
+/// NOTE: 颜色走 `QPalette::Link`（调色板里"能点的文字"那一档），**不自己写死一个蓝** ——
+///       和这一页别处取 PlaceholderText / Highlight 是同一条规矩（见 makeSecondary）。
+/// NOTE: 悬停提示是**两行**：上面那句是"点下去会去哪儿"，下面那行是这个文件的**完整
+///       路径**（名字那一格装不下时是从中间省略的，尾巴上看不全 —— 那条路径本来就是
+///       这一格原来的提示，换成链接不该把它弄丢）。
+void makeLink(QLabel *label, const QString &tip, const QString &path) {
+    if (label == nullptr) {
+        return;
+    }
+    QPalette palette = label->palette();
+    // ★ 先把"原来那个颜色"存下来（见 unmakeLink()）：这一格可能已经被 makeSecondary()
+    //   染成次要色（被禁用那几条），摘掉的时候必须还回**它自己**那个颜色。
+    label->setProperty(kLinkPreviousColorProperty,
+                       palette.color(QPalette::WindowText));
+    palette.setColor(QPalette::WindowText, palette.color(QPalette::Link));
+    label->setPalette(palette);
+    label->setCursor(Qt::PointingHandCursor);
+    label->setToolTip(tip + QLatin1Char('\n') + QDir::toNativeSeparators(path));
+}
+
+/// 把 makeLink() 那三样**摘掉**：颜色、光标、提示都回到"这一行只是个普通文件"的样子。
+///
+/// ★ 2026-09-27 补。有这一支是因为"认出来了"这件事**会变回去**：同一个路径上换了一个文件
+///   （大小 / 修改时间变了 ⇒ 缓存钥匙变了）之后那一趟可能就认不出来了，而名字那一格还
+///   顶着上一个资源的链接 —— 点下去什么都不发生（MainWindow 那边按新的钥匙查不到身份，
+///   见 openInstanceFileResource()）。**一个「看着能点、点下去没反应」的名字比点不动更糟。**
+///
+/// NOTE: 颜色是**存下来再还回去**的，不是一律设回"正文色"：被禁用的那几条名字本来是
+///       次要色（见 makeRow 里 makeSecondary 那句），一律设回正文色等于把"这一条关着"
+///       那半句话擦掉。
+/// NOTE: 光标用 `unsetCursor()`（回到"继承父控件"那一档），不是显式设成箭头 —— 箭头只是
+///       恰好等于默认值，哪一天这一页换了光标策略，显式箭头就成了第三处知识。
+void unmakeLink(QLabel *label, const QString &path) {
+    if (label == nullptr) {
+        return;
+    }
+    const QVariant previous = label->property(kLinkPreviousColorProperty);
+    if (previous.isValid()) {
+        QPalette palette = label->palette();
+        palette.setColor(QPalette::WindowText, previous.value<QColor>());
+        label->setPalette(palette);
+        label->setProperty(kLinkPreviousColorProperty, QVariant());
+    }
+    label->unsetCursor();
+    // 提示回到 makeRow 里那一句（名字那一格**本来就**挂着完整路径 —— 它从中间省略，
+    // 尾巴上看不全）：摘掉链接不等于把那条路径也弄丢，所以这里不是"清空提示"。
+    label->setToolTip(QDir::toNativeSeparators(path));
 }
 
 /// 比正文字号小一档 —— **行里那第二行小字**专用的（现在只有「大小 · 时间」在用）。
@@ -158,6 +220,18 @@ InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
     //       "看得全"的路。
     pathRow->addWidget(m_pathLabel, 1);
 
+    // ★ 顶上那颗「下载新 X」（2026-09-27）。摆在**路径右边、刷新左边**：它是这一页上
+    //   「往里加东西」的那一颗，比刷新/打开文件夹更靠前；而路径仍旧贴着最左边 —— 那一格带
+    //   的是"这一页在看哪儿"的身份，把它挪开，这一排就没有主语了。
+    //
+    // NOTE: 一开始是藏着的（没有文字 = 没有这一颗，见 setDownloadText()）。**每一页都建**
+    //       它（这几页是同一段循环搭出来的，只多一个 if 反而要多一处"哪几页有"的知识）。
+    m_download = new QPushButton(m_pathRow);
+    m_download->setObjectName(downloadButtonName());
+    m_download->setVisible(false);
+    connect(m_download, &QPushButton::clicked, this, &InstanceFilesPage::downloadRequested);
+    pathRow->addWidget(m_download);
+
     m_refresh = new QPushButton(refreshText(), m_pathRow);
     m_refresh->setObjectName(refreshButtonName());
     // 刷新是**这一页自己的事**（重新列一遍目录，只有读），不用绕到 MainWindow 去。
@@ -236,6 +310,18 @@ void InstanceFilesPage::setCanDelete(bool canDelete) {
 void InstanceFilesPage::setEmptyText(const QString &text) {
     m_emptyText = text;
     applyState();
+}
+
+void InstanceFilesPage::setDownloadText(const QString &text, const QString &tip) {
+    if (m_download == nullptr) {
+        return;
+    }
+    m_download->setText(text);
+    m_download->setToolTip(text.isEmpty() ? QString() : tip);
+    // 空串 = 这一页没有这颗按钮（见 .hpp）。**藏起来**而不是"不建"：这几页是同一段循环
+    // 搭出来的，建/不建会让"这一页该有什么"散成两处知识。露不露由 isVisibleTo() 量得出来，
+    // 用户看到的也是同一件事。
+    m_download->setVisible(!text.isEmpty());
 }
 
 void InstanceFilesPage::setDirectory(const QString &dir) {
@@ -410,6 +496,20 @@ QWidget *InstanceFilesPage::makeRow(const QString &shownName, const QString &pat
         // 被禁用的一整行**名字也灰掉**：光靠名字后面那四个字，扫一眼看不出这一条是关着的。
         makeSecondary(name);
     }
+    // ★ 名字上那一发（2026-09-27）：装在这一格上的 eventFilter 认的是"这一条记着账没有"
+    //   （见 setResourceForPath()），所以**每一格都装** —— 身份是异步回来的，
+    //   那时候行早就建好了，装晚一格就等于那一条永远点不动。
+    //   属性记的是"这一格是哪一条"：鼠标落在哪一格上，就得知道那是哪一行。
+    name->setProperty(rowPathProperty(), path);
+    name->installEventFilter(this);
+    // 认出来了的那几条：名字是个**链接**（颜色 + 手指光标 + 悬停提示）。
+    // ★ 这一句必须排在 makeSecondary() **之后** —— 被禁用那几条的名字本来是次要色，
+    //   而"这一条点得动"比"这一条关着"更该看得见（关着这件事还有开关和「（已禁用）」
+    //   那四个字在说）。
+    const auto tip = m_resourceTips.constFind(path);
+    if (tip != m_resourceTips.constEnd()) {
+        makeLink(name, tip.value(), path);
+    }
     textLayout->addWidget(name);
 
     // 「12.3 MB · 2026-09-26 12:00」。文件夹没有有意义的大小（Windows 上 info.size() 对
@@ -517,6 +617,15 @@ QToolButton *InstanceFilesPage::deleteButtonAt(int row) const {
                                 : nullptr;
 }
 
+QLabel *InstanceFilesPage::nameLabelAt(int row) const {
+    if (m_list == nullptr) {
+        return nullptr;
+    }
+    QListWidgetItem *item = m_list->item(row);
+    QWidget *rowWidget = item != nullptr ? m_list->itemWidget(item) : nullptr;
+    return rowWidget != nullptr ? rowWidget->findChild<QLabel *>(nameLabelName()) : nullptr;
+}
+
 QPixmap InstanceFilesPage::iconForPath(const QString &path, bool isDir,
                                        const QColor &placeholderColor) const {
     // `contains` 而不是"取出来看不看是空"：**空 pixmap 也是一条回答**（"这一条问过了、
@@ -590,4 +699,76 @@ bool InstanceFilesPage::setIconForPath(const QString &path, const QPixmap &icon)
         return true;
     }
     return false;
+}
+
+bool InstanceFilesPage::setResourceForPath(const QString &path, const QString &tip) {
+    if (path.isEmpty()) {
+        return false;
+    }
+    // ★ 空 tip 有两种意思，**两种都要办**（见 .hpp 和 unmakeLink() 那两段）：
+    //   ① 这一条**从来**没认出来过 ⇒ 什么都不用做（"点不动"是默认状态，不是一条要摆出来
+    //      的状态；记一条空的等于给每一行都记一笔账）；
+    //   ② 上一趟认出来了、这一趟没有（同一个路径上换了内容）⇒ 必须把上一趟戴上的链接
+    //      **摘掉**，否则那一行一直是个链接的样子、点下去什么都不发生。
+    //   两件事靠 `remove()` 的返回值分开：删掉了 = 走过 ② 那一支。
+    const bool hadLink = m_resourceTips.remove(path) > 0;
+    if (tip.isEmpty() && !hadLink) {
+        return false;
+    }
+    // 和 setIconForPath() **同一个顺序、同一个理由**：先记账、再找行 —— 图标/身份回来的
+    // 那一刻用户正好点了「刷新」（那几毫秒里这一页没有行）时，这一条得记住"认出来了"，
+    // 否则「刷新」之后的那个名字又变成点不动的了，而 MainWindow 那边不会再推第二遍。
+    // （空 tip 那一支上面已经 remove 过了，这里不用再补一次插入。）
+    if (!tip.isEmpty()) {
+        m_resourceTips.insert(path, tip);
+    }
+    if (m_list == nullptr) {
+        return false;
+    }
+    // 按**路径**找回那一行（不按行号）：身份是一批一批异步回来的，这中间用户完全可能点过
+    // 「刷新」、删过一条 —— 存行号的话，那时候点上去的是**别人**的资源页（而且不报错）。
+    for (int row = 0; row < m_list->count(); ++row) {
+        QListWidgetItem *item = m_list->item(row);
+        if (item == nullptr || item->data(pathRole()).toString() != path) {
+            continue;
+        }
+        QWidget *rowWidget = m_list->itemWidget(item);
+        // NOTE: 找不到不是错误：那一行已经不在了（用户刚删了它）。什么都不用做 ——
+        //       账已经记下，下一趟 refresh() 摆出来的那一行自然是能点的。
+        if (rowWidget == nullptr) {
+            return false;
+        }
+        QLabel *label = rowWidget->findChild<QLabel *>(nameLabelName());
+        if (tip.isEmpty()) {
+            unmakeLink(label, path);
+        } else {
+            makeLink(label, tip, path);
+        }
+        return true;
+    }
+    return false;
+}
+
+bool InstanceFilesPage::eventFilter(QObject *watched, QEvent *event) {
+    // 名字那一格上**松开左键** ⇒ 这一条要是认得出是哪个资源，请上面那一层开它自己的
+    // 那一页（见 setResourceForPath()）。
+    //
+    // NOTE: 判据是"这一条记着账没有"，不是"这一格长得像不像链接"：颜色和光标是画给人看的，
+    //       这一发才是真动作；拿长相当判据的话，改一次样式就会静默改掉行为。
+    // NOTE: 只有**松开**才算一下。按下就动手的话，用户本来只想把这一行选中、手指在名字上
+    //       抖一下，就已经进那一页了。
+    // NOTE: 吃掉的也只有这一下松开（返回 true）。press 照旧往上冒 —— 列表该选中的照样
+    //       选中；双击那条路走的是另一发事件（itemActivated，见构造里那段 NOTE），
+    //       一个字都没动。
+    if (event->type() == QEvent::MouseButtonRelease) {
+        auto *mouse = static_cast<QMouseEvent *>(event);
+        if (mouse->button() == Qt::LeftButton) {
+            const QString path = watched->property(rowPathProperty()).toString();
+            if (!path.isEmpty() && m_resourceTips.contains(path)) {
+                emit resourceRequested(path);
+                return true;
+            }
+        }
+    }
+    return QWidget::eventFilter(watched, event);
 }

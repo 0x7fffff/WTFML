@@ -150,6 +150,21 @@ public:
     /// 初始值"，不是"用户拨了"）。
     void setShowSnapshots(bool showSnapshots);
 
+    /// 右上角**同一格**换成那颗「模组设置」（2026-09-27）。
+    ///
+    /// ★★ 用户原话：「对于模组，点进去和资源包差不多，但是右上角显示快照版那里替换为模组
+    ///    设置（先占位），而且和下载页有点区别，不要不小心把下载页改了」⇒
+    ///    · 只有**从实例的「文件管理」页点一个模组**进来时才摆它（判据在
+    ///      MainWindow::openResourceDetailPage，按"这一页是怎么打开的"分）；
+    ///    · 摆它的时候「显示快照版」那颗**整个收起来**（同一格只露一个）；
+    ///    · 它**先占位** —— 画出来、灰着、点不动（用户 2026-09-27 选的形态）。
+    ///
+    /// NOTE: 下载页里点一行模组开出来的是**同一个页面对象**，它照旧摆「显示快照版」——
+    ///       所以这一位**每次开页都要显式摆一次**（页面是建一次留着的，不摆就留着上一次的）。
+    void setModSettingsSlot(bool show);
+    /// 右上角现在摆的是那颗「模组设置」吗（验证工程和 keyPressEvent 读它）。
+    bool modSettingsSlotShown() const { return m_modSettingsShown; }
+
     /// 版本列表那一块。**空表 = 摆一句「这个资源一个版本都没发过」**。
     void setGroups(const QList<ResourceDetail::Group> &groups);
 
@@ -172,6 +187,10 @@ public:
     /// chip 那颗按钮的 objectName 是「前缀 + 下标」（0 起）。
     static QString chipButtonNamePrefix();
     static QString showSnapshotsCheckBoxName();
+    /// 右上角那颗**占位**用的「模组设置」（见 setModSettingsSlot；默认是收着的）。
+    static QString modSettingsButtonName();
+    /// 那四个字。**唯一出处** —— 按钮和验证工程都读它，别在别处再写一遍。
+    static QString modSettingsText();
     static QString versionListName();
 
     /// 版本行上那一条身份（`Row::key`）挂的**角色号**。
@@ -200,6 +219,8 @@ public:
     bool groupExpandedAt(int index) const;
     /// 头卡上那颗按钮上现在写着什么（「转到 Modrinth」…；没摆 = 空串）。
     QString openButtonText() const;
+    /// 右上角那颗「模组设置」（任何时候都拿得到 —— 它只是收着）。
+    QPushButton *modSettingsButton() const { return m_modSettings; }
     /// 描述那一行**当下画出来的字**（截断之后的那一串）—— 验证工程拿它和全文比，量
     /// 「太长的简介真的被截了」。全文走 `descriptionToolTip()`。
     QString shownDescription() const;
@@ -249,6 +270,11 @@ private:
     QPushButton *m_copyName = nullptr;
     QWidget *m_chipRow = nullptr;
     QCheckBox *m_showSnapshots = nullptr;
+    /// 右上角那颗**占位**用的「模组设置」（建出来就是灰的、点不动、默认收着；
+    /// 摆不摆由 setModSettingsSlot 说了算）。
+    QPushButton *m_modSettings = nullptr;
+    /// 现在摆的是不是它（`keyPressEvent` 那个裸 Alt 要读它 —— 见那儿那段）。
+    bool m_modSettingsShown = false;
     QTreeWidget *m_list = nullptr;
 
     ResourceDetail::Header m_header;

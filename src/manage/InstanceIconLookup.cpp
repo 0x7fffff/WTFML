@@ -9,10 +9,6 @@
 
 #include <QFileInfo>
 #include <QHash>
-#include <QJsonArray>
-#include <QJsonDocument>
-#include <QJsonObject>
-#include <QJsonValue>
 #include <QNetworkAccessManager>
 #include <QPair>
 
@@ -32,42 +28,6 @@ constexpr int kLookupChunk = 100;
 /// 但**不能共用一份**（一个在 manage/、一个在 download/、一个在别处，为一行字建一个头
 /// 文件不划算）—— 改的时候记得一起看。
 const QByteArray kUserAgent = QByteArrayLiteral("WTFML");
-
-/// 从 `POST /v1/mods` 的回复里取每个 modId 的那两条图标地址。
-///
-/// NOTE: 和 `ResourceCatalog.cpp` 解析搜索回复时那四行（`logo.thumbnailUrl` / `logo.url`）
-///       是同一个规矩 —— 那边的回复里带的是**整个项目对象**，这边 `data[]` 里只有
-///       `id` + `logo`，所以没能共用同一个函数。两边一起改。
-QHash<int, QPair<QString, QString>> parseCurseForgeModLogos(const QByteArray &json) {
-    QHash<int, QPair<QString, QString>> out;
-    const QJsonDocument doc = QJsonDocument::fromJson(json);
-    if (!doc.isObject()) {
-        return out;
-    }
-    const QJsonValue data = doc.object().value(QStringLiteral("data"));
-    if (!data.isArray()) {
-        return out;
-    }
-    for (const QJsonValue &value : data.toArray()) {
-        const QJsonObject entry = value.toObject();
-        const int id = entry.value(QStringLiteral("id")).toInt(0);
-        if (id <= 0) {
-            continue;
-        }
-        const QJsonObject logo = entry.value(QStringLiteral("logo")).toObject();
-        // 两条都过域名闸（那是外部输入）：不是 media.forgecdn.net 上的一律当没有 ——
-        // 和 ResourceCatalog 那边一模一样，理由见 isUsableIconUrl 的注释。
-        const QString thumbnail = logo.value(QStringLiteral("thumbnailUrl")).toString();
-        const QString full = logo.value(QStringLiteral("url")).toString();
-        out.insert(id, qMakePair(ResourceCatalog::isUsableIconUrl(thumbnail, ResourceCatalog::Source::CurseForge)
-                                     ? thumbnail
-                                     : QString(),
-                                 ResourceCatalog::isUsableIconUrl(full, ResourceCatalog::Source::CurseForge)
-                                     ? full
-                                     : QString()));
-    }
-    return out;
-}
 
 }  // namespace
 
@@ -118,8 +78,14 @@ Result lookup(const QStringList &paths, const Options &options) {
     //   工作线程里用 VersionManager 那两个 lookup"）。三发都走它。
     QNetworkAccessManager network;
 
-    // ---------- ② Modrinth：sha1 → 版本 → 项目 ----------
+    // ---------- ② Modrinth：sha1 → 项目号 ----------
+    //
+    // ★ 2026-09-27：这一趟只定"哪个文件是哪个项目"，**不再当场造 Found** —— 项目号到手时
+    //   手上还没有名字 / slug / 简介 / 支持的游戏版本（那几样只在**项目对象**里，见 ②'）。
+    //   记成"路径 → 项目号"，等详情回来再摊成一条一条。
     if (!pathsBySha1.isEmpty()) {
+        QHash<QString, QString> projectByPath;
+        QStringList wantedProjects;
         // 根地址：验证工程的口子优先，否则官方那一份（唯一出处仍是 ResourceCatalog 里
         // 那个 apiRoot()）—— 和 VersionManager 那边逐字同一条规矩。
         const QString root = options.modrinthApiBaseOverride.isEmpty()
@@ -162,19 +128,25 @@ Result lookup(const QStringList &paths, const Options &options) {
                 if (projectId.isEmpty()) {
                     continue;
                 }
-                for (const QString &path : pathsBySha1.value(it.key())) {
-                    Found found;
-                    found.path = path;
-                    found.projectId = projectId;
-                    found.source = ResourceCatalog::Source::Modrinth;
-                    // 图标地址**这一发给不出来**（`/v2/version_files` 是"版本"的回复，里面
-                    // 没有项目的图标）—— 下一段专门为它再问一发，这里先空着。
-                    result.found.append(found);
+                // ★ 只有**这一趟真的有文件对得上**的那个号才进 wantedProjects：这一发要的是
+                //   "这些文件分别属于哪个项目"，回一句里多出来的条目（对不上任何路径的）跟
+                //   这一趟无关。按整份回复收号的话，那一发会**替不相干的号白问一次详情**
+                //   —— 请求地址更长、偶尔多一批 404，而屏幕上一点异常都没有（mw_check 的
+                //   T22.4b「同一个资源摆两份」那一条就盯在这里）。
+                const QStringList paths = pathsBySha1.value(it.key());
+                if (paths.isEmpty()) {
+                    continue;
+                }
+                if (!wantedProjects.contains(projectId)) {
+                    wantedProjects.append(projectId);
+                }
+                for (const QString &path : paths) {
+                    projectByPath.insert(path, projectId);
                 }
             }
         }
 
-        // ---------- ②' 这些项目号各自的图标地址 ----------
+        // ---------- ②' 这些项目号各自的**项目对象**（图标地址 + 详情）----------
         //
         // ★ 这一段是 2026-09-27 补的，缘由是一次实测：原来这里不收图标地址，指望
         //   `Hit::iconPngUrl()` 自己拼的那条 `cdn.modrinth.com/data/<id>/icon.png` 兜住。
@@ -190,13 +162,11 @@ Result lookup(const QStringList &paths, const Options &options) {
         //
         //   真正那条地址在**带哈希的文件名**底下（`…/<哈希>.png` 或 `…/<哈希>_96.webp`），
         //   除了接口没人说得出来。一发问一批（同一个上限），50 个号实测 894 字符、1.0 秒。
-        QStringList wantedProjects;
-        for (const Found &found : result.found) {
-            if (!wantedProjects.contains(found.projectId)) {
-                wantedProjects.append(found.projectId);
-            }
-        }
-        QHash<QString, QString> iconByProject;
+        //
+        // ★ 2026-09-27 又补一半：读的是 `parseProjects()`，也就是**整个项目对象** ——
+        //   文件管理那几页"点名字进它的下载页"要的名字 / slug / 简介 / 支持的游戏版本
+        //   就在同一份字节里（见 `Found::hit` 那段）。多读几栏，不多发一个请求。
+        QHash<QString, ResourceCatalog::Hit> hitsByProject;
         for (int offset = 0; offset < wantedProjects.size(); offset += kLookupChunk) {
             const HttpClient::Reply reply = HttpClient::send(
                 &network,
@@ -206,9 +176,10 @@ Result lookup(const QStringList &paths, const Options &options) {
                 HttpClient::kDefaultTimeoutMs, headers);
             if (!reply.ok()) {
                 // ★ **不 return**（和上面那两处不一样）：身份已经定下来了 —— 上面那一发认
-                //   出来的那些是真的，缺的只是图，那几格退回占位拼图就是正确的界面。而且
-                //   也不能往 `problem` 里写：它是"这一趟完整不完整"的判据，这一发失败不影响
-                //   那个判断，写进去的代价是下一趟把几十兆 jar 从头重读一遍（见 Result::iconProblem）。
+                //   出来的那些是真的，缺的只是详情与图，那几格退回占位拼图就是正确的界面。
+                //   而且也不能往 `problem` 里写：它是"这一趟完整不完整"的判据，这一发失败
+                //   不影响那个判断，写进去的代价是下一趟把几十兆 jar 从头重读一遍
+                //   （见 Result::iconProblem）。
                 result.iconProblem = reply.networkError.isEmpty()
                                          ? QObject::tr("Modrinth 取图标地址时回了 HTTP %1。")
                                                .arg(reply.status)
@@ -216,13 +187,21 @@ Result lookup(const QStringList &paths, const Options &options) {
                                                .arg(reply.networkError);
                 break;
             }
-            const QHash<QString, QString> part = ResourceCatalog::parseProjectIconUrls(reply.raw);
-            for (auto it = part.constBegin(); it != part.constEnd(); ++it) {
-                iconByProject.insert(it.key(), it.value());
+            for (const ResourceCatalog::Hit &hit : ResourceCatalog::parseProjects(reply.raw)) {
+                hitsByProject.insert(hit.projectId, hit);
             }
         }
-        for (Found &found : result.found) {
-            found.iconUrl = iconByProject.value(found.projectId);
+        // ②'' 摊成"一个文件一条"。
+        for (auto it = projectByPath.constBegin(); it != projectByPath.constEnd(); ++it) {
+            Found found;
+            found.path = it.key();
+            found.hit = hitsByProject.value(it.value());
+            // 详情那一发没成、或者回复里没有这个号：**照样认这一条** —— 身份（项目号 +
+            // 来源）是从哈希定下来的、那一步已经做完，缺的只是详情（名字空着 ⇒ 那一行
+            // 的名字点不动，见 MainWindow 那段）与图标（退回 iconPngUrl() 那条兜底）。
+            found.hit.projectId = it.value();
+            found.hit.source = ResourceCatalog::Source::Modrinth;
+            result.found.append(found);
         }
     }
 
@@ -270,7 +249,8 @@ Result lookup(const QStringList &paths, const Options &options) {
             }
         }
 
-        // 项目号 → logo 那两条地址。**只有认出来的项目才问**（十几个号一发就够）。
+        // 项目号 → **项目对象**（logo 那两条地址，以及名字 / slug / 简介 / 游戏版本）。
+        // **只有认出来的项目才问**（十几个号一发就够）。
         QList<int> projectIds;
         for (auto it = projectByFingerprint.constBegin(); it != projectByFingerprint.constEnd();
              ++it) {
@@ -278,7 +258,7 @@ Result lookup(const QStringList &paths, const Options &options) {
                 projectIds.append(it.value());
             }
         }
-        QHash<int, QPair<QString, QString>> logos;
+        QHash<int, ResourceCatalog::Hit> hitsByProject;
         for (int offset = 0; offset < projectIds.size(); offset += kLookupChunk) {
             const QByteArray body =
                 ModpackImport::curseForgeModsRequestBody(projectIds.mid(offset, kLookupChunk));
@@ -290,34 +270,39 @@ Result lookup(const QStringList &paths, const Options &options) {
                 QByteArrayLiteral("application/json"), QByteArray(), HttpClient::kDefaultTimeoutMs,
                 headers);
             if (!reply.ok()) {
-                // 这一发只影响"图标地址拿不拿得到"，不改变"这是哪个资源"（那一步已经定了）。
-                // 所以**认出来的那些照样往下走**（图标是空的，那一格退回占位拼图），
-                // 只把 problem 立起来 —— 理由见上面那一处，两处逐字相同。
-                result.problem = reply.networkError.isEmpty()
-                                     ? QObject::tr("CurseForge 取图标时回了 HTTP %1。").arg(reply.status)
-                                     : QObject::tr("CurseForge 取图标时没连上：%1").arg(reply.networkError);
+                // 这一发只影响"详情与图标拿不拿得到"，不改变"这是哪个资源"（那一步已经定了）。
+                // 所以**认出来的那些照样往下走**（名字空着 ⇒ 那一行的名字点不动，图标退回
+                // 占位拼图），只把 iconProblem 立起来。
+                //
+                // ★ 2026-09-27 改：这里从前写的是 `problem`（那个字段是**整趟完整不完整**的
+                //   判据，见 Result::iconProblem 那段），而紧挨着的注释写着"只影响图标地址"
+                //   —— 注释和代码说的不是一件事。按注释（也就是按规矩）改过来：这一发失败
+                //   不该让整趟作废，否则每开一次设置页都要把几十兆 jar 从头重读重算一遍，
+                //   换来的只是"图标可能来了"。
+                result.iconProblem = reply.networkError.isEmpty()
+                                         ? QObject::tr("CurseForge 取图标时回了 HTTP %1。")
+                                               .arg(reply.status)
+                                         : QObject::tr("CurseForge 取图标时没连上：%1")
+                                               .arg(reply.networkError);
                 break;
             }
-            const QHash<int, QPair<QString, QString>> part = parseCurseForgeModLogos(reply.raw);
-            for (auto it = part.constBegin(); it != part.constEnd(); ++it) {
-                logos.insert(it.key(), it.value());
+            for (const ResourceCatalog::Hit &hit : ResourceCatalog::parseCurseForgeMods(reply.raw)) {
+                hitsByProject.insert(hit.projectId.toInt(), hit);
             }
         }
 
         for (auto it = projectByFingerprint.constBegin(); it != projectByFingerprint.constEnd();
              ++it) {
             const int projectId = it.value();
-            const QPair<QString, QString> logo = logos.value(projectId);
             for (const QString &path : pathsByFingerprint.value(it.key())) {
                 Found found;
                 found.path = path;
-                found.projectId = QString::number(projectId);
-                found.source = ResourceCatalog::Source::CurseForge;
-                // 这一发没拿到 logo（接口没给 / 那个号在回复里缺席）也**照样认这一条**：
-                // 图标是空的 ⇒ ResourceStore 发一张空 pixmap ⇒ 那一格退回占位拼图。
-                // 比"整个来源都不认"好 —— 名字和身份还是对的。
-                found.iconUrl = logo.first;
-                found.iconFallbackUrl = logo.second;
+                found.hit = hitsByProject.value(projectId);
+                // 详情那一发没成 / 那个号在回复里缺席也**照样认这一条**：图标是空的 ⇒
+                // ResourceStore 发一张空 pixmap ⇒ 那一格退回占位拼图。比"整个来源都不认"
+                // 好 —— 项目号和来源还是对的（那是指纹那一步定下来的）。
+                found.hit.projectId = QString::number(projectId);
+                found.hit.source = ResourceCatalog::Source::CurseForge;
                 result.found.append(found);
             }
         }

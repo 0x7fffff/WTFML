@@ -420,6 +420,17 @@ QString connectionErrorText(int socketError) {
     }
 }
 
+namespace {
+/// 这个 socket 错属于"超时"那一类吗（**唯一判据**，上面 `Status::timedOut` 那段）。
+///
+/// 两处都在用：连的那一步（`SocketTimeoutError` / `NetworkError` —— 后者是"线被拔了"那一档，
+/// connectionErrorText() 早就把它和超时归在同一句里）和"等它答话"那一步（那里额外把
+/// `UnknownSocketError` 也算进来：Qt 在 waitForReadyRead 到点时会留下它，见那段注释）。
+bool isTimeoutError(QAbstractSocket::SocketError error) {
+    return error == QAbstractSocket::SocketTimeoutError || error == QAbstractSocket::NetworkError;
+}
+}  // namespace
+
 Status ping(const QString &address) {
     Status status;
     const Address target = splitAddress(address);
@@ -437,6 +448,7 @@ Status ping(const QString &address) {
     socket.connectToHost(target.host, static_cast<quint16>(target.port));
     if (!socket.waitForConnected(left())) {
         status.error = connectionErrorText(socket.error());
+        status.timedOut = isTimeoutError(socket.error());
         return status;
     }
 
@@ -496,8 +508,10 @@ Status ping(const QString &address) {
             if (socket.error() == QAbstractSocket::SocketTimeoutError ||
                 socket.error() == QAbstractSocket::UnknownSocketError) {
                 status.error = QStringLiteral("超时（连上了，但服务器没有回答）");
+                status.timedOut = true;
             } else {
                 status.error = connectionErrorText(socket.error());
+                status.timedOut = isTimeoutError(socket.error());
             }
             return status;
         }

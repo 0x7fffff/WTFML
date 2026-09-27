@@ -5,11 +5,16 @@
  * @author 0x7fffff
  * @date 2026-09-26
  * @note 「文件管理」那八页里有六页是同一个形状：**列一个目录，一行一个条目，
- *       行尾两颗按钮（启用·禁用 / 删除）**。差别只有三条：
+ *       上面一排（路径 + 下载新的 / 刷新 / 打开文件夹），行尾两颗按钮（启用·禁用 / 删除）**。
+ *       差别只有五条：
  *         - 列出什么（存档只列文件夹，别的文件文件夹都列）；
  *         - 能不能启用·禁用（只有模组 / 资源包 / 光影包 —— 游戏会自己扫这三个目录）；
- *         - 能不能删（存档不行，见下面 setCanDelete() 那段）。
- *       这三条都是 setter，所以六页共用这一个控件，不写六份。
+ *         - 能不能删（存档不行，见下面 setCanDelete() 那段）；
+ *         - 顶上有没有那颗「下载新 X」（只有下载页里真有对应一栏的那四页有，
+ *           见 setDownloadText()）；
+ *         - 名字点不点得动（认得出是哪个资源的那几条点一下进它自己的那一页，
+ *           见 setResourceForPath()）。
+ *       这五条都是 setter，所以六页共用这一个控件，不写六份。
  *
  * 【这一层只**显示**，不碰盘】
  *
@@ -71,6 +76,21 @@ public:
     /// 存档说"进游戏存一个"）。默认给一句通用的。
     void setEmptyText(const QString &text);
 
+    /// 顶上那颗「下载新 X」—— 只有下载页里有对应一栏的那四页给（模组 / 资源包 / 数据包 /
+    /// 光影，见 InstanceSettingsDialog::filesDownloadText()）。用户 2026-09-27 原话：
+    /// 「在实例设置里模组 资源包 数据包 光影包里添加下载新光影，按了以后导向下载页对应类别」。
+    ///
+    /// @param text 按钮上写的字。**空串 = 这一页没有这颗按钮**（原理图在下载页里没有对应的
+    ///        那一栏、存档不是"下载"来的、配置文件根本不在下载页里）。
+    /// @param tip  悬停提示（说清按下去会去哪儿 —— 它要**离开这一页**）。
+    ///
+    /// NOTE: 这一层**不知道去哪儿**：它只发 downloadRequested()，切选项卡和挑那一栏是
+    ///       MainWindow 的事（这一层既够不着选项卡，也不该知道"下载页左栏有几栏"）。
+    /// NOTE: 它和「刷新」「打开文件夹」同处顶上那一排 ⇒ 这一页「用不上」时（setUnavailable()）
+    ///       跟着一起收起来。这是有意的：光影包那一页正在说"这个实例装不了光影"的时候，
+    ///       把人送去下载页找光影包是**指错路**（该先装 Iris，那是模组那一栏的事）。
+    void setDownloadText(const QString &text, const QString &tip);
+
     /// 这一页看哪个目录（绝对路径）。**由调用方算好递进来** —— 目录名是 MC 的约定，
     /// 仓库里已经有唯一一份（src/download/ResourceCatalog::folderForKind），
     /// 这一层不抄第二份。
@@ -101,6 +121,29 @@ public:
     ///       了、没有"），所以刷新之后不会又退回占位图再等一次回答。
     bool setIconForPath(const QString &path, const QPixmap &icon);
 
+    /// 这一条**认出来了是哪个资源** ⇒ 名字点一下能进它自己的那一页（2026-09-27）。
+    ///
+    /// ★ 用户原话：「除了模组以外的几个都是点击模组名称自动进入下载界面（**前提是匹配
+    ///   上了**）」—— 所以"点得动"这件事本身就是"这一条认出来了"的信号（不是每一行都
+    ///   能点，点了没反应的那些才是最难用的界面）。
+    ///
+    /// @param path 这一条的**绝对路径**（就是 item 上 pathRole() 那一格）。
+    /// @param tip  悬停提示（说清点下去会去哪儿 —— 它要**离开这一页**）。
+    ///        **空串 = 这一条没认出来**：名字就是一行字，点不动、也不摆出点得动的样子。
+    ///        ★ 空串这一支**不是"没话说"**（2026-09-27）：同一个路径上换了内容之后，
+    ///          上一趟认出来的那个资源就不作数了，得把那一格已经戴上的链接**摘掉** ——
+    ///          留着的话那一行还是个链接的样子、点下去什么都不发生。所以空串这一支
+    ///          只在"这一格本来记着账"的时候办事（见 .cpp 里 `hadLink` 那一段）。
+    /// @return 同 setIconForPath()：这一页上现在有没有这个路径（false 不是错误 ——
+    ///         用户可能刚刷新过、或者已经删了它）。
+    ///
+    /// NOTE: 和 setIconForPath() 一样**按路径记账**（`m_resourceTips`），所以「刷新」之后
+    ///       重列出来的那一行照样是能点的 —— 身份是反查来的（读盘 + 联网，几秒），
+    ///       不能跟着重列再问一遍。
+    /// NOTE: 这一层**不知道点了会到哪儿**，它只发 resourceRequested(path)：去哪一页、
+    ///       开不开得成，都由 MainWindow 说了算（"这个文件是哪个资源"那张表在它手上）。
+    bool setResourceForPath(const QString &path, const QString &tip);
+
     // ---------- 给验证工程用的访问器 ----------
     //
     // 条目上挂的东西走 item->data()，**唯一出处是下面两个角色**：
@@ -119,6 +162,13 @@ public:
     QToolButton *deleteButtonAt(int row) const;
     QPushButton *refreshButton() const { return m_refresh; }
     QPushButton *openFolderButton() const { return m_openFolder; }
+    /// 第 @p row 行那一格**名字**（ElidedLabel，对外当个 QLabel）。验证工程按它量
+    /// "认出来的那几条长什么样"（颜色 / 光标 / 悬停提示），以及往它上面发一下鼠标松开、
+    /// 看这一页发不发 resourceRequested()。
+    QLabel *nameLabelAt(int row) const;
+    /// 顶上那颗「下载新 X」。**没接过 setDownloadText() 的页上它是藏着的** —— 验证工程量
+    /// 的也是它"露不露"（`isVisibleTo(这一页)`），不是"存不存在"（它每一页都有，只是空着）。
+    QPushButton *downloadButton() const { return m_download; }
     QLabel *noticeLabel() const { return m_notice; }
     /// 上面那一排最左边那格（写的是这一页在看哪个目录）。文字由 refresh() 灌 ——
     /// 验证工程按它核"切到哪一页、那一格就写哪个目录"这一条。
@@ -147,6 +197,8 @@ public:
     static QString openFolderButtonName() {
         return QStringLiteral("instanceFilesOpenFolderButton");
     }
+    /// 顶上那颗「下载新 X」（名字和上面两颗同处一排，认法也一样是 findChild）。
+    static QString downloadButtonName() { return QStringLiteral("instanceFilesDownloadButton"); }
     static QString noticeLabelName() { return QStringLiteral("instanceFilesNotice"); }
     /// 行首那个**名字**（ElidedLabel）。一页里有很多个、名字都一样 —— 取法和下面那两颗
     /// 一样按行取（`list()->itemWidget(item)->findChild<QLabel*>(nameLabelName())`）。
@@ -159,6 +211,13 @@ public:
     /// 名字那一格**至少**要有这么宽（px）。名字那一格是这一行的主要内容，宁可让这一行
     /// 溢出被裁，也不许它缩到看不见。
     static int nameLabelMinWidth() { return 120; }
+
+    /// 名字那一格上记着"这是哪一条"的**动态属性**（`QObject::property`）。
+    ///
+    /// 只给这一页自己的 eventFilter() 用：鼠标落在某一格名字上时，得知道那是哪一条
+    /// （见 makeRow / eventFilter）。**不是给外面读的** —— 行是哪一条的唯一出处是
+    /// `item->data(pathRole())`。
+    static const char *rowPathProperty() { return "instanceFilePath"; }
 
     /// 名字底下那一行小字（大小 · 时间，ElidedLabel）。和名字同一列 —— 名字在上、
     /// 它在下（从前这两样和那两颗按钮挤在同一行里，字号一大名字就没地方了）。
@@ -188,6 +247,16 @@ signals:
     /// 得挂在覆盖层上（见文件头那段）。
     void openFolderRequested(const QString &path);
 
+    /// 用户**点了一下某一条的名字**，而这一条是认得出是哪个资源的（见 setResourceForPath()）。
+    /// @param path 这一条的绝对路径（**不是**资源身份 —— 身份在 MainWindow 那张表里）。
+    /// **这一层不说去哪儿**：接的人负责把这一页收掉、开那个资源自己的那一页。
+    /// NOTE: 没认出来的那几条**一个字都不会发**（名字就是一行字，点它跟点行身一样）。
+    void resourceRequested(const QString &path);
+
+    /// 用户点了顶上那颗「下载新 X」。**这一层不说去哪儿**（它只认得这一页的目录，
+    /// 见 setDownloadText()）—— 接的人负责切到下载页对应的那一栏。
+    void downloadRequested();
+
     /// 用户点了某一条行尾的「禁用」/「启用」。@param path 是**现在**的绝对路径
     /// （禁用着的那一条给的是带 `.disabled` 的那个）—— 加后缀还是去后缀由接的人判。
     void toggleRequested(const QString &path);
@@ -204,6 +273,11 @@ signals:
     ///       角色：路径本身是权威（refresh() 也是这么判的），而且这一条随时可能刚被改过名。
     ///       真去问一次盘比多存一位可能过期的位可靠。
     void activateRequested(const QString &path, bool isDir);
+
+protected:
+    /// 名字那一格上那一发鼠标松开（见 setResourceForPath()）。装在**每一格名字**上
+    /// （makeRow 里 installEventFilter），判据是"这一条记着账没有"。
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
     /// 造一条行：**左边一列两行字**（名字一行、大小 · 时间一行，见 nameLabelName() /
@@ -245,6 +319,16 @@ private:
     ///       那一份的事（按 路径+大小+时间 存，见 requestInstanceFileIcons 那段）。
     QHash<QString, QPixmap> m_icons;
 
+    /// 认出来了是哪个资源的那几条，按 `pathRole()` 那一格存**悬停提示**（见
+    /// setResourceForPath()）。在表里 = 这一条的名字点得动。
+    ///
+    /// NOTE: 和 m_icons 同一档、同一个理由：`refresh()` 是 `m_list->clear()` + 重新建行，
+    ///       而身份是反查来的（几秒），不能跟着重列再来一遍。刷新之前记着的，重列出来
+    ///       的那一行直接就是能点的。
+    /// NOTE: 只记**认出来了**的那些（空 tip 不记账）—— 记一条空的是"这一条点不动"，
+    ///       而那本来就是默认状态。
+    QHash<QString, QString> m_resourceTips;
+
     /// 上面那一排（路径 + 两颗按钮）。「用不上」的时候整排一起收起来。
     QWidget *m_pathRow = nullptr;
     /// 是 ElidedLabel（从中间省略，见 .cpp 里构造那段的理由）；对外仍旧只当它是个 QLabel
@@ -252,6 +336,9 @@ private:
     ElidedLabel *m_pathLabel = nullptr;
     QPushButton *m_refresh = nullptr;
     QPushButton *m_openFolder = nullptr;
+    /// 顶上那颗「下载新 X」（见 setDownloadText()）。**每一页都建**（同一个形状搭出来的），
+    /// 没接文字的那几页是藏着的。
+    QPushButton *m_download = nullptr;
     QListWidget *m_list = nullptr;
     QLabel *m_notice = nullptr;
 };

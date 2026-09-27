@@ -425,7 +425,46 @@ QString projectsRequestUrl(const QStringList &projectIds, const QString &apiBase
 ///       根本不是数组 / 那一条没带 `icon_url` / 带的是别的域名 —— 一律当"这个项目没有
 ///       图标地址"，**不报错**：一个项目没传过图标是完全正常的一件事，而这里报出来的
 ///       "错"没有第二个人能处置。
+///
+/// NOTE: 2026-09-27 起它是 `parseProjects()` 上面薄薄一层（同一份响应，那边读的是**整个
+///       项目**）。留着的理由：图标那两处调用点（`InstanceIconLookup`）只要这一格，
+///       而"没有图标地址"和"没有这个项目"在那边是两件事（前者照样认身份）。
 QHash<QString, QString> parseProjectIconUrls(const QByteArray &json);
+
+/// `GET /projects?ids=[…]` 的回复（一个**数组**）→ 每个项目一条完整的 `Hit`。
+///
+/// ★ 2026-09-27 补。用户原话：「除了模组以外的几个都是点击模组名称自动进入下载界面
+///   （前提是匹配上了）」—— 文件管理那几页认出来的资源要能**点名字进它自己的那一页**
+///   （见 MainWindow::openInstanceFileResource），而资源详情页的头卡要的是名字 / slug /
+///   简介 / 支持的游戏版本 / 下载量 —— 这几样**只有项目对象里有**（`/version_files` 那一发
+///   是"版本"的回复，`/fingerprints` 那一发只有号）。好消息是这一发**本来就在发**
+///   （图标地址非问它不可），所以这是"同一份字节多读几栏"，不多一个请求。
+///
+/// 每一条填：`projectId`（`id`）、`slug`、`title`、`description`、`downloads`、
+/// `updatedIso`、`categories`、`gameVersions`、`loaders`（进 `explicitLoaders`）、
+/// `iconUrl`（过 `isUsableIconUrl()`，见上）。
+///
+/// NOTE: 这一份是**项目**的回复，栏名和搜索那份（`parseSearch`）不一样：项目号在 `id`
+///       里（搜索是 `project_id`）、游戏版本在 `game_versions` 里（搜索是 `versions`）、
+///       更新时间在 `updated` 里（搜索是 `date_modified`）。照搜索那份的栏名读会**一条都
+///       读不出来**，而屏幕上的样子是"认出来了、但没有详情"（名字空着），不报错。
+/// NOTE: 读不懂 / 根本不是数组 / 那一条没带 `id`：跳过。回空表 = 这一趟没有详情，
+///       那不是错误（调用方手上还有"这是哪个项目"，见 `Found::hit` 那段）。
+/// NOTE: **不排序**（游戏版本照接口给的顺序）—— 和 `parseSearch` 同一条规矩，摆到界面上
+///       之前那一排 chip 自己会过 `gameVersionChoices()`。
+QList<Hit> parseProjects(const QByteArray &json);
+
+/// `POST /mods` 的回复（`{"data":[…]}`）→ 每个项目一条完整的 `Hit`。
+///
+/// ★ 那一家"按 id 问项目"（`ModpackImport::curseForgeModsRequestBody()`）和"搜"回的是
+///   **同一个对象形状**（`data[]` 里那些字段一个不差），所以这里直接转手给
+///   `parseCurseForgeSearch()`：抄第二份解析的代价是那边的字段名一改（比如 2026-09-27
+///   给 `authors` 补的那个空数组兜底），这一条路上就悄悄少一截。
+///
+/// NOTE: 分页那一栏（`pagination`）在这一份响应里没有 ⇒ `SearchResult` 里那几个数是 0，
+///       调用方要的是 `hits`。出错的形状（没有 `data`）回**空表** —— 和 `parseProjects()`
+///       同一档，调用方那时手上只剩"这是哪个项目"。
+QList<Hit> parseCurseForgeMods(const QByteArray &json);
 
 /// 这条地址是不是一条 webp（**按路径后缀判**，不联网）。整条 URL 都空时是 false。
 ///

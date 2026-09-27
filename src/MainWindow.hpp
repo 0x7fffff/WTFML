@@ -378,6 +378,16 @@ private slots:
     /// 那一路也照着它写），原理图 / 存档 / 截图 / 日志不在下载页那几类里，目录名写在这儿。
     QHash<QString, QString> instanceFileDirs(const QString &versionId) const;
 
+    /// 切到下载页的 @p categoryKey 那一栏（2026-09-27）。
+    ///
+    /// 入口是「文件管理」里那四页顶上的「下载新模组 / 资源包 / 数据包 / 光影」—— 用户原话
+    /// 「按了以后导向下载页对应类别」。做的两件事是**收掉当前那一页**（收页只有这一条路，
+    /// 见 .cpp 里那段）和**把选项卡与左栏那一列摆到对应的那一栏上**。
+    ///
+    /// @param categoryKey `MainWindowUI::downloadCategoryKeys()` 里的一个键。认不出来时
+    ///        什么都不做，但会 `qWarning()` 说一句（症状是"按了没反应"，静默的话没人查得到）。
+    void openDownloadCategory(const QString &categoryKey);
+
     // ---------- 「配置文件」那一页的编辑器（2026-09-27）----------
     //
     // 三件都是"接的人碰盘、弹话"那一套（同上那一段的分工）。**为什么编辑器那一格在
@@ -584,6 +594,10 @@ private slots:
 
     /// 把**现在知道的**那些图标摆到正开着的那一页上（没开着就什么都不做）。
     /// 「图标到手」和「新开了一页」两条路都走它 —— 两处各摆一遍的话，两边的判据迟早漂开。
+    ///
+    /// ★ 2026-09-27 起它同时摆"这一条的名字点不点得动"（见 setFileResource()）：两件事
+    ///   读的是同一份会话缓存、同一个循环、同一个"这一条现在算不算知道"的判据 ——
+    ///   拆成两个函数摆，迟早出现"图标有了、名字点不动"这种两边打架的界面。
     void pushInstanceFileIcons();
 
     /// 这一条文件的**缓存钥匙**：路径 + 大小 + 修改时间。
@@ -596,6 +610,31 @@ private slots:
     /// 这个实例里那些**可能查得到图标**的文件（绝对路径）：四个能下载的目录 + 原理图，
     /// 只要 `.jar` / `.zip`（判据是 `InstanceIconLookup::isLookupCandidate()`）。
     QStringList instanceIconCandidatePaths(const QString &versionId) const;
+
+    /// 实例设置里**点一条文件的名字**（2026-09-27，用户原话见 .cpp 里那段）⇒ 开那个资源
+    /// 自己的那一页。
+    ///
+    /// @param versionId 这一下是从**哪个实例**的设置页里发出来的（那一页正看着的实例的
+    ///        目录名）。它只有一个用处：那一页关掉之后把**实例设置放回去**（见
+    ///        `openFileResourcePage()`）—— 用户原话「点击下载界面返回后应该退回到实例设置
+    ///        而不是实例列表」。
+    /// @param pageKey 发起这一下的那一页的页键（模组 / 资源包 / 数据包 / 光影 / …）。
+    ///        从它认"是哪一类资源"（唯一出处仍是 `filesDownloadCategoryKey()`）。
+    /// @param path 那一行对应的文件（绝对路径）。
+    ///
+    /// 走的是**下载页点一行**那条路（`openResourceDetailPage()`）：同一份 `m_resourceHits`
+    /// 里那条 Hit，同一页、同一套 chip。
+    /// 没匹配上的（没认出来是哪个资源的）什么都不做 —— 那一行的名字本来也没变成链接。
+    ///
+    /// NOTE: 收实例设置那一页 + 排到下一轮事件循环的理由写在 .cpp 里（和
+    ///       `openDownloadCategory()` 逐字同一套）。
+    void openInstanceFileResource(const QString &versionId, const QString &pageKey,
+                                  const QString &path);
+    /// 开那一页，并在用户**按返回/Esc 收掉它**之后把实例设置放回去（见
+    /// `openInstanceFileResource()` 里那段）。两处调用（覆盖层还开着 / 已经关了）都走它，
+    /// "回来之后干什么"因此只有一处出处。
+    void openFileResourcePage(const QString &versionId, const QString &iconKey,
+                              const QString &kindKey);
     /// 「导入整合包…」：选文件 → 读清单 → 问名字 → 换地址 → 确认 → 交给 applyModpackImport()。
     ///
     /// 读的是压缩包根目录里那一份清单（ZipUtil::readEntry，**不整包解开**：用户随手选一个
@@ -769,12 +808,38 @@ private:
     // 界面那一层（ui/ResourceDetailPage）一个字节都不上网，进参出参全是值；下面这四个
     // 函数是它和业务层之间那层皮。
     void setupResourceDetailPage();
+    /// 这一页**压根没开出来**（覆盖层正忙 / 那一类的键不认识 / 那把钥匙不在表里）。
+    /// ★ `execPage()` 从不让这个数当结果（它只回 `QDialog::Accepted/Rejected`），所以
+    ///   拿它跟 `QDialog::Rejected` 比是安全的 —— 调用方**只能靠它**区分"用户把这一页
+    ///   收掉了"和"压根没开"，见 `openFileResourcePage()`。
+    static constexpr int kResourcePageNotOpened = -1;
+    /// 这一页是**怎么打开**的（2026-09-27）。只有一处需要知道：右上角那一格摆什么
+    /// —— 从实例的「文件管理」页点一个**模组**进来时摆那颗「模组设置」，
+    /// 其余一律照旧摆「显示快照版」。
+    ///
+    /// ★★ 为什么单独立一个枚举而不是让调用方自己去 `setModSettingsSlot()`：那一页是
+    ///    **同一个对象、建一次留着**的，两个入口共用它 ⇒ "摆什么"必须在**每次开页都显式
+    ///    摆一次**，而摆的地方只能是这里（`execPage` 之前）。写成枚举参数的话，**下一个入口
+    ///    一加进来就编译不过**，不会悄悄沿用上一次那一格。
+    ///
+    /// ★ 用户原话：「对于模组，点进去和资源包差不多，但是右上角显示快照版那里替换为模组
+    ///   设置（先占位），而且和下载页有点区别，**不要不小心把下载页改了**」⇒ 下载页那条路
+    ///   永远是 `Download`（照旧摆「显示快照版」），这一位不许跟着种类走。
+    enum class DetailSource {
+        Download,      ///< 下载页点一行（那四张表 / 版本树）。
+        InstanceFiles  ///< 实例设置「文件管理」页点一条文件的名字。
+    };
     /// 打开这一条资源的详情页（`iconKey` / `kindKey` 是条子上那两个角色）。
+    ///
+    /// @return 用户是怎么把这一页收掉的（`execPage()` 那一发的结果）：**返回箭头和 Esc
+    ///         都是 `QDialog::Rejected`**，而这一页自己没有「确定」那一档（那三颗按钮和
+    ///         版本行都只发信号、不 accept）。开不出来时回 `kResourcePageNotOpened` ——
+    ///         调用方按它决定"要不要把来路放回去"（见 `openFileResourcePage()`）。
     ///
     /// NOTE: **必须排在事件投递之后**再调（调用点走 `QTimer::singleShot(0, …)`）：里面那句
     ///       `execPage` 会转起一个嵌套事件循环，而调用它的地方（树的事件过滤器）正处在
     ///       一发鼠标事件的投递途中 —— 在那里面再进一层事件循环，视图那一侧的状态机就悬了。
-    void openResourceDetailPage(const QString &iconKey, const QString &kindKey);
+    int openResourceDetailPage(const QString &iconKey, const QString &kindKey, DetailSource from);
     /// 详情页上某一颗 chip 被按了（参数是那颗的 key，空串 = 「全部」）：重算筛 + 分组。
     void onResourcePageChipChanged(const QString &gameVersion);
     /// 详情页上方那个「显示快照版」勾选框被拨了（点它、或者按 Alt 键）。
@@ -1461,6 +1526,19 @@ private:
     ///   onInstanceIconLookupFinished）。断网那一趟要是也记成"没有"，用户这一整个会话就
     ///   再也看不到图标了 —— 而那本来是"网好了就会有"。
     QSet<QString> m_instanceIconMissing;
+    /// 认出来的那几条**是哪个资源**：同一把钥匙（路径 + 大小 + 时间）→ `Hit::iconCacheId()`
+    /// （`<来源>-<项目号>`），而那一份 Hit 就存在下面的 `m_resourceHits` 里。
+    ///
+    /// ★ 2026-09-27 补，为的是"点名字进它自己的那一页"（见 openInstanceFileResource()）：
+    ///   那件事要的正好就是下载页点一行要的那几栏（标题 / 简介 / slug / 游戏版本），
+    ///   而它们**本来就在手上** —— 反查那一趟早就把整个项目对象问回来了（见
+    ///   `InstanceIconLookup::Found::hit`），只是从前读完图标地址就把其余几栏丢了。
+    ///
+    /// NOTE: 和 m_instanceFileIcons 同一把钥匙 ⇒ 同一个名字上换了一个文件就自然作废，
+    ///       不会出现"词条写着 A、名字是 B"。
+    /// NOTE: 键是**路径的钥匙**而不是路径，所以文件删掉之后这一条留着也不会有人读到它
+    ///       （pushInstanceFileIcons() 只走 `m_instanceIcons.paths` 里那些还在的路径）。
+    QHash<QString, QString> m_instanceFileIdentities;
     /// 已经问回来的版本列表，按**请求钥匙**存（ResourceCatalog::versionsRequestKey()）。
     /// 点第三层那一下要拿它换出 URL / sha1 / 大小。
     /// NOTE: 那些事实**不放在条目上**：条目在重搜时会被整个清掉，而"这一版的文件是哪几个"

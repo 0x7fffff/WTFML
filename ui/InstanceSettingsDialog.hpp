@@ -384,6 +384,18 @@ public:
         bool tested = false;    ///< 测过没有（没测过那一格写「还没测」）
         bool online = false;    ///< 通了没有（false 时看 error）
         QString error;          ///< 没通的理由（人话，来自 ServerPing）
+        /// 没通的那一档里**是不是超时**（来自 ServerPing::Status::timedOut）。
+        ///
+        /// ★ 界面上**只写「超时」两个字**（用户 2026-09-27），而 `error` 那句话仍是全的
+        ///   （「超时（网络不通）」/「超时（连上了，但服务器没有回答）」—— 两者是不同的事，
+        ///   留在那一份里给排查用）。不许在这里拿 error 的字符串去认前缀：判据只有
+        ///   ServerPing 那一处（`isTimeoutError()`）。
+        ///
+        /// ★ 缓存那一份（`fromCache()`）也带着这一位（盘上存着，见 ServerStatusCache::
+        ///   Entry::timedOut）：没通那一档两处写**同一句字**。用户 2026-09-27 先是
+        ///   「服务器那个会显示上次:没连上，也改成超时」、接着「‘上次’两个字也不要」——
+        ///   于是这一位成了**两处唯一的判据**（那一句过去时的前缀已经整个删了）。
+        bool timedOut = false;
         int latencyMs = -1;     ///< 延迟（毫秒；-1 = 不知道）
         int playersOnline = -1; ///< 在线人数（**-1 = 服务器没说**，和 0 个人不是一回事）
         int playersMax = -1;    ///< 人数上限（-1 = 服务器没说）
@@ -394,9 +406,10 @@ public:
         QString motdRaw;
         /// 这一份是**盘上缓存**里"上一次问到"的样子，不是刚刚问的。
         ///
-        /// 状态那一格会因此加一句「上次：」—— 那行字里的数字（几人在线、多少毫秒）是
-        /// **过去时**，不加这几个字用户会当成现在的事实（见 ServerStatusCache 文件头）。
-        /// 一有真的结果就整条盖掉（fromCache 回到假）。
+        /// ★ 它**不再影响**状态那一格写出来的字（2026-09-27 用户：「‘上次’两个字也不要」
+        ///   —— 那一句过去时的前缀原来就是唯一读它的地方）。这一位留着是因为**它还得管
+        ///   别的**：没通那一档只有它分得出"理由要不要重说"（见 serverStatusLines() 里
+        ///   那两条支路）。一有真的结果就整条盖掉（fromCache 回到假）。
         bool fromCache = false;
         QIcon icon;             ///< 服务器图标（favicon；服务器没给就是空的）
     };
@@ -411,14 +424,23 @@ public:
 
     /// 状态那一格要写的**那几行**（用户 2026-09-27：「在线延迟和人数换到两行来」）。
     ///
-    /// 第一行是"通没通、多快"（`在线 · 42 ms`），第二行是人数（`7/20 人`）。没通那一档
-    /// 只有一行（那句话本来就长）。**唯一出处** —— 格子、悬停提示、验证工程都看它。
+    /// 第一行是**延迟**（`42 ms`），第二行是人数（`7/20 人`）。没通那一档只有一行（那句话
+    /// 本来就长；超时的那一档更短，只有「超时」两个字）。**唯一出处** —— 格子、悬停提示、
+    /// 验证工程都看它。
+    ///
+    /// ★ 2026-09-27 傍晚改了两个字面：**「在线」那两个字删掉了**（用户原话：「把服务器那个
+    ///   在线 文本删了，只保留延迟和人数，超时的只写超时」）。`42 ms` 摆在那儿本来就说明
+    ///   通了 —— 那两个字占的是这一格最窄的一栏里的宽度，而值是零。同理超时那一档只写
+    ///   「超时」，理由那半句（网络不通 / 它没答话）留在 `ServerRowStatus::error` 里。
+    ///
+    /// NOTE: 兜底那一条还留着「在线」两个字（见 .cpp）：**通了但一个数都没量到**时那一格
+    ///       不能空着（空着和"还没测"长得一样），而那时候除了这两个字没别的可说。
     static QStringList serverStatusLines(const ServerRowStatus &status);
 
     /// 上面那几行的**单行写法**（用「 · 」串起来）—— 悬停提示用。验证工程也按它核对。
     ///
-    /// NOTE: 它就是 `serverStatusLines().join(" · ")`，所以格子从那几行变成两行之后，
-    ///       这里**一个字都没变**（`在线 · 42 ms · 7/20 人` 还是这一句）。
+    /// NOTE: 它就是 `serverStatusLines().join(" · ")`（`42 ms · 7/20 人`），所以格子从
+    ///       那几行变成两行之后，这里**一个字都没变**。
     static QString serverStatusText(const ServerRowStatus &status);
 
     /// 把六页目录列表**重新列一遍**。MainWindow 动过盘（删了 / 改了名）之后喊它。
@@ -438,6 +460,15 @@ public:
     /// 只有一串路径，挨页去问一遍的话，"哪一页有这个路径"这件事就跑到了业务层去。
     /// 转给六页各一次（不在那一页的那一条会自己说"没有"，不是错误）。
     void setFileIcon(const QString &path, const QPixmap &icon);
+
+    /// 某一条文件**认出来了是哪个资源** ⇒ 它的名字点一下能进它自己的那一页
+    /// （见 InstanceFilesPage::setResourceForPath()）。
+    ///
+    /// 收在这一层的原因和 setFileIcon() 逐字相同（哪一页有这个路径只有这几页自己知道），
+    /// 外加一条：**哪几页接这件事也只有这一层知道**（见 filesNameOpensResource()）。
+    ///
+    /// @param title 那个资源的名字（接口给的那个）。**空串 = 没认出来** —— 名字点不动。
+    void setFileResource(const QString &path, const QString &title);
 
     /// 给验证工程用的访问器：某一页那个文件列表控件（键见 filePageKeys()）。
     InstanceFilesPage *filesPage(const QString &key) const;
@@ -749,6 +780,59 @@ public:
     /// 第 @p key 那一页空着时那句话。
     static QString filesEmptyText(const QString &key);
 
+    /// 第 @p key 那一页顶上那颗「下载新 X」上写的字（**空串 = 这一页没有那颗按钮**）。
+    ///
+    /// 用户 2026-09-27 原话：「在实例设置里模组 资源包 数据包 光影包里添加下载新光影，按了
+    /// 以后导向下载页对应类别」。所以有它的就是**下载页里真有对应一栏的那四页**。
+    ///
+    /// NOTE: 「光影包」那一页上的字是「下载新光影」（不是「下载新光影包」）：这四个字要和
+    ///       **落地那一栏**说同一句话（下载页那一栏叫「光影」），而左边那一列里这一页仍旧
+    ///       叫「光影包」。
+    static QString filesDownloadText(const QString &key);
+
+    /// 那颗按钮的悬停提示（说清"会离开这一页、落到哪儿"）。没有那颗按钮的页回空串。
+    static QString filesDownloadTip(const QString &key);
+
+    /// 按了第 @p key 那一页顶上那颗按钮之后，下载页该翻到**哪一栏**
+    /// （`MainWindowUI::downloadCategoryKeys()` 里的一个键；没有那颗按钮的页回空串）。
+    ///
+    /// ★ 两套键**现在**正好是同几个字（这四页的页键就是下载页那四栏的键），可它们是两码事：
+    ///   这一张说的是"实例设置里这些页叫什么"，那一张说的是"下载页左栏有哪几栏"。所以这里
+    ///   **显式写一遍**，而不是把 key 直接递出去 —— 将来哪一边改了名（或者这边加了一页而
+    ///   下载页里没有对应的一栏），这里是唯一的改写点，而不是一个会静默指错的地方。
+    ///   ui_check 钉着"回来的每一个键都在 downloadCategoryKeys() 里"。
+    static QString filesDownloadCategoryKey(const QString &key);
+
+    /// 「点一下**名字**就进它自己的那一页」这一条在这几页上开不开（2026-09-27）。
+    ///
+    /// ★ 用户原话（2026-09-27 上半句）：「除了模组以外的几个都是点击模组名称自动进入下载
+    ///   界面（**前提是匹配上了，模组的待会再说**）」⇒ 先接的是**资源包 / 数据包 / 光影包**
+    ///   三页。**同一天下半句到了**：「对于模组，点进去和资源包差不多…」⇒ **模组也接上了**，
+    ///   现在这一张表是**四页**。要接别的页时改的是这**一处**（`setFileResource()` 那个循环
+    ///   和构造里那条 connect 都读它）。
+    ///
+    /// NOTE: 模组和另外三页**走的是同一条路**（同一个页面对象、同一个返回去处）—— 唯一的
+    ///       分别落在那一页**右上角那一格**上：只有"从实例的文件管理页点一个模组进来"才摆
+    ///       那颗「模组设置」（见 `ResourceDetailPage::setModSettingsSlot` 和
+    ///       `MainWindow::DetailSource`）。**别在这儿再加一个"模组要特殊对待"的分支**。
+    ///
+    /// NOTE: 和 `filesDownloadText()` 那张表**没关系**（原理图那页也没有这一条），别顺手
+    ///       把两张表合成一张：那个说的是"顶上有没有那颗按钮"，这个说的是"名字点不点得动"，
+    ///       而它们各自会变。
+    static bool filesNameOpensResource(const QString &key);
+
+    /// 名字那一格（认出来了的那几条）的悬停提示：说清**点下去会去哪儿**
+    /// —— 这一页会关掉，所以必须说（见 InstanceFilesPage::setResourceForPath()）。
+    /// @param title 那个资源在接口上的名字。空串（= 没认出来）回空串。
+    static QString filesResourceTip(const QString &title);
+
+    /// 三页底下那行说明里**多出来的那一句**（见 filesHint()）：名字能点这件事得让人知道
+    /// —— 光靠颜色和光标是"要悬停才发现"的，而这一段小字正是说"这一页特有的事"的地方。
+    ///
+    /// NOTE: 和那颗「下载新光影」一样，**光影包那一页那句故意不提它**（见 filesHint 里
+    ///       那条 ★：那一页有「用不上」那一档，整排按钮和这一列连人一起收起来）。
+    static QString filesNameHint();
+
     /// 「配置文件」那一页上面那颗「上级」（2026-09-27）。**只有这一页有** —— 别的几页
     /// 看的是一个平铺的目录，而 `config/` 底下还有层级（`config/ftbquests/` 这种），
     /// 得能进去也得出得来。
@@ -772,8 +856,25 @@ public:
     static QString serverPingingText() { return QStringLiteral("测速中…"); }
     /// 还没测过的那一格写什么（**不是空着**：空着和"测了没通"在屏幕上是同一个样子）。
     static QString serverUntestedText() { return QStringLiteral("还没测"); }
-    /// 这一格里的数字是**上一次**问到的（见 ServerRowStatus::fromCache）。
-    static QString serverCachedPrefix() { return QStringLiteral("上次："); }
+    /// 超时那一档在界面上**就写这两个字**（用户 2026-09-27：「超时的只写超时」）。
+    ///
+    /// NOTE: 和 `Status::timedOut` 那一位配着用 —— 那一位才是判据，这一句只是写出来的字。
+    ///       那一格窄（`ResizeToContents`），而「它没答话」和「网络不通」这两个理由对这个
+    ///       格子的读者（想点进去玩的人）是同一件事：现在连不上。
+    static QString serverTimeoutText() { return QStringLiteral("超时"); }
+    /// 地址那一格悬停提示里那句**告诉用户右键能复制**的话（用户 2026-09-27：「ip地址右键
+    /// 可以复制（这一点在悬停文本上也告知）」）。
+    ///
+    /// NOTE: 唯一出处。那一格显示的是**遮过的**地址（`m-.h-.c-`），所以这句话还得说清
+    ///       "复制到的是完整的那个" —— 不然用户看到 `m-.h-.c-`、复制出来却是一长串，
+    ///       会以为我们复制错了东西。
+    static QString serverAddressCopyHint() {
+        return QStringLiteral("右键复制完整的地址");
+    }
+    // NOTE: 这儿原来还有一颗 `serverCachedPrefix()`（「上次：」）。2026-09-27 用户原话
+    //       「‘上次’两个字也不要」，那一句过去时的前缀整个删了 —— 状态那一格现在**缓存
+    //       里那一份和当场测出来那一份写的是同一句字**。别再加回来：要在界面上给这一格
+    //       加前缀，等于重新发明那句被点名删掉的话。
     static QString serverNameColumnText() { return QStringLiteral("名称"); }
     static QString serverAddressColumnText() { return QStringLiteral("地址"); }
     static QString serverStatusColumnText() { return QStringLiteral("状态"); }
@@ -1092,6 +1193,39 @@ signals:
     void closeBlockedByUnsavedConfigFile();
 
     /**
+     * @brief 用户按了「文件管理」某几页顶上那颗「下载新 X」⇒ 请切到下载页对应的那一栏
+     *        （2026-09-27）。
+     *
+     * 用户原话：「在实例设置里模组 资源包 数据包 光影包里添加下载新光影，按了以后导向下载页
+     * 对应类别」。
+     *
+     * @param categoryKey `MainWindowUI::downloadCategoryKeys()` 里的一个键 —— 就是那一页
+     *        对应的一栏（写法见 filesDownloadCategoryKey()）。**是键不是行号**：下载页左栏
+     *        的行序由界面自己摆，这一层不该知道它。
+     *
+     * NOTE: 这一层只发信号，自己什么都不做（不关这一页、也不碰选项卡）—— 它正卡在
+     *       MainWindow 那次 `execPage()` 的嵌套事件循环里，"收页之后再切到哪儿"的顺序只有
+     *       那边知道（见 OverlayHost::dismiss() 那段 ★）。
+     */
+    void browseDownloadsRequested(const QString &categoryKey);
+
+    /**
+     * @brief 用户**点了一下某一条文件的名字**，而这一条认得出是哪个资源 ⇒ 请打开它自己的
+     *        那一页（2026-09-27）。
+     *
+     * 用户原话：「除了模组以外的几个都是点击模组名称自动进入下载界面（前提是匹配上了）」。
+     *
+     * @param pageKey 哪一页发出来的（`filePageKeys()` 里的一个键 —— 也就是"这是个资源包
+     *        还是光影包"，见 filesNameOpensResource()）。**是键不是下标**。
+     * @param path 那一条的**绝对路径**。注意给的是路径不是资源身份：身份是 MainWindow 那张
+     *        反查表里的东西（`InstanceFilesPage` 和这一层都不知道一个文件对应哪个项目）。
+     *
+     * NOTE: 这一层只发信号，自己什么都不做（不关这一页）—— 和 browseDownloadsRequested()
+     *       同一个理由：它正卡在 MainWindow 那次 `execPage()` 的嵌套事件循环里。
+     */
+    void fileResourceRequested(const QString &pageKey, const QString &path);
+
+    /**
      * @brief 用户按了服务器列表那一页的「刷新」。
      *
      * 那一页的内容是**解析好的结果**递进来的（setServerList()），重读一遍要碰 src/ 里的
@@ -1110,6 +1244,20 @@ signals:
      *       延迟都是刚问来的）。只重测不重读走「测速」，只重读不重测就没有了。
      */
     void pingServersRequested();
+
+    /**
+     * @brief 用户在地址那一格**按了右键** ⇒ 请把那一串**完整的**地址放进剪贴板（2026-09-27）。
+     *
+     * 用户原话：「ip地址右键可以复制（这一点在悬停文本上也告知）」。
+     *
+     * 给出去的是**没遮过**的那一串（`host:port`，就是 servers.dat 里写的那个）—— 屏幕上
+     * 那一格显示的是遮过的写法（`maskedServerAddress()`），复制一份"屏幕上那样的"给用户
+     * 没有任何用（粘到游戏里连不上）。
+     *
+     * NOTE: 这一层**不碰剪贴板**（也不写日志）：和 `copyNameRequested` 那边同一条路数 ——
+     *       复制出去的东西进哪儿由调用方说了算，而且这一层够不着 MainWindow 的日志。
+     */
+    void copyServerAddressRequested(const QString &address);
 
     /**
      * @brief 用户**切到了服务器列表那一页**（2026-09-27）。

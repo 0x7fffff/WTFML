@@ -3646,8 +3646,11 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
                 // **排到下一轮事件循环**再开页：`execPage` 里面要转起一个嵌套事件循环，
                 // 而这一发还在视图的事件处理里（列表那一侧的状态机悬在半路）。这里传的是
                 // 两个字符串**值**，不是条目指针 —— 下一轮里树可能已经被重搜清空了。
+                //
+                // ★ 来路钉死是 `Download`（2026-09-27）：这条路上这一页**永远**摆「显示
+                //   快照版」，哪怕点的是一个模组（用户原话「不要不小心把下载页改了」）。
                 QTimer::singleShot(0, this, [this, iconKey, kindKey] {
-                    openResourceDetailPage(iconKey, kindKey);
+                    openResourceDetailPage(iconKey, kindKey, DetailSource::Download);
                 });
             }
             return true;
@@ -4841,27 +4844,28 @@ void MainWindow::applyResourcePageChips(const QStringList &declaredGameVersions,
     m_resourceDetailPage->setChips(chips, wanted);
 }
 
-void MainWindow::openResourceDetailPage(const QString &iconKey, const QString &kindKey) {
+int MainWindow::openResourceDetailPage(const QString &iconKey, const QString &kindKey,
+                                       DetailSource from) {
     OverlayHost *overlay = m_ui->overlay();
     if (overlay == nullptr || overlay->isOpen()) {
         // 已经有覆盖层开着（另一页、或者一条提示）。这一层不做页面栈，这一次就不开了 ——
         // 和 `openPage()` 返回 nullptr 是同一件事（见 OverlayHost.hpp 那段）。
-        return;
+        return kResourcePageNotOpened;
     }
     ResourceCatalog::Kind kind = ResourceCatalog::Kind::Mod;
     if (!ResourceCatalog::kindFromCategoryKey(kindKey, &kind)) {
-        return;  // 这一行不是我们建的（正常走不到）
+        return kResourcePageNotOpened;  // 这一行不是我们建的（正常走不到）
     }
     const auto hit = m_resourceHits.constFind(iconKey);
     if (iconKey.isEmpty() || hit == m_resourceHits.constEnd()) {
         // 条目上那把钥匙在表里找不到 = 这一行是上一批搜索留下的（重搜过）。用户没做错
         // 什么，不弹窗（和点第三层时那句"清单里没它"同一个规矩）。
-        return;
+        return kResourcePageNotOpened;
     }
     setupResourceDetailPage();
     ResourceDetailPage *page = m_resourceDetailPage;
     if (page == nullptr) {
-        return;
+        return kResourcePageNotOpened;
     }
 
     // 这一次说的是哪个资源、列的是哪一份。**开页之前就要摆好**：下面 execPage 一进去
@@ -4906,6 +4910,15 @@ void MainWindow::openResourceDetailPage(const QString &iconKey, const QString &k
     // 开页一律从「全部」开始（用户在下载页选的是"哪个资源"，还没说"哪个游戏版本"），
     // 勾选框也一律从不勾开始（那一页自己的默认值，见 ResourcePageState::showSnapshots）。
     page->setShowSnapshots(false);
+
+    // ★ 右上角那一格**每次开页都显式摆一次**（2026-09-27）：这一页是**同一个对象、建一次
+    //   留着的**，两个入口（下载页 / 实例的文件管理页）共用它 —— 不摆的话就留着上一次那
+    //   一格（先下载页点个模组、再从实例点个模组进来，看见的还是「显示快照版」）。
+    //
+    //   判据是**两样都要**：来路是实例的文件管理页，**而且**这一条是个模组。少一样都不摆
+    //   —— 从实例点一个**资源包**进来照旧摆「显示快照版」（那一颗在那一页上是有用的：那一
+    //   排 chip 折的正是"这个资源支持哪些游戏版本"）。
+    page->setModSettingsSlot(from == DetailSource::InstanceFiles && kind == ResourceCatalog::Kind::Mod);
     applyResourcePageChips(hit->gameVersions, m_resourcePage.showSnapshots, QString());
     // 图标是异步来的：先清掉上一次那一张（不然会留着上一个资源的图标，比空着糟），
     // 那一格的位置照旧留着，图回来时整张卡不会往左跳一下。
@@ -4925,10 +4938,11 @@ void MainWindow::openResourceDetailPage(const QString &iconKey, const QString &k
     // NOTE: 上面发出去的两条请求都是异步的，答复会在那个循环里落地 —— 所以"先发请求、
     //       再开页"和"先开页、再发请求"对用户是同一件事；写成这样只是因为这一句之后
     //       的控制流要等用户。
-    overlay->execPage(page, page->titleText());
+    const int result = overlay->execPage(page, page->titleText());
     // 点了返回（或者 Esc）：状态落下去。**页面本身留着**（它是懒建的那一份），下次点开
     // 还是它，setHeader/setChips 会把上一次那些字全换掉。
     m_resourcePage.open = false;
+    return result;
 }
 
 void MainWindow::onResourcePageChipChanged(const QString &gameVersion) {
@@ -7826,6 +7840,44 @@ void MainWindow::openInstanceSettings(const QString &versionId) {
     connect(&dialog, &InstanceSettingsDialog::serverPageEntered, this,
             [this, &dialog, &targetId]() { pingServers(&dialog, targetId); });
 
+    // 「下载新模组 / 资源包 / 数据包 / 光影」那四颗（2026-09-27）：**切到下载页对应的那一栏**。
+    // 那一页和下载页是两块地方，路只有这一条 —— 收页 + 摆选项卡 + 挑那一行全在
+    // openDownloadCategory() 一处（内含"为什么要排到下一轮事件循环"那句）。
+    //
+    // NOTE: 接在 execPage **之前**，理由同上：那一下会阻塞在一个嵌套事件循环里，
+    //       用户在页面上点那颗按钮时，这一句还没返回，接晚了就一辈子收不到。
+    connect(&dialog, &InstanceSettingsDialog::browseDownloadsRequested, this,
+            [this](const QString &categoryKey) { openDownloadCategory(categoryKey); });
+
+    // ★ 行上的名字点得动（2026-09-27，用户原话「除了模组以外的几个都是点击模组名称自动
+    //   进入下载界面（前提是匹配上了，模组的待会再说）」）：**进的是那个资源自己的那一页**
+    //   （和下载页里点一行开的是同一页）—— 「前提是匹配上了」那句话只有这样才说得通，
+    //   换成"切到下载页"就跟匹配不匹配没关系了。
+    //   路径 → 它是哪个资源，是上面那趟反查认出来的（见 m_instanceFileIdentities）；页面
+    //   那边只会为**记过名字**的那几条发这一发（没认出来的名字压根点不动）。
+    // ★★ `targetId` 按**引用**收（和上面那批 lambda 同一个理由，见 refreshInstanceDirs 的
+    //   NOTE）：它必须取到**改名之后**的值 —— 用户改完名再点名字，回来时那一页要开在
+    //   新目录名的实例上，收一份旧名字就是"实例设置打不开"。
+    // NOTE: 同样接在 execPage **之前**，理由和上面那条逐字相同。
+    connect(&dialog, &InstanceSettingsDialog::fileResourceRequested, this,
+            [this, &targetId](const QString &pageKey, const QString &path) {
+                openInstanceFileResource(targetId, pageKey, path);
+            });
+
+    // 地址那一格右键 ⇒ 把**完整的**地址放进剪贴板（2026-09-27，用户原话「ip地址右键可以
+    // 复制」）。复制完**不弹话**：这一下是用户自己按的，粘一下就看得见 —— 和资源详情页
+    // 那条「复制名称」逐字同一个路数（那边进日志留个痕就够）。
+    connect(&dialog, &InstanceSettingsDialog::copyServerAddressRequested, this,
+            [this](const QString &address) {
+                if (address.isEmpty()) {
+                    return;
+                }
+                if (QClipboard *clipboard = QApplication::clipboard()) {
+                    clipboard->setText(address);
+                    appendLog(tr("已复制服务器地址：%1").arg(address));
+                }
+            });
+
     // ---------- 「改了就写」那两条（2026-09-26）----------
     //
     // ★ 用户原话：「实例设置里面的那个取消和确定删了，修改了的设置实时写入」。从前收尾那
@@ -7924,6 +7976,123 @@ QHash<QString, QString> MainWindow::instanceFileDirs(const QString &versionId) c
         dirs.insert(entry.first, root + QLatin1Char('/') + entry.second);
     }
     return dirs;
+}
+
+void MainWindow::openDownloadCategory(const QString &categoryKey) {
+    // 认行用**条目自己的 UserRole**（= 那一栏的键），不是行号：左栏那一列的行序是界面
+    // 自己按 downloadCategoryKeys() 摆出来的，这一层不去假设"第几个就是哪一个"
+    // （和 MainWindow::refreshDownloadCategory 那边认身份的做法一致）。
+    QListWidget *categories = m_ui->getDownloadCategoryList();
+    const QStringList keys = MainWindowUI::downloadCategoryKeys();
+    int row = -1;
+    for (int i = 0; categories != nullptr && i < categories->count(); ++i) {
+        if (categories->item(i)->data(Qt::UserRole).toString() == categoryKey) {
+            row = i;
+            break;
+        }
+    }
+    if (row < 0 || !keys.contains(categoryKey)) {
+        // 认不出来就**说出来**：悄悄什么都不做的症状是"按了那颗按钮没反应"，
+        // 而这一层是唯一知道"下载页到底有哪几栏"的地方，出错时不说就没人查得到。
+        qWarning() << "下载页没有这一栏：" << categoryKey;
+        return;
+    }
+
+    // ① 先收掉当前这一页。**只能走 dismiss()**：它发的就是顶上那颗返回箭头的同一发信号
+    //    （见 OverlayHost::dismiss() 里那段 ★）—— 这一页正卡在 `execPage()` 的嵌套事件
+    //    循环里，只 `closeOverlay()` 的话一个信号都不发，那个循环永远不返回（用户看到的
+    //    是"按了没反应"，测试是直接挂在那儿）。
+    m_ui->overlay()->dismiss();
+
+    // ② 摆选项卡与那一栏**排到下一轮事件循环**：这一句这会儿还在上面那个嵌套循环的调用栈
+    //    里（按钮的 clicked 处理函数），`execPage()` 还没返回、覆盖层也还盖在内容区上 ——
+    //    现在就把选项卡翻过去，翻的是它**底下**那一层，而覆盖层收干净的那一下还没发生。
+    //    排到下一轮，那时这一页已经关好了（和 openResourceDetailPage 那边同一个手法）。
+    QTimer::singleShot(0, this, [this, row, categoryKey] {
+        m_ui->getTabWidget()->setCurrentIndex(MainWindowUI::downloadTabIndex());
+        QListWidget *categories = m_ui->getDownloadCategoryList();
+        if (categories == nullptr) {
+            return;
+        }
+        categories->setCurrentRow(row);
+        // ★ 已经在那一行上时 `setCurrentRow()` **不发** currentRowChanged（Qt 只在"变了"
+        //   的时候才发），而"第一次进这一页才去搜一次"那一发正挂在它身上 ⇒ 这里补一次。
+        //   同一条路、同一个函数，重复调用是安全的（它自己判"树上已经有东西就不动"）。
+        ResourceCatalog::Kind kind = ResourceCatalog::Kind::Mod;
+        if (ResourceCatalog::kindFromCategoryKey(categoryKey, &kind)) {
+            ensureResourcePageLoaded(kind);
+        }
+    });
+}
+
+void MainWindow::openFileResourcePage(const QString &versionId, const QString &iconKey,
+                                      const QString &kindKey) {
+    // ★★ 2026-09-27 用户原话：「点击下载界面返回后应该退回到实例设置而不是实例列表」。
+    //    这一页是**从实例设置里点出来的**，用户按返回要回的是**那一页** —— 不接的话他落在
+    //    实例列表上，原来那一页（连页码带勾选）整个没了。`OverlayHost` 不做页面栈
+    //    （那一层的规矩，见它的 .hpp），所以"来路"得由这一层自己放回去。
+    //
+    // ★ 判据是 `QDialog::Rejected`（= 用户把这一页**收掉**了）：返回箭头和 Esc 走的都是
+    //   它。这一页上没有别的出路会让 `execPage()` 返回（三颗按钮和版本行都只发信号、
+    //   不 accept）—— 哪一天真加了一条 accept 的出路，它自然就不会被实例设置盖住。
+    //
+    // ★★ 必须和 `kResourcePageNotOpened` 分开认：那一档是"这一页压根没开出来"（上面第
+    //   ① ② 步认完之后、`m_resourceHits` 里那条已经不在了之类）。不分开的话，用户点一下
+    //   名字 = 实例设置被收掉、详情页没出来、实例设置又被摆回去，看着就是白闪一下。
+    //
+    // ★ 来路是 `InstanceFiles`：只有这一条路上那一页才可能摆「模组设置」（见
+    //   openResourceDetailPage 里那一句 —— 还要**同时**是个模组）。
+    const int result = openResourceDetailPage(iconKey, kindKey, DetailSource::InstanceFiles);
+    if (result != QDialog::Rejected || versionId.isEmpty()) {
+        return;
+    }
+    openInstanceSettings(versionId);
+}
+
+void MainWindow::openInstanceFileResource(const QString &versionId, const QString &pageKey,
+                                          const QString &path) {
+    // ★ 2026-09-27 补，用户原话：「除了模组以外的几个都是点击模组名称自动进入下载界面
+    //   （前提是匹配上了，模组的待会再说）」。进的是**那个资源自己的那一页**（下载页里点
+    //   一行开的就是它，见 openResourceDetailPage）——「前提是匹配上了」那句话只有这样
+    //   才说得通：换成"切到下载页那一栏"就跟匹配不匹配没关系了。
+    //
+    // ① 这一页是"哪一类资源"：判据就是 filesDownloadCategoryKey() 那张表 —— 页键和下载页
+    //    分类键现在恰好同名，可那一处才是"这两件事是一回事"的唯一出处。认不出来就回去，
+    //    连覆盖层都不碰：悄悄地少收一页比收错了强。
+    ResourceCatalog::Kind kind = ResourceCatalog::Kind::Mod;
+    const QString kindKey = InstanceSettingsDialog::filesDownloadCategoryKey(pageKey);
+    if (kindKey.isEmpty() || !ResourceCatalog::kindFromCategoryKey(kindKey, &kind)) {
+        return;
+    }
+    // ② 这一条是哪个资源。认不出来 = 没匹配上 ⇒ **什么都不做**（那一行的名字本来也没
+    //    变成链接，正常走不到这儿；测试里点一下量得到的就是"没反应"）。
+    const auto identity = m_instanceFileIdentities.constFind(instanceIconCacheKey(path));
+    if (identity == m_instanceFileIdentities.constEnd()) {
+        return;
+    }
+    const QString iconKey = identity.value();
+    // ③ 先收掉实例设置那一页 —— **只能走 dismiss()**，理由和 openDownloadCategory() 里
+    //    逐字相同：那一页正卡在 `execPage()` 的嵌套事件循环里，只 `closeOverlay()` 的话
+    //    一个信号都不发，那个循环永远不返回。
+    if (m_ui->overlay() == nullptr || !m_ui->overlay()->isOpen()) {
+        // 页已经关掉了（连着点两下、或者返回键和它撞上）。没有那一层嵌套循环要收，
+        // 直接开新的就完了。
+        openFileResourcePage(versionId, iconKey, kindKey);
+        return;
+    }
+    m_ui->overlay()->dismiss();
+    // ④ 摆到下一轮：这一句这会儿还在那个嵌套循环的调用栈里（名字上那个鼠标松开事件），
+    //    execPage() 还没返回、覆盖层也还盖着 —— 现在就去开新页的话，openResourceDetailPage
+    //    开头那条 `overlay->isOpen()` 会当场把这次点击吃掉。
+    //
+    //   NOTE: 键与键都在这一层认完了，排到下一轮带过去的只有那三个**字符串**：下一轮
+    //         里这一页早就没了，那时候再去查"这一条是哪个资源"就等于查一份已经被清掉的
+    //         上下文（和 openDownloadCategory 那边带 `row` 过去是同一个道理）。
+    //         `versionId` 也在这一层就绑好：它是"回来时把哪一页放回去"的唯一依据，而实例
+    //         设置那一页这会儿已经在往下撤了。
+    QTimer::singleShot(0, this, [this, versionId, iconKey, kindKey] {
+        openFileResourcePage(versionId, iconKey, kindKey);
+    });
 }
 
 // ---------- 「世代备份」那三件事（见 .hpp 那一段）----------
@@ -8445,6 +8614,10 @@ InstanceSettingsDialog::ServerRowStatus serverRowFromCache(const ServerStatusCac
     row.tested = true;
     row.fromCache = true;
     row.online = entry.online;
+    // 没连上那一档里**是不是超时**（见 Entry::timedOut）：界面上按它决定写「超时」还是
+    // 「没连上」—— 和当场测出来那一档走的是同一个判据、同一句字（2026-09-27 用户
+    // 「‘上次’两个字也不要」之后，那两处连前缀都没有分别了）。
+    row.timedOut = entry.timedOut;
     row.latencyMs = entry.latencyMs;
     row.playersOnline = entry.playersOnline;
     row.playersMax = entry.playersMax;
@@ -8481,8 +8654,8 @@ QHash<int, ServerStatusCache::Entry> serverCachedEntries(const QStringList &addr
     return cached;
 }
 
-/// 这份地址表现在该显示成什么样（**只读缓存、不问网络**）。换页那一支用它先把「上次：」
-/// 摆上，免得新那一页在"上一趟收摊"那个空档里是一片"还没测"。
+/// 这份地址表现在该显示成什么样（**只读缓存、不问网络**）。换页那一支用它先把缓存里
+/// 那一份摆上，免得新那一页在"上一趟收摊"那个空档里是一片"还没测"。
 /// 摆法和 pushServerPingRows() 里那一档同源（都走 serverRowFromCache()）。
 QList<InstanceSettingsDialog::ServerRowStatus>
 serverCachedRows(const QStringList &addresses) {
@@ -8547,8 +8720,8 @@ void MainWindow::pingServers(InstanceSettingsDialog *dialog, const QString &vers
         m_serverPing.pendingAddresses = addresses;
         m_serverPing.pendingDialog = dialog;
         m_serverPing.pendingVersionId = versionId;
-        // 新那一页先把盘上缓存（「上次：」那一档）摆上 —— 那份东西和哪一趟在跑无关，
-        // 让这一页在这个空档里也不是一片"还没测"。
+        // 新那一页先把盘上缓存那一档摆上 —— 那份东西和哪一趟在跑无关，让这一页在这个
+        // 空档里也不是一片"还没测"。
         dialog->setServerStatuses(serverCachedRows(addresses));
         dialog->setServerPinging(true);
         return;
@@ -8592,7 +8765,8 @@ void MainWindow::pushServerPingRows() {
     }
     // 三样东西摆在一张表上，**一台一台决定**：
     //   fresh   —— 这一趟真的问回来了，用它（最权威）；
-    //   cached  —— 还没问到，拿上一次那份垫着（状态那一格会写明「上次：」）；
+    //   cached  —— 还没问到，拿上一次那份垫着（2026-09-27 起那一格**不再标出**这是过去时
+    //              —— 用户要「‘上次’两个字也不要」，见 serverStatusLines()）；
     //   都没有  —— 「还没测」。
     QList<InstanceSettingsDialog::ServerRowStatus> rows;
     rows.reserve(m_serverPing.addresses.size());
@@ -8603,6 +8777,8 @@ void MainWindow::pushServerPingRows() {
             row.tested = true;
             row.online = status.ok;
             row.error = status.error;
+            // 超时那一档界面上只写「超时」两个字（见 ServerRowStatus::timedOut）。
+            row.timedOut = status.timedOut;
             row.latencyMs = status.latencyMs;
             row.playersOnline = status.playersOnline;
             row.playersMax = status.playersMax;
@@ -8645,6 +8821,10 @@ void MainWindow::onServerPingOne(int index, const ServerPing::Status &status) {
     entry.motdRaw = status.motdRaw;
     entry.iconPng = status.iconPng;
     entry.online = status.ok;
+    // 「是不是超时」也要落盘：界面上那一格对超时只写两个字，而缓存那一份要能说出**同一句**
+    // 话（用户 2026-09-27：「服务器那个会显示上次:没连上，也改成超时」；稍后又说「‘上次’
+    // 两个字也不要」⇒ 这两处现在**连前缀的分别都没有了**，全靠这一位对齐）。
+    entry.timedOut = status.timedOut;
     entry.latencyMs = status.latencyMs;
     entry.playersOnline = status.playersOnline;
     entry.playersMax = status.playersMax;
@@ -8921,11 +9101,11 @@ void MainWindow::onInstanceIconLookupFinished(const InstanceIconLookup::Result &
     // 这一层只是把身份递给它。
     QSet<QString> foundPaths;
     for (const InstanceIconLookup::Found &found : result.found) {
-        ResourceCatalog::Hit hit;
-        hit.projectId = found.projectId;
-        hit.source = found.source;
-        hit.iconUrl = found.iconUrl;
-        hit.iconFallbackUrl = found.iconFallbackUrl;
+        // ★ 2026-09-27：反查回来的是**整个项目对象**（`Found::hit`），不再只是项目号 +
+        //   两条图标地址 —— 名字 / slug / 简介 / 支持的游戏版本都在同一份字节里，
+        //   也就是"点名字进它自己的那一页"要的那几样（见 setFileResource() 那段）。
+        //   多读几栏，**没有多发一个请求**。
+        const ResourceCatalog::Hit hit = found.hit;
         // 这一条文件属于哪一格（`<来源>-<项目号>`）—— 图标回来时按它找回**行**（见
         // onResourceIconReady）。同一个资源被反查出来两次（同一个 jar 摆了两份）时
         // 两条路径都记上：两张图本来就该是同一张。
@@ -8935,6 +9115,13 @@ void MainWindow::onInstanceIconLookupFinished(const InstanceIconLookup::Result &
             paths.append(found.path);
         }
         foundPaths.insert(found.path);
+        // 这一条是哪个资源（会话缓存，按"路径 + 大小 + 修改时间"记 —— 同一个名字上换了
+        // 一个文件就自然作废，见 instanceIconCacheKey）。整份 Hit 存进 m_resourceHits：
+        // 点名字开那一页走的就是**下载页点一行**那条路（openResourceDetailPage 按这把
+        // 钥匙取标题 / 简介 / slug / 游戏版本；两处的分别只有"来路"那一位，见 DetailSource），
+        // 这一层不需要再为它多存一份。
+        m_instanceFileIdentities.insert(instanceIconCacheKey(found.path), iconKey);
+        m_resourceHits.insert(iconKey, hit);
         // 已经在问 / 已经在缓存里的话 requestIcon() 自己会处理（可能**同步**就把 iconReady
         // 发出来了 —— 那时候上面那一行必须先写完，见它那条 NOTE）。
         m_resourceStore->requestIcon(hit);
@@ -9004,6 +9191,17 @@ void MainWindow::pushInstanceFileIcons() {
             dialog->setFileIcon(path, QPixmap());
         }
         // 两样都没有 = 还没问回来 ⇒ **什么都不做**，那一格现在摆的就是占位图。
+
+        // ★ 行上的名字点不点得动（2026-09-27）：认得出来（`m_instanceFileIdentities` 里有
+        //   它、而且那份 Hit 带着名字）才给那一行带上链接的样子，否则给**空串**。
+        //   空串这一支不是"没话说"，而是"把上一趟可能戴上的摘掉"：同一个路径换了内容
+        //   （大小/时间变了）时键也换了，这一趟的负结果必须覆盖上一趟的正结果，不然
+        //   那一行会顶着一个已经不对的资源名字、点进去是另一个东西。
+        const auto identity = m_instanceFileIdentities.constFind(key);
+        dialog->setFileResource(
+            path, identity == m_instanceFileIdentities.constEnd()
+                      ? QString()
+                      : m_resourceHits.value(identity.value()).title);
     }
 }
 

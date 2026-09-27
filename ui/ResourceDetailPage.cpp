@@ -335,6 +335,21 @@ ResourceDetailPage::ResourceDetailPage(QWidget *parent) : QDialog(parent) {
     connect(m_showSnapshots, &QCheckBox::toggled, this,
             [this](bool checked) { emit showSnapshotsChanged(checked); });
     chipLine->addWidget(m_showSnapshots, 0, Qt::AlignVCenter);
+
+    // 同一格上那颗「模组设置」（2026-09-27，见 ResourceDetailPage.hpp 里 setModSettingsSlot
+    // 那段）：**默认收着**，而且**先占位** —— 画出来、灰着、点不动。
+    //
+    // ★ 为什么不干脆 `setEnabled(false)` 就算完：`QPushButton` 灰掉之后**照样能收键盘**
+    //   （不参与 Tab 链，可它还在那儿）；这儿更关键的是**不许它跟「显示快照版」同时露面**
+    //   —— 同一格只露一个，谁来摆由 setModSettingsSlot 说了算。
+    m_modSettings = new QPushButton(modSettingsText(), this);
+    m_modSettings->setObjectName(modSettingsButtonName());
+    m_modSettings->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    // 灰着、点不动。**这一条就是"先占位"的全部实现** —— 接上去了再打开。
+    m_modSettings->setEnabled(false);
+    m_modSettings->setToolTip(tr("还没做"));
+    m_modSettings->hide();
+    chipLine->addWidget(m_modSettings, 0, Qt::AlignVCenter);
     outer->addLayout(chipLine);
 
     // ---------- 版本列表 ----------
@@ -388,6 +403,10 @@ QString ResourceDetailPage::chipButtonNamePrefix() {
 QString ResourceDetailPage::showSnapshotsCheckBoxName() {
     return QStringLiteral("resourceDetailShowSnapshots");
 }
+QString ResourceDetailPage::modSettingsButtonName() {
+    return QStringLiteral("resourceDetailModSettings");
+}
+QString ResourceDetailPage::modSettingsText() { return QStringLiteral("模组设置"); }
 QString ResourceDetailPage::versionListName() { return QStringLiteral("resourceDetailVersions"); }
 int ResourceDetailPage::rowKeyRole() { return Qt::UserRole; }
 
@@ -547,6 +566,17 @@ void ResourceDetailPage::setShowSnapshots(bool showSnapshots) {
     m_showSnapshots->setChecked(showSnapshots);
 }
 
+void ResourceDetailPage::setModSettingsSlot(bool show) {
+    m_modSettingsShown = show;
+    if (m_modSettings == nullptr || m_showSnapshots == nullptr) {
+        return;
+    }
+    // 同一格只露一个 —— 摆谁就把另一个**整个收起来**（用户原话「右上角显示快照版那里替换为
+    // 模组设置」："替换"就是这个意思，不是两颗并排）。
+    m_modSettings->setVisible(show);
+    m_showSnapshots->setVisible(!show);
+}
+
 QString ResourceDetailPage::chipTextAt(int index) const {
     return index >= 0 && index < m_chipButtons.size() ? m_chipButtons.at(index)->text()
                                                      : QString();
@@ -679,8 +709,12 @@ void ResourceDetailPage::keyPressEvent(QKeyEvent *event) {
     // 的那几发**不算** —— 那是别的快捷键，放给下面那一层。
     const Qt::KeyboardModifiers others =
         event->modifiers() & ~(Qt::AltModifier | Qt::KeypadModifier);
+    //
+    // ★ 摆着「模组设置」的时候**这一发不吃**（2026-09-27）：那一格上压根没有「显示快照版」，
+    //   拨了也是拨一个**看不见**的勾 —— 屏幕上什么都不动，用户按一下 Alt 只能得出"这软件
+    //   没反应"的结论。放给基类，让它该干嘛干嘛。
     if (event->key() == Qt::Key_Alt && others == Qt::NoModifier) {
-        if (m_showSnapshots != nullptr) {
+        if (!m_modSettingsShown && m_showSnapshots != nullptr) {
             // 走 setChecked：`toggled` 那一发会照常发出去（这一下就是"用户拨了"）。
             m_showSnapshots->setChecked(!m_showSnapshots->isChecked());
         }

@@ -462,6 +462,18 @@ public:
     ///       rowSubTextRole() 上面那段"撞号的表现是屏幕上多出一笔"）。
     static int rowMotdRawRole() { return Qt::UserRole + 14; }
 
+    /// 「服务器列表」那一页**地址那一格（第 1 列）里真正的那个地址**（没遮过的那一串，
+    /// 就是 `servers.dat` 里写的 `host:port`）。
+    ///
+    /// Why 要专门存一格：那一格**显示的是遮过的写法**（`m-.h-.c-`，见
+    /// `InstanceSettingsDialog::maskedServerAddress()`，那是给截图/直播看的），所以"用户
+    /// 要的那串真地址"在屏幕上根本不存在 —— 右键复制要复制的正是它。悬停提示里虽然也写着
+    /// 一串，但让代码去拆 tooltip 的字符串是另一种撞号（改一个字就悄悄坏掉）。
+    ///
+    /// NOTE: 号码 **`Qt::UserRole + 15`**（14 是 rowMotdRawRole() 的，见
+    ///       rowSubTextRole() 上面那段"撞号的表现是屏幕上多出一笔"）。
+    static int serverAddressRole() { return Qt::UserRole + 15; }
+
     /// 「服务器列表」那一页的行高：比版本树那个常数**高一档**（多出来的那一档正好是
     /// 第二行小字的高度）。
     ///

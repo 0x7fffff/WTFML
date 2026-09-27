@@ -64,19 +64,19 @@ struct Options {
 struct Found {
     /// 递进来的那个**绝对路径**，原样回来（调用方按它认行）。
     QString path;
-    QString projectId;
-    ResourceCatalog::Source source = ResourceCatalog::Source::Modrinth;
-    /// 接口给的那条图标地址。Modrinth 是 `GET /v2/projects?ids=…` 回的 `icon_url`（大多是
-    /// 96px 的 webp，**只有接口说得出来**，见 `ResourceCatalog::projectsRequestUrl()`）；
-    /// CurseForge 是 `logo.thumbnailUrl`。
+    /// 这个文件认出来的那个资源：`projectId` / `source` / 两条图标地址，以及
+    /// **详情页要的那几样**（名字 / slug / 简介 / 支持的游戏版本 / 下载量 / 更新时间）。
     ///
-    /// NOTE: 这一格取不到时留空，接的人（`ResourceStore::requestIcon`）会退回
-    ///       `Hit::iconPngUrl()` 那条自己拼的地址。**那条只是老项目的别名** —— 所以
-    ///       空着和不空着在屏幕上是"有图"和"绝大多数没图"的区别（见 `iconProblem`）。
-    QString iconUrl;
-    /// 兜底那条。Modrinth 这条路**空着**（兜底由 `Hit::iconPngUrl()` 按 id 自己拼）；
-    /// CurseForge 是 `logo.url`。
-    QString iconFallbackUrl;
+    /// ★ 2026-09-27：从前这里散着放着 `projectId` / `source` / 两条图标地址，现在整份
+    ///   `Hit` 收一条。缘由是用户那句「除了模组以外的几个都是点击模组名称自动进入下载界面
+    ///   （前提是匹配上了）」—— 那一页的头卡要名字和 slug，而**同一份响应里本来就有**
+    ///   （见 `ResourceCatalog::parseProjects()` 那段）。要一个文件的身份就得给一整条，
+    ///   不然接的人手上永远缺几栏、迟早再往这儿加第四个字段。
+    ///
+    /// NOTE: 图标那两条取不到时是空串（那一格退回占位拼图），**身份照样是准的**；
+    ///       详情没取到时 `title` 那几栏也空着（那一趟 `iconProblem` 立着），点名字那一下
+    ///       于是什么都不做 —— 而不是进一个没有名字的空页。
+    ResourceCatalog::Hit hit;
 };
 
 /// 一趟反查的全部结果。

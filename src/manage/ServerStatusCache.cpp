@@ -15,6 +15,7 @@ const char *kMotdKey = "motd";
 const char *kIconKey = "icon";
 const char *kLatencyKey = "latencyMs";
 const char *kOnlineKey = "online";
+const char *kTimedOutKey = "timedOut";
 const char *kPlayersOnlineKey = "playersOnline";
 const char *kMaxKey = "playersMax";
 
@@ -61,6 +62,9 @@ Entry load(const QString &address) {
     entry.iconPng =
         QByteArray::fromBase64(root.value(QLatin1String(kIconKey)).toString().toLatin1());
     entry.online = root.value(QLatin1String(kOnlineKey)).toBool(false);
+    // 老缓存里没有这个键 ⇒ false ⇒ 界面上写「没连上」（见 Entry::timedOut 那条 NOTE：
+    // 我们确实不知道上一次是怎么没通的，那不算"漏了一句"）。
+    entry.timedOut = root.value(QLatin1String(kTimedOutKey)).toBool(false);
     entry.latencyMs = root.value(QLatin1String(kLatencyKey)).toInt(-1);
     entry.playersOnline = root.value(QLatin1String(kPlayersOnlineKey)).toInt(-1);
     entry.playersMax = root.value(QLatin1String(kMaxKey)).toInt(-1);
@@ -84,6 +88,7 @@ void save(const QString &address, const Entry &entry) {
     // 塞进同一个文件比另开一个 `.png` 省一次"两个文件对不上"的机会。
     root.insert(QLatin1String(kIconKey), QString::fromLatin1(entry.iconPng.toBase64()));
     root.insert(QLatin1String(kOnlineKey), entry.online);
+    root.insert(QLatin1String(kTimedOutKey), entry.timedOut);
     root.insert(QLatin1String(kLatencyKey), entry.latencyMs);
     root.insert(QLatin1String(kPlayersOnlineKey), entry.playersOnline);
     root.insert(QLatin1String(kMaxKey), entry.playersMax);
