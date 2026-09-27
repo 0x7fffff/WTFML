@@ -38,6 +38,7 @@ set(HEADER_FILES
     src/download/DownloadManager.hpp
     src/download/LoaderMeta.hpp
     src/download/ResourceCatalog.hpp
+    src/download/ModDependencies.hpp
     src/download/ResourceStore.hpp
     src/util/AppPaths.hpp
     src/util/ImageDecode.hpp
@@ -79,6 +80,7 @@ set(SOURCE_FILES
     src/settings/LauncherSettings.cpp
     src/download/DownloadManager.cpp
     src/download/ResourceCatalog.cpp
+    src/download/ModDependencies.cpp
     src/download/ResourceStore.cpp
     src/util/ImageDecode.cpp
     src/util/SystemMemory.cpp

@@ -313,6 +313,87 @@ void ResourceStore::fetchVersions(const QString &requestKey, const QString &proj
     });
 }
 
+void ResourceStore::fetchProjects(const QString &requestKey, const QStringList &projectIds,
+                                  ResourceCatalog::Source source) {
+    if (QNetworkReply *previous = m_replies.take(requestKey)) {
+        previous->abort();
+    }
+    // 空表：没什么可问的，**照样回一发**（"一个都不用问"也是走完了 —— 接的人可能在等
+    // 这一发收尾，不回的话他那一格永远停在"正在问…"）。
+    if (projectIds.isEmpty()) {
+        emit projectsFinished(requestKey, QList<ResourceCatalog::Hit>(), QString());
+        return;
+    }
+
+    const bool isCurseForge = source == ResourceCatalog::Source::CurseForge;
+    const QList<QPair<QByteArray, QByteArray>> headers =
+        isCurseForge ? apiKeyHeaders(m_curseForgeApiKey)
+                     : QList<QPair<QByteArray, QByteArray>>();
+
+    QNetworkReply *reply = nullptr;
+    if (isCurseForge) {
+        // 那一家是 `POST /mods` + 一个**正文明文**的号表（`{"modIds":[…],"filterPcOnly":true}`，
+        // 构造那一份的唯一出处是 ModpackImport，别在这儿再拼一遍）。号是**数字**：递一串
+        // base62 上去发出去的是一个语法就不对的请求，而回给用户的是"没取到名字"。
+        QList<int> numericIds;
+        numericIds.reserve(projectIds.size());
+        for (const QString &id : projectIds) {
+            bool ok = false;
+            const int value = id.toInt(&ok);
+            if (ok) {
+                numericIds.append(value);
+            }
+        }
+        if (numericIds.isEmpty()) {
+            emit projectsFinished(requestKey, QList<ResourceCatalog::Hit>(), QString());
+            return;
+        }
+        const QByteArray body = ModpackImport::curseForgeModsRequestBody(numericIds);
+        if (body.isEmpty()) {
+            emit projectsFinished(requestKey, QList<ResourceCatalog::Hit>(), QString());
+            return;
+        }
+        reply = m_net->post(resourceRequest(curseForgeApiBase() + QStringLiteral("/mods"), headers),
+                            body);
+    } else {
+        reply = m_net->get(resourceRequest(ResourceCatalog::projectsRequestUrl(projectIds), headers));
+    }
+    m_replies.insert(requestKey, reply);
+
+    QObject::connect(reply, &QNetworkReply::finished, this,
+                     [this, reply, requestKey, source]() {
+        reply->deleteLater();
+        if (m_replies.value(requestKey) != reply) {
+            return; // 又发了一次（或者被 abortAll 掐了）：这一发的结果已经没人要了
+        }
+        m_replies.remove(requestKey);
+
+        const int status = statusOf(reply);
+        const QByteArray body = reply->readAll();
+        const QString what = QStringLiteral("读取资源信息");
+
+        if (status == HttpClient::kStatusTooManyRequests) {
+            emit projectsFinished(requestKey, QList<ResourceCatalog::Hit>(),
+                                  HttpClient::throttledText(what));
+            return;
+        }
+        if (!okStatus(status)) {
+            emit projectsFinished(requestKey, QList<ResourceCatalog::Hit>(),
+                                  failureText(reply, body, what, source,
+                                              !m_curseForgeApiKey.isEmpty()));
+            return;
+        }
+        // 少几条 / 一条都没有**不算错**（作者删了、号本来就不对），所以这里不判"像不像
+        // 一份项目清单"：真给了一份别的东西（网关拦截页）时解析器回空表，接的人退成
+        // "用项目号显示" —— 那正是它能做的最好的事（见声明处那段）。
+        emit projectsFinished(requestKey,
+                              source == ResourceCatalog::Source::CurseForge
+                                  ? ResourceCatalog::parseCurseForgeMods(body)
+                                  : ResourceCatalog::parseProjects(body),
+                              QString());
+    });
+}
+
 QString ResourceStore::iconCachePath(const QString &cacheId) {
     if (!isSafeFileStem(cacheId)) {
         return QString(); // 不是文件名安全的那种 id：宁可不缓存（见声明处）

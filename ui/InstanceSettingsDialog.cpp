@@ -595,6 +595,33 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         grid->addWidget(cell, row++, 0, 1, 2);
     }
 
+    // ---------- 「检查更新」（2026-09-28）----------
+    //
+    // 用户原话：「实例设置那里做一个更新检测」。摆在「导出…」下面、快捷方式那排上面：
+    // 它和「导出…」是同一档东西（一颗按钮 + 底下那句解释，点了之后**会出现一个结果**，
+    // 而不是改一格设置就写盘）。
+    //
+    // NOTE: 这一颗**只发信号**（和导出那颗同一个形状）—— "盘上那几十个 jar 是谁、能不能
+    //       更新"这件事要联好几次网（反查 + 每个项目一发版本列表），全在 MainWindow 那边
+    //       （见 `checkInstanceUpdates()`）。这一层连一个请求都不发，所以验证工程能单独
+    //       构造它、单独点它。
+    {
+        auto *cell = new QWidget(this);
+        auto *column = new QVBoxLayout(cell);
+        column->setContentsMargins(0, 0, 0, 0);
+        column->setSpacing(4);
+        auto *button = new QPushButton(checkUpdatesText(), cell);
+        button->setObjectName(checkUpdatesButtonName());
+        button->setToolTip(checkUpdatesButtonTooltip());
+        connect(button, &QPushButton::clicked, this,
+                [this]() { emit checkUpdatesRequested(); });
+        column->addWidget(button, 0, Qt::AlignLeft);
+        auto *hint = new QLabel(checkUpdatesHint(), cell);
+        hint->setWordWrap(true);
+        column->addWidget(hint);
+        grid->addWidget(cell, row++, 0, 1, 2);
+    }
+
     // ---------- 快捷方式那九颗按钮（2026-09-27 从「快捷方式」那一页整块搬来）----------
     //
     // 用户原话：「"快捷方式"放到概览的下方」—— 从这儿起「快捷方式」**不再是一页**，

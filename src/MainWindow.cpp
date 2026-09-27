@@ -1798,6 +1798,18 @@ void MainWindow::setupConnections() {
             &MainWindow::onResourceVersionsFinished);
     connect(m_resourceStore, &ResourceStore::iconReady, this,
             &MainWindow::onResourceIconReady);
+    // ★ 2026-09-28：同一个 `versionsFinished` 上**再挂两个接的人**（前置模组那一趟、
+    //   更新检测那一趟）。Qt 允许多个槽接同一个信号，而**那三处各自按自己的钥匙认人**
+    //   （详情页那把、`ModDependencies::Lookup::requestKey`、更新检测那把）—— 所以
+    //   谁的回复谁接走，不会互相顶掉。**不要**为了"省两个连接"把它们并成一个槽：
+    //   那样这个函数会变成三段 if，而三件事的生命周期根本不一样（详情页那一页关掉就没了、
+    //   前置那一趟跟着一次点击、更新检测那一趟跟着一次检查）。
+    connect(m_resourceStore, &ResourceStore::versionsFinished, this,
+            &MainWindow::onDependencyVersionsFinished);
+    connect(m_resourceStore, &ResourceStore::versionsFinished, this,
+            &MainWindow::onUpdateCheckVersionsFinished);
+    connect(m_resourceStore, &ResourceStore::projectsFinished, this,
+            &MainWindow::onDependencyProjectsFinished);
     // 服务器那一趟测速（2026-09-27）：**两个信号都是从工作线程发出来的**，接的人在这儿
     // （主线程），Qt 按"接收方所在线程"自动排队投递 —— 所以这两个槽里可以随便碰界面。
     // NOTE: 这条按**下标**回来（下标 = servers.dat 里那一行的行号），所以槽里要拿
@@ -4651,11 +4663,479 @@ void MainWindow::downloadResourceVersion(QTreeWidgetItem *item) {
     }
     // 剩下的（选哪个实例、落到哪个目录、文件清单、加载器那道闸）详情页那条路也要走一遍，
     // 全在 installResourceVersion 里 —— **这一条路不自己再算一份**。
-    installResourceVersion(kind, resourceItem->text(column), *chosen);
+    installResourceVersion(kind, resourceItem->text(column), *chosen, source);
 }
 
 void MainWindow::installResourceVersion(ResourceCatalog::Kind kind, const QString &displayTitle,
-                                        const ResourceCatalog::VersionEntry &version) {
+                                        const ResourceCatalog::VersionEntry &version,
+                                        ResourceCatalog::Source source) {
+    // ★ 2026-09-28：模组这一路**先看一眼前置**（用户原话：「在模组下载页，选择模组后显示
+    //   其依赖，点击下载后弹出窗口，让用户可以点击一键下载所有缺少的依赖」）。
+    //
+    // 判据：这一版声明的必装前置里，**目标实例还缺哪几个**（`ModDependencies` 那边算，
+    // 纯函数）。一条不缺就走下面那一句 —— 那时候**一个请求都不多发**，和从前逐字一样。
+    //
+    // NOTE: 只在**模组**这一路看。资源包 / 数据包 / 光影那一版列的是 `minecraft` /
+    //       `datapack` / `iris`，它们和"前置模组"没有关系（同一个理由见下面那道加载器闸）；
+    //       整合包更不用 —— 它的依赖在清单里，那条路本来就是整个包一起装。
+    if (kind == ResourceCatalog::Kind::Mod && !m_dependencyCheck.active) {
+        const QString instanceId = selectedVersionId(m_ui->getInstalledVersionCombo());
+        if (!instanceId.isEmpty()) {
+            const ModDependencies::Target target = dependencyTargetFor(instanceId, source);
+            bool installedKnown = false;
+            const QSet<QString> installed = installedModKeys(instanceId, &installedKnown);
+            const QList<ModDependencies::Lookup> missing =
+                ModDependencies::missingRequiredDependencies(version, installed, target);
+            if (!missing.isEmpty()) {
+                startDependencyCheck(kind, displayTitle, version, target, missing, installedKnown);
+                return;
+            }
+        }
+        // 没有选实例 / 没有缺的：交给下面那一句，它的判断和话术一个字都不变。
+    }
+    installResourceVersionNow(kind, displayTitle, version, {});
+}
+
+ModDependencies::Target MainWindow::dependencyTargetFor(const QString &instanceId,
+                                                       ResourceCatalog::Source source) {
+    ModDependencies::Target target;
+    target.instanceId = instanceId;
+    if (instanceId.isEmpty()) {
+        return target;
+    }
+    // 游戏版本和加载器都从**这个实例自己**读（不是从页面上那颗 chip）：前置要装进的是
+    // 这个实例，而 chip 是用户在挑"看哪个版本"，两者可以不一样。
+    const VersionDisplayParts parts = m_versionManager->displayParts(instanceId);
+    // `realVersion` = 这个实例**基于哪个原版**（PCL 那类合并实例只有它能说得出口，
+    // 见 VersionDisplayParts 那段）；它就是"这个实例的游戏版本"。
+    target.gameVersion = parts.realVersion;
+    // ★ 加载器名走 instanceLoaderName()（理由同下面那道加载器闸）：PCL 那类合并实例
+    //   （用户盘上 70 个里 67 个）从 parts.loaderName 读出来是空的，而那两个筛参数空着
+    //   等于"不筛" —— 问回来的可能是任意加载器的前置。
+    target.loader = instanceLoaderName(parts, m_versionManager, nullptr);
+    // 来源跟着**这一条资源是从哪一家搜出来的**走（调用方从条目 / 页面状态里读出来递进来）：
+    // 前置也去同一家问 —— 两家的项目号不是一套，拿 Modrinth 的号去 CurseForge 问，
+    // 问出来的是**另一个项目**（或者什么都没有），而且不报错。
+    target.source = source;
+    if (target.source == ResourceCatalog::Source::CurseForge) {
+        // 根地址那一处判走 ModpackImport::curseForgeApiBase（**唯一出处**，和
+        // ResourceStore::fetchProjects 里面用的是同一条 —— 两边不一致的话，问出去的是
+        // 一条地址、解析回来的是另一条的服务，症状是"名字永远取不到"）。
+        target.apiBase = ModpackImport::curseForgeApiBase(m_settings->curseForgeApiKey(),
+                                                         m_settings->curseForgeApiBaseOverride());
+    }
+    return target;
+}
+
+QSet<QString> MainWindow::installedModKeys(const QString &instanceId, bool *known) const {
+    QSet<QString> keys;
+    const QString modsDir = instanceFileDirs(instanceId).value(QStringLiteral("mod"));
+    if (modsDir.isEmpty()) {
+        if (known != nullptr) {
+            *known = false;
+        }
+        return keys;
+    }
+    const QString prefix = modsDir + QLatin1Char('/');
+    for (auto it = m_instanceFileIdentities.constBegin();
+         it != m_instanceFileIdentities.constEnd(); ++it) {
+        // 键是 `路径\n大小\n时间`（见 instanceIconCacheKey）⇒ 前缀比得上就说明这个文件在
+        // 这个实例的 mods 里。**必须带那个 `/`**：不带的话 `…/mods2/x.jar` 也会算进来。
+        if (it.key().startsWith(prefix)) {
+            keys.insert(it.value());
+        }
+    }
+    // ★ `known` 说的是"这个实例的 mods 到底认过没有"，而不是"认出来几个" ——
+    //   一个模组都没认出（新实例、全是自己改过的 jar）和"没进过文件管理页"都表现为空表，
+    //   而界面上那两句话不一样（见 startDependencyCheck）。
+    if (known != nullptr) {
+        *known = !m_instanceIcons.versionId.isEmpty() &&
+                 m_instanceIcons.versionId == instanceId;
+    }
+    return keys;
+}
+
+void MainWindow::startDependencyCheck(ResourceCatalog::Kind kind, const QString &displayTitle,
+                                      const ResourceCatalog::VersionEntry &version,
+                                      const ModDependencies::Target &target,
+                                      const QList<ModDependencies::Lookup> &missing,
+                                      bool installedKnown) {
+    m_dependencyCheck = DependencyCheck{};
+    m_dependencyCheck.active = true;
+    m_dependencyCheck.kind = kind;
+    m_dependencyCheck.title = displayTitle;
+    m_dependencyCheck.version = version;
+    m_dependencyCheck.instanceId = target.instanceId;
+    m_dependencyCheck.target = target;
+    m_dependencyCheck.missing = missing;
+    // "这个实例的 mods 到底认过没有"（见 installedModKeys 的 known 出参）—— 它只决定
+    // 弹框那句话怎么写（"这几个还没装" vs "无法确认你装了没有"），所以跟着这一趟存着。
+    m_dependencyCheck.installedKnown = installedKnown;
+    m_dependencyCheck.titles.clear();
+
+    QStringList ids;
+    ids.reserve(missing.size());
+    for (const ModDependencies::Lookup &lookup : missing) {
+        if (!ids.contains(lookup.dependency.projectId)) {
+            ids.append(lookup.dependency.projectId);
+        }
+    }
+    m_dependencyCheck.titleRequestKey =
+        ResourceCatalog::projectsRequestKey(ids, m_dependencyCheck.target.source);
+    appendLog(ModDependencies::dependencyLookupLogText(missing.size()));
+    m_resourceStore->fetchProjects(m_dependencyCheck.titleRequestKey, ids,
+                                   m_dependencyCheck.target.source);
+}
+
+void MainWindow::onDependencyProjectsFinished(const QString &requestKey,
+                                             const QList<ResourceCatalog::Hit> &hits,
+                                             const QString &problem) {
+    if (!m_dependencyCheck.active || requestKey != m_dependencyCheck.titleRequestKey) {
+        return; // 不是这一趟等的（用户中途又点了别的下载）
+    }
+    // 名字取不到**不算错**：那一条退成项目号显示（见 ModDependencies::buildPlan 那段），
+    // 而"没有名字"挡不住"要不要一起下"这个决定。所以这里只记一句日志。
+    if (!problem.isEmpty()) {
+        appendLog(tr("前置模组的名字没取到：%1").arg(problem));
+    }
+    for (const ResourceCatalog::Hit &hit : hits) {
+        if (!hit.projectId.isEmpty() && !hit.title.isEmpty()) {
+            m_dependencyCheck.titles.insert(hit.projectId, hit.title);
+        }
+    }
+
+    // 逐条去问"它有哪些版本"。**同一批发出去**（一把钥匙一个项目，互相不撞）——
+    // 串起来问的话，N 个前置就是 N 个往返，而它们本来就互不相干。
+    m_dependencyCheck.answers.clear();
+    m_dependencyCheck.pending = 0;
+    for (const ModDependencies::Lookup &lookup : m_dependencyCheck.missing) {
+        ++m_dependencyCheck.pending;
+        m_resourceStore->fetchVersions(lookup.requestKey, lookup.dependency.projectId,
+                                       m_dependencyCheck.target.source,
+                                       m_dependencyCheck.target.gameVersion,
+                                       m_dependencyCheck.target.loader);
+    }
+    if (m_dependencyCheck.pending == 0) {
+        finishDependencyCheck(); // 一条都不缺（走不到：missing 非空才进这一趟）
+    }
+}
+
+void MainWindow::onDependencyVersionsFinished(const QString &requestKey,
+                                             const QList<ResourceCatalog::VersionEntry> &versions,
+                                             const QString &problem) {
+    if (!m_dependencyCheck.active) {
+        return;
+    }
+    bool ours = false;
+    for (const ModDependencies::Lookup &lookup : m_dependencyCheck.missing) {
+        if (lookup.requestKey == requestKey) {
+            ours = true;
+            break;
+        }
+    }
+    if (!ours) {
+        return; // 详情页那一发（或者别的页面）的回复，不关这一趟的事
+    }
+    // ★ 失败时**不往 answers 里放空表**：`buildPlan` 那边"钥匙缺席"和"回来了但是空的"
+    //   是两句不同的话（"没问到"和"它就是没有版本"）—— 放空表等于把前者说成后者。
+    if (problem.isEmpty()) {
+        m_dependencyCheck.answers.insert(requestKey, versions);
+    }
+    if (m_dependencyCheck.pending > 0) {
+        --m_dependencyCheck.pending;
+    }
+    if (m_dependencyCheck.pending == 0) {
+        finishDependencyCheck();
+    }
+}
+
+void MainWindow::finishDependencyCheck() {
+    DependencyCheck check = m_dependencyCheck;
+    m_dependencyCheck.active = false;
+
+    const bool installedKnown = check.installedKnown;
+
+    const ModDependencies::Plan plan =
+        ModDependencies::buildPlan(check.missing, check.answers, check.titles);
+
+    QStringList names;
+    names.reserve(check.missing.size());
+    for (const ModDependencies::Lookup &lookup : check.missing) {
+        const QString name = check.titles.value(lookup.dependency.projectId);
+        names.append(name.isEmpty() ? lookup.dependency.projectId : name);
+    }
+
+    const QString note = ModDependencies::unresolvedNoteText(plan.unresolved);
+    QList<ModDependencies::Resolved> extras;
+    if (plan.downloads.isEmpty()) {
+        // 一条都没解开：**照样把这个模组装上**，但得如实说一句"前置一条都没找到"。
+        // 不说的话，用户点完下载看到的就是"下好了"，而进游戏那一下就崩。
+        QString text = ModDependencies::dependencyPromptText(names);
+        if (!note.isEmpty()) {
+            text += QStringLiteral("\n\n") + note;
+        }
+        InlineMessage::warning(m_ui->overlay(), ModDependencies::dependencyPromptTitle(), text);
+    } else {
+        QString text = installedKnown
+                           ? ModDependencies::dependencyPromptText(names)
+                           : ModDependencies::dependencyPromptUnknownText(names);
+        if (!note.isEmpty()) {
+            text += QStringLiteral("\n\n") + note;
+        }
+        const bool downloadAll = InlineMessage::question(
+            m_ui->overlay(), ModDependencies::dependencyPromptTitle(), text,
+            ModDependencies::dependencyAllButtonText(),
+            ModDependencies::dependencyOnlyThisButtonText(), false);
+        if (downloadAll) {
+            extras = plan.downloads;
+        }
+    }
+
+    installResourceVersionNow(check.kind, check.title, check.version, extras);
+}
+
+// ============================ 实例更新检测 ============================
+//
+// 用户 2026-09-28：「实例设置那里做一个更新检测」。
+//
+// 【这一趟在做什么（顺序不能换）】
+//
+//   ① 把这个实例那四个能下载的目录**枚举**一遍（模组 / 资源包 / 数据包 / 光影 ——
+//      和文件管理页那几页同一份目录表）；
+//   ② 后台线程里**反查一次**（`InstanceIconLookup`：哈希 → 项目号 → 项目对象）。
+//      顺手带出来的是每个文件的 **sha1** —— 判"盘上这一份是第几版"就靠它
+//      （见 `Found::sha1` 那段：这一位本来就是为它加的）；
+//   ③ 每个项目**问一发版本列表**（按这个实例的游戏版本 + 加载器筛！不筛的话，"最新版"
+//      会是另一个游戏版本的版本，于是报告说"有新版本"、点进去装不上）；
+//   ④ `judgeUpdate()` 逐条判，攒成一份报告。
+//
+// 【为什么别的事都不做】
+//
+// 不自动下载、不自动改盘、不问"要不要更新" —— 用户要的是"检测"。报告里只说事实
+//（哪几个有新版本、最新的那一版叫什么），后面那一步是他自己的事。
+
+void MainWindow::checkInstanceUpdates(const QString &instanceId) {
+    if (instanceId.isEmpty()) {
+        return;
+    }
+    // 已经在跑：**到此为止**（不排队、不重开）。重开那一趟的代价是把几十兆 jar 再读一遍、
+    // 把刚才那几发再问一遍，而屏幕上那一份报告正在弹着 —— 用户看不到任何差别。
+    if (m_updateCheck.thread != nullptr) {
+        appendLog(tr("更新检测已经在跑了，等它出结果。"));
+        return;
+    }
+
+    // ① 候选文件（四个"能下载的资源"目录，不含存档/原理图 —— 那两样没有"更新"这回事）。
+    QStringList paths;
+    const QHash<QString, QString> dirs = instanceFileDirs(instanceId);
+    const QStringList wantedDirs = {QStringLiteral("mod"), QStringLiteral("resourcepack"),
+                                    QStringLiteral("datapack"), QStringLiteral("shader")};
+    for (const QString &kindKey : wantedDirs) {
+        const QString dir = dirs.value(kindKey);
+        if (dir.isEmpty()) {
+            continue;
+        }
+        QDir folder(dir);
+        // 不过滤"启用/禁用"：`X.jar.disabled` 也是那个文件，它的 sha1 照样能判。
+        const QFileInfoList entries =
+            folder.entryInfoList(QDir::Files | QDir::NoSymLinks, QDir::Name);
+        for (const QFileInfo &info : entries) {
+            paths.append(info.absoluteFilePath());
+        }
+    }
+    if (paths.isEmpty()) {
+        InlineMessage::information(m_ui->overlay(), tr("更新检测"),
+                                 tr("这个实例里没有可以查更新的文件。"));
+        return;
+    }
+
+    m_updateCheck = UpdateCheckRun{};
+    m_updateCheck.instanceId = instanceId;
+    appendLog(tr("正在检查「%1」里的资源有没有新版本（%2 个文件）...")
+                  .arg(instanceDisplayName(instanceId))
+                  .arg(paths.size()));
+
+    InstanceIconLookup::Options options;
+    // 三个口子和 ResourceStore / VersionManager / 文件管理页那三处**同一份设置**。
+    options.curseForgeApiKey = m_settings->curseForgeApiKey();
+    options.modrinthApiBaseOverride = m_settings->modrinthApiBaseOverride();
+    options.curseForgeApiBaseOverride = m_settings->curseForgeApiBaseOverride();
+
+    // 上一趟那个线程对象还挂着就先放它走（同 startInstanceFileIconLookup 那段 ——
+    // 每查一次都在父对象底下攒一个僵尸 QThread 是要还的）。
+    if (m_updateCheck.thread != nullptr) {
+        m_updateCheck.thread->deleteLater();
+        m_updateCheck.thread = nullptr;
+    }
+    m_updateCheck.thread = QThread::create([this, paths, options, instanceId]() {
+        const InstanceIconLookup::Result result = InstanceIconLookup::lookup(paths, options);
+        QMetaObject::invokeMethod(
+            this,
+            [this, result, instanceId]() { onUpdateCheckLookupFinished(result, instanceId); },
+            Qt::QueuedConnection);
+    });
+    m_updateCheck.thread->setParent(this);
+    m_updateCheck.thread->start();
+}
+
+void MainWindow::onUpdateCheckLookupFinished(const InstanceIconLookup::Result &result,
+                                            const QString &instanceId) {
+    // 回来看的这一趟是不是**现在**要的那一趟（用户完全可能又点了一次检查、或者换了实例）。
+    if (m_updateCheck.instanceId != instanceId) {
+        return;
+    }
+    // 反查那一趟自己的毛病（读不动几个文件 / 整趟没跑完）——报告末尾照实说一句。
+    // **不算失败**：认出来的那些照样判（那是真的）。
+    if (!result.problem.isEmpty()) {
+        m_updateCheck.lookupNote = result.problem;
+    } else if (result.unreadable > 0) {
+        m_updateCheck.lookupNote =
+            tr("有 %1 个文件读不动（多半被别的程序占着），这一批里没有它们。")
+                .arg(result.unreadable);
+    }
+
+    const ModDependencies::Target target =
+        dependencyTargetFor(instanceId, ResourceCatalog::Source::Modrinth);
+    for (const InstanceIconLookup::Found &found : result.found) {
+        if (found.hit.projectId.isEmpty()) {
+            continue;
+        }
+        ModDependencies::InstalledItem item;
+        item.path = found.path;
+        item.iconKey = found.hit.iconCacheId();
+        item.title = found.hit.title;
+        item.sha1 = found.sha1;
+        // ★ 钥匙跟着**这一条自己的来源**走（两家的 id 空间不是一套，问错边问出来的是
+        //   另一个项目）。来源在 hit 上，不在 target 上。
+        const QString key = ModDependencies::versionsKeyFor(
+            QStringLiteral("update"), found.hit.projectId, target.gameVersion, target.loader,
+            found.hit.source);
+        m_updateCheck.itemsByKey[key].append(item);
+    }
+
+    m_updateCheck.waitingKeys.clear();
+    for (auto it = m_updateCheck.itemsByKey.constBegin();
+         it != m_updateCheck.itemsByKey.constEnd(); ++it) {
+        m_updateCheck.waitingKeys.insert(it.key());
+    }
+    if (m_updateCheck.waitingKeys.isEmpty()) {
+        // 一个都没认出来（新实例、或者全是自己改过的 jar）——**照样出一份报告**：
+        // "一个都认不出来"正是用户需要知道的事，闷着不说是最坏的。
+        finishUpdateCheck(instanceId);
+        return;
+    }
+
+    // 逐个项目问版本列表。**一把钥匙一发**，互相不撞。项目号从钥匙里读不出来（钥匙是拼
+    // 出来的一串），所以从这一组里那一条自己的 `iconKey`（`<来源>-<项目号>`）上取。
+    for (auto it = m_updateCheck.itemsByKey.constBegin();
+         it != m_updateCheck.itemsByKey.constEnd(); ++it) {
+        const ModDependencies::InstalledItem &any = it.value().first();
+        ResourceCatalog::Source source = ResourceCatalog::Source::Modrinth;
+        const int dash = any.iconKey.indexOf(QLatin1Char('-'));
+        if (dash > 0) {
+            ResourceCatalog::sourceFromKey(any.iconKey.left(dash), &source);
+        }
+        const QString projectId = dash > 0 ? any.iconKey.mid(dash + 1) : any.iconKey;
+        m_resourceStore->fetchVersions(it.key(), projectId, source, target.gameVersion,
+                                       target.loader);
+    }
+}
+
+void MainWindow::onUpdateCheckVersionsFinished(const QString &requestKey,
+                                              const QList<ResourceCatalog::VersionEntry> &versions,
+                                              const QString &problem) {
+    if (!m_updateCheck.waitingKeys.contains(requestKey)) {
+        return; // 不是这一趟等的（详情页那一发 / 前置那一趟 / 已经判过的那把）
+    }
+    m_updateCheck.waitingKeys.remove(requestKey);
+
+    // 那一发没成 → **空表**进 judgeUpdate：那几条判"说不清"（**不是**"已是最新"）。
+    const QList<ResourceCatalog::VersionEntry> &answer =
+        problem.isEmpty() ? versions : QList<ResourceCatalog::VersionEntry>();
+    for (const ModDependencies::InstalledItem &item : m_updateCheck.itemsByKey.value(requestKey)) {
+        m_updateCheck.verdicts.append(ModDependencies::judgeUpdate(item, answer));
+    }
+    if (m_updateCheck.waitingKeys.isEmpty()) {
+        finishUpdateCheck(m_updateCheck.instanceId);
+    }
+}
+
+void MainWindow::finishUpdateCheck(const QString &instanceId) {
+    const UpdateCheckRun run = m_updateCheck;
+    m_updateCheck = UpdateCheckRun{};
+
+    // 报告：**有新版本的排最前面**（那才是用户点这一下的目的），然后是"说不清"，
+    // 最后才是"已是最新"。同一个档里按名字排 —— 不排的话每条的位置都随哈希表顺序变，
+    // 同一个实例连查两次的名单顺序都不一样。
+    QList<ModDependencies::UpdateVerdict> outdated;
+    QList<ModDependencies::UpdateVerdict> unknown;
+    QList<ModDependencies::UpdateVerdict> current;
+    for (const ModDependencies::UpdateVerdict &verdict : run.verdicts) {
+        switch (verdict.state) {
+        case ModDependencies::UpdateState::Outdated:
+            outdated.append(verdict);
+            break;
+        case ModDependencies::UpdateState::UpToDate:
+            current.append(verdict);
+            break;
+        case ModDependencies::UpdateState::Unknown:
+            unknown.append(verdict);
+            break;
+        }
+    }
+    const auto byName = [](const ModDependencies::UpdateVerdict &a,
+                           const ModDependencies::UpdateVerdict &b) {
+        return a.item.title < b.item.title;
+    };
+    std::sort(outdated.begin(), outdated.end(), byName);
+    std::sort(unknown.begin(), unknown.end(), byName);
+    std::sort(current.begin(), current.end(), byName);
+
+    const auto displayName = [](const ModDependencies::UpdateVerdict &verdict) {
+        if (!verdict.item.title.isEmpty()) {
+            return verdict.item.title;
+        }
+        // 名字取不到就用文件名 —— 那是**盘上那一条**的名字，用户能照它找到文件。
+        return QFileInfo(verdict.item.path).fileName();
+    };
+
+    QStringList lines;
+    for (const ModDependencies::UpdateVerdict &verdict : outdated) {
+        lines.append(QStringLiteral("· %1 —— %2 %3")
+                         .arg(displayName(verdict), ModDependencies::updateOutdatedText(),
+                              verdict.latestVersionNumber));
+    }
+    for (const ModDependencies::UpdateVerdict &verdict : unknown) {
+        lines.append(QStringLiteral("· %1 —— %2：%3")
+                         .arg(displayName(verdict), ModDependencies::updateUnknownText(),
+                              verdict.reason));
+    }
+    for (const ModDependencies::UpdateVerdict &verdict : current) {
+        lines.append(QStringLiteral("· %1 —— %2")
+                         .arg(displayName(verdict), ModDependencies::updateUpToDateText()));
+    }
+
+    const int checked = run.verdicts.size();
+    const QString summary = ModDependencies::updateSummaryText(checked, outdated.size());
+    QString text = summary;
+    if (!lines.isEmpty()) {
+        text += QStringLiteral("\n\n") + lines.join(QLatin1Char('\n'));
+    }
+    if (!run.lookupNote.isEmpty()) {
+        text += QStringLiteral("\n\n") + run.lookupNote;
+    }
+
+    appendLog(tr("更新检测（%1）：%2").arg(instanceDisplayName(instanceId), summary));
+    for (const QString &line : lines) {
+        appendLog(QStringLiteral("  ") + line);
+    }
+    InlineMessage::information(m_ui->overlay(), tr("更新检测"), text);
+}
+
+void MainWindow::installResourceVersionNow(ResourceCatalog::Kind kind,
+                                           const QString &displayTitle,
+                                           const ResourceCatalog::VersionEntry &version,
+                                           const QList<ModDependencies::Resolved> &extras) {
     const bool isModpack = kind == ResourceCatalog::Kind::Modpack;
 
     // 目标实例：**以下拉框为准**（树和下拉框是同一份数据的两种看法，见 setupConnections 里
@@ -4745,8 +5225,31 @@ void MainWindow::installResourceVersion(ResourceCatalog::Kind kind, const QStrin
     resourceFile.size = file->size;
     files.append(resourceFile);
 
-    const QString label =
-        QStringLiteral("%1 %2").arg(displayTitle, version.versionNumber);
+    // ★ 2026-09-28：一起下的前置**并进同一批**（用户在框里按了「一起下载」）。
+    //   并成一批而不是"接着再下一批"是有缘故的：`downloadResourceFiles()` 一批一个进度、
+    //   一条"下好了"的日志、一次 `resourceDownloadFinished`。分两批的话，用户会先看到
+    //   "下好了"、然后前置才开始下 —— 而那一刻他多半已经点进游戏了（那时候缺的正是前置）。
+    //
+    // NOTE: 前置的落点就是这个实例的 mods（`destinationDir` 是按 kind=模组算出来的）——
+    //       前置本来就是模组，和主文件同一个目录，这一点不用另判。
+    for (const ModDependencies::Resolved &extra : extras) {
+        if (extra.file.url.isEmpty() || extra.file.filename.isEmpty()) {
+            continue; // 走不到（resolveDependency 已经挡过一道），挡第二道不费什么
+        }
+        VersionManager::ResourceFile extraFile;
+        extraFile.url = extra.file.url;
+        extraFile.filename = extra.file.filename;
+        extraFile.sha1 = extra.file.sha1;
+        extraFile.size = extra.file.size;
+        files.append(extraFile);
+    }
+
+    QString label = QStringLiteral("%1 %2").arg(displayTitle, version.versionNumber);
+    if (!extras.isEmpty()) {
+        // 日志和"下好了"那句话上写清楚这一批里**还有前置**（不然用户看到下了好几个文件、
+        // 而屏幕上只说了一个模组的名字，会以为下错了）。
+        label += tr("（含 %1 个前置）").arg(extras.size());
+    }
     // 下完接着走导入那条路（那边会问实例名、挑 Java，然后解包、下清单里那几百个文件）。
     // 路径按**接口给的文件名**算 —— 落盘用的就是它（见 downloadResourceFiles），这里
     // 不另编一套命名。
@@ -5040,7 +5543,8 @@ void MainWindow::downloadResourcePageVersion(const QString &versionId) {
         if (entry.id == versionId) {
             // 和树上点第三层那一下**是同一件事**（选哪个实例、落到哪个目录、加载器那道闸、
             // 整合包下完接导入，全在那边那一个函数里）。
-            installResourceVersion(m_resourcePage.kind, m_resourcePage.title, entry);
+            installResourceVersion(m_resourcePage.kind, m_resourcePage.title, entry,
+                                   m_resourcePage.source);
             return;
         }
     }
@@ -7743,6 +8247,17 @@ void MainWindow::openInstanceSettings(const QString &versionId) {
     // 不是一件事** —— 那个出的是 .bat，这个出的是整合包。
     connect(&dialog, &InstanceSettingsDialog::exportModpackRequested, this,
             [this, &targetId](const QString &path) { exportModpack(targetId, path); });
+
+    // 第四条同类：概览那一栏的「检查更新」（2026-09-28，用户原话「实例设置那里做一个更新
+    // 检测」）。**结果是一个弹框**（Prompt 那一档），所以这一发是**异步**的：反查要读几十兆
+    // jar（后台线程），每个项目还要各问一发版本列表 —— 那几发回来的时候这一页可能还开着
+    // （正常），也可能已经被用户收掉了（那时候 `m_ui->overlay()` 上摆着的是别的页面）。
+    //
+    // NOTE: 收页了也**照样弹**（不判断这一页还在不在）：用户按下这一颗按钮之后，那个框
+    //       就是他等的那个结果 —— 把它吞掉等于"按了没反应"。这一条和文件管理那几处
+    //       "动完盘得刷新那一页"不一样：那些是**改这一页的样子**，这一件是把结果**告诉人**。
+    connect(&dialog, &InstanceSettingsDialog::checkUpdatesRequested, this,
+            [this, &targetId]() { checkInstanceUpdates(targetId); });
 
     // 「文件管理」那三发（2026-09-26）：开文件夹 / 启用·禁用一条 / 删一条。
     //

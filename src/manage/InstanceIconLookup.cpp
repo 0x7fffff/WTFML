@@ -52,6 +52,10 @@ Result lookup(const QStringList &paths, const Options &options) {
     // 同时存在），所以两张表都是"哈希 → 路径表"。
     QHash<QString, QStringList> pathsBySha1;
     QHash<quint32, QStringList> pathsByFingerprint;
+    // 路径 → sha1。★ 2026-09-28 加的一位：这一位**不是为了认身份**（认身份用上面那两张
+    // 表），是为了 `Found::sha1` —— 实例设置那个「检查更新」拿它判"盘上这一份是第几版"
+    //（见 Found::sha1 那段）。键是**路径**：同一个文件摆了两份时两条路径都要拿到它。
+    QHash<QString, QString> sha1ByPath;
     for (const QString &path : paths) {
         if (!isLookupCandidate(path)) {
             continue;
@@ -65,6 +69,9 @@ Result lookup(const QStringList &paths, const Options &options) {
             continue;
         }
         ++result.hashed;
+        // ★ 2026-09-28：这一位是**为了更新检测**（见 Found::sha1 那段）。算它不用多读一个
+        //   字节 —— 上面那一趟本来就把 sha1 和指纹一起算出来了。
+        sha1ByPath.insert(path, hashes.sha1);
         pathsBySha1[hashes.sha1].append(path);
         if (hashes.fingerprintOk) {
             pathsByFingerprint[hashes.fingerprint].append(path);
@@ -195,6 +202,7 @@ Result lookup(const QStringList &paths, const Options &options) {
         for (auto it = projectByPath.constBegin(); it != projectByPath.constEnd(); ++it) {
             Found found;
             found.path = it.key();
+            found.sha1 = sha1ByPath.value(it.key());
             found.hit = hitsByProject.value(it.value());
             // 详情那一发没成、或者回复里没有这个号：**照样认这一条** —— 身份（项目号 +
             // 来源）是从哈希定下来的、那一步已经做完，缺的只是详情（名字空着 ⇒ 那一行
@@ -297,6 +305,7 @@ Result lookup(const QStringList &paths, const Options &options) {
             for (const QString &path : pathsByFingerprint.value(it.key())) {
                 Found found;
                 found.path = path;
+                found.sha1 = sha1ByPath.value(path);
                 found.hit = hitsByProject.value(projectId);
                 // 详情那一发没成 / 那个号在回复里缺席也**照样认这一条**：图标是空的 ⇒
                 // ResourceStore 发一张空 pixmap ⇒ 那一格退回占位拼图。比"整个来源都不认"

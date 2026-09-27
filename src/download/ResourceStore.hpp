@@ -107,6 +107,33 @@ public:
                        const QString &loader = QString());
 
     /**
+     * @brief 批量问"这几个项目号叫什么"（2026-09-28 加）。
+     *
+     * 用户 2026-09-28 要的那两件事（前置模组一键下载 / 实例更新检测）都卡在**同一个缺口**上：
+     * 手上只有项目号，而项目号（Modrinth 的 `nvQzSEkH`、CurseForge 的 `238222`）给用户看
+     * 等于什么都没说 —— 前置那个框里得写"需要 Sodium"、更新报告里得写"JourneyMap 有新版本"。
+     * 名字只在**项目对象**里（`/projects?ids=` 那份数组 / CurseForge 的 `POST /mods`），
+     * 而这两条解析路（`parseProjects` / `parseCurseForgeMods`）都是现成的。
+     *
+     * 两个来源**不是同一条请求**：Modrinth 是 `GET /projects?ids=[…]`，CurseForge 是
+     * `POST /mods` + 一个正文明的请求体（那一份的构造在 `ModpackImport` 里，见那一处）。
+     * 所以这里按来源分岔，调用方只管递来源。
+     *
+     * @param requestKey 用 `ResourceCatalog::projectsRequestKey()` 拼的那把（**它会把 id
+     *        排一遍** —— 同一批号换个顺序也是同一把钥匙，见那一处的 NOTE）。
+     * @param projectIds 要问的那些号。**空表 = 立刻回一发空的**（"一个都不用问"也是走完了，
+     *        和 `ServerPing::Pinger::start()` 空表那条规矩一致）。
+     * @param source 去哪儿问。**必须和这些号是哪一家的一致** —— CurseForge 那边会把号当
+     *        数字发出去，递一串 Modrinth 的 base62 上去是"发一个语法就不对的请求"。
+     *
+     * 结果走 `projectsFinished`。problem 非空 = 没取到；problem 空 + hits 空/少几条 =
+     * 问到了、但接口没给那几条（**正常**：作者删了项目、或者号本来就不对）。
+     * 少几条时界面上退成"用项目号显示"，不许因为少了一条就整批作废。
+     */
+    void fetchProjects(const QString &requestKey, const QStringList &projectIds,
+                       ResourceCatalog::Source source);
+
+    /**
      * @brief 要一个图标。
      *
      * 内存里已经有了就**立刻**发 iconReady（不等下一轮事件循环），所以要接这个信号之后再
@@ -274,6 +301,15 @@ signals:
     /// 版本列表回来了。problem 非空 = 没取到；problem 空 + versions 空 = 问到了、就是没有。
     void versionsFinished(const QString &requestKey,
                           const QList<ResourceCatalog::VersionEntry> &versions,
+                          const QString &problem);
+
+    /// 批量问项目的那一发回来了（见 fetchProjects）。
+    ///
+    /// NOTE: 和 `versionsFinished` 那条"三条路要分得开"的规矩**不一样**：这里少几条
+    ///       （或者一条都没有）**不是错误** —— 作者删了项目、号本来就不对，都是常有的事，
+    ///       而用户那边看到的只是"这一条的名字没取到"，用项目号顶上就是了。所以只有
+    ///       "整发没成"才算 problem。
+    void projectsFinished(const QString &requestKey, const QList<ResourceCatalog::Hit> &hits,
                           const QString &problem);
 
     /// 图标到了（空 QPixmap = 这条资源没有图标，画占位）。

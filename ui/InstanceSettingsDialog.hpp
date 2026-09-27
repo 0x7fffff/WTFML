@@ -719,6 +719,29 @@ public:
     ///       （导出的是 .bat，和整合包规范一点关系都没有）。两个名字长得像过一次，
     ///       断言认错过控件。
     static QString exportButtonName() { return QStringLiteral("instanceExportButton"); }
+    /// 概览页那颗「检查更新」的 objectName（2026-09-28；验证工程拿它找那颗按钮）。
+    static QString checkUpdatesButtonName() { return QStringLiteral("instanceCheckUpdatesButton"); }
+    /// 那颗按钮上的字（**唯一出处**）。
+    static QString checkUpdatesText() { return QStringLiteral("检查更新"); }
+    /// 那一格下面那句解释。
+    ///
+    /// 用户 2026-09-28 要的是「更新检测」这四个字，而这句话得把**我们能说什么**讲清楚：
+    /// 判据是"盘上那个文件的 sha1 等于这个项目最新那一版的哪个文件"（见
+    /// `ModDependencies::judgeUpdate`），所以它认不出来的那些会如实说"说不清"——
+    /// 那句话不是失败，是"这一条我没法判"。**别把这句话写成"已经全部检查过了"**：
+    /// 用户会以为"说不清"的那几条也是"没问题"。
+    static QString checkUpdatesHint() {
+        return QStringLiteral("看看这个实例里的模组/资源包有没有新版本（要对一遍每个资源的"
+                              "版本列表，要联网）。只报数，不动盘上的文件。");
+    }
+    /// 那颗按钮的 tooltip（**说全的那一份**）。
+    static QString checkUpdatesButtonTooltip() {
+        return QStringLiteral("逐个认一遍这个实例里的资源（模组 / 资源包 / 数据包 / 光影），"
+                              "再按这个实例的游戏版本和加载器问一遍它们各自的版本列表，"
+                              "比出哪些有新版本。\n\n"
+                              "认不出来的（自己改过的、作者删了老版本的）会写「说不清」——"
+                              "那不是「没有问题」，是这一条没法判。");
+    }
 
     // ---- 启动栏那两颗「动作」按钮（导出启动脚本 / 补全版本文件，2026-09-26）----
     //
@@ -1133,6 +1156,20 @@ signals:
      * @param path 用户挑的完整路径（带 `.mrpack` 或 `.zip`）。
      */
     void exportModpackRequested(const QString &path);
+
+    /**
+     * @brief 用户点了概览那一栏的「检查更新」（2026-09-28）。
+     *
+     * 和上面两颗一样：这一层**只发一句话**，一个请求都不发、一个文件都不读 ——
+     * 真正的活（枚举目录 → 后台线程反查 → 每个项目问一发版本列表 → 判）全在
+     * `MainWindow::checkInstanceUpdates()` 里，那边才有 VersionManager / ResourceStore。
+     * 这样切还有一条实在的好处：这一颗按钮能在 ui_check 里被单独点，断言"它发了这一发"。
+     *
+     * NOTE: **不传实例 id** —— 这一页就是某个实例的设置页（`setInstanceDir()` / 那一份
+     *       wtfml.meta 都是它的），接的人从自己那边认（MainWindow 那次 openInstanceSettings
+     *       记着开的是哪一个）。
+     */
+    void checkUpdatesRequested();
 
     /**
      * @brief 用户点了「开始检查」。

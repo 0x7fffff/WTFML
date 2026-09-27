@@ -696,6 +696,13 @@ QString versionsRequestKey(const QString &projectId, const QString &gameVersion,
                            const QString &loader = QString(),
                            Source source = Source::Modrinth);
 
+/// 一次"批量问这几个项目叫什么"的钥匙（2026-09-28 加，前置模组和更新检测都要名字）。
+///
+/// ★ id **先排序再拼**：同一批号不管调用方是按什么顺序攒的，都是同一把钥匙。不排的话，
+///   同一批号换个顺序就成了"另一发"，前一趟回来的结果被当成过期的丢掉 —— 症状是
+///   "这一批名字永远填不上"，而屏幕上看不出任何异常。
+QString projectsRequestKey(const QStringList &projectIds, Source source = Source::Modrinth);
+
 /// 解析版本列表。返回的顺序**就是接口给的顺序**：实测量过，是**新的在前**。
 ///
 /// 2026-09-23 拿两份真响应逐条核过 `date_published`（各 12 条和 22 条，都严格递减），

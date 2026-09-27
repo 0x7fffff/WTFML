@@ -1587,6 +1587,17 @@ QString versionsRequestKey(const QString &projectId, const QString &gameVersion,
            QLatin1Char('|') + gameVersion + QLatin1Char('|') + loader;
 }
 
+QString projectsRequestKey(const QStringList &projectIds, Source source) {
+    // id 先排一遍再拼：同一批号不管调用方是按什么顺序攒起来的，都是**同一把钥匙** ——
+    // 不排的话，同一批号换一个顺序就成了"另一发"，前一趟回来的结果会被当成过期的丢掉，
+    // 界面上的症状是"这一批名字永远填不上"。
+    QStringList sorted = projectIds;
+    sorted.sort();
+    // `,` 在两种 id（base62 / 纯数字）里都不会出现，当分隔符不用转义。
+    return QStringLiteral("projects|") + sourceKey(source) + QLatin1Char('|') +
+           sorted.join(QLatin1Char(','));
+}
+
 QList<VersionEntry> parseVersions(const QByteArray &json) {
     QList<VersionEntry> out;
 

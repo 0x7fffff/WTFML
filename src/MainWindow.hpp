@@ -32,6 +32,7 @@
 // MainWindow::fillLoaderVersionItems）。这是个**纯数据的头**（只有 QString/QList/QJson
 // 那些 QtCore 的东西，不拖 QtWidgets），所以按值用就 include，不去走前置声明那一套。
 #include "download/LoaderMeta.hpp"
+#include "download/ModDependencies.hpp"
 #include "download/ResourceCatalog.hpp"
 // ServerStatusCache::Entry / ServerPing::Status —— 「服务器列表」那一趟测速的状态里
 // 两样都按值存一份（见 m_serverPing）。两个头都很轻（QByteArray/QString 那一档），
@@ -796,8 +797,12 @@ private:
     /// @param kind 是哪一类资源（决定落到哪个目录、要不要过加载器那道闸）
     /// @param displayTitle 界面上这一个资源叫什么（下载 label 的前半截，另一半是版本号）
     /// @param version 要下的那一版（`primaryFile()` 是它的文件清单）
+    /// @param source 这一条资源是**从哪一家搜出来的**（前置也去同一家问 —— 两家的项目号
+    ///        不是一套）。★ 2026-09-28 加：原来不用它，因为这一条路上一个跨项目的请求都
+    ///        不发；前置要问"那个号叫什么、有哪些版本"，来源就必须跟着走了。
     void installResourceVersion(ResourceCatalog::Kind kind, const QString &displayTitle,
-                                const ResourceCatalog::VersionEntry &version);
+                                const ResourceCatalog::VersionEntry &version,
+                                ResourceCatalog::Source source);
 
     // ---------- 资源详情页（2026-09-26）----------
     //
@@ -862,6 +867,106 @@ private:
     void fillResourcePageGroups();
     /// 详情页上点了某一个具体版本（`Row::key` = `VersionEntry::id`）= 下它。
     void downloadResourcePageVersion(const QString &versionId);
+
+    // ---------- 前置模组：装一个模组时带上它要的那几个（2026-09-28）----------
+    //
+    // 用户原话：「在模组下载页，选择模组后显示其依赖，点击下载后弹出窗口，让用户可以点击
+    // 一键下载所有缺少的依赖」。判断那一半（缺哪些 / 去哪问 / 挑哪一版 / 挑不出来怎么说）
+    // 全在 `ModDependencies` 里（纯函数，离线可测），**这里只接线**：
+    //
+    //   ① 点下载 → `installResourceVersion()` 先看这一版声明的必装前置里还缺哪几个；
+    //   ② 一条不缺 → 和从前一模一样（连一个请求都不多发）；
+    //   ③ 有缺的 → 问一次"这几个号叫什么"（名字在项目对象里，见 ResourceStore::fetchProjects），
+    //      再逐条问"它有哪些版本"（筛的是**目标实例**的游戏版本 + 加载器）；
+    //   ④ 全问完 → 弹一个框，把缺的那几个列出来，两颗按钮：「一起下载」/「只下这个」；
+    //   ⑤ 一起下载 → 把 `Plan::downloads` 和主模组**并成一批**下（`downloadResourceFiles`
+    //      一次收全表，所以它们是同一批、一个进度、一条"下好了"的日志）。
+    //
+    // NOTE: 那一批里**解不开的那几条**不会让整件事停下（下不下来的前置不代表这个模组不能
+    //       装），它们进 `Plan::unresolved`，弹框里原话列出来 —— 用户看到的必须是
+    //       "这几个没找到"，不是"什么都没发生"。
+    struct DependencyCheck {
+        /// 正在跑这一趟（**只有一趟**：用户连点两下"下载"时第二下不该再起一趟 ——
+        /// 两趟会各问一遍、各弹一个框，而第一趟已经弹着的那个框正转着嵌套事件循环）。
+        bool active = false;
+        ResourceCatalog::Kind kind = ResourceCatalog::Kind::Mod;
+        QString title;
+        ResourceCatalog::VersionEntry version;
+        QString instanceId;
+        ModDependencies::Target target;
+        /// 还缺的那些（`missingRequiredDependencies()` 的结果，顺序原样）。
+        QList<ModDependencies::Lookup> missing;
+        /// 名字那一发的钥匙（回来的不是这一把就丢 —— 用户完全可能中途又点了别的）。
+        QString titleRequestKey;
+        /// 项目号 → 名字（取不到就缺席，那一条退成项目号显示）。
+        QHash<QString, QString> titles;
+        /// 钥匙 → 那一发的版本列表。**缺席 ≠ 空表**：前者是"没问到"（网络），后者是
+        /// "它就是没有版本"（`ModDependencies::buildPlan` 那两句话分得清清楚楚）。
+        QHash<QString, QList<ResourceCatalog::VersionEntry>> answers;
+        /// 还差几发没回来（0 到齐了 → 收尾）。
+        int pending = 0;
+        /// 这个实例的 mods **认过没有**（见 `installedModKeys()` 的 `known` 出参）。
+        /// 只决定弹框那句话："这几个还没装" ↔ "无法确认你装了没有"——
+        /// **空表和"确实一个都没装"是两件事**，混成一句等于替用户认下一件我们不知道的事。
+        bool installedKnown = false;
+    };
+    DependencyCheck m_dependencyCheck;
+
+    /// "这个前置要装进哪个实例"：游戏版本 + 加载器 + 来源（`ModDependencies::Target`）。
+    /// 加载器名走 `instanceLoaderName()`（PCL 那类合并实例只有它能读出来，见那一处）。
+    ModDependencies::Target dependencyTargetFor(const QString &instanceId,
+                                                ResourceCatalog::Source source);
+    /// 这个实例的 mods 里**已经认出来的**那些资源（键 = `<来源>-<项目号>`）。
+    ///
+    /// ★ 这份判据的**强度就是"这个会话认过多少"**：`m_instanceFileIdentities` 是文件管理页
+    ///   那一趟反查填的，没进过那一页就是空的。所以多出来一个 @p known 出参：**空表**
+    ///   和"确实一个都没装"是两件事，界面上那两句话不一样（见 `known` 的用法）。
+    QSet<QString> installedModKeys(const QString &instanceId, bool *known) const;
+    /// 起一趟前置检查（见上面那段）。占着 `m_dependencyCheck`。
+    void startDependencyCheck(ResourceCatalog::Kind kind, const QString &displayTitle,
+                              const ResourceCatalog::VersionEntry &version,
+                              const ModDependencies::Target &target,
+                              const QList<ModDependencies::Lookup> &missing,
+                              bool installedKnown);
+    /// 名字那一发回来了 → 逐条去问版本列表。
+    void onDependencyProjectsFinished(const QString &requestKey,
+                                      const QList<ResourceCatalog::Hit> &hits,
+                                      const QString &problem);
+    /// 某一条前置的版本列表回来了 → 记下答案，到齐了就弹框。
+    void onDependencyVersionsFinished(const QString &requestKey,
+                                      const QList<ResourceCatalog::VersionEntry> &versions,
+                                      const QString &problem);
+    /// 全问完了：算 Plan、弹框、按用户那一按继续装（或者只装主模组）。
+    void finishDependencyCheck();
+    /// 真正下那一段（`installResourceVersion()` 的后半截）。
+    ///
+    /// @param extras 一起下的前置（`Plan::downloads`；空表 = 只下主模组）。
+    void installResourceVersionNow(ResourceCatalog::Kind kind, const QString &displayTitle,
+                                   const ResourceCatalog::VersionEntry &version,
+                                   const QList<ModDependencies::Resolved> &extras);
+
+    // ---------- 实例更新检测（2026-09-28）----------
+    //
+    // 用户原话：「实例设置那里做一个更新检测」。判据只有一条：盘上那个文件的 sha1 落在
+    // 项目版本列表的第几条上（见 `ModDependencies::judgeUpdate()`）。
+    //
+    // 【为什么要先反查一遍】
+    //
+    // 盘上那些 jar 是**谁**、**哪一版**，只有反查说得出来（`InstanceIconLookup`：哈希 →
+    // 项目号 → 项目对象，同一趟顺手把 sha1 带出来，见 `Found::sha1`）。所以这一趟的形状是
+    // "枚举 mods → 反查一次 → 有几个项目就再问几发版本列表 → 判"，**全在后台线程**吗？
+    // 不是：版本列表那几发走的是主线程上的 ResourceStore（界面这一层本来就等结果），
+    // 只有"读几十兆 jar 算哈希"那一段在后台线程（沿用 `startInstanceFileIconLookup` 那套）。
+    void checkInstanceUpdates(const QString &instanceId);
+    /// 反查那一趟回来了（更新检测这条路上的收尾：逐个项目问版本列表）。
+    void onUpdateCheckLookupFinished(const InstanceIconLookup::Result &result,
+                                     const QString &instanceId);
+    /// 某个项目的版本列表回来了 → 判这一条，并且**当场就把报告里那一行准备好**。
+    void onUpdateCheckVersionsFinished(const QString &requestKey,
+                                       const QList<ResourceCatalog::VersionEntry> &versions,
+                                       const QString &problem);
+    /// 全判完了：把报告写成一份**用户看得懂**的清单（能更新的排前面），弹框 + 日志。
+    void finishUpdateCheck(const QString &instanceId);
     /// ResourceStore 的三个回复。
     void onResourceSearchFinished(const QString &requestKey,
                                   const ResourceCatalog::SearchResult &result);
@@ -1539,6 +1644,35 @@ private:
     /// NOTE: 键是**路径的钥匙**而不是路径，所以文件删掉之后这一条留着也不会有人读到它
     ///       （pushInstanceFileIcons() 只走 `m_instanceIcons.paths` 里那些还在的路径）。
     QHash<QString, QString> m_instanceFileIdentities;
+    /// ---------- 实例更新检测那一趟（2026-09-28）----------
+    ///
+    /// 一趟的形状：枚举这个实例的 mods → 后台线程反查一次（`InstanceIconLookup`，顺手
+    /// 带出每个文件的 sha1）→ 有几个项目就再问几发版本列表（**新的在前**，按这个实例的
+    /// 游戏版本 + 加载器筛）→ `ModDependencies::judgeUpdate()` 逐条判 → 一份报告。
+    struct UpdateCheckRun {
+        /// 这一趟查的是哪个实例（回来时按它认人：用户在等着的时候完全可能换了实例设置页）。
+        QString instanceId;
+        /// 还差几发没回来。**只有它到 0 才收尾** —— 少等一发的话，报告里会凭空少几条，
+        /// 而屏幕上一点异常都没有（"这个模组已经是最新的"和"没查到"是两句话）。
+        int pending = 0;
+        /// 钥匙（`versionsRequestKey`）→ 等这个答案的那几条文件。
+        ///
+        /// 为什么要按钥匙分组、而不是"一个项目一个条目"：同一个资源在 mods/ 里摆两份是
+        /// 常事（`X.jar` 和 `X.jar.disabled` 也在候选里），两份**同一次答案就能判**，
+        /// 所以一发请求判两条。**反查那一趟回来之后才有它**（那时才知道哪个文件是哪个项目）。
+        QHash<QString, QList<ModDependencies::InstalledItem>> itemsByKey;
+        /// 还没回来的钥匙（到空 = 收尾）。★ **少等一发就会少几条** —— 报告里那几条会
+        /// 凭空消失，而屏幕上一点异常都没有（"已经是最新的"和"没查到"是两句话）。
+        QSet<QString> waitingKeys;
+        /// 已经判出来的（收尾时按它排序写报告）。
+        QList<ModDependencies::UpdateVerdict> verdicts;
+        /// 反查那一趟自己的问题（读不动几个文件之类），报告末尾照实说一句。
+        QString lookupNote;
+        /// 跑着的时候就把重活派出去的那个线程（跑完 deleteLater，见 startInstanceFileIconLookup
+        /// 那套写法）。
+        QThread *thread = nullptr;
+    };
+    UpdateCheckRun m_updateCheck;
     /// 已经问回来的版本列表，按**请求钥匙**存（ResourceCatalog::versionsRequestKey()）。
     /// 点第三层那一下要拿它换出 URL / sha1 / 大小。
     /// NOTE: 那些事实**不放在条目上**：条目在重搜时会被整个清掉，而"这一版的文件是哪几个"
