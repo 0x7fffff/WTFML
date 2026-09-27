@@ -167,11 +167,17 @@ bool RandomSkinStore::saveChosenSkinUrl(const QString &uuid, const QString &skin
     return true;
 }
 
-void RandomSkinStore::fetchRandomSkin() {
+bool RandomSkinStore::fetchRandomSkin() {
     if (m_inFlight) {
         // 已经有一次在飞了。这条路会被反复走到（每次刷新外观、每次切账号都重新
         // startPlayerSkinLoad()），不挡一下就会攒出一串一样的请求。
-        return;
+        //
+        // ★ 2026-09-27：被挡掉的这一趟**什么都没开始**，所以要把这件事告诉调用方（返回值）
+        //   —— 它正等着拿"发请求时那位是谁"当同一性判据用，见 MainWindow::onRandomSkinReady()。
+        //   另外调用方在丢掉一趟过期结果之后会**再调一次 startPlayerSkinLoad()** 来补这一次
+        //   被挡掉的（那一趟里 m_inFlight 已经落回 false 了，见下面 reply 的回调第一句），
+        //   所以"换到 B 之后 B 一直没挑过"这个坑也顺带补上了。
+        return false;
     }
     m_inFlight = true;
 
@@ -208,4 +214,5 @@ void RandomSkinStore::fetchRandomSkin() {
         }
         emit skinReady(url);
     });
+    return true;  // 请求真的发出去了（被 m_inFlight 挡掉那一趟是上面那个 return false）
 }

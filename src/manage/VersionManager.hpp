@@ -751,6 +751,17 @@ public:
     // 那一份（加载器的安装器、别的启动器都按原样读它）。见 rawVersionJson()。
     QJsonObject getVersionJson(const QString &versionId) const;
 
+    // 把上面说的那**两个按 id 缓存的表**一起丢掉（`versionJsons` / `mergedVersionJsons`）。
+    //
+    // ★ 2026-09-27 加：这两张表的键**只有版本 id**（= 目录名），而目录名在"换了一整份
+    //   .minecraft"之后不再是唯一的 —— 两份目录里各有一个 `1.20.1` 是常态。所以
+    //   **换当前游戏文件夹那一路必须喊这一句**（`MainWindow` 里
+    //   `FolderManager::currentFolderChanged` 那个 lambda），和 m_javaListScanned 那几件
+    //   "跟着上一份走的事"一起重置。不喊的症状：切完文件夹再启动同名的那个实例，
+    //   全程用的是上一份目录里那份 json（classpath / natives / javaVersion / assetIndex
+    //   全按它算），而游戏自己去读新目录的 json。详见 .cpp 里那段。
+    void clearVersionJsonCache();
+
     // 这个版本的继承链有没有问题：没问题返回空串，有问题返回给用户看的一句话（父版本
     // 没装 / 链成环 / 链太长）。
     //

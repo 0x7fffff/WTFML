@@ -250,15 +250,29 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
         int line = motdPieces.first().line;
         int lineY = y;
         int x = textRect.left();
+        // ★ 2026-09-27：这一行装不下了要**只跳过这一行剩下的段**，下一行照画。
+        //   原来两处都是 `break`，跳的是**整个循环** —— 于是第一行比那一格宽时（这一列是
+        //   拉伸的，还得给地址/状态两列让位，第一行写长的服务器很常见）第二行**整行不画**，
+        //   而 subLines / blockHeight 是按两行算的 ⇒ 正文整体上移、底下空出一条。
+        //   原来那段注释逐字写着「**不是** break 整个循环：第二行（如果还有）照画」，
+        //   代码干的正好是它说没干的那件事。
+        bool skipRestOfLine = false;
         for (const MotdPiece &piece : motdPieces) {
             if (piece.line != line) {
                 line = piece.line;
                 lineY += subMetrics.height();
                 x = textRect.left();
+                skipRestOfLine = false;  // 新的一行：从头照画
+            }
+            if (skipRestOfLine) {
+                continue;
             }
             const int avail = textRect.left() + textRect.width() - x;
             if (avail <= 0) {
-                break;
+                // 这一行已经画满了（正好填满时会走到这儿，x 落在右边缘上）。
+                // 同一件事：只作废这一行剩下的段。
+                skipRestOfLine = true;
+                continue;
             }
             QFont pieceFont = subFont;
             pieceFont.setBold(piece.bold);
@@ -268,14 +282,15 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
             const QFontMetrics pieceMetrics(pieceFont);
             // 装不下就从**这一段**的尾巴上省略（和上面那两行同一个做法：`drawText` 装不下
             // 是硬裁，最后那个字会被切掉半个）。省略了就是这一行的结尾 —— 后面那些段
-            // 再画就要压到省略号上了。**不是** break 整个循环：第二行（如果还有）照画。
+            // 再画就要压到省略号上了，作废掉。第二行（如果还有）照画，见上面那一句。
             const QString shown = pieceMetrics.elidedText(piece.text, Qt::ElideRight, avail);
             painter->setFont(pieceFont);
             painter->setPen(MotdText::readableOn(MotdText::pieceColor(piece), rowBg));
             painter->drawText(QRect(x, lineY, avail, subMetrics.height()),
                               Qt::AlignLeft | Qt::AlignVCenter, shown);
             if (shown != piece.text) {
-                break;
+                skipRestOfLine = true;
+                continue;
             }
             x += pieceMetrics.horizontalAdvance(shown);
         }

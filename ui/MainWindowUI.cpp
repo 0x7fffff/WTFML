@@ -1129,6 +1129,12 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     // NOTE: 建在**最后**：它不吃布局，几何靠盯住 tabWidget 的 Resize/Move 现算，所以
     //       搭它的时候上面那四个 addTab 必须已经跑完了。
     overlayHost = new OverlayHost(tabWidget, centralWidget);
+    // ★ 2026-09-27：**提示开着时把底栏一起按住**。这一句必须在底栏建好之后（上面的
+    //   setupBottomBar 已经跑完），理由见 OverlayHost::setPromptBlockedWidget()：
+    //   底栏不在覆盖层底下（这一层挂在 tabWidget 上），"被盖住 = 点不着"那条判据管不到它，
+    //   于是提示开着时底栏照样能点开上拉面板 → 面板里点「改设置」被挡住 → 而那句解释
+    //   为什么的话又要被"提示叠提示不做"吞掉 ⇒ 用户点了一下，屏幕上什么都没有。
+    overlayHost->setPromptBlockedWidget(bottomBar);
 
     // ---------- 外框 ----------
     // 客户区铺满整窗 + 条上哪一片能拖（见 WindowChrome.hpp 开头那两段）。**建在最后**：
@@ -1401,7 +1407,7 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
         buttonRowLayout->addStretch(1);
         boxLayout->addWidget(buttonRow);
 
-        addHint(box, QStringLiteral("多条参数用空格分隔。改完点「应用」生效 —— "
+        addHint(box, QStringLiteral("多条参数用空格分隔（一行一条也行）。改完点「应用」生效 —— "
                                     "不边打字边存，免得打到一半的半条参数被写进配置。"
                                     "按版本的那份写在 .minecraft/versions/<版本>/wtfml.meta "
                                     "的 jvmArgs 里，排在全局之后（同一条以后写的为准）。"),

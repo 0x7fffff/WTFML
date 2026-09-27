@@ -803,8 +803,17 @@ SearchResult parseCurseForgeSearch(const QByteArray &json) {
         hit.title = object.value(QStringLiteral("name")).toString();   // 名字在 `name` 里
         hit.description = object.value(QStringLiteral("summary")).toString();
         // 作者：那边是个数组（实测只有一位）。取第一个 —— 这一行小字放不下第二个。
-        hit.author = object.value(QStringLiteral("authors")).toArray().first().toObject()
-                         .value(QStringLiteral("name")).toString();
+        // ★ 2026-09-27：**必须先判空**。`QJsonArray::first()` 在空数组上是越界读（Qt 里带
+        //   Q_ASSERT，release 下是未定义行为）—— 而空数组在这儿是**很容易到**的：
+        //   `toArray()` 对"没这个键 / 值是 null / 值是字符串"一律回空数组，所以镜像那边只要
+        //   漏了 `authors`（或者哪一天真给了一条没有作者的记录），搜到这一条就当场读到一个
+        //   垃圾值，轻则那行小字空着，重则整个搜索结果页画不出来。
+        //   这一段里别的字段（id/slug/summary/categories/…）全都写了缺省兜底，只有这一处
+        //   原来没有 —— 现在补上：取不到就是空作者，那行小字自己会少写一段。
+        const QJsonArray authors = object.value(QStringLiteral("authors")).toArray();
+        if (!authors.isEmpty()) {
+            hit.author = authors.first().toObject().value(QStringLiteral("name")).toString();
+        }
         hit.downloads = static_cast<qint64>(object.value(QStringLiteral("downloadCount")).toDouble());
         // 最后一次更新。**名字和 Modrinth 不一样**（这边是 dateModified，那边是
         // date_modified）—— 两处各读各的，读到同一栏里去。

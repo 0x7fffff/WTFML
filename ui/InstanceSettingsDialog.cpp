@@ -738,8 +738,10 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             // 模态，验证工程驱动不了它 —— 那一半是"问路径"，可测的那一半是这个框里的
             // 文字（override() 直接读它）。和 GroupDialog 里问组名的拆法一样。
             // NOTE: "驱动不了"的原因和内嵌提示那几条不一样：这里开的是 **Windows 自己的
-            //       文件选择框**，不是我们的窗（同选文件夹 / 选整合包 / 选皮肤图，2026-09-25
-            //       之后全项目就剩这四处独立窗）。理由和取舍见 MainWindow.cpp 里
+            //       文件选择框**，不是我们的窗。**全项目一共七处**（2026-09-27 数的）：
+            //       MainWindow.cpp 两处（选文件夹 / 选整合包）、AccountSkinDialog.cpp 一处
+            //       （选皮肤图）、这个文件四处（选 java.exe / 选实例图标 / 导出整合包的保存框 /
+            //       导出 .bat 的保存框）。理由和取舍见 MainWindow.cpp 里
             //       onAddFolderClicked() 上面那一段。
             const QString picked = QFileDialog::getOpenFileName(
                 this, tr("选择 java.exe"), m_javaPathEdit->text(),

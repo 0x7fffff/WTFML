@@ -587,8 +587,27 @@ void GlobalJavaSettings::setExtraJvmArgs(const QString &args) { m_extraJvmArgs =
 void GlobalJavaSettings::load() {
     QSettings settings;
     m_javaPath = settings.value(kJavaPath).toString();
-    m_xmx = settings.value(kXmx, m_xmx).toInt();
-    m_xms = settings.value(kXms, m_xms).toInt();
+    // ★ 2026-09-27 修：这两个数**读回来也要过一遍钳位**。原来是直接 toInt() 赋给成员，
+    //   而"盘上那份不能当成可信的"这条规矩在 LauncherSettings 那边写得很清楚（宽高、
+    //   标题读侧写侧都钳），偏偏内存这两个数漏了。
+    //   翻车的例子：注册表 HKCU\Software\WTFML\WTFML\Java\Xmx 被手改成 0（或者一个非数字
+    //   串 —— QVariant→int 失败同样是 0）→ 界面那格被 setRange 夹出下限、那行说明文字里
+    //   是 **0 MB**、真正发给 JVM 的却是 resolveJavaSettings 钳出来的 256m：**三处数字
+    //   互不相同**。更糟的是启动链发现"最小值 > 最大值"之后会 save()，把这个坏值**自己
+    //   写回注册表** —— 从此它就活下来了，用户改回来都难对得上账。
+    //   NOTE: 钳位的唯一出处是 setXmx()/setXms()（256 / 128 那两道下限写在它们里面），
+    //         所以这里用 setter 而不是自己再写一遍 qMax。
+    //   NOTE: 认不出数字（ok == false）时**要说一声**：静默把用户的值换成下限，和"识别失败
+    //         装作没事"是同一个毛病。这一行进日志文件（安装 handler 之后就有落点）。
+    bool okXmx = false;
+    bool okXms = false;
+    const int rawXmx = settings.value(kXmx, m_xmx).toInt(&okXmx);
+    const int rawXms = settings.value(kXms, m_xms).toInt(&okXms);
+    if (!okXmx || !okXms) {
+        qWarning() << "内存设置读出来不是数字，已按下限处理：Xmx" << rawXmx << "Xms" << rawXms;
+    }
+    setXmx(rawXmx);
+    setXms(rawXms);
     m_extraJvmArgs = settings.value(kExtraArgs, m_extraJvmArgs).toString();
     // 默认值取成员当前值（构造时是 true）：注册表里没这一项就落到"自动"，
     // 也就是加这个开关之前的行为。

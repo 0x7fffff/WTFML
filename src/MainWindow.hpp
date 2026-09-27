@@ -530,9 +530,22 @@ private slots:
     ///   立刻返回，界面在这几秒里照常能用 —— 「测速」那颗按钮自己显示「测速中…」，
     ///   别的都不禁用。
     ///
-    /// NOTE: 重复调用是**安全的**：已经有一趟在跑时它只把界面接回来（换到新开的那一页、
-    ///       把已经攒下的结果摆上去），不重开一趟（见 .cpp 里那段）。
+    /// NOTE: 重复调用是**安全的**：已经有一趟在跑、而且**地址表一模一样**时，它只把界面
+    ///       接回来（换到新开的那一页、把已经攒下的结果摆上去），不重开一趟。
+    /// ★★ 2026-09-27：地址表**不一样**时不能这么接 —— 结果是按下标摆的，接回来就是
+    ///       张冠李戴（B 那一页的第 3 行显示 A 的第 3 台）。那一路改成"记下欠着的活、
+    ///       等这一趟收摊再开"，见 .cpp 里那段和 onServerPingAllFinished。
     void pingServers(InstanceSettingsDialog *dialog, const QString &versionId);
+
+    /// 照一份地址表**真开一趟**（读缓存垫底、把表摆上、丢给 Pinger）。前提：没有别的趟
+    /// 在跑（调用方判 `m_serverPing.active`）。
+    ///
+    /// NOTE: 「这份地址表现在该显示成什么样」那两下（读缓存 → 一行行摆法）**不是成员**：
+    ///       它们只用 ServerStatusCache，而 `InstanceSettingsDialog::ServerRowStatus` 是
+    ///       嵌套类型、这个头只前向声明了那个类（要在这儿写出返回类型就得把 ui/ 的头拉进来）。
+    ///       见 .cpp 里那对文件内的函数。
+    void beginServerPingRun(InstanceSettingsDialog *dialog, const QString &versionId,
+                            const QStringList &addresses);
 
     /// 把 `m_serverPing` 现在攒下的东西摆到那一页上。**没开着就什么都不做**。
     void pushServerPingRows();
@@ -556,6 +569,15 @@ private slots:
     /// 所以这一发只做三件事：列一遍候选文件、把**已经知道的**先摆上去、需要问的丢给后台
     /// 线程。重复调用是安全的：已经有一趟在跑时不重开（只把界面接回新开的那一页）。
     void requestInstanceFileIcons(InstanceSettingsDialog *dialog, const QString &versionId);
+
+    /// ★ 2026-09-27 拆出来的那一段：照**现在这一页**（`m_instanceIcons.paths`）里还没问过
+    /// 的那些开一趟后台。`requestInstanceFileIcons()` 和"上一趟收尾时发现用户已经换了页"
+    /// （见 onInstanceIconLookupFinished 末尾）两处都走它。
+    ///
+    /// 不这么拆的话，"A 的线程还在跑、用户又开了 B 的设置页"这一形态下 B 会被**静默丢下**：
+    /// 那次请求撞在 `active` 闸上直接 return 了，而 A 跑完时谁也不会回头替 B 问 —— B 的
+    /// 文件要等用户再进一次这一页才有图标。
+    void startInstanceFileIconLookup();
 
     /// 后台那一趟回来了。见 .cpp 里那一段。
     void onInstanceIconLookupFinished(const InstanceIconLookup::Result &result);
@@ -1025,8 +1047,10 @@ private:
     /// 启动成功后按「启动后」那一项处理启动器自己。
     void applyLauncherBehaviourAfterLaunch();
 
-    /// 把一条消息交给 Qt 的日志系统（命令行里看）。界面里已经没有日志面板了，
-    /// 必须让用户看到的消息走的是 QMessageBox，不靠这一条 —— 见 .cpp 里的说明。
+    /// 把一条消息交给 Qt 的日志系统（写进 `<数据目录>/logs/wtfml.log`，命令行里也能看）。
+    /// 界面里已经没有日志面板了 —— 必须让用户看到的消息走的是 `InlineMessage`，不靠这一条，
+    /// 见 .cpp 里的说明。NOTE: 这里原来写的是"走 QMessageBox"，那句话早和代码相反了
+    /// （内嵌化那一批把 90 来处全换掉了），2026-09-27 一并改掉。
     void appendLog(const QString &text);
     /// 刷新底部状态条那三格（头像/用户名、进度、实例运行状态）。
     /// 显示规则见 .cpp；界面那边只负责把控件搭出来。
@@ -1355,6 +1379,18 @@ private:
         QPointer<InstanceSettingsDialog> dialog;
         /// 地址表（就是发给 Pinger 的那一份），下标 ↔ servers.dat 里的行。
         QStringList addresses;
+        /// 这一趟是**哪个实例**的。只为一件事：`addresses` 一样、实例不一样时（两台服务器
+        /// 列表碰巧相同）日志里能说清是哪一趟 —— 摆到界面上按的是地址表，不看这个。
+        QString versionId;
+        /// ★★ 2026-09-27 加：这一趟跑着的时候用户又问了**另一份地址表**（换了实例、改了
+        /// servers.dat 再按「刷新」…）时记在这儿 —— 那一刻不能改账，因为这一趟剩下的结果
+        /// 还在队列里、按下标写的是**这一份**表（见 pingServers 里那段）。等这一趟收摊
+        /// （onServerPingAllFinished）才照这份表真开一趟。
+        ///
+        /// NOTE: 空 = 没有欠着的活（绝大多数趟）。
+        QStringList pendingAddresses;
+        QPointer<InstanceSettingsDialog> pendingDialog;
+        QString pendingVersionId;
         /// 盘上缓存里"上一次问到"的那一份（键是下标）。**只在 fresh 里没有它时才用**。
         QHash<int, ServerStatusCache::Entry> cached;
         /// 这一趟真的问回来的（键是下标，同一台问了第二次也覆盖它）。
@@ -1378,7 +1414,14 @@ private:
         QPointer<InstanceSettingsDialog> dialog;
         /// 这一趟列出来的候选文件（绝对路径）。回灌那一步走的就是它 —— 只摆这一份里的，
         /// 而不是把整张会话缓存（可能上千条）挨个问那六页一遍。
+        ///
+        /// NOTE: 这是"**现在这一页**是谁"的快照，每次 requestInstanceFileIcons() 都整个换掉。
+        ///       **别拿它当"某一趟问了哪些文件"用** —— 那个是下面 m_instanceIconRunPaths，
+        ///       两者在这一页被换掉之后就不一样了。
         QStringList paths;
+        /// 这一页是**哪个实例**（versionId）。只为一件事：这一趟在跑的时候用户换了一页
+        /// 的话，收尾时看得出"现在这一页已经不是这一趟问的那一页"，得给新那页补一趟。
+        QString versionId;
         /// `Hit::iconCacheId()`（带来源前缀）→ 认得出这个资源的那些**文件**。
         ///
         /// 反过来的方向（一个文件 → 它的 iconId）在下面那张表里；这一张是给
@@ -1389,6 +1432,19 @@ private:
         bool active = false;
     };
     InstanceIconRun m_instanceIcons;
+    /// ★ 2026-09-27 加：**这一趟真的问了哪些文件**（绝对路径），以及是给哪个实例问的。
+    ///
+    /// 为什么不读 `m_instanceIcons.paths`：那是"最后一次请求"换上去的那一份，而
+    /// requestInstanceFileIcons() 里换它的那一句排在 `active` 闸**之前** —— 于是"A 的线程
+    /// 还在读盘、用户又开了 B 的设置页"这一形态下，A 的结果回来时那张表**已经是 B 的了**。
+    /// 以前负缓存（m_instanceIconMissing）正是照那张表写的：A 那一趟的"没找到"被逐条记到了
+    /// **B 的文件**头上，而且那张表除析构外**从不清理** ⇒ B 这一整个会话都看不到图标，
+    /// 连"再点一次刷新"都没用（下一次请求在同一个假钥匙上照样跳过）。按趟记账之后，被记的
+    /// 永远是**真的问过**的那一批。
+    QStringList m_instanceIconRunPaths;
+    /// 这一趟是给哪个实例问的（同上；收尾时拿它和 `m_instanceIcons.versionId` 比一比，
+    /// 不一样就说明用户中途换了页，得补一趟）。
+    QString m_instanceIconRunVersionId;
     /// 跑那一趟的线程。`QThread::create()` 出来的（省掉"再写一个 QThread 子类"，
     /// 同 ServerPing::Pinger 里那条 NOTE）。跑完就 deleteLater（见 .cpp 里那段）。
     QThread *m_instanceIconThread = nullptr;
@@ -1535,6 +1591,16 @@ private:
     // 空串 = 没有待记的（正常态）。
     QString m_pendingRandomSkinUrl;
     QString m_pendingRandomSkinUuid;
+    // ★ 2026-09-27 加：**发这一次请求时**当前是哪个离线账号。
+    //
+    // onRandomSkinReady() 原来只判 `offlineIdentity()`（"现在这位是离线账号"），而那回答的
+    // 不是"是不是**同一个**离线账号" —— 从 A 切到 B（两个都是离线账号）之后，A 那一趟的结果
+    // 照样通过，于是 A 挑的那张被记进 random-<B>.txt、画在 B 脸上，而 A 那边永远没有记录
+    // （每次开启动器重挑一张，脸一直变）。这一位就是那个"同一性"判据的唯一出处：
+    // 请求发出时写一次，回来时比一次，不一样就整份丢掉。
+    // NOTE: 这一位和 onSkinProfileReady() 那边拿信号里带的 uuid 去比是**同一件事** ——
+    //       那条路是信号自己带着身份回来的，这边没有，只好自己记一份。
+    QString m_randomSkinRequestUuid;
     // 去官方问的这一次还在路上（决定那句话是"正在获取"还是"取不到"）。
     // NOTE: **只表示"真的发出去了一个请求"**，缓存命中不算 —— 命中是同步回来的，
     //       标成"在路上"会让那句话卡在"正在获取"上下不来。
@@ -1607,6 +1673,13 @@ private:
     // 存的是**会话号**不是版本号：同一个实例可以被多开，按版本号记的话第二个起来就把
     // 第一个那笔盖掉了（然后第一份出话时"启动中"照样挂着，直到它退出才收）。
     QSet<int> m_launchingSessions;
+    // ★ 2026-09-27 加：会话号 → 那一份的实例显示名。**启动那一刻记一次**，退出时用掉、删掉。
+    //
+    // 唯一用途是 onGameFinished() 里那行日志的 `[实例名] ` 前缀 —— 那时会话已经从
+    // LauncherManager 的表里摘掉了（discard 在 emit 之前，是有意的），`session(id)` 返回的
+    // 是空快照，所以名字只能自己留一份。多开时没有它，"游戏进程已结束，退出码：0" 这一行
+    // 分不清是谁退了（它上面那些 [游戏输出] 行都有名字，对比之下更刺眼）。
+    QHash<int, QString> m_sessionDisplayNames;
     // 现在正卡在哪一段同步等待上（空串 = 没在等）。内容就是底栏那格要写的那句话，
     // 由 enterSyncWait() 写进来、leaveSyncWait() 清掉 —— 做成字符串而不是布尔量，
     // 是因为"在等什么"只有进那一段的人知道（换令牌 / 挑 Java / 等进程起来）。

@@ -372,7 +372,16 @@ ZipUtil::EntryStatus ZipUtil::readEntry(const QString &archive, const QString &e
     if (code != 0) {
         QFile::remove(tempPath);
         if (errorOut != nullptr) {
-            const QString err = QString::fromLocal8Bit(stderrBytes).trimmed();
+            // ★ 2026-09-27 修：这里原来直接把 stderr 原文交出去，而**这条路和上面那两处
+            //   是同一件事**（readProcessError 上面那段说的：stderr 被重定向时 PowerShell
+            //   会把错误流序列化成 CLIXML，头一行是 `#< CLIXML`）。readEntry() 自己 new 了
+            //   一个 QProcess（它是 runPowershell() 之外的第四个跑 PowerShell 的地方，
+            //   见本文件 518 行附近那段），所以它不在那一层过滤的覆盖范围内。
+            //   走得到这儿的一例：导入整合包时临时目录写不进去（%TEMP% 被清理工具占着、
+            //   盘满、杀软拦新建文件）→ 脚本里 ExtractToFile 抛异常 → 退出码不是 3/4 那两档
+            //   → 调用方（MainWindow 读清单那条路）把 `#< CLIXML` 和一整条 <Objs> XML 拼进
+            //   「读这个压缩包的时候出错了：…」弹给用户，而真因就埋在那条 XML 里。
+            const QString err = readProcessError(QString::fromLocal8Bit(stderrBytes));
             *errorOut = err.isEmpty() ? QStringLiteral("%1失败（退出码 %2）").arg(what).arg(code) : err;
         }
         return EntryStatus::Failed;

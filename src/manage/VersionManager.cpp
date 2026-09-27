@@ -138,10 +138,20 @@ QJsonObject readVersionJsonAt(const QString &path) {
 
 /// 把 from 改名成 to。from 本来就不在时**当成功**（可选文件：json、meta 都可能没有）。
 ///
-/// NOTE: 目标已存在时**拒绝**，不能直接交给 QFile::rename —— 它在 Windows 上走的是
-///       MoveFileEx + MOVEFILE_REPLACE_EXISTING，会**静默盖掉**目标，那是丢数据。
-///       唯一的例外是只差大小写：那种"目标已存在"其实是同一个文件（Windows 的路径
-///       比较本来就不区分大小写），而改显示大小写是合法操作。
+/// NOTE: 目标已存在时**拒绝**，不直接交给 QFile::rename。
+///
+/// ★★ 2026-09-27 修：这一段的理由原来写反了 —— 它说"QFile::rename 在 Windows 上走
+///    MoveFileEx + MOVEFILE_REPLACE_EXISTING，会静默盖掉目标"。**真相正好相反**：
+///    Qt 6.10 里 `QFile::rename` → `QFileSystemEngine::renameFile()` → `::MoveFile`
+///    （**不带** REPLACE_EXISTING，qfilesystemengine_win.cpp:1761-1770），目标已存在时
+///    就是失败；带 REPLACE_EXISTING 的是**另一个私有函数**
+///    （`renameOverwriteFile()`，同文件 1778-1790，`QSaveFile::commit()` 走的才是它）。
+///    这个反转不是咬文嚼字：按错的版本写出来的"直接改名叫覆盖"在
+///    VersionManager::writePackArchive() 里真的红过（V5n）。所以：
+///    **要覆盖别人，只能自己先把它挪开/删掉，不能指望 rename。**
+///    这里的判据保持不变（显式拒绝，让"目标已存在"在这一层被说出来，而不是靠 rename 的
+///    副作用）。唯一的例外是只差大小写：那种"目标已存在"其实是同一个文件（Windows 的
+///    路径比较本来就不区分大小写），而改显示大小写是合法操作。
 bool renameOnto(const QString &from, const QString &to) {
     if (!QFile::exists(from)) {
         return true;
@@ -188,9 +198,15 @@ bool copyTreeInto(const QString &from, const QString &to) {
     if (source.isDir()) {
         // ★ 带上 QDir::Hidden（2026-09-26 补）：这是一条**搬回来**的路（加载器装失败之后
         //   把版本目录 / libraries/optifine 还原回去），漏掉的条目**没有第二次机会** ——
-        //   源目录随后就被删了。不带这一位时，盘上凡是带隐藏属性（Windows 属性位，或者
-        //   名字以点开头）的东西都会在"还原"这一步**静默消失**：用户看到的是"装了一次
-        //   加载器，我放在版本目录里的东西少了几样"。删得掉的东西，拷贝时更要一个不落。
+        //   源目录随后就被删了。不带这一位时，盘上凡是带**隐藏属性位**的东西都会在"还原"
+        //   这一步**静默消失**：用户看到的是"装了一次加载器，我放在版本目录里的东西少了
+        //   几样"。删得掉的东西，拷贝时更要一个不落。
+        //   NOTE: 括号里原来还有半句"或者名字以点开头" —— 那是 **Unix 侧**的规矩
+        //         （`qfilesystemengine_unix.cpp` 里那句 `nativeFilePath.at(lastSlash + 1) == '.'`），
+        //         本工程只有 Windows。Windows 侧的 HiddenAttribute 只由
+        //         `FILE_ATTRIBUTE_HIDDEN` 置起来（`qfilesystemmetadata_p.h` 的
+        //         fillFromFileAttribute）；点开头的名字在 Windows 上算不算隐藏要看那个属性位，
+        //         光看名字不算。结论不变（这一位该带），只是理由别记成 Unix 那条。
         const QFileInfoList entries = QDir(from).entryInfoList(
             QDir::Files | QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot);
         for (const QFileInfo &entry : entries) {
@@ -2815,6 +2831,10 @@ void VersionManager::adoptOptifineProducts() {
 
     // 4. 搬回真游戏目录。**先核对、后搬**：上面任何一条不过，用户的游戏目录里一个字节都
     //    不会多出来 —— 这正是"对着临时目录装"换来的东西。
+    //    NOTE: 那句话管的是**核对**。搬回**中途**失败是另一回事：先搬成的那一半会留着、
+    //          不自动回滚（下面两条失败文案各自说清了留下的是什么），而两样东西都是 maven
+    //          式带版本号的子目录（`libraries/optifine/OptiFine/<版本>/…`），所以留下的
+    //          那半份不会影响别的 OptiFine 版本。
     //
     //    两样都要搬，而且**先搬库、后搬版本目录**：
     //     * 那份 json 里的两个库既没有 `url` 也没有 `downloads`，只能从本机那份
@@ -2984,6 +3004,25 @@ void VersionManager::failLoaderInstall(const QString &reason) {
 
     m_loaderInstall.reset();
     emit versionDownloadFinished(reportId, false, reason);
+}
+
+void VersionManager::clearVersionJsonCache() {
+    // ★ 2026-09-27：换了一整份 .minecraft 之后**必须**喊这一句。
+    //
+    //   下面那两张表的键**只有版本 id**（就是目录名），而目录名在换文件夹之后不再是唯一的
+    //   —— 两份目录里各有一个 `1.20.1` 是常态（一份原版、一份装过加载器，或者两份的
+    //   javaVersion / assetIndex 完全不同）。MainWindow 换文件夹那一路上原来只重置了
+    //   "目录名对不上 jar 名"的告警和本机 Java 列表，版本 json 这两张表没人管：
+    //   在 A 里启动过 `1.20.1` → 切到 B → 启动 B 里的 `1.20.1`，rawVersionJson() /
+    //   mergedVersionJson() 命中的仍是 **A 那份**，于是 classpath、natives、
+    //   `javaVersion`、`assetIndex` 全按 A 算，而游戏自己去读 `B/versions/1.20.1/1.20.1.json`
+    //   —— 轻则 UnsupportedClassVersionError，重则两套库混着启动，而且屏幕上没有任何
+    //   一句话说得通。同一条路还会污染 inheritanceProblem() 和实例列表的 channel 判定。
+    //
+    //   NOTE: 别改成"按 (根目录, id) 做键" —— 那要在每一处读缓存的地方都带上根目录，
+    //         而这里丢一次的成本只是下次读一遍那几个 json（几毫秒）。
+    versionJsons.clear();
+    mergedVersionJsons.clear();
 }
 
 QJsonObject VersionManager::rawVersionJson(const QString &versionId) const {
@@ -4800,16 +4839,43 @@ QString VersionManager::writePackArchive(const ModpackExport::ExportPlan &plan,
         QFile::remove(partPath);
         return error.isEmpty() ? tr("打包失败。") : error;
     }
-    // 覆盖用户挑的那个路径：Windows 上 QFile::rename 遇到已存在的目标会失败，所以先删。
-    // 删除对话框那一步已经问过"要不要替换"了（QFileDialog 自己会问）。
-    if (QFile::exists(targetZip) && !QFile::remove(targetZip)) {
-        QFile::remove(partPath);
-        return tr("没法覆盖原来的文件 %1（它可能正被别的程序占着）。")
-            .arg(QDir::toNativeSeparators(targetZip));
+    // ★★ 2026-09-27 修（第二次，这一版是对的）：覆盖用户挑的那个路径。
+    //
+    // 上一版是**直接** `QFile::rename(partPath, targetZip)`，理由写的是"renameOnto() 上面
+    // 那条 NOTE 说 QFile::rename 在 Windows 上会静默盖掉目标"——**那句话是错的**，而按它
+    // 写出来的这一段在"目标本来就在那儿"时（= 用户在 QFileDialog 里选了一个已存在的包名、
+    // 对话框问过"要不要替换"之后最常见的收尾）**必然失败**：Qt 6.10 的 QFile::rename 走的是
+    // `::MoveFile`（不带 REPLACE_EXISTING，见 qfilesystemengine_win.cpp 的 renameFile()），
+    // 目标已存在就是失败。验证工程的 V5n 当场变红。
+    //
+    // 现在这个顺序：先把原来那份挪到 `<目标>.bak`，成了再删它；中途任何一步失败就把它放回
+    // 去。整段里用户原来那份文件**要么还在原地、要么还在 .bak 上** —— 不会出现"包没换成功、
+    // 原来那份也没了"。目标本来不存在时（第一次导出）就是一条干净的改名。
+    const QString backupPath = targetZip + QStringLiteral(".bak");
+    const bool hadTarget = QFile::exists(targetZip);
+    if (hadTarget) {
+        QFile::remove(backupPath);  // 上一趟留下的残骸（没见过，但别让它挡住这一次）
+        if (!QFile::rename(targetZip, backupPath)) {
+            // 挪不开就**一个字节都不动**：新包留在 .part 上，把它的位置说出来。
+            return tr("盘上原来那份 %1 挪不开（它可能正被别的程序占着），没有替换它。\n"
+                      "新打好的包在：%2")
+                .arg(QDir::toNativeSeparators(targetZip),
+                     QDir::toNativeSeparators(partPath));
+        }
     }
     if (!QFile::rename(partPath, targetZip)) {
-        QFile::remove(partPath);
-        return tr("整合包打好了，但没能放到 %1。").arg(QDir::toNativeSeparators(targetZip));
+        if (hadTarget && !QFile::rename(backupPath, targetZip)) {
+            // 放不回去是**真的坏消息**（原来那份在 .bak 上），所以这句话必须说清它还在。
+            qWarning() << "Cannot restore the replaced pack archive:" << backupPath << targetZip;
+            return tr("整合包打好了，但没能放到 %1，而原来那份也放不回去了 —— 它还在 %2。")
+                .arg(QDir::toNativeSeparators(targetZip),
+                     QDir::toNativeSeparators(backupPath));
+        }
+        return tr("整合包打好了，但没能放到 %1（它可能正被别的程序占着）。\n它现在在：%2")
+            .arg(QDir::toNativeSeparators(targetZip), QDir::toNativeSeparators(partPath));
+    }
+    if (hadTarget) {
+        QFile::remove(backupPath);
     }
     return QString();
 }

@@ -110,6 +110,25 @@ bool looksLikeZipArchive(const QString &path) {
     return head.startsWith("PK\x03\x04") || head.startsWith("PK\x05\x06");
 }
 
+/// 这条作业**最终会打到哪个地址**上：首选地址那个主机正被降级、而这条作业知道备用地址时，
+/// 就是备用地址（`startDownload()` 里那条"别等它慢 10 秒再退"的改道）。
+///
+/// ★★ 2026-09-27：这个判断**只能有一处**。它是"请求发给谁"和"按主机那道并发闸问谁"共同的
+///    前提，两处各写一遍就会漂开 —— 漂开之后的形状正是修掉的那一个：pumpDownloadQueue()
+///    按**首选主机**问额度，而 startDownload() 换了个主机发出去、activeCountForHost() 又把
+///    回复记在**新**主机头上 ⇒ 首选主机那一侧永远数到 0、那道闸永远放行，一次泵的 while
+///    循环就能往一个按设计只该放 kMaxConcurrentPerHost(6) 条的主机上塞满
+///    kMaxConcurrentDownloads(24) 条。而那条路的代价是实测过的：h1.1 主机上 24 条一起
+///    发出，30 秒传输超时**从请求建好就开始算** ⇒ 成批 `Operation timed out`，而且改道那
+///    一侧 fallback 已经被清空（本来就走官方了），超时就是作业真死。
+QString effectiveDownloadUrl(const QString &url, const QString &officialUrl,
+                             bool mirrorDemoted) {
+    if (mirrorDemoted && !officialUrl.isEmpty() && officialUrl != url) {
+        return officialUrl;
+    }
+    return url;
+}
+
 }  // namespace
 
 QString DownloadManager::mirrorUrl(const QString &officialUrl) {
@@ -524,8 +543,17 @@ void DownloadManager::pumpDownloadQueue() {
     while (i < m_pendingJobs.size()
            && mayIssueAnotherDownload(activeDownloads.size(), m_pendingJobs.size())) {
         const PendingJob &candidate = m_pendingJobs.at(i);
-        if (!mayIssueAnotherDownloadToHost(activeCountForHost(candidate.host),
-                                           m_http2Hosts.contains(candidate.host))) {
+        // ★★ 2026-09-27：问的是**这条作业真正会打到**的那个主机，不是它首选地址那个主机。
+        //    首选主机正被降级时 startDownload() 会当场改道，而回复是按改道后的主机记账的
+        //    （见 activeCountForHost 里那条 NOTE）—— 按首选主机问额度的话，那道闸对它永远是
+        //    放行的（那一侧一条都不会再记上去），一次泵就能把备用主机塞满 24 条。
+        //    判据和 startDownload() 里那条**同源**：都走 effectiveDownloadUrl()。
+        const QString targetHost =
+            QUrl(effectiveDownloadUrl(candidate.url, candidate.officialUrl,
+                                      mirrorDemotedFor(candidate.host)))
+                .host();
+        if (!mayIssueAnotherDownloadToHost(activeCountForHost(targetHost),
+                                           m_http2Hosts.contains(targetHost))) {
             ++i;
             continue;
         }
@@ -576,14 +604,17 @@ void DownloadManager::startDownload(const QUrl &url, const QString &destinationP
     // NOTE: 问的是**这条地址自己那个主机**，不是"镜像源降没降级"。整合包的"镜像"是每条文件
     //       各自的首选地址（见 mirrorDemotedFor()），问全局那一个的话，mediafilez 慢会把
     //       cdn.modrinth.com 上的作业一起改道 —— 那正是 2026-09-23 那次导入垮掉的地方。
-    QUrl target = url;
-    QString fallback = officialUrl;
-    if (mirrorDemotedFor(target.host()) && !officialUrl.isEmpty() &&
-        officialUrl != url.toString()) {
-        target = QUrl(officialUrl);
-        fallback.clear();  // 已经走官方了，"退回官方"这回事不存在
-    }
-    QNetworkRequest request(target);
+    // ★★ 2026-09-27：判据搬进了 effectiveDownloadUrl() —— **发出去的是谁**和
+    //    pumpDownloadQueue() 那道按主机闸**问的是谁**必须是同一个判断，两处各写一遍就会
+    //    漂开（漂开的形状见那个函数上面那段）。这里只把结果取出来用。
+    const QString urlText = url.toString();
+    const QString targetText =
+        effectiveDownloadUrl(urlText, officialUrl, mirrorDemotedFor(url.host()));
+    const bool rerouted = (targetText != urlText);
+    QString fallback = rerouted ? QString() : officialUrl;  // 改了道就没有"退回官方"这回事
+    // 花括号不是风格：`QNetworkRequest request(QUrl(targetText));` 会被当成一个函数声明
+    // （most vexing parse），下一句 setTransferTimeout 直接编不过。
+    QNetworkRequest request{QUrl(targetText)};
     // 没有超时的话，一个卡死的连接会让 pendingDownloads 永远归不了零。UI 在"下载中"
     // 会禁用按钮，那就从"日志刷屏"变成"永久卡死"，比原来的问题更糟。
     request.setTransferTimeout(30000);
@@ -604,7 +635,7 @@ void DownloadManager::startDownload(const QUrl &url, const QString &destinationP
     // 拿它再试一次（见 m_officialFallbacks 和 retryWithOfficialUrl()）。
     // NOTE: 两个地址相同就不记：那种情况下"退回官方"等于原样再发一次，只会把
     //       同一个失败重复一遍，还多花一个超时。
-    if (shouldRecordOfficialFallback(target.toString(), fallback)) {
+    if (shouldRecordOfficialFallback(targetText, fallback)) {
         m_officialFallbacks[reply] = fallback;
     }
     // **每一条**发出去的回复都进这张表（不只是有备用地址那些）：看门狗靠 lastSignOfLifeMs

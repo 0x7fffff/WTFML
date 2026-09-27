@@ -283,8 +283,27 @@ void OverlayHost::onAnchorTabChanged() {
     applyVisibility();
 }
 
+void OverlayHost::setPromptBlockedWidget(QWidget *widget) {
+    if (m_promptBlockedWidget == widget) {
+        return;
+    }
+    // 换人之前先把上一位放开：不然它会被永久禁用（而这位的禁用状态本来就是"临时的"）。
+    if (m_promptBlockedWidget != nullptr) {
+        m_promptBlockedWidget->setEnabled(true);
+    }
+    m_promptBlockedWidget = widget;
+    retargetCoveredPage();
+}
+
 void OverlayHost::retargetCoveredPage() {
     releaseCoveredPage();
+    // ★ 2026-09-27：**提示**那一档还要额外按住一块（底栏）—— 它不在这一层底下，见
+    //   setPromptBlockedWidget() 那段说明（不按住的症状是"点了没反应、也没有一个字解释"）。
+    //   这一句必须在下面那个 `if (!isVisible()) return;` **之前**：提示收掉的那一刻这一层
+    //   就不可见了，放在后面的话底栏永远解不开禁用。
+    if (m_promptBlockedWidget != nullptr) {
+        m_promptBlockedWidget->setEnabled(m_mode != Mode::Prompt);
+    }
     // 判据是"**现在真摆在眼前**"（不是"开着"）：整页那一档收在别的选项卡上的时候，
     // 它没盖住任何东西 —— 用户正要用下面那一页，这时候按住它就是"界面活着但点不动"。
     if (!isVisible()) {

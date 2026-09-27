@@ -25,6 +25,7 @@
 #include <QStandardPaths>
 #include <QTimer>
 #include <QUuid>
+#include <QRegularExpression>
 
 #include <algorithm>
 
@@ -75,6 +76,29 @@ constexpr char kDefaultMainClass[] = "net.minecraft.client.main.Main";
 ///       （`-Dminecraft.accessToken=<JWT>`），一处在打日志时把它挡掉（见 startGame()
 ///       里那个 -D 循环 —— 那条以前会把令牌前 50 个字符写进日志文件）。
 const QString kAccessTokenProperty = QStringLiteral("-Dminecraft.accessToken=");
+
+/**
+ * @brief 把设置页那一格「全局额外参数」拆成一条条 argv。**这是唯一的拆法。**
+ *
+ * ★ 2026-09-27 修：原来这里写的是 `split(' ', Qt::SkipEmptyParts)` —— **只认空格**。
+ *   而那一格是 QPlainTextEdit（三四行高，见 MainWindowUI.cpp 里那段），用户从论坛、
+ *   记事本抄参数时几乎必然**一行一条**。带换行的一整段会被当成**一条** argv 传给 java，
+ *   实测（同机 JDK）的报错是：
+ *       Unrecognized VM option 'UseG1GC\n-XX:+UseZGC'
+ *       Error: Could not create the Java Virtual Machine.
+ *   退出码 1 —— 而那时 QProcess::waitForStarted(3000) **已经成功了**（java.exe 真的起来过），
+ *   于是启动链照常写「已开始启动游戏」、实例树上标「（运行中）」，用户看到的是"启动了，
+ *   然后什么都没发生"。所以这不是"参数不生效"的小事，是**一次静默失败**。
+ *
+ * 按**任意空白**拆（空格、制表符、CR、LF 都算）：写成一行还是每行一条都能用，
+ * 而"用空格分隔"那条原意在两种写法下都成立。
+ *
+ * NOTE: 不做引号解析 —— 参数里带空格的那种写法（`-Dfoo="a b"`）本来就不是这一格支持的
+ *       东西，加一套引号规则只会让"用户以为能用"变成"看着像能用但结果不可预期"。
+ */
+QStringList splitExtraJvmArgs(const QString &text) {
+    return text.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+}
 
 /**
  * @brief 取某个版本解压 natives 的目标目录。
@@ -436,7 +460,7 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
 
     if (!settings.extraJvmArgs.isEmpty()) {
         qDebug() << "Extra JVM args:" << settings.extraJvmArgs;
-        args << settings.extraJvmArgs.split(' ', Qt::SkipEmptyParts);
+        args << splitExtraJvmArgs(settings.extraJvmArgs);
     }
 
     // 按版本的自定义参数，**排在全局之后**：JVM 对同一条可重复选项取后写的那个，
@@ -1091,12 +1115,30 @@ bool LauncherManager::commandDeclaresUtf8Output(const QStringList &arguments) {
     return isUtf8;
 }
 
-QString LauncherManager::decodeGameOutput(bool utf8, const QByteArray &bytes) {
+QString LauncherManager::decodeGameOutput(bool utf8, std::shared_ptr<QStringDecoder> &slot,
+                                          const QByteArray &bytes) {
     // 判据来自 startGame() 从命令行反推出来、记在**那份会话自己**身上的 outputIsUtf8。
+    //
+    // ★ 2026-09-27：**一块一块地解**，不是一个字节串换一次。原来这里是无状态的
+    //   `fromUtf8 / fromLocal8Bit`，而调用方拿到的是 `readyRead` 给的一段段字节 ——
+    //   读边界正好落在一个汉字的两个字节中间时（Java ≤18 走本地代码页 = 中国区 GBK，
+    //   两字节一个汉字，管道一满就切），前半截和后半截各自解成一个替换字符，日志窗里
+    //   零星多出乱码字。QStringDecoder 把末尾那半个字符留在自己的状态里，下一段接着拼。
     //
     // NOTE: 只给游戏进程用这一份。GlobalJavaSettings::runProcess 和 ZipUtil 里的
     //       fromLocal8Bit 不能跟着改 —— 它们解的是 PowerShell / java -version 的输出，
-    //       前者根本不是 JVM、不认 -Dstdout.encoding，改了才是引入乱码。
+    //       前者根本不是 JVM、不认 -Dstdout.encoding（那是**整段读完再解**，不存在切在
+    //       半个字中间的问题），改了才是引入乱码。
+    if (!slot) {
+        // 第一次用到这一条流：按这一份的命令行判出来的编码建一个。
+        slot = std::make_shared<QStringDecoder>(
+            utf8 ? QStringDecoder::Utf8 : QStringDecoder::System);
+    }
+    if (slot->isValid()) {
+        return (*slot)(bytes);
+    }
+    // 编码名建不出来（理论上到不了这一步：Utf8 / System 都是内置的）。退回无状态那条路，
+    // 至少不会一个字都不显示。
     return utf8 ? QString::fromUtf8(bytes) : QString::fromLocal8Bit(bytes);
 }
 
@@ -1116,12 +1158,14 @@ void LauncherManager::discardSession(int sessionId) {
 }
 
 void LauncherManager::handleReadyReadStandardOutput(int sessionId) {
-    const auto it = m_sessions.constFind(sessionId);
-    if (it == m_sessions.constEnd() || it->process == nullptr) {
+    // NOTE: find() 不是 constFind() —— 解码器是会话自己的一份状态，解一段就动一次。
+    const auto it = m_sessions.find(sessionId);
+    if (it == m_sessions.end() || it->process == nullptr) {
         return;
     }
-    const QString output =
-        decodeGameOutput(it->outputIsUtf8, it->process->readAllStandardOutput()).trimmed();
+    const QString output = decodeGameOutput(it->outputIsUtf8, it->stdoutDecoder,
+                                           it->process->readAllStandardOutput())
+                               .trimmed();
     if (!output.isEmpty()) {
         qDebug().noquote() << "[Game Output]" << it->info.displayName << output;
         emit processOutput(sessionId, output);
@@ -1129,12 +1173,13 @@ void LauncherManager::handleReadyReadStandardOutput(int sessionId) {
 }
 
 void LauncherManager::handleReadyReadStandardError(int sessionId) {
-    const auto it = m_sessions.constFind(sessionId);
-    if (it == m_sessions.constEnd() || it->process == nullptr) {
+    const auto it = m_sessions.find(sessionId);  // 同上：要动解码器状态
+    if (it == m_sessions.end() || it->process == nullptr) {
         return;
     }
-    const QString error =
-        decodeGameOutput(it->outputIsUtf8, it->process->readAllStandardError()).trimmed();
+    const QString error = decodeGameOutput(it->outputIsUtf8, it->stderrDecoder,
+                                          it->process->readAllStandardError())
+                              .trimmed();
     if (!error.isEmpty()) {
         qWarning().noquote() << "[Game Error]" << it->info.displayName << error;
         emit processError(sessionId, error);
@@ -1143,8 +1188,8 @@ void LauncherManager::handleReadyReadStandardError(int sessionId) {
 
 void LauncherManager::handleProcessFinished(int sessionId, int exitCode,
                                             QProcess::ExitStatus exitStatus) {
-    const auto it = m_sessions.constFind(sessionId);
-    if (it == m_sessions.constEnd() || it->process == nullptr) {
+    const auto it = m_sessions.find(sessionId);  // 最后那几段也要走会话自己的解码器
+    if (it == m_sessions.end() || it->process == nullptr) {
         return;  // 已经被交出去过（detach）或者收掉了：这一份没有任何可报的
     }
     QProcess *process = it->process;
@@ -1161,13 +1206,17 @@ void LauncherManager::handleProcessFinished(int sessionId, int exitCode,
     const QByteArray remainingError = process->readAllStandardError();
 
     if (!remainingOutput.isEmpty()) {
-        const QString output = decodeGameOutput(outputIsUtf8, remainingOutput).trimmed();
+        // NOTE: 走**同一个解码器**（不是新起一个）：这是同一条流的最后一段，前面那一块
+        //       可能正停在半个汉字上 —— 新起一个的话那半个字永远补不回来。
+        const QString output =
+            decodeGameOutput(outputIsUtf8, it->stdoutDecoder, remainingOutput).trimmed();
         qDebug() << "Remaining output:" << output;
         emit processOutput(sessionId, output);
     }
 
     if (!remainingError.isEmpty()) {
-        const QString error = decodeGameOutput(outputIsUtf8, remainingError).trimmed();
+        const QString error =
+            decodeGameOutput(outputIsUtf8, it->stderrDecoder, remainingError).trimmed();
         qDebug() << "Remaining error:" << error;
         emit processError(sessionId, error);
     }

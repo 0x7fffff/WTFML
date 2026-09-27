@@ -492,17 +492,37 @@ void GameLogWindow::insertRun(LogLevel level, const QStringList &lines) {
 
     QTextCursor cursor(m_view->document());
     cursor.movePosition(QTextCursor::End);
-    const int startPos = cursor.position();
     cursor.insertText(text);
     const int endPos = cursor.position();
 
-    // 底色和墨色各一次盖过这一整段。选区从这段的第一个字到**最后一个换行之前** ——
-    // 末尾那一格空的（光标行）不在选区里，它得留着不带底色。
-    QTextCursor span(m_view->document());
-    span.setPosition(startPos);
-    span.setPosition(endPos - 1, QTextCursor::KeepAnchor);
-    span.setBlockFormat(blockFormatFor(level));
-    span.setCharFormat(charFormatFor(level));
+    // ★★ 2026-09-27 修：这一段的起点**从"插完的位置"往回数**（`endPos - text.size()`），
+    //    不能用插入**之前**记下的那个整数。
+    //
+    //    文档写到 `maximumBlockCount`（顶上「行数」那一档）之后，`insertText()` 会**同步**
+    //    把最老的块从头裁掉 —— 文档里每一个位置都往前挪了。`endPos` 是从光标读回来的，
+    //    Qt 会跟着裁自动修正它；而"插入前那个位置"是个死整数，它不会动，两者就此错位。
+    //    实测（同一版 Qt，探针在 build/verify 之外）：一到上限，两者**相等** ⇒ 下面这个
+    //    选区落成末尾那个空选区 ⇒ **这一段一个字都不染色**（Fatal 那档的白墨也跟着没了）。
+    //    触发路径很短：开日志窗 → 顶上「行数」选 500（下拉第一档，点一下就中）→ 写满 500 行
+    //    之后新来的每一行都没有级别底色；切档时 rebuildView() 从头重画也一样中招
+    //    （第一段之后就全白）。「全部」那一档要写满 20000 行才碰得到，所以平时看不见。
+    //
+    //    NOTE: 往回数的长度就是 `text.size()`（`insertText` 插的是纯文本，一个字符不多不少），
+    //          所以不裁的时候这一句和原来的整数**是同一个值**，正常路上零区别。
+    const int startPos = endPos - text.size();
+    if (startPos >= 0 && endPos > startPos) {
+        // 底色和墨色各一次盖过这一整段。选区从这段的第一个字到**最后一个换行之前** ——
+        // 末尾那一格空的（光标行）不在选区里，它得留着不带底色。
+        //
+        // NOTE: 外面那个 if 是"这一整段**全被裁掉了**"的兜底（一段比整个行数上限还长时
+        //       才会走到）：那种情况下起点是个负数，不去碰句子里的位置（`setPosition` 拿到
+        //       越界值会把光标弄到未定义处，之后两行 setFormat 打在不知道什么地方上）。
+        QTextCursor span(m_view->document());
+        span.setPosition(startPos);
+        span.setPosition(endPos - 1, QTextCursor::KeepAnchor);
+        span.setBlockFormat(blockFormatFor(level));
+        span.setCharFormat(charFormatFor(level));
+    }
 
     // 收尾那一格（光标行）**显式清掉格式**：它是上面那个换行分出来的新块，会把这一档的
     // 底色和墨色继承下去 —— 不清的话"还没写的空行"底下拖着一条彩色的尾巴（Fatal 那一档
