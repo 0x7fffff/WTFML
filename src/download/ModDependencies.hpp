@@ -95,6 +95,30 @@ QString versionsKeyFor(const QString &consumer, const QString &projectId,
                        const QString &gameVersion, const QString &loader,
                        ResourceCatalog::Source source = ResourceCatalog::Source::Modrinth);
 
+/// 和上面那条**同一个形状**，管的是一批**项目号**那一发（`ResourceStore::fetchProjects`：
+/// "这几个号叫什么"）。`consumer` 那张名单和上面那条各算各的（一个消费方在两条路上是
+/// 同一个名字，但两条路的钥匙本来就是两份不同的字符串）。
+///
+/// 为什么这一条也得挂消费方（2026-09-28 补）：`fetchProjects()` 和 `fetchVersions()` 一样
+/// 是**按钥匙去重**的（同一把钥匙再来一发会把前一发 abort 掉，那一发的结果于是永远不回）。
+/// 今天有两个人在问名字：「装一个模组时那几个前置叫什么」（`dependency`）和「详情页上那
+/// 一行前置写什么」（`detail`）。两边问的**恰好是同一批号**时撞车的话，先发那一趟的
+/// `pending` 永远减不到 0 —— 用户看到的是"前置那个框不出来"或者"那一行字一直空着"，
+/// 而屏幕上一点异常都没有。
+QString projectsKeyFor(const QString &consumer, const QStringList &projectIds,
+                       ResourceCatalog::Source source = ResourceCatalog::Source::Modrinth);
+
+/// 这一版声明的必装前置（**不看装没装**、也不问名字）——"要下谁"这一层。
+///
+/// 判据和 `missingRequiredDependencies()` 里那两条一模一样（`required()` + `projectId`
+/// 非空），那边现在就是调它、再往下接"装没装"。**别再抄一遍这两个 if** —— 抄一份的下场是
+/// 两处对"什么算必装前置"给出不一样的答案，而详情页那一行和弹框那份名单就会不一样。
+///
+/// 用户 2026-09-28 要的「在下载页的游戏版本选择和模组版本选择中间加一条写明」读的就是这一份
+/// （那一行说的是"这一版要装什么"，不是"你还缺什么" —— 缺不缺是点下载那一刻才知道的事）。
+QList<ResourceCatalog::Dependency> requiredDependenciesOf(
+    const ResourceCatalog::VersionEntry &version);
+
 /// 一条"去问这个前置有哪些版本"的活。
 ///
 /// 地址和钥匙**都在这儿拼好**（用的是 `versionsUrl()` / `versionsRequestKey()` 那两个唯一
@@ -292,6 +316,19 @@ QString unresolvedNoteText(const QStringList &lines);
 
 /// 日志里那一行：「正在问 %1 个前置模组要下哪一版…」。
 QString dependencyLookupLogText(int count);
+
+/// 详情页上那一行（用户 2026-09-28：「如果有前置模组，在下载页的游戏版本选择和模组版本
+/// 选择中间加一条写明」）：`%1` = 名字用「、」连起来的那一串。
+///
+/// 说的是"**这一版**要装什么"，所以句子里**不出现"还缺"** —— 那两个字是点下载那一刻
+/// （`dependencyPromptText`）才知道的事，这里的用户还没说要下呢。
+QString detailPrerequisiteText(const QStringList &names);
+
+/// 同一件事，但**名字一条都没取到**（那一发没成、或者接口那边没有这几条）。
+/// 只说得出口"有几条"，那就只说这些 —— **不许退成项目号**：用户 2026-09-28 报的那件事
+/// （「这个前置模组缺失的提示为数字而非模组名称」）正是"把项目号当名字用"的下场，
+/// 而那一串数字对他什么也没说。
+QString detailPrerequisiteCountText(int count);
 
 /// 更新检测：已是最新那一句（一格小字 / 报告里的一行）。
 QString updateUpToDateText();

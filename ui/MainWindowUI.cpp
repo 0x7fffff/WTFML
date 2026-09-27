@@ -930,6 +930,17 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
             //       要清空有旁边那颗「清空条件」。
             //       提示文字是那页"能干什么"的一句话（downloadSearchHint，唯一出处）——
             //       空框里那句话正好在最该看见它的地方。
+            // 左上角那颗「← 返回实例设置」（2026-09-28，见头文件那段）。摆在**第一行最左边**
+            // （搜索框之前）——"左上角"就是这里。**默认收着**（连位置都不占），
+            // 只有这一栏是从实例设置里点进来的那一次才露面（setDownloadBackVisible）。
+            auto *back = new QPushButton(downloadBackButtonText(), filterRow);
+            back->setObjectName(downloadBackButtonName(categoryKey));
+            back->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+            back->setToolTip(downloadBackTooltip());
+            back->setVisible(false);
+            filterTop->addWidget(back);
+            downloadBackButtons.insert(categoryKey, back);
+
             auto *search = new QLineEdit(filterRow);
             search->setObjectName(downloadSearchEditName(categoryKey));
             search->setPlaceholderText(downloadSearchHint(i));
@@ -1698,6 +1709,25 @@ void MainWindowUI::setupSettingsDownloadPanel(QStackedWidget *stack) {
                                     "改完按回车（或者点到别处）就记住。"),
                 form);
         addSettingRow(grid, row, curseForgeApiKeyRowText(), box, form);
+    }
+
+    // ---------- 下下来的东西放在哪儿（2026-09-28） ----------
+    // 用户原话见 LauncherSettings 里那一节（那是**唯一**的语义出处）。这里只搭控件：
+    // 勾选状态由 MainWindow 灌（它才知道这项设置存在哪）。
+    addSectionTitle(grid, row++, QStringLiteral("下载的文件"), form);
+    {
+        QWidget *box = makeHintedControl(form);
+        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        downloadAutoIntoInstanceCheck =
+            new QCheckBox(downloadAutoIntoInstanceCheckText(), box);
+        downloadAutoIntoInstanceCheck->setObjectName(downloadAutoIntoInstanceCheckName());
+        boxLayout->addWidget(downloadAutoIntoInstanceCheck, 0, Qt::AlignLeft);
+        addHint(box, QStringLiteral("勾上：从实例设置里点「下载新模组」（或资源包等）时，"
+                                    "下回来的文件直接放进那个实例，不再问存哪儿；"
+                                    "在下载页里直接下的仍然会弹框让你挑位置。\n"
+                                    "不勾：不管从哪儿点进来的，每次都弹框让你自己挑。"),
+                form);
+        addSettingRow(grid, row, downloadAutoIntoInstanceRowText(), box, form);
     }
 
     // 剩下的竖直空间留在底部：设置项不跟着窗口高度一起被拉长

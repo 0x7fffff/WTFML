@@ -41,6 +41,7 @@
 #include <QList>
 #include <QNetworkRequest>
 #include <QObject>
+#include <QPair>
 #include <QPixmap>
 #include <QSet>
 #include <QString>
@@ -254,6 +255,30 @@ public:
     /// 光删图不删凭据的话，下一次会拿着一条"对应另一份字节"的 ETag 去问，主机答 304，
     /// 于是这一格永远也画不出东西来。
     static void dropIconFromCache(const QString &cacheId);
+
+    /// 除了图标之外**每一条请求**共用的那个构造：`User-Agent: WTFML` + 额外头
+    /// + 15 秒 transferTimeout（`HttpClient::kDefaultTimeoutMs`，唯一出处）。
+    ///
+    /// @param headers 额外要带的（现在只有 CurseForge 的 `x-api-key`，见 `apiKeyHeaders()`
+    ///        那个匿名命名空间里的唯一出处）。空表 = 一个头都不加。
+    /// @param contentType 有正文的那一发（CurseForge 的 `POST /mods`）**必须**给的
+    ///        `Content-Type`；没有正文的 GET 传空。
+    ///
+    /// ★ 2026-09-28 用户报的那件事（「前置模组缺失的提示为数字而非模组名称」）就是
+    ///   `contentType` 漏了：QNetworkAccessManager **不会**替一个 POST 猜 `Content-Type`，
+    ///   而 CurseForge（官方和社区镜像都是）对一个没有这个头的正文一律回 **400**
+    ///   （实测同一天：带 `application/json` → 200，不带 → 400，`text/plain` → 400）。
+    ///   400 那句话在界面上长得和"这个项目没了"一模一样，于是批量问名字的那一发一条也
+    ///   没取到、界面退成了项目号。
+    ///
+    /// NOTE: 同一个正文的四条路里另外三条（`InstanceIconLookup` / `VersionManager` /
+    ///       `ModpackImport`）都走 `HttpClient::send(..., "application/json", ...)`，
+    ///       只有走 QNAM 的这一条漏了。放在这里（而不是 .cpp 的匿名命名空间里）是给
+    ///       build/verify 钉的 —— 它是**纯的**：造一个 QNetworkRequest 再把头发读回来，
+    ///       一个网络请求都不发（验证工程里那张"哪一发带哪个头"的表就是这么钉的）。
+    static QNetworkRequest resourceRequest(
+        const QString &url, const QList<QPair<QByteArray, QByteArray>> &headers = {},
+        const QByteArray &contentType = QByteArray());
 
     /// 图标那一发用的请求：8 秒超时（kIconTimeoutMs，比 kDefaultTimeoutMs 短），
     /// **可能带**"变了没有"那两个头。

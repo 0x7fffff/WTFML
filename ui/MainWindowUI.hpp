@@ -665,6 +665,26 @@ public:
         return categoryKey + QStringLiteral("SearchEdit");
     }
 
+    // ---- 每一页左上角那颗「返回」（2026-09-28）----
+    //
+    // 用户原话：「点击下载新模组/资源包/...时左上角保留一个返回键，返回到实例设置里面，
+    // 和资源包详情啥的一致」。实例设置那几个文件页顶上那颗「下载新模组」把用户送到**这一
+    // 栏**，而那一下会把实例设置那一页收掉（见 MainWindow::openDownloadCategory）—— 用户
+    // 于是丢了原来的地方（连页码带勾选）。这一颗就是让他回得去的那条路。
+    //
+    // ★ 它**只在这一栏是从实例设置进来的时候才露面**（`setDownloadBackVisible()`），别的
+    //   时候连位置都不占 —— 一个常驻的"返回实例设置"在"我就是来逛下载页"的时候是一颗
+    //   点了不知道回哪儿的键。
+    static QString downloadBackButtonName(const QString &categoryKey) {
+        return categoryKey + QStringLiteral("DownloadBack");
+    }
+    /// 那颗键上的字。**唯一出处** —— 界面和验证工程都读它。
+    static QString downloadBackButtonText() { return QStringLiteral("← 返回实例设置"); }
+    /// 鼠标停上去那句话：说清"回的是哪个实例的那一页"，以及"从这儿下的东西照旧"。
+    static QString downloadBackTooltip() {
+        return QStringLiteral("回到刚才那个实例的设置页。从这一栏下的东西还是下进那个实例。");
+    }
+
     // ---- 每一页顶上那一行筛子（2026-09-25）----
     //
     // 用户原话：「搜索，加入按版本 模组加载器 来源 类型 名称搜索，一个搜索键和一个清空条件键，
@@ -1585,6 +1605,25 @@ public:
     static QString curseForgeApiKeyRowText() { return QStringLiteral("CurseForge API key"); }
     /// 输入框里的占位文字（空着的时候显示那一句）。
     static QString curseForgeApiKeyPlaceholder() { return QStringLiteral("留空则用公共接口"); }
+
+    // ---------- 「下载新模组时直接放进当前实例」（2026-09-28 加的，在「下载」栏里） ----------
+    // 语义的**唯一出处**是 LauncherSettings 里那一节（那是用户原话）。这里只有形状：
+    // 一个勾选框 + 一句话说清"勾上是什么、不勾是什么"。
+    //
+    // NOTE: 那一句话必须把**两种进入方式**都写出来 —— 这一项的名字（"放进当前实例"）只说得
+    //       清勾上的那一半，而它真正在管的是"要不要弹保存框"，那件事还得看用户是从哪儿点
+    //       进来的。只写一半的话，用户会以为不勾就"什么都不下"。
+    static QString downloadAutoIntoInstanceCheckName() {
+        return QStringLiteral("downloadAutoIntoInstanceCheck");
+    }
+    /// 这一行的行标题（左列那一格）。
+    static QString downloadAutoIntoInstanceRowText() {
+        return QStringLiteral("下载新模组");
+    }
+    /// 勾选框自己的文字。
+    static QString downloadAutoIntoInstanceCheckText() {
+        return QStringLiteral("从实例设置里点「下载新模组」时直接放进该实例");
+    }
     static QString showGameLogCheckName() { return QStringLiteral("showGameLogCheck"); }
     static QString processPriorityComboName() { return QStringLiteral("processPriorityCombo"); }
     static QString gameWindowWidthSpinName() { return QStringLiteral("gameWindowWidthSpin"); }
@@ -1949,6 +1988,19 @@ public:
     /// 认一个条目用的是它的 `Qt::UserRole`（= downloadCategoryKeys() 里那个键）：
     /// 条目文字是显示内容，会随产品文案走，不能拿它当身份。
     QListWidget *getDownloadCategoryList() const { return downloadCategoryList; }
+
+    /// 那一栏左上角那颗「返回实例设置」（见上面 downloadBackButtonName 那段）。
+    ///
+    /// 认不出来（键不对、或者那是「游戏」那一页 —— 它没有这一颗）回 nullptr。
+    QPushButton *getDownloadBackButton(const QString &categoryKey) const {
+        return downloadBackButtons.value(categoryKey, nullptr);
+    }
+    /// 让它露面/收起来。**收起时连位置都不占**（`setVisible(false)`，不是 `setEnabled`）。
+    void setDownloadBackVisible(const QString &categoryKey, bool visible) {
+        if (QPushButton *button = getDownloadBackButton(categoryKey)) {
+            button->setVisible(visible);
+        }
+    }
     /// 右栏那份 QStackedWidget。**下标和 downloadCategoryKeys() 一一对应** ——
     /// 点第 N 个分类就 setCurrentIndex(N)，这条不变量由界面自己保证（搭的时候就按
     /// 同一个表、同一个顺序加页），验证工程会数一遍两边的条数。
@@ -2058,6 +2110,7 @@ public:
     QComboBox *getDownloadSourceCombo() const { return downloadSourceCombo; }
     QLineEdit *getCurseForgeApiKeyEdit() const { return curseForgeApiKeyEdit; }
     QCheckBox *getShowGameLogCheck() const { return showGameLogCheck; }
+    QCheckBox *getDownloadAutoIntoInstanceCheck() const { return downloadAutoIntoInstanceCheck; }
     QCheckBox *getWarnDuplicateLaunchCheck() const { return warnDuplicateLaunchCheck; }
     QCheckBox *getWarnWorldLossCheck() const { return warnWorldLossCheck; }
     QComboBox *getProcessPriorityCombo() const { return processPriorityCombo; }
@@ -2174,6 +2227,10 @@ private:
     /// 五页**全是真**的（2026-09-23 起）：第 0 页「游戏」是版本树 + 安装页，其余四页
     /// 各是一张「资源 → 游戏版本 → 版本号」的三层表。
     QListWidget *downloadCategoryList = nullptr;
+    /// 每一栏左上角那颗「返回实例设置」（键 = 分类键，见 downloadBackButtonName 那段）。
+    /// 「游戏」那一页**不在里面**（它不是从实例设置进来的——那一页根本没有"下载新游戏"
+    /// 这颗按钮）。
+    QHash<QString, QPushButton *> downloadBackButtons;
     QStackedWidget *downloadStack = nullptr;
     /// 设置页左栏那份「分类」与右栏那份堆叠页（见头文件上面「设置页：左栏那几条分类」那段）。
     /// 五页全是真的，每一页是一层滚动区（addSettingsPanel() 搭），堆叠页的下标就是
@@ -2222,6 +2279,8 @@ private:
     QComboBox *downloadSourceCombo = nullptr;
     QLineEdit *curseForgeApiKeyEdit = nullptr;
     QCheckBox *showGameLogCheck = nullptr;
+    /// 「下载」栏里那个勾选框（2026-09-28）。
+    QCheckBox *downloadAutoIntoInstanceCheck = nullptr;
     QCheckBox *warnDuplicateLaunchCheck = nullptr;
     QCheckBox *warnWorldLossCheck = nullptr;
     QComboBox *processPriorityCombo = nullptr;

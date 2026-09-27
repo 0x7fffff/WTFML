@@ -164,6 +164,31 @@ public:
     void setDownloadSource(DownloadSource source);
 
     // ------------------------------------------------------------------
+    // 「下载新模组时直接放进当前实例」（2026-09-28 加的，在设置页「下载」栏里）
+    // ------------------------------------------------------------------
+    //
+    // 用户原话（这里是**唯一**的语义出处）：
+    //   「点击下载新模组（或资源包...）可以让用户选择放在当前实例里还是自己选择位置
+    //     （弹出explorer），在设置里加一个选项，
+    //     勾选->下载新模组就自动放进当前实例文件夹，直接在下载界面下的照样弹explorer
+    //           选择保存位置，
+    //     不勾选->不论是在哪里进入的下载页都弹explorer选择保存位置」
+    //
+    // 翻成一句判据：**要不要弹那个"存哪儿"的框** = `!这一项 || 不是从实例设置里点进来的`。
+    // "是不是从实例设置里点进来的"由 MainWindow 记着（`m_downloadFromInstanceId`，就是那颗
+    // 「← 返回实例设置」用的同一个值 —— 两者说的本来就是同一件事：这一栏是从哪个实例来的）。
+    //
+    // 默认 **true**（勾上）：它是那个"少问一句"的默认档，而用户点「下载新模组」的时候，
+    // 他想装进哪儿在这句话里已经说完了。
+    // ------------------------------------------------------------------
+
+    /// 从实例设置里点「下载新模组…」进来时，要不要**直接放进那个实例**（不弹保存框）。
+    bool downloadAutoIntoInstance() const { return m_downloadAutoIntoInstance; }
+
+    /// 设置这一项并立刻落盘。
+    void setDownloadAutoIntoInstance(bool autoIntoInstance);
+
+    // ------------------------------------------------------------------
     // CurseForge
     // ------------------------------------------------------------------
 
@@ -312,6 +337,8 @@ private:
     VersionNameOptions m_versionNameOptions;
     LauncherBehaviour m_launcherBehaviour = LauncherBehaviour::Unchanged;
     DownloadSource m_downloadSource = DownloadSource::Official;
+    /// 从实例设置里点的「下载新模组…」要不要直接落进那个实例（见上面那一节）。默认勾上。
+    bool m_downloadAutoIntoInstance = true;
     bool m_showGameLog = false;
     /// 默认值取原版的默认窗口大小（1.12.2 的 Main 里那对 defaultsTo(854, 480)）：
     /// 谁都不动这一项时，启动器发出去的那两个参数就等于游戏自己本来要用的值 ——

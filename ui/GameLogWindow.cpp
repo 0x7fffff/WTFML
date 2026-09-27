@@ -226,7 +226,8 @@ protected:
 
 }  // namespace
 
-GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent) : QDialog(parent) {
+GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent)
+    : QDialog(parent), m_instanceName(instanceName) {
     setWindowTitle(windowTitleText(instanceName));
     // 允许最大化/最小化（2026-09-24 用户说的「允许这个窗口最大化最小化」）。QDialog 默认
     // 只给一个关闭钮：一个"想摊开看"的窗，拉到整屏看长崩栈是常态（一行几十个字符，
@@ -354,14 +355,35 @@ GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent) : QDi
     m_view->setLineWrapMode(QPlainTextEdit::NoWrap);
     layout->addWidget(m_view, 1);
 
-    // 底下一排只剩「关闭」，而且**右对齐**（用户 2026-09-24 说的）—— 左边的空档留给
-    // "以后还有别的按钮"（现在是空的，清空已经挪到顶上那一排了）。
+    // 底下一排：「关闭」**右对齐**（用户 2026-09-24 说的），2026-09-28 起在它左边多两颗
+    // 导出键（用户原话：「把日志和错误报告导出功能加上，就在那个日志窗口下方，右下角放着」）。
+    //
+    // ★ 这两颗**摆在关闭的左边**、三颗一起靠右：用户说的"右下角"就是这个位置，而
+    //   「关闭」从 2026-09-24 起就在最右（那是那一次点名的），不该因为加了两颗就把它挤走 ——
+    //   一扇窗上最右边那颗永远是该是"退出这一页"的那一颗。
+    // NOTE: 左边的 stretch 还留着（原来那句"左边的空档留给以后还有别的按钮"就是这么写的）：
+    //       三颗键的宽度会随字号变，靠这个 stretch 让它们**贴着右边**，而不是被拉开。
     auto *buttons = new QHBoxLayout;
     buttons->addStretch(1);
+    m_exportLogButton = new QPushButton(exportLogButtonText(), this);
+    m_exportLogButton->setObjectName(exportLogButtonName());
+    m_exportLogButton->setToolTip(exportLogButtonTooltip());
+    buttons->addWidget(m_exportLogButton);
+    m_exportReportButton = new QPushButton(exportReportButtonText(), this);
+    m_exportReportButton->setObjectName(exportReportButtonName());
+    m_exportReportButton->setToolTip(exportReportButtonTooltip());
+    buttons->addWidget(m_exportReportButton);
     m_closeButton = new QPushButton(closeButtonText(), this);
     m_closeButton->setObjectName(closeButtonName());
     buttons->addWidget(m_closeButton);
     layout->addLayout(buttons);
+
+    // 两颗导出键都只发信号（一个字都不往盘上写，理由见 .hpp 里那段）—— 存到哪儿、
+    // 报告里还要写哪些环境事实，全是 MainWindow 那边的事。
+    connect(m_exportLogButton, &QPushButton::clicked, this,
+            &GameLogWindow::exportLogRequested);
+    connect(m_exportReportButton, &QPushButton::clicked, this,
+            &GameLogWindow::exportReportRequested);
 
     // 「清空」清的是**这个窗看到的东西**：模型、计数、那半行一起清（视图只是模型的投影，
     // 只清视图的话按钮上会留着「ERROR 12」而底下一行都没有 —— 看着像坏的）。游戏进程一个
@@ -824,6 +846,32 @@ QColor GameLogWindow::filterButtonForeground(LogLevel level) {
 
 QString GameLogWindow::logText() const { return m_view->toPlainText(); }
 
+QString GameLogWindow::allLogText() const {
+    // 一行一句。末尾那半行（m_pending）**原样接上去、不补换行** —— 补了的话这一份文件就
+    // 和屏幕上看到的那一截对不上了（屏幕上那半行本来也没换行）。
+    QString text;
+    for (const LogLine &line : m_lines) {
+        text += line.text;
+        text += QLatin1Char('\n');
+    }
+    text += m_pending;
+    return text;
+}
+
+QString GameLogWindow::logTextFrom(LogLevel minLevel) const {
+    // 比的是**模型的级别**（认不出级别的续行跟着上一行走，见 .hpp），不再按字符串匹配一遍：
+    // 匹配第二遍就会出现"屏幕上是红的、导出里没有"这种两边对不上的事。
+    const int floor = levelIndex(minLevel);
+    QString text;
+    for (const LogLine &line : m_lines) {
+        if (levelIndex(line.level) >= floor) {
+            text += line.text;
+            text += QLatin1Char('\n');
+        }
+    }
+    return text;
+}
+
 QPlainTextEdit *GameLogWindow::getLogView() const { return m_view; }
 
 QPushButton *GameLogWindow::getClearButton() const { return m_clearButton; }
@@ -937,6 +985,22 @@ QString GameLogWindow::hintText() {
 QString GameLogWindow::clearButtonText() { return QStringLiteral("清空"); }
 
 QString GameLogWindow::closeButtonText() { return QStringLiteral("关闭"); }
+
+QString GameLogWindow::exportLogButtonText() { return QStringLiteral("导出日志…"); }
+
+QString GameLogWindow::exportReportButtonText() { return QStringLiteral("导出错误报告…"); }
+
+QString GameLogWindow::exportLogButtonTooltip() {
+    // ★ 这句话（和下面那句）唯一的用途就是把两颗键**分开**：它们只差"要不要给别人的那一份
+    //   环境信息"，而这一点从键上的字看不出来。所以两句都写成"你会拿到什么"。
+    return QStringLiteral("把这一份游戏输出原样存成文本文件（上面筛掉的几档也在里面，最多 %1 行）。")
+        .arg(maxLogBlocks());
+}
+
+QString GameLogWindow::exportReportButtonTooltip() {
+    return QStringLiteral("存一份可以直接发给别人的报告：启动器版本、系统、这个实例、退出码，"
+                          "加上错误那几行和完整日志。");
+}
 
 QString GameLogWindow::emptyPlaceholderText() { return QStringLiteral("还没有输出…"); }
 

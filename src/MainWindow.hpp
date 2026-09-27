@@ -387,7 +387,15 @@ private slots:
     ///
     /// @param categoryKey `MainWindowUI::downloadCategoryKeys()` 里的一个键。认不出来时
     ///        什么都不做，但会 `qWarning()` 说一句（症状是"按了没反应"，静默的话没人查得到）。
-    void openDownloadCategory(const QString &categoryKey);
+    /// 切到下载页的某一栏（实例设置那几个文件页顶上那颗「下载新模组」走的就是它）。
+    ///
+    /// @param returnInstanceId 非空 = 这一次是**从那个实例的设置页进来的**：那一栏左上角
+    ///        会露出「← 返回实例设置」，并且把「已安装版本」选到那个实例上（用户 2026-09-28
+    ///        那两条：「左上角保留一个返回键，返回到实例设置里面」/「自动放进当前实例
+    ///        文件夹」）。别的入口一律传空。
+    void openDownloadCategory(const QString &categoryKey, const QString &returnInstanceId = QString());
+    /// 回到刚才那个实例的设置页（左上角那颗「返回实例设置」点的就是它），并把那颗收起来。
+    void returnToInstanceSettingsFromDownload();
 
     // ---------- 「配置文件」那一页的编辑器（2026-09-27）----------
     //
@@ -865,6 +873,25 @@ private:
                                 const QString &wanted);
     /// 按当下这颗 chip 从**全量**那份清单里筛出来、分组、摆进页面（空的那一对也走它）。
     void fillResourcePageGroups();
+    /// 摆 chip 与版本列表中间那一行（"这一版要装的前置"）。
+    ///
+    /// **不是**拿参数进来算，而是读 `m_resourcePage.dependencies` 那一份 —— 名字那一发回来
+    /// 的时候"最上面那一版"可能已经换了，这里要填的始终是**当前这一页当下那一份**。
+    /// 名字不全时**先摆"有几条"那句、再去问名字**（问完回来再进一次这个函数）。
+    void updateResourcePageDependencies();
+    /// 详情页要的那几个前置**叫什么**（`ModDependencies::projectsKeyFor("detail", …)`）回来了。
+    /// 和 `onDependencyProjectsFinished`（前置那一趟）**分开两个槽**：两件事的生命周期不
+    /// 一样，而各自按自己的钥匙认人（见 setupConnections 里那段 ★）。
+    void onResourceProjectsFinished(const QString &requestKey,
+                                    const QList<ResourceCatalog::Hit> &hits,
+                                    const QString &problem);
+    /// `m_projectTitles` 那把键（`Hit::iconCacheId()` 那个拼法 —— `<来源>-<项目号>`，
+    /// **唯一出处是它**，别在这儿再拼一遍字符串）。
+    static QString projectTitleKey(ResourceCatalog::Source source, const QString &projectId);
+    /// 把一发问回来的名字写进 `m_projectTitles`。**名字空的那几条不写**（写空串等于把
+    /// "还没问过"说成"问过了、它没名字"，而下一个查它的人就再也不去问了）。
+    void rememberProjectTitles(const QList<ResourceCatalog::Hit> &hits,
+                               ResourceCatalog::Source source);
     /// 详情页上点了某一个具体版本（`Row::key` = `VersionEntry::id`）= 下它。
     void downloadResourcePageVersion(const QString &versionId);
 
@@ -898,8 +925,10 @@ private:
         QList<ModDependencies::Lookup> missing;
         /// 名字那一发的钥匙（回来的不是这一把就丢 —— 用户完全可能中途又点了别的）。
         QString titleRequestKey;
-        /// 项目号 → 名字（取不到就缺席，那一条退成项目号显示）。
-        QHash<QString, QString> titles;
+        // NOTE: 这一趟**自己没有一份"项目号 → 名字"**（2026-09-28 改）：名字从
+        //       `m_projectTitles` 那个会话级缓存里查（详情页那一行和这一趟共用它）。
+        //       在这儿再存一份的症状是"同一个号在详情页上已经叫 Sodium 了、弹框里还是
+        //       一串数字"—— 两份名字各写各的，谁也不报错。
         /// 钥匙 → 那一发的版本列表。**缺席 ≠ 空表**：前者是"没问到"（网络），后者是
         /// "它就是没有版本"（`ModDependencies::buildPlan` 那两句话分得清清楚楚）。
         QHash<QString, QList<ResourceCatalog::VersionEntry>> answers;
@@ -1172,6 +1201,12 @@ private:
     void onMemorySliderMoved();
     void onLauncherBehaviourChanged();
     void onDownloadSourceChanged();
+    /// 「下载新模组时直接放进当前实例」那一格（设置页「下载」栏）。
+    ///
+    /// 改了这一项**不影响已经发出的那一批下载** —— 落点在点下那一瞬间就定死了（见
+    /// installResourceVersionNow）。这是刻意的：半批落在一个地方、半批落在另一个地方，
+    /// 比"这次改的下一批才生效"难查得多。
+    void onDownloadAutoIntoInstanceChanged();
     /// CurseForge 的 API key 那一格编辑完了（回车 / 焦点离开）。**不是** per-character：
     /// 半串 key 存进去只会换来一次 403，而用户会以为是启动器坏了（见 .cpp 里那段）。
     void onCurseForgeApiKeyEdited();
@@ -1207,6 +1242,22 @@ private:
      *       "我刚把它关了、你又给我弹回来"是这类窗最招人烦的失败模式。
      */
     void showGameLogLine(int sessionId, const QString &text);
+
+    /**
+     * @brief 把**那一份日志窗里现在的内容**存成一个文本文件（底下那颗「导出日志…」）。
+     * @param sessionId 哪一份会话。
+     *
+     * 问存到哪儿（系统那个保存框）、写、说结果，三件事都在这儿。`ui/` 那边只发一个信号
+     * （理由见 GameLogWindow 的文件头：那一层不认识数据目录）。
+     *
+     * NOTE: 存的是**全部行**（`allLogText()`），不是屏幕上那一份：用户只勾着 ERROR 的时候
+     *       导出，拿到的仍然必须是整份日志 —— "我明明导出了、打开只有三行"是这件事最坏的
+     *       一种表现。
+     */
+    void exportGameLog(int sessionId);
+    /// 同上，存的是**错误报告**（头部那些事实 + 错误摘录 + 完整日志，见 util/ErrorReport）。
+    void exportGameErrorReport(int sessionId);
+
     void onVersionNameOptionChanged();
     void onApplyExtraJvmArgsClicked();
     /// 把「下载源」交给真正发请求的那一层（VersionManager → DownloadManager）。
@@ -1749,6 +1800,16 @@ private:
         /// 是空的，而这两件事在界面上是**两句不一样的话**（「正在读版本列表…」和
         /// 「这个资源一个版本都没发过」）。靠 versions.isEmpty() 分不开。
         bool loaded = false;
+        /// chip 那一排和版本列表中间那一行说的是"哪几条前置"（2026-09-28 加）。
+        ///
+        /// 来源是**这一页当下摆在最上面那一版**的 `dependencies`（见 fillResourcePageGroups）
+        /// —— 存下来而不是每次重算，是因为名字那一发是异步的：回来的时候"最上面那一版"
+        /// 可能已经跟着 chip 换掉了，而这一发回来该填的是**发出去时那一份**。名字一到就往
+        /// 这儿这一份上填（`m_projectTitles` 是先按号查、再拼字的）。
+        QList<ResourceCatalog::Dependency> dependencies;
+        /// 问那几个前置**叫什么**的那一发（`ModDependencies::projectsKeyFor("detail", …)`）。
+        /// 空串 = 这一页这会儿没有在问名字。
+        QString dependencyRequestKey;
     };
     ResourcePageState m_resourcePage;
     /// 每一页上一次**真的发出去**的搜索词（键 = 分类键）。
@@ -1757,6 +1818,20 @@ private:
     /// 现在的字是错的 —— 用户完全可能在等结果的时候又敲了几个字（那几下还没发出去，
     /// 回车才算一发）。
     QHash<QString, QString> m_resourceQueries;
+    /// 「这个项目号叫什么」的**会话级**缓存（键 = `Hit::iconCacheId()`，也就是
+    /// `<来源>-<项目号>`；值 = 名字）。两个问名字的人（前置那一趟、详情页那一行）共用它。
+    ///
+    /// 两个用处：① 详情页那一行每换一次 chip 就要重算一次，没有缓存的话同一个号会被反复
+    /// 问（而名字是**不会变**的东西，问第二遍纯粹是白发一个往返）；② "已经知道了"和
+    /// "还没问过"分得开，于是 `updateResourcePageDependencies()` 能只问缺的那几个。
+    /// 键里带来源是因为两家的号不是一套（`238222` 和 `nvQzSEkH` 各自在各自的命名空间里）。
+    QHash<QString, QString> m_projectTitles;
+    /// 这一次进下载页是**从哪个实例的设置页**点进来的（空 = 不是从那儿来的）。
+    ///
+    /// 两件事读它：① 左上角那颗「返回实例设置」回哪儿；② 从这一栏点下载时要不要弹
+    /// explorer 选保存位置（用户 2026-09-28 那条设置的判据 —— 「下载新模组就自动放进
+    /// 当前实例文件夹」，见 installResourceVersionNow）。
+    QString m_downloadFromInstanceId;
     /// 「版本」那一格**刚按过回车**的那几页（键 = 分类键，进的是 `QSet`）。
     ///
     /// 只为一件事：那一格是可输入的，在框里按回车时 Qt 会连发两发 —— 先是
@@ -1920,4 +1995,27 @@ private:
     // "我刚把它关了、下一行输出又给我弹回来"是这类窗最招人烦的失败模式。
     // 会话结束（onGameFinished）时清掉：下一份游戏是另一回事。
     QSet<int> m_gameLogDismissedSessions;
+
+    // ---------- 导出那两份文件要用的事实（2026-09-28） ----------
+    //
+    // 「导出错误报告」的头部要写实例名/id、账号、进程号、启动时间、退出码 —— 这些东西里
+    // **大半在会话结束之后就查不到了**：`LauncherManager::session()` 在那一份结束时已经把
+    // 记录摘掉了（那是它刻意的，见 gameFinished 的文档），而`m_sessionDisplayNames` 也在
+    // onGameFinished() 末尾清掉。崩溃之后导一份报告正是这件事最主要的用法，所以得在
+    // **会话还活着的时候**留一份快照。
+    //
+    // NOTE: 这不是"把会话表抄一份"——抄的是**导出那一份文件要用的那几个值**，而且只在
+    //       "这一份开着日志窗"时才有（窗关了、会话结束了，这一笔立刻删掉，见
+    //       showGameLogLine 里那个 finished 接法）。不删的话它会随开过的实例数一直长。
+    struct GameLogFacts {
+        QString instanceId;   ///< `versions/` 下面那个目录名
+        QString accountName;  ///< 这一趟用的身份
+        qint64 processId = 0;
+        qint64 startedAtMs = 0;
+        /// 收到过 onGameFinished() 没有（没收到 = 导出时游戏还在跑，报告里会明说）。
+        bool finished = false;
+        bool crashed = false;
+        int exitCode = 0;
+    };
+    QHash<int, GameLogFacts> m_gameLogFacts;
 };

@@ -168,6 +168,18 @@ public:
     /// 版本列表那一块。**空表 = 摆一句「这个资源一个版本都没发过」**。
     void setGroups(const QList<ResourceDetail::Group> &groups);
 
+    /// 夹在**游戏版本 chip 那一排**和**版本列表**中间的那一行小字（用户 2026-09-28：
+    /// 「如果有前置模组，在下载页的游戏版本选择和模组版本选择中间加一条写明」）。
+    ///
+    /// 传空串 = 这一行**整个收起来**（不占高度、也不留一条空白的缝）—— 没有前置的模组、
+    /// 以及"这一页不是模组"的那些情况下都是这样。
+    ///
+    /// NOTE: 那句话**不是这一层写的**：它由 MainWindow 从 `ModDependencies` 取（那才是
+    ///       "界面上的字"的唯一出处，这一层只负责摆）。和 `setPlaceholder()` 同一个形状。
+    void setDependencies(const QString &text);
+    /// 这一行现在写的是什么（收着的时候是空串）。验证工程读它。
+    QString dependenciesText() const;
+
     /// 列表里摆一句说明（「正在读版本列表…」/「没取到，%1」）。
     /// 传空串 = 把列表清空（什么都不摆）。
     void setPlaceholder(const QString &text);
@@ -191,6 +203,8 @@ public:
     static QString modSettingsButtonName();
     /// 那四个字。**唯一出处** —— 按钮和验证工程都读它，别在别处再写一遍。
     static QString modSettingsText();
+    /// chip 那一排和版本列表中间那一行（见 setDependencies）。
+    static QString dependenciesLabelName();
     static QString versionListName();
 
     /// 版本行上那一条身份（`Row::key`）挂的**角色号**。
@@ -269,6 +283,9 @@ private:
     QPushButton *m_mcmod = nullptr;
     QPushButton *m_copyName = nullptr;
     QWidget *m_chipRow = nullptr;
+    /// chip 那一排和版本列表中间那一行（见 setDependencies）。**收着的时候不占高度**
+    /// （setDependencies 传空串时整个 hide 掉）。
+    QLabel *m_dependencies = nullptr;
     QCheckBox *m_showSnapshots = nullptr;
     /// 右上角那颗**占位**用的「模组设置」（建出来就是灰的、点不动、默认收着；
     /// 摆不摆由 setModSettingsSlot 说了算）。

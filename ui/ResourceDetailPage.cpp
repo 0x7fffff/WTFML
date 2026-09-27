@@ -352,6 +352,21 @@ ResourceDetailPage::ResourceDetailPage(QWidget *parent) : QDialog(parent) {
     chipLine->addWidget(m_modSettings, 0, Qt::AlignVCenter);
     outer->addLayout(chipLine);
 
+    // ---------- chip 那一排与版本列表中间那一行（2026-09-28）----------
+    //
+    // 用户原话：「如果有前置模组，在下载页的游戏版本选择和模组版本选择中间加一条写明」。
+    // "游戏版本选择"就是上面那一排 chip、"模组版本选择"就是下面那棵树 —— 于是这一行夹在
+    // 它俩中间（chipLine 的 addLayout 之后、m_list 的 addWidget 之前）。
+    //
+    // **默认收着**：这一页是同一个对象、建一次留着的，而"有没有前置"要等版本列表回来
+    // 才算得出来（`setDependencies()` 那一下才露）。一开始就摆一条空的会占掉一格高度，
+    // 然后等那一行字回来再"长高"一下 —— 那是能看见的一跳。
+    m_dependencies = new QLabel(this);
+    m_dependencies->setObjectName(dependenciesLabelName());
+    m_dependencies->setWordWrap(true);
+    m_dependencies->setVisible(false);
+    outer->addWidget(m_dependencies);
+
     // ---------- 版本列表 ----------
     //
     // 三层设置和下载页那四张表**逐项相同**（表头藏起来、行高常数、根上那个小三角不画、
@@ -407,6 +422,9 @@ QString ResourceDetailPage::modSettingsButtonName() {
     return QStringLiteral("resourceDetailModSettings");
 }
 QString ResourceDetailPage::modSettingsText() { return QStringLiteral("模组设置"); }
+QString ResourceDetailPage::dependenciesLabelName() {
+    return QStringLiteral("resourceDetailDependencies");
+}
 QString ResourceDetailPage::versionListName() { return QStringLiteral("resourceDetailVersions"); }
 int ResourceDetailPage::rowKeyRole() { return Qt::UserRole; }
 
@@ -623,6 +641,22 @@ void ResourceDetailPage::fillGroups(const QList<Group> &groups) {
         //       这是这一版有意接受的（要留住它得按组名记一份，而组名会随 chip 改）。
         groupItem->setExpanded(true);
     }
+}
+
+void ResourceDetailPage::setDependencies(const QString &text) {
+    if (m_dependencies == nullptr) {
+        return;
+    }
+    // 空串 = **整个收起来**（不是摆一条空的）：这一行的存在本身就是一条信息
+    //（"这一版有前置"），而一条空白会把上面那排 chip 和下面那棵树推开一格。
+    m_dependencies->setText(text);
+    m_dependencies->setToolTip(text);
+    m_dependencies->setVisible(!text.isEmpty());
+}
+
+QString ResourceDetailPage::dependenciesText() const {
+    return m_dependencies != nullptr && m_dependencies->isVisible() ? m_dependencies->text()
+                                                                   : QString();
 }
 
 void ResourceDetailPage::setPlaceholder(const QString &text) { showPlaceholder(text); }

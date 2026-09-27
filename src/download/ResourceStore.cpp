@@ -23,27 +23,6 @@
 
 namespace {
 
-/// 一个 GET 请求该带的头。
-///
-/// User-Agent：Modrinth 的接口规矩里写着要能认出是谁在问（它按这个封滥用），别的接口
-/// 那边都不发这个头，所以只在这里加。
-/// 超时走 HttpClient::kDefaultTimeoutMs（15 秒，**唯一出处**）—— 这里用的是 Qt 自己的
-/// transferTimeout，不用再搭一个 QTimer：HttpClient 那边手写超时是因为它在跑内嵌事件循环。
-///
-/// @param headers 额外要带的（现在只有 CurseForge 的 `x-api-key`，见 apiKeyHeaders）。
-///        传空表就是一个头都不加 —— 两个来源里只有 CurseForge 认这个头，别的来源带上
-///        它是白发一个别人看不懂的头。
-QNetworkRequest resourceRequest(const QString &url,
-                                const QList<QPair<QByteArray, QByteArray>> &headers = {}) {
-    QNetworkRequest request{QUrl(url)};
-    request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("WTFML"));
-    for (const QPair<QByteArray, QByteArray> &header : headers) {
-        request.setRawHeader(header.first, header.second);
-    }
-    request.setTransferTimeout(HttpClient::kDefaultTimeoutMs);
-    return request;
-}
-
 /// CurseForge 那条路要额外带的头：`x-api-key`（**只有用户自己填了 key 才有**）。
 ///
 /// 默认那条路是社区镜像、不要 key（见 ModpackImport::curseForgeApiBase）：那时候一个头都
@@ -110,6 +89,28 @@ bool isSafeFileStem(const QString &id) {
 }
 
 } // namespace
+
+QNetworkRequest ResourceStore::resourceRequest(const QString &url,
+                                               const QList<QPair<QByteArray, QByteArray>> &headers,
+                                               const QByteArray &contentType) {
+    QNetworkRequest request{QUrl(url)};
+    // Modrinth 的接口规矩里写着要能认出是谁在问（它按这个封滥用）。别的接口那边都不发这个
+    // 头 —— 但这里是**每一条**都发：那个头里没有任何用户信息，而"哪一发发了、哪一发没发"
+    // 这种差别一旦存在就会有人照着"上一处"抄错（这个函数存在的理由就是它只有一份）。
+    request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("WTFML"));
+    // 空串 = 这一发没有正文，一个头都不加（见声明处那段：那个空头不是"没有类型"，
+    // 它是一句不成形的话）。
+    if (!contentType.isEmpty()) {
+        request.setHeader(QNetworkRequest::ContentTypeHeader, contentType);
+    }
+    for (const QPair<QByteArray, QByteArray> &header : headers) {
+        request.setRawHeader(header.first, header.second);
+    }
+    // Qt 自己的 transferTimeout，不用再搭一个 QTimer：HttpClient 那边手写超时是因为它在跑
+    // 内嵌事件循环（见 .hpp 开头那段）。
+    request.setTransferTimeout(HttpClient::kDefaultTimeoutMs);
+    return request;
+}
 
 QNetworkRequest ResourceStore::iconRequest(const QString &url, const IconValidators &validators) {
     QNetworkRequest request{QUrl(url)};
@@ -353,7 +354,10 @@ void ResourceStore::fetchProjects(const QString &requestKey, const QStringList &
             emit projectsFinished(requestKey, QList<ResourceCatalog::Hit>(), QString());
             return;
         }
-        reply = m_net->post(resourceRequest(curseForgeApiBase() + QStringLiteral("/mods"), headers),
+        // ★ 第三个参数（`Content-Type`）**不是可选的**：漏了它这条接口回 400（见
+        //   resourceRequest 那段），而 400 在界面上长得和"这个项目没了"一样。
+        reply = m_net->post(resourceRequest(curseForgeApiBase() + QStringLiteral("/mods"), headers,
+                                            QByteArrayLiteral("application/json")),
                             body);
     } else {
         reply = m_net->get(resourceRequest(ResourceCatalog::projectsRequestUrl(projectIds), headers));

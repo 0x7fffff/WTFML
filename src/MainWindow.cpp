@@ -91,6 +91,8 @@
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QTreeWidgetItemIterator>
+// 日志窗那两颗导出键的保存框默认落在桌面（见 exportDefaultDirectory()）。
+#include <QStandardPaths>
 
 // 底栏右面板那三行要按 saved_at 排序（std::stable_sort：同一秒里存的两个账号要保持
 // 列表里原来的先后，不然每次点开顺序都可能不一样）。
@@ -120,6 +122,8 @@
 #include "settings/GlobalJavaSettings.hpp"
 #include "settings/LauncherSettings.hpp"
 #include "util/AppPaths.hpp"
+// 日志窗底下那颗「导出错误报告…」那一份文本怎么拼（头部那些事实 + 两段日志）。
+#include "util/ErrorReport.hpp"
 // 「服务器列表」那一页要读 servers.dat（NBT，老版本还是 gzip 过的）。
 #include "util/NbtUtil.hpp"
 // 同一页的「测速」：真的连上去问一遍每台现在什么样（图标 / MOTD / 人数 / 延迟）。
@@ -1643,6 +1647,20 @@ void MainWindow::setupConnections() {
                     ensureResourcePageLoaded(kind);
                 }
             });
+    // 左上角那颗「← 返回实例设置」（2026-09-28）。**五栏各有一颗**（「游戏」那一页没有，
+    // 见 MainWindowUI 里搭这几页的那段循环），所以这里按 `downloadCategoryKeys()` 一圈接完 ——
+    // 这一层不去假设"哪几栏有"，`getDownloadBackButton()` 认不出来就回 nullptr，跳过即可。
+    //
+    // NOTE: 每颗都接**同一个槽**：那颗键要回的是"当初从哪个实例点进来"，而那个实例只有一个
+    //       出处（`m_downloadFromInstanceId`，由 openDownloadCategory 摆、由这个槽消费掉）。
+    //       把实例号塞进信号里也能做，但那样"哪一位是活的"就有两份，而"按下时用的那一位"
+    //       和"露出来的那一颗"必须永远是同一个。
+    for (const QString &key : MainWindowUI::downloadCategoryKeys()) {
+        if (QPushButton *back = m_ui->getDownloadBackButton(key)) {
+            connect(back, &QPushButton::clicked, this,
+                    &MainWindow::returnToInstanceSettingsFromDownload);
+        }
+    }
     // ---------- 下载页后面那几页：搜索框 + 三层资源表 ----------
     //
     // 这几页走的是同一条路，所以这里是**一圈循环**：每一页接上"回车就搜"和"点一下就动"，
@@ -1810,6 +1828,10 @@ void MainWindow::setupConnections() {
             &MainWindow::onUpdateCheckVersionsFinished);
     connect(m_resourceStore, &ResourceStore::projectsFinished, this,
             &MainWindow::onDependencyProjectsFinished);
+    // 详情页那一行前置要的名字（2026-09-28）。**和上面那一趟分开两个槽**，理由同 `versionsFinished`
+    // 那三条 —— 两件事各有各的钥匙，各自认人（见 :: 后面那段 ★）。
+    connect(m_resourceStore, &ResourceStore::projectsFinished, this,
+            &MainWindow::onResourceProjectsFinished);
     // 服务器那一趟测速（2026-09-27）：**两个信号都是从工作线程发出来的**，接的人在这儿
     // （主线程），Qt 按"接收方所在线程"自动排队投递 —— 所以这两个槽里可以随便碰界面。
     // NOTE: 这条按**下标**回来（下标 = servers.dat 里那一行的行号），所以槽里要拿
@@ -1848,6 +1870,10 @@ void MainWindow::setupConnections() {
             &MainWindow::onLauncherBehaviourChanged);
     connect(m_ui->getDownloadSourceCombo(), &QComboBox::currentIndexChanged, this,
             &MainWindow::onDownloadSourceChanged);
+    // 「下载新模组时直接放进当前实例」（2026-09-28）：和上面那一项同一条路 —— 设置里改完
+    // 立刻生效（下载那一刻现读），不用重启启动器。
+    connect(m_ui->getDownloadAutoIntoInstanceCheck(), &QCheckBox::toggled, this,
+            &MainWindow::onDownloadAutoIntoInstanceChanged);
     // 「启动选项」那三项。三项都是"下一次启动才读"的设置（日志那个例外：见
     // showGameLogLine 的说明），所以槽里只落盘，不去碰任何正在跑的东西。
     connect(m_ui->getShowGameLogCheck(), &QCheckBox::toggled, this,
@@ -4771,7 +4797,6 @@ void MainWindow::startDependencyCheck(ResourceCatalog::Kind kind, const QString 
     // "这个实例的 mods 到底认过没有"（见 installedModKeys 的 known 出参）—— 它只决定
     // 弹框那句话怎么写（"这几个还没装" vs "无法确认你装了没有"），所以跟着这一趟存着。
     m_dependencyCheck.installedKnown = installedKnown;
-    m_dependencyCheck.titles.clear();
 
     QStringList ids;
     ids.reserve(missing.size());
@@ -4780,8 +4805,11 @@ void MainWindow::startDependencyCheck(ResourceCatalog::Kind kind, const QString 
             ids.append(lookup.dependency.projectId);
         }
     }
-    m_dependencyCheck.titleRequestKey =
-        ResourceCatalog::projectsRequestKey(ids, m_dependencyCheck.target.source);
+    // ★ 消费方名字（`dependency`）**必须跟详情页那一趟（`detail`）分开**：两处问的完全可能
+    //   是同一批号，而 `fetchProjects()` 是按钥匙去重的（同一把钥匙再来一发把前一发掐掉）。
+    //   撞上的症状是"先发的那一趟永远等不到回信"，屏幕上一点异常都没有。
+    m_dependencyCheck.titleRequestKey = ModDependencies::projectsKeyFor(
+        QStringLiteral("dependency"), ids, m_dependencyCheck.target.source);
     appendLog(ModDependencies::dependencyLookupLogText(missing.size()));
     m_resourceStore->fetchProjects(m_dependencyCheck.titleRequestKey, ids,
                                    m_dependencyCheck.target.source);
@@ -4798,11 +4826,9 @@ void MainWindow::onDependencyProjectsFinished(const QString &requestKey,
     if (!problem.isEmpty()) {
         appendLog(tr("前置模组的名字没取到：%1").arg(problem));
     }
-    for (const ResourceCatalog::Hit &hit : hits) {
-        if (!hit.projectId.isEmpty() && !hit.title.isEmpty()) {
-            m_dependencyCheck.titles.insert(hit.projectId, hit.title);
-        }
-    }
+    // 名字进**会话级**那个缓存（详情页那一行读的是同一份）。取不到名字的那几条**不写**：
+    // 写一个空串进去等于把"还没问过"说成"问过了、它没名字"。
+    rememberProjectTitles(hits, m_dependencyCheck.target.source);
 
     // 逐条去问"它有哪些版本"。**同一批发出去**（一把钥匙一个项目，互相不撞）——
     // 串起来问的话，N 个前置就是 N 个往返，而它们本来就互不相干。
@@ -4855,13 +4881,25 @@ void MainWindow::finishDependencyCheck() {
 
     const bool installedKnown = check.installedKnown;
 
+    // 名字从会话缓存里查（详情页那一行读的是同一份）。缺的那几条**退成项目号**——
+    // 列出来总比"有 2 个前置没找到"强（见 ModDependencies::buildPlan 那段），
+    // 而"为什么没名字"已经写进日志了（见 onDependencyProjectsFinished）。
+    QHash<QString, QString> titles;
+    for (const ModDependencies::Lookup &lookup : check.missing) {
+        const QString name =
+            m_projectTitles.value(projectTitleKey(check.target.source, lookup.dependency.projectId));
+        if (!name.isEmpty()) {
+            titles.insert(lookup.dependency.projectId, name);
+        }
+    }
+
     const ModDependencies::Plan plan =
-        ModDependencies::buildPlan(check.missing, check.answers, check.titles);
+        ModDependencies::buildPlan(check.missing, check.answers, titles);
 
     QStringList names;
     names.reserve(check.missing.size());
     for (const ModDependencies::Lookup &lookup : check.missing) {
-        const QString name = check.titles.value(lookup.dependency.projectId);
+        const QString name = titles.value(lookup.dependency.projectId);
         names.append(name.isEmpty() ? lookup.dependency.projectId : name);
     }
 
@@ -5153,12 +5191,44 @@ void MainWindow::installResourceVersionNow(ResourceCatalog::Kind kind,
     // shaderpacks）；整合包走缓存目录 —— 它不能进 versions/（那底下每一个子目录都会被当成
     // 一个实例）。
     const QString folder = ResourceCatalog::folderForKind(kind);
-    const QString destinationDir = isModpack
-                                       ? AppPaths::modpackCacheDir()
-                                       : AppPaths::versionDir(instanceId) +
-                                             QLatin1Char('/') + folder;
+    const QString defaultDir = isModpack
+                                   ? AppPaths::modpackCacheDir()
+                                   : AppPaths::versionDir(instanceId) +
+                                         QLatin1Char('/') + folder;
     if (!isModpack && folder.isEmpty()) {
         return;  // folderForKind 说了"这一类不走这条安装路"，而它又不是整合包
+    }
+
+    // ★★ 2026-09-28：**要不要问一句"存哪儿"**（用户原话见 LauncherSettings 里那一节，
+    //    那里是这一支判据唯一的语义出处）。判据就一条：
+    //
+    //        弹框 = 设置里没勾  或者  这一栏不是从实例设置里点进来的
+    //
+    //    "是不是从实例设置里点进来的"读的是 `m_downloadFromInstanceId` —— 和那颗
+    //    「← 返回实例设置」用的是**同一个值**，因为它俩说的本来就是同一件事（这一栏是从哪个
+    //    实例来的）。不另开一个布尔：两个值一旦分开，"露着返回键、却弹了保存框"这种事迟早
+    //    会出现。
+    //
+    // NOTE: 这一支是**在哪里下载**那一层唯一的岔路，所以它写在"算落点"这一句上，而不是
+    //       写在按钮那一路：详情页里点一行、下载页里双击一行、文件管理里点名字进详情页再
+    //       点一行 —— 三条路都会走到这儿，分流只有一处才不会有哪一条路漏掉。
+    // NOTE: 用户在下载页里待久了之后（比如从实例 A 点进来、又自己把「已安装版本」换成 B），
+    //       这一位还是非空、于是不再问。这是**刻意的**：那时候落点仍然是"当前实例"（下拉框
+    //       里那一个），而这一项勾选框上写的就是"直接放进当前实例"。
+    QString destinationDir = defaultDir;
+    // 这一批算"谁在动盘"。默认是那个实例；用户挑了别处的目录时它必须是空的（那底下没有任何
+    // 实例在被写，锁着它等于白挡别人启动）。
+    QString busyInstanceId = instanceId;
+    if (!m_settings->downloadAutoIntoInstance() || m_downloadFromInstanceId.isEmpty()) {
+        const QString chosen = QFileDialog::getExistingDirectory(
+            this, tr("下载到哪个文件夹"), defaultDir);
+        if (chosen.isEmpty()) {
+            return;  // 用户取消 = 这一版不下（一个字都不写盘）
+        }
+        destinationDir = chosen;
+        if (QDir(destinationDir) != QDir(defaultDir)) {
+            busyInstanceId.clear();
+        }
     }
 
     const ResourceCatalog::FileEntry *file = version.primaryFile();
@@ -5256,9 +5326,10 @@ void MainWindow::installResourceVersionNow(ResourceCatalog::Kind kind,
     const QString modpackPath =
         isModpack ? destinationDir + QLatin1Char('/') + file->filename : QString();
     appendLog(tr("正在下载 %1（%2）。").arg(label, QDir::toNativeSeparators(destinationDir)));
-    // busyInstanceId 传空的那一路：整合包下到缓存里，盘上没有任何实例在被写，不该锁住谁。
+    // busyInstanceId 传空的有两路：整合包下到缓存里（盘上没有任何实例在被写），以及用户
+    // 自己挑了实例之外的目录那一路 —— 两路都不该锁住谁（见上面算落点那一段）。
     const bool started =
-        m_versionManager->downloadResourceFiles(destinationDir, instanceId, label, files);
+        m_versionManager->downloadResourceFiles(destinationDir, busyInstanceId, label, files);
     // ★ 登记**必须**在这一批真的开起来之后。被拒绝时上面那次调用**照样会发**一个
     //   `resourceDownloadFinished(label, false, …)`，label 还是同一个字符串 —— 先登记的话，
     //   那一下就会把记录 take() 走。这不是假想的：双击那一行"点它就是下它"时，第二发
@@ -5427,6 +5498,11 @@ int MainWindow::openResourceDetailPage(const QString &iconKey, const QString &ki
     // 那一格的位置照旧留着，图回来时整张卡不会往左跳一下。
     page->setIcon(QPixmap());
     page->setPlaceholder(tr("正在读版本列表…"));
+    // 中间那一行也**每次开页清一次**（同上：这一页是建一次留着的，不清就留着上一个
+    // 资源的"要装的前置"，而那一行看着像是这个资源的）。
+    m_resourcePage.dependencies.clear();
+    m_resourcePage.dependencyRequestKey.clear();
+    page->setDependencies(QString());
 
     // 图标：列表那几行早就为这一条要过了（见 fillResourceHitRows 最后那句），内存/盘上
     // 命中就是**同步**回来的 —— 于是这一句常常在下面 execPage 之前就把图摆好了。
@@ -5491,6 +5567,15 @@ void MainWindow::fillResourcePageGroups() {
         m_resourceDetailPage->setPlaceholder(tr("正在读版本列表…"));
         return;
     }
+    // ★ 这一页当下摆在**最上面那一版**（= 用户一眼看到、最可能点的那一条）。下面那一段
+    //   版本列表中间那一行说的是"这一版要装的前置"（用户 2026-09-28 要的），而"这一版"
+    //   指的就是它。取的是**分组之后**的最前一条（`groupVersions` 把新游戏版本那一组摆在
+    //   最前、组内也是新的在前），不是 filtered 的第一条 —— 两条在"筛了某一档"时能不一样。
+    //   NOTE: 存的是**一份拷贝**不是指针：`groupVersions()` 那一串是这一句里的临时表，
+    //         指着它出了这个 for 就是悬空的（而这一页的状态要活到下一次刷）。
+    ResourceCatalog::VersionEntry topmost;
+    bool hasTopmost = false;
+
     // 筛（看的是这一版**声明过**的每一个游戏版本，不是它落在哪个组里 —— 那条规矩和它的
     // 坑都在 versionsForGameVersion 的注释里），再按「游戏版本 + 加载器」分组。
     // 两步**分开**：合并了就是上面那条坑（筛 1.20.1 会漏掉一半支持它的版本）。
@@ -5505,6 +5590,10 @@ void MainWindow::fillResourcePageGroups() {
         // 版本）」那种后缀：每一组都挂一句一样的话，那一句就不是信息了。
         out.title = group.title();
         for (const ResourceCatalog::VersionEntry &entry : group.versions) {
+            if (!hasTopmost) {
+                topmost = entry;
+                hasTopmost = true;
+            }
             ResourceDetail::Row row;
             row.key = entry.id;
             // 正文写**版本号**（不是文件名）：这一页一屏几十条版本，认人的是版本号；
@@ -5522,6 +5611,13 @@ void MainWindow::fillResourcePageGroups() {
         }
         groups.append(out);
     }
+    // 中间那一行（"这一版要装的前置"）跟着**这一次摆上去的那一份**走 —— 列表空的（下面
+    // 两种空）就整个收起来：那时候屏幕上一条版本都没有，"这一版"指的是哪一版就说不清了。
+    m_resourcePage.dependencies =
+        hasTopmost ? ModDependencies::requiredDependenciesOf(topmost)
+                   : QList<ResourceCatalog::Dependency>();
+    updateResourcePageDependencies();
+
     if (groups.isEmpty()) {
         // 两种"空"**不是同一句话**：选了某一档之后一条都没有（这一档上没有），和这个资源
         // 一条版本都没发过（那一页自己那句，`setGroups()` 收到空表时摆的就是它）。
@@ -5533,6 +5629,87 @@ void MainWindow::fillResourcePageGroups() {
         return;
     }
     m_resourceDetailPage->setGroups(groups);
+}
+
+void MainWindow::updateResourcePageDependencies() {
+    if (!m_resourcePage.open || m_resourceDetailPage == nullptr) {
+        return;
+    }
+    const QList<ResourceCatalog::Dependency> &dependencies = m_resourcePage.dependencies;
+    if (dependencies.isEmpty()) {
+        m_resourceDetailPage->setDependencies(QString());   // 没有前置 = 这一行不画
+        m_resourcePage.dependencyRequestKey.clear();
+        return;
+    }
+
+    // 名字：先查会话缓存，缺的那几个凑成一批去问（**只问缺的**——已经知道的不该再问一遍，
+    // 而这一行每换一次 chip 就要重算一次）。
+    QStringList names;
+    names.reserve(dependencies.size());
+    QStringList unknownIds;
+    for (const ResourceCatalog::Dependency &dependency : dependencies) {
+        const QString name =
+            m_projectTitles.value(projectTitleKey(m_resourcePage.source, dependency.projectId));
+        if (name.isEmpty()) {
+            if (!unknownIds.contains(dependency.projectId)) {
+                unknownIds.append(dependency.projectId);
+            }
+        }
+        names.append(name);   // 空名字也占一格（下面按"有没有空串"判整个名单全不全）
+    }
+
+    if (unknownIds.isEmpty()) {
+        m_resourceDetailPage->setDependencies(ModDependencies::detailPrerequisiteText(names));
+        m_resourcePage.dependencyRequestKey.clear();
+        return;
+    }
+
+    // 名字还没到：**先摆"有几条"那句**，别空着 —— 空着的症状是"这一版到底要不要前置"
+    // 看不出来，而那正是用户要这一行的理由。名字回来之后再换成那一串。
+    m_resourceDetailPage->setDependencies(
+        ModDependencies::detailPrerequisiteCountText(dependencies.size()));
+    m_resourcePage.dependencyRequestKey = ModDependencies::projectsKeyFor(
+        QStringLiteral("detail"), unknownIds, m_resourcePage.source);
+    m_resourceStore->fetchProjects(m_resourcePage.dependencyRequestKey, unknownIds,
+                                   m_resourcePage.source);
+}
+
+void MainWindow::onResourceProjectsFinished(const QString &requestKey,
+                                            const QList<ResourceCatalog::Hit> &hits,
+                                            const QString &problem) {
+    // 不是这一页等的那一发就丢。**别在这里顺手替"前置那一趟"收名字**：两边的来源可能
+    // 不一样（详情页那个资源是 Modrinth 的、要装进去的那个实例里那个模组是 CurseForge
+    // 的），而来源是那把键的一半 —— 拿错来源写进缓存的名字会挂在**错误的那把键**上，
+    // 于是另一个人永远查不到它（症状和"名字没取到"一模一样）。各自收各自的。
+    if (!m_resourcePage.open || requestKey.isEmpty()
+        || requestKey != m_resourcePage.dependencyRequestKey) {
+        return;
+    }
+    rememberProjectTitles(hits, m_resourcePage.source);
+    // 没取到**不是错误**（那一页上还有"有几条"那句），所以不弹窗、只记一句日志 ——
+    // 和前置那一趟同一条规矩（见 onDependencyProjectsFinished）。
+    if (!problem.isEmpty()) {
+        appendLog(tr("前置模组的名字没取到：%1").arg(problem));
+    }
+    // 名字已经进缓存了：再走一次那一段就会走到"全都有了"那条路上去（**不会**再发一发 ——
+    // 缺的那几个现在是空的，见上面 unknownIds 那段）。
+    updateResourcePageDependencies();
+}
+
+QString MainWindow::projectTitleKey(ResourceCatalog::Source source, const QString &projectId) {
+    // `Hit::iconCacheId()` 是那个拼法（`<来源>-<项目号>`）的**唯一出处** —— 别在这儿再拼
+    // 一遍字符串：拼法一改，图标缓存、实例里那份身份表、这个缓存三处就各认各的了。
+    return ResourceCatalog::Hit{.projectId = projectId, .source = source}.iconCacheId();
+}
+
+void MainWindow::rememberProjectTitles(const QList<ResourceCatalog::Hit> &hits,
+                                       ResourceCatalog::Source source) {
+    for (const ResourceCatalog::Hit &hit : hits) {
+        if (hit.projectId.isEmpty() || hit.title.isEmpty()) {
+            continue;
+        }
+        m_projectTitles.insert(projectTitleKey(source, hit.projectId), hit.title);
+    }
 }
 
 void MainWindow::downloadResourcePageVersion(const QString &versionId) {
@@ -5788,6 +5965,8 @@ void MainWindow::applySettingsToUi() {
     const QSignalBlocker blockShowLog(m_ui->getShowGameLogCheck());
     const QSignalBlocker blockWarnDuplicate(m_ui->getWarnDuplicateLaunchCheck());
     const QSignalBlocker blockWarnWorldLoss(m_ui->getWarnWorldLossCheck());
+    const QSignalBlocker blockDownloadInto(
+        m_ui->getDownloadAutoIntoInstanceCheck());
     const QSignalBlocker blockPriority(m_ui->getProcessPriorityCombo());
     const QSignalBlocker blockWindowWidth(m_ui->getGameWindowWidthSpin());
     const QSignalBlocker blockWindowHeight(m_ui->getGameWindowHeightSpin());
@@ -5869,6 +6048,10 @@ void MainWindow::applySettingsToUi() {
 
     // CurseForge 的 API key（同一个「下载源」组里）。信号已经被上面那几个 blocker 挡上了。
     m_ui->getCurseForgeApiKeyEdit()->setText(m_settings->curseForgeApiKey());
+
+    // 「下载新模组时直接放进当前实例」（2026-09-28）。默认值同样只有 LauncherSettings
+    // 那一处出处（默认勾上）—— 这里不写任何默认，灌的就是盘上那份。
+    m_ui->getDownloadAutoIntoInstanceCheck()->setChecked(m_settings->downloadAutoIntoInstance());
 
     // ---------- 版本名格式 ----------
     pushVersionNameOptionsToUi(m_settings->versionNameOptions());
@@ -6139,6 +6322,15 @@ void MainWindow::onDownloadSourceChanged() {
     const int value = m_ui->getDownloadSourceCombo()->currentData().toInt();
     m_settings->setDownloadSource(static_cast<DownloadSource>(value));
     syncDownloadSource();
+}
+
+void MainWindow::onDownloadAutoIntoInstanceChanged() {
+    const bool on = m_ui->getDownloadAutoIntoInstanceCheck()->isChecked();
+    m_settings->setDownloadAutoIntoInstance(on);
+    // 说一句话（和「显示游戏日志」那条同一个做法）：这一项管的是"以后还问不问"，而用户
+    // 改完在界面上看不出任何立刻的变化 —— 不写一句的话，他只能等到下一次下载才知道生效没有。
+    appendLog(on ? tr("下载：从实例设置里点「下载新模组」时不再问存哪儿，直接放进该实例。")
+                 : tr("下载：不管从哪儿点进来的，每次都会问存哪儿。"));
 }
 
 void MainWindow::onShowGameLogChanged() {
@@ -8361,8 +8553,13 @@ void MainWindow::openInstanceSettings(const QString &versionId) {
     //
     // NOTE: 接在 execPage **之前**，理由同上：那一下会阻塞在一个嵌套事件循环里，
     //       用户在页面上点那颗按钮时，这一句还没返回，接晚了就一辈子收不到。
+    // ★ 2026-09-28：把**是哪个实例**也带过去（`targetId` 就是这一页说的那个实例）。那一栏
+    //   靠它做两件事：左上角露出「← 返回实例设置」（回得来）、以及把「已安装版本」选到它
+    //   身上（下来的东西落进"当前实例"）。不带的话用户点完那颗键就回不去了。
     connect(&dialog, &InstanceSettingsDialog::browseDownloadsRequested, this,
-            [this](const QString &categoryKey) { openDownloadCategory(categoryKey); });
+            [this, &targetId](const QString &categoryKey) {
+                openDownloadCategory(categoryKey, targetId);
+            });
 
     // ★ 行上的名字点得动（2026-09-27，用户原话「除了模组以外的几个都是点击模组名称自动
     //   进入下载界面（前提是匹配上了，模组的待会再说）」）：**进的是那个资源自己的那一页**
@@ -8493,7 +8690,7 @@ QHash<QString, QString> MainWindow::instanceFileDirs(const QString &versionId) c
     return dirs;
 }
 
-void MainWindow::openDownloadCategory(const QString &categoryKey) {
+void MainWindow::openDownloadCategory(const QString &categoryKey, const QString &returnInstanceId) {
     // 认行用**条目自己的 UserRole**（= 那一栏的键），不是行号：左栏那一列的行序是界面
     // 自己按 downloadCategoryKeys() 摆出来的，这一层不去假设"第几个就是哪一个"
     // （和 MainWindow::refreshDownloadCategory 那边认身份的做法一致）。
@@ -8513,6 +8710,18 @@ void MainWindow::openDownloadCategory(const QString &categoryKey) {
         return;
     }
 
+    // ② 这一栏是不是**从某个实例的设置页里点「下载新模组」进来的**（2026-09-28）。
+    //
+    //    是的话记下那个实例，并且把这一栏左上角那颗「← 返回实例设置」露出来 —— 用户原话：
+    //    「点击下载新模组/资源包/...时左上角保留一个返回键，返回到实例设置里面，和资源包
+    //    详情啥的一致」。上面那一下 `dismiss()` 会把那一页收掉（`OverlayHost` 不做页面栈），
+    //    所以"来路"只能由这一层自己记着、自己放回去（和 openFileResourcePage 那边同一个
+    //    手法）。**同一时刻只露这一栏那颗**：五栏各有一颗，从别处进来时把这一栏这颗也收掉。
+    m_downloadFromInstanceId = returnInstanceId;
+    for (const QString &key : MainWindowUI::downloadCategoryKeys()) {
+        m_ui->setDownloadBackVisible(key, key == categoryKey && !returnInstanceId.isEmpty());
+    }
+
     // ① 先收掉当前这一页。**只能走 dismiss()**：它发的就是顶上那颗返回箭头的同一发信号
     //    （见 OverlayHost::dismiss() 里那段 ★）—— 这一页正卡在 `execPage()` 的嵌套事件
     //    循环里，只 `closeOverlay()` 的话一个信号都不发，那个循环永远不返回（用户看到的
@@ -8523,8 +8732,20 @@ void MainWindow::openDownloadCategory(const QString &categoryKey) {
     //    里（按钮的 clicked 处理函数），`execPage()` 还没返回、覆盖层也还盖在内容区上 ——
     //    现在就把选项卡翻过去，翻的是它**底下**那一层，而覆盖层收干净的那一下还没发生。
     //    排到下一轮，那时这一页已经关好了（和 openResourceDetailPage 那边同一个手法）。
-    QTimer::singleShot(0, this, [this, row, categoryKey] {
+    QTimer::singleShot(0, this, [this, row, categoryKey, returnInstanceId] {
         m_ui->getTabWidget()->setCurrentIndex(MainWindowUI::downloadTabIndex());
+        // 从实例设置进来的那一次，顺手把「已安装版本」那一格选到**那个实例**上：这一栏下
+        // 来的东西是落进"当前选中的实例"的（见 installResourceVersionNow），不替用户选上
+        // 的话，"从实例 A 的页面点进来、东西却下进了实例 B"——而屏幕上没有任何东西说过
+        // 会这样。用户那句「下载新模组就自动放进当前实例文件夹」说的也正是这一件事。
+        if (!returnInstanceId.isEmpty()) {
+            QComboBox *combo = m_ui->getInstalledVersionCombo();
+            const int index = combo->findData(returnInstanceId);
+            if (index >= 0) {
+                combo->setCurrentIndex(index);
+                updateStartButtonText();
+            }
+        }
         QListWidget *categories = m_ui->getDownloadCategoryList();
         if (categories == nullptr) {
             return;
@@ -8538,6 +8759,21 @@ void MainWindow::openDownloadCategory(const QString &categoryKey) {
             ensureResourcePageLoaded(kind);
         }
     });
+}
+
+void MainWindow::returnToInstanceSettingsFromDownload() {
+    const QString instanceId = m_downloadFromInstanceId;
+    // 先收干净再开那一页：`openInstanceSettings` 里第一件事就是问覆盖层开没开，
+    // 而这一颗键通常是在"没有覆盖层"的时候点的（不冲突），可万一撞上一条提示，
+    // 那一位留着就会让下一次进来时这颗键莫名地还露着。
+    m_downloadFromInstanceId.clear();
+    for (const QString &key : MainWindowUI::downloadCategoryKeys()) {
+        m_ui->setDownloadBackVisible(key, false);
+    }
+    if (instanceId.isEmpty()) {
+        return;  // 正常走不到：那颗键只在这一位非空时才露面
+    }
+    openInstanceSettings(instanceId);
 }
 
 void MainWindow::openFileResourcePage(const QString &versionId, const QString &iconKey,
@@ -9920,6 +10156,164 @@ static QString batchQuote(const QString &arg) {
     return QLatin1Char('"') + escaped + QLatin1Char('"');
 }
 
+// ============================ 日志窗那两颗导出 ============================
+//
+// 用户 2026-09-28：「把日志和错误报告导出功能加上，就在那个日志窗口下方，右下角放着」。
+// 三件事的分工：**界面**（两颗键、长什么样）在 ui/GameLogWindow；**文本怎么拼**（头部、
+// 分段）在 util/ErrorReport；**这一片**是接线 —— 弹保存框、写盘、说结果。
+//
+// 为什么保存框在这一层而不是窗那一层：`ui/` 不认识数据目录（那一层的规矩，见
+// GameLogWindow 的文件头），而"默认存哪儿"是个和数据目录一样属于这一层的问题。
+
+namespace {
+
+/// 导出那两份文件时保存框默认落在哪儿：桌面。
+///
+/// 退路是"我的文档"，再拿不到就给个空串（空串 = 交给保存框自己决定用上次那个地方）——
+/// 比硬编一个绝对路径强：那台机器上不一定有那个目录。
+QString exportDefaultDirectory() {
+    const QString desktop = QStandardPaths::writableLocation(QStandardPaths::DesktopLocation);
+    if (!desktop.isEmpty()) {
+        return desktop;
+    }
+    return QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+}
+
+/**
+ * @brief 一段文本数出来是几行。**两份导出文件共用这一处**（报告头部的"共 N 行"读它）。
+ *
+ * NOTE: 末尾那半行（最后没有换行的那截）也算一行 —— 它和别的行一样占着屏幕上的一行，
+ *       不数它的话报告里那个数字会比用户眼睛数出来的少一个。
+ */
+int lineCountOf(const QString &text) {
+    if (text.isEmpty()) {
+        return 0;
+    }
+    int count = text.count(QLatin1Char('\n'));
+    if (!text.endsWith(QLatin1Char('\n'))) {
+        ++count;
+    }
+    return count;
+}
+
+/**
+ * @brief 把一段文本写进那个文件。
+ * @return 空串 = 写成功了；否则是给用户看的原因（原样来自系统，已经能读懂）。
+ *
+ * QSaveFile：写不下去时**不会留下一个半截的文件** —— 导出的日志/报告是用户要拿去问人
+ * 的东西，一个半截的文件发出去比没有更坏（和导出启动脚本那边同一个理由）。
+ */
+QString writeExportFile(const QString &path, const QString &text) {
+    // 换行写成 CRLF：这两份文件的主要用途是在 Windows 上双击打开（记事本）——
+    // 纯 LF 在旧一点的记事本里是一整坨。**不改内存里那一份**，只改写出去的那一份。
+    QString body = text;
+    body.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
+    body.replace(QStringLiteral("\n"), QStringLiteral("\r\n"));
+    const QByteArray bytes = body.toUtf8();
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        return file.errorString();
+    }
+    if (file.write(bytes) != bytes.size() || !file.commit()) {
+        return file.errorString();
+    }
+    return QString();
+}
+
+}  // namespace
+
+void MainWindow::exportGameLog(int sessionId) {
+    GameLogWindow *window = m_gameLogWindows.value(sessionId, nullptr);
+    if (window == nullptr) {
+        return;  // 走不到：这两颗键就长在那个窗上
+    }
+    const QDateTime now = QDateTime::currentDateTime();
+    const QString suggested =
+        QDir(exportDefaultDirectory())
+            .filePath(ErrorReport::suggestedLogFileName(window->instanceName(), now));
+    // 保存框**挂在那个日志窗上**（不是主窗）：它是用户刚点过的那扇窗，弹出来的框该压着它，
+    // 而不是被它盖住（日志窗没有父窗，是独立的顶层窗口，见它的文件头）。
+    // NOTE: 不用 `DontUseNativeDialog` —— 这一颗是**导出到哪儿**，用户要的是那个熟悉的
+    //       Windows 框（四处 QFileDialog 里另外那几处也是这么留的，见 setupConnections 里
+    //       那一段说明）。
+    const QString path = QFileDialog::getSaveFileName(
+        window, tr("导出日志"), suggested,
+        tr("文本文件 (*.log *.txt);;所有文件 (*)"));
+    if (path.isEmpty()) {
+        return;  // 用户取消
+    }
+    const QString writeError = writeExportFile(path, window->allLogText());
+    if (!writeError.isEmpty()) {
+        appendLog(tr("导出日志失败：%1").arg(writeError));
+        // 错误要弹窗（这一条是产品的硬约束）—— 弹的是启动器那一层，日志窗这时还在旁边
+        // 摆着，用户回头看得到。
+        InlineMessage::warning(m_ui->overlay(), tr("导出失败"),
+                               tr("这个文件没能写出来（%1）：\n%2")
+                                   .arg(QDir::toNativeSeparators(path), writeError));
+        return;
+    }
+    const QString shown = QDir::toNativeSeparators(path);
+    appendLog(tr("✓ 日志已导出：%1").arg(shown));
+    // 成功那一下**写回那个日志窗**：用户就在那儿点的那颗键，眼睛也在那儿 —— 弹一个框
+    // 还要他再点一次"知道了"，而这件事没有需要他决定的东西。写法跟着窗里已有的那几行
+    // 自己补的话（"[游戏已退出，退出码：0]"），一样带方括号。
+    window->appendText(tr("\n[日志已导出：%1]\n").arg(shown));
+}
+
+void MainWindow::exportGameErrorReport(int sessionId) {
+    GameLogWindow *window = m_gameLogWindows.value(sessionId, nullptr);
+    if (window == nullptr) {
+        return;
+    }
+    const QDateTime now = QDateTime::currentDateTime();
+
+    // 事实从**快照**里取（理由见 m_gameLogFacts 的说明：会话一结束，那份记录就查不到了，
+    // 而"崩溃之后导一份报告"正是这件事最主要的用法）。
+    const GameLogFacts saved = m_gameLogFacts.value(sessionId);
+    ErrorReport::Facts facts;
+    facts.launcherVersion = QCoreApplication::applicationVersion();
+    facts.instanceName = window->instanceName();
+    facts.instanceId = saved.instanceId;
+    facts.accountName = saved.accountName;
+    facts.systemDescription = ErrorReport::systemDescription();
+    facts.processId = saved.processId;
+    facts.startedAt = saved.startedAtMs > 0 ? QDateTime::fromMSecsSinceEpoch(saved.startedAtMs)
+                                            : QDateTime();
+    facts.finished = saved.finished;
+    facts.crashed = saved.crashed;
+    facts.exitCode = saved.exitCode;
+
+    // 两段正文都从窗里读**它自己那一份模型**：错误摘录走 `logTextFrom(Error)`（哪几档算
+    // 错误只有那边一个出处），完整那份走 `allLogText()`（屏幕上筛掉的行也在里面 ——
+    // 用户勾着 ERROR 的时候导出，报告里照样要是完整日志）。
+    const QString errors = window->logTextFrom(GameLogWindow::LogLevel::Error);
+    const QString log = window->allLogText();
+    facts.errorLines = lineCountOf(errors);
+    facts.totalLines = lineCountOf(log);
+
+    const QString suggested =
+        QDir(exportDefaultDirectory())
+            .filePath(ErrorReport::suggestedFileName(window->instanceName(), now));
+    const QString path = QFileDialog::getSaveFileName(
+        window, tr("导出错误报告"), suggested,
+        tr("文本文件 (*.txt);;所有文件 (*)"));
+    if (path.isEmpty()) {
+        return;
+    }
+    const QString writeError =
+        writeExportFile(path, ErrorReport::text(facts, now, errors, log));
+    if (!writeError.isEmpty()) {
+        appendLog(tr("导出错误报告失败：%1").arg(writeError));
+        InlineMessage::warning(m_ui->overlay(), tr("导出失败"),
+                               tr("这个文件没能写出来（%1）：\n%2")
+                                   .arg(QDir::toNativeSeparators(path), writeError));
+        return;
+    }
+    const QString shown = QDir::toNativeSeparators(path);
+    appendLog(tr("✓ 错误报告已导出：%1").arg(shown));
+    window->appendText(tr("\n[错误报告已导出：%1]\n").arg(shown));
+}
+
 void MainWindow::exportLaunchScript(const QString &versionId, const QString &path) {
     if (versionId.isEmpty() || path.isEmpty()) {
         // 产品里走不到（对话框那边是"问出来的路径非空才算数"）。验证工程打一条空路径进来时
@@ -10567,6 +10961,24 @@ void MainWindow::showGameLogLine(int sessionId, const QString &text) {
         // 错开的位置数**在插进去之前**取：开第二扇时那是 1（往下错一点，不盖住第一扇）。
         const int cascade = m_gameLogWindows.size();
         m_gameLogWindows.insert(sessionId, window);
+        // 这一份会话的事实留一个快照（「导出错误报告」要用，见 m_gameLogFacts 的说明）：
+        // **建窗这一刻**取，因为再往后这个会话只会越来越空（结束时记录会被摘掉）。
+        // 那一刻会话一定还在（窗是收到它的第一行输出才建的）。
+        {
+            const LauncherManager::GameSession live = m_launcherManager->session(sessionId);
+            GameLogFacts snapshot;
+            snapshot.instanceId = live.versionId;
+            snapshot.accountName = live.accountName;
+            snapshot.processId = live.processId;
+            snapshot.startedAtMs = live.startedAtMs;
+            m_gameLogFacts.insert(sessionId, snapshot);
+        }
+        // 底下那两颗导出键（2026-09-28）。它们只发信号，弹框、写盘全在这里 —— `ui/` 那一层
+        // 不认识数据目录，也不该认识（见 GameLogWindow 的文件头）。
+        connect(window, &GameLogWindow::exportLogRequested, this,
+                [this, sessionId] { exportGameLog(sessionId); });
+        connect(window, &GameLogWindow::exportReportRequested, this,
+                [this, sessionId] { exportGameErrorReport(sessionId); });
         // 窗自己带 WA_DeleteOnClose，所以**关掉就会销毁**。销毁之前先把这一笔摘掉，
         // 顺便记下"用户关过这一份" —— 两个动作都必须在 finished 里做，不能在 destroyed 里：
         // finished 是"用户关窗"这一个动作的信号，destroyed 在父窗口析构时也会来一次，
@@ -10574,6 +10986,9 @@ void MainWindow::showGameLogLine(int sessionId, const QString &text) {
         connect(window, &QDialog::finished, this, [this, sessionId](int) {
             m_gameLogWindows.remove(sessionId);
             m_gameLogDismissedSessions.insert(sessionId);
+            // 窗没了，那份快照也就没用了（它唯一的用途是"给那一扇窗导一份报告"）——
+            // 不清的话它会随着开过的实例数一直长。
+            m_gameLogFacts.remove(sessionId);
         });
         // 摆到启动器**旁边**（右 → 左 → 居中），别一上来就压住它 —— 用户抱怨的另一半
         // 正是"挡着"。启动器跨屏时按它在那一块屏的可用区域算（扣掉任务栏）。
@@ -10623,6 +11038,15 @@ void MainWindow::onGameFinished(int sessionId, int exitCode, QProcess::ExitStatu
     // NOTE: 关窗走的是 close() → WA_DeleteOnClose → finished 那条路（它会顺手把这一笔
     //       记进"用户关过的不再自动开"）。下面那句 remove 因此**必须在关窗之后**：关窗
     //       那一刻刚记上的那一笔，紧接着就要清掉（这一份已经结束了，那个集合不该为它留名）。
+    // 退出这件事记进那一份快照（「导出错误报告」的头部要写退出码，而**这个值是这一刻才知道
+    // 的**、错过就再也拿不到了）。必须排在下面那次 close() **之前**：正常退出会关窗，而关窗
+    // 那个 finished 里会把整份快照删掉。
+    if (m_gameLogFacts.contains(sessionId)) {
+        GameLogFacts &snapshot = m_gameLogFacts[sessionId];
+        snapshot.finished = true;
+        snapshot.crashed = exitStatus == QProcess::CrashExit;
+        snapshot.exitCode = exitCode;
+    }
     if (GameLogWindow *logWindow = m_gameLogWindows.value(sessionId, nullptr)) {
         if (GameLogWindow::autoCloseOnExit(exitCode, exitStatus == QProcess::CrashExit)) {
             logWindow->close();

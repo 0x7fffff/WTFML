@@ -25,6 +25,9 @@ static constexpr const char kFolders[] = "Launcher/Folders";
 static constexpr const char kCurrentFolder[] = "Launcher/CurrentFolder";
 static constexpr const char kFolderNames[] = "Launcher/FolderNames";
 static constexpr const char kDownloadSource[] = "Download/Source";
+// 「下载新模组时直接放进当前实例」（2026-09-28，设置页「下载」栏那一项）。
+// 和上面那条同一个前缀：它也是"下下来的东西往哪儿去"这一件事。
+static constexpr const char kDownloadAutoIntoInstance[] = "Download/AutoIntoInstance";
 static constexpr const char kShowGameLog[] = "Launcher/ShowGameLog";
 static constexpr const char kGameWindowWidth[] = "Launcher/WindowWidth";
 static constexpr const char kGameWindowHeight[] = "Launcher/WindowHeight";
@@ -156,6 +159,14 @@ void LauncherSettings::setCurseForgeApiKey(const QString &apiKey) {
         return;
     }
     m_curseForgeApiKey = trimmed;
+    save();
+}
+
+void LauncherSettings::setDownloadAutoIntoInstance(bool autoIntoInstance) {
+    if (m_downloadAutoIntoInstance == autoIntoInstance) {
+        return;
+    }
+    m_downloadAutoIntoInstance = autoIntoInstance;
     save();
 }
 
@@ -299,6 +310,11 @@ void LauncherSettings::load() {
         settings.value(kAfterLaunch, behaviourKey(m_launcherBehaviour)).toString());
     m_downloadSource = downloadSourceFromKey(
         settings.value(kDownloadSource, downloadSourceKey(m_downloadSource)).toString());
+    // 默认值取当前成员（构造时是 true）：盘上那一项是个布尔，手改成一个不认识的值时
+    // toBool() 给 false —— 那等于"用户关掉了"，也就是**每次都弹保存框**，这个方向是安全的
+    // （多问一句 vs 悄悄把文件放进他不知道的地方）。
+    m_downloadAutoIntoInstance =
+        settings.value(kDownloadAutoIntoInstance, m_downloadAutoIntoInstance).toBool();
     m_showGameLog = settings.value(kShowGameLog, m_showGameLog).toBool();
     // 宽高**读回来就钳位**：这两个数会原样进游戏命令行，盘上那份不能当成可信的。
     // 存进去的值也可能是手改的，所以两边都要兜。
@@ -357,6 +373,7 @@ void LauncherSettings::save() const {
     settings.setValue(kFolderNames, m_folderNames);
     settings.setValue(kAfterLaunch, behaviourKey(m_launcherBehaviour));
     settings.setValue(kDownloadSource, downloadSourceKey(m_downloadSource));
+    settings.setValue(kDownloadAutoIntoInstance, m_downloadAutoIntoInstance);
     settings.setValue(kShowGameLog, m_showGameLog);
     settings.setValue(kGameWindowWidth, clampWindowWidth(m_gameWindowWidth));
     settings.setValue(kGameWindowHeight, clampWindowHeight(m_gameWindowHeight));

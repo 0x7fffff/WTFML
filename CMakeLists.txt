@@ -46,6 +46,7 @@ set(HEADER_FILES
     src/util/ZipUtil.hpp
     src/util/NbtUtil.hpp
     src/util/ServerPing.hpp
+    src/util/ErrorReport.hpp
     ui/ConfigFileText.hpp
     ui/ConfigFileEditorPage.hpp
     ui/ConfigEntries.hpp
@@ -87,6 +88,7 @@ set(SOURCE_FILES
     src/util/ZipUtil.cpp
     src/util/NbtUtil.cpp
     src/util/ServerPing.cpp
+    src/util/ErrorReport.cpp
     ui/AccountSkinDialog.cpp
     ui/GameLogWindow.cpp
     ui/MainWindowUI.cpp

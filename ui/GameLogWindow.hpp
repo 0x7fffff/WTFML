@@ -79,6 +79,18 @@
  * 选了 500 之后模型里那两万行**一行都没少**：切回 10000 当场又多出九千五百行。这正是这个
  * 控件该有的手感 —— "少看点"是临时的视角，不是"把日志扔了"。所以那条上限走的是**视图的
  * maximumBlockCount**（这里原来那个数喂的是 maxLogBlocks()），重建视图就能变。
+ *
+ * 【2026-09-28：底下那一排右边加了两颗"导出"】
+ *
+ * 用户原话：「把日志和错误报告导出功能加上，就在那个日志窗口下方，右下角放着」。两颗键都只
+ * **发信号**（`exportLogRequested` / `exportReportRequested`），一个字都不往盘上写 ——
+ * 这个类不认识"数据目录"是什么，也不知道"实例"那一层有什么（见文件头第一条约定），
+ * 而"存到哪儿、报告里还要写哪些环境事实"全在 MainWindow 那边。所以 `ui/` 这边只负责
+ * "把这一份文本给出去"：`allLogText()` / `logTextFrom()` 两个**只读**的口子。
+ *
+ * 为什么是两颗而不是一颗带下拉：它们出去的东西**不是同一份** —— 日志是"这台机器上发生了
+ * 什么"的原始记录，错误报告是"要发给别人看"的那一份（带启动器版本、系统、退出码，
+ * 而且正文只摘错误那两档）。混成一颗键的话，用户拿到的那份文件里是什么就全看运气了。
  */
 
 #pragma once
@@ -142,6 +154,10 @@ public:
      */
     explicit GameLogWindow(const QString &instanceName, QWidget *parent = nullptr);
 
+    /// 造这个窗时给的那个实例名（只用于标题和一个地方：导出错误报告时那一行"实例："）。
+    /// 会话结束之后 `LauncherManager` 那边就查不到这个名字了，所以它得由窗自己记着。
+    QString instanceName() const { return m_instanceName; }
+
     /**
      * @brief 新窗摆哪儿：**优先贴在启动器旁边**（右 → 左 → 居中），不遮住它。
      * @param launcherFrame 启动器主窗的窗口矩形（全局坐标）。
@@ -192,10 +208,34 @@ public:
     /// 现在显示的全文（**被筛掉的不在里面**）。给验证工程用（产品代码不读它）。
     QString logText() const;
 
+    /**
+     * @brief 这个窗里**全部**的行（含被筛掉的那几档），一行一句、末尾有换行。
+     *
+     * 和 `logText()` **不是一回事**：那个是**视图**里那一份（上面那几档开关关掉的行不在
+     * 里面）、而且末尾那半行按原样铺着。导出要的是"这一趟到底出了什么"，所以走这一份 ——
+     * 用户屏幕上只勾着 ERROR 的时候导出，拿到的仍然必须是整份日志。
+     *
+     * NOTE: 末尾那半行（还没等到换行的那一截）也算进去，但它本来就没换行，所以**不补换行**
+     *       —— 补了的话那一份文件和屏幕上看到的那一截对不上。
+     */
+    QString allLogText() const;
+    /**
+     * @brief 只挑**不轻于 minLevel** 的那些行（导出错误报告里那段"错误摘录"用它）。
+     * @param minLevel 门槛（`Error` 就是 Error + Fatal 两档）。
+     *
+     * 判据是**模型里记着的级别**（认不出级别的续行跟着上一行走，所以崩栈的 `at ...` 那几行
+     * 会跟着它的 ERROR 一起被挑进来）—— 不是再去按字符串匹配一遍。
+     */
+    QString logTextFrom(LogLevel minLevel) const;
+
     /// 那一块文本控件（验证工程量几何/只读性用）。
     QPlainTextEdit *getLogView() const;
     QPushButton *getClearButton() const;
     QPushButton *getCloseButton() const;
+    /// 底下那一排最左那颗（「导出日志…」）。
+    QPushButton *getExportLogButton() const { return m_exportLogButton; }
+    /// 底下那一排中间那颗（「导出错误报告…」）。
+    QPushButton *getExportReportButton() const { return m_exportReportButton; }
     QLabel *getHintLabel() const;
     QToolButton *getFilterButton(LogLevel level) const;
     /// 顶上那一排最右那颗行数下拉框（验证工程拿它切上限、也拿它量"清空在不在旁边"）。
@@ -260,6 +300,13 @@ public:
     static QString hintText();
     static QString clearButtonText();
     static QString closeButtonText();
+    /// 底下那两颗导出键（2026-09-28 加的，用户原话见文件头）。两颗都写成"带省略号"那种
+    /// （点下去还会再问一次存哪儿）。
+    static QString exportLogButtonText();
+    static QString exportReportButtonText();
+    /// 两颗键的提示：**把两者的区别说清楚** —— 那是它们唯一容易被搞混的地方。
+    static QString exportLogButtonTooltip();
+    static QString exportReportButtonTooltip();
     /// 还没有任何输出时文本控件里那句占位。
     static QString emptyPlaceholderText();
     /// 有输出、但五档全被筛掉时那句占位（和上面那句是**两句不同的话**，别合并）。
@@ -331,9 +378,24 @@ public:
     /// 不封顶的话开一晚上日志就把内存吃干净了。超出之后最老的整段丢掉。
     static int maxLogBlocks() { return 20000; }
 
+    // ---------- 用户想导出（2026-09-28） ----------
+    //
+    // 两颗键都只发信号，**一个字都不往盘上写**（理由见文件头那段）：存到哪儿、报告里还要
+    // 写哪些环境事实，全是 MainWindow 那边的事（它才知道数据目录和"实例"是什么）。
+    // 这一层能做的就是"把这一份文本给出去"，也就是上面那两个 allLogText / logTextFrom。
+
+signals:
+    /// 用户点了「导出日志…」。槽该读 `allLogText()`。
+    void exportLogRequested();
+    /// 用户点了「导出错误报告…」。槽该读 `logTextFrom(LogLevel::Error)` 和 `allLogText()`。
+    void exportReportRequested();
+
+public:
     static QString logViewName() { return QStringLiteral("gameLogView"); }
     static QString clearButtonName() { return QStringLiteral("gameLogClearButton"); }
     static QString closeButtonName() { return QStringLiteral("gameLogCloseButton"); }
+    static QString exportLogButtonName() { return QStringLiteral("gameLogExportButton"); }
+    static QString exportReportButtonName() { return QStringLiteral("gameLogExportReportButton"); }
     static QString hintLabelName() { return QStringLiteral("gameLogHintLabel"); }
     static QString lineLimitComboName() { return QStringLiteral("gameLogLineLimitCombo"); }
     static QString filterButtonName(LogLevel level);
@@ -376,7 +438,13 @@ private:
     QPlainTextEdit *m_view = nullptr;
     QPushButton *m_clearButton = nullptr;
     QPushButton *m_closeButton = nullptr;
+    /// 底下那一排那两颗导出键（2026-09-28）。顺序就是界面上从左到右的顺序。
+    QPushButton *m_exportLogButton = nullptr;
+    QPushButton *m_exportReportButton = nullptr;
     QComboBox *m_lineLimitCombo = nullptr;
+    /// 造这个窗时给的那个实例名（见 instanceName()）。只存不用 —— 标题那一下用完就没别处
+    /// 需要它了，导出报告那一条得能取回来（那时候会话多半已经从 LauncherManager 里摘掉了）。
+    QString m_instanceName;
     /// 现在最多显示几行（`0` = 全部）。**只是视图那一层的闸**，模型不跟着变。
     int m_displayLineLimit = defaultLineLimit();
 

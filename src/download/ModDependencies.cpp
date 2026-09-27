@@ -17,26 +17,42 @@ QString versionsKeyFor(const QString &consumer, const QString &projectId,
            QLatin1Char('|') + consumer;
 }
 
+QString projectsKeyFor(const QString &consumer, const QStringList &projectIds,
+                       ResourceCatalog::Source source) {
+    return ResourceCatalog::projectsRequestKey(projectIds, source) + QLatin1Char('|') + consumer;
+}
+
 /// 前置这一趟的消费方名字（**唯一一处** —— 拼钥匙和"那个槽认不认这一发"读的是同一个字）。
 static QString dependencyConsumerName() { return QStringLiteral("dependency"); }
 
-QList<Lookup> missingRequiredDependencies(const ResourceCatalog::VersionEntry &version,
-                                          const QSet<QString> &installedKeys,
-                                          const Target &target) {
-    QList<Lookup> out;
+QList<ResourceCatalog::Dependency> requiredDependenciesOf(
+    const ResourceCatalog::VersionEntry &version) {
+    QList<ResourceCatalog::Dependency> out;
     for (const ResourceCatalog::Dependency &dependency : version.dependencies) {
-        // 这三条都是"不下它"，但**理由不一样**（写在这儿免得下次有人把后面两条当冗余删掉）：
+        // 这两条都是"不列它"，但**理由不一样**（写在这儿免得下次有人把后面那条当冗余删掉）：
         //   · optional / incompatible / embedded → 用户没要，或压根不该单独下一份；
         //   · projectId 空 → 接口给的烂数据（一版里出现过 `{"project_id":null}` 这种），
-        //     拿它拼出来的地址会是一个"问了一堆不相干的东西"的请求；
-        //   · 已经装着了 → 再下一份就是同一个模组在 mods/ 里两份，而游戏加载哪一份是
-        //     按文件名顺序定的（用户看到的是"我明明换了版本，怎么还是老的"）。
+        //     拿它拼出来的地址会是一个"问了一堆不相干的东西"的请求。
+        // 第三条（已经装着了）**不在这一层**：那是 `missingRequiredDependencies()` 的事，
+        // 因为"装没装"是这个函数不该知道的东西（见 .hpp 文件头那段）。
         if (!dependency.required()) {
             continue;
         }
         if (dependency.projectId.isEmpty()) {
             continue;
         }
+        out.append(dependency);
+    }
+    return out;
+}
+
+QList<Lookup> missingRequiredDependencies(const ResourceCatalog::VersionEntry &version,
+                                          const QSet<QString> &installedKeys,
+                                          const Target &target) {
+    QList<Lookup> out;
+    // 「什么算必装前置」那两条判据在 requiredDependenciesOf() 里（**唯一一处**），
+    // 这里只往下接第三条 —— 已经装着了就不再下一份。
+    for (const ResourceCatalog::Dependency &dependency : requiredDependenciesOf(version)) {
         if (installedKeys.contains(target.installedKey(dependency.projectId))) {
             continue;
         }
@@ -238,6 +254,22 @@ QString unresolvedNoteText(const QStringList &lines) {
 
 QString dependencyLookupLogText(int count) {
     return QStringLiteral("正在问 %1 个前置模组要下哪一版…").arg(count);
+}
+
+QString detailPrerequisiteText(const QStringList &names) {
+    if (names.isEmpty()) {
+        return QString();   // 一条前置都没有 = 这一行整个不画（调用点判空）
+    }
+    // 顿号连起来。**不截断**：前置一般就一两条，真遇上十条的（那种"全家桶"整合包里的
+    // 核心模组）也该照实列全 —— 截断省下的那点宽度换来的是"还有一个是谁"。
+    return QStringLiteral("这一版要装的前置：%1").arg(names.join(QStringLiteral("、")));
+}
+
+QString detailPrerequisiteCountText(int count) {
+    if (count <= 0) {
+        return QString();
+    }
+    return QStringLiteral("这一版要 %1 个前置模组（名字没取到）。").arg(count);
 }
 
 QString updateUpToDateText() { return QStringLiteral("已是最新"); }
