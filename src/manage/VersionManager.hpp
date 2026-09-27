@@ -22,6 +22,7 @@ class QTimer;
 #include "../download/DownloadManager.hpp"
 #include "../download/LoaderMeta.hpp"
 #include "../download/VersionCategory.hpp"
+#include "ModpackExport.hpp"
 #include "ModpackImport.hpp"
 #include "VersionDisplay.hpp"
 
@@ -121,6 +122,27 @@ public:
 
     /// 走 downloadManager 手上那份（界面用的）。
     QList<LatestVersion> availableLatestVersions() const;
+
+    /**
+     * @brief 这一格值不值得写进整合包清单的 `gameVersion`（**纯函数**，导出那两格共用）。
+     * @param id 候选（`wtfml.meta` 的 realVersion / json 的 clientVersion / 链末端的 id /
+     *           实例目录名）。
+     * @param knownVersions 在线清单（`DownloadManager::getAvailableVersions()` 那份，或空表）。
+     * @return 能不能当版本号用。
+     *
+     * 两种情形，看清单在不在手上：
+     *   ① **清单非空 ⇒ 以它为准**（`knownVersions` 里有这个 id 才算数）。这一条同时管两件
+     *      相反的事：放行不以数字开头的老版本号（`rd-132211`，清单里真有、也装得出来），
+     *      拦住"长得像版本号但 Mojang 没这个 id"的东西（真机上的 `20w14∞`，正式 id 是
+     *      `20w14infinite`）。详见 .cpp 里那段；
+     *   ② **清单是空表 ⇒ 看长相**：以数字开头且一个空白都没有。这一条是离线第一趟的退路，
+     *      挡着 `原版ATT2地图（无模组）` 和 `1.20.2-Fabric 0.17.2` 这类最明显的假版本号。
+     *
+     * NOTE: 写成**静态**、收一个列表进来，理由和 groupIntoChannels() 那段一模一样
+     *       （验证工程能拿真清单夹具直接喂进来）。
+     */
+    static bool isKnownGameVersion(const QString &id,
+                                   const QList<MinecraftVersion> &knownVersions);
 
     // Version fetching from Mojang API
     void fetchAvailableVersions();
@@ -484,6 +506,12 @@ public:
     void setCurseForgeApiKey(const QString &apiKey);
     void setCurseForgeApiBaseOverride(const QString &base);
 
+    /// 把 Modrinth 的接口指到别的地址上（`Launcher/ModrinthApiBase`，**只有验证工程会写**）。
+    ///
+    /// 和上面那条同一个形状，罩的是导出整合包那条反查路（`POST {base}/version_files`）：
+    /// 没有这个口子，那一整趟就只能对着真接口跑，验证工程里没法验。产品自己从不写它。
+    void setModrinthApiBaseOverride(const QString &base);
+
     /**
      * @brief 把 CurseForge 清单里那些号（`projectID` / `fileID`）换成能下的文件。
      * @param pack 解析出来的清单，**就地改**：`pendingRefs` 清空、`files` 填好，
@@ -501,6 +529,100 @@ public:
      *       所以调用点可以对所有格式无脑调它一次。
      */
     QString resolveCurseForgeFiles(ModpackImport::Pack *pack);
+
+    // ---------------------------------------------------------------------
+    // 导出整合包（清单/枚举/打包都在 ModpackExport 那一层，这里只做"要联网和要读盘"的三件）
+    // ---------------------------------------------------------------------
+
+    /**
+     * @brief 这个实例装的是什么加载器 —— 导出时写进清单的那一行。
+     * @param instanceId 实例目录名。
+     * @param keyOut `ModpackImport` 那套词（`fabric-loader` / `forge` / `neoforge`）；
+     *        空串 = 纯原版（那是**正常**结果，不是失败）。
+     * @param versionOut 加载器版本；纯原版时是空串。
+     * @return 空串 = 认出来了（也可能是"确实是原版"）；非空 = 认不出来，那句话给用户看。
+     *
+     * 三条路，按顺序问：
+     *   1. **顺着版本 json 的继承链看那一串 id**：`fabric-loader-0.16.14-1.20.1` /
+     *      `1.20.1-forge-47.4.10` / `neoforge-21.1.215`（三个 id 的拼法都有唯一出处，
+     *      见 LoaderMeta）。这一条排在前面，因为它是**装在盘上的东西自己说的** ——
+     *      装加载器出来的目录名就是那个 id，导入整合包出来的薄 json 也指着它。
+     *
+     *      NOTE: 这一条要读的 id 里**混着用户自己起的名字**（PCL 那类合并实例的 id 就是
+     *      目录名），而 Forge / OptiFine 那两种拼法的分隔符（`-forge-` / `-OptiFine_`）是
+     *      **不带头锚点**的子串 ⇒ 认了左边那半必须是**真游戏版本**（`isKnownGameVersion()`，
+     *      清单里有它才算数）这一道，见 loaderIdParts() 里那段。
+     *   2. **从那份 json 自己身上认**：`libraries` 里的 maven 坐标
+     *      （`net.fabricmc:fabric-loader` / `net.minecraftforge:forge` / `…:fmlloader` /
+     *      `net.neoforged.fancymodloader:loader` / `optifine:OptiFine`）＋ `arguments.game`
+     *      里的 `--fml.neoForgeVersion`。它罩的是 PCL / HMCL 那类"整份 json 都合进实例
+     *      目录"的实例（真机上绝大多数都是）—— 那些实例的 id 是用户起的名字、没有
+     *      `inheritsFrom`，第 1 条从头到尾问不出东西。判据的取舍写在 loaderEvidenceFromJson()。
+     *   3. 拿不到就看 `wtfml.meta` 里的 `loaderName` / `loaderVersion`（我们自己写进去的，
+     *      见 updateVersionMeta）。那一段本来是给界面看的显示名，所以这张反查表是照着
+     *      loaderDisplayName() 拼出来的，不可能和写进去的那一份漂。它罩的是"链上没有、
+     *      但 meta 里记着"的那一类（比如用户手写过一个 meta）。
+     *
+     * NOTE: **认不出来就停下来**，不许"当成纯原版"接着导 —— 一个装了几百个模组的实例
+     *       被导成纯原版包，用户装回来会发现所有模组都在、游戏起不来（加载器那一行不在），
+     *       而包看上去是好的。OptiFine 是明确认得出来但两种格式都没法表达的那一个，
+     *       它走的就是这条"报一句人话"的路。
+     */
+    QString instanceLoaderInfo(const QString &instanceId, QString *keyOut, QString *versionOut);
+
+    /**
+     * @brief 这个实例**基于哪个原版** —— 导出清单里 `gameVersion` / `minecraft` 那一格。
+     * @return 版本号（如 `1.20.1`）。空串 = 什么都没读到（调用点该停下来问一句，别拿一个
+     *         空串去拼清单）。
+     *
+     * 几条路，和 instanceLoaderInfo() 同一个顺序：
+     *   1. `wtfml.meta` 里那一格 `realVersion`（装的时候写下的，也是显示名用的那一个）；
+     *   2. 顺 `inheritsFrom` 走到链的末端，看链上每一份 json 的 `clientVersion` —— 合并过的
+     *      实例（PCL / HMCL 那类）只有这一格说得出口，它们的 id 是用户起的名字；
+     *   3. 链末端那个 **id** —— 薄 json 的最后一步就是原版那一份；
+     *   4. 实例自己的**目录名**（最不可信的那一个，见下面那条 NOTE）。
+     *
+     * NOTE: 第 2 条不能用 getVersionJson()：那个是**合并过的**（见它自己的说明），
+     *       `inheritsFrom` 已经被吃掉，走一步就到底了。所以这里用的是 rawVersionJson()。
+     * NOTE: **每一格都要过 isKnownGameVersion()**（判据的出处是那一段说明）。一句话版本：
+     *       在线清单在手时以清单为准，清单没取到时看长相。**写进清单的必须是一个真的能装
+     *       出来的版本号** —— 假版本号（`原版ATT2地图（无模组）` / `20w14∞`）的后果是"包看上去
+     *       是好的、收包的人那边找不到这个版本"，那正是这个功能最怕的失败。
+     *       几条路都问不出来时返回空串，调用点该停下来报一句。
+     */
+    QString instanceGameVersion(const QString &instanceId);
+
+    /**
+     * @brief 反查：本地 sha1 → Modrinth 的版本。
+     * @param sha1s 本地算出来的 sha1（大小写不敏感）。
+     * @param out 命中的写在这里，**键是发过去的那个 sha1**（见 parseModrinthVersionFiles）。
+     * @return 空串 = 这一发成了（**一个都没认出来也是成了**）；非空 = 没成，那句话给用户看。
+     */
+    QString lookupModrinthVersionFiles(const QStringList &sha1s,
+                                       QHash<QString, ModpackExport::ModrinthHit> *out);
+
+    /// 上一条的 CurseForge 版（指纹 → 文件）。同样：一个都没认出来也算成了。
+    QString lookupCurseForgeFingerprints(const QList<quint32> &fingerprints,
+                                         QHash<quint32, ModpackExport::CurseForgeHit> *out);
+
+    /// 跑完一次导出的前半段：枚举 → 算哈希 → 反查。**不写盘、不建目录**（清单和 zip 在
+    /// writePackArchive 里）。两条反查路就是上面那两个方法，验证工程能拿假的换掉它们 ——
+    /// 所以这个方法自己也是可测的（见 build/verify 里 V5i/V5j 那种跑法）。
+    ModpackExport::ExportPlan buildExportPlan(const ModpackExport::ExportRequest &request,
+                                             const ModpackExport::ExportProgress &progress = {},
+                                             const ModpackExport::ExportCancel &cancel = {});
+
+    /**
+     * @brief 后半段：清单写进暂存目录 → 打成一个 zip → 改成 @p targetZip。
+     * @param plan 前半段的产物。
+     * @param targetZip 用户挑的目标路径（`.mrpack` / `.zip` 随他）。
+     * @return 空串 = 成了；非空 = 那句给用户看的话。**失败时盘上不会留下半成品**。
+     *
+     * 「先写临时名、成功了再改名」是这里做的：用户中途关掉启动器、或者磁盘满了，盘上留下的
+     * 是一个 `xxx.mrpack.part`，而不是一个能双击、打不开的"整合包"。清单本身也先写进那个
+     * 暂存目录，再从那儿打进去（打包那一步只认盘上的文件，见 ZipUtil::createZip）。
+     */
+    QString writePackArchive(const ModpackExport::ExportPlan &plan, const QString &targetZip);
 
     /// Forge / NeoForge 安装器的命令行（**纯函数**，就是为了能钉住 `--mirror` 那一条）。
     /// @param installerPath 安装器 jar 在盘上的路径。
@@ -1170,6 +1292,8 @@ private:
     /// CurseForge 那两发请求要用的设置（见 setCurseForgeApiKey 那一段）。
     QString m_curseForgeApiKey;
     QString m_curseForgeApiBaseOverride;
+    /// Modrinth 那条反查路的地址覆盖（见 setModrinthApiBaseOverride）。空 = 官方地址。
+    QString m_modrinthApiBaseOverride;
 
     /// 「装一个带名字的实例」走到哪了（见上面那段）。父版本是加载器时它会和
     /// m_loaderInstall **同时** active —— 那不是状态串了，是这一条路的正常样子。

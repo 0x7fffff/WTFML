@@ -6,11 +6,17 @@
  * @note 用 PowerShell + .NET System.IO.Compression 解压，一次进程调用可处理
  *       任意多个压缩包；脚本经 Base64 编码后交给 -EncodedCommand，绕开
  *       cmd/PowerShell 两层的引号与转义问题。
+ * @note `-EncodedCommand` 换来的是**命令行长度上限**：整个脚本只能占一万二千来个字符
+ *       （32767 的命令行 ÷ Base64 的 4/3 ÷ UTF-16LE 的 2）。所以脚本里**只放常量**，
+ *       随数据长大的东西（打包那张条目表）一律走临时文件 —— 见 createZip 里那段。
  */
 #include "ZipUtil.hpp"
 
 #include <QDir>
 #include <QFile>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QProcess>
 #include <QUuid>
 
@@ -124,14 +130,36 @@ QString readProcessError(const QString &raw) {
 ///
 /// NOTE: 三个 - 号开头的开关一个都不能少，理由见 extractArchives 里原来那段（-NoProfile
 ///       挡用户 profile 里的别名、-ExecutionPolicy Bypass 挡执行策略、-EncodedCommand
-///       绕开两层引号转义）。三个调用点共用这一份，免得哪天只给其中一个加了新开关。
+///       绕开两层引号转义）。四个调用点共用这一份，免得哪天只给其中一个加了新开关。
+/// NOTE: `what` 是**这次动作的名字**，由调用方给 —— 这几句是要弹给用户看的，主语写错就是
+///       一句说不通的话：打包那一条原来报的是「**解压**没跑起来」（2026-09-26 真实例上撞
+///       出来的），用户拿着这句话往解压上找，而全程根本没解压。
 bool runPowershell(const QString &script, int timeoutMs, QByteArray *stdoutOut,
-                   QString *errorOut) {
+                   QString *errorOut, const QString &what) {
+    const QString encoded = encodeCommand(script);
+    // 兜底闸：Windows 一条命令行只有 32767 个字符，超了 CreateProcess 直接失败，QProcess
+    // 报的是「文件名或扩展名太长」（ERROR_FILENAME_EXCED_RANGE）—— 那句话和真正的原因
+    // （脚本太长）一个字都对不上，2026-09-26 就是拿着它查了半天。这里自己先拦一道，
+    // 把它变成一句说得通的话。
+    //
+    // NOTE: 撞到这一道说明**我们自己的脚本里放了跟着数据长大的东西**，那是写错了，
+    //       不是用户在做什么奇怪的事：脚本正文里只该有常量，实例相关的东西（打包那张
+    //       条目表）走临时文件 —— 见 createZip。3 万这个数留了七百来个字符给
+    //       `powershell` 那几个开关和引号 —— 编码后的正文是 ASCII，字节数就是字符数。
+    if (encoded.size() > 32000) {
+        if (errorOut != nullptr) {
+            *errorOut = QStringLiteral("%1失败：递给 PowerShell 的脚本太长了（编码后 %2 个字符，"
+                                       "Windows 一条命令行最多三万多）。")
+                            .arg(what)
+                            .arg(encoded.size());
+        }
+        return false;
+    }
     QProcess process;
     process.start(QStringLiteral("powershell"),
                   {QStringLiteral("-NoProfile"), QStringLiteral("-NonInteractive"),
                    QStringLiteral("-ExecutionPolicy"), QStringLiteral("Bypass"),
-                   QStringLiteral("-EncodedCommand"), encodeCommand(script)});
+                   QStringLiteral("-EncodedCommand"), encoded});
     if (!process.waitForFinished(timeoutMs)) {
         // error() / errorString() 要在 kill 之前读：kill 会把状态改成 Crashed。
         const QProcess::ProcessError failure = process.error();
@@ -139,7 +167,7 @@ bool runPowershell(const QString &script, int timeoutMs, QByteArray *stdoutOut,
         process.kill();
         process.waitForFinished(5000);
         if (errorOut != nullptr) {
-            *errorOut = describeProcessFailure(failure, detail, QStringLiteral("解压"));
+            *errorOut = describeProcessFailure(failure, detail, what);
         }
         return false;
     }
@@ -226,8 +254,9 @@ bool ZipUtil::extractArchives(const QStringList &archives, const QString &target
                        "$out=%1\n"
                        "[void][System.IO.Directory]::CreateDirectory($out)\n"
                        "foreach($z in %2){\n"
-                       "  $zip=[System.IO.Compression.ZipFile]::OpenRead($z)\n"
+                       "  $zip=$null\n"
                        "  try{\n"
+                       "    $zip=[System.IO.Compression.ZipFile]::OpenRead($z)\n"
                        "    foreach($e in $zip.Entries){\n"
                        "      if([string]::IsNullOrEmpty($e.Name)){continue}\n"
                        "      $full=$e.FullName.Replace('\\','/')\n"
@@ -237,13 +266,27 @@ bool ZipUtil::extractArchives(const QStringList &archives, const QString &target
                        "([System.IO.Path]::GetDirectoryName($dest))\n"
                        "      [System.IO.Compression.ZipFileExtensions]::ExtractToFile($e,$dest,$true)\n"
                        "    }\n"
-                       "  } finally { $zip.Dispose() }\n"
+                       "  } catch {\n"
+                       // ★ 2026-09-27：这一段 catch 是**必须的**，理由和 gunzipTo / createZip
+                       //   里那两段一模一样（见 readProcessError 上面那段）：没兜住的话 PowerShell
+                       //   会把错误流序列化成 `#< CLIXML` + 一整条 `<Objs>` XML，而真因（路径太长、
+                       //   目标被占用、包是半截下载）**就埋在那条 XML 里**，readProcessError 按行
+                       //   过滤时连同机器话一起跳过 ⇒ 用户拿到的是「解压失败：PowerShell 退出码 1」，
+                       //   一个字都说不出是哪个包怎么了 —— 而这一条是要弹给他看的。
+                       //   GetBaseException() 取最里面那一层（真因在包装里，和那两段同一个理由）。
+                       //   退出码 3 和 gunzipTo / createZip 保持一致（"脚本跑到了、里面出错了"，
+                       //   和"进程没起来/超时"分开）。
+                       "    $msg=$_.Exception.GetBaseException().Message\n"
+                       "    if([string]::IsNullOrEmpty($msg)){ $msg=$_.Exception.Message }\n"
+                       "    [Console]::Error.WriteLine(('解压「' + $z + '」时出错：' + $msg))\n"
+                       "    exit 3\n"
+                       "  } finally { if($zip){ $zip.Dispose() } }\n"
                        "}\n")
             .arg(psQuote(QDir(targetDir).absolutePath()), psArray(archives),
                  QStringLiteral("(") + skipConditions.join(QStringLiteral(" -or ")) + QLatin1Char(')'));
 
     QString failure;
-    if (!runPowershell(script, 180000, nullptr, &failure)) {
+    if (!runPowershell(script, 180000, nullptr, &failure, QStringLiteral("解压"))) {
         if (errorOut) {
             *errorOut = failure.isEmpty()
                             ? QStringLiteral("解压失败（%1 个压缩包）").arg(archives.size())
@@ -401,8 +444,9 @@ bool ZipUtil::extractSubtrees(const QStringList &archives, const QString &target
                        "$roots=%2\n"
                        "$count=0\n"
                        "foreach($z in %3){\n"
-                       "  $zip=[System.IO.Compression.ZipFile]::OpenRead($z)\n"
+                       "  $zip=$null\n"
                        "  try{\n"
+                       "    $zip=[System.IO.Compression.ZipFile]::OpenRead($z)\n"
                        "    foreach($r in $roots){\n"
                        "      $low=$r.ToLowerInvariant()\n"
                        "      foreach($e in $zip.Entries){\n"
@@ -420,14 +464,23 @@ bool ZipUtil::extractSubtrees(const QStringList &archives, const QString &target
                        "        $count=$count+1\n"
                        "      }\n"
                        "    }\n"
-                       "  } finally { $zip.Dispose() }\n"
+                       "  } catch {\n"
+                       // 同上（整包解压那一段的 NOTE 逐条适用）。整合包导入这条路走的**就是**
+                       // 这一段：`overrides/` 里出现一个超长路径或者被占用的文件时，从前用户
+                       // 拿到的是「PowerShell 退出码 1」，现在拿得到是哪个包、哪句 .NET 的原话。
+                       "    $msg=$_.Exception.GetBaseException().Message\n"
+                       "    if([string]::IsNullOrEmpty($msg)){ $msg=$_.Exception.Message }\n"
+                       "    [Console]::Error.WriteLine(('解压「' + $z + '」时出错：' + $msg))\n"
+                       "    exit 3\n"
+                       "  } finally { if($zip){ $zip.Dispose() } }\n"
                        "}\n"
                        "[Console]::Out.Write($count)\n")
             .arg(psQuote(QDir(targetDir).absolutePath()), psArray(normalized), psArray(archives));
 
     QByteArray stdoutBytes;
     QString failure;
-    if (!runPowershell(script, 30 * 60 * 1000, &stdoutBytes, &failure)) {
+    if (!runPowershell(script, 30 * 60 * 1000, &stdoutBytes, &failure,
+                       QStringLiteral("解压"))) {
         if (errorOut) {
             *errorOut = failure;
         }
@@ -494,10 +547,145 @@ bool ZipUtil::gunzipTo(const QString &sourceGz, const QString &targetPath, QStri
     // 一秒出头；给它 15 秒是为了"机器正忙"时别误判，同时"没装 PowerShell / 被安全
     // 软件拦下"那一档不会让用户干等（那一档根本不进等待，直接 FailedToStart）。
     QString failure;
-    if (!runPowershell(script, 15000, nullptr, &failure)) {
+    if (!runPowershell(script, 15000, nullptr, &failure, QStringLiteral("解压 gzip"))) {
         if (errorOut != nullptr) {
             const QString reason = readProcessError(failure);
             *errorOut = reason.isEmpty() ? QStringLiteral("解压 gzip 失败") : reason;
+        }
+        return false;
+    }
+    return true;
+}
+
+bool ZipUtil::createZip(const QString &targetZip, const QList<ZipSource> &entries,
+                        QString *errorOut) {
+    if (targetZip.trimmed().isEmpty()) {
+        if (errorOut != nullptr) {
+            *errorOut = QStringLiteral("没有给出要写到哪去。");
+        }
+        return false;
+    }
+    for (const ZipSource &entry : entries) {
+        if (entry.entryName.trimmed().isEmpty() || entry.sourcePath.trimmed().isEmpty()) {
+            if (errorOut != nullptr) {
+                *errorOut = QStringLiteral("打包的条目表里有空名字或者空来源。");
+            }
+            return false;
+        }
+        // 名字里带 `\` 的条目在别的启动器眼里就是一个**名字里带反斜杠的文件**（zip 规范
+        // 只用 `/`），等于整层 overrides 全废 —— 而那种包我们自己读得回来（.NET 读的时候
+        // 会归一），所以这种错在自测里是看不见的。在这里直接拦掉。
+        if (entry.entryName.contains(QLatin1Char('\\'))) {
+            if (errorOut != nullptr) {
+                *errorOut = QStringLiteral("打包的条目名里有反斜杠：%1").arg(entry.entryName);
+            }
+            return false;
+        }
+    }
+
+    // 条目表**写成一个临时文件，不拼进脚本正文**。
+    //
+    // NOTE: 这是 2026-09-26 在真实例上撞出来的一条硬限制：脚本是经 `-EncodedCommand`
+    //       用**命令行**递给 PowerShell 的，而 Windows 给一条命令行只有 32767 个字符；
+    //       脚本要先做 Base64（×4/3）再算 UTF-16LE（×2）⇒ 能塞进去的脚本大约 1.2 万字符。
+    //       一个装着 133 个模组的实例，光这张 `@('条目名','盘上路径')` 表就一万七千多字符
+    //       ⇒ CreateProcess 当场失败，QProcess 报「文件名或扩展名太长」
+    //       （ERROR_FILENAME_EXCED_RANGE），用户看到的是「打包失败」而盘上什么都没留下。
+    //       **小夹具（两条三条）永远看不见这个** —— 断言得照真实例的量级摆（见 verify V5q）。
+    // NOTE: 表用 JSON 而不是"一行一条、TAB 分隔"：条目名和路径里什么都可能有（空格、单引号、
+    //       中文、`.`），拼分隔符迟早踩雷，而 JSON 由 Qt 这一侧写、PowerShell 那一侧
+    //       ConvertFrom-Json 读，两边都不用自己转义。
+    const QString tablePath = QDir::tempPath() + QStringLiteral("/wtfml-ziptable-") +
+                              QUuid::createUuid().toString(QUuid::WithoutBraces) +
+                              QStringLiteral(".json");
+    {
+        QJsonArray table;
+        for (const ZipSource &entry : entries) {
+            QJsonObject item;
+            item.insert(QStringLiteral("name"), entry.entryName);
+            item.insert(QStringLiteral("src"), QDir::toNativeSeparators(entry.sourcePath));
+            table.append(item);
+        }
+        QFile tableFile(tablePath);
+        if (!tableFile.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            if (errorOut != nullptr) {
+                *errorOut = QStringLiteral("打包的条目表写不出来：%1").arg(tablePath);
+            }
+            return false;
+        }
+        // ★ 2026-09-27：这一发的返回值**从前是丢掉的**。写不进去（磁盘满、临时目录没有写
+        //   权限、被安全软件拦下）时 `write()` 回 -1，而流程照旧往下走：PowerShell 那一侧
+        //   拿到一个空文件，`ConvertFrom-Json` 报「不能对 Null 值表达式调用方法」，用户看到
+        //   的是这么一句和真因（盘满）毫无关系的话，而目标 zip 里**一个条目都没有**。
+        //   这里当场拦下。NOTE: 短写（盘刚好在半路满）也一并算失败 —— 半截 JSON 同样过不了
+        //   ConvertFrom-Json，早点说清楚比让它去猜强。
+        const QByteArray payload = QJsonDocument(table).toJson(QJsonDocument::Compact);
+        if (tableFile.write(payload) != payload.size()) {
+            if (errorOut != nullptr) {
+                *errorOut = QStringLiteral("打包的条目表写不完整：%1（临时目录还剩多少空间？）")
+                                .arg(tablePath);
+            }
+            tableFile.close();
+            QFile::remove(tablePath);
+            return false;
+        }
+    }
+
+    const QString script =
+        QStringLiteral("$ErrorActionPreference='Stop'\n"
+                       "Add-Type -AssemblyName System.IO.Compression.FileSystem\n"
+                       "$target=%1\n"
+                       "$table=%2\n"
+                       // 外头这层**必须是 `[array]` 而不是 `@()`**：两种形态都得接住 ——
+                       // 只有一条时 ConvertFrom-Json 回的是**一个对象**（不是数组），
+                       // 它要能兜成一条；而多条时 ConvertFrom-Json 是**不展开**的（整个数组
+                       // 当**一个**输出写出去），`@()` 会把它包成一个"装着数组的一元数组"
+                       // ⇒ foreach 只跑一圈、`$p.name` 由成员枚举变成**所有名字拼成的一串**
+                       // ⇒ CreateEntryFromFile 收到一个数组当路径，报
+                       // 「The given path's format is not supported.」
+                       // （2026-09-26 撞的，改用临时文件后又踩了这一脚；`[array]` 两种形态
+                       // 都是平铺的，实测见 verify V5q 与"只有一条条目"那些用例。）
+                       "$pairs=[array]([System.IO.File]::ReadAllText"
+                       "($table,[System.Text.Encoding]::UTF8) | ConvertFrom-Json)\n"
+                       "$dir=[System.IO.Path]::GetDirectoryName($target)\n"
+                       "if(-not [string]::IsNullOrEmpty($dir)){\n"
+                       "  [void][System.IO.Directory]::CreateDirectory($dir)\n"
+                       "}\n"
+                       "$current=''\n"
+                       "try{\n"
+                       "  $zip=[System.IO.Compression.ZipFile]::Open($target,'Create')\n"
+                       "  try{\n"
+                       "    foreach($p in $pairs){\n"
+                       "      $current=$p.name\n"
+                       "      [void][System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile"
+                       "($zip,$p.src,$p.name,[System.IO.Compression.CompressionLevel]::Optimal)\n"
+                       "    }\n"
+                       "  } finally { $zip.Dispose() }\n"
+                       "} catch {\n"
+                       // 同上：GetBaseException() 取最里面那一层（缺文件/被占用那些真因
+                       // 在包装里面）。
+                       "  $msg=$_.Exception.GetBaseException().Message\n"
+                       "  if([string]::IsNullOrEmpty($msg)){ $msg=$_.Exception.Message }\n"
+                       // 那一句 .NET 的原文（英文、带着完整路径）**照旧带上** —— 它是唯一
+                       // 说得出"哪个文件怎么了"的东西；前面这半句是给用户看的主语，因为
+                       // 这一条最后是要**弹出来的**（能挡住用户操作的那种错）。
+                       "  [Console]::Error.WriteLine(('打包「' + $current + '」时出错：' + $msg))\n"
+                       "  exit 3\n"
+                       "}\n")
+            .arg(psQuote(QDir::toNativeSeparators(targetZip)), psQuote(tablePath));
+
+    // 10 分钟。这个数按**大包**来定：实测一个 1.66 GB / 422 个文件的整合包（导入那一次）
+    // 解压就跑了十几分钟，打包只会更慢（Optimal 要真去压一遍）。
+    QString failure;
+    const bool ok = runPowershell(script, 600000, nullptr, &failure, QStringLiteral("打包"));
+    // 临时表两份出路都要删（成功、失败都一样）—— 它躺在系统临时目录里，里面是用户的
+    // 实例里都有哪些文件，没理由留一份。
+    QFile::remove(tablePath);
+    if (!ok) {
+        // 半成品删掉（见 .hpp）。NOTE: 删的是**我们写的那个目标路径**，不碰别的。
+        QFile::remove(targetZip);
+        if (errorOut != nullptr) {
+            *errorOut = failure.isEmpty() ? QStringLiteral("打包失败") : failure;
         }
         return false;
     }

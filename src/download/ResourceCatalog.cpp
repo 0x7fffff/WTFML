@@ -354,6 +354,8 @@ QString kindLabel(Kind kind) {
     return QString();
 }
 
+QString modrinthApiRoot() { return apiRoot(); }
+
 // ---------- 来源 ----------
 
 QList<Source> allSources() {
@@ -742,6 +744,9 @@ SearchResult parseSearch(const QByteArray &json) {
         hit.author = object.value(QStringLiteral("author")).toString();
         // 下载量在 JSON 里可能大过 int（实测有 9 位数的），所以走 double 再截断。
         hit.downloads = static_cast<qint64>(object.value(QStringLiteral("downloads")).toDouble());
+        // 最后一次更新（详情页头卡上那句「5 天前」）。两家名字不同，各自那一栏见
+        // parseCurseForgeSearch。读不到就是空串（界面那一截不显示）。
+        hit.updatedIso = object.value(QStringLiteral("date_modified")).toString();
         hit.categories = stringList(object.value(QStringLiteral("categories")));
         hit.gameVersions = stringList(object.value(QStringLiteral("versions")));
         // 图标地址：只认我们那个域名（见 isUsableIconUrl），别的当"没给"——那时界面走
@@ -801,6 +806,9 @@ SearchResult parseCurseForgeSearch(const QByteArray &json) {
         hit.author = object.value(QStringLiteral("authors")).toArray().first().toObject()
                          .value(QStringLiteral("name")).toString();
         hit.downloads = static_cast<qint64>(object.value(QStringLiteral("downloadCount")).toDouble());
+        // 最后一次更新。**名字和 Modrinth 不一样**（这边是 dateModified，那边是
+        // date_modified）—— 两处各读各的，读到同一栏里去。
+        hit.updatedIso = object.value(QStringLiteral("dateModified")).toString();
         // categories 在那边是一个个**对象**（`{"name":"Technology",…}`），取名字那一项。
         // 这一串现在只在出错排查时看（界面那行小字用的是作者和下载量），存英文名最贴近原样。
         const QJsonArray categories = object.value(QStringLiteral("categories")).toArray();
@@ -854,15 +862,190 @@ QStringList gameVersionsOldestFirst(const QStringList &versions) {
     return out;
 }
 
-QStringList gameVersionChoices(const Hit &hit) {
+namespace {
+
+/// 老式周号快照：两位年 + 'w' + 两位周 + 一个小写字母（24w14a / 13w41b）。
+/// **只认这一个长度**：`20w14infinite` 那种愚人节版是另一回事（见头文件里那段"不猜"）。
+bool isWeeklySnapshotId(const QString &lower) {
+    if (lower.size() != 6 || lower.at(2) != QLatin1Char('w')) {
+        return false;
+    }
+    const bool digits = lower.at(0).isDigit() && lower.at(1).isDigit() &&
+                        lower.at(3).isDigit() && lower.at(4).isDigit();
+    const QChar suffix = lower.at(5);
+    return digits && suffix >= QLatin1Char('a') && suffix <= QLatin1Char('z');
+}
+
+/// `1.21.4` / `26.2` 这种"纯数字加点"的前缀才认。
+///
+/// NOTE: **不认的就不折**。愚人节版 `1.RV-Pre1` 里那一段是 `1.RV`，折出来是一个谁也不
+///       是的大版本 —— 摆在"游戏版本"那一排里，用户点进去什么都搜不到，而且看不出哪里
+///       错了。`20w14infinite` 那一路用的是同一条规矩（见头文件那段"不猜"）。
+bool isPlainVersionStem(const QString &text) {
+    if (text.isEmpty() || !text.at(0).isDigit()) {
+        return false;
+    }
+    bool lastWasDot = false;
+    for (const QChar c : text) {
+        if (c.isDigit()) {
+            lastWasDot = false;
+            continue;
+        }
+        if (c == QLatin1Char('.') && !lastWasDot) {
+            lastWasDot = true;
+            continue;
+        }
+        return false;
+    }
+    return !lastWasDot;
+}
+
+/// 快照号长什么样。两件事一起算，是因为"折出来的那一半"正是这两个公开函数唯一的区别。
+struct SnapshotShape {
+    bool snapshot = false;  ///< 这是不是一个快照号
+    QString stem;           ///< 它属于哪个大版本（空串 = 折不出来，比如 24w14a）
+};
+
+/**
+ * @brief 认四套写法，都是 Mojang 真用过的。
+ *
+ * ① 新式快照 `26.2-snapshot-1` / `26.1-snapshot-11` —— 2026-09-27 之前**一条都不认**：
+ *    它们既没有 `-pre`/`-rc`、长度也不是 6，于是不勾「显示快照版」时照样摆在那一排
+ *    chip 上，下载页那棵树的第二层也一家伙多出十来行（26.3-snapshot-1…10 各占一行）。
+ * ② 预览与候选 `1.21.4-pre3` / `26.2-rc1`（新老两套命名都长这样）。
+ * ③ 空格式的预览版 `1.14 Pre-Release 3`、`1.14.2 Pre-Release 4` —— 老 Mojang 的写法：
+ *    分隔符是**空格**、词也写全了。同样是以前一条都不认。
+ * ④ 老式周号 `24w14a`：认得出是快照，但读不出属于哪个大版本（`stem` 留空 = 折不了）。
+ *
+ * 尾巴必须是**末尾那一段**（`1.21.4-pre3`，不是 `1.21.4-pre3-1`），前缀必须是纯数字加点
+ * （见 isPlainVersionStem）。这两条合起来挡掉的就是"把看不懂的号悄悄折成别的号"。
+ */
+SnapshotShape snapshotShapeOf(const QString &version) {
+    SnapshotShape shape;
+    const QString text = version.trimmed();
+    if (text.isEmpty()) {
+        return shape;
+    }
+    const QString lower = text.toLower();
+    if (isWeeklySnapshotId(lower)) {
+        shape.snapshot = true;
+        return shape;
+    }
+    // **长关键词排前面**：`pre-release` 要是排在 `pre` 后面，`1.14 pre-release 3` 会先被
+    // `pre` 那一支认下来，尾巴变成 `-release 3`（不是纯数字）⇒ 整条认不出来。
+    static const QStringList keywords{QStringLiteral("snapshot"), QStringLiteral("pre-release"),
+                                      QStringLiteral("pre"), QStringLiteral("rc")};
+    for (const QString &keyword : keywords) {
+        // 从**最后一次出现**取：`26.2-snapshot-1` 里 `snapshot` 只有一处，这个写法只是
+        // 免得将来有个 `snapshot` 出现在大版本号里（不存在，但取最后一次总是对的）。
+        const int at = lower.lastIndexOf(keyword);
+        if (at <= 0) {
+            continue;  // 没有这个词，或者它就在开头（前面没有"大版本"那一段）
+        }
+        const QString head = lower.left(at);
+        const QChar separator = head.at(head.size() - 1);
+        if (separator != QLatin1Char('-') && separator != QLatin1Char(' ')) {
+            continue;  // `1.21.4pre3` 这种连在一块儿的不认（真没这么写的）
+        }
+        QString suffix = lower.mid(at + keyword.size());
+        if (suffix.startsWith(QLatin1Char('-')) || suffix.startsWith(QLatin1Char(' '))) {
+            suffix = suffix.mid(1);  // `-snapshot-1` / ` Pre-Release 3` 的第二个分隔符
+        }
+        if (suffix.isEmpty()) {
+            continue;
+        }
+        bool allDigits = true;
+        for (const QChar c : suffix) {
+            allDigits = allDigits && c.isDigit();
+        }
+        if (!allDigits) {
+            continue;
+        }
+        const QString stem = head.left(head.size() - 1);
+        if (!isPlainVersionStem(stem)) {
+            continue;  // 折出来不是个版本号（`1.RV-Pre1`）⇒ 当它不是快照
+        }
+        shape.snapshot = true;
+        shape.stem = stem;
+        return shape;
+    }
+    return shape;
+}
+
+}  // namespace
+
+bool isSnapshotGameVersion(const QString &version) {
+    return snapshotShapeOf(version).snapshot;
+}
+
+QString majorGameVersionOf(const QString &version) {
+    const SnapshotShape shape = snapshotShapeOf(version);
+    if (!shape.snapshot || shape.stem.isEmpty()) {
+        // 不是快照：原样还回去（调用方因此不必先判一次"这是不是快照"）。
+        // 是快照但折不出来（`24w14a`，前面那个版本号谁都猜不出来）：也原样还回去 ——
+        // 调用方看它"还是快照"就知道这一条折不了（见 gameVersionChoices 里那段）。
+        return version;
+    }
+    return shape.stem;
+}
+
+QStringList gameVersionChoices(const QStringList &declaredGameVersions, bool showSnapshots) {
     QStringList out;
-    out.reserve(hit.gameVersions.size());
+    out.reserve(declaredGameVersions.size());
     // 倒着抄一遍（接口给的是旧的在前）。**不是排序** —— 见头文件那段，这两种顺序都是
     // 接口自己定的，我们只是把要显示的那个方向挑出来。
-    for (int i = hit.gameVersions.size() - 1; i >= 0; --i) {
-        out.append(hit.gameVersions.at(i));
+    for (int i = declaredGameVersions.size() - 1; i >= 0; --i) {
+        const QString declared = declaredGameVersions.at(i);
+        if (showSnapshots) {
+            out.append(declared);
+            continue;
+        }
+        // 不显示快照版：折到大版本上。
+        const QString folded = majorGameVersionOf(declared);
+        // 折完**还是快照** = 这一条折不动（`24w14a` 这种读不出属于哪个大版本）⇒ 不摆它。
+        // 勾选框叫「显示快照版」，不勾的时候就不该有快照版露在外面（它们照样在「全部」里
+        // 看得到）。**判据就是这个**（Z8h 钉着）：写成 `folded != declared && …` 是错的 ——
+        // 折不动的那一条恰恰是"折完跟没折一样"，那个写法会把它原样摆出来。
+        if (isSnapshotGameVersion(folded)) {
+            continue;
+        }
+        // 同一个大版本下声明过几个快照（26.2-rc1、26.2-rc2）时只留一颗。**去重在这里做**：
+        // 上面是倒着走的（新的在前），所以留下的是先遇到的那一颗，而几颗折出来的字是同一个。
+        if (!out.contains(folded)) {
+            out.append(folded);
+        }
     }
     return out;
+}
+
+QString gameVersionAfterToggle(const QStringList &declaredGameVersions, bool showSnapshots,
+                               const QString &current) {
+    // 「全部」永远是「全部」：两颗表里都有它，没有什么可换算的。
+    if (current.isEmpty()) {
+        return QString();
+    }
+    const QStringList choices = gameVersionChoices(declaredGameVersions, showSnapshots);
+    // ① 这一颗在另一档里还在（正式版两边都有）—— 绝大多数情况到这儿就回去了。
+    if (choices.contains(current)) {
+        return current;
+    }
+    if (!showSnapshots) {
+        // ② 勾 → 不勾：把现在这一颗折一下再找（26.2-rc1 → 26.2）。
+        const QString folded = majorGameVersionOf(current);
+        return choices.contains(folded) ? folded : QString();
+    }
+    // ③ 不勾 → 勾：这条线上**没有正式版**（只声明过 rc / pre）。挑最新的那一条快照，
+    //    让用户留在同一条线上。声明表是**旧的在前**，所以从尾巴往前走，遇到的第一条
+    //    就是最新的那一条。
+    for (int i = declaredGameVersions.size() - 1; i >= 0; --i) {
+        const QString declared = declaredGameVersions.at(i);
+        if (isSnapshotGameVersion(declared) && majorGameVersionOf(declared) == current) {
+            return declared;
+        }
+    }
+    // 都对不上（调用方给了一个表里根本没有的 key）：回「全部」。这儿**不猜** —— 和
+    // applyChipChecked 里那条"挑不中就按全部"是同一条规矩。
+    return QString();
 }
 
 QString iconUrlForProject(const QString &projectId) {
@@ -872,8 +1055,50 @@ QString iconUrlForProject(const QString &projectId) {
     // 为什么要有它：接口给的那个 icon_url 常常是一条小 7 倍的 webp，而**webp 不是每台
     // 机器都解得动**（见 ImageDecode::webpAvailable）。解不动、或者接口干脆没给（
     // hit.iconUrl 为空）、或者给了条别的域名的，都退到这一条上来。
-    // 这个地址实测回 200 image/png。项目没传过图标时回 404 —— 那不算错，画占位方块。
+    //
+    // ★ 2026-09-27 实测更正：这条 `<id>/icon.png` **只是老项目的别名**，不是每个项目
+    //   都有的那一条。用户真实 mods/ 里 20 个模组量下来 11 个回 404（FerriteCore /
+    //   Fabric Language Kotlin / Carpet / Fabric Permissions API / ArmorQuickSwap …），
+    //   只有 9 个回 200（恰好是"图标当年就叫 icon.png"的那几个：Sodium / Fabric API /
+    //   Jade / cloth-config …）。修完在另一台盘上又量了一遍（`mw_check icon-lookup-live`
+    //   打一个真实例的 mods/，51 个模组）：**33 个回 404、18 个回 200** —— 比例和上一批
+    //   差不多，所以这不是"某一个实例特殊"。所以它**只配当最后一档**，谁要是拿它当
+    //   "自己拼得出来"的正常地址，那些项目就永远是那张占位拼图（那一发 404 被当成
+    //   "没传过图标"，屏幕上一个异常都没有）。真正那条只有问接口：projectsRequestUrl()。
     return cdnRoot() + QStringLiteral("/data/") + enc(projectId) + QStringLiteral("/icon.png");
+}
+
+QString projectsRequestUrl(const QStringList &projectIds, const QString &apiBase) {
+    if (projectIds.isEmpty()) {
+        return QString();
+    }
+    // ids 那一段照旧走 jsonArrayParam（百分号编码 + 用 QJsonDocument 拼，见那一处）：
+    // 项目号都是 base62 / 纯数字，本来就没有要转义的字符，但**形状**必须是接口认的那个。
+    return (apiBase.isEmpty() ? apiRoot() : apiBase) + QStringLiteral("/projects?ids=") +
+           jsonArrayParam(projectIds);
+}
+
+QHash<QString, QString> parseProjectIconUrls(const QByteArray &json) {
+    QHash<QString, QString> icons;
+    QJsonParseError error{};
+    const QJsonDocument document = QJsonDocument::fromJson(json, &error);
+    // ★ 回复是一个**数组**（`GET /projects?ids=…` 是这个形状），不是搜索那种 `{hits:[…]}`。
+    //   按对象读会一条都读不出来 —— 而"没有图标"和"读不懂"在屏幕上是一个样子。
+    if (error.error != QJsonParseError::NoError || !document.isArray()) {
+        return icons;
+    }
+    for (const QJsonValue &value : document.array()) {
+        const QJsonObject object = value.toObject();
+        const QString id = object.value(QStringLiteral("id")).toString();
+        if (id.isEmpty()) {
+            continue;
+        }
+        // 图标地址是外部输入，过一遍域名闸（见 isUsableIconUrl）；过不去就当这个项目
+        // 没给图标地址 —— 和搜索那边读 icon_url 是同一个规矩。
+        const QString icon = object.value(QStringLiteral("icon_url")).toString();
+        icons.insert(id, isUsableIconUrl(icon) ? icon : QString());
+    }
+    return icons;
 }
 
 bool isWebpUrl(const QString &url) {
@@ -918,6 +1143,337 @@ QString formatDownloads(qint64 downloads) {
         return QStringLiteral("%1 万").arg(downloads / 10000.0, 0, 'f', 1);
     }
     return QString::number(downloads);
+}
+
+// ---------- 资源详情页要用的那几件 ----------
+
+/// 加载器在界面上排列的固定次序。**和 loaderOptions() 那份表同一个次序**
+///（fabric / forge / neoforge / quilt）—— 两处不一样的话，同一组版本在不同地方会换个先后。
+/// 认不出来的一律排在这些后面。
+int loaderOrderIndex(const QString &loader) {
+    static const QStringList order = {QStringLiteral("fabric"), QStringLiteral("forge"),
+                                      QStringLiteral("neoforge"), QStringLiteral("quilt")};
+    const int index = order.indexOf(loader.toLower());
+    return index < 0 ? order.size() : index;
+}
+
+/// 一条版本声明的**最新**那个游戏版本（组头里要用的那个）。一个都没有回空串。
+///
+/// 比法走 compareVersionText（`1.9` < `1.10` 那一套，也是"旧的在前"那个方向），
+/// 取最大的那个。**不按接口给的顺序取第一个**：CF 那条 `gameVersions` 的顺序是随机的
+///（见文件里那段），照抄第一个会把一条 1.21 的版本分到 1.7.10 那一组去。
+QString newestGameVersionOf(const VersionEntry &entry) {
+    QString best;
+    for (const QString &candidate : entry.gameVersions) {
+        if (best.isEmpty() || compareVersionText(best, candidate) < 0) {
+            best = candidate;
+        }
+    }
+    return best;
+}
+
+/// 一条版本的**主加载器**（组头里那一个）：按固定次序取第一个认得的。
+/// 一个都不认得（`optifine` 这种、或者空）就取它自己第一个原样小写，没有就回空串
+///（= 通用）。
+QString primaryLoaderOf(const VersionEntry &entry) {
+    for (const QString &known : {QStringLiteral("fabric"), QStringLiteral("forge"),
+                                 QStringLiteral("neoforge"), QStringLiteral("quilt")}) {
+        for (const QString &declared : entry.loaders) {
+            if (declared.toLower() == known) {
+                return known;
+            }
+        }
+    }
+    return entry.loaders.isEmpty() ? QString() : entry.loaders.first().toLower();
+}
+
+QString relativeTimeText(const QString &isoTime) {
+    return relativeTimeText(isoTime, QDateTime::currentDateTime());
+}
+
+QString relativeTimeText(const QString &isoTime, const QDateTime &now) {
+    if (isoTime.isEmpty()) {
+        return QString();
+    }
+    // 两条格式都试：接口给的那一串**带毫秒**（`2024-06-14T12:34:56.789Z`），而 ISO 那一档
+    // 读毫秒是分版本的（Qt 6 的 Qt::ISODate 认得，早先的版本要 Qt::ISODateWithMs）。
+    // 两条都不认就把这一串当"读不懂"—— 那是空串，界面上不显示这一截。
+    QDateTime then = QDateTime::fromString(isoTime, Qt::ISODate);
+    if (!then.isValid()) {
+        then = QDateTime::fromString(isoTime, Qt::ISODateWithMs);
+    }
+    if (!then.isValid()) {
+        return QString();
+    }
+    const qint64 seconds = then.secsTo(now);
+    if (seconds < 0) {
+        // 将来时间：这一台机器的钟或者接口的时间戳有一个是错的。**空串**，不说「-3 天前」。
+        return QString();
+    }
+    if (seconds < 60) {
+        return QStringLiteral("刚刚");
+    }
+    if (seconds < 3600) {
+        return QStringLiteral("%1 分钟前").arg(seconds / 60);
+    }
+    if (seconds < 86400) {
+        return QStringLiteral("%1 小时前").arg(seconds / 3600);
+    }
+    const qint64 days = seconds / 86400;
+    if (days < 30) {
+        return QStringLiteral("%1 天前").arg(days);
+    }
+    if (days < 365) {
+        return QStringLiteral("%1 个月前").arg(days / 30);
+    }
+    return QStringLiteral("%1 年前").arg(days / 365);
+}
+
+QString releaseChannelNote(const QString &versionType) {
+    if (versionType == QStringLiteral("beta")) {
+        return QStringLiteral("测试版");
+    }
+    if (versionType == QStringLiteral("alpha")) {
+        return QStringLiteral("早期测试版");
+    }
+    // release 和"认不出来"都回空串：正式版是绝大多数，那三个字不是信息；认不出来的
+    // 更不该编一个（见头文件）。
+    return QString();
+}
+
+int releaseChannelRank(const QString &versionType) {
+    if (versionType == QStringLiteral("release")) {
+        return 0;
+    }
+    if (versionType == QStringLiteral("beta")) {
+        return 1;
+    }
+    if (versionType == QStringLiteral("alpha")) {
+        return 2;
+    }
+    // 认不出来回 -1，**不是** 0：把一条不知道是什么渠道的版本画成绿色的"正式版"，是把
+    // "不知道"说成了"很稳"（详情页那个方块认不出这一档就不画字母，见头文件）。
+    return -1;
+}
+
+QString loaderDisplayName(const QString &loader) {
+    const QString lowered = loader.toLower();
+    if (lowered == QStringLiteral("fabric")) {
+        return QStringLiteral("Fabric");
+    }
+    if (lowered == QStringLiteral("forge")) {
+        return QStringLiteral("Forge");
+    }
+    if (lowered == QStringLiteral("neoforge")) {
+        return QStringLiteral("NeoForge");
+    }
+    if (lowered == QStringLiteral("quilt")) {
+        return QStringLiteral("Quilt");
+    }
+    return loader;  // 认不出来原样还回去：显示 optifine 比显示空串强
+}
+
+QString versionRowSubText(const VersionEntry &version) {
+    QStringList bits;
+    // 加载器。一条版本可能同时支持好几个（Modrinth 那边常见 fabric + quilt），都列出来 ——
+    // 组头只放得下主加载器一个（见 primaryLoaderOf），其余在这儿。
+    QStringList loaders;
+    for (const QString &loader : version.loaders) {
+        loaders.append(loaderDisplayName(loader));
+    }
+    if (!loaders.isEmpty()) {
+        bits.append(loaders.join(QStringLiteral(" / ")));
+    }
+    // 文件名：落盘的就是它，用户拿着它能在网页上认出同一个文件。
+    const FileEntry *file = version.primaryFile();
+    if (file != nullptr && !file->filename.isEmpty()) {
+        bits.append(file->filename);
+    }
+    // 下载量：0 = 接口没给这一栏（见 VersionEntry::downloads），那一截省掉。
+    if (version.downloads > 0) {
+        bits.append(QStringLiteral("下载 %1次").arg(formatDownloads(version.downloads)));
+    }
+    const QString updated = relativeTimeText(version.datePublished);
+    if (!updated.isEmpty()) {
+        bits.append(QStringLiteral("更新于 %1").arg(updated));
+    }
+    const QString channel = releaseChannelNote(version.versionType);
+    if (!channel.isEmpty()) {
+        bits.append(channel);
+    }
+    return bits.join(QStringLiteral(", "));
+}
+
+QList<VersionEntry> versionsForGameVersion(const QList<VersionEntry> &versions,
+                                           const QString &gameVersion, bool showSnapshots) {
+    // 空串 = 不筛（「全部」那一颗）。**原样还回去**，不是"筛一个空串"（那会一条都不剩）。
+    if (gameVersion.isEmpty()) {
+        return versions;
+    }
+    QList<VersionEntry> out;
+    for (const VersionEntry &version : versions) {
+        // ★ 看的是 `gameVersions`（这一版**声明过**的每一个游戏版本），**不是**它落在哪个
+        //   组里（`groupVersions` 那个归属）。一条同时支持 1.20.1 / 1.20.2 的版本落在
+        //   1.20.2 那一组，但选了 1.20.1 那一格时它照样该在 —— 这两件事在详情页里是分开
+        //   的两步（先按 chip 筛、再分组），别合并成一步。
+        if (version.gameVersions.contains(gameVersion)) {
+            out.append(version);
+            continue;
+        }
+        // 不勾「显示快照版」时，这一排上的 `26.2` 代表的是"26.2 那条线"，声明的快照也要算
+        // 进来（勾上时 `26.2` 就只是 `26.2`，快照各去点自己那一颗 —— 见头文件那段）。
+        // 折出来还是快照的那些（24w14a）在这一支里自然落空：它们没被折过。
+        if (!showSnapshots) {
+            for (const QString &declared : version.gameVersions) {
+                if (majorGameVersionOf(declared) == gameVersion) {
+                    out.append(version);
+                    break;
+                }
+            }
+        }
+    }
+    return out;
+}
+
+QString hitMetaLine(const Hit &hit) {
+    QStringList bits;
+    // 加载器：这一条**支持哪几个**（不是某一个版本的）。和版本那一行同一个显示名函数 ——
+    // `fabric` 在界面上永远是 `Fabric`。
+    QStringList loaders;
+    const QStringList raw = hit.loaders();
+    for (const QString &loader : raw) {
+        loaders.append(loaderDisplayName(loader));
+    }
+    if (!loaders.isEmpty()) {
+        bits.append(loaders.join(QStringLiteral(" / ")));
+    }
+    // 下载量：0 = 接口没给这一栏（见 Hit::downloads），那一截省掉 —— 不写"下载 0 次"。
+    if (hit.downloads > 0) {
+        bits.append(QStringLiteral("下载 %1次").arg(formatDownloads(hit.downloads)));
+    }
+    const QString updated = relativeTimeText(hit.updatedIso);
+    if (!updated.isEmpty()) {
+        bits.append(QStringLiteral("更新于 %1").arg(updated));
+    }
+    // 来源总在：这一行是"这一条是从哪一家来的"，而图标和版本列表都跟着它走。
+    bits.append(sourceLabel(hit.source));
+    return bits.join(QStringLiteral(" · "));
+}
+
+QString VersionGroup::title() const {
+    if (loader.isEmpty() && gameVersion.isEmpty()) {
+        return QStringLiteral("其它版本");
+    }
+    if (loader.isEmpty()) {
+        return gameVersion;
+    }
+    const QString name = loaderDisplayName(loader);
+    return gameVersion.isEmpty() ? name : name + QLatin1Char(' ') + gameVersion;
+}
+
+QList<VersionGroup> groupVersions(const QList<VersionEntry> &versions, bool showSnapshots) {
+    QList<VersionGroup> groups;
+    for (const VersionEntry &version : versions) {
+        // 不勾「显示快照版」时组头也归到大版本（一条只声明到 26.2-rc1 的版本落在
+        // 「Fabric 26.2」那一组）—— 和那一排 chip 折的是同一个东西，见头文件那段。
+        // **先取最新再折**：折完再比大小的话，"最新"就变成按折过的那串排的了。
+        const QString declared = newestGameVersionOf(version);
+        const QString gameVersion = showSnapshots ? declared : majorGameVersionOf(declared);
+        const QString loader = primaryLoaderOf(version);
+        int found = -1;
+        for (int i = 0; i < groups.size(); ++i) {
+            if (groups.at(i).gameVersion == gameVersion && groups.at(i).loader == loader) {
+                found = i;
+                break;
+            }
+        }
+        if (found < 0) {
+            VersionGroup group;
+            group.gameVersion = gameVersion;
+            group.loader = loader;
+            groups.append(group);
+            found = groups.size() - 1;
+        }
+        groups[found].versions.append(version);
+    }
+
+    // 组的次序：游戏版本**新的在前**（compareVersionText 是"旧的在前"那把尺子，反着用），
+    // 同一个游戏版本里按加载器的固定次序，空游戏版本（信息就是缺的）和最不认识的加载器
+    // 都排到最后。stable_sort：两条完全同序的组保持它们进列表的先后。
+    std::stable_sort(groups.begin(), groups.end(),
+                     [](const VersionGroup &a, const VersionGroup &b) {
+                         if (a.gameVersion != b.gameVersion) {
+                             if (a.gameVersion.isEmpty()) {
+                                 return false;
+                             }
+                             if (b.gameVersion.isEmpty()) {
+                                 return true;
+                             }
+                             return compareVersionText(a.gameVersion, b.gameVersion) > 0;
+                         }
+                         return loaderOrderIndex(a.loader) < loaderOrderIndex(b.loader);
+                     });
+    return groups;
+}
+
+QString projectPageUrl(Source source, Kind kind, const QString &slug) {
+    if (slug.isEmpty()) {
+        return QString();
+    }
+    if (source == Source::CurseForge) {
+        // 类名那一段是**那一家自己网页里的目录名**，不是接口的类目号、也不是我们那份
+        // kindKey —— 三套东西，别互相套用。
+        QString section;
+        switch (kind) {
+        case Kind::Mod:
+            section = QStringLiteral("mc-mods");
+            break;
+        case Kind::Modpack:
+            section = QStringLiteral("modpacks");
+            break;
+        case Kind::ResourcePack:
+            section = QStringLiteral("texture-packs");
+            break;
+        case Kind::Shader:
+            section = QStringLiteral("shaders");
+            break;
+        case Kind::DataPack:
+            section = QStringLiteral("data-packs");
+            break;
+        }
+        return QStringLiteral("https://www.curseforge.com/minecraft/") + section +
+               QLatin1Char('/') + slug;
+    }
+    QString section;
+    switch (kind) {
+    case Kind::Mod:
+        section = QStringLiteral("mod");
+        break;
+    case Kind::Modpack:
+        section = QStringLiteral("modpack");
+        break;
+    case Kind::ResourcePack:
+        section = QStringLiteral("resourcepack");
+        break;
+    case Kind::Shader:
+        section = QStringLiteral("shader");
+        break;
+    case Kind::DataPack:
+        section = QStringLiteral("datapack");
+        break;
+    }
+    return QStringLiteral("https://modrinth.com/") + section + QLatin1Char('/') + slug;
+}
+
+QString mcmodSearchUrl(const QString &name) {
+    if (name.isEmpty()) {
+        return QString();
+    }
+    // 那一家没有"按对面的 id 直接跳"的路：它的项目号是另一套，和对面的 id 对不上。
+    // 所以这一条是**拿名字去搜**（跳到结果页，不一定是那一页）—— 按钮上的话也照这个说。
+    // 分隔符和参数名抄的是它自己搜索框提交的那一条。
+    return QStringLiteral("https://www.mcmod.cn/s?key=") +
+           QString::fromLatin1(QUrl::toPercentEncoding(name));
 }
 
 // ---------- 版本 ----------
@@ -1014,6 +1570,9 @@ QList<VersionEntry> parseVersions(const QByteArray &json) {
         entry.name = object.value(QStringLiteral("name")).toString();
         entry.versionType = object.value(QStringLiteral("version_type")).toString();
         entry.datePublished = object.value(QStringLiteral("date_published")).toString();
+        // 这一版自己被下过多少次（详情页那行小字）。**读不到就是 0** —— 0 在界面上是
+        // "这一截不显示"，不是"没人下过"（见 VersionEntry::downloads 那段）。
+        entry.downloads = static_cast<qint64>(object.value(QStringLiteral("downloads")).toDouble());
         entry.gameVersions = stringList(object.value(QStringLiteral("game_versions")));
         entry.loaders = stringList(object.value(QStringLiteral("loaders")));
 
@@ -1084,6 +1643,9 @@ QList<VersionEntry> parseCurseForgeVersions(const QByteArray &json) {
         entry.versionType =
             curseForgeReleaseType(object.value(QStringLiteral("releaseType")).toInt());
         entry.datePublished = object.value(QStringLiteral("fileDate")).toString();
+        // 这一条文件被下过多少次（Modrinth 那边这一栏叫 downloads，这边叫 downloadCount）。
+        entry.downloads =
+            static_cast<qint64>(object.value(QStringLiteral("downloadCount")).toDouble());
 
         // `gameVersions` 那一串混着三样东西（游戏版本 / 哪一侧 / 哪个加载器），要挑开：
         // 游戏版本进 `gameVersions`，加载器进 `loaders`（翻成小写，加载器那道闸和小字都认

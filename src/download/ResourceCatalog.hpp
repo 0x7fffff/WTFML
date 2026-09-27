@@ -37,6 +37,8 @@
 #pragma once
 
 #include <QByteArray>
+#include <QDateTime>
+#include <QHash>
 #include <QList>
 #include <QString>
 #include <QStringList>
@@ -83,6 +85,15 @@ QString folderForKind(Kind kind);
 
 /// 人看的名字（「模组」「整合包」…）。界面上那几个字从这里取，免得两处各写一份。
 QString kindLabel(Kind kind);
+
+/// Modrinth 接口的根地址（`https://api.modrinth.com/v2`，**不带结尾斜杠**）。
+///
+/// NOTE: 唯一出处仍然是本文件 .cpp 里那个匿名命名空间的 `apiRoot()` —— 这里只是把它露
+///       出来给"导出整合包"那条反查路用（`POST /version_files`，见
+///       VersionManager::lookupModrinthVersionFiles）。**别在别处再写一遍这个字符串**：
+///       哪天要换镜像（mcimirror 那个也认 `/modrinth/v2/...`），改漏一处的症状是
+///       "搜索走了镜像、反查直连官方"，而两边都不会报错，只在慢网下才看得出来。
+QString modrinthApiRoot();
 
 // ---------- 来源（2026-09-25 加的第二个数据源）----------
 //
@@ -222,6 +233,16 @@ struct Hit {
     ///       统一回答它 —— 这一项就是 CurseForge 那个答案的出处。
     QString iconFallbackUrl;
 
+    /// 这个项目**最后一次更新**是什么时候（ISO 8601 串）。
+    ///
+    /// 两个来源都有这一栏，只是名字不同（Modrinth 是 `date_modified`、CurseForge 是
+    /// `dateModified`），解析的时候都读到这一栏来 —— 界面上那句「↑ 5 天前」不需要知道
+    /// 这条 hit 是从哪一家搜出来的。
+    ///
+    /// NOTE: 空串 = 接口没给（字段没了 / 响应被人改过）。界面上那一截就**不显示**，
+    ///       不要拿它当"很久以前"编一句话出来。
+    QString updatedIso;
+
     /// 加载器（`categories` 里属于加载器的那几个）。界面上当标签显示、以及挑版本时筛。
     ///
     /// NOTE: `explicitLoaders` 非空就**只认它**（CurseForge 那条路）—— 那边的 categories
@@ -306,21 +327,105 @@ SearchResult parseCurseForgeSearch(const QByteArray &json);
 /// 短的那个在前（1.21 < 1.21.1），数字段之外的那一段按字符串比（`1.21-pre1` 这类）。
 QStringList gameVersionsOldestFirst(const QStringList &versions);
 
+/// 这一串是不是**快照/预览版**那一类（`26.2-rc1` / `1.21.4-pre3` / `24w14a`）。
+///
+/// 四套形状，都是照着**版本号自己**判的（接口不给这一栏）：
+///   * 新式快照 `26.2-snapshot-1`（2026-09-27 才认：这一套以前**一条都不认**，不勾
+///     「显示快照版」时它们照样摆在那一排 chip 上、树第二层也多出十来行）；
+///   * 尾巴上带 `-preN` / `-rcN` 的（1.21.4-pre3、26.2-rc1）—— 新老两套命名都长这样；
+///   * 空格式的预览版 `1.14 Pre-Release 3` / `1.14.2 Pre-Release 4`（老 Mojang 的写法）；
+///   * 老式快照号 `24w14a` / `13w41b`（两位年 + 'w' + 两位周 + 一个小写字母）。
+///
+/// **认不出来的都算"不是快照"**（`1.14.3 - Combat Test`、`20w14∞`、`26.2hyperland` 这些
+/// 愚人节/实验版一律不算）。不猜的理由和 `releaseChannelRank` 那条一样：把一条正式版说成
+/// 快照，用户会在那一排 chip 里**找不到**它（它被折进大版本了），而这件事在界面上没有
+/// 任何提示。宁可多显示一个。
+///
+/// NOTE: **折出来的那一段也必须是版本号**（纯数字加点）。愚人节版 `1.RV-Pre1` 折出来是
+///       `1.RV`，一个谁也不是的大版本 —— 摆在那一排里用户点进去什么都搜不到。所以它
+///       和 `20w14infinite` 一样，整条不算快照（见 .cpp 里 `isPlainVersionStem()`）。
+bool isSnapshotGameVersion(const QString &version);
+
+/// 快照版归到**对应的大版本**：`26.2-rc1` → `26.2`、`1.21.4-pre3` → `1.21.4`、
+/// `26.2-snapshot-1` → `26.2`、`1.14 Pre-Release 3` → `1.14`。
+///
+/// 不是快照的**原样还回去**（`1.21.4` → `1.21.4`），认不出来的也原样还回去。老式快照号
+/// 没有大版本可归（`24w14a` 前面那个版本号谁都猜不出来），也原样还回去 —— 调用方据此
+/// 判断"这一条折不了"（见 gameVersionChoices 里那段：折不了的快照在不显示快照时就不摆）。
+QString majorGameVersionOf(const QString &version);
+
 /// 「选游戏版本」那一步要摆的一串（**新的在前**）。
 ///
-/// NOTE: 接口给的 `Hit::gameVersions` 是**旧的在前**（Sodium 那份实测从 1.16.3 一路排到
-///       26.3），而这个资源"有哪些版本可下"那个接口给的**正好相反**（新的在前，见
-///       parseVersions）。同一个"版本"两个字，两个接口的顺序不一样 —— 所以这里单独有个
-///       函数、单独钉一条断言，而不是在各个调用点上就地反向一次：就地反的话，将来谁多反
-///       一次、谁少反一次，症状都只是"顺序有点怪"，没人会去查。
-QStringList gameVersionChoices(const Hit &hit);
+/// NOTE: 它吃的是**声明表**（`Hit::gameVersions`）而不是整条 Hit —— 详情页那排 chip 勾一下
+///       「显示快照版」要重算一次，而那时候手上只有开页时存下来的这一串（不必再留一整条
+///       Hit）。这份声明表是**旧的在前**（Sodium 那份实测从 1.16.3 一路排到 26.3），而这个
+///       资源"有哪些版本可下"那个接口给的**正好相反**（新的在前，见 parseVersions）。
+///       同一个"版本"两个字，两个接口的顺序不一样 —— 所以这里单独有个函数、单独钉一条
+///       断言，而不是在各个调用点上就地反向一次：就地反的话，将来谁多反一次、谁少反一次，
+///       症状都只是"顺序有点怪"，没人会去查。
+///
+/// ★ `showSnapshots`（用户要的「显示快照版」勾选框，2026-09-26）：
+///   * **false（默认那一档）**：快照版**归到对应的大版本里**（用户原话「把快照版本的模组
+///     放到对应的大版本里（如 26.2rc1 放在 26.2 里）」）—— 声明了 `26.2-rc1` 的资源，
+///     这一排上出现的是 `26.2` 那一颗；同一个大版本下声明过的几个快照（26.2-rc1、
+///     26.2-rc2）合成一颗。**折不了的那些（24w14a 这种没有大版本的）不摆** —— 勾选框叫
+///     「显示快照版」，不勾的时候就不该有快照版露在外面；它们照样在「全部」里看得到。
+///   * **true**：每一条声明过的版本各摆一颗，原样（`26.2` 和 `26.2-rc1` 各是各的）。
+QStringList gameVersionChoices(const QStringList &declaredGameVersions, bool showSnapshots);
+
+/// 那个勾选框被拨动之后，这一排 chip 上该按哪一颗（回空串 = 「全部」）。
+///
+/// 为什么要有它：折与不折是**两份不一样的表**，用户现在按着的那一颗（`26.2`）在另一档里
+/// 可能压根不存在（那个资源只声明过 `26.2-rc1`，没有正式版）—— 直接"表里没有就退回全部"
+/// 会把用户从他正在看的那条线上甩走，而他刚刚只是勾了一下"想看看快照"。
+///
+/// 三步，从头到尾都是"同一件事的两种说法"：
+///   ① 现在这一颗在另一档里**还在** → 就是它（正式版两边都有，绝大多数情况走这一支）；
+///   ② 退回去（勾 → 不勾）：把它折一下再找（`26.2-rc1` → `26.2`）；
+///   ③ 勾上（不勾 → 勾）：在这条线上挑**最新的那一条快照**（`26.2` 只有 rc 没有正式版时，
+///      勾上就该落在最新的那颗 rc 上，而不是"全部"）。
+/// 都不成立才回空串。**只认 key，不认文字**（chip 的身份就是 key）。
+QString gameVersionAfterToggle(const QStringList &declaredGameVersions, bool showSnapshots,
+                               const QString &current);
 
 /// 兜底那个图标地址（`https://cdn.modrinth.com/data/{id}/icon.png`）。
 ///
-/// 它是**兜底**不是唯一：接口给的 `Hit::iconUrl` 常常是一条小得多的 webp（96px 缩略图），
-/// 解得动就先用
-/// 那一条（见文件头）。项目没上传图标时这个地址是 404 —— 取不到就画占位方块，不当成错误。
+/// ★ 2026-09-27 实测更正：**它不是"每个项目都有"的那一条**，只是**老项目的别名**。
+///   拿用户真实 `mods/` 里 20 个模组一个一个要过：**11 个回 404**（FerriteCore / Fabric
+///   Language Kotlin / Fabric Permissions API / Carpet / ArmorQuickSwap / Fox Friend …），
+///   9 个回 200（Sodium / Fabric API / Jade / cloth-config / YACL / Iris …）。分界是
+///   "这个项目的图标当年就是按 `icon.png` 这个名字存的" —— **在那之后传的图标一律不在这条
+///   路上**（它们存在 `data/<id>/<哈希>.png` 或 `…/<哈希>_96.webp` 下面，只有接口的
+///   `icon_url` 说得出来，见 projectsRequestUrl 那段）。
+///   所以它只配当**最后一档**（接口那条没给、或者这台机器解不了 webp 时），不能当成一条
+///   "自己拼得出来"的正常地址 —— 老注释那句「这个地址实测回 200 image/png」是在 Sodium
+///   那一张上量的，它恰好有那个别名。
+///   项目没上传图标时回 404，那不算错 —— 取不到就画占位方块。
 QString iconUrlForProject(const QString &projectId);
+
+/// 批量问"这几个项目号各自的图标地址"：`GET {apiBase}/projects?ids=["a","b"]`。
+///
+/// 为什么非问不可：真正那条图标地址在**带哈希的文件名**底下，除了接口没人说得出来
+/// （见上面 `iconUrlForProject()` 那段）。`InstanceIconLookup` 认出来的那些文件手上只有
+/// 项目号，少了这一发就只能退到那条"老项目才有"的别名上去 —— 症状是"文件管理里的模组
+/// 绝大多数只有占位拼图"，而且**屏幕上一点异常都没有**（那一发 404 被当成"这个项目没传过
+/// 图标"，那本来是完全正常的一件事）。
+///
+/// 一发最多 100 个号（和那几处批量反查同一个上限，超了要**分批**）。实测 50 个号一发
+/// 894 字符、1.0 秒；回一个**数组**（不是对象），每项是那个项目的完整对象。
+///
+/// @param apiBase 接口根地址（`https://api.modrinth.com/v2`）。**空 = 官方那一份**
+///        （唯一出处仍是 `apiRoot()`）—— 和 `InstanceIconLookup` / `VersionManager`
+///        里那个 override 是同一条规矩。
+QString projectsRequestUrl(const QStringList &projectIds, const QString &apiBase = QString());
+
+/// 解析上面那一发的回复（一个**数组**）→ 项目号 → 图标地址。
+///
+/// NOTE: 那条地址是**外部输入**，照样要过 `isUsableIconUrl()`（见那一处）。读不懂 /
+///       根本不是数组 / 那一条没带 `icon_url` / 带的是别的域名 —— 一律当"这个项目没有
+///       图标地址"，**不报错**：一个项目没传过图标是完全正常的一件事，而这里报出来的
+///       "错"没有第二个人能处置。
+QHash<QString, QString> parseProjectIconUrls(const QByteArray &json);
 
 /// 这条地址是不是一条 webp（**按路径后缀判**，不联网）。整条 URL 都空时是 false。
 ///
@@ -387,9 +492,141 @@ struct VersionEntry {
     QList<FileEntry> files;
     QList<Dependency> dependencies;
 
+    /// 这一版自己被下过多少次。
+    ///
+    /// 两个来源的名字不一样（Modrinth 那份版本对象里是 `downloads`、CurseForge 那条文件是
+    /// `downloadCount`），解析时都读到这一栏 —— 界面上那句「下载 113 万次」不必按来源分叉。
+    ///
+    /// NOTE: **0 = 接口没给这一栏**，不是"没人下过"。界面上 0 就把那一截省掉：
+    ///       真写成「下载 0 次」看着像这一版有问题。
+    qint64 downloads = 0;
+
     /// 界面上默认要下的那个文件（`primary` 那条；一个都没有时回第一条；空清单回 nullptr）。
     const FileEntry *primaryFile() const;
 };
+
+// ---------- 资源详情页要用的那几件（都是纯函数，离线钉得住）----------
+
+/// 把一个 ISO 时间串说成「14 天前」这种话。
+///
+/// 分档：不到一分钟「刚刚」、不到一小时「N 分钟前」、不到一天「N 小时前」、不到一个月
+/// 「N 天前」、不到一年「N 个月前」、再往上「N 年前」。
+///
+/// **空串 / 读不懂 / 是将来时间都回空串**：调用点把空串理解成"这一截不显示"。将来时间
+/// 也回空串是刻意的 —— 那说明这台机器的钟或者接口的时间戳有一个是错的，说「-3 天前」
+/// 比不说更让人困惑。
+QString relativeTimeText(const QString &isoTime);
+
+/// 同上，"现在"由调用方给（验证工程拿它钉那几档的边界 —— 真跑的话每一条都会随
+/// 当下时间漂移，只有把 now 钉死才测得准）。
+QString relativeTimeText(const QString &isoTime, const QDateTime &now);
+
+/// 发布渠道那两个字：`release` 回**空串**（正式版什么都不写，界面上就少一截）、
+/// `beta` →「测试版」、`alpha` →「早期测试版」。认不出来的也回空串（**不猜**）。
+///
+/// 为什么正式版回空串而不是「正式版」：一屏里绝大多数是正式版，人人都有那三个字的时候
+/// 它就不是信息了，而屏幕左边那个字母方块已经把渠道说了一遍。
+QString releaseChannelNote(const QString &versionType);
+
+/// 发布渠道落在**哪一档**：`release` → 0、`beta` → 1、`alpha` → 2。
+///
+/// 详情页那个版本行左边的字母方块按它取色（`ResourceDetailMarks::channelColor`：0 绿 /
+/// 1 橙 / 2 红）。那三个数字是**次序**不是枚举值，两处必须说的是同一件事。
+///
+/// 认不出来（空串 / 没见过的词 / CurseForge 那边 `releaseType` 是 0 没写）回 **-1** ——
+/// 不是 0。回 0 等于把一条不知道是什么渠道的版本画成绿色的"正式版"，那是把"不知道"
+/// 说成了"很稳"；-1 在界面上是一块**灰的、不写字母**的方块（见那边的 `channelColor`）。
+int releaseChannelRank(const QString &versionType);
+
+/// 加载器名（接口给的小写）→ 界面上那个显示名（`Fabric` / `Forge` / `NeoForge` / `Quilt`）。
+/// **认不出来就原样还回去** —— 显示一个 `optifine` 也比显示空串强（空串在界面上是
+/// 「这个版本没有加载器」，那是另一件事）。
+QString loaderDisplayName(const QString &loader);
+
+/// 版本列表里那一行的小字：
+/// 「Fabric, sodium-fabric-0.9.2+mc26.2, 下载 113 万次, 更新于 14 天前, 测试版」。
+///
+/// 哪几截在、哪几截不在全看数据：没有文件名就不写、下载量是 0（= 接口没给）不写、
+/// 时间读不懂不写、正式版不写渠道。**每一截都在这里决定**，界面上那一行只负责画。
+QString versionRowSubText(const VersionEntry &version);
+
+/// 按游戏版本筛一份清单（详情页中间那一排 chip，每一颗就是一次这个）。
+///
+/// ★ 看的是 `VersionEntry::gameVersions`（这一版**声明过**的每一个游戏版本），**不是**
+///   "它落在哪个组里"（`groupVersions` 那个归属）。一条同时支持 1.20.1 / 1.20.2 的版本
+///   落在 1.20.2 那一组，但选了 1.20.1 那一格时它照样该在。两件事在详情页里是分开的两步
+///   （先筛、再分组），别合并 —— 合并了之后"按 1.20.1 筛"会漏掉一半它本来支持的版本，
+///   而界面上看起来只是"这个模组少列了几版"。
+///
+/// `gameVersion` 空串 = 不筛（「全部」那一颗，原样还回去）。
+///
+/// ★ `showSnapshots` 必须和 `gameVersionChoices` 收到的是**同一个值**（就是那个勾选框）：
+///   不勾时这一排上的 `26.2` 那一颗代表的是"26.2 这条线"（含它的 rc / pre 快照），所以
+///   声明了 `26.2-rc1` 的版本也要算在 `26.2` 里；勾上时 `26.2` 就只是 `26.2`，
+///   `26.2-rc1` 得去点它自己那一颗。两处传得不一样的话症状是"点了 26.2 少了几个版本"，
+///   而那一排 chip 本身看着是对的。
+QList<VersionEntry> versionsForGameVersion(const QList<VersionEntry> &versions,
+                                           const QString &gameVersion, bool showSnapshots);
+
+/// 详情页头卡上那行元信息：「Fabric / NeoForge · 下载 2.31 亿次 · 更新于 5 天前 · Modrinth」。
+///
+/// 四截各缺各的：一个加载器都没有（数据包那类）不写第一截、下载量 0（接口没给）不写、
+/// 时间空/读不懂不写；**来源那一截总在**（这一行是"这是哪一家来的"，图标域名和版本列表
+/// 都跟着它走，用户要拿它对照网页）。
+///
+/// 用的字和版本列表那一行**是同一套**（`formatDownloads` / `relativeTimeText` /
+/// `loaderDisplayName` / `sourceLabel`）—— 同一页上同一个东西两种说法最扎眼。
+QString hitMetaLine(const Hit &hit);
+
+/// 版本列表怎么分组：**一组 = 一个游戏版本 + 一个加载器**（就是详情页里那个
+/// 「Fabric 26.2」的组头）。
+///
+/// 一条版本只进**一个**组：进它自己声明的**最新**那个游戏版本、和它的**主加载器**
+/// （`loaders` 里按 fabric / forge / neoforge / quilt 的次序取第一个；一个都没有 = 通用）。
+/// 之所以不"每个声明过的游戏版本各进一次"：那样同一条会在一屏里出现好几遍，
+/// 用户数不清自己到底有几个版本。
+///
+/// NOTE: 所以**筛某个游戏版本要看 `VersionEntry::gameVersions`**（它声明过的每一个），
+///       不是看它落在哪个组里 —— 一条同时支持 1.20.1 和 1.20.2 的版本，落在 1.20.2 那一组，
+///       但选了 1.20.1 那一格时它照样该在。这两件事在详情页里是分开的两步
+///       （先按 chip 筛、再分组），别合并。
+///
+/// 组的次序：游戏版本**新的在前**，同一个游戏版本里按加载器的固定次序
+///（fabric / forge / neoforge / quilt），通用那一组排最后。组**里面**的顺序原样保留
+/// （接口给的是新的在前，见 parseVersions）。
+///
+/// ★ `showSnapshots`（和那一排 chip 收到的是同一个值）：不勾时组头写的那个游戏版本也
+///   **归到大版本** —— 一条最新只声明到 `26.2-rc1` 的版本，组头写「Fabric 26.2」，而不是
+///   「Fabric 26.2-rc1」。用户原话是「把快照版本的模组放到对应的大版本里」，而分组就是
+///   "这个模组落在哪个大版本下"这件事的出处；只有这一排 chip 折了、组头不折的话，
+///   用户点 `26.2` 进去看见的是「Fabric 26.2-rc1」那一组，两处各说各的。
+struct VersionGroup {
+    QString gameVersion; ///< 组头里那个游戏版本；一条都没有时是空串
+    QString loader;      ///< 组头里那个加载器（小写，空 = 通用）
+    QList<VersionEntry> versions;
+
+    /// 组头那行字：「Fabric 26.2」/「通用 1.21.1」/（两个都没有时）「其它版本」。
+    QString title() const;
+};
+
+QList<VersionGroup> groupVersions(const QList<VersionEntry> &versions, bool showSnapshots);
+
+/// 这个项目在**它自己那一家**的网页地址（详情页那颗「转到 Modrinth / CurseForge」用）。
+///
+/// 两家的网址形状不一样：Modrinth 是 `modrinth.com/<类>/<slug>`、CurseForge 是
+/// `curseforge.com/minecraft/<那家的类名>/<slug>`，两张类名表都在这里（**类名是网址的
+/// 一部分，拼错了回 404 而不报错**，所以只此一处）。拼不出来（slug 空）回空串，
+/// 那颗按钮就不画。
+///
+/// NOTE: 为什么收 kind 而不是整条 Hit：类名这一段跟着"这一条是从哪一栏搜出来的"走，
+///       而栏位不在 Hit 里（它在树条目的 resourceKindRole 上）。
+QString projectPageUrl(Source source, Kind kind, const QString &slug);
+
+/// MC 百科按名字搜的那条地址（详情页那颗「转到 MC 百科」用）。
+///
+/// 那一家**没有按项目 id 直接跳的路**（它是另一套号，和对面的 id 对不上），所以只能拿
+/// 名字去搜 —— 这是"跳到那儿附近"而不是"跳到那一页"，名字里带中文/空格都照原样转义。
+QString mcmodSearchUrl(const QString &name);
 
 /// 某个资源在某个 MC 版本（+可选加载器）下的版本列表地址。
 /// `gameVersion` / `loader` 为空 = 不筛（界面在没选游戏版本时不该问这条，见调用点注释）。

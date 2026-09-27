@@ -10,6 +10,7 @@
 #include <QTreeView>
 
 #include "MainWindowUI.hpp"
+#include "MotdText.hpp"
 #include "VersionIcons.hpp"
 
 VersionTreeDelegate::VersionTreeDelegate(QObject *parent, bool leafArrow, int iconSize)
@@ -40,6 +41,17 @@ QRect VersionTreeDelegate::refreshRect(const QRect &row) {
     // 贴着行右边缘。QRect 的 right() 是"最后一个像素的 x"，所以右边留出 pad 那几格之后，
     // 起点要 +1 才让这一格的右边缘正好落在 row.right() - pad 上。
     return QRect(row.right() - pad - box + 1, row.center().y() - box / 2, box, box);
+}
+
+QRect VersionTreeDelegate::arrowRect(const QRect &row) {
+    const int pad = MainWindowUI::versionTreeRowPadding();
+    const int arrowSize = MainWindowUI::versionTreeArrowSize();
+    // 命中格比画出来的那个箭头四周各大 3 px（和 clearRect / refreshRect 一个做法）。
+    const int box = arrowSize + 6;
+    // 命中格**以画出来的那一格为中心**：画出来的是贴右边缘留 pad 的那一块
+    //（`row.right() - pad - arrowSize` 起、宽 arrowSize），中心就在它中间。
+    const int centerX = row.right() - pad - arrowSize / 2;
+    return QRect(centerX - box / 2, row.center().y() - box / 2, box, box);
 }
 
 QString VersionTreeDelegate::rowActionTip(const QModelIndex &index, const QRect &row,
@@ -155,13 +167,20 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     //       windows 与 offscreen 各量一遍，同一个结果）。所以这一段搭在 MainWindowUI 里
     //       建左栏那份列表时那句 setMouseTracking 上 —— 那句被删掉的话，症状是"刷新按钮
     //       再也不出现了"，不是报错、也不是断言先红。
-    const bool showRefresh = index.data(MainWindowUI::rowRefreshRole()).toBool() && hovered;
+    //
+    // ★ 2026-09-27：上面那句话（"扣宽度没跟着挂 hovered"）在代码里**曾经是相反的** ——
+    //   扣宽度用的就是 `showRefresh`，而它带着 `&& hovered`。于是鼠标一进这一行：图标
+    //   冒出来（对的）+ 文字宽度当场变窄 ⇒ 长条目的省略号位置左右跳一下，正是上面那句
+    //   "那比少一个图标显眼得多"要避免的。两个判据拆开：**这一行有没有这一格**（一直扣）、
+    //   **这一刻画不画它**（跟着 hovered）。
+    const bool hasRefresh = index.data(MainWindowUI::rowRefreshRole()).toBool();
+    const bool showRefresh = hasRefresh && hovered;
     const QRect refreshBox = refreshRect(row);
     int textRight = row.right() - pad - arrowSize - 6;
     if (showClear) {
         textRight -= crossBox.width() + 6;
     }
-    if (showRefresh) {
+    if (hasRefresh) {
         textRight -= refreshBox.width() + 6;
     }
     const QRect textRect(textLeft, row.top(), qMax(0, textRight - textLeft), row.height());
@@ -173,14 +192,31 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     // 或者选中的版本号。两种行**都**看这个角色 —— 分类以前不画第二行只是因为没人给它
     // 塞过值（空串就是不画）。
     const QString subText = index.data(MainWindowUI::rowSubTextRole()).toString();
+    // ★ 服务器那一行的 MOTD（rowMotdRawRole()）：**照游戏里的样子画**（用户 2026-09-27
+    //   原话「motd按照游戏里显示的样式展现」）—— 带颜色、带字形、还是两行。
+    //
+    // NOTE: **在这里现解析**，不把解析结果塞进 QVariant：`QVector<MotdPiece>` 要做成
+    //       元类型得先登记（跨线程的排队连接还要 `qRegisterMetaType`），而这一串是**画**的
+    //       时候才用得着的东西 —— 现解析一遍的代价是几十个字符的扫描，比那条路省事得多。
+    //
+    // NOTE: 和 `rowSubTextRole()` 是**二选一**：两个角色都非空时只画 MOTD 那条
+    //       （否则同一格上会叠两段字）。`rowSubTextRole()` 那份留着 —— 它有两个用处：
+    //       悬停提示，以及"只有洗过的那一行、没有原串"的老路（缓存里没有 motdRaw 时）。
+    const QString motdRaw = index.data(MainWindowUI::rowMotdRawRole()).toString();
+    const QVector<MotdPiece> motdPieces =
+        motdRaw.isEmpty() ? QVector<MotdPiece>() : MotdText::parse(motdRaw, 2);
+    const int motdLines = motdPieces.isEmpty() ? 0 : (motdPieces.last().line + 1);
     QFont subFont = option.font;
     subFont.setPointSize(qMax(6, option.font.pointSize() + MainWindowUI::versionDateFontDelta()));
     const QFontMetrics mainMetrics(option.font);
     const QFontMetrics subMetrics(subFont);
     // 两行合成一块，整块在行里居中（行高是常数，所以"上面一行字下面一行字"看着才稳）。
+    // NOTE: 底下那一块可能是**两行**（MOTD），所以高度按行数算 —— 不按行数算的话，
+    //       两行的 MOTD 会被画到行外去（行高 64 是服务器那一页逐条设的，够装）。
     const int gap = 2;
+    const int subLines = motdLines > 0 ? motdLines : (subText.isEmpty() ? 0 : 1);
     const int blockHeight =
-        mainMetrics.height() + (subText.isEmpty() ? 0 : gap + subMetrics.height());
+        mainMetrics.height() + (subLines == 0 ? 0 : gap + subLines * subMetrics.height());
     int y = row.center().y() - blockHeight / 2;
 
     QFont mainFont = option.font;
@@ -200,7 +236,50 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
                       Qt::AlignLeft | Qt::AlignVCenter,
                       mainMetrics.elidedText(mainText, Qt::ElideRight, textRect.width()));
     y += mainMetrics.height() + gap;
-    if (!subText.isEmpty()) {
+    if (motdLines > 0) {
+        // 底下那一块按游戏那样画：一段一段接着画，每段自己的颜色和字形；换行就回到左边。
+        //
+        // ★ 颜色要**按我们的底色重新算一次对比度**（MotdText::readableOn）：游戏那边
+        //   底色是黑的，服务器按黑底配的 `§f` 白字 / `§e` 黄字在我们的浅色底上几乎看不见
+        //   —— 白字画在白底上等于没画，而这一格本来就是"要看服务器写了什么"。
+        //   底色取的是**这一行真正铺的那一层**：选中时是 Highlight、平时是 Base。读的是
+        //   传进来那个 `option`（上面只抹掉了 MouseOver 那一位，选中那一位原样还在）。
+        const QColor rowBg = (option.state & QStyle::State_Selected)
+                                 ? palette.color(QPalette::Highlight)
+                                 : palette.color(QPalette::Base);
+        int line = motdPieces.first().line;
+        int lineY = y;
+        int x = textRect.left();
+        for (const MotdPiece &piece : motdPieces) {
+            if (piece.line != line) {
+                line = piece.line;
+                lineY += subMetrics.height();
+                x = textRect.left();
+            }
+            const int avail = textRect.left() + textRect.width() - x;
+            if (avail <= 0) {
+                break;
+            }
+            QFont pieceFont = subFont;
+            pieceFont.setBold(piece.bold);
+            pieceFont.setItalic(piece.italic);
+            pieceFont.setUnderline(piece.underline);
+            pieceFont.setStrikeOut(piece.strike);
+            const QFontMetrics pieceMetrics(pieceFont);
+            // 装不下就从**这一段**的尾巴上省略（和上面那两行同一个做法：`drawText` 装不下
+            // 是硬裁，最后那个字会被切掉半个）。省略了就是这一行的结尾 —— 后面那些段
+            // 再画就要压到省略号上了。**不是** break 整个循环：第二行（如果还有）照画。
+            const QString shown = pieceMetrics.elidedText(piece.text, Qt::ElideRight, avail);
+            painter->setFont(pieceFont);
+            painter->setPen(MotdText::readableOn(MotdText::pieceColor(piece), rowBg));
+            painter->drawText(QRect(x, lineY, avail, subMetrics.height()),
+                              Qt::AlignLeft | Qt::AlignVCenter, shown);
+            if (shown != piece.text) {
+                break;
+            }
+            x += pieceMetrics.horizontalAdvance(shown);
+        }
+    } else if (!subText.isEmpty()) {
         painter->setFont(subFont);
         painter->setPen(palette.color(QPalette::PlaceholderText));
         painter->drawText(QRect(textRect.left(), y, textRect.width(), subMetrics.height()),
@@ -245,8 +324,12 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     const QColor arrowColor = (isChannel || hasChildren)
                                   ? palette.color(QPalette::WindowText)
                                   : palette.color(QPalette::PlaceholderText);
-    const QRect arrowRect(row.right() - pad - arrowSize, row.center().y() - arrowSize / 2,
-                          arrowSize, arrowSize);
+    // 箭头那一格：**几何只有 arrowRect() 一处** —— 它给的是命中格（比画出来的大一圈），
+    // 画的是它居中那一块。下载页那四张表按同一个函数认"这一下点的是不是箭头"
+    // （见 MainWindow::eventFilter 里那一段），两处就是同一处。
+    const QRect arrowBox = arrowRect(row);
+    const QRect arrowGlyph(arrowBox.center().x() - arrowSize / 2,
+                           row.center().y() - arrowSize / 2, arrowSize, arrowSize);
     painter->save();
     painter->setOpacity(rowOpacity);
     // 选中的那条加载器：箭头**左边**再画一个「取消」小叉（点它 = 不装这个加载器了，
@@ -265,7 +348,7 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
         //       "游戏版本"那一层就是非顶层、又要能展开的：照老判据展开之后箭头还朝右，
         //       和"收着"长得一样。改成只看 expanded 对原有的行是空的（叶子永远 expanded
         //       为假，取到的还是 >）。
-        painter->drawPixmap(arrowRect.topLeft(),
+        painter->drawPixmap(arrowGlyph.topLeft(),
                             VersionIcons::chevron(expanded, arrowSize, arrowColor));
     }
     painter->restore();
@@ -276,7 +359,17 @@ QSize VersionTreeDelegate::sizeHint(const QStyleOptionViewItem &option,
     // 行高是个**常数**，不走"按内容算"：树上开着 uniformRowHeights（900 多条，让它按
     // 第一行算一次就够），而第一行是分类（一行字）、底下是版本号（两行字）——
     // 两边高度不一样的话，两行那种会被按一行的行高裁掉半行。
-    const int height = MainWindowUI::versionTreeRowHeight();
+    //
+    // ★ 2026-09-27：条目自己给了 `Qt::SizeHintRole` 的**按它算高度**。服务器列表那一页要的
+    //   就是这一条 —— 它的行里画的是**两行** MOTD（照游戏里那个样子），46 装不下，那一页
+    //   逐条 `setSizeHint(QSize(0, serverRowHeight()))`。在这之前这里写死一个常数，
+    //   `SizeHintRole` 被**静默无视**（Qt 的规矩是代理说了算，模型那一格只是"建议"）——
+    //   症状是"设了行高、屏幕上一点没变"，不报任何东西。
+    //   宽度**照旧自己算**（它要按两行字、图标、行尾那几个角色逐项加起来），只在条目自己
+    //   给了更宽的要求时才让路。
+    const QSize hint = index.data(Qt::SizeHintRole).toSize();
+    const int height =
+        hint.height() > 0 ? hint.height() : MainWindowUI::versionTreeRowHeight();
     // 顶层那几条是粗体画的，宽度也得按粗体量（不然"加载器名 + 右边那个箭头"会差几个像素）。
     QFont mainFont = option.font;
     if (!index.parent().isValid()) {
@@ -289,6 +382,23 @@ QSize VersionTreeDelegate::sizeHint(const QStyleOptionViewItem &option,
     subFont.setPointSize(qMax(6, option.font.pointSize() + MainWindowUI::versionDateFontDelta()));
     width = qMax(width, QFontMetrics(subFont).horizontalAdvance(
                             index.data(MainWindowUI::rowSubTextRole()).toString()));
+    // MOTD（rowMotdRawRole()）量的是**最长的那一行**：`§` 码不是字，不能拿原串直接量
+    //（量出来比画出来的宽上一大截，那一格会白白多留一块）。
+    const QString motdRaw = index.data(MainWindowUI::rowMotdRawRole()).toString();
+    if (!motdRaw.isEmpty()) {
+        int line = -1;
+        int lineWidth = 0;
+        int widest = 0;
+        for (const MotdPiece &piece : MotdText::parse(motdRaw, 2)) {
+            if (piece.line != line) {
+                line = piece.line;
+                lineWidth = 0;
+            }
+            lineWidth += QFontMetrics(subFont).horizontalAdvance(piece.text);
+            widest = qMax(widest, lineWidth);
+        }
+        width = qMax(width, widest);
+    }
     // 前面那个图标的宽度：子条目一定有（草方块或条目自己给的），顶层条目**真给了才有**。
     //
     // NOTE: 认形态必须和 paint() 那条路**一模一样**（2026-09-24 改的）：那边 QIcon 和

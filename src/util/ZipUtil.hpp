@@ -1,19 +1,52 @@
 /**
  * @file ZipUtil.hpp
- * @brief 通过 PowerShell 解压压缩包的通用工具。
+ * @brief 通过 PowerShell 压缩/解压压缩包的通用工具。
  * @author 0x7fffff
  * @date 2026-09
  * @note 项目没有引入 zlib/QuaZip 之类的解压库，沿用 GlobalJavaSettings 里
  *       已有的"调用 PowerShell"方案。这里改用 .NET 的 ZipFile，因为
  *       Expand-Archive 既不能排除 META-INF/，对 .jar 扩展名也不可靠。
+ * @note **写**那一侧只有一个口（createZip）：压缩级别、条目名的分隔符、失败时删半成品
+ *       这三件事都由它一处管 —— 散到调用点去做，迟早会有一处忘了删（用户下次看到的是
+ *       "我明明失败了，盘上却躺着一个能打开的坏包"）。
  */
 #pragma once
 
 #include <QByteArray>
+#include <QList>
 #include <QString>
 #include <QStringList>
 
 namespace ZipUtil {
+
+/// 打包时的一条：归档里叫什么（`/` 分隔）↔ 盘上哪一份文件。
+struct ZipSource {
+    QString entryName;   ///< 归档里的名字，**`/` 分隔**（不是 `\`，见 createZip）
+    QString sourcePath;  ///< 盘上那份文件的绝对路径
+};
+
+/**
+ * @brief 把若干份盘上的文件打成一个 zip（目标已存在则**整个盖掉**）。
+ * @param targetZip 目标 zip 的绝对路径。父目录不存在时自动建。
+ * @param entries 条目表，**顺序就是归档里的顺序**（复制出去的东西要可复现）。
+ * @param errorOut 失败时的人类可读描述。
+ * @return 成功返回 true。
+ *
+ * 失败时**把半成品删掉**（.NET 那边抛异常时那个文件已经建出来了，留在盘上比没有更坏：
+ * 用户会以为包做出来了）。条目名一律用 `/` 拼：zip 规范是 `/`，而 .NET 在 Windows 上
+ * 既不拦 `\` 也不改它 —— 名字里带 `\` 的条目在别的启动器（Java 的 ZipInputStream）眼里
+ * 就是一个名字里带反斜杠的文件，等于整层 overrides 全废。
+ *
+ * NOTE: 压缩级别用的是 Optimal（.cpp 里那个常数就是旋钮）。包里绝大多数是**已经压过的**
+ *       jar，这一档换来的只是几个百分点 —— 真要抠速度，改成 NoCompression 是安全的，
+ *       只是给出一个"和大家不一样"的包，没那个必要。
+ * NOTE: 条目表**走临时文件**，不进脚本正文 —— 脚本是用命令行递给 PowerShell 的，而
+ *       Windows 一条命令行只有 32767 个字符（Base64 + UTF-16LE 之后脚本正文只剩一万二千
+ *       来个字符），一个几百文件的实例的表就超过它了（2026-09-26 撞的，见 .cpp 里那段）。
+ *       ⇒ **别为了"省一次写盘"把表改回拼进脚本**。
+ */
+bool createZip(const QString &targetZip, const QList<ZipSource> &entries,
+               QString *errorOut = nullptr);
 
 /// 读一个条目的结果。**这四样必须分得清**：用户选的那个压缩包到底是不是整合包
 /// （NotFound），和它是不是一个坏文件（NotAnArchive / Failed），要给的是两句完全不同的话。

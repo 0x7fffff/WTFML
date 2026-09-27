@@ -13,6 +13,10 @@
 #include <QJsonObject>
 #include <QMainWindow>
 #include <QPixmap>
+// QPointer<InstanceSettingsDialog> —— 那一趟测速里对"设置页还在不在"的那一份弱引用
+// （见 ServerPingRun）。用裸指针的话，用户把设置页关掉之后回来的那些结果会往一个已经
+// 析构了的对话框上写：那是 **use-after-free**，不是"多画一笔"。
+#include <QPointer>
 #include <QProcess>
 #include <QSet>
 
@@ -29,9 +33,19 @@
 // 那些 QtCore 的东西，不拖 QtWidgets），所以按值用就 include，不去走前置声明那一套。
 #include "download/LoaderMeta.hpp"
 #include "download/ResourceCatalog.hpp"
+// ServerStatusCache::Entry / ServerPing::Status —— 「服务器列表」那一趟测速的状态里
+// 两样都按值存一份（见 m_serverPing）。两个头都很轻（QByteArray/QString 那一档），
+// 所以按值用就 include，不去走"前置声明 + 指针"那一套。
+#include "manage/ServerStatusCache.hpp"
 // 只为了 applyModpackImport() 签名里那个 ModpackImport::Format（两种整合包清单）。
 // 那个枚举没有固定的底层类型，前置声明不了，所以这里带进来。
 #include "manage/ModpackImport.hpp"
+// InstanceIconLookup::Result —— 「文件管理」那几页的图标反查结果按值收一份（见
+// requestInstanceFileIcons）。这个头只碰 QtCore + ResourceCatalog 那个枚举。
+#include "manage/InstanceIconLookup.hpp"
+// ServerPing::Status / ServerPing::Pinger —— 上面那个"一趟测速"的状态，以及跑它的那件
+// 东西（见 pingServers()）。这个头只碰 QtCore（QObject/QByteArray/QJsonValue），很轻。
+#include "util/ServerPing.hpp"
 
 class MainWindowUI;
 // 安装页那棵加载器树上的一个条目（loaderItem()）。这里只在私有函数的参数/返回值里按
@@ -39,6 +53,7 @@ class MainWindowUI;
 // 地方都把 QtWidgets 里那个大块头拖进来。
 class QTreeWidget;  // 下载页那几张资源表（只用指针和引用，所以前置声明够）
 class QTreeWidgetItem;
+class QThread;  // 图标反查那一趟（见 m_instanceIconThread），同上只按指针持有
 class LauncherManager;
 class AuthManager;
 class FolderManager;
@@ -56,6 +71,9 @@ class InstanceSettingsDialog;
 // 「账号与外观」那个对话框（多账号 + 换皮肤披风）。这里**只按指针**持有它，所以
 // 前置声明就够 —— 它在 MainWindow 的构造函数之后才懒建（第一次点那个入口才建）。
 class AccountSkinDialog;
+// 「资源详情」那一整页（下载页点一个模组进去看的那一页）。同上：只按指针持有，
+// 懒建（第一次点开才建）。
+class ResourceDetailPage;
 // 「游戏日志」窗（一份游戏一个，见 ui/GameLogWindow.hpp）。同上，只按指针持有，
 // 而且是**按需**才建（收到第一行输出那一刻，见 showGameLogLine()）。
 class GameLogWindow;
@@ -292,6 +310,25 @@ private slots:
     ///       否则"导出来的能跑"这句话就没有依据。唯一**故意**不同的地方是程序名那一格：
     ///       那边由 LauncherManager 从 PATH 兜底，这边写的是同一个兜底值（裸 `java`）。
     void exportLaunchScript(const QString &versionId, const QString &path);
+    /**
+     * @brief 「导出…」：把这个实例按**整合包规范**打包成一个能直接导入的文件。
+     *
+     * 和上面那颗 `exportLaunchScript` **不是一件事**（名字像，做的是两件事：那一颗出的是
+     * .bat，这一颗出的是整合包）。同一条切法：问路径在对话框里（Windows 自己的保存框），
+     * 这一半收一条路径把事情做完 —— 所以验证工程能直接喂一条临时路径把整趟跑完。
+     *
+     * 格式**从扩展名读**（`.mrpack` = Modrinth / `.zip` = CurseForge），不做第三档参数：
+     * 那正是对话框里那两个筛选项已经在问的东西（见那个信号的 NOTE）。
+     *
+     * 这一趟要枚举实例目录、算哈希、联网反查、再打一个 zip，是全项目最重的同步动作之一。
+     * 于是：进度写**底栏那一格**（`m_syncWaitStatus` + `updateBottomBar()`，和启动路径那三段
+     * 同步等同一个手法 —— 不另开进度窗，用户给的方向是"不出现独立窗口"），中途不弹框
+     * （弹框只能在进去之前或出来之后），收尾用一句提示把数报清楚。
+     *
+     * @param versionId 实例 id（= 目录名）。
+     * @param path 用户挑好的完整路径（带 `.mrpack` 或 `.zip`）。
+     */
+    void exportModpack(const QString &versionId, const QString &path);
     /// 「补全文件」：校验这个实例的文件，只补缺的和损坏的（用户原话：「校验已装的，
     /// 缺哪个补哪个」）。
     ///
@@ -360,6 +397,40 @@ private slots:
     ///       前者要说清为什么，后者才能说"你还没加过服务器"。
     void loadServerList(InstanceSettingsDialog *dialog, const QString &versionId) const;
 
+    /// 现在能不能再开一页（覆盖层那一层只放得下一个页面）。
+    ///
+    /// @return true = 开着（调用方接着 `execPage()`）；false = 已经有一页开着，**并且已经
+    ///         弹了一句说清怎么办**。
+    ///
+    /// NOTE: 三个入口都得先问它一声（实例设置 / 分组设置 —— 皮肤那一页自己有一份同样的
+    ///       判据，见 onAccountSkinButtonClicked()）。少了这一句就是**静默失灵**：`execPage()`
+    ///       返回 Rejected，对话框原地销毁、盘上什么都没动、屏幕上什么都没发生。
+    bool overlayAcceptsNewPage();
+
+    /// 这个实例的服务器列表（名字 + 地址，按文件里的顺序）。servers.dat 读不动时是空的。
+    ///
+    /// NOTE: 和 serverListProblem() 分两个函数是因为**它们读的是同一份文件**，而调用方
+    ///       要的东西不一样：setServerList() 两样都要（列表 + 读不动的那句话），
+    ///       而 pingServers() 只要地址那一半。合起来收一个"结果结构"也不难，只是这一层
+    ///       的文件读得很便宜（几 KB），宁可写成两个一眼看得出在干什么的函数。
+    QList<QPair<QString, QString>> serverListOf(const QString &versionId) const;
+    /// 上面那份列表读不动的原因（空串 = 读到了）。见 loadServerList() 那条 NOTE。
+    QString serverListProblem(const QString &versionId) const;
+
+    /// 问一遍每台服务器现在什么样，把结果灌回那一页（2026-09-27，见 .cpp 里那段）。
+    ///
+    /// ★ 2026-09-27 起它**不再自己等**：整趟交给后台线程上的 `ServerPing::Pinger`，一台
+    ///   问完回来一台（用户原话：「现在如果没测完会锁住其他按钮，不能这样」）。所以这一发
+    ///   立刻返回，界面在这几秒里照常能用 —— 「测速」那颗按钮自己显示「测速中…」，
+    ///   别的都不禁用。
+    ///
+    /// NOTE: 重复调用是**安全的**：已经有一趟在跑时它只把界面接回来（换到新开的那一页、
+    ///       把已经攒下的结果摆上去），不重开一趟（见 .cpp 里那段）。
+    void pingServers(InstanceSettingsDialog *dialog, const QString &versionId);
+
+    /// 把 `m_serverPing` 现在攒下的东西摆到那一页上。**没开着就什么都不做**。
+    void pushServerPingRows();
+
     /// 启用 / 禁用一条：把文件名改成 `<原名>.disabled`，或者反过来。
     /// @return **动过盘没有** —— 真了调用点才需要让那一页重列（没动过还重列会让用户
     ///         以为"刚才那一下生效了"）。
@@ -367,6 +438,36 @@ private slots:
 
     /// 删掉一条（**先问一句**；文件夹连同里面的东西一起删）。@return 同 toggleInstanceFile()。
     bool deleteInstanceFile(const QString &path);
+
+    /// 把「文件管理」那几页里那些**资源文件**的图标要回来（2026-09-27）。
+    ///
+    /// ★ 用户原话：「模组和资源包等都有一个图标，把图标显示出来」。盘上那个文件名**不是
+    ///   身份**（用户改过名、各家起名不一样），所以"这是哪个资源"只能按**文件内容**反查
+    ///   （sha1 → Modrinth、指纹 → CurseForge，见 `InstanceIconLookup`）。那几发是网络，
+    ///   而算哈希要读一遍整个文件 —— 两样都**不能在界面线程上做**（用户对"锁住其他按钮"
+    ///   的意见见 pingServers 那段）。
+    ///
+    /// 所以这一发只做三件事：列一遍候选文件、把**已经知道的**先摆上去、需要问的丢给后台
+    /// 线程。重复调用是安全的：已经有一趟在跑时不重开（只把界面接回新开的那一页）。
+    void requestInstanceFileIcons(InstanceSettingsDialog *dialog, const QString &versionId);
+
+    /// 后台那一趟回来了。见 .cpp 里那一段。
+    void onInstanceIconLookupFinished(const InstanceIconLookup::Result &result);
+
+    /// 把**现在知道的**那些图标摆到正开着的那一页上（没开着就什么都不做）。
+    /// 「图标到手」和「新开了一页」两条路都走它 —— 两处各摆一遍的话，两边的判据迟早漂开。
+    void pushInstanceFileIcons();
+
+    /// 这一条文件的**缓存钥匙**：路径 + 大小 + 修改时间。
+    ///
+    /// NOTE: 为什么要带上后两样（而不是只按路径）：路径复用了、内容换了的形态是**真的
+    ///       会发生的**（删掉一个模组、换上另一个同名文件），只按路径键住的话，那一格会
+    ///       一直画着**上一个**资源的图标 —— 不报错、看着也像张正经图标，只有用户认得出来。
+    static QString instanceIconCacheKey(const QString &path);
+
+    /// 这个实例里那些**可能查得到图标**的文件（绝对路径）：四个能下载的目录 + 原理图，
+    /// 只要 `.jar` / `.zip`（判据是 `InstanceIconLookup::isLookupCandidate()`）。
+    QStringList instanceIconCandidatePaths(const QString &versionId) const;
     /// 「导入整合包…」：选文件 → 读清单 → 问名字 → 换地址 → 确认 → 交给 applyModpackImport()。
     ///
     /// 读的是压缩包根目录里那一份清单（ZipUtil::readEntry，**不整包解开**：用户随手选一个
@@ -519,6 +620,55 @@ private:
     void onResourceItemActivated(QTreeWidgetItem *item);
     /// 第三层那一下：把这个版本下回来、装进实例。
     void downloadResourceVersion(QTreeWidgetItem *item);
+    /// 真正下它的那一段（上面那个树版本、和详情页那一行，两条路都走到这儿）。
+    ///
+    /// 树那一条把身份、游戏版本、清单都从条目上读出来再调它；详情页那一条直接给值
+    /// （那一页没有树条目）。**加载器那道闸、「没有可下载的文件」那句话、整合包下完接导入
+    /// 那笔登记**全在这一个函数里 —— 两条路必须是同一份规矩，抄一份迟早抄岔。
+    ///
+    /// @param kind 是哪一类资源（决定落到哪个目录、要不要过加载器那道闸）
+    /// @param displayTitle 界面上这一个资源叫什么（下载 label 的前半截，另一半是版本号）
+    /// @param version 要下的那一版（`primaryFile()` 是它的文件清单）
+    void installResourceVersion(ResourceCatalog::Kind kind, const QString &displayTitle,
+                                const ResourceCatalog::VersionEntry &version);
+
+    // ---------- 资源详情页（2026-09-26）----------
+    //
+    // 用户原话：「下载页选择了模组以后进入一个独立界面，上方写模组图像 名字 来源，然后有
+    // 转到 modrinth/curseforge/mcmod.cn 的选项，中间一排版本，下方排列版本，和 pcl 类似」。
+    // "独立界面"按项目那条总目标落成**整页覆盖层**（`OverlayHost::execPage`，不另开窗）。
+    //
+    // 界面那一层（ui/ResourceDetailPage）一个字节都不上网，进参出参全是值；下面这四个
+    // 函数是它和业务层之间那层皮。
+    void setupResourceDetailPage();
+    /// 打开这一条资源的详情页（`iconKey` / `kindKey` 是条子上那两个角色）。
+    ///
+    /// NOTE: **必须排在事件投递之后**再调（调用点走 `QTimer::singleShot(0, …)`）：里面那句
+    ///       `execPage` 会转起一个嵌套事件循环，而调用它的地方（树的事件过滤器）正处在
+    ///       一发鼠标事件的投递途中 —— 在那里面再进一层事件循环，视图那一侧的状态机就悬了。
+    void openResourceDetailPage(const QString &iconKey, const QString &kindKey);
+    /// 详情页上某一颗 chip 被按了（参数是那颗的 key，空串 = 「全部」）：重算筛 + 分组。
+    void onResourcePageChipChanged(const QString &gameVersion);
+    /// 详情页上方那个「显示快照版」勾选框被拨了（点它、或者按 Alt 键）。
+    ///
+    /// 它换的是**那一排 chip 的表**（折着的那一份 ↔ 原样那一份），所以三件事一起做：
+    /// 存下这一位、把 chip 那一排整个换一份（按着的那一颗换算成同一大版本在另一档里的
+    /// 说法）、再按新的这一份重算筛 + 分组。**不发请求** —— 版本列表是开页时就整份取回来
+    /// 的，折与不折都是在本地的这一份上算。
+    void onResourcePageShowSnapshotsChanged(bool showSnapshots);
+    /// 把那一排 chip 摆成「这一份声明表 + 这一档（折 / 不折）」该有的样子：第一颗是
+    /// 「全部」，其余按 `gameVersionChoices` 摆；@p wanted 是要按下去的那一颗（表里没有、
+    /// 或者给的是空串，页面自己会挑「全部」）。
+    ///
+    /// **两个调用点**（开页、拨勾选框）共用这一份，免得两处各拼一遍、拼出两种表来。
+    /// NOTE: 做成"摆到页面上去"而不是"返回一份表"，是为了让这个头**一个 ui/ 的类型都不用
+    ///       带进来**（这一整个头对 ui/ 那边只按指针持有，见上面那几行前置声明）。
+    void applyResourcePageChips(const QStringList &declaredGameVersions, bool showSnapshots,
+                                const QString &wanted);
+    /// 按当下这颗 chip 从**全量**那份清单里筛出来、分组、摆进页面（空的那一对也走它）。
+    void fillResourcePageGroups();
+    /// 详情页上点了某一个具体版本（`Row::key` = `VersionEntry::id`）= 下它。
+    void downloadResourcePageVersion(const QString &versionId);
     /// ResourceStore 的三个回复。
     void onResourceSearchFinished(const QString &requestKey,
                                   const ResourceCatalog::SearchResult &result);
@@ -526,6 +676,11 @@ private:
                                     const QList<ResourceCatalog::VersionEntry> &versions,
                                     const QString &problem);
     void onResourceIconReady(const QString &iconId, const QPixmap &icon);
+
+    /// 服务器那一趟测速：一台问完了 / 全问完了（都从**工作线程**发出来，Qt 自己排队投递到
+    /// 主线程，所以这两个函数里可以随便碰界面）。
+    void onServerPingOne(int index, const ServerPing::Status &status);
+    void onServerPingAllFinished();
     /// 从请求钥匙反查是哪一类（钥匙是 ResourceCatalog::searchRequestKey() 拼的）。
     /// 拼和认都走那一个函数，所以这里不解析字符串。
     ///
@@ -574,8 +729,8 @@ private:
     /// 灌**某一页**上跟着"来源"变的那两项（模组加载器 / 类型），并把类型那一栏按
     /// `categoryOptions()` 有没有回空表决定画不画。用户在来源框里换了一下就调它。
     ///
-    /// NOTE: 它**不搜索**。用户换来源只是把选项换了一份，还没说"就用它搜"；替他搜一发
-    ///       等于每次点开下拉框都烧一次限流额度，而且他多半还要接着改别的筛子。
+    /// NOTE: 它**自己不搜索**（这一层只管把选项换一份）。"换完就按新来源搜一发"接在
+    ///       构造函数里那条 `activated` 上 —— 「下拉即搜」这条规矩在那一处收口。
     /// NOTE: 换来源会把这一页的加载器/类型两项**退回「全部」**：两边的键根本不是一套
     ///       （Modrinth 的 `fabric` vs CurseForge 的 `4`），留着上一个来源的选中项就是
     ///       拿 A 家的号去问 B 家 —— 而且它不报错，只会搜出个空的。
@@ -596,8 +751,8 @@ private:
     QString downloadFilterLoader(ResourceCatalog::Kind kind) const;
     /// 这一页现在选的类型（键来自 `categoryOptions()`）。空串 = 不筛。
     QString downloadFilterCategory(ResourceCatalog::Kind kind) const;
-    /// 「清空条件」那颗键：名称框和四个筛子都回到"不筛"，**不自动搜**（理由见
-    /// MainWindowUI::downloadFilterResetText()）。
+    /// 「清空条件」那颗键：名称框和四个筛子都回到"不筛"。**这一层只清、不搜** —— 搜是
+    /// 调用方的事（那颗键上接着"清完重搜一发"，见构造函数里那段接线）。
     void resetDownloadFilters(ResourceCatalog::Kind kind);
 
     // ---------- 「设置」选项卡 ----------
@@ -619,8 +774,26 @@ private:
     /// 把「内存分配」那一行画成当前状态：自动档按**现在**的系统内存重算并落盘、禁用两个
     /// 数字框，手动档原样显示用户定的值；两种情况都要写那句"这台机器有多少内存"的说明。
     /// 调用点：开窗灌值时（applySettingsToUi）、切到设置页时、用户切自动/手动那一刻、
-    /// 真的要启动游戏之前（那一刻的可用内存才算数）。
+    /// 用户拖/填「最大内存」那一刻、真的要启动游戏之前（那一刻的可用内存才算数）。
     void refreshMemoryUi();
+    /// 把「最大内存」那一行的**上限**收到这台机器真有那么多上（用户原话：「上限=本机物理
+    /// 内存」）。传进来的就是 SystemMemory 读到的物理总量（MB，读不到时 <= 0）。
+    ///
+    /// 为什么上限得由业务层喂给界面：`ui/` 不许依赖 `src/`（那条老规矩），界面里那个
+    /// 65536 是"单独搭出来时"的天花板，不是这台机器的天花板 —— 一台 16 GB 的机器上让它
+    /// 能拖到 65536，用户拖到那儿只会在启动时拿到一句 JVM 的内存分配错误。
+    ///
+    /// NOTE: 它**只改上下限、不动值**（信号也挡着），值由调用方紧接着灌（见 refreshMemoryUi）。
+    /// NOTE: 真要算"这台机器该给到多少"的是 MainWindowUI::memoryCapForTotalMb() —— 实例设置
+    ///       那一页也要按同一个上限收口（见 InstanceSettingsDialog 里那段），所以算法只有
+    ///       那一份，这里只是把它贴到设置页那两个控件上。
+    void applyMemoryLimits(qint64 totalMb);
+    /// 让「最小内存 ≤ 最大内存」这条一直成立 —— JVM 会拒绝相反的组合：
+    ///   Error occurred during initialization of VM
+    ///   Initial heap size set to a larger value than the maximum heap size
+    /// ★ 2026-09-26 起界面上**没有**最小内存那一格了（用户要求撤掉），替它把门的就是这里：
+    /// 凡是改到 Xmx 的地方都得过一下。@return 夹下来了没有（调用方据此决定要不要落盘）。
+    bool clampXmsToXmx(int xmxMb);
     /// 启动前把这次真正要用的内存定下来，**只改传进来的那份值**。
     ///
     /// 自动档下按**现在**的系统内存重算一次（见 refreshSuggestedMemory 那段注释：
@@ -697,6 +870,8 @@ private:
     void onJavaWarnMismatchChanged();
     void onMemoryAutoChanged();
     void onMemoryChanged();
+    /// 「最大内存」那根条动了（见 .cpp 里那段：拖动中只跟着走数字、落盘留给松手那一下）。
+    void onMemorySliderMoved();
     void onLauncherBehaviourChanged();
     void onDownloadSourceChanged();
     /// CurseForge 的 API key 那一格编辑完了（回车 / 焦点离开）。**不是** per-character：
@@ -1058,6 +1233,72 @@ private:
     /// 下载页那几类资源的取数（搜索 / 版本列表 / 图标）。**异步**的 —— 搜索框里连敲几次
     /// 回车也不会把界面卡住（见 ResourceStore.hpp 文件头那段）。
     ResourceStore *m_resourceStore;
+
+    // ---------- 「服务器列表」那一趟测速（2026-09-27）----------
+    //
+    /// 一趟测速的状态。
+    ///
+    /// ★ 为什么要有这么一个东西：测速从 2026-09-27 起跑在**后台线程**上、一台一台排队
+    ///   回来，而结果回来的时候"用户还在不在那一页""那一页还在不在"都是不确定的
+    ///   （这几秒里他完全可能把设置页关掉、去点别的东西）。所以：
+    ///     * `dialog` 是**弱引用** —— 关掉之后它是空的，那些回来的结果就只写缓存、不碰界面
+    ///       （往一个已经析构的对话框上写是 use-after-free，不是"多画一笔"）；
+    ///     * `fresh` / `cached` 的键是**服务器在 servers.dat 里的下标**（`Pinger` 的信号
+    ///       带的就是那个下标），所以"哪一台问回来了"和"哪一台还只有上次那份"分得清。
+    struct ServerPingRun {
+        QPointer<InstanceSettingsDialog> dialog;
+        /// 地址表（就是发给 Pinger 的那一份），下标 ↔ servers.dat 里的行。
+        QStringList addresses;
+        /// 盘上缓存里"上一次问到"的那一份（键是下标）。**只在 fresh 里没有它时才用**。
+        QHash<int, ServerStatusCache::Entry> cached;
+        /// 这一趟真的问回来的（键是下标，同一台问了第二次也覆盖它）。
+        QHash<int, ServerPing::Status> fresh;
+        /// 现在算不算"有一趟在跑"。**这一位是权威**（`Pinger::running()` 只说线程在不在，
+        /// 而"线程跑完了、结果还在排队"的那一小会儿它已经是假了）。
+        bool active = false;
+    };
+    ServerPingRun m_serverPing;
+    /// 跑那一趟的东西（见 ServerPing::Pinger）。**整个窗口只有一个**：同一时刻只跑一趟，
+    /// 连点两下不会发两遍请求（start() 自己那条"已经在跑就不重开"）。
+    ServerPing::Pinger *m_serverPinger;
+
+    // ---------- 「文件管理」那几页的图标（2026-09-27）----------
+    //
+    /// 一趟图标反查的状态。形状和上面那趟测速**故意是一样的**（弱引用 + 后台线程 +
+    /// 结果回来时"那一页还在不在"不确定），理由也逐字相同。
+    struct InstanceIconRun {
+        /// 现在开着的那一页。**弱引用** —— 关掉之后它是空的，回来的图标就只进缓存、
+        /// 不碰界面（往一个析构了的对话框上写是 use-after-free）。
+        QPointer<InstanceSettingsDialog> dialog;
+        /// 这一趟列出来的候选文件（绝对路径）。回灌那一步走的就是它 —— 只摆这一份里的，
+        /// 而不是把整张会话缓存（可能上千条）挨个问那六页一遍。
+        QStringList paths;
+        /// `Hit::iconCacheId()`（带来源前缀）→ 认得出这个资源的那些**文件**。
+        ///
+        /// 反过来的方向（一个文件 → 它的 iconId）在下面那张表里；这一张是给
+        /// `onResourceIconReady()` 用的：图标是按身份回来的，而屏幕上要换的是**行**。
+        /// NOTE: 跨对话框累积（同一个资源在别的实例里也有，那张图本来就该两边都画上）。
+        QHash<QString, QStringList> pathsByIconKey;
+        /// 现在算不算"有一趟在跑"。**这一位是权威**（见 requestInstanceFileIcons 里那道闸）。
+        bool active = false;
+    };
+    InstanceIconRun m_instanceIcons;
+    /// 跑那一趟的线程。`QThread::create()` 出来的（省掉"再写一个 QThread 子类"，
+    /// 同 ServerPing::Pinger 里那条 NOTE）。跑完就 deleteLater（见 .cpp 里那段）。
+    QThread *m_instanceIconThread = nullptr;
+    /// **会话级**的真图标缓存，键是 `instanceIconCacheKey()`（路径 + 大小 + 时间）。
+    ///
+    /// 为什么要有（而不是"每次都重新反查"）：那张图是一次读盘 + 联网换来的，而用户关掉
+    /// 设置页再打开是很平常的一件事（改个开关就要进去一次）—— 每次重来一遍的话，一列
+    /// 几十个 jar 要重新读一遍（几百 MB），而且那几秒里图标是占位图。值**可以是空
+    /// pixmap**（见 m_instanceIconMissing 那段）。
+    QHash<QString, QPixmap> m_instanceFileIcons;
+    /// 问过了、**没有**图标的那一批（同一把钥匙）。存它只为一件事：别把同一个文件问第二遍。
+    ///
+    /// ★ 只有"这一趟**完整跑完**了"才会往里写（`Result::problem` 空，见
+    ///   onInstanceIconLookupFinished）。断网那一趟要是也记成"没有"，用户这一整个会话就
+    ///   再也看不到图标了 —— 而那本来是"网好了就会有"。
+    QSet<QString> m_instanceIconMissing;
     /// 已经问回来的版本列表，按**请求钥匙**存（ResourceCatalog::versionsRequestKey()）。
     /// 点第三层那一下要拿它换出 URL / sha1 / 大小。
     /// NOTE: 那些事实**不放在条目上**：条目在重搜时会被整个清掉，而"这一版的文件是哪几个"
@@ -1083,12 +1324,73 @@ private:
     ///       少一半就还是会被吃掉。
     ///       顺带的好处：两个整合包前后脚开始下也各自记得住（键不同，take() 各取各的）。
     QHash<QString, QString> m_pendingModpackImports;
+    /// 树上每一个资源**完整**的那一条（按 `Hit::iconCacheId()` 存，也就是条目上
+    /// `resourceIconIdRole()` 里那串）。
+    ///
+    /// 为什么条目上那四个角色还不够：点开一个资源的详情页要简介、slug（拼"转到 Modrinth /
+    /// CurseForge"那条网址）、更新时间（头卡上那行元信息），而条目上扣着放不下这些
+    /// （简介挂在 tooltip 上，slug 根本没写进条目）。
+    ///
+    /// NOTE: 和上面 m_resourceVersions 一样**只往里放、不清理**。键是 `<来源>-<id>`，值是
+    ///       一条纯数据；重搜换一批之后旧的那些再也没人问（那些行已经不在了）。要清的话
+    ///       得先知道"哪几条属于上一批"，而那件事现在没有出处 —— 靠"清空整张表"会在重搜
+    ///       另一页时把别的页正在用的条目一起清掉（那四页各有一棵树，搜索是分开发起的）。
+    QHash<QString, ResourceCatalog::Hit> m_resourceHits;
+    /// 「资源详情」那一页**这次开着的时候**说的是哪个资源、列的是哪一份版本。
+    ///
+    /// 一个 struct 装在一起而不是散成六个成员：这六样是**同一份状态**，散开之后
+    /// "开页/关页"要记得挨个改，漏一个的症状（比如 open 忘了落下去）很难认。
+    struct ResourcePageState {
+        bool open = false;
+        /// 这一条是从哪一栏点开的。拼网址（`projectPageUrl` 要 kind）、下载时判
+        /// "要不要过加载器那道闸"都要它。
+        ResourceCatalog::Kind kind = ResourceCatalog::Kind::Mod;
+        ResourceCatalog::Source source = ResourceCatalog::Source::Modrinth;
+        QString projectId;
+        /// 在 m_resourceHits 里的那把钥匙（`iconCacheId()`）。**同时也是"这一发版本列表
+        /// 回来时该不该填进页面"的判据** —— 和树那条路的请求钥匙不是一套（那边带游戏版本）。
+        QString iconKey;
+        /// 问版本的**请求钥匙**：游戏版本和加载器都空（= 不筛，整份列表）。
+        QString requestKey;
+        /// 现在按着哪一颗 chip（空 = 「全部」）。筛和分组都由 MainWindow 重算
+        /// （`ResourceCatalog::groupVersions` 是那一份规则）。
+        QString chip;
+        /// 上方右侧那个「显示快照版」勾选框（**默认不勾**）。一位同时管三件事 ——
+        /// 那一排 chip 摆哪几颗、chip 怎么筛、组头写什么（见 ResourceCatalog 那三个函数的
+        /// 文件注释）；三处传的必须是**同一个值**，不然症状是「点了 26.2 少了几个版本」。
+        bool showSnapshots = false;
+        /// 头卡上那个资源名。下载时拼 label 的前半截要用它。
+        QString title;
+        /// 开页时接口给的那一串**声明过的游戏版本**（`Hit::gameVersions`，旧的在前）。
+        ///
+        /// 留着它只为一件事：勾「显示快照版」那一下要把 chip 那一排整个换一份，而那时候
+        /// 手上只有这一份声明表（`Hit` 存在 m_resourceHits 里，但那一份会被后来的重搜
+        /// 换掉，而这一页还开着）。
+        QStringList declaredGameVersions;
+        /// **全量**那份版本清单（chip 只是从它里面筛）。
+        QList<ResourceCatalog::VersionEntry> versions;
+        /// 那份清单**回来过**了（哪怕回来的是空的）。
+        ///
+        /// 为什么要单记这一位："还没回来"和"这个资源一个版本都没发过"都表现为 versions
+        /// 是空的，而这两件事在界面上是**两句不一样的话**（「正在读版本列表…」和
+        /// 「这个资源一个版本都没发过」）。靠 versions.isEmpty() 分不开。
+        bool loaded = false;
+    };
+    ResourcePageState m_resourcePage;
     /// 每一页上一次**真的发出去**的搜索词（键 = 分类键）。
     ///
     /// 只为一件事：结果回来时那句「没有搜到「xx」」里的 xx 要是**那一次**的词。读编辑框里
     /// 现在的字是错的 —— 用户完全可能在等结果的时候又敲了几个字（那几下还没发出去，
     /// 回车才算一发）。
     QHash<QString, QString> m_resourceQueries;
+    /// 「版本」那一格**刚按过回车**的那几页（键 = 分类键，进的是 `QSet`）。
+    ///
+    /// 只为一件事：那一格是可输入的，在框里按回车时 Qt 会连发两发 —— 先是
+    /// `QLineEdit::returnPressed`（我们接的那一发），紧接着 `editingFinished`，而 QComboBox
+    /// 自己接了后者、并在"框里那串字正好是清单里某一项"时补一次 setCurrentIndex + activated。
+    /// 两条路都通到"搜一发"，所以按一下回车会搜两次。记的这一笔就是那道闸：**同一回合里
+    /// 只认第一发**（那一笔由 0 毫秒的单次定时器抹掉，所以不会留到下一次操作）。
+    QSet<QString> m_versionEnterSearches;
     GlobalJavaSettings *m_javaSettings;
     // 实例分组（<数据目录>/wtfml.folders）。**不需要**在换游戏文件夹时重置它：
     // 它每个访问器都会比一下"这次问的是哪一份 .minecraft"，不一样就自己重读。
@@ -1104,6 +1406,9 @@ private:
     // setupAccountSkinDialog()）。它是 this 的子对象、也没开 WA_DeleteOnClose，所以关掉
     // 之后指针照样有效 —— 再点一次是把它 show 回来，不是重建。
     AccountSkinDialog *m_accountSkinDialog = nullptr;
+    /// 「资源详情」那一整页（下载页点一个资源进去）。和上面那个一样：懒建、是 this 的子对象、
+    /// 没开 WA_DeleteOnClose —— 关掉之后指针照样有效（见 setupResourceDetailPage）。
+    ResourceDetailPage *m_resourceDetailPage = nullptr;
     // 现在屏幕上用的是哪两张贴图（本地路径）。**只记真的载入成功了的** —— 所以空串
     // 就等于"现在显示的是默认外观"，右栏那句话的判据之一就是它。
     QString m_skinPath;

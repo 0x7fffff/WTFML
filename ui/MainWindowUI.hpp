@@ -15,8 +15,14 @@
  * 份数，不各写一份。
  *
  * NOTE: 2026-09-26 起「设置」页也走这条路（它原来是**一张通到底的两列表格**，栏不是控件）：
- *       左栏是五条分类（启动/游戏/提示/个性化/下载），右栏是堆叠页 —— 每一栏里仍是那张
- *       3:7 的两列表格，但那张表现在只管**栏内**那一层（见「设置页」那一段）。
+ *       左栏是五条分类（启动/游戏/提示/个性化/下载），右栏是堆叠页 —— 每一栏里是一张
+ *       grid，但那张表现在只管**栏内**那一层（见「设置页」那一段）。
+ *
+ * NOTE: 2026-09-26 同日稍后，设置页每一栏里那些行也改成了**上下结构**（行名独占一行、
+ *       内容在下一行，见 cpp 里的 addSettingRow()）—— 从前是"名字在左、控件在右"的
+ *       两列行。于是栏内那张 grid 的 3:7 现在**一行都没在用它分列**（每一格都跨两列），
+ *       留着它是为了让五个分栏的表长得一样、也为了让验证工程量得着（见
+ *       leftColumnStretch()/rightColumnStretch()）。
  *
  * NOTE: 比例**按页不同** —— 实例页是默认的"左 3 右 7"，主页是"左 7 右 3"
  *       （见 leftColumnIsWider()），下载页与设置页都是"左 2 右 8"（左栏都只是一列分类）。
@@ -57,6 +63,9 @@
 // "%1 (%2)" 强：那种写法不会报错，只会在哪天有人改了其中一处之后让同一个组在两处
 // 显示得不一样。
 #include "GroupDialog.hpp"
+// 「最大内存」那一行左半边那根条（见 MemorySlider.hpp 开头那段）。它和上面的对话框头
+// 一样属于 ui/ 自己的东西，不是业务层的。
+#include "MemorySlider.hpp"
 
 class QGridLayout;
 class QScrollArea;
@@ -75,6 +84,8 @@ class WindowChrome;
  *   - QSpinBox（QAbstractSpinBox）把滚轮当成"加一步/减一步" —— 内存那两个数字框就是。
  *     翻设置页时从"最大内存"上滚过去，值就变了，而**界面上看不出来它变了**（没有焦点
  *     就没有高亮），下一次启动游戏用的就是那个被滚出来的数。
+ *   - QSlider（QAbstractSlider）同理：滚一格就是一档 —— 「最大内存」那根条装上它，
+ *     鼠标从条上滚过去就把内存挪了（而且和别的控件一样，没焦点时看不出来）。
  *
  * 判据只有一个：**没有焦点就不认滚轮**。有焦点时照常放行（用户是特意点进来的）。
  *
@@ -115,7 +126,7 @@ public:
     using QObject::QObject;
 
     /// 装防护的**唯一入口**：改焦点策略 + 装过滤器，两件事一起做（理由见上面那段）。
-    /// @param widget 要护住的控件（下拉框 / 数字框）。空指针什么都不做，调用方不必先判空。
+    /// @param widget 要护住的控件（下拉框 / 数字框 / 条）。空指针什么都不做，调用方不必先判空。
     static void install(QWidget *widget) {
         if (widget == nullptr) {
             return;
@@ -399,7 +410,7 @@ public:
     //
     // 为什么齿轮**在最右边**（不是挨着组行那颗齿轮对齐成一列）：实例行是这一页的主要内容，
     // 一行里的东西一律贴着右边缘站；组行最右边那颗是展开箭头，两边本来就不在同一列上，
-    // 硬对齐反而会留出一截"什么都没有的右边缘" —— 而这一栏宽度是 3:7 里分出来的，一格都紧。
+    // 硬对齐反而会留出一截"什么都没有的右边缘" —— 而这一栏宽度是左右两栏里分出来的，一格都紧。
     /// 实例行行尾那三颗按钮的边长（齿轮 / 上箭头 / 垃圾桶共用）。
     static int instanceRowActionSize() { return 16; }
     /// 相邻两颗之间留多少。
@@ -435,6 +446,40 @@ public:
     ///
     /// NOTE: 号码 **`Qt::UserRole + 13`**（紧挨着 rowPinRole()，见上一段那两条）。
     static int rowUnpinRole() { return Qt::UserRole + 13; }
+
+    /// 这一行要**照游戏里的样子**画出来的那段 MOTD（**原样**：带 `§` 颜色码和换行）。
+    ///
+    /// 挂在「服务器列表」那一页每一行的第 0 列上，值是 `ServerPing::Status::motdRaw` 那一串。
+    /// 代理按 `MotdText::parse()` 把它拆成一段一段、各带颜色和字形，在那个"第二行小字"的
+    /// 位置上画出来（**最多两行** —— 游戏那边也只画两行）。
+    ///
+    /// NOTE: 和 `rowSubTextRole()`（那一格放的是**洗过的一行**）是**两件事**：洗过的那份在
+    ///       tooltip 上（鼠标停上去看全），带码的那份在这一格上（屏幕上按游戏的样子看）。
+    ///       两个都留是有意的 —— 只留带码的那份的话，tooltip 里会冒出一串 `§a`。
+    ///
+    /// NOTE: 号码 **`Qt::UserRole + 14`**（14 是 `rowMotdRawRole` 起的头，见
+    ///       rowSubTextRole() 上面那段"撞号的表现是屏幕上多出一笔"）。
+    static int rowMotdRawRole() { return Qt::UserRole + 14; }
+
+    /// 「服务器列表」那一页的行高：比版本树那个常数**高一档**（多出来的那一档正好是
+    /// 第二行小字的高度）。
+    ///
+    /// Why 不是"按内容算"：那一棵树开着 `uniformRowHeights(true)`（所有行一样高才排得稳），
+    /// 而 MOTD 有的服务器给两行、有的只给一行 —— 按内容算的话"一行的那些"会被按两行的行高
+    /// 裁掉，或者反过来把整张表撑得忽高忽低。所以**统一按两行留**，只给一行的那些下面空一点。
+    static int serverRowHeight() { return versionTreeRowHeight() + 18; }
+
+    // ---------- 文件管理那几页行里的那两件东西（2026-09-27）----------
+
+    /// 行首那个**资源图标**的边长。和下载页那几张表同一个尺寸（`resourceTreeIconSize()`）
+    /// —— 同一个模组在下载页和在本地列表里该长得一样大。
+    static int instanceFileIconSize() { return resourceTreeIconSize(); }
+
+    /// 「启用 / 禁用」那枚**拨动开关**的尺寸（宽 × 高）。高度是行高（46）装得下的一档。
+    static int toggleSwitchWidth() { return 34; }
+    static int toggleSwitchHeight() { return 18; }
+    /// 开关里那个圆钮四周留的白。
+    static int toggleSwitchKnobMargin() { return 2; }
     /// 行尾那三颗按钮各自弹的那句话（和 rowRefreshTipText() 一个规矩：**只在这一格上**才
     /// 说话，整条行不弹；谁弹的、按哪一格判，见 InstanceGroupDelegate::rowActionTip()）。
     /// 齿轮那句和那一页自己的页眉（`InstanceSettingsDialog::titleText()`）是**两回事**：
@@ -660,8 +705,10 @@ public:
     /// 「清空条件」那颗键上的字。用户原话「一个清空条件键」。
     ///
     /// NOTE: 它清的是**筛子**（四个下拉框 + 两个输入框），不是搜索结果 —— 名字里带"条件"
-    ///       就是为了跟"清空列表"分开。清完**不自动搜**（用户自己再按搜索键）：清一下就把
-    ///       请求发出去，等于每次收拾界面都白烧一发限流额度，而且清空之后他还要接着改。
+    ///       就是为了跟"清空列表"分开。
+    /// NOTE: 2026-09-26 起清完**重搜一发**（用户原话「修改任何内容（不论是来源网站还是…）
+    ///       都刷新一下」）。从前这里是"清完不动" —— 于是清完的界面和列表对不上：六个框全
+    ///       空着，底下还摆着上一批按老条件筛出来的结果，而那正是用户点这颗键要摆脱的东西。
     static QString downloadFilterResetText() { return QStringLiteral("清空条件"); }
     /// 版本那一格空着时里面的灰字。**必须 ≤ `downloadFilterMinimumContentsLength()` 个字符**，
     /// 否则会把框顶宽（那个坑见 .cpp 里 installedVersionCombo 那一段）。
@@ -699,6 +746,12 @@ public:
     /// 用户要"会有图片"，18 px 那个尺寸看不清缩略图；行高仍是 versionTreeRowHeight()（46），
     /// 32 px 的图在行里上下各留 7 px，不挤。
     static int resourceTreeIconSize() { return 32; }
+    /// 实例设置「文件管理 → 服务器列表」那一页前面那个**服务器图标**画多大（2026-09-27）。
+    ///
+    /// 和资源表那一条同一个理由（18 px 看不清图）：那一格现在是服务器自己给的
+    /// **favicon**（64×64 起步的 PNG），画成 18 px 就是一团分不出是什么的色块。
+    /// 行高仍是 versionTreeRowHeight()（46）—— 32 px 上下各留 7 px，不挤。
+    static int serverIconSize() { return 32; }
     /// 资源那一行（最上面那一层）上挂的"这是哪一类"：存**分类键**
     ///（`downloadCategoryKeys()` 里那几个之一，也是 `ResourceCatalog::kindKey()`）。
     ///
@@ -1375,9 +1428,10 @@ public:
     //
     // NOTE: 2026-09-26 起「设置」页也用 buildTwoColumnPage() 了 —— 左栏是那五条分类、
     //       右栏是一个堆叠页（原来它是一张通到底的两列 grid，见 setupSettingsPage 那段）。
-    //       所以「选项名称在列 0、控件在列 1」那张 3:7 的两列 grid 现在**每一栏各有一张**
-    //       （objectName 见 settingsFormName(key)），它管的是**栏内**那一层；
-    //       而左右两栏之间那一层是这一对份数。
+    //       所以栏内那张 grid 现在**每一栏各有一张**（objectName 见 settingsFormName(key)），
+    //       它管的是**栏内**那一层；而左右两栏之间那一层是这一对份数。
+    //       栏内那些行 2026-09-26 又改成了上下结构（每格跨两列，见 cpp 的 addSettingRow()），
+    //       所以这张 grid 的列份数如今只摆形状、不再分隔任何一行。
     /// @param tab "home" / "instance" / "download" / "settings"。
     static QString leftColumnName(const QString &tab) {
         return tab + QStringLiteral("LeftColumn");
@@ -1386,7 +1440,7 @@ public:
     static QString rightColumnName(const QString &tab) {
         return tab + QStringLiteral("RightColumn");
     }
-    /// 默认那一套份数：左 3 右 7。实例页（以及**栏内**那张两列表格，见「设置页」那一段）用它。
+    /// 默认那一套份数：左 3 右 7。实例页（以及设置页**栏内**那张 grid，见「设置页」那一段）用它。
     static int leftColumnStretch() { return 3; }
     /// 右栏占的份数（默认那一套）。
     static int rightColumnStretch() { return 7; }
@@ -1475,7 +1529,8 @@ public:
     static QString settingsPanelName(const QString &key) {
         return QStringLiteral("settingsPanel-") + key;
     }
-    /// 某一栏里那张两列表格（列 0 选项名称、列 1 控件，3:7）的 objectName。
+    /// 某一栏里那张 grid（3:7；**每一行都跨两列** —— 行名一行、内容下一行，见 cpp 的
+    /// addSettingRow()）的 objectName。
     static QString settingsFormName(const QString &key) {
         return QStringLiteral("settingsForm-") + key;
     }
@@ -1492,7 +1547,13 @@ public:
     /// 所以它是唯一一个要 MainWindow 反复改文字的 QLabel，得能按名字取回来。
     static QString memoryAutoHintName() { return QStringLiteral("memoryAutoHint"); }
     static QString memoryMaxSpinName() { return QStringLiteral("memoryMaxSpin"); }
-    static QString memoryMinSpinName() { return QStringLiteral("memoryMinSpin"); }
+    /// 「最大内存」这一行是**一根条 + 一个数字框**（两件东西说的是同一件事）。★ 2026-09-26：
+    /// 条是这一笔加的（用户要 PCL 那种拖着改的），数字框留着 —— 精细那几下还是打字快，
+    /// 而且验证工程一直是按 objectName 找它、拿它的范围当"上限真是本机物理内存"的凭据。
+    static QString memoryMaxSliderName() { return QStringLiteral("memoryMaxSlider"); }
+    // NOTE: 「最小内存」（-Xms）那个数字框**没有了**（2026-09-26）—— 用户原话是「不要 xms 了
+    // （或者隐藏起来），按照默认值」。值仍然存在设置里、命令行照发 -Xms（见
+    // LauncherManager 里那两行），少的只是界面上那一格。
     static QString launcherBehaviourComboName() { return QStringLiteral("launcherBehaviourCombo"); }
     static QString extraJvmArgsEditName() { return QStringLiteral("extraJvmArgsEdit"); }
     static QString applyExtraJvmArgsButtonName() {
@@ -1565,6 +1626,29 @@ public:
     static int memoryMinMinMb() { return 128; }
     static int memoryLimitMaxMb() { return 65536; }
     static int memoryStepMb() { return 256; }
+
+    /// 这台机器的物理内存总量（MB）→「最大内存」那一格实际允许拖到的上限。
+    ///
+    /// NOTE: **两处都要按它收口** —— 设置页那一行（MainWindow::applyMemoryLimits）和实例
+    ///       设置里那一行（InstanceSettingsDialog）。从前只有设置页收口，实例页的上限一直是
+    ///       写死的 65536，用户能给一个实例填出比整机内存还大的数，而 JVM 那边只会
+    ///       "内存不足"地起不来（见 2026-09-27 审计）。
+    ///
+    /// NOTE: 条上的档位和数字框的步长都是 memoryStepMb() ⇒ 上限也**往下取到它的整数倍**：
+    ///       一台物理内存 16257 MB 的机器上，上限写 16257、条拖到头只能停在 16128（档位表最后
+    ///       一格），而数字框里打得进 16257 —— 同一件事两个数，用户只会觉得是坏的。
+    ///
+    /// NOTE: `totalMb <= 0`（读不到系统内存）时给内置上限，**不能**当成"这台机器没有内存"。
+    ///       反过来总数小得离谱时至少留"一格"（下限），不然 min > max 会让 qBound/setRange
+    ///       取到没意义的值。
+    static int memoryCapForTotalMb(qint64 totalMb) {
+        int capMb = memoryLimitMaxMb();
+        if (totalMb > 0) {
+            const qint64 aligned = (totalMb / memoryStepMb()) * memoryStepMb();
+            capMb = aligned < capMb ? int(aligned) : capMb;
+        }
+        return capMb < memoryMaxMinMb() ? memoryMaxMinMb() : capMb;
+    }
 
     // ---------- 游戏窗口大小的取值范围 ----------
     // 规矩同上：和 LauncherSettings::gameWindowMinWidth() 那一组**必须一样**（那是
@@ -1954,7 +2038,7 @@ public:
     QCheckBox *getMemoryAutoCheck() const { return memoryAutoCheck; }
     QLabel *getMemoryAutoHint() const { return memoryAutoHint; }
     QSpinBox *getMemoryMaxSpin() const { return memoryMaxSpin; }
-    QSpinBox *getMemoryMinSpin() const { return memoryMinSpin; }
+    MemorySlider *getMemoryMaxSlider() const { return memoryMaxSlider; }
     QComboBox *getLauncherBehaviourCombo() const { return launcherBehaviourCombo; }
     QPlainTextEdit *getExtraJvmArgsEdit() const { return extraJvmArgsEdit; }
     QPushButton *getApplyExtraJvmArgsButton() const { return applyExtraJvmArgsButton; }
@@ -2019,13 +2103,13 @@ public:
 private:
     void setupUi(QMainWindow *parent);
     /// 搭设置页：左栏一列分类（启动/游戏/提示/个性化/下载）、右栏一份堆叠页，两边下标
-    /// 一一对应（见头文件上面「设置页：左栏那几条分类」那段）。每个分栏里才是那张
-    /// 「列 0 选项名称、列 1 控件」的两列表格（3:7）。
+    /// 一一对应（见头文件上面「设置页：左栏那几条分类」那段）。每个分栏里才是那张 grid
+    /// （3:7，行是上下结构），见 addSettingsPanel()。
     void setupSettingsPage(QWidget *page);
     /// 设置页那五个分栏的**内容**（各自往堆叠页里加一页，顺序就是 settingsCategoryKeys()
     /// 的顺序）。拆成五个函数只为一件事：`row` 那个行号计数本来就是"每个分栏各数各的"
     /// （从前是十个花括号块顺序往下数），一个函数一个分栏之后那件事就不言自明了。
-    /// 每个分栏都是"自己的滚动区 + 自己的两列表格"，页面从 addSettingsPanel() 拿。
+    /// 每个分栏都是"自己的滚动区 + 自己的表格"，页面从 addSettingsPanel() 拿。
     void setupSettingsLaunchPanel(QStackedWidget *stack);
     void setupSettingsGamePanel(QStackedWidget *stack);
     void setupSettingsWarnPanel(QStackedWidget *stack);
@@ -2118,7 +2202,7 @@ private:
     QCheckBox *memoryAutoCheck = nullptr;
     QLabel *memoryAutoHint = nullptr;
     QSpinBox *memoryMaxSpin = nullptr;
-    QSpinBox *memoryMinSpin = nullptr;
+    MemorySlider *memoryMaxSlider = nullptr;
     QComboBox *launcherBehaviourCombo = nullptr;
     QPlainTextEdit *extraJvmArgsEdit = nullptr;
     QPushButton *applyExtraJvmArgsButton = nullptr;

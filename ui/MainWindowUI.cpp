@@ -8,7 +8,9 @@
 
 #include "MainWindowUI.hpp"
 
+#include "ElidedLabel.hpp"
 #include "InstanceGroupDelegate.hpp"
+#include "MemorySlider.hpp"
 #include "OverlayHost.hpp"
 #include "SkinModel.hpp"
 #include "TitleBar.hpp"
@@ -102,8 +104,9 @@ struct TwoColumns {
  * 所以这里把 tab 一路传下去，不自己写死。
  *
  * **四个选项卡都走这条路**（2026-09-26 起「设置」页也走：左栏是那五条分类、右栏是堆叠页，
- * 见 setupSettingsPage()）。设置页里那张 3:7 的两列 grid 现在管的是**栏内**那一层
- * （addSettingsPanel() 里 setColumnStretch 的那一对，份数取自默认那一对）。
+ * 见 setupSettingsPage()）。设置页栏内那张 grid 现在管的是**栏内**那一层
+ * （addSettingsPanel() 里 setColumnStretch 的那一对，份数取自默认那一对；栏内每一行
+ * 都是跨两列的上下结构，见 addSettingRow()，所以那一对如今只摆表格的形状）。
  * 栏做成真控件而不是裸布局，是为了验证工程能按 objectName 找回来量几何。
  */
 TwoColumns buildTwoColumnPage(QWidget *page, const QString &tab) {
@@ -130,15 +133,30 @@ TwoColumns buildTwoColumnPage(QWidget *page, const QString &tab) {
     return columns;
 }
 
-/// 设置页里一行：名字在左、控件在右。**没有返回值** —— "下一个空行号"由调用方自己
-/// `row++` 推进（每次调用照样把它摆在 grid 的第 row 行）。
-/// @note 3:7 是靠 grid 的列拉伸因子实现的（见 addSettingsPanel），这里只负责摆。
-void addSettingRow(QGridLayout *grid, int row, const QString &labelText, QWidget *control,
+/// 设置页里一行：**行名独占一行、内容在下一行**（2026-09-26 用户原话「设置界面的项目和
+/// 设置条目变成和实例设置一样的上下结构」—— 实例设置那边 2026-09-26 傍晚先改成了这样，
+/// 见 InstanceSettingsDialog.cpp 里的 addTitledRow()）。
+///
+/// @param row 行名那一行的下标，**按引用收**（这一行占掉的两行由函数自己推进，见下）。
+///
+/// NOTE: 从前这里是「名字在左（右对齐）、控件在右」的两列行，名字那一列占 3 份宽。
+///       换成上下结构之后**没有任何一行再用单独一列**了，所以 addSettingsPanel() 里那对
+///       `setColumnStretch`（3:7）从此只剩下"表格的形状"这一层意思 —— 跨两列的控件拿到
+///       的宽度和列怎么分无关，留着它是为了两边的表格长得一样（ui_check 仍在核它）。
+///       顺带一个后果：内容那一格从前只有 7 份宽，现在是整幅宽 —— 于是下拉框、文本框那
+///       几个"填满整格"的控件比以前宽了些（那几个靠 `Qt::AlignLeft` 摆的没有变）。
+///
+/// NOTE: **行号由这里推进**（`row += 2`），调用方写 `addSettingRow(grid, row, …)` 就接着
+///       往下排。实例设置那边（addTitledRow）把 `row += 2` 留给调用方，于是那条约定只能
+///       靠注释提醒；那一栏当初就是这么踩的 —— 少加那一行**编得过、跑起来也不报错**，
+///       只是界面上少一整行（下一项盖在上面）。这一份收成引用参数，忘不掉了。
+void addSettingRow(QGridLayout *grid, int &row, const QString &labelText, QWidget *control,
                    QWidget *parent) {
     QLabel *label = new QLabel(labelText, parent);
-    label->setAlignment(Qt::AlignRight | Qt::AlignTop);
-    grid->addWidget(label, row, 0);
-    grid->addWidget(control, row, 1);
+    label->setAlignment(Qt::AlignLeft);
+    grid->addWidget(label, row, 0, 1, 2);
+    grid->addWidget(control, row + 1, 0, 1, 2);
+    row += 2;
 }
 
 /// 设置页里的分组标题，横跨两列。
@@ -153,6 +171,10 @@ void addSectionTitle(QGridLayout *grid, int row, const QString &text, QWidget *p
 /// 设置页里数字框的宽度（够写「65536 MB」再加一对上下箭头）。
 constexpr int kMemorySpinWidth = 130;
 
+/// 内存那根条的最短宽度。太短就拖不准：32 GB 的机器上那张档位表有五十多格，
+/// 260 px 摊下来一格才 5 px 上下（够点得着），再窄就要靠键盘挪档了。
+constexpr int kMemorySliderMinWidth = 260;
+
 /// 「游戏窗口」那一行两个数字框的宽度：装得下「7680」（上限）加一对箭头就够了 ——
 /// 它没有后缀，比 kMemorySpinWidth 窄一些才不像两个空盒子。
 constexpr int kWindowSizeSpinWidth = 90;
@@ -166,7 +188,7 @@ constexpr int kTitleTextEditWidth = 220;
 
 /// 把一个控件加到设置页那一行的容器里，**只占它需要的那点宽度、靠左**放。
 ///
-/// 为什么不是默认的"填满整格"：右列有 7 份宽（900 px 的窗口下就有 600 多 px），
+/// 为什么不是默认的"填满整格"：内容那一格是整幅宽（900 px 的窗口下就有 600 多 px），
 /// 一个「4096 MB」的数字框被拉到那个宽度看着就是坏的 —— PCL 那种设置页里的数字框
 /// 也只有巴掌宽。下拉框和文本框不这么处理：它们的宽度是有信息量的（Java 路径、
 /// 参数列表都长）。
@@ -222,72 +244,6 @@ QLabel *addDynamicErrorHint(QWidget *box, QWidget *parent) {
 void addHint(QWidget *box, const QString &text, QWidget *parent) {
     addDynamicHint(box, text, parent);
 }
-
-/**
- * @brief 放不下时把尾巴截成省略号的 QLabel。
- *
- * 底栏那三行会变的文字（运行状态正文 / 实例名那行 / 用户名）用它。**为什么非它不可**：
- * 左边那格被钉死了固定宽度、右边那格封了上限（MainWindowUI 的
- * bottomBarRunStateColumnWidth() / bottomBarAccountColumnWidth()），
- * 而 QLabel 在控件比文字窄的时候是**硬裁**的 —— 最后一个字被切掉一半、右边什么都没有，
- * 看着像画坏了。也没法靠 QLabel 自己解决：翻遍 qlabel.h 都没有 elide 相关的 API。
- *
- * sizeHint() **不受那三行文字的影响**（宽度被 maxWidth 钉住），这样旁边那根进度条
- * 就不会跟着文字长短伸缩；超出去的只影响"画出来什么"，不影响布局。
- */
-class ElidedLabel : public QLabel {
-public:
-    explicit ElidedLabel(QWidget *parent = nullptr) : QLabel(parent) {
-        // 属性在**构造时**就写上（不是等谁调 setElideMode() 才写）：没调过的标签也该读得出
-        // 它当下用的就是默认那一档，否则验证工程读一个没写过的属性只会拿到 0。
-        setProperty("elideMode", static_cast<int>(m_elideMode));
-    }
-
-    /// 从**哪一头**省略。默认是尾巴（底栏那几行是句子，尾巴上的字最不要紧）。
-    ///
-    /// NOTE: 路径那一类的文字要显式改成 Qt::ElideMiddle —— 那句话两头都有用（盘符和
-    ///       最后一级目录名），从尾巴截掉的恰好是"这一份是哪个文件夹"唯一的信息。
-    ///       这个开关是 2026-09-25 补的：在那之前 ElidedLabel 一律 ElideRight，而
-    ///       「当前文件夹」那一列路径行的注释一直写着"从中间省略"（那确实是原意 ——
-    ///       列表还用条目自己画文字的年代，`setTextElideMode(Qt::ElideMiddle)` 就是为
-    ///       这一张列表挑的，改成 setItemWidget() 塞真控件时那件事没有跟过来）。
-    void setElideMode(Qt::TextElideMode mode) {
-        m_elideMode = mode;
-        // 动态属性是给**验证工程**读的（这个类在 .cpp 里，工程那边认不出它的类型）：
-        // 有人把上面那句 setElideMode() 删掉，属性就退回 ElideRight，断言当场红。
-        setProperty("elideMode", static_cast<int>(m_elideMode));
-        update();
-    }
-    Qt::TextElideMode elideMode() const { return m_elideMode; }
-
-    QSize sizeHint() const override {
-        const QSize full = QLabel::sizeHint();
-        // 宽度上限由 setMaximumWidth() 给。**没设过时它是 QWIDGETSIZE_MAX（16777215），
-        // 不是 -1** —— 拿"有没有设小上限"当判据，别拿"是不是负数"。
-        const int cap = maximumWidth();
-        if (cap >= QWIDGETSIZE_MAX || full.width() <= cap) {
-            return full;
-        }
-        return QSize(cap, full.height());
-    }
-
-protected:
-    void paintEvent(QPaintEvent *) override {
-        // NOTE: 这里**每次都重算**，不缓存。缓存（"宽度没变就接着用上次那串"）看着是省事，
-        //       但这几个格子的宽度是**钉死的**：文字改了宽度也不改，resizeEvent 压根不触发
-        //       —— 缓存就永远不失效，第一句话会一直挂在底栏上（「实例运行中」在三个实例
-        //       都跑着的时候还是「实例运行中」）。
-        //       elidedText() 只在重画时算一次，底栏这几行重画并不频繁，不值当为它冒这个险。
-        const QRect box = contentsRect();
-        const QString shown = fontMetrics().elidedText(text(), m_elideMode, box.width());
-        QPainter painter(this);
-        painter.setPen(palette().color(foregroundRole()));
-        painter.drawText(box, alignment() | Qt::TextSingleLine, shown);
-    }
-
-private:
-    Qt::TextElideMode m_elideMode = Qt::ElideRight;
-};
 
 }  // namespace
 
@@ -1008,6 +964,12 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
             addFilterLabel(filterBottom, downloadFilterVersionLabel());
             QComboBox *versionCombo = makeFilterCombo(downloadFilterVersionComboName(categoryKey));
             versionCombo->setEditable(true);
+            // NOTE: 可输入的框上**必须**把"回车就把框里的字追进清单"这条关掉（Qt 的默认是
+            //       `InsertAtBottom`，而且 duplicatesEnabled 默认开着 ⇒ 连重复项都照追）。
+            //       这一格存在的理由正是"手打一个清单里没有的版本号"（用户原话「版本可自行
+            //       输入」），于是每按一次回车就多一项：清单越用越脏，而追进去的那一项永远
+            //       也搜不出东西来（它不在任何一家接口的版本表里）。
+            versionCombo->setInsertPolicy(QComboBox::NoInsert);
             versionCombo->setPlaceholderText(downloadFilterVersionPlaceholder());
             filterBottom->addWidget(versionCombo);
 
@@ -1139,8 +1101,24 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     bar->setNavItems(navLabels);
     bar->setCurrentNav(tabWidget->currentIndex());
     // 条只发信号、不自己动手（见 TitleBar.hpp）：翻页是这一层的事。
-    QObject::connect(bar, &TitleBar::navRequested, tabWidget,
-                     [this](int index) { tabWidget->setCurrentIndex(index); });
+    QObject::connect(bar, &TitleBar::navRequested, tabWidget, [this](int index) {
+        // 用户原话：「顶端四个按钮点击以后自动到达对应选项卡的首页（比如说我现在正点开
+        // sodium 的下载页面，现在我点击启动选项卡，直接切到那个页面，下载这个"弹窗"自动
+        // 收起）」+「在下载页点击 下载（顶上那个，不是下载确认键），那就回到下载页的首页
+        // （四个都适用）」。于是这一颗有两种意思：
+        //
+        // ① 点的**不是**现在这一颗 ⇒ 翻页。切走之后那页不会丢，只是"收着"（见
+        //    OverlayHost.hpp 那段），切回来还是原来那个界面、连滚到哪儿都在；
+        // ② 点的**就是**现在这一颗 ⇒ "回到这个功能的首页"：把上面那一层收掉 —— 页面那一档
+        //    走"返回箭头"那一发（`execPage()` 的那一次才醒得过来，理由见 dismiss()）。
+        if (index == tabWidget->currentIndex()) {
+            if (overlayHost != nullptr) {
+                overlayHost->dismiss();
+            }
+            return;
+        }
+        tabWidget->setCurrentIndex(index);
+    });
     // 反方向也要通：别处（底栏、主页那几个入口）翻页之后，条上标着的也得跟着换。
     QObject::connect(tabWidget, &QTabWidget::currentChanged, bar, &TitleBar::setCurrentNav);
 
@@ -1166,7 +1144,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
 
 namespace {
 
-/// 设置页里一栏那一页的两样东西：表单控件（说明文字的父窗）与它那张两列表格。
+/// 设置页里一栏那一页的两样东西：表单控件（说明文字的父窗）与它那张 grid。
 struct SettingsPanel {
     QWidget *form = nullptr;
     QGridLayout *grid = nullptr;
@@ -1196,7 +1174,8 @@ SettingsPanel addSettingsPanel(QStackedWidget *stack, const QString &key) {
     panel.grid->setContentsMargins(0, 0, 0, 0);
     panel.grid->setHorizontalSpacing(12);
     panel.grid->setVerticalSpacing(10);
-    // 「选项名称放左边、设置内容放右边」的比例就是这一对 3:7 —— 从前它管整页，现在管**栏内**。
+    // 这一对 3:7 从前是「选项名称放左边、设置内容放右边」用的 —— 现在栏内每一行都跨两列
+    // （见 addSettingRow()），所以它只摆表格的形状、不分隔任何一行了。
     panel.grid->setColumnStretch(0, MainWindowUI::leftColumnStretch());
     panel.grid->setColumnStretch(1, MainWindowUI::rightColumnStretch());
     scroll->setWidget(panel.form);
@@ -1316,7 +1295,7 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
                                     "要给某一个实例单独指定 Java，用它的「实例设置…」；"
                                     "那边对不上时会弹框问一句（那个开关在「提示」栏里）。"),
                 form);
-        addSettingRow(grid, row++, QStringLiteral("运行时"), box, form);
+        addSettingRow(grid, row, QStringLiteral("运行时"), box, form);
     }
 
     // ---------- 内存分配 ----------
@@ -1333,40 +1312,56 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
         // 免得空标签把行高压成 0、布局跳一下。
         memoryAutoHint = addDynamicHint(box, QStringLiteral("正在读取系统内存…"), form);
         memoryAutoHint->setObjectName(memoryAutoHintName());
-        addSettingRow(grid, row++, QStringLiteral("分配方式"), box, form);
+        addSettingRow(grid, row, QStringLiteral("分配方式"), box, form);
     }
     {
+        // 「最大内存」这一行是**一根条 + 一个数字框**（两件东西说的是同一件事）。
+        // 条是主要入口（用户原话：「像 pcl 那样子的灵活变通的拖动条」），数字框留着是为了
+        // "我就要 6144 这个数"的时候能直接打进去 —— 少了它，拖是拖不到精确值的。
         QWidget *box = makeHintedControl(form);
         auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
-        memoryMaxSpin = new QSpinBox(box);
+
+        QWidget *line = new QWidget(box);
+        auto *lineLayout = new QHBoxLayout(line);
+        lineLayout->setContentsMargins(0, 0, 0, 0);
+        lineLayout->setSpacing(8);
+
+        memoryMaxSlider = new MemorySlider(line);
+        memoryMaxSlider->setObjectName(memoryMaxSliderName());
+        // 上限这里是 built-in 那个常数（65536）。**真跑起来时 MainWindow 会按本机物理内存
+        // 再收一次口**（见 MainWindow::applyMemoryLimits）：界面层不许读系统内存（它不依赖
+        // src/），而"这台机器有多少内存"只有业务层知道。界面单独搭出来时（验证工程里那样）
+        // 就是这条常数，够宽、也不假。
+        memoryMaxSlider->setRangeMb(memoryMaxMinMb(), memoryLimitMaxMb());
+        memoryMaxSlider->setMinimumWidth(kMemorySliderMinWidth);
+        // 条也吃滚轮（挪一档）：滚过去扫一眼就把内存挪了，而且没有焦点时**看不出来**
+        // —— 和那两个数字框是同一条理由（见 WheelGuard）。
+        WheelGuard::install(memoryMaxSlider);
+        // 条占满剩下的宽度（stretch 1），数字框按 sizeHint 摆 —— 顺序也是这个：条在左边。
+        lineLayout->addWidget(memoryMaxSlider, 1);
+
+        memoryMaxSpin = new QSpinBox(line);
         memoryMaxSpin->setObjectName(memoryMaxSpinName());
         memoryMaxSpin->setRange(memoryMaxMinMb(), memoryLimitMaxMb());
         memoryMaxSpin->setSingleStep(memoryStepMb());
         memoryMaxSpin->setSuffix(QStringLiteral(" MB"));
         // 数字框也吃滚轮（加一步/减一步），而且没有焦点时改完**看不出来** —— 见 WheelGuard。
         WheelGuard::install(memoryMaxSpin);
-        addInlineControl(boxLayout, memoryMaxSpin, kMemorySpinWidth);
-        addHint(box, QStringLiteral("给 JVM 的 -Xmx。模组多、整合包大就往上调；"
-                                    "机器内存不够时先降这一项。"),
+        memoryMaxSpin->setMinimumWidth(kMemorySpinWidth);
+        lineLayout->addWidget(memoryMaxSpin, 0);
+
+        // 这一行要**撑满整格**（不是 addInlineControl 那种"按 sizeHint 靠左"）：条的长度
+        // 就是它的精度，短了拖不准。
+        boxLayout->addWidget(line);
+        addHint(box, QStringLiteral("给 JVM 的 -Xmx。左边拖着改，也可以直接填数字。"
+                                    "模组多、整合包大就往上调；机器内存不够时先降这一项。"),
                 form);
-        addSettingRow(grid, row++, QStringLiteral("最大内存"), box, form);
+        addSettingRow(grid, row, QStringLiteral("最大内存"), box, form);
     }
-    {
-        QWidget *box = makeHintedControl(form);
-        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
-        memoryMinSpin = new QSpinBox(box);
-        memoryMinSpin->setObjectName(memoryMinSpinName());
-        memoryMinSpin->setRange(memoryMinMinMb(), memoryLimitMaxMb());
-        memoryMinSpin->setSingleStep(memoryStepMb());
-        memoryMinSpin->setSuffix(QStringLiteral(" MB"));
-        // 同上：滚轮防护（见 WheelGuard）。
-        WheelGuard::install(memoryMinSpin);
-        addInlineControl(boxLayout, memoryMinSpin, kMemorySpinWidth);
-        addHint(box, QStringLiteral("给 JVM 的 -Xms。设成和最大内存一样可以少几次扩容，"
-                                    "但会一直占着那些内存。"),
-                form);
-        addSettingRow(grid, row++, QStringLiteral("最小内存"), box, form);
-    }
+    // NOTE: 「最小内存」（-Xms）**这一行没有了**（2026-09-26）。用户原话：「不要 xms 了
+    //       （或者隐藏起来），按照默认值」—— 界面上不再让他管这一项，值照旧存在设置里
+    //       （默认 1024 MB，命令行照发 -Xms），所以"这一项现在是多少"改由「分配方式」
+    //       那一行的说明文字说全（见 MainWindow::refreshMemoryUi 里那三支 setText）。
 
     // ---------- 启动后 ----------
     addSectionTitle(grid, row++, QStringLiteral("启动后"), form);
@@ -1380,7 +1375,7 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
         addHint(box, QStringLiteral("游戏起来之后启动器自己怎么办。「收起」是把窗口藏起来、"
                                     "进程还在（关掉进程会连带杀掉游戏）。"),
                 form);
-        addSettingRow(grid, row++, QStringLiteral("启动器行为"), box, form);
+        addSettingRow(grid, row, QStringLiteral("启动器行为"), box, form);
     }
 
     // ---------- JVM 参数 ----------
@@ -1411,7 +1406,7 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
                                     "按版本的那份写在 .minecraft/versions/<版本>/wtfml.meta "
                                     "的 jvmArgs 里，排在全局之后（同一条以后写的为准）。"),
                 form);
-        addSettingRow(grid, row++, QStringLiteral("全局额外参数"), box, form);
+        addSettingRow(grid, row, QStringLiteral("全局额外参数"), box, form);
     }
 
     // 剩下的竖直空间留在底部：设置项不跟着窗口高度一起被拉长
@@ -1444,7 +1439,7 @@ void MainWindowUI::setupSettingsGamePanel(QStackedWidget *stack) {
                 form);
         // 行标题用 RowText() 那一句，**不是**勾选框上的那句话（原来两处共用同一个串，
         // 同一句话就并排出现两遍；见 showGameLogRowText() 上面那段）。
-        addSettingRow(grid, row++, showGameLogRowText(), box, form);
+        addSettingRow(grid, row, showGameLogRowText(), box, form);
     }
     {
         QWidget *box = makeHintedControl(form);
@@ -1459,7 +1454,7 @@ void MainWindowUI::setupSettingsGamePanel(QStackedWidget *stack) {
                                     "往高调**不解决卡顿** —— 卡顿多半是内存或显卡的事，"
                                     "调高只会让别的程序更卡。"),
                 form);
-        addSettingRow(grid, row++, QStringLiteral("进程优先级"), box, form);
+        addSettingRow(grid, row, QStringLiteral("进程优先级"), box, form);
     }
     {
         QWidget *box = makeHintedControl(form);
@@ -1486,7 +1481,7 @@ void MainWindowUI::setupSettingsGamePanel(QStackedWidget *stack) {
         gameWindowHeightSpin->setMinimumWidth(kWindowSizeSpinWidth);
         WheelGuard::install(gameWindowHeightSpin);
         sizeLayout->addWidget(gameWindowHeightSpin);
-        // 整行按 sizeHint 靠左摆，不撑满右列（右列有 7 份宽，两个数字框被拉开就是坏的）——
+        // 整行按 sizeHint 靠左摆，不撑满整格（内容那一格是整幅宽，两个数字框被拉开就是坏的）——
         // 和 addInlineControl() 是同一条规矩，只是这里那一格是整个小容器而不是单个控件。
         boxLayout->addWidget(sizeRow, 0, Qt::AlignLeft);
         addHint(box, QStringLiteral("启动时按这个大小开窗（单位是像素，走的是原版自己的 "
@@ -1494,7 +1489,7 @@ void MainWindowUI::setupSettingsGamePanel(QStackedWidget *stack) {
                                     "原版的默认值 —— 没动过这一项时和以前一模一样。"
                                     "游戏内自己把窗口拖大过的话，以游戏记住的为准。"),
                 form);
-        addSettingRow(grid, row++, QStringLiteral("窗口大小"), box, form);
+        addSettingRow(grid, row, QStringLiteral("窗口大小"), box, form);
     }
 
     // 剩下的竖直空间留在底部：设置项不跟着窗口高度一起被拉长
@@ -1531,7 +1526,7 @@ void MainWindowUI::setupSettingsWarnPanel(QStackedWidget *stack) {
                                     "版本真的不对时游戏会以 UnsupportedClassVersionError "
                                     "之类的方式失败，得去「实例设置…」里换回来。"),
                 form);
-        addSettingRow(grid, row++, javaWarnMismatchRowText(), box, form);
+        addSettingRow(grid, row, javaWarnMismatchRowText(), box, form);
     }
     {
         QWidget *box = makeHintedControl(form);
@@ -1544,7 +1539,7 @@ void MainWindowUI::setupSettingsWarnPanel(QStackedWidget *stack) {
                                     "先问一句再启动 —— 手快连点两下会开出两份一模一样的游戏，"
                                     "而它们开着同一份存档。"),
                 form);
-        addSettingRow(grid, row++, warnDuplicateLaunchRowText(), box, form);
+        addSettingRow(grid, row, warnDuplicateLaunchRowText(), box, form);
     }
     {
         QWidget *box = makeHintedControl(form);
@@ -1556,7 +1551,7 @@ void MainWindowUI::setupSettingsWarnPanel(QStackedWidget *stack) {
                                     "打开可能会丢进度。换账号启动、或者上一问选了「仍要启动」，"
                                     "走到的都是这一条。"),
                 form);
-        addSettingRow(grid, row++, warnWorldLossRowText(), box, form);
+        addSettingRow(grid, row, warnWorldLossRowText(), box, form);
     }
 
     // 剩下的竖直空间留在底部：设置项不跟着窗口高度一起被拉长
@@ -1586,14 +1581,14 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
         // 占位文字就是默认那五个字母：一个不知所以的空框会被当成"这里还没做完"。
         titleTextEdit->setPlaceholderText(TitleBar::defaultBrandText());
         titleTextEdit->setMinimumWidth(kTitleTextEditWidth);
-        // 文本框和下拉框不往整格里撑（右列有 7 份宽，一个名字框被拉到 600 px 看着就是坏的）——
+        // 文本框和下拉框不往整格里撑（内容那一格是整幅宽，一个名字框被拉到 600 px 看着就是坏的）——
         // 和 addInlineControl() 是同一条规矩。
         boxLayout->addWidget(titleTextEdit, 0, Qt::AlignLeft);
         addHint(box,
                 QStringLiteral("窗口左上角那行字。留空就是默认的 %1。")
                     .arg(TitleBar::defaultBrandText()),
                 form);
-        addSettingRow(grid, row++, QStringLiteral("标题文字"), box, form);
+        addSettingRow(grid, row, QStringLiteral("标题文字"), box, form);
     }
 
     // ---------- 账户 ----------
@@ -1615,7 +1610,7 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
         addHint(box, QStringLiteral("正版登录、添加离线账号、切换账号、换皮肤和披风都在这个窗里。"
                                     "登录后用户名显示在窗口左下角，启动游戏时用的也是它。"),
                 form);
-        addSettingRow(grid, row++, QStringLiteral("账号"), box, form);
+        addSettingRow(grid, row, QStringLiteral("账号"), box, form);
     }
 
     // ---------- 版本名格式 ----------
@@ -1649,7 +1644,7 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
                                     "拼出来的，勾掉哪一项哪一段就不显示。"
                                     "数据来自 .minecraft/versions/<版本>/wtfml.meta。"),
                 form);
-        addSettingRow(grid, row++, QStringLiteral("显示哪些字段"), box, form);
+        addSettingRow(grid, row, QStringLiteral("显示哪些字段"), box, form);
     }
 
     // 剩下的竖直空间留在底部：设置项不跟着窗口高度一起被拉长
@@ -1674,7 +1669,7 @@ void MainWindowUI::setupSettingsDownloadPanel(QStackedWidget *stack) {
         addHint(box, QStringLiteral("镜像源是第三方服务（BMCLAPI），国内通常快很多。"
                                     "下回来的文件不对时可以换回官方源重下。"),
                 form);
-        addSettingRow(grid, row++, QStringLiteral("来源"), box, form);
+        addSettingRow(grid, row, QStringLiteral("来源"), box, form);
     }
     {
         // CurseForge 的 API key（2026-09-25 加）。放在「下载源」这一组里是因为它和上面那格
@@ -1696,7 +1691,7 @@ void MainWindowUI::setupSettingsDownloadPanel(QStackedWidget *stack) {
                                     "它不用 key，但可能限流、也可能哪天就停了。"
                                     "改完按回车（或者点到别处）就记住。"),
                 form);
-        addSettingRow(grid, row++, curseForgeApiKeyRowText(), box, form);
+        addSettingRow(grid, row, curseForgeApiKeyRowText(), box, form);
     }
 
     // 剩下的竖直空间留在底部：设置项不跟着窗口高度一起被拉长

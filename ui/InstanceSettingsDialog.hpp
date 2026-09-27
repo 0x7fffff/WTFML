@@ -41,6 +41,7 @@
 
 #include <QDialog>
 #include <QHash>
+#include <QIcon>  // ServerRowStatus 里那一枚（服务器图标）
 #include <QList>
 #include <QPair>
 #include <QPixmap>
@@ -49,6 +50,7 @@
 #include <optional>
 
 class InstanceFilesPage;
+class MemorySlider;
 
 class QCheckBox;
 class QComboBox;
@@ -88,6 +90,12 @@ public:
         int xms = 0;
         bool autoMemory = true;
         QString extraJvmArgs;
+        /// 「最大内存」那一格允许拖到的上限（MB）—— 这台机器的物理内存，**由调用方算好
+        /// 喂进来**。`ui/` 不许依赖 `src/`，这一页自己也读不到系统内存。
+        ///
+        /// NOTE: <= 0 表示调用方没给（验证工程里那些只验结构的构造点），退回内置的
+        ///       MainWindowUI::memoryLimitMaxMb()。**别**把 0 当成"这台机器没有内存"。
+        int memoryCapMb = 0;
     };
 
     /**
@@ -196,6 +204,13 @@ public:
                 QStringLiteral("存档"),     QStringLiteral("服务器列表")};
     }
 
+    /// 「服务器列表」那一页的键（也就是 filePageKeys() 里最后那一个）。
+    ///
+    /// NOTE: **唯一出处** —— MainWindow 那两条接线（自动测速、以及"这一页里那两颗按钮分别
+    ///       干什么"）都按它认页。写第二遍字面量的症状是**静默失效**：自动测速那一发
+    ///       永远不发（少一句话、不报错），而且页还是照开的。
+    static QString serverPageKey() { return QStringLiteral("server"); }
+
     /// 堆叠页里「文件管理」那些页的起始下标（0/1 是概览与启动，排在前面）。
     /// 换言之 `stackIndex = filePageFirstIndex() + 小类下标`。
     static int filePageFirstIndex() { return 2; }
@@ -254,10 +269,66 @@ public:
     ///
     /// NOTE: 「读到了但是一条都没有」和「没读到」要分开给 —— 前者那一页说"还没加过服务器"，
     ///       后者说清楚为什么没读到（像版本树那条"问到了就是没有"与"列表没取到"）。
+    ///
+    /// NOTE: 这个函数**把每一行的"现在什么样"清空**（图标、MOTD、状态那一格都回到
+    ///       「还没测」）—— 它换掉的是整张表，旧的那些状态配的是旧的那些行。
     void setServerList(const QList<QPair<QString, QString>> &servers, const QString &problem);
+
+    /// 一台服务器**现在**什么样（一次 ping 的结果，2026-09-27）。
+    ///
+    /// NOTE: 「连上去问一句」那一半在 `src/util/ServerPing` 里 —— 这一层连 QTcpSocket 都
+    ///       够不着（ui/ 不 include src/），也**不该**自己去连：一次点击发多少网络请求是
+    ///       调用方说了算的事。这一层只负责把结果画出来。
+    struct ServerRowStatus {
+        bool tested = false;    ///< 测过没有（没测过那一格写「还没测」）
+        bool online = false;    ///< 通了没有（false 时看 error）
+        QString error;          ///< 没通的理由（人话，来自 ServerPing）
+        int latencyMs = -1;     ///< 延迟（毫秒；-1 = 不知道）
+        int playersOnline = -1; ///< 在线人数（**-1 = 服务器没说**，和 0 个人不是一回事）
+        int playersMax = -1;    ///< 人数上限（-1 = 服务器没说）
+        QString motd;           ///< MOTD（已经洗过：颜色码去掉、多行合成一行）
+        /// MOTD 的**原样**（`§` 码和换行都留着）—— 列表里那一格按游戏的样子画它
+        /// （见 MainWindowUI::rowMotdRawRole()）。空串 = 没有这一份，那一格退回上面那条
+        /// 洗过的路（悬停提示用的也是上面那份）。
+        QString motdRaw;
+        /// 这一份是**盘上缓存**里"上一次问到"的样子，不是刚刚问的。
+        ///
+        /// 状态那一格会因此加一句「上次：」—— 那行字里的数字（几人在线、多少毫秒）是
+        /// **过去时**，不加这几个字用户会当成现在的事实（见 ServerStatusCache 文件头）。
+        /// 一有真的结果就整条盖掉（fromCache 回到假）。
+        bool fromCache = false;
+        QIcon icon;             ///< 服务器图标（favicon；服务器没给就是空的）
+    };
+
+    /// 把每台服务器现在的样子灌进去（**下标和 setServerList() 那一份一一对应**）。
+    /// 短了的话后面那几条回到「还没测」、长了多出来的丢掉 —— 绝不按下标越界写。
+    void setServerStatuses(const QList<ServerRowStatus> &statuses);
+
+    /// 正在测速。true 时那颗「测速」换成「测速中…」并且点不动（连点三下发三遍请求是
+    /// 用户没要的，而且每一遍都要等满超时）。
+    void setServerPinging(bool pinging);
+
+    /// 状态那一格要写的**那几行**（用户 2026-09-27：「在线延迟和人数换到两行来」）。
+    ///
+    /// 第一行是"通没通、多快"（`在线 · 42 ms`），第二行是人数（`7/20 人`）。没通那一档
+    /// 只有一行（那句话本来就长）。**唯一出处** —— 格子、悬停提示、验证工程都看它。
+    static QStringList serverStatusLines(const ServerRowStatus &status);
+
+    /// 上面那几行的**单行写法**（用「 · 」串起来）—— 悬停提示用。验证工程也按它核对。
+    ///
+    /// NOTE: 它就是 `serverStatusLines().join(" · ")`，所以格子从那几行变成两行之后，
+    ///       这里**一个字都没变**（`在线 · 42 ms · 7/20 人` 还是这一句）。
+    static QString serverStatusText(const ServerRowStatus &status);
 
     /// 把六页目录列表**重新列一遍**。MainWindow 动过盘（删了 / 改了名）之后喊它。
     void refreshFilePages();
+
+    /// 给某一条文件行换上它的**真图标**（见 InstanceFilesPage::setIconForPath）。
+    ///
+    /// 收在这一层是因为**路径属于哪一页只有六页自己知道** —— 调用方（MainWindow）手上
+    /// 只有一串路径，挨页去问一遍的话，"哪一页有这个路径"这件事就跑到了业务层去。
+    /// 转给六页各一次（不在那一页的那一条会自己说"没有"，不是错误）。
+    void setFileIcon(const QString &path, const QPixmap &icon);
 
     /// 给验证工程用的访问器：某一页那个文件列表控件（键见 filePageKeys()）。
     InstanceFilesPage *filesPage(const QString &key) const;
@@ -265,6 +336,7 @@ public:
     QTreeWidget *serverTree() const { return m_serverTree; }
     QLabel *serverNotice() const { return m_serverNotice; }
     QPushButton *serverRefreshButton() const { return m_serverRefresh; }
+    QPushButton *serverPingButton() const { return m_serverPing; }
 
     // ---------- 概览栏那三行（图标 / 分组 / 置顶，2026-09-26）----------
     //
@@ -401,6 +473,11 @@ public:
         return QStringLiteral("instanceBrowseJavaButton");
     }
     static QString memoryMaxSpinName() { return QStringLiteral("instanceMemoryMaxSpin"); }
+    /// 「最大内存」那一行左半边那根条（和设置页同一套，见 MemorySlider.hpp）。
+    static QString memoryMaxSliderName() { return QStringLiteral("instanceMemoryMaxSlider"); }
+    /// ★ 2026-09-26：对象还在、还在跟着盘上的值走，但**整行不显示了**（用户要求撤掉这一
+    /// 项）。名字留着是因为验证工程还按它找这个控件 —— 找得到、但不该看得见（见 .cpp 里
+    /// 「最小内存」那一行上面那段）。
     static QString memoryMinSpinName() { return QStringLiteral("instanceMemoryMinSpin"); }
     static QString memoryAutoCheckName() { return QStringLiteral("instanceMemoryAutoCheck"); }
     static QString extraJvmArgsEditName() {
@@ -449,10 +526,12 @@ public:
     }
     /// 第三行那个勾选框。
     static QString pinCheckName() { return QStringLiteral("instancePinCheck"); }
-    /// 第四行那个「导出…」**占位**按钮（灰的、点了什么都不发生）。
-    static QString exportPlaceholderButtonName() {
-        return QStringLiteral("instanceExportPlaceholderButton");
-    }
+    /// 第四行那个「导出…」按钮（2026-09-26 从灰占位换成真的）。
+    ///
+    /// NOTE: 它**不叫** `exportScript*` 那一套 —— 「导出启动脚本」是同一个页面上另一件事
+    ///       （导出的是 .bat，和整合包规范一点关系都没有）。两个名字长得像过一次，
+    ///       断言认错过控件。
+    static QString exportButtonName() { return QStringLiteral("instanceExportButton"); }
 
     // ---- 启动栏那两颗「动作」按钮（导出启动脚本 / 补全版本文件，2026-09-26）----
     //
@@ -516,9 +595,40 @@ public:
     static QString serverRefreshButtonName() {
         return QStringLiteral("instanceServerRefreshButton");
     }
+    static QString serverPingButtonName() {
+        return QStringLiteral("instanceServerPingButton");
+    }
     static QString serverRefreshText() { return QStringLiteral("刷新"); }
+    /// 「测速」：真的连上去问一句每台服务器现在什么样（2026-09-27）。
+    static QString serverPingText() { return QStringLiteral("测速"); }
+    /// 正在测的时候那颗按钮上的字。
+    static QString serverPingingText() { return QStringLiteral("测速中…"); }
+    /// 还没测过的那一格写什么（**不是空着**：空着和"测了没通"在屏幕上是同一个样子）。
+    static QString serverUntestedText() { return QStringLiteral("还没测"); }
+    /// 这一格里的数字是**上一次**问到的（见 ServerRowStatus::fromCache）。
+    static QString serverCachedPrefix() { return QStringLiteral("上次："); }
     static QString serverNameColumnText() { return QStringLiteral("名称"); }
     static QString serverAddressColumnText() { return QStringLiteral("地址"); }
+    static QString serverStatusColumnText() { return QStringLiteral("状态"); }
+
+    /// 地址那一栏显示的**遮过的**写法。**唯一出处**（完整地址只在悬停提示里给）。
+    ///
+    /// 用户 2026-09-27 原话：「域名就显示首个字母+一条横杠（如 m-.h-.c- 来表示
+    /// mc.hyperlands.cloud），悬停在上方时才显示完整的，ipv4 的显示为 123.45.*.*，
+    /// ipv6 显示为 [123:123:*:*:*:*:*:*]」。
+    ///
+    /// 规矩：
+    ///   - **域名** —— 每一个点分开的段取**首字母 + 一条横杠**（`mc.hyperlands.cloud`
+    ///     ⇒ `m-.h-.c-`）。域名要遮的是**那个名字**，留个首字母已经足够认人；
+    ///   - **数字地址**（四段全数字的 IPv4 / 带冒号的 IPv6）—— 留头两段、后面一律 `*`
+    ///     （`123.45.67.89` ⇒ `123.45.*.*`）。数字地址要遮的是**后面那几段**：头两段留着
+    ///     还看得出是哪个网段 / 哪个机房，认不出的部分才该打掉；
+    ///   - `[...]` 那种方括号**留着**，`:` 后面那个端口**照抄** —— 它们不是身份，而且
+    ///     端口不写的话有些服务器根本分不出来（同一个域名上开好几个）。
+    ///
+    /// NOTE: 认不出来（空串、光一个方括号）就**原样回**，不猜也不报错：这一格只是个显示，
+    ///       真正的"这个地址能不能用"由 ServerPing::splitAddress 说了算。
+    static QString maskedServerAddress(const QString &address);
     static QString serverEmptyText() { return QStringLiteral("这个实例还没有加过服务器。"); }
     /// 服务器名字那一格是空的的时候顶上什么字。servers.dat 里的 name 真能是空串。
     static QString unnamedMark() { return QStringLiteral("（无名）"); }
@@ -536,7 +646,9 @@ public:
     static QString pinCheckText() { return QStringLiteral("显示在置顶组中"); }
     /// 「更改图标」/「导出…」两颗按钮上的字。
     static QString changeIconText() { return QStringLiteral("更改图标"); }
-    static QString exportPlaceholderText() { return QStringLiteral("导出…"); }
+    /// 第四行那颗按钮上的字。**用户 2026-09-26 给这一行起的名字就是「导出」**
+    /// （「第四行 导出（还没做，可行的话顺便做了）」），所以这里不改成「导出整合包」。
+    static QString exportText() { return QStringLiteral("导出…"); }
     /// 浮层里那两个动作按钮上的字。
     static QString iconPickText() { return QStringLiteral("选一张图片…"); }
     static QString iconResetText() { return QStringLiteral("恢复默认"); }
@@ -561,10 +673,21 @@ public:
                               "置顶组里再摆一条同名的（置顶组永远排在最前面）。"
                               "取消勾选，置顶组里那一条就没了，原来那一组从头到尾不动。");
     }
-    /// 第四行那个占位按钮下面那句话。
-    static QString exportPlaceholderHint() {
-        return QStringLiteral("还没做。以后会把整个实例（版本文件、模组、配置、存档）打包成"
-                              "一个能直接导入的文件。");
+    /// 第四行那颗按钮下面那句话（**看得见的那一行**，短）。
+    ///
+    /// NOTE: 一句两用的写法在这里**不成立**：那行字要短（它在这儿是**窄栏里的折行标签**，
+    ///       长了会把整页的 sizeHint 顶起来 —— 页面上那条 E5 断言钉的就是它），而 tooltip
+    ///       该说全（.mrpack / .zip 的区别、认不出来的东西会怎样）。所以拆成两个函数。
+    static QString exportHint() {
+        return QStringLiteral("把整个实例打包成一个整合包文件（含模组和配置），别人用"
+                              "「导入整合包」就能装回来。");
+    }
+    /// 那颗按钮的 tooltip（**说全的那一份**）。
+    static QString exportButtonTooltip() {
+        return QStringLiteral("按整合包规范打包：保存框里挑 .mrpack 走 Modrinth 规范、"
+                              "挑 .zip 走 CurseForge 规范，两个都能被「导入整合包…」装回来。"
+                              "能认出来源的模组写进清单（装的人那边直接下），认不出来的"
+                              "原样打进包里，一个都不会丢。存档和截图不进包。");
     }
     /// 那一格下面那句解释（**唯一一处**说清"改这里 = 改磁盘上的目录名"）。
     static QString instanceNameHint() {
@@ -686,6 +809,21 @@ signals:
     void exportLaunchScriptRequested(const QString &path);
 
     /**
+     * @brief 用户点了概览那一栏的「导出…」，并且已经在 Windows 自己的保存框里挑好了路径。
+     *
+     * 和上面 `exportLaunchScriptRequested` **同一个形状、同一套理由**（这一层只问路径，
+     * 干活在 MainWindow）；区别是这一件要慢得多 —— 枚举实例目录、算哈希、联网反查、
+     * 打包，都在那边，进度写底栏那一格。
+     *
+     * NOTE: **格式是从扩展名读出来的**，不另设一档：保存框里那两个筛选项各自带着扩展名
+     *       （`.mrpack` / `.zip`），用户挑了哪个、或者自己敲了哪个，选的就是哪套规范。
+     *       这一层保证交出去的路径**一定**带这两个之一（见 .cpp），所以那边不用兜底。
+     *
+     * @param path 用户挑的完整路径（带 `.mrpack` 或 `.zip`）。
+     */
+    void exportModpackRequested(const QString &path);
+
+    /**
      * @brief 用户点了「开始检查」。
      *
      * **能不能开始、要不要先问一句，全由 MainWindow 说了算** —— 只有它知道有没有下载在跑、
@@ -725,6 +863,31 @@ signals:
      * NBT 解析，所以只能由 MainWindow 接。
      */
     void refreshServerListRequested();
+
+    /**
+     * @brief 用户按了服务器列表那一页的「测速」（2026-09-27）。
+     *
+     * 「连上去问一句每台现在什么样」是**调用方的事**：socket 在 src/ 里，而"一次点击发
+     * 多少请求、要不要限并发"也不该由这一层说了算。
+     *
+     * NOTE: 那一页的「刷新」**也会**发这一条 —— 「刷新」的意思是"把这一页刷新成现在的
+     *       样子"，而这一页从 2026-09-27 起不只是那份 servers.dat 的镜像（图标、MOTD、
+     *       延迟都是刚问来的）。只重测不重读走「测速」，只重读不重测就没有了。
+     */
+    void pingServersRequested();
+
+    /**
+     * @brief 用户**切到了服务器列表那一页**（2026-09-27）。
+     *
+     * 用户原话：「服务器列表点进去要自动测速」。所以这一发是"这一页露出来了"这件事本身
+     * —— 接到的人该去测一遍。它和上面那两条**不是一回事**：那两条说的是"用户按了某颗
+     * 按钮"，这一条说的是"这一页被打开了"。
+     *
+     * NOTE: 每一页都会发一次（切回「概览」再切回来还会再发）—— 那正是"点进去就测"该有的
+     *       行为。"正在测的时候又切进来一次"不会真的并发出两趟：接的人那边有一道
+     *       "已经在跑就不重开"的闸（ServerPing::Pinger::start 自己那条）。
+     */
+    void serverPageEntered();
 
 private:
     /// 造一行「跟随全局 / 自定义 + 控件」。返回值是**整格**（档位行 + 提示），控件要加进
@@ -857,6 +1020,12 @@ private:
     QTreeWidget *m_serverTree = nullptr;
     QLabel *m_serverNotice = nullptr;
     QPushButton *m_serverRefresh = nullptr;
+    /// 「测速」（见 pingServersRequested()）。
+    QPushButton *m_serverPing = nullptr;
+    /// 每台服务器现在什么样（下标同 setServerList() 那一份）。**状态在这儿存着**：
+    /// 「刷新」重读一遍 servers.dat 时那些条目是重建的，而这一份是"上一次问到的结果"，
+    /// 由 setServerStatuses() 单独灌。行数对不上时以少的为准（见 setServerStatuses()）。
+    QList<ServerRowStatus> m_serverStatuses;
 
     // ---- 概览栏那三行（见上面 setIcon 那一段）----
     /// 图标那一行**唯一的出处**：空串 / `builtin:<键>` / `local`。
@@ -899,6 +1068,7 @@ private:
     QString m_pinnedGroupId;
     QLineEdit *m_javaPathEdit = nullptr;
     QSpinBox *m_memoryMaxSpin = nullptr;
+    MemorySlider *m_memoryMaxSlider = nullptr;
     QSpinBox *m_memoryMinSpin = nullptr;
     QCheckBox *m_memoryAutoCheck = nullptr;
     QLineEdit *m_extraJvmArgsEdit = nullptr;

@@ -25,6 +25,8 @@
 #include <QGuiApplication>
 #include <QGridLayout>
 #include <QHBoxLayout>
+#include <QHeaderView>
+#include <QIcon>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
@@ -51,6 +53,7 @@
 
 #include "InstanceFilesPage.hpp"
 #include "MainWindowUI.hpp"
+#include "MemorySlider.hpp"
 #include "VersionIcons.hpp"
 #include "VersionTreeDelegate.hpp"
 
@@ -59,6 +62,9 @@ namespace {
 /// 数字框的宽度。和设置页那两个用同一个值 —— 同一个"内存 MB 数"在两处宽度不一样
 /// 会显得像是两种东西。
 constexpr int kMemorySpinWidth = 120;
+/// 「最大内存」那一行那根条的最短宽度。比设置页那份（260）窄一点：这一页那一格左边还占着
+/// [跟随全局][自定义] 两个单选钮，条再要 260 就得把数字框挤出门外了。
+constexpr int kMemorySliderMinWidth = 200;
 /// 追加参数那一行的输入高度（三四行够放几条常见参数）。
 constexpr int kAppendJvmArgsHeight = 76;
 /// 左栏那两条导航列在算出来的宽度上再加多少余量（左右各一半）。
@@ -428,6 +434,12 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             // 图在上、字在下：这一排是"挑哪一张"，光看图认不出 Fabric 和 NeoForge。
             button->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
             button->setIconSize(QSize(kIconCandidateSize, kIconCandidateSize));
+            // ★ 2026-09-27：**这张图从前没人画**（`setIconSize` 摆了尺度、`TextUnderIcon`
+            //   摆了位置，偏偏没 `setIcon`）—— 八颗按钮全是光秃秃一个词，用户看着「草方块 /
+            //   覆雪草块 / 土块 / 幸运方块」选图，而上面那一格预览的是**另一张**（默认图标）。
+            //   这一格的全部意义就是"挑哪一张"，看不见图等于没得挑。
+            //   图由 VersionIcons 按同一份候选表解出来（键和画法都只有那一处），这里只管贴。
+            button->setIcon(QIcon(VersionIcons::iconCandidateMark(i, kIconCandidateSize)));
             button->setCheckable(true);
             // 和设置页那些"点一下换个样子"的按钮同一条：不该抢键盘焦点（抢了之后
             // 键盘上那几下就不再是"在这张浮层上操作"了）。
@@ -527,23 +539,59 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         grid->addWidget(cell, row++, 0, 1, 2);
     }
 
-    // ---------- 第四行：导出（**占位**）----------
+    // ---------- 第四行：导出整合包 ----------
     //
-    // 用户原话：「第四行 导出（还没做，可行的话顺便做了，麻烦的话先放着）」，当场问过之后
-    // 选的是「现在放占位符」。所以这里是一颗**灰的**按钮 + 一句"还没做" ——
-    // 摆一颗按得下去、却什么都不发生的按钮比灰着更糟（用户会以为坏了），而灰着不说话同样
-    // 糟（那是这一层的另一条规矩：灰掉的每一项都得配一句为什么）。
+    // 用户原话：「第四行 导出（还没做，可行的话顺便做了，麻烦的话先放着）」—— 当时选的是
+    // 「现在放占位符」，2026-09-26 数据层做完之后**换成真的**：规范那一侧（两种清单、
+    // 反查、打包）在 ModpackExport / VersionManager 里，这一层仍然只干它一直干的那件事
+    // ——问路径。
     {
         auto *cell = new QWidget(this);
         auto *column = new QVBoxLayout(cell);
         column->setContentsMargins(0, 0, 0, 0);
         column->setSpacing(4);
-        auto *button = new QPushButton(exportPlaceholderText(), cell);
-        button->setObjectName(exportPlaceholderButtonName());
-        button->setEnabled(false);
-        button->setToolTip(exportPlaceholderHint());
+        auto *button = new QPushButton(exportText(), cell);
+        button->setObjectName(exportButtonName());
+        button->setToolTip(exportButtonTooltip());
+        connect(button, &QPushButton::clicked, this, [this]() {
+            // 默认文件名用**这个实例的目录名**（同「导出启动脚本」那一段的理由：它一定
+            // 是合法文件名）。扩展名给 `.mrpack`：两个筛选项里 Modrinth 那一份是默认，
+            // 而 Windows 的保存框会按**当前选中的筛选项**补扩展名。
+            QString dir = QStandardPaths::writableLocation(QStandardPaths::DesktopLocation);
+            if (dir.isEmpty()) {
+                dir = QDir::homePath();
+            }
+            const QString suggested =
+                dir + QLatin1Char('/') + m_instanceId + QStringLiteral(".mrpack");
+            // 开的是 **Windows 自己的保存框**（和「导出启动脚本」「浏览…选 java.exe」
+            // 同一档：全项目就剩这几处独立窗）。那个框上的「取消」= 什么都不做。
+            //
+            // NOTE: 两个筛选项的顺序**就是默认格式的顺序**（保存框默认选第一个），所以
+            //       Modrinth 那一份排在前面 —— 它不需要 API key、也不受"作者关了第三方
+            //       分发"影响，是能完整还原的那一份。
+            const QString modrinthFilter = tr("Modrinth 整合包 (*.mrpack)");
+            const QString curseForgeFilter = tr("CurseForge 整合包 (*.zip)");
+            QString selectedFilter = modrinthFilter;
+            QString picked = QFileDialog::getSaveFileName(
+                this, exportText(), suggested,
+                modrinthFilter + QStringLiteral(";;") + curseForgeFilter, &selectedFilter);
+            if (picked.isEmpty()) {
+                return;
+            }
+            // 格式这一件事**只认扩展名**（见 .hpp 里那个信号的 NOTE）。用户自己敲一个
+            // `我的包` 时保存框不一定补扩展名（补不补是那个框的事，我们管不着）——
+            // 那就按他选中的筛选项补一个，别让盘上出现一个叫 `我的包`、内容是 Modrinth
+            // 清单的文件：名字和正文对不上，正是这一整套里最容易悄悄发生的一种错。
+            const QString lower = picked.toLower();
+            if (!lower.endsWith(QStringLiteral(".mrpack")) &&
+                !lower.endsWith(QStringLiteral(".zip"))) {
+                picked += selectedFilter == curseForgeFilter ? QStringLiteral(".zip")
+                                                             : QStringLiteral(".mrpack");
+            }
+            emit exportModpackRequested(picked);
+        });
         column->addWidget(button, 0, Qt::AlignLeft);
-        auto *hint = new QLabel(exportPlaceholderHint(), cell);
+        auto *hint = new QLabel(exportHint(), cell);
         hint->setWordWrap(true);
         column->addWidget(hint);
         grid->addWidget(cell, row++, 0, 1, 2);
@@ -611,9 +659,25 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         row += 2;
         m_xmxFollowCell = cell;
         auto *choiceRow = choiceRowOf(xmxField());
+        // 这一格和设置页那一行一样：**一根条 + 一个数字框**（用户要 PCL 那种拖着改的手感）。
+        // 条占满剩下的宽度，数字框窄窄一条 —— 顺序也是这个，条在左边。
+        // ★ 2026-09-27：上限是**这台机器的物理内存**（调用方算好放在 global 里），不是写死的
+        //   65536。从前这一页的上限一直是内置那个数，于是"设置页最多拖到 16256、实例页能拖到
+        //   65536"——用户给一个实例填出比整机内存还大的数，启动时只会拿到一句 JVM 的内存分配
+        //   错误，而界面上从头到尾没有一个字拦过他（见 2026-09-27 审计）。
+        //   `<= 0` 是"调用方没给"（只验结构的构造点），退回内置上限。
+        const int memoryCapMb = m_global.memoryCapMb > 0 ? m_global.memoryCapMb
+                                                         : MainWindowUI::memoryLimitMaxMb();
+        m_memoryMaxSlider = new MemorySlider(cell);
+        m_memoryMaxSlider->setObjectName(memoryMaxSliderName());
+        m_memoryMaxSlider->setRangeMb(MainWindowUI::memoryMaxMinMb(), memoryCapMb);
+        m_memoryMaxSlider->setMinimumWidth(kMemorySliderMinWidth);
+        // 没有焦点时滚轮也会改值（见 MainWindowUI.hpp 里的 WheelGuard）。
+        WheelGuard::install(m_memoryMaxSlider);
+        choiceRow->addWidget(m_memoryMaxSlider, 1);
         m_memoryMaxSpin = new QSpinBox(cell);
         m_memoryMaxSpin->setObjectName(memoryMaxSpinName());
-        m_memoryMaxSpin->setRange(MainWindowUI::memoryMaxMinMb(), MainWindowUI::memoryLimitMaxMb());
+        m_memoryMaxSpin->setRange(MainWindowUI::memoryMaxMinMb(), memoryCapMb);
         m_memoryMaxSpin->setSingleStep(MainWindowUI::memoryStepMb());
         m_memoryMaxSpin->setSuffix(QStringLiteral(" MB"));
         // 和设置页那两个内存数字框同一份滚轮防护（见 MainWindowUI.hpp 里的 WheelGuard）：
@@ -621,8 +685,38 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         WheelGuard::install(m_memoryMaxSpin);
         m_memoryMaxSpin->setFixedWidth(kMemorySpinWidth);
         choiceRow->addWidget(m_memoryMaxSpin);
+
+        // 条和数字框是同一个值的两半 ⇒ 双向同步，各自挡掉回头那一发（不挡就会来回弹）。
+        connect(m_memoryMaxSlider, &QSlider::valueChanged, this, [this]() {
+            const QSignalBlocker block(m_memoryMaxSpin);
+            m_memoryMaxSpin->setValue(m_memoryMaxSlider->valueMb());
+        });
+        connect(m_memoryMaxSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, [this]() {
+            const QSignalBlocker block(m_memoryMaxSlider);
+            m_memoryMaxSlider->setValueMb(m_memoryMaxSpin->value());
+        });
+
+        // 「改了就写」这一页是**每一发都写盘**的（见 .hpp 里 valueSignature() 那段），
+        // 所以拖动中那几十发不能每一发都写一次 —— 和设置页同一个拆法：
+        //   - 拖动中：只跟着走数字（上面那条同步线），落盘等松手；
+        //   - 不是拖动中（键盘、滚轮、点滑槽跳一格）：一次就是一格，立刻报"值变了"。
+        // 上面那条同步线用的是**挡了信号**的 setValue，所以 watchEditors() 按类型接的那条
+        // 线在拖动时一发都不响 —— 报"值变了"这件事得由条自己说。
+        connect(m_memoryMaxSlider, &QSlider::valueChanged, this, [this]() {
+            if (!m_memoryMaxSlider->isSliderDown()) {
+                notifyEdited();
+            }
+        });
+        connect(m_memoryMaxSlider, &QSlider::sliderReleased, this,
+                [this]() { notifyEdited(); });
     }
     {
+        // ★ 2026-09-26：这一整行**不显示了**（用户原话：「不要 xms 了（或者隐藏起来），
+        //   按照默认值」）。对象照旧建、照旧跟着盘上的值走 —— 撤掉的是"给人改"这一件事，
+        //   不是替用户删掉某个实例上已经存过的那份覆盖：那条覆盖照样由 override() 透传回
+        //   去（见 override() 里那段）。整行 hide() 而不是不建，也是为了让验证工程还能按
+        //   objectName 把它找回来 —— "这一项查得到、但看不见"正是现在的意思。
+        const int titleRow = row;   // 标题在 addTitledRow() 里就摆在 (row, 0) 这一格上
         QWidget *cell = addOverrideRow(grid, row, xmsField(), tr("最小内存"),
                                        tr("只对这个实例生效（给 JVM 的 -Xms）。"));
         row += 2;
@@ -637,6 +731,16 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         WheelGuard::install(m_memoryMinSpin);
         m_memoryMinSpin->setFixedWidth(kMemorySpinWidth);
         choiceRow->addWidget(m_memoryMinSpin);
+        // 连**标题**一起藏。只藏下面那一格的话，表上会留下孤零零一个「最小内存」（底下
+        // 空一块），看着像界面坏了 —— 藏的是"这一行"，不是"这一行里的控件"。
+        // 标题是 addTitledRow() 摆在 (titleRow, 0) 上那个 QLabel；QGridLayout 对藏起来的
+        // 控件不算高度，所以这两下一做，那一行就整个塌掉、不留空隙。
+        if (QLayoutItem *titleItem = grid->itemAtPosition(titleRow, 0)) {
+            if (QWidget *title = titleItem->widget()) {
+                title->hide();
+            }
+        }
+        cell->hide();
     }
     {
         QWidget *cell = addOverrideRow(grid, row, autoMemoryField(), tr("内存分配"),
@@ -941,6 +1045,17 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                 auto *top = new QHBoxLayout;
                 top->setContentsMargins(0, 0, 0, 0);
                 top->addStretch(1);
+                // 「测速」：真的连上去问一句（2026-09-27）。**它和「刷新」都在** ——
+                // 那一页从这一天起不只是 servers.dat 的一面镜子（图标 / MOTD / 延迟都是
+                // 刚问来的），「刷新」= 重读 + 重测，「测速」= 只重测。
+                m_serverPing = new QPushButton(serverPingText(), page);
+                m_serverPing->setObjectName(serverPingButtonName());
+                m_serverPing->setToolTip(tr("连上去问一遍每台服务器现在通不通、多少人、"
+                                            "那两行字是什么。只读状态，不进游戏。"));
+                connect(m_serverPing, &QPushButton::clicked, this,
+                        &InstanceSettingsDialog::pingServersRequested);
+                top->addWidget(m_serverPing);
+
                 m_serverRefresh = new QPushButton(serverRefreshText(), page);
                 m_serverRefresh->setObjectName(serverRefreshButtonName());
                 // 重读要碰 NBT 解析（在 src/ 里），所以这一发只能交给 MainWindow。
@@ -956,13 +1071,47 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
 
                 m_serverTree = new QTreeWidget(page);
                 m_serverTree->setObjectName(serverTreeName());
-                m_serverTree->setHeaderLabels(
-                    {serverNameColumnText(), serverAddressColumnText()});
+                m_serverTree->setHeaderLabels({serverNameColumnText(), serverAddressColumnText(),
+                                               serverStatusColumnText()});
                 // 「一行一个服务器」是平表不是树：不要每行前面那个展开三角。
                 m_serverTree->setRootIsDecorated(false);
                 m_serverTree->setUniformRowHeights(true);
                 m_serverTree->setSelectionMode(QAbstractItemView::SingleSelection);
                 m_serverTree->setEditTriggers(QAbstractItemView::NoEditTriggers);
+                // ★ 状态那一格是两行（`在线 · 42 ms` / `7/20 人`，见 setServerStatuses）：
+                //   这一句是那个换行**真的会换行**的前提 —— 条目代理只在开了 wordWrap 时
+                //   才把正文按 QTextLayout 摆，否则那一格里会是"在线 · 42 ms 7/20 人"一行
+                //   （`\n` 被当成一个看不见的字符）。第 0 列不受影响：那两行是代理自己画的。
+                m_serverTree->setWordWrap(true);
+
+                // ---------- 三栏的宽度怎么分 ----------
+                //
+                // 默认是"最后一列吃掉多出来的宽度"，那样一来左边两行 MOTD 会被状态那一栏
+                // 挤掉一大截，动不动就出省略号（用户原话「保证左侧的 motd 能显示全」）。
+                // 改成：**第 0 列把剩下的全吃掉**，另外两列各占自己需要的那点地方 ——
+                //   · 地址那一栏是遮过的（`m-.h-.c-`），本来就窄；
+                //   · 状态那一栏按内容定宽（两行里更宽的那一行），文字**靠右**，所以整栏
+                //     贴着右边停住、不跟着窗口一起长。
+                QHeaderView *header = m_serverTree->header();
+                if (header != nullptr) {
+                    header->setStretchLastSection(false);
+                    header->setSectionResizeMode(0, QHeaderView::Stretch);
+                    header->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+                    header->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+                }
+                // 表头那一格也跟着靠右，不然「状态」两个字会和它底下的数字错开一个身位。
+                m_serverTree->headerItem()->setTextAlignment(2, Qt::AlignRight | Qt::AlignVCenter);
+                // 名字那一格画成**两行式的行**：前面一枚服务器图标、名字一行、底下小字一行
+                // （那就是 MOTD）。和版本树/下载页那几张表是同一个代理 —— 一份实现多处用。
+                // 只有第 0 列挂它（另外两列是普通的地址和状态）。
+                m_serverTree->setItemDelegateForColumn(
+                    0, new VersionTreeDelegate(m_serverTree, /*leafArrow=*/false,
+                                               MainWindowUI::serverIconSize()));
+                // 行高是那个代理给的常数（versionTreeRowHeight() = 46），这一句是按同一档
+                // 告诉控件"图标那一格有多大" —— 下载页那几张表也是这么配的（见 MainWindowUI
+                // 里 resourceTreeIconSize() 那两行），不配的话条目自带的图标会被另算一遍尺寸。
+                m_serverTree->setIconSize(
+                    QSize(MainWindowUI::serverIconSize(), MainWindowUI::serverIconSize()));
                 layout->addWidget(m_serverTree, 1);
 
                 auto *hint = new QLabel(filesHint(QStringLiteral("server")), page);
@@ -1009,6 +1158,15 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     m_xmxFollow->setChecked(!current.xmx.has_value());
     m_xmxCustom->setChecked(current.xmx.has_value());
     m_memoryMaxSpin->setValue(current.xmx.value_or(global.xmx));
+    // 条那半边也要摆过来：数字框本来就已经是这个值时上面那一句不发信号，光靠同步那条线
+    // 等不到（条会停在上一次那一格上）—— 一进这一页看见的条和数字框就不是一个数。
+    // 挡信号：这一发是**灌值**，不是用户改的 —— 不挡的话它会顺手报一次"值变了"
+    // （条自己接的那条线，见上面那段），而那时候 `m_lastSignature` 还是空的，
+    // 于是打开这一页本身就等于替用户写了一次盘。
+    {
+        const QSignalBlocker blockSlider(m_memoryMaxSlider);
+        m_memoryMaxSlider->setValueMb(m_memoryMaxSpin->value());
+    }
 
     m_xmsFollow->setChecked(!current.xms.has_value());
     m_xmsCustom->setChecked(current.xms.has_value());
@@ -1117,7 +1275,8 @@ QGridLayout *InstanceSettingsDialog::addForm(const QString &key, QWidget *page) 
     grid->setContentsMargins(0, 0, 0, 0);
     grid->setHorizontalSpacing(12);
     grid->setVerticalSpacing(10);
-    // 和设置页栏内那一层同一套比例（名字在左、控件在右）。
+    // 和设置页栏内那一层同一套比例（两边每一行都是上下结构、每格跨两列，所以这一对
+    // 份数在两边都只摆表格的形状，见各自那张 grid 上面那段说明）。
     grid->setColumnStretch(0, MainWindowUI::leftColumnStretch());
     grid->setColumnStretch(1, MainWindowUI::rightColumnStretch());
     if (auto *layout = qobject_cast<QVBoxLayout *>(page->layout())) {
@@ -1163,6 +1322,11 @@ void InstanceSettingsDialog::applyFilePage(int row) {
     // 而"我看见的和盘上不一样"是这一页最没道理的一种错。
     if (InstanceFilesPage *page = m_filesPages.value(filePageKeys().at(row))) {
         page->refresh();
+    }
+    // 「点进去就自动测速」（用户 2026-09-27 原话）。**排在 refresh() 之后**：这一页刚露出来
+    // 时先有那张表（表里那几行是这一页本来就有的东西），再谈"连上去问一遍"。
+    if (filePageKeys().at(row) == serverPageKey()) {
+        emit serverPageEntered();
     }
 }
 
@@ -1210,7 +1374,11 @@ QString InstanceSettingsDialog::filesHint(const QString &key) {
                   "文件夹里删。");
     }
     if (key == QStringLiteral("server")) {
-        return tr("servers.dat 是游戏自己写的，启动器只读不改。");
+        // 2026-09-27 起这一页不只是那份文件的一面镜子：图标 / MOTD / 延迟都是**刚问来的**
+        // （见 pingServersRequested()）。所以这句话得说清"哪儿来的"和"点了会发生什么"。
+        return tr("servers.dat 是游戏自己写的，启动器只读不改。「测速」会连上去问一遍每台"
+                  "现在什么样（图标、那两行字、多少人、多少毫秒），只读状态、不进游戏；"
+                  "「刷新」是重读文件再问一遍。");
     }
     return QString();
 }
@@ -1302,11 +1470,32 @@ void InstanceSettingsDialog::setServerList(const QList<QPair<QString, QString>> 
     if (m_serverTree == nullptr) {
         return;
     }
+    // 这一份是**换掉整张表**：那些"现在什么样"配的是旧的行，一起清掉（见 .hpp 那条 NOTE）。
+    m_serverStatuses.clear();
+    m_serverStatuses.resize(servers.size());
+
     m_serverTree->clear();
     for (const QPair<QString, QString> &server : servers) {
         auto *item = new QTreeWidgetItem(m_serverTree);
         item->setText(0, server.first.isEmpty() ? unnamedMark() : server.first);
-        item->setText(1, server.second);
+        // 地址那一栏写**遮过的**（`m-.h-.c-`），完整的那一串只在悬停时给（见
+        // maskedServerAddress 那段）。左边那两行 MOTD 因此能多占一大截宽度 —— 用户原话
+        // 「保证左侧的 motd 能显示全」。
+        item->setText(1, maskedServerAddress(server.second));
+        item->setToolTip(1, server.second);
+        // 状态那一格**一开始就有字**（「还没测」）。空着和"测了没通"在屏幕上是同一个样子，
+        // 而这两件事对用户完全不是一回事（一个是"点一下测速"、一个是"这台死了"）。
+        item->setText(2, serverUntestedText());
+        // 靠右（和 setServerStatuses 里那几行同一条规矩）。每一行都要写一次 —— 这事
+        // 记在**条目**上，不是记在列上。
+        item->setTextAlignment(2, Qt::AlignRight | Qt::AlignVCenter);
+        // 行高**比别处那张表高一档**：这一行底下那一格画的是 MOTD，而 MOTD 是**两行**
+        // （游戏里就是两行，见 MotdText::parse 的 maxLines）。46 px 装不下"标题 + 两行小字"。
+        // 走 `Qt::SizeHintRole`（也就是 setSizeHint 这一句）交给代理 —— 它学会了读这一格
+        // （见 VersionTreeDelegate::sizeHint 那段），在这之前代理一律返回常数 46。
+        // NOTE: 这一页开着 uniformRowHeights(true)，所以**每一条都得是同一个高度**
+        //       （少设一条，那一行就是 46，屏幕上看着像"这一行矮了一截"）。
+        item->setSizeHint(0, QSize(0, MainWindowUI::serverRowHeight()));
     }
     // ★「读不动」和「读到了但一条都没有」是**两句不同的话**（和版本树那条"问到了就是
     //   没有" / "列表没取到"同一条规矩）：说成一句的话，用户会照着错的那句去修 ——
@@ -1318,11 +1507,191 @@ void InstanceSettingsDialog::setServerList(const QList<QPair<QString, QString>> 
     m_serverNotice->setText(!readable ? problem : (empty ? serverEmptyText() : QString()));
 }
 
+QStringList InstanceSettingsDialog::serverStatusLines(const ServerRowStatus &status) {
+    if (!status.tested) {
+        return {serverUntestedText()};
+    }
+    // 缓存里那一份是**上一次**问到的样子（见 ServerRowStatus::fromCache()）。加一句「上次：」
+    // 是这一格唯一能说清"现在还没问、这几个数字是过去时"的办法 —— 不加的话，那一行
+    // 「在线 · 42 ms · 3/20 人」会被当成现在的事实（那一格本来就是"现在什么样"）。
+    const QString prefix = status.fromCache ? serverCachedPrefix() : QString();
+    if (!status.online) {
+        // 缓存里"没连上"那一档**不重说理由**：那句话是**当时**的（"连接被拒绝"指的是上一次
+        // 那一刻），搬到现在来说等于替这一次下结论。就说"上次没连上"，理由等真的测完那一趟。
+        if (status.fromCache) {
+            return {prefix + QStringLiteral("没连上")};
+        }
+        // 理由来自 ServerPing（中文，见那边的 connectionErrorText）。真要是空的也别留一格
+        // 空白 —— 那就是"看着像没测过"。没通这一档**只有一行**：那句话本来就长（
+        // 「超时（连上了，但服务器没有回答）」），拆成两行反而更难读。
+        return {status.error.isEmpty() ? QStringLiteral("连不上") : status.error};
+    }
+    // 通了就是两行：第一行"在不在线、多快"，第二行几个人。**上线的那个 `·` 留在第一行
+    // 里面**（`在线 · 42 ms` 是一件事的两种说法），人数是另一件事 —— 这正是用户说的
+    // "在线延迟和人数换到两行来"。
+    QStringList lines;
+    lines.append(prefix + (status.latencyMs >= 0
+                               ? QStringLiteral("在线 · %1 ms").arg(status.latencyMs)
+                               : QStringLiteral("在线")));
+    if (status.playersOnline >= 0 && status.playersMax >= 0) {
+        lines.append(QStringLiteral("%1/%2 人").arg(status.playersOnline).arg(status.playersMax));
+    } else if (status.playersOnline >= 0) {
+        lines.append(QStringLiteral("%1 人").arg(status.playersOnline));
+    }
+    return lines;
+}
+
+QString InstanceSettingsDialog::serverStatusText(const ServerRowStatus &status) {
+    return serverStatusLines(status).join(QStringLiteral(" · "));
+}
+
+QString InstanceSettingsDialog::maskedServerAddress(const QString &address) {
+    const QString trimmed = address.trimmed();
+    if (trimmed.isEmpty()) {
+        return QString();
+    }
+
+    // ---------- ① 把"要遮的那个主机"和"照抄的尾巴"分开 ----------
+    //
+    // 方括号那一档（`[2001:db8::1]:25566`）**方括号要留着**，这一格和连接那一步是两回事：
+    // 不带方括号的 IPv6 后面又跟端口时，哪几个冒号是地址、哪一个是端口分不出来
+    // （ServerPing::splitAddress 里那条"看不懂就不猜"的规矩就是为这个）。其余情况按
+    // **最后一个**冒号分 —— 而那个冒号左边要是还带着冒号，那这串本来就是裸的 IPv6，
+    // 没有端口可拆。
+    bool bracketed = false;
+    QString host = trimmed;
+    QString tail;  // 端口那一截（**带**冒号），没有就是空
+    if (trimmed.startsWith(QLatin1Char('['))) {
+        const int close = trimmed.indexOf(QLatin1Char(']'));
+        if (close > 0) {
+            bracketed = true;
+            host = trimmed.mid(1, close - 1);
+            tail = trimmed.mid(close + 1);
+        }
+    } else {
+        const int colon = trimmed.lastIndexOf(QLatin1Char(':'));
+        if (colon > 0 && !trimmed.left(colon).contains(QLatin1Char(':'))) {
+            host = trimmed.left(colon);
+            tail = trimmed.mid(colon);
+        }
+    }
+
+    // ---------- ② 这一截是"名字"还是"数字地址" ----------
+    //
+    // 两种要遮的东西不是一回事，所以判据也不是一条。带冒号的（`[::1]` 是这一支）和"正好
+    // 四段、段段是数字"的按数字地址处理 —— 数字地址留头两段就够认出网段了，剩下的打掉。
+    // 别的一律当域名：域名要遮的是**那个名字**。
+    const QChar separator = host.contains(QLatin1Char(':')) ? QLatin1Char(':') : QLatin1Char('.');
+    const QStringList groups = host.split(separator);
+    bool numeric = separator == QLatin1Char(':');
+    if (!numeric && groups.size() == 4) {
+        numeric = true;
+        for (const QString &group : groups) {
+            if (group.isEmpty() || group.size() > 3) {
+                numeric = false;
+                break;
+            }
+            for (const QChar character : group) {
+                if (!character.isDigit()) {
+                    numeric = false;
+                    break;
+                }
+            }
+            if (!numeric) {
+                break;
+            }
+        }
+    }
+
+    QStringList masked;
+    if (numeric) {
+        for (int i = 0; i < groups.size(); ++i) {
+            if (i < 2) {
+                masked.append(groups.at(i));
+            } else {
+                // 空的那一段保持空 —— 数字地址里那个空段就是 `::`（压缩写法）本身，
+                // 填成 `*` 的话 `[2001:db8::1]` 会遮成 `[2001:db8:*:*]`：四个段、一个
+                // 双冒号都没有，看着像另一个地址。留着空段，遮出来是 `[2001:db8::*]`。
+                masked.append(groups.at(i).isEmpty() ? QString() : QStringLiteral("*"));
+            }
+        }
+    } else {
+        for (const QString &group : groups) {
+            // 空的那一段保持空（`a..b` 这种坏地址不该被我们连成 `a-.b-` 那样的假名字）
+            masked.append(group.isEmpty() ? QString() : group.left(1) + QStringLiteral("-"));
+        }
+    }
+
+    QString out = masked.join(separator);
+    if (bracketed) {
+        out = QStringLiteral("[") + out + QStringLiteral("]");
+    }
+    return out + tail;
+}
+
+void InstanceSettingsDialog::setServerStatuses(const QList<ServerRowStatus> &statuses) {
+    if (m_serverTree == nullptr) {
+        return;
+    }
+    // 行数是"盘上那份 servers.dat"说了算，状态是"刚问回来的那一趟"说了算 —— 两边对不上
+    // 时**按行来写**：多出来的状态丢掉，行多出来的那些回到「还没测」（不是留着上一次那几句
+    // ——那些话配的是上一份列表的行）。两条都不越界。
+    m_serverStatuses = statuses;
+    const int rows = m_serverTree->topLevelItemCount();
+    for (int i = 0; i < rows; ++i) {
+        QTreeWidgetItem *item = m_serverTree->topLevelItem(i);
+        if (item == nullptr) {
+            continue;
+        }
+        const ServerRowStatus status = i < statuses.size() ? statuses.at(i) : ServerRowStatus();
+        // 图标走 `Qt::DecorationRole`（就是 setIcon 那一格）—— 代理读的正是它；
+        // 第二行小字走 rowSubTextRole()（版本树上放的是发布时间，这里放 MOTD）。
+        item->setIcon(0, status.icon);
+        item->setData(0, MainWindowUI::rowSubTextRole(), status.motd);
+        // ★ MOTD 的**原样**（带 `§` 码和换行）走另一个角色：代理按它分色、分两行画
+        //   （见 VersionTreeDelegate 里 rowMotdRawRole() 那一段）。两个都写 —— 代理那边
+        //   是"有原串就画原串、没有才退回洗过那一行"，而 tooltip 用的永远是洗过那一份。
+        item->setData(0, MainWindowUI::rowMotdRawRole(), status.motdRaw);
+        // ★ 状态那一格是**两行**（`在线 · 42 ms` / `7/20 人`）：`\n` 在这里不是排版上的
+        //   小把戏 —— 控件是开了 wordWrap 的，条目代理照 QTextLayout 摆，一个换行就是
+        //   真的一行（见建表那段）。悬停提示仍旧给**单行**那份：提示框里没有"两行"这回事，
+        //   它要的是一句话。
+        item->setText(2, serverStatusLines(status).join(QLatin1Char('\n')));
+        item->setToolTip(2, serverStatusText(status));
+        item->setTextAlignment(2, Qt::AlignRight | Qt::AlignVCenter);
+        // 名字单独给一句 tooltip：MOTD 那一行装不下时是被代理省略掉的，而这一行**没有**
+        // 别的地方能看全（那一格只画得下一行）。**无条件写**（MOTD 是空串时这一句就是把
+        // 上一次那行字抹掉）—— 不然"上一次那台有 MOTD、这一台没有"会留下一句别人的话。
+        item->setToolTip(0, status.motd);
+    }
+}
+
+void InstanceSettingsDialog::setServerPinging(bool pinging) {
+    if (m_serverPing == nullptr) {
+        return;
+    }
+    m_serverPing->setText(pinging ? serverPingingText() : serverPingText());
+    // 连点三下发三遍请求是用户没要的，而且每一遍都要等满超时。
+    m_serverPing->setEnabled(!pinging);
+}
+
 void InstanceSettingsDialog::refreshFilePages() {
     const QList<InstanceFilesPage *> pages = m_filesPages.values();
     for (InstanceFilesPage *page : pages) {
         if (page != nullptr) {
             page->refresh();
+        }
+    }
+}
+
+void InstanceSettingsDialog::setFileIcon(const QString &path, const QPixmap &icon) {
+    const QList<InstanceFilesPage *> pages = m_filesPages.values();
+    for (InstanceFilesPage *page : pages) {
+        if (page != nullptr) {
+            // 返回值**不看**：不在这一页的那一条本来就会回 false，而它在那六页里必然
+            // 只有一页有（六个目录互不重叠）。找不着才是要说话的那一档，而那一档由
+            // "图标是异步回来的、这一条可能已经被删了"解释掉了 —— 什么都没有要做的。
+            page->setIconForPath(path, icon);
         }
     }
 }
@@ -1647,6 +2016,26 @@ void InstanceSettingsDialog::refreshHints() {
     m_xmxFollowCell->setEnabled(!autoMemory);
     m_xmsFollowCell->setEnabled(!autoMemory);
 
+    // ★ 2026-09-27：手动档 + **「跟随全局」** 时，那一格里的条和数字框要**灰掉**。
+    //   从前它们只在自动档下禁用，于是在"跟随全局"这一档上照样能拖、能填 —— 而拖完那一发
+    //   `override()` 根本不会读（它只在选了「自定义」时才把 `m_memoryMaxSpin->value()` 装进
+    //   结果，见下面那段），用户看着数字变了、松手、关页，什么都没发生。这正是设置页那条
+    //   注释明确反对的"让人以为能改"。
+    //
+    //   **整格**不能跟着禁（那对单选钮得留着），所以只点这两个控件；单选钮本身照旧能点，
+    //   想要填数就点「自定义」，一按下去这两个就活了（`setEnabled` 的实效是"父与自身都为真"，
+    //   所以自动档下这里的 true 也翻不过上面那句整格禁用）。
+    //
+    // NOTE: 「实例名 / Java 路径」那几行是"跟随全局时编辑框里就摆着全局值、改了等于自定义"
+    //       的另一种拆法（那边靠「浏览…」那一按顺手切档），内存这一行**不用**那个拆法：
+    //       条目上滚一下滚轮就在盘上凭空多出一份覆盖，这种事不能有。
+    const bool memoryEditable = !autoMemory && m_xmxCustom->isChecked();
+    m_memoryMaxSlider->setEnabled(memoryEditable);
+    m_memoryMaxSpin->setEnabled(memoryEditable);
+    // 最小内存那一格整个是隐藏的（2026-09-26 撤掉的那一行），但控件照旧跟着同一个规矩 ——
+    // 它现在唯一的作用就是把盘上那份值透传回去，多一个能改它的入口就是多一条静默改写的路。
+    m_memoryMinSpin->setEnabled(memoryEditable);
+
     // 每一行下面那句话：选「跟随全局」时写清"当前跟随的是什么值"，选「自定义」时
     // 说明"这一项只对这个实例生效"。两种都要有 —— 只有"跟随全局"四个字的话，
     // 用户不知道跟随的到底是什么，还得退出去翻设置页。
@@ -1706,7 +2095,14 @@ InstanceSettingsDialog::Override InstanceSettingsDialog::override() const {
             result.xmx = m_memoryMaxSpin->value();
         }
         if (m_xmsCustom->isChecked()) {
-            result.xms = m_memoryMinSpin->value();
+            // ★ 2026-09-26：这一行从界面上撤掉了（整行隐藏），但盘上存过的值**照样透传** ——
+            //   撤掉界面不等于替用户删掉他的设置。唯一不能原样透传的是"比最大内存还大"的
+            //   那些：Xms > Xmx 是 JVM 直接拒绝启动的组合（Initial heap size set to a
+            //   larger value than the maximum heap size），而用户现在在界面上根本看不到
+            //   自己存过这么一对 —— 那一行是隐藏的，没有人在旁边替他看着。
+            const int effectiveXmx = m_xmxCustom->isChecked() ? m_memoryMaxSpin->value()
+                                                              : m_global.xmx;
+            result.xms = qMin(m_memoryMinSpin->value(), effectiveXmx);
         }
     }
 

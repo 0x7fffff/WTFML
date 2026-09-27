@@ -35,6 +35,8 @@
 #include <QUuid>
 
 #include "../download/LoaderMeta.hpp"
+#include "../download/ResourceCatalog.hpp"
+#include "../launcher/VersionArguments.hpp"
 #include "../launcher/VersionInheritance.hpp"
 #include "../net/HttpClient.hpp"
 #include "../util/AppPaths.hpp"
@@ -220,6 +222,21 @@ QString pickChannelDetail(LoaderMeta::LoaderChannel channel, bool stable) {
         return QObject::tr("稳定那一档，上游自己标着正式版的那个");
     }
     return QObject::tr("稳定那一档，可上游一条正式版都没有，退回了最新的那个");
+}
+
+/// CurseForge 那台接口没成时给用户的那条**出路**。
+///
+/// 镜像是别人搭的一台服务：它限流、哪天停掉，都不是用户能修的，所以这句话必须点出
+/// 「填一份自己的 key 就改走官方」。**两处用户**（导入那条路的 resolveCurseForgeFiles、
+/// 导出那条路的 lookupCurseForgeFingerprints）—— 各写一份的话，改了一处另一处就变成
+/// 一句把用户引到死路上的话。
+QString curseForgeKeyHint(bool hasKey) {
+    if (hasKey) {
+        return QObject::tr("设置里那份 CurseForge API key 可能不对、或者已经失效了，可以换一份。");
+    }
+    return QObject::tr("网络本身没问题的话，多半是那台公共接口的事了 —— 可以在设置页「下载」"
+                       "栏里填一份自己的 CurseForge API key（免费申请），填了就改走官方接口。"
+                       "现在这一发走的是别人搭的一台社区镜像，它可能限流、也可能哪天就停了。");
 }
 
 }  // namespace
@@ -493,6 +510,10 @@ void VersionManager::setCurseForgeApiBaseOverride(const QString &base) {
     m_curseForgeApiBaseOverride = base.trimmed();
 }
 
+void VersionManager::setModrinthApiBaseOverride(const QString &base) {
+    m_modrinthApiBaseOverride = base.trimmed();
+}
+
 QString VersionManager::resolveCurseForgeFiles(ModpackImport::Pack *pack) {
     if (pack == nullptr || pack->format != ModpackImport::Format::CurseForge ||
         pack->pendingRefs.isEmpty()) {
@@ -509,11 +530,7 @@ QString VersionManager::resolveCurseForgeFiles(ModpackImport::Pack *pack) {
 
     /// 这一发没成时那句话（**必须给出一条用户自己能走的路**：镜像是别人的服务）。
     const auto failureText = [hasKey](const HttpClient::Reply &reply) {
-        const QString hint =
-            hasKey ? tr("设置里那份 CurseForge API key 可能不对、或者已经失效了，可以换一份。")
-                   : tr("网络本身没问题的话，多半是那台公共接口的事了 —— 可以在设置页「下载」"
-                        "栏里填一份自己的 CurseForge API key（免费申请），填了就改走官方接口。"
-                        "现在这一发走的是别人搭的一台社区镜像，它可能限流、也可能哪天就停了。");
+        const QString hint = curseForgeKeyHint(hasKey);
         if (!reply.networkError.isEmpty()) {
             return tr("问 CurseForge 要文件清单时没连上：%1\n\n%2").arg(reply.networkError, hint);
         }
@@ -3792,10 +3809,17 @@ void VersionManager::onAllDownloadsFinished(bool success) {
         if (m_modpackInstall.phase == ModpackInstall::Phase::DownloadingFiles) {
             if (!success) {
                 // 半成品目录**刻意留着**（几百 MB 已经下好的文件在里面，删是不逆的）：
-                // 失败那句话得说清它在哪、以及想重试要先删掉它（重名会拦下第二次导入）。
+                // 失败那句话得说清它在哪、以及**怎么接着下**。
+                // NOTE: 原来这里写的是「先把那个目录删掉，再导入一次」—— 那是「接着下」
+                //       （`ImportNameVerdict::OkResume`，2026-09-22 加的）**之前**留下来的
+                //       说法，照它做等于把几百 MB 白删、还把唯一能续的点毁了。这一支失败时
+                //       实例那份薄 json 已经落盘（`startModpackFiles()` 的第一步就是写它），
+                //       所以 `isUnfinishedImport()` 认得出这个目录 ⇒ 同一个包、同一个名字
+                //       再导入一次就走 OkResume，已经下好的按 sha1 跳过。
                 failModpackImport(
                     tr("整合包里有 %1 个文件没下下来，没有装完。\n%2\n\n已经下好的那些留在 %3 "
-                       "里了 —— 想重试的话，先把那个目录删掉，再导入一次。")
+                       "里了 —— 拿同一个整合包、同一个实例名再导入一次就会接着下"
+                       "（已经下好的按 sha1 跳过）。")
                         .arg(stats.failed)
                         .arg(message, AppPaths::versionDir(m_modpackInstall.instanceId)));
                 return;
@@ -3836,4 +3860,769 @@ void VersionManager::onAllDownloadsFinished(bool success) {
     // 一批只发一次。改动前这里由每个文件的 downloadFinished 触发，
     // 下载一个版本会在日志里刷出几千行一模一样的话。
     emit versionDownloadFinished(m_currentVersionDownloading, success, message);
+}
+
+// ---------------------------------------------------------------------------
+// 导出整合包（要联网 / 要读盘的那几件；清单和 zip 的规则都在 ModpackExport 那一层）
+// ---------------------------------------------------------------------------
+
+namespace {
+
+/// 加载器 → 整合包清单里那一行的键（`ModpackImport` 那套词）。认不出（OptiFine）回空串。
+///
+/// NOTE: 写成逐条列出的 switch 而不是一张查表，是为了**将来多一个加载器时编译器会替你
+///       盯一眼**（loaderKindForDependencyKey 那一条也是这个理由，方向正好相反）。
+QString dependencyKeyForLoaderKind(VersionManager::LoaderKind kind) {
+    switch (kind) {
+    case VersionManager::LoaderKind::Fabric:
+        return ModpackImport::fabricLoaderKey();
+    case VersionManager::LoaderKind::Forge:
+        return ModpackImport::forgeLoaderKey();
+    case VersionManager::LoaderKind::NeoForge:
+        return ModpackImport::neoforgeLoaderKey();
+    case VersionManager::LoaderKind::OptiFine:
+        // 两种清单格式里都没有它那一格。**这一档由调用方在进这个函数之前就拦掉了**
+        // （见 optifineExportProblem），这里回空串只是"没有可以写进清单的键"这个事实。
+        return QString();
+    }
+    return QString();
+}
+
+/// 加载器版本号长得像不像一个版本号：**点分数字**（`47.4.10` / `10.13.4.1614`）。
+///
+/// 判据抄的是 LoaderMeta::listForgeVersions 里那条"只收点分数字的版本号"：Forge 自己的
+/// maven 上带字母后缀的那几个（`10.13.3.1401-1710ls`）连**排序**都没有定义，我们那份列表
+/// 本来就不会把它们交出来，所以"点分数字"对真值是充分的。
+static bool looksLikeLoaderVersion(const QString &text) {
+    if (text.isEmpty()) {
+        return false;
+    }
+    bool sawDigit = false;
+    for (const QChar ch : text) {
+        if (ch.isDigit()) {
+            sawDigit = true;
+        } else if (ch != QLatin1Char('.')) {
+            return false;
+        }
+    }
+    return sawDigit;
+}
+
+/// 一个版本 id 是不是某个**我们装得了的**加载器装出来的，是的话把键和版本号拆出来。
+///
+/// 三种拼法都有唯一出处（LoaderMeta 里那三个函数），这里只是把它们**反过来读**：
+///   `fabric-loader-0.16.14-1.20.1` / `1.20.1-forge-47.4.10` / `neoforge-21.1.215`
+/// 外加 Quilt 的 `quilt-loader-0.20.0-1.20.1`（我们装不了它，但**认不出来就等于把它当
+/// 纯原版导**，而那种包用户装回来会发现模组都在、游戏起不来，见 .hpp 里那段）。
+///
+/// NOTE: Fabric / Quilt 那两条**从左边切第一刀**（加载器版本到第一个 `-` 为止，剩下的
+///       都算游戏版本）：游戏版本里真能带 `-`（`1.21-pre1`），加载器版本不会。反过来切的话
+///       `0.16.14` 会被拆成 `0.16.14` 和空。
+///
+/// @param knownVersions 在线清单里那些版本（没取到就是空表）。**只有 Forge 那一条用得上**：
+///        它的分隔符是一个**不带头锚点**的子串（见下面那段 NOTE），光看长相不足以判断
+///        左边那半是不是游戏版本。
+bool loaderIdParts(const QString &id, const QList<MinecraftVersion> &knownVersions,
+                   QString *keyOut, QString *versionOut) {
+    const auto fill = [keyOut, versionOut](const QString &key, const QString &version) {
+        if (keyOut != nullptr) {
+            *keyOut = key;
+        }
+        if (versionOut != nullptr) {
+            *versionOut = version;
+        }
+        return true;
+    };
+    // 两条 `<加载器>-loader-<加载器版本>-<游戏版本>` 形状的路：只有键不一样。
+    const auto loaderLoaderForm = [&](const QString &prefix, const QString &key) {
+        if (!id.startsWith(prefix)) {
+            return false;
+        }
+        const QString rest = id.mid(prefix.size());
+        const int dash = rest.indexOf(QLatin1Char('-'));
+        if (dash <= 0) {
+            return false;
+        }
+        return fill(key, rest.left(dash));
+    };
+    static const QString kFabric = QStringLiteral("fabric-loader-");
+    static const QString kQuilt = QStringLiteral("quilt-loader-");
+    if (loaderLoaderForm(kFabric, ModpackImport::fabricLoaderKey())) {
+        return true;
+    }
+    if (loaderLoaderForm(kQuilt, ModpackImport::quiltLoaderKey())) {
+        return true;
+    }
+    // ★ 2026-09-27：Forge 这条和上面三条**不一样**：它的分隔符 `-forge-` 是个**不带头锚点**
+    //   的子串（`<游戏版本>-forge-<加载器版本>` 只能从中间认），而这一条路要读的 id 里
+    //   混着**用户自己起的名字**（PCL 那类合并实例的 `id` 就是目录名，见 instanceGameVersion
+    //   里那段），于是「1.20.1-forge-版」「26.2hyperland-forge-47.4.10」这种名字从前会被当成
+    //   一个真的 Forge 实例：清单里写上一个不存在的 Forge 版本号，收包的人那边整包装不上，
+    //   而包看上去是好的（正是 .hpp 里那段最怕的失败形态）。
+    //   两道判据一起上，左边那半走**全项目同一套** isKnownGameVersion（清单里有它才算数，
+    //   清单没取到时它自己退回"以数字开头 + 没有空白"的长相判据），右边那半必须是点分数字。
+    static const QString kForge = QStringLiteral("-forge-");
+    const int forge = id.indexOf(kForge);
+    if (forge > 0 && forge + kForge.size() < id.size()) {
+        const QString gamePart = id.left(forge);
+        const QString loaderPart = id.mid(forge + kForge.size());
+        if (VersionManager::isKnownGameVersion(gamePart, knownVersions) &&
+            looksLikeLoaderVersion(loaderPart)) {
+            return fill(ModpackImport::forgeLoaderKey(), loaderPart);
+        }
+        return false;
+    }
+    static const QString kNeoForge = QStringLiteral("neoforge-");
+    if (id.startsWith(kNeoForge) && id.size() > kNeoForge.size()) {
+        return fill(ModpackImport::neoforgeLoaderKey(), id.mid(kNeoForge.size()));
+    }
+    return false;
+}
+
+/// OptiFine 那句"认得出来、写不下去"的说明。
+///
+/// NOTE: 它是**故意不导出**的，不是没做：两种规范里都没有 OptiFine 那一格（Modrinth 的
+///       依赖表只认 minecraft / forge / neoforge / fabric-loader / quilt-loader），照原版
+///       导出去的话用户装回来的包看着是好的、进去是一堆没有光影的模组。
+QString optifineExportProblem(const QString &version) {
+    const QString shown =
+        version.trimmed().isEmpty() ? QString() : QStringLiteral(" %1").arg(version.trimmed());
+    return QObject::tr(
+               "这个实例是 OptiFine%1 装的。两种整合包格式的清单里都没有 OptiFine 那一格"
+               "（依赖表只认 minecraft / forge / neoforge / fabric-loader / quilt-loader），"
+               "写不出一个别的启动器能照着重装的包 —— 所以没有导出。")
+        .arg(shown);
+}
+
+/// 认出来的加载器键能不能写进清单。空串 = 能写（**包括"压根没有加载器"这一档**，
+/// 那是正常的：纯原版实例导出来就是纯原版包）。
+///
+/// NOTE: 传进来的键**不会是空串以外的 OptiFine**（那一档在进这里之前就拦了）。
+QString loaderKeyExportProblem(const QString &key, const QString &version) {
+    if (key.isEmpty() || key == ModpackImport::fabricLoaderKey() ||
+        key == ModpackImport::forgeLoaderKey() || key == ModpackImport::neoforgeLoaderKey()) {
+        return QString();
+    }
+    const QString shown =
+        version.trimmed().isEmpty() ? QString() : QStringLiteral(" %1").arg(version.trimmed());
+    if (key == ModpackImport::quiltLoaderKey()) {
+        return QObject::tr(
+                   "这个实例是 Quilt%1 装的。清单格式倒写得下 Quilt（Modrinth 的依赖表里有 "
+                   "quilt-loader 这一项），但本启动器装不了 Quilt —— 导出来的包我们自己也装"
+                   "不回来，所以没有导出。")
+            .arg(shown);
+    }
+    return QObject::tr("这个实例的加载器是「%1」（%2），本启动器不认识它，不敢往外导。")
+        .arg(key, shown.trimmed().isEmpty() ? QObject::tr("没有版本号") : shown.trimmed());
+}
+
+/// Modrinth 那一发没成时那句话。
+QString modrinthLookupFailureText(const HttpClient::Reply &reply) {
+    if (!reply.networkError.isEmpty()) {
+        return QObject::tr("问 Modrinth 要文件信息时没连上：%1").arg(reply.networkError);
+    }
+    if (reply.status == HttpClient::kStatusTooManyRequests) {
+        // 限流那一句的唯一出处（见 HttpClient::throttledText）。
+        return HttpClient::throttledText(QObject::tr("问 Modrinth 要文件信息"));
+    }
+    return QObject::tr("Modrinth 的接口回了 HTTP %1。").arg(reply.status);
+}
+
+/// 一发问多少条。两条路都定 100：正文小、重来代价小，而一个大包（几百条）也就三四发。
+constexpr int kLookupChunk = 100;
+
+/// 长得像不像一个原版版本号。
+///
+/// 两条判据：**以数字开头**（Mojang 的版本号全都以数字开头 —— `1.20.1` / `24w14a` /
+/// `26.2-snapshot-1`）＋ **一个空白都没有**。
+///
+/// 第二条是给 PCL 那种"目录名就是用户起的名字"的实例兜底的：`1.20.2-Fabric 0.17.2`
+/// 以数字开头，可它**不是一个游戏版本** —— 写进清单之后收包的人那边会去找一个没有的版本，
+/// 而包看上去是好的（这就是为什么不能只看第一个字符）。
+static bool looksLikeGameVersion(const QString &text) {
+    if (text.isEmpty() || !text.at(0).isDigit()) {
+        return false;
+    }
+    for (const QChar ch : text) {
+        if (ch.isSpace()) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/// 从 maven 坐标那一格（`<原版>-<加载器版本>`）里切出加载器版本。
+///
+/// NOTE: 切的是**第一个**横杠，不是最后一个：`1.12.2-14.23.5.2860` 要 `14.23.5.2860`，
+///       而 GTNH 那种 `1.7.10-10.13.4.1614-1.7.10` 后面还挂着一个游戏版本 —— 按最后一个
+///       横杠切会切出 `1.7.10`，正好是反的。没有横杠时整串就是版本号。
+static QString loaderVersionFromMaven(const QString &mavenVersion) {
+    const QString text = mavenVersion.trimmed();
+    const int dash = text.indexOf(QLatin1Char('-'));
+    return dash > 0 ? text.mid(dash + 1) : text;
+}
+
+/**
+ * @brief 从一份**合并过的**版本 json 自己身上认加载器。
+ *
+ * 【这条路为什么必须有】PCL / HMCL 那一类启动器把整份 json 合进实例目录（真机上绝大多数
+ * 实例都是这样）：它们的 `inheritsFrom` 是空的，`id` 就是用户给实例起的名字（`海波篮子`、
+ * `1.21.11-Fabric 0.19.3`），于是按 id 认的那条路一步都走不出去 —— 走不出去的结果是
+ * 「纯原版」，于是一个装着 133 个模组的 Fabric 实例会被导成一个**原版包**：收包的人那边
+ * 模组都在、游戏起不来，而包看上去是好的（2026-09-26 用户报的那次就是这个形状的前一半）。
+ *
+ * 判据只取"真正会进 classpath 的东西"，外加加载器自己声明的启动参数：
+ *   · `net.fabricmc:fabric-loader:<版本>`
+ *   · `net.minecraftforge:forge:<原版>-<版本>`（1.12 及以前）
+ *   · `net.minecraftforge:fmlloader:<原版>-<版本>`（1.13 以后）
+ *   · `net.neoforged.fancymodloader:loader:<FML 版本>` ⇒ 只当"这是 NeoForge"的凭据：
+ *     它那个 4.x 是 FML 的版本号，**不是** `neoforge-<版本>` 那个号，写进清单是错的
+ *   · `arguments.game` 里的 `--fml.neoForgeVersion` / `--fml.forgeVersion`（加载器安装器
+ *     自己写进去的，实测 `--fml.neoForgeVersion` 紧跟着就是版本号）
+ *   · `optifine:OptiFine:<版本>` / `org.quiltmc:quilt-loader:<版本>` ⇒ 认得出来、写不下去
+ *     （和 id 那条路共用同一句话：OptiFine 是清单里没那一格，Quilt 是清单写得下但我们装不了）
+ *
+ * 【`mainClass` 不能当判据】`cpw.mods.bootstraplauncher.BootstrapLauncher` 是 Forge 与
+ * NeoForge **共用**的，而 `net.minecraft.launchwrapper.Launch` 连纯原版 1.12.2 都是它。
+ *
+ * @param json 一份**没合并过**的版本 json（`rawVersionJson` 读回来的那份）。
+ * @return 这份 json 有没有说出加载器（含"是 OptiFine，导不了"那一档 —— 那也算说出来了）。
+ *         说出来时 `problemOut` 是"能不能导出"那一句：**空 = 能**（键与版本在另外两个出参里）。
+ */
+bool loaderEvidenceFromJson(const QJsonObject &json, QString *keyOut, QString *versionOut,
+                            QString *problemOut) {
+    *problemOut = QString();
+
+    QString fabricVersion;
+    QString legacyForgeVersion;  ///< net.minecraftforge:forge:<原版>-<版本>（1.12 及以前）
+    QString modernForgeVersion;  ///< net.minecraftforge:fmlloader:<原版>-<版本>（1.13 以后）
+    QString optifineVersion;
+    QString quiltVersion;
+    bool neoForgeSeen = false;
+    for (const QJsonValue &entry : json.value(QStringLiteral("libraries")).toArray()) {
+        const QStringList parts =
+            entry.toObject().value(QStringLiteral("name")).toString().split(QLatin1Char(':'));
+        if (parts.size() < 3) {
+            continue;
+        }
+        const QString group = parts.at(0);
+        const QString artifact = parts.at(1);
+        const QString version = parts.at(2);
+        if (group == QLatin1String("net.fabricmc") && artifact == QLatin1String("fabric-loader")) {
+            fabricVersion = version;
+        } else if (group == QLatin1String("net.minecraftforge") &&
+                   artifact == QLatin1String("forge")) {
+            legacyForgeVersion = version;
+        } else if (group == QLatin1String("net.minecraftforge") &&
+                   artifact == QLatin1String("fmlloader")) {
+            modernForgeVersion = version;
+        } else if (group == QLatin1String("net.neoforged.fancymodloader") &&
+                   artifact == QLatin1String("loader")) {
+            neoForgeSeen = true;
+        } else if (group == QLatin1String("optifine") && artifact == QLatin1String("OptiFine")) {
+            optifineVersion = version;
+        } else if (group == QLatin1String("org.quiltmc") &&
+                   artifact == QLatin1String("quilt-loader")) {
+            quiltVersion = version;
+        }
+    }
+
+    // OptiFine 排在最前面：装了加载器**又**装了 OptiFine 的实例两种都会命中，而按规范它
+    // 是"导不了"的那一档（id 那条路也是先看 OptiFine 再看别的加载器，顺序保持一致）。
+    if (!optifineVersion.isEmpty()) {
+        *problemOut = optifineExportProblem(optifineVersion);
+        return true;
+    }
+    if (!quiltVersion.isEmpty()) {
+        // 那句"清单写得下、我们装不了"的说明只有一份（loaderKeyExportProblem 里）。
+        *problemOut = loaderKeyExportProblem(ModpackImport::quiltLoaderKey(), quiltVersion);
+        return true;
+    }
+
+    QStringList declared;
+    const QJsonValue arguments = json.value(QStringLiteral("arguments"));
+    if (arguments.isObject()) {
+        declared = VersionArguments::declaredArguments(
+            arguments.toObject().value(QStringLiteral("game")).toArray());
+    }
+    const auto declaredValue = [&declared](const QString &flag) {
+        const int at = declared.indexOf(flag);
+        return (at >= 0 && at + 1 < declared.size()) ? declared.at(at + 1) : QString();
+    };
+
+    const auto fill = [keyOut, versionOut](const QString &key, const QString &version) {
+        *keyOut = key;
+        *versionOut = version;
+        return true;
+    };
+
+    if (!fabricVersion.isEmpty()) {
+        return fill(ModpackImport::fabricLoaderKey(), fabricVersion);
+    }
+
+    if (neoForgeSeen) {
+        const QString neoForgeVersion = declaredValue(QStringLiteral("--fml.neoForgeVersion"));
+        if (neoForgeVersion.isEmpty()) {
+            // 宁可明说导不了，也不要拿 FML 那个 4.x 顶上去：清单里那一格是"别人照着装的
+            // 版本号"，写错的话收包的人装出来的是另一个 NeoForge。
+            *problemOut = QObject::tr(
+                "这个实例是 NeoForge 装的，但读不出是哪一版 —— 这份 json 里没有 "
+                "--fml.neoForgeVersion，而 fancymodloader 那个版本号（4.x）和 neoforge-<版本> "
+                "不是同一个号，填进清单就是错的。");
+            return true;
+        }
+        return fill(ModpackImport::neoforgeLoaderKey(), neoForgeVersion);
+    }
+
+    const QString forgeFromMaven =
+        loaderVersionFromMaven(modernForgeVersion.isEmpty() ? legacyForgeVersion
+                                                           : modernForgeVersion);
+    if (!forgeFromMaven.isEmpty()) {
+        return fill(ModpackImport::forgeLoaderKey(), forgeFromMaven);
+    }
+    const QString forgeDeclared = declaredValue(QStringLiteral("--fml.forgeVersion"));
+    if (!forgeDeclared.isEmpty()) {
+        return fill(ModpackImport::forgeLoaderKey(), forgeDeclared);
+    }
+
+    return false;
+}
+
+}  // namespace
+
+bool VersionManager::isKnownGameVersion(const QString &id,
+                                        const QList<MinecraftVersion> &knownVersions) {
+    const QString text = id.trimmed();
+    if (text.isEmpty()) {
+        return false;
+    }
+    // ① 清单在手（启动时取过一次，见 MainWindow::onVersionsFetched 那句日志）：**以它为准**。
+    //
+    //    这一条治的是两件**相反**的事，两件都在真机上量到过（只读探针
+    //    `mw_check instance-scan <数据目录>`，2026-09-26 拿用户的盘跑出来的）：
+    //      · **放行不以数字开头的老版本号**：`rd-132211` / `c0.30_01c` / `inf-20100618`
+    //        都是清单里真有、也装得出来的版本，光看长相会把这一档整个漏掉；
+    //      · **拦住"长得像版本号、但 Mojang 根本没这个 id"的东西**：真机上有 `20w14∞`
+    //        （它的正式 id 是 `20w14infinite`）和 `26.2hyperland`（Hyperlands 那个私服客户端）
+    //        —— 写进清单收包的人那边没有这个版本可装，和"目录名不像版本号"是同一个病，
+    //        只是长得更像、光看长相拦不住。
+    //
+    //    严格到这一步的代价只有"清单比实例旧"这一种情形（刚出的快照不在缓存里），而清单是
+    //    启动时取的、能装出来的版本必然在里面，所以那种情形实际上要"用户手工丢进来一个
+    //    比清单还新的目录"才会撞上 —— 撞上了也只是**报一句、不写假版本号**，重启就恢复。
+    if (!knownVersions.isEmpty()) {
+        for (const MinecraftVersion &version : knownVersions) {
+            if (version.id == text) {
+                return true;
+            }
+        }
+        return false;
+    }
+    // ② 清单没取到（离线第一趟）：只能看长相，**这里的放宽是有意的** —— 宁可放行一个可疑的
+    //    版本号，也不要"离线时一个实例都导不出去"。挡着的还是 `原版ATT2地图（无模组）` /
+    //    `1.20.2-Fabric 0.17.2` 这类最明显的假版本号。
+    return looksLikeGameVersion(text);
+}
+
+QString VersionManager::instanceLoaderInfo(const QString &instanceId, QString *keyOut,
+                                           QString *versionOut) {
+    if (keyOut != nullptr) {
+        keyOut->clear();
+    }
+    if (versionOut != nullptr) {
+        versionOut->clear();
+    }
+    const QString start = instanceId.trimmed();
+    if (start.isEmpty()) {
+        return tr("没有给出实例名，不知道要导出哪一个实例。");
+    }
+
+    // 在线清单那一份（没取到就是空表），只给 loaderIdParts 里 Forge 那一条用：那条的判据
+    // 要问"左边那半是不是一个真游戏版本"，出处是 isKnownGameVersion()。取法和
+    // instanceGameVersion() 里那句逐字相同（它也是**现取**，不缓存 —— 清单是启动时那一份）。
+    const QList<MinecraftVersion> knownVersions = downloadManager->getAvailableVersions();
+
+    // ---- 第一条路：顺着版本 json 的继承链看那一串 id ----
+    //
+    // 这一条排在前面，因为它是**装在盘上的东西自己说的**：装加载器出来的目录名就是那个
+    // id，导入整合包出来的薄 json 的 inheritsFrom 也指着它。
+    QSet<QString> seen;
+    QString id = start;
+    // 链上每一份**没合并过**的 json，从实例自己那份开始。第三条路要用（见下），顺手存着
+    // 免得再读一遍盘。注意：认出来了就 return 了，所以攒下来的那些一定是"还没认出来"时
+    // 走过的整条链。
+    QList<QJsonObject> chainJsons;
+    for (int depth = 0; depth < VersionInheritance::maxDepth() && !id.isEmpty(); ++depth) {
+        if (seen.contains(id)) {
+            // 环（手写的 json 可以是 A→B→A）。上面几层里该认的已经认过了，往下没有信息
+            // 可挖 —— 这不是错误。
+            break;
+        }
+        seen.insert(id);
+
+        // OptiFine 单独认一次：它那个 id 是安装器自己拼的（`1.18.2-OptiFine_HD_U_H9`），
+        // 而且在两种清单里都没有对应的键，loaderIdParts 里根本没有它那一档。
+        //
+        // ★ 2026-09-27：同一个**不带头锚点**的毛病（和 loaderIdParts 里 Forge 那条一样，那
+        //   边有完整来路）—— 左边那半也得是一个真游戏版本。不收这一下的话，用户把实例改名
+        //   成「我的-OptiFine_版」就会被当成"OptiFine 实例"，而这个分支的出路是**拒绝导出**：
+        //   一个好好的实例，因为名字里带了几个字，就一个包都导不出去，报的还是"两种清单里
+        //   都没有 OptiFine 那一格"。右边那半不另判长相 —— OptiFine 的版本名
+        //   （`HD_U_H9`）是它自己一套写法，没有能便宜判出来的形状。
+        static const QString kOptiFine = QStringLiteral("-OptiFine_");
+        const int optifine = id.indexOf(kOptiFine);
+        if (optifine > 0 &&
+            VersionManager::isKnownGameVersion(id.left(optifine), knownVersions)) {
+            return optifineExportProblem(id.mid(optifine + kOptiFine.size()));
+        }
+
+        QString key;
+        QString version;
+        if (loaderIdParts(id, knownVersions, &key, &version)) {
+            const QString problem = loaderKeyExportProblem(key, version);
+            if (problem.isEmpty()) {
+                if (keyOut != nullptr) {
+                    *keyOut = key;
+                }
+                if (versionOut != nullptr) {
+                    *versionOut = version;
+                }
+            }
+            return problem;
+        }
+        const QJsonObject json = rawVersionJson(id);
+        chainJsons.append(json);
+        id = VersionInheritance::parentIdOf(json);
+    }
+
+    // ---- 第二条路：从**那份 json 自己身上**认（libraries + arguments.game）----
+    //
+    // 罩的是 PCL / HMCL 那一类"整份 json 都合进实例目录"的实例 —— 真机上绝大多数都是。
+    // 它们的链上一步都走不出去（`inheritsFrom` 是空的，`id` 是用户给实例起的名字），
+    // 所以第一条路问不出任何东西；而它们**照样**把加载器明明白白写在 libraries 里。
+    // 少了这一条，一个装着 133 个模组的 Fabric 实例会被下面那条 meta 路当成**纯原版**
+    // 导出去（2026-09-26 用户报的那次就是这个形状）。
+    //
+    // 顺序是**从实例自己那份开始**（链越靠前越贴着这个实例），一份一份往下看。
+    for (const QJsonObject &json : chainJsons) {
+        QString key;
+        QString version;
+        QString problem;
+        if (!loaderEvidenceFromJson(json, &key, &version, &problem)) {
+            continue;
+        }
+        if (problem.isEmpty()) {
+            if (keyOut != nullptr) {
+                *keyOut = key;
+            }
+            if (versionOut != nullptr) {
+                *versionOut = version;
+            }
+        }
+        return problem;
+    }
+
+    // ---- 第三条路：wtfml.meta 里我们自己记的那一段 ----
+    //
+    // 罩的是"链上没有、但 meta 里记着"的那一类（用户手写过一个 meta）。这张反查表是照着
+    // loaderDisplayName() 拼出来的，所以不可能和写进去的那一份漂。
+    const QJsonObject meta = readVersionMeta(start);
+    const QString metaName = meta.value(QStringLiteral("loaderName")).toString().trimmed();
+    const QString metaVersion = meta.value(QStringLiteral("loaderVersion")).toString().trimmed();
+    if (metaName.isEmpty()) {
+        // 链上没有任何加载器的痕迹、meta 里也没记 —— 这就是**纯原版实例**。这是正常结果
+        // （不是"认不出来"）：盘上没有任何一处说它装了加载器。
+        return QString();
+    }
+    // 大小写不敏感：这一段是给界面看的显示名，用户手写过的 meta 里写 "fabric" 也认。
+    if (metaName.compare(loaderDisplayName(LoaderKind::OptiFine), Qt::CaseInsensitive) == 0) {
+        return optifineExportProblem(metaVersion);
+    }
+    for (int index = 0; index < loaderKindCount(); ++index) {
+        LoaderKind kind = LoaderKind::Fabric;
+        if (!loaderKindFromIndex(index, &kind)) {
+            break;
+        }
+        if (metaName.compare(loaderDisplayName(kind), Qt::CaseInsensitive) != 0) {
+            continue;
+        }
+        const QString key = dependencyKeyForLoaderKind(kind);
+        if (key.isEmpty()) {
+            // 上面已经把 OptiFine 那一档拦掉了，走到这里说明那张表里多了一个还没有键的
+            // 加载器（新加 LoaderKind 忘了接这里）—— 如实报，别当成纯原版往下导。
+            return tr("这个实例的加载器是「%1」，但它还没有对应的整合包写法，没有导出。")
+                .arg(metaName);
+        }
+        if (keyOut != nullptr) {
+            *keyOut = key;
+        }
+        if (versionOut != nullptr) {
+            *versionOut = metaVersion;
+        }
+        return QString();
+    }
+    return tr("这个实例的 wtfml.meta 里写着加载器「%1」，本启动器不认识这个名字，不敢往外导 ——"
+              "把一个装了几百个模组的实例导成纯原版包，用户装回来会发现模组都在、游戏起不来，"
+              "而包看上去是好的。要导出的话，把 wtfml.meta 里的 loaderName 改成 Fabric / Forge / "
+              "NeoForge 之一。")
+        .arg(metaName);
+}
+
+QString VersionManager::instanceGameVersion(const QString &instanceId) {
+    const QString start = instanceId.trimmed();
+    if (start.isEmpty()) {
+        return QString();
+    }
+    // 在线清单那一份（没取到就是空表）。判据里那一半"清单里真有这个 id"要用它。
+    const QList<MinecraftVersion> knownVersions = downloadManager->getAvailableVersions();
+    const auto usable = [&knownVersions](const QString &text) {
+        return isKnownGameVersion(text, knownVersions);
+    };
+
+    // ① 我们自己记的那一格。它是**最准的**：装的时候就是从清单里抄下来的，显示名用的也是它。
+    const QJsonObject meta = readVersionMeta(start);
+    const QString realVersion = meta.value(QStringLiteral("realVersion")).toString().trimmed();
+    if (usable(realVersion)) {
+        return realVersion;
+    }
+
+    // ② 顺继承链走到末端，顺手把每一份 json 存下来给 ③ 用。链上每一层的 id 都得从
+    //    **没合并过**的那份 json 里读（getVersionJson() 会把 inheritsFrom 吃掉，
+    //    走一步就到底了，见它自己的说明）。防环 + 深度上限和别处同一对常量
+    //    （VersionInheritance 里那两个）。
+    QSet<QString> seen;
+    QString id = start;
+    QString last;
+    QList<QJsonObject> chainJsons;
+    for (int depth = 0; depth < VersionInheritance::maxDepth() && !id.isEmpty(); ++depth) {
+        if (seen.contains(id)) {
+            break;
+        }
+        seen.insert(id);
+        last = id;
+        const QJsonObject json = rawVersionJson(id);
+        chainJsons.append(json);
+        id = VersionInheritance::parentIdOf(json);
+    }
+
+    // ③ 链上某一份 json 自己写着它基于哪个原版 —— `clientVersion` 那一格。
+    //
+    // 这是 PCL / HMCL 那类**合并过的**实例唯一说得出口的地方（真机上绝大多数实例都是）：
+    // 它们的 `id` 就是用户给实例起的名字（`海波篮子`、`1.21.11-Fabric 0.19.3`）、
+    // `inheritsFrom` 是空的，所以 ① 没有、② 走不动，而 `clientVersion` 是真值。
+    // 少了这一条，这些实例一个都导不出去（2026-09-26 用户报的那次就是这个：日志里那句
+    // 「导出失败：读不出 海波篮子 基于哪个原版」）。
+    //
+    // 从**末端**往前找：链越靠末越接近原版那一份。Mojang 自己那份 json 里没有这一格，
+    // 所以薄 json（我们自己的整合包导入、加载器安装）不受影响，照旧落到 ④。
+    for (auto it = chainJsons.crbegin(); it != chainJsons.crend(); ++it) {
+        const QString clientVersion =
+            it->value(QStringLiteral("clientVersion")).toString().trimmed();
+        if (usable(clientVersion)) {
+            return clientVersion;
+        }
+    }
+
+    // ④ 再兜一层：链的末端那个 **id**。薄 json 走的正是这里 —— 它的 inheritsFrom 最后
+    //    指到原版那一份，而原版那份目录名就是版本号。
+    if (usable(last)) {
+        return last;
+    }
+
+    // ⑤ 最后一层：实例自己的目录名。这是几条路里最不可信的一个（真机上有
+    //    `原版ATT2地图（无模组）`、`1.20.2-Fabric 0.17.2` 这种），所以除了"在清单里"
+    //    就只有"清单里有"或者"长得像版本号"（以数字开头 + 没有空白）才敢用 ——
+    //    判据的出处是 isKnownGameVersion()。
+    return usable(start) ? start : QString();
+}
+
+QString VersionManager::lookupModrinthVersionFiles(
+    const QStringList &sha1s, QHash<QString, ModpackExport::ModrinthHit> *out) {
+    if (out == nullptr) {
+        return tr("内部错误：没有给出放结果的地方。");
+    }
+    out->clear();
+    if (sha1s.isEmpty()) {
+        return QString();  // 空表那一发不该发出去（回复必然是空 map）
+    }
+
+    // User-Agent **必须带**：Modrinth 的接口规矩里写着要能认出是谁在问（它按这个封滥用）。
+    // 和 ResourceStore 那两处是同一个串，但**不能共用一份**（一个在 download/、一个在
+    // manage/，为一行字建一个头文件不划算）；改的时候记得两边一起看。
+    const QList<QPair<QByteArray, QByteArray>> headers{
+        {QByteArrayLiteral("User-Agent"), QByteArrayLiteral("WTFML")}};
+
+    for (int offset = 0; offset < sha1s.size(); offset += kLookupChunk) {
+        const QStringList chunk = sha1s.mid(offset, kLookupChunk);
+        const QByteArray body = ModpackExport::modrinthVersionFilesRequestBody(chunk);
+        if (body.isEmpty()) {
+            continue;
+        }
+        // 根地址：验证工程的口子优先（见 setModrinthApiBaseOverride），否则官方那一份
+        // （唯一出处仍是 ResourceCatalog 里那个 apiRoot()）。
+        const QString root = m_modrinthApiBaseOverride.isEmpty()
+                                 ? ResourceCatalog::modrinthApiRoot()
+                                 : m_modrinthApiBaseOverride;
+        const HttpClient::Reply reply = HttpClient::send(
+            loaderNetworkManager(), QUrl(root + QStringLiteral("/version_files")),
+            HttpClient::Verb::Post, body, QByteArrayLiteral("application/json"), QByteArray(),
+            HttpClient::kDefaultTimeoutMs, headers);
+        if (!reply.ok()) {
+            // 整件事停下（调用点那边是"要不要继续"由用户决定的那一档）：一半的批次认出来、
+            // 一半没认出来，交给用户的报告就成了半真半假的东西。
+            return modrinthLookupFailureText(reply);
+        }
+        QString problem;
+        const QHash<QString, ModpackExport::ModrinthHit> part =
+            ModpackExport::parseModrinthVersionFiles(reply.raw, &problem);
+        if (!problem.isEmpty()) {
+            return problem;
+        }
+        for (auto it = part.constBegin(); it != part.constEnd(); ++it) {
+            out->insert(it.key(), it.value());
+        }
+    }
+    return QString();
+}
+
+QString VersionManager::lookupCurseForgeFingerprints(
+    const QList<quint32> &fingerprints, QHash<quint32, ModpackExport::CurseForgeHit> *out) {
+    if (out == nullptr) {
+        return tr("内部错误：没有给出放结果的地方。");
+    }
+    out->clear();
+    if (fingerprints.isEmpty()) {
+        return QString();
+    }
+
+    // 和 resolveCurseForgeFiles 同一个形状：key 是用户自己填的才带（并且**只有**带了它才走
+    // 官方那台），空串走那台不要 key 的社区镜像。base 自带 `/v1`（见 curseForgeApiBase）。
+    const QString base =
+        ModpackImport::curseForgeApiBase(m_curseForgeApiKey, m_curseForgeApiBaseOverride);
+    const bool hasKey = !m_curseForgeApiKey.isEmpty();
+    QList<QPair<QByteArray, QByteArray>> headers;
+    if (hasKey) {
+        headers.append({QByteArrayLiteral("x-api-key"), m_curseForgeApiKey.toUtf8()});
+    }
+
+    for (int offset = 0; offset < fingerprints.size(); offset += kLookupChunk) {
+        const QList<quint32> chunk = fingerprints.mid(offset, kLookupChunk);
+        const QByteArray body = ModpackExport::curseForgeFingerprintsRequestBody(chunk);
+        if (body.isEmpty()) {
+            continue;
+        }
+        const HttpClient::Reply reply = HttpClient::send(
+            loaderNetworkManager(), QUrl(base + QStringLiteral("/fingerprints")),
+            HttpClient::Verb::Post, body, QByteArrayLiteral("application/json"), QByteArray(),
+            HttpClient::kDefaultTimeoutMs, headers);
+        if (!reply.ok()) {
+            if (!reply.networkError.isEmpty()) {
+                return tr("问 CurseForge 要文件信息时没连上：%1\n\n%2")
+                    .arg(reply.networkError, curseForgeKeyHint(hasKey));
+            }
+            if (reply.status == HttpClient::kStatusTooManyRequests) {
+                return HttpClient::throttledText(tr("问 CurseForge 要文件信息"));
+            }
+            const QString apiError = reply.json.value(QStringLiteral("error")).toString().trimmed();
+            return tr("CurseForge 的接口回了 HTTP %1%2\n\n%3")
+                .arg(reply.status)
+                .arg(apiError.isEmpty() ? QString() : tr("（%1）").arg(apiError), curseForgeKeyHint(hasKey));
+        }
+        QString problem;
+        const QHash<quint32, ModpackExport::CurseForgeHit> part =
+            ModpackExport::parseCurseForgeFingerprints(reply.raw, &problem);
+        if (!problem.isEmpty()) {
+            return problem;
+        }
+        for (auto it = part.constBegin(); it != part.constEnd(); ++it) {
+            out->insert(it.key(), it.value());
+        }
+    }
+    return QString();
+}
+
+ModpackExport::ExportPlan VersionManager::buildExportPlan(
+    const ModpackExport::ExportRequest &request, const ModpackExport::ExportProgress &progress,
+    const ModpackExport::ExportCancel &cancel) {
+    // 两条反查路就地接上这一层的两个方法。走一层 std::function 是**有意的**：那一层
+    // （ModpackExport）因此一个字节的网络都不碰，验证工程能喂假接口把整条路跑完。
+    const ModpackExport::ModrinthQuery queryModrinth =
+        [this](const QStringList &sha1s, QHash<QString, ModpackExport::ModrinthHit> *out,
+               QString *problemOut) {
+            const QString problem = lookupModrinthVersionFiles(sha1s, out);
+            if (problemOut != nullptr) {
+                *problemOut = problem;
+            }
+            return problem.isEmpty();
+        };
+    const ModpackExport::CurseForgeQuery queryCurseForge =
+        [this](const QList<quint32> &fingerprints,
+               QHash<quint32, ModpackExport::CurseForgeHit> *out, QString *problemOut) {
+            const QString problem = lookupCurseForgeFingerprints(fingerprints, out);
+            if (problemOut != nullptr) {
+                *problemOut = problem;
+            }
+            return problem.isEmpty();
+        };
+    return ModpackExport::buildExportPlan(request, queryModrinth, queryCurseForge, progress, cancel);
+}
+
+QString VersionManager::writePackArchive(const ModpackExport::ExportPlan &plan,
+                                         const QString &targetZip) {
+    if (plan.cancelled) {
+        // 用户叫停：整份 plan 都作废（overrides 里可能有半截的东西），什么都不写。
+        return tr("导出已经取消了。");
+    }
+    if (!plan.problem.isEmpty()) {
+        return plan.problem;
+    }
+    if (targetZip.trimmed().isEmpty()) {
+        return tr("没有指定导出到哪个文件。");
+    }
+    if (plan.instanceDir.trimmed().isEmpty()) {
+        // 认不出来的那些文件只有相对路径，取不出盘上那一份 —— 硬打出来的包会缺东西，而
+        // zip 本身是好的。这是调用方的编程错误，如实报（别打出一个看着像整合包的残包）。
+        return tr("内部错误：这份导出计划里没有实例目录，认不出信息的那些文件取不出来。");
+    }
+
+    // 清单先写进一个临时目录 —— 打包那一步只认盘上的文件（ZipUtil::createZip 就是照
+    // "东西已经在盘上"设计的）。
+    QTemporaryDir staging;
+    if (!staging.isValid()) {
+        return tr("建不了临时目录，没法准备整合包的内容：%1").arg(staging.errorString());
+    }
+    const QString manifestPath =
+        QDir(staging.path()).absoluteFilePath(ModpackExport::indexFileName(plan.spec.format));
+    QSaveFile manifest(manifestPath);
+    if (!manifest.open(QIODevice::WriteOnly)) {
+        return tr("写不了整合包的清单文件 %1。").arg(QDir::toNativeSeparators(manifestPath));
+    }
+    // QSaveFile 的 commit() 在失败时**不会**把目标文件留在盘上（和 writeVersionJson 同一个
+    // 理由：这里坏掉的后果是打出一个清单半截的包）。
+    manifest.write(ModpackExport::buildIndexFile(plan.spec));
+    if (!manifest.commit()) {
+        return tr("写不了整合包的清单文件 %1。").arg(QDir::toNativeSeparators(manifestPath));
+    }
+
+    // 「先写 .part、成功了再改名」：用户中途关掉启动器、或者磁盘满了，盘上留下的是一个
+    // `xxx.mrpack.part`，而不是一个看着像整合包、双击却打不开的文件。
+    const QString partPath = targetZip + QStringLiteral(".part");
+    QFile::remove(partPath);
+    QString error;
+    if (!ZipUtil::createZip(partPath, ModpackExport::archiveEntries(plan, manifestPath), &error)) {
+        QFile::remove(partPath);
+        return error.isEmpty() ? tr("打包失败。") : error;
+    }
+    // 覆盖用户挑的那个路径：Windows 上 QFile::rename 遇到已存在的目标会失败，所以先删。
+    // 删除对话框那一步已经问过"要不要替换"了（QFileDialog 自己会问）。
+    if (QFile::exists(targetZip) && !QFile::remove(targetZip)) {
+        QFile::remove(partPath);
+        return tr("没法覆盖原来的文件 %1（它可能正被别的程序占着）。")
+            .arg(QDir::toNativeSeparators(targetZip));
+    }
+    if (!QFile::rename(partPath, targetZip)) {
+        QFile::remove(partPath);
+        return tr("整合包打好了，但没能放到 %1。").arg(QDir::toNativeSeparators(targetZip));
+    }
+    return QString();
 }

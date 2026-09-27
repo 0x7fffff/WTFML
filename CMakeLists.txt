@@ -27,7 +27,10 @@ set(HEADER_FILES
     src/net/HttpClient.hpp
     src/manage/FolderManager.hpp
     src/manage/InstanceFiles.hpp
+    src/manage/InstanceIconLookup.hpp
     src/manage/ModpackImport.hpp
+    src/manage/ModpackExport.hpp
+    src/manage/ServerStatusCache.hpp
     src/manage/VersionManager.hpp
     src/manage/VersionDisplay.hpp
     src/settings/GlobalJavaSettings.hpp
@@ -41,6 +44,9 @@ set(HEADER_FILES
     src/util/SystemMemory.hpp
     src/util/ZipUtil.hpp
     src/util/NbtUtil.hpp
+    src/util/ServerPing.hpp
+    ui/MotdText.hpp
+    ui/ToggleSwitch.hpp
 )
 
 set(SOURCE_FILES
@@ -55,8 +61,11 @@ set(SOURCE_FILES
     src/net/HttpClient.cpp
     src/manage/FolderManager.cpp
     src/manage/InstanceFiles.cpp
+    src/manage/InstanceIconLookup.cpp
     src/manage/InstanceGroupStore.cpp
     src/manage/ModpackImport.cpp
+    src/manage/ModpackExport.cpp
+    src/manage/ServerStatusCache.cpp
     src/manage/DefaultSkin.cpp
     src/manage/PlayerSkinStore.cpp
     src/manage/RandomSkinStore.cpp
@@ -72,9 +81,13 @@ set(SOURCE_FILES
     src/util/SystemMemory.cpp
     src/util/ZipUtil.cpp
     src/util/NbtUtil.cpp
+    src/util/ServerPing.cpp
     ui/AccountSkinDialog.cpp
     ui/GameLogWindow.cpp
     ui/MainWindowUI.cpp
+    ui/MemorySlider.cpp
+    ui/MotdText.cpp
+    ui/ToggleSwitch.cpp
     ui/GroupDialog.cpp
     ui/GroupListDelegate.cpp
     ui/InstanceSettingsDialog.cpp
@@ -85,6 +98,7 @@ set(SOURCE_FILES
     ui/SkinModel.cpp
     ui/VersionIcons.cpp
     ui/VersionTreeDelegate.cpp
+    ui/ResourceDetailPage.cpp
     ui/InstanceGroupDelegate.cpp
     ui/SkinViewer.cpp
     ui/TitleBar.cpp
