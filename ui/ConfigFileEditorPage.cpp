@@ -230,6 +230,26 @@ ConfigFileEditorPage::ConfigFileEditorPage(QWidget *parent) : QWidget(parent) {
     connect(m_indexToggle, &QPushButton::toggled, this, [this] { refreshIndexVisibility(); });
     topRow->addWidget(m_indexToggle);
 
+    // ★ 「还原上一次」：每存一次**之前**都会把盘上那一份原样留一份（见 ConfigFileText 那一
+    //   节），这一颗就是把最近那一份取回来。它摆在这一头、和「条目」挨着 —— 那两颗干的都是
+    //   "看着这一格"的事，不是"换一份文件"。
+    //
+    // ★★ 取回来**只是摆进框里**：底下那行字会说清它是哪来的、还没写回盘上，用户按「保存」
+    //    才真的落到盘上。**取回不许是一次悄悄的写入** —— 那样用户按一下就叫"还原"，
+    //    而盘上那份已经被盖掉了，再想回到"刚才改的那一份"就没有路（它没被备份过：
+    //    备份留的永远是"写之前的那一份"）。
+    m_restore = new QPushButton(restoreText(), this);
+    m_restore->setObjectName(restoreButtonName());
+    connect(m_restore, &QPushButton::clicked, this, [this] {
+        if (!m_hasFile) {
+            return;
+        }
+        // 这一层**不自己读那份备份**：读盘是读盘，而它连 AppPaths 都够不着（见文件头
+        // "这一层不碰盘"）。所以只把"用户要这个文件的上一次"这件事发出去。
+        emit restoreRequested(m_path);
+    });
+    topRow->addWidget(m_restore);
+
     m_openFolder = new QPushButton(openFolderText(), this);
     m_openFolder->setObjectName(openFolderButtonName());
     // 这一层不自己开：开目录是 QDesktopServices 的事，而失败还要弹一句 —— 那得走覆盖层
@@ -328,14 +348,23 @@ ConfigFileEditorPage::ConfigFileEditorPage(QWidget *parent) : QWidget(parent) {
     // 文件重算一遍）。
     m_editor->setReadOnly(true);
     m_save->setVisible(false);
+    m_restore->setVisible(false);
     refreshNote();
     refreshIndexVisibility();
 }
 
-void ConfigFileEditorPage::setFile(const QString &path, const ConfigFileText::Loaded &loaded) {
+void ConfigFileEditorPage::setFile(const QString &path, const ConfigFileText::Loaded &loaded,
+                                   const ConfigFileText::Stamp &stamp) {
     m_path = path;
     m_loaded = loaded;
     m_hasFile = true;
+    m_stamp = stamp;
+    // ★ 换了一份文件 ⇒ **上一条的那个答案不作数了**：那个文件留过备份没有、框里是不是从
+    //   备份取回来的，都是"对某一份文件"说的。不清的话，用户从 A（有备份）切到 B（没备份）
+    //   会看见 B 上挂着一颗「还原上一次」，点下去取回来的是 A 的备份 —— 而且它看起来
+    //   完全合理。调用方紧接着会用 setBackupAvailable() 把这一份的真实答案摆上。
+    m_backupAvailable = false;
+    m_restoredFrom.clear();
 
     m_pathLabel->setText(QDir::toNativeSeparators(path));
     m_pathLabel->setToolTip(QDir::toNativeSeparators(path));
@@ -367,6 +396,44 @@ void ConfigFileEditorPage::setFile(const QString &path, const ConfigFileText::Lo
     // "点了也没有意义"）。可编辑时才摆出来。
     m_save->setVisible(editable);
     m_save->setEnabled(true);
+    refreshRestore();
+    refreshNote();
+}
+
+void ConfigFileEditorPage::setBackupAvailable(bool available) {
+    m_backupAvailable = available;
+    refreshRestore();
+}
+
+void ConfigFileEditorPage::refreshRestore() {
+    if (m_restore == nullptr) {
+        return;
+    }
+    // 只读的（不是 UTF-8 / 太大）取回来也写不回去 —— 摆一颗按下去没结果的按钮，
+    // 和画一颗灰按钮一样，都是"点了也没意义"（见 .hpp 里「保存」那一段）。
+    m_restore->setVisible(m_backupAvailable && isEditable());
+    m_restore->setEnabled(true);
+}
+
+void ConfigFileEditorPage::restoreContent(const QString &text, const QString &whenText) {
+    if (!m_hasFile) {
+        return;
+    }
+    // ★ 只摆正文（见 .hpp）：`m_loaded` **一个字节都不动**。于是
+    //   - `isDirty()` 自己就变 true（它拿的是 m_loaded.text 比的）⇒「返回」会问一句、
+    //     「保存」才真的写盘 —— 还原不是一次悄悄的写入；
+    //   - 存的时候行尾/BOM 用的是**这个文件现在**的那些（`m_loaded.ends`）—— 备份里那几行
+    //     要是赶上不同的行尾/编码，写回去也还是这份文件本来的样子。
+    m_loading = true;
+    m_editor->setPlainText(text);
+    m_loading = false;
+    if (m_indexTimer != nullptr) {
+        m_indexTimer->stop();
+    }
+    rebuildIndex();  // 正文整份换掉了，索引的区间全不作数了 —— 立刻重认
+    m_editor->moveCursor(QTextCursor::Start);
+    m_editor->ensureCursorVisible();
+    m_restoredFrom = whenText;
     refreshNote();
 }
 
@@ -401,6 +468,10 @@ void ConfigFileEditorPage::markSaved() {
     // `m_loaded` + 同样的正文，`encode()` 是纯函数），所以 `raw` 是盘上真实的那一份，
     // `text` 也逐字等于框里的正文 ⇒ `isDirty()` 归零。
     m_loaded = ConfigFileText::decode(ConfigFileText::encode(m_loaded, text()));
+    // 刚写下去的这一份现在**就是**盘上那一份了，"框里是从备份取回来的"这件事到此为止
+    // （不抹掉的话，下一次 refreshNote() 还会说"取回来的、按保存才写回盘上"——而它已经
+    // 写回去了）。
+    m_restoredFrom.clear();
     m_note->setText(savedPrefix() + QTime::currentTime().toString(QStringLiteral("HH:mm:ss")) +
                     QStringLiteral("）"));
 }
@@ -422,6 +493,13 @@ void ConfigFileEditorPage::refreshNote() {
                             .arg(ConfigFileText::editableByteLimit() / (1024 * 1024)));
         return;
     }
+    // 取回来那一份得**说明白**：框里的内容和刚打开时不一样了，而盘上还是旧的。不说的话，
+    // 用户会以为"还原"已经落盘了（那是这一页唯一一处"正文变了但盘上没变"的情形）。
+    if (!m_restoredFrom.isEmpty()) {
+        m_note->setText(restoredPrefix() + m_restoredFrom + QStringLiteral("）") +
+                        tr("，按「保存」才写回盘上。"));
+        return;
+    }
     m_note->setText(hintText());
 }
 
@@ -434,6 +512,8 @@ void ConfigFileEditorPage::discardChanges() {
     m_loading = true;
     m_editor->setPlainText(m_loaded.text);
     m_loading = false;
+    // 正文退回读进来那一份 ⇒ "框里是从备份取回来的"这件事也没了（用户刚说了这些改动不要）。
+    m_restoredFrom.clear();
     // 正文回到原样了，索引也得跟着回去（不然它指着的是"用户改过的那一份"的位置）。
     if (m_indexTimer != nullptr) {
         m_indexTimer->stop();
@@ -654,6 +734,9 @@ QString ConfigFileEditorPage::indexPanelName() { return QStringLiteral("configFi
 QString ConfigFileEditorPage::indexTreeName() { return QStringLiteral("configFileIndexTree"); }
 QString ConfigFileEditorPage::indexFilterName() { return QStringLiteral("configFileIndexFilter"); }
 QString ConfigFileEditorPage::indexToggleName() { return QStringLiteral("configFileIndexToggle"); }
+QString ConfigFileEditorPage::restoreButtonName() {
+    return QStringLiteral("configFileRestoreButton");
+}
 
 // 从 20 起：InstanceFilesPage 那几行用的是 8/9/10（行装饰）与 12/13（置顶 / 取消置顶），
 // 版本树那一套也在低位上。往后排开，谁也别踩谁。
@@ -666,6 +749,8 @@ QString ConfigFileEditorPage::saveText() { return QStringLiteral("保存"); }
 QString ConfigFileEditorPage::openFolderText() { return QStringLiteral("打开文件夹"); }
 QString ConfigFileEditorPage::indexToggleText() { return QStringLiteral("条目"); }
 QString ConfigFileEditorPage::indexFilterPlaceholder() { return QStringLiteral("在条目里找…"); }
+QString ConfigFileEditorPage::restoreText() { return QStringLiteral("还原上一次"); }
+QString ConfigFileEditorPage::restoredPrefix() { return QStringLiteral("已取回上一次保存前的那一份（"); }
 QString ConfigFileEditorPage::indexEmptyHint() { return QStringLiteral("这份文件里没认出设置项"); }
 QString ConfigFileEditorPage::readOnlyPrefix() { return QStringLiteral("只读："); }
 QString ConfigFileEditorPage::hintText() {

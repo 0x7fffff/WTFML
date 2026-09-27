@@ -9,7 +9,12 @@
  */
 #include "ConfigFileText.hpp"
 
+#include <QDir>
+#include <QFileInfo>
 #include <QStringDecoder>
+
+#include <algorithm>
+#include <functional>
 
 namespace {
 
@@ -150,4 +155,96 @@ QByteArray ConfigFileText::encode(const Loaded &original, const QString &edited)
         bytes.prepend(bomBytes());
     }
     return bytes;
+}
+
+// ---------------------------------------------------------------------------
+// 盘上那一份"现在长什么样" + 世代备份落在哪儿（见 .hpp 那一节）
+// ---------------------------------------------------------------------------
+
+namespace {
+
+/// 备份文件夹名的形状：`yyyyMMdd-HHmmss`，撞了的话后面挂 `-2`、`-3`…
+///
+/// NOTE: 这个名字**按字典序排就是按时间排**（定长的数字段），挑最新一份和清理旧备份
+///       都靠它 —— 别改成"好看"的那种格式。
+bool looksLikeBackupName(const QString &name) {
+    // 先剥掉可能挂着的 `-N` 那一截。
+    QString core = name;
+    const int dash = core.lastIndexOf(QLatin1Char('-'));
+    if (dash > 0 && dash > core.indexOf(QLatin1Char('-'))) {
+        bool ok = false;
+        core.mid(dash + 1).toInt(&ok);
+        if (ok) {
+            core = core.left(dash);
+        }
+    }
+    if (core.size() != 15 || core.at(8) != QLatin1Char('-')) {
+        return false;
+    }
+    for (int i = 0; i < core.size(); ++i) {
+        if (i == 8) {
+            continue;
+        }
+        if (!core.at(i).isDigit()) {
+            return false;
+        }
+    }
+    return true;
+}
+
+}  // namespace
+
+QString ConfigFileText::backupFolderName(const QDateTime &when, const QStringList &existing) {
+    const QString base = when.toString(QStringLiteral("yyyyMMdd-HHmmss"));
+    if (!existing.contains(base)) {
+        return base;
+    }
+    // 同一秒里存了两次（连着按两下「保存」就是这个情形）：挂一个序号，**不覆盖**上一次
+    // 那一份 —— 覆盖的话，"上一步"就悄悄变成了"这一步"。
+    //
+    // ★ 序号**补零到三位**（`-002`）：名字排序 == 时间排序这条约定（见 .hpp）靠的是定长，
+    //   而 "…-2" 和 "…-10" 按字典序是 `-10` 在前 —— 挤到两位数之后，"最新的那一份"就会
+    //   认错（清理那一趟删的就不是最老的那一份了）。补零是让这条约定在这一秒里也成立。
+    //   （上限 999 次/秒：到了那儿超出的是"同一秒里的先后"，跨秒的顺序不受影响。）
+    for (int i = 2; i < 1000; ++i) {
+        const QString candidate =
+            base + QLatin1Char('-') + QStringLiteral("%1").arg(i, 3, 10, QLatin1Char('0'));
+        if (!existing.contains(candidate)) {
+            return candidate;
+        }
+    }
+    return base + QLatin1Char('-') + QString::number(existing.size());
+}
+
+bool ConfigFileText::isBackupFolderName(const QString &name) {
+    return looksLikeBackupName(name);
+}
+
+QStringList ConfigFileText::backupFoldersToRemove(const QStringList &names, int keep) {
+    QStringList mine;
+    for (const QString &name : names) {
+        if (isBackupFolderName(name)) {
+            mine.append(name);
+        }
+    }
+    // 名字倒序 == 时间倒序（见 backupFolderName() 那段 NOTE）。
+    std::sort(mine.begin(), mine.end(), std::greater<QString>());
+    if (mine.size() <= keep) {
+        return {};
+    }
+    return mine.mid(keep);
+}
+
+QString ConfigFileText::backupPathFor(const QString &backupRoot, const QString &instanceId,
+                                      const QString &configDir, const QString &filePath,
+                                      const QString &folderName) {
+    QString relative = QDir(configDir).relativeFilePath(filePath);
+    // 不在 config/ 底下（理论上不会走到这儿）：退化成文件名。**绝不允许**把 `../..` 拼进去
+    // —— 那会把备份写到备份根外面，而清理那一趟只认备份根底下的东西，于是那些文件
+    // 永远不会被回收。
+    if (relative.isEmpty() || relative.startsWith(QStringLiteral(".."))) {
+        relative = QFileInfo(filePath).fileName();
+    }
+    return backupRoot + QLatin1Char('/') + instanceId + QLatin1Char('/') + folderName +
+           QLatin1Char('/') + relative;
 }

@@ -401,7 +401,43 @@ private slots:
     /// NOTE: 走 `QSaveFile`（先写同目录下一个临时文件、最后原子改名）—— 直接 `QFile`
     ///       写一半失败的话，用户手上的配置文件就毁了，而这一页**没有"恢复默认"**
     ///       （模组下次启动重写一份那要等它启动，也不保证每个模组都这么干）。
+    ///
+    /// ★ 写之前有三道闸（用户 2026-09-27 那份设计评审里的 S 级三条），顺序是硬的：
+    ///   ① **游戏在跑这个实例 ⇒ 直接不写**（游戏手里有一份内存副本，退出时整份写回来，
+    ///      用户改的东西会被静默盖掉，看起来就像「我改了没用」）；
+    ///   ② **盘上那份"还是我打开时那一份"吗** —— 对不上就问一句（覆盖 / 读盘上那份 / 什么都
+    ///      不做），**不许静静盖掉**别人的改动；
+    ///   ③ **写之前把盘上那一份原样留一份**（世代备份）—— 留不下就不写（见下面那段
+    ///      "为什么备份失败要挡住这一次保存"）。
     void saveConfigFile(InstanceSettingsDialog *dialog, const QString &path, const QByteArray &bytes);
+
+    /// 用户点了「还原上一次」：把最近那一份备份读出来，摆回编辑器那一格。
+    ///
+    /// NOTE: **只摆进框里、不写盘**（见 ConfigFileEditorPage::restoreContent()）——「还原」
+    ///       不是一次悄悄的写入，用户按「保存」才算数。所以这一趟只读备份，一个字节都不动
+    ///       盘上那一份。
+    void restoreConfigFile(InstanceSettingsDialog *dialog, const QString &path);
+
+    /// 这个文件属于哪个实例：**从路径上认**（`<数据目录>/versions/<id>/…` ⇒ `<id>`）。
+    ///
+    /// NOTE: 不从对话框手里问"现在开着的是哪个实例" —— 那条路隔着一次改名（改完名
+    ///       `versions/<老id>` 整个不见了，而这一格手上那份文件还在老路径上）。路径自己
+    ///       带着答案，问它就够了。认不出（不在任何 versions/<id>/ 底下）= 空串。
+    QString instanceIdOfPath(const QString &path) const;
+
+    /// 这个文件的**最近那一份备份**的绝对路径（没有 = 空串）。
+    ///
+    /// NOTE: 「有没有备份」和「取哪一份」是**同一个问题**（备份的文件夹名按字典序排就是按
+    ///       时间排，见 ConfigFileText::backupFolderName()）—— 所以只有这一个函数，那一格
+    ///       那颗按钮画不画也是问它。
+    QString latestConfigBackup(const QString &instanceId, const QString &path) const;
+
+    /// 这个实例的备份只留最近 @p keep 份，更老的删掉。
+    ///
+    /// NOTE: 这是全仓**唯一一处会主动删东西的缓存目录**（见 AppPaths::configBackupDir()）——
+    ///       所以只认我们自己生成的那个文件夹名（ConfigFileText::backupFoldersToRemove()
+    ///       里那道闸），用户自己放进去的东西一个都不碰。
+    void pruneConfigBackups(const QString &instanceId, int keep);
 
     /// 用户想从编辑器退回文件列表（点了「返回」，或者按了 Esc）。
     ///

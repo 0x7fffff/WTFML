@@ -1534,12 +1534,23 @@ void InstanceSettingsDialog::setFileDirs(const QHash<QString, QString> &dirs) {
 }
 
 void InstanceSettingsDialog::openConfigEditor(const QString &path,
-                                              const ConfigFileText::Loaded &loaded) {
+                                              const ConfigFileText::Loaded &loaded,
+                                              const ConfigFileText::Stamp &stamp) {
     if (m_configStack == nullptr || m_configEditor == nullptr) {
         return;
     }
-    m_configEditor->setFile(path, loaded);
+    m_configEditor->setFile(path, loaded, stamp);
     m_configStack->setCurrentWidget(m_configEditor);
+}
+
+void InstanceSettingsDialog::setConfigBackupAvailable(bool available) {
+    if (m_configEditor == nullptr) {
+        return;
+    }
+    // NOTE: 顺序要紧 —— `setFile()` 会把这一位清成 false（换了一份文件，上一条答案不作数），
+    //       所以这一句必须**排在 openConfigEditor() 之后**。反过来的话，用户看到的是一颗
+    //       永远画不出来的「还原上一次」。
+    m_configEditor->setBackupAvailable(available);
 }
 
 void InstanceSettingsDialog::closeConfigEditor() {

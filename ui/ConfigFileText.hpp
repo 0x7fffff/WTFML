@@ -32,6 +32,7 @@
 #pragma once
 
 #include <QByteArray>
+#include <QDateTime>
 #include <QList>
 #include <QString>
 #include <QStringList>
@@ -114,5 +115,61 @@ Split split(const QString &text);
 ///       也不是设置，是数据快照）。
 /// NOTE: 这是"人会不会去手改"的界线，**不是技术极限** —— QPlainTextEdit 撑得住更大的。
 qint64 editableByteLimit();
+
+// ---------------------------------------------------------------------------
+// 盘上那一份"现在长什么样" + 世代备份落在哪儿
+//
+// 这一节的三个问题都是自找的：**用户看着这个文件的时候，别人也在动它**。
+//   * 游戏进程手里有一份配置的内存副本，退出（或者改设置）时会**整份写回去** —— 用户在
+//     启动器这边改的东西会被静默盖掉，他看到的只是"我改了没用"；
+//   * 「打开文件夹」那个窗里、另一个编辑器、或者模组自己的迁移代码，都可能在中间改过它。
+// 所以写之前要能回答两句：**盘上那份还是我打开时那一份吗**、**上一次它长什么样**。
+// 这两件事的判据都在这一节里（纯函数）—— 真正读写盘的那几下在 MainWindow。
+// ---------------------------------------------------------------------------
+
+/// 一份文件在盘上的"那一眼"：大小 + 修改时间。**只是个数**（取值那一步在 MainWindow）。
+///
+/// NOTE: 为什么是这两样一起：只看大小的话，"改了等长的一段"看不出来（`4096` → `4097`
+///       一个字节都不差）；只看 mtime 的话，有些文件系统/工具会把时间戳原样保留。
+///       两样都对上才算"没被动过"，这是一个便宜且够用的判据（不是防篡改，是防"我没看见
+///       的那一次改动被我一键盘盖掉"）。
+struct Stamp {
+    qint64 size = -1;     ///< 字节数。-1 = 不知道（**invalid()**）。
+    qint64 mtimeMs = -1;  ///< 修改时间（毫秒，UTC 起算）。-1 = 不知道。
+
+    /// 这一份是不是真的"量过"。**false ⇒ 别拿它比**（没量过的两次比较，结果没有意义）。
+    bool valid() const { return size >= 0 && mtimeMs >= 0; }
+    bool operator==(const Stamp &other) const {
+        return size == other.size && mtimeMs == other.mtimeMs;
+    }
+    bool operator!=(const Stamp &other) const { return !(*this == other); }
+};
+
+/// 这一次备份该用哪个文件夹名：`20260927-143012` 这种。
+///
+/// NOTE: 格式是**为了按名字排序 == 按时间排序**（挑最新那一份、清理旧的那批都靠它）——
+///       所以别改成"好看"的那种（`2026年9月27日` 排不了序）。
+/// @param existing 那一层底下**已经有**的文件夹名。撞上了（同一秒里存了两次）就在后面
+///        加 `-002`、`-003`…（**补零到三位**：不补的话 `-10` 会排到 `-2` 前面，"最新那一份"
+///        就认错了 —— 见 .cpp 里那段）
+QString backupFolderName(const QDateTime &when, const QStringList &existing);
+
+/// 这个名字是不是**我们自己生成的**备份文件夹名（`backupFolderName()` 那个形状）。
+///
+/// NOTE: 清理旧备份**只认它** —— 用户自己往那个目录里放了个文件夹的话，那不是我们的东西。
+bool isBackupFolderName(const QString &name);
+
+/// 从一堆文件夹名里挑出**该删的**：认得出的那些按名字倒序（= 时间倒序），留最新的
+/// @param keep 个，其余全部返回。认不出的名字**一个都不碰**。
+QStringList backupFoldersToRemove(const QStringList &names, int keep);
+
+/// 一份文件的备份落在哪儿：`<备份根>/<实例id>/<时间戳>/<这个文件相对 config/ 的路径>`。
+///
+/// NOTE: 保留相对路径那一截是**故意的**：`config/ftbquests/quests.toml` 备份出来还是
+///       `.wtfml…/ftbquests/quests.toml`，于是"这份备份原先是哪儿的"一眼看得出，还原回去
+///       也不用另记一张表。@param filePath 不在 @param configDir 底下时退化成文件名。
+QString backupPathFor(const QString &backupRoot, const QString &instanceId,
+                      const QString &configDir, const QString &filePath,
+                      const QString &folderName);
 
 }  // namespace ConfigFileText

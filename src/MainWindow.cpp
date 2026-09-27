@@ -50,6 +50,9 @@
 #include <QClipboard>
 #include <QCloseEvent>
 #include <QComboBox>
+// 「配置文件」那一页记盘上的"那一份"要一秒不差地带上修改时间（见 ConfigFileText::Stamp），
+// 备份文件夹名也是拿它拼的。
+#include <QDateTime>
 #include <QDebug>
 #include <QDesktopServices>
 #include <QDir>
@@ -92,6 +95,9 @@
 // 底栏右面板那三行要按 saved_at 排序（std::stable_sort：同一秒里存的两个账号要保持
 // 列表里原来的先后，不然每次点开顺序都可能不一样）。
 #include <algorithm>
+// 「配置文件」那一页挑最近那一份备份（`std::greater<QString>`：备份文件夹名倒序 == 时间
+// 倒序，见 ConfigFileText::backupFolderName() 那段 NOTE）。
+#include <functional>
 
 #include "auth/AccountStore.hpp"
 #include "auth/AuthManager.hpp"
@@ -7609,6 +7615,10 @@ void MainWindow::openInstanceSettings(const QString &versionId) {
                         onFolderOpenRequested(dir);
                     }
                 });
+        // ★ 「还原上一次」：读备份是读盘（见 ConfigFileEditorPage.hpp 那段"这一层不碰盘"），
+        //   所以那一格只发"用户要这个文件的上一次"，取和摆在这儿做。
+        connect(editor, &ConfigFileEditorPage::restoreRequested, this,
+                [this, &dialog](const QString &path) { restoreConfigFile(&dialog, path); });
         connect(editor, &ConfigFileEditorPage::backRequested, this,
                 [this, &dialog]() { leaveConfigEditor(&dialog); });
     }
@@ -7745,10 +7755,91 @@ QHash<QString, QString> MainWindow::instanceFileDirs(const QString &versionId) c
     return dirs;
 }
 
+// ---------- 「世代备份」那三件事（见 .hpp 那一段）----------
+
+namespace {
+
+/// 每个实例的备份留最近多少份。**不按文件算、按"存了几次"算**：备份是"某一刻整个 config/
+/// 的一批"，用不着按单个文件各留二十份（那会长出二十个文件夹、每个里面一个文件）。
+///
+/// NOTE: 20 这个数是拍的，不是量出来的 —— 它只影响"最多能回退几步"，而每一步都比上一步
+///       更不像用户想要的。真要按量出的数来定，得先知道用户平均多久存一次（今天没有这个
+///       数）。这里宁可留够：20 份 × 一份配置那几十 KB 是几个 MB。
+constexpr int kConfigBackupGenerations = 20;
+
+}  // namespace
+
+QString MainWindow::instanceIdOfPath(const QString &path) const {
+    // cleanPath 顺手把 `\` 换成 `/`（Windows 上真有可能递进来一份原生分隔符的）—— 后面
+    // 每一步都只认一种写法，省得两个方向的字符串各比一遍。
+    const QString clean = QDir::cleanPath(path);
+    const QString prefix = AppPaths::versionsDir() + QLatin1Char('/');
+    if (!clean.startsWith(prefix)) {
+        return QString();  // 不在任何实例底下（理论上到不了这儿：这一格只列 config/ 里的文件）
+    }
+    const QString rest = clean.mid(prefix.size());
+    const int slash = rest.indexOf(QLatin1Char('/'));
+    // `slash <= 0` 一并把"versions/ 底下直接一个文件"那种挡掉了（那不是实例）。
+    return slash <= 0 ? QString() : rest.left(slash);
+}
+
+QString MainWindow::latestConfigBackup(const QString &instanceId, const QString &path) const {
+    if (instanceId.isEmpty()) {
+        return QString();
+    }
+    const QString root = AppPaths::configBackupDir();
+    const QStringList names =
+        QDir(root + QLatin1Char('/') + instanceId).entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+    QStringList mine;
+    for (const QString &name : names) {
+        // ★ 只认我们自己生成的那个形状（见 ConfigFileText::isBackupFolderName()）：用户往这个
+        //   目录里放了个同名文件夹的话，那不是"这个文件的上一次"。
+        if (ConfigFileText::isBackupFolderName(name)) {
+            mine.append(name);
+        }
+    }
+    // 名字倒序 == 时间倒序（定长的数字段，见 ConfigFileText::backupFolderName() 那段 NOTE）
+    // —— 命中的第一个就是最近那一份。
+    std::sort(mine.begin(), mine.end(), std::greater<QString>());
+    for (const QString &name : mine) {
+        const QString candidate =
+            ConfigFileText::backupPathFor(root, instanceId,
+                                          instanceFileDirs(instanceId).value(QStringLiteral("config")),
+                                          path, name);
+        if (QFileInfo::exists(candidate)) {
+            return candidate;
+        }
+    }
+    return QString();
+}
+
+void MainWindow::pruneConfigBackups(const QString &instanceId, int keep) {
+    if (instanceId.isEmpty()) {
+        return;
+    }
+    const QString dir = AppPaths::configBackupDir() + QLatin1Char('/') + instanceId;
+    const QStringList names = QDir(dir).entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+    // 挑该删的这一步在 ConfigFileText 里（纯函数、验证工程直接喂名字进去量）：认不出的
+    // 名字一个都不碰。
+    const QStringList doomed = ConfigFileText::backupFoldersToRemove(names, keep);
+    for (const QString &name : doomed) {
+        QDir(dir + QLatin1Char('/') + name).removeRecursively();
+    }
+}
+
 void MainWindow::openConfigFile(InstanceSettingsDialog *dialog, const QString &path) {
     if (dialog == nullptr) {
         return;
     }
+    // ★ **打开之前**先量一眼盘上那一份（见 ConfigFileText::Stamp）：保存前拿它比对，对不上
+    //   就说明这中间有别人动过（游戏退出时写回 / 另一个编辑器 / 模组自己的迁移），那一趟
+    //   不许静静盖掉。
+    //
+    // ★ 顺序要紧：量在**读之前**。反过来的话，万一有人正好在"我们读完"和"我们量"之间写了
+    //   一次，量到的就是**新**那一份 —— 保存时会判成"没动过"，正好把那次改动盖掉。这个方向
+    //   的错更贵，所以宁可把"读完就被改"判成"改过"（多问一句，用户点一下就过去了）。
+    const QFileInfo onDisk(path);
+
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) {
         // 会挡住用户要做的事 ⇒ 必须弹出来（见 .hpp 那条硬约束）。多半是文件在那一下被
@@ -7767,9 +7858,18 @@ void MainWindow::openConfigFile(InstanceSettingsDialog *dialog, const QString &p
                                tr("%1\n\n%2").arg(QDir::toNativeSeparators(path), readError));
         return;
     }
+    ConfigFileText::Stamp stamp;
+    if (onDisk.exists()) {
+        stamp.size = onDisk.size();
+        stamp.mtimeMs = onDisk.lastModified().toMSecsSinceEpoch();
+    }
     // 解码**不是解析**（这一页压根不认格式，见 ConfigFileText 那一段）：它只认 BOM、认
     // 行尾、认这一份是不是 UTF-8 —— 前两样要原样存着，改完写回去时一个字都不能变。
-    dialog->openConfigEditor(path, ConfigFileText::decode(raw));
+    dialog->openConfigEditor(path, ConfigFileText::decode(raw), stamp);
+    // 这个文件留过备份没有 —— 那一格那颗「还原上一次」画不画就看这一位（**必须排在
+    // openConfigEditor 之后**：setFile() 会把这一位清成 false）。
+    const QString instanceId = instanceIdOfPath(path);
+    dialog->setConfigBackupAvailable(!latestConfigBackup(instanceId, path).isEmpty());
 }
 
 void MainWindow::saveConfigFile(InstanceSettingsDialog *dialog, const QString &path,
@@ -7777,6 +7877,132 @@ void MainWindow::saveConfigFile(InstanceSettingsDialog *dialog, const QString &p
     if (dialog == nullptr) {
         return;
     }
+    ConfigFileEditorPage *editor = dialog->configFilePage();
+
+    // ---------- 闸 ①：这个实例正开着游戏 ⇒ 不写 ----------
+    //
+    // ★ 这不是"劝一句"，是**不写**：游戏手里有一份配置的内存副本（模组启动时读进去的），
+    //   它退出（或者用户在游戏里改一次设置）的时候会**整份写回**盘上 —— 现在写下去的东西
+    //   会被静默盖掉，而用户看到的是「我改了没用」，回头只会以为这个启动器有毛病。判据和
+    //   「游戏还在跑、窗口不许关」那一趟用的是同一份（runningVersionIds()，一个字都没另起）。
+    const QString instanceId = instanceIdOfPath(path);
+    if (!instanceId.isEmpty() && runningVersionIds().contains(instanceId)) {
+        InlineMessage::warning(
+            m_ui->overlay(), tr("这个实例正开着游戏"),
+            tr("%1\n\n游戏里那份配置是它自己读进去的，它退出（或者你在游戏里改一次设置）的"
+               "时候会整份写回来，现在存下去的东西会被它盖掉。\n\n先把游戏关掉，再回来改。")
+                .arg(QDir::toNativeSeparators(path)));
+        return;
+    }
+
+    // ---------- 闸 ②：盘上那份还是我打开时那一份吗 ----------
+    //
+    // ★ 这里比的是 **大小 + 修改时间**（见 ConfigFileText::Stamp 那段，两样一起才够用），
+    //   比的是"我打开它的时候"和"现在"—— 中间别人动过就必须问一句，**不许静静盖掉**。
+    const QFileInfo now(path);
+    ConfigFileText::Stamp onDisk;
+    if (now.exists()) {
+        onDisk.size = now.size();
+        onDisk.mtimeMs = now.lastModified().toMSecsSinceEpoch();
+    }
+    // 打开那一刻**量到过**才比：两边都得是"量过的"才有意义（没量到的那一份是合成的、
+    // 或者当时就量不动）。对不上 = 中间有人动过，或者文件干脆没了。
+    if (editor != nullptr && editor->stamp().valid() && editor->stamp() != onDisk) {
+        if (!now.exists()) {
+            // 文件被删了（或者整个目录被挪走）。框里这一份是它最后的样子 —— 写下去等于把它
+            // 重新建出来，所以也得问一句（用户可能正是为了"让它按默认值重生成"才删的）。
+            const int picked = InlineMessage::ask(
+                m_ui->overlay(), MessageKind::Question, tr("盘上那个文件没有了"),
+                tr("%1\n\n打开它的时候它还在，现在盘上已经没有了（被删掉、或者你把它挪走了）。"
+                   "\n\n现在存下去，它会照你框里这一份重新建出来。")
+                    .arg(QDir::toNativeSeparators(path)),
+                {tr("重新写出来")}, -1, -1, false);
+            if (picked != 0) {
+                return;  // 关掉 / Esc：盘上、框里都原样
+            }
+        } else {
+            // ★ 三颗出口，而且**默认那颗是"什么都不做"**（`defaultIndex = -1`）：这是一件
+            //   会毁掉别人改动的事，误按一个回车不该把它办了（和那几处危险动作同一个规矩）。
+            const int picked = InlineMessage::ask(
+                m_ui->overlay(), MessageKind::Question, tr("盘上那份被人改过了"),
+                tr("%1\n\n这份文件在你打开之后被别的东西改过（多半是游戏退出时写回，也可能"
+                   "是另一个编辑器）。现在存下去，改它的那一次就没有了。")
+                    .arg(QDir::toNativeSeparators(path)),
+                {tr("盖掉它"), tr("读盘上那一份")}, -1, 0, false,
+                tr("「读盘上那一份」= 你在这儿改的那些丢掉，框里换成盘上现在的内容。"));
+            if (picked == 1) {
+                // 用户要的是盘上那一份：重读一遍（**不写盘**）。走的是和点开一个文件同一条路
+                // —— 它顺手把 stamp 和"留过备份没有"都重新认一遍。
+                openConfigFile(dialog, path);
+                return;
+            }
+            if (picked != 0) {
+                return;  // 关掉 / Esc：什么都不做
+            }
+            // picked == 0（盖掉它）：往下走。**这一趟照样给盘上那一份留备份** —— 所以"盖掉"
+            // 也不是不可逆的，这正是这一整套东西的用处。
+        }
+    }
+
+    // ---------- 闸 ③：写之前把盘上那一份原样留一份 ----------
+    //
+    // ★ 备份的是**盘上那一份**（不是框里这一份）：这一页说的"上一次"是"我上一次按下保存
+    //   之前的那一份"，所以留的就是马上要被盖掉的那个样子。于是「还原上一次」有一个确定
+    //   的含义：取回来的永远是"我上一次保存之前的内容"。
+    //
+    // ★ 留不下就不写（不是"警告一句然后照写"）：这一整件事的前提是"改坏了能回去"，而这一页
+    //   自己没有撤销（那一行字是页面上写着的）。备份写不进去还照写，就是把用户手上唯一一份
+    //   配置丢进一个没有回退按钮的操作里 —— 而它挡住的是"这一次保存"，用户还能把框里的
+    //   内容自己拷出来、或者去把那个目录的权限修好再来。
+    bool backedUp = false;
+    if (!instanceId.isEmpty() && now.exists()) {
+        QFile source(path);
+        QByteArray previous;
+        if (source.open(QIODevice::ReadOnly)) {
+            previous = source.readAll();
+        }
+        if (source.error() != QFileDevice::NoError) {
+            InlineMessage::warning(
+                m_ui->overlay(), tr("保存之前没能读到原来那一份"),
+                tr("%1\n\n读它读不完（%2），所以这一次没有存 —— 直接写下去的话，它原来是什么"
+                   "样就再也找不回来了。")
+                    .arg(QDir::toNativeSeparators(path), source.errorString()));
+            return;
+        }
+        source.close();
+
+        const QString root = AppPaths::configBackupDir();
+        const QStringList existing =
+            QDir(root + QLatin1Char('/') + instanceId).entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+        // 文件夹名 = 现在这一刻（见 ConfigFileText::backupFolderName()）：同一秒里存两次会挂
+        // 一个 `-2`，**不覆盖**上一次那一份（覆盖的话"上一步"就悄悄变成了"这一步"）。
+        const QString folder =
+            ConfigFileText::backupFolderName(QDateTime::currentDateTime(), existing);
+        const QString target = ConfigFileText::backupPathFor(
+            root, instanceId, instanceFileDirs(instanceId).value(QStringLiteral("config")), path,
+            folder);
+        QDir().mkpath(QFileInfo(target).absolutePath());
+        QSaveFile backup(target);
+        bool ok = backup.open(QIODevice::WriteOnly);
+        if (ok && backup.write(previous) != previous.size()) {
+            ok = false;
+        }
+        if (ok && !backup.commit()) {
+            ok = false;
+        }
+        if (!ok) {
+            backup.cancelWriting();
+            InlineMessage::warning(
+                m_ui->overlay(), tr("保存之前没能留下原来那一份"),
+                tr("%1\n\n没能往这里写一份备份（%2）：\n%3\n\n所以这一次没有存 —— 这一页改错了"
+                   "没有撤销，留着能回去的那一份比存下去要紧。")
+                    .arg(QDir::toNativeSeparators(path), backup.errorString(),
+                         QDir::toNativeSeparators(target)));
+            return;
+        }
+        backedUp = true;
+    }
+
     // ★ `QSaveFile` 而不是 `QFile`：它先往同一个目录下写一个临时文件，最后**原子地**改名
     //   过去。直接写的话，写到一半失败（盘满 / 被杀毒拦下 / 断电）会把用户手上那份配置
     //   毁成半截 —— 而这一页没有"恢复默认"（模组的默认值是它下次启动时自己重写一份，
@@ -7803,9 +8029,81 @@ void MainWindow::saveConfigFile(InstanceSettingsDialog *dialog, const QString &p
     }
     // 写成了才告诉那一格 —— 它那一句"已保存（时:分:秒）"就是**盘上真的变了**的意思，
     // 写失败的时候不许出现（那一档由上面那几句话负责）。
-    if (ConfigFileEditorPage *editor = dialog->configFilePage()) {
+    if (editor != nullptr) {
         editor->markSaved();
+        // ★ 把刚写下去那一份的样子记回去：不记的话，**用户连着存两次**，第二次会被自己
+        //   上一次写下去的那一份判成"盘上被人改过了"（mtime 变了）—— 于是每一次保存都要
+        //   多问一句"要盖掉吗"。它要的是刚写下去那个 Stat。
+        const QFileInfo after(path);
+        ConfigFileText::Stamp fresh;
+        if (after.exists()) {
+            fresh.size = after.size();
+            fresh.mtimeMs = after.lastModified().toMSecsSinceEpoch();
+        }
+        editor->setStamp(fresh);
+        // 这一颗按钮画不画**只有一条判据**（和打开文件那一刻问的是同一个函数）：刚刚留的
+        // 那一份就在那儿，所以这一次存完它一定找得到；而"这一次没留成"（文件本来就不在盘上
+        // 了）也不会把更早那些备份一起抹掉 —— 那些备份照样能取回来。
+        //
+        // NOTE: 用 `backedUp` 这一位是不行的：它只说"这一趟留了没有"，不说"有没有别的可回"。
+        editor->setBackupAvailable(!latestConfigBackup(instanceId, path).isEmpty());
     }
+    if (backedUp) {
+        pruneConfigBackups(instanceId, kConfigBackupGenerations);
+    }
+}
+
+void MainWindow::restoreConfigFile(InstanceSettingsDialog *dialog, const QString &path) {
+    if (dialog == nullptr) {
+        return;
+    }
+    ConfigFileEditorPage *editor = dialog->configFilePage();
+    if (editor == nullptr) {
+        return;
+    }
+    const QString instanceId = instanceIdOfPath(path);
+    const QString latest = latestConfigBackup(instanceId, path);
+    if (latest.isEmpty()) {
+        // 走到这儿说明"刚刚还有、点下去就没了"（用户自己把那个目录删了）。**不许什么都不说**
+        // —— 用户按了按钮，总得有个交代；顺手把那一颗收回去。
+        editor->setBackupAvailable(false);
+        InlineMessage::warning(m_ui->overlay(), tr("找不到原来那一份了"),
+                               tr("这个文件的备份不在了（%1）。").arg(QDir::toNativeSeparators(
+                                   AppPaths::configBackupDir())));
+        return;
+    }
+    QFile file(latest);
+    if (!file.open(QIODevice::ReadOnly)) {
+        InlineMessage::warning(m_ui->overlay(), tr("打不开备份里的那一份"),
+                               tr("%1\n\n%2").arg(QDir::toNativeSeparators(latest),
+                                                  file.errorString()));
+        return;
+    }
+    const QByteArray raw = file.readAll();
+    const QString readError = file.errorString();
+    const bool readFailed = file.error() != QFileDevice::NoError;
+    file.close();
+    if (readFailed) {
+        InlineMessage::warning(m_ui->overlay(), tr("读不完备份里的那一份"),
+                               tr("%1\n\n%2").arg(QDir::toNativeSeparators(latest), readError));
+        return;
+    }
+    const ConfigFileText::Loaded loaded = ConfigFileText::decode(raw);
+    if (!loaded.utf8Ok) {
+        // 那一份不是 UTF-8（原件当时就是）。**不摆进去**：框里这一份是 UTF-8，摆进去会变成
+        // 一堆 U+FFFD，再一存就把那份备份的内容毁成问号了 —— 而它是用户唯一的退路。
+        InlineMessage::warning(
+            m_ui->overlay(), tr("那一份不是 UTF-8"),
+            tr("%1\n\n它里面有几个字节不是 UTF-8，摆进这个编辑框（只认 UTF-8）会把那些字弄坏。"
+               "要它的话，直接拿这个文件替换过去：\n%2")
+                .arg(QDir::toNativeSeparators(latest), QDir::toNativeSeparators(path)));
+        return;
+    }
+    // "那份是什么时候的"取**备份文件自己的时间**（= 我们写下这一份的那一刻 = 那一次保存的
+    // 时候），不是文件夹名里那一串 —— 两者本来一样，但这一份是盘上真有的那个时间。
+    const QString when =
+        QFileInfo(latest).lastModified().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"));
+    editor->restoreContent(loaded.text, when);
 }
 
 void MainWindow::leaveConfigEditor(InstanceSettingsDialog *dialog) {

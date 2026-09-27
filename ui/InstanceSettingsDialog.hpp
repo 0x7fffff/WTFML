@@ -421,7 +421,14 @@ public:
     /// @param path   绝对路径。
     /// @param loaded 那一份字节解出来的东西（见 ConfigFileText::decode）。**由 MainWindow
     ///        读盘 + 解码之后递进来** —— 这一层不碰盘。
-    void openConfigEditor(const QString &path, const ConfigFileText::Loaded &loaded);
+    /// @param stamp  读之前盘上那一份的样子（见 ConfigFileText::Stamp）。**只有读盘的人量得
+    ///        出来**，所以也是递进来的；保存前拿它比对（"这中间别人动过没有"）。
+    void openConfigEditor(const QString &path, const ConfigFileText::Loaded &loaded,
+                          const ConfigFileText::Stamp &stamp = ConfigFileText::Stamp());
+
+    /// 这个文件**留过备份没有**（有 ⇒ 那一格画出「还原上一次」）。和 stamp 一样是"读盘的人
+    /// 才知道"的事（那儿才知道备份根底下有没有它），所以由 MainWindow 递进来。
+    void setConfigBackupAvailable(bool available);
 
     /// 切回文件列表那一格（并让那一页重新列一遍目录）。
     ///
