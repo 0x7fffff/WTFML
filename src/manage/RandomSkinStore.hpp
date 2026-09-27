@@ -129,8 +129,13 @@ public:
      *
      * 挑中的是**官方 CDN 上的地址**（不是 MineSkin 的），调用方直接把它当一份档案的
      * skinUrl 用即可。失败发 failed()（静默降级，见文件头）。
+     *
+     * @return 真的发出去了返回 true；已经有一次在飞、这一趟被挡掉时返回 **false**。
+     *         ★ 2026-09-27 起返回值有意义：调用方（MainWindow）要拿它决定"这一趟算谁挑的"
+     *         —— 被挡掉的那一趟**什么都没开始**，不能把"发请求时那位是谁"改掉，否则上一趟
+     *         的结果会被记到这一位名下（见 MainWindow::onRandomSkinReady() 那段）。
      */
-    void fetchRandomSkin();
+    bool fetchRandomSkin();
 
 signals:
     /// 挑好了。@param skinUrl `https://textures.minecraft.net/texture/<hash>`，可以直接喂给

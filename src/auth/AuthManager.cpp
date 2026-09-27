@@ -172,6 +172,8 @@ bool AuthManager::loginMicrosoft() {
     }
 
     m_loginInFlight = true;
+    // 新的一趟开始了，上一趟留下的"覆盖过微软槽"这一笔不许跟过来（见 finishLogin()）。
+    m_microsoftTokenOverwritten = false;
     if (m_loginTimeout == nullptr) {
         m_loginTimeout = new QTimer(this);
         m_loginTimeout->setSingleShot(true);
@@ -531,6 +533,48 @@ void AuthManager::handleNewConnection() {
         //         （离线账号没有凭据），而 reloadStoredAccount() 会把 m_playerName 抹成
         //         占位值 "Player"，底栏那句"离线登录"照旧说着 —— 名字和身份当场对不上，
         //         启动参数里 --username 也会变成 Player。那种情况什么都不用做。
+        //
+        // ★★ 2026-09-27 补的第二个洞（上面那一句只堵了内存那一半）：**盘上那份微软令牌
+        //    也得清掉**，否则整件事根本没防住。
+        //
+        //   上面那两个"点一下启动就悄悄成了另一个人的登录"里，作祟的不是内存那份身份，
+        //   而是**盘上的微软槽** —— 而 loadSavedToken() 读的正是盘：
+        //     · 这一趟 exchangeAuthorizationCode() 已经把微软槽覆盖成**新账号 B** 的
+        //       刷新令牌了（:641 清掉 minecraft 槽，紧接着写微软槽）；
+        //     · runMinecraftChain() 失败 ⇒ minecraft 槽是空的，而微软槽里躺着 B 的凭据
+        //       （上面那句"盘上留着微软那份、好把链重放一遍"说的就是它）；
+        //     · 于是 reloadStoredAccount() 把**内存**退回"未登录"之后，用户点一下启动：
+        //       loadSavedToken() → minecraft 槽是空的 ⇒ 走 refreshMinecraftToken() ⇒
+        //       **从微软槽读出 B 的刷新令牌**，换出 B 的 Minecraft 令牌起游戏，收尾那句
+        //       captureActive() 还会把 B 补进账号列表 —— 一次报过"登录失败"的登录，
+        //       一步就悄悄成了另一个人的登录，屏幕上全程没有任何提示。
+        //   ⇒ 既然这次失败**换过人**（m_microsoftTokenOverwritten），微软槽就得跟 minecraft
+        //     槽一样清干净：盘上只剩"没登录"这一种状态，和内存、和界面上那句"登录失败"
+        //     三边对齐。不清的话，清掉 minecraft 槽这道闸只拦住了"两个槽错配"，
+        //     "指针说是 A、槽里是 B"这个错配只是往上挪了一层。
+        //
+        //   NOTE: **只在换过人时清**（就是上面那一位存在的理由）。refreshMinecraftToken()
+        //         那条路（续期，不是登录）也会覆盖微软槽，但它覆盖的是**同一个账号**的
+        //         令牌，清掉等于把一份好好的凭据扔了 —— 那条路也不走这里（它不走 finishLogin，
+        //         失败只是把 errorMessage 交回调用方）。
+        //   NOTE: 代价是**"把链重放一遍"这个方便没了**（B 那份刷新令牌被清掉，用户得回到
+        //         浏览器再登一次）。这是有意的取舍：那个"方便"的实质就是**本次启动时按一份
+        //         谁也认不出来的凭据换身份**，而"不静默改用户的东西"是这个启动器的硬规矩
+        //         （不静默换 Java、不静默改内存都是同一条）。真要重放，日志里那次失败的
+        //         原因照旧写着。
+        //   NOTE: 上一个账号（A）的凭据**不会因此丢** —— 这一趟开头的 captureActive()
+        //         已经先把它收进账号列表了（见上面那道闸），切回来一键的事。
+        //   这一句**不看在用的是哪种账号**（离线也一样要清）：离线时候选不上启动那条路
+        //   只是因为 offlineIdentity() 拦着不许读凭据，可盘上那份凭据是**真的**躺着的 ——
+        //   哪天用户加了个在线账号再用一次「刷新外观」之类读盘的地方，它照样会被翻出来。
+        //   换了人又没换到底的凭据，一个字节都不该留。
+        if (m_microsoftTokenOverwritten) {
+            TokenStore::clear(TokenStore::microsoftKey());
+            m_microsoftTokenOverwritten = false;
+            qWarning().noquote()
+                << "这一趟登录换了账号但没换到底，已把盘上的微软令牌一并清掉（下次启动不会"
+                   "再拿它续成别人的登录）。";
+        }
         const QString activeAfterFailure = AccountStore::activeUuid();
         if (!AccountStore::isOffline(activeAfterFailure)) {
             reloadStoredAccount();
@@ -644,6 +688,11 @@ bool AuthManager::exchangeAuthorizationCode(const QString &code, QString *access
         *errorMessage = tr("登录信息保存失败（写不进配置文件）。");
         return false;
     }
+    // ★ 2026-09-27：从这一句起，盘上的微软槽已经是**新账号**的了。这一趟后面还有
+    //   runMinecraftChain() 那半截（XSTS + 换 Minecraft 令牌 + 拉档案），它会失败
+    //   （超时 / 429 / 那道 403 都算）。失败收尾时必须记得"这里换过人" —— 见 finishLogin()
+    //   里失败那一支的 NOTE。
+    m_microsoftTokenOverwritten = true;
 
     *accessToken = result.json.value("access_token").toString();
     if (accessToken->isEmpty()) {

@@ -681,10 +681,55 @@ void ConfigFileEditorPage::jumpToEntry(QTreeWidgetItem *item) {
     if (!beginData.isValid() || !endData.isValid()) {
         return;  // 分组那一行：它底下没有"某一格值"
     }
-    const int begin = beginData.toInt();
-    const int end = endData.toInt();
+    int begin = beginData.toInt();
+    int end = endData.toInt();
     // 区间是从**上一次**认出来的正文算的（那个 250 ms 的延时器还没响）。正文动过之后
     // 它就可能落到别处 —— 越界的话宁可不跳，也不去选一段风马牛不相及的字。
+    //
+    // ★★ 2026-09-27 修：**只挡越界是不够的**，而"没越界但已经错位"才是常态 ——
+    //    在正文里连着打字时每敲一个字都把那个 250 ms 重新计时，停手后 250 ms 内点左栏
+    //    任一条目：区间整体错位（改动在文件靠前的地方时，后面每一条都一起挪），跳过去
+    //    选中的是**另一段字**。这里原来那句注释（"宁可不跳，也不去选一段风马牛不相及的
+    //    字"）说的正是这件事，而代码只管了越界那一半。
+    //
+    //    判据：那一格第 1 列记着**值原文**（`键 = 值` 里那个值，缩进/引号/大小写都和文件
+    //    里逐字一样），而扫描器记区间时用的就是 `text.mid(begin, end - begin)`（见
+    //    ConfigEntries）。所以"这一段现在还是不是原来那一段"可以直接比字符串。
+    //    对不上 = 索引旧了 ⇒ **当场重算一遍**，再按路径把这一条找回来用新区间跳 ——
+    //    不是"干脆不跳"：用户点它就是要跳过去，把"请再点一次"推回去才是添麻烦。
+    const QString path = item->data(0, entryPathRole()).toString();
+    const QString editor = text();
+    const auto rangeStillMatches = [&editor](int from, int to, const QString &value) {
+        return from >= 0 && to >= from && to <= editor.size() &&
+               editor.mid(from, to - from) == value;
+    };
+    if (!rangeStillMatches(begin, end, item->text(1))) {
+        rebuildIndex();  // 索引整棵重建，item 那个指针当场作废
+        QTreeWidgetItem *fresh = nullptr;
+        QList<QTreeWidgetItem *> stack;
+        for (int i = 0; i < m_index->topLevelItemCount(); ++i) {
+            stack.append(m_index->topLevelItem(i));
+        }
+        while (!stack.isEmpty()) {
+            QTreeWidgetItem *candidate = stack.takeLast();
+            if (candidate->data(0, entryPathRole()).toString() == path) {
+                fresh = candidate;
+                break;
+            }
+            for (int i = 0; i < candidate->childCount(); ++i) {
+                stack.append(candidate->child(i));
+            }
+        }
+        // 找不回来 = 这一条在这一版正文里已经没了（键被删掉或改名）—— 那就什么都不跳，
+        // 这也正是原来那条"宁可不动"的兜底。
+        if (fresh == nullptr) {
+            return;
+        }
+        item = fresh;
+        begin = item->data(0, valueBeginRole()).toInt();
+        end = item->data(0, valueEndRole()).toInt();
+    }
+    // 兜底还是这两条（重算过之后再对不上就只能是不该跳的那种）。
     if (begin < 0 || end < begin || end > m_editor->document()->characterCount()) {
         return;
     }

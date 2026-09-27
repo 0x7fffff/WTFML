@@ -179,10 +179,39 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
         // 读的是**原样传进来**的那个 option：这一位是视图填的，它在 initStyleOption 里
         // 留没留住不该由我们猜（version 树那边也特意读了传进来那一份）。
         const bool hovered = (option.state & QStyle::State_MouseOver) != 0;
-        // NOTE: 除 State_MouseOver 之外**别的 state 一个都不许动** —— 这一行还要靠基类
+        // NOTE: 除 State_MouseOver 之外**别的 state 一个都不许动** —— 这一行还要靠样式
         //       画选中底色和文字/图标（选中那一位就在这个 state 里）。
         opt.state &= ~QStyle::State_MouseOver;
-        QStyledItemDelegate::paint(painter, opt, index);
+        // ★★ 2026-09-27 修：正文要在**行尾那三颗按钮之前**停下。
+        //
+        //   原来这里是直接 `QStyledItemDelegate::paint(painter, opt, index)`，正文由样式
+        //   按**整格宽度**摆 —— 而实例页这一列是**拉伸**的（表头藏着、只有一列，
+        //   stretchLastSection 为真、columnWidth == 视口宽），sizeHint() 里"加了三颗按钮
+        //   的宽度"那一段**根本不参与布局**。于是把一个实例改名成一长串之后，名字一路画到
+        //   格子右边缘、被行尾常显的那颗齿轮压掉最后两三个字和省略号（悬停时还会多压上
+        //   上箭头/垃圾桶两颗）—— 而那正是 sizeHint() 里那段注释说要防的事。
+        //
+        //   做法：**先自己 initStyleOption**（不能只改传进来那一份：基类 paint 会自己再
+        //   initStyleOption 一次，我们写进去的正文会被它覆盖掉），把正文换成**截断过**的
+        //   那一份，然后照 VersionTreeDelegate 那一套直接 drawControl —— 背景、选中、
+        //   图标、焦点框仍然全归样式画，只是文字短了、自然停在三颗按钮左边。
+        //   文字区的宽度**问样式要**（SE_ItemViewItemText），不去猜它给图标和留白各让了
+        //   多少 —— 猜的话换一个样式就错一截。
+        initStyleOption(&opt, index);
+        if (QStyle *style = opt.widget != nullptr ? opt.widget->style() : QApplication::style()) {
+            // 停在哪：最左那颗按钮**命中格**的左边（它已经比字形大一圈，天然留出一点空隙）。
+            // 三颗无论此刻画不画都算进去 —— 和 sizeHint() 那条规矩一样（跟着悬停变的话，
+            // 鼠标一扫过去正文就左右跳一下）。
+            const int stopAt = instanceTrashRect(option.rect).left();
+            const QRect textArea =
+                style->subElementRect(QStyle::SE_ItemViewItemText, &opt, opt.widget);
+            const int avail = qMin(textArea.width(), stopAt - textArea.left());
+            if (avail > 0) {
+                const QFontMetrics metrics(opt.font);
+                opt.text = metrics.elidedText(opt.text, Qt::ElideRight, avail);
+            }
+            style->drawControl(QStyle::CE_ItemViewItem, &opt, painter, opt.widget);
+        }
 
         // 三颗都用**正文色**（和实例页文件夹行那颗齿轮一个取色口径）：它们是行里的动作，
         // 但这一行的正文就是实例名，动作和正文同色才不显得"行尾挂了三个别的东西"。
@@ -305,6 +334,12 @@ QSize InstanceGroupDelegate::sizeHint(const QStyleOptionViewItem &option,
         // 命中格的 margin + 右留白。判据里**故意不放悬停**（和 VersionTreeDelegate::
         // sizeHint() 里那一段同一个规矩）：跟着悬停变的话，鼠标一扫过去整行的宽度就跟着
         // 变、正文左右横跳一下 —— 那比"少一个图标"显眼得多。行高照旧是那个常数。
+        //
+        // ★ 2026-09-27 NOTE：**这一份宽度只是"想要多少"，管不住真正的布局** —— 实例页
+        //   只有一列而且它是拉伸的（表头藏着），columnWidth 永远是视口宽，给条目塞一个更
+        //   宽的 sizeHint 也没用。所以"正文不许压到齿轮底下"这件事的真正执行处是
+        //   paint() 里那一段（它自己按 SE_ItemViewItemText 把正文截断）。这里留着不改：
+        //   换了不拉伸的列宽策略时它就是对的，而且两处的"三颗按钮占多宽"必须一致。
         const int actions = 3 * MainWindowUI::instanceRowActionSize() +
                             2 * MainWindowUI::instanceRowActionGap() +
                             2 * MainWindowUI::instanceRowActionMargin() +

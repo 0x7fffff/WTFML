@@ -268,8 +268,9 @@ QByteArray curseForgeFingerprintsRequestBody(const QList<quint32> &fingerprints)
         //   资源（以及从 CurseForge 下下来的那些文件）全部停在占位图上。
         //
         // NOTE: `idListRequestBody()`（`{"modIds":[…]}` / `{"fileIds":[…]}`）发的一直是
-        //       **数字**，那一段的注释里甚至写着"号是数字不是字符串"—— 同一个文件里两处
-        //       相反，而错的是指纹这一处。
+        //       **数字**，那一段的注释里甚至写着"号是数字不是字符串"—— 两处相反，而错的是
+        //       指纹这一处。（2026-09-27 核：那个函数在 `src/manage/ModpackImport.cpp` 里，
+        //       不在本文件 —— 原来这句写的是"同一个文件里"，跟着找会找不到。）
         list.append(static_cast<qint64>(value));
     }
     if (list.isEmpty()) {
@@ -505,6 +506,31 @@ QString instanceExclusionReason(const QString &relativePath, const QString &inst
 
 namespace {
 
+/// 这个目录项是不是一个"指到别处去"的链接（Windows 的 junction / 符号链接、Unix 的符号
+/// 链接）。
+///
+/// ★ 2026-09-27 加：主枚举和 countFilesUnder() 原来只挂了个 `QDir::NoSymLinks`，而**那挡
+///   不住 junction** —— 这条不是推测，是本仓自己量过的：见 `src/manage/FolderManager.cpp`
+///   里 `isLinkToElsewhere()` 上面那段（`mklink /J` 造出来的 junction，`isSymLink()` 是
+///   **false**、`canonicalFilePath()` 也原样返回字面路径，只有 `isJunction()` 认得出）。
+///   那个函数在 FolderManager.cpp 的匿名 namespace 里，取不到，所以这里照抄一份 ——
+///   两处判据是同一件事，改一边记得看另一边。
+///
+/// 不认它的后果有两个，都在真机上构造得出来：
+///   ① 实例里只要有一个**指回自己（或自己的祖先）**的 junction（`mods/self` → `<实例>`），
+///      下面那圈枚举就无限往下走 —— `seenDirs` 的键是字面路径，环上每一跳都是一个"新目录"，
+///      于是内存耗光为止，屏幕上没有一句话说得清（"枚举出无限深"正是这里原来那条注释
+///      声称已经防住的事）；
+///   ② 一个指向实例**外面**的 junction（`mods` 挂在共享目录上）会被照单收进包，还会被
+///      countFilesUnder() 数进「没进包：存档、截图（共 N 个文件）」那句。
+///
+/// 所以链接目录**本身就不进去**（不进包、不数里面）：包里存不下一份联接，而"把实例外面的
+/// 文件打进包"恰恰是这一层要避免的事。放在 skippedDirs 里如实报出去，别静默少东西。
+/// 文件那一边不受影响（一个指向文件的链接就是一份文件，照收，Prism 也这么做）。
+bool isLinkToElsewhere(const QFileInfo &info) {
+    return info.isJunction() || info.isSymLink();
+}
+
 /// 一个被排除掉的目录**连里面的东西**一共有多少个文件（只数，不读内容）。
 ///
 /// ★ 2026-09-27：报告里那句是「没进包：存档、截图（共 N 个文件）」，而 N 从前只数**被排除
@@ -529,6 +555,12 @@ int countFilesUnder(const QString &dirPath) {
             dir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot | QDir::NoSymLinks | QDir::Hidden,
                               QDir::NoSort);
         for (const QFileInfo &sub : subs) {
+            // ★ 2026-09-27：junction / 符号链接目录**一个都不进**。`QDir::NoSymLinks` 挡不住
+            //   junction（见上面 isLinkToElsewhere() 那段），而这里恰恰是被别人的链接牵着
+            //   走的那种地方 —— 一个指回祖先的 junction 能让这个计数循环永远转下去。
+            if (isLinkToElsewhere(sub)) {
+                continue;
+            }
             stack.append(sub.absoluteFilePath());
         }
     }
@@ -593,6 +625,20 @@ CollectResult collectInstanceFiles(const QString &instanceDir, const IncludeOpti
 
         for (const QFileInfo &entry : dirs) {
             const QString prefix = frame.prefix + entry.fileName() + QLatin1Char('/');
+            // ★ 2026-09-27：链接目录（junction / 符号链接）**一个都不进去**。
+            //   判据不能只靠上面那个 `QDir::NoSymLinks`（它挡不住 junction —— 这是本仓
+            //   实测过的，见 isLinkToElsewhere() 那段）：一个指回祖先的 junction 能让下面
+            //   这圈栈式枚举无限往下走，而一个指向实例外面的 junction 会把别人的文件打进包。
+            //   如实记进 skippedDirs（报告里那句「没进包：…」会带上它的名字与文件数），
+            //   不静默少东西。
+            if (isLinkToElsewhere(entry)) {
+                const QString shown = prefix.left(prefix.size() - 1);
+                if (!result.skippedDirs.contains(shown)) {
+                    result.skippedDirs.append(shown);
+                    result.skippedFileCount += countFilesUnder(entry.absoluteFilePath());
+                }
+                continue;
+            }
             const QString reason = instanceExclusionReason(prefix, instanceId, options);
             if (!reason.isEmpty()) {
                 const QString shown = prefix.left(prefix.size() - 1);

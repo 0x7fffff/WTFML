@@ -424,7 +424,8 @@ public:
     /// （那一刻归悬停态管，见 InstanceGroupDelegate::paint()）。
     ///
     /// NOTE: 号码 **`Qt::UserRole + 12`** —— 这一档原来是"这一行画哪一颗上/下箭头"那位掩码
-    ///       （2026-09-25 上半天的 rowGroupMoveRole() 和那两句话一起删了），空到今天。
+    ///       （2026-09-25 上半天的 rowGroupMoveRole() 和那两句话一起删了），一直空到这一条
+    ///       回来为止（"今天"指的就是 2026-09-25 加下面这颗箭头的那一天，不是"到现在还空着"）。
     ///       加新角色前先看 rowSubTextRole() 上面那段：撞号的表现是"屏幕上多出一笔"。
     static int rowPinRole() { return Qt::UserRole + 12; }
 

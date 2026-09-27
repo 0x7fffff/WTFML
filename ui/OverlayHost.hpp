@@ -151,6 +151,26 @@ public:
     QWidget *openPrompt(bool dismissOnOutsideClick = false);
 
     /**
+     * @brief ★ 2026-09-27 加：**提示开着的时候要按住的那一块**（现在的调用方是底栏）。
+     *
+     * 为什么不能只靠"被盖住的那一页禁用"那一条：底栏**不在这一层底下** —— 覆盖层挂在
+     * tabWidget 上（见 MainWindowUI 里那一句），底栏是它的兄弟、比它靠下，所以
+     * `setEnabled(false)` 那条路（retargetCoveredPage）管不到它，它也不像被盖住的那一页
+     * 那样"上面盖着一张底图、变灰看不见"。
+     *
+     * 不按住的症状是**静默失灵**：提示开着时底栏那两颗按钮照样点得开上拉面板，面板里点
+     * 「改设置」→ openInstanceSettings() → overlayAcceptsNewPage() 被这一层挡住 → 那句
+     * 解释为什么的话又要走 InlineMessage::ask()，而"提示叠提示不做"让它**直接返回 -1**
+     * （只写一行 qWarning）⇒ 用户点了一下，屏幕上**什么都没发生**、也没有一个字解释。
+     *
+     * 只有**提示**那一档按（`Mode::Prompt`）：整页那一档底栏是用户要用的东西（停游戏那
+     * 一行电源就在左面板里，见 ui/MainWindowUI 里那两块面板）。
+     *
+     * @param widget 要跟着提示一起禁用的控件（可为 nullptr = 不要这一档）。
+     */
+    void setPromptBlockedWidget(QWidget *widget);
+
+    /**
      * @brief 收掉**最上面那一层**。
      *
      * - 提示那一档：提示收掉；底下压着页面的话**回到那一页**（页面还开着）；
@@ -346,6 +366,10 @@ private:
 
     /// 被盖住、暂时按住的页（QPointer：页面被换掉时别留下悬空的）。
     QPointer<QWidget> m_disabledPage;
+
+    /// ★ 2026-09-27 加：提示开着时要跟着按住的控件（底栏）。见 setPromptBlockedWidget()。
+    /// QPointer：底栏是 MainWindowUI 的成员，先于这一层析构的话别留下悬空指针。
+    QPointer<QWidget> m_promptBlockedWidget;
 
     /// 还回来的内容先寄存在这儿：一个藏起来的空控件。**不能直接 setParent(nullptr)** ——
     /// 那会让它变回顶层窗口（Qt 里"没有父控件的 QWidget 就是窗口"），哪怕它一直是 hide 的，

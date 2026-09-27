@@ -473,8 +473,8 @@ public:
 
     /// 「文件管理」那几页各看哪个目录：**键 → 绝对路径**。
     ///
-    /// 一共**八条**：中间那六页各一条（`mod` / `resourcepack` / `datapack` / `shader` /
-    /// `schematic` / `save`），外加两个**只有概览页上那排快捷按钮用得上**的
+    /// 一共**九条**：有页的那七页各一条（`mod` / `resourcepack` / `datapack` / `shader` /
+    /// `schematic` / `config` / `save`），外加两个**只有概览页上那排快捷按钮用得上**的
     /// （`screenshots` / `logs` —— 它们没有自己的页）。`dir` 和 `server` 两个键不用给：
     /// 前者开的是 setInstanceDir() 那一份，后者给的是**解析好的一份列表**（见 setServerList()）。
     ///

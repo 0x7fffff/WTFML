@@ -1391,14 +1391,21 @@ void MainWindow::setupConnections() {
             &MainWindow::refreshFolderList);
     connect(m_folderManager, &FolderManager::currentFolderChanged, this, [this] {
         applyCurrentFolderToPaths();
-        // 换了一整份 .minecraft，两件跟着"上一份"走的事要重置：
+        // 换了一整份 .minecraft，三件跟着"上一份"走的事要重置：
         //   - "目录名和 jar 名对不上"的告警只报一次，新目录得重新能报；
         //   - 本机 Java 列表是**按根目录**扫的（自管 Java 在 <数据目录>/java 下），
         //     下次进设置页要重扫一遍。NOTE: 重扫是"往里加"，下拉框里已经摆着的旧条目
         //     （上一个根目录里那份自管 Java）不会因此消失 —— 它指着的是个真实存在的
         //     java.exe，选它也能跑，要重开启动器才会清干净。
+        //   - ★ 2026-09-27 补的第三件：**版本 json 的两张内存缓存表**。它们的键只有版本
+        //     id（= 目录名），而两份 .minecraft 里各有一个 `1.20.1` 是常态 —— 不丢的话，
+        //     切过来再启动同名的那个实例，classpath / natives / javaVersion / assetIndex
+        //     全按**上一份目录**里那份 json 算，而游戏自己去读新目录的 json。这条原来漏了
+        //     （上面那句只数了两件），症状是"换文件夹之后启动的不是这个版本"。详见
+        //     VersionManager::clearVersionJsonCache()。
         m_reportedUnrecognizedVersions = false;
         m_javaListScanned = false;
+        m_versionManager->clearVersionJsonCache();
         // 版本列表、实例列表、按钮文字、底栏全都对着新根目录重来一遍。
         // 分组**不需要**在这里重置或重读：InstanceGroupStore 每个访问器都会比一下
         // "这次问的是哪一份 .minecraft"，不一样就自己重读（见它的文件头）。
@@ -2277,7 +2284,15 @@ void MainWindow::startPlayerSkinLoad() {
             // 还没挑过（第一次用这个账号）→ 要一页去。回来之后 onRandomSkinReady()
             // 接着走下面这段。这一格点亮是为了让那句话说"正在获取"。
             m_skinFetchInFlight = true;
-            m_randomSkinStore->fetchRandomSkin();
+            // ★ 2026-09-27：把**发请求时这位是谁**记下来。回来的时候用户可能已经切到另一个
+            //   离线账号了，而那两个都是"离线身份" —— 只判 offlineIdentity() 分不出来，
+            //   详见 onRandomSkinReady() 里那段。
+            //   NOTE: 只在**真的发出去了**的时候才记（fetchRandomSkin() 那个返回值）。已经有
+            //         一趟在飞时这一趟什么都没开始，改掉这一位等于把上一趟的结果认到这一位
+            //         名下 —— 那正是要防的那个错（切账号时这条路必被走到）。
+            if (m_randomSkinStore->fetchRandomSkin()) {
+                m_randomSkinRequestUuid = accountUuid;
+            }
         } else {
             // 挑过了，还是那一张。**当成一份档案用** —— 于是下不下得来、存哪、怎么画
             // 全是现成那条路（requestSkinTexture → fetchTexture → onSkinTextureReady）。
@@ -2346,9 +2361,11 @@ void MainWindow::onSkinProfileReady(const QString &uuid, const PlayerSkinProfile
     // 会把 A 的脸写进 profile-<B>.json（那份文件跨重启生效：下次开窗先按它画出 A 的
     // 外观，直到下一次刷新成功才纠正），照着它画就是"切了账号，脸还是上一个人的"。
     //
-    // NOTE: 和 onRandomSkinReady() 那句 `if (!offlineIdentity()) return;` 是同一件事，
-    //       那边早就防了，这条路一直没防（2026-09-25 补）。判据取 uuidKey()：它和
-    //       refreshForUuid() 里用的是同一个规整函数，所以"带不带横线"不会让这一比较失败。
+    // NOTE: 和 onRandomSkinReady() 那道判据是同一件事 —— 都是"发请求时那位 == 现在这位"。
+    //       区别在判据从哪来：那条路是信号自己带着身份回来的（uuid 就在形参里），随机皮肤
+    //       那条没有，只好在发请求时自己记一份（m_randomSkinRequestUuid）。
+    //       判据取 uuidKey()：它和 refreshForUuid() 里用的是同一个规整函数，所以"带不带横线"
+    //       不会让这一比较失败。
     if (uuid.isEmpty() || uuid != PlayerSkinStore::uuidKey(m_authManager->playerUuid())) {
         return;
     }
@@ -2429,6 +2446,16 @@ void MainWindow::onSkinTextureReady(const QString &url, const QString &path) {
             // 所以这里只**记住**，不画：皮肤那一趟（上面那个分支）会带上 m_capePath
             // 一起画出来。这一小段时间里屏幕上是上一套外观（或者默认外观），不闪。
             m_capePath = path;
+            // ★ 2026-09-27：皮肤那一趟**根本不会来**的时候（这个人的档案里没有皮肤那一格 ——
+            //    Mojang 的档案里"只有披风、没有 SKIN"是可能的），这一位必须在这儿落回 false：
+            //    它的意思是"还有图在下"，而下完的就是手上这一张、皮肤那一张从没被请求过。
+            //    不落的话那句「正在获取…」会一直挂着 —— 没有任何一条路会再来纠正它（皮肤
+            //    那个分支永远不会执行、也不会失败，因为没有请求发出去）。
+            //    NOTE: 皮肤在路上的时候**不能**落（那才是正常的一小段），所以判据是
+            //          "档案里根本没有皮肤地址"，而不是"m_skinPath 还空着"。
+            if (m_skinProfile.skinUrl.isEmpty()) {
+                m_skinFetchInFlight = false;
+            }
             return;
         }
         applyPlayerSkin(m_skinPath, path, slim);
@@ -2442,7 +2469,40 @@ void MainWindow::onRandomSkinReady(const QString &skinUrl) {
     // 回来的时候身份可能已经变了：用户在这几百毫秒里换了账号、删掉了那个离线账号，
     // 或者干脆登录成正式账号了。**不是同一个离线身份就丢掉** —— 记下去等于把 A 的脸
     // 记到 B 名下，而且再也不会有人来纠正它（那份记录是"永不失效"的）。
-    if (!offlineIdentity()) {
+    //
+    // ★★ 2026-09-27 修：这里原来只有 `if (!offlineIdentity()) return;` 这一道，而它回答的
+    //    是"现在这位**是不是**离线账号"，**不是**"是不是**刚才那一位**" —— 从离线 A 切到
+    //    离线 B 之后（两个都满足那一句，而且这是最常见的切法）A 那一趟的结果照样走得下去：
+    //      · m_pendingRandomSkinUuid 被写成 **B**（下面那句读的是"当下"），
+    //      · 贴图到了以后 onSkinTextureReady() 就把 A 挑的那张记进 `random-<B>.txt`；
+    //      · 而 A 名下永远不会有记录 ⇒ A 每次开启动器都重挑一张、脸一直变（那份记录存在的
+    //        全部意义正是"挑一次就定住"）。
+    //    判据换成"发请求时那位 == 现在这位"：`m_randomSkinRequestUuid` 是发请求那一刻写的
+    //    （见 startPlayerSkinLoad() 里那一句），两个都是 AccountStore 给的同一个规整 uuid，
+    //    直接比字符串就行。
+    //
+    //    NOTE: **没记过账的那一趟（这一位跑到现在一个请求都没发过）按当下这位收下**。
+    //          两种收法是"当下这位"和"发请求时那位"的差别，而没有记账就没有"发请求时那位"
+    //          可言 —— 那一趟的来路只能是"盘上已经记着一行，于是这一位从没挑过"（见
+    //          startPlayerSkinLoad()：有记录就走 applyPlayerSkin，一个请求都不发），这时候
+    //          它跟"当下这位"本来就是同一位。生产里回不来"没记账却有结果"这种组合（信号
+    //          只有 fetchRandomSkin() 会发，而它一发就把那一位记上了），所以这一条不放松
+    //          任何东西 —— 它挡的只是"把空串当成一个身份去比"。mw_check 的 AF5/AF6/AF7 就是
+    //          直接踢这个槽函数来演"挑好的那张回来了"，那几趟正落在这个组合上。
+    const bool requesterKnown = !m_randomSkinRequestUuid.isEmpty();
+    if (!offlineIdentity() ||
+        (requesterKnown && AccountStore::activeUuid() != m_randomSkinRequestUuid)) {
+        // ★★ 2026-09-27：丢掉之后**再问一次**。这一趟是替上一位挑的，而当下这一位（离线）
+        //    可能正等着自己那一张 —— 切账号时 startPlayerSkinLoad() 那一趟确实发出去了，
+        //    但再切一次就会被 RandomSkinStore::fetchRandomSkin() 的 m_inFlight 挡回来
+        //    （那一趟返回 false，所以 m_randomSkinRequestUuid 没被改写，这里才认得出"过期"）。
+        //    此刻 m_inFlight 已经落回 false（reply 的回调第一句就清掉了，而这里是它直接
+        //    发信号叫进来的），所以这一句能真的发出去。
+        //    NOTE: 只在**现在这位是离线账号**时才补 —— 正版账号的皮肤走官方那条路，
+        //          切过去的时候已经有另一条路在刷了，不该由这里再捅一次。
+        if (offlineIdentity()) {
+            startPlayerSkinLoad();
+        }
         return;
     }
     // 挑中的这一张**先记在内存里**，等贴图真的落在盘上再写那行记录（见
@@ -2727,8 +2787,10 @@ void MainWindow::appendLog(const QString &text) {
     //
     // NOTE: 所以这条通道是"给人事后看"的，不是"必须让人看见"的。**必须让用户看到**
     //       的消息（缺 Java、下载失败、未选版本、找不到 version.json）一律走
-    //       QMessageBox 挡住操作，绝不能只写这里 —— 从资源管理器双击启动时，
-    //       这里写的东西没有任何地方能显示出来。
+    //       `InlineMessage`（`ui/InlineMessage.hpp`，全仓已无一处 `QMessageBox`）挡住
+    //       操作，绝不能只写这里。★ 2026-09-27 更新：这里原来写的是"走 QMessageBox"，
+    //       而那句话早就和代码相反了（内嵌化那一批把 90 来处全换掉了）—— 正是
+    //       "注释逐字声称的那一侧才是洞"那个形状，所以顺手改掉。
     qDebug().noquote() << QStringLiteral("[WTFML]") << text;
 }
 
@@ -6118,6 +6180,12 @@ void MainWindow::onStartButtonClicked() {
         // 顺序上安全：startGame() 内部那条 "游戏已启动" 的 processOutput 是在它
         // return 之前同步发出的，那时这一份还不在集合里，所以不会被当成"游戏已经出话了"。
         m_launchingSessions.insert(sessionId);
+        // ★ 2026-09-27：名字在这一刻记一份。**这里记的是"这一份当初是谁"**，和 startGame()
+        //   收到的那个名字是同一个值（都是 instanceDisplayName(versionId)）—— 之后用户改名、
+        //   切账号都不影响它，理由同 startGame() 那段（多开最要紧的就是这条）。
+        //   用途只有一处：onGameFinished() 里那行日志的前缀（那时候会话已经从表里摘掉了，
+        //   查不到名字，见那边的 NOTE）。
+        m_sessionDisplayNames.insert(sessionId, instanceDisplayName(versionId));
         // 实例树上"（运行中）"要当场出来：这一份已经从"开始启动"走到"进程真的起来了"。
         updateInstanceTreeRunState();
         // 这一档只对"真的起来了"生效 —— startGame() 那三条早退路径下面根本走不到这里。
@@ -6254,6 +6322,23 @@ void MainWindow::refreshAccountSkin() {
     if (offlineIdentity()) {
         // 当前是离线账号 = "别联网"，而拉披风列表正是联网。跳过。
         m_accountSkinDialog->setCapes({});
+        return;
+    }
+    // ★ 2026-09-27：这一页**现在不在屏幕上**的时候，这一整段（下面那两发同步联网）跳过。
+    //
+    // 为什么非得另立一条判据：上面那句 `m_accountSkinDialog == nullptr` 分不出"关掉了" ——
+    // 这个对话框是**建一次就留着**的（setupAccountSkinDialog() 见非空就返回，父对象是本
+    // 窗口），页面关掉只是把它藏起来，指针永远不为空。于是"开过一次账号页、之后从右面板
+    // 切账号"这一条路上，每一次切换都会在**没有人看着的那个页面上**点起忙态、然后同步
+    // 等一次网络往返（loadSavedToken 还可能真去换一次令牌）：用户看到的是"切个账号整个
+    // 启动器卡几秒"，而卡住的理由（「正在获取披风列表…」）摆在一个藏起来的页面里。
+    //
+    // NOTE: 判据是"**现在真摆在眼前**"（isVisible），和 OverlayHost 里 retargetCoveredPage()
+    //       那条 NOTE 同一条规矩：页面收在别的选项卡上时它不在屏幕上，一样跳过。
+    // NOTE: 上半截（账号列表 / 状态行 / 3D 预览）**照样刷了** —— 那些不联网。披风列表会在
+    //       用户真的打开这一页时补上：开页那条路必走一次本函数（见 onAccountSkinClicked），
+    //       而那时页面已经在屏幕上了。
+    if (!m_accountSkinDialog->isVisible()) {
         return;
     }
     // 下面这两下是**同步**的（2026-09-25 补忙态）：loadSavedToken() 可能要真去换一次令牌、
@@ -6672,8 +6757,11 @@ void MainWindow::onAddFolderClicked() {
     // 实例目录就是这样），打错一个字符得到的是一个"加进去了但一个实例都没有"的空文件夹，
     // 而界面上看不出区别。
     //
-    // ★ 这一处是 2026-09-25「不出现独立窗口」那一轮之后**剩下的四处独立窗之一**
-    //   （另外三处：选整合包 / 选皮肤图 / 实例设置里选 java.exe）。它不是我们的窗 ——
+    // ★ 这一处是 2026-09-25「不出现独立窗口」那一轮之后留下来的独立窗之一，**全项目一共
+    //   七处**（2026-09-27 数的；那一份带清单的说明在
+    //   ui/InstanceSettingsDialog.cpp 里选 java.exe 那一处，要改数字就改那儿，别各写一份 ——
+    //   这一行原来是"四处（另外三处：选整合包 / 选皮肤图 / 选 java.exe）"，数丢了一半）。
+    //   它不是我们的窗 ——
     //   `QFileDialog` 不指定 `DontUseNativeDialog` 时开的是 **Windows 自己那个选择框**，
     //   和点「启动游戏」时弹出来的浏览器是同一类东西（用户没抱怨过那一个）。
     //   要它也进内容区，办法是有的：`QFileDialog` 本身就是 QDialog，`execPage()` 那一套
@@ -7086,12 +7174,25 @@ bool MainWindow::deleteInstance(const QString &versionId) {
     }
 
     // 分组归属**故意不动**：wtfml.folders 里可能还留着这个实例的一条归属（它指向的组还在，
-    // 所以不会被 store 的清成员规则扫掉）。留着是**有意的**：
-    //   - 它对界面没有任何影响（归属只有在"这个实例还在"的时候才会被问到）；
-    //   - 用户把同一个版本号重装一遍时，它会回到原来那一组里 —— "删了重装还在原来那组"
-    //     正是他要的，而为它写一条"删实例时顺手清归属"的清理，换来的只有一次多余写盘。
+    // 所以不会被 store 的清成员规则扫掉）。留着是有意的，理由是**它的代价是零**：
+    //   - 它对界面没有任何影响：归属只有在"这个实例还在"的时候才会被问到，而那张树是
+    //     按**盘上的实例**建的（遍历 installedVersions()，每条再拿 instanceKey() 去问归属）
+    //     ⇒ 指向已删实例的那些条目从来不会被遍历到。「组名 (N)」里的 N 也是从树上数的，
+    //     不是从归属表里数的。换句话说：既没有幽灵行，也没有虚高的计数。
+    //   - 为它写一条"删实例时顺手清归属"要新加一个 store 的 API（现在只有整份
+    //     replaceGroups()），换来的只是少几个字节的死数据。
+    //
+    // ★★ 2026-09-27 修：这一段原来还写着"用户把同一个版本号重装一遍时它会回到原来那一组"
+    //    ——**那是假的**（只有一半情况成立）。归属的键是 instanceKey() = `wtfml.meta` 里的
+    //   稳定 id（没有才退回目录名），而 deleteInstance() 把整个目录连 `wtfml.meta` 一起删了
+    //    ⇒ 重装出来的是一个**没有 id 的新目录**，键退回目录名，而那条残留的键是旧 UUID，
+    //    永远不可能再对上。而那个 id 是**惰性生成**的：用户只要开过一次实例设置按过确定
+    //    （ensureInstanceId()）或者改过名就会落一个 —— 所以"重装回原组"只对**从来没过
+    //    拿过 id 的老实例**（键就是目录名）成立，其余的残留就是永远的死数据。
+    //   ⇒ 上面那两条"代价为零"的理由照样成立，但别再拿"重装能回原组"当理由用。
+    //
     // 真嫌它脏的话，下一次在「分组设置」里按确定会整份重写这个文件（那时成员表按现有的
-    // 组重建，指向已删实例的那些条目照旧保留 —— 同样是上面那条"删了重装还在原组"）。
+    // 组重建，指向已删实例的那些条目照旧保留）。
     refreshInstalledVersions();
     appendLog(tr("已删除实例：%1").arg(versionId));
     return true;
@@ -8333,6 +8434,73 @@ QString MainWindow::serverListProblem(const QString &versionId) const {
     return problem;
 }
 
+namespace {
+/// 盘上缓存里那一份（「上次问到」的样子）→ 一行该显示成什么样。
+///
+/// ★ 两条路都走它：真结果还没回来的 prefill（pushServerPingRows）和"这一页现在没有趟在
+///   管、先把缓存摆上"（serverCachedRows）。两处各写一遍的话，改了一处另一处就漂了 ——
+///   而这两处摆的本来就是**同一件东西**（上一次问到的样子）。
+InstanceSettingsDialog::ServerRowStatus serverRowFromCache(const ServerStatusCache::Entry &entry) {
+    InstanceSettingsDialog::ServerRowStatus row;
+    row.tested = true;
+    row.fromCache = true;
+    row.online = entry.online;
+    row.latencyMs = entry.latencyMs;
+    row.playersOnline = entry.playersOnline;
+    row.playersMax = entry.playersMax;
+    row.motdRaw = entry.motdRaw;
+    // 悬停提示用的是**洗过**那一份，缓存里只存了原串 ⇒ 这儿现洗一遍（纯函数，
+    // 见 ServerPing::cleanMotd）。不洗的话提示里会带一串 `§a` 码，读起来是乱码。
+    row.motd = ServerPing::cleanMotd(entry.motdRaw);
+    if (!entry.iconPng.isEmpty()) {
+        QPixmap icon;
+        // 解不出来就**不画图标**（而不是画一张破图）：理由同 pushServerPingRows 里那段。
+        if (icon.loadFromData(entry.iconPng, "PNG")) {
+            row.icon = QIcon(icon);
+        }
+    }
+    return row;
+}
+
+/// 这份地址表在盘上缓存里那一份（键是下标，只含 **valid** 的那些）。**一次一趟读盘**：
+/// 下面那个函数和 beginServerPingRun() 共用它，各读一遍的话，"摆到屏幕上的"和"垫在底下的"
+/// 就是两次读盘的结果（中间用户或者游戏往盘上写了一条，两处就对不上了）。
+///
+/// NOTE: 不是 MainWindow 的成员：它只用 ServerStatusCache，而返回类型
+///       `InstanceSettingsDialog::ServerRowStatus` 是嵌套类型，MainWindow.hpp 只前向声明了
+///       那个类（在头里写出这个返回类型就得把 ui/ 的头拉进去）。
+QHash<int, ServerStatusCache::Entry> serverCachedEntries(const QStringList &addresses) {
+    // 只读盘上那份缓存，**不问网络**（见 ServerStatusCache：一台一个文件、读侧不写）。
+    QHash<int, ServerStatusCache::Entry> cached;
+    for (int i = 0; i < addresses.size(); ++i) {
+        const ServerStatusCache::Entry entry = ServerStatusCache::load(addresses.at(i));
+        if (entry.valid) {
+            cached.insert(i, entry);
+        }
+    }
+    return cached;
+}
+
+/// 这份地址表现在该显示成什么样（**只读缓存、不问网络**）。换页那一支用它先把「上次：」
+/// 摆上，免得新那一页在"上一趟收摊"那个空档里是一片"还没测"。
+/// 摆法和 pushServerPingRows() 里那一档同源（都走 serverRowFromCache()）。
+QList<InstanceSettingsDialog::ServerRowStatus>
+serverCachedRows(const QStringList &addresses) {
+    const QHash<int, ServerStatusCache::Entry> cached = serverCachedEntries(addresses);
+    QList<InstanceSettingsDialog::ServerRowStatus> rows;
+    rows.reserve(addresses.size());
+    for (int i = 0; i < addresses.size(); ++i) {
+        InstanceSettingsDialog::ServerRowStatus row;
+        const auto it = cached.constFind(i);
+        if (it != cached.constEnd()) {
+            row = serverRowFromCache(it.value());
+        }
+        rows.append(row);
+    }
+    return rows;
+}
+} // namespace
+
 void MainWindow::pingServers(InstanceSettingsDialog *dialog, const QString &versionId) {
     if (dialog == nullptr) {
         return;
@@ -8344,21 +8512,53 @@ void MainWindow::pingServers(InstanceSettingsDialog *dialog, const QString &vers
         return;
     }
 
-    // ---------- 已经有一趟在跑：只把界面接回来，不重开 ----------
+    QStringList addresses;
+    addresses.reserve(servers.size());
+    for (const QPair<QString, QString> &server : servers) {
+        addresses.append(server.second);
+    }
+
+    // ---------- 已经有一趟在跑 ----------
     //
     // 两种时候会走到这儿：①「测速」那颗按钮点得快（它自己也防了一手，但自动测速那条路上
     // 没有那颗按钮挡着）；②用户切到别的页又切回服务器列表（每一趟"点进去"都发一次
     // serverPageEntered()）。两件事都不该让这一趟重开 —— 重开的话每一台都要重新等一次
     // 超时，而且**已经问回来的那几台会被打回"还没测"**（那一张表看着像倒退了）。
+    //
+    // ★★ 2026-09-27：但**只有地址表一模一样时**才能这样接回来。结果是**按下标**摆的
+    //    （第 i 个结果 → 第 i 行），份数一样、内容不一样的两份表（换了实例、改了
+    //    servers.dat 再按「刷新」、按「测速」…）按下标摆就是**张冠李戴**：B 那一页的
+    //    第 3 行会显示 A 的第 3 台服务器的延迟和 MOTD，而且看着跟真的一样。
     if (m_serverPing.active) {
-        // 这一次的 dialog 可能**不是**上一趟那一个（用户把设置页关掉、又重开了一个）：
-        // 换过去，然后把已经攒下的结果摆上这一页。
-        m_serverPing.dialog = dialog;
-        pushServerPingRows();
+        if (m_serverPing.addresses == addresses) {
+            // 这一次的 dialog 可能**不是**上一趟那一个（用户把设置页关掉、又重开了一个）：
+            // 换过去，然后把已经攒下的结果摆上这一页。
+            m_serverPing.dialog = dialog;
+            pushServerPingRows();
+            dialog->setServerPinging(true);
+            return;
+        }
+        // 不一样 ⇒ **这一趟的结果一台都别往这一页上摆**（上面那种张冠李戴）。但也不能现在
+        // 就换账：这一趟的结果还可能在队列里（Pinger 的 `m_running` 那时候已经是假了，
+        // 见 ServerPingRun::active 那段），回来时按的还是**这一份**地址表的下标。
+        // 所以只把"新那一页要测什么"记下来，等这一趟收摊（见 onServerPingAllFinished）。
+        // NOTE: dialog 也一起换成空的：这一趟剩下的结果只落盘上那份缓存、不碰界面。
+        m_serverPing.dialog = nullptr;
+        m_serverPing.pendingAddresses = addresses;
+        m_serverPing.pendingDialog = dialog;
+        m_serverPing.pendingVersionId = versionId;
+        // 新那一页先把盘上缓存（「上次：」那一档）摆上 —— 那份东西和哪一趟在跑无关，
+        // 让这一页在这个空档里也不是一片"还没测"。
+        dialog->setServerStatuses(serverCachedRows(addresses));
         dialog->setServerPinging(true);
         return;
     }
 
+    beginServerPingRun(dialog, versionId, addresses);
+}
+
+void MainWindow::beginServerPingRun(InstanceSettingsDialog *dialog, const QString &versionId,
+                                    const QStringList &addresses) {
     // ---------- 开一趟新的 ----------
     //
     // ★ 顺序：**先把地址和盘上缓存读好**（这一段是纯读盘，几 KB，不碰网络），再把表摆上，
@@ -8366,22 +8566,18 @@ void MainWindow::pingServers(InstanceSettingsDialog *dialog, const QString &vers
     //   的时候就回来了 —— 那一发是按下标写某一行的，行还不在，结果就丢了。
     ServerPingRun run;
     run.dialog = dialog;
-    run.addresses.reserve(servers.size());
-    for (int i = 0; i < servers.size(); ++i) {
-        const QString &address = servers.at(i).second;
-        run.addresses.append(address);
-        // 上一次问到的那份（可能没有）。它是**垫底**的：真结果回来之前先让那一格有东西，
-        // 回来之后整条盖掉（用户 2026-09-27 原话：「测出来的motd和图案保留在缓存里」）。
-        const ServerStatusCache::Entry entry = ServerStatusCache::load(address);
-        if (entry.valid) {
-            run.cached.insert(i, entry);
-        }
-    }
+    run.versionId = versionId;
+    run.addresses = addresses;
+    // 上一次问到的那份（可能没有）。它是**垫底**的：真结果回来之前先让那一格有东西，
+    // 回来之后整条盖掉（用户 2026-09-27 原话：「测出来的motd和图案保留在缓存里」）。
+    run.cached = serverCachedEntries(addresses);
     run.active = true;
     m_serverPing = run;
 
     pushServerPingRows();
-    dialog->setServerPinging(true);
+    if (dialog != nullptr) {
+        dialog->setServerPinging(true);
+    }
     // 整趟交给后台线程（一台问完回来一台）。**这一句立刻返回** —— 用户在这几秒里翻页、
     // 点别的按钮、关掉这一页，都不受它影响（见 ServerPing::Pinger 文件头那段）。
     m_serverPinger->start(run.addresses);
@@ -8422,23 +8618,7 @@ void MainWindow::pushServerPingRows() {
                 }
             }
         } else if (m_serverPing.cached.contains(i)) {
-            const ServerStatusCache::Entry entry = m_serverPing.cached.value(i);
-            row.tested = true;
-            row.fromCache = true;
-            row.online = entry.online;
-            row.latencyMs = entry.latencyMs;
-            row.playersOnline = entry.playersOnline;
-            row.playersMax = entry.playersMax;
-            row.motdRaw = entry.motdRaw;
-            // 悬停提示用的是**洗过**那一份，缓存里只存了原串 ⇒ 这儿现洗一遍（纯函数，
-            // 见 ServerPing::cleanMotd）。不洗的话提示里会带一串 `§a` 码，读起来是乱码。
-            row.motd = ServerPing::cleanMotd(entry.motdRaw);
-            if (!entry.iconPng.isEmpty()) {
-                QPixmap icon;
-                if (icon.loadFromData(entry.iconPng, "PNG")) {
-                    row.icon = QIcon(icon);
-                }
-            }
+            row = serverRowFromCache(m_serverPing.cached.value(i));
         }
         rows.append(row);
     }
@@ -8482,6 +8662,26 @@ void MainWindow::onServerPingAllFinished() {
     //   现在该显示的样子"，下一次 pushServerPingRows() 还要靠它们。清掉的只是"在跑"这
     //   一位 —— 下一次 pingServers() 会整份重来（那时候缓存里已经是刚写下去的那份了）。
     m_serverPing.active = false;
+
+    // ★★ 2026-09-27：这一趟跑着的时候用户**换了一份地址表**（换了实例 / 改了 servers.dat
+    //    再按「刷新」）。那时候没法立刻改账（结果还在队列里、按下标写的是这一份表），
+    //    所以那件事记在这儿等现在办（见 pingServers 里那段）。
+    // NOTE: `pendingAddresses` 空 = 没有欠着的活，绝大多数趟都是这么收尾的。
+    if (!m_serverPing.pendingAddresses.isEmpty()) {
+        const QStringList addresses = m_serverPing.pendingAddresses;
+        InstanceSettingsDialog *dialog = m_serverPing.pendingDialog;
+        const QString versionId = m_serverPing.pendingVersionId;
+        m_serverPing.pendingAddresses.clear();
+        m_serverPing.pendingDialog = nullptr;
+        m_serverPing.pendingVersionId.clear();
+        // 那一页已经关掉了（QPointer）就什么都不做 —— 没人看，等用户再进去时会照常重问
+        // 一遍（那时候没有趟在跑了，走的就是"开一趟新的"那条路）。
+        if (dialog != nullptr) {
+            // 「上一趟的账」到这一刻整份作废：地址表、真结果、垫底的缓存全都是**别人**的。
+            // beginServerPingRun() 会整份新建（含 active = true），不必在这儿先清。
+            beginServerPingRun(dialog, versionId, addresses);
+        }
+    }
 }
 
 
@@ -8533,6 +8733,17 @@ bool MainWindow::overlayAcceptsNewPage() {
     //       （见 OverlayHost::dismiss()：那一发落在它头上 = "我在主页点了一下主页，下载页
     //       那个详情页自己没了"），所以唯一的出路是回它自己那颗选项卡上去关。
     const QString title = overlay->pageTitle();
+    // ★ 2026-09-27：标题**可能是空的** —— 这一层开着的若是**提示**（`promptOpen()`）而不是
+    //   整页，pageTitle() 返回空串，照老写法那句正文会变成「「」那一页还开着」。
+    //   NOTE: 这一档（提示开着、又从某个页面入口要开新页）原本恰恰是**点了没反应**的那条路
+    //         之一：底栏那两颗按钮不在覆盖层底下、提示按不住它们。现在由
+    //         OverlayHost::setPromptBlockedWidget() 把底栏跟着禁掉了，所以到不了这儿；
+    //         真到了（将来多一个入口）也得说句人话，而不是一对空引号。
+    if (title.isEmpty()) {
+        InlineMessage::warning(overlay, tr("先关掉现在这一条提示"),
+                               tr("现在有一条提示开着，先说清它或者按 Esc 关掉它，再开这个。"));
+        return false;
+    }
     InlineMessage::warning(overlay, tr("先关掉现在这一页"),
                            tr("「%1」那一页还开着。切到别的选项卡时它会收起来，但它一直占着"
                               "这个位置 —— 顶上那四颗导航按钮一次只放得下一个页面。\n\n"
@@ -8620,14 +8831,21 @@ void MainWindow::requestInstanceFileIcons(InstanceSettingsDialog *dialog, const 
     }
     // 这一页现在是谁 —— 结果回来时按它认人（见 InstanceIconRun::dialog 那段）。
     m_instanceIcons.dialog = dialog;
+    m_instanceIcons.versionId = versionId;
     m_instanceIcons.paths = instanceIconCandidatePaths(versionId);
     // 已经知道的先摆上：这一趟要问的那几个还在路上，但上一趟问到的、以及这一趟里
     // "已经问过、没有"的那些，现在就该是对的（不是等整个后台线程跑完才一起摆）。
     pushInstanceFileIcons();
 
+    startInstanceFileIconLookup();
+}
+
+void MainWindow::startInstanceFileIconLookup() {
     // ★ 已经有一趟在跑就**到此为止**：同一个实例的目录列表前后差不了多少，重开一趟等于
-    //   把已经在读的那几十兆重读一遍、把已经在问的那几发重问一遍（而且负缓存会被写坏：
-    //   先前那一趟的结果回来时，这一趟已经把同一批文件又标成"在问"了）。
+    //   把已经在读的那几十兆重读一遍、把已经在问的那几发重问一遍。
+    //   NOTE: 这一条早退**不再丢下新开的那一页** —— 那一趟收尾时会拿"这一趟是给谁问的"
+    //         和"现在这一页是谁"比一比，不一样就回头替新那页再走一遍这里（见
+    //         onInstanceIconLookupFinished 末尾那段）。
     if (m_instanceIcons.active) {
         return;
     }
@@ -8661,8 +8879,14 @@ void MainWindow::requestInstanceFileIcons(InstanceSettingsDialog *dialog, const 
     }
 
     m_instanceIcons.active = true;
+    // ★★ 2026-09-27：**这一趟问的是哪几个文件**记一份，回调里只认这一份（理由见
+    //    m_instanceIconRunPaths 声明处那段）。上面那道 `active` 闸排在"换 paths"之后，
+    //    所以这一句必须放在这里、而不是跟着 paths 一起在最上面写 —— 它要写的是**这一趟**
+    //    的事实，不是"最后一次请求"的事实。
+    m_instanceIconRunPaths = missing;
+    m_instanceIconRunVersionId = m_instanceIcons.versionId;
     appendLog(tr("正在认「%1」里的资源图标（%2 个文件）...")
-                  .arg(instanceDisplayName(versionId))
+                  .arg(instanceDisplayName(m_instanceIcons.versionId))
                   .arg(missing.size()));
     // `QThread::create` 那个重载收一个函数对象（Qt 5.10 起），省掉"再写一个 QThread 子类
     // 并在 .cpp 里 moc"。结果**回主线程那一句走 invokeMethod 的 functor 重载**（而不是
@@ -8681,6 +8905,14 @@ void MainWindow::requestInstanceFileIcons(InstanceSettingsDialog *dialog, const 
 
 void MainWindow::onInstanceIconLookupFinished(const InstanceIconLookup::Result &result) {
     m_instanceIcons.active = false;
+    // ★★ 2026-09-27：这一趟**问过的那批文件**，以及"结果回来时这一页还是不是它"。
+    //    下面②那个循环**只许读这一份**：m_instanceIcons.paths 在这一趟跑着的时候可能
+    //    已经被"A 跑着、用户又开了 B 那一页"换掉了，照它写负缓存等于把 A 的"没找到"记到
+    //    B 的文件头上（写进去就不清，B 这一整个会话都没有图标）。
+    const QStringList runPaths = m_instanceIconRunPaths;
+    const QString runVersionId = m_instanceIconRunVersionId;
+    m_instanceIconRunPaths.clear();
+    m_instanceIconRunVersionId.clear();
 
     // ---------- ① 认出来的：换成一个"资源身份"，交给 ResourceStore 去取那张图 ----------
     //
@@ -8720,7 +8952,7 @@ void MainWindow::onInstanceIconLookupFinished(const InstanceIconLookup::Result &
         // 断网的），画个占位拼图就是正确的界面 —— 它挡不住用户做任何事。
         appendLog(tr("资源图标没查完：%1").arg(result.problem));
     }
-    for (const QString &path : m_instanceIcons.paths) {
+    for (const QString &path : runPaths) {
         if (foundPaths.contains(path)) {
             continue;
         }
@@ -8742,6 +8974,19 @@ void MainWindow::onInstanceIconLookupFinished(const InstanceIconLookup::Result &
                       .arg(result.unreadable));
     }
     pushInstanceFileIcons();
+    // ★★ 2026-09-27：这一趟跑着的时候用户**换了页**的话，替新那一页补一趟。
+    //
+    // 为什么非补不可：换页那次请求撞在 `active` 闸上直接 return 了（见
+    // startInstanceFileIconLookup 那条早退），而这里刚从回来的这一趟是**上一页**的 ——
+    // 没有人替新那页问的话，它的图标要等用户再进一次文件管理页才出现。
+    // 判据看的是**趟**（runVersionId）而不是 `m_instanceIcons.paths` 变没变：同一个实例
+    // 反复进出这一页不该重跑一趟（那正是那条 early-return 想省的）。
+    // NOTE: 这一页已经关掉了（dialog 是 QPointer，关了就是空）就什么都不做 —— 没人看。
+    // NOTE: 不会再套一层循环：补跑那一趟的 runVersionId 就是**当时**的 versionId，它收尾时
+    //       这一条判据必然相等（同一页期间路径表也不会自己变）。
+    if (m_instanceIcons.dialog != nullptr && m_instanceIcons.versionId != runVersionId) {
+        startInstanceFileIconLookup();
+    }
 }
 
 void MainWindow::pushInstanceFileIcons() {
@@ -9635,7 +9880,17 @@ void MainWindow::showGameLogLine(int sessionId, const QString &text) {
 }
 
 void MainWindow::onGameFinished(int sessionId, int exitCode, QProcess::ExitStatus exitStatus) {
-    const LauncherManager::GameSession game = m_launcherManager->session(sessionId);
+    // ★ 2026-09-27 修：这里原来读的是 `m_launcherManager->session(sessionId)`，而**这一趟
+    //    走到这儿的时候那份会话已经从表里摘掉了** —— handleProcessFinished() 里 discard 在
+    //    emit 之前（那是有意的，见那边的 NOTE），LauncherManager.hpp 的 gameFinished 文档
+    //    也明写了「收信号的槽去查 session(id) 会查不到，要用的东西请从参数/自己那边拿」。
+    //    于是拿到的是**空快照**（sessionId == 0、displayName 空），sessionLogTag() 的
+    //    sessionId==0 守卫把它降级成"不加前缀" ⇒ 同时跑两个实例、其中一个退出时，日志里
+    //    是「游戏进程已结束，退出码：0」，没有 `[实例名] `，看不出是谁退了（它上面那些
+    //    `[游戏输出]` 行都有名字）。名字在**启动那一刻**就记了一份，见 m_sessionDisplayNames。
+    LauncherManager::GameSession game;
+    game.sessionId = sessionId;
+    game.displayName = m_sessionDisplayNames.value(sessionId);
     const QString tag = sessionLogTag(game);
     if (exitStatus == QProcess::CrashExit) {
         appendLog(tr("%1游戏崩溃，退出码：%2").arg(tag).arg(exitCode));
@@ -9670,6 +9925,9 @@ void MainWindow::onGameFinished(int sessionId, int exitCode, QProcess::ExitStatu
     // 进程没了，它那一份的"启动中"要收掉；左下角那条"实例运行中"由 runningGames() 现算，
     // 这里只管重画（那一份在 LauncherManager 里已经从表里摘掉了）。
     m_launchingSessions.remove(sessionId);
+    // 名字也到此为止（它唯一的用途就是上面那一行前缀）。不清的话这个表会随着开过的
+    // 实例数一直长 —— 和 m_gameLogDismissedSessions 同一个理由。
+    m_sessionDisplayNames.remove(sessionId);
     updateInstanceTreeRunState();
     updateBottomBar();
 

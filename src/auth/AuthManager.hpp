@@ -277,6 +277,14 @@ private:
     int m_callbackPort;
     // 登录流程在走：从 loginMicrosoft() 起，到回调处理完（或超时）为止。见 loginInFlight()。
     bool m_loginInFlight = false;
+    // ★ 2026-09-27 加：这一趟登录**已经把盘上的微软槽覆盖成新账号的了**。
+    //
+    // 只有 exchangeAuthorizationCode() 会把它点起来（不是 requestMicrosoftTokenRefresh() ——
+    // 那条路刷新的是**同一个**账号的令牌，覆盖了也是它自己的，清掉等于把好好的凭据扔了）。
+    // 用它把两种失败分开：**换了别人**的那种失败收尾时得把微软槽一起清掉，否则下一次启动
+    // 会拿这份"没头没尾"的凭据把登录悄悄补完，人不知鬼不觉地换成新账号（见 finishLogin()
+    // 里失败那一支的 NOTE）。登录开始时复位。
+    bool m_microsoftTokenOverwritten = false;
     // 超时兜底计时器（单次，懒创建）。它保证"浏览器那边再也不回来了"不会把界面卡在
     // 「正在登录…」上 —— 到点关掉回调服务器、发一次 loginFailed()。
     QTimer *m_loginTimeout = nullptr;

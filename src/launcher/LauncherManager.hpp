@@ -12,7 +12,10 @@
 #include <QList>
 #include <QObject>
 #include <QProcess>
+#include <QStringConverter>
 #include <QStringList>
+
+#include <memory>
 
 #include "../settings/EffectiveJavaSettings.hpp"
 #include "ProcessPriority.hpp"
@@ -260,11 +263,37 @@ private:
         /// **按会话各记一份**：两份会话用的 Java 主版本可能不同（同一台机器上装了好几个
         /// Java 是常态），共用一份状态就会有一份的中文变乱码。
         bool outputIsUtf8 = false;
+        /// ★ 2026-09-27 加：这一份的 stdout / stderr **各自的解码器**，第一次用到时才建
+        /// （见 decodeGameOutput）。
+        ///
+        /// 为什么要它：`readyRead` 是**按管道里的字节块**来的，一次读到的末尾完全可能
+        /// 正落在**一个汉字的两个字节中间**（Java ≤18 走本地代码页 = 中国区 GBK，那更是
+        /// 两字节一个汉字）。原来每块各自 `QString::fromLocal8Bit(块)` ⇒ 前半截和后半截
+        /// 各解出一个替换字符，日志里零星多出乱码。QStringDecoder 是**有状态**的，
+        /// 末尾那半个字节留着等下一块拼上。
+        ///
+        /// NOTE: **两条流各一个**：stdout 和 stderr 是两条独立的流，共用一个解码器会把
+        ///       stdout 末尾那半个字节和 stderr 开头拼到一起。
+        /// NOTE: **shared_ptr 不是 optional/裸值** —— QStringDecoder 在 Qt 6.10 里是
+        ///       **不可拷贝**的（拷贝构造被删掉），而 Entry 要放进 QHash，QHash 扩容时会
+        ///       拷贝元素（实测报的是 `use of deleted function ... Entry(const Entry&)`）。
+        ///       套一层 shared_ptr 之后 Entry 照旧可拷贝，解码器的生命周期也自动跟着这一份
+        ///       记录走（会话摘掉时一起释放，不用另记一处要清的地方）。
+        /// NOTE: 没有编码的"默认可用状态"——默认构造出来的 QStringDecoder 的 isValid()
+        ///       为假，而编码要等 startGame() 从命令行反推出来。所以是惰性建（第一次用
+        ///       到那一条流时才建），正常路径上不会多出构造。
+        std::shared_ptr<QStringDecoder> stdoutDecoder;
+        std::shared_ptr<QStringDecoder> stderrDecoder;
     };
 
     /// 按某份会话**实际使用的**输出编码解码它的 stdout/stderr。
     /// 判断依据由 startGame() 从命令行上反推出来，见那里的说明。
-    static QString decodeGameOutput(bool utf8, const QByteArray &bytes);
+    ///
+    /// ★ 2026-09-27：**带状态**了（原来是无状态的一次性转换）。@p slot 是那一条流的解码器
+    /// （第一次用时才建），末尾不足一个字符的字节留在它里面，下一段接着拼 —— 详见 Entry
+    /// 里那一对成员上那段说明。
+    static QString decodeGameOutput(bool utf8, std::shared_ptr<QStringDecoder> &slot,
+                                    const QByteArray &bytes);
 
     /// 把一个已经结束/失败的会话从表里摘掉并释放它的 QProcess（进程指针从会话自己那一格
     /// 上取，这里不需要外面再传一个）。

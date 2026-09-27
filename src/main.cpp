@@ -24,6 +24,18 @@ QFile g_logFile;
 QTextStream g_logStream;
 /// 文件还没开时先攒下的那些行（openFileLog() 时一起补进去）。
 QStringList g_pendingLog;
+/// ★ 2026-09-27：那一次开文件**试过了、没开成**。它一旦为真，后面每一行就只走 stderr，
+/// 不再往 g_pendingLog 里塞。
+///
+/// 原来这里没有这一位，只靠"g_logFile.isOpen() 为假就攒着"判断，于是 openFileLog()
+/// 开文件失败之后（数据目录不可写、目录权限被改、杀软拦新建文件）**每一条日志都还在往
+/// 那个表里塞**，而它再也没有第二处读 —— openFileLog() 里那句 clear() 只跑那一次，
+/// 之后没人清了。开着日志窗跑一个模组包（几万行游戏输出，qDebug 走的就是这个 handler）
+/// 就是几十 MB 只涨不落。那句「攒下的行照样丢掉，不再越攒越多」当时只对**开文件之前**
+/// 攒的那批成立。
+/// NOTE: 判据必须是"试过了"而不是"文件没开着" —— 这两件事在 openFileLog() 之前长得一样，
+///       而那时候攒着是对的。
+bool g_logFileGaveUp = false;
 
 /// 把 Qt 的日志（qDebug / qWarning；产品里所有 [WTFML] 那句话、以及游戏自己的输出
 /// 都从这里过，见 LauncherManager）落一份到盘上，同时照旧往 stderr 写一份。
@@ -58,7 +70,7 @@ void installFileLog() {
             // 正是"要退出"那些话，早收反而丢东西。
             g_logStream << line << Qt::endl;
             g_logStream.flush();
-        } else {
+        } else if (!g_logFileGaveUp) {
             g_pendingLog.append(line);
         }
         const QByteArray raw = line.toUtf8();
@@ -80,6 +92,10 @@ void openFileLog() {
             g_logStream << line << Qt::endl;
         }
         g_logStream.flush();
+    } else {
+        // ★ 2026-09-27：**记下"试过了、没开成"**。不然 handler 那边分不清"还轮不到开文件"
+        //   和"开了但失败了"，会把后面每一行继续往 g_pendingLog 里塞（见那一位的说明）。
+        g_logFileGaveUp = true;
     }
     g_pendingLog.clear();
 }
@@ -87,8 +103,15 @@ void openFileLog() {
 } // namespace
 
 int main(int argc, char *argv[]) {
-    QApplication app(argc, argv);
+    // ★ 2026-09-27：**handler 排在 QApplication 构造之前**。上面那段 NOTE 说设计动机正是
+    // 要留住"字体库那几句"（它们比当前游戏文件夹还早），而原来这一句写在 QApplication
+    // 构造**之后** —— 那几句话发生在 handler 装上之前，既没进 g_pendingLog 也没进日志文件，
+    // 于是"按 NOTE 去日志文件里查那句警告"永远查不到，而它正是设计时要留住的那几条。
+    // NOTE: 这一步不需要 QApplication 已经存在（qInstallMessageHandler / qFormatLogMessage
+    //       都是纯 QtCore 的东西），所以提前是安全的。
     installFileLog();
+
+    QApplication app(argc, argv);
 
     // 刻意不跟随系统原生样式，固定用 Fusion。
     //

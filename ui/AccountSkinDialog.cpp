@@ -354,4 +354,12 @@ void AccountSkinDialog::refreshButtonStates() {
     // 不看"有没有选中"（加东西不依赖选中项）。
     m_offlineNameEdit->setEnabled(idle);
     m_addOfflineButton->setEnabled(idle);
+    // ★ 2026-09-27：这颗原来**漏了**（setBusy() 里灰了六样、偏偏没灰它），所以忙态下它照样
+    //   点得动。它的槽是这一页里最重的一颗（MainWindow::onCapeHideRequested()：**同步**
+    //   loadSavedToken() → 发一次取消披风的请求 → 再进一次 refreshAccountSkin()），正撞在
+    //   "正在刷新外观"或"正在等浏览器完成登录"那两段上：等于在别人的嵌套事件循环里又发一轮
+    //   请求、又重入一次刷新，忙态、状态行和"我点的是哪个账号"当场对不上。
+    //   NOTE: 它**不看"有没有选中"**（取消披风作用于当前账号，不依赖右栏选中的那一项），
+    //         所以只借 idle 这一半 —— 和上面「加离线账号」那两颗同一个形状。
+    m_hideCapeButton->setEnabled(idle);
 }

@@ -244,6 +244,12 @@ public:
     ///
     /// 所以"排队必须发生在我们自己的 m_pendingJobs 里"这条不变量，在 kMaxConcurrentDownloads
     /// 从 6 调大之后要**按主机**守着：全局 24 条，但同一个主机在它证明自己走 h2 之前只放 6 条。
+    ///
+    /// ★★ 2026-09-27：**改道那条路也算数**。首选地址那个主机正被降级时 startDownload() 会
+    ///    当场改道到备用地址，而这条判据问的必须是**备用**那个主机 —— 判断只有一处
+    ///    （`effectiveDownloadUrl()`），"发给谁"和"问谁"不会漂开。原来问的是首选主机那个，
+    ///    而回复是按改道后的主机记账的 ⇒ 这条闸对改道的作业永远放行，一次 pump 就能把
+    ///    备用主机塞满 kMaxConcurrentDownloads(24) 条。
     static constexpr int kMaxConcurrentPerHost = 6;
 
     /// 还能不能再往**某一个主机**发一条。和上面那条一起判（两条都过才发）。
