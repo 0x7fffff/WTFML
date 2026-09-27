@@ -481,6 +481,22 @@ private slots:
     ///       于是那三页在装了光影的实例上照样说"用不上"（2026-09-27 修）。
     bool instanceShaderUsable(const QString &versionId) const;
 
+    /// 这个实例用不用得上「模组」那一页 —— 两条路任一条命中就算用得上：
+    /// ① 它基于一个模组加载器（Fabric / Forge / NeoForge / OptiFine / Quilt）；
+    /// ② `mods/` 里**已经有 jar**。
+    ///
+    /// ★ 用户 2026-09-27 报的就是①：「模组存在误判的情况，像海波篮子连 litematica 都有了
+    ///   怎么会没有模组加载器呢」。根子是判据原来写的 `displayParts().loaderName` 非空，
+    ///   而那一格**只有我们自己的安装器会写** —— PCL 那类"整份 json 合进实例目录"的实例
+    ///   （用户盘上 70 个里 67 个）读出来是空的，于是那一页在**每一个**这样的实例上都灰着。
+    ///   现在走 VersionManager::instanceModLoader()，那个函数的两条路见它的说明。
+    ///
+    /// ② 和 ① 是**两件事**，所以它挂在这一层、不塞进 instanceModLoader()：那边回答的是
+    /// "基于哪个加载器"，而往 mods/ 里丢一个 jar 不构成任何加载器证据。"这一页对他有没有
+    /// 用"才是这里的问题 —— 真机上就有两个实例走了这一条（json 认不出加载器、可 mods/ 里
+    /// 躺着 136 / 27 个 jar，那一页显然是该给的）。
+    bool instanceModsUsable(const QString &versionId) const;
+
     /// 读一次 servers.dat 递给对话框（解析在 src/util/NbtUtil 里）。
     ///
     /// NOTE: 「读不动」和「读到了但一条都没有」分开给（见 setServerList()）——

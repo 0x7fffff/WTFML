@@ -3396,6 +3396,8 @@ QString VersionManager::jvmArgsField() { return QStringLiteral("jvmArgs"); }
 
 QString VersionManager::iconField() { return QStringLiteral("icon"); }
 
+QString VersionManager::settingsPagesField() { return QStringLiteral("settingsPages"); }
+
 QString VersionManager::versionIcon(const QString &versionId) const {
     QString metaPath;
     const QJsonObject meta = readVersionMeta(versionId, &metaPath);
@@ -4062,6 +4064,45 @@ static QString loaderVersionFromMaven(const QString &mavenVersion) {
     return dash > 0 ? text.mid(dash + 1) : text;
 }
 
+/// `loaderEvidenceFromJson()` 认出 OptiFine 时往 `keyOut` 里填的那一格。
+///
+/// 它**不是**整合包依赖表里的键（Modrinth / CurseForge 都不认 OptiFine，所以
+/// `ModpackImport` 那边没有 `optifineLoaderKey()`，也不该有 —— 清单里根本没这一格）。
+/// 它唯一的作用是给"认出来了、是哪一个"一个统一的出口，读它的是
+/// `loaderDisplayNameForEvidenceKey()` 和 `instanceModLoader()`。
+static QString optifineEvidenceKey() { return QStringLiteral("optifine"); }
+
+/// 上述那一串证据键 → **给界面看的加载器名**。
+///
+/// 前四条走 `loaderDisplayName()`（**必须逐字一致**：实例行前面那个标志就是拿这个名字去
+/// 反查下标的，见 `defaultInstanceMark()`）；Quilt 是唯一一处例外 —— 我们装不出 Quilt
+/// （见 `instanceLoaderInfo()` 那段），`loaderDisplayName()` 里没有它，可"有没有模组
+/// 加载器"这个问题上它和别人一样算数，所以这里单独拼一个名字。它只喂两件事：实例设置里
+/// 「模组」那一页开不开、以及实例行画什么（认不出来的名字一律画草方块）。
+///
+/// NOTE: 写成一张**逐条列出**的表而不是遍历比较（同 `loaderKindForDependencyKey()` 那条
+///       的规矩）：键那一边的唯一出处是 `ModpackImport` 那几个函数，漏一个的话症状是
+///       "这个实例明明有加载器、界面上就是不认"，所以宁可让这一张表短到一眼看得完。
+static QString loaderDisplayNameForEvidenceKey(const QString &key) {
+    using Kind = VersionManager::LoaderKind;
+    if (key == ModpackImport::fabricLoaderKey()) {
+        return VersionManager::loaderDisplayName(Kind::Fabric);
+    }
+    if (key == ModpackImport::forgeLoaderKey()) {
+        return VersionManager::loaderDisplayName(Kind::Forge);
+    }
+    if (key == ModpackImport::neoforgeLoaderKey()) {
+        return VersionManager::loaderDisplayName(Kind::NeoForge);
+    }
+    if (key == optifineEvidenceKey()) {
+        return VersionManager::loaderDisplayName(Kind::OptiFine);
+    }
+    if (key == ModpackImport::quiltLoaderKey()) {
+        return QStringLiteral("Quilt");
+    }
+    return QString();
+}
+
 /**
  * @brief 从一份**合并过的**版本 json 自己身上认加载器。
  *
@@ -4087,7 +4128,12 @@ static QString loaderVersionFromMaven(const QString &mavenVersion) {
  *
  * @param json 一份**没合并过**的版本 json（`rawVersionJson` 读回来的那份）。
  * @return 这份 json 有没有说出加载器（含"是 OptiFine，导不了"那一档 —— 那也算说出来了）。
- *         说出来时 `problemOut` 是"能不能导出"那一句：**空 = 能**（键与版本在另外两个出参里）。
+ *         说出来时 `problemOut` 是"能不能导出"那一句：**空 = 能**。
+ *
+ * NOTE: 说到加载器时 `keyOut` / `versionOut` **一定会填**（含 OptiFine / Quilt 那两档，
+ *       它们的 `problemOut` 非空 —— 也就是"说得出来、但导不了"）。导出那一路只在
+ *       `problemOut` 为空时读这两个出参，多填一份不影响它；而 `instanceModLoader()`
+ *       两个都要（它问的是"是哪一个、哪一版"，不是"导不导得出去"）。
  */
 bool loaderEvidenceFromJson(const QJsonObject &json, QString *keyOut, QString *versionOut,
                             QString *problemOut) {
@@ -4131,11 +4177,24 @@ bool loaderEvidenceFromJson(const QJsonObject &json, QString *keyOut, QString *v
     // 是"导不了"的那一档（id 那条路也是先看 OptiFine 再看别的加载器，顺序保持一致）。
     if (!optifineVersion.isEmpty()) {
         *problemOut = optifineExportProblem(optifineVersion);
+        // 这两个出参照填（见函数头那条 NOTE）。键写成 optifineEvidenceKey()，理由在那一处。
+        if (keyOut != nullptr) {
+            *keyOut = optifineEvidenceKey();
+        }
+        if (versionOut != nullptr) {
+            *versionOut = optifineVersion;
+        }
         return true;
     }
     if (!quiltVersion.isEmpty()) {
         // 那句"清单写得下、我们装不了"的说明只有一份（loaderKeyExportProblem 里）。
         *problemOut = loaderKeyExportProblem(ModpackImport::quiltLoaderKey(), quiltVersion);
+        if (keyOut != nullptr) {
+            *keyOut = ModpackImport::quiltLoaderKey();
+        }
+        if (versionOut != nullptr) {
+            *versionOut = quiltVersion;
+        }
         return true;
     }
 
@@ -4434,6 +4493,134 @@ QString VersionManager::instanceGameVersion(const QString &instanceId) {
     //    就只有"清单里有"或者"长得像版本号"（以数字开头 + 没有空白）才敢用 ——
     //    判据的出处是 isKnownGameVersion()。
     return usable(start) ? start : QString();
+}
+
+bool VersionManager::gameVersionSupportsDatapacks(const QString &versionId,
+                                                  const QString &releaseTime) {
+    // 数据包是快照 17w43a（2017-10-25）引进的。判据见 .hpp 那段说明。
+    //
+    // ① 盘上那份 json 自己写着什么时候发布的 ⇒ 按日期比。**离线也准**，快照和远古版
+    //    全都分得对（它们的 releaseTime 就是真日期）。
+    const QString stamp = releaseTime.trimmed();
+    if (!stamp.isEmpty()) {
+        const QDateTime released = QDateTime::fromString(stamp, Qt::ISODate);
+        if (released.isValid()) {
+            // 只比**日期**（`releaseTime` 带的是 `+00:00` 偏移，换算到 UTC 再取日期，
+            // 免得"离那一天只差几个钟头"把结果翻过去）。卡在 2017-11-01 而不是 17w43a
+            // 那一天本身：17w43a 是 10-25 发的，但它之后还有 17w44a…17w47a 一串快照，
+            // 全都带数据包。留几天富裕比卡在当天稳 —— **多给一页**是可以修的，
+            // 静默藏掉一页不行（见 .hpp 里那条 NOTE）。
+            return released.toUTC().date() >= QDate(2017, 11, 1);
+        }
+    }
+
+    // ② 没读到日期（薄 json、手写的 json）⇒ 看版本号本身。以数字开头的按「主.次」比。
+    //    不是数字开头的（`a1.2.6` / `b1.7.3` / 用户起的名字）走到这儿 ⇒ 给（下面那条
+    //    "问不出来就给"的规矩）。
+    const QString text = versionId.trimmed();
+    if (text.isEmpty() || !text.at(0).isDigit()) {
+        return true;
+    }
+    // 到第一个不是数字也不是点的字符为止：`1.20.1` → `1.20.1`、`1.13-pre1` → `1.13`、
+    // `26.2-snapshot` → `26.2`。`20w14∞` 那种也是数字开头，取出来是 `20` ⇒ 判成"有"
+    // （它其实是 2020 年的快照，本来就有 —— 蒙对了）。
+    int end = 0;
+    while (end < text.size() && (text.at(end).isDigit() || text.at(end) == QLatin1Char('.'))) {
+        ++end;
+    }
+    const QStringList parts = text.left(end).split(QLatin1Char('.'));
+    const int major = parts.value(0).toInt();
+    const int minor = parts.value(1).toInt();
+    return major > 1 || (major == 1 && minor >= 13);
+}
+
+bool VersionManager::instanceSupportsDatapacks(const QString &instanceId) {
+    const QString start = instanceId.trimmed();
+    if (start.isEmpty()) {
+        return true;  // 问不出来就给（同 gameVersionSupportsDatapacks 的那条规矩）
+    }
+    // 合并过的那一份 json：`releaseTime` 会从父那层继承上来（VersionInheritance::merge
+    // 里那一串"子非空用子、否则用父"），所以薄 json 的加载器实例照样问得出来。
+    const QJsonObject merged = getVersionJson(start);
+    const QString releaseTime = merged.value(QStringLiteral("releaseTime")).toString();
+    // 版本号用 instanceGameVersion()：它认得合并实例的 clientVersion / 链末端 / 目录名，
+    // 而且每一格都过了 isKnownGameVersion()。
+    return gameVersionSupportsDatapacks(instanceGameVersion(start), releaseTime);
+}
+
+bool VersionManager::instanceModLoader(const QString &instanceId, QString *nameOut,
+                                       QString *versionOut) const {
+    if (nameOut != nullptr) {
+        nameOut->clear();
+    }
+    if (versionOut != nullptr) {
+        versionOut->clear();
+    }
+    const QString start = instanceId.trimmed();
+    if (start.isEmpty()) {
+        return false;
+    }
+
+    // ---- 第一条路：我们自己记在 wtfml.meta 里的那一段 ----
+    //
+    // 罩的是**我们自己的安装器**装出来的实例（见 updateVersionMeta 里那一处），也含用户
+    // 手写过的 meta（`loaderName` 写 "fabric" 也认 —— 大小写不敏感地比一次就够，不必
+    // 逐字对上 loaderDisplayName()，这里不拿它反查下标）。
+    const QJsonObject meta = versionMeta(start);
+    const QString metaName = meta.value(QStringLiteral("loaderName")).toString().trimmed();
+    if (!metaName.isEmpty()) {
+        if (nameOut != nullptr) {
+            *nameOut = metaName;
+        }
+        if (versionOut != nullptr) {
+            *versionOut = meta.value(QStringLiteral("loaderVersion")).toString().trimmed();
+        }
+        return true;
+    }
+
+    // ---- 第二条路：版本 json 自己身上认（`libraries` + `arguments.game`）----
+    //
+    // 罩的是 PCL / HMCL 那一类"整份 json 都合进实例目录"的实例 —— 用户盘上 70 个实例里
+    // 67 个是这一档，它们**只有**这条路走得通（meta 里没有 loaderName，`id` 是用户起的
+    // 名字、链上也问不出东西）。判据本身一点没另写，就是导出那条路用的
+    // loaderEvidenceFromJson()。
+    //
+    // ★ 问的是 **getVersionJson()**（合并过的那一份），不是 rawVersionJson()：薄实例
+    //   （`26.4-snapshot-1-Fabric` 那种，on-disk json 只有 `id` + `inheritsFrom` +
+    //   `type`）的加载器整个在父那一份里，读自己那份一个字都认不出来。合并那一层自带
+    //   缓存，所以一次会话里每个实例只真读一次。
+    //
+    // NOTE: 那道 exists() 是**必须**的：rawVersionJson() 找不到文件时会 qWarning，而这个
+    //       函数每次刷新实例列表都对每个实例问一遍（同 versionChannelOf() 里那条闸的理由）。
+    if (QFile::exists(InstanceFiles::jsonPath(start))) {
+        QString key;
+        QString version;
+        QString problem;  // "认得出来但导不了"那一句 —— 这一条路上它没有意义，丢掉。
+        if (loaderEvidenceFromJson(getVersionJson(start), &key, &version, &problem)) {
+            const QString name = loaderDisplayNameForEvidenceKey(key);
+            if (!name.isEmpty()) {
+                if (nameOut != nullptr) {
+                    *nameOut = name;
+                }
+                if (versionOut != nullptr) {
+                    *versionOut = version;
+                }
+                return true;
+            }
+            // 认出来了、但那张表里没有它的名字：**当成认不出来**（名字是给界面用的，说不
+            // 出名字就画草方块、也拿不出"这个实例是 X"那句话）。表里少一行的症状就是这个
+            // 实例在界面上退回原版，所以那边写着"逐条列出"。
+            qWarning() << "Loader evidence key not in the display table:" << key << "for"
+                       << start;
+        }
+    }
+
+    // ---- 没有第三条路 ----
+    //
+    // ★ `mods/` 里有 jar **不算**：这一格回答的是"它基于哪个加载器"，而往 mods/ 里丢一个
+    //   jar 不构成任何一条加载器证据（一个装了 jar 的纯原版实例仍然起不来那些 mod）。
+    //   "这一页对用户有没有用"是另一个问题，补在调用那一侧。
+    return false;
 }
 
 QString VersionManager::lookupModrinthVersionFiles(

@@ -11,9 +11,9 @@
  * 2026-09-26 起这一页**没有「确定 / 取消」**：值一改就发 `settingsEdited()`，写盘那边
  * 接住就写（见 .hpp 里那个信号）。所以这一层的出口是**两条信号**加那一堆读值的函数。
  *
- * 2026-09-26 起这一页是**三栏**（大类 | 小类 | 内容，见 .hpp 里 categoryKeys() 那一段）：
- * 控件全部直接挂在 `this` 上、按 objectName 认，所以分栏对"读值"这一侧一个字都没改
- * —— 只是控件换了个父容器。
+ * 2026-09-27 起这一页是**两栏**（左栏一列按实例现算的页表 | 右栏一块堆叠页，见 .hpp 里
+ * pinnedPageKeys() 那一段）：控件全部直接挂在 `this` 上、按 objectName 认，所以分栏对
+ * "读值"这一侧一个字都没改 —— 只是控件换了个父容器。
  */
 #include "InstanceSettingsDialog.hpp"
 
@@ -68,12 +68,12 @@ constexpr int kMemorySpinWidth = 120;
 constexpr int kMemorySliderMinWidth = 200;
 /// 追加参数那一行的输入高度（三四行够放几条常见参数）。
 constexpr int kAppendJvmArgsHeight = 76;
-/// 左栏那两条导航列在算出来的宽度上再加多少余量（左右各一半）。
+/// 左栏那一列导航在算出来的宽度上再加多少余量（左右各一半）。
 /// `sizeHintForColumn` 给的是"字有多宽"，条目的字贴着边看着像被切了。
 constexpr int kNavListExtraWidth = 28;
-/// 三栏之间空多少。和整页外边距那一档（12）同一档。
+/// 两栏之间空多少。和整页外边距那一档（12）同一档。
 constexpr int kColumnSpacing = 12;
-/// 单独拿出来用时的初始大小。宽是"两列导航 + 一块还放得下两列表格的内容"量出来的
+/// 单独拿出来用时的初始大小。宽是"一列导航 + 一块还放得下两列表格的内容"量出来的
 /// （见 .cpp 构造函数里那句 NOTE：嵌进覆盖层时这个数不作数）。
 constexpr int kDialogWidth = 820;
 constexpr int kDialogHeight = 560;
@@ -105,6 +105,24 @@ void addNavColumn(QHBoxLayout *columns, QListWidget *list) {
     layout->addWidget(list);
     layout->addStretch(1);
     columns->addWidget(column);
+}
+
+/// 堆叠页第 @p index 格是**哪一页**（认不出来回空串）。`stackPageIndexOf()` 的反面。
+///
+/// NOTE: 摆在这一列左栏旁边，是因为"左栏现在该亮哪一条"要从"右栏现在摆着哪一页"反查
+///       （见 rebuildEntryList()）—— 反过来再存一份"现在在哪一页"的影子状态，迟早会和
+///       堆叠页对不上。
+QString pageKeyAtStackIndex(int index) {
+    if (index < 0) {
+        return QString();
+    }
+    const QStringList pinned = InstanceSettingsDialog::pinnedPageKeys();
+    if (index < pinned.size()) {
+        return pinned.at(index);
+    }
+    const QStringList files = InstanceSettingsDialog::filePageKeys();
+    const int fileIndex = index - InstanceSettingsDialog::filePageFirstIndex();
+    return fileIndex >= 0 && fileIndex < files.size() ? files.at(fileIndex) : QString();
 }
 
 /// 往表格里加一行：**行名独占一行、内容在下一行**（2026-09-26 用户原话「上一行设置名称，
@@ -249,7 +267,8 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                                                bool warnJavaMismatch, QWidget *parent)
     : QDialog(parent), m_global(global), m_instanceId(instanceId) {
     setWindowTitle(tr("实例设置"));
-    // 比分组对话框宽得多：从左到右是**三栏**（大类 | 小类 | 内容），600 那个宽度放不下。
+    // 比分组对话框宽得多：从左到右是**两栏**（左栏一列页 + 右栏一块内容），600 那个宽度
+    // 放不下。
     // NOTE: 嵌进覆盖层的时候这个尺寸**不作数** —— 那一层给它的是内容区的整幅宽（见
     //       OverlayHost::execEmbedded 里那句 `area->layout()->addWidget(dialog)`）。
     //       这一句只影响单独把它拿出来用的时候（验证工程那几处）。
@@ -267,56 +286,30 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     title->setFont(titleFont);
     outer->addWidget(title);
 
-    // ---------- 三栏（见 .hpp 里 categoryKeys() 上面那一段）----------
+    // ---------- 两栏（见 .hpp 里 pinnedPageKeys() 上面那一段）----------
     auto *columns = new QHBoxLayout;
     columns->setSpacing(kColumnSpacing);
 
-    // 两条导航列（大类 / 小类）是**同一种东西**，所以走同一段代码：同一个代理、同一套字体
-    // 与行高算法 —— 和设置页、下载页那两列左栏也是同一个样子。
+    // 左栏那一列：**内容不在这儿填** —— 它是按这个实例算出来的（哪几页用得上 + 用户勾掉了
+    // 哪几页），构造末尾的 rebuildEntryList() 才灌第一遍。这儿只把"长什么样"摆好。
+    //
     // NOTE: **不设** rowRefreshRole()。那一格里画的刷新圈是下载页专有的（这一列没有
     //       "重新拉一遍"这回事），代理见到没设就不画。
-    const auto makeNavList = [this](const QString &objectName, const QStringList &keys,
-                                    const QStringList &texts) {
-        auto *list = new QListWidget(this);
-        list->setObjectName(objectName);
-        list->setUniformItemSizes(true);
-        list->setItemDelegate(new VersionTreeDelegate(list));
-        QFont listFont = list->font();
-        listFont.setPointSize(listFont.pointSize() + MainWindowUI::versionTreeFontStep());
-        list->setFont(listFont);
-        for (int i = 0; i < keys.size(); ++i) {
-            auto *item = new QListWidgetItem(texts.value(i), list);
-            // 身份进 userData：条目文字是显示内容、会随文案改，不能拿它当身份。
-            item->setData(Qt::UserRole, keys.value(i));
-        }
-        // 高度贴着内容：几条两三个字的条目被拉成一整条空白看着像坏了。行高**交给样式算**
-        // （sizeHintForRow），别写死数字 —— 换字体/换样式就错。和设置页那一列同一条规矩。
-        int rowsHeight = 0;
-        for (int i = 0; i < list->count(); ++i) {
-            rowsHeight += list->sizeHintForRow(i);
-        }
-        list->setFixedHeight(rowsHeight + 2 * list->frameWidth() + 2);
-        list->setFixedWidth(navListWidth(list));
-        return list;
-    };
-
-    m_categoryList = makeNavList(categoryListName(), categoryKeys(), categoryTexts());
-    addNavColumn(columns, m_categoryList);
-
-    // 中栏摆的是**露出来的**那几页（shownFilePageKeys()），不是整张键表 —— 现在有三页
-    // 收着不给看（见 .hpp 里 hiddenFilePageKeys() 上面那段）。左栏那一条不用管：三栏
-    // 大类一个都没隐藏。
-    m_subCategoryList = makeNavList(subCategoryListName(), shownFilePageKeys(),
-                                    shownFilePageTexts());
-    // 只有选到「文件管理」那一栏时才露出来（见下面 applyCategory 那一发）。
-    // NOTE: 收着的时候 `currentRow` **留着** —— 切走再切回来还停在刚才那一页。
-    m_subCategoryList->setVisible(false);
-    addNavColumn(columns, m_subCategoryList);
+    m_pageList = new QListWidget(this);
+    m_pageList->setObjectName(pageListName());
+    m_pageList->setUniformItemSizes(true);
+    m_pageList->setItemDelegate(new VersionTreeDelegate(m_pageList));
+    QFont listFont = m_pageList->font();
+    listFont.setPointSize(listFont.pointSize() + MainWindowUI::versionTreeFontStep());
+    m_pageList->setFont(listFont);
+    // 只为一件事：**别让"拿到焦点"变成一次翻页**（见 eventFilter() 上面那一整段）。
+    m_pageList->installEventFilter(this);
+    addNavColumn(columns, m_pageList);
 
     m_stack = new QStackedWidget(this);
     m_stack->setObjectName(stackName());
     columns->addWidget(m_stack, 1);
-    // 三栏吃掉整页剩下的竖直空间（底下那排按钮按自己的高排）。
+    // 两栏吃掉整页剩下的竖直空间（底下那排按钮按自己的高排）。
     outer->addLayout(columns, 1);
 
     // ---------- 概览（2026-09-26 重排成四行）----------
@@ -599,6 +592,115 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         auto *hint = new QLabel(exportHint(), cell);
         hint->setWordWrap(true);
         column->addWidget(hint);
+        grid->addWidget(cell, row++, 0, 1, 2);
+    }
+
+    // ---------- 快捷方式那九颗按钮（2026-09-27 从「快捷方式」那一页整块搬来）----------
+    //
+    // 用户原话：「"快捷方式"放到概览的下方」—— 从这儿起「快捷方式」**不再是一页**，
+    // 这九颗按钮就是概览页的一部分（键、objectName、底下那句话一个字都没改，只是换了个父）。
+    {
+        auto *cell = new QWidget(this);
+        auto *column = new QVBoxLayout(cell);
+        column->setContentsMargins(0, 0, 0, 0);
+        column->setSpacing(6);
+
+        // 三颗一排（shortcutPerRow()）⇒ 里面另起一张三列的网格，外面这一格整幅跨两列。
+        auto *buttonGrid = new QGridLayout;
+        buttonGrid->setContentsMargins(0, 0, 0, 0);
+        buttonGrid->setHorizontalSpacing(8);
+        buttonGrid->setVerticalSpacing(8);
+        const QStringList texts = shortcutTexts();
+        const QStringList keys = shortcutPathKeys();
+        for (int i = 0; i < texts.size(); ++i) {
+            auto *button = new QPushButton(texts.value(i), cell);
+            button->setObjectName(shortcutButtonName(i));
+            const QString key = keys.value(i);
+            // 路径**现场问 m_instanceDir / m_fileDirs**（不是捕获一份快照）：setInstanceDir()
+            // 是在构造函数之后才被调的，捕获快照的话拿到的永远是空串 —— 这颗按钮点了什么都
+            // 不会发生，而且不报错。
+            connect(button, &QPushButton::clicked, this, [this, key] {
+                emit openInstanceFolderRequested(
+                    key == QStringLiteral("dir") ? m_instanceDir : m_fileDirs.value(key));
+            });
+            // 按钮**不给它抻**：默认尺寸，三颗一排靠左。
+            buttonGrid->addWidget(button, i / shortcutPerRow(), i % shortcutPerRow(),
+                                  Qt::AlignLeft);
+            m_shortcutButtons.append(button);
+        }
+        auto *rowWrap = new QHBoxLayout;
+        rowWrap->setContentsMargins(0, 0, 0, 0);
+        rowWrap->addLayout(buttonGrid);
+        // 底下这一条 stretch 是"三颗一排靠左"的另一半：没有它，网格会把三列摊平分给
+        // 整幅宽，每颗按钮都被抻成一大条。
+        rowWrap->addStretch(1);
+        column->addLayout(rowWrap);
+        auto *hint = new QLabel(filesHint(QStringLiteral("shortcut")), cell);
+        hint->setObjectName(filesHintName(QStringLiteral("shortcut")));
+        hint->setWordWrap(true);
+        column->addWidget(hint);
+        grid->addWidget(cell, row++, 0, 1, 2);
+    }
+
+    // ---------- 「显示哪些页」（2026-09-27）----------
+    //
+    // 用户原话：「概览里面调整是否显示」「是否显示的调整放到"快捷方式"的下方」「如果没有
+    // 对应的加载器，保持对应选项不可勾选的状态，悬停文本解释」。
+    //
+    // 七条一条一个勾选框（顺序见 optionalPageKeys()），勾/不勾直接决定左栏那一列里有没有
+    // 这一条；勾掉的记在实例自己的 wtfml.meta 里（见 pageChoices()）。**不可用的那一条
+    // 不勾、灰着、tooltip 说为什么** —— 灰着而不是藏起来：用户得看得见"有这么一页、
+    // 但这个实例上用不上、为什么"。
+    //
+    // NOTE: 这些勾选框会被 watchEditors() 按类型自动接上（它接 `QAbstractButton::clicked`）
+    //       ⇒ 勾一下就走"改了就写"那条路。程序化 `setChecked()`（refreshPageChecks()）
+    //       **不发 clicked**，所以重建/灌值不会白白写一次盘。
+    {
+        auto *cell = new QWidget(this);
+        auto *column = new QVBoxLayout(cell);
+        column->setContentsMargins(0, 0, 0, 0);
+        column->setSpacing(6);
+
+        auto *label = new QLabel(showPagesLabelText(), cell);
+        QFont labelFont = label->font();
+        labelFont.setBold(true);
+        label->setFont(labelFont);
+        column->addWidget(label);
+
+        auto *checkGrid = new QGridLayout;
+        checkGrid->setContentsMargins(0, 0, 0, 0);
+        checkGrid->setHorizontalSpacing(8);
+        checkGrid->setVerticalSpacing(6);
+        const QStringList keys = optionalPageKeys();
+        const QStringList texts = optionalPageTexts();
+        for (int i = 0; i < keys.size(); ++i) {
+            const QString key = keys.at(i);
+            auto *check = new QCheckBox(texts.value(i), cell);
+            check->setObjectName(pageCheckName(key));
+            // 一开始全是勾上的：**可用就显示**是默认（见 .hpp 里 pageChoices() 那条）。
+            // 真正的样子由 refreshPageChecks() 摆（构造末尾、以及每一次可用性变化之后）。
+            check->setChecked(true);
+            m_pageChecks.insert(key, check);
+            // 两条一排。
+            // 勾一下：先把这一格的样子**记进那一份选择**，再让左栏跟着变。
+            //
+            // ★ 少了这一发，用户勾掉「存档」之后**左栏里那一条还在** —— `shownEntryKeys()`
+            //   读的是那一份选择（`m_pageOverrides`，勾选框只是它的画），而用户点的这一下
+            //   原来只走"写盘那条线"（watchEditors() → settingsEdited），要等 MainWindow
+            //   把那一次改动写进 wtfml.meta、再灌回来，左栏才掉。用户眼前就是一颗已经空了
+            //   的勾选框配着一条还在的左栏，中间隔着一次写盘。「记到盘上」和「当场看见」
+            //   是两件事，两条都得接。
+            //
+            // NOTE: 顺序 —— 这一发接在 watchEditors() 那一发**之前**（构造函数先跑），
+            //       所以 MainWindow 收到 settingsEdited 去读 pageChoices() 时，左栏与那一份
+            //       选择都已经是最新的。
+            connect(check, &QAbstractButton::clicked, this, [this, key](bool checked) {
+                m_pageOverrides.insert(key, checked);
+                rebuildEntryList();
+            });
+            checkGrid->addWidget(check, i / 2, i % 2, Qt::AlignLeft);
+        }
+        column->addLayout(checkGrid);
         grid->addWidget(cell, row++, 0, 1, 2);
     }
 
@@ -950,66 +1052,24 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         grid->addWidget(cell, row++, 0, 1, 2);
     }
 
-    // ---------- 文件管理（八页）----------
+    // ---------- 文件那八页（见 .hpp 里 filePageKeys() 那一段）----------
     //
     // 这八页说的是**这个实例自己的目录**：`--gameDir` 就是 `versions/<实例名>/`，所以
     // `mods/ resourcepacks/ shaderpacks/ datapacks/ saves/` 都在里头 —— 实例之间天然隔离，
     // 在这一页里动什么都不会碰到别的实例。
     //
-    // 八页分三种形状（见 .hpp 里"文件管理那八页"那一段）：快捷方式是按钮网格，服务器列表
-    // 读一份递进来的解析结果，中间六页是同一个 InstanceFilesPage。**目录一律由调用方
-    // 算好递进来**（setInstanceDir / setFileDirs）—— 那几个目录名是 MC 的约定，
-    // src/download/ResourceCatalog::folderForKind() 是唯一出处，这一层不抄第二份。
+    // 八页分两种形状：服务器列表读一份递进来的解析结果（③），其余七页是同一个
+    // InstanceFilesPage（②）。**目录一律由调用方算好递进来**（setInstanceDir / setFileDirs）
+    // —— 那几个目录名是 MC 的约定，src/download/ResourceCatalog::folderForKind() 是唯一
+    // 出处，这一层不抄第二份。
     //
-    // NOTE: 页面标题（那行粗体）**故意没有** —— 左栏那一列小类一直亮着，写在这里是把
-    //       同一句话挨着说两遍。每一页正文底下那行小字才是这一页**特有**的那句。
+    // NOTE: 页面标题（那行粗体）**故意没有** —— 左栏那一列一直亮着，写在这里是把同一句话
+    //       挨着说两遍。每一页正文底下那行小字才是这一页**特有**的那句。
     {
-        // ① 快捷方式：一排按钮，每颗开一个文件夹。
-        {
-            QWidget *page = addPage(QStringLiteral("shortcut"));
-            auto *layout = qobject_cast<QVBoxLayout *>(page->layout());
-            if (layout != nullptr) {
-                auto *grid = new QGridLayout;
-                grid->setContentsMargins(0, 0, 0, 0);
-                grid->setHorizontalSpacing(8);
-                grid->setVerticalSpacing(8);
-                const QStringList texts = shortcutTexts();
-                const QStringList keys = shortcutPathKeys();
-                for (int i = 0; i < texts.size(); ++i) {
-                    auto *button = new QPushButton(texts.value(i), page);
-                    button->setObjectName(shortcutButtonName(i));
-                    const QString key = keys.value(i);
-                    // 路径**现场问 m_instanceDir / m_fileDirs**（不是捕获一份快照）：
-                    // setInstanceDir() 是在构造函数之后才被调的，捕获快照的话拿到的
-                    // 永远是空串 —— 这颗按钮点了什么都不会发生，而且不报错。
-                    connect(button, &QPushButton::clicked, this, [this, key] {
-                        emit openInstanceFolderRequested(
-                            key == QStringLiteral("dir") ? m_instanceDir : m_fileDirs.value(key));
-                    });
-                    // 按钮**不给它抻**：默认尺寸（和右下角那两颗一样），三颗一排靠左。
-                    grid->addWidget(button, i / shortcutPerRow(), i % shortcutPerRow(),
-                                    Qt::AlignLeft);
-                    m_shortcutButtons.append(button);
-                }
-                auto *rowWrap = new QHBoxLayout;
-                rowWrap->setContentsMargins(0, 0, 0, 0);
-                rowWrap->addLayout(grid);
-                // 底下这一条 stretch 是"三颗一排靠左"的另一半：没有它，网格会把三列
-                // 摊平分给整幅宽，每颗按钮都被抻成一大条。
-                rowWrap->addStretch(1);
-                layout->addLayout(rowWrap);
-                auto *hint = new QLabel(filesHint(QStringLiteral("shortcut")), page);
-                hint->setObjectName(filesHintName(QStringLiteral("shortcut")));
-                hint->setWordWrap(true);
-                layout->addWidget(hint);
-                layout->addStretch(1);
-            }
-        }
-
-        // ② 中间六页：同一个控件，喂不同的目录与三条开关。
+        // ② 中间那七页：同一个控件，喂不同的目录与三条开关。
         const QStringList keys = filePageKeys();
         for (const QString &key : keys) {
-            if (key == QStringLiteral("shortcut") || key == QStringLiteral("server")) {
+            if (key == serverPageKey()) {
                 continue;
             }
             QWidget *page = addPage(key);
@@ -1185,28 +1245,19 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         }
     }
 
-    // ---------- 分栏的接线 ----------
-    // 左栏一变：换页，并且只在「文件管理」那一栏把小类那一列露出来。
+    // ---------- 左栏那一列的接线 ----------
     //
-    // NOTE: 越界保护的理由和设置页那条一样 —— 分类表和页数将来要是对不上，宁可停在原来
+    // 左栏一变：换页。就这一件事 —— 从前那条"只有「文件管理」才露出中间那一列"的分支
+    // 跟着中栏一起没了（见 .hpp 里 pinnedPageKeys() 那一段）。
+    //
+    // NOTE: 越界保护的理由和设置页那条一样 —— 左栏的条目和堆叠页要是对不上，宁可停在原来
     //       那页，也不要 setCurrentIndex(-1) 把右栏整片清空（"点一下界面就空了"用户只会
     //       当成崩了）。
-    connect(m_categoryList, &QListWidget::currentRowChanged, this,
-            [this](int row) { applyCategory(row); });
-    connect(m_subCategoryList, &QListWidget::currentRowChanged, this, [this](int row) {
-        // 只有当前栏就是「文件管理」时这一发才算数：小类那一列收着的时候它不该换页
-        // （切走再切回来时，那一发由 applyCategory() 自己补）。
-        if (categoryKeys().value(m_categoryList->currentRow()) == filesCategoryKey()) {
-            applyFilePage(row);
-        }
-    });
+    connect(m_pageList, &QListWidget::currentRowChanged, this,
+            [this](int row) { applyEntry(row); });
     // 打开就是第一条（概览）—— 左栏亮着哪一条、右栏就是哪一页，两边不能各说各的。
-    // 小类那一列先摆到第一条上：它这会儿还收着，但那一条得是亮的。
-    m_subCategoryList->setCurrentRow(0);
-    m_categoryList->setCurrentRow(0);
-    // 上面那一发要是因为"行号本来就对"而没发信号（Qt 那条"一样就不发"），这里补一次：
-    // 露不露小类那一列、当前是哪一页，都归它管。
-    applyCategory(m_categoryList->currentRow());
+    // 那一列的内容和这一发都由构造末尾的 rebuildEntryList() 办（它是**算出来的**，
+    // 见 .hpp 里 pinnedPageKeys() 那一段）。
 
     // ---------- 灌值 ----------
     // 「有值 = 自定义，没值 = 跟随全局」这一条两边都要对上：磁盘上有一项覆盖时，
@@ -1265,6 +1316,9 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     //       Rejected，现在永远是后者 —— 而那正是"这一页关掉了"的意思，它不看返回值
     //       做什么（见 MainWindow::openInstanceSettings() 收尾那一段）。
     watchEditors();
+    // 左栏那一列灌第一遍（内容和第一页都归它管）。**排在 watchEditors() 之后**：它会在
+    // 那一列上挑一条（程序化 setCurrentRow()），接上接线之后才走"选中 → 换页"那条正常路。
+    rebuildEntryList();
     // 起点 = 现在这一份（灌值那一串 setChecked/setText 都已经跑完）。不记这一笔的话，
     // 打开页面之后的第一次交互会把"整份值"当成一次改动写一遍盘。
     m_lastSignature = valueSignature();
@@ -1320,7 +1374,7 @@ void InstanceSettingsDialog::setTitleVisible(bool visible) {
     }
 }
 
-// ---------- 分栏（见 .hpp 里 categoryKeys() 上面那一段）----------
+// ---------- 分栏（见 .hpp 里 pinnedPageKeys() 上面那一段）----------
 
 QWidget *InstanceSettingsDialog::addPage(const QString &key) {
     // **一页一层滚动区**（不是整页套一层）—— 和设置页的 addSettingsPanel() 同一套写法、
@@ -1375,65 +1429,76 @@ int InstanceSettingsDialog::navListWidth(const QListWidget *list) {
     return width + kNavListExtraWidth;
 }
 
-void InstanceSettingsDialog::applyCategory(int row) {
-    if (row < 0 || row >= categoryKeys().size()) {
-        return;
+QString InstanceSettingsDialog::pageText(const QString &key) {
+    // 两张按下标对齐的表各查一遍（键表是**身份**，别拿文字去反查）。
+    const QStringList pinned = pinnedPageKeys();
+    const int pinnedIndex = pinned.indexOf(key);
+    if (pinnedIndex >= 0) {
+        return pinnedPageTexts().value(pinnedIndex);
     }
-    const bool files = categoryKeys().at(row) == filesCategoryKey();
-    // 「文件管理」之外的两栏里，中间那一列**整个收掉**（用户原话就是"叠在上面"——
-    // 它是文件管理专用的第二层，不是常驻的一列）。
-    m_subCategoryList->setVisible(files);
-    if (files) {
-        // 小类那一列可能是刚露出来的：按它现在亮着的那一条换页。
-        applyFilePage(m_subCategoryList->currentRow());
-        return;
+    const int fileIndex = filePageKeys().indexOf(key);
+    if (fileIndex >= 0) {
+        return filePageTexts().value(fileIndex);
     }
-    // 概览 0 / 启动 1（顺序见 filePageFirstIndex()）。
-    m_stack->setCurrentIndex(row);
+    return QString();
 }
 
-QStringList InstanceSettingsDialog::shownFilePageKeys() {
-    // **唯一出处**就是这两张表：filePageKeys() 减去 hiddenFilePageKeys()。别在这儿另抄一份
-    // 键的清单 —— 两处写同一件事，改一处漏一处的时候界面上只是"少一条"或者"点错页"。
-    QStringList out;
-    for (const QString &key : filePageKeys()) {
-        if (!hiddenFilePageKeys().contains(key)) {
+QStringList InstanceSettingsDialog::shownEntryKeys() const {
+    // 左栏那一列的**唯一出处**：钉死的那两条 + 七条里"用得上且没被用户勾掉"的。
+    // 顺序 = pinnedPageKeys() 在前、optionalPageKeys() 的顺序在后（用户点名要的那个顺序）。
+    QStringList out = pinnedPageKeys();
+    for (const QString &key : optionalPageKeys()) {
+        if (m_pageAvailable.value(key, true) && m_pageOverrides.value(key).toBool(true)) {
             out.append(key);
         }
     }
     return out;
 }
 
-QStringList InstanceSettingsDialog::shownFilePageTexts() {
-    // 按下标对齐地筛 filePageTexts()（两张表逐位对齐，见 filePageKeys() 上面那段）。
-    const QStringList keys = filePageKeys();
-    const QStringList texts = filePageTexts();
-    QStringList out;
-    for (int i = 0; i < keys.size(); ++i) {
-        if (!hiddenFilePageKeys().contains(keys.at(i))) {
-            out.append(texts.value(i));
+QJsonObject InstanceSettingsDialog::pageChoices() const {
+    // ★ 存下来的**只可能是 false**（见 .hpp 里那一段）：勾选框只在那一页可用时能勾，而
+    //   不可用就没得选 —— 所以这一格是"藏起来的那几页"的名单，不是一份对称的选择表。
+    QJsonObject out = m_pageOverrides;
+    for (const QString &key : optionalPageKeys()) {
+        // 每条先按"这一刻的样子"重算一遍：可用但没勾 ⇒ 记 false；其余（可用且勾着、
+        // 或者这条根本用不上）⇒ 一个键都不写。这么写，"勾上"就是把键去掉。
+        out.remove(key);
+        const QCheckBox *check = m_pageChecks.value(key);
+        if (check != nullptr && m_pageAvailable.value(key, true) && !check->isChecked()) {
+            out.insert(key, false);
         }
     }
     return out;
 }
 
-void InstanceSettingsDialog::applyFilePage(int row) {
-    const QStringList keys = shownFilePageKeys();
+void InstanceSettingsDialog::setPageChoices(const QJsonObject &stored) {
+    // 只收认得出来的键（前向兼容：以后删掉一页之后，盘上那条不该跟着在这儿复活）。
+    m_pageOverrides = QJsonObject();
+    for (const QString &key : optionalPageKeys()) {
+        if (stored.value(key).isBool()) {
+            m_pageOverrides.insert(key, stored.value(key).toBool());
+        }
+    }
+    rebuildEntryList();
+}
+
+void InstanceSettingsDialog::applyEntry(int row) {
+    const QStringList keys = shownEntryKeys();
     if (row < 0 || row >= keys.size()) {
         return;
     }
-    applyFilePageKey(keys.at(row));
+    applyPageKey(keys.at(row));
 }
 
-void InstanceSettingsDialog::applyFilePageKey(const QString &key) {
-    const int index = stackIndexOfFilePage(key);
+void InstanceSettingsDialog::applyPageKey(const QString &key) {
+    const int index = stackPageIndexOf(key);
     if (index < 0) {
         return;
     }
-    // **"进这一页"和"同一页再摆一次"是两件事**：showFilePage() 那条路中间会经过两次换页，
-    // 第二发底下不该再做一遍。refresh() 重复一次只是白列一遍目录（还好，而且"再摆一次就
-    // 重新读一遍盘"本来就是这一页要的），但 serverPageEntered 多发一次是**白连一轮**
-    // （用户看到的是"每次翻页都多等一次超时"）—— 所以挡的是后者。
+    // **"进这一页"和"同一页再摆一次"是两件事**：showPage() 那条路里"选中那一条"这一发
+    // 底下不该再做一遍。refresh() 重复一次只是白列一遍目录（还好，而且"再摆一次就重新读
+    // 一遍盘"本来就是这一页要的），但 serverPageEntered 多发一次是**白连一轮**（用户看到
+    // 的是"每次翻页都多等一次超时"）—— 所以挡的是后者。
     // 用户手里碰不到这一位：点同一条时 QListWidget 本来就不发信号（见 .hpp 那条 NOTE）。
     const bool alreadyHere = m_stack->currentIndex() == index;
     m_stack->setCurrentIndex(index);
@@ -1446,10 +1511,112 @@ void InstanceSettingsDialog::applyFilePageKey(const QString &key) {
     // 「点进去就自动测速」（用户 2026-09-27 原话）。**排在 refresh() 之后**：这一页刚露出来
     // 时先有那张表（表里那几行是这一页本来就有的东西），再谈"连上去问一遍"。
     //
-    // NOTE: 这一发走的是**键**不是行号 ⇒ 「服务器列表」收起来这段时间里它照样发得出来
-    //       （只是没人点得到那一页了，见 hiddenFilePageKeys()）。
+    // NOTE: 这一发走的是**键**不是行号 ⇒ 左栏那一列怎么变（勾掉一条、可用性变了）都不影响
+    //       它：只要有人摆到「服务器列表」那一页上，它就该发。
     if (key == serverPageKey() && !alreadyHere) {
         emit serverPageEntered();
+    }
+}
+
+void InstanceSettingsDialog::rebuildEntryList() {
+    // 现在摆着的是哪一页（重建之后要把选中还原回去）。堆叠页是唯一那份"现在是哪一页"，
+    // 左栏这一列只是它的画 —— 所以从它反查，别自己存一份。
+    const QString currentKey = pageKeyAtStackIndex(m_stack->currentIndex());
+    const QStringList keys = shownEntryKeys();
+    {
+        // 重灌这一列时的每一句都是"程序化改控件"，压着信号：选中的还原由下面那一发
+        // applyPageKey() 自己办（`setCurrentRow()` 在"本来就亮着这一条"时不发信号，
+        // 光靠信号会漏）。
+        const QSignalBlocker blocker(m_pageList);
+        m_pageList->clear();
+        for (const QString &key : keys) {
+            auto *item = new QListWidgetItem(pageText(key), m_pageList);
+            // 身份进 userData：条目文字是显示内容、会随文案改，不能拿它当身份。
+            item->setData(Qt::UserRole, key);
+        }
+        // ★ 尺寸**每次都重算** —— 这一列的内容是会变的（勾掉一条就少一格），照抄构造时
+        //   那份宽高会留下"标签被裁掉"或者"右边空一大截"。行高**交给样式算**
+        //   （sizeHintForRow），别写死数字：换字体/换样式就错。和设置页那一列同一条规矩。
+        int rowsHeight = 0;
+        for (int i = 0; i < m_pageList->count(); ++i) {
+            rowsHeight += m_pageList->sizeHintForRow(i);
+        }
+        m_pageList->setFixedHeight(rowsHeight + 2 * m_pageList->frameWidth() + 2);
+        m_pageList->setFixedWidth(navListWidth(m_pageList));
+        // 当前那一页还在表里就选回去；不在（被勾掉 / 变不可用 / 本来就没有条目）就是 -1。
+        m_pageList->setCurrentRow(keys.indexOf(currentKey));
+    }
+    refreshPageChecks();
+
+    // 选中那一发要么没发（行号本来就对）、要么压根没有那一条，所以这儿补一次：
+    //   · 当前那一页还在表里 ⇒ 按它换一次页（和自己点了那一条是同一条路）；
+    //   · 当前是「配置文件」⇒ **什么都不做**：它本来就是一个没有条目的页（用户 2026-09-27
+    //     说收起来），重建（比如可用性变了一下）不该把用户从那一页上赶走；
+    //   · 其余（那一页被勾掉 / 变不可用了）⇒ 回概览：右栏摆着一页、左栏里却没有它，
+    //     是最容易让人以为"点坏了"的一种状态。
+    if (keys.contains(currentKey)) {
+        applyPageKey(currentKey);
+    } else if (currentKey == configPageKey()) {
+        return;
+    } else {
+        m_pageList->setCurrentRow(0);
+        if (!keys.isEmpty()) {
+            applyPageKey(keys.first());
+        }
+    }
+}
+
+bool InstanceSettingsDialog::eventFilter(QObject *watched, QEvent *event) {
+    // ---- 左栏那一列不许因为"拿到焦点"就自己挑一条 ----
+    //
+    // ★ 这是 Qt 的一个**兜底行为**，不是我们写的：`QAbstractItemView::focusInEvent()` 里
+    //   有这么一段（6.10.1 的 qabstractitemview.cpp）——
+    //
+    //       if (model && !d->currentIndexSet && !currentIndexValid) {
+    //           QModelIndex index = moveCursor(MoveNext, ...);   // 第一条
+    //           if (index.isValid() && ... && event->reason() != Qt::MouseFocusReason)
+    //               selectionModel()->setCurrentIndex(index, NoUpdate);
+    //       }
+    //
+    //   也就是"**视图拿到焦点、而当前条目是无效的** ⇒ 替你选中第一条"。落到这一页上：
+    //   「配置文件」是一个**没有左栏条目**的页（见 configPageKey()），摆到它上面时左栏
+    //   选中的就是 -1；接下来用户按一下 Tab 进来、或者窗口重新激活（`ActiveWindowFocusReason`
+    //   —— 开关一次别的窗口回来就会走到），Qt 就把选中挑到第 0 条上，而这一列那一下
+    //   **是翻页**（`currentRowChanged` → applyEntry() → applyPageKey()）⇒ 右栏摆着配置文件，
+    //   左栏自己跳回了概览。**没有用户意图的一次翻页**，正是这一整页最没道理的一种错。
+    //
+    //   鼠标点出来的焦点不在其列（上面那句 `reason() != Qt::MouseFocusReason` 挡着），
+    //   所以只有键盘 / 窗口激活这条路会撞上 —— 而它照样是用户会走的路。
+    //
+    // NOTE: 吃掉这一发只是"不让它自己挑"，**焦点照旧落在它身上**（焦点是 Qt 在发这个事件
+    //       之前就设好的）。按一下方向键时 `QListView::moveCursor()` 对"当前条目无效"本来
+    //       就有兜底（回第一条），所以键盘一样能走，只是"没碰过它之前什么都不高亮"。
+    //       判据带上 `!currentIndex().isValid()`：当前条目有效时 focusInEvent() 什么都不会做，
+    //       那种时候这一发没有吃掉的道理。
+    if (watched == m_pageList && event->type() == QEvent::FocusIn &&
+        !m_pageList->currentIndex().isValid()) {
+        return true;
+    }
+    return QDialog::eventFilter(watched, event);
+}
+
+void InstanceSettingsDialog::refreshPageChecks() {
+    // 勾选框是**画**，不是用户改的 ⇒ 逐格压着信号摆（`setChecked()` 本来也不发 clicked ——
+    // 写盘那条线接的是 clicked，见 watchEditors() —— 这里压一下是"以后万一有人给它接一条
+    // 值变化就写盘的线"时的保险；左栏那一列在这儿**不碰**，别顺手把它的信号也压了）。
+    for (const QString &key : optionalPageKeys()) {
+        QCheckBox *check = m_pageChecks.value(key);
+        if (check == nullptr) {
+            continue;
+        }
+        const bool available = m_pageAvailable.value(key, true);
+        // ★ 不可用的那一条**不勾且勾不上**（用户原话：「保持对应选项不可勾选的状态」），
+        //   原因走 tooltip（「悬停文本解释」）。灰着而不是藏起来：用户得看得见"有这么
+        //   一页、这个实例上用不上、为什么"。
+        const QSignalBlocker checkBlocker(check);
+        check->setChecked(available && m_pageOverrides.value(key).toBool(true));
+        check->setEnabled(available);
+        check->setToolTip(available ? pageShownHint() : pageUnavailableText(key));
     }
 }
 
@@ -1472,8 +1639,8 @@ QStringList InstanceSettingsDialog::shortcutPathKeys() {
 
 QString InstanceSettingsDialog::filesHint(const QString &key) {
     if (key == QStringLiteral("shortcut")) {
-        return tr("这几颗只是把文件夹打开 —— 看里面有什么、禁用一个、删掉一个，都在旁边那一列"
-                  "里（模组 / 资源包 / 光影包那几页）。");
+        return tr("这几颗只是把文件夹打开 —— 看里面有什么、禁用一个、删掉一个，都在左边那一"
+                  "列里对应的那几页（模组 / 资源包 / 光影包…）。下面那几格决定它们露不露出来。");
     }
     if (key == QStringLiteral("mod")) {
         return tr("游戏会自己扫这里面的 .jar。「禁用」只是把文件名改成 .jar.disabled —— "
@@ -1553,6 +1720,36 @@ QString InstanceSettingsDialog::shaderUnavailableText() {
 QString InstanceSettingsDialog::schematicUnavailableText() {
     return tr("原理图（投影）是 Litematica 用的，这个实例没装它 —— 这个文件夹现在没人会读。"
               "先去「下载」页装一个。");
+}
+
+QString InstanceSettingsDialog::modUnavailableText() {
+    return tr("这个实例是原版的，没有模组加载器（Forge / NeoForge / Fabric / Quilt / "
+              "OptiFine），mods 文件夹里的东西游戏根本不会读。");
+}
+
+QString InstanceSettingsDialog::datapackUnavailableText() {
+    return tr("数据包是 1.13 才有的东西，这个实例的版本比它老 —— 这个文件夹没有人会读。");
+}
+
+QString InstanceSettingsDialog::pageUnavailableText(const QString &key) {
+    // **唯一分发处**：页里那句「用不上」和勾选表的悬停提示都走它。
+    if (key == QStringLiteral("mod")) {
+        return modUnavailableText();
+    }
+    if (key == QStringLiteral("shader")) {
+        return shaderUnavailableText();
+    }
+    if (key == QStringLiteral("schematic")) {
+        return schematicUnavailableText();
+    }
+    if (key == QStringLiteral("datapack")) {
+        return datapackUnavailableText();
+    }
+    return QString();
+}
+
+QString InstanceSettingsDialog::pageShownHint() {
+    return tr("勾上：左边那一列里就有这一页；不勾：这一页收起来（里面的东西一个都不会动）。");
 }
 
 void InstanceSettingsDialog::setInstanceDir(const QString &dir) {
@@ -1674,38 +1871,37 @@ void InstanceSettingsDialog::updateConfigUpButton() {
 }
 
 void InstanceSettingsDialog::setShaderUsable(bool usable) {
-    const QString reason = usable ? QString() : shaderUnavailableText();
-    if (InstanceFilesPage *page = m_filesPages.value(QStringLiteral("shader"))) {
-        page->setUnavailable(reason);
-    }
-    markPageUnusable(QStringLiteral("shader"), reason);
+    setPageUsable(QStringLiteral("shader"), usable);
 }
 
 void InstanceSettingsDialog::setSchematicUsable(bool usable) {
-    const QString reason = usable ? QString() : schematicUnavailableText();
-    if (InstanceFilesPage *page = m_filesPages.value(QStringLiteral("schematic"))) {
-        page->setUnavailable(reason);
-    }
-    markPageUnusable(QStringLiteral("schematic"), reason);
+    setPageUsable(QStringLiteral("schematic"), usable);
 }
 
-void InstanceSettingsDialog::markPageUnusable(const QString &key, const QString &reason) {
-    // 中栏那一条也挂上原因：用户在这一条上停一下就该知道为什么这一页是空的，
-    // 不用点进去再退出来。**不把条目禁用掉** —— 禁用了就点不进去，那句话也就永远
-    // 看不见了（灰掉一条"用不上"既没说是什么、也没说怎么办）。
-    //
-    // NOTE: 找不到那一行时这一发什么都不做，**那不是出错**：被收起来的那几页
-    //       （hiddenFilePageKeys()）在中栏里没有条目 —— 现在收着的是「配置文件」，它没人
-    //       挂原因；哪天再收起来一页挂着原因的（光影包/原理图那两页），这句话照旧只落在
-    //       页里（上面 setShaderUsable()/setSchematicUsable() 那一半），页一放回来它就自己
-    //       接着有效。
-    for (int i = 0; i < m_subCategoryList->count(); ++i) {
-        QListWidgetItem *item = m_subCategoryList->item(i);
-        if (item->data(Qt::UserRole).toString() == key) {
-            item->setToolTip(reason);
-            return;
+void InstanceSettingsDialog::setModUsable(bool usable) {
+    // 「模组」那一页没有"用不上"这个换页状态可言 —— 它背后照样是一个普通的
+    // InstanceFilesPage（mods/ 目录），只是原版实例装了也没人读。所以这一条只影响
+    // "左栏里有没有它、勾选框能不能勾"，页本身照旧（用户把它勾出来的话看的是真目录）。
+    setPageUsable(QStringLiteral("mod"), usable, /*markPage=*/false);
+}
+
+void InstanceSettingsDialog::setDatapackUsable(bool usable) {
+    // 和「模组」同理：老版本上 datapacks/ 这个目录没人读，但页本身还是那个文件列表。
+    setPageUsable(QStringLiteral("datapack"), usable, /*markPage=*/false);
+}
+
+void InstanceSettingsDialog::setPageUsable(const QString &key, bool usable, bool markPage) {
+    if (markPage) {
+        // 页里那句「用不上」是**整页替换**：这一页在这个实例上用不上时，列表和那排按钮
+        // 一起收起来，换成一句为什么（判据在 MainWindow，见 .hpp 里 setModUsable() 那段）。
+        if (InstanceFilesPage *page = m_filesPages.value(key)) {
+            page->setUnavailable(usable ? QString() : pageUnavailableText(key));
         }
     }
+    m_pageAvailable.insert(key, usable);
+    // 可用性一变，左栏那一列（有没有这一条）和勾选框（能不能勾、勾没勾、tooltip）都要
+    // 跟着变 —— 两件事都在 rebuildEntryList() 里。
+    rebuildEntryList();
 }
 
 void InstanceSettingsDialog::setServerList(const QList<QPair<QString, QString>> &servers,
@@ -2164,37 +2360,26 @@ void InstanceSettingsDialog::refreshIconRow() {
     }
 }
 
-void InstanceSettingsDialog::showCategory(const QString &key) {
-    const int row = categoryKeys().indexOf(key);
-    if (row < 0) {
-        return;
-    }
-    m_categoryList->setCurrentRow(row);
-    // `setCurrentRow()` 在"本来就亮着这一条"时不发信号，所以这一步**不能**靠信号。
-    applyCategory(row);
-}
-
-void InstanceSettingsDialog::showFilePage(const QString &key) {
-    const int index = stackIndexOfFilePage(key);
+void InstanceSettingsDialog::showPage(const QString &key) {
+    const int index = stackPageIndexOf(key);
     if (index < 0) {
         return;
     }
-    // 中栏那一条**先**摆好：露着的那几页是"选中那一条"，收着的那几页在那一列里根本没有
-    // 条目 ⇒ row 是 -1，等于把选中清掉（留着上一次那一行的话，中栏亮着 A、右栏摆着 B）。
+    // 左栏那一条**先**摆好：有条目的是"选中那一条"（和用户点那一条是同一条路），没有条目
+    // 的（「配置文件」这种没有入口的页、被用户勾掉了的页、这个实例上用不上的页）那一列里
+    // 根本没有它 ⇒ row 是 -1，等于把选中清掉（留着上一次那一行的话，左栏亮着 A、右栏
+    // 摆着 B —— 那正是"两栏各说各的"）。
     //
-    // NOTE: 这一下**压着信号** —— 下面 showCategory() 那一发本来就会按"现在选中哪一条"
-    //       换页，让这一下也发一次的话，同一页会被摆两次（见 applyFilePageKey() 那条
-    //       alreadyHere：「服务器列表」就是白连一轮）。
+    // NOTE: 这一下**压着信号** —— 下面那一发 applyPageKey() 本来就会换页，让这一下也发
+    //       一次的话，同一页会被摆两次（见 applyPageKey() 里那条 alreadyHere：
+    //       多发的那一次在「服务器列表」上就是白连一轮）。
     {
-        const QSignalBlocker blocker(m_subCategoryList);
-        m_subCategoryList->setCurrentRow(shownFilePageKeys().indexOf(key));
+        const QSignalBlocker blocker(m_pageList);
+        m_pageList->setCurrentRow(shownEntryKeys().indexOf(key));
     }
-    // 左栏也摆到「文件管理」上（那一页本来就住在这儿）—— 顺手把中栏那一列露出来，并按上面
-    // 刚摆好的那一条换页。
-    showCategory(filesCategoryKey());
-    // 无论上面那一发有没有真的换过去，这里都再摆一次（`setCurrentRow()` 在"本来就亮着这一条"
-    // 时不发信号，光靠信号会漏）。同一页重复摆的那一多半由 alreadyHere 挡掉。
-    applyFilePageKey(key);
+    // 无论上面那一发有没有真的换过去（`setCurrentRow()` 在"本来就亮着这一条"时不发信号），
+    // 这里都摆一次。同一页重复摆的那一多半由 alreadyHere 挡掉。
+    applyPageKey(key);
 }
 
 QWidget *InstanceSettingsDialog::addOverrideRow(QGridLayout *grid, int row, const QString &field,
@@ -2454,7 +2639,7 @@ void InstanceSettingsDialog::watchEditors() {
 QStringList InstanceSettingsDialog::valueSignature() const {
     // 拼的就是**写盘那边会读的那几问**（`override()` / `appendJvmArgs()` /
     // `warnJavaMismatch()` / `iconChoice()` / `pickedIconPath()` / `chosenGroupId()` /
-    // `pinned()`）。改一处要看得见另一处 —— 所以这个函数摆在它们旁边。
+    // `pinned()` / `pageChoices()`）。改一处要看得见另一处 —— 所以这个函数摆在它们旁边。
     const Override values = override();
     // std::optional 的写法：先摆"有没有值"，再摆那个值。摆成一个空串是不够的 ——
     // javaPath 的"自定义成空串"和"跟随全局"在 override() 里已经是两回事（前者被那一层
@@ -2483,6 +2668,18 @@ QStringList InstanceSettingsDialog::valueSignature() const {
     // 分组与置顶：分组按 id（组名会变，id 才是身份），置顶只算那一位。
     result << QStringLiteral("group:") + chosenGroupId()
            << QStringLiteral("pin:%1").arg(pinned() ? 1 : 0);
+    // 「显示哪些页」那几格：按 optionalPageKeys() 的**顺序**拼（不能按 QHash 的顺序 ——
+    // 每次遍历 QHash 的次序都未必一样，那样拼出来的签名会自己变，等于每读一次就说"改了"）。
+    // 一条一格 `key=0/1`，这样"张三关掉、李四打开"和"两个人的选择都动了但拼起来一样"
+    // 分得开。
+    QStringList pageFlags;
+    for (const QString &key : optionalPageKeys()) {
+        const QCheckBox *check = m_pageChecks.value(key);
+        pageFlags << QStringLiteral("%1=%2").arg(key, check != nullptr && check->isChecked()
+                                                           ? QStringLiteral("1")
+                                                           : QStringLiteral("0"));
+    }
+    result << pageFlags.join(QLatin1Char(','));
     return result;
 }
 

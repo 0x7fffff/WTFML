@@ -593,6 +593,85 @@ public:
     QString instanceGameVersion(const QString &instanceId);
 
     /**
+     * @brief 那个游戏版本**有没有数据包这个东西** —— 纯函数那一半，不碰盘。
+     * @param versionId 版本号（也可以是实例的目录名，判据自己会过滤）。
+     * @param releaseTime 盘上那份 json 里的 `releaseTime`（`2018-07-18T15:11:46+00:00` 这种）；
+     *        空串 = 没读到，走下面第 2 条。
+     * @return true = 这个版本有数据包。
+     *
+     * 数据包（`<存档>/datapacks/` 那个东西）是快照 **17w43a（2017-10-25）** 引进的。
+     * 判据按顺序问两条：
+     *   1. **盘上那份 json 自己写着什么时候发布的**就按它比 `2017-11-01`。这一条**离线也准**，
+     *      而且快照（`17w43a` / `18w01a`）、远古版（`a1.2.6` / `b1.7.3`）全都分得对 ——
+     *      它们的 `releaseTime` 就是真日期。
+     *   2. 没读到（薄 json / 手写的 json）就看版本号本身，以数字开头的按 `主.次 >= (1,13)` 比。
+     *
+     * NOTE: 第 2 条是近似 —— `13w41a` 那类**老快照**的版本号看着像 1.3 以后的，会被判成
+     *       "有数据包"（实际没有；它比 17w43a 早了四年）。写在这儿不修：那一档的实例在真机
+     *       上一个都没有，而为了它去把每个快照的日期都抄一张表进来，不值得。要判错也是
+     *       "多给一页"那一侧 —— 用户勾掉它就行。
+     *
+     * NOTE: 两条都问不出来时**给**（返回 true）。宁可多列一页让用户自己勾掉，也不要静默
+     *       藏掉一页 —— 用户会觉得"这个启动器把我的数据包页弄没了"。
+     */
+    static bool gameVersionSupportsDatapacks(const QString &versionId,
+                                             const QString &releaseTime);
+
+    /**
+     * @brief 这个**实例**用不用得上「数据包」那一页（= 它基于的那个游戏版本有没有数据包）。
+     *
+     * 就是把它那份**合并过的** json 里的 `releaseTime` 和实例自己报的版本号取出来，
+     * 交给 gameVersionSupportsDatapacks()。合并那一层是关键：`releaseTime` 会从父那层
+     * 继承上来（见 VersionInheritance::merge 里那一串"子非空用子、否则用父"），所以一个
+     * 薄 json 的加载器实例照样问得出来。
+     *
+     * NOTE: 这里是**读盘**的（json + meta），和 instanceGameVersion() 一样是现取不缓存 ——
+     *       它只在打开实例设置时问一次。
+     */
+    bool instanceSupportsDatapacks(const QString &instanceId);
+
+    /**
+     * @brief 这个实例**实际**基于哪个模组加载器 —— 名字和版本。
+     * @param nameOut 加载器名（`loaderDisplayName()` 那套词，外加 `Quilt`）；空串 = 没认出来。
+     * @param versionOut 加载器版本；认出来但那一格拿不到时是空串。
+     * @return nameOut 非空（= 认出来了）。
+     *
+     * 【为什么不能只看 `wtfml.meta` 里的 `loaderName`】
+     * 那一格**只有我们自己的安装器会写**（见 updateVersionMeta）。而 PCL / HMCL 那一类
+     * 启动器把整份 json 合进实例目录（真机上绝大多数实例都是这样），它们的 `wtfml.meta`
+     * 里只有 `instanceId` —— 于是用户盘上 **70 个实例里 67 个读不出加载器**，看得见的
+     * 后果有四处在同一个根上：
+     *   · 实例设置里「模组」那一页灰着勾不上（用户 2026-09-27 报的：`海波篮子` 是
+     *     Fabric 0.19.5、mods/ 里 48 个 jar 连 litematica 都有，却被判成"没有模组加载器"）；
+     *   · 实例行前面那个标志画成草方块（见 defaultInstanceMark()）；
+     *   · 自动归类把 67 个实例全扔进「原版」组，而「可安装mod」永远是空的
+     *     （见 defaultGroupIdFor()）—— 和 2026-09-25 那个 `type` 的 bug 是同一个形状；
+     *   · 装模组时"加载器对不上"那一道闸恒不放行（见 ensureResourceLoaderMatch()）。
+     *
+     * 判据两条，按"离这个实例多近"排，任一条命中就返回：
+     *   1. `wtfml.meta` 的 `loaderName`（我们自己装的实例，也含用户手写的 meta）；
+     *   2. 版本 json 的 `libraries` / `arguments.game` 里认得出来（`loaderEvidenceFromJson()`——
+     *      走 `getVersionJson()`，也就是**合并过的**那一份，所以 `inheritsFrom` 指到
+     *      `fabric-loader-0.19.5-26.4-snapshot-1` 的薄实例照样罩得住）。
+     *
+     * NOTE: **`mods/` 里有 jar 不算**。这一格回答的是"它基于哪个加载器"，而往 mods/ 里
+     *       丢一个 jar 不构成任何一条加载器证据（一个装了 jar 的纯原版实例仍然起不来那些
+     *       mod）。"这一页对用户有没有用"是另一个问题，那个补在调用的那一侧 ——
+     *       见 MainWindow::instanceModsUsable()。
+     *
+     * NOTE: 这里**读盘**（meta + json），和 instanceSupportsDatapacks() 一样现取不缓存；
+     *       但 `getVersionJson()` 那一层自带缓存，所以一次会话里每个实例只真读一次。
+     *
+     * NOTE: 第 2 条**先看 OptiFine**（和导出那条路的顺序一致，见 loaderEvidenceFromJson）。
+     *       所以一个"既装了 Fabric、又装了 OptiFine"的实例在这里报的是 `OptiFine` ——
+     *       对它装 Fabric 模组时那句提示会说得不准。真机上**没有这种实例**（2026-09-27 把
+     *       70 个实例的 json 扫了一遍：OptiFine 那两个实例只有 OptiFine），所以顺序照旧；
+     *       真要修就得动 loaderEvidenceFromJson 那个顺序，而它管着导出，别为了这一格动它。
+     */
+    bool instanceModLoader(const QString &instanceId, QString *nameOut,
+                           QString *versionOut = nullptr) const;
+
+    /**
      * @brief 反查：本地 sha1 → Modrinth 的版本。
      * @param sha1s 本地算出来的 sha1（大小写不敏感）。
      * @param out 命中的写在这里，**键是发过去的那个 sha1**（见 parseModrinthVersionFiles）。
@@ -745,6 +824,21 @@ public:
 
     // meta 里那个图标字段名。公开的理由和 jvmArgsField() 一样：写侧在 MainWindow 里。
     static QString iconField();
+
+    // meta 里"这个实例的左栏显示哪几页"那个字段名（2026-09-27 新加）。公开的理由和
+    // jvmArgsField() 一样：写侧在 MainWindow 里。
+    //
+    // 形状：`"settingsPages": { "mod": false, "shader": false }` —— **只装用户显式勾掉的
+    // 那几条**，一条一个 `false`。这不是一份对称的"选择"表，是一个**藏起来的页**的集合：
+    // 勾选框只在那一页可用时能勾，而不可用就没得选 ⇒ 存下来的**只可能是 false**。
+    // 所以读侧就是一句话 `显示 = 那一页可用 && 表里没写 false`（见
+    // InstanceSettingsDialog::shownEntryKeys()），而"再勾上"就是把键去掉。
+    //
+    // NOTE: 空对象写出去是 QJsonValue::Null ⇒ 删键（和 icon 那一格同一个约定，见
+    //       updateVersionMeta 的 @param fields）。所以"七条全显示"的实例盘上**没有这个键**。
+    // NOTE: 可用性（有没有模组加载器 / 有没有 litematica / 游戏版本够不够新）**不写盘**，
+    //       每次现算 ⇒ "勾掉 → 拆掉 iris → 装回 iris"之后那一格会自己回来（默认显示）。
+    static QString settingsPagesField();
 
     // 读这个实例的整份 wtfml.meta（文件没有、读不到、解析不了都是空对象）。
     //

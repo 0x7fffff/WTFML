@@ -775,13 +775,47 @@ int versionChannelIndexOf(const VersionManager *versions, const QString &version
     return VersionCategory::channelIndex(versionChannelOf(versions, versionId));
 }
 
+/// 这个实例**实际**基于哪个加载器 —— 给界面看的名字（空串 = 没认出来）。
+/// @param versionOut 认出来时顺手带上加载器版本（只有"加载器对不上"那道闸要用它）。
+///
+/// 先看 @p parts 里**已经读过**的那一格（`displayParts()` 顺手带出来的，不额外读盘，
+/// 那也是"显示名和图标是同一次读取的两半"那条 NOTE 的意思），为空时再回扣一次
+/// `VersionManager::instanceModLoader()`。
+///
+/// ★ 为什么要回扣：`wtfml.meta` 里的 `loaderName` **只有我们自己的安装器会写**。PCL /
+///   HMCL 那类把整份 json 合进实例目录的实例（用户盘上 70 个里 67 个）那一格是空的 ——
+///   回扣那一趟照着版本 json 的 `libraries` 认，才是它们的加载器唯一的出处。四条路都读
+///   同一个名字：实例行那个标志（defaultInstanceMark）、自动归类（defaultGroupIdFor）、
+///   光影包那一页（instanceShaderUsable）、以及装模组时的"加载器对不上"那道闸。
+QString instanceLoaderName(const VersionDisplayParts &parts, const VersionManager *versions,
+                           QString *versionOut = nullptr) {
+    if (versionOut != nullptr) {
+        versionOut->clear();
+    }
+    if (!parts.loaderName.isEmpty()) {
+        if (versionOut != nullptr) {
+            *versionOut = parts.loaderVersion;
+        }
+        return parts.loaderName;
+    }
+    QString name;
+    QString version;
+    if (versions != nullptr && versions->instanceModLoader(parts.id, &name, &version)) {
+        if (versionOut != nullptr) {
+            *versionOut = version;
+        }
+        return name;
+    }
+    return QString();
+}
+
 /// 这个实例**没挑过图标**时该画哪一个方块（草方块 / 覆雪草块 / 土块 / 幸运方块，或者
 /// 某个加载器的标志）—— 也叫它的「默认图标」。
 ///
 /// 两条路，用的都是**另外两棵树上挂的同一份图标**（别在这儿另画一套）：
-///   - **装了加载器的**（wtfml.meta 里有 loaderName）：给那个加载器的标志（Fabric / Forge /
-///     NeoForge / OptiFine），走 `VersionIcons::loaderMark()` —— 安装页那棵加载器树上挂的
-///     就是它；
+///   - **装了加载器的**（见 instanceLoaderName()：meta 里记着的，或者版本 json 自己说的）：
+///     给那个加载器的标志（Fabric / Forge / NeoForge / OptiFine），走
+///     `VersionIcons::loaderMark()` —— 安装页那棵加载器树上挂的就是它；
 ///   - **没装加载器的**（原版 / 快照版 / 远古版 / 愚人节版）：按版本分类给，走
 ///     `VersionIcons::versionChannelMark()` —— 下载页那棵版本树上挂的就是它。
 ///
@@ -794,13 +828,18 @@ int versionChannelIndexOf(const VersionManager *versions, const QString &version
 ///       就是照它排的），抄一遍就会在某次加加载器时慢慢漂开。
 /// NOTE: 认不出来的加载器名（用户手写的别的名字、或者以后新加的加载器）也是草方块 ——
 ///       和 loaderMark() 越界那条一个规矩：认不出来就画原版。
+///       **Quilt 就是这一档**：`instanceLoaderName()` 认得出来（版本 json 里
+///       `org.quiltmc:quilt-loader` 那条），而 MainWindowUI 那四颗加载器钮里没有它 ⇒ 画草
+///       方块。这是老行为（我们自己的安装器不装 Quilt，这一档只从 json 那一路进得来），
+///       要给它一个标志就加一颗加载器钮 —— 别在这儿另画一张图。
 QPixmap defaultInstanceMark(const VersionDisplayParts &part, const VersionManager *versions,
                             int size) {
-    if (!part.loaderName.isEmpty()) {
+    const QString loader = instanceLoaderName(part, versions);
+    if (!loader.isEmpty()) {
         for (int index = 0; index < MainWindowUI::modLoaderNoneIndex(); ++index) {
             VersionManager::LoaderKind kind;
             if (VersionManager::loaderKindFromIndex(index, &kind)
-                && VersionManager::loaderDisplayName(kind) == part.loaderName) {
+                && VersionManager::loaderDisplayName(kind) == loader) {
                 return VersionIcons::loaderMark(index, size);
             }
         }
@@ -897,7 +936,9 @@ bool writeInstanceIcon(const QString &versionId, const QString &sourcePath, QStr
 /// 一个实例**默认**该归到哪个默认组 —— 只给"用户还从来没给它表过态"的实例用（见调用点）。
 ///
 /// 判据就是用户 2026-09-24 定的那五个组名：
-///   - 装了模组加载器（wtfml.meta 里有 loaderName）→ 可安装mod；
+///   - 装了模组加载器 → 可安装mod（判据见 instanceLoaderName()：**不只** wtfml.meta 那一格，
+///     版本 json 自己说的也算 —— PCL 那类合并实例 meta 里是空的，只按 meta 判会把 67 个
+///     装了加载器的实例全扔进「原版」，而「可安装mod」永远是空的）；
 ///   - 否则按版本分类：正式版 → 原版、快照版 → 快照版、远古版 → 远古版；
 ///   - **愚人节版没有对应的默认组**，返回空串 = 未分组。用户给的那五个里没有它，而把
 ///     它塞进快照版是替用户做主（那九个版本的 type 全是 snapshot，正是这个"顺理成章"
@@ -913,7 +954,7 @@ QString defaultGroupIdFor(const VersionDisplayParts &part, const VersionManager 
         return known.contains(id) ? id : QString();
     };
     // 加载器那一条先判：装了加载器的快照版/远古版也算"可安装mod"（那才是它现在的样子）。
-    if (!part.loaderName.isEmpty()) {
+    if (!instanceLoaderName(part, versions).isEmpty()) {
         return existing(InstanceGroupStore::DefaultKind::Moddable);
     }
     switch (versionChannelOf(versions, part.id)) {
@@ -4600,9 +4641,9 @@ void MainWindow::installResourceVersion(ResourceCatalog::Kind kind, const QStrin
     const bool loaderMatters = kind == ResourceCatalog::Kind::Mod;
     // 判据刻意做得**窄**（只拦"知道实例是什么加载器、且这一版只列了另一种"这一种）：
     //   · 不是模组（资源包 / 数据包 / 光影 / 整合包）→ 放行；
-    //   · 实例没有 wtfml.meta（读不出加载器）→ 放行；
+    //   · 认不出实例的加载器（纯原版，或者 json 里没写）→ 放行；
     //   · 这一版列了不止一种加载器（Quilt 之类兼容好几种）→ 放行；
-    //   · 纯原版实例 + 一个带加载器的模组 → 也放行（读不出加载器的实例和纯原版在这里分不开，
+    //   · 纯原版实例 + 一个带加载器的模组 → 也放行（认不出来的和纯原版在这里分不开，
     //     宁可漏拦也不要拦住一个本来装得上的）。
     // 拦下来的是**问一句**，不是禁止 —— 用户说"就要这么装"就照装。
     //
@@ -4613,13 +4654,19 @@ void MainWindow::installResourceVersion(ResourceCatalog::Kind kind, const QStrin
     //   另一个"，恰恰是症状最像"装上了、进去就崩"的那一种。
     //   改成一字不差地比（大小写不敏感：实例那边是显示名 `NeoForge`，模组那边是小写）。
     const VersionDisplayParts parts = m_versionManager->displayParts(instanceId);
-    const QString instanceLoader = parts.loaderName.toLower();
+    // ★ 加载器名走 instanceLoaderName()，**不是** `parts.loaderName`：后者只有我们自己的
+    //   安装器会写，PCL 那类合并实例（用户盘上 70 个里 67 个）读出来是空的 —— 于是这道闸
+    //   对它们**恒不放行**，"加载器对不上"那句话一次都弹不出来（它最该拦的那一对恰好就
+    //   在这些实例上）。理由同 instanceModsUsable() 那段。
+    QString instanceLoaderVersion;
+    const QString instanceLoader =
+        instanceLoaderName(parts, m_versionManager, &instanceLoaderVersion);
     if (loaderMatters && !instanceLoader.isEmpty() && version.loaders.size() == 1
         && version.loaders.first().compare(instanceLoader, Qt::CaseInsensitive) != 0) {
         const auto answer = InlineMessage::question(m_ui->overlay(), tr("加载器对不上"),
             tr("这个实例是 %1 %2，而这一版是给 %3 用的。\n\n"
                "装进去多半不会生效（游戏进去可能直接崩）。还要装吗？")
-                .arg(parts.loaderName, parts.loaderVersion, version.loaders.first()), tr("是"), tr("否"), false);
+                .arg(instanceLoader, instanceLoaderVersion, version.loaders.first()), tr("是"), tr("否"), false);
         if (!answer) {
             return;
         }
@@ -7527,10 +7574,24 @@ void MainWindow::openInstanceSettings(const QString &versionId) {
     const auto refreshInstanceDirs = [this, &dialog](const QString &id) {
         dialog.setInstanceDir(AppPaths::versionDir(id));
         dialog.setFileDirs(instanceFileDirs(id));
-        // 「光影包」和「原理图」这两页要**装了东西才有意义** —— 判据得读 wtfml.meta 的
-        // 加载器名和扫 mods/ 目录，两样都在这一层。
+        // 左栏那一列是**按实例现算**的（2026-09-27）：这几页要"用得上"才列出来。四个判据
+        // 全在这一层 —— loadername / mods 目录 / 装没装那个 mod / 游戏版本够不够新，ui/
+        // 一样都够不着。
+        //
+        // ★ 四个 setter 的**默认都是"可用"**（直接 new 出来的对话框七条全列）：忘了调哪一个，
+        //   那个实例上就会多列出一页来 —— 而多一页是"用户点进去看见一句用不上"，不是静默
+        //   的错。所以宁可这样默认，也不要反过来（默认不可用 = 忘了调就把一整页藏了）。
+        //
+        // NOTE: 「模组」的判据是 instanceModsUsable()（有模组加载器 **或** mods/ 里有 jar）
+        //       ⇒ **OptiFine 也算**，装 OptiFine 的实例会多一条「模组」。这是有意的：
+        //       OptiFine 从 1.13 起就是塞进 mods/ 的，那一页在那样的实例上真的用得上。
+        //       ★ 2026-09-27：原来这里写的是 `displayParts().loaderName` 非空，而那一格
+        //       只有我们自己的安装器会写 ⇒ 用户盘上 70 个实例里 67 个（全是 PCL 装的）
+        //       被误判成"没有模组加载器"。判据与理由见 instanceModsUsable() 那段说明。
+        dialog.setModUsable(instanceModsUsable(id));
         dialog.setShaderUsable(instanceShaderUsable(id));
         dialog.setSchematicUsable(instanceHasMod(id, QStringLiteral("litematica")));
+        dialog.setDatapackUsable(m_versionManager->instanceSupportsDatapacks(id));
         loadServerList(&dialog, id);
         // 那几页里那些资源文件（模组 / 资源包 / 数据包 / 光影包）的图标（2026-09-27）：
         // 按文件内容反查，**在后台线程上跑**，回来了一个一个换上去（见那一支）。
@@ -7539,6 +7600,15 @@ void MainWindow::openInstanceSettings(const QString &versionId) {
         requestInstanceFileIcons(&dialog, id);
     };
     refreshInstanceDirs(targetId);
+
+    // 用户自己勾掉的那几页（2026-09-27）——**必须排在 refreshInstanceDirs() 之后**：
+    // 灌进来的那份表是"藏起来的页"，而"这一条到底露不露"要拿"可不可用"一起算（见
+    // InstanceSettingsDialog::shownEntryKeys()）。反过来的话，第一遍重建会先把不可用
+    // 那几条全列出来、再被这一发推回去 —— 中间那一下会顺手把右栏换到某页上
+    // （rebuildEntryList() 里那个"当前页没了就回第一页"）。
+    dialog.setPageChoices(
+        m_versionManager->versionMeta(targetId).value(VersionManager::settingsPagesField())
+            .toObject());
 
     // 两条**动作**信号（2026-09-26）：这一页里那两颗按钮（导出启动脚本 / 补全文件）不自己
     // 干活 —— ui/ 那边不 include src/、也不碰磁盘，"这一次到底执行什么"只有这一层知道
@@ -7649,7 +7719,7 @@ void MainWindow::openInstanceSettings(const QString &versionId) {
     connect(&dialog, &InstanceSettingsDialog::pingServersRequested, this,
             [this, &dialog, &targetId]() { pingServers(&dialog, targetId); });
     // ★ 「点进去就自动测速」（用户 2026-09-27 原话）。这一发是**切到那一页**发出来的
-    //   （见 InstanceSettingsDialog::applyFilePage），和上面那两条"用户按了某颗按钮"不是
+    //   （见 InstanceSettingsDialog::applyPageKey），和上面那两条"用户按了某颗按钮"不是
     //   一回事。它每一页都会发一次 —— 用户切走再切回来就又测一遍，而"已经在跑"那一趟
     //   不会被重开（见 pingServers 里那道闸）。
     connect(&dialog, &InstanceSettingsDialog::serverPageEntered, this,
@@ -8188,10 +8258,14 @@ bool MainWindow::instanceHasMod(const QString &versionId, const QString &nameTok
 }
 
 bool MainWindow::instanceShaderUsable(const QString &versionId) const {
-    // ① 加载器**就是** OptiFine（它自己就认 shaderpacks/）。加载器名比对的基准走
-    //    VersionManager::loaderDisplayName()，不写一遍字面量 —— 写进 wtfml.meta 的
-    //    `loaderName` 就是它给的（见 loaderDisplayName 那段）。
-    const QString loader = m_versionManager->displayParts(versionId).loaderName;
+    // ① 加载器**就是** OptiFine（它自己就认 shaderpacks/）。加载器名走 instanceLoaderName()
+    //    而不是 `displayParts().loaderName`：后者只有我们自己的安装器会写，而用户那两个
+    //    OptiFine 实例（`1.20.1-OptiFine_I6` / `1.20.2-OptiFine_I7_pre1`）是 PCL 装的、
+    //    meta 里没有那一格 —— 它们又没有 mods/ 目录，于是①和②两条同时落空，光影包那一页
+    //    在**真的装了 OptiFine** 的实例上说"用不上"（2026-09-27 连同「模组」一起修的）。
+    //    比对基准走 VersionManager::loaderDisplayName()，不写一遍字面量。
+    const QString loader = instanceLoaderName(m_versionManager->displayParts(versionId),
+                                             m_versionManager);
     if (loader == VersionManager::loaderDisplayName(VersionManager::LoaderKind::OptiFine)) {
         return true;
     }
@@ -8213,6 +8287,20 @@ bool MainWindow::instanceShaderUsable(const QString &versionId) const {
         }
     }
     return false;
+}
+
+bool MainWindow::instanceModsUsable(const QString &versionId) const {
+    // ① 基于一个模组加载器。判据走 instanceLoaderName()（**不是** displayParts().loaderName
+    //    —— 那一格只有我们自己的安装器会写，理由写在那个函数的说明里）。
+    if (!instanceLoaderName(m_versionManager->displayParts(versionId), m_versionManager)
+             .isEmpty()) {
+        return true;
+    }
+    // ② mods/ 里已经有 jar。和 instanceHasMod() 一样只认 `.jar`：被禁用的那些现在叫
+    //    `.jar.disabled`，扫不到 —— 那正是禁用的意思。
+    const QDir modsDir(AppPaths::versionDir(versionId) + QLatin1Char('/') +
+                       ResourceCatalog::folderForKind(ResourceCatalog::Kind::Mod));
+    return !modsDir.entryList({QStringLiteral("*.jar")}, QDir::Files).isEmpty();
 }
 
 void MainWindow::loadServerList(InstanceSettingsDialog *dialog, const QString &versionId) const {
@@ -8756,6 +8844,19 @@ bool MainWindow::applyInstanceSettings(const QString &versionId,
     // 空串 = 「默认」= **删掉那个键**，不写一个"等于默认"的值 —— 和上面两项同一个约定。
     fields.insert(VersionManager::iconField(),
                   iconValue.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(iconValue));
+
+    // ---------- 左栏显示哪几页（2026-09-27）----------
+    //
+    // 一个**顶层对象**（`{"save": false}`）—— updateVersionMeta 的合并是"这一格的整块替换"，
+    // 所以不用（也不能）逐条删键：整块交上去，那一格就以这份为准。
+    // 空对象（七条全显示 = 没勾掉任何一条）写 Null ⇒ **删键**，和上面三项同一个约定。
+    //
+    // NOTE: 这里**不校验**那几页此刻可不可用 —— 值是从对话框现读的（pageChoices()），而它
+    //       本来就只写"可用且没勾"的那几条（见它那段说明）。可用性是每次现算的，不写盘。
+    const QJsonObject pageChoices = dialog.pageChoices();
+    fields.insert(VersionManager::settingsPagesField(),
+                  pageChoices.isEmpty() ? QJsonValue(QJsonValue::Null)
+                                        : QJsonValue(pageChoices));
 
     QString error;
     if (!m_versionManager->updateVersionMeta(versionId, fields, &error)) {
