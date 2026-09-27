@@ -38,6 +38,7 @@
 
 #include <QByteArray>
 #include <QDateTime>
+#include <QHash>
 #include <QList>
 #include <QString>
 #include <QStringList>
@@ -389,10 +390,42 @@ QString gameVersionAfterToggle(const QStringList &declaredGameVersions, bool sho
 
 /// 兜底那个图标地址（`https://cdn.modrinth.com/data/{id}/icon.png`）。
 ///
-/// 它是**兜底**不是唯一：接口给的 `Hit::iconUrl` 常常是一条小得多的 webp（96px 缩略图），
-/// 解得动就先用
-/// 那一条（见文件头）。项目没上传图标时这个地址是 404 —— 取不到就画占位方块，不当成错误。
+/// ★ 2026-09-27 实测更正：**它不是"每个项目都有"的那一条**，只是**老项目的别名**。
+///   拿用户真实 `mods/` 里 20 个模组一个一个要过：**11 个回 404**（FerriteCore / Fabric
+///   Language Kotlin / Fabric Permissions API / Carpet / ArmorQuickSwap / Fox Friend …），
+///   9 个回 200（Sodium / Fabric API / Jade / cloth-config / YACL / Iris …）。分界是
+///   "这个项目的图标当年就是按 `icon.png` 这个名字存的" —— **在那之后传的图标一律不在这条
+///   路上**（它们存在 `data/<id>/<哈希>.png` 或 `…/<哈希>_96.webp` 下面，只有接口的
+///   `icon_url` 说得出来，见 projectsRequestUrl 那段）。
+///   所以它只配当**最后一档**（接口那条没给、或者这台机器解不了 webp 时），不能当成一条
+///   "自己拼得出来"的正常地址 —— 老注释那句「这个地址实测回 200 image/png」是在 Sodium
+///   那一张上量的，它恰好有那个别名。
+///   项目没上传图标时回 404，那不算错 —— 取不到就画占位方块。
 QString iconUrlForProject(const QString &projectId);
+
+/// 批量问"这几个项目号各自的图标地址"：`GET {apiBase}/projects?ids=["a","b"]`。
+///
+/// 为什么非问不可：真正那条图标地址在**带哈希的文件名**底下，除了接口没人说得出来
+/// （见上面 `iconUrlForProject()` 那段）。`InstanceIconLookup` 认出来的那些文件手上只有
+/// 项目号，少了这一发就只能退到那条"老项目才有"的别名上去 —— 症状是"文件管理里的模组
+/// 绝大多数只有占位拼图"，而且**屏幕上一点异常都没有**（那一发 404 被当成"这个项目没传过
+/// 图标"，那本来是完全正常的一件事）。
+///
+/// 一发最多 100 个号（和那几处批量反查同一个上限，超了要**分批**）。实测 50 个号一发
+/// 894 字符、1.0 秒；回一个**数组**（不是对象），每项是那个项目的完整对象。
+///
+/// @param apiBase 接口根地址（`https://api.modrinth.com/v2`）。**空 = 官方那一份**
+///        （唯一出处仍是 `apiRoot()`）—— 和 `InstanceIconLookup` / `VersionManager`
+///        里那个 override 是同一条规矩。
+QString projectsRequestUrl(const QStringList &projectIds, const QString &apiBase = QString());
+
+/// 解析上面那一发的回复（一个**数组**）→ 项目号 → 图标地址。
+///
+/// NOTE: 那条地址是**外部输入**，照样要过 `isUsableIconUrl()`（见那一处）。读不懂 /
+///       根本不是数组 / 那一条没带 `icon_url` / 带的是别的域名 —— 一律当"这个项目没有
+///       图标地址"，**不报错**：一个项目没传过图标是完全正常的一件事，而这里报出来的
+///       "错"没有第二个人能处置。
+QHash<QString, QString> parseProjectIconUrls(const QByteArray &json);
 
 /// 这条地址是不是一条 webp（**按路径后缀判**，不联网）。整条 URL 都空时是 false。
 ///

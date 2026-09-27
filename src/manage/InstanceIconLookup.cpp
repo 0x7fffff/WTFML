@@ -167,12 +167,62 @@ Result lookup(const QStringList &paths, const Options &options) {
                     found.path = path;
                     found.projectId = projectId;
                     found.source = ResourceCatalog::Source::Modrinth;
-                    // 两条图标地址都**不填**：`/v2/version_files` 是"版本"的回复，里面没有
-                    // 项目的图标。兜底那条由 `Hit::iconPngUrl()` 按 id 自己拼
-                    // （`cdn.modrinth.com/data/<id>/icon.png`，实测 200 image/png）。
+                    // 图标地址**这一发给不出来**（`/v2/version_files` 是"版本"的回复，里面
+                    // 没有项目的图标）—— 下一段专门为它再问一发，这里先空着。
                     result.found.append(found);
                 }
             }
+        }
+
+        // ---------- ②' 这些项目号各自的图标地址 ----------
+        //
+        // ★ 这一段是 2026-09-27 补的，缘由是一次实测：原来这里不收图标地址，指望
+        //   `Hit::iconPngUrl()` 自己拼的那条 `cdn.modrinth.com/data/<id>/icon.png` 兜住。
+        //   那条地址**只是老项目的别名** —— 拿用户真实 `mods/` 里 20 个模组一个一个要过：
+        //   **11 个回 404**（FerriteCore / Fabric Language Kotlin / Carpet / Fabric
+        //   Permissions API / ArmorQuickSwap / Fox Friend …），只有 9 个回 200（恰好是
+        //   "图标当年就叫 icon.png"的那几个：Sodium / Fabric API / Jade / cloth-config …）。
+        //   修完再用本工程的 `icon-lookup-live` 对着一个真实例的 mods/ 复量（51 个模组）：
+        //   **51 个全部拿到接口给的图标地址**，而那条老别名 33 个回 404、18 个回 200。
+        //   于是这一页上**绝大多数模组只有占位拼图**，而屏幕上一点异常都没有（那一发 404
+        //   被当成"这个项目没传过图标"—— 那本来是完全正常的一件事）。
+        //   （用户原话：「模组的图标没有正确加载」。）
+        //
+        //   真正那条地址在**带哈希的文件名**底下（`…/<哈希>.png` 或 `…/<哈希>_96.webp`），
+        //   除了接口没人说得出来。一发问一批（同一个上限），50 个号实测 894 字符、1.0 秒。
+        QStringList wantedProjects;
+        for (const Found &found : result.found) {
+            if (!wantedProjects.contains(found.projectId)) {
+                wantedProjects.append(found.projectId);
+            }
+        }
+        QHash<QString, QString> iconByProject;
+        for (int offset = 0; offset < wantedProjects.size(); offset += kLookupChunk) {
+            const HttpClient::Reply reply = HttpClient::send(
+                &network,
+                QUrl(ResourceCatalog::projectsRequestUrl(wantedProjects.mid(offset, kLookupChunk),
+                                                         root)),
+                HttpClient::Verb::Get, QByteArray(), QByteArray(), QByteArray(),
+                HttpClient::kDefaultTimeoutMs, headers);
+            if (!reply.ok()) {
+                // ★ **不 return**（和上面那两处不一样）：身份已经定下来了 —— 上面那一发认
+                //   出来的那些是真的，缺的只是图，那几格退回占位拼图就是正确的界面。而且
+                //   也不能往 `problem` 里写：它是"这一趟完整不完整"的判据，这一发失败不影响
+                //   那个判断，写进去的代价是下一趟把几十兆 jar 从头重读一遍（见 Result::iconProblem）。
+                result.iconProblem = reply.networkError.isEmpty()
+                                         ? QObject::tr("Modrinth 取图标地址时回了 HTTP %1。")
+                                               .arg(reply.status)
+                                         : QObject::tr("Modrinth 取图标地址时没连上：%1")
+                                               .arg(reply.networkError);
+                break;
+            }
+            const QHash<QString, QString> part = ResourceCatalog::parseProjectIconUrls(reply.raw);
+            for (auto it = part.constBegin(); it != part.constEnd(); ++it) {
+                iconByProject.insert(it.key(), it.value());
+            }
+        }
+        for (Found &found : result.found) {
+            found.iconUrl = iconByProject.value(found.projectId);
         }
     }
 

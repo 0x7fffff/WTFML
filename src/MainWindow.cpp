@@ -8146,6 +8146,12 @@ void MainWindow::onInstanceIconLookupFinished(const InstanceIconLookup::Result &
         // 而"这一条问过了、没有"这件事在这一页活着的时候得记住 —— 不然用户点一下
         // 「刷新」，那一格又变回"还没问"的样子。
     }
+    // 图标地址那一发没成 —— **和上面那句分开说**：那一刻身份都已经认出来了，缺的只是图，
+    // 而那几格退回占位拼图就是正确的界面（不弹窗，理由同上）。这句话得说，是因为"认出来了
+    // 但没图"和"压根没认出来"在屏幕上是一个样子，而这两件事的下一步不一样。
+    if (!result.iconProblem.isEmpty()) {
+        appendLog(tr("有几个资源的图标地址没取到：%1").arg(result.iconProblem));
+    }
     if (result.unreadable > 0) {
         appendLog(tr("有 %1 个文件读不动（多半被别的程序占着），这一批里没有它们的图标。")
                       .arg(result.unreadable));

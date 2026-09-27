@@ -1055,8 +1055,50 @@ QString iconUrlForProject(const QString &projectId) {
     // 为什么要有它：接口给的那个 icon_url 常常是一条小 7 倍的 webp，而**webp 不是每台
     // 机器都解得动**（见 ImageDecode::webpAvailable）。解不动、或者接口干脆没给（
     // hit.iconUrl 为空）、或者给了条别的域名的，都退到这一条上来。
-    // 这个地址实测回 200 image/png。项目没传过图标时回 404 —— 那不算错，画占位方块。
+    //
+    // ★ 2026-09-27 实测更正：这条 `<id>/icon.png` **只是老项目的别名**，不是每个项目
+    //   都有的那一条。用户真实 mods/ 里 20 个模组量下来 11 个回 404（FerriteCore /
+    //   Fabric Language Kotlin / Carpet / Fabric Permissions API / ArmorQuickSwap …），
+    //   只有 9 个回 200（恰好是"图标当年就叫 icon.png"的那几个：Sodium / Fabric API /
+    //   Jade / cloth-config …）。修完在另一台盘上又量了一遍（`mw_check icon-lookup-live`
+    //   打一个真实例的 mods/，51 个模组）：**33 个回 404、18 个回 200** —— 比例和上一批
+    //   差不多，所以这不是"某一个实例特殊"。所以它**只配当最后一档**，谁要是拿它当
+    //   "自己拼得出来"的正常地址，那些项目就永远是那张占位拼图（那一发 404 被当成
+    //   "没传过图标"，屏幕上一个异常都没有）。真正那条只有问接口：projectsRequestUrl()。
     return cdnRoot() + QStringLiteral("/data/") + enc(projectId) + QStringLiteral("/icon.png");
+}
+
+QString projectsRequestUrl(const QStringList &projectIds, const QString &apiBase) {
+    if (projectIds.isEmpty()) {
+        return QString();
+    }
+    // ids 那一段照旧走 jsonArrayParam（百分号编码 + 用 QJsonDocument 拼，见那一处）：
+    // 项目号都是 base62 / 纯数字，本来就没有要转义的字符，但**形状**必须是接口认的那个。
+    return (apiBase.isEmpty() ? apiRoot() : apiBase) + QStringLiteral("/projects?ids=") +
+           jsonArrayParam(projectIds);
+}
+
+QHash<QString, QString> parseProjectIconUrls(const QByteArray &json) {
+    QHash<QString, QString> icons;
+    QJsonParseError error{};
+    const QJsonDocument document = QJsonDocument::fromJson(json, &error);
+    // ★ 回复是一个**数组**（`GET /projects?ids=…` 是这个形状），不是搜索那种 `{hits:[…]}`。
+    //   按对象读会一条都读不出来 —— 而"没有图标"和"读不懂"在屏幕上是一个样子。
+    if (error.error != QJsonParseError::NoError || !document.isArray()) {
+        return icons;
+    }
+    for (const QJsonValue &value : document.array()) {
+        const QJsonObject object = value.toObject();
+        const QString id = object.value(QStringLiteral("id")).toString();
+        if (id.isEmpty()) {
+            continue;
+        }
+        // 图标地址是外部输入，过一遍域名闸（见 isUsableIconUrl）；过不去就当这个项目
+        // 没给图标地址 —— 和搜索那边读 icon_url 是同一个规矩。
+        const QString icon = object.value(QStringLiteral("icon_url")).toString();
+        icons.insert(id, isUsableIconUrl(icon) ? icon : QString());
+    }
+    return icons;
 }
 
 bool isWebpUrl(const QString &url) {

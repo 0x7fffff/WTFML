@@ -15,8 +15,14 @@
  *   - CurseForge：`fileFingerprint`（murmur2 那一套）→ `POST /v1/fingerprints`（批量），
  *     再拿返回的 `modId` 去 `POST /v1/mods` 换 `logo` 那两条地址。
  *
- * 这三发的请求体 / 解析都是**现成的纯函数**（`ModpackExport::` 和 `ModpackImport::`，
- * 导出整合包那条路在用）—— 这一层只负责"发"和"把两份结果拼成一张路径表"。
+ * 认出来的项目号还要再问一发 `GET /v2/projects?ids=…` 才拿得到**图标地址**（2026-09-27
+ * 补，见 `Found::iconUrl` 和 `Result::iconProblem`）：Modrinth 那两发都给不出项目的图标，
+ * 而自己按 id 拼的那条 `<id>/icon.png` **只是老项目的别名**，绝大多数项目根本没有 ——
+ * 少了这一发，这一页上"大多数模组只有占位拼图"。
+ *
+ * 那四发的请求体 / 解析都是**现成的纯函数**（`ModpackExport::`、`ModpackImport::` 和
+ * `ResourceCatalog::`，导整合包 / 下载页那两条路在用）—— 这一层只负责"发"和"把几份结果
+ * 拼成一张路径表"。
  *
  * 【为什么不复用 VersionManager 那两个 lookup】
  *
@@ -60,10 +66,16 @@ struct Found {
     QString path;
     QString projectId;
     ResourceCatalog::Source source = ResourceCatalog::Source::Modrinth;
-    /// 接口给的那条图标地址。Modrinth 这条路是**空串**（那个接口不给图标，兜底那条由
-    /// `Hit::iconPngUrl()` 按 id 自己拼）；CurseForge 是 `logo.thumbnailUrl`。
+    /// 接口给的那条图标地址。Modrinth 是 `GET /v2/projects?ids=…` 回的 `icon_url`（大多是
+    /// 96px 的 webp，**只有接口说得出来**，见 `ResourceCatalog::projectsRequestUrl()`）；
+    /// CurseForge 是 `logo.thumbnailUrl`。
+    ///
+    /// NOTE: 这一格取不到时留空，接的人（`ResourceStore::requestIcon`）会退回
+    ///       `Hit::iconPngUrl()` 那条自己拼的地址。**那条只是老项目的别名** —— 所以
+    ///       空着和不空着在屏幕上是"有图"和"绝大多数没图"的区别（见 `iconProblem`）。
     QString iconUrl;
-    /// 兜底那条。Modrinth 同样空着；CurseForge 是 `logo.url`。
+    /// 兜底那条。Modrinth 这条路**空着**（兜底由 `Hit::iconPngUrl()` 按 id 自己拼）；
+    /// CurseForge 是 `logo.url`。
     QString iconFallbackUrl;
 };
 
@@ -81,6 +93,16 @@ struct Result {
     ///   记成'问过了、没有'"（见 MainWindow 里那段）。网络断了那一趟如果记成"没有"，
     ///   用户这一整个会话都再也看不到图标了 —— 而那本来是"下一次网好了就会有"。
     QString problem;
+
+    /// 非空 = **图标地址那一发**没成（`GET /v2/projects?ids=…`，见 `Found::iconUrl`）。
+    /// 身份都认出来了，缺的只是那几格的图。里面是给日志的一句话。
+    ///
+    /// ★ 它和 `problem` **必须分开**，不能合并：`problem` 是"这一趟完整不完整"的判据，
+    ///   而这一发失败**不影响那个判断** —— 两份回复（Modrinth / CurseForge）都已经问完，
+    ///   没认出来的那些确实不是这两家的资源，照样该记成"问过了、没有"。混进 `problem`
+    ///   里的代价是下一趟（用户关掉设置页再打开）会把几十兆 jar **从头重读重算一遍**，
+    ///   换来的却只是"图标可能来了"。
+    QString iconProblem;
 };
 
 /**
