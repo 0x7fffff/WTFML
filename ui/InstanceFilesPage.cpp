@@ -70,6 +70,33 @@ QPixmap placeholderIcon(bool isDir, const QColor &color) {
     return VersionIcons::puzzleMark(size, color);
 }
 
+/// 把**接口给的那张真图**缩到这一格的大小。
+///
+/// ★ 2026-09-27 补。用户报「图标虽然加载了，但是只显现了左上角的一小部分」，根子就在
+///   `QLabel::setPixmap()` **不缩放**：它按 pixmap 本来的大小画，超出控件的那一块被裁掉。
+///   而作者传的那张图本来就不是这一格的大小 —— Modrinth 那条 `_96.webp` 是 96 px，
+///   `icon.png` 那条更是**原图**（几百 px 的都有），而这一格只有
+///   `MainWindowUI::instanceFileIconSize()`（32）。于是每一张真图标都只露出左上角那一小块，
+///   看着像"图裂了"。
+///
+///   NOTE: 这个毛病**只有真图标真的加载出来了**才看得见 —— 占位图本来就是照这一格的尺寸画的
+///         （见 placeholderIcon），一个像素都不差。所以它和「模组的图标没有正确加载」是
+///         前后脚冒出来的：先修好"地址取不回来"（那条 `<id>/icon.png` 只是老项目的别名），
+///         图一到位，这一格立刻露出第二个毛病。
+///
+/// NOTE: `KeepAspectRatio` 而不是拉满 —— 资源包封面不是方的，拉满会变形。
+///       （`setScaledContents(true)` 那个开关的意思恰好就是"拉满"，所以不能用它。）
+///       缩放走 `SmoothTransformation`：这是给眼睛看的图，不是拿来逐像素比对的。
+/// NOTE: **本来就装得下的图一个像素都不动**：放大只会糊（图标真有 16 px 的），
+///       而且小图原样交给 QLabel 时它按对齐方式摆在那一格里（见 makeRow 里的 AlignCenter）。
+QPixmap scaleToIconSlot(const QPixmap &icon) {
+    const int slot = MainWindowUI::instanceFileIconSize();
+    if (icon.isNull() || (icon.width() <= slot && icon.height() <= slot)) {
+        return icon;
+    }
+    return icon.scaled(slot, slot, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+}
+
 }  // namespace
 
 InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
@@ -235,14 +262,30 @@ void InstanceFilesPage::refresh() {
                               raw.endsWith(disabledSuffix(), Qt::CaseInsensitive);
         const QString shown = disabled ? raw.left(raw.size() - disabledSuffix().size()) : raw;
         const QString path = info.absoluteFilePath();
+        // 「这一条叫什么」——**盘上的名字**去掉那个后缀，被禁用的再挂上四个字。
+        // ★ 从前这串是拼给 `QListWidgetItem` 的，行里那一格是**转手**从 `item->text()` 拿的
+        //   （`makeRow(item->text(), …)`）；条目不给文字之后（见下）这一格就得自己算出来，
+        //   否则那四个字会**整条从界面上消失** —— 名字后面不再有任何东西说明这一条是关着的，
+        //   而灰掉的名字色在浅色主题下几乎看不出来（ui_check 的 U10c/U10k 当场抓到了这一处）。
+        const QString displayName = disabled ? shown + disabledMark() : shown;
 
-        auto *item = new QListWidgetItem(disabled ? shown + disabledMark() : shown, m_list);
+        // ★ 2026-09-27：条目**故意不给文字**（从前给的是这一条的名字）。
+        //   `QListWidgetItem` 上的文字是**视图代理画的**，而这一行的内容是一个用
+        //   setItemWidget() 摆上去的真控件；那个控件是**透明的**（要这样，选中高亮才从
+        //   底下透出来），所以代理画的字会从它底下露出来 —— 屏幕上是**同一个名字画两遍**，
+        //   一行字的位置和控件里那个名字差着半行，看着像重影（用户 2026-09-27 截图报的
+        //   「模组名称出现了两次」）。文字由 makeRow() 那一格全权负责（名字在
+        //   nameLabelName() 上，那才是"这一条叫什么"的唯一出处）。
+        //
+        // NOTE: 别改回 `new QListWidgetItem(文字, m_list)` —— 那样重影立刻回来，而
+        //       ui_check 的 U10k 那几条（量"一行里有几段墨"）会当场红。
+        auto *item = new QListWidgetItem(QString(), m_list);
         item->setData(pathRole(), path);
         item->setData(disabledRole(), disabled);
         // 行高和实例树 / 版本树同一档：一页里换行高不会错，但"我们自己的列表"看着该是一个东西。
         item->setSizeHint(QSize(0, MainWindowUI::versionTreeRowHeight()));
         m_list->addItem(item);
-        m_list->setItemWidget(item, makeRow(item->text(), path, isDir, disabled, info.size(),
+        m_list->setItemWidget(item, makeRow(displayName, path, isDir, disabled, info.size(),
                                             info.lastModified()));
         m_empty = false;
     }
@@ -273,6 +316,10 @@ QWidget *InstanceFilesPage::makeRow(const QString &shownName, const QString &pat
     icon->setObjectName(iconLabelName());
     icon->setFixedSize(MainWindowUI::instanceFileIconSize(),
                        MainWindowUI::instanceFileIconSize());
+    // 居中对齐：真图标缩过之后就是**这一格那么大**（正方形、正好铺满），摆哪儿都一样；
+    // 而"本来就比这一格小"的那些（16 px 的小图，见 scaleToIconSlot）不居中的话会贴左上角
+    // —— QLabel 默认是 AlignLeft｜AlignVCenter，横向就偏了。
+    icon->setAlignment(Qt::AlignCenter);
     // 颜色取**次要那一档**（和「大小 · 时间」那行小字同一档）：这一列是配角，用正文色会让
     // 整张表看着比名字那一列还重。取的是**这一行自己的调色板**（不是全局那一份）——
     // 一页里每一行都在同一个窗口里，取到的值一样，但"这一行怎么画"跟着这一行走。
@@ -430,7 +477,10 @@ QPixmap InstanceFilesPage::iconForPath(const QString &path, bool isDir,
     if (m_icons.contains(path)) {
         const QPixmap icon = m_icons.value(path);
         if (!icon.isNull()) {
-            return icon;
+            // ★ 缩到这一格的大小（见 scaleToIconSlot 那段）。`m_icons` 里存的是**原样那张**
+            //   —— 这一层不篡改别人给的东西（验证工程按"存进去的 == 拿出来的"核对过），
+            //   缩放只发生在"往控件上摆"这一步。
+            return scaleToIconSlot(icon);
         }
     }
     return placeholderIcon(isDir, placeholderColor);
