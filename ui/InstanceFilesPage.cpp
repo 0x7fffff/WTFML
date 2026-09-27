@@ -97,6 +97,31 @@ QPixmap scaleToIconSlot(const QPixmap &icon) {
     return icon.scaled(slot, slot, Qt::KeepAspectRatio, Qt::SmoothTransformation);
 }
 
+/// 目录**自己带着的那张小图**：`<目录>/icon.png`。没有、读不出来就是空 pixmap。
+///
+/// ★ 2026-09-27 补。用户报「存档文件的图像没获取到」。存档那一页列的全是**目录**
+///   （`saves/<世界名>/`）—— 目录没有哈希、也不在任何平台的清单里，所以"按内容反查身份"
+///   那条路对它们**永远**是空手而归（`MainWindow::instanceIconCandidatePaths()` 连
+///   `saves/` 都不列，理由写在那边：一个存档不是一个能反查的资源）。
+///   可是**世界自己就带着缩略图**：游戏每次存世界都会往存档目录里写一张 `icon.png`
+///   （就是进游戏时"选择世界"那一屏上画的那张；实测用户盘上 5 个存档一个不落）。
+///   所以这一格的图根本不用问网络，盘上就有。
+///
+/// NOTE: 那条文件名是**游戏的约定**，不是我们发明的：大小写按它写的 `icon.png` 认
+///       （Windows 上不区分，别的系统上区分，照原样写最保险）。
+/// NOTE: 不去认"这是不是一个真存档"（比如查 `level.dat` 在不在）—— 摆一张图而已，
+///       目录里有那张图就画。多一道判断就多一处"哪些目录算数"的规则要跟着游戏版本改。
+/// NOTE: 只有**目录**才看这个（见 iconForPath 里 `isDir` 那个闸）：文件自己有哈希那条路。
+QPixmap directoryThumbnail(const QString &dirPath) {
+    const QString candidate = dirPath + QStringLiteral("/icon.png");
+    if (!QFileInfo::exists(candidate)) {
+        return QPixmap();
+    }
+    // 读不出来的（坏文件、不是张图）回空的那张，调用方自然退回文件夹字形 —— 不弹错、
+    // 也不留一格里半张烂图。
+    return QPixmap(candidate);
+}
+
 }  // namespace
 
 InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
@@ -156,6 +181,28 @@ InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
     // 行是**真控件**（见 .hpp 里那段"为什么每行是一个真控件"），宽度由它自己说了算；
     // 不许出现横向滚动条，否则那一排按钮会跟着来回滑。
     m_list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    // ★ 2026-09-27：「打开这一条」的出口（见 .hpp 里 activateRequested）。
+    //
+    //   用 itemActivated 而不是 itemDoubleClicked：前者是 Qt 说的「用户激活了这一条」
+    //   —— 双击**和**选中之后按回车都会发它（各平台按自己的习惯），而那正是"打开一个
+    //   文件"该有的两种手势。
+    //
+    //   NOTE: 这一条能成立有一个**前提**：每一行的内容是 setItemWidget() 摆上去的一个
+    //         真控件，而它对鼠标事件是"不处理"的（QWidget 默认把 mousePressEvent
+    //         ignore 掉）⇒ 事件往上冒到 viewport，列表才收得到这一发。同一件事的另一个
+    //         表现是**这些行一直点得中、选中高亮也一直透得上来**（那一层控件是透明的）。
+    //         哪一天有人让行控件去 accept 鼠标事件（比如给它自己接个点击），**这一发就会
+    //         静默失效** —— 双击没反应，不报错。ui_check 里有一条合成双击的断言钉着它。
+    connect(m_list, &QListWidget::itemActivated, this, [this](QListWidgetItem *item) {
+        if (item == nullptr) {
+            return;
+        }
+        const QString path = item->data(pathRole()).toString();
+        if (path.isEmpty()) {
+            return;
+        }
+        emit activateRequested(path, QFileInfo(path).isDir());
+    });
     outer->addWidget(m_list, 1);
 
     // ---------- 空 / 用不上时那一段话 ----------
@@ -481,6 +528,26 @@ QPixmap InstanceFilesPage::iconForPath(const QString &path, bool isDir,
             //   —— 这一层不篡改别人给的东西（验证工程按"存进去的 == 拿出来的"核对过），
             //   缩放只发生在"往控件上摆"这一步。
             return scaleToIconSlot(icon);
+        }
+    }
+    // ★ 目录**自己身上带着的那张图**（2026-09-27 补，用户报「存档文件的图像没获取到」）。
+    //   存档那一页列的全是**目录**（`saves/<世界名>/`），而目录没有哈希、也不在任何平台的
+    //   清单里，所以"反查身份"那条路**永远**拿不到它们的图 —— `MainWindow::
+    //   instanceIconCandidatePaths()` 连 `saves/` 都不列（那不是能反查的资源）。
+    //   可是**世界自己带着缩略图**：游戏每次保存都会往存档目录里写一张 `icon.png`
+    //   （进游戏时"选择世界"那一屏上那张小图就是它；实测用户盘上 5 个存档一个不落）。
+    //   于是这一格的图根本不用问网络 —— 盘上就有。
+    //
+    // NOTE: 判据是**这个目录里有没有那张图**，不是"这一页是不是存档页"：文件夹自带缩略图
+    //       这个约定本来就是按目录说的，哪个目录里头放了就画哪个（`mods/mcef-libraries/`
+    //       那种没有的照旧退回文件夹字形）。按页判断反而要多一处"哪一页算"的知识。
+    // NOTE: 不缓存。这一格每一趟 refresh() 只问一次（iconForPath 只在 makeRow 里调），
+    //       而那张图只有十来 KB、decode 一次是微秒级；真按 mtime 键住一份，反倒多出一处
+    //       "世界存了一次档、图变了"时要记得清的地方。
+    if (isDir) {
+        const QPixmap own = directoryThumbnail(path);
+        if (!own.isNull()) {
+            return scaleToIconSlot(own);
         }
     }
     return placeholderIcon(isDir, placeholderColor);

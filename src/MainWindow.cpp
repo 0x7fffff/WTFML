@@ -11,6 +11,8 @@
 
 #include "MainWindow.hpp"
 
+#include "..\ui\ConfigFileEditorPage.hpp"
+#include "..\ui\ConfigFileText.hpp"
 #include "..\ui\GroupDialog.hpp"
 #include "..\ui\InstanceGroupDelegate.hpp"
 #include "..\ui\InstanceFilesPage.hpp"
@@ -48,6 +50,9 @@
 #include <QClipboard>
 #include <QCloseEvent>
 #include <QComboBox>
+// 「配置文件」那一页记盘上的"那一份"要一秒不差地带上修改时间（见 ConfigFileText::Stamp），
+// 备份文件夹名也是拿它拼的。
+#include <QDateTime>
 #include <QDebug>
 #include <QDesktopServices>
 #include <QDir>
@@ -90,6 +95,9 @@
 // 底栏右面板那三行要按 saved_at 排序（std::stable_sort：同一秒里存的两个账号要保持
 // 列表里原来的先后，不然每次点开顺序都可能不一样）。
 #include <algorithm>
+// 「配置文件」那一页挑最近那一份备份（`std::greater<QString>`：备份文件夹名倒序 == 时间
+// 倒序，见 ConfigFileText::backupFolderName() 那段 NOTE）。
+#include <functional>
 
 #include "auth/AccountStore.hpp"
 #include "auth/AuthManager.hpp"
@@ -767,13 +775,47 @@ int versionChannelIndexOf(const VersionManager *versions, const QString &version
     return VersionCategory::channelIndex(versionChannelOf(versions, versionId));
 }
 
+/// 这个实例**实际**基于哪个加载器 —— 给界面看的名字（空串 = 没认出来）。
+/// @param versionOut 认出来时顺手带上加载器版本（只有"加载器对不上"那道闸要用它）。
+///
+/// 先看 @p parts 里**已经读过**的那一格（`displayParts()` 顺手带出来的，不额外读盘，
+/// 那也是"显示名和图标是同一次读取的两半"那条 NOTE 的意思），为空时再回扣一次
+/// `VersionManager::instanceModLoader()`。
+///
+/// ★ 为什么要回扣：`wtfml.meta` 里的 `loaderName` **只有我们自己的安装器会写**。PCL /
+///   HMCL 那类把整份 json 合进实例目录的实例（用户盘上 70 个里 67 个）那一格是空的 ——
+///   回扣那一趟照着版本 json 的 `libraries` 认，才是它们的加载器唯一的出处。四条路都读
+///   同一个名字：实例行那个标志（defaultInstanceMark）、自动归类（defaultGroupIdFor）、
+///   光影包那一页（instanceShaderUsable）、以及装模组时的"加载器对不上"那道闸。
+QString instanceLoaderName(const VersionDisplayParts &parts, const VersionManager *versions,
+                           QString *versionOut = nullptr) {
+    if (versionOut != nullptr) {
+        versionOut->clear();
+    }
+    if (!parts.loaderName.isEmpty()) {
+        if (versionOut != nullptr) {
+            *versionOut = parts.loaderVersion;
+        }
+        return parts.loaderName;
+    }
+    QString name;
+    QString version;
+    if (versions != nullptr && versions->instanceModLoader(parts.id, &name, &version)) {
+        if (versionOut != nullptr) {
+            *versionOut = version;
+        }
+        return name;
+    }
+    return QString();
+}
+
 /// 这个实例**没挑过图标**时该画哪一个方块（草方块 / 覆雪草块 / 土块 / 幸运方块，或者
 /// 某个加载器的标志）—— 也叫它的「默认图标」。
 ///
 /// 两条路，用的都是**另外两棵树上挂的同一份图标**（别在这儿另画一套）：
-///   - **装了加载器的**（wtfml.meta 里有 loaderName）：给那个加载器的标志（Fabric / Forge /
-///     NeoForge / OptiFine），走 `VersionIcons::loaderMark()` —— 安装页那棵加载器树上挂的
-///     就是它；
+///   - **装了加载器的**（见 instanceLoaderName()：meta 里记着的，或者版本 json 自己说的）：
+///     给那个加载器的标志（Fabric / Forge / NeoForge / OptiFine），走
+///     `VersionIcons::loaderMark()` —— 安装页那棵加载器树上挂的就是它；
 ///   - **没装加载器的**（原版 / 快照版 / 远古版 / 愚人节版）：按版本分类给，走
 ///     `VersionIcons::versionChannelMark()` —— 下载页那棵版本树上挂的就是它。
 ///
@@ -786,13 +828,18 @@ int versionChannelIndexOf(const VersionManager *versions, const QString &version
 ///       就是照它排的），抄一遍就会在某次加加载器时慢慢漂开。
 /// NOTE: 认不出来的加载器名（用户手写的别的名字、或者以后新加的加载器）也是草方块 ——
 ///       和 loaderMark() 越界那条一个规矩：认不出来就画原版。
+///       **Quilt 就是这一档**：`instanceLoaderName()` 认得出来（版本 json 里
+///       `org.quiltmc:quilt-loader` 那条），而 MainWindowUI 那四颗加载器钮里没有它 ⇒ 画草
+///       方块。这是老行为（我们自己的安装器不装 Quilt，这一档只从 json 那一路进得来），
+///       要给它一个标志就加一颗加载器钮 —— 别在这儿另画一张图。
 QPixmap defaultInstanceMark(const VersionDisplayParts &part, const VersionManager *versions,
                             int size) {
-    if (!part.loaderName.isEmpty()) {
+    const QString loader = instanceLoaderName(part, versions);
+    if (!loader.isEmpty()) {
         for (int index = 0; index < MainWindowUI::modLoaderNoneIndex(); ++index) {
             VersionManager::LoaderKind kind;
             if (VersionManager::loaderKindFromIndex(index, &kind)
-                && VersionManager::loaderDisplayName(kind) == part.loaderName) {
+                && VersionManager::loaderDisplayName(kind) == loader) {
                 return VersionIcons::loaderMark(index, size);
             }
         }
@@ -889,7 +936,9 @@ bool writeInstanceIcon(const QString &versionId, const QString &sourcePath, QStr
 /// 一个实例**默认**该归到哪个默认组 —— 只给"用户还从来没给它表过态"的实例用（见调用点）。
 ///
 /// 判据就是用户 2026-09-24 定的那五个组名：
-///   - 装了模组加载器（wtfml.meta 里有 loaderName）→ 可安装mod；
+///   - 装了模组加载器 → 可安装mod（判据见 instanceLoaderName()：**不只** wtfml.meta 那一格，
+///     版本 json 自己说的也算 —— PCL 那类合并实例 meta 里是空的，只按 meta 判会把 67 个
+///     装了加载器的实例全扔进「原版」，而「可安装mod」永远是空的）；
 ///   - 否则按版本分类：正式版 → 原版、快照版 → 快照版、远古版 → 远古版；
 ///   - **愚人节版没有对应的默认组**，返回空串 = 未分组。用户给的那五个里没有它，而把
 ///     它塞进快照版是替用户做主（那九个版本的 type 全是 snapshot，正是这个"顺理成章"
@@ -905,7 +954,7 @@ QString defaultGroupIdFor(const VersionDisplayParts &part, const VersionManager 
         return known.contains(id) ? id : QString();
     };
     // 加载器那一条先判：装了加载器的快照版/远古版也算"可安装mod"（那才是它现在的样子）。
-    if (!part.loaderName.isEmpty()) {
+    if (!instanceLoaderName(part, versions).isEmpty()) {
         return existing(InstanceGroupStore::DefaultKind::Moddable);
     }
     switch (versionChannelOf(versions, part.id)) {
@@ -4592,9 +4641,9 @@ void MainWindow::installResourceVersion(ResourceCatalog::Kind kind, const QStrin
     const bool loaderMatters = kind == ResourceCatalog::Kind::Mod;
     // 判据刻意做得**窄**（只拦"知道实例是什么加载器、且这一版只列了另一种"这一种）：
     //   · 不是模组（资源包 / 数据包 / 光影 / 整合包）→ 放行；
-    //   · 实例没有 wtfml.meta（读不出加载器）→ 放行；
+    //   · 认不出实例的加载器（纯原版，或者 json 里没写）→ 放行；
     //   · 这一版列了不止一种加载器（Quilt 之类兼容好几种）→ 放行；
-    //   · 纯原版实例 + 一个带加载器的模组 → 也放行（读不出加载器的实例和纯原版在这里分不开，
+    //   · 纯原版实例 + 一个带加载器的模组 → 也放行（认不出来的和纯原版在这里分不开，
     //     宁可漏拦也不要拦住一个本来装得上的）。
     // 拦下来的是**问一句**，不是禁止 —— 用户说"就要这么装"就照装。
     //
@@ -4605,13 +4654,19 @@ void MainWindow::installResourceVersion(ResourceCatalog::Kind kind, const QStrin
     //   另一个"，恰恰是症状最像"装上了、进去就崩"的那一种。
     //   改成一字不差地比（大小写不敏感：实例那边是显示名 `NeoForge`，模组那边是小写）。
     const VersionDisplayParts parts = m_versionManager->displayParts(instanceId);
-    const QString instanceLoader = parts.loaderName.toLower();
+    // ★ 加载器名走 instanceLoaderName()，**不是** `parts.loaderName`：后者只有我们自己的
+    //   安装器会写，PCL 那类合并实例（用户盘上 70 个里 67 个）读出来是空的 —— 于是这道闸
+    //   对它们**恒不放行**，"加载器对不上"那句话一次都弹不出来（它最该拦的那一对恰好就
+    //   在这些实例上）。理由同 instanceModsUsable() 那段。
+    QString instanceLoaderVersion;
+    const QString instanceLoader =
+        instanceLoaderName(parts, m_versionManager, &instanceLoaderVersion);
     if (loaderMatters && !instanceLoader.isEmpty() && version.loaders.size() == 1
         && version.loaders.first().compare(instanceLoader, Qt::CaseInsensitive) != 0) {
         const auto answer = InlineMessage::question(m_ui->overlay(), tr("加载器对不上"),
             tr("这个实例是 %1 %2，而这一版是给 %3 用的。\n\n"
                "装进去多半不会生效（游戏进去可能直接崩）。还要装吗？")
-                .arg(parts.loaderName, parts.loaderVersion, version.loaders.first()), tr("是"), tr("否"), false);
+                .arg(instanceLoader, instanceLoaderVersion, version.loaders.first()), tr("是"), tr("否"), false);
         if (!answer) {
             return;
         }
@@ -7519,10 +7574,24 @@ void MainWindow::openInstanceSettings(const QString &versionId) {
     const auto refreshInstanceDirs = [this, &dialog](const QString &id) {
         dialog.setInstanceDir(AppPaths::versionDir(id));
         dialog.setFileDirs(instanceFileDirs(id));
-        // 「光影包」和「原理图」这两页要**装了东西才有意义** —— 判据得读 wtfml.meta 的
-        // 加载器名和扫 mods/ 目录，两样都在这一层。
+        // 左栏那一列是**按实例现算**的（2026-09-27）：这几页要"用得上"才列出来。四个判据
+        // 全在这一层 —— loadername / mods 目录 / 装没装那个 mod / 游戏版本够不够新，ui/
+        // 一样都够不着。
+        //
+        // ★ 四个 setter 的**默认都是"可用"**（直接 new 出来的对话框七条全列）：忘了调哪一个，
+        //   那个实例上就会多列出一页来 —— 而多一页是"用户点进去看见一句用不上"，不是静默
+        //   的错。所以宁可这样默认，也不要反过来（默认不可用 = 忘了调就把一整页藏了）。
+        //
+        // NOTE: 「模组」的判据是 instanceModsUsable()（有模组加载器 **或** mods/ 里有 jar）
+        //       ⇒ **OptiFine 也算**，装 OptiFine 的实例会多一条「模组」。这是有意的：
+        //       OptiFine 从 1.13 起就是塞进 mods/ 的，那一页在那样的实例上真的用得上。
+        //       ★ 2026-09-27：原来这里写的是 `displayParts().loaderName` 非空，而那一格
+        //       只有我们自己的安装器会写 ⇒ 用户盘上 70 个实例里 67 个（全是 PCL 装的）
+        //       被误判成"没有模组加载器"。判据与理由见 instanceModsUsable() 那段说明。
+        dialog.setModUsable(instanceModsUsable(id));
         dialog.setShaderUsable(instanceShaderUsable(id));
         dialog.setSchematicUsable(instanceHasMod(id, QStringLiteral("litematica")));
+        dialog.setDatapackUsable(m_versionManager->instanceSupportsDatapacks(id));
         loadServerList(&dialog, id);
         // 那几页里那些资源文件（模组 / 资源包 / 数据包 / 光影包）的图标（2026-09-27）：
         // 按文件内容反查，**在后台线程上跑**，回来了一个一个换上去（见那一支）。
@@ -7531,6 +7600,15 @@ void MainWindow::openInstanceSettings(const QString &versionId) {
         requestInstanceFileIcons(&dialog, id);
     };
     refreshInstanceDirs(targetId);
+
+    // 用户自己勾掉的那几页（2026-09-27）——**必须排在 refreshInstanceDirs() 之后**：
+    // 灌进来的那份表是"藏起来的页"，而"这一条到底露不露"要拿"可不可用"一起算（见
+    // InstanceSettingsDialog::shownEntryKeys()）。反过来的话，第一遍重建会先把不可用
+    // 那几条全列出来、再被这一发推回去 —— 中间那一下会顺手把右栏换到某页上
+    // （rebuildEntryList() 里那个"当前页没了就回第一页"）。
+    dialog.setPageChoices(
+        m_versionManager->versionMeta(targetId).value(VersionManager::settingsPagesField())
+            .toObject());
 
     // 两条**动作**信号（2026-09-26）：这一页里那两颗按钮（导出启动脚本 / 补全文件）不自己
     // 干活 —— ui/ 那边不 include src/、也不碰磁盘，"这一次到底执行什么"只有这一层知道
@@ -7579,6 +7657,56 @@ void MainWindow::openInstanceSettings(const QString &versionId) {
                     dialog.refreshFilePages();
                 }
             });
+
+    // ---------- 「配置文件」那一页（2026-09-27）----------
+    //
+    // ★ 这一页和别的几页不是一回事：点一行**不是"重列一遍"**，而是"读那个文件、把它摆进
+    //   编辑器"。编辑器和那张列表是**同一页里的两格**（开不出第二个整页覆盖层 —— 见
+    //   InstanceSettingsDialog::configFilePage() 上面那一段），所以这一趟没有"开页 / 关页"，
+    //   只有"读进来灌进去"和"切回第一格"。
+    //
+    // NOTE: `configFilePage()` 是**构造时就建好、一直留着**的那一个（那把 NOTE 说了不要
+    //       把它当一次性的）—— 所以这三条 connect 只连这一次，之后每开一个文件都复用。
+    connect(&dialog, &InstanceSettingsDialog::openConfigFileRequested, this,
+            [this, &dialog](const QString &path) { openConfigFile(&dialog, path); });
+    if (ConfigFileEditorPage *editor = dialog.configFilePage()) {
+        connect(editor, &ConfigFileEditorPage::saveRequested, this,
+                [this, &dialog](const QString &path, const QByteArray &bytes) {
+                    saveConfigFile(&dialog, path, bytes);
+                });
+        // 编辑器给的是**文件**路径，开文件夹要的是它所在的那个目录。
+        //
+        // NOTE: 这儿**不 mkpath**（不像上面那九颗快捷方式按钮）：那个目录一定是存在的
+        //       ——这一格能开着，说明刚从这个目录底下读出来过一个文件。
+        connect(editor, &ConfigFileEditorPage::openFolderRequested, this,
+                [this](const QString &path) {
+                    const QString dir = QFileInfo(path).absolutePath();
+                    if (!dir.isEmpty()) {
+                        onFolderOpenRequested(dir);
+                    }
+                });
+        // ★ 「还原上一次」：读备份是读盘（见 ConfigFileEditorPage.hpp 那段"这一层不碰盘"），
+        //   所以那一格只发"用户要这个文件的上一次"，取和摆在这儿做。
+        connect(editor, &ConfigFileEditorPage::restoreRequested, this,
+                [this, &dialog](const QString &path) { restoreConfigFile(&dialog, path); });
+        connect(editor, &ConfigFileEditorPage::backRequested, this,
+                [this, &dialog]() { leaveConfigEditor(&dialog); });
+    }
+    // ★ 顶上那颗返回箭头（覆盖层页眉上那一颗）走的是 `dialog->reject()`，点一下关掉的是
+    //   **整个「实例设置」** —— 而编辑器那一格里可能正压着改了一半的东西。对话框把那一关
+    //   挡下来了（见它那条 reject()）：这一发就是"挡下来了、你说怎么办"。
+    //
+    // NOTE: 用户说"丢掉"之后要用 `done(QDialog::Rejected)` 而不是 `reject()` —— 后者会
+    //       又走回对话框那条 override 上，于是又发一次这一发（问不完的问）。
+    connect(&dialog, &InstanceSettingsDialog::closeBlockedByUnsavedConfigFile, this,
+            [this, &dialog]() {
+                ConfigFileEditorPage *editor = dialog.configFilePage();
+                if (editor == nullptr || !confirmDiscardConfigEdits()) {
+                    return;  // 留在这儿：页照旧开着，编辑器那一格原样。
+                }
+                editor->discardChanges();
+                dialog.done(QDialog::Rejected);
+            });
     // 服务器列表那一页的「刷新」：重读一遍 servers.dat 再递进去，**顺手测一遍**
     // （2026-09-27）—— 「刷新」的意思是"把这一页刷新成现在的样子"，而这一页现在不只是
     // 那份文件的镜像（图标 / MOTD / 延迟都是刚问来的）。只重测不重读走「测速」。
@@ -7591,7 +7719,7 @@ void MainWindow::openInstanceSettings(const QString &versionId) {
     connect(&dialog, &InstanceSettingsDialog::pingServersRequested, this,
             [this, &dialog, &targetId]() { pingServers(&dialog, targetId); });
     // ★ 「点进去就自动测速」（用户 2026-09-27 原话）。这一发是**切到那一页**发出来的
-    //   （见 InstanceSettingsDialog::applyFilePage），和上面那两条"用户按了某颗按钮"不是
+    //   （见 InstanceSettingsDialog::applyPageKey），和上面那两条"用户按了某颗按钮"不是
     //   一回事。它每一页都会发一次 —— 用户切走再切回来就又测一遍，而"已经在跑"那一趟
     //   不会被重开（见 pingServers 里那道闸）。
     connect(&dialog, &InstanceSettingsDialog::serverPageEntered, this,
@@ -7679,10 +7807,14 @@ QHash<QString, QString> MainWindow::instanceFileDirs(const QString &versionId) c
                     root + QLatin1Char('/') + ResourceCatalog::folderForKind(entry.second));
     }
 
-    // 这四样下载页里没有对应的"类"（没有"存档"这一类资源），目录名直接写在这儿。
-    // 「原理图」用的是 Litematica 的默认目录名；另外三个是游戏自己建的。
+    // 这五样下载页里没有对应的"类"（没有"存档"/"配置文件"这一类资源），目录名直接写在这儿。
+    // 「原理图」用的是 Litematica 的默认目录名；另外四个是游戏自己建的。
+    //
+    // ★ `config` 是 2026-09-27 加的（实例设置里那一页「配置文件」）。**它不是游戏建的** ——
+    //   是模组自己建的（原版客户端根本没有这个目录，那时候那一页会说"进一次游戏"）。
     const QList<QPair<QString, QString>> plain = {
         {QStringLiteral("schematic"), QStringLiteral("schematics")},
+        {QStringLiteral("config"), QStringLiteral("config")},
         {QStringLiteral("save"), QStringLiteral("saves")},
         {QStringLiteral("screenshots"), QStringLiteral("screenshots")},
         {QStringLiteral("logs"), QStringLiteral("logs")},
@@ -7693,14 +7825,432 @@ QHash<QString, QString> MainWindow::instanceFileDirs(const QString &versionId) c
     return dirs;
 }
 
-bool MainWindow::instanceHasMod(const QString &versionId, const QString &namePrefix) const {
+// ---------- 「世代备份」那三件事（见 .hpp 那一段）----------
+
+namespace {
+
+/// 每个实例的备份留最近多少份。**不按文件算、按"存了几次"算**：备份是"某一刻整个 config/
+/// 的一批"，用不着按单个文件各留二十份（那会长出二十个文件夹、每个里面一个文件）。
+///
+/// NOTE: 20 这个数是拍的，不是量出来的 —— 它只影响"最多能回退几步"，而每一步都比上一步
+///       更不像用户想要的。真要按量出的数来定，得先知道用户平均多久存一次（今天没有这个
+///       数）。这里宁可留够：20 份 × 一份配置那几十 KB 是几个 MB。
+constexpr int kConfigBackupGenerations = 20;
+
+}  // namespace
+
+QString MainWindow::instanceIdOfPath(const QString &path) const {
+    // cleanPath 顺手把 `\` 换成 `/`（Windows 上真有可能递进来一份原生分隔符的）—— 后面
+    // 每一步都只认一种写法，省得两个方向的字符串各比一遍。
+    const QString clean = QDir::cleanPath(path);
+    const QString prefix = AppPaths::versionsDir() + QLatin1Char('/');
+    if (!clean.startsWith(prefix)) {
+        return QString();  // 不在任何实例底下（理论上到不了这儿：这一格只列 config/ 里的文件）
+    }
+    const QString rest = clean.mid(prefix.size());
+    const int slash = rest.indexOf(QLatin1Char('/'));
+    // `slash <= 0` 一并把"versions/ 底下直接一个文件"那种挡掉了（那不是实例）。
+    return slash <= 0 ? QString() : rest.left(slash);
+}
+
+QString MainWindow::latestConfigBackup(const QString &instanceId, const QString &path) const {
+    if (instanceId.isEmpty()) {
+        return QString();
+    }
+    const QString root = AppPaths::configBackupDir();
+    const QStringList names =
+        QDir(root + QLatin1Char('/') + instanceId).entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+    QStringList mine;
+    for (const QString &name : names) {
+        // ★ 只认我们自己生成的那个形状（见 ConfigFileText::isBackupFolderName()）：用户往这个
+        //   目录里放了个同名文件夹的话，那不是"这个文件的上一次"。
+        if (ConfigFileText::isBackupFolderName(name)) {
+            mine.append(name);
+        }
+    }
+    // 名字倒序 == 时间倒序（定长的数字段，见 ConfigFileText::backupFolderName() 那段 NOTE）
+    // —— 命中的第一个就是最近那一份。
+    std::sort(mine.begin(), mine.end(), std::greater<QString>());
+    for (const QString &name : mine) {
+        const QString candidate =
+            ConfigFileText::backupPathFor(root, instanceId,
+                                          instanceFileDirs(instanceId).value(QStringLiteral("config")),
+                                          path, name);
+        if (QFileInfo::exists(candidate)) {
+            return candidate;
+        }
+    }
+    return QString();
+}
+
+void MainWindow::pruneConfigBackups(const QString &instanceId, int keep) {
+    if (instanceId.isEmpty()) {
+        return;
+    }
+    const QString dir = AppPaths::configBackupDir() + QLatin1Char('/') + instanceId;
+    const QStringList names = QDir(dir).entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+    // 挑该删的这一步在 ConfigFileText 里（纯函数、验证工程直接喂名字进去量）：认不出的
+    // 名字一个都不碰。
+    const QStringList doomed = ConfigFileText::backupFoldersToRemove(names, keep);
+    for (const QString &name : doomed) {
+        QDir(dir + QLatin1Char('/') + name).removeRecursively();
+    }
+}
+
+void MainWindow::openConfigFile(InstanceSettingsDialog *dialog, const QString &path) {
+    if (dialog == nullptr) {
+        return;
+    }
+    // ★ **打开之前**先量一眼盘上那一份（见 ConfigFileText::Stamp）：保存前拿它比对，对不上
+    //   就说明这中间有别人动过（游戏退出时写回 / 另一个编辑器 / 模组自己的迁移），那一趟
+    //   不许静静盖掉。
+    //
+    // ★ 顺序要紧：量在**读之前**。反过来的话，万一有人正好在"我们读完"和"我们量"之间写了
+    //   一次，量到的就是**新**那一份 —— 保存时会判成"没动过"，正好把那次改动盖掉。这个方向
+    //   的错更贵，所以宁可把"读完就被改"判成"改过"（多问一句，用户点一下就过去了）。
+    const QFileInfo onDisk(path);
+
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        // 会挡住用户要做的事 ⇒ 必须弹出来（见 .hpp 那条硬约束）。多半是文件在那一下被
+        // 别的东西独占着（游戏正开着、杀毒在扫），或者是权限。
+        InlineMessage::warning(m_ui->overlay(), tr("打不开这个文件"),
+                               tr("%1\n\n%2").arg(QDir::toNativeSeparators(path),
+                                                  file.errorString()));
+        return;
+    }
+    const QByteArray raw = file.readAll();
+    const QString readError = file.errorString();
+    const bool readFailed = file.error() != QFileDevice::NoError;
+    file.close();
+    if (readFailed) {
+        InlineMessage::warning(m_ui->overlay(), tr("读不完这个文件"),
+                               tr("%1\n\n%2").arg(QDir::toNativeSeparators(path), readError));
+        return;
+    }
+    ConfigFileText::Stamp stamp;
+    if (onDisk.exists()) {
+        stamp.size = onDisk.size();
+        stamp.mtimeMs = onDisk.lastModified().toMSecsSinceEpoch();
+    }
+    // 解码**不是解析**（这一页压根不认格式，见 ConfigFileText 那一段）：它只认 BOM、认
+    // 行尾、认这一份是不是 UTF-8 —— 前两样要原样存着，改完写回去时一个字都不能变。
+    dialog->openConfigEditor(path, ConfigFileText::decode(raw), stamp);
+    // 这个文件留过备份没有 —— 那一格那颗「还原上一次」画不画就看这一位（**必须排在
+    // openConfigEditor 之后**：setFile() 会把这一位清成 false）。
+    const QString instanceId = instanceIdOfPath(path);
+    dialog->setConfigBackupAvailable(!latestConfigBackup(instanceId, path).isEmpty());
+}
+
+void MainWindow::saveConfigFile(InstanceSettingsDialog *dialog, const QString &path,
+                                const QByteArray &bytes) {
+    if (dialog == nullptr) {
+        return;
+    }
+    ConfigFileEditorPage *editor = dialog->configFilePage();
+
+    // ---------- 闸 ①：这个实例正开着游戏 ⇒ 不写 ----------
+    //
+    // ★ 这不是"劝一句"，是**不写**：游戏手里有一份配置的内存副本（模组启动时读进去的），
+    //   它退出（或者用户在游戏里改一次设置）的时候会**整份写回**盘上 —— 现在写下去的东西
+    //   会被静默盖掉，而用户看到的是「我改了没用」，回头只会以为这个启动器有毛病。判据和
+    //   「游戏还在跑、窗口不许关」那一趟用的是同一份（runningVersionIds()，一个字都没另起）。
+    const QString instanceId = instanceIdOfPath(path);
+    if (!instanceId.isEmpty() && runningVersionIds().contains(instanceId)) {
+        InlineMessage::warning(
+            m_ui->overlay(), tr("这个实例正开着游戏"),
+            tr("%1\n\n游戏里那份配置是它自己读进去的，它退出（或者你在游戏里改一次设置）的"
+               "时候会整份写回来，现在存下去的东西会被它盖掉。\n\n先把游戏关掉，再回来改。")
+                .arg(QDir::toNativeSeparators(path)));
+        return;
+    }
+
+    // ---------- 闸 ②：盘上那份还是我打开时那一份吗 ----------
+    //
+    // ★ 这里比的是 **大小 + 修改时间**（见 ConfigFileText::Stamp 那段，两样一起才够用），
+    //   比的是"我打开它的时候"和"现在"—— 中间别人动过就必须问一句，**不许静静盖掉**。
+    const QFileInfo now(path);
+    ConfigFileText::Stamp onDisk;
+    if (now.exists()) {
+        onDisk.size = now.size();
+        onDisk.mtimeMs = now.lastModified().toMSecsSinceEpoch();
+    }
+    // 打开那一刻**量到过**才比：两边都得是"量过的"才有意义（没量到的那一份是合成的、
+    // 或者当时就量不动）。对不上 = 中间有人动过，或者文件干脆没了。
+    if (editor != nullptr && editor->stamp().valid() && editor->stamp() != onDisk) {
+        if (!now.exists()) {
+            // 文件被删了（或者整个目录被挪走）。框里这一份是它最后的样子 —— 写下去等于把它
+            // 重新建出来，所以也得问一句（用户可能正是为了"让它按默认值重生成"才删的）。
+            const int picked = InlineMessage::ask(
+                m_ui->overlay(), MessageKind::Question, tr("盘上那个文件没有了"),
+                tr("%1\n\n打开它的时候它还在，现在盘上已经没有了（被删掉、或者你把它挪走了）。"
+                   "\n\n现在存下去，它会照你框里这一份重新建出来。")
+                    .arg(QDir::toNativeSeparators(path)),
+                {tr("重新写出来")}, -1, -1, false);
+            if (picked != 0) {
+                return;  // 关掉 / Esc：盘上、框里都原样
+            }
+        } else {
+            // ★ 三颗出口，而且**默认那颗是"什么都不做"**（`defaultIndex = -1`）：这是一件
+            //   会毁掉别人改动的事，误按一个回车不该把它办了（和那几处危险动作同一个规矩）。
+            const int picked = InlineMessage::ask(
+                m_ui->overlay(), MessageKind::Question, tr("盘上那份被人改过了"),
+                tr("%1\n\n这份文件在你打开之后被别的东西改过（多半是游戏退出时写回，也可能"
+                   "是另一个编辑器）。现在存下去，改它的那一次就没有了。")
+                    .arg(QDir::toNativeSeparators(path)),
+                {tr("盖掉它"), tr("读盘上那一份")}, -1, 0, false,
+                tr("「读盘上那一份」= 你在这儿改的那些丢掉，框里换成盘上现在的内容。"));
+            if (picked == 1) {
+                // 用户要的是盘上那一份：重读一遍（**不写盘**）。走的是和点开一个文件同一条路
+                // —— 它顺手把 stamp 和"留过备份没有"都重新认一遍。
+                openConfigFile(dialog, path);
+                return;
+            }
+            if (picked != 0) {
+                return;  // 关掉 / Esc：什么都不做
+            }
+            // picked == 0（盖掉它）：往下走。**这一趟照样给盘上那一份留备份** —— 所以"盖掉"
+            // 也不是不可逆的，这正是这一整套东西的用处。
+        }
+    }
+
+    // ---------- 闸 ③：写之前把盘上那一份原样留一份 ----------
+    //
+    // ★ 备份的是**盘上那一份**（不是框里这一份）：这一页说的"上一次"是"我上一次按下保存
+    //   之前的那一份"，所以留的就是马上要被盖掉的那个样子。于是「还原上一次」有一个确定
+    //   的含义：取回来的永远是"我上一次保存之前的内容"。
+    //
+    // ★ 留不下就不写（不是"警告一句然后照写"）：这一整件事的前提是"改坏了能回去"，而这一页
+    //   自己没有撤销（那一行字是页面上写着的）。备份写不进去还照写，就是把用户手上唯一一份
+    //   配置丢进一个没有回退按钮的操作里 —— 而它挡住的是"这一次保存"，用户还能把框里的
+    //   内容自己拷出来、或者去把那个目录的权限修好再来。
+    bool backedUp = false;
+    if (!instanceId.isEmpty() && now.exists()) {
+        QFile source(path);
+        QByteArray previous;
+        if (source.open(QIODevice::ReadOnly)) {
+            previous = source.readAll();
+        }
+        if (source.error() != QFileDevice::NoError) {
+            InlineMessage::warning(
+                m_ui->overlay(), tr("保存之前没能读到原来那一份"),
+                tr("%1\n\n读它读不完（%2），所以这一次没有存 —— 直接写下去的话，它原来是什么"
+                   "样就再也找不回来了。")
+                    .arg(QDir::toNativeSeparators(path), source.errorString()));
+            return;
+        }
+        source.close();
+
+        const QString root = AppPaths::configBackupDir();
+        const QStringList existing =
+            QDir(root + QLatin1Char('/') + instanceId).entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+        // 文件夹名 = 现在这一刻（见 ConfigFileText::backupFolderName()）：同一秒里存两次会挂
+        // 一个 `-2`，**不覆盖**上一次那一份（覆盖的话"上一步"就悄悄变成了"这一步"）。
+        const QString folder =
+            ConfigFileText::backupFolderName(QDateTime::currentDateTime(), existing);
+        const QString target = ConfigFileText::backupPathFor(
+            root, instanceId, instanceFileDirs(instanceId).value(QStringLiteral("config")), path,
+            folder);
+        QDir().mkpath(QFileInfo(target).absolutePath());
+        QSaveFile backup(target);
+        bool ok = backup.open(QIODevice::WriteOnly);
+        if (ok && backup.write(previous) != previous.size()) {
+            ok = false;
+        }
+        if (ok && !backup.commit()) {
+            ok = false;
+        }
+        if (!ok) {
+            backup.cancelWriting();
+            InlineMessage::warning(
+                m_ui->overlay(), tr("保存之前没能留下原来那一份"),
+                tr("%1\n\n没能往这里写一份备份（%2）：\n%3\n\n所以这一次没有存 —— 这一页改错了"
+                   "没有撤销，留着能回去的那一份比存下去要紧。")
+                    .arg(QDir::toNativeSeparators(path), backup.errorString(),
+                         QDir::toNativeSeparators(target)));
+            return;
+        }
+        backedUp = true;
+    }
+
+    // ★ `QSaveFile` 而不是 `QFile`：它先往同一个目录下写一个临时文件，最后**原子地**改名
+    //   过去。直接写的话，写到一半失败（盘满 / 被杀毒拦下 / 断电）会把用户手上那份配置
+    //   毁成半截 —— 而这一页没有"恢复默认"（模组的默认值是它下次启动时自己重写一份，
+    //   那要等它启动，也不保证每个模组都这么干）。
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly)) {
+        InlineMessage::warning(m_ui->overlay(), tr("保存失败"),
+                               tr("%1\n\n%2").arg(QDir::toNativeSeparators(path),
+                                                  file.errorString()));
+        return;
+    }
+    if (file.write(bytes) != bytes.size()) {
+        const QString reason = file.errorString();
+        file.cancelWriting();
+        InlineMessage::warning(m_ui->overlay(), tr("保存失败"),
+                               tr("%1\n\n%2").arg(QDir::toNativeSeparators(path), reason));
+        return;
+    }
+    if (!file.commit()) {
+        InlineMessage::warning(m_ui->overlay(), tr("保存失败"),
+                               tr("%1\n\n%2").arg(QDir::toNativeSeparators(path),
+                                                  file.errorString()));
+        return;
+    }
+    // 写成了才告诉那一格 —— 它那一句"已保存（时:分:秒）"就是**盘上真的变了**的意思，
+    // 写失败的时候不许出现（那一档由上面那几句话负责）。
+    if (editor != nullptr) {
+        editor->markSaved();
+        // ★ 把刚写下去那一份的样子记回去：不记的话，**用户连着存两次**，第二次会被自己
+        //   上一次写下去的那一份判成"盘上被人改过了"（mtime 变了）—— 于是每一次保存都要
+        //   多问一句"要盖掉吗"。它要的是刚写下去那个 Stat。
+        const QFileInfo after(path);
+        ConfigFileText::Stamp fresh;
+        if (after.exists()) {
+            fresh.size = after.size();
+            fresh.mtimeMs = after.lastModified().toMSecsSinceEpoch();
+        }
+        editor->setStamp(fresh);
+        // 这一颗按钮画不画**只有一条判据**（和打开文件那一刻问的是同一个函数）：刚刚留的
+        // 那一份就在那儿，所以这一次存完它一定找得到；而"这一次没留成"（文件本来就不在盘上
+        // 了）也不会把更早那些备份一起抹掉 —— 那些备份照样能取回来。
+        //
+        // NOTE: 用 `backedUp` 这一位是不行的：它只说"这一趟留了没有"，不说"有没有别的可回"。
+        editor->setBackupAvailable(!latestConfigBackup(instanceId, path).isEmpty());
+    }
+    if (backedUp) {
+        pruneConfigBackups(instanceId, kConfigBackupGenerations);
+    }
+}
+
+void MainWindow::restoreConfigFile(InstanceSettingsDialog *dialog, const QString &path) {
+    if (dialog == nullptr) {
+        return;
+    }
+    ConfigFileEditorPage *editor = dialog->configFilePage();
+    if (editor == nullptr) {
+        return;
+    }
+    const QString instanceId = instanceIdOfPath(path);
+    const QString latest = latestConfigBackup(instanceId, path);
+    if (latest.isEmpty()) {
+        // 走到这儿说明"刚刚还有、点下去就没了"（用户自己把那个目录删了）。**不许什么都不说**
+        // —— 用户按了按钮，总得有个交代；顺手把那一颗收回去。
+        editor->setBackupAvailable(false);
+        InlineMessage::warning(m_ui->overlay(), tr("找不到原来那一份了"),
+                               tr("这个文件的备份不在了（%1）。").arg(QDir::toNativeSeparators(
+                                   AppPaths::configBackupDir())));
+        return;
+    }
+    QFile file(latest);
+    if (!file.open(QIODevice::ReadOnly)) {
+        InlineMessage::warning(m_ui->overlay(), tr("打不开备份里的那一份"),
+                               tr("%1\n\n%2").arg(QDir::toNativeSeparators(latest),
+                                                  file.errorString()));
+        return;
+    }
+    const QByteArray raw = file.readAll();
+    const QString readError = file.errorString();
+    const bool readFailed = file.error() != QFileDevice::NoError;
+    file.close();
+    if (readFailed) {
+        InlineMessage::warning(m_ui->overlay(), tr("读不完备份里的那一份"),
+                               tr("%1\n\n%2").arg(QDir::toNativeSeparators(latest), readError));
+        return;
+    }
+    const ConfigFileText::Loaded loaded = ConfigFileText::decode(raw);
+    if (!loaded.utf8Ok) {
+        // 那一份不是 UTF-8（原件当时就是）。**不摆进去**：框里这一份是 UTF-8，摆进去会变成
+        // 一堆 U+FFFD，再一存就把那份备份的内容毁成问号了 —— 而它是用户唯一的退路。
+        InlineMessage::warning(
+            m_ui->overlay(), tr("那一份不是 UTF-8"),
+            tr("%1\n\n它里面有几个字节不是 UTF-8，摆进这个编辑框（只认 UTF-8）会把那些字弄坏。"
+               "要它的话，直接拿这个文件替换过去：\n%2")
+                .arg(QDir::toNativeSeparators(latest), QDir::toNativeSeparators(path)));
+        return;
+    }
+    // "那份是什么时候的"取**备份文件自己的时间**（= 我们写下这一份的那一刻 = 那一次保存的
+    // 时候），不是文件夹名里那一串 —— 两者本来一样，但这一份是盘上真有的那个时间。
+    const QString when =
+        QFileInfo(latest).lastModified().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"));
+    editor->restoreContent(loaded.text, when);
+}
+
+void MainWindow::leaveConfigEditor(InstanceSettingsDialog *dialog) {
+    if (dialog == nullptr) {
+        return;
+    }
+    ConfigFileEditorPage *editor = dialog->configFilePage();
+    if (editor == nullptr) {
+        return;
+    }
+    // ★ 改过的东西**不许悄悄没掉**（那一问的字见 confirmDiscardConfigEdits()）。
+    if (editor->isDirty()) {
+        if (!confirmDiscardConfigEdits()) {
+            return;
+        }
+        // 退回读进来那一份 —— 不退回的话，isDirty() 还是 true，用户下一次点「返回」又会被
+        // 问一遍（"我不是刚说了丢掉吗"）。
+        editor->discardChanges();
+    }
+    dialog->closeConfigEditor();
+}
+
+bool MainWindow::confirmDiscardConfigEdits() {
+    return InlineMessage::question(
+        m_ui->overlay(), tr("改过还没保存"),
+        tr("这个文件刚才改的地方还没写到盘上，离开就会丢掉这些改动。\n\n要丢掉吗？"),
+        tr("丢掉改动"), tr("留在这儿"), false);
+}
+
+namespace {
+
+/// 文件名切出来的"词"里有没有 @p token（忽略大小写）。
+///
+/// ★ 2026-09-27 新加的。原来 `instanceHasMod()` 是拿文件名跟 token 做 `startsWith()` ——
+///   在一个"jar 可以随便改名"的世界里不够：**中文整合包和 PCL 都会给 jar 前面挂一个
+///   中文名**，用户盘上真有的两例就是 `[投影] litematica-fabric-26.2-0.28.7.jar` 和
+///   `[虹膜] iris-fabric-1.11.4+mc26.2.jar`。按前缀认的话这两样都算"没装"，而它们明明
+///   装着 —— 于是「光影包」「原理图」那两页谎报"用不上"（用户 2026-09-27 报的
+///   「原理图和光影包没正常显示」）。
+///
+/// 切词规则：**只有 ASCII 的字母数字算"词里的字"**，别的一律当分隔符 —— `-` `_` `+` `.`
+/// 空格、方括号，以及**中日韩字**（那一档是刻意的：`虹膜iris-….jar` 这种一个分隔符都不
+/// 带的写法也切得出来，中文不会粘住后面的词）。
+/// 命中判据两条：词**等于**它，或者词**以它开头**（`irisfly.jar` / `litematicafoo.jar`
+/// 这种粘连写法照旧算 —— 和从前那个前缀语义对齐，不多不少）。
+bool fileNameHasToken(const QString &fileName, const QString &token) {
+    if (token.isEmpty()) {
+        return false;
+    }
+    const QString wanted = token.toLower();
+    const auto hit = [&wanted](const QString &word) {
+        return word == wanted || word.startsWith(wanted);
+    };
+    QString word;
+    for (const QChar character : fileName.toLower()) {
+        if (character.isLetterOrNumber() && character.unicode() < 128) {
+            word += character;
+            continue;
+        }
+        if (hit(word)) {
+            return true;
+        }
+        word.clear();
+    }
+    return hit(word);
+}
+
+}  // namespace
+
+bool MainWindow::instanceHasMod(const QString &versionId, const QString &nameToken) const {
     const QString modsDir =
         AppPaths::versionDir(versionId) + QLatin1Char('/') +
         ResourceCatalog::folderForKind(ResourceCatalog::Kind::Mod);
     // 只认 `.jar`：被禁用的那些现在叫 `.jar.disabled`，扫不到 —— 那正是禁用的意思。
     const QStringList jars = QDir(modsDir).entryList({QStringLiteral("*.jar")}, QDir::Files);
     for (const QString &jar : jars) {
-        if (jar.startsWith(namePrefix, Qt::CaseInsensitive)) {
+        if (fileNameHasToken(jar, nameToken)) {
             return true;
         }
     }
@@ -7708,14 +8258,49 @@ bool MainWindow::instanceHasMod(const QString &versionId, const QString &namePre
 }
 
 bool MainWindow::instanceShaderUsable(const QString &versionId) const {
-    // 两条路：OptiFine 是**加载器**（它自己就认 shaderpacks/），Iris 是一个普通模组。
-    // 加载器名比对的基准走 VersionManager::loaderDisplayName()，不写一遍字面量 ——
-    // 写进 wtfml.meta 的 `loaderName` 就是它给的（见 loaderDisplayName 那段）。
-    const QString loader = m_versionManager->displayParts(versionId).loaderName;
+    // ① 加载器**就是** OptiFine（它自己就认 shaderpacks/）。加载器名走 instanceLoaderName()
+    //    而不是 `displayParts().loaderName`：后者只有我们自己的安装器会写，而用户那两个
+    //    OptiFine 实例（`1.20.1-OptiFine_I6` / `1.20.2-OptiFine_I7_pre1`）是 PCL 装的、
+    //    meta 里没有那一格 —— 它们又没有 mods/ 目录，于是①和②两条同时落空，光影包那一页
+    //    在**真的装了 OptiFine** 的实例上说"用不上"（2026-09-27 连同「模组」一起修的）。
+    //    比对基准走 VersionManager::loaderDisplayName()，不写一遍字面量。
+    const QString loader = instanceLoaderName(m_versionManager->displayParts(versionId),
+                                             m_versionManager);
     if (loader == VersionManager::loaderDisplayName(VersionManager::LoaderKind::OptiFine)) {
         return true;
     }
-    return instanceHasMod(versionId, QStringLiteral("iris"));
+    // ② mods/ 里装了一个"加载光影的模组"。这三个名字**都是用户盘上真见过的**：
+    //    `iris`（Fabric / NeoForge / Quilt 上那个）、`oculus`（Forge 上那个 Iris 移植 ——
+    //    「落幕曲」「香草纪元」「魔改版ATT2」三个整合包用的都是它）、`optifine`
+    //    （1.12.2 及以前 OptiFine 是**当普通模组装进 mods/** 的，
+    //    `OptiFine_1.12.2_HD_U_G5.jar`）。三条原来一条都不认。
+    // NOTE: 没有 `optifabric`（Fabric 上那个把 OptiFine 塞进来的桥）：它要求 OptiFine
+    //       的 jar 也在 mods/ 里，所以上面那条 `optifine` 本来就盖住了它。
+    static const QStringList loaders = {
+        QStringLiteral("iris"),
+        QStringLiteral("oculus"),
+        QStringLiteral("optifine"),
+    };
+    for (const QString &token : loaders) {
+        if (instanceHasMod(versionId, token)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool MainWindow::instanceModsUsable(const QString &versionId) const {
+    // ① 基于一个模组加载器。判据走 instanceLoaderName()（**不是** displayParts().loaderName
+    //    —— 那一格只有我们自己的安装器会写，理由写在那个函数的说明里）。
+    if (!instanceLoaderName(m_versionManager->displayParts(versionId), m_versionManager)
+             .isEmpty()) {
+        return true;
+    }
+    // ② mods/ 里已经有 jar。和 instanceHasMod() 一样只认 `.jar`：被禁用的那些现在叫
+    //    `.jar.disabled`，扫不到 —— 那正是禁用的意思。
+    const QDir modsDir(AppPaths::versionDir(versionId) + QLatin1Char('/') +
+                       ResourceCatalog::folderForKind(ResourceCatalog::Kind::Mod));
+    return !modsDir.entryList({QStringLiteral("*.jar")}, QDir::Files).isEmpty();
 }
 
 void MainWindow::loadServerList(InstanceSettingsDialog *dialog, const QString &versionId) const {
@@ -8259,6 +8844,19 @@ bool MainWindow::applyInstanceSettings(const QString &versionId,
     // 空串 = 「默认」= **删掉那个键**，不写一个"等于默认"的值 —— 和上面两项同一个约定。
     fields.insert(VersionManager::iconField(),
                   iconValue.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(iconValue));
+
+    // ---------- 左栏显示哪几页（2026-09-27）----------
+    //
+    // 一个**顶层对象**（`{"save": false}`）—— updateVersionMeta 的合并是"这一格的整块替换"，
+    // 所以不用（也不能）逐条删键：整块交上去，那一格就以这份为准。
+    // 空对象（七条全显示 = 没勾掉任何一条）写 Null ⇒ **删键**，和上面三项同一个约定。
+    //
+    // NOTE: 这里**不校验**那几页此刻可不可用 —— 值是从对话框现读的（pageChoices()），而它
+    //       本来就只写"可用且没勾"的那几条（见它那段说明）。可用性是每次现算的，不写盘。
+    const QJsonObject pageChoices = dialog.pageChoices();
+    fields.insert(VersionManager::settingsPagesField(),
+                  pageChoices.isEmpty() ? QJsonValue(QJsonValue::Null)
+                                        : QJsonValue(pageChoices));
 
     QString error;
     if (!m_versionManager->updateVersionMeta(versionId, fields, &error)) {

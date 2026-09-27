@@ -45,6 +45,9 @@ set(HEADER_FILES
     src/util/ZipUtil.hpp
     src/util/NbtUtil.hpp
     src/util/ServerPing.hpp
+    ui/ConfigFileText.hpp
+    ui/ConfigFileEditorPage.hpp
+    ui/ConfigEntries.hpp
     ui/MotdText.hpp
     ui/ToggleSwitch.hpp
 )
@@ -92,6 +95,9 @@ set(SOURCE_FILES
     ui/GroupListDelegate.cpp
     ui/InstanceSettingsDialog.cpp
     ui/InstanceFilesPage.cpp
+    ui/ConfigFileText.cpp
+    ui/ConfigFileEditorPage.cpp
+    ui/ConfigEntries.cpp
     ui/InlineMessage.cpp
     ui/JavaMismatchDialog.cpp
     ui/OverlayHost.cpp

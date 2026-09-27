@@ -378,18 +378,124 @@ private slots:
     /// 那一路也照着它写），原理图 / 存档 / 截图 / 日志不在下载页那几类里，目录名写在这儿。
     QHash<QString, QString> instanceFileDirs(const QString &versionId) const;
 
-    /// 这个实例的 mods/ 里有没有名字以 @p namePrefix 开头的 **.jar**（忽略大小写）。
+    // ---------- 「配置文件」那一页的编辑器（2026-09-27）----------
+    //
+    // 三件都是"接的人碰盘、弹话"那一套（同上那一段的分工）。**为什么编辑器那一格在
+    // 对话框里、而读和写在这儿**：那一层手上没有 OverlayHost（读失败、写失败都得弹一句），
+    // 也没有盘（ui/ 不 include src/，AppPaths 够不着）。而"切格子"是纯显示层的事，留在
+    // 对话框自己那边（见 InstanceSettingsDialog::openConfigEditor()）。
+    //
+    // NOTE: 三件的 `dialog` 都是**栈上的那个局部对象**（openInstanceSettings() 里那一句
+    //       `InstanceSettingsDialog dialog(...)`）—— 和上面那几条 lambda 捕获的是同一个，
+    //       它活到 execPage 返回为止。
+
+    /// 用户点开了 config/ 底下的一条文件：读进来、解码，然后摆进编辑器那一格。
     ///
-    /// NOTE: 判据是**文件名的前缀**，不是"这个模组是谁"—— 我们没有模组元数据（那要读
+    /// NOTE: **解码不等于"看得懂"**（见 ConfigFileText 那一段：这一页压根不解析格式）——
+    ///       它只做三件事：认 BOM、认行尾、认这一份是不是 UTF-8。前两样要原样存着，改完
+    ///       写回去时一个字都不能变。
+    void openConfigFile(InstanceSettingsDialog *dialog, const QString &path);
+
+    /// 用户点了「保存」：把 @p bytes 写到 @p path 上，成功了再告诉那一格。
+    ///
+    /// NOTE: 走 `QSaveFile`（先写同目录下一个临时文件、最后原子改名）—— 直接 `QFile`
+    ///       写一半失败的话，用户手上的配置文件就毁了，而这一页**没有"恢复默认"**
+    ///       （模组下次启动重写一份那要等它启动，也不保证每个模组都这么干）。
+    ///
+    /// ★ 写之前有三道闸（用户 2026-09-27 那份设计评审里的 S 级三条），顺序是硬的：
+    ///   ① **游戏在跑这个实例 ⇒ 直接不写**（游戏手里有一份内存副本，退出时整份写回来，
+    ///      用户改的东西会被静默盖掉，看起来就像「我改了没用」）；
+    ///   ② **盘上那份"还是我打开时那一份"吗** —— 对不上就问一句（覆盖 / 读盘上那份 / 什么都
+    ///      不做），**不许静静盖掉**别人的改动；
+    ///   ③ **写之前把盘上那一份原样留一份**（世代备份）—— 留不下就不写（见下面那段
+    ///      "为什么备份失败要挡住这一次保存"）。
+    void saveConfigFile(InstanceSettingsDialog *dialog, const QString &path, const QByteArray &bytes);
+
+    /// 用户点了「还原上一次」：把最近那一份备份读出来，摆回编辑器那一格。
+    ///
+    /// NOTE: **只摆进框里、不写盘**（见 ConfigFileEditorPage::restoreContent()）——「还原」
+    ///       不是一次悄悄的写入，用户按「保存」才算数。所以这一趟只读备份，一个字节都不动
+    ///       盘上那一份。
+    void restoreConfigFile(InstanceSettingsDialog *dialog, const QString &path);
+
+    /// 这个文件属于哪个实例：**从路径上认**（`<数据目录>/versions/<id>/…` ⇒ `<id>`）。
+    ///
+    /// NOTE: 不从对话框手里问"现在开着的是哪个实例" —— 那条路隔着一次改名（改完名
+    ///       `versions/<老id>` 整个不见了，而这一格手上那份文件还在老路径上）。路径自己
+    ///       带着答案，问它就够了。认不出（不在任何 versions/<id>/ 底下）= 空串。
+    QString instanceIdOfPath(const QString &path) const;
+
+    /// 这个文件的**最近那一份备份**的绝对路径（没有 = 空串）。
+    ///
+    /// NOTE: 「有没有备份」和「取哪一份」是**同一个问题**（备份的文件夹名按字典序排就是按
+    ///       时间排，见 ConfigFileText::backupFolderName()）—— 所以只有这一个函数，那一格
+    ///       那颗按钮画不画也是问它。
+    QString latestConfigBackup(const QString &instanceId, const QString &path) const;
+
+    /// 这个实例的备份只留最近 @p keep 份，更老的删掉。
+    ///
+    /// NOTE: 这是全仓**唯一一处会主动删东西的缓存目录**（见 AppPaths::configBackupDir()）——
+    ///       所以只认我们自己生成的那个文件夹名（ConfigFileText::backupFoldersToRemove()
+    ///       里那道闸），用户自己放进去的东西一个都不碰。
+    void pruneConfigBackups(const QString &instanceId, int keep);
+
+    /// 用户想从编辑器退回文件列表（点了「返回」，或者按了 Esc）。
+    ///
+    /// ★ **改过的东西不许悄悄没掉**：改过就弹一句问，用户说"丢掉"才真回去。这一问在这儿
+    ///   而不是在编辑器里，理由是那一层没有 OverlayHost（见 InstanceSettingsDialog::
+    ///   closeConfigEditor() 那条 NOTE）。
+    void leaveConfigEditor(InstanceSettingsDialog *dialog);
+
+    /// 弹那句「改过还没保存，要丢掉吗」。
+    ///
+    /// @return true = 用户选了"丢掉"。
+    ///
+    /// NOTE: **两个调用点共用这一份字**（`leaveConfigEditor()` 退到列表、以及顶上那颗返回
+    ///       箭头要关整页那一趟）—— 同一件事在两处问出两套说法，用户会以为是两件事。
+    /// NOTE: 默认那一颗是**「留在这儿」**（`defaultYes = false`）：手一滑按到 Esc、或者点
+    ///       到卡片外面，不该把用户刚改的东西丢掉。
+    bool confirmDiscardConfigEdits();
+
+    /// 这个实例的 mods/ 里有没有"名字里带 @p nameToken 这个词"的 **.jar**（忽略大小写）。
+    ///
+    /// NOTE: 判据是**文件名里的词**，不是"这个模组是谁"—— 我们没有模组元数据（那要读
     ///       jar 里的 fabric.mod.json）。够用：Iris 的 jar 叫 `iris-<版本>.jar`，
     ///       Litematica 的叫 `litematica-<加载器>-<版本>.jar`。被禁用（`.jar.disabled`）
     ///       的不算 —— 那正是"禁用"的意思。
-    bool instanceHasMod(const QString &versionId, const QString &namePrefix) const;
+    ///
+    /// ★ 2026-09-27 从"前缀"改成"词"：jar 是可以随便改名的，而**中文整合包和 PCL 真的
+    ///   会改** —— 用户盘上就有 `[投影] litematica-fabric-26.2-0.28.7.jar` 和
+    ///   `[虹膜] iris-fabric-1.11.4+mc26.2.jar`（前面挂一个中文名是那儿的常态）。按前缀
+    ///   认的话这两样都算"没装"，而它们明明装着 —— 那两页于是谎报"用不上"，用户
+    ///   2026-09-27 报的「原理图和光影包没正常显示」就是这个。切词规则见 .cpp 里
+    ///   `fileNameHasToken()`。
+    bool instanceHasMod(const QString &versionId, const QString &nameToken) const;
 
-    /// 这个实例能不能用光影包：装了 **Iris**（一个普通模组）或者装的是 **OptiFine**
-    /// （它是加载器，自己就认 shaderpacks/）。判据由这一层算好递给对话框 —— ui/ 够不着
-    /// wtfml.meta 和 mods/ 目录。
+    /// 这个实例能不能用光影包：mods/ 里装了 **Iris / Oculus / OptiFine**（都是"加载
+    /// shaderpacks/ 的东西"），或者这个实例装的加载器**就是 OptiFine**（它自己认
+    /// shaderpacks/）。判据由这一层算好递给对话框 —— ui/ 够不着 wtfml.meta 和 mods/ 目录。
+    ///
+    /// NOTE: Oculus 是 Forge 上那个 Iris 移植（用户盘上「落幕曲」「香草纪元」
+    ///       「魔改版ATT2」三个包用的都是它），而 OptiFine 在 1.12.2 及以前是**当普通
+    ///       模组装进 mods/** 的（`OptiFine_1.12.2_HD_U_G5.jar`）—— 这两样原来一条都不认，
+    ///       于是那三页在装了光影的实例上照样说"用不上"（2026-09-27 修）。
     bool instanceShaderUsable(const QString &versionId) const;
+
+    /// 这个实例用不用得上「模组」那一页 —— 两条路任一条命中就算用得上：
+    /// ① 它基于一个模组加载器（Fabric / Forge / NeoForge / OptiFine / Quilt）；
+    /// ② `mods/` 里**已经有 jar**。
+    ///
+    /// ★ 用户 2026-09-27 报的就是①：「模组存在误判的情况，像海波篮子连 litematica 都有了
+    ///   怎么会没有模组加载器呢」。根子是判据原来写的 `displayParts().loaderName` 非空，
+    ///   而那一格**只有我们自己的安装器会写** —— PCL 那类"整份 json 合进实例目录"的实例
+    ///   （用户盘上 70 个里 67 个）读出来是空的，于是那一页在**每一个**这样的实例上都灰着。
+    ///   现在走 VersionManager::instanceModLoader()，那个函数的两条路见它的说明。
+    ///
+    /// ② 和 ① 是**两件事**，所以它挂在这一层、不塞进 instanceModLoader()：那边回答的是
+    /// "基于哪个加载器"，而往 mods/ 里丢一个 jar 不构成任何加载器证据。"这一页对他有没有
+    /// 用"才是这里的问题 —— 真机上就有两个实例走了这一条（json 认不出加载器、可 mods/ 里
+    /// 躺着 136 / 27 个 jar，那一页显然是该给的）。
+    bool instanceModsUsable(const QString &versionId) const;
 
     /// 读一次 servers.dat 递给对话框（解析在 src/util/NbtUtil 里）。
     ///

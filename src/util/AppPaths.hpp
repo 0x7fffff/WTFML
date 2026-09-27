@@ -208,4 +208,25 @@ inline QString serverCacheDir() {
     return minecraftDir() + QStringLiteral("/cache/servers");
 }
 
+/// 「配置文件」那一页**每存一次就留一份原来那份**的落脚处：
+/// <数据目录>/cache/config-backups/<实例id>/<时间戳>/<相对 config/ 的路径>。
+///
+/// 为什么要有：这是一个能改坏用户配置的编辑器（改错了原来没有撤销），而配置是用户调了
+/// 几个月的。写之前把盘上那份原样留一份，用户就能回去。
+///
+/// ★ 为什么**不能**放在 `<实例>/config/.wtfml-backups/`（这是最自然、也最容易做错的那一
+///   个选择）：模组配置是**按目录树认的，不是只认 config/ 那一层** —— 实测盘上 1343 个
+///   `.toml` 里有 **392 个住在 config/ 的子目录里**（`config/ars_nouveau/xxx.toml` 166 个、
+///   `config/Mekanism/` 15 个…），也就是说有一整套按子目录布局的配置正在被正常加载。我们
+///   塞进去的那些 `.toml` 备份会顺着同一条发现逻辑被当成**活的配置** —— 一份配置读两遍、
+///   模组读到自己上一次的样子，而且屏幕上什么都看不出来。放 cache/ 底下没有这个问题：那是
+///   数据根目录底下、和 config/ 平级、游戏不认的一个目录。
+///
+/// NOTE: 和 cache/ 里那几位同一条约定（挂数据根目录、可整体拷走）。**但有一处不一样**：
+///       清理只认我们自己生成的文件夹名（见 ConfigFileText::backupFoldersToRemove()），
+///       而且只删第 20 份往后的那些 —— 它是全仓唯一一处会主动删东西的缓存目录。
+inline QString configBackupDir() {
+    return minecraftDir() + QStringLiteral("/cache/config-backups");
+}
+
 }  // namespace AppPaths

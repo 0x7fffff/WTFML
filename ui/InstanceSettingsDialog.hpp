@@ -1,8 +1,11 @@
 /**
  * @file InstanceSettingsDialog.hpp
- * @brief 「实例设置…」对话框。**2026-09-26 起分栏**：左栏大类（概览 / 启动 / 文件管理）、
- *        选到「文件管理」时中间再长出一列小类、右边一块堆叠页（见下面 categoryKeys()）。
- *        分栏之前它是一张通到底的表：上面一行实例名，下面给单个实例覆盖启动五项
+ * @brief 「实例设置…」对话框。**2026-09-27 起左栏是一列按实例现算的页表**（概览 / 启动
+ *        ＋ 存档 / 服务器列表 / 资源包 / 数据包 / 模组 / 光影包 / 原理图里"这个实例用得上
+ *        且用户没勾掉"的那些，见 pinnedPageKeys() / optionalPageKeys()），右边一块堆叠页；
+ *        要显示哪几页在概览页最下面那张勾选表里调（`settingsPages`，落在 wtfml.meta）。
+ *        中间那一列小类（2026-09-26 那版的三栏）已经拆掉了。
+ *        再往前它是一张通到底的表：上面一行实例名，下面给单个实例覆盖启动五项
  *        （Java 路径 / Xmx / Xms / 内存自动 / 额外 JVM 参数），每项都是两级
  *        「跟随全局 / 自定义」。
  * @author 0x7fffff
@@ -42,6 +45,7 @@
 #include <QDialog>
 #include <QHash>
 #include <QIcon>  // ServerRowStatus 里那一枚（服务器图标）
+#include <QJsonObject>  // pageChoices() / setPageChoices()（"藏起来的那几页"）
 #include <QList>
 #include <QPair>
 #include <QPixmap>
@@ -49,6 +53,11 @@
 #include <QStringList>
 #include <optional>
 
+// `openConfigEditor()` 那个进参是**按值**要一份 `ConfigFileText::Loaded`（见 .cpp 里
+// 那段说明：`encode()` 要靠它还原行尾和 BOM），所以这儿不能只前置声明。
+#include "ConfigFileText.hpp"
+
+class ConfigFileEditorPage;
 class InstanceFilesPage;
 class MemorySlider;
 
@@ -162,47 +171,91 @@ public:
     /// 每次那对单选钮或自动勾选框变化都会调它。
     void refreshHints();
 
-    // ---------- 分栏（2026-09-26）----------
+    // ---------- 左栏那一列页（2026-09-27 重画）----------
     //
-    // 用户原话：「实例设置里也这么改，概览（版本名、图标，分组，置顶/取消置顶）启动（Java
-    // 选项，游戏窗口标题，内存分配，导出启动脚本，补全文件）文件管理（**再做一个类似的
-    // 左侧菜单叠在已有的左边栏上**，…）」。
+    // 用户 2026-09-27 原话（逐字）：「针对每个实例，在实例设置里个性化自定义，概览里面调整
+    // 是否显示，把整个文件管理换了，"快捷方式"放到概览的下方，剩下的和概览/启动等并列，
+    // 是否显示的调整放到"快捷方式"的下方，默认情况下展示（记住都按这个顺序）存档 服务器
+    // 列表 资源包 数据包 如果是有模组加载器的版本，在此基础上增加模组，有光影加载器的
+    // 在模组后面加光影，有 litematica 的在最后加原理图」。
     //
-    // 所以这一页长成三栏：**左栏大类**（概览 / 启动 / 文件管理）、**中栏小类**（只有选到
-    // 「文件管理」时才出现）、**右栏内容**（一份堆叠页）。形状和设置页那一套是同一个套路
-    // ——「左栏一列分类、右栏一份堆叠页」，只是这儿中间能再长出一列来。
+    // 于是**从前的三栏（大类 | 小类 | 内容）没了**：左边只剩一列，摆的是**按这个实例现算
+    // 出来**的一份页表（`shownEntryKeys()`）：
+    //
+    //   概览 启动                                ← 钉死的那两条（`pinnedPageKeys()`），关不掉
+    //   存档 服务器列表 资源包 数据包 模组 光影包 原理图  ← `optionalPageKeys()` 的顺序，
+    //                                             可用 + 没被用户勾掉才出现
+    //
+    // 右栏还是那份堆叠页，**顺序一个字没动**（`filePageKeys()`，见 `pageCount()`）；左栏的
+    // 先后与堆叠页的先后从此互不相干 —— 跳页一律按**键**（`stackPageIndexOf()`），不按行号。
+    //
+    // 用户能调的是"显示哪些页"：概览页最下面那张勾选表（`pageCheckName()`）；勾掉哪几页记在
+    // 这个实例自己的 wtfml.meta 里（`settingsPages`，见 `pageChoices()` 与 setPageChoices()）。
     //
     // 键表与 objectName 的写法照抄设置页（settingsCategoryKeys / settingsPanelName）：
-    // **两张按下标对齐的表**，加一栏要同时动两处；身份走 objectName，验证工程不靠位置认控件。
+    // **身份走 objectName**，验证工程不靠位置认控件。
 
-    /// 左栏那三条大类的键。**顺序就是界面上从上到下的顺序**。
+    /// 左栏里**钉死的那两条**的键（顺序就是界面上从上到下的顺序）。
+    ///
+    /// 用户 2026-09-27：「概览/启动 不能关」（原话里的「快捷方式」也是一条，但它 2026-09-27
+    /// 起不再是一页了 —— 那九颗按钮并进了概览页，见 shortcutTexts()）。
     static QString overviewCategoryKey() { return QStringLiteral("overview"); }
     static QString launchCategoryKey() { return QStringLiteral("launch"); }
-    static QString filesCategoryKey() { return QStringLiteral("files"); }
-    static QStringList categoryKeys() {
-        return {overviewCategoryKey(), launchCategoryKey(), filesCategoryKey()};
+    static QStringList pinnedPageKeys() {
+        return {overviewCategoryKey(), launchCategoryKey()};
     }
-    static QStringList categoryTexts() {
-        return {QStringLiteral("概览"), QStringLiteral("启动"), QStringLiteral("文件管理")};
+    static QStringList pinnedPageTexts() {
+        return {QStringLiteral("概览"), QStringLiteral("启动")};
     }
 
-    /// 「文件管理」下面那一列小类的键。**顺序就是界面上的顺序。**
+    /// **能勾、能关**的那几页的键，**顺序就是用户点名的那一串**
+    /// （「默认情况下展示（记住都按这个顺序）存档 服务器列表 资源包 数据包 …模组…光影…原理图」）。
     ///
-    /// NOTE: 用户给的那一串（快捷方式 / 资源包·模组 / 数据包 / 光影包 / 原理图 / 存档 /
-    ///       服务器列表）是他自己说了「我这个不合理」的，所以这儿是重排过的：把**跳板**
-    ///       （快捷方式：开文件夹）摆在最前，然后是**往实例里加东西**的那几类（模组最常用
-    ///       → 资源包 → 数据包 → 光影包 → 原理图），最后是**这个实例自己攒出来的**那两样
-    ///       （存档、服务器列表）。前六类是"往里放"，后两类是"从里面看"。
+    /// NOTE: 这一份是 `filePageKeys()` 去掉「配置文件」之后的一个**排列**（同一批键、不同
+    ///       次序），验证工程钉着这个等式。堆叠页那边的顺序（filePageKeys()）是另一件事：
+    ///       它按"跳板在最前 / 往里放 / 从里面看"排过，且 `serverPageKey()` 那句"最后那一个"
+    ///       还挂在它身上 —— 两边的次序**本来就该分**，别再拿其中一张去算另一张。
+    static QStringList optionalPageKeys() {
+        return {QStringLiteral("save"),    QStringLiteral("server"),  QStringLiteral("resourcepack"),
+                QStringLiteral("datapack"), QStringLiteral("mod"),   QStringLiteral("shader"),
+                QStringLiteral("schematic")};
+    }
+    static QStringList optionalPageTexts() {
+        return {QStringLiteral("存档"), QStringLiteral("服务器列表"), QStringLiteral("资源包"),
+                QStringLiteral("数据包"), QStringLiteral("模组"),   QStringLiteral("光影包"),
+                QStringLiteral("原理图")};
+    }
+
+    /// 第 @p key 那一页在界面上叫什么（**唯一出处**：左栏那一条的字、勾选框上的字、
+    /// 报错里点名都用它）。认不出来的键回空串。
+    static QString pageText(const QString &key);
+
+    /// 堆叠页里那些**文件页**的键，**顺序就是堆叠页里的顺序**。
+    ///
+    /// NOTE: 左栏那一列的先后**不是**这个（见 optionalPageKeys()）：这一张是"哪几页存在、
+    ///       在堆叠页里排第几"，那一张是"用户眼里从上到下怎么排"。
+    ///
+    /// NOTE: 「配置文件」是 2026-09-27 加的那一页（用户要的："在启动器就直接编辑模组的
+    ///       config.json"）。**插在原理图与存档之间**，不是为了好看：`serverPageKey()` 的
+    ///       唯一出处是"最后那一个"，往尾巴上接会把它那句话变成假的。
     static QStringList filePageKeys() {
-        return {QStringLiteral("shortcut"), QStringLiteral("mod"),    QStringLiteral("resourcepack"),
+        return {QStringLiteral("mod"),    QStringLiteral("resourcepack"),
                 QStringLiteral("datapack"), QStringLiteral("shader"), QStringLiteral("schematic"),
-                QStringLiteral("save"),     QStringLiteral("server")};
+                QStringLiteral("config"), QStringLiteral("save"),   QStringLiteral("server")};
     }
     static QStringList filePageTexts() {
-        return {QStringLiteral("快捷方式"), QStringLiteral("模组"),   QStringLiteral("资源包"),
-                QStringLiteral("数据包"),   QStringLiteral("光影包"), QStringLiteral("原理图"),
-                QStringLiteral("存档"),     QStringLiteral("服务器列表")};
+        return {QStringLiteral("模组"),   QStringLiteral("资源包"),
+                QStringLiteral("数据包"), QStringLiteral("光影包"), QStringLiteral("原理图"),
+                QStringLiteral("配置文件"), QStringLiteral("存档"), QStringLiteral("服务器列表")};
     }
+
+    /// 「配置文件」那一页的键。
+    ///
+    /// NOTE: 这一页**一个入口都没有**（用户 2026-09-27 原话「我说配置文件收起来」）—— 它
+    ///       不在 optionalPageKeys() 里、所以左栏和勾选表里都没有它，只有验证工程拿
+    ///       showPage() 够得着。要放出来：把它接进 optionalPageKeys()（并给一条默认关的
+    ///       选择），别的地方一个字都不用改。
+    static QString configPageKey() { return QStringLiteral("config"); }
 
     /// 「服务器列表」那一页的键（也就是 filePageKeys() 里最后那一个）。
     ///
@@ -211,18 +264,33 @@ public:
     ///       永远不发（少一句话、不报错），而且页还是照开的。
     static QString serverPageKey() { return QStringLiteral("server"); }
 
-    /// 堆叠页里「文件管理」那些页的起始下标（0/1 是概览与启动，排在前面）。
-    /// 换言之 `stackIndex = filePageFirstIndex() + 小类下标`。
+    /// 堆叠页里「文件页」那些页的起始下标（0/1 是概览与启动，排在前面）。
+    /// 换言之 `stackIndex = filePageFirstIndex() + filePageKeys() 里的下标`。
     static int filePageFirstIndex() { return 2; }
     /// 堆叠页一共有几页。
     static int pageCount() { return filePageFirstIndex() + filePageKeys().size(); }
 
-    static QString categoryListName() { return QStringLiteral("instanceSettingsCategoryList"); }
-    static QString subCategoryListName() {
-        return QStringLiteral("instanceSettingsSubCategoryList");
+    /// @p key 那一页在堆叠页里占第几格。认不出来的键回 -1（调用方要判）。
+    ///
+    /// 两段：钉死的那两条（概览 / 启动）在**头**、文件那八页在 `filePageFirstIndex()` 之后
+    /// —— 所以这个函数是"键 → 下标"那张表的**唯一出处**，别处的 `filePageFirstIndex() + 下标`
+    /// 都该走它。（钉死那两条也得认：`showPage("overview")` 是最普通的一次调用，漏了它们
+    /// 的症状是**这一页摆不动**——`showPage()` 判 -1 直接 return，界面上什么都不报。）
+    ///
+    /// NOTE: **按"页"认人是这一页唯一的跳页口径** —— 左栏那一列是按实例现算的，行号
+    ///       随时会变（勾掉一条就少一格），拿左栏的行号去认页必然错位。
+    static int stackPageIndexOf(const QString &key) {
+        const int pinned = pinnedPageKeys().indexOf(key);
+        if (pinned >= 0) {
+            return pinned;
+        }
+        const int index = filePageKeys().indexOf(key);
+        return index < 0 ? -1 : filePageFirstIndex() + index;
     }
+
+    static QString pageListName() { return QStringLiteral("instanceSettingsPageList"); }
     static QString stackName() { return QStringLiteral("instanceSettingsStack"); }
-    /// 堆叠页里某一页的 objectName（@param key 见 categoryKeys() / filePageKeys()）。
+    /// 堆叠页里某一页的 objectName（@param key 见 pinnedPageKeys() / filePageKeys()）。
     static QString panelName(const QString &key) {
         return QStringLiteral("instanceSettingsPanel-") + key;
     }
@@ -235,14 +303,47 @@ public:
         return QStringLiteral("instanceSettingsForm-") + key;
     }
 
-    /// 摆到 @p key 那一栏上（等价于点左栏里那一条）。越界 / 认不出来的键 = 什么都不做。
-    /// 验证工程用它跳栏 —— 它比"数第几条"稳（键表将来插一条也不会错位）。
-    void showCategory(const QString &key);
+    /// 摆到 @p key 那一页上。认不出来的键 = 什么都不做。
+    ///
+    /// **按"左栏里有没有这一条"分两种情况** —— 有就走"选中那一条"这条路（和用户点那一条
+    /// 是同一个动作）；没有（「配置文件」这种没有入口的页、或者被用户勾掉了的页）就直接
+    /// 摆右栏、把左栏的选中清掉。
+    ///
+    /// 这正是验证工程该用的那一个入口：**要验的是那一页本身，不是"用户点得着"** ——
+    /// 没有入口的「配置文件」照样得有人在盯着（它只是先不给看，不是烂在那儿）。
+    void showPage(const QString &key);
 
-    /// 这三条给验证工程问几何用（认控件主要还是按 objectName）。
-    QListWidget *categoryList() const { return m_categoryList; }
-    QListWidget *subCategoryList() const { return m_subCategoryList; }
+    /// 这两条给验证工程问几何用（认控件主要还是按 objectName）。
+    QListWidget *pageList() const { return m_pageList; }
     QStackedWidget *stack() const { return m_stack; }
+
+    /// 左栏**此刻**摆着哪几条（键，从上到下）。**唯一出处**就是它：左栏那一列、
+    /// 验证工程、以及"当前这一页掉出去之后回哪一页"都由它说了算。
+    QStringList shownEntryKeys() const;
+
+    /// 勾选表上那些"显示哪些页"的勾选框：这一刻用户勾掉的页（键 → false）。
+    ///
+    /// ★ **只可能装 false，不会装 true**：勾选框只在那一页**可用**时能勾，而"可用"就是
+    ///   "默认显示" —— 所以能存下来的只可能是"用户把它藏起来了"。这一份不是"选择表"，
+    ///   是一张**藏起来的页**的名单（读侧 = `显示 = 可用 && 名单里没写它`）。
+    ///   空对象 = 一页都没藏（写盘那边按空对象**删键**，见 MainWindow::applyInstanceSettings）。
+    QJsonObject pageChoices() const;
+
+    /// 灌这个实例**存在盘上**的那份选择（键见 optionalPageKeys()）。认不出来的键丢掉。
+    /// 调用方（MainWindow）从 wtfml.meta 的 `settingsPages` 里取出来递进去。
+    void setPageChoices(const QJsonObject &stored);
+
+    /// 「模组」那一页在这个实例上**用得上吗**（= 它装没装模组加载器）。
+    ///
+    /// NOTE: 和 setShaderUsable() / setSchematicUsable() 一样，**判据不在这一层** ——
+    ///       MainWindow 读 wtfml.meta 的加载器名 / 扫 mods/ 目录，算完把结论递进来。
+    ///       ★ 默认是**可用**：忘了调 = 原版实例上也列出「模组」那一页。
+    void setModUsable(bool usable);
+
+    /// 「数据包」那一页在这个实例上**用得上吗**（= 这个游戏版本有没有数据包这回事）。
+    /// 判据是"游戏版本 ≥ 1.13"（数据包是快照 17w43a（2017-10）引进的），出处见
+    /// VersionManager::instanceSupportsDatapacks()。默认可用，同上。
+    void setDatapackUsable(bool usable);
 
     // ---------- 文件管理那八页（2026-09-26，见上面 filePageKeys()）----------
     //
@@ -323,6 +424,14 @@ public:
     /// 把六页目录列表**重新列一遍**。MainWindow 动过盘（删了 / 改了名）之后喊它。
     void refreshFilePages();
 
+    // ---- 「配置文件」那一页的两条（见 openConfigFileRequested 那段）----
+    /// 用户打开了 `config/` 底下的一条：目录 = 进去（这一层自己办），文件 = 发信号。
+    void onConfigEntryActivated(const QString &path, bool isDir);
+    /// 点「上级」：退到上一层（到根为止）。
+    void leaveConfigDir();
+    /// 按"现在在哪"决定那颗「上级」画不画。**进来、出去、换实例（setFileDirs）之后都要喊**。
+    void updateConfigUpButton();
+
     /// 给某一条文件行换上它的**真图标**（见 InstanceFilesPage::setIconForPath）。
     ///
     /// 收在这一层是因为**路径属于哪一页只有六页自己知道** —— 调用方（MainWindow）手上
@@ -359,20 +468,67 @@ public:
     ///
     /// NOTE: 它和「概览」栏那行图标**没有关系** —— 那一行的预览是调用方把图解好递进来的
     ///       （见 setIcon()：实例目录下那份 icon.png 由 MainWindow 读，ui/ 够不着 AppPaths）。
-    ///       这一份是「文件管理」用的：快捷方式那一页的「版本目录」开的就是它。
+    ///       这一份是文件那几页用的：概览页上那排快捷按钮的「版本目录」开的就是它。
     void setInstanceDir(const QString &dir);
 
     /// 「文件管理」那几页各看哪个目录：**键 → 绝对路径**。
     ///
     /// 一共**八条**：中间那六页各一条（`mod` / `resourcepack` / `datapack` / `shader` /
-    /// `schematic` / `save`），外加两个**只有快捷方式那一页用得上**的（`screenshots` /
-    /// `logs` —— 它们没有自己的页）。`shortcut` 和 `server` 两个键不用给：前者开的是
-    /// setInstanceDir() 那一份（`dir`），后者给的是**解析好的一份列表**（见 setServerList()）。
+    /// `schematic` / `save`），外加两个**只有概览页上那排快捷按钮用得上**的
+    /// （`screenshots` / `logs` —— 它们没有自己的页）。`dir` 和 `server` 两个键不用给：
+    /// 前者开的是 setInstanceDir() 那一份，后者给的是**解析好的一份列表**（见 setServerList()）。
     ///
     /// NOTE: 路径**由调用方算好递进来**，这一层不自己拼 `<实例目录>/mods` —— 那几个目录名
     ///       是 MC 的约定，仓库里已经有唯一一份出处（src/download/ResourceCatalog 的
     ///       folderForKind()，整合包那一路也照着它写），ui/ 抄第二份迟早会跟它对不上。
     void setFileDirs(const QHash<QString, QString> &dirs);
+
+    // ---------- 「配置文件」那一页的第二个格子（2026-09-27）----------
+    //
+    // 【为什么是"格子里再嵌一格"，而不是再开一整页覆盖层】
+    //
+    // 因为**开不出来**：`OverlayHost::openPage()` 在已经有人占着那一层时直接返回 nullptr
+    // （一层只放一个页面，见 OverlayHost.hpp 那段），而用户点这一行的那一刻，「实例设置」
+    // 自己正占着那一层。所以「配置文件」这一页是个**两格子的堆叠**：
+    //
+    //   ① 文件列表（+「上一级」+底下那行小字）  ② 编辑器
+    //
+    // 点一个文件 = 切到 ②，点「返回」（或按 Esc）= 切回 ①。切的事由这一层办（它俩都是
+    // 它的孩子），而**盘上的事不办** —— 读、写、开目录、弹话都还是 MainWindow 的
+    // （这一层没有 OverlayHost）。所以这一层只提供"把编辑器切出来 / 切回去"两个动作，
+    // 外加一个把它**露出来**给 MainWindow 接线的口子。
+
+    /// 那一格编辑器（**一次建好、一直留着**）。
+    ///
+    /// NOTE: 给的是裸指针是为了让 MainWindow **接一次线就完事**：它在摆好这一页的时候
+    ///       连上 `saveRequested` / `backRequested` 两发，之后每次开文件只是往这一格里
+    ///       灌内容（`openConfigEditor()`），不再重新连。所以**接回来的时候不要把它当
+    ///       一次性的**（那会连第二遍，于是保存一次写两个盘）。
+    ///
+    /// NOTE: 读它之前先确认这一页开着没有 —— 没开的话它一样在（构造时就建了），只是
+    ///       没露脸。这和"资源详情页那一个对象建一次留着"是同一条规矩。
+    ConfigFileEditorPage *configFilePage() const { return m_configEditor; }
+
+    /// 把编辑器切出来，并摆上这一份文件。
+    /// @param path   绝对路径。
+    /// @param loaded 那一份字节解出来的东西（见 ConfigFileText::decode）。**由 MainWindow
+    ///        读盘 + 解码之后递进来** —— 这一层不碰盘。
+    /// @param stamp  读之前盘上那一份的样子（见 ConfigFileText::Stamp）。**只有读盘的人量得
+    ///        出来**，所以也是递进来的；保存前拿它比对（"这中间别人动过没有"）。
+    void openConfigEditor(const QString &path, const ConfigFileText::Loaded &loaded,
+                          const ConfigFileText::Stamp &stamp = ConfigFileText::Stamp());
+
+    /// 这个文件**留过备份没有**（有 ⇒ 那一格画出「还原上一次」）。和 stamp 一样是"读盘的人
+    /// 才知道"的事（那儿才知道备份根底下有没有它），所以由 MainWindow 递进来。
+    void setConfigBackupAvailable(bool available);
+
+    /// 切回文件列表那一格（并让那一页重新列一遍目录）。
+    ///
+    /// NOTE: **调用它之前先看 `configFilePage()->isDirty()`**：改过的东西不许悄悄没掉，
+    ///       那一问（"改了没保存，还返回吗"）得由 MainWindow 弹（这一层没有覆盖层），
+    ///       用户答"不保存"之后要先 `discardChanges()` 再走这儿。这一层不自己问 ——
+    ///       它连"现在是脏的"这件事都不看，谁调谁负责。
+    void closeConfigEditor();
 
     /// 图标预览那一格的边长（像素）。**外面要按这个边长把图解好递进来** —— 递一张 16×16 的
     /// 进来会被放大成一团糊（那几张方块是像素画，而用户挑的照片本来就有的是像素）。
@@ -560,13 +716,16 @@ public:
 
     // ---- 文件管理那八页的文案与 objectName（2026-09-26）----
 
-    /// 快捷方式那一页的九颗按钮：**两张按下标对齐的表**（按钮上的字 / 路径键）。
+    /// 快捷方式那九颗按钮：**两张按下标对齐的表**（按钮上的字 / 路径键）。
     /// 路径键见 setFileDirs() 与 setInstanceDir()。
+    ///
+    /// NOTE: 2026-09-27 起它们长在**概览页**上（用户原话：「"快捷方式"放到概览的下方」），
+    ///       「快捷方式」不再是一页 —— 键和 objectName 一个字没改，只是换了个父。
     ///
     /// NOTE: 顺序是排过的（用户原话「前面这些按照合理顺序排，我这个不合理」）：先是**这个
     ///       实例自己**（版本目录），再是**游戏玩出来的**那两样（存档、截图），然后是
-    ///       **往里放东西**的那一串（模组 → 资源包 → 数据包 → 光影包 → 原理图，和左栏那列
-    ///       小类同一个顺序），最后是**出事时去翻**的日志。
+    ///       **往里放东西**的那一串（模组 → 资源包 → 数据包 → 光影包 → 原理图），最后是
+    ///       **出事时去翻**的日志。
     static QStringList shortcutTexts();
     static QStringList shortcutPathKeys();
     /// 快捷方式一排摆几颗（九颗正好三排）。
@@ -589,6 +748,14 @@ public:
     static QString filesHint(const QString &key);
     /// 第 @p key 那一页空着时那句话。
     static QString filesEmptyText(const QString &key);
+
+    /// 「配置文件」那一页上面那颗「上级」（2026-09-27）。**只有这一页有** —— 别的几页
+    /// 看的是一个平铺的目录，而 `config/` 底下还有层级（`config/ftbquests/` 这种），
+    /// 得能进去也得出得来。
+    static QString configUpButtonName() {
+        return QStringLiteral("instanceConfigUpButton");
+    }
+    static QString configUpText() { return QStringLiteral("上一级"); }
 
     static QString serverTreeName() { return QStringLiteral("instanceServerTree"); }
     static QString serverNoticeName() { return QStringLiteral("instanceServerNotice"); }
@@ -637,6 +804,29 @@ public:
     static QString shaderUnavailableText();
     /// 「原理图」那一页用不上时那句话。
     static QString schematicUnavailableText();
+    /// 「模组」那一页用不上时那句话（这个实例没有模组加载器）。
+    static QString modUnavailableText();
+    /// 「数据包」那一页用不上时那句话（这个游戏版本还没有数据包）。
+    static QString datapackUnavailableText();
+    /// 第 @p key 那一页**为什么用不上**（用得上 = 空串）。**唯一分发处** —— 页里那句
+    /// 「用不上」和勾选表的悬停提示都走它，别再各写一遍 if 链。
+    static QString pageUnavailableText(const QString &key);
+
+    // ---- 「显示哪些页」那张勾选表（2026-09-27，概览页最下面）----
+    //
+    // 用户原话：「概览里面调整是否显示」「是否显示的调整放到"快捷方式"的下方」「如果没有
+    // 对应的加载器，保持对应选项不可勾选的状态，悬停文本解释」。
+    //
+    // 七条一条一个勾选框（顺序见 optionalPageKeys()），**不可用的那一条不勾、灰着、
+    // tooltip 说为什么**。勾/不勾直接决定左栏那一列里有没有这一条。
+    /// 第 @p key 条勾选框的 objectName。
+    static QString pageCheckName(const QString &key) {
+        return QStringLiteral("instanceSettingsShowPage-") + key;
+    }
+    /// 那一小块的字（**它的行名**）。
+    static QString showPagesLabelText() { return QStringLiteral("显示哪些页"); }
+    /// 可用那几条的 tooltip（"勾上左边那一列里就有这一页…"）。
+    static QString pageShownHint();
 
     /// 第二行右边那颗按钮上的字（**唯一出处**：它是打开那个浮层的按钮，也是这一项的
     /// 名字 —— 概览这一栏不再有单独的行名）。
@@ -719,6 +909,20 @@ public:
     ///       带自定义名的实例这两个值本来就不是一回事。
     void setInstanceDisplayName(const QString &displayName);
 
+    /// ★ 关页之前先看一眼「配置文件」那一格里有没有没保存的改动（2026-09-27）。
+    ///
+    /// 走这条路的**不是**编辑器自己那颗「返回」（那颗发 `backRequested()`，由 MainWindow
+    /// 接到 `leaveConfigEditor()` 上），而是**覆盖层页眉那颗返回箭头** —— 它接的是
+    /// `dialog->reject()`（见 `OverlayHost::execPage` 里那段），点一下关掉的是**整个
+    /// 「实例设置」**。而那一格里可能正压着改了一半的东西。
+    ///
+    /// 这一层没有覆盖层、弹不出"要丢掉吗"那一句，所以它只能**先不关**、把这一发交出去：
+    /// 接的人问完，用户答"丢掉"之后拿 `done(QDialog::Rejected)` 关页（**不是** `reject()`
+    /// —— 那会又走回这儿）。
+    ///
+    /// NOTE: 编辑器那一格没开着、或者它是干净的，这一条一个字都不做（照旧正常关页）。
+    void reject() override;
+
     /// 嵌进覆盖层那一页的时候把这行标题收起来。
     ///
     /// NOTE: 覆盖层的页眉**就是这个页面的标题栏**（那行字和窗口的标题栏是同一件事）。
@@ -758,6 +962,12 @@ public:
         return QStringLiteral("一条一行。排在全局额外参数之后（同一条以后写的为准），"
                               "不覆盖全局那一份。");
     }
+
+protected:
+    /// 只为一件事装在这儿：**左栏那一列不许因为"拿到焦点"就自己挑一条**（见 .cpp 里
+    /// 实现上面那一整段 —— 那是 Qt `focusInEvent()` 的一个兜底行为，会让用户按一下
+    /// Tab、或者窗口重新激活就凭空翻一页）。
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 signals:
     /**
@@ -857,6 +1067,31 @@ signals:
     void deleteInstanceFileRequested(const QString &path);
 
     /**
+     * @brief 用户在「配置文件」那一页**打开了一个文件**（双击，或者选中之后按回车）。
+     *
+     * 接的人负责**读那个文件**，然后拿它调 `openConfigEditor()` 把编辑器那一格切出来
+     * —— 这一层手上没有 OverlayHost，也没有盘（读、解码、失败要弹的那一句，全是
+     * MainWindow 的）。
+     *
+     * NOTE: **这一发不是"开一整页覆盖层"**。点这一行的那一刻，「实例设置」自己正占着
+     *       覆盖层那唯一的一层，开不出第二个整页（见 configFilePage() 上面那一段）。
+     *
+     * NOTE: **只有文件走这一发**。点一个目录是"进去看"，那件事这一层自己就办完了
+     *       （换一个目录再列一遍，纯显示层的事，不碰盘不联网），不会绕到这儿来。
+     * @param path 这一条的**绝对路径**。
+     */
+    void openConfigFileRequested(const QString &path);
+
+    /**
+     * @brief 用户想关掉整个「实例设置」，而**「配置文件」那一格里还有没保存的改动**。
+     *
+     * 见 `reject()` 上面那一段：这一层已经把那一关**挡下来**了（没关），接的人问完那一句
+     * 之后自己决定 —— 用户说"丢掉"就 `done(QDialog::Rejected)`，说"留在这儿"就什么都不做
+     * （页继续开着，编辑器那一格原样）。
+     */
+    void closeBlockedByUnsavedConfigFile();
+
+    /**
      * @brief 用户按了服务器列表那一页的「刷新」。
      *
      * 那一页的内容是**解析好的结果**递进来的（setServerList()），重读一遍要碰 src/ 里的
@@ -917,15 +1152,32 @@ private:
     /// —— 换字体 / 换样式就错。再加一点左右余量，条目的字离边太近看着像被切了。
     static int navListWidth(const QListWidget *list);
 
-    /// 左栏选中第 @p row 条之后要做的事：换页 + （只有「文件管理」才）露出中栏那一列。
+    /// 左栏选中第 @p row 条之后要做的事：把右栏换到那一条对应的页上。
     /// 越界 = 什么都不做（见 .cpp 里那段 NOTE）。
-    void applyCategory(int row);
-    /// 中栏选中第 @p row 条之后要做的事：把右栏换到那一页。
-    void applyFilePage(int row);
+    void applyEntry(int row);
 
-    /// 在中栏那一条上挂（或者摘掉）「这一页为什么用不上」的 tooltip。
-    /// @param reason 空串 = 用得上（把 tooltip 摘掉）。见 setShaderUsable()。
-    void markPageUnusable(const QString &key, const QString &reason);
+    /// 把右栏摆到 @p key 那一页上（不管它在不在左栏里）。applyEntry() 与 showPage() 都落到
+    /// 这儿，换页之后那两件事（重列目录、发 serverPageEntered）只写一遍。
+    void applyPageKey(const QString &key);
+
+    /// 按 `shownEntryKeys()` **整份重灌左栏那一列**：重算宽高、刷新勾选框、把选中还原到
+    /// 堆叠页当前那一页（那一页要是掉出去了就回概览，**但「配置文件」不算掉出去**）。
+    ///
+    /// 可用性一变、用户勾掉/勾上一条，都要喊它 —— 左栏那一列的内容是**算出来的**，
+    /// 不是构造时摆好就完事的。
+    void rebuildEntryList();
+
+    /// 把勾选框按"可用不可用 + 用户勾没勾"重摆一遍（**压着信号**：这是画，不是用户改的）。
+    void refreshPageChecks();
+
+    /// 四个 `setXxxUsable()` 的公共落点：记进 `m_pageAvailable` + 重建左栏那一列。
+    /// @param markPage 要不要把那一页**整页换成一句「用不上」**。
+    ///
+    /// NOTE: 「光影包 / 原理图」要（那两页里的东西在没加载器时真的一点用都没有），
+    ///       「模组 / 数据包」不要 —— 老版本上的 `datapacks/`、原版实例上的 `mods/` 里
+    ///       照样可能有东西，列出来是句真话（用户真想看，把这一条勾出来就看得见）。
+    ///       它们"用不上"这件事由勾选框那一格的 tooltip 说（见 pageUnavailableText()）。
+    void setPageUsable(const QString &key, bool usable, bool markPage = true);
 
     /// 把图标那一行按 m_iconChoice 重画一遍：预览换图、八颗浮层里那颗按钮的勾选状态跟着换。
     /// 唯一出处是 m_iconChoice —— 按钮和预览都是它的画（见上面那段"影子状态"）。
@@ -992,14 +1244,22 @@ private:
     /// 所以它得留着给人问（见 titleText / setTitleVisible）。
     QLabel *m_titleLabel = nullptr;
 
-    // ---------- 三栏那几件（见 categoryKeys() 上面那一段）----------
-    /// 左栏那三条大类。当前行 = 界面上的当前栏。
-    QListWidget *m_categoryList = nullptr;
-    /// 中栏那八条小类。**只在「文件管理」那一栏里显示** —— 其余两栏里它是隐藏的，
-    /// 但 `currentRow` 留着（切走再切回来还停在刚才那一页）。
-    QListWidget *m_subCategoryList = nullptr;
+    // ---------- 左栏那一列 + 右栏堆叠页（见 pinnedPageKeys() 上面那一段）----------
+    /// 左栏**唯一**那一列。当前行 = 界面上当前摆着的那一页。
+    QListWidget *m_pageList = nullptr;
     /// 右栏那份堆叠页，下标见 pageCount() / filePageFirstIndex()。
     QStackedWidget *m_stack = nullptr;
+
+    /// 哪几页在这个实例上**用得上**（键 → 可用；表里没有 = 可用）。
+    ///
+    /// 判据全在 MainWindow（读加载器名 / 扫 mods/ / 看游戏版本），这一层只收结论：
+    /// `setModUsable()` / `setShaderUsable()` / `setSchematicUsable()` / `setDatapackUsable()`
+    /// 四个 setter 各自改表里一格，再喊一次 rebuildEntryList()。
+    QHash<QString, bool> m_pageAvailable;
+    /// 用户**勾掉的**那几页（键 → false，见 pageChoices()）。只装显式选择，不写"默认值"。
+    QJsonObject m_pageOverrides;
+    /// 「显示哪些页」那七条（键 → 勾选框，顺序同 optionalPageKeys()）。
+    QHash<QString, QCheckBox *> m_pageChecks;
 
     /// 「实例名」那一格（见 instanceName()）。现在长在「概览」栏里。
     QLineEdit *m_instanceNameEdit = nullptr;
@@ -1009,14 +1269,34 @@ private:
     QString m_instanceId;
 
     // ---- 文件管理那八页（见上面 filePageKeys() / setFileDirs() 那两段）----
-    /// 这个实例的目录（setInstanceDir()）：快捷方式那一页的「版本目录」开的就是它。
+    /// 这个实例的目录（setInstanceDir()）：概览页上那排快捷按钮的「版本目录」开的就是它。
     QString m_instanceDir;
     /// 「文件管理」那几页各自的目录（见 setFileDirs()）：**页键 → 绝对路径**。
     QHash<QString, QString> m_fileDirs;
     /// 六页目录列表控件（键见 filePageKeys()）。refreshFilePages() 走它。
     QHash<QString, InstanceFilesPage *> m_filesPages;
-    /// 快捷方式那一页那九颗按钮（顺序同 shortcutTexts()）。
+    /// 概览页上那九颗快捷方式按钮（顺序同 shortcutTexts()）。
     QList<QWidget *> m_shortcutButtons;
+
+    // ---- 「配置文件」那一页独有的两样（2026-09-27）----
+    /// `config/` 的**根**。进去、出来都拿它当墙 —— 不许走到 `config/` 上面去（再往上是
+    /// 这个实例自己、然后是整个 `.minecraft`，走到那儿"这是配置文件"这件事就走丢了）。
+    ///
+    /// NOTE: **不能在构造函数里从 m_fileDirs 抓** —— 那会儿 setFileDirs() 还没被调过，
+    ///       抓到的永远是空串，于是"上级"那道墙形同虚设。和快捷方式那几颗按钮踩的是
+    ///       同一个坑（见那边注释里那句"捕获快照的话拿到的永远是空串"）。所以它在
+    ///       setFileDirs() 里赋值。
+    QString m_configRoot;
+    /// 那一页上面那颗「上级」。**到了根就整颗不画**（不是画成灰的 —— 和"组里挪不动的
+    /// 那一侧不画"同一条规矩）。
+    QPushButton *m_configUp = nullptr;
+    /// 那一页的两格子（0 = 列表 1 = 编辑器，见 configFilePage() 那段）。
+    ///
+    /// NOTE: 「上一级」和那张列表都在第 0 格里，所以 `m_configUp` 的可见性只管第 0 格 ——
+    ///       切到编辑器那一格时它整格都不在画面上，不必额外藏一遍。
+    QStackedWidget *m_configStack = nullptr;
+    /// 第 1 格那个编辑器（**建一次留着**，见 configFilePage() 的 NOTE）。
+    ConfigFileEditorPage *m_configEditor = nullptr;
     QTreeWidget *m_serverTree = nullptr;
     QLabel *m_serverNotice = nullptr;
     QPushButton *m_serverRefresh = nullptr;
