@@ -18,6 +18,21 @@
  * 那份声明只存在于**游戏进程**里，启动器在外面拿不到。（ModMenu 自己唯一跟文件沾边的功能
  * 是 `modmenu.configsFolder` = 「打开配置文件夹」。）
  *
+ * 【左边那一格「条目」：条目 ↔ 值的一一对应】
+ *
+ * 用户后面又问了一句：「能不能通过外接解析库来做到条目-设置值来一一对应」。答案是**能**，
+ * 而且不用外接库 —— 见 `ConfigEntries.hpp` 那一段（量过的账：注释里常常就写着说明和
+ * `#Range:`，而类型文件自己就说了）。这一格就是那份清单的落点：
+ *
+ *   - 左边一棵树，**一行一个设置项**（分组 = 段 / 嵌套对象，行上是 `键 = 值`）；
+ *   - 点一条 → 右边编辑框里**那一格值的字节区间被选中**并滚到眼前（只选、不改）。
+ *
+ * NOTE: **它不是表单**，别往那个方向改。表单要的是"这一条是什么类型、范围多少、叫什么
+ *       名字"（schema），而那份 schema 只活在模组自己的 Java 代码里 —— 启动器手上只有
+ *       文件和它的注释。所以这一格干的事是"**帮你找到那一行**"，改还是改文本。
+ * NOTE: 这一格是**只读**的：不改正文、不写盘。于是它一个字节的风险都没有 —— 没有它，
+ *       用户得用 Ctrl+F 拿注释里那句英文去猜键名。
+ *
  * 【为什么它是 QWidget，不是像资源详情页那样一个 QDialog】
  *
  * 因为**开不出第二页**：`OverlayHost::openPage()` 在已经有人占着那一层的时候直接返回
@@ -48,8 +63,12 @@
 #include "ConfigFileText.hpp"
 
 class QLabel;
+class QLineEdit;
 class QPlainTextEdit;
 class QPushButton;
+class QTimer;
+class QTreeWidget;
+class QTreeWidgetItem;
 
 class ConfigFileEditorPage : public QWidget {
     Q_OBJECT
@@ -90,6 +109,15 @@ public:
     ///       改过就弹一句问，用户说"不保存"才走这儿再切回列表 —— **改过的东西不许悄悄没掉**。
     void discardChanges();
 
+    // ---------- 左边那一格「条目」----------
+    /// 左边那一格现在摆着没有（藏着的时候是"这份文件里没认出设置项"，或者用户把它收了）。
+    bool indexVisible() const;
+    /// 重新认一遍、重摆那棵树。**改完字由那个延时器叫它**（见构造函数里那个 250 ms）。
+    /// @return 认出来几条（**和树上摆着的条数不是一回事**：树是按路径分了组的）。
+    int rebuildIndex();
+    /// 现在树上摆着几条**叶子**（= 几个设置项）。验证工程拿它量"这份文件认出了几条"。
+    int indexEntryCount() const;
+
     // ---------- 名字（验证工程按这些 objectName 找控件）----------
     /// **这一块自己**那个 objectName（`editorName()` 是里面那个编辑框的，别混）。
     static QString pageName();
@@ -99,10 +127,26 @@ public:
     static QString saveButtonName();
     static QString openFolderButtonName();
     static QString backButtonName();
+    static QString indexPanelName();
+    static QString indexTreeName();
+    static QString indexFilterName();
+    static QString indexToggleName();
+
+    /// 值那一格在树上的区间记在哪两个角色里（`Qt::UserRole` 起，20 往后 —— 避开
+    /// InstanceFilesPage / 版本树那几处已经占掉的 8/9/10 与 12/13）。
+    static int valueBeginRole();
+    static int valueEndRole();
+    /// 这一条在树上的**键路径**（`general.timer` 这种）。重建之后"还选中原来那条"靠它，
+    /// 验证工程也拿它认"点的是哪一条"。
+    static int entryPathRole();
 
     static QString backText();
     static QString saveText();
     static QString openFolderText();
+    static QString indexToggleText();
+    static QString indexFilterPlaceholder();
+    /// 「条目」那颗按钮在"这份文件里没认出设置项"时为什么点不动（它那行说明）。
+    static QString indexEmptyHint();
     /// 只读时那行字的前缀（后面接原因）。验证工程拿它认"这一块现在只读"。
     static QString readOnlyPrefix();
     /// 可编辑、还没存过的时候那行字。
@@ -121,6 +165,12 @@ public:
     QPushButton *backButton() const { return m_back; }
     QLabel *noteLabel() const { return m_note; }
     QLabel *pathLabel() const { return m_pathLabel; }
+    QTreeWidget *indexTree() const { return m_index; }
+    QLineEdit *indexFilter() const { return m_indexFilter; }
+    QPushButton *indexToggle() const { return m_indexToggle; }
+    /// 点树上那一条（`jumpTo` 的正门）—— 验证工程合成点击时不想真去造一个鼠标事件走
+    /// 事件派发的话，用它。**走的还是同一条路**（`itemClicked` 那个连接调的就是它）。
+    void jumpToEntry(QTreeWidgetItem *item);
 
 signals:
     /// 用户点了「保存」。@param bytes 是**已经合好的整份字节**（行尾、BOM 都还完了，见
@@ -144,6 +194,10 @@ protected:
 private:
     /// 底下那行字回到"这个文件现在该说什么"（只读的原因 / 那句默认提示）。
     void refreshNote();
+    /// 按筛选框里那串字，把那棵树该露的露、该藏的藏（**父分组只要底下有中的就留着**）。
+    void applyIndexFilter();
+    /// 左边那一格该露还是该收（用户那颗「条目」按下的状态 + 这份文件认没认出东西）。
+    void refreshIndexVisibility();
 
     QPlainTextEdit *m_editor = nullptr;
     QLabel *m_pathLabel = nullptr;
@@ -151,6 +205,17 @@ private:
     QPushButton *m_back = nullptr;
     QPushButton *m_openFolder = nullptr;
     QPushButton *m_save = nullptr;
+
+    QWidget *m_indexPanel = nullptr;
+    QTreeWidget *m_index = nullptr;
+    QLineEdit *m_indexFilter = nullptr;
+    QPushButton *m_indexToggle = nullptr;
+    QTimer *m_indexTimer = nullptr;  ///< 改字之后等手停下来再重认一遍（250 ms）
+    /// 这份文件现在认出来几条（0 ⇒ 左边那一格收起来）。
+    int m_indexEntries = 0;
+    /// 正在摆正文（`setFile()` / `discardChanges()` 里那一句）：这期间那台延时器不该响，
+    /// 不然刚摆完就被自己叫起来重认一遍。
+    bool m_loading = false;
 
     QString m_path;
     ConfigFileText::Loaded m_loaded;
