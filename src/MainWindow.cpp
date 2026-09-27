@@ -79,6 +79,8 @@
 #include <QTabWidget>
 // 整合包那一页下完 .mrpack 之后要"排到下一轮"再走导入（不能在那个信号栈里直接开新批次，
 // 见 onResourceDownloadFinished 里那段 NOTE）。
+#include <QThread>
+// 「文件管理」那几页的图标反查跑在它上面（见 requestInstanceFileIcons 里那段 NOTE）。
 #include <QTimer>
 #include <QUrl>
 #include <QTreeWidget>
@@ -1108,6 +1110,7 @@ MainWindow::MainWindow(QWidget *parent)
       m_folderManager(new FolderManager(m_settings, this)),
       m_versionManager(new VersionManager(this)),
       m_resourceStore(new ResourceStore(this)),
+      m_serverPinger(new ServerPing::Pinger(this)),
       m_javaSettings(new GlobalJavaSettings(this)),
       m_groupStore(new InstanceGroupStore(this)),
       m_skinStore(new PlayerSkinStore(this)),
@@ -1739,6 +1742,14 @@ void MainWindow::setupConnections() {
             &MainWindow::onResourceVersionsFinished);
     connect(m_resourceStore, &ResourceStore::iconReady, this,
             &MainWindow::onResourceIconReady);
+    // 服务器那一趟测速（2026-09-27）：**两个信号都是从工作线程发出来的**，接的人在这儿
+    // （主线程），Qt 按"接收方所在线程"自动排队投递 —— 所以这两个槽里可以随便碰界面。
+    // NOTE: 这条按**下标**回来（下标 = servers.dat 里那一行的行号），所以槽里要拿
+    //       m_serverPing.addresses 才能翻回是哪一台（见 onServerPingOne）。
+    connect(m_serverPinger, &ServerPing::Pinger::oneFinished, this,
+            &MainWindow::onServerPingOne);
+    connect(m_serverPinger, &ServerPing::Pinger::allFinished, this,
+            &MainWindow::onServerPingAllFinished);
 
     // ---------- 设置页 ----------
     // 「Java 版本」：选自动，或者钉死一个具体运行时。
@@ -4274,6 +4285,24 @@ void MainWindow::onResourceIconReady(const QString &iconId, const QPixmap &icon)
     if (m_resourcePage.open && iconId == m_resourcePage.iconKey
         && m_resourceDetailPage != nullptr) {
         m_resourceDetailPage->setIcon(icon);
+    }
+
+    // ---------- 「文件管理」那几页（2026-09-27）----------
+    //
+    // 同一个身份也可能是**实例里某个文件**换来的那一个（见 requestInstanceFileIcons）——
+    // 这一格和上面那棵树是两回事（那边是"搜出来的资源"，这边是"盘上躺着的文件"），
+    // 所以两条路都要走一遍，谁都不抢谁。
+    //
+    // ★ 这一句**必须排在 m_resourceStore->requestIcon() 之后**（也就是"图标回来时"）：
+    //   盘上已经有缓存的话 requestIcon() 是**同步**发 iconReady 的（见它那条 NOTE），
+    //   所以这里是"记了账、立刻就用上"，而记账那一步在 requestIcon 之前就写完了。
+    const QStringList filePaths = m_instanceIcons.pathsByIconKey.value(iconId);
+    if (!filePaths.isEmpty()) {
+        for (const QString &path : filePaths) {
+            // 空的也存 —— 它记的是"这一条问过了、没有"（见 m_instanceIconMissing 那段）。
+            m_instanceFileIcons.insert(instanceIconCacheKey(path), icon);
+        }
+        pushInstanceFileIcons();
     }
 }
 
@@ -7495,6 +7524,11 @@ void MainWindow::openInstanceSettings(const QString &versionId) {
         dialog.setShaderUsable(instanceShaderUsable(id));
         dialog.setSchematicUsable(instanceHasMod(id, QStringLiteral("litematica")));
         loadServerList(&dialog, id);
+        // 那几页里那些资源文件（模组 / 资源包 / 数据包 / 光影包）的图标（2026-09-27）：
+        // 按文件内容反查，**在后台线程上跑**，回来了一个一个换上去（见那一支）。
+        // 摆在这儿而不是摆在开窗那一刻：改名会让整个实例换一个目录，那批路径跟着全换，
+        // 图标也得按新路径重认一遍（旧的那一页那时还画着老目录那些条的图）。
+        requestInstanceFileIcons(&dialog, id);
     };
     refreshInstanceDirs(targetId);
 
@@ -7555,6 +7589,12 @@ void MainWindow::openInstanceSettings(const QString &versionId) {
             });
     // 「测速」：只重测。两条都排在 execPage 之前（见上面那段 NOTE）。
     connect(&dialog, &InstanceSettingsDialog::pingServersRequested, this,
+            [this, &dialog, &targetId]() { pingServers(&dialog, targetId); });
+    // ★ 「点进去就自动测速」（用户 2026-09-27 原话）。这一发是**切到那一页**发出来的
+    //   （见 InstanceSettingsDialog::applyFilePage），和上面那两条"用户按了某颗按钮"不是
+    //   一回事。它每一页都会发一次 —— 用户切走再切回来就又测一遍，而"已经在跑"那一趟
+    //   不会被重开（见 pingServers 里那道闸）。
+    connect(&dialog, &InstanceSettingsDialog::serverPageEntered, this,
             [this, &dialog, &targetId]() { pingServers(&dialog, targetId); });
 
     // ---------- 「改了就写」那两条（2026-09-26）----------
@@ -7719,56 +7759,146 @@ void MainWindow::pingServers(InstanceSettingsDialog *dialog, const QString &vers
         return;
     }
 
-    // ---------- 一、先把整张表摆成"正在测" ----------
+    // ---------- 已经有一趟在跑：只把界面接回来，不重开 ----------
     //
-    // 一条一条问、问到哪条填哪条（见下面那个 processEvents）：这样用户看得见它在往下走，
-    // 而不是盯着一个不动的表等四秒。
-    QList<InstanceSettingsDialog::ServerRowStatus> running;
-    running.resize(servers.size());
-    dialog->setServerStatuses(running);
-    dialog->setServerPinging(true);
-
-    // ---------- 二、一台一台问 ----------
-    //
-    // **同步、串行**（和 ServerPing 那条"为什么同步"同源）：服务器列表通常就是几条，
-    // 串起来问已经够快；为了省那几百毫秒去养一套并发状态机，值不当。每台之间让界面转
-    // 一圈 —— 转的是**除用户输入以外**的事件（光标 / 重画都会走），所以用户看到的这张表
-    // 是活的，而"测到一半把设置页关掉"这条不会从这儿进来（关窗也是用户输入）。
-    //
-    // NOTE: 每一台都先把结果写进去再问下一台 —— 顺序反过来（问完一起写）的话，一行
-    //       "还在测"的也没有，用户看到的是四秒钟的静止画面。
-    QList<InstanceSettingsDialog::ServerRowStatus> results;
-    results.reserve(servers.size());
-    for (const QPair<QString, QString> &server : servers) {
-        const ServerPing::Status pinged = ServerPing::ping(server.second);
-
-        InstanceSettingsDialog::ServerRowStatus row;
-        row.tested = true;
-        row.online = pinged.ok;
-        row.error = pinged.error;
-        row.latencyMs = pinged.latencyMs;
-        row.playersOnline = pinged.playersOnline;
-        row.playersMax = pinged.playersMax;
-        row.motd = pinged.motd;
-        if (!pinged.iconPng.isEmpty()) {
-            QPixmap icon;
-            // 解不出来就**不画图标**（而不是画一张破图）：favicon 是服务器给的字节，
-            // 我们只是把它画出来，它坏掉不是我们的错，但把它画成一团乱码会让人以为
-            // 是我们画错了。`loadFromData` 失败时 pixmap 是空的，正好走这一档。
-            if (icon.loadFromData(pinged.iconPng, "PNG")) {
-                row.icon = QIcon(icon);
-            }
-        }
-        results.append(row);
-
-        // 已经问过的这几条立刻上屏（还没问的那几条保持"还没测"）。
-        dialog->setServerStatuses(results);
-        QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+    // 两种时候会走到这儿：①「测速」那颗按钮点得快（它自己也防了一手，但自动测速那条路上
+    // 没有那颗按钮挡着）；②用户切到别的页又切回服务器列表（每一趟"点进去"都发一次
+    // serverPageEntered()）。两件事都不该让这一趟重开 —— 重开的话每一台都要重新等一次
+    // 超时，而且**已经问回来的那几台会被打回"还没测"**（那一张表看着像倒退了）。
+    if (m_serverPing.active) {
+        // 这一次的 dialog 可能**不是**上一趟那一个（用户把设置页关掉、又重开了一个）：
+        // 换过去，然后把已经攒下的结果摆上这一页。
+        m_serverPing.dialog = dialog;
+        pushServerPingRows();
+        dialog->setServerPinging(true);
+        return;
     }
 
-    dialog->setServerStatuses(results);
-    dialog->setServerPinging(false);
+    // ---------- 开一趟新的 ----------
+    //
+    // ★ 顺序：**先把地址和盘上缓存读好**（这一段是纯读盘，几 KB，不碰网络），再把表摆上，
+    //   最后才让线程跑起来。反过来（先 start 再摆表）的话，第一台几乎必然在"表还没摆好"
+    //   的时候就回来了 —— 那一发是按下标写某一行的，行还不在，结果就丢了。
+    ServerPingRun run;
+    run.dialog = dialog;
+    run.addresses.reserve(servers.size());
+    for (int i = 0; i < servers.size(); ++i) {
+        const QString &address = servers.at(i).second;
+        run.addresses.append(address);
+        // 上一次问到的那份（可能没有）。它是**垫底**的：真结果回来之前先让那一格有东西，
+        // 回来之后整条盖掉（用户 2026-09-27 原话：「测出来的motd和图案保留在缓存里」）。
+        const ServerStatusCache::Entry entry = ServerStatusCache::load(address);
+        if (entry.valid) {
+            run.cached.insert(i, entry);
+        }
+    }
+    run.active = true;
+    m_serverPing = run;
+
+    pushServerPingRows();
+    dialog->setServerPinging(true);
+    // 整趟交给后台线程（一台问完回来一台）。**这一句立刻返回** —— 用户在这几秒里翻页、
+    // 点别的按钮、关掉这一页，都不受它影响（见 ServerPing::Pinger 文件头那段）。
+    m_serverPinger->start(run.addresses);
 }
+
+void MainWindow::pushServerPingRows() {
+    InstanceSettingsDialog *dialog = m_serverPing.dialog;
+    if (dialog == nullptr) {
+        // 那一页已经关掉了（用户在这几秒里关的）。结果照旧落缓存（见 onServerPingOne），
+        // 界面上一格都不碰 —— 这正是 ServerPingRun::dialog 是弱引用的那件事。
+        return;
+    }
+    // 三样东西摆在一张表上，**一台一台决定**：
+    //   fresh   —— 这一趟真的问回来了，用它（最权威）；
+    //   cached  —— 还没问到，拿上一次那份垫着（状态那一格会写明「上次：」）；
+    //   都没有  —— 「还没测」。
+    QList<InstanceSettingsDialog::ServerRowStatus> rows;
+    rows.reserve(m_serverPing.addresses.size());
+    for (int i = 0; i < m_serverPing.addresses.size(); ++i) {
+        InstanceSettingsDialog::ServerRowStatus row;
+        if (m_serverPing.fresh.contains(i)) {
+            const ServerPing::Status status = m_serverPing.fresh.value(i);
+            row.tested = true;
+            row.online = status.ok;
+            row.error = status.error;
+            row.latencyMs = status.latencyMs;
+            row.playersOnline = status.playersOnline;
+            row.playersMax = status.playersMax;
+            row.motd = status.motd;
+            row.motdRaw = status.motdRaw;
+            if (!status.iconPng.isEmpty()) {
+                QPixmap icon;
+                // 解不出来就**不画图标**（而不是画一张破图）：favicon 是服务器给的字节，
+                // 我们只是把它画出来，它坏掉不是我们的错，但把它画成一团乱码会让人以为
+                // 是我们画错了。`loadFromData` 失败时 pixmap 是空的，正好走这一档。
+                if (icon.loadFromData(status.iconPng, "PNG")) {
+                    row.icon = QIcon(icon);
+                }
+            }
+        } else if (m_serverPing.cached.contains(i)) {
+            const ServerStatusCache::Entry entry = m_serverPing.cached.value(i);
+            row.tested = true;
+            row.fromCache = true;
+            row.online = entry.online;
+            row.latencyMs = entry.latencyMs;
+            row.playersOnline = entry.playersOnline;
+            row.playersMax = entry.playersMax;
+            row.motdRaw = entry.motdRaw;
+            // 悬停提示用的是**洗过**那一份，缓存里只存了原串 ⇒ 这儿现洗一遍（纯函数，
+            // 见 ServerPing::cleanMotd）。不洗的话提示里会带一串 `§a` 码，读起来是乱码。
+            row.motd = ServerPing::cleanMotd(entry.motdRaw);
+            if (!entry.iconPng.isEmpty()) {
+                QPixmap icon;
+                if (icon.loadFromData(entry.iconPng, "PNG")) {
+                    row.icon = QIcon(icon);
+                }
+            }
+        }
+        rows.append(row);
+    }
+    dialog->setServerStatuses(rows);
+}
+
+void MainWindow::onServerPingOne(int index, const ServerPing::Status &status) {
+    if (!m_serverPing.active) {
+        // 这一趟已经收摊了（用户把设置页关掉之后我们清过状态）。照收，不写。
+        return;
+    }
+    const QString address = m_serverPing.addresses.value(index);
+    if (address.isEmpty()) {
+        return;
+    }
+
+    // ---------- 先落缓存，再上屏 ----------
+    //
+    // 这是个**后台线程发过来的结果**：用户随时可能把这一页关掉、把这个窗口关掉。先写盘，
+    // 那几个字节就是"下一次打开这一页先摆什么"的全部依据（见 ServerStatusCache）。
+    // 写盘失败是静默的（那是个锦上添花的东西，见它的声明）。
+    ServerStatusCache::Entry entry;
+    entry.valid = true;
+    entry.motdRaw = status.motdRaw;
+    entry.iconPng = status.iconPng;
+    entry.online = status.ok;
+    entry.latencyMs = status.latencyMs;
+    entry.playersOnline = status.playersOnline;
+    entry.playersMax = status.playersMax;
+    ServerStatusCache::save(address, entry);
+
+    m_serverPing.fresh.insert(index, status);
+    pushServerPingRows();
+}
+
+void MainWindow::onServerPingAllFinished() {
+    if (m_serverPing.dialog != nullptr) {
+        m_serverPing.dialog->setServerPinging(false);
+    }
+    // ★ `fresh` / `cached` **留着不清**：这一趟问到的那些（以及垫底的那些）正是"这一页
+    //   现在该显示的样子"，下一次 pushServerPingRows() 还要靠它们。清掉的只是"在跑"这
+    //   一位 —— 下一次 pingServers() 会整份重来（那时候缓存里已经是刚写下去的那份了）。
+    m_serverPing.active = false;
+}
+
 
 bool MainWindow::toggleInstanceFile(const QString &path) {
     const QFileInfo info(path);
@@ -7860,6 +7990,185 @@ bool MainWindow::deleteInstanceFile(const QString &path) {
     }
     appendLog(tr("删除文件：%1").arg(QDir::toNativeSeparators(path)));
     return true;
+}
+
+// ---------- 「文件管理」那几页的图标（2026-09-27）----------
+
+QString MainWindow::instanceIconCacheKey(const QString &path) {
+    // 路径 + 大小 + 修改时间。**三样都要**（理由见声明处那条 NOTE）：只按路径键住的话，
+    // "删掉一个模组、往同一个名字上放另一个"这一形态会让那一格一直画着上一个资源的图标。
+    // 分隔符用 `\n`（一个文件名里不可能有它，而且它不会和路径里那些 `|` 打架）。
+    const QFileInfo info(path);
+    return path + QLatin1Char('\n') + QString::number(info.size()) + QLatin1Char('\n') +
+           QString::number(info.lastModified().toMSecsSinceEpoch());
+}
+
+QStringList MainWindow::instanceIconCandidatePaths(const QString &versionId) const {
+    const QHash<QString, QString> dirs = instanceFileDirs(versionId);
+    // 五个目录：四个能下载的（模组 / 资源包 / 数据包 / 光影包）+ 原理图。**不含存档**
+    // （那一页全是目录，而一个存档不是一个能反查的资源）。原理图那一页大多是
+    // `.litematic`（`isLookupCandidate()` 会把它们筛掉），但用户往里放 `.zip` 也是常事。
+    const QStringList keys = {QStringLiteral("mod"), QStringLiteral("resourcepack"),
+                              QStringLiteral("datapack"), QStringLiteral("shader"),
+                              QStringLiteral("schematic")};
+    QStringList paths;
+    for (const QString &key : keys) {
+        const QDir dir(dirs.value(key));
+        if (!dir.exists()) {
+            continue;
+        }
+        const QFileInfoList entries =
+            dir.entryInfoList(QDir::Files | QDir::NoDotAndDotDot, QDir::Name);
+        for (const QFileInfo &info : entries) {
+            // 只收 `.jar` / `.zip`（禁用着的那些也算，见 isLookupCandidate）。
+            if (InstanceIconLookup::isLookupCandidate(info.absoluteFilePath())) {
+                paths.append(info.absoluteFilePath());
+            }
+        }
+    }
+    return paths;
+}
+
+void MainWindow::requestInstanceFileIcons(InstanceSettingsDialog *dialog, const QString &versionId) {
+    if (dialog == nullptr) {
+        return;
+    }
+    // 这一页现在是谁 —— 结果回来时按它认人（见 InstanceIconRun::dialog 那段）。
+    m_instanceIcons.dialog = dialog;
+    m_instanceIcons.paths = instanceIconCandidatePaths(versionId);
+    // 已经知道的先摆上：这一趟要问的那几个还在路上，但上一趟问到的、以及这一趟里
+    // "已经问过、没有"的那些，现在就该是对的（不是等整个后台线程跑完才一起摆）。
+    pushInstanceFileIcons();
+
+    // ★ 已经有一趟在跑就**到此为止**：同一个实例的目录列表前后差不了多少，重开一趟等于
+    //   把已经在读的那几十兆重读一遍、把已经在问的那几发重问一遍（而且负缓存会被写坏：
+    //   先前那一趟的结果回来时，这一趟已经把同一批文件又标成"在问"了）。
+    if (m_instanceIcons.active) {
+        return;
+    }
+
+    // 还没问过的那些：会话缓存里两样都没有的。
+    QStringList missing;
+    for (const QString &path : m_instanceIcons.paths) {
+        const QString key = instanceIconCacheKey(path);
+        if (m_instanceFileIcons.contains(key) || m_instanceIconMissing.contains(key)) {
+            continue;
+        }
+        missing.append(path);
+    }
+    if (missing.isEmpty()) {
+        // 一个都不缺（多半是刚关掉又打开、而且上一趟已经把这一批问完了）。
+        return;
+    }
+
+    InstanceIconLookup::Options options;
+    // 三个口子和 ResourceStore / VersionManager 那两处**同一份设置**（CurseForge 的 key
+    // 是用户自己填的那一份；两个 override 只有验证工程会写）。
+    options.curseForgeApiKey = m_settings->curseForgeApiKey();
+    options.modrinthApiBaseOverride = m_settings->modrinthApiBaseOverride();
+    options.curseForgeApiBaseOverride = m_settings->curseForgeApiBaseOverride();
+
+    // 上一趟那个线程对象还挂着（跑完了，但 deletion 还排着队）：先放它走 —— 不收拾的话
+    // 每问一次就在父对象底下攒一个僵尸 QThread（同 ServerPing::Pinger::start() 那段）。
+    if (m_instanceIconThread != nullptr) {
+        m_instanceIconThread->deleteLater();
+        m_instanceIconThread = nullptr;
+    }
+
+    m_instanceIcons.active = true;
+    appendLog(tr("正在认「%1」里的资源图标（%2 个文件）...")
+                  .arg(instanceDisplayName(versionId))
+                  .arg(missing.size()));
+    // `QThread::create` 那个重载收一个函数对象（Qt 5.10 起），省掉"再写一个 QThread 子类
+    // 并在 .cpp 里 moc"。结果**回主线程那一句走 invokeMethod 的 functor 重载**（而不是
+    // 一个带自定义类型参数的信号）：那样连元类型都不用登记 —— 那个 functor 是被拷进事件
+    // 里带过去的，中间不过 QVariant（`InstanceIconLookup::Result` 里那两层容器要按
+    // Q_DECLARE_METATYPE 一层层登记才对，漏一层就是**静默**收不到，见 ServerPing 里那条）。
+    m_instanceIconThread = QThread::create([this, missing, options]() {
+        const InstanceIconLookup::Result result = InstanceIconLookup::lookup(missing, options);
+        QMetaObject::invokeMethod(
+            this, [this, result]() { onInstanceIconLookupFinished(result); },
+            Qt::QueuedConnection);
+    });
+    m_instanceIconThread->setParent(this);
+    m_instanceIconThread->start();
+}
+
+void MainWindow::onInstanceIconLookupFinished(const InstanceIconLookup::Result &result) {
+    m_instanceIcons.active = false;
+
+    // ---------- ① 认出来的：换成一个"资源身份"，交给 ResourceStore 去取那张图 ----------
+    //
+    // 到这里为止拿到的是"这个文件的哈希属于哪个项目"，**图还没有**。取图的活交给
+    // ResourceStore（它有一套现成的两级缓存 + 条件请求 + 挑 webp/PNG 那套判断），
+    // 这一层只是把身份递给它。
+    QSet<QString> foundPaths;
+    for (const InstanceIconLookup::Found &found : result.found) {
+        ResourceCatalog::Hit hit;
+        hit.projectId = found.projectId;
+        hit.source = found.source;
+        hit.iconUrl = found.iconUrl;
+        hit.iconFallbackUrl = found.iconFallbackUrl;
+        // 这一条文件属于哪一格（`<来源>-<项目号>`）—— 图标回来时按它找回**行**（见
+        // onResourceIconReady）。同一个资源被反查出来两次（同一个 jar 摆了两份）时
+        // 两条路径都记上：两张图本来就该是同一张。
+        const QString iconKey = hit.iconCacheId();
+        QStringList &paths = m_instanceIcons.pathsByIconKey[iconKey];
+        if (!paths.contains(found.path)) {
+            paths.append(found.path);
+        }
+        foundPaths.insert(found.path);
+        // 已经在问 / 已经在缓存里的话 requestIcon() 自己会处理（可能**同步**就把 iconReady
+        // 发出来了 —— 那时候上面那一行必须先写完，见它那条 NOTE）。
+        m_resourceStore->requestIcon(hit);
+    }
+
+    // ---------- ② 没认出来的那一批 ----------
+    //
+    // ★ 判据是 `result.problem`：只有**整趟完整跑完**了才把"没有"记下来。断网那一趟
+    //   要是也记，用户这一整个会话都再也看不到图标了 —— 而那本来是"网好了就会有"
+    //   （见 m_instanceIconMissing 那段）。problem 非空时还有一个后果：①里那些**认出来了
+    //   的**照旧记账（那是真的），只是不再问第二遍。
+    const bool complete = result.problem.isEmpty();
+    if (!complete) {
+        // 只记一句日志、**不弹窗**：图标取不到是常态（自己改过的 jar、作者没传过的、
+        // 断网的），画个占位拼图就是正确的界面 —— 它挡不住用户做任何事。
+        appendLog(tr("资源图标没查完：%1").arg(result.problem));
+    }
+    for (const QString &path : m_instanceIcons.paths) {
+        if (foundPaths.contains(path)) {
+            continue;
+        }
+        if (complete) {
+            m_instanceIconMissing.insert(instanceIconCacheKey(path));
+        }
+        // 记不上也要摆：这一条现在还是一张占位图（见 InstanceFilesPage::iconForPath），
+        // 而"这一条问过了、没有"这件事在这一页活着的时候得记住 —— 不然用户点一下
+        // 「刷新」，那一格又变回"还没问"的样子。
+    }
+    if (result.unreadable > 0) {
+        appendLog(tr("有 %1 个文件读不动（多半被别的程序占着），这一批里没有它们的图标。")
+                      .arg(result.unreadable));
+    }
+    pushInstanceFileIcons();
+}
+
+void MainWindow::pushInstanceFileIcons() {
+    InstanceSettingsDialog *dialog = m_instanceIcons.dialog;
+    if (dialog == nullptr) {
+        return;
+    }
+    for (const QString &path : m_instanceIcons.paths) {
+        const QString key = instanceIconCacheKey(path);
+        const auto cached = m_instanceFileIcons.constFind(key);
+        if (cached != m_instanceFileIcons.constEnd()) {
+            dialog->setFileIcon(path, cached.value());
+        } else if (m_instanceIconMissing.contains(key)) {
+            // 空 pixmap = "问过了、没有" ⇒ 那一格摆占位拼图（见 setIconForPath）。
+            dialog->setFileIcon(path, QPixmap());
+        }
+        // 两样都没有 = 还没问回来 ⇒ **什么都不做**，那一格现在摆的就是占位图。
+    }
 }
 
 bool MainWindow::applyInstanceSettings(const QString &versionId,

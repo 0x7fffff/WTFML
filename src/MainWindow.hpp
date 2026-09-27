@@ -13,6 +13,10 @@
 #include <QJsonObject>
 #include <QMainWindow>
 #include <QPixmap>
+// QPointer<InstanceSettingsDialog> —— 那一趟测速里对"设置页还在不在"的那一份弱引用
+// （见 ServerPingRun）。用裸指针的话，用户把设置页关掉之后回来的那些结果会往一个已经
+// 析构了的对话框上写：那是 **use-after-free**，不是"多画一笔"。
+#include <QPointer>
 #include <QProcess>
 #include <QSet>
 
@@ -29,9 +33,19 @@
 // 那些 QtCore 的东西，不拖 QtWidgets），所以按值用就 include，不去走前置声明那一套。
 #include "download/LoaderMeta.hpp"
 #include "download/ResourceCatalog.hpp"
+// ServerStatusCache::Entry / ServerPing::Status —— 「服务器列表」那一趟测速的状态里
+// 两样都按值存一份（见 m_serverPing）。两个头都很轻（QByteArray/QString 那一档），
+// 所以按值用就 include，不去走"前置声明 + 指针"那一套。
+#include "manage/ServerStatusCache.hpp"
 // 只为了 applyModpackImport() 签名里那个 ModpackImport::Format（两种整合包清单）。
 // 那个枚举没有固定的底层类型，前置声明不了，所以这里带进来。
 #include "manage/ModpackImport.hpp"
+// InstanceIconLookup::Result —— 「文件管理」那几页的图标反查结果按值收一份（见
+// requestInstanceFileIcons）。这个头只碰 QtCore + ResourceCatalog 那个枚举。
+#include "manage/InstanceIconLookup.hpp"
+// ServerPing::Status / ServerPing::Pinger —— 上面那个"一趟测速"的状态，以及跑它的那件
+// 东西（见 pingServers()）。这个头只碰 QtCore（QObject/QByteArray/QJsonValue），很轻。
+#include "util/ServerPing.hpp"
 
 class MainWindowUI;
 // 安装页那棵加载器树上的一个条目（loaderItem()）。这里只在私有函数的参数/返回值里按
@@ -39,6 +53,7 @@ class MainWindowUI;
 // 地方都把 QtWidgets 里那个大块头拖进来。
 class QTreeWidget;  // 下载页那几张资源表（只用指针和引用，所以前置声明够）
 class QTreeWidgetItem;
+class QThread;  // 图标反查那一趟（见 m_instanceIconThread），同上只按指针持有
 class LauncherManager;
 class AuthManager;
 class FolderManager;
@@ -404,10 +419,17 @@ private slots:
 
     /// 问一遍每台服务器现在什么样，把结果灌回那一页（2026-09-27，见 .cpp 里那段）。
     ///
-    /// NOTE: **同步**跑完（一台接一台，最多 N × ServerPing::timeoutMs()），每台之间让
-    ///       界面转一圈。所以它只能从界面上那一发（「测速」/「刷新」）进来 —— 别在
-    ///       启动、下载那些路上顺手调它。
+    /// ★ 2026-09-27 起它**不再自己等**：整趟交给后台线程上的 `ServerPing::Pinger`，一台
+    ///   问完回来一台（用户原话：「现在如果没测完会锁住其他按钮，不能这样」）。所以这一发
+    ///   立刻返回，界面在这几秒里照常能用 —— 「测速」那颗按钮自己显示「测速中…」，
+    ///   别的都不禁用。
+    ///
+    /// NOTE: 重复调用是**安全的**：已经有一趟在跑时它只把界面接回来（换到新开的那一页、
+    ///       把已经攒下的结果摆上去），不重开一趟（见 .cpp 里那段）。
     void pingServers(InstanceSettingsDialog *dialog, const QString &versionId);
+
+    /// 把 `m_serverPing` 现在攒下的东西摆到那一页上。**没开着就什么都不做**。
+    void pushServerPingRows();
 
     /// 启用 / 禁用一条：把文件名改成 `<原名>.disabled`，或者反过来。
     /// @return **动过盘没有** —— 真了调用点才需要让那一页重列（没动过还重列会让用户
@@ -416,6 +438,36 @@ private slots:
 
     /// 删掉一条（**先问一句**；文件夹连同里面的东西一起删）。@return 同 toggleInstanceFile()。
     bool deleteInstanceFile(const QString &path);
+
+    /// 把「文件管理」那几页里那些**资源文件**的图标要回来（2026-09-27）。
+    ///
+    /// ★ 用户原话：「模组和资源包等都有一个图标，把图标显示出来」。盘上那个文件名**不是
+    ///   身份**（用户改过名、各家起名不一样），所以"这是哪个资源"只能按**文件内容**反查
+    ///   （sha1 → Modrinth、指纹 → CurseForge，见 `InstanceIconLookup`）。那几发是网络，
+    ///   而算哈希要读一遍整个文件 —— 两样都**不能在界面线程上做**（用户对"锁住其他按钮"
+    ///   的意见见 pingServers 那段）。
+    ///
+    /// 所以这一发只做三件事：列一遍候选文件、把**已经知道的**先摆上去、需要问的丢给后台
+    /// 线程。重复调用是安全的：已经有一趟在跑时不重开（只把界面接回新开的那一页）。
+    void requestInstanceFileIcons(InstanceSettingsDialog *dialog, const QString &versionId);
+
+    /// 后台那一趟回来了。见 .cpp 里那一段。
+    void onInstanceIconLookupFinished(const InstanceIconLookup::Result &result);
+
+    /// 把**现在知道的**那些图标摆到正开着的那一页上（没开着就什么都不做）。
+    /// 「图标到手」和「新开了一页」两条路都走它 —— 两处各摆一遍的话，两边的判据迟早漂开。
+    void pushInstanceFileIcons();
+
+    /// 这一条文件的**缓存钥匙**：路径 + 大小 + 修改时间。
+    ///
+    /// NOTE: 为什么要带上后两样（而不是只按路径）：路径复用了、内容换了的形态是**真的
+    ///       会发生的**（删掉一个模组、换上另一个同名文件），只按路径键住的话，那一格会
+    ///       一直画着**上一个**资源的图标 —— 不报错、看着也像张正经图标，只有用户认得出来。
+    static QString instanceIconCacheKey(const QString &path);
+
+    /// 这个实例里那些**可能查得到图标**的文件（绝对路径）：四个能下载的目录 + 原理图，
+    /// 只要 `.jar` / `.zip`（判据是 `InstanceIconLookup::isLookupCandidate()`）。
+    QStringList instanceIconCandidatePaths(const QString &versionId) const;
     /// 「导入整合包…」：选文件 → 读清单 → 问名字 → 换地址 → 确认 → 交给 applyModpackImport()。
     ///
     /// 读的是压缩包根目录里那一份清单（ZipUtil::readEntry，**不整包解开**：用户随手选一个
@@ -624,6 +676,11 @@ private:
                                     const QList<ResourceCatalog::VersionEntry> &versions,
                                     const QString &problem);
     void onResourceIconReady(const QString &iconId, const QPixmap &icon);
+
+    /// 服务器那一趟测速：一台问完了 / 全问完了（都从**工作线程**发出来，Qt 自己排队投递到
+    /// 主线程，所以这两个函数里可以随便碰界面）。
+    void onServerPingOne(int index, const ServerPing::Status &status);
+    void onServerPingAllFinished();
     /// 从请求钥匙反查是哪一类（钥匙是 ResourceCatalog::searchRequestKey() 拼的）。
     /// 拼和认都走那一个函数，所以这里不解析字符串。
     ///
@@ -1176,6 +1233,72 @@ private:
     /// 下载页那几类资源的取数（搜索 / 版本列表 / 图标）。**异步**的 —— 搜索框里连敲几次
     /// 回车也不会把界面卡住（见 ResourceStore.hpp 文件头那段）。
     ResourceStore *m_resourceStore;
+
+    // ---------- 「服务器列表」那一趟测速（2026-09-27）----------
+    //
+    /// 一趟测速的状态。
+    ///
+    /// ★ 为什么要有这么一个东西：测速从 2026-09-27 起跑在**后台线程**上、一台一台排队
+    ///   回来，而结果回来的时候"用户还在不在那一页""那一页还在不在"都是不确定的
+    ///   （这几秒里他完全可能把设置页关掉、去点别的东西）。所以：
+    ///     * `dialog` 是**弱引用** —— 关掉之后它是空的，那些回来的结果就只写缓存、不碰界面
+    ///       （往一个已经析构的对话框上写是 use-after-free，不是"多画一笔"）；
+    ///     * `fresh` / `cached` 的键是**服务器在 servers.dat 里的下标**（`Pinger` 的信号
+    ///       带的就是那个下标），所以"哪一台问回来了"和"哪一台还只有上次那份"分得清。
+    struct ServerPingRun {
+        QPointer<InstanceSettingsDialog> dialog;
+        /// 地址表（就是发给 Pinger 的那一份），下标 ↔ servers.dat 里的行。
+        QStringList addresses;
+        /// 盘上缓存里"上一次问到"的那一份（键是下标）。**只在 fresh 里没有它时才用**。
+        QHash<int, ServerStatusCache::Entry> cached;
+        /// 这一趟真的问回来的（键是下标，同一台问了第二次也覆盖它）。
+        QHash<int, ServerPing::Status> fresh;
+        /// 现在算不算"有一趟在跑"。**这一位是权威**（`Pinger::running()` 只说线程在不在，
+        /// 而"线程跑完了、结果还在排队"的那一小会儿它已经是假了）。
+        bool active = false;
+    };
+    ServerPingRun m_serverPing;
+    /// 跑那一趟的东西（见 ServerPing::Pinger）。**整个窗口只有一个**：同一时刻只跑一趟，
+    /// 连点两下不会发两遍请求（start() 自己那条"已经在跑就不重开"）。
+    ServerPing::Pinger *m_serverPinger;
+
+    // ---------- 「文件管理」那几页的图标（2026-09-27）----------
+    //
+    /// 一趟图标反查的状态。形状和上面那趟测速**故意是一样的**（弱引用 + 后台线程 +
+    /// 结果回来时"那一页还在不在"不确定），理由也逐字相同。
+    struct InstanceIconRun {
+        /// 现在开着的那一页。**弱引用** —— 关掉之后它是空的，回来的图标就只进缓存、
+        /// 不碰界面（往一个析构了的对话框上写是 use-after-free）。
+        QPointer<InstanceSettingsDialog> dialog;
+        /// 这一趟列出来的候选文件（绝对路径）。回灌那一步走的就是它 —— 只摆这一份里的，
+        /// 而不是把整张会话缓存（可能上千条）挨个问那六页一遍。
+        QStringList paths;
+        /// `Hit::iconCacheId()`（带来源前缀）→ 认得出这个资源的那些**文件**。
+        ///
+        /// 反过来的方向（一个文件 → 它的 iconId）在下面那张表里；这一张是给
+        /// `onResourceIconReady()` 用的：图标是按身份回来的，而屏幕上要换的是**行**。
+        /// NOTE: 跨对话框累积（同一个资源在别的实例里也有，那张图本来就该两边都画上）。
+        QHash<QString, QStringList> pathsByIconKey;
+        /// 现在算不算"有一趟在跑"。**这一位是权威**（见 requestInstanceFileIcons 里那道闸）。
+        bool active = false;
+    };
+    InstanceIconRun m_instanceIcons;
+    /// 跑那一趟的线程。`QThread::create()` 出来的（省掉"再写一个 QThread 子类"，
+    /// 同 ServerPing::Pinger 里那条 NOTE）。跑完就 deleteLater（见 .cpp 里那段）。
+    QThread *m_instanceIconThread = nullptr;
+    /// **会话级**的真图标缓存，键是 `instanceIconCacheKey()`（路径 + 大小 + 时间）。
+    ///
+    /// 为什么要有（而不是"每次都重新反查"）：那张图是一次读盘 + 联网换来的，而用户关掉
+    /// 设置页再打开是很平常的一件事（改个开关就要进去一次）—— 每次重来一遍的话，一列
+    /// 几十个 jar 要重新读一遍（几百 MB），而且那几秒里图标是占位图。值**可以是空
+    /// pixmap**（见 m_instanceIconMissing 那段）。
+    QHash<QString, QPixmap> m_instanceFileIcons;
+    /// 问过了、**没有**图标的那一批（同一把钥匙）。存它只为一件事：别把同一个文件问第二遍。
+    ///
+    /// ★ 只有"这一趟**完整跑完**了"才会往里写（`Result::problem` 空，见
+    ///   onInstanceIconLookupFinished）。断网那一趟要是也记成"没有"，用户这一整个会话就
+    ///   再也看不到图标了 —— 而那本来是"网好了就会有"。
+    QSet<QString> m_instanceIconMissing;
     /// 已经问回来的版本列表，按**请求钥匙**存（ResourceCatalog::versionsRequestKey()）。
     /// 点第三层那一下要拿它换出 URL / sha1 / 大小。
     /// NOTE: 那些事实**不放在条目上**：条目在重搜时会被整个清掉，而"这一版的文件是哪几个"

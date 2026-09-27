@@ -8,10 +8,12 @@
 
 #include <QAbstractSocket>
 #include <QElapsedTimer>
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTcpSocket>
+#include <QThread>
 
 namespace {
 
@@ -79,6 +81,171 @@ QString flattenMotd(const QJsonValue &value) {
         return all;
     }
     return QString();
+}
+
+/// 「富文本那一版」展平：**把颜色和字形翻译成 `§` 码**发出来（见 motdRaw()）。
+///
+/// 和上面那个 flattenMotd() 的差别只有一件事：那个只取字，这个还要把
+/// `"color": "red"` / `"bold": true` 那些**翻回 `§c` / `§l`**。为什么绕这一圈：JSON 那一
+/// 层是"结构化"的、`§` 是"一串字符"的，而**画的那一层只认后者**（`ServerPing` 这一层不
+/// 碰 QtGui，见文件头那条"不开图形依赖"—— 所以颜色不能在这一层变成 QColor）。
+///
+/// 【继承怎么算】
+///
+/// 组件格式里子元素**继承**父元素没写的那几项（`{"color":"red","extra":[{"text":"x"}]}`
+/// 里那个 x 也是红的），而 `§` 码是"从这里往后都算"的**增量**记号 —— 两边对不上，所以
+/// 这里带着一份 `state` 往下走：进一个元素时按它自己写了哪几项改 state，退出时还原
+/// （兄弟之间不继承，只有父子继承）。
+///
+/// NOTE: `"bold": false` 这种**明写关掉**才是关掉（不写就是继承）。要关掉一个字形只能
+///       发 `§r`，而 `§r` 连颜色一起清 —— 所以关任何一位之前先把颜色复位再补回来，
+///       不然症状是"那一小段的颜色莫名变成白的"。
+struct MotdState {
+    QString colorCode;  ///< `§` 后面那一串（`c` / `x§f§f§0§0§0§0`）；空 = 没指定
+    bool bold = false;
+    bool italic = false;
+    bool underline = false;
+    bool strike = false;
+};
+
+/// 具名颜色 → `§` 后面那一串。表里没有的（包括空串）回空。
+QString colorCodeForName(const QString &name) {
+    static const QHash<QString, QString> table = {
+        {QStringLiteral("black"), QStringLiteral("0")},
+        {QStringLiteral("dark_blue"), QStringLiteral("1")},
+        {QStringLiteral("dark_green"), QStringLiteral("2")},
+        {QStringLiteral("dark_aqua"), QStringLiteral("3")},
+        {QStringLiteral("dark_red"), QStringLiteral("4")},
+        {QStringLiteral("dark_purple"), QStringLiteral("5")},
+        {QStringLiteral("gold"), QStringLiteral("6")},
+        {QStringLiteral("gray"), QStringLiteral("7")},
+        {QStringLiteral("dark_gray"), QStringLiteral("8")},
+        {QStringLiteral("blue"), QStringLiteral("9")},
+        {QStringLiteral("green"), QStringLiteral("a")},
+        {QStringLiteral("aqua"), QStringLiteral("b")},
+        {QStringLiteral("red"), QStringLiteral("c")},
+        {QStringLiteral("light_purple"), QStringLiteral("d")},
+        {QStringLiteral("yellow"), QStringLiteral("e")},
+        {QStringLiteral("white"), QStringLiteral("f")},
+    };
+    return table.value(name);
+}
+
+/// `#RRGGBB` → `x§R§R§G§G§B§B`（1.16 之后那种写法，**每个分量前面都要一个 `§`**）。
+QString hexColorCode(const QString &text) {
+    if (text.size() != 7 || !text.startsWith(QLatin1Char('#'))) {
+        return QString();
+    }
+    QString digits = text.mid(1);
+    bool ok = false;
+    digits.toUInt(&ok, 16);
+    if (!ok) {
+        return QString();
+    }
+    QString code = QStringLiteral("x");
+    for (const QChar digit : digits) {
+        code += QChar(0x00A7);
+        code += digit;
+    }
+    return code;
+}
+
+/// 从 `state` 走到 @p to，把中间要发的 `§` 码拼出来，并把 `state` 推到 @p to。
+QString codesTo(const MotdState &to, bool explicitReset, MotdState *state) {
+    QString out;
+    MotdState cur = *state;
+    // ① 有哪一位要**关掉**（或者元素自己写了 `"color":"reset"`）：只能发 `§r`，它会把颜色
+    //    和字形一起清掉。
+    const bool anyOff = explicitReset || (cur.bold && !to.bold) || (cur.italic && !to.italic) ||
+                        (cur.underline && !to.underline) || (cur.strike && !to.strike) ||
+                        (to.colorCode.isEmpty() && !cur.colorCode.isEmpty());
+    if (anyOff) {
+        out += QChar(0x00A7);
+        out += QLatin1Char('r');
+        cur = MotdState();
+    }
+    // ② 颜色（`§r` 之后要重新补上，不然"关粗体"会顺手把颜色变成白的）。
+    if (!to.colorCode.isEmpty() && to.colorCode != cur.colorCode) {
+        out += QChar(0x00A7);
+        out += to.colorCode;
+        cur.colorCode = to.colorCode;
+    }
+    // ③ 字形（只加不减 —— 减那一半在 ① 里做过了）。
+    const auto turnOn = [&out](QLatin1Char code, bool want, bool *have) {
+        if (want && !*have) {
+            out += QChar(0x00A7);
+            out += code;
+            *have = true;
+        }
+    };
+    turnOn(QLatin1Char('l'), to.bold, &cur.bold);
+    turnOn(QLatin1Char('o'), to.italic, &cur.italic);
+    turnOn(QLatin1Char('n'), to.underline, &cur.underline);
+    turnOn(QLatin1Char('m'), to.strike, &cur.strike);
+    *state = cur;
+    return out;
+}
+
+QString flattenMotdRich(const QJsonValue &value, const MotdState &inherited, int depth) {
+    // 深度那一道是防"服务器给我们一份自己嵌自己的 JSON"（递归下去就是个栈溢出）。
+    // 组件格式真用起来不会超过几层；8 层之后不再往下走，字照收。
+    if (depth > 8) {
+        return value.isString() ? value.toString() : QString();
+    }
+    if (value.isString()) {
+        // 纯字符串那一档：**里面本来就可能带着 `§` 码**（真机上大多数服务器就是这么写的），
+        // 原样发出去，一个字都不动。
+        return value.toString();
+    }
+    if (value.isArray()) {
+        QString all;
+        const QJsonArray parts = value.toArray();
+        for (const QJsonValue &one : parts) {
+            all += flattenMotdRich(one, inherited, depth + 1);
+        }
+        return all;
+    }
+    if (!value.isObject()) {
+        return QString();
+    }
+
+    const QJsonObject obj = value.toObject();
+    MotdState state = inherited;
+    bool explicitReset = false;
+    if (obj.contains(QStringLiteral("color"))) {
+        const QString name = obj.value(QStringLiteral("color")).toString();
+        if (name == QLatin1String("reset")) {
+            explicitReset = true;
+            state.colorCode.clear();
+        } else if (name.startsWith(QLatin1Char('#'))) {
+            state.colorCode = hexColorCode(name);
+        } else {
+            state.colorCode = colorCodeForName(name);
+        }
+    }
+    const auto styleField = [&obj](const char *key, bool *out) {
+        const QJsonValue flag = obj.value(QString::fromLatin1(key));
+        if (flag.isBool()) {
+            *out = flag.toBool();
+        }
+    };
+    styleField("bold", &state.bold);
+    styleField("italic", &state.italic);
+    styleField("underlined", &state.underline);
+    styleField("strikethrough", &state.strike);
+
+    MotdState walk = inherited;
+    QString out = codesTo(state, explicitReset, &walk);
+    out += obj.value(QStringLiteral("text")).toString();
+    const QJsonValue extra = obj.value(QStringLiteral("extra"));
+    if (extra.isArray()) {
+        const QJsonArray parts = extra.toArray();
+        for (const QJsonValue &one : parts) {
+            // 子元素继承的是**这个元素**的状态（不是上面传下来的那一份）。
+            out += flattenMotdRich(one, state, depth + 1);
+        }
+    }
+    return out;
 }
 
 }  // namespace
@@ -219,6 +386,10 @@ QString motdText(const QJsonValue &description) {
     return cleanMotd(flattenMotd(description));
 }
 
+QString motdRaw(const QJsonValue &description) {
+    return flattenMotdRich(description, MotdState(), 0);
+}
+
 QByteArray decodeFavicon(const QString &dataUrl) {
     // 只认这一种形态（wiki.vg 上写死的就是它）。别的形态**不猜**：宁可不画图标，
     // 也不要画一个"猜出来的"东西 —— 那看起来像是服务器给了个坏图标。
@@ -341,6 +512,10 @@ Status ping(const QString &address) {
     status.ok = true;
     status.latencyMs = static_cast<int>(clock.elapsed());
     status.motd = motdText(root.value(QStringLiteral("description")));
+    // 同一格东西的**另一种写法**：留着 `§` 码和换行，给"照游戏里的样子画出来"用
+    // （见 motdRaw 那段）。两个都留着是有意的 —— 洗过的那份进 tooltip 和日志（一行、
+    // 可读），没洗的那份进列表（两行、带颜色）。
+    status.motdRaw = motdRaw(root.value(QStringLiteral("description")));
     status.versionName =
         root.value(QStringLiteral("version")).toObject().value(QStringLiteral("name")).toString();
     const QJsonObject players = root.value(QStringLiteral("players")).toObject();
@@ -352,6 +527,75 @@ Status ping(const QString &address) {
     }
     status.iconPng = decodeFavicon(root.value(QStringLiteral("favicon")).toString());
     return status;
+}
+
+void registerMetaTypes() {
+    // 名字**必须和 `Q_ARG` / 信号参数里写的一字不差**（`ServerPing::Status`）——
+    // 见 .hpp 末尾 Q_DECLARE_METATYPE 那条 NOTE。
+    qRegisterMetaType<ServerPing::Status>("ServerPing::Status");
+}
+
+Pinger::Pinger(QObject *parent) : QObject(parent) {
+    // 跨线程排队投递要先登记（见 registerMetaTypes）。构造一次就够，重复调用是幂等的。
+    registerMetaTypes();
+}
+
+Pinger::~Pinger() {
+    // **必须先叫停再等**：`QThread` 析构时还在跑会打一句警告，而且那个 lambda 手里攥着
+    // `this` —— 线程没停就把它删了，下一句 `emit` 就是野指针。
+    abort();
+    if (m_thread != nullptr) {
+        m_thread->wait();
+    }
+}
+
+void Pinger::start(const QStringList &addresses) {
+    if (running()) {
+        return;
+    }
+    if (addresses.isEmpty()) {
+        emit allFinished();
+        return;
+    }
+
+    // 上一趟那个线程对象还挂着（跑完了，但 deletion 还排着队）：先放它走。不管它的话，
+    // 用户每点一次「测速」就在父对象底下攒一个僵尸 QThread（一整个会话下来能攒几十个），
+    // 而且 `m_thread` 这个指针会被下一行覆盖、再也没人认领它。
+    // NOTE: 从**主线程**调 deleteLater 是安全的 —— 这个对象本来就住在主线程（它是在
+    //       start() 里 new 出来的），线程跑完了不欠任何东西。
+    if (m_thread != nullptr) {
+        m_thread->deleteLater();
+        m_thread = nullptr;
+    }
+
+    m_running.storeRelease(1);
+    const int total = addresses.size();
+    // `QThread::create` 那个重载收的是一个函数对象（Qt 5.10 起）—— **它省掉了"再写一个
+    // QThread 子类 + 在 .cpp 里 moc"**，而这个类本来也不需要线程自己有信号：结果是从
+    // 工作线程里 `emit` 主线程那个对象的信号，Qt 按接收方所在线程自动排队（这就是"跨线程
+    // 发信号"唯一要守的规矩）。
+    m_thread = QThread::create([this, addresses, total]() {
+        for (int i = 0; i < total; ++i) {
+            // 每一台之前查一次"被叫停没有"：abort() 之后最多再跑完手上这一台。
+            if (m_running.loadAcquire() == 0) {
+                break;
+            }
+            const ServerPing::Status status = ServerPing::ping(addresses.at(i));
+            emit oneFinished(i, status);
+        }
+        m_running.storeRelease(0);
+        emit allFinished();
+    });
+    m_thread->setParent(this);
+    m_thread->start();
+}
+
+void Pinger::abort() {
+    m_running.storeRelease(0);
+}
+
+bool Pinger::running() const {
+    return m_running.loadAcquire() != 0;
 }
 
 }  // namespace ServerPing

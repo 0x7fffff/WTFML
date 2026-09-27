@@ -29,9 +29,11 @@
  */
 #pragma once
 
+#include <QHash>
 #include <QString>
 #include <QWidget>
 
+class QAbstractButton;
 class QDateTime;
 class ElidedLabel;
 class QLabel;
@@ -83,6 +85,22 @@ public:
     /// 重新列一遍目录。切到这一页时、以及 MainWindow 动过盘之后都会调它。
     void refresh();
 
+    /// 给一条行换上**真图标**（资源作者传的那张：模组图标 / 资源包封面，2026-09-27）。
+    ///
+    /// 由 MainWindow 递进来（它才知道怎么按文件哈希反查出这是哪个资源、又怎么走
+    /// ResourceStore 那套图标缓存）—— 这一层不认识网络、也不认识"图标是哪来的"。
+    ///
+    /// @param path 这一条的**绝对路径**（就是 item 上 pathRole() 那一格）。
+    /// @param icon 那张图。**空 pixmap = 这条没有图标**，那一格退回占位图
+    ///        （不是画一个空白：空白和"还没查完"在屏幕上是同一个样子）。
+    /// @return 认不认得出这一条（false = 这一页上没有这个路径 —— 用户可能刚刷新过、
+    ///         或者已经删了它。**不是错误**，调用点什么都不用做）。
+    ///
+    /// NOTE: 递进来的每一张都**按路径记在页上**（`m_icons`），所以「刷新」之后再摆出来的
+    ///       那一行还是这张图 —— 见 refresh() 里那段。空 pixmap 也记（它记的是"这一条问过
+    ///       了、没有"），所以刷新之后不会又退回占位图再等一次回答。
+    bool setIconForPath(const QString &path, const QPixmap &icon);
+
     // ---------- 给验证工程用的访问器 ----------
     //
     // 条目上挂的东西走 item->data()，**唯一出处是下面两个角色**：
@@ -90,7 +108,14 @@ public:
     //   disabledRole() = 这一条现在是不是禁用着（`X.jar.disabled`）
     // 行尾那两颗按钮按**行号**取 —— 行号会随 refresh() 变，所以别跨 refresh 存着。
     QListWidget *list() const { return m_list; }
-    QToolButton *toggleButtonAt(int row) const;
+    /// 行尾那个「启用 / 禁用」**开关**（2026-09-27 起它是 `ToggleSwitch`，从前是一颗写着
+    /// 「禁用」/「启用」的 QToolButton）。**对外只当它是个 `QAbstractButton`** —— 调用方
+    /// 要的就是"点它"和"它现在开着没有"（`click()` / `isChecked()`），不必知道它是画出来的。
+    /// NOTE: 存着它的类型是 ToggleSwitch 的话，`InstanceFilesPage.hpp` 就得把那个头拖进来，
+    ///       而这一页的每一个使用者（实例设置对话框、四个验证工程）都得跟着编一遍。
+    QAbstractButton *toggleButtonAt(int row) const;
+    /// 行尾那颗垃圾桶（**字形画的，没有文字**：文字仍然给着，只是 QToolButton 默认
+    /// `ToolButtonIconOnly` 不画它 —— 验证工程按 `text()` 认它是干什么的）。
     QToolButton *deleteButtonAt(int row) const;
     QPushButton *refreshButton() const { return m_refresh; }
     QPushButton *openFolderButton() const { return m_openFolder; }
@@ -143,6 +168,12 @@ public:
     static QString toggleButtonName() { return QStringLiteral("instanceFilesToggleButton"); }
     static QString deleteButtonName() { return QStringLiteral("instanceFilesDeleteButton"); }
 
+    /// 行首那一格**图标**（QLabel，里面是一张 pixmap，见 setIconForPath()）。
+    /// 和上面那两颗一样：一页里有很多个、名字都一样 ⇒ 按行取。
+    /// 验证工程靠它核两件事：图标回来之后**这一格真换上了**（pixmap 变了），以及
+    /// 六页里**每一行都有**这一格（有图标和没图标的两行才会左右对得齐）。
+    static QString iconLabelName() { return QStringLiteral("instanceFilesIconLabel"); }
+
     static QString refreshText() { return QStringLiteral("刷新"); }
     static QString openFolderText() { return QStringLiteral("打开文件夹"); }
     static QString toggleOnText() { return QStringLiteral("禁用"); }
@@ -174,6 +205,11 @@ private:
     /// 都走这一处，免得两条路上摆得不一样。
     void applyState();
 
+    /// 这一条那一格该摆什么：真图标在 `m_icons` 里就摆它，否则摆占位图（形状按 isDir 分，
+    /// 见 .cpp 里 placeholderIcon）。makeRow() 和 setIconForPath() 都走这一处 ——
+    /// 两处各写一遍的话，"没查到"那一档迟早会有一处漏掉、退成空白。
+    QPixmap iconForPath(const QString &path, bool isDir, const QColor &placeholderColor) const;
+
     Mode m_mode = Mode::FilesAndDirs;
     bool m_canToggle = false;
     bool m_canDelete = false;
@@ -183,6 +219,21 @@ private:
     QString m_unavailable;
     /// 上一次 refresh() 之后列表是不是空的。**只由 refresh() 写**（见 applyState()）。
     bool m_empty = true;
+
+    /// 已经拿到的**真图标**，按 `pathRole()` 那一格存（见 setIconForPath()）。
+    ///
+    /// 【为什么必须由这一页自己记着】
+    ///
+    /// `refresh()` 是 `m_list->clear()` + 重新建行 —— 挂在这一页上的图全跟着没了。而
+    /// 「刷新」和「启用/禁用一条」都会走它（禁用就是改文件名，落盘之后要重列），图标却是
+    /// 反查来的（读盘 + 联网，几秒），**不能跟着重来一遍**。记在这儿，重列出来的那一行
+    /// 直接就是对的图。
+    ///
+    /// NOTE: **空的也存**（值是一张空 pixmap）：它记的是"这一条问过了、没有"，
+    ///       和"还没问"是两件事（见 setIconForPath 的 NOTE）。
+    /// NOTE: 这一份**跟着这一页活**（对话框一关就没了）—— 跨对话框的缓存是 MainWindow
+    ///       那一份的事（按 路径+大小+时间 存，见 requestInstanceFileIcons 那段）。
+    QHash<QString, QPixmap> m_icons;
 
     /// 上面那一排（路径 + 两颗按钮）。「用不上」的时候整排一起收起来。
     QWidget *m_pathRow = nullptr;

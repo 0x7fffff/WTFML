@@ -30,11 +30,15 @@
 
 #pragma once
 
+#include <QAtomicInt>
 #include <QByteArray>
 #include <QJsonValue>
 #include <QList>
+#include <QObject>
 #include <QString>
 #include <QStringList>
+
+class QThread;
 
 namespace ServerPing {
 
@@ -81,7 +85,12 @@ struct Status {
     /// 从开始连接到收完整个响应花了多久（毫秒）。ok 为假时是 -1。
     int latencyMs = -1;
     /// MOTD：已经把 `§` 颜色码去掉、多行合成一行（见 motdText()）。服务器没给就是空串。
+    ///
+    /// NOTE: 这一份是给**一行字**用的地方看的（悬停提示、日志）。列表里那一格要的是
+    ///       `motdRaw`（见下）—— 它按游戏的样子分色画、还是两行。
     QString motd;
+    /// MOTD 的**原样**：`§` 码和换行都留着（见 motdRaw()）。服务器没给就是空串。
+    QString motdRaw;
     /// 服务器自己报的版本名（比如 `Paper 1.20.4`）。没给就是空串。
     QString versionName;
     /// 在线 / 上限人数。**服务器没报就是 -1**（不是 0 —— "一个人都没有"和"它没说"不同）。
@@ -94,6 +103,55 @@ struct Status {
 
 /// 问一台（同步，最多 timeoutMs()）。
 Status ping(const QString &address);
+
+/**
+ * @brief 「一台一台问下去」这件事，**在后台线程上跑**。
+ *
+ * 用户 2026-09-27 原话：「现在如果没测完会锁住其他按钮，不能这样」。在这之前这一段是
+ * 在界面线程里同步跑的（每台之间 `processEvents(ExcludeUserInputEvents)` 转一圈）——
+ * 用户输入**故意没转**，所以那几秒里整个设置页是按不动的：想翻到别的页要等、想关掉
+ * 要等，一台服务器连满 4 秒超时的时候尤其难受。而"边测边能点别的"这件事本来就该是
+ * 默认行为。
+ *
+ * 用法：`start()` 之后一台问完发一次 `oneFinished(index, …)`（下标与传进去那份一一对应），
+ * 全问完发 `allFinished()`。**两个信号都是从工作线程发出来的**，接的人在主线程，Qt 自己
+ * 按队列投递（所以 `Status` 注册过元类型，见 .cpp）。
+ *
+ * NOTE: 这个类**不认识界面**（util 层一贯如此）：它不知道"测速中…"那几个字、也不知道
+ *       那颗按钮该不该灰。那些都是接的人的事。
+ */
+class Pinger : public QObject {
+    Q_OBJECT
+
+public:
+    explicit Pinger(QObject *parent = nullptr);
+    ~Pinger() override;
+
+    /// 开始（**已经在跑就什么都不做** —— 连点两下发两遍请求是用户没要的）。
+    /// 空表 = 立刻发一次 allFinished()（"一台都没有"也是走完了）。
+    void start(const QStringList &addresses);
+
+    /// 叫停：**当前这一台会问完**（同步的 socket 等没法从外面掐断，最多 timeoutMs()），
+    /// 后面那些不再问，然后照常发一次 allFinished()。
+    void abort();
+
+    bool running() const;
+
+signals:
+    /// 第 @p index 台问完了。@param status 就是 `ping()` 那一趟的结果。
+    void oneFinished(int index, const ServerPing::Status &status);
+    /// 全跑完了（**含被 abort 掐掉的情况**）—— 接的人按它把"测速中"收掉。
+    void allFinished();
+
+private:
+    QThread *m_thread = nullptr;
+    QAtomicInt m_running{0};
+};
+
+/// 把异步那一支要跨线程传的 `Status` 登记进元类型系统。**构造函数里会自己调一次**，
+/// 验证工程拿 `invokeMethod` 直接驱动时用得上（同 `ModpackImport::Format` 那条老账：
+/// 名字必须和 `Q_ARG` 里写的一字不差）。
+void registerMetaTypes();
 
 // ---------- 下面这几个是"拆包和拆 JSON"的纯函数，验证工程直接拿它们核对 ----------
 
@@ -115,6 +173,23 @@ bool readVarInt(const QByteArray &data, int *offset, int *out);
 /// 见 .cpp 里那段"这块 JSON 的形态"。
 QString motdText(const QJsonValue &description);
 
+/**
+ * @brief 同一个 `description` 的**原样**版本：`§` 颜色码和换行都留着。
+ *
+ * @return 一串"游戏那种写法"的字（`§a第一行\n§l第二行`）。服务器没给就是空串。
+ *
+ * 【为什么要有两个】
+ *
+ * `motdText()` 是洗过的（颜色码去掉、两行并一行）—— 那是给"只有一行字的地方"用的
+ * （悬停提示、日志）。而列表里那一格要**照游戏里的样子画**（用户 2026-09-27：「motd按照
+ * 游戏里显示的样式展现」），那就得知道哪儿是什么颜色、哪儿换的行 —— 洗掉就再也回不来了。
+ *
+ * NOTE: JSON 组件那一档的 `color` / `bold` 那些字段**会被翻回 `§` 码**（见 .cpp 里
+ *       flattenMotdRich 那段"继承怎么算"）—— 因为画的那一层只认 `§` 串，而颜色变成
+ *       QColor 得有 QtGui，这一层**故意没有**那个依赖（见文件头）。
+ */
+QString motdRaw(const QJsonValue &description);
+
 /// `§` 颜色码去掉、换行/制表压成空格、连续空格合并成一个。motdText() 收尾会用一次。
 QString cleanMotd(const QString &raw);
 
@@ -126,3 +201,9 @@ QByteArray decodeFavicon(const QString &dataUrl);
 QString connectionErrorText(int socketError);
 
 }  // namespace ServerPing
+
+// ★ 这一条**必须在命名空间外面**（2026-09-25 在 `ModpackImport::Format` 上踩过一次）：
+//   写在里面的话，`qRegisterMetaType<T>()` 注册出来的是**裸类型名**（`Status`），而
+//   `Q_ARG(ServerPing::Status, …)` 找的是修过名那个 —— 对不上等于没注册，`invokeMethod`
+//   **静默返回 false**（编得过、跑起来什么都不发生）。跨线程的排队连接同理。
+Q_DECLARE_METATYPE(ServerPing::Status)

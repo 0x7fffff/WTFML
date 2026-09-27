@@ -446,6 +446,40 @@ public:
     ///
     /// NOTE: 号码 **`Qt::UserRole + 13`**（紧挨着 rowPinRole()，见上一段那两条）。
     static int rowUnpinRole() { return Qt::UserRole + 13; }
+
+    /// 这一行要**照游戏里的样子**画出来的那段 MOTD（**原样**：带 `§` 颜色码和换行）。
+    ///
+    /// 挂在「服务器列表」那一页每一行的第 0 列上，值是 `ServerPing::Status::motdRaw` 那一串。
+    /// 代理按 `MotdText::parse()` 把它拆成一段一段、各带颜色和字形，在那个"第二行小字"的
+    /// 位置上画出来（**最多两行** —— 游戏那边也只画两行）。
+    ///
+    /// NOTE: 和 `rowSubTextRole()`（那一格放的是**洗过的一行**）是**两件事**：洗过的那份在
+    ///       tooltip 上（鼠标停上去看全），带码的那份在这一格上（屏幕上按游戏的样子看）。
+    ///       两个都留是有意的 —— 只留带码的那份的话，tooltip 里会冒出一串 `§a`。
+    ///
+    /// NOTE: 号码 **`Qt::UserRole + 14`**（14 是 `rowMotdRawRole` 起的头，见
+    ///       rowSubTextRole() 上面那段"撞号的表现是屏幕上多出一笔"）。
+    static int rowMotdRawRole() { return Qt::UserRole + 14; }
+
+    /// 「服务器列表」那一页的行高：比版本树那个常数**高一档**（多出来的那一档正好是
+    /// 第二行小字的高度）。
+    ///
+    /// Why 不是"按内容算"：那一棵树开着 `uniformRowHeights(true)`（所有行一样高才排得稳），
+    /// 而 MOTD 有的服务器给两行、有的只给一行 —— 按内容算的话"一行的那些"会被按两行的行高
+    /// 裁掉，或者反过来把整张表撑得忽高忽低。所以**统一按两行留**，只给一行的那些下面空一点。
+    static int serverRowHeight() { return versionTreeRowHeight() + 18; }
+
+    // ---------- 文件管理那几页行里的那两件东西（2026-09-27）----------
+
+    /// 行首那个**资源图标**的边长。和下载页那几张表同一个尺寸（`resourceTreeIconSize()`）
+    /// —— 同一个模组在下载页和在本地列表里该长得一样大。
+    static int instanceFileIconSize() { return resourceTreeIconSize(); }
+
+    /// 「启用 / 禁用」那枚**拨动开关**的尺寸（宽 × 高）。高度是行高（46）装得下的一档。
+    static int toggleSwitchWidth() { return 34; }
+    static int toggleSwitchHeight() { return 18; }
+    /// 开关里那个圆钮四周留的白。
+    static int toggleSwitchKnobMargin() { return 2; }
     /// 行尾那三颗按钮各自弹的那句话（和 rowRefreshTipText() 一个规矩：**只在这一格上**才
     /// 说话，整条行不弹；谁弹的、按哪一格判，见 InstanceGroupDelegate::rowActionTip()）。
     /// 齿轮那句和那一页自己的页眉（`InstanceSettingsDialog::titleText()`）是**两回事**：

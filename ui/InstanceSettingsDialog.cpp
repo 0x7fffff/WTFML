@@ -1299,6 +1299,11 @@ void InstanceSettingsDialog::applyFilePage(int row) {
     if (InstanceFilesPage *page = m_filesPages.value(filePageKeys().at(row))) {
         page->refresh();
     }
+    // 「点进去就自动测速」（用户 2026-09-27 原话）。**排在 refresh() 之后**：这一页刚露出来
+    // 时先有那张表（表里那几行是这一页本来就有的东西），再谈"连上去问一遍"。
+    if (filePageKeys().at(row) == serverPageKey()) {
+        emit serverPageEntered();
+    }
 }
 
 // ---------- 文件管理那八页（见 .hpp 里 filePageKeys() 上面那一段）----------
@@ -1453,6 +1458,13 @@ void InstanceSettingsDialog::setServerList(const QList<QPair<QString, QString>> 
         // 状态那一格**一开始就有字**（「还没测」）。空着和"测了没通"在屏幕上是同一个样子，
         // 而这两件事对用户完全不是一回事（一个是"点一下测速"、一个是"这台死了"）。
         item->setText(2, serverUntestedText());
+        // 行高**比别处那张表高一档**：这一行底下那一格画的是 MOTD，而 MOTD 是**两行**
+        // （游戏里就是两行，见 MotdText::parse 的 maxLines）。46 px 装不下"标题 + 两行小字"。
+        // 走 `Qt::SizeHintRole`（也就是 setSizeHint 这一句）交给代理 —— 它学会了读这一格
+        // （见 VersionTreeDelegate::sizeHint 那段），在这之前代理一律返回常数 46。
+        // NOTE: 这一页开着 uniformRowHeights(true)，所以**每一条都得是同一个高度**
+        //       （少设一条，那一行就是 46，屏幕上看着像"这一行矮了一截"）。
+        item->setSizeHint(0, QSize(0, MainWindowUI::serverRowHeight()));
     }
     // ★「读不动」和「读到了但一条都没有」是**两句不同的话**（和版本树那条"问到了就是
     //   没有" / "列表没取到"同一条规矩）：说成一句的话，用户会照着错的那句去修 ——
@@ -1468,7 +1480,16 @@ QString InstanceSettingsDialog::serverStatusText(const ServerRowStatus &status) 
     if (!status.tested) {
         return serverUntestedText();
     }
+    // 缓存里那一份是**上一次**问到的样子（见 ServerRowStatus::fromCache()）。加一句「上次：」
+    // 是这一格唯一能说清"现在还没问、这几个数字是过去时"的办法 —— 不加的话，那一行
+    // 「在线 · 42 ms · 3/20 人」会被当成现在的事实（那一格本来就是"现在什么样"）。
+    const QString prefix = status.fromCache ? serverCachedPrefix() : QString();
     if (!status.online) {
+        // 缓存里"没连上"那一档**不重说理由**：那句话是**当时**的（"连接被拒绝"指的是上一次
+        // 那一刻），搬到现在来说等于替这一次下结论。就说"上次没连上"，理由等真的测完那一趟。
+        if (status.fromCache) {
+            return prefix + QStringLiteral("没连上");
+        }
         // 理由来自 ServerPing（中文，见那边的 connectionErrorText）。真要是空的也别留一格
         // 空白 —— 那就是"看着像没测过"。
         return status.error.isEmpty() ? QStringLiteral("连不上") : status.error;
@@ -1480,7 +1501,7 @@ QString InstanceSettingsDialog::serverStatusText(const ServerRowStatus &status) 
     } else if (status.playersOnline >= 0) {
         text += QStringLiteral(" · %1 人").arg(status.playersOnline);
     }
-    return text;
+    return prefix + text;
 }
 
 void InstanceSettingsDialog::setServerStatuses(const QList<ServerRowStatus> &statuses) {
@@ -1502,6 +1523,10 @@ void InstanceSettingsDialog::setServerStatuses(const QList<ServerRowStatus> &sta
         // 第二行小字走 rowSubTextRole()（版本树上放的是发布时间，这里放 MOTD）。
         item->setIcon(0, status.icon);
         item->setData(0, MainWindowUI::rowSubTextRole(), status.motd);
+        // ★ MOTD 的**原样**（带 `§` 码和换行）走另一个角色：代理按它分色、分两行画
+        //   （见 VersionTreeDelegate 里 rowMotdRawRole() 那一段）。两个都写 —— 代理那边
+        //   是"有原串就画原串、没有才退回洗过那一行"，而 tooltip 用的永远是洗过那一份。
+        item->setData(0, MainWindowUI::rowMotdRawRole(), status.motdRaw);
         item->setText(2, serverStatusText(status));
         // 名字单独给一句 tooltip：MOTD 那一行装不下时是被代理省略掉的，而这一行**没有**
         // 别的地方能看全（那一格只画得下一行）。**无条件写**（MOTD 是空串时这一句就是把
@@ -1524,6 +1549,18 @@ void InstanceSettingsDialog::refreshFilePages() {
     for (InstanceFilesPage *page : pages) {
         if (page != nullptr) {
             page->refresh();
+        }
+    }
+}
+
+void InstanceSettingsDialog::setFileIcon(const QString &path, const QPixmap &icon) {
+    const QList<InstanceFilesPage *> pages = m_filesPages.values();
+    for (InstanceFilesPage *page : pages) {
+        if (page != nullptr) {
+            // 返回值**不看**：不在这一页的那一条本来就会回 false，而它在那六页里必然
+            // 只有一页有（六个目录互不重叠）。找不着才是要说话的那一档，而那一档由
+            // "图标是异步回来的、这一条可能已经被删了"解释掉了 —— 什么都没有要做的。
+            page->setIconForPath(path, icon);
         }
     }
 }

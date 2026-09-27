@@ -986,6 +986,41 @@ QPixmap VersionIcons::trash(int size, const QColor &color) {
     });
 }
 
+QPixmap VersionIcons::puzzleMark(int size, const QColor &color) {
+    if (size <= 0) {
+        return QPixmap();
+    }
+    return cached(QStringLiteral("puzzle/%1/%2").arg(size).arg(color.name()), [size, color]() {
+        QPixmap pixmap(size, size);
+        pixmap.fill(Qt::transparent);
+        QPainter p(&pixmap);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        p.setPen(Qt::NoPen);
+        p.setBrush(color);
+
+        // 一块方片，右边凸一个圆钮（"插进别人"的那一头）、上边挖掉一个同样大的圆
+        //（"让别人插进来"的那个坑）—— 这两笔就是"拼图"和"一块方片"的全部区别。
+        // 右边那个圆钮是最外圈的东西，所以右边界只到 0.76，剩下的留给它。
+        const qreal left = size * 0.12;
+        const qreal right = size * 0.76;
+        const qreal top = size * 0.20;
+        const qreal bottom = size * 0.84;
+        const qreal knob = (bottom - top) * 0.20;
+
+        QPainterPath body;
+        body.addRect(QRectF(left, top, right - left, bottom - top));
+        QPainterPath bump;
+        bump.addEllipse(QPointF(right, (top + bottom) / 2.0), knob, knob);
+        body = body.united(bump);
+        // 坑是**挖掉**的（和文件夹那道缝、垃圾桶那两条缝同一个做法）：图标底下是这一行的
+        // 底色，画一个"底色的圆"在浅色/深色主题里各错一次。
+        QPainterPath notch;
+        notch.addEllipse(QPointF((left + right) / 2.0, top), knob, knob);
+        p.drawPath(body.subtracted(notch));
+        return pixmap;
+    });
+}
+
 QPixmap VersionIcons::runStateMark(int size, const QColor &color) {
     if (size <= 0) {
         return QPixmap();

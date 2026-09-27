@@ -193,4 +193,19 @@ inline QString modpackCacheDir() {
     return minecraftDir() + QStringLiteral("/cache/modpacks");
 }
 
+/// 「服务器列表」那一页上一次测出来的样子（图标 / MOTD / 人数 / 延迟）：
+/// <数据目录>/cache/servers，一台一个 json（见 ServerStatusCache）。
+///
+/// 为什么要落盘：一次测速要**真的连上去**（每台最多 4 秒超时），而这一页是"每次打开实例
+/// 设置都会看见"的一页 —— 断网那一次、或者手快没等完的那一次，那一页不该是一片空白
+/// （上一次明明问到过）。它和 cache/icons 是同一条路上的东西：都是"问一次很贵、
+/// 答案不会一秒一变"。
+///
+/// NOTE: 同样挂在**数据根目录**下（和 cache/ 里那几位一样），不挂 %APPDATA% ——
+///       "整个启动器连带数据可以整体拷走"这条在这里同样适用。没人会去清它，清掉也不影响
+///       正确性（下一次测速重新攒）。
+inline QString serverCacheDir() {
+    return minecraftDir() + QStringLiteral("/cache/servers");
+}
+
 }  // namespace AppPaths

@@ -204,6 +204,13 @@ public:
                 QStringLiteral("存档"),     QStringLiteral("服务器列表")};
     }
 
+    /// 「服务器列表」那一页的键（也就是 filePageKeys() 里最后那一个）。
+    ///
+    /// NOTE: **唯一出处** —— MainWindow 那两条接线（自动测速、以及"这一页里那两颗按钮分别
+    ///       干什么"）都按它认页。写第二遍字面量的症状是**静默失效**：自动测速那一发
+    ///       永远不发（少一句话、不报错），而且页还是照开的。
+    static QString serverPageKey() { return QStringLiteral("server"); }
+
     /// 堆叠页里「文件管理」那些页的起始下标（0/1 是概览与启动，排在前面）。
     /// 换言之 `stackIndex = filePageFirstIndex() + 小类下标`。
     static int filePageFirstIndex() { return 2; }
@@ -280,6 +287,16 @@ public:
         int playersOnline = -1; ///< 在线人数（**-1 = 服务器没说**，和 0 个人不是一回事）
         int playersMax = -1;    ///< 人数上限（-1 = 服务器没说）
         QString motd;           ///< MOTD（已经洗过：颜色码去掉、多行合成一行）
+        /// MOTD 的**原样**（`§` 码和换行都留着）—— 列表里那一格按游戏的样子画它
+        /// （见 MainWindowUI::rowMotdRawRole()）。空串 = 没有这一份，那一格退回上面那条
+        /// 洗过的路（悬停提示用的也是上面那份）。
+        QString motdRaw;
+        /// 这一份是**盘上缓存**里"上一次问到"的样子，不是刚刚问的。
+        ///
+        /// 状态那一格会因此加一句「上次：」—— 那行字里的数字（几人在线、多少毫秒）是
+        /// **过去时**，不加这几个字用户会当成现在的事实（见 ServerStatusCache 文件头）。
+        /// 一有真的结果就整条盖掉（fromCache 回到假）。
+        bool fromCache = false;
         QIcon icon;             ///< 服务器图标（favicon；服务器没给就是空的）
     };
 
@@ -296,6 +313,13 @@ public:
 
     /// 把六页目录列表**重新列一遍**。MainWindow 动过盘（删了 / 改了名）之后喊它。
     void refreshFilePages();
+
+    /// 给某一条文件行换上它的**真图标**（见 InstanceFilesPage::setIconForPath）。
+    ///
+    /// 收在这一层是因为**路径属于哪一页只有六页自己知道** —— 调用方（MainWindow）手上
+    /// 只有一串路径，挨页去问一遍的话，"哪一页有这个路径"这件事就跑到了业务层去。
+    /// 转给六页各一次（不在那一页的那一条会自己说"没有"，不是错误）。
+    void setFileIcon(const QString &path, const QPixmap &icon);
 
     /// 给验证工程用的访问器：某一页那个文件列表控件（键见 filePageKeys()）。
     InstanceFilesPage *filesPage(const QString &key) const;
@@ -572,6 +596,8 @@ public:
     static QString serverPingingText() { return QStringLiteral("测速中…"); }
     /// 还没测过的那一格写什么（**不是空着**：空着和"测了没通"在屏幕上是同一个样子）。
     static QString serverUntestedText() { return QStringLiteral("还没测"); }
+    /// 这一格里的数字是**上一次**问到的（见 ServerRowStatus::fromCache）。
+    static QString serverCachedPrefix() { return QStringLiteral("上次："); }
     static QString serverNameColumnText() { return QStringLiteral("名称"); }
     static QString serverAddressColumnText() { return QStringLiteral("地址"); }
     static QString serverStatusColumnText() { return QStringLiteral("状态"); }
@@ -821,6 +847,19 @@ signals:
      *       延迟都是刚问来的）。只重测不重读走「测速」，只重读不重测就没有了。
      */
     void pingServersRequested();
+
+    /**
+     * @brief 用户**切到了服务器列表那一页**（2026-09-27）。
+     *
+     * 用户原话：「服务器列表点进去要自动测速」。所以这一发是"这一页露出来了"这件事本身
+     * —— 接到的人该去测一遍。它和上面那两条**不是一回事**：那两条说的是"用户按了某颗
+     * 按钮"，这一条说的是"这一页被打开了"。
+     *
+     * NOTE: 每一页都会发一次（切回「概览」再切回来还会再发）—— 那正是"点进去就测"该有的
+     *       行为。"正在测的时候又切进来一次"不会真的并发出两趟：接的人那边有一道
+     *       "已经在跑就不重开"的闸（ServerPing::Pinger::start 自己那条）。
+     */
+    void serverPageEntered();
 
 private:
     /// 造一行「跟随全局 / 自定义 + 控件」。返回值是**整格**（档位行 + 提示），控件要加进

@@ -8,15 +8,19 @@
 
 #include "ElidedLabel.hpp"
 #include "MainWindowUI.hpp"
+#include "ToggleSwitch.hpp"
+#include "VersionIcons.hpp"
 
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
 #include <QHBoxLayout>
+#include <QIcon>
 #include <QLabel>
 #include <QListWidget>
 #include <QListWidgetItem>
 #include <QPalette>
+#include <QPixmap>
 #include <QPushButton>
 #include <QSizePolicy>
 #include <QToolButton>
@@ -52,6 +56,18 @@ void makeSmallLine(QLabel *label) {
     QFont font = label->font();
     font.setPointSize(qMax(6, font.pointSize() + MainWindowUI::versionDateFontDelta()));
     label->setFont(font);
+}
+
+/// 某一条**没有真图标**时那一格摆什么（见 makeRow 里那段）。
+///
+/// 文件夹和文件分开：文件夹的形状（folderMark）是它**本来的**长相、不是"没查到"，
+/// 而文件那一片用拼图（见 VersionIcons::puzzleMark 那段为什么是它）。
+QPixmap placeholderIcon(bool isDir, const QColor &color) {
+    const int size = MainWindowUI::instanceFileIconSize();
+    if (isDir) {
+        return VersionIcons::folderMark(size, color);
+    }
+    return VersionIcons::puzzleMark(size, color);
 }
 
 }  // namespace
@@ -241,6 +257,31 @@ QWidget *InstanceFilesPage::makeRow(const QString &shownName, const QString &pat
     layout->setContentsMargins(8, 0, 8, 0);
     layout->setSpacing(8);
 
+    // ---------- 最左一格：这一条的图标 ----------
+    //
+    // ★ 2026-09-27：资源作者传的那张图（模组图标 / 资源包封面）由 MainWindow 反查之后
+    //   递进来（见 setIconForPath()），这一层只负责摆。**先摆一张占位图** —— 真图标是
+    //   异步来的（要读盘、要联网），而那几秒里这一格不能是空的：空白和"这一条查不到
+    //   图标"在屏幕上是同一个样子，而这两件事不一样。
+    //
+    // NOTE: 占位图**按"是不是文件夹"分两种**（文件夹一律是文件夹的形状，那是它本来的
+    //       长相，不是"没查到"），文件一律是拼图（见 VersionIcons::puzzleMark 那段）。
+    // NOTE: 这一格的宽度是**固定**的（不是 sizeHint 撑着）：真图标回来时换上去的 pixmap
+    //       尺寸和占位图一样，但"让布局重新算一遍"这件事本身不该发生 —— 一列几十行
+    //       同时重排会让整张表抖一下。
+    auto *icon = new QLabel(row);
+    icon->setObjectName(iconLabelName());
+    icon->setFixedSize(MainWindowUI::instanceFileIconSize(),
+                       MainWindowUI::instanceFileIconSize());
+    // 颜色取**次要那一档**（和「大小 · 时间」那行小字同一档）：这一列是配角，用正文色会让
+    // 整张表看着比名字那一列还重。取的是**这一行自己的调色板**（不是全局那一份）——
+    // 一页里每一行都在同一个窗口里，取到的值一样，但"这一行怎么画"跟着这一行走。
+    // 真图标要是已经拿到了就**直接摆那一条的**（`m_icons`，见 setIconForPath 的 NOTE）——
+    // 「刷新」重建出来的那一行不该先退成占位图再等一次回答。
+    icon->setPixmap(iconForPath(path, isDir, row->palette().color(QPalette::PlaceholderText)));
+    icon->setToolTip(QDir::toNativeSeparators(path));
+    layout->addWidget(icon);
+
     // ---------- 左边那半：**名字一行、大小·时间一行** ----------
     //
     // 用户 2026-09-26 报的「实例设置里模组列表模组名称显示存在错误」，根子在这儿：
@@ -296,25 +337,47 @@ QWidget *InstanceFilesPage::makeRow(const QString &shownName, const QString &pat
     layout->addWidget(textColumn, 1);
 
     if (m_canToggle && !isDir) {
-        auto *toggle = new QToolButton(row);
+        // ★ 2026-09-27：从"两颗文字按钮（禁用 / 启用）"换成**一个拨动开关**
+        //   （用户原话：「启用和禁用使用开关的那种形式」）。文字按钮说的是"点下去会发生
+        //   什么"，开关说的是"现在是什么状态" —— 一列下来扫一眼就知道哪几个是关着的。
+        //
+        // NOTE: 开关的位置**固定在行尾倒数第二格**（删除那颗在最后）—— 一列下来两列按钮
+        //       各自对齐。**只给"游戏会自己扫的那三个目录里的文件"**（见 setCanToggle）。
+        auto *toggle = new ToggleSwitch(row);
         toggle->setObjectName(toggleButtonName());
-        toggle->setText(isDisabled ? toggleOffText() : toggleOnText());
-        toggle->setAutoRaise(true);
+        // **开着 = 游戏扫得到它**（正常文件名）、关着 = 名字后面挂着 `.disabled`。
+        // 方向不能反：开关向右 = "生效中"是这个控件在别处的意思（设置页那些开关也是），
+        // 而这一条恰好是最要紧的一条 —— 反了的话"全开"看着像"全关"。
+        toggle->setChecked(!isDisabled);
         // 说"改成哪个名字"要用**盘上那个真名字**（QFileInfo::fileName），不是行上那串
         // 显示名 —— 禁用着的那一条显示名后面挂着「（已禁用）」，拼进去就成了一串谁也不认的名字。
         const QString fileName = QFileInfo(path).fileName();
-        toggle->setToolTip(isDisabled ? tr("把名字改回去，游戏又能扫到它了。")
-                                      : tr("把名字改成 %1%2，游戏就扫不到它了（文件还在）。")
-                                            .arg(fileName, disabledSuffix()));
-        connect(toggle, &QToolButton::clicked, this, [this, path] { emit toggleRequested(path); });
+        toggle->setToolTip(isDisabled
+                               ? tr("%1：把名字改回去，游戏又能扫到它了。").arg(toggleOffText())
+                               : tr("%1：把名字改成 %2%3，游戏就扫不到它了（文件还在）。")
+                                     .arg(toggleOnText(), fileName, disabledSuffix()));
+        connect(toggle, &ToggleSwitch::clicked, this, [this, path] { emit toggleRequested(path); });
         layout->addWidget(toggle);
     }
 
     if (m_canDelete) {
+        // ★ 2026-09-27：从一颗写着「删除」的文字按钮换成**一个垃圾桶字形**
+        //   （用户原话：「删除还是垃圾桶」）。它仍然是行尾最后一格、仍然要点一下才问
+        //   "真的要删吗"（那句在 MainWindow 里）。
         auto *remove = new QToolButton(row);
         remove->setObjectName(deleteButtonName());
-        remove->setText(deleteText());
         remove->setAutoRaise(true);
+        // 字形是**画的**（VersionIcons，全仓一个图片文件都没有），尺寸取和图标那一格
+        // 一样的一档 —— 行尾两颗按钮和行首那枚图标同一个大小，看着才是一套的。
+        // 颜色用次要那一档：删除是行里的一个动作，不是正文（而且它是**危险**动作这件事
+        // 由点下去那句问话来说，不靠一个红图标在列表里一直喊）。
+        const int glyph = MainWindowUI::instanceFileIconSize();
+        remove->setIcon(QIcon(VersionIcons::trash(
+            glyph, row->palette().color(QPalette::PlaceholderText))));
+        remove->setIconSize(QSize(glyph, glyph));
+        // 文字仍然给着（虽然不画）：读出这一格是"删除"这件事**只剩这一个出口**
+        //（悬停提示、无障碍，以及验证工程按它核对"这一颗是干什么的"）。
+        remove->setText(deleteText());
         remove->setToolTip(isDir ? tr("把这个文件夹连同里面的东西一起删掉。")
                                  : tr("把这个文件从盘上删掉。"));
         connect(remove, &QToolButton::clicked, this, [this, path] { emit deleteRequested(path); });
@@ -341,13 +404,13 @@ void InstanceFilesPage::applyState() {
                                   : (m_emptyText.isEmpty() ? emptyText() : m_emptyText));
 }
 
-QToolButton *InstanceFilesPage::toggleButtonAt(int row) const {
+QAbstractButton *InstanceFilesPage::toggleButtonAt(int row) const {
     if (m_list == nullptr) {
         return nullptr;
     }
     QListWidgetItem *item = m_list->item(row);
     QWidget *rowWidget = item != nullptr ? m_list->itemWidget(item) : nullptr;
-    return rowWidget != nullptr ? rowWidget->findChild<QToolButton *>(toggleButtonName()) : nullptr;
+    return rowWidget != nullptr ? rowWidget->findChild<ToggleSwitch *>(toggleButtonName()) : nullptr;
 }
 
 QToolButton *InstanceFilesPage::deleteButtonAt(int row) const {
@@ -358,4 +421,56 @@ QToolButton *InstanceFilesPage::deleteButtonAt(int row) const {
     QWidget *rowWidget = item != nullptr ? m_list->itemWidget(item) : nullptr;
     return rowWidget != nullptr ? rowWidget->findChild<QToolButton *>(deleteButtonName())
                                 : nullptr;
+}
+
+QPixmap InstanceFilesPage::iconForPath(const QString &path, bool isDir,
+                                       const QColor &placeholderColor) const {
+    // `contains` 而不是"取出来看不看是空"：**空 pixmap 也是一条回答**（"这一条问过了、
+    // 没有"），它和"还没问"在屏幕上都是占位图，但只有前者不该再问一次（见 m_icons 那段）。
+    if (m_icons.contains(path)) {
+        const QPixmap icon = m_icons.value(path);
+        if (!icon.isNull()) {
+            return icon;
+        }
+    }
+    return placeholderIcon(isDir, placeholderColor);
+}
+
+bool InstanceFilesPage::setIconForPath(const QString &path, const QPixmap &icon) {
+    if (path.isEmpty()) {
+        return false;
+    }
+    // **先记账、再找行**：这一条现在在不在屏幕上不影响"这一条问过了"。顺序反过来的话，
+    // 图标回来的那一刻用户正好点了「刷新」（那几毫秒里这一页是没有行的），这一条就永远
+    // 回到"还没问"——而 MainWindow 那边不会再问第二遍。
+    m_icons.insert(path, icon);
+    if (m_list == nullptr) {
+        return false;
+    }
+    // 按**路径**找回那一行（不按行号）：图标是一张一张异步回来的，这中间用户完全可能
+    // 点过「刷新」、删过一条、或者这一页被重建过 —— 存行号的话，那时候换上去的是**别人**
+    // 的图标（而且不报错）。路径是这一行的身份（见 pathRole()）。
+    //
+    // NOTE: 找不到不是错误：那一行已经不在了（用户刚删了它）。什么都不用做。
+    for (int row = 0; row < m_list->count(); ++row) {
+        QListWidgetItem *item = m_list->item(row);
+        if (item == nullptr || item->data(pathRole()).toString() != path) {
+            continue;
+        }
+        QWidget *rowWidget = m_list->itemWidget(item);
+        if (rowWidget == nullptr) {
+            return false;
+        }
+        auto *label = rowWidget->findChild<QLabel *>(iconLabelName());
+        if (label == nullptr) {
+            return false;
+        }
+        // 空 pixmap = 这条查不到图标 ⇒ **退回占位图**（不是清成空白：空白和"还没查完"
+        // 在屏幕上是同一个样子，而一列里有的有图有的空白，看着像这一行漏画了）。
+        const bool isDir = QFileInfo(path).isDir();
+        label->setPixmap(iconForPath(path, isDir, label->palette().color(
+                                                     QPalette::PlaceholderText)));
+        return true;
+    }
+    return false;
 }
