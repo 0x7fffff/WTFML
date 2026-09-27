@@ -303,7 +303,11 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     m_categoryList = makeNavList(categoryListName(), categoryKeys(), categoryTexts());
     addNavColumn(columns, m_categoryList);
 
-    m_subCategoryList = makeNavList(subCategoryListName(), filePageKeys(), filePageTexts());
+    // 中栏摆的是**露出来的**那几页（shownFilePageKeys()），不是整张键表 —— 现在有三页
+    // 收着不给看（见 .hpp 里 hiddenFilePageKeys() 上面那段）。左栏那一条不用管：三栏
+    // 大类一个都没隐藏。
+    m_subCategoryList = makeNavList(subCategoryListName(), shownFilePageKeys(),
+                                    shownFilePageTexts());
     // 只有选到「文件管理」那一栏时才露出来（见下面 applyCategory 那一发）。
     // NOTE: 收着的时候 `currentRow` **留着** —— 切走再切回来还停在刚才那一页。
     m_subCategoryList->setVisible(false);
@@ -1388,20 +1392,63 @@ void InstanceSettingsDialog::applyCategory(int row) {
     m_stack->setCurrentIndex(row);
 }
 
+QStringList InstanceSettingsDialog::shownFilePageKeys() {
+    // **唯一出处**就是这两张表：filePageKeys() 减去 hiddenFilePageKeys()。别在这儿另抄一份
+    // 键的清单 —— 两处写同一件事，改一处漏一处的时候界面上只是"少一条"或者"点错页"。
+    QStringList out;
+    for (const QString &key : filePageKeys()) {
+        if (!hiddenFilePageKeys().contains(key)) {
+            out.append(key);
+        }
+    }
+    return out;
+}
+
+QStringList InstanceSettingsDialog::shownFilePageTexts() {
+    // 按下标对齐地筛 filePageTexts()（两张表逐位对齐，见 filePageKeys() 上面那段）。
+    const QStringList keys = filePageKeys();
+    const QStringList texts = filePageTexts();
+    QStringList out;
+    for (int i = 0; i < keys.size(); ++i) {
+        if (!hiddenFilePageKeys().contains(keys.at(i))) {
+            out.append(texts.value(i));
+        }
+    }
+    return out;
+}
+
 void InstanceSettingsDialog::applyFilePage(int row) {
-    if (row < 0 || row >= filePageKeys().size()) {
+    const QStringList keys = shownFilePageKeys();
+    if (row < 0 || row >= keys.size()) {
         return;
     }
-    m_stack->setCurrentIndex(filePageFirstIndex() + row);
+    applyFilePageKey(keys.at(row));
+}
+
+void InstanceSettingsDialog::applyFilePageKey(const QString &key) {
+    const int index = stackIndexOfFilePage(key);
+    if (index < 0) {
+        return;
+    }
+    // **"进这一页"和"同一页再摆一次"是两件事**：showFilePage() 那条路中间会经过两次换页，
+    // 第二发底下不该再做一遍。refresh() 重复一次只是白列一遍目录（还好，而且"再摆一次就
+    // 重新读一遍盘"本来就是这一页要的），但 serverPageEntered 多发一次是**白连一轮**
+    // （用户看到的是"每次翻页都多等一次超时"）—— 所以挡的是后者。
+    // 用户手里碰不到这一位：点同一条时 QListWidget 本来就不发信号（见 .hpp 那条 NOTE）。
+    const bool alreadyHere = m_stack->currentIndex() == index;
+    m_stack->setCurrentIndex(index);
     // 切到这一页就**当场重列一遍**：打开这个对话框的这段时间里，盘上那些文件夹完全可能
     // 被别的东西动过（游戏正在写日志、用户自己开了个资源管理器）。列目录只有读，很便宜，
     // 而"我看见的和盘上不一样"是这一页最没道理的一种错。
-    if (InstanceFilesPage *page = m_filesPages.value(filePageKeys().at(row))) {
+    if (InstanceFilesPage *page = m_filesPages.value(key)) {
         page->refresh();
     }
     // 「点进去就自动测速」（用户 2026-09-27 原话）。**排在 refresh() 之后**：这一页刚露出来
     // 时先有那张表（表里那几行是这一页本来就有的东西），再谈"连上去问一遍"。
-    if (filePageKeys().at(row) == serverPageKey()) {
+    //
+    // NOTE: 这一发走的是**键**不是行号 ⇒ 「服务器列表」收起来这段时间里它照样发得出来
+    //       （只是没人点得到那一页了，见 hiddenFilePageKeys()）。
+    if (key == serverPageKey() && !alreadyHere) {
         emit serverPageEntered();
     }
 }
@@ -1646,6 +1693,11 @@ void InstanceSettingsDialog::markPageUnusable(const QString &key, const QString 
     // 中栏那一条也挂上原因：用户在这一条上停一下就该知道为什么这一页是空的，
     // 不用点进去再退出来。**不把条目禁用掉** —— 禁用了就点不进去，那句话也就永远
     // 看不见了（灰掉一条"用不上"既没说是什么、也没说怎么办）。
+    //
+    // NOTE: 现在**找不到那一行是正常的** —— 三页收起来了（hiddenFilePageKeys()），中栏那
+    //       一列里就没有它们的条目。这一发于是什么都不做，那句话照旧只落在页里（上面
+    //       setShaderUsable()/setSchematicUsable() 那一半），所以别把这里的 return 当成
+    //       "出错了"：页一放回来它就自己接着有效。
     for (int i = 0; i < m_subCategoryList->count(); ++i) {
         QListWidgetItem *item = m_subCategoryList->item(i);
         if (item->data(Qt::UserRole).toString() == key) {
@@ -2119,6 +2171,29 @@ void InstanceSettingsDialog::showCategory(const QString &key) {
     m_categoryList->setCurrentRow(row);
     // `setCurrentRow()` 在"本来就亮着这一条"时不发信号，所以这一步**不能**靠信号。
     applyCategory(row);
+}
+
+void InstanceSettingsDialog::showFilePage(const QString &key) {
+    const int index = stackIndexOfFilePage(key);
+    if (index < 0) {
+        return;
+    }
+    // 中栏那一条**先**摆好：露着的那几页是"选中那一条"，收着的那几页在那一列里根本没有
+    // 条目 ⇒ row 是 -1，等于把选中清掉（留着上一次那一行的话，中栏亮着 A、右栏摆着 B）。
+    //
+    // NOTE: 这一下**压着信号** —— 下面 showCategory() 那一发本来就会按"现在选中哪一条"
+    //       换页，让这一下也发一次的话，同一页会被摆两次（见 applyFilePageKey() 那条
+    //       alreadyHere：「服务器列表」就是白连一轮）。
+    {
+        const QSignalBlocker blocker(m_subCategoryList);
+        m_subCategoryList->setCurrentRow(shownFilePageKeys().indexOf(key));
+    }
+    // 左栏也摆到「文件管理」上（那一页本来就住在这儿）—— 顺手把中栏那一列露出来，并按上面
+    // 刚摆好的那一条换页。
+    showCategory(filesCategoryKey());
+    // 无论上面那一发有没有真的换过去，这里都再摆一次（`setCurrentRow()` 在"本来就亮着这一条"
+    // 时不发信号，光靠信号会漏）。同一页重复摆的那一多半由 alreadyHere 挡掉。
+    applyFilePageKey(key);
 }
 
 QWidget *InstanceSettingsDialog::addOverrideRow(QGridLayout *grid, int row, const QString &field,

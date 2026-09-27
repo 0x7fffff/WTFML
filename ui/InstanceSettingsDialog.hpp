@@ -226,6 +226,35 @@ public:
     /// 堆叠页一共有几页。
     static int pageCount() { return filePageFirstIndex() + filePageKeys().size(); }
 
+    /// 现在**收着不给看**的那几页（键见 filePageKeys()）。
+    ///
+    /// 用户 2026-09-27 原话：「这个功能先隐藏了别放出来，服务器的延迟有问题，原理图和光影包
+    /// 没正常显示」—— 列的正是那三页。这一份表就是"哪几页先不露"的**唯一出处**：修好了把它
+    /// 清空就全回来了（别的地方一个字都不用改）。
+    ///
+    /// NOTE: 收着**不是删掉**。那几页照样建、接线照样接、`pageCount()` 照样算它们 ——
+    ///       隐藏只发生在中栏那一列上（那一列里没有这一条，用户就点不进去）。这么做的理由：
+    ///       堆叠页的下标、`serverPageKey()` 那句"最后那一个"、MainWindow 那两条接线全都
+    ///       还依赖这几页在键表里的位置；把键从 filePageKeys() 里删掉会**同时**改坏这三样，
+    ///       而那是"以后再想放出来"时最难还原的一种改法。
+    static QStringList hiddenFilePageKeys() {
+        return {QStringLiteral("shader"), QStringLiteral("schematic"), serverPageKey()};
+    }
+    /// 中栏那一列**真正摆出来**的页（= filePageKeys() 去掉 hiddenFilePageKeys()）。
+    ///
+    /// NOTE: 行号只对**这一张**表有意义 —— 中栏选中第几行的那一发（applyFilePage）走的就是
+    ///       它。别再拿 `filePageKeys().indexOf(key)` 去 `setCurrentRow()`：前面少一条，
+    ///       后面每一条都要错一格，而"点「存档」打开的是「配置文件」"这种事在界面上不会报错。
+    ///       要按**键**跳页的用 showFilePage()。
+    static QStringList shownFilePageKeys();
+    /// 和 shownFilePageKeys() **逐位对齐**的名字表。
+    static QStringList shownFilePageTexts();
+    /// @p key 那一页在堆叠页里占第几格。认不出来的键回 -1（调用方要判）。
+    static int stackIndexOfFilePage(const QString &key) {
+        const int index = filePageKeys().indexOf(key);
+        return index < 0 ? -1 : filePageFirstIndex() + index;
+    }
+
     static QString categoryListName() { return QStringLiteral("instanceSettingsCategoryList"); }
     static QString subCategoryListName() {
         return QStringLiteral("instanceSettingsSubCategoryList");
@@ -247,6 +276,16 @@ public:
     /// 摆到 @p key 那一栏上（等价于点左栏里那一条）。越界 / 认不出来的键 = 什么都不做。
     /// 验证工程用它跳栏 —— 它比"数第几条"稳（键表将来插一条也不会错位）。
     void showCategory(const QString &key);
+
+    /// 摆到「文件管理」下面 @p key 那一页上（左栏也一并切到「文件管理」）。
+    /// 认不出来的键 = 什么都不做。
+    ///
+    /// NOTE: **按"隐不隐藏"分两种情况** —— 那一页在中栏里露着（shownFilePageKeys()）就走
+    ///       "选中那一条"这条路（用户点那一条是同一个动作）；收着的那几页（比如现在的
+    ///       「服务器列表」）那一列里根本没有它，就直接摆右栏、把中栏的选中清掉。
+    ///       这正是验证工程该用的那一个入口：**要验的是那一页本身，不是"用户点得着"**
+    ///       —— 收着的那几页照样得有人在盯着（它们只是先不给看，不是烂在那儿）。
+    void showFilePage(const QString &key);
 
     /// 这三条给验证工程问几何用（认控件主要还是按 objectName）。
     QListWidget *categoryList() const { return m_categoryList; }
@@ -1032,7 +1071,12 @@ private:
     /// 越界 = 什么都不做（见 .cpp 里那段 NOTE）。
     void applyCategory(int row);
     /// 中栏选中第 @p row 条之后要做的事：把右栏换到那一页。
+    /// @param row 是**中栏那一列**里的行号（= shownFilePageKeys() 的下标），不是
+    ///        filePageKeys() 的下标 —— 隐藏的那几页在这两个里差着一格。
     void applyFilePage(int row);
+    /// 把右栏摆到 @p key 那一页上（不管它在不在中栏那一列里）。applyFilePage() 与
+    /// showFilePage() 都落到这儿，换页之后那三件事（重列目录、发 serverPageEntered）只写一遍。
+    void applyFilePageKey(const QString &key);
 
     /// 在中栏那一条上挂（或者摘掉）「这一页为什么用不上」的 tooltip。
     /// @param reason 空串 = 用得上（把 tooltip 摘掉）。见 setShaderUsable()。
