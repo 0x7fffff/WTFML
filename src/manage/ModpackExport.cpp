@@ -250,8 +250,27 @@ QByteArray modrinthVersionFilesRequestBody(const QStringList &sha1s) {
 QByteArray curseForgeFingerprintsRequestBody(const QList<quint32> &fingerprints) {
     QJsonArray list;
     for (quint32 value : fingerprints) {
-        // **字符串**，不是数字（见 .hpp 里那条 NOTE）。
-        list.append(QString::number(value));
+        // ★ 2026-09-27 改：**号码，不是字符串**。
+        //
+        //   这里从前发的是 `QString::number(value)`，还挂着一条"必须发字符串、发数字那边回
+        //   400"的 NOTE —— **那条注释把因果说反了**，而反过来那一面正是洞所在的那一面。
+        //   实测（这一趟是拿用户真实例里的文件问的）：
+        //     · `{"fingerprints":["3816865428"]}` → **HTTP 400**，正文
+        //       `Json deserialize error: invalid type: string "3816865428", expected i64`；
+        //     · `{"fingerprints":[3816865428]}`  → **HTTP 200**。
+        //   现在这台镜像（`mod.mcimirror.top/curseforge/v1`，见 curseForgeApiBase 那段）
+        //   是照官方那份做的，规矩就是官方的规矩：这一格是 **int64**。
+        //
+        // ★ 症状为什么一直没被看出来：CurseForge 那一支**整支**发不出去，可是屏幕上只有
+        //   「有一格没图」——而"这个资源本来就没传图标"长得一模一样。唯一会说话的地方是
+        //   日志里那句「资源图标没查完：CurseForge 反查回了 HTTP 400。」，而 400 的正文
+        //   （上面那句 invalid type）**从来没被读过**。于是所有"只在 CurseForge 上有"的
+        //   资源（以及从 CurseForge 下下来的那些文件）全部停在占位图上。
+        //
+        // NOTE: `idListRequestBody()`（`{"modIds":[…]}` / `{"fileIds":[…]}`）发的一直是
+        //       **数字**，那一段的注释里甚至写着"号是数字不是字符串"—— 同一个文件里两处
+        //       相反，而错的是指纹这一处。
+        list.append(static_cast<qint64>(value));
     }
     if (list.isEmpty()) {
         return QByteArray();

@@ -97,6 +97,31 @@ QPixmap scaleToIconSlot(const QPixmap &icon) {
     return icon.scaled(slot, slot, Qt::KeepAspectRatio, Qt::SmoothTransformation);
 }
 
+/// 目录**自己带着的那张小图**：`<目录>/icon.png`。没有、读不出来就是空 pixmap。
+///
+/// ★ 2026-09-27 补。用户报「存档文件的图像没获取到」。存档那一页列的全是**目录**
+///   （`saves/<世界名>/`）—— 目录没有哈希、也不在任何平台的清单里，所以"按内容反查身份"
+///   那条路对它们**永远**是空手而归（`MainWindow::instanceIconCandidatePaths()` 连
+///   `saves/` 都不列，理由写在那边：一个存档不是一个能反查的资源）。
+///   可是**世界自己就带着缩略图**：游戏每次存世界都会往存档目录里写一张 `icon.png`
+///   （就是进游戏时"选择世界"那一屏上画的那张；实测用户盘上 5 个存档一个不落）。
+///   所以这一格的图根本不用问网络，盘上就有。
+///
+/// NOTE: 那条文件名是**游戏的约定**，不是我们发明的：大小写按它写的 `icon.png` 认
+///       （Windows 上不区分，别的系统上区分，照原样写最保险）。
+/// NOTE: 不去认"这是不是一个真存档"（比如查 `level.dat` 在不在）—— 摆一张图而已，
+///       目录里有那张图就画。多一道判断就多一处"哪些目录算数"的规则要跟着游戏版本改。
+/// NOTE: 只有**目录**才看这个（见 iconForPath 里 `isDir` 那个闸）：文件自己有哈希那条路。
+QPixmap directoryThumbnail(const QString &dirPath) {
+    const QString candidate = dirPath + QStringLiteral("/icon.png");
+    if (!QFileInfo::exists(candidate)) {
+        return QPixmap();
+    }
+    // 读不出来的（坏文件、不是张图）回空的那张，调用方自然退回文件夹字形 —— 不弹错、
+    // 也不留一格里半张烂图。
+    return QPixmap(candidate);
+}
+
 }  // namespace
 
 InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
@@ -481,6 +506,26 @@ QPixmap InstanceFilesPage::iconForPath(const QString &path, bool isDir,
             //   —— 这一层不篡改别人给的东西（验证工程按"存进去的 == 拿出来的"核对过），
             //   缩放只发生在"往控件上摆"这一步。
             return scaleToIconSlot(icon);
+        }
+    }
+    // ★ 目录**自己身上带着的那张图**（2026-09-27 补，用户报「存档文件的图像没获取到」）。
+    //   存档那一页列的全是**目录**（`saves/<世界名>/`），而目录没有哈希、也不在任何平台的
+    //   清单里，所以"反查身份"那条路**永远**拿不到它们的图 —— `MainWindow::
+    //   instanceIconCandidatePaths()` 连 `saves/` 都不列（那不是能反查的资源）。
+    //   可是**世界自己带着缩略图**：游戏每次保存都会往存档目录里写一张 `icon.png`
+    //   （进游戏时"选择世界"那一屏上那张小图就是它；实测用户盘上 5 个存档一个不落）。
+    //   于是这一格的图根本不用问网络 —— 盘上就有。
+    //
+    // NOTE: 判据是**这个目录里有没有那张图**，不是"这一页是不是存档页"：文件夹自带缩略图
+    //       这个约定本来就是按目录说的，哪个目录里头放了就画哪个（`mods/mcef-libraries/`
+    //       那种没有的照旧退回文件夹字形）。按页判断反而要多一处"哪一页算"的知识。
+    // NOTE: 不缓存。这一格每一趟 refresh() 只问一次（iconForPath 只在 makeRow 里调），
+    //       而那张图只有十来 KB、decode 一次是微秒级；真按 mtime 键住一份，反倒多出一处
+    //       "世界存了一次档、图变了"时要记得清的地方。
+    if (isDir) {
+        const QPixmap own = directoryThumbnail(path);
+        if (!own.isNull()) {
+            return scaleToIconSlot(own);
         }
     }
     return placeholderIcon(isDir, placeholderColor);
