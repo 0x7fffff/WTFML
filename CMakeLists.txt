@@ -39,6 +39,7 @@ set(HEADER_FILES
     src/settings/LauncherSettings.hpp
     src/download/DownloadManager.hpp
     src/download/LoaderMeta.hpp
+    src/download/ServerInstall.hpp
     src/download/ResourceCatalog.hpp
     src/download/ModDependencies.hpp
     src/download/ResourceStore.hpp

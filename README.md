@@ -36,7 +36,7 @@ cmake --build build/static-release -j
 | `src/launcher/` | 启动：命令行拼接、继承链合并、natives、进程优先级 |
 | `src/auth/` | 微软登录全链、账户表、皮肤与披风、令牌落盘（DPAPI） |
 | `src/manage/` | 文件夹与实例、实例分组、整合包导入/导出、服务器状态缓存 |
-| `src/download/` | 版本清单/JSON/库/资产下载、加载器元数据、资源（模组那五类） |
+| `src/download/` | 版本清单/JSON/库/资产下载、加载器元数据、资源（模组那五类）、服务端那八档的安装判据 |
 | `src/settings/` | `GlobalJavaSettings`（Java 与内存）、`LauncherSettings`（启动器自己的状态） |
 | `src/net/` | `HttpClient` |
 | `src/util/` | 与业务无关的小工具（`AppPaths` / `ZipUtil` / `NbtUtil` / `ServerPing` / …） |
@@ -323,6 +323,70 @@ cmake --build build/static-release -j
   **整件事停**，第二发（问是哪一类）失败只降级 —— 那批一律落 `mods/` 并明说。作者关掉了
   第三方分发的（`downloadUrl` 为空）**不代下**，报出个数让用户手放。API key 留空走社区反代。
 
+### 服务端（安装链路已就位，界面还没接）
+
+**这一批只做了判据层，一个 UI 入口都没有**（用户原话「不急着具体做入口，先准备好功能」）：
+`src/download/ServerInstall.hpp`，和 `LoaderMeta.hpp` 同一个形状 —— header-only、全 `inline`、
+**不联网、不发信号、不读盘**，把"有哪几档服务端、每一档要下什么、要不要跑安装器、装完必须
+看到哪个文件、启动它发什么参数"做成能离线钉住的纯函数。地址那一半是 2026-09-28 逐条 curl
+出来的，形状连同响应头一起记在那个文件的文件头注释里。
+
+八档和各自的装法（`installMethod()`）：
+
+| 档 | 装法 | 装完的入口 |
+|---|---|---|
+| 原版（Vanilla） | 下下来就是服务端 | `server.jar` → `java -jar server.jar nogui` |
+| Paper | 同上 | `server.jar` |
+| Purpur | 同上 | `server.jar` |
+| Fabric | 同上 —— 但下下来那份**是启动器不是服务端**，第一次跑要联网拉库 | `fabric-server-launch.jar` |
+| Forge | 跑安装器（`--installServer`；客户端那条路是 `--installClient`） | ★ **不是 jar**：`@user_jvm_args.txt` + `@libraries/net/minecraftforge/forge/<游戏版本>-<加载器>/win_args.txt` |
+| NeoForge | 同上 | 同上，但路径里**没有游戏版本那一段**（`net/neoforged/neoforge/<版本>/`），照 Forge 抄必错 |
+| Quilt | 跑安装器：`install server <mc> [loader] --install-dir=<目录> --download-server` | `quilt-server-launch.jar`（★ 只是张 487 字节的壳）+ **`server.jar`** |
+| Spigot | ★ 上游**不发成品**，得用 BuildTools 现编一份 | 编出来的 `spigot-<版本>-R0.1-SNAPSHOT.jar` |
+
+几条不许"统一一下"的：
+
+- **原版的下载地址不在这一层**：它是版本 json 的一部分（`downloads.server`，见
+  `vanillaServerDownload`）。它那条**有** `size`，进度是算得出百分比的。
+- **Paper 的下载地址拼不出来**：对象名带校验值（`fill-data.papermc.io/v1/objects/<sha256>/…`），
+  必须先把构建列表取回来。★ 旧接口 `api.papermc.io/v2` 已经 **410 下线**，别照老教程写。
+  Purpur 的 `build` 字段在 JSON 里是**字符串**（`"2416"`），按数字读会拼出 `…/0/download`
+  一路 404，看着还像网络问题；`result != "SUCCESS"` 那条也不能下。
+- **Forge / NeoForge 的入口不是 jar**，是安装器生成的两张参数文件 —— 装完 **`win_args.txt`
+  在不在**才是"装好了没有"。我们**不跑它生成的 `run.bat`**（那是个再叫一次 java 的 cmd
+  脚本，内存从 `user_jvm_args.txt` 里读）：要实例设置那几个旋钮说了算就得自己拼这条命令，
+  而且 `-Xmx` 要排在 `@user_jvm_args.txt` **后面**才盖得住它。
+- **Spigot 的产物名只能扫出来**（`pickSpigotJar`）：带 `-R0.1-SNAPSHOT` 后缀，从游戏版本号
+  拼不出来，硬编一个名字就是错的。BuildTools 还得在**子目录**里跑（它会铺一整套 git 仓库
+  和中间产物，直接铺在服务端目录里那个目录就废了），编完再把 jar 搬上来。
+- **Fabric 那条地址三段缺一不可**（`/loader/<mc>/<loader>/<installer>/server/jar`）：少了
+  loader 段或 installer 段都是 404（两种都实测过），`/server/json` 那个端点**根本不存在**。
+  那条回复是 `Transfer-Encoding: chunked`、**没有 Content-Length** —— 同一个下载器要能同时
+  伺候"有大小"和"没大小"两种（Fabric 那条只能报"已下多少"）。
+- **Paper / Purpur 的游戏版本列表要自己排序**：上游那份要么是按大版本分组的对象（Paper）、
+  要么是按发布时间升序的数组（Purpur），两条直接拿来用都会把**最老的**排在第一个 ——
+  Paper 那条更绕：`QJsonObject` 按键的字典序存，连"上游那个书写顺序"都不存在了，摊平出来
+  `1.20` 在 `1.21` 前面、真实数据里 `1.21` 还会排在 `26.1` 前面（字典序 `1` < `2`）。
+- **"这一档在这个版本上有没有"不在这层判**（没有便宜的离线判据，写死一张表等于给自己埋一个
+  "上游发了新版但我们表是旧的"）：取回来是空的 = 没有。去哪儿问列在 `flavorNote` 上面那段。
+
+- **Fabric 和 Quilt 在这件事上不一样**（2026-09-28 两边各真装一次、真跑一次）：Fabric 下下来
+  那份 `fabric-server-launch.jar`（168437 字节）**本身就是启动器**，第一次跑真联网下 8 个
+  loader 库，第二次跑一条下载都没有；Quilt 那份 `quilt-server-launch.jar` 只有 **487 字节**、
+  是一张**只有 manifest** 的壳，它的库是**安装器**下的，第一次跑**只解本地那份 bundler jar**
+  （实测 44 条 Unpacking、0 条下载）。所以：Fabric 那格 `firstLaunchNeedsNetwork` 是 true、
+  Quilt 是 **false**。别互相抄。
+- **Quilt 必须带 `--download-server`**：不带的话装完的目录里没有 `server.jar`，而它那份启动器
+  **不会自己补**，实测直接退出（`The Minecraft server .JAR is missing (…\server.jar)!`）——
+  用户看到的症状是"装好了，双击窗口闪一下就没了"。所以那档的"装好了没有"要**连 `server.jar`
+  一起看**。顺带：那个安装器**参数写错也回退出码 0**（实测 `Option "--install-dir" must
+  specify a value` 而 exit code 是 0），**不能拿退出码当失败判据**。
+- **八档都要过 EULA 这道坎**：第一次跑都会写 `eula.txt`（`eula=false`）然后**拒绝启动**，
+  要有人把它改成 true。这八档全是原版血统的服务端，一视同仁 —— 本层不管这件事，接 UI 时
+  得有个地方问用户。
+
+断言在 `build/verify` 的 **ZK** 一节（`ZK1`…`ZK10`）：全是离线喂数据和钉地址原串。
+
 ### 启动
 
 - 按原版启动器那套规则合并继承链：库「父在前、子覆盖」、`arguments.jvm/game`「父在前、
@@ -463,6 +527,8 @@ cmake --build build/static-release -j
 
 **以后**
 
+- **服务端的界面入口**：判据层已经就位（上面「服务端」那一节），缺的是下载页里那一栏、
+  真下载、真跑那几个安装器、以及装出来的目录怎么组织。
 - 版本树的过滤/搜索（资源那几页的搜索已经有了）。
 - 「Java 管理」那一页只管 **25 / 21 / 17 / 8** 这四个主版本（覆盖了现在还在用的整条版本
   带）：扫到别的（11、16 之类）**不会多出一行**，也就**没法在界面里手动钉死**它。
