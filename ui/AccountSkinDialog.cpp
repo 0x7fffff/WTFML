@@ -11,6 +11,7 @@
 // 不另外抄一个防护类）。它护的是下面那个「模型」下拉框。
 #include "MainWindowUI.hpp"
 #include "SkinModel.hpp"
+#include "Theme.hpp"   // 这一窗里「删除所选」那一颗是危险按钮（红字红边，见构造函数）
 #include "SkinViewer.hpp"
 
 #include <QComboBox>
@@ -85,6 +86,11 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     m_switchButton->setObjectName(switchButtonName());
     m_removeButton = new QPushButton(removeButtonText(), this);
     m_removeButton->setObjectName(removeButtonName());
+    // 「删除所选」是这一窗里唯一一处**删东西**的按钮（账号删了就没了），所以它走那一档
+    // **红字红边**（用户 2026-09-28：「按钮文本和边框用这个颜色/黑色/红色」里那个红）。
+    // NOTE: 挂属性就够，样式表那边按属性选中（见 `Theme::buttonStyleSheet()`）——
+    //       属性要在**第一次 polish 之前**挂上，所以是紧挨着 new 的这一行。
+    Theme::markButton(m_removeButton, Theme::ButtonKind::Danger);
     m_refreshButton = new QPushButton(refreshButtonText(), this);
     m_refreshButton->setObjectName(refreshButtonName());
     accountButtons->addWidget(m_loginButton);
@@ -166,6 +172,9 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     bottom->addStretch(1);
     m_closeButton = new QPushButton(closeButtonText(), this);
     m_closeButton->setObjectName(closeButtonName());
+    // 「关闭」是这个窗里唯一一颗"什么也不改"的按钮 ⇒ 次要那一档（黑字黑边）。这样一窗
+    // 里三档就齐了：绿的是正常操作（登录/切换/刷新）、黑的是退出来、红的是删东西。
+    Theme::markButton(m_closeButton, Theme::ButtonKind::Neutral);
     bottom->addWidget(m_closeButton);
 
     // ---------- 接线 ----------

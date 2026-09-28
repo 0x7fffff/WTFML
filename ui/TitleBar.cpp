@@ -243,12 +243,26 @@ void TitleBar::applyColors() {
     //   那条像素断言量的就是这件事。
     QPalette barPalette = QApplication::palette();
     barPalette.setColor(QPalette::Window, chrome);
-    setPalette(barPalette);
-
+    // 条上那一份"正文色"也一起定下来：条上的字（`paintEvent` 那行品牌名）是拿
+    // `palette().color(WindowText)` 画的，而条自己的底现在是**主题色那一支绿** ——
+    // 不给它一个绿底上读得出来的墨色，那五个字母就还是调色板里的深灰、糊在绿里。
+    // 子控件（那六颗按钮）的颜色不走这儿（它们各自 `setInkColor()`，见下）。
     const QColor strong = Theme::partForeground(Theme::Part::TitleBar,
                                                barPalette.color(QPalette::WindowText));
-    const QColor muted = Theme::partForeground(Theme::Part::TitleBar,
-                                              barPalette.color(QPalette::PlaceholderText));
+    barPalette.setColor(QPalette::WindowText, strong);
+    setPalette(barPalette);
+
+    // 次要墨色（不是当前那一颗导航写的那个色）：
+    //   - 条是主题色那一支（白墨）时 = **白墨压到 68%**。这一档不能取调色板里那个次要灰：
+    //     灰的压在白绿条上就是"两个字糊在一起"（界面上看着像没渲染完）。
+    //   - 其余情形（用户把条单独改成深色底）照旧用调色板那个次要色。
+    // NOTE: 判据取的是"这一块的出厂字色是不是白墨"（`partLightInk()`），不是"底色深不深"
+    //       —— 用户点名要的就是白墨，而这一支绿的明度并不低（拿明度判会给回深色）。
+    const QColor strongFallback =
+        Theme::partLightInk(Theme::Part::TitleBar)
+            ? QColor(0xff, 0xff, 0xff, 0xad)
+            : barPalette.color(QPalette::PlaceholderText);
+    const QColor muted = Theme::partForeground(Theme::Part::TitleBar, strongFallback);
     const QColor hover = chrome.darker(115);
     if (auto *button = qobject_cast<TitleBarButton *>(m_minimize)) {
         button->setHoverColors(hover, strong);

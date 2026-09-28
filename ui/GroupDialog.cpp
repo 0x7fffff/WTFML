@@ -14,6 +14,8 @@
 
 #include "GroupDialog.hpp"
 
+#include "Theme.hpp"   // 「删除」那颗按钮的身份（危险 = 红字红边）
+
 #include <QApplication>
 #include <QCheckBox>
 #include <QGroupBox>
@@ -89,6 +91,10 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
         m_renameButton->setObjectName(renameGroupButtonName());
         m_removeButton = new QPushButton(tr("删除"), groupBox);
         m_removeButton->setObjectName(removeGroupButtonName());
+        // 「删除」删的是**整个分组**（组里那些实例会掉回未分组），和旁边那两颗不是一回事
+        // ⇒ 走危险那一档（红字红边）。属性在第一次 polish 之前挂上，见
+        // `Theme::buttonStyleSheet()` 里那几条按属性选中的规则。
+        Theme::markButton(m_removeButton, Theme::ButtonKind::Danger);
         buttons->addWidget(m_addButton);
         buttons->addWidget(m_renameButton);
         buttons->addWidget(m_removeButton);

@@ -26,28 +26,37 @@ namespace {
 /// 一块骨架今天的样子：`from` 那一档颜色压暗 `shade`，
 ///
 ///   - `shade == 0` ⇒ 直接用 `from` 那一档（卡片：今天就是 `Base`）；
-///   - `literal` ⇒ 默认值是个写死的色（四周变暗那一层），不从 `from` 推。
+///   - `literal` ⇒ 默认值是个写死的色（四周变暗那一层），不从 `from` 推；
+///   - `accent` ⇒ 默认值是**主题色那一支**（`accentShade(AccentShade::Pure)`），
+///     既不看 `from` 也不看 `shade`（只有标题栏是）。
 struct PartInfo {
     const char *key;
     const char *name;
     int shade;
     QPalette::ColorRole from;
     bool literal;
+    bool accent;
 };
 
 /// 顺序 = `Part` 的枚举顺序。`static_assert` 在下面盯着。
+/// NOTE: 最后那一位（出厂字色是不是白墨）在 `partLightInk()` 里另有一张表 —— 它只有标题栏
+///       用得到，塞进这一张只会让上面五行都跟着多一个恒假的字段。
 const PartInfo kPartInfos[] = {
-    {"titleBar", "标题栏", 105, QPalette::Window, false},
-    {"bottomBar", "底栏", 105, QPalette::Window, false},
-    {"panel", "浮层面板", 112, QPalette::Window, false},
-    {"card", "卡片", 0, QPalette::Base, false},
-    {"scrim", "四周变暗", 0, QPalette::Window, true},
+    // ★ 标题栏出厂就是**主题色那一支**（2026-09-28 用户原话：「使用 #56eb6c 作为默认主题
+    //   颜色（顶栏用）」）。它原来和底栏一样是"窗口底色压暗一档"，两处**故意不一样了**：
+    //   底下那条留着中性色 —— 它装的是启动/日志那一排控件，那些控件自己有自己的底色，
+    //   而顶上那条整条就是一块主题色的底。ui_check W5 那两条照着这件事改过。
+    {"titleBar", "标题栏", 105, QPalette::Window, false, true},
+    {"bottomBar", "底栏", 105, QPalette::Window, false, false},
+    {"panel", "浮层面板", 112, QPalette::Window, false, false},
+    {"card", "卡片", 0, QPalette::Base, false, false},
+    {"scrim", "四周变暗", 0, QPalette::Window, true, false},
     // 下面两块的 `from` / `shade` 只是"万一有人给它设了个底色"时的兜底算法（今天没有任何
     // 调用点取它们的底）—— 它们真正的底是 `QTabWidget` 自己画的那一层，**不在调色板里**
     // （见 `partHasBackground()` 那段）。加这两项是为了能单独铺一张图。没设图时它们一个
     // 像素都不改。
-    {"homeLeft", "主页左栏", 0, QPalette::Window, false},
-    {"pageBackground", "页面背景", 0, QPalette::Window, false},
+    {"homeLeft", "主页左栏", 0, QPalette::Window, false, false},
+    {"pageBackground", "页面背景", 0, QPalette::Window, false, false},
 };
 static_assert(sizeof(kPartInfos) / sizeof(kPartInfos[0]) == static_cast<size_t>(partCount()),
               "kPartInfos 和 Part 的项数对不上 —— 加一块骨架时两处都要动");
@@ -73,6 +82,18 @@ static_assert(sizeof(kImageFitInfos) / sizeof(kImageFitInfos[0]) ==
 const QColor &scrimLiteral() {
     static const QColor color(0, 0, 0, 96);
     return color;
+}
+
+/// 按钮身上那个"身份"属性名（`Theme::markButton()` 挂的、`buttonStyleSheet()` 里选择器
+/// 认的就是它）。**只有这一处出处** —— 两边各写一遍字符串的话，改名字就成了"属性挂上了、
+/// 样式一条都没匹配上"，而屏幕上看只是"这颗按钮颜色不对"，查起来要命。
+constexpr const char kButtonKindProperty[] = "wtfmlButtonKind";
+
+/// 把 @p color 按 @p percent 罩在白上（`percent` = 0 给全白、100 给 @p color 本色）。
+QColor mixWithWhite(const QColor &color, int percent) {
+    const int p = qBound(0, percent, 100);
+    const auto mix = [p](int top) { return (255 * (100 - p) + top * p + 50) / 100; };
+    return QColor(mix(color.red()), mix(color.green()), mix(color.blue()));
 }
 
 /// 能单独改的调色板角色表（顺序 = `Role` 的枚举顺序）。
@@ -168,6 +189,10 @@ QColor appColor(QPalette::ColorRole role) {
 
 const char *const kPresetKey = "Theme/Preset";
 const char *const kTextOpacityKey = "Theme/TextOpacity";
+/// ★ **单数**：主题色（"这一套界面是什么颜色"）。底下那个复数前缀是**语义色**
+/// （"红黄绿各是哪一个红黄绿"）。两个前缀只差一个 s，别看串了：往 `Theme/Accents/` 里写
+/// 一个 "Accent" 是不生效的（`load()` 读的是这个单数键）。
+const char *const kAccentKey = "Theme/Accent";
 const char *const kRolesPrefix = "Theme/Roles/";
 const char *const kPartsPrefix = "Theme/Parts/";
 const char *const kAccentsPrefix = "Theme/Accents/";
@@ -277,6 +302,131 @@ bool roleFromKey(const QString &key, Role *out) {
 }
 
 // ---------------------------------------------------------------------------
+// 主题色那一支
+// ---------------------------------------------------------------------------
+
+QColor defaultAccentColor() {
+    // ★ 用户 2026-09-28 点名的那一支：「使用 #56eb6c 作为默认主题颜色（顶栏用）」。
+    //   全仓只有这一处写这六个十六进制位 —— 顶栏、按钮的字与边、当前那一颗导航底下那条
+    //   线，量的都是它算出来的某一档（见 `accentShade()`），**不许在别处再写一遍**。
+    return QColor(0x56, 0xeb, 0x6c);
+}
+
+QColor accentShade(AccentShade shade) {
+    // 当前那一份里的主题色；认不出（盘上手改歪了）就退回出厂那一支。
+    QColor pure = current().accent;
+    if (!pure.isValid()) {
+        pure = defaultAccentColor();
+    }
+    switch (shade) {
+    case AccentShade::Pure:
+        return pure;
+    case AccentShade::Ink:
+        // 白底上写字的那个绿：#56eb6c 的 **value 折半**（`darker(200)`，Qt 走的是 HSV）⇒
+        // #2b7536，对白底 **5.7:1**。用户点名那一支压在白底上只有 1.55:1 —— 当边框都嫌淡，
+        // 当字就是"看得见、读不清"。所以字这一档必须更深：对比度是这一档存在的全部理由。
+        return pure.darker(200);
+    case AccentShade::Border:
+        // 那一圈边：#56eb6c 的 value 压到 1/1.5 ⇒ #39a949，对白底 **3.5:1**
+        // （WCAG 对"界面部件"那条线是 3:1 —— 边框要看得见，不必像字那么重）。
+        //
+        // ★ 为什么不是 1/1.4：那一档实测只有 **3.04:1** —— 恰好在线上。线的两侧只差
+        //   Qt 给 `darker()` 取整时进的那一位（`v*100/factor` 是整数除法，144 和 145 会
+        //   差出 0.03），等于把"够不够 3:1"交给一个取整细节去掷骰子。压到 1/1.5 之后
+        //   实测 3.45~3.49，留得下一档误差。
+        return pure.darker(150);
+    case AccentShade::Hover:
+    case AccentShade::Pressed:
+        // 悬停 / 按下那两层底：**主题色罩在白上**（12% / 28%），不是把主题色调亮或调暗 ——
+        // 调亮方向会撞到"白底"、调暗方向就成了另一种颜色，而这两层底上写的还是那一档深绿
+        // （`Ink`），底色必须一直待在很浅那一头，那行字才一直读得清。
+        return mixWithWhite(pure, shade == AccentShade::Hover ? 12 : 28);
+    default:
+        break;
+    }
+    return pure;
+}
+
+// ---------------------------------------------------------------------------
+// 按钮那一套外观
+// ---------------------------------------------------------------------------
+
+QString buttonKindKey(ButtonKind kind) {
+    switch (kind) {
+    case ButtonKind::Neutral:
+        return QStringLiteral("neutral");
+    case ButtonKind::Danger:
+        return QStringLiteral("danger");
+    case ButtonKind::Accent:
+        break;
+    }
+    // 普通按钮**不挂属性**（挂一个 "accent" 只是让构造出来的控件都带一位恒真的值）。
+    return QString();
+}
+
+void markButton(QWidget *button, ButtonKind kind) {
+    if (button == nullptr) {
+        return;
+    }
+    const QString key = buttonKindKey(kind);
+    if (key.isEmpty()) {
+        button->setProperty(kButtonKindProperty, QVariant());
+    } else {
+        button->setProperty(kButtonKindProperty, key);
+    }
+}
+
+QString buttonStyleSheet() {
+    const QColor ink = accentShade(AccentShade::Ink);
+    const QColor border = accentShade(AccentShade::Border);
+    const QColor hover = accentShade(AccentShade::Hover);
+    const QColor pressed = accentShade(AccentShade::Pressed);
+    // 次要 / 危险那两档的色。红**故意不取 `dangerColor()`**：那一支是"按深浅现推"的
+    // （深底上用浅红），而按钮的底一直是白的 —— 白底上用 `dangerColor()` 在深色预设下会
+    // 拿到那个浅红（对白底 2.3:1，读不清）。所以这一档直接钉死那个对白底 4.8:1 的深红，
+    // 它和 `errorTextColor()` 浅底那一档是同一个。
+    const QColor red(0xc0, 0x28, 0x28);
+    const QColor black(0x20, 0x20, 0x20);
+    const QColor disabledInk(0x9a, 0x9a, 0x9a);
+    const QColor disabledBorder(0xd2, 0xd2, 0xd2);
+    const QColor disabledFill(0xf7, 0xf7, 0xf7);
+
+    // ★ `padding: 6px` 不是随手写的：Fusion 的 `PM_ButtonMargin` 就是 6，边框 1 ⇒
+    //   2*(6+1) = 14，和样式自己算的**一模一样**。差一点点的话界面上是看不出来，但一堆
+    //   "这一行放得下几颗按钮"的断言会整片地漂。
+    QString qss = QStringLiteral(
+                      "QPushButton {"
+                      " background-color: #ffffff;"
+                      " color: %1;"
+                      " border: 1px solid %2;"
+                      " border-radius: 4px;"
+                      " padding: 6px; }"
+                      // 默认那一颗（对话框里回车就按下去的那颗）：淡淡一层主题色的底。
+                      // **不能跟悬停同色** —— 同色的话"鼠标停在哪儿"就看不出默认是哪一颗了。
+                      "QPushButton:default:enabled { background-color: %3; }"
+                      "QPushButton:hover:enabled { background-color: %4; }"
+                      "QPushButton:pressed:enabled { background-color: %5; }"
+                      "QPushButton:disabled { background-color: %6; color: %7;"
+                      " border-color: %8; }")
+                      .arg(ink.name(), border.name(), mixWithWhite(accentShade(AccentShade::Pure), 6).name(),
+                           hover.name(), pressed.name(), disabledFill.name(), disabledInk.name(),
+                           disabledBorder.name());
+    // 危险 / 次要两档：只换字和边那两处颜色，其余（白底、圆角、内边距）照旧。
+    const auto kindBlock = [](const QString &key, const QColor &color, const QColor &hoverFill,
+                              const QColor &pressedFill) {
+        return QStringLiteral("QPushButton[%1=\"%2\"] { color: %3; border-color: %3; }"
+                              "QPushButton[%1=\"%2\"]:hover:enabled { background-color: %4; }"
+                              "QPushButton[%1=\"%2\"]:pressed:enabled { background-color: %5; }")
+            .arg(QString::fromLatin1(kButtonKindProperty), key, color.name(), hoverFill.name(),
+                 pressedFill.name());
+    };
+    qss += kindBlock(QStringLiteral("danger"), red, QColor(0xfd, 0xea, 0xea), QColor(0xf7, 0xd5, 0xd5));
+    qss += kindBlock(QStringLiteral("neutral"), black, QColor(0xf0, 0xf0, 0xf0),
+                     QColor(0xe0, 0xe0, 0xe0));
+    return qss;
+}
+
+// ---------------------------------------------------------------------------
 // 预设
 // ---------------------------------------------------------------------------
 
@@ -307,8 +457,11 @@ Spec presetSpec(const QString &id) {
 Spec defaultSpec() {
     // 出厂那一份**故意什么都没有**：跟系统、不透明度 100、一项覆盖都没有 ⇒ `apply()`
     // 一个字节都不碰（见文件头那段"默认那一份 = 今天的样子"）。
+    // NOTE: 主题色是唯一一位"出厂就有值"的 —— 它不是覆盖项（不进 `roles` / `parts`），
+    //       落在顶栏那一块的出厂色和按钮的样式表上，所以"不碰调色板"这条照旧成立。
     Spec spec;
     spec.presetId = QStringLiteral("system");
+    spec.accent = defaultAccentColor();
     return spec;
 }
 
@@ -320,6 +473,9 @@ Spec normalize(const Spec &spec) {
     Spec clean;
     clean.presetId = isPresetId(spec.presetId) ? spec.presetId : defaultSpec().presetId;
     clean.textOpacity = clampOpacity(spec.textOpacity);
+    // 主题色：认不得（盘上手改歪了 / 没写过）一律退回出厂那一支 —— 它没有"空"这个状态，
+    // 界面上随时都有顶栏那一块要画。
+    clean.accent = spec.accent.isValid() ? spec.accent : defaultAccentColor();
     for (auto it = spec.roles.constBegin(); it != spec.roles.constEnd(); ++it) {
         // 越界的下标（盘上手改出来的）直接丢：认不出的角色没有"画面上是哪儿"可言。
         if (it.key() < 0 || it.key() >= roleCount() || !it.value().isValid()) {
@@ -429,9 +585,43 @@ void notifyWidgets() {
     }
 }
 
+/// 把按钮那一套外观挂到应用上。`force` = 样式表字符串没变也重挂一遍。
+///
+/// ★ 为什么换过调色板之后**必须**重挂（2026-09-28 实测，ui_shot 那条"深色换回来"揪出来的）：
+///   应用身上挂着样式表的时候，`QApplication::setPalette()` 那套"发给每个控件"的传播会
+///   **漏掉一部分控件** —— 最明显的是 `QCheckBox`：从深色换回"跟着系统"之后，它记着的还是
+///   深色那一份调色板（白字 + 深色勾选框），在浅底上那行字就**看不见了**。
+///   实测（本机，设置页那一刻）：挂着样式表走一遍深浅来回，10 个勾选框 **10 个**残留；
+///   把同样那一份样式表**再挂一遍**（= 逼所有控件重新抛光一遍），残留 **0** 个；
+///   撤掉样式表再走，也 **0** 个 —— 所以这一位是样式表带来的，不是调色板本身。
+///   NOTE: 重挂只在"这一趟真换了调色板"时做（`apply()` 会被"换个背景图"这种小事调起来，
+///         每趟都重挂一遍全窗口就是白跑 —— 见上面那条 NOTE）。
+void installButtonSheet(QApplication &app, bool force) {
+    const QString buttons = buttonStyleSheet();
+    static QString installed;
+    if (!force && installed == buttons) {
+        return;
+    }
+    installed = buttons;
+    app.setStyleSheet(buttons);
+}
+
 void apply(QApplication &app) {
     const Spec &spec = current();
     const bool followSystem = spec.presetId == QLatin1String("system");
+
+    // -1) 按钮那一套外观（白底 + 主题色的字和边）：走**应用级样式表**，不走调色板。
+    //
+    //     ★ 为什么按钮这一层非走样式表不可：用户要的是"按钮中心白、字和边是主题色"，
+    //       而 Fusion 画的按钮**边是它自己从按钮底色推出来的**（调色板里没有"这一圈边是
+    //       什么色"这个位置），把 `Role::Button` 改成白只会得到"白底 + 一圈灰边"。
+    //     ★ 为什么不能顺手把主题色塞进调色板（比如 `Role::Highlight` 也换成这一支绿）：
+    //       出厂那一份一旦带上角色覆盖，`touchesPalette` 就为真 ⇒ 每一趟都 `setPalette()`
+    //       ⇒ 应用调色板成了"我们设的"，**Qt 从此不再跟着系统深浅走了**（跟着系统那一档的
+    //       全部意义，见文件头那段）。样式表不碰调色板，所以这条路是干净的。
+    //     NOTE: 只在**真变了**的时候铺：`apply()` 会被"改一张背景图"这种小事调起来，
+    //           每次都铺一遍等于让整个界面重新 polish 一趟（样式没变也白跑）。
+    installButtonSheet(app, false);
 
     // 0) 记下"平台自己那一份"。`installedExplicit()` 为假 = 应用身上现在挂的就是平台给的
     //    那一份（我们没顶掉过，或者已经还回去了）—— 这一刻存下来，还原时才有东西可还。
@@ -468,13 +658,21 @@ void apply(QApplication &app) {
             //   没记下来过（理论上到不了）才退而求其次用 `base`。
             app.setPalette(platformPaletteKnown() ? platformPalette() : base);
             installedExplicit() = false;
+            // ★ 换过调色板就得把样式表重挂一遍，见 `installButtonSheet()` 那段。
+            installButtonSheet(app, true);
         }
         notifyWidgets();
         return;
     }
 
+    const QPalette before = app.palette();
     app.setPalette(buildPalette(spec, base));
     installedExplicit() = true;
+    if (app.palette() != before) {
+        // ★ 同上：这一趟**真**把调色板换掉了，所以重挂一遍样式表把控件那层缓存冲掉。
+        //   没换（比如只是改了背景图）就不挂 —— 那正是上面 NOTE 说的"白跑一趟"。
+        installButtonSheet(app, true);
+    }
     // 铺完之后 Qt 自己会把"调色板变了"发给每一个控件（`ui_check` W2 量着这件事），
     // 所以这里**不再**敲第二遍 —— 敲了就是每换一次主题白跑一趟全窗口的重算。
 }
@@ -493,6 +691,11 @@ QColor partBackground(Part part) {
         return it->background;
     }
     const PartInfo &info = kPartInfos[index];
+    if (info.accent) {
+        // 顶栏：主题色那一支（用户点名要的）。用户单独给这一块设过底色的话上面那条已经
+        // 返回了 —— 覆盖永远赢过出厂值。
+        return accentShade(AccentShade::Pure);
+    }
     if (info.literal) {
         return scrimLiteral();
     }
@@ -509,16 +712,27 @@ bool partHasBackground(Part part) {
     return it != current().parts.constEnd() && it->hasBackground;
 }
 
+bool partLightInk(Part part) {
+    const int index = static_cast<int>(part);
+    // ★ 白墨这一位跟着"顶栏底色 = 主题色那一支"走：绿条上的字必须够白才读得出来
+    //   （用户 2026-09-28：「顺便那个最小化和 x 都换成白的」）。它是**出厂值**，
+    //   用户单独给这一块设过前景色的话那个覆盖照样赢（`partForeground()` 里那条在前）。
+    return index >= 0 && index < partCount() && kPartInfos[index].accent;
+}
+
 QColor partForeground(Part part, const QColor &fallback) {
     const int index = static_cast<int>(part);
     if (index < 0 || index >= partCount()) {
         return fallback;
     }
+    // 没人给这一块设过前景色时，出厂字色就是这一位上写着的那一支（顶栏是**白墨**，
+    // 别的块才是调用方递进来的那个兜底色）。
+    const QColor factoryInk = kPartInfos[index].accent ? QColor(Qt::white) : fallback;
     const auto it = current().parts.constFind(index);
     if (it == current().parts.constEnd()) {
-        return fallback;
+        return factoryInk;
     }
-    QColor color = it->hasForeground ? it->foreground : fallback;
+    QColor color = it->hasForeground ? it->foreground : factoryInk;
     // 这一块**自己**那一位才在这儿生效；全局那一位落在调色板的文字角色上（`buildPalette()`），
     // 而 `fallback` 多半就是从调色板取来的 ⇒ 在这儿再乘一次就是乘了两遍。
     if (it->textOpacity >= 0 && color.isValid()) {
@@ -610,6 +824,7 @@ void save(const Spec &spec) {
     settings.remove(QStringLiteral("Theme"));
     settings.setValue(QLatin1String(kPresetKey), clean.presetId);
     settings.setValue(QLatin1String(kTextOpacityKey), clean.textOpacity);
+    settings.setValue(QLatin1String(kAccentKey), colorToString(clean.accent));
     for (auto it = clean.roles.constBegin(); it != clean.roles.constEnd(); ++it) {
         settings.setValue(roleSettingKey(static_cast<Role>(it.key())), colorToString(it.value()));
     }
@@ -661,6 +876,11 @@ Spec load() {
     Spec spec = defaultSpec();
     spec.presetId = settings.value(QLatin1String(kPresetKey), spec.presetId).toString();
     spec.textOpacity = settings.value(QLatin1String(kTextOpacityKey), spec.textOpacity).toInt();
+    // 主题色：没写过（老版本存的那一份）就是出厂那一支 —— 它没有"空"这个状态。
+    const QColor accent = colorFromString(settings.value(QLatin1String(kAccentKey)).toString());
+    if (accent.isValid()) {
+        spec.accent = accent;
+    }
     for (int i = 0; i < roleCount(); ++i) {
         const Role role = static_cast<Role>(i);
         const QColor color = colorFromString(
