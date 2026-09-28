@@ -241,6 +241,19 @@ inline QString configBackupDir() {
     return minecraftDir() + QStringLiteral("/cache/config-backups");
 }
 
+/// 给 Java 8 用的那套 ASCII 别名（每个实例一套，见 AsciiPathAlias）：<数据目录>/cache/ascii。
+///
+/// 为什么要有：Java 8 打不开任何带非 ASCII 字符的路径（真机上 `20w14∞` 和中文名的 1.8 整合包
+/// 都起不来），于是把要递给 Java 的那几条路径换成这底下的联接/硬链接。判据、建法、为什么不
+/// 放进 versions/ 全在 `src/launcher/AsciiPathAlias.hpp` 的块注释里。
+///
+/// NOTE: 目录名（`ascii`）和里面每一套的名字（实例 id 的哈希）都必须是**纯 ASCII** —— 这一条
+///       是整套东西唯一的意义所在，数据目录自己不是 ASCII 的话它就没用了（那种情况
+///       AsciiPathAlias::ensure() 会说清楚，而不是建一套没用的出来）。
+inline QString asciiAliasRootDir() {
+    return minecraftDir() + QStringLiteral("/cache/ascii");
+}
+
 /// 存档写之前留的那一份：<数据目录>/cache/world-backups/<存档目录名>/<时间戳>/level.dat。
 ///
 /// NOTE: 两层目录里**存档目录名在外面**（和配置备份逐字同一形状：那边也是

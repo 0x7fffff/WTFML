@@ -94,7 +94,10 @@ struct Resolved {
  *   ② 否则顶层**恰好一个** .jar → 用它。这是"用户自己在资源管理器里改了目录名"
  *      那种实例，以前会被整个忽略掉。
  *   ③ 其余（一个都没有 / 有两个以上且没有精确匹配）→ 不算实例。
- * json 单独按 ①/② 解析，但**解析不到不算认不出来**。
+ * json 单独按 ①/② 解析（再加一条 ②'：顶层 json 多于一个时挑"名字对得上某个 jar"的
+ * 那一个 —— 杂物的 json 对不上，见 InstanceFiles.cpp 的 pickJsonByJarStem()），
+ * 但**解析不到不算认不出来**。②' 还挑不出来时，resolveInstance() 会读几个 json 的
+ * **内容**再挑一次（那一层才碰磁盘）；resolve() 本身只吃文件名，仍然是纯的。
  */
 Resolved resolve(const DirListing &listing);
 
@@ -170,6 +173,31 @@ QString jarRelativePath(const QString &versionId);
  * @param versionId 实例 id（= 目录名）。
  */
 QString jsonPath(const QString &versionId);
+
+/**
+ * @brief 这个实例的主类**至少**要哪个大版本的 Java —— 直接从 class 文件头上读出来。
+ * @param versionId 实例 id（= 目录名）。
+ * @param mainClass version.json 里那个主类的点分名字（空串 ⇒ 返回 0）。
+ * @return 需要的大版本（8 / 17 / 21 …）；读不到、认不出、没有这个类时返回 **0**。
+ *
+ * 【为什么不能只信 version.json 里那个 javaVersion.majorVersion】
+ *   它是**包作者写上去的**，而"换过主类"的整合包经常写错。真机上 `GTNH 2.8.4` 就是：
+ *   json 写 `javaVersion.majorVersion = 8`，主类
+ *   `me.eigenraven.lwjgl3ify.relauncherstub.RelauncherStubMain` 却是 **Java 17 编的**
+ *   （class 文件版本 61），于是 Java 8 一起来就是一句
+ *       java.lang.UnsupportedClassVersionError: … class file version 61.0,
+ *       this version of the Java Runtime only recognizes class file versions up to 52.0
+ *   主类的 class 文件版本是**唯一**说得准这件事的东西（同一个道理，工程里另有一处：
+ *   离线账号的默认皮肤是"看 JAR 里有没有那条定规矩"而不是看版本号）。
+ *
+ * 【取值】class 文件的第 6、7 字节（大端）是 major version：**大版本 = 它 - 44**
+ *   （52 → 8、61 → 17、65 → 21）。这个换算从 Java 1.1（45）起就没变过。
+ *
+ * NOTE: 读的是 zip 条目（借 ZipUtil，一次 PowerShell），而且**只在该版本声明的 Java ≤ 8
+ *       时才被调用**（见 MainWindow 那一处）—— 热路径上不多这一趟。
+ * NOTE: 找不到就是 0，**不猜**。调用方按"0 = 没意见"处理（保持 json 里那个值）。
+ */
+int mainClassJavaMajor(const QString &versionId, const QString &mainClass);
 
 /**
  * @brief 一个名字能不能当 versions 下的目录名。**纯函数**，不碰磁盘。

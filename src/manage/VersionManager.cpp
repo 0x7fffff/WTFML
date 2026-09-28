@@ -3113,6 +3113,18 @@ QJsonObject VersionManager::getVersionJson(const QString &versionId) const {
         parentId = VersionInheritance::parentIdOf(parent);
     }
 
+    // 最后按"不看版本号的坐标"再去一次重（PCL 合并出来的 json 里同一个库会有两个版本）。
+    //
+    // NOTE: 位置在**这里**、而不是 mergeLibraries() 里 —— 有两种 json 根本不会走到 merge()：
+    //       自己就是完整的那份（原版、以及 PCL 合并好之后**没有 inheritsFrom** 的那些，
+    //       真机上崩得最狠的 `1.21.4-Fabric 0.16.14` 正是这一类：它顶层两个 asm 版本全在
+    //       自己的数组里）。放在这条唯一的出口上，两种输入走同一条规矩。
+    //       判据和证据见 VersionInheritance::dedupeLibraries() 的 NOTE。
+    const QJsonArray libraries = merged.value(QStringLiteral("libraries")).toArray();
+    if (!libraries.isEmpty()) {
+        merged.insert(QStringLiteral("libraries"), VersionInheritance::dedupeLibraries(libraries));
+    }
+
     // 只缓存**链正常走完**的那一份。
     //
     // NOTE: 上面两种 break（环、父版本没装）都会留下一份"合了一半"的 json。以前不管走没走完

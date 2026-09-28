@@ -471,6 +471,42 @@ cmake --build build/static-release -j
   —— 以前没有这道拦截，点一下 × 游戏（和里面没存的进度）就没了。「启动后 → 收起」用的是
   `hide()` 不是 `close()`（启动器是最后一个窗口时 `close()` 等于退出进程，而游戏是子进程）。
 
+#### 真机全量启动实测（2026-09-28）
+
+把机器上装着的 70 个实例挨个用启动器起了一遍（一次同时 3 个，判据是启动器自己写的
+`logs/wtfml.log` 里的会话记录：`Exit code:` 与 `[Game Error]`）。修之前是 **48 起得来 /
+19 起不来 / 3 存疑**；修完再跑一遍，**70 个全部起来了**（其中 5 个在 40 秒观察窗里还没出窗口
+—— 它们进游戏要一分多钟，单独放长窗口复测同样起来了）。那一趟暴出来的坑分七类，都修了：
+
+- **classpath 上必须是绝对路径**。以前发的是 `libraries/…` 这种**相对**路径，而 JVM 的
+  cwd 是数据根目录 —— 看着能用，其实是拿 cwd 侥幸；NeoForge 系（真机上 4 个）直接崩在
+  `Module named cpw.mods.bootstraplauncher was already on the JVMs module path`。
+- **同坐标的库必须去重，但去重的键里要带上 `rules`**。不去重是实打实的启动失败：Fabric 的
+  `LoaderUtil.verifyClasspath()` 找到两份 `org/objectweb/asm/ClassReader.class` 就抛
+  `duplicate ASM classes found on classpath`。而**只按坐标去重又会修坏另一头**：`1.8.json`
+  里 `org.lwjgl.lwjgl:lwjgl` 有两条（Windows 那份 `2.9.1`、macOS 那份 `2.9.2-nightly`），
+  合并会把 Windows 那份换成 macOS 那份，而后者在当前平台上"没有一条规则命中 ⇒ 不允许"
+  ⇒ lwjgl 从 classpath 上整个消失，症状是 `NoClassDefFoundError: org/lwjgl/LWJGLException`。
+  判据因此是"同坐标**且** `rules` 逐字相同"才算同一个库，平台语义只由 `LibraryRules` 一处说了算。
+- **主类不一定是 `--version` 那个 jar 里的**。`GTNH 2.8.4` 的主类住在实例目录里**另一个**
+  jar（`lwjgl3ify-forgePatches.jar`），而它在 `libraries` 里一条都没有。现在拼 classpath 时
+  会把实例目录顶层那几个 jar 一起搜一遍主类。
+- **主类自己说了算它要哪个 Java**。同一个 `GTNH 2.8.4` 的 json 写的是
+  `javaVersion.majorVersion = 8`，主类却是 Java 17 编的（class 文件版本 61），拿 Java 8 起来
+  就是 `UnsupportedClassVersionError`。现在**只在 json 声明 ≤ 8 时**去读一次主类的 class
+  文件头（第 6、7 字节，`大版本 = 它 - 44`），**只抬高不降低**，读不到就按 json 那个值。
+- **Java 8 打不开任何带非 ASCII 字符的路径**（这台机器开着 Windows 的「Beta: 使用 Unicode
+  UTF-8 提供全球语言支持」，而 Java 8 认的是 GBK —— 同一台机器上官方启动器、PCL 是同一个
+  下场）。所以给这种实例**另建一套纯 ASCII 路径**：`cache/ascii/<id 的 SHA-1 前 12 位>/`，
+  里面 `game`/`natives` 是指向真实目录的**目录联接**（不需要管理员权限），`jars/` 是一批
+  **硬链接**；**文件名自己带非 ASCII 的也换名**（`20w14∞.jar` → `jar-<哈希>.jar`）。游戏照旧
+  读写原目录，用户看不出区别。Java 9+ 或路径本来就全是 ASCII 时这一步整段不做。
+- **能想清楚的错误要落到游戏的 stdout**：有的实例只留一句
+  `找不到或无法加载主类 net.minecraft.client.main.Main`，看不出是路径的事 —— 现在这一层
+  会先说清"这个实例的路径里有非 ASCII 字符（Java 8 打不开），已改用 ASCII 别名"。
+- json 一堆、认不出该用哪一份时按**内容**挑（真机上 `魔改版ATT2` 那种"目录名和 jar 名对不上"
+  的整合包）。
+
 ### 设置页
 
 左栏五个分类（启动 / 游戏 / 提示 / 个性化 / 下载），右栏是各自的堆叠页；每栏一层滚动区，

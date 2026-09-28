@@ -65,6 +65,7 @@ set(SOURCE_FILES
     src/main.cpp
     src/MainWindow.cpp
     src/launcher/LauncherManager.cpp
+    src/launcher/AsciiPathAlias.cpp
     src/launcher/VersionInheritance.cpp
     src/auth/AuthManager.cpp
     src/auth/AccountStore.cpp

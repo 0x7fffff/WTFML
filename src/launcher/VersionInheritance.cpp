@@ -11,6 +11,7 @@
 
 #include <QHash>
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QJsonValue>
 #include <QList>
 
@@ -68,7 +69,53 @@ QJsonArray mergeLibraries(const QJsonArray &parentLibraries, const QJsonArray &c
     return out;
 }
 
-/// 合并 `arguments`：jvm / game 两个数组各自"父在前子在后"，其余键按"子优先"。
+//// 一条库坐标里**不看版本号**的那几段：`group:artifact`（有 classifier 时再加上它）。
+///
+/// 名字的形状是 `group:artifact:version[:classifier][@ext]`，例如
+///   `org.ow2.asm:asm:9.6`、`org.lwjgl:lwjgl:3.3.3:natives-windows`、
+///   `net.minecraftforge:forge:1.20.1-47.4.10:universal@zip`。
+/// 版本号是第 3 段；classifier 是第 4 段（如果有），它**要留着** —— 见 .hpp 的 NOTE。
+QString coordinateKey(const QString &name) {
+    QString body = name;
+    const int at = body.indexOf(QLatin1Char('@'));
+    if (at >= 0) {
+        body = body.left(at);  // `@zip` / `@jar` 这种扩展名标记不参与坐标
+    }
+    const QStringList parts = body.split(QLatin1Char(':'));
+    if (parts.size() < 3) {
+        // 段数不够（`group:artifact` 这种没写全的）：整串拿来当键，只保证"一模一样的两条"
+        // 会被合成一条，认不出的东西不做额外判断。
+        return body;
+    }
+    const QString classifier = parts.size() > 3 ? QStringLiteral(":") + parts.at(3) : QString();
+    return parts.at(0) + QLatin1Char(':') + parts.at(1) + classifier;
+}
+
+/// 一条库的 `rules` 数组原样序列化出来的那串字符（没有 rules 时是空串）。
+///
+/// ★ 去重的键里**必须带上它**，不然会把"同一坐标、不同平台"的那一对合成一条 —— 那正是
+///   原版 json 表达"Windows 用 2.9.1、macOS 用 2.9.2-nightly"的手法：
+///       1.8.json 里 `org.lwjgl.lwjgl:lwjgl` 就有两条，
+///         `2.9.1`      rules = [allow, disallow/osx]   ← Windows 要的那个
+///         `2.9.2-…`    rules = [allow/osx]             ← macOS 要的那个
+///   只按坐标去重（后到的赢）会把 Windows 那份**换掉**，而它留下的那条在当前平台上
+///   "没有一条规则命中 ⇒ 不允许"（`LibraryRules::libraryAllowed` 的语义），于是 lwjgl 从
+///   classpath 上整个消失 —— 真机上 `1.8` 就是这个下场：
+///       java.lang.NoClassDefFoundError: org/lwjgl/LWJGLException
+///   （2026-09-28 实测，`20w14∞` 里那 9 对 LWJGL 3.2.1/3.2.2 是同一个形状。）
+///
+/// NOTE: 判据是"逐字相同"（只认字面，不去理解 `os`/`features` 里写了什么）。宁可**少合并**
+///       几条（退化成改动前的行为：两条都在 classpath 上），也不要按自己的理解去挑一条 ——
+///       平台的语义只有 LibraryRules 那一处说了算，这一层不重复实现一遍。
+QString rulesFingerprint(const QJsonObject &library) {
+    const QJsonValue rules = library.value(QStringLiteral("rules"));
+    if (!rules.isArray()) {
+        return QString();
+    }
+    return QString::fromUtf8(QJsonDocument(rules.toArray()).toJson(QJsonDocument::Compact));
+}
+
+// 合并 `arguments`：jvm / game 两个数组各自"父在前子在后"，其余键按"子优先"。
 QJsonObject mergeArguments(const QJsonObject &parentArguments, const QJsonObject &childArguments) {
     QJsonObject out;
     for (auto it = parentArguments.constBegin(); it != parentArguments.constEnd(); ++it) {
@@ -183,6 +230,40 @@ QJsonObject merge(const QJsonObject &child, const QJsonObject &parent) {
         }
     }
 
+    return out;
+}
+
+QJsonArray dedupeLibraries(const QJsonArray &libraries) {
+    QList<QJsonObject> merged;
+    QHash<QString, int> positions;  // 坐标 + rules 的指纹 -> 在 merged 里的下标
+
+    for (const QJsonValue &value : libraries) {
+        const QJsonObject library = value.toObject();
+        const QString name = library.value(QStringLiteral("name")).toString();
+        if (name.isEmpty()) {
+            // 没有 name 的条目照收、也占一个位置（但谁都不会再去改它）。
+            merged.append(library);
+            continue;
+        }
+        // 键里带着 rules 的指纹（见 rulesFingerprint()）：只有"同坐标**且** rules 逐字相同"
+        // 的两条才算同一个库。不同 rules 的同坐标条目是**给不同平台的**，一条都不能少。
+        const QString key = coordinateKey(name) + QLatin1Char('\n') + rulesFingerprint(library);
+        const auto existing = positions.constFind(key);
+        if (existing != positions.constEnd()) {
+            // 同一个坐标又来一条：**后到的赢**，但留在先到的那条的位置上
+            // （位置那条的理由和 mergeLibraries() 里一样：classpath 上的先后决定
+            //  谁盖住谁，覆盖项不该因此往后挪）。
+            merged[existing.value()] = library;
+            continue;
+        }
+        positions.insert(key, merged.size());
+        merged.append(library);
+    }
+
+    QJsonArray out;
+    for (const QJsonObject &library : merged) {
+        out.append(library);
+    }
     return out;
 }
 

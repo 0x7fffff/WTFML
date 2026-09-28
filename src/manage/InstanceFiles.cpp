@@ -20,6 +20,7 @@
 
 #include "../launcher/VersionInheritance.hpp"
 #include "../util/AppPaths.hpp"
+#include "../util/ZipUtil.hpp"
 
 namespace InstanceFiles {
 namespace {
@@ -36,6 +37,47 @@ QString findNamed(const QStringList &names, const QString &wanted) {
         }
     }
     return QString();
+}
+
+/// 从**文件名**上认版本 JSON：顶层 json 多于一个、又没有精确匹配时用这一条。
+///
+/// 判据是"版本 json 和自己的 jar 摆在一起、名字也对得上"：`<X>.json` 旁边有 `<X>.jar`
+/// 就算候选。这一条救的是真机上这个目录：
+///     versions/魔改版ATT2-BC&A&IS(多周目)/
+///         魔改版ATT2-BC&A&IS(多周目).jar        ← 目录名改过，jar 也跟着叫这个
+///         魔改版ATT2-[V1.8]BC&A&IS(多周目).jar  ← 老名字那一份，json 还叫这个
+///         魔改版ATT2-[V1.8]BC&A&IS(多周目).json
+///         patchouli_data.json                  ← **模组留下的杂物**（这个实例目录同时是
+///                                                 游戏目录，saves/config/options.txt 都在里面）
+/// 精确匹配 `<目录名>.json` 落空、"恰好一个 json"也被 `patchouli_data.json` 顶掉，
+/// 于是 jsonName 退成 `<目录名>.json`（不存在）⇒ 启动前弹"版本信息缺失"。
+/// 按"名字对得上 jar"挑，候选只剩一个，正是那份真 json。
+///
+/// 只吃文件名，不读盘 —— resolve() 因此仍然是纯函数（真值表在验证工程里钉得住）。
+QString pickJsonByJarStem(const DirListing &listing) {
+    QStringList jarStems;
+    for (const QString &jar : listing.jarNames) {
+        jarStems << QFileInfo(jar).completeBaseName();
+    }
+    QString found;
+    for (const QString &json : listing.jsonNames) {
+        const QString stem = QFileInfo(json).completeBaseName();
+        bool matches = false;
+        for (const QString &jarStem : jarStems) {
+            if (stem.compare(jarStem, Qt::CaseInsensitive) == 0) {
+                matches = true;
+                break;
+            }
+        }
+        if (!matches) {
+            continue;
+        }
+        if (!found.isEmpty()) {
+            return QString();  // 不止一个，认不出 —— 交给调用方（内容那一层还能再挑一次）
+        }
+        found = json;
+    }
+    return found;
 }
 
 /// 读一个实例目录里的版本 JSON，取它声明的父版本（`inheritsFrom`）。
@@ -243,7 +285,7 @@ Resolved resolve(const DirListing &listing) {
         out.jarName = listing.jarNames.first();
     }
 
-    // json 按同样的 ①/② 解析，但**解析不到不算认不出来**：
+    // json 按同样的 ①/② 解析，再加一条 ②'，但**解析不到不算认不出来**：
     //   1. installedVersions() 的语义始终是"客户端 jar 在不在"（半个版本、只有 json 的下载
     //      残骸都不是实例），把 json 纳入判据会把"下到一半"的目录从"看得见、点了会告诉你
     //      为什么"变成"看不见" —— 正是本轮要消灭的那种静默。
@@ -251,6 +293,12 @@ Resolved resolve(const DirListing &listing) {
     out.jsonName = findNamed(listing.jsonNames, listing.dirName + QStringLiteral(".json"));
     if (out.jsonName.isEmpty() && listing.jsonNames.size() == 1) {
         out.jsonName = listing.jsonNames.first();
+    }
+    // ②' 顶层 json 多于一个：挑名字对得上这份目录里某个 jar 的那一个。理由和那个真机
+    //    目录见 pickJsonByJarStem()。挑不出来就留着空 —— resolveInstance() 会读内容再挑
+    //    一次（那一层碰磁盘，纯函数不碰）。
+    if (out.jsonName.isEmpty()) {
+        out.jsonName = pickJsonByJarStem(listing);
     }
 
     // ④ 一个 jar 都没有、但 json 声明了父版本 → 认得出。带模组加载器的版本就长这样
@@ -287,6 +335,43 @@ DirListing scanDir(const QString &versionId) {
 Resolved resolveInstance(const QString &versionId) {
     const DirListing listing = scanDir(versionId);
     Resolved out = resolve(listing);
+
+    // 上面按**文件名**挑不出版本 json（顶层好几个 json、名字又都对不上 jar）时，读内容
+    // 再挑一次：版本 json 是个对象，至少得有几样版本 json 该有的东西（mainClass /
+    // libraries / id / inheritsFrom），模组留下的杂物 json 一样都没有。
+    //
+    // 只在"挑不出来"时才走到这里（真机上 61 个实例是 0 个走这条），所以热路径不变。
+    // 读不懂的、不是对象的，一律不算候选 —— 和 readInheritsFrom() 一样不告警：这一层的
+    // 职责只是"尽量挑对"，挑不对时启动前那条"版本信息缺失"会说话。
+    if (out.jsonName.isEmpty() && listing.jsonNames.size() > 1) {
+        QString found;
+        for (const QString &json : listing.jsonNames) {
+            QFile file(AppPaths::versionDir(versionId) + QLatin1Char('/') + json);
+            if (!file.open(QIODevice::ReadOnly)) {
+                continue;
+            }
+            const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+            if (!doc.isObject()) {
+                continue;
+            }
+            const QJsonObject object = doc.object();
+            const bool looksLikeVersion =
+                object.contains(QStringLiteral("mainClass")) ||
+                object.contains(QStringLiteral("libraries")) ||
+                object.contains(QStringLiteral("id")) ||
+                object.contains(QStringLiteral("inheritsFrom"));
+            if (!looksLikeVersion) {
+                continue;
+            }
+            if (!found.isEmpty()) {
+                found.clear();  // 不止一个"像版本 json"的：不猜
+                break;
+            }
+            found = json;
+        }
+        out.jsonName = found;
+    }
+
     if (!out.recognized()) {
         // 只有"一个 jar 都认不出来"时才去读 json —— 这一条是热路径（每个已安装版本、
         // 每次刷新界面都要过一遍，真机上 61 个实例），绝大多数实例在自己目录里就认出了
@@ -353,6 +438,50 @@ QString jarRelativePath(const QString &versionId) {
 
 QString jsonPath(const QString &versionId) {
     return AppPaths::versionDir(versionId) + QLatin1Char('/') + jsonName(versionId);
+}
+
+int mainClassJavaMajor(const QString &versionId, const QString &mainClass) {
+    if (mainClass.isEmpty()) {
+        return 0;
+    }
+    // zip 里的条目名是 `/` 分隔的（`a.b.C` → `a/b/C.class`）—— 和 LauncherManager 里那段
+    // 找主类的判据拼的是同一个字符串。
+    QString entryName = mainClass;
+    entryName.replace(QLatin1Char('.'), QLatin1Char('/'));
+    entryName += QStringLiteral(".class");
+
+    // 找的范围和 LauncherManager 里"主类是不是装在别的 jar 里"完全一致：客户端 jar 那个
+    // 目录（继承型实例在主版本那边）+ 实例自己那个目录的顶层 jar。**顺序也一样**：先
+    // 主人那一份，再实例自己那些 —— 主类绝大多数就在客户端 jar 里，第一发就命中。
+    QStringList tried;
+    for (const QString &ownerId : {jarOwnerId(versionId), versionId}) {
+        const DirListing listing = scanDir(ownerId);
+        for (const QString &jarName : listing.jarNames) {
+            if (tried.contains(jarName, Qt::CaseInsensitive)) {
+                continue;
+            }
+            tried << jarName;
+            const QString jar = AppPaths::versionDir(ownerId) + QLatin1Char('/') + jarName;
+            QByteArray bytes;
+            if (ZipUtil::readEntry(jar, entryName, &bytes) != ZipUtil::EntryStatus::Ok) {
+                continue;  // 这个 jar 里没有这个类（或者读不动）—— 换下一个
+            }
+            // class 文件的头 8 个字节：魔数(4) + 次版本(2) + 主版本(2)，都是大端。
+            if (bytes.size() < 8) {
+                continue;
+            }
+            const auto *raw = reinterpret_cast<const unsigned char *>(bytes.constData());
+            if (raw[0] != 0xCA || raw[1] != 0xFE || raw[2] != 0xBA || raw[3] != 0xBE) {
+                continue;  // 不是 class 文件（同名条目？）—— 不猜
+            }
+            const int classFileMajor = (static_cast<int>(raw[6]) << 8) | static_cast<int>(raw[7]);
+            if (classFileMajor < 45) {
+                continue;  // 比 Java 1.1 还小：不是我们认得的东西
+            }
+            return classFileMajor - 44;
+        }
+    }
+    return 0;
 }
 
 }  // namespace InstanceFiles

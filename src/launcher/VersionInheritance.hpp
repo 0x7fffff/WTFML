@@ -24,6 +24,7 @@
  */
 #pragma once
 
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QString>
 
@@ -71,5 +72,43 @@ int maxDepth();
  *       要看父版本是谁，用 `parentIdOf()` 读**原始**那份（VersionManager 就是这么做的）。
  */
 QJsonObject merge(const QJsonObject &child, const QJsonObject &parent);
+
+/**
+ * @brief 按**不看版本号的坐标**（`group:artifact[:classifier]`）去掉同一个库的多个版本。
+ * @param libraries 一份版本 JSON 的 `libraries` 数组。
+ * @return 去重后的数组：同一个坐标只留**最后一个**，位置留在**第一个**出现的地方。
+ *
+ * 【为什么必须去重】两个同坐标不同版本的 jar 同时进 classpath 是**实打实的启动失败**，
+ * 不是"多占点地方"：
+ *   - Fabric：`LoaderUtil.verifyClasspath()` 找到两份 `org/objectweb/asm/ClassReader.class`
+ *     就抛 `IllegalStateException: duplicate ASM classes found on classpath`，
+ *     任何版本的 Fabric 都起不来。真机上 8 个 Fabric 系实例全崩在这一句
+ *     （`1.21.4-Fabric 0.16.14`：classpath 上 `asm-9.6.jar` 和 `asm-9.8.jar` 都在）；
+ *   - 更普遍地说，classpath 上同名类的"谁盖住谁"由**顺序**决定，两个版本同时在就是
+ *     拿运气启动。
+ *
+ * 【为什么是"最后一个赢"】PCL 合并出来的 json 是**先铺原版那层、再叠加载器那层**：
+ * 原版 1.21.4 声明 asm 9.6，Fabric 追加它要的 asm 9.8；原版 1.12.2 声明 log4j 2.8.1，
+ * Forge 追加打了 log4shell 补丁的 2.15.0。**后声明的那个是覆盖意图**，前面那个只是它
+ * 盖在底下的旧值。这和 merge() 里"子赢"是同一条规矩（子在后）。
+ *
+ * NOTE: 判据里**保留 classifier**：`lwjgl:3.3.3` 和 `lwjgl:3.3.3:natives-windows` 是
+ *       两个都得在 classpath 上的不同文件（1.19+ 的 natives 就靠后者），把 classifier
+ *       也抹掉会顺手删掉整批 natives jar。
+ *
+ * NOTE: ★ 只有"同坐标**并且** `rules` 逐字相同"的两条才会被合成一条。`rules` 不同的
+ *       同坐标条目是**给不同平台的**——`1.8.json` 里 `org.lwjgl.lwjgl:lwjgl` 就有两条
+ *       （Windows 那份 `2.9.1` 的 rules 是 `[allow, disallow/osx]`、macOS 那份
+ *       `2.9.2-nightly` 的 rules 是 `[allow/osx]`）。按坐标硬合并会把 Windows 那份换掉，
+ *       换上去的那条在当前平台上没有任何规则命中 ⇒ 按规则被丢掉 ⇒ lwjgl 从 classpath 上
+ *       整个消失，真机上的症状是 `NoClassDefFoundError: org/lwjgl/LWJGLException`。
+ *       判据只认字面，不去理解 `os`/`features` —— 平台的语义只有 LibraryRules 那一处说了算。
+ *
+ * NOTE: 名字认不出来的条目（没有 `name` 字段）**原样留着**、不参与去重 —— 和
+ *       mergeLibraries() 同一个口径：看不懂的东西丢掉比留着危险。
+ *
+ * 纯函数：只吃数组、不碰磁盘，真值表能在验证工程里钉住。
+ */
+QJsonArray dedupeLibraries(const QJsonArray &libraries);
 
 }  // namespace VersionInheritance

@@ -50,6 +50,7 @@
 #include "../settings/EffectiveJavaSettings.hpp"
 #include "../util/AppPaths.hpp"
 #include "../util/ZipUtil.hpp"
+#include "AsciiPathAlias.hpp"
 #include "LibraryRules.hpp"
 #include "VersionArguments.hpp"
 
@@ -513,8 +514,12 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     }
     args << QStringLiteral("-Djava.net.preferIPv4Stack=true");
 
+    // NOTE: 去重按**路径**比，大小写不敏感 —— Windows 的路径本来就是大小写不敏感的，
+    //       而 BootstrapLauncher（Forge/NeoForge）拿 `java.class.path` 里的字符串去和
+    //       JVM 模块路径里的**盘上路径**做 `Paths.get(a).equals(Paths.get(b))` 比较，
+    //       `WindowsPath.equals` 也是忽略大小写的。这里跟着它保持一致。
     const auto addClasspathPath = [&](const QString &path, QStringList &classpath) {
-        if (!path.isEmpty() && !classpath.contains(path)) {
+        if (!path.isEmpty() && !classpath.contains(path, Qt::CaseInsensitive)) {
             classpath << path;
         }
     };
@@ -527,15 +532,60 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     //      不存在的文件，表现是 JVM 一句 "Could not find or load main class" 就没了；
     //   2. **带模组加载器的版本目录里根本没有 jar**（Fabric 装出来的只有一份 json），
     //      客户端 jar 在原版那个目录里 —— jarRelativePath() 会顺着 inheritsFrom 链找到它。
-    // 相对路径的基准是 QProcess 的工作目录（AppPaths::minecraftDir()，见 startGame）。
     //
-    // NOTE: 这一条和 startGame() 里那个 setWorkingDirectory **是一对**：想把 cwd 换成版本
-    //       目录（PCL 就是那么干的，MCEF 那类按相对路径找文件的模组指望的就是它），必须
-    //       同时把这里几条相对路径钉成绝对路径（`QDir(AppPaths::minecraftDir()).absoluteFilePath()`），
-    //       否则 JVM 会去 versions/<id>/versions/<id>/... 找主类，症状是
-    //       "Could not find or load main class"。2026-09-24 的崩溃取证查到这里，两处留待
-    //       专门一批一起改。
-    addClasspathPath(InstanceFiles::jarRelativePath(versionId), classpath);
+    // ★ 必须发**绝对路径**（原先发的是相对 cwd 的 `versions/<id>/...`）。相对路径在这里
+    //   不是"风格问题"，是**实打实的启动失败**：
+    //   Forge/NeoForge 的 version json 用 `${library_directory}`（绝对）拼了 `-p` 模块路径，
+    //   而 classpath 上是相对串 —— BootstrapLauncher 逐个比"这个 jar 是不是已经在 JVM 的
+    //   模块路径上了"，`Paths.get("libraries\\cpw\\...")` 和 `Paths.get("D:\\...\\libraries\\
+    //   cpw\\...")` 不相等，于是它认为同一个 jar 出现了两次并抛：
+    //     IllegalStateException: Module named cpw.mods.bootstraplauncher was already on the
+    //     JVMs module path loaded from D:\...\bootstraplauncher-2.0.2.jar but class-path
+    //     contains it at location libraries\cpw\mods\bootstraplauncher\2.0.2\bootstraplauncher-2.0.2.jar
+    //   （6 个 NeoForge 实例真机上全崩在这一句，2026-09-28 查到；把 classpath 换成绝对路径
+    //   之后同一条命令行原样跑进了 modlauncher —— 见 build/tmp-run/nf-probe2.py 的 M 组。）
+    //   原版启动器发的也是绝对路径，这里现在和它一致。
+    //
+    // 绝对路径的基准是 AppPaths::minecraftDir()，和 startGame() 里那个 setWorkingDirectory
+    // 无关了 —— cwd 换成版本目录（PCL 那种）不再需要同时改这里。
+    const QString minecraftRoot = AppPaths::minecraftDir();
+    const auto absoluteEntry = [&minecraftRoot](const QString &relative) {
+        return QDir::toNativeSeparators(QDir(minecraftRoot).absoluteFilePath(relative));
+    };
+
+    // ---------------- ASCII 别名（只对 Java 8 生效，见 AsciiPathAlias 那个文件） ----------
+    // Java 8 打不开任何带非 ASCII 字符的路径（真机上 `20w14∞` 和中文名的 1.8 整合包都起不来，
+    // 报的是 `找不到或无法加载主类`）。要换的那几条路径**共用这一个判据**：客户端 jar（进
+    // classpath）、natives（-Djava.library.path 和 ${natives_directory}）、--gameDir。
+    //
+    // 建它是 MainWindow 在启动前那一步做的（AsciiPathAlias::ensure()，失败会弹窗并中止），
+    // 这里**只读盘**：这一层仍然是"给我一份 version.json，我拼一条命令行"，副作用只有
+    // 下面那个 natives 的空目录。
+    // NOTE: 只判 gameDir 和 jar：natives 那一份是 ensure() 按"真实的 natives 目录存不存在"
+    //       建的（不存在就不建），跟着 needsNativesDir 走 —— 那边真缺了会在下面
+    //       hasNativeLibraries() 那一句里现原形（qWarning），不会静默发一条错路径出去。
+    const AsciiPathAlias::Paths asciiAlias = AsciiPathAlias::pathsFor(versionId);
+    const QString realGameDir = AppPaths::versionDir(versionId);
+    const QString realJarPath = InstanceFiles::jarPath(versionId);
+    const bool useAsciiAlias =
+        AsciiPathAlias::needed(javaMajorVersion, {realGameDir, realJarPath}) &&
+        AsciiPathAlias::isReady(asciiAlias);
+    if (useAsciiAlias) {
+        qDebug() << "Java 8 + 非 ASCII 路径：改用 ASCII 别名" << asciiAlias.root;
+    }
+    // `--gameDir` 发出去的那一个（两条登录分支共用）。别名里那个是个联接，游戏往它里面
+    // 落的东西（存档、截图、logs）全都落在 `versions/<id>` 里，用户看不出区别。
+    const QString gameDirForJava =
+        useAsciiAlias ? QDir::toNativeSeparators(asciiAlias.gameDir)
+                      : QDir::toNativeSeparators(AppPaths::versionDir(versionId));
+    // 实例目录顶层某个 jar 在 classpath 上该用的路径（要不要走别名都在这里一处判）。
+    const auto classpathJarFor = [&](const QString &fileName) {
+        return useAsciiAlias ? QDir::toNativeSeparators(asciiAlias.jarFor(fileName))
+                             : absoluteEntry(QStringLiteral("versions/%1/%2")
+                                                 .arg(InstanceFiles::jarOwnerId(versionId), fileName));
+    };
+
+    addClasspathPath(classpathJarFor(InstanceFiles::jarName(versionId)), classpath);
 
     // 根据 version.json library 依赖构建 classpath
     if (!versionJson.isEmpty()) {
@@ -558,8 +608,7 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
             const LibraryRules::Artifact artifact = LibraryRules::artifactFor(libObj);
             if (artifact.hasPath()) {
                 addClasspathPath(
-                    QDir::toNativeSeparators(QStringLiteral("libraries/%1").arg(artifact.path)),
-                    classpath);
+                    absoluteEntry(QStringLiteral("libraries/%1").arg(artifact.path)), classpath);
             }
 
             // NOTE: 旧格式（1.18.2 及以下）的 natives classifier jar 不进 classpath ——
@@ -588,8 +637,10 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
 
     // NOTE: 必须是绝对路径。JVM 在启动早期就读取并缓存 java.library.path，
     // 相对路径的解析基准是那一刻的工作目录，不可依赖；原版启动器传的也是绝对路径。
+    // NOTE: 走了 ASCII 别名时这里换成别名里那一份（它是个联接，指的还是同一个目录）——
+    //       -Djava.library.path 是**递给 Java 看**的路径，非 ASCII 一样会被它认岔。
     if (needsNativesDir) {
-        const QString nativesDir = nativesDirectory(versionId);
+        const QString nativesDir = useAsciiAlias ? asciiAlias.nativesDir : nativesDirectory(versionId);
         if (hasNativeLibraries(nativesDir)) {
             const QString nativePath = QDir::toNativeSeparators(nativesDir);
             args << QStringLiteral("-Djava.library.path=%1").arg(nativePath);
@@ -599,6 +650,66 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
             qWarning() << "Natives directory is missing or empty, the game will most likely fail "
                           "with UnsatisfiedLinkError:"
                        << nativesDir;
+        }
+    }
+
+    // 主类**从 version.json 读**，不再硬编码。硬编码的后果是带模组加载器的版本
+    // "装上了但没生效"：Fabric 的 KnotClient / Forge 的 bootstrap 都在这个字段里，
+    // 不看它就是把原版主类跑起来，加载器一行都没执行。
+    //
+    // NOTE: 取不到字段时退回原版主类。这不是兜底"猜一个"，而是**改动前的行为**：
+    //       没有这个字段的版本（老版本、手写的 json）本来就是跑原版主类。
+    //
+    // NOTE: 这里（拼 classpath 的时候）就把它读出来，是因为下面那段"主类是不是装在
+    //       实例目录里另一个 jar 里"要用它判；发到命令行上是后面的事（位置见那里的 NOTE）。
+    const QString mainClass = versionJson.value(QStringLiteral("mainClass")).toString();
+    const QString mainClassEntry = mainClass.isEmpty()
+                                       ? QString()
+                                       : QString(mainClass).replace(QLatin1Char('.'), QLatin1Char('/')) +
+                                             QStringLiteral(".class");
+
+    // 主类既不在客户端 jar、也不在 libraries 那 107 条里时，最后在**实例目录**里找一找：
+    // 把"真的装着主类"的那个 jar 加进 classpath。
+    //
+    // NOTE: 真机上就这么一例（`GTNH 2.8.4`）—— 它用 lwjgl3ify 重生启动，主类
+    //       `me.eigenraven.lwjgl3ify.relauncherstub.RelauncherStubMain` 装在版本目录里那个
+    //       和客户端 jar 并排的 `lwjgl3ify-forgePatches.jar` 里，而**那个 jar 不在
+    //       libraries 里**（json 那 51 个库一个都不提它，arguments.jvm 也是空的）。
+    //       PCL 的做法是把版本目录下**所有** jar 都塞进 classpath，那也能起来，但代价是
+    //       随便一个躺在版本目录里的 jar 都会进 classpath（可能带进同名类）。
+    //       这里只加"真的装着主类"的那一个：
+    //         - `GTNH 2.8.4` 的那个 jar 里有这个类 ⇒ 加上（这正是它起不来的原因）；
+    //         - `Hyperlands` 目录里也有第二个 jar（`hyperlands.jar`），那一个是模组、
+    //           里面没有主类 ⇒ 一个都不加，行为与改动前逐字节相同。
+    //       `魔改版ATT2-…` 那个重复的客户端 jar 同理（里面有主类，但它本来就在 classpath
+    //       上 —— 上面那句 contains 会把它挡掉）。
+    //
+    // 判据是"jar 的原始字节里有没有这条 `xxx/yyy/Main.class` 这个字符串"。zip 的条目名是
+    // **明文**存在文件里的（本地头 + 中央目录各一份），所以不需要解压、也不需要 zip 库
+    // （工程里没有引入 —— 读 zip 一律借 PowerShell，而这里每次启动都要查，不能再起进程）。
+    // 万一某个 jar 的**内容**里恰好有这串字节，后果也只是多加一个无害的 jar。
+    if (!mainClassEntry.isEmpty()) {
+        const QString instanceDir = AppPaths::versionDir(versionId);
+        const QStringList siblingJars = InstanceFiles::scanDir(versionId).jarNames;
+        for (const QString &jar : siblingJars) {
+            // 读的还是**真实**那一份（别名里的是硬链接，字节一模一样，但真实那份肯定在）；
+            // 加进 classpath 的是要递给 Java 的那一个路径（Java 8 时是别名，见上面）。
+            const QString full = QDir::toNativeSeparators(instanceDir + QLatin1Char('/') + jar);
+            if (classpath.contains(classpathJarFor(jar), Qt::CaseInsensitive)) {
+                continue;  // 已经在 classpath 上了（客户端 jar 自己，或者别的路径已经把
+                           // 同一个文件加过一遍）—— 别再进一遍
+            }
+            QFile file(full);
+            if (!file.open(QIODevice::ReadOnly)) {
+                continue;
+            }
+            const QByteArray bytes = file.readAll();
+            file.close();
+            if (bytes.contains(mainClassEntry.toUtf8())) {
+                qDebug() << "Main class" << mainClass << "is in a sibling jar of the instance:"
+                         << jar;
+                addClasspathPath(classpathJarFor(jar), classpath);
+            }
         }
     }
 
@@ -614,7 +725,10 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     // 表现为 jvm.dll 里的访问冲突 —— 没有 Java 异常、没有 hs_err、没有崩溃报告，
     // 进程直接消失。凡是 version.json 声明了的，就该按它的规则过滤后原样传给 JVM，
     // 而不是由我们维护一份会过期的参数清单。
-    const QString nativesDir = QDir::toNativeSeparators(nativesDirectory(versionId));
+    // 和上面那条 -Djava.library.path 同一个数（差别只在这里要 native 分隔符）：它在
+    // version.json 里是 `${natives_directory}`，1.13～1.16 那几代的行星/Forge 就靠它。
+    const QString nativesDir = QDir::toNativeSeparators(
+        useAsciiAlias ? asciiAlias.nativesDir : nativesDirectory(versionId));
     const QString librariesDir = AppPaths::libraryDir();
 
     QHash<QString, QString> placeholders;
@@ -686,16 +800,11 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     }
 
     args << QStringLiteral("-cp") << classpathStr;
-    // 主类**从 version.json 读**，不再硬编码。硬编码的后果是带模组加载器的版本
-    // "装上了但没生效"：Fabric 的 KnotClient / Forge 的 bootstrap 都在这个字段里，
-    // 不看它就是把原版主类跑起来，加载器一行都没执行。
+    // 主类（上面拼 classpath 时已经读过一次，见那里的 NOTE）。
     //
     // NOTE: 位置必须在 `-cp` **之后**、游戏参数之前 —— 它是 JVM 的第一个位置参数
     //       （非选项参数），JVM 拿第一个当主类、其余当程序参数。放进 `-cp` 之前会在
     //       某些版本上被 JVM 当成"类还没就绪"而报 Could not find or load main class。
-    // NOTE: 取不到字段时退回原版主类。这不是兜底"猜一个"，而是**改动前的行为**：
-    //       没有这个字段的版本（老版本、手写的 json）本来就是跑原版主类。
-    const QString mainClass = versionJson.value(QStringLiteral("mainClass")).toString();
     args << (mainClass.isEmpty() ? QString::fromLatin1(kDefaultMainClass) : mainClass);
 
     // 游戏参数占位符（${auth_uuid} 那一套）要用的三样：下面那两条分支各自定下来，等到
@@ -713,8 +822,9 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     //       .minecraft 文件夹"准备了条件。
     //
     // NOTE: cwd **本身不动**，仍然是 .minecraft（见 startGame 里那条 NOTE：真机 61 个
-    //       实例里大量模组按 cwd 找相对路径，而这个 cwd 目前还是 classpath 那几条相对
-    //       路径的解析基准 —— 要动得两处一起动）。
+    //       实例里大量模组按 cwd 找相对路径）。classpath 从 2026-09-28 起是绝对路径，
+    //       所以"改 cwd"不再需要同时改 classpath —— 那条约束已经解开了，cwd 要不要换
+    //       是独立的另一件事。
     if (offlineMode) {
         // 离线模式：使用虚假登录证书
         // NOTE: 玩家名现在就是调用方给的那个（底栏上显示的名字），以前是
@@ -741,7 +851,7 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
         qDebug() << "Offline mode - Player:" << username << "UUID:" << fakeUuid;
 
         args << QStringLiteral("--username") << username << QStringLiteral("--version")
-             << versionId << QStringLiteral("--gameDir") << AppPaths::versionDir(versionId)
+             << versionId << QStringLiteral("--gameDir") << gameDirForJava
              << QStringLiteral("--assetsDir") << AppPaths::assetsDir()
              << QStringLiteral("--assetIndex") << assetIndexId << QStringLiteral("--uuid")
              << fakeUuid << QStringLiteral("--accessToken")
@@ -764,12 +874,28 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
         args << QStringLiteral("-Dminecraft.version=%1").arg(versionId);
 
         args << QStringLiteral("--username") << username << QStringLiteral("--version")
-             << versionId << QStringLiteral("--gameDir")
-             << AppPaths::versionDir(versionId) << QStringLiteral("--assetsDir")
-             << AppPaths::assetsDir() << QStringLiteral("--assetIndex") << assetIndexId
+             << versionId << QStringLiteral("--gameDir") << gameDirForJava
+             << QStringLiteral("--assetsDir") << AppPaths::assetsDir()
+             << QStringLiteral("--assetIndex") << assetIndexId
              << QStringLiteral("--uuid") << uuid << QStringLiteral("--accessToken") << token
              << QStringLiteral("--userType") << QStringLiteral("msa");
     }
+
+    // --userProperties：**1.8 那一代的主类把它标成 required**，不发就是启动即退：
+    //     Exception in thread "main" joptsimple.MissingRequiredOptionException:
+    //     Missing required option(s) ['userProperties']
+    //   真机上 `1.8` 这个实例每次都是这一句（2026-09-28 查到的，见 report.csv 下标 22）。
+    //
+    // 为什么以前是缺的：原版 json 自己声明了 `--userProperties ${user_properties}`，而
+    // `user_properties` 这个占位符启动器不提供；上面那段"跳过原版那套参数名"的硬编码块
+    // 又**只在 VersionArguments::isVanillaGameArgument() 名单里存着名字**——名单里有它、
+    // 硬编码这边却没发，于是两边都不发，凭空少了一条 required 的参数。名单和这里必须
+    // 一一对应，加一条名单就加一条这里。
+    //
+    // 值就是原版启动器发的那个空对象：没有 profile 属性时它发的正是 `{}`（1.8 的
+    // Main 拿它做 `new JsonObject()` 解析，空对象合法）。两个分支发同一条，所以放在
+    // if/else 外面，只有一处。
+    args << QStringLiteral("--userProperties") << QStringLiteral("{}");
 
     // ------------------------------------------------------------------
     // version.json 自己声明的游戏参数（arguments.game / 老格式 minecraftArguments）
@@ -992,9 +1118,10 @@ int LauncherManager::startGame(const QStringList &arguments, const EffectiveJava
     // NOTE: 2026-09-24 那次崩溃取证查到这里过 —— MCEF 是按**相对路径** `mods/mcef-libraries`
     //       找它那份本地库的（反编译 mcef-forge-2.1.6 确认），所以 cwd 指到根 .minecraft
     //       时它去的是根 mods/ 底下，而 PCL 启动同一个实例时 cwd 是版本目录、它去的是
-    //       versions/<id>/mods/ 底下那份完好的副本。**没改**：改成版本目录要同时把
-    //       classpath 那几条相对路径改成绝对路径（见下面 addClasspathPath 那段 NOTE），
-    //       两处一起动才自洽，单独改这一行会让 JVM 找不到主类。留待专门一批做。
+    //       versions/<id>/mods/ 底下那份完好的副本。**仍然没改**：classpath 现在是绝对路径
+    //       了（那条"两处一起动"的约束已经解开），但换 cwd 会同时改变**所有**按相对路径
+    //       找文件的模组/加载器的行为，那是另一个题目 —— 要动就单独一批动，并且拿真机日志
+    //       一句一句对。
     QString minecraftDir = AppPaths::minecraftDir();
     QDir().mkpath(minecraftDir);
     process->setWorkingDirectory(minecraftDir);

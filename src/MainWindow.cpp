@@ -113,6 +113,7 @@
 // 下载页那几类资源的取数（搜索 / 版本列表 / 图标）。头文件那边只前置声明了这个类
 // （那里用不到它的定义），这里要用真的。
 #include "download/ResourceStore.hpp"
+#include "launcher/AsciiPathAlias.hpp"
 #include "launcher/LauncherManager.hpp"
 #include "manage/DefaultSkin.hpp"
 #include "manage/FolderManager.hpp"
@@ -7244,6 +7245,33 @@ void MainWindow::onStartButtonClicked() {
         appendLog(tr("natives 已就绪：%1").arg(nativesDir));
     }
 
+    // Java 8 打不开任何带非 ASCII 字符的路径（真机上 `20w14∞` 和中文名的 1.8 整合包都起不来，
+    // 报的是 `找不到或无法加载主类`）。要换的话就在**这个位置**把别名那套建出来：
+    // natives 刚落地（上面那一步），而 classpath / --gameDir 还没拼（下面 launchArguments()
+    // 里才拼）—— 早一步 natives 不存在、晚一步命令行已经发出去。
+    // 判据在 AsciiPathAlias 里（Java ≤ 8 且路径里真有非 ASCII 字符），绝大多数实例走到这里
+    // 就是一次"三个字符串里有没有 > 0x7F"的检查，不碰盘。
+    {
+        int aliasMajor = 0;
+        versionRuntimeIds(versionJson, nullptr, &aliasMajor);
+        if (AsciiPathAlias::needed(aliasMajor,
+                                   {AppPaths::versionDir(versionId),
+                                    InstanceFiles::jarPath(versionId)})) {
+            const AsciiPathAlias::Paths alias = AsciiPathAlias::pathsFor(versionId);
+            const QString aliasProblem = AsciiPathAlias::ensure(alias, versionId, nativesDir);
+            if (!aliasProblem.isEmpty()) {
+                appendLog(tr("准备 ASCII 别名失败：%1").arg(aliasProblem));
+                // 同上面那两条：拦下用户操作的话一律要弹窗（否则用户看到的只是"点了没反应"，
+                // 或者一句被 Java 8 说岔了的 `找不到主类`）。
+                InlineMessage::warning(m_ui->overlay(), tr("无法启动"), aliasProblem);
+                return;
+            }
+            appendLog(tr("这个实例的路径里有非 ASCII 字符（Java 8 打不开），"
+                         "已改用 ASCII 别名：%1")
+                          .arg(alias.root));
+        }
+    }
+
     QStringList errors;
     if (!m_launcherManager->checkPreLaunch(versionId, &errors, versionJson)) {
         appendLog(tr("启动前检查失败："));
@@ -7262,6 +7290,30 @@ void MainWindow::onStartButtonClicked() {
     // assetIndex 那一半这里不取：它只进命令行，而那串参数是 launchArguments() 拼的。
     int javaMajorVersion = 0;
     versionRuntimeIds(versionJson, nullptr, &javaMajorVersion);
+    // ★ 主类自己说了算的那一条：json 里那个 javaVersion 是**包作者写的**，而"换过主类"的
+    //   整合包经常写错 —— 真机上 `GTNH 2.8.4` 写的是 8，它的主类
+    //   `me.eigenraven.lwjgl3ify.relauncherstub.RelauncherStubMain` 却是 Java 17 编的，
+    //   拿 Java 8 起来就是一句 UnsupportedClassVersionError（class file version 61）。
+    //   主类 class 文件头上那个版本是唯一说得准这件事的东西，所以以它为准，**只抬高、
+    //   不降低**（读不到就是 0 = 没意见，json 那个值照旧）。
+    //
+    // NOTE: 只对"json 声明 ≤ 8"的版本做这一步：那一步要读一次 zip（一次 PowerShell），
+    //       而"声明新 Java 却要更新的"那种错配至今没在真机上见过 —— 68 个实例一个都不走
+    //       这条路，行为逐字节不变。
+    // NOTE: 抬高之后下面那一串（挑 Java / 下载运行时 / 按版本要求过滤 JVM 参数 / 不匹配
+    //       时问用户）拿到的都是**这个**值 —— 那正是我们要的：给 GTNH 挑的就该是 17。
+    // NOTE: 上面 ASCII 别名那一步用的是 json 里那个值（那时还没挑 Java）。诊断那一侧
+    //       （"声明是 8"）本来就更保守，多建一套用不上的别名没有任何害处。
+    if (javaMajorVersion > 0 && javaMajorVersion <= 8) {
+        const int fromMainClass = InstanceFiles::mainClassJavaMajor(
+            versionId, versionJson.value(QStringLiteral("mainClass")).toString());
+        if (fromMainClass > javaMajorVersion) {
+            appendLog(tr("这个实例的主类要 Java %1（version.json 里写的是 %2），按主类算。")
+                          .arg(fromMainClass)
+                          .arg(javaMajorVersion));
+            javaMajorVersion = fromMainClass;
+        }
+    }
     // version.json 里的 javaVersion.component 指明了 Mojang 为该版本准备的运行时，
     // 例如 26.1 是 java-runtime-epsilon（Java 25）。
     const QString javaComponent = versionJson["javaVersion"].toObject()["component"].toString();
