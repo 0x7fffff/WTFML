@@ -543,7 +543,10 @@ int ConfigFileEditorPage::rebuildIndex() {
         keepPath = current->data(0, entryPathRole()).toString();
     }
 
-    const QList<ConfigEntries::Entry> entries = ConfigEntries::scan(text());
+    // 方言按**文件的路径**认（`.cfg` / `.properties` / `.ini` / `.conf` 那一族的值读到
+    // 行尾，逗号不是分隔符）—— 这一层是唯一知道"正在编的是哪一份文件"的地方。
+    const QList<ConfigEntries::Entry> entries =
+        ConfigEntries::scan(text(), ConfigEntries::dialectForPath(m_path));
     m_indexEntries = entries.size();
     m_index->clear();
 

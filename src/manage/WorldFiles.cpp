@@ -493,7 +493,24 @@ bool writeLevelData(const QString &worldDir, const LevelData &data, QString *pro
             char buffer[64 * 1024];
             while (true) {
                 const qint64 got = gz.read(buffer, static_cast<qint64>(sizeof(buffer)));
-                if (got <= 0) {
+                // ★ 2026-09-29 补：**读到尾（0）和读出错（-1）不是一回事**，原来写成
+                //   `got <= 0` 一 break，两者被并成了同一个出口 —— 于是"读到一半失败"
+                //   会被当成"抄完了"，wroteOk 还是 true，底下 commit() 就把一份**截断的**
+                //   gzip 原子地盖到 level.dat 上，界面还报成功。
+                //
+                //   这一位查到过底：QIODevice::read() 出错回 **-1**（qfiledevice.cpp:463-486
+                //   的 readData() 在 `!isOpen()` 等情况下 `return -1`），只有真到尾才回 0。
+                //   这一趟是**逐字节抄**（不经过解压），所以除这两种没有第三种结局 ——
+                //   写侧那两处已经由底下 `out.write(...) != got` 管着。
+                //
+                //   NOTE: 到这一步用户的盘上已经有闸 ④ 留的那份备份（见上面那段），所以
+                //         这不是"会丢数据"的洞，是"会拿一份半截 level.dat 换掉好文件、而且
+                //         不说"的洞。
+                if (got < 0) {
+                    wroteOk = false;
+                    break;
+                }
+                if (got == 0) {
                     break;
                 }
                 if (out.write(buffer, got) != got) {

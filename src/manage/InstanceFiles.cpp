@@ -484,4 +484,92 @@ int mainClassJavaMajor(const QString &versionId, const QString &mainClass) {
     return 0;
 }
 
+// ★ 2026-09-29：把路径上的 junction **一层一层换成它指的那个真目录**。
+//
+//   为什么不能只靠 QFileInfo::canonicalFilePath()：它在 Windows 上是
+//   `slowCanonicalized()`（qfilesystemengine.cpp:38），逐段走的时候判据是
+//   `fi.isSymLink()` —— 而 `isSymLink()` 只认 `LinkType`，junction 在 Qt 里走的是
+//   **`JunctionType`**（qfilesystemmetadata_p.h:365-370：`IO_REPARSE_TAG_SYMLINK` → LinkType，
+//   `IO_REPARSE_TAG_MOUNT_POINT` → JunctionType）。所以**canonicalFilePath 不解 junction**：
+//   拿一个指着实例目录的 junction 当"游戏文件夹"喂进来，它就原样把那串字面量还给你。
+//   （实测就是这么翻的车：mw_check 的 T27.3 那条 junction 断言原来"绿"是因为复制跑起来之后
+//   撞了路径长度上限才失败 —— 一个假绿，而盘上已经多出一层 `versions/`。）
+//
+//   NOTE: 用的是**公开 API**（`QFileInfo::isJunction()` / `junctionTarget()`，Qt 6.2+），
+//         所以这里不需要 windows.h，非 Windows 上这两个函数一个永远 false、一个回空串。
+//   NOTE: 解出来之后再递归一次 —— 目标那一头可能还压着别的 junction。`guard` 就是防
+//         互相指的环（A 指着 B、B 指着 A）：撞上限就返回当时那串，判据**退化成字面量比较**，
+//         不会死循环（这一层宁可漏判也不能挂住界面）。
+// NOTE: `static` 是有意的 —— 它只是这一条判据的实现细节，不进 .hpp、不给外面用。
+static QString resolveJunctions(const QString &absPath, int guard) {
+    if (guard <= 0 || absPath.isEmpty()) {
+        return absPath;
+    }
+    // 只处理盘符式/UNC 式绝对路径；`from` 是第一个可以当"真目录"去看的位置。
+    int from = 0;
+    if (absPath.size() >= 2 && absPath.at(1) == QLatin1Char(':')) {
+        from = 2;  // "C:" 这一截不可能是 junction
+    }
+    while (true) {
+        const int sep = absPath.indexOf(QLatin1Char('/'), from);
+        const QString prefix = (sep < 0) ? absPath : absPath.left(sep);
+        const QFileInfo info(prefix);
+        if (info.isJunction()) {
+            QString target = info.junctionTarget();  // Qt 已经补成绝对路径
+            if (!target.isEmpty()) {
+                target.replace(QLatin1Char('\\'), QLatin1Char('/'));
+                if (sep >= 0) {
+                    target += absPath.mid(sep);  // 把 junction 底下那一截接回去
+                }
+                return resolveJunctions(QDir::cleanPath(target), guard - 1);
+            }
+        }
+        if (sep < 0) {
+            break;  // 走到最后一段了
+        }
+        from = sep + 1;
+    }
+    return absPath;
+}
+
+bool pathIsSameOrInside(const QString &parent, const QString &candidate) {
+    // 规范化：能解成真路径就解（解掉符号链接 / 8.3 短名 / 大小写那些别名），**再加一轮
+    // junction**（canonicalFilePath 不管 junction，见上面那段）；解不了就退到 cleanPath +
+    // absolutePath —— 见 .hpp 上那段 NOTE（判据不消失）。
+    const auto realPath = [](const QString &p) {
+        if (p.isEmpty()) {
+            return QString();
+        }
+        QString canonical = QFileInfo(p).canonicalFilePath();
+        if (canonical.isEmpty()) {
+            canonical = QDir::cleanPath(QDir(p).absolutePath());
+        }
+        return resolveJunctions(canonical, 32);
+    };
+    QString a = realPath(parent);
+    QString b = realPath(candidate);
+    if (a.isEmpty() || b.isEmpty()) {
+        return false;  // 空串不比（"没给路径"不是"包含"）
+    }
+    // 分隔符统一 + 尾随分隔符削掉：Qt 自己一律用 `/`，但调用方可能从别处拿到 `\`。
+    a.replace(QLatin1Char('\\'), QLatin1Char('/'));
+    b.replace(QLatin1Char('\\'), QLatin1Char('/'));
+    while (a.endsWith(QLatin1Char('/')) && a.size() > 1) {
+        a.chop(1);
+    }
+    while (b.endsWith(QLatin1Char('/')) && b.size() > 1) {
+        b.chop(1);
+    }
+    if (b == a) {
+        return true;
+    }
+    // `a + '/'` 这一截是必须的：不然 `D:/ab` 会被判成在 `D:/a` 里面。
+    //
+    // NOTE: 大小写**不**放宽。canonicalFilePath() 给回来的就是盘上真实的那个写法，两边
+    //       都经过它，正常情况下写法一定一致；放宽反而会在"盘上真有两个只差大小写的目录"
+    //       那种情况下把不相干的路径判成包含（Windows 上那种目录同源目录里是建不出来的，
+    //       但网络盘/挂载点上未必）。
+    return b.startsWith(a + QLatin1Char('/'));
+}
+
 }  // namespace InstanceFiles

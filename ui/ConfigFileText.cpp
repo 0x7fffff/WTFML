@@ -97,7 +97,23 @@ ConfigFileText::Loaded ConfigFileText::decode(const QByteArray &raw) {
     // （2026-09-27 实测：合法 UTF-8 上 false、`bad \xb4 byte` 上 true）。
     QStringDecoder decoder(QStringDecoder::Utf8);
     const QString decoded = decoder(raw);
-    out.utf8Ok = !decoder.hasError();
+    // ★ 2026-09-29 补：`hasError()` **一位不够** —— 它只数"认出来的非法字节"
+    //   （`qstringconverter_base.h:157`：`hasError() == (invalidChars != 0)`），而
+    //   **末尾那半截被截断的多字节序列不算非法**：解码器把它留在
+    //   `state->remainingChars` 里等下一批发数据（`qstringconverter.cpp:993` 那一段），
+    //   一次喂完（我们就是这么用的）时它**永远不碰 `invalidChars`**，于是"正文合法、
+    //   只是尾巴上缺半个字"这一档被判成可以编辑 —— 用户一改一存，`QString` 里本来就没
+    //   那半个字，那几个字节**永久没了**（而且是静默的）。
+    //
+    //   所以再加一道**原地往返**：解出来的串再编回 UTF-8，和原来那串字节**逐字节比**。
+    //   合法 UTF-8 上解码→编码是恒等的（能走到这儿的串里不可能有孤立代理码元）；尾巴被
+    //   丢掉时这一比就露馅（短了几个字节）。比之前把 BOM 摘掉 —— 解码器默认会吃掉开头
+    //   那个 BOM（`ConvertInitialBom` 不设默认就是吃），它没进 `decoded`，也不该进这一比。
+    //
+    //   NOTE: 盘上现查过 137,693 个文本文件，**没有一个**尾巴是半截的 —— 这是"闸门有洞"，
+    //         不是"已经在丢数据"。所以就按"判据该长什么样"来修，不动别的。
+    const QByteArray body = out.bom ? raw.mid(bomBytes().size()) : raw;
+    out.utf8Ok = !decoder.hasError() && decoded.toUtf8() == body;
 
     const Split parts = split(decoded);
     out.ends = parts.ends;

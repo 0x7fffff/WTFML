@@ -3467,6 +3467,33 @@ bool VersionManager::copyInstance(const QString &sourceId, const QString &destGa
     if (!root.exists()) {
         return fail(tr("目标文件夹 %1 不在盘上。").arg(QDir::toNativeSeparators(target)));
     }
+
+    // ★ 2026-09-29 补：**目标不能落在源实例目录里面**（含"就是它自己"这一档）。这一条在
+    //   这儿是兜底，界面那一层（MainWindow::copyInstanceTo）有一条同款的、话术更长的。
+    //
+    //   它是这一整条路上唯一会**把自己写爆**的洞，而且不需要用户做任何怪事：挑游戏文件夹
+    //   那一步是个普通的目录选择框，一路点进 `versions/我的整合包` 再按确定就行。那一刻
+    //   versionsDir = `…/versions/我的整合包/versions`、destDir 在它底下，下面两道闸都拦不住
+    //   （QDir 那条比的是"是不是同一个目录"、exists() 那条比的是"有没有重名"）—— 然后
+    //   第 1 步末尾的 mkpath(versionsDir) 会**在源实例目录内部**造出一个 `versions/`，
+    //   紧接着 copyTreeWithoutFollowingLinks 先 mkpath(目标) 再列**源**目录（那个函数的
+    //   顺序就是这么写的），列出来的东西里包含它刚造出来的那个 `versions/` ⇒ 每层再往深
+    //   一层、每层重抄整个实例（mods / saves / assets…），直到路径长度或盘容量撑爆为止。
+    //
+    //   NOTE: 用的是规范化之后的真路径（源目录和目标**都已经在盘上** —— 上面
+    //         `QDir(sourceDir).exists()` 和 `root.exists()` 那两处刚判过）。挑文件夹
+    //         那一步带 `DontResolveSymlinks`，拿回来的路径不规范化，只比字面量挡不住
+    //         符号链接 / junction 之类的别名；而 `canonicalFilePath()` 只管符号链接那一半，
+    //         junction 得自己再解一轮（`InstanceFiles::resolveJunctions()` 干的就是这个，
+    //         2026-09-29 实测补上 —— 只靠 canonicalFilePath 的话，"拿一个指着实例目录的
+    //         junction 当游戏文件夹"能整条绕过去）。判据本身在
+    //         InstanceFiles::pathIsSameOrInside()，界面那一层用的是同一条。
+    if (InstanceFiles::pathIsSameOrInside(sourceDir, target)) {
+        return fail(tr("不能把「%1」复制到它自己里面去（%2 就是这一份实例自己的目录，"
+                       "或者是它底下的一个子目录）。换一个游戏文件夹再试。")
+                        .arg(name, QDir::toNativeSeparators(target)));
+    }
+
     const QString versionsDir = root.absoluteFilePath(QStringLiteral("versions"));
     const QString destDir = versionsDir + QLatin1Char('/') + name;
     // QDir 比较是规范化之后比的（大小写按本机文件系统的规矩），所以"挑的就是自己这一份

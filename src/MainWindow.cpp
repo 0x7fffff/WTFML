@@ -11289,7 +11289,7 @@ bool MainWindow::copyInstanceTo(const QString &sourceId, const QString &destGame
         return false;
     }
 
-    // ★ 三道闸，**顺序**是有讲究的：
+    // ★ 四道闸，**顺序**是有讲究的：
     //
     // ① 名字先过校验。copyInstance() 里也会再判一次（它自己那一层必须站得住），但在这儿
     //    先判的意义是"连盘都不用碰就知道不行" —— 而且**报错的话术不一样**：那一边是数据层
@@ -11321,6 +11321,32 @@ bool MainWindow::copyInstanceTo(const QString &sourceId, const QString &destGame
     if (installingVersionIds().contains(sourceId)) {
         InlineMessage::warning(m_ui->overlay(), tr("复制实例"),
                                tr("「%1」正在下载，等它装完再复制。").arg(instanceDisplayName(sourceId)));
+        return false;
+    }
+
+    // ④ ★ 2026-09-29 补：**目标不能落在这一份实例自己里面**。
+    //
+    //    前面三道闸判的都是"源这一头能不能拷"，这一道判的是**目标那一头落在哪儿**。
+    //    挑目标用的是个普通的目录选择框（QFileDialog::getExistingDirectory），用户可以
+    //    一路点进 `versions/<这一份自己>` 再按确定 —— 那一刻目标就在源目录里面，而数据层
+    //    的复制是"先 mkpath 目标、再列源目录"，列出来的东西里会包含它刚造出来的那一层
+    //    ⇒ **自己抄自己，每层再深一层**，一声不响地往盘上写到撑爆为止。
+    //
+    //    NOTE: 数据层（VersionManager::copyInstance）里有一条同款的兜底判据（它自己那一层
+    //          必须站得住，不然将来别的调用点还会踩）。这一条存在的意义是**话术**：那一边
+    //          只能说"不能复制到它自己里面去"，这一边能把"你刚才挑的是哪个目录"摆出来。
+    //          判据本体只有一份：InstanceFiles::pathIsSameOrInside()（它自己再解一轮
+    //          junction —— canonicalFilePath 不管 junction 那一半）。
+    //    NOTE: 放在 ②③ 之后 —— 它比那两条更"贵"（要问两次盘：canonicalFilePath 得解路径），
+    //          而"游戏正在跑""正在下载"是不碰盘就知道的。
+    const QString sourceDir = AppPaths::versionDir(sourceId);
+    if (InstanceFiles::pathIsSameOrInside(sourceDir, destGameFolder)) {
+        InlineMessage::warning(
+            m_ui->overlay(), tr("复制实例"),
+            tr("「%1」不能复制到它自己里面去。\n\n你挑的是：\n%2\n\n那是这一份实例自己的目录"
+               "（或者它底下的一个子目录）。请挑一个游戏文件夹 —— 也就是实例目录上面"
+               "那一层，里面直接看得到 versions 文件夹的那一个。")
+                .arg(instanceDisplayName(sourceId), QDir::toNativeSeparators(destGameFolder)));
         return false;
     }
 

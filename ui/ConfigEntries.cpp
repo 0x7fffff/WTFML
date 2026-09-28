@@ -19,6 +19,11 @@
  *          值 value"，`"a": 1` 和 `ab: 1` 都还是"键 a / 键 ab、值 1"。
  *       ③ **字符下标**：客户是 `QPlainTextEdit`（见 .hpp 那 NOTE）。所以整份实现里
  *          **没有一处 `QByteArray`** —— 它连字节都不认识，也就没机会把区间算歪。
+ *       ④ **裸值读到哪儿为止要看方言**（`Dialect`，2026-09-29 加）：逗号在 JSON/JSON5/TOML
+ *          里是元素分隔符，在 `.properties` / `.cfg` 那一族里只是值里的一个字符；而紧贴着
+ *          分隔符的 `#` 两种方言里都是值（`S:hexblack=#1e1b1b`）。**一个容错扫描器认全部
+ *          格式**这件事在"值的边界"这一处认不住，只能让调用方把后缀告诉它 —— 那一位是
+ *          `dialectForPath()`，**默认 Jsonish = 老行为**，所以不传的调用方一个字节都不变。
  */
 #include "ConfigEntries.hpp"
 
@@ -58,8 +63,19 @@ int endOfQuoted(const QString &text, int pos) {
         return pos;
     }
     if (pos + 2 < n && text.at(pos + 1) == q && text.at(pos + 2) == q) {
+        // 三引号有两种，规矩**不一样**：`"""`（basic，认转义）、`'''`（literal，一个转义都
+        // 不认 —— 反斜杠就是反斜杠）。所以只有双引号那一档跳 `\X`。
+        //
+        // ★ 2026-09-29 补：原先两档都不认转义，于是 `\"""` 这种写法被读成"串到此为止"，
+        //   后面那半截串体**被当成正文重新扫一遍**（假条目就是从这儿冒出来的）。单引号
+        //   那一档仍然不认 —— 那是对的，别一起改。
+        const bool escapes = q == QLatin1Char('"');
         int i = pos + 3;
         while (i + 2 < n) {
+            if (escapes && text.at(i) == QLatin1Char('\\') && i + 1 < n) {
+                i += 2;
+                continue;
+            }
             if (text.at(i) == q && text.at(i + 1) == q && text.at(i + 2) == q) {
                 return i + 3;
             }
@@ -205,7 +221,10 @@ QString rangeOf(const QStringList &noteLines) {
 /// 走一趟正文的那个状态机。**不解析、不建树**，只把位置记下来。
 class Walker {
 public:
-    explicit Walker(const QString &text) : m_text(text), m_n(text.size()) {}
+    Walker(const QString &text, ConfigEntries::Dialect dialect)
+        : m_text(text),
+          m_n(text.size()),
+          m_keyValue(dialect == ConfigEntries::Dialect::KeyValue) {}
 
     QList<ConfigEntries::Entry> run() {
         while (m_i < m_n && !m_done) {
@@ -256,6 +275,9 @@ private:
         QString segment;
         bool isArray = false;
         int index = 0;
+        /// 这一层是**下潜进来的容器**（`{` / `[`，见 push()）—— 段头那一层不是（它由
+        /// readSectionHeader() 摆，那一位是 false）。判据只有一处用：atSectionHeader()。
+        bool isContainer = false;
     };
 
     /// 从当前位置吃到 `to`（不含）。**换行、缩进都从这儿过** —— 于是"第几行"和"这一行
@@ -319,6 +341,19 @@ private:
     /// 除空白与注释外没别的东西。
     bool atSectionHeader() const {
         if (m_text.at(m_i) != QLatin1Char('[')) {
+            return false;
+        }
+        // ★ 2026-09-29 补：**已经下潜到某个容器里面的时候，`[` 一律不是段头**。
+        //
+        //   原先漏的是"单独一行的一个 `[2]`"这一类：JSON5 里 `"a": [ [2], [3] ]` 横着写开
+        //   就是这样。它前面没有 `=`、没有 `,`、没有引号、`]` 之后也没有别的东西 ⇒
+        //   底下那几条判据一条都不拦，于是被当成 TOML 的段头读掉 —— 而 readSectionHeader()
+        //   会把 `m_path` **整个清空**（段不嵌套，那是 TOML/INI 的语义），外面那层
+        //   `{...}` / `[...]` 的前缀就这么没了，后面所有条目的路径**集体错位**。
+        //
+        //   盘上 0 命中（所以是"闸门有洞"不是"现在读错了"），但判据本来就该是这个方向：
+        //   段头是**顶层的东西**，容器里面那个 `[` 是元素/数组，不是段。
+        if (!m_path.isEmpty() && m_path.last().isContainer) {
             return false;
         }
         int depth = 1;
@@ -389,6 +424,9 @@ private:
         Frame frame;
         frame.segment = name;
         frame.isArray = isArray;
+        // 进这一支的全是"下潜进来的容器"（`{`、`[`、`general {` 那三种）—— 段头不走这儿，
+        // 它由 readSectionHeader() 自己摆一层。这一位只给 atSectionHeader() 用。
+        frame.isContainer = true;
         // 数组里的元素：路径上带一截 `[i]`。**只有多行的数组才走得到这儿** —— 一行写完的
         // 那些在 readValue() 里就当成一整条了。
         if (!m_path.isEmpty() && m_path.last().isArray) {
@@ -533,7 +571,27 @@ private:
             return false;
         }
         for (int j = colonPos + 1; j < m_n && m_text.at(j) != QLatin1Char('\n'); ++j) {
-            if (m_text.at(j) == QLatin1Char('=')) {
+            const QChar c = m_text.at(j);
+            // ★ 2026-09-29 补：找那个 `=` 的时候要**跳过带引号的那一段**，注释里的 `=` 也不
+            //   算。原先是一路裸找 —— `{ a: "x=y" }` 这一行的 `=` 在引号里面，于是短键 `a`
+            //   被判成类型前缀，`a` 那一条就没了。（0 命中的构造性边缘，但方向很明确：
+            //   `=` 是不是分隔符，得看它在不在值里面。）
+            if (isQuote(c)) {
+                const int end = endOfQuoted(m_text, j);
+                if (end <= j) {
+                    return false;
+                }
+                j = end - 1;
+                continue;
+            }
+            if (c == QLatin1Char('#')) {
+                return false;
+            }
+            if (c == QLatin1Char('/') && j + 1 < m_n &&
+                (m_text.at(j + 1) == QLatin1Char('/') || m_text.at(j + 1) == QLatin1Char('*'))) {
+                return false;
+            }
+            if (c == QLatin1Char('=')) {
                 return true;
             }
         }
@@ -569,11 +627,30 @@ private:
             return;
         }
         // 裸标量：一路读到这一格的尽头。
+        //
+        // ★ 2026-09-29：「尽头」在哪儿有两处改过，两处都是**真的把条目读丢/读残**的那一类
+        //   （原文在盘上，两类的量法见 Dialect 那一段）：
         int j = m_i;
         while (j < m_n) {
             const QChar x = m_text.at(j);
-            if (x == QLatin1Char('\n') || x == QLatin1Char('#') || x == QLatin1Char(',') ||
-                x == QLatin1Char('}') || x == QLatin1Char(']')) {
+            if (x == QLatin1Char('\n') || x == QLatin1Char('}') || x == QLatin1Char(']')) {
+                break;
+            }
+            // ① 逗号：**只有结构化那一族**（JSON / JSON5 / TOML）才是元素分隔符。
+            //    `.properties` / `.cfg` 那一族没有容器语法，逗号就是值里的一个普通字符 ——
+            //    原先一刀切当分隔符：`particle$noCulling=com.lowdragmc…,com.brandon3055…`
+            //    只剩第一个逗号前面那半截，而**后面那半截还被当成正文重新扫了一遍**
+            //    （于是能凭空多出几条假条目）。
+            if (x == QLatin1Char(',') && !m_keyValue) {
+                break;
+            }
+            // ② `#`：**只有前面有空白的时候才算行内注释起头**。紧贴着分隔符的 `#` 是值本身
+            //    （1.12 Forge 的颜色 `S:hexblack=#1e1b1b` 就长这样），原先一刀切当注释 ⇒
+            //    值的区间落在值开头以前 ⇒ 底下那个 `valueEnd <= m_i` 的静默出口把**整条
+            //    设置项**吞掉（不报错、不留痕，用户看到的是"这份文件里没有这一项"）。
+            //    这条和下面 `//` 那条是同一个形状的判据（同一个理由：`http://…` 不能从中间
+            //    切开）。
+            if (x == QLatin1Char('#') && j > m_i && isSpaceChar(m_text.at(j - 1))) {
                 break;
             }
             // 行内注释：`1 // 说明` 这种，`//` 前面得有空白才算 —— 不然 `.properties` 里
@@ -625,6 +702,9 @@ private:
     int m_line = 0;
     bool m_onlySpace = true;
     bool m_done = false;
+    /// 方言是不是"键=值、没有容器"那一族（见 Dialect）。只有一处用：readValue() 那个
+    /// 裸标量的循环里，逗号算不算元素分隔符。
+    bool m_keyValue = false;
     QList<Frame> m_path;
     QStringList m_pending;
     QList<ConfigEntries::Entry> m_out;
@@ -632,7 +712,29 @@ private:
 
 }  // namespace
 
-QList<ConfigEntries::Entry> ConfigEntries::scan(const QString &text) { return Walker(text).run(); }
+ConfigEntries::Dialect ConfigEntries::dialectForPath(const QString &path) {
+    // 后缀**自己从字符串上切**（`ui/` 这一层不碰盘：QFileInfo 想要后缀就会去问文件系统
+    // 那条路径有哪些盘上信息，而这一层只该认字面）。切法：最后一个 `.` 在最后一个路径
+    // 分隔符**之后**才算后缀 —— 不然 `C:\mc\1.20.1\config\foo` 那种没后缀的路径会被
+    // 认成 `.1\config\foo` 一类的怪东西。
+    const int slash = path.lastIndexOf(QLatin1Char('/'));
+    const int backslash = path.lastIndexOf(QLatin1Char('\\'));
+    const int dot = path.lastIndexOf(QLatin1Char('.'));
+    if (dot <= qMax(slash, backslash)) {
+        return Dialect::Jsonish;  // 没后缀（或者点号在目录名里）：老行为
+    }
+    const QString suffix = path.mid(dot + 1).toLower();
+    // 只放**语法上确定是"键=值、无容器"**的那四个后缀（表怎么来的见 .hpp 上那段分布）。
+    if (suffix == QLatin1String("cfg") || suffix == QLatin1String("properties") ||
+        suffix == QLatin1String("ini") || suffix == QLatin1String("conf")) {
+        return Dialect::KeyValue;
+    }
+    return Dialect::Jsonish;
+}
+
+QList<ConfigEntries::Entry> ConfigEntries::scan(const QString &text, Dialect dialect) {
+    return Walker(text, dialect).run();
+}
 
 int ConfigEntries::maxEntries() {
     // 5000 条：足够覆盖盘上任何一份真配置（最大那份 3.96 MB 也不是设置，是数据快照），

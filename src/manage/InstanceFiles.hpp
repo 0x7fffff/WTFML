@@ -239,6 +239,36 @@ QString validateDirName(const QString &rawName);
 QString validatePathSegment(const QString &segment);
 
 /**
+ * @brief @p candidate 是不是 @p parent 自己、或者它**底下**的某一层。
+ * @return 是（含"就是它自己"）返回 true。
+ *
+ * ★ 2026-09-29 加，起因是一次真会把盘写爆的事故：「复制实例」的目标目录可以和源实例目录
+ *   **撞上**。那一步挑目标用的是个普通的目录选择框，用户能一路点进
+ *   `versions/我的整合包` 再按确定 —— 于是 `versions/我的整合包/versions/我的整合包 副本`
+ *   落在源目录**里面**，而那两步复制（先 `mkpath` 目标、再列源目录）会把自己刚造出来的
+ *   那个 `versions/` 也列进去 ⇒ 每层再往深一层，每层重抄整个实例，直到路径撑爆为止。
+ *   判断这一件事只需要一个判据，所以它在这儿（两个调用方共用一份：界面那一层管话术、
+ *   数据层那一层管兜底）。
+ *
+ * **比的是规范化之后的真路径**：两边都必须已经在盘上。挑文件夹那一步带的是
+ * `QDir::DontResolveSymlinks`，拿回来的路径不做规范化，只比字面量挡不住符号链接 / 8.3
+ * 短名 / 大小写这些**别名** —— `canonicalFilePath()` 解的正是这些。
+ *
+ * ★ 但 canonicalFilePath() **不解 junction**（Windows 上它走 `slowCanonicalized()`，
+ *   逐段判的是 `isSymLink()`，而 junction 在 Qt 里是 `JunctionType`、`isSymLink()` 是
+ *   false），所以这一条自己再接一轮 `QFileInfo::junctionTarget()` 逐段把 junction 换成
+ *   真目录（.cpp 里 `resolveJunctions()`，带 32 层防环）。**这条不是补丁，是必需的一半**：
+ *   只靠 canonicalFilePath 的话，一个指着实例目录的 junction 能整条绕过去。
+ *
+ * canonical 解不掉的时候（路径不存在、权限不够）退回 `cleanPath(absolutePath())` ——
+ * 别名那一档就漏了，但**判据不消失**（宁可漏一种写法，也不要"这一位读不出来就整条放行"）。
+ *
+ * NOTE: 尾随分隔符先削掉再比前缀 —— 不然 `D:/a` 和 `D:/ab` 会被认成包含关系
+ *       （`"D:/ab".startsWith("D:/a")` 是 true 的那种经典错法）。
+ */
+bool pathIsSameOrInside(const QString &parent, const QString &candidate);
+
+/**
  * @brief 改名时的完整校验：validateDirName() + "重名了没有 / 是不是没改"。
  * @param rawName 用户输入的新名字。
  * @param currentId 现在这个实例的目录名（不参与重名比较的那个）。

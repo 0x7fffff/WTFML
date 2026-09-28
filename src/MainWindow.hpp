@@ -359,6 +359,9 @@ private slots:
     /// 私有 lambda 里，**真正动手的这一半**收三个字符串 —— 所以验证工程可以直接
     /// `QMetaObject::invokeMethod` 进来喂一条临时路径，不用去驱动那两个原生对话框。
     ///
+    /// 四道闸（2026-09-29 起是四道）：名字合不合法 / 这一份正在跑 / 这一份正在装 /
+    /// **目标不能落在这一份实例自己里面**（最后那条见 VersionManager::copyInstance 的说明）。
+    ///
     /// @param sourceId 源实例 id（= 目录名）。
     /// @param destGameFolder 用户挑的那个**游戏文件夹**（副本落在它的 `versions/` 底下，
     ///        不是直接落在它里面 —— 理由见 VersionManager::copyInstance 的说明）。

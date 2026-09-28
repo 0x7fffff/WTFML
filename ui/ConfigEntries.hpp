@@ -82,11 +82,49 @@ struct Entry {
     QString range;
 };
 
+/// 这份文件的"方言"。**只影响一件事**：裸值读到哪儿为止（见 scan()）。
+///
+/// ★ 2026-09-29 加。用户原话：「`.properties` / `.cfg` 的值应当读到行尾，不该认逗号」。
+///   起因是量出来的两类真实条目被吃掉（两边的原文都在盘上）：
+///
+///   ① `S:hexblack=#1e1b1b`（`chisel.cfg:226`、`BetterAchievements.cfg:5` 那种 1.12
+///      Forge 的颜色）—— 值以 `#` 起头，被当成行内注释 ⇒ **整条设置项凭空消失**。
+///   ② `particle$noCulling=com.lowdragmc…,com.brandon3055…` —— 逗号被当成元素分隔符，
+///      值从第一个逗号处截断，后面那半截还被**当成正文重新扫了一遍**。
+///
+///   ①的根子不在方言上（JSON5 里裸 `#` 起头的值一样是值），所以那条判据按"`#` 前面有
+///   没有空白"改，两种方言共用；**只有②要按方言分派**：逗号在 JSON/JSON5/TOML 里是
+///   元素分隔符，在 `.properties` 那一族里就只是值里的一个字符。
+enum class Dialect {
+    /// `.json` / `.json5` / `.jsonc` / `.toml`（以及**认不出来的后缀**）：逗号分元素。
+    /// 认不出来的走这一档 = **保持 2026-09-29 之前的样子**，不让任何一份没预料到的
+    /// 文件因为这次改动换一种读法。
+    Jsonish,
+    /// `.properties` / `.cfg` / `.ini` / `.conf`：那一族没有容器语法，**逗号是普通字符**，
+    /// 值一路读到行尾。
+    KeyValue,
+};
+
+/// 按文件后缀认方言（`.cfg` / `.properties` / `.ini` / `.conf` → KeyValue，其余 Jsonish）。
+///
+/// NOTE: 只看**路径字符串**的后缀，**不碰盘**（这一层是纯函数，见文件头）。所以传进来
+///       一个不存在的路径也能用，结果一样。
+///
+/// 依据是 2026-09-29 现数的一份分布（`<游戏目录>` 底下所有 `config` 目录、深度 ≤2）：
+/// `json 2683 / toml 2356 / cfg 635 / properties 363 / json5 283 / txt 196 / ini 134 /
+///  .config 110 / yml 41 / conf 33 / jsonc 21`。表里只放**语法上确定是"键=值、无容器"**
+/// 的那四个后缀（共 1165 个文件）；`txt` / `.config` / `yml` 那几类语法不确定，
+/// 一律走 Jsonish（= 老行为）。
+Dialect dialectForPath(const QString &path);
+
 /// 一份正文里能认出来的条目。**任何正文都接得住**（半截 JSON、乱码、空文件都不崩）。
+///
+/// @param dialect 裸值读到哪儿为止（见 Dialect）。**默认 Jsonish = 老行为** —— 意思是不传
+///                这一位的老调用方一个字节的行为都不变。
 ///
 /// NOTE: 上限见 `maxEntries()` —— 到了就**停下来**（不是"报错"）：索引是给人点着跳的，
 ///       五万条既没人看也白占内存。
-QList<Entry> scan(const QString &text);
+QList<Entry> scan(const QString &text, Dialect dialect = Dialect::Jsonish);
 
 /// 一次最多认多少条（见 scan() 的 NOTE）。客户拿它判"是不是被截断了"。
 int maxEntries();
