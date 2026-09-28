@@ -11,6 +11,7 @@
 #include "ToggleSwitch.hpp"
 #include "VersionIcons.hpp"
 
+#include <QComboBox>
 #include <QDateTime>
 #include <QDir>
 #include <QDirIterator>
@@ -18,12 +19,14 @@
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QLabel>
+#include <QLineEdit>
 #include <QListWidget>
 #include <QListWidgetItem>
 #include <QMouseEvent>
 #include <QPalette>
 #include <QPixmap>
 #include <QPushButton>
+#include <QSignalBlocker>
 #include <QSizePolicy>
 #include <QTimer>
 #include <QToolButton>
@@ -245,6 +248,35 @@ InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
     outer->setContentsMargins(0, 0, 0, 0);
     outer->setSpacing(8);
 
+    // ---------- 最上面那一排：一条搜索框（2026-09-28）----------
+    //
+    // 用户原话是「模组等的下载新/刷新/打开文件夹的**上方**加一个搜索」⇒ 这一排在那一排
+    // 按钮**之上**（下面还有一排状态选择，在按钮之下 —— 那个位置也是用户点名要的）。
+    //
+    // 作用范围是**这一页的列表**：`mods/` 底下几十上百个 jar，找一个名字靠眼睛扫是最费的
+    // 一件事，而这一页每一趟都是全列的。筛的是"这一条在界面上叫什么"（以及盘上那个文件名
+    // ——禁用着的那条盘上带着 `.disabled`，用户手里那个文件确实是这么叫的），
+    // 子串、不分大小写（`Sodium.jar` 敲 `sod`、`odium`、`.JAR` 都该中）。
+    m_searchRow = new QWidget(this);
+    {
+        auto *row = new QHBoxLayout(m_searchRow);
+        row->setContentsMargins(0, 0, 0, 0);
+        row->setSpacing(8);
+        m_search = new QLineEdit(m_searchRow);
+        m_search->setObjectName(searchEditName());
+        m_search->setPlaceholderText(searchPlaceholder());
+        // ★ 有个"清除"小叉（和「配置文件」那一页左边的条目筛选同一个写法）：这一条是
+        //   **立刻生效**的筛选，而筛完之后那一格按「刷新」是清不掉的（刷新只重读目录）
+        //   —— 没有小叉的话用户得自己全选删掉，而那正是"以为筛坏了"的那一刻。
+        m_search->setClearButtonEnabled(true);
+        // 立刻生效，不走延时器：它只是把行重列一遍，不读盘、不改正文（和 ConfigFileEditorPage
+        // 里那条条目筛选同理）。一个目录几十上百条，重建的代价当场就回来了。
+        connect(m_search, &QLineEdit::textChanged, this,
+                [this](const QString &text) { setSearchText(text); });
+        row->addWidget(m_search, 1);
+    }
+    outer->addWidget(m_searchRow);
+
     // ---------- 上面那一排：路径 + 刷新 + 打开文件夹 ----------
     m_pathRow = new QWidget(this);
     auto *pathRow = new QHBoxLayout(m_pathRow);
@@ -314,6 +346,42 @@ InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
     pathRow->addWidget(m_openFolder);
 
     outer->addWidget(m_pathRow);
+
+    // ---------- 按钮那排的下面：一个状态选择（2026-09-28）----------
+    //
+    // 用户原话：「三个按钮的**下方**一个选择 全部/启用/禁用/可更新」。四格的顺序就是它们
+    // 写在这儿的样子（`stateFilterText()` 是那些字的唯一出处）。
+    //
+    // ★ 「可更新」这一格**不是每一页都有**（见 setCanFilterUpdates）：它靠的是一趟更新
+    //   检测的结果，而只有下载页里真有对应一栏的那四页查得动（原理图 / 存档 / 配置文件
+    //   里的文件根本不在任何资源平台的清单里）。
+    m_stateRow = new QWidget(this);
+    {
+        auto *row = new QHBoxLayout(m_stateRow);
+        row->setContentsMargins(0, 0, 0, 0);
+        row->setSpacing(8);
+        // 左边那个标签：光一个「全部」摆在那儿，用户不知道它管的是列表的哪一半。
+        // （和下载页那一排筛选的下拉框一样，每一格前面都有个标签。）
+        m_stateLabel = new QLabel(stateLabelText(), m_stateRow);
+        m_stateLabel->setObjectName(stateLabelName());
+        makeSecondary(m_stateLabel);
+        row->addWidget(m_stateLabel);
+
+        m_stateCombo = new QComboBox(m_stateRow);
+        m_stateCombo->setObjectName(stateComboName());
+        // 滚轮守护：**这一栏和别的下拉框一样会被鼠标轮子误伤**（列表里滚动时指针划过它，
+        // 条件就被改了，而屏幕上是"列表自己少了一半"）。全仓同一处（见 WheelGuard）。
+        WheelGuard::install(m_stateCombo);
+        connect(m_stateCombo, &QComboBox::currentIndexChanged, this, [this](int index) {
+            setStateFilter(filterAt(m_stateCombo, index));
+        });
+        // 四格摆进去（信号在这条路上被挡着，见 fillStateCombo）。
+        fillStateCombo();
+        row->addWidget(m_stateCombo);
+        // 靠左：这一排只管"筛成什么样"，不是这一页的主语（右边留给将来别的东西）。
+        row->addStretch(1);
+    }
+    outer->addWidget(m_stateRow);
 
     // ---------- 列表 ----------
     m_list = new QListWidget(this);
@@ -428,6 +496,114 @@ void InstanceFilesPage::setDirectory(const QString &dir) {
     refresh();
 }
 
+// ---------- 搜索 + 状态筛选（2026-09-28）----------
+
+InstanceFilesPage::StateFilter InstanceFilesPage::filterAt(const QComboBox *combo, int index) {
+    if (combo == nullptr || index < 0) {
+        return StateFilter::All;
+    }
+    const QVariant data = combo->itemData(index);
+    if (!data.isValid()) {
+        return StateFilter::All;
+    }
+    switch (data.toInt()) {
+    case 1:
+        return StateFilter::Enabled;
+    case 2:
+        return StateFilter::Disabled;
+    case 3:
+        return StateFilter::Update;
+    default:
+        break;
+    }
+    return StateFilter::All;
+}
+
+void InstanceFilesPage::fillStateCombo() {
+    if (m_stateCombo == nullptr) {
+        return;
+    }
+    // ★ 填的时候把信号挡着：`addItem` 每一次都会动 currentIndex，而那一发会绕到
+    //   setStateFilter() 上去（构造函数里那会儿还没建完，applyState() 会摸到空控件）。
+    //   填完自己把该亮的那一格摆回去就够了。
+    const QSignalBlocker blocker(m_stateCombo);
+    m_stateCombo->clear();
+    QList<StateFilter> filters{StateFilter::All, StateFilter::Enabled, StateFilter::Disabled};
+    if (m_canFilterUpdates) {
+        filters.append(StateFilter::Update);
+    }
+    int wanted = 0;
+    for (int i = 0; i < filters.size(); ++i) {
+        m_stateCombo->addItem(stateFilterText(filters.at(i)),
+                              static_cast<int>(filters.at(i)));
+        if (filters.at(i) == m_stateFilter) {
+            wanted = i;
+        }
+    }
+    // 现在选着的那一档**可能已经不在里面了**（`setCanFilterUpdates(false)` 把「可更新」
+    // 拿掉的那一刻）：那就退回「全部」——留着的话屏幕上是一条都不剩的列表，而那一栏里
+    // 没有任何一格亮着，用户找不到是哪儿把他的列表弄没了。
+    if (filters.at(wanted) != m_stateFilter) {
+        m_stateFilter = StateFilter::All;
+        wanted = 0;
+    }
+    m_stateCombo->setCurrentIndex(wanted);
+}
+
+void InstanceFilesPage::setCanFilterUpdates(bool canFilterUpdates) {
+    if (m_canFilterUpdates == canFilterUpdates) {
+        return;
+    }
+    m_canFilterUpdates = canFilterUpdates;
+    fillStateCombo();
+    // 那一格没了、而条件正好是它 ⇒ fillStateCombo() 已经把条件退回「全部」了，这一趟
+    // 重列就是把列表放回来（**必须重列**：不重列的话屏幕上还是上一档筛剩下的那几条，
+    // 而那一栏里亮着的是「全部」—— 列表和条件对不上，且没有任何东西会自己纠正它）。
+    rebuildRows();
+}
+
+void InstanceFilesPage::setSearchText(const QString &text) {
+    if (m_searchText == text) {
+        return;
+    }
+    m_searchText = text;
+    if (m_search != nullptr && m_search->text() != text) {
+        // 从外面写（验证工程、或者"把条件清回来"）的时候把那一格也摆成一样 —— 但**别让
+        // 它再回来叫一遍**（那一发会绕成第二次 rebuildRows）。
+        const QSignalBlocker blocker(m_search);
+        m_search->setText(text);
+    }
+    rebuildRows();
+}
+
+void InstanceFilesPage::setStateFilter(StateFilter filter) {
+    if (m_stateFilter == filter) {
+        return;
+    }
+    m_stateFilter = filter;
+    // 下拉框那一格也跟着摆（用户点的是它、外面调的是这一边，两条路都得对上）。
+    if (m_stateCombo != nullptr) {
+        const QSignalBlocker blocker(m_stateCombo);
+        for (int i = 0; i < m_stateCombo->count(); ++i) {
+            if (filterAt(m_stateCombo, i) == filter) {
+                m_stateCombo->setCurrentIndex(i);
+                break;
+            }
+        }
+    }
+    rebuildRows();
+}
+
+void InstanceFilesPage::setUpdateResult(const QStringList &outdatedPaths, bool checked) {
+    m_outdatedPaths = QSet<QString>(outdatedPaths.cbegin(), outdatedPaths.cend());
+    m_updateChecked = checked;
+    // 只有"正选着「可更新」"这一档会因为这个结果改变列表内容 —— 别的三档下这一趟检测
+    // 改变不了任何一行，白重列一遍（一个目录上百行）不值当。
+    if (m_stateFilter == StateFilter::Update) {
+        rebuildRows();
+    }
+}
+
 void InstanceFilesPage::setUnavailable(const QString &reason) {
     m_unavailable = reason;
     applyState();
@@ -472,9 +648,13 @@ void InstanceFilesPage::refresh() {
     m_statLabels.clear();
     // 先当空的，下面每加一条翻过来 —— 这样"目录不存在"和"目录是空的"自然走同一条路。
     m_empty = true;
+    // ★ 2026-09-28：这一趟是**重新读盘**，所以那一份"筛之前"的条目表也整个重来 ——
+    //   建行那一步（rebuildRows）只读它（见 .hpp 里 Entry 那段）。
+    m_entries.clear();
 
     const QDir dir(m_directory);
     if (m_directory.isEmpty() || !dir.exists()) {
+        m_filteredEmpty = false;
         applyState();
         return;
     }
@@ -517,16 +697,92 @@ void InstanceFilesPage::refresh() {
         //
         // NOTE: 别改回 `new QListWidgetItem(文字, m_list)` —— 那样重影立刻回来，而
         //       ui_check 的 U10k 那几条（量"一行里有几段墨"）会当场红。
+        //
+        // ★ 2026-09-28：**建行这一步挪进 rebuildRows() 了** —— 筛选用的是同一份活
+        //   （敲一个字就重列一遍），两处各写一遍的话"筛完之后屏幕上剩什么"迟早有一处
+        //   忘了带上。这里只攒条目。
+        Entry entry;
+        entry.displayName = displayName;
+        entry.raw = raw;
+        entry.path = path;
+        entry.isDir = isDir;
+        entry.disabled = disabled;
+        entry.size = info.size();
+        entry.modified = info.lastModified();
+        m_entries.append(entry);
+        m_empty = false;
+    }
+
+    // 建行 + 过筛选 + 摆可见性 + 起统计定时器，全在那一处（见 .hpp 里 rebuildRows 那段）。
+    rebuildRows();
+}
+
+bool InstanceFilesPage::entryMatchesFilter(const Entry &entry) const {
+    // ---------- 状态那一栏 ----------
+    switch (m_stateFilter) {
+    case StateFilter::Enabled:
+        if (entry.disabled) {
+            return false;
+        }
+        break;
+    case StateFilter::Disabled:
+        if (!entry.disabled) {
+            return false;
+        }
+        break;
+    case StateFilter::Update:
+        // 这一条在**上一趟更新检测查出来有新版本**的那份名单里。判据是路径**逐字相等**
+        // （两边都是 `pathRole()` 那一格）—— 禁用/启用改了名之后路径也变了，于是就
+        // 自然不在名单里了，那正是对的（改过名的那一条，上一趟的结论不作数）。
+        if (!m_outdatedPaths.contains(entry.path)) {
+            return false;
+        }
+        break;
+    case StateFilter::All:
+        break;
+    }
+
+    // ---------- 上面那条搜索框 ----------
+    const QString needle = m_searchText.trimmed();
+    if (needle.isEmpty()) {
+        return true;
+    }
+    // 比**两样**：界面上那一格写的（可能挂着「（已禁用）」那四个字 —— 用户看着它找），
+    // 以及盘上那个文件名（禁用着的那条带着 `.disabled`，用户手里那个文件就是这么叫的）。
+    // 子串、不分大小写：`sodium.jar` 敲 `SOD`、`odium`、`.JAR` 都该中。
+    return entry.displayName.contains(needle, Qt::CaseInsensitive) ||
+           entry.raw.contains(needle, Qt::CaseInsensitive);
+}
+
+void InstanceFilesPage::rebuildRows() {
+    if (m_list == nullptr) {
+        return;
+    }
+    // clear() 会连同 setItemWidget() 挂上去的那些行控件一起删掉 —— 统计队列/表跟着作废
+    // （理由逐字同 refresh() 里那一段）。
+    m_list->clear();
+    m_statQueue.clear();
+    m_statLabels.clear();
+
+    int shown = 0;
+    for (const Entry &entry : m_entries) {
+        if (!entryMatchesFilter(entry)) {
+            continue;
+        }
         auto *item = new QListWidgetItem(QString(), m_list);
-        item->setData(pathRole(), path);
-        item->setData(disabledRole(), disabled);
+        item->setData(pathRole(), entry.path);
+        item->setData(disabledRole(), entry.disabled);
         // 行高和实例树 / 版本树同一档：一页里换行高不会错，但"我们自己的列表"看着该是一个东西。
         item->setSizeHint(QSize(0, MainWindowUI::versionTreeRowHeight()));
         m_list->addItem(item);
-        m_list->setItemWidget(item, makeRow(displayName, path, isDir, disabled, info.size(),
-                                            info.lastModified()));
-        m_empty = false;
+        m_list->setItemWidget(item, makeRow(entry.displayName, entry.path, entry.isDir,
+                                            entry.disabled, entry.size, entry.modified));
+        ++shown;
     }
+    // ★ 「目录本来就是空的」和「筛完一条不剩」是两件事（见 m_filteredEmpty）：前者底下那
+    //   两排筛选整块收起来，后者留着让用户把条件改回来。所以这里只在"目录里有东西"时
+    //   才把后者置起来。
+    m_filteredEmpty = !m_empty && shown == 0;
 
     applyState();
 
@@ -741,12 +997,38 @@ QLabel *InstanceFilesPage::pathLabel() const {
 void InstanceFilesPage::applyState() {
     const bool unavailable = !m_unavailable.isEmpty();
     const bool empty = !unavailable && m_empty;
+    // ★ 第四档（2026-09-28）：目录里有东西、但这一趟筛完一条不剩。
+    const bool filtered = !unavailable && !empty && m_filteredEmpty;
+
+    // 搜索框 / 状态那一栏：**这一页用不上、或者目录本来就空**的时候整块收起来（没有
+    // 可筛的东西，露着两排空控件等于摆两个坏键）。筛完一条不剩时**留着** —— 用户正要
+    // 靠它们把条件改回来，这时候把它们收掉是最糟的一刻。
+    const bool filtersUseful = !unavailable && !m_empty;
+    if (m_searchRow != nullptr) {
+        m_searchRow->setVisible(filtersUseful);
+    }
+    if (m_stateRow != nullptr) {
+        m_stateRow->setVisible(filtersUseful);
+    }
 
     m_pathRow->setVisible(!unavailable);
-    m_list->setVisible(!unavailable && !empty);
-    m_notice->setVisible(unavailable || empty);
-    m_notice->setText(unavailable ? m_unavailable
-                                  : (m_emptyText.isEmpty() ? emptyText() : m_emptyText));
+    m_list->setVisible(!unavailable && !empty && !filtered);
+    m_notice->setVisible(unavailable || empty || filtered);
+    if (unavailable) {
+        m_notice->setText(m_unavailable);
+        return;
+    }
+    if (empty) {
+        m_notice->setText(m_emptyText.isEmpty() ? emptyText() : m_emptyText);
+        return;
+    }
+    // 筛完一条不剩：说清**是筛选把它筛没的**（不是目录空了），而且选着「可更新」时还要
+    // 分清"还没查过"和"查过了没有"—— 那两件事的下一步完全不同。
+    if (m_stateFilter == StateFilter::Update) {
+        m_notice->setText(m_updateChecked ? updateNoneText() : updateNotCheckedText());
+        return;
+    }
+    m_notice->setText(noMatchText());
 }
 
 QAbstractButton *InstanceFilesPage::toggleButtonAt(int row) const {

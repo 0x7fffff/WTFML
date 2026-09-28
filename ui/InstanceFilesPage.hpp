@@ -16,6 +16,16 @@
  *           见 setResourceForPath()）。
  *       这五条都是 setter，所以六页共用这一个控件，不写六份。
  *
+ * 【2026-09-28 又多了两排：一条搜索 + 一个状态选择】
+ *
+ * 用户原话：「模组等的下载新/刷新/打开文件夹的上方加一个搜索，三个按钮的下方一个选择
+ * 全部/启用/禁用/可更新」。所以正文从上到下是：**搜索框 → 那一排按钮 → 状态选择 →
+ * 列表**（搜索在上、选择在下，是用户点名要的位置，不是摆错了）。
+ *
+ * 两样都是**筛这一页的列表**，不改盘上任何东西：
+ *   - 搜索匹配的是"这一条在界面上叫什么"（以及盘上那个文件名），子串、不分大小写；
+ *   - 状态那一栏 = 全部 / 启用 / 禁用（+ 可更新，见 setCanFilterUpdates）。
+ *
  * 【这一层只**显示**，不碰盘】
  *
  * 和 InstanceSettingsDialog 同一条约定：它列目录（读），但**删除 / 改名一个字节都不动**
@@ -34,16 +44,20 @@
  */
 #pragma once
 
+#include <QDateTime>
 #include <QHash>
+#include <QList>
 #include <QPointer>
+#include <QSet>
 #include <QString>
 #include <QStringList>
 #include <QWidget>
 
 class QAbstractButton;
-class QDateTime;
 class ElidedLabel;
+class QComboBox;
 class QLabel;
+class QLineEdit;
 class QListWidget;
 class QListWidgetItem;
 class QPushButton;
@@ -119,6 +133,46 @@ public:
     ///       跟着一起收起来。这是有意的：光影包那一页正在说"这个实例装不了光影"的时候，
     ///       把人送去下载页找光影包是**指错路**（该先装 Iris，那是模组那一栏的事）。
     void setDownloadText(const QString &text, const QString &tip);
+
+    // ---------- 搜索 + 状态筛选（2026-09-28，见文件头）----------
+
+    /// 这一页每一页都有的四个状态档（那一栏里的一格）。**「可更新」要 setCanFilterUpdates(true)
+    /// 才出现**（见那一处的理由）。
+    enum class StateFilter {
+        All,       ///< 全部
+        Enabled,   ///< 启用（盘上没有 `.disabled` 后缀的那些）
+        Disabled,  ///< 禁用
+        Update,    ///< 可更新（这一趟更新检测查出来有新版本的那些）
+    };
+
+    /// 搜索框里写什么（空串 = 不筛）。**给验证工程和"把条件清回来"用** —— 用户敲字走的是
+    /// 那条 QLineEdit 自己的路（见 .cpp）。
+    void setSearchText(const QString &text);
+    QString searchText() const { return m_searchText; }
+
+    /// 那一栏里选哪一档。**唯一入口**（下拉框的 currentIndexChanged 也接到这儿）。
+    void setStateFilter(StateFilter filter);
+    StateFilter stateFilter() const { return m_stateFilter; }
+
+    /// 状态那一栏里**要不要有「可更新」**。只有"能查更新"的那几页给 true（下载页里真有
+    /// 对应一栏的那四页，见 setDownloadText）—— 原理图 / 存档 / 配置文件那几页上的文件
+    /// 根本不在任何资源平台的清单里，多一格永远选不出东西的筛选项等于摆一个坏键。
+    ///
+    /// NOTE: 换这个开关时，如果正选着「可更新」而它要被拿掉，会**退回「全部」**（不是
+    ///       留着一个已经不存在的条件 —— 那样屏幕上是一条都不剩的列表）。
+    void setCanFilterUpdates(bool canFilterUpdates);
+
+    /// 这一趟更新检测的结果（见 MainWindow::finishUpdateCheck / ModDependencies::judgeUpdate）。
+    ///
+    /// @param outdatedPaths **查出来有新版本**的那些条目的绝对路径（= `pathRole()` 那一格，
+    ///        禁用着的那条带着 `.disabled`）。这一份是**整份**，不是追加。
+    /// @param checked       这个实例查过没有。**「没查过」和「查过、没有」是两件事**：
+    ///        前者选「可更新」时该说"先点一下检查更新"，后者该说"都是最新的"。
+    ///
+    /// NOTE: 这一层只认路径 ⇒ 它在"盘上那一条现在叫什么"这件事上跟 refresh() 同一条口径
+    ///       （两边都是 `pathRole()`），所以禁用/启用之后路径变了、这一条也就不在表里了
+    ///       —— 那正是对的：改过名之后上一趟查出来的结论本来就不作数了。
+    void setUpdateResult(const QStringList &outdatedPaths, bool checked);
 
     /// 这一页看哪个目录（绝对路径）。**由调用方算好递进来** —— 目录名是 MC 的约定，
     /// 仓库里已经有唯一一份（src/download/ResourceCatalog::folderForKind），
@@ -206,6 +260,14 @@ public:
     /// 的也是它"露不露"（`isVisibleTo(这一页)`），不是"存不存在"（它每一页都有，只是空着）。
     QPushButton *downloadButton() const { return m_download; }
     QLabel *noticeLabel() const { return m_notice; }
+    /// 上面那条搜索框（见 setSearchText）。验证工程靠它核"敲几个字之后列表剩几条"。
+    QLineEdit *searchEdit() const { return m_search; }
+    /// 那一栏（全部 / 启用 / 禁用 / 可更新）。验证工程按 `currentText()` 核它现在选着哪一档，
+    /// 以及**有「可更新」的那几页是哪几页**（`count()`）。
+    QComboBox *stateCombo() const { return m_stateCombo; }
+    /// 那一栏左边那个标签（写「显示」）。**没接过筛选项的页上整排都是藏着的** —— 量的
+    /// 是 `isVisibleTo(这一页)`。
+    QLabel *stateLabel() const { return m_stateLabel; }
     /// 上面那一排最左边那格（写的是这一页在看哪个目录）。文字由 refresh() 灌 ——
     /// 验证工程按它核"切到哪一页、那一格就写哪个目录"这一条。
     /// NOTE: 定义在 .cpp 里（不在这儿就地写）：它那一格的真身份是 ElidedLabel，
@@ -229,6 +291,10 @@ public:
     // ---------- objectName（验证工程靠它们认控件） ----------
     static QString listName() { return QStringLiteral("instanceFilesList"); }
     static QString pathLabelName() { return QStringLiteral("instanceFilesPath"); }
+    /// 上面那条搜索框、下面那一栏状态选择（+ 它左边那个标签）。各自只有一个。
+    static QString searchEditName() { return QStringLiteral("instanceFilesSearchEdit"); }
+    static QString stateComboName() { return QStringLiteral("instanceFilesStateCombo"); }
+    static QString stateLabelName() { return QStringLiteral("instanceFilesStateLabel"); }
     static QString refreshButtonName() { return QStringLiteral("instanceFilesRefreshButton"); }
     static QString openFolderButtonName() {
         return QStringLiteral("instanceFilesOpenFolderButton");
@@ -287,6 +353,41 @@ public:
     static QString editText() { return QStringLiteral("编辑"); }
     /// 目录行的「大小 · 时间」还没算出来的那一格写什么（见 fillDirectoryStats()）。
     static QString statsPendingText() { return QStringLiteral("正在统计…"); }
+
+    // ---------- 搜索 / 筛选那两排上的字（2026-09-28）----------
+    //
+    // 和上面那几串一样**只活在这儿**：下拉框那四格、搜索框的灰字、以及"筛完一条不剩"
+    // 那三句话都由这一组说了算，验证工程也按它们核对（写死两份的话，改了字有一处对不上
+    // 就是一条假绿）。
+    static QString searchPlaceholder() { return QStringLiteral("搜索"); }
+    static QString stateLabelText() { return QStringLiteral("显示"); }
+    /// 那一栏里四格各写什么。**顺序就是下拉框里的顺序**（见 .cpp 构造那段）。
+    static QString stateFilterText(StateFilter filter) {
+        switch (filter) {
+        case StateFilter::Enabled:
+            return QStringLiteral("启用");
+        case StateFilter::Disabled:
+            return QStringLiteral("禁用");
+        case StateFilter::Update:
+            return QStringLiteral("可更新");
+        case StateFilter::All:
+            break;
+        }
+        return QStringLiteral("全部");
+    }
+    /// 筛完一条都不剩时那句（搜索词或状态把这一页筛空了）。**和"目录本来就是空的"那句
+    /// 是两回事**（见 m_emptyText）：这一句底下那一排筛选还露着，用户正要靠它改回来。
+    static QString noMatchText() { return QStringLiteral("没有符合条件的条目。"); }
+    /// 选着「可更新」、但**这个实例还没查过更新**（见 setUpdateResult 的 checked）。
+    /// 这句话得说清下一步去哪儿按 —— 不说的话用户只会以为"筛坏了"。
+    static QString updateNotCheckedText() {
+        return QStringLiteral("还没有查过更新 —— 到「概览」那一栏点一下「检查更新」，"
+                              "查完回来这里就能按「可更新」筛。");
+    }
+    /// 选着「可更新」、查过了、这一页里一条要更新的都没有。
+    static QString updateNoneText() {
+        return QStringLiteral("查过了，这一页里的文件都没有新版本。");
+    }
     /// 目录不存在 / 是空的时候那一句（每一页都可以自己盖掉，见 setEmptyText）。
     static QString emptyText() { return QStringLiteral("这个文件夹还是空的。"); }
 
@@ -344,14 +445,55 @@ protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
+    /// 目录里的一条（**筛之前**的那一份）。`refresh()` 从盘上读一次存这儿，建行和筛选都
+    /// 只读它 —— 于是"敲一个字就重筛一遍"不用再问一次盘（见 .cpp 里 refresh /
+    /// rebuildRows 那段）。
+    struct Entry {
+        QString displayName;  ///< 界面上那一格写的（改名之后 + 「（已禁用）」）
+        QString raw;          ///< 盘上那个名字（`X.jar.disabled`）
+        QString path;         ///< 绝对路径（= pathRole() 那一格）
+        bool isDir = false;
+        bool disabled = false;
+        qint64 size = 0;
+        QDateTime modified;
+    };
+
     /// 造一条行：**左边一列两行字**（名字一行、大小 · 时间一行，见 nameLabelName() /
     /// metaLabelName()）+ 尾巴上那两颗按钮，已经按状态摆好。
     QWidget *makeRow(const QString &shownName, const QString &path, bool isDir, bool isDisabled,
                      qint64 size, const QDateTime &modified);
 
-    /// 三个状态（正常 / 空目录 / 用不上）之间切换可见性。refresh() 和 setUnavailable()
-    /// 都走这一处，免得两条路上摆得不一样。
+    /// 四个状态（正常 / 空目录 / **筛完一条不剩** / 用不上）之间切换可见性。refresh()、
+    /// rebuildRows() 和 setUnavailable() 都走这一处，免得几条路上摆得不一样。
+    ///
+    /// 「顺便收起来的」只有两种：**这一页用不上**、以及**目录本来就空**（那两种情况下
+    /// 搜索/状态栏都没有可筛的东西）。筛完一条不剩时那两排**留着** —— 用户正要靠它们
+    /// 把条件改回来。
     void applyState();
+
+    /// 把 `m_entries` 按现在这两条筛选条件**重列一遍**（先 clear 再逐条建行）。
+    ///
+    /// 【为什么筛选 = 重列，而不是"把不中的那几行藏起来"】
+    ///
+    /// 这一页的行是 `setItemWidget()` 摆上去的**真控件**，"藏"要么走 `setHidden()`（隐藏
+    /// 条目**不会**自动把那个行控件一起收起来 —— 它会留在原地，于是筛完屏幕上还是那些行）、
+    /// 要么自己挨个 setVisible（那就等于把五行状态散在第二处）。重列走的是同一条老路
+    /// （`refresh()` 一直在这么干），代价是每敲一个字重建一次行 —— 一个目录几十上百条，
+    /// 这个代价当场就回来了。**换来的是一条：屏幕上剩下的每一条都真的过了筛选。**
+    ///
+    /// NOTE: 只重列**不读盘**（读盘那一步在 refresh() 里，存进 m_entries）—— 敲字时
+    ///       "盘上有没有变"不是这一趟要回答的问题，用户按「刷新」才是。
+    void rebuildRows();
+
+    /// 这一条过不过现在这两条筛选条件（搜索词 + 状态栏）。
+    bool entryMatchesFilter(const Entry &entry) const;
+
+    /// 状态栏里第 @p index 格对应哪一档（那一格的数据里存的就是它，`Qt::UserRole`）。
+    static StateFilter filterAt(const QComboBox *combo, int index);
+
+    /// 按 `m_canFilterUpdates` 把状态栏那几格（重新）摆好，并把"现在选着哪一档"落回
+    /// `m_stateFilter`。构造函数和 setCanFilterUpdates() 都走这一处。
+    void fillStateCombo();
 
     /// 这一条那一格该摆什么：真图标在 `m_icons` 里就摆它，否则摆占位图（形状按 isDir 分，
     /// 见 .cpp 里 placeholderIcon）。makeRow() 和 setIconForPath() 都走这一处 ——
@@ -375,8 +517,32 @@ private:
     QString m_directory;
     /// 用不上的原因（空串 = 用得上）。见 setUnavailable()。
     QString m_unavailable;
-    /// 上一次 refresh() 之后列表是不是空的。**只由 refresh() 写**（见 applyState()）。
+    /// 上一次 refresh() 之后**目录里**是不是一条都没有（还没过筛选这一层）。**只由
+    /// refresh() 写**（见 applyState()）。
     bool m_empty = true;
+    /// 目录里有东西、但**这一趟筛完一条都不剩**（搜索词或状态栏干的）。**只由
+    /// rebuildRows() 写**。和 m_empty 分开：前者底下要露着筛选那两排（用户正靠它改回来），
+    /// 后者整块收起来（没东西可筛）。
+    bool m_filteredEmpty = false;
+
+    /// 目录里那些条目，**筛之前**的那一份（见 Entry / rebuildRows()）。
+    QList<Entry> m_entries;
+
+    /// 现在搜索框里写着什么（setSearchText / 用户敲字都写它）。**筛的是它**，不是控件上
+    /// 此刻的文字 —— 免得"这一页在筛什么"这件事有两个出处。
+    QString m_searchText;
+    /// 状态栏里现在选着哪一档。默认「全部」。
+    StateFilter m_stateFilter = StateFilter::All;
+    /// 状态栏里要不要有「可更新」（见 setCanFilterUpdates）。**默认给**：能筛更新的那几页
+    /// 是多数，不开的那三页由对话框点名关掉（宁可多一格"永远筛不出东西"的，也不要因为
+    /// 忘了打开而少一格 —— 后者没人看得出来）。
+    bool m_canFilterUpdates = true;
+
+    /// 查出来**有新版本**的那些条目的路径（见 setUpdateResult）。在表里 = 这一条可更新。
+    /// NOTE: 空表 + `m_updateChecked` 为假 = "还没查过"，那是两件事（见 updateNotCheckedText）。
+    QSet<QString> m_outdatedPaths;
+    /// 这个实例查过更新没有（见 setUpdateResult）。
+    bool m_updateChecked = false;
 
     /// 已经拿到的**真图标**，按 `pathRole()` 那一格存（见 setIconForPath()）。
     ///
@@ -403,8 +569,16 @@ private:
     ///       而那本来就是默认状态。
     QHash<QString, QString> m_resourceTips;
 
+    /// **最上面那一排**：搜索框（2026-09-28，用户点名要摆在按钮那排**上方**）。
+    /// 目录本来就空 / 这一页用不上的时候整排收起来（没东西可筛）。
+    QWidget *m_searchRow = nullptr;
+    QLineEdit *m_search = nullptr;
     /// 上面那一排（路径 + 两颗按钮）。「用不上」的时候整排一起收起来。
     QWidget *m_pathRow = nullptr;
+    /// **按钮那排下面那一排**：「显示」+ 状态栏（用户原话是「三个按钮的下方一个选择」）。
+    QWidget *m_stateRow = nullptr;
+    QLabel *m_stateLabel = nullptr;
+    QComboBox *m_stateCombo = nullptr;
     /// 是 ElidedLabel（从中间省略，见 .cpp 里构造那段的理由）；对外仍旧只当它是个 QLabel
     /// （见 pathLabel() 为什么定义在 .cpp 里）。
     ElidedLabel *m_pathLabel = nullptr;

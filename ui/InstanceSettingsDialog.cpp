@@ -1264,6 +1264,11 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             //   一行都在 MainWindow 那一层 —— 这一层够不着选项卡，也不该知道下载页左栏
             //   有几栏（见 browseDownloadsRequested() 那段）。
             files->setDownloadText(filesDownloadText(key), filesDownloadTip(key));
+            // ★ 2026-09-28：状态那一栏里要不要有「可更新」——**判据和上面那颗「下载新 X」
+            //   是同一个**（下载页里真有对应一栏的那四页）：只有那四页上的文件查得动更新，
+            //   别的几页（原理图 / 存档 / 配置文件）里的东西根本不在任何平台的清单里。
+            //   多一格永远筛不出东西的选项，用户只会以为"筛坏了"。
+            files->setCanFilterUpdates(!filesDownloadText(key).isEmpty());
             // ★ 2026-09-28：存档那一页顶上多两颗（「导入世界」/「批量编辑」）。用户原话：
             //   「顶端加个导入世界按钮和批量编辑按钮（这个先做占位）」。
             //   别的几页**不接文字**（= 那两颗藏起来，见 setImportText）。「批量编辑」今天
@@ -2469,6 +2474,18 @@ void InstanceSettingsDialog::refreshFilePages() {
         if (page != nullptr) {
             page->refresh();
         }
+    }
+}
+
+void InstanceSettingsDialog::setFileUpdates(const QStringList &outdatedPaths, bool checked) {
+    // 只有**开得了「可更新」那一格**的那几页接（判据逐字同构造里那一条：下载页里真有
+    // 对应一栏的那四页）。别的页上那一格根本不在，喂给它只是让它白白记着一份用不上的
+    // 名单（而有名单就会有"下一次刷新之后它还在"这类问题）。
+    for (auto it = m_filesPages.constBegin(); it != m_filesPages.constEnd(); ++it) {
+        if (it.value() == nullptr || filesDownloadText(it.key()).isEmpty()) {
+            continue;
+        }
+        it.value()->setUpdateResult(outdatedPaths, checked);
     }
 }
 

@@ -5009,7 +5009,7 @@ void MainWindow::finishDependencyCheck() {
 // 不自动下载、不自动改盘、不问"要不要更新" —— 用户要的是"检测"。报告里只说事实
 //（哪几个有新版本、最新的那一版叫什么），后面那一步是他自己的事。
 
-void MainWindow::checkInstanceUpdates(const QString &instanceId) {
+void MainWindow::checkInstanceUpdates(const QString &instanceId, InstanceSettingsDialog *dialog) {
     if (instanceId.isEmpty()) {
         return;
     }
@@ -5046,6 +5046,8 @@ void MainWindow::checkInstanceUpdates(const QString &instanceId) {
 
     m_updateCheck = UpdateCheckRun{};
     m_updateCheck.instanceId = instanceId;
+    // 结果回来时要递给**同一页**（见 UpdateCheckRun::dialog 那段）。弱引用：收页了就不递。
+    m_updateCheck.dialog = dialog;
     appendLog(tr("正在检查「%1」里的资源有没有新版本（%2 个文件）...")
                   .arg(instanceDisplayName(instanceId))
                   .arg(paths.size()));
@@ -5155,7 +5157,15 @@ void MainWindow::onUpdateCheckVersionsFinished(const QString &requestKey,
     }
 }
 
-void MainWindow::finishUpdateCheck(const QString &instanceId) {
+// ★ 参数**按值收**（2026-09-28，别改回 `const QString &`）：下面那句 `m_updateCheck =
+//   UpdateCheckRun{}` 会把这个成员清空，而 `onUpdateCheckVersionsFinished` 那边递进来的
+//   正是 `m_updateCheck.instanceId` **本身** —— 按引用收的话，函数体第一句就把自己这个参数
+//   指的那块 QString 抹成空的，于是整份名单记在**空键**底下（`m_instanceOutdatedPaths`）。
+//   症状非常有欺骗性：**当着一页的面筛得出来**（那一趟是拿 `run.instanceId` 直接递过去的，
+//   而 `run` 是赋值前拷出来的），关掉这一页再进来就永远筛不出东西、还重新挂着「还没有查过
+//   更新」—— 而那一趟明明刚跑完。屏幕上看不出任何异常，日志也是干净的。
+//   QString 是隐式共享的，按值收不多拷一个字节的正文。
+void MainWindow::finishUpdateCheck(QString instanceId) {
     const UpdateCheckRun run = m_updateCheck;
     m_updateCheck = UpdateCheckRun{};
 
@@ -5178,6 +5188,24 @@ void MainWindow::finishUpdateCheck(const QString &instanceId) {
             break;
         }
     }
+
+    // ★ 2026-09-28：这一趟查出来的"哪几条有新版本"**留下来**（从前这里是丢掉、只写一份
+    //   报告）。文件管理那几页状态栏里那一格「可更新」要的就是它 —— 不留的话，那趟检测
+    //   跑完只在弹框里活了几秒钟，而"筛出可更新的那几条"这件事一次都做不到。
+    //
+    //   存的是**`item.path`**（= 盘上那一条的绝对路径，和 `InstanceFilesPage::pathRole()`
+    //   逐字同一个口径 —— 禁用着的那条带着 `.disabled`）。**不是**"说不清"那些：那几条
+    //   按定义就是"判不出来"，把它们当成可更新是在说一句没有依据的话（报告里照旧按
+    //   「说不清」单列一档）。
+    QStringList outdatedPaths;
+    outdatedPaths.reserve(outdated.size());
+    for (const ModDependencies::UpdateVerdict &verdict : outdated) {
+        outdatedPaths.append(verdict.item.path);
+    }
+    m_instanceOutdatedPaths.insert(instanceId, outdatedPaths);
+    // **先记账再递**：递出去的那一份是上面这一行写的（不是从这里临时拼的），于是"这一页
+    // 现在筛得出来的"和"下一次开这一页筛得出来的"永远是同一份。
+    pushInstanceFileUpdates(run.dialog, instanceId);
     const auto byName = [](const ModDependencies::UpdateVerdict &a,
                            const ModDependencies::UpdateVerdict &b) {
         return a.item.title < b.item.title;
@@ -8785,6 +8813,11 @@ void MainWindow::openInstanceSettings(const QString &versionId, const QString &p
         // 摆在这儿而不是摆在开窗那一刻：改名会让整个实例换一个目录，那批路径跟着全换，
         // 图标也得按新路径重认一遍（旧的那一页那时还画着老目录那些条的图）。
         requestInstanceFileIcons(&dialog, id);
+        // ★ 2026-09-28：上一趟「检查更新」查出来的结果也在这一格上摆回来（见
+        //   pushInstanceFileUpdates / m_instanceOutdatedPaths）。不摆的话，用户查一次、
+        //   关掉这一页、再进来，「可更新」那一格就变回"还没查过"—— 而那趟检测刚跑完。
+        //   NOTE: 和上面那几行一样写在 `refreshInstanceDirs` 这一支里（换实例时重喊）。
+        pushInstanceFileUpdates(&dialog, id);
     };
     refreshInstanceDirs(targetId);
 
@@ -8825,7 +8858,7 @@ void MainWindow::openInstanceSettings(const QString &versionId, const QString &p
     //       就是他等的那个结果 —— 把它吞掉等于"按了没反应"。这一条和文件管理那几处
     //       "动完盘得刷新那一页"不一样：那些是**改这一页的样子**，这一件是把结果**告诉人**。
     connect(&dialog, &InstanceSettingsDialog::checkUpdatesRequested, this,
-            [this, &targetId]() { checkInstanceUpdates(targetId); });
+            [this, &targetId, &dialog]() { checkInstanceUpdates(targetId, &dialog); });
 
     // 「文件管理」那三发（2026-09-26）：开文件夹 / 启用·禁用一条 / 删一条。
     //
@@ -10803,6 +10836,19 @@ void MainWindow::pushInstanceFileIcons() {
                       ? QString()
                       : m_resourceHits.value(identity.value()).title);
     }
+}
+
+void MainWindow::pushInstanceFileUpdates(InstanceSettingsDialog *dialog,
+                                         const QString &instanceId) {
+    if (dialog == nullptr) {
+        // 这一页已经收掉了（或者压根没开着）——那就不递，盘上那份账照样记着
+        //（下一次开这一页时由开页那条路补上，见调用点）。
+        return;
+    }
+    // 键在不在 = **查过没有**，值是查出来可更新的那些路径（见 m_instanceOutdatedPaths）。
+    const auto it = m_instanceOutdatedPaths.constFind(instanceId);
+    const bool checked = it != m_instanceOutdatedPaths.constEnd();
+    dialog->setFileUpdates(checked ? it.value() : QStringList(), checked);
 }
 
 bool MainWindow::applyInstanceSettings(const QString &versionId,

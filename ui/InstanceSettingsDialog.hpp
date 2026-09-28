@@ -506,6 +506,21 @@ public:
     /// 按"现在在哪"决定那颗「上级」画不画。**进来、出去、换实例（setFileDirs）之后都要喊**。
     void updateConfigUpButton();
 
+    /// 某一趟更新检测的结果（见 InstanceFilesPage::setUpdateResult）—— 转给**开得了
+    /// 「可更新」那一格**的那几页（判据同构造里那一条）。
+    ///
+    /// 收在这一层的原因和 setFileIcon() 逐字相同（哪一页有这个路径只有这几页自己知道），
+    /// 外加一条：**哪几页有「可更新」这一格也只有这一层知道**。
+    ///
+    /// @param outdatedPaths 查出来有新版本的那些文件的绝对路径（空表 + checked 为真
+    ///        = 查过了、一条都没有）。
+    /// @param checked       这个实例查过没有（"没查过"和"查过、没有"是两句话）。
+    ///
+    /// NOTE: 这个实例正在跑一趟检测的时候用户**换了实例**的话，回来的那一份是按
+    ///       **那一趟的实例**递的 —— 所以调用方（MainWindow）只在自己那趟的实例上喊它
+    ///       （见 finishUpdateCheck 里"先记账再递"那一段）。
+    void setFileUpdates(const QStringList &outdatedPaths, bool checked);
+
     /// 给某一条文件行换上它的**真图标**（见 InstanceFilesPage::setIconForPath）。
     ///
     /// 收在这一层是因为**路径属于哪一页只有六页自己知道** —— 调用方（MainWindow）手上

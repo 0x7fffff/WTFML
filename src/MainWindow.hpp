@@ -1073,7 +1073,15 @@ private:
     // "枚举 mods → 反查一次 → 有几个项目就再问几发版本列表 → 判"，**全在后台线程**吗？
     // 不是：版本列表那几发走的是主线程上的 ResourceStore（界面这一层本来就等结果），
     // 只有"读几十兆 jar 算哈希"那一段在后台线程（沿用 `startInstanceFileIconLookup` 那套）。
-    void checkInstanceUpdates(const QString &instanceId);
+    void checkInstanceUpdates(const QString &instanceId, InstanceSettingsDialog *dialog);
+
+    /// 把"这个实例**上一趟查出来可更新**的那些文件"递给那几页（见
+    /// InstanceFilesPage::setUpdateResult）。@p dialog 是**现在开着的**那一页（空 =
+    /// 没开着，什么都不做）。
+    ///
+    /// 从两处喊：①开这一页的时候（拿下面那份会话缓存 —— 用户查过一次之后关掉再进来，
+    /// 「可更新」还得筛得出东西）；②一趟检测收尾时（这时候才刚有结果）。
+    void pushInstanceFileUpdates(InstanceSettingsDialog *dialog, const QString &instanceId);
     /// 反查那一趟回来了（更新检测这条路上的收尾：逐个项目问版本列表）。
     void onUpdateCheckLookupFinished(const InstanceIconLookup::Result &result,
                                      const QString &instanceId);
@@ -1082,7 +1090,10 @@ private:
                                        const QList<ResourceCatalog::VersionEntry> &versions,
                                        const QString &problem);
     /// 全判完了：把报告写成一份**用户看得懂**的清单（能更新的排前面），弹框 + 日志。
-    void finishUpdateCheck(const QString &instanceId);
+    /// ★ 按值收（理由见 .cpp 里实现那一段：这个函数开头会把 `m_updateCheck` 清空，而
+    /// `onUpdateCheckVersionsFinished` 递进来的就是它自己那个成员 —— 按引用收 = 自己把
+    /// 自己的实参抹掉，整份结果会记在空键底下）。
+    void finishUpdateCheck(QString instanceId);
     /// ResourceStore 的三个回复。
     void onResourceSearchFinished(const QString &requestKey,
                                   const ResourceCatalog::SearchResult &result);
@@ -1832,11 +1843,30 @@ private:
         QList<ModDependencies::UpdateVerdict> verdicts;
         /// 反查那一趟自己的问题（读不动几个文件之类），报告末尾照实说一句。
         QString lookupNote;
+        /// 点「检查更新」那一颗按钮时开着的那一页。**弱引用** —— 结果回来的时候这一页
+        /// 完全可能已经被收掉了（那几发是异步的），那时候**不碰它**（往一个已经析构了的
+        /// 对话框上写是 use-after-free，不是"多画一笔"；同 ServerPingRun::dialog 那段）。
+        ///
+        /// ★ 2026-09-28 加：这一趟的结果除了弹那份报告，还要喂给文件管理那几页的
+        ///   「可更新」那一格（见 InstanceFilesPage::setUpdateResult）。
+        QPointer<InstanceSettingsDialog> dialog;
         /// 跑着的时候就把重活派出去的那个线程（跑完 deleteLater，见 startInstanceFileIconLookup
         /// 那套写法）。
         QThread *thread = nullptr;
     };
     UpdateCheckRun m_updateCheck;
+    /// **会话级**：每个实例上一趟查出来**可更新**的那些路径（键是实例 id）。
+    ///
+    /// ★ 2026-09-28 加的一项用途：文件管理那几页状态栏里的「可更新」靠它筛（见
+    ///   InstanceFilesPage::setUpdateResult）。不记的话，用户查完关掉设置页再进来，
+    ///   那一格就永远是"还没查过"—— 而那趟检测刚跑完。
+    ///
+    /// NOTE: **键在不在 = 查过没有**（值是空表 = 查过了、一条都没有）。这两件事在界面上
+    ///       是两句话（"先点一下检查更新" / "都是最新的"），所以不能只留一份名单。
+    /// NOTE: 和别处那几份会话缓存一样**只往里放、不清理**：键是实例 id、值是纯路径，留着
+    ///       不占多少，而"哪几个实例该清"没有出处（文件删了就自然筛不出来了 —— 那一条
+    ///       已经不在这一页上了）。
+    QHash<QString, QStringList> m_instanceOutdatedPaths;
     /// 已经问回来的版本列表，按**请求钥匙**存（ResourceCatalog::versionsRequestKey()）。
     /// 点第三层那一下要拿它换出 URL / sha1 / 大小。
     /// NOTE: 那些事实**不放在条目上**：条目在重搜时会被整个清掉，而"这一版的文件是哪几个"
