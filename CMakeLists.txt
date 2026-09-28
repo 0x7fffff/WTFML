@@ -48,10 +48,12 @@ set(HEADER_FILES
     src/util/SystemMemory.hpp
     src/util/ZipUtil.hpp
     src/util/NbtUtil.hpp
+    src/util/NbtTree.hpp
     src/util/ServerPing.hpp
     src/util/ErrorReport.hpp
     ui/ConfigFileText.hpp
     ui/ConfigFileEditorPage.hpp
+    ui/WorldSettingsPage.hpp
     ui/ConfigEntries.hpp
     ui/MotdText.hpp
     ui/ToggleSwitch.hpp
@@ -93,6 +95,7 @@ set(SOURCE_FILES
     src/util/SystemMemory.cpp
     src/util/ZipUtil.cpp
     src/util/NbtUtil.cpp
+    src/util/NbtTree.cpp
     src/util/ServerPing.cpp
     src/util/ErrorReport.cpp
     ui/AccountSkinDialog.cpp
@@ -107,6 +110,7 @@ set(SOURCE_FILES
     ui/InstanceFilesPage.cpp
     ui/ConfigFileText.cpp
     ui/ConfigFileEditorPage.cpp
+    ui/WorldSettingsPage.cpp
     ui/ConfigEntries.cpp
     ui/InlineMessage.cpp
     ui/JavaMismatchDialog.cpp

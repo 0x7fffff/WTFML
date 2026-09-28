@@ -566,6 +566,61 @@ bool ZipUtil::gunzipTo(const QString &sourceGz, const QString &targetPath, QStri
     return true;
 }
 
+bool ZipUtil::gzipFrom(const QString &sourcePath, const QString &targetGz, QString *errorOut) {
+    if (errorOut != nullptr) {
+        errorOut->clear();
+    }
+
+    // gunzipTo() 的反方向，一个字节的结构都不多：同样**不让 PowerShell 碰 stdout**，
+    // 同样把整段包在一个 try 里、catch 里写原生 stderr 再 exit 3，退出码的含义也一致
+    // （3 = 脚本跑到了、里面出错了；"没起来/超时"由 runPowershell 自己那一档说）。
+    //
+    // NOTE: 写那一侧的顺序是**反的** —— 先开目标文件，再把 GZipStream 套在它外面，
+    //       最后把源文件 CopyTo 进 gz。两个 finally 的顺序也一样重要：`$out.Dispose()`
+    //       必须在 `$gz.Dispose()` **之前**（GZipStream 的 Dispose 要把压缩尾巴刷出去，
+    //       底下的流已经关了的话那一段就丢了 —— 症状是一个能建出来、谁解都报错的包）。
+    // NOTE: CompressionLevel 用的是 Optimal（和 createZip 那一档同一个理由：不为了几个
+    //       百分点造出一个"和大家不一样"的包）。level.dat 是几十 KB，这一档和最快那一档
+    //       的耗时差在人眼以下。
+    const QString script =
+        QStringLiteral("$ErrorActionPreference='Stop'\n"
+                       "try{\n"
+                       "  Add-Type -AssemblyName System.IO.Compression\n"
+                       "  Add-Type -AssemblyName System.IO.Compression.FileSystem\n"
+                       "  $dest=%1\n"
+                       "  $dir=[System.IO.Path]::GetDirectoryName($dest)\n"
+                       "  if(-not [string]::IsNullOrEmpty($dir)){\n"
+                       "    [void][System.IO.Directory]::CreateDirectory($dir)\n"
+                       "  }\n"
+                       "  $in=[System.IO.File]::OpenRead(%2)\n"
+                       "  try{\n"
+                       "    $out=[System.IO.File]::Create($dest)\n"
+                       "    try{\n"
+                       "      $gz=New-Object System.IO.Compression.GZipStream"
+                       "($out,[System.IO.Compression.CompressionMode]::Compress)\n"
+                       "      try{ $in.CopyTo($gz) } finally { $gz.Dispose() }\n"
+                       "    } finally { $out.Dispose() }\n"
+                       "  } finally { $in.Dispose() }\n"
+                       "} catch {\n"
+                       "  $msg=$_.Exception.GetBaseException().Message\n"
+                       "  if([string]::IsNullOrEmpty($msg)){ $msg=$_.Exception.Message }\n"
+                       "  [Console]::Error.WriteLine($msg)\n"
+                       "  exit 3\n"
+                       "}\n")
+            .arg(psQuote(QDir::toNativeSeparators(targetGz)),
+                 psQuote(QDir::toNativeSeparators(sourcePath)));
+
+    QString failure;
+    if (!runPowershell(script, 15000, nullptr, &failure, QStringLiteral("压缩 gzip"))) {
+        if (errorOut != nullptr) {
+            const QString reason = readProcessError(failure);
+            *errorOut = reason.isEmpty() ? QStringLiteral("写 gzip 失败") : reason;
+        }
+        return false;
+    }
+    return true;
+}
+
 bool ZipUtil::createZip(const QString &targetZip, const QList<ZipSource> &entries,
                         QString *errorOut) {
     if (targetZip.trimmed().isEmpty()) {

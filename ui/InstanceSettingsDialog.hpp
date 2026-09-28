@@ -56,6 +56,9 @@
 // `openConfigEditor()` 那个进参是**按值**要一份 `ConfigFileText::Loaded`（见 .cpp 里
 // 那段说明：`encode()` 要靠它还原行尾和 BOM），所以这儿不能只前置声明。
 #include "ConfigFileText.hpp"
+// `openWorldSettings()` 的进参是 `WorldSettingsPage::WorldView` —— **嵌套类型**，
+// 前置声明一个 `class WorldSettingsPage;` 是说不清它的，得把定义拿进来。
+#include "WorldSettingsPage.hpp"
 
 class ConfigFileEditorPage;
 class InstanceFilesPage;
@@ -627,6 +630,43 @@ public:
     ///       用户答"不保存"之后要先 `discardChanges()` 再走这儿。这一层不自己问 ——
     ///       它连"现在是脏的"这件事都不看，谁调谁负责。
     void closeConfigEditor();
+
+    // ---------- 「存档」那一页的第二个格子（2026-09-28）----------
+    //
+    // 和上面「配置文件」那一段**同一个做法、同一个理由**（开不出第二个整页覆盖层）：
+    //  ① 世界列表（+「导入世界」「批量编辑」+底下那行小字）  ② 世界设置（那支笔点开的）
+    //
+    // NOTE: 这是**第二份**"两格子"，不是把上面那一份抽成一个通用的容器。抽的话要动的
+    //       是 `m_configStack` / `m_configEditor` / `m_configUp` / `m_configRoot` 这一整套
+    //       （全是单份成员，且 `openConfigEditor` / `closeConfigEditor` 是公开 API，
+    //       MainWindow 和两个验证工程都接着它们），而两边**要摆的东西完全不一样**
+    //       （一个文件列表 + 上级目录，一个世界表单）—— 抽出来的那个"通用子页"只共用
+    //       "一个 QStackedWidget 两个格子"这一句，剩下的全是各自的。重复的那二十来行
+    //       比一个漏参数的抽象便宜。
+
+    /// 那一格世界设置（**一次建好、一直留着**，理由同 `configFilePage()`）。
+    WorldSettingsPage *worldSettingsPage() const { return m_worldSettings; }
+
+    /// 把世界设置切出来，并摆上这一个世界。
+    ///
+    /// @param view 摆上去的一切。**由 MainWindow 从盘上读出来、翻译过来**（这一层不碰盘，
+    ///        也够不着 `WorldFiles::WorldInfo` —— `ui/` 不许 include `src/`，见
+    ///        WorldSettingsPage 文件头）。
+    void openWorldSettings(const WorldSettingsPage::WorldView &view);
+
+    /// 把世界设置摆成"读不出来"那一档（坏档警告之后落下来的地方）。
+    void openWorldSettingsUnreadable(const QString &dirName, const QString &reason);
+
+    /// 切回世界列表那一格（并让那一页重新列一遍目录）。
+    ///
+    /// NOTE: 这一条**没有**"改了没保存"要问的那种事：世界设置那一格上改的东西全在控件里，
+    ///       关掉这一格就是把它们丢了 —— 所以"改过没有"得由 MainWindow 自己记（它手上
+    ///       有 `editedView()`，和打开时那一份比一下就知道了）。
+    void closeWorldSettings();
+
+    /// 这个世界的存档现在**读不出来的话**，那一页上那颗「保存」本来就不该露 —— 给
+    /// MainWindow 一个问的地方（它不用自己去翻那一格的状态）。
+    bool worldSettingsUnreadable() const;
 
     /// 图标预览那一格的边长（像素）。**外面要按这个边长把图解好递进来** —— 递一张 16×16 的
     /// 进来会被放大成一团糊（那几张方块是像素画，而用户挑的照片本来就有的是像素）。
@@ -1376,6 +1416,17 @@ signals:
     void closeBlockedByUnsavedConfigFile();
 
     /**
+     * @brief 用户想关掉整个「实例设置」，而**「世界设置」那一页里还有没保存的改动**
+     *        （2026-09-28）。
+     *
+     * 和 `closeBlockedByUnsavedConfigFile()` 是同一件事的第二个实例（那一条的说明逐字
+     * 适用）：那颗返回箭头走的是 `dialog->reject()`，点一下关掉的是**整个**「实例设置」，
+     * 而这一格里可能正压着改了一半的游戏规则。这一层弹不出"要丢掉吗"，所以只能先挡住、
+     * 把这一发交出去。
+     */
+    void closeBlockedByUnsavedWorldSettings();
+
+    /**
      * @brief 用户按了「文件管理」某几页顶上那颗「下载新 X」⇒ 请切到下载页对应的那一栏
      *        （2026-09-27）。
      *
@@ -1628,6 +1679,10 @@ private:
     QStackedWidget *m_configStack = nullptr;
     /// 第 1 格那个编辑器（**建一次留着**，见 configFilePage() 的 NOTE）。
     ConfigFileEditorPage *m_configEditor = nullptr;
+    /// 「存档」那一页的两格子（2026-09-28，见 openWorldSettings() 上面那一段）。
+    QStackedWidget *m_worldStack = nullptr;
+    /// 第 1 格那个世界设置（**建一次留着**，同上）。
+    WorldSettingsPage *m_worldSettings = nullptr;
     QTreeWidget *m_serverTree = nullptr;
     QLabel *m_serverNotice = nullptr;
     QPushButton *m_serverRefresh = nullptr;

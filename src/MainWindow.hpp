@@ -548,6 +548,47 @@ private slots:
     ///       到卡片外面，不该把用户刚改的东西丢掉。
     bool confirmDiscardConfigEdits();
 
+    // ---------- 「世界设置」（存档那支笔点开的那一页，2026-09-28）----------
+    //
+    // 用户原话：「世界根据其存档文件在存档设置（那支笔）里面编辑游戏规则等，打开之前弹出
+    // 坏档警告并提供备份按钮」。四步的走法和"每一步都重读一遍盘"的理由见 .cpp 里那一大段。
+
+    /// 那支笔上的「世界设置…」：读一眼盘上那份 → 弹那一句（**坏档在这里判**，顺手给
+    /// 「先备份一份」）→ 用户说"打开"才开页。
+    ///
+    /// @param worldDir **存档目录的绝对路径**（那支笔发出来的就是它）。
+    void openWorldSettings(InstanceSettingsDialog *dialog, const QString &worldDir);
+
+    /// 真的把那一页开出来（读盘 → 翻译 → 摆上去）。坏档那一档也走这儿（摆成"读不出来"）。
+    void showWorldSettingsPage(InstanceSettingsDialog *dialog, const QString &worldDir);
+
+    /// 用户点了「返回」：改过就弹一句问，答"丢掉"才切回世界列表。
+    void leaveWorldSettings(InstanceSettingsDialog *dialog);
+
+    /// 用户点了「保存」。四道闸 + 写回，顺序见 .cpp。
+    void saveWorldSettings(InstanceSettingsDialog *dialog);
+
+    /// 把 `<worldDir>/level.dat` **原样抄一份**到世代备份里（并清理超出的代数）。
+    ///
+    /// @param problemOut 没留成时的原因（给人看的一句话；成功时清空）。
+    /// @return 留成了没有。
+    ///
+    /// ★ 抄的是**盘上那一份的字节**，不是"我们解出来又压回去的那一份"：备份是原件的逐字节
+    ///   复制，"还原"才有确定的意思（也绕开了 gzip 头里那个 mtime 对不上的事）。
+    bool backupWorldLevelData(const QString &worldDir, QString *problemOut);
+
+    /// 这个世界的备份里**最近的那一份**（`level.dat` 的绝对路径）；一份都没有返回空串。
+    QString latestWorldBackup(const QString &worldDir) const;
+
+    /// 弹那句「改过还没保存，要丢掉吗」（**世界设置那一页的版本**）。
+    ///
+    /// @return true = 用户选了"丢掉"。
+    ///
+    /// NOTE: 和 `confirmDiscardConfigEdits()` 长得一样但是**两份**，不合并：两句话说的是
+    ///       两样东西（那个是"文件"，这个是"世界"），而且默认那颗都是"别丢"——合并省下的
+    ///       那两行字，代价是以后改一处话术要想起另一处。
+    bool confirmDiscardWorldEdits();
+
     /// 这个实例的 mods/ 里有没有"名字里带 @p nameToken 这个词"的 **.jar**（忽略大小写）。
     ///
     /// NOTE: 判据是**文件名里的词**，不是"这个模组是谁"—— 我们没有模组元数据（那要读
@@ -836,6 +877,28 @@ protected:
 
 private:
     void setupConnections();
+
+    // ---------- 「世界设置」那两格状态（2026-09-28）----------
+    //
+    // ★ 这两条**必须落在 `private:` 里**，跟上面那一堆"世界设置"的函数（它们在
+    //   `private slots:` 那一段，因为 MainWindow 的槽都挤在那儿）分开：moc 只认小节里的
+    //   **函数声明**，一条数据成员摆在 `slots:` 底下会当场报
+    //   `Not a signal or slot declaration`（编译都过不去）。
+    /// 世界设置那一格现在看的是哪一个存档目录（**空串 = 没开着**）。
+    ///
+    /// NOTE: 存这一份而不是每次去问对话框：那一页上"保存"那一发信号**不带任何值**
+    ///       （见 WorldSettingsPage::saveRequested()），写哪个世界只有这里知道。
+    QString m_worldDir;
+    /// 打开世界设置那一刻盘上 `level.dat` 的大小 / 修改时间 ——"这中间别人动过没有"
+    /// 那道闸比的就是这两样（和 `ConfigFileText::Stamp` 是同一件事，只是拆开存）。
+    ///
+    /// NOTE: 这里为什么**不直接存一个 `ConfigFileText::Stamp`**：那个类型在 `ui/` 底下，
+    ///       而这个头文件一条 `ui/` 的 include 都没有（整个 `src/` 只在 .cpp 里往 `ui/`
+    ///       看，见 CMakeLists 里那两行 include 目录）。为了一个"记着大小和时间"的小结构
+    ///       破这个例不值得 —— `mtimeMs == 0` 就是 Stamp 那边 `valid() == false` 的意思
+    ///       （文件在打开的那一刻就不在）。
+    qint64 m_worldStampSize = 0;
+    qint64 m_worldStampMtimeMs = 0;
 
     // ---------- 下载页后面那几页：搜索 + 三层资源表 ----------
     //

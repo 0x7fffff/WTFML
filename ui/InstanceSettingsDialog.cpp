@@ -57,6 +57,9 @@
 #include "MainWindowUI.hpp"
 #include "MemorySlider.hpp"
 #include "VersionIcons.hpp"
+// 第 1 格那个世界设置（2026-09-28）。头文件那边已经 include 了它（进参是个嵌套类型），
+// 这一句是给"这一份 .cpp 自己用得上它的完整定义"留的。
+#include "WorldSettingsPage.hpp"
 #include "VersionTreeDelegate.hpp"
 
 namespace {
@@ -1228,15 +1231,20 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             const bool isSave = key == QStringLiteral("save");
             QWidget *listHost = page;
             QVBoxLayout *target = layout;
-            if (isConfig) {
-                m_configStack = new QStackedWidget(page);
-                listHost = new QWidget(m_configStack);
+            if (isConfig || isSave) {
+                auto *stack = new QStackedWidget(page);
+                if (isConfig) {
+                    m_configStack = stack;
+                } else {
+                    m_worldStack = stack;
+                }
+                listHost = new QWidget(stack);
                 auto *listLayout = new QVBoxLayout(listHost);
                 // 第 0 格自己不留白：它四周的留白本来就是外面那一页给的，这一格和那一页
                 // 是同一块地方（切过来切过去不该看见内容整体缩一下）。
                 listLayout->setContentsMargins(0, 0, 0, 0);
                 listLayout->setSpacing(layout->spacing());
-                m_configStack->addWidget(listHost);
+                stack->addWidget(listHost);
                 target = listLayout;
             }
 
@@ -1340,6 +1348,13 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                 m_configEditor = new ConfigFileEditorPage(m_configStack);
                 m_configStack->addWidget(m_configEditor);
                 layout->addWidget(m_configStack, 1);
+            }
+            // 存档那一页的第 1 格：世界设置（2026-09-28），做法和理由同上（见 .hpp 里
+            // openWorldSettings() 上面那一段）。
+            if (isSave) {
+                m_worldSettings = new WorldSettingsPage(m_worldStack);
+                m_worldStack->addWidget(m_worldSettings);
+                layout->addWidget(m_worldStack, 1);
             }
         }
 
@@ -1575,6 +1590,17 @@ void InstanceSettingsDialog::reject() {
     //   `done(QDialog::Rejected)` 关 —— 绕开这儿，不然又回到"问一句、再问一句"。
     if (m_configEditor != nullptr && m_configEditor->isDirty()) {
         emit closeBlockedByUnsavedConfigFile();
+        return;
+    }
+    // ★ 2026-09-28 起有了第二个例外：「世界设置」那一页。那一条的判据在页自己身上
+    //   （`WorldSettingsPage::isDirty()`）—— 这一层不去读盘，"改过没有"拿着页自己的
+    //   台账对一下就有答案（见那个函数的 NOTE）。
+    //
+    // NOTE: 两条**分开问、不合并**：两格里同时压着东西的情况不存在（这两格各占一个
+    //       QStackedWidget，同一时刻只可能露出其中一格），而合并成一句只会让"丢掉的是
+    //       哪一份"变得说不清。
+    if (m_worldSettings != nullptr && m_worldSettings->isDirty()) {
+        emit closeBlockedByUnsavedWorldSettings();
         return;
     }
     QDialog::reject();
@@ -2122,6 +2148,40 @@ void InstanceSettingsDialog::setConfigBackupAvailable(bool available) {
     //       所以这一句必须**排在 openConfigEditor() 之后**。反过来的话，用户看到的是一颗
     //       永远画不出来的「还原上一次」。
     m_configEditor->setBackupAvailable(available);
+}
+
+void InstanceSettingsDialog::openWorldSettings(const WorldSettingsPage::WorldView &view) {
+    if (m_worldStack == nullptr || m_worldSettings == nullptr) {
+        return;
+    }
+    m_worldSettings->setWorld(view);
+    m_worldStack->setCurrentWidget(m_worldSettings);
+}
+
+void InstanceSettingsDialog::openWorldSettingsUnreadable(const QString &dirName,
+                                                         const QString &reason) {
+    if (m_worldStack == nullptr || m_worldSettings == nullptr) {
+        return;
+    }
+    m_worldSettings->setUnreadable(dirName, reason);
+    m_worldStack->setCurrentWidget(m_worldSettings);
+}
+
+void InstanceSettingsDialog::closeWorldSettings() {
+    if (m_worldStack == nullptr) {
+        return;
+    }
+    // 回第 0 格，并让那一页重新列一遍目录 —— 和 closeConfigEditor() 同一条规矩，但
+    // **键不一样**（那一个是 `config`，照抄会列错一页、而且屏幕上看不出来：
+    // `m_filesPages.value()` 给的是那一页的指针，刷新它一样会"动一下屏幕"）。
+    if (InstanceFilesPage *files = m_filesPages.value(QStringLiteral("save"))) {
+        files->refresh();
+    }
+    m_worldStack->setCurrentIndex(0);
+}
+
+bool InstanceSettingsDialog::worldSettingsUnreadable() const {
+    return m_worldSettings == nullptr || m_worldSettings->isUnreadable();
 }
 
 void InstanceSettingsDialog::closeConfigEditor() {

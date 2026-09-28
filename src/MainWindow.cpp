@@ -23,6 +23,10 @@
 #include "..\ui\ResourceDetailPage.hpp"
 #include "..\ui\GameLogWindow.hpp"
 #include "..\ui\MainWindowUI.hpp"
+// 那一页本身（存档那支笔点开的「世界设置」）。**它摆什么、怎么摆只有它自己知道**，
+// 这一边只负责把盘上读出来的东西翻译成 `WorldSettingsPage::WorldView`（见
+// worldViewOf() 那段），以及把页面上改过的翻译回去。
+#include "..\ui\WorldSettingsPage.hpp"
 // 内容区上面那一层（2026-09-25）：设置界面和各种提示都开在它里面，不再另开独立窗口。
 // 见它的文件头 —— ui/ 那边只管"开在哪儿、长什么样"，不认识业务。
 #include "..\ui\OverlayHost.hpp"
@@ -169,6 +173,110 @@ QString humanMemorySize(qint64 mb) {
  */
 QString selectedVersionId(const QComboBox *combo) {
     return combo->currentIndex() < 0 ? QString() : combo->currentData().toString();
+}
+
+// ---------------------------------------------------------------------------
+// 「世界设置」那一页的两趟翻译（2026-09-28）
+//
+// 【为什么这个翻译非有不可】
+//
+// `ui/` **不许 include `src/`**（这是这个仓库唯一一条不许越的界线，见 InstanceFilesPage
+// 文件头）。所以那一页摆的东西全在它自己那两个只用 Qt 类型的结构里（`WorldView` /
+// `Rule`），够不着 `WorldFiles::WorldInfo` 也够不着 `NbtTree::GameRule`。这两趟翻译就是
+// 那条界线上的两个口岸。
+//
+// 【为什么是"两个方向各写一遍"而不是一个可逆的视图】
+//
+// 因为两边**本来就不一样**：去的那一趟要按 `hasXxx` 决定界面上那一格是不是灰的，回的那
+// 一趟要按"页面上摆过没有"决定哪些值作数。硬做成一个双向结构就得把两种"没有"混成一种。
+// 抄错一处的症状是"改了一项、存下去发现没变"——验证工程量的是**页面上那个控件里的值**，
+// 会当场红（见 mw_check 里那一节）。
+// ---------------------------------------------------------------------------
+
+/// 盘上那一份 `level.dat` → 页面上摆的那一份。
+WorldSettingsPage::WorldView worldViewOf(const QString &worldDir,
+                                         const WorldFiles::LevelData &data) {
+    WorldSettingsPage::WorldView view;
+    view.dirName = QFileInfo(worldDir).fileName();
+    view.gzipped = data.info.gzipped;
+
+    view.hasLevelName = data.info.hasLevelName;
+    view.levelName = data.info.levelName;
+    view.hasVersionName = data.info.hasVersionName;
+    view.versionName = data.info.versionName;
+    view.hasFormat = data.info.hasDataVersion;
+    view.formatText = data.info.hasDataVersion ? QString::number(data.info.dataVersion)
+                                               : QString();
+    view.hasLastPlayed = data.info.hasLastPlayed;
+    view.lastPlayedMs = data.info.lastPlayedMs;
+
+    view.hasAllowCommands = data.info.hasAllowCommands;
+    view.allowCommands = data.info.allowCommands;
+    view.hasHardcore = data.info.hasHardcore;
+    view.hardcore = data.info.hardcore;
+    view.hasDifficulty = data.info.hasDifficulty;
+    view.difficulty = data.info.difficulty;
+
+    view.hasRules = data.info.hasRules;
+    for (const NbtTree::GameRule &rule : data.info.rules) {
+        WorldSettingsPage::Rule row;
+        row.name = rule.name;
+        row.value = rule.value;
+        // 三档一一对应（`ValueKind` 和 `Kind` 的成员顺序也一样，但**故意用 switch 写死**
+        // 而不是 `static_cast`：两个枚举以后各自加一档的时候，直接转换会静默地对错位）。
+        switch (NbtTree::ruleKind(rule.value)) {
+        case NbtTree::ValueKind::Bool:
+            row.kind = WorldSettingsPage::Kind::Bool;
+            break;
+        case NbtTree::ValueKind::Int:
+            row.kind = WorldSettingsPage::Kind::Int;
+            break;
+        case NbtTree::ValueKind::Text:
+            row.kind = WorldSettingsPage::Kind::Text;
+            break;
+        }
+        view.rules.append(row);
+    }
+    return view;
+}
+
+/// 页面上改过的那一份 → 盘上那一份（**以读出来的那一份为底**，只覆盖"盘上本来就有"的项）。
+///
+/// ★ 底子用的是 @p base（刚重新读盘那一份），不是"打开这一页时那一份"：中间别人动过的
+///   那几项因此**原样留着**，我们只动用户在页面上真改过的那几格。这和"配置文件"那条路
+///   的做法一致（写之前重读一遍，改的是现在盘上这一份）。
+void applyWorldViewTo(WorldFiles::LevelData *data, const WorldSettingsPage::WorldView &view) {
+    WorldFiles::WorldInfo &info = data->info;
+    // `hasXxx` 在这一趟里说的还是"盘上有没有这一项"——**页面摆不了它、用户也就改不了它**，
+    // 所以灰着的那几格原样带过去。（`base.info` 里的 `hasXxx` 就是刚读出来的那一份。）
+    if (info.hasLevelName) {
+        info.levelName = view.levelName;
+    }
+    if (info.hasAllowCommands) {
+        info.allowCommands = view.allowCommands;
+    }
+    if (info.hasHardcore) {
+        info.hardcore = view.hardcore;
+    }
+    if (info.hasDifficulty) {
+        info.difficulty = view.difficulty;
+    }
+    // 规则：**页面上摆出来过的那一条才更新**（用户可以搜了三个字、只改一条就存）。
+    //
+    // NOTE: 判据是"名字在页面上那份里找得到"，找不到的（被筛掉的、以及盘上刚多出来的）
+    //       原样不动。用名字而不是下标：`editedView()` 交回来那一份和 `info.rules` 的
+    //       顺序是同一个（都是从盘上那一趟来的），但**靠下标就把这件事变成了一条不成文的
+    //       约定**，而名字本来就是这张表的主键。
+    QHash<QString, QString> edited;
+    for (const WorldSettingsPage::Rule &rule : view.rules) {
+        edited.insert(rule.name, rule.value);
+    }
+    for (NbtTree::GameRule &rule : info.rules) {
+        const auto it = edited.constFind(rule.name);
+        if (it != edited.constEnd()) {
+            rule.value = it.value();
+        }
+    }
 }
 
 /**
@@ -8951,12 +9059,21 @@ void MainWindow::openInstanceSettings(const QString &versionId, const QString &p
                     // 而 `path` 传进来之后**只有这一份**是稳的。菜单上显示的名字 = 用户点
                     // 下去那一刻这一行上的名字，不能等到用的时候再去问（那时候可能已经变了）。
                     const QString worldName = QFileInfo(path).fileName();
+                    // ★ 2026-09-28：「世界设置…」排**第一颗**。那支笔叫「编辑」，而现在
+                    //   "编辑这个世界"最实的一件就是改它的游戏规则 —— 改名和开文件夹都是
+                    //   旁边那些事的附属（改名只动目录名，游戏列表里看得见的也就是它）。
                     const int choice = InlineMessage::ask(
                         m_ui->overlay(), MessageKind::Question, tr("编辑世界"),
                         tr("要对「%1」做什么？").arg(worldName),
-                        {tr("重命名…"), tr("打开文件夹"), tr("取消")}, /*defaultIndex=*/0,
-                        /*destructiveIndex=*/-1, /*dismissOnOutsideClick=*/true);
+                        {tr("世界设置…"), tr("重命名…"), tr("打开文件夹"), tr("取消")},
+                        /*defaultIndex=*/0, /*destructiveIndex=*/-1,
+                        /*dismissOnOutsideClick=*/true);
                     if (choice == 0) {
+                        // 这一条自己会弹那一句（坏档警告 + 备份），所以**不在这里再问一遍**。
+                        openWorldSettings(&dialog, path);
+                        return;
+                    }
+                    if (choice == 1) {
                         bool ok = false;
                         const QString wanted = InlineMessage::getText(
                             m_ui->overlay(), tr("重命名世界"), tr("这个存档以后叫什么？"),
@@ -8973,7 +9090,7 @@ void MainWindow::openInstanceSettings(const QString &versionId, const QString &p
                         }
                         return;
                     }
-                    if (choice == 1) {
+                    if (choice == 2) {
                         // 这个目录一定存在（这一行就是刚扫出来的），所以**不 mkpath**
                         // —— 和上面九颗快捷方式按钮那一条故意不同（那几颗是给"我要往里
                         // 放东西"用的，空目录也得开得出来）。
@@ -9020,6 +9137,44 @@ void MainWindow::openInstanceSettings(const QString &versionId, const QString &p
                     InlineMessage::information(m_ui->overlay(), tr("批量编辑"),
                                                tr("批量编辑还没做，这一颗先摆在这儿占位。"));
                 });
+    }
+
+    // ---------- 「世界设置」那一页（2026-09-28）----------
+    //
+    // ★ 和「配置文件」那一页一样：这一页是**构造时就建好、一直留着**的，所以这四条
+    //   connect 只连这一次（不是"每开一个世界连一遍"）。
+    // NOTE: 依然接在 `execPage()` **之前** —— 那一下会阻塞在嵌套事件循环里，页面上那颗
+    //       按钮按下去的时候这一句还没返回，接晚了就一辈子收不到（和上面那一整批逐字相同）。
+    if (WorldSettingsPage *world = dialog.worldSettingsPage()) {
+        connect(world, &WorldSettingsPage::saveRequested, this,
+                [this, &dialog]() { saveWorldSettings(&dialog); });
+        // 「备份一份」：这一颗**不动页面上任何东西**（用户可能只是想先抄一份再接着改），
+        // 所以只做、只报，不切页、不刷新。
+        connect(world, &WorldSettingsPage::backupRequested, this,
+                [this]() {
+                    QString why;
+                    if (backupWorldLevelData(m_worldDir, &why)) {
+                        InlineMessage::information(
+                            m_ui->overlay(), tr("备份一份"),
+                            tr("这个世界的 level.dat 已经原样抄了一份到启动器的缓存里。\n"
+                               "要还原的话，把那一份拷回存档目录、改名叫 level.dat 就行。\n\n"
+                               "放这儿了：%1")
+                                .arg(QDir::toNativeSeparators(latestWorldBackup(m_worldDir))));
+                    } else {
+                        InlineMessage::warning(m_ui->overlay(), tr("备份一份"),
+                                               tr("没能留成备份：%1").arg(why));
+                    }
+                });
+        // 存档目录一定存在（这一格能开着就是刚从这个目录底下读出来的），所以**不 mkpath**
+        // —— 和上面那九颗快捷方式按钮那一条故意不同。
+        connect(world, &WorldSettingsPage::openFolderRequested, this,
+                [this]() {
+                    if (!m_worldDir.isEmpty()) {
+                        onFolderOpenRequested(m_worldDir);
+                    }
+                });
+        connect(world, &WorldSettingsPage::backRequested, this,
+                [this, &dialog]() { leaveWorldSettings(&dialog); });
     }
 
     // ---------- 「配置文件」那一页（2026-09-27）----------
@@ -9069,6 +9224,21 @@ void MainWindow::openInstanceSettings(const QString &versionId, const QString &p
                     return;  // 留在这儿：页照旧开着，编辑器那一格原样。
                 }
                 editor->discardChanges();
+                dialog.done(QDialog::Rejected);
+            });
+    // 「世界设置」那一页上的同一件事（上面那条的第二个实例，逐字适用）。
+    //
+    // NOTE: 这一条**不用**先把那一页倒回去（上面那条要 `discardChanges()`）：整页马上就关
+    //       了，下一次从那支笔进来又是从头 setWorld() 灌一遍（见 showWorldSettingsPage()），
+    //       留着一个"倒回原样"的动作只是给下一次开页添乱。
+    connect(&dialog, &InstanceSettingsDialog::closeBlockedByUnsavedWorldSettings, this,
+            [this, &dialog]() {
+                if (!confirmDiscardWorldEdits()) {
+                    return;  // 留在这儿：页照旧开着，那一格原样。
+                }
+                m_worldDir.clear();
+                m_worldStampSize = 0;
+                m_worldStampMtimeMs = 0;
                 dialog.done(QDialog::Rejected);
             });
     // 服务器列表那一页的「刷新」：重读一遍 servers.dat 再递进去，**顺手测一遍**
@@ -9950,6 +10120,348 @@ void MainWindow::restoreConfigFile(InstanceSettingsDialog *dialog, const QString
     editor->restoreContent(loaded.text, when);
 }
 
+// ---------- 世界设置（2026-09-28）----------
+//
+// 【那支笔上的「世界设置…」这一条路走下来是四步】
+//
+//   ① `openWorldSettings()`   读一眼盘上那份 → 弹那一句（**坏档就在这里判**，顺手给
+//                             「先备份一份」）→ 用户说"打开"才进 ②
+//   ② `showWorldSettingsPage()` 重量一次、重读一遍（现在盘上那一份）、翻译、开页
+//   ③ 用户在页面上改（这一层什么都不做 —— 改的全在控件里）
+//   ④ `saveWorldSettings()`    重读 → 两道闸 → 留备份 → 只把改过的那几项盖上去 → 原子写回
+//
+// 【为什么每一步都重读一遍盘】
+//
+// 因为"打开这一页"和"按下保存"之间用户可能去开了游戏、或者让别的工具动过这个存档。手上
+// 一直攥着"打开那一刻那一棵树"再整棵写回去，等于把那中间所有的改动全抹掉 —— 而这个操作
+// 用户是**看不见**的（页面上只显示他自己改的那几格）。每次重读的代价是解一份几十 KB 的
+// gzip（PowerShell 那一下大概一秒），换的是"我们只动用户点名的那几格"。
+
+bool MainWindow::backupWorldLevelData(const QString &worldDir, QString *problemOut) {
+    if (problemOut != nullptr) {
+        problemOut->clear();
+    }
+    const QString path = WorldFiles::levelDataPath(worldDir);
+    const auto fail = [problemOut](const QString &why) {
+        if (problemOut != nullptr) {
+            *problemOut = why;
+        }
+        return false;
+    };
+    if (!QFileInfo::exists(path)) {
+        return fail(tr("这个存档里没有 level.dat。"));
+    }
+
+    // 目录形状和配置备份一样：`<备份根>/<存档目录名>/<时间戳>/level.dat`
+    // （`ConfigFileText::backupPathFor()` 拼出来的就是它）。
+    const QString worldName = QFileInfo(worldDir).fileName();
+    const QString root = AppPaths::worldBackupDir();
+    const QStringList existing =
+        QDir(root + QLatin1Char('/') + worldName).entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+    const QString folder = ConfigFileText::backupFolderName(QDateTime::currentDateTime(), existing);
+    const QString target = ConfigFileText::backupPathFor(root, worldName, worldDir, path, folder);
+    if (!QDir().mkpath(QFileInfo(target).absolutePath())) {
+        return fail(tr("建不出备份目录：%1").arg(QDir::toNativeSeparators(target)));
+    }
+
+    // ★ 抄的是**盘上那一份的字节**（不是"我们解出来又压回去的那一份"）：这样备份是原件
+    //   的逐字节复制，"还原"才有确定的意思。顺手也绕开了"压回去的字节和原来不完全一样"
+    //   这件事（gzip 头里有个 mtime，压两次未必一致）。
+    if (!QFile::copy(path, target)) {
+        return fail(tr("没能把 level.dat 抄到 %1（磁盘满了？还是那个文件打不开？）")
+                        .arg(QDir::toNativeSeparators(target)));
+    }
+
+    // 清理只删我们自己生成的文件夹名（见 ConfigFileText::backupFoldersToRemove()），
+    // 而且是**按存档**算代数：一个世界的备份留 20 份，不吃别人的。
+    const QString dir = root + QLatin1Char('/') + worldName;
+    const QStringList names = QDir(dir).entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+    const QStringList doomed = ConfigFileText::backupFoldersToRemove(names, kConfigBackupGenerations);
+    for (const QString &name : doomed) {
+        QDir(dir + QLatin1Char('/') + name).removeRecursively();
+    }
+    return true;
+}
+
+QString MainWindow::latestWorldBackup(const QString &worldDir) const {
+    const QString worldName = QFileInfo(worldDir).fileName();
+    const QString dir = AppPaths::worldBackupDir() + QLatin1Char('/') + worldName;
+    const QStringList names = QDir(dir).entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+    // 名字倒序 == 时间倒序（定长的数字段，见 ConfigFileText::backupFolderName() 那段 NOTE）：
+    // 命中的第一个就是最近那一份。
+    QStringList mine;
+    for (const QString &name : names) {
+        if (ConfigFileText::isBackupFolderName(name)) {
+            mine.append(name);
+        }
+    }
+    std::sort(mine.begin(), mine.end(), std::greater<QString>());
+    for (const QString &name : mine) {
+        const QString candidate = dir + QLatin1Char('/') + name + QStringLiteral("/level.dat");
+        if (QFileInfo::exists(candidate)) {
+            return candidate;
+        }
+    }
+    return QString();
+}
+
+void MainWindow::openWorldSettings(InstanceSettingsDialog *dialog, const QString &worldDir) {
+    if (dialog == nullptr) {
+        return;
+    }
+    const QString worldName = QFileInfo(worldDir).fileName();
+
+    // ★ ① 这一步就是「坏档警告」的判据**本身**：读得出来就是好的、读不出来就是坏的。
+    //   判据不另立一份（"看 level.dat 在不在""看大小对不对"那种）—— 用户最怕的那件事
+    //   正是"文件看着在、游戏打不开"，而那件事只有真解一遍才知道。
+    WorldFiles::LevelData probe;
+    QString why;
+    const bool healthy = WorldFiles::readLevelData(worldDir, &probe, &why);
+
+    // 那两句正文：好的那一档说清"要做什么"，坏的那一档把**原因**摆出来（用户拿去搜、
+    // 拿去问人都要它）。两档都给「先备份一份」—— 坏档那一份**尤其**该留（它可能是最后
+    // 一份能救回来的样子）。
+    const QString body =
+        healthy ? tr("要对「%1」做的是：改它的游戏规则、看它的存档信息。\n\n"
+                     "写下去之前会自动留一份原来的 level.dat。")
+                      .arg(worldName)
+                : tr("「%1」的存档文件读不出来：\n\n%2\n\n"
+                     "现在打开只能看和备份 —— 我们不往一个读不出来的存档上写东西。")
+                      .arg(worldName, why);
+    const int choice = InlineMessage::ask(
+        m_ui->overlay(), healthy ? MessageKind::Question : MessageKind::Warning,
+        healthy ? tr("世界设置") : tr("这个世界可能坏了"), body,
+        {healthy ? tr("打开") : tr("打开（只读）"), tr("先备份一份"), tr("取消")},
+        /*defaultIndex=*/0, /*destructiveIndex=*/-1, /*dismissOnOutsideClick=*/false,
+        // 小字：把"备份到底备了什么"说清楚 —— 用户按下去之前该知道它有多大。
+        tr("「先备份一份」= 把这个世界的 level.dat 原样抄一份到启动器的缓存里，"
+           "不动存档本身。"));
+    if (choice == 1) {
+        QString problem;
+        if (backupWorldLevelData(worldDir, &problem)) {
+            InlineMessage::information(
+                m_ui->overlay(), tr("备份好了"),
+                tr("「%1」的 level.dat 已经留了一份：\n%2")
+                    .arg(worldName,
+                         QDir::toNativeSeparators(latestWorldBackup(worldDir))));
+        } else {
+            InlineMessage::warning(m_ui->overlay(), tr("没能备份"), problem);
+        }
+        return;  // 只备份，不开页 —— 用户点的就是"先备份"
+    }
+    if (choice != 0) {
+        return;  // 「取消」和"点外面关掉"（-1）都什么都不做
+    }
+    showWorldSettingsPage(dialog, worldDir);
+}
+
+void MainWindow::showWorldSettingsPage(InstanceSettingsDialog *dialog, const QString &worldDir) {
+    if (dialog == nullptr) {
+        return;
+    }
+    WorldSettingsPage *page = dialog->worldSettingsPage();
+    if (page == nullptr) {
+        return;
+    }
+    const QString worldName = QFileInfo(worldDir).fileName();
+
+    // ★ 量在**读之前**（理由和 openConfigFile() 里那段逐字相同：反过来的话，正好卡在
+    //   "读完"和"量"之间的那一次改动会被判成"没动过"，于是保存时被静静盖掉）。
+    const QFileInfo before(WorldFiles::levelDataPath(worldDir));
+    ConfigFileText::Stamp stamp;
+    if (before.exists()) {
+        stamp.size = before.size();
+        stamp.mtimeMs = before.lastModified().toMSecsSinceEpoch();
+    }
+
+    WorldFiles::LevelData data;
+    QString why;
+    if (!WorldFiles::readLevelData(worldDir, &data, &why)) {
+        // 上面那一问里读的是好的、走到这儿又坏了（中间被删了 / 被写坏了）。**照坏的那一档
+        // 开**，而不是回头再弹一次 —— 用户已经做过一次决定了，再弹一次只是同样的两句话
+        // 说两遍（而且他多半会觉得"我刚刚不是点过了吗"）。
+        m_worldDir = worldDir;
+        m_worldStampSize = 0;
+        m_worldStampMtimeMs = 0;
+        dialog->openWorldSettingsUnreadable(worldName, why);
+        page->setBackupAvailable(!latestWorldBackup(worldDir).isEmpty());
+        return;
+    }
+
+    m_worldDir = worldDir;
+    m_worldStampSize = stamp.size;
+    m_worldStampMtimeMs = stamp.mtimeMs;
+    dialog->openWorldSettings(worldViewOf(worldDir, data));
+    // ★ `setBackupAvailable()` **必须在 openWorldSettings() 之后**：`setWorld()` 会把
+    //   "留过备份没有"这一位清掉（上一条世界的答案对这一个世界不作数）。
+    page->setBackupAvailable(!latestWorldBackup(worldDir).isEmpty());
+}
+
+void MainWindow::leaveWorldSettings(InstanceSettingsDialog *dialog) {
+    if (dialog == nullptr) {
+        return;
+    }
+    WorldSettingsPage *page = dialog->worldSettingsPage();
+    if (page == nullptr || dialog->worldSettingsUnreadable()) {
+        dialog->closeWorldSettings();
+        return;
+    }
+
+    // ★ 改过的东西不许悄悄没掉 —— 这一页和"配置文件"那一页是同一条规矩。
+    //
+    // ★★ 2026-09-28：判据是**页自己那本台账**（`WorldSettingsPage::isDirty()`），
+    //    不是"拿页面上的值跟盘上那一份比一遍"。
+    //
+    //    上一版这里写的是后一种，而且注释里宣称"为了不为此多解一次 gzip"—— 那句话是假的：
+    //    代码自己就在上面解了一遍（`readLevelData()`，一次 PowerShell、小一秒），而且这么
+    //    比出来的东西**不是**"改过没有"：盘上那一份只要被别的什么东西动过（游戏在跑、
+    //    用户自己删了又拉回来、别的工具碰过），页面上一格没改也会被判成"改过的东西还没存"
+    //    —— 用户对着一个自己一个字都没动过的页面被问"要丢掉吗"。
+    //
+    //    台账那一位是现成的，而且**覆盖层页眉那颗返回箭头走的就是它**（见
+    //    `InstanceSettingsDialog::reject()`）：两条出口用两个判据的话，同一个页面按不同的
+    //    返回键会得到两个不同的答案 —— 那正是"有时候问、有时候不问"这种没人查得出来的毛病。
+    const bool dirty = page->isDirty();
+
+    if (dirty) {
+        const int picked = InlineMessage::ask(
+            m_ui->overlay(), MessageKind::Question, tr("改过的东西还没存"),
+            tr("「%1」上改的那几格还没写下去。现在就返回的话，改的那些就没了。")
+                .arg(QFileInfo(m_worldDir).fileName()),
+            {tr("返回并丢掉"), tr("留下来继续改")}, /*defaultIndex=*/1, /*destructiveIndex=*/0,
+            false);
+        if (picked != 0) {
+            return;  // 关掉 / Esc / 「留下来继续改」：都当"不走"
+        }
+    }
+    dialog->closeWorldSettings();
+    // 记着"现在看的是哪个世界"的这一位**跟着一起清掉**（.hpp 里写着"空串 = 没开着"，
+    // 不清的话那一句就是假的）。
+    m_worldDir.clear();
+    m_worldStampSize = 0;
+    m_worldStampMtimeMs = 0;
+}
+
+void MainWindow::saveWorldSettings(InstanceSettingsDialog *dialog) {
+    if (dialog == nullptr) {
+        return;
+    }
+    WorldSettingsPage *page = dialog->worldSettingsPage();
+    if (page == nullptr || m_worldDir.isEmpty()) {
+        return;
+    }
+    const QString worldDir = m_worldDir;
+    const QString worldName = QFileInfo(worldDir).fileName();
+    const WorldSettingsPage::WorldView shown = page->editedView();
+
+    // ---------- 闸 ①：这个实例正开着游戏 ⇒ 不写 ----------
+    //
+    // ★ 判据和"改配置文件"那一趟**用的是同一个**（`instanceIdOfPath()` +
+    //   `runningVersionIds()`）：游戏手里那份存档也是它自己读进去的，退出时整份写回来。
+    //   比这一条更"精确"的做法是去问 `saves/<世界>/session.lock` —— **试过，判不出来**：
+    //   游戏（Java）是用 `FileChannel.tryLock()` 锁它的，在 Windows 上那是 `LockFileEx`
+    //   的**按字节范围锁**，它**不挡**别人 `CreateFile` 打开这个文件。于是"打得开 ⇒
+    //   没人占着"这条推理是错的（实测：游戏开着的时候那个文件照样打得开、写得进）。
+    //   真要判得自己调 `LockFileEx`，而它只覆盖"**这个**世界正开着"这一档 —— 而我们
+    //   自己启动的那一份，`runningVersionIds()` 本来就说得比它准（它连"哪个实例"都知道）。
+    const QString runningId = instanceIdOfPath(worldDir);
+    if (!runningId.isEmpty() && runningVersionIds().contains(runningId)) {
+        InlineMessage::warning(
+            m_ui->overlay(), tr("这个实例正开着游戏"),
+            tr("「%1」所在的实例还开着游戏。\n\n游戏里那份存档是它自己读进去的，它退出"
+               "（或者你在游戏里存一次档）的时候会整份写回来，现在写下去的东西会被它盖掉。"
+               "\n\n先把游戏关掉，再回来改。")
+                .arg(worldName));
+        return;
+    }
+
+    // ---------- 闸 ②：盘上那份在你打开之后被改过吗 ----------
+    const QFileInfo onDisk(WorldFiles::levelDataPath(worldDir));
+    if (!onDisk.exists()) {
+        // 走到这儿说明"刚刚还有、现在没了"（用户自己删了 / 挪走了）。**不许什么都不说**。
+        InlineMessage::warning(m_ui->overlay(), tr("这个存档不见了"),
+                               tr("%1\n\n之前还在，现在盘上没有它了 —— 什么都没写。")
+                                   .arg(QDir::toNativeSeparators(worldDir)));
+        return;
+    }
+    const qint64 nowSize = onDisk.size();
+    const qint64 nowMtimeMs = onDisk.lastModified().toMSecsSinceEpoch();
+    // `m_worldStampMtimeMs == 0` 就是"打开那一刻压根没量到"（文件不在），比不了 —— 和
+    // `ConfigFileText::Stamp::valid()` 是同一条判据（见 .hpp 里那两位的说明）。
+    if (m_worldStampMtimeMs != 0 && (nowSize != m_worldStampSize || nowMtimeMs != m_worldStampMtimeMs)) {
+        // ★ 三颗出口、默认那颗是"什么都不做"（会毁掉别人改动的事，误按回车不该办了它）。
+        const int picked = InlineMessage::ask(
+            m_ui->overlay(), MessageKind::Question, tr("盘上那份被人改过了"),
+            tr("「%1」的 level.dat 在你打开这一页之后被改过（游戏在跑？别的工具？）。"
+               "\n\n现在存下去，改它的那一次就没有了。\n\n"
+               "（不管是哪一档，我们**只改你在页面上动过的那几格**，别的原样留着。）")
+                .arg(worldName),
+            {tr("照样存下去"), tr("读盘上那一份")}, /*defaultIndex=*/-1, /*destructiveIndex=*/0,
+            false);
+        if (picked == 1) {
+            // 用户要的是盘上那一份：重读重摆（**不写盘**）。
+            showWorldSettingsPage(dialog, worldDir);
+            return;
+        }
+        if (picked != 0) {
+            return;  // 关掉 / Esc：盘上、页面上都原样
+        }
+    }
+
+    // ---------- 闸 ③：以**现在盘上那一份**为底，只盖上改过的几格 ----------
+    WorldFiles::LevelData data;
+    QString why;
+    if (!WorldFiles::readLevelData(worldDir, &data, &why)) {
+        InlineMessage::warning(
+            m_ui->overlay(), tr("读不出这个存档了"),
+            tr("「%1」的存档内容读不出来：\n\n%2\n\n所以这一次没有存 —— 我们不会在一份"
+               "读不出来的存档上写东西。")
+                .arg(worldName, why));
+        return;
+    }
+    applyWorldViewTo(&data, shown);
+    if (!WorldFiles::applyWorldInfo(&data.document, data.info, &why)) {
+        // ★ **没写盘**（`applyWorldInfo()` 改的是内存里那棵树）。理由和"配置文件"那条路
+        //   一致：把用户改的一项写成"看着成了、其实没写"最坏。
+        InlineMessage::warning(
+            m_ui->overlay(), tr("这一项改不了"),
+            tr("「%1」\n\n%2\n\n所以这一次没有存，盘上那份原样没动。").arg(worldName, why));
+        return;
+    }
+
+    // ---------- 闸 ④：写之前把盘上那一份原样留一份 ----------
+    //
+    // ★ 留不下就不写（不是"警告一句然后照写"）：这一整套的前提是"改坏了能回去"，而世界
+    //   设置这一页没有撤销（底下那行字是页面上写着的）。
+    QString backupProblem;
+    if (!backupWorldLevelData(worldDir, &backupProblem)) {
+        InlineMessage::warning(
+            m_ui->overlay(), tr("保存之前没能留下原来那一份"),
+            tr("「%1」\n\n%2\n\n所以这一次没有存。").arg(worldName, backupProblem));
+        return;
+    }
+
+    // ---------- 写 ----------
+    if (!WorldFiles::writeLevelData(worldDir, data, &why)) {
+        InlineMessage::warning(m_ui->overlay(), tr("保存失败"),
+                               tr("「%1」\n\n%2").arg(worldName, why));
+        return;
+    }
+
+    page->markSaved();
+    // ★ 把刚写下去那一份的样子记回去：不记的话，**用户连着存两次**，第二次会被自己上一次
+    //   写下去的那一份判成"盘上被人改过了"（mtime 变了）—— 于是每一次保存都要多问一句。
+    const QFileInfo after(WorldFiles::levelDataPath(worldDir));
+    if (after.exists()) {
+        m_worldStampSize = after.size();
+        m_worldStampMtimeMs = after.lastModified().toMSecsSinceEpoch();
+    }
+    page->setBackupAvailable(!latestWorldBackup(worldDir).isEmpty());
+    // 盘上变了（也可能只是 mtime）⇒ 让世界列表那一页重列一遍：行上那行小字是"大小 ·
+    // 最后游玩时间"，而**最后游玩时间是从 level.dat 里读的**，刚写下去的那一份就是新的。
+    dialog->refreshFilePages();
+}
+
 void MainWindow::leaveConfigEditor(InstanceSettingsDialog *dialog) {
     if (dialog == nullptr) {
         return;
@@ -9974,6 +10486,13 @@ bool MainWindow::confirmDiscardConfigEdits() {
     return InlineMessage::question(
         m_ui->overlay(), tr("改过还没保存"),
         tr("这个文件刚才改的地方还没写到盘上，离开就会丢掉这些改动。\n\n要丢掉吗？"),
+        tr("丢掉改动"), tr("留在这儿"), false);
+}
+
+bool MainWindow::confirmDiscardWorldEdits() {
+    return InlineMessage::question(
+        m_ui->overlay(), tr("改过还没保存"),
+        tr("这个世界的游戏规则 / 那几格刚才改的地方还没写下去，关掉就丢了。\n\n要丢掉吗？"),
         tr("丢掉改动"), tr("留在这儿"), false);
 }
 

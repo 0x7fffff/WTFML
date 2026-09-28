@@ -18,6 +18,8 @@
 
 #include <QString>
 
+#include "util/NbtTree.hpp"
+
 namespace WorldFiles {
 
 /**
@@ -89,5 +91,108 @@ bool copyWorldInto(const QString &worldDir, const QString &savesDir, const QStri
  *       所以"改个名"这件事在游戏那侧是**真的改名**，不是只改了个文件夹。
  */
 bool renameWorld(const QString &worldDir, const QString &newName, QString *problemOut = nullptr);
+
+// ---------------------------------------------------------------------------
+// 世界设置：读 / 改 / 写 `level.dat`（2026-09-28，用户原话「世界根据其存档文件在存档设置
+// （那支笔）里面编辑游戏规则等，打开之前弹出坏档警告并提供备份按钮」）
+//
+// 分成**两截**，和「服务器列表」那条路一个做法：
+//   * `readWorldInfo()` / `applyWorldInfo()` —— **纯函数**，进一棵树、出一组值，不碰盘。
+//     "盘上没有的项不发明""改一格别的地方一个字节不变"这些判据全在这一截里，验证工程
+//     喂一棵手搭的树就能一条一条断言，不用造一个真存档。
+//   * `readLevelData()` / `writeLevelData()` —— 真正碰盘的那一截（gzip 那一层走 ZipUtil
+//     的 PowerShell，见它的头文件）。
+// 混成一截的话，"解析对不对"和"PowerShell 起没起来"会缠在同一个失败返回值里，而这两件事
+// 给用户看的话完全不同（一个是"这个存档坏了"，一个是"你机器上没跑起来解压"）。
+// ---------------------------------------------------------------------------
+
+/// `<worldDir>/level.dat` 的完整路径（写之前留备份、判"坏没坏"都要它）。
+QString levelDataPath(const QString &worldDir);
+
+/// 从 `level.dat` 里读出来、摆在世界设置页上的那一组值。
+///
+/// NOTE: **每一位都带一个 `hasXxx`**，理由是这一整页的纪律：**盘上没有的项不发明**。
+///       老存档没有 `allowCommands`（1.8 才加的）、有些存档没有 `hardcore` —— 界面上那
+///       一格该显示成"这台存档没有这一项"并且**点不动**，而不是拿一个默认值写进去。
+///       游戏对多出来的字段通常无所谓，但"我用启动器改了一下世界，从此它多出一个我
+///       没要的开关"这件事本身就不该发生。
+struct WorldInfo {
+    bool gzipped = true;         ///< 盘上那份是 gzip 包着的（少见的不包也能解，见 .cpp）
+    bool hasLevelName = false;   ///< `Data/LevelName`
+    QString levelName;
+    bool hasVersionName = false; ///< `Data/Version/Name`（"1.20.1"）
+    QString versionName;
+    bool hasLastPlayed = false;  ///< `Data/LastPlayed`（毫秒）
+    qint64 lastPlayedMs = 0;
+    bool hasDataVersion = false; ///< `Data/DataVersion`（存档格式号）
+    qint64 dataVersion = 0;
+    bool hasAllowCommands = false;  ///< `Data/allowCommands`
+    bool allowCommands = false;
+    bool hasHardcore = false;       ///< `Data/hardcore`
+    bool hardcore = false;
+    bool hasDifficulty = false;     ///< `Data/Difficulty`（0 和平 ~ 3 困难）
+    int difficulty = 2;
+    bool hasRules = false;          ///< `Data/GameRules` **是一张表**（空表也算有；不是表的算没有）
+    QList<NbtTree::GameRule> rules; ///< 顺序就是盘上的顺序
+};
+
+/// 难度 0~3 的中文名；越界时返回空串（**不返回"普通"** —— 那会把一个坏值说成正常值）。
+QString difficultyName(int difficulty);
+
+/// 把一棵解出来的树读成 `WorldInfo`。**纯函数**，读不到的那几位留 `hasXxx = false`。
+///
+/// NOTE: 这个函数**不失败**（树已经在手上了，"读得出几项"是数量的差别，不是成败）——
+///       会失败的只有解树那一步（`NbtTree::parse()`）。
+void readWorldInfo(const NbtTree::Document &document, bool gzipped, WorldInfo *out);
+
+/// 把 `WorldInfo` 里那些 `hasXxx = true` 的项写回树里。**纯函数**。
+/// @param problemOut 失败原因（哪一项没写进去）。
+/// @return 全部成功返回 true；**false 时树可能已经被改了一半**（所以调用方在失败时
+///         **不许落盘** —— 用户看到的是"没保存成功"，盘上那份还是完整的）。
+bool applyWorldInfo(NbtTree::Document *document, const WorldInfo &info,
+                    QString *problemOut = nullptr);
+
+/// 读进内存的一份 `level.dat`。
+struct LevelData {
+    NbtTree::Document document;  ///< 整棵树（改完之后原样写回去的就是它）
+    WorldInfo info;              ///< 从这棵树里读出来的那几项（只读的展示值）
+};
+
+/**
+ * @brief 把 `<worldDir>/level.dat` 解出来读成一棵树。
+ * @param worldDir 世界目录。
+ * @param out 成功时写入（**失败时不动它**）。
+ * @param problemOut 失败原因（给人看的一句话）。
+ * @return 成功 true。
+ *
+ * 走的路：`level.dat`（gzip）→ 临时文件 → `NbtTree::parse()`。临时文件落在**系统临时
+ * 目录**（`QDir::tempPath()`），不落在世界目录里 —— 世界目录里多出来的文件会被游戏扫到。
+ *
+ * 会失败的那些：文件不在 / gzip 解不动（不是 gzip、被截断）/ 解开之后不是一棵完整的
+ * NBT（`NbtTree::parse()` 说的那些）。**任何一条都是"这个存档可能坏了"**，而这一句话
+ * 正是用户要在打开之前看到的那个警告（见 MainWindow 里那一段）。
+ */
+bool readLevelData(const QString &worldDir, LevelData *out, QString *problemOut = nullptr);
+
+/**
+ * @brief 把一棵改过的树写回 `<worldDir>/level.dat`。
+ * @return 成功 true。
+ *
+ * ★ 落盘是**先写临时文件、再原子替换**：中途断掉留下的是一个没人认的临时文件，
+ *   **不是**一个半截的 `level.dat`。这一点比"写得快"重要得多 —— 半截的 `level.dat`
+ *   就是用户最怕的那个坏档。
+ *
+ * ★★ 2026-09-28 修：这一句以前写的是「原子替换 = `QFile::rename()` 在 Windows 上走
+ *   `MoveFileEx(..., MOVEFILE_REPLACE_EXISTING)`,目标存在也照样盖掉」——**那是错的**，
+ *   见 .cpp 里实现那段 ★★（同一个坑 2026-09-27 已在 `VersionManager::writePackArchive()`
+ *   上踩过一次）。现在走 `QSaveFile::commit()`：它才是那个带 REPLACE_EXISTING 的换名。
+ *
+ * NOTE: 中间产物（gzip 之前那份、压好那份）一律落**系统临时目录**，世界目录里我们
+ *       **一个文件都不摆** —— `QSaveFile` 自己会在 `level.dat` 那个目录里开临时文件，
+ *       那是它的事，成功失败都由它收拾。
+ * NOTE: 写回去的**形状跟着读进来时那一份**（原来是 gzip 就还是 gzip）。见 .cpp 里那段。
+ */
+bool writeLevelData(const QString &worldDir, const LevelData &data,
+                    QString *problemOut = nullptr);
 
 }  // namespace WorldFiles

@@ -956,7 +956,10 @@ QWidget *InstanceFilesPage::makeRow(const QString &shownName, const QString &pat
             glyph, row->palette().color(QPalette::PlaceholderText))));
         edit->setIconSize(QSize(glyph, glyph));
         edit->setText(editText());
-        edit->setToolTip(tr("编辑这个世界：改名、打开它的文件夹。"));
+        // ★ 2026-09-28：这一格里现在最实的一件事是**改游戏规则**（读的是这个存档自己的
+        //   level.dat），改名 / 开文件夹退到后面去了 —— 三样都写全，用户才知道点下去
+        //   不止能改名。
+        edit->setToolTip(tr("编辑这个世界：改游戏规则、改名、打开它的文件夹。"));
         connect(edit, &QToolButton::clicked, this, [this, path] { emit editRequested(path); });
         layout->addWidget(edit);
     }

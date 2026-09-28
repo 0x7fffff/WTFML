@@ -118,4 +118,22 @@ bool extractSubtrees(const QStringList &archives, const QString &targetDir,
  */
 bool gunzipTo(const QString &sourceGz, const QString &targetPath, QString *errorOut = nullptr);
 
+/**
+ * @brief 把一个普通文件压成 gzip（@p targetGz 会被覆盖写）。成功返回 true。
+ * @param sourcePath 盘上的源文件（必须已经存在）。
+ * @param targetGz 目标 .gz 的落点。父目录不存在时会建，已存在的文件**直接盖掉**。
+ * @param errorOut 失败时的描述（同上）。
+ *
+ * `gunzipTo()` 的反方向，专为 **`level.dat` 写回去**这一条路加的：Minecraft 存档里那份
+ * NBT 是 gzip 包着的（头两字节 `1f 8b`），改完树要原样压回去 —— 直接落一份裸 NBT 的话
+ * 游戏会把这个存档当成坏的（那正是用户最怕的那件事）。
+ *
+ * NOTE: 它和 `gunzipTo()` 一样**只管 gzip 这一层**，不是"通用压缩"。
+ * NOTE: 压缩级别是 Optimal（和 createZip 同一档）。这里 **不是** 逐字节可复现的：同一个
+ *       源压两次的字节可能不一样（gzip 头里有个 mtime）。所以"改过的地方对不对"不能靠
+ *       比 gz 的字节，要比**解开来之后**的 NBT 字节（见验证工程 V5 那一带）。
+ */
+bool gzipFrom(const QString &sourcePath, const QString &targetGz,
+              QString *errorOut = nullptr);
+
 }  // namespace ZipUtil
