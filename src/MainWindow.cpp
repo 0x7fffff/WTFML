@@ -1936,6 +1936,14 @@ void MainWindow::setupConnections() {
 
     // 选项卡切换：底栏左下角的显示规则依赖"当前是不是在主页"，切页就得重算；
     // 第一次切到设置页还要顺带扫一遍 Java。
+    //
+    // ★ 起点先量一次（`onMainTabChanged()` 里那对"上一颗/这一颗"）。不量的话它俩停在 -1：
+    //   而"这一次导航是从哪一颗按的"要读上一颗（见 .hpp 那段），从没翻过页的那一会儿
+    //   读出来是个不存在的下标。
+    if (QTabWidget *tabs = m_ui->getTabWidget()) {
+        m_mainTabIndex = tabs->currentIndex();
+        m_previousMainTabIndex = m_mainTabIndex;
+    }
     connect(m_ui->getTabWidget(), &QTabWidget::currentChanged, this,
             &MainWindow::onMainTabChanged);
 
@@ -6183,6 +6191,10 @@ void MainWindow::refreshJavaList() {
 }
 
 void MainWindow::onMainTabChanged() {
+    // 先记"上一颗"，再记"这一颗"（顺序反了两位就都成了现在这一颗）。读它的是
+    // `onNavRequested()` —— 那条槽跑起来的时候这一发已经把它翻过去了，见 .hpp 那段。
+    m_previousMainTabIndex = m_mainTabIndex;
+    m_mainTabIndex = m_ui->getTabWidget()->currentIndex();
     // 底栏左下角的显示规则依赖"当前是不是在主页"，切页就得重算。
     updateBottomBar();
     if (m_ui->getTabWidget()->currentIndex() == MainWindowUI::settingsTabIndex()) {
@@ -8963,10 +8975,38 @@ void MainWindow::returnToInstanceSettingsFromDownload() {
 }
 
 void MainWindow::onNavRequested(int index) {
-    // 顶上那四颗导航，这一层只管**下载页那一件**（用户 2026-09-28 原话「在这个情况下点击
-    // 顶部下载按钮就刷新页面回到主页」）。翻页、以及"点的是当前这一颗就把上面那层收掉"
-    // 那两件，仍旧是 MainWindowUI 自己接的那一条在管（那边**先接**，所以它先跑完，见
-    // setupConnections 里那条连接的注释）—— 这里不重复做，也不去改它。
+    // 顶上那四颗导航，这一层只管**下载页那两件**（用户 2026-09-28 原话「在这个情况下点击
+    // 顶部下载按钮就刷新页面回到主页」+「如果点击了下载新模组按钮后再点击实例按钮，功能
+    // 就和返回一样，如果点两下那就是先返回再回到实例主页」）。翻页、以及"点的是当前这一
+    // 颗就把上面那层收掉"那两件，仍旧是 MainWindowUI 自己接的那一条在管（那边**先接**，
+    // 所以它先跑完，见 setupConnections 里那条连接的注释）—— 这里不重复做，也不去改它。
+    //
+    // ---------- 「实例」那一颗 = 按了「← 返回实例设置」（用户原话见上） ----------
+    //
+    // ★ 这**不是**那一颗返回键的第二条接线（那颗键仍旧只有一处出口，见 setupConnections
+    //   里那段）—— 这里只是"同一件事从另一颗键上够得着"。两条都走
+    //   `returnToInstanceSettingsFromDownload()`，所以"清哪两位、开在哪一页"一个字都不
+    //   用写两遍。
+    //
+    // ★ 判据三条：
+    //   ① 点的是「实例」那一颗；
+    //   ② **刚才是从下载页按的**（`m_previousMainTabIndex`）。少了这一条，"从实例进来 →
+    //      切去主页逛了一圈 → 点实例"也会被当成"回实例设置"，可那一下用户要的是切到实例
+    //      列表（他手上那一页早就切走了）。翻页那一下是 MainWindowUI 先跑的，所以"刚才
+    //      那一颗"只能自己记（见 .hpp 那段）。
+    //   ③ 这一趟**确实是从某个实例点进来的** —— 也就是那颗返回键正露着。
+    //
+    // ★ 第二下为什么自动就成了"回到实例主页"：上面那一发把这一页开起来之后，当前选项卡
+    //   **就是**「实例」，于是再按一下正中 MainWindowUI 那条的 ② 档（点的是当前这一颗
+    //   ⇒ `overlayHost->dismiss()` = 收掉这一页，露出底下的实例列表）。那一下这一位已经
+    //   被上面清空了 ⇒ 这里不接手，两下没人打架。
+    if (index == MainWindowUI::instancesTabIndex()
+        && m_previousMainTabIndex == MainWindowUI::downloadTabIndex()
+        && !m_downloadFromInstanceId.isEmpty()) {
+        returnToInstanceSettingsFromDownload();
+        return;
+    }
+
     //
     // ★ 判据三条，缺一不可：
     //   ① 点的**就是**「下载」那一颗；

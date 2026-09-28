@@ -1898,6 +1898,19 @@ private:
     /// `m_downloadFromInstanceId` **同生共死** —— 那一位在哪儿被赋值/清掉，这一位就在
     /// 哪儿，所以 `returnToInstanceSettingsFromDownload()` 里两句话并排写。
     QString m_downloadFromPageKey;
+    /// 顶上那四颗导航**上一次翻页之前**停在哪一颗、现在停在哪一颗（两个都随
+    /// `QTabWidget::currentChanged` 走，见 `onMainTabChanged()`）。
+    ///
+    /// ★ 为什么非要自己记"刚才那一颗"：`TitleBar::navRequested` 上接着两条槽，而
+    ///   MainWindowUI 那条**先接先跑**（它在 `setupUi` 里接的，早于 `setupConnections`），
+    ///   于是 `MainWindow::onNavRequested()` 醒过来的时候选项卡**已经翻过去了** ——
+    ///   想判"用户是按完「下载新模组」**从下载页**按的「实例」"，就只能自己留着上一颗
+    ///   （`tabs->currentIndex()` 那一刻说的已经是新的一颗了）。
+    ///   只喂一件事：那一按等同于按「← 返回实例设置」（用户 2026-09-28 原话「如果点击了
+    ///   下载新模组按钮后再点击实例按钮，功能就和返回一样」）。
+    ///   初值由 `setupConnections()` 从控件上读一次定死（`-1` = 还没量过）。
+    int m_previousMainTabIndex = -1;
+    int m_mainTabIndex = -1;
     /// 「版本」那一格**刚按过回车**的那几页（键 = 分类键，进的是 `QSet`）。
     ///
     /// 只为一件事：那一格是可输入的，在框里按回车时 Qt 会连发两发 —— 先是
