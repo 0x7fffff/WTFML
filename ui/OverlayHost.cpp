@@ -6,6 +6,7 @@
  */
 
 #include "OverlayHost.hpp"
+#include "Theme.hpp"   // 顶上那颗「← 返回」的身份（一般性 = 黑字黑边）
 
 #include <QApplication>
 #include <QDialog>
@@ -81,6 +82,8 @@ OverlayHost::OverlayHost(QWidget *anchor, QWidget *parent) : QWidget(parent), m_
     m_backButton->setObjectName(overlayBackButtonName());
     m_backButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     m_backButton->setToolTip(tr("返回。这一页上没保存的改动会丢掉。"));
+    // 「← 返回」= 往回走（一般性那一档）—— 全应用每一页顶上那一颗都是它。
+    Theme::markButton(m_backButton, Theme::ButtonKind::Neutral);
     headerLayout->addWidget(m_backButton);
     m_titleLabel = new QLabel(header);
     m_titleLabel->setObjectName(overlayTitleLabelName());

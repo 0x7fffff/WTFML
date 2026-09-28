@@ -157,13 +157,21 @@ void critical(OverlayHost *host, const QString &title, const QString &text);
 
 /**
  * @brief 问一句（`QMessageBox::question(..., Yes | No, default)` 的替身）。
+ * @param destructive "是"那一颗是不是**不可撤销**的（删除那一类）。**默认 false**。
+ *        2026-09-28 起它真的会染色：`true` ⇒ 那颗按红（`ButtonKind::Danger`）、另一颗按
+ *        黑（`Neutral`）。在此之前这一档只是一句记账。
+ *
+ *        ★ **标错比不标更糟**：标成 `true` 而其实能撤销，用户学会的是"红不代表什么"；
+ *          真不可撤销的没标，红就白设了。判据只有一条 —— **点下去之后盘上少了一样
+ *          用户自己找不回来的东西**。所以"从列表里移除文件夹""删除账号"里只有后者是红的
+ *          （前者盘上那些文件一个都不动）。
  * @return 用户点了"是"那一颗。
  *
  * NOTE: 关掉 / 按 Esc / 点外面一律按**"否"**算 —— 和 QMessageBox 一样（Esc 走的是
  *       "escape button"）。调用点原来写的 `!= QMessageBox::Yes` 那半句要保留同样的方向。
  */
 bool question(OverlayHost *host, const QString &title, const QString &text, const QString &yesText,
-              const QString &noText, bool defaultYes);
+              const QString &noText, bool defaultYes, bool destructive = false);
 
 /**
  * @brief 问一句名字（`QInputDialog::getText` 的替身）。
@@ -185,7 +193,10 @@ QString getText(OverlayHost *host, const QString &title, const QString &label,
  * @param kind 哪一类（只影响标题颜色）。
  * @param buttons 按钮文字，从左到右。**空的话补一颗「确定」**。
  * @param defaultIndex 默认按钮下标，-1 = 没有（危险动作那两颗一律给 -1：误按回车不该把事办了）。
- * @param destructiveIndex 危险动作那一颗，-1 = 没有。v1 只记账不上色（见 .cpp 的 NOTE）。
+ * @param destructiveIndex 危险动作那一颗，-1 = 没有。**它会按红**（2026-09-28 起 ——
+ *        在这之前它只记账不上色，写在这儿的那句"v1 只记账"就是这么过期掉的）。
+ *        判据只有一条：**点下去之后盘上少了一样用户自己找不回来的东西**；其余按位置分档
+ *        （默认那一颗 = 主题色，剩下的 = 黑），见 `InlineMessageBox` 的 ctor。
  * @param dismissOnOutsideClick 点框外面算不算"关掉它"。**默认 false**。
  * @param note 正文下面那行**小字**（`InlineMessageBox::setNote()`）。**空串 = 不补**。
  *        放在最后是因为它和上面那几格不是一类：上面几格决定"这个框是什么"，这一格只是

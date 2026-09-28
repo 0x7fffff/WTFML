@@ -9,6 +9,7 @@
  */
 
 #include "JavaManageDialog.hpp"
+#include "Theme.hpp"   // 「重新检测」那一颗的身份（一般性）
 
 #include <QFont>
 #include <QGridLayout>
@@ -181,6 +182,8 @@ JavaManageDialog::JavaManageDialog(QWidget *parent) : QDialog(parent) {
         QStringLiteral("把上面写着「缺失」的那些一次下完。已经有的那些不动。"));
     m_detect = new QPushButton(detectText(), this);
     m_detect->setObjectName(detectButtonName());
+    // 「重新检测」= 重扫一遍（一般性）；上面那些「选用」「下载」都是确认性。
+    Theme::markButton(m_detect, Theme::ButtonKind::Neutral);
     m_detect->setAutoDefault(false);
     m_detect->setToolTip(QStringLiteral("重新扫一遍这台机器上已经装好的 Java（含原版启动器装的那几份）。"));
     actions->addWidget(m_downloadAll);

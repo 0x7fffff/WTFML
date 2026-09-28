@@ -84,6 +84,8 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     m_loginButton->setObjectName(loginButtonName());
     m_switchButton = new QPushButton(switchButtonText(), this);
     m_switchButton->setObjectName(switchButtonName());
+    // 「用这个账号」= 换个身份（一般性那一档）。
+    Theme::markButton(m_switchButton, Theme::ButtonKind::Neutral);
     m_removeButton = new QPushButton(removeButtonText(), this);
     m_removeButton->setObjectName(removeButtonName());
     // 「删除所选」是这一窗里唯一一处**删东西**的按钮（账号删了就没了），所以它走那一档
@@ -93,6 +95,8 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     Theme::markButton(m_removeButton, Theme::ButtonKind::Danger);
     m_refreshButton = new QPushButton(refreshButtonText(), this);
     m_refreshButton->setObjectName(refreshButtonName());
+    // 「重新取一次」= 刷新（一般性那一档）。
+    Theme::markButton(m_refreshButton, Theme::ButtonKind::Neutral);
     accountButtons->addWidget(m_loginButton);
     accountButtons->addWidget(m_switchButton);
     accountButtons->addWidget(m_removeButton);
@@ -160,6 +164,8 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     m_applyCapeButton->setObjectName(applyCapeButtonName());
     m_hideCapeButton = new QPushButton(hideCapeButtonText(), this);
     m_hideCapeButton->setObjectName(hideCapeButtonName());
+    // 「不显示披风」= 拿掉一层（和「清除图片」同一档）；旁边那颗「应用披风」是确认性。
+    Theme::markButton(m_hideCapeButton, Theme::ButtonKind::Neutral);
     capeButtons->addWidget(m_applyCapeButton);
     capeButtons->addWidget(m_hideCapeButton);
     capeButtons->addStretch(1);

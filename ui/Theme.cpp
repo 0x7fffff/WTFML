@@ -84,7 +84,7 @@ const QColor &scrimLiteral() {
     return color;
 }
 
-/// 按钮身上那个"身份"属性名（`Theme::markButton()` 挂的、`buttonStyleSheet()` 里选择器
+/// 按钮身上那个"身份"属性名（`Theme::markButton()` 挂的、`widgetStyleSheet()` 里选择器
 /// 认的就是它）。**只有这一处出处** —— 两边各写一遍字符串的话，改名字就成了"属性挂上了、
 /// 样式一条都没匹配上"，而屏幕上看只是"这颗按钮颜色不对"，查起来要命。
 constexpr const char kButtonKindProperty[] = "wtfmlButtonKind";
@@ -351,6 +351,13 @@ QColor accentShade(AccentShade shade) {
 // 按钮那一套外观
 // ---------------------------------------------------------------------------
 
+QColor neutralInkColor() {
+    // 「一般性」那一档的黑。**唯一出处**：次要按钮（Neutral）的字和边、未勾选的勾选框
+    // 那个框和那行字，量的都是它。不用纯黑（`#000000`）：纯黑压在纯白上是 21:1，
+    // 比正文（`#000000`）还重 —— 一颗"取消"不该比它旁边那颗"确定"更抢眼。
+    return QColor(0x20, 0x20, 0x20);
+}
+
 QString buttonKindKey(ButtonKind kind) {
     switch (kind) {
     case ButtonKind::Neutral:
@@ -376,9 +383,10 @@ void markButton(QWidget *button, ButtonKind kind) {
     }
 }
 
-QString buttonStyleSheet() {
+QString widgetStyleSheet() {
     const QColor ink = accentShade(AccentShade::Ink);
     const QColor border = accentShade(AccentShade::Border);
+    const QColor pure = accentShade(AccentShade::Pure);
     const QColor hover = accentShade(AccentShade::Hover);
     const QColor pressed = accentShade(AccentShade::Pressed);
     // 次要 / 危险那两档的色。红**故意不取 `dangerColor()`**：那一支是"按深浅现推"的
@@ -386,7 +394,7 @@ QString buttonStyleSheet() {
     // 拿到那个浅红（对白底 2.3:1，读不清）。所以这一档直接钉死那个对白底 4.8:1 的深红，
     // 它和 `errorTextColor()` 浅底那一档是同一个。
     const QColor red(0xc0, 0x28, 0x28);
-    const QColor black(0x20, 0x20, 0x20);
+    const QColor black = neutralInkColor();
     const QColor disabledInk(0x9a, 0x9a, 0x9a);
     const QColor disabledBorder(0xd2, 0xd2, 0xd2);
     const QColor disabledFill(0xf7, 0xf7, 0xf7);
@@ -423,6 +431,53 @@ QString buttonStyleSheet() {
     qss += kindBlock(QStringLiteral("danger"), red, QColor(0xfd, 0xea, 0xea), QColor(0xf7, 0xd5, 0xd5));
     qss += kindBlock(QStringLiteral("neutral"), black, QColor(0xf0, 0xf0, 0xf0),
                      QColor(0xe0, 0xe0, 0xe0));
+
+    // -----------------------------------------------------------------------
+    // 输入框（2026-09-28）
+    // -----------------------------------------------------------------------
+    //
+    // 用户原话：「输入文本的搜索框的框框跟随主题色，文本保留黑色」。所以**边**走主题色
+    // （`Border` 那一档，对白底 3.5:1 —— 边框要看得见，不必像字那么重），**底一律白、
+    // 字一律黑**（不去跟深浅：这一套界面上的按钮和输入框都是"白纸"，跟了深浅反而会在
+    // 深色系统主题下出现白底黑字旁边一堆深灰控件）。
+    //
+    // 聚焦那一档换成 `Ink`（5.6:1）：边框从"看得见"变成"这一格是活的" —— 只靠加粗或者
+    // 换灰是说不清"哪一格有光标"的，而换一档更深的同色系一眼就是它。
+    qss += QStringLiteral(
+               "QLineEdit { background-color: #ffffff; color: #000000; border: 1px solid %1;"
+               " border-radius: 3px; padding: 1px 3px; }"
+               "QLineEdit:focus { border-color: %2; }"
+               "QLineEdit:disabled { background-color: %3; color: %4; border-color: %5; }")
+               .arg(border.name(), ink.name(), disabledFill.name(), disabledInk.name(),
+                    disabledBorder.name());
+    // ★ **数字框 / 下拉框里面那一格也是 `QLineEdit`** —— 上面那条会连它一起框上，画出来
+    //   就是"框里还套着一个框"（自旋框自己已经有一圈边了）。这一条把它按回去。
+    //   用**后代**选择器（Qt 的 `>` 子选择器不可靠，后代选择器一定生效）。
+    qss += QStringLiteral("QAbstractSpinBox QLineEdit, QComboBox QLineEdit {"
+                          " border: none; background: transparent; padding: 0; }");
+
+    // -----------------------------------------------------------------------
+    // 勾选框（2026-09-28）
+    // -----------------------------------------------------------------------
+    //
+    // 用户原话：「勾选框未勾选的时候框和文本做成黑色，勾选了两者都变成主题色」。
+    // 所以这里**成对**地换色：未勾选 = 黑框 + 黑字（`neutralInkColor()`）；勾上 = 主题色
+    // 的**实心**框 + 主题色的字（用 `Ink` 那一档写字，5.6:1，`Pure` 只有 1.56:1）。
+    //
+    // ★ 勾上那一格画的是**实心块**、不是"白底 + 一个勾"：样式表画勾要一张图，而图是死的
+    //   —— 主题色是能换的（`Theme/Accent`），贴一张绿勾上去等于把"换一个主题色"这件事
+    //   在勾选框这一格上弄坏。实心 vs 空心是**不依赖任何图**就能分辨的一对状态，而且
+    //   "框变成主题色"正是用户点名要的那个效果。
+    qss += QStringLiteral(
+               "QCheckBox { color: %1; }"
+               "QCheckBox:checked { color: %2; }"
+               "QCheckBox:disabled { color: %3; }"
+               "QCheckBox::indicator { background-color: #ffffff; border: 1px solid %1;"
+               " border-radius: 2px; }"
+               "QCheckBox::indicator:checked { background-color: %4; border-color: %2; }"
+               "QCheckBox::indicator:disabled { background-color: %5; border-color: %3; }")
+               .arg(black.name(), ink.name(), disabledInk.name(), pure.name(),
+                    disabledFill.name());
     return qss;
 }
 
@@ -585,7 +640,7 @@ void notifyWidgets() {
     }
 }
 
-/// 把按钮那一套外观挂到应用上。`force` = 样式表字符串没变也重挂一遍。
+/// 把那一套控件外观（按钮 / 输入框 / 勾选框）挂到应用上。`force` = 样式表字符串没变也重挂一遍。
 ///
 /// ★ 为什么换过调色板之后**必须**重挂（2026-09-28 实测，ui_shot 那条"深色换回来"揪出来的）：
 ///   应用身上挂着样式表的时候，`QApplication::setPalette()` 那套"发给每个控件"的传播会
@@ -597,7 +652,7 @@ void notifyWidgets() {
 ///   NOTE: 重挂只在"这一趟真换了调色板"时做（`apply()` 会被"换个背景图"这种小事调起来，
 ///         每趟都重挂一遍全窗口就是白跑 —— 见上面那条 NOTE）。
 void installButtonSheet(QApplication &app, bool force) {
-    const QString buttons = buttonStyleSheet();
+    const QString buttons = widgetStyleSheet();
     static QString installed;
     if (!force && installed == buttons) {
         return;

@@ -32,6 +32,7 @@
 #include <functional>
 
 #include "ConfigEntries.hpp"
+#include "Theme.hpp"   // 上面那四颗按钮的身份（一般性 = 黑字黑边）
 #include "ElidedLabel.hpp"
 
 namespace {
@@ -207,6 +208,11 @@ ConfigFileEditorPage::ConfigFileEditorPage(QWidget *parent) : QWidget(parent) {
     //   就没了），而用户在这儿的下一步多半是"看另一个文件"。所以这一页自己带一颗。
     m_back = new QPushButton(backText(), this);
     m_back->setObjectName(backButtonName());
+    // 「← 返回」、「条目」、「还原上一次」、「打开文件夹」四颗都是**看一眼或者挪个地方**
+    // （一般性）；只有右下角那颗「保存」是确认性。
+    // NOTE：「还原上一次」**不是**危险那一档 —— 它只把那份备份摆进框里
+    //       （下面那条注释说得很死：“取回不许是一次悄悄的写入”），真写盘是点「保存」。
+    Theme::markButton(m_back, Theme::ButtonKind::Neutral);
     connect(m_back, &QPushButton::clicked, this, [this] { emit backRequested(); });
     topRow->addWidget(m_back);
 
@@ -225,6 +231,7 @@ ConfigFileEditorPage::ConfigFileEditorPage(QWidget *parent) : QWidget(parent) {
     //   而是在切"这一格里看什么" —— 所以和「返回」摆在一头，不跟文件那两颗挤在另一头。
     m_indexToggle = new QPushButton(indexToggleText(), this);
     m_indexToggle->setObjectName(indexToggleName());
+    Theme::markButton(m_indexToggle, Theme::ButtonKind::Neutral);
     m_indexToggle->setCheckable(true);
     m_indexToggle->setChecked(true);
     connect(m_indexToggle, &QPushButton::toggled, this, [this] { refreshIndexVisibility(); });
@@ -240,6 +247,7 @@ ConfigFileEditorPage::ConfigFileEditorPage(QWidget *parent) : QWidget(parent) {
     //    备份留的永远是"写之前的那一份"）。
     m_restore = new QPushButton(restoreText(), this);
     m_restore->setObjectName(restoreButtonName());
+    Theme::markButton(m_restore, Theme::ButtonKind::Neutral);
     connect(m_restore, &QPushButton::clicked, this, [this] {
         if (!m_hasFile) {
             return;
@@ -252,6 +260,7 @@ ConfigFileEditorPage::ConfigFileEditorPage(QWidget *parent) : QWidget(parent) {
 
     m_openFolder = new QPushButton(openFolderText(), this);
     m_openFolder->setObjectName(openFolderButtonName());
+    Theme::markButton(m_openFolder, Theme::ButtonKind::Neutral);
     // 这一层不自己开：开目录是 QDesktopServices 的事，而失败还要弹一句 —— 那得走覆盖层
     // （见文件头那段"这一层不碰盘"）。
     connect(m_openFolder, &QPushButton::clicked, this,

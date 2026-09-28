@@ -28,6 +28,7 @@
 #include <QVBoxLayout>
 
 #include "ElidedLabel.hpp"
+#include "Theme.hpp"   // 頂上那四颗按钮的身份（见下面那几行）
 #include "MainWindowUI.hpp"
 #include "ToggleSwitch.hpp"
 
@@ -136,6 +137,8 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
     top->setSpacing(8);
     m_back = new QPushButton(backText(), this);
     m_back->setObjectName(backButtonName());
+    // 「← 返回」和「打开文件夹」是往回走 / 开个窗（一般性）。
+    Theme::markButton(m_back, Theme::ButtonKind::Neutral);
     connect(m_back, &QPushButton::clicked, this, &WorldSettingsPage::backRequested);
     top->addWidget(m_back);
 
@@ -153,6 +156,7 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
 
     m_openFolder = new QPushButton(openFolderText(), this);
     m_openFolder->setObjectName(openFolderButtonName());
+    Theme::markButton(m_openFolder, Theme::ButtonKind::Neutral);
     connect(m_openFolder, &QPushButton::clicked, this,
             [this] { emit openFolderRequested(); });
     top->addWidget(m_openFolder);
@@ -160,11 +164,18 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
     m_backup = new QPushButton(backupText(), this);
     m_backup->setObjectName(backupButtonName());
     m_backup->setToolTip(tr("把这个世界的 level.dat 原样留一份（写之前也会自动留）。"));
+    // 「备份」= 多出一份（一般性）。
+    Theme::markButton(m_backup, Theme::ButtonKind::Neutral);
     connect(m_backup, &QPushButton::clicked, this, &WorldSettingsPage::backupRequested);
     top->addWidget(m_backup);
 
     m_save = new QPushButton(saveText(), this);
     m_save->setObjectName(saveButtonName());
+    // ★ 一律红：用户点名这一档叫「不可撤销（如**修改存档**，删除实例）」——
+    //   这一颗写的就是存档里那份 level.dat。上面确实会自动留一代备份
+    //   （那是"能挽回来"的保障），但对用户而言这仍然是一次**向着已有存档**
+    //   的写入 —— 和右边那颗「备份」（多出一份）正好一红一黑。
+    Theme::markButton(m_save, Theme::ButtonKind::Danger);
     connect(m_save, &QPushButton::clicked, this, &WorldSettingsPage::saveRequested);
     top->addWidget(m_save);
 

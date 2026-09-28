@@ -402,8 +402,10 @@ private slots:
     /// 归进未分类」）。**没有记录**（用户自己用「移入分组」塞进去的、或者这一版之前的老
     /// 数据）时落未分组 —— 和「移出分组」逐字同一个落点。
     void unpinInstance(const QString &versionId);
-    /// 实例行行尾那个**垃圾桶**：先问一句（这一趟不可逆）再调 deleteInstance()。
-    void confirmDeleteInstance(const QString &versionId);
+    /// 实例行行尾那个**垃圾桶**，以及实例设置概览页那颗「删除实例」：先问一句（这一趟
+    /// 不可逆）再调 deleteInstance()。返回"真的删掉了" —— 唯一的调用方（概览页那一颗）
+    /// 要靠它决定"这一页还收不收"（实例都没了，页面上那几格已经没有意义）。
+    bool confirmDeleteInstance(const QString &versionId);
     /// 删除实例的**执行部分**：把 versions/<id> 整个目录删掉 + 刷界面。失败返回 false。
     ///
     /// NOTE: 拆成两步的理由和 applyRename() / applyInstanceSettings() 一样 —— 问的那一半

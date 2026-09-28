@@ -27,6 +27,7 @@
 // WheelGuard 住在 MainWindowUI.hpp 里（和 AccountSkinDialog.cpp / InstanceSettingsDialog.cpp
 // 一样，直接引那一份，不为一个三十行的小类再开一个头文件）。
 #include "MainWindowUI.hpp"
+#include "Theme.hpp"   // 下面四颗按钮的身份（都是一般性 = 黑字黑边）
 
 #include <QComboBox>
 #include <QCoreApplication>
@@ -316,6 +317,9 @@ GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent)
 
     m_clearButton = new QPushButton(clearButtonText(), this);
     m_clearButton->setObjectName(clearButtonName());
+    // 「清空」= 一般性（黑）：它清的是**这个窗看到的东西**（见下面那条 connect 的注释），
+    // 盘上那份日志一行都没少 —— 所以它**不是**危险那一档。
+    Theme::markButton(m_clearButton, Theme::ButtonKind::Neutral);
     filters->addWidget(m_clearButton);
 
     layout->addLayout(filters);
@@ -368,13 +372,17 @@ GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent)
     m_exportLogButton = new QPushButton(exportLogButtonText(), this);
     m_exportLogButton->setObjectName(exportLogButtonName());
     m_exportLogButton->setToolTip(exportLogButtonTooltip());
+    // 底下这三颗都走一般性（黑）：导出是"存一份出去"（什么都不改），关闭是"退出这一页"。
+    Theme::markButton(m_exportLogButton, Theme::ButtonKind::Neutral);
     buttons->addWidget(m_exportLogButton);
     m_exportReportButton = new QPushButton(exportReportButtonText(), this);
     m_exportReportButton->setObjectName(exportReportButtonName());
     m_exportReportButton->setToolTip(exportReportButtonTooltip());
+    Theme::markButton(m_exportReportButton, Theme::ButtonKind::Neutral);
     buttons->addWidget(m_exportReportButton);
     m_closeButton = new QPushButton(closeButtonText(), this);
     m_closeButton->setObjectName(closeButtonName());
+    Theme::markButton(m_closeButton, Theme::ButtonKind::Neutral);
     buttons->addWidget(m_closeButton);
     layout->addLayout(buttons);
 

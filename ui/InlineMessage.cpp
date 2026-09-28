@@ -18,6 +18,7 @@
 
 #include "MainWindowUI.hpp"
 #include "OverlayHost.hpp"
+#include "Theme.hpp"
 
 InlineMessageBox::InlineMessageBox(MessageKind kind, const QString &title, const QString &text,
                                    const QStringList &buttons, int defaultIndex,
@@ -75,16 +76,26 @@ InlineMessageBox::InlineMessageBox(MessageKind kind, const QString &title, const
         if (i == defaultIndex) {
             button->setDefault(true);
         }
+        // 三档颜色按**位置**分，不按文字（"取消"这三个字认不得 —— 按钮表是调用方给的，
+        // 上面那张世界编辑菜单里就有四颗都叫"做什么"的）：
+        //   - `destructiveIndex` 那一颗 = 危险红（用户 2026-09-28 点名的"不可撤销"那一档）；
+        //   - 默认那一颗 = 确认性（**不挂属性**就是主题色，见 Theme::ButtonKind）；
+        //   - 其余 = 一般性（黑）。
+        //
+        // ★ 这条规矩的前提是"调用方标对了 `destructiveIndex`"—— 在此之前它**只用来记账**、
+        //   一颗都没标过（见下面那条改动的说明）。真正的闸一直是 `defaultIndex`（危险那两颗
+        //   一律不给默认：误按回车不该把事办了），颜色只是第二道。
+        if (i == destructiveIndex) {
+            Theme::markButton(button, Theme::ButtonKind::Danger);
+        } else if (i != defaultIndex) {
+            Theme::markButton(button, Theme::ButtonKind::Neutral);
+        }
         connect(button, &QPushButton::clicked, this, [this, i] {
             m_clicked = i;
             accept();
         });
         rowLayout->addWidget(button);
     }
-    // NOTE: `destructiveIndex` 现在**只用来记账**（谁叫它传进来了）：v1 不给危险动作那颗
-    //       上颜色 —— 界面上多一套"危险红"是个视觉决定，得先有个说法。真正管住误触的是
-    //       `defaultIndex`（危险那两颗一律不给默认：误按回车不该把事办了）。
-    Q_UNUSED(destructiveIndex)
     layout->addWidget(row);
 }
 
@@ -216,10 +227,10 @@ void critical(OverlayHost *host, const QString &title, const QString &text) {
 }
 
 bool question(OverlayHost *host, const QString &title, const QString &text, const QString &yesText,
-              const QString &noText, bool defaultYes) {
+              const QString &noText, bool defaultYes, bool destructive) {
     const QStringList buttons{yesText, noText};
-    const int index = ask(host, MessageKind::Question, title, text, buttons, defaultYes ? 0 : 1, -1,
-                          false);
+    const int index = ask(host, MessageKind::Question, title, text, buttons, defaultYes ? 0 : 1,
+                          destructive ? 0 : -1, false);
     return index == 0;
 }
 

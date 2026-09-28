@@ -395,6 +395,8 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         line->setSpacing(8);
         m_changeIconButton = new QPushButton(changeIconText(), cell);
         m_changeIconButton->setObjectName(changeIconButtonName());
+        // 「更换图标…」「移入分组…」「导出…」都是**打开一个菜单或另一个框**（一般性）。
+        Theme::markButton(m_changeIconButton, Theme::ButtonKind::Neutral);
         m_changeIconButton->setToolTip(iconHint());
         connect(m_changeIconButton, &QPushButton::clicked, this,
                 [this]() { popUpMenuBelow(m_iconMenu, m_changeIconButton); });
@@ -402,6 +404,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
 
         m_groupButton = new QPushButton(groupButtonText(), cell);
         m_groupButton->setObjectName(groupButtonName());
+        Theme::markButton(m_groupButton, Theme::ButtonKind::Neutral);
         // tooltip 由 refreshGroupMenuState() 写（它要说清"现在归在哪一组"）。
         connect(m_groupButton, &QPushButton::clicked, this,
                 [this]() { popUpMenuBelow(m_groupMenu, m_groupButton); });
@@ -478,6 +481,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         actions->setSpacing(8);
         auto *pick = new QPushButton(iconPickText(), menu);
         pick->setObjectName(iconPickButtonName());
+        Theme::markButton(pick, Theme::ButtonKind::Neutral);
         connect(pick, &QPushButton::clicked, this, [this]() {
             // 模态，验证工程驱动不了它 —— 和「浏览…」选 java.exe 同一个道理（开的是
             // Windows 自己的文件选择框，不是我们的窗）。可测的那一半是"挑完之后
@@ -499,6 +503,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         actions->addWidget(pick);
         auto *reset = new QPushButton(iconResetText(), menu);
         reset->setObjectName(iconResetButtonName());
+        Theme::markButton(reset, Theme::ButtonKind::Neutral);
         connect(reset, &QPushButton::clicked, this, [this]() {
             // 「默认」= **这个键不存在**（而不是"写一个等于默认的值"）—— 全项目同一个约定，
             // 见 VersionManager::updateVersionMeta() 里那段关于 QJsonValue::Null 的说明。
@@ -565,6 +570,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         column->setSpacing(4);
         auto *button = new QPushButton(exportText(), cell);
         button->setObjectName(exportButtonName());
+        Theme::markButton(button, Theme::ButtonKind::Neutral);
         button->setToolTip(exportButtonTooltip());
         connect(button, &QPushButton::clicked, this, [this]() {
             // 默认文件名用**这个实例的目录名**（同「导出启动脚本」那一段的理由：它一定
@@ -664,6 +670,35 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         grid->addWidget(cell, row++, 0, 1, 2);
     }
 
+    // ---------- 「删除实例」（2026-09-28）----------
+    //
+    // 用户原话：「顺便把删除实例功能做了，按钮放在概览里」。摆在「复制实例」下面 ——
+    // 那两颗是这一页上仅有的两个"对整个实例动手"的动作，一个多出一份、一个少掉一份。
+    //
+    // 见 .hpp 那段：删除这件事**本来就有**（实例行行尾那颗垃圾桶），这一颗是它的第二个
+    // 入口 —— 真去删的那条路（两道闸 + 问一句 + 删目录）一行都没重写。
+    //
+    // ★ 红的（`ButtonKind::Danger`）：用户点名这一档叫「不可撤销（如修改存档，删除实例）」，
+    //   而这一页上它是唯一一颗真会丢东西的按钮。紧挨着它的「复制实例」是绿的 —— 同一个
+    //   位置上一红一绿，正好是"这两个不一样"最省字的说法。
+    {
+        auto *cell = new QWidget(this);
+        auto *column = new QVBoxLayout(cell);
+        column->setContentsMargins(0, 0, 0, 0);
+        column->setSpacing(4);
+        auto *button = new QPushButton(deleteText(), cell);
+        button->setObjectName(deleteButtonName());
+        button->setToolTip(deleteButtonTooltip());
+        Theme::markButton(button, Theme::ButtonKind::Danger);
+        connect(button, &QPushButton::clicked, this,
+                [this]() { emit deleteInstanceRequested(); });
+        column->addWidget(button, 0, Qt::AlignLeft);
+        auto *hint = new QLabel(deleteHint(), cell);
+        hint->setWordWrap(true);
+        column->addWidget(hint);
+        grid->addWidget(cell, row++, 0, 1, 2);
+    }
+
     // ---------- 快捷方式那九颗按钮（2026-09-27 从「快捷方式」那一页整块搬来）----------
     //
     // 用户原话：「"快捷方式"放到概览的下方」—— 从这儿起「快捷方式」**不再是一页**，
@@ -683,6 +718,8 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         const QStringList keys = shortcutPathKeys();
         for (int i = 0; i < texts.size(); ++i) {
             auto *button = new QPushButton(texts.value(i), cell);
+            // 快捷方式那九颗 = "开一个目录"（一般性）。
+            Theme::markButton(button, Theme::ButtonKind::Neutral);
             button->setObjectName(shortcutButtonName(i));
             const QString key = keys.value(i);
             // 路径**现场问 m_instanceDir / m_fileDirs**（不是捕获一份快照）：setInstanceDir()
@@ -802,6 +839,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         choiceRow->addWidget(m_javaPathEdit, 1);
 
         auto *browse = new QPushButton(tr("浏览…"), cell);
+        Theme::markButton(browse, Theme::ButtonKind::Neutral);
         browse->setObjectName(browseJavaButtonName());
         connect(browse, &QPushButton::clicked, this, [this]() {
             // 模态，验证工程驱动不了它 —— 那一半是"问路径"，可测的那一半是这个框里的
@@ -1159,6 +1197,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         line->setSpacing(8);
         auto *exportScript = new QPushButton(exportScriptText(), cell);
         exportScript->setObjectName(exportScriptButtonName());
+        Theme::markButton(exportScript, Theme::ButtonKind::Neutral);
         exportScript->setToolTip(exportScriptHint());
         connect(exportScript, &QPushButton::clicked, this, [this]() {
             // 默认文件名用**这个实例的目录名**（= 构造时那个 instanceId）：它一定是合法
@@ -1316,6 +1355,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                 navRow->setSpacing(8);
                 m_configUp = new QPushButton(configUpText(), listHost);
                 m_configUp->setObjectName(configUpButtonName());
+        Theme::markButton(m_configUp, Theme::ButtonKind::Neutral);
                 connect(m_configUp, &QPushButton::clicked, this,
                         &InstanceSettingsDialog::leaveConfigDir);
                 navRow->addWidget(m_configUp);
@@ -1384,6 +1424,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
 
                 m_serverRefresh = new QPushButton(serverRefreshText(), page);
                 m_serverRefresh->setObjectName(serverRefreshButtonName());
+        Theme::markButton(m_serverRefresh, Theme::ButtonKind::Neutral);
                 // 重读要碰 NBT 解析（在 src/ 里），所以这一发只能交给 MainWindow。
                 connect(m_serverRefresh, &QPushButton::clicked, this,
                         &InstanceSettingsDialog::refreshServerListRequested);

@@ -8064,7 +8064,8 @@ void MainWindow::onAccountRemoveRequested(const QString &uuid) {
                         "未登录状态（可以重新登录）。")
                          .arg(name)
                    : tr("删掉账号「%1」？\n\n它保存的登录凭据会一并删除。").arg(name);
-    if (!InlineMessage::question(m_ui->overlay(), tr("删除账号"), question, tr("是"), tr("否"), true)) {
+    if (!InlineMessage::question(m_ui->overlay(), tr("删除账号"), question, tr("是"), tr("否"), true,
+                                            /*destructive=*/true)) {
         return;
     }
     if (!AccountStore::remove(uuid)) {
@@ -8418,7 +8419,8 @@ void MainWindow::onFolderDeleteRequested(const QString &path) {
         question += tr("\n\n它是启动器当前在用的那一份，删掉之后改用「%1」。")
                         .arg(QDir::toNativeSeparators(FolderManager::defaultFolder()));
     }
-    const auto answer = InlineMessage::question(m_ui->overlay(), tr("删除游戏文件夹"), question, tr("是"), tr("否"), false);
+    const auto answer = InlineMessage::question(m_ui->overlay(), tr("删除游戏文件夹"), question, tr("是"), tr("否"), false,
+                                                        /*destructive=*/true);
     if (!answer) {
         return;  // 取消不是错误，不写日志
     }
@@ -8575,9 +8577,9 @@ void MainWindow::unpinInstance(const QString &versionId) {
     appendLog(tr("已取消置顶：%1").arg(instanceDisplayName(versionId)));
 }
 
-void MainWindow::confirmDeleteInstance(const QString &versionId) {
+bool MainWindow::confirmDeleteInstance(const QString &versionId) {
     if (versionId.isEmpty()) {
-        return;
+        return false;
     }
     const QString name = instanceDisplayName(versionId);
 
@@ -8587,7 +8589,7 @@ void MainWindow::confirmDeleteInstance(const QString &versionId) {
     if (m_launcherManager->isVersionRunning(versionId)) {
         InlineMessage::warning(m_ui->overlay(), tr("删除实例"),
                               tr("「%1」正在运行，先关掉游戏再删。").arg(name));
-        return;
+        return false;
     }
     // 闸口二：**正在装 / 正在导入的也不能删**。判据用的是 `installingVersionIds()` ——
     // 「现在谁动不得」的唯一出处（底栏那颗启动按钮、下拉框都是问它）。在这里删掉的后果
@@ -8596,7 +8598,7 @@ void MainWindow::confirmDeleteInstance(const QString &versionId) {
     if (installingVersionIds().contains(versionId)) {
         InlineMessage::warning(m_ui->overlay(), tr("删除实例"),
                               tr("「%1」正在安装，等它装完再删。").arg(name));
-        return;
+        return false;
     }
 
     // 这一趟**不可逆**，所以先问一句（用户原话：「删除前需要弹窗提示」）。正文里把目录的
@@ -8608,11 +8610,11 @@ void MainWindow::confirmDeleteInstance(const QString &versionId) {
            "删掉之后找不回来。\n\n"
            "它所在的游戏文件夹、以及别的实例都不受影响。")
             .arg(name, QDir::toNativeSeparators(AppPaths::versionDir(versionId))),
-        tr("删除"), tr("取消"), false);
+        tr("删除"), tr("取消"), false, /*destructive=*/true);
     if (!answer) {
-        return;  // 取消不是错误，不写日志
+        return false;  // 取消不是错误，不写日志
     }
-    deleteInstance(versionId);
+    return deleteInstance(versionId);
 }
 
 bool MainWindow::deleteInstance(const QString &versionId) {
@@ -8843,7 +8845,7 @@ void MainWindow::onGroupActionRequested(const QString &groupId, int action) {
             tr("「%1」会被删除，组里的 %2 个实例不会被删掉，它们只是变成未分组。\n\n"
                "确定要删除吗？")
                 .arg(row.name)
-                .arg(row.memberCount), tr("是"), tr("否"), false);
+                .arg(row.memberCount), tr("是"), tr("否"), false, /*destructive=*/true);
         if (answer) {
             deleteGroupById(groupId);
         }
@@ -9289,6 +9291,32 @@ void MainWindow::openInstanceSettings(const QString &versionId, const QString &p
                     return;
                 }
                 copyInstanceTo(sourceId, folder, name);
+            });
+
+    // ---------- 「删除实例」（2026-09-28）----------
+    //
+    // 用户原话：「顺便把删除实例功能做了，按钮放在概览里」。**没有新写删除**：那一颗按钮
+    // 走的就是实例行行尾那颗垃圾桶走的那条路（`confirmDeleteInstance()`，两道闸 + 问一句
+    // + 真删目录）。这一层只多一件事 —— **删完把这一页收掉**。
+    //
+    // ★ 为什么要收：这一页说的是"某个实例的设置"，而那个实例刚被删掉。不收的话用户会停在
+    //   一页对着已经不存在的目录的设置上：上面那几格还写着它的名字和分组，随便动一格都会
+    //   把 wtfml.meta 写进一个**已经被删掉的目录**里（`QDir().mkpath()` 会把它重新建出来
+    //   —— 屏幕上就会出现一个只有 meta、没有 json 的空壳实例）。
+    //
+    // ★ 收页走 `dismiss()`（不是 `closeOverlay()`）：这一页正卡在 `execPage()` 的嵌套
+    //   事件循环里，`dismiss()` 发的就是"返回箭头那一发"，`execPage()` 会正常返回；
+    //   `closeOverlay()` 走的是另一条路（见 OverlayHost::dismiss() 那段 ★）。
+    //
+    // NOTE: 没删成（用户点了取消、或者被两道闸拦下）**不收页** —— 那时候实例还在，
+    //       用户正该停在这一页上看着那句解释。
+    connect(&dialog, &InstanceSettingsDialog::deleteInstanceRequested, this,
+            [this, &targetId]() {
+                // 按值收："问一句"那一步会让出事件循环，删完这一页也要收掉了。
+                const QString id = targetId;
+                if (confirmDeleteInstance(id)) {
+                    m_ui->overlay()->dismiss();
+                }
             });
 
     // ---------- 「存档」那一页（2026-09-28）----------
@@ -11229,7 +11257,7 @@ bool MainWindow::deleteInstanceFile(const QString &path) {
     // 默认**不**落在「删除」上：误按一下回车不该把用户的东西删掉（和"从列表里移除文件夹"
     // 那两处一个方向）。
     if (!InlineMessage::question(m_ui->overlay(), tr("删除文件"), question, tr("删除"),
-                                 tr("取消"), false)) {
+                                 tr("取消"), false, /*destructive=*/true)) {
         return false;
     }
     // **不能**用 `QDir::removeRecursively()`：实测（见 FolderManager.cpp 里那段）它会跟着

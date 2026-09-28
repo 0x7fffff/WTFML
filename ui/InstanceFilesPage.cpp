@@ -7,6 +7,7 @@
 #include "InstanceFilesPage.hpp"
 
 #include "ElidedLabel.hpp"
+#include "Theme.hpp"   // 上面那两颗一般性的按钮（黑字黑边）
 #include "MainWindowUI.hpp"
 #include "ToggleSwitch.hpp"
 #include "VersionIcons.hpp"
@@ -323,6 +324,8 @@ InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
     //   动作"，够不着这一页在看哪个目录那件事。
     m_batch = new QPushButton(m_pathRow);
     m_batch->setObjectName(batchButtonName());
+    // 「批量编辑」= 打开另一层（一般性）；旁边那两颗「下载新 X」「导入世界」是确认性。
+    Theme::markButton(m_batch, Theme::ButtonKind::Neutral);
     m_batch->setVisible(false);
     connect(m_batch, &QPushButton::clicked, this, &InstanceFilesPage::batchEditRequested);
     pathRow->addWidget(m_batch);
@@ -335,12 +338,14 @@ InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
 
     m_refresh = new QPushButton(refreshText(), m_pathRow);
     m_refresh->setObjectName(refreshButtonName());
+    Theme::markButton(m_refresh, Theme::ButtonKind::Neutral);
     // 刷新是**这一页自己的事**（重新列一遍目录，只有读），不用绕到 MainWindow 去。
     connect(m_refresh, &QPushButton::clicked, this, &InstanceFilesPage::refresh);
     pathRow->addWidget(m_refresh);
 
     m_openFolder = new QPushButton(openFolderText(), m_pathRow);
     m_openFolder->setObjectName(openFolderButtonName());
+    Theme::markButton(m_openFolder, Theme::ButtonKind::Neutral);
     connect(m_openFolder, &QPushButton::clicked, this,
             [this] { emit openFolderRequested(m_directory); });
     pathRow->addWidget(m_openFolder);

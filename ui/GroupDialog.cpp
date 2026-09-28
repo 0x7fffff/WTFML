@@ -89,6 +89,8 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
         m_addButton->setObjectName(addGroupButtonName());
         m_renameButton = new QPushButton(tr("重命名…"), groupBox);
         m_renameButton->setObjectName(renameGroupButtonName());
+        // 「重命名…」= 改一格名字（一般性）；旁边那颗「新建…」是确认性。
+        Theme::markButton(m_renameButton, Theme::ButtonKind::Neutral);
         m_removeButton = new QPushButton(tr("删除"), groupBox);
         m_removeButton->setObjectName(removeGroupButtonName());
         // 「删除」删的是**整个分组**（组里那些实例会掉回未分组），和旁边那两颗不是一回事
@@ -167,7 +169,8 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
                 tr("「%1」会被删除，组里的 %2 个实例不会被删掉，它们只是变成未分组。\n\n"
                    "确定要删除吗？")
                     .arg(groupName(groupId))
-                    .arg(m_memberCounts.value(groupId)), tr("是"), tr("否"), false);
+                    .arg(m_memberCounts.value(groupId)), tr("是"), tr("否"), false,
+                    /*destructive=*/true);
             if (answer) {
                 deleteGroup(groupId);
             }
@@ -209,10 +212,15 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
     // 动作，和那两颗"这一趟改完了没有"的按钮不是一类东西，挨着摆会点错。
     m_restoreButton = new QPushButton(tr("恢复默认分组设置…"), this);
     m_restoreButton->setObjectName(restoreDefaultsButtonName());
+    // ★ 红：下面那段说得很死 —— 它是**不可逆**的（自己建的组全没了），
+    //   而且和旁边那对「这一趟改完了没有」的按钮不是一类东西 ——
+    //   颜色和摆位置（最左边）说的是同一件事。
+    Theme::markButton(m_restoreButton, Theme::ButtonKind::Danger);
     buttons->addWidget(m_restoreButton);
     buttons->addStretch(1);
     auto *cancelButton = new QPushButton(tr("取消"), this);
     cancelButton->setObjectName(cancelButtonName());
+    Theme::markButton(cancelButton, Theme::ButtonKind::Neutral);
     auto *confirmButton = new QPushButton(tr("确定"), this);
     confirmButton->setObjectName(confirmButtonName());
     confirmButton->setDefault(true);
@@ -234,7 +242,8 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
                "的默认分组或者未分组。\n\n"
                "确定要恢复吗？")
                 .arg(names.size())
-                .arg(names.join(tr("、"))), tr("是"), tr("否"), false);
+                .arg(names.join(tr("、"))), tr("是"), tr("否"), false,
+                /*destructive=*/true);
         if (answer) {
             restoreDefaults();
         }

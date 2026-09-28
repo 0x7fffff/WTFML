@@ -444,6 +444,8 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         accountSkinButton = new QPushButton(MainWindowUI::accountSkinButtonText(),
                                             home.right.widget);
         accountSkinButton->setObjectName(MainWindowUI::accountSkinButtonName());
+        // 「角色皮肤…」= 通往另一个窗的一扇门（一般性），不是"干这件事"。
+        Theme::markButton(accountSkinButton, Theme::ButtonKind::Neutral);
         accountSkinButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
         accountSkinButton->setMinimumWidth(kAccountSkinButtonMinWidth);
         home.right.layout->addWidget(accountSkinButton, 0, Qt::AlignLeft);
@@ -558,6 +560,8 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         groupSettingsRow->addStretch(1);
         groupInstanceButton = new QPushButton(groupInstanceText(), instance.right.widget);
         groupInstanceButton->setObjectName(groupInstanceButtonName());
+        // 「移入分组…」= 挪个地方（一般性）。
+        Theme::markButton(groupInstanceButton, Theme::ButtonKind::Neutral);
         groupSettingsRow->addWidget(groupInstanceButton);
         instance.right.layout->addLayout(groupSettingsRow);
 
@@ -709,6 +713,8 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         downloadBackButton->setObjectName(downloadBackButtonName());
         downloadBackButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
         downloadBackButton->setToolTip(downloadBackTooltip());
+        // 「← 返回」= 往回走（一般性）。
+        Theme::markButton(downloadBackButton, Theme::ButtonKind::Neutral);
         downloadBackButton->setVisible(false);
         download.left.layout->addWidget(downloadBackButton);
 
@@ -789,6 +795,8 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         installTop->setSpacing(8);
         installBackButton = new QPushButton(installBackButtonText(), installPage);
         installBackButton->setObjectName(installBackButtonName());
+        // 「← 返回」= 往回走（一般性）。
+        Theme::markButton(installBackButton, Theme::ButtonKind::Neutral);
         installBackButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
         installTop->addWidget(installBackButton);
         installTargetLabel = new QLabel(installPage);
@@ -1063,6 +1071,8 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
             filterTop->addWidget(searchButton);
             auto *resetButton = new QPushButton(downloadFilterResetText(), filterRow);
             resetButton->setObjectName(downloadFilterResetButtonName(categoryKey));
+            // 用户点名的例子：「清空搜索」= 一般性（那颗「搜索」是确认性，所以它是绿的）。
+            Theme::markButton(resetButton, Theme::ButtonKind::Neutral);
             filterTop->addWidget(resetButton);
 
             // 整合包那一页那颗「导入整合包…」（用户原话「整合包那一页带一个导入功能」）。
@@ -1333,6 +1343,9 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
         // 它不是这一页的主角，是通往另一页的一扇门。
         javaManageButton = new QPushButton(QStringLiteral("Java 管理…"), box);
         javaManageButton->setObjectName(javaManageButtonName());
+        // 「Java 管理…」= 通往另一页的一扇门（一般性）—— 和上面那句注释说的"它不是这一页的
+        // 主角"是同一个判断，颜色也跟着这个走。
+        Theme::markButton(javaManageButton, Theme::ButtonKind::Neutral);
         boxLayout->addWidget(javaManageButton, 0, Qt::AlignLeft);
         javaPathLabel = new QLabel(box);
         javaPathLabel->setObjectName(javaPathLabelName());
@@ -1697,6 +1710,9 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
 
             widgets.clear = new QPushButton(MainWindowUI::themeImageClearText(), line);
             widgets.clear->setObjectName(MainWindowUI::themeImageClearName(key));
+            // 「清除图片」= 一般性（和「清空搜索」同一档：拿掉一层，不是丢掉一份东西 ——
+            // 那张图还在用户自己盘上）。旁边那颗「选择图片…」是确认性。
+            Theme::markButton(widgets.clear, Theme::ButtonKind::Neutral);
             widgets.clear->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
 
             widgets.fit = new QComboBox(line);
@@ -1768,6 +1784,8 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
         accountSkinSettingsButton = new QPushButton(accountSkinButtonText(), box);
         // 文案和主页那个入口**共用一份**（accountSkinButtonText()，见上面那段说明）。
         accountSkinSettingsButton->setObjectName(accountSkinSettingsButtonName());
+        // 和主页那一颗同一个判断（一般性）—— 两颗字都一样，颜色不该两样。
+        Theme::markButton(accountSkinSettingsButton, Theme::ButtonKind::Neutral);
         accountSkinSettingsButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
         accountSkinSettingsButton->setMinimumWidth(kAccountSkinButtonMinWidth);
         boxLayout->addWidget(accountSkinSettingsButton, 0, Qt::AlignLeft);
