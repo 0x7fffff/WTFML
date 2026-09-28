@@ -8976,21 +8976,27 @@ void MainWindow::onNavRequested(int index) {
     //   `returnToInstanceSettingsFromDownload()`，所以"清哪两位、开在哪一页"一个字都不
     //   用写两遍。
     //
-    // ★ 判据三条：
+    // ★ 判据四条：
     //   ① 点的是「实例」那一颗；
     //   ② **刚才是从下载页按的**（`lastNavSourceTab()`）。少了这一条，"从实例进来 →
     //      切去主页逛了一圈 → 点实例"也会被当成"回实例设置"，可那一下用户要的是切到实例
     //      列表（他手上那一页早就切走了）。这一位**只有 MainWindowUI 说得出口**：翻页那一下
     //      是它先跑的，这边醒过来时 `currentIndex()` 已经是新的一颗了（见那个访问器的注释）。
     //   ③ 这一趟**确实是从某个实例点进来的** —— 也就是那颗返回键正露着。
+    //   ④ 这一层**没有别的页面占着**（典型：用户先从下载页点开了一个资源的详情页）。
+    //      `openInstanceSettings()` 头一句就是 `overlayAcceptsNewPage()`，占着的话它会弹一句
+    //      "先关掉现在这一页"然后**什么都不开** —— 而上面那一发已经把来路清了 ⇒ 用户拿到的是
+    //      "返回键莫名没了 + 一句让他去关别的页的提示"，正是这一整段想避免的那件事。
+    //      占着的时候按「实例」就照常翻页（和按「主页」「设置」一样：那一页收着、还在）。
     //
     // ★ 第二下为什么自动就成了"回到实例主页"：上面那一发把这一页开起来之后，当前选项卡
     //   **就是**「实例」，于是再按一下正中 MainWindowUI 那条的 ② 档（点的是当前这一颗
     //   ⇒ `overlayHost->dismiss()` = 收掉这一页，露出底下的实例列表）。那一下这一位已经
     //   被上面清空了 ⇒ 这里不接手，两下没人打架。
+    const bool overlayFree = m_ui->overlay() == nullptr || !m_ui->overlay()->isOpen();
     if (index == MainWindowUI::instancesTabIndex()
         && m_ui->lastNavSourceTab() == MainWindowUI::downloadTabIndex()
-        && !m_downloadFromInstanceId.isEmpty()) {
+        && !m_downloadFromInstanceId.isEmpty() && overlayFree) {
         returnToInstanceSettingsFromDownload();
         return;
     }
