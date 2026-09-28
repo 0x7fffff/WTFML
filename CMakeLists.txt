@@ -52,6 +52,7 @@ set(HEADER_FILES
     ui/ConfigEntries.hpp
     ui/MotdText.hpp
     ui/ToggleSwitch.hpp
+    ui/JavaManageDialog.hpp
 )
 
 set(SOURCE_FILES
@@ -104,6 +105,7 @@ set(SOURCE_FILES
     ui/ConfigEntries.cpp
     ui/InlineMessage.cpp
     ui/JavaMismatchDialog.cpp
+    ui/JavaManageDialog.cpp
     ui/OverlayHost.cpp
     ui/SkinModel.cpp
     ui/VersionIcons.cpp

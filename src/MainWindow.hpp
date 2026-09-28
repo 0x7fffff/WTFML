@@ -75,6 +75,9 @@ class AccountSkinDialog;
 // 「资源详情」那一整页（下载页点一个模组进去看的那一页）。同上：只按指针持有，
 // 懒建（第一次点开才建）。
 class ResourceDetailPage;
+// 「Java 管理」那一整页（设置页那颗按钮开出来的四个版本）。同上：只按指针持有，
+// 懒建（第一次点开才建），而且它**不长记性**（四行每次开页现灌）。
+class JavaManageDialog;
 // 「游戏日志」窗（一份游戏一个，见 ui/GameLogWindow.hpp）。同上，只按指针持有，
 // 而且是**按需**才建（收到第一行输出那一刻，见 showGameLogLine()）。
 class GameLogWindow;
@@ -1130,8 +1133,14 @@ private:
     /// 把设置对象里的值灌进设置页的控件。构造函数里调一次；**不要**在用户改动之后
     /// 再调它 —— 那会把用户正在编辑的东西顶回盘上的旧值。
     void applySettingsToUi();
-    /// 填「Java 版本」下拉框。要跑几次 `java -version`（每次几十到几百毫秒），
-    /// 所以**第一次切到设置页**才扫，不在启动路径上加这段延迟。
+    /// 扫一遍这台机器上装了哪些 Java，结果进 m_localJavaVersions。
+    ///
+    /// NOTE: 这一个是**无条件**重扫。要跑几次 `java -version`（每次几十到几百毫秒），
+    ///       所以"切到设置页顺手扫一下"那条路走的是下面那个带节流的 refreshJavaList()。
+    void scanLocalJava();
+    /// 第一次切到设置页时扫一次（一次会话里只扫这一遍）。加节流是为了不在启动路径上
+    /// 加这段延迟 —— 用户专门来「Java 管理」那一页看的时候不走这条，那边要的是当场的
+    /// 真实结果（见 openJavaManage）。
     void refreshJavaList();
     /// 把「Java 版本」那一行下面的说明文字刷成**当前设定**：手动/自动两档 × 路径有值/
     /// 无值，四种说法。它说的是"设定了什么"，不是"这次启动一定会用哪个" —— 自动档下真正
@@ -1141,7 +1150,18 @@ private:
     void pushVersionNameOptionsToUi(const VersionNameOptions &options);
     /// 选项卡切换：底栏左下角要不要显示实例名、以及要不要扫 Java，都在这里收口。
     void onMainTabChanged();
-    void onJavaSelectionChanged();
+    /// 开「Java 管理」那一页（设置页「启动」栏那颗按钮）。开之前重扫一遍盘。
+    void openJavaManage();
+    /// 把 m_localJavaVersions 里的四个主版本灌进那一页。
+    void pushJavaRowsToPage();
+    /// 那一页发上来的三件事。都是**同步**的（下载那一条是真的几百 MB 阻塞式下载）。
+    void onJavaDetectRequested();
+    void onJavaDownloadRequested(int major);
+    void onJavaDownloadAllMissing();
+    /// 「选哪个 Java」那两颗（原来设置页那个下拉框的语义，2026-09-28 搬进那一页）。
+    /// 走的是同一对 setter + save()，所以盘上的格式一个字都没变。
+    void onJavaUseAuto();
+    void onJavaUseRuntime(int major);
     /// 把「内存分配」那一行画成当前状态：自动档按**现在**的系统内存重算并落盘、禁用两个
     /// 数字框，手动档原样显示用户定的值；两种情况都要写那句"这台机器有多少内存"的说明。
     /// 调用点：开窗灌值时（applySettingsToUi）、切到设置页时、用户切自动/手动那一刻、
@@ -1924,6 +1944,12 @@ private:
     /// 「资源详情」那一整页（下载页点一个资源进去）。和上面那个一样：懒建、是 this 的子对象、
     /// 没开 WA_DeleteOnClose —— 关掉之后指针照样有效（见 setupResourceDetailPage）。
     ResourceDetailPage *m_resourceDetailPage = nullptr;
+    /// 「Java 管理」那一整页（设置页「启动」栏那颗按钮开出来的）。同上面两个：懒建、
+    /// 是 this 的子对象、没开 WA_DeleteOnClose —— 关掉之后指针照样有效。
+    ///
+    /// NOTE: 它和别的整页有一处不同：那一页**不长记性**（四行的内容每次开页现灌），
+    ///       所以不存在"关掉之后里面的数据过期了"这回事 —— 见 openJavaManage。
+    JavaManageDialog *m_javaManagePage = nullptr;
     // 现在屏幕上用的是哪两张贴图（本地路径）。**只记真的载入成功了的** —— 所以空串
     // 就等于"现在显示的是默认外观"，右栏那句话的判据之一就是它。
     QString m_skinPath;
@@ -2040,8 +2066,15 @@ private:
     // 进度按网络分片到达（5000 多个 asset），节流一下再刷界面
     QElapsedTimer m_progressThrottle;
     // 「设置」页的 Java 列表扫过没有。扫描要逐个跑 `java -version`，只在第一次
-    // 切到设置页时做一次；用户后来装了新 Java 想让它重扫，重开启动器即可。
+    // 切到设置页时做一次；用户后来装了新 Java 想让它重扫，去「Java 管理」那一页按
+    // 「检测已有 Java」（2026-09-28 起），或者重开启动器。
     bool m_javaListScanned = false;
+    // 这台机器上装了哪些 Java（主版本 -> java.exe）。**唯一**的出处是 scanLocalJava()；
+    // 认的人只有「Java 管理」那一页那四行。目录换了（folderChanged）时会作废重扫。
+    QMap<int, QString> m_localJavaVersions;
+    // 「下载所有缺少的 Java」那一趟里用户按过返回没有。设它的是那一页的 rejected 信号
+    // （左上角那颗返回箭头接的就是它），读它的是那个循环 —— 只用在这一处。
+    bool m_javaManageStopped = false;
     // 窗口是不是为了「收起启动器，游戏退出后回来」这一档才藏起来的。
     // 只有它为真时 onGameFinished() 才会把窗口叫回来 —— 用户自己最小化的窗口
     // 不该被游戏的退出给弹出来。

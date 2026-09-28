@@ -18,6 +18,7 @@
 #include "..\ui\InstanceFilesPage.hpp"
 #include "..\ui\InstanceSettingsDialog.hpp"
 #include "..\ui\JavaMismatchDialog.hpp"
+#include "..\ui\JavaManageDialog.hpp"
 #include "..\ui\AccountSkinDialog.hpp"
 #include "..\ui\ResourceDetailPage.hpp"
 #include "..\ui\GameLogWindow.hpp"
@@ -656,49 +657,10 @@ template <typename Enum> bool selectByEnumData(QComboBox *combo, Enum value) {
     return true;
 }
 
-/**
- * @brief 往「Java 版本」下拉框里加一条运行时。
- * @param combo 目标下拉框。
- * @param majorVersion 主版本号；<= 0 表示不知道（钉死的那个路径就不一定知道）。
- * @param path java 可执行文件的完整路径。
- * @return 这条（新加的或本来就有的）条目的下标。
- *
- * NOTE: itemData 存的是**路径**，不是下标。这个下拉框里的条目会随扫描结果变多，
- *       拿下标当身份标识会在下次扫描后指到另一个 Java 上。
- *       空路径是保留给「自动」那一条的（它没有路径），所以这里拒绝空路径。
- */
-int addJavaRuntimeItem(QComboBox *combo, int majorVersion, const QString &path) {
-    if (path.isEmpty()) {
-        return -1;
-    }
-    const int existing = combo->findData(path);
-    if (existing >= 0) {
-        return existing;
-    }
-    // 版本号不知道时只显示路径（钉死的那个路径不在扫描结果里就是这样）
-    const QString label = majorVersion > 0
-                              ? QStringLiteral("Java %1 — %2").arg(majorVersion).arg(path)
-                              : path;
-    combo->addItem(label, path);
-    return combo->count() - 1;
-}
-
-/**
- * @brief 按当前设定把「Java 版本」下拉框的选中项摆正（调用方负责挡信号）。
- * @param combo 目标下拉框。
- * @param autoSelect 设定是不是"自动"。
- * @param path 设定的路径。
- *
- * 自动档选那一条 itemData 为**空串**的条目（只有它一条是空的）。
- * NOTE: 「手动档但路径是空的」这种配置只可能来自手改注册表（界面这条路上手动档
- *       一定带着一个真实路径）—— 那种情况下这里会落到「自动」那一条，而
- *       updateJavaPathLabel() 会照实说明它其实不会自动换 Java。不替用户改数据。
- */
-void selectConfiguredJava(QComboBox *combo, bool autoSelect, const QString &path) {
-    const QString wanted = autoSelect ? QString() : path;
-    const int index = combo->findData(wanted);
-    combo->setCurrentIndex(index >= 0 ? index : 0);
-}
+// 2026-09-28：这里原来有一对「往 Java 版本下拉框里塞条目 / 把它摆正」的帮手
+// （addJavaRuntimeItem / selectConfiguredJava）。那个下拉框换成了「Java 管理」那颗
+// 按钮，配对的两条也就没主了 —— 现在"这台机器上有哪些 Java"这件事整份住在
+// m_localJavaVersions 里，界面那一页按主版本号自己去里面取。
 
 // ---------------------------------------------------------------------------
 // 底栏那两块上拉面板（左：正在跑的实例 · 右：最近用过的账号）
@@ -1411,9 +1373,10 @@ void MainWindow::setupConnections() {
         // 换了一整份 .minecraft，三件跟着"上一份"走的事要重置：
         //   - "目录名和 jar 名对不上"的告警只报一次，新目录得重新能报；
         //   - 本机 Java 列表是**按根目录**扫的（自管 Java 在 <数据目录>/java 下），
-        //     下次进设置页要重扫一遍。NOTE: 重扫是"往里加"，下拉框里已经摆着的旧条目
-        //     （上一个根目录里那份自管 Java）不会因此消失 —— 它指着的是个真实存在的
-        //     java.exe，选它也能跑，要重开启动器才会清干净。
+        //     下次进设置页要重扫一遍。★ 2026-09-28：那份结果现在整个换掉（scanLocalJava
+        //     直接赋值给 m_localJavaVersions），所以下面连着它一起丢 —— 以前是往一个
+        //     下拉框里"往里加"，上一个根目录里那份自管 Java 会留在框里（它指着的是个
+        //     真实存在的 java.exe，不碍事，但要重开启动器才清干净），现在没有这一档了。
         //   - ★ 2026-09-27 补的第三件：**版本 json 的两张内存缓存表**。它们的键只有版本
         //     id（= 目录名），而两份 .minecraft 里各有一个 `1.20.1` 是常态 —— 不丢的话，
         //     切过来再启动同名的那个实例，classpath / natives / javaVersion / assetIndex
@@ -1422,6 +1385,7 @@ void MainWindow::setupConnections() {
         //     VersionManager::clearVersionJsonCache()。
         m_reportedUnrecognizedVersions = false;
         m_javaListScanned = false;
+        m_localJavaVersions.clear();
         m_versionManager->clearVersionJsonCache();
         // 版本列表、实例列表、按钮文字、底栏全都对着新根目录重来一遍。
         // 分组**不需要**在这里重置或重读：InstanceGroupStore 每个访问器都会比一下
@@ -1862,9 +1826,10 @@ void MainWindow::setupConnections() {
             &MainWindow::onServerPingAllFinished);
 
     // ---------- 设置页 ----------
-    // 「Java 版本」：选自动，或者钉死一个具体运行时。
-    connect(m_ui->getJavaVersionCombo(), &QComboBox::currentIndexChanged, this,
-            &MainWindow::onJavaSelectionChanged);
+    // 「Java 版本」那一格现在是一颗按钮：点开「Java 管理」那一页去看/去装（2026-09-28）。
+    // 那一页自己只发信号（它不认识 Java），点哪一行、点哪颗按钮都在下面这几个槽里落地。
+    connect(m_ui->getJavaManageButton(), &QPushButton::clicked, this,
+            &MainWindow::openJavaManage);
     // 「实例指定的 Java 版本不符时提醒」这个总闸。管的是**启动时那个三岔口**
     // （onStartButtonClicked 里问的那一次），不是这一页的显示。
     connect(m_ui->getJavaWarnMismatchCheck(), &QCheckBox::toggled, this,
@@ -6030,7 +5995,6 @@ void MainWindow::applySettingsToUi() {
     // 灌值时把信号全挡上：下面这些控件现在反映的是**盘上的值**，不是用户改的。
     // 不挡的话每条 currentIndexChanged/valueChanged 都会触发一遍"保存"，白写几次盘，
     // 更要紧的是那几条槽里还夹着真动作（改「版本名格式」会重刷实例列表）。
-    const QSignalBlocker blockJava(m_ui->getJavaVersionCombo());
     const QSignalBlocker blockBehaviour(m_ui->getLauncherBehaviourCombo());
     const QSignalBlocker blockSource(m_ui->getDownloadSourceCombo());
     const QSignalBlocker blockShowLog(m_ui->getShowGameLogCheck());
@@ -6048,17 +6012,9 @@ void MainWindow::applySettingsToUi() {
     const QSignalBlocker blockLoaderVersion(m_ui->getVersionNameLoaderVersionCheck());
 
     // ---------- Java 版本 ----------
-    // 本地扫到的那些运行时**不在这里加**：扫描要逐个跑 `java -version`，
-    // 放到第一次切到设置页时再做（refreshJavaList()）。这里只放「自动」那条
-    // （itemData 是空串，只有它是空的，见 selectConfiguredJava()）。
-    m_ui->getJavaVersionCombo()->addItem(tr("自动（按版本挑选）"), QString());
-    if (!m_javaSettings->autoSelectJava()) {
-        // 手动档：把一个条目摆出来，好让下面这句选中它。路径来自盘上，
-        // 可能指向一个早就删掉的 Java —— 那也是这个设定当前的真实状态，照实显示。
-        addJavaRuntimeItem(m_ui->getJavaVersionCombo(), 0, m_javaSettings->javaPath());
-    }
-    selectConfiguredJava(m_ui->getJavaVersionCombo(), m_javaSettings->autoSelectJava(),
-                         m_javaSettings->javaPath());
+    // 这里只剩那行说明（「自动：上次用的是 …」/「手动指定：…」）。本机扫到的那些运行时
+    // **不在这儿管**：扫描要逐个认版本，放到第一次切到设置页时再做（refreshJavaList()），
+    // 结果进的是「Java 管理」那一页（见 openJavaManage）。
     updateJavaPathLabel();
     // 提醒总闸。挡信号：这是"把值画出来"，不挡的话 setChecked 会触发
     // onJavaWarnMismatchChanged() 又回头落一次盘。
@@ -6162,24 +6118,30 @@ void MainWindow::updateJavaPathLabel() {
                        : tr("自动：上次用的是 %1").arg(cached));
 }
 
+void MainWindow::scanLocalJava() {
+    m_localJavaVersions = GlobalJavaSettings::scanLocalJavaVersions();
+    // 钉死的那条路径也要算数（它可能不在扫描结果里：用户在别的盘上装的 Java）。
+    // 不算的话，用户明明配着一份能用的 Java 17，这一页却写着「缺失」+「下载」——
+    // 界面在说谎（这条原来是给那个下拉框加的，理由一模一样）。
+    //
+    // NOTE: 扫到的**优先**：真扫到了同一个主版本就一个字都不改，免得把"游戏文件夹里
+    //       那份"换成一个用户随手钉的路径。反过来，钉的那条**已经失效**（文件没了）时
+    //       probeJavaMajorVersion() 会认不出来（返回 -1），也就不会凭空多出一行来。
+    const QString pinned = m_javaSettings->javaPath();
+    if (!pinned.isEmpty()) {
+        const int pinnedMajor = GlobalJavaSettings::probeJavaMajorVersion(pinned);
+        if (pinnedMajor > 0 && !m_localJavaVersions.contains(pinnedMajor)) {
+            m_localJavaVersions.insert(pinnedMajor, pinned);
+        }
+    }
+}
+
 void MainWindow::refreshJavaList() {
     if (m_javaListScanned) {
         return;
     }
     m_javaListScanned = true;
-
-    QComboBox *combo = m_ui->getJavaVersionCombo();
-    const QSignalBlocker blocker(combo);
-
-    const QMap<int, QString> local = m_javaSettings->scanLocalJavaVersions();
-    for (auto it = local.cbegin(); it != local.cend(); ++it) {
-        addJavaRuntimeItem(combo, it.key(), it.value());
-    }
-    // 钉死的那个路径也要在列表里（它可能不在扫描结果里：用户在别的盘上装的 Java、
-    // 或者那个路径已经失效）。没有它的话，用户一进设置页看到的是「自动」亮着，
-    // 而设定其实是手动 —— 界面在说谎。
-    addJavaRuntimeItem(combo, 0, m_javaSettings->javaPath());
-    selectConfiguredJava(combo, m_javaSettings->autoSelectJava(), m_javaSettings->javaPath());
+    scanLocalJava();
 }
 
 void MainWindow::onMainTabChanged() {
@@ -6193,19 +6155,222 @@ void MainWindow::onMainTabChanged() {
     }
 }
 
-void MainWindow::onJavaSelectionChanged() {
-    const QString path = m_ui->getJavaVersionCombo()->currentData().toString();
-    if (path.isEmpty()) {
-        // 「自动」那一条。**刻意不清空 m_javaPath**：那个字段同时是"上次挑中的
-        // 路径"的缓存，清掉的话每次启动都要重新扫一遍本地 Java。
-        m_javaSettings->setAutoSelectJava(true);
-    } else {
-        m_javaSettings->setAutoSelectJava(false);
-        m_javaSettings->setJavaPath(path);
+// ---------------------------------------------------------------------------
+// 「Java 管理」那一页（settings 页「启动」栏那颗按钮开出来的整页）
+// ---------------------------------------------------------------------------
+//
+// 分工和别处一样：那一页（ui/JavaManageDialog）只画四行 + 发信号，**一个字节的
+// Java 逻辑都不在它身上**；扫盘、下载、装完怎么更新界面全在下面这几个槽里。
+//
+// 它和这一层的关系是"每次开页现灌一遍"：那一页不长记性（也没有可以长记性的一份
+// 数据），四行的内容永远来自 m_localJavaVersions。
+
+void MainWindow::openJavaManage() {
+    // 一层只放得下一页。挡在这儿时要出声（理由见 overlayAcceptsNewPage 那段注释）。
+    if (!overlayAcceptsNewPage()) {
+        return;
     }
+    OverlayHost *overlay = m_ui->overlay();
+    if (overlay == nullptr) {
+        return;
+    }
+
+    if (m_javaManagePage == nullptr) {
+        m_javaManagePage = new JavaManageDialog(this);
+        connect(m_javaManagePage, &JavaManageDialog::downloadRequested, this,
+                &MainWindow::onJavaDownloadRequested);
+        connect(m_javaManagePage, &JavaManageDialog::downloadAllMissingRequested, this,
+                &MainWindow::onJavaDownloadAllMissing);
+        connect(m_javaManagePage, &JavaManageDialog::detectRequested, this,
+                &MainWindow::onJavaDetectRequested);
+        // 「选哪个 Java」那两颗（2026-09-28 从设置页那个下拉框搬过来的，见 .hpp）。
+        connect(m_javaManagePage, &JavaManageDialog::useAutoRequested, this,
+                &MainWindow::onJavaUseAuto);
+        connect(m_javaManagePage, &JavaManageDialog::useRuntimeRequested, this,
+                &MainWindow::onJavaUseRuntime);
+        // 「返回」= 关掉这一页 = reject()。这一条只服务于「下载所有缺少的 Java」那一趟：
+        // 它是**一份接一份**的同步下载，用户在中途按返回时得有个东西能看见（见那边）。
+        connect(m_javaManagePage, &QDialog::rejected, this,
+                [this] { m_javaManageStopped = true; });
+    }
+    m_javaManageStopped = false;
+
+    // 每开一次都重扫一遍：**盘上可能刚被别的东西改过**（用户自己在外面装了一个、
+    // 或者杀软把上一份删了）。这正是用户来这一页要解决的那类事，拿一份陈旧的
+    // 扫描结果给他看，他会以为"这里看不到 17"。
+    //
+    // NOTE: 这一趟是同步的（逐个认版本），所以要有那句等待提示 —— 和切到设置页
+    //       那一下做的事一模一样，只是那次没提示（那次是"顺手扫一下"，这次是
+    //       "用户专门来看这个"）。
+    enterSyncWait(tr("正在检测本机已安装的 Java..."));
+    scanLocalJava();
+    pushJavaRowsToPage();
+    leaveSyncWait();
+
+    // ★ 先把选项卡切过去再开页（`ownerTab` 不是当前那一颗的话，这一页一开出来就是
+    //   "收着"的，用户按了那颗按钮屏幕上什么都不出现）。见 openInstanceSettings 那段。
+    // NOTE: 切选项卡排在 `overlayAcceptsNewPage()` 之后 —— 那一句会弹话，弹话不该
+    //       顺手把用户翻到别的选项卡上。
+    const int settingsTab = MainWindowUI::settingsTabIndex();
+    if (QTabWidget *tabs = m_ui->getTabWidget()) {
+        if (settingsTab >= 0 && settingsTab < tabs->count()) {
+            tabs->setCurrentIndex(settingsTab);
+        }
+    }
+
+    // 标题写在页眉上（这一页自己不画标题），左上角那颗返回箭头由 OverlayHost 给
+    // —— 用户要的「左上角放一个返回键」就是它，不用自己摆。
+    overlay->execPage(m_javaManagePage, m_javaManagePage->titleText(), settingsTab);
+    // 关页之后把手里的这一份扫描结果也放掉：下次开页会重扫，留着只会是一份过期的。
+    // （m_localJavaVersions 不跟着清 —— 设置页那行说明可能还要用它。）
+}
+
+void MainWindow::pushJavaRowsToPage() {
+    if (m_javaManagePage == nullptr) {
+        return;
+    }
+    const QList<int> majors = JavaManageDialog::managedMajors();
+    for (int major : majors) {
+        m_javaManagePage->setRuntime(major, m_localJavaVersions.value(major));
+    }
+    // 「现在用的是哪一份」也要一起灌：它和那四行是两个来源（四行来自扫盘，这一句
+    // 来自设置）。只灌一半的话，界面上会出现"四条都没记号"或者"记号挂在一份
+    // 早就删掉的 Java 上"。
+    m_javaManagePage->setSelection(m_javaSettings->autoSelectJava(), m_javaSettings->javaPath());
+}
+
+void MainWindow::onJavaUseAuto() {
+    if (m_javaManagePage == nullptr) {
+        return;
+    }
+    // 「自动」那一档**刻意不动 m_javaPath**：那个字段同时是"上次挑中的路径"的缓存，
+    // 清掉的话每次启动都要重新扫一遍本地 Java（这条是原来那个下拉框的语义，照搬）。
+    m_javaSettings->setAutoSelectJava(true);
     // 这两个 setter 只改内存，落盘要显式调（GlobalJavaSettings 的约定）。
     m_javaSettings->save();
     updateJavaPathLabel();
+    pushJavaRowsToPage();
+}
+
+void MainWindow::onJavaUseRuntime(int major) {
+    if (m_javaManagePage == nullptr) {
+        return;
+    }
+    const QString path = m_localJavaVersions.value(major);
+    if (path.isEmpty()) {
+        // 没装的那几行上「选用」是藏着的，走到这儿说明扫描结果刚被换过（两个信号
+        // 之间盘上少了一份）。什么都不做 —— 把一条空路径钉进设置是最坏的结果。
+        return;
+    }
+    m_javaSettings->setAutoSelectJava(false);
+    m_javaSettings->setJavaPath(path);
+    m_javaSettings->save();
+    updateJavaPathLabel();
+    pushJavaRowsToPage();
+}
+
+void MainWindow::onJavaDetectRequested() {
+    if (m_javaManagePage == nullptr) {
+        return;
+    }
+    m_javaManagePage->setBusy(true);
+    enterSyncWait(tr("正在检测本机已安装的 Java..."));
+    scanLocalJava();
+    pushJavaRowsToPage();
+    leaveSyncWait();
+    m_javaManagePage->setBusy(false);
+}
+
+void MainWindow::onJavaDownloadRequested(int major) {
+    if (m_javaManagePage == nullptr || major <= 0) {
+        return;
+    }
+    // 一次只下一份。**这一趟是 UI 线程上的同步活**（见 GlobalJavaSettings 那段），
+    // 几百 MB 下完之前界面是冻住的，所以那一页得先禁掉所有按钮 —— 不然用户按三下
+    // 就下三遍同一个版本（理由在 JavaManageDialog::setBusy 那段）。
+    m_javaManagePage->setBusy(true);
+    QString javaPath;
+    enterSyncWait(tr("正在下载 Java %1 运行时（可能要几分钟）...").arg(major));
+    const bool ok = m_javaSettings->downloadJavaFromMojang(major, &javaPath);
+    leaveSyncWait();
+    if (!ok) {
+        appendLog(tr("Java %1 运行时下载失败").arg(major));
+        InlineMessage::warning(
+            m_ui->overlay(), tr("Java 运行时下载失败"),
+            tr("没能下到 Java %1。多半是网络不通（下载走的是 Adoptium）。\n"
+               "可以自己装一个，再回来按「检测已有 Java」；"
+               "或者去「实例设置…」里把某一份现成的 Java 指过去。")
+                .arg(major));
+        m_javaManagePage->setBusy(false);
+        return;
+    }
+    // 下完把盘重新认一遍**再**画：只把这一行改成新路径的话，别的行仍然停在开页那一刻
+    // 的状态上（"下完了但那一行还说缺失"就是这么来的）。
+    scanLocalJava();
+    pushJavaRowsToPage();
+    m_javaManagePage->setBusy(false);
+    appendLog(tr("Java %1 运行时已装好：%2")
+                  .arg(major)
+                  .arg(QDir::toNativeSeparators(javaPath)));
+}
+
+void MainWindow::onJavaDownloadAllMissing() {
+    if (m_javaManagePage == nullptr) {
+        return;
+    }
+    m_javaManageStopped = false;
+    const QList<int> majors = JavaManageDialog::managedMajors();
+    int okCount = 0;
+    int failCount = 0;
+    for (int major : majors) {
+        if (m_javaManageStopped) {
+            break;
+        }
+        // 已经有的一律跳过：这一颗按钮的字面意思就是"缺少的"，把已经装好的那份
+        // 顺手覆盖掉是它没说过的事。
+        //
+        // NOTE: 这是**每一轮现算**的，不是循环外算好一张名单：中间任何一份下完之后
+        //       m_localJavaVersions 都会被刷一遍，拿着开局那份名单走会去重下。
+        if (!m_localJavaVersions.value(major).isEmpty()) {
+            continue;
+        }
+        m_javaManagePage->setBusy(true);
+        QString javaPath;
+        enterSyncWait(tr("正在下载 Java %1 运行时（可能要几分钟）...").arg(major));
+        const bool ok = m_javaSettings->downloadJavaFromMojang(major, &javaPath);
+        leaveSyncWait();
+        if (ok) {
+            ++okCount;
+            appendLog(tr("Java %1 运行时已装好：%2")
+                          .arg(major)
+                          .arg(QDir::toNativeSeparators(javaPath)));
+        } else {
+            ++failCount;
+            appendLog(tr("Java %1 运行时下载失败").arg(major));
+        }
+        scanLocalJava();
+        pushJavaRowsToPage();
+
+        // ★ 把这一趟里用户按下的那几下**放出来**，再解开忙态。
+        //
+        //   不主动放的话，"按了返回"这件事要等到整趟下完才轮得到 —— 下载是在 UI
+        //   线程上同步跑的，`enterSyncWait()` 里那次 processEvents 是
+        //   **ExcludeUserInputEvents**（见那边的注释），鼠标事件在整个下载期间一直
+        //   排着队。顺序也不能反过来：解开忙态之后再放，用户排着的那几下会落在一颗
+        //   又能点的「下载」上，接着就是一趟新的下载。
+        QCoreApplication::processEvents();
+        m_javaManagePage->setBusy(false);
+    }
+
+    if (failCount > 0) {
+        // 有失败就报清楚失败了几份（"下完了"和"下成了三份、第四份没下到"是两回事）。
+        InlineMessage::warning(
+            m_ui->overlay(), tr("有些 Java 没下成"),
+            tr("下好了 %1 份，有 %2 份没下成。多半是网络不通（下载走的是 Adoptium）。\n"
+               "可以隔一会儿再点一次，或者自己装好之后按「检测已有 Java」。")
+                .arg(okCount)
+                .arg(failCount));
+    }
 }
 
 void MainWindow::refreshMemoryUi() {

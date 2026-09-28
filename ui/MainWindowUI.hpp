@@ -1570,7 +1570,13 @@ public:
     static QString settingsFormName(const QString &key) {
         return QStringLiteral("settingsForm-") + key;
     }
-    static QString javaVersionComboName() { return QStringLiteral("javaVersionCombo"); }
+    /// ★ 2026-09-28：原来这一格是个下拉框（`javaVersionCombo`），用户点名的改法是
+    /// 「把设置里 java 版本换成一个单独的按钮 java 管理」—— 选哪个 Java 那件事整个搬进了
+    /// 「Java 管理」那一页，这里只剩一颗开门按钮。**别把那个下拉框加回来**：
+    /// 加了就成两处都在说"这一台机器用哪个 Java"，而它们谁也不会跟着谁变。
+    static QString javaManageButtonName() { return QStringLiteral("javaManageButton"); }
+    /// 「这一层现在用的是哪个 Java」。和那颗按钮**不是一回事**：按钮是"去哪儿改"，
+    /// 这一行是"现在是什么"（「自动：上次用的是 …」/「手动指定：…」）。
     static QString javaPathLabelName() { return QStringLiteral("javaPathLabel"); }
     static QString javaWarnMismatchCheckName() { return QStringLiteral("javaWarnMismatchCheck"); }
     /// 这一行的行标题（左列那一格）。★ 2026-09-26：它原来叫「版本提醒」—— 说不清是提醒
@@ -2121,7 +2127,7 @@ public:
 
     // 设置页的控件。**只搭出来、只负责显隐**，值由 MainWindow 灌（它才知道
     // 那些设置存在哪、改了要不要落盘）。
-    QComboBox *getJavaVersionCombo() const { return javaVersionCombo; }
+    QPushButton *getJavaManageButton() const { return javaManageButton; }
     QLabel *getJavaPathLabel() const { return javaPathLabel; }
     QCheckBox *getJavaWarnMismatchCheck() const { return javaWarnMismatchCheck; }
     QCheckBox *getMemoryAutoCheck() const { return memoryAutoCheck; }
@@ -2293,7 +2299,8 @@ private:
     QHash<QString, QPushButton *> downloadFilterResetButtons;
     /// 整合包那一页那颗「导入整合包…」（见 downloadFilterImportModpackButtonName() 那段）。
     QPushButton *downloadImportModpackButton = nullptr;
-    QComboBox *javaVersionCombo = nullptr;
+    /// 「Java 管理…」那颗按钮（见 javaManageButtonName()）。
+    QPushButton *javaManageButton = nullptr;
     QLabel *javaPathLabel = nullptr;
     QCheckBox *javaWarnMismatchCheck = nullptr;
     QCheckBox *memoryAutoCheck = nullptr;

@@ -1301,28 +1301,29 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
     {
         QWidget *box = makeHintedControl(form);
         auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
-        javaVersionCombo = new QComboBox(box);
-        javaVersionCombo->setObjectName(javaVersionComboName());
-        javaVersionCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
-        javaVersionCombo->setMinimumContentsLength(12);
-        WheelGuard::install(javaVersionCombo);
-        boxLayout->addWidget(javaVersionCombo);
+        // 2026-09-28：这一格原来是"自动 / 手动 + 本机扫到的那些运行时"的下拉框。用户
+        // 点名的改法是把它**换成一个按钮**：挑哪个 Java、哪个缺了，全都归「Java 管理」
+        // 那一页管（见 ui/JavaManageDialog）。按钮靠左摆，不跟着列宽抻成一条横杠 ——
+        // 它不是这一页的主角，是通往另一页的一扇门。
+        javaManageButton = new QPushButton(QStringLiteral("Java 管理…"), box);
+        javaManageButton->setObjectName(javaManageButtonName());
+        boxLayout->addWidget(javaManageButton, 0, Qt::AlignLeft);
         javaPathLabel = new QLabel(box);
         javaPathLabel->setObjectName(javaPathLabelName());
         javaPathLabel->setWordWrap(true);
         javaPathLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
         boxLayout->addWidget(javaPathLabel);
-        // NOTE: 这一句说的是**全局**这一层的选择，它和实例覆盖层的行为**不一样**，别把
-        //       两边写成一回事：这里钉的 Java 对不上就是直接报错（不替你换、也不问）；
-        //       而「实例设置…」里给某个实例单独指定的 Java 对不上时，会弹一个框问要不要
+        // NOTE: 这段说的是**全局**这一层，它和实例覆盖层的行为**不一样**，别把两边写成
+        //       一回事：全局档挑中的 Java 对不上就是直接报错（不替你换、也不问）；
+        //       而「实例设置…」里给某个实例单独钉的 Java 对不上时，会弹一个框问要不要
         //       改用匹配的那个（那个开关在「提示」栏里）。全局档不问，是因为它不匹配时
-        //       自动档本来就会挑一个替换掉，手动档是用户对**整台机器**的选择 ——
+        //       自动档本来就会挑一个替换掉，钉死的那档是用户对**整台机器**的选择 ——
         //       那种一眼就该是自己配错的，不值得每次启动都问一遍。
-        addHint(box, QStringLiteral("「自动」是按版本要求挑（1.16.5 及以下要 Java 8、"
-                                    "26.x 要 Java 25，同一个启动器里得能共存）。"
-                                    "这一行选的是「全局」那一层：选了具体的 Java 就别指望"
-                                    "它会替你换一个 —— 版本对不上会直接报错，不会静默换一个。"
-                                    "要给某一个实例单独指定 Java，用它的「实例设置…」；"
+        addHint(box, QStringLiteral("按版本要求自动挑：1.16.5 及以下要 Java 8、"
+                                    "1.18~1.20.4 要 Java 17、1.20.5~1.21.11 要 Java 21、"
+                                    "26.x 要 Java 25（同一个启动器里得能共存）。"
+                                    "缺哪一个、或者哪一个坏了打不开，点「Java 管理…」去装。"
+                                    "要给某一个实例单独钉一个 Java，用它的「实例设置…」；"
                                     "那边对不上时会弹框问一句（那个开关在「提示」栏里）。"),
                 form);
         addSettingRow(grid, row, QStringLiteral("运行时"), box, form);
