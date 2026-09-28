@@ -14,6 +14,7 @@
 #include <QTextStream>
 
 #include "MainWindow.hpp"
+#include "../ui/Theme.hpp"   // 主题从盘上读回来、铺开（见下面那段 NOTE）
 #include "util/AppPaths.hpp"
 
 namespace {
@@ -119,16 +120,30 @@ int main(int argc, char *argv[]) {
     // QScrollBar 这类）写上一段 QSS，原生绘制就整体让位给样式表 —— 只写了一半的地方
     // 会露出残破外观，控制台还会刷警告。想自己定义外观，就得先离开原生样式。
     //
-    // 现在换的代价只有一行：全仓的 QSS 只有两段、三次应用（都在 MainWindowUI.cpp 里）——
-    // 头像底色一处，底栏那两颗按钮的 hover / pressed 一处（applyBottomBarButtonStyle()，
-    // 被两颗按钮各调一次）。等界面铺开、间距和控件高度都按原生样式的度量手调好之后再换，
-    // 那些数值就得整体重估。
+    // NOTE: 这一段从前还写着"全仓的 QSS 只有两段、三次应用"——那句话早就不成立了（现在
+    //       九处，散在 ui/ 的六个文件里，`grep -rn setStyleSheet ui/` 是唯一出处）。
+    //       换样式这件事**早就换过来了**，那几句"等界面铺开之后再换"的顾虑没有了。
+    //
+    // NOTE: 这也决定了主题那一层的取色方式：样式固定 Fusion 之后，`QStyle::standardPalette()`
+    //       就是"这一档深浅下我们该有的那一份调色板"，`Theme::apply()` 拿它当基色
+    //       （见 `ui/Theme.cpp`）。跟随原生样式的话，那份基色就是系统给的，改不动。
     QApplication::setStyle(QStyleFactory::create(QStringLiteral("Fusion")));
 
     // Configure QSettings to use proper registry/config paths
     app.setApplicationName("WTFML");
     app.setApplicationVersion("1.0.0");
     app.setOrganizationName("WTFML");
+
+    // 主题（背景 / 字色 / 文字不透明度 / 语义色）从盘上读回来铺开。
+    //
+    // **必须在 `MainWindow` 构造之前**：界面里那些"建的时候取一次色"的东西（条底色、
+    // 底栏底色、几张卡片、九处 QSS）都是按**那一刻**的调色板算的 —— 铺晚了它们就全是
+    // 出厂色，而且是那种"改了设置重启之后只有一半地方变了"的错。
+    //
+    // NOTE: 盘上一项都没有（新装、或者用户从没改过）时 `load()` 给的是出厂那一份，而
+    //       出厂那一份 `apply()` **连调色板都不碰** —— 也就是"加这一层之前的样子"。
+    Theme::setSpec(Theme::load());
+    Theme::apply(app);
 
     MainWindow window;
     window.show();

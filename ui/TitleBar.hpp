@@ -128,8 +128,20 @@ signals:
 
 protected:
     void paintEvent(QPaintEvent *event) override;
+    /// 调色板一变（换主题 / 系统换深浅）就把条上存下来的那几份颜色重算一遍。
+    void changeEvent(QEvent *event) override;
 
 private:
+    /// 条上所有颜色**现算一遍**：条底色、两颗窗口按钮的悬停色与墨色、四颗导航的悬停色与
+    /// 墨色（当前那一颗加粗 + 底下一条横线，见 `TitleBarButton::paintEvent`）。
+    ///
+    /// ★ 这是条上颜色的**唯一**出处。从前这几处散布在构造函数 / `setNavItems()` /
+    ///   `setCurrentNav()` 里各算各的 —— 那在"颜色只由调色板决定"的年代是对的，但用户
+    ///   单独改过标题栏底色之后，只有被改造到的那一处会跟着变。
+    /// NOTE: 基色调色板一律取 `QApplication::palette()`，**不能**取 `palette()`（条自己持有
+    ///       一份，里面那个 Window 已经是压暗过一档的了 —— 见 .cpp 里那段"第二次压暗"）。
+    void applyColors();
+
     QHBoxLayout *m_layout = nullptr;
     /// 导航那几颗**自己一层**（夹在主布局的两段等长 stretch 中间）：这一层就是"居中"的
     /// 实现，也是 `setNavItems()` 唯一动的东西（主布局从头到尾不变）。
@@ -141,6 +153,8 @@ private:
     /// 用户换过的名字。**空 = 没换过**（`titleText()` 于是回默认那五个字母）——
     /// 所以这里存的不是"条上会画的那串"，别拿它当显示值。
     QString m_brand;
+    /// `applyColors()` 正在跑（防自咬：它自己会 `setPalette()`，而我们就挂在那个事件上）。
+    bool m_applyingColors = false;
 };
 
 /**
@@ -162,9 +176,12 @@ public:
     /**
      * @param glyph      画哪种字形。
      * @param hoverColor 悬停时铺的底色（关闭那颗是红 —— 那个红来自
-     *                   `MainWindowUI::folderDangerColor()`，全仓只有一个出处）。
+     *                   `Theme::dangerColor()`，全仓只有一个出处）。
      * @param hoverInk   悬停时字形的颜色（关闭那颗悬停时字形要转白，不然红底上看不清）。
      * @param parent     父控件。
+     *
+     * NOTE: 这两个色**构造时给的一般是空色**：真正的值由 `TitleBar::applyColors()` 统一
+     *       设（含主题换了以后那一次），见那里的 NOTE。
      */
     TitleBarButton(Glyph glyph, const QColor &hoverColor, const QColor &hoverInk, QWidget *parent = nullptr);
 
@@ -189,6 +206,9 @@ public:
     ///       `VersionTreeDelegate` 里那个取消小叉用的也是它）。所以这里存的是**静态**墨色，
     ///       悬停时另外走 `m_hoverInk`。
     void setInkColor(const QColor &color);
+    /// 悬停时铺的底色 / 字形的颜色。**主题换了之后要重设**（这两个色是算出来的，
+    /// 一存下来就不跟着调色板走了）——`TitleBar::applyColors()` 每次都调它。
+    void setHoverColors(const QColor &hoverColor, const QColor &hoverInk);
 
 protected:
     void paintEvent(QPaintEvent *event) override;

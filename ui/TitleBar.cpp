@@ -7,7 +7,7 @@
 
 #include "TitleBar.hpp"
 
-#include "MainWindowUI.hpp"   // folderDangerColor()：全仓那一处"危险操作的红"
+#include "Theme.hpp"   // 条底色（Theme::Part::TitleBar）、危险操作的红（Theme::dangerColor()）
 #include "VersionIcons.hpp"
 
 #include <QFontMetrics>
@@ -67,11 +67,10 @@ constexpr int kCurrentMarkInset = 10;
 /// 和系统那两颗按钮上的字形差不多大。
 constexpr int kGlyphSize = 18;
 
-/// 条的颜色：窗口底色压暗一点。**和底栏那一句一模一样**（见 `MainWindowUI::setupBottomBar`
-/// 里那句 `darker(105)`）—— 上下两条框同一档颜色，中间那块内容区才像"嵌在里面"。
-QColor barColor(const QPalette &palette) {
-    return palette.color(QPalette::Window).darker(105);
-}
+// ★ 条的颜色原来是这儿的一个 `barColor()`：把窗口底色压暗一档（`darker(105)`，和底栏
+//   同一档）。2026-09-28 起它挪进了 `Theme::Part::TitleBar` —— 只有那一层才知道"用户把
+//   标题栏单独改过了没有"，算两遍的话覆盖项只会在一半地方生效。条上每一处颜色现在都问
+//   `Theme::partBackground(Part::TitleBar)`，**别在这儿再写一遍那个 darker(105)**。
 
 }  // namespace
 
@@ -115,6 +114,12 @@ TitleBarButton::TitleBarButton(Glyph glyph, const QColor &hoverColor, const QCol
 
 void TitleBarButton::setBaseColor(const QColor &color) {
     m_baseColor = color;
+    update();
+}
+
+void TitleBarButton::setHoverColors(const QColor &hoverColor, const QColor &hoverInk) {
+    m_hoverColor = hoverColor;
+    m_hoverInk = hoverInk;
     update();
 }
 
@@ -179,23 +184,15 @@ TitleBar::TitleBar(QWidget *parent) : QWidget(parent) {
     setObjectName(QStringLiteral("titleBar"));
     setFixedHeight(kTitleBarHeight);
     setAutoFillBackground(true);
-    // NOTE: 条底色**先算出来、存一份**，再写进调色板。不能"写进调色板之后再 `barColor(palette())`
-    //       取一次"——那时候 palette() 里的 Window 已经是压暗过一档的那个，再 `barColor()` 就是
-    //       **第二次压暗**（2026-09-25 之前就是这么写的，于是最小化那颗的悬停色比它该有的
-    //       深了两档：量出来 #bdbdbd，而"条底色再压暗一档"应该是 #c6c6c6）。注释一直写的是对的，
-    //       代码不是 —— ui_check Z11 那条像素断言就是照着这句话量的。
-    const QColor chrome = barColor(palette());
-    QPalette barPalette = palette();
-    barPalette.setColor(QPalette::Window, chrome);
-    setPalette(barPalette);
 
     // 悬停底色：最小化那颗是条底色再压暗一档（"有个东西在里头"就够了），
-    // 关闭那颗是**红底白叉** —— 那个红取自 folderDangerColor()，全仓只有这一个出处。
-    m_minimize = new TitleBarButton(TitleBarButton::Glyph::Minimize, chrome.darker(115),
-                                     palette().color(QPalette::WindowText), this);
+    // 关闭那颗是**红底白叉** —— 那个红取自 Theme::dangerColor()，全仓只有这一个出处。
+    // NOTE: 这一带**只负责把按钮建出来**，颜色一律由下面的 `applyColors()` 给（含这四个
+    //       色，它们都是"条底色/调色板算出来的"）。从前是在这儿现算现传的，于是主题一换
+    //       它们就停在旧色上 —— 见 `applyColors()` 那段。
+    m_minimize = new TitleBarButton(TitleBarButton::Glyph::Minimize, QColor(), QColor(), this);
     m_minimize->setObjectName(QStringLiteral("titleBarMinimize"));
-    m_close = new TitleBarButton(TitleBarButton::Glyph::Close, MainWindowUI::folderDangerColor(palette()),
-                                  QColor(Qt::white), this);
+    m_close = new TitleBarButton(TitleBarButton::Glyph::Close, QColor(), QColor(), this);
     m_close->setObjectName(QStringLiteral("titleBarClose"));
 
     // 条上的子控件**只有按钮**（四颗导航 + 最小化 + 关闭）。**这不是随手摆的**：
@@ -224,6 +221,78 @@ TitleBar::TitleBar(QWidget *parent) : QWidget(parent) {
 
     connect(m_minimize, &QAbstractButton::clicked, this, &TitleBar::minimizeRequested);
     connect(m_close, &QAbstractButton::clicked, this, &TitleBar::closeRequested);
+
+    // 条上所有颜色现在算一遍（构造这一刻四颗导航还没有，`setNavItems()` 会再来一遍）。
+    applyColors();
+}
+
+void TitleBar::applyColors() {
+    // ★ 防自咬：下面那句 `setPalette()` 会发一次 `PaletteChange`，而我们就挂在那个事件上
+    //   （`changeEvent()`）—— 不拦的话就是"改 → 收到 → 再改"。见 `Theme::follow()` 的 NOTE。
+    if (m_applyingColors) {
+        return;
+    }
+    m_applyingColors = true;
+
+    // 条底色：用户单独改过就是那个，没改过 = 窗口底色压暗一档（原来是 `barColor()`）。
+    const QColor chrome = Theme::partBackground(Theme::Part::TitleBar);
+    // ★ 基色调色板一律取**应用那一份**，不能取 `palette()`：条自己持有一份（下面就把 Window
+    //   改成了 chrome），第二次进来 `palette().color(Window)` 已经是压暗过一档的那个，
+    //   再算就是**第二次压暗**（2026-09-25 之前就是这么写的，于是最小化那颗的悬停色比它
+    //   该有的深了两档：量出来 #bdbdbd，而"条底色再压暗一档"应该是 #c6c6c6）。ui_check Z11
+    //   那条像素断言量的就是这件事。
+    QPalette barPalette = QApplication::palette();
+    barPalette.setColor(QPalette::Window, chrome);
+    setPalette(barPalette);
+
+    const QColor strong = Theme::partForeground(Theme::Part::TitleBar,
+                                               barPalette.color(QPalette::WindowText));
+    const QColor muted = Theme::partForeground(Theme::Part::TitleBar,
+                                              barPalette.color(QPalette::PlaceholderText));
+    const QColor hover = chrome.darker(115);
+    if (auto *button = qobject_cast<TitleBarButton *>(m_minimize)) {
+        button->setHoverColors(hover, strong);
+        button->setInkColor(strong);
+    }
+    if (auto *button = qobject_cast<TitleBarButton *>(m_close)) {
+        // ★ 两态两套色，别把悬停那一套当成常驻的：
+        //   不悬停 = **条上那几笔正文色**（和旁边那颗最小化同一个墨色，所以它平时就是条上
+        //   一个普通记号）；
+        //   悬停  = 红底 + 白叉，那个红是全仓唯一一处"危险操作的红"，白叉**只在红底上**成立
+        //   （底色上除了白没有别的能读的颜色）。
+        //   `setHoverColors()` 给的是悬停那一套、`setInkColor()` 给的是平时那一套 —— 从前
+        //   这里两样都写成白的，于是不悬停时那颗叉也是白的（ui_check Z11 那条像素断言量的
+        //   就是这件事：正文色 0 个像素）。
+        //   **故意不走 `partForeground()` 的是红底那一半**：那是"这一块的字色"，而红底上的
+        //   墨色不是"条上的字"。平时那一半照走。
+        button->setHoverColors(Theme::dangerColor(barPalette), QColor(Qt::white));
+        button->setInkColor(strong);
+    }
+    for (int i = 0; i < m_navButtons.size(); ++i) {
+        if (auto *button = qobject_cast<TitleBarButton *>(m_navButtons.at(i))) {
+            button->setHoverColors(hover, strong);
+            // 当前那一颗是正文色、其余几颗是次要色；**当前那一颗还加粗、底下还有一条横线**
+            // （见 `TitleBarButton::paintEvent`）—— 所以哪怕用户把这一块的前景覆盖成一个色，
+            // "现在是第几页"照样读得出来。
+            button->setInkColor(i == m_currentNav ? strong : muted);
+        }
+    }
+
+    m_applyingColors = false;
+}
+
+void TitleBar::changeEvent(QEvent *event) {
+    switch (event->type()) {
+    case QEvent::PaletteChange:
+    case QEvent::ApplicationPaletteChange:
+    case QEvent::StyleChange:
+        // 调色板换了（换主题、系统换深浅、父窗口换样式）⇒ 条上存的那些颜色重算一遍。
+        applyColors();
+        break;
+    default:
+        break;
+    }
+    QWidget::changeEvent(event);
 }
 
 void TitleBar::setNavItems(const QStringList &labels) {
@@ -237,20 +306,13 @@ void TitleBar::setNavItems(const QStringList &labels) {
     m_navButtons.clear();
     m_currentNav = -1;
 
-    // NOTE: 这里**不能**写成 `barColor(palette()).darker(115)` —— 那里面那次 `barColor()` 是
-    //       对**已经压暗过一档**的调色板再压一次（构造函数把条底色写进调色板了），于是悬停色
-    //       比最小化那颗深两档。条底色已经是 `palette().color(QPalette::Window)` 本身，
-    //       和构造函数里给最小化那颗写的是同一句。
-    const QColor hover = palette().color(QPalette::Window).darker(115);
-    const QColor hoverInk = palette().color(QPalette::WindowText);
     for (int i = 0; i < labels.size(); ++i) {
-        auto *button = new TitleBarButton(TitleBarButton::Glyph::Text, hover, hoverInk, this);
+        // 颜色同样交给 `applyColors()`（含悬停色）—— 从前是在这儿现算现传的，主题换了
+        // 它们就停在旧色上。
+        auto *button = new TitleBarButton(TitleBarButton::Glyph::Text, QColor(), QColor(), this);
         button->setObjectName(QStringLiteral("titleBarNav%1").arg(i));
         button->setLabel(labels.at(i));
         button->setFixedSize(kNavItemWidth, kButtonSize);
-        // 当前那一页的墨色 / 次要色由 setCurrentNav() 统一重设，这里先给次要那一档
-        // （不然构造到 setCurrentNav() 之间那一瞬，四颗都是正文色）。
-        button->setInkColor(palette().color(QPalette::PlaceholderText));
         m_navButtons.append(button);
         // 从左到右挨着摆在那一层自己的布局里（那一层被两段等长 stretch 夹在条的中正）。
         // 显式 AlignVCenter：这一层的**高**是整条（44），按钮只有 28 —— 不写对齐就是
@@ -258,19 +320,20 @@ void TitleBar::setNavItems(const QStringList &labels) {
         m_navLayout->addWidget(button, 0, Qt::AlignVCenter);
         connect(button, &QAbstractButton::clicked, this, [this, i]() { emit navRequested(i); });
     }
+    // 这一批新按钮的颜色（`m_currentNav` 刚被清成 -1 ⇒ 四颗一律次要色；要留下来的是
+    // `setCurrentNav()` 那一次重设）。
+    applyColors();
 }
 
 void TitleBar::setCurrentNav(int index) {
     m_currentNav = (index >= 0 && index < m_navButtons.size()) ? index : -1;
-    const QColor strong = palette().color(QPalette::WindowText);
-    const QColor muted = palette().color(QPalette::PlaceholderText);
     for (int i = 0; i < m_navButtons.size(); ++i) {
-        const bool current = i == m_currentNav;
         if (auto *button = qobject_cast<TitleBarButton *>(m_navButtons.at(i))) {
-            button->setCurrent(current);
-            button->setInkColor(current ? strong : muted);
+            button->setCurrent(i == m_currentNav);
         }
     }
+    // 墨色（正文 / 次要）跟 `m_currentNav` 一起重算。
+    applyColors();
 }
 
 QAbstractButton *TitleBar::navButton(int index) const {

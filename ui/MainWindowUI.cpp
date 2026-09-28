@@ -13,6 +13,7 @@
 #include "MemorySlider.hpp"
 #include "OverlayHost.hpp"
 #include "SkinModel.hpp"
+#include "Theme.hpp"
 #include "TitleBar.hpp"
 #include "VersionIcons.hpp"
 #include "VersionTreeDelegate.hpp"
@@ -1963,9 +1964,13 @@ public:
         setObjectName(MainWindowUI::bottomBarPanelName());
         // 底色比底栏再深一档：它是压在内容区上面的一块，得从底下那堆东西里分出来。
         // **不写死颜色**：从当前调色板推出来，浅色/深色主题下都成立（和底栏同一个路数）。
+        // 那一档从 2026-09-28 起由 `Theme::partBackground(Part::Panel)` 说了算（用户可以把
+        // 这一族的浮层单独换一个色），算出来和从前那个 `darker(112)` 一模一样。
+        // NOTE: 这一块**每次现建**（Qt::Popup + WA_DeleteOnClose）⇒ 不用挂 follow()：
+        //       主题换了之后下一次打开自然就是新的（`Theme::follow()` 的 NOTE 那一段）。
         setAutoFillBackground(true);
-        QPalette panelPalette = palette();
-        panelPalette.setColor(QPalette::Window, panelPalette.color(QPalette::Window).darker(112));
+        QPalette panelPalette = QApplication::palette();
+        panelPalette.setColor(QPalette::Window, Theme::partBackground(Theme::Part::Panel));
         setPalette(panelPalette);
 
         // 点行尾那几颗按钮要**先把自己收回去**，再把动作交给外面 —— 见下面那段 lambda。
@@ -2105,6 +2110,20 @@ private:
     OutsidePressHandler m_onOutsidePress;
 };
 
+/// 底栏整条那一块布的调色板：底比窗口底色深一档（用户单独改过就是那个）。
+///
+/// ★ 基色调色板一律取 `QApplication::palette()`，**不能**取底栏自己的 —— 底栏身上就写着
+///   算好的那一份，第二次进来取到的 Window 已经是压暗过一档的，再压一次就深两档
+///   （`TitleBar::applyColors()` 那边同一个坑，2026-09-25 在那儿踩过一次）。
+QPalette bottomBarChromePalette() {
+    QPalette palette = QApplication::palette();
+    palette.setColor(QPalette::Window, Theme::partBackground(Theme::Part::BottomBar));
+    return palette;
+}
+
+/// 底栏按钮身上那个"跟随登记只做过一次"的印记（见 `applyBottomBarButtonStyle()` 里的闸门）。
+constexpr const char kBottomBarButtonFollowedProperty[] = "wtfmlThemeFollowed";
+
 /// 底栏那两颗按钮的**同一套外观**：不画按钮自己的底（它占的是底栏那一格），
 /// 只在鼠标划过/按下时淡淡蒙一层 —— 不然用户根本看不出那一格能点。
 /// 蒙的那层取自调色板的 Highlight（**不写死颜色**），浅色/深色主题下都成立。
@@ -2119,6 +2138,19 @@ void applyBottomBarButtonStyle(QPushButton *button, const QPalette &barPalette) 
                        "QPushButton:hover { background-color: %1; }"
                        "QPushButton:pressed { background-color: %2; }")
             .arg(hover.name(QColor::HexArgb), pressed.name(QColor::HexArgb)));
+    // ★ 登记**只能登记一次**，所以这里用属性当闸门 —— 这个函数本身就在"主题变了"的回调
+    //   那一支上（下面那条 lambda），里面那句 `setStyleSheet()` 又发一次 `StyleChange`。
+    //   原来把 `Theme::follow()` 直接摆在这个函数里 ⇒ 每一趟都**再生一个**跟随者，新跟随者
+    //   又同步回调进这个函数、又生一个…… 挂上主题之后进程起来直接栈溢出（`0xC00000FD`，
+    //   一行输出都没有）。`PaletteFollower` 里那个 `m_running` 只拦得住**同一个**跟随者自咬，
+    //   拦不住"生新的"。闸门放在这里，是因为两个调用点之外谁也够不到这一支。
+    if (button->property(kBottomBarButtonFollowedProperty).toBool()) {
+        return;
+    }
+    button->setProperty(kBottomBarButtonFollowedProperty, true);
+    // 源调色板取**应用那一份**：这一条只用到 `Highlight`，而底栏身上那份只改了 `Window`
+    // （所以取谁都一样）—— 取应用那份就不必操心"底栏和按钮谁先收到事件"。
+    Theme::follow(button, [button]() { applyBottomBarButtonStyle(button, QApplication::palette()); });
 }
 
 /// 按钮右边那个**朝上**的小箭头（点开是向上弹的，所以箭头朝上）。画的，不是图片文件。
@@ -2127,6 +2159,12 @@ QLabel *makeChevronLabel(QWidget *parent) {
     QLabel *label = new QLabel(parent);
     label->setObjectName(MainWindowUI::bottomBarChevronName());
     label->setPixmap(VersionIcons::chevronUp(size, parent->palette().color(QPalette::WindowText)));
+    // 这是**位图**：颜色已经落在像素里了 ⇒ 主题一换得重画一张，不然那颗箭头会停在旧色上。
+    // （`VersionIcons` 里按"边长 + 颜色"缓存着，所以重画这一步不贵。）
+    Theme::follow(label, [label, size]() {
+        label->setPixmap(
+            VersionIcons::chevronUp(size, label->palette().color(QPalette::WindowText)));
+    });
     label->setFixedSize(size, size);
     return label;
 }
@@ -2267,9 +2305,11 @@ public:
         setObjectName(MainWindowUI::folderMenuName());
         // 底色比内容区深一档：它是压在列表上面的一块，得从底下那堆东西里分出来。
         // **不写死颜色**：从当前调色板推出来，浅色/深色主题下都成立（和底栏、面板同一个路数）。
+        // 这一族（浮层）那一档从 2026-09-28 起由 `Theme::partBackground(Part::Panel)` 说了算。
+        // NOTE: 每次现建 ⇒ 不用挂 follow()（和底栏面板同一条）。
         setAutoFillBackground(true);
-        QPalette menuPalette = palette();
-        menuPalette.setColor(QPalette::Window, menuPalette.color(QPalette::Window).darker(112));
+        QPalette menuPalette = QApplication::palette();
+        menuPalette.setColor(QPalette::Window, Theme::partBackground(Theme::Part::Panel));
         setPalette(menuPalette);
 
         // 点某一项要**先把自己收回去**，再把动作交给外面 —— 那五项里有两项要弹模态窗
@@ -2608,10 +2648,11 @@ protected:
 
 private:
     /// 底色比内容区深一档（从调色板推，**不写死颜色**）—— 和 FolderMenu 那条一样。
+    /// 那一档由 `Theme::partBackground(Part::Panel)` 说了算（这一族浮层共用一个色）。
     void applyMenuPalette() {
         setAutoFillBackground(true);
-        QPalette menuPalette = palette();
-        menuPalette.setColor(QPalette::Window, menuPalette.color(QPalette::Window).darker(112));
+        QPalette menuPalette = QApplication::palette();
+        menuPalette.setColor(QPalette::Window, Theme::partBackground(Theme::Part::Panel));
         setPalette(menuPalette);
     }
 
@@ -2687,10 +2728,12 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     bottomBar->setFixedHeight(kBottomBarHeight);
     // 底色比窗口底色深一档把它从内容区里分出来。**不写死颜色**：从当前调色板推出来，
     // 浅色主题和深色主题下都成立（darker() 在两种主题上的效果都是"更沉一点"）。
+    // 那一档从 2026-09-28 起由 `Theme::partBackground(Part::BottomBar)` 说了算（用户可以把
+    // 这一条单独换成别的色），算出来和从前那个 `darker(105)` 一模一样。
     bottomBar->setAutoFillBackground(true);
-    QPalette barPalette = bottomBar->palette();
-    barPalette.setColor(QPalette::Window, barPalette.color(QPalette::Window).darker(105));
-    bottomBar->setPalette(barPalette);
+    bottomBar->setPalette(bottomBarChromePalette());
+    // 底栏是**常驻**的（不像浮层那样每次现建）⇒ 主题一换它得自己重算一遍。
+    Theme::follow(bottomBar, [this]() { bottomBar->setPalette(bottomBarChromePalette()); });
 
     QHBoxLayout *barLayout = new QHBoxLayout(bottomBar);
     barLayout->setContentsMargins(12, 6, 12, 6);
@@ -2842,10 +2885,18 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     avatarLabel->setObjectName(avatarLabelName());
     avatarLabel->setFixedSize(kAvatarSize, kAvatarSize);
     avatarLabel->setAlignment(Qt::AlignCenter);
-    const QColor avatarBackground = bottomBar->palette().color(QPalette::Highlight);
-    const QColor avatarForeground = bottomBar->palette().color(QPalette::HighlightedText);
-    avatarLabel->setStyleSheet(QStringLiteral("QLabel { background-color: %1; color: %2; }")
-                                   .arg(avatarBackground.name(), avatarForeground.name()));
+    // 底和字都取自调色板的两个角色（选中那一块 / 它上面的字）——**不写死颜色**。
+    // NOTE: QSS 里嵌的是**色名** ⇒ 主题一换它不会自己变，所以这两句包成一个动作、
+    //       除了现在跑一遍，还挂在 `Theme::follow()` 上（下面那一条）。
+    const auto paintAvatar = [this]() {
+        const QPalette appPalette = QApplication::palette();
+        avatarLabel->setStyleSheet(
+            QStringLiteral("QLabel { background-color: %1; color: %2; }")
+                .arg(appPalette.color(QPalette::Highlight).name(),
+                     appPalette.color(QPalette::HighlightedText).name()));
+    };
+    paintAvatar();
+    Theme::follow(avatarLabel, [paintAvatar]() { paintAvatar(); });
 
     accountLabel = new ElidedLabel(bottomBar);
     accountLabel->setObjectName(accountLabelName());
@@ -2998,30 +3049,22 @@ QPixmap MainWindowUI::folderActionIcon(int action, int size, const QColor &color
 }
 
 bool MainWindowUI::paletteIsDark(const QPalette &palette) {
-    // 判据取的是**窗口底色的明度**（不是某个"主题叫什么"的标志位）：深底用浅红、
-    // 浅底用深红，两种主题下都是"一眼看出是红字"而不是"一团糊在底色里"。
-    return palette.color(QPalette::Window).lightness() < 128;
+    // ★ 2026-09-28 起判据只有一处（`Theme::isDarkPalette()`）—— 主题那一层要知道同一件事
+    //   （语义色按深浅挑），而"两处各写一遍 lightness() < 128"正是这个改动要收掉的东西。
+    return Theme::isDarkPalette(palette);
 }
 
 QColor MainWindowUI::folderDangerColor(const QPalette &palette) {
-    if (paletteIsDark(palette)) {
-        return QColor(0xff, 0x6b, 0x6b);
-    }
-    return QColor(0xc0, 0x28, 0x28);
+    // 出厂的深浅两档（#ff6b6b / #c02828）、以及"用户点名要一个红"这一档，都在 Theme 里。
+    return Theme::dangerColor(palette);
 }
 
 QColor MainWindowUI::installNameErrorColor(const QPalette &palette) {
-    // 浅底那一档和原来那个写死的 #c0392b **一字不差**（对浅色主题的窗口底色 #f0f0f0
-    // 实测 4.77:1，够 WCAG 正文那条 4.5:1）。
-    //
-    // 深底那一档没法照搬：同一个 #c0392b 落到深色主题的底上只有 2.26:1 —— 名字写错了
-    // 却看不出底下那行写了什么，等于没有。这里**借用同一个界面里已经调好的那个浅红**
-    // （见 folderDangerColor()）：两处红各挑一个提亮度是没道理的，挑歪了就是"一处红看着
-    // 干净、另一处发脏"这种没人查得出的毛病（那条话底栏那颗方块的红已经写过一遍了）。
-    if (paletteIsDark(palette)) {
-        return folderDangerColor(palette);
-    }
-    return QColor(0xc0, 0x39, 0x2b);
+    // NOTE: 这一处红和上面那个**故意不是同一个色**：浅底 #c0392b 对窗口底色 #f0f0f0
+    //       实测 4.77:1（够 WCAG 正文那条 4.5:1），#c02828 是另一条来历。深底那一档没法
+    //       照搬同一个 #c0392b（只有 2.26:1），所以借了同一个浅红。理由整段挪进了
+    //       `Theme::errorTextColor()`。
+    return Theme::errorTextColor(palette);
 }
 
 QString MainWindowUI::groupActionText(int action, const GroupRow &row) {
@@ -3109,21 +3152,18 @@ QString MainWindowUI::groupActionTooltip(int action, const GroupRow &row) {
 }
 
 QColor MainWindowUI::runStateMarkColor(RunStateMark state, const QPalette &palette) {
-    // 深浅两套的判据走 paletteIsDark()（和 folderDangerColor() 同一处）。三个色各挑
-    // 一深一浅：浅底上用深的（在浅底上看得见），深底上用亮的。
-    const bool dark = paletteIsDark(palette);
+    // 三个色现在都是**语义色**（Theme 那一层）：红 = 危险/没在跑、黄 = 警告/启动中、
+    // 绿 = 正常/在跑。深浅两档的判据、以及"用户点名要某个色"这一档，都在 Theme 里 ——
+    // 这里只剩下"哪一档状态是哪一个语义"（那是界面的说法，不是主题的说法）。
     switch (state) {
     case RunStateMark::NotRunning:
         // 红这一档**直接复用**「删除」那一项的红（同一个界面上的两种红各调各的没有道理，
         // 调歪了就是"一处红看着干净、另一处发脏"这种没人查得出的毛病）。
         return folderDangerColor(palette);
     case RunStateMark::Launching:
-        // 黄这一档取的是**偏金黄**的琥珀色（不是纯黄 #ffff00）：那块方块的底色是底栏，
-        // 纯黄在浅色底上几乎看不见。色相实测 43(浅)/45(深)，和红那一档（0）差得开，
-        // 一眼能分出"红的是没在跑、黄的是在启动"。
-        return dark ? QColor(0xff, 0xd2, 0x4d) : QColor(0xe0, 0xa0, 0x00);
+        return Theme::warningColor(palette);
     case RunStateMark::Running:
-        return dark ? QColor(0x5e, 0xd1, 0x7a) : QColor(0x1f, 0x9d, 0x4d);
+        return Theme::okColor(palette);
     }
     return palette.color(QPalette::WindowText);
 }

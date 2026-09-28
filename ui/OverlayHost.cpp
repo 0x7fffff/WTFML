@@ -46,6 +46,13 @@ QPixmap snapshot(QWidget *widget) {
 ///       覆盖层是一整个"页面"，留白和别的页面不一样的话，进设置再退出来会看着跳一下。
 constexpr int kOverlayPageMargin = 9;
 
+/// 卡片（整页里那张 / 小提示那张）那一块布的调色板：底出厂是 `Base`（用户单独改过就是那个）。
+QPalette cardChromePalette() {
+    QPalette palette = QApplication::palette();
+    palette.setColor(QPalette::Window, Theme::partBackground(Theme::Part::Card));
+    return palette;
+}
+
 }  // namespace
 
 OverlayHost::OverlayHost(QWidget *anchor, QWidget *parent) : QWidget(parent), m_anchor(anchor) {
@@ -125,9 +132,13 @@ OverlayHost::OverlayHost(QWidget *anchor, QWidget *parent) : QWidget(parent), m_
     card->setObjectName(overlayPromptHostName());
     card->setFrameShape(QFrame::StyledPanel);
     card->setAutoFillBackground(true);
-    QPalette cardPalette = card->palette();
-    cardPalette.setColor(QPalette::Window, cardPalette.color(QPalette::Base));
-    card->setPalette(cardPalette);
+    // 卡片底色出厂是 `Base`（和输入框/列表里那层一样），2026-09-28 起归
+    // `Theme::Part::Card` 管（用户能把卡片单独换一个色）。
+    // NOTE: 基色取**应用调色板**而不是卡片自己的：卡片身上就写着算好的那一份，
+    //       第二次进来再取一次就是"在改过的基色上再算一遍"（TitleBar 那边同一个坑）。
+    card->setPalette(cardChromePalette());
+    // 卡片是**常驻**的（构造里建一次、跨提示复用）⇒ 主题一换得自己重算一遍。
+    Theme::follow(card, [card]() { card->setPalette(cardChromePalette()); });
     m_promptLayout = new QVBoxLayout(card);
     // 卡片自己留 18 px，内容容器**不再留**（两圈叠起来的话内容就被挤窄，而"提示有多宽"
     // 是有唯一出处的（promptContentWidth()），挤一下就不守恒了）。

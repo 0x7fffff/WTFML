@@ -17,6 +17,8 @@
  */
 #include "InstanceSettingsDialog.hpp"
 
+#include "Theme.hpp"   // 浮层的底色（Theme::Part::Panel）
+
 #include <QButtonGroup>
 #include <QCheckBox>
 #include <QComboBox>
@@ -188,9 +190,12 @@ class MenuPopup : public QWidget {
 public:
     explicit MenuPopup(QWidget *parent) : QWidget(parent, Qt::Popup | Qt::FramelessWindowHint) {
         // 底色比内容区深一档（从调色板推，**不写死颜色**）—— 和那两块菜单逐字同款。
+        // 那一档从 2026-09-28 起由 `Theme::partBackground(Part::Panel)` 说了算（这一族浮层
+        // 共用一个色），算出来和从前那个 `darker(112)` 一模一样。
+        // NOTE: 这块框**每次现建** ⇒ 不用挂 follow()：主题换了之后下一次打开自然就是新的。
         setAutoFillBackground(true);
-        QPalette menuPalette = palette();
-        menuPalette.setColor(QPalette::Window, menuPalette.color(QPalette::Window).darker(112));
+        QPalette menuPalette = QGuiApplication::palette();
+        menuPalette.setColor(QPalette::Window, Theme::partBackground(Theme::Part::Panel));
         setPalette(menuPalette);
     }
 

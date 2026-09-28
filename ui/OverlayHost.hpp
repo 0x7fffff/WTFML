@@ -67,6 +67,8 @@
 
 #pragma once
 
+#include "Theme.hpp"   // scrimColor()：四周变暗那一层归 Theme::Part::Scrim 管
+
 #include <QColor>
 #include <QPixmap>
 #include <QPointer>
@@ -287,7 +289,9 @@ public:
     static int pageHeaderHeight() { return 44; }
 
     /// 四周变暗那一层的颜色。半透明黑：**不写死具体灰**，盖在什么底色上都成立。
-    static QColor scrimColor() { return QColor(0, 0, 0, 96); }
+    /// ★ 2026-09-28 起这个色归 `Theme::Part::Scrim` 管（用户能把这一层单独换掉），出厂
+    ///   那一份就是这里原来那个 `rgba(0, 0, 0, 96)` —— 一字不差。
+    static QColor scrimColor() { return Theme::partBackground(Theme::Part::Scrim); }
 
 signals:
     /// 返回箭头被点了。`execPage()` 把它接到 reject 上；自己搭页面的调用方直接接。

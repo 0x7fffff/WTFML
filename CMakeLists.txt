@@ -54,6 +54,7 @@ set(HEADER_FILES
     ui/ConfigFileText.hpp
     ui/ConfigFileEditorPage.hpp
     ui/WorldSettingsPage.hpp
+    ui/Theme.hpp
     ui/ConfigEntries.hpp
     ui/MotdText.hpp
     ui/ToggleSwitch.hpp
@@ -127,6 +128,7 @@ set(SOURCE_FILES
     ui/InstanceGroupDelegate.cpp
     ui/SkinViewer.cpp
     ui/TitleBar.cpp
+    ui/Theme.cpp
     ui/WindowChrome.cpp
     ${HEADER_FILES}
 )

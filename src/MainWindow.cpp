@@ -36,6 +36,7 @@
 #include "..\ui\InlineMessage.hpp"
 // 主页右栏那个小人怎么画：几何、投影、默认外观、头像裁切全在它里面（纯函数 + 值）。
 #include "..\ui\SkinModel.hpp"
+#include "..\ui\Theme.hpp"
 // 顶上那条自己画的标题栏。这个头是 2026-09-25 加的：`MainWindowUI::titleBar()` 只前置
 // 声明了 `class TitleBar`，而"设置页改名字 → 条上立刻跟着变"那两处要调它的 setBrandText()。
 #include "..\ui\TitleBar.hpp"
@@ -1398,6 +1399,14 @@ MainWindow::MainWindow(QWidget *parent)
         [this](bool account, const QString &key, int action) {
             onBottomBarPanelAction(account, key, action);
         });
+
+    // 主题一换，底栏要按当前状态**重画一遍**：那颗三态方块和头像都是**位图**（颜色已经画进
+    // 像素里了），底栏自己那几位（模式文字、次要文字的颜色）也是建的时候从调色板取的。
+    // `updateBottomBar()` 正是"底栏全部内容按当前状态重画"那一个函数，它每次状态变化都会
+    // 被调到、本身是幂等的 —— 挂它就够了。
+    //
+    // NOTE: 挂的是**底栏**那个控件（常驻、和窗口同寿）⇒ 这一条不会比窗口活得长。
+    Theme::follow(m_ui->getBottomBar(), [this]() { updateBottomBar(); });
 
     m_versionManager->fetchAvailableVersions();
 }

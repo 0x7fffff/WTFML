@@ -26,6 +26,7 @@
 
 #include "MainWindowUI.hpp"
 #include "RowActivation.hpp"
+#include "Theme.hpp"
 #include "VersionTreeDelegate.hpp"
 
 namespace {
@@ -88,6 +89,14 @@ QString elidedFor(const QLabel *label) {
                                           qMax(0, label->contentsRect().width()));
 }
 
+/// 一处卡的调色板：底出厂是 `Base`，2026-09-28 起归 `Theme::Part::Card` 管。
+/// NOTE: 基色取**应用调色板**，不能取卡自己的（它身上已经写着算好的那一份）。
+QPalette cardChromePalette() {
+    QPalette palette = QApplication::palette();
+    palette.setColor(QPalette::Window, Theme::partBackground(Theme::Part::Card));
+    return palette;
+}
+
 /// 一圈细边、底色是 Base 的卡（头卡用它）。
 ///
 /// 和 `OverlayHost` 里那张提示卡同一种做法（`QFrame::StyledPanel` + 把 Window 那档颜色
@@ -97,9 +106,9 @@ QFrame *makeCard(QWidget *parent) {
     auto *card = new QFrame(parent);
     card->setFrameShape(QFrame::StyledPanel);
     card->setAutoFillBackground(true);
-    QPalette cardPalette = card->palette();
-    cardPalette.setColor(QPalette::Window, cardPalette.color(QPalette::Base));
-    card->setPalette(cardPalette);
+    card->setPalette(cardChromePalette());
+    // 卡是**常驻**的（这一页建一次留着）⇒ 主题一换得自己重算一遍。
+    Theme::follow(card, [card]() { card->setPalette(cardChromePalette()); });
     return card;
 }
 
@@ -507,6 +516,9 @@ void ResourceDetailPage::rebuildChips() {
         button->setFixedHeight(kChipHeight);
         button->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
         button->setStyleSheet(chipStyle(button->palette()));
+        // QSS 里嵌的是色名 ⇒ 主题一换得重算（这一排是**整排重建**的，但重建只在
+        // chip 列表变了时发生，主题变化不在其中）。
+        Theme::follow(button, [button]() { button->setStyleSheet(chipStyle(button->palette())); });
         // 身份挂属性上（和 rowKeyRole 那条同一个理由：文字是给人看的，会随文案改）。
         button->setProperty("chipKey", chip.key);
         connect(button, &QPushButton::clicked, this, [this, button] { onChipClicked(button); });
