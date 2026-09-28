@@ -241,6 +241,18 @@ inline QString configBackupDir() {
     return minecraftDir() + QStringLiteral("/cache/config-backups");
 }
 
+/// 主题里那几张背景图存的地方：<数据目录>/cache/theme。
+///
+/// 为什么要有：用户挑的那张图**不能**直接用他自己的路径 —— 他挪走/删掉之后界面上就是一块
+/// 空白，而且他多半已经忘了当初挑的是哪一张。收进来的那一份还会顺手缩到 2560 以内
+/// （见 `src/util/ThemeImage.hpp`）：一张手机拍的照片是 4000×3000，原样铺上去意味着每次
+/// 启动都要解出 48 MB 的位图。
+///
+/// NOTE: 和 cache/ 里那几位同一条约定（挂数据根目录、可以整体删掉，删了只是图没了）。
+inline QString themeImageDir() {
+    return minecraftDir() + QStringLiteral("/cache/theme");
+}
+
 /// 给 Java 8 用的那套 ASCII 别名（每个实例一套，见 AsciiPathAlias）：<数据目录>/cache/ascii。
 ///
 /// 为什么要有：Java 8 打不开任何带非 ASCII 字符的路径（真机上 `20w14∞` 和中文名的 1.8 整合包

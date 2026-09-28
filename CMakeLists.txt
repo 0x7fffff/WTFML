@@ -44,6 +44,7 @@ set(HEADER_FILES
     src/download/ModDependencies.hpp
     src/download/ResourceStore.hpp
     src/util/AppPaths.hpp
+    src/util/ThemeImage.hpp
     src/util/ImageDecode.hpp
     src/util/SystemMemory.hpp
     src/util/ZipUtil.hpp
@@ -55,6 +56,7 @@ set(HEADER_FILES
     ui/ConfigFileEditorPage.hpp
     ui/WorldSettingsPage.hpp
     ui/Theme.hpp
+    ui/ThemeBackground.hpp
     ui/ConfigEntries.hpp
     ui/MotdText.hpp
     ui/ToggleSwitch.hpp
@@ -94,6 +96,7 @@ set(SOURCE_FILES
     src/download/ModDependencies.cpp
     src/download/ResourceStore.cpp
     src/util/ImageDecode.cpp
+    src/util/ThemeImage.cpp
     src/util/SystemMemory.cpp
     src/util/ZipUtil.cpp
     src/util/NbtUtil.cpp
@@ -130,6 +133,7 @@ set(SOURCE_FILES
     ui/SkinViewer.cpp
     ui/TitleBar.cpp
     ui/Theme.cpp
+    ui/ThemeBackground.cpp
     ui/WindowChrome.cpp
     ${HEADER_FILES}
 )

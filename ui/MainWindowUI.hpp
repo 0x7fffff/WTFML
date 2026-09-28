@@ -47,6 +47,8 @@
 #include <QPlainTextEdit>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QSizePolicy>
+#include <QSlider>
 #include <QSpinBox>
 #include <QStackedWidget>
 #include <QString>
@@ -1743,6 +1745,59 @@ public:
     // 再长的名字不会把条撑坏（`TitleBar::paintEvent` 会拿省略号截），但那属于"写了也看不见"。
     static int titleTextMaxLength() { return 16; }
 
+    // ---------- 「背景图」那一节（2026-09-28 加的） ----------
+    // 用户原话：「能给主页左侧自定义图像吗？其他页面的背景能换图吗」。两块底各一行：
+    // 主页左栏（`Theme::Part::HomeLeft`）+ 四个页面的内容区（`Theme::Part::PageBackground`）。
+    // **没设图时一个像素都不改**，所以这一节可以一直不用（见 ui/ThemeBackground.hpp）。
+    //
+    // NOTE: 一行里那几颗控件的名字以 **partKey 打头**（`homeLeftImageChoose`）—— 认这一行管的是
+    //       哪一块靠的是那个串，不是行的下标（下标只是"第几行"）。
+
+    /// 一行里那几颗控件的名字。参数是 `Theme::partKey()` 的结果（"homeLeft" / "pageBackground"）。
+    /// **这六个是唯一出处**：验证工程要取这几颗控件时走这里，别照字面再拼一遍。
+    static QString themeImageChooseName(const QString &partKey) {
+        return partKey + QStringLiteral("ImageChoose");
+    }
+    static QString themeImageClearName(const QString &partKey) {
+        return partKey + QStringLiteral("ImageClear");
+    }
+    static QString themeImageFitName(const QString &partKey) {
+        return partKey + QStringLiteral("ImageFit");
+    }
+    static QString themeImageOpacityName(const QString &partKey) {
+        return partKey + QStringLiteral("ImageOpacity");
+    }
+    /// 滑块右边那个「100%」—— **不放进滑块自己**（QSlider 画不了文字）。
+    static QString themeImagePercentName(const QString &partKey) {
+        return partKey + QStringLiteral("ImagePercent");
+    }
+    /// 底下那行"现在铺的是哪一张"（没选图时是 `themeImageNoneText()`）。
+    static QString themeImageStateName(const QString &partKey) {
+        return partKey + QStringLiteral("ImageState");
+    }
+
+    /// 两颗按钮上的字。
+    static QString themeImageChooseText() { return QStringLiteral("选择图片…"); }
+    static QString themeImageClearText() { return QStringLiteral("清除"); }
+    /// 那一行状态文字在"还没选图"时说的话。
+    static QString themeImageNoneText() { return QStringLiteral("还没选图。"); }
+    /// 滑块右边那个百分号。**只有这一处**：数字是空的、百分号跟着一起空。
+    static QString themeImagePercentText(int opacity) {
+        return QStringLiteral("%1%").arg(opacity);
+    }
+    /// 摆法那个下拉框的宽（装得下「铺满（裁剪）」这四个字再加一个箭头）。
+    static int themeImageFitComboWidth() { return 140; }
+    /// 不透明度那根条多长。再长就把「不透明度」那四个字挤到下一行了（一行里已经有
+    /// 两颗按钮 + 一个下拉框）。
+    static int themeImageOpacityWidth() { return 150; }
+    /// 滑块右边那个百分数占多宽（三位的「100%」量出来的），免得拖着拖着整行跟着抖。
+    static int themeImagePercentWidth() { return 44; }
+    /// 一行里两颗控件之间那点缝。和 `kWindowSizeRowSpacing` 是一回事：一句标签和它管着的
+    /// 那颗控件要挨近些，两组之间才分得开。
+    static int themeImageRowSpacing() { return 8; }
+    /// 一行里两组之间那道更宽的缝。
+    static int themeImageGroupSpacing() { return 16; }
+
     // ---------- 「已安装版本」下拉框的占位文案 ----------
     // 空状态有两种，由 MainWindow::refreshInstalledVersions() 按当前情形切换：
     //   NoInstalledVersion —— 磁盘上一个装好的版本都没有
@@ -2159,6 +2214,29 @@ public:
     QSpinBox *getGameWindowWidthSpin() const { return gameWindowWidthSpin; }
     QSpinBox *getGameWindowHeightSpin() const { return gameWindowHeightSpin; }
     QLineEdit *getTitleTextEdit() const { return titleTextEdit; }
+
+    /// 「背景图」那一节里，**一块底**对应的一组控件（主页左栏一组、页面背景一组）。
+    ///
+    /// NOTE: 这一组是**当值存下来**的（`m_themeImageRows`），外面拿到的是引用 —— 和别处那些
+    ///       一个一个 getter 的写法不一样，理由是这五颗控件**只在一起用**（换一张图的动作要
+    ///       同时动"现在铺的是哪一张"那行字），拆成五个 getter 只是让每一处调用都写五遍。
+    struct ThemeImageRow {
+        /// `Theme::partKey()` 的结果（"homeLeft" / "pageBackground"）—— 认这一行管的是哪一块，
+        /// 靠的是这个串，不是行的下标。
+        QString partKey;
+        QPushButton *choose = nullptr;  ///< 「选择图片…」
+        QPushButton *clear = nullptr;   ///< 「清除」（没设图时由 MainWindow 灰掉）
+        QComboBox *fit = nullptr;       ///< 摆法；itemData 存 `Theme::imageFitKey()`
+        QSlider *opacity = nullptr;     ///< 不透明度 0~100
+        QLabel *percent = nullptr;      ///< 滑块右边那个「100%」
+        QLabel *state = nullptr;        ///< 底下那行"现在铺的是哪一张"
+    };
+
+    /// 这一节一共几行（今天 = 主页左栏 + 页面背景两行）。
+    static int themeImageRowCount() { return 2; }
+    /// 第 @p index 行；越界给一个**空行**（那几个指针都是 nullptr），调用方自己判空。
+    const ThemeImageRow &getThemeImageRow(int index) const;
+
     QCheckBox *getVersionNameCustomCheck() const { return versionNameCustomCheck; }
     QCheckBox *getVersionNameRealCheck() const { return versionNameRealCheck; }
     QCheckBox *getVersionNameLoaderCheck() const { return versionNameLoaderCheck; }
@@ -2338,6 +2416,8 @@ private:
     QSpinBox *gameWindowWidthSpin = nullptr;
     QSpinBox *gameWindowHeightSpin = nullptr;
     QLineEdit *titleTextEdit = nullptr;
+    /// 「背景图」那一节的各行控件，按 `ThemeImageRow::partKey` 认（见这一节在头文件里那段）。
+    QVector<ThemeImageRow> m_themeImageRows;
     QCheckBox *versionNameCustomCheck = nullptr;
     QCheckBox *versionNameRealCheck = nullptr;
     QCheckBox *versionNameLoaderCheck = nullptr;

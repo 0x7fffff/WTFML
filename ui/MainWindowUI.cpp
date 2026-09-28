@@ -14,6 +14,7 @@
 #include "OverlayHost.hpp"
 #include "SkinModel.hpp"
 #include "Theme.hpp"
+#include "ThemeBackground.hpp"
 #include "TitleBar.hpp"
 #include "VersionIcons.hpp"
 #include "VersionTreeDelegate.hpp"
@@ -115,9 +116,17 @@ TwoColumns buildTwoColumnPage(QWidget *page, const QString &tab) {
     row->setContentsMargins(kPageMargin, kPageMargin, kPageMargin, kPageMargin);
     row->setSpacing(kColumnSpacing);
 
-    const auto makeColumn = [page](const QString &name) {
+    // 栏本身是个控件（不是裸布局），而且**主页那一条左栏要能铺图**：用户点名要的
+    // 「主页左侧自定义图像」就是这一格（`Theme::Part::HomeLeft`，见 Theme.hpp）。
+    //
+    // NOTE: 栏本身在"没设图"时**什么都不画**（`ThemeBackground::paintEvent` 直接 return，
+    //       见那个文件头），所以这一栏原来那个裸 `QWidget` 换成它**一个像素都不差** ——
+    //       两者看到的都是底下那一层（页面 / 选项卡自己画的底）。
+    const auto makeColumn = [page](const QString &name, bool themed) {
         Column column;
-        column.widget = new QWidget(page);
+        column.widget = themed ? static_cast<QWidget *>(
+                                     new ThemeBackground(Theme::Part::HomeLeft, page))
+                               : new QWidget(page);
         column.widget->setObjectName(name);
         column.layout = new QVBoxLayout(column.widget);
         // 栏本身不留边距：页面那一层已经留过 kPageMargin 了，再留一层就是双层边距
@@ -127,8 +136,9 @@ TwoColumns buildTwoColumnPage(QWidget *page, const QString &tab) {
     };
 
     TwoColumns columns;
-    columns.left = makeColumn(MainWindowUI::leftColumnName(tab));
-    columns.right = makeColumn(MainWindowUI::rightColumnName(tab));
+    columns.left = makeColumn(MainWindowUI::leftColumnName(tab),
+                              tab == QLatin1String("home"));
+    columns.right = makeColumn(MainWindowUI::rightColumnName(tab), false);
     row->addWidget(columns.left.widget, MainWindowUI::leftColumnStretch(tab));
     row->addWidget(columns.right.widget, MainWindowUI::rightColumnStretch(tab));
     return columns;
@@ -250,6 +260,17 @@ void addHint(QWidget *box, const QString &text, QWidget *parent) {
 
 MainWindowUI::MainWindowUI(QMainWindow *parent) { setupUi(parent); }
 
+const MainWindowUI::ThemeImageRow &MainWindowUI::getThemeImageRow(int index) const {
+    // 越界**不崩**：那几行的下标是调用方自己数出来的（今天一共两行），而这一层在
+    // 构造之后才被问到 —— 给一个空行（指针全是 nullptr）比断言更好，调用方本来就要判空
+    // （见头文件那句"调用方自己判空"）。
+    static const ThemeImageRow kEmpty;
+    if (index < 0 || index >= m_themeImageRows.size()) {
+        return kEmpty;
+    }
+    return m_themeImageRows.at(index);
+}
+
 QString MainWindowUI::runningDurationText(qint64 startedAtMs, qint64 nowMs) {
     // 负数（时钟被往回调过、或者 startedAtMs 是个没写过的 0）当"刚开始"：这一行是个说明，
     // 不该出现"已运行 -3 分钟"这种算术漏出来的话。
@@ -327,7 +348,11 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     tabWidget->setObjectName(tabWidgetName());
 
     // ---------- 主页：左 = 挑一个已装好的版本，启动；右 = 我的角色（皮肤预览） ----------
-    QWidget *homeTab = new QWidget(tabWidget);
+    //
+    // 四个页面（这一处和下面三处）都是 `ThemeBackground`：用户 2026-09-28 要的「其他页面的
+    // 背景能换图吗」说的就是这一块（`Theme::Part::PageBackground`）。没设图时它画的就是
+    // 这一页原来那个底色，一个像素都不差（见 ui/ThemeBackground.hpp 的文件头）。
+    QWidget *homeTab = new ThemeBackground(Theme::Part::PageBackground, tabWidget);
     homeTab->setObjectName(homeTabName());
     const TwoColumns home = buildTwoColumnPage(homeTab, QStringLiteral("home"));
     {
@@ -427,7 +452,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     //       找这两栏量几何，主页右栏没了就等于主页的比例没地方量。
 
     // ---------- 实例：左 = 游戏文件夹列表；右 = 那个文件夹里的实例 ----------
-    QWidget *instanceTab = new QWidget(tabWidget);
+    QWidget *instanceTab = new ThemeBackground(Theme::Part::PageBackground, tabWidget);
     instanceTab->setObjectName(instanceTabName());
     const TwoColumns instance = buildTwoColumnPage(instanceTab, QStringLiteral("instance"));
     {
@@ -620,7 +645,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     //       游戏版本 → 版本号），在这里一段循环里搭出来（见下面那段）。原来那几句"还没做"
     //       的话连同 downloadPlaceholderText() 一起删掉了 —— 留着就是那几页在说假话。
     //       （「数据包」是 2026-09-25 加的，见头文件那张表那段。）
-    QWidget *downloadTab = new QWidget(tabWidget);
+    QWidget *downloadTab = new ThemeBackground(Theme::Part::PageBackground, tabWidget);
     downloadTab->setObjectName(downloadTabName());
     const TwoColumns download = buildTwoColumnPage(downloadTab, QStringLiteral("download"));
     {
@@ -1093,7 +1118,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     }
 
     // ---------- 设置：左 = 选项名称，右 = 选项内容 ----------
-    QWidget *settingsTab = new QWidget(tabWidget);
+    QWidget *settingsTab = new ThemeBackground(Theme::Part::PageBackground, tabWidget);
     settingsTab->setObjectName(settingsTabName());
     setupSettingsPage(settingsTab);
 
@@ -1643,6 +1668,91 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
                     .arg(TitleBar::defaultBrandText()),
                 form);
         addSettingRow(grid, row, QStringLiteral("标题文字"), box, form);
+    }
+
+    // ---------- 背景图 ----------
+    // 2026-09-28 加的：用户原话「能给主页左侧自定义图像吗？其他页面的背景能换图吗」。
+    // 两块底各一行 —— 主页左栏、四个页面的内容区（见 ui/Theme.hpp 里 Part 那两项）。
+    //
+    // NOTE: 挑图那一下**不是**把用户那个路径记下来：文件会被拷进数据目录
+    //       （`src/util/ThemeImage.hpp`）。这一节只摆控件，收图和落盘都在 MainWindow。
+    addSectionTitle(grid, row++, QStringLiteral("背景图"), form);
+    {
+        const auto addImageRow = [&](Theme::Part part, const QString &what) {
+            const QString key = Theme::partKey(part);
+            QWidget *box = makeHintedControl(form);
+            auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+
+            QWidget *line = new QWidget(box);
+            auto *lineLayout = new QHBoxLayout(line);
+            lineLayout->setContentsMargins(0, 0, 0, 0);
+            lineLayout->setSpacing(MainWindowUI::themeImageRowSpacing());
+
+            ThemeImageRow widgets;
+            widgets.partKey = key;
+
+            widgets.choose = new QPushButton(MainWindowUI::themeImageChooseText(), line);
+            widgets.choose->setObjectName(MainWindowUI::themeImageChooseName(key));
+            widgets.choose->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+
+            widgets.clear = new QPushButton(MainWindowUI::themeImageClearText(), line);
+            widgets.clear->setObjectName(MainWindowUI::themeImageClearName(key));
+            widgets.clear->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+
+            widgets.fit = new QComboBox(line);
+            widgets.fit->setObjectName(MainWindowUI::themeImageFitName(key));
+            // 项**由这里填**（`Theme::ImageFit` 这个名字本身就是 ui/ 那一层的东西）：
+            // 和「窗口模式」那个下拉框不一样 —— 那个的档位枚举在 src/ 里，这边看不见。
+            for (int i = 0; i < Theme::imageFitCount(); ++i) {
+                const auto fit = static_cast<Theme::ImageFit>(i);
+                widgets.fit->addItem(Theme::imageFitName(fit), Theme::imageFitKey(fit));
+            }
+            widgets.fit->setMinimumWidth(MainWindowUI::themeImageFitComboWidth());
+
+            widgets.opacity = new QSlider(Qt::Horizontal, line);
+            widgets.opacity->setObjectName(MainWindowUI::themeImageOpacityName(key));
+            widgets.opacity->setRange(0, 100);
+            widgets.opacity->setValue(100);
+            widgets.opacity->setFixedWidth(MainWindowUI::themeImageOpacityWidth());
+
+            widgets.percent = new QLabel(MainWindowUI::themeImagePercentText(100), line);
+            widgets.percent->setObjectName(MainWindowUI::themeImagePercentName(key));
+            widgets.percent->setMinimumWidth(MainWindowUI::themeImagePercentWidth());
+
+            lineLayout->addWidget(widgets.choose);
+            lineLayout->addWidget(widgets.clear);
+            lineLayout->addSpacing(MainWindowUI::themeImageGroupSpacing());
+            lineLayout->addWidget(new QLabel(QStringLiteral("摆法"), line));
+            lineLayout->addWidget(widgets.fit);
+            lineLayout->addSpacing(MainWindowUI::themeImageGroupSpacing());
+            lineLayout->addWidget(new QLabel(QStringLiteral("不透明度"), line));
+            lineLayout->addWidget(widgets.opacity);
+            lineLayout->addWidget(widgets.percent);
+            lineLayout->addStretch(1);
+            boxLayout->addWidget(line);
+
+            // "现在铺的是哪一张"那一行：**字号正常、不用 hint 那档灰** —— 它是这一格当前
+            // 的状态（和上面那行说明不是一个意思），用户扫一眼要知道自己挑了哪张。
+            widgets.state = new QLabel(MainWindowUI::themeImageNoneText(), box);
+            widgets.state->setObjectName(MainWindowUI::themeImageStateName(key));
+            widgets.state->setWordWrap(true);
+            boxLayout->addWidget(widgets.state);
+
+            addHint(box,
+                    QStringLiteral("%1「选择图片…」挑的那张会拷一份进启动器的数据目录，"
+                                   "之后把它挪走、删掉都不影响这一块。不透明度调低 = "
+                                   "底下的底色透上来 —— 字要读得清就是靠它。")
+                        .arg(what),
+                    form);
+            addSettingRow(grid, row, Theme::partName(part), box, form);
+
+            m_themeImageRows.append(widgets);
+        };
+
+        addImageRow(Theme::Part::HomeLeft,
+                    QStringLiteral("主页左栏那一块（「已安装版本」到「启动游戏」那一片）。"));
+        addImageRow(Theme::Part::PageBackground,
+                    QStringLiteral("四个页面（主页 / 实例 / 下载 / 设置）内容区那一整块底。"));
     }
 
     // ---------- 账户 ----------

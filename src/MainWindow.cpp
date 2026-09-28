@@ -50,6 +50,11 @@
 // 三棵树（版本树 / 加载器树 / 下载页那几张资源表）都走它，见那个文件头。
 #include "..\ui\RowActivation.hpp"
 
+// 「背景图」那一节挑回来的那张图：**拷进数据目录**再记路径（见那个文件头那段）。
+// `ui/` 那边不许 include `src/`，所以收图这一步只能在 MainWindow 这一层做
+// （`MainWindowUI::ThemeImageRow` 只管摆控件）。
+#include "util/ThemeImage.hpp"
+
 // 添加以下头文件（防止hpp变动导致文件失效）
 #include <QApplication>
 #include <QCheckBox>
@@ -2071,6 +2076,24 @@ void MainWindow::setupConnections() {
     //       代价是每个字符一次 QSettings 写（最多 titleTextMaxLength() 次），可以接受。
     connect(m_ui->getTitleTextEdit(), &QLineEdit::textChanged, this,
             &MainWindow::onTitleTextChanged);
+    // 「背景图」那一节（主页左栏 / 页面背景）。四颗控件**每改一下都立刻生效、也立刻落盘**
+    // —— 和上面那一格同一个理由：改的是"界面长什么样"，改完看不见效果等于没改。
+    // NOTE: 下标只用来取这一行，**认它是哪一块靠 `partKey`**（见 MainWindowUI::ThemeImageRow）。
+    //       越界不崩：`getThemeImageRow()` 给一个空行，那边每一处都判了空。
+    for (int i = 0; i < MainWindowUI::themeImageRowCount(); ++i) {
+        const MainWindowUI::ThemeImageRow &imageRow = m_ui->getThemeImageRow(i);
+        if (imageRow.choose == nullptr) {
+            continue;
+        }
+        connect(imageRow.choose, &QPushButton::clicked, this,
+                [this, i] { onThemeImageChooseClicked(i); });
+        connect(imageRow.clear, &QPushButton::clicked, this,
+                [this, i] { onThemeImageClearClicked(i); });
+        connect(imageRow.fit, &QComboBox::currentIndexChanged, this,
+                [this, i] { onThemeImageFitChanged(i); });
+        connect(imageRow.opacity, &QSlider::valueChanged, this,
+                [this, i] { onThemeImageOpacityChanged(i); });
+    }
     // CurseForge 的 API key：**编辑完才存**（editingFinished = 回车或者焦点离开）。
     // 理由写在 onCurseForgeApiKeyEdited() 里。
     connect(m_ui->getCurseForgeApiKeyEdit(), &QLineEdit::editingFinished, this,
@@ -6260,6 +6283,13 @@ void MainWindow::applySettingsToUi() {
     m_ui->getTitleTextEdit()->setText(m_settings->titleText());
     m_ui->titleBar()->setBrandText(m_settings->titleText());
 
+    // ---------- 背景图 ----------
+    // 那两行控件画的是 `Theme::current()` 里那两块图的样子（**不是** `m_settings` 里的
+    // 东西：主题不归 LauncherSettings 管，它在同一个 QSettings 里另有一组键，见 Theme.hpp）。
+    // 信号在 refreshThemeImageRows() 里自己挡（它和上面这一串 blocker 是两回事：
+    // 那边连滑块带下拉框一起挡，理由写在那儿）。
+    refreshThemeImageRows();
+
     // ---------- 启动选项 ----------
     m_ui->getShowGameLogCheck()->setChecked(m_settings->showGameLog());
     // 两条启动提醒（上面那两个 blocker 已经挡上了）。这里**不能**顺手把值抄成
@@ -6848,6 +6878,173 @@ void MainWindow::updateGameWindowSizeEnabled() {
     m_ui->getGameWindowHeightSpin()->setEnabled(sizeApplies);
     // 中间那个乘号跟着一起灰：只剩两个灰框中间夹一个亮着的 ×，看着像那一格坏了。
     m_ui->getGameWindowSizeTimesLabel()->setEnabled(sizeApplies);
+}
+
+// ---------------------------------------------------------------------------
+// 「背景图」那一节（设置页「个性化」）
+// ---------------------------------------------------------------------------
+// 用户 2026-09-28 原话：「能给主页左侧自定义图像吗？其他页面的背景能换图吗」。
+//
+// 这一节动的是**主题规格**（`ui/Theme.hpp`），不是 LauncherSettings —— 主题另有一组
+// QSettings 键（`Theme/…`），落盘/读盘都走 `Theme::save()` / `Theme::load()`，而启动时
+// 铺开那一次在 `src/main.cpp` 里。所以这边改完的顺序是固定的三步：
+// **改进内存里那份规格 → 落盘 → `Theme::apply()` 立刻铺开**（少最后一步就是"改了没生效，
+// 下次启动才出现"，那是这一节最要命的失败模式）。
+
+void MainWindow::onThemeImageChooseClicked(int index) {
+    const MainWindowUI::ThemeImageRow &row = m_ui->getThemeImageRow(index);
+    Theme::Part part;
+    if (row.choose == nullptr || !Theme::partFromKey(row.partKey, &part)) {
+        return;
+    }
+    const QString picked = QFileDialog::getOpenFileName(
+        this, tr("挑一张背景图"),
+        QStandardPaths::writableLocation(QStandardPaths::PicturesLocation),
+        tr("图片 (*.png *.jpg *.jpeg *.bmp *.webp *.gif);;所有文件 (*)"));
+    if (picked.isEmpty()) {
+        return;  // 用户在文件框里点了取消 —— 不是错误，什么都不做
+    }
+    // 收图这一步会顺手缩到长边 2560 以内再写进数据目录（见 src/util/ThemeImage.hpp）。
+    // 失败那一支的话**是给用户看的**（"太大了" / "这不是一张图片" / "写不进去"），
+    // 所以直接弹出来 —— 静默的话用户只会觉得"点了没反应"。
+    QString error;
+    const QString stored = ThemeImage::store(row.partKey, picked, &error);
+    if (stored.isEmpty()) {
+        InlineMessage::warning(m_ui->overlay(), tr("这张图用不了"), error);
+        return;
+    }
+    // 换一张图时**摆法和不透明度照旧**（那是用户上一张调好的手感，换个内容不该把它抹掉）；
+    // 原来就没设过图时才从默认那两样开始 —— `partImage()` 那时给的就是默认值。
+    const Theme::PartImage before = Theme::partImage(part);
+    // ★ 记的是**用户挑的那张原来叫什么**（`picked` 的文件名），不是收进来那一份的名字：
+    //   数据目录里那份叫 `homeLeft.jpg`（槽位名），设置页写那个字等于什么都没写。
+    setThemePartImage(row.partKey, stored, QFileInfo(picked).fileName(),
+                      static_cast<int>(before.fit), before.opacity);
+}
+
+void MainWindow::onThemeImageClearClicked(int index) {
+    const MainWindowUI::ThemeImageRow &row = m_ui->getThemeImageRow(index);
+    if (row.clear == nullptr || row.partKey.isEmpty()) {
+        return;
+    }
+    // 盘上那一份也删掉：留着的话用户再把同一块设回来时看着一样，而数据目录里躺着几张
+    // 再也用不上的旧图（"主题"这种东西最容易变成一堆垃圾的地方）。
+    ThemeImage::remove(row.partKey);
+    // 摆法/不透明度一起回到默认：图都没了，"上次那张是按 40% 铺的"再留着没有意义，
+    // 而且这一条通常会被 `normalize()` 整个丢掉（只设过图的那一块 = 没有覆盖项）。
+    setThemePartImage(row.partKey, QString(), QString(), static_cast<int>(Theme::ImageFit::Cover),
+                      100);
+}
+
+void MainWindow::onThemeImageFitChanged(int index) {
+    const MainWindowUI::ThemeImageRow &row = m_ui->getThemeImageRow(index);
+    Theme::Part part;
+    if (row.fit == nullptr || !Theme::partFromKey(row.partKey, &part)) {
+        return;
+    }
+    const Theme::PartImage before = Theme::partImage(part);
+    if (!before.isSet()) {
+        return;  // 没图时这个下拉框是灰的，到不了这儿；真到了也什么都不该发生
+    }
+    Theme::ImageFit fit = before.fit;
+    Theme::imageFitFromKey(row.fit->currentData().toString(), &fit);
+    setThemePartImage(row.partKey, before.path, before.name, static_cast<int>(fit), before.opacity);
+}
+
+void MainWindow::onThemeImageOpacityChanged(int index) {
+    const MainWindowUI::ThemeImageRow &row = m_ui->getThemeImageRow(index);
+    Theme::Part part;
+    if (row.opacity == nullptr || !Theme::partFromKey(row.partKey, &part)) {
+        return;
+    }
+    const Theme::PartImage before = Theme::partImage(part);
+    if (!before.isSet()) {
+        return;
+    }
+    setThemePartImage(row.partKey, before.path, before.name, static_cast<int>(before.fit),
+                      row.opacity->value());
+}
+
+void MainWindow::setThemePartImage(const QString &partKey, const QString &imagePath,
+                                   const QString &imageName, int fit, int opacity) {
+    Theme::Part part;
+    if (!Theme::partFromKey(partKey, &part)) {
+        return;
+    }
+    Theme::Spec spec = Theme::current();
+    Theme::PartStyle style = spec.parts.value(static_cast<int>(part));
+    style.imagePath = imagePath;
+    style.hasImage = !imagePath.isEmpty();
+    // 只有**换了一张图**时才带上名字：拖滑块/换摆法那两路把上一份的名字原样带过来
+    // （`before.name`），所以在它们眼里这一行是"什么都没改"。清图时给的是空串，而
+    // `normalize()` 在没图那一档本来就会把它清掉。
+    style.imageName = imagePath.isEmpty() ? QString() : imageName;
+    style.fit = static_cast<Theme::ImageFit>(fit);
+    style.imageOpacity = opacity;
+
+    // ★ 这一块要是**只**设过图，清图之后整条撤掉。`normalize()` 也会收拾（它把"一项覆盖
+    //   都没有的那一块"丢掉），这里提前撤是为了让"这一块设过"这件事在**内存里**就是假的
+    //   —— 否则中间这一小会儿 `parts.contains()` 说它有、而它什么都没改（读回来的那一份
+    //   不会有这种状态，别让内存里那份和盘上那份不一样）。
+    if (!style.hasImage && !style.hasBackground && !style.hasForeground &&
+        style.textOpacity < 0) {
+        spec.parts.remove(static_cast<int>(part));
+    } else {
+        spec.parts.insert(static_cast<int>(part), style);
+    }
+
+    Theme::setSpec(spec);  // 收拾干净（钳不透明度、认不出的摆法退回默认）
+    Theme::save(Theme::current());  // 落盘的是**收拾之后**那一份
+    if (qApp != nullptr) {
+        // 立刻铺开。没设图 + 出厂那一档时它只是把"该重画了"敲给每个控件（见 Theme::apply()
+        // 里那段），所以清图之后那一块会**当场**变回纯底色。
+        Theme::apply(*qApp);
+    }
+    refreshThemeImageRows();
+}
+
+void MainWindow::refreshThemeImageRows() {
+    for (int i = 0; i < MainWindowUI::themeImageRowCount(); ++i) {
+        const MainWindowUI::ThemeImageRow &row = m_ui->getThemeImageRow(i);
+        Theme::Part part;
+        if (row.state == nullptr || !Theme::partFromKey(row.partKey, &part)) {
+            continue;
+        }
+        const Theme::PartImage image = Theme::partImage(part);
+        const bool has = image.isSet();
+
+        // 挡信号：下面这几句是"把规格画出来"，不挡的话 setCurrentIndex/setValue 会回头再
+        // 落一次盘（滑块尤其 —— `valueChanged` 那一发会走进 setThemePartImage()）。
+        const QSignalBlocker blockFit(row.fit);
+        const QSignalBlocker blockOpacity(row.opacity);
+
+        if (has) {
+            const int fitIndex = row.fit->findData(Theme::imageFitKey(image.fit));
+            if (fitIndex >= 0) {
+                row.fit->setCurrentIndex(fitIndex);
+            }
+        }
+        row.opacity->setValue(image.opacity);
+        row.percent->setText(MainWindowUI::themeImagePercentText(image.opacity));
+        // 状态那行给的是**文件名**，不是整条路径：那串多半长到要换行，而用户认的就是
+        // "我当时挑的是哪一张"（路径在注册表里，要看那儿看）。
+        //
+        // ★ 名字取的是 `image.name`（**用户挑的那张原来叫什么**），不是盘上那份的名字 ——
+        //   盘上那份叫 `homeLeft.jpg`（槽位名，一个槽位就一份，见 ThemeImage），写那个
+        //   用户等于什么都没看见。这一位是空的时候（手改注册表、或者别的入口按路径设的图）
+        //   才退回盘上那个文件名，绝不写一个空名字出来。
+        row.state->setText(
+            has ? tr("现在铺的是：%1").arg(image.name.isEmpty() ? QFileInfo(image.path).fileName()
+                                                               : image.name)
+                : MainWindowUI::themeImageNoneText());
+
+        // 没设图时后面那三样是灰的 —— 摆法/不透明度没有图可管，亮着会让人以为点了有用；
+        // 「清除」更直接：图都没有，点它是要清掉什么？
+        row.fit->setEnabled(has);
+        row.opacity->setEnabled(has);
+        row.percent->setEnabled(has);
+        row.clear->setEnabled(has);
+    }
 }
 
 void MainWindow::onTitleTextChanged() {

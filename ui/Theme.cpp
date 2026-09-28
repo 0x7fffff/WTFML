@@ -8,6 +8,7 @@
 #include "Theme.hpp"
 
 #include <QApplication>
+#include <QDir>
 #include <QEvent>
 #include <QHash>
 #include <QSettings>
@@ -41,9 +42,31 @@ const PartInfo kPartInfos[] = {
     {"panel", "浮层面板", 112, QPalette::Window, false},
     {"card", "卡片", 0, QPalette::Base, false},
     {"scrim", "四周变暗", 0, QPalette::Window, true},
+    // 下面两块的 `from` / `shade` 只是"万一有人给它设了个底色"时的兜底算法（今天没有任何
+    // 调用点取它们的底）—— 它们真正的底是 `QTabWidget` 自己画的那一层，**不在调色板里**
+    // （见 `partHasBackground()` 那段）。加这两项是为了能单独铺一张图。没设图时它们一个
+    // 像素都不改。
+    {"homeLeft", "主页左栏", 0, QPalette::Window, false},
+    {"pageBackground", "页面背景", 0, QPalette::Window, false},
 };
 static_assert(sizeof(kPartInfos) / sizeof(kPartInfos[0]) == static_cast<size_t>(partCount()),
               "kPartInfos 和 Part 的项数对不上 —— 加一块骨架时两处都要动");
+
+/// 一张图的摆法表（顺序 = `ImageFit` 的枚举顺序）。
+struct ImageFitInfo {
+    const char *key;
+    const char *name;
+};
+
+const ImageFitInfo kImageFitInfos[] = {
+    {"cover", "铺满（裁剪）"},
+    {"contain", "完整放下"},
+    {"stretch", "拉伸铺满"},
+    {"tile", "平铺"},
+};
+static_assert(sizeof(kImageFitInfos) / sizeof(kImageFitInfos[0]) ==
+                  static_cast<size_t>(imageFitCount()),
+              "kImageFitInfos 和 ImageFit 的项数对不上 —— 加一种摆法时两处都要动");
 
 /// 四周变暗那一层的出厂色。**和 `OverlayHost::scrimColor()` 从前的字面量一字不差**：
 /// 半透明黑，盖在什么底色上都成立。
@@ -201,6 +224,31 @@ bool partFromKey(const QString &key, Part *out) {
     return false;
 }
 
+QString imageFitKey(ImageFit fit) {
+    const int index = static_cast<int>(fit);
+    return index >= 0 && index < imageFitCount() ? QLatin1String(kImageFitInfos[index].key)
+                                                 : QString();
+}
+
+QString imageFitName(ImageFit fit) {
+    const int index = static_cast<int>(fit);
+    return index >= 0 && index < imageFitCount()
+               ? QString::fromUtf8(kImageFitInfos[index].name)
+               : QString();
+}
+
+bool imageFitFromKey(const QString &key, ImageFit *out) {
+    for (int i = 0; i < imageFitCount(); ++i) {
+        if (key == QLatin1String(kImageFitInfos[i].key)) {
+            if (out != nullptr) {
+                *out = static_cast<ImageFit>(i);
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
 QPalette::ColorRole qtRole(Role role) {
     const int index = static_cast<int>(role);
     return index >= 0 && index < roleCount() ? kRoleInfos[index].role : QPalette::WindowText;
@@ -287,9 +335,28 @@ Spec normalize(const Spec &spec) {
         style.hasBackground = style.hasBackground && style.background.isValid();
         style.hasForeground = style.hasForeground && style.foreground.isValid();
         style.textOpacity = style.textOpacity < 0 ? -1 : clampOpacity(style.textOpacity);
+        // 图这一位：**路径**是唯一说得准"有没有"的东西（`hasImage` 由它推出来，不是另立
+        // 一位让两边对不上 —— 空字符串天然就是"没设过"）。
+        // 摆法认不出的（盘上手改歪了）退回默认那一种，不整条丢掉 —— 图还在，只是摆法回到
+        // 「铺满」；为了一个摆法把用户挑的图整个忽略掉，那是把"读不懂"变成了"没设过"。
+        style.imagePath = style.imagePath.trimmed();
+        style.hasImage = !style.imagePath.isEmpty();
+        if (style.hasImage) {
+            if (static_cast<int>(style.fit) < 0 || static_cast<int>(style.fit) >= imageFitCount()) {
+                style.fit = ImageFit::Cover;
+            }
+            style.imageOpacity = clampOpacity(style.imageOpacity);
+            style.imageName = style.imageName.trimmed();
+        } else {
+            style.imagePath.clear();
+            // 没图了，"当初挑的那张叫什么"也就没有意义了（留着的话下次读回来这一块会
+            // 带着一个孤儿名字）。
+            style.imageName.clear();
+        }
         // 一项覆盖都没有的那一块**不留**：留着的话"这一块设过"这件事在盘上是假的
         // （读回来之后 `parts.contains()` 说它有，而它什么都没改）。
-        if (!style.hasBackground && !style.hasForeground && style.textOpacity < 0) {
+        if (!style.hasBackground && !style.hasForeground && style.textOpacity < 0 &&
+            !style.hasImage) {
             continue;
         }
         clean.parts.insert(it.key(), style);
@@ -433,6 +500,15 @@ QColor partBackground(Part part) {
     return info.shade == 0 ? from : from.darker(info.shade);
 }
 
+bool partHasBackground(Part part) {
+    const int index = static_cast<int>(part);
+    if (index < 0 || index >= partCount()) {
+        return false;
+    }
+    const auto it = current().parts.constFind(index);
+    return it != current().parts.constEnd() && it->hasBackground;
+}
+
 QColor partForeground(Part part, const QColor &fallback) {
     const int index = static_cast<int>(part);
     if (index < 0 || index >= partCount()) {
@@ -449,6 +525,23 @@ QColor partForeground(Part part, const QColor &fallback) {
         color.setAlpha(color.alpha() * it->textOpacity / 100);
     }
     return color;
+}
+
+PartImage partImage(Part part) {
+    PartImage image;
+    const int index = static_cast<int>(part);
+    if (index < 0 || index >= partCount()) {
+        return image;
+    }
+    const auto it = current().parts.constFind(index);
+    if (it == current().parts.constEnd() || !it->hasImage) {
+        return image;
+    }
+    image.path = it->imagePath;
+    image.name = it->imageName;
+    image.fit = it->fit;
+    image.opacity = clampOpacity(it->imageOpacity);
+    return image;
 }
 
 QColor scrimColor() {
@@ -532,6 +625,21 @@ void save(const Spec &spec) {
         if (style.textOpacity >= 0) {
             settings.setValue(partSettingKey(part, "TextOpacity"), style.textOpacity);
         }
+        if (style.hasImage) {
+            // 路径按 `QDir::toNativeSeparators` 写（注册表里能手看）—— 读回来再统一成
+            // `/`，见 `load()`。这一来一回是**故意的**：注册表里那串得是 `\`，用户在
+            // regedit 里一眼认得出那是自己盘上的哪一条；而这一层内部一律用 `/`。
+            settings.setValue(partSettingKey(part, "Image"),
+                              QDir::toNativeSeparators(style.imagePath));
+            settings.setValue(partSettingKey(part, "ImageFit"), imageFitKey(style.fit));
+            settings.setValue(partSettingKey(part, "ImageOpacity"), style.imageOpacity);
+            // 用户挑的那张**原来叫什么**：设置页那一行「现在铺的是：…」写的是它，不是我们
+            // 存进来那个槽位名（见 `PartStyle::imageName`）。空的不写 —— 读回来是空的就
+            // 退回落盘那个文件的名字。
+            if (!style.imageName.isEmpty()) {
+                settings.setValue(partSettingKey(part, "ImageName"), style.imageName);
+            }
+        }
     }
     if (clean.danger.isValid()) {
         settings.setValue(accentSettingKey("Danger"), colorToString(clean.danger));
@@ -574,7 +682,25 @@ Spec load() {
         if (opacity.isValid()) {
             style.textOpacity = opacity.toInt();
         }
-        if (style.hasBackground || style.hasForeground || style.textOpacity >= 0) {
+        // 图：路径统一成 `/`（写盘时是 `\`，见 `save()`）。**不认识就不留下这一条**
+        // （下一句由 `normalize()` 收尾：空的路径 = 没设过）。
+        style.imagePath = QDir::fromNativeSeparators(
+            settings.value(partSettingKey(part, "Image")).toString());
+        style.hasImage = !style.imagePath.isEmpty();
+        if (style.hasImage) {
+            ImageFit fit = ImageFit::Cover;
+            imageFitFromKey(settings.value(partSettingKey(part, "ImageFit")).toString(), &fit);
+            style.fit = fit;
+            const QVariant imageOpacity = settings.value(partSettingKey(part, "ImageOpacity"));
+            // 没写过这一项（手改注册表删掉了）⇒ 默认 100，不是 0 —— 0 是一张看不见的图，
+            // 那个"空白"会被当成坏了。
+            style.imageOpacity = imageOpacity.isValid() ? imageOpacity.toInt() : 100;
+            // 「当初挑的那张叫什么」：没有这一项（老版本存的、或者手改注册表删了）就留空，
+            // 界面那一侧会退回落盘那个文件的名字 —— 不许因为少一位就写不出话。
+            style.imageName = settings.value(partSettingKey(part, "ImageName")).toString();
+        }
+        if (style.hasBackground || style.hasForeground || style.textOpacity >= 0 ||
+            style.hasImage) {
             spec.parts.insert(i, style);
         }
     }

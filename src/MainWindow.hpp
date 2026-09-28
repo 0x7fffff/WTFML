@@ -853,6 +853,28 @@ private slots:
     void onResourceDownloadFinished(const QString &label, bool success,
                                     const QString &errorMessage);
 
+    // ---------- 设置页「背景图」那两行（2026-09-28 加的） ----------
+    //
+    // 用户原话：「能给主页左侧自定义图像吗？其他页面的背景能换图吗」。动的是**主题规格**
+    // （`ui/Theme.hpp`），不是 LauncherSettings —— 见 .cpp 里那一段开头写的"改内存里那份
+    // → 落盘 → 立刻铺开"这三步。
+    //
+    // ★ 这五条**放在 `private slots:` 里**（它们本来只被控件上的信号驱动，做不做得成槽对产品
+    //   毫无区别）：验证工程要能按名字把 `refreshThemeImageRows()` 调起来，量"用户挑完一张图
+    //   之后这两行长什么样" —— 挑图那颗按钮底下是 QFileDialog，测试里点不了，所以那一条只能
+    //   从这儿进去（mw_check 的 T29）。
+    /// 「选择图片…」：问用户要一张图 → 拷进数据目录 → 记进规格 → 立刻生效。
+    /// @param index 第几行（`MainWindowUI::getThemeImageRow()` 那张表的下标）。
+    void onThemeImageChooseClicked(int index);
+    /// 「清除」：把数据目录里那一份删掉，顺带把这一块的覆盖项整个撤掉。
+    void onThemeImageClearClicked(int index);
+    /// 摆法 / 不透明度：**立刻生效**（拖滑块时那块底跟着变，预览就是界面本身）。
+    void onThemeImageFitChanged(int index);
+    void onThemeImageOpacityChanged(int index);
+    /// 把 `Theme::current()` 里那两块图的样子画到这两行控件上（含"现在铺的是哪一张"那句
+    /// 话、以及没设图时把后面那几颗灰掉）。**灌值那一段和每次改完都要调它一次。**
+    void refreshThemeImageRows();
+
 protected:
     /// 只为一件事挂着：外框那两条 Win32 消息（WM_NCCALCSIZE / WM_NCHITTEST，见
     /// `ui/WindowChrome.hpp` 开头那两段）。接到手的是**这个窗口**的消息，Qt 已经替我们把
@@ -1415,6 +1437,32 @@ private:
     /// 接线那一处的 NOTE 里）。落盘的是 `setTitleText()` 归一化过的值，条上画的也是它 ——
     /// 于是"条上显示的字"和"盘上存着的字"永远是同一个。
     void onTitleTextChanged();
+
+    // ---------- 「背景图」那一节（设置页「个性化」；2026-09-28 加的） ----------
+    // 用户原话：「能给主页左侧自定义图像吗？其他页面的背景能换图吗」。两块底各一行，
+    // 动的是**主题规格**（`ui/Theme.hpp`），不是 LauncherSettings —— 见 .cpp 里那一段
+    // 开头写的"改内存里那份 → 落盘 → 立刻铺开"这三步。
+    //
+    // NOTE: 驱动这一节的四条槽（`onThemeImageChooseClicked` 那一组）和 `refreshThemeImageRows()`
+    //       都在上面 `private slots:` 那一段里 —— 它们本来就只被控件上的信号驱动，做成槽是
+    //       为了验证工程能按名字把 `refreshThemeImageRows()` 调起来（见那一处的 NOTE）。
+    /**
+     * @brief 把某一块的图改掉，然后**落盘 + 立刻铺开 + 重画这一行**。
+     * @param partKey `Theme::partKey()` 的结果（"homeLeft" / "pageBackground"）。
+     * @param imagePath 改完之后要铺的那张图（**绝对路径**）；空串 = 这一块不铺图。
+     * @param imageName 用户挑的那张**原来叫什么**（换图那一发给 `QFileInfo(picked).fileName()`，
+     *        拖滑块/换摆法那两发把上一份的名字原样带过来）。设置页那一行「现在铺的是：…」
+     *        写的是它 —— 盘上那份叫 `homeLeft.jpg`，写那个用户等于什么都没看见。
+     * @param fit `int(Theme::ImageFit)`。
+     * @param opacity 0~100。
+     *
+     * NOTE: 四个值**都由调用方给全**，不读盘、也不从控件上捡：规格是整份写回去的，所以
+     *       "这一次改的是哪一项"必须说清楚（拖滑块那一路只改不透明度，另外三项得原样带过来）。
+     * NOTE: `fit` 收的是 int 不是 `Theme::ImageFit` —— 这个头不 include `ui/Theme.hpp`
+     *       （那一层的头文件不许被 src/ 按值用进来，见本文件开头那段"前置声明 vs include"）。
+     */
+    void setThemePartImage(const QString &partKey, const QString &imagePath,
+                           const QString &imageName, int fit, int opacity);
     /**
      * @brief 把一行游戏输出写进**那一份会话**的日志窗；窗不在时按需建一个。
      * @param sessionId 哪一份会话。<= 0（不挂在任何实例上的那句话）直接丢。
