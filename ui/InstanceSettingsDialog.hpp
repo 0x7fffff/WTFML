@@ -82,13 +82,32 @@ class InstanceSettingsDialog : public QDialog {
     Q_OBJECT
 
 public:
-    /// 这个实例覆盖的那五项。没有值 = 跟随全局（空串也算有值，见 EffectiveJavaSettings.hpp）。
+    /// 这个实例覆盖的那几项。没有值 = 跟随全局（空串也算有值，见 EffectiveJavaSettings.hpp）。
+    ///
+    /// NOTE: 「窗口模式」这一项存的是**代号字符串**（`windowMode` 那一格），不是枚举 ——
+    ///       档位那个枚举（GameWindowMode）在 `src/settings/GameWindowSettings.hpp` 里，
+    ///       而 `ui/` 不许 include `src/`（分层铁律）。这一页只认"标签 + 代号"这一对，
+    ///       代号长什么样它不管；代号表由调用方喂进来（见构造函数那个 @c windowModes）。
+    ///       于是这里既不需要一份枚举的拷贝，也不用在 ui/ 里再写一遍那三个串。
     struct Override {
         std::optional<QString> javaPath;
         std::optional<int> xmx;
         std::optional<int> xms;
         std::optional<bool> autoMemory;
         std::optional<QString> extraJvmArgs;
+        std::optional<QString> windowMode;
+        std::optional<int> windowWidth;
+        std::optional<int> windowHeight;
+    };
+
+    /// 「窗口模式」那个下拉框里的一项：显示的字 + 存进 meta 的代号。
+    ///
+    /// 为什么是调用方喂而不是这一页自己写：那三个代号是**持久化格式的一部分**，唯一出处是
+    /// `src/settings/GameWindowSettings.cpp` 里的 gameWindowModeToken()。在 ui/ 里再写一遍
+    /// 就等于开第二个出处 —— 改了一处对不上时的症状是"选了档位、盘上没变"，不报任何错。
+    struct WindowModeChoice {
+        QString label;  ///< 下拉框上显示的字（调用方 tr 过）。
+        QString token;  ///< 存进 wtfml.meta 的代号。
     };
 
     /// 全局那一层的值。只用来写「跟随全局（当前 …）」那句话 —— 用户要能看见自己
@@ -105,6 +124,18 @@ public:
         /// NOTE: <= 0 表示调用方没给（验证工程里那些只验结构的构造点），退回内置的
         ///       MainWindowUI::memoryLimitMaxMb()。**别**把 0 当成"这台机器没有内存"。
         int memoryCapMb = 0;
+        /// 全局那一档「窗口模式」的**代号**（和 WindowModeChoice::token 同一个出处）。
+        /// 它是这一项「跟随全局」时下拉框要摆出来的那一项 —— 不给的话摆第 0 项。
+        QString windowMode;
+        /// 全局那一档「窗口模式」的**显示名**（"小窗"/"最大化"/"全屏"）。只用来写
+        /// 「跟随全局（当前 …）」那句话 —— 和 javaPath 那几项同一个道理：用户得能看见
+        /// 自己跟随的到底是什么。空串 = 调用方没给（那句话说成"跟随全局"不带括号）。
+        QString windowModeLabel;
+        /// 全局的窗口大小。**它是"跟随全局"那一档下面那两个数字框的禁用值来源**吗？不是 ——
+        /// 那两个框在「跟随全局」时被整格禁掉，值由全局那份决定；这两个数只用来填
+        /// 「跟随全局（当前 854×480）」那一句。
+        int windowWidth = 0;
+        int windowHeight = 0;
     };
 
     /**
@@ -123,14 +154,24 @@ public:
      *        它不是覆盖层的一项，和全局没有"跟随"关系，所以单独一行、没有那对单选钮。
      * @param warnJavaMismatch 这个实例的「Java 版本不符时提醒」。和 appendJvmArgs 一样
      *        不是覆盖层的一项（存 meta 的另一个键），所以也没有那对单选钮。
+     * @param windowModes 「窗口模式」那个下拉框里的档位表（显示的字 + 存进 meta 的代号，
+     *        **顺序就是界面上的顺序**）。由调用方喂是分层的要求，理由见 WindowModeChoice
+     *        上面那一段。空表 = 不建「窗口模式」这一行（验证工程里那些只验别的结构的构造点
+     *        就传空表）—— 那时「窗口大小」那一行照样建，它不依赖这份表。
      * @param parent 父窗口。
      */
     InstanceSettingsDialog(const QString &instanceName, const QString &instanceId,
                            const Override &current, const GlobalValues &global,
                            const QStringList &appendJvmArgs, bool warnJavaMismatch,
+                           const QList<WindowModeChoice> &windowModes = QList<WindowModeChoice>(),
                            QWidget *parent = nullptr);
 
-    /// 用户摆好的覆盖。五项各自：那行选了「自定义」就有值，选了「跟随全局」就没有值。
+    /// 用户摆好的覆盖。每一项各自：那行选了「自定义」就有值，选了「跟随全局」就没有值。
+    ///
+    /// ★ 2026-09-28：「窗口大小」这一项有**两个**值（宽和高），但界面上是**一行**、共用
+    ///   一对单选钮 —— 所以要么两个都有值、要么两个都没有。实现上就是"这一行选自定义时
+    ///   两个框的值一起收，选跟随时两个都不收"（见 .cpp 里那一行）。**不会**出现只有宽
+    ///   有值的情况。
     ///
     /// NOTE: 「内存分配」若是自动档（这一行选「自定义」且勾着自动，或者跟随全局而全局
     ///       是自动），最大/最小内存**一律当成跟随全局**（那两行这时是禁用的）。
@@ -665,6 +706,16 @@ public:
     static QString xmsField() { return QStringLiteral("xms"); }
     static QString autoMemoryField() { return QStringLiteral("autoMemory"); }
     static QString extraJvmArgsField() { return QStringLiteral("extraJvmArgs"); }
+    /// 「窗口模式」那两行（2026-09-28 加的）。
+    ///
+    /// NOTE: 这三个串**就是 wtfml.meta 里那三个键名**（`src/settings/GameWindowSettings.cpp`
+    ///       里 gameWindowModeMetaField() 那一组，那边是读侧写侧的唯一出处）。这一份是
+    ///       `ui/` 侧的那一份 —— ui/ 不许 include src/，所以两边各写一遍，两边各有断言
+    ///       钉着（那条约定见 LauncherSettings::gameWindowMinWidth() 上面那段）。
+    ///       对不上的症状是"在实例设置里改完窗口模式，启动时一点变化都没有"。
+    static QString windowModeField() { return QStringLiteral("windowMode"); }
+    static QString windowWidthField() { return QStringLiteral("windowWidth"); }
+    static QString windowHeightField() { return QStringLiteral("windowHeight"); }
 
     static QString javaPathEditName() { return QStringLiteral("instanceJavaPathEdit"); }
     static QString browseJavaButtonName() {
@@ -678,6 +729,12 @@ public:
     /// 「最小内存」那一行上面那段）。
     static QString memoryMinSpinName() { return QStringLiteral("instanceMemoryMinSpin"); }
     static QString memoryAutoCheckName() { return QStringLiteral("instanceMemoryAutoCheck"); }
+    /// 「窗口模式」那个下拉框。**项由调用方喂**（见 WindowModeChoice），这里只搭框。
+    static QString windowModeComboName() { return QStringLiteral("instanceWindowModeCombo"); }
+    static QString windowWidthSpinName() { return QStringLiteral("instanceWindowWidthSpin"); }
+    static QString windowHeightSpinName() { return QStringLiteral("instanceWindowHeightSpin"); }
+    /// 「宽 × 高」中间那个乘号（和设置页那个同名不同物，各有各的父控件）。
+    static QString windowSizeTimesName() { return QStringLiteral("instanceWindowSizeTimes"); }
     static QString extraJvmArgsEditName() {
         return QStringLiteral("instanceExtraJvmArgsEdit");
     }
@@ -1611,6 +1668,26 @@ private:
     QSpinBox *m_memoryMinSpin = nullptr;
     QCheckBox *m_memoryAutoCheck = nullptr;
     QLineEdit *m_extraJvmArgsEdit = nullptr;
+    /// 「窗口模式」那一行（2026-09-28）。**项是调用方灌的**（构造参数 windowModes），
+    /// 这里只有一个框；档位那一列以 itemData 存**代号字符串**，override() 直接把它读出来。
+    QComboBox *m_windowModeCombo = nullptr;
+    QSpinBox *m_windowWidthSpin = nullptr;
+    QSpinBox *m_windowHeightSpin = nullptr;
+    /// 这两行的档位单选钮（addOverrideRow() 里按 field 认出来的，见那儿那个 if 链）。
+    QRadioButton *m_windowModeFollow = nullptr;
+    QRadioButton *m_windowModeCustom = nullptr;
+    /// NOTE: 分辨率那一行虽然占**两个**键（windowWidth / windowHeight），但只有**一对**
+    ///       单选钮 —— 它俩是同一个决定的两半（见 .hpp 里 override() 那段）。所以这一对
+    ///       是按 `windowWidthField()` 那个 field 认出来的。
+    QRadioButton *m_windowSizeFollow = nullptr;
+    QRadioButton *m_windowSizeCustom = nullptr;
+    /// 「跟随全局」时那一句解释要说的窗口大小（`GlobalValues::windowWidth/Height`）。
+    /// 存下来是给 refreshHints() 用的 —— 它只拿到一次构造参数，之后每次都要重写那句话。
+    ///
+    /// NOTE: 那个 `-1` 的默认值是"调用方没给"的哨兵：<= 0 时那句话里**不写**尺寸，
+    ///       只写"跟随全局"（见 .hpp 里 GlobalValues 那一段）。
+    int m_globalWindowWidth = -1;
+    int m_globalWindowHeight = -1;
     /// 追加参数那一行是**多行**输入（一条一行）而不是单行：meta 里的 jvmArgs 是数组，
     /// 数组存在的理由就是"参数本身可能含空格"（见 VersionManager::versionJvmArgs()）。
     /// 用单行输入就得在"读出来拼成一行"和"存回去切成数组"之间来回切，而那个来回是

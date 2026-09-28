@@ -1326,6 +1326,15 @@ private:
     /// 同一实例已经在跑时要不要提醒可能丢进度。
     void onWarnWorldLossChanged();
     void onProcessPriorityChanged();
+    /// 「窗口模式」那个下拉框（小窗 / 最大化 / 全屏）。落盘之后会调
+    /// updateGameWindowSizeEnabled() —— 档位决定了下面那两个数字框还管不管用。
+    void onGameWindowModeChanged();
+    /// 按当前窗口模式把「窗口大小」那两个数字框（以及中间那个 ×）灰掉/点亮。
+    /// 「最大化」那一档不吃那两个数（见 GameWindowSettings.hpp），所以那一档是灰的。
+    ///
+    /// 灌值那一段也要调它一次：那边走的是有 QSignalBlocker 的 selectByEnumData()，
+    /// 走不到 onGameWindowModeChanged() 里去。
+    void updateGameWindowSizeEnabled();
     /// 「窗口大小」那两个数字框共用这一个槽（和内存那两个 spin 同一套写法）。
     void onGameWindowSizeChanged();
     /// 「外观」那一格：条上那行字。**边打字边生效也边落盘**（和上面两个不同，理由在

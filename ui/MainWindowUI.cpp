@@ -1490,6 +1490,26 @@ void MainWindowUI::setupSettingsGamePanel(QStackedWidget *stack) {
     {
         QWidget *box = makeHintedControl(form);
         auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        gameWindowModeCombo = new QComboBox(box);
+        gameWindowModeCombo->setObjectName(gameWindowModeComboName());
+        WheelGuard::install(gameWindowModeCombo);
+        boxLayout->addWidget(gameWindowModeCombo, 0, Qt::AlignLeft);
+        addHint(box, QStringLiteral("小窗 = 按下面那个大小开一个普通窗口。"
+                                    "最大化 = 开一个铺满屏幕（任务栏那块地方留出来）的窗口，"
+                                    "下面那个大小这时不生效。"
+                                    "全屏 = 直接进全屏（原版自己的 --fullscreen），"
+                                    "下面那个大小这时是「按 F11 退出全屏之后回到多大」。"
+                                    // 这几句是**屏幕上给用户看的话**：没有加粗这回事，写
+                                    // `**…**` 会原样画成两个星号（「」才是这一套文案里
+                                    // 强调的写法）。
+                                    "这三档都只影响「启动那一刻」；游戏里自己改过的窗口大小、"
+                                    "以及游戏自己记住的那一份，启动器不覆盖。"),
+                form);
+        addSettingRow(grid, row, QStringLiteral("窗口模式"), box, form);
+    }
+    {
+        QWidget *box = makeHintedControl(form);
+        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
         QWidget *sizeRow = new QWidget(box);
         QHBoxLayout *sizeLayout = new QHBoxLayout(sizeRow);
         sizeLayout->setContentsMargins(0, 0, 0, 0);
@@ -1502,9 +1522,11 @@ void MainWindowUI::setupSettingsGamePanel(QStackedWidget *stack) {
         // 数字框也吃滚轮（加一步/减一步），而且没有焦点时改完看不出来 —— 见 WheelGuard。
         WheelGuard::install(gameWindowWidthSpin);
         sizeLayout->addWidget(gameWindowWidthSpin);
-        QLabel *timesLabel = new QLabel(QStringLiteral("×"), sizeRow);
-        timesLabel->setObjectName(gameWindowSizeTimesLabelName());
-        sizeLayout->addWidget(timesLabel);
+        // 存成成员：MainWindow 要按「窗口模式」把这一格灰/亮（见 updateGameWindowSizeEnabled），
+        // 而它够不着这个局部变量 —— MainWindowUI 不是 QObject，`findChild` 那一套用不上。
+        gameWindowSizeTimesLabel = new QLabel(QStringLiteral("×"), sizeRow);
+        gameWindowSizeTimesLabel->setObjectName(gameWindowSizeTimesLabelName());
+        sizeLayout->addWidget(gameWindowSizeTimesLabel);
         gameWindowHeightSpin = new QSpinBox(sizeRow);
         gameWindowHeightSpin->setObjectName(gameWindowHeightSpinName());
         gameWindowHeightSpin->setRange(windowMinHeight(), windowMaxHeight());

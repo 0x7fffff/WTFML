@@ -1635,6 +1635,13 @@ public:
     }
     static QString showGameLogCheckName() { return QStringLiteral("showGameLogCheck"); }
     static QString processPriorityComboName() { return QStringLiteral("processPriorityCombo"); }
+    /// 「窗口模式」那个下拉框（小窗 / 最大化 / 全屏）。2026-09-28 加的。
+    ///
+    /// NOTE: 里面那几项**不由本类填** —— 档位那一侧的枚举（GameWindowMode）在 src/ 里，
+    ///       而 ui/ 不许 include src/（分层铁律）。所以这里是**只有框没有项**，项由
+    ///       MainWindow 灌（每项的 itemData 存 int(GameWindowMode)）—— 和 processPriorityCombo
+    ///       从头就是同一个形状。验证工程想断言"三档都在"要拿 mw_check（那边能看见 MainWindow）。
+    static QString gameWindowModeComboName() { return QStringLiteral("gameWindowModeCombo"); }
     static QString gameWindowWidthSpinName() { return QStringLiteral("gameWindowWidthSpin"); }
     static QString gameWindowHeightSpinName() { return QStringLiteral("gameWindowHeightSpin"); }
     /// 「外观」那一格那个文本框：条上那行字（2026-09-25 加的）。
@@ -2144,6 +2151,11 @@ public:
     QCheckBox *getWarnDuplicateLaunchCheck() const { return warnDuplicateLaunchCheck; }
     QCheckBox *getWarnWorldLossCheck() const { return warnWorldLossCheck; }
     QComboBox *getProcessPriorityCombo() const { return processPriorityCombo; }
+    QComboBox *getGameWindowModeCombo() const { return gameWindowModeCombo; }
+    /// 「宽 × 高」中间那个乘号。**它也要给出来**：MainWindow 按窗口模式灰/亮那一行时要连
+    /// 它一起 —— 只灰两个数字框、留一个亮着的 × 在中间，看着像那一格坏了。
+    /// （MainWindowUI 不是 QObject，所以是给一个 getter、不是让外面 `findChild`。）
+    QLabel *getGameWindowSizeTimesLabel() const { return gameWindowSizeTimesLabel; }
     QSpinBox *getGameWindowWidthSpin() const { return gameWindowWidthSpin; }
     QSpinBox *getGameWindowHeightSpin() const { return gameWindowHeightSpin; }
     QLineEdit *getTitleTextEdit() const { return titleTextEdit; }
@@ -2318,6 +2330,11 @@ private:
     QCheckBox *warnDuplicateLaunchCheck = nullptr;
     QCheckBox *warnWorldLossCheck = nullptr;
     QComboBox *processPriorityCombo = nullptr;
+    /// 「窗口模式」那个下拉框；**项由 MainWindow 灌**（见 gameWindowModeComboName()）。
+    QComboBox *gameWindowModeCombo = nullptr;
+    /// 「宽 × 高」中间那个乘号（`gameWindowSizeTimesLabelName()`）。存成成员是因为
+    /// MainWindow 要按窗口模式灰/亮它 —— 见它的 getter 上面那段。
+    QLabel *gameWindowSizeTimesLabel = nullptr;
     QSpinBox *gameWindowWidthSpin = nullptr;
     QSpinBox *gameWindowHeightSpin = nullptr;
     QLineEdit *titleTextEdit = nullptr;

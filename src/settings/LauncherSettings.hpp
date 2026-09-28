@@ -14,6 +14,7 @@
 
 #include "../launcher/ProcessPriority.hpp"
 #include "../manage/VersionDisplay.hpp"
+#include "GameWindowSettings.hpp"
 
 /**
  * @brief 游戏起来之后，启动器自己怎么办。
@@ -228,6 +229,15 @@ public:
     /// 设置「显示游戏日志」并立刻落盘。
     void setShowGameLog(bool show);
 
+    /// 游戏窗口的**模式**：小窗 / 最大化 / 全屏。默认小窗（= 加这一档之前的行为）。
+    ///
+    /// 三档各自发什么参数、以及"最大化"为什么要照屏幕工作区算大小，全写在
+    /// GameWindowSettings.hpp 那一段里 —— 别在这儿重述一遍（说两遍就会有一天对不上）。
+    GameWindowMode gameWindowMode() const { return m_gameWindowMode; }
+
+    /// 设置窗口模式并立刻落盘。
+    void setGameWindowMode(GameWindowMode mode);
+
     /// 游戏窗口的初始宽度（像素）。默认就是原版自己的那个 854。
     int gameWindowWidth() const { return m_gameWindowWidth; }
 
@@ -242,6 +252,13 @@ public:
      * 宽高一起收进来是刻意的：一行界面上两个框，只改一个也得能一次落盘。
      */
     void setGameWindowSize(int width, int height);
+
+    /// 上面三格**捆成一份**（模式 + 宽 + 高）。
+    ///
+    /// 之所以还要这么一个口子：启动那一条路要的就是"这一次用哪一档"，一次拿一份比拿三个
+    /// 值少两处"少拿了一个"的机会；而「实例设置」那一页构造 `GlobalValues` 时也要一份。
+    /// **它不是第四个出处** —— 里面那三个值就是上面那三个 getter。
+    GameWindowSettings gameWindowSettings() const;
 
     /// 当前优先级。默认 Normal（**显式设**，理由见 ProcessPriority 的 NOTE）。
     ProcessPriority processPriority() const { return m_processPriority; }
@@ -340,6 +357,9 @@ private:
     /// 从实例设置里点的「下载新模组…」要不要直接落进那个实例（见上面那一节）。默认勾上。
     bool m_downloadAutoIntoInstance = true;
     bool m_showGameLog = false;
+    /// 默认**小窗**：加这一档之前，启动器发的一直就是"照下面那两个数开一个普通窗口" ——
+    /// 默认值取这一档的意思是"谁都不动这一项时，行为一个字都不变"。
+    GameWindowMode m_gameWindowMode = GameWindowMode::Windowed;
     /// 默认值取原版的默认窗口大小（1.12.2 的 Main 里那对 defaultsTo(854, 480)）：
     /// 谁都不动这一项时，启动器发出去的那两个参数就等于游戏自己本来要用的值 ——
     /// "加了这个功能"不该让任何人的窗口大小变一下。

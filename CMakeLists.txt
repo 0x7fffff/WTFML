@@ -35,6 +35,7 @@ set(HEADER_FILES
     src/manage/VersionDisplay.hpp
     src/manage/WorldFiles.hpp
     src/settings/GlobalJavaSettings.hpp
+    src/settings/GameWindowSettings.hpp
     src/settings/LauncherSettings.hpp
     src/download/DownloadManager.hpp
     src/download/LoaderMeta.hpp
@@ -81,6 +82,7 @@ set(SOURCE_FILES
     src/manage/WorldFiles.cpp
     src/settings/EffectiveJavaSettings.cpp
     src/settings/GlobalJavaSettings.cpp
+    src/settings/GameWindowSettings.cpp
     src/settings/LauncherSettings.cpp
     src/download/DownloadManager.cpp
     src/download/ResourceCatalog.cpp

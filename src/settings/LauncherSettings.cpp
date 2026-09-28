@@ -31,6 +31,10 @@ static constexpr const char kDownloadAutoIntoInstance[] = "Download/AutoIntoInst
 static constexpr const char kShowGameLog[] = "Launcher/ShowGameLog";
 static constexpr const char kGameWindowWidth[] = "Launcher/WindowWidth";
 static constexpr const char kGameWindowHeight[] = "Launcher/WindowHeight";
+// 窗口模式（小窗 / 最大化 / 全屏）。**值就是 GameWindowSettings 里那一份 token**
+// （gameWindowModeToken / gameWindowModeFromToken）—— 别在这儿另写一遍串，那是"改了一处
+// 另一处静默退回默认档"的典型写法。
+static constexpr const char kGameWindowMode[] = "Launcher/WindowMode";
 static constexpr const char kProcessPriority[] = "Launcher/ProcessPriority";
 static constexpr const char kTitleText[] = "Launcher/TitleText";
 static constexpr const char kWarnDuplicateLaunch[] = "Launcher/WarnDuplicateLaunch";
@@ -189,6 +193,22 @@ void LauncherSettings::setGameWindowSize(int width, int height) {
     save();
 }
 
+void LauncherSettings::setGameWindowMode(GameWindowMode mode) {
+    if (m_gameWindowMode == mode) {
+        return;
+    }
+    m_gameWindowMode = mode;
+    save();
+}
+
+GameWindowSettings LauncherSettings::gameWindowSettings() const {
+    GameWindowSettings out;
+    out.mode = m_gameWindowMode;
+    out.width = m_gameWindowWidth;
+    out.height = m_gameWindowHeight;
+    return out;
+}
+
 void LauncherSettings::setProcessPriority(ProcessPriority priority) {
     if (m_processPriority == priority) {
         return;
@@ -322,6 +342,16 @@ void LauncherSettings::load() {
         clampWindowWidth(settings.value(kGameWindowWidth, m_gameWindowWidth).toInt());
     m_gameWindowHeight =
         clampWindowHeight(settings.value(kGameWindowHeight, m_gameWindowHeight).toInt());
+    // 窗口模式：盘上那个串认不出来时**留在默认档（小窗）**，不猜也不报错 —— 认不出来的
+    // 两种来历（手改过、老版本写的别的名字）都该退回"和加这个功能之前一样"。
+    {
+        GameWindowMode parsed = m_gameWindowMode;
+        const QString token = settings.value(kGameWindowMode, gameWindowModeToken(m_gameWindowMode))
+                                  .toString();
+        if (gameWindowModeFromToken(token, &parsed)) {
+            m_gameWindowMode = parsed;
+        }
+    }
     m_processPriority = processPriorityFromKey(
         settings.value(kProcessPriority, processPriorityKey(m_processPriority)).toString());
     // 顶上那行字也**读回来就收拾**：盘上那一份会被原样画到条上，多长、带不带空格都不该
@@ -377,6 +407,7 @@ void LauncherSettings::save() const {
     settings.setValue(kShowGameLog, m_showGameLog);
     settings.setValue(kGameWindowWidth, clampWindowWidth(m_gameWindowWidth));
     settings.setValue(kGameWindowHeight, clampWindowHeight(m_gameWindowHeight));
+    settings.setValue(kGameWindowMode, gameWindowModeToken(m_gameWindowMode));
     settings.setValue(kProcessPriority, processPriorityKey(m_processPriority));
     settings.setValue(kTitleText, clampTitleText(m_titleText));
     settings.setValue(kWarnDuplicateLaunch, m_warnDuplicateLaunch);

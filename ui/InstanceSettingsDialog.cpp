@@ -19,6 +19,7 @@
 
 #include <QButtonGroup>
 #include <QCheckBox>
+#include <QComboBox>
 #include <QDir>
 #include <QFileDialog>
 #include <QFont>
@@ -66,6 +67,10 @@ constexpr int kMemorySpinWidth = 120;
 /// 「最大内存」那一行那根条的最短宽度。比设置页那份（260）窄一点：这一页那一格左边还占着
 /// [跟随全局][自定义] 两个单选钮，条再要 260 就得把数字框挤出门外了。
 constexpr int kMemorySliderMinWidth = 200;
+/// 「窗口大小」那一行**两个**数字框各自的宽度。比上面那个窄：这一行右边那两个框是并排的，
+/// 每个都 120 就得 240 + 那个 × + 那对单选钮，整行会被挤出门外；而这里填的是四位像素数，
+/// 80 已经能把「7680」连框一起摆下。
+constexpr int kWindowSizeSpinWidth = 80;
 /// 追加参数那一行的输入高度（三四行够放几条常见参数）。
 constexpr int kAppendJvmArgsHeight = 76;
 /// 左栏那一列导航在算出来的宽度上再加多少余量（左右各一半）。
@@ -264,7 +269,9 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                                                const Override &current,
                                                const GlobalValues &global,
                                                const QStringList &appendJvmArgs,
-                                               bool warnJavaMismatch, QWidget *parent)
+                                               bool warnJavaMismatch,
+                                               const QList<WindowModeChoice> &windowModes,
+                                               QWidget *parent)
     : QDialog(parent), m_global(global), m_instanceId(instanceId) {
     setWindowTitle(tr("实例设置"));
     // 比分组对话框宽得多：从左到右是**两栏**（左栏一列页 + 右栏一块内容），600 那个宽度
@@ -919,6 +926,83 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                 &InstanceSettingsDialog::refreshHints);
     }
 
+    // ---------- 窗口模式 / 窗口大小（2026-09-28 加的）----------
+    //
+    // 这两行是用户原话「游戏的启动参数 小窗/最大化/全屏 以及游戏分辨率 放到设置和实例设置
+    // 里面」里**实例设置那一半**（全局那一半在设置页「启动」栏，见 MainWindowUI）。
+    // 和上面几项同一个形状：能「跟随全局」，也能给这一个实例钉一份 —— 绝大多数实例是跟随。
+    //
+    // NOTE: 档位那几项**由调用方灌**（windowModes 参数），这一页只认「标签 + 代号」那一对。
+    //       理由见 .hpp 里 WindowModeChoice 那一段（ui/ 不许 include src/，档位那个枚举
+    //       和那三个代号串的唯一出处都在 src/）。
+    // NOTE: 三个串（两个键名 + 那三个代号）在这一页里**一个字都不重写**：键名是上面那三个
+    //       Field() 函数，代号是调用方喂进来的。这正是这条分层规矩要保住的性质。
+    if (!windowModes.isEmpty()) {
+        QWidget *cell = addOverrideRow(grid, row, windowModeField(), tr("窗口模式"),
+                                       tr("只对这个实例生效：这一个实例照这一档开窗。"));
+        row += 2;
+        auto *choiceRow = choiceRowOf(windowModeField());
+        m_windowModeCombo = new QComboBox(cell);
+        m_windowModeCombo->setObjectName(windowModeComboName());
+        // 下拉框也吃滚轮（在选项之间来回跳），而且没有焦点时改完看不出来 —— 见 WheelGuard。
+        WheelGuard::install(m_windowModeCombo);
+        for (const WindowModeChoice &choice : windowModes) {
+            m_windowModeCombo->addItem(choice.label, choice.token);
+        }
+        // ★ 换档位**也要发 `settingsEdited()`** —— 这一页是「改了就写」，而按类型接的那几条
+        //   线（QAbstractButton / QLineEdit / QSpinBox / QPlainTextEdit）**一条都接不到
+        //   QComboBox**：这是这一页上唯一一个下拉框，漏了它的症状很具体 —— 用户把这行切到
+        //   「自定义」（那一发是单选钮发的，写盘了），再从下拉框里换一档 ⇒ **盘上还是老那一档**，
+        //   而他看着屏幕上写着「全屏」。下次动别的开关才会顺带写进去，也就是"改了有时候生效"。
+        //   下面灌值那一段是 setCurrentIndex + QSignalBlocker，不会把"打开这一页"当成一次编辑。
+        //   NOTE: 「跟随全局」那句提示不用跟着重刷 —— 它写的是**全局**那一档，和这一格选了
+        //         什么无关（见 refreshHints()）。
+        //   NOTE: 这一条**容易在测试里被盖住**：档位要是摆在"改数字框"之前换，后面那一发
+        //         写盘会顺带把新档位写进去，于是"下拉框没接那条线"这个洞照样全绿。mw_check
+        //         的 T20.11b 特地把换档位摆成那一页上最后一个动作（实测：掐掉这一行，正好
+        //         红那两条）。
+        connect(m_windowModeCombo, &QComboBox::currentIndexChanged, this,
+                &InstanceSettingsDialog::notifyEdited);
+        choiceRow->addWidget(m_windowModeCombo, 0, Qt::AlignLeft);
+    }
+    {
+        // 分辨率：**一行两个数字框**（宽 × 高）。它和「窗口模式」是两行两对单选钮，但那两个
+        // 数本身是一对 —— override() 那边要么两个一起收、要么两个都不收（见 .hpp 里那段）。
+        QWidget *cell = addOverrideRow(grid, row, windowWidthField(), tr("窗口大小"),
+                                       tr("只对这个实例生效（单位是像素）。"));
+        row += 2;
+        auto *choiceRow = choiceRowOf(windowWidthField());
+        m_windowWidthSpin = new QSpinBox(cell);
+        m_windowWidthSpin->setObjectName(windowWidthSpinName());
+        m_windowWidthSpin->setRange(MainWindowUI::windowMinWidth(), MainWindowUI::windowMaxWidth());
+        m_windowWidthSpin->setSingleStep(MainWindowUI::windowSizeStep());
+        m_windowWidthSpin->setMinimumWidth(kWindowSizeSpinWidth);
+        WheelGuard::install(m_windowWidthSpin);
+        choiceRow->addWidget(m_windowWidthSpin);
+
+        auto *times = new QLabel(QStringLiteral("×"), cell);
+        times->setObjectName(windowSizeTimesName());
+        choiceRow->addWidget(times);
+
+        m_windowHeightSpin = new QSpinBox(cell);
+        m_windowHeightSpin->setObjectName(windowHeightSpinName());
+        m_windowHeightSpin->setRange(MainWindowUI::windowMinHeight(),
+                                     MainWindowUI::windowMaxHeight());
+        m_windowHeightSpin->setSingleStep(MainWindowUI::windowSizeStep());
+        m_windowHeightSpin->setMinimumWidth(kWindowSizeSpinWidth);
+        WheelGuard::install(m_windowHeightSpin);
+        // 整行按 sizeHint 靠左摆，不撑满（右边剩下的地方留给那对单选钮）—— 和设置页那一行
+        // 同一条规矩。
+        choiceRow->addWidget(m_windowHeightSpin, 0, Qt::AlignLeft);
+        // 顶上那句「跟随全局（当前 854×480）」要写全局那一份，从构造函数给的那份值里取。
+        // **只在调用方给了正数时才记**：`<= 0` 是"调用方没给"的哨兵（见 .hpp 里
+        // GlobalValues 那一段），那时那句话里不写尺寸。
+        if (global.windowWidth > 0 && global.windowHeight > 0) {
+            m_globalWindowWidth = global.windowWidth;
+            m_globalWindowHeight = global.windowHeight;
+        }
+    }
+
     // ---------- 高级选项（默认折叠） ----------
     {
         m_advancedToggle = new QToolButton(this);
@@ -1414,6 +1498,33 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     m_extraJvmArgsFollow->setChecked(!current.extraJvmArgs.has_value());
     m_extraJvmArgsCustom->setChecked(current.extraJvmArgs.has_value());
     m_extraJvmArgsEdit->setText(current.extraJvmArgs.value_or(global.extraJvmArgs));
+
+    // ---------- 窗口模式 / 窗口大小（2026-09-28 加的）----------
+    if (m_windowModeCombo != nullptr) {
+        // 档位：有覆盖就用覆盖那一档、没有就摆**全局那一档**（那一档这时是禁用的，摆出来的
+        // 意义是"你跟随的是这一档"）。认不出来的代号（手改过 meta、或者老版本写的名字）
+        // 就退回第 0 项 —— 和 `GlobalValues::windowModeLabel` 那边同一个态度：看不懂的值
+        // 不猜它是什么档，摆最保守的那一档（调用方喂进来的第 0 项就是「小窗」，见
+        // MainWindow 构造这张表的地方）。
+        const QString token = current.windowMode.value_or(global.windowMode);
+        const int index = m_windowModeCombo->findData(token);
+        {
+            // 挡信号：这一发是**灌值**不是用户改的（和上面那条注释同一个理由 —— 不挡的话
+            // 打开这一页本身就等于替用户写一次盘，见 notifyEdited() 那条路）。
+            const QSignalBlocker block(m_windowModeCombo);
+            m_windowModeCombo->setCurrentIndex(index >= 0 ? index : 0);
+        }
+        m_windowModeFollow->setChecked(!current.windowMode.has_value());
+        m_windowModeCustom->setChecked(current.windowMode.has_value());
+    }
+    if (m_windowWidthSpin != nullptr) {
+        // 分辨率那两格：**以窗口宽那一格有没有值为准**（它们是同一个决定的两半，见 .hpp
+        // 里 override() 那段），值本身各自取覆盖或全局那一份。
+        m_windowSizeFollow->setChecked(!current.windowWidth.has_value());
+        m_windowSizeCustom->setChecked(current.windowWidth.has_value());
+        m_windowWidthSpin->setValue(current.windowWidth.value_or(global.windowWidth));
+        m_windowHeightSpin->setValue(current.windowHeight.value_or(global.windowHeight));
+    }
 
     // 每一行下面那句话要等值灌完才刷（它写的是"当前是什么"）。上面那些 setChecked
     // 已经触发过一轮 refreshHints 了，但那时候另一个单选钮还是空的。
@@ -2699,6 +2810,13 @@ QWidget *InstanceSettingsDialog::addOverrideRow(QGridLayout *grid, int row, cons
     } else if (field == extraJvmArgsField()) {
         m_extraJvmArgsFollow = follow;
         m_extraJvmArgsCustom = custom;
+    } else if (field == windowModeField()) {
+        m_windowModeFollow = follow;
+        m_windowModeCustom = custom;
+    } else if (field == windowWidthField()) {
+        // 分辨率那一行占两个键（宽 / 高）却只有一对单选钮 —— 见 .hpp 里那段。
+        m_windowSizeFollow = follow;
+        m_windowSizeCustom = custom;
     }
 
     // 单选钮一变，那一行下面那句话和内存两行的可用性都可能跟着变。
@@ -2768,6 +2886,46 @@ void InstanceSettingsDialog::refreshHints() {
     followOrCustom(extraJvmArgsField(), m_extraJvmArgsCustom->isChecked(),
                    m_global.extraJvmArgs.isEmpty() ? tr("未设置") : m_global.extraJvmArgs);
 
+    // ---------- 窗口模式 / 窗口大小（2026-09-28 加的）----------
+    //
+    // ★ 「跟随全局」时**这一格里的控件灰掉**（和内存那两行同一个做法，理由也在那边：
+    //   能改、改完 override() 又不读，就是"让人以为能改"）。**不能整格禁**：那对单选钮
+    //   得留着才能切回「自定义」。所以只点那几个控件，单选钮照旧能点。
+    //
+    // NOTE: 和内存那一行不同的是，这里**没有**"这一格整格禁用"的第二种情况（内存那两种是
+    //       "自动档"和"跟随全局"）—— 窗口这几项没有自动档。
+    if (m_windowModeCombo != nullptr) {
+        const bool custom = m_windowModeCustom->isChecked();
+        m_windowModeCombo->setEnabled(custom);
+        // 那一句话：选「自定义」时说"只对这个实例生效"，选「跟随全局」时说清**跟随的是什么**
+        // —— 全局那一档的显示名由调用方喂进来。没喂（空串）时就只说"跟随全局"四个字：
+        // 硬套 followHint("") 会写出「跟随全局（当前 ）」那种带个空括号的话。
+        setHint(windowModeField(),
+                custom ? m_customHints.value(windowModeField())
+                       : (m_global.windowModeLabel.isEmpty()
+                              ? followText()
+                              : followHint(m_global.windowModeLabel)));
+    }
+    if (m_windowWidthSpin != nullptr) {
+        const bool editable = m_windowSizeCustom->isChecked();
+        m_windowWidthSpin->setEnabled(editable);
+        m_windowHeightSpin->setEnabled(editable);
+        // 中间那个 × 跟着一起灰：只剩两个灰框中间夹一个亮着的 ×，看着像那一格坏了
+        // （和设置页那一行同一个做法）。
+        if (auto *times = findChild<QLabel *>(windowSizeTimesName())) {
+            times->setEnabled(editable);
+        }
+        // 「跟随全局」那句话里要写出**当前跟随的是多大** —— 光有"跟随全局"四个字，用户
+        // 还得退出去翻设置页。调用方没给尺寸（<= 0 那个哨兵）时只说"跟随全局"。
+        const QString globalSize = (m_globalWindowWidth > 0 && m_globalWindowHeight > 0)
+                                       ? QStringLiteral("%1×%2").arg(m_globalWindowWidth)
+                                             .arg(m_globalWindowHeight)
+                                       : QString();
+        setHint(windowWidthField(),
+                editable ? m_customHints.value(windowWidthField())
+                         : (globalSize.isEmpty() ? followText() : followHint(globalSize)));
+    }
+
     if (autoMemory) {
         // 自动档：这两行是灰的，提示只说这一件事（"当前 %1 MB"在这里没有意义 ——
         // 那两个数每次启动前都会重算）。
@@ -2823,6 +2981,28 @@ InstanceSettingsDialog::Override InstanceSettingsDialog::override() const {
     }
     if (m_extraJvmArgsCustom->isChecked()) {
         result.extraJvmArgs = m_extraJvmArgsEdit->text().trimmed();
+    }
+
+    // 窗口模式：选「自定义」就把下拉框里当前那一项的**代号**收进去（itemData 存的就是它，
+    // 见构造那一段）。取不到代号（`windowModes` 空表时这一行根本不存在 ⇒ 指针是空的、
+    // 或者下拉框里一项都没有）就当作没覆盖 —— 和 javaPath 那条"空的「自定义」= 跟随全局"
+    // 同一个方向：宁可什么都不写，也不要往 meta 里塞一个空代号（那会被读侧当成认不出来的
+    // 值、静默退回默认档，比"没写"更难查）。
+    if (m_windowModeCombo != nullptr && m_windowModeCustom != nullptr &&
+        m_windowModeCustom->isChecked()) {
+        const QString token = m_windowModeCombo->currentData().toString();
+        if (!token.isEmpty()) {
+            result.windowMode = token;
+        }
+    }
+
+    // 分辨率：**两个一起收、或者两个都不收**。它们共用一对单选钮（见 .hpp 里 override()
+    // 那段），所以判据只看这一对 —— 不去看两个框各自有没有被动过（那既判不出来，也不是
+    // 用户的意思：他点的是「自定义」，意思是这一对标就要按他填的走）。
+    if (m_windowWidthSpin != nullptr && m_windowSizeCustom != nullptr &&
+        m_windowSizeCustom->isChecked()) {
+        result.windowWidth = m_windowWidthSpin->value();
+        result.windowHeight = m_windowHeightSpin->value();
     }
 
     return result;
@@ -2919,6 +3099,11 @@ QStringList InstanceSettingsDialog::valueSignature() const {
     result << optionalText(values.javaPath) << optionalNumber(values.xmx)
            << optionalNumber(values.xms) << optionalFlag(values.autoMemory)
            << optionalText(values.extraJvmArgs)
+           // 窗口那三项（2026-09-28）：模式是**代号字符串**，宽高各一个数。和上面同一个
+           // 写法 —— 有没有值 + 值本身，两者都要摆（"自定义成和全局一样的档"仍然是覆盖，
+           // 不能和"跟随全局"混成同一个签名）。
+           << optionalText(values.windowMode) << optionalNumber(values.windowWidth)
+           << optionalNumber(values.windowHeight)
            // 追加参数按条摆：`appendJvmArgs()` 已经把空行和首尾空白归一掉了，两条顺序不同
            // 的清单在这里就是两份签名（那正是两件不同的设置）。
            << appendJvmArgs()

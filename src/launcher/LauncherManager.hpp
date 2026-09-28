@@ -18,6 +18,7 @@
 #include <memory>
 
 #include "../settings/EffectiveJavaSettings.hpp"
+#include "../settings/GameWindowSettings.hpp"
 #include "ProcessPriority.hpp"
 
 /**
@@ -131,9 +132,12 @@ public:
      *        这是老行为：以前登录流程根本不拉档案，全工程没有 UUID 来源，所以正版分支一
      *        直发全零，正版服上等于一个"谁都不是"的身份。离线分支**不用**它（那边每次
      *        自己随机生成一个）。
-     * @param windowWidth 游戏窗口的初始宽度（像素）。<= 0 = 调用方没指定，这时
-     *        **一条都不加** —— 老行为，游戏自己决定窗口多大。
-     * @param windowHeight 同上，高度。
+     * @param window 这一次启动要用的窗口那一组（模式 + 分辨率）。默认是"小窗 + 原版默认
+     *        的 854×480"，也就是加这一档之前的行为。
+     * @param screen 屏幕工作区（像素）。**只有「最大化」那一档用得上**：那一档原版没有对应
+     *        参数，是照工作区算一个大小再当 --width/--height 发下去的（见
+     *        GameWindowSettings.hpp）。<= 0 = 调用方没给（验证工程那些纯值的构造点），
+     *        那一档这时退回 window 里那两个数。
      * @return 返回 JVM 参数列表。
      *
      * NOTE: 调用方传 javaMajorVersion <= 0（未传）时按"**沿用旧行为**"处理，不是"一条都
@@ -148,7 +152,8 @@ public:
                                      const QStringList &versionJvmArgs = QStringList(),
                                      const QString &playerName = QString(),
                                      const QString &playerUuid = QString(),
-                                     int windowWidth = 0, int windowHeight = 0) const;
+                                     const GameWindowSettings &window = GameWindowSettings(),
+                                     const ScreenWorkArea &screen = ScreenWorkArea()) const;
 
     /**
      * @brief 启动一个 Minecraft 游戏进程（新增一份会话）。

@@ -622,13 +622,43 @@ JavaSettingsOverride toSettingsOverride(const InstanceSettingsDialog::Override &
     return to;
 }
 
-InstanceSettingsDialog::Override toDialogOverride(const JavaSettingsOverride &from) {
+/// 把窗口那一组覆盖翻成对话框认的那一份（**代号字符串**，不是枚举 —— 见
+/// InstanceSettingsDialog::WindowModeChoice 上面那段：ui/ 不许 include src/）。
+InstanceSettingsDialog::Override toDialogOverride(const JavaSettingsOverride &from,
+                                                  const GameWindowOverride &window
+                                                  = GameWindowOverride()) {
     InstanceSettingsDialog::Override to;
     to.javaPath = from.javaPath;
     to.xmx = from.xmx;
     to.xms = from.xms;
     to.autoMemory = from.autoMemory;
     to.extraJvmArgs = from.extraJvmArgs;
+    // 窗口那三项。模式取**代号**（有覆盖时才给值），宽高各自原样 —— "有没有值"这一位
+    // 就是界面上「跟随全局 / 自定义」那一对的状态（见对话框那边灌值那一段）。
+    if (window.mode.has_value()) {
+        to.windowMode = gameWindowModeToken(*window.mode);
+    }
+    to.windowWidth = window.width;
+    to.windowHeight = window.height;
+    return to;
+}
+
+/// 上面那个的反方向：对话框摆好的覆盖 → 要写进 meta 的那一组。
+///
+/// NOTE: 代号认不出来时**当没覆盖**（= 删键）而不是"退回小窗那一档" —— 认不出来只可能
+///       来自手改过的 meta 或改过名字的老版本，那时的意思都是"不认识"，把它写成一个具体的
+///       档位等于替用户做了个他从没做过的选择。读侧（gameWindowOverrideFromJson）同一个态度。
+GameWindowOverride toWindowOverride(const InstanceSettingsDialog::Override &from) {
+    GameWindowOverride to;
+    if (from.windowMode.has_value()) {
+        GameWindowMode mode = GameWindowMode::Windowed;
+        if (gameWindowModeFromToken(*from.windowMode, &mode)) {
+            to.mode = mode;
+        }
+    }
+    // 宽和高一起（对话框那边要么两个都有值、要么两个都没有，见 .hpp 里 override() 那段）。
+    to.width = from.windowWidth;
+    to.height = from.windowHeight;
     return to;
 }
 
@@ -640,6 +670,36 @@ InstanceSettingsDialog::GlobalValues toDialogGlobal(const EffectiveJavaSettings 
     to.autoMemory = from.autoMemory;
     to.extraJvmArgs = from.extraJvmArgs;
     return to;
+}
+
+/// 「窗口模式」那个下拉框里的档位表（显示的字 + 存进 meta 的代号）。
+///
+/// **标签在这里拼、代号从 src/ 那边取**（gameWindowModeToken()）—— 这一份表就是"ui/ 不
+/// include src/"那条分层规矩留下的那一道缝的填法：界面那一侧只认"标签 + 代号"这一对，
+/// 代号是什么、有几档，全由这里说了算。顺序 = 界面上的顺序 = "窗口从花到满"。
+QList<InstanceSettingsDialog::WindowModeChoice> windowModeChoices() {
+    return {InstanceSettingsDialog::WindowModeChoice{
+                QObject::tr("小窗（按下面的大小开一个窗口）"),
+                gameWindowModeToken(GameWindowMode::Windowed)},
+            InstanceSettingsDialog::WindowModeChoice{
+                QObject::tr("最大化（铺满屏幕，任务栏留出来）"),
+                gameWindowModeToken(GameWindowMode::Maximized)},
+            InstanceSettingsDialog::WindowModeChoice{
+                QObject::tr("全屏（原版自己的 --fullscreen）"),
+                gameWindowModeToken(GameWindowMode::Fullscreen)}};
+}
+
+/// 这一档在那一句「跟随全局（当前 …）」里怎么写。
+QString windowModeLabel(GameWindowMode mode) {
+    switch (mode) {
+        case GameWindowMode::Maximized:
+            return QObject::tr("最大化");
+        case GameWindowMode::Fullscreen:
+            return QObject::tr("全屏");
+        case GameWindowMode::Windowed:
+            break;
+    }
+    return QObject::tr("小窗");
 }
 
 /**
@@ -1866,6 +1926,11 @@ void MainWindow::setupConnections() {
             &MainWindow::onShowGameLogChanged);
     connect(m_ui->getProcessPriorityCombo(), &QComboBox::currentIndexChanged, this,
             &MainWindow::onProcessPriorityChanged);
+    // 「窗口模式」（小窗 / 最大化 / 全屏，2026-09-28 加的）。改完不只是落盘，还要**回头
+    // 把下面那两个数字框按档位灰/亮** —— 那一格在「最大化」时是不生效的（见那一档的说明），
+    // 亮着会让人以为改了有用。所以槽里既落盘也调 updateGameWindowSizeEnabled()。
+    connect(m_ui->getGameWindowModeCombo(), &QComboBox::currentIndexChanged, this,
+            &MainWindow::onGameWindowModeChanged);
     // 两个数字框共用一个槽（和内存那两个 spin 同一套写法：谁改的在那里区分不了，
     // 也不该区分 —— 两个值一起存）。
     connect(m_ui->getGameWindowWidthSpin(), &QSpinBox::valueChanged, this,
@@ -6064,9 +6129,24 @@ void MainWindow::applySettingsToUi() {
     priorityCombo->addItem(tr("高于正常"), int(ProcessPriority::AboveNormal));
     priorityCombo->addItem(tr("高"), int(ProcessPriority::High));
     selectByEnumData(priorityCombo, m_settings->processPriority());
+    // 窗口模式：同样把枚举值存在 itemData 里。三档的顺序就是"窗口从花到满" ——
+    // 和 ProcessPriority 那条一样，界面从上往下读就是越来越满。
+    // NOTE: 文案里点明了各档"下面那个窗口大小还管不管用"，因为「最大化」那一档不吃它
+    //       （原版没有最大化参数，是照屏幕工作区算的，见 GameWindowSettings.hpp）。
+    QComboBox *windowModeCombo = m_ui->getGameWindowModeCombo();
+    windowModeCombo->addItem(tr("小窗（按下面的窗口大小开一个窗口）"),
+                             int(GameWindowMode::Windowed));
+    windowModeCombo->addItem(tr("最大化（铺满屏幕，任务栏留出来）"),
+                             int(GameWindowMode::Maximized));
+    windowModeCombo->addItem(tr("全屏（原版自己的 --fullscreen）"), int(GameWindowMode::Fullscreen));
+    selectByEnumData(windowModeCombo, m_settings->gameWindowMode());
     // 窗口大小：两个框各自 setValue（信号已经被上面那两个 blocker 挡上了）。
     m_ui->getGameWindowWidthSpin()->setValue(m_settings->gameWindowWidth());
     m_ui->getGameWindowHeightSpin()->setValue(m_settings->gameWindowHeight());
+    // 灌完模式那一格要把"窗口大小"那一行按档位灰/亮一次 —— 上面那次 selectByEnumData()
+    // 是有 blocker 的（走不到槽里），所以这一下不能省，否则盘上存着「最大化」时，
+    // 下面两个框会亮着一个"其实不生效"的值。
+    updateGameWindowSizeEnabled();
 
     // ---------- 下载源 ----------
     QComboBox *sourceCombo = m_ui->getDownloadSourceCombo();
@@ -6600,6 +6680,30 @@ void MainWindow::onGameWindowSizeChanged() {
                                   m_ui->getGameWindowHeightSpin()->value());
 }
 
+void MainWindow::onGameWindowModeChanged() {
+    const int value = m_ui->getGameWindowModeCombo()->currentData().toInt();
+    // setter 内部会比较，值没变就不写盘（构造时灌值那条路有 QSignalBlocker，走不到这里）。
+    m_settings->setGameWindowMode(static_cast<GameWindowMode>(value));
+    // 档位变了，"下面那两个数还管不管用"也跟着变 —— 这一下就是把它显出来。
+    updateGameWindowSizeEnabled();
+}
+
+void MainWindow::updateGameWindowSizeEnabled() {
+    // 「最大化」那一档**不吃**用户填的那两个数（原版没有最大化参数，启动器是照屏幕工作区
+    // 算一个大小发下去的，见 GameWindowSettings.hpp）。所以那一档把两个数字框灰掉。
+    //
+    // NOTE: 灰掉的是框、**不是值** —— 那两个数照旧留在盘上（切回「小窗」时原样回来）。
+    //       要清空的话，用户来回切一次档就把自己填的分辨率弄丢了。
+    // NOTE: 「全屏」那一档**不灰**：它虽然直接进全屏，但那两个数是"按 F11 退出全屏之后
+    //       回到多大"，是真在用的（见 gameWindowArguments）。
+    const bool sizeApplies =
+        m_settings->gameWindowMode() != GameWindowMode::Maximized;
+    m_ui->getGameWindowWidthSpin()->setEnabled(sizeApplies);
+    m_ui->getGameWindowHeightSpin()->setEnabled(sizeApplies);
+    // 中间那个乘号跟着一起灰：只剩两个灰框中间夹一个亮着的 ×，看着像那一格坏了。
+    m_ui->getGameWindowSizeTimesLabel()->setEnabled(sizeApplies);
+}
+
 void MainWindow::onTitleTextChanged() {
     // 存的是**框里那串原文**：去空白、截长度都由 setTitleText() 自己做（归一化只有那
     // 一处，界面这一层不改用户的字）。取回来的才是"盘上那一份"，条上画的就是它 ——
@@ -6846,12 +6950,33 @@ QStringList MainWindow::launchArguments(const QString &versionId, const QJsonObj
     // 两条分支都用它 —— 以前离线分支自己拼 "Player<时间戳>"、正版分支写死 "Player"，
     // 于是底栏上的名字和游戏里看到的名字可以不一样。
     // UUID 也一样：正版分支用它当 --uuid（没登录时 AuthManager 给空串，那边退回全零）。
-    // 「启动选项 → 窗口大小」：原样传下去，由 generateJvmArguments() 决定发成哪两个参数
-    // （原版那条 has_custom_resolution 规则**用不上**，理由写在那边的 NOTE 里）。
+    // 「启动选项 → 窗口模式 / 窗口大小」：全局那一份，再叠上**这个实例自己的覆盖**
+    // （`wtfml.meta` 里那三个键，由「实例设置…」的启动页写）。合成的规矩在
+    // resolveGameWindow()，一个键都没覆盖时结果和全局逐字相同 —— 那是绝大多数实例的
+    // 处境，也是这一档必须保住的性质。
+    //
+    // NOTE: 这里**自己再读一次 meta**（上面合成 Java 那一份时已经读过一次）。宁可贵这一下
+    //       也不把窗口这一组值沿着两处调用点传进来：那样每加一个有实例覆盖的设置项，都要
+    //       再改一次 launchArguments 的签名和那两个调用点。
+    const GameWindowSettings window =
+        resolveGameWindow(m_settings->gameWindowSettings(),
+                          gameWindowOverrideFromJson(m_versionManager->versionMeta(versionId)));
+    // 「最大化」那一档要照**屏幕工作区**算一个大小（原版没有最大化参数），所以工作区得跟着
+    // 递下去。availableGeometry() 就是扣掉任务栏那一块之后的区域，正是"最大化"要铺满的范围。
+    // 拿不到屏幕时给一对 0 —— 那是 ScreenWorkArea 里"调用方没给"的哨兵值，那一档这时会
+    // 退回用户填的那两个数（宁可开一个用户填过大小的窗口，也不要因为取不到屏幕就起不来）。
+    ScreenWorkArea screen;
+    if (const QScreen *primary = QGuiApplication::primaryScreen()) {
+        const QRect available = primary->availableGeometry();
+        screen.width = available.width();
+        screen.height = available.height();
+    }
+    // 由 generateJvmArguments() 决定这三样发成哪些参数（原版那条 has_custom_resolution
+    // 规则**用不上**，理由写在那边的 NOTE 里）。
     return m_launcherManager->generateJvmArguments(
         token, versionId, assetIndexId, versionJson, javaSettings, offlineMode, javaMajorVersion,
         m_versionManager->versionJvmArgs(versionId), m_authManager->playerName(),
-        m_authManager->playerUuid(), m_settings->gameWindowWidth(), m_settings->gameWindowHeight());
+        m_authManager->playerUuid(), window, screen);
 }
 
 void MainWindow::onStartButtonClicked() {
@@ -8557,20 +8682,29 @@ void MainWindow::openInstanceSettings(const QString &versionId, const QString &p
     // 已经写了的那部分覆盖从 meta 里读回来当起点，「当前全局是哪个值」由 global 提供。
     // 读归读，**这里一个字节都不写** —— 写盘只发生在下面那两条接线里（2026-09-26 起这一页
     // 没有「确定」，改一格就写一格）。
-    const JavaSettingsOverride current =
-        javaOverrideFromJson(m_versionManager->versionMeta(versionId));
+    // NOTE: 窗口那一组覆盖读的是**同一份 meta**（一次读出来、两处用），不然这一页打开一次
+    //       就要把同一个文件解析两遍。
+    const QJsonObject instanceMeta = m_versionManager->versionMeta(versionId);
+    const JavaSettingsOverride current = javaOverrideFromJson(instanceMeta);
     // 第二个参数是**目录名**（改名要改的就是它），第一个是显示名（页眉上那行字）——
     // 两个值可以不一样（自定义名、拼进去的加载器名），页面上是分开的两行。
     InstanceSettingsDialog::GlobalValues global = toDialogGlobal(m_javaSettings->effective());
+    // 全局那一档窗口（模式 + 分辨率）：窗口那两行的「跟随全局（当前 …）」写的就是这一份。
+    const GameWindowSettings globalWindow = m_settings->gameWindowSettings();
+    global.windowMode = gameWindowModeToken(globalWindow.mode);
+    global.windowModeLabel = windowModeLabel(globalWindow.mode);
+    global.windowWidth = globalWindow.width;
+    global.windowHeight = globalWindow.height;
     // 「最大内存」那一格能拖到哪儿 = **设置页那一格能拖到哪儿**，取的是设置页那个数字框现在的
     // 上限（开窗时 applyMemoryLimits 已经按这台机器的物理内存收过口，见 refreshMemoryUi）。
     // 不在这儿另读一次系统内存，是为了两页**逐字同一个数**：用户刚在设置页看见"最多 16256"，
     // 切到实例页又是另一个上限的话，两页各说各的。
     global.memoryCapMb = m_ui->getMemoryMaxSpin()->maximum();
     InstanceSettingsDialog dialog(instanceDisplayName(versionId), versionId,
-                                  toDialogOverride(current), global,
-                                  m_versionManager->versionJvmArgs(versionId),
-                                  !m_versionManager->skipJavaVersionWarning(versionId), this);
+                                  toDialogOverride(current, gameWindowOverrideFromJson(instanceMeta)),
+                                  global, m_versionManager->versionJvmArgs(versionId),
+                                  !m_versionManager->skipJavaVersionWarning(versionId),
+                                  windowModeChoices(), this);
     // ---------- 概览栏那四行的初值（2026-09-26）----------
     //
     // 三张图标**由这里解好递进去**：ui/ 不做"这个实例默认该长什么样"那个判断（它要读版本
@@ -10718,6 +10852,16 @@ bool MainWindow::applyInstanceSettings(const QString &versionId,
     QJsonObject fields =
         javaOverrideMetaFields(toSettingsOverride(dialog.override()), dialog.appendJvmArgs(),
                                VersionManager::jvmArgsField());
+
+    // 窗口那三项（模式 / 宽 / 高，2026-09-28）。**同一个约定**（没有值 = 写 Null = 删键），
+    // 由 gameWindowOverrideToJson() 一次性给全 —— 那三个键的读侧写侧都在 src/settings/
+    // 那一处（键名一个都不在这边重写）。
+    // NOTE: 一次一个键合进去（`QJsonObject` 没有整块注入的接口）。值本身是 Null 的那几项
+    //       就是"删键"（updateVersionMeta 的约定），照原样交给它。
+    const QJsonObject windowFields = gameWindowOverrideToJson(toWindowOverride(dialog.override()));
+    for (auto it = windowFields.constBegin(); it != windowFields.constEnd(); ++it) {
+        fields.insert(it.key(), it.value());
+    }
 
     // 提醒开关：勾着（要提醒）就**删掉**那个键，取消勾选才写 true。
     // 和那五项同一个约定（Null = 删键）—— 写一个"等于默认值"的 false 进 meta 会让这个

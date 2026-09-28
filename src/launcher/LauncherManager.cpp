@@ -441,8 +441,19 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
                                                   bool offlineMode, int javaMajorVersion,
                                                   const QStringList &versionJvmArgs,
                                                   const QString &playerName,
-                                                  const QString &playerUuid, int windowWidth,
-                                                  int windowHeight) const {
+                                                  const QString &playerUuid,
+                                                  const GameWindowSettings &window,
+                                                  const ScreenWorkArea &screen) const {
+    // 分辨率那两个数**这一层不再自己判**（从前那两个 `int windowWidth = 0` 参数就是干这个
+    // 的）：哪些数要发、发不发，全在 gameWindowArguments() 那个纯函数里 —— 它是纯的，
+    // 验证工程能直接把三档 + 屏幕尺寸喂进去看发出来什么。
+    //
+    // NOTE: 下面填 `${resolution_width}` 那两个占位符**还是**照 window 里那两个数来
+    //       （不是照"最大化算出来的那一个"）：占位符这条路今天根本走不到（见它自己那段），
+    //       真走到了，"用户设的那两格"也是更该填进去的那一份。
+    const int windowWidth = window.width;
+    const int windowHeight = window.height;
+
     QStringList args;
 
     qDebug() << "=== Generating JVM Arguments ===";
@@ -816,7 +827,7 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     }
 
     // ------------------------------------------------------------------
-    // 游戏窗口大小（设置页「游戏」栏 →「窗口大小」）
+    // 游戏窗口（设置页「游戏」栏 →「窗口模式」+「窗口大小」）
     // ------------------------------------------------------------------
     // NOTE: 原版 json 里明明有一条现成的 `--width ${resolution_width} --height
     //       ${resolution_height}` 规则，但这里**不能靠它**，两处都是死的：
@@ -836,10 +847,21 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     //       `--width ${resolution_width}` 已经被上面 ② 整条丢掉了（连同它的值），根本走不到
     //       这里。留着它的意义只是"这一对参数在列表里已经有人发过了，就别再发一遍"这个写法
     //       本身：真出现第二条会发它的路时，重复的选项会让 joptsimple 直接报错退出。
-    if (windowWidth > 0 && windowHeight > 0 && !args.contains(QStringLiteral("--width"))) {
-        args << QStringLiteral("--width") << QString::number(windowWidth)
-             << QStringLiteral("--height") << QString::number(windowHeight);
-        qDebug() << "Game window size:" << windowWidth << "x" << windowHeight;
+    //
+    // ★ 2026-09-28：三档（小窗 / 最大化 / 全屏）挪进了 gameWindowArguments() 那个纯函数。
+    //   这一层现在只做两件事：问它要那几个参数、拼上去。**判据一条都不留在这儿** ——
+    //   "全屏那一档发不发 --width"这种问题在该发的那一处回答（那儿有断言盯着）。
+    //
+    // NOTE: 上面那个兜底现在罩的是**整组**（连 `--fullscreen` 一起）。按分析它永远不成立，
+    //       所以"罩整组"和"只罩 --width"在今天的代码里是同一件事；真要有一天 json 自己
+    //       发了一对 --width，"全屏那一趟少一个 --fullscreen"这个后果是**可以接受的** ——
+    //       整组参数本来就写着"这一条由启动器自己发"。
+    if (!args.contains(QStringLiteral("--width"))) {
+        const QStringList windowArgs = gameWindowArguments(window, screen);
+        if (!windowArgs.isEmpty()) {
+            args << windowArgs;
+            qDebug() << "Game window args:" << windowArgs;
+        }
     }
 
     qDebug() << "Total arguments count:" << args.length();
