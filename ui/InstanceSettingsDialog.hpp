@@ -73,7 +73,6 @@ class QLineEdit;
 class QListWidget;
 class QPlainTextEdit;
 class QPushButton;
-class QRadioButton;
 class QSpinBox;
 class QStackedWidget;
 class QToolButton;
@@ -739,13 +738,33 @@ public:
 
     // ---------- 控件的 objectName ----------
     // 验证工程靠这些名字认控件，别改回按文字去认（文字会随全局值变）。
-    /// 某一项的「跟随全局」/「自定义」单选钮。@param field 见下面那五个常量。
-    static QString followRadioName(const QString &field) {
-        return QStringLiteral("override_%1_follow").arg(field);
+    /// 某一项的「跟随全局 / 自定义」那个下拉框。@param field 见下面那五个常量。
+    ///
+    /// ★ 2026-09-28：**这一格从前是一对单选钮**（两个 objectName：`override_<field>_follow`
+    ///   / `override_<field>_custom`），用户原话「所有单选框换成下拉的」之后成了**一个**
+    ///   下拉框，那两个名字一起没了。验证工程改成按这一个名字找、按**下标**选
+    ///   （`choiceFollowIndex()` / `choiceCustomIndex()`）。
+    static QString choiceComboName(const QString &field) {
+        return QStringLiteral("override_%1_choiceCombo").arg(field);
     }
-    static QString customRadioName(const QString &field) {
-        return QStringLiteral("override_%1_custom").arg(field);
-    }
+    /// 档位那个下拉框里两项的下标。**档位的唯一出处就是这两个数** —— 读侧
+    /// （`isCustomChoice()`）、写侧（`setChoiceCustom()`）和验证工程都走它们，
+    /// 别在别处再写一遍 `0` / `1`。
+    static int choiceFollowIndex() { return 0; }
+    static int choiceCustomIndex() { return 1; }
+
+    // ---------- 页面按钮那一套的规格（2026-09-28）----------
+    //
+    // 用户原话：「实例设置里面的所有按钮做成恒定宽度和高度的，每一行三个，间距适中且左右
+    // 能充分利用」。排布在 .cpp 里那三个 `layout…` 函数里算，**量的这几个数就是它们**
+    // —— 验证工程别抄第二份（抄一份的下场是改了这里、那边还在断言老数字）。
+    //
+    // NOTE: **宽度不在这儿** —— 它不是钉死的像素，是"三列各一份 + 铺满整幅"算出来的
+    //       （见 .cpp 里 layoutActionCells() 那段）。这两个数只是"排几列"和"至少多宽"。
+    static constexpr int actionButtonHeight() { return 32; }
+    static constexpr int actionButtonsPerRow() { return 3; }
+    static constexpr int actionButtonSpacing() { return 10; }
+    static constexpr int actionButtonMinWidth() { return 110; }
     /// 某一行「跟随全局（当前 …）」那句话的 objectName。
     static QString followHintName(const QString &field) {
         return QStringLiteral("override_%1_hint").arg(field);
@@ -1564,6 +1583,23 @@ private:
     ///       再往下就是空指针解引用 —— 这张表里每一行都写着那一句，所以收口成一个函数。
     QHBoxLayout *choiceRowOf(const QString &field) const;
 
+    /// 某一项选的是「自定义」还是「跟随全局」。**档位的读侧唯一出处**。
+    ///
+    /// ★ 2026-09-28：这一问从前读的是 `m_<field>Custom` 那颗单选钮的 `isChecked()`，
+    ///   用户原话「所有单选框换成下拉的」之后改读下拉框的 `currentIndex()`。
+    ///   认不出来的 field（或那一格没建出来）**回 false = 跟随全局** ——
+    ///   和从前"单选钮指针为空就崩"相比，这是"没建出来 = 没有覆盖"那个方向，
+    ///   正是 override() 想要的（少写一份覆盖比多写一份安全）。
+    bool isCustomChoice(const QString &field) const;
+
+    /// 摆某一项的档位（`custom` = true 就是「自定义」）。**不发任何信号**。
+    ///
+    /// NOTE: 灌值时用（`setInstanceValues()` 那一串）—— 那一下说的是"打开这一页时盘上
+    ///       是这么选的"，不是一次编辑，所以后面必须自己 `QSignalBlocker` 挡掉
+    ///       `currentIndexChanged`（挡的是 refreshHints 那一条；写盘那一条在
+    ///       `watchEditors()` 里）。
+    void setChoiceCustom(const QString &field, bool custom);
+
     /// 往堆叠页里加一页（objectName = `panelName(key)`），返回那一页自己。
     /// **加进去的顺序必须就是 pageCount() 那个顺序**（有一条断言钉着）。
     QWidget *addPage(const QString &key);
@@ -1788,14 +1824,9 @@ private:
     QComboBox *m_windowModeCombo = nullptr;
     QSpinBox *m_windowWidthSpin = nullptr;
     QSpinBox *m_windowHeightSpin = nullptr;
-    /// 这两行的档位单选钮（addOverrideRow() 里按 field 认出来的，见那儿那个 if 链）。
-    QRadioButton *m_windowModeFollow = nullptr;
-    QRadioButton *m_windowModeCustom = nullptr;
-    /// NOTE: 分辨率那一行虽然占**两个**键（windowWidth / windowHeight），但只有**一对**
-    ///       单选钮 —— 它俩是同一个决定的两半（见 .hpp 里 override() 那段）。所以这一对
-    ///       是按 `windowWidthField()` 那个 field 认出来的。
-    QRadioButton *m_windowSizeFollow = nullptr;
-    QRadioButton *m_windowSizeCustom = nullptr;
+    /// NOTE: 分辨率那一行虽然占**两个**键（windowWidth / windowHeight），但只有**一个**
+    ///       档位下拉框 —— 它俩是同一个决定的两半（见 .hpp 里 override() 那段）。所以那一个
+    ///       下拉框是按 `windowWidthField()` 那个 field 存进 m_choiceCombos 的。
     /// 「跟随全局」时那一句解释要说的窗口大小（`GlobalValues::windowWidth/Height`）。
     /// 存下来是给 refreshHints() 用的 —— 它只拿到一次构造参数，之后每次都要重写那句话。
     ///
@@ -1816,20 +1847,16 @@ private:
     /// 那一截空白（见 .cpp 里那段 NOTE）。0 = 还没展开过。
     int m_heightBeforeAdvanced = 0;
 
-    // 五行各一对单选钮。存在成员里（而不是每次 findChild）是因为 refreshHints()
-    // 每次信号都要读它们算"有效值"，而那是按键最频繁的一条路。
-    QRadioButton *m_javaPathFollow = nullptr;
-    QRadioButton *m_javaPathCustom = nullptr;
-    QRadioButton *m_xmxFollow = nullptr;
-    QRadioButton *m_xmxCustom = nullptr;
-    QRadioButton *m_xmsFollow = nullptr;
-    QRadioButton *m_xmsCustom = nullptr;
-    QRadioButton *m_autoMemoryFollow = nullptr;
-    QRadioButton *m_autoMemoryCustom = nullptr;
-    QRadioButton *m_extraJvmArgsFollow = nullptr;
-    QRadioButton *m_extraJvmArgsCustom = nullptr;
-    /// 「最大内存」「最小内存」两行左边那两对单选钮的容器 —— 自动档下整行禁用，
-    /// 禁用的是这两个容器（连同里面那对钮），不是只禁数字框。
+    /// 每一项的档位下拉框，键是那个 field（`javaPathField()` 那一组）。
+    ///
+    /// ★ 2026-09-28：**从前是七对单选钮**（`m_javaPathFollow` / `m_javaPathCustom` …
+    ///   十四位成员），用户原话「所有单选框换成下拉的」之后收成这一个表 ——
+    ///   一对成员换一个下拉框，七行长得一模一样，写成表就不必再维护那个 if 链。
+    ///   存在成员里（而不是每次 findChild）是因为 refreshHints() 每次信号都要读它们算
+    ///   "有效值"，而那是按键最频繁的一条路。
+    QHash<QString, QComboBox *> m_choiceCombos;
+    /// 「最大内存」「最小内存」两行那一格的容器 —— 自动档下整行禁用，
+    /// 禁用的是这两个容器（连同里面的档位下拉框），不是只禁数字框。
     QWidget *m_xmxFollowCell = nullptr;
     QWidget *m_xmsFollowCell = nullptr;
     /// 每一项在「自定义」状态下那句话（选「跟随全局」时说的是"当前全局是哪个值"，

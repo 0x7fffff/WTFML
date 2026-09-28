@@ -457,6 +457,36 @@ QString widgetStyleSheet() {
                           " border: none; background: transparent; padding: 0; }");
 
     // -----------------------------------------------------------------------
+    // 下拉框（2026-09-28）
+    // -----------------------------------------------------------------------
+    //
+    // 用户原话：「下拉框和输入框一样都主题色」。所以**和上面那条一模一样的四个色** ——
+    // 白底 / 纯黑字 / `Border` 那一档的边 / 聚焦换 `Ink`。两处各写一份颜色是**有意**的：
+    // 它们在这一页上是同一族控件（一个框住一段字、一个框住一个选择），差一档并排摆着
+    // 一眼就看得出来。改这一条的时候顺手看一眼上面那条。
+    //
+    // ★ 下拉框比输入框多一层：**弹出来那张表是它的子控件**。Qt 样式表里的 `color` 会
+    //   **往下传**，而那张表有自己的底色 —— 不点名的话，深色系统主题下弹出来的就是
+    //   "黑的字压在深色的底上"。所以最底下那条 `QComboBox QAbstractItemView` 把表和
+    //   选中那一格也一起写成白底黑字（选中那一格用主题色打底、**黑墨**：黑压 `Pure`
+    //   是 13.5:1，白压 `Pure` 只有 1.56:1）。
+    //
+    // NOTE: `::drop-down { border: none; width: 18px; }` 只把箭头那一格框出来，**不改
+    //       那个箭头本身** —— 它是 Fusion 画的，跟着调色板走（换深浅主题的时候它跟着变，
+    //       这正是要的）。给它贴一张图就得再贴一张，主题色一换又得重来。
+    qss += QStringLiteral(
+               "QComboBox { background-color: #ffffff; color: #000000; border: 1px solid %1;"
+               " border-radius: 3px; padding: 1px 3px; }"
+               "QComboBox:focus { border-color: %2; }"
+               "QComboBox:disabled { background-color: %3; color: %4; border-color: %5; }"
+               "QComboBox::drop-down { border: none; width: 18px; }"
+               "QComboBox QAbstractItemView { background-color: #ffffff; color: #000000;"
+               " border: 1px solid %1;"
+               " selection-background-color: %6; selection-color: #000000; outline: none; }")
+               .arg(border.name(), ink.name(), disabledFill.name(), disabledInk.name(),
+                    disabledBorder.name(), pure.name());
+
+    // -----------------------------------------------------------------------
     // 勾选框（2026-09-28）
     // -----------------------------------------------------------------------
     //

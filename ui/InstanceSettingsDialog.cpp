@@ -19,7 +19,6 @@
 
 #include "Theme.hpp"   // 浮层的底色（Theme::Part::Panel）
 
-#include <QButtonGroup>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDir>
@@ -39,7 +38,6 @@
 #include <QPixmap>
 #include <QPlainTextEdit>
 #include <QPushButton>
-#include <QRadioButton>
 #include <QScreen>
 #include <QScrollArea>
 #include <QSignalBlocker>
@@ -168,6 +166,67 @@ constexpr int kMenuGap = 2;
 ///       抄一份在这儿是这一版最省的做法，但**它们是一份值** —— 那边改了这边要一起改。
 constexpr int kMenuPadding = 8;
 constexpr int kMenuRowSpacing = 4;
+
+// ---------------------------------------------------------------------------
+// 页面按钮的大小与排布（2026-09-28）
+// ---------------------------------------------------------------------------
+//
+// 用户原话：「实例设置里面的所有按钮做成恒定宽度和高度的，每一行三个，间距适中且左右能
+// 充分利用」。下面这一小段就是那三件事的唯一出处。
+//
+/// 那四个数的**壳**：出处是类里那四个 `constexpr` 函数（验证工程也读它们）。
+/// 这里转一手只是为了在下面那几个 short 函数里少写一截限定名。
+constexpr int kActionButtonsPerRow = InstanceSettingsDialog::actionButtonsPerRow();
+constexpr int kActionButtonHeight = InstanceSettingsDialog::actionButtonHeight();
+constexpr int kActionButtonSpacing = InstanceSettingsDialog::actionButtonSpacing();
+constexpr int kActionButtonMinWidth = InstanceSettingsDialog::actionButtonMinWidth();
+
+/// 一颗按钮按这一套的规格摆好（定高 / 最窄 / 横向可抻）。
+///
+/// NOTE: **凡是要进下面那张网格的按钮都得先过这一手** —— 少过一手的那颗就会比旁边那两颗
+///       矮一头或者窄一块，而"恒定"正是这一套唯一的卖点。
+void prepareActionButton(QWidget *button) {
+    button->setMinimumWidth(kActionButtonMinWidth);
+    button->setFixedHeight(kActionButtonHeight);
+    // 横向 Expanding：列有多宽它就有多宽 —— 这才是"恒定宽度"的来源（见下一个函数）。
+    button->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+}
+
+/// 新建一张"每行三颗"的网格（列距 / 行距走 `kActionButtonSpacing`）。
+QGridLayout *newActionGrid() {
+    auto *layout = new QGridLayout;
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setHorizontalSpacing(kActionButtonSpacing);
+    layout->setVerticalSpacing(kActionButtonSpacing);
+    return layout;
+}
+
+/// 把若干**格子**摆进"每行三颗"的网格，三列等宽、整幅铺满。格子自己长什么样不管 ——
+/// 可以只是一颗按钮，也可以是「一颗按钮 + 它下面那句解释」（概览上那四颗就是后者）。
+///
+/// ★ 「恒定宽度」和「左右充分利用」这两件事在这里是**同一条**：宽不钉像素，而是"三列各
+///   一份 + 网格铺满它所在那一行的整幅"。于是一组里每颗一样宽，**而且这一页上任何另一组
+///   三颗也一样宽**（每一组都跨着同样那幅宽）。钉死一个像素做不到这一点 —— 那样在别的
+///   字号 / 别的 DPI 下就不再"充分利用"了，字长一点的那颗还会开始打省略号。
+///
+/// NOTE: 少一颗的那一行（四颗 = 三颗 + 一颗）**不摊开**：那颗照旧三分之一宽。用户要的是
+///       "恒定"，四颗里有一颗比别人宽就不是恒定了。
+void layoutActionCells(QGridLayout *grid, const QList<QWidget *> &cells) {
+    for (int i = 0; i < cells.size(); ++i) {
+        grid->addWidget(cells.at(i), i / kActionButtonsPerRow, i % kActionButtonsPerRow);
+    }
+    for (int column = 0; column < kActionButtonsPerRow; ++column) {
+        grid->setColumnStretch(column, 1);
+    }
+}
+
+/// 一组裸按钮（格子就是按钮本身）摆成"每行三颗"。
+void layoutActionButtons(QGridLayout *grid, const QList<QWidget *> &buttons) {
+    for (QWidget *button : buttons) {
+        prepareActionButton(button);
+    }
+    layoutActionCells(grid, buttons);
+}
 
 /**
  * @brief 「实例设置」里那两个浮层（更改图标 / 分组…）共用的外壳。
@@ -390,9 +449,8 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     // **"点了弹浮层"**（而不是把候选项铺在这一页上）。
     {
         auto *cell = new QWidget(this);
-        auto *line = new QHBoxLayout(cell);
+        auto *line = new QVBoxLayout(cell);
         line->setContentsMargins(0, 0, 0, 0);
-        line->setSpacing(8);
         m_changeIconButton = new QPushButton(changeIconText(), cell);
         m_changeIconButton->setObjectName(changeIconButtonName());
         // 「更换图标…」「移入分组…」「导出…」都是**打开一个菜单或另一个框**（一般性）。
@@ -400,7 +458,6 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         m_changeIconButton->setToolTip(iconHint());
         connect(m_changeIconButton, &QPushButton::clicked, this,
                 [this]() { popUpMenuBelow(m_iconMenu, m_changeIconButton); });
-        line->addWidget(m_changeIconButton);
 
         m_groupButton = new QPushButton(groupButtonText(), cell);
         m_groupButton->setObjectName(groupButtonName());
@@ -408,8 +465,13 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         // tooltip 由 refreshGroupMenuState() 写（它要说清"现在归在哪一组"）。
         connect(m_groupButton, &QPushButton::clicked, this,
                 [this]() { popUpMenuBelow(m_groupMenu, m_groupButton); });
-        line->addWidget(m_groupButton);
-        line->addStretch(1);
+
+        // ★ 2026-09-28：两颗并排 → **铺成"每行三颗"那一套里的头两颗**（用户原话「所有按钮
+        //   做成恒定宽度和高度的，每一行三个」）。第三格空着，这两颗照旧三分之一宽
+        //   —— "恒定"的意思是这一页上所有按钮一样大，不是"这一行要把三格填满"。
+        auto *iconGrid = newActionGrid();
+        layoutActionButtons(iconGrid, {m_changeIconButton, m_groupButton});
+        line->addLayout(iconGrid);
         grid->addWidget(cell, row++, 0, 1, 2);
     }
 
@@ -557,12 +619,18 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         grid->addWidget(cell, row++, 0, 1, 2);
     }
 
-    // ---------- 第四行：导出整合包 ----------
+    // ---------- 四颗「对整个实例动手」的按钮（2026-09-28 改成一张三列网格）----------
     //
-    // 用户原话：「第四行 导出（还没做，可行的话顺便做了，麻烦的话先放着）」—— 当时选的是
-    // 「现在放占位符」，2026-09-26 数据层做完之后**换成真的**：规范那一侧（两种清单、
-    // 反查、打包）在 ModpackExport / VersionManager 里，这一层仍然只干它一直干的那件事
-    // ——问路径。
+    // 导出整合包 / 检查更新 / 复制实例 / 删除实例 —— 原来这四颗**各占一整行**（一颗按钮 +
+    // 它自己那句解释，一条一条摞下来）。用户 2026-09-28 原话「实例设置里面的所有按钮做成
+    // 恒定宽度和高度的，每一行三个，间距适中且左右能充分利用」，于是它们收成一张网格：
+    // 前三颗一行、第四颗单独一行，每格还是"按钮 + 它那句解释"（**解释一个字都没丢**，
+    // 只是从整幅宽缩成三分之一宽，靠 `setWordWrap(true)` 自己折行）。
+    //
+    // NOTE: 四颗一行摆三颗 ⇒ 最后那一行只填得满第一格。**空着的那两格不摊开**是写意的
+    //       （见 layoutActionCells() 里那段）：四颗里有一颗比别人宽就不是"恒定"了。
+    auto *actionGrid = newActionGrid();
+    QList<QWidget *> actionCells;
     {
         auto *cell = new QWidget(this);
         auto *column = new QVBoxLayout(cell);
@@ -609,11 +677,12 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             }
             emit exportModpackRequested(picked);
         });
-        column->addWidget(button, 0, Qt::AlignLeft);
+        prepareActionButton(button);
+        column->addWidget(button);
         auto *hint = new QLabel(exportHint(), cell);
         hint->setWordWrap(true);
         column->addWidget(hint);
-        grid->addWidget(cell, row++, 0, 1, 2);
+        actionCells.append(cell);
     }
 
     // ---------- 「检查更新」（2026-09-28）----------
@@ -636,11 +705,12 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         button->setToolTip(checkUpdatesButtonTooltip());
         connect(button, &QPushButton::clicked, this,
                 [this]() { emit checkUpdatesRequested(); });
-        column->addWidget(button, 0, Qt::AlignLeft);
+        prepareActionButton(button);
+        column->addWidget(button);
         auto *hint = new QLabel(checkUpdatesHint(), cell);
         hint->setWordWrap(true);
         column->addWidget(hint);
-        grid->addWidget(cell, row++, 0, 1, 2);
+        actionCells.append(cell);
     }
 
     // ---------- 「复制实例」（2026-09-28）----------
@@ -663,11 +733,12 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         button->setToolTip(copyButtonTooltip());
         connect(button, &QPushButton::clicked, this,
                 [this]() { emit copyInstanceRequested(); });
-        column->addWidget(button, 0, Qt::AlignLeft);
+        prepareActionButton(button);
+        column->addWidget(button);
         auto *hint = new QLabel(copyHint(), cell);
         hint->setWordWrap(true);
         column->addWidget(hint);
-        grid->addWidget(cell, row++, 0, 1, 2);
+        actionCells.append(cell);
     }
 
     // ---------- 「删除实例」（2026-09-28）----------
@@ -692,12 +763,18 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         Theme::markButton(button, Theme::ButtonKind::Danger);
         connect(button, &QPushButton::clicked, this,
                 [this]() { emit deleteInstanceRequested(); });
-        column->addWidget(button, 0, Qt::AlignLeft);
+        prepareActionButton(button);
+        column->addWidget(button);
         auto *hint = new QLabel(deleteHint(), cell);
         hint->setWordWrap(true);
         column->addWidget(hint);
-        grid->addWidget(cell, row++, 0, 1, 2);
+        actionCells.append(cell);
     }
+
+    // 四格攒齐了，一次性摆成"每行三颗"。**必须摆在这一段之后**：那四格是在上面四个
+    // 作用域里各自建出来的，layoutActionCells() 要的是完整的一份。
+    layoutActionCells(actionGrid, actionCells);
+    grid->addLayout(actionGrid, row++, 0, 1, 2);
 
     // ---------- 快捷方式那九颗按钮（2026-09-27 从「快捷方式」那一页整块搬来）----------
     //
@@ -709,13 +786,18 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         column->setContentsMargins(0, 0, 0, 0);
         column->setSpacing(6);
 
-        // 三颗一排（shortcutPerRow()）⇒ 里面另起一张三列的网格，外面这一格整幅跨两列。
-        auto *buttonGrid = new QGridLayout;
-        buttonGrid->setContentsMargins(0, 0, 0, 0);
-        buttonGrid->setHorizontalSpacing(8);
-        buttonGrid->setVerticalSpacing(8);
+        // ★ 2026-09-28：这九颗**从"默认尺寸靠左堆"改成这一页统一的那一套**（用户原话
+        //   「所有按钮做成恒定宽度和高度的，每一行三个，间距适中且左右能充分利用」）——
+        //   每颗和「导出…」那几颗一样大，三列铺满整幅。
+        //
+        // NOTE: `shortcutPerRow()`（9 颗排几列）和这一套的 `kActionButtonsPerRow` **必须
+        //       是同一个数**（眼下都是 3）。排布改由 `layoutActionButtons()` 按后者算，
+        //       前者只剩"这颗按钮是哪一路目录"那一层意思；两边哪天分叉了，九颗会排成
+        //       六列或者三条 —— 界面上一眼看得出来，但没有任何断言拦得住。
+        auto *buttonGrid = newActionGrid();
         const QStringList texts = shortcutTexts();
         const QStringList keys = shortcutPathKeys();
+        QList<QWidget *> shortcutWidgets;
         for (int i = 0; i < texts.size(); ++i) {
             auto *button = new QPushButton(texts.value(i), cell);
             // 快捷方式那九颗 = "开一个目录"（一般性）。
@@ -729,18 +811,11 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                 emit openInstanceFolderRequested(
                     key == QStringLiteral("dir") ? m_instanceDir : m_fileDirs.value(key));
             });
-            // 按钮**不给它抻**：默认尺寸，三颗一排靠左。
-            buttonGrid->addWidget(button, i / shortcutPerRow(), i % shortcutPerRow(),
-                                  Qt::AlignLeft);
+            shortcutWidgets.append(button);
             m_shortcutButtons.append(button);
         }
-        auto *rowWrap = new QHBoxLayout;
-        rowWrap->setContentsMargins(0, 0, 0, 0);
-        rowWrap->addLayout(buttonGrid);
-        // 底下这一条 stretch 是"三颗一排靠左"的另一半：没有它，网格会把三列摊平分给
-        // 整幅宽，每颗按钮都被抻成一大条。
-        rowWrap->addStretch(1);
-        column->addLayout(rowWrap);
+        layoutActionButtons(buttonGrid, shortcutWidgets);
+        column->addLayout(buttonGrid);
         auto *hint = new QLabel(filesHint(QStringLiteral("shortcut")), cell);
         hint->setObjectName(filesHintName(QStringLiteral("shortcut")));
         hint->setWordWrap(true);
@@ -834,9 +909,6 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         m_javaPathEdit = new QLineEdit(cell);
         m_javaPathEdit->setObjectName(javaPathEditName());
         m_javaPathEdit->setPlaceholderText(tr("java.exe 的完整路径"));
-        // 宽度给 1：这一格里剩下的横向空间全归这个框（右边的「浏览…」按自己的
-        // sizeHint 排）。
-        choiceRow->addWidget(m_javaPathEdit, 1);
 
         auto *browse = new QPushButton(tr("浏览…"), cell);
         Theme::markButton(browse, Theme::ButtonKind::Neutral);
@@ -857,15 +929,28 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                 m_javaPathEdit->setText(picked);
                 // 选了一个具体文件 = 用户明确要这个，顺手把这一行切成「自定义」。
                 // 不切的话他选了路径、这一行还在"跟随全局"，这一次选择等于什么都没发生。
-                m_javaPathCustom->setChecked(true);
-                // ★ 这两句都是**程序化**改值（`setText` 不发 editingFinished，`setChecked`
-                //   只在单选钮**从没选中变成选中**时才发 toggled）⇒ watchEditors() 那几条
-                //   按类型的线一条都不响。改完自己补一发（见 .hpp 里 watchEditors() 那段
-                //   NOTE 里点名的两处，这是第一处）。
+                setChoiceCustom(javaPathField(), true);
+                // ★ 这两句都是**程序化**改值（`setText` 不发 editingFinished，
+                //   `setChoiceCustom` 自己挡着信号）⇒ watchEditors() 那几条按类型的线一条
+                //   都不响。改完自己补一发（见 .hpp 里 watchEditors() 那段 NOTE 里点名的
+                //   两处，这是第一处）。
                 notifyEdited();
             }
         });
-        choiceRow->addWidget(browse);
+        // ★ 2026-09-28：框 + 「浏览…」也是那一套三列 —— 输入框跨前两列、按钮占第三列。
+        //   于是这颗按钮和这一页上别的按钮**一样高**，宽度也按同一份比例分（见
+        //   layoutActionCells() 那段：宽是"列数"算出来的，不是钉死的像素）。
+        //
+        // NOTE: 这颗按钮**贴着它那个框**摆、不挪到别处 —— 它改的就是这个框里的字。
+        //       全项目唯一一颗这样的按钮，所以它是这一套里唯一不能独自成行的。
+        auto *pathGrid = newActionGrid();
+        pathGrid->addWidget(m_javaPathEdit, 0, 0, 1, 2);
+        prepareActionButton(browse);
+        pathGrid->addWidget(browse, 0, 2);
+        for (int column = 0; column < kActionButtonsPerRow; ++column) {
+            pathGrid->setColumnStretch(column, 1);
+        }
+        choiceRow->addLayout(pathGrid, 1);
     }
 
     // ---------- 内存：最大 / 最小 / 分配方式 ----------
@@ -997,18 +1082,16 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         }
         // ★ 换档位**也要发 `settingsEdited()`** —— 这一页是「改了就写」，而按类型接的那几条
         //   线（QAbstractButton / QLineEdit / QSpinBox / QPlainTextEdit）**一条都接不到
-        //   QComboBox**：这是这一页上唯一一个下拉框，漏了它的症状很具体 —— 用户把这行切到
-        //   「自定义」（那一发是单选钮发的，写盘了），再从下拉框里换一档 ⇒ **盘上还是老那一档**，
-        //   而他看着屏幕上写着「全屏」。下次动别的开关才会顺带写进去，也就是"改了有时候生效"。
+        //   QComboBox**，漏了它的症状很具体 —— 用户把这行切到「自定义」（那一发是档位那格
+        //   发的，写盘了），再从下拉框里换一档 ⇒ **盘上还是老那一档**，而他看着屏幕上写着
+        //   「全屏」。下次动别的开关才会顺带写进去，也就是"改了有时候生效"。
         //   下面灌值那一段是 setCurrentIndex + QSignalBlocker，不会把"打开这一页"当成一次编辑。
         //   NOTE: 「跟随全局」那句提示不用跟着重刷 —— 它写的是**全局**那一档，和这一格选了
         //         什么无关（见 refreshHints()）。
-        //   NOTE: 这一条**容易在测试里被盖住**：档位要是摆在"改数字框"之前换，后面那一发
-        //         写盘会顺带把新档位写进去，于是"下拉框没接那条线"这个洞照样全绿。mw_check
-        //         的 T20.11b 特地把换档位摆成那一页上最后一个动作（实测：掐掉这一行，正好
-        //         红那两条）。
-        connect(m_windowModeCombo, &QComboBox::currentIndexChanged, this,
-                &InstanceSettingsDialog::notifyEdited);
+        //   NOTE: 2026-09-28 起这一条**不再单独接在这儿**：`watchEditors()` 新加的那一循环
+        //         把这一页上**所有** `QComboBox` 一次接上（含这个和那七格档位），所以这里
+        //         只剩这段来龙去脉。那条"容易在测试里被盖住"的教训原样有效 —— mw_check 的
+        //         T20.11b 仍然把换档位摆成那一页上最后一个动作。
         choiceRow->addWidget(m_windowModeCombo, 0, Qt::AlignLeft);
     }
     {
@@ -1193,8 +1276,9 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         column->setContentsMargins(0, 0, 0, 0);
         column->setSpacing(4);
 
-        auto *line = new QHBoxLayout;
-        line->setSpacing(8);
+        // ★ 2026-09-28：两颗并排 → **这一页统一的那一套**（每行三颗、两颗各占三分之一）。
+        //   两颗那一行**不摊开**，和概览上那四颗同一个道理（见 layoutActionCells() 那段）。
+        auto *pairGrid = newActionGrid();
         auto *exportScript = new QPushButton(exportScriptText(), cell);
         exportScript->setObjectName(exportScriptButtonName());
         Theme::markButton(exportScript, Theme::ButtonKind::Neutral);
@@ -1221,17 +1305,14 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             // （ui/ 不 include src/ 下的头）。见 .hpp 里那个信号的说明。
             emit exportLaunchScriptRequested(picked);
         });
-        line->addWidget(exportScript);
-
         auto *repair = new QPushButton(repairFilesText(), cell);
         repair->setObjectName(repairFilesButtonName());
         repair->setToolTip(repairFilesHint());
         // 只报"用户想干这件事"：能不能开始（有没有下载在跑 / 这个实例装没装）由
         // MainWindow 说了算，它才知道。**不问路径**，所以这一层没什么可问的了。
         connect(repair, &QPushButton::clicked, this, &InstanceSettingsDialog::repairFilesRequested);
-        line->addWidget(repair);
-        line->addStretch(1);
-        column->addLayout(line);
+        layoutActionButtons(pairGrid, {exportScript, repair});
+        column->addLayout(pairGrid);
 
         auto *hint = new QLabel(actionsHint(), cell);
         hint->setWordWrap(true);
@@ -1350,17 +1431,15 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             //   有反应"。别的几页看的是一个平铺的目录，config/ 底下却还有层级
             //   （`config/ftbquests/`、`config/paxi/`…），得能进去也得出得来。
             if (isConfig) {
-                auto *navRow = new QHBoxLayout;
-                navRow->setContentsMargins(0, 0, 0, 0);
-                navRow->setSpacing(8);
+                // 一颗也走这一页统一的那一套（三分之一宽、靠左）—— 见 layoutActionCells()
+                // 那段：**少一颗的那一行不摊开**，一颗独苗撑满整幅会让它比别处的按钮大一号。
+                auto *navRow = newActionGrid();
                 m_configUp = new QPushButton(configUpText(), listHost);
                 m_configUp->setObjectName(configUpButtonName());
-        Theme::markButton(m_configUp, Theme::ButtonKind::Neutral);
+                Theme::markButton(m_configUp, Theme::ButtonKind::Neutral);
                 connect(m_configUp, &QPushButton::clicked, this,
                         &InstanceSettingsDialog::leaveConfigDir);
-                navRow->addWidget(m_configUp);
-                // 右边那条 stretch 是"靠左"的另一半（和快捷方式那一页同一个写法）。
-                navRow->addStretch(1);
+                layoutActionButtons(navRow, {m_configUp});
                 target->addLayout(navRow);
                 // 摆到"还没接过目录"那一档（m_configRoot 要等 setFileDirs 才有）。
                 updateConfigUpButton();
@@ -1408,9 +1487,10 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             QWidget *page = addPage(QStringLiteral("server"));
             auto *layout = qobject_cast<QVBoxLayout *>(page->layout());
             if (layout != nullptr) {
-                auto *top = new QHBoxLayout;
-                top->setContentsMargins(0, 0, 0, 0);
-                top->addStretch(1);
+                // ★ 2026-09-28：这两颗从前是"靠右一头"（前面一条 stretch），现在归进这一页
+                //   统一的那一套（每行三颗、各占三分之一、靠左）—— 用户原话「每一行三个，
+                //   间距适中且左右能充分利用」。
+                auto *top = newActionGrid();
                 // 「测速」：真的连上去问一句（2026-09-27）。**它和「刷新」都在** ——
                 // 那一页从这一天起不只是 servers.dat 的一面镜子（图标 / MOTD / 延迟都是
                 // 刚问来的），「刷新」= 重读 + 重测，「测速」= 只重测。
@@ -1420,15 +1500,13 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                                             "那两行字是什么。只读状态，不进游戏。"));
                 connect(m_serverPing, &QPushButton::clicked, this,
                         &InstanceSettingsDialog::pingServersRequested);
-                top->addWidget(m_serverPing);
-
                 m_serverRefresh = new QPushButton(serverRefreshText(), page);
                 m_serverRefresh->setObjectName(serverRefreshButtonName());
-        Theme::markButton(m_serverRefresh, Theme::ButtonKind::Neutral);
+                Theme::markButton(m_serverRefresh, Theme::ButtonKind::Neutral);
                 // 重读要碰 NBT 解析（在 src/ 里），所以这一发只能交给 MainWindow。
                 connect(m_serverRefresh, &QPushButton::clicked, this,
                         &InstanceSettingsDialog::refreshServerListRequested);
-                top->addWidget(m_serverRefresh);
+                layoutActionButtons(top, {m_serverPing, m_serverRefresh});
                 layout->addLayout(top);
 
                 m_serverNotice = new QLabel(page);
@@ -1536,12 +1614,10 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     // ---------- 灌值 ----------
     // 「有值 = 自定义，没值 = 跟随全局」这一条两边都要对上：磁盘上有一项覆盖时，
     // 重开这个对话框必须停在「自定义」上，否则用户会以为自己的设置丢了。
-    m_javaPathFollow->setChecked(!current.javaPath.has_value());
-    m_javaPathCustom->setChecked(current.javaPath.has_value());
+    setChoiceCustom(javaPathField(), current.javaPath.has_value());
     m_javaPathEdit->setText(current.javaPath.value_or(global.javaPath));
 
-    m_xmxFollow->setChecked(!current.xmx.has_value());
-    m_xmxCustom->setChecked(current.xmx.has_value());
+    setChoiceCustom(xmxField(), current.xmx.has_value());
     m_memoryMaxSpin->setValue(current.xmx.value_or(global.xmx));
     // 条那半边也要摆过来：数字框本来就已经是这个值时上面那一句不发信号，光靠同步那条线
     // 等不到（条会停在上一次那一格上）—— 一进这一页看见的条和数字框就不是一个数。
@@ -1553,16 +1629,13 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         m_memoryMaxSlider->setValueMb(m_memoryMaxSpin->value());
     }
 
-    m_xmsFollow->setChecked(!current.xms.has_value());
-    m_xmsCustom->setChecked(current.xms.has_value());
+    setChoiceCustom(xmsField(), current.xms.has_value());
     m_memoryMinSpin->setValue(current.xms.value_or(global.xms));
 
-    m_autoMemoryFollow->setChecked(!current.autoMemory.has_value());
-    m_autoMemoryCustom->setChecked(current.autoMemory.has_value());
+    setChoiceCustom(autoMemoryField(), current.autoMemory.has_value());
     m_memoryAutoCheck->setChecked(current.autoMemory.value_or(global.autoMemory));
 
-    m_extraJvmArgsFollow->setChecked(!current.extraJvmArgs.has_value());
-    m_extraJvmArgsCustom->setChecked(current.extraJvmArgs.has_value());
+    setChoiceCustom(extraJvmArgsField(), current.extraJvmArgs.has_value());
     m_extraJvmArgsEdit->setText(current.extraJvmArgs.value_or(global.extraJvmArgs));
 
     // ---------- 窗口模式 / 窗口大小（2026-09-28 加的）----------
@@ -1580,20 +1653,21 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             const QSignalBlocker block(m_windowModeCombo);
             m_windowModeCombo->setCurrentIndex(index >= 0 ? index : 0);
         }
-        m_windowModeFollow->setChecked(!current.windowMode.has_value());
-        m_windowModeCustom->setChecked(current.windowMode.has_value());
+        setChoiceCustom(windowModeField(), current.windowMode.has_value());
     }
     if (m_windowWidthSpin != nullptr) {
         // 分辨率那两格：**以窗口宽那一格有没有值为准**（它们是同一个决定的两半，见 .hpp
         // 里 override() 那段），值本身各自取覆盖或全局那一份。
-        m_windowSizeFollow->setChecked(!current.windowWidth.has_value());
-        m_windowSizeCustom->setChecked(current.windowWidth.has_value());
+        setChoiceCustom(windowWidthField(), current.windowWidth.has_value());
         m_windowWidthSpin->setValue(current.windowWidth.value_or(global.windowWidth));
         m_windowHeightSpin->setValue(current.windowHeight.value_or(global.windowHeight));
     }
 
-    // 每一行下面那句话要等值灌完才刷（它写的是"当前是什么"）。上面那些 setChecked
-    // 已经触发过一轮 refreshHints 了，但那时候另一个单选钮还是空的。
+    // 每一行下面那句话要等值灌完才刷（它写的是"当前是什么"）。
+    //
+    // NOTE: 2026-09-28 起上面那一串是 `setChoiceCustom()`，它**自己挡着信号**（档位下拉框的
+    //       `currentIndexChanged` 既接 refreshHints 也接写盘那条线，灌值的时候一条都不该
+    //       响）—— 所以这一发是这个函数里**唯一**一次算提示的时机，不是"再刷一遍"。
     refreshHints();
 
     // 图标那一行的初值走 setIcon()（调用方在后头调，见 .hpp 里那段"为什么用 setter"）。
@@ -2880,12 +2954,12 @@ QString InstanceSettingsDialog::currentPageKey() const {
 QWidget *InstanceSettingsDialog::addOverrideRow(QGridLayout *grid, int row, const QString &field,
                                                 const QString &title, const QString &customHint) {
     // **两行**：上面那一行是这个设置的名字（独占一整行），下面那一行才是它的选项
-    // （「跟随全局 / 自定义」那对单选钮 + 控件）——用户 2026-09-26 原话「上一行设置名称，
-    // 下一行设置选项」。**调用方因此要 `row += 2`**（见 addTitledRow() 那段）。
+    // （「跟随全局 / 自定义」那个档位下拉框 + 控件）——用户 2026-09-26 原话「上一行设置
+    // 名称，下一行设置选项」。**调用方因此要 `row += 2`**（见 addTitledRow() 那段）。
     QVBoxLayout *cellLayout = nullptr;
     QWidget *cell = addTitledRow(grid, row, title, this, &cellLayout);
 
-    // 控件和单选钮在同一格，是为了内存那两行"整行禁用"能一次把两者都灰掉 ——
+    // 控件和档位下拉框在同一格，是为了内存那两行"整行禁用"能一次把两者都灰掉 ——
     // 只禁数字框会留下一个能选的「自定义」，选了却什么都不发生。
     auto *choiceRow = new QWidget(cell);
     choiceRow->setObjectName(choiceRowName(field));
@@ -2893,18 +2967,27 @@ QWidget *InstanceSettingsDialog::addOverrideRow(QGridLayout *grid, int row, cons
     choiceLayout->setContentsMargins(0, 0, 0, 0);
     choiceLayout->setSpacing(8);
 
-    auto *follow = new QRadioButton(followText(), choiceRow);
-    follow->setObjectName(followRadioName(field));
-    auto *custom = new QRadioButton(customText(), choiceRow);
-    custom->setObjectName(customRadioName(field));
-    // 同一行那对必须互斥。它们是同一个父控件的兄弟，Qt 本来就会自动互斥，但显式放进
-    // 一个 QButtonGroup 更稳：以后谁把其中一个挪进别的容器也不会变成"两个都亮"。
-    auto *group = new QButtonGroup(choiceRow);
-    group->addButton(follow);
-    group->addButton(custom);
-
-    choiceLayout->addWidget(follow);
-    choiceLayout->addWidget(custom);
+    // ★ 2026-09-28：**一对单选钮 → 一个下拉框**（用户原话「所有单选框换成下拉的」）。
+    //
+    //   两项的**顺序就是下标**：`choiceFollowIndex()`（跟随全局）在前、
+    //   `choiceCustomIndex()`（自定义）在后。那两个函数是档位的唯一出处，读侧
+    //   （isCustomChoice）、写侧（setChoiceCustom）和验证工程都走它们 —— 这里只是把
+    //   它们摆成 `addItem()` 的先后，**不许在别处再写一遍 0 / 1**。
+    //
+    // NOTE: 下拉框**吃不到** `watchEditors()` 原来那四条按类型的线（它们接的是
+    //       `QAbstractButton::clicked` / `QLineEdit::editingFinished` …，QComboBox 一条
+    //       都不沾），所以那边新加了一循环接它。漏了的症状很具体：把档位切到「自定义」
+    //       之后盘上还是老样子 —— 和「窗口模式」那个下拉框当初漏掉时一模一样
+    //       （那一条的来龙去脉见下面构造它那一段）。
+    auto *combo = new QComboBox(choiceRow);
+    combo->setObjectName(choiceComboName(field));
+    combo->addItem(followText());
+    combo->addItem(customText());
+    // 下拉框也吃滚轮（在两项之间来回跳），而这一格上的滚轮多半是"想滚这一页"。
+    // 和「窗口模式」那一个同一个理由。
+    WheelGuard::install(combo);
+    choiceLayout->addWidget(combo);
+    m_choiceCombos.insert(field, combo);
 
     cellLayout->addWidget(choiceRow);
 
@@ -2917,36 +3000,30 @@ QWidget *InstanceSettingsDialog::addOverrideRow(QGridLayout *grid, int row, cons
     m_customHints.insert(field, customHint);
     cellLayout->addWidget(hintLabel);
 
-    // 成员留着，refreshHints() 要按档位开关它们、也要读它们算"有效值"。
-    if (field == javaPathField()) {
-        m_javaPathFollow = follow;
-        m_javaPathCustom = custom;
-    } else if (field == xmxField()) {
-        m_xmxFollow = follow;
-        m_xmxCustom = custom;
-    } else if (field == xmsField()) {
-        m_xmsFollow = follow;
-        m_xmsCustom = custom;
-    } else if (field == autoMemoryField()) {
-        m_autoMemoryFollow = follow;
-        m_autoMemoryCustom = custom;
-    } else if (field == extraJvmArgsField()) {
-        m_extraJvmArgsFollow = follow;
-        m_extraJvmArgsCustom = custom;
-    } else if (field == windowModeField()) {
-        m_windowModeFollow = follow;
-        m_windowModeCustom = custom;
-    } else if (field == windowWidthField()) {
-        // 分辨率那一行占两个键（宽 / 高）却只有一对单选钮 —— 见 .hpp 里那段。
-        m_windowSizeFollow = follow;
-        m_windowSizeCustom = custom;
-    }
-
-    // 单选钮一变，那一行下面那句话和内存两行的可用性都可能跟着变。
-    connect(follow, &QRadioButton::toggled, this, &InstanceSettingsDialog::refreshHints);
-    connect(custom, &QRadioButton::toggled, this, &InstanceSettingsDialog::refreshHints);
+    // 档位一变，那一行下面那句话和内存两行的可用性都可能跟着变。
+    connect(combo, &QComboBox::currentIndexChanged, this,
+            &InstanceSettingsDialog::refreshHints);
 
     return cell;
+}
+
+bool InstanceSettingsDialog::isCustomChoice(const QString &field) const {
+    const QComboBox *combo = m_choiceCombos.value(field);
+    // 认不出来的 field（这一格没建出来）回 false = 跟随全局 —— 见 .hpp 里那一段。
+    return combo != nullptr && combo->currentIndex() == choiceCustomIndex();
+}
+
+void InstanceSettingsDialog::setChoiceCustom(const QString &field, bool custom) {
+    QComboBox *combo = m_choiceCombos.value(field);
+    if (combo == nullptr) {
+        return;
+    }
+    // 挡信号：这一发是**灌值**，不是用户改的。不挡的话它一次会响两条线 ——
+    // refreshHints（无害，下面 refreshHints() 反正要再算一遍）和写盘那条
+    // （`watchEditors()` 的 QComboBox 循环 ⇒ notifyEdited），后者在构造里
+    // `m_lastSignature` 还是空的时候就是"打开这一页顺手替用户写一次盘"。
+    const QSignalBlocker block(combo);
+    combo->setCurrentIndex(custom ? choiceCustomIndex() : choiceFollowIndex());
 }
 
 QHBoxLayout *InstanceSettingsDialog::choiceRowOf(const QString &field) const {
@@ -2957,7 +3034,8 @@ QHBoxLayout *InstanceSettingsDialog::choiceRowOf(const QString &field) const {
 }
 
 bool InstanceSettingsDialog::effectiveAutoMemory() const {
-    return m_autoMemoryCustom->isChecked() ? m_memoryAutoCheck->isChecked() : m_global.autoMemory;
+    return isCustomChoice(autoMemoryField()) ? m_memoryAutoCheck->isChecked()
+                                             : m_global.autoMemory;
 }
 
 bool InstanceSettingsDialog::advancedExpanded() const { return m_advancedToggle->isChecked(); }
@@ -2982,7 +3060,7 @@ void InstanceSettingsDialog::refreshHints() {
     // NOTE: 「实例名 / Java 路径」那几行是"跟随全局时编辑框里就摆着全局值、改了等于自定义"
     //       的另一种拆法（那边靠「浏览…」那一按顺手切档），内存这一行**不用**那个拆法：
     //       条目上滚一下滚轮就在盘上凭空多出一份覆盖，这种事不能有。
-    const bool memoryEditable = !autoMemory && m_xmxCustom->isChecked();
+    const bool memoryEditable = !autoMemory && isCustomChoice(xmxField());
     m_memoryMaxSlider->setEnabled(memoryEditable);
     m_memoryMaxSpin->setEnabled(memoryEditable);
     // 最小内存那一格整个是隐藏的（2026-09-26 撤掉的那一行），但控件照旧跟着同一个规矩 ——
@@ -3002,23 +3080,23 @@ void InstanceSettingsDialog::refreshHints() {
         setHint(field, isCustom ? m_customHints.value(field) : followHint(currentText));
     };
 
-    followOrCustom(javaPathField(), m_javaPathCustom->isChecked(),
+    followOrCustom(javaPathField(), isCustomChoice(javaPathField()),
                    m_global.javaPath.isEmpty() ? tr("未指定") : m_global.javaPath);
-    followOrCustom(autoMemoryField(), m_autoMemoryCustom->isChecked(),
+    followOrCustom(autoMemoryField(), isCustomChoice(autoMemoryField()),
                    m_global.autoMemory ? tr("自动（按系统内存）") : tr("手动指定"));
-    followOrCustom(extraJvmArgsField(), m_extraJvmArgsCustom->isChecked(),
+    followOrCustom(extraJvmArgsField(), isCustomChoice(extraJvmArgsField()),
                    m_global.extraJvmArgs.isEmpty() ? tr("未设置") : m_global.extraJvmArgs);
 
     // ---------- 窗口模式 / 窗口大小（2026-09-28 加的）----------
     //
     // ★ 「跟随全局」时**这一格里的控件灰掉**（和内存那两行同一个做法，理由也在那边：
-    //   能改、改完 override() 又不读，就是"让人以为能改"）。**不能整格禁**：那对单选钮
-    //   得留着才能切回「自定义」。所以只点那几个控件，单选钮照旧能点。
+    //   能改、改完 override() 又不读，就是"让人以为能改"）。**不能整格禁**：那个档位
+    //   下拉框得留着才能切回「自定义」。所以只点那几个控件，下拉框照旧能点。
     //
     // NOTE: 和内存那一行不同的是，这里**没有**"这一格整格禁用"的第二种情况（内存那两种是
     //       "自动档"和"跟随全局"）—— 窗口这几项没有自动档。
     if (m_windowModeCombo != nullptr) {
-        const bool custom = m_windowModeCustom->isChecked();
+        const bool custom = isCustomChoice(windowModeField());
         m_windowModeCombo->setEnabled(custom);
         // 那一句话：选「自定义」时说"只对这个实例生效"，选「跟随全局」时说清**跟随的是什么**
         // —— 全局那一档的显示名由调用方喂进来。没喂（空串）时就只说"跟随全局"四个字：
@@ -3030,7 +3108,9 @@ void InstanceSettingsDialog::refreshHints() {
                               : followHint(m_global.windowModeLabel)));
     }
     if (m_windowWidthSpin != nullptr) {
-        const bool editable = m_windowSizeCustom->isChecked();
+        // 分辨率那一行占两个键、只有**一个**档位下拉框，它存在 `windowWidthField()` 那一格
+        // 里（见 .hpp 里那一段）。
+        const bool editable = isCustomChoice(windowWidthField());
         m_windowWidthSpin->setEnabled(editable);
         m_windowHeightSpin->setEnabled(editable);
         // 中间那个 × 跟着一起灰：只剩两个灰框中间夹一个亮着的 ×，看着像那一格坏了
@@ -3055,9 +3135,9 @@ void InstanceSettingsDialog::refreshHints() {
         setHint(xmxField(), memoryAutoDisabledHint());
         setHint(xmsField(), memoryAutoDisabledHint());
     } else {
-        followOrCustom(xmxField(), m_xmxCustom->isChecked(),
+        followOrCustom(xmxField(), isCustomChoice(xmxField()),
                        QStringLiteral("%1 MB").arg(m_global.xmx));
-        followOrCustom(xmsField(), m_xmsCustom->isChecked(),
+        followOrCustom(xmsField(), isCustomChoice(xmsField()),
                        QStringLiteral("%1 MB").arg(m_global.xms));
     }
 }
@@ -3065,7 +3145,7 @@ void InstanceSettingsDialog::refreshHints() {
 InstanceSettingsDialog::Override InstanceSettingsDialog::override() const {
     Override result;
 
-    if (m_javaPathCustom->isChecked()) {
+    if (isCustomChoice(javaPathField())) {
         // 去首尾空白：路径末尾多一个空格在 Windows 上就是个不存在的文件，
         // 而那会变成"启动时找不到 Java"。
         const QString path = m_javaPathEdit->text().trimmed();
@@ -3084,25 +3164,25 @@ InstanceSettingsDialog::Override InstanceSettingsDialog::override() const {
     // 磁盘上本来就存着这种组合的旧数据（自动档 + Xmx 覆盖）。存一份永远不会被读的
     // 覆盖就是骗人 —— 见 .hpp 里 override() 的 NOTE。
     if (!effectiveAutoMemory()) {
-        if (m_xmxCustom->isChecked()) {
+        if (isCustomChoice(xmxField())) {
             result.xmx = m_memoryMaxSpin->value();
         }
-        if (m_xmsCustom->isChecked()) {
+        if (isCustomChoice(xmsField())) {
             // ★ 2026-09-26：这一行从界面上撤掉了（整行隐藏），但盘上存过的值**照样透传** ——
             //   撤掉界面不等于替用户删掉他的设置。唯一不能原样透传的是"比最大内存还大"的
             //   那些：Xms > Xmx 是 JVM 直接拒绝启动的组合（Initial heap size set to a
             //   larger value than the maximum heap size），而用户现在在界面上根本看不到
             //   自己存过这么一对 —— 那一行是隐藏的，没有人在旁边替他看着。
-            const int effectiveXmx = m_xmxCustom->isChecked() ? m_memoryMaxSpin->value()
-                                                              : m_global.xmx;
+            const int effectiveXmx = isCustomChoice(xmxField()) ? m_memoryMaxSpin->value()
+                                                                : m_global.xmx;
             result.xms = qMin(m_memoryMinSpin->value(), effectiveXmx);
         }
     }
 
-    if (m_autoMemoryCustom->isChecked()) {
+    if (isCustomChoice(autoMemoryField())) {
         result.autoMemory = m_memoryAutoCheck->isChecked();
     }
-    if (m_extraJvmArgsCustom->isChecked()) {
+    if (isCustomChoice(extraJvmArgsField())) {
         result.extraJvmArgs = m_extraJvmArgsEdit->text().trimmed();
     }
 
@@ -3111,19 +3191,17 @@ InstanceSettingsDialog::Override InstanceSettingsDialog::override() const {
     // 或者下拉框里一项都没有）就当作没覆盖 —— 和 javaPath 那条"空的「自定义」= 跟随全局"
     // 同一个方向：宁可什么都不写，也不要往 meta 里塞一个空代号（那会被读侧当成认不出来的
     // 值、静默退回默认档，比"没写"更难查）。
-    if (m_windowModeCombo != nullptr && m_windowModeCustom != nullptr &&
-        m_windowModeCustom->isChecked()) {
+    if (m_windowModeCombo != nullptr && isCustomChoice(windowModeField())) {
         const QString token = m_windowModeCombo->currentData().toString();
         if (!token.isEmpty()) {
             result.windowMode = token;
         }
     }
 
-    // 分辨率：**两个一起收、或者两个都不收**。它们共用一对单选钮（见 .hpp 里 override()
-    // 那段），所以判据只看这一对 —— 不去看两个框各自有没有被动过（那既判不出来，也不是
-    // 用户的意思：他点的是「自定义」，意思是这一对标就要按他填的走）。
-    if (m_windowWidthSpin != nullptr && m_windowSizeCustom != nullptr &&
-        m_windowSizeCustom->isChecked()) {
+    // 分辨率：**两个一起收、或者两个都不收**。它们共用一个档位下拉框（见 .hpp 里 override()
+    // 那段），所以判据只看那一个 —— 不去看两个框各自有没有被动过（那既判不出来，也不是
+    // 用户的意思：他选的是「自定义」，意思是这一对标就要按他填的走）。
+    if (m_windowWidthSpin != nullptr && isCustomChoice(windowWidthField())) {
         result.windowWidth = m_windowWidthSpin->value();
         result.windowHeight = m_windowHeightSpin->value();
     }
@@ -3177,6 +3255,23 @@ void InstanceSettingsDialog::watchEditors() {
     // 但 QOverload 写成 int 这一条在两边都编得过）。
     for (QSpinBox *spin : findChildren<QSpinBox *>()) {
         connect(spin, QOverload<int>::of(&QSpinBox::valueChanged), this,
+                &InstanceSettingsDialog::notifyEdited);
+    }
+    // ★ 下拉框（2026-09-28 加的这一条）。原来这一页上只有「窗口模式」一个下拉框，
+    //   它独自接了一条 `currentIndexChanged`；用户点名「所有单选框换成下拉的」之后
+    //   **档位那一格也成了下拉框**（七行），再一个个手接就成了"每加一行都要记得回来补
+    //   一条线"。收进这个循环之后和上面四条是同一个形状。
+    //   症状（漏掉时）：切到「自定义」之后盘上还是老样子 —— 界面上看着改了、下次开这一页
+    //   又是原来的档。**容易在测试里被盖住**：后面只要再动一个别的控件，那一发写盘会顺带
+    //   把新档位写进去，于是"没接线"这个洞照样全绿（mw_check 的 T20.11b 就是为这个写的：
+    //   它把换档位摆成那一页上**最后一个**动作）。
+    //
+    // NOTE: 这一循环**连这一页上的子页面一起接**（文件管理那几页的「筛选」下拉框、世界设置
+    //       那一页的难度下拉框 —— 它们都是这一页的后代）。改了它们会白喊一声 notifyEdited()
+    //       —— 无害：那个函数按 `valueSignature()` 去重，而那几个值不在签名里，所以一次盘都
+    //       不会写。按"这一页上的哪些下拉框"去筛是**多一条会过期的名单**，不值当。
+    for (QComboBox *combo : findChildren<QComboBox *>()) {
+        connect(combo, &QComboBox::currentIndexChanged, this,
                 &InstanceSettingsDialog::notifyEdited);
     }
     for (QPlainTextEdit *text : findChildren<QPlainTextEdit *>()) {
