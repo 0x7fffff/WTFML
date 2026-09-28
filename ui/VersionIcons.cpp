@@ -106,114 +106,39 @@ QPixmap scaledBlock(const QImage &img, int size) {
 qreal u(qreal v, int size) { return v * size / 16.0; }
 
 // ---------------------------------------------------------------------------
-// 加载器那四块底色（各自的品牌色近似值）。
+// 四个加载器的标志 —— 2026-09-28 起是**真图**。
+//
+// 原来这四张是照品牌色自己画的（Fabric 画斜纹、Forge 画铁砧剪影、NeoForge 画狐狸脑袋、
+// OptiFine 画放大镜），用户 2026-09-28「把模组加载器的贴图换了」，于是换成各家自己那张：
+// 四张 64×64 的成品 PNG（底色和圆角都烤在里面了），放在 assets/loader/ 下、由
+// assets/icons.qrc 编进来 —— 哪张图是从哪儿取的、怎么拼的，见 loader/README.md。
+//
+// ★ 顺序就是 MainWindowUI::modLoaderOptionNames() 那个顺序
+//   （0 Fabric / 1 Forge / 2 NeoForge / 3 OptiFine）。它和 iconCandidateKeys() 后四个
+//   键也必须是同一个顺序（实例图标候选取的就是这几个），改了那边这里要跟着改 ——
+//   对不上的症状是"勾了 Forge 前面画着狐狸"，不报错，只是难看。
 // ---------------------------------------------------------------------------
-const QColor kFabricBg(0x5b, 0x62, 0xa8);
-const QColor kForgeBg(0xf0, 0xa1, 0x3c);
-const QColor kForgeInk(0x2e, 0x33, 0x38);
-const QColor kNeoBg(0x2f, 0x31, 0x36);
-const QColor kNeoFox(0xe0, 0x7b, 0x39);
-const QColor kOptiBg(0xe8, 0xf0, 0xf8);
-const QColor kOptiInk(0x2c, 0x6c, 0xb0);
+const char *const kLoaderLogoFiles[4] = {
+    ":/assets/loader/fabric.png",
+    ":/assets/loader/forge.png",
+    ":/assets/loader/neoforge.png",
+    ":/assets/loader/optifine.png",
+};
 
-/// 一块圆角底色（四个加载器的标志都画在它上面，好让它们在单选钮前面站得住）。
-void drawTile(QPainter &p, int size, const QColor &bg) {
-    p.setPen(Qt::NoPen);
-    p.setBrush(bg);
-    const qreal r = u(3.0, size);
-    p.drawRoundedRect(QRectF(0.5, 0.5, size - 1.0, size - 1.0), r, r);
-}
-
-QPainterPath tilePath(int size) {
-    QPainterPath path;
-    const qreal r = u(3.0, size);
-    path.addRoundedRect(QRectF(0.5, 0.5, size - 1.0, size - 1.0), r, r);
-    return path;
-}
-
-/// Fabric：织出来的斜纹（一眼能认出是"布"）。
-void drawFabricMark(QPainter &p, int size) {
-    drawTile(p, size, kFabricBg);
-    p.save();
-    p.setClipPath(tilePath(size));
-    QPen pen(QColor(255, 255, 255, 220));
-    pen.setWidthF(u(1.5, size));
-    p.setPen(pen);
-    for (int i = -1; i <= 6; ++i) {
-        p.drawLine(QPointF(u(i * 3.0, size), u(15.0, size)),
-                   QPointF(u(i * 3.0 + 5.5, size), u(1.0, size)));
+/// 一张加载器标志缩到 @p size 见方。
+/// @note 资源没编进来时（某个验证工程的源列表里漏了 assets/icons.qrc）给**空图**，
+///       由调用方退回草方块 —— 那种"少了一张图"的失误要能在界面上看出来，
+///       不能悄悄画个空白。
+QPixmap loaderLogoPixmap(int index, int size) {
+    const QPixmap source(QString::fromLatin1(kLoaderLogoFiles[index]));
+    if (source.isNull()) {
+        return QPixmap();
     }
-    p.restore();
-}
-
-/// Forge：铁砧剪影（宽台 + 细腰 + 宽底座）。
-void drawForgeMark(QPainter &p, int size) {
-    drawTile(p, size, kForgeBg);
-    QPainterPath anvil;
-    anvil.moveTo(u(2.5, size), u(5.0, size));
-    anvil.lineTo(u(13.5, size), u(5.0, size));
-    anvil.lineTo(u(13.5, size), u(7.5, size));
-    anvil.lineTo(u(10.0, size), u(8.5, size));
-    anvil.lineTo(u(10.0, size), u(11.0, size));
-    anvil.lineTo(u(12.5, size), u(12.0, size));
-    anvil.lineTo(u(12.5, size), u(13.5, size));
-    anvil.lineTo(u(3.5, size), u(13.5, size));
-    anvil.lineTo(u(3.5, size), u(12.0, size));
-    anvil.lineTo(u(6.0, size), u(11.0, size));
-    anvil.lineTo(u(6.0, size), u(8.5, size));
-    anvil.lineTo(u(2.5, size), u(7.5, size));
-    anvil.closeSubpath();
-    p.setPen(Qt::NoPen);
-    p.setBrush(kForgeInk);
-    p.drawPath(anvil);
-}
-
-/// NeoForge：狐狸脑袋（两只尖耳朵 + 下半张白脸 + 两个黑点眼睛）。
-void drawNeoForgeMark(QPainter &p, int size) {
-    drawTile(p, size, kNeoBg);
-    p.setPen(Qt::NoPen);
-    p.setBrush(kNeoFox);
-    // 耳朵先画（会被脸压住根部，看着像长在头上）
-    QPolygonF leftEar({QPointF(u(3.0, size), u(2.0, size)), QPointF(u(6.5, size), u(2.0, size)),
-                       QPointF(u(4.2, size), u(7.0, size))});
-    QPolygonF rightEar({QPointF(u(13.0, size), u(2.0, size)), QPointF(u(9.5, size), u(2.0, size)),
-                        QPointF(u(11.8, size), u(7.0, size))});
-    p.drawPolygon(leftEar);
-    p.drawPolygon(rightEar);
-    const qreal r = u(2.0, size);
-    p.drawRoundedRect(QRectF(u(3.5, size), u(5.0, size), u(9.0, size), u(8.5, size)), r, r);
-    // 下半张脸是白的
-    p.setBrush(QColor(0xf3, 0xf0, 0xea));
-    p.drawRoundedRect(QRectF(u(5.5, size), u(9.0, size), u(5.0, size), u(4.5, size)),
-                      u(1.5, size), u(1.5, size));
-    // 眼睛和鼻子
-    p.setBrush(kNeoBg);
-    p.drawEllipse(QPointF(u(6.4, size), u(8.0, size)), u(0.9, size), u(0.9, size));
-    p.drawEllipse(QPointF(u(9.6, size), u(8.0, size)), u(0.9, size), u(0.9, size));
-    p.drawEllipse(QPointF(u(8.0, size), u(11.6, size)), u(0.8, size), u(0.8, size));
-}
-
-/// OptiFine：放大镜，镜片里是那块草方块（"把原版看得更清楚"那层意思）。
-void drawOptiFineMark(QPainter &p, int size) {
-    drawTile(p, size, kOptiBg);
-    // 镜片里的草方块
-    p.setPen(Qt::NoPen);
-    p.setBrush(kGrassDark);
-    p.drawRect(QRectF(u(5.0, size), u(5.5, size), u(4.0, size), u(1.6, size)));
-    p.setBrush(kDirtMid);
-    p.drawRect(QRectF(u(5.0, size), u(7.1, size), u(4.0, size), u(2.4, size)));
-    // 镜框 + 手柄
-    QPen pen(kOptiInk);
-    pen.setWidthF(u(1.4, size));
-    pen.setCapStyle(Qt::RoundCap);
-    p.setBrush(Qt::NoBrush);
-    p.setPen(pen);
-    p.drawEllipse(QPointF(u(7.0, size), u(7.0, size)), u(4.2, size), u(4.2, size));
-    QPen handle(kOptiInk);
-    handle.setWidthF(u(1.8, size));
-    handle.setCapStyle(Qt::RoundCap);
-    p.setPen(handle);
-    p.drawLine(QPointF(u(10.3, size), u(10.3, size)), QPointF(u(13.5, size), u(13.5, size)));
+    // 四张成品都是 64 px。放大（高 DPI 屏、以后要更大的格子）走最近邻，像素画才不会被
+    // 糊掉；缩小走平滑，18 px 那一档才不至于跳。
+    return source.scaled(size, size, Qt::IgnoreAspectRatio,
+                         size > source.width() ? Qt::FastTransformation
+                                               : Qt::SmoothTransformation);
 }
 
 /// 画一次就够了：这几张图在一棵树上是**每一行都要用**的（900 多条 × 每次重绘），
@@ -227,28 +152,6 @@ QPixmap cached(const QString &key, const std::function<QPixmap()> &make) {
     const QPixmap pixmap = make();
     cache.insert(key, pixmap);
     return pixmap;
-}
-
-/// 加载器标志的画法表。**顺序**就是 MainWindowUI::modLoaderOptionNames() 那个顺序
-/// （0 Fabric / 1 Forge / 2 NeoForge / 3 OptiFine），改了那边这里也要跟着改 ——
-/// 对不上的症状是"勾了 Forge 前面画着狐狸"，不报错，只是难看。
-void drawLoaderMark(QPainter &p, int index, int size) {
-    switch (index) {
-        case 0:
-            drawFabricMark(p, size);
-            return;
-        case 1:
-            drawForgeMark(p, size);
-            return;
-        case 2:
-            drawNeoForgeMark(p, size);
-            return;
-        case 3:
-            drawOptiFineMark(p, size);
-            return;
-        default:
-            return;  // 没画（调用方会退回草方块）
-    }
 }
 
 }  // namespace
@@ -409,12 +312,9 @@ QPixmap VersionIcons::loaderMark(int index, int size) {
         return grassBlock(size);
     }
     return cached(QStringLiteral("mark/%1/%2").arg(index).arg(size), [index, size]() {
-        QPixmap pixmap(size, size);
-        pixmap.fill(Qt::transparent);
-        QPainter p(&pixmap);
-        p.setRenderHint(QPainter::Antialiasing, true);
-        drawLoaderMark(p, index, size);
-        return pixmap;
+        const QPixmap logo = loaderLogoPixmap(index, size);
+        // 图读不出来（资源没编进来）也总得画点什么：退回草方块，和"认不出下标"一条规矩。
+        return logo.isNull() ? grassBlock(size) : logo;
     });
 }
 

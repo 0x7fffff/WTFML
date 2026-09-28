@@ -1,0 +1,21 @@
+<!DOCTYPE RCC>
+<!--
+  仓库里唯一一份资源清单（2026-09-28）。CMAKE_AUTORCC 已经是开的（见 CMakeLists.txt），
+  所以这个文件只要出现在某个 target 的源文件列表里就行，不用再写 qt_add_resources。
+
+  ★ 四个验证工程（build/verify/{ui_check,mw_check,ui_shot}）也得把它列进去：那几个工程
+    各自编 ui/VersionIcons.cpp，qrc 不在它们的源列表里时 `:/assets/loader/*.png` 全是空图，
+    loaderMark() 会一路退回草方块 —— 症状是 ui_check 那条「四张标志互不相同」红，
+    而产品本身看着一切正常。
+
+  内容就一个前缀：`/assets`，所以代码里写的是 `:/assets/loader/fabric.png`。
+  四张图的来路见 loader/README.md。
+-->
+<RCC version="1.0">
+    <qresource prefix="/assets">
+        <file alias="loader/fabric.png">loader/fabric.png</file>
+        <file alias="loader/forge.png">loader/forge.png</file>
+        <file alias="loader/neoforge.png">loader/neoforge.png</file>
+        <file alias="loader/optifine.png">loader/optifine.png</file>
+    </qresource>
+</RCC>

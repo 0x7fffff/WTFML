@@ -114,6 +114,10 @@ set(SOURCE_FILES
     ui/OverlayHost.cpp
     ui/SkinModel.cpp
     ui/VersionIcons.cpp
+    # 四个加载器的标志那几张真图（2026-09-28）。CMAKE_AUTORCC 是开的，所以一个 .qrc
+    # 列在这儿就够了、不用再写 qt_add_resources。验证工程也要各自列一份（见那几个
+    # CMakeLists 里同一行的注释）：漏了的表现是那几张图**静默变回草方块**。
+    assets/icons.qrc
     ui/VersionTreeDelegate.cpp
     ui/ResourceDetailPage.cpp
     ui/InstanceGroupDelegate.cpp

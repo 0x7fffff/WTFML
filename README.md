@@ -41,6 +41,7 @@ cmake --build build/static-release -j
 | `src/net/` | `HttpClient` |
 | `src/util/` | 与业务无关的小工具（`AppPaths` / `ZipUtil` / `NbtUtil` / `ServerPing` / …） |
 | `ui/` | 全部界面。**没有 .ui 文件**，界面一律手写；`ui/` 不许 include `src/` |
+| `assets/` | 编进 exe 的资源（`icons.qrc`）。目前只有四个模组加载器的标志那四张 PNG，来路见 `assets/loader/README.md` |
 
 ## 界面骨架
 
@@ -71,6 +72,11 @@ cmake --build build/static-release -j
 - **树和列表上那几行是"画出来的"，不是拼控件**（`ui/VersionTreeDelegate` 与
   `ui/VersionIcons` 两处是唯一出口）：字号比默认大两点、行高 46、版本号下面一行小字写发布
   日期、前面一个草方块、最右边一个 `>`（展开后变朝下的 V，没有子条目的分类**连箭头都不画**）。
+  ★ 里面那几个**小图标**分两半（2026-09-28）：草方块/覆雪草块/土块/幸运方块是**画的**
+  （16×16 像素画，颜色形状都在代码里，能对着像素断言）；Fabric/Forge/NeoForge/OptiFine
+  是**真图**（`assets/loader/*.png`，64×64 成品，编进 exe 的 `:/assets/…`，来路见那份
+  README）—— 换那四张只要盖掉同名文件，`loaderMark()` 那段代码和写进 `wtfml.meta` 的
+  键都不用动。
   ★ 想关掉 Qt 画在分类左边那个小三角，**不能**设 `setChildIndicatorPolicy(DontShowIndicator)` ——
   `QTreeModel::hasChildren()` 会按它直接回"没有孩子"，后果是整条分类的版本号一条都排不进布局
   （而模型层的断言照样全绿）。正路是 `QTreeView::setRootIsDecorated(false)`。
