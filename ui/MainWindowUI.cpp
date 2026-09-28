@@ -1122,6 +1122,10 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     bar->setCurrentNav(tabWidget->currentIndex());
     // 条只发信号、不自己动手（见 TitleBar.hpp）：翻页是这一层的事。
     QObject::connect(bar, &TitleBar::navRequested, tabWidget, [this](int index) {
+        // ★ **先**记下这一按是从哪一颗上按下去的（= 此刻这一颗，翻页之前）。下面那一句
+        //   `setCurrentIndex()` 一执行，这个事实就没了 —— 而 `MainWindow` 那条槽醒过来的时候
+        //   它已经执行完了（见 `lastNavSourceTab()` 的注释）。
+        m_lastNavSourceTab = tabWidget->currentIndex();
         // 用户原话：「顶端四个按钮点击以后自动到达对应选项卡的首页（比如说我现在正点开
         // sodium 的下载页面，现在我点击启动选项卡，直接切到那个页面，下载这个"弹窗"自动
         // 收起）」+「在下载页点击 下载（顶上那个，不是下载确认键），那就回到下载页的首页

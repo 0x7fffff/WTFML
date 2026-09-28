@@ -2006,6 +2006,19 @@ public:
     /// NOTE: 2026-09-28 起**整个下载页只有这一颗**（原来是五栏各一颗、摆在右栏那行筛子
     ///       里）。所以它不再按分类键索引 —— 用户翻到哪一栏，它都在同一个地方。
     QPushButton *getDownloadBackButton() const { return downloadBackButton; }
+
+    /// 顶上那四颗导航，**最后一次是按在哪一颗上的**（按下去**之前**那一颗 = 那一按的来路；
+    /// -1 = 这一次运行还没人按过）。两个出口都读它，判的都是同一句"这一按是从下载页上按的"：
+    ///   ① 「下载」那一颗：**按的就是当前这一颗**（回这个功能的首页）才做那一套重置 ——
+    ///      从别处切过来的那一按是"切回来"，原来那一栏、筛子、来路都得留着；
+    ///   ② 「实例」那一颗：从下载页按的那一下等同于按「← 返回实例设置」。
+    ///
+    /// ★ 为什么这个事实得由这一层给：`TitleBar::navRequested` 上接着两条槽，这一层那条
+    ///   **先接先跑**（`setupUi` 早于 MainWindow 的 `setupConnections`），而且它自己就会
+    ///   把选项卡翻过去 ⇒ `MainWindow` 那条醒过来时 `currentIndex()` 说的已经是**新**的一颗。
+    ///   曾经用 `tabs->currentIndex() == index` 冒充过这条判据：那一格**永远为真**
+    ///   （等于没有这一条），注释里说的症状照样发生（`mw_check` T25.8 量得出来）。
+    int lastNavSourceTab() const { return m_lastNavSourceTab; }
     /// 让它露面/收起来。**收起时连位置都不占**（`setVisible(false)`，不是 `setEnabled`）。
     void setDownloadBackVisible(bool visible) {
         if (downloadBackButton != nullptr) {
@@ -2243,6 +2256,8 @@ private:
     /// 这颗按钮）。
     /// 下载页左栏顶上那颗「返回实例设置」。**整个下载页一颗**（见 getDownloadBackButton）。
     QPushButton *downloadBackButton = nullptr;
+    /// 顶上那四颗导航最后一次是按在哪一颗上的（见 lastNavSourceTab() 那段）。
+    int m_lastNavSourceTab = -1;
     QStackedWidget *downloadStack = nullptr;
     /// 设置页左栏那份「分类」与右栏那份堆叠页（见头文件上面「设置页：左栏那几条分类」那段）。
     /// 五页全是真的，每一页是一层滚动区（addSettingsPanel() 搭），堆叠页的下标就是
