@@ -313,6 +313,17 @@ public:
     /// 没有入口的「配置文件」照样得有人在盯着（它只是先不给看，不是烂在那儿）。
     void showPage(const QString &key);
 
+    /// 此刻摆在右栏那一页是**哪一页**（认不出来回空串）。`showPage()` 的反面。
+    ///
+    /// 给**"回来时还开在原来那一页上"**用（2026-09-28）：`MainWindow::openInstanceSettings()`
+    /// 每次都是现 new 一个对话框（栈上局部对象，见那边），所以"上一次停在哪一页"这一层
+    /// 自己也记不住 —— 想记住的一方得在 `execPage()` **返回之后**（那时对象还在栈上）
+    /// 读一次这个值，下次开页时再 `showPage()` 放回去。
+    ///
+    /// NOTE: 判据只有堆叠页的 `currentIndex()` 一处（和左栏反查用的是同一个函数）——
+    ///       另存一份"现在在哪一页"的影子状态迟早会和右栏对不上。
+    QString currentPageKey() const;
+
     /// 这两条给验证工程问几何用（认控件主要还是按 objectName）。
     QListWidget *pageList() const { return m_pageList; }
     QStackedWidget *stack() const { return m_stack; }

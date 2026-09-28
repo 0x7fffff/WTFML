@@ -813,6 +813,19 @@ QString instanceLoaderName(const VersionDisplayParts &parts, const VersionManage
     return QString();
 }
 
+/// 加载器名字 → **分组用的那个小写键**（`VersionGroup::loader` 的写法）。
+///
+/// ★ 两侧的词形**不是一套**，这是本仓库里最容易静默失灵的一处：`instanceLoaderName()`
+///   回的是显示名（「Fabric」/「Forge」/「NeoForge」/「Quilt」/「OptiFine」），而
+///   `ResourceCatalog::groupVersions()` 的 `preferredLoader` 与 `VersionGroup::loader`
+///   收的都是小写那一套（「fabric」/「neoforge」…）。直接把显示名递进去 ⇒ 一个字都比不上
+///   ⇒「把对应加载器排在前面」这件事**永久不生效，而屏幕上一点异常都没有**。
+///
+/// 认不出来（空串 / 别的加载器）回空串 = "没人在乎"，`groupVersions()` 就照旧排。
+QString loaderGroupKey(const QString &loaderName) {
+    return loaderName.trimmed().toLower();
+}
+
 /// 这个实例**没挑过图标**时该画哪一个方块（草方块 / 覆雪草块 / 土块 / 幸运方块，或者
 /// 某个加载器的标志）—— 也叫它的「默认图标」。
 ///
@@ -1647,20 +1660,27 @@ void MainWindow::setupConnections() {
                     ensureResourcePageLoaded(kind);
                 }
             });
-    // 左上角那颗「← 返回实例设置」（2026-09-28）。**五栏各有一颗**（「游戏」那一页没有，
-    // 见 MainWindowUI 里搭这几页的那段循环），所以这里按 `downloadCategoryKeys()` 一圈接完 ——
-    // 这一层不去假设"哪几栏有"，`getDownloadBackButton()` 认不出来就回 nullptr，跳过即可。
+    // 左栏顶上那颗「← 返回实例设置」（2026-09-28）。**整个下载页一颗**，摆在左栏顶上
+    // （用户原话「返回按钮也是放在左上角（就是左边栏的顶上）」）—— 所以这里不再是一圈循环，
+    // 就接一次。
     //
-    // NOTE: 每颗都接**同一个槽**：那颗键要回的是"当初从哪个实例点进来"，而那个实例只有一个
-    //       出处（`m_downloadFromInstanceId`，由 openDownloadCategory 摆、由这个槽消费掉）。
+    // NOTE: 那颗键要回的是"当初从哪个实例点进来"，而那个实例只有一个出处
+    //       （`m_downloadFromInstanceId`，由 openDownloadCategory 摆、由这个槽消费掉）。
     //       把实例号塞进信号里也能做，但那样"哪一位是活的"就有两份，而"按下时用的那一位"
     //       和"露出来的那一颗"必须永远是同一个。
-    for (const QString &key : MainWindowUI::downloadCategoryKeys()) {
-        if (QPushButton *back = m_ui->getDownloadBackButton(key)) {
-            connect(back, &QPushButton::clicked, this,
-                    &MainWindow::returnToInstanceSettingsFromDownload);
-        }
+    if (QPushButton *back = m_ui->getDownloadBackButton()) {
+        connect(back, &QPushButton::clicked, this,
+                &MainWindow::returnToInstanceSettingsFromDownload);
     }
+    // 顶上那四颗导航（2026-09-28，用户原话「点击顶部下载按钮就刷新页面回到主页」）。
+    //
+    // **只管 MainWindowUI 管不着的那一件**：翻页和"点的是当前这一颗就把覆盖层收起来"那两条
+    // 仍旧由 MainWindowUI 自己接的那一条负责（见那边搭导航那段）。这边补的一条只做
+    // 下载页那一件 —— 那一层够不着"下载页的首页是哪一栏、筛子该怎么清"。
+    //
+    // NOTE: 两条连接都在 `navRequested` 上，**MainWindowUI 那条先接**（setupUi 早于
+    //       setupConnections），所以覆盖层那一发先收完，这边再动手。
+    connect(m_ui->titleBar(), &TitleBar::navRequested, this, &MainWindow::onNavRequested);
     // ---------- 下载页后面那几页：搜索框 + 三层资源表 ----------
     //
     // 这几页走的是同一条路，所以这里是**一圈循环**：每一页接上"回车就搜"和"点一下就动"，
@@ -3687,8 +3707,14 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
                 //
                 // ★ 来路钉死是 `Download`（2026-09-27）：这条路上这一页**永远**摆「显示
                 //   快照版」，哪怕点的是一个模组（用户原话「不要不小心把下载页改了」）。
-                QTimer::singleShot(0, this, [this, iconKey, kindKey] {
-                    openResourceDetailPage(iconKey, kindKey, DetailSource::Download);
+                //
+                // ★ 2026-09-28：把"当前实例"一起带过去（空 = 不是从某个实例进的下载页）——
+                //   从实例设置点「下载新模组」进来的那一次，用户是在给**那个实例**找模组，
+                //   开页时按它的版本预选、把它的加载器排前面（见 openResourceDetailPage）。
+                //   抓的是**此刻**这一位的值（下一轮里它可能已经变了）。
+                const QString instanceId = m_downloadFromInstanceId;
+                QTimer::singleShot(0, this, [this, iconKey, kindKey, instanceId] {
+                    openResourceDetailPage(iconKey, kindKey, DetailSource::Download, instanceId);
                 });
             }
             return true;
@@ -5419,7 +5445,7 @@ void MainWindow::applyResourcePageChips(const QStringList &declaredGameVersions,
 }
 
 int MainWindow::openResourceDetailPage(const QString &iconKey, const QString &kindKey,
-                                       DetailSource from) {
+                                       DetailSource from, const QString &instanceId) {
     OverlayHost *overlay = m_ui->overlay();
     if (overlay == nullptr || overlay->isOpen()) {
         // 已经有覆盖层开着（另一页、或者一条提示）。这一层不做页面栈，这一次就不开了 ——
@@ -5481,9 +5507,46 @@ int MainWindow::openResourceDetailPage(const QString &iconKey, const QString &ki
     // NOTE: 这一份**声明表要留着**（不止是拿来摆一次 chip）：勾选框一拨，chip 那一排整个
     //       换一份（折 / 不折是两份不一样的表），那时候手上只有开页时存下来的它。
     m_resourcePage.declaredGameVersions = hit->gameVersions;
-    // 开页一律从「全部」开始（用户在下载页选的是"哪个资源"，还没说"哪个游戏版本"），
-    // 勾选框也一律从不勾开始（那一页自己的默认值，见 ResourcePageState::showSnapshots）。
+    // 勾选框一律从不勾开始（那一页自己的默认值，见 ResourcePageState::showSnapshots）。
     page->setShowSnapshots(false);
+
+    // ---------- 从某个实例进来的那一次：预选到**那个实例的**版本 / 加载器（2026-09-28）----------
+    //
+    // 用户原话：「点开某个模组等的时候将版本自动选到当前实例对应的那个，对应的模组加载器
+    // 的版本放在前面，资源包等同理，展示为对应版本适用的」。三件事一起落到这儿：
+    //   ① chip 预选到那个实例的游戏版本 ⇒ 底下那一份版本列表**只列适用于那个版本的**
+    //      （筛就是 `versionsForGameVersion()`，本来就是每按一颗 chip 做一次的事）；
+    //   ② 分组时把那个实例的加载器的组排到前面（`groupVersions()` 的 `preferredLoader`）；
+    //   ③ 预选**存进 `m_resourcePage`**：勾「显示快照版」那一下要把 chip 那一排整个重摆，
+    //      那时还得知道"按着的是哪一个"，不然用户拨一下勾选框就被甩回「全部」了。
+    //
+    // NOTE: 那两份值是**现在**读的（`instanceGameVersion` 读盘）。开页这一下只读一次，
+    //       一点问题没有；**别**把它挪进 `fillResourcePageGroups()` 那种每按一颗 chip 就
+    //       跑一遍的路径（那是每按一下读一次盘）。
+    // NOTE: 加载器要从**显示名**（「Fabric」/「NeoForge」）换算成**小写那一套**
+    //       （`VersionGroup::loader` 的写法），换算在下面那个 helper 里 —— 直接递显示名进去
+    //       会一个字都比不上，症状是"排在前面"永久不生效而屏幕上一点异常都没有。
+    m_resourcePage.instanceId = instanceId;
+    m_resourcePage.preferredLoader.clear();
+    QString wantedChip;
+    if (!instanceId.isEmpty()) {
+        m_resourcePage.preferredLoader = loaderGroupKey(
+            instanceLoaderName(m_versionManager->displayParts(instanceId), m_versionManager, nullptr));
+        // 换算走 `gameVersionAfterToggle()`（那一份规则只有那一处，别自己比大版本）：实例报
+        // 的是**原样**那个版本号（可能是 26.2-rc1），而 chip 那一排这会儿是**折过**的那一份
+        // （不勾「显示快照版」）—— 换算不出来（这个资源压根没声明过那个版本）回空串，
+        // 于是停在「全部」那颗上，和用户自己点了一颗表里没有的 chip 是同一个结果。
+        wantedChip = ResourceCatalog::gameVersionAfterToggle(
+            hit->gameVersions, m_resourcePage.showSnapshots,
+            m_versionManager->instanceGameVersion(instanceId));
+    }
+    applyResourcePageChips(hit->gameVersions, m_resourcePage.showSnapshots, wantedChip);
+    // ★ 按着的是哪一颗**以页面为准**（和 onResourcePageShowSnapshotsChanged 里那一句逐字
+    //   同一个理由）：上一步要是把"表里没有的那个 key"纠正成了「全部」，两位得说的是同一
+    //   件事。**这一句不能省** —— `m_resourcePage.chip` 就是 `fillResourcePageGroups()`
+    //   拿来筛的那一份，光把 chip 按下去而这一位还空着，症状是"那一颗亮着、底下却列着
+    //   全部版本"（看着像筛没生效）。
+    m_resourcePage.chip = m_resourceDetailPage->currentChip();
 
     // ★ 右上角那一格**每次开页都显式摆一次**（2026-09-27）：这一页是**同一个对象、建一次
     //   留着的**，两个入口（下载页 / 实例的文件管理页）共用它 —— 不摆的话就留着上一次那
@@ -5492,8 +5555,12 @@ int MainWindow::openResourceDetailPage(const QString &iconKey, const QString &ki
     //   判据是**两样都要**：来路是实例的文件管理页，**而且**这一条是个模组。少一样都不摆
     //   —— 从实例点一个**资源包**进来照旧摆「显示快照版」（那一颗在那一页上是有用的：那一
     //   排 chip 折的正是"这个资源支持哪些游戏版本"）。
+    //   ★ 上面那一发 `applyResourcePageChips(…, wantedChip)` **就是**这一段原来那一发
+    //     （原来写死 `QString()` = 一律从「全部」开始，2026-09-28 起改成预选到实例的版本）。
+    //     别再在这儿补一次 `QString()` 的那一发 —— 那会把上面刚按下去的那一颗整个抹回
+    //     「全部」，而 `m_resourcePage.chip` 还留着实例那个值：屏幕上一颗亮的都没有、底下
+    //     列的却是按实例版本筛过的（正是 fillResourcePageGroups 那段点名的"两位各说各的"）。
     page->setModSettingsSlot(from == DetailSource::InstanceFiles && kind == ResourceCatalog::Kind::Mod);
-    applyResourcePageChips(hit->gameVersions, m_resourcePage.showSnapshots, QString());
     // 图标是异步来的：先清掉上一次那一张（不然会留着上一个资源的图标，比空着糟），
     // 那一格的位置照旧留着，图回来时整张卡不会往左跳一下。
     page->setIcon(QPixmap());
@@ -5582,8 +5649,12 @@ void MainWindow::fillResourcePageGroups() {
     const QList<ResourceCatalog::VersionEntry> filtered = ResourceCatalog::versionsForGameVersion(
         m_resourcePage.versions, m_resourcePage.chip, m_resourcePage.showSnapshots);
     QList<ResourceDetail::Group> groups;
+    // 第三个参数 = 从实例进来时那个实例的加载器（**小写**，见 loaderGroupKey）：同一个游戏
+    // 版本里把它的组排到前面（用户原话「对应的模组加载器的版本放在前面」）。不是从实例
+    // 进来的那一次是空串 = 照旧按固定的 fabric/forge/neoforge/quilt 次序。
     for (const ResourceCatalog::VersionGroup &group :
-         ResourceCatalog::groupVersions(filtered, m_resourcePage.showSnapshots)) {
+         ResourceCatalog::groupVersions(filtered, m_resourcePage.showSnapshots,
+                                        m_resourcePage.preferredLoader)) {
         ResourceDetail::Group out;
         // 组头写的是**这一条落在哪个游戏版本下**（分组规则见 groupVersions）。和上面选的
         // 那一档不一致是正常的（一条支持两档的版本落在新的那一档下），**不加**「（所选
@@ -6391,10 +6462,15 @@ void MainWindow::syncCurseForgeSettings() {
     // 来源）：同一份设置、同一条接口根地址，没有理由推给一个、不推给另一个。
     m_resourceStore->setCurseForgeApiKey(m_settings->curseForgeApiKey());
     m_resourceStore->setCurseForgeApiBaseOverride(m_settings->curseForgeApiBaseOverride());
-    // Modrinth 那一侧只有一个口子（导出整合包的反查），而且**只有 VersionManager 要它** ——
-    // 下载页那几页的 Modrinth 地址不是一个可配的东西（那边没有第二个来源可选）。放在这个
-    // 函数里纯粹是"和上面那两条一起推"：同一个时机、同一份设置对象，另起一个函数只有坏处。
+    // Modrinth 那一侧那个口子。**三处都要它**（2026-09-28 更正了这一条注释 —— 原来写的是
+    // "只有 VersionManager 要它"，而图标反查从 2026-09-27 起就在读了，下载页那几页从
+    // 2026-09-28 起也读）：
+    //   ① 导出整合包的反查（VersionManager）；
+    //   ② 实例文件那一页的图标/名字反查（InstanceIconLookup）；
+    //   ③ 下载页的搜索、版本列表、前置名字（ResourceStore）。
+    // 放在这个函数里纯粹是"和上面那两条一起推"：同一个时机、同一份设置对象。
     m_versionManager->setModrinthApiBaseOverride(m_settings->modrinthApiBaseOverride());
+    m_resourceStore->setModrinthApiBaseOverride(m_settings->modrinthApiBaseOverride());
 }
 
 void MainWindow::onCurseForgeApiKeyEdited() {
@@ -8303,7 +8379,7 @@ void MainWindow::openGroupMenuFor(QTreeWidgetItem *item) {
     m_ui->openGroupMenu(row, gearAnchorFor(m_ui, groupId));
 }
 
-void MainWindow::openInstanceSettings(const QString &versionId) {
+void MainWindow::openInstanceSettings(const QString &versionId, const QString &pageKey) {
     if (versionId.isEmpty()) {
         InlineMessage::information(m_ui->overlay(), tr("实例设置"), tr("先选中一个实例。"));
         return;
@@ -8643,6 +8719,35 @@ void MainWindow::openInstanceSettings(const QString &versionId) {
                 m_ui->overlay()->setPageTitle(dialog.titleText());
             });
 
+    // ---------- 停在哪一页（2026-09-28，用户原话「从模组点进去，返回也在模组而非概览」）----------
+    //
+    // 摆在这一段**最后、execPage 之前**有两条理由：
+    //   ① `showPage()` 换不了"左栏里没有的那几页"（被用户勾掉的、以及「配置文件」那种没
+    //      入口的），而"哪几页在左栏里"是上面 `setPageChoices()` 定的 ⇒ 必须在它**之后**；
+    //   ② `execPage()` 是**阻塞**的（下面那一句会卡在嵌套事件循环里转到用户点返回），
+    //      再往后的代码这一趟根本执行不到。
+    // 认不出来的键 `showPage()` 自己判 -1 什么都不做（停「概览」）—— 不静默出错。
+    if (!pageKey.isEmpty()) {
+        dialog.showPage(pageKey);
+    }
+
+    // ---------- 这一页归「实例」那一颗选项卡（2026-09-28）----------
+    //
+    // ★ 见 .hpp 那段：不钉的话，从下载页那颗「← 返回实例设置」进来时这一页会被记成
+    //   **下载页的**页面，而用户点「实例」看见的是实例列表（那一页收着看不见）、又因为它
+    //   占着覆盖层那一位而从此开不了新的实例设置，每次还被拽回下载页。
+    //   钉住 + 先把选项卡切过去（**切完再开**：`ownerTab` 不是当前这一颗的话，这一页一开
+    //   出来就是"收着"的，用户按了那颗返回键屏幕上什么都不出现）。
+    //
+    // NOTE: 切选项卡要排在 `overlayAcceptsNewPage()`（上面那个闸）**之后**：那一句在
+    //       "已经有一页开着"时会弹话，而弹话不该顺手把用户翻到别的选项卡上。
+    const int instancesTab = MainWindowUI::instancesTabIndex();
+    if (QTabWidget *tabs = m_ui->getTabWidget()) {
+        if (instancesTab >= 0 && instancesTab < tabs->count()) {
+            tabs->setCurrentIndex(instancesTab);
+        }
+    }
+
     // 这一页盖在内容区上（标签栏和底栏都留着），左上角那颗返回箭头 = 关掉这一页（见
     // OverlayHost::execPage）。标题写在页眉上，所以这一页自己那行标题要收起来 ——
     // 两行一模一样的字挨着是重复，不是强调。
@@ -8650,7 +8755,7 @@ void MainWindow::openInstanceSettings(const QString &versionId) {
     // NOTE: 这一页**不再 accept**（没有「确定」了），所以这里**不看返回值** —— 关页
     //       不等于放弃（该写的早就在上面那些 lambda 里写完了），"关掉"就是"关掉"。
     dialog.setTitleVisible(false);
-    m_ui->overlay()->execPage(&dialog, dialog.titleText());
+    m_ui->overlay()->execPage(&dialog, dialog.titleText(), instancesTab);
 }
 
 // ---------- 实例设置「文件管理」那八页（见 .hpp 里那一段）----------
@@ -8712,20 +8817,30 @@ void MainWindow::openDownloadCategory(const QString &categoryKey, const QString 
 
     // ② 这一栏是不是**从某个实例的设置页里点「下载新模组」进来的**（2026-09-28）。
     //
-    //    是的话记下那个实例，并且把这一栏左上角那颗「← 返回实例设置」露出来 —— 用户原话：
-    //    「点击下载新模组/资源包/...时左上角保留一个返回键，返回到实例设置里面，和资源包
-    //    详情啥的一致」。上面那一下 `dismiss()` 会把那一页收掉（`OverlayHost` 不做页面栈），
-    //    所以"来路"只能由这一层自己记着、自己放回去（和 openFileResourcePage 那边同一个
-    //    手法）。**同一时刻只露这一栏那颗**：五栏各有一颗，从别处进来时把这一栏这颗也收掉。
+    //    是的话记下那个实例，并且把「← 返回实例设置」露出来 —— 用户原话：「点击下载新模组/
+    //    资源包/...时左上角保留一个返回键，返回到实例设置里面，和资源包详情啥的一致」。
+    //    上面那一下 `dismiss()` 会把那一页收掉（`OverlayHost` 不做页面栈），所以"来路"只能
+    //    由这一层自己记着、自己放回去（和 openFileResourcePage 那边同一个手法）。
+    //
+    //    ★ 2026-09-28：那颗键现在**整个下载页共用一颗**、摆在左栏顶上（用户原话「返回按钮
+    //      也是放在左上角（就是左边栏的顶上）」），所以不再"只露这一栏那一颗"，翻到别的栏
+    //      它照旧在那儿 —— 这一点比原来对：能不能回去和用户此刻在逛哪一栏无关。
+    //
+    //    ★ `m_downloadFromPageKey` 和这一位**同生共死**：它就是"来路那一页"。也正因为
+    //      「下载新模组」那一栏**就是**实例设置里那一页（`filesDownloadCategoryKey()` 那张
+    //      表是"这两处是一回事"的唯一出处），它不用另要一个参数，写的就是 `categoryKey`。
     m_downloadFromInstanceId = returnInstanceId;
-    for (const QString &key : MainWindowUI::downloadCategoryKeys()) {
-        m_ui->setDownloadBackVisible(key, key == categoryKey && !returnInstanceId.isEmpty());
-    }
+    m_downloadFromPageKey = returnInstanceId.isEmpty() ? QString() : categoryKey;
+    m_ui->setDownloadBackVisible(!returnInstanceId.isEmpty());
 
     // ① 先收掉当前这一页。**只能走 dismiss()**：它发的就是顶上那颗返回箭头的同一发信号
     //    （见 OverlayHost::dismiss() 里那段 ★）—— 这一页正卡在 `execPage()` 的嵌套事件
     //    循环里，只 `closeOverlay()` 的话一个信号都不发，那个循环永远不返回（用户看到的
     //    是"按了没反应"，测试是直接挂在那儿）。
+    //
+    //    NOTE: 这一发只是**尽力**先收（常见情况下它收完就完了）；收干净了没有由下一轮的
+    //          `continueOpenDownloadCategory()` 判 —— 上面一层压着一条提示时 `dismiss()`
+    //          收掉的是**提示**、那一页还在原处。
     m_ui->overlay()->dismiss();
 
     // ② 摆选项卡与那一栏**排到下一轮事件循环**：这一句这会儿还在上面那个嵌套循环的调用栈
@@ -8733,47 +8848,177 @@ void MainWindow::openDownloadCategory(const QString &categoryKey, const QString 
     //    现在就把选项卡翻过去，翻的是它**底下**那一层，而覆盖层收干净的那一下还没发生。
     //    排到下一轮，那时这一页已经关好了（和 openResourceDetailPage 那边同一个手法）。
     QTimer::singleShot(0, this, [this, row, categoryKey, returnInstanceId] {
-        m_ui->getTabWidget()->setCurrentIndex(MainWindowUI::downloadTabIndex());
-        // 从实例设置进来的那一次，顺手把「已安装版本」那一格选到**那个实例**上：这一栏下
-        // 来的东西是落进"当前选中的实例"的（见 installResourceVersionNow），不替用户选上
-        // 的话，"从实例 A 的页面点进来、东西却下进了实例 B"——而屏幕上没有任何东西说过
-        // 会这样。用户那句「下载新模组就自动放进当前实例文件夹」说的也正是这一件事。
-        if (!returnInstanceId.isEmpty()) {
-            QComboBox *combo = m_ui->getInstalledVersionCombo();
-            const int index = combo->findData(returnInstanceId);
-            if (index >= 0) {
-                combo->setCurrentIndex(index);
-                updateStartButtonText();
-            }
-        }
-        QListWidget *categories = m_ui->getDownloadCategoryList();
-        if (categories == nullptr) {
+        continueOpenDownloadCategory(row, categoryKey, returnInstanceId, kDownloadOpenRounds);
+    });
+}
+
+void MainWindow::continueOpenDownloadCategory(int row, const QString &categoryKey,
+                                             const QString &returnInstanceId, int roundsLeft) {
+    // ---------- 收页：收到干净为止，收不干净就**什么都不做**（2026-09-28）----------
+    //
+    // 为什么还要再收一次：`openDownloadCategory()` 里那一发 `dismiss()` 收的是**最上面
+    // 那一层** —— 提示压在实例设置上面时收掉的是提示，那一页还在原处占着覆盖层那一位。
+    //
+    // ★ 收不干净时**绝不能切选项卡**：切了就是把那一页孤零零地丢在别的选项卡上（它收着、
+    //   看不见），而它占着覆盖层那一位 ⇒ 用户此后既回不去那一页、也开不了新的一页，还会
+    //   被一次一次拽到下载页 —— 用户报的"点来点去点多了会卡住进不去实例设置（而且会变到
+    //   下载页去了）"就是这个形状。宁可这一次什么都不做，也不要把他丢进那个状态。
+    //   （正常路径上收不掉是走不到的：那一页归「实例」那一颗，而它的按钮只在它露着的时候
+    //     点得着 —— 见 openInstanceSettings() 里那段。留着这一条是因为"走不到"和"保证了
+    //     不会走不到"是两件事。）
+    OverlayHost *overlay = m_ui->overlay();
+    if (overlay != nullptr && overlay->pageOpen()) {
+        if (roundsLeft > 0 && overlay->dismiss()) {
+            // 收到一半（这一发收回来的那一层要等 `execEmbedded` 收尾才真正落下去）—— 再排一轮。
+            QTimer::singleShot(0, this, [this, row, categoryKey, returnInstanceId, roundsLeft] {
+                continueOpenDownloadCategory(row, categoryKey, returnInstanceId, roundsLeft - 1);
+            });
             return;
         }
-        categories->setCurrentRow(row);
-        // ★ 已经在那一行上时 `setCurrentRow()` **不发** currentRowChanged（Qt 只在"变了"
-        //   的时候才发），而"第一次进这一页才去搜一次"那一发正挂在它身上 ⇒ 这里补一次。
-        //   同一条路、同一个函数，重复调用是安全的（它自己判"树上已经有东西就不动"）。
-        ResourceCatalog::Kind kind = ResourceCatalog::Kind::Mod;
-        if (ResourceCatalog::kindFromCategoryKey(categoryKey, &kind)) {
-            ensureResourcePageLoaded(kind);
+        qWarning() << "下载页：实例设置那一页没能收掉，这一次不切选项卡";
+        return;
+    }
+
+    m_ui->getTabWidget()->setCurrentIndex(MainWindowUI::downloadTabIndex());
+    // 从实例设置进来的那一次，顺手做三件事 —— 都是"让屏幕上说的和用户以为的是同一件事"：
+    //   ① 「已安装版本」那一格选到**那个实例**上：这一栏下来的东西是落进"当前选中的实例"
+    //      的（见 installResourceVersionNow），不替用户选上的话，"从实例 A 的页面点进来、
+    //      东西却下进了实例 B"——而屏幕上没有任何东西说过会这样（用户那句「下载新模组就
+    //      自动放进当前实例文件夹」说的正是这一件事）；
+    //   ② 版本筛子填成那个实例的游戏版本；
+    //   ③ 模组加载器筛子填成那个实例的加载器。
+    // ②③ 是用户 2026-09-28 那条：「点击下载新模组/...后自动在搜索框里填入对应的版本和
+    // 加载器」。
+    if (!returnInstanceId.isEmpty()) {
+        QComboBox *combo = m_ui->getInstalledVersionCombo();
+        const int index = combo->findData(returnInstanceId);
+        if (index >= 0) {
+            combo->setCurrentIndex(index);
+            updateStartButtonText();
         }
-    });
+    }
+    QListWidget *categories = m_ui->getDownloadCategoryList();
+    if (categories == nullptr) {
+        return;
+    }
+    categories->setCurrentRow(row);
+    // ★ 已经在那一行上时 `setCurrentRow()` **不发** currentRowChanged（Qt 只在"变了"
+    //   的时候才发），而"第一次进这一页才去搜一次"那一发正挂在它身上 ⇒ 这里补一次。
+    //   同一条路、同一个函数，重复调用是安全的（它自己判"树上已经有东西就不动"）。
+    ResourceCatalog::Kind kind = ResourceCatalog::Kind::Mod;
+    const bool known = ResourceCatalog::kindFromCategoryKey(categoryKey, &kind);
+    if (!returnInstanceId.isEmpty() && known) {
+        fillDownloadFiltersFromInstance(kind, returnInstanceId);
+    }
+    if (known) {
+        ensureResourcePageLoaded(kind);
+    }
+}
+
+void MainWindow::fillDownloadFiltersFromInstance(ResourceCatalog::Kind kind,
+                                                const QString &instanceId) {
+    const QString key = ResourceCatalog::kindKey(kind);
+    // 版本那一格**读的是框里的字**（`downloadFilterGameVersion()` 就是这么读的，那一格是
+    // 可输入的），所以写也要写进"字"里：`setCurrentText()` 两样都写了（有那一项就选中它、
+    // 没有就把字填进编辑框）—— 那个实例的版本号在在线清单里通常有，可万一没有（离线装
+    // 的自定义版本），填进去照样是对的，而那正是用户要的那一格该显示的东西。
+    const QString gameVersion = m_versionManager->instanceGameVersion(instanceId);
+    if (!gameVersion.isEmpty()) {
+        if (QComboBox *versionCombo = m_ui->getDownloadFilterVersionCombo(key)) {
+            versionCombo->setCurrentText(gameVersion);
+        }
+    }
+    // 加载器那一格**只有模组页有**（别的页 getDownloadFilterLoaderCombo 回空指针）。
+    //
+    // ★ 按**文字**认（「Fabric」/「Forge」/「NeoForge」/「Quilt」）而不是按 `data()`：
+    //   两个来源的键**不是一套**（Modrinth 是词、CurseForge 是数字，见 loaderOptions），
+    //   而文字两边一模一样 —— 按 data 认的话，用户把来源换成 CurseForge 之后这一格就再也
+    //   填不上了（而且不报错、看不出来）。
+    QString loaderName;
+    if (m_versionManager->instanceModLoader(instanceId, &loaderName) && !loaderName.isEmpty()) {
+        if (QComboBox *loaderCombo = m_ui->getDownloadFilterLoaderCombo(key)) {
+            const int index = loaderCombo->findText(loaderName);
+            if (index >= 0) {
+                loaderCombo->setCurrentIndex(index);
+            }
+        }
+    }
 }
 
 void MainWindow::returnToInstanceSettingsFromDownload() {
     const QString instanceId = m_downloadFromInstanceId;
+    // ★ 回来时开在**来路那一页**上（用户原话「从模组点进去，返回也在模组而非概览，
+    //   其余同理」）。这一位和上面那一位同生共死，所以下面两句话并排写。
+    const QString pageKey = m_downloadFromPageKey;
     // 先收干净再开那一页：`openInstanceSettings` 里第一件事就是问覆盖层开没开，
     // 而这一颗键通常是在"没有覆盖层"的时候点的（不冲突），可万一撞上一条提示，
     // 那一位留着就会让下一次进来时这颗键莫名地还露着。
     m_downloadFromInstanceId.clear();
-    for (const QString &key : MainWindowUI::downloadCategoryKeys()) {
-        m_ui->setDownloadBackVisible(key, false);
-    }
+    m_downloadFromPageKey.clear();
+    m_ui->setDownloadBackVisible(false);
     if (instanceId.isEmpty()) {
         return;  // 正常走不到：那颗键只在这一位非空时才露面
     }
-    openInstanceSettings(instanceId);
+    openInstanceSettings(instanceId, pageKey);
+}
+
+void MainWindow::onNavRequested(int index) {
+    // 顶上那四颗导航，这一层只管**下载页那一件**（用户 2026-09-28 原话「在这个情况下点击
+    // 顶部下载按钮就刷新页面回到主页」）。翻页、以及"点的是当前这一颗就把上面那层收掉"
+    // 那两件，仍旧是 MainWindowUI 自己接的那一条在管（那边**先接**，所以它先跑完，见
+    // setupConnections 里那条连接的注释）—— 这里不重复做，也不去改它。
+    //
+    // ★ 判据三条，缺一不可：
+    //   ① 点的**就是**「下载」那一颗；
+    //   ② 「下载」此刻**正是当前这一页**。少了这一条，"从实例进来、切去主页逛了一圈、
+    //      再点下载"也会被当成"回主页" —— 可那一下用户要的是**切回来**（原来那一栏、连筛子
+    //      带实例都在，见 MainWindowUI 搭导航那段①），顺手清掉就成了"我明明没点返回，
+    //      回实例设置那颗键却没了"；
+    //   ③ 这一趟**确实是从某个实例点进来的**（那一位非空 = 「← 返回实例设置」正露着）。
+    //      用户原话里这一条是跟着"点了下载新模组"来的；平白从顶部点进下载页时，左栏挑的
+    //      哪一栏、框里填的什么都是他自己摆的，那一发不该替他重置。
+    if (index != MainWindowUI::downloadTabIndex() || m_downloadFromInstanceId.isEmpty()) {
+        return;
+    }
+    if (QTabWidget *tabs = m_ui->getTabWidget()) {
+        if (tabs->currentIndex() != index) {
+            return;  // 见上面 ②
+        }
+    }
+
+    // 来路那一栏先认下来：下面头一件事就是把这几位清掉。
+    ResourceCatalog::Kind kind = ResourceCatalog::Kind::Mod;
+    const bool known = ResourceCatalog::kindFromCategoryKey(m_downloadFromPageKey, &kind);
+
+    // ① 把"从实例进来"这件事整个收起来。返回键露不露只看这一位（见 setDownloadBackVisible
+    //    的调用点），所以两位一起清，再把它收起来。
+    m_downloadFromInstanceId.clear();
+    m_downloadFromPageKey.clear();
+    m_ui->setDownloadBackVisible(false);
+
+    // ② 那一栏的筛子是**我们**灌进去的（fillDownloadFiltersFromInstance），回主页就该一并
+    //    还回去 —— 留着的话，用户下一次点进那一栏看到的是"我没填过"的条件。
+    //
+    //    ★ 清完**还得把那一页的搜索结果扔掉**：筛子是新条件、树上那批是按旧条件搜出来的，
+    //      两下里对不上 —— 正是上面筛子那一段点名的"界面上筛了、请求里没筛"。这里**不发
+    //      新请求**：清空之后，下一次进那一页时 ensureResourcePageLoaded() 自然会按新的
+    //      筛子搜一次（既不替用户白等一下，也不白烧一次限流额度）。
+    if (known) {
+        resetDownloadFilters(kind);
+        if (QTreeWidget *tree = m_ui->getDownloadResourceTree(ResourceCatalog::kindKey(kind))) {
+            tree->clear();
+        }
+    }
+
+    // ③ 左栏回到第一栏 —— 那**就是**下载页的首页（「游戏」：在线版本清单，见
+    //    downloadCategoryGameIndex()）。
+    //
+    //    ★ 摆的是**下标**，不是"现在选中的那一栏"：这件事跟用户此刻在哪一栏无关，起点是
+    //      确定的。（切过去会触发 currentRowChanged → 右栏翻页；第一栏是「游戏」，那一页
+    //      不走资源搜索，所以这一下不会多发任何请求。）
+    if (QListWidget *categories = m_ui->getDownloadCategoryList()) {
+        categories->setCurrentRow(MainWindowUI::downloadCategoryGameIndex());
+    }
 }
 
 void MainWindow::openFileResourcePage(const QString &versionId, const QString &iconKey,
@@ -8793,11 +9038,17 @@ void MainWindow::openFileResourcePage(const QString &versionId, const QString &i
     //
     // ★ 来路是 `InstanceFiles`：只有这一条路上那一页才可能摆「模组设置」（见
     //   openResourceDetailPage 里那一句 —— 还要**同时**是个模组）。
-    const int result = openResourceDetailPage(iconKey, kindKey, DetailSource::InstanceFiles);
+    //
+    // ★ 2026-09-28：`versionId` 就是"当前实例"，一并传进去（开页时按它的版本预选、把它的
+    //   加载器排前面）。原来它只用来"返回时把实例设置放回去"，现在两件事都用它。
+    const int result = openResourceDetailPage(iconKey, kindKey, DetailSource::InstanceFiles, versionId);
     if (result != QDialog::Rejected || versionId.isEmpty()) {
         return;
     }
-    openInstanceSettings(versionId);
+    // ★ 回来时开在**刚才那一页**上（`kindKey` 就是那一页的键 —— 「这一页是哪一类资源」
+    //   和「实例设置里哪一页」现在恰好同名，那个等式在 filesDownloadCategoryKey() 一处）。
+    //   用户原话：「从模组点进去，返回也在模组而非概览，其余同理」。
+    openInstanceSettings(versionId, kindKey);
 }
 
 void MainWindow::openInstanceFileResource(const QString &versionId, const QString &pageKey,

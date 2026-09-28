@@ -135,10 +135,22 @@ public:
     /**
      * @brief 打开一个"整页"视图：返回**内容容器**，调用方把自己那块东西塞进它的布局。
      *        页眉（返回箭头 + 标题）由覆盖层自己搭 —— 每个页面长得一样是要求的另一半。
+     * @param ownerTab 这一页**归哪一颗选项卡**（它只在那一颗上露面，别的时候收着）。
+     *        -1 = 现在这一颗（绝大多数调用方要的就是这个）。**不是 -1 的时候调用方
+     *        有责任先把选项卡切过去**，否则这一页一开出来就是"收着"的 —— 用户按了
+     *        一颗按钮，屏幕上什么都不出现。
+     *
+     * ★ 为什么要让调用方说得出口（2026-09-28）：页面归属默认取"开页那一刻的当前
+     *   选项卡"，而有些页面**有自己的家**，跟用户从哪儿进的无关 —— 「实例设置」就是
+     *   一例：从下载页那颗「← 返回实例设置」进来时当前选项卡是**下载**，于是那一页
+     *   被记成下载页的页面。用户随后点「实例」那颗导航：它**收着**（看不见），而它占着
+     *   覆盖层那一位 ⇒ 此后每次开实例设置都被"已经有一页开着"挡下，用户看到的是
+     *   **点了没反应、还老被拽到下载页**（他得回下载页才找得回那一页）。
+     *
      * @return 内容容器；**已经有一页开着的时候返回 nullptr**（这一层不做页面栈，
      *         调用方把 nullptr 当"没开成"处理）。
      */
-    QWidget *openPage(const QString &title);
+    QWidget *openPage(const QString &title, int ownerTab = -1);
 
     /**
      * @brief 打开一个"提示"：返回**内容容器**（摆在中间那张卡片里），四周变暗。
@@ -205,11 +217,14 @@ public:
      * 调用点一行一行地换过去时**语义一个字不变** —— QMessageBox::exec() 本来就是这么干的，
      * 所以可重入性的风险面和以前一模一样，没有变差。
      *
+     * @param ownerTab 这一页归哪一颗选项卡，见 `openPage()` —— 传了非 -1 的调用方
+     *        必须**先把选项卡切过去**。
+     *
      * @return 和 `QDialog::exec()` 同义：Accepted / Rejected。开不出来（已经有页面了）
      *         也返回 Rejected —— 什么都没发生，和"用户取消了"对调用方是同一件事。
      * @note 返回箭头 = **reject**（不保存离开）。对话框自己那对按钮照旧在它自己身上。
      */
-    int execPage(QDialog *dialog, const QString &title);
+    int execPage(QDialog *dialog, const QString &title, int ownerTab = -1);
 
     /**
      * @brief 换掉页眉上那行标题（页面已经开着的时候用）。
@@ -320,7 +335,8 @@ private:
     /// 放掉"按住"的那一页。
     void releaseCoveredPage();
     /// `execPage` / `execPrompt` 共用的那一段（见实现）。
-    int execEmbedded(QDialog *dialog, const QString &title, bool asPage, bool dismissOnOutside);
+    int execEmbedded(QDialog *dialog, const QString &title, bool asPage, bool dismissOnOutside,
+                     int ownerTab = -1);
 
     QWidget *m_anchor = nullptr;
     Mode m_mode = Mode::None;

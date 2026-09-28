@@ -704,7 +704,13 @@ QString searchUrl(Kind kind, const QString &query, int offset, int limit,
     params.append(QStringLiteral("offset=") + QString::number(qMax(0, offset)));
     params.append(QStringLiteral("limit=") + QString::number(qBound(1, limit, 100)));
 
-    return apiRoot() + QStringLiteral("/search?") + params.join(QLatin1Char('&'));
+    // ★ 根地址那一格 `apiBase` **两个来源都要认**（2026-09-28 修）：从前这里写死 `apiRoot()`，
+    //   于是"把接口指到本机假服务器"那个口子（`Launcher/ModrinthApiBase`）在下载页这条路上
+    //   **一声不响地失效** —— CurseForge 那条路认它、Modrinth 这条不认，而症状是"验证工程
+    //   悄悄打到了真接口上"（T24 那一节一直以为自己全程离线）。
+    //   空 = 没人在乎，照旧走官方那一份。
+    return (apiBase.isEmpty() ? apiRoot() : apiBase) + QStringLiteral("/search?") +
+           params.join(QLatin1Char('&'));
 }
 
 SearchResult parseSearch(const QByteArray &json) {
@@ -1415,7 +1421,8 @@ QString VersionGroup::title() const {
     return gameVersion.isEmpty() ? name : name + QLatin1Char(' ') + gameVersion;
 }
 
-QList<VersionGroup> groupVersions(const QList<VersionEntry> &versions, bool showSnapshots) {
+QList<VersionGroup> groupVersions(const QList<VersionEntry> &versions, bool showSnapshots,
+                                  const QString &preferredLoader) {
     QList<VersionGroup> groups;
     for (const VersionEntry &version : versions) {
         // 不勾「显示快照版」时组头也归到大版本（一条只声明到 26.2-rc1 的版本落在
@@ -1444,8 +1451,21 @@ QList<VersionGroup> groupVersions(const QList<VersionEntry> &versions, bool show
     // 组的次序：游戏版本**新的在前**（compareVersionText 是"旧的在前"那把尺子，反着用），
     // 同一个游戏版本里按加载器的固定次序，空游戏版本（信息就是缺的）和最不认识的加载器
     // 都排到最后。stable_sort：两条完全同序的组保持它们进列表的先后。
+    //
+    // ★ `preferredLoader`（2026-09-28）：同一个游戏版本里**点名的那一个加载器排最前**。
+    //   放在这里、而不是在调用方排一遍：组序只有这一处出处（见 .hpp 那段)，劈成两处
+    //   之后"两组各说各的"迟早错开。次序的**第一关键字仍然是游戏版本**——见 .hpp 那条
+    //   NOTE，不然筛了 1.21.1 之后一个老 Fabric 组会跑到 26.2 的 NeoForge 组前面。
+    const QString preferred = preferredLoader.trimmed().toLower();
+    const auto rankOf = [&preferred](const QString &loader) {
+        // 点名的那个排在最前（-1 比谁都小），其余照旧走那把固定的尺子。
+        if (!preferred.isEmpty() && loader == preferred) {
+            return -1;
+        }
+        return loaderOrderIndex(loader);
+    };
     std::stable_sort(groups.begin(), groups.end(),
-                     [](const VersionGroup &a, const VersionGroup &b) {
+                     [&rankOf](const VersionGroup &a, const VersionGroup &b) {
                          if (a.gameVersion != b.gameVersion) {
                              if (a.gameVersion.isEmpty()) {
                                  return false;
@@ -1455,7 +1475,7 @@ QList<VersionGroup> groupVersions(const QList<VersionEntry> &versions, bool show
                              }
                              return compareVersionText(a.gameVersion, b.gameVersion) > 0;
                          }
-                         return loaderOrderIndex(a.loader) < loaderOrderIndex(b.loader);
+                         return rankOf(a.loader) < rankOf(b.loader);
                      });
     return groups;
 }
@@ -1565,8 +1585,9 @@ QString versionsUrl(const QString &projectId, const QString &gameVersion,
         params.append(QStringLiteral("loaders=") + jsonArrayParam({loader}));
     }
 
-    QString url = apiRoot() + QStringLiteral("/project/") + enc(projectId) +
-                  QStringLiteral("/version");
+    // ★ 根地址和 searchUrl 那一条逐字同一个理由（见那儿的 ★）：`apiBase` 两个来源都认。
+    QString url = (apiBase.isEmpty() ? apiRoot() : apiBase) + QStringLiteral("/project/") +
+                  enc(projectId) + QStringLiteral("/version");
     if (!params.isEmpty()) {
         url += QStringLiteral("?") + params.join(QLatin1Char('&'));
     }

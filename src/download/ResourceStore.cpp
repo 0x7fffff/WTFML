@@ -145,6 +145,10 @@ void ResourceStore::setCurseForgeApiBaseOverride(const QString &base) {
     m_curseForgeApiBaseOverride = base.trimmed();
 }
 
+void ResourceStore::setModrinthApiBaseOverride(const QString &base) {
+    m_modrinthApiBaseOverride = base.trimmed();
+}
+
 QString ResourceStore::curseForgeApiBase() const {
     // **唯一出处**：key 空不空、走镜像还是官方，全在 ModpackImport 那一处判（和
     // VersionManager::resolveCurseForgeFiles 调的是同一个函数）—— 这里只是把手上那两条递进去。
@@ -213,11 +217,12 @@ void ResourceStore::search(const QString &requestKey, ResourceCatalog::Kind kind
     m_iconGaveUp = false;
 
     const bool isCurseForge = source == ResourceCatalog::Source::CurseForge;
-    // 接口根地址**只给 CurseForge 那一条**（Modrinth 那条路的地址是写死的）：key 空不空、
-    // 走镜像还是官方，都在 curseForgeApiBase() 里一处判。
-    const QString url = ResourceCatalog::searchUrl(kind, query, 0, kSearchPageSize, gameVersion,
-                                                  loader, source, category,
-                                                  isCurseForge ? curseForgeApiBase() : QString());
+    // 接口根地址**两条路都递**（2026-09-28 修）：CurseForge 那一侧 key 空不空、走镜像还是
+    // 官方，都在 curseForgeApiBase() 里一处判；Modrinth 那一侧就是我们手上这一份 override
+    // （空 = 官方那一份，见 setModrinthApiBaseOverride）。
+    const QString url = ResourceCatalog::searchUrl(
+        kind, query, 0, kSearchPageSize, gameVersion, loader, source, category,
+        isCurseForge ? curseForgeApiBase() : m_modrinthApiBaseOverride);
     QNetworkReply *reply = m_net->get(
         resourceRequest(url, isCurseForge ? apiKeyHeaders(m_curseForgeApiKey)
                                           : QList<QPair<QByteArray, QByteArray>>()));
@@ -261,7 +266,8 @@ void ResourceStore::fetchVersions(const QString &requestKey, const QString &proj
 
     const bool isCurseForge = source == ResourceCatalog::Source::CurseForge;
     const QString url = ResourceCatalog::versionsUrl(
-        projectId, gameVersion, loader, source, isCurseForge ? curseForgeApiBase() : QString());
+        projectId, gameVersion, loader, source,
+        isCurseForge ? curseForgeApiBase() : m_modrinthApiBaseOverride);
     QNetworkReply *reply = m_net->get(
         resourceRequest(url, isCurseForge ? apiKeyHeaders(m_curseForgeApiKey)
                                           : QList<QPair<QByteArray, QByteArray>>()));
@@ -360,7 +366,10 @@ void ResourceStore::fetchProjects(const QString &requestKey, const QStringList &
                                             QByteArrayLiteral("application/json")),
                             body);
     } else {
-        reply = m_net->get(resourceRequest(ResourceCatalog::projectsRequestUrl(projectIds), headers));
+        // 根地址走**同一个 override**（见 search() 那段）：不加这一格的话，详情页那一行
+        // 前置的名字在验证工程里会打到真接口上 —— 而它回来得慢、回什么都看不出来。
+        reply = m_net->get(resourceRequest(
+            ResourceCatalog::projectsRequestUrl(projectIds, m_modrinthApiBaseOverride), headers));
     }
     m_replies.insert(requestKey, reply);
 

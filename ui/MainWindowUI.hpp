@@ -665,24 +665,27 @@ public:
         return categoryKey + QStringLiteral("SearchEdit");
     }
 
-    // ---- 每一页左上角那颗「返回」（2026-09-28）----
+    // ---- 下载页左上角那颗「返回」（2026-09-28）----
     //
     // 用户原话：「点击下载新模组/资源包/...时左上角保留一个返回键，返回到实例设置里面，
     // 和资源包详情啥的一致」。实例设置那几个文件页顶上那颗「下载新模组」把用户送到**这一
-    // 栏**，而那一下会把实例设置那一页收掉（见 MainWindow::openDownloadCategory）—— 用户
+    // 页**，而那一下会把实例设置那一页收掉（见 MainWindow::openDownloadCategory）—— 用户
     // 于是丢了原来的地方（连页码带勾选）。这一颗就是让他回得去的那条路。
     //
-    // ★ 它**只在这一栏是从实例设置进来的时候才露面**（`setDownloadBackVisible()`），别的
+    // ★★ 2026-09-28 第二版：用户原话「返回按钮也是放在左上角（就是左边栏的顶上）」。
+    //    原来是**五栏各一颗**、摆在右栏那行筛子的最前头；现在**六栏共用一颗**，摆在
+    //    **左栏顶上**。两件事一起变对了：① 「回到刚才那个实例」与用户此刻翻到哪一栏
+    //    无关，本来就不该一栏一颗；② 它在左栏顶上，翻栏时不动，不会跟着右栏刷没了。
+    //
+    // ★ 它**只在这一次是从实例设置进来的时候才露面**（`setDownloadBackVisible()`），别的
     //   时候连位置都不占 —— 一个常驻的"返回实例设置"在"我就是来逛下载页"的时候是一颗
     //   点了不知道回哪儿的键。
-    static QString downloadBackButtonName(const QString &categoryKey) {
-        return categoryKey + QStringLiteral("DownloadBack");
-    }
+    static QString downloadBackButtonName() { return QStringLiteral("downloadBackButton"); }
     /// 那颗键上的字。**唯一出处** —— 界面和验证工程都读它。
     static QString downloadBackButtonText() { return QStringLiteral("← 返回实例设置"); }
     /// 鼠标停上去那句话：说清"回的是哪个实例的那一页"，以及"从这儿下的东西照旧"。
     static QString downloadBackTooltip() {
-        return QStringLiteral("回到刚才那个实例的设置页。从这一栏下的东西还是下进那个实例。");
+        return QStringLiteral("回到刚才那个实例的设置页。从这儿下的东西还是下进那个实例。");
     }
 
     // ---- 每一页顶上那一行筛子（2026-09-25）----
@@ -1860,6 +1863,15 @@ public:
     // 底栏左侧的显示规则要知道"当前是不是在启动界面（主页）"：在主页且选中的就是
     // 正在跑的那个实例时只显示一行，否则加第二行说明是哪个实例。
     static int homeTabIndex() { return 0; }
+    /// 「实例」页（实例列表 + 实例设置）的下标。
+    ///
+    /// ★ 2026-09-28：它是**「实例设置」那一页的家** —— `MainWindow::openInstanceSettings()`
+    ///   开页时把选项卡切到这一颗、并把那一页的归属钉在它身上（见 `OverlayHost::openPage()`
+    ///   的 `ownerTab`）。不钉的话，从下载页那颗「← 返回实例设置」进来的那一次会把这一页
+    ///   记成**下载页的**页面：用户点「实例」看见的是实例列表、那一页收着看不见，而它占着
+    ///   覆盖层那一位 ⇒ 此后每次开实例设置都被"已经有一页开着"挡下（用户报的"卡住进不去
+    ///   实例设置、还老被拽到下载页"）。
+    static int instancesTabIndex() { return 1; }
     /// 「下载」页（版本树 + 安装页那一整套）的下标。
     /// NOTE: 这个值本身产品里没人拿它做判断（是"点选项卡"进去的），但验证工程要
     ///       把它翻到前面 —— 隐藏着的控件不排布局，那种状态下量出来的
@@ -1989,16 +2001,15 @@ public:
     /// 条目文字是显示内容，会随产品文案走，不能拿它当身份。
     QListWidget *getDownloadCategoryList() const { return downloadCategoryList; }
 
-    /// 那一栏左上角那颗「返回实例设置」（见上面 downloadBackButtonName 那段）。
+    /// 下载页**左栏顶上**那颗「返回实例设置」（见上面 downloadBackButtonName 那段）。
     ///
-    /// 认不出来（键不对、或者那是「游戏」那一页 —— 它没有这一颗）回 nullptr。
-    QPushButton *getDownloadBackButton(const QString &categoryKey) const {
-        return downloadBackButtons.value(categoryKey, nullptr);
-    }
+    /// NOTE: 2026-09-28 起**整个下载页只有这一颗**（原来是五栏各一颗、摆在右栏那行筛子
+    ///       里）。所以它不再按分类键索引 —— 用户翻到哪一栏，它都在同一个地方。
+    QPushButton *getDownloadBackButton() const { return downloadBackButton; }
     /// 让它露面/收起来。**收起时连位置都不占**（`setVisible(false)`，不是 `setEnabled`）。
-    void setDownloadBackVisible(const QString &categoryKey, bool visible) {
-        if (QPushButton *button = getDownloadBackButton(categoryKey)) {
-            button->setVisible(visible);
+    void setDownloadBackVisible(bool visible) {
+        if (downloadBackButton != nullptr) {
+            downloadBackButton->setVisible(visible);
         }
     }
     /// 右栏那份 QStackedWidget。**下标和 downloadCategoryKeys() 一一对应** ——
@@ -2230,7 +2241,8 @@ private:
     /// 每一栏左上角那颗「返回实例设置」（键 = 分类键，见 downloadBackButtonName 那段）。
     /// 「游戏」那一页**不在里面**（它不是从实例设置进来的——那一页根本没有"下载新游戏"
     /// 这颗按钮）。
-    QHash<QString, QPushButton *> downloadBackButtons;
+    /// 下载页左栏顶上那颗「返回实例设置」。**整个下载页一颗**（见 getDownloadBackButton）。
+    QPushButton *downloadBackButton = nullptr;
     QStackedWidget *downloadStack = nullptr;
     /// 设置页左栏那份「分类」与右栏那份堆叠页（见头文件上面「设置页：左栏那几条分类」那段）。
     /// 五页全是真的，每一页是一层滚动区（addSettingsPanel() 搭），堆叠页的下标就是

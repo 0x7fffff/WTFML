@@ -671,6 +671,21 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         }
         downloadCategoryList->setFixedHeight(rowsHeight +
                                              2 * downloadCategoryList->frameWidth() + 2);
+        // 「← 返回实例设置」那一颗（2026-09-28 从右栏挪到这儿）。
+        //
+        // ★ 用户原话：「返回按钮也是放在左上角（就是左边栏的顶上）」。挪过来之后它由
+        //   **六栏共用一颗**（原来是五栏各一颗，摆在右栏那行筛子的最前头）—— 两件事
+        //   一起变对了：
+        //   ① 「回到刚才那个实例」与用户此刻翻到哪一栏**无关**，本来就不该一栏一颗；
+        //   ② 它在左栏顶上，翻栏时**不动**，不会跟着右栏一起刷没了。
+        // **默认收着**（连位置都不占）：只有这一次是从某个实例的设置页点进来的才露面。
+        downloadBackButton = new QPushButton(downloadBackButtonText(), download.left.widget);
+        downloadBackButton->setObjectName(downloadBackButtonName());
+        downloadBackButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        downloadBackButton->setToolTip(downloadBackTooltip());
+        downloadBackButton->setVisible(false);
+        download.left.layout->addWidget(downloadBackButton);
+
         download.left.layout->addWidget(downloadCategoryList);
         download.left.layout->addStretch(1);
 
@@ -930,16 +945,10 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
             //       要清空有旁边那颗「清空条件」。
             //       提示文字是那页"能干什么"的一句话（downloadSearchHint，唯一出处）——
             //       空框里那句话正好在最该看见它的地方。
-            // 左上角那颗「← 返回实例设置」（2026-09-28，见头文件那段）。摆在**第一行最左边**
-            // （搜索框之前）——"左上角"就是这里。**默认收着**（连位置都不占），
-            // 只有这一栏是从实例设置里点进来的那一次才露面（setDownloadBackVisible）。
-            auto *back = new QPushButton(downloadBackButtonText(), filterRow);
-            back->setObjectName(downloadBackButtonName(categoryKey));
-            back->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-            back->setToolTip(downloadBackTooltip());
-            back->setVisible(false);
-            filterTop->addWidget(back);
-            downloadBackButtons.insert(categoryKey, back);
+            // ★ 2026-09-28：那颗「← 返回实例设置」**不在这一行里了** —— 用户原话
+            //   「返回按钮也是放在左上角（就是左边栏的顶上）」。它现在是整个下载页
+            //   **共用的一颗**、摆在左栏顶上，见 setupUi 里那一句（那一颗有两件事
+            //   只有那一层知道：左栏是共用的，而"从实例进来的"这件事本来就与哪一栏无关）。
 
             auto *search = new QLineEdit(filterRow);
             search->setObjectName(downloadSearchEditName(categoryKey));

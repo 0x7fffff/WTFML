@@ -339,7 +339,7 @@ void OverlayHost::releaseContent(QVBoxLayout *content) {
     }
 }
 
-QWidget *OverlayHost::openPage(const QString &title) {
+QWidget *OverlayHost::openPage(const QString &title, int ownerTab) {
     if (m_mode != Mode::None) {
         // 一层只放得下一个页面（见头文件那段）。返回 nullptr，调用方当"没开成"。
         // NOTE: 页面**收着**的时候（用户在别的选项卡上逛）也算"有人占着这一层"，
@@ -347,8 +347,12 @@ QWidget *OverlayHost::openPage(const QString &title) {
         return nullptr;
     }
     m_mode = Mode::Page;
-    // 这一页是**哪一颗选项卡**开出来的：它决定这一页在哪儿露面（见头文件那段）。
-    m_pageOwnerTab = anchorTabIndex();
+    // 这一页是**哪一颗选项卡**的：它决定这一页在哪儿露面（见头文件那段）。
+    //
+    // ★ 调用方说得出口（`ownerTab != -1`）时**以它为准**，不再看当前选项卡是谁 ——
+    //   有些页面的"家"是定死的，和用户从哪条路进来无关（「实例设置」永远归「实例」那一颗）。
+    //   取当前选项卡的症状见 openPage() 的 doc。
+    m_pageOwnerTab = ownerTab >= 0 ? ownerTab : anchorTabIndex();
     m_pageFocus = nullptr;
     m_titleLabel->setText(title);
     applyVisibility();
@@ -471,8 +475,8 @@ void OverlayHost::relayout() {
                        (this->height() - m_promptCard->height()) / 2);
 }
 
-int OverlayHost::execPage(QDialog *dialog, const QString &title) {
-    return execEmbedded(dialog, title, true, false);
+int OverlayHost::execPage(QDialog *dialog, const QString &title, int ownerTab) {
+    return execEmbedded(dialog, title, true, false, ownerTab);
 }
 
 void OverlayHost::setPageTitle(const QString &title) {
@@ -492,7 +496,7 @@ int OverlayHost::execPrompt(QDialog *dialog, bool dismissOnOutsideClick) {
 }
 
 int OverlayHost::execEmbedded(QDialog *dialog, const QString &title, bool asPage,
-                              bool dismissOnOutsideClick) {
+                              bool dismissOnOutsideClick, int ownerTab) {
     if (dialog == nullptr) {
         return QDialog::Rejected;
     }
@@ -505,7 +509,7 @@ int OverlayHost::execEmbedded(QDialog *dialog, const QString &title, bool asPage
 
     // ② 摆上去。开不出来（已经有页面/已经有提示）时就此打住：`dialog` 只是挂回了寄存处，
     //    调用方看到的是一句"取消了"，和用户自己按了取消是同一件事。
-    QWidget *area = asPage ? openPage(title) : openPrompt(dismissOnOutsideClick);
+    QWidget *area = asPage ? openPage(title, ownerTab) : openPrompt(dismissOnOutsideClick);
     if (area == nullptr || area->layout() == nullptr) {
         return QDialog::Rejected;
     }

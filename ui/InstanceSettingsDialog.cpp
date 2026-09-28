@@ -2590,6 +2590,11 @@ void InstanceSettingsDialog::showPage(const QString &key) {
     applyPageKey(key);
 }
 
+QString InstanceSettingsDialog::currentPageKey() const {
+    // 判据只有右栏那一位（见 .hpp 那段）：反查函数本来就在、`rebuildEntryList()` 也在用。
+    return m_stack == nullptr ? QString() : pageKeyAtStackIndex(m_stack->currentIndex());
+}
+
 QWidget *InstanceSettingsDialog::addOverrideRow(QGridLayout *grid, int row, const QString &field,
                                                 const QString &title, const QString &customHint) {
     // **两行**：上面那一行是这个设置的名字（独占一整行），下面那一行才是它的选项

@@ -292,6 +292,7 @@ struct SearchResult {
 /// 空搜索词时 sortField=6 也正好是"这一类里最热门的" —— 和 Modrinth 那条
 ///（空词按 downloads 排、有词按 relevance 排）落在同一个效果上，所以这边一个值就够，
 /// 不用跟着 query 空不空分叉。
+/// `apiBase` 的规矩见 versionsUrl 那条 NOTE（两个来源都认，空 = 官方那一份）。
 QString searchUrl(Kind kind, const QString &query, int offset, int limit,
                   const QString &gameVersion = QString(), const QString &loader = QString(),
                   Source source = Source::Modrinth, const QString &category = QString(),
@@ -634,6 +635,20 @@ QString hitMetaLine(const Hit &hit);
 ///（fabric / forge / neoforge / quilt），通用那一组排最后。组**里面**的顺序原样保留
 /// （接口给的是新的在前，见 parseVersions）。
 ///
+/// ★ `preferredLoader`（2026-09-28 加，**小写**，空 = 没人在乎）：「把**这个**加载器的
+///   那些组排在前面」。详情页从某个实例点进来时用实例自己的加载器 —— 用户原话「对应的
+///   模组加载器的版本放在前面」。**游戏版本那一条优先于它**（组序的第一关键字还是游戏
+///   版本的新旧，这一位只在同一个游戏版本里改次序）：不然选了 1.21.1 那一 chip 之后，
+///   一个支持 1.21.1 的老 Fabric 组会排到 26.2 的 NeoForge 组前面。
+///
+///   词形必须是**小写**那一套（`VersionGroup::loader` 的写法）。`instanceModLoader()` 回
+///   的是显示名「Fabric」/「NeoForge」—— 直接递进来会**一个字都比不上**，症状是这一位
+///   永久不生效而屏幕上一点异常都没有（见 MainWindow 里那个换算）。
+///
+/// NOTE: 认不出来的加载器（`loaderOrderIndex()` 那把尺子之外的）照旧排到最后 ——
+///       这一位只把**点名的那一个**提上来，不是"把它挪到最后"。点名的那个又不认识时
+///       整份次序和没传一样。
+///
 /// ★ `showSnapshots`（和那一排 chip 收到的是同一个值）：不勾时组头写的那个游戏版本也
 ///   **归到大版本** —— 一条最新只声明到 `26.2-rc1` 的版本，组头写「Fabric 26.2」，而不是
 ///   「Fabric 26.2-rc1」。用户原话是「把快照版本的模组放到对应的大版本里」，而分组就是
@@ -648,7 +663,8 @@ struct VersionGroup {
     QString title() const;
 };
 
-QList<VersionGroup> groupVersions(const QList<VersionEntry> &versions, bool showSnapshots);
+QList<VersionGroup> groupVersions(const QList<VersionEntry> &versions, bool showSnapshots,
+                                  const QString &preferredLoader = QString());
 
 /// 这个项目在**它自己那一家**的网页地址（详情页那颗「转到 Modrinth / CurseForge」用）。
 ///
@@ -673,6 +689,11 @@ QString mcmodSearchUrl(const QString &name);
 /// NOTE: CurseForge 那条是 `GET {base}/mods/{id}/files?gameVersion=&modLoaderType=`，
 ///       加载器那里也要**数字**（不是名字）。答复的顺序两边**都是新的在前**（实测：
 ///       JEI 那条回的是 19.57.0.449 → .448），所以界面那条路不用按来源分叉。
+///
+/// `apiBase` **两个来源都认**（空 = 走官方那一份）：它是验证工程那个口子
+/// （`Launcher/ModrinthApiBase` / `Launcher/CurseForgeApiBase`）。2026-09-28 之前这里只认
+/// CurseForge，Modrinth 那条写死了官方地址 —— 而那个口子**不生效时一声不响**，于是"全程
+/// 离线"的验证工程其实一直打到了真接口上（见 ResourceCatalog.cpp 里那段 ★）。
 QString versionsUrl(const QString &projectId, const QString &gameVersion,
                     const QString &loader = QString(),
                     Source source = Source::Modrinth, const QString &apiBase = QString());

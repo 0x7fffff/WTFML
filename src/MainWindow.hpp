@@ -295,7 +295,19 @@ private slots:
     ///       读回来当起点、当前全局是什么"的口径只有一份；**改名也在这条路上**（用户
     ///       2026-09-25 原话「重命名进实例设置」）：页面上改「实例名」那一格、按确定之后
     ///       先 applyRename() 再写设置，顺序的理由写在实现里。
-    void openInstanceSettings(const QString &versionId);
+    ///
+    /// @param pageKey 开出来之后**停在哪一页**（空 = 不指定，停它自己的第一页「概览」）。
+    ///        只有那两条"从别处回来"的路会传（见 `openFileResourcePage()` /
+    ///        `returnToInstanceSettingsFromDownload()`）—— 用户原话「从模组点进去，返回
+    ///        也在模组而非概览，其余同理」。从实例列表**新**点开一个实例的那几处一律不传：
+    ///       那不是"回来"，用户没在等哪一页。
+    ///
+    /// ★ 这一页**永远归「实例」那一颗选项卡**（`OverlayHost::execPage()` 的 `ownerTab`），
+    ///   开之前先把选项卡切过去。不钉的话，从下载页那颗「← 返回实例设置」进来时当前选项卡
+    ///   是**下载**，这一页会被记成下载页的页面 —— 用户点「实例」看见的是实例列表、那一页
+    ///   收着看不见，而它占着覆盖层那一位 ⇒ 此后每次开实例设置都被挡下，而且**每次都被
+    ///   拽回下载页**（用户报的那条："卡住进不去实例设置、还老变到下载页"）。
+    void openInstanceSettings(const QString &versionId, const QString &pageKey = QString());
     /// 「导出启动脚本」：把"按这个实例现在的这套参数启动"写成**一个 .bat**。
     ///
     /// 用户 2026-09-26 原话：「弹窗让用户选保存位置，出 .bat」。问路径那一半在对话框里
@@ -389,13 +401,31 @@ private slots:
     ///        什么都不做，但会 `qWarning()` 说一句（症状是"按了没反应"，静默的话没人查得到）。
     /// 切到下载页的某一栏（实例设置那几个文件页顶上那颗「下载新模组」走的就是它）。
     ///
-    /// @param returnInstanceId 非空 = 这一次是**从那个实例的设置页进来的**：那一栏左上角
-    ///        会露出「← 返回实例设置」，并且把「已安装版本」选到那个实例上（用户 2026-09-28
-    ///        那两条：「左上角保留一个返回键，返回到实例设置里面」/「自动放进当前实例
-    ///        文件夹」）。别的入口一律传空。
+    /// @param returnInstanceId 非空 = 这一次是**从那个实例的设置页进来的**：左栏顶上那颗
+    ///        「← 返回实例设置」会露出来，并且把「已安装版本」选到那个实例上、把两个筛子
+    ///        （游戏版本 / 模组加载器）灌成那个实例的（用户 2026-09-28 那三条：「左上角
+    ///        保留一个返回键，返回到实例设置里面」/「自动放进当前实例文件夹」/「自动在
+    ///        搜索框里填入对应的版本和加载器」）。别的入口一律传空。
+    ///
+    ///        ★ 回来的那一页**就是 `categoryKey`**：「下载新模组」那一栏就是实例设置里
+    ///          那一页（见 `InstanceSettingsDialog::filesDownloadCategoryKey()` ——
+    ///          "这两处是一回事"的唯一出处就在它那儿），所以"来路那一页"不用再要一个参数。
     void openDownloadCategory(const QString &categoryKey, const QString &returnInstanceId = QString());
-    /// 回到刚才那个实例的设置页（左上角那颗「返回实例设置」点的就是它），并把那颗收起来。
+    /// `openDownloadCategory()` 的第二步：**确认那一页收干净了**再切选项卡、挑那一栏、灌
+    /// 筛子。收不干净就什么都不做（理由写在 .cpp 里）。
+    /// @param roundsLeft 还允许再排几轮（收页要跨事件循环轮次才落定，见 .cpp）。
+    void continueOpenDownloadCategory(int row, const QString &categoryKey,
+                                      const QString &returnInstanceId, int roundsLeft);
+    /// 把某一页那两个筛子灌成**某个实例的**：版本 = 它的游戏版本，加载器 = 它的加载器。
+    /// 用户的「自动在搜索框里填入对应的版本和加载器」就是这一条；调它的是上面那个函数。
+    void fillDownloadFiltersFromInstance(ResourceCatalog::Kind kind, const QString &instanceId);
+    /// 回到刚才那个实例的设置页（左栏顶上那颗「返回实例设置」点的就是它），并把那颗收起来。
     void returnToInstanceSettingsFromDownload();
+    /// 顶上那四颗导航里的一颗被点了（`TitleBar::navRequested`）。**只管一件 MainWindowUI
+    /// 管不着的事**：点的是当前这一颗、而且现在是「下载」页时，把那一页**刷回它的首页**
+    /// （用户原话「点击顶部下载按钮就刷新页面回到主页」）。翻页和"把覆盖层收起来"那两条
+    /// 仍旧由 MainWindowUI 自己接的那一条负责（那边先接，所以它先跑）。
+    void onNavRequested(int index);
 
     // ---------- 「配置文件」那一页的编辑器（2026-09-27）----------
     //
@@ -826,6 +856,12 @@ private:
     ///   拿它跟 `QDialog::Rejected` 比是安全的 —— 调用方**只能靠它**区分"用户把这一页
     ///   收掉了"和"压根没开"，见 `openFileResourcePage()`。
     static constexpr int kResourcePageNotOpened = -1;
+    /// 进下载页那条路最多允许**再排几轮**去把实例设置那一页收干净（见
+    /// `continueOpenDownloadCategory()`）。3 是个宽裕的上限：正常情况第一轮就已经收干净了
+    /// （那一发 `dismiss()` 的收尾在下一轮事件循环之前就落定），只有"上面还压着一条提示"
+    /// 那一档才真用得上第二轮。**不写"转到收干净为止"**：收不掉时再转多少轮也收不掉
+    /// （那一页收着 = `dismiss()` 不放行），转下去只是空转。
+    static constexpr int kDownloadOpenRounds = 3;
     /// 这一页是**怎么打开**的（2026-09-27）。只有一处需要知道：右上角那一格摆什么
     /// —— 从实例的「文件管理」页点一个**模组**进来时摆那颗「模组设置」，
     /// 其余一律照旧摆「显示快照版」。
@@ -852,7 +888,15 @@ private:
     /// NOTE: **必须排在事件投递之后**再调（调用点走 `QTimer::singleShot(0, …)`）：里面那句
     ///       `execPage` 会转起一个嵌套事件循环，而调用它的地方（树的事件过滤器）正处在
     ///       一发鼠标事件的投递途中 —— 在那里面再进一层事件循环，视图那一侧的状态机就悬了。
-    int openResourceDetailPage(const QString &iconKey, const QString &kindKey, DetailSource from);
+    /// @param instanceId 非空 = 这一页是**从那个实例进来的**：那一排 chip 会预选到那个实例
+    ///        的游戏版本上，而版本组里那个实例的加载器排在前面（用户原话「点开某个模组等的
+    ///        时候将版本自动选到当前实例对应的那个，对应的模组加载器的版本放在前面，资源包
+    ///        等同理，展示为对应版本适用的」）。空 = 不预选（照旧停在「全部」那颗上）。
+    ///
+    ///        NOTE: 这一位**不是可选的**（不给默认值）：加一个新入口时忘了说"是不是从某个
+    ///              实例来的"，编译就过不去 —— 和上面 `DetailSource` 那条设计理由逐字相同。
+    int openResourceDetailPage(const QString &iconKey, const QString &kindKey, DetailSource from,
+                               const QString &instanceId);
     /// 详情页上某一颗 chip 被按了（参数是那颗的 key，空串 = 「全部」）：重算筛 + 分组。
     void onResourcePageChipChanged(const QString &gameVersion);
     /// 详情页上方那个「显示快照版」勾选框被拨了（点它、或者按 Alt 键）。
@@ -1786,6 +1830,19 @@ private:
         bool showSnapshots = false;
         /// 头卡上那个资源名。下载时拼 label 的前半截要用它。
         QString title;
+        /// 开页时**是从哪个实例进来的**（空 = 不是从某个实例进来的）。`from` 是
+        /// `InstanceFiles` 时就是那个实例的目录名，`Download` 时是"用户上一次是从哪个
+        /// 实例进下载页的"（`m_downloadFromInstanceId`）。
+        ///
+        /// 它只喂两件事：开页那一下 chip 预选到**哪个**游戏版本、以及哪个加载器的组排前面
+        /// （见 openResourceDetailPage 里那两句）。**存下来**而不是开页时用一次就扔：
+        /// 勾「显示快照版」那一下会把 chip 那一排整个重摆（`onResourcePageShowSnapshotsChanged`），
+        /// 那时还得知道"预选的是哪一个"—— 否则用户拨一下勾选框，按着的那一颗就被甩回
+        /// 「全部」了。
+        QString instanceId;
+        /// 上面那个实例的加载器，**换算成小写那一套**（`VersionGroup::loader` 的写法，
+        /// 见 ResourceCatalog::groupVersions 的 preferredLoader）。
+        QString preferredLoader;
         /// 开页时接口给的那一串**声明过的游戏版本**（`Hit::gameVersions`，旧的在前）。
         ///
         /// 留着它只为一件事：勾「显示快照版」那一下要把 chip 那一排整个换一份，而那时候
@@ -1828,10 +1885,19 @@ private:
     QHash<QString, QString> m_projectTitles;
     /// 这一次进下载页是**从哪个实例的设置页**点进来的（空 = 不是从那儿来的）。
     ///
-    /// 两件事读它：① 左上角那颗「返回实例设置」回哪儿；② 从这一栏点下载时要不要弹
+    /// 三件事读它：① 左栏顶上那颗「返回实例设置」回哪儿；② 从这一栏点下载时要不要弹
     /// explorer 选保存位置（用户 2026-09-28 那条设置的判据 —— 「下载新模组就自动放进
-    /// 当前实例文件夹」，见 installResourceVersionNow）。
+    /// 当前实例文件夹」，见 installResourceVersionNow）；③ 从这一栏点开一个资源的详情页时
+    /// 拿它当"当前实例"（chip 预选 + 加载器排前面）。
     QString m_downloadFromInstanceId;
+    /// 上面那个实例的设置页**当时停在哪一页**（= `openDownloadCategory()` 收到的
+    /// `categoryKey`；空 = 同上那一位也是空的）。
+    ///
+    /// 只喂一件事：那颗「← 返回实例设置」回去时开在**原来那一页**上，而不是永远回「概览」
+    /// （用户原话「从模组点进去，返回也在模组而非概览，其余同理」）。它和
+    /// `m_downloadFromInstanceId` **同生共死** —— 那一位在哪儿被赋值/清掉，这一位就在
+    /// 哪儿，所以 `returnToInstanceSettingsFromDownload()` 里两句话并排写。
+    QString m_downloadFromPageKey;
     /// 「版本」那一格**刚按过回车**的那几页（键 = 分类键，进的是 `QSet`）。
     ///
     /// 只为一件事：那一格是可输入的，在框里按回车时 Qt 会连发两发 —— 先是

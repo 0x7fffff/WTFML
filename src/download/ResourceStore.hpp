@@ -71,6 +71,16 @@ public:
     void setCurseForgeApiKey(const QString &apiKey);
     void setCurseForgeApiBaseOverride(const QString &base);
 
+    /// Modrinth 那一侧的**同一个口子**（`Launcher/ModrinthApiBase`，同样**只有验证工程会写**）。
+    ///
+    /// ★ 2026-09-28 加：在此之前这条路（搜索 / 版本列表 / 项目信息）的地址是**写死的官方地址** ——
+    ///   于是"验证工程把接口指到本机假服务器"在这条路上**一声不响地不生效**（接口照样通、
+    ///   照样回 200/404，屏幕上看不出区别），而那一节测试以为自己全程离线。
+    ///   空 = 走官方那一份（产品里恒为空）。
+    void setModrinthApiBaseOverride(const QString &base);
+    /// 手上这一份 Modrinth 根地址（空 override ⇒ 空串 = 让 ResourceCatalog 用官方那一份）。
+    QString modrinthApiBase() const { return m_modrinthApiBaseOverride; }
+
     /**
      * @brief 搜一次。
      * @param requestKey 这一发的钥匙（界面自己定，信号会原样带回来）。同一个 key 上还有
@@ -442,4 +452,6 @@ private:
     QString m_curseForgeApiKey;
     /// **只有验证工程会写它**（`Launcher/CurseForgeApiBase`，把接口指到本机的假服务器上）。
     QString m_curseForgeApiBaseOverride;
+    /// 同上，Modrinth 那一侧（`Launcher/ModrinthApiBase`）。见 setModrinthApiBaseOverride。
+    QString m_modrinthApiBaseOverride;
 };
