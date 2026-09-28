@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(WTFMinecraftLauncher VERSION 0.1.0 LANGUAGES CXX)
+project(WTFMinecraftLauncher VERSION 0.2.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -163,6 +163,16 @@ set_target_properties(WTFMinecraftLauncher PROPERTIES WIN32_EXECUTABLE TRUE)
 # 决定要不要链 EntryPointPrivate），链上 MinGW 自带的 WinMain 之后 `int main()` 照旧是
 # 入口，GUI 子系统这件事只由上面那条 WIN32_EXECUTABLE 决定。
 set_target_properties(WTFMinecraftLauncher PROPERTIES qt_no_entrypoint TRUE)
+
+# 版本号**只有一个出处 = 上面 `project(... VERSION ...)` 那一位**，由这儿递给源码。
+#
+# src/main.cpp 的 `setApplicationVersion(WTFML_VERSION)` 读它，值最后会走到两处：
+#   * `src/launcher/LauncherManager.cpp` —— version.json 里 `${launcher_version}` 展开成
+#     `-Dlauncher_version=`（盘上那一位空的时候回落到字面量 `1.0`）；
+#   * `src/MainWindow.cpp` 的错误报告（`facts.launcherVersion`）。
+# 从前这两处是**各写各的**（CMakeLists 写 0.1.0、main.cpp 写 1.0.0，早就不一致了），
+# 发 0.2.0 的时候才发现——所以改成从这一个宏出来，别再写第二份字面量。
+target_compile_definitions(WTFMinecraftLauncher PRIVATE WTFML_VERSION="${PROJECT_VERSION}")
 
 target_include_directories(WTFMinecraftLauncher PRIVATE
     ${CMAKE_SOURCE_DIR}/src

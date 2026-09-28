@@ -131,7 +131,9 @@ int main(int argc, char *argv[]) {
 
     // Configure QSettings to use proper registry/config paths
     app.setApplicationName("WTFML");
-    app.setApplicationVersion("1.0.0");
+    // 版本号来自 CMakeLists.txt 的 `project(... VERSION ...)`（`WTFML_VERSION` 那个宏），
+    // **不许在这儿写第二份字面量** —— 这两处长期对不上（CMakeLists 0.1.0 / 这儿 1.0.0）。
+    app.setApplicationVersion(QStringLiteral(WTFML_VERSION));
     app.setOrganizationName("WTFML");
 
     // 主题（背景 / 字色 / 文字不透明度 / 语义色）从盘上读回来铺开。
