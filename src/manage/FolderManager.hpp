@@ -35,6 +35,30 @@ class LauncherSettings;
 ///       一个家 —— 实现和那段最细的注释在 FolderManager.cpp。
 bool removeTreeWithoutFollowingLinks(const QString &path);
 
+/// 把 @p from 这一棵**原样**拷到 @p to（@p to 必须还不存在），同样**一个链接都不追进去**
+/// —— 碰到链接就直接算失败，而不是顺着它把那一头的东西也拷一份出来。
+///
+/// 【"目标必须不存在"是硬条件，不是省事】
+/// 这一族函数只服务于"造一份**新的**出来"：复制实例、导入世界都是先算好一个空目录路径，
+/// 再往里灌。允许往已存在的目录里合并的话，`QFile::copy()` 遇到同名文件会**直接失败**
+/// （Qt 不肯覆盖），于是"合并"这个语义在这里根本实现不了 —— 与其留个半吊子的合并，不如
+/// 一开始就把重名挡在外面，让调用方自己去问用户换个名字。
+///
+/// 【为什么不用 `QDir::copy()` / `QFile::copy()` 递归自己写循环】
+/// `QDir::copy()` 没有（Qt 6 的 QDir 没有整树拷贝），`QFile::copy()` 只认文件。
+/// 所以这里只能自己递归；要注意的两个坑：
+///   · 目录得**先 mkpath 再进去**（先拷文件再建目录会失败）；
+///   · 符号链接 / junction 一律拒掉（理由同上，和删的那一个正好相反：删是"只摘链接"，
+///     拷是"干脆不拷"，两边都不能顺着链接走）。
+///
+/// @return 整棵都拷过去了没有。任何一步失败就**立刻收手**返回 false，已经拷出来的那半棵
+///         **留在盘上**（由调用方决定删不删 —— 复制实例和导入世界都选择删掉它）。
+///
+/// NOTE: 和 removeTreeWithoutFollowingLinks 一样，它声明在头文件里、实现留在 .cpp（那边
+///       有更细的注释）。两个调用者（VersionManager::copyInstance、WorldFiles 那条路）
+///       都只想要"把一棵目录树拷成新的一份"，和文件夹列表没关系。
+bool copyTreeWithoutFollowingLinks(const QString &from, const QString &to);
+
 class FolderManager : public QObject {
     Q_OBJECT
 

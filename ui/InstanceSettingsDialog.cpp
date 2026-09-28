@@ -622,6 +622,33 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         grid->addWidget(cell, row++, 0, 1, 2);
     }
 
+    // ---------- 「复制实例」（2026-09-28）----------
+    //
+    // 用户原话：「实例设置的概览里面加一条复制实例，点击以后让用户选择复制到的文件夹，
+    // 然后给定复制后的实例名称」。摆在「检查更新」下面 —— 它和上面两颗是同一档（一颗
+    // 按钮 + 底下那句解释），而这一颗的落点比上面那两颗重（会多出一整个实例目录）。
+    //
+    // NOTE: 这一颗**只发信号**（和「导出…」「检查更新」同一个形状）：挑哪个游戏文件夹、
+    //       问新名字、跑真那份拷贝，全在 MainWindow —— 那几步要 AppPaths（目标在**另一个**
+    //       游戏文件夹里，见 VersionManager::copyInstance）和 InlineMessage 的"问一句名字"
+    //       （都要覆盖层），这一层两样都没有。
+    {
+        auto *cell = new QWidget(this);
+        auto *column = new QVBoxLayout(cell);
+        column->setContentsMargins(0, 0, 0, 0);
+        column->setSpacing(4);
+        auto *button = new QPushButton(copyText(), cell);
+        button->setObjectName(copyButtonName());
+        button->setToolTip(copyButtonTooltip());
+        connect(button, &QPushButton::clicked, this,
+                [this]() { emit copyInstanceRequested(); });
+        column->addWidget(button, 0, Qt::AlignLeft);
+        auto *hint = new QLabel(copyHint(), cell);
+        hint->setWordWrap(true);
+        column->addWidget(hint);
+        grid->addWidget(cell, row++, 0, 1, 2);
+    }
+
     // ---------- 快捷方式那九颗按钮（2026-09-27 从「快捷方式」那一页整块搬来）----------
     //
     // 用户原话：「"快捷方式"放到概览的下方」—— 从这儿起「快捷方式」**不再是一页**，
@@ -1112,6 +1139,9 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             //   一起），第 1 格是编辑器。别的几页只有一格 —— 所以下面这些"摆进这一页"的
             //   动作全部改摆进 `target`，而不是一律摆进 `layout`。
             const bool isConfig = key == QStringLiteral("config");
+            // ★ 2026-09-28：存档那一页（见下面 setCanEdit / setImportText / setBatchText
+            //   那三处 —— 支笔、导入世界、批量编辑都只在这一页上）。
+            const bool isSave = key == QStringLiteral("save");
             QWidget *listHost = page;
             QVBoxLayout *target = layout;
             if (isConfig) {
@@ -1140,6 +1170,9 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             //   启动，而且不保证每个模组都这么干）。要删，那颗「打开文件夹」就在上面。
             files->setCanToggle(fileKeyCanToggle(key));
             files->setCanDelete(key != QStringLiteral("save") && key != QStringLiteral("config"));
+            // ★ 2026-09-28：**只有存档那一页**行尾有那支笔，而且只有那一页的目录行会去
+            //   算真的大小/时间（见 InstanceFilesPage::setCanEdit()——两件事是一套的）。
+            files->setCanEdit(isSave);
             files->setEmptyText(filesEmptyText(key));
             files->setDirectory(m_fileDirs.value(key));
             // ★ 顶上那颗「下载新 X」（2026-09-27）：只有下载页里真有对应一栏的那四页有
@@ -1147,6 +1180,15 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             //   一行都在 MainWindow 那一层 —— 这一层够不着选项卡，也不该知道下载页左栏
             //   有几栏（见 browseDownloadsRequested() 那段）。
             files->setDownloadText(filesDownloadText(key), filesDownloadTip(key));
+            // ★ 2026-09-28：存档那一页顶上多两颗（「导入世界」/「批量编辑」）。用户原话：
+            //   「顶端加个导入世界按钮和批量编辑按钮（这个先做占位）」。
+            //   别的几页**不接文字**（= 那两颗藏起来，见 setImportText）。「批量编辑」今天
+            //   是占位 —— 这一层照旧只发信号，那句"还没做"由 MainWindow 说（这一层连
+            //   InlineMessage 都用不了）。
+            if (isSave) {
+                files->setImportText(importWorldText(), importWorldTip());
+                files->setBatchText(batchEditWorldsText(), batchEditWorldsTip());
+            }
             connect(files, &InstanceFilesPage::downloadRequested, this, [this, key] {
                 const QString category = filesDownloadCategoryKey(key);
                 if (!category.isEmpty()) {
@@ -1190,6 +1232,12 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                     &InstanceSettingsDialog::toggleInstanceFileRequested);
             connect(files, &InstanceFilesPage::deleteRequested, this,
                     &InstanceSettingsDialog::deleteInstanceFileRequested);
+            // ★ 2026-09-28：存档那一页那三样（那支笔 / 导入世界 / 批量编辑）**故意不在这儿
+            //   接线**。上面那几发之所以要绕这一层，是因为它们需要翻译（`downloadRequested`
+            //   要把页键翻成下载页的分类键、`toggleRequested` 是整个文件管理共用的）；
+            //   而这三发只属于存档那一页、也不用翻任何东西 —— 由 MainWindow 直接连到
+            //   `filesPage("save")` 上（那一页就是它）。多一层纯转发的信号，只是多一份
+            //   要跟着改的声明。
             m_filesPages.insert(key, files);
             target->addWidget(files, 1);
             auto *hint = new QLabel(filesHint(key), listHost);

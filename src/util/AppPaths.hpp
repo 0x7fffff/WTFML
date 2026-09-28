@@ -96,11 +96,23 @@ inline QString versionJsonPath(const QString &versionId) {
     return versionDir(versionId) + QLatin1Char('/') + versionId + QStringLiteral(".json");
 }
 
+/// 版本元数据那个文件名本身（`wtfml.meta`）。
+///
+/// ★ 2026-09-28 加：**给"不在当前数据目录里"的那一份用**。上面那些 versionDir() /
+///   versionMetaPath() 算的全是**当前这个 .minecraft** 底下的路径（那是它们存在的
+///   理由），而"复制实例"的目标在**另一个**游戏文件夹里 —— 那一份实例的 wtfml.meta
+///   只有文件名能问这一层，其余的由调用方自己拼（见 VersionManager::copyInstance）。
+///
+/// NOTE: 这个字面量**只有这一处**（versionMetaPath() 也从这儿取）—— 复制那条路要是自己
+///       再写一遍 "wtfml.meta"，改文件名时就必然漏掉一处，而漏掉的那一处**不报错**：
+///       拷过去的那份实例在启动器眼里就是"没有元数据"，分组、图标、加载器信息一起没了。
+inline QString versionMetaFileName() { return QStringLiteral("wtfml.meta"); }
+
 /// 启动器自己的版本元数据：versions/<id>/wtfml.meta（可选文件）。
 /// NOTE: 扩展名不是 .json —— <id>.json 是版本 JSON 的既定名字，撞名会让"读元数据"
 ///       和"读版本 JSON"落到同一个文件上。详见 VersionManager::displayParts()。
 inline QString versionMetaPath(const QString &versionId) {
-    return versionDir(versionId) + QStringLiteral("/wtfml.meta");
+    return versionDir(versionId) + QLatin1Char('/') + versionMetaFileName();
 }
 
 /// 实例图标：versions/<id>/icon.png（可选文件，用户自己挑的那张图存在这儿）。

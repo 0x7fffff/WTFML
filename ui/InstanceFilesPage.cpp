@@ -13,6 +13,7 @@
 
 #include <QDateTime>
 #include <QDir>
+#include <QDirIterator>
 #include <QFileInfo>
 #include <QHBoxLayout>
 #include <QIcon>
@@ -24,6 +25,7 @@
 #include <QPixmap>
 #include <QPushButton>
 #include <QSizePolicy>
+#include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
 
@@ -174,6 +176,58 @@ QPixmap scaleToIconSlot(const QPixmap &icon) {
 /// NOTE: 不去认"这是不是一个真存档"（比如查 `level.dat` 在不在）—— 摆一张图而已，
 ///       目录里有那张图就画。多一道判断就多一处"哪些目录算数"的规则要跟着游戏版本改。
 /// NOTE: 只有**目录**才看这个（见 iconForPath 里 `isDir` 那个闸）：文件自己有哈希那条路。
+/// 一个目录**里面所有东西**的字节数（递归；目录项自己那几十个字节不算，那和用户在资源
+/// 管理器里看到的"大小"对不上）。
+///
+/// ★ 2026-09-28 加。用户原话：「存档那一栏每个世界都显示存档大小和最后游玩时间」。
+///
+/// NOTE: 为什么这件事落在 ui/ 这一层：它要的只是"一个目录有多大"，用的是 Qt 自己的目录
+///       遍历 —— 不碰 AppPaths、也不认识 src/ 里任何一条规矩。这一层唯一那条硬线是
+///       "不 include src/、不算路径"，这一件事两条都没踩（和它已经在用的 `QFileInfo::size()`
+///       / `QDir::entryInfoList()` 同一档）。
+/// NOTE: 带 `QDir::Hidden | QDir::System`：资源管理器报的大小是**算上隐藏文件**的，漏掉
+///       的话启动器报的数会比用户自己能核对的那个小，而且小得毫无规律（`.DS_Store` 那种
+///       是几百字节，但 `session.lock` 之类在存档目录里到处都是）。
+/// NOTE: **不跟符号链接/junction 走**（`isSymLink()` 那一条）。实例的 `saves/` 底下挂一个
+///       junction 是有的（用户把存档挪到别的盘上），跟着走过去会把**那一头**的整个目录
+///       算进来 —— 而那一头可能正是别的世界里的一份，于是这个数会莫名其妙地翻几倍。
+/// NOTE: 这是一个**同步**的递归遍历，几十万文件的存档要几百毫秒。调用它的地方只有
+///       fillDirectoryStats()，而那一趟一次只算一行（理由写在那边）。
+qint64 directoryBytes(const QString &dirPath) {
+    qint64 total = 0;
+    QDirIterator it(dirPath, QDir::Files | QDir::Hidden | QDir::System | QDir::NoDotAndDotDot,
+                    QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        const QFileInfo info = it.nextFileInfo();
+        if (info.isSymLink()) {
+            continue;
+        }
+        total += info.size();
+    }
+    return total;
+}
+
+/// 一个世界"上次是什么时候玩的"：`level.dat` 的修改时间。
+///
+/// 【为什么是 level.dat，不是目录自己的时间】
+/// 目录的时间只在**增删条目**时变（存档里加了一个区块文件、删了一个），用户连着玩三个
+/// 小时、存档内容一直在变，而那个时间可能一动不动 —— 拿它当"最后游玩时间"是错的。
+/// `level.dat` 是游戏**每次保存世界**都会重写的那个文件（关卡名、种子、游戏规则都在
+/// 里面），它的时间才是"上一次落盘"。
+///
+/// NOTE: `session.lock` 的时间戳在游玩期间一直在动，看起来更准，但**它只在玩的时候准**：
+///       退游戏时最后那一下不一定落在那上面，而且它是"锁"不是"存档"。用 level.dat 和
+///       PCL 以及大多数启动器一致，用户拿它跟游戏自己的"选择世界"那一屏对得上。
+/// NOTE: level.dat 不在（或者读不了时间）时退回**目录自己的时间** —— 给一个近似的值
+///       比给一个空的好，而且那种目录本来就"不是一个完整的存档"。
+QDateTime worldLastPlayed(const QString &dirPath) {
+    const QFileInfo level(dirPath + QStringLiteral("/level.dat"));
+    if (level.exists()) {
+        return level.lastModified();
+    }
+    return QFileInfo(dirPath).lastModified();
+}
+
 QPixmap directoryThumbnail(const QString &dirPath) {
     const QString candidate = dirPath + QStringLiteral("/icon.png");
     if (!QFileInfo::exists(candidate)) {
@@ -232,6 +286,21 @@ InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
     connect(m_download, &QPushButton::clicked, this, &InstanceFilesPage::downloadRequested);
     pathRow->addWidget(m_download);
 
+    // ★ 2026-09-28：顶上那两颗（只有存档那一页露着，见 setImportText / setBatchText）。
+    //   摆在**路径右边、下载/刷新左边**：和「下载新 X」同一档 —— 它们也是"这一页上的
+    //   动作"，够不着这一页在看哪个目录那件事。
+    m_batch = new QPushButton(m_pathRow);
+    m_batch->setObjectName(batchButtonName());
+    m_batch->setVisible(false);
+    connect(m_batch, &QPushButton::clicked, this, &InstanceFilesPage::batchEditRequested);
+    pathRow->addWidget(m_batch);
+
+    m_import = new QPushButton(m_pathRow);
+    m_import->setObjectName(importButtonName());
+    m_import->setVisible(false);
+    connect(m_import, &QPushButton::clicked, this, &InstanceFilesPage::importRequested);
+    pathRow->addWidget(m_import);
+
     m_refresh = new QPushButton(refreshText(), m_pathRow);
     m_refresh->setObjectName(refreshButtonName());
     // 刷新是**这一页自己的事**（重新列一遍目录，只有读），不用绕到 MainWindow 去。
@@ -287,6 +356,13 @@ InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
     makeSecondary(m_notice);
     outer->addWidget(m_notice, 1);
 
+    // 目录统计那一趟的节拍器（见 fillDirectoryStats / m_statLabels 那段）。单发 + 0 毫秒：
+    // 每排一次就在**下一个事件循环**里干一行，干完自己再排下一次。
+    m_statTimer = new QTimer(this);
+    m_statTimer->setSingleShot(true);
+    m_statTimer->setInterval(0);
+    connect(m_statTimer, &QTimer::timeout, this, &InstanceFilesPage::fillDirectoryStats);
+
     // 摆到"目录还没接上"那一档：构造函数里 setDirectory() 还没被叫过，这会儿既没东西可列、
     // 也没得可点，露出一个空框比说一句话更让人以为坏了。
     applyState();
@@ -307,9 +383,32 @@ void InstanceFilesPage::setCanDelete(bool canDelete) {
     refresh();
 }
 
+void InstanceFilesPage::setCanEdit(bool canEdit) {
+    m_canEdit = canEdit;
+    refresh();
+}
+
 void InstanceFilesPage::setEmptyText(const QString &text) {
     m_emptyText = text;
     applyState();
+}
+
+void InstanceFilesPage::setImportText(const QString &text, const QString &tip) {
+    if (m_import == nullptr) {
+        return;
+    }
+    m_import->setText(text);
+    m_import->setToolTip(text.isEmpty() ? QString() : tip);
+    m_import->setVisible(!text.isEmpty());
+}
+
+void InstanceFilesPage::setBatchText(const QString &text, const QString &tip) {
+    if (m_batch == nullptr) {
+        return;
+    }
+    m_batch->setText(text);
+    m_batch->setToolTip(text.isEmpty() ? QString() : tip);
+    m_batch->setVisible(!text.isEmpty());
 }
 
 void InstanceFilesPage::setDownloadText(const QString &text, const QString &tip) {
@@ -365,6 +464,12 @@ void InstanceFilesPage::refresh() {
     m_pathLabel->setToolTip(shownDir);
     // clear() 会连同 setItemWidget() 挂上去的那些行控件一起删掉（列表持有它们）。
     m_list->clear();
+    // ★ 统计那一趟跟着作废（见 m_statLabels 那段）：上面这一句把上一趟那些标签一起删了，
+    //   队列里还没轮到的那几个路径指向的是已经不存在的控件。**先清队列再清表**，而且
+    //   两样都要清 —— 只清表的话，下一趟的 fillDirectoryStats() 会拿着一个悬空路径去
+    //   找行（找不到，白跑一趟）。
+    m_statQueue.clear();
+    m_statLabels.clear();
     // 先当空的，下面每加一条翻过来 —— 这样"目录不存在"和"目录是空的"自然走同一条路。
     m_empty = true;
 
@@ -424,6 +529,12 @@ void InstanceFilesPage::refresh() {
     }
 
     applyState();
+
+    // 目录行的「大小 · 时间」要递归遍历才拿得到，**排在行都摆出来之后**（见 .cpp 顶部
+    // 那段和 fillDirectoryStats）—— 所以这一页是先出来、数字后到。
+    if (m_statTimer != nullptr && !m_statQueue.isEmpty()) {
+        m_statTimer->start();
+    }
 }
 
 QWidget *InstanceFilesPage::makeRow(const QString &shownName, const QString &path, bool isDir,
@@ -516,9 +627,19 @@ QWidget *InstanceFilesPage::makeRow(const QString &shownName, const QString &pat
     // 目录给的是目录项自己的字节数，不是里面东西的总和），给一个破折号比给一个假数字好。
     // 这一行也会省略（尾巴那头）：字号大 / 窗口窄的时候它比这一格还长，硬裁同样是"看着
     // 像画坏了"。它的 hint 不封顶 —— 它是下面那行小字，让名字那一格先拿够。
-    QString meta = isDir ? QStringLiteral("—") : formatSize(size);
-    if (modified.isValid()) {
-        meta += QStringLiteral(" · ") + modified.toString(QStringLiteral("yyyy-MM-dd HH:mm"));
+    //
+    // ★ 2026-09-28：**存档那一页的目录行**（m_canEdit，见 setCanEdit）也要真数字，而那个
+    //   数得递归遍历才拿得到 ⇒ 先摆一句「正在统计…」，真正的值由 fillDirectoryStats()
+    //   在事件循环转起来之后补上。这一格同时**登记进 m_statLabels**（那一趟靠它找回这一行）。
+    const bool wantsStats = m_canEdit && isDir;
+    QString meta;
+    if (wantsStats) {
+        meta = statsPendingText();
+    } else {
+        meta = isDir ? QStringLiteral("—") : formatSize(size);
+        if (modified.isValid()) {
+            meta += QStringLiteral(" · ") + modified.toString(QStringLiteral("yyyy-MM-dd HH:mm"));
+        }
     }
     auto *metaLabel = new ElidedLabel(textColumn);
     metaLabel->setObjectName(metaLabelName());
@@ -527,6 +648,13 @@ QWidget *InstanceFilesPage::makeRow(const QString &shownName, const QString &pat
     makeSecondary(metaLabel);
     makeSmallLine(metaLabel);
     textLayout->addWidget(metaLabel);
+    if (wantsStats) {
+        // 登记的是**这一格**，不是行号：统计是一格一格异步补上来的，这中间用户完全可能
+        // 点过「刷新」（行整个重建过）—— 存行号的话，补上去的是**别人**那一格。
+        // （· 每行只有这一格，所以它同时也是这一行。）
+        m_statLabels.insert(path, metaLabel);
+        m_statQueue.append(path);
+    }
 
     layout->addWidget(textColumn, 1);
 
@@ -552,6 +680,29 @@ QWidget *InstanceFilesPage::makeRow(const QString &shownName, const QString &pat
                                      .arg(toggleOnText(), fileName, disabledSuffix()));
         connect(toggle, &ToggleSwitch::clicked, this, [this, path] { emit toggleRequested(path); });
         layout->addWidget(toggle);
+    }
+
+    if (m_canEdit && isDir) {
+        // ★ 2026-09-28：行尾那支笔（用户原话「右边画一支笔意为编辑，和基岩版一样」）。
+        //
+        // NOTE: 和垃圾桶同一个做法 —— **字形是画的**（VersionIcons，全仓一个图片文件都
+        //       没有），尺寸取和行首图标一样的那一档、颜色取次要那一档，所以一列下来
+        //       两处行尾控件左右对得齐、深浅也一样。文字仍然给着（`text()` = 「编辑」，
+        //       画不画是 QToolButton 的 ToolButtonIconOnly 说了算）：悬停提示、无障碍、
+        //       以及验证工程"这一格是干什么的"都只剩这一个出口。
+        // NOTE: 它排在垃圾桶**后面**（这一页两档不会同时开：存档页 canDelete=false，
+        //       别的页 canEdit=false），所以不会有"两页之间那一列左右不齐"的问题。
+        auto *edit = new QToolButton(row);
+        edit->setObjectName(editButtonName());
+        edit->setAutoRaise(true);
+        const int glyph = MainWindowUI::instanceFileIconSize();
+        edit->setIcon(QIcon(VersionIcons::pen(
+            glyph, row->palette().color(QPalette::PlaceholderText))));
+        edit->setIconSize(QSize(glyph, glyph));
+        edit->setText(editText());
+        edit->setToolTip(tr("编辑这个世界：改名、打开它的文件夹。"));
+        connect(edit, &QToolButton::clicked, this, [this, path] { emit editRequested(path); });
+        layout->addWidget(edit);
     }
 
     if (m_canDelete) {
@@ -615,6 +766,49 @@ QToolButton *InstanceFilesPage::deleteButtonAt(int row) const {
     QWidget *rowWidget = item != nullptr ? m_list->itemWidget(item) : nullptr;
     return rowWidget != nullptr ? rowWidget->findChild<QToolButton *>(deleteButtonName())
                                 : nullptr;
+}
+
+QToolButton *InstanceFilesPage::editButtonAt(int row) const {
+    if (m_list == nullptr) {
+        return nullptr;
+    }
+    QListWidgetItem *item = m_list->item(row);
+    QWidget *rowWidget = item != nullptr ? m_list->itemWidget(item) : nullptr;
+    // 这一行的路径要**对得上**才认：那一格可能压根没建（文件行、或者没开 setCanEdit 的
+    // 页），findChild 那时给的是 nullptr —— 和"有这一格但是别人那一行的"是两回事。
+    // （不做额外的路径核对：一行里只可能有一支笔，`findChild` 找的就是这一行自己的。）
+    return rowWidget != nullptr ? rowWidget->findChild<QToolButton *>(editButtonName()) : nullptr;
+}
+
+void InstanceFilesPage::fillDirectoryStats() {
+    // 一趟只算一行，算完自己排下一趟。**不是** while 循环一次算完：
+    //   - 一个世界要递归遍历整棵树（几十万个文件是真有的），十几二十个世界连着算就是
+    //     十几秒 —— 而这时候行**已经摆在屏幕上了**，用户看到的是一个点了没反应的界面；
+    //   - 一次一行的话，事件循环在中间转过去，界面一直活着，数字一行一行地冒出来
+    //     （"在算"这件事本身也就看得见了）。
+    if (m_statQueue.isEmpty()) {
+        return;
+    }
+    const QString path = m_statQueue.takeFirst();
+
+    // 行可能已经不在屏幕上了：上面那句 takeFirst 之后、这一格找到之前，用户完全可能点了
+    // 「刷新」或者删掉了一条。**找不到不是错误**（那一行已经不在了，没什么可写的）。
+    const QPointer<QLabel> label = m_statLabels.value(path);
+    if (!label.isNull()) {
+        const qint64 bytes = directoryBytes(path);
+        const QDateTime played = worldLastPlayed(path);
+        // 拼接方式**逐字和上面那个文件行一样**（「12.3 MB · 2026-09-26 12:00」）：
+        // 同一张表里两种行的小字长得一样，才不会让人以为这一列有两个意思。
+        QString meta = formatSize(bytes);
+        if (played.isValid()) {
+            meta += QStringLiteral(" · ") + played.toString(QStringLiteral("yyyy-MM-dd HH:mm"));
+        }
+        label->setText(meta);
+    }
+
+    if (!m_statQueue.isEmpty()) {
+        m_statTimer->start();
+    }
 }
 
 QLabel *InstanceFilesPage::nameLabelAt(int row) const {

@@ -35,7 +35,9 @@
 #pragma once
 
 #include <QHash>
+#include <QPointer>
 #include <QString>
+#include <QStringList>
 #include <QWidget>
 
 class QAbstractButton;
@@ -46,6 +48,7 @@ class QListWidget;
 class QListWidgetItem;
 class QPushButton;
 class QToolButton;
+class QTimer;
 
 class InstanceFilesPage : public QWidget {
     Q_OBJECT
@@ -71,6 +74,32 @@ public:
     /// 启动器没有副本、也没有回收站，误删一个玩了几百小时的世界是找不回来的。
     /// 别的几页给 true —— 那些东西都能从下载页再下一份。
     void setCanDelete(bool canDelete);
+
+    /// 行尾要不要那支笔（一次「编辑」）。用户 2026-09-28 原话：「右边画一支笔意为编辑，
+    /// 和基岩版一样」。**只有存档那一页给 true**。
+    ///
+    /// 给的这一页同时还多做一件事：**目录行的「大小 · 时间」改成真的**（见 .cpp 里
+    /// fillDirectoryStats()）。这两件事是一套的 —— 存档页要的就是"一个世界有多大、
+    /// 上次什么时候玩的"，而别的几页那些目录（`mods/mcef-libraries/` 之类）算一个字节
+    /// 数出来没有任何意义，还不如那个破折号。
+    void setCanEdit(bool canEdit);
+
+    /// 顶上那颗「导入世界」（只有存档那一页给）。用户 2026-09-28 原话：「顶端加个导入
+    /// 世界按钮」。
+    ///
+    /// @param text 按钮上写的字。**空串 = 这一页没有这颗按钮**（和 setDownloadText 一样）。
+    /// @param tip  悬停提示。
+    ///
+    /// NOTE: 和「下载新 X」一样，这一层**只发信号**：挑哪个目录、拷到哪儿、要不要问一句
+    ///       重名 —— 全在 MainWindow（这一层够不着 AppPaths，也开不了系统那个选择框）。
+    void setImportText(const QString &text, const QString &tip);
+
+    /// 顶上那颗「批量编辑」。**今天是个占位**（用户原话：「（这个先做占位）」）——
+    /// 按钮摆在那儿、点下去 MainWindow 会说一句"还没做"。
+    ///
+    /// NOTE: 判据和 setImportText() 一样是"文字空不空"（不是另开一个 bool）—— 这一页是
+    ///       同一段循环搭出来的六页，多一位状态就多一处"哪几页有"的知识。
+    void setBatchText(const QString &text, const QString &tip);
 
     /// 目录空着的时候那一句话（每一页不一样：模组说"去下载页装一个"，
     /// 存档说"进游戏存一个"）。默认给一句通用的。
@@ -160,8 +189,15 @@ public:
     /// 行尾那颗垃圾桶（**字形画的，没有文字**：文字仍然给着，只是 QToolButton 默认
     /// `ToolButtonIconOnly` 不画它 —— 验证工程按 `text()` 认它是干什么的）。
     QToolButton *deleteButtonAt(int row) const;
+    /// 行尾那支笔（同上：字形画的，`text()` 里写着「编辑」）。**没给 setCanEdit(true)
+    /// 的页上每一行都是 nullptr**。保存档页的话 `toggleButtonAt()` / `deleteButtonAt()`
+    /// 反过来恒是 nullptr（那两档这一页都没开）。
+    QToolButton *editButtonAt(int row) const;
     QPushButton *refreshButton() const { return m_refresh; }
     QPushButton *openFolderButton() const { return m_openFolder; }
+    /// 顶上那两颗（只有存档那一页露着，见 setImportText / setBatchText）。
+    QPushButton *importButton() const { return m_import; }
+    QPushButton *batchButton() const { return m_batch; }
     /// 第 @p row 行那一格**名字**（ElidedLabel，对外当个 QLabel）。验证工程按它量
     /// "认出来的那几条长什么样"（颜色 / 光标 / 悬停提示），以及往它上面发一下鼠标松开、
     /// 看这一页发不发 resourceRequested()。
@@ -226,6 +262,14 @@ public:
     /// toggleButtonAt()），从页上 findChild 拿到的只是第一行那一颗。
     static QString toggleButtonName() { return QStringLiteral("instanceFilesToggleButton"); }
     static QString deleteButtonName() { return QStringLiteral("instanceFilesDeleteButton"); }
+    /// 行尾那支笔。和上面那两颗**同一个取法**（一页里很多支、名字都一样 ⇒ 按行取，
+    /// 见 editButtonAt()）。
+    static QString editButtonName() { return QStringLiteral("instanceFilesEditButton"); }
+    /// 顶上那两颗（「导入世界」/「批量编辑」）。和 downloadButtonName() 同处一排、同一个
+    /// 认法；**没接过 setImportText / setBatchText 的页上它们是藏着的**（和「下载新 X」
+    /// 一样：每一页都建，露不露由文字说了算）。
+    static QString importButtonName() { return QStringLiteral("instanceFilesImportButton"); }
+    static QString batchButtonName() { return QStringLiteral("instanceFilesBatchButton"); }
 
     /// 行首那一格**图标**（QLabel，里面是一张 pixmap，见 setIconForPath()）。
     /// 和上面那两颗一样：一页里有很多个、名字都一样 ⇒ 按行取。
@@ -238,6 +282,11 @@ public:
     static QString toggleOnText() { return QStringLiteral("禁用"); }
     static QString toggleOffText() { return QStringLiteral("启用"); }
     static QString deleteText() { return QStringLiteral("删除"); }
+    /// 行尾那支笔。和 deleteText() 一样**只活在 text() / 悬停提示里**（图标是画的，
+    /// QToolButton 默认不画文字）—— 验证工程按它认那一格是干什么的。
+    static QString editText() { return QStringLiteral("编辑"); }
+    /// 目录行的「大小 · 时间」还没算出来的那一格写什么（见 fillDirectoryStats()）。
+    static QString statsPendingText() { return QStringLiteral("正在统计…"); }
     /// 目录不存在 / 是空的时候那一句（每一页都可以自己盖掉，见 setEmptyText）。
     static QString emptyText() { return QStringLiteral("这个文件夹还是空的。"); }
 
@@ -263,6 +312,21 @@ signals:
 
     /// 用户点了某一条行尾的「删除」。**这一层不问那句"真的要删吗"**，接的人问。
     void deleteRequested(const QString &path);
+
+    /// 用户点了顶上那颗「导入世界」。**这一层不问"从哪儿导、导成什么名字"** —— 它连
+    /// AppPaths 都够不着（见文件头那段），挑目录和拷文件全在 MainWindow。
+    void importRequested();
+
+    /// 用户点了顶上那颗「批量编辑」。**今天是个占位**：接的人负责说那句"还没做"。
+    void batchEditRequested();
+
+    /// 用户点了某一条行尾的「编辑」（那支笔）。@param path 是这一条的绝对路径
+    /// （= `item->data(pathRole())`）。
+    ///
+    /// NOTE: 这一层**不说"编辑"是什么**（改名？编辑游戏规则？导出？）—— "一个世界能
+    ///       做哪几件事"是 MainWindow 的知识，而且它会变（今天只有两条，将来会多）。
+    ///       这一层只负责说"用户点了这一条的那支笔"。
+    void editRequested(const QString &path);
 
     /// 用户**打开了**某一条（双击，或者选中之后按回车）。@param isDir 这一条是不是目录
     /// —— 目录和文件要的东西不一样（目录是"进去看"，文件是"打开它"）。
@@ -294,9 +358,19 @@ private:
     /// 两处各写一遍的话，"没查到"那一档迟早会有一处漏掉、退成空白。
     QPixmap iconForPath(const QString &path, bool isDir, const QColor &placeholderColor) const;
 
+    /// 把「正在统计…」那一格换成真的数（一个世界的字节数 + 上次游玩时间）。
+    /// **一趟只算一行**，算完还有剩的就再排一趟 —— 理由写在 .cpp 里（一个装着几百个世界
+    /// 的 saves/ 一次算完会让界面卡住十几秒，而那是页面已经摆出来之后卡住）。
+    void fillDirectoryStats();
+
     Mode m_mode = Mode::FilesAndDirs;
     bool m_canToggle = false;
     bool m_canDelete = false;
+    /// 行尾那支笔（「编辑」）露不露。**今天只有「存档」那一页为真**（见 setCanEdit()）。
+    /// NOTE: 它同时还是"这一行的小字里画真数还是画一个 『—』"的开关 —— 那一页每一行都是
+    ///       一个世界目录，统计大小/最后游玩时间是那一页专有的（别的那几页全是文件，大小
+    ///       本来就有）。
+    bool m_canEdit = false;
     QString m_emptyText;
     QString m_directory;
     /// 用不上的原因（空串 = 用得上）。见 setUnavailable()。
@@ -339,6 +413,28 @@ private:
     /// 顶上那颗「下载新 X」（见 setDownloadText()）。**每一页都建**（同一个形状搭出来的），
     /// 没接文字的那几页是藏着的。
     QPushButton *m_download = nullptr;
+    /// 顶上那两颗（「导入世界」/「批量编辑」）。同上：每一页都建，没接文字就藏着。
+    QPushButton *m_import = nullptr;
+    QPushButton *m_batch = nullptr;
     QListWidget *m_list = nullptr;
     QLabel *m_notice = nullptr;
+
+    /// 等着算大小/时间的那些目录行：路径 → 那一行的「大小 · 时间」那一格。
+    ///
+    /// 【为什么不能在建行的时候顺手算出来】
+    /// 目录的字节数要**递归遍历**整棵树（`saves/<世界>/region/*.mca` 动辄几十万个文件），
+    /// 而 `refresh()` 是在"切到这一页"那一瞬间同步跑的 —— 在里面算等于每开一次实例设置都
+    /// 卡住几秒到十几秒。所以建行时先摆一句「正在统计…」，真正的数由定时器在**事件循环
+    /// 转起来之后**一格一格补上。
+    ///
+    /// NOTE: `QPointer` 而不是裸指针：`refresh()` 是 `m_list->clear()` + 重新建行，那些
+    ///       标签会被一起删掉，而定时器可能正好排在下一趟。悬空的话是段错误（不是"数字
+    ///       没显示出来"）。
+    QHash<QString, QPointer<QLabel>> m_statLabels;
+    /// 还没算的那些（按轮到的先后）。**和上面那张表分开**：表是"哪些行要算"，这个是
+    /// "还剩哪些没算"——算完的那些在表里留着（它们那一格已经写好了，不用再动），
+    /// 从队里去掉就行。队列空 = 这一趟统计做完了。
+    QStringList m_statQueue;
+    /// 排下一行的定时器（单发、0 毫秒：下一个事件循环转过来就干一行）。
+    QTimer *m_statTimer = nullptr;
 };

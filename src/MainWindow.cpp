@@ -119,6 +119,7 @@
 #include "manage/RandomSkinStore.hpp"
 #include "manage/VersionDisplay.hpp"
 #include "manage/VersionManager.hpp"
+#include "manage/WorldFiles.hpp"
 #include "settings/EffectiveJavaSettings.hpp"
 #include "settings/GlobalJavaSettings.hpp"
 #include "settings/LauncherSettings.hpp"
@@ -8721,6 +8722,139 @@ void MainWindow::openInstanceSettings(const QString &versionId, const QString &p
                 }
             });
 
+    // ---------- 「复制实例」（2026-09-28）----------
+    //
+    // 用户原话：「实例设置的概览里面加一条复制实例，点击以后让用户选择复制到的文件夹，然后
+    // 给定复制后的实例名称」。三件事按顺序：
+    //   ① 选**游戏文件夹**（`QFileDialog::getExistingDirectory`，和「下载到哪个文件夹」那一处
+    //      同一路）；② 问**新名字**（`InlineMessage::getText`，预填"<原名> 副本"）；
+    //   ③ 真正动手的那一半走 copyInstanceTo()。
+    //
+    // ★ ②问的是**新名字**、①问的是**游戏文件夹**，不是"拷到哪个目录底下"：副本落在
+    //   `<挑中的游戏文件夹>/versions/<新名字>/`。理由见 VersionManager::copyInstance 那段
+    //   ——"拷进一个普通目录"的话，那一份在启动器里**根本不会出现**（它只认 versions/ 下面
+    //   的东西），用户会觉得按了没反应。这一条在按钮的 tooltip 里也写明了。
+    //
+    // NOTE: 两条原生对话框都在这一层（用户 2026-09-26 那四条 QFileDialog 的同一个理由：
+    //       ui/ 不碰 AppPaths，"该默认到哪儿"只有这儿知道）。它们**驱动不了**，所以真正
+    //       动手的那一半被切了出去，验证工程直接喂路径。
+    connect(&dialog, &InstanceSettingsDialog::copyInstanceRequested, this,
+            [this, &targetId]() {
+                const QString sourceId = targetId;  // 按值收：下面那两条对话框会让出事件循环
+                const QString defaultDir = AppPaths::minecraftDir();
+                const QString folder = QFileDialog::getExistingDirectory(
+                    this, tr("复制到哪个游戏文件夹"), defaultDir,
+                    QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks);
+                if (folder.isEmpty()) {
+                    return;  // 用户取消了
+                }
+                const QString suggestion = tr("%1 副本").arg(instanceDisplayName(sourceId));
+                bool ok = false;
+                const QString name = InlineMessage::getText(
+                    m_ui->overlay(), tr("复制实例"), tr("复制出来的这一份叫什么？"), suggestion, &ok);
+                if (!ok) {
+                    return;
+                }
+                copyInstanceTo(sourceId, folder, name);
+            });
+
+    // ---------- 「存档」那一页（2026-09-28）----------
+    //
+    // 这一页上有三样东西：行尾那支笔（「编辑」）、顶上「导入世界」、顶上「批量编辑」
+    // （**占位**）。三发信号都是**页面自己**发的 —— 没有走 InstanceSettingsDialog 再转发
+    // 一遍：那一层转发只是把同样的三行重写一次，而这几位只有这一页会发。
+    //
+    // NOTE: `filesPage()` 在那一页**没被列出来**时（用户在左栏把它勾掉了）返回 nullptr，
+    //       所以这里必须判空 —— 不判就是空指针解引用，症状是"一开实例设置就崩"，而
+    //       取消勾选这一页是用户随时会做的事。
+    //
+    // NOTE: 三条都接在 execPage **之前**，理由和上面那一整批逐字相同（那一下会阻塞在
+    //       嵌套事件循环里，接晚了就一辈子收不到）。
+    if (InstanceFilesPage *saves = dialog.filesPage(QStringLiteral("save"))) {
+        // ★ 那支笔 = 一个"这个存档能做什么"的小菜单。**不走 MenuPopup** —— 那是
+        //   InstanceSettingsDialog.cpp 里的局部类（匿名命名空间），这一层够不着；而
+        //   InlineMessage::ask() 本来就是"按钮表自己定"的那一档，正好是这件事的形状。
+        //
+        // NOTE: 菜单上的「取消」和"点外面关掉"（返回 -1）是两回事，但**做的事一样**（什么
+        //       都不做）—— 所以下面只判 0 和 1，剩下的原样落空。
+        connect(saves, &InstanceFilesPage::editRequested, this,
+                [this, &dialog, &targetId](const QString &path) {
+                    // 这个名字先取出来存成一份：下面那两个对话框各自会跑一个嵌套事件循环，
+                    // 期间那一页可能被别的东西重列（刷新的圈、改名之后的 refreshFilePages），
+                    // 而 `path` 传进来之后**只有这一份**是稳的。菜单上显示的名字 = 用户点
+                    // 下去那一刻这一行上的名字，不能等到用的时候再去问（那时候可能已经变了）。
+                    const QString worldName = QFileInfo(path).fileName();
+                    const int choice = InlineMessage::ask(
+                        m_ui->overlay(), MessageKind::Question, tr("编辑世界"),
+                        tr("要对「%1」做什么？").arg(worldName),
+                        {tr("重命名…"), tr("打开文件夹"), tr("取消")}, /*defaultIndex=*/0,
+                        /*destructiveIndex=*/-1, /*dismissOnOutsideClick=*/true);
+                    if (choice == 0) {
+                        bool ok = false;
+                        const QString wanted = InlineMessage::getText(
+                            m_ui->overlay(), tr("重命名世界"), tr("这个存档以后叫什么？"),
+                            worldName, &ok);
+                        if (!ok) {
+                            return;
+                        }
+                        if (renameInstanceWorld(targetId, path, wanted)) {
+                            // 重列一遍：目录名变了，行上那行小字（大小 / 最后游玩时间）
+                            // 和这支笔挂的那条路径**全都得跟着换** —— 不换的话用户眼前
+                            // 还是老名字那一行，再点一次那支笔就是对着一个已经不在了的
+                            // 目录操作（renameInstanceWorld 会说"已经不在盘上了"）。
+                            dialog.refreshFilePages();
+                        }
+                        return;
+                    }
+                    if (choice == 1) {
+                        // 这个目录一定存在（这一行就是刚扫出来的），所以**不 mkpath**
+                        // —— 和上面九颗快捷方式按钮那一条故意不同（那几颗是给"我要往里
+                        // 放东西"用的，空目录也得开得出来）。
+                        onFolderOpenRequested(path);
+                    }
+                });
+
+        // 顶上那颗「导入世界」：选一个世界目录 → 问它进来之后叫什么 → 拷进 saves/。
+        // 两条对话框的顺序和「复制实例」一致（先选东西、再起名字，名字预填现成的那个）。
+        connect(saves, &InstanceFilesPage::importRequested, this,
+                [this, &dialog, &targetId]() {
+                    // 默认开在**当前游戏文件夹自己的 saves** 上：用户多半是从别的整合包 /
+                    // 别的游戏文件夹里拿过来的那一份，从这儿起步最省事。
+                    // NOTE: 这个目录可能不存在（一个没跑过游戏的游戏文件夹），
+                    //       QFileDialog 自己会退回"我的电脑"那一层，不用我们判。
+                    const QString startDir =
+                        AppPaths::minecraftDir() + QStringLiteral("/saves");
+                    const QString dir = QFileDialog::getExistingDirectory(
+                        this, tr("选择要导入的世界"), startDir,
+                        QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks);
+                    if (dir.isEmpty()) {
+                        return;  // 用户取消了
+                    }
+                    // 预填用户挑的那个目录名：世界叫什么，目录名就是什么（见 WorldFiles.hpp
+                    // 那段"两边都不读 level.dat 里的世界名"）。
+                    bool ok = false;
+                    const QString name = InlineMessage::getText(
+                        m_ui->overlay(), tr("导入世界"), tr("导入进来之后叫什么？"),
+                        QFileInfo(dir).fileName(), &ok);
+                    if (!ok) {
+                        return;
+                    }
+                    if (importWorldInto(targetId, dir, name)) {
+                        dialog.refreshFilePages();
+                    }
+                });
+
+        // ★ 顶上那颗「批量编辑」：**今天是个占位**（用户原话「这个先做占位」）。
+        //   那颗按钮的 tooltip 里已经写了"还没做"，这里再补一句**看得见**的话 —— 只靠
+        //   tooltip 的话，用户点下去屏幕上什么都不发生，那和"按钮坏了"分不出来。
+        //   NOTE: 用 information 而不是 warning：这不是出错，是"这一颗还没轮到"。
+        connect(saves, &InstanceFilesPage::batchEditRequested, this,
+                [this]() {
+                    InlineMessage::information(m_ui->overlay(), tr("批量编辑"),
+                                               tr("批量编辑还没做，这一颗先摆在这儿占位。"));
+                });
+    }
+
     // ---------- 「配置文件」那一页（2026-09-27）----------
     //
     // ★ 这一页和别的几页不是一回事：点一行**不是"重列一遍"**，而是"读那个文件、把它摆进
@@ -10168,6 +10302,135 @@ bool MainWindow::deleteInstanceFile(const QString &path) {
         return false;
     }
     appendLog(tr("删除文件：%1").arg(QDir::toNativeSeparators(path)));
+    return true;
+}
+
+// ---------- 「复制实例」和「存档」那一页那几个动作（2026-09-28）----------
+
+bool MainWindow::copyInstanceTo(const QString &sourceId, const QString &destGameFolder,
+                                const QString &newName) {
+    const QString name = newName.trimmed();
+    if (name.isEmpty()) {
+        // 空名字在前面那一层就该被拦住（InlineMessage::getText 没拦），落到这儿说明是
+        // 验证工程或者别的调用点直接喂了个空串 —— 不要静默地什么都不做。
+        InlineMessage::warning(m_ui->overlay(), tr("复制实例"), tr("副本得有个名字。"));
+        return false;
+    }
+
+    // ★ 三道闸，**顺序**是有讲究的：
+    //
+    // ① 名字先过校验。copyInstance() 里也会再判一次（它自己那一层必须站得住），但在这儿
+    //    先判的意义是"连盘都不用碰就知道不行" —— 而且**报错的话术不一样**：那一边是数据层
+    //    的口吻（"名字里不能有这些字符"），这一边要带上"你刚才输的是什么"。
+    const QString nameProblemText = InstanceFiles::validateDirName(name);
+    if (!nameProblemText.isEmpty()) {
+        InlineMessage::warning(m_ui->overlay(), tr("复制实例"), nameProblemText);
+        return false;
+    }
+
+    // ② **正在跑的这个实例不许复制**。理由和"不许删"不一样 —— 删是怕删掉游戏正在写的
+    //    东西，拷本身是**拷得动**的（文件句柄允许读），但拷出来的那一份是"按下按钮那一刻
+    //    的样子"：region 文件正写到一半、`session.lock` 里那一刻的进程号、level.dat 还没
+    //    落盘。用户拿到手的是一份**看着完整、实际缺东西**的实例，而这件事他没法从界面上的
+    //    任何地方看出来。所以宁可挡下来，让他先关游戏 —— 关掉之后再拷，就是一份干净的。
+    //
+    //    NOTE: 这条闸是写代码时**新加的**，tooltip 里原来那句"游戏正在跑也能复制"是照着
+    //          "没有这道闸"写的 —— 两句一起改了（不然界面在明着教用户做一件会被拦住的事）。
+    if (m_launcherManager->isVersionRunning(sourceId)) {
+        InlineMessage::warning(m_ui->overlay(), tr("复制实例"),
+                               tr("「%1」正在运行。先关掉游戏再复制 —— 游戏开着的时候拷出来的"
+                                  "是一份写到一半的存档。")
+                                   .arg(instanceDisplayName(sourceId)));
+        return false;
+    }
+
+    // ③ 正在装的不许复制（和上面"不许删"那一道逐字同款）：装到一半的实例目录里 jar/json
+    //    还缺着，拷出来的那一份在启动器里**认不出来**（resolveInstance() 会判它不是实例）。
+    if (installingVersionIds().contains(sourceId)) {
+        InlineMessage::warning(m_ui->overlay(), tr("复制实例"),
+                               tr("「%1」正在下载，等它装完再复制。").arg(instanceDisplayName(sourceId)));
+        return false;
+    }
+
+    QString error;
+    if (!m_versionManager->copyInstance(sourceId, destGameFolder, name, &error)) {
+        // 失败原因是数据层给的**一整句**（可能带"那一份没拷完的也没删掉"那种状态说明），
+        // 原样弹出来 —— 和「删除实例」那条路一个规矩。
+        InlineMessage::critical(m_ui->overlay(), tr("复制实例失败"), error);
+        return false;
+    }
+
+    // 列表要重列：副本落在**别的游戏文件夹**里时（那是常态）这一份根本不在当前列表里，
+    // 用户会觉得"按了没反应"。refreshInstalledVersions() 只扫当前游戏文件夹，所以
+    // **跨文件夹的那一份不会出现在列表上**，得靠日志这两句把"落到哪儿去了"说清楚
+    // —— 不说的话，用户唯一的线索就是自己刚挑的那个目录。
+    refreshInstalledVersions();
+    const QString landed = QDir::toNativeSeparators(
+        QDir(destGameFolder).absoluteFilePath(QStringLiteral("versions/") + name));
+    appendLog(tr("已复制实例 %1 → %2").arg(instanceDisplayName(sourceId), landed));
+    // 落在**当前**游戏文件夹里时文案换个说法：那一份就在用户眼前的列表上，不必再告诉他路径
+    // （说了反而像"多出来一个不在这儿的实例"）。
+    const bool sameFolder = QDir::cleanPath(destGameFolder).compare(
+                                QDir::cleanPath(AppPaths::minecraftDir()),
+                                Qt::CaseInsensitive) == 0;
+    if (sameFolder) {
+        InlineMessage::information(m_ui->overlay(), tr("复制实例"),
+                                   tr("「%1」已经复制好了，就在实例列表里。").arg(name));
+    } else {
+        InlineMessage::information(
+            m_ui->overlay(), tr("复制实例"),
+            tr("「%1」已经复制到另一个游戏文件夹里了：\n%2\n\n它不在当前这个游戏文件夹的实例"
+               "列表里 —— 想用它就先把游戏文件夹切过去。")
+                .arg(name, landed));
+    }
+    return true;
+}
+
+bool MainWindow::importWorldInto(const QString &instanceId, const QString &worldDir,
+                                 const QString &name) {
+    // `saves` 目录名是 MC 的约定，出处是 ResourceCatalog::folderForKind()（instanceFileDirs()
+    // 那张表）—— 这里从表里取而不是手写 "saves"，和「打开文件夹」那九颗按钮同一个出处。
+    //
+    // NOTE: **不 mkpath**（哪怕那一格的开文件夹按钮会 mkpath）：saves 目录不存在说明这一份
+    //       实例根本没被游戏跑过，copyWorldInto() 会带着一句"先启动一次游戏"拒绝掉
+    //       —— 见它那段"为什么不在这一层替用户造一个目录"。
+    const QString savesDir = instanceFileDirs(instanceId).value(QStringLiteral("save"));
+    if (savesDir.isEmpty()) {
+        InlineMessage::critical(m_ui->overlay(), tr("导入世界失败"),
+                                tr("认不出这个实例的存档目录。"));
+        return false;
+    }
+    QString error;
+    if (!WorldFiles::copyWorldInto(worldDir, savesDir, name, &error)) {
+        InlineMessage::critical(m_ui->overlay(), tr("导入世界失败"), error);
+        return false;
+    }
+    appendLog(tr("导入世界：%1 → %2").arg(QDir::toNativeSeparators(worldDir),
+                                          QDir::toNativeSeparators(savesDir)));
+    // 顺手把那一页重新列一遍**不在这儿做**：调用点（那两条 lambda）拿到 true 之后自己调
+    // dialog.refreshFilePages()。理由和"那九颗按钮"那批一样 —— 只有那两条 lambda 手上有
+    // `dialog`，而这一层（对着 instanceId 干活）够不着那个栈上的对话框。
+    return true;
+}
+
+bool MainWindow::renameInstanceWorld(const QString &instanceId, const QString &worldDir,
+                                     const QString &newName) {
+    // 游戏在跑就不许改：存档的 `session.lock` 正被游戏握着，而改名之后**正在跑的那一份
+    // 会找不到自己的世界**（它记的是打开时那个路径）。Windows 那一侧多半也会直接拒掉
+    // （句柄没带 FILE_SHARE_DELETE），但那句"是不是有别的程序开着"用户不一定能联系到
+    // 游戏上 —— 见 .hpp 里那条 NOTE。
+    if (m_launcherManager->isVersionRunning(instanceId)) {
+        InlineMessage::warning(m_ui->overlay(), tr("重命名世界"),
+                               tr("游戏正在运行，先关掉游戏再改存档的名字。"));
+        return false;
+    }
+    QString error;
+    if (!WorldFiles::renameWorld(worldDir, newName, &error)) {
+        InlineMessage::warning(m_ui->overlay(), tr("重命名世界"), error);
+        return false;
+    }
+    appendLog(tr("世界改名：%1 → %2").arg(QDir::toNativeSeparators(worldDir),
+                                          newName.trimmed()));
     return true;
 }
 

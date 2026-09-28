@@ -352,6 +352,46 @@ private slots:
     /// 界面成什么样"：三道守卫（这个实例自己在忙 / 别的批次在跑 / 继承链不完整），
     /// 置 m_repairingInstanceId + 界面忙态，收尾在 onVersionDownloadFinished() 里。
     void repairInstanceFiles(const QString &versionId);
+    /// 「复制实例」（2026-09-28，用户原话「实例设置的概览里面加一条复制实例，点击以后让
+    /// 用户选择复制到的文件夹，然后给定复制后的实例名称」）。
+    ///
+    /// 切法和上面几颗一样：**问的那一半**（选文件夹、要名字）在 MainWindow.cpp 里那个
+    /// 私有 lambda 里，**真正动手的这一半**收三个字符串 —— 所以验证工程可以直接
+    /// `QMetaObject::invokeMethod` 进来喂一条临时路径，不用去驱动那两个原生对话框。
+    ///
+    /// @param sourceId 源实例 id（= 目录名）。
+    /// @param destGameFolder 用户挑的那个**游戏文件夹**（副本落在它的 `versions/` 底下，
+    ///        不是直接落在它里面 —— 理由见 VersionManager::copyInstance 的说明）。
+    /// @param newName 副本叫什么（新的实例 id）。
+    /// @return 做成了 true。失败时原因已经弹出来了。
+    bool copyInstanceTo(const QString &sourceId, const QString &destGameFolder,
+                        const QString &newName);
+    /// 「导入世界」真正动手的那一半（顶上那颗按钮，2026-09-28）：把一个世界目录拷进
+    /// 这个实例的 `saves/`。
+    ///
+    /// 干活的在 WorldFiles::copyWorldInto()（纯文件操作、单测在 verify 工程里），这里管的是
+    /// "落点是哪儿"（`AppPaths::versionDir(id) + "/saves"`）、失败怎么报、成了之后让那一页重列。
+    ///
+    /// @param instanceId 目标实例 id（= 目录名）。
+    /// @param worldDir 用户挑的那个世界目录（要含 `level.dat`）。
+    /// @param name 拷进去之后那个目录叫什么。
+    /// @return 做成了 true。失败时原因已经弹出来了。
+    bool importWorldInto(const QString &instanceId, const QString &worldDir, const QString &name);
+    /// 「存档」那一页行尾那支笔里的「重命名…」真正动手的那一半（2026-09-28）。
+    ///
+    /// 干活的在 WorldFiles::renameWorld()，这里只管防卫和报错。
+    ///
+    /// @param instanceId 这个世界属于哪个实例（**只用来判"游戏在不在跑"**）。
+    /// @param worldDir 要改的那个世界目录（含路径）。
+    /// @param newName 新名字。
+    /// @return 做成了 true。失败时原因已经弹出来了。
+    ///
+    /// NOTE: 那道"正在跑就不许改"的闸是**早于磁盘的一层保险**，不是唯一的一层：真在跑
+    ///       的时候，游戏那边握着 `session.lock` 的句柄，`QDir::rename()` 本来也会失败
+    ///       （Windows 会拒）。但那句失败理由只能说到"是不是有别的程序开着"，用户不一定
+    ///       能把"游戏在跑"和它联系起来 —— 所以这里先把话说死。
+    bool renameInstanceWorld(const QString &instanceId, const QString &worldDir,
+                             const QString &newName);
     /// 实例行行尾那颗**上箭头**：把这个实例移进置顶组（哪一组当家见
     /// InstanceGroupStore::pinnedGroupId()），**并记下它置顶之前待在哪一组**（见那个类的
     /// 文件头那一段）。没有置顶组时什么都不做。

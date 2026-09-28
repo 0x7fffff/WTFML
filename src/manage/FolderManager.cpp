@@ -85,6 +85,60 @@ bool removeTreeWithoutFollowingLinks(const QString &path) {
     return QDir().rmdir(path);
 }
 
+/// 把 @p from 这一棵原样拷到 @p to（@p to 必须还不存在），一个链接都不追进去。
+///
+/// NOTE: 目录必须**先建再进**：`QFile::copy()` 不会替你造父目录，mkdir 和拷文件分两步
+///       是必须的（先拷文件再建目录这条最常见的写法在这里会失败）。
+///
+/// NOTE: 顺序上**先把目标目录建出来**再往里灌。中途失败时盘上会留下一个"拷了一半"的
+///       目录 —— 这是故意的：调用方（复制实例、导入世界）拿到的 from/to 都是它自己算
+///       出来的，它比这里更清楚该不该收拾，而"留一半"比"悄悄删掉用户别的东西"安全。
+bool copyTreeWithoutFollowingLinks(const QString &from, const QString &to) {
+    const QFileInfo source(from);
+    if (isLinkToElsewhere(source)) {
+        // 链接照拷的话，会在新位置复制出**那一头**的一整棵 —— 用户挂到别的盘上的东西
+        // 会被无声无息地抄一份进来（可能几百 GB）。所以这里直接判失败，不是"跳过"。
+        qWarning() << "copyTreeWithoutFollowingLinks: refusing to follow a link:" << from;
+        return false;
+    }
+    if (source.isDir()) {
+        if (QFileInfo::exists(to)) {
+            qWarning() << "copyTreeWithoutFollowingLinks: target already exists:" << to;
+            return false;
+        }
+        if (!QDir().mkpath(to)) {
+            qWarning() << "copyTreeWithoutFollowingLinks: cannot create directory" << to;
+            return false;
+        }
+        const QFileInfoList entries = QDir(from).entryInfoList(
+            QDir::Files | QDir::Dirs | QDir::Hidden | QDir::System | QDir::NoDotAndDotDot);
+        for (const QFileInfo &entry : entries) {
+            if (!copyTreeWithoutFollowingLinks(entry.absoluteFilePath(),
+                                               to + QLatin1Char('/') + entry.fileName())) {
+                return false;
+            }
+        }
+        return true;
+    }
+    if (!source.isFile()) {
+        // 既不是目录也不是文件：设备文件、坏掉的链接、或者这一瞬间被别的东西拿走了。
+        // 报失败而不是跳过 —— 拷出来的一份"少了点东西"是最难发现的那种坏。
+        qWarning() << "copyTreeWithoutFollowingLinks: cannot copy a non-file entry:" << from;
+        return false;
+    }
+    if (QFileInfo::exists(to)) {
+        // QFile::copy() 遇到已存在的目标**直接返回 false**（Qt 不肯覆盖），所以这一句
+        // 其实只是把"为什么会失败"说清楚一点，真正挡住覆盖的是 copy() 自己。
+        qWarning() << "copyTreeWithoutFollowingLinks: target already exists:" << to;
+        return false;
+    }
+    if (!QFile::copy(from, to)) {
+        qWarning() << "copyTreeWithoutFollowingLinks: cannot copy" << from << "to" << to;
+        return false;
+    }
+    return true;
+}
+
 FolderManager::FolderManager(LauncherSettings *settings, QObject *parent)
     : QObject(parent), m_settings(settings) {
     // 盘上那串路径是上一次运行写下的：用户可能已经把目录删了、挪了、或者换了盘符。

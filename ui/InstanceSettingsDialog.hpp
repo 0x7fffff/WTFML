@@ -754,6 +754,57 @@ public:
                               "那不是「没有问题」，是这一条没法判。");
     }
 
+    // ---- 「复制实例」（2026-09-28）----
+    //
+    // 用户原话：「实例设置的概览里面加一条复制实例，点击以后让用户选择复制到的文件夹，
+    // 然后给定复制后的实例名称」。
+    /// 概览页第五行那颗「复制实例」的 objectName。
+    static QString copyButtonName() { return QStringLiteral("instanceCopyButton"); }
+    /// 那颗按钮上的字（**唯一出处**）。
+    static QString copyText() { return QStringLiteral("复制实例"); }
+
+    /// 那一格下面那句解释。
+    ///
+    /// ★ 这句话要说清**落到哪儿**："复制到另一个游戏文件夹"不是随便一个目录 ——
+    ///   拷贝的落点是 `<你挑的那个文件夹>/versions/<新名字>/`（见
+    ///   VersionManager::copyInstance 那段）。不说清的话，用户会以为挑中的目录就是副本
+    ///   本身的位置，然后在一个自己没料到的层级里找它。
+    static QString copyHint() {
+        return QStringLiteral("把这一份原样复制到另一个游戏文件夹里去（模组、存档、配置一起"
+                              "带走），复制出来的那一份是独立的：改它不影响这一份。");
+    }
+
+    /// 那颗按钮的 tooltip（**说全的那一份**）。
+    ///
+    /// NOTE: 最后那句"先关掉游戏"是真的会拦（MainWindow::copyInstanceTo() 里第二道闸）。
+    ///       v1 这段原来写的是"游戏正在跑也能复制，但拷出来是那一刻的样子" —— 那是照着
+    ///       "没有闸"写的，两处一起改掉了：界面不该在明着教用户做一件会被拦住的事。
+    static QString copyButtonTooltip() {
+        return QStringLiteral("选一个游戏文件夹，再给副本起个名字，就会在"
+                              "「<那个文件夹>\\versions\\<名字>」下多出一份。\n\n"
+                              "源文件一个字节都不动；副本拿到一个全新的实例 id，所以它和"
+                              "这一份在分组、图标这些地方互不影响。\n\n"
+                              "游戏正在运行的时候复制不了（拷出来会是一份写到一半的存档），"
+                              "先关掉游戏。");
+    }
+
+    // ---- 存档那一页顶上那两颗（2026-09-28）----
+    //
+    // 用户原话：「顶端加个导入世界按钮和批量编辑按钮（这个先做占位）」。
+    // NOTE: 这两句和上面那些 `xxxText()` 一样是**唯一出处** —— 那一页照 setDownloadText()
+    //       的老规矩按"文字空不空"决定露不露，所以字写在这儿、别的几页不接。
+    /// 存档页顶上那颗「导入世界」。
+    static QString importWorldText() { return QStringLiteral("导入世界"); }
+    static QString importWorldTip() {
+        return QStringLiteral("把一个已经在你盘上的世界文件夹拷进这个实例的 saves 里。");
+    }
+    /// 存档页顶上那颗「批量编辑」。**今天是个占位**（用户点头的）—— 点下去只会说一句
+    /// 「还没做」。字和提示都照实写，不假装它能用。
+    static QString batchEditWorldsText() { return QStringLiteral("批量编辑"); }
+    static QString batchEditWorldsTip() {
+        return QStringLiteral("一次改好几个世界（还没做，这个按钮先摆在这儿）。");
+    }
+
     // ---- 启动栏那两颗「动作」按钮（导出启动脚本 / 补全版本文件，2026-09-26）----
     //
     // 它们是**动作**不是设置项（不改 wtfml.meta 里任何一格），所以没有「跟随全局 /
@@ -1181,6 +1232,18 @@ signals:
      *       记着开的是哪一个）。
      */
     void checkUpdatesRequested();
+
+    /**
+     * @brief 用户点了概览那一栏的「复制实例」（2026-09-28）。
+     *
+     * 和上面那颗一模一样：这一层**只发一句话** —— 挑目标游戏文件夹（一个 QFileDialog）、
+     * 问副本叫什么（一句 InlineMessage，要覆盖层）、真去拷那一棵树（要 AppPaths）三步
+     * 全在 MainWindow。这一层连"往哪儿拷"都够不着。
+     *
+     * NOTE: **不传实例 id、也不传目标** —— 理由和 checkUpdatesRequested() 那条一样
+     *       （这一页就是某个实例的设置页），而且目标和名字都要用户下一步才给。
+     */
+    void copyInstanceRequested();
 
     /**
      * @brief 用户点了「开始检查」。

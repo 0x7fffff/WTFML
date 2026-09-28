@@ -11,6 +11,8 @@
 
 #include "VersionManager.hpp"
 
+#include "FolderManager.hpp"
+
 #include <QDateTime>
 #include <QDebug>
 #include <QDir>
@@ -218,6 +220,17 @@ bool copyTreeInto(const QString &from, const QString &to) {
     }
     return true;
 }
+
+/// NOTE: 原来这里还有一个 `copyTreeNew()`（"把 from 原样拷成还不存在的 to"），**2026-09-28
+///       搬到 `src/manage/FolderManager.cpp` 去了**，名字改成 `copyTreeWithoutFollowingLinks()`
+///       —— 因为复制实例和导入世界这两条路都要"造一份新的出来"，这是第二处调用，再留成
+///       本文件的局部函数就得抄一遍（抄一遍之后，下面这三条规矩里任何一条以后只改了一处，
+///       另一处**不会报错**、只会静默地按老规矩做）。
+///
+///       两个函数的规矩**条条相反**，因为要办的事相反：copyTreeInto 是"把东西搬回用户真实
+///       的游戏目录"（目标常态是已经有一份，要的是覆盖），那一个是"多出一份"（目标必须是
+///       一片空白，要的是**绝不**碰已有东西）：to 已存在就失败而不是合并、带
+///       `QDir::Hidden | QDir::System`、空目录也建出来。改其中任何一个之前，**先去读另一个**。
 
 /// 挑中某个加载器版本之后，日志里那句括号里的说明（"这是怎么挑出来的"）。
 ///
@@ -3386,6 +3399,172 @@ bool VersionManager::renameInstance(const QString &oldId, const QString &newName
                                         QDir::toNativeSeparators(newDir)));
     }
 
+    return true;
+}
+
+bool VersionManager::copyInstance(const QString &sourceId, const QString &destGameFolder,
+                                  const QString &newName, QString *errorOut) {
+    const auto fail = [errorOut](const QString &reason) {
+        if (errorOut != nullptr) {
+            *errorOut = reason;
+        }
+        return false;
+    };
+
+    const QString id = sourceId.trimmed();
+    const QString name = newName.trimmed();
+    const QString target = destGameFolder.trimmed();
+
+    // 空的"目标游戏文件夹"必须先挡掉：`QDir(QString()).absoluteFilePath("versions")` 在
+    // 当前工作目录下算，而启动器的工作目录不一定是 exe 旁边那一份 —— 那就会往一个谁也
+    // 说不清的地方拷一份实例出来。这一条不是形式。
+    if (target.isEmpty()) {
+        return fail(tr("没有指定要复制到哪个游戏文件夹。"));
+    }
+
+    // ★ 源 id 必须是"一个普通的目录名"。这一条和 deleteInstance() 开头那道闸**逐字同款**，
+    //   而且同样不是形式主义：id 直接拼成一条路径，空串拼出来是 `versions/` **本身**
+    //   （它当然"存在"），于是空 id 会把**整个 versions 目录**拷成一份副本 —— 一次点击
+    //   复制出几十 GB，而且不报任何错。`..` 和带分隔符的名字同理（指到实例目录外面去）。
+    //   NOTE: 这一条是 2026-09-28 补的：原来只判了 destGameFolder，漏了 sourceId ——
+    //         ZJ5「空的源 id 拒绝」那一条断言就是照着当时那个洞写的。
+    if (id.isEmpty() || id == QStringLiteral(".") || id == QStringLiteral("..")
+        || id.contains(QLatin1Char('/')) || id.contains(QLatin1Char('\\'))) {
+        return fail(tr("「%1」不是一个合法的实例名，什么都没有复制。").arg(sourceId));
+    }
+
+    // ---------- 第 1 步：全部前置检查，磁盘一个字节都不动 ----------
+    //
+    // 名字走的是"实例目录名"那一套（长度 / 分隔符 / 尾随点 / Windows 保留设备名），
+    // 和 renameInstance() 用的是同一份 —— 目标目录名和实例目录名本来就是同一个东西。
+    // NOTE: 这里的"重名"由下面那个 QFileInfo::exists() 现问盘，**不能用**
+    //       InstanceFiles::validateRenameTarget()：它比的是"当前数据目录的 versions/ 底下
+    //       有没有同名的"，而这份副本落在**另一个**游戏文件夹里，那一边有没有人叫这个名字
+    //       它看不见。sourceId 同名更是完全不冲突（复制到别的文件夹里，名字照旧是常态）。
+    const QString nameProblem = InstanceFiles::validateDirName(name);
+    if (!nameProblem.isEmpty()) {
+        return fail(nameProblem);
+    }
+
+    const QString sourceDir = AppPaths::versionDir(id);
+    if (!QDir(sourceDir).exists()) {
+        return fail(tr("找不到实例目录 %1。").arg(QDir::toNativeSeparators(sourceDir)));
+    }
+
+    const QDir root(target);
+    if (!root.exists()) {
+        return fail(tr("目标文件夹 %1 不在盘上。").arg(QDir::toNativeSeparators(target)));
+    }
+    const QString versionsDir = root.absoluteFilePath(QStringLiteral("versions"));
+    const QString destDir = versionsDir + QLatin1Char('/') + name;
+    // QDir 比较是规范化之后比的（大小写按本机文件系统的规矩），所以"挑的就是自己这一份
+    // 所在的那个游戏文件夹 + 同一个名字"这条路在这里被挡下来 —— 不然下面那个 exists()
+    // 也会挡，但报的是"已经有一个叫 X 的实例了"，而真正的原因是"那就是它自己"。
+    if (QDir(destDir) == QDir(sourceDir)) {
+        return fail(tr("「%1」就是这一份自己，没有复制。").arg(name));
+    }
+    if (QFileInfo::exists(destDir)) {
+        return fail(tr("那个游戏文件夹里已经有一个叫「%1」的实例了，换个名字再试。").arg(name));
+    }
+    if (!QDir().mkpath(versionsDir)) {
+        return fail(tr("建不出目录 %1。").arg(QDir::toNativeSeparators(versionsDir)));
+    }
+
+    // ---------- 第 2 步：拷树 ----------
+    //
+    // 失败时**把自己刚拷出去的那半份删掉**（见 .hpp 里那条 NOTE：为什么和整合包导入那条
+    // 「失败不删半成品」是相反的）。删的是 destDir 这一个我们刚建出来的目录，源一个字节
+    // 都没动过。删不掉也照实说 —— 那是一句"你得自己去删掉它"，不能算复制成功。
+    const auto removePartial = [&]() -> QString {
+        if (!removeTreeWithoutFollowingLinks(destDir)) {
+            return tr("\n（另外，那份没拷完的 %1 也没能删掉，你需要自己删掉它。）")
+                .arg(QDir::toNativeSeparators(destDir));
+        }
+        return QString();
+    };
+
+    if (!copyTreeWithoutFollowingLinks(sourceDir, destDir)) {
+        return fail(tr("复制 %1 的时候中断了，这一份没有做出来。%2")
+                        .arg(QDir::toNativeSeparators(sourceDir), removePartial()));
+    }
+
+    // ---------- 第 3 步：jar / json 跟着目录名改 ----------
+    //
+    // 版本 json 和主 jar 的名字必须和**目录名**一致（InstanceFiles::resolve() 那三条
+    // 判据里的第 ② 条）：光拷不改，那一份在列表里是认不出来的 —— 用户在目标文件夹里
+    // 看到的是一个"不像实例的目录"，而启动器那边连列都不列它。
+    //
+    // NOTE: 用 renameOnto() 而不是 QFile::rename：只差大小写的那种"目标已存在"其实是
+    //       同一个文件（Windows 的路径比较本来就不区分大小写），那种改名是合法的。
+    //       这里的 renameOnto 落到的是**刚拷出来的那一份**里，不是源。
+    const auto moveInCopy = [&](const QString &suffix) -> bool {
+        const QString from = destDir + QLatin1Char('/') + id + suffix;
+        const QString to = destDir + QLatin1Char('/') + name + suffix;
+        if (from.compare(to, Qt::CaseSensitive) == 0 || !QFile::exists(from)) {
+            // 名字一样（副本叫原来的名）或者这一份本来就没有那个文件（比如只有 json、
+            // 没有 jar 的半成品）—— 都不是错误，什么都不用做。
+            return true;
+        }
+        return renameOnto(from, to);
+    };
+    if (!moveInCopy(QStringLiteral(".jar")) || !moveInCopy(QStringLiteral(".json"))) {
+        return fail(tr("复制出来了，但里面的 jar / json 没能跟着改名，这一份用不了。%1")
+                        .arg(removePartial()));
+    }
+
+    // ---------- 第 4 步：改这一份自己的 wtfml.meta ----------
+    //
+    // 两件事，缺一不可：
+    //   - `instanceId`（稳定 id）**必须换一个**：它是"从生到死跟着这个实例"的，两份实例
+    //     共用一个 id，分组归属、图标这些认人的地方就会把副本当成源（那正是这个字段存在
+    //     要挡的事）。
+    //   - 显示名改成新目录名（和 renameInstance() 里那句同一个写法）。
+    //
+    // 写在拷贝**之后**：拷过来的那份 meta 里带着源的 id 和旧名字，这里就地覆盖掉。
+    // 目标在别的游戏文件夹里，所以这一句不能走 updateVersionMeta()（它算的是**当前**
+    // 数据目录下的路径）—— 只有那个文件名从 AppPaths 问，其余自己拼。
+    {
+        const QString metaPath = destDir + QLatin1Char('/') + AppPaths::versionMetaFileName();
+        bool unreadable = false;
+        QJsonObject meta;
+        QFile metaFile(metaPath);
+        if (metaFile.exists()) {
+            if (!metaFile.open(QIODevice::ReadOnly)) {
+                return fail(tr("读不了 %1，这一份的目标目录名没改对。%2")
+                                .arg(QDir::toNativeSeparators(metaPath), removePartial()));
+            }
+            QJsonParseError parseError;
+            const QJsonDocument doc = QJsonDocument::fromJson(metaFile.readAll(), &parseError);
+            metaFile.close();
+            if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+                unreadable = true;
+            } else {
+                meta = doc.object();
+            }
+        }
+        if (unreadable) {
+            // 和 updateVersionMeta() 同一条：往一份读不懂的内容上合并 = 把用户手写的部分
+            // 丢掉，宁可这一趟不写。源目录里那份一个字都没动过，用户回去还看得见它。
+            return fail(tr("%1 的内容不是合法的 JSON，为避免覆盖掉它，这一份没有做出来。%2")
+                            .arg(QDir::toNativeSeparators(metaPath), removePartial()));
+        }
+        meta.insert(kDisplayNameField, name);
+        meta.insert(kInstanceIdField, newInstanceId());
+
+        // QSaveFile + 缩进输出：和 updateVersionMeta() 逐条同款（理由写在那边：这个文件
+        // 坏掉的后果是那一份实例的显示名和参数整体失效，比"这次没写成"糟得多）。
+        QSaveFile out(metaPath);
+        if (!out.open(QIODevice::WriteOnly)
+            || out.write(QJsonDocument(meta).toJson(QJsonDocument::Indented)) < 0
+            || !out.commit()) {
+            return fail(tr("写不了 %1，这一份做出来了但启动器认不出它是谁。%2")
+                            .arg(QDir::toNativeSeparators(metaPath), removePartial()));
+        }
+    }
+
+    // 新目录要是有缓存（同名的那一份刚刚被读过），那是**另一份**的缓存。
+    versionJsons.remove(name);
+    mergedVersionJsons.remove(name);
     return true;
 }
 
