@@ -11,6 +11,7 @@
 
 #include "MainWindow.hpp"
 
+#include "..\ui\Animations.hpp"  // 换游戏文件夹时那一栏淡一下（2026-09-29）
 #include "..\ui\ConfigFileEditorPage.hpp"
 #include "..\ui\ConfigFileText.hpp"
 #include "..\ui\GroupDialog.hpp"
@@ -1575,6 +1576,19 @@ void MainWindow::setupConnections() {
         // 分组**不需要**在这里重置或重读：InstanceGroupStore 每个访问器都会比一下
         // "这次问的是哪一份 .minecraft"，不一样就自己重读（见它的文件头）。
         refreshInstalledVersions();
+        // ★ 换游戏文件夹也算"点击左边栏、右边栏跟着变"（用户 2026-09-29：「除了切换页面，
+        //   点击左边栏导致右边栏发生变化的时候也要加动画」）。
+        //   挂在这儿、而不是挂在左栏那一次点击上：这一发**就是**"右边那一列真的换了一整份"
+        //   的判据 —— 同一个文件夹再点一下，`FolderManager::setCurrentFolder()` 直接返回、
+        //   这条根本不响，所以它天生不会"点了一下没换也淡一遍"。
+        // NOTE: 窗口还没露面那一趟（开程序时认当前文件夹）由 `isVisible()` 挡掉 —— 和顶上
+        //       四颗选项卡那条接线逐字同一个判据（见 MainWindowUI.cpp 里 `appearOnSwitch`）。
+        // 垫的是 `QPalette::Base`：这一列树的底就是它（一行行的卡片画在它上面）。
+        if (QTreeWidget *list = m_ui->getInstanceList()) {
+            if (list->isVisible()) {
+                Anim::pageAppear(list, list->palette().color(QPalette::Base));
+            }
+        }
     });
     // 分组数据变了（对话框里确定之后、改名之后 rekey）。重灌实例页那张树。
     connect(m_groupStore, &InstanceGroupStore::groupsChanged, this,
@@ -6423,10 +6437,11 @@ void MainWindow::onMainTabChanged() {
 // 数据），四行的内容永远来自 m_localJavaVersions。
 
 void MainWindow::openJavaManage() {
-    // 一层只放得下一页。挡在这儿时要出声（理由见 overlayAcceptsNewPage 那段注释）。
-    if (!overlayAcceptsNewPage()) {
-        return;
-    }
+    // 被占着就先让位（静默收掉那一层 + 排到下一轮），见 runWhenOverlayFree 那段。
+    runWhenOverlayFree([this] { openJavaManageNow(); });
+}
+
+void MainWindow::openJavaManageNow() {
     OverlayHost *overlay = m_ui->overlay();
     if (overlay == nullptr) {
         return;
@@ -6466,8 +6481,9 @@ void MainWindow::openJavaManage() {
 
     // ★ 先把选项卡切过去再开页（`ownerTab` 不是当前那一颗的话，这一页一开出来就是
     //   "收着"的，用户按了那颗按钮屏幕上什么都不出现）。见 openInstanceSettings 那段。
-    // NOTE: 切选项卡排在 `overlayAcceptsNewPage()` 之后 —— 那一句会弹话，弹话不该
-    //       顺手把用户翻到别的选项卡上。
+    // NOTE: "让位"那一段（收掉占着的那一层、把它可能弹的那句话咽下去）排在
+    //       `openJavaManage()` 里、这一半之前 —— 所以走到这儿时这一层**一定是空的**，
+    //       切选项卡不会顺手把用户翻到别的选项卡上去。
     const int settingsTab = MainWindowUI::settingsTabIndex();
     if (QTabWidget *tabs = m_ui->getTabWidget()) {
         if (settingsTab >= 0 && settingsTab < tabs->count()) {
@@ -8681,9 +8697,11 @@ QString MainWindow::instanceKey(const QString &versionId) const {
 }
 
 void MainWindow::onGroupInstanceClicked() {
-    if (!overlayAcceptsNewPage()) {
-        return;
-    }
+    // 被占着就先让位（静默收掉那一层 + 排到下一轮），见 runWhenOverlayFree 那段。
+    runWhenOverlayFree([this] { openGroupDialogNow(); });
+}
+
+void MainWindow::openGroupDialogNow() {
     // 每个组里有多少个实例：从**当前那张树**上数，不重新扫盘。它就是用户此刻看到的
     // 东西，而对话框拿它显示「组名 (N)」和"删这个组会有多少实例变成未分组"——
     // 两处都该和屏幕上的数字一致。
@@ -9071,9 +9089,14 @@ void MainWindow::openInstanceSettings(const QString &versionId, const QString &p
         InlineMessage::information(m_ui->overlay(), tr("实例设置"), tr("先选中一个实例。"));
         return;
     }
-    if (!overlayAcceptsNewPage()) {
-        return;
-    }
+    // ★ 这一层被别的页面/提示占着时：**静默把它收掉**，然后把"开"排到下一轮（用户
+    //   2026-09-29 原话见 runWhenOverlayFree 那段）。空着的时候同一轮就开出来。
+    // NOTE: 那一句空 id 的判断必须排在**这一发之前** —— 它是"用户还没选实例"这种普通
+    //       情况，不该顺手把别的页面收掉。
+    runWhenOverlayFree([this, versionId, pageKey] { openInstanceSettingsNow(versionId, pageKey); });
+}
+
+void MainWindow::openInstanceSettingsNow(const QString &versionId, const QString &pageKey) {
 
     // 已经写了的那部分覆盖从 meta 里读回来当起点，「当前全局是哪个值」由 global 提供。
     // 读归读，**这里一个字节都不写** —— 写盘只发生在下面那两条接线里（2026-09-26 起这一页
@@ -9661,8 +9684,9 @@ void MainWindow::openInstanceSettings(const QString &versionId, const QString &p
     //   钉住 + 先把选项卡切过去（**切完再开**：`ownerTab` 不是当前这一颗的话，这一页一开
     //   出来就是"收着"的，用户按了那颗返回键屏幕上什么都不出现）。
     //
-    // NOTE: 切选项卡要排在 `overlayAcceptsNewPage()`（上面那个闸）**之后**：那一句在
-    //       "已经有一页开着"时会弹话，而弹话不该顺手把用户翻到别的选项卡上。
+    // NOTE: "让位"那一段（收掉占着的那一层、静默继续）在 `openInstanceSettings()` 里、
+    //       这一半之前 —— 走到这儿时这一层**一定是空的**，所以切选项卡不会顺手把用户翻到
+    //       别的选项卡上去（从前那颗闸会弹话，弹话时就不该翻页）。
     const int instancesTab = MainWindowUI::instancesTabIndex();
     if (QTabWidget *tabs = m_ui->getTabWidget()) {
         if (instancesTab >= 0 && instancesTab < tabs->count()) {
@@ -9906,10 +9930,12 @@ void MainWindow::onNavRequested(int index) {
     //      是它先跑的，这边醒过来时 `currentIndex()` 已经是新的一颗了（见那个访问器的注释）。
     //   ③ 这一趟**确实是从某个实例点进来的** —— 也就是那颗返回键正露着。
     //   ④ 这一层**没有别的页面占着**（典型：用户先从下载页点开了一个资源的详情页）。
-    //      `openInstanceSettings()` 头一句就是 `overlayAcceptsNewPage()`，占着的话它会弹一句
-    //      "先关掉现在这一页"然后**什么都不开** —— 而上面那一发已经把来路清了 ⇒ 用户拿到的是
-    //      "返回键莫名没了 + 一句让他去关别的页的提示"，正是这一整段想避免的那件事。
-    //      占着的时候按「实例」就照常翻页（和按「主页」「设置」一样：那一页收着、还在）。
+    //      ★ 2026-09-29 起 `openInstanceSettings()` 自己会让位（静默收掉占着的那一层、
+    //        排到下一轮再开，见 `runWhenOverlayFree()`）—— 所以这一条判据**不再是**
+    //        "那一页开不出来"，而是"这一按到底算不算'回实例设置'"：占着的时候按「实例」
+    //        就照常翻页（和按「主页」「设置」一样），让位那一套交给上面那一发。
+    //        留着这一条的理由是**顺序**：来路（`m_downloadFromInstanceId`）要排在那一次
+    //        开页之前清掉，而"让位"是异步的 —— 两下里撞在一起会变成"返回键没了、页也没开"。
     //
     // ★ 第二下为什么自动就成了"回到实例主页"：上面那一发把这一页开起来之后，当前选项卡
     //   **就是**「实例」，于是再按一下正中 MainWindowUI 那条的 ② 档（点的是当前这一颗
@@ -11206,32 +11232,66 @@ bool MainWindow::toggleInstanceFile(const QString &path) {
     return true;
 }
 
-bool MainWindow::overlayAcceptsNewPage() {
+bool MainWindow::overlayAcceptsNewPage() const {
+    // **只回答"空着没有"，一个字节都不往外弹**（用户 2026-09-29 原话见 .hpp 那段：
+    // 「先关闭当前页面再继续」那一类情况现在一律**静默收掉**再继续）。
+    OverlayHost *overlay = m_ui->overlay();
+    return overlay == nullptr || !overlay->isOpen();
+}
+
+void MainWindow::runWhenOverlayFree(const std::function<void()> &open, int roundsLeft) {
+    if (!open) {
+        return;
+    }
     OverlayHost *overlay = m_ui->overlay();
     if (overlay == nullptr || !overlay->isOpen()) {
-        return true;
+        // 绝大多数时候走的是这一支：这一层本来就空着，**同一轮就把页开出来**（和从前
+        // 一模一样 —— 那一页仍然卡在自己的嵌套事件循环里转到用户点返回）。
+        open();
+        return;
     }
-    // 挡在这儿的是**已经开着的那一页**（一层只放得下一个页面，见 OverlayHost.hpp 那段）。
-    // 它可能是"正铺在眼前"（用户点的是底栏那些没被盖住的按钮），也可能是"收着"——用户在
-    // 别的选项卡上逛的时候，顶上那四颗导航按钮会把页面收起来，而**收着也照样占着这一层**。
+    // ---------- 这一层被占着：先让位，再开 ----------
     //
-    // NOTE: **这一条不能不出声。** 在这之前这两个入口一个判据都没有：`execPage()` 拿到
+    // 占着它的可能是**提示**，也可能是**整页**；整页那一档还可能是"收着的"（用户在别的
+    // 选项卡上逛，而它一直占着这一位 —— 从前正是这一档逼着用户"回到那一颗选项卡、点返回
+    // 箭头"）。用户 2026-09-29 定了方向：**静默收掉，直接继续**。
+    if (roundsLeft <= 0 || !overlay->evict()) {
+        // 收不掉（那一层不认这一发 / 轮数用完了）。**到这一步才出声** —— 老那两句话原样
+        // 留着：挡住用户操作的事必须说清楚，而且得说清怎么办。
+        warnOverlayBusy();
+        return;
+    }
+    // ★ 收页那一发只是**请求**（见 OverlayHost::evict() 那段）：那一页正卡在自己的嵌套
+    //   事件循环里，`backPressed()` 要等这一趟调用栈整个退出去、`execPage()` 醒过来，才
+    //   真的把它收干净。∴ 排到下一轮，而且**下一轮再从头上过一遍**（那一轮里可能又有别的
+    //   东西把这一层占上了）。
+    QTimer::singleShot(0, this, [this, open, roundsLeft] {
+        runWhenOverlayFree(open, roundsLeft - 1);
+    });
+}
+
+void MainWindow::warnOverlayBusy() {
+    OverlayHost *overlay = m_ui->overlay();
+    if (overlay == nullptr) {
+        return;
+    }
+    // 挡在这儿的是**已经开着的那一层**（一层只放得下一个页面，见 OverlayHost.hpp 那段）。
+    // 它可能是"正铺在眼前"（用户点的是底栏那些没被盖住的按钮），也可能是"收着"。
+    //
+    // NOTE: **这一条不能不出声。** 在这之前这几个入口一个判据都没有：`execPage()` 拿到
     //       nullptr 直接返回 Rejected，对话框建了、一个字节没写、原地销毁 —— 用户点了实例
-    //       行（或者组行那颗齿轮），屏幕上**什么都没发生**，也没有任何提示。挡住用户操作的
-    //       事必须说清楚，而且得说清"怎么办"：收着的页面连返回箭头都不认
-    //       （见 OverlayHost::dismiss()：那一发落在它头上 = "我在主页点了一下主页，下载页
-    //       那个详情页自己没了"），所以唯一的出路是回它自己那颗选项卡上去关。
+    //       行（或者组行那颗齿轮），屏幕上**什么都没发生**，也没有任何提示。
+    //
+    // NOTE: 2026-09-29 起这一句只在**收不掉**的时候才出现（正常那一档是静默收掉 + 直接
+    //       继续，见 runWhenOverlayFree）—— 真走到这儿说明那一层卡在自己的嵌套循环里、
+    //       连收页那一发都没认，这时候唯一能做的是把话说清楚。
     const QString title = overlay->pageTitle();
     // ★ 2026-09-27：标题**可能是空的** —— 这一层开着的若是**提示**（`promptOpen()`）而不是
     //   整页，pageTitle() 返回空串，照老写法那句正文会变成「「」那一页还开着」。
-    //   NOTE: 这一档（提示开着、又从某个页面入口要开新页）原本恰恰是**点了没反应**的那条路
-    //         之一：底栏那两颗按钮不在覆盖层底下、提示按不住它们。现在由
-    //         OverlayHost::setPromptBlockedWidget() 把底栏跟着禁掉了，所以到不了这儿；
-    //         真到了（将来多一个入口）也得说句人话，而不是一对空引号。
     if (title.isEmpty()) {
         InlineMessage::warning(overlay, tr("先关掉现在这一条提示"),
                                tr("现在有一条提示开着，先说清它或者按 Esc 关掉它，再开这个。"));
-        return false;
+        return;
     }
     InlineMessage::warning(overlay, tr("先关掉现在这一页"),
                            tr("「%1」那一页还开着。切到别的选项卡时它会收起来，但它一直占着"
@@ -11239,7 +11299,6 @@ bool MainWindow::overlayAcceptsNewPage() {
                               "回到「%1」那一颗选项卡，点左上角的「←」把它关掉，再回来开"
                               "这个。")
                                .arg(title));
-    return false;
 }
 
 bool MainWindow::deleteInstanceFile(const QString &path) {

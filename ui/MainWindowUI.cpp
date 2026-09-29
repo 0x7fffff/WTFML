@@ -1241,6 +1241,10 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     //   * 下载页里"游戏"那一栏自己还有一层（版本树 ↔ 安装页）；
     //   * 设置页右栏：启动 / 游戏 / 提示 / 个性化 / 下载。
     // 都是 `QStackedWidget`，所以一条 `currentChanged` 就够了（谁换的都算）。
+    //
+    // ★ 垫的底色是 `QPalette::Base`（**不是**顶上那一档的窗口底色）：这三层右栏每一页都
+    //   活在一层滚动区里，视口铺的是 `Base` —— 垫窗口那份的话，干等那 70 ms 里会看见一整块
+    //   偏灰的方块贴在页面正中（见 `Anim::pageAppear(widget, backdrop)` 那段）。
     const auto appearOnSwitch = [](QStackedWidget *stack) {
         if (stack == nullptr) {
             return;
@@ -1248,7 +1252,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         QObject::connect(stack, &QStackedWidget::currentChanged, stack, [stack](int) {
             QWidget *page = stack->currentWidget();
             if (page != nullptr && page->isVisible()) {
-                Anim::pageAppear(page);
+                Anim::pageAppear(page, page->palette().color(QPalette::Base));
             }
         });
     };

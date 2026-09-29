@@ -29,6 +29,7 @@
 #include <QPushButton>
 #include <QSignalBlocker>
 #include <QSizePolicy>
+#include <QStackedWidget>  // isCurrentPage()：往上找最外面那个堆叠容器
 #include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -536,7 +537,45 @@ void InstanceFilesPage::setDownloadText(const QString &text, const QString &tip)
 
 void InstanceFilesPage::setDirectory(const QString &dir) {
     m_directory = dir;
+    // ★ 2026-09-29：**看不见的那几页先不列**（用户原话：「点击实例进入设置的时候会卡一下」）。
+    //   开一次实例设置会把七个目录一次灌进来（`setFileDirs()`），而用户此刻看的是「概览」
+    //   那一页 —— 七页各列一遍目录、逐条 `stat`、逐条建行（每行一个真控件），
+    //   全是白做的。这一趟欠着，等它被摆到台前那一刻再补：
+    //   `InstanceSettingsDialog::applyPageKey()` 在 `setCurrentIndex()` 之后一定会喊
+    //   `refresh()`（那是"切到这一页就当场重列一遍"那条规矩，本来就在）。
+    //
+    // NOTE: **欠账这件事只跟"看不看得见"有关，跟数据安不安全无关**：那一份份后到的数据
+    //       （图标 `m_icons` / 能点开的身份 `m_resourceTips` / 可更新的名单 `m_outdatedPaths`）
+    //       全都是**先记账、再找行**（见 setIconForPath() 那几段的 NOTE）—— 这一页没有行的时候
+    //       账照样记着，下一趟 refresh() 摆出来的那一行自然是对的。
+    if (!isCurrentPage()) {
+        m_refreshPending = true;
+        return;
+    }
     refresh();
+}
+
+bool InstanceFilesPage::isCurrentPage() const {
+    // 往上找**最外面**那个堆叠容器，看它现在摆的是不是我（或者我的祖先）。
+    // - 取最外面那一个：问的是"用户在实例设置里看的是哪一页"，那一层就是
+    //   `InstanceSettingsDialog::m_stack`。往里那几层（`save` / `config` 自己套的两格堆叠
+    //   —— 列表 / 编辑器）不是这个问题：取最近的话，摆着「概览」时那两页**照样**会被判成
+    //   "当前"，欠账那一套对它们就白设了（而这两个目录正是行最多的那几个之一）。
+    // - 判据是"当前那一格是不是我或我的祖先"：这一页外面还套着一层 `QScrollArea`
+    //   （见 `InstanceSettingsDialog::addPage()`），拿 `==` 比会永远为假。
+    // ★ 不认 `isVisible()`：offscreen 下（三个验证工程）那个函数**恒为 false**，在"还没
+    //   show 出来"的窗口里也恒为 false —— 拿它当判据等于这一页永远不列。
+    const QStackedWidget *stack = nullptr;
+    for (const QWidget *w = this; w != nullptr; w = w->parentWidget()) {
+        if (const auto *found = qobject_cast<const QStackedWidget *>(w)) {
+            stack = found;
+        }
+    }
+    if (stack == nullptr) {
+        return true;  // 不在堆叠容器里：没有"当前页"这回事（单独用这个控件的那一档）
+    }
+    const QWidget *current = stack->currentWidget();
+    return current == this || (current != nullptr && current->isAncestorOf(this));
 }
 
 // ---------- 搜索 + 状态筛选（2026-09-28）----------
@@ -670,6 +709,9 @@ QString InstanceFilesPage::formatSize(qint64 bytes) {
 }
 
 void InstanceFilesPage::refresh() {
+    // 这一趟真的列了 ⇒ `setDirectory()` 那一笔欠账清了（**摆在最前**：下面任何一条早退
+    // 路都不该把这一位留在"还欠着"上 —— 那会让判据以为这一页没列过）。
+    m_refreshPending = false;
     if (m_list == nullptr) {
         return;
     }

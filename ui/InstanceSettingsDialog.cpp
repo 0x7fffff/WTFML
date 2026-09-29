@@ -387,6 +387,22 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     m_stack = new QStackedWidget(this);
     m_stack->setObjectName(stackName());
     columns->addWidget(m_stack, 1);
+    // ★ 换页那一下（用户 2026-09-29：「除了切换页面，点击左边栏导致右边栏发生变化的时候也要
+    //   加动画」）：这一页的左栏是**每个实例各一张的页表**（不是顶上那四颗选项卡），而它
+    //   换页只走 `applyPageKey()` 这一条路 —— 挂在这儿等于一处管住左栏点击（`applyEntry`）
+    //   与 `showPage()` 两边。别处那三层右栏是 `MainWindowUI` 接的（那儿够不着这一个对话框：
+    //   它是每次开页时现建的，活在栈上）。
+    // NOTE: 顶上的四颗选项卡、下载页 / 设置页那几层走的是 `MainWindowUI` 里同一条形状的
+    //       接线 —— 形状一样是故意的，但**不是同一个 `connect`**（那几个 `QStackedWidget`
+    //       在那边、这个在这一层）。
+    // ★ 垫的底色是 `QPalette::Base`：右栏每一页都活在一层滚动区里（见 `addPage()`），
+    //   视口铺的就是它。垫窗口那份的话，干等那 70 ms 会看见一整块偏灰的方块。
+    connect(m_stack, &QStackedWidget::currentChanged, this, [this](int) {
+        QWidget *page = m_stack->currentWidget();
+        if (page != nullptr && page->isVisible()) {
+            Anim::pageAppear(page, page->palette().color(QPalette::Base));
+        }
+    });
     // 两栏吃掉整页剩下的竖直空间（底下那排按钮按自己的高排）。
     outer->addLayout(columns, 1);
 

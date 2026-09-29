@@ -13,6 +13,9 @@
 #include <QJsonObject>
 #include <QMainWindow>
 #include <QPixmap>
+// std::function —— `runWhenOverlayFree()` 收的是"要开的那一整段"（见它那段）。它是个
+// 模板类，前置声明不够用，非得 include。
+#include <functional>
 // QPointer<InstanceSettingsDialog> —— 那一趟测速里对"设置页还在不在"的那一份弱引用
 // （见 ServerPingRun）。用裸指针的话，用户把设置页关掉之后回来的那些结果会往一个已经
 // 析构了的对话框上写：那是 **use-after-free**，不是"多画一笔"。
@@ -641,15 +644,45 @@ private slots:
     ///       前者要说清为什么，后者才能说"你还没加过服务器"。
     void loadServerList(InstanceSettingsDialog *dialog, const QString &versionId) const;
 
-    /// 现在能不能再开一页（覆盖层那一层只放得下一个页面）。
+    /// 覆盖层那一层现在空着吗（"一层只放得下一页"那条规矩的**只读**版本）。
     ///
-    /// @return true = 开着（调用方接着 `execPage()`）；false = 已经有一页开着，**并且已经
-    ///         弹了一句说清怎么办**。
+    /// NOTE: 从前这个函数在"占着"的时候**自己弹一句**「先关掉现在这一页 / 这一条提示」。
+    ///       2026-09-29 之后不弹了 —— 用户原话：「如果页面被递归开启等任何会提示 先关闭当前
+    ///       页面再继续 的情况都直接静默关闭那个页面并直接继续」。三个入口改成问
+    ///       `runWhenOverlayFree()`（那一条自己会先把占着的那一层收掉，收不掉才出声）。
+    bool overlayAcceptsNewPage() const;
+
+    /// 这一层**空着**的时候，`open` 当场就跑（绝大多数情况）；被占着的时候，先把占着的那
+    /// 一层**静默收掉**，再把 `open` 排到下一轮去。
     ///
-    /// NOTE: 三个入口都得先问它一声（实例设置 / 分组设置 —— 皮肤那一页自己有一份同样的
-    ///       判据，见 onAccountSkinButtonClicked()）。少了这一句就是**静默失灵**：`execPage()`
-    ///       返回 Rejected，对话框原地销毁、盘上什么都没动、屏幕上什么都没发生。
-    bool overlayAcceptsNewPage();
+    /// 用户 2026-09-29 原话：「如果页面被递归开启等任何会提示 先关闭当前页面再继续 的情况
+    /// 都直接静默关闭那个页面并直接继续」。
+    ///
+    /// ★ 收页那一发（`OverlayHost::evict()`）只是**请求**：用 `execPage()` 开出来的那一页
+    ///   正卡在自己的嵌套事件循环里，要等这一趟调用栈整个退出去它才醒得过来 ⇒ 所以
+    ///   `open` **必须**排到下一轮（这条和"重下=校验跳过"那种判断不一样，它是个时序事实）。
+    /// ★ 排的时候**再从这一层的头上过一遍**（递归的自己）：那一轮里可能又有别的东西把它
+    ///   占上了。
+    ///
+    /// @param open 真要开的那一整段（**不含**自己那一道判据 —— 让位这件事这儿已经做完了）。
+    /// @param roundsLeft 还能再排几轮（`kOverlayOpenRounds`）。**不写"转到收干净为止"**：
+    ///        收不掉的时候再转多少轮也收不掉，转下去只是空转（同 `kDownloadOpenRounds`）。
+    void runWhenOverlayFree(const std::function<void()> &open,
+                            int roundsLeft = kOverlayOpenRounds);
+
+    /// 收不掉的时候那条兜底：老的两句话（一条给"占着的是提示"、一条给"占着的是整页"）。
+    ///
+    /// NOTE: **正常情况走不到这儿** —— `evict()` 收不掉只有一种可能：那一层正卡在自己的
+    ///       嵌套事件循环里等着、这一发不该落在它头上。真有那么一天，也得说句人话
+    ///       （"点了没反应"是这一整条路线本来要治的那个毛病）。
+    void warnOverlayBusy();
+
+    /// `runWhenOverlayFree()` 让开之后真正跑的那一半（原函数体，一个字没动）。
+    /// NOTE: 分成两个函数是为了让"让位"那一段只有一处（`runWhenOverlayFree`），而各个入口
+    ///       自己那几百行一行都不用重新缩进。
+    void openInstanceSettingsNow(const QString &versionId, const QString &pageKey);
+    void openJavaManageNow();
+    void openGroupDialogNow();
 
     /// 这个实例的服务器列表（名字 + 地址，按文件里的顺序）。servers.dat 读不动时是空的。
     ///
@@ -995,6 +1028,10 @@ private:
     /// 那一档才真用得上第二轮。**不写"转到收干净为止"**：收不掉时再转多少轮也收不掉
     /// （那一页收着 = `dismiss()` 不放行），转下去只是空转。
     static constexpr int kDownloadOpenRounds = 3;
+    /// `runWhenOverlayFree()` 最多再排几轮（同一个量级、同一条理由 —— 见上面那段）。
+    /// 3 是宽裕的上限：正常那一档第一轮就开出来了（本来就没人占着），被占着时第二轮也
+    /// 一定见得着空的那一层；只有"上面还压着一条提示"才真用得上第三轮。
+    static constexpr int kOverlayOpenRounds = 3;
     /// 这一页是**怎么打开**的（2026-09-27）。只有一处需要知道：右上角那一格摆什么
     /// —— 从实例的「文件管理」页点一个**模组**进来时摆那颗「模组设置」，
     /// 其余一律照旧摆「显示快照版」。

@@ -177,8 +177,19 @@ public:
     /// 这一页看哪个目录（绝对路径）。**由调用方算好递进来** —— 目录名是 MC 的约定，
     /// 仓库里已经有唯一一份（src/download/ResourceCatalog::folderForKind），
     /// 这一层不抄第二份。
+    ///
+    /// ★ 2026-09-29：灌进来的那一刻，**如果这一页不是用户正看着的那一页，就先不列**
+    ///   （把这一趟欠着，见 `refreshPending()`）。用户原话：「点击实例进入设置的时候会卡
+    ///   一下」—— 开一次实例设置会把七个目录一起灌进来，而用户看的是「概览」那一页：
+    ///   七页各列一遍目录、逐条 `stat`、逐条建行（每行一个真控件），全是白做的。
+    ///   补上的那一刻只有一个出处：**它被摆到台前**（`InstanceSettingsDialog::applyPageKey()`
+    ///   在 `setCurrentIndex()` 之后一定会喊 `refresh()`）。
     void setDirectory(const QString &dir);
     QString directory() const { return m_directory; }
+
+    /// 上面那条"先不列"欠着的那一趟还没补吗。（**只给判据用**：产品代码不该按它分支 ——
+    /// 谁要用这一页的内容，就该先把这一页摆到台前。）
+    bool refreshPending() const { return m_refreshPending; }
 
     /// 这一页**暂时用不上**（装了 Iris / OptiFine 才谈得上光影包，装了 Litematica 才谈得上
     /// 原理图）。非空 = 整页换成这一句解释（列表和那排按钮一起收起来 —— 那时候连
@@ -611,4 +622,13 @@ private:
     QStringList m_statQueue;
     /// 排下一行的定时器（单发、0 毫秒：下一个事件循环转过来就干一行）。
     QTimer *m_statTimer = nullptr;
+
+    /// `setDirectory()` 把目录记下来、但**这一趟还没列**（见那个函数和 `refreshPending()`）。
+    /// 只有两处会动它：`setDirectory()` 置上、`refresh()` 清掉。
+    bool m_refreshPending = false;
+
+    /// 这一页此刻是不是**堆叠页里当前摆着的那一格**（`setDirectory()` 那条判据）。
+    /// 不在任何堆叠容器里（单独用这个控件的那几个验证工程）恒为 true —— 那种用法没有
+    /// "当前页"这回事，照旧立刻列。
+    bool isCurrentPage() const;
 };

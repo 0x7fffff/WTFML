@@ -46,6 +46,7 @@
 #include <QPoint>
 
 class QApplication;
+class QColor;
 class QTreeView;
 class QWidget;
 
@@ -130,6 +131,18 @@ bool installScrollBarAnimation(QApplication &app);
  *       只是"两件事撞在一起"，画面仍然是一层贴一张图，不会有元素跑出自己那一块。
  */
 void pageAppear(QWidget *widget);
+
+/**
+ * @brief 同上，只是**干等那一段垫什么底色**由调用方指定（上面那一份垫的是顶层窗口的
+ *        `QPalette::Window`，内容区之外那一圈铺的就是它）。
+ * @param backdrop 干等的那 `pageDelayMs()` 毫秒里，这一块地方铺什么颜色。
+ *
+ * ★ 内层那几层（"左栏换一栏 → 右栏整块换"）底下垫的**不是窗口底色**：那些页都活在一层
+ *   滚动区里，视口铺的是 `QPalette::Base`。垫错不报错、也不会有东西越界 —— 症状只是干等
+ *   那 70 ms 里看见一整块偏灰的方块（`#f0f0f0` 对 `#ffffff`）贴在页面正中，看着像"这一页
+ *   闪了一下"。
+ */
+void pageAppear(QWidget *widget, const QColor &backdrop);
 
 /// 整块覆盖的那一层（`OverlayHost`）淡进来。**只淡、不抬** —— 它是"整块盖住内容区"的，
 /// 抬起来会在边上露出一条没盖住的缝。

@@ -173,9 +173,13 @@ public:
      * 那样"上面盖着一张底图、变灰看不见"。
      *
      * 不按住的症状是**静默失灵**：提示开着时底栏那两颗按钮照样点得开上拉面板，面板里点
-     * 「改设置」→ openInstanceSettings() → overlayAcceptsNewPage() 被这一层挡住 → 那句
-     * 解释为什么的话又要走 InlineMessage::ask()，而"提示叠提示不做"让它**直接返回 -1**
-     * （只写一行 qWarning）⇒ 用户点了一下，屏幕上**什么都没发生**、也没有一个字解释。
+     * 「改设置」→ openInstanceSettings() → 那一层被占着、要弹一句解释，而那句解释又要
+     * 走 InlineMessage::ask()，而"提示叠提示不做"让它**直接返回 -1**（只写一行 qWarning）
+     * ⇒ 用户点了一下，屏幕上**什么都没发生**、也没有一个字解释。
+     * NOTE: 2026-09-29 起「占着」那一档改成 `MainWindow::runWhenOverlayFree()` **静默收掉**
+     *       再继续（收不掉才出声），所以这条"提示叠提示"的死角又少了一道。**这一句仍然留着**：
+     *       收页本身也要用户看见的东西（底栏那两颗按钮这会儿点开着的话，用户是按在一个
+     *       正在收掉的页面上）。
      *
      * 只有**提示**那一档按（`Mode::Prompt`）：整页那一档底栏是用户要用的东西（停游戏那
      * 一行电源就在左面板里，见 ui/MainWindowUI 里那两块面板）。
@@ -212,6 +216,25 @@ public:
     bool dismiss();
 
     /**
+     * @brief 收掉最上面那一层，**不管它现在收在哪个选项卡上**（`dismiss()` 是它的"用户
+     *       自己按的那一发"版本，多一道"收着的页面不认"）。
+     *
+     * 用户 2026-09-29 原话：「如果页面被递归开启等任何会提示 先关闭当前页面再继续 的情况
+     * 都直接静默关闭那个页面并直接继续」。调用方是 `MainWindow::runWhenOverlayFree()`：
+     * 要开新的一页、而这一层被别的页面/提示占着的时候，先把占着的那一层收掉，再开新的。
+     *
+     * ★ 走的还是 `dismiss()` 那条路（页面那一档发 `backPressed()`、提示那一档发
+     *   `promptDismissed()`）—— **不能**改成 `closeOverlay()`：收页那一发是**唯一**能让
+     *   卡在嵌套事件循环里的 `execPage()` 醒过来的信号（理由逐字见 `dismiss()` 那段）。
+     * ★ 收页只是"请求"：它的收尾要等这一趟调用栈退出去 ⇒ 调用方**必须**把"开新的那一页"
+     *   排到下一轮（`QTimer::singleShot(0, …)`）。一排就开的话，新那页会撞在还没让开的
+     *   那一层上（`openPage()` 返回 nullptr = 屏幕上什么都没发生）。
+     *
+     * @return 真的收掉了才 true（本来就没开着 = false）。
+     */
+    bool evict();
+
+    /**
      * @brief 把 `dialog` 当"整页"跑起来，等到它 accept/reject（或者点了返回箭头）为止。
      *
      * 这是 `dialog.exec()` 的替身：原来那句开一个独立窗口，这句把同一个对话框**嵌进**
@@ -243,8 +266,9 @@ public:
     /// 页眉上现在那行标题（没有页时是空串）。
     ///
     /// 给**挡在门口的那一句提示**用的：用户点了个开不起来的页，那句话要说清"现在开着的是
-    /// 哪一页"（见 `MainWindow::overlayAcceptsNewPage()`）—— 光说"还有一页开着"，用户在
-    /// 别的选项卡上根本看不见它长什么样。
+    /// 哪一页"（见 `MainWindow::warnOverlayBusy()` —— 2026-09-29 起只在**收不掉**的时候
+    /// 才走得到那儿，正常那一档静默收掉就完了）—— 光说"还有一页开着"，用户在别的选项卡上
+    /// 根本看不见它长什么样。
     /// NOTE: 定义在 .cpp 里（不在这儿就地写）：这一句要问 `QLabel::text()`，而这一层
     ///       只用得到 QLabel 这个名字（见上面那个前置声明）—— 就地写就得把 <QLabel>
     ///       拖进每一个用到覆盖层的地方，为一行取值不值得。
@@ -341,6 +365,9 @@ private:
     /// `execPage` / `execPrompt` 共用的那一段（见实现）。
     int execEmbedded(QDialog *dialog, const QString &title, bool asPage, bool dismissOnOutside,
                      int ownerTab = -1);
+    /// `dismiss()` / `evict()` 共用的那一半：真正去收最上面那一层。
+    /// @param evenWhenParked 收着的页面**也**收（`evict()` 要的；`dismiss()` 不要）。
+    bool closeTopLayer(bool evenWhenParked);
 
     QWidget *m_anchor = nullptr;
     Mode m_mode = Mode::None;

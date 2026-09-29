@@ -457,16 +457,28 @@ void OverlayHost::closeOverlay() {
 }
 
 bool OverlayHost::dismiss() {
+    return closeTopLayer(/*evenWhenParked=*/false);
+}
+
+bool OverlayHost::evict() {
+    return closeTopLayer(/*evenWhenParked=*/true);
+}
+
+bool OverlayHost::closeTopLayer(bool evenWhenParked) {
     if (m_mode == Mode::Prompt) {
         // 提示那一档：和"按 Esc / 点框外面"**同一发**（`execEmbedded` 接它去 reject，
         // 那些自己搭提示的调用方也接它）。
+        // NOTE: 提示**不跟着选项卡收**（见头文件那段），所以"收着"这一档对它不存在 ——
+        //       `evenWhenParked` 在这儿没有第二个分支。
         emit promptDismissed();
         return true;
     }
     if (m_mode == Mode::Page) {
-        if (!onOwnersTab()) {
+        if (!evenWhenParked && !onOwnersTab()) {
             // 收在别的选项卡上：用户看不见它，这一发不该落在它头上（不然就是"我在主页
             // 点了一下主页，下载页那个详情页自己没了"）。
+            // NOTE: `evict()` 要的**正是**这一档（把"用户在别的选项卡上逛、这一页还占着
+            //       那一位"这件事一起收掉）—— 它走的就是下面那两行。
             return false;
         }
         // 页面那一档：和"点返回箭头"**同一发**。★ 这里**绝不能改成 `closeOverlay()`** ——

@@ -425,6 +425,15 @@ void scrollBarAppear(QWidget *bar) {
 }
 
 void pageAppear(QWidget *widget) {
+    if (widget == nullptr) {
+        return;
+    }
+    // 顶层那一档（内容区整个 `QTabWidget`）：垫的是**顶层窗口**的窗口底色 —— 内容区之外
+    // 那一圈（标题栏、底栏）铺的就是它。内层那几层要垫的是视口的 `Base`，见两参数那一份。
+    pageAppear(widget, widget->window()->palette().color(QPalette::Window));
+}
+
+void pageAppear(QWidget *widget, const QColor &backdrop) {
     if (widget == nullptr || !enabled()) {
         return;
     }
@@ -437,12 +446,12 @@ void pageAppear(QWidget *widget) {
     // 着画，所以多出来的那一条在**上面**、被裁掉的是下面那一条）。
     // ★ 这一句在 `pageDelayMs()` 那一段干等里也得一直成立 —— 它是"起手延迟"看得见的那一半
     //   （另一半在 `runProgress()` 里，见它上面那段）。
-    // ★★ 底下垫窗口底色（`QPalette::Window`）：干等那一段**整块**就是这个色，淡上去的时候
-    //    内容是从它上面浮出来的（那一层的来龙去脉写在 `AnimEffect::draw()` 里）。
-    //    取的是**顶层窗口**的调色板 —— 内容区之外那一圈（标题栏、底栏）铺的就是它。
+    // ★★ 底下垫一层底色（调色板哪一档由调用方说，见两参数那一份的说明）：干等那一段
+    //    **整块**就是这个色，淡上去的时候内容是从它上面浮出来的（那一层的来龙去脉写在
+    //    `AnimEffect::draw()` 里）。
     //    NOTE: 设了页面背景图（`Theme::Part::PageBackground`）时那张图是**页面自己**画的、
     //          也跟着一起淡，这一层垫的还是底色 —— 那一档下干等那一刻会短暂地少一层图。
-    effect->setBackdrop(widget->window()->palette().color(QPalette::Window));
+    effect->setBackdrop(backdrop);
     effect->setOpacity(0.0);
     effect->setShift(rise);
     runProgress(widget, effect, 0.0, 1.0, appearMs(), /*removeWhenDone=*/true,
