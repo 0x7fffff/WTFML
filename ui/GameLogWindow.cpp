@@ -104,13 +104,38 @@ constexpr qreal kLogFontPointDelta = 1.0;
 QString filterButtonStyle(const QColor &onBg, const QColor &onInk) {
     // 内边距取 `1px 5px`：两边加起来正好把按钮撑回**改之前那个高度**（19 px，量过），
     // 这一排不因为换了个画法就长高一点。
+    const QColor offBg(kSwitchOffRgb[0], kSwitchOffRgb[1], kSwitchOffRgb[2]);
+
+    // 【悬停那一档为什么必须自己写一条】
+    //
+    // ★ 一旦给控件挂了样式表，Qt 就把这颗按钮整只交给样式表去画 —— 原生 Fusion 那层
+    //   "鼠标停上来会亮一点"的立体感**一并被顶掉**，而且不写 `:hover` 也不会漏回原生
+    //   （上面那条 `QToolButton { ... }` 已经把这只控件接管了）。所以不显式补一条，
+    //   划过时就是**一点变化都没有**（这五颗原来正是这样：用户说的"划过毫无反应"）。
+    // ★ 只收**没勾着**的那一颗：勾着的那档划过去是"选中"的样子，不该跟着变（`:!checked`）。
+    // ★ `:enabled` 兜住以后万一有被 disable 的一颗（和 `QPushButton:hover:enabled` 同款）。
+    //
+    // 【这一颗为什么不走 `Theme::rowHoverFill()`，而是把自己往下压】
+    //
+    // 用户这句「把所有悬停在版本/按钮上都加一个颜色加深的效果」在别处（那些行、白底按钮）
+    // 落成的都是 `Theme::rowHoverFill()` —— 底色往主题色混 12%，底色是白时 R 和 B 一起被
+    // 压低，看上去正是"加深一层"。这颗按钮的底色是**中灰** `#ababab`，同一个混法算出来是
+    // `#a1b3a4`：三通道距离只有 14（比仓库自己"两两看得出来"的阈值 20 还小），而且 G 反而
+    // **升高**了 —— 又淡又发绿，恰恰是"加深"的反面。
+    // 所以这一档改成把**自己的底色**往下压同一档：`darker(100 + rowHoverAccentPercent())`
+    // 即 `darker(112)` = `#999999`（距离 31，和别处白底那一档的 27 是同一个量级）。
+    // ★ **"一档是多少"这个数仍然只有 Theme 一个出处**（`rowHoverAccentPercent()`）——
+    //   变的只是"从哪一档出发、往哪边压"，那是底色自己决定的，别处也一样。
+    const QColor hoverBg = offBg.darker(100 + Theme::rowHoverAccentPercent());
+
     return QStringLiteral("QToolButton { background-color: %1; color: %2; border: 1px solid %3;"
                           " border-radius: 3px; padding: 1px 5px; }"
-                          "QToolButton:checked { background-color: %4; color: %5; }")
-        .arg(QColor(kSwitchOffRgb[0], kSwitchOffRgb[1], kSwitchOffRgb[2]).name(),
+                          "QToolButton:hover:enabled:!checked { background-color: %4; }"
+                          "QToolButton:checked { background-color: %5; color: %6; }")
+        .arg(offBg.name(),
              QColor(0x00, 0x00, 0x00).name(),
              QColor(kSwitchEdgeRgb[0], kSwitchEdgeRgb[1], kSwitchEdgeRgb[2]).name(),
-             onBg.name(), onInk.name());
+             hoverBg.name(), onBg.name(), onInk.name());
 }
 
 /// 这一档的**块**格式：底色（铺满整行）在里面。

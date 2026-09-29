@@ -72,6 +72,31 @@ cmake --build build/static-release -j
       里那条"边要另取一档"量着这件事）。
     - `Hover` / `Pressed` = 主题色罩在白上（12% / 28%）。按下比悬停深一档，可都还在浅的那
       一头 —— 上面那行深绿的字才一直读得清（这两层底上写的还是 `Ink`）。
+  - ★ **列表里每一行鼠标停在上面时加深一档**（2026-09-29，用户原话「把所有悬停在版本/按钮上
+    都加一个颜色加深的效果」）。按钮那一边本来就有（样式表里那几条 `:hover:enabled`，见下面
+    那一段），缺的是**版本/条目那些行**。
+    - 色只有一处出处：`Theme::rowHoverFill(base)` —— **按那一行自己的底色算**（那行的
+      `QPalette::Base` 罩 12% 主题色，那个 12 = `Theme::rowHoverAccentPercent()`，和按钮
+      `Hover` 同一档）。为什么不直接返回 `accentShade(Hover)`：那一档是照**白底**算出来的
+      近白色，深色主题（`Base = #323232`）下把整行刷成近白，比不加深还刺眼。
+    - 画它的是**代理**，不是样式。`QCommonStyle` 处理 `PE_PanelItemViewItem` 时只看
+      `backgroundBrush` 和 `State_Selected`，`State_MouseOver` **它从来不画**（Fusion 没覆盖，
+      `Theme::createStyle()` 也没碰）。所以 `VersionTreeDelegate` / `InstanceGroupDelegate`
+      自己读这一位刷一层底，而且**刷在 `CE_ItemViewItem` 之前** —— 选中那一块是不透明的
+      `Highlight`，压在上面，于是"又选中又悬停"那一行自然还是选中色赢。
+    - ★ **悬停那一块和选中那一块同形状**：实例行刷的是**卡片**（不是整条行 —— 整条会把左边
+      那截分支区一起染上，比选中带宽出一截）；版本树那一支刷整条行**连左边那截分支区**
+      （它选中时 `QTreeView::drawRow()` 就是连着一块涂的）。整行淡到一半的不可用条目
+      （`ItemIsEnabled` 没置）不刷。
+    - ★ **视图必须 `setMouseTracking(true)`**：`State_MouseOver` 是**视图**填的，默认关着，
+      真鼠标划过一位都不变。这条路上**不报错、不崩**，症状只有"悬停没反应" —— 所以
+      2026-09-29 给挂着这两个代理的每一棵树都补了一句（版本树 / 加载器树 / 下载页那五张资源
+      表 / 设置页左栏 / 实例设置左栏 / 实例设置「服务器」那张表 / 资源详情页那张表），
+      `ui_check` 的 §⑪ 直接量这几棵树的 `viewport()->hasMouseTracking()`。
+    - 日志窗那一排级别筛选用的是 `QToolButton`，走它自己那张小样式表，悬停那一档用
+      `darker(100 + rowHoverAccentPercent())` —— 那一档的底是**中灰**（`#ababab`），
+      往主题色那一头混会得到"更亮"而不是"更深"（实测只有一个数位的差），所以"一档"那个数
+      还是从 `rowHoverAccentPercent()` 来，"往哪一头走"按底色自己定。
   - ★ **按钮那一套外观走应用级样式表**（`Theme::widgetStyleSheet()`）：白底 + 主题色的字和
     边，按**这件事的性质**分三档（`Theme::ButtonKind`，挂在控件的 `wtfmlButtonKind` 动态
     属性上）。用户 2026-09-28 给的规矩原话是「一些确认性的（如启动，下载，搜索）做成主题色，

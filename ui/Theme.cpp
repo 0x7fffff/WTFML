@@ -394,6 +394,22 @@ QColor defaultAccentColor() {
     return QColor(0x56, 0xeb, 0x6c);
 }
 
+QColor rowHoverFill(const QColor &base) {
+    // 认不出（盘上手改歪了）就退回出厂那一支 —— 和 accentShade() 同一个兜底。
+    QColor accent = current().accent;
+    if (!accent.isValid()) {
+        accent = defaultAccentColor();
+    }
+    // ★ 混法**必须和 `mixWithWhite()` 逐字同式**（`(底*(100-p) + 主题*p + 50) / 100`）：
+    //   浅色下 `base` 就是白，这一份和 `accentShade(AccentShade::Hover)` 因此**逐字节相等**
+    //   —— ui_check 钉着这条（"行悬停和按钮悬停是同一个色"就是靠它）。四舍五入那一位
+    //   （`+50`）不改的话两边会对不上，而那种差 1 的错在屏幕上完全看不出来。
+    const int p = qBound(0, rowHoverAccentPercent(), 100);
+    const auto mix = [p](int b, int a) { return (b * (100 - p) + a * p + 50) / 100; };
+    return QColor(mix(base.red(), accent.red()), mix(base.green(), accent.green()),
+                  mix(base.blue(), accent.blue()));
+}
+
 QColor accentShade(AccentShade shade) {
     // 当前那一份里的主题色；认不出（盘上手改歪了）就退回出厂那一支。
     QColor pure = current().accent;

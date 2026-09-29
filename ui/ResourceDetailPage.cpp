@@ -396,6 +396,9 @@ ResourceDetailPage::ResourceDetailPage(QWidget *parent) : QDialog(parent) {
     m_list->setColumnCount(1);
     m_list->setItemDelegate(new VersionTreeDelegate(m_list, /*leafArrow=*/false,
                                                     ResourceDetailMarks::badgeSize()));
+    // 悬停底色由代理画（`Theme::rowHoverFill()`），但那一位 `State_MouseOver` 是**视图**填的。
+    // ★ 少了这一句，代理里那段一个字都不会生效 —— 不报错、断言也不一定先红，屏幕上就是"悬停没反应"。
+    m_list->setMouseTracking(true);
     m_list->setExpandsOnDoubleClick(false);
     QFont listFont = m_list->font();
     listFont.setPointSize(listFont.pointSize() + MainWindowUI::versionTreeFontStep());

@@ -11,6 +11,7 @@
 
 #include "MainWindowUI.hpp"
 #include "MotdText.hpp"
+#include "Theme.hpp"
 #include "VersionIcons.hpp"
 
 VersionTreeDelegate::VersionTreeDelegate(QObject *parent, bool leafArrow, int iconSize)
@@ -94,12 +95,52 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     opt.icon = QIcon();
     opt.features = QStyleOptionViewItem::None;
     // 悬停那一位**先读走、再抹掉**：它是给"这一行上我们自己画的那个按钮"用的（见下面那段
-    // showRefresh），不是"这一行被指到了"这件事本身。留着的话样式会给整行铺一层悬停底色 ——
-    // 那是用户没要的另一个改动，而且会把"现在停在哪一类"那层选中底色比下去。
+    // showRefresh），本来就不是"这一行被指到了"这件事本身。
+    // ★ 2026-09-29 更正：抹掉它**本来就不是**为了挡悬停底色 —— 那一层在这个仓库里一直是
+    //   **我们自己画**才有的（就是下面那段 fillRect）。核过 Qt 源码：
+    //   `QCommonStyle::drawPrimitive(PE_PanelItemViewItem)` 只认 `backgroundBrush` 和
+    //   `State_Selected`，**从不看 `State_MouseOver`**；Fusion 没有覆写它，而我们的
+    //   `Theme::createStyle()` 也只重写了 `PE_IndicatorArrowDown` 一个原语。
+    //   （旧注释写的是"留着的话样式会给整行铺一层悬停底色、而那是用户没要的"：前半句按
+    //   源码不成立，后半句从 2026-09-29 起也反了 —— 用户原话「把所有悬停在版本/按钮上都
+    //   加一个颜色加深的效果」。）
+    //   这一位仍然要抹掉：别让**将来**某个样式插一层我们没要的底色，把我们画的那层盖掉。
     // 读的是**原样传进来**的那个 option，不是 initStyleOption 之后的那一份：这一位是视图
     // 填的，它在 initStyleOption 里留没留住不该由我们猜（这条路上我们自己说了算）。
     const bool hovered = (option.state & QStyle::State_MouseOver) != 0;
     opt.state &= ~QStyle::State_MouseOver;
+    // ★ 悬停那一行的加深底色（用户原话见上）。
+    //
+    // 这一层**画在 `CE_ItemViewItem` 之前**是有意的：选中那一行是样式紧接着用**不透明的**
+    // `Highlight` 铺满整格的，所以"选中"天然压得住"悬停"，两者不需要互斥判断（下面那句
+    // 挪到之后去画的话，悬停就会反压选中 —— 那才是错的）。
+    // 底色走 `Theme::rowHoverFill()`（唯一出处在 ui/Theme.hpp 里那段说明）：它从**这一层
+    // 自己的底色**出发往主题色混一档，于是浅色主题下和白底按钮的 `:hover` 逐字节同一个色，
+    // 换成深色预设也不会糊成一片近白（"按硬编码白去算"的写法在 `Base = #323232` 上会炸）。
+    // ★ 不可用的那几行不染（判据和下面 `rowOpacity` 那条逐字一样）：那一档整行淡到 0.5，
+    //   再铺一层底色反而像是"点得动"。在这儿**内联**写一遍是因为 `rowEnabled` 要到下面才
+    //   算得出来，而这一层必须赶在样式画底色之前。
+    const bool hoverable = hovered && (index.flags() & Qt::ItemIsEnabled) != 0;
+    if (hoverable) {
+        const QColor hoverFill = Theme::rowHoverFill(option.palette.color(QPalette::Base));
+        painter->fillRect(option.rect, hoverFill);
+        // 有子条目的那几棵树上（版本树、资源表：分类 → 版本号），条目左边留着一截**分支区**，
+        // 而**选中**那一层是连这一截一起涂的 —— `QTreeView::drawRow()` 先按
+        // `QRect(position, y, indentation, height)` 铺一遍选中色，**然后**才把画笔交给代理
+        // （长注释在 ui/InstanceGroupDelegate.cpp 里那段 ★★ 2026-09-29）。
+        // 悬停**不补这一截**的话，同一行上"选中带"和"悬停带"的左边就差着一个缩进（默认
+        // 20 px）—— 看着像是悬停没铺到头。所以照着选中的形状补上。
+        // ★ 只在第 0 列补：这一截长在**这一格自己的左边**，别的列那一截是上一列的地盘。
+        //   （今天挂在这份代理上的每一张表都是单列 —— 服务器表是多列，但代理只挂在第 0 列。
+        //   留着这个条件是因为"从 0 开始涂"这件事只在第 0 列上成立。）
+        // ★ 宽度取 `option.rect.left()`（= 这一格从哪儿开始），不是写死的缩进：横向滚动时
+        //   它和视图那边同时变小（两边同以 `columnViewportPosition(0)` 为原点），整截滚出屏
+        //   时它 ≤ 0、这一句自己什么都不画；写死的话往右滚一下左边就留一根擦不掉的条。
+        if (index.column() == 0 && option.rect.left() > 0) {
+            painter->fillRect(
+                QRect(0, option.rect.top(), option.rect.left(), option.rect.height()), hoverFill);
+        }
+    }
     if (QStyle *style = opt.widget != nullptr ? opt.widget->style() : QApplication::style()) {
         style->drawControl(QStyle::CE_ItemViewItem, &opt, painter, opt.widget);
     }

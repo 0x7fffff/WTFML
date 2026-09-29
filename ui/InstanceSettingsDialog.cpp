@@ -373,6 +373,9 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     m_pageList->setObjectName(pageListName());
     m_pageList->setUniformItemSizes(true);
     m_pageList->setItemDelegate(new VersionTreeDelegate(m_pageList));
+    // 悬停底色由代理画（`Theme::rowHoverFill()`），但那一位 `State_MouseOver` 是**视图**填的。
+    // ★ 少了这一句，代理里那段一个字都不会生效 —— 不报错、断言也不一定先红，屏幕上就是"悬停没反应"。
+    m_pageList->setMouseTracking(true);
     QFont listFont = m_pageList->font();
     listFont.setPointSize(listFont.pointSize() + MainWindowUI::versionTreeFontStep());
     m_pageList->setFont(listFont);
@@ -1552,6 +1555,9 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                 m_serverTree->setItemDelegateForColumn(
                     0, new VersionTreeDelegate(m_serverTree, /*leafArrow=*/false,
                                                MainWindowUI::serverIconSize()));
+                // 悬停底色由代理画（`Theme::rowHoverFill()`），但那一位 `State_MouseOver` 是**视图**填的。
+                // ★ 少了这一句，代理里那段一个字都不会生效 —— 不报错、断言也不一定先红，屏幕上就是"悬停没反应"。
+                m_serverTree->setMouseTracking(true);
                 // 行高是那个代理给的常数（versionTreeRowHeight() = 46），这一句是按同一档
                 // 告诉控件"图标那一格有多大" —— 下载页那几张表也是这么配的（见 MainWindowUI
                 // 里 resourceTreeIconSize() 那两行），不配的话条目自带的图标会被另算一遍尺寸。

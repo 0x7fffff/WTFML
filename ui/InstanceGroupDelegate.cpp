@@ -10,6 +10,7 @@
 #include <QTreeView>
 
 #include "MainWindowUI.hpp"
+#include "Theme.hpp"
 #include "VersionIcons.hpp"
 
 InstanceGroupDelegate::InstanceGroupDelegate(QObject *parent) : QStyledItemDelegate(parent) {}
@@ -185,10 +186,13 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
     if (!index.data(MainWindowUI::groupIdRole()).isValid()) {
         QStyleOptionViewItem opt(option);
         // 悬停那一位**先读走、再抹掉**：它是给"下面我们自己画的那两颗悬停按钮"用的，
-        // 不是"这一行被指到了"这件事本身。留着的话样式会给整行铺一层悬停底色 —— 那是
-        // 用户没要的另一个改动，而且会把"当前选中的是哪一行"那层底色比下去
-        //（这一段和 VersionTreeDelegate::paint() 里那句 `opt.state &= ~QStyle::State_MouseOver`
-        // 是同一个理由、同一份措辞）。
+        // 本来就不是"这一行被指到了"这件事本身。
+        // ★ 2026-09-29 更正（和 VersionTreeDelegate::paint() 里那段同一个更正）：抹掉它
+        //   **本来就不是**为了挡悬停底色 —— 那一层在这个仓库里一直是**我们自己画**才有的
+        //   （见下面那段 fillRect）。核过 Qt 源码：`QCommonStyle::drawPrimitive(
+        //   PE_PanelItemViewItem)` 只认 `backgroundBrush` 和 `State_Selected`，从不看
+        //   `State_MouseOver`；Fusion 没覆写它、`Theme::createStyle()` 也没碰它。
+        //   抹掉这一位仍然要做：别让将来的样式插一层我们没要的底色，把下面那层盖掉。
         // 读的是**原样传进来**的那个 option：这一位是视图填的，它在 initStyleOption 里
         // 留没留住不该由我们猜（version 树那边也特意读了传进来那一份）。
         const bool hovered = (option.state & QStyle::State_MouseOver) != 0;
@@ -242,6 +246,19 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
         // 是从 opt.rect 上算的 —— 少了这一句，量出来的宽度还是整条行的，虽然宽度只跟左右有关、
         // 结果一样，但"画在哪一圈"和"按哪一圈量"从此是两件事，读的人得自己核对一遍。
         opt.rect = cardRect(option.rect);
+        // ★ 悬停那一行的加深底色（用户 2026-09-29 原话：「把所有悬停在版本/按钮上都加一个
+        // 颜色加深的效果」）。画在 `CE_ItemViewItem` **之前**：选中那一行是样式紧接着用
+        // **不透明的** `Highlight` 铺满这一圈的，所以"选中"天然压得住"悬停"，不用互斥判断。
+        // 底色走 `Theme::rowHoverFill()`（唯一出处见 ui/Theme.hpp）：从**这一层自己的底色**
+        // 出发往主题色混一档 ⇒ 浅色主题下和白底按钮的 `:hover` 逐字节同一个色。
+        // ★ 铺的是 `opt.rect`（= 上面那句收过缺口之后的**卡片**），不是 `option.rect`：
+        //   这一行选中时的带子就是卡片这一圈（左边那截分支区在上面那句 fillRect 里被补回底色了），
+        //   悬停也得是同一个形状 —— 铺整条行的话，悬停带会比选中带左右各宽出去一截。
+        // ★ 不可用的那几行不染：这张树上它们整体是半透明的（`setDisabled()` 那条路），
+        //   再铺一层底色反而像是"点得动"。
+        if (hovered && (index.flags() & Qt::ItemIsEnabled) != 0) {
+            painter->fillRect(opt.rect, Theme::rowHoverFill(option.palette.color(QPalette::Base)));
+        }
         if (QStyle *style = opt.widget != nullptr ? opt.widget->style() : QApplication::style()) {
             // 停在哪：最左那颗按钮**命中格**的左边（它已经比字形大一圈，天然留出一点空隙）。
             // 三颗无论此刻画不画都算进去 —— 和 sizeHint() 那条规矩一样（跟着悬停变的话，
@@ -306,9 +323,24 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
     opt.icon = QIcon();
     opt.features = QStyleOptionViewItem::None;
     // 组行同样收掉那道空（见 cardRect()）。这一句改不动屏幕上的东西 —— 组行没有自己的底色，
-    // 露出来的那一带和行本身的底色是同一个（悬停/选中那层带子除外，而组行不可选中）；
+    // 露出来的那一带和行本身的底色是同一个（**悬停**那层带子除外，见下面那段）；
     // 留着是为了"这张树里每一行都是同一种画法"，将来谁给行加了底色不会只加一半。
     opt.rect = cardRect(option.rect);
+    // ★ 组行也要染悬停那一层（用户原话见上），判据和实例行那一支逐字一样，色也是同一个
+    //   `Theme::rowHoverFill()` —— 组行和实例行的悬停从此真的是同一件事。
+    //   这一支以前**不清** `State_MouseOver`（实例行那支清）。现在两边都清、都由我们自己画：
+    //   把这一位交给样式等于把"悬停长什么样"押在"样式永远不画"上，而那个假设没有保证
+    //   （见上面那段更正 —— 它今天恰好成立，不是我们要求的）。
+    //   ★ 这里读的是**传进来**的那一份（和实例行那支同一个理由）：那一位是视图填的。
+    //   ★ 组行**不可选中**，所以不存在"和选中带打架"的问题 —— 建那一行的
+    //     `src/MainWindow.cpp` 里有一句 `setFlags(flags() & ~Qt::ItemIsSelectable)`
+    //     （组头是"一堆东西的标题"，不是"一个能启动的实例"）。这是**唯一**一处放这一位
+    //     的地方，本文件不碰 `flags()`；这条路径上"能不能点得动"仍然只看 `ItemIsEnabled`。
+    if ((option.state & QStyle::State_MouseOver) != 0 &&
+        (index.flags() & Qt::ItemIsEnabled) != 0) {
+        painter->fillRect(opt.rect, Theme::rowHoverFill(option.palette.color(QPalette::Base)));
+    }
+    opt.state &= ~QStyle::State_MouseOver;
     if (QStyle *style = opt.widget != nullptr ? opt.widget->style() : QApplication::style()) {
         style->drawControl(QStyle::CE_ItemViewItem, &opt, painter, opt.widget);
     }

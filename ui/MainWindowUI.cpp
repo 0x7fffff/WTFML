@@ -773,6 +773,12 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // 每一行长什么样（草方块 + 版本号 + 下面那行发布时间 + 最右边的 >/V）全在这个代理里。
         // 条目还是普通 QTreeWidgetItem（身份、展开状态、点击那条路一个都没变）。
         versionTree->setItemDelegate(new VersionTreeDelegate(versionTree));
+        // ★ 悬停那一行的加深底色（代理里那段 Theme::rowHoverFill()）**要的就是这一句**：
+        //   代理画不画看 `QStyle::State_MouseOver`，而那一位是**视图**填进 option 里的，
+        //   干净的视图默认不填（`WA_Hover=0` / `mouseTracking=0`）—— 少了它悬停底色一次
+        //   都不会出现，而且**不报错、断言也不一定先红**，屏幕上就是"悬停没反应"。
+        //   真平台 windows 与 offscreen 两个平台都量过：这一位不填，代理那段一个字都不生效。
+        versionTree->setMouseTracking(true);
         // 字号放大一点（用户要的）。代理里那行小字是从这个字号往下推的，别在这儿单独设它。
         QFont treeFont = versionTree->font();
         treeFont.setPointSize(treeFont.pointSize() + versionTreeFontStep());
@@ -856,6 +862,8 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // 那一层是"选中它"，底下没有下一页（见 VersionTreeDelegate 的构造函数）。
         // 顶层那五条照画（它们是真的能展开）。
         loaderTree->setItemDelegate(new VersionTreeDelegate(loaderTree, /*leafArrow=*/false));
+        // ★ 悬停底色要它，理由见上面版本树那第一处：视图不填 State_MouseOver 就不出底色，也不报错。
+        loaderTree->setMouseTracking(true);
         loaderTree->setExpandsOnDoubleClick(false);
         // 展开/收起是"点那一条"完成的，而点中一条会把它整行画成选中色（和版本树那边
         // 一样）。这里**不要**再自己画高亮：选中色就是"你现在停在哪一条"。
@@ -1106,6 +1114,8 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
             tree->setColumnCount(1);
             tree->setItemDelegate(
                 new VersionTreeDelegate(tree, /*leafArrow=*/true, resourceTreeIconSize()));
+            // ★ 悬停底色要它，理由见版本树那第一处：视图不填 State_MouseOver 就不出底色，也不报错。
+            tree->setMouseTracking(true);
             tree->setExpandsOnDoubleClick(false);
             QFont resourceFont = tree->font();
             resourceFont.setPointSize(resourceFont.pointSize() + versionTreeFontStep());
@@ -1282,6 +1292,8 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
     // NOTE: **不设** rowRefreshRole()。那一格里画的刷新圈是下载页专有的（这一列没有
     //       "重新拉一遍"这回事），代理见到没设就不画。
     settingsCategoryList->setItemDelegate(new VersionTreeDelegate(settingsCategoryList));
+    // ★ 悬停底色要它，理由见版本树那第一处：视图不填 State_MouseOver 就不出底色，也不报错。
+    settingsCategoryList->setMouseTracking(true);
     QFont categoryFont = settingsCategoryList->font();
     categoryFont.setPointSize(categoryFont.pointSize() + versionTreeFontStep());
     settingsCategoryList->setFont(categoryFont);
