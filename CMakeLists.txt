@@ -55,6 +55,7 @@ set(HEADER_FILES
     ui/ConfigFileText.hpp
     ui/ConfigFileEditorPage.hpp
     ui/WorldSettingsPage.hpp
+    ui/GameRuleNames.hpp
     ui/Theme.hpp
     ui/ThemeBackground.hpp
     ui/ConfigEntries.hpp
@@ -116,6 +117,7 @@ set(SOURCE_FILES
     ui/ConfigFileText.cpp
     ui/ConfigFileEditorPage.cpp
     ui/WorldSettingsPage.cpp
+    ui/GameRuleNames.cpp
     ui/ConfigEntries.cpp
     ui/InlineMessage.cpp
     ui/JavaMismatchDialog.cpp

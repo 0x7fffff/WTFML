@@ -26,11 +26,15 @@
 #include <QRegularExpressionValidator>
 #include <QShowEvent>
 #include <QSignalBlocker>
+// 正文收尾那根弹簧（见 m_bodyTail 那一段）。
+#include <QEvent>
+#include <QSpacerItem>
 #include <QStyledItemDelegate>
 #include <QToolButton>
 #include <QVBoxLayout>
 
 #include "ElidedLabel.hpp"
+#include "GameRuleNames.hpp"   // 规则那一格名字上盖的那层官方中文（见 rebuildRuleRows）
 #include "Theme.hpp"   // 頂上那四颗按钮的身份（见下面那几行）
 #include "MainWindowUI.hpp"
 #include "ToggleSwitch.hpp"
@@ -213,7 +217,8 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
     // ---------- 正文（"读不出来"那一档整块藏起来）----------
     m_body = new QWidget(this);
     m_body->setObjectName(bodyName());
-    auto *body = new QVBoxLayout(m_body);
+    m_bodyLayout = new QVBoxLayout(m_body);
+    QVBoxLayout *body = m_bodyLayout;   // 这一段里那颗指针用得太多，另起一个短名字
     body->setContentsMargins(0, 0, 0, 0);
     body->setSpacing(8);
 
@@ -306,6 +311,9 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
         //   反悔 ⇒ `setFileEditingOpen(false)`（把框收回去，那一下会把这个钮也拨回来）。
         m_fileBody->setVisible(open);
         m_fileToggle->setArrowType(open ? Qt::DownArrow : Qt::RightArrow);
+        // ★ 正文收尾那根弹簧也要跟着翻（见 `m_bodyTail` 那一段：收着的时候不管它，上面两样
+        //   会被均分到整块正文里）。
+        updateBodyTail(open);
         // ★ 底下那行小字里有一句是**说那个列表怎么来的**（`rulesSourceHint()`）—— 框收着的
         //   时候那一列根本不在屏幕上，说它等于让用户找一样看不见的东西。所以这一句跟着
         //   框的开合走（`refreshNote()` 里判的是 `m_fileToggle->isChecked()`）。
@@ -338,6 +346,9 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
 
     m_ruleList = new QListWidget(m_fileBody);
     m_ruleList->setObjectName(ruleListName());
+    // ★★ 挂的是**视口**不是列表自己：要认的就是"视口被滚动条挤窄了"那一发，而那一发只落在
+    //   视口上。为什么必须接住它见 `eventFilter()` 那一段 ★★（行会被视口切掉半个）。
+    m_ruleList->viewport()->installEventFilter(this);
     // 一行一个自己摆的控件 ⇒ 不用选中态、不要焦点框、不要自带滚动条之外的任何装饰。
     m_ruleList->setSelectionMode(QAbstractItemView::NoSelection);
     m_ruleList->setFocusPolicy(Qt::NoFocus);
@@ -353,6 +364,19 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
     fileBody->addWidget(m_ruleList, 1);
 
     body->addWidget(m_fileBody, 1);
+
+    // ★★ 正文收尾那根弹簧（2026-09-29，用户原话「没有展开的时候排版太诡异了修一下」）。
+    //
+    //   框收着的时候正文里活着的只剩「那一行事实」和上面那颗折叠钮，而 `QVBoxLayout` 在
+    //   没有 stretch 可用的时候会把多出来的高度**均分**给它们 —— 屏幕上就是"那行事实飘在
+    //   正中间、那颗钮掉到最底下贴着说明"，看着像页坏了。这根弹簧收着时一个人吃掉全部多余
+    //   高度（两样都贴顶），摊开时让给规则表（那一份 stretch 才是 1）。
+    //
+    //   `updateBodyTail()` 是唯一改它 stretch 的地方（两条路都要叫它）。
+    m_bodyTail = new QSpacerItem(0, 0, QSizePolicy::Minimum, QSizePolicy::Expanding);
+    m_bodyTailIndex = m_bodyLayout->count();
+    m_bodyLayout->addSpacerItem(m_bodyTail);
+    updateBodyTail(false);   // 默认就是收着的
 
     root->addWidget(m_body, 1);
 
@@ -660,10 +684,26 @@ void WorldSettingsPage::setFileEditingOpen(bool open) {
     m_fileToggle->setChecked(open);
     m_fileToggle->setArrowType(open ? Qt::DownArrow : Qt::RightArrow);
     m_fileBody->setVisible(open);
+    // 正文收尾那根弹簧（见 `m_bodyTail` 那段 —— 这一条路和用户点那颗钮那一条路都要叫它）。
+    updateBodyTail(open);
     // ★ 那行小字里有一句跟着框的开合走（`rulesSourceHint()`，理由见 `refreshNote()` 那段）。
     //   这一条路被 `QSignalBlocker` 挡着，所以**得自己叫一次** —— 不然主程序答完那句警告、
     //   把框摆开之后，底下那句"这一列是怎么来的"要等到用户自己再点一下那颗钮才说得出口。
     refreshNote();
+}
+
+void WorldSettingsPage::updateBodyTail(bool open) {
+    // ★★ 改的是 stretch 不是"藏/露"（见 .hpp 里 `m_bodyTail` 那一段）：
+    //
+    //   * 框**收着**（open = false）⇒ 弹簧 stretch = 1。规则表那一项是空的（控件藏着的项
+    //     在 `QVBoxLayout` 里会被跳过），所以这一份 stretch 就是全场唯一，多余高度全归它
+    //     ⇒ 那行事实和那颗钮都贴顶（用户 2026-09-29 点名要修的就是这个）。
+    //   * 框**摊开**（open = true）⇒ 弹簧 stretch = 0，让位给规则表（`addWidget(m_fileBody,
+    //     1)` 那一份）。留着 1 的话两边会各分一半，规则表白矮一半。
+    //
+    // ★ `setStretch()` 是按下标说话的（`QBoxLayout` 那一层没有"给 spacer 设 stretch"的
+    //   重载），下标是构造里刚记下来的那一个，这里不许另算一遍。
+    m_bodyLayout->setStretch(m_bodyTailIndex, open ? 0 : 1);
 }
 
 bool WorldSettingsPage::fileEditingOpen() const {
@@ -779,6 +819,10 @@ void WorldSettingsPage::rebuildRuleRows(bool harvestFromRows) {
         // 「盘上还没有这一条」得让人看得出来（见 Rule::inFile 的 NOTE）：名字前面挂一枚
         // 「默认」小标记，名字和值那两格的 tooltip 上再说一遍。不标的话，用户会以为
         // "屏幕上摆的"就是"这个存档本来的样子"—— 而这一列现在是**全集**。
+        //
+        // ★ 2026-09-29 起这一串（英文规则名）**只出现在 tooltip 里** —— 行上那一格盖的是
+        //   官方中文名（见下面 `setText()` 那儿）。英文名不能丢：它才是写进存档的那个键，
+        //   也是用户在游戏里 `/gamerule` 要打的那个词。
         const QString ruleTip =
             rule.inFile ? rule.name
                         : rule.name + QLatin1Char('\n') + defaultedHintText();
@@ -795,7 +839,10 @@ void WorldSettingsPage::rebuildRuleRows(bool harvestFromRows) {
         auto *name = new ElidedLabel(row);
         name->setObjectName(ruleNameLabelName());
         name->setElideMode(Qt::ElideRight);
-        name->setText(rule.name);
+        // ★ 用户 2026-09-29 原话：「游戏规则的英文拿一层对应的官方中文覆盖上去」。盖的这层
+        //   是 `GameRuleNames`（官方 zh_cn.json 里那条）——**认不出来就原样回英文**，所以
+        //   模组写的规则、比那张表还新的规则不会变成空白。
+        name->setText(GameRuleNames::displayName(rule.name));
         name->setToolTip(ruleTip);
         layout->addWidget(name, 1);
 
@@ -843,9 +890,14 @@ bool WorldSettingsPage::ruleMatches(const Rule &rule) const {
     if (needle.isEmpty()) {
         return true;
     }
-    // 只搜名字。规则名是全英文小写驼峰（`keepInventory`），用户记的也是它；
+    // 只搜名字，但**两个名字都算**：屏幕上那一格盖的是官方中文（`keepInventory` 那一行
+    // 写的是「死亡后保留物品栏」），用户记的可能就是屏幕上那个词；而英文名是游戏里
+    // `/gamerule` 要打的那个词，也不能搜不到。
+    //
     // 值那一列不参与 —— 拿 "true" 去搜会一次筛出几十条，那不是搜索是噪音。
-    return rule.name.contains(needle, Qt::CaseInsensitive);
+    const QString display = GameRuleNames::displayName(rule.name);
+    return rule.name.contains(needle, Qt::CaseInsensitive) ||
+           display.contains(needle, Qt::CaseInsensitive);
 }
 
 QAbstractButton *WorldSettingsPage::ruleToggleAt(int row) const {
@@ -1014,6 +1066,16 @@ void WorldSettingsPage::keyPressEvent(QKeyEvent *event) {
         return;
     }
     QWidget::keyPressEvent(event);
+}
+
+bool WorldSettingsPage::eventFilter(QObject *watched, QEvent *event) {
+    // ★★ 视口一变（滚动条露出来 / 收起来、页宽变了）就让视图**按这个新视口重摆一遍** ——
+    //   理由见 .hpp 里那个 ★★（视图那份"每一行在哪、多宽"的缓存停在旧视口上，Qt 自己
+    //   不会再回来重算，行尾那颗开关就会被视口切掉半个）。
+    if (watched == m_ruleList->viewport() && event->type() == QEvent::Resize) {
+        m_ruleList->doItemsLayout();
+    }
+    return QWidget::eventFilter(watched, event);
 }
 
 void WorldSettingsPage::showEvent(QShowEvent *event) {

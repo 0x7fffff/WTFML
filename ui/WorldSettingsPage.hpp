@@ -26,6 +26,10 @@
  *   ③ **「世界设置」**：游戏规则那张表，**一条不少地列出来**（盘上有的用盘上的值、盘上
  *      没有的用游戏默认值，见 `Rule::inFile`），值就在行上改。
  *
+ * ★ 2026-09-29 用户又点名两件事：「游戏规则的英文拿一层对应的官方中文覆盖上去，没有展开
+ *   的时候排版太诡异了修一下」。前者落在行上那一格名字里（盖的是 `GameRuleNames` 里那层
+ *   官方中文，英文名退到 tooltip），后者落在 `m_bodyTail` 那根收尾弹簧上（见那一段）。
+ *
  * 【"如果这里不对的话请告诉我文件结构是怎么样的" —— 文件结构就是这样的】
  *
  * 世界所有能改的设置**都在同一个文件里**：`<存档目录>/level.dat`，它是一个 gzip 包着的
@@ -81,12 +85,15 @@
 class QAbstractButton;
 class ElidedLabel;
 class QComboBox;
+class QEvent;
 class QKeyEvent;
 class QLabel;
 class QLineEdit;
 class QListWidget;
 class QPushButton;
+class QSpacerItem;
 class QToolButton;
+class QVBoxLayout;
 class ToggleSwitch;
 
 class WorldSettingsPage : public QWidget {
@@ -309,6 +316,9 @@ public:
     QListWidget *ruleList() const { return m_ruleList; }
     QLabel *noteLabel() const { return m_note; }
     QLabel *titleLabel() const { return m_title; }
+    /// 正文顶上那一行事实（版本 / 存档格式 / 上次游玩）。★ 验证工程拿它量"框收着的时候
+    /// 排版有没有塌" —— 见 `m_bodyTail` 那段。
+    QLabel *infoLabel() const { return m_info; }
     QPushButton *saveButton() const { return m_save; }
     QPushButton *backButton() const { return m_back; }
     QPushButton *backupButton() const { return m_backup; }
@@ -360,6 +370,22 @@ protected:
     /// ★ **焦点只能在这一刻补**（`setParent()` 会清焦点，见 OverlayHost 那一段）——
     ///   切到这一格时把光标放进第一格能打字的地方（世界名）。
     void showEvent(QShowEvent *event) override;
+    /// 挂在 `m_ruleList` 的**视口**上，只认 `QEvent::Resize`：视口一变就让视图**按这个新
+    /// 视口把那一列行重摆一遍**（`QListView::doItemsLayout()`）。
+    ///
+    /// ★★ 为什么必须有这一步（2026-09-29 顺着用户那句「没有展开的时候排版太诡异了修一下」
+    ///   一起修掉的）：视图把"每一行在哪、多宽"记在一份**按当时的视口宽算出来的缓存**里
+    ///   （`rectForIndex()` 那条路），而 Qt 自己那一趟的次序是"先按**还没有滚动条**的宽度摆
+    ///   一遍、再看要不要露滚动条"：这一列的行是在**折叠框还收着的时候**建的（那时列表连
+    ///   大小都没有），摆开之后按 635 摆了一遍，等滚动条露出来把视口挤到 621 —— **没有第二趟**
+    ///   回来重算那份缓存（两个数都是探针量到的，差 14 正好是滚动条宽）。屏幕上就是行尾那颗
+    ///   开关被视口切掉半个平口（放大 10j2b 那张截图看得清清楚楚），看着像这一页坏了。
+    ///
+    ///   视口被挤窄的那一下它自己会收到这一发 `Resize` ⇒ 在这儿重摆一遍，缓存跟着视口走。
+    ///
+    /// ★ 别改成"自己拿 `resize()` 把每一行改成视口宽"：那样只是当场改一次，视图那份缓存还
+    ///   停在 635，下一趟 `updateEditorGeometries()` 就把它**盖回去**（这一版实测过，白改）。
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
     /// 按 `m_view.rules` 重摆一遍那张表（筛选之后也走它）。**重建行**，不是藏行 ——
@@ -373,6 +399,8 @@ private:
     void harvestEdits();
     /// 底下那行小字回到"现在该说什么"。
     void refreshNote();
+    /// 收尾那根弹簧的 stretch 跟着折叠框走（收着 = 1、摊开 = 0）。见 `m_bodyTail`。
+    void updateBodyTail(bool open);
     /// 行里那一格值现在是什么（按控件类型取）。
     QString valueAt(int row) const;
     /// 这一行过不过搜索框里那串字。
@@ -406,6 +434,21 @@ private:
     QLabel *m_title = nullptr;
     QLabel *m_info = nullptr;
     QWidget *m_body = nullptr;
+    /// 正文那一层布局（`updateBodyTail()` 要拿它改 stretch，所以得留个指针）。
+    QVBoxLayout *m_bodyLayout = nullptr;
+    /// **正文收尾那根弹簧**（正文里最后一个东西）。它存在的理由只有一个：
+    ///
+    /// ★★ 折叠框**收着**的时候，正文里活着的只剩「那一行事实」和「修改存档文件」这颗钮，
+    ///    而 `QVBoxLayout` 在没有 stretch 可用时会把多出来的高度**均分**给它们 —— 屏幕上
+    ///    就是"那行事实飘在正中间、那颗钮掉到最底下贴着说明"，用户 2026-09-29 说的
+    ///    「没有展开的时候排版太诡异了」就是它。
+    ///
+    ///    所以正文尾巴上钉一根弹簧：框收着时它一个人吃掉全部多余高度（上面那两样贴顶），
+    ///    框摊开时让给规则表（那一份 stretch 才是 1）。**改这一位的只有
+    ///    `updateBodyTail()`**，两条路（用户点那颗钮、MainWindow 答完警告摆回来）都要叫它。
+    QSpacerItem *m_bodyTail = nullptr;
+    /// 那根弹簧在布局里排第几个（`QBoxLayout::setStretch()` 按下标说话）。
+    int m_bodyTailIndex = -1;
     /// 「修改存档文件」那个折叠框的开关（可勾、带箭头）。和「实例设置 → 启动」那一页的
     /// 「高级选项」是同一个做法（`QToolButton` + `setArrowType()`）。
     QToolButton *m_fileToggle = nullptr;
