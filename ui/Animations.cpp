@@ -15,6 +15,7 @@
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QPalette>
 #include <QPixmap>
 #include <QPointer>
 #include <QPropertyAnimation>
@@ -80,6 +81,16 @@ public:
         update();
     }
 
+    /// 底下垫的那一层（**整块不透明、不跟着内容一起淡**）。见 `draw()` 里那一段。
+    QColor backdrop() const { return m_backdrop; }
+    void setBackdrop(const QColor &color) {
+        if (m_backdrop == color) {
+            return;
+        }
+        m_backdrop = color;
+        update();
+    }
+
     /// ★ 这一条就是"不许有元素超出"的那一句：效果的有效范围**就是源矩形自己**
     /// （默认实现也是这么返回的，这里明写出来，免得将来有人"顺手"给它加个外扩）。
     QRectF boundingRectFor(const QRectF &sourceRect) const override { return sourceRect; }
@@ -107,6 +118,21 @@ protected:
         painter->setWorldTransform(QTransform());
         // ★ 再上一道保险：不管上面那些数怎么算错，都画不到源矩形之外去。
         painter->setClipRect(QRectF(offset, source.size()), Qt::IntersectClip);
+        // ★★ 底下那一层（用户 2026-09-29 点名要"延迟"之后才有的）：**整块铺成窗口底色、
+        //    而且不跟着内容一起淡**。
+        //
+        //    为什么不铺就出事：淡的那个控件（内容区）**底下那些不透明的子控件**
+        //    （列表/树的视口 —— `QAbstractScrollArea` 的视口自带底色，Qt 认它"自己会画满"）
+        //    平时由它们自己画，所以**上面几层的底色都会跳过它们那一块**。可一旦这个控件挂了
+        //    效果，子控件就改成画进效果那一张离屏图里了 —— 于是那块地方**屏幕上没有任何人去
+        //    画**：`grab()` 出来的是一块黑（那张 pixmap 的原始字节），屏幕上则是**上一帧留下的
+        //    像素**（也就是"上一页的列表还挂在那儿"）。干等那一段透明度是 0，看得最清楚。
+        //    铺一层底色把这整块盖住，那一整块就总是"我们自己画满"的 —— 干等时看到的就是
+        //    干净的窗口底色（"卡片还没上来"），跟旁边一圈完全接得上。
+        if (m_backdrop.isValid() && m_backdrop.alpha() > 0) {
+            painter->setOpacity(1.0);
+            painter->fillRect(QRectF(offset, source.size()), m_backdrop);
+        }
         painter->setOpacity(qBound(0.0, m_opacity, 1.0));
 
         QPoint at = offset;
@@ -122,6 +148,7 @@ private:
     qreal m_opacity = 1.0;
     qreal m_shift = 0.0;
     qreal m_scrim = 0.0;
+    QColor m_backdrop;  // 无效色 = 不铺（按下 / 提示卡 / 滚动条那几种都不铺）
 };
 
 /// 这个控件上是不是我们的效果；是就返回它，不是（或没有）返回空。
@@ -167,11 +194,18 @@ void dropEffect(QWidget *widget) {
  *
  * `removeWhenDone`：跑完把效果摘掉（淡入、松手这两条）。按下那一发**不摘** —— 手指还按着，
  * 那个"暗着"的状态要一直在。
+ *
+ * `delayMs`：**起手先干等这么久**，到点了才开始动（只有换页那一发用得上，见
+ * `Anim::pageDelayMs()`）。默认 0 = 和从前一模一样。
  */
 void runProgress(QWidget *widget, AnimEffect *effect, qreal from, qreal to, int ms, bool removeWhenDone,
-                 const std::function<void(qreal)> &apply) {
+                 const std::function<void(qreal)> &apply, int delayMs = 0) {
     // 同一个控件上又进来一发（连点两下、连切两页）：把上一发停掉。不停的话两个动画会
     // 交叉着写同一组数，看着像"抖"。
+    //
+    // NOTE: 带延迟的那一发也在这条路上收住 —— 它不是"另起一个定时器等会儿再开"，而是**同一
+    //       个动画**前面多走一段（见下面 `delayMs` 那一段）。所以连切两页时不会有一个
+    //       没人管的定时器事后又把上一页淡一遍。
     const QList<QVariantAnimation *> running = effect->findChildren<QVariantAnimation *>();
     for (QVariantAnimation *old : running) {
         old->stop();
@@ -179,12 +213,39 @@ void runProgress(QWidget *widget, AnimEffect *effect, qreal from, qreal to, int 
     }
 
     auto *animation = new QVariantAnimation(effect);
-    animation->setDuration(qMax(1, ms));
+    animation->setDuration(qMax(1, qMax(0, delayMs) + qMax(1, ms)));
     animation->setStartValue(from);
     animation->setEndValue(to);
-    animation->setEasingCurve(QEasingCurve::OutCubic);
-    QObject::connect(animation, &QVariantAnimation::valueChanged, effect,
-                     [apply](const QVariant &value) { apply(value.toReal()); });
+    if (delayMs <= 0) {
+        animation->setEasingCurve(QEasingCurve::OutCubic);
+        QObject::connect(animation, &QVariantAnimation::valueChanged, effect,
+                         [apply](const QVariant &value) { apply(value.toReal()); });
+    } else {
+        // ★ 带起手延迟的那一发：**同一条时间轴上先一动不动，到点了才开始缓动**。
+        //
+        // 两个坑，都在这里：
+        //   1) **不能**"另起一个 `QTimer` 等会儿再调 `runProgress()`" —— 那样连切两页时
+        //      会有两个动画（和一个没人管的定时器）交叉着写同一组数。
+        //   2) 缓动曲线**必须自己算**。`QVariantAnimation` 的缓动是套在整条时长上的，
+        //      直接把 `OutCubic` 摆上去，前面干等的那一段也会被一起缓动进去 —— 到点那一刻
+        //      进度已经走掉一大截，"延迟"就白设了。所以这里把动画自己的曲线换成线性
+        //      （`0→1` 均匀走），真正那一档缓动在下面按"去掉前面那一段之后"的进度算。
+        animation->setEasingCurve(QEasingCurve::Linear);
+        animation->setStartValue(0.0);
+        animation->setEndValue(1.0);
+        const QEasingCurve ease(QEasingCurve::OutCubic);
+        const qreal lead = qreal(delayMs) / qreal(delayMs + qMax(1, ms));
+        QObject::connect(animation, &QVariantAnimation::valueChanged, effect,
+                         [apply, from, to, lead, ease](const QVariant &value) {
+                             const qreal t = value.toReal();
+                             if (t <= lead) {
+                                 apply(from);  // 干等那一段：一直是"还没进来"的样子
+                                 return;
+                             }
+                             const qreal p = (t - lead) / (1.0 - lead);
+                             apply(from + (to - from) * ease.valueForProgress(p));
+                         });
+    }
     if (removeWhenDone) {
         // NOTE: 摘效果这件事**不能**在 finished 里直接做：那一刻我们是站在动画自己的
         //       信号里，而效果是动画的父亲 —— 删父亲等于把这个正在发信号的动画也删了。
@@ -355,6 +416,9 @@ void scrollBarAppear(QWidget *bar) {
     }
     // 和 `overlayAppear()` 是同一条路（**只淡、不抬**）：滚动条就贴在它自己那一格里，
     // "往下挪着画"没有任何意义，只会让它看着离开自己那条边线。
+    // （垫底色只有换页那一发要 —— 见 `pageAppear()`。同一个控件上换着花样跑动画时
+    //  这一句保证不会把上一发垫的那层留着。）
+    effect->setBackdrop(QColor());
     effect->setOpacity(0.0);
     runProgress(bar, effect, 0.0, 1.0, scrollBarMs(), /*removeWhenDone=*/true,
                 [effect](qreal progress) { effect->setOpacity(progress); });
@@ -371,12 +435,22 @@ void pageAppear(QWidget *widget) {
     const qreal rise = pageRiseDistance();
     // 第一帧就摆到"还没进来"的样子：0 不透明 + 往下 `rise` 那么多（`draw()` 里是整块往下挪
     // 着画，所以多出来的那一条在**上面**、被裁掉的是下面那一条）。
+    // ★ 这一句在 `pageDelayMs()` 那一段干等里也得一直成立 —— 它是"起手延迟"看得见的那一半
+    //   （另一半在 `runProgress()` 里，见它上面那段）。
+    // ★★ 底下垫窗口底色（`QPalette::Window`）：干等那一段**整块**就是这个色，淡上去的时候
+    //    内容是从它上面浮出来的（那一层的来龙去脉写在 `AnimEffect::draw()` 里）。
+    //    取的是**顶层窗口**的调色板 —— 内容区之外那一圈（标题栏、底栏）铺的就是它。
+    //    NOTE: 设了页面背景图（`Theme::Part::PageBackground`）时那张图是**页面自己**画的、
+    //          也跟着一起淡，这一层垫的还是底色 —— 那一档下干等那一刻会短暂地少一层图。
+    effect->setBackdrop(widget->window()->palette().color(QPalette::Window));
     effect->setOpacity(0.0);
     effect->setShift(rise);
-    runProgress(widget, effect, 0.0, 1.0, appearMs(), /*removeWhenDone=*/true, [effect, rise](qreal progress) {
-        effect->setOpacity(progress);
-        effect->setShift(rise * (1.0 - progress));
-    });
+    runProgress(widget, effect, 0.0, 1.0, appearMs(), /*removeWhenDone=*/true,
+                [effect, rise](qreal progress) {
+                    effect->setOpacity(progress);
+                    effect->setShift(rise * (1.0 - progress));
+                },
+                /*delayMs=*/pageDelayMs());
 }
 
 void overlayAppear(QWidget *widget) {
@@ -387,6 +461,7 @@ void overlayAppear(QWidget *widget) {
     if (effect == nullptr) {
         return;
     }
+    effect->setBackdrop(QColor());  // 同上：提示卡那一层是盖在**已经画好的界面**上的，不垫底
     effect->setOpacity(0.0);
     runProgress(widget, effect, 0.0, 1.0, overlayMs(), /*removeWhenDone=*/true,
                 [effect](qreal progress) { effect->setOpacity(progress); });

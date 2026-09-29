@@ -1212,18 +1212,27 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     QObject::connect(tabWidget, &QTabWidget::currentChanged, bar, &TitleBar::setCurrentNav);
 
     // ================= 换页那一下 =================
-    // 2026-09-29 用户点名要的第二个动效（「切换页面」）：新那一页**淡进来**，顺带从下面
-    // 抬 `Anim::pageRiseDistance()` 那么一小段。规矩（尤其是"一个像素的几何都不动"）
-    // 见 ui/Animations.hpp。
+    // 2026-09-29 用户点名要的第二个动效（「切换页面」）：新那一块**先等一拍、再淡进来**，
+    // 顺带从下面抬 `Anim::pageRiseDistance()` 那么一小段。规矩（尤其是"一个像素的几何都
+    // 不动"）见 ui/Animations.hpp。
+    //
+    // ★ 这里动的是**内容区整个控件**（`tabWidget` 自己），**不是** `currentWidget()` 那一页。
+    //   用户 2026-09-29 原话：「这个框架啥的都是瞬间出现，能不能给它设定一定延迟」（他指名
+    //   的是「换页时整页的卡片」）。原因在这一层底下：那张卡片和它的外框**是 `QTabWidget`
+    //   自己画的** —— 四个页面都是 `ThemeBackground(Part::PageBackground)`，而它在"没设图"
+    //   时 `paintEvent()` 直接 return（见那个文件头上那一大段）。所以只给页面装效果的话，
+    //   页面里那些控件在淡，**卡片和外框却是"啪"地铺上的**，正好就是他说的那件事。
+    //   换成 `tabWidget` 之后，卡片、外框、里面的内容一起淡（"不许有元素超出"不受影响：
+    //   效果还是那一层 `AnimEffect`，源矩形那一剪裁和几何一个像素都不动的性质都在）。
     //
     // NOTE: 挂的是 `currentChanged`，不是某一次点击 —— 四颗导航、底栏、主页那几个入口
     //       都会翻页，只有挂在这儿才一处管住全部（"唯一出处"那条老规矩）。
     // NOTE: 只在**已经露着头**的时候动。搭界面这一路会挨个 `addTab()`，`currentChanged`
-    //       在那时候就会响，而那些页还没上屏、几何也没定下来，给它们装效果纯属白干。
+    //       在那时候就会响，而那些页还没上屏、几何也没定下来，给它们装效果纯属白干
+    //       （`tabWidget` 是 `centralWidget` 里生出来的，这条判据在它身上同样说得通）。
     QObject::connect(tabWidget, &QTabWidget::currentChanged, tabWidget, [this](int) {
-        QWidget *page = tabWidget->currentWidget();
-        if (page != nullptr && page->isVisible()) {
-            Anim::pageAppear(page);
+        if (tabWidget->isVisible()) {
+            Anim::pageAppear(tabWidget);
         }
     });
 
