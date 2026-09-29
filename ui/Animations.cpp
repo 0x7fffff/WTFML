@@ -91,6 +91,14 @@ public:
         update();
     }
 
+    /// 「这一发淡的是**一张定住的图**」—— 见 `pageAppear()` 里那段（换页专用）。
+    /// 每叫一次就把上一张丢掉：下一帧重照一张。
+    void beginSnapshot() {
+        m_snapshot = true;
+        m_snapshotPixmap = QPixmap();
+        m_snapshotOffset = QPoint();
+    }
+
     /// ★ 这一条就是"不许有元素超出"的那一句：效果的有效范围**就是源矩形自己**
     /// （默认实现也是这么返回的，这里明写出来，免得将来有人"顺手"给它加个外扩）。
     QRectF boundingRectFor(const QRectF &sourceRect) const override { return sourceRect; }
@@ -98,8 +106,31 @@ public:
 protected:
     void draw(QPainter *painter) override {
         QPoint offset;
-        const QPixmap source =
-            sourcePixmap(Qt::DeviceCoordinates, &offset, QGraphicsEffect::PadToEffectiveBoundingRect);
+        // ★★ 「定住的那一张」（换页那一发，见 `pageAppear()`）。**照一次，后面每一帧都拿它**。
+        //
+        //    为什么非定住不可：`sourcePixmap()` 是**现照** —— 控件这一帧画成什么样，淡的就是
+        //    什么样。换页那一刻正好是"内容还在往里灌"的时候（典型：服务器列表那一页，
+        //    进页就自动测速，结果一个一个回来 —— 行会从一行字长成两行、favicon 也会补上），
+        //    于是**淡的过程中页面自己在长高、自己在下跳**。用户看起来就是"这一发动画卡卡的"
+        //    （2026-09-29 原话：「服务器列表那栏动画卡卡的」）：帧其实没丢（那一页照一帧
+        //    只要 1 ms 出头），丢的是"这一发到底在淡什么" —— 每一帧淡的都不是同一张画面。
+        //
+        //    定住之后这一发只有一个动作：把那一张图 blit 上去、改一改不透明度。中途进来的
+        //    数据照旧落到控件上（控件本身一个字节没动），只是**要等这一发跑完才看得见**。
+        //    NOTE: 只在换页那一发这样干。按下那一发**不能**定住 —— 手指按着的时候那个按钮
+        //          自己还在重画（悬停、文字），定住就成了一块贴死的旧图。
+        QPixmap source;
+        if (m_snapshot && !m_snapshotPixmap.isNull()) {
+            source = m_snapshotPixmap;
+            offset = m_snapshotOffset;
+        } else {
+            source = sourcePixmap(Qt::DeviceCoordinates, &offset,
+                                  QGraphicsEffect::PadToEffectiveBoundingRect);
+            if (m_snapshot && !source.isNull()) {
+                m_snapshotPixmap = source;
+                m_snapshotOffset = offset;
+            }
+        }
         if (source.isNull()) {
             return;
         }
@@ -149,6 +180,11 @@ private:
     qreal m_shift = 0.0;
     qreal m_scrim = 0.0;
     QColor m_backdrop;  // 无效色 = 不铺（按下 / 提示卡 / 滚动条那几种都不铺）
+    /// 「这一发淡的是一张定住的图」（换页那一发；见 `beginSnapshot()` 与 `draw()`）。
+    bool m_snapshot = false;
+    /// 定住的那一张（第一帧照的）+ 它当时的落点。`isNull()` = 还没照到。
+    QPixmap m_snapshotPixmap;
+    QPoint m_snapshotOffset;
 };
 
 /// 这个控件上是不是我们的效果；是就返回它，不是（或没有）返回空。
@@ -454,6 +490,11 @@ void pageAppear(QWidget *widget, const QColor &backdrop) {
     effect->setBackdrop(backdrop);
     effect->setOpacity(0.0);
     effect->setShift(rise);
+    // ★★ 这一发淡的是**一张定住的图**（第一帧照一次，后面每一帧都拿它）—— 理由整段写在
+    //    `AnimEffect::draw()` 里那一段。一句话：换页那一刻正是"内容还在往里灌"的时候，
+    //    现照现淡的话，淡的每一帧都不是同一张画面（用户 2026-09-29：「服务器列表那栏动画
+    //    卡卡的」）。定住之后这一发只剩一个动作：blit + 改不透明度。
+    effect->beginSnapshot();
     runProgress(widget, effect, 0.0, 1.0, appearMs(), /*removeWhenDone=*/true,
                 [effect, rise](qreal progress) {
                     effect->setOpacity(progress);
