@@ -202,7 +202,9 @@ cmake --build build/static-release -j
   （16×16 像素画，颜色形状都在代码里，能对着像素断言）；Fabric/Forge/NeoForge/OptiFine
   是**真图**（`assets/loader/*.png`，64×64 成品，编进 exe 的 `:/assets/…`，来路见那份
   README）—— 换那四张只要盖掉同名文件，`loaderMark()` 那段代码和写进 `wtfml.meta` 的
-  键都不用动。
+  键都不用动。★ 2026-09-29：**Fabric 那张原来垫着的深色圆角底抠掉了**（用户「fabric 的图标
+  黑色部分改成透明的」），另外三张一个字节没动 ⇒ 四张里现在只有 Fabric 是透明底，在浅色
+  背景上比另外三张淡一档（这是那条要求的直接结果）。抠法见 `assets/loader/README.md`。
   ★ 想关掉 Qt 画在分类左边那个小三角，**不能**设 `setChildIndicatorPolicy(DontShowIndicator)` ——
   `QTreeModel::hasChildren()` 会按它直接回"没有孩子"，后果是整条分类的版本号一条都排不进布局
   （而模型层的断言照样全绿）。正路是 `QTreeView::setRootIsDecorated(false)`。
@@ -243,6 +245,17 @@ cmake --build build/static-release -j
 - **实例列表是一棵树**：有分组时组是父节点（空组整行不画），没有就平铺。点组头**不改**
   主页的选中项，但组头照样会变成 `currentItem()` —— 所以"当前选中的是哪个实例"一律走
   守卫函数，直接读 `currentItem()` 会静默选错实例。
+- **这张树有自己的三个数**：行高 58 / 图标 26 / 行间空 6（`MainWindowUI::instanceTreeRowHeight()`
+  / `instanceTreeIconSize()` / `instanceTreeRowGap()`，2026-09-29）。下载页那几棵树仍是
+  46 / 18，一个字没动 —— 那把尺子是版本树自己的。组行和实例行**必须同一个数**：树上开着
+  `uniformRowHeights`（第一行多高整棵树就多高），而平铺那一档第一行是实例、有分组时第一行
+  是组头。**图标那个数有三处读者**（`setIconSize` / 现算 pixmap / 验证工程量），三处差一个
+  数只会看着有点糊、不会报错。
+- **行与行之间那道空**落在 `InstanceGroupDelegate::paint()` 里：画之前把整条行上下各收掉半个
+  `instanceTreeRowGap()`（`cardRect()`），圈外那一带谁也不画。★ **只有画这一层收**，行尾那几颗
+  按钮的命中格读的仍是整条行（竖直同中心，所以字形和命中格不会错开；收过的拿去做命中判定
+  就会整体错开半个缺口）。★ 树的每一行**本来没有底色**，所以那道空平时看不出来，**选中那一行
+  的高亮band是唯一露得出来的时候**（想要每一行都看得出来得先给行加底色，没做）。
 - **组**：五个默认组（置顶 / 可安装mod / 原版 / 快照版 / 远古版，id 写死 `default-*`），
   只在 `wtfml.folders` 不存在时种一次。归类在**显示层**算，愚人节版故意落「未分组」。
   「置顶」是**两边都显示**（占两行）。组序 = 「分组设置」那张表里的行序，上/下移三角

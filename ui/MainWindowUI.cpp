@@ -601,9 +601,14 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // 实例行原样走基类（见 InstanceGroupDelegate 文件头）。
         instanceList->setItemDelegate(new InstanceGroupDelegate(instanceList));
         // 实例行前面那个图标（原版草方块 / Forge 铁砧 / Fabric…）：**这一份树以前从来没设过
-        // iconSize**，用的是样式给的默认值 —— 而图标是按 versionTreeIconSize()（18）画的，
-        // 不设的话它会被缩到默认那一档、和版本树上的方块不是一样大。
-        instanceList->setIconSize(QSize(versionTreeIconSize(), versionTreeIconSize()));
+        // iconSize**，用的是样式给的默认值 —— 而图标是按 instanceTreeIconSize() 画的，
+        // 不设的话它会被缩到默认那一档、和实例名那行字挤在一起。
+        //
+        // ★ 这个边长是**实例列表自己**那一档（2026-09-29 起 26，之前借的是版本树的 18，
+        //   用户原话「图标大一点」）。它和 MainWindow::refreshInstanceList() 里现算那些
+        //   QPixmap 时递进去的边长**必须同一个数** —— 两处对不上的症状是图标被 QIcon
+        //   重新采样一遍（屏幕上只是略糊，验证工程里那条"行首那张图 == 现画的那张"会红）。
+        instanceList->setIconSize(QSize(instanceTreeIconSize(), instanceTreeIconSize()));
         // ★ 悬停那两颗按钮（上箭头 / 垃圾桶）**必须**有这一句，而且它是缺一不可的两半里的
         //   一半（另一半是代理里那个 `&& hovered`，见 InstanceGroupDelegate::paint()）：
         //   干净的视图 `WA_Hover=0` / `mouseTracking=0`，**真鼠标移动一个字都不改**

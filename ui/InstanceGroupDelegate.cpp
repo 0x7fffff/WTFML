@@ -16,9 +16,10 @@ InstanceGroupDelegate::InstanceGroupDelegate(QObject *parent) : QStyledItemDeleg
 
 QRect InstanceGroupDelegate::chevronRect(const QRect &row) {
     const int pad = MainWindowUI::versionTreeRowPadding();
-    // 边长按这一行的高度收一收。实例树**没有**像版本树那样钉一个行高常数
-    // （versionTreeRowHeight()），行高就是那一行字那么高 —— 一行只有十几像素的时候
-    // 12 px 的箭头正好装下，再矮就得跟着缩（行够高时它还是 12，不会变大）。
+    // 边长按这一行的高度收一收。实例树 2026-09-25 之前没有行高常数（就是一行字那么高，
+    // 十几像素），2026-09-25 起钉了一个、2026-09-29 起换成它自己那个
+    // （instanceTreeRowHeight() = 58）—— 所以这一缩现在**平时不生效**，留着是兜底：
+    // 行高哪天再变矮，12 px 的箭头自己跟着缩，而不是上下各冒出去一条被切掉。
     const int arrowSize = qMin(MainWindowUI::versionTreeArrowSize(), row.height());
     // 贴着行右边缘（和 VersionTreeDelegate 算那个箭头是同一个式子："右边留出 pad"）。
     //
@@ -28,6 +29,18 @@ QRect InstanceGroupDelegate::chevronRect(const QRect &row) {
     //       那条行、局部重绘被切掉一条。这个式子在"边长 ≤ 行高"时恒在行内。
     return QRect(row.right() - pad - arrowSize, row.top() + (row.height() - arrowSize) / 2,
                  arrowSize, arrowSize);
+}
+
+QRect InstanceGroupDelegate::cardRect(const QRect &row) {
+    // 一道空上下各分一半。缺口是**奇数**的时候多出来的那 1 px 落在底下 —— 挑哪边都行，
+    // 写死一边是为了"同一个行矩形永远算出同一个卡片矩形"（随机取整会让量像素的断言
+    // 两趟之间差一像素）。
+    const int gap = MainWindowUI::instanceTreeRowGap();
+    if (gap <= 0) {
+        return row;
+    }
+    const int top = gap / 2;
+    return row.adjusted(0, top, 0, -(gap - top));
 }
 
 QRect InstanceGroupDelegate::gearRect(const QRect &row) {
@@ -60,7 +73,7 @@ void InstanceGroupDelegate::instanceActionGlyphRects(const QRect &row, QRect &ge
     const int pad = MainWindowUI::versionTreeRowPadding();
     const int gap = MainWindowUI::instanceRowActionGap();
     // 边长照 `gearGlyphRect()` 那个兜底收一收：行矮的时候 16 px 的字形会上下各冒出去一半。
-    // 行高平时是 versionTreeRowHeight()（46），这一缩不生效，留着是兜底。
+    // 行高平时是 instanceTreeRowHeight()（58），这一缩不生效，留着是兜底。
     const int size = qMin(MainWindowUI::instanceRowActionSize(), row.height());
     // 竖直居中：和 chevronRect()/gearRect() 同一个式子（`top + (行高 - 边长) / 2`，**不用
     // `row.center().y()`**，理由见 chevronRect() —— 行高是偶数时分母那一半少一像素）。
@@ -198,6 +211,11 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
         //   文字区的宽度**问样式要**（SE_ItemViewItemText），不去猜它给图标和留白各让了
         //   多少 —— 猜的话换一个样式就错一截。
         initStyleOption(&opt, index);
+        // 行与行之间那道空（见 cardRect()）：这一行**画**的那一圈比整条行上下各小半个缺口。
+        // 摆在这儿（initStyleOption 之后、量文字之前）是因为下面那句 SE_ItemViewItemText
+        // 是从 opt.rect 上算的 —— 少了这一句，量出来的宽度还是整条行的，虽然宽度只跟左右有关、
+        // 结果一样，但"画在哪一圈"和"按哪一圈量"从此是两件事，读的人得自己核对一遍。
+        opt.rect = cardRect(option.rect);
         if (QStyle *style = opt.widget != nullptr ? opt.widget->style() : QApplication::style()) {
             // 停在哪：最左那颗按钮**命中格**的左边（它已经比字形大一圈，天然留出一点空隙）。
             // 三颗无论此刻画不画都算进去 —— 和 sizeHint() 那条规矩一样（跟着悬停变的话，
@@ -261,6 +279,10 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
     opt.text.clear();
     opt.icon = QIcon();
     opt.features = QStyleOptionViewItem::None;
+    // 组行同样收掉那道空（见 cardRect()）。这一句改不动屏幕上的东西 —— 组行没有自己的底色，
+    // 露出来的那一带和行本身的底色是同一个（悬停/选中那层带子除外，而组行不可选中）；
+    // 留着是为了"这张树里每一行都是同一种画法"，将来谁给行加了底色不会只加一半。
+    opt.rect = cardRect(option.rect);
     if (QStyle *style = opt.widget != nullptr ? opt.widget->style() : QApplication::style()) {
         style->drawControl(QStyle::CE_ItemViewItem, &opt, painter, opt.widget);
     }
@@ -324,11 +346,15 @@ QSize InstanceGroupDelegate::sizeHint(const QStyleOptionViewItem &option,
         opt.font = bold;
     }
     const QSize size = QStyledItemDelegate::sizeHint(opt, index);
-    // 行高**每一行都钉成版本树那个常数**（实例行也一样）—— 用户 2026-09-25 原话：
+    // 行高**每一行都钉成同一个常数**（组行和实例行都算）—— 用户 2026-09-25 原话：
     // 「每个版本啥的上下高一点，像下载页那样」。树上开着 uniformRowHeights（第一行多高所有
     // 行就多高），而平铺那一档的第一行是**实例**、有分组时第一行是**组头** —— 两边都给
     // 同一个数，"一张树多高"才不随"有没有分组"翻个面。
-    const int height = MainWindowUI::versionTreeRowHeight();
+    //
+    // ★ 2026-09-29 起这个常数是**实例列表自己那个**（instanceTreeRowHeight() = 58），不再借
+    //   版本树的 46：用户原话「实例列表里每一个之间留一点空的距离，每一行高一点，图标大一点」。
+    //   版本树那把尺子（46）一个字没动，见 MainWindowUI 里那一段。
+    const int height = MainWindowUI::instanceTreeRowHeight();
     if (!isGroup) {
         // 实例行：行尾那三颗按钮占的宽度**无条件**加上 —— 三颗 + 两个间隔 + 左右各一份
         // 命中格的 margin + 右留白。判据里**故意不放悬停**（和 VersionTreeDelegate::

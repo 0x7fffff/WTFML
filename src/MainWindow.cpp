@@ -3215,7 +3215,7 @@ void MainWindow::refreshInstalledVersions() {
     marks.reserve(parts.size());
     for (const VersionDisplayParts &part : parts) {
         marks.insert(part.id, QIcon(instanceRowMark(part, m_versionManager,
-                                                    MainWindowUI::versionTreeIconSize())));
+                                                    MainWindowUI::instanceTreeIconSize())));
     }
     fillInstanceTree(m_ui->getInstanceList(), buckets, m_settings->versionNameOptions(),
                      runningVersionIds(), marks, pinnedGroupId, pinnedInstanceIds);
