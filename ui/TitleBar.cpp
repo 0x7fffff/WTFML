@@ -40,8 +40,25 @@ constexpr int kButtonSize = 28;
 constexpr qreal kBrandPointDelta = 2.0;
 /// 退回像素那一档时的增量（同上）。
 constexpr int kBrandPixelDelta = 3;
+
+/// 那四颗**导航**按钮上的字号比正文大多少。★ 2026-09-30 用户原话「上面四个按钮的文本也做大点」。
+///
+/// 和名字那两个常量**分开两个旋钮**（值一样只是碰巧）：用户说的是两句话、可以分开调，而且
+/// 名字那一颗是**加粗**的、同一号字看着本来就大一点。两个数的用法跟上面那两个一样
+/// （增量、不写死 pt、点数与像素各一条路），走同一个 `enlargedFont()`。
+///
+/// NOTE: 落在 `setNavItems()` 里 `setFont()` 到按钮上（**不是**画的时候临时算）——
+///       于是"这一颗用的什么字"能直接问 `QAbstractButton::font()` 读回来，验证工程量的
+///       就是它（画的时候临时改的话，字体没落在控件上，谁都读不到）。
+constexpr qreal kNavPointDelta = 2.0;
+/// 退回像素那一档时的增量（同上）。
+constexpr int kNavPixelDelta = 3;
+
 /// 每一颗**导航**按钮的宽（逻辑像素）。四个汉字标签（"主页"两个字）+ 左右各 20 的余量：
 /// 两字的正文是 24~26 px 宽，20 的余量让悬停时那块底色不至于贴着字。
+/// NOTE: 2026-09-30 字号大了 2pt 之后两字约 30 px 宽，余量掉到 19 上下 —— 还是没贴着字，
+///       所以这个数没跟着动；**真动了的话要连 ui_check 那条"每颗都是 navItemWidth()"一起看**
+///       （那个数有访问器、验证工程读的是它，不是写死的 68）。
 constexpr int kNavItemWidth = 68;
 /// 草方块那颗图标的边长。16 的倍数最清楚（见 `VersionIcons::grassBlock()` 的说明）。
 constexpr int kLogoSize = 16;
@@ -95,6 +112,21 @@ constexpr int kCurrentMarkInset = 10;
 /// 和系统那两颗按钮上的字形差不多大。
 constexpr int kGlyphSize = 18;
 
+/// 「比正文大一点」的**唯一**算法（名字那一行与四颗导航共用）。
+///
+/// 两档各走各的：点数是正常情况；`pointSizeF()` 为 −1 说明这份字体是按**像素**定义的，
+/// 那时候 `setPointSizeF()` 会被 Qt 静默忽略（字号一点不变、也不报错），得改 `setPixelSize()`。
+/// 用**增量**不写死 pt：面板字号跟着系统走，写死会把"比正文大一点"变成"在某些机器上比正文小"。
+QFont enlargedFont(const QFont &base, qreal pointDelta, int pixelDelta) {
+    QFont out = base;
+    if (out.pointSizeF() > 0) {
+        out.setPointSizeF(out.pointSizeF() + pointDelta);
+    } else if (out.pixelSize() > 0) {
+        out.setPixelSize(out.pixelSize() + pixelDelta);
+    }
+    return out;
+}
+
 // ★ 条的颜色原来是这儿的一个 `barColor()`：把窗口底色压暗一档（`darker(105)`，和底栏
 //   同一档）。2026-09-28 起它挪进了 `Theme::Part::TitleBar` —— 只有那一层才知道"用户把
 //   标题栏单独改过了没有"，算两遍的话覆盖项只会在一半地方生效。条上每一处颜色现在都问
@@ -122,6 +154,14 @@ int TitleBar::buttonInset() {
 
 int TitleBar::navItemWidth() {
     return kNavItemWidth;
+}
+
+qreal TitleBar::navFontPointDelta() {
+    return kNavPointDelta;
+}
+
+int TitleBar::navFontPixelDelta() {
+    return kNavPixelDelta;
 }
 
 int TitleBar::windowButtonsRightMargin() {
@@ -360,6 +400,10 @@ void TitleBar::setNavItems(const QStringList &labels) {
         auto *button = new TitleBarButton(TitleBarButton::Glyph::Text, QColor(), QColor(), this);
         button->setObjectName(QStringLiteral("titleBarNav%1").arg(i));
         button->setLabel(labels.at(i));
+        // ★ 2026-09-30 用户原话「上面四个按钮的文本也做大点」：和名字走**同一套**放大算法
+        //   （`enlargedFont()`），只是各用各的常量。落在控件上而不是画的时候临时算 —— 见
+        //   `kNavPointDelta` 那段 NOTE（验证工程就量这个字体）。
+        button->setFont(enlargedFont(font(), kNavPointDelta, kNavPixelDelta));
         button->setFixedSize(kNavItemWidth, kButtonSize);
         m_navButtons.append(button);
         // 从左到右挨着摆在那一层自己的布局里（那一层被两段等长 stretch 夹在条的中正）。
@@ -429,18 +473,10 @@ void TitleBar::paintEvent(QPaintEvent *) {
     if (textRect.width() <= 0) {
         return;
     }
-    QFont titleFont = font();
+    // ★ 2026-09-29 用户那句「文字大一点」：放大这一档的唯一出处是 `kBrandPointDelta` /
+    //   `kBrandPixelDelta` 加下面那个 `enlargedFont()`（两档各自的理由都在它头上）。
+    QFont titleFont = enlargedFont(font(), kBrandPointDelta, kBrandPixelDelta);
     titleFont.setBold(true);
-    // ★ 2026-09-29 用户那句「文字大一点」：**只在这里放大**（唯一出处就是那两个常量）。
-    //   走的是**增量**不是写死的 pt —— 面板字号跟着系统走，写死会把"比正文大一点"变成
-    //   "在某些机器上比正文小"。两种字体规格各走各的那一档：点数是正常情况；`pointSizeF()`
-    //   为 −1 说明这份字体是按**像素**定义的，那时候 setPointSizeF 会被 Qt 静默忽略，
-    //   得改 `setPixelSize()`。
-    if (titleFont.pointSizeF() > 0) {
-        titleFont.setPointSizeF(titleFont.pointSizeF() + kBrandPointDelta);
-    } else if (titleFont.pixelSize() > 0) {
-        titleFont.setPixelSize(titleFont.pixelSize() + kBrandPixelDelta);
-    }
     p.setFont(titleFont);
     p.setPen(palette().color(QPalette::WindowText));
     const QFontMetrics metrics(titleFont);

@@ -81,6 +81,18 @@ public:
     /// 每一颗导航按钮的宽（逻辑像素）。
     static int navItemWidth();
     /**
+     * @brief 四颗导航按钮上的字比正文大多少（pt）。★ 2026-09-30 用户原话
+     *        「上面四个按钮的文本也做大点」。
+     *
+     * 和名字那一档（`TitleBar.cpp` 里的 `kBrandPointDelta`）是**两个独立的旋钮**，值一样只是
+     * 碰巧（名字那一颗是加粗的，同一号字看着本来就大一点）。用法见 `navFontPixelDelta()`。
+     * NOTE: 验证工程读这个数、**别在测试里写死 2** —— 和 `windowButtonsRightMargin()` 一个规矩。
+     */
+    static qreal navFontPointDelta();
+    /// 上面那个数的**像素档**（面板字体是按像素定义的时候用这一档，见 `enlargedFont()`）。
+    static int navFontPixelDelta();
+
+    /**
      * @brief 右边那两颗窗口按钮**离窗口右边缘**多远（逻辑像素）。
      *
      * ★ 2026-09-29 用户原话「右上角的最小化和关闭稍稍往左边靠一点」加的（原来是 0）。
