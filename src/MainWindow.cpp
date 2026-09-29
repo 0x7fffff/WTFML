@@ -9390,10 +9390,12 @@ void MainWindow::openInstanceSettingsNow(const QString &versionId, const QString
         //   重命名 打开文件夹 删除世界（弹窗确认）」—— 三件事都搬进页里当按钮了，所以这
         //   一支笔点下去只剩一件事可做。
         //
-        // NOTE: `openWorldSettings()` 自己会弹那一句（坏档警告 + 备份），所以**不在这里再问
-        //       一遍**（原来那个菜单的第一项走的就是这条路，只是前面多垫了一问）。
+        // NOTE: 点下去**一句话都不问，直接进页**（2026-09-29 用户点名的第二件事：「点击笔的
+        //       时候不要弹备份提示了」）。原来这里先弹一问「打开 / 先备份一份 / 取消」，现在
+        //       那一问没有了 —— 备份是**页里**那颗「备份一份」，以及展开「修改存档文件」那个
+        //       折叠框时那一句警告（用户原话要的就是那一句，见 `fileEditingRequested` 那一段）。
         connect(saves, &InstanceFilesPage::editRequested, this,
-                [this, &dialog](const QString &path) { openWorldSettings(&dialog, path); });
+                [this, &dialog](const QString &path) { showWorldSettingsPage(&dialog, path); });
 
         // 顶上那颗「导入世界」：选一个世界目录 → 问它进来之后叫什么 → 拷进 saves/。
         // 两条对话框的顺序和「复制实例」一致（先选东西、再起名字，名字预填现成的那个）。
@@ -10569,13 +10571,14 @@ void MainWindow::restoreConfigFile(InstanceSettingsDialog *dialog, const QString
 
 // ---------- 世界设置（2026-09-28）----------
 //
-// 【那支笔上的「世界设置…」这一条路走下来是四步】
+// 【那支笔上的「世界设置…」这一条路走下来是三步】
 //
-//   ① `openWorldSettings()`   读一眼盘上那份 → 弹那一句（**坏档就在这里判**，顺手给
-//                             「先备份一份」）→ 用户说"打开"才进 ②
-//   ② `showWorldSettingsPage()` 重量一次、重读一遍（现在盘上那一份）、翻译、开页
-//   ③ 用户在页面上改（这一层什么都不做 —— 改的全在控件里）
-//   ④ `saveWorldSettings()`    重读 → 两道闸 → 留备份 → 只把改过的那几项盖上去 → 原子写回
+//   ① `showWorldSettingsPage()` 量一次、读一遍（现在盘上那一份）、翻译、开页
+//                             ★ **坏档也在这里判**（读失败 ⇒ 直接开"读不出来"那一档），
+//                             但**不再往前弹一句**问"打开还是先备份"（2026-09-29 用户原话：
+//                             「点击笔的时候不要弹备份提示了」）。
+//   ② 用户在页面上改（这一层什么都不做 —— 改的全在控件里）
+//   ③ `saveWorldSettings()`    重读 → 两道闸 → 留备份 → 只把改过的那几项盖上去 → 原子写回
 //
 // 【为什么每一步都重读一遍盘】
 //
@@ -10652,58 +10655,6 @@ QString MainWindow::latestWorldBackup(const QString &worldDir) const {
     return QString();
 }
 
-void MainWindow::openWorldSettings(InstanceSettingsDialog *dialog, const QString &worldDir) {
-    if (dialog == nullptr) {
-        return;
-    }
-    const QString worldName = QFileInfo(worldDir).fileName();
-
-    // ★ ① 这一步就是「坏档警告」的判据**本身**：读得出来就是好的、读不出来就是坏的。
-    //   判据不另立一份（"看 level.dat 在不在""看大小对不对"那种）—— 用户最怕的那件事
-    //   正是"文件看着在、游戏打不开"，而那件事只有真解一遍才知道。
-    WorldFiles::LevelData probe;
-    QString why;
-    const bool healthy = WorldFiles::readLevelData(worldDir, &probe, &why);
-
-    // 那两句正文：好的那一档说清"要做什么"，坏的那一档把**原因**摆出来（用户拿去搜、
-    // 拿去问人都要它）。两档都给「先备份一份」—— 坏档那一份**尤其**该留（它可能是最后
-    // 一份能救回来的样子）。
-    const QString body =
-        healthy ? tr("这一页上是「%1」的全部设置：看它的存档信息、改它的游戏规则、改这个"
-                     "存档文件夹的名字、删掉它。\n\n"
-                     "写下去之前会自动留一份原来的 level.dat。")
-                      .arg(worldName)
-                : tr("「%1」的存档文件读不出来：\n\n%2\n\n"
-                     "现在打开只能改名、备份、删掉它 —— 我们不往一个读不出来的存档上写"
-                     "东西。")
-                      .arg(worldName, why);
-    const int choice = InlineMessage::ask(
-        m_ui->overlay(), healthy ? MessageKind::Question : MessageKind::Warning,
-        healthy ? tr("世界设置") : tr("这个世界可能坏了"), body,
-        {healthy ? tr("打开") : tr("打开（只读）"), tr("先备份一份"), tr("取消")},
-        /*defaultIndex=*/0, /*destructiveIndex=*/-1, /*dismissOnOutsideClick=*/false,
-        // 小字：把"备份到底备了什么"说清楚 —— 用户按下去之前该知道它有多大。
-        tr("「先备份一份」= 把这个世界的 level.dat 原样抄一份到启动器的缓存里，"
-           "不动存档本身。"));
-    if (choice == 1) {
-        QString problem;
-        if (backupWorldLevelData(worldDir, &problem)) {
-            InlineMessage::information(
-                m_ui->overlay(), tr("备份好了"),
-                tr("「%1」的 level.dat 已经留了一份：\n%2")
-                    .arg(worldName,
-                         QDir::toNativeSeparators(latestWorldBackup(worldDir))));
-        } else {
-            InlineMessage::warning(m_ui->overlay(), tr("没能备份"), problem);
-        }
-        return;  // 只备份，不开页 —— 用户点的就是"先备份"
-    }
-    if (choice != 0) {
-        return;  // 「取消」和"点外面关掉"（-1）都什么都不做
-    }
-    showWorldSettingsPage(dialog, worldDir);
-}
-
 void MainWindow::showWorldSettingsPage(InstanceSettingsDialog *dialog, const QString &worldDir) {
     if (dialog == nullptr) {
         return;
@@ -10726,9 +10677,14 @@ void MainWindow::showWorldSettingsPage(InstanceSettingsDialog *dialog, const QSt
     WorldFiles::LevelData data;
     QString why;
     if (!WorldFiles::readLevelData(worldDir, &data, &why)) {
-        // 上面那一问里读的是好的、走到这儿又坏了（中间被删了 / 被写坏了）。**照坏的那一档
-        // 开**，而不是回头再弹一次 —— 用户已经做过一次决定了，再弹一次只是同样的两句话
-        // 说两遍（而且他多半会觉得"我刚刚不是点过了吗"）。
+        // ★ 这就是「坏档」唯一的判据**本身**：读得出来就是好的、读不出来就是坏的。判据不
+        //   另立一份（"看 level.dat 在不在""看大小对不对"那种）—— 用户最怕的那件事正是
+        //   "文件看着在、游戏打不开"，而那件事只有真解一遍才知道。
+        //   读不出来 ⇒ **照"读不出来"那一档开页**（页面顶上写「这个世界可能坏了：<目录>」、
+        //   正文整块藏起来、只留改名 / 打开文件夹 / 删除 / 备份一份），把**原因**原样摆给
+        //   用户看（他拿去搜、拿去问人都要它）。2026-09-29 起这里**不再往前补一问**（原来
+        //   会弹「打开（只读）/ 先备份一份 / 取消」）—— 用户原话「点击笔的时候不要弹备份
+        //   提示了」；备份仍然随时可做，就是页里那颗「备份一份」。
         m_worldDir = worldDir;
         m_worldStampSize = 0;
         m_worldStampMtimeMs = 0;

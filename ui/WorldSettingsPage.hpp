@@ -317,8 +317,12 @@ public:
     QPushButton *deleteButton() const { return m_delete; }
     /// 那个折叠框的开关（验证工程靠它量"默认收起"和"点开之前发没发信号"）。
     QAbstractButton *fileToggle() const;
-    /// 折叠框里那一块（藏起来/露出来量的是它）。
+    /// 折叠框里那一块（藏起来/露出来量的是它）。★ 规则表**就在这里面**：量"规则表收没收进
+    /// 那个框"用 `ruleList()->parentWidget() == fileBody()`，别去量 `isVisible()`（offscreen
+    /// 平台上那一层整个可能是藏着的，见 .cpp 里那条 NOTE）。
     QWidget *fileBody() const { return m_fileBody; }
+    /// 整块正文（"读不出来"那一档要把这一整块收掉）。
+    QWidget *body() const { return m_body; }
     /// 行尾那个开关（只有 `Kind::Bool` 的行有；别的行是 nullptr）。
     QAbstractButton *ruleToggleAt(int row) const;
     /// 行尾那个输入框（`Kind::Int` / `Kind::Text` 的行才有）。

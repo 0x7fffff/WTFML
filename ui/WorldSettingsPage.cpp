@@ -233,9 +233,14 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
     // `fileEditingRequested()`，由 MainWindow 弹完那句备份警告，再拿 `setFileEditingOpen()`
     // 把结果摆回来（见那两个函数的说明）。
     //
-    // 框里那四格是 **`level.dat` 里"只能改文件才能动"的那几项**：游戏里没有"改一个已有
-    // 世界的难度 / 作弊 / 极限模式"这个入口，所以它们归"改文件"；游戏规则那一列归
-    // "世界设置"（游戏里 `/gamerule` 就能改）。
+    // 框里是**这一页上会去动 `<存档目录>/level.dat` 的所有东西**：世界名 / 允许作弊 /
+    // 极限模式 / 难度四格，加上底下的游戏规则那一列。
+    //
+    // ★ 2026-09-29 用户点名的第二件事：「下面的 gamerules 不会改坏吗，如果可能会的话也放到
+    //   那个框里去」。答案是不会"另算一档"——**它们改的是同一份文件**（游戏规则就存在
+    //   `level.dat` 的 `Data/GameRules` 里，见 .hpp 顶上那段文件结构），所以风险、备份那一句
+    //   警告、"要不要动文件"这个决定**全都是同一件事**。原来按"游戏里 `/gamerule` 能不能改"
+    //   把这两拨分开摆是错的切法：**切法该按"动的是哪份文件"**，动 `level.dat` 的一律收进来。
     m_fileToggle = new QToolButton(m_body);
     m_fileToggle->setObjectName(fileToggleName());
     m_fileToggle->setText(fileToggleText());
@@ -243,8 +248,8 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
     m_fileToggle->setChecked(false);
     m_fileToggle->setArrowType(Qt::RightArrow);
     m_fileToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    m_fileToggle->setToolTip(tr("世界名 / 允许作弊 / 极限模式 / 难度 —— 这几项游戏里改不了，"
-                                "只能动存档文件。打开之前会先问你一句。"));
+    m_fileToggle->setToolTip(tr("世界名 / 允许作弊 / 极限模式 / 难度 / 游戏规则 —— 这些全都写在"
+                                "存档文件里，改之前会先问你一句。"));
     body->addWidget(m_fileToggle, 0, Qt::AlignLeft);
 
     m_fileBody = new QWidget(m_body);
@@ -294,8 +299,6 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
     fileBody->addLayout(makeOptionRow(m_fileBody, tr("难度"), m_difficulty,
                                       tr("0 和平 / 1 简单 / 2 普通 / 3 困难。")));
 
-    body->addWidget(m_fileBody);
-
     connect(m_fileToggle, &QAbstractButton::toggled, this, [this](bool open) {
         // ★ 先把样子摆出来（框开/收 + 箭头翻面），再发信号问那一句 —— 不先摆的话，用户按
         //   下去屏幕上什么都不动（警告还在弹），像按了个坏按钮。
@@ -303,26 +306,37 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
         //   反悔 ⇒ `setFileEditingOpen(false)`（把框收回去，那一下会把这个钮也拨回来）。
         m_fileBody->setVisible(open);
         m_fileToggle->setArrowType(open ? Qt::DownArrow : Qt::RightArrow);
+        // ★ 底下那行小字里有一句是**说那个列表怎么来的**（`rulesSourceHint()`）—— 框收着的
+        //   时候那一列根本不在屏幕上，说它等于让用户找一样看不见的东西。所以这一句跟着
+        //   框的开合走（`refreshNote()` 里判的是 `m_fileToggle->isChecked()`）。
+        refreshNote();
         emit fileEditingRequested(open);
     });
 
     // ---------- 世界设置（游戏规则）----------
+    //
+    // ★ 2026-09-29：这一段**整个搬进了上面那个折叠框**（原来是 `m_body` / `body`）。
+    //   理由见 `m_fileToggle` 那一段 ★：规则也写在 `level.dat` 里，和上面四格是**同一档
+    //   风险、同一份文件、同一句警告**，所以摆在一起、一起收着。
+    //   搬动只改了 parent 与 `addLayout/addWidget` 的接收者（`m_body`/`body` → `m_fileBody`/
+    //   `fileBody`），控件本身、行代理、重建逻辑一个字没动。
+    fileBody->addSpacing(6); // 另起一段：和上面那四格拉开一点
     auto *rulesRow = new QHBoxLayout;
     rulesRow->setContentsMargins(0, 0, 0, 0);
     rulesRow->setSpacing(8);
-    auto *rulesLabel = new QLabel(rulesSectionText(), m_body);
+    auto *rulesLabel = new QLabel(rulesSectionText(), m_fileBody);
     // 小标题比上面那几行的标签长一点（「世界设置（游戏规则）」），左边那一栏放不下就让它
     // 自己撑开 —— 这一行是"另起一段"，不和上面那四格的标签对齐。
     rulesRow->addWidget(rulesLabel);
-    m_ruleFilter = new QLineEdit(m_body);
+    m_ruleFilter = new QLineEdit(m_fileBody);
     m_ruleFilter->setObjectName(ruleFilterName());
     m_ruleFilter->setPlaceholderText(ruleFilterPlaceholder());
     m_ruleFilter->setClearButtonEnabled(true);
     connect(m_ruleFilter, &QLineEdit::textChanged, this, [this] { rebuildRuleRows(); });
     rulesRow->addWidget(m_ruleFilter, 1);
-    body->addLayout(rulesRow);
+    fileBody->addLayout(rulesRow);
 
-    m_ruleList = new QListWidget(m_body);
+    m_ruleList = new QListWidget(m_fileBody);
     m_ruleList->setObjectName(ruleListName());
     // 一行一个自己摆的控件 ⇒ 不用选中态、不要焦点框、不要自带滚动条之外的任何装饰。
     m_ruleList->setSelectionMode(QAbstractItemView::NoSelection);
@@ -333,7 +347,12 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
     // ★ 选中 / 当前项 / 悬停一个都不画（理由见上面 RuleItemDelegate 那段 ★★ —— 光靠
     //   NoSelection 拦不住第 0 行被当成"当前项"染一道竖渐变）。
     m_ruleList->setItemDelegate(new RuleItemDelegate(m_ruleList));
-    body->addWidget(m_ruleList, 1);
+    // ★ 撑头的那一份在**框里面**：`fileBody` 里是"四行固定高 + 搜索行 + 规则表(1)"，
+    //   `body` 里是「说明 / 折叠钮 / 框(1)」。两级都把剩下的高度给表格，框收起来时这一串
+    //   自然塌掉（`m_fileBody` 一隐藏，`body` 里就只剩说明和那颗钮）。
+    fileBody->addWidget(m_ruleList, 1);
+
+    body->addWidget(m_fileBody, 1);
 
     root->addWidget(m_body, 1);
 
@@ -641,6 +660,10 @@ void WorldSettingsPage::setFileEditingOpen(bool open) {
     m_fileToggle->setChecked(open);
     m_fileToggle->setArrowType(open ? Qt::DownArrow : Qt::RightArrow);
     m_fileBody->setVisible(open);
+    // ★ 那行小字里有一句跟着框的开合走（`rulesSourceHint()`，理由见 `refreshNote()` 那段）。
+    //   这一条路被 `QSignalBlocker` 挡着，所以**得自己叫一次** —— 不然主程序答完那句警告、
+    //   把框摆开之后，底下那句"这一列是怎么来的"要等到用户自己再点一下那颗钮才说得出口。
+    refreshNote();
 }
 
 bool WorldSettingsPage::fileEditingOpen() const {
@@ -971,7 +994,12 @@ void WorldSettingsPage::refreshNote() {
     // ★ 2026-09-29：原来这里是那句「这个存档里还没有游戏规则，进游戏玩一次就会写进去」
     //   （`noAddHintText()`）—— 现在那一列是**全集**，所以这句换成了"这一列是怎么来的"
     //   的说明书（`rulesSourceHint()`，盘上有没有那一格各说一句）。
-    lines.append(rulesSourceHint(m_view.hasRules));
+    // ★ 2026-09-29 第二版：那一列**搬进了折叠框**（规则改的也是 level.dat，见构造函数里
+    //   `m_fileToggle` 那一段），所以这句只在**框开着**的时候说 —— 框收着的时候屏幕上没有
+    //   那个列表，说它等于让用户去找一样看不见的东西。开合那道 `toggled` 会重跑一次这一段。
+    if (m_fileToggle->isChecked()) {
+        lines.append(rulesSourceHint(m_view.hasRules));
+    }
     if (!m_view.gzipped) {
         lines.append(notGzippedText());
     }
