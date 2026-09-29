@@ -83,7 +83,8 @@ cmake --build build/static-release -j
       `backgroundBrush` 和 `State_Selected`，`State_MouseOver` **它从来不画**（Fusion 没覆盖，
       `Theme::createStyle()` 也没碰）。所以 `VersionTreeDelegate` / `InstanceGroupDelegate`
       自己读这一位刷一层底，而且**刷在 `CE_ItemViewItem` 之前** —— 选中那一块是不透明的
-      `Highlight`，压在上面，于是"又选中又悬停"那一行自然还是选中色赢。
+      （2026-09-29 之前是 Fusion 那个 `Highlight`，之后是我们自己画的深灰，见下面那条），
+      压在上面，于是"又选中又悬停"那一行自然还是选中色赢。
     - ★ **悬停那一块和选中那一块同形状**：实例行刷的是**卡片**（不是整条行 —— 整条会把左边
       那截分支区一起染上，比选中带宽出一截）；版本树那一支刷整条行**连左边那截分支区**
       （它选中时 `QTreeView::drawRow()` 就是连着一块涂的）。整行淡到一半的不可用条目
@@ -97,6 +98,30 @@ cmake --build build/static-release -j
       `darker(100 + rowHoverAccentPercent())` —— 那一档的底是**中灰**（`#ababab`），
       往主题色那一头混会得到"更亮"而不是"更深"（实测只有一个数位的差），所以"一档"那个数
       还是从 `rowHoverAccentPercent()` 来，"往哪一头走"按底色自己定。
+  - ★ **选中那一块从 Fusion 那个蓝换成了深灰**（2026-09-29，用户原话「选中的时候那个蓝色的
+    换成深灰色」）。
+    - ★ **改不了调色板**：`QPalette::Highlight` 一动，`Theme::apply()` 里那个 `touchesPalette`
+      就置位 ⇒ 出厂那份「跟着系统」会把调色板**钉死**、系统深浅主题从此不跟（上面那条规矩，
+      `ui_check` 的 W1 钉着）。所以这一档是**我们画**的。
+    - 色只有一处出处：`Theme::selectionFill(base)` —— 和悬停同一套思路，**按那一层自己的
+      底色算**：浅色底给 `#4a4a4a`、深色底给 `#5e5e5e`（深色主题上再压 `#4a4a4a` 会和底色
+      糊成一片）。配套两支墨：`selectionInk()`（正文/图标）和 `selectionSubInk()`（次要文字/
+      行里那些小图标，再暗一档）—— 原来"蓝底配近黑"那一份直接搬过来的话，就是"近黑压深灰
+      = 等于没字"。
+    - 落点是 `Theme::createStyle()` 那一份 `QProxyStyle`（`WtfmlProxyStyle`）里三处覆写：
+      `PE_PanelItemViewItem` / `PE_PanelItemViewRow`（这两条是整行铺色）和 `CE_ItemViewItem`
+      （拿换过调色板的**那份拷贝**再交回基类，正文和图标跟着变亮）。手画正文的那三个代理
+      （`VersionTreeDelegate` / `InstanceGroupDelegate` / `GroupListDelegate`）读的是
+      `Theme::selectionPalette()` —— 它们抄不到样式那一半，"少换一档"的后果是同一行上一亮一黑。
+    - ★ **形状照旧**：实例行那一条**只有卡片**（左边那截分支区仍然是底色，用户点名要的）；
+      版本树那一支是**整条行连着左边那截**（`QTreeView::drawRow()` 先涂、代理再补一遍）。
+    - ★ **一条闸**：`Highlight` 被谁换过的表**不许**被接管 —— 判据是"这一份 `option.palette`
+      里的 `Highlight` 和**应用调色板**里那一档是不是同一个色"（比 `.rgb()`，Qt 6 的
+      `QColor::==` 是 16 位的）。下拉框弹出层那条路正是这样：它走 QSS 的
+      `selection-background-color` 用**主题色**（2026-09-28 用户点名），少了这条闸它会被
+      一起刷成深灰。
+    - ★ 从此 `QPalette::Highlight`（那一行 `Role` 叫"选中/悬停"）只管**文字里选中的那一段**
+      （输入框 / 日志窗 / 配置文件编辑器里那截选区）和别的控件；列表里那一行不再问它。
   - ★ **按钮那一套外观走应用级样式表**（`Theme::widgetStyleSheet()`）：白底 + 主题色的字和
     边，按**这件事的性质**分三档（`Theme::ButtonKind`，挂在控件的 `wtfmlButtonKind` 动态
     属性上）。用户 2026-09-28 给的规矩原话是「一些确认性的（如启动，下载，搜索）做成主题色，

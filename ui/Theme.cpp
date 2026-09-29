@@ -11,6 +11,7 @@
 #include <QComboBox>
 #include <QDir>
 #include <QEvent>
+#include <QGuiApplication>
 #include <QHash>
 #include <QPainter>
 #include <QPainterPath>
@@ -228,13 +229,24 @@ QString accentSettingKey(const char *field) {
 }
 
 // ---------------------------------------------------------------------------
-// 下拉框右边那个 V 箭头
+// 我们那一份代理样式（`wtfml-fusion`）—— 今天它有两件事
 // ---------------------------------------------------------------------------
 
 /**
- * @brief 下拉框最右边那个箭头：一个 `∨`（两笔），**不是实心三角**。
+ * @brief 产品+三个验证工程共用的那一份代理样式。**它接手两件事**：
  *
- * 【为什么非自己画不可】2026-09-29 读 `qstylesheetstyle.cpp` + 实测：样式表里只要出现
+ *   1. 下拉框右边那个 `∨`（下面这一大段）；
+ *   2. **选中那一块的深灰**（`PE_PanelItemViewItem` / `PE_PanelItemViewRow` 两条原语 +
+ *      `CE_ItemViewItem` 里换墨）—— 用户 2026-09-29 原话「选中的时候那个蓝色的换成深灰色」。
+ *      为什么落在这一层：调色板的 `Highlight` 是平台给的蓝，而"出厂那一份不碰调色板"这条
+ *      不能破（破=把"跟着系统深浅"钉死，见 `apply()` 那段）。样式这一层一份代码就管住
+ *      全仓每一张表，连不用我们那两个代理的表、以及下拉框弹出来那张表也一起管住了。
+ *
+ * （类名原来叫 `ComboChevronStyle`，只管得着第 1 件。加第 2 件的时候一并改成现在这个名字
+ *   —— 名字叫"下拉框箭头样式"会让人以为选中色是别处画的。）
+ *
+ * 【第 1 件：下拉框右边那个 `∨` 为什么非自己画不可】2026-09-29 读 `qstylesheetstyle.cpp`
+ * + 实测：样式表里只要出现
  * `QComboBox::drop-down { border: none; … }`，这一格在 `QRenderRule::hasDrawable()` 眼里就
  * 成了"有东西要画" —— `border: none` 解析出来是 `BorderStyle_None`，**不等于**
  * `BorderStyle_Native`（`qcssparser.cpp` 那个 `parseBorderStyle`）—— 于是
@@ -251,14 +263,66 @@ QString accentSettingKey(const char *field) {
  * 让它直接转给基样式），量出来比真正画立体边的那一格**窄 1px** ⇒ 右边要补 1，不然会留一条
  * `#555555` 的竖线。
  */
-class ComboChevronStyle : public QProxyStyle
+class WtfmlProxyStyle : public QProxyStyle
 {
 public:
     using QProxyStyle::QProxyStyle;
 
+    /// "这一条原语该不该由我们画成深灰"—— 是的话给出那一份 option，不是给 nullptr。
+    ///
+    /// 判据和基样式里那两条逐字一样（`if (showDecorationSelected && State_Selected)`），
+    /// 不自己发明第二条：`showDecorationSelected` 是"选中那一块铺整行还是只铺文字那一格"
+    /// 这个开关，样式说 false 的地方基样式本来就不铺，我们补上去等于凭空多画一块。
+    static const QStyleOptionViewItem *selectedItemOption(const QStyleOption *opt)
+    {
+        const auto *vopt = qstyleoption_cast<const QStyleOptionViewItem *>(opt);
+        if (vopt == nullptr || !vopt->showDecorationSelected ||
+            (vopt->state & QStyle::State_Selected) == 0) {
+            return nullptr;
+        }
+        // ★ 只接管"铺**平台那一档**选中色"的地方。谁**自己**把选中色换掉了，就交回给基样式
+        //   —— 下拉框弹出来那张表正是（`widgetStyleSheet()` 里那条 `selection-background-color`
+        //   是用户 2026-09-28 点名要的"主题色打底 + 黑墨"）。判据是"这一份 option 里的
+        //   `Highlight` 和**应用调色板**里那一档是不是同一个色"：一样 ⇒ 它没自己换过。
+        //
+        //   ★ 比的是 **Active 那一组**，不是 `color(role)` 那个 Current：窗口一失焦，控件身上
+        //     的 `Highlight` 就落到 Inactive 那一组（Fusion 给的是另一种淡蓝），拿 Current 比
+        //     会得到"窗口一失焦我们就撒手"—— 那个 bug 只在失焦时出现，屏幕上看着像"有时灰
+        //     有时蓝"。比 8 位的那三个数（`.rgb()`），不用 `QColor::operator==`：Qt 6 那个比
+        //     的是内部 16 位分量，两处各构造一次就可能不相等（这条坑见 `ui_check` 里那段）。
+        if (vopt->palette.color(QPalette::Active, QPalette::Highlight).rgb() !=
+            platformSelectionColor().rgb()) {
+            return nullptr;
+        }
+        return vopt;
+    }
+
+    /// 平台那一档选中色（= 应用调色板里那一档；我们从不去改它，见 `apply()` 那段说明）。
+    static QColor platformSelectionColor()
+    {
+        return QGuiApplication::palette().color(QPalette::Active, QPalette::Highlight);
+    }
+
     void drawPrimitive(PrimitiveElement pe, const QStyleOption *opt, QPainter *p,
                        const QWidget *w) const override
     {
+        // ★ 选中那一块：调色板里那一档（`Highlight`）是**平台给的蓝**，而"出厂那一份不碰
+        //   调色板"这条不能破（破了就把"跟着系统深浅"钉死了，见 `apply()` 那段）⇒ 由这里
+        //   接过来自己画成深灰。用户 2026-09-29 原话：「选中的时候那个蓝色的换成深灰色」。
+        //
+        //   两条原语各管一半，缺一条屏幕上就留一块蓝：
+        //   - `PE_PanelItemViewItem` = 条目那一格（每张表都有）；
+        //   - `PE_PanelItemViewRow`  = **左边那一截分支区**（`QTreeView::drawRow()` 在把画笔
+        //     交给代理之前自己铺的那一条，矩形是"整条行高 × 缩进宽度"）。
+        //   代理侧还有一份同样的补涂（`VersionTreeDelegate::paint()` 里那段），因为这两条
+        //   原语是不是真的被走到由**视图**决定 —— 补涂那一份是保底，两边同一个色。
+        if (pe == PE_PanelItemViewItem || pe == PE_PanelItemViewRow) {
+            if (const QStyleOptionViewItem *vopt = selectedItemOption(opt)) {
+                p->fillRect(vopt->rect, selectionFill(vopt->palette.color(QPalette::Base)));
+                return;
+            }
+        }
+
         // 别的向下箭头（带菜单的按钮、表头排序…）原样交回去。
         if (pe != PE_IndicatorArrowDown || qobject_cast<const QComboBox *>(w) == nullptr) {
             QProxyStyle::drawPrimitive(pe, opt, p, w);
@@ -300,6 +364,34 @@ public:
         p->setBrush(Qt::NoBrush);
         p->drawPath(path);
         p->restore();
+    }
+
+    void drawControl(ControlElement ce, const QStyleOption *opt, QPainter *p,
+                     const QWidget *w) const override
+    {
+        // ★ 选中那一行的**字**：底色那一块已经换成深灰了（见上面那两条原语），而基样式紧接着
+        //   印字用的是 `HighlightedText` —— 那一档还是"照蓝底配的"（深色系统主题下是白、
+        //   浅色下是近黑）。深灰上必须换一支亮墨，不然浅色主题下就是**黑字压深灰**
+        //   （1.9:1，等于没字）。用户原话和整套理由见 `theme.hpp` 的 `selectionInk()`。
+        //
+        //   改的是**这一份拷贝**、不是控件身上那份：换色只对这一次绘制生效，别的地方读
+        //   `HighlightedText`（它们是照平台那一套算的）一点都不受影响。
+        //
+        //   ★ 只有 `CE_ItemViewItem` 走这一支。两个代理自己手画正文的那几棵树不经过这儿
+        //     （它们在 `paint()` 里读的是自己那份局部调色板，`VersionTreeDelegate` /
+        //     `InstanceGroupDelegate` 各有一处同样的换墨），实例行那种"把文字交给样式印"
+        //     的走这儿 —— 三条路上屏幕看到的必须是同一支墨。
+        if (ce == CE_ItemViewItem) {
+            if (const QStyleOptionViewItem *vopt = selectedItemOption(opt)) {
+                QStyleOptionViewItem patched(*vopt);
+                // 换墨那一套只有一处出处（`selectionPalette()`），和三个手画正文的代理
+                // 读的是同一个函数 —— 两条路上屏幕看到的必须是同一支墨。
+                patched.palette = selectionPalette(patched.palette, /*selected=*/true);
+                QProxyStyle::drawControl(ce, &patched, p, w);
+                return;
+            }
+        }
+        QProxyStyle::drawControl(ce, opt, p, w);
     }
 };
 
@@ -408,6 +500,49 @@ QColor rowHoverFill(const QColor &base) {
     const auto mix = [p](int b, int a) { return (b * (100 - p) + a * p + 50) / 100; };
     return QColor(mix(base.red(), accent.red()), mix(base.green(), accent.green()),
                   mix(base.blue(), accent.blue()));
+}
+
+QColor selectionFill(const QColor &base) {
+    // 浅底上就是"深灰"那一支；深底上得比底色**亮**一档（深色预设的行底色是 #323232，
+    // 照搬 #4a4a4a 只差 24 个数位，"选中"在屏幕上看不出来）。判据取底色的明度，
+    // 和 `isDarkPalette()` 是同一条口径。
+    return base.lightness() < 128 ? QColor(0x5e, 0x5e, 0x5e) : QColor(0x4a, 0x4a, 0x4a);
+}
+
+QColor selectionInk() {
+    return QColor(0xf2, 0xf2, 0xf2);
+}
+
+QColor selectionSubInk() {
+    return QColor(0xc3, 0xc3, 0xc3);
+}
+
+QPalette selectionPalette(const QPalette &palette, bool selected) {
+    QPalette out = palette;
+    if (!selected) {
+        return out;
+    }
+    // 换上去的墨沿用**原来那一档的 alpha**（用户把"文字透明度"调低过的话，选中那一行的字
+    // 也该一样淡 —— `kInkRoles` 里就有这几位，那个 alpha 正是这个意思）。
+    const auto inkOn = [](const QColor &want, const QColor &was) {
+        QColor ink = want;
+        if (was.alpha() < 255) {
+            ink.setAlpha(was.alpha());
+        }
+        return ink;
+    };
+    out.setColor(QPalette::WindowText,
+                 inkOn(selectionInk(), palette.color(QPalette::WindowText)));
+    out.setColor(QPalette::Text, inkOn(selectionInk(), palette.color(QPalette::Text)));
+    out.setColor(QPalette::HighlightedText,
+                 inkOn(selectionInk(), palette.color(QPalette::HighlightedText)));
+    out.setColor(QPalette::PlaceholderText,
+                 inkOn(selectionSubInk(), palette.color(QPalette::PlaceholderText)));
+    // 这一行真正铺的那一层是深灰（不是调色板里那一档蓝）—— 有几处按"底色"重算文字对比度
+    // （版本树上那两行 MOTD），读的就是 `Highlight`。
+    out.setColor(QPalette::Highlight,
+                 selectionFill(palette.color(QPalette::Base)));
+    return out;
 }
 
 QColor accentShade(AccentShade shade) {
@@ -635,7 +770,7 @@ QString widgetStyleSheet() {
 }
 
 QStyle *createStyle() {
-    QStyle *style = new ComboChevronStyle(QStyleFactory::create(QStringLiteral("Fusion")));
+    QStyle *style = new WtfmlProxyStyle(QStyleFactory::create(QStringLiteral("Fusion")));
     // 名字是给 `ui_shot` 那行 `style: …` 看的 —— 那一行存在的意义就是"图是在哪个样式下画的
     // 必须能从产物本身看出来"。`QProxyStyle` 自己不设 `objectName`，不设的话那一行会印成
     // 空的，等于把这道哨兵悄悄撤了（`QStyleFactory::create()` 会给它造的那一份设成 "fusion"，

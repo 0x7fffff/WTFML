@@ -18,6 +18,7 @@
 #include <QToolTip>
 
 #include "MainWindowUI.hpp"
+#include "Theme.hpp"
 #include "VersionIcons.hpp"
 
 GroupListDelegate::GroupListDelegate(QObject *parent) : QStyledItemDelegate(parent) {}
@@ -141,8 +142,14 @@ void GroupListDelegate::paint(QPainter *painter, const QStyleOptionViewItem &opt
 
     // 下面所有几何都吃**条目矩形**（option.rect），映射在里面做一次（见 .hpp 那段）。
     const QRect row = option.rect;
-    const QPalette &palette = option.palette;
     const bool selected = (option.state & QStyle::State_Selected) != 0;
+    // ★ 选中那一行的底色已经换成深灰了（用户 2026-09-29 原话「选中的时候那个蓝色的换成
+    //   深灰色」，见 `ui/Theme.hpp` 的 `selectionFill()`）⇒ 这一行上手画的那两笔（组名、
+    //   行尾方框里那两颗三角）取色的那一份也得跟着换：原来"选中就取 `HighlightedText`"
+    //   那条规矩本身没错，错的是**深灰上那一档还是照蓝底配的**（浅色主题下是近黑）。
+    //   换哪几档只有一处出处（`Theme::selectionPalette()`），理由是"三个手画正文的代理
+    //   抄三遍迟早漏一档"。
+    const QPalette palette = Theme::selectionPalette(option.palette, selected);
     const int pad = MainWindowUI::versionTreeRowPadding();
     // 右边那个方框**无条件**扣掉（不管这一行此刻画不画它）：只扣画了的那几行的话，文字
     // 右边界就不一样了 —— 组名一长，看着就是每行各自截断在不同的地方。
@@ -150,9 +157,9 @@ void GroupListDelegate::paint(QPainter *painter, const QStyleOptionViewItem &opt
     const int textRight = moveBoxRect(row).left() - 6;
     const QRect textRect(textLeft, content.top(), qMax(0, textRight - textLeft), content.height());
 
-    // 字色跟基类画的时候一样：没选中是正文色、选中是高亮前景色。**不能一直用正文色** ——
-    // 这一行没换代理之前是基类画的，选中那一档一直是样式挑的那个高亮前景色（这张表没有
-    // 自己的 QSS，选中底色是 Fusion 那个蓝，深色字压上去就看不清了）。
+    // 字色跟基类画的时候一样：没选中是正文色、选中是高亮前景色（= 上面那份 palette 里
+    // 换过的那一支亮墨）。**不能一直用正文色** —— 这一行没换代理之前是基类画的，选中那一档
+    // 一直是样式挑的那个高亮前景色；底色换成深灰之后，正文色（近黑）压上去等于没字。
     const QColor ink = palette.color(selected ? QPalette::HighlightedText : QPalette::Text);
     painter->save();
     painter->setPen(ink);

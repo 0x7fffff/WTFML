@@ -242,6 +242,69 @@ constexpr int rowHoverAccentPercent() { return 12; }
  */
 QColor rowHoverFill(const QColor &base);
 
+/**
+ * @brief 条目**被选中**时铺在它那一圈里的底：一块深灰。
+ *
+ * 用户 2026-09-29 原话：「选中的时候那个蓝色的换成深灰色」。
+ *
+ * ★ 为什么要有这个函数、而不是直接把调色板里的 `QPalette::Highlight` 改成深灰：那一档
+ *   现在**是平台给的蓝**（Fusion 的 `#308cc6`），而"出厂那一份一个字节都不碰调色板"
+ *   这条不能破 —— 往调色板里塞东西等于把"跟着系统深浅走"钉死（见 `apply()` 里那段，
+ *   ui_check W1 钉着这条）。所以选中那一块和悬停那一块一样，**由我们自己画**：画的
+ *   地方是 `createStyle()` 那两个原语覆写（`PE_PanelItemViewItem` / `PE_PanelItemViewRow`）
+ *   —— 一份代码管住全仓每一张表，样式表、控件、调色板一处都不用动。
+ *
+ * ★ 入参是**这一行自己的底色**，理由和 `rowHoverFill()` 逐字一样：深色预设下行底色是
+ *   `#323232`，照搬浅色那一档（`#4a4a4a`）只差 24 个数位，"选中"和"没选中"在屏幕上看不
+ *   出来。浅底给 `#4a4a4a`、深底给 `#5e5e5e`（比底色亮一档，选中那一块才浮得出来）。
+ *
+ * ★ 它**不进调色板**（不是 `Role`）—— 和上面那几档同一个理由。
+ *
+ * ★ 判据在 ui_check 的 **§⑫**（M 段里 `§⑪` 之后）：两个底色上各量一次色、真搭一棵探针树
+ *   量"选中那一行屏幕上就是这一块深灰（**不是**调色板里的蓝）"、量左边那一截分支区同色、
+ *   以及选中那一行的墨**不是**黑（黑压深灰读不出来）。
+ */
+QColor selectionFill(const QColor &base);
+
+/**
+ * @brief 深灰那一块上的**墨**（正文、图标、行尾那几颗按钮）。
+ *
+ * 一对两支：`selectionInk()` 是正文那一档（对 `#4a4a4a` 是 7.6:1），
+ * `selectionSubInk()` 是次要文字那一档（版本树第二行那行小字 / 占位文字）——
+ * 它比正文暗一档，但在深灰上仍然是"亮墨"，不然那行小字就没了。
+ *
+ * ★ 为什么非得单独给一对：这一套界面里正文一直是**黑**的（浅底上的选择），而选中那一块
+ *   换成了深灰 —— 黑压 `#4a4a4a` 只有 1.9:1，字直接糊掉。两个代理各自手画正文（不归样式
+ *   管），而样式那一半（实例行那种"交给 `CE_ItemViewItem` 印字"的）由 `createStyle()`
+ *   里那条覆写把 `HighlightedText` 换成这两支之一。
+ */
+QColor selectionInk();
+/// 深灰那一块上的次要墨（见 `selectionInk()`）。
+QColor selectionSubInk();
+
+/**
+ * @brief 把"选中那一行画在深灰上"这件事落到**一份能直接取色的调色板**上。
+ *
+ * @param palette  这一行原本那一份（`option.palette`）。
+ * @param selected 这一行此刻是不是选中（`option.state & QStyle::State_Selected`）。
+ *
+ * 不选中时**原样返回**（一个字节都没动）。选中时返回一份拷贝，里面这几档换掉：
+ * `WindowText` / `Text` / `HighlightedText` → `selectionInk()`，`PlaceholderText` →
+ * `selectionSubInk()`，`Highlight` → `selectionFill()`（有几个地方按"这一行真正铺的那一层"
+ * 重算文字对比度 —— 版本树上的 MOTD —— 读的就是 `Highlight`）。
+ *
+ * ★ 为什么要这么一份：**手画正文/图标的代理有三个**（`VersionTreeDelegate` /
+ *   `InstanceGroupDelegate` / `GroupListDelegate`），它们各自的正文、小字、行尾那几颗按钮
+ *   都是从这一份里取色的。底色不再是浅色而是深灰，取色那一处就得跟着换 —— 抄三遍那段
+ *   "换哪几档"迟早会漏掉一档（漏的那一档在屏幕上就是一行看不出来的字）。
+ *   样式那一半（`CE_ItemViewItem` 里印字的那些，比如实例行的正文）在
+ *   `Theme::createStyle()` 里读的也是这个函数 —— 两条路同一个出处。
+ *
+ * ★ 用户把"文字透明度"调低过的话（`kInkRoles` 里那几位），换上去的墨**沿用原来那一档的
+ *   alpha**：选中那一行的字不该比别处更实。
+ */
+QPalette selectionPalette(const QPalette &palette, bool selected);
+
 // ---------------------------------------------------------------------------
 // 按钮
 // ---------------------------------------------------------------------------

@@ -241,6 +241,17 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
             const QRect branch(0, option.rect.top(), option.rect.left(), option.rect.height());
             painter->fillRect(branch, option.palette.brush(QPalette::Base));
         }
+        // ★ 选中那一行的**墨**：底已经由样式画成深灰了（用户 2026-09-29 原话「选中的时候那个
+        //   蓝色的换成深灰色」，两条原语覆写在 `Theme::createStyle()` 那一份代理样式里），
+        //   而这一行上手画的那三颗（齿轮 / 置顶箭头 / 垃圾桶）取的是正文色 —— 不换的话它们
+        //   就是一对黑疙瘩压在深灰上。正文那一半归样式管（走 `CE_ItemViewItem`）、那边也换过
+        //   了同一支墨，两处必须一致。
+        //   NOTE: 换的是**这一份局部拷贝**，控件的调色板一点都不动。
+        //   NOTE: **只换墨、不换那一块的形状** —— 实例行选中时的带子只有卡片那一圈，
+        //   左边那一截分支区是用户点名要它保持底色的（见上面那条 ★★ 2026-09-29），
+        //   所以这儿不去补涂它（版本树那一支反过来，它是整条行）。
+        const QPalette rowPalette = Theme::selectionPalette(
+            option.palette, (option.state & QStyle::State_Selected) != 0);
         // 行与行之间那道空（见 cardRect()）：这一行**画**的那一圈比整条行上下各小半个缺口。
         // 摆在这儿（initStyleOption 之后、量文字之前）是因为下面那句 SE_ItemViewItemText
         // 是从 opt.rect 上算的 —— 少了这一句，量出来的宽度还是整条行的，虽然宽度只跟左右有关、
@@ -279,7 +290,11 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
         //
         // NOTE: 每颗都不自己缓存 pixmap —— `VersionIcons::` 内部已经按"尺寸 + 颜色"缓存
         //       （见那边 cached()），这一层再存一份只会多一处要同步的地方。
-        const QColor ink = option.palette.color(QPalette::WindowText);
+        //
+        // ★ 取色走的是上面那份**换了墨的** `palette`（选中那一行是深灰底 ⇒ 墨得是亮的，
+        //   理由见那段）。别改回 `option.palette` —— 那样选中一行时三颗按钮会变成一对
+        //   黑疙瘩压在深灰上（正文那一半倒是归样式管、照样是亮的，于是同一行上一亮一黑）。
+        const QColor ink = rowPalette.color(QPalette::WindowText);
         painter->save();
         // 齿轮**常显**（用户追加答复「要，一颗齿轮常显」）：它和"点这一行任何别的地方"
         // 做的是同一件事（进实例设置），常显是给那件事一个看得见的入口。
