@@ -61,6 +61,7 @@
 #include <functional>
 #include <utility>
 
+class QStyle;
 class QWidget;
 
 namespace Theme {
@@ -248,6 +249,15 @@ QColor neutralInkColor();
 /// 全应用那一份控件样式表（按钮 / 输入框 / 勾选框；`apply()` 铺的就是它）。
 /// 要它是因为"这些东西长什么样"也得能量 —— 验证工程逐条读它算出来的色。
 QString widgetStyleSheet();
+
+/**
+ * @brief 应用级样式（`QApplication::setStyle()` 用的那一份）：Fusion + 下拉框那个 `∨` 箭头。
+ *
+ * ★ **产品与三个验证工程都从这儿拿**，谁也别再自己写 `QStyleFactory::create("Fusion")` ——
+ *   「样式基线是同一个东西」这件事原来靠四处各写一行相同的代码，现在靠这一个函数。
+ *   返回的对象**归调用方**（`QApplication::setStyle()` 会接过去）。
+ */
+QStyle *createStyle();
 
 // ---------------------------------------------------------------------------
 // 一份主题

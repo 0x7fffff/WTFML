@@ -127,7 +127,9 @@ int main(int argc, char *argv[]) {
     // NOTE: 这也决定了主题那一层的取色方式：样式固定 Fusion 之后，`QStyle::standardPalette()`
     //       就是"这一档深浅下我们该有的那一份调色板"，`Theme::apply()` 拿它当基色
     //       （见 `ui/Theme.cpp`）。跟随原生样式的话，那份基色就是系统给的，改不动。
-    QApplication::setStyle(QStyleFactory::create(QStringLiteral("Fusion")));
+    // ★ 从 `Theme::createStyle()` 拿（= Fusion + 下拉框那个 `∨` 箭头）。基样式还是 Fusion，
+    //   只是外面套了一层 QProxyStyle —— 换样式基线的时候四处（这里 + 三个验证工程）一起换。
+    QApplication::setStyle(Theme::createStyle());
 
     // Configure QSettings to use proper registry/config paths
     app.setApplicationName("WTFML");

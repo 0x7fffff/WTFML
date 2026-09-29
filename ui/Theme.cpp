@@ -8,12 +8,18 @@
 #include "Theme.hpp"
 
 #include <QApplication>
+#include <QComboBox>
 #include <QDir>
 #include <QEvent>
 #include <QHash>
+#include <QPainter>
+#include <QPainterPath>
+#include <QProxyStyle>
 #include <QSettings>
 #include <QStyle>
+#include <QStyleFactory>
 #include <QStyleHints>
+#include <QStyleOptionComboBox>
 #include <QWidget>
 
 namespace Theme {
@@ -220,6 +226,82 @@ QString partSettingKey(Part part, const char *field) {
 QString accentSettingKey(const char *field) {
     return QLatin1String(kAccentsPrefix) + QLatin1String(field);
 }
+
+// ---------------------------------------------------------------------------
+// 下拉框右边那个 V 箭头
+// ---------------------------------------------------------------------------
+
+/**
+ * @brief 下拉框最右边那个箭头：一个 `∨`（两笔），**不是实心三角**。
+ *
+ * 【为什么非自己画不可】2026-09-29 读 `qstylesheetstyle.cpp` + 实测：样式表里只要出现
+ * `QComboBox::drop-down { border: none; … }`，这一格在 `QRenderRule::hasDrawable()` 眼里就
+ * 成了"有东西要画" —— `border: none` 解析出来是 `BorderStyle_None`，**不等于**
+ * `BorderStyle_Native`（`qcssparser.cpp` 那个 `parseBorderStyle`）—— 于是
+ * `drawComplexControl` 走 `subRule.drawRule() + subRule2.drawRule()` 那一条分支，
+ * **一个箭头都不画**。也就是说旧样式表下"下拉框没有箭头"不是错觉，"有个箭头"这件事得由
+ * 我们自己接回来：把 `border: none` 去掉（只留 `width:`），Qt 就落回基样式那条路，
+ * 由基样式调 `proxy()->drawPrimitive(PE_IndicatorArrowDown, …)` —— 而 `proxy()` 指回来的
+ * 正是这里。**所以这一条和 `widgetStyleSheet()` 里那个 `::drop-down` 是一对，改一边必须
+ * 看另一边。**
+ *
+ * 【两件量出来的事】(1) 进来时 `opt->rect` 是**箭头那一小格**而不是整个下拉框（基样式已经
+ * 收窄过），拿它算格子会算歪 ⇒ 按控件自己的 `rect` 重新问一次；(2) 绘制期间
+ * `subControlRect()` 探不到样式表里那个 `::drop-down` 的宽（它头上那句 `RECURSION_GUARD`
+ * 让它直接转给基样式），量出来比真正画立体边的那一格**窄 1px** ⇒ 右边要补 1，不然会留一条
+ * `#555555` 的竖线。
+ */
+class ComboChevronStyle : public QProxyStyle
+{
+public:
+    using QProxyStyle::QProxyStyle;
+
+    void drawPrimitive(PrimitiveElement pe, const QStyleOption *opt, QPainter *p,
+                       const QWidget *w) const override
+    {
+        // 别的向下箭头（带菜单的按钮、表头排序…）原样交回去。
+        if (pe != PE_IndicatorArrowDown || qobject_cast<const QComboBox *>(w) == nullptr) {
+            QProxyStyle::drawPrimitive(pe, opt, p, w);
+            return;
+        }
+
+        // 1) 先把那一格擦成下拉框自己的底：基样式在画箭头之前压了一层 95 风格的立体边
+        //    （`qDrawWinButton`），不擦掉的话 V 会坐在一个凸起的小方块里。
+        QStyleOptionComboBox comboOpt;
+        comboOpt.initFrom(w);
+        comboOpt.rect = w->rect();
+        comboOpt.subControls = SC_All;
+        QRect cell = subControlRect(CC_ComboBox, &comboOpt, SC_ComboBoxArrow, w);
+        if (cell.isValid()) {
+            // 只擦边框以内那一片（外圈那一圈是样式表画的那 1px），右边补足上面说的那 1px。
+            cell = cell.intersected(w->rect().adjusted(1, 1, -1, -1));
+            cell.setRight(w->width() - 2);
+            p->fillRect(cell, opt->palette.brush(QPalette::Button));
+        }
+
+        // 2) 画 V。墨色跟着 `ButtonText` 走 —— 应用级样式表那句 `color:` 已经被灌进调色板
+        //    了（可用 = 纯黑、禁用 = 灰），**不用自己判 `isEnabled()`**：判了就等于在别的底上
+        //    写死了两档灰。
+        const QRect box = cell.isValid() ? cell : opt->rect;
+        const QPoint center = box.center();
+        const int half = 4;  // 半宽
+        const int rise = 2;  // 两端比中间高多少
+        QPainterPath path;
+        path.moveTo(center.x() - half, center.y() - rise);
+        path.lineTo(center.x(), center.y() + rise);
+        path.lineTo(center.x() + half, center.y() - rise);
+        QPen pen(opt->palette.color(QPalette::ButtonText));
+        pen.setWidthF(1.6);
+        pen.setCapStyle(Qt::RoundCap);
+        pen.setJoinStyle(Qt::RoundJoin);
+        p->save();
+        p->setRenderHint(QPainter::Antialiasing, true);
+        p->setPen(pen);
+        p->setBrush(Qt::NoBrush);
+        p->drawPath(path);
+        p->restore();
+    }
+};
 
 }  // namespace
 
@@ -443,13 +525,33 @@ QString widgetStyleSheet() {
     //
     // 聚焦那一档换成 `Ink`（5.6:1）：边框从"看得见"变成"这一格是活的" —— 只靠加粗或者
     // 换灰是说不清"哪一格有光标"的，而换一档更深的同色系一眼就是它。
+    // ★ 高度（2026-09-29 用户原话：「下拉框和所有输入框的高度略微改高点」）。
+    //   下面两条**要一起看**，它们必须落成一样高（并排摆着差 1px 一眼就看出来）：
+    //
+    //     `QLineEdit` / `QComboBox` 的 `padding: 3px`  ⇒ 24px（原来 `1px 3px` → 20px）
+    //     `QAbstractSpinBox` 的 `min-height: 18px`     ⇒ 24px（原来 19px）
+    //
+    //   水平那一位**故意还是 3px**（`padding: 3px` 就是四边 3px，和原来写的一样）：用户只说了
+    //   高度，横着那 1px 没有理由动 —— 动了就是"这一页上所有输入框的字整体右移 1px"。
+    //
+    //   ★ 为什么数字框不是同样的 `padding`：它那一圈边是**基样式自己画的**（下面那条把里面的
+    //     `QLineEdit` 按了回去），给它加 `padding` 就是"框里再套一个框"；而它的高度**至少**
+    //     是 25px（实测：任何一条"框"规则一挂上去就 25 打底，`padding` 只能在 25 上再加）。
+    //     所以它走 `min-height` —— Qt 里那一位是**设控件的最小高度**（`setMinimumHeight()`，
+    //     值 = `boxSize(内容高)`），数字框那一圈框占 6px ⇒ 18 + 6 = 24。
+    //     NOTE: 同一招对 `QLineEdit` **不好使**（`min-height: 16px` 算出来 20，而它的自然高度
+    //           就是 20，等于没写）—— 两种控件用两种写法不是没统一，是只能这么写。
+    //   ★ 因此数字框的 `sizeHint()`（21）和它最后占的高度（24）**不是同一个数**：竖向 `Fixed`
+    //     的控件过布局时要取"最小高度"那一关。**量高度别只量 `sizeHint()`** —— ui_check 的
+    //     W13 就是那么栽过一次的（三个数都报 24、摆上屏幕数字框却是 27）。
     qss += QStringLiteral(
                "QLineEdit { background-color: #ffffff; color: #000000; border: 1px solid %1;"
-               " border-radius: 3px; padding: 1px 3px; }"
+               " border-radius: 3px; padding: 3px; }"
                "QLineEdit:focus { border-color: %2; }"
                "QLineEdit:disabled { background-color: %3; color: %4; border-color: %5; }")
                .arg(border.name(), ink.name(), disabledFill.name(), disabledInk.name(),
                     disabledBorder.name());
+    qss += QStringLiteral("QAbstractSpinBox { min-height: 18px; }");
     // ★ **数字框 / 下拉框里面那一格也是 `QLineEdit`** —— 上面那条会连它一起框上，画出来
     //   就是"框里还套着一个框"（自旋框自己已经有一圈边了）。这一条把它按回去。
     //   用**后代**选择器（Qt 的 `>` 子选择器不可靠，后代选择器一定生效）。
@@ -471,15 +573,20 @@ QString widgetStyleSheet() {
     //   选中那一格也一起写成白底黑字（选中那一格用主题色打底、**黑墨**：黑压 `Pure`
     //   是 13.5:1，白压 `Pure` 只有 1.56:1）。
     //
-    // NOTE: `::drop-down { border: none; width: 18px; }` 只把箭头那一格框出来，**不改
-    //       那个箭头本身** —— 它是 Fusion 画的，跟着调色板走（换深浅主题的时候它跟着变，
-    //       这正是要的）。给它贴一张图就得再贴一张，主题色一换又得重来。
+    // NOTE: 箭头那一格是 **2026-09-29 用户原话「下拉框最右边放一个 V 箭头」** 改过的：
+    //
+    //   - 宽度 18 → 20；
+    //   - **`border: none` 拿掉了**。这是这一条里唯一一处看着像"退了一步"、其实是必须的
+    //     动作：留着它这一格就算"有东西要画"，Qt 于是走另一条分支、把箭头整个吃掉（实测
+    //     旧样式表下箭头压根不存在，见 `ComboChevronStyle` 那段）。拿掉之后由
+    //     `ComboChevronStyle` 接手画那个 `∨` —— 墨色跟着 `color:` 走，换深浅主题照样跟着变。
+    //   ⇒ **改这一条之前先把 `ComboChevronStyle` 那段读了**，两处是一对。
     qss += QStringLiteral(
                "QComboBox { background-color: #ffffff; color: #000000; border: 1px solid %1;"
-               " border-radius: 3px; padding: 1px 3px; }"
+               " border-radius: 3px; padding: 3px; }"
                "QComboBox:focus { border-color: %2; }"
                "QComboBox:disabled { background-color: %3; color: %4; border-color: %5; }"
-               "QComboBox::drop-down { border: none; width: 18px; }"
+               "QComboBox::drop-down { width: 20px; }"
                "QComboBox QAbstractItemView { background-color: #ffffff; color: #000000;"
                " border: 1px solid %1;"
                " selection-background-color: %6; selection-color: #000000; outline: none; }")
@@ -509,6 +616,16 @@ QString widgetStyleSheet() {
                .arg(black.name(), ink.name(), disabledInk.name(), pure.name(),
                     disabledFill.name());
     return qss;
+}
+
+QStyle *createStyle() {
+    QStyle *style = new ComboChevronStyle(QStyleFactory::create(QStringLiteral("Fusion")));
+    // 名字是给 `ui_shot` 那行 `style: …` 看的 —— 那一行存在的意义就是"图是在哪个样式下画的
+    // 必须能从产物本身看出来"。`QProxyStyle` 自己不设 `objectName`，不设的话那一行会印成
+    // 空的，等于把这道哨兵悄悄撤了（`QStyleFactory::create()` 会给它造的那一份设成 "fusion"，
+    // 所以我们这里接过来改个名，见 `Theme.hpp` 那段）。
+    style->setObjectName(QStringLiteral("wtfml-fusion"));
+    return style;
 }
 
 // ---------------------------------------------------------------------------

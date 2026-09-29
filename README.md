@@ -104,8 +104,38 @@ cmake --build build/static-release -j
       **弹出来那张表是它的子控件**，而 Qt 样式表里的 `color` 会往下传：不点名的话深色系统
       主题下弹出来的就是"黑字压在深色的底上"。所以底下另有一条 `QComboBox QAbstractItemView`
       （白底黑字、选中那一格用 `Pure` 打底 + **黑墨** —— 白压 `Pure` 只有 1.56:1，黑压 `Pure`
-      有 13.5:1）。箭头那一格只框出来不改画法：它是 Fusion 画的，跟着调色板走（换深浅主题时
-      跟着变，这正是要的）。
+      有 13.5:1）。
+    - ★ **下拉框最右边那个 `∨`（2026-09-29，用户原话「下拉框最右边放一个 V 箭头」）**。
+      它**不是** Fusion 画的：`QComboBox::drop-down` 这一条**里只要出现 `border: none`**，
+      Qt 就认定"这一格有得画"（`QStyleSheetStyle` 的 `hasNativeBorder()`：`border` 一旦不是
+      `Native` 就算"可画"），于是走"画两条子规则"那条路 —— 而那两条子规则**什么都不画**。
+      结果就是**屏幕上连一个箭头都没有**，而且一声不响。所以这条规则现在**只留 `width: 20px`**
+      （`border` 那一项删掉 = 保持 `Native` ⇒ 交回基样式 `drawComplexControl` ⇒ 它调
+      `PE_IndicatorArrowDown`）。
+      `Theme::createStyle()` 那层 `QProxyStyle` 就在这个 `PE_IndicatorArrowDown` 上截住，
+      画一个两笔的 `∨`（半宽 4、两端比中间高 2、圆头圆角、1.6px、墨色取 `ButtonText`），
+      画之前先把那一格用 `Button` 底色刷一遍（Fusion 的按钮底是斜渐变，不刷会透出渐变；
+      顺带盖掉它原先那圈 1px `#555555` 的斜角 —— 那一格 `subControlRect` 量出来比实际窄
+      1px，所以格子右边界要自己按 `w->width() - 2` 收一次，见下面那条"没画到"的教训）。
+      换深浅主题时它跟着 `ButtonText` 变，这正是要的。
+      ★ 产品与三个验证工程**都从 `Theme::createStyle()` 拿**这一份（`QApplication::setStyle`），
+      谁也别再自己写 `QStyleFactory::create("Fusion")` —— "样式基线是同一个东西"这件事原来靠
+      四处各写一行相同的代码，现在靠这一个函数；`QProxyStyle` 的构造函数**不设 `objectName`**，
+      所以 `"wtfml-fusion"` 是 `createStyle()` 里显式起的（`ui_shot` 开头那一行会印它）。
+    - ★ **高度：输入框 / 下拉框 / 数字框三个一样高（24px，2026-09-29，用户原话「下拉框和所有
+      输入框的高度略微改高点」）**。三个要**分别用各自那根杆**才撬得动，因为 Qt 这两条路不一样：
+      - `QLineEdit` / `QComboBox` 用 **`padding: 3px`**（改之前是 `1px 3px` ⇒ 20px）。水平那
+        3px **故意没动**（内容跟着变宽是另一件事）。
+      - `QAbstractSpinBox` 用 **`min-height: 18px`**。它不能用 `padding`：**数字框只要见到
+        任意一条盒子规则，底就已经是 25 了**（Fusion 自己给的最小高），`padding` 是在这之上
+        再加，值会一路飘。
+      - ★ **`min-height` 对 `QLineEdit` 是空转**，别拿它去改输入框：`QStyleSheetStyle::setGeometry()`
+        拿它算的是 `setMinimumHeight()`，**不动 `sizeHint()`**；数字框恰好是"自然高 19 < 底 25"
+        才显得有用，输入框自然高正好等于算出来的那个数，写多少都一样。
+      - ★ **量高度要在真布局里量 `height()`，不能量 `sizeHint()`**。数字框 `sizeHint()` 报 21、
+        真占 24（布局里还会被 `minimumSize()` 再夹一次）—— 拿 `sizeHint()` 当判据会得出
+        "三个都是 24"的假结论（`ui_check` 的 W13 就是那么栽过一次的，现在的断言是真的摆一个
+        `QHBoxLayout` 进去再读 `height()`）。
     - ★ 那一整条 `QLineEdit {...}` 是**通配**的，数字框（`QAbstractSpinBox`）和可编辑下拉框
       里面**也**有一颗 `QLineEdit`，会跟着套上第二圈边。所以底下跟着一条复位规则
       （`QAbstractSpinBox QLineEdit, QComboBox QLineEdit { border: none; ... }`）—— 改那一带
