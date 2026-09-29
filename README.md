@@ -202,9 +202,10 @@ cmake --build build/static-release -j
   （16×16 像素画，颜色形状都在代码里，能对着像素断言）；Fabric/Forge/NeoForge/OptiFine
   是**真图**（`assets/loader/*.png`，64×64 成品，编进 exe 的 `:/assets/…`，来路见那份
   README）—— 换那四张只要盖掉同名文件，`loaderMark()` 那段代码和写进 `wtfml.meta` 的
-  键都不用动。★ 2026-09-29：**Fabric 那张原来垫着的深色圆角底抠掉了**（用户「fabric 的图标
-  黑色部分改成透明的」），另外三张一个字节没动 ⇒ 四张里现在只有 Fabric 是透明底，在浅色
-  背景上比另外三张淡一档（这是那条要求的直接结果）。抠法见 `assets/loader/README.md`。
+  键都不用动。★ 2026-09-29 当天换过两轮：上午把 Fabric 那块烤进去的深色圆角底抠了，下午
+  用户换成自带透明底的新图（连 forge 一起）⇒ **现在四张不是同一档东西：fabric / forge 是
+  透明底（只有标志本身），neoforge / optifine 自带一块圆角方底**。最直接的后果是 Forge 那把
+  铁砧没有底撑着、在列表里比另外三张明显小一圈。出图/抠底的做法见 `assets/loader/README.md`。
   ★ 想关掉 Qt 画在分类左边那个小三角，**不能**设 `setChildIndicatorPolicy(DontShowIndicator)` ——
   `QTreeModel::hasChildren()` 会按它直接回"没有孩子"，后果是整条分类的版本号一条都排不进布局
   （而模型层的断言照样全绿）。正路是 `QTreeView::setRootIsDecorated(false)`。
