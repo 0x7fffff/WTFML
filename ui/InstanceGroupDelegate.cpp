@@ -211,6 +211,32 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
         //   文字区的宽度**问样式要**（SE_ItemViewItemText），不去猜它给图标和留白各让了
         //   多少 —— 猜的话换一个样式就错一截。
         initStyleOption(&opt, index);
+        // ★★ 2026-09-29：把左边那一截「分支区」补回底色。
+        //
+        //   实例是组的**子条目**，视图按 `setIndentation(14)` 在这一行的左边留出一截。
+        //   而 `QTreeView::drawRow()` 在喊代理之前，会先用**选中色**把那整截涂满
+        //   （`PE_PanelItemViewRow`，矩形是 `QRect(position, y, indentation, height)` ——
+        //   注意是**整条行高**、不是卡片那一圈）。代理画卡片时上下各收掉半个缺口
+        //   （见 cardRect()），于是选中一行时左边就多出一根 14 px 宽、比卡片上下各冒出去
+        //   3 px 的竖条。用户原话：「注意蓝色部分，左边那里长了，改一下」。
+        //
+        //   代理在这条链里**排在视图后面**（drawRow 是"先涂分支区、后
+        //   `itemDelegateForIndex(...)->paint(...)`"），所以盖得住：拿树自己的底色
+        //   （`QPalette::Base` —— 视口的 backgroundRole 就是它，见 QAbstractItemView
+        //   构造里那句 `viewport->setBackgroundRole(QPalette::Base)`）把那一截补回来。
+        //   `PE_PanelItemViewRow` 在"没选中"时**什么都不画**（底色是视口自己铺的），
+        //   所以不能拿它当橡皮 —— 只能自己 fill 一遍。
+        //
+        //   ★ 宽度取的是 `option.rect.left()`，**不是**写死的 14：它就是"这一格从哪儿开始"
+        //     （= 分支区宽度）。横向滚动时它和视图那边**同时**变小（两边都以
+        //     `columnViewportPosition(0)` 为原点），滚到那一截整条出屏时它 ≤ 0、
+        //     这一句自己什么都不画。写死 14 的话，往右滚一下就会在左边留下一根擦不掉的条。
+        //   ★ 竖直方向用 `option.rect`（**整条行**）而不是卡片：要擦掉的那两条恰恰长在
+        //     卡片上下**外面**。
+        if (option.rect.left() > 0) {
+            const QRect branch(0, option.rect.top(), option.rect.left(), option.rect.height());
+            painter->fillRect(branch, option.palette.brush(QPalette::Base));
+        }
         // 行与行之间那道空（见 cardRect()）：这一行**画**的那一圈比整条行上下各小半个缺口。
         // 摆在这儿（initStyleOption 之后、量文字之前）是因为下面那句 SE_ItemViewItemText
         // 是从 opt.rect 上算的 —— 少了这一句，量出来的宽度还是整条行的，虽然宽度只跟左右有关、
