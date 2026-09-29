@@ -236,8 +236,9 @@ QString accentSettingKey(const char *field) {
  * @brief 产品+三个验证工程共用的那一份代理样式。**它接手两件事**：
  *
  *   1. 下拉框右边那个 `∨`（下面这一大段）；
- *   2. **选中那一块的深灰**（`PE_PanelItemViewItem` / `PE_PanelItemViewRow` 两条原语 +
- *      `CE_ItemViewItem` 里换墨）—— 用户 2026-09-29 原话「选中的时候那个蓝色的换成深灰色」。
+ *   2. **选中那一块的浅灰**（`PE_PanelItemViewItem` / `PE_PanelItemViewRow` 两条原语 +
+ *      `CE_ItemViewItem` 里换墨）—— 用户 2026-09-29 原话「选中的时候那个蓝色的换成深灰色」，
+ *      紧接着「再浅一点，#cccccc」。
  *      为什么落在这一层：调色板的 `Highlight` 是平台给的蓝，而"出厂那一份不碰调色板"这条
  *      不能破（破=把"跟着系统深浅"钉死，见 `apply()` 那段）。样式这一层一份代码就管住
  *      全仓每一张表，连不用我们那两个代理的表、以及下拉框弹出来那张表也一起管住了。
@@ -268,7 +269,7 @@ class WtfmlProxyStyle : public QProxyStyle
 public:
     using QProxyStyle::QProxyStyle;
 
-    /// "这一条原语该不该由我们画成深灰"—— 是的话给出那一份 option，不是给 nullptr。
+    /// "这一条原语该不该由我们画成那块浅灰"—— 是的话给出那一份 option，不是给 nullptr。
     ///
     /// 判据和基样式里那两条逐字一样（`if (showDecorationSelected && State_Selected)`），
     /// 不自己发明第二条：`showDecorationSelected` 是"选中那一块铺整行还是只铺文字那一格"
@@ -308,7 +309,8 @@ public:
     {
         // ★ 选中那一块：调色板里那一档（`Highlight`）是**平台给的蓝**，而"出厂那一份不碰
         //   调色板"这条不能破（破了就把"跟着系统深浅"钉死了，见 `apply()` 那段）⇒ 由这里
-        //   接过来自己画成深灰。用户 2026-09-29 原话：「选中的时候那个蓝色的换成深灰色」。
+        //   接过来自己画成浅灰。用户 2026-09-29 原话：「选中的时候那个蓝色的换成深灰色」，
+        //   紧接着「再浅一点，#cccccc」。
         //
         //   两条原语各管一半，缺一条屏幕上就留一块蓝：
         //   - `PE_PanelItemViewItem` = 条目那一格（每张表都有）；
@@ -318,7 +320,7 @@ public:
         //   原语是不是真的被走到由**视图**决定 —— 补涂那一份是保底，两边同一个色。
         if (pe == PE_PanelItemViewItem || pe == PE_PanelItemViewRow) {
             if (const QStyleOptionViewItem *vopt = selectedItemOption(opt)) {
-                p->fillRect(vopt->rect, selectionFill(vopt->palette.color(QPalette::Base)));
+                p->fillRect(vopt->rect, selectionFill());
                 return;
             }
         }
@@ -369,10 +371,11 @@ public:
     void drawControl(ControlElement ce, const QStyleOption *opt, QPainter *p,
                      const QWidget *w) const override
     {
-        // ★ 选中那一行的**字**：底色那一块已经换成深灰了（见上面那两条原语），而基样式紧接着
+        // ★ 选中那一行的**字**：底色那一块已经换成浅灰了（见上面那两条原语），而基样式紧接着
         //   印字用的是 `HighlightedText` —— 那一档还是"照蓝底配的"（深色系统主题下是白、
-        //   浅色下是近黑）。深灰上必须换一支亮墨，不然浅色主题下就是**黑字压深灰**
-        //   （1.9:1，等于没字）。用户原话和整套理由见 `theme.hpp` 的 `selectionInk()`。
+        //   浅色下是近黑）。浅灰上必须换一支**暗**墨：深色主题下平台给的是白字，白压
+        //   `#cccccc` 只有 1.6:1，等于没字（浅色主题下那一档恰好也能用，但同一支墨只有一处
+        //   出处，见 `selectionInk()`）。用户原话和整套理由见 `ui/Theme.hpp` 的 `selectionInk()`。
         //
         //   改的是**这一份拷贝**、不是控件身上那份：换色只对这一次绘制生效，别的地方读
         //   `HighlightedText`（它们是照平台那一套算的）一点都不受影响。
@@ -502,19 +505,26 @@ QColor rowHoverFill(const QColor &base) {
                   mix(base.blue(), accent.blue()));
 }
 
-QColor selectionFill(const QColor &base) {
-    // 浅底上就是"深灰"那一支；深底上得比底色**亮**一档（深色预设的行底色是 #323232，
-    // 照搬 #4a4a4a 只差 24 个数位，"选中"在屏幕上看不出来）。判据取底色的明度，
-    // 和 `isDarkPalette()` 是同一条口径。
-    return base.lightness() < 128 ? QColor(0x5e, 0x5e, 0x5e) : QColor(0x4a, 0x4a, 0x4a);
+QColor selectionFill() {
+    // 用户 2026-09-29 原话：「选中的时候那个蓝色的换成深灰色」，紧接着又补了半句
+    // 「再浅一点，#cccccc」。全仓只有这一处写这个色。
+    // ★ 这一档**故意不看底色**：第一版写的是"浅底 `#4a4a4a` / 深底 `#5e5e5e`"那种按底色
+    //   各挑一档，那是给**暗**色块算的（深色主题的底 `#323232` 和暗块只差 24 个数位、会糊
+    //   成一片）；换成一块**浅**灰之后，深浅两种主题上都浮得出来，那条理由不成立了
+    //   （详见 ui/Theme.hpp 那段）。墨的方向也跟着翻了一次，见 `selectionInk()`。
+    return QColor(0xcc, 0xcc, 0xcc);
 }
 
 QColor selectionInk() {
-    return QColor(0xf2, 0xf2, 0xf2);
+    // 浅灰上必须是**暗**墨（对 `#cccccc` 约 10.8:1）。★ 第二版之前是亮墨 `#f2f2f2` ——
+    // 那是对着暗色块算的；现在这一块是浅的，亮墨压上去等于没字（ui_check 那条"墨是暗的"
+    // 钉的就是这件事）。也**不能**直接用平台给的正文色：深色系统主题下它是白的。
+    return QColor(0x1a, 0x1a, 0x1a);
 }
 
 QColor selectionSubInk() {
-    return QColor(0xc3, 0xc3, 0xc3);
+    // 次要那一档（对 `#cccccc` 约 4.6:1）：版本树第二行那行小字、占位文字、行里那些小图标。
+    return QColor(0x55, 0x55, 0x55);
 }
 
 QPalette selectionPalette(const QPalette &palette, bool selected) {
@@ -538,10 +548,9 @@ QPalette selectionPalette(const QPalette &palette, bool selected) {
                  inkOn(selectionInk(), palette.color(QPalette::HighlightedText)));
     out.setColor(QPalette::PlaceholderText,
                  inkOn(selectionSubInk(), palette.color(QPalette::PlaceholderText)));
-    // 这一行真正铺的那一层是深灰（不是调色板里那一档蓝）—— 有几处按"底色"重算文字对比度
-    // （版本树上那两行 MOTD），读的就是 `Highlight`。
-    out.setColor(QPalette::Highlight,
-                 selectionFill(palette.color(QPalette::Base)));
+    // 这一行真正铺的那一层是那块浅灰（不是调色板里那一档蓝）—— 有几处按"底色"重算文字
+    // 对比度（版本树上那两行 MOTD），读的就是 `Highlight`。
+    out.setColor(QPalette::Highlight, selectionFill());
     return out;
 }
 

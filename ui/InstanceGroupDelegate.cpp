@@ -241,10 +241,11 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
             const QRect branch(0, option.rect.top(), option.rect.left(), option.rect.height());
             painter->fillRect(branch, option.palette.brush(QPalette::Base));
         }
-        // ★ 选中那一行的**墨**：底已经由样式画成深灰了（用户 2026-09-29 原话「选中的时候那个
-        //   蓝色的换成深灰色」，两条原语覆写在 `Theme::createStyle()` 那一份代理样式里），
-        //   而这一行上手画的那三颗（齿轮 / 置顶箭头 / 垃圾桶）取的是正文色 —— 不换的话它们
-        //   就是一对黑疙瘩压在深灰上。正文那一半归样式管（走 `CE_ItemViewItem`）、那边也换过
+        // ★ 选中那一行的**墨**：底已经由样式画成那块浅灰了（用户 2026-09-29 原话「选中的时候
+        //   那个蓝色的换成深灰色」，紧接着「再浅一点，#cccccc」，两条原语覆写在
+        //   `Theme::createStyle()` 那一份代理样式里），而这一行上手画的那三颗（齿轮 / 置顶箭头 /
+        //   垃圾桶）取的是正文色 —— 不换的话深色主题下它们就是一对白疙瘩压在浅灰上。正文那一半
+        //   归样式管（走 `CE_ItemViewItem`）、那边也换过
         //   了同一支墨，两处必须一致。
         //   NOTE: 换的是**这一份局部拷贝**，控件的调色板一点都不动。
         //   NOTE: **只换墨、不换那一块的形状** —— 实例行选中时的带子只有卡片那一圈，
@@ -291,9 +292,10 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
         // NOTE: 每颗都不自己缓存 pixmap —— `VersionIcons::` 内部已经按"尺寸 + 颜色"缓存
         //       （见那边 cached()），这一层再存一份只会多一处要同步的地方。
         //
-        // ★ 取色走的是上面那份**换了墨的** `palette`（选中那一行是深灰底 ⇒ 墨得是亮的，
-        //   理由见那段）。别改回 `option.palette` —— 那样选中一行时三颗按钮会变成一对
-        //   黑疙瘩压在深灰上（正文那一半倒是归样式管、照样是亮的，于是同一行上一亮一黑）。
+        // ★ 取色走的是上面那份**换了墨的** `palette`（选中那一行的底是我们自己画的那块浅灰
+        //   ⇒ 墨必须和它配套，理由见那段）。别改回 `option.palette` —— 那样深色主题下选中
+        //   一行时三颗按钮会变成一对白疙瘩压在浅灰上（正文那一半倒是归样式管、照样是暗的，
+        //   于是同一行上一暗一白）。
         const QColor ink = rowPalette.color(QPalette::WindowText);
         painter->save();
         // 齿轮**常显**（用户追加答复「要，一颗齿轮常显」）：它和"点这一行任何别的地方"

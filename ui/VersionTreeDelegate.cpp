@@ -108,7 +108,8 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     // 读的是**原样传进来**的那个 option，不是 initStyleOption 之后的那一份：这一位是视图
     // 填的，它在 initStyleOption 里留没留住不该由我们猜（这条路上我们自己说了算）。
     const bool hovered = (option.state & QStyle::State_MouseOver) != 0;
-    // ★ 选中那一块由**样式**画成深灰（用户 2026-09-29 原话：「选中的时候那个蓝色的换成深灰色」
+    // ★ 选中那一块由**样式**画成浅灰（用户 2026-09-29 原话：「选中的时候那个蓝色的换成深灰色」，
+    //   紧接着「再浅一点，#cccccc」
     //   —— 两条原语覆写在 `Theme::createStyle()` 那一份代理样式里，见 `ui/Theme.hpp` 的
     //   `selectionFill()` 那段）。这一位在这儿只用来做两件事：左边那一截分支区补涂，
     //   以及下面那一份**局部调色板**里换墨。
@@ -153,19 +154,19 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     // ★ 选中那一行的**分支区那一截**：`QTreeView::drawRow()` 在把画笔交给代理之前自己先用
     //   **平台的选中色（蓝）**把 `QRect(0, y, 缩进, 行高)` 铺一遍（长注释在
     //   ui/InstanceGroupDelegate.cpp 里那段 ★★ 2026-09-29）。样式那一层已经把
-    //   `PE_PanelItemViewRow` 也接过去画成深灰了，但"drawRow 到底走不走那条原语"是**视图**
+    //   `PE_PanelItemViewRow` 也接过去画成那块浅灰了，但"drawRow 到底走不走那条原语"是**视图**
     //   说了算的事 —— 这一句是保底，两边同一个色，重复涂一遍看不出区别。
     //   NOTE: 实例树那一边**故意不补**（它选中时的带子只有卡片那一圈，左边那根竖条正是
     //   用户 2026-09-29 点名要删掉的东西，见那条 ★★）。两张表的选中带形状本来就不一样。
     if (selected && index.column() == 0 && option.rect.left() > 0) {
         painter->fillRect(QRect(0, option.rect.top(), option.rect.left(), option.rect.height()),
-                          Theme::selectionFill(option.palette.color(QPalette::Base)));
+                          Theme::selectionFill());
     }
 
     const QRect row = option.rect;
-    // ★ 选中那一行的**墨**：底已经不是调色板里那一档蓝了（是深灰），而这一行上手画的每一笔
-    //   （正文、第二行小字、图标、右边的箭头）都从下面这份 palette 取色 —— 不换的话浅色主题
-    //   下就是黑字压深灰（1.9:1，等于没字）。换哪几档只有一处出处（`selectionPalette()`），
+    // ★ 选中那一行的**墨**：底已经不是调色板里那一档蓝了（是那块浅灰），而这一行上手画的每一笔
+    //   （正文、第二行小字、图标、右边的箭头）都从下面这份 palette 取色 —— 不换的话深色主题下
+    //   就是白字压浅灰（1.6:1，等于没字）。换哪几档只有一处出处（`selectionPalette()`），
     //   换的是**一份局部拷贝**：控件的调色板、别处的取色一点都不受影响。
     const QPalette palette = Theme::selectionPalette(option.palette, selected);
     // 不可用的那几条（安装页上"选中了一个加载器之后其余几条"）**整行淡下去**：这一行

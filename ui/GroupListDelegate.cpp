@@ -143,10 +143,11 @@ void GroupListDelegate::paint(QPainter *painter, const QStyleOptionViewItem &opt
     // 下面所有几何都吃**条目矩形**（option.rect），映射在里面做一次（见 .hpp 那段）。
     const QRect row = option.rect;
     const bool selected = (option.state & QStyle::State_Selected) != 0;
-    // ★ 选中那一行的底色已经换成深灰了（用户 2026-09-29 原话「选中的时候那个蓝色的换成
-    //   深灰色」，见 `ui/Theme.hpp` 的 `selectionFill()`）⇒ 这一行上手画的那两笔（组名、
-    //   行尾方框里那两颗三角）取色的那一份也得跟着换：原来"选中就取 `HighlightedText`"
-    //   那条规矩本身没错，错的是**深灰上那一档还是照蓝底配的**（浅色主题下是近黑）。
+    // ★ 选中那一行的底色已经换成浅灰了（用户 2026-09-29 原话「选中的时候那个蓝色的换成
+    //   深灰色」，紧接着「再浅一点，#cccccc」，见 `ui/Theme.hpp` 的 `selectionFill()`）⇒
+    //   这一行上手画的那两笔（组名、行尾方框里那两颗三角）取色的那一份也得跟着换：原来
+    //   "选中就取 `HighlightedText`"那条规矩本身没错，错的是**浅灰上那一档还是照蓝底配的**
+    //   （深色主题下是白，白压 `#cccccc` 只有 1.6:1）。
     //   换哪几档只有一处出处（`Theme::selectionPalette()`），理由是"三个手画正文的代理
     //   抄三遍迟早漏一档"。
     const QPalette palette = Theme::selectionPalette(option.palette, selected);
@@ -158,8 +159,9 @@ void GroupListDelegate::paint(QPainter *painter, const QStyleOptionViewItem &opt
     const QRect textRect(textLeft, content.top(), qMax(0, textRight - textLeft), content.height());
 
     // 字色跟基类画的时候一样：没选中是正文色、选中是高亮前景色（= 上面那份 palette 里
-    // 换过的那一支亮墨）。**不能一直用正文色** —— 这一行没换代理之前是基类画的，选中那一档
-    // 一直是样式挑的那个高亮前景色；底色换成深灰之后，正文色（近黑）压上去等于没字。
+    // 换过的那一支**暗**墨）。**不能一直用正文色** —— 这一行没换代理之前是基类画的，选中
+    // 那一档一直是样式挑的那个高亮前景色；底色不复用调色板里那一份之后，深色主题下平台给的
+    // 白字压浅灰等于没字（浅色主题下正文色恰好也能用，但同一支墨只能有一处出处）。
     const QColor ink = palette.color(selected ? QPalette::HighlightedText : QPalette::Text);
     painter->save();
     painter->setPen(ink);
