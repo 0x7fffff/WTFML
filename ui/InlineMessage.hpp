@@ -31,6 +31,7 @@
 
 class QLabel;
 class QLineEdit;
+class QListWidget;
 class QPushButton;
 class OverlayHost;
 
@@ -94,6 +95,30 @@ public:
     QString lineEditText() const;
 
     /**
+     * @brief 在正文和按钮行之间放一张**列表**，返回它。
+     *
+     * 这是 `QInputDialog::getItem` 那一档的替身（「装到哪个实例里」「用哪一个」这种
+     * "从现成的几项里挑一个"）。和 `setLineEdit()` 同一个理由长在这个类上：卡片、宽度、
+     * 按钮行、Esc/回车的规矩这里全都有了，再写一个 `InlineListBox` 等于把那一套抄第二遍。
+     *
+     * @param items 每一行显示的字，从左到右就是从上到下。
+     * @param initialRow 一开始选中第几行（越界 / −1 = 不选）。
+     *
+     * ★ 高度**不跟条数长**：最多露 `kListVisibleRows` 行，再多就在列表自己内部滚 —— 一页
+     *   提示的高度不该由"用户有几个实例"决定（选到一个只有两行的框和选到一个铺满屏幕的框，
+     *   是两种东西）。
+     * NOTE: 和 `setLineEdit()` 一样是**可选的一步**，不进 ctor；也**只能插一张**（再调一次
+     *       就是换内容 + 换选中项，不插第二张）。
+     */
+    QListWidget *setList(const QStringList &items, int initialRow);
+
+    /// 列表里现在选中第几行。**没插过列表、或者一行都没选 = −1**。
+    int listRow() const;
+
+    /// 插进来的那张列表（没插过就是 nullptr）。给验证工程用。
+    QListWidget *listWidget() const { return m_list; }
+
+    /**
      * @brief 在正文下面、按钮行上面补一行**小字**（比正文小一号、颜色浅一档）。
      * @param text 那句话。**空串 = 不补**（视图里不留一行空的）。
      *
@@ -114,6 +139,15 @@ public:
     static QString titleLabelName() { return QStringLiteral("inlineMessageTitle"); }
     /// 插进来的那一行输入框。**只有"问名字"那一档有。**
     static QString lineEditName() { return QStringLiteral("inlineMessageEdit"); }
+    /// 插进来的那张列表。**只有走过 `setList()` 的才有。**
+    static QString listName() { return QStringLiteral("inlineMessageList"); }
+    /**
+     * @brief `setList()` 那张列表**最多露几行**（再多就在列表内部滚）。
+     *
+     * ★ 这是一个**规格数**，验证工程读它，别在测试里写死 6 —— 改了这里，"多出来的那几行
+     *   不再把卡片撑高"那条断言要跟着一起改（它量的就是这个数）。
+     */
+    static int listVisibleRows();
     /// 正文下面那一行小字。**只有走过 `setNote()` 的才有。**
     static QString noteLabelName() { return QStringLiteral("inlineMessageNote"); }
     static QString textLabelName() { return QStringLiteral("inlineMessageText"); }
@@ -143,6 +177,7 @@ private:
     QLabel *m_titleLabel = nullptr;
     QLabel *m_textLabel = nullptr;
     QLineEdit *m_lineEdit = nullptr;
+    QListWidget *m_list = nullptr;
     QLabel *m_noteLabel = nullptr;
 };
 
@@ -187,6 +222,22 @@ bool question(OverlayHost *host, const QString &title, const QString &text, cons
  */
 QString getText(OverlayHost *host, const QString &title, const QString &label,
                 const QString &initial, bool *ok);
+
+/**
+ * @brief 从现成的几项里挑一个（`QInputDialog::getItem` 的替身）。
+ * @param items 每一行的字。
+ * @param initialRow 一开始选中第几行（越界 = 不选）。
+ * @param rowOut 用户选中的行号；**取消 / Esc / 点外面 / 没有覆盖层都是 −1**。
+ * @return 用户点了「确定」并且**真的选中了一行**。`rowOut` 只在返回 true 时才有意义。
+ *
+ * NOTE: 和 `getText()` 一样是**同步**的（内部一个嵌套事件循环），所以调用点的形状是
+ *       `if (InlineMessage::pickFromList(..., &row)) { … }`。
+ * NOTE: `items` 为空时**直接返回 false**、什么都不弹 —— 一个"一行都没有"的列表框没有意义，
+ *       而它长得和"有东西可挑"一模一样，用户只会以为界面卡了。调用方那一路要先自己判空
+ *       （比如"一个实例都没有，先去装一个"）。
+ */
+bool pickFromList(OverlayHost *host, const QString &title, const QString &text,
+                  const QStringList &items, int initialRow, int *rowOut);
 
 /**
  * @brief 按钮表自己定的那种问话（原来手工拼 `QMessageBox box(this)` + `addButton` 那两处）。

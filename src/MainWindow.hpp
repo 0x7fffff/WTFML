@@ -55,6 +55,8 @@ class MainWindowUI;
 // 安装页那棵加载器树上的一个条目（loaderItem()）。这里只在私有函数的参数/返回值里按
 // 指针用，前置声明就够 —— 不值得为了一个参数类型让每个 include 了 MainWindow.hpp 的
 // 地方都把 QtWidgets 里那个大块头拖进来。
+class QDragEnterEvent;  // 拖进来的文件（只用指针，所以前置声明够）
+class QDropEvent;
 class QTreeWidget;  // 下载页那几张资源表（只用指针和引用，所以前置声明够）
 class QTreeWidgetItem;
 class QThread;  // 图标反查那一趟（见 m_instanceIconThread），同上只按指针持有
@@ -885,7 +887,50 @@ private slots:
     /// 「导入整合包…」那个按钮：只是**选文件**，选完交给 importModpackFromFile()。
     /// 拆成两个函数是因为下载页「整合包」那一页也要走同一条路（那边是"下回来一个 .mrpack"，
     /// 路径是从下载结果来的，没有文件对话框那一步）—— 整条导入流程只有一份。
-    void importModpackFromFile(const QString &zipPath);
+    ///
+    /// @param namePrefill 问名字那一格的**预填值**。空串 = 按包名推一个
+    ///        （`ModpackImport::suggestInstanceName(pack.name)`，也就是那颗按钮那一档）。
+    ///        用户 2026-09-29 那条"拖进来一个整合包"要的是**文件名**
+    ///        （「这个自动预填文件名」）—— 拖进来的东西用户刚在资源管理器里看过，
+    ///        文件名是他认得的那一串，包名反而未必。
+    void importModpackFromFile(const QString &zipPath, const QString &namePrefill = QString());
+
+    // ---------- 拖进来的文件（2026-09-29）----------
+    //
+    // 用户原话：「打开某个实例设置的时候如果拖入.jar/.zip之类的文件，检测是整合包还是资源包等，
+    // 如果是模组且正好在模组设置那一页，那就直接塞进去，不是对应页面就弹窗提示：将在此实例中
+    // 安装 资源包/...，是否继续；如果是整合包，则让用户选择安装的文件夹及实例名（这个自动预填
+    // 文件名）并离开实例设置（相当于点了返回）。在一些其它的地方拖入模组等时选择要安装在的
+    // 目标实例」。
+    //
+    // 切成三条：**认类型**在 `DroppedResource`（纯判断）、**复制进目录**在
+    // `installLocalResourceFile()`、**问什么**在这两个 handle* 里。两条入口各一个
+    // （实例设置那一页开着 / 没开着），是因为"装到哪去"这个问题只有前者不用问。
+
+    /// 实例设置那一页上报"落了这几个文件"（`InstanceSettingsDialog::filesDropped`）。
+    /// @param page 那一页（要用它读 `currentPageKey()`、装完让它刷一次文件页）。
+    /// @param versionId 这一页说的是哪个实例（目录名）。
+    void handleInstanceSettingsDrop(QWidget *page, const QString &versionId,
+                                    const QStringList &paths);
+
+    /// 拖到**主窗口**上的（没有哪一页开着）：装到哪个实例里要问用户。
+    void handleWindowDrop(const QStringList &paths);
+
+    /// 把一个本地文件装进 @p versionId 这个实例的 @p kind 那一类目录里（没有目录就建）。
+    ///
+    /// 目标里已经有同名文件时会**问一句要不要盖掉**（`kind` 那一类的说法写在那句话里）。
+    /// @param problemOut 失败时说人话的原因；成功时清空。
+    /// @return 装上去了没有（用户答"不盖"也算 false —— 那一次没装）。
+    bool installLocalResourceFile(const QString &versionId, ResourceCatalog::Kind kind,
+                                  const QString &path, QString *problemOut);
+
+    /// 拖进来一个整合包：**先问游戏文件夹**、再问实例名（预填 @p namePrefill），
+    /// 然后走既有的导入流程（`importModpackFromFile`）。
+    ///
+    /// ★ 问游戏文件夹那一问是用户点名要的（「让用户选择安装的文件夹及实例名」）——
+    ///   手法和「复制实例」那一处**逐字相同**（原生目录选择框 + 问名字），理由见那一处
+    ///   那段：`ui/` 不碰 `AppPaths`，"该默认到哪儿"只有这一层知道。
+    void importDroppedModpack(const QString &zipPath, const QString &namePrefill);
     /// 下载页那几类资源里挑中的那个版本下完了（见 downloadResourceFiles）。
     /// label 是「Sodium 0.6.13」这种"下的是什么"，界面上只写日志 + 弹窗，**不碰任何实例的
     /// 安装状态**（那是 onVersionDownloadFinished 的事，两者语义不同，见 VersionManager 里
@@ -930,6 +975,22 @@ protected:
     /// 游戏还在跑的时候这里要拦一下，理由见 .cpp 里那段：MainWindow 是 main() 里的栈对象，
     /// 它一析构，链子上那个 QProcess 的析构就会把游戏 **kill()** 掉。
     void closeEvent(QCloseEvent *event) override;
+
+    /**
+     * @brief 有东西被拖到**窗口**上（2026-09-29）。
+     *
+     * 这一层接的是"没有哪一页开着"的那一档（实例设置开着时是**那一页**先接住，见
+     * `InstanceSettingsDialog::dragEnterEvent()`）：拖进来的文件该装到**哪个实例**里，
+     * 这一档没有上下文可推，只能问用户。
+     *
+     * NOTE: 判据（认不认这一发拖放、拖的是哪几个文件）只有一处 —— `DroppedResource` 判
+     *       类型、`InstanceSettingsDialog::droppedFilePaths()` 判"是不是本地文件"。
+     *       这一个大类不自己再写一遍，免得两处对"什么算一个能装的文件"给出不同答案。
+     */
+    void dragEnterEvent(QDragEnterEvent *event) override;
+
+    /// @copydoc dragEnterEvent
+    void dropEvent(QDropEvent *event) override;
 
     /// 只为一件事挂着：安装页那棵加载器树的视口。选中那条加载器右边那个「取消」小叉
     /// （`rowClearRole()`）是**行里的一个按钮**、不是"点这一行"，而 `itemClicked` 只给条目

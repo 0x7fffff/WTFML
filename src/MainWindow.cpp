@@ -68,6 +68,8 @@
 #include <QDebug>
 #include <QDesktopServices>
 #include <QDir>
+#include <QDragEnterEvent>
+#include <QDropEvent>
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QFile>
@@ -79,6 +81,8 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+// 拖进来的文件是从 QMimeData 上那串 url 读出来的（见 MainWindow::dropEvent）。
+#include <QMimeData>
 #include <QMouseEvent>
 // 底栏面板里那几行的图标要按"底栏那几行字的墨色"上色（图标是画的，颜色由调用方给）。
 #include <QPalette>
@@ -122,6 +126,8 @@
 #include "launcher/AsciiPathAlias.hpp"
 #include "launcher/LauncherManager.hpp"
 #include "manage/DefaultSkin.hpp"
+// 拖进来的那一份文件是哪一类（纯判断，见那个头文件）—— 2026-09-29 加。
+#include "manage/DroppedResource.hpp"
 #include "manage/FolderManager.hpp"
 #include "manage/InstanceFiles.hpp"
 #include "manage/InstanceGroupStore.hpp"
@@ -1357,6 +1363,10 @@ MainWindow::MainWindow(QWidget *parent)
     //       没有任何一处调它，第一次是 openInstallPage()（:1744）。初值不写在头文件里
     //       是因为那边只前置声明了 MainWindowUI。
     m_selectedLoaderIndex = MainWindowUI::modLoaderNoneIndex();
+    // ★ 2026-09-29：整个窗口接拖放（用户原话见 .hpp 里 dragEnterEvent() 那段）。
+    //   "没有哪一页开着"的那一档就是它接的；实例设置开着时是**那一页**先接住
+    //   （拖放事件从光标底下那个控件沿父链往上找第一个接了拖放的控件）。
+    setAcceptDrops(true);
     setupConnections();
     // 下载页那五页的筛子先灌上（来源 / 类型 / 加载器那三项这一刻就定得下来；「版本」那一栏
     // 等在线清单一到才有的灌，见 onVersionsFetched）。界面那边只搭空框 —— ui/ 不 include
@@ -9831,6 +9841,18 @@ void MainWindow::openInstanceSettingsNow(const QString &versionId, const QString
         }
     }
 
+    // ★ 拖进来的文件（2026-09-29 用户点名要的那一条）：这一页**认不出**一个 jar 是什么、
+    //   也够不着盘 —— `ui/` 不 include `src/`（那条分层约定见 InstanceSettingsDialog.hpp
+    //   里 dragEnterEvent 那段）。所以它只发一句"拖进来这几个路径"，认类型、问那一句
+    //   "是否继续"、把文件复制进目录，**全在 MainWindow 这一层**（见 handleInstanceSettingsDrop）。
+    //
+    // NOTE: `targetId` 按**引用**收 —— 改完名这一页还开着，那时拖进来的东西必须落进新目录
+    //       （同上面那些 lambda 的理由，见 targetId 那一段）。
+    connect(&dialog, &InstanceSettingsDialog::filesDropped, this,
+            [this, &dialog, &targetId](const QStringList &paths) {
+                handleInstanceSettingsDrop(&dialog, targetId, paths);
+            });
+
     // 这一页盖在内容区上（标签栏和底栏都留着），左上角那颗返回箭头 = 关掉这一页（见
     // OverlayHost::execPage）。标题写在页眉上，所以这一页自己那行标题要收起来 ——
     // 两行一模一样的字挨着是重复，不是强调。
@@ -13082,7 +13104,7 @@ void MainWindow::onImportModpackClicked() {
     importModpackFromFile(zipPath);
 }
 
-void MainWindow::importModpackFromFile(const QString &zipPath) {
+void MainWindow::importModpackFromFile(const QString &zipPath, const QString &namePrefill) {
     // 先只看一件事：这个压缩包的根目录里有没有清单。**不整包解开** —— 用户随手选一个
     // 几百 MB 的包，为了"知道它不是整合包"先解压几分钟是白等。
     //
@@ -13153,10 +13175,17 @@ void MainWindow::importModpackFromFile(const QString &zipPath) {
         return;
     }
 
-    // 名字：先拿包名推一个候选（ModpackImport::suggestInstanceName 会把建不出目录的
-    // 字符换掉、收长度），用户改不改都行。校验用**数据层那一份**
+    // 名字：先推一个候选（ModpackImport::suggestInstanceName 会把建不出目录的字符换掉、
+    // 收长度），用户改不改都行。校验用**数据层那一份**
     // （InstanceFiles::validateRenameTarget），界面绝不自己抄一遍规则。
-    QString name = ModpackImport::suggestInstanceName(pack.name);
+    //
+    // ★ 推的那个候选有两种来源（2026-09-29）：调用方给了 @p namePrefill 就用它
+    //   （"拖进来的那个整合包"给的是**文件名**，见 .hpp），没给才按包名推
+    //   （「导入整合包…」那颗按钮那一档）。**两路都过同一个清洗** —— 文件名里有
+    //   `/` `:` 那些字符的时候，不清洗的话下一步 `checkImportTargetName` 会报
+    //   "这个名字不能用"，而用户会觉得"我明明什么都没填"。
+    QString name = namePrefill.isEmpty() ? ModpackImport::suggestInstanceName(pack.name)
+                                         : ModpackImport::suggestInstanceName(namePrefill);
     while (true) {
         bool ok = false;
         const QString input = InlineMessage::getText(
@@ -13350,6 +13379,413 @@ bool MainWindow::applyModpackImport(const QString &zipPath, const QString &insta
     }
     m_versionManager->importModpack(zipPath, instanceName, pack, installerJava);
     return true;
+}
+
+// ==========================================================================
+// 拖进来的文件（2026-09-29）
+//
+// 用户原话：「打开某个实例设置的时候如果拖入.jar/.zip之类的文件，检测是整合包还是资源包等，
+// 如果是模组且正好在模组设置那一页，那就直接塞进去，不是对应页面就弹窗提示：将在此实例中
+// 安装 资源包/...（判断出的文件类型），是否继续；如果是整合包，则让用户选择安装的文件夹及
+// 实例名（这个自动预填文件名）并离开实例设置（相当于点了返回）。在一些其它的地方拖入模组等时
+// 选择要安装在的目标实例」。
+//
+// 分工（全仓那条分层约定，见 `ui/InstanceSettingsDialog.hpp` 里 dragEnterEvent 那段）：
+//   - **认类型**在 `DroppedResource::classify()`（纯判断，连不联网、落不落盘都由它一句话说）；
+//   - **复制进目录**在 `installLocalResourceFile()`；
+//   - **问什么**在这两条 handle* 里 —— 问的句子、问到哪一步为止，都只有这一处。
+//
+// ★ 「装到哪个实例」这个问题**只有没开实例设置的时候要问**：那一页开着的时候，用户站的
+//   就是某个实例的设置页，"装到哪"是他自己刚才点出来的那一份。
+// ==========================================================================
+
+namespace {
+
+/// 这一类装进实例的**哪一页**（`InstanceSettingsDialog` 的页键）。
+///
+/// **唯一出处**：`MainWindow::instanceFileDirs()` 里那张表是"页键 → 目录"的反方向，
+/// 两处必须对得上（那一张表用的是 `ResourceCatalog::folderForKind()`，这里用的是
+/// `ResourceCatalog::kindKey()` —— 两张表都在 ResourceCatalog 里，所以三处不会各说各的）。
+QString pageKeyForKind(ResourceCatalog::Kind kind) {
+    return ResourceCatalog::kindKey(kind);
+}
+
+}  // namespace
+
+bool MainWindow::installLocalResourceFile(const QString &versionId,
+                                          ResourceCatalog::Kind kind, const QString &path,
+                                          QString *problemOut) {
+    if (problemOut != nullptr) {
+        problemOut->clear();
+    }
+    // 目录名的唯一出处是 ResourceCatalog 那张表（mods / datapacks / resourcepacks /
+    // shaderpacks）。整合包那一路回空串 —— 它不走这一条（要整包解开），调用方已经在
+    // 更早一步把它分出去了。
+    const QString folder = ResourceCatalog::folderForKind(kind);
+    if (folder.isEmpty()) {
+        if (problemOut != nullptr) {
+            *problemOut = tr("这一类不能直接放进实例目录。");
+        }
+        return false;
+    }
+    const QString target = AppPaths::versionDir(versionId) + QLatin1Char('/') + folder +
+                           QLatin1Char('/') + QFileInfo(path).fileName();
+
+    // 同名文件：**问一句**（不静默盖）。用户拖进来的东西，谁也不知道那一份是不是
+    // 他手改过的 —— 而"顺手拖一下就把改过的那份盖掉了"是这个功能最糟的失败方式。
+    if (QFileInfo::exists(target)) {
+        const bool overwrite = InlineMessage::question(
+            m_ui->overlay(), tr("已经有一个同名的"),
+            tr("%1 里已经有一个「%2」了。\n\n用新拖进来的这一份盖掉它吗？")
+                .arg(QDir::toNativeSeparators(AppPaths::versionDir(versionId) +
+                                              QLatin1Char('/') + folder),
+                     QFileInfo(path).fileName()),
+            tr("盖掉"), tr("不盖"), /*defaultYes=*/false, /*destructive=*/true);
+        if (!overwrite) {
+            return false;
+        }
+    }
+
+    const QString dir = AppPaths::versionDir(versionId) + QLatin1Char('/') + folder;
+    if (!QDir().mkpath(dir)) {
+        if (problemOut != nullptr) {
+            *problemOut = tr("建不出 %1。").arg(QDir::toNativeSeparators(dir));
+        }
+        return false;
+    }
+    // NOTE: `QFile::copy()` **不覆盖**已经存在的目标（回 false 而一个字都不说）——
+    //       所以那一路要先把旧的删掉。上面那一问已经答应过"盖掉"了。
+    if (QFileInfo::exists(target) && !QFile::remove(target)) {
+        if (problemOut != nullptr) {
+            *problemOut = tr("删不掉旧的 %1（它可能正被游戏占着）。")
+                              .arg(QDir::toNativeSeparators(target));
+        }
+        return false;
+    }
+    if (!QFile::copy(path, target)) {
+        if (problemOut != nullptr) {
+            *problemOut = tr("复制不过去：%1 → %2")
+                              .arg(QDir::toNativeSeparators(path),
+                                   QDir::toNativeSeparators(target));
+        }
+        return false;
+    }
+    return true;
+}
+
+void MainWindow::handleInstanceSettingsDrop(QWidget *page, const QString &versionId,
+                                            const QStringList &paths) {
+    // 先分类（一次拖放最多几个文件；每个压缩包最多读一遍条目表）。
+    QList<DroppedResource::Result> results;
+    results.reserve(paths.size());
+    for (const QString &path : paths) {
+        results.append(DroppedResource::classify(path));
+    }
+
+    // ---------- ① 整合包：**一次只处理一个** ----------
+    //
+    // 用户点名的那一步："让用户选择安装的文件夹及实例名…并离开实例设置（相当于点了返回）"。
+    // 多个整合包一起拖进来时只认第一个 —— 装一个整合包要选文件夹、问名字、下几百 MB，
+    // 一次排三个队只会让"现在轮到谁"变得说不清。剩下的在下面那一句日志里说清楚。
+    for (const DroppedResource::Result &result : results) {
+        if (!result.known || result.kind != ResourceCatalog::Kind::Modpack) {
+            continue;
+        }
+        // ★ 关页**可能被挡住**（配置编辑器 / 世界设置里压着改了一半的东西，见
+        //   `leaveBlockedByUnsavedEdits()`）。挡住时**不当作关掉了**：底下那一格要是被
+        //   静默丢掉，用户丢的是自己手改的配置。
+        auto *dialog = qobject_cast<InstanceSettingsDialog *>(page);
+        if (dialog != nullptr && dialog->leaveBlockedByUnsavedEdits()) {
+            InlineMessage::information(
+                m_ui->overlay(), tr("先处理一下没保存的改动"),
+                tr("这个实例的设置里还有没保存的改动，现在不能离开这一页。\n\n"
+                   "先把它处理掉（存下来或者丢掉），再拖一次。"));
+            appendLog(tr("没有导入 %1：实例设置里还有没保存的改动。")
+                          .arg(QFileInfo(result.path).fileName()));
+            return;
+        }
+        const QString prefill = QFileInfo(result.path).completeBaseName();
+        // 「离开实例设置（相当于点了返回）」用的**就是**返回箭头那一发：`runWhenOverlayFree()`
+        // 让位那一步走的是 `OverlayHost::evict()`，而页那一档的 evict 发的正是
+        // `backPressed` —— `execPage()` 里那条连接把它接在 `dialog->reject()` 上（见
+        // OverlayHost.cpp 那段），一字不差就是"点了一下返回箭头"。
+        //
+        // ★ 这里**不要**再自己补一发 `dialog->reject()`：那一发这一轮还没生效（页正卡在
+        //   自己的嵌套事件循环里），补了也只是让 `backPressed` 那条连接**再跑一遍**
+        //   reject —— 两次 done() 不报错，但"关页这件事有两个发起人"是白添的麻烦。
+        //
+        // ★ 也不能"让位那一步"省掉（直接开问）：这一层还占着，`execPrompt()` 会被
+        //   `OverlayHost` 挡掉（一层只放得下一件，见它的头文件），用户看到的是"拖了半天
+        //   什么也没发生"。`runWhenOverlayFree()` 排的下一轮才真的空出来。
+        runWhenOverlayFree([this, path = result.path, prefill] {
+            importDroppedModpack(path, prefill);
+        });
+        if (results.size() > 1) {
+            appendLog(tr("一次拖进来 %1 个文件，先处理整合包「%2」，其余的先放着。")
+                          .arg(results.size())
+                          .arg(QFileInfo(result.path).fileName()));
+        }
+        return;
+    }
+
+    // ---------- ② 其余几类：按类归堆，一类问一次 ----------
+    //
+    // 归堆是用户的体验问题：拖三个模组进来问三遍"是否继续"是骚扰，而"这一类装不装"
+    // 本来就是一个问题。
+    QList<QPair<ResourceCatalog::Kind, QStringList>> byKind;
+    QStringList unrecognized;
+    for (const DroppedResource::Result &result : results) {
+        if (!result.known || ResourceCatalog::folderForKind(result.kind).isEmpty()) {
+            unrecognized.append(tr("%1（%2）")
+                                    .arg(QFileInfo(result.path).fileName(),
+                                         result.detail.isEmpty() ? tr("认不出来") : result.detail));
+            continue;
+        }
+        int slot = -1;
+        for (int i = 0; i < byKind.size(); ++i) {
+            if (byKind.at(i).first == result.kind) {
+                slot = i;
+                break;
+            }
+        }
+        if (slot < 0) {
+            byKind.append(qMakePair(result.kind, QStringList{}));
+            slot = byKind.size() - 1;
+        }
+        byKind[slot].second.append(result.path);
+    }
+
+    auto *dialog = qobject_cast<InstanceSettingsDialog *>(page);
+    const QString currentPage = dialog != nullptr ? dialog->currentPageKey() : QString();
+    bool installedAnything = false;
+    for (const QPair<ResourceCatalog::Kind, QStringList> &entry : byKind) {
+        const ResourceCatalog::Kind kind = entry.first;
+        // ★ 用户点名的那一条：**正好在对应那一页就直接塞进去，不问**（"如果是模组且正好
+        //   在模组设置那一页，那就直接塞进去"）。不在对应页才问那一句"是否继续"。
+        if (pageKeyForKind(kind) != currentPage) {
+            // 那一句话就是用户点名要的：「将在此实例中安装 资源包/...（判断出的文件类型），
+            // 是否继续」。多个文件时把个数说出来 —— 一次拖三个模组，那句"安装模组"要是
+            // 不报数，用户没法知道里面是三个还是一个。
+            const QString what = entry.second.size() == 1
+                                     ? ResourceCatalog::kindLabel(kind)
+                                     : tr("%1 个%2")
+                                           .arg(entry.second.size())
+                                           .arg(ResourceCatalog::kindLabel(kind));
+            const bool proceed = InlineMessage::question(m_ui->overlay(), tr("装进这个实例"),
+                                                         tr("将在此实例中安装 %1，是否继续？")
+                                                             .arg(what),
+                                                         tr("继续"), tr("不装"), true);
+            if (!proceed) {
+                continue;
+            }
+        }
+        int done = 0;
+        QStringList problems;
+        for (const QString &path : entry.second) {
+            QString problem;
+            if (installLocalResourceFile(versionId, kind, path, &problem)) {
+                ++done;
+            } else if (!problem.isEmpty()) {
+                problems.append(problem);
+                // NOTE: `installLocalResourceFile()` 返回 false 而 problem 为空 = 用户
+                //       自己答了"不盖" —— 那不是错，不进这一张表（也不打断剩下几个文件：
+                //       同一类里别的文件该照装）。
+            }
+        }
+        if (done > 0) {
+            installedAnything = true;
+            appendLog(tr("已把 %1 个%2装进「%3」。")
+                          .arg(done)
+                          .arg(ResourceCatalog::kindLabel(kind),
+                               instanceDisplayName(versionId)));
+        }
+        if (!problems.isEmpty()) {
+            InlineMessage::warning(m_ui->overlay(), tr("有几个没装进去"),
+                                   problems.join(QLatin1String("\n\n")));
+        }
+    }
+
+    if (!unrecognized.isEmpty()) {
+        InlineMessage::warning(
+            m_ui->overlay(), tr("拖进来的东西认不出来"),
+            tr("下面这几个不是能装进实例的东西：\n\n%1")
+                .arg(unrecognized.join(QLatin1String("\n"))));
+    }
+
+    // 装完了要让那一页自己重读一遍目录 —— 不刷的话用户刚拖进去的模组不出现在
+    // 「模组」那一页里，看着就像"没装进去"。
+    if (installedAnything && dialog != nullptr) {
+        dialog->refreshFilePages();
+    }
+}
+
+void MainWindow::importDroppedModpack(const QString &zipPath, const QString &namePrefill) {
+    // ★ 用户点名要的第一步：「让用户选择安装的文件夹」。手法和「复制实例」那一处**逐字
+    //   相同**（原生目录选择框 —— `ui/` 不碰 AppPaths，"该默认到哪儿"只有这一层知道；
+    //   那一处那段 NOTE 就是这条的出处）。
+    const QString folder = QFileDialog::getExistingDirectory(
+        this, tr("装到哪个游戏文件夹"), AppPaths::minecraftDir(),
+        QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks);
+    if (folder.isEmpty()) {
+        appendLog(tr("没有导入 %1：用户取消了。").arg(QFileInfo(zipPath).fileName()));
+        return;  // 用户取消
+    }
+
+    // ★ 挑的那一份**必须真的切过去**：整条导入路（`checkImportTargetName`、
+    //   `applyModpackImport`、`AppPaths::versionDir()`）看的是**当前**这一份 .minecraft，
+    //   不切的话整合包会装到用户没挑的那一份里 —— 而屏幕上什么异常都没有。
+    //   （"不切也行"是不可能的：那要在导入路上把"装到哪一份"从头传到尾，见
+    //   `AppPaths::versionDir()` 那段。）
+    if (folder != m_folderManager->currentFolder()) {
+        // 不在列表里就先加进去（`setCurrentFolder()` 只认 `folders()` 里的那几份）。
+        // 加不进去 = 那个路径不是个目录（也不该发生：刚从这个框里选出来的）。
+        if (!m_folderManager->addFolder(folder) || !m_folderManager->setCurrentFolder(folder)) {
+            InlineMessage::warning(m_ui->overlay(), tr("换不到那个文件夹"),
+                                   tr("没能把「%1」设成当前游戏文件夹，整合包没有导入。")
+                                       .arg(QDir::toNativeSeparators(folder)));
+            return;
+        }
+    }
+
+    // 名字（预填文件名）+ 装载 + 下载，全是既有那一条路（见 importModpackFromFile）。
+    importModpackFromFile(zipPath, namePrefill);
+}
+
+void MainWindow::handleWindowDrop(const QStringList &paths) {
+    QList<DroppedResource::Result> results;
+    results.reserve(paths.size());
+    for (const QString &path : paths) {
+        results.append(DroppedResource::classify(path));
+    }
+
+    // 整合包：和实例设置那一档走同一条（选文件夹 + 问名字）。这里不用"离开某一页"，
+    // 本来就没有页开着。
+    for (const DroppedResource::Result &result : results) {
+        if (result.known && result.kind == ResourceCatalog::Kind::Modpack) {
+            importDroppedModpack(result.path, QFileInfo(result.path).completeBaseName());
+            return;
+        }
+    }
+
+    // 其余几类：**装到哪个实例**要问（这一档没有上下文可推，见文件头那段 ★）。
+    // NOTE: 分类结果**复用上面那一趟**（不在这里再 classify 一遍）：读一个压缩包的条目表
+    //       要起一次 PowerShell，重跑一遍就是纯浪费，而且两次的答案理论上可以不一样
+    //       （文件在这中间被换了）—— 一份输入只认一次。
+    QStringList installable;
+    QStringList unrecognized;
+    for (const DroppedResource::Result &result : results) {
+        if (!result.known || ResourceCatalog::folderForKind(result.kind).isEmpty()) {
+            unrecognized.append(tr("%1（%2）")
+                                    .arg(QFileInfo(result.path).fileName(),
+                                         result.detail.isEmpty() ? tr("认不出来") : result.detail));
+            continue;
+        }
+        installable.append(result.path);
+    }
+    if (!unrecognized.isEmpty()) {
+        InlineMessage::warning(
+            m_ui->overlay(), tr("拖进来的东西认不出来"),
+            tr("下面这几个不是能装进实例的东西：\n\n%1")
+                .arg(unrecognized.join(QLatin1String("\n"))));
+    }
+    if (installable.isEmpty()) {
+        return;
+    }
+
+    // 候选 = **盘上现在装着的实例**（和「已安装版本」下拉框同一个出处）。一个都没有时
+    // 不弹那个空列表框（`pickFromList` 也拦了这一手），直接说一句该怎么办。
+    const QStringList installed = m_versionManager->installedVersions(nullptr);
+    if (installed.isEmpty()) {
+        InlineMessage::information(m_ui->overlay(), tr("还没有实例"),
+                                   tr("盘上还没有装好的实例，先把文件拖到某个实例的"
+                                      "设置页里，或者先装一个。"));
+        return;
+    }
+    QStringList labels;
+    labels.reserve(installed.size());
+    for (const QString &id : installed) {
+        labels.append(instanceDisplayName(id));
+    }
+    // 默认选中"左下角/下拉框里现在选中的那一个"（用户多半就是想装给它），选不着就不选。
+    int initialRow = -1;
+    if (QComboBox *combo = m_ui->getInstalledVersionCombo()) {
+        const QString selected = combo->currentData().toString();
+        initialRow = installed.indexOf(selected);
+    }
+    int row = -1;
+    if (!InlineMessage::pickFromList(m_ui->overlay(), tr("装到哪个实例里"),
+                                     tr("这几个文件装进哪一个实例？"), labels, initialRow, &row)) {
+        return;  // 用户取消 / 什么都没选
+    }
+    if (row < 0 || row >= installed.size()) {
+        return;  // 理论上到不了（pickFromList 只在选中一行时才回 true）
+    }
+
+    // 装进挑中的那一个。**走的是和实例设置那一页完全同一条路**（同一个
+    // installLocalResourceFile()），所以"同名要问一句""目录不存在就建"这些规矩只有一份。
+    const QString versionId = installed.at(row);
+    QList<QPair<ResourceCatalog::Kind, QStringList>> byKind;
+    for (const DroppedResource::Result &result : results) {
+        // 认不出来的、以及整合包（上面已经 return 了）不进这一趟。
+        if (!result.known || ResourceCatalog::folderForKind(result.kind).isEmpty()) {
+            continue;
+        }
+        const QString path = result.path;
+        int slot = -1;
+        for (int i = 0; i < byKind.size(); ++i) {
+            if (byKind.at(i).first == result.kind) {
+                slot = i;
+                break;
+            }
+        }
+        if (slot < 0) {
+            byKind.append(qMakePair(result.kind, QStringList{}));
+            slot = byKind.size() - 1;
+        }
+        byKind[slot].second.append(path);
+    }
+
+    int total = 0;
+    QStringList problems;
+    for (const QPair<ResourceCatalog::Kind, QStringList> &entry : byKind) {
+        for (const QString &path : entry.second) {
+            QString problem;
+            if (installLocalResourceFile(versionId, entry.first, path, &problem)) {
+                ++total;
+            } else if (!problem.isEmpty()) {
+                problems.append(problem);
+            }
+        }
+    }
+    if (!problems.isEmpty()) {
+        InlineMessage::warning(m_ui->overlay(), tr("有几个没装进去"),
+                               problems.join(QLatin1String("\n\n")));
+    }
+    if (total > 0) {
+        appendLog(tr("已把 %1 个文件装进「%2」。").arg(total).arg(instanceDisplayName(versionId)));
+        InlineMessage::information(m_ui->overlay(), tr("装好了"),
+                                   tr("已经装进「%1」里了。").arg(instanceDisplayName(versionId)));
+    }
+}
+
+void MainWindow::dragEnterEvent(QDragEnterEvent *event) {
+    // 准入判据**就是**实例设置那一页用的那一个（同一个函数，见 .hpp 里那段 NOTE）：
+    // 拖的是一串本地文件才接。
+    if (InstanceSettingsDialog::droppedFilePaths(event->mimeData()).isEmpty()) {
+        event->ignore();
+        return;
+    }
+    event->acceptProposedAction();
+}
+
+void MainWindow::dropEvent(QDropEvent *event) {
+    const QStringList paths = InstanceSettingsDialog::droppedFilePaths(event->mimeData());
+    if (paths.isEmpty()) {
+        event->ignore();
+        return;
+    }
+    event->acceptProposedAction();
+    handleWindowDrop(paths);
 }
 
 void MainWindow::onVersionDownloadFinished(const QString &versionId, bool success,

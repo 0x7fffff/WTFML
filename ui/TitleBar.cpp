@@ -18,11 +18,28 @@
 
 namespace {
 
-/// 条高（逻辑像素）。44 = 8 + 28 + 8，也就是"缩放边 + 按钮 + 缩放边"，
+/// 条高（逻辑像素）。52 = 12 + 28 + 12，也就是"缩放边 + 按钮 + 缩放边"，
 /// 见 `TitleBar::buttonInset()` 那段 —— 条再矮就得把按钮压进缩放边里了。
-constexpr int kTitleBarHeight = 44;
+/// ★ 2026-09-29 用户原话「把顶上标题栏加高一点，文字大一点」：从 **44 抬到 52**。
+///   抬的是**上下留白**（8 → 12），按钮那一档 `kButtonSize` 没动 —— 用户只说条高和文字。
+///   条高与按钮高之间那条恒等式 `H == 2 * inset() + buttonSize()` 照旧成立，而
+///   `inset()` 反过来又必须 ≥ `WindowChrome::resizeBorder()`（全仓那条缩放边不变式）。
+///   NOTE: `H - kButtonSize` **必须是偶数**（`inset()` 是整数除法，见那条恒等式）。
+constexpr int kTitleBarHeight = 52;
 /// 那几颗按钮的高（逻辑像素）。
 constexpr int kButtonSize = 28;
+
+/// 条上那行名字比正文大多少（pt）。★ 2026-09-29 用户那句「文字大一点」。
+///
+/// 名字是 `paintEvent` 画的（不是 QLabel），字号在这一行之前**没有人设过** —— 取的就是面板
+/// 默认字体，这里只加粗。所以"大一点"的唯一落点就是加这个增量，不在 Theme / QSS 里。
+///
+/// NOTE: 用**增量**而不是写死一个 pt：面板字号跟着系统走（本机 150% 下不是 9pt），写死会把
+///       "比正文大一点"变成"在某些机器上比正文小"。`font().pointSizeF()` 为 −1 时（那份字体
+///       是按像素定义的）退回像素那一档，见下面 `paintEvent`。
+constexpr qreal kBrandPointDelta = 2.0;
+/// 退回像素那一档时的增量（同上）。
+constexpr int kBrandPixelDelta = 3;
 /// 每一颗**导航**按钮的宽（逻辑像素）。四个汉字标签（"主页"两个字）+ 左右各 20 的余量：
 /// 两字的正文是 24~26 px 宽，20 的余量让悬停时那块底色不至于贴着字。
 constexpr int kNavItemWidth = 68;
@@ -37,12 +54,19 @@ constexpr int kLogoGap = 8;
 ///       没有），所以这儿的留白比 kLogoGap 大一倍。
 constexpr int kBrandGap = 16;
 
+/// 最小化/关闭那两颗离窗口右边缘多远（逻辑像素）。
+/// ★ 2026-09-29 用户原话「右上角的最小化和关闭稍稍往左边靠一点」：原来是 **0**（顶到条
+///   的最右边，和系统那两颗一样顶着角），现在往左挪这一格 —— 10 是"稍稍"：还不够一条
+///   导航按钮的一半宽（`kNavItemWidth` 是 68），但肉眼一眼看得出来。
+/// NOTE: 这个数**不能自己单独改**，它和下面那个左边距是同一个方程的两头，见 kNavGroupLeftMargin。
+constexpr int kWindowButtonsRightMargin = 10;
+
 /// 导航那一组的**左边距**。
 ///
 /// ★ 这个数不是审美，是「四个按钮的正中 == 整条的正中」（用户原话「上面的四个居中」）
 ///   的解法，也是**唯一**的调法。布局是
 ///
-///       [这一格留白][stretchA][导航那一组][stretchB][最小化][关闭]
+///       [这一格留白][stretchA][导航那一组][stretchB][最小化][关闭][右边距]
 ///
 ///   两段 stretch 的因子都是 1 ⇒ 导航那一组的正中
 ///
@@ -53,12 +77,16 @@ constexpr int kBrandGap = 16;
 ///
 ///       L - R = B
 ///
-///   右边距 R = 0（那两颗按钮顶到条的最右边），而 B = 2 * buttonSize()
-///   ⇒ 左边距就**必须是** `2 * buttonSize()`。
+///   而 B = 2 * buttonSize()、R = kWindowButtonsRightMargin
+///   ⇒ 左边距就**必须是** `2 * buttonSize() + kWindowButtonsRightMargin`。
+///
+///   **★ R 从 0 变成 10 的那一趟（2026-09-29）左边距跟着加了 10** —— 这就是那条不变式
+///     "两头一起动"的样子：单独把 R 改成 10 会让导航那一组整体往右偏 5 px，而屏幕上看着
+///     只是"四个字好像没居中"，没人查得出来。
 ///
 ///   NOTE: 导航那一组自己的宽 N **消掉了** —— 加一颗按钮、改一次 `navItemWidth()` 都不用
 ///         回来调这个数。ui_check 里那条"组的中正 == 条的中正"就是照着这句量的。
-constexpr int kNavGroupLeftMargin = 2 * kButtonSize;
+constexpr int kNavGroupLeftMargin = 2 * kButtonSize + kWindowButtonsRightMargin;
 /// 当前那一颗底下那条横线的高。
 constexpr int kCurrentMarkHeight = 2;
 /// 那条横线左右各缩进多少（贴着字的宽度不好看，缩一点像"这一格被标住了"）。
@@ -94,6 +122,10 @@ int TitleBar::buttonInset() {
 
 int TitleBar::navItemWidth() {
     return kNavItemWidth;
+}
+
+int TitleBar::windowButtonsRightMargin() {
+    return kWindowButtonsRightMargin;
 }
 
 TitleBarButton::TitleBarButton(Glyph glyph, const QColor &hoverColor, const QColor &hoverInk, QWidget *parent)
@@ -202,7 +234,9 @@ TitleBar::TitleBar(QWidget *parent) : QWidget(parent) {
     m_layout = new QHBoxLayout(this);
     // 左边那一段留白就是"居中"的全部秘密（推导见 kNavGroupLeftMargin）—— 它和名字有多宽
     // **没关系**：名字画在条的左头（paintEvent），导航那一组自己居中，两边互不干扰。
-    m_layout->setContentsMargins(kNavGroupLeftMargin, 0, 0, 0);
+    // 右边那一格是 2026-09-29 用户点名要的"那两颗往左靠一点"；它和左边距是一对、必须
+    // 一起动，理由写在 kNavGroupLeftMargin 那段。
+    m_layout->setContentsMargins(kNavGroupLeftMargin, 0, kWindowButtonsRightMargin, 0);
     m_layout->setSpacing(0);
     // 导航那一组**自己一层布局**，夹在两段等长 stretch 中间 ⇒ 它就是条的中正。
     // NOTE: 为什么不是把四颗按钮直接 addWidget 到主布局里：主布局上还挂着右边那两颗窗口
@@ -397,6 +431,16 @@ void TitleBar::paintEvent(QPaintEvent *) {
     }
     QFont titleFont = font();
     titleFont.setBold(true);
+    // ★ 2026-09-29 用户那句「文字大一点」：**只在这里放大**（唯一出处就是那两个常量）。
+    //   走的是**增量**不是写死的 pt —— 面板字号跟着系统走，写死会把"比正文大一点"变成
+    //   "在某些机器上比正文小"。两种字体规格各走各的那一档：点数是正常情况；`pointSizeF()`
+    //   为 −1 说明这份字体是按**像素**定义的，那时候 setPointSizeF 会被 Qt 静默忽略，
+    //   得改 `setPixelSize()`。
+    if (titleFont.pointSizeF() > 0) {
+        titleFont.setPointSizeF(titleFont.pointSizeF() + kBrandPointDelta);
+    } else if (titleFont.pixelSize() > 0) {
+        titleFont.setPixelSize(titleFont.pixelSize() + kBrandPixelDelta);
+    }
     p.setFont(titleFont);
     p.setPen(palette().color(QPalette::WindowText));
     const QFontMetrics metrics(titleFont);

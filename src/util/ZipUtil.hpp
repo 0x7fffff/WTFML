@@ -87,6 +87,26 @@ EntryStatus readEntry(const QString &archive, const QString &entryName, QByteArr
                       const QString &what = QStringLiteral("读压缩包条目"));
 
 /**
+ * @brief 列出压缩包里所有条目的名字（`/` 分隔，**原样**：不排序、不去重、不改大小写）。
+ *
+ * 2026-09-29 加，给"用户把一个压缩包拖进来、这是模组还是资源包还是整合包"那一判断用的：
+ * 那件事只能看**里面有什么**，一个个 `readEntry()` 去猜名字是猜不全的（一个光影包里
+ * 可能就一个 `shaders/` 目录条目，我们事先不知道要问哪个名字）。
+ *
+ * @param archive 压缩包绝对路径。
+ * @param out 成功时写入条目名（会被 clear()）。**目录条目也在里面**（zip 里那一条
+ *        `foo/` 结尾的记录），所以判据用"有没有这个前缀"比用"有没有这个文件"结实。
+ * @param errorOut 失败时的人类可读描述（**NotAnArchive 时也是空串**，和 readEntry 一样）。
+ * @param what 这次动作叫什么，拼进 errorOut 那几句话里（同 readEntry）。
+ * @return 见 EntryStatus。**没这个条目**那一档不会出现（列一张表要么成功要么失败）。
+ *
+ * NOTE: 大包（几百 MB、几千个条目）列一遍只是把**名字**读出来，不解压任何东西 ——
+ *       但它是**另起一个 PowerShell 进程**，所以别放进每秒都要跑的那种循环里。
+ */
+EntryStatus listEntries(const QString &archive, QStringList *out, QString *errorOut = nullptr,
+                        const QString &what = QStringLiteral("读压缩包的条目表"));
+
+/**
  * @brief 只解压某几个前缀底下的条目，而且**把前缀剥掉**（`overrides/config/x` → `<目标>/config/x`）。
  * @param archives 待解压的压缩包绝对路径（.zip）。
  * @param targetDir 目标目录，不存在则自动创建。

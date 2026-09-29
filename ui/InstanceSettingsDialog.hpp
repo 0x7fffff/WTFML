@@ -71,6 +71,7 @@ class QHBoxLayout;
 class QLabel;
 class QLineEdit;
 class QListWidget;
+class QMimeData;
 class QPlainTextEdit;
 class QPushButton;
 class QSpinBox;
@@ -355,6 +356,22 @@ public:
     /// 这正是验证工程该用的那一个入口：**要验的是那一页本身，不是"用户点得着"** ——
     /// 没有入口的「配置文件」照样得有人在盯着（它只是先不给看，不是烂在那儿）。
     void showPage(const QString &key);
+
+    /// ★ 关页会不会被"有没保存的改动"挡住（= `reject()` 里那两道闸）。
+    ///
+    /// 用户 2026-09-29 那条"拖进来一个整合包就离开实例设置"要**先问这一句**：那是程序
+    /// 自己发起的关页，被闸挡住时不能当作"关掉了"继续往下走（底下那一格压着改了一半的
+    /// 配置，继续走等于替用户丢掉它）。复述一遍那两条判据是错的 —— 此处**就是**它们的
+    /// 定义处，`reject()` 也走这里。
+    bool leaveBlockedByUnsavedEdits() const;
+
+    /// 这一次拖放里**我们认的**本地文件（绝对路径，原样）。
+    ///
+    /// 认的只有"盘上存在的本地文件"（`QUrl::toLocalFile()` 非空那条路）—— 一张图片的
+    /// 原始数据、一段从浏览器里拖出来的文本、一个 http 链接，一律**一个都不认**。
+    /// 判断放在这一层是因为它同时是 `dragEnterEvent` 的准入判据：
+    /// "哪些拖放我们接"只该有一处说法。
+    static QStringList droppedFilePaths(const QMimeData *mime);
 
     /// 此刻摆在右栏那一页是**哪一页**（认不出来回空串）。`showPage()` 的反面。
     ///
@@ -1318,6 +1335,26 @@ protected:
     /// Tab、或者窗口重新激活就凭空翻一页）。
     bool eventFilter(QObject *watched, QEvent *event) override;
 
+    /**
+     * @brief 有东西被拖到这一页上（2026-09-29，用户原话「打开某个实例设置的时候如果拖入
+     *        .jar/.zip之类的文件，检测是整合包还是资源包等」）。
+     *
+     * ★ 这一页**只报到"落了哪些文件"**，一个字的判断都不做：认类型要读压缩包的条目表
+     *   （`DroppedResource`）、装进去要知道实例目录在哪（`AppPaths`）—— 两件都在
+     *   `src/` 那一层，`ui/` 够不着（这一条是全仓的分层约定，见 .cpp 顶上那段）。
+     *   所以它发 `filesDropped()`，接的人是 MainWindow。
+     *
+     * NOTE: 为什么在这一层接：拖放事件从光标底下那个控件沿着父链往上冒，**第一个**
+     *       `acceptDrops()` 为真的控件接住它（见 .cpp 里 `dropEvent` 那段）。这一页里
+     *       绝大多数的子控件（标签、勾选框、下拉框）都不接拖放，所以拖到它们身上照样
+     *       冒到这儿来。例外是那几个输入框（`QLineEdit` 自己接拖放、会把路径当文字插进去）
+     *       —— 拖到输入框正中间那一小块上时走的是它自己那条路，这是 Qt 本来的行为。
+     */
+    void dragEnterEvent(QDragEnterEvent *event) override;
+
+    /// @copydoc dragEnterEvent
+    void dropEvent(QDropEvent *event) override;
+
 signals:
     /**
      * @brief 页面上的值**改完了**，该写盘了（2026-09-26 起这一页没有「确定」）。
@@ -1522,6 +1559,14 @@ signals:
      *       同一个理由：它正卡在 MainWindow 那次 `execPage()` 的嵌套事件循环里。
      */
     void fileResourceRequested(const QString &pageKey, const QString &path);
+
+    /**
+     * @brief 用户把几个文件**拖到这一页上**了（2026-09-29）。
+     * @param paths 落下来的本地文件绝对路径（原样；至少一个 —— 一个都没有时根本不发这一发）。
+     *
+     * 见 `dragEnterEvent()` 那段：这一层只把"落了什么"交出去，认类型和落盘都在 MainWindow。
+     */
+    void filesDropped(const QStringList &paths);
 
     /**
      * @brief 用户按了服务器列表那一页的「刷新」。

@@ -25,6 +25,7 @@ set(HEADER_FILES
     src/auth/SkinApi.hpp
     src/auth/TokenStore.hpp
     src/net/HttpClient.hpp
+    src/manage/DroppedResource.hpp
     src/manage/FolderManager.hpp
     src/manage/InstanceFiles.hpp
     src/manage/InstanceIconLookup.hpp
@@ -75,6 +76,7 @@ set(SOURCE_FILES
     src/auth/SkinApi.cpp
     src/auth/TokenStore.cpp
     src/net/HttpClient.cpp
+    src/manage/DroppedResource.cpp
     src/manage/FolderManager.cpp
     src/manage/InstanceFiles.cpp
     src/manage/InstanceIconLookup.cpp

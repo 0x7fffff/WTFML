@@ -23,9 +23,13 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDir>
+#include <QDragEnterEvent>
+#include <QDropEvent>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QFont>
 #include <QGuiApplication>
+#include <QMimeData>
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -43,6 +47,7 @@
 #include <QScrollArea>
 #include <QSignalBlocker>
 #include <QSize>
+#include <QUrl>
 #include <QSpinBox>
 #include <QStackedWidget>
 #include <QStandardPaths>
@@ -342,6 +347,10 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                                                QWidget *parent)
     : QDialog(parent), m_global(global), m_instanceId(instanceId) {
     setWindowTitle(tr("实例设置"));
+    // ★ 2026-09-29（用户原话见 .hpp 里 dragEnterEvent() 那段）：这一页接拖放。
+    //   `setAcceptDrops(true)` 只影响**这一层自己**；拖到子控件上的事件由 Qt 沿父链往上
+    //   找第一个接了拖放的控件（见那段 NOTE），所以不接拖放的子控件照样会把事件送到这儿。
+    setAcceptDrops(true);
     // 比分组对话框宽得多：从左到右是**两栏**（左栏一列页 + 右栏一块内容），600 那个宽度
     // 放不下。
     // NOTE: 嵌进覆盖层的时候这个尺寸**不作数** —— 那一层给它的是内容区的整幅宽（见
@@ -1724,6 +1733,62 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     m_lastSignature = valueSignature();
 }
 
+bool InstanceSettingsDialog::leaveBlockedByUnsavedEdits() const {
+    // 这两条**就是** reject() 里那两道闸，一个字的第二种写法都不许有（见 .hpp）。
+    if (m_configEditor != nullptr && m_configEditor->isDirty()) {
+        return true;
+    }
+    if (m_worldSettings != nullptr && m_worldSettings->isDirty()) {
+        return true;
+    }
+    return false;
+}
+
+QStringList InstanceSettingsDialog::droppedFilePaths(const QMimeData *mime) {
+    QStringList paths;
+    if (mime == nullptr || !mime->hasUrls()) {
+        return paths;
+    }
+    const QList<QUrl> urls = mime->urls();
+    for (const QUrl &url : urls) {
+        // 只要**本地文件**：`toLocalFile()` 对 http(s) 链接、`data:` 之类一律回空串。
+        if (!url.isLocalFile()) {
+            continue;
+        }
+        const QString path = url.toLocalFile();
+        // 目录不收（拖文件夹进来要另说一件事：是"把里面所有 jar 都装进去"还是别的），
+        // 不存在的东西也不收 —— 半路被人移走了的话，后面那条复制路会报一句莫名其妙的话。
+        if (path.isEmpty() || !QFileInfo(path).isFile()) {
+            continue;
+        }
+        paths.append(path);
+    }
+    return paths;
+}
+
+void InstanceSettingsDialog::dragEnterEvent(QDragEnterEvent *event) {
+    // 准入判据就一条：拖的是不是**本地文件**（见 droppedFilePaths()）。
+    // 不认的话**什么都不做**（不 accept）—— 于是光标是"禁止"那个形状，用户一眼知道
+    // 这一页不收它，而不是拖上去松手之后什么都没有发生。
+    if (droppedFilePaths(event->mimeData()).isEmpty()) {
+        event->ignore();
+        return;
+    }
+    event->acceptProposedAction();
+}
+
+void InstanceSettingsDialog::dropEvent(QDropEvent *event) {
+    const QStringList paths = droppedFilePaths(event->mimeData());
+    if (paths.isEmpty()) {
+        event->ignore();
+        return;
+    }
+    event->acceptProposedAction();
+    // 判断与落盘全在 MainWindow（见 .hpp）。NOTE: 这里**不能**顺手把事件也交给基类 ——
+    //       交出去之后父链上再有人接一发，同一个文件会被装两遍。
+    emit filesDropped(paths);
+}
+
 void InstanceSettingsDialog::reject() {
     // ★ 走这条路的**不是**编辑器自己那颗「返回」（那颗发 backRequested()、由 MainWindow
     //   接到 leaveConfigEditor() 上），而是**覆盖层页眉那颗返回箭头** —— 它接的是
@@ -1744,6 +1809,15 @@ void InstanceSettingsDialog::reject() {
     // NOTE: 两条**分开问、不合并**：两格里同时压着东西的情况不存在（这两格各占一个
     //       QStackedWidget，同一时刻只可能露出其中一格），而合并成一句只会让"丢掉的是
     //       哪一份"变得说不清。
+    //
+    // ★ 2026-09-29：这两条判据挪进了 `leaveBlockedByUnsavedEdits()`，只因为**还有第二个
+    //   人要在做同一件事之前先问一句**（拖进来一个整合包 ⇒ 程序自己发起的那次关页，
+    //   见 MainWindow）。两处各写一遍"哪两条算脏"迟早会分岔。这里只把"是哪一格脏"翻成
+    //   两条不同的信号 —— 那件事仍然只有这一处知道。
+    if (m_configEditor != nullptr && m_configEditor->isDirty()) {
+        emit closeBlockedByUnsavedConfigFile();
+        return;
+    }
     if (m_worldSettings != nullptr && m_worldSettings->isDirty()) {
         emit closeBlockedByUnsavedWorldSettings();
         return;

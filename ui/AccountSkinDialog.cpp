@@ -31,17 +31,25 @@
 namespace {
 /// 3D 预览那一块的最小高度。比主页那个小人小一档：这里是"看一眼确认换上了没有"，
 /// 不是主界面那张主角图。
-constexpr int kViewerMinHeight = 260;
+/// ★ 2026-09-29 用户原话「账户管理那里太长了做短一点」：**260 → 200**。
+constexpr int kViewerMinHeight = 200;
 /// 账号/披风那两个列表的最小高度。太小的时候列表里只看得见一两行，
 /// "我到底有几个账号"这件事就看不出来了。
-constexpr int kListMinHeight = 120;
+/// ★ 同上那一句：**120 → 96**（这么高还看得见四行，够看出"我有几个账号"）。
+constexpr int kListMinHeight = 96;
+/// 整窗的初始尺寸。★ 同上那一句：**760x520 → 720x460** —— 用户说的是"太长了"，
+/// 所以砍的多是高度（−60），宽度只收一档（−40，四颗按钮 + 离线那一行还摆得开）。
+/// NOTE: 砍的是**初始**尺寸，最小高度仍然是上面那两个 `kXxxMinHeight` 撑出来的那一个
+///       （窗口照样能拉到更大，这个窗里的东西是固定的几块）。
+constexpr int kInitialWidth = 720;
+constexpr int kInitialHeight = 460;
 }  // namespace
 
 AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     setWindowTitle(windowTitle());
     setObjectName(QStringLiteral("accountSkinDialog"));
     // 尺寸**不**跟着内容长：这个窗里的东西是固定的四块，摆好之后让用户自己拉。
-    resize(760, 520);
+    resize(kInitialWidth, kInitialHeight);
 
     QVBoxLayout *root = new QVBoxLayout(this);
 
@@ -64,10 +72,21 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     accountTitle->setFont(sectionFont);
     left->addWidget(accountTitle);
 
+    // ★ 2026-09-29 用户原话「账户管理那里太长了做短一点，添加账户等按钮放到顶上」。
+    //   这一栏**摆的次序**改了，控件本身一块都没动：
+    //
+    //       标题 → 四个按钮 → 离线那一行 → 列表（吃掉剩下的高度）→ 登录说明
+    //
+    //   从前是"标题 → 列表 → 说明 → 按钮 → 离线那一行"：按钮压在列表底下，列表一长
+    //   整窗就往下坠，加账号还得先往下找。现在按钮贴着标题，列表在它下面长。
+    //
+    //   NOTE: **建控件**的次序一个字没改（下面还是按老次序 new 出来的）—— Qt 里"摆在哪"
+    //         只由 `addWidget()` / `addLayout()` 的次序说了算，new 的先后不影响。
+    //         所以这一段和下面那两处 `addWidget`/`addLayout` 是**同一件事的两半**，
+    //         改一头必须改另一头（`m_accountList` 和 `loginHint` 是在下面才 add 的）。
     m_accountList = new QListWidget(this);
     m_accountList->setObjectName(accountListName());
     m_accountList->setMinimumHeight(kListMinHeight);
-    left->addWidget(m_accountList, 1);
 
     QLabel *loginHint = new QLabel(loginHintNote(), this);
     loginHint->setWordWrap(true);
@@ -76,7 +95,6 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     QPalette hintPalette = loginHint->palette();
     hintPalette.setColor(QPalette::WindowText, hintPalette.color(QPalette::PlaceholderText));
     loginHint->setPalette(hintPalette);
-    left->addWidget(loginHint);
 
     QHBoxLayout *accountButtons = new QHBoxLayout();
     left->addLayout(accountButtons);
@@ -116,6 +134,11 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     m_addOfflineButton->setObjectName(addOfflineButtonName());
     offlineRow->addWidget(m_offlineNameEdit, 1);
     offlineRow->addWidget(m_addOfflineButton);
+
+    // 上面那几行都是固定高的，**列表吃剩下的高度**（窗口拉高拉矮只动它这一块）。
+    left->addWidget(m_accountList, 1);
+    // 说明摆最后 —— 它是注释，不是内容（见这上面 hintPalette 那几句）。
+    left->addWidget(loginHint);
 
     // ---------- 右：外观 ----------
     QVBoxLayout *right = new QVBoxLayout();

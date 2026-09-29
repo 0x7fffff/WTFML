@@ -17,6 +17,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonValue>
 #include <QProcess>
 #include <QUuid>
 
@@ -402,6 +403,134 @@ ZipUtil::EntryStatus ZipUtil::readEntry(const QString &archive, const QString &e
     if (out != nullptr) {
         *out = bytes;
     }
+    return EntryStatus::Ok;
+}
+
+ZipUtil::EntryStatus ZipUtil::listEntries(const QString &archive, QStringList *out,
+                                          QString *errorOut, const QString &what) {
+    if (out != nullptr) {
+        out->clear();
+    }
+    if (errorOut != nullptr) {
+        errorOut->clear();
+    }
+
+    // 条目名先落到一个**临时文件**再读回来，理由和 readEntry 那条一模一样：stdout 是
+    // **文本**通道，过一遍编码转换之后条目名里那几个怪字符（中文、空格、`%`）就不再是
+    // 原来的字节了；而条目名恰恰是这一发唯一要传回来的东西。
+    //
+    // NOTE: 格式用 JSON 而不是"一行一个"：**条目名里可以有换行**（zip 规范不禁），
+    //       拼分隔符是给自己埋雷。JSON 由 PowerShell 那一侧写、Qt 这一侧用
+    //       QJsonDocument 读，两边都不用自己转义。
+    //
+    // ★ 外面套一层对象（`{ entries = @(...) }`）而不是直接 ConvertTo-Json 一个数组：
+    //   Windows PowerShell 5.1 的 ConvertTo-Json 会把**只有一条**的数组**摊成一个标量**
+    //   （`-AsArray` 是 PowerShell 7 才有的开关）。套一层之后那个成员还是会被摊，
+    //   但读的那一侧两种形态都接得住（见下面），比"少一条名字"（一个只有一条
+    //   `pack.mcmeta` 的资源包就被认成"空包"）好得多。
+    const QString tempPath = QDir::tempPath() + QStringLiteral("/wtfml-entries-") +
+                             QUuid::createUuid().toString(QUuid::WithoutBraces);
+    const QByteArray temp = QFile::encodeName(tempPath);
+
+    // 退出码：4 = 打不开（不是 zip / 坏了），和 readEntry 同一个约定。
+    const QString script =
+        QStringLiteral("$ErrorActionPreference='Stop'\n"
+                       "Add-Type -AssemblyName System.IO.Compression.FileSystem\n"
+                       "try{ $zip=[System.IO.Compression.ZipFile]::OpenRead(%1) }"
+                       " catch { exit 4 }\n"
+                       "try{\n"
+                       "  $names=[System.Collections.ArrayList]::new()\n"
+                       "  foreach($e in $zip.Entries){ [void]$names.Add($e.FullName) }\n"
+                       "  $json=([pscustomobject]@{ entries = @($names) }) |"
+                       " ConvertTo-Json -Compress -Depth 3\n"
+                       "  [System.IO.File]::WriteAllText(%2,$json,"
+                       "(New-Object System.Text.UTF8Encoding($false)))\n"
+                       "} finally { $zip.Dispose() }\n")
+            .arg(psQuote(QDir::toNativeSeparators(archive)), psQuote(QFile::decodeName(temp)));
+
+    QProcess process;
+    process.start(QStringLiteral("powershell"),
+                  {QStringLiteral("-NoProfile"), QStringLiteral("-NonInteractive"),
+                   QStringLiteral("-ExecutionPolicy"), QStringLiteral("Bypass"),
+                   QStringLiteral("-EncodedCommand"), encodeCommand(script)});
+    if (!process.waitForFinished(60000)) {
+        // 同上：先读 error()/errorString()，再 kill。
+        const QProcess::ProcessError failure = process.error();
+        const QString detail = process.errorString();
+        process.kill();
+        process.waitForFinished(5000);
+        QFile::remove(tempPath);
+        if (errorOut != nullptr) {
+            *errorOut = describeProcessFailure(failure, detail, what);
+        }
+        return EntryStatus::Failed;
+    }
+    const int code = process.exitCode();
+    const QByteArray stderrBytes = process.readAllStandardError();
+    if (process.exitStatus() != QProcess::NormalExit) {
+        QFile::remove(tempPath);
+        if (errorOut != nullptr) {
+            *errorOut = QStringLiteral("%1时 PowerShell 被强行结束了").arg(what);
+        }
+        return EntryStatus::Failed;
+    }
+    if (code == 4) {
+        QFile::remove(tempPath);
+        return EntryStatus::NotAnArchive;
+    }
+    if (code != 0) {
+        QFile::remove(tempPath);
+        if (errorOut != nullptr) {
+            // readProcessError() 的理由见它上面那一段（CLIXML 那一层）。
+            const QString err = readProcessError(QString::fromLocal8Bit(stderrBytes));
+            *errorOut = err.isEmpty() ? QStringLiteral("%1失败（退出码 %2）").arg(what).arg(code) : err;
+        }
+        return EntryStatus::Failed;
+    }
+
+    QFile file(tempPath);
+    const bool read = file.open(QIODevice::ReadOnly);
+    const QByteArray bytes = read ? file.readAll() : QByteArray();
+    file.close();
+    QFile::remove(tempPath);
+    if (!read) {
+        if (errorOut != nullptr) {
+            *errorOut = QStringLiteral("读不出临时文件 %1").arg(tempPath);
+        }
+        return EntryStatus::Failed;
+    }
+
+    // 空压缩包：脚本写出来的是 `{"entries":null}`（`@()` 空的）或者一个空文件。两种都算
+    // **成功且一条都没有**，不是失败 —— "这个包是空的"是调用方该自己判的事。
+    const QJsonDocument doc = QJsonDocument::fromJson(bytes);
+    if (!doc.isObject()) {
+        if (bytes.trimmed().isEmpty()) {
+            return EntryStatus::Ok;
+        }
+        if (errorOut != nullptr) {
+            *errorOut = QStringLiteral("%1：条目表读不回来（临时文件里不是 JSON）").arg(what);
+        }
+        return EntryStatus::Failed;
+    }
+    const QJsonValue entries = doc.object().value(QStringLiteral("entries"));
+    if (entries.isString()) {
+        // 只有一条时 5.1 会摊成标量（见上面那段 NOTE）。
+        if (out != nullptr) {
+            out->append(entries.toString());
+        }
+        return EntryStatus::Ok;
+    }
+    if (entries.isArray()) {
+        const QJsonArray array = entries.toArray();
+        if (out != nullptr) {
+            out->reserve(array.size());
+            for (const QJsonValue &item : array) {
+                out->append(item.toString());
+            }
+        }
+        return EntryStatus::Ok;
+    }
+    // null / undefined = 空的（见上）。
     return EntryStatus::Ok;
 }
 

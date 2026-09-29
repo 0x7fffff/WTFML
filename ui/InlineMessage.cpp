@@ -12,6 +12,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QListWidget>
 #include <QPalette>
 #include <QPushButton>
 #include <QVBoxLayout>
@@ -19,6 +20,11 @@
 #include "MainWindowUI.hpp"
 #include "OverlayHost.hpp"
 #include "Theme.hpp"
+
+namespace {
+/// `setList()` 那张列表最多露几行（再多就在列表内部滚）。见 setList() 里那段 ★。
+constexpr int kListVisibleRows = 6;
+}  // namespace
 
 InlineMessageBox::InlineMessageBox(MessageKind kind, const QString &title, const QString &text,
                                    const QStringList &buttons, int defaultIndex,
@@ -123,6 +129,44 @@ QLineEdit *InlineMessageBox::setLineEdit(const QString &initial) {
 
 QString InlineMessageBox::lineEditText() const {
     return m_lineEdit != nullptr ? m_lineEdit->text() : QString();
+}
+
+QListWidget *InlineMessageBox::setList(const QStringList &items, int initialRow) {
+    auto *layout = qobject_cast<QVBoxLayout *>(this->layout());
+    Q_ASSERT(layout != nullptr);  // 同 setLineEdit()：布局是本类的实现细节。
+    if (m_list == nullptr) {
+        m_list = new QListWidget(this);
+        m_list->setObjectName(listName());
+        // 和正文/输入框一样**钉住宽度**（理由见 ctor 里那段）。
+        m_list->setFixedWidth(OverlayHost::promptContentWidth());
+        // 不要横向滚动条：这一张列表里放的是实例名/文件夹名，长了让它自己截（和列表页
+        // 那些行的做法一致），横着滚会让卡片多出一条从来没用的东西。
+        m_list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        // 插在**按钮行前面**（同 setLineEdit 那一句，写成 count()-1 不写死下标）。
+        layout->insertWidget(layout->count() - 1, m_list);
+    }
+    m_list->clear();
+    m_list->addItems(items);
+    if (initialRow >= 0 && initialRow < m_list->count()) {
+        m_list->setCurrentRow(initialRow);
+    }
+    // 高度**不跟条数长**：最多露 kListVisibleRows 行，再多就在列表内部滚。
+    // NOTE: 行高问 `sizeHintForRow(0)` —— 它才是"这个列表画一行要多少"的出处（字体、
+    //       内边距、将来可能有的行装饰都在里面）；拿 fontMetrics().height() 自己算，
+    //       第一行就会被切掉一点。取不到（一行都没有）时退回字体那一档。
+    const int rowHeight = m_list->count() > 0 ? m_list->sizeHintForRow(0)
+                                             : fontMetrics().height() + 8;
+    const int rows = qBound(1, items.size(), kListVisibleRows);
+    m_list->setFixedHeight(rows * rowHeight + 2 * m_list->frameWidth() + 2);
+    return m_list;
+}
+
+int InlineMessageBox::listRow() const {
+    return m_list != nullptr ? m_list->currentRow() : -1;
+}
+
+int InlineMessageBox::listVisibleRows() {
+    return kListVisibleRows;
 }
 
 void InlineMessageBox::setNote(const QString &text) {
@@ -267,6 +311,48 @@ QString getText(OverlayHost *host, const QString &title, const QString &label,
         *ok = accepted;
     }
     return box.lineEditText();
+}
+
+bool pickFromList(OverlayHost *host, const QString &title, const QString &text,
+                  const QStringList &items, int initialRow, int *rowOut) {
+    if (rowOut != nullptr) {
+        *rowOut = -1;
+    }
+    if (items.isEmpty()) {
+        // 见 .hpp：一行都没有的列表框长得和"有东西可挑"一模一样，**不弹**。
+        // 这一路也写一行日志 —— 调用方本该自己先判空，走到这儿说明那一处漏了。
+        qWarning("InlineMessage: 清单是空的，这个「挑一个」没有显示（%s）", qUtf8Printable(title));
+        return false;
+    }
+    if (host == nullptr) {
+        qWarning("InlineMessage: 没有 OverlayHost，这个「挑一个」没有显示（%s）",
+                 qUtf8Printable(title));
+        return false;
+    }
+    if (host->promptOpen()) {
+        qWarning("InlineMessage: 已经有一条提示开着，这个「挑一个」没有显示（%s）",
+                 qUtf8Printable(title));
+        return false;
+    }
+    // 按钮表和 getText() 逐字一样（`{确定, 取消}`、默认确定）—— 那一档也是
+    // "认下这个选择"。破坏性那一格不给：挑一个目标不是危险动作。
+    InlineMessageBox box(MessageKind::Question, title, text,
+                         QStringList{QObject::tr("确定"), QObject::tr("取消")}, 0, -1);
+    box.setList(items, initialRow);
+    host->execPrompt(&box, false);
+    if (box.clickedIndex() != 0) {
+        return false;
+    }
+    const int row = box.listRow();
+    if (row < 0) {
+        // 点了确定但一行都没选中（用户可以 Ctrl+点一下把选中项取消掉）。这**不算选中了
+        // 第 0 行** —— 替用户挑一个，比让他再选一次糟得多。
+        return false;
+    }
+    if (rowOut != nullptr) {
+        *rowOut = row;
+    }
+    return true;
 }
 
 }  // namespace InlineMessage
