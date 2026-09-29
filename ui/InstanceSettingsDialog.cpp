@@ -17,6 +17,7 @@
  */
 #include "InstanceSettingsDialog.hpp"
 
+#include "Animations.hpp"
 #include "Theme.hpp"   // 浮层的底色（Theme::Part::Panel）
 
 #include <QCheckBox>
@@ -1591,6 +1592,8 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                             emit copyServerAddressRequested(address);
                         });
                 layout->addWidget(m_serverTree, 1);
+                // 展开/折叠动画（2026-09-29，规则见 ui/Animations.hpp）。
+                Anim::animateExpansion(m_serverTree);
 
                 auto *hint = new QLabel(filesHint(QStringLiteral("server")), page);
                 hint->setObjectName(filesHintName(QStringLiteral("server")));

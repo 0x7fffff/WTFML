@@ -14,6 +14,7 @@
 #include <QTextStream>
 
 #include "MainWindow.hpp"
+#include "../ui/Animations.hpp"  // 按下按钮那一份动效（见下面那段 NOTE）
 #include "../ui/Theme.hpp"   // 主题从盘上读回来、铺开（见下面那段 NOTE）
 #include "util/AppPaths.hpp"
 
@@ -148,6 +149,17 @@ int main(int argc, char *argv[]) {
     //       出厂那一份 `apply()` **连调色板都不碰** —— 也就是"加这一层之前的样子"。
     Theme::setSpec(Theme::load());
     Theme::apply(app);
+
+    // 动效那一层（2026-09-29，用户点名的那三样：按下按钮 / 切换页面 / 展开折叠）。
+    //
+    // 这一句是**按钮那一份动效的唯一接线点**：它往 `QApplication` 上挂一个事件过滤器，
+    // 谁被按下去就给谁压暗一档（全仓 92 个 `new QPushButton` 一个字都不用改，见 ui/Animations.hpp）。
+    // 换页和展开折叠不走这里：它们由真搭界面的那两处调（`Anim::pageAppear()` /
+    // `Anim::animateExpansion()`）。
+    //
+    // NOTE: 验证工程（ui_check / mw_check / ui_shot）**刻意不调它** —— 那些工程要在
+    //       offscreen 下量几何和像素，"半路飞进来一段动画"只会让判据时灵时不灵。
+    Anim::installPressAnimation(app);
 
     MainWindow window;
     window.show();

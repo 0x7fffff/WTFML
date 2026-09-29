@@ -24,6 +24,7 @@
 #include <QTreeWidgetItem>
 #include <QVBoxLayout>
 
+#include "Animations.hpp"
 #include "MainWindowUI.hpp"
 #include "RowActivation.hpp"
 #include "Theme.hpp"
@@ -406,6 +407,8 @@ ResourceDetailPage::ResourceDetailPage(QWidget *parent) : QDialog(parent) {
     m_list->setIconSize(QSize(ResourceDetailMarks::badgeSize(),
                               ResourceDetailMarks::badgeSize()));
     outer->addWidget(m_list, 1);
+    // 展开/折叠动画（2026-09-29，规则见 ui/Animations.hpp）。
+    Anim::animateExpansion(m_list);
 
     // 组头那一行是**开关**（点一下展开、再点一下收起），版本那一行是**动作**（下它）——
     // 这两档的分别正是 connectRowActivation() 那个判据在管的事（点得快的时候开关行

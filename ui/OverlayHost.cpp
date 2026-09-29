@@ -6,6 +6,7 @@
  */
 
 #include "OverlayHost.hpp"
+#include "Animations.hpp"  // 整块覆盖这一层的淡入（2026-09-29）
 #include "Theme.hpp"   // 顶上那颗「← 返回」的身份（一般性 = 黑字黑边）
 
 #include <QApplication>
@@ -252,9 +253,22 @@ void OverlayHost::applyVisibility() {
         }
     }
     if (m_promptCard != nullptr) {
+        const bool wasShown = m_promptCard->isVisible();
         m_promptCard->setVisible(promptShown);
+        // 提示那一档：整块**本来就露着头**（比如连着开第二个提示）时，只让新那一块自己
+        // 淡进来。整块还没露头的情况归下面那一条（整块一起淡，不然一里一外淡两次、
+        // 快的那个看着像"闪"）。
+        if (promptShown && !wasShown && isVisible()) {
+            Anim::overlayAppear(m_promptCard);
+        }
     }
+    const bool wasVisible = isVisible();
     setVisible(promptShown || pageShown);
+    if (isVisible() && !wasVisible) {
+        // 2026-09-29：整块覆盖的那一层淡进来（只淡、不抬 —— 它是"盖住内容区"的，
+        // 抬起来边上会露出一条没盖住的缝）。规矩见 ui/Animations.hpp。
+        Anim::overlayAppear(this);
+    }
     if (isVisible()) {
         // 浮在上面这一条**每回露面都得重申**：锚点换了一页，新那一页在子控件次序上可能
         // 压过我们（Qt 新加的子控件默认排在最后，也就是"最上面"）。

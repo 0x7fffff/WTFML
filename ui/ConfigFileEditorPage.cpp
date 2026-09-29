@@ -31,6 +31,7 @@
 
 #include <functional>
 
+#include "Animations.hpp"
 #include "ConfigEntries.hpp"
 #include "Theme.hpp"   // 上面那四颗按钮的身份（一般性 = 黑字黑边）
 #include "ElidedLabel.hpp"
@@ -307,6 +308,8 @@ ConfigFileEditorPage::ConfigFileEditorPage(QWidget *parent) : QWidget(parent) {
             [this](QTreeWidgetItem *item, int /*column*/) { jumpToEntry(item); });
     panelColumn->addWidget(m_index, 1);
     middle->addWidget(m_indexPanel);
+    // 展开/折叠动画（2026-09-29，规则见 ui/Animations.hpp）。
+    Anim::animateExpansion(m_index);
 
     m_editor = new CodeEditor(this);
     m_editor->setObjectName(editorName());

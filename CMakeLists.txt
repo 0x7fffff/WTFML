@@ -133,6 +133,8 @@ set(SOURCE_FILES
     ui/SkinViewer.cpp
     ui/TitleBar.cpp
     ui/Theme.cpp
+    # 动效那一层（2026-09-29）：按下按钮 / 换页 / 展开折叠。
+    ui/Animations.cpp
     ui/ThemeBackground.cpp
     ui/WindowChrome.cpp
     ${HEADER_FILES}

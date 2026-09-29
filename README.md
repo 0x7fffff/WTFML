@@ -267,6 +267,31 @@ cmake --build build/static-release -j
   `QTreeModel::hasChildren()` 会按它直接回"没有孩子"，后果是整条分类的版本号一条都排不进布局
   （而模型层的断言照样全绿）。正路是 `QTreeView::setRootIsDecorated(false)`。
 
+- **动效**（2026-09-29，用户点名的那三样：按下按钮 / 切换页面 / 展开折叠）：唯一出处
+  `ui/Animations.*`，参数（几个时长、抬起多少像素、按下压暗几成）全在 `Animations.hpp` 里，
+  缓动一律 `OutCubic`。总开关是 `Anim::enabled()` / `Anim::setEnabled()`。
+  - **按下按钮**走 `installPressAnimation(app)`（`src/main.cpp` 里**只调这一处**）：往
+    `QApplication` 上挂一个事件过滤器，谁被按下去就给谁压暗一档。所以要动全仓 92 处
+    `new QPushButton/ToolButton` 一个字节都不用改，它**从不吞事件**（永远返回 `false`）。
+  - **切换页面**：`QTabWidget::currentChanged` 一条接线管住顶上四颗导航 + 底栏 + 主页那些
+    入口；内里三层（下载页右栏 / 下载页"游戏"那一栏 / 设置页右栏）各自是 `QStackedWidget`，
+    同一条 `currentChanged`。**展开折叠**交给 `QTreeView::setAnimated(true)`
+    （`Anim::animateExpansion()`，关掉动效时会关回去）。
+  - **画法**：`AnimEffect`（一个 `QGraphicsEffect`）把控件渲染出来的那张图**贴回去**，
+    贴之前可以整体确定不透明度（淡入）、整体压暗一档（按下）、整体往下挪几个像素
+    （换页"抬起来"）。控件自己的**几何 / 布局 / 样式表 / 调色板一个字节都不动**。
+  - ★ **「不许有元素超出」是结构上做不到，不是靠分寸拿捏**：`boundingRectFor()` 原样返回
+    源矩形，`draw()` 里再上一道 `setClipRect(…, IntersectClip)`。除了底栏那两块上拉面板
+    （它们是顶层窗口，走 `pos()` 滑一段）、**全仓没有一处为动效改过几何**。
+  - 两个坑写在代码里：效果那支笔是**设备坐标**（世界变换被重置）⇒ "抬几个像素"要乘
+    `devicePixelRatio()`；效果要等动画跑完后的**下一轮事件循环**才摘（在 `finished` 里直接
+    摘 = 删掉正在发信号的动画自己的父亲）。压暗走 `SourceAtop`，圆角与透明边不会被刷成方块。
+  - ★ 验证时量不出来的那一角：`grab()` 那条路在"装着效果的控件底下"给的**底色是没有定义
+    的**（淡到 0.39 那一帧，本该 `#ffffff` 的一格量成 `#656565`；把 Qt 自带的
+    `QGraphicsOpacityEffect` 摆在同一位置，量出来一模一样）⇒ **截图上的浓淡别当真，真机
+    为准**，32 节开头记着这条。三个 UI 验证工程**刻意把动效关着跑**（半路飞进来一段动画会让
+    像素判据时灵时不灵）。
+
 ## 功能
 
 ### 账户与外观

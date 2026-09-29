@@ -8,6 +8,7 @@
 
 #include "MainWindowUI.hpp"
 
+#include "Animations.hpp"  // 换页 / 展开折叠 / 上拉面板那几段动效（2026-09-29）
 #include "ElidedLabel.hpp"
 #include "InstanceGroupDelegate.hpp"
 #include "MemorySlider.hpp"
@@ -616,6 +617,9 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         //   offscreen 两个平台结论一样）。少这一句的表现是"那两颗按钮再也不出现"，而两边
         //   各自的断言还都是绿的。
         instanceList->setMouseTracking(true);
+        // 展开/折叠动画（2026-09-29）：组行那一按，子条目是**滑**出来的。交给 Qt 自己
+        // （`QTreeView::setAnimated`），规矩见 ui/Animations.hpp。
+        Anim::animateExpansion(instanceList);
         instanceLayout->addWidget(instanceList, 1);
 
         // NOTE: 这里原来是三颗按钮的一排（重命名… / 分组设置… / 实例设置…）加下面一段
@@ -790,6 +794,9 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // 单击分类就展开/折叠（用户点的是最右边那个 >，那个箭头就画在那一行上）。
         // 双击**不再**自己展开一次 —— 那会和上面那次单击叠起来，双击等于"展开又收起"。
         versionTree->setExpandsOnDoubleClick(false);
+        // 展开/折叠动画（2026-09-29）：分类那一层展开的时候，底下的版本号是**滑**出来的。
+        // 五张资源表（下面那个循环里）走同一句，见 ui/Animations.hpp。
+        Anim::animateExpansion(versionTree);
         treeLayout->addWidget(versionTree, 1);
         gameStack->addWidget(treePage);
 
@@ -865,6 +872,10 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // ★ 悬停底色要它，理由见上面版本树那第一处：视图不填 State_MouseOver 就不出底色，也不报错。
         loaderTree->setMouseTracking(true);
         loaderTree->setExpandsOnDoubleClick(false);
+        // 展开/折叠动画（2026-09-29）。NOTE: 这棵树的高度是**跟着展开了几条**现算的
+        // （下面那个 fitLoaderTreeHeight，挂在 expanded/collapsed 上），所以高度是"啪"地
+        // 让出地方、版本号再滑进来 —— 两段不是同一拍，但是看着是对的（先空出来、再填上）。
+        Anim::animateExpansion(loaderTree);
         // 展开/收起是"点那一条"完成的，而点中一条会把它整行画成选中色（和版本树那边
         // 一样）。这里**不要**再自己画高亮：选中色就是"你现在停在哪一条"。
         QFont loaderFont = loaderTree->font();
@@ -1121,6 +1132,9 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
             resourceFont.setPointSize(resourceFont.pointSize() + versionTreeFontStep());
             tree->setFont(resourceFont);
             tree->setIconSize(QSize(resourceTreeIconSize(), resourceTreeIconSize()));
+            // 展开/折叠动画（2026-09-29）：和版本树那两棵同一句（三个层次都共用同一个代理，
+            // 动画也共用同一个开关），见 ui/Animations.hpp。
+            Anim::animateExpansion(tree);
             pageLayout->addWidget(tree, 1);
 
             downloadResourceSearches.insert(categoryKey, search);
@@ -1196,6 +1210,42 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     });
     // 反方向也要通：别处（底栏、主页那几个入口）翻页之后，条上标着的也得跟着换。
     QObject::connect(tabWidget, &QTabWidget::currentChanged, bar, &TitleBar::setCurrentNav);
+
+    // ================= 换页那一下 =================
+    // 2026-09-29 用户点名要的第二个动效（「切换页面」）：新那一页**淡进来**，顺带从下面
+    // 抬 `Anim::pageRiseDistance()` 那么一小段。规矩（尤其是"一个像素的几何都不动"）
+    // 见 ui/Animations.hpp。
+    //
+    // NOTE: 挂的是 `currentChanged`，不是某一次点击 —— 四颗导航、底栏、主页那几个入口
+    //       都会翻页，只有挂在这儿才一处管住全部（"唯一出处"那条老规矩）。
+    // NOTE: 只在**已经露着头**的时候动。搭界面这一路会挨个 `addTab()`，`currentChanged`
+    //       在那时候就会响，而那些页还没上屏、几何也没定下来，给它们装效果纯属白干。
+    QObject::connect(tabWidget, &QTabWidget::currentChanged, tabWidget, [this](int) {
+        QWidget *page = tabWidget->currentWidget();
+        if (page != nullptr && page->isVisible()) {
+            Anim::pageAppear(page);
+        }
+    });
+
+    // 内层那三层"换页"走同一条路（用户说的"切换页面"不只顶上那四颗）：
+    //   * 下载页右栏：游戏 / 模组 / 资源包 / 数据包 / 光影 / 整合包 之间横着换；
+    //   * 下载页里"游戏"那一栏自己还有一层（版本树 ↔ 安装页）；
+    //   * 设置页右栏：启动 / 游戏 / 提示 / 个性化 / 下载。
+    // 都是 `QStackedWidget`，所以一条 `currentChanged` 就够了（谁换的都算）。
+    const auto appearOnSwitch = [](QStackedWidget *stack) {
+        if (stack == nullptr) {
+            return;
+        }
+        QObject::connect(stack, &QStackedWidget::currentChanged, stack, [stack](int) {
+            QWidget *page = stack->currentWidget();
+            if (page != nullptr && page->isVisible()) {
+                Anim::pageAppear(page);
+            }
+        });
+    };
+    appearOnSwitch(downloadStack);
+    appearOnSwitch(gameStack);
+    appearOnSwitch(settingsCategoryStack);
 
     setupBottomBar(centralWidget, mainLayout);
 
@@ -2166,7 +2216,11 @@ public:
             const QPoint anchorTopLeft = m_anchor->mapToGlobal(QPoint(0, 0));
             const int x = m_alignRight ? anchorTopLeft.x() + m_anchor->width() - width()
                                        : anchorTopLeft.x();
-            move(x, anchorTopLeft.y() - height() - kPanelGap);
+            // 2026-09-29：上拉面板**从下面滑上来**。它是顶层窗口（Qt::Popup），所以"滑"
+            // 就是它自己的 pos() 在动 —— 落到哪儿还是一样算，只是先把起手位摆在落点下面
+            // `panelSlideDistance()` 那一格上。关掉动效时 `slideUp()` 直接 move 到落点，
+            // 和从前那一句 move(x, …) 一模一样（见 ui/Animations.hpp）。
+            Anim::slideUp(this, QPoint(x, anchorTopLeft.y() - height() - kPanelGap));
         }
         show();
         raise();
