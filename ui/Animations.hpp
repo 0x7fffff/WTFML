@@ -63,6 +63,9 @@ constexpr int appearMs() { return 160; }
 constexpr int overlayMs() { return 140; }
 /// 底栏上拉面板滑上来那一下。
 constexpr int panelMs() { return 130; }
+/// 滚动条**冒出来**那一下（用户 2026-09-29：「每一次切页面的时候滚动条都是瞬间出现的」）。
+/// 和换页同一个量级 —— 它得跟页面那一下一起收住，单独更快或更慢都会看成"两件事"。
+constexpr int scrollBarMs() { return 160; }
 /// 上拉面板的起手位比落点低多少像素。
 constexpr int panelSlideDistance() { return 16; }
 /// 换页时内容从下面抬多少像素。
@@ -79,6 +82,22 @@ void setEnabled(bool on);
 /// 给整个应用装上"按下按钮"那个事件过滤器。**幂等**（`Theme::apply()` 会被调好几次，
 /// 这里也一样可能被调好几次）。`src/main.cpp` 调它一次，验证工程不调（它们不要动效）。
 bool installPressAnimation(QApplication &app);
+
+/// 滚动条**露面**的那一瞬间：从全透明淡进来。
+/// 调用方是 `installScrollBarAnimation()` 挂的那个事件过滤器（见它上面那段）；别处不用喊。
+void scrollBarAppear(QWidget *bar);
+
+/**
+ * @brief 给整个应用装上"滚动条一露面就淡进来"那个事件过滤器（`QEvent::Show`）。
+ *
+ * 用户 2026-09-29 原话：「每一次切页面的时候滚动条都是瞬间出现的」。滚动条是**按需出现**
+ * 的（内容不够长它就不在），而 Qt 出现的那一下是硬切 —— 页面在淡、它在"啪"地跳出来。
+ * 这一条把它压进同一段节奏里。
+ *
+ * ★ 和按下那一份同一个做法（挂 `QApplication`、**从不吞事件**）：全仓每一处滚动区都不用改。
+ * ★ **幂等**；`src/main.cpp` 调它一次，验证工程不调（它们不要动效）。
+ */
+bool installScrollBarAnimation(QApplication &app);
 
 /// 换页：新那一页淡进来，并从下面抬 `pageRiseDistance()` 那么一小段。
 /// 顶栏四颗选项卡、下载页左栏、设置页左栏那几处内层换页都走这一个。

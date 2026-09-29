@@ -349,6 +349,58 @@ QColor neutralInkColor();
 /// 要它是因为"这些东西长什么样"也得能量 —— 验证工程逐条读它算出来的色。
 QString widgetStyleSheet();
 
+// ---------------------------------------------------------------------------
+// 滚动条
+// ---------------------------------------------------------------------------
+
+/**
+ * @brief 滚动条有多粗（逻辑像素）—— **唯一出处**。
+ *
+ * 用户 2026-09-29 原话：「把滚动条变成一个嵌在页面边上的条，不要直接一个白色条」。
+ *
+ * ★ 12 是**比 Fusion 出厂值（`PM_ScrollBarExtent`）细一档**挑的：这一套界面里的滚动条
+ *   一直在页面的最右边那条边线上，宽了看着像另开了一栏。细到 12 之后，真正看得见的东西
+ *   只有中间那 6 px 的把手（见 `scrollBarHandleMargin()`），剩下的都是"条嵌在页面边上"
+ *   那点留白。
+ *
+ * ★ 这一位有三处读者：`widgetStyleSheet()` 里那两段 QSS（竖的给 `width`、横的给 `height`）、
+ *   以及验证工程（量真控件的宽度 / 量把手的左右两边是不是各留了这么宽）。
+ */
+constexpr int scrollBarThickness() { return 12; }
+
+/// 把手离滚动条自己那条边线的距离（左右各一份，横的那一档是上下各一份）。
+/// 于是**看得见的把手宽 = `scrollBarThickness()` - 2 * 这一位** = 6 px。
+constexpr int scrollBarHandleMargin() { return 3; }
+
+/// 把手两头的圆角：**就是半宽**（6 px 宽的把手配 3 px 圆角 = 一个两头圆的胶囊）。
+/// 写成一算就出来的式子，免得两个数将来各自漂走（漂了只会"看着不那么圆"，不会报错）。
+constexpr int scrollBarHandleRadius() { return (scrollBarThickness() - 2 * scrollBarHandleMargin()) / 2; }
+
+/// 把手最短画多长。Fusion 自己也有一条（`PM_ScrollBarSliderMin`）；这一条是我们钉的，
+/// 内容长到上千行时把手不至于短成一个小点。
+constexpr int scrollBarMinHandleLength() { return 24; }
+
+/**
+ * @brief 把手平时的色。**带 alpha 的一支中性灰**，跟着深浅各取一边。
+ *
+ * ★ 为什么不像按钮那样直接写死一支（比如 `#c0c0c0`）：滚动条底下那层是**页面自己的底**，
+ *   它跟着主题深浅走（浅色 `#fcfcfc` / 深色 `#2b2b2b`）—— 写死一支灰，在另一种底上不是
+ *   看不见就是一块黑疙瘩。所以底色深就给一支**浅**灰、底色浅就给一支**深**灰，
+ *   两边都是"看得见但不抢眼"。
+ *
+ * ★ 为什么带 alpha 而不是给一个实色：这一套界面里"把手底下那层"没有统一的一个色
+ *   （有的是页面的底、有的是白卡片），alpha 让它在任何一层上都还是"这层加深一点"，
+ *   这正是 `rowHoverFill()` 那条规矩的同一种做法。
+ *
+ * ★ 它**不进调色板**（不是 `Role`）—— 和悬停/选中那两档同一个理由：往调色板里塞东西
+ *   等于把"跟着系统深浅走"钉死（见 `apply()` 里那段）。
+ */
+QColor scrollHandleColor();
+/// 鼠标停在把手上（比平时实一档）。
+QColor scrollHandleHoverColor();
+/// 正拖着把手（最实的一档）。
+QColor scrollHandlePressedColor();
+
 /**
  * @brief 应用级样式（`QApplication::setStyle()` 用的那一份）：Fusion + 下拉框那个 `∨` 箭头。
  *

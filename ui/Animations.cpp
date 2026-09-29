@@ -18,6 +18,7 @@
 #include <QPixmap>
 #include <QPointer>
 #include <QPropertyAnimation>
+#include <QScrollBar>
 #include <QTimer>
 #include <QTransform>
 #include <QTreeView>
@@ -33,6 +34,8 @@ namespace {
 constexpr const char kEffectName[] = "wtfmlAnimEffect";
 /// 事件过滤器装没装过的那一位（挂在 QApplication 自己身上，所以不用静态变量）。
 constexpr const char kFilterMark[] = "wtfmlAnimPressFilter";
+/// 滚动条那一份过滤器装没装过的那一位（同上）。
+constexpr const char kScrollFilterMark[] = "wtfmlAnimScrollFilter";
 
 /// 动效总开关。默认开。
 bool g_enabled = true;
@@ -284,6 +287,34 @@ protected:
     }
 };
 
+/**
+ * 挂在 `QApplication` 上的另一个事件过滤器：**滚动条一露面就淡进来**。
+ *
+ * 用户 2026-09-29：「每一次切页面的时候滚动条都是瞬间出现的」。滚动条是按需出现的
+ * （内容不够长它就不在），Qt 出现的那一下是硬切 —— 页面在淡，它"啪"地跳出来。
+ *
+ * NOTE: 和按下那一份一样，它**从不吞事件**（`Show` 本来也不归谁"处理"）。
+ */
+class ScrollBarFilter : public QObject {
+public:
+    explicit ScrollBarFilter(QObject *parent) : QObject(parent) {}
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override {
+        if (event->type() != QEvent::Show || !Anim::enabled()) {
+            return false;
+        }
+        // NOTE: 这个过滤器会看到**每一个**控件的 `Show`（窗口一露头，里面所有子控件都会走
+        //       一趟）—— 所以这一句 `qobject_cast` 就是它的全部开销，其余一律原样放行。
+        auto *bar = qobject_cast<QScrollBar *>(watched);
+        if (bar == nullptr) {
+            return false;
+        }
+        Anim::scrollBarAppear(bar);
+        return false;
+    }
+};
+
 }  // namespace
 
 namespace Anim {
@@ -303,6 +334,30 @@ bool installPressAnimation(QApplication &app) {
     app.setProperty(kFilterMark, true);
     app.installEventFilter(new PressFilter(&app));
     return true;
+}
+
+bool installScrollBarAnimation(QApplication &app) {
+    if (app.property(kScrollFilterMark).toBool()) {
+        return true;
+    }
+    app.setProperty(kScrollFilterMark, true);
+    app.installEventFilter(new ScrollBarFilter(&app));
+    return true;
+}
+
+void scrollBarAppear(QWidget *bar) {
+    if (bar == nullptr || !enabled()) {
+        return;
+    }
+    AnimEffect *effect = ensureEffect(bar);
+    if (effect == nullptr) {
+        return;
+    }
+    // 和 `overlayAppear()` 是同一条路（**只淡、不抬**）：滚动条就贴在它自己那一格里，
+    // "往下挪着画"没有任何意义，只会让它看着离开自己那条边线。
+    effect->setOpacity(0.0);
+    runProgress(bar, effect, 0.0, 1.0, scrollBarMs(), /*removeWhenDone=*/true,
+                [effect](qreal progress) { effect->setOpacity(progress); });
 }
 
 void pageAppear(QWidget *widget) {

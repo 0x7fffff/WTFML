@@ -160,6 +160,9 @@ int main(int argc, char *argv[]) {
     // NOTE: 验证工程（ui_check / mw_check / ui_shot）**刻意不调它** —— 那些工程要在
     //       offscreen 下量几何和像素，"半路飞进来一段动画"只会让判据时灵时不灵。
     Anim::installPressAnimation(app);
+    // 另一份：**滚动条一露面就淡进来**（用户 2026-09-29：「每一次切页面的时候滚动条都是瞬间
+    // 出现的」）。同样是往上挂一个事件过滤器，全仓每一处滚动区都不用改。
+    Anim::installScrollBarAnimation(app);
 
     MainWindow window;
     window.show();

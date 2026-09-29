@@ -613,6 +613,53 @@ QString buttonKindKey(ButtonKind kind) {
     return QString();
 }
 
+// ---------------------------------------------------------------------------
+// 滚动条
+// ---------------------------------------------------------------------------
+
+namespace {
+
+/// 把手那一支中性灰的**实色**那一半（alpha 由下面三个函数各自加）。
+///
+/// 底色浅 ⇒ 一支深灰；底色深 ⇒ 一支浅灰。**同一支灰**在两种底上都不是"看不见"就是
+/// "一块黑疙瘩"，所以这一位必须跟着深浅走。
+QColor scrollHandleBase() {
+    return isDark() ? QColor(0xff, 0xff, 0xff) : QColor(0x0f, 0x0f, 0x0f);
+}
+
+/// 同一支灰的三档浓淡（0~255 的 alpha）：平时 / 悬停 / 拖。
+QColor scrollHandleAt(int alpha) {
+    QColor color = scrollHandleBase();
+    color.setAlpha(alpha);
+    return color;
+}
+
+/// QSS 里那个 `rgba(...)`。**不写 `#AARRGGBB`**：Qt 样式表认的是 `#RRGGBB` 和 `rgba()`
+/// 两种，八位的十六进制进到那边是"认不出就忽略"，静默退成没有这一条。
+QString rgbaCss(const QColor &color) {
+    return QStringLiteral("rgba(%1, %2, %3, %4)")
+        .arg(color.red())
+        .arg(color.green())
+        .arg(color.blue())
+        .arg(color.alpha());
+}
+
+}  // namespace
+
+QColor scrollHandleColor() {
+    // 110/255 ≈ 43%：压在 `#fcfcfc` 上量出来是一支 `#919191` 上下的灰 —— 一眼看得见，
+    // 又不会把旁边那行字比下去。深底上那支浅灰同理。
+    return scrollHandleAt(110);
+}
+
+QColor scrollHandleHoverColor() {
+    return scrollHandleAt(165);
+}
+
+QColor scrollHandlePressedColor() {
+    return scrollHandleAt(205);
+}
+
 void markButton(QWidget *button, ButtonKind kind) {
     if (button == nullptr) {
         return;
@@ -775,6 +822,57 @@ QString widgetStyleSheet() {
                "QCheckBox::indicator:disabled { background-color: %5; border-color: %3; }")
                .arg(black.name(), ink.name(), disabledInk.name(), pure.name(),
                     disabledFill.name());
+
+    // -----------------------------------------------------------------------
+    // 滚动条（2026-09-29）
+    // -----------------------------------------------------------------------
+    //
+    // 用户原话：「每一次切页面的时候滚动条都是瞬间出现的，把滚动条变成一个嵌在页面边上的
+    // 条，不要直接一个白色条」。
+    //
+    // 这一条一次说清三件事：
+    //
+    //   1. **没有底**（`background: transparent`）：Fusion 出厂那一条是"一格浅灰的槽",
+    //      看着就是一根白条 —— 那是用户点名不要的。底色不画之后，滚动条那一条露出来的是
+    //      **它自己底下那一层**（页面 / 卡片的底），于是把手看着是"嵌在页面边上"，
+    //      而不是"旁边另开了一栏"。
+    //   2. **两头的小箭头不要**（`add-line` / `sub-line` 给 0）：这一套界面里没有人点那个
+    //      三角翻一格。★ 但 `add-page` / `sub-page`（在槽上点一下翻一屏）**必须留着** ——
+    //      给它 0 就是把"点槽翻页"这件事一起删掉了，只是"不画"，不是"没有"。
+    //   3. **把手是一个胶囊**：宽 = `scrollBarThickness() - 2 * scrollBarHandleMargin()`，
+    //      圆角 = 半宽（`scrollBarHandleRadius()`），墨色跟着深浅各取一支带 alpha 的灰
+    //      （`scrollHandleColor()` 那段讲了为什么必须跟着深浅走）。
+    //
+    // ★ `margin` 是这儿**唯一一处"留白"**：它把把手从滚动条那一条的两边各推进来
+    //   `scrollBarHandleMargin()`，看着才是"嵌在边上的一条"而不是"顶满一整条"。
+    // ★ 横的那一条**必须跟着一起写**：这一套界面里横向滚动条是少，但少不等于没有（表里
+    //   某一列放不下就出来了）。只写竖的，横的那一条会**整条退回 Fusion 出厂样子** ——
+    //   那时候屏幕上"竖的变了、横的没变"，比两处都不改还显眼。两段**同一个 `.arg()`**，
+    //   就是不许它们漂开。
+    const QString handle = rgbaCss(scrollHandleColor());
+    const QString handleHover = rgbaCss(scrollHandleHoverColor());
+    const QString handlePressed = rgbaCss(scrollHandlePressedColor());
+    qss += QStringLiteral(
+               "QScrollBar:vertical { background: transparent; width: %1px; margin: 0px; }"
+               "QScrollBar::handle:vertical { background: %2; min-height: %3px;"
+               " border-radius: %4px; margin: %5px; }"
+               "QScrollBar::handle:vertical:hover { background: %6; }"
+               "QScrollBar::handle:vertical:pressed { background: %7; }"
+               "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }"
+               "QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {"
+               " background: transparent; }"
+               "QScrollBar:horizontal { background: transparent; height: %1px; margin: 0px; }"
+               "QScrollBar::handle:horizontal { background: %2; min-width: %3px;"
+               " border-radius: %4px; margin: %5px; }"
+               "QScrollBar::handle:horizontal:hover { background: %6; }"
+               "QScrollBar::handle:horizontal:pressed { background: %7; }"
+               "QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0px; }"
+               "QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {"
+               " background: transparent; }")
+               .arg(QString::number(scrollBarThickness()), handle,
+                    QString::number(scrollBarMinHandleLength()),
+                    QString::number(scrollBarHandleRadius()),
+                    QString::number(scrollBarHandleMargin()), handleHover, handlePressed);
     return qss;
 }
 
