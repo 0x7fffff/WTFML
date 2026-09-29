@@ -12,8 +12,12 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QHash>
 #include <QSaveFile>
+#include <QSet>
 #include <QUuid>
+
+#include <algorithm>
 
 #include "FolderManager.hpp"
 #include "InstanceFiles.hpp"
@@ -68,6 +72,44 @@ bool writeField(NbtTree::Node *root, const QString &path, const QString &text) {
         return false;
     }
     return NbtTree::setValueText(node, text);
+}
+
+/**
+ * @brief 改一格的值；那一格在盘上根本没有时，按 @p whenMissing 决定拒绝还是**建一格**。
+ *
+ * ★ 2026-09-29（见头文件里 `MissingField` 那一段）：老存档可能没有 `Data/allowCommands`
+ *   （1.8 才加的）或者 `Data/hardcore`。界面上那几格原来遇到这种档是灰的，现在一律可动，
+ *   所以"盘上没有"这件事必须有个着落。`Create` 那一档就是它。
+ *
+ * @param type 建的时候用什么类型 —— 世界名是 `String`，允许作弊 / 极限模式 / 难度是 `Byte`
+ *             （和 `readWorldInfo()` 读它们时用的 `readStringField` / `readByteField` 对得上）。
+ */
+bool writeFieldOrCreate(NbtTree::Node *root, const QString &path, const QString &text,
+                        NbtTree::Type type, WorldFiles::MissingField whenMissing) {
+    if (NbtTree::Node *node = NbtTree::descend(root, path)) {
+        return NbtTree::setValueText(node, text);
+    }
+    if (whenMissing != WorldFiles::MissingField::Create) {
+        return false;
+    }
+
+    // 最后一段是字段名，前面那截是父节点的路径。父节点不在 / 不是复合标签就建不了 ——
+    // 连 `Data` 都不是复合标签的话，这份 `level.dat` 的形状我们看不懂，一个字节都不动
+    // （和 `NbtTree::parse()` 那条规矩一致）。
+    const int cut = path.lastIndexOf(QLatin1Char('/'));
+    const QString parentPath = cut < 0 ? QString() : path.left(cut);
+    const QString fieldName = cut < 0 ? path : path.mid(cut + 1);
+    NbtTree::Node *parent = parentPath.isEmpty() ? root : NbtTree::descend(root, parentPath);
+    if (parent == nullptr || parent->type != NbtTree::Type::Compound) {
+        return false;
+    }
+
+    NbtTree::Field fresh;
+    fresh.first = fieldName;
+    fresh.second.type = type;
+    parent->fields.append(fresh);
+    // ★ `append()` 之后必须**重新取一次**（`QList` 可能把那一块内存搬走）。
+    return NbtTree::setValueText(&parent->fields.last().second, text);
 }
 
 }  // namespace
@@ -224,6 +266,133 @@ QString difficultyName(int difficulty) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// 规则全集（2026-09-29）
+// ---------------------------------------------------------------------------
+//
+// 来龙去脉、以及"为什么这一张表不分游戏版本"写在头文件那一段里。这里只留实现上的两条：
+//
+//   * 表里的名字**不分大小写地排好序**（界面上那一列就是照这个顺序摆的，`allGameRules()`
+//     还会再排一遍兜底）；
+//   * 默认值**逐字**写在这儿（`"true"` / `"false"` / `"65536"`）—— 形状是从这串字推出来的
+//     （`NbtTree::ruleKind()`），所以多一个类型列只会有两个说法打架的机会。
+
+namespace {
+
+const QList<WorldFiles::GameRuleDefault> &ruleCatalog() {
+    static const QList<WorldFiles::GameRuleDefault> table = {
+        {QStringLiteral("announceAdvancements"), QStringLiteral("true")},
+        {QStringLiteral("blockExplosionDropDecay"), QStringLiteral("true")},
+        {QStringLiteral("commandBlockOutput"), QStringLiteral("true")},
+        {QStringLiteral("disableElytraMovementCheck"), QStringLiteral("false")},
+        {QStringLiteral("disableRaids"), QStringLiteral("false")},
+        {QStringLiteral("doDaylightCycle"), QStringLiteral("true")},
+        {QStringLiteral("doEntityDrops"), QStringLiteral("true")},
+        {QStringLiteral("doFireTick"), QStringLiteral("true")},
+        {QStringLiteral("doImmediateRespawn"), QStringLiteral("false")},
+        {QStringLiteral("doInsomnia"), QStringLiteral("true")},
+        {QStringLiteral("doLimitedCrafting"), QStringLiteral("false")},
+        {QStringLiteral("doMobLoot"), QStringLiteral("true")},
+        {QStringLiteral("doMobSpawning"), QStringLiteral("true")},
+        {QStringLiteral("doPatrolSpawning"), QStringLiteral("true")},
+        {QStringLiteral("doTileDrops"), QStringLiteral("true")},
+        {QStringLiteral("doTraderSpawning"), QStringLiteral("true")},
+        {QStringLiteral("doVinesSpread"), QStringLiteral("true")},
+        {QStringLiteral("doWardenSpawning"), QStringLiteral("true")},
+        {QStringLiteral("doWeatherCycle"), QStringLiteral("true")},
+        {QStringLiteral("drowningDamage"), QStringLiteral("true")},
+        {QStringLiteral("elytraMovementCheck"), QStringLiteral("true")},
+        {QStringLiteral("fallDamage"), QStringLiteral("true")},
+        {QStringLiteral("fireDamage"), QStringLiteral("true")},
+        {QStringLiteral("forgiveDeadPlayers"), QStringLiteral("true")},
+        {QStringLiteral("freezeDamage"), QStringLiteral("true")},
+        {QStringLiteral("keepInventory"), QStringLiteral("false")},
+        {QStringLiteral("logAdminCommands"), QStringLiteral("true")},
+        {QStringLiteral("maxCommandChainLength"), QStringLiteral("65536")},
+        {QStringLiteral("maxEntityCramming"), QStringLiteral("24")},
+        {QStringLiteral("mobExplosionDropDecay"), QStringLiteral("true")},
+        {QStringLiteral("mobGriefing"), QStringLiteral("true")},
+        {QStringLiteral("naturalRegeneration"), QStringLiteral("true")},
+        {QStringLiteral("playersSleepingPercentage"), QStringLiteral("100")},
+        {QStringLiteral("randomTickSpeed"), QStringLiteral("3")},
+        {QStringLiteral("reducedDebugInfo"), QStringLiteral("false")},
+        {QStringLiteral("respawnRadius"), QStringLiteral("10")},
+        {QStringLiteral("sendCommandFeedback"), QStringLiteral("true")},
+        {QStringLiteral("showDeathMessages"), QStringLiteral("true")},
+        {QStringLiteral("snowAccumulationHeight"), QStringLiteral("1")},
+        {QStringLiteral("spawnMonsters"), QStringLiteral("3")},
+        {QStringLiteral("spawnRadius"), QStringLiteral("10")},
+        {QStringLiteral("spectatorsGenerateChunks"), QStringLiteral("true")},
+        {QStringLiteral("tntExplosionDropDecay"), QStringLiteral("false")},
+        {QStringLiteral("universalAnger"), QStringLiteral("false")},
+    };
+    return table;
+}
+
+}  // namespace
+
+const QList<GameRuleDefault> &knownGameRules() {
+    return ruleCatalog();
+}
+
+QList<NbtTree::GameRule> allGameRules(const QList<NbtTree::GameRule> &onDisk) {
+    QHash<QString, QString> diskValues;
+    for (const NbtTree::GameRule &rule : onDisk) {
+        diskValues.insert(rule.name, rule.value);
+    }
+
+    QList<NbtTree::GameRule> out;
+    QSet<QString> already;
+    for (const GameRuleDefault &known : ruleCatalog()) {
+        NbtTree::GameRule rule;
+        rule.name = known.name;
+        // 盘上有就用盘上那个值（那是这个世界的真值），没有才拿默认值顶着。
+        rule.value = diskValues.contains(known.name) ? diskValues.value(known.name) : known.value;
+        out.append(rule);
+        already.insert(known.name);
+    }
+    // 盘上有、全集里没有的（模组写的、比这张表还新的规则）**原样列出来**：这一页说的是
+    // "这个世界现在是什么样"，少一条就是我们瞒着用户。
+    for (const NbtTree::GameRule &rule : onDisk) {
+        if (!already.contains(rule.name)) {
+            out.append(rule);
+        }
+    }
+
+    // 排一遍（大小写不敏感）：全集的顺序本来就是排好的，但盘上捡回来那几条得插到该在的
+    // 位置上去（`moddedRule` 该落在 m 那一段里，不是排到所有小写名字后面）。
+    std::sort(out.begin(), out.end(),
+              [](const NbtTree::GameRule &a, const NbtTree::GameRule &b) {
+                  const int cmp = QString::compare(a.name, b.name, Qt::CaseInsensitive);
+                  return cmp != 0 ? cmp < 0 : a.name < b.name;
+              });
+    return out;
+}
+
+bool applyChangedGameRules(NbtTree::Document *document, const QList<NbtTree::GameRule> &rules,
+                           QString *problemOut) {
+    if (problemOut != nullptr) {
+        problemOut->clear();
+    }
+    if (document == nullptr) {
+        return false;
+    }
+    for (const NbtTree::GameRule &rule : rules) {
+        QString why;
+        // `MissingRule::Create`：名字不在表里就加一条，`Data/GameRules` 那一格不在就连
+        // 那一格一起建（用户点名要的那一档，见头文件里那一段）。
+        if (!NbtTree::setGameRule(&document->root, rule.name, rule.value, &why,
+                                  NbtTree::MissingRule::Create)) {
+            if (problemOut != nullptr) {
+                *problemOut = why.isEmpty() ? QStringLiteral("规则「%1」没写进去。").arg(rule.name)
+                                            : why;
+            }
+            return false;
+        }
+    }
+    return true;
+}
+
 void readWorldInfo(const NbtTree::Document &document, bool gzipped, WorldInfo *out) {
     if (out == nullptr) {
         return;
@@ -284,7 +453,8 @@ void readWorldInfo(const NbtTree::Document &document, bool gzipped, WorldInfo *o
     NbtTree::gameRulesOf(document.root, &out->rules, &ignored);
 }
 
-bool applyWorldInfo(NbtTree::Document *document, const WorldInfo &info, QString *problemOut) {
+bool applyWorldInfo(NbtTree::Document *document, const WorldInfo &info, QString *problemOut,
+                    MissingField whenMissing) {
     if (problemOut != nullptr) {
         problemOut->clear();
     }
@@ -299,29 +469,42 @@ bool applyWorldInfo(NbtTree::Document *document, const WorldInfo &info, QString 
     };
     NbtTree::Node *root = &document->root;
 
-    // 每一项都**先看 `hasXxx`**：界面上那一格没显示（盘上本来就没有），这里就不写。
-    // 三行一个模样，故意不抽成一个循环 —— 每一项的判据不一样（文字 / 开关 / 数值），
+    // 每一项都**先看 `hasXxx`**：界面上那一格没显示（盘上本来就没有、用户也没碰），这里
+    // 就不写。三行一个模样，故意不抽成一个循环 —— 每一项的判据不一样（文字 / 开关 / 数值），
     // 抽出来的那个"通用项"会把这三种差别藏进参数里。
-    if (info.hasLevelName && !writeField(root, QStringLiteral("Data/LevelName"), info.levelName)) {
+    //
+    // ★ 2026-09-29：改走 `writeFieldOrCreate()`（多了一个"那一格不在就按 `whenMissing` 建
+    //   一格"的口子），类型那一栏是这一项**本来该是**什么。
+    if (info.hasLevelName &&
+        !writeFieldOrCreate(root, QStringLiteral("Data/LevelName"), info.levelName,
+                            NbtTree::Type::String, whenMissing)) {
         return fail(QStringLiteral("世界名没写进去（那一格在盘上不是文字）。"));
     }
     if (info.hasAllowCommands &&
-        !writeField(root, QStringLiteral("Data/allowCommands"),
-                    info.allowCommands ? QStringLiteral("1") : QStringLiteral("0"))) {
+        !writeFieldOrCreate(root, QStringLiteral("Data/allowCommands"),
+                            info.allowCommands ? QStringLiteral("1") : QStringLiteral("0"),
+                            NbtTree::Type::Byte, whenMissing)) {
         return fail(QStringLiteral("「允许作弊」没写进去。"));
     }
     if (info.hasHardcore &&
-        !writeField(root, QStringLiteral("Data/hardcore"),
-                    info.hardcore ? QStringLiteral("1") : QStringLiteral("0"))) {
+        !writeFieldOrCreate(root, QStringLiteral("Data/hardcore"),
+                            info.hardcore ? QStringLiteral("1") : QStringLiteral("0"),
+                            NbtTree::Type::Byte, whenMissing)) {
         return fail(QStringLiteral("「极限模式」没写进去。"));
     }
     if (info.hasDifficulty &&
-        !writeField(root, QStringLiteral("Data/Difficulty"), QString::number(info.difficulty))) {
+        !writeFieldOrCreate(root, QStringLiteral("Data/Difficulty"),
+                            QString::number(info.difficulty), NbtTree::Type::Byte, whenMissing)) {
         return fail(QStringLiteral("「难度」没写进去。"));
     }
 
-    // 游戏规则：逐条走 `setGameRule()`。它**只改已有的**（不发明），所以界面上那张表
-    // 是从盘上读出来的那些，一条不多一条不少 —— 名字对不上就是"没写进去"，报出来。
+    // 游戏规则：逐条走 `setGameRule()`。它**只改已有的**（不发明），名字对不上就是"没写
+    // 进去"，报出来。
+    //
+    // ★ 2026-09-29：这一条**不跟着 `whenMissing` 走**，要新增规则请走 `applyChangedGameRules()`
+    //   —— 那一档（`MissingRule::Create`）要求调用方保证"写进去的名字是游戏真有的那一条"，
+    //   而 `WorldInfo::rules` 是"盘上读出来那几条"，这里保证不了。两件事分开之后，
+    //   这一句仍然是"只把我们读到的那些写回去"。
     for (const NbtTree::GameRule &rule : info.rules) {
         QString why;
         if (!NbtTree::setGameRule(root, rule.name, rule.value, &why)) {

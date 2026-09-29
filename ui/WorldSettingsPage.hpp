@@ -1,11 +1,52 @@
 /**
  * @file WorldSettingsPage.hpp
- * @brief 「实例设置 → 文件管理 → 存档」点行尾那支笔之后那一块：这个世界的信息、几个开关、
- *        以及**游戏规则表**（一条一行，值就在行上改）。
+ * @brief 「实例设置 → 文件管理 → 存档」点行尾那支笔之后那一块：这个世界的信息、改文件的
+ *        那几个开关（收在一个折叠框里）、以及**游戏规则表**（一条一行，值就在行上改）。
  * @author 0x7fffff
  * @date 2026-09-28
  * @note 用户 2026-09-28 原话：「世界根据其存档文件在存档设置（那支笔）里面编辑游戏规则等，
  *       打开之前弹出坏档警告并提供备份按钮」。这一块就是那句话里"在存档设置里面编辑"。
+ *
+ * 【2026-09-29 改成了现在这个样子（用户原话）】
+ *
+ *   「世界设置换成点开是一个额外的页面，修改文件的设置放在一个类似版本下载那里的收起来的
+ *     框里，默认收起，展开是弹出备份警告，改文件的设置上方是重命名 打开文件夹 删除世界
+ *     （弹窗确认），下面的世界设置不要要求进了世界才显示而是把所有的都列出来，并允许修
+ *     改值（如果这里不对的话请告诉我文件结构是怎么样的）」
+ *
+ * 落到这一页上就是三段，从上到下：
+ *
+ *   ① **这个世界能做的三件事**：重命名 / 打开文件夹 / 删除世界（删除那一下由 MainWindow
+ *      弹窗确认）。原先是那支笔上的一个小菜单，现在整页都是它，菜单没了 —— 点笔就直接
+ *      进这一页。
+ *   ② **「修改存档文件」**（`fileToggleName()` 那个折叠框）：`level.dat` 里那几格
+ *      ——**世界名 / 允许作弊 / 极限模式 / 难度**。这几格游戏里改不了（游戏只有"建世界时
+ *      选一次"的那一面），只能动文件，所以它们收在一个**默认收起**的框里；点开的那一刻
+ *      由 MainWindow 先弹那句备份警告（`fileEditingRequested()`，见下面那个信号）。
+ *   ③ **「世界设置」**：游戏规则那张表，**一条不少地列出来**（盘上有的用盘上的值、盘上
+ *      没有的用游戏默认值，见 `Rule::inFile`），值就在行上改。
+ *
+ * 【"如果这里不对的话请告诉我文件结构是怎么样的" —— 文件结构就是这样的】
+ *
+ * 世界所有能改的设置**都在同一个文件里**：`<存档目录>/level.dat`，它是一个 gzip 包着的
+ * NBT，解开来是一棵树，根下面那一格 `Data` 里放着这些：
+ *
+ *   * `LevelName`（字符串）—— 世界名。1.13 起游戏列表显示的是**目录名**，这一格只在旧存档
+ *     和部分工具里还看得见（`WorldFiles.hpp` 里 `renameWorld()` 那段也说了这件事）；
+ *   * `allowCommands` / `hardcore`（Byte，0/1）、`Difficulty`（Byte，0~3）—— 上面 ② 里那
+ *     三格；
+ *   * `GameRules` —— **"名字 → 字符串"的一张表**（`keepInventory` = `"true"`、
+ *     `randomTickSpeed` = `"3"`），**没有类型**：是开关还是数字框，是看那串字推出来的。
+ *     ③ 那一张表就是它。
+ *
+ * 所以"改文件的设置"和"世界设置"其实是同一份文件里的东西（原先那句话里把它们分成两处，
+ * 是一份猜测；真实结构是上面这一段）。分成上下两段是**危险的收在框里、常用的摊在外面**：
+ * 世界名 / 极限模式 / 难度改错了会让这个世界变味甚至打不开，而规则改哪条就是哪条。
+ *
+ * ★ 盘上那份 `GameRules` **不一定有全部条目**（工具做出来的档、从没进过的档、很老的存档
+ *   都可能是空的）。所以 ③ 那一列不是"读出来什么摆什么"，而是拿
+ *   `WorldFiles::knownGameRules()`（启动器认识的规则全集）并出来的 —— 用户原话里的
+ *   「不要要求进了世界才显示」说的就是这件事。
  *
  * 【它和「配置文件」那一页里那个编辑器的关系】
  *
@@ -14,8 +55,7 @@
  * 里 `m_configStack` 那一段）。点笔 = 切到第二格，点「返回」/ 按 Esc = 切回世界列表。
  *
  * 差别在这儿：配置文件那一页给的是一个**纯文本编辑框**（不解析、只帮你找到那一行），
- * 而这一页给的是**表单** —— 因为世界规则这件事的 schema 我们**有**
- * （`level.dat` 是一棵 NBT 树，`GameRules` 就是一张"名字 → 字符串"的表，盘上写得清清楚楚），
+ * 而这一页给的是**表单** —— 因为世界设置这件事的 schema 我们**有**（见上面那段文件结构），
  * 和模组配置那种"schema 只活在模组的 Java 代码里"（见 ConfigFileEditorPage 文件头）不一样。
  *
  * 【这一层不碰盘、也不解 NBT】
@@ -29,17 +69,12 @@
  * NOTE: 这个翻译**故意不省**（两边的字段名是一一对应的，看着像在抄写）：省掉它就得让
  *       `ui/` 去 include `src/`，那正是这个仓库唯一一条不许越的界线。抄错一处的话
  *       验证工程量的是**页面上那个控件里的值**，会当场红。
- *
- * 【"只改已有的规则，不发明新的"】
- *
- * 这张表里一行一行**全是从盘上读出来的**（`Data/GameRules` 里已有的那些）。这一页没有
- * 「添加规则」——理由写在 `NbtTree::setGameRule()` 那一段里：往一个玩了几百小时的世界里
- * 塞一条游戏不认识的规则不叫编辑。要加规则请进游戏用 `/gamerule`。底下那行小字说了这件事。
  */
 #pragma once
 
 #include <QHash>
 #include <QList>
+#include <QPair>
 #include <QString>
 #include <QWidget>
 
@@ -51,6 +86,7 @@ class QLabel;
 class QLineEdit;
 class QListWidget;
 class QPushButton;
+class QToolButton;
 class ToggleSwitch;
 
 class WorldSettingsPage : public QWidget {
@@ -70,14 +106,25 @@ public:
         QString name;
         QString value;  ///< 盘上那一串（Bool 那两档是 `"true"` / `"false"`）
         Kind kind = Kind::Text;
+        /// 这一条**在存档文件里**（`Data/GameRules` 里有这个键）吗。
+        ///
+        /// ★ 2026-09-29 加的这一位：那一列现在是**全集**（盘上有的 + 盘上没有的），而
+        ///   "盘上没有的那条，屏幕上显示的是游戏默认值"这件事得让人看得出来 —— 不然用户
+        ///   会以为这个世界本来就是这样。名字和值的 tooltip 上写了这件事（见 .cpp 里
+        ///   `rebuildRuleRows()` 那一段），底下那行小字也说了那把尺子。
+        ///
+        /// NOTE: 它**不参与** `signatureOf()`（"改过没有"那把尺子）：用户改不了这一位，
+        ///       它是"盘上是什么样"的一半，不是页面上的一份值。
+        bool inFile = true;
     };
 
     /**
      * @brief 这一页上摆的所有东西。**只用 Qt 类型**（见文件头）。
      *
-     * 每一位都带一个 `hasXxx`，和 `WorldFiles::WorldInfo` 一样，理由是同一个：**盘上没有的
-     * 项不发明**。`hasXxx` 为 false 的那一格在界面上是**灰的**（点不动），而不是拿一个默认
-     * 值摆在那儿等用户把它写进去。
+     * 每一位都带一个 `hasXxx` —— 它说的是**盘上有没有这一项**（和 `WorldFiles::WorldInfo`
+     * 一样，那边读出来的就是它）。★ 2026-09-29 起它的用处变了：**控件不再是灰的**
+     * （用户原话「把所有的都列出来，并允许修改值」），`hasXxx = false` 只让 tooltip 多说
+     * 一句「这个存档里没有这一项，现在写的是游戏的默认值；改了才会写进去」。
      */
     struct WorldView {
         QString dirName;              ///< 这一页看的是哪一个存档文件夹
@@ -97,7 +144,38 @@ public:
         bool hasDifficulty = false;
         int difficulty = 2;           ///< 0 和平 ~ 3 困难
         bool hasRules = false;        ///< `Data/GameRules` **是一张表**（空表也算有；不是表的算没有）
+        /// 要摆出来的那一列（**已经并过全集了** —— 见文件头那段文件结构）。顺序就是摆出来
+        /// 的顺序（`WorldFiles::allGameRules()` 排好的），这一层**不重排**。
         QList<Rule> rules;
+    };
+
+    /**
+     * @brief 用户在这页上**真动过**的那几格 —— 相对"打开这一页时摆进去的那一份"。
+     *
+     * ★ 为什么要有它（2026-09-29）：这一页上那四格（世界名 / 允许作弊 / 极限模式 / 难度）
+     *   现在**一律可动**，盘上没有这一项的时候屏幕上摆的是游戏的默认值。可是"不发明"那条
+     *   纪律还在 —— 用户没碰的那几格**一个字节都不许写进存档**。所以"用户到底动了哪几格"
+     *   这件事必须有个出处，而它是**这一页自己**知道的（它记着 `setWorld()` 那一刻摆的是
+     *   什么），MainWindow 那一头不知道（它手上只有"现在长什么样"）。
+     *
+     * NOTE: 判据是"和 `setWorld()` 那一刻**逐字**比"，不是"和盘上比" —— 盘上那一份在用户
+     *       改的期间可能被别的东西动过（`saveWorldSettings()` 那道闸正是为这件事设的），
+     *       拿盘上那份比会把"别人改的"算成"用户改的"。
+     * NOTE: `rules` 里**只有值真变过的那几条** —— 打开时盘上没有这一条、屏幕上摆着默认值
+     *       而用户一个字没动的那些**不算**（写进去就是"发明"）。所以这一列的判据和上面四格
+     *       是同一个：和打开时那一份逐字比。
+     */
+    struct Delta {
+        bool nameChanged = false;
+        QString nameValue;
+        bool allowCommandsChanged = false;
+        bool allowCommandsValue = false;
+        bool hardcoreChanged = false;
+        bool hardcoreValue = false;
+        bool difficultyChanged = false;
+        int difficultyValue = 2;
+        /// 要写进去的规则：名字 + 值（**只有真变过的那几条**）。
+        QList<QPair<QString, QString>> rules;
     };
 
     explicit WorldSettingsPage(QWidget *parent = nullptr);
@@ -117,6 +195,9 @@ public:
     /// 摆进去的那一份等价。
     WorldView editedView() const;
 
+    /// 用户在这页上真动过的那几格（见上面 `Delta` 那一段的说明）。
+    Delta deltaFromOpened() const;
+
     /// 摆上去之后**用户动过没有**（和 `editedView()` 配套的那一位）。
     ///
     /// ★ 存在的理由只有一个：**覆盖层页眉上那颗返回箭头**（`dialog->reject()`）按不到
@@ -134,6 +215,25 @@ public:
     ///       setBackupAvailable()` 同一件事：进这一页**同时清掉**上一条的答案。
     void setBackupAvailable(bool available);
 
+    /// 换个存档目录名（用户在这一页上按了「重命名」并且**真改成了**之后由 MainWindow 调）。
+    ///
+    /// NOTE: 只动标题上那个名字。`WorldFiles::renameWorld()` 只改目录名、不碰 `level.dat`
+    ///       （1.13 起游戏列表显示的就是目录名），所以页面上**别的值一个都不用重读**；
+    ///       而 `signatureOf()` 里没有 `dirName`，`isDirty()` 因此不受影响 —— 用户在改名
+    ///       之前改过的那几格还是"改过还没存"。
+    void setDirName(const QString &dirName);
+
+    /// 「修改存档文件」那个折叠框打开 / 收起。**这是唯一改这一位的地方** ——
+    /// 用户点那个折叠按钮只会发出 `fileEditingRequested()`（MainWindow 要先去弹那句备份
+    /// 警告），答完之后由 MainWindow 拿这个函数把结果摆回来。
+    ///
+    /// ★ 里面那句 `QSignalBlocker` **不能删**：不挡的话，`setFileEditingOpen()` 会顺着
+    ///   `toggled` 再发一次 `fileEditingRequested()` —— 用户点一下、弹两次警告，第二次
+    ///   是在他自己刚答应完之后弹的。
+    void setFileEditingOpen(bool open);
+    /// 那个折叠框现在是打开的吗。
+    bool fileEditingOpen() const;
+
     /// 写盘**成功了** —— 底下那行字换成「已保存（时:分:秒）」。由 MainWindow 调回来
     /// （它是唯一知道写成了没有的人）。和「配置文件」那个编辑器同一个做法：**没有"写失败了"
     /// 的那一半**，写不进去是挡住用户操作的事，走 MainWindow 的弹窗。
@@ -150,6 +250,8 @@ public:
     static QString ruleFilterName();
     static QString ruleListName();
     static QString ruleNameLabelName();
+    /// 值那一格前面那个「默认」小标记（这一条盘上还没有时才有）。
+    static QString ruleDefaultMarkName();
     static QString ruleToggleName();
     static QString ruleEditorName();
     static QString noteLabelName();
@@ -157,6 +259,14 @@ public:
     static QString backupButtonName();
     static QString backButtonName();
     static QString openFolderButtonName();
+    /// 「重命名…」（世界这一行的三颗之一）。
+    static QString renameButtonName();
+    /// 「删除世界…」（世界这一行的三颗之一；确认弹窗在 MainWindow 那一层）。
+    static QString deleteButtonName();
+    /// 「修改存档文件」那个折叠框的那颗开关。
+    static QString fileToggleName();
+    /// 折叠框里那一块（世界名 / 允许作弊 / 极限模式 / 难度）。
+    static QString fileBodyName();
     /// 那一堆"读不出来"的行（整块藏起来/露出来就是它）。
     static QString bodyName();
 
@@ -164,15 +274,27 @@ public:
     static QString saveText();
     static QString backupText();
     static QString openFolderText();
+    static QString renameText();
+    static QString deleteText();
     static QString ruleFilterPlaceholder();
-    /// 这一页**没有**「添加规则」——底下那行小字说明为什么不给加。
-    static QString noAddHintText();
+    /// 那个折叠框上写的字（默认收起）。
+    static QString fileToggleText();
+    /// 规则那一列的小标题。
+    static QString rulesSectionText();
     /// 筛选之后一条都不剩。
     static QString noMatchText();
-    /// 这个世界里一条规则都没有（筛选框是空的）。
-    static QString noRulesText();
+    /// 一条规则都没得摆。**产品里走不到这一档**（MainWindow 摆进来的是并过全集的
+    /// `WorldFiles::allGameRules()`，几十条），留着是给"只摆了个空 WorldView"那种场面
+    /// 一句实话，而不是一片空白（空白看着像"还没读完"）。
+    static QString emptyRulesText();
     /// 存档里那份**不是** gzip 包着的（底下那行小字多一句）。
     static QString notGzippedText();
+    /// 底下那行小字里"这一列是怎么来的"那两句 —— 用户 2026-09-29 那句
+    /// 「把所有的都列出来」的说明书。`@param hasRules` 说的是盘上有没有一张规则表
+    /// （`WorldView::hasRules`），没有的时候多一句"下面列的是游戏的默认值"。
+    static QString rulesSourceHint(bool hasRules);
+    /// 盘上没有这一项的那一格多出来的那句说明（也挂在控件的 tooltip 上）。
+    static QString defaultedHintText();
 
     /// 难度 0~3 的中文名。**和 `WorldFiles::difficultyName()` 逐字一致**（一处是给
     /// 界面看的、一处是给验证工程看的，两边都断言得到）。
@@ -191,6 +313,12 @@ public:
     QPushButton *backButton() const { return m_back; }
     QPushButton *backupButton() const { return m_backup; }
     QPushButton *openFolderButton() const { return m_openFolder; }
+    QPushButton *renameButton() const { return m_rename; }
+    QPushButton *deleteButton() const { return m_delete; }
+    /// 那个折叠框的开关（验证工程靠它量"默认收起"和"点开之前发没发信号"）。
+    QAbstractButton *fileToggle() const;
+    /// 折叠框里那一块（藏起来/露出来量的是它）。
+    QWidget *fileBody() const { return m_fileBody; }
     /// 行尾那个开关（只有 `Kind::Bool` 的行有；别的行是 nullptr）。
     QAbstractButton *ruleToggleAt(int row) const;
     /// 行尾那个输入框（`Kind::Int` / `Kind::Text` 的行才有）。
@@ -209,6 +337,17 @@ signals:
     /// 用户想回到世界列表（点了「返回」，或者按了 Esc）。切格是 InstanceSettingsDialog
     /// 那两格的事，这一层不自己切。
     void backRequested();
+    /// 用户点了「重命名…」（改目录名那一路全在 MainWindow：它要弹输入框、要碰盘、还要
+    /// 把新名字通过 `setDirName()` 摆回来）。
+    void renameRequested();
+    /// 用户点了「删除世界…」（确认弹窗和真删都在 MainWindow 那一层；这一层一个字节都不碰盘）。
+    void deleteRequested();
+    /// 用户**点开了**那个折叠框（`wanted = true`）或者收了回去（`false`）。
+    ///
+    /// ★ 这一发是"用户想改文件了"，**不是"框开了"** —— 收到 true 的那一头（MainWindow）
+    ///   得先弹那句备份警告（含「先备份一份」），答完之后再拿 `setFileEditingOpen(true)`
+    ///   把框真的打开。原因写在用户 2026-09-29 那句里：「展开是弹出备份警告」。
+    void fileEditingRequested(bool wanted);
 
 protected:
     /// Esc = 返回世界列表。**得在这一层接住**：不然它会冒到「实例设置」那个 QDialog 上，
@@ -236,12 +375,18 @@ private:
     bool ruleMatches(const Rule &rule) const;
     /// 读不出来那一档该露什么、藏什么。
     void applyUnreadableState();
+    /// 那几格"盘上没有这一项"的说明行（世界名 / 允许作弊 / 极限模式 / 难度）回到"现在该说
+    /// 什么" —— 盘上没有的挂 `defaultedHintText()`，盘上有的挂它自己那句（见 .cpp）。
+    void refreshFileHints();
     /// 「保存」给不给点。**判据只有一条**：现在摆出来的那些输入框有没有被清空的
     /// （开关永远不会空）—— 一个规则的值被清空后存下去，等于把那条规则写成一个空串，
     /// 游戏那边会当成坏值用默认的。用户多半是手滑，不是那个意思。
     void refreshSaveEnabled();
 
     WorldView m_view;
+    /// **打开这一页时**摆进去的那一份，之后再不动它 —— `deltaFromOpened()` 就是拿现在这一份
+    /// 和它比（`m_view` 不行：`harvestEdits()` 会把它跟着用户改的值一起往前挪）。
+    WorldView m_opened;
     bool m_unreadable = false;
     QString m_unreadableReason;
     bool m_backupAvailable = false;
@@ -257,7 +402,17 @@ private:
     QLabel *m_title = nullptr;
     QLabel *m_info = nullptr;
     QWidget *m_body = nullptr;
+    /// 「修改存档文件」那个折叠框的开关（可勾、带箭头）。和「实例设置 → 启动」那一页的
+    /// 「高级选项」是同一个做法（`QToolButton` + `setArrowType()`）。
+    QToolButton *m_fileToggle = nullptr;
+    /// 折叠框里那一块（那四行）。**默认藏起来** —— 开没开是 `m_fileToggle` 那一位。
+    QWidget *m_fileBody = nullptr;
     QLineEdit *m_nameEdit = nullptr;
+    /// 那四行各自那一句"盘上有没有这一项"的说明（tooltip 的出处）。
+    QString m_nameTip;
+    QString m_allowCommandsTip;
+    QString m_hardcoreTip;
+    QString m_difficultyTip;
     ToggleSwitch *m_allowCommands = nullptr;
     ToggleSwitch *m_hardcore = nullptr;
     QComboBox *m_difficulty = nullptr;
@@ -267,5 +422,7 @@ private:
     QPushButton *m_back = nullptr;
     QPushButton *m_backup = nullptr;
     QPushButton *m_openFolder = nullptr;
+    QPushButton *m_rename = nullptr;
+    QPushButton *m_delete = nullptr;
     QPushButton *m_save = nullptr;
 };

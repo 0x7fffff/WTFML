@@ -191,15 +191,35 @@ bool boolValue(const QString &value, bool *out);
  */
 bool gameRulesOf(const Node &root, QList<GameRule> *out, QString *problemOut);
 
+/// 表里没有这个规则名的时候怎么办 —— `setGameRule()` 的 `whenMissing`。
+enum class MissingRule {
+    /// 拒绝（**默认**，2026-09-28 那一档）：名字不在表里就返回 false，一个字节都不写。
+    Refuse,
+    /// 加一条（2026-09-29）：名字不在表里就往表尾接一条 `TAG_String`；
+    /// `Data/GameRules` 那一格不在（一个刚建好、还没被游戏写过档的世界）就连那一格一起建。
+    Create,
+};
+
 /**
- * @brief 改一条**已经存在**的规则的值。
+ * @brief 改一条规则的值（名字不在表里时按 @p whenMissing 决定拒绝还是加一条）。
  *
- * ★ 只改已有的，**不发明新的**。用户在一个已经玩了几百小时的世界里点一下"添加规则"、
- *   我们随手写进去一条游戏不认识的规则 —— 那不是"编辑"，那是往别人的存档里塞东西。
- *   要加规则请进游戏用 `/gamerule`（游戏自己知道有哪些规则）。规则名不存在时返回 false。
+ * ★ 默认那一档（`Refuse`）是"只改已有的，**不发明新的**"，理由没变：用户在一个已经玩了
+ *   几百小时的世界里让我们随手写进去一条**游戏不认识**的规则 —— 那不是"编辑"，那是往
+ *   别人的存档里塞东西。默认值就是它，所以老调用点一行都不用改。
  *
- * @param problemOut 没找到这条规则时写一句原因。
+ * ★★ 2026-09-29 加了 `Create` 这一档，因为用户点名要它（原话：「下面的世界设置不要要求
+ *   进了世界才显示而是把所有的都列出来，并允许修改值」）。上面那条理由还在，只是**收窄
+ *   到了调用方**：现在谁传 `Create`，谁就得先保证"写进去的这个名字是游戏真有的那一条" ——
+ *   世界设置那一页拿的是 `WorldFiles::knownGameRules()`（启动器认识的规则全集）里的名字，
+ *   不是用户手打的一串字（那一页压根没有"新规则叫什么"这个输入框）。
+ *
+ * NOTE: 值永远是字符串（见 `GameRule`），加进去的也是字符串。
+ * NOTE: `Create` 只在 **`Data` 本身是复合标签**时建 `Data/GameRules` —— 连 `Data` 都不是的话
+ *       那份 `level.dat` 的形状我们看不懂，一个字节都不动（和 `parse()` 那条规矩一致）。
+ *
+ * @param problemOut 没写进去时写一句原因（成功时清空）。
  */
-bool setGameRule(Node *root, const QString &name, const QString &value, QString *problemOut);
+bool setGameRule(Node *root, const QString &name, const QString &value, QString *problemOut,
+                 MissingRule whenMissing = MissingRule::Refuse);
 
 }  // namespace NbtTree

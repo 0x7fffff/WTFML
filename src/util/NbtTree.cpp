@@ -926,7 +926,8 @@ bool gameRulesOf(const Node &root, QList<GameRule> *out, QString *problemOut) {
     return true;
 }
 
-bool setGameRule(Node *root, const QString &name, const QString &value, QString *problemOut) {
+bool setGameRule(Node *root, const QString &name, const QString &value, QString *problemOut,
+                 MissingRule whenMissing) {
     if (problemOut != nullptr) {
         problemOut->clear();
     }
@@ -937,6 +938,22 @@ bool setGameRule(Node *root, const QString &name, const QString &value, QString 
         return false;
     };
     Node *rules = descend(root, QStringLiteral("Data/GameRules"));
+    if (rules == nullptr && whenMissing == MissingRule::Create) {
+        // ★ 2026-09-29：这一档是给"这个世界还没被游戏写过档"那种情况用的（`Data/GameRules`
+        //   那一格压根不在）。**只在 `Data` 本身是复合标签时建** —— 连 `Data` 都不是的话，
+        //   这份 level.dat 的形状我们看不懂，宁可一个字都不写。
+        Node *data = descend(root, QStringLiteral("Data"));
+        if (data != nullptr && data->type == Type::Compound) {
+            Field fresh;
+            fresh.first = QStringLiteral("GameRules");
+            fresh.second.type = Type::Compound;
+            data->fields.append(fresh);
+            // `append()` 之后必须**重新取一次**：`data->fields` 是 QList，append 可能搬走
+            // 那一整块内存，刚才那个指针就悬空了（这份文件里别处没有这么用的，所以这条
+            // 规矩写在这儿）。
+            rules = &data->fields.last().second;
+        }
+    }
     if (rules == nullptr || rules->type != Type::Compound) {
         return missing(QCoreApplication::translate(
             "NbtTree", "这份 level.dat 里没有「游戏规则」那一格，改不了。"));
@@ -956,7 +973,20 @@ bool setGameRule(Node *root, const QString &name, const QString &value, QString 
         item.second.text = value;
         return true;
     }
-    // ★ 不发明新规则（理由见 .hpp 里那一段）。
+    if (whenMissing == MissingRule::Create) {
+        // 表里没有这一条 ⇒ 往表尾接一条。名字太长的话 NBT 那一格写不下（长度前缀 2 字节），
+        // 当场拒绝 —— 加一条**写不进去**的规则不该被当成成功。
+        if (encodeModifiedUtf8(name).size() > 0xFFFF) {
+            return missing(QCoreApplication::translate("NbtTree", "规则名太长了，写不进去。"));
+        }
+        Field fresh;
+        fresh.first = name;
+        fresh.second.type = Type::String;
+        fresh.second.text = value;
+        rules->fields.append(fresh);
+        return true;
+    }
+    // ★ 默认那一档：不发明新规则（理由见 .hpp 里那一段）。
     return missing(QCoreApplication::translate(
         "NbtTree", "这个世界里没有叫「%1」的规则 —— 这一页只改世界里已经有的那些。")
                        .arg(name));

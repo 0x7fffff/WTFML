@@ -136,6 +136,71 @@ struct WorldInfo {
     QList<NbtTree::GameRule> rules; ///< 顺序就是盘上的顺序
 };
 
+/// 游戏规则全集里的一条：名字 + **盘上没有这一条时游戏用的那个值**。
+///
+/// NOTE: `value` 是字符串，和 `NbtTree::GameRule` 一样（NBT 里 `GameRules` 就是"名字 →
+///       `TAG_String`"的表）。形状（开关 / 数字框）由 `NbtTree::ruleKind()` 从这串字推出来
+///       —— 所以这一张表里**没有"类型"这一列**，写了也会和值打架。
+struct GameRuleDefault {
+    QString name;
+    QString value;
+};
+
+/**
+ * @brief 启动器认识的**游戏规则全集**（按名字排序，大小写不敏感）。
+ *
+ * 【为什么要有一张表】
+ *
+ * 用户 2026-09-29 原话：「下面的世界设置不要要求进了世界才显示而是把所有的都列出来，并
+ * 允许修改值」。而 `level.dat` 里那份 `Data/GameRules` **不一定有全部条目**：游戏写档时
+ * 写的是它当时认识的那些，而工具做出来的、从没进过的、以及很老的存档**一条都没有**（原来
+ * 那一页遇到这种档就只写一句「进游戏玩一次就会写进去」，等于让用户先绕一圈）。要"列出来
+ * 所有的"，缺的那些只能由这一张表兜着。
+ *
+ * 【这一张表里的是什么】
+ *
+ * 原版那些常青规则（1.8 就有的一批 + 后来各个版本加的那些），**默认值就是游戏自己的默认
+ * 值**。它不是"从盘上读来的"，所以在界面上要能分清（见 `Rule::inFile`）：文件里没有的那
+ * 几条，显示的是这里的默认值，**改了才会写进去**。
+ *
+ * NOTE: 这一张表**不分游戏版本**。存档那个版本不认识的规则，游戏自己会忽略（`GameRules`
+ *       是一张字符串表，多出来的键不影响它读），所以最坏的结果是"列表里多几条这个世界用
+ *       不上的"。反过来按版本过滤的话，我们得先知道"哪条规则是哪个版本加的" —— 那件事
+ *       这一层没有可靠出处（`DataVersion` 是个数字，和版本号的对照表不在这儿），编一个
+ *       出来只会让某一档版本的用户看不到本该看到的规则。
+ */
+const QList<GameRuleDefault> &knownGameRules();
+
+/**
+ * @brief 把**盘上那几条**和规则全集并成界面上要摆的那一张表。**纯函数**。
+ * @param onDisk `readWorldInfo()` 读出来的那几条（顺序是盘上的顺序）。
+ * @return 全集里的每一条（值取盘上那份、盘上没有的取默认值）+ 盘上有而全集里没有的那些
+ *         （模组写的、我们还不认识的），整体按名字排序（大小写不敏感）。
+ *
+ * NOTE: 盘上有、全集里没有的那几条**必须留着** —— 这一页说的是"这个世界现在是什么样"，
+ *       少列一条就是瞒着用户（他看得见 `mods` 目录里有模组，却看不见模组写进去的规则）。
+ * NOTE: 同一个名字在两边都有时**盘上那份说了算**（那是这个世界的真值）。
+ */
+QList<NbtTree::GameRule> allGameRules(const QList<NbtTree::GameRule> &onDisk);
+
+/**
+ * @brief 把**指定**的那几条规则写回树里（可以新增盘上还没有的那一条）。**纯函数**。
+ * @param document 整棵树（改的是它，**不落盘** —— 落盘是调用方的事）。
+ * @param rules 要写的规则（每一条都是"用户在页面上真改过的那一格"）。
+ * @param problemOut 失败原因。
+ *
+ * ★ 和 `applyWorldInfo()` 的分工：那一个走的是"盘上没有的项不发明"（`hasXxx` 那套，规则
+ *   那几条走 `setGameRule()` 的默认档，名字不存在就拒绝）；这一条是 2026-09-29 新加的，
+ *   走的是 `MissingRule::Create` —— 名字不在表里就加一条，`Data/GameRules` 那一格不在就连
+ *   那一格一起建。**调用方保证 @p rules 里的名字是游戏真有的那些**（世界设置那一页拿的是
+ *   `knownGameRules()` 里的名字，那一页没有"新规则叫什么"这个输入框）。
+ *
+ * NOTE: 失败时树**可能已经被改了一半**（和 `applyWorldInfo()` 同一条规矩）—— 所以调用方
+ *       在失败时**不许落盘**。
+ */
+bool applyChangedGameRules(NbtTree::Document *document, const QList<NbtTree::GameRule> &rules,
+                           QString *problemOut = nullptr);
+
 /// 难度 0~3 的中文名；越界时返回空串（**不返回"普通"** —— 那会把一个坏值说成正常值）。
 QString difficultyName(int difficulty);
 
@@ -145,12 +210,36 @@ QString difficultyName(int difficulty);
 ///       会失败的只有解树那一步（`NbtTree::parse()`）。
 void readWorldInfo(const NbtTree::Document &document, bool gzipped, WorldInfo *out);
 
+/// 盘上没有这一项的时候怎么办 —— `applyWorldInfo()` 的 `whenMissing`。
+enum class MissingField {
+    /// 拒绝（**默认**，2026-09-28 那一档）：那一格不在就返回 false，**一个字节都不写**。
+    Refuse,
+    /// 建一格（2026-09-29）：按**这一项自己的类型**建（世界名是字符串，允许作弊 / 极限模式
+    /// / 难度是 Byte）。`Data` 本身不是复合标签时照样不建。
+    Create,
+};
+
 /// 把 `WorldInfo` 里那些 `hasXxx = true` 的项写回树里。**纯函数**。
 /// @param problemOut 失败原因（哪一项没写进去）。
+/// @param whenMissing 那一格**在盘上根本不在**的时候怎么办（见上面那个枚举）。
 /// @return 全部成功返回 true；**false 时树可能已经被改了一半**（所以调用方在失败时
 ///         **不许落盘** —— 用户看到的是"没保存成功"，盘上那份还是完整的）。
+///
+/// ★★ 2026-09-29 加了 `Create` 这一档，因为界面上那四格**不再按"盘上有没有"灰掉**
+///   （用户原话「并允许修改值」）。老存档没有 `allowCommands`（1.8 才加的）、有些档没有
+///   `hardcore` —— 原来那几格是灰的、点了也没用，现在可动了，于是"盘上没有这一格"这件事
+///   就必须有个着落：要么当场说一句"改不了"（用户刚改完的东西**存不下去**，那是最坏的
+///   一种界面），要么把它建出来。选后者，但**默认仍然是前者**（`Refuse`）：老调用点和
+///   验证工程里那些"不发明"的断言因此一行都不用改，谁要建谁自己说。
+///
+/// NOTE: 建出来的形状是**死的**（世界名 = `String`，其余三项 = `Byte`）—— 这不是"随便挑
+///       一个类型"，是这四项各自在 `level.dat` 里本来就该是什么（见 `readWorldInfo()` 读
+///       它们时用的那几个 `readByteField` / `readStringField`）。
+/// NOTE: 判据仍然是**逐项看 `hasXxx`**，所以 `Create` 只会碰到调用方点名要写的那几项 ——
+///       它是"允许建"，不是"见到缺的就补"。
 bool applyWorldInfo(NbtTree::Document *document, const WorldInfo &info,
-                    QString *problemOut = nullptr);
+                    QString *problemOut = nullptr,
+                    MissingField whenMissing = MissingField::Refuse);
 
 /// 读进内存的一份 `level.dat`。
 struct LevelData {
