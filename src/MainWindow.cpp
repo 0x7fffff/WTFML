@@ -5307,6 +5307,11 @@ void MainWindow::checkInstanceUpdates(const QString &instanceId, InstanceSetting
     options.curseForgeApiKey = m_settings->curseForgeApiKey();
     options.modrinthApiBaseOverride = m_settings->modrinthApiBaseOverride();
     options.curseForgeApiBaseOverride = m_settings->curseForgeApiBaseOverride();
+    // ★★ 2026-10-10：和文件管理页那一趟**共用同一份盘上缓存**（同一个实例 ⇒ 同一个文件）
+    //    —— 两边要的本来就是同一件事（"这个文件是哪个资源" + 它的 sha1），谁先跑谁把它
+    //    写下来，另一个就直接读。见 InstanceIconLookup 的 .hpp 里那段。
+    options.cacheDir = AppPaths::instanceIconCacheDir();
+    options.cacheKey = instanceId;
 
     // 上一趟那个线程对象还挂着就先放它走（同 startInstanceFileIconLookup 那段 ——
     // 每查一次都在父对象底下攒一个僵尸 QThread 是要还的）。
@@ -12016,6 +12021,13 @@ void MainWindow::startInstanceFileIconLookup() {
     options.curseForgeApiKey = m_settings->curseForgeApiKey();
     options.modrinthApiBaseOverride = m_settings->modrinthApiBaseOverride();
     options.curseForgeApiBaseOverride = m_settings->curseForgeApiBaseOverride();
+    // ★★ 2026-10-10（用户原话：「模组图标做本地缓存功能，不要每次都拉取」）：这一趟的结果
+    //    留一份在这个实例名下（见 InstanceIconLookup 的 .hpp 里【结果留一份在盘上】那段）——
+    //    第二次进这一页就**只读那一份 JSON**，几十兆 jar 不重读、接口一个都不问。
+    //    改这个实例里某一个文件（甚至只是把它禁用掉）只让**那一条**重查：钥匙里带着大小和
+    //    修改时间，而"禁用"只是改了个名。
+    options.cacheDir = AppPaths::instanceIconCacheDir();
+    options.cacheKey = m_instanceIcons.versionId;
 
     // 上一趟那个线程对象还挂着（跑完了，但 deletion 还排着队）：先放它走 —— 不收拾的话
     // 每问一次就在父对象底下攒一个僵尸 QThread（同 ServerPing::Pinger::start() 那段）。

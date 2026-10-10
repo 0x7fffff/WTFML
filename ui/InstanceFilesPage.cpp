@@ -863,6 +863,21 @@ bool InstanceFilesPage::stateFilterVisible(StateFilter filter) const {
     if (!m_batchMode) {
         return true;
     }
+    // ★★ 2026-10-10（第三批）：**一条禁用都没有的时候，「启用」这一档不该露**。
+    //
+    //   用户原话：「没有禁用模组时不显示 启用 分类」。理由和底下那条"空档收起来"是同一
+    //   个：一条禁用都没有 ⇒ 启用的那些**就是全部**，「启用(N)」和「全部(N)」是同一份名单
+    //   —— 一颗按下去什么都不筛的按钮。
+    //
+    //   ★ 这是一条**不对称**的规矩（和底下那条操作条上的「启用/禁用」逐字同一套）：反过来
+    //     "全是禁用"那一档，「禁用(N)」**照样露着**。两半各自都对得上它的用处：
+    //       * 一条禁用都没有 → 启用/禁用这两个筛子都没意义（禁用那一档由下面那句自己收）；
+    //       * 全是禁用       → 用户**确实**可能想"只看禁用的那些"，这一档得留着。
+    //   ⚠ 判据只有这一处（别在 fillStateButtons() 里再判一遍 —— 那正是 .hpp 里那条
+    //     NOTE 说的"第二个出处"）。
+    if (filter == StateFilter::Enabled && stateFilterCount(StateFilter::Disabled) == 0) {
+        return false;
+    }
     return stateFilterCount(filter) > 0;
 }
 
@@ -1002,6 +1017,79 @@ QString InstanceFilesPage::formatSize(qint64 bytes) {
     return QStringLiteral("%1 GB").arg(mb / 1024.0, 0, 'f', 1);
 }
 
+void InstanceFilesPage::rememberScrollAnchor() {
+    if (m_list == nullptr) {
+        return;
+    }
+    // 空表（刚 clear 过、或者这一页本来就没东西）**不动手** —— 见 .hpp 里那段：这一句会
+    // 被叫两次（refresh() 在 clear 之前、rebuildRows() 在它自己的 clear 之前），第二次
+    // 看见的正是空表，记下去的话就把第一份真锚点抹了。
+    if (m_list->count() == 0) {
+        return;
+    }
+    // "最上面那一行" = 第一行**至少露出一个像素**的。用 `itemAt(0, 0)` 不行：视口最上面
+    // 那一个像素可能落在行与行之间的空档里（那一句会回 nullptr，锚点就没了）。
+    for (int row = 0; row < m_list->count(); ++row) {
+        QListWidgetItem *item = m_list->item(row);
+        if (item == nullptr) {
+            continue;
+        }
+        const QRect rect = m_list->visualItemRect(item);
+        // 排在前面的行（滚上去的那些）整个在视口上方 ⇒ `bottom() <= 0`。
+        if (rect.bottom() <= 0) {
+            continue;
+        }
+        m_scrollAnchor.identity = identityPath(item->data(pathRole()).toString());
+        // 它当时离视口顶端多少像素。**按行滚动**（这一页用的就是 Qt 默认的
+        // `ScrollPerItem`）时行总是对齐在顶端 ⇒ 这个数恒为 0，还原走的是"摆回那一行"那条
+        // 路（见 restoreScrollAnchor 里那段 ★★）。
+        m_scrollAnchor.delta = rect.top();
+        return;
+    }
+    // 一行都没露（视口比一行还矮，或者列表是空的）：没有锚点。
+    m_scrollAnchor.identity.clear();
+    m_scrollAnchor.delta = 0;
+}
+
+void InstanceFilesPage::restoreScrollAnchor() {
+    if (m_list == nullptr || m_scrollAnchor.identity.isEmpty()) {
+        return;
+    }
+    for (int row = 0; row < m_list->count(); ++row) {
+        QListWidgetItem *item = m_list->item(row);
+        if (item == nullptr) {
+            continue;
+        }
+        if (identityPath(item->data(pathRole()).toString()) != m_scrollAnchor.identity) {
+            continue;
+        }
+        // 那一行**现在**在哪儿（此刻滚动条还在重列之后的位置上，通常是 0）。
+        //
+        // ★★ 2026-10-10（ui_check 的 U10M 当场抓到的）：**两种滚动模式的单位不一样**，
+        //   混着算的后果是"整条列表被顶到底"。
+        //    * `ScrollPerItem`（**Qt 的默认，这一页用的就是它**）：滚动条的值 = **第几行**，
+        //      屏幕上一行一行地跳。这种模式下 `visualItemRect(...).top()` 给的是**像素**
+        //      （第 26 行在值是 0 的时候是 1196）—— 拿它去加一个"行号"，得出来的数远超
+        //      滚动范围，`setValue()` 静默钳到最大值：屏幕上成了"跳到最后一行"，
+        //      而用户报的那个毛病是"跳回最上面"，**方向正好是反的**（所以从前那种"改完
+        //      看着像好了"最容易骗人）。这种模式下行总是对齐在视口顶端（`delta` 恒为 0），
+        //      还原就是把值摆回**那一行**。
+        //    * `ScrollPerPixel`：值就是像素，那就照原来的算法把差值加上去 ——
+        //      连"最上面那一行被切掉了小半截"都还原得了。
+        QScrollBar *bar = m_list->verticalScrollBar();
+        if (m_list->verticalScrollMode() == QAbstractItemView::ScrollPerItem) {
+            bar->setValue(row);
+        } else {
+            bar->setValue(bar->value() + m_list->visualItemRect(item).top() -
+                          m_scrollAnchor.delta);
+        }
+        break;
+    }
+    // 锚点是一次性的：这一趟还完了就丢掉。留着的话，下面任何一次"没有重建列表的重排"
+    // 都可能莫名其妙地把它再还一遍（比如用户自己滚了之后又触发一次 applyState）。
+    m_scrollAnchor = ScrollAnchor();
+}
+
 void InstanceFilesPage::refresh() {
     // 这一趟真的列了 ⇒ `setDirectory()` 那一笔欠账清了（**摆在最前**：下面任何一条早退
     // 路都不该把这一位留在"还欠着"上 —— 那会让判据以为这一页没列过）。
@@ -1009,6 +1097,10 @@ void InstanceFilesPage::refresh() {
     if (m_list == nullptr) {
         return;
     }
+    // ★★ 2026-10-10：**在下面那个 clear() 之前**把"现在最上面那一行是谁"记下来 ——
+    //   点一下开关（禁用/启用）走的就是这一条路，用户手还停在他刚才看的那一行上，重列
+    //   之后不该把他扔回顶端（见 .hpp 里 scrollAnchor 那段）。
+    rememberScrollAnchor();
     // 上面那一排那一格写"A 在看哪个目录"。**在目录存在性判断之前**就写：目录还不存在
     // （第一次开 mods/ 之前它本来就不在盘上）也得让人看见路径 —— 那时候这一页正是
     // "这个目录是空的/不存在"，路径恰恰是最该看见的东西。
@@ -1152,6 +1244,11 @@ void InstanceFilesPage::rebuildRows() {
     if (m_list == nullptr) {
         return;
     }
+    // ★★ 2026-10-10：把"现在最上面那一行是谁"记下来（见 .hpp 里那两个函数那段）。这一句
+    //   排在最前面 —— 下面 `clear()` 一过就什么都不剩了。`refresh()` 那条路（点一下开关
+    //   走的就是它）**已经先记过一遍**，它那一趟到这里时表是空的，所以这个函数看见空表
+    //   就不动手（否则会把刚记下的那一份覆盖掉）。
+    rememberScrollAnchor();
     // ★★ 2026-10-10：**建行之前**先把条件从一档已经摆不出来的按钮上退回来（见
     //   .hpp 里 ensureStateFilterVisible 那段）。为什么非在这儿不可：下面那一趟正是
     //   按 `m_stateFilter` 筛的，而"这一档还有没有内容"刚刚变了（用户点了「禁用」、
@@ -1246,7 +1343,12 @@ void InstanceFilesPage::rebuildRows() {
     //     还是还没算出来的样子。就地喊的话问到的是一份旧的/空的几何，露出来的可能是**别**
     //     那一行的「详情」（或者谁都没露）—— 而两样都不报错。0 毫秒的定时器按登记的先后
     //     发，欠着的那一趟排版登记在我们前面，所以落到这一句时几何已经是对的。
+    //   ★★ 2026-10-10：**滚回原来那个位置**也排在这一趟里（见 .hpp 里 scrollAnchor 那段）——
+    //     理由和上面逐字相同：滚动条能滚多远要等排版算完才知道，就地摆的话，摆到一半就会
+    //     被那个还没算出来的上限截住（症状是"滚回了一大半、就是差一点点"）。摆在
+    //     syncRowHover() 之前：那一句问的是"光标底下是哪个控件"，它要的正是摆好之后的坐标。
     QTimer::singleShot(0, this, [this] {
+        restoreScrollAnchor();
         syncRowHover();
     });
 

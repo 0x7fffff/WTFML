@@ -287,4 +287,22 @@ inline QString worldBackupDir() {
     return minecraftDir() + QStringLiteral("/cache/world-backups");
 }
 
+/// 「这个文件是哪个资源」那一趟反查（`InstanceIconLookup`）的结果留在本地：
+/// <数据目录>/cache/instance-icons，**一个实例一个 json**（文件名 = 实例 id 的 sha1）。
+///
+/// ★★ 2026-10-10（用户原话：「模组图标做本地缓存功能，不要每次都拉取」）。为什么非落盘不可：
+///   那一趟要**把这一页每一份 jar 从头读一遍**（算 sha1 + murmur2 指纹，一列几十个模组就是
+///   几百 MB），再问两三家接口 —— 而"这一列文件分别对应哪个资源"这件事**不会一秒一变**：
+///   文件没换（钥匙里带着大小和修改时间）、资源也没换。`cache/icons/` 那一层存的是**图的
+///   字节**，它只有在"身份"认出来之后才轮得到 —— 少了这一份，每次启动都要把上面那一整套
+///   重来一遍，图标那几秒里全是占位拼图（用户看到的就是"每次都拉取"）。
+///
+/// NOTE: 挂**数据根目录**下（和 cache/ 里那几位一样，见 iconCacheDir() 那段），不挂
+///       %APPDATA% —— "整个启动器连带数据可以整体拷走"这条在这里同样适用。
+/// NOTE: 没人会去清它，清掉也不影响正确性（下一次进那一页重新攒）；键里带着大小和修改
+///       时间，所以**换了文件自然作废**。
+inline QString instanceIconCacheDir() {
+    return minecraftDir() + QStringLiteral("/cache/instance-icons");
+}
+
 }  // namespace AppPaths

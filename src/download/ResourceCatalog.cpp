@@ -1802,4 +1802,87 @@ QList<Dependency> requiredDependenciesOf(const QList<VersionEntry> &versions,
     return out;
 }
 
+// ---------- 一条 Hit 的盘上往返（见 .hpp 里那段）----------
+
+namespace {
+
+/// 盘上那几个键。**读和写各只出现一次**（就在下面这两个函数里）—— 两边各写一遍字符串
+/// 的话，改了一处忘另一处就是"那一栏第二次启动之后没了"，而屏幕上一点异常都没有。
+const char *kProjectIdKey = "projectId";
+const char *kSlugKey = "slug";
+const char *kTitleKey = "title";
+const char *kDescriptionKey = "description";
+const char *kAuthorKey = "author";
+const char *kDownloadsKey = "downloads";
+const char *kCategoriesKey = "categories";
+const char *kGameVersionsKey = "gameVersions";
+const char *kSourceKey = "source";
+const char *kExplicitLoadersKey = "explicitLoaders";
+const char *kIconUrlKey = "iconUrl";
+const char *kIconFallbackUrlKey = "iconFallbackUrl";
+const char *kUpdatedIsoKey = "updatedIso";
+
+QJsonArray stringsToJson(const QStringList &values) {
+    QJsonArray array;
+    for (const QString &value : values) {
+        array.append(value);
+    }
+    return array;
+}
+
+QStringList jsonToStrings(const QJsonValue &value) {
+    QStringList out;
+    const QJsonArray array = value.toArray();
+    out.reserve(array.size());
+    for (const QJsonValue &item : array) {
+        out.append(item.toString());
+    }
+    return out;
+}
+
+}  // namespace
+
+QJsonObject hitToJson(const Hit &hit) {
+    QJsonObject object;
+    object.insert(QLatin1String(kProjectIdKey), hit.projectId);
+    object.insert(QLatin1String(kSlugKey), hit.slug);
+    object.insert(QLatin1String(kTitleKey), hit.title);
+    object.insert(QLatin1String(kDescriptionKey), hit.description);
+    object.insert(QLatin1String(kAuthorKey), hit.author);
+    // 下载量是 qint64，JSON 里只有 double —— 2^53 以内的整数原样过得去（下载量离那个数
+    // 差着好几个数量级）。**别**把它写成字符串：读回来那一侧就要多一次转换。
+    object.insert(QLatin1String(kDownloadsKey), static_cast<double>(hit.downloads));
+    object.insert(QLatin1String(kCategoriesKey), stringsToJson(hit.categories));
+    object.insert(QLatin1String(kGameVersionsKey), stringsToJson(hit.gameVersions));
+    // 来源走 `sourceKey()`（`modrinth` / `curseforge`）—— 唯一出处，别在这儿写字面量。
+    object.insert(QLatin1String(kSourceKey), sourceKey(hit.source));
+    object.insert(QLatin1String(kExplicitLoadersKey), stringsToJson(hit.explicitLoaders));
+    object.insert(QLatin1String(kIconUrlKey), hit.iconUrl);
+    object.insert(QLatin1String(kIconFallbackUrlKey), hit.iconFallbackUrl);
+    object.insert(QLatin1String(kUpdatedIsoKey), hit.updatedIso);
+    return object;
+}
+
+Hit hitFromJson(const QJsonObject &object) {
+    Hit hit;
+    hit.projectId = object.value(QLatin1String(kProjectIdKey)).toString();
+    hit.slug = object.value(QLatin1String(kSlugKey)).toString();
+    hit.title = object.value(QLatin1String(kTitleKey)).toString();
+    hit.description = object.value(QLatin1String(kDescriptionKey)).toString();
+    hit.author = object.value(QLatin1String(kAuthorKey)).toString();
+    hit.downloads = static_cast<qint64>(object.value(QLatin1String(kDownloadsKey)).toDouble());
+    hit.categories = jsonToStrings(object.value(QLatin1String(kCategoriesKey)));
+    hit.gameVersions = jsonToStrings(object.value(QLatin1String(kGameVersionsKey)));
+    // 认不出来就退回 `Hit` 自己那个默认（Modrinth）—— 和 `sourceFromKey()` 那条规矩
+    // 一致：读不动的一律当默认，而不是当错。
+    Source source = Source::Modrinth;
+    sourceFromKey(object.value(QLatin1String(kSourceKey)).toString(), &source);
+    hit.source = source;
+    hit.explicitLoaders = jsonToStrings(object.value(QLatin1String(kExplicitLoadersKey)));
+    hit.iconUrl = object.value(QLatin1String(kIconUrlKey)).toString();
+    hit.iconFallbackUrl = object.value(QLatin1String(kIconFallbackUrlKey)).toString();
+    hit.updatedIso = object.value(QLatin1String(kUpdatedIsoKey)).toString();
+    return hit;
+}
+
 } // namespace ResourceCatalog

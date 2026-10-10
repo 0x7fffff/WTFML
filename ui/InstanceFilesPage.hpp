@@ -815,6 +815,37 @@ private:
     /// 这一条过不过现在这两条筛选条件（搜索词 + 状态栏）。
     bool entryMatchesFilter(const Entry &entry) const;
 
+    /// ---------- 重列之后**滚回原来那个位置**（★★ 2026-10-10）----------
+    ///
+    /// 用户原话：「选中了模组并修改了启用/禁用状态以后整个表会弹回顶端，修掉」。
+    ///
+    /// 根子在这一页的重列是 `clear()` + 逐条重建：那一句把滚动条连同内容一起清掉，位置
+    /// 自然回到 0。而"点一下开关"这一下**从头到尾都在这一页里**（行尾的开关 → MainWindow
+    /// 改名 → `refreshFilePages()` → 回到这里重列），用户手还停在刚才那一行上 —— 屏幕
+    /// 啪一下跳回顶端，他得重新找刚才那一条。
+    ///
+    /// 记的是**最上面那一行的身份**（`identityPath()`，和还选择那一段同一把钥匙 —— 点一下
+    /// 开关只是把文件改了个名，那一行还是那一行），外加它当时离视口顶端多少像素。重列之后
+    /// 照这一对数字把滚动条摆回去。
+    ///
+    /// NOTE: 找不到那一行（**筛掉了 / 删掉了 / 换了目录**）就什么都不做 —— 落回顶端是那一
+    ///       刻唯一说得通的答案（用户刚把那一页整个换掉，凭什么保留上一次的位置）。
+    /// NOTE: 记住的时机有讲究：`refresh()` 是"先 clear 再叫 rebuildRows()"，所以它必须
+    ///       **在 clear 之前**记；而 rebuildRows() 自己也要记（筛一下搜索那条路不走
+    ///       refresh）。两处都叫这一个函数，它**看见空表就不动手**（否则第二处会把第一处
+    ///       刚记下的那一份覆盖成"没有锚点"）。
+    void rememberScrollAnchor();
+    /// 按 `m_scrollAnchor` 把滚动条摆回去。**必须在重列之后、排版算完的时候**调
+    /// （`rebuildRows()` 末尾那个 0 毫秒定时器里，见那一段的 NOTE）。
+    void restoreScrollAnchor();
+
+    /// 重列之前最上面那一行是谁、当时在哪儿（见上面两个函数）。
+    struct ScrollAnchor {
+        QString identity;  ///< 那一行的身份（`identityPath()`），空 = 没有锚点
+        int delta = 0;     ///< 它当时离视口顶端多少像素（`visualItemRect().top()`，通常是负数）
+    };
+    ScrollAnchor m_scrollAnchor;
+
     /// 状态栏里第 @p index 格对应哪一档（那一格的数据里存的就是它，`Qt::UserRole`）。
     static StateFilter filterAt(const QComboBox *combo, int index);
 

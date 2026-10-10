@@ -37,6 +37,24 @@
  *
  * NOTE: 这一层**只在失败时给一句 `problem`，不弹任何东西**。图标取不到是常态（自己改过的
  *       jar、作者没传过图标的、断网的），画个占位图就是正确的界面。那句话是给日志的。
+ *
+ * 【结果留一份在盘上：同一批文件不查第二遍】
+ *
+ * ★★ 2026-10-10（用户原话：「模组图标做本地缓存功能，不要每次都拉取」）。上面那两三发
+ * 里有一样东西很贵：**为了反查而把这一页每一份 jar 从头读一遍**（算 sha1 + 指纹 —— 一列
+ * 几十个模组就是几百 MB 的读盘），再加上三家接口的往返。而"这一页文件分别属于哪个资源"
+ * 不会一秒一变：文件没换（钥匙里带着大小和修改时间）、资源也不会自己换。
+ *
+ * 所以 `lookup()` 自己管一份**盘上缓存**（`Options::cacheDir` / `cacheKey`，空 = 不用）：
+ * 进门先把命中的那些**直接摊成 `Found`**（一个字节的网络都不走），只把剩下的交给上面那
+ * 两三发；收尾时把这一趟的结果与盘上那份**合并后写回去**。命中和不命中都是**逐文件**
+ * 的 —— 一列二十个模组里换掉一个，只有那一个要重查。
+ *
+ * NOTE: 键是**「禁用」那四个字摘掉之后**的路径 + 大小 + 修改时间（和
+ *       `MainWindow::instanceIconCacheKey()` **逐字同一个口径**）—— 用户点一下开关只是
+ *       把文件改了个名，盘的字节一个都没动，那种时候不该重查一遍。
+ * NOTE: 存阴性（问过了、这两家都没有）有个前提：见 `Result::problem` 那段，只有**整趟
+ *       完整跑完**了才敢记 —— 断网那一趟记下去，用户网好了也看不到图标了。
  */
 
 #pragma once
@@ -58,6 +76,15 @@ struct Options {
     /// 产品自己从不写 —— 和 `VersionManager` 里那两个 override 是同一个用途。
     QString modrinthApiBaseOverride;
     QString curseForgeApiBaseOverride;
+
+    /// ---------- 盘上那份缓存的落脚处（★★ 2026-10-10 加，见下面那段）----------
+    ///
+    /// 缓存目录（产品递 `AppPaths::instanceIconCacheDir()`）。**空串 = 不用缓存**
+    /// （验证工程里那些一节一个临时目录的用例不想要它，就不给）。
+    QString cacheDir;
+    /// 这一批文件属于**哪一堆**（产品递实例 id）—— 缓存文件名是它的 sha1。
+    /// 同一份目录表才该共用一份缓存；空串 = 不用缓存（同上）。
+    QString cacheKey;
 };
 
 /// 一个文件认出来的资源身份。
@@ -131,5 +158,14 @@ Result lookup(const QStringList &paths, const Options &options = Options());
 /// 这个文件名值不值得拿去反查：去掉了 `.disabled` 尾巴之后是 `.jar` / `.zip`。
 /// （禁用着的模组是 `X.jar.disabled`，内容还是那个 jar，一样查得出来。）
 bool isLookupCandidate(const QString &path);
+
+/// 这一堆文件的缓存文件在哪：`<cacheDir>/<cacheKey 的 sha1>.json`。
+///
+/// ★ **唯一出处** —— 写它的是 `lookup()` 自己，验证工程靠它把这个文件摆好/删掉来验
+/// "第二趟一个请求都不发"（见 .cpp 里那段）。`cacheDir` 或 `cacheKey` 是空串时回空串
+/// （= 这一趟不缓存）。
+/// NOTE: 文件名用 sha1 而不是实例 id 本身：实例 id 就是**目录名**，里面有中文、空格、
+///       甚至 `∞`（`20w14∞` 那种）—— 那些字符能不能进文件名要按平台问，不值得。
+QString cachePath(const Options &options);
 
 }  // namespace InstanceIconLookup

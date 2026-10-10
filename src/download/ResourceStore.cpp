@@ -6,6 +6,7 @@
  */
 #include "ResourceStore.hpp"
 
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QJsonDocument>
@@ -451,8 +452,9 @@ ResourceStore::IconValidators ResourceStore::loadIconValidators(const QString &c
     if (!file.open(QIODevice::ReadOnly)) {
         return validators; // 没有这个文件 = 没有凭据（正常情况，不是错误）
     }
-    // 三行纯文本（ETag / Last-Modified / 这份凭据是哪条地址给的），顺序写死。行数不够就
-    // 只认有的那几行：老版本写的那些（只有前两行）读出来第三条是空的，按"没记地址"处理。
+    // 四行纯文本（ETag / Last-Modified / 这份凭据是哪条地址给的 / 上一次核对是什么时候），
+    // 顺序写死。行数不够就只认有的那几行：老版本写的那些（只有前两行、三行）读出来后面
+    // 那几条是空的，按"没记地址""不知道核过没有"处理。
     const QList<QByteArray> lines = file.readAll().split('\n');
     file.close();
     if (lines.size() > 0) {
@@ -460,6 +462,11 @@ ResourceStore::IconValidators ResourceStore::loadIconValidators(const QString &c
     }
     if (lines.size() > 1) {
         validators.lastModified = QString::fromUtf8(lines.at(1)).trimmed();
+    }
+    // 第四行（2026-10-10 补）：上一次**核对**是什么时候（epoch 毫秒）。读不出来 / 老版本
+    // 没有这一行 ⇒ 留 0 ⇒ "不知道" ⇒ 照旧核一遍（见 IconValidators::checkedAtMs 那段）。
+    if (lines.size() > 3) {
+        validators.checkedAtMs = QString::fromUtf8(lines.at(3)).trimmed().toLongLong();
     }
     // 凭据得和"问哪条地址"配成一对（2026-09-25 补）。同一个 project 有**两条**图标地址
     // （接口那条 96px 的 webp / 自己拼的 icon.png，见 requestIcon），而缓存和凭据都只按
@@ -481,11 +488,13 @@ bool ResourceStore::saveIconValidators(const QString &cacheId,
     if (path.isEmpty()) {
         return false;
     }
-    if (validators.isEmpty()) {
-        // 两条都没有 = 不留一份空文件（下次读出来同样是空的，盘上却多一个东西）。
-        QFile::remove(path);
-        return true;
-    }
+    // ★ 2026-10-10：**不再"两个都空就把文件删掉"**（见 .hpp 里那条）。那份 meta 现在多装了
+    //   一样东西：**上一次核对是什么时候** —— 主机不给 ETag 的源照样该被那道时间闸管着，
+    //   而且这个函数的每一个调用点都是"刚刚真和主机说了一句话"，所以时间戳就在这儿盖。
+    //
+    //   ⚠ 老规矩（"两条都没有就不留一份空文件"）当年是为了盘上少一个东西；现在这一行
+    //     时间戳本身就不是空的了，那条理由不成立。
+    const qint64 checkedAtMs = QDateTime::currentMSecsSinceEpoch();
     QDir().mkpath(AppPaths::iconCacheDir());
     QFile file(path);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
@@ -493,8 +502,10 @@ bool ResourceStore::saveIconValidators(const QString &cacheId,
     }
     // 第三行是**这条凭据对应哪条地址**（2026-09-25 补）：读的那一侧靠它判断"这份凭据
     // 还是不是问这条地址用的"，见 loadIconValidators 里那条 NOTE。
+    // 第四行是**上一次核对的时间**（2026-10-10 补）：见 IconValidators::checkedAtMs。
     const QByteArray text = validators.etag.toUtf8() + '\n' + validators.lastModified.toUtf8() +
-                            '\n' + url.toUtf8() + '\n';
+                            '\n' + url.toUtf8() + '\n' +
+                            QByteArray::number(checkedAtMs) + '\n';
     const bool ok = file.write(text) == text.size();
     file.close();
     return ok;
@@ -645,9 +656,21 @@ void ResourceStore::requestIcon(const ResourceCatalog::Hit &hit) {
     // 兜底只在**两条地址不是同一个东西**时留着（CurseForge 只给了一条、或者接口给的那条
     // 本来就是 icon.png 时，退回去还是同一发请求）—— 详见声明处 startIconRequest 那段。
     // 盘上那份字节和它的凭据一起带上：带凭据才问得出 304，带字节才比得出"一模一样"。
+    const IconValidators validators = onDisk ? loadIconValidators(iconId, url) : IconValidators();
+
+    // ★★ 2026-10-10：**盘上那份最近核过就整趟不问它**（用户原话：「模组图标做本地缓存
+    //   功能，不要每次都拉取」；那笔账见声明处【攒够 kIconRevalidateTtlMs 才核对一次】）。
+    //   判据只有这一处：`.icon.meta` 第四行那个时间戳（`IconValidators::checkedAtMs`），
+    //   0 = 不知道（老版本写的 meta / 主机没给过凭据的文件）⇒ **照旧核一遍**。
+    //   ⚠ 这一句必须排在"挑地址"之后：凭据是**跟着一条地址**的，`loadIconValidators()`
+    //     地址对不上时回的就是空凭据（连同这个时间戳一起作废）—— 判断用的正是那一条路。
+    if (onDisk && validators.checkedAtMs > 0 &&
+        QDateTime::currentMSecsSinceEpoch() - validators.checkedAtMs < kIconRevalidateTtlMs) {
+        return;
+    }
+
     startIconRequest(iconId, url, url == fallbackUrl ? QString() : fallbackUrl,
-                     onDisk ? cached : QByteArray(),
-                     onDisk ? loadIconValidators(iconId, url) : IconValidators());
+                     onDisk ? cached : QByteArray(), validators);
 }
 
 void ResourceStore::startIconRequest(const QString &iconId, const QString &url,
@@ -671,7 +694,8 @@ void ResourceStore::startIconRequest(const QString &iconId, const QString &url,
     QNetworkReply *reply = m_net->get(iconRequest(url, validators));
     m_replies.insert(requestKey, reply);
     QObject::connect(reply, &QNetworkReply::finished, this,
-                     [this, reply, iconId, url, fallbackUrl, onDiskBytes, requestKey]() {
+                     [this, reply, iconId, url, fallbackUrl, onDiskBytes, requestKey,
+                      validators]() {
         reply->deleteLater();
         // 被掐掉的那一发（abortAll()，或者同一张图又问了第二遍）到此为止：**不读它**、
         // 什么都不做（abort 之后读它是 HttpClient 那边的老规矩，见 abortAll 那段）。
@@ -686,13 +710,18 @@ void ResourceStore::startIconRequest(const QString &iconId, const QString &url,
         const QByteArray body = reply->readAll();
 
         if (status == HttpClient::kStatusNotModified) {
-            // **没变**。盘上那份就是最新的：不写盘、不发信号、界面上一格都不动
+            // **没变**。盘上那份就是最新的：图一个字节都不写、不发信号、界面上一格都不动
             //（它上面画的本来就是这一张）。
             // NOTE: 这个码只可能在"带着凭据去问"时出现。凭据和盘上那份对不上（比如那份
             //       被别的东西换过）时主机给的是 200，走下面那条路 —— 所以这条路不担心
             //       "凭据说没变、其实变了"。
             // NOTE: 也**不算**主机级失败、更不算成功：它就是"问过了，答案是不用动"。
             //       那道"连着三次不通就放弃"的闸跟它无关（主机明明答话了）。
+            //
+            // ★★ 2026-10-10：**这一趟问过了、要在盘上记一笔**（第四行那个时间戳）——
+            //   不记的话那道"攒够 7 天才核一次"的闸下一趟还是过不去（时间戳一直是老的），
+            //   于是每次启动都白敲一遍门。写的是**凭据那一份**（图还是原来的图）。
+            saveIconValidators(iconId, validators, url);
             return;
         }
 
@@ -719,7 +748,7 @@ void ResourceStore::startIconRequest(const QString &iconId, const QString &url,
             // 而且手上还有另一条地址，就再要一次（这一次不算失败）。pending 位在重发那一
             // 发里重新立起来，所以这中间"同一格别问第二遍"的规矩不破。
             if (!fallbackUrl.isEmpty() && !isHostLevelIconFailure(status)) {
-                startIconRequest(iconId, fallbackUrl, QString());
+                startIconRequest(iconId, fallbackUrl, QString(), QByteArray(), IconValidators());
                 return;
             }
             if (status == 404) {

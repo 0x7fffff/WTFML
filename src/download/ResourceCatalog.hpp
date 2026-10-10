@@ -39,6 +39,7 @@
 #include <QByteArray>
 #include <QDateTime>
 #include <QHash>
+#include <QJsonObject>
 #include <QList>
 #include <QString>
 #include <QStringList>
@@ -764,5 +765,22 @@ QList<VersionEntry> parseCurseForgeVersions(const QByteArray &json);
 ///       删过版本，问不到东西），别默默少下。
 QList<Dependency> requiredDependenciesOf(const QList<VersionEntry> &versions,
                                          const QString &versionId);
+
+// ---------- 一条 Hit 的盘上往返 ----------
+
+/// 把一条 `Hit` 写成 JSON 对象 / 从 JSON 对象读回来。
+///
+/// ★★ 2026-10-10：给**「这个文件是哪个资源」那一趟反查的盘上缓存**用的（见
+///   `AppPaths::instanceIconCacheDir()` 和 `InstanceIconLookup::Options::cacheDir`）。
+///   那一趟的产物本来就是一份 `Hit`（名字 / slug / 简介 / 图标两条地址都在里面，见
+///   `Found::hit` 那段），把整条留在盘上 = 第二次进那一页**一个请求都不发**、
+///   点名字进详情页那一下也照样有东西可显示。
+///
+/// NOTE: 这一对必须**逐字段配平** —— 加了 `Hit` 的一个字段却忘了加在这两边，症状是
+///       "第二次启动之后那一栏是空的"（而不是报错）。`verify` 里有一条往返断言盯着它。
+/// NOTE: 读的一侧**不认识的一律当空**（字段没了 / 被别的东西改过）：这是缓存，不是判据，
+///       缺一栏的代价是界面上少一句话，不该让整份文件作废。
+QJsonObject hitToJson(const Hit &hit);
+Hit hitFromJson(const QJsonObject &object);
 
 } // namespace ResourceCatalog

@@ -7,10 +7,18 @@
 
 #include "InstanceIconLookup.hpp"
 
+#include <QCryptographicHash>
+#include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QHash>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonParseError>
 #include <QNetworkAccessManager>
 #include <QPair>
+#include <QSaveFile>
 
 #include "../net/HttpClient.hpp"
 #include "ModpackExport.hpp"
@@ -29,7 +37,111 @@ constexpr int kLookupChunk = 100;
 /// 文件不划算）—— 改的时候记得一起看。
 const QByteArray kUserAgent = QByteArrayLiteral("WTFML");
 
+/// 「禁用」那四个字。**唯一出处**是 `InstanceFilesPage::disabledSuffix()`（ui/ 里），而这一
+/// 层不许 include ui/ —— 所以这儿只认后缀的样子，和 `isLookupCandidate()` 同一句老实话。
+const char *kDisabledSuffix = ".disabled";
+
+/// 盘上那份缓存里的一行（见 .hpp 里【结果留一份在盘上】那段）。
+///
+/// 键是**身份路径**（摘掉「禁用」那四个字之后的绝对路径）：用户点一下开关只是把文件改了
+/// 个名，盘的字节一个都没动 —— 键用盘上真那个名字的话，那一列每次开关都要重查一遍。
+/// 大小和修改时间**单独存两栏**，不拼进键里：读的时候要的是"这个文件还是不是原来那一份"，
+/// 拼进键里就变成"再来一份新的吧"（同一个意思，但每一栏都要自己解析回来）。
+struct CacheEntry {
+    qint64 size = 0;
+    qint64 mtimeMs = 0;
+    /// 这个文件的 sha1（`Found::sha1`，实例设置那个「检查更新」要的就是它）。
+    QString sha1;
+    /// 认出来了（假 = **问过了、这两家都没有**）—— 见 .hpp 里那条 NOTE。
+    bool found = false;
+    ResourceCatalog::Hit hit;
+};
+
+/// 摘掉「禁用」那四个字（`X.jar.disabled` → `X.jar`）。摘不动就原样回。
+QString identityPath(const QString &path) {
+    if (path.endsWith(QLatin1String(kDisabledSuffix), Qt::CaseInsensitive)) {
+        return path.left(path.size() - QLatin1String(kDisabledSuffix).size());
+    }
+    return path;
+}
+
+/// 这个文件**现在**是当初记下的那一份吗（大小 + 修改时间两样都对）。
+bool sameFile(const CacheEntry &entry, const QFileInfo &info) {
+    return entry.size == info.size() &&
+           entry.mtimeMs == info.lastModified().toMSecsSinceEpoch();
+}
+
+/// 把这个文件填成缓存里的一行。调用方保证 `info` 是刚问过的。
+CacheEntry entryFor(const QFileInfo &info, const QString &sha1, bool found,
+                    const ResourceCatalog::Hit &hit) {
+    CacheEntry entry;
+    entry.size = info.size();
+    entry.mtimeMs = info.lastModified().toMSecsSinceEpoch();
+    entry.sha1 = sha1;
+    entry.found = found;
+    entry.hit = hit;
+    return entry;
+}
+
+/// 盘上那份的根：`cacheDir` 或 `cacheKey` 空 = 这一趟不用缓存（见 .hpp）。
+bool cacheEnabled(const Options &options) {
+    return !options.cacheDir.isEmpty() && !options.cacheKey.isEmpty();
+}
+
+/// 读盘上那份。读不动（没有 / 坏了 / 没开缓存）一律回**空表** —— 缓存读不出来只说明这一趟
+/// 要多问几发，不是错。**读这一路上一个字节都不写**（写坏的那份留给下一次保存覆盖掉）。
+QHash<QString, CacheEntry> loadCache(const Options &options) {
+    QHash<QString, CacheEntry> out;
+    const QString path = cachePath(options);
+    if (path.isEmpty()) {
+        return out;
+    }
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        return out;
+    }
+    const QByteArray bytes = file.readAll();
+    file.close(); // 句柄不放手，后面换不掉这个文件（同 ResourceStore::loadIconFromCache 那条）
+
+    QJsonParseError error {};
+    const QJsonDocument document = QJsonDocument::fromJson(bytes, &error);
+    if (error.error != QJsonParseError::NoError || !document.isObject()) {
+        return out;
+    }
+    const QJsonObject files =
+        document.object().value(QStringLiteral("files")).toObject();
+    for (auto it = files.constBegin(); it != files.constEnd(); ++it) {
+        if (!it.value().isObject()) {
+            continue;
+        }
+        const QJsonObject object = it.value().toObject();
+        CacheEntry entry;
+        entry.size = static_cast<qint64>(object.value(QStringLiteral("size")).toDouble());
+        entry.mtimeMs =
+            static_cast<qint64>(object.value(QStringLiteral("mtime")).toDouble());
+        entry.sha1 = object.value(QStringLiteral("sha1")).toString();
+        // **没有 `hit` 那一栏 = 问过了、没有**（见 .hpp 里那条 NOTE）。
+        const QJsonValue hitValue = object.value(QStringLiteral("hit"));
+        if (hitValue.isObject()) {
+            entry.found = true;
+            entry.hit = ResourceCatalog::hitFromJson(hitValue.toObject());
+        }
+        out.insert(it.key(), entry);
+    }
+    return out;
+}
+
 }  // namespace
+
+QString cachePath(const Options &options) {
+    if (!cacheEnabled(options)) {
+        return QString();
+    }
+    const QByteArray digest =
+        QCryptographicHash::hash(options.cacheKey.toUtf8(), QCryptographicHash::Sha1).toHex();
+    return options.cacheDir + QLatin1Char('/') + QString::fromLatin1(digest) +
+           QStringLiteral(".json");
+}
 
 bool isLookupCandidate(const QString &path) {
     QString name = QFileInfo(path).fileName();
@@ -43,7 +155,11 @@ bool isLookupCandidate(const QString &path) {
            name.endsWith(QStringLiteral(".zip"), Qt::CaseInsensitive);
 }
 
-Result lookup(const QStringList &paths, const Options &options) {
+namespace {
+
+/// 真正要发请求的那一趟（就是从前那个 `lookup()` 的全部内容）。
+/// 盘上那份命中与否由外面那个 `lookup()` 管，这一层只管 `paths` 里递进来的这些。
+Result lookupNetwork(const QStringList &paths, const Options &options) {
     Result result;
 
     // ---------- ① 算哈希 ----------
@@ -317,6 +433,149 @@ Result lookup(const QStringList &paths, const Options &options) {
         }
     }
 
+    return result;
+}
+
+/// 把这一趟的结果并回盘上那份、写回去（见 .hpp 里那段）。
+///
+/// 三条规矩：
+///  * **盘上那些照旧留着**（这一趟没问它们）；「这一趟问过、这一趟有结论」的那些才覆盖掉。
+///  * **阴性只在整趟跑完时才记**（`problem` 空）—— 断网那一趟记下去，用户网好了也看不到
+///    图标（见 `Result::problem` 那段）。
+///  * 盘上那个文件已经不在的就**顺手丢掉**（不然一份缓存会越攒越大，而它记的都是些早被
+///    用户删掉的文件）。
+///
+/// NOTE: 判"文件还在不在"要**两个名字都试**（身份路径，以及它 + `.disabled`）—— 身份路径
+///       是摘过后缀的那一个，禁用着的模组在盘上叫另一个名字。
+void saveCache(const Options &options, const QStringList &paths, const Result &result,
+               const QHash<QString, CacheEntry> &cached) {
+    if (!cacheEnabled(options)) {
+        return;
+    }
+    // 这一趟真问出来的那些：路径 → 结论（只在"问到底了"的前提下才记阴性）。
+    QHash<QString, Found> foundByPath;
+    for (const Found &found : result.found) {
+        foundByPath.insert(identityPath(found.path), found);
+    }
+    const bool complete = result.problem.isEmpty();
+
+    // 盘上那份：还在的留着，不在的丢掉。
+    QHash<QString, CacheEntry> merged;
+    for (auto it = cached.constBegin(); it != cached.constEnd(); ++it) {
+        if (QFileInfo::exists(it.key()) ||
+            QFileInfo::exists(it.key() + QLatin1String(kDisabledSuffix))) {
+            merged.insert(it.key(), it.value());
+        }
+    }
+
+    for (const QString &path : paths) {
+        if (!isLookupCandidate(path)) {
+            continue;
+        }
+        const QFileInfo info(path);
+        if (!info.exists()) {
+            continue;
+        }
+        const QString identity = identityPath(path);
+        const auto found = foundByPath.constFind(identity);
+        if (found != foundByPath.constEnd()) {
+            merged.insert(identity, entryFor(info, found.value().sha1, true, found.value().hit));
+            continue;
+        }
+        // 这一趟里没有它 ⇒ 两种可能：① 刚从盘上那份命中的（原样留着，别去动它）；
+        // ② 真问了、没认出来 —— 那就记一条阴性，**但只在整趟完整跑完时**。
+        const auto existing = merged.constFind(identity);
+        if (existing != merged.constEnd() && sameFile(existing.value(), info)) {
+            continue;
+        }
+        if (complete) {
+            merged.insert(identity, entryFor(info, QString(), false, ResourceCatalog::Hit()));
+        }
+    }
+
+    QJsonObject files;
+    for (auto it = merged.constBegin(); it != merged.constEnd(); ++it) {
+        QJsonObject object;
+        object.insert(QStringLiteral("size"), static_cast<double>(it.value().size));
+        object.insert(QStringLiteral("mtime"), static_cast<double>(it.value().mtimeMs));
+        if (!it.value().sha1.isEmpty()) {
+            object.insert(QStringLiteral("sha1"), it.value().sha1);
+        }
+        if (it.value().found) {
+            object.insert(QStringLiteral("hit"), ResourceCatalog::hitToJson(it.value().hit));
+        }
+        files.insert(it.key(), object);
+    }
+
+    QJsonObject root;
+    root.insert(QStringLiteral("version"), 1);
+    root.insert(QStringLiteral("files"), files);
+
+    const QString path = cachePath(options);
+    // QSaveFile：先写旁边的临时文件、成了再换上去 —— 同一个实例的两趟（图标那一趟和
+    // 「检查更新」那一趟）可能同时在跑，直接 `Truncate` 的话读的人有机会读到半份。
+    // 那份坏字节读出来只会让这一趟多问几发（loadCache 一律当"没有"），但没必要留着它。
+    QDir().mkpath(options.cacheDir);
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly)) {
+        return; // best-effort：写不进去只是下次多问几发，不是错
+    }
+    file.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
+    file.commit();
+}
+
+}  // namespace
+
+Result lookup(const QStringList &paths, const Options &options) {
+    // ---------- ① 盘上那份：命中就**一个字节的网络都不走** ----------
+    //
+    // 见 .hpp 里【结果留一份在盘上】那段。判"命中"要两样都对：**还是那个文件**
+    // （大小 + 修改时间，`sameFile()`）**而且**这一条问到底过。
+    const QHash<QString, CacheEntry> cached = loadCache(options);
+    Result result;
+    QStringList todo;  // 盘上那份没有的：交给下面真正要发请求的那一趟
+    todo.reserve(paths.size());
+    for (const QString &path : paths) {
+        if (!isLookupCandidate(path)) {
+            continue;
+        }
+        const QString identity = identityPath(path);
+        const auto it = cached.constFind(identity);
+        if (it == cached.constEnd() || !sameFile(it.value(), QFileInfo(path))) {
+            todo.append(path);
+            continue;
+        }
+        if (it.value().found) {
+            Found found;
+            // 递进去的那个**盘上真那个名字**原样回来（调用方按它认行）。
+            found.path = path;
+            found.sha1 = it.value().sha1;
+            found.hit = it.value().hit;
+            result.found.append(found);
+        }
+        // found == false = **问过了、这两家都没有**：这一条到此为止（既不算 found，
+        // 也不算 unreadable）—— 接的人按"不在 found 里"记它，和当场问出来的一样。
+    }
+
+    // ---------- ② 剩下的：算哈希 + 问接口 ----------
+    if (!todo.isEmpty()) {
+        const Result fresh = lookupNetwork(todo, options);
+        // 两份合起来（顺序不定，见 Result::found 那段）。
+        result.found.append(fresh.found);
+        result.hashed = fresh.hashed;
+        result.unreadable = fresh.unreadable;
+        // 后两样是**整趟**的性质（"这一趟完整不完整"），取那一趟的：
+        // 盘上命中的那些不需要网络，也就谈不上"这一趟通不通"。
+        result.problem = fresh.problem;
+        result.iconProblem = fresh.iconProblem;
+    }
+
+    // ---------- ③ 并回去、写在盘上 ----------
+    //
+    // 摆在这一整个函数的**最后**（而不是每个 return 之前）：上面那两个来源有好几条早退路
+    // （接口挂了、正文读不懂），而**没认出来的那些不该因为一次断网就被判成"没有"**
+    // —— 那件事由 saveCache 里 `complete` 那一条管（见它那段）。
+    saveCache(options, paths, result, cached);
     return result;
 }
 
