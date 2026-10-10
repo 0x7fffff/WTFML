@@ -1218,6 +1218,26 @@ private:
     };
     DependencyCheck m_dependencyCheck;
 
+    /// "这一版要装进哪个实例" —— **这一句话的唯一出处**。
+    ///
+    /// 两条来路，按优先级：
+    ///   ① 下载页顶上那个「已安装版本」下拉框（在下载页里点一行、或从实例设置点「下载新
+    ///      模组」切过去的那一趟，`continueOpenDownloadCategory()` 会替用户把它选上）；
+    ///   ② 资源详情页记着的来路实例 `m_resourcePage.instanceId` —— 用户从**实例设置 → 模组
+    ///      → 点名字**进详情页那一趟走的是它（`openFileResourcePage()` 把实例 id 递了进去，
+    ///      但没碰过下拉框）。没有②的话，那一条路上既查不了前置、装的时候还会撞
+    ///      「没有选中实例」。
+    /// 两条都没有 = 不知道，返回空（调用方按空处理）。
+    QString dependencyInstanceId() const;
+
+    /// "这一趟下载是从**某个实例**里点进来的吗" —— 只决定 `installResourceVersionNow()`
+    /// 要不要弹那个"存哪儿"的框（见 LauncherSettings 里 `downloadAutoIntoInstance` 那一节，
+    /// 那里是这一支判据**唯一**的语义出处）。
+    ///
+    /// 两条来路（见实现里的注释）：① 从实例设置点「下载新模组」切到下载页
+    /// （`m_downloadFromInstanceId`）；② 资源详情页是从实例点进来的（`m_resourcePage`）。
+    bool downloadCameFromInstance() const;
+
     /// "这个前置要装进哪个实例"：游戏版本 + 加载器 + 来源（`ModDependencies::Target`）。
     /// 加载器名走 `instanceLoaderName()`（PCL 那类合并实例只有它能读出来，见那一处）。
     ModDependencies::Target dependencyTargetFor(const QString &instanceId,
@@ -1247,9 +1267,18 @@ private:
     /// 真正下那一段（`installResourceVersion()` 的后半截）。
     ///
     /// @param extras 一起下的前置（`Plan::downloads`；空表 = 只下主模组）。
+    /// @param forcedInstanceId **这一趟就是给这个实例下的**（空 = 现算，见
+    ///        `dependencyInstanceId()`）。只有一条来路会点名它：前置检查回来那一趟 ——
+    ///        `finishDependencyCheck()` 是在一轮网络往返**之后**才走到这里的，那时候那一页
+    ///        可能已经被用户收掉了，现算会算成别的实例。
+    ///        非空还带一个副作用：**不再弹"存哪儿"那个框**（这一趟的落点是点名定死的）。
+    ///
+    /// NOTE: 实例文件页那颗「更新」（悬浮条上那一颗）**不走这儿** —— 它是一批一起下，见
+    ///       `updateInstanceFiles()` 里那段（`downloadResourceFiles()` 一次只收一批）。
     void installResourceVersionNow(ResourceCatalog::Kind kind, const QString &displayTitle,
                                    const ResourceCatalog::VersionEntry &version,
-                                   const QList<ModDependencies::Resolved> &extras);
+                                   const QList<ModDependencies::Resolved> &extras,
+                                   const QString &forcedInstanceId = QString());
 
     // ---------- 实例更新检测（2026-09-28）----------
     //
@@ -1512,6 +1541,8 @@ private:
     /// installResourceVersionNow）。这是刻意的：半批落在一个地方、半批落在另一个地方，
     /// 比"这次改的下一批才生效"难查得多。
     void onDownloadAutoIntoInstanceChanged();
+    /// 「缺失前置提醒」那一格改了（见 LauncherSettings 里那一节）。
+    void onWarnMissingDependenciesChanged();
     /// CurseForge 的 API key 那一格编辑完了（回车 / 焦点离开）。**不是** per-character：
     /// 半串 key 存进去只会换来一次 403，而用户会以为是启动器坏了（见 .cpp 里那段）。
     void onCurseForgeApiKeyEdited();

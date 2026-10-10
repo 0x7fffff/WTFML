@@ -2095,6 +2095,9 @@ void MainWindow::setupConnections() {
     // 立刻生效（下载那一刻现读），不用重启启动器。
     connect(m_ui->getDownloadAutoIntoInstanceCheck(), &QCheckBox::toggled, this,
             &MainWindow::onDownloadAutoIntoInstanceChanged);
+    // 「下载缺前置时提醒」（2026-10-09）：同一条路 —— 改完立刻生效（点下载那一刻现读）。
+    connect(m_ui->getWarnMissingDependenciesCheck(), &QCheckBox::toggled, this,
+            &MainWindow::onWarnMissingDependenciesChanged);
     // 「启动选项」那三项。三项都是"下一次启动才读"的设置（日志那个例外：见
     // showGameLogLine 的说明），所以槽里只落盘，不去碰任何正在跑的东西。
     connect(m_ui->getShowGameLogCheck(), &QCheckBox::toggled, this,
@@ -4951,12 +4954,26 @@ void MainWindow::installResourceVersion(ResourceCatalog::Kind kind, const QStrin
     // 判据：这一版声明的必装前置里，**目标实例还缺哪几个**（`ModDependencies` 那边算，
     // 纯函数）。一条不缺就走下面那一句 —— 那时候**一个请求都不多发**，和从前逐字一样。
     //
-    // NOTE: 只在**模组**这一路看。资源包 / 数据包 / 光影那一版列的是 `minecraft` /
-    //       `datapack` / `iris`，它们和"前置模组"没有关系（同一个理由见下面那道加载器闸）；
-    //       整合包更不用 —— 它的依赖在清单里，那条路本来就是整个包一起装。
-    if (kind == ResourceCatalog::Kind::Mod && !m_dependencyCheck.active) {
-        const QString instanceId = selectedVersionId(m_ui->getInstalledVersionCombo());
-        if (!instanceId.isEmpty()) {
+    // ★ 2026-10-09 扩了两处（用户：「点击下载模组时检测当前实例里面是否存在所有的前置…
+    //   此模组缺失必要的前置」，并确认**光影包也查**）：
+    //   ① 光影包一路上这句判据（那一版声明的必装就是 `iris`，和模组的前置是同一件事）；
+    //   ② 目标实例改问 `dependencyInstanceId()` —— 它多认一条来路（从实例设置点进详情页
+    //      再下载的那一趟），见那一处的说明。
+    //
+    // NOTE: 资源包 / 数据包**不看**：它们那一版列的是 `minecraft` / `datapack`（游戏本体），
+    //       那和"前置"不是一回事；整合包更不用 —— 它的依赖在清单里，本来就是整个包一起装。
+    if ((kind == ResourceCatalog::Kind::Mod || kind == ResourceCatalog::Kind::Shader) &&
+        m_settings->warnMissingDependencies() && !m_dependencyCheck.active) {
+        const QString instanceId = dependencyInstanceId();
+        // ★ 光影的**豁免**（2026-10-09）：这个实例已经能跑光影了（加载器是 OptiFine，或者
+        //   mods/ 里已经有 iris / oculus / optifine）⇒ 整段跳过。
+        //   理由：Modrinth 上光影项目声明的前置就是 `iris`（OptiFine 那一支还有的写
+        //   `optifine`），而**装了 OptiFine 的人不需要 iris** —— 不豁免的话，他每下一次光影
+        //   都被劝着装一个用不上的前置。判据直接借现成的 `instanceShaderUsable()`
+        //   （整段词匹配那一条也在它里面，不在这儿再写一遍）。
+        const bool shaderAlreadyUsable =
+            kind == ResourceCatalog::Kind::Shader && instanceShaderUsable(instanceId);
+        if (!instanceId.isEmpty() && !shaderAlreadyUsable) {
             const ModDependencies::Target target = dependencyTargetFor(instanceId, source);
             bool installedKnown = false;
             const QSet<QString> installed = installedModKeys(instanceId, &installedKnown);
@@ -4967,9 +4984,37 @@ void MainWindow::installResourceVersion(ResourceCatalog::Kind kind, const QStrin
                 return;
             }
         }
-        // 没有选实例 / 没有缺的：交给下面那一句，它的判断和话术一个字都不变。
+        // 设置里关着 / 不知道装进哪个实例 / 光影已经能用 / 没有缺的：交给下面那一句，
+        // 它的判断和话术一个字都不变（也就是用户定的那一条：关掉 = 只下他点的那一版）。
     }
     installResourceVersionNow(kind, displayTitle, version, {});
+}
+
+QString MainWindow::dependencyInstanceId() const {
+    // ① 资源详情页**正开着**、而且它记着来路实例 ⇒ 用它。
+    //    那一格是"这一版是给哪个实例的"最具体的一句：用户就是站在那个实例的页面上点的
+    //    这一版（`InstanceFiles` 那条路，见 `openFileResourcePage()`；`Download` 那条路
+    //    递进来的本来就是下拉框里那一个，两份值一样）。
+    //    NOTE: 判据带上 `open`，是为了不让**关掉那一页之后**残留的旧值去顶替下拉框 ——
+    //          用户关掉详情页、回到下载页直接下另一个模组时，目标该是下拉框上那一个。
+    //          （异步那一趟不受影响：`finishDependencyCheck()` 把实例**显式传下去**了。）
+    if (m_resourcePage.open && !m_resourcePage.instanceId.isEmpty()) {
+        return m_resourcePage.instanceId;
+    }
+    // ② 下载页顶上那个「已安装版本」下拉框。
+    return selectedVersionId(m_ui->getInstalledVersionCombo());
+}
+
+bool MainWindow::downloadCameFromInstance() const {
+    // ① 从实例设置点「下载新模组」切到下载页那一条（`m_downloadFromInstanceId` —— 就是
+    //    那颗「← 返回实例设置」用的同一个值）。
+    if (!m_downloadFromInstanceId.isEmpty()) {
+        return true;
+    }
+    // ② 资源详情页是从某个实例点进来的（实例设置 → 模组 → 点名字，见
+    //    `openInstanceFileResource()`）。那一条路不经过下载页，所以上面那一位是空的 ——
+    //    而用户站在**那个实例**的模组列表里点进来的这一版，意思就是"装进它"。
+    return m_resourcePage.open && !m_resourcePage.instanceId.isEmpty();
 }
 
 ModDependencies::Target MainWindow::dependencyTargetFor(const QString &instanceId,
@@ -5158,28 +5203,40 @@ void MainWindow::finishDependencyCheck() {
     if (plan.downloads.isEmpty()) {
         // 一条都没解开：**照样把这个模组装上**，但得如实说一句"前置一条都没找到"。
         // 不说的话，用户点完下载看到的就是"下好了"，而进游戏那一下就崩。
-        QString text = ModDependencies::dependencyPromptText(names);
+        //
+        // NOTE: 这一档走 `ask()` 而不是 `warning()`：只有 `ask()` 带得了那行**灰字**
+        //       （用户 2026-10-09 要的"可以在设置里关掉"）。一颗「知道了」按下去就走。
+        QString text = ModDependencies::dependencyPromptText(check.kind, names);
         if (!note.isEmpty()) {
             text += QStringLiteral("\n\n") + note;
         }
-        InlineMessage::warning(m_ui->overlay(), ModDependencies::dependencyPromptTitle(), text);
+        InlineMessage::ask(m_ui->overlay(), MessageKind::Warning,
+                           ModDependencies::dependencyPromptTitle(), text, {tr("知道了")}, 0, -1,
+                           false, ModDependencies::dependencyPromptNoteText());
     } else {
         QString text = installedKnown
-                           ? ModDependencies::dependencyPromptText(names)
-                           : ModDependencies::dependencyPromptUnknownText(names);
+                           ? ModDependencies::dependencyPromptText(check.kind, names)
+                           : ModDependencies::dependencyPromptUnknownText(check.kind, names);
         if (!note.isEmpty()) {
             text += QStringLiteral("\n\n") + note;
         }
-        const bool downloadAll = InlineMessage::question(
-            m_ui->overlay(), ModDependencies::dependencyPromptTitle(), text,
-            ModDependencies::dependencyAllButtonText(),
-            ModDependencies::dependencyOnlyThisButtonText(), false);
-        if (downloadAll) {
+        // 两颗按钮：左「只下这个」（**默认那颗**，和从前 `question(..., defaultYes=false)`
+        // 同向 —— 误按回车不该替用户多做一件事），右「一起下载」。
+        // NOTE: 从前这儿调的是 `question()`，它**带不了那行灰字**（没有 note 这一格）。
+        const int choice = InlineMessage::ask(
+            m_ui->overlay(), MessageKind::Question, ModDependencies::dependencyPromptTitle(), text,
+            {ModDependencies::dependencyOnlyThisButtonText(),
+             ModDependencies::dependencyAllButtonText()},
+            0, -1, false, ModDependencies::dependencyPromptNoteText());
+        if (choice == 1) {
             extras = plan.downloads;
         }
     }
 
-    installResourceVersionNow(check.kind, check.title, check.version, extras);
+    // ★ `check.instanceId` 显式传下去：这一趟是从一轮网络往返**之后**回到这里的，那期间
+    //   用户完全可能把详情页收掉（于是 `m_resourcePage.open` 落了、`dependencyInstanceId()`
+    //   只能退回下拉框）。检查时算的是哪个实例，就得装进哪个实例。
+    installResourceVersionNow(check.kind, check.title, check.version, extras, check.instanceId);
 }
 
 // ============================ 实例更新检测 ============================
@@ -5451,14 +5508,20 @@ void MainWindow::finishUpdateCheck(QString instanceId) {
 void MainWindow::installResourceVersionNow(ResourceCatalog::Kind kind,
                                            const QString &displayTitle,
                                            const ResourceCatalog::VersionEntry &version,
-                                           const QList<ModDependencies::Resolved> &extras) {
+                                           const QList<ModDependencies::Resolved> &extras,
+                                           const QString &forcedInstanceId) {
     const bool isModpack = kind == ResourceCatalog::Kind::Modpack;
 
-    // 目标实例：**以下拉框为准**（树和下拉框是同一份数据的两种看法，见 setupConnections 里
-    // 那条 currentIndexChanged）。整合包那一路不用它 —— 下回来的是 .mrpack，接着走导入，
-    // 实例名是在那条路上问出来的。
+    // 目标实例：**优先用调用方递进来的**（前置检查那一趟回来时，页面可能已经关了，而
+    // 那一趟在 `m_dependencyCheck.instanceId` 里记着它当时算的是哪个实例 —— 现算会算错），
+    // 其次是 `dependencyInstanceId()`（见那一处的两条来路）。整合包那一路不用它 ——
+    // 下回来的是 .mrpack，接着走导入，实例名是在那条路上问出来的。
     const QString instanceId =
-        isModpack ? QString() : selectedVersionId(m_ui->getInstalledVersionCombo());
+        isModpack ? QString()
+                  : (forcedInstanceId.isEmpty() ? dependencyInstanceId() : forcedInstanceId);
+    // "这一趟是从某个实例里点进来的吗" —— 只决定要不要弹"存哪儿"那个框（见 LauncherSettings
+    // 里 downloadAutoIntoInstance 那一节）。调用方点名了实例也算。
+    const bool cameFromInstance = !forcedInstanceId.isEmpty() || downloadCameFromInstance();
     if (!isModpack && instanceId.isEmpty()) {
         InlineMessage::warning(m_ui->overlay(), tr("没有选中实例"),
                              tr("先在「已安装版本」里选一个实例，再挑要装进它的版本。"));
@@ -5493,11 +5556,16 @@ void MainWindow::installResourceVersionNow(ResourceCatalog::Kind kind,
     // NOTE: 用户在下载页里待久了之后（比如从实例 A 点进来、又自己把「已安装版本」换成 B），
     //       这一位还是非空、于是不再问。这是**刻意的**：那时候落点仍然是"当前实例"（下拉框
     //       里那一个），而这一项勾选框上写的就是"直接放进当前实例"。
+    //
+    // ★ 2026-10-09：判据从 `m_downloadFromInstanceId.isEmpty()` 换成 `downloadCameFromInstance()`
+    //   —— 后者多认一条来路（资源详情页是从实例点进来的那一趟，见那一处）。那条路原来会
+    //   在这儿弹一个"存哪儿"的框，而用户明明是从**那个实例的模组列表**里点进来的。
+    //   `forcedInstanceId` 非空同样是"这一趟就是给这个实例下的"（前置检查回来那一趟）。
     QString destinationDir = defaultDir;
     // 这一批算"谁在动盘"。默认是那个实例；用户挑了别处的目录时它必须是空的（那底下没有任何
     // 实例在被写，锁着它等于白挡别人启动）。
     QString busyInstanceId = instanceId;
-    if (!m_settings->downloadAutoIntoInstance() || m_downloadFromInstanceId.isEmpty()) {
+    if (!m_settings->downloadAutoIntoInstance() || !cameFromInstance) {
         const QString chosen = QFileDialog::getExistingDirectory(
             this, tr("下载到哪个文件夹"), defaultDir);
         if (chosen.isEmpty()) {
@@ -6289,6 +6357,7 @@ void MainWindow::applySettingsToUi() {
     const QSignalBlocker blockWarnWorldLoss(m_ui->getWarnWorldLossCheck());
     const QSignalBlocker blockDownloadInto(
         m_ui->getDownloadAutoIntoInstanceCheck());
+    const QSignalBlocker blockWarnDeps(m_ui->getWarnMissingDependenciesCheck());
     const QSignalBlocker blockPriority(m_ui->getProcessPriorityCombo());
     const QSignalBlocker blockWindowWidth(m_ui->getGameWindowWidthSpin());
     const QSignalBlocker blockWindowHeight(m_ui->getGameWindowHeightSpin());
@@ -6388,6 +6457,8 @@ void MainWindow::applySettingsToUi() {
     // 「下载新模组时直接放进当前实例」（2026-09-28）。默认值同样只有 LauncherSettings
     // 那一处出处（默认勾上）—— 这里不写任何默认，灌的就是盘上那份。
     m_ui->getDownloadAutoIntoInstanceCheck()->setChecked(m_settings->downloadAutoIntoInstance());
+    // 「下载缺前置时提醒」（2026-10-09）。同一个做法：不在这儿写默认。
+    m_ui->getWarnMissingDependenciesCheck()->setChecked(m_settings->warnMissingDependencies());
 
     // ---------- 版本名格式 ----------
     pushVersionNameOptionsToUi(m_settings->versionNameOptions());
@@ -6878,6 +6949,14 @@ void MainWindow::onDownloadAutoIntoInstanceChanged() {
     // 改完在界面上看不出任何立刻的变化 —— 不写一句的话，他只能等到下一次下载才知道生效没有。
     appendLog(on ? tr("下载：从实例设置里点「下载新模组」时不再问存哪儿，直接放进该实例。")
                  : tr("下载：不管从哪儿点进来的，每次都会问存哪儿。"));
+}
+
+void MainWindow::onWarnMissingDependenciesChanged() {
+    const bool on = m_ui->getWarnMissingDependenciesCheck()->isChecked();
+    m_settings->setWarnMissingDependencies(on);
+    // 和上面那一项同一个做法：这一项管的是"下一次点下载还查不查"，界面上看不出立刻的变化。
+    appendLog(on ? tr("下载：点下载模组 / 光影包时会先检查那个实例缺不缺前置。")
+                 : tr("下载：不再检查前置，只下你点的那一版。"));
 }
 
 void MainWindow::onShowGameLogChanged() {

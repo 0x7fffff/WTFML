@@ -287,11 +287,23 @@ UpdateVerdict judgeUpdate(const InstalledItem &item,
 /// 弹窗标题：`还有前置没装`。
 QString dependencyPromptTitle();
 
-/// 弹窗正文：「这个模组要用 N 个前置模组，这几个还没装：」+ 每行一条名字 +
-/// 「要一起下载吗？」。空表回空串（**空表时不该弹这个框**，见调用点）。
-/// @param names 还没装的那些的**名字**（一条一行，前面带个短横）。名字取不到时调用方
-///        递进来的是项目号（见 MainWindow 里那段）—— 总比一条都不列强。
-QString dependencyPromptText(const QStringList &names);
+/// 弹窗正文的**句头**：「此模组缺失必要的前置：」/「此光影包缺失必要的前置：」。
+/// 2026-10-09 起光影包也查前置（用户确认），所以句头得认这一版是哪一类。
+QString dependencyPromptHead(ResourceCatalog::Kind kind);
+
+/**
+ * @brief 弹窗正文：句头 + 名单（一行一条）+「要一起下载吗？」。空表回空串
+ *        （**空表时不该弹这个框**，见调用点）。
+ *
+ * 名单怎么摆是**这一层说了算**（用户 2026-10-09 点名的截断规则，那一整段写在 .cpp 里
+ * 的 `dependencyNameLines`）：**总数 ≤ 4 全列**、**> 4 列前 3 条 + 「还有 N 个未列出…」**。
+ * 所以永远看不到「还有 1 个未列出」那一行。
+ *
+ * @param kind  这一版是模组还是光影包（只决定句头那半句）。
+ * @param names 还没装的那些的**名字**（一条一行，前面带个短横）。名字取不到时调用方
+ *        递进来的是项目号（见 MainWindow 里那段）—— 总比一条都不列强。
+ */
+QString dependencyPromptText(ResourceCatalog::Kind kind, const QStringList &names);
 
 /**
  * @brief 同一件事，但**还没认过这个实例装了什么**时那一句。
@@ -301,9 +313,14 @@ QString dependencyPromptText(const QStringList &names);
  * 是在替用户认下一件我们不知道的事（他可能早就装了，于是被哄着下了第二份，而 mods/ 里
  * 同一个模组两份，游戏加载哪一份是按文件名顺序定的）。
  *
- * 所以这一版只说事实：「这个模组要用 N 个前置模组」+ 名单，不提"缺"。
+ * 所以这一版在句头后面补一句"不知道你有没有"，名单照上面的规矩摆，不提"缺"。
  */
-QString dependencyPromptUnknownText(const QStringList &names);
+QString dependencyPromptUnknownText(ResourceCatalog::Kind kind, const QStringList &names);
+
+/// 弹窗里那行**灰字**（「可以在设置中关闭此提示（设置页「下载」→「缺失前置提醒」）。」）。
+/// 用户 2026-10-09：「弹窗里灰字写可以在设置里面关掉弹窗」。界面拿它喂
+/// `InlineMessage::ask(...)` 的 note，验证工程拿它断言 —— 别在别处再写一遍。
+QString dependencyPromptNoteText();
 
 /// 「一起下载」（用户 2026-09-28 要的那个"一键下载所有缺少的依赖"）。
 QString dependencyAllButtonText();

@@ -1671,6 +1671,22 @@ public:
     static QString downloadAutoIntoInstanceCheckText() {
         return QStringLiteral("从实例设置里点「下载新模组」时直接放进该实例");
     }
+    // ---------- 「下载缺前置时提醒」（2026-10-09 加的，也在「下载」栏里） ----------
+    // 语义的**唯一出处**是 LauncherSettings 里那一节（用户原话）。这里只有形状。
+    //
+    // NOTE: 那一句话要说清**关掉之后是什么样** —— 用户 2026-10-09 把它定死成「什么都不装，
+    //       只下用户点的那一版」。只说"关掉提醒"的话，用户会以为前置照装，只是不弹窗。
+    static QString warnMissingDependenciesCheckName() {
+        return QStringLiteral("warnMissingDependenciesCheck");
+    }
+    /// 这一行的行标题（左列那一格）。
+    static QString warnMissingDependenciesRowText() {
+        return QStringLiteral("缺失前置提醒");
+    }
+    /// 勾选框自己的文字。
+    static QString warnMissingDependenciesCheckText() {
+        return QStringLiteral("下载模组 / 光影包时，先检查该实例缺不缺前置");
+    }
     static QString showGameLogCheckName() { return QStringLiteral("showGameLogCheck"); }
     static QString processPriorityComboName() { return QStringLiteral("processPriorityCombo"); }
     /// 「窗口模式」那个下拉框（小窗 / 最大化 / 全屏）。2026-09-28 加的。
@@ -2239,6 +2255,7 @@ public:
     QLineEdit *getCurseForgeApiKeyEdit() const { return curseForgeApiKeyEdit; }
     QCheckBox *getShowGameLogCheck() const { return showGameLogCheck; }
     QCheckBox *getDownloadAutoIntoInstanceCheck() const { return downloadAutoIntoInstanceCheck; }
+    QCheckBox *getWarnMissingDependenciesCheck() const { return warnMissingDependenciesCheck; }
     QCheckBox *getWarnDuplicateLaunchCheck() const { return warnDuplicateLaunchCheck; }
     QCheckBox *getWarnWorldLossCheck() const { return warnWorldLossCheck; }
     QComboBox *getProcessPriorityCombo() const { return processPriorityCombo; }
@@ -2441,6 +2458,8 @@ private:
     QCheckBox *showGameLogCheck = nullptr;
     /// 「下载」栏里那个勾选框（2026-09-28）。
     QCheckBox *downloadAutoIntoInstanceCheck = nullptr;
+    /// 同一栏里「缺失前置提醒」那个勾选框（2026-10-09）。
+    QCheckBox *warnMissingDependenciesCheck = nullptr;
     QCheckBox *warnDuplicateLaunchCheck = nullptr;
     QCheckBox *warnWorldLossCheck = nullptr;
     QComboBox *processPriorityCombo = nullptr;

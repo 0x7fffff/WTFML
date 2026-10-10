@@ -208,35 +208,71 @@ UpdateVerdict judgeUpdate(const InstalledItem &item,
 
 // ---------- 界面上的字 ----------
 
-QString dependencyPromptTitle() { return QStringLiteral("还有前置没装"); }
+namespace {
 
-QString dependencyPromptText(const QStringList &names) {
-    if (names.isEmpty()) {
-        return QString();
-    }
+/// 名单怎么摆 —— **唯一出处**（界面和验证工程都走这儿）。
+///
+/// 用户 2026-10-09 的原话：「（模组名称，一行一个，如果多于 3 个的话写 还有 x 个未列出...
+/// （当然如果刚好还剩一个就列出来了不要搞一行显示 1 个未列出这种高血压操作）」
+///
+/// 翻成两条判据：
+///   · **总数 ≤ 4 ⇒ 一条不省，全列**（"刚好还剩一个"的就是 4 条这一档，它走的是全列）；
+///   · **总数 > 4 ⇒ 列前 3 条 + 「还有 N 个未列出…」**（N = 总数 − 3）。
+/// 所以「还有 1 个未列出」这一行**永远画不出来** —— 那正是用户点名不要的那一句。
+QString dependencyNameLines(const QStringList &names) {
+    /// 到这一档为止一律全列（含 4 —— 多出来的第 4 条宁可多占一行，也不给用户看
+    /// 「还有 1 个未列出」）。
+    static constexpr int kListAllUpTo = 4;
+    /// 真要截断时留下几条。
+    static constexpr int kKeepWhenTruncated = 3;
+
     QStringList lines;
-    lines.reserve(names.size());
-    for (const QString &name : names) {
-        lines.append(QStringLiteral("- ") + name);
+    if (names.size() <= kListAllUpTo) {
+        lines.reserve(names.size());
+        for (const QString &name : names) {
+            lines.append(QStringLiteral("- ") + name);
+        }
+        return lines.join(QLatin1Char('\n'));
     }
-    return QStringLiteral("这个模组要用 %1 个前置模组，这几个还没装：\n\n%2\n\n要一起下载吗？")
-        .arg(names.size())
-        .arg(lines.join(QLatin1Char('\n')));
+    lines.reserve(kKeepWhenTruncated + 1);
+    for (int i = 0; i < kKeepWhenTruncated; ++i) {
+        lines.append(QStringLiteral("- ") + names.at(i));
+    }
+    // 这一行**不带短横**：它不是名单里的一条，是一句"后面还有"。
+    lines.append(QStringLiteral("还有 %1 个未列出…").arg(names.size() - kKeepWhenTruncated));
+    return lines.join(QLatin1Char('\n'));
 }
 
-QString dependencyPromptUnknownText(const QStringList &names) {
+}  // namespace
+
+QString dependencyPromptHead(ResourceCatalog::Kind kind) {
+    return kind == ResourceCatalog::Kind::Shader ? QStringLiteral("此光影包缺失必要的前置：")
+                                                 : QStringLiteral("此模组缺失必要的前置：");
+}
+
+QString dependencyPromptTitle() { return QStringLiteral("还有前置没装"); }
+
+QString dependencyPromptText(ResourceCatalog::Kind kind, const QStringList &names) {
     if (names.isEmpty()) {
         return QString();
     }
-    QStringList lines;
-    lines.reserve(names.size());
-    for (const QString &name : names) {
-        lines.append(QStringLiteral("- ") + name);
+    return QStringLiteral("%1\n\n%2\n\n要一起下载吗？")
+        .arg(dependencyPromptHead(kind), dependencyNameLines(names));
+}
+
+QString dependencyPromptUnknownText(ResourceCatalog::Kind kind, const QStringList &names) {
+    if (names.isEmpty()) {
+        return QString();
     }
-    return QStringLiteral("这个模组要用 %1 个前置模组（还没看过这个实例里装了什么，"
-                          "不知道你有没有）：\n\n%2\n\n要一起下载吗？")
-        .arg(names.size())
-        .arg(lines.join(QLatin1Char('\n')));
+    return QStringLiteral("%1（还没看过这个实例里装了什么，不知道你有没有）：\n\n%2\n\n"
+                          "要一起下载吗？")
+        .arg(dependencyPromptHead(kind), dependencyNameLines(names));
+}
+
+QString dependencyPromptNoteText() {
+    // 那一行灰字。**唯一出处**：界面（InlineMessage::ask 的 note）和验证工程都读它。
+    // 写法照「提示」栏里那两条（重复启动 / 进度提醒）—— 都是"提醒本身 + 去哪儿关"。
+    return QStringLiteral("可以在设置中关闭此提示（设置页「下载」→「缺失前置提醒」）。");
 }
 
 QString dependencyAllButtonText() { return QStringLiteral("一起下载"); }

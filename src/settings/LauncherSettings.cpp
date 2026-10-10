@@ -28,6 +28,9 @@ static constexpr const char kDownloadSource[] = "Download/Source";
 // 「下载新模组时直接放进当前实例」（2026-09-28，设置页「下载」栏那一项）。
 // 和上面那条同一个前缀：它也是"下下来的东西往哪儿去"这一件事。
 static constexpr const char kDownloadAutoIntoInstance[] = "Download/AutoIntoInstance";
+// 「下载缺前置时提醒」（2026-10-09，设置页「下载」栏那一项）。同一个前缀：它管的也是
+// "点下载那一刻多问一句"这一类的事。
+static constexpr const char kWarnMissingDependencies[] = "Download/WarnMissingDependencies";
 static constexpr const char kShowGameLog[] = "Launcher/ShowGameLog";
 static constexpr const char kGameWindowWidth[] = "Launcher/WindowWidth";
 static constexpr const char kGameWindowHeight[] = "Launcher/WindowHeight";
@@ -171,6 +174,14 @@ void LauncherSettings::setDownloadAutoIntoInstance(bool autoIntoInstance) {
         return;
     }
     m_downloadAutoIntoInstance = autoIntoInstance;
+    save();
+}
+
+void LauncherSettings::setWarnMissingDependencies(bool warn) {
+    if (m_warnMissingDependencies == warn) {
+        return;
+    }
+    m_warnMissingDependencies = warn;
     save();
 }
 
@@ -335,6 +346,10 @@ void LauncherSettings::load() {
     // （多问一句 vs 悄悄把文件放进他不知道的地方）。
     m_downloadAutoIntoInstance =
         settings.value(kDownloadAutoIntoInstance, m_downloadAutoIntoInstance).toBool();
+    // 同上：默认值取当前成员（构造时是 true），认不出来的值给 false = 关掉提醒 ——
+    // 那个方向只是"少问一句"，不会替用户把东西装进他不知道的地方。
+    m_warnMissingDependencies =
+        settings.value(kWarnMissingDependencies, m_warnMissingDependencies).toBool();
     m_showGameLog = settings.value(kShowGameLog, m_showGameLog).toBool();
     // 宽高**读回来就钳位**：这两个数会原样进游戏命令行，盘上那份不能当成可信的。
     // 存进去的值也可能是手改的，所以两边都要兜。
@@ -404,6 +419,7 @@ void LauncherSettings::save() const {
     settings.setValue(kAfterLaunch, behaviourKey(m_launcherBehaviour));
     settings.setValue(kDownloadSource, downloadSourceKey(m_downloadSource));
     settings.setValue(kDownloadAutoIntoInstance, m_downloadAutoIntoInstance);
+    settings.setValue(kWarnMissingDependencies, m_warnMissingDependencies);
     settings.setValue(kShowGameLog, m_showGameLog);
     settings.setValue(kGameWindowWidth, clampWindowWidth(m_gameWindowWidth));
     settings.setValue(kGameWindowHeight, clampWindowHeight(m_gameWindowHeight));
