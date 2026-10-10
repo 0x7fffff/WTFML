@@ -886,6 +886,40 @@ QPixmap VersionIcons::trash(int size, const QColor &color) {
     });
 }
 
+QPixmap VersionIcons::infoMark(int size, const QColor &color) {
+    if (size <= 0) {
+        return QPixmap();
+    }
+    return cached(QStringLiteral("info/%1/%2").arg(size).arg(color.name()), [size, color]() {
+        QPixmap pixmap(size, size);
+        pixmap.fill(Qt::transparent);
+        QPainter p(&pixmap);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        p.setPen(Qt::NoPen);
+        p.setBrush(color);
+
+        // ---------- 外面那个圈 ----------
+        // 空心圆环（外圆减内圆），不是描边：16 px 下 `setPen` 描出来的圈粗细不可控，
+        // 而且抗锯齿会把整圈糊成一团灰 —— 和垃圾桶/拼图那几支"实心路径相减"一个做法。
+        const qreal ring = size * 0.44;      // 外半径
+        const qreal inner = size * 0.34;     // 内半径 ⇒ 环宽约 size * 0.10
+        const QPointF center(size / 2.0, size / 2.0);
+        QPainterPath circle;
+        circle.addEllipse(center, ring, ring);
+        QPainterPath hole;
+        hole.addEllipse(center, inner, inner);
+        p.drawPath(circle.subtracted(hole));
+
+        // ---------- 圈里那个「i」 ----------
+        // 一个点 + 一竖。竖条比点窄一半（19 px 下两笔都是"看得见的一小块"，等宽的话会
+        // 读成一个感叹号）。
+        const qreal bar = size * 0.07;
+        p.drawRect(QRectF(center.x() - bar / 2.0, size * 0.24, bar, size * 0.10));
+        p.drawRect(QRectF(center.x() - bar / 2.0, size * 0.41, bar, size * 0.33));
+        return pixmap;
+    });
+}
+
 QPixmap VersionIcons::puzzleMark(int size, const QColor &color) {
     if (size <= 0) {
         return QPixmap();

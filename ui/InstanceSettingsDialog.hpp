@@ -1091,12 +1091,17 @@ public:
     /// @param title 那个资源在接口上的名字。空串（= 没认出来）回空串。
     static QString filesResourceTip(const QString &title);
 
-    /// 三页底下那行说明里**多出来的那一句**（见 filesHint()）：名字能点这件事得让人知道
-    /// —— 光靠颜色和光标是"要悬停才发现"的，而这一段小字正是说"这一页特有的事"的地方。
-    ///
-    /// NOTE: 和那颗「下载新光影」一样，**光影包那一页那句故意不提它**（见 filesHint 里
-    ///       那条 ★：那一页有「用不上」那一档，整排按钮和这一列连人一起收起来）。
-    static QString filesNameHint();
+    // ★★ `filesDetailHint()` 2026-10-10 **已删**（原来是"四页底下那行说明里多出来的那一句"，
+    //    说的是「行尾那颗 ⓘ 能进详情页，单击选中一条，按住 Ctrl 能多选，Ctrl+A 全选」）。
+    //    删它的直接原因：**模组 / 资源包 / 数据包 / 光影包这四页底下那段叙述整个不挂了**
+    //    （用户："把这个页面下方那段叙述删了来让框拉到底充分利用空间"，四处都删）⇒ 没有第二个
+    //    调用者。★ 它删之前就已经是一句错话：多选 2026-10-10 当天换成了 `MultiSelection`
+    //    （**点一下就切换，一个修饰键都不用**），"按住 Ctrl"那句照着按只会把这一条翻个面
+    //    —— `wtfml-comment-vs-code` 那个老毛病。要再挂这类文字，**照着
+    //    `InstanceFilesPage::setBatchMode()` 里那段注释写**，别照抄记忆里的版本。
+    //
+    // NOTE: 一句也没搬去别处 —— 这些"要动手才发现"的事现在由**操作条自己**说（选中才露），
+    //       不需要一段常驻小字。
 
     /// 「配置文件」那一页上面那颗「上级」（2026-09-27）。**只有这一页有** —— 别的几页
     /// 看的是一个平铺的目录，而 `config/` 底下还有层级（`config/ftbquests/` 这种），
@@ -1545,10 +1550,12 @@ signals:
     void browseDownloadsRequested(const QString &categoryKey);
 
     /**
-     * @brief 用户**点了一下某一条文件的名字**，而这一条认得出是哪个资源 ⇒ 请打开它自己的
-     *        那一页（2026-09-27）。
+     * @brief 用户**点了某一条行尾那颗「详情」**，而这一条认得出是哪个资源 ⇒ 请打开它自己的
+     *        那一页（2026-09-27；2026-10-09 起触发点是那颗按钮，不再是被点了一下名字）。
      *
-     * 用户原话：「除了模组以外的几个都是点击模组名称自动进入下载界面（前提是匹配上了）」。
+     * 用户原话（说"点名字"那一版）：「除了模组以外的几个都是点击模组名称自动进入下载界面
+     * （前提是匹配上了）」；2026-10-09 改成「把点击条目进入对应详情页的功能变成一个详情
+     * 按钮，放到开关和删除中间」。
      *
      * @param pageKey 哪一页发出来的（`filePageKeys()` 里的一个键 —— 也就是"这是个资源包
      *        还是光影包"，见 filesNameOpensResource()）。**是键不是下标**。
@@ -1559,6 +1566,34 @@ signals:
      *       同一个理由：它正卡在 MainWindow 那次 `execPage()` 的嵌套事件循环里。
      */
     void fileResourceRequested(const QString &pageKey, const QString &path);
+
+    /**
+     * @brief 用户在某一页的**悬浮操作条**上按了「更新」：把选中的这些升到最新版（2026-10-09）。
+     *
+     * @param pageKey 哪一页发出来的（和 fileResourceRequested() 同一套键）。
+     * @param paths   选中的那些条目的**绝对路径**（现在盘上那个名字）。
+     *
+     * NOTE: 这一层不知道"最新版是哪一版" —— 那是 MainWindow 手里那张表的事（见
+     *       InstanceFilesPage::batchUpdateRequested 那段）。
+     */
+    void fileBatchUpdateRequested(const QString &pageKey, const QStringList &paths);
+
+    /**
+     * @brief 用户在悬浮操作条上按了「禁用」/「启用」：把选中的这些整体改成那个状态。
+     *
+     * @param pageKey 同上。
+     * @param paths   选中的那些条目的绝对路径（禁用着的那些带 `.disabled`）。
+     * @param disable true = 禁用（挂后缀），false = 启用（去后缀）。
+     */
+    void fileBatchToggleRequested(const QString &pageKey, const QStringList &paths, bool disable);
+
+    /**
+     * @brief 用户在悬浮操作条上按了「删除」。
+     *
+     * **"真的要删吗"那句由接的人问** —— 而且对**整批**只问一次（理由同
+     * deleteInstanceFileRequested：这一层没有 OverlayHost）。
+     */
+    void fileBatchDeleteRequested(const QString &pageKey, const QStringList &paths);
 
     /**
      * @brief 用户把几个文件**拖到这一页上**了（2026-09-29）。

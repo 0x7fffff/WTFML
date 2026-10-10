@@ -728,10 +728,20 @@ private slots:
     /// 启用 / 禁用一条：把文件名改成 `<原名>.disabled`，或者反过来。
     /// @return **动过盘没有** —— 真了调用点才需要让那一页重列（没动过还重列会让用户
     ///         以为"刚才那一下生效了"）。
-    bool toggleInstanceFile(const QString &path);
+    ///
+    /// ★ 2026-10-09 多一个出参，为的是**批量**那一颗按钮（见 toggleInstanceFiles()）：
+    ///   @p problem 非空 = "别弹框，把不成的缘故写在这儿"，调用方自己决定怎么合起来说。
+    ///   不给的话行为一个字不变（还是各行弹各行的框）。
+    ///   理由：一排二十条里十九条被游戏占着的话，二十个框是要点二十次的。
+    bool toggleInstanceFile(const QString &path, QString *problem = nullptr);
 
     /// 删掉一条（**先问一句**；文件夹连同里面的东西一起删）。@return 同 toggleInstanceFile()。
     bool deleteInstanceFile(const QString &path);
+
+    /// 删掉一条**不问**那一句 —— `deleteInstanceFile()` 问完调的就是它，批量删除
+    /// （deleteInstanceFiles()）也是（那一批**只问一次**）。@return 动过盘没有。
+    /// @param problem 同 `toggleInstanceFile()` 那个出参（非空 = 别弹框，把缘故写在这儿）。
+    bool removeInstanceFileUnasked(const QString &path, QString *problem = nullptr);
 
     /// 把「文件管理」那几页里那些**资源文件**的图标要回来（2026-09-27）。
     ///
@@ -1313,6 +1323,36 @@ private:
     /// `onUpdateCheckVersionsFinished` 递进来的就是它自己那个成员 —— 按引用收 = 自己把
     /// 自己的实参抹掉，整份结果会记在空键底下）。
     void finishUpdateCheck(QString instanceId);
+
+    // ---------- 文件管理那几页的批量按钮（2026-10-09）----------
+    //
+    // 用户原话：「在选中任意数量模组时在列表下方的位置（不是表尾而是悬浮）显示几个按钮：
+    // 更新 禁用 启用 全选 反选 取消 删除」。全选 / 反选 / 取消三颗**全在界面那一边**
+    // （它们只动选中集，一个字节的盘都不碰），所以只有三件事落到这一层：
+    // 更新 / 禁用·启用一把 / 删除一把。
+    //
+    // 【为什么「更新」是一批下、而不是一条一条走 installResourceVersion()】
+    //
+    // 计划里写的是"逐条走 installResourceVersion()（于是顺带过一遍前置检查）"，**做不到**：
+    // `VersionManager::downloadResourceFiles()` 头一道闸就是 `downloadManager->isBusy()`
+    // （见那儿那句 qWarning），第二发会被**直接拒掉**并回一句"已有下载任务正在进行"。
+    // 也就是说那一圈里只有第一条真下得动，剩下 N-1 条全是失败弹框。
+    //
+    // 改成一整批，顺带也把前置检查留在了外面 —— 那是**刻意**的：前置是在**装**的时候
+    // 要解决的事，而这一颗按钮动的是**已经装好的**那几条（它们当初装进来时前置就过过一遍
+    // 了）。真要补前置，用户走的是下载页那条路（那儿有需求 1 的那个框）。
+    /// 「更新」：把这一批路径各自换成一趟检测查出来的**最新那一版**，并成**一批**下。
+    ///
+    /// @param instanceId 哪一页上的（`m_instanceUpdateTargets` 的键）。
+    /// @param pageKey `instanceFileDirs()` 的键（`mod` / `resourcepack` / `datapack` /
+    ///        `shader`）—— 落点由它算，界面那边只说"是哪一页"。
+    void updateInstanceFiles(const QString &instanceId, const QString &pageKey,
+                             const QStringList &paths);
+    /// 「禁用」/「启用」：@p disable 为真 = 禁用。**只动该动的那几条**（选中集里本来就
+    /// 混着已启用和已禁用 —— 灰化规则是"至少有一条能切"，不是"全都是同一种"）。
+    void toggleInstanceFiles(const QStringList &paths, bool disable);
+    /// 「删除」：**只问一次**，然后逐条落盘。
+    void deleteInstanceFiles(const QStringList &paths);
     /// ResourceStore 的三个回复。
     void onResourceSearchFinished(const QString &requestKey,
                                   const ResourceCatalog::SearchResult &result);
@@ -2088,6 +2128,16 @@ private:
         QSet<QString> waitingKeys;
         /// 已经判出来的（收尾时按它排序写报告）。
         QList<ModDependencies::UpdateVerdict> verdicts;
+        /// ★ 2026-10-09 加：**判成"可更新"的那几条，它们各自该换成哪一版**（盘上路径 →
+        /// 最新那一版**整个条目**）。
+        ///
+        /// 为什么要整条：文件管理那几页那个悬浮条上的「更新」要把这一批一次下完，而
+        /// `downloadResourceFiles()` 要的是 URL / 文件名 / sha1 / 大小 —— 那些全在
+        /// `VersionEntry::files` 里。报告里那三行字（版本号 / 文件名 / 落后几版）**不够**。
+        ///
+        /// NOTE: 值就是 `judgeUpdate()` 看的那一份 `versions.first()`（判"最新"和拿"最新
+        ///       那一版"必须是同一句话，不另算一份）。
+        QHash<QString, ResourceCatalog::VersionEntry> latestByPath;
         /// 反查那一趟自己的问题（读不动几个文件之类），报告末尾照实说一句。
         QString lookupNote;
         /// 点「检查更新」那一颗按钮时开着的那一页。**弱引用** —— 结果回来的时候这一页
@@ -2114,6 +2164,20 @@ private:
     ///       不占多少，而"哪几个实例该清"没有出处（文件删了就自然筛不出来了 —— 那一条
     ///       已经不在这一页上了）。
     QHash<QString, QStringList> m_instanceOutdatedPaths;
+    /// **会话级**：和上面那份名单**一起写、一起失效** —— 实例 id → （盘上路径 → 该换成
+    /// 的那一版）。上面那份回答"哪几条要更新"（界面拿它筛「可更新」那一格、算计数），
+    /// 这一份回答"换成哪一版"（悬浮条上那颗「更新」拿它拼要下的文件清单）。
+    ///
+    /// ★ 2026-10-09 加（需求 2 的批量更新）。**不在 `InstanceFilesPage` 里存**：那一层
+    ///   不 include src/，`ResourceCatalog::VersionEntry` 是下载那一侧的类型；而且它也没
+    ///   地方去拿 —— 唯一的来源就是这趟检测。
+    ///
+    /// NOTE: 和上面那份一样**只往里放、不清理**。刷新时机只有一处 = 下一次检测收尾
+    ///       （`finishUpdateCheck()` 里那一句 insert，和名单同一句旁边）。用户更新完之后
+    ///       这一格仍然是旧的（盘上那几个文件其实已经换过了）—— 直到他再点一次
+    ///       「检查更新」。这是**刻意**的：现算一份"现在还是不是最新的"要再跑一整趟
+    ///       反查 + 版本列表，而那正是他刚点过的那颗按钮。
+    QHash<QString, QHash<QString, ResourceCatalog::VersionEntry>> m_instanceUpdateTargets;
     /// 已经问回来的版本列表，按**请求钥匙**存（ResourceCatalog::versionsRequestKey()）。
     /// 点第三层那一下要拿它换出 URL / sha1 / 大小。
     /// NOTE: 那些事实**不放在条目上**：条目在重搜时会被整个清掉，而"这一版的文件是哪几个"

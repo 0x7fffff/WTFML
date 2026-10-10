@@ -1431,6 +1431,20 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             //   别的几页（原理图 / 存档 / 配置文件）里的东西根本不在任何平台的清单里。
             //   多一格永远筛不出东西的选项，用户只会以为"筛坏了"。
             files->setCanFilterUpdates(!filesDownloadText(key).isEmpty());
+            // ★ 2026-10-09：**那四页**再开一套「批量管理」（行尾的详情按钮 + 多选 + 底层
+            //   那条悬浮操作条 + 顶上四颗横向筛选按钮）。判据**就是上面那个** ——
+            //   `filesNameOpensResource()` 说的正是"这一条认得出是哪个资源"，而详情按钮
+            //   要的恰好是这一件事（见 MainWindow 那边 detailRequested 那一发 —— 这一发
+            //   2026-10-09 从 `resourceRequested` 改的名）。
+            //   用户原话：「在模组/资源包等的设置里面…」—— 不新开一张"哪几页算数"的名单。
+            // ★ 2026-10-10：这一发同时是**"这一页底下那段说明要不要挂"**的判据（见下面
+            //   建 hint 那一处）—— 用户原话：「把这个页面下方那段叙述删了来让框拉到底充分
+            //   利用空间」，范围是**这四页**（模组 / 资源包 / 数据包 / 光影包，也就是这套
+            //   批量管理的那四页）。其余几页（存档 / 原理图 / 配置文件 / 服务器列表 /
+            //   快捷方式）底下那行小字**照旧挂着** —— 它们讲的是别的规矩（数据包那句
+            //   "下了不等于生效、要自己搬进存档"连它一起没了，是用户点头的）。
+            const bool batch = filesNameOpensResource(key);
+            files->setBatchMode(batch);
             // ★ 2026-09-28：存档那一页顶上多两颗（「导入世界」/「批量编辑」）。用户原话：
             //   「顶端加个导入世界按钮和批量编辑按钮（这个先做占位）」。
             //   别的几页**不接文字**（= 那两颗藏起来，见 setImportText）。「批量编辑」今天
@@ -1446,14 +1460,32 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                     emit browseDownloadsRequested(category);
                 }
             });
-            // ★ 行上的名字点得动（2026-09-27）：**只有"点得动"的那几页接**。判据就是
-            //   filesNameOpensResource()（模组 2026-09-27 起也在表里了）—— 不在表里的那几页
-            //   名字照旧只是一行字，连事件过滤器都不给它装（见 setResourceForPath()：
-            //   没记过 tip 的那一行不变成链接）。
-            //   接线这一层是多余的：真的按下去是 InstanceFilesPage 那边认出路径才发的。
+            // ★ 行尾那颗「详情」按下去（2026-09-27 起是"名字点得动"，2026-10-09 换成那颗
+            //   按钮）：**只有"点得动"的那几页接**。判据就是 filesNameOpensResource()
+            //   —— 不在表里的那几页既没有那一格按钮，这一条线也不接。
+            //   接线这一层是多余的：真的按下去是 InstanceFilesPage 那边认出路径才发的
+            //   （认不出来的那些那一颗是灰的，按不动）。
+            //   ★ 2026-10-10：**右键点一行**走的也是这一发（用户原话：「右键点击时也可以
+            //   进入详情页，此时保留上一页的选择」）—— 判据、落点、收页那一套全都一样，
+            //   这一层不必知道用户是按了那颗 ⓘ 还是右键了那一行。
             if (filesNameOpensResource(key)) {
-                connect(files, &InstanceFilesPage::resourceRequested, this,
+                connect(files, &InstanceFilesPage::detailRequested, this,
                         [this, key](const QString &path) { emit fileResourceRequested(key, path); });
+                // 批量那三发：**判据同上**（这三件事只在那四页上谈得上）。
+                // NOTE: 转发上去的三个动作全**不改盘** —— 问不问那句、怎么落盘、落完要不要
+                //       重列，都是 MainWindow 的事（这一层连 AppPaths 都够不着）。
+                connect(files, &InstanceFilesPage::batchUpdateRequested, this,
+                        [this, key](const QStringList &paths) {
+                            emit fileBatchUpdateRequested(key, paths);
+                        });
+                connect(files, &InstanceFilesPage::batchToggleRequested, this,
+                        [this, key](const QStringList &paths, bool disable) {
+                            emit fileBatchToggleRequested(key, paths, disable);
+                        });
+                connect(files, &InstanceFilesPage::batchDeleteRequested, this,
+                        [this, key](const QStringList &paths) {
+                            emit fileBatchDeleteRequested(key, paths);
+                        });
             }
 
             // ★ 「配置文件」那一页多两样（2026-09-27）：上面一颗「上级」，以及"双击/回车
@@ -1490,10 +1522,19 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             //   要跟着改的声明。
             m_filesPages.insert(key, files);
             target->addWidget(files, 1);
-            auto *hint = new QLabel(filesHint(key), listHost);
-            hint->setObjectName(filesHintName(key));
-            hint->setWordWrap(true);
-            target->addWidget(hint);
+            // ★ 2026-10-10：**开了批量管理的那四页不再挂底下那段说明**（用户原话：
+            //   「把这个页面下方那段叙述删了来让框拉到底充分利用空间」）—— 列表那一格是
+            //   `stretch = 1`、小字那一格没有 stretch，所以少一句小字 = 列表**直接多长
+            //   那么高**（原来那几页里最长的一句在默认窗口下是两三行；那句所在的
+            //   `filesDetailHint()` 这一趟已删，见 .hpp 里那段）。
+            //   判据就是上面那一发 `batch` —— 和"这一页有没有那一套按钮"是同一句话，
+            //   不新开第二张名单。
+            if (!batch) {
+                auto *hint = new QLabel(filesHint(key), listHost);
+                hint->setObjectName(filesHintName(key));
+                hint->setWordWrap(true);
+                target->addWidget(hint);
+            }
 
             // 第 1 格：编辑器。**建一次留着**（见 .hpp 里 configFilePage() 那两条 NOTE）
             // —— 每一趟开文件只是往里灌内容（openConfigEditor()），接线只有一次。
@@ -2123,36 +2164,18 @@ QStringList InstanceSettingsDialog::shortcutPathKeys() {
 }
 
 QString InstanceSettingsDialog::filesHint(const QString &key) {
+    // ★★ 2026-10-10：**模组 / 资源包 / 数据包 / 光影包四页那几条分支已经删掉了**。
+    //   用户原话：「把这个页面下方那段叙述删了来让框拉到底充分利用空间」—— 那四页
+    //   （＝开着批量管理的那四页，判据 `filesNameOpensResource()`）**压根不建那个 QLabel**
+    //   （见构造里建 hint 那一处），于是这几条分支再没有人调得到，留着就是**第二份真相**：
+    //   哪天有人照着它们改字，改的是一个屏幕上不存在的东西。
+    //   连 `filesDetailHint()`（那句"行尾那颗 ⓘ …按住 Ctrl 能多选"）也一起没了 ——
+    //   ★ 顺带说一句：那句话在 2026-10-10 这一天**本来就过期了**（多选换成了
+    //   `MultiSelection`，"按住 Ctrl"已经不是加选的办法），删得正是时候。
+    //   剩下这几页的小字照旧，一条没动。
     if (key == QStringLiteral("shortcut")) {
         return tr("这几颗只是把文件夹打开 —— 看里面有什么、禁用一个、删掉一个，都在左边那一"
                   "列里对应的那几页（模组 / 资源包 / 光影包…）。下面那几格决定它们露不露出来。");
-    }
-    if (key == QStringLiteral("mod")) {
-        // 末尾那句是「名字点得动」（2026-09-27 补，见 filesNameHint()）。**四页都有**
-        // —— 差别就是 filesNameOpensResource() 那张表（2026-09-27 起模组也在表里了）。
-        return tr("游戏会自己扫这里面的 .jar。「禁用」只是把文件名改成 .jar.disabled —— "
-                  "文件还在，改回来就又生效了。上面那颗「%1」直接切到下载页去找。%2")
-            .arg(filesDownloadText(key), filesNameHint());
-    }
-    if (key == QStringLiteral("resourcepack")) {
-        // 末尾那句是「名字点得动」（2026-09-27 补，见 filesNameHint()）。
-        return tr("游戏会自己扫这里：.zip 和文件夹都算一个资源包。上面那颗「%1」直接切到"
-                  "下载页去找。%2")
-            .arg(filesDownloadText(key), filesNameHint());
-    }
-    if (key == QStringLiteral("datapack")) {
-        return tr("下载到这儿不等于生效：要自己把它（或者它里面的文件夹）搬进对应存档的"
-                  "datapacks 文件夹里。上面那颗「%1」直接切到下载页去找。%2")
-            .arg(filesDownloadText(key), filesNameHint());
-    }
-    if (key == QStringLiteral("shader")) {
-        // ★ 这一句**故意不提**上面那颗「下载新光影」（另外三页都提）：光影包这一页有
-        //   「用不上」那一档（setUnavailable()），而那一档里**整排按钮连它一起收起来了**
-        //   （理由见 InstanceFilesPage::setDownloadText() 的 NOTE：这一页正在说"这个实例
-        //   装不了光影"，此时把人送去下载页找光影包是指错路）。这句小字在那一档上照样挂着
-        //   —— 写着"上面那颗"就是**指着不存在的东西**，而那一页顶上那句解释已经把该去哪儿
-        //   说清楚了（"先去「下载」页装一个 Iris"）。别照着另外三页把它补齐。
-        return tr("游戏会自己扫这里，但要有 Iris 或者 OptiFine 才加载得了。");
     }
     if (key == QStringLiteral("schematic")) {
         return tr("Litematica 装好的话它默认就读这个文件夹。");
@@ -2299,9 +2322,15 @@ QString InstanceSettingsDialog::filesResourceTip(const QString &title) {
     return tr("打开「%1」的下载页（这一页会关掉）。").arg(title);
 }
 
-QString InstanceSettingsDialog::filesNameHint() {
-    return tr("认得出是哪个资源的那几条，点一下名字就能进它自己的那一页。");
-}
+// ★★ `filesDetailHint()` 2026-10-10 **已删**（原来在这儿，是模组 / 资源包 / 数据包三页小字
+//    末尾那一句"行尾那颗 ⓘ 能进它自己的那一页…按住 Ctrl 能多选，Ctrl+A 全选"）。
+//    删它的直接原因：那几页底下那段叙述整个不挂了（用户："把这个页面下方那段叙述删了来让
+//    框拉到底充分利用空间"），没有第二个调用者。
+//    ★ **它在删之前就已经是一句错话了**，这才值得记一笔：`Ctrl` 那一天还是加选的办法，
+//    而 2026-10-10 同一天多选换成了 `MultiSelection`（点一下切换，一个修饰键都不用）——
+//    留着它的话，用户照着「按住 Ctrl」去按，得到的是"这一条翻了个面"（`Toggle` 不看修饰键），
+//    也就是 `wtfml-comment-vs-code` 那个老毛病再来一次：**字面声称的那一侧就是洞**。
+//    要再挂说明的文字，写的时候**照着 `setBatchMode()` 里那段**写，别照抄记忆里的版本。
 
 QString InstanceSettingsDialog::pageUnavailableText(const QString &key) {
     // **唯一分发处**：页里那句「用不上」和勾选表的悬停提示都走它。

@@ -5400,7 +5400,15 @@ void MainWindow::onUpdateCheckVersionsFinished(const QString &requestKey,
     const QList<ResourceCatalog::VersionEntry> &answer =
         problem.isEmpty() ? versions : QList<ResourceCatalog::VersionEntry>();
     for (const ModDependencies::InstalledItem &item : m_updateCheck.itemsByKey.value(requestKey)) {
-        m_updateCheck.verdicts.append(ModDependencies::judgeUpdate(item, answer));
+        const ModDependencies::UpdateVerdict verdict = ModDependencies::judgeUpdate(item, answer);
+        m_updateCheck.verdicts.append(verdict);
+        // ★ 2026-10-09：判"这条可更新"的那一瞬间，把**它该换成的那一版**也留一份 ——
+        //   文件管理页悬浮条上那颗「更新」要的就是它（见 UpdateCheckRun::latestByPath）。
+        //   `answer.first()` 和 `judgeUpdate()` 认的"最新"是同一个（它里面也是这么取的），
+        //   所以这两份永远说得上同一件事。
+        if (verdict.state == ModDependencies::UpdateState::Outdated && !answer.isEmpty()) {
+            m_updateCheck.latestByPath.insert(item.path, answer.first());
+        }
     }
     if (m_updateCheck.waitingKeys.isEmpty()) {
         finishUpdateCheck(m_updateCheck.instanceId);
@@ -5453,6 +5461,10 @@ void MainWindow::finishUpdateCheck(QString instanceId) {
         outdatedPaths.append(verdict.item.path);
     }
     m_instanceOutdatedPaths.insert(instanceId, outdatedPaths);
+    // ★ 2026-10-09（需求 2）：上面那份名单旁边再存一份"路径 → 换成哪一版"（见
+    //   m_instanceUpdateTargets 那段）。**和上面那一句同一处**：两份东西说的本来就是同
+    //   一件事的两面，"哪几条要更新"和"换成哪一版"分开写迟早会对不上。
+    m_instanceUpdateTargets.insert(instanceId, run.latestByPath);
     // **先记账再递**：递出去的那一份是上面这一行写的（不是从这里临时拼的），于是"这一页
     // 现在筛得出来的"和"下一次开这一页筛得出来的"永远是同一份。
     pushInstanceFileUpdates(run.dialog, instanceId);
@@ -9397,6 +9409,35 @@ void MainWindow::openInstanceSettingsNow(const QString &versionId, const QString
                 }
             });
 
+    // ★ 2026-10-09（需求 2）：那四页上「选中之后悬浮出来的那一条」里的三颗 —— 更新 /
+    //   禁用·启用一把 / 删除一把。和上面那两条**不是一回事**：那两条是**行尾**那一颗开关
+    //   和那一颗垃圾桶发出来的**单条**动作，这三条是**悬浮条**发出来的**一批**。
+    //
+    //   ui/ 那边只管"用户要动这一批"（它不 include src/、也不碰磁盘），到底下什么、
+    //   每条落哪儿、名字怎么改，全在这一层（和上面那两条同一个分工）。
+    connect(&dialog, &InstanceSettingsDialog::fileBatchUpdateRequested, this,
+            [this, &targetId](const QString &pageKey, const QStringList &paths) {
+                // `targetId` **按引用**（和上面那批 lambda 同一个理由，见 refreshInstanceDirs
+                // 的 NOTE）：改名之后它变了，而这一发要更新的是**改名之后**那个实例里的
+                // 文件。**不刷新那一页** —— 理由见 updateInstanceFiles() 末尾那段。
+                updateInstanceFiles(targetId, pageKey, paths);
+            });
+    connect(&dialog, &InstanceSettingsDialog::fileBatchToggleRequested, this,
+            [this, &dialog](const QString &pageKey, const QStringList &paths, bool disable) {
+                Q_UNUSED(pageKey);  // 改名字跟哪一页无关：给的就是**这一批的绝对路径**
+                toggleInstanceFiles(paths, disable);
+                // 一律重列：改过名的那几条路径变了（选中集里它们会掉出去，这是对的），
+                // 而"现在到底是启用还是禁用"也要重新画。
+                dialog.refreshFilePages();
+            });
+    connect(&dialog, &InstanceSettingsDialog::fileBatchDeleteRequested, this,
+            [this, &dialog](const QString &pageKey, const QStringList &paths) {
+                Q_UNUSED(pageKey);  // 同上：删的是一批绝对路径
+                deleteInstanceFiles(paths);
+                // 删掉的那几行还在屏幕上就说明没删掉 —— 重列一次。
+                dialog.refreshFilePages();
+            });
+
     // ---------- 「复制实例」（2026-09-28）----------
     //
     // 用户原话：「实例设置的概览里面加一条复制实例，点击以后让用户选择复制到的文件夹，然后
@@ -11411,31 +11452,35 @@ void MainWindow::onServerPingAllFinished() {
 }
 
 
-bool MainWindow::toggleInstanceFile(const QString &path) {
+bool MainWindow::toggleInstanceFile(const QString &path, QString *problem) {
+    // ★ 2026-10-09：这两句把"说人话"和"怎么让人看见"分开了。`problem` 非空 = 调用方要
+    //   自己收着（批量那一路 —— 一排二十条里十九条被游戏占着的话，二十个框是要点二十次
+    //   的）。空 = 老行为：当场弹一个框。
+    const auto fail = [this, problem](const QString &text) {
+        if (problem != nullptr) {
+            *problem = text;
+        } else {
+            InlineMessage::warning(m_ui->overlay(), tr("改动失败"), text);
+        }
+        return false;
+    };
     const QFileInfo info(path);
     if (!info.exists()) {
         // 正常路径下走不到（那一行是刚列出来的），照实说明原因。
-        InlineMessage::warning(m_ui->overlay(), tr("改动失败"),
-                               tr("「%1」现在不在盘上。").arg(QDir::toNativeSeparators(path)));
-        return false;
+        return fail(tr("「%1」现在不在盘上。").arg(QDir::toNativeSeparators(path)));
     }
     const QString suffix = InstanceFilesPage::disabledSuffix();
     const QString target = info.fileName().endsWith(suffix, Qt::CaseInsensitive)
                                ? path.left(path.size() - suffix.size())
                                : path + suffix;
     if (QFileInfo::exists(target)) {
-        InlineMessage::warning(
-            m_ui->overlay(), tr("改动失败"),
-            tr("「%1」已经有一个了 —— 先把那一份删掉或者改个名，再动这一份。")
-                .arg(QDir::toNativeSeparators(target)));
-        return false;
+        return fail(tr("「%1」已经有一个了 —— 先把那一份删掉或者改个名，再动这一份。")
+                        .arg(QDir::toNativeSeparators(target)));
     }
     // 走 QFile::rename 而不是 QDir 那套：文件、目录它都能搬，而且同一个卷里改名不搬数据。
     if (!QFile::rename(path, target)) {
-        InlineMessage::warning(m_ui->overlay(), tr("改动失败"),
-                               tr("没能改「%1」的名字：多半是它正被游戏占着。先把游戏关掉再试。")
-                                   .arg(QDir::toNativeSeparators(path)));
-        return false;
+        return fail(tr("没能改「%1」的名字：多半是它正被游戏占着。先把游戏关掉再试。")
+                        .arg(QDir::toNativeSeparators(path)));
     }
     appendLog(target.endsWith(suffix, Qt::CaseInsensitive)
                   ? tr("禁用文件：%1").arg(QDir::toNativeSeparators(path))
@@ -11530,6 +11575,29 @@ bool MainWindow::deleteInstanceFile(const QString &path) {
                                  tr("取消"), false, /*destructive=*/true)) {
         return false;
     }
+    return removeInstanceFileUnasked(path);
+}
+
+bool MainWindow::removeInstanceFileUnasked(const QString &path, QString *problem) {
+    // ★ 和 toggleInstanceFile() 那一对**同一个形状**（2026-10-09）：`problem` 非空 = 调用方
+    //   自己收着（批量那一路，"一排二十个框要点二十次"的同一个理由）。空 = 当场弹框。
+    const auto fail = [this, problem](const QString &text) {
+        if (problem != nullptr) {
+            *problem = text;
+        } else {
+            InlineMessage::warning(m_ui->overlay(), tr("删除失败"), text);
+        }
+        return false;
+    };
+    // NOTE: 上面那一句问话要用 `info.isDir()` 决定问什么，所以"在不在盘上"那儿先判过一次；
+    //       这一句是**第二道**（批量删除那条路直接从这儿进，没人替它判）。留着不亏：
+    //       它挡的是 `QFile::remove` 在文件已经没了的时候**返回 false** —— 那会被报成
+    //       "多半是它正被游戏占着"，而真实原因是"它早就不在了"。
+    const QFileInfo info(path);
+    if (!info.exists()) {
+        return fail(tr("「%1」现在不在盘上。").arg(QDir::toNativeSeparators(path)));
+    }
+    const bool isDir = info.isDir();
     // **不能**用 `QDir::removeRecursively()`：实测（见 FolderManager.cpp 里那段）它会跟着
     // junction / 符号链接走进目标目录，把**实例目录外面**的东西删掉。把 `saves` 挂到网盘、
     // 把 `mods` 挂到另一块盘都是常见做法，而这一页的目录行（模组 / 资源包 / 数据包 / 光影包
@@ -11538,16 +11606,164 @@ bool MainWindow::deleteInstanceFile(const QString &path) {
     const bool removed =
         isDir ? removeTreeWithoutFollowingLinks(path) : QFile::remove(path);
     if (!removed) {
-        InlineMessage::warning(m_ui->overlay(), tr("删除失败"),
-                               tr("没能删掉「%1」：多半是它正被游戏占着。先把游戏关掉再试。")
-                                   .arg(QDir::toNativeSeparators(path)));
-        return false;
+        return fail(tr("没能删掉「%1」：多半是它正被游戏占着。先把游戏关掉再试。")
+                        .arg(QDir::toNativeSeparators(path)));
     }
     appendLog(tr("删除文件：%1").arg(QDir::toNativeSeparators(path)));
     return true;
 }
 
-// ---------- 「复制实例」和「存档」那一页那几个动作（2026-09-28）----------
+// ---------- 文件管理那几页的批量按钮（2026-10-09）----------
+//
+// 入口全是那一页发出的**一批路径**（见 `InstanceFilesPage::selectionBar()`）。三颗按钮
+// 各自一件：更新 / 禁用·启用一把 / 删除一把。**全选 / 反选 / 取消**三颗不在这儿 —— 它们
+// 只动选中集，一个字节的盘都不碰，所以那边自己就办了。
+//
+// 【为什么「更新」是一批下，不是一条一条走 `installResourceVersion()`】
+// 计划里写的是"逐条走"（顺带过一遍前置检查），**做不到**：`downloadResourceFiles()`
+// 头一道闸就是 `downloadManager->isBusy()`，第二发会被直接拒掉 —— 那一圈里只有第一条真
+// 下得动，剩下 N-1 条全是"已有下载任务正在进行"的失败框。理由写在头文件那段里。
+
+void MainWindow::updateInstanceFiles(const QString &instanceId, const QString &pageKey,
+                                     const QStringList &paths) {
+    if (instanceId.isEmpty() || paths.isEmpty()) {
+        return;
+    }
+    // 落点由**页键**算（`mods` / `datapacks` / …，唯一出处在 instanceFileDirs()）。
+    const QString destinationDir = instanceFileDirs(instanceId).value(pageKey);
+    if (destinationDir.isEmpty()) {
+        // 正常走不到：这套东西只在那四个"能下载的"页上开（见 InstanceFilesPage）——
+        // 但"哪几页"这个判据在 ui/ 那一边，这边不能假设递进来的键一定认得。
+        InlineMessage::warning(m_ui->overlay(), tr("更新失败"),
+                               tr("不知道这一页的文件该下到哪儿去。"));
+        return;
+    }
+    // 一趟检测的结果（实例 id → 路径 → 换成哪一版）。**没查过 = 空表** —— 那时候一条都
+    // 拼不出文件清单，下面那句会拦住（见那一段）。
+    const QHash<QString, ResourceCatalog::VersionEntry> targets =
+        m_instanceUpdateTargets.value(instanceId);
+
+    QList<VersionManager::ResourceFile> files;
+    QStringList skipped;
+    for (const QString &path : paths) {
+        const auto it = targets.constFind(path);
+        const ResourceCatalog::FileEntry *file =
+            it == targets.constEnd() ? nullptr : it->primaryFile();
+        if (file == nullptr || file->url.isEmpty() || file->filename.isEmpty()) {
+            // 两种来路合成一句：①这一条没在上一趟检测的结果里（用户是先勾上再点更新、
+            // 而那份结果里没有它 —— 比如他勾的是一条"说不清"的）；②那一版接口没给地址
+            // （CurseForge 的作者关掉了第三方分发）。
+            skipped.append(QFileInfo(path).fileName());
+            continue;
+        }
+        VersionManager::ResourceFile resourceFile;
+        resourceFile.url = file->url;
+        resourceFile.filename = file->filename;
+        resourceFile.sha1 = file->sha1;
+        resourceFile.size = file->size;
+        files.append(resourceFile);
+    }
+    if (files.isEmpty()) {
+        // 一条都拼不出来：多半是**还没查过**（那一页上「可更新」的计数是 0、按钮本该是灰的，
+        // 所以正常也走不到这儿）。说清下一步怎么办，别只是"没反应"。
+        InlineMessage::warning(m_ui->overlay(), tr("更新失败"),
+                               tr("这几条都没查到该换成哪一版。先在概览那一栏点一下「检查更新」，"
+                                  "回来再点这一颗。"));
+        return;
+    }
+    if (!skipped.isEmpty()) {
+        // 只记账不弹框：这一批**已经开起来了**，再插一个框等于让用户白点一次。
+        appendLog(tr("这几条查不到要换成哪一版，没有一起更新：%1").arg(skipped.join(QStringLiteral("、"))));
+    }
+
+    // 一整批下（**只有一个进度、一条"下好了"、一次收尾信号**）。名字里带上数量 ——
+    // 下完之后那句「%1 已经装进实例里了」要能自己说清是哪一批。
+    const QString label = tr("「%1」里的 %2 个更新")
+                              .arg(instanceDisplayName(instanceId))
+                              .arg(files.size());
+    appendLog(tr("正在更新 %1（%2）。")
+                  .arg(label, QDir::toNativeSeparators(destinationDir)));
+    // `busyInstanceId` 给这个实例：正在往它的 `mods/` 里写文件（见 downloadResourceFiles
+    // 里那段 —— 界面靠它把这一个实例从"能启动"里滤掉）。
+    m_versionManager->downloadResourceFiles(destinationDir, instanceId, label, files);
+    // NOTE: 这一批下完之后**不刷新那一页**。理由：换的是同一个文件名，列表上那一行
+    //       一个字都不会变；而"可更新"那几颗计数要等**下一次检测**才算得准（见
+    //       m_instanceUpdateTargets 那段 NOTE）。
+}
+
+void MainWindow::toggleInstanceFiles(const QStringList &paths, bool disable) {
+    if (paths.isEmpty()) {
+        return;
+    }
+    const QString suffix = InstanceFilesPage::disabledSuffix();
+    int changed = 0;
+    int failed = 0;
+    QStringList problems;
+    for (const QString &path : paths) {
+        // ★ **只动该动的那几条**：这一批里本来就混着已启用和已禁用（悬浮条上那两颗的灰化
+        //   规则是"至少有一条能切"，不是"全都是同一种"）。不筛的话，点「禁用」会把本来
+        //   就禁用的那几条**启用**回来 —— 恰好和用户按的那一下相反。
+        if (path.endsWith(suffix, Qt::CaseInsensitive) == disable) {
+            continue;
+        }
+        QString problem;
+        if (toggleInstanceFile(path, &problem)) {
+            ++changed;
+        } else {
+            ++failed;
+            if (!problem.isEmpty() && !problems.contains(problem)) {
+                problems.append(problem);
+            }
+        }
+    }
+    appendLog(tr("%1：动了 %2 个文件。").arg(disable ? tr("批量禁用") : tr("批量启用")).arg(changed));
+    if (failed > 0) {
+        // **合成一个框**（不是每条一个 —— 一排二十条里十九条被游戏占着的话，二十个框是要
+        // 点二十次的）。`problems` 去过重：同一个缘故只说一遍。
+        InlineMessage::warning(m_ui->overlay(), tr("改动失败"),
+                               tr("有 %1 个文件没能改动。\n\n%2").arg(failed).arg(problems.join(QStringLiteral("\n"))));
+    }
+}
+
+void MainWindow::deleteInstanceFiles(const QStringList &paths) {
+    if (paths.isEmpty()) {
+        return;
+    }
+    // ★ **只问一次**：用户按的是那一颗「删除」，不是 N 个「删除」（一整排框点下来就是
+    //   "学会了闭着眼按确定"，那比不问还危险）。
+    const QString question =
+        paths.size() == 1
+            ? tr("把「%1」从盘上删掉？删了就没了。").arg(QFileInfo(paths.first()).fileName())
+            : tr("把这 %1 个文件从盘上删掉？删了就没了。").arg(paths.size());
+    // 默认落在「取消」上、且「删除」按红（destructive = 真删盘上的东西，且找不回来）。
+    if (InlineMessage::ask(m_ui->overlay(), MessageKind::Question, tr("删除文件"), question,
+                           {tr("删除"), tr("取消")}, /*defaultIndex=*/1, /*destructiveIndex=*/0)
+        != 0) {
+        return;  // 取消 / Esc / 点外面（-1）都算不删
+    }
+    int removed = 0;
+    int failed = 0;
+    QStringList problems;
+    for (const QString &path : paths) {
+        // 逐条 **不问、也不弹**（那一句已经在上面问过了，`removeInstanceFileUnasked()` 就是
+        // 为这条路分出来的；`&problem` 又把"失败"那一路的框也留到了最后一起说）。
+        QString problem;
+        if (removeInstanceFileUnasked(path, &problem)) {
+            ++removed;
+        } else {
+            ++failed;
+            if (!problem.isEmpty() && !problems.contains(problem)) {
+                problems.append(problem);
+            }
+        }
+    }
+    appendLog(tr("批量删除：删掉了 %1 个文件。").arg(removed));
+    if (failed > 0) {
+        // **合成一个框**（和批量启用/禁用那一处同一个理由）。`problems` 去过重。
+        InlineMessage::warning(m_ui->overlay(), tr("删除失败"),
+                               tr("有 %1 个文件没能删掉。\n\n%2").arg(failed).arg(problems.join(QStringLiteral("\n"))));
+    }
+}
 
 bool MainWindow::copyInstanceTo(const QString &sourceId, const QString &destGameFolder,
                                 const QString &newName) {
@@ -11708,8 +11924,24 @@ QString MainWindow::instanceIconCacheKey(const QString &path) {
     // 路径 + 大小 + 修改时间。**三样都要**（理由见声明处那条 NOTE）：只按路径键住的话，
     // "删掉一个模组、往同一个名字上放另一个"这一形态会让那一格一直画着上一个资源的图标。
     // 分隔符用 `\n`（一个文件名里不可能有它，而且它不会和路径里那些 `|` 打架）。
+    //
+    // ★★ 2026-10-10：**路径那一段先把「禁用」那四个字摘掉**（`InstanceFilesPage::
+    //   identityPath()`，同一个规矩的唯一出处）—— 用户报的「模组禁用以后图标没了」
+    //   就是这条。禁用 = 把 `X.jar` 改名成 `X.jar.disabled`（见
+    //   `InstanceFilesPage::disabledSuffix()`）：**改的是名字，盘上那份内容一个字节都没动**
+    //   （大小和修改时间也一样 —— 改名不动这两个），所以"这一条是哪个资源"在改名前后
+    //   就是同一件事。不摘的话这一把钥匙整个换掉：`m_instanceFileIcons` 那一份里明明有它
+    //   也认不出来，于是要么白重读一遍那几十兆（重算哈希）、要么干脆没有 —— 而屏幕上
+    //   两种都表现为那一格退回占位拼图。同一把钥匙还锁着 `m_instanceFileIdentities`
+    //   （详情那一页的来路）和 `m_instanceIconMissing`（"问过了、没有"那条负缓存）。
+    //
+    // NOTE: 摘的只是**钥匙**。两张表里存的那些路径（`m_instanceIcons.paths` /
+    //       `Found::path`）照旧是**盘上真那个名字** —— 推给界面时用的正是它。
+    // NOTE: 大小和修改时间是**拿盘上真那个路径**取的（上面那一句 `QFileInfo`），
+    //       和钥匙上那一段无关。
     const QFileInfo info(path);
-    return path + QLatin1Char('\n') + QString::number(info.size()) + QLatin1Char('\n') +
+    return InstanceFilesPage::identityPath(path) + QLatin1Char('\n') +
+           QString::number(info.size()) + QLatin1Char('\n') +
            QString::number(info.lastModified().toMSecsSinceEpoch());
 }
 
