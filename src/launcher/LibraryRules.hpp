@@ -200,8 +200,14 @@ inline QString mavenPathForName(const QString &name) {
     //       外面一层去。这一段拼出来是给 files/ 和 libraries/ 用的相对路径，写出去就是
     //       把文件丢到别的目录。仓库里没有这样的坐标（那些是被规则过滤掉的垃圾数据才会
     //       有的形状），所以拒掉它不会少装任何东西。
-    const QRegularExpression safe(QStringLiteral("^[A-Za-z0-9._+-]+$"));
-    const auto isSafeSegment = [&safe](const QString &segment) {
+    // `static const`：这条尺子是**常量**，而 artifactFor()/nativeClassifier() 会给每一个库
+    // 各跑一趟（一次启动约 200 个库）。构造一个 QRegularExpression 实测 9.3 µs、用它 match
+    // 0.33 µs —— 每次现构造的话，光是构造就比匹配贵三十倍（上游**没有**这层缓存，见
+    // qregularexpression.cpp：compilePattern() 是 doMatch 时惰性跑的，模式缓存不存在）。
+    static const QRegularExpression safe(QStringLiteral("^[A-Za-z0-9._+-]+$"));
+    // 不写捕获列表：`safe` 是 static（静态存储期），lambda 直接就能看见它 —— 写 `[&safe]`
+    // 反而会让 gcc 报一条「capture of variable with non-automatic storage duration」。
+    const auto isSafeSegment = [](const QString &segment) {
         if (segment.isEmpty() || !safe.match(segment).hasMatch()) {
             return false;
         }
@@ -255,7 +261,8 @@ inline bool libraryRelativePathIsSafe(const QString &path) {
         path.startsWith(QLatin1Char('/'))) {
         return false;
     }
-    const QRegularExpression safe(QStringLiteral("^[A-Za-z0-9._+-]+$"));
+    // 同上（mavenPathForName() 那一处 ★）：常量尺子只构造一次。
+    static const QRegularExpression safe(QStringLiteral("^[A-Za-z0-9._+-]+$"));
     const QStringList segments = path.split(QLatin1Char('/'));
     for (const QString &segment : segments) {
         // 空段 = `a//b`；`.` / `..` 单独判 —— 它俩**能过**上面那个字符集（和

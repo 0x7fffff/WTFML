@@ -5033,7 +5033,11 @@ ModDependencies::Target MainWindow::dependencyTargetFor(const QString &instanceI
     // ★ 加载器名走 instanceLoaderName()（理由同下面那道加载器闸）：PCL 那类合并实例
     //   （用户盘上 70 个里 67 个）从 parts.loaderName 读出来是空的，而那两个筛参数空着
     //   等于"不筛" —— 问回来的可能是任意加载器的前置。
-    target.loader = instanceLoaderName(parts, m_versionManager, nullptr);
+    // ★ 名字要**归一成小写那一套**（`loaderGroupKey()`）：`instanceLoaderName()` 回的是
+    //   显示名（「Fabric」），而下游（`versionsUrl()` / `versionsRequestKey()`）按小写的词写。
+    //   2026-10-10 之前这一格直接递显示名，两边都一个字都比不上 —— 而接口不会报错，只是
+    //   **筛不出东西**：给 Fabric 实例问回来的前置可能是任意加载器的（装进去就崩）。
+    target.loader = loaderGroupKey(instanceLoaderName(parts, m_versionManager, nullptr));
     // 来源跟着**这一条资源是从哪一家搜出来的**走（调用方从条目 / 页面状态里读出来递进来）：
     // 前置也去同一家问 —— 两家的项目号不是一套，拿 Modrinth 的号去 CurseForge 问，
     // 问出来的是**另一个项目**（或者什么都没有），而且不报错。
@@ -10411,11 +10415,13 @@ QString MainWindow::latestConfigBackup(const QString &instanceId, const QString 
     // 名字倒序 == 时间倒序（定长的数字段，见 ConfigFileText::backupFolderName() 那段 NOTE）
     // —— 命中的第一个就是最近那一份。
     std::sort(mine.begin(), mine.end(), std::greater<QString>());
+    // 这一格**提到循环外面**：它跟 name 一点关系都没有，而 instanceFileDirs() 每跑一趟都要
+    // 建一个九项的 QHash（两串字面量 + 九次 QString 拼接）。原来那一版在循环里重算它。
+    const QString configDir =
+        instanceFileDirs(instanceId).value(QStringLiteral("config"));
     for (const QString &name : mine) {
         const QString candidate =
-            ConfigFileText::backupPathFor(root, instanceId,
-                                          instanceFileDirs(instanceId).value(QStringLiteral("config")),
-                                          path, name);
+            ConfigFileText::backupPathFor(root, instanceId, configDir, path, name);
         if (QFileInfo::exists(candidate)) {
             return candidate;
         }
@@ -13757,6 +13763,16 @@ bool MainWindow::installLocalResourceFile(const QString &versionId,
     // 同名文件：**问一句**（不静默盖）。用户拖进来的东西，谁也不知道那一份是不是
     // 他手改过的 —— 而"顺手拖一下就把改过的那份盖掉了"是这个功能最糟的失败方式。
     if (QFileInfo::exists(target)) {
+        // ★ 先看一眼"拖进来的这一份**就是**这一格自己"（2026-10-10 修）：从实例自己的
+        //   `mods/` 里把文件再拖回启动器是最容易中的一路，而往下走的话，答完「盖掉」就会
+        //   把 target —— 也就是**源文件本身** —— 删掉，源没了，文件就这么从盘上消失。
+        //   比的是盘上那个**真路径**（`canonicalFilePath()` 解开大小写 / 8.3 短名那些别名）。
+        //   它不解 junction，但那种情形也不丢东西：下面写的是临时文件、最后一步才改名字换
+        //   上去，读与写不会互相踩。
+        const QString dropped = QFileInfo(path).canonicalFilePath();
+        if (!dropped.isEmpty() && dropped == QFileInfo(target).canonicalFilePath()) {
+            return true;  // 它本来就在那儿了，一个字都不用动
+        }
         const bool overwrite = InlineMessage::question(
             m_ui->overlay(), tr("已经有一个同名的"),
             tr("%1 里已经有一个「%2」了。\n\n用新拖进来的这一份盖掉它吗？")
@@ -13776,20 +13792,51 @@ bool MainWindow::installLocalResourceFile(const QString &versionId,
         }
         return false;
     }
-    // NOTE: `QFile::copy()` **不覆盖**已经存在的目标（回 false 而一个字都不说）——
-    //       所以那一路要先把旧的删掉。上面那一问已经答应过"盖掉"了。
-    if (QFileInfo::exists(target) && !QFile::remove(target)) {
+    // ★ 写盘这一步走 `QSaveFile`（2026-10-10 修）：它先写到旁边那个临时文件、`commit()`
+    //   那一刻才**原子地**换上去。原来那一版是"先 `QFile::remove(target)`，再
+    //   `QFile::copy(path, target)`" —— 用户明明点的是「盖掉」，可删成功、拷失败（盘满 /
+    //   权限 / 杀软锁着那一下）的时候，盘上**一份都没有了**：旧的已经删掉、新的没到位，
+    //   而且没有退路（比不点「盖掉」还糟）。
+    QSaveFile out(target);
+    if (!out.open(QIODevice::WriteOnly)) {
         if (problemOut != nullptr) {
-            *problemOut = tr("删不掉旧的 %1（它可能正被游戏占着）。")
-                              .arg(QDir::toNativeSeparators(target));
+            *problemOut = tr("写不进 %1：%2")
+                              .arg(QDir::toNativeSeparators(target), out.errorString());
         }
         return false;
     }
-    if (!QFile::copy(path, target)) {
+    QFile in(path);
+    if (!in.open(QIODevice::ReadOnly)) {
         if (problemOut != nullptr) {
-            *problemOut = tr("复制不过去：%1 → %2")
+            *problemOut = tr("读不了拖进来的那一份 %1。")
+                              .arg(QDir::toNativeSeparators(path));
+        }
+        return false;
+    }
+    while (!in.atEnd()) {
+        // 一块一块搬（1 MiB）：模组 jar 有几十上百兆，整份读进内存没有必要。
+        const QByteArray chunk = in.read(1 << 20);
+        if (chunk.isEmpty()) {
+            if (problemOut != nullptr) {
+                *problemOut = tr("读不了拖进来的那一份 %1（%2）。")
+                                  .arg(QDir::toNativeSeparators(path), in.errorString());
+            }
+            return false;  // 析构会把临时文件收掉，盘上原来那一份还在
+        }
+        if (out.write(chunk) != chunk.size()) {
+            if (problemOut != nullptr) {
+                *problemOut = tr("复制不过去：%1 → %2（%3）")
+                                  .arg(QDir::toNativeSeparators(path),
+                                       QDir::toNativeSeparators(target), out.errorString());
+            }
+            return false;
+        }
+    }
+    if (!out.commit()) {
+        if (problemOut != nullptr) {
+            *problemOut = tr("复制不过去：%1 → %2（%3）")
                               .arg(QDir::toNativeSeparators(path),
-                                   QDir::toNativeSeparators(target));
+                                   QDir::toNativeSeparators(target), out.errorString());
         }
         return false;
     }

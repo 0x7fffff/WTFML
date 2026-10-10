@@ -30,6 +30,7 @@
 #include <QEvent>
 #include <QSpacerItem>
 #include <QStyledItemDelegate>
+#include <QTimer>   // 搜索框那一发防抖（见 kRuleFilterDelayMs）
 #include <QToolButton>
 #include <QVBoxLayout>
 
@@ -46,6 +47,15 @@ namespace {
 int ruleRowHeight() {
     return MainWindowUI::versionTreeRowHeight();
 }
+
+/// 搜索框改字之后**等手停下来**这么久（ms）才重摆规则行。
+///
+/// ★ 2026-10-10：原来是一改字就同步重摆一遍，而重摆 = 把每一条命中的规则**重新 new 一遍
+///   控件**（`QListWidgetItem` + `QWidget` + `QHBoxLayout` + 两三个子控件，Int 那几行还各带
+///   一个 `QRegularExpressionValidator(new QRegularExpression(...))`）。实测 50 行 1.67 ms/次，
+///   而一次输入会连着来好几发。同类的"每次按键重算"在仓库里都有这道闸：`ConfigFileEditorPage`
+///   是 250 ms 的 `kIndexRebuildDelayMs`，底栏进度是 100 ms 的节流。
+constexpr int kRuleFilterDelayMs = 200;
 
 /**
  * @brief 规则表那一列的条目代理：**选中态 / 当前项 / 悬停态一个都不画**。
@@ -340,7 +350,17 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
     m_ruleFilter->setObjectName(ruleFilterName());
     m_ruleFilter->setPlaceholderText(ruleFilterPlaceholder());
     m_ruleFilter->setClearButtonEnabled(true);
-    connect(m_ruleFilter, &QLineEdit::textChanged, this, [this] { rebuildRuleRows(); });
+    // 改字之后**等手停下来**再摆（见 kRuleFilterDelayMs 那一段 ★）：`setWorld()` 里那一发
+    // `clear()` 也会走到这儿，所以那边摆完内容要再把计时器停一次（不然会白重摆一遍）。
+    m_ruleFilterTimer = new QTimer(this);
+    m_ruleFilterTimer->setSingleShot(true);
+    m_ruleFilterTimer->setInterval(kRuleFilterDelayMs);
+    connect(m_ruleFilterTimer, &QTimer::timeout, this, [this] { rebuildRuleRows(); });
+    connect(m_ruleFilter, &QLineEdit::textChanged, this, [this] {
+        if (m_ruleFilterTimer != nullptr) {
+            m_ruleFilterTimer->start();
+        }
+    });
     rulesRow->addWidget(m_ruleFilter, 1);
     fileBody->addLayout(rulesRow);
 
@@ -561,6 +581,11 @@ QString WorldSettingsPage::difficultyOptionText(int difficulty) {
 // ---------------------------------------------------------------------------
 
 void WorldSettingsPage::setWorld(const WorldView &view) {
+    // 上一个世界那一发还没落地的"重摆"到此为止 —— 它要收的是**上一个世界**的行（`m_ruleRows`
+    // 里还是那个世界的行号，见下面 `rebuildRuleRows(false)` 那一段 ★）。
+    if (m_ruleFilterTimer != nullptr) {
+        m_ruleFilterTimer->stop();
+    }
     m_view = view;
     // ★ 「打开这一页时摆的是什么」那一份台账。它和 `m_view` **是两回事**：`m_view` 会被
     //   `harvestEdits()` 跟着用户改的值往前挪，而 `deltaFromOpened()` 要的是"刚打开那一刻"
@@ -609,12 +634,22 @@ void WorldSettingsPage::setWorld(const WorldView &view) {
     // `false`：这一下换的是**世界**，不能把上一个世界页面上的值收进这一份里（见 .cpp 里
     // rebuildRuleRows 的 ★）。
     rebuildRuleRows(false);
+    // 上面那句 `m_ruleFilter->clear()` 会发一次 textChanged ⇒ 把计时器带起来。这一趟已经
+    // 照新世界摆过了，那一发再来一次是白摆。
+    if (m_ruleFilterTimer != nullptr) {
+        m_ruleFilterTimer->stop();
+    }
     applyUnreadableState();
     refreshNote();
     refreshSaveEnabled();
 }
 
 void WorldSettingsPage::setUnreadable(const QString &dirName, const QString &reason) {
+    // 同上：悬着的那一发重摆不该落到"读不出来的世界"上（它会拿 m_view.rules 那空的一份
+    // 去重摆 —— 屏幕上没差别，但那个 m_ruleRows 的账对不上）。
+    if (m_ruleFilterTimer != nullptr) {
+        m_ruleFilterTimer->stop();
+    }
     m_view = WorldView();
     m_opened = m_view;
     m_view.dirName = dirName;

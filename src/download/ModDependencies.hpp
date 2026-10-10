@@ -60,7 +60,13 @@ struct Target {
     QString instanceId;
     /// 游戏版本（`1.21.1`）。空 = 不筛。
     QString gameVersion;
-    /// 加载器名（**小写**，`fabric` / `forge` / `neoforge`）。空 = 不筛。
+    /// 加载器名（**小写**，`fabric` / `forge` / `neoforge` / `quilt`）。空 = 不筛。
+    ///
+    /// NOTE: 塞进来的那个词**不一定**是这一家接口认得的那几个（`OptiFine` 就不在 Modrinth /
+    ///       CurseForge 的白名单里）。这一层**不判**：它只把值原样递给 `versionsUrl()` /
+    ///       `versionsRequestKey()`，由 `ResourceCatalog::loaderRequestValue()` 按来源翻成
+    ///       接口要的写法 —— **认不出来就回空串 = 不筛**（那边不报错，只是什么都筛不出来，
+    ///       而"什么都没筛出来"和"这个资源没有能用的版本"在界面上是同一句话）。
     QString loader;
     /// 这个模组是从哪一家下来的 —— 前置也去**同一家**问（两家的项目号不是一套）。
     ResourceCatalog::Source source = ResourceCatalog::Source::Modrinth;

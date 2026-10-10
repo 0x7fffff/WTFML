@@ -1312,9 +1312,13 @@ void LauncherManager::handleReadyReadStandardOutput(int sessionId) {
     if (it == m_sessions.end() || it->process == nullptr) {
         return;
     }
+    // ★ 这一份**不许** `.trimmed()`（2026-10-10 修）。往下传的文本是**按行切**的：接的那一位
+    //   （GameLogWindow::appendText）把"还没等到 `\n` 的那半行"留在 m_pending 里等下一块来拼，
+    //   而 `.trimmed()` 削掉的**正是每一块结尾那个 `\n`** —— 于是"已经写完的最后一行"被当成
+    //   半行挂住，和下一块的头一行粘成 `CD` 这种**伪行**（级别颜色跟着认错，导出的日志也一样
+    //   是错的），每个分块边界中一次。空块本来就由下面那句 isEmpty() 拦住。
     const QString output = decodeGameOutput(it->outputIsUtf8, it->stdoutDecoder,
-                                           it->process->readAllStandardOutput())
-                               .trimmed();
+                                            it->process->readAllStandardOutput());
     if (!output.isEmpty()) {
         qDebug().noquote() << "[Game Output]" << it->info.displayName << output;
         emit processOutput(sessionId, output);
@@ -1326,9 +1330,9 @@ void LauncherManager::handleReadyReadStandardError(int sessionId) {
     if (it == m_sessions.end() || it->process == nullptr) {
         return;
     }
+    // 和上面 stdout 那一支逐字同一个理由：**不 trim**（那个 `\n` 是行与行之间的分界）。
     const QString error = decodeGameOutput(it->outputIsUtf8, it->stderrDecoder,
-                                          it->process->readAllStandardError())
-                              .trimmed();
+                                           it->process->readAllStandardError());
     if (!error.isEmpty()) {
         qWarning().noquote() << "[Game Error]" << it->info.displayName << error;
         emit processError(sessionId, error);
@@ -1357,15 +1361,17 @@ void LauncherManager::handleProcessFinished(int sessionId, int exitCode,
     if (!remainingOutput.isEmpty()) {
         // NOTE: 走**同一个解码器**（不是新起一个）：这是同一条流的最后一段，前面那一块
         //       可能正停在半个汉字上 —— 新起一个的话那半个字永远补不回来。
+        // 同样**不 trim**（见 handleReadyReadStandardOutput 里那段 ★）：这一份是整条流的
+        // 最后一段，它结尾那个 `\n` 就是最后一行"写完了"的凭据。
         const QString output =
-            decodeGameOutput(outputIsUtf8, it->stdoutDecoder, remainingOutput).trimmed();
+            decodeGameOutput(outputIsUtf8, it->stdoutDecoder, remainingOutput);
         qDebug() << "Remaining output:" << output;
         emit processOutput(sessionId, output);
     }
 
     if (!remainingError.isEmpty()) {
         const QString error =
-            decodeGameOutput(outputIsUtf8, it->stderrDecoder, remainingError).trimmed();
+            decodeGameOutput(outputIsUtf8, it->stderrDecoder, remainingError);
         qDebug() << "Remaining error:" << error;
         emit processError(sessionId, error);
     }

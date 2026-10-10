@@ -192,6 +192,18 @@ QList<FilterOption> categoryOptions(Source source, Kind kind);
 /// 来回切时行不会跳。
 QList<FilterOption> loaderOptions(Source source);
 
+/// 一个加载器名 → **这一家接口要的那个写法**（`versionsUrl` 拼参数时用的那一个）。
+///
+/// ★ 这是"加载器名"这件事上**唯一**一处按来源翻译的地方，因为两侧的词形不是一套：
+///   Modrinth 的 facet 要小写那个词（`fabric`），CurseForge 的 `modLoaderType` 要**数字**
+///   （`4`）。递一个对不上的词上去**不会报错**，那边只是筛不出东西 —— 于是"装进 Fabric
+///   实例的前置"会挑出一个任意加载器的版本，症状是游戏进去就崩，而那一刻没人会想到是它。
+///
+/// 收的写法**两套都认**（`4` / `fabric` / `Fabric` —— 界面那两张表的键和标签都在这儿），
+/// 认不出来（`OptiFine` 这种不在白名单里的、空串）**回空串 = 不筛**（和 `instanceLoaderName()`
+/// 给不出名字时一个意思，见 ModDependencies::Target 那段）。
+QString loaderRequestValue(const QString &loader, Source source);
+
 // ---------- 搜索 ----------
 
 /// 一条搜索结果。这里每个字段都是搜索接口**本来就给了**的 —— 没有为了它多发一次请求。

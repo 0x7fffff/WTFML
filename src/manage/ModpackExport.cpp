@@ -1150,8 +1150,12 @@ ExportPlan buildExportPlan(const ExportRequest &request, const ModrinthQuery &qu
         if (needFingerprint) {
             const quint32 fingerprint = fingerprintOfPath.value(file.path, 0u);
             // 毒指纹那一刀切在解析那一层（见 parseCurseForgeFingerprints），这里不用再拦。
-            const bool hit = lookupOk && curseForgeHits.contains(fingerprint);
-            const CurseForgeHit found = hit ? curseForgeHits.value(fingerprint) : CurseForgeHit();
+            // 一次桶查找就够：`contains()` + `value()` 是两趟，而没命中的时候 `value()` 还会
+            // 白构造一个 CurseForgeHit（它身上带着 QStringList）—— 这一趟是**每个文件一次**。
+            const auto foundIt = lookupOk ? curseForgeHits.constFind(fingerprint)
+                                          : curseForgeHits.constEnd();
+            const bool hit = foundIt != curseForgeHits.constEnd();
+            const CurseForgeHit found = hit ? *foundIt : CurseForgeHit();
             // 号得是两个正整数才写得进清单（`projectID` / `fileID` 都是必需项），
             // 并且 `isAvailable` 要为真 —— 假的时候写进去等于给出一个装不上的包，
             // 退回 overrides 并单独报数（调用点要在报告里说出来）。
@@ -1208,12 +1212,14 @@ ExportPlan buildExportPlan(const ExportRequest &request, const ModrinthQuery &qu
             continue;
         }
         const QString sha1 = sha1OfPath.value(file.path);
-        const bool hit = lookupOk && modrinthHits.contains(sha1);
-        if (!hit) {
+        // 同上（CurseForge 那一支 ★）：一次桶查找，不在没命中时白构造一份 ModrinthHit。
+        const auto foundIt =
+            lookupOk ? modrinthHits.constFind(sha1) : modrinthHits.constEnd();
+        if (foundIt == modrinthHits.constEnd()) {
             pushOverride(file, &plan.overrides);
             continue;
         }
-        const ModrinthHit found = modrinthHits.value(sha1);
+        const ModrinthHit &found = *foundIt;
         MatchedFile matched;
         matched.path = file.path;
         matched.sha1 = found.sha1.trimmed().isEmpty() ? sha1 : found.sha1.trimmed();
