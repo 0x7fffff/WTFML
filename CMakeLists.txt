@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(WTFMinecraftLauncher VERSION 0.2.0 LANGUAGES CXX)
+project(WTFMinecraftLauncher VERSION 0.3.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -31,9 +31,11 @@ set(HEADER_FILES
     src/manage/InstanceIconLookup.hpp
     src/manage/ModpackImport.hpp
     src/manage/ModpackExport.hpp
+    src/manage/ServerListFile.hpp
     src/manage/ServerStatusCache.hpp
     src/manage/VersionManager.hpp
     src/manage/VersionDisplay.hpp
+    src/manage/VersionIntegrity.hpp
     src/manage/WorldFiles.hpp
     src/settings/GlobalJavaSettings.hpp
     src/settings/GameWindowSettings.hpp
@@ -84,11 +86,13 @@ set(SOURCE_FILES
     src/manage/ModpackImport.cpp
     src/manage/ModpackExport.cpp
     src/manage/ServerStatusCache.cpp
+    src/manage/ServerListFile.cpp
     src/manage/DefaultSkin.cpp
     src/manage/PlayerSkinStore.cpp
     src/manage/RandomSkinStore.cpp
     src/manage/VersionManager.cpp
     src/manage/VersionDisplay.cpp
+    src/manage/VersionIntegrity.cpp
     src/manage/WorldFiles.cpp
     src/settings/EffectiveJavaSettings.cpp
     src/settings/GlobalJavaSettings.cpp

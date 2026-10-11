@@ -104,7 +104,7 @@ OverlayHost::OverlayHost(QWidget *anchor, QWidget *parent) : QWidget(parent), m_
     m_pageContentLayout->setSpacing(0);
 
     // 整页那一档外面套一层滚动区。**不是"以防万一"**：设置页是按它自己的尺寸设计的
-    // （实例设置 600x480），而内容区多大是主窗口说了算 —— 窗口一小，页脚那排
+    // （实例设置 820x560），而内容区多大是主窗口说了算 —— 窗口一小，页脚那排
     // 「取消 / 确定」就被切在下面，用户怎么点都点不着，而那正是"这个页面打不开"。
     // 外面套一层，任何窗口尺寸下它都能滚到底。
     auto *pageScroll = new QScrollArea(m_pageFrame);

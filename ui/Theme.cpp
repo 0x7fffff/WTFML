@@ -702,12 +702,9 @@ QString widgetStyleSheet() {
                       // **不能跟悬停同色** —— 同色的话"鼠标停在哪儿"就看不出默认是哪一颗了。
                       "QPushButton:default:enabled { background-color: %3; }"
                       "QPushButton:hover:enabled { background-color: %4; }"
-                      "QPushButton:pressed:enabled { background-color: %5; }"
-                      "QPushButton:disabled { background-color: %6; color: %7;"
-                      " border-color: %8; }")
+                      "QPushButton:pressed:enabled { background-color: %5; }")
                       .arg(ink.name(), border.name(), mixWithWhite(accentShade(AccentShade::Pure), 6).name(),
-                           hover.name(), pressed.name(), disabledFill.name(), disabledInk.name(),
-                           disabledBorder.name());
+                           hover.name(), pressed.name());
     // 危险 / 次要两档：只换字和边那两处颜色，其余（白底、圆角、内边距）照旧。
     const auto kindBlock = [](const QString &key, const QColor &color, const QColor &hoverFill,
                               const QColor &pressedFill) {
@@ -720,6 +717,19 @@ QString widgetStyleSheet() {
     qss += kindBlock(QStringLiteral("danger"), red, QColor(0xfd, 0xea, 0xea), QColor(0xf7, 0xd5, 0xd5));
     qss += kindBlock(QStringLiteral("neutral"), black, QColor(0xf0, 0xf0, 0xf0),
                      QColor(0xe0, 0xe0, 0xe0));
+
+    // ★ 「灰掉」这一条**必须摆在上面那两块之后**（2026-10-09 真机踩到）。
+    //   Qt 的样式表按**优先级**排：`QPushButton[wtfmlButtonKind="neutral"]` 和
+    //   `QPushButton:disabled` 都是"元素 + 一个属性/伪类"，**优先级一模一样** ——
+    //   平手的规矩就是**谁写在后面谁赢**。原来那条 `:disabled` 摆在最前面，于是
+    //   中性/危险那两种按钮一灰掉，底变成 `disabledFill` 了（说明确实 disabled 生效了），
+    //   **字和边却还是 `#202020`** —— 屏幕上看着就是一颗能按的按钮，只有主题色那颗
+    //   （Accent，没有 kind 属性、不参与这场平手）灰得对。真机像素实测：禁用一颗中性
+    //   按钮，底 `#F7F7F7` / 字 `#202020`。
+    //   所以这一条挪到**最后**追加，把两种 kind 的字和边一并按下去。
+    qss += QStringLiteral(
+               "QPushButton:disabled { background-color: %1; color: %2; border-color: %3; }")
+               .arg(disabledFill.name(), disabledInk.name(), disabledBorder.name());
 
     // -----------------------------------------------------------------------
     // 输入框（2026-09-28）
@@ -785,9 +795,9 @@ QString widgetStyleSheet() {
     //   - 宽度 18 → 20；
     //   - **`border: none` 拿掉了**。这是这一条里唯一一处看着像"退了一步"、其实是必须的
     //     动作：留着它这一格就算"有东西要画"，Qt 于是走另一条分支、把箭头整个吃掉（实测
-    //     旧样式表下箭头压根不存在，见 `ComboChevronStyle` 那段）。拿掉之后由
-    //     `ComboChevronStyle` 接手画那个 `∨` —— 墨色跟着 `color:` 走，换深浅主题照样跟着变。
-    //   ⇒ **改这一条之前先把 `ComboChevronStyle` 那段读了**，两处是一对。
+    //     旧样式表下箭头压根不存在，见 `WtfmlProxyStyle` 那段）。拿掉之后由
+    //     `WtfmlProxyStyle` 接手画那个 `∨` —— 墨色跟着 `color:` 走，换深浅主题照样跟着变。
+    //   ⇒ **改这一条之前先把 `WtfmlProxyStyle` 那段读了**，两处是一对。
     qss += QStringLiteral(
                "QComboBox { background-color: #ffffff; color: #000000; border: 1px solid %1;"
                " border-radius: 3px; padding: 3px; }"

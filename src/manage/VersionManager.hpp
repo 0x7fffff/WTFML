@@ -25,6 +25,9 @@ class QTimer;
 #include "ModpackExport.hpp"
 #include "ModpackImport.hpp"
 #include "VersionDisplay.hpp"
+// 体检那一层（checkInstanceIntegrity 的返回值类型）。它自己不反过来包含本文件 ——
+// 那一层只认 DownloadManager 的结构体和 AppPaths，谁都能拿去用。
+#include "VersionIntegrity.hpp"
 
 class VersionManager : public QObject {
     Q_OBJECT
@@ -177,6 +180,28 @@ public:
      *       本身弄坏的。盘上那份 json 足够算出要找哪些文件。
      */
     void repairVersionFiles(const QString &versionId);
+
+    /**
+     * @brief 给一个**已经装好的**实例做体检：扫一遍它该有的文件，**只报不装**。
+     *
+     * 和上面那个「补全文件」是同一件事的两半：那一个缺什么补什么（会联网、会写盘），
+     * 这一个一个字节都不写、一条请求都不发 —— 用户要的是"先告诉我坏在哪儿"，决定修不修、
+     * 怎么修是他的事（典型的下一步：看了报告再点「补全文件」，或者干脆自己从别的启动器
+     * 拷一份库过来）。
+     *
+     * 判据层在 VersionIntegrity（那个文件里写了"哪些文件算数""哪几种情况叫要修"）。
+     * 这里只负责把这一份实例的**合并过**的 json 和两个解析结果递过去 —— 和
+     * registerVersionFiles() 走的是同一个来源，所以体检报出来的文件集必然就是装配那一步
+     * 会去下、会去写的那些。
+     *
+     * @param versionId 实例 id（= versions 下的目录名）。
+     * @return 一趟的结论（含 count 和逐条问题）。读不出 json 时 error 非空、其余为空。
+     *
+     * NOTE: **同步**跑（3000 个资源对象就是 3000 次 stat，几毫秒；带哈希的只有 jar 和库）。
+     *       以后那条界面路要把它放进"别卡住界面"的框里，是那边的事 —— 这一层不引定时器、
+     *       不发信号，也就不需要状态机。
+     */
+    VersionIntegrity::Report checkInstanceIntegrity(const QString &versionId) const;
 
     /// 把"接着干下一件事"排到下一轮事件循环里执行，并给这一步套上异常兜底。
     ///
@@ -646,7 +671,7 @@ public:
      *   · 实例行前面那个标志画成草方块（见 defaultInstanceMark()）；
      *   · 自动归类把 67 个实例全扔进「原版」组，而「可安装mod」永远是空的
      *     （见 defaultGroupIdFor()）—— 和 2026-09-25 那个 `type` 的 bug 是同一个形状；
-     *   · 装模组时"加载器对不上"那一道闸恒不放行（见 ensureResourceLoaderMatch()）。
+     *   · 装模组时"加载器对不上"那一道闸恒不放行（见 MainWindow::instanceModsUsable()）。
      *
      * 判据两条，按"离这个实例多近"排，任一条命中就返回：
      *   1. `wtfml.meta` 的 `loaderName`（我们自己装的实例，也含用户手写的 meta）；

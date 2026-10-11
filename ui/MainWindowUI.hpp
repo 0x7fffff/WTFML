@@ -212,9 +212,9 @@ public:
         return {QStringLiteral("Fabric"), QStringLiteral("Forge"), QStringLiteral("NeoForge"),
                 QStringLiteral("OptiFine"), QStringLiteral("不装（纯原版）")};
     }
-    /// 「不装（纯原版）」那一个在两张表里的下标。想"回到装纯原版"就得能勾回它 ——
-    /// 单选钮一旦勾上就没法用鼠标取消（见下面 buildTwoColumnPage 里那段），这个选项
-    /// 就是那条退路；写死数字的地方一律用这个函数。
+    /// 「不装（纯原版）」那一条在两张表里的下标。加载器那一组现在是一棵树（见下面
+    /// buildTwoColumnPage 里那段），选中它就是"回到装纯原版"—— 初始选中的也是它。
+    /// 写死数字的地方一律用这个函数。
     static int modLoaderNoneIndex() { return 4; }
     static QString modLoaderLabelText() { return QStringLiteral("模组加载器"); }
     /// 那棵树自己的 objectName。**条目没有 objectName**（QTreeWidgetItem 不是 QObject）——
@@ -475,6 +475,18 @@ public:
     /// NOTE: 号码 **`Qt::UserRole + 15`**（14 是 rowMotdRawRole() 的，见
     ///       rowSubTextRole() 上面那段"撞号的表现是屏幕上多出一笔"）。
     static int serverAddressRole() { return Qt::UserRole + 15; }
+
+    /// 「服务器列表」那一页第 0 列里**那一台服务器真正的名字**（`servers.dat` 里写的那个，
+    /// 可以是空串）。
+    ///
+    /// Why 要专门存一格：那一格显示的是 `unnamedMark()`（「（无名）」）—— 名字空的那些在屏幕
+    /// 上写的是一句**我们编的话**，而「编辑」那颗按钮要预填的是**文件里真正的那一串**（空就
+    /// 是空，用户想让它继续空着）。拿屏幕上的字当数据用的话，用户一点「编辑」就会看见
+    /// 「（无名）」被预填进输入框，一确定就把这四个字**真的写进 servers.dat** 了。
+    ///
+    /// NOTE: 号码 **`Qt::UserRole + 16`**（15 是 serverAddressRole() 的，见
+    ///       rowSubTextRole() 上面那段"撞号的表现是屏幕上多出一笔"）。
+    static int serverNameRole() { return Qt::UserRole + 16; }
 
     /// 「服务器列表」那一页的行高：比版本树那个常数**高一档**（多出来的那一档正好是
     /// 第二行小字的高度）。
@@ -899,9 +911,10 @@ public:
     // 所以 `renameInstanceButtonName()` / `instanceSettingsButtonName()` 这两个**已经删了**，
     // 别照着旧记性写；`instanceSettingsText()` 留着（底栏那行齿轮的 tooltip 还在用它）。
     //
-    // NOTE: 这里**不做右键菜单**（仓库里右键菜单零先例，而且验证工程跑在 offscreen 上，
-    //       QMenu::exec() 会阻塞在事件循环里几乎驱动不了）—— 行里的东西一律是"画出来的
-    //       一格 + 事件过滤器认下那一下"，见 InstanceGroupDelegate 那三处几何。
+    // NOTE: 这里**不做右键菜单**（仓库里至今一处 QMenu 都没有 —— 右键那几处一律走
+    //       Qt::CustomContextMenu 或事件过滤器自己认坐标，不弹菜单；而且验证工程跑在
+    //       offscreen 上，QMenu::exec() 会阻塞在事件循环里几乎驱动不了）—— 行里的东西
+    //       一律是"画出来的一格 + 事件过滤器认下那一下"，见 InstanceGroupDelegate 那三处几何。
     //
     // NOTE: 2026-09-25 上半天的「停止游戏…」也不在这排里了（入口只剩底栏左面板里那一行的
     //       电源，见 MainWindow::stopGameSession()），所以这里也没有 stopGameButtonName()。
@@ -1671,6 +1684,22 @@ public:
     static QString downloadAutoIntoInstanceCheckText() {
         return QStringLiteral("从实例设置里点「下载新模组」时直接放进该实例");
     }
+    // ---------- 「下载缺前置时提醒」（2026-10-09 加的，也在「下载」栏里） ----------
+    // 语义的**唯一出处**是 LauncherSettings 里那一节（用户原话）。这里只有形状。
+    //
+    // NOTE: 那一句话要说清**关掉之后是什么样** —— 用户 2026-10-09 把它定死成「什么都不装，
+    //       只下用户点的那一版」。只说"关掉提醒"的话，用户会以为前置照装，只是不弹窗。
+    static QString warnMissingDependenciesCheckName() {
+        return QStringLiteral("warnMissingDependenciesCheck");
+    }
+    /// 这一行的行标题（左列那一格）。
+    static QString warnMissingDependenciesRowText() {
+        return QStringLiteral("缺失前置提醒");
+    }
+    /// 勾选框自己的文字。
+    static QString warnMissingDependenciesCheckText() {
+        return QStringLiteral("下载模组 / 光影包时，先检查该实例缺不缺前置");
+    }
     static QString showGameLogCheckName() { return QStringLiteral("showGameLogCheck"); }
     static QString processPriorityComboName() { return QStringLiteral("processPriorityCombo"); }
     /// 「窗口模式」那个下拉框（小窗 / 最大化 / 全屏）。2026-09-28 加的。
@@ -2239,6 +2268,7 @@ public:
     QLineEdit *getCurseForgeApiKeyEdit() const { return curseForgeApiKeyEdit; }
     QCheckBox *getShowGameLogCheck() const { return showGameLogCheck; }
     QCheckBox *getDownloadAutoIntoInstanceCheck() const { return downloadAutoIntoInstanceCheck; }
+    QCheckBox *getWarnMissingDependenciesCheck() const { return warnMissingDependenciesCheck; }
     QCheckBox *getWarnDuplicateLaunchCheck() const { return warnDuplicateLaunchCheck; }
     QCheckBox *getWarnWorldLossCheck() const { return warnWorldLossCheck; }
     QComboBox *getProcessPriorityCombo() const { return processPriorityCombo; }
@@ -2441,6 +2471,8 @@ private:
     QCheckBox *showGameLogCheck = nullptr;
     /// 「下载」栏里那个勾选框（2026-09-28）。
     QCheckBox *downloadAutoIntoInstanceCheck = nullptr;
+    /// 同一栏里「缺失前置提醒」那个勾选框（2026-10-09）。
+    QCheckBox *warnMissingDependenciesCheck = nullptr;
     QCheckBox *warnDuplicateLaunchCheck = nullptr;
     QCheckBox *warnWorldLossCheck = nullptr;
     QComboBox *processPriorityCombo = nullptr;

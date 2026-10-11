@@ -351,7 +351,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     //   `setAcceptDrops(true)` 只影响**这一层自己**；拖到子控件上的事件由 Qt 沿父链往上
     //   找第一个接了拖放的控件（见那段 NOTE），所以不接拖放的子控件照样会把事件送到这儿。
     setAcceptDrops(true);
-    // 比分组对话框宽得多：从左到右是**两栏**（左栏一列页 + 右栏一块内容），600 那个宽度
+    // 比分组对话框宽得多：从左到右是**两栏**（左栏一列页 + 右栏一块内容），600 那个老宽度
     // 放不下。
     // NOTE: 嵌进覆盖层的时候这个尺寸**不作数** —— 那一层给它的是内容区的整幅宽（见
     //       OverlayHost::execEmbedded 里那句 `area->layout()->addWidget(dialog)`）。
@@ -946,10 +946,10 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             // 模态，验证工程驱动不了它 —— 那一半是"问路径"，可测的那一半是这个框里的
             // 文字（override() 直接读它）。和 GroupDialog 里问组名的拆法一样。
             // NOTE: "驱动不了"的原因和内嵌提示那几条不一样：这里开的是 **Windows 自己的
-            //       文件选择框**，不是我们的窗。**全项目一共七处**（2026-09-27 数的）：
-            //       MainWindow.cpp 两处（选文件夹 / 选整合包）、AccountSkinDialog.cpp 一处
-            //       （选皮肤图）、这个文件四处（选 java.exe / 选实例图标 / 导出整合包的保存框 /
-            //       导出 .bat 的保存框）。理由和取舍见 MainWindow.cpp 里
+            //       文件选择框**，不是我们的窗。**全项目一共 16 处**（2026-10-11 数的）：
+            //       MainWindow.cpp 十一处（选文件夹 / 选整合包 / 挑各处的目录与文件）、
+            //       AccountSkinDialog.cpp 一处（选皮肤图）、这个文件四处（选 java.exe / 选实例图标 /
+            //       导出整合包的保存框 / 导出 .bat 的保存框）。理由和取舍见 MainWindow.cpp 里
             //       onAddFolderClicked() 上面那一段。
             const QString picked = QFileDialog::getOpenFileName(
                 this, tr("选择 java.exe"), m_javaPathEdit->text(),
@@ -1187,7 +1187,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
 
         connect(m_advancedToggle, &QToolButton::toggled, this, [this](bool expanded) {
             // 展开前这个窗有多高：折回时按它还原（用户自己拉过的也算数 —— 记的是"展开
-            // 那一刻"的高度，不是构造时那个 600x480）。
+            // 那一刻"的高度，不是构造时那个 820x560）。
             if (expanded) {
                 m_heightBeforeAdvanced = height();
             }
@@ -1195,7 +1195,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             m_advancedToggle->setArrowType(expanded ? Qt::DownArrow : Qt::RightArrow);
             // 折回之后得让窗口**缩回去**：Qt 只在"窗口比内容还小"时把它撑大（展开那一下
             // 就是它干的），内容变少时它一动不动 —— 不补这一句，展开一次再收起，底下就
-            // 永远留着那一截空白。实测（600x480 那个默认大小）：展开 → 600x503、
+            // 永远留着那一截空白。实测（那时默认还是 600x480）：展开 → 600x503、
             // 折回 → **还是** 600x503（那时布局只要 310，多出来的全是空白）。
             //
             // NOTE: 必须**晚一拍**再缩，而且缩之前得把布局那一串**推一遍**。这一下
@@ -1405,7 +1405,13 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             auto *files = new InstanceFilesPage(listHost);
             files->setObjectName(filesPageName(key));
             // 存档只列文件夹（saves 底下那些 level.dat / session.lock 不是存档）。
-            files->setMode(key == QStringLiteral("save") ? InstanceFilesPage::Mode::DirsOnly
+            // ★ 2026-10-11：「模组」那一页**只列文件** —— `mods/` 底下那些目录不是模组
+            //   （`mcef-libraries`、Sinytra 的 `.connector` 这种是模组自己用的房子），
+            //   而它们在屏幕上占着一行、行尾还挂着开关，点一下是把**整个文件夹**改了名
+            //   （真机上已经发生过）。另外三页照旧 —— 一个资源包 / 数据包 / 光影包
+            //   **本身就可以是一个目录**（游戏认没解压的那种），那是另一回事。
+            files->setMode(key == QStringLiteral("save")   ? InstanceFilesPage::Mode::DirsOnly
+                           : key == QStringLiteral("mod") ? InstanceFilesPage::Mode::FilesOnly
                                                           : InstanceFilesPage::Mode::FilesAndDirs);
             // 只有游戏会自己扫的那三个目录给「禁用」；存档**不给删**（理由见
             // InstanceFilesPage::setCanDelete()）。
@@ -1431,6 +1437,20 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             //   别的几页（原理图 / 存档 / 配置文件）里的东西根本不在任何平台的清单里。
             //   多一格永远筛不出东西的选项，用户只会以为"筛坏了"。
             files->setCanFilterUpdates(!filesDownloadText(key).isEmpty());
+            // ★ 2026-10-09：**那四页**再开一套「批量管理」（行尾的详情按钮 + 多选 + 底层
+            //   那条悬浮操作条 + 顶上四颗横向筛选按钮）。判据**就是上面那个** ——
+            //   `filesNameOpensResource()` 说的正是"这一条认得出是哪个资源"，而详情按钮
+            //   要的恰好是这一件事（见 MainWindow 那边 detailRequested 那一发 —— 这一发
+            //   2026-10-09 从 `resourceRequested` 改的名）。
+            //   用户原话：「在模组/资源包等的设置里面…」—— 不新开一张"哪几页算数"的名单。
+            // ★ 2026-10-10：这一发同时是**"这一页底下那段说明要不要挂"**的判据（见下面
+            //   建 hint 那一处）—— 用户原话：「把这个页面下方那段叙述删了来让框拉到底充分
+            //   利用空间」，范围是**这四页**（模组 / 资源包 / 数据包 / 光影包，也就是这套
+            //   批量管理的那四页）。其余几页（存档 / 原理图 / 配置文件 / 服务器列表 /
+            //   快捷方式）底下那行小字**照旧挂着** —— 它们讲的是别的规矩（数据包那句
+            //   "下了不等于生效、要自己搬进存档"连它一起没了，是用户点头的）。
+            const bool batch = filesNameOpensResource(key);
+            files->setBatchMode(batch);
             // ★ 2026-09-28：存档那一页顶上多两颗（「导入世界」/「批量编辑」）。用户原话：
             //   「顶端加个导入世界按钮和批量编辑按钮（这个先做占位）」。
             //   别的几页**不接文字**（= 那两颗藏起来，见 setImportText）。「批量编辑」今天
@@ -1446,14 +1466,37 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                     emit browseDownloadsRequested(category);
                 }
             });
-            // ★ 行上的名字点得动（2026-09-27）：**只有"点得动"的那几页接**。判据就是
-            //   filesNameOpensResource()（模组 2026-09-27 起也在表里了）—— 不在表里的那几页
-            //   名字照旧只是一行字，连事件过滤器都不给它装（见 setResourceForPath()：
-            //   没记过 tip 的那一行不变成链接）。
-            //   接线这一层是多余的：真的按下去是 InstanceFilesPage 那边认出路径才发的。
+            // ★ 行尾那颗「详情」按下去（2026-09-27 起是"名字点得动"，2026-10-09 换成那颗
+            //   按钮）：**只有"点得动"的那几页接**。判据就是 filesNameOpensResource()
+            //   —— 不在表里的那几页既没有那一格按钮，这一条线也不接。
+            //   接线这一层是多余的：真的按下去是 InstanceFilesPage 那边认出路径才发的
+            //   （认不出来的那些那一颗是灰的，按不动）。
+            //   ★ 2026-10-10：**右键点一行**走的也是这一发（用户原话：「右键点击时也可以
+            //   进入详情页，此时保留上一页的选择」）—— 判据、落点、收页那一套全都一样，
+            //   这一层不必知道用户是按了那颗 ⓘ 还是右键了那一行。
             if (filesNameOpensResource(key)) {
-                connect(files, &InstanceFilesPage::resourceRequested, this,
+                connect(files, &InstanceFilesPage::detailRequested, this,
                         [this, key](const QString &path) { emit fileResourceRequested(key, path); });
+                // ★★ 2026-10-11：这里转过一发 `updateCheckRequested`（那一页顶上「可更新」
+                //   在还没查过时兼作第二个入口）—— 已拆，用户原话「**没有检查的时候先隐藏
+                //   可更新按钮**」：那一颗在没查过的时候根本摆不出来。检查更新这一栏照旧
+                //   只有「概览」那一颗（`checkUpdatesRequested()` 那条线一个字都没动）。
+
+                // 批量那三发：**判据同上**（这三件事只在那四页上谈得上）。
+                // NOTE: 转发上去的三个动作全**不改盘** —— 问不问那句、怎么落盘、落完要不要
+                //       重列，都是 MainWindow 的事（这一层连 AppPaths 都够不着）。
+                connect(files, &InstanceFilesPage::batchUpdateRequested, this,
+                        [this, key](const QStringList &paths) {
+                            emit fileBatchUpdateRequested(key, paths);
+                        });
+                connect(files, &InstanceFilesPage::batchToggleRequested, this,
+                        [this, key](const QStringList &paths, bool disable) {
+                            emit fileBatchToggleRequested(key, paths, disable);
+                        });
+                connect(files, &InstanceFilesPage::batchDeleteRequested, this,
+                        [this, key](const QStringList &paths) {
+                            emit fileBatchDeleteRequested(key, paths);
+                        });
             }
 
             // ★ 「配置文件」那一页多两样（2026-09-27）：上面一颗「上级」，以及"双击/回车
@@ -1490,10 +1533,19 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             //   要跟着改的声明。
             m_filesPages.insert(key, files);
             target->addWidget(files, 1);
-            auto *hint = new QLabel(filesHint(key), listHost);
-            hint->setObjectName(filesHintName(key));
-            hint->setWordWrap(true);
-            target->addWidget(hint);
+            // ★ 2026-10-10：**开了批量管理的那四页不再挂底下那段说明**（用户原话：
+            //   「把这个页面下方那段叙述删了来让框拉到底充分利用空间」）—— 列表那一格是
+            //   `stretch = 1`、小字那一格没有 stretch，所以少一句小字 = 列表**直接多长
+            //   那么高**（原来那几页里最长的一句在默认窗口下是两三行；那句所在的
+            //   `filesDetailHint()` 这一趟已删，见 .hpp 里那段）。
+            //   判据就是上面那一发 `batch` —— 和"这一页有没有那一套按钮"是同一句话，
+            //   不新开第二张名单。
+            if (!batch) {
+                auto *hint = new QLabel(filesHint(key), listHost);
+                hint->setObjectName(filesHintName(key));
+                hint->setWordWrap(true);
+                target->addWidget(hint);
+            }
 
             // 第 1 格：编辑器。**建一次留着**（见 .hpp 里 configFilePage() 那两条 NOTE）
             // —— 每一趟开文件只是往里灌内容（openConfigEditor()），接线只有一次。
@@ -1520,22 +1572,89 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                 //   统一的那一套（每行三颗、各占三分之一、靠左）—— 用户原话「每一行三个，
                 //   间距适中且左右能充分利用」。
                 auto *top = newActionGrid();
-                // 「测速」：真的连上去问一句（2026-09-27）。**它和「刷新」都在** ——
-                // 那一页从这一天起不只是 servers.dat 的一面镜子（图标 / MOTD / 延迟都是
-                // 刚问来的），「刷新」= 重读 + 重测，「测速」= 只重测。
-                m_serverPing = new QPushButton(serverPingText(), page);
-                m_serverPing->setObjectName(serverPingButtonName());
-                m_serverPing->setToolTip(tr("连上去问一遍每台服务器现在通不通、多少人、"
-                                            "那两行字是什么。只读状态，不进游戏。"));
-                connect(m_serverPing, &QPushButton::clicked, this,
-                        &InstanceSettingsDialog::pingServersRequested);
+                // ★★ 2026-10-10：「测速」**没有了**（用户原话「服务器那一栏测速和刷新
+                //   作用重复了」）—— 它和「刷新」都会连上去问一遍每台现在什么样，屏幕上
+                //   并排摆着，用户分不出该按哪一颗。留下的这一颗把两件事都做了：
+                //   **重读 servers.dat + 重测每一台**（那一页从 2026-09-27 起就不只是那份
+                //   文件的一面镜子：图标 / MOTD / 延迟都是刚问来的）。
                 m_serverRefresh = new QPushButton(serverRefreshText(), page);
                 m_serverRefresh->setObjectName(serverRefreshButtonName());
                 Theme::markButton(m_serverRefresh, Theme::ButtonKind::Neutral);
                 // 重读要碰 NBT 解析（在 src/ 里），所以这一发只能交给 MainWindow。
                 connect(m_serverRefresh, &QPushButton::clicked, this,
                         &InstanceSettingsDialog::refreshServerListRequested);
-                layoutActionButtons(top, {m_serverPing, m_serverRefresh});
+                // ★ 2026-10-10：「编辑」（改这一台的名字和地址）。用户原话「在服务器列表
+                //   那里做一个编辑地址和名称的功能」。
+                //   它**不改盘、也不问话** —— 那两件事分别是 src/manage/ServerListFile 和
+                //   覆盖层的事，这一层一样都够不着（问话的入口每一个都要 OverlayHost）。
+                //   所以它只发一条"要改的是哪一台"，剩下的由 MainWindow 接。
+                m_serverEdit = new QPushButton(serverEditText(), page);
+                m_serverEdit->setObjectName(serverEditButtonName());
+                m_serverEdit->setToolTip(serverEditTip());
+                Theme::markButton(m_serverEdit, Theme::ButtonKind::Neutral);
+                connect(m_serverEdit, &QPushButton::clicked, this, [this] {
+                    QTreeWidgetItem *item = selectedServerItem();
+                    if (item == nullptr) {
+                        return;  // 没选中（这颗本来就是灰的；这是第二道闸）。
+                    }
+                    emit editServerRequested(item->data(0, MainWindowUI::serverNameRole()).toString(),
+                                             item->data(1, MainWindowUI::serverAddressRole())
+                                                 .toString());
+                });
+                // ★ 2026-10-10：「添加」和「删除」（用户原话「编辑要能改名字改地址以及
+                //   删除，服务器那个页面里放一个添加服务器的按钮，允许添加」）。和「编辑」
+                //   同一档：这一层不碰盘、也不问话，只发一条，落盘和问话都在 MainWindow。
+                //   ★ 两颗的**可点性不一样**，这是它们和「编辑」唯一的区别：
+                //     - 「添加」不依赖选中行（要加的那一台还没出现在表里），所以**常亮**；
+                //     - 「删除」动的是选中那一行，跟着选中走（见 updateServerSelectionActions）。
+                //   档位：「添加」是普通动作（Neutral）；「删除」是这一页上唯一一颗真会
+                //   从盘上拿掉东西的键 —— 照「删除实例」那一颗（`ButtonKind::Danger`，
+                //   见 ui/Theme.hpp 那句"不可撤销"）。
+                m_serverAdd = new QPushButton(serverAddText(), page);
+                m_serverAdd->setObjectName(serverAddButtonName());
+                m_serverAdd->setToolTip(serverAddTip());
+                Theme::markButton(m_serverAdd, Theme::ButtonKind::Neutral);
+                connect(m_serverAdd, &QPushButton::clicked, this,
+                        &InstanceSettingsDialog::addServerRequested);
+
+                m_serverDelete = new QPushButton(serverDeleteText(), page);
+                m_serverDelete->setObjectName(serverDeleteButtonName());
+                m_serverDelete->setToolTip(serverDeleteTip());
+                Theme::markButton(m_serverDelete, Theme::ButtonKind::Danger);
+                connect(m_serverDelete, &QPushButton::clicked, this, [this] {
+                    QTreeWidgetItem *item = selectedServerItem();
+                    if (item == nullptr) {
+                        return;  // 同上：这一颗本来就是灰的。
+                    }
+                    emit deleteServerRequested(
+                        item->data(0, MainWindowUI::serverNameRole()).toString(),
+                        item->data(1, MainWindowUI::serverAddressRole()).toString());
+                });
+                // ★ 「加入服务器」（**临时占位**，2026-10-10）：用游戏自己的
+                //   `--quickPlayMultiplayer` 直接连进去。用户原话「世界和服务器都做一个
+                //   临时占位（加入选中的世界（仅限有这个参数的版本）/服务器）先试试看能
+                //   不能生效」。
+                //   ★ 默认**收着**（文字一开始是空的，见 setServerJoinText()）：一个没有
+                //     那个启动参数的版本上露着它就是"按下去游戏直接报错退出"（jopt-simple
+                //     认不出那个选项）。露不露由调用方读了版本 json 之后说了算。
+                m_serverJoin = new QPushButton(QString(), page);
+                m_serverJoin->setObjectName(serverJoinButtonName());
+                m_serverJoin->setVisible(false);
+                // 「加入」是这一页上唯一一颗"真的要开游戏"的键（和概览页那颗启动同一档）。
+                Theme::markButton(m_serverJoin, Theme::ButtonKind::Accent);
+                connect(m_serverJoin, &QPushButton::clicked, this, [this] {
+                    QTreeWidgetItem *item = selectedServerItem();
+                    if (item == nullptr) {
+                        return;  // 同上。
+                    }
+                    emit joinServerRequested(item->data(0, MainWindowUI::serverNameRole()).toString(),
+                                             item->data(1, MainWindowUI::serverAddressRole())
+                                                 .toString());
+                });
+                // 顺序 = 用户给的那一串（刷新 / 编辑 / 添加 / 删除），「加入服务器」压尾。
+                // 每行三颗（`kActionButtonsPerRow`）⇒ 自动折成「刷新 编辑 添加 / 删除 加入」。
+                layoutActionButtons(top, {m_serverRefresh, m_serverEdit, m_serverAdd,
+                                          m_serverDelete, m_serverJoin});
                 layout->addLayout(top);
 
                 m_serverNotice = new QLabel(page);
@@ -1584,9 +1703,11 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                 // 悬停底色由代理画（`Theme::rowHoverFill()`），但那一位 `State_MouseOver` 是**视图**填的。
                 // ★ 少了这一句，代理里那段一个字都不会生效 —— 不报错、断言也不一定先红，屏幕上就是"悬停没反应"。
                 m_serverTree->setMouseTracking(true);
-                // 行高是那个代理给的常数（versionTreeRowHeight() = 46），这一句是按同一档
-                // 告诉控件"图标那一格有多大" —— 下载页那几张表也是这么配的（见 MainWindowUI
-                // 里 resourceTreeIconSize() 那两行），不配的话条目自带的图标会被另算一遍尺寸。
+                // 行高**不是**那个常数：这一列逐条 `setSizeHint` 成 `serverRowHeight()`
+                // （= versionTreeRowHeight() + 18 = 64，见下面「46 px 装不下」那一句），
+                // 这一句是按同一档告诉控件"图标那一格有多大" —— 下载页那几张表也是这么配的
+                // （见 MainWindowUI 里 resourceTreeIconSize() 那两行），不配的话条目自带的
+                // 图标会被另算一遍尺寸。
                 m_serverTree->setIconSize(
                     QSize(MainWindowUI::serverIconSize(), MainWindowUI::serverIconSize()));
                 // ★ 地址那一格**右键 = 复制那一串完整的地址**（用户 2026-09-27：「ip地址
@@ -1616,6 +1737,12 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                             }
                             emit copyServerAddressRequested(address);
                         });
+                // ★ 「编辑」和「加入」靠"选中了哪一行"活着（2026-10-10）：选一下重算一次
+                //   那两颗的灰/亮。别的什么都不做 —— 这一发只跟那两颗按钮有关。
+                connect(m_serverTree, &QTreeWidget::itemSelectionChanged, this,
+                        &InstanceSettingsDialog::updateServerSelectionActions);
+                // 初值：现在一条都没有 ⇒ 那两颗是灰的。setServerList() 每次换表还会再喊一遍。
+                updateServerSelectionActions();
                 layout->addWidget(m_serverTree, 1);
                 // 展开/折叠动画（2026-09-29，规则见 ui/Animations.hpp）。
                 Anim::animateExpansion(m_serverTree);
@@ -2109,7 +2236,7 @@ void InstanceSettingsDialog::refreshPageChecks() {
 
 QStringList InstanceSettingsDialog::shortcutTexts() {
     return {tr("版本目录"), tr("存档"),     tr("截图"),     tr("模组"), tr("资源包"),
-            tr("数据包"),   tr("光影包"),   tr("原理图"),   tr("日志")};
+            tr("数据包"),   tr("光影包"),   tr("结构/原理图"), tr("日志")};
 }
 
 QStringList InstanceSettingsDialog::shortcutPathKeys() {
@@ -2123,39 +2250,30 @@ QStringList InstanceSettingsDialog::shortcutPathKeys() {
 }
 
 QString InstanceSettingsDialog::filesHint(const QString &key) {
+    // ★★ 2026-10-10：**模组 / 资源包 / 数据包 / 光影包四页那几条分支已经删掉了**。
+    //   用户原话：「把这个页面下方那段叙述删了来让框拉到底充分利用空间」—— 那四页
+    //   （＝开着批量管理的那四页，判据 `filesNameOpensResource()`）**压根不建那个 QLabel**
+    //   （见构造里建 hint 那一处），于是这几条分支再没有人调得到，留着就是**第二份真相**：
+    //   哪天有人照着它们改字，改的是一个屏幕上不存在的东西。
+    //   连 `filesDetailHint()`（那句"行尾那颗 ⓘ …按住 Ctrl 能多选"）也一起没了 ——
+    //   ★ 顺带说一句：那句话在 2026-10-10 这一天**本来就过期了**（多选换成了
+    //   `MultiSelection`，"按住 Ctrl"已经不是加选的办法），删得正是时候。
+    //   剩下这几页的小字照旧，一条没动。
     if (key == QStringLiteral("shortcut")) {
         return tr("这几颗只是把文件夹打开 —— 看里面有什么、禁用一个、删掉一个，都在左边那一"
                   "列里对应的那几页（模组 / 资源包 / 光影包…）。下面那几格决定它们露不露出来。");
     }
-    if (key == QStringLiteral("mod")) {
-        // 末尾那句是「名字点得动」（2026-09-27 补，见 filesNameHint()）。**四页都有**
-        // —— 差别就是 filesNameOpensResource() 那张表（2026-09-27 起模组也在表里了）。
-        return tr("游戏会自己扫这里面的 .jar。「禁用」只是把文件名改成 .jar.disabled —— "
-                  "文件还在，改回来就又生效了。上面那颗「%1」直接切到下载页去找。%2")
-            .arg(filesDownloadText(key), filesNameHint());
-    }
-    if (key == QStringLiteral("resourcepack")) {
-        // 末尾那句是「名字点得动」（2026-09-27 补，见 filesNameHint()）。
-        return tr("游戏会自己扫这里：.zip 和文件夹都算一个资源包。上面那颗「%1」直接切到"
-                  "下载页去找。%2")
-            .arg(filesDownloadText(key), filesNameHint());
-    }
-    if (key == QStringLiteral("datapack")) {
-        return tr("下载到这儿不等于生效：要自己把它（或者它里面的文件夹）搬进对应存档的"
-                  "datapacks 文件夹里。上面那颗「%1」直接切到下载页去找。%2")
-            .arg(filesDownloadText(key), filesNameHint());
-    }
-    if (key == QStringLiteral("shader")) {
-        // ★ 这一句**故意不提**上面那颗「下载新光影」（另外三页都提）：光影包这一页有
-        //   「用不上」那一档（setUnavailable()），而那一档里**整排按钮连它一起收起来了**
-        //   （理由见 InstanceFilesPage::setDownloadText() 的 NOTE：这一页正在说"这个实例
-        //   装不了光影"，此时把人送去下载页找光影包是指错路）。这句小字在那一档上照样挂着
-        //   —— 写着"上面那颗"就是**指着不存在的东西**，而那一页顶上那句解释已经把该去哪儿
-        //   说清楚了（"先去「下载」页装一个 Iris"）。别照着另外三页把它补齐。
-        return tr("游戏会自己扫这里，但要有 Iris 或者 OptiFine 才加载得了。");
-    }
     if (key == QStringLiteral("schematic")) {
-        return tr("Litematica 装好的话它默认就读这个文件夹。");
+        // ★ 2026-10-10：这一页改名叫「结构/原理图」了（用户原话「那个原理图那个改成
+        //   结构/原理图（我记得这两个应该是类似的保存格式？）」），而**"结构"那半边当天
+        //   也做上了**：顶上那两排下拉框（上面「存档」、下面「投影」）就是在说这一页
+        //   同时列哪两个来源 —— 结构方块存的那些 `.nbt` **跟着存档走**，投影的那些
+        //   `.litematic` 在这个实例自己的文件夹里（见 InstanceFilesPage::
+        //   setStructureSources()）。这句话得把这两样都说到：只提投影的话，用户看见
+        //   上面多出来一排「存档」会以为是自己哪儿点错了。
+        return tr("这里两样东西都在：结构方块存下来的（跟着存档走，上面那排挑是哪一个存档）"
+                  "和投影模组读的（在这个实例自己的文件夹里）。两样都是压缩过的 NBT，"
+                  "改坏了游戏读不出来 —— 这一页只列给你看，不动它们。");
     }
     if (key == QStringLiteral("config")) {
         // 这一句得把"能干什么"和"为什么是这么个界面"都说清楚 —— 用户问的就是后半句
@@ -2170,11 +2288,18 @@ QString InstanceSettingsDialog::filesHint(const QString &key) {
                   "文件夹里删。");
     }
     if (key == QStringLiteral("server")) {
-        // 2026-09-27 起这一页不只是那份文件的一面镜子：图标 / MOTD / 延迟都是**刚问来的**
-        // （见 pingServersRequested()）。所以这句话得说清"哪儿来的"和"点了会发生什么"。
-        return tr("servers.dat 是游戏自己写的，启动器只读不改。「测速」会连上去问一遍每台"
-                  "现在什么样（图标、那两行字、多少人、多少毫秒），只读状态、不进游戏；"
-                  "「刷新」是重读文件再问一遍。地址那一格显示的是遮过的，"
+        // ★★ 2026-10-10：这段话重写过两次。
+        //   2026-09-27 起这一页不只是那份文件的一面镜子（图标 / MOTD / 延迟都是**刚问来的**）；
+        //   2026-10-10 起它也不只是"只看"了 —— 加 / 改名 / 改地址 / 删都会**写回
+        //   servers.dat**（用户原话「编辑要能改名字改地址以及删除，服务器那个页面里放一个
+        //   添加服务器的按钮，允许添加」）。
+        //   所以原来那句「启动器只读不改」现在是**错的**，必须说清"哪几颗会动盘"：
+        //   「刷新」只重读 + 重问，一个字都不写；四颗真正写盘的都在下面点名。
+        return tr("这里就是游戏自己的服务器列表（servers.dat），启动器现在能改它了："
+                  "「编辑」改这一台的名字和地址，「添加」多一台，「删除」拿掉一台。"
+                  "改的只有名字和地址这两样，图标、隐藏之类的设置原样留着。"
+                  "「刷新」会重读一遍文件、再连上去问每台现在什么样（图标、那两行字、"
+                  "多少人、多少毫秒），只问不写、不进游戏。地址那一格显示的是遮过的，"
                   "在上面按右键能把完整的那个复制下来。");
     }
     return QString();
@@ -2194,7 +2319,7 @@ QString InstanceSettingsDialog::filesEmptyText(const QString &key) {
         return tr("这个实例还没有光影包。按上面的「%1」去找一个。").arg(filesDownloadText(key));
     }
     if (key == QStringLiteral("schematic")) {
-        return tr("这个实例还没有原理图。");
+        return tr("这个实例还没有结构 / 原理图。");
     }
     if (key == QStringLiteral("config")) {
         // 「还没有」在这里有**两种**原因，都说得出口：这个实例从来没进过游戏（模组还没
@@ -2217,7 +2342,7 @@ QString InstanceSettingsDialog::shaderUnavailableText() {
 }
 
 QString InstanceSettingsDialog::schematicUnavailableText() {
-    return tr("原理图（投影）是 Litematica 用的，这个实例没装它 —— 这个文件夹现在没人会读。"
+    return tr("原理图是 Litematica / 投影模组用的，这个实例没装它 —— 这个文件夹现在没人会读。"
               "先去「下载」页装一个。");
 }
 
@@ -2299,9 +2424,15 @@ QString InstanceSettingsDialog::filesResourceTip(const QString &title) {
     return tr("打开「%1」的下载页（这一页会关掉）。").arg(title);
 }
 
-QString InstanceSettingsDialog::filesNameHint() {
-    return tr("认得出是哪个资源的那几条，点一下名字就能进它自己的那一页。");
-}
+// ★★ `filesDetailHint()` 2026-10-10 **已删**（原来在这儿，是模组 / 资源包 / 数据包三页小字
+//    末尾那一句"行尾那颗 ⓘ 能进它自己的那一页…按住 Ctrl 能多选，Ctrl+A 全选"）。
+//    删它的直接原因：那几页底下那段叙述整个不挂了（用户："把这个页面下方那段叙述删了来让
+//    框拉到底充分利用空间"），没有第二个调用者。
+//    ★ **它在删之前就已经是一句错话了**，这才值得记一笔：`Ctrl` 那一天还是加选的办法，
+//    而 2026-10-10 同一天多选换成了 `MultiSelection`（点一下切换，一个修饰键都不用）——
+//    留着它的话，用户照着「按住 Ctrl」去按，得到的是"这一条翻了个面"（`Toggle` 不看修饰键），
+//    也就是 `wtfml-comment-vs-code` 那个老毛病再来一次：**字面声称的那一侧就是洞**。
+//    要再挂说明的文字，写的时候**照着 `setBatchMode()` 里那段**写，别照抄记忆里的版本。
 
 QString InstanceSettingsDialog::pageUnavailableText(const QString &key) {
     // **唯一分发处**：页里那句「用不上」和勾选表的悬停提示都走它。
@@ -2510,6 +2641,47 @@ void InstanceSettingsDialog::setPageUsable(const QString &key, bool usable, bool
     rebuildEntryList();
 }
 
+QTreeWidgetItem *InstanceSettingsDialog::selectedServerItem() const {
+    if (m_serverTree == nullptr) {
+        return nullptr;
+    }
+    // 单选（`setSelectionMode(SingleSelection)`，见构造里那一句）⇒ currentItem() 就是那一条。
+    // 走 currentItem() 而不是 selectedItems().first()：前者在"选中了又取消"之后**会自己
+    // 回空**，后者拿到的是一个空表 —— 用一个空表的 first() 是越界。
+    return m_serverTree->currentItem();
+}
+
+void InstanceSettingsDialog::updateServerSelectionActions() {
+    if (m_serverEdit == nullptr || m_serverJoin == nullptr || m_serverDelete == nullptr) {
+        return;
+    }
+    const bool hasRow = selectedServerItem() != nullptr;
+    // 「添加」**不在这儿** —— 它不依赖选中行（要加的那一台还没出现在表里），常亮。
+    m_serverEdit->setEnabled(hasRow);
+    m_serverDelete->setEnabled(hasRow);
+    m_serverJoin->setEnabled(hasRow);
+    // 灰着的时候悬停提示换成"先说清为什么灰"—— 一颗点不动的按钮上写着"改选中的那一台
+    // 的名字和地址"，用户会以为自己点错了地方。
+    m_serverEdit->setToolTip(hasRow ? serverEditTip() : serverSelectFirstHint());
+    m_serverDelete->setToolTip(hasRow ? serverDeleteTip() : serverSelectFirstHint());
+    if (!m_serverJoinTip.isEmpty()) {
+        m_serverJoin->setToolTip(hasRow ? m_serverJoinTip : serverSelectFirstHint());
+    }
+}
+
+void InstanceSettingsDialog::setServerJoinText(const QString &text, const QString &tip) {
+    if (m_serverJoin == nullptr) {
+        return;
+    }
+    // 空文字 = 收起来（见 .hpp 那条 NOTE）：这一个版本没有 `--quickPlayMultiplayer`，
+    // 露着它等于给用户摆一个"按下去游戏立刻报错退出"的键。
+    m_serverJoin->setText(text);
+    m_serverJoin->setVisible(!text.isEmpty());
+    m_serverJoinTip = text.isEmpty() ? QString() : tip;
+    // 提示和灰/亮都跟着"有没有选中"走 —— 复用它，别在这儿再写一遍那套判断。
+    updateServerSelectionActions();
+}
+
 void InstanceSettingsDialog::setServerList(const QList<QPair<QString, QString>> &servers,
                                            const QString &problem) {
     if (m_serverTree == nullptr) {
@@ -2523,6 +2695,9 @@ void InstanceSettingsDialog::setServerList(const QList<QPair<QString, QString>> 
     for (const QPair<QString, QString> &server : servers) {
         auto *item = new QTreeWidgetItem(m_serverTree);
         item->setText(0, server.first.isEmpty() ? unnamedMark() : server.first);
+        // 那一格里**真正**的名字（可以是空串）。屏幕上空名字写的是「（无名）」——那是我们
+        // 编的一句话，「编辑」那颗要预填的是文件里原本那一串（见 MainWindowUI::serverNameRole()）。
+        item->setData(0, MainWindowUI::serverNameRole(), server.first);
         // 地址那一栏写**遮过的**（`m-.h-.c-`），完整的那一串只在悬停时给（见
         // maskedServerAddress 那段）。左边那两行 MOTD 因此能多占一大截宽度 —— 用户原话
         // 「保证左侧的 motd 能显示全」。
@@ -2556,6 +2731,10 @@ void InstanceSettingsDialog::setServerList(const QList<QPair<QString, QString>> 
     m_serverTree->setVisible(readable && !empty);
     m_serverNotice->setVisible(!readable || empty);
     m_serverNotice->setText(!readable ? problem : (empty ? serverEmptyText() : QString()));
+    // ★ 换掉整张表 ⇒ 选中没了 ⇒ 「编辑 / 加入」那两颗回到灰的（见 updateServerSelectionActions()）。
+    //   `clear()` 会发一次 itemSelectionChanged，但那一发**不能指望**：表本来就是空的时候
+    //   （第一次灌）clear() 什么都不发。所以在这儿明喊一次。
+    updateServerSelectionActions();
 }
 
 QStringList InstanceSettingsDialog::serverStatusLines(const ServerRowStatus &status) {
@@ -2739,12 +2918,13 @@ void InstanceSettingsDialog::setServerStatuses(const QList<ServerRowStatus> &sta
 }
 
 void InstanceSettingsDialog::setServerPinging(bool pinging) {
-    if (m_serverPing == nullptr) {
+    // ★ 2026-10-10：文字落在**「刷新」**那颗上（「测速」已经并进它了，见构造里那段）。
+    if (m_serverRefresh == nullptr) {
         return;
     }
-    m_serverPing->setText(pinging ? serverPingingText() : serverPingText());
+    m_serverRefresh->setText(pinging ? serverPingingText() : serverRefreshText());
     // 连点三下发三遍请求是用户没要的，而且每一遍都要等满超时。
-    m_serverPing->setEnabled(!pinging);
+    m_serverRefresh->setEnabled(!pinging);
 }
 
 void InstanceSettingsDialog::refreshFilePages() {

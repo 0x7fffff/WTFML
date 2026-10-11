@@ -39,6 +39,7 @@
 #include <QByteArray>
 #include <QDateTime>
 #include <QHash>
+#include <QJsonObject>
 #include <QList>
 #include <QString>
 #include <QStringList>
@@ -190,6 +191,18 @@ QList<FilterOption> categoryOptions(Source source, Kind kind);
 /// **两边顺序一样**（fabric / forge / neoforge / quilt），所以那个下拉框在两个来源之间
 /// 来回切时行不会跳。
 QList<FilterOption> loaderOptions(Source source);
+
+/// 一个加载器名 → **这一家接口要的那个写法**（`versionsUrl` 拼参数时用的那一个）。
+///
+/// ★ 这是"加载器名"这件事上**唯一**一处按来源翻译的地方，因为两侧的词形不是一套：
+///   Modrinth 的 facet 要小写那个词（`fabric`），CurseForge 的 `modLoaderType` 要**数字**
+///   （`4`）。递一个对不上的词上去**不会报错**，那边只是筛不出东西 —— 于是"装进 Fabric
+///   实例的前置"会挑出一个任意加载器的版本，症状是游戏进去就崩，而那一刻没人会想到是它。
+///
+/// 收的写法**两套都认**（`4` / `fabric` / `Fabric` —— 界面那两张表的键和标签都在这儿），
+/// 认不出来（`OptiFine` 这种不在白名单里的、空串）**回空串 = 不筛**（和 `instanceLoaderName()`
+/// 给不出名字时一个意思，见 ModDependencies::Target 那段）。
+QString loaderRequestValue(const QString &loader, Source source);
 
 // ---------- 搜索 ----------
 
@@ -698,6 +711,48 @@ QString versionsUrl(const QString &projectId, const QString &gameVersion,
                     const QString &loader = QString(),
                     Source source = Source::Modrinth, const QString &apiBase = QString());
 
+/// 「这一串文件各自该换成哪一版」—— `POST {base}/version_files/update`（2026-10-11 加）。
+///
+/// ★★ 为什么非有它不可（这一条是**"修一个用户报的问题"的根**，别把它当优化撤掉）：
+///   上面那个 `versionsUrl()` 是**一个项目一发**。实例设置那个「检查更新」按文件反查出
+///   项目号之后，是一个项目一个项目地问 —— 页面上几百个模组就是几百发请求，几秒钟里
+///   全打向 `api.modrinth.com`。实测（2026-10-11，拿用户自己那个 295 个模组的整合包打的）：
+///   头一趟 295 发全 200，紧接着再打一趟 —— **295 发全 429**（正文 `error code: 1015`，
+///   是 Cloudflare 那一层的限流，不是 Modrinth 自己那 300/分）。429 落到判据上就是
+///   "这一条说不清"，而报告里那句话是"没问到版本列表（网络或接口没成）"—— 用户看到的是
+///   "更新检测查不出来"，而真因一个字都没露出来。
+///
+///   这个接口就是为它准备的：**一次带一串 sha1**，回"每个 sha1 它那个项目在
+///   `gameVersion` + `loader` 下**最新**的那一版"。295 个模组 = 3 发（每发 100 个哈希，
+///   见 `kLookupChunk` 那个数）。
+///
+/// 形状（实测 2026-10-11）：
+///   · 请求体 `{"hashes":["<sha1>",…],"algorithm":"sha1","loaders":["forge"],
+///     "game_versions":["1.20.1"]}` —— **两个筛参数和上面那一条同样是"不筛就不发"**，
+///     而筛不筛差得很远：同一个模组不过滤问回来的是 `2.0.2 / fabric / 1.21.1`
+///     （另一个加载器、另一个游戏版本），过滤了才是 `2.0.1 / forge / 1.20.1`。
+///   · 答复是 `{"<sha1>": <版本对象>}` —— **版本对象的形状和 `parseVersions()` 读的那一份
+///     逐字相同**（同一个解析器），所以"认不出来的哈希"就是**不在表里**（不是报错、也不是
+///     空对象）。请求体里那些哈希里的空串/空白**留在外面**（发上去只会白占一格）。
+QString versionFilesUpdateUrl(const QString &apiBase = QString());
+
+/// 上面那一发的请求体。`sha1s` 全空（或全是空白）时返回空 `QByteArray` —— 那一发
+/// **不该发出去**（空表的回复必然是空表）。
+///
+/// `loader` 递**显示名**（「Fabric」）或者键（`fabric`）都行 —— 翻那一步在**里面**
+/// （`loaderRequestValue()`，和 `versionsUrl()` 那一句逐字同一个出处），翻不出来就**不筛**
+/// （那一格整个不出现）。★ 别指望调用方先翻好：`dependencyTargetFor()` 给的是显示名那一套
+/// （见那个函数），而这一发只认小写那个词 —— 递错的症状是"一个哈希都匹配不上"，不是报错。
+QByteArray versionFilesUpdateRequestBody(const QStringList &sha1s, const QString &gameVersion,
+                                         const QString &loader);
+
+/// 解析 `POST /version_files/update` 的答复。**键是小写的 sha1**（调用方拿本地那个文件的
+/// sha1 去查，本地算出来的一律是小写）。
+///
+/// NOTE: 读不懂（不是对象）时返回空表 —— 和 `parseVersions()` 那边"读不懂就是空表"同一条
+///       规矩；"接口回了一句读不懂的话"这件事由调用方（`ResourceStore`）那句 problem 说。
+QHash<QString, VersionEntry> parseVersionFilesUpdate(const QByteArray &json);
+
 // ---- 请求的"钥匙" ----
 //
 // 一次异步请求要认得出回来的是不是**我现在等的那一发**：用户连敲两次回车，第一发回来得比
@@ -764,5 +819,22 @@ QList<VersionEntry> parseCurseForgeVersions(const QByteArray &json);
 ///       删过版本，问不到东西），别默默少下。
 QList<Dependency> requiredDependenciesOf(const QList<VersionEntry> &versions,
                                          const QString &versionId);
+
+// ---------- 一条 Hit 的盘上往返 ----------
+
+/// 把一条 `Hit` 写成 JSON 对象 / 从 JSON 对象读回来。
+///
+/// ★★ 2026-10-10：给**「这个文件是哪个资源」那一趟反查的盘上缓存**用的（见
+///   `AppPaths::instanceIconCacheDir()` 和 `InstanceIconLookup::Options::cacheDir`）。
+///   那一趟的产物本来就是一份 `Hit`（名字 / slug / 简介 / 图标两条地址都在里面，见
+///   `Found::hit` 那段），把整条留在盘上 = 第二次进那一页**一个请求都不发**、
+///   点名字进详情页那一下也照样有东西可显示。
+///
+/// NOTE: 这一对必须**逐字段配平** —— 加了 `Hit` 的一个字段却忘了加在这两边，症状是
+///       "第二次启动之后那一栏是空的"（而不是报错）。`verify` 里有一条往返断言盯着它。
+/// NOTE: 读的一侧**不认识的一律当空**（字段没了 / 被别的东西改过）：这是缓存，不是判据，
+///       缺一栏的代价是界面上少一句话，不该让整份文件作废。
+QJsonObject hitToJson(const Hit &hit);
+Hit hitFromJson(const QJsonObject &object);
 
 } // namespace ResourceCatalog

@@ -60,7 +60,13 @@ struct Target {
     QString instanceId;
     /// 游戏版本（`1.21.1`）。空 = 不筛。
     QString gameVersion;
-    /// 加载器名（**小写**，`fabric` / `forge` / `neoforge`）。空 = 不筛。
+    /// 加载器名（**小写**，`fabric` / `forge` / `neoforge` / `quilt`）。空 = 不筛。
+    ///
+    /// NOTE: 塞进来的那个词**不一定**是这一家接口认得的那几个（`OptiFine` 就不在 Modrinth /
+    ///       CurseForge 的白名单里）。这一层**不判**：它只把值原样递给 `versionsUrl()` /
+    ///       `versionsRequestKey()`，由 `ResourceCatalog::loaderRequestValue()` 按来源翻成
+    ///       接口要的写法 —— **认不出来就回空串 = 不筛**（那边不报错，只是什么都筛不出来，
+    ///       而"什么都没筛出来"和"这个资源没有能用的版本"在界面上是同一句话）。
     QString loader;
     /// 这个模组是从哪一家下来的 —— 前置也去**同一家**问（两家的项目号不是一套）。
     ResourceCatalog::Source source = ResourceCatalog::Source::Modrinth;
@@ -232,7 +238,28 @@ struct InstalledItem {
     /// `xxx.jar` 是同一份），而**同一个文件的 sha1 换不了**。接口两条路都带它
     /// （Modrinth `files[].hashes.sha1`、CurseForge `hashes` 里 `algo == 1` 那条）。
     QString sha1;
+    /// ★★ 2026-10-11：问版本列表时**要不要带上实例的加载器**。
+    ///
+    /// 它就是 `kindUsesLoader()`（那支函数是这条规矩的唯一出处）在**这一条文件**上的答案，
+    /// 由调用方在"反查回来、知道这个路径在哪一类目录下"那一刻填上。
+    ///
+    /// 为什么不是"一律带上"：那个筛一旦带上，**只对模组是对的**。同一个模组的 Fabric /
+    /// Forge 两版是两条版本线（不带筛的话问回来的"最新"可能是另一个加载器的 jar，装进去
+    /// 就崩），所以模组必须带；而资源包 / 光影包 / 数据包在两家接口上写的是**别的词**
+    /// —— Modrinth 的资源包写 `minecraft`、光影写 `iris` / `optifine`（实测 Complementary
+    /// 那条就是 `['iris','optifine']`）、数据包写 `datapack` —— 带上「Fabric」上去
+    /// **不会报错、只是一个都不匹配**，于是那一类的每一条都判成"说不清"。真机实测
+    /// （2026-10-11，用户那个整合包）：14 个资源包 + 光影包一条都判不出来，报告里全是
+    /// "没问到版本列表（网络或接口没成）"—— 而同一个 sha1 把 `loaders` 去掉再问，
+    /// 接口**当场就答**（同一条 `curl` 实测，见 FEATURES.md）。
+    bool loaderApplies = true;
 };
+
+/// 这一类资源问版本列表时，**要不要带实例的加载器**（上面那一位的语义出处）。
+///
+/// 只有模组（和整合包那一类 —— 它自己就带加载器）要。资源包 / 光影包 / 数据包**一个都
+/// 不带**：加载器那几格里它们写的词和实例的加载器根本不是一套（见上面那段的实测）。
+bool kindUsesLoader(ResourceCatalog::Kind kind);
 
 /// 一条更新检测的结论。
 enum class UpdateState {
@@ -278,7 +305,37 @@ struct UpdateVerdict {
  * @param versions 空的（那一发失败 / 这个项目没有版本）→ 也说不出所以然，回 Unknown。
  */
 UpdateVerdict judgeUpdate(const InstalledItem &item,
-                          const QList<ResourceCatalog::VersionEntry> &versions);
+                          const QList<ResourceCatalog::VersionEntry> &versions,
+                          const QString &problem = QString());
+
+/**
+ * @brief 拿**批量那一发**给的"最新那一版"判盘上这一条是不是最新的（2026-10-11 加）。
+ *
+ * 和上面那个 `judgeUpdate()` 的判据**是同一条**（"盘上这一份是不是最新的那一版"），区别只在
+ * 手里有什么：那一条拿的是整个版本列表（所以能说"比它新的有几条"），这一条拿的是接口直接
+ * 给的**最新那一版**（`POST /version_files/update`，一次带一串 sha1 —— 见
+ * `ResourceStore::fetchLatestVersions()` 那段：一页几百个模组各问一发会把 Modrinth 问到
+ * 429，那一发就是为这件事加的）。
+ *
+ *   · `latest` 有东西、而且它某个文件的 sha1 就是 `item.sha1` → **已是最新**；
+ *   · `latest` 有东西、对不上 → **可更新**（换成它的那一版）；
+ *   · `latest` 空的 → **说不清**（不是"已是最新"）：接口对"这个哈希"什么都没给 —— 那个项目
+ *     在这个游戏版本 / 加载器下没有版本，或者它压根不在 Modrinth 上。
+ *
+ * @param problem 那一批自己的毛病（429 / 没连上 / 正文读不懂）。非空时**整批**都是
+ *        "说不清"，而且 `reason` 就是它 —— 这就是 2026-10-11 那次用户报「无法正常获取更新」
+ *        的正面修法：429 原来被吞成"没问到版本列表（网络或接口没成）"，用户看不见真因。
+ */
+UpdateVerdict judgeUpdateAgainstLatest(const InstalledItem &item,
+                                       const ResourceCatalog::VersionEntry &latest,
+                                       const QString &problem = QString());
+
+/// 批量那一发的钥匙（**唯一出处** —— 拼钥匙和"那一槽认不认这一发"读的是同一个字）。
+///
+/// 和 `versionsKeyFor()` 同一个规矩（分隔符 `|`、消费方挂在尾部），只是**没有"哪个项目"
+/// 那一格**：这一发问的是一整串 sha1，认得它的东西是"游戏版本 + 加载器 + 消费方"。
+QString latestVersionsKeyFor(const QString &consumer, const QString &gameVersion,
+                             const QString &loader = QString());
 
 // ---------------------------------------------------------------------------
 // 界面上的字（**唯一出处** —— 界面和验证工程都读这里，别在别处再写一遍）
@@ -287,11 +344,23 @@ UpdateVerdict judgeUpdate(const InstalledItem &item,
 /// 弹窗标题：`还有前置没装`。
 QString dependencyPromptTitle();
 
-/// 弹窗正文：「这个模组要用 N 个前置模组，这几个还没装：」+ 每行一条名字 +
-/// 「要一起下载吗？」。空表回空串（**空表时不该弹这个框**，见调用点）。
-/// @param names 还没装的那些的**名字**（一条一行，前面带个短横）。名字取不到时调用方
-///        递进来的是项目号（见 MainWindow 里那段）—— 总比一条都不列强。
-QString dependencyPromptText(const QStringList &names);
+/// 弹窗正文的**句头**：「此模组缺失必要的前置：」/「此光影包缺失必要的前置：」。
+/// 2026-10-09 起光影包也查前置（用户确认），所以句头得认这一版是哪一类。
+QString dependencyPromptHead(ResourceCatalog::Kind kind);
+
+/**
+ * @brief 弹窗正文：句头 + 名单（一行一条）+「要一起下载吗？」。空表回空串
+ *        （**空表时不该弹这个框**，见调用点）。
+ *
+ * 名单怎么摆是**这一层说了算**（用户 2026-10-09 点名的截断规则，那一整段写在 .cpp 里
+ * 的 `dependencyNameLines`）：**总数 ≤ 4 全列**、**> 4 列前 3 条 + 「还有 N 个未列出…」**。
+ * 所以永远看不到「还有 1 个未列出」那一行。
+ *
+ * @param kind  这一版是模组还是光影包（只决定句头那半句）。
+ * @param names 还没装的那些的**名字**（一条一行，前面带个短横）。名字取不到时调用方
+ *        递进来的是项目号（见 MainWindow 里那段）—— 总比一条都不列强。
+ */
+QString dependencyPromptText(ResourceCatalog::Kind kind, const QStringList &names);
 
 /**
  * @brief 同一件事，但**还没认过这个实例装了什么**时那一句。
@@ -301,9 +370,14 @@ QString dependencyPromptText(const QStringList &names);
  * 是在替用户认下一件我们不知道的事（他可能早就装了，于是被哄着下了第二份，而 mods/ 里
  * 同一个模组两份，游戏加载哪一份是按文件名顺序定的）。
  *
- * 所以这一版只说事实：「这个模组要用 N 个前置模组」+ 名单，不提"缺"。
+ * 所以这一版在句头后面补一句"不知道你有没有"，名单照上面的规矩摆，不提"缺"。
  */
-QString dependencyPromptUnknownText(const QStringList &names);
+QString dependencyPromptUnknownText(ResourceCatalog::Kind kind, const QStringList &names);
+
+/// 弹窗里那行**灰字**（「可以在设置中关闭此提示（设置页「下载」→「缺失前置提醒」）。」）。
+/// 用户 2026-10-09：「弹窗里灰字写可以在设置里面关掉弹窗」。界面拿它喂
+/// `InlineMessage::ask(...)` 的 note，验证工程拿它断言 —— 别在别处再写一遍。
+QString dependencyPromptNoteText();
 
 /// 「一起下载」（用户 2026-09-28 要的那个"一键下载所有缺少的依赖"）。
 QString dependencyAllButtonText();

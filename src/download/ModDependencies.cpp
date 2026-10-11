@@ -22,6 +22,23 @@ QString projectsKeyFor(const QString &consumer, const QStringList &projectIds,
     return ResourceCatalog::projectsRequestKey(projectIds, source) + QLatin1Char('|') + consumer;
 }
 
+bool kindUsesLoader(ResourceCatalog::Kind kind) {
+    // **只有模组那一类要**（理由全在 .hpp 的 `InstalledItem::loaderApplies` 那段里）。
+    // 写成一串 `==` 而不是"排除那几个"：后加一类资源时，默认**不带**比默认带上去安全 ——
+    // 带错了的症状是"这一类一条都判不出来"，而不带的症状最坏是"问回来的是另一条版本线"
+    // （那一条至少还在报告里，用户看得见）。
+    switch (kind) {
+    case ResourceCatalog::Kind::Mod:
+    case ResourceCatalog::Kind::Modpack:
+        return true;
+    case ResourceCatalog::Kind::DataPack:
+    case ResourceCatalog::Kind::Shader:
+    case ResourceCatalog::Kind::ResourcePack:
+        return false;
+    }
+    return false;
+}
+
 /// 前置这一趟的消费方名字（**唯一一处** —— 拼钥匙和"那个槽认不认这一发"读的是同一个字）。
 static QString dependencyConsumerName() { return QStringLiteral("dependency"); }
 
@@ -162,7 +179,8 @@ Plan buildPlan(const QList<Lookup> &lookups,
 }
 
 UpdateVerdict judgeUpdate(const InstalledItem &item,
-                          const QList<ResourceCatalog::VersionEntry> &versions) {
+                          const QList<ResourceCatalog::VersionEntry> &versions,
+                          const QString &problem) {
     UpdateVerdict verdict;
     verdict.item = item;
     verdict.state = UpdateState::Unknown;
@@ -173,7 +191,12 @@ UpdateVerdict judgeUpdate(const InstalledItem &item,
         return verdict;
     }
     if (versions.isEmpty()) {
-        verdict.reason = QStringLiteral("没问到版本列表（网络或接口没成）。");
+        // ★★ 2026-10-11：那一发**自己报的那句话**优先（429 那条尤其）——
+        //   从前这里一律写"没问到版本列表（网络或接口没成）"，于是"问得太勤了"这个**真因
+        //   一个字都不会露给用户**：他看到的每一条都是"说不清、网络没成"，于是在那儿反复
+        //   重试网络，而问题在"一次问得太多"上（用户那句「无法正常获取更新」就是这个症状）。
+        verdict.reason = problem.isEmpty() ? QStringLiteral("没问到版本列表（网络或接口没成）。")
+                                           : problem;
         return verdict;
     }
 
@@ -206,37 +229,126 @@ UpdateVerdict judgeUpdate(const InstalledItem &item,
     return verdict;
 }
 
+UpdateVerdict judgeUpdateAgainstLatest(const InstalledItem &item,
+                                       const ResourceCatalog::VersionEntry &latest,
+                                       const QString &problem) {
+    UpdateVerdict verdict;
+    verdict.item = item;
+    verdict.state = UpdateState::Unknown;
+
+    if (item.sha1.isEmpty()) {
+        // 和上面那条**逐字同一句话**：认不出来是哪一版，就谈不上"是不是最新的"。
+        verdict.reason = QStringLiteral("认不出盘上这个文件是哪一版。");
+        return verdict;
+    }
+    if (latest.id.isEmpty()) {
+        // 接口对这个哈希**什么都没给**。三种可能分不开（这一层手上没有分得开的东西）：
+        // 那一批自己没成（problem）、这个项目在这个游戏版本/加载器下没有版本、
+        // 或者它压根不在 Modrinth 上。所以 reason 那句按 problem 说（429 那条尤其 ——
+        // 见 .hpp 里那段：真因不许被吞成"网络没成"）。
+        verdict.reason =
+            problem.isEmpty()
+                ? QStringLiteral("没查到它能用的版本（这个项目在这个游戏版本/加载器下没有"
+                                 "版本）。")
+                : problem;
+        return verdict;
+    }
+
+    // 判据和 `judgeUpdate()` 那一条**是同一句话**：盘上这一份的 sha1 就是"最新那一版"的
+    // 某个文件的 sha1 ⇒ 已是最新。这里不必（也没法）说"比它新的有几条" —— 接口给的就是
+    // 最新的那一条，`newerCount` 于是只在"可更新"这一档给一个 ≥1 的值。
+    bool sameFile = false;
+    for (const ResourceCatalog::FileEntry &file : latest.files) {
+        if (!file.sha1.isEmpty() && file.sha1.compare(item.sha1, Qt::CaseInsensitive) == 0) {
+            sameFile = true;
+            break;
+        }
+    }
+
+    verdict.latestVersionId = latest.id;
+    verdict.latestVersionNumber = latest.versionNumber;
+    const ResourceCatalog::FileEntry *latestFile = latest.primaryFile();
+    verdict.latestFileName = latestFile == nullptr ? QString() : latestFile->filename;
+    verdict.newerCount = sameFile ? 0 : 1;
+    verdict.state = sameFile ? UpdateState::UpToDate : UpdateState::Outdated;
+    return verdict;
+}
+
+QString latestVersionsKeyFor(const QString &consumer, const QString &gameVersion,
+                             const QString &loader) {
+    // 分隔符 `|`：项目号 / 游戏版本 / 加载器 / 消费方这几个字段里都不会出现它，所以不用转义
+    //（和 `versionsRequestKey()` 那边逐字同一个规矩）。**来源不需要**：这一发只有 Modrinth
+    // 有（CurseForge 没有对应的批量接口），所以拼不拼上它都是同一把钥匙。
+    return QStringLiteral("latest|") + gameVersion + QLatin1Char('|') + loader +
+           QLatin1Char('|') + consumer;
+}
+
 // ---------- 界面上的字 ----------
+namespace {
+
+/// 名单怎么摆 —— **唯一出处**（界面和验证工程都走这儿）。
+///
+/// 用户 2026-10-09 的原话：「（模组名称，一行一个，如果多于 3 个的话写 还有 x 个未列出...
+/// （当然如果刚好还剩一个就列出来了不要搞一行显示 1 个未列出这种高血压操作）」
+///
+/// 翻成两条判据：
+///   · **总数 ≤ 4 ⇒ 一条不省，全列**（"刚好还剩一个"的就是 4 条这一档，它走的是全列）；
+///   · **总数 > 4 ⇒ 列前 3 条 + 「还有 N 个未列出…」**（N = 总数 − 3）。
+/// 所以「还有 1 个未列出」这一行**永远画不出来** —— 那正是用户点名不要的那一句。
+QString dependencyNameLines(const QStringList &names) {
+    /// 到这一档为止一律全列（含 4 —— 多出来的第 4 条宁可多占一行，也不给用户看
+    /// 「还有 1 个未列出」）。
+    static constexpr int kListAllUpTo = 4;
+    /// 真要截断时留下几条。
+    static constexpr int kKeepWhenTruncated = 3;
+
+    QStringList lines;
+    if (names.size() <= kListAllUpTo) {
+        lines.reserve(names.size());
+        for (const QString &name : names) {
+            lines.append(QStringLiteral("- ") + name);
+        }
+        return lines.join(QLatin1Char('\n'));
+    }
+    lines.reserve(kKeepWhenTruncated + 1);
+    for (int i = 0; i < kKeepWhenTruncated; ++i) {
+        lines.append(QStringLiteral("- ") + names.at(i));
+    }
+    // 这一行**不带短横**：它不是名单里的一条，是一句"后面还有"。
+    lines.append(QStringLiteral("还有 %1 个未列出…").arg(names.size() - kKeepWhenTruncated));
+    return lines.join(QLatin1Char('\n'));
+}
+
+}  // namespace
+
+QString dependencyPromptHead(ResourceCatalog::Kind kind) {
+    return kind == ResourceCatalog::Kind::Shader ? QStringLiteral("此光影包缺失必要的前置：")
+                                                 : QStringLiteral("此模组缺失必要的前置：");
+}
 
 QString dependencyPromptTitle() { return QStringLiteral("还有前置没装"); }
 
-QString dependencyPromptText(const QStringList &names) {
+QString dependencyPromptText(ResourceCatalog::Kind kind, const QStringList &names) {
     if (names.isEmpty()) {
         return QString();
     }
-    QStringList lines;
-    lines.reserve(names.size());
-    for (const QString &name : names) {
-        lines.append(QStringLiteral("- ") + name);
-    }
-    return QStringLiteral("这个模组要用 %1 个前置模组，这几个还没装：\n\n%2\n\n要一起下载吗？")
-        .arg(names.size())
-        .arg(lines.join(QLatin1Char('\n')));
+    return QStringLiteral("%1\n\n%2\n\n要一起下载吗？")
+        .arg(dependencyPromptHead(kind), dependencyNameLines(names));
 }
 
-QString dependencyPromptUnknownText(const QStringList &names) {
+QString dependencyPromptUnknownText(ResourceCatalog::Kind kind, const QStringList &names) {
     if (names.isEmpty()) {
         return QString();
     }
-    QStringList lines;
-    lines.reserve(names.size());
-    for (const QString &name : names) {
-        lines.append(QStringLiteral("- ") + name);
-    }
-    return QStringLiteral("这个模组要用 %1 个前置模组（还没看过这个实例里装了什么，"
-                          "不知道你有没有）：\n\n%2\n\n要一起下载吗？")
-        .arg(names.size())
-        .arg(lines.join(QLatin1Char('\n')));
+    return QStringLiteral("%1（还没看过这个实例里装了什么，不知道你有没有）：\n\n%2\n\n"
+                          "要一起下载吗？")
+        .arg(dependencyPromptHead(kind), dependencyNameLines(names));
+}
+
+QString dependencyPromptNoteText() {
+    // 那一行灰字。**唯一出处**：界面（InlineMessage::ask 的 note）和验证工程都读它。
+    // 写法照「提示」栏里那两条（重复启动 / 进度提醒）—— 都是"提醒本身 + 去哪儿关"。
+    return QStringLiteral("可以在设置中关闭此提示（设置页「下载」→「缺失前置提醒」）。");
 }
 
 QString dependencyAllButtonText() { return QStringLiteral("一起下载"); }

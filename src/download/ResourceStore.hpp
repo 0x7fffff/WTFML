@@ -118,6 +118,37 @@ public:
                        const QString &loader = QString());
 
     /**
+     * @brief 批量问"这一串文件各自该换成哪一版"（2026-10-11 加）。
+     *
+     * 用户 2026-10-11 报「无法正常获取更新」（他自己指定的是**模组更新**）。真因是这一条路
+     * **一个项目一发**：实例设置那个「检查更新」反查出项目号之后，一个项目一个项目地问版本
+     * 列表 —— 一页 295 个模组就是 295 发请求，几秒钟里全打向 `api.modrinth.com`，实测
+     * 第二趟**整批 429**（正文 `error code: 1015`，Cloudflare 那一层），于是报告里每一条都
+     * 变成「说不清」，而真因一个字都没露出来。
+     *
+     * 这个接口（`POST /version_files/update`）就是为它准备的：**一次带一串 sha1**，
+     * 回"每个 sha1 它那个项目在 `gameVersion` + `loader` 下**最新**的那一版"。295 个模组
+     * = 3 发（每发 100 个哈希，见 `.cpp` 里那个 `kLatestChunk`）。
+     *
+     * @param requestKey 用 `ModDependencies::latestVersionsKeyFor()` 拼的那把（**唯一出处**）。
+     * @param sha1s 盘上那些文件各自的 sha1（`InstanceIconLookup::Found::sha1`）。**空表 =
+     *        立刻回一发空的**（"一个都不用问"也是走完了，和 `fetchProjects()` 空表那条一致）。
+     * @param gameVersion / @param loader 筛参数（**空 = 不筛**）。★ 这两个**必须**和
+     *        `versionsUrl()` 那一路给的一样，不然同一个模组会被判成"可更新"到另一个加载器
+     *        或者另一个游戏版本上去 —— 而接口不会报错，只回一个"筛过之后"的答案。
+     *
+     * 结果走 `latestVersionsFinished()`。**分批发、合并着回**：一发（100 个哈希）一个请求，
+     * 全部回来才发一次信号（调用方不必知道里面分了几发）。problem 非空 = 整批就此作废
+     * （**一条都不许当成"已是最新"**，见下面那条 NOTE）。
+     *
+     * NOTE: 键是**小写的 sha1**，认不出来的哈希**不在表里**（不是空对象）—— 那一条是
+     *       "说不清"（这个项目在这个游戏版本/加载器下没有版本，或者它压根不在 Modrinth 上），
+     *       **不是**"已是最新"。
+     */
+    void fetchLatestVersions(const QString &requestKey, const QStringList &sha1s,
+                             const QString &gameVersion, const QString &loader = QString());
+
+    /**
      * @brief 批量问"这几个项目号叫什么"（2026-09-28 加）。
      *
      * 用户 2026-09-28 要的那两件事（前置模组一键下载 / 实例更新检测）都卡在**同一个缺口**上：
@@ -158,23 +189,34 @@ public:
      * 就是这一条。**不看它存了多久**：用户 2026-09-23 定的是"缓存默认不过期"。
      * 换新版的办法是下面这条**核对**，不是把旧图作废。
      *
-     * 【每次打开核对一次】
+     * 【攒够 kIconRevalidateTtlMs 才核对一次】
      *
      * 同一个图标，**这一趟运行**里第一次被要的时候，后台带条件头再问一句"变了没有"
      * （`If-None-Match` / `If-Modified-Since`，凭据就是上次存下来那两条，见
      * loadIconValidators）。三条出路：
-     *   * **304**（没变）→ 什么都不做：不写盘、不发信号、界面上一格都不动；
-     *   * **200 且字节和盘上那份一模一样**（主机不认条件头时就会这样）→ 同上，什么都不做；
+     *   * **304**（没变）→ 图一个字节都不动：不写图、不发信号、界面上一格都不动；
+     *   * **200 且字节和盘上那份一模一样**（主机不认条件头时就会这样）→ 同上；
      *   * **200 且字节不一样**（作者换了图标）→ 写盘、存新凭据、再发一次 iconReady，
      *     界面把那一格换成新的。
      * 一次运行里每个图标只核这一遍（见 m_iconRevalidated）—— "每次打开"指的是**启动器
      * 每次启动**，不是每翻一页。
      *
-     * NOTE: 代价实测过（2026-09-23，真 CDN）：Modrinth 那条链子认这两个头，没变的时候
-     *       一发往返三百来字节（20 个图标 ≈ 6 KB），比整张重下（webp 十来 KB、PNG 35 KB）
-     *       小两个数量级 —— 这就是"每打开一次核一遍"敢做的全部理由。**换一个不认条件头的
-     *       源**时这条要重新量：那时的代价是一页二十来张整图，一页 200 KB 上下。
-     *       （探针：`mw_check.exe icon-live`，它会把 304 的条数和真下回来的字节数打出来。）
+     * ★★ 2026-10-10（用户原话：「模组图标做本地缓存功能，不要每次都拉取」）：**"每次启动
+     * 都核一遍"这件事本身也收到了一条时间闸**（`kIconRevalidateTtlMs`）—— 盘上那份**最近
+     * 核过**就整趟不问它，一个请求都不发。理由不是省那三百字节，而是**这台机器上那三百字节
+     * 并不便宜**：实测（见 wtfml-modrinth-icon-cdn 那笔账）`cdn.modrinth.com` 对每一张图都
+     * 先回一个 307 到 `cdn-alt.modrinth.com`，而那条域名在有些网络里根本连不通 —— 一页
+     * 二十来个图标就是二十来发各自等到超时。图标是**最不要紧**的东西（它长得对不对取决于
+     * 作者几年换没换过一张图），为它每次启动去敲二十次门不值当。
+     * 记这一位的是 `.icon.meta` 的第四行（`IconValidators::checkedAtMs`）—— 它跟着那份
+     * 字节走，图一换这一位自然重来。**核对的时候才刷新它**（拿到 304 / 拿到 200 都算核过）。
+     *
+     * NOTE: 门后的代价实测过（2026-09-23，真 CDN）：Modrinth 那条链子认这两个头，没变的
+     *       时候一发往返三百来字节（20 个图标 ≈ 6 KB），比整张重下（webp 十来 KB、PNG 35 KB）
+     *       小两个数量级。**换一个不认条件头的源**时这条要重新量：那时的代价是一页二十来张
+     *       整图，一页 200 KB 上下。
+     *       （探针：`mw_check.exe icon-live`。它**绕过**这道闸直接发那一发 —— 它量的是
+     *       "那一天真核一次要多少钱"，不是"现在会不会去核"。）
      *
      * 【为什么收的是整条 Hit 而不是一个 id：要挑地址，而地址要按来源挑】
      *
@@ -213,17 +255,31 @@ public:
     struct IconValidators {
         QString etag;
         QString lastModified;
+        /// ★★ 2026-10-10：**上一次敲人家门是什么时候**（epoch 毫秒，见 .icon.meta 第四行）。
+        ///
+        /// 它就是那道"攒够 kIconRevalidateTtlMs 才核对一次"的闸读的那一位（见
+        /// requestIcon 上面那段）。0 = 不知道（老版本写的 meta 里没有这一行）—— 那就
+        /// **照旧核一遍**（宁可多问一次，也别拿一个猜出来的时间当家）。
+        qint64 checkedAtMs = 0;
         bool isEmpty() const { return etag.isEmpty() && lastModified.isEmpty(); }
     };
+
+    /// ★★ 2026-10-10：同一个图标**多久才值得再核一遍**（7 天）。
+    ///
+    /// 取值理由见 requestIcon 上面那段：图标是最不要紧的东西（作者几年不换一张图是常态），
+    /// 而"核一遍"在有些网络里要等一串超时。7 天是个"用户根本不会注意到"的长度 —— 真换了
+    /// 图，最多一周之后自己就过来了。
+    static constexpr qint64 kIconRevalidateTtlMs = 7LL * 24 * 60 * 60 * 1000;
 
     /// 凭据那份旁挂文件：`<数据目录>/cache/icons/<cacheId>.icon.meta`。
     /// 跟着 iconCachePath() 一起走 —— 同样地，cacheId 不是文件名安全的那一类时回空串。
     ///
     /// NOTE: 为什么另起一个文件而不是塞进 `.icon` 里：那个文件是**整段图片字节**，
     ///       前面加任何东西都会让"按内容认格式"（ImageDecode，见那条 NOTE）读不出来。
-    ///       `.icon.meta` 是纯文本三行（etag / last-modified / 这份凭据是哪条地址给的），
-    ///       读不懂就当没有。第三行是 2026-09-25 补的：老版本写的那份只有两行，读出来
-    ///       第三条是空串，按"没记地址"处理（照样用）。
+    ///       `.icon.meta` 是纯文本四行（etag / last-modified / 这份凭据是哪条地址给的 /
+    ///       上一次核对是什么时候），读不懂就当没有。第三行是 2026-09-25 补的、第四行是
+    ///       2026-10-10 补的：**老版本写的那几行读出来是空串**，按"没记地址 / 不知道核过
+    ///       没有"处理（照样用得上 —— 前者当没凭据、后者当"该核一遍"）。
     static QString iconMetaPath(const QString &cacheId);
 
     /// 读那两条凭据。读不到（没有 / 读不动 / 内容不成形）一律回**空的** ——
@@ -234,8 +290,14 @@ public:
     ///        一整张，重则问出一个 304 来、这一格从此画着另一条地址的图）。
     static IconValidators loadIconValidators(const QString &cacheId, const QString &url);
 
-    /// 把这一发拿到的那两条凭据写到盘上。两个都是空 = **删掉**那份 meta（没有凭据还留着
-    /// 一个空文件，下次读出来一样，但盘上多一个东西）。best-effort：写不进去不算错。
+    /// 把这一发拿到的那两条凭据写到盘上，并**盖上"刚核过"那个时间戳**（第四行，见
+    /// IconValidators::checkedAtMs）—— 这个函数的所有调用点都是"刚刚真的和主机说了一句
+    /// 话"，所以时间戳就在这儿盖，调用方不用管。
+    ///
+    /// ★ 2026-10-10 起**不再"两个都空就把文件删掉"**：那份 meta 现在装着"上一次核对是什么
+    ///   时候"（这跟有没有凭据是两件事 —— 主机不给 ETag 的源照样该被这道时间闸管着）。
+    ///   读的一侧读出来还是空的凭据，行为不变。
+    /// best-effort：写不进去不算错。
     /// @param url 这两条凭据是**哪条地址**给的 —— 和上面读的那一侧配成对。
     static bool saveIconValidators(const QString &cacheId, const IconValidators &validators,
                                    const QString &url);
@@ -338,6 +400,16 @@ signals:
                           const QList<ResourceCatalog::VersionEntry> &versions,
                           const QString &problem);
 
+    /// 「这一串文件各自该换成哪一版」那一批回来了（见 fetchLatestVersions）。
+    ///
+    /// NOTE: 表里的键是**小写的 sha1**，认不出来的**不在表里** —— 那是"说不清"，不是
+    ///       "已是最新"。problem 非空 = 整批没成（**这一批一条都不许判成"已是最新"**：
+    ///       429 那种"问得太勤"要是被当成"没有新版本"，用户就会以为自己的模组是最新的 ——
+    ///       那比"说不清"坏得多）。
+    void latestVersionsFinished(const QString &requestKey,
+                                const QHash<QString, ResourceCatalog::VersionEntry> &latest,
+                                const QString &problem);
+
     /// 批量问项目的那一发回来了（见 fetchProjects）。
     ///
     /// NOTE: 和 `versionsFinished` 那条"三条路要分得开"的规矩**不一样**：这里少几条
@@ -396,9 +468,12 @@ private:
     ///      （症状是"明明只是网断了，三次之后这一页再也不问了"）。
     /// NOTE: 退回去那一发**不带 onDiskBytes / validators**（`QByteArray()` / 空的）——
     ///       换了地址就是换了资源，拿 A 的凭据去问 B 是没有意义的，老老实实要整张。
+    /// NOTE: `validators` **没有默认值**（另外那两样有）：`IconValidators` 里有一个带初值
+    ///       的成员（`checkedAtMs`），而在**同一个类里面**拿它当默认值是过不了编译的
+    ///       （"default member initializer required before the end of its enclosing class"）
+    ///       —— 那两处调用点（requestIcon 里）本来就都自己写清楚了要哪一份凭据，不亏。
     void startIconRequest(const QString &iconId, const QString &url, const QString &fallbackUrl,
-                          const QByteArray &onDiskBytes = QByteArray(),
-                          const IconValidators &validators = IconValidators());
+                          const QByteArray &onDiskBytes, const IconValidators &validators);
 
     /// 这一发没取到新图标，该怎么回这一发：手上还有一张（内存里的）就把**它**重发一遍，
     /// 确实没有才发空 QPixmap。
@@ -415,6 +490,28 @@ private:
     QNetworkAccessManager *m_net = nullptr;
     /// 每个频道手上那一发（key -> reply）。回来的东西不是这一发就丢掉。
     QHash<QString, QNetworkReply *> m_replies;
+
+    /// 「这一串文件各自该换成哪一版」那一批（见 fetchLatestVersions）。**和上面那张表
+    /// 不是一个形状**：那一批是"分几发出去、合并着回**一发**信号"，所以要存的是"这一批
+    /// 跑到哪儿了"，而不是"这一发是谁"。
+    struct LatestRun {
+        /// 这一批的**代号**。★ 同一把钥匙上又来一批时（用户又点了一次「检查更新」），
+        /// 旧那几发的回调**还会回来**（abort 之后照样发 finished）—— 靠它认人：代号对不上
+        /// 就丢掉。少了这一位，旧的那一发会把**新**这一批的计数减掉，症状是"这一趟永远
+        /// 收不了尾"（报告一直不出来）。
+        quint64 generation = 0;
+        /// 还差几发没回来（到 0 就发信号）。
+        int pending = 0;
+        /// 已经拼起来的（**小写 sha1** → 它那个项目最新的一版）。
+        QHash<QString, ResourceCatalog::VersionEntry> merged;
+        /// 整批的毛病（任何一发报错都算整批的）。
+        QString problem;
+        /// 飞出去的那几发（重来 / 析构时要掐掉）。
+        QList<QNetworkReply *> replies;
+    };
+    QHash<QString, LatestRun> m_latestRuns;
+    /// 发批次的代号（只增不减，见 LatestRun::generation）。
+    quint64 m_latestGeneration = 0;
     /// 图标：`Hit::iconCacheId()` -> 图。前面还有一层盘上的（见上面的静态函数），这里是
     /// 这一趟运行的副本，命中它连盘都不用读。
     QHash<QString, QPixmap> m_icons;

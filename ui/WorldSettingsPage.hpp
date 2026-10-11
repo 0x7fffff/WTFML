@@ -92,6 +92,7 @@ class QLineEdit;
 class QListWidget;
 class QPushButton;
 class QSpacerItem;
+class QTimer;
 class QToolButton;
 class QVBoxLayout;
 class ToggleSwitch;
@@ -464,6 +465,9 @@ private:
     ToggleSwitch *m_hardcore = nullptr;
     QComboBox *m_difficulty = nullptr;
     QLineEdit *m_ruleFilter = nullptr;
+    /// 改完搜索框**等手停下来**再重摆一遍（见 kRuleFilterDelayMs 那一段 ★）—— 每个按键
+    /// 都重摆的话，一行一个控件（Int 那几行还各带一个校验器）的代价是 1.67 ms/次。
+    QTimer *m_ruleFilterTimer = nullptr;
     QListWidget *m_ruleList = nullptr;
     QLabel *m_note = nullptr;
     QPushButton *m_back = nullptr;

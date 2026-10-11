@@ -418,9 +418,15 @@ public:
     // 工具方法：哈希/校验，以及把 version JSON 解析成上面那些结构体（版本清单和单个
     // 版本 JSON 各一个入口）。留在 public 是给验证工程用的 —— 它会直接调
     // extractLibraries()/extractAssetIndex() 断言"选中了哪些库、natives classifier
-    // 挑得对不对"。verifyFileSha1()/calculateFileSha1() 目前只有本类自己调。
+    // 挑得对不对"。verifyFileSha1() 只有本类自己调。
+    //
+    // calculateFileSha1() 是 **static**：它一个成员都不碰（2026-10-11 改）。体检那一层
+    // （VersionIntegrity::check）要按装配侧**同一个**算法算哈希，而它手上没有、也不该有
+    // 一个 DownloadManager 实例（那一层不下载）。写第二份读文件的哈希循环是这一行改动想
+    // 避免的事：两份算法只要有一天对不上（比如这边换成 buffer 分块），"校验不过"就会变成
+    // 一句没人查得动的假话。
     bool verifyFileSha1(const QString &filePath, const QString &expectedSha1);
-    QString calculateFileSha1(const QString &filePath);
+    static QString calculateFileSha1(const QString &filePath);
     void parseVersionManifest(const QJsonDocument &json);
     void parseVersionJson(const QJsonDocument &json);
     QList<Library> extractLibraries(const QJsonObject &versionJson);

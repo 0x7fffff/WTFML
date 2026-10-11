@@ -6,6 +6,7 @@
  */
 #include "ResourceStore.hpp"
 
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QJsonDocument>
@@ -22,6 +23,14 @@
 #include "util/ImageDecode.hpp"
 
 namespace {
+
+/// 「这一串文件各自该换成哪一版」那一批**一发最多带多少个 sha1**（2026-10-11）。
+///
+/// 100 这个数和 `InstanceIconLookup::kLookupChunk` / `VersionManager::kLookupChunk` 是
+/// **同一个数**（那两处也是"一次带一串哈希/指纹"）—— 三处在做同一件事，没有理由各写一个。
+/// 一个 295 个模组的整合包 = 3 发，而不是 295 发（那 295 发正是 2026-10-11 那次限流的原因，
+/// 见 .hpp 里 fetchLatestVersions 那段）。
+constexpr int kLatestChunk = 100;
 
 /// CurseForge 那条路要额外带的头：`x-api-key`（**只有用户自己填了 key 才有**）。
 ///
@@ -155,9 +164,114 @@ QString ResourceStore::curseForgeApiBase() const {
     return ModpackImport::curseForgeApiBase(m_curseForgeApiKey, m_curseForgeApiBaseOverride);
 }
 
+void ResourceStore::fetchLatestVersions(const QString &requestKey, const QStringList &sha1s,
+                                        const QString &gameVersion, const QString &loader) {
+    // 同一把钥匙上又来一批（用户又点了一次「检查更新」）：旧那几发**先掐掉** ——
+    // 和 `fetchVersions()` 开头那两句同一个理由（回来得晚的那一发不该盖掉新的）。
+    // 掐掉之后它们**照样会发 finished**，所以下面那个回调拿"代号"认人（见 LatestRun）。
+    if (auto previous = m_latestRuns.find(requestKey); previous != m_latestRuns.end()) {
+        const QList<QNetworkReply *> stale = previous->replies;
+        m_latestRuns.erase(previous);
+        for (QNetworkReply *reply : stale) {
+            if (reply != nullptr) {
+                reply->abort();
+            }
+        }
+    }
+
+    const auto emptyAnswer = [this, &requestKey]() {
+        emit latestVersionsFinished(requestKey,
+                                    QHash<QString, ResourceCatalog::VersionEntry>(), QString());
+    };
+
+    // 先把要发几发数出来（空表 / 全是空白的 sha1 = **一发都不发**，照样回一发）。
+    QList<QByteArray> bodies;
+    for (int offset = 0; offset < sha1s.size(); offset += kLatestChunk) {
+        const QByteArray body = ResourceCatalog::versionFilesUpdateRequestBody(
+            sha1s.mid(offset, kLatestChunk), gameVersion, loader);
+        if (!body.isEmpty()) {
+            bodies.append(body);
+        }
+    }
+    if (bodies.isEmpty()) {
+        emptyAnswer();
+        return;
+    }
+
+    LatestRun run;
+    run.generation = ++m_latestGeneration;
+    run.pending = bodies.size();
+    const quint64 generation = run.generation;
+    const QString url = ResourceCatalog::versionFilesUpdateUrl(m_modrinthApiBaseOverride);
+    m_latestRuns.insert(requestKey, run);
+
+    for (const QByteArray &body : bodies) {
+        // ★ `Content-Type` **必须给**（`resourceRequest` 那三个参数里最后一个）：
+        //   QNetworkAccessManager 不会替一个 POST 猜它，而缺了它的正文那边读不成 JSON。
+        QNetworkReply *reply =
+            m_net->post(resourceRequest(url, {}, QByteArrayLiteral("application/json")), body);
+        m_latestRuns[requestKey].replies.append(reply);
+
+        QObject::connect(reply, &QNetworkReply::finished, this,
+                         [this, reply, requestKey, generation]() {
+            reply->deleteLater();
+            auto it = m_latestRuns.find(requestKey);
+            // 两样都要对得上：这一把钥匙上还是我这一批（**代号**），而且这一发真的在名单里
+            // （被 abort 掉的那些不在里面 —— 它们是被后来那一批换掉的）。
+            if (it == m_latestRuns.end() || it->generation != generation) {
+                return;
+            }
+            const int status = statusOf(reply);
+            const QByteArray body = reply->readAll();
+            const QString what = QStringLiteral("读取版本列表");
+            QHash<QString, ResourceCatalog::VersionEntry> part;
+            bool ok = false;
+            if (status == HttpClient::kStatusTooManyRequests) {
+                it->problem = HttpClient::throttledText(what);
+            } else if (!okStatus(status)) {
+                it->problem = failureText(reply, body, what);
+            } else {
+                // 200 也得**看一眼形状**：网关的拦截页也是 200。读不出来就是"这一批没问到"
+                // —— 一条都不许当成"已是最新"（见 .hpp 里那条 NOTE）。
+                const QJsonDocument document = QJsonDocument::fromJson(body);
+                if (!document.isObject()) {
+                    it->problem = QStringLiteral("版本列表读不懂（接口回的不是一份版本清单）");
+                } else {
+                    part = ResourceCatalog::parseVersionFilesUpdate(body);
+                    ok = true;
+                }
+            }
+            if (ok) {
+                for (auto found = part.constBegin(); found != part.constEnd(); ++found) {
+                    it->merged.insert(found.key(), found.value());
+                }
+            }
+            if (--it->pending > 0) {
+                return;  // 还有几发没回来，等它们
+            }
+            // 收尾：**把这一批整个拿出来**再发信号 —— 发出去之后接的人可能立刻又开一批，
+            // 那时候这一格已经不是我的了。
+            const LatestRun finished = *it;
+            m_latestRuns.erase(it);
+            emit latestVersionsFinished(requestKey, finished.merged, finished.problem);
+        });
+    }
+}
+
 void ResourceStore::abortAll() {
     const QList<QNetworkReply *> replies = m_replies.values();
     m_replies.clear();
+    // 批次那几发也要掐（它们是**独立**的一张表，见 m_latestRuns 那段）—— 少掐这一处的
+    // 症状是"窗口关了之后那几个回调还会回来"，而那时候 `this` 已经被析构了。
+    const QList<LatestRun> latestRuns = m_latestRuns.values();
+    m_latestRuns.clear();
+    for (const LatestRun &run : latestRuns) {
+        for (QNetworkReply *reply : run.replies) {
+            if (reply != nullptr) {
+                reply->abort();
+            }
+        }
+    }
     for (QNetworkReply *reply : replies) {
         // abort 之后**不能再去读它**（HttpClient 那边的老规矩，漏了就是偶发崩溃）。
         // 掐掉会让它发 finished，那个回调第一件事就是"这一发还是不是手上这个"——
@@ -451,8 +565,9 @@ ResourceStore::IconValidators ResourceStore::loadIconValidators(const QString &c
     if (!file.open(QIODevice::ReadOnly)) {
         return validators; // 没有这个文件 = 没有凭据（正常情况，不是错误）
     }
-    // 三行纯文本（ETag / Last-Modified / 这份凭据是哪条地址给的），顺序写死。行数不够就
-    // 只认有的那几行：老版本写的那些（只有前两行）读出来第三条是空的，按"没记地址"处理。
+    // 四行纯文本（ETag / Last-Modified / 这份凭据是哪条地址给的 / 上一次核对是什么时候），
+    // 顺序写死。行数不够就只认有的那几行：老版本写的那些（只有前两行、三行）读出来后面
+    // 那几条是空的，按"没记地址""不知道核过没有"处理。
     const QList<QByteArray> lines = file.readAll().split('\n');
     file.close();
     if (lines.size() > 0) {
@@ -460,6 +575,11 @@ ResourceStore::IconValidators ResourceStore::loadIconValidators(const QString &c
     }
     if (lines.size() > 1) {
         validators.lastModified = QString::fromUtf8(lines.at(1)).trimmed();
+    }
+    // 第四行（2026-10-10 补）：上一次**核对**是什么时候（epoch 毫秒）。读不出来 / 老版本
+    // 没有这一行 ⇒ 留 0 ⇒ "不知道" ⇒ 照旧核一遍（见 IconValidators::checkedAtMs 那段）。
+    if (lines.size() > 3) {
+        validators.checkedAtMs = QString::fromUtf8(lines.at(3)).trimmed().toLongLong();
     }
     // 凭据得和"问哪条地址"配成一对（2026-09-25 补）。同一个 project 有**两条**图标地址
     // （接口那条 96px 的 webp / 自己拼的 icon.png，见 requestIcon），而缓存和凭据都只按
@@ -481,11 +601,13 @@ bool ResourceStore::saveIconValidators(const QString &cacheId,
     if (path.isEmpty()) {
         return false;
     }
-    if (validators.isEmpty()) {
-        // 两条都没有 = 不留一份空文件（下次读出来同样是空的，盘上却多一个东西）。
-        QFile::remove(path);
-        return true;
-    }
+    // ★ 2026-10-10：**不再"两个都空就把文件删掉"**（见 .hpp 里那条）。那份 meta 现在多装了
+    //   一样东西：**上一次核对是什么时候** —— 主机不给 ETag 的源照样该被那道时间闸管着，
+    //   而且这个函数的每一个调用点都是"刚刚真和主机说了一句话"，所以时间戳就在这儿盖。
+    //
+    //   ⚠ 老规矩（"两条都没有就不留一份空文件"）当年是为了盘上少一个东西；现在这一行
+    //     时间戳本身就不是空的了，那条理由不成立。
+    const qint64 checkedAtMs = QDateTime::currentMSecsSinceEpoch();
     QDir().mkpath(AppPaths::iconCacheDir());
     QFile file(path);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
@@ -493,8 +615,10 @@ bool ResourceStore::saveIconValidators(const QString &cacheId,
     }
     // 第三行是**这条凭据对应哪条地址**（2026-09-25 补）：读的那一侧靠它判断"这份凭据
     // 还是不是问这条地址用的"，见 loadIconValidators 里那条 NOTE。
+    // 第四行是**上一次核对的时间**（2026-10-10 补）：见 IconValidators::checkedAtMs。
     const QByteArray text = validators.etag.toUtf8() + '\n' + validators.lastModified.toUtf8() +
-                            '\n' + url.toUtf8() + '\n';
+                            '\n' + url.toUtf8() + '\n' +
+                            QByteArray::number(checkedAtMs) + '\n';
     const bool ok = file.write(text) == text.size();
     file.close();
     return ok;
@@ -551,8 +675,8 @@ void ResourceStore::noteIconFailure(int httpStatus) {
 
 void ResourceStore::answerIcon(const QString &iconId) {
     // 见声明处那条 NOTE：手上那张（旧的但没坏）重发一遍，别把已经画上去的那一格擦掉。
-    if (m_icons.contains(iconId)) {
-        emit iconReady(iconId, m_icons.value(iconId));
+    if (const auto it = m_icons.constFind(iconId); it != m_icons.constEnd()) {
+        emit iconReady(iconId, it.value());
         return;
     }
     emit iconReady(iconId, QPixmap());
@@ -565,8 +689,8 @@ void ResourceStore::requestIcon(const ResourceCatalog::Hit &hit) {
     // 认这一格用的是**缓存键**（带来源前缀），不是裸 project_id —— 两个来源的 id 空间会撞，
     // 撞上的症状是"这一格永远画着另一个资源的图标"（见声明处那段）。
     const QString iconId = hit.iconCacheId();
-    if (m_icons.contains(iconId)) {
-        emit iconReady(iconId, m_icons.value(iconId));
+    if (const auto it = m_icons.constFind(iconId); it != m_icons.constEnd()) {
+        emit iconReady(iconId, it.value());
         return;
     }
     if (m_iconMissing.contains(iconId)) {
@@ -645,9 +769,21 @@ void ResourceStore::requestIcon(const ResourceCatalog::Hit &hit) {
     // 兜底只在**两条地址不是同一个东西**时留着（CurseForge 只给了一条、或者接口给的那条
     // 本来就是 icon.png 时，退回去还是同一发请求）—— 详见声明处 startIconRequest 那段。
     // 盘上那份字节和它的凭据一起带上：带凭据才问得出 304，带字节才比得出"一模一样"。
+    const IconValidators validators = onDisk ? loadIconValidators(iconId, url) : IconValidators();
+
+    // ★★ 2026-10-10：**盘上那份最近核过就整趟不问它**（用户原话：「模组图标做本地缓存
+    //   功能，不要每次都拉取」；那笔账见声明处【攒够 kIconRevalidateTtlMs 才核对一次】）。
+    //   判据只有这一处：`.icon.meta` 第四行那个时间戳（`IconValidators::checkedAtMs`），
+    //   0 = 不知道（老版本写的 meta / 主机没给过凭据的文件）⇒ **照旧核一遍**。
+    //   ⚠ 这一句必须排在"挑地址"之后：凭据是**跟着一条地址**的，`loadIconValidators()`
+    //     地址对不上时回的就是空凭据（连同这个时间戳一起作废）—— 判断用的正是那一条路。
+    if (onDisk && validators.checkedAtMs > 0 &&
+        QDateTime::currentMSecsSinceEpoch() - validators.checkedAtMs < kIconRevalidateTtlMs) {
+        return;
+    }
+
     startIconRequest(iconId, url, url == fallbackUrl ? QString() : fallbackUrl,
-                     onDisk ? cached : QByteArray(),
-                     onDisk ? loadIconValidators(iconId, url) : IconValidators());
+                     onDisk ? cached : QByteArray(), validators);
 }
 
 void ResourceStore::startIconRequest(const QString &iconId, const QString &url,
@@ -671,7 +807,8 @@ void ResourceStore::startIconRequest(const QString &iconId, const QString &url,
     QNetworkReply *reply = m_net->get(iconRequest(url, validators));
     m_replies.insert(requestKey, reply);
     QObject::connect(reply, &QNetworkReply::finished, this,
-                     [this, reply, iconId, url, fallbackUrl, onDiskBytes, requestKey]() {
+                     [this, reply, iconId, url, fallbackUrl, onDiskBytes, requestKey,
+                      validators]() {
         reply->deleteLater();
         // 被掐掉的那一发（abortAll()，或者同一张图又问了第二遍）到此为止：**不读它**、
         // 什么都不做（abort 之后读它是 HttpClient 那边的老规矩，见 abortAll 那段）。
@@ -686,13 +823,18 @@ void ResourceStore::startIconRequest(const QString &iconId, const QString &url,
         const QByteArray body = reply->readAll();
 
         if (status == HttpClient::kStatusNotModified) {
-            // **没变**。盘上那份就是最新的：不写盘、不发信号、界面上一格都不动
+            // **没变**。盘上那份就是最新的：图一个字节都不写、不发信号、界面上一格都不动
             //（它上面画的本来就是这一张）。
             // NOTE: 这个码只可能在"带着凭据去问"时出现。凭据和盘上那份对不上（比如那份
             //       被别的东西换过）时主机给的是 200，走下面那条路 —— 所以这条路不担心
             //       "凭据说没变、其实变了"。
             // NOTE: 也**不算**主机级失败、更不算成功：它就是"问过了，答案是不用动"。
             //       那道"连着三次不通就放弃"的闸跟它无关（主机明明答话了）。
+            //
+            // ★★ 2026-10-10：**这一趟问过了、要在盘上记一笔**（第四行那个时间戳）——
+            //   不记的话那道"攒够 7 天才核一次"的闸下一趟还是过不去（时间戳一直是老的），
+            //   于是每次启动都白敲一遍门。写的是**凭据那一份**（图还是原来的图）。
+            saveIconValidators(iconId, validators, url);
             return;
         }
 
@@ -719,7 +861,7 @@ void ResourceStore::startIconRequest(const QString &iconId, const QString &url,
             // 而且手上还有另一条地址，就再要一次（这一次不算失败）。pending 位在重发那一
             // 发里重新立起来，所以这中间"同一格别问第二遍"的规矩不破。
             if (!fallbackUrl.isEmpty() && !isHostLevelIconFailure(status)) {
-                startIconRequest(iconId, fallbackUrl, QString());
+                startIconRequest(iconId, fallbackUrl, QString(), QByteArray(), IconValidators());
                 return;
             }
             if (status == 404) {

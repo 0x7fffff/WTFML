@@ -1975,6 +1975,23 @@ void MainWindowUI::setupSettingsDownloadPanel(QStackedWidget *stack) {
         addSettingRow(grid, row, downloadAutoIntoInstanceRowText(), box, form);
     }
 
+    // ---------- 「下载缺前置时提醒」（2026-10-09） ----------
+    // 和上面那一项同一个栏、同一种形状：一个勾选框 + 一句话说清勾上/不勾分别是什么。
+    // 用户原话见 LauncherSettings 里那一节（那是**唯一**的语义出处）。
+    {
+        QWidget *box = makeHintedControl(form);
+        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        warnMissingDependenciesCheck = new QCheckBox(warnMissingDependenciesCheckText(), box);
+        warnMissingDependenciesCheck->setObjectName(warnMissingDependenciesCheckName());
+        boxLayout->addWidget(warnMissingDependenciesCheck, 0, Qt::AlignLeft);
+        addHint(box, QStringLiteral("勾上：点下载一个模组（或光影包）时，先看它要装进的那个实例"
+                                    "缺不缺前置；缺了就弹窗列出来，可以一键一起下。\n"
+                                    "不勾：不查也不提示，只下你点的那一版 —— 前置缺了游戏会在"
+                                    "启动时崩，而崩溃画面里一个字都不会提到少了哪个模组。"),
+                form);
+        addSettingRow(grid, row, warnMissingDependenciesRowText(), box, form);
+    }
+
     // 剩下的竖直空间留在底部：设置项不跟着窗口高度一起被拉长
     grid->setRowStretch(row, 1);
 }

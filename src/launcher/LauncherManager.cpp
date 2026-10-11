@@ -444,7 +444,8 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
                                                   const QString &playerName,
                                                   const QString &playerUuid,
                                                   const GameWindowSettings &window,
-                                                  const ScreenWorkArea &screen) const {
+                                                  const ScreenWorkArea &screen,
+                                                  const QuickPlay::Target &quickPlay) const {
     // 分辨率那两个数**这一层不再自己判**（从前那两个 `int windowWidth = 0` 参数就是干这个
     // 的）：哪些数要发、发不发，全在 gameWindowArguments() 那个纯函数里 —— 它是纯的，
     // 验证工程能直接把三档 + 屏幕尺寸喂进去看发出来什么。
@@ -518,13 +519,25 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     //       而 BootstrapLauncher（Forge/NeoForge）拿 `java.class.path` 里的字符串去和
     //       JVM 模块路径里的**盘上路径**做 `Paths.get(a).equals(Paths.get(b))` 比较，
     //       `WindowsPath.equals` 也是忽略大小写的。这里跟着它保持一致。
-    const auto addClasspathPath = [&](const QString &path, QStringList &classpath) {
-        if (!path.isEmpty() && !classpath.contains(path, Qt::CaseInsensitive)) {
-            classpath << path;
+    //
+    // ★ 2026-10-11：判据改从一个跟着走的 `QSet`（键 = `toCaseFolded()`，和上面那句
+    //   `Qt::CaseInsensitive` 同一套折叠规则）里查，不再每来一个库就把不断变长的
+    //   `QStringList` 线性扫一遍 —— 一次启动约 200 个库，先前是约 200 次 O(n) 比较。
+    //   `classpathSeen` 与 `classpath` **必须同时维护**，唯一写入口就是下面这个 lambda。
+    QStringList classpath;
+    QSet<QString> classpathSeen;
+    const auto addClasspathPath = [&](const QString &path) {
+        if (path.isEmpty()) {
+            return;
         }
+        const QString key = path.toCaseFolded();
+        if (classpathSeen.contains(key)) {
+            return;
+        }
+        classpathSeen.insert(key);
+        classpath << path;
     };
 
-    QStringList classpath;
     bool needsNativesDir = false;
     // 先添加主版本 JAR 文件。NOTE: jar 的**名字和目录**都走 InstanceFiles 解析，而不是
     // 直接写 versionId —— 两个坑：
@@ -585,7 +598,7 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
                                                  .arg(InstanceFiles::jarOwnerId(versionId), fileName));
     };
 
-    addClasspathPath(classpathJarFor(InstanceFiles::jarName(versionId)), classpath);
+    addClasspathPath(classpathJarFor(InstanceFiles::jarName(versionId)));
 
     // 根据 version.json library 依赖构建 classpath
     if (!versionJson.isEmpty()) {
@@ -608,7 +621,7 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
             const LibraryRules::Artifact artifact = LibraryRules::artifactFor(libObj);
             if (artifact.hasPath()) {
                 addClasspathPath(
-                    absoluteEntry(QStringLiteral("libraries/%1").arg(artifact.path)), classpath);
+                    absoluteEntry(QStringLiteral("libraries/%1").arg(artifact.path)));
             }
 
             // NOTE: 旧格式（1.18.2 及以下）的 natives classifier jar 不进 classpath ——
@@ -619,7 +632,7 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
             // 由 LWJGL 自己从 jar 里提取，行为与改动前一致。
             //
             // 判据**必须**和 prepareNatives()（决定"到底解压了没有"）以及
-            // verifyGameFiles()（决定"缺了要不要提前拦"）用的是**同一条**：
+            // checkPreLaunch()（决定"缺了要不要提前拦"）用的是**同一条**：
             // LibraryRules::nativeClassifier(...).valid()。原来这里是
             // `!libObj["natives"].toObject().isEmpty()`，比那两边**宽** —— 它只问"有没有
             // natives 字段"，不问**这一台机器**用不用得上：1.12.2 的
@@ -691,11 +704,14 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     if (!mainClassEntry.isEmpty()) {
         const QString instanceDir = AppPaths::versionDir(versionId);
         const QStringList siblingJars = InstanceFiles::scanDir(versionId).jarNames;
+        // 循环不变量：主类那串字节只算一次（先前每一轮都 `toUtf8()` 重来一遍）。
+        const QByteArray mainClassBytes = mainClassEntry.toUtf8();
         for (const QString &jar : siblingJars) {
             // 读的还是**真实**那一份（别名里的是硬链接，字节一模一样，但真实那份肯定在）；
             // 加进 classpath 的是要递给 Java 的那一个路径（Java 8 时是别名，见上面）。
             const QString full = QDir::toNativeSeparators(instanceDir + QLatin1Char('/') + jar);
-            if (classpath.contains(classpathJarFor(jar), Qt::CaseInsensitive)) {
+            const QString jarPath = classpathJarFor(jar);
+            if (classpathSeen.contains(jarPath.toCaseFolded())) {
                 continue;  // 已经在 classpath 上了（客户端 jar 自己，或者别的路径已经把
                            // 同一个文件加过一遍）—— 别再进一遍
             }
@@ -705,10 +721,10 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
             }
             const QByteArray bytes = file.readAll();
             file.close();
-            if (bytes.contains(mainClassEntry.toUtf8())) {
+            if (bytes.contains(mainClassBytes)) {
                 qDebug() << "Main class" << mainClass << "is in a sibling jar of the instance:"
                          << jar;
-                addClasspathPath(classpathJarFor(jar), classpath);
+                addClasspathPath(jarPath);
             }
         }
     }
@@ -990,6 +1006,26 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
         }
     }
 
+    // ------------------------------------------------------------------
+    // 「开游戏直接进这个存档 / 直接连这台服务器」（2026-10-10）
+    // ------------------------------------------------------------------
+    // NOTE: 和上面那一段同源 —— 版本 json 自己声明了 `--quickPlaySingleplayer` /
+    //       `--quickPlayMultiplayer`（1.20 起），而那两位在
+    //       `isVanillaGameArgument()` 的名单上，所以上面 `extraGameArguments()` 把 json
+    //       那一条连同它的 `${quickPlaySingleplayer}` 整条丢掉了。**该由谁发**这件事只有
+    //       这一个答案：和 `--username` / `--width` 一样，启动器自己发。
+    //
+    // ★ 判据（这个版本认不认这条参数）**不在这里** —— 它在界面那一层就拦住了
+    //   （`QuickPlay::supports()`，按钮在支持的版本上才露）。发一条不认它的版本不是
+    //   "忽略"，是游戏当场抛 UnrecognizedOptionException 退出，所以那道闸必须有；
+    //   而"命令行的拼装"和"这一档该不该出现"是两件事，各归各的地方（同 GameWindowSettings
+    //   那条规矩：LauncherManager 只问纯函数要参数、拼上去）。
+    if (!quickPlay.isEmpty()) {
+        const QStringList quickPlayArgs = QuickPlay::arguments(quickPlay);
+        qDebug() << "Quick play args:" << quickPlayArgs;
+        args << quickPlayArgs;
+    }
+
     qDebug() << "Total arguments count:" << args.length();
     return args;
 }
@@ -1090,7 +1126,7 @@ int LauncherManager::startGame(const QStringList &arguments, const EffectiveJava
             // `arg.left(50)`，于是 `-Dminecraft.accessToken=<JWT>` 的前 50 个字符会跟着这
             // 一行写进 <数据目录>/logs/wtfml.log（这个进程把它整份都重定向到那个文件，
             // 见 main.cpp 的 installFileLog）。50 个字符不足以直接拿来用，但那是**凭据的
-            // 一部分**，没有任何理由落盘。:598 那行「Token length:」只打长度，本来就对，
+            // 一部分**，没有任何理由落盘。:873 那行「Token length:」只打长度，本来就对，
             // 这条是漏的。
             if (arg.startsWith(kAccessTokenProperty)) {
                 qDebug() << "  " << kAccessTokenProperty + QStringLiteral("<省略，长度 %1>")
@@ -1312,9 +1348,13 @@ void LauncherManager::handleReadyReadStandardOutput(int sessionId) {
     if (it == m_sessions.end() || it->process == nullptr) {
         return;
     }
+    // ★ 这一份**不许** `.trimmed()`（2026-10-10 修）。往下传的文本是**按行切**的：接的那一位
+    //   （GameLogWindow::appendText）把"还没等到 `\n` 的那半行"留在 m_pending 里等下一块来拼，
+    //   而 `.trimmed()` 削掉的**正是每一块结尾那个 `\n`** —— 于是"已经写完的最后一行"被当成
+    //   半行挂住，和下一块的头一行粘成 `CD` 这种**伪行**（级别颜色跟着认错，导出的日志也一样
+    //   是错的），每个分块边界中一次。空块本来就由下面那句 isEmpty() 拦住。
     const QString output = decodeGameOutput(it->outputIsUtf8, it->stdoutDecoder,
-                                           it->process->readAllStandardOutput())
-                               .trimmed();
+                                            it->process->readAllStandardOutput());
     if (!output.isEmpty()) {
         qDebug().noquote() << "[Game Output]" << it->info.displayName << output;
         emit processOutput(sessionId, output);
@@ -1326,9 +1366,9 @@ void LauncherManager::handleReadyReadStandardError(int sessionId) {
     if (it == m_sessions.end() || it->process == nullptr) {
         return;
     }
+    // 和上面 stdout 那一支逐字同一个理由：**不 trim**（那个 `\n` 是行与行之间的分界）。
     const QString error = decodeGameOutput(it->outputIsUtf8, it->stderrDecoder,
-                                          it->process->readAllStandardError())
-                              .trimmed();
+                                           it->process->readAllStandardError());
     if (!error.isEmpty()) {
         qWarning().noquote() << "[Game Error]" << it->info.displayName << error;
         emit processError(sessionId, error);
@@ -1357,15 +1397,17 @@ void LauncherManager::handleProcessFinished(int sessionId, int exitCode,
     if (!remainingOutput.isEmpty()) {
         // NOTE: 走**同一个解码器**（不是新起一个）：这是同一条流的最后一段，前面那一块
         //       可能正停在半个汉字上 —— 新起一个的话那半个字永远补不回来。
+        // 同样**不 trim**（见 handleReadyReadStandardOutput 里那段 ★）：这一份是整条流的
+        // 最后一段，它结尾那个 `\n` 就是最后一行"写完了"的凭据。
         const QString output =
-            decodeGameOutput(outputIsUtf8, it->stdoutDecoder, remainingOutput).trimmed();
+            decodeGameOutput(outputIsUtf8, it->stdoutDecoder, remainingOutput);
         qDebug() << "Remaining output:" << output;
         emit processOutput(sessionId, output);
     }
 
     if (!remainingError.isEmpty()) {
         const QString error =
-            decodeGameOutput(outputIsUtf8, it->stderrDecoder, remainingError).trimmed();
+            decodeGameOutput(outputIsUtf8, it->stderrDecoder, remainingError);
         qDebug() << "Remaining error:" << error;
         emit processError(sessionId, error);
     }

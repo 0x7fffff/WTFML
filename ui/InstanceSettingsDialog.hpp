@@ -78,6 +78,7 @@ class QSpinBox;
 class QStackedWidget;
 class QToolButton;
 class QTreeWidget;
+class QTreeWidgetItem;
 class QVBoxLayout;
 class QWidget;
 
@@ -267,7 +268,7 @@ public:
     static QStringList optionalPageTexts() {
         return {QStringLiteral("存档"), QStringLiteral("服务器列表"), QStringLiteral("资源包"),
                 QStringLiteral("数据包"), QStringLiteral("模组"),   QStringLiteral("光影包"),
-                QStringLiteral("原理图")};
+                QStringLiteral("结构/原理图")};
     }
 
     /// 第 @p key 那一页在界面上叫什么（**唯一出处**：左栏那一条的字、勾选框上的字、
@@ -289,7 +290,7 @@ public:
     }
     static QStringList filePageTexts() {
         return {QStringLiteral("模组"),   QStringLiteral("资源包"),
-                QStringLiteral("数据包"), QStringLiteral("光影包"), QStringLiteral("原理图"),
+                QStringLiteral("数据包"), QStringLiteral("光影包"), QStringLiteral("结构/原理图"),
                 QStringLiteral("配置文件"), QStringLiteral("存档"), QStringLiteral("服务器列表")};
     }
 
@@ -432,8 +433,25 @@ public:
     ///       src/ 下的头"）。这一层只负责把结果画出来。
     void setShaderUsable(bool usable);
 
-    /// 同上：**装了 Litematica 才谈得上原理图**（那是 Litematica 自己的目录）。
+    /// 同上：**装了 Litematica 才谈得上这一页**（那是 Litematica 自己的目录）。
+    ///
+    /// ★ 2026-10-10：这一页在界面上叫「结构/原理图」了（用户原话「那个原理图那个改成
+    ///   结构/原理图」），但**判据一个字没动** —— 结构方块那一路还没做（用户点头"先看
+    ///   可行性"，见 MainWindow 那边 `setSchematicUsable()` 的调用点）。所以现在是
+    ///   "有投影模组 ⇒ 列出来且默认勾着"，正是用户要的那一半。
     void setSchematicUsable(bool usable);
+
+    /// 「加入服务器」那一颗的文字与悬停提示（**临时占位**，2026-10-10）。
+    ///
+    /// @param text 空串 = 这一颗**收起来**（这个版本没有 `--quickPlayMultiplayer`）。
+    ///
+    /// 和 `InstanceFilesPage::setJoinText()` 是同一条规矩：**能不能用由调用方说了算** ——
+    /// 「这个版本有没有那个启动参数」要读版本 json（`QuickPlay::supports()`），而 ui/ 够不着
+    /// src/。这一层只负责画：文字非空就露出来、空就收起来。
+    ///
+    /// NOTE: 默认是**收着的**（构造里就是空文字）。所以那些不关心它的构造点（验证工程里
+    ///       一大片）一个像素都不会变 —— 和 `setJoinText()` 逐字同一条理由。
+    void setServerJoinText(const QString &text, const QString &tip);
 
     /// 服务器列表那一页的内容。
     /// @param servers 名字 → 地址，按文件里原来的顺序。
@@ -562,7 +580,14 @@ public:
     QTreeWidget *serverTree() const { return m_serverTree; }
     QLabel *serverNotice() const { return m_serverNotice; }
     QPushButton *serverRefreshButton() const { return m_serverRefresh; }
-    QPushButton *serverPingButton() const { return m_serverPing; }
+    /// 「编辑」（改这一台的名字和地址，2026-10-10）。
+    QPushButton *serverEditButton() const { return m_serverEdit; }
+    /// 「添加」（多一台，2026-10-10；**常亮**，不跟着选中走）。
+    QPushButton *serverAddButton() const { return m_serverAdd; }
+    /// 「删除」（拿掉选中那一台，2026-10-10；没选中时灰着）。
+    QPushButton *serverDeleteButton() const { return m_serverDelete; }
+    /// 「加入服务器」（**临时占位**，2026-10-10；没这个参数的版本上它是收着的）。
+    QPushButton *serverJoinButton() const { return m_serverJoin; }
 
     // ---------- 概览栏那三行（图标 / 分组 / 置顶，2026-09-26）----------
     //
@@ -1091,12 +1116,17 @@ public:
     /// @param title 那个资源在接口上的名字。空串（= 没认出来）回空串。
     static QString filesResourceTip(const QString &title);
 
-    /// 三页底下那行说明里**多出来的那一句**（见 filesHint()）：名字能点这件事得让人知道
-    /// —— 光靠颜色和光标是"要悬停才发现"的，而这一段小字正是说"这一页特有的事"的地方。
-    ///
-    /// NOTE: 和那颗「下载新光影」一样，**光影包那一页那句故意不提它**（见 filesHint 里
-    ///       那条 ★：那一页有「用不上」那一档，整排按钮和这一列连人一起收起来）。
-    static QString filesNameHint();
+    // ★★ `filesDetailHint()` 2026-10-10 **已删**（原来是"四页底下那行说明里多出来的那一句"，
+    //    说的是「行尾那颗 ⓘ 能进详情页，单击选中一条，按住 Ctrl 能多选，Ctrl+A 全选」）。
+    //    删它的直接原因：**模组 / 资源包 / 数据包 / 光影包这四页底下那段叙述整个不挂了**
+    //    （用户："把这个页面下方那段叙述删了来让框拉到底充分利用空间"，四处都删）⇒ 没有第二个
+    //    调用者。★ 它删之前就已经是一句错话：多选 2026-10-10 当天换成了 `MultiSelection`
+    //    （**点一下就切换，一个修饰键都不用**），"按住 Ctrl"那句照着按只会把这一条翻个面
+    //    —— `wtfml-comment-vs-code` 那个老毛病。要再挂这类文字，**照着
+    //    `InstanceFilesPage::setBatchMode()` 里那段注释写**，别照抄记忆里的版本。
+    //
+    // NOTE: 一句也没搬去别处 —— 这些"要动手才发现"的事现在由**操作条自己**说（选中才露），
+    //       不需要一段常驻小字。
 
     /// 「配置文件」那一页上面那颗「上级」（2026-09-27）。**只有这一页有** —— 别的几页
     /// 看的是一个平铺的目录，而 `config/` 底下还有层级（`config/ftbquests/` 这种），
@@ -1111,14 +1141,66 @@ public:
     static QString serverRefreshButtonName() {
         return QStringLiteral("instanceServerRefreshButton");
     }
-    static QString serverPingButtonName() {
-        return QStringLiteral("instanceServerPingButton");
+    static QString serverEditButtonName() {
+        return QStringLiteral("instanceServerEditButton");
+    }
+    static QString serverAddButtonName() {
+        return QStringLiteral("instanceServerAddButton");
+    }
+    static QString serverDeleteButtonName() {
+        return QStringLiteral("instanceServerDeleteButton");
+    }
+    static QString serverJoinButtonName() {
+        return QStringLiteral("instanceServerJoinButton");
     }
     static QString serverRefreshText() { return QStringLiteral("刷新"); }
-    /// 「测速」：真的连上去问一句每台服务器现在什么样（2026-09-27）。
-    static QString serverPingText() { return QStringLiteral("测速"); }
-    /// 正在测的时候那颗按钮上的字。
-    static QString serverPingingText() { return QStringLiteral("测速中…"); }
+    /// 「编辑」：改**选中的那一台**的名字和地址（2026-10-10，用户原话「在服务器列表那里
+    /// 做一个编辑地址和名称的功能」）。
+    ///
+    /// NOTE: 没选中一条时它是**灰的**（见 updateServerSelectionActions()）—— "编辑哪一台"
+    ///       这个问题只有一个答案，而那个答案就是选中那一行。
+    static QString serverEditText() { return QStringLiteral("编辑"); }
+    static QString serverEditTip() {
+        return QStringLiteral("改选中的那一台的名字和地址。**名字和地址分开问两句**（这一层"
+                              "一次只能问一样），两个都能留空。改完直接写进这个实例的 "
+                              "servers.dat。");
+    }
+    /// 「添加」（2026-10-10，用户原话「服务器那个页面里放一个添加服务器的按钮，允许添加」）。
+    ///
+    /// NOTE: 和「编辑」不同，它**不跟着选中走** —— 要加的那一台还没出现在表里，没有
+    ///       "先选中"这一步，所以它**常亮**（连一条都没有的时候尤其要能按）。
+    static QString serverAddText() { return QStringLiteral("添加"); }
+    static QString serverAddTip() {
+        return QStringLiteral("加一台新的。名字可以留空，地址得填。加完直接写进这个实例的 "
+                              "servers.dat。");
+    }
+    /// 「删除」：把选中那一台从列表里拿掉（2026-10-10，用户原话「编辑要能改名字改地址以及
+    /// 删除」）。
+    ///
+    /// NOTE: 它是这一页上唯一一颗**真会从盘上拿掉东西**的键，所以
+    ///       ① 没选中一条时灰着（同「编辑」）；② 按下去还有一道问话（`InlineMessage::question`
+    ///       的 destructive 那一档，在 MainWindow 里）—— 这一层只发一条信号。
+    static QString serverDeleteText() { return QStringLiteral("删除"); }
+    static QString serverDeleteTip() {
+        return QStringLiteral("把选中的那一台从列表里删掉。会先问一句，删完直接写进这个实例的 "
+                              "servers.dat。");
+    }
+    /// 「加入服务器」（**临时占位**，见 setServerJoinText()）。
+    static QString serverJoinText() { return QStringLiteral("加入服务器"); }
+    static QString serverJoinTip() {
+        return QStringLiteral("用游戏自己的 --quickPlayMultiplayer 参数直接连进选中的那一台"
+                              "（**临时占位**：先试试看这条参数发出去游戏认不认）。");
+    }
+    /// 「编辑」「删除」「加入」三颗在**没选中一条**时按不动 —— 悬停提示里说清为什么。
+    /// （「添加」也在这一组旁边，但它不跟着选中走，见 `serverAddText()` 那条 NOTE。）
+    static QString serverSelectFirstHint() {
+        return QStringLiteral("先在下面选中一台服务器。");
+    }
+    /// 「刷新」正在重读 + 重测的时候那颗按钮上的字。
+    ///
+    /// ★ 2026-10-10：「测速」并进「刷新」之后这一句从「测速中…」改成「刷新中…」——
+    ///   屏幕上看不见「测速」两个字了，再写着"测速中"就是对着一个不存在的键说话。
+    static QString serverPingingText() { return QStringLiteral("刷新中…"); }
     /// 还没测过的那一格写什么（**不是空着**：空着和"测了没通"在屏幕上是同一个样子）。
     static QString serverUntestedText() { return QStringLiteral("还没测"); }
     /// 超时那一档在界面上**就写这两个字**（用户 2026-09-27：「超时的只写超时」）。
@@ -1168,7 +1250,7 @@ public:
 
     /// 「光影包」那一页用不上时那句话（唯一出处，验证工程也按它核对）。
     static QString shaderUnavailableText();
-    /// 「原理图」那一页用不上时那句话。
+    /// 「结构/原理图」那一页用不上时那句话。
     static QString schematicUnavailableText();
     /// 「模组」那一页用不上时那句话（这个实例没有模组加载器）。
     static QString modUnavailableText();
@@ -1545,10 +1627,12 @@ signals:
     void browseDownloadsRequested(const QString &categoryKey);
 
     /**
-     * @brief 用户**点了一下某一条文件的名字**，而这一条认得出是哪个资源 ⇒ 请打开它自己的
-     *        那一页（2026-09-27）。
+     * @brief 用户**点了某一条行尾那颗「详情」**，而这一条认得出是哪个资源 ⇒ 请打开它自己的
+     *        那一页（2026-09-27；2026-10-09 起触发点是那颗按钮，不再是被点了一下名字）。
      *
-     * 用户原话：「除了模组以外的几个都是点击模组名称自动进入下载界面（前提是匹配上了）」。
+     * 用户原话（说"点名字"那一版）：「除了模组以外的几个都是点击模组名称自动进入下载界面
+     * （前提是匹配上了）」；2026-10-09 改成「把点击条目进入对应详情页的功能变成一个详情
+     * 按钮，放到开关和删除中间」。
      *
      * @param pageKey 哪一页发出来的（`filePageKeys()` 里的一个键 —— 也就是"这是个资源包
      *        还是光影包"，见 filesNameOpensResource()）。**是键不是下标**。
@@ -1561,6 +1645,34 @@ signals:
     void fileResourceRequested(const QString &pageKey, const QString &path);
 
     /**
+     * @brief 用户在某一页的**悬浮操作条**上按了「更新」：把选中的这些升到最新版（2026-10-09）。
+     *
+     * @param pageKey 哪一页发出来的（和 fileResourceRequested() 同一套键）。
+     * @param paths   选中的那些条目的**绝对路径**（现在盘上那个名字）。
+     *
+     * NOTE: 这一层不知道"最新版是哪一版" —— 那是 MainWindow 手里那张表的事（见
+     *       InstanceFilesPage::batchUpdateRequested 那段）。
+     */
+    void fileBatchUpdateRequested(const QString &pageKey, const QStringList &paths);
+
+    /**
+     * @brief 用户在悬浮操作条上按了「禁用」/「启用」：把选中的这些整体改成那个状态。
+     *
+     * @param pageKey 同上。
+     * @param paths   选中的那些条目的绝对路径（禁用着的那些带 `.disabled`）。
+     * @param disable true = 禁用（挂后缀），false = 启用（去后缀）。
+     */
+    void fileBatchToggleRequested(const QString &pageKey, const QStringList &paths, bool disable);
+
+    /**
+     * @brief 用户在悬浮操作条上按了「删除」。
+     *
+     * **"真的要删吗"那句由接的人问** —— 而且对**整批**只问一次（理由同
+     * deleteInstanceFileRequested：这一层没有 OverlayHost）。
+     */
+    void fileBatchDeleteRequested(const QString &pageKey, const QStringList &paths);
+
+    /**
      * @brief 用户把几个文件**拖到这一页上**了（2026-09-29）。
      * @param paths 落下来的本地文件绝对路径（原样；至少一个 —— 一个都没有时根本不发这一发）。
      *
@@ -1569,24 +1681,21 @@ signals:
     void filesDropped(const QStringList &paths);
 
     /**
-     * @brief 用户按了服务器列表那一页的「刷新」。
+     * @brief 用户按了服务器列表那一页的「刷新」（2026-09-27）。
      *
      * 那一页的内容是**解析好的结果**递进来的（setServerList()），重读一遍要碰 src/ 里的
      * NBT 解析，所以只能由 MainWindow 接。
+     *
+     * ★★ 2026-10-10：这一条现在是**这一页上唯一一条"重新看一眼"的信号** —— 「测速」
+     *   并进来了（用户原话「服务器那一栏测速和刷新作用重复了」）。接的人该做满两件事：
+     *   **重读一遍 servers.dat** + **把每一台重测一遍**。「刷新」的意思是"把这一页刷成
+     *   现在的样子"，而这一页从 2026-09-27 起不只是那份文件的镜像（图标、MOTD、延迟都是
+     *   刚问来的）。
+     *
+     * NOTE: 进这一页（`serverPageEntered()`）走的是**只重测**那一半 —— 刚打开的一页没有
+     *       "重读"的道理（表本来就是刚递进来的），但延迟该当场问一次。
      */
     void refreshServerListRequested();
-
-    /**
-     * @brief 用户按了服务器列表那一页的「测速」（2026-09-27）。
-     *
-     * 「连上去问一句每台现在什么样」是**调用方的事**：socket 在 src/ 里，而"一次点击发
-     * 多少请求、要不要限并发"也不该由这一层说了算。
-     *
-     * NOTE: 那一页的「刷新」**也会**发这一条 —— 「刷新」的意思是"把这一页刷新成现在的
-     *       样子"，而这一页从 2026-09-27 起不只是那份 servers.dat 的镜像（图标、MOTD、
-     *       延迟都是刚问来的）。只重测不重读走「测速」，只重读不重测就没有了。
-     */
-    void pingServersRequested();
 
     /**
      * @brief 用户在地址那一格**按了右键** ⇒ 请把那一串**完整的**地址放进剪贴板（2026-09-27）。
@@ -1603,6 +1712,58 @@ signals:
     void copyServerAddressRequested(const QString &address);
 
     /**
+     * @brief 用户按了服务器列表那一页的「编辑」（2026-10-10）。
+     * @param name   选中那一行在 `servers.dat` 里**真正**的名字（可以是空串）。
+     * @param address 选中那一行**完整**的地址（没遮过的，和 copyServerAddressRequested 同）。
+     *
+     * 问那两句（名字 / 地址）、以及**写盘**都不在这一层：前者要覆盖层、后者要
+     * `src/manage/ServerListFile`（那一层不 include src/）。这一层只把"要改的是哪一台"
+     * 交出去 —— 而且交出去的是**改之前**的样子：落盘那边要靠这两串在 `servers.dat` 里
+     * 认出那一条（**按值匹配，不按下标** —— 见 ServerListFile 那段）。
+     *
+     * NOTE: 名字给的是 `serverNameRole()` 里那一份，**不是**屏幕上显示的那一格 —— 空的
+     *       名字屏幕上写的是「（无名）」，那是我们编的话，不能拿去当数据。
+     */
+    void editServerRequested(const QString &name, const QString &address);
+
+    /**
+     * @brief 用户按了服务器列表那一页的「添加」（2026-10-10）。
+     *
+     * 用户原话：「服务器那个页面里放一个添加服务器的按钮，允许添加」。
+     *
+     * 这一发**不带参数** —— 要加的那一台还没出现在表里，这一层没有它的名字和地址可给；
+     * 问那两句（名字可空 / 地址必填）和写盘都在 MainWindow（前者要覆盖层，后者要
+     * `src/manage/ServerListFile`，这一层一样都够不着）。
+     */
+    void addServerRequested();
+
+    /**
+     * @brief 用户按了服务器列表那一页的「删除」（2026-10-10）。
+     * @param name    选中那一行在 `servers.dat` 里**真正**的名字（可以是空串）。
+     * @param address 选中那一行**完整**的地址（没遮过的）。
+     *
+     * 用户原话：「编辑要能改名字改地址以及删除」。
+     *
+     * 参数和 `editServerRequested` **逐字同义**（都是"改之前的样子"，落盘那边按值在
+     * `servers.dat` 里认出那一条 —— 见 ServerListFile 那段）；差别只在接的人要做的事：
+     * 这一条要先问一句（不可撤销的定夺），再去删。
+     *
+     * NOTE: 这一层**不问话也不删** —— 覆盖层和 `src/` 它都够不着。
+     */
+    void deleteServerRequested(const QString &name, const QString &address);
+
+    /**
+     * @brief 用户按了服务器列表那一页的「加入服务器」（**临时占位**，2026-10-10）。
+     * @param name    选中那一台的名字（同上，可以是空串；回话里用得着）。
+     * @param address 选中那一台**完整**的地址 —— 这一串就是 `--quickPlayMultiplayer` 的
+     *                值（`host[:port]`，游戏自己认得这个写法）。
+     *
+     * 发给谁、发什么参数、游戏认不认，全在调用方（见 MainWindow::startQuickPlay()）。
+     * 这一层连"这个版本有没有那个参数"都不知道（要读版本 json）。
+     */
+    void joinServerRequested(const QString &name, const QString &address);
+
+    /**
      * @brief 用户**切到了服务器列表那一页**（2026-09-27）。
      *
      * 用户原话：「服务器列表点进去要自动测速」。所以这一发是"这一页露出来了"这件事本身
@@ -1616,6 +1777,27 @@ signals:
     void serverPageEntered();
 
 private:
+    /// 「编辑」「删除」「加入服务器」三颗按钮的**可用性**照"现在选没选中一行"重算一次
+    /// （2026-10-10）。
+    ///
+    /// ★ 没选中任何一行时三颗都是**灰的**：这三件事都要一个明确的对象（"改哪一台"、"删哪
+    ///   一台"、"连哪一台"），而那个对象只有选中那一行能给。灰着比"按下去什么也不发生"
+    ///   诚实。
+    /// ★ 「添加」**不在这儿**：要加的那一台还没出现在表里，它没有"先选中"这一步，所以
+    ///   常亮（连一条都没有的时候尤其要能按）。
+    ///
+    /// NOTE: 三个地方要喊它 —— 建完那棵树（初值）、`setServerList()`（整张表换掉 ⇒ 选中
+    ///       没了）、以及 `itemSelectionChanged`（用户点了一行）。
+    void updateServerSelectionActions();
+
+    /// 服务器列表里**现在选中的那一行**（没选中 = nullptr）。
+    ///
+    /// NOTE: 这一层只认"选中了哪一个条目"，**不认"选中的那个有没有地址"** —— 地址为空的
+    ///       条目根本进不来（`NbtUtil::readServerList` 跳过没有可用 `ip` 的），所以条目
+    ///       选得中就一定改得动、也一定连得上。那两颗按钮的灰/亮再多判一层空地址只是
+    ///       把同一条规矩写两遍。
+    QTreeWidgetItem *selectedServerItem() const;
+
     /// 造一行「跟随全局 / 自定义 + 控件」。返回值是**整格**（档位行 + 提示），控件要加进
     /// 里面的「档位那一行」（`choiceRowOf()` 取），内存那两行整格禁用靠的就是这个返回值。
     QWidget *addOverrideRow(class QGridLayout *grid, int row, const QString &field,
@@ -1811,9 +1993,22 @@ private:
     WorldSettingsPage *m_worldSettings = nullptr;
     QTreeWidget *m_serverTree = nullptr;
     QLabel *m_serverNotice = nullptr;
+    /// 「刷新」（见 refreshServerListRequested()）。**正在重读 + 重测时**文字换成
+    /// 「刷新中…」并按下不动（见 setServerPinging()）。
     QPushButton *m_serverRefresh = nullptr;
-    /// 「测速」（见 pingServersRequested()）。
-    QPushButton *m_serverPing = nullptr;
+    /// 「编辑」（见 editServerRequested()）。
+    QPushButton *m_serverEdit = nullptr;
+    /// 「添加」（见 addServerRequested()）。**唯一一颗不跟着选中走的**（见 updateServerSelectionActions()）。
+    QPushButton *m_serverAdd = nullptr;
+    /// 「删除」（见 deleteServerRequested()）。
+    QPushButton *m_serverDelete = nullptr;
+    /// 「加入服务器」（见 joinServerRequested()）。**默认收着**：没有那个参数的版本上它
+    /// 不该出现（见 setServerJoinText()）。
+    QPushButton *m_serverJoin = nullptr;
+    /// 「加入服务器」的悬停提示（setServerJoinText() 递进来的那一句）。**存在这儿**是因为
+    /// 那颗按钮选中/没选中时提示要换（见 updateServerSelectionActions()）—— 换了之后还得
+    /// 换得回**原来那一句**，而那句话是调用方给的，这一层编不出来。
+    QString m_serverJoinTip;
     /// 每台服务器现在什么样（下标同 setServerList() 那一份）。**状态在这儿存着**：
     /// 「刷新」重读一遍 servers.dat 时那些条目是重建的，而这一份是"上一次问到的结果"，
     /// 由 setServerStatuses() 单独灌。行数对不上时以少的为准（见 setServerStatuses()）。

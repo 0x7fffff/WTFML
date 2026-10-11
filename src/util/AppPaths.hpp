@@ -103,9 +103,13 @@ inline QString versionJsonPath(const QString &versionId) {
 ///   理由），而"复制实例"的目标在**另一个**游戏文件夹里 —— 那一份实例的 wtfml.meta
 ///   只有文件名能问这一层，其余的由调用方自己拼（见 VersionManager::copyInstance）。
 ///
-/// NOTE: 这个字面量**只有这一处**（versionMetaPath() 也从这儿取）—— 复制那条路要是自己
-///       再写一遍 "wtfml.meta"，改文件名时就必然漏掉一处，而漏掉的那一处**不报错**：
+/// NOTE: **算路径**这一层，这个字面量只有这一处（versionMetaPath() 也从这儿取）—— 复制那条路
+///       要是自己再写一遍 "wtfml.meta"，改文件名时就必然漏掉一处，而漏掉的那一处**不报错**：
 ///       拷过去的那份实例在启动器眼里就是"没有元数据"，分组、图标、加载器信息一起没了。
+/// ★ 2026-10-11 核：仓里其实**已经有第二处**硬编码 —— `ModpackExport.cpp` 那份文件排除表里的
+///   `{"wtfml.meta", …}`（`kFileRules[]`，静态数组初始化）。改文件名时它不跟着动，症状是导出
+///   整合包时那份实例设置**不再被排除**。要收干净就得让那张表也走 versionMetaFileName()
+///   （把表的初始化从静态挪到运行时）。
 inline QString versionMetaFileName() { return QStringLiteral("wtfml.meta"); }
 
 /// 启动器自己的版本元数据：versions/<id>/wtfml.meta（可选文件）。
@@ -285,6 +289,24 @@ inline QString asciiAliasRootDir() {
 ///   一层目录会在某些工具/启动器里显示成一个莫名其妙的世界。放 cache/ 底下两边都干净。
 inline QString worldBackupDir() {
     return minecraftDir() + QStringLiteral("/cache/world-backups");
+}
+
+/// 「这个文件是哪个资源」那一趟反查（`InstanceIconLookup`）的结果留在本地：
+/// <数据目录>/cache/instance-icons，**一个实例一个 json**（文件名 = 实例 id 的 sha1）。
+///
+/// ★★ 2026-10-10（用户原话：「模组图标做本地缓存功能，不要每次都拉取」）。为什么非落盘不可：
+///   那一趟要**把这一页每一份 jar 从头读一遍**（算 sha1 + murmur2 指纹，一列几十个模组就是
+///   几百 MB），再问两三家接口 —— 而"这一列文件分别对应哪个资源"这件事**不会一秒一变**：
+///   文件没换（钥匙里带着大小和修改时间）、资源也没换。`cache/icons/` 那一层存的是**图的
+///   字节**，它只有在"身份"认出来之后才轮得到 —— 少了这一份，每次启动都要把上面那一整套
+///   重来一遍，图标那几秒里全是占位拼图（用户看到的就是"每次都拉取"）。
+///
+/// NOTE: 挂**数据根目录**下（和 cache/ 里那几位一样，见 iconCacheDir() 那段），不挂
+///       %APPDATA% —— "整个启动器连带数据可以整体拷走"这条在这里同样适用。
+/// NOTE: 没人会去清它，清掉也不影响正确性（下一次进那一页重新攒）；键里带着大小和修改
+///       时间，所以**换了文件自然作废**。
+inline QString instanceIconCacheDir() {
+    return minecraftDir() + QStringLiteral("/cache/instance-icons");
 }
 
 }  // namespace AppPaths

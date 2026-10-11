@@ -59,6 +59,29 @@ static constexpr int kAutoXmsMinMb = 512;
 static constexpr int kAutoXmsMaxMb = 8192;
 static constexpr int kAutoStepMb = 256;
 
+/// 「这个实例装了多少模组」那一档的加成（见 suggestXmxMb 的 modCount 参数）。
+///
+/// 为什么要它：光看机器内存算出来的值对原版够用，对两百个模组的整合包是不够的 ——
+/// 同一个数字在两台机器上服务的是**两件不同的事**。以前自动档不认这个差别，于是
+/// "原版和 200 模组拿到一样的建议值"（FEATURES.md 待办里点过名）。
+///
+/// 三个数都是**加在 total/4 那一步上的**，所以上面那两条机器侧的硬顶（available/2、
+/// total/2）和 [1024, 8192] 那个体面范围**照旧说了算** —— 加成只抬"目标值"，
+/// 抬不过这台机器的物理现实。这也是它不设成"直接返回一个定值"的理由。
+static constexpr int kAutoXmxModsPerStep = 64;   ///< 多少模组算一档
+static constexpr int kAutoXmxMbPerModStep = 512; ///< 每一档加多少 MB
+static constexpr int kAutoXmxModBonusMaxMb = 4096; ///< 加成封顶（够了：那是 512 个模组）
+
+/// 模组数量换算成 Xmx 的加成（MB）。纯函数，可单独钉。
+int modCountBonusMb(int modCount) {
+    if (modCount <= 0) {
+        // 负数和 0 都当"没有模组"。负数不是正常输入，但拿它去算减法是更坏的答案。
+        return 0;
+    }
+    const qint64 steps = modCount / kAutoXmxModsPerStep;
+    return static_cast<int>(qMin<qint64>(steps * kAutoXmxMbPerModStep, kAutoXmxModBonusMaxMb));
+}
+
 /// 向下取整到步长的整数倍。
 int roundDownToStep(qint64 valueMb) {
     return static_cast<int>(valueMb / kAutoStepMb * kAutoStepMb);
@@ -653,14 +676,17 @@ void GlobalJavaSettings::setAutoMemory(bool autoMemory) {
     save();
 }
 
-int GlobalJavaSettings::suggestXmxMb(qint64 totalMb, qint64 availableMb) {
+int GlobalJavaSettings::suggestXmxMb(qint64 totalMb, qint64 availableMb, int modCount) {
     if (totalMb <= 0) {
         // 读不到系统内存（非 Windows 平台、或者系统调用失败）：退回内置默认值。
         // 这里**不**拿 availableMb 硬凑 —— 连总量都不知道，任何推算都是编的。
+        // 加成也不加：不知道这台机器有多少内存，"给整合包多点"就没有可加的基数。
         return kBuiltinXmxMb;
     }
 
-    qint64 budget = totalMb / 4;
+    // 整合包规模那一档加在**基准**上（第 1 步），不是加在最后的结果上 —— 见上面
+    // kAutoXmxModsPerStep 那段：加成抬的是目标值，机器侧那两条硬顶照旧说了算。
+    qint64 budget = totalMb / 4 + modCountBonusMb(modCount);
     if (availableMb > 0) {
         budget = qMin(budget, availableMb / 2);
     }

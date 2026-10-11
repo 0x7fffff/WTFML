@@ -116,7 +116,7 @@ QByteArray buildIndexFile(const Spec &spec);
 /// 判据三条：路径非空、至少一个地址、`sha1` 与 `sha512` **两个都有**（规范原文是
 /// MUST）。为什么要卡哈希：清单里的 sha1 是安装时**唯一**的完整性判据 ——
 /// `DownloadManager::fileAlreadyValid()` 在 sha1 是空串时直接点头（见
-/// `src/download/DownloadManager.cpp:456`），于是半截文件也算"下好了"。
+/// `src/download/DownloadManager.cpp:475`），于是半截文件也算"下好了"。
 bool writableAsIndexFile(const MatchedFile &file);
 
 /// 加载器的键 → Modrinth 依赖表里那一行叫什么。纯原版（空键）返回空串 = 不写这一行。
