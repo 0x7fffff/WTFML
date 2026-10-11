@@ -10,6 +10,7 @@
 #include <QApplication>
 #include <QColor>
 #include <QEasingCurve>
+#include <QElapsedTimer>   // 步进器里那一位"上一拍是第几毫秒推的"（见 `runProgress()`）
 #include <QEvent>
 #include <QGraphicsEffect>
 #include <QKeyEvent>
@@ -236,12 +237,15 @@ struct StepRun {
     int index = 0;   ///< 已经推了几档。
     int steps = 1;   ///< 一共几档。
     bool removeWhenDone = false;
+    /// 这一发起跑那一刻 + 上一拍是第几毫秒推的（**只为了丢掉积压的那一拍**，见 `runProgress()`）。
+    QElapsedTimer clock;
+    qint64 lastStepMs = -1;
 };
 
 /**
  * 跑一发进度动画，每一帧交给 `apply()` 去摆效果上的那几个数。
  *
- * `apply` 收到的是**已经映射好的值**（`from` → `to`，走 `OutCubic`），不是 0→1。
+ * `apply` 收到的是**已经映射好的值**（`from` → `to`，走 `OutSine`），不是 0→1。
  *
  * `stepMs`：
  *   * `> 0` —— **按帧走**：定时器每一拍推一档（"为什么"整段写在这个函数下半截，见 ★★ 那一段）。
@@ -275,7 +279,11 @@ void runProgress(QWidget *widget, AnimEffect *effect, qreal from, qreal to, int 
     animation->setDuration(qMax(1, ms));
     animation->setStartValue(from);
     animation->setEndValue(to);
-    animation->setEasingCurve(QEasingCurve::OutCubic);
+    // ★ 2026-10-11：`OutCubic` → **`OutSine`**。同样是"起手快、收尾慢"，但 `OutCubic`
+    //   把动感堆得太靠前：换页一共才 8~13 拍，它**第一拍就走掉 25%、头三拍走掉 74%**，
+    //   后面每拍不到 1 px —— 看着就是"跳一下，然后一条不动的尾巴"。`OutSine` 每拍最多
+    //   摊 13%，十几拍下来是一条匀匀的滑行（实测真帧见下面 ★★ 那一段）。
+    animation->setEasingCurve(QEasingCurve::OutSine);
     QObject::connect(animation, &QVariantAnimation::valueChanged, effect,
                      [apply](const QVariant &value) { apply(value.toReal()); });
 
@@ -314,8 +322,15 @@ void runProgress(QWidget *widget, AnimEffect *effect, qreal from, qreal to, int 
     //
     // 【修法】**不按墙上时钟算，每一拍推一档**。定时器摆在 `stepMs` 上，每响一次
     //   `index += 1`，再把动画时间戳摆到 `index / steps` 那一档去。迟到的第一拍于是只推
-    //   一档（0.33），而不是一口气跳到半路 —— **"第一拍什么时候来"不再影响这一发走到哪儿**，
-    //   最多是起手多定住一两帧（那一段的观感另有 `pageStartOpacity()` 管着）。
+    //   一档，而不是一口气跳到半路 —— **"第一拍什么时候来"不再影响这一发走到哪儿**，
+    //   最多是起手多定住一两帧（那一段的观感由 `pageStartOpacity()` 和 `pageRiseDistance()`
+    //   管着，那两个数就是照这份真帧定的）。
+    //
+    //   ★ 同一天下午：这一条修完用户还是说"像是从下面瞬移上去的，没有过渡"。再量真帧
+    //     （见下面步进器那一段），还剩两个毛病：**两拍会挤在一起**（`OutCubic` 让第一拍
+    //     就走 25%，一挤就是一次瞬移）、**后面几拍几乎不动**（每拍不到 1 px）。于是同一天
+    //     又补了三刀：曲线换 `OutSine`、时长 130 → 200（拍到 13 拍）、步进器在"离上一拍
+    //     太近"的那一拍上原地丢掉（单发链试过，慢一倍，见步进器那一段）。
     //
     // 【为什么动画对象留着、却不 start】`setCurrentTime()` 在"停着"的状态下照样算值、
     //   照样发 `valueChanged`、`currentValue()` 也跟着走 —— 2026-10-11 用一次性探针验过
@@ -336,7 +351,38 @@ void runProgress(QWidget *widget, AnimEffect *effect, qreal from, qreal to, int 
     stepper->setObjectName(QLatin1String(kStepperName));
     stepper->setTimerType(Qt::PreciseTimer);
     stepper->setInterval(stepMs);
-    QObject::connect(stepper, &QTimer::timeout, effect, [state, stepper, dropLater]() {
+    // ★★ 2026-10-11 下午：**周期定时器 + 丢掉"积压的那一拍"**。
+    //
+    //   上半天那版是"周期 16 ms"，我按"Qt 每颗定时器最多只补发**一个**迟到事件"来推理
+    //   （结论来自一个一次性探针）。同一天下午在 `ui_shot` 里量真帧，直接推翻了它 ——
+    //   主线程被占 40 ms（建页 + 第一帧 + 截图）之后，**两拍是连着来的**：
+    //
+    //       t=5   画（现场照了一张 4ms）  0.800 / +10.0
+    //       t=10  画（定住的那张）        0.800 / +10.0
+    //       t=16  画（定住的那张）        0.800 / +10.0
+    //       ----  空档 30 ms  ----
+    //       t=46  推 1/8 → 画            0.865 / +6.7
+    //       t=48  推 2/8 → 画            0.917 / +4.2     ← 两拍只差 2 ms
+    //       t=64  推 3/8 → 画            0.952 / +2.4
+    //       …
+    //
+    //   那 2 ms 里一口气推掉的是 5.8 px 和 12% 浓淡 —— **用户说的"瞬移"就是这一下**。
+    //
+    //   【试过一版"单发链"（推完一档再 start 下一发），不好】两拍之间确实至少隔一个
+    //   `stepMs()` 了，可节拍也跟着变成"16 ms + 这一拍之后主线程还要干的活儿"——
+    //   同样这一发，实测总时长从 208 ms 变成 **416 ms**（每拍 30 ms 上下），太拖。
+    //   周期定时器那边节拍是稳的 16 ms 网格，**只有补发那一下会挤**。
+    //
+    //   所以最后是：**周期 16 ms 不动**，只在"离上一拍太近"的那一拍上原地返回。
+    //   判据取 `stepMs() * 3 / 4`（12 ms）：正常那一拍是 16 ms 的网格（抖动 0~1 ms），
+    //   一定过得去；补发那一拍是 2~8 ms，一定被丢掉。丢掉的只是"多推一档"，
+    //   定时器还在跑 ⇒ 下一拍（16 ms 后）照常接上，这一发最多晚一个 `stepMs()` 结束。
+    QObject::connect(stepper, &QTimer::timeout, effect, [state, stepper, dropLater, stepMs]() {
+        const qint64 nowMs = state->clock.elapsed();
+        if (state->lastStepMs >= 0 && nowMs - state->lastStepMs < stepMs * 3 / 4) {
+            return;
+        }
+        state->lastStepMs = nowMs;
         ++state->index;
         QVariantAnimation *animation = state->animation.data();
         if (animation == nullptr) {   // 效果已经被摘了（定时器也快跟着走了）
@@ -346,7 +392,7 @@ void runProgress(QWidget *widget, AnimEffect *effect, qreal from, qreal to, int 
         const bool last = state->index >= state->steps;
         if (last) {
             // 最后一拍**直接落到终点**：`steps * stepMs` 和时长不一定正好相等
-            // （130 / 16 = 8 拍 = 128 ms），差那 2 ms 不能让这一发停在 0.999 上。
+            // （200 / 16 = 13 拍 = 208 ms），差那 8 ms 不能让这一发停在 0.999 上。
             animation->setCurrentTime(animation->duration());
         } else {
             animation->setCurrentTime(
@@ -360,6 +406,7 @@ void runProgress(QWidget *widget, AnimEffect *effect, qreal from, qreal to, int 
             dropLater();
         }
     });
+    state->clock.start();
     stepper->start();
 }
 
@@ -557,7 +604,7 @@ void pageAppear(QWidget *widget, const QColor &backdrop) {
     //    NOTE: 设了页面背景图（`Theme::Part::PageBackground`）时那张图是**页面自己**画的、
     //          也跟着一起淡，这一层垫的还是底色 —— 那一档下起手那一刻会短暂地少一层图。
     effect->setBackdrop(backdrop);
-    // ★★ 起手**不是全透明**（0.85，不是 0）—— 这一发切过去之后头一两帧是躲不掉的
+    // ★★ 起手**不是全透明**（0.65，不是 0）—— 这一发切过去之后头一两帧是躲不掉的
     //    （主线程正忙着摆版、画新那一页），理由整段见 `Animations.hpp` 里
     //    `pageStartOpacity()` 上面那段。
     effect->setOpacity(pageStartOpacity());
@@ -617,6 +664,9 @@ void slideUp(QWidget *window, const QPoint &target) {
     animation->setDuration(panelMs());
     animation->setStartValue(start);
     animation->setEndValue(target);
+    // NOTE: 这一发**故意留着 `OutCubic`**（"整页转场"那几发 2026-10-11 换成了 `OutSine`）：
+    //       它是"一小块面板弹出来"，要的是干脆利落 —— 16 px 走完就该能点上面的东西了。
+    //       收尾圆滑在这儿的代价是"最后 1~2 px 还在慢慢挪"。
     animation->setEasingCurve(QEasingCurve::OutCubic);
     // 兜底：跑完一定落到算好的那个点上（中途被打断、被拖动这些情况也算）。
     QObject::connect(animation, &QPropertyAnimation::finished, window,
