@@ -418,6 +418,8 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     //       在那边、这个在这一层）。
     // ★ 垫的底色是 `QPalette::Base`：右栏每一页都活在一层滚动区里（见 `addPage()`），
     //   视口铺的就是它。垫窗口那份的话，起手那一帧会看见一整块偏灰的方块。
+    // ★ 抬的也是那一层**视口**（`liftTarget()`，`ui/Animations.cpp` 里那个，滚动区自己那圈框留在原地）——
+    //   见 `Animations.hpp` 里 `pageAppear()` 那段。
     connect(m_stack, &QStackedWidget::currentChanged, this, [this](int) {
         QWidget *page = m_stack->currentWidget();
         if (page != nullptr && page->isVisible()) {

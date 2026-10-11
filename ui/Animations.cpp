@@ -7,6 +7,7 @@
 
 #include <QAbstractAnimation>
 #include <QAbstractButton>
+#include <QAbstractScrollArea>
 #include <QApplication>
 #include <QColor>
 #include <QEasingCurve>
@@ -22,6 +23,7 @@
 #include <QPropertyAnimation>
 #include <QScrollBar>
 #include <QSharedPointer>
+#include <QTabWidget>
 #include <QTimer>
 #include <QTransform>
 #include <QTreeView>
@@ -74,6 +76,23 @@ public:
             return;
         }
         m_shift = value;
+        update();
+    }
+
+    /// ★★ 「抬的是**内容**、框一个像素都不动」的那一格（2026-10-11，见 `pageAppear()` 那段）。
+    ///
+    /// 有值的那些像素才跟着 `m_shift` 往下挪，**别处原样贴回去** —— 于是控件自己那圈外框
+    /// （选项卡的卡片、列表/树的框）留在原地，只有里面的内容抬起来。空矩形 = 整块一起抬
+    /// （这一块自己没有外框时的情形，也是 2026-10-11 之前唯一的那一种）。
+    ///
+    /// NOTE: 给的坐标是**控件自己的坐标系、逻辑像素**（`liftTarget()` 那一段算出来的
+    ///       `mapTo()`）；`draw()` 里再按 `devicePixelRatio` 换成设备像素。
+    QRect contentRect() const { return m_contentRect; }
+    void setContentRect(const QRect &rect) {
+        if (m_contentRect == rect) {
+            return;
+        }
+        m_contentRect = rect;
         update();
     }
 
@@ -152,8 +171,24 @@ protected:
         }
 
         painter->setWorldTransform(QTransform());
+        // ★★ 这个画笔的坐标空间是**逻辑像素**（原点在控件父坐标系里，`offset` 就是控件左上角
+        //    在那一格里的逻辑位置）。实地标定（2026-10-11，`WTFML_ANIM_DEBUG=1` 打出来的）：
+        //    `ui_shot` 里那颗按下按钮外面正好留了 16 px 边距，这里量到的
+        //    `offset` **就是 `QPoint(16,16)`**（不是 24 = 16×1.5），而 `source` 那张图是
+        //    **设备像素**（`dpr` 1.5，180×36 的按钮照出 270×54）。
+        //
+        //    ★ 这一条以前是含糊的（那一格一直混着用），后果**看得见**：`ui_shot` 的真帧里
+        //      内容被推到 1.5 倍的位置上 —— 起手那一帧卡片顶上那条让出来的白带是 **40 px**
+        //      而不是 27 px（= 18×1.5），卡片**下边那圈框**还会被挪下去的内容盖掉
+        //      （实测 y 1100..1139 整段变成内容的白）。所以这里把两把尺子分清楚：
+        //      **画笔这一层一律逻辑像素，`source` 的像素矩形一律设备像素**。
+        const qreal dpr = source.devicePixelRatio() > 0.0 ? source.devicePixelRatio() : 1.0;
+        // 控件在这一格里占的那一块（逻辑像素）。
+        // NOTE: 拿 `source.size()/dpr` 当控件尺寸，成立的前提是"效果不往外扩"
+        //       （`boundingRectFor()` 就是源矩形自己 ⇒ 上面那次拍照没有补边）。
+        const QRectF widgetRect(offset, QSizeF(source.size()) / dpr);
         // ★ 再上一道保险：不管上面那些数怎么算错，都画不到源矩形之外去。
-        painter->setClipRect(QRectF(offset, source.size()), Qt::IntersectClip);
+        painter->setClipRect(widgetRect, Qt::IntersectClip);
         // ★★ 底下那一层（2026-09-29 加的，当时是给"干等那 70 ms"垫的；那一段 2026-10-11
         //    拿掉了，这一层留着管**起手那一帧**）：**整块铺成窗口底色、而且不跟着内容一起淡**。
         //
@@ -167,23 +202,59 @@ protected:
         //    铺一层底色把这整块盖住，那一整块就总是"我们自己画满"的 —— 跟旁边一圈完全接得上。
         if (m_backdrop.isValid() && m_backdrop.alpha() > 0) {
             painter->setOpacity(1.0);
-            painter->fillRect(QRectF(offset, source.size()), m_backdrop);
+            painter->fillRect(widgetRect, m_backdrop);
         }
         painter->setOpacity(qBound(0.0, m_opacity, 1.0));
 
-        QPoint at = offset;
-        if (m_shift > 0.0) {
-            // 抬起来那一段是按**逻辑像素**说的，而这个画笔眼下是设备坐标 —— 差一个
-            // devicePixelRatio（150% 缩放下差 1.5 倍）。
-            at.ry() += qRound(m_shift * source.devicePixelRatio());
+        // 「抬」这一位按**逻辑像素**说；落到屏幕上再吸到**整设备像素**上
+        // （150% 缩放下 1 逻辑 px = 1.5 设备 px —— 不吸的话内容每一拍都停在半像素上，
+        //  文字会发虚）。
+        const qreal shift = m_shift > 0.0 ? qRound(m_shift * dpr) / dpr : 0.0;
+        // ★★ 「抬的是内容、框不动」（2026-10-11）：这一格是下面那一步唯一会挪的地方。
+        //    给进来的是**控件自己坐标系里的逻辑像素**（`liftTarget()` 那一段算的
+        //    `mapTo()`），所以先按控件自己的尺寸收一下，再搬到画笔这一格里（+`offset`）。
+        const QRect box = m_contentRect.isValid() && shift > 0.0
+                              ? m_contentRect.intersected(
+                                    QRect(QPoint(0, 0),
+                                          QSize(qFloor(widgetRect.width()),
+                                                qFloor(widgetRect.height()))))
+                              : QRect();
+        if (box.isEmpty()) {
+            // 没有"内容那一格"（整块一起抬的那几种，也是 2026-10-11 之前唯一的那一种）。
+            painter->drawPixmap(offset, out);
+            return;
         }
-        painter->drawPixmap(at, out);
+        const QRect boxInPainter = box.translated(offset);
+        // ① **原位**贴一遍，只把内容那一格空出来（那一格下面那一步贴的是挪下去的内容）。
+        //    ★ 这一句就是"框不瞬移"本身：外框那一圈走的是这条路，`shift` 碰不到它。
+        //    2026-10-11 之前整张图一起挪 —— 用户看到的是**卡片那圈框自己往下跳了一下
+        //    再滑回来**（他的原话：「这个动画，在有框的时候框会瞬移」）。
+        painter->save();
+        painter->setClipRegion(QRegion(widgetRect.toRect()) - QRegion(boxInPainter),
+                               Qt::IntersectClip);
+        painter->drawPixmap(offset, out);
+        painter->restore();
+        // ② 内容那一格往下挪 `shift` 贴着画。裁剪**就是这一格**：挪出去的那一条既压不到
+        //    框上、也跑不出这一块（"不许有元素超出"在这里同样成立）；让出来的那一条露的
+        //    是上面垫的那层底（`m_backdrop`）。
+        //
+        //    ★ 取源那一格用的是**设备像素**（`source` 那张图的像素网格 = 控件的设备像素，
+        //      `offset` 只是它在画笔那一层的位置，不参与取源）—— 混进来就会把内容推到
+        //      1.5 倍的位置上去（见上面 `widgetRect` 那段标定）。
+        const QRect sourceBox(qRound(box.x() * dpr), qRound(box.y() * dpr),
+                              qRound(box.width() * dpr), qRound(box.height() * dpr));
+        painter->save();
+        painter->setClipRect(boxInPainter, Qt::IntersectClip);
+        painter->drawPixmap(QPointF(boxInPainter.topLeft()) + QPointF(0.0, shift), out, sourceBox);
+        painter->restore();
     }
 
 private:
     qreal m_opacity = 1.0;
     qreal m_shift = 0.0;
     qreal m_scrim = 0.0;
+    /// 「抬的是内容、框不动」的那一格（控件自己的坐标系、逻辑像素）；空 = 整块一起抬。
+    QRect m_contentRect;
     QColor m_backdrop;  // 无效色 = 不铺（按下 / 提示卡 / 滚动条那几种都不铺）
     /// 「这一发淡的是一张定住的图」（换页那一发；见 `beginSnapshot()` 与 `draw()`）。
     bool m_snapshot = false;
@@ -528,6 +599,37 @@ protected:
     }
 };
 
+/**
+ * 「这一块抬起来的时候，**抬的到底是哪一块**」—— `pageAppear()` 用它（整段理由见那儿）。
+ *
+ * 规矩一句话：**自己有那圈外框的控件，抬它里面那一块**。那圈外框是屏幕上一个**不动的**
+ * 参照物（换页前后它都在原地），让它跟着往下挪，看着就是"框瞬移"；里面的内容是新上来的，
+ * 往下挪再滑上去才像一次转场。
+ *
+ *   * `QTabWidget`（顶上那四颗导航翻出来的内容区）⇒ `currentWidget()`：用户看到的那圈
+ *     卡片和外框**是选项卡自己画的**，页面是它里面那一块（`ThemeBackground` 一个像素都不画）。
+ *   * `QAbstractScrollArea`（列表 / 树 / 滚动区 —— 它们自带那圈 `#b9b9b9` 的框）⇒ `viewport()`：
+ *     框、表头、滚动条都长在视口**外面**，抬视口就正好是"内容抬、框不动"。
+ *   * 别的（下载页/设置页里那些光板一页、实例设置那一列页表）⇒ 就是它自己：那些块没有单独
+ *     画的框，整块抬和 2026-10-11 之前一模一样。
+ */
+QWidget *liftTarget(QWidget *widget) {
+    if (widget == nullptr) {
+        return nullptr;
+    }
+    if (auto *tabs = qobject_cast<QTabWidget *>(widget)) {
+        if (QWidget *page = tabs->currentWidget()) {
+            return page;
+        }
+    }
+    if (auto *area = qobject_cast<QAbstractScrollArea *>(widget)) {
+        if (QWidget *view = area->viewport()) {
+            return view;
+        }
+    }
+    return widget;
+}
+
 }  // namespace
 
 namespace Anim {
@@ -582,8 +684,8 @@ void pageAppear(QWidget *widget) {
     if (widget == nullptr) {
         return;
     }
-    // 顶层那一档（内容区整个 `QTabWidget`）：垫的是**顶层窗口**的窗口底色 —— 内容区之外
-    // 那一圈（标题栏、底栏）铺的就是它。内层那几层要垫的是视口的 `Base`，见两参数那一份。
+    // 默认垫的是**顶层窗口**的窗口底色 —— 内容和它那一圈之间露出来的地方通常就是它。
+    // 内容区那一发（`QTabWidget`）垫的不是它，见 `MainWindowUI` 里那个调用点的说明。
     pageAppear(widget, widget->window()->palette().color(QPalette::Window));
 }
 
@@ -595,6 +697,19 @@ void pageAppear(QWidget *widget, const QColor &backdrop) {
     if (effect == nullptr) {
         return;
     }
+    // ★★ 「抬的是**内容**、框一个像素都不动」（2026-10-11）。用户原话：「这个动画，在有框的
+    //    时候框会瞬移，能不能考虑一下用其它组件之类的解决」。
+    //
+    //    真因：这一发原来是**整块**（连它自己那圈外框）一起往下挪着画的，而其中有些控件
+    //    （内容区那个 `QTabWidget` 的卡片、实例列表那棵树）**是换页前后都在的同一块** ——
+    //    于是那圈外框起手先跳下去十几像素、再滑回原处，看着就是"框瞬移"，而内容因为是新
+    //    上来的、没有参照物，反倒像正常的滑入。修法不是"抬得少一点"，是**让框压根不参与**：
+    //    抬的是它**里面那一块**（见 `liftTarget()`），外框和四周照原位贴回去
+    //    （`AnimEffect::draw()` 里那两步）。
+    QWidget *lift = liftTarget(widget);
+    effect->setContentRect(lift == nullptr || lift == widget
+                               ? QRect()
+                               : QRect(lift->mapTo(widget, QPoint(0, 0)), lift->size()));
     const qreal rise = pageRiseDistance();
     // 第一帧就摆到"还没进来"的样子：`pageStartOpacity()` 那么透 + 往下 `rise` 那么多
     // （`draw()` 里是整块往下挪着画，所以多出来的那一条在**上面**、被裁掉的是下面那一条）。

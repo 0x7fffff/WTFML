@@ -1216,15 +1216,23 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     // 顺带从下面抬 `Anim::pageRiseDistance()` 那么一小段。规矩（尤其是"一个像素的几何都
     // 不动"）见 ui/Animations.hpp。
     //
-    // ★ 这里动的是**内容区整个控件**（`tabWidget` 自己），**不是** `currentWidget()` 那一页。
+    // ★ 这里动的**是内容区整个控件**（`tabWidget` 自己），**不是** `currentWidget()` 那一页。
     //   用户 2026-09-29 原话：「这个框架啥的都是瞬间出现，能不能给它设定一定延迟」（他指名
     //   的是「换页时整页的卡片」）。原因在这一层底下：那张卡片和它的外框**是 `QTabWidget`
     //   自己画的** —— 四个页面都是 `ThemeBackground(Part::PageBackground)`，而它在"没设图"
     //   时 `paintEvent()` 直接 return（见那个文件头上那一大段）。所以只给页面装效果的话，
-    //   页面里那些控件在淡，**卡片和外框却是"啪"地铺上的**，正好就是他说的那件事。
-    //   换成 `tabWidget` 之后，卡片、外框、里面的内容一起淡（"不许有元素超出"不受影响：
-    //   效果还是那一层 `AnimEffect`，源矩形那一剪裁和几何一个像素都不动的性质都在）。
+    //   卡片和外框不在这张图里，淡的是"卡片上浮着的一层内容"，虚的那几帧能看见卡片那层底
+    //   从中间透出来。
     //
+    // ★★ 2026-10-11 改的是**抬**那一半：淡的仍然是整块（卡片一起淡），但**往下挪着画的只有
+    //   它里面的页面**（`ui/Animations.cpp` 里那个文件内的 `liftTarget()` 把它认出来）。用户原话：「这个动画，在有框的
+    //   时候框会瞬移，能不能考虑一下用其它组件之类的解决」—— 卡片那圈外框换页前后都在同一
+    //   个地方，整块一起挪就是**框自己跳了一下再滑回来**；内容是新上来的，没有参照物，反倒
+    //   像正常的滑入。整段理由与做法见 `Animations.hpp` 里 `pageAppear()` 那段。
+    //
+    // NOTE: 垫的底色是**卡片那一层**（`QPalette::Base`）：内容抬起来让出来的那一条露的就是
+    //       它。垫成窗口底色（`#f0f0f0`）的话，卡片上会横着一条偏灰的带子（卡片自己是
+    //       `#fcfcfc`，Fusion 画这一层用的就是 `Base`）。
     // NOTE: 挂的是 `currentChanged`，不是某一次点击 —— 四颗导航、底栏、主页那几个入口
     //       都会翻页，只有挂在这儿才一处管住全部（"唯一出处"那条老规矩）。
     // NOTE: 只在**已经露着头**的时候动。搭界面这一路会挨个 `addTab()`，`currentChanged`
@@ -1232,7 +1240,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     //       （`tabWidget` 是 `centralWidget` 里生出来的，这条判据在它身上同样说得通）。
     QObject::connect(tabWidget, &QTabWidget::currentChanged, tabWidget, [this](int) {
         if (tabWidget->isVisible()) {
-            Anim::pageAppear(tabWidget);
+            Anim::pageAppear(tabWidget, tabWidget->palette().color(QPalette::Base));
         }
     });
 
@@ -1245,6 +1253,8 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     // ★ 垫的底色是 `QPalette::Base`（**不是**顶上那一档的窗口底色）：这三层右栏每一页都
     //   活在一层滚动区里，视口铺的是 `Base` —— 垫窗口那份的话，起手那一帧会看见一整块
     //   偏灰的方块贴在页面正中（见 `Anim::pageAppear(widget, backdrop)` 那段）。
+    // ★ 这几页是滚动区：抬的会是它们的**视口**（`liftTarget()`，`ui/Animations.cpp` 里那个），滚动区自己那圈框
+    //   留在原地 —— 和顶上那一档同一条规矩（见 `Animations.hpp` 里 `pageAppear()` 那段）。
     const auto appearOnSwitch = [](QStackedWidget *stack) {
         if (stack == nullptr) {
             return;

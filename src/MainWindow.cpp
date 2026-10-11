@@ -1627,6 +1627,9 @@ void MainWindow::setupConnections() {
         // NOTE: 窗口还没露面那一趟（开程序时认当前文件夹）由 `isVisible()` 挡掉 —— 和顶上
         //       四颗选项卡那条接线逐字同一个判据（见 MainWindowUI.cpp 里 `appearOnSwitch`）。
         // 垫的是 `QPalette::Base`：这一列树的底就是它（一行行的卡片画在它上面）。
+        // ★ 抬的是树**的视口**（`liftTarget()`，`ui/Animations.cpp` 里那个），不是树自己：这棵树自带那圈框（还有
+        //   顶上那条表头），树本身换文件夹前后**都在原地** —— 整棵跟着挪就是"框瞬移"
+        //   （用户 2026-10-11 报的那件事）。见 `Animations.hpp` 里 `pageAppear()` 那段。
         if (QTreeWidget *list = m_ui->getInstanceList()) {
             if (list->isVisible()) {
                 Anim::pageAppear(list, list->palette().color(QPalette::Base));
