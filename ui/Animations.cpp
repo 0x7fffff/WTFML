@@ -1,6 +1,11 @@
 /**
  * @file Animations.cpp
  * @brief `Animations.hpp` 那一套的实现。规矩（不许有元素超出 / 几何一个像素都不动）写在头文件里。
+ *
+ * ★★ 2026-10-11 下午：**换页那一发从 `QGraphicsEffect` 换成了"自己盖一块幕布"**
+ *    （`PageCurtain`）。理由整段写在那个类上 —— 一句话：挂在控件上的效果**不会把它的
+ *    子控件跟着一起重画**，于是"抬"只抬得动控件自己画的那点东西。按下 / 滚动条 / 覆盖层
+ *    那三发**仍然是效果**（它们要么没有子控件，要么是"刚建出来就淡"的新控件，实测没问题）。
  */
 
 #include "Animations.hpp"
@@ -37,6 +42,8 @@ namespace {
 /// 我们自己装的那个效果叫什么。别人（将来）在同一个控件上装过别的效果时，靠这个名字认出来
 /// 那是"不是我们的"，然后**一个字节都不碰**。
 constexpr const char kEffectName[] = "wtfmlAnimEffect";
+/// 换页那块幕布叫什么（见 `PageCurtain`）。认它就是"我们自己那一块"。
+constexpr const char kCurtainName[] = "wtfmlPageCurtain";
 /// 事件过滤器装没装过的那一位（挂在 QApplication 自己身上，所以不用静态变量）。
 constexpr const char kFilterMark[] = "wtfmlAnimPressFilter";
 /// 滚动条那一份过滤器装没装过的那一位（同上）。
@@ -50,7 +57,7 @@ bool g_enabled = true;
 
 /**
  * 动效用的那一个 `QGraphicsEffect`：把控件**渲染好的那一张图**贴回来，贴上之前可以
- * 整体确定不透明度（淡入淡出）、整体压暗一档（按下）、整体往下挪几个像素（换页抬起来）。
+ * 整体确定不透明度（淡入淡出）、整体压暗一档（按下）。
  *
  * 【为什么是"贴一张图"而不是改控件自己】
  *
@@ -58,6 +65,10 @@ bool g_enabled = true;
  * 渲染成图之后，"这一帧是什么样"就完全攥在这一层手里了，控件自己（几何、布局、样式表、
  * 调色板）**一个字节都不动** —— 用户点名的"不许有元素超出"于是变成结构上做不到，
  * 而不是靠分寸拿捏。
+ *
+ * NOTE: 2026-10-11 下午之后，这一层**只剩"淡"和"压暗"**（换页那一位挪去了 `PageCurtain`）：
+ *       曾经这里还有"抬"（`setShift()` / `setContentRect()`）与"定住的那一张"，
+ *       那两样都是给换页用的，跟着一起搬走了。
  */
 class AnimEffect : public QGraphicsEffect {
 public:
@@ -70,32 +81,6 @@ public:
         update();
     }
 
-    qreal shift() const { return m_shift; }
-    void setShift(qreal value) {
-        if (qFuzzyCompare(m_shift, value)) {
-            return;
-        }
-        m_shift = value;
-        update();
-    }
-
-    /// ★★ 「抬的是**内容**、框一个像素都不动」的那一格（2026-10-11，见 `pageAppear()` 那段）。
-    ///
-    /// 有值的那些像素才跟着 `m_shift` 往下挪，**别处原样贴回去** —— 于是控件自己那圈外框
-    /// （选项卡的卡片、列表/树的框）留在原地，只有里面的内容抬起来。空矩形 = 整块一起抬
-    /// （这一块自己没有外框时的情形，也是 2026-10-11 之前唯一的那一种）。
-    ///
-    /// NOTE: 给的坐标是**控件自己的坐标系、逻辑像素**（`liftTarget()` 那一段算出来的
-    ///       `mapTo()`）；`draw()` 里再按 `devicePixelRatio` 换成设备像素。
-    QRect contentRect() const { return m_contentRect; }
-    void setContentRect(const QRect &rect) {
-        if (m_contentRect == rect) {
-            return;
-        }
-        m_contentRect = rect;
-        update();
-    }
-
     qreal scrim() const { return m_scrim; }
     void setScrim(qreal value) {
         if (qFuzzyCompare(m_scrim, value)) {
@@ -105,24 +90,6 @@ public:
         update();
     }
 
-    /// 底下垫的那一层（**整块不透明、不跟着内容一起淡**）。见 `draw()` 里那一段。
-    QColor backdrop() const { return m_backdrop; }
-    void setBackdrop(const QColor &color) {
-        if (m_backdrop == color) {
-            return;
-        }
-        m_backdrop = color;
-        update();
-    }
-
-    /// 「这一发淡的是**一张定住的图**」—— 见 `pageAppear()` 里那段（换页专用）。
-    /// 每叫一次就把上一张丢掉：下一帧重照一张。
-    void beginSnapshot() {
-        m_snapshot = true;
-        m_snapshotPixmap = QPixmap();
-        m_snapshotOffset = QPoint();
-    }
-
     /// ★ 这一条就是"不许有元素超出"的那一句：效果的有效范围**就是源矩形自己**
     /// （默认实现也是这么返回的，这里明写出来，免得将来有人"顺手"给它加个外扩）。
     QRectF boundingRectFor(const QRectF &sourceRect) const override { return sourceRect; }
@@ -130,31 +97,8 @@ public:
 protected:
     void draw(QPainter *painter) override {
         QPoint offset;
-        // ★★ 「定住的那一张」（换页那一发，见 `pageAppear()`）。**照一次，后面每一帧都拿它**。
-        //
-        //    为什么非定住不可：`sourcePixmap()` 是**现照** —— 控件这一帧画成什么样，淡的就是
-        //    什么样。换页那一刻正好是"内容还在往里灌"的时候（典型：服务器列表那一页，
-        //    进页就自动测速，结果一个一个回来 —— 行会从一行字长成两行、favicon 也会补上），
-        //    于是**淡的过程中页面自己在长高、自己在下跳**。用户看起来就是"这一发动画卡卡的"
-        //    （2026-09-29 原话：「服务器列表那栏动画卡卡的」）：帧其实没丢（那一页照一帧
-        //    只要 1 ms 出头），丢的是"这一发到底在淡什么" —— 每一帧淡的都不是同一张画面。
-        //
-        //    定住之后这一发只有一个动作：把那一张图 blit 上去、改一改不透明度。中途进来的
-        //    数据照旧落到控件上（控件本身一个字节没动），只是**要等这一发跑完才看得见**。
-        //    NOTE: 只在换页那一发这样干。按下那一发**不能**定住 —— 手指按着的时候那个按钮
-        //          自己还在重画（悬停、文字），定住就成了一块贴死的旧图。
-        QPixmap source;
-        if (m_snapshot && !m_snapshotPixmap.isNull()) {
-            source = m_snapshotPixmap;
-            offset = m_snapshotOffset;
-        } else {
-            source = sourcePixmap(Qt::DeviceCoordinates, &offset,
-                                  QGraphicsEffect::PadToEffectiveBoundingRect);
-            if (m_snapshot && !source.isNull()) {
-                m_snapshotPixmap = source;
-                m_snapshotOffset = offset;
-            }
-        }
+        const QPixmap source = sourcePixmap(Qt::DeviceCoordinates, &offset,
+                                            QGraphicsEffect::PadToEffectiveBoundingRect);
         if (source.isNull()) {
             return;
         }
@@ -172,95 +116,28 @@ protected:
 
         painter->setWorldTransform(QTransform());
         // ★★ 这个画笔的坐标空间是**逻辑像素**（原点在控件父坐标系里，`offset` 就是控件左上角
-        //    在那一格里的逻辑位置）。实地标定（2026-10-11，`WTFML_ANIM_DEBUG=1` 打出来的）：
-        //    `ui_shot` 里那颗按下按钮外面正好留了 16 px 边距，这里量到的
-        //    `offset` **就是 `QPoint(16,16)`**（不是 24 = 16×1.5），而 `source` 那张图是
-        //    **设备像素**（`dpr` 1.5，180×36 的按钮照出 270×54）。
+        //    在那一格里的逻辑位置）。实地标定（2026-10-11）：`ui_shot` 里那颗按下按钮外面
+        //    正好留了 16 px 边距，这里量到的 `offset` **就是 `QPoint(16,16)`**（不是 24 =
+        //    16×1.5），而 `source` 那张图是**设备像素**（`dpr` 1.5，180×36 的按钮照出 270×54）。
         //
-        //    ★ 这一条以前是含糊的（那一格一直混着用），后果**看得见**：`ui_shot` 的真帧里
-        //      内容被推到 1.5 倍的位置上 —— 起手那一帧卡片顶上那条让出来的白带是 **40 px**
-        //      而不是 27 px（= 18×1.5），卡片**下边那圈框**还会被挪下去的内容盖掉
-        //      （实测 y 1100..1139 整段变成内容的白）。所以这里把两把尺子分清楚：
-        //      **画笔这一层一律逻辑像素，`source` 的像素矩形一律设备像素**。
+        //    ★ 这一条以前是含糊的（那一格一直混着用），后果**看得见**：真帧里内容被推到
+        //      1.5 倍的位置上。所以这里把两把尺子分清楚：**画笔这一层一律逻辑像素，
+        //      `source` 的像素矩形一律设备像素**。
         const qreal dpr = source.devicePixelRatio() > 0.0 ? source.devicePixelRatio() : 1.0;
-        // 控件在这一格里占的那一块（逻辑像素）。
-        // NOTE: 拿 `source.size()/dpr` 当控件尺寸，成立的前提是"效果不往外扩"
-        //       （`boundingRectFor()` 就是源矩形自己 ⇒ 上面那次拍照没有补边）。
         const QRectF widgetRect(offset, QSizeF(source.size()) / dpr);
         // ★ 再上一道保险：不管上面那些数怎么算错，都画不到源矩形之外去。
         painter->setClipRect(widgetRect, Qt::IntersectClip);
-        // ★★ 底下那一层（2026-09-29 加的，当时是给"干等那 70 ms"垫的；那一段 2026-10-11
-        //    拿掉了，这一层留着管**起手那一帧**）：**整块铺成窗口底色、而且不跟着内容一起淡**。
-        //
-        //    为什么不铺就出事：淡的那个控件（内容区）**底下那些不透明的子控件**
-        //    （列表/树的视口 —— `QAbstractScrollArea` 的视口自带底色，Qt 认它"自己会画满"）
-        //    平时由它们自己画，所以**上面几层的底色都会跳过它们那一块**。可一旦这个控件挂了
-        //    效果，子控件就改成画进效果那一张离屏图里了 —— 于是那块地方**屏幕上没有任何人去
-        //    画**：`grab()` 出来的是一块黑（那张 pixmap 的原始字节），屏幕上则是**上一帧留下的
-        //    像素**（也就是"上一页的列表还挂在那儿"）。内容越是半透明（起手那几帧最虚）
-        //    越看得清楚 —— 所以换页那一发从头到尾都垫着它。
-        //    铺一层底色把这整块盖住，那一整块就总是"我们自己画满"的 —— 跟旁边一圈完全接得上。
-        if (m_backdrop.isValid() && m_backdrop.alpha() > 0) {
-            painter->setOpacity(1.0);
-            painter->fillRect(widgetRect, m_backdrop);
-        }
+        // NOTE: 这里原来还有"底下垫一层底色"（`setBackdrop()`）：那是给换页那一发准备的，
+        //       它跟着换页一起搬去了 `PageCurtain`（那一层仍然照旧垫 —— 起手那几帧是半透明
+        //       的，不垫的话不透明子控件视口那一块屏幕上留的是上一帧的像素）。剩下这三发
+        //       （按下 / 滚动条 / 覆盖层）都是**盖在已经画好的界面**上的，不垫。
         painter->setOpacity(qBound(0.0, m_opacity, 1.0));
-
-        // 「抬」这一位按**逻辑像素**说；落到屏幕上再吸到**整设备像素**上
-        // （150% 缩放下 1 逻辑 px = 1.5 设备 px —— 不吸的话内容每一拍都停在半像素上，
-        //  文字会发虚）。
-        const qreal shift = m_shift > 0.0 ? qRound(m_shift * dpr) / dpr : 0.0;
-        // ★★ 「抬的是内容、框不动」（2026-10-11）：这一格是下面那一步唯一会挪的地方。
-        //    给进来的是**控件自己坐标系里的逻辑像素**（`liftTarget()` 那一段算的
-        //    `mapTo()`），所以先按控件自己的尺寸收一下，再搬到画笔这一格里（+`offset`）。
-        const QRect box = m_contentRect.isValid() && shift > 0.0
-                              ? m_contentRect.intersected(
-                                    QRect(QPoint(0, 0),
-                                          QSize(qFloor(widgetRect.width()),
-                                                qFloor(widgetRect.height()))))
-                              : QRect();
-        if (box.isEmpty()) {
-            // 没有"内容那一格"（整块一起抬的那几种，也是 2026-10-11 之前唯一的那一种）。
-            painter->drawPixmap(offset, out);
-            return;
-        }
-        const QRect boxInPainter = box.translated(offset);
-        // ① **原位**贴一遍，只把内容那一格空出来（那一格下面那一步贴的是挪下去的内容）。
-        //    ★ 这一句就是"框不瞬移"本身：外框那一圈走的是这条路，`shift` 碰不到它。
-        //    2026-10-11 之前整张图一起挪 —— 用户看到的是**卡片那圈框自己往下跳了一下
-        //    再滑回来**（他的原话：「这个动画，在有框的时候框会瞬移」）。
-        painter->save();
-        painter->setClipRegion(QRegion(widgetRect.toRect()) - QRegion(boxInPainter),
-                               Qt::IntersectClip);
         painter->drawPixmap(offset, out);
-        painter->restore();
-        // ② 内容那一格往下挪 `shift` 贴着画。裁剪**就是这一格**：挪出去的那一条既压不到
-        //    框上、也跑不出这一块（"不许有元素超出"在这里同样成立）；让出来的那一条露的
-        //    是上面垫的那层底（`m_backdrop`）。
-        //
-        //    ★ 取源那一格用的是**设备像素**（`source` 那张图的像素网格 = 控件的设备像素，
-        //      `offset` 只是它在画笔那一层的位置，不参与取源）—— 混进来就会把内容推到
-        //      1.5 倍的位置上去（见上面 `widgetRect` 那段标定）。
-        const QRect sourceBox(qRound(box.x() * dpr), qRound(box.y() * dpr),
-                              qRound(box.width() * dpr), qRound(box.height() * dpr));
-        painter->save();
-        painter->setClipRect(boxInPainter, Qt::IntersectClip);
-        painter->drawPixmap(QPointF(boxInPainter.topLeft()) + QPointF(0.0, shift), out, sourceBox);
-        painter->restore();
     }
 
 private:
     qreal m_opacity = 1.0;
-    qreal m_shift = 0.0;
     qreal m_scrim = 0.0;
-    /// 「抬的是内容、框不动」的那一格（控件自己的坐标系、逻辑像素）；空 = 整块一起抬。
-    QRect m_contentRect;
-    QColor m_backdrop;  // 无效色 = 不铺（按下 / 提示卡 / 滚动条那几种都不铺）
-    /// 「这一发淡的是一张定住的图」（换页那一发；见 `beginSnapshot()` 与 `draw()`）。
-    bool m_snapshot = false;
-    /// 定住的那一张（第一帧照的）+ 它当时的落点。`isNull()` = 还没照到。
-    QPixmap m_snapshotPixmap;
-    QPoint m_snapshotOffset;
 };
 
 /// 这个控件上是不是我们的效果；是就返回它，不是（或没有）返回空。
@@ -296,10 +173,134 @@ AnimEffect *ensureEffect(QWidget *widget) {
 /// 动画跑完之后把效果摘掉（`setGraphicsEffect(nullptr)` 会把上一个删掉）。存在过的那一
 /// 段时间里，这个控件每画一次都要先渲进一张图，摘掉之后就跟没装过一样。
 void dropEffect(QWidget *widget) {
-    if (ourEffect(widget) != nullptr) {
+    if (AnimEffect *effect = ourEffect(widget)) {
+        Q_UNUSED(effect);
         widget->setGraphicsEffect(nullptr);
     }
 }
+
+/**
+ * ★★ 换页那一发用的那块**幕布**（2026-10-11 下午加的）。用户原话：
+ *    「这个动画，在有框的时候框会瞬移，能不能考虑一下用其它组件之类的解决」。
+ *
+ * 【为什么不接着用 `QGraphicsEffect` —— 在真屏上量出来的】
+ *
+ * 挂在控件上的效果**只重画控件自己那一层**。它身上的**子控件**（列表 / 树的视口这类
+ * 不透明控件）那一块**停在起手那一帧**：2026-10-11 在真机上逐帧量过（`build/tmp-run/
+ * wtfml-bandscan.ps1` 扫"一行字在第几行"），换页那一发里：
+ *
+ *   * 页面自己画的那些文字（「游戏文件夹」「实例列表」）**每一拍都在动**；
+ *   * **子控件里的那些行**整整一发一动不动地停在 +27 设备像素（= `pageRiseDistance()`
+ *     18 逻辑像素 × dpr 1.5）、浓淡停在起手那个 0.65（黑字压在白底上 = 亮度 90，
+ *     帧帧都是 90）—— 也就是说那一块屏幕显示的是**这一发第一帧的合成结果**，
+ *     跑完之后效果一摘才"啪"地对齐。用户看到的就是「瞬移」。
+ *
+ *   换 `repaint()`（同步整块重画）、把抬的量按整块走（不分"框 / 内容"）、只淡不抬，
+ *   三种都试过 —— 子控件那一块**照样定住**（只淡不抬那一版里它站的位置是对的、
+ *   浓淡仍然是死的：判据 `f01` 到 `f17` 全是 `min 90`）。这一层里的病因不在我们的
+ *   `draw()`（那里画的每一帧都真的上屏了），在 Qt 的效果管线本身。
+ *
+ * 【修法：不用效果，自己盖一块普通控件】
+ *
+ * 幕布是一块**普通的 `QWidget`**，自己 `paintEvent` 把"起手照的那一张图"按
+ * `shift` / `opacity` 画出来。普通控件走的是 Qt 平时的绘制路径（`update()` → 攒脏区 →
+ * 重画），**没有效果管线那一层**，所以每一帧整块都是新的。
+ *
+ * 【它怎么做到"抬的是内容、框一个像素都不动"】
+ *
+ * 幕布的**几何就是那一块内容自己的矩形**（`liftTarget()` 算出来的），一个像素都不多 ——
+ * 外框（选项卡那张卡片、列表那圈框）长在幕布**外面**，这一发从头到尾没碰过它。
+ * 这也是"不许有元素超出"的结构保证：`paintEvent` 里还自己钉了一道 `setClipRect`。
+ *
+ * 【淡的仍然是"一张定住的图"】
+ *
+ * 起手照一次（懒照：第一帧真要画的时候才照），之后每一帧都拿那一张 —— 理由和以前
+ * 一样（见 `pageAppear()`）：换页那一刻常是"内容还在往里灌"的时候，现照现淡的话
+ * 这一发淡的每一帧都不是同一张画面。尺寸变了才重照（第一帧可能还没摆完版）。
+ */
+class PageCurtain : public QWidget {
+public:
+    explicit PageCurtain(QWidget *parent) : QWidget(parent) {
+        setObjectName(QLatin1String(kCurtainName));
+        // 它只是一层"画上去的膜"：不吃鼠标、不吃键盘、不参与布局、不抢焦点。
+        setAttribute(Qt::WA_TransparentForMouseEvents, true);
+        setFocusPolicy(Qt::NoFocus);
+        hide();
+    }
+
+    /// 摆好位置、照一张新的、露头。`target` = 要抬的那一块（`liftTarget()` 算的）。
+    void start(QWidget *target, const QColor &backdrop) {
+        m_target = target;
+        m_backdrop = backdrop;
+        m_snapshot = QPixmap();   // 这一发重新照一张
+        m_snapshotSize = QSize();
+        if (target != nullptr && parentWidget() != nullptr) {
+            setGeometry(QRect(target->mapTo(parentWidget(), QPoint(0, 0)), target->size()));
+        }
+        show();
+        raise();
+    }
+
+    /// 这一帧长什么样。`shift` = 内容往下挪多少（逻辑像素），`opacity` = 整块多不透。
+    void setFrame(qreal shift, qreal opacity) {
+        m_shift = shift;
+        m_opacity = opacity;
+        update();   // ★ 普通控件，这一句就是"这一帧真的会重画"的唯一出处
+    }
+
+protected:
+    void paintEvent(QPaintEvent *) override {
+        if (m_target == nullptr || m_grabbing) {
+            return;
+        }
+        // NOTE: 幕布和它照的那一块都是 `parentWidget()` 的孩子（幕布是**兄弟**，不是祖先）
+        //       —— 所以这里量位置问的是 `parentWidget()`，不是 `this`（问 `this` 的话
+        //       Qt 会报 `QWidget::mapTo(): parent must be in parent hierarchy` 然后返回一个
+        //       没人认的坐标，症状是整块幕布一个像素都不画）。
+        QWidget *host = parentWidget();
+        if (host == nullptr) {
+            return;
+        }
+        const QRect inMe(m_target->mapTo(host, QPoint(0, 0)), m_target->size());
+        if (inMe.isEmpty()) {
+            return;
+        }
+        // ★ 「淡的是一张定住的图」：第一帧照一次就定住（尺寸变了才重照）。
+        if (m_snapshot.isNull() || m_snapshotSize != m_target->size()) {
+            // NOTE: 幕布自己可能是 `m_target` 的孩子（`pageAppear()` 直接传一个光板页面
+            //       时就是）—— 照那一张的时候我们自己**一个像素都不画**，否则就是照镜子。
+            m_grabbing = true;
+            m_snapshot = m_target->grab();
+            m_snapshotSize = m_target->size();
+            m_grabbing = false;
+        }
+        QPainter painter(this);
+        // 「不许有元素超出」：画之前先把范围收到这一格（挪下去的那一条也不会跑出去）。
+        painter.setClipRect(inMe, Qt::IntersectClip);
+        // ★ 底下先铺满底色：起手那几帧是半透明的，而 `target` 底下可能有"谁都不画"的
+        //   不透明子控件视口（那一块屏幕上留着的是上一帧的像素）。铺一层就总是满的。
+        if (m_backdrop.isValid() && m_backdrop.alpha() > 0) {
+            painter.setOpacity(1.0);
+            painter.fillRect(inMe, m_backdrop);
+        }
+        painter.setOpacity(qBound(0.0, m_opacity, 1.0));
+        // 「抬」这一位按**逻辑像素**说；落到屏幕上再吸到**整设备像素**上
+        // （150% 缩放下 1 逻辑 px = 1.5 设备 px —— 不吸的话内容每一拍都停在半像素上，
+        //  文字会发虚）。
+        const qreal dpr = m_snapshot.devicePixelRatio() > 0.0 ? m_snapshot.devicePixelRatio() : 1.0;
+        const qreal shift = m_shift > 0.0 ? qRound(m_shift * dpr) / dpr : 0.0;
+        painter.drawPixmap(QPointF(inMe.topLeft()) + QPointF(0.0, shift), m_snapshot);
+    }
+
+private:
+    QPointer<QWidget> m_target;   ///< 要抬的那一块（照它、也按它的尺寸定位）。
+    QPixmap m_snapshot;           ///< 起手照的那一张（定住）。
+    QSize m_snapshotSize;
+    QColor m_backdrop;
+    qreal m_shift = 0.0;
+    qreal m_opacity = 1.0;
+    bool m_grabbing = false;      ///< 正在照那一张（照的时候自己别画）。
+};
 
 /// 「按帧走」那一发的记账本（怎么走见 `runProgress()` 里那一大段）。定时器那个 lambda
 /// 攥着它（`QSharedPointer`），效果被摘掉时定时器跟着走、这本账也跟着走。
@@ -307,66 +308,85 @@ struct StepRun {
     QPointer<QVariantAnimation> animation;
     int index = 0;   ///< 已经推了几档。
     int steps = 1;   ///< 一共几档。
-    bool removeWhenDone = false;
+    /// 跑完要干什么（摘效果 / 把幕布收起来）。空 = 什么都不做（比如"按下"那一发，手指还按着）。
+    std::function<void()> finish;
     /// 这一发起跑那一刻 + 上一拍是第几毫秒推的（**只为了丢掉积压的那一拍**，见 `runProgress()`）。
     QElapsedTimer clock;
     qint64 lastStepMs = -1;
 };
 
 /**
- * 跑一发进度动画，每一帧交给 `apply()` 去摆效果上的那几个数。
+ * 跑一发进度动画，每一帧交给 `apply()` 去摆那个效果 / 那块幕布上的几个数。
  *
  * `apply` 收到的是**已经映射好的值**（`from` → `to`，走 `OutSine`），不是 0→1。
  *
+ * `owner`：这一发动画和步进器挂在谁身上（效果的拥有者那几发就是效果自己；换页那几发是
+ *          那块幕布）。同一个 `owner` 上又进来一发时，上一发会被停掉。
+ * `repaintTarget`：每一拍推完之后要 `update()` 的那一块（效果那几发就是挂着效果的那个
+ *          控件；换页那几发是幕布自己）。
+ * `finish`：跑完做的那一下（可能为空 = 不收尾）。
+ *
  * `stepMs`：
- *   * `> 0` —— **按帧走**：定时器每一拍推一档（"为什么"整段写在这个函数下半截，见 ★★ 那一段）。
+ *   * `> 0` —— **按帧走**：定时器每一拍推一档（"为什么"整段写在这个函数下半截）。
  *     换页 / 覆盖层 / 滚动条这三发走这条。
  *   * `0`   —— 按 Qt 自己的墙上时钟走。**按下 / 松手那两发走这条**：手指按着的时候那一档
  *     要立刻见、要一直挂着（按住不放可以是任意长），跟"一段固定时长的转场"不是一回事。
  *
- * `removeWhenDone`：跑完把效果摘掉（淡入、松手这两条）。按下那一发**不摘** —— 手指还按着，
- * 那个"暗着"的状态要一直在。
- *
  * ★ 2026-10-11：这里原来还有一个 `delayMs` 参数（"起手先干等一段"），只有换页那一发用。
  *   那一段跟着 `pageDelayMs()` 一起拿掉了，见 `Animations.hpp` 里 `appearMs()` 上面那段。
- *   同一天又发现"拿掉干等"之后**剩下来的那一发自己在跳**（下详），于是加了 `stepMs`。
  */
-void runProgress(QWidget *widget, AnimEffect *effect, qreal from, qreal to, int ms, int stepMs,
-                 bool removeWhenDone, const std::function<void(qreal)> &apply) {
+void runProgress(QObject *owner, QWidget *repaintTarget, qreal from, qreal to, int ms, int stepMs,
+                 const std::function<void()> &finish, const std::function<void(qreal)> &apply) {
+    if (owner == nullptr) {
+        return;
+    }
     // 同一个控件上又进来一发（连点两下、连切两页）：把上一发停掉。不停的话两个动画会
     // 交叉着写同一组数，看着像"抖"。
-    const QList<QVariantAnimation *> running = effect->findChildren<QVariantAnimation *>();
+    const QList<QVariantAnimation *> running = owner->findChildren<QVariantAnimation *>();
     for (QVariantAnimation *old : running) {
         old->stop();
         old->deleteLater();
     }
-    const QList<QTimer *> stepping = effect->findChildren<QTimer *>(QLatin1String(kStepperName));
+    const QList<QTimer *> stepping = owner->findChildren<QTimer *>(QLatin1String(kStepperName));
     for (QTimer *old : stepping) {
         old->stop();
         old->deleteLater();
     }
 
-    auto *animation = new QVariantAnimation(effect);
+    auto *animation = new QVariantAnimation(owner);
     animation->setDuration(qMax(1, ms));
     animation->setStartValue(from);
     animation->setEndValue(to);
     // ★ 2026-10-11：`OutCubic` → **`OutSine`**。同样是"起手快、收尾慢"，但 `OutCubic`
-    //   把动感堆得太靠前：换页一共才 8~13 拍，它**第一拍就走掉 25%、头三拍走掉 74%**，
+    //   把动感堆得太靠前：换页一共才 12 拍，它**第一拍就走掉 25%、头三拍走掉 74%**，
     //   后面每拍不到 1 px —— 看着就是"跳一下，然后一条不动的尾巴"。`OutSine` 每拍最多
     //   摊 13%，十几拍下来是一条匀匀的滑行（实测真帧见下面 ★★ 那一段）。
     animation->setEasingCurve(QEasingCurve::OutSine);
-    QObject::connect(animation, &QVariantAnimation::valueChanged, effect,
-                     [apply](const QVariant &value) { apply(value.toReal()); });
+    // ★ 每一拍推完之后让那一块自己重画一遍。效果那几发这儿只叫得动"控件自己"那一层
+    //   （子控件那一块要等它自己脏了才画 —— 这正是换页那一发不能用效果的原因，见
+    //   `PageCurtain` 那段）；幕布是一块普通控件，这一句就是"整块都新"。
+    QObject::connect(animation, &QVariantAnimation::valueChanged, owner,
+                     [apply, w = QPointer<QWidget>(repaintTarget)](const QVariant &value) {
+                         apply(value.toReal());
+                         if (w != nullptr) {
+                             w->update();
+                         }
+                     });
 
-    // NOTE: 摘效果这件事**不能**在 finished 里直接做：那一刻我们是站在动画自己的信号里，
-    //       而效果是动画的父亲 —— 删父亲等于把这个正在发信号的动画也删了。挪到下一轮做。
-    const auto dropLater = [w = QPointer<QWidget>(widget)]() {
-        QTimer::singleShot(0, w, [w]() { dropEffect(w); });
+    // NOTE: 收尾那一下**不能**在 `finished` 里直接做：那一刻我们是站在动画自己的信号里，
+    //       而动画是 `owner` 的孩子 —— 删父亲等于把这个正在发信号的动画也删了。
+    //       挪到下一轮做。
+    const auto finishLater = [owner, finish]() {
+        if (!finish) {
+            return;
+        }
+        QTimer::singleShot(0, owner, [finish]() { finish(); });
     };
 
     if (stepMs <= 0) {
-        if (removeWhenDone) {
-            QObject::connect(animation, &QVariantAnimation::finished, widget, dropLater);
+        if (finish) {
+            QObject::connect(animation, &QVariantAnimation::finished, owner,
+                             [finishLater]() { finishLater(); });
         }
         animation->start(QAbstractAnimation::DeleteWhenStopped);
         return;
@@ -388,7 +408,7 @@ void runProgress(QWidget *widget, AnimEffect *effect, qreal from, qreal to, int 
     //       1600x1000: (0)画 (64)0.43 (1)画 (14)0.65 (1)画 (14)0.78 (1)画 (14)0.89 ...
     //
     //   也就是：切过去之后**先定住 23~64 ms**（一帧都没动），第一拍一到就直接跳到 0.43 ——
-    //   这一发一共才 `appearMs()`（130 ms），等于三分之一是跳过去的。后面的每一拍都稳稳
+    //   这一发一共才 `appearMs()`（200 ms），等于五分之一是跳过去的。后面的每一拍都稳稳
     //   14~16 ms（帧率其实好好的）。用户说的"卡"就是这个。
     //
     // 【修法】**不按墙上时钟算，每一拍推一档**。定时器摆在 `stepMs` 上，每响一次
@@ -397,28 +417,26 @@ void runProgress(QWidget *widget, AnimEffect *effect, qreal from, qreal to, int 
     //   最多是起手多定住一两帧（那一段的观感由 `pageStartOpacity()` 和 `pageRiseDistance()`
     //   管着，那两个数就是照这份真帧定的）。
     //
-    //   ★ 同一天下午：这一条修完用户还是说"像是从下面瞬移上去的，没有过渡"。再量真帧
-    //     （见下面步进器那一段），还剩两个毛病：**两拍会挤在一起**（`OutCubic` 让第一拍
-    //     就走 25%，一挤就是一次瞬移）、**后面几拍几乎不动**（每拍不到 1 px）。于是同一天
-    //     又补了三刀：曲线换 `OutSine`、时长 130 → 200（拍到 13 拍）、步进器在"离上一拍
-    //     太近"的那一拍上原地丢掉（单发链试过，慢一倍，见步进器那一段）。
+    //   ★ 同一天下午：这一条修完用户还是说"像是从下面瞬移上去的，没有过渡"。再量真帧，
+    //     还剩两个毛病：**两拍会挤在一起**、**后面几拍几乎不动**。于是同一天又补了三刀：
+    //     曲线换 `OutSine`、时长 130 → 200（拍到 13 拍）、步进器在"离上一拍太近"的那一拍上
+    //     原地丢掉（单发链试过，慢一倍，见下面那一段）。
     //
     // 【为什么动画对象留着、却不 start】`setCurrentTime()` 在"停着"的状态下照样算值、
     //   照样发 `valueChanged`、`currentValue()` 也跟着走 —— 2026-10-11 用一次性探针验过
     //   （`build/tmp-wtfml-animprobe/ct.cpp`，跑完即删）：停着和"start 完再 pause"两种状态
-    //   下，同样四个采样点（16/32/48/130 ms）量出来的值一模一样
-    //   （0.3256 / 0.5716 / 0.7490 / 1）。留着它，`ui_check` ⑬ 那三条判据
-    //   （`findChildren<QVariantAnimation *>()` / `duration()` / `currentValue()`）一个字
-    //   都不用改。
+    //   下，同样四个采样点量出来的值一模一样。留着它，`ui_check` ⑬ 那几条判据
+    //   （`findChildren<QVariantAnimation *>()` / `duration()` / `currentValue()`）一个字都
+    //   不用改。
     //
-    //   NOTE: 走这条路时 `finished` **不会**发（从来没 start 过），所以"跑完摘效果"得由
-    //         步进器自己收尾。
+    //   NOTE: 走这条路时 `finished` **不会**发（从来没 start 过），所以收尾那一下得由
+    //         步进器自己叫。
     auto state = QSharedPointer<StepRun>::create();
     state->animation = animation;
     state->steps = qMax(1, qRound(qreal(animation->duration()) / stepMs));
-    state->removeWhenDone = removeWhenDone;
+    state->finish = finish;
 
-    auto *stepper = new QTimer(effect);
+    auto *stepper = new QTimer(owner);
     stepper->setObjectName(QLatin1String(kStepperName));
     stepper->setTimerType(Qt::PreciseTimer);
     stepper->setInterval(stepMs);
@@ -448,7 +466,7 @@ void runProgress(QWidget *widget, AnimEffect *effect, qreal from, qreal to, int 
     //   判据取 `stepMs() * 3 / 4`（12 ms）：正常那一拍是 16 ms 的网格（抖动 0~1 ms），
     //   一定过得去；补发那一拍是 2~8 ms，一定被丢掉。丢掉的只是"多推一档"，
     //   定时器还在跑 ⇒ 下一拍（16 ms 后）照常接上，这一发最多晚一个 `stepMs()` 结束。
-    QObject::connect(stepper, &QTimer::timeout, effect, [state, stepper, dropLater, stepMs]() {
+    QObject::connect(stepper, &QTimer::timeout, owner, [state, stepper, finishLater, stepMs]() {
         const qint64 nowMs = state->clock.elapsed();
         if (state->lastStepMs >= 0 && nowMs - state->lastStepMs < stepMs * 3 / 4) {
             return;
@@ -456,7 +474,7 @@ void runProgress(QWidget *widget, AnimEffect *effect, qreal from, qreal to, int 
         state->lastStepMs = nowMs;
         ++state->index;
         QVariantAnimation *animation = state->animation.data();
-        if (animation == nullptr) {   // 效果已经被摘了（定时器也快跟着走了）
+        if (animation == nullptr) {   // 拥有者已经被销毁了（定时器也快跟着走了）
             stepper->stop();
             return;
         }
@@ -473,9 +491,7 @@ void runProgress(QWidget *widget, AnimEffect *effect, qreal from, qreal to, int 
             return;
         }
         stepper->stop();
-        if (state->removeWhenDone) {
-            dropLater();
-        }
+        finishLater();
     });
     state->clock.start();
     stepper->start();
@@ -501,8 +517,8 @@ void pressDown(QAbstractButton *button) {
     if (effect->scrim() >= target - 0.001) {
         return;  // 已经暗到那儿了（按住不放的时候会重复发按下事件）
     }
-    runProgress(button, effect, effect->scrim(), target, Anim::pressInMs(), /*stepMs=*/0,
-                /*removeWhenDone=*/false, [effect](qreal value) { effect->setScrim(value); });
+    runProgress(effect, button, effect->scrim(), target, Anim::pressInMs(), /*stepMs=*/0,
+                /*finish=*/nullptr, [effect](qreal value) { effect->setScrim(value); });
 }
 
 /// 松手：弹回原样，然后把这层效果摘掉。
@@ -511,8 +527,9 @@ void pressUp(QAbstractButton *button) {
     if (effect == nullptr) {
         return;
     }
-    runProgress(button, effect, effect->scrim(), 0.0, Anim::pressOutMs(), /*stepMs=*/0,
-                /*removeWhenDone=*/true, [effect](qreal value) { effect->setScrim(value); });
+    runProgress(effect, button, effect->scrim(), 0.0, Anim::pressOutMs(), /*stepMs=*/0,
+                [w = QPointer<QWidget>(button)]() { dropEffect(w); },
+                [effect](qreal value) { effect->setScrim(value); });
 }
 
 /**
@@ -611,7 +628,7 @@ protected:
  *   * `QAbstractScrollArea`（列表 / 树 / 滚动区 —— 它们自带那圈 `#b9b9b9` 的框）⇒ `viewport()`：
  *     框、表头、滚动条都长在视口**外面**，抬视口就正好是"内容抬、框不动"。
  *   * 别的（下载页/设置页里那些光板一页、实例设置那一列页表）⇒ 就是它自己：那些块没有单独
- *     画的框，整块抬和 2026-10-11 之前一模一样。
+ *     画的框，整块抬和以前一模一样。
  */
 QWidget *liftTarget(QWidget *widget) {
     if (widget == nullptr) {
@@ -670,13 +687,11 @@ void scrollBarAppear(QWidget *bar) {
     }
     // 和 `overlayAppear()` 是同一条路（**只淡、不抬**）：滚动条就贴在它自己那一格里，
     // "往下挪着画"没有任何意义，只会让它看着离开自己那条边线。
-    // （垫底色只有换页那一发要 —— 见 `pageAppear()`。同一个控件上换着花样跑动画时
-    //  这一句保证不会把上一发垫的那层留着。）
-    effect->setBackdrop(QColor());
     effect->setOpacity(0.0);
     // ★ 按帧走（`stepMs()`）：它跟换页是**同一时刻**起来的（滚动条是那一页进页之后才露的
     //   头），主线程忙的是同一件事 —— 按墙上时钟走的话它一样会"定住再跳"。
-    runProgress(bar, effect, 0.0, 1.0, scrollBarMs(), stepMs(), /*removeWhenDone=*/true,
+    runProgress(effect, bar, 0.0, 1.0, scrollBarMs(), stepMs(),
+                [w = QPointer<QWidget>(bar)]() { dropEffect(w); },
                 [effect](qreal progress) { effect->setOpacity(progress); });
 }
 
@@ -693,10 +708,6 @@ void pageAppear(QWidget *widget, const QColor &backdrop) {
     if (widget == nullptr || !enabled()) {
         return;
     }
-    AnimEffect *effect = ensureEffect(widget);
-    if (effect == nullptr) {
-        return;
-    }
     // ★★ 「抬的是**内容**、框一个像素都不动」（2026-10-11）。用户原话：「这个动画，在有框的
     //    时候框会瞬移，能不能考虑一下用其它组件之类的解决」。
     //
@@ -704,38 +715,42 @@ void pageAppear(QWidget *widget, const QColor &backdrop) {
     //    （内容区那个 `QTabWidget` 的卡片、实例列表那棵树）**是换页前后都在的同一块** ——
     //    于是那圈外框起手先跳下去十几像素、再滑回原处，看着就是"框瞬移"，而内容因为是新
     //    上来的、没有参照物，反倒像正常的滑入。修法不是"抬得少一点"，是**让框压根不参与**：
-    //    抬的是它**里面那一块**（见 `liftTarget()`），外框和四周照原位贴回去
-    //    （`AnimEffect::draw()` 里那两步）。
+    //    盖上去的那块幕布**就是内容自己的矩形**（见 `liftTarget()`），外框长在幕布外面，
+    //    这一发从头到尾碰都没碰过它。
+    //
+    //    ★★ 同一天下午又换了一次**怎么画**：原来是把 `QGraphicsEffect` 挂在整块上、自己
+    //       分两趟贴图（外框原位一趟、内容抬着趟），真机上量出来**子控件那一块定在起手
+    //       那一帧**（完整来龙去脉写在 `PageCurtain` 那个类上）。现在改成**一块普通控件
+    //       盖在上面**，`paintEvent` 自己画 —— 普通控件走 Qt 平时的绘制路径，每一帧整块
+    //       都是新的，那一类"定住"从根上没有了。
     QWidget *lift = liftTarget(widget);
-    effect->setContentRect(lift == nullptr || lift == widget
-                               ? QRect()
-                               : QRect(lift->mapTo(widget, QPoint(0, 0)), lift->size()));
+    if (lift == nullptr) {
+        lift = widget;
+    }
+    // NOTE: `PageCurtain` 没有 `Q_OBJECT`（这一层不需要信号槽、也不需要 moc），所以这里
+    //       够不到它的类型：按**名字**找回来再 `static_cast` —— 那个名字只有这一处会写。
+    PageCurtain *curtain = nullptr;
+    if (QWidget *existing = widget->findChild<QWidget *>(QLatin1String(kCurtainName))) {
+        curtain = static_cast<PageCurtain *>(existing);
+    } else {
+        curtain = new PageCurtain(widget);
+    }
     const qreal rise = pageRiseDistance();
-    // 第一帧就摆到"还没进来"的样子：`pageStartOpacity()` 那么透 + 往下 `rise` 那么多
-    // （`draw()` 里是整块往下挪着画，所以多出来的那一条在**上面**、被裁掉的是下面那一条）。
-    // ★★ 底下垫一层底色（调色板哪一档由调用方说，见两参数那一份的说明）：这一整块地方
-    //    底下可能是"谁都不画"的（不透明子控件视口 + 半透明的输出），垫一层它就总是满的。
-    //    那一层的来龙去脉写在 `AnimEffect::draw()` 里。
-    //    NOTE: 设了页面背景图（`Theme::Part::PageBackground`）时那张图是**页面自己**画的、
-    //          也跟着一起淡，这一层垫的还是底色 —— 那一档下起手那一刻会短暂地少一层图。
-    effect->setBackdrop(backdrop);
-    // ★★ 起手**不是全透明**（0.65，不是 0）—— 这一发切过去之后头一两帧是躲不掉的
-    //    （主线程正忙着摆版、画新那一页），理由整段见 `Animations.hpp` 里
-    //    `pageStartOpacity()` 上面那段。
-    effect->setOpacity(pageStartOpacity());
-    effect->setShift(rise);
-    // ★★ 这一发淡的是**一张定住的图**（第一帧照一次，后面每一帧都拿它）—— 理由整段写在
-    //    `AnimEffect::draw()` 里那一段。一句话：换页那一刻正是"内容还在往里灌"的时候，
-    //    现照现淡的话，淡的每一帧都不是同一张画面（用户 2026-09-29：「服务器列表那栏动画
-    //    卡卡的」）。定住之后这一发只剩一个动作：blit + 改不透明度。
-    effect->beginSnapshot();
-    // 「起手那一位」只在下面这个 lambda 里用一次，收在两个常数里（`pageStartOpacity()` /
-    // `pageRiseDistance()`），调用点别写数。
     const qreal from = pageStartOpacity();
-    runProgress(widget, effect, 0.0, 1.0, appearMs(), stepMs(), /*removeWhenDone=*/true,
-                [effect, rise, from](qreal t) {
-                    effect->setOpacity(from + (1.0 - from) * t);
-                    effect->setShift(rise * (1.0 - t));
+    curtain->start(lift, backdrop);
+    // 第一帧就摆到"还没进来"的样子：`pageStartOpacity()` 那么透 + 往下 `rise` 那么多
+    // （幕布里是整块往下挪着画，所以多出来的那一条在**上面**、被裁掉的是下面那一条）。
+    curtain->setFrame(rise, from);
+    // NOTE: 收尾只是**收起来**，不删 —— 同一个控件上下一次换页接着用这一块（省一次生灭，
+    //       也躲开"上一发还在跑、下一发就来了"那一下的悬空指针）。
+    runProgress(curtain, curtain, 0.0, 1.0, appearMs(), stepMs(),
+                [c = QPointer<QWidget>(curtain)]() {
+                    if (c != nullptr) {
+                        c->hide();
+                    }
+                },
+                [curtain, rise, from](qreal t) {
+                    curtain->setFrame(rise * (1.0 - t), from + (1.0 - from) * t);
                 });
 }
 
@@ -747,12 +762,12 @@ void overlayAppear(QWidget *widget) {
     if (effect == nullptr) {
         return;
     }
-    effect->setBackdrop(QColor());  // 同上：提示卡那一层是盖在**已经画好的界面**上的，不垫底
     effect->setOpacity(0.0);
     // ★ 按帧走（`stepMs()`）：它开页那一刻主线程也在忙（建页、第一遍画）。
     //   NOTE: 它起手仍是**全透明**（不是 `pageStartOpacity()`）—— 它是"从无到有"，
     //         底下那层的观感问题跟换页不一样（见 `pageStartOpacity()` 那一节）。
-    runProgress(widget, effect, 0.0, 1.0, overlayMs(), stepMs(), /*removeWhenDone=*/true,
+    runProgress(effect, widget, 0.0, 1.0, overlayMs(), stepMs(),
+                [w = QPointer<QWidget>(widget)]() { dropEffect(w); },
                 [effect](qreal progress) { effect->setOpacity(progress); });
 }
 
