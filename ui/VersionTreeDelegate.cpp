@@ -467,12 +467,15 @@ QSize VersionTreeDelegate::sizeHint(const QStyleOptionViewItem &option,
         int line = -1;
         int lineWidth = 0;
         int widest = 0;
+        // ★ 2026-10-11：`subFont` 是循环不变量，度量构造一次就够（先前每片 MOTD 都新建一个
+        //   QFontMetrics）。
+        const QFontMetrics subMetrics(subFont);
         for (const MotdPiece &piece : MotdText::parse(motdRaw, 2)) {
             if (piece.line != line) {
                 line = piece.line;
                 lineWidth = 0;
             }
-            lineWidth += QFontMetrics(subFont).horizontalAdvance(piece.text);
+            lineWidth += subMetrics.horizontalAdvance(piece.text);
             widest = qMax(widest, lineWidth);
         }
         width = qMax(width, widest);

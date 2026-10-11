@@ -351,7 +351,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     //   `setAcceptDrops(true)` 只影响**这一层自己**；拖到子控件上的事件由 Qt 沿父链往上
     //   找第一个接了拖放的控件（见那段 NOTE），所以不接拖放的子控件照样会把事件送到这儿。
     setAcceptDrops(true);
-    // 比分组对话框宽得多：从左到右是**两栏**（左栏一列页 + 右栏一块内容），600 那个宽度
+    // 比分组对话框宽得多：从左到右是**两栏**（左栏一列页 + 右栏一块内容），600 那个老宽度
     // 放不下。
     // NOTE: 嵌进覆盖层的时候这个尺寸**不作数** —— 那一层给它的是内容区的整幅宽（见
     //       OverlayHost::execEmbedded 里那句 `area->layout()->addWidget(dialog)`）。
@@ -946,10 +946,10 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             // 模态，验证工程驱动不了它 —— 那一半是"问路径"，可测的那一半是这个框里的
             // 文字（override() 直接读它）。和 GroupDialog 里问组名的拆法一样。
             // NOTE: "驱动不了"的原因和内嵌提示那几条不一样：这里开的是 **Windows 自己的
-            //       文件选择框**，不是我们的窗。**全项目一共七处**（2026-09-27 数的）：
-            //       MainWindow.cpp 两处（选文件夹 / 选整合包）、AccountSkinDialog.cpp 一处
-            //       （选皮肤图）、这个文件四处（选 java.exe / 选实例图标 / 导出整合包的保存框 /
-            //       导出 .bat 的保存框）。理由和取舍见 MainWindow.cpp 里
+            //       文件选择框**，不是我们的窗。**全项目一共 16 处**（2026-10-11 数的）：
+            //       MainWindow.cpp 十一处（选文件夹 / 选整合包 / 挑各处的目录与文件）、
+            //       AccountSkinDialog.cpp 一处（选皮肤图）、这个文件四处（选 java.exe / 选实例图标 /
+            //       导出整合包的保存框 / 导出 .bat 的保存框）。理由和取舍见 MainWindow.cpp 里
             //       onAddFolderClicked() 上面那一段。
             const QString picked = QFileDialog::getOpenFileName(
                 this, tr("选择 java.exe"), m_javaPathEdit->text(),
@@ -1187,7 +1187,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
 
         connect(m_advancedToggle, &QToolButton::toggled, this, [this](bool expanded) {
             // 展开前这个窗有多高：折回时按它还原（用户自己拉过的也算数 —— 记的是"展开
-            // 那一刻"的高度，不是构造时那个 600x480）。
+            // 那一刻"的高度，不是构造时那个 820x560）。
             if (expanded) {
                 m_heightBeforeAdvanced = height();
             }
@@ -1195,7 +1195,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             m_advancedToggle->setArrowType(expanded ? Qt::DownArrow : Qt::RightArrow);
             // 折回之后得让窗口**缩回去**：Qt 只在"窗口比内容还小"时把它撑大（展开那一下
             // 就是它干的），内容变少时它一动不动 —— 不补这一句，展开一次再收起，底下就
-            // 永远留着那一截空白。实测（600x480 那个默认大小）：展开 → 600x503、
+            // 永远留着那一截空白。实测（那时默认还是 600x480）：展开 → 600x503、
             // 折回 → **还是** 600x503（那时布局只要 310，多出来的全是空白）。
             //
             // NOTE: 必须**晚一拍**再缩，而且缩之前得把布局那一串**推一遍**。这一下
@@ -1703,9 +1703,11 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                 // 悬停底色由代理画（`Theme::rowHoverFill()`），但那一位 `State_MouseOver` 是**视图**填的。
                 // ★ 少了这一句，代理里那段一个字都不会生效 —— 不报错、断言也不一定先红，屏幕上就是"悬停没反应"。
                 m_serverTree->setMouseTracking(true);
-                // 行高是那个代理给的常数（versionTreeRowHeight() = 46），这一句是按同一档
-                // 告诉控件"图标那一格有多大" —— 下载页那几张表也是这么配的（见 MainWindowUI
-                // 里 resourceTreeIconSize() 那两行），不配的话条目自带的图标会被另算一遍尺寸。
+                // 行高**不是**那个常数：这一列逐条 `setSizeHint` 成 `serverRowHeight()`
+                // （= versionTreeRowHeight() + 18 = 64，见下面「46 px 装不下」那一句），
+                // 这一句是按同一档告诉控件"图标那一格有多大" —— 下载页那几张表也是这么配的
+                // （见 MainWindowUI 里 resourceTreeIconSize() 那两行），不配的话条目自带的
+                // 图标会被另算一遍尺寸。
                 m_serverTree->setIconSize(
                     QSize(MainWindowUI::serverIconSize(), MainWindowUI::serverIconSize()));
                 // ★ 地址那一格**右键 = 复制那一串完整的地址**（用户 2026-09-27：「ip地址

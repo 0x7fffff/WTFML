@@ -390,7 +390,7 @@ private:
     QPushButton *m_backButton = nullptr;
     QLabel *m_titleLabel = nullptr;
     /// 整页那一档的滚动区。**必须有一个**：设置页是按它自己的尺寸设计的（实例设置
-    /// 要 600x480），而内容区是主窗口说了算 —— 窗口一小，"确定"就被切在下面点不着了。
+    /// 要 820x560），而内容区是主窗口说了算 —— 窗口一小，"确定"就被切在下面点不着了。
     QScrollArea *m_pageScroll = nullptr;
     /// 整页那一档装内容的容器。
     QWidget *m_pageContent = nullptr;

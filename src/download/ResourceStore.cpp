@@ -675,8 +675,8 @@ void ResourceStore::noteIconFailure(int httpStatus) {
 
 void ResourceStore::answerIcon(const QString &iconId) {
     // 见声明处那条 NOTE：手上那张（旧的但没坏）重发一遍，别把已经画上去的那一格擦掉。
-    if (m_icons.contains(iconId)) {
-        emit iconReady(iconId, m_icons.value(iconId));
+    if (const auto it = m_icons.constFind(iconId); it != m_icons.constEnd()) {
+        emit iconReady(iconId, it.value());
         return;
     }
     emit iconReady(iconId, QPixmap());
@@ -689,8 +689,8 @@ void ResourceStore::requestIcon(const ResourceCatalog::Hit &hit) {
     // 认这一格用的是**缓存键**（带来源前缀），不是裸 project_id —— 两个来源的 id 空间会撞，
     // 撞上的症状是"这一格永远画着另一个资源的图标"（见声明处那段）。
     const QString iconId = hit.iconCacheId();
-    if (m_icons.contains(iconId)) {
-        emit iconReady(iconId, m_icons.value(iconId));
+    if (const auto it = m_icons.constFind(iconId); it != m_icons.constEnd()) {
+        emit iconReady(iconId, it.value());
         return;
     }
     if (m_iconMissing.contains(iconId)) {

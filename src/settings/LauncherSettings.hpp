@@ -335,7 +335,7 @@ public:
     // ------------------------------------------------------------------
 
     /// 十秒内用同一个身份再启动同一个实例时要不要拦一下。
-    /// 默认 **true**（见上）。判据与那个十秒的来历见 MainWindow::confirmDuplicateLaunch()。
+    /// 默认 **true**（见上）。判据与那个十秒的来历见 MainWindow::confirmLaunchWhileRunning()。
     bool warnDuplicateLaunch() const { return m_warnDuplicateLaunch; }
 
     /// 设置这一项并立刻落盘。

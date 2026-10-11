@@ -38,6 +38,7 @@
 #include <QLatin1Char>
 #include <QMetaType>
 #include <QRegularExpression>
+#include <QSet>
 #include <QString>
 #include <QStringList>
 
@@ -714,7 +715,7 @@ inline LoaderVersionList listNeoForgeVersions(const QByteArray &mavenMetadata,
         return entries;
     }
 
-    QStringList seen;
+    QSet<QString> seen;
     static const QRegularExpression tag(QStringLiteral("<version>([^<]+)</version>"));
     QRegularExpressionMatchIterator it = tag.globalMatch(QString::fromUtf8(mavenMetadata));
     while (it.hasNext()) {
@@ -723,7 +724,7 @@ inline LoaderVersionList listNeoForgeVersions(const QByteArray &mavenMetadata,
         if (parsed.isEmpty() || !isDottedPrefix(prefix, parsed) || seen.contains(version)) {
             continue;
         }
-        seen.append(version);
+        seen.insert(version);
         entries.append(LoaderVersionEntry{version, isStableLoaderVersion(version)});
     }
     sortLoaderVersionsNewestFirst(entries);
@@ -839,7 +840,7 @@ inline QByteArray minimalLauncherProfiles() {
 // Forge/NeoForge 的名字（`1.20.1-forge-47.4.10` / `neoforge-21.1.215`）我们能按约定拼，
 // OptiFine 的不行 —— 它是安装器按 jar 里的版本号自己拼的（`<原版>-OptiFine_<版本>`）。
 // 所以这一条**装完去盘上认**：我们给它那个临时目录是全新的，`versions/` 底下除了自己放
-// 进去的原版之外多出来的那一份就是它装的。见 VersionManager::adoptOptiFineProducts()。
+// 进去的原版之外多出来的那一份就是它装的。见 VersionManager::adoptOptifineProducts()。
 
 /// OptiFine 的官方下载页：每个游戏版本一节（`<h2>Minecraft <版本></h2>`），整页约 203 KB。
 inline QString optifineDownloadsPageUrl() {
@@ -1092,7 +1093,7 @@ inline QList<OptiFineRow> optifinePageRows(const QString &section, const QString
     names += optifineRowFileNames(section, QStringLiteral("downloadLineMore"));
 
     QList<OptiFineRow> rows;
-    QStringList seen;
+    QSet<QString> seen;
     for (const QString &fileName : names) {
         if (!isOptifineFileForVersion(fileName, gameVersion)) {
             continue;
@@ -1101,7 +1102,7 @@ inline QList<OptiFineRow> optifinePageRows(const QString &section, const QString
         if (seen.contains(edition)) {  // 同一个版本号只在第一次出现时留一条
             continue;
         }
-        seen.append(edition);
+        seen.insert(edition);
         rows.append(OptiFineRow{fileName, edition, !isOptifinePreviewFile(fileName), QString(),
                                 QString()});
     }
@@ -1119,7 +1120,7 @@ inline QList<OptiFineRow> optifinePageRows(const QString &section, const QString
  */
 inline QList<OptiFineRow> optifineMirrorRows(const QJsonArray &list, const QString &gameVersion) {
     QList<OptiFineRow> rows;
-    QStringList seen;
+    QSet<QString> seen;
     for (const QJsonValue &value : list) {
         const QJsonObject entry = value.toObject();
         const QString fileName = entry.value(QStringLiteral("filename")).toString();
@@ -1133,7 +1134,7 @@ inline QList<OptiFineRow> optifineMirrorRows(const QJsonArray &list, const QStri
         if (seen.contains(edition)) {
             continue;
         }
-        seen.append(edition);
+        seen.insert(edition);
         rows.append(OptiFineRow{fileName, edition, !isOptifinePreviewFile(fileName), type, patch,
                                 optifineEntryTimestamp(entry)});
     }
@@ -1338,7 +1339,7 @@ inline LoaderVersionList listForgeVersions(const QByteArray &mavenMetadata,
         return entries;
     }
 
-    QStringList seen;
+    QSet<QString> seen;
     static const QRegularExpression tag(QStringLiteral("<version>([^<]+)</version>"));
     QRegularExpressionMatchIterator it = tag.globalMatch(QString::fromUtf8(mavenMetadata));
     while (it.hasNext()) {
@@ -1347,7 +1348,7 @@ inline LoaderVersionList listForgeVersions(const QByteArray &mavenMetadata,
         if (version.isEmpty() || parseDottedVersion(version).isEmpty() || seen.contains(version)) {
             continue;
         }
-        seen.append(version);
+        seen.insert(version);
         entries.append(LoaderVersionEntry{version, true});
     }
     sortLoaderVersionsNewestFirst(entries);

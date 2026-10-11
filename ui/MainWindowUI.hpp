@@ -212,9 +212,9 @@ public:
         return {QStringLiteral("Fabric"), QStringLiteral("Forge"), QStringLiteral("NeoForge"),
                 QStringLiteral("OptiFine"), QStringLiteral("不装（纯原版）")};
     }
-    /// 「不装（纯原版）」那一个在两张表里的下标。想"回到装纯原版"就得能勾回它 ——
-    /// 单选钮一旦勾上就没法用鼠标取消（见下面 buildTwoColumnPage 里那段），这个选项
-    /// 就是那条退路；写死数字的地方一律用这个函数。
+    /// 「不装（纯原版）」那一条在两张表里的下标。加载器那一组现在是一棵树（见下面
+    /// buildTwoColumnPage 里那段），选中它就是"回到装纯原版"—— 初始选中的也是它。
+    /// 写死数字的地方一律用这个函数。
     static int modLoaderNoneIndex() { return 4; }
     static QString modLoaderLabelText() { return QStringLiteral("模组加载器"); }
     /// 那棵树自己的 objectName。**条目没有 objectName**（QTreeWidgetItem 不是 QObject）——
@@ -911,9 +911,10 @@ public:
     // 所以 `renameInstanceButtonName()` / `instanceSettingsButtonName()` 这两个**已经删了**，
     // 别照着旧记性写；`instanceSettingsText()` 留着（底栏那行齿轮的 tooltip 还在用它）。
     //
-    // NOTE: 这里**不做右键菜单**（仓库里右键菜单零先例，而且验证工程跑在 offscreen 上，
-    //       QMenu::exec() 会阻塞在事件循环里几乎驱动不了）—— 行里的东西一律是"画出来的
-    //       一格 + 事件过滤器认下那一下"，见 InstanceGroupDelegate 那三处几何。
+    // NOTE: 这里**不做右键菜单**（仓库里至今一处 QMenu 都没有 —— 右键那几处一律走
+    //       Qt::CustomContextMenu 或事件过滤器自己认坐标，不弹菜单；而且验证工程跑在
+    //       offscreen 上，QMenu::exec() 会阻塞在事件循环里几乎驱动不了）—— 行里的东西
+    //       一律是"画出来的一格 + 事件过滤器认下那一下"，见 InstanceGroupDelegate 那三处几何。
     //
     // NOTE: 2026-09-25 上半天的「停止游戏…」也不在这排里了（入口只剩底栏左面板里那一行的
     //       电源，见 MainWindow::stopGameSession()），所以这里也没有 stopGameButtonName()。

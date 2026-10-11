@@ -208,7 +208,7 @@ public slots:
     ///
     /// NOTE: 组行行尾那颗齿轮里的「重命名这一组…」也归它管（那是另一条改名的路，
     ///       MainWindow::renameGroupTo()）—— 两个入口必须是同一把尺子，不然"从这个口
-    ///       进去能起 40 个字的名字、从那个口进不去"。
+    ///       进去能起 32 个字的名字、从那个口进不去"。
     static int maxGroupNameLength() { return 32; }
 
     /// 组在列表里的那行文字。

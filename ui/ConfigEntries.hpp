@@ -122,8 +122,8 @@ Dialect dialectForPath(const QString &path);
 /// @param dialect 裸值读到哪儿为止（见 Dialect）。**默认 Jsonish = 老行为** —— 意思是不传
 ///                这一位的老调用方一个字节的行为都不变。
 ///
-/// NOTE: 上限见 `maxEntries()` —— 到了就**停下来**（不是"报错"）：索引是给人点着跳的，
-///       五万条既没人看也白占内存。
+/// NOTE: 上限见 `maxEntries()`（= 5000）—— 到了就**停下来**（不是"报错"）：索引是给人
+///       点着跳的，再多既没人看也白占内存。
 QList<Entry> scan(const QString &text, Dialect dialect = Dialect::Jsonish);
 
 /// 一次最多认多少条（见 scan() 的 NOTE）。客户拿它判"是不是被截断了"。

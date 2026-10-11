@@ -34,7 +34,9 @@ constexpr const char kOfflineField[] = "offline";
 ///       之后解不出来，或者值被写坏了）。以前两种都折成空数组，于是 captureActive() /
 ///       addOffline() 这两个"读-改-写"的写方会拿空数组当底子把整份列表覆盖成一项 ——
 ///       列表里其它账号那两份 refresh_token 副本一起没了（那些副本是**唯一**能切回去的
-///       东西，抹掉就只剩重新登录一条路）。写方现在先看 readableOut，假就不写。
+///       东西，抹掉就只剩重新登录一条路）。两个"读-改-写"的写方（captureActive /
+///       addOffline）先看 readableOut，假就不写；remove() 走的是裸 readAccounts()，
+///       读不出来时**静默**返回 false（既不动盘、也不给用户那句话）。
 ///       只当"列表里有没有这个人"用的读者（find/contains/nameOf/accounts/entryFor/activate）
 ///       继续忽略它 —— 解不开的时候它们本来就查不到人，行为跟以前一样。
 QJsonArray readAccounts(bool *readableOut = nullptr) {
@@ -49,8 +51,8 @@ QJsonArray readAccounts(bool *readableOut = nullptr) {
     return root.value(QLatin1String(kAccountsField)).toArray();
 }
 
-/// 列表读不出来时给用户看的那句话。三个写方（captureActive / addOffline / remove）共用一份，
-/// 免得一处改了另一处还是旧话术。
+/// 列表读不出来时给用户看的那句话。captureActive / addOffline 两个写方共用一份，
+/// 免得一处改了另一处还是旧话术。（remove() 用不上它，见上面 readAccounts() 那段。）
 QString unreadableListMessage() {
     return QStringLiteral(
         "已保存的账号列表读不出来：盘上那一格在，但解不开（换了 Windows 账户或者换了机器"

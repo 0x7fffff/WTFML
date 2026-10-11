@@ -1365,7 +1365,7 @@ MainWindow::MainWindow(QWidget *parent)
     // （selectedLoaderIndex()）拿到一个没初始化的下标。
     //
     // NOTE: 这里原来写着「updateLoaderRows() 在下面就会被调到」，不成立 —— 构造函数里
-    //       没有任何一处调它，第一次是 openInstallPage()（:1744）。初值不写在头文件里
+    //       没有任何一处调它，第一次是 openInstallPage()（:1742）。初值不写在头文件里
     //       是因为那边只前置声明了 MainWindowUI。
     m_selectedLoaderIndex = MainWindowUI::modLoaderNoneIndex();
     // ★ 2026-09-29：整个窗口接拖放（用户原话见 .hpp 里 dragEnterEvent() 那段）。
@@ -8038,7 +8038,7 @@ void MainWindow::onStartButtonClicked() {
     //       用的值"，有了实例覆盖之后那句话不再成立：实例覆盖了 2048 而设置页显示
     //       2048，用户会以为全局被改了。设置页显示的是**全局那一层**，它只由用户自己
     //       在设置页的改动（和切到设置页时的那次重算）决定。
-    resolveMemoryForLaunch(javaSettings, override);
+    resolveMemoryForLaunch(versionId, javaSettings, override);
 
     // 这一串就是"这一次启动到底执行什么"的参数那半边。它和「导出启动脚本」导出的那份
     // 是**同一个函数**给的（见 launchArguments 的说明）—— 那边还要程序名，程序名在这里
@@ -8207,7 +8207,7 @@ void MainWindow::refreshAccountSkin() {
     //    NOTE: 这一句**不保证不联网**（2026-09-24 之前这里是那么写的，现在不成立了）：
     //          离线账号第一次进来时它要 MineSkin 那一页随机皮肤（见 startPlayerSkinLoad()
     //          里 offlineIdentity() 那一档）。挑过一次之后就只在盘上读那一行。
-    //          这也正是这个窗**只在离线账号那一档开**的原因（见 onAccountSkinClicked()
+    //          这也正是这个窗**只在离线账号那一档开**的原因（见 onAccountSkinButtonClicked()
     //          里那段）：正版那一档开窗会顺带拉披风，那才是真联网的那一下。
     startPlayerSkinLoad();
 
@@ -8229,7 +8229,7 @@ void MainWindow::refreshAccountSkin() {
     // NOTE: 判据是"**现在真摆在眼前**"（isVisible），和 OverlayHost 里 retargetCoveredPage()
     //       那条 NOTE 同一条规矩：页面收在别的选项卡上时它不在屏幕上，一样跳过。
     // NOTE: 上半截（账号列表 / 状态行 / 3D 预览）**照样刷了** —— 那些不联网。披风列表会在
-    //       用户真的打开这一页时补上：开页那条路必走一次本函数（见 onAccountSkinClicked），
+    //       用户真的打开这一页时补上：开页那条路必走一次本函数（见 onAccountSkinButtonClicked），
     //       而那时页面已经在屏幕上了。
     if (!m_accountSkinDialog->isVisible()) {
         return;
@@ -8239,7 +8239,7 @@ void MainWindow::refreshAccountSkin() {
     // 这几秒钟里 UI 线程一直在这两行里面出不来：窗不重绘、什么都按不动，Windows 过一会儿
     // 还会给标题挂上"(无响应)"。
     //
-    // NOTE: 上面 onAccountSkinClicked() 那段写着"先 show 出来，那一趟就变成『窗开着、
+    // NOTE: 上面 onAccountSkinButtonClicked() 那段写着"先 show 出来，那一趟就变成『窗开着、
     //       状态行写着在忙』"—— 那句在改动前是**不成立**的：第 2 步的 setBusy(false)
     //       之后到这里谁也没把忙态点起来，用户看到的是一个画着旧内容、点什么都没反应的窗。
     //       忙态 + 一次 processEvents（排掉用户输入）和 enterSyncWait() 是同一个手法：
@@ -9711,8 +9711,11 @@ void MainWindow::openInstanceSettingsNow(const QString &versionId, const QString
     //       必须看新值。下面那些 lambda 也是同一个理由全都按引用捕获它。
     QString targetId = versionId;
     const auto refreshInstanceDirs = [this, &dialog](const QString &id) {
+        // ★ 2026-10-11：`instanceFileDirs()` 每跑一趟都要新建一个九项的 QHash（含九次 QString
+        //   拼接）—— 这一趟要用它两次（`setFileDirs` 和下面 structure 那一格），算一次存下来。
+        const QHash<QString, QString> fileDirs = instanceFileDirs(id);
         dialog.setInstanceDir(AppPaths::versionDir(id));
-        dialog.setFileDirs(instanceFileDirs(id));
+        dialog.setFileDirs(fileDirs);
         // 左栏那一列是**按实例现算**的（2026-09-27）：这几页要"用得上"才列出来。四个判据
         // 全在这一层 —— loadername / mods 目录 / 装没装那个 mod / 游戏版本够不够新，ui/
         // 一样都够不着。
@@ -9747,7 +9750,7 @@ void MainWindow::openInstanceSettingsNow(const QString &versionId, const QString
         dialog.setSchematicUsable(hasLitematica || !worldStructures.labels.isEmpty());
         if (InstanceFilesPage *schematics = dialog.filesPage(QStringLiteral("schematic"))) {
             schematics->setStructureSources(structureSourcesFor(
-                worldStructures, hasLitematica, instanceFileDirs(id).value(QStringLiteral("schematic"))));
+                worldStructures, hasLitematica, fileDirs.value(QStringLiteral("schematic"))));
         }
         dialog.setDatapackUsable(m_versionManager->instanceSupportsDatapacks(id));
         // ★ 2026-10-10：那两颗「加入…」（**临时占位**，见 QuickPlay）。
@@ -13255,7 +13258,7 @@ void MainWindow::exportLaunchScript(const QString &versionId, const QString &pat
         javaOverrideFromJson(m_versionManager->versionMeta(versionId));
     EffectiveJavaSettings javaSettings =
         resolveJavaSettings(m_javaSettings->effective(), override);
-    resolveMemoryForLaunch(javaSettings, override);
+    resolveMemoryForLaunch(versionId, javaSettings, override);
 
     const QString program = javaSettings.javaPath.isEmpty()
                                 ? QStringLiteral("java")
@@ -13663,7 +13666,15 @@ MainWindow::JavaMismatchAnswer MainWindow::askAboutJavaMismatch(
                : JavaMismatchAnswer::KeepInstanceJava;
 }
 
-void MainWindow::resolveMemoryForLaunch(EffectiveJavaSettings &io,
+int MainWindow::instanceModCount(const QString &versionId) const {
+    const QString modsDir = instanceFileDirs(versionId).value(QStringLiteral("mod"));
+    if (modsDir.isEmpty()) {
+        return 0;
+    }
+    return QDir(modsDir).entryList({QStringLiteral("*.jar")}, QDir::Files).size();
+}
+
+void MainWindow::resolveMemoryForLaunch(const QString &versionId, EffectiveJavaSettings &io,
                                        const JavaSettingsOverride &override) {
     if (!io.autoMemory) {
         // 手动档：io 里那两个数字是"用户定的值"（可能来自全局、也可能来自这个实例
@@ -13693,7 +13704,11 @@ void MainWindow::resolveMemoryForLaunch(EffectiveJavaSettings &io,
     //       下次读出来只会让「实例设置…」里那两行显示成"自定义 + 一个用户没填过的数"。
     //       跨作用域污染的反面不是"多写一份"，而是"只写在这次要用的值上"。
     const SystemMemory::Usage usage = SystemMemory::read();
-    io.xmx = GlobalJavaSettings::suggestXmxMb(usage.totalMb, usage.availableMb);
+    // 数一数这个实例装了多少模组（见 .hpp 那条 NOTE：只在这一支数）。
+    // 加了这一档之后，同一个 200 模组的整合包会比原版多要一截内存 —— 这正是
+    // FEATURES.md 待办里点名的"自动档不认整合包规模"。
+    io.xmx = GlobalJavaSettings::suggestXmxMb(usage.totalMb, usage.availableMb,
+                                              instanceModCount(versionId));
     io.xms = GlobalJavaSettings::suggestXmsMb(io.xmx);
 }
 
@@ -14301,7 +14316,7 @@ bool MainWindow::applyModpackImport(const QString &zipPath, const QString &insta
 
     // 安装器（Forge/NeoForge）自己就是个 Java 程序（`java -jar <安装器>.jar ...`），所以
     // 要的运行环境和"这个版本要的 Java"是同一件事：版本 json 里的 javaVersion。这一段和
-    // startLoaderInstall() 里那段是同一件事、同一个判据 —— 拿不到版本 json 就不猜主版本
+    // VersionManager::installLoaderVersion() 里那段是同一件事、同一个判据 —— 拿不到版本 json 就不猜主版本
     // （猜错比不猜更危险）。Fabric 和纯原版那条路一个进程都不起，用不上它。
     QString installerJava = m_javaSettings->javaPath();
     VersionManager::LoaderKind kind = VersionManager::LoaderKind::Fabric;

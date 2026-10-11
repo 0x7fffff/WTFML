@@ -294,7 +294,7 @@ GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent)
         //
         // 五颗都走同一份样式（**含 INFO 那颗**）：两种状态都由我们自己画，"没开"那个灰也就
         // 由同一份样式给 —— 单独留一颗走原生的话，它那圈立体感会和旁边四颗不一样。
-        // INFO 那颗的"开"色是原生那个开态灰（它没有颜色可借，见 filterButtonBackground）。
+        // INFO 那颗的"开"色是**白**（它没有颜色可借，见 filterButtonBackground / kInfoOnRgb）。
         button->setStyleSheet(filterButtonStyle(filterButtonBackground(level, true),
                                                filterButtonForeground(level)));
         connect(button, &QToolButton::toggled, this, [this, level](bool on) {
@@ -882,7 +882,14 @@ QString GameLogWindow::logText() const { return m_view->toPlainText(); }
 QString GameLogWindow::allLogText() const {
     // 一行一句。末尾那半行（m_pending）**原样接上去、不补换行** —— 补了的话这一份文件就
     // 和屏幕上看到的那一截对不上了（屏幕上那半行本来也没换行）。
+    // ★ 2026-10-11：先按已知行数把容量备足（`QString::size()` 是 O(1)，多走一趟很便宜），
+    //   省掉逐行 `+=` 时一连串的重分配。
+    int reserve = m_pending.size();
+    for (const LogLine &line : m_lines) {
+        reserve += line.text.size() + 1;
+    }
     QString text;
+    text.reserve(reserve);
     for (const LogLine &line : m_lines) {
         text += line.text;
         text += QLatin1Char('\n');
@@ -895,7 +902,14 @@ QString GameLogWindow::logTextFrom(LogLevel minLevel) const {
     // 比的是**模型的级别**（认不出级别的续行跟着上一行走，见 .hpp），不再按字符串匹配一遍：
     // 匹配第二遍就会出现"屏幕上是红的、导出里没有"这种两边对不上的事。
     const int floor = levelIndex(minLevel);
+    // ★ 2026-10-11：容量按**全部**行数备（这是个上界，过滤后只会更少）—— 免掉逐行 `+=`
+    //   时的连串重分配，又不必为算准确数把过滤判据再走一遍。
+    int reserve = 0;
+    for (const LogLine &line : m_lines) {
+        reserve += line.text.size() + 1;
+    }
     QString text;
+    text.reserve(reserve);
     for (const LogLine &line : m_lines) {
         if (levelIndex(line.level) >= floor) {
             text += line.text;

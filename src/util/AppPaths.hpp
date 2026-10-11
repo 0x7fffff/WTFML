@@ -103,9 +103,13 @@ inline QString versionJsonPath(const QString &versionId) {
 ///   理由），而"复制实例"的目标在**另一个**游戏文件夹里 —— 那一份实例的 wtfml.meta
 ///   只有文件名能问这一层，其余的由调用方自己拼（见 VersionManager::copyInstance）。
 ///
-/// NOTE: 这个字面量**只有这一处**（versionMetaPath() 也从这儿取）—— 复制那条路要是自己
-///       再写一遍 "wtfml.meta"，改文件名时就必然漏掉一处，而漏掉的那一处**不报错**：
+/// NOTE: **算路径**这一层，这个字面量只有这一处（versionMetaPath() 也从这儿取）—— 复制那条路
+///       要是自己再写一遍 "wtfml.meta"，改文件名时就必然漏掉一处，而漏掉的那一处**不报错**：
 ///       拷过去的那份实例在启动器眼里就是"没有元数据"，分组、图标、加载器信息一起没了。
+/// ★ 2026-10-11 核：仓里其实**已经有第二处**硬编码 —— `ModpackExport.cpp` 那份文件排除表里的
+///   `{"wtfml.meta", …}`（`kFileRules[]`，静态数组初始化）。改文件名时它不跟着动，症状是导出
+///   整合包时那份实例设置**不再被排除**。要收干净就得让那张表也走 versionMetaFileName()
+///   （把表的初始化从静态挪到运行时）。
 inline QString versionMetaFileName() { return QStringLiteral("wtfml.meta"); }
 
 /// 启动器自己的版本元数据：versions/<id>/wtfml.meta（可选文件）。

@@ -519,13 +519,25 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     //       而 BootstrapLauncher（Forge/NeoForge）拿 `java.class.path` 里的字符串去和
     //       JVM 模块路径里的**盘上路径**做 `Paths.get(a).equals(Paths.get(b))` 比较，
     //       `WindowsPath.equals` 也是忽略大小写的。这里跟着它保持一致。
-    const auto addClasspathPath = [&](const QString &path, QStringList &classpath) {
-        if (!path.isEmpty() && !classpath.contains(path, Qt::CaseInsensitive)) {
-            classpath << path;
+    //
+    // ★ 2026-10-11：判据改从一个跟着走的 `QSet`（键 = `toCaseFolded()`，和上面那句
+    //   `Qt::CaseInsensitive` 同一套折叠规则）里查，不再每来一个库就把不断变长的
+    //   `QStringList` 线性扫一遍 —— 一次启动约 200 个库，先前是约 200 次 O(n) 比较。
+    //   `classpathSeen` 与 `classpath` **必须同时维护**，唯一写入口就是下面这个 lambda。
+    QStringList classpath;
+    QSet<QString> classpathSeen;
+    const auto addClasspathPath = [&](const QString &path) {
+        if (path.isEmpty()) {
+            return;
         }
+        const QString key = path.toCaseFolded();
+        if (classpathSeen.contains(key)) {
+            return;
+        }
+        classpathSeen.insert(key);
+        classpath << path;
     };
 
-    QStringList classpath;
     bool needsNativesDir = false;
     // 先添加主版本 JAR 文件。NOTE: jar 的**名字和目录**都走 InstanceFiles 解析，而不是
     // 直接写 versionId —— 两个坑：
@@ -586,7 +598,7 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
                                                  .arg(InstanceFiles::jarOwnerId(versionId), fileName));
     };
 
-    addClasspathPath(classpathJarFor(InstanceFiles::jarName(versionId)), classpath);
+    addClasspathPath(classpathJarFor(InstanceFiles::jarName(versionId)));
 
     // 根据 version.json library 依赖构建 classpath
     if (!versionJson.isEmpty()) {
@@ -609,7 +621,7 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
             const LibraryRules::Artifact artifact = LibraryRules::artifactFor(libObj);
             if (artifact.hasPath()) {
                 addClasspathPath(
-                    absoluteEntry(QStringLiteral("libraries/%1").arg(artifact.path)), classpath);
+                    absoluteEntry(QStringLiteral("libraries/%1").arg(artifact.path)));
             }
 
             // NOTE: 旧格式（1.18.2 及以下）的 natives classifier jar 不进 classpath ——
@@ -620,7 +632,7 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
             // 由 LWJGL 自己从 jar 里提取，行为与改动前一致。
             //
             // 判据**必须**和 prepareNatives()（决定"到底解压了没有"）以及
-            // verifyGameFiles()（决定"缺了要不要提前拦"）用的是**同一条**：
+            // checkPreLaunch()（决定"缺了要不要提前拦"）用的是**同一条**：
             // LibraryRules::nativeClassifier(...).valid()。原来这里是
             // `!libObj["natives"].toObject().isEmpty()`，比那两边**宽** —— 它只问"有没有
             // natives 字段"，不问**这一台机器**用不用得上：1.12.2 的
@@ -692,11 +704,14 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     if (!mainClassEntry.isEmpty()) {
         const QString instanceDir = AppPaths::versionDir(versionId);
         const QStringList siblingJars = InstanceFiles::scanDir(versionId).jarNames;
+        // 循环不变量：主类那串字节只算一次（先前每一轮都 `toUtf8()` 重来一遍）。
+        const QByteArray mainClassBytes = mainClassEntry.toUtf8();
         for (const QString &jar : siblingJars) {
             // 读的还是**真实**那一份（别名里的是硬链接，字节一模一样，但真实那份肯定在）；
             // 加进 classpath 的是要递给 Java 的那一个路径（Java 8 时是别名，见上面）。
             const QString full = QDir::toNativeSeparators(instanceDir + QLatin1Char('/') + jar);
-            if (classpath.contains(classpathJarFor(jar), Qt::CaseInsensitive)) {
+            const QString jarPath = classpathJarFor(jar);
+            if (classpathSeen.contains(jarPath.toCaseFolded())) {
                 continue;  // 已经在 classpath 上了（客户端 jar 自己，或者别的路径已经把
                            // 同一个文件加过一遍）—— 别再进一遍
             }
@@ -706,10 +721,10 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
             }
             const QByteArray bytes = file.readAll();
             file.close();
-            if (bytes.contains(mainClassEntry.toUtf8())) {
+            if (bytes.contains(mainClassBytes)) {
                 qDebug() << "Main class" << mainClass << "is in a sibling jar of the instance:"
                          << jar;
-                addClasspathPath(classpathJarFor(jar), classpath);
+                addClasspathPath(jarPath);
             }
         }
     }
@@ -1111,7 +1126,7 @@ int LauncherManager::startGame(const QStringList &arguments, const EffectiveJava
             // `arg.left(50)`，于是 `-Dminecraft.accessToken=<JWT>` 的前 50 个字符会跟着这
             // 一行写进 <数据目录>/logs/wtfml.log（这个进程把它整份都重定向到那个文件，
             // 见 main.cpp 的 installFileLog）。50 个字符不足以直接拿来用，但那是**凭据的
-            // 一部分**，没有任何理由落盘。:598 那行「Token length:」只打长度，本来就对，
+            // 一部分**，没有任何理由落盘。:873 那行「Token length:」只打长度，本来就对，
             // 这条是漏的。
             if (arg.startsWith(kAccessTokenProperty)) {
                 qDebug() << "  " << kAccessTokenProperty + QStringLiteral("<省略，长度 %1>")

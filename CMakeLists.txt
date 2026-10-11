@@ -35,6 +35,7 @@ set(HEADER_FILES
     src/manage/ServerStatusCache.hpp
     src/manage/VersionManager.hpp
     src/manage/VersionDisplay.hpp
+    src/manage/VersionIntegrity.hpp
     src/manage/WorldFiles.hpp
     src/settings/GlobalJavaSettings.hpp
     src/settings/GameWindowSettings.hpp
@@ -91,6 +92,7 @@ set(SOURCE_FILES
     src/manage/RandomSkinStore.cpp
     src/manage/VersionManager.cpp
     src/manage/VersionDisplay.cpp
+    src/manage/VersionIntegrity.cpp
     src/manage/WorldFiles.cpp
     src/settings/EffectiveJavaSettings.cpp
     src/settings/GlobalJavaSettings.cpp

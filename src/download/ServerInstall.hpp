@@ -98,6 +98,7 @@
 #include <QList>
 #include <QLatin1Char>
 #include <QRegularExpression>
+#include <QSet>
 #include <QString>
 #include <QStringList>
 
@@ -467,7 +468,7 @@ inline Build pickPaperBuild(const QList<Build> &builds, bool stableOnly) {
  */
 inline QStringList paperVersionsFromJson(const QJsonObject &project) {
     LoaderVersionList entries;
-    QStringList seen;
+    QSet<QString> seen;
     const QJsonObject groups = project.value(QStringLiteral("versions")).toObject();
     const QStringList keys = groups.keys();
     for (const QString &key : keys) {
@@ -477,7 +478,7 @@ inline QStringList paperVersionsFromJson(const QJsonObject &project) {
             if (version.isEmpty() || seen.contains(version)) {
                 continue;
             }
-            seen.append(version);
+            seen.insert(version);
             entries.append(LoaderVersionEntry{version, isStableLoaderVersion(version)});
         }
     }
@@ -495,14 +496,14 @@ inline QStringList paperVersionsFromJson(const QJsonObject &project) {
  */
 inline QStringList purpurVersionsFromJson(const QJsonObject &project) {
     LoaderVersionList entries;
-    QStringList seen;
+    QSet<QString> seen;
     const QJsonArray list = project.value(QStringLiteral("versions")).toArray();
     for (const QJsonValue &value : list) {
         const QString version = value.toString();
         if (version.isEmpty() || seen.contains(version)) {
             continue;
         }
-        seen.append(version);
+        seen.insert(version);
         entries.append(LoaderVersionEntry{version, isStableLoaderVersion(version)});
     }
     sortLoaderVersionsNewestFirst(entries);
@@ -563,7 +564,7 @@ inline QString pickFabricInstaller(const QJsonArray &list, bool stableOnly) {
 ///       不另写一套"版本号怎么比大小" —— 两套迟早会不一致。
 inline LoaderVersionList listQuiltInstallerVersions(const QByteArray &mavenMetadata) {
     LoaderVersionList entries;
-    QStringList seen;
+    QSet<QString> seen;
     static const QRegularExpression tag(QStringLiteral("<version>([^<]+)</version>"));
     QRegularExpressionMatchIterator it = tag.globalMatch(QString::fromUtf8(mavenMetadata));
     while (it.hasNext()) {
@@ -571,7 +572,7 @@ inline LoaderVersionList listQuiltInstallerVersions(const QByteArray &mavenMetad
         if (version.isEmpty() || seen.contains(version)) {
             continue;
         }
-        seen.append(version);
+        seen.insert(version);
         entries.append(LoaderVersionEntry{version, isStableLoaderVersion(version)});
     }
     sortLoaderVersionsNewestFirst(entries);

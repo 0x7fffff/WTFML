@@ -458,7 +458,7 @@ private slots:
     /// 实例设置的**执行部分**：把对话框里摆好的覆盖写进这个实例的 wtfml.meta。
     /// 失败时弹窗并返回 false，磁盘保持原样。
     ///
-    /// NOTE: 拆成两步的理由和 applyRename() / applyGrouping() 一样 ——
+    /// NOTE: 拆成两步的理由和 applyRename() / applyGroupList() 一样 ——
     ///       QDialog::exec() 阻塞在事件循环里，offscreen 的验证工程驱动不了它。
     ///       而这一半里藏着真会错的东西（"跟随全局"的项要**删键**而不是写一个等于
     ///       全局的值、写盘前得先确保实例有稳定 id），必须验得了。
@@ -1560,9 +1560,21 @@ private:
     ///       数字框以前会被"顺手刷成这次实际用的值"，有了实例覆盖之后那句话不再成立：
     ///       实例覆盖了 2048，设置页却显示 2048，用户会以为全局被改了。
     ///
+    /// @param versionId 这是哪个实例 —— 自动档要拿它数一数装了多少模组（见下）。
     /// @param io 进参是合成好的有效值，出参是定下来的内存。
     /// @param override 这个实例的覆盖（用来判断"自动这一档是谁要的"）。
-    void resolveMemoryForLaunch(EffectiveJavaSettings &io, const JavaSettingsOverride &override);
+    ///
+    /// NOTE: 数模组这件事**只有走到"这个实例自己要自动档"那一支才做**（全局那一支走
+    ///       refreshSuggestedMemory()，那里没有实例可分）。数一次是读一个目录，但那两处
+    ///       调用都在启动/导出的同步路径上，能省则省。
+    void resolveMemoryForLaunch(const QString &versionId, EffectiveJavaSettings &io,
+                                const JavaSettingsOverride &override);
+    /// 这个实例的 `mods/` 目录里有多少个模组（按 `*.jar` 数）。
+    ///
+    /// 只数 `*.jar`：禁用的模组在盘上是 `X.jar.disabled`（见 InstanceFilesPage 的
+    /// identityPath），它**不会被游戏加载**，跟着算进内存建议里只会让数字虚高。
+    /// 目录不在、读不了都返回 0（"不知道"和"一个都没有"在这里是同一个落点：不加成）。
+    int instanceModCount(const QString &versionId) const;
     /// 这一次启动到底执行什么：**程序**（Java 可执行文件）+ **那一串参数**。
     ///
     /// 收在一个函数里是因为有两个消费者，而它们必须给出**逐字节一样**的答案：

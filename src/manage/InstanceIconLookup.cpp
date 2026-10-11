@@ -19,6 +19,7 @@
 #include <QNetworkAccessManager>
 #include <QPair>
 #include <QSaveFile>
+#include <QSet>
 
 #include "../net/HttpClient.hpp"
 #include "ModpackExport.hpp"
@@ -376,11 +377,17 @@ Result lookupNetwork(const QStringList &paths, const Options &options) {
         // 项目号 → **项目对象**（logo 那两条地址，以及名字 / slug / 简介 / 游戏版本）。
         // **只有认出来的项目才问**（十几个号一发就够）。
         QList<int> projectIds;
+        // ★ 2026-10-11：去重先用一个 QSet 过一遍（先前是 `projectIds.contains()` 线性扫 ——
+        //   指纹表一大就是 O(n²)；同仓 VersionManager 里同样的事用的正是 QSet）。
+        QSet<int> seenProjectIds;
         for (auto it = projectByFingerprint.constBegin(); it != projectByFingerprint.constEnd();
              ++it) {
-            if (!projectIds.contains(it.value())) {
-                projectIds.append(it.value());
+            const int projectId = it.value();
+            if (seenProjectIds.contains(projectId)) {
+                continue;
             }
+            seenProjectIds.insert(projectId);
+            projectIds.append(projectId);
         }
         QHash<int, ResourceCatalog::Hit> hitsByProject;
         for (int offset = 0; offset < projectIds.size(); offset += kLookupChunk) {

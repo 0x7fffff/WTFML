@@ -839,9 +839,10 @@ void InstanceFilesPage::setStructureSources(const QList<StructureSource> &source
     //   的排头多一个字，它那一排的下拉框就整体右移一格，屏幕上就是两排没对齐。
     //   `makeSecondary()` 改的只是颜色、字号没动 ⇒ 拿这一页的 fontMetrics() 量是准的。
     int structureTitleWidth = 0;
+    const QFontMetrics titleMetrics = fontMetrics();
     for (const StructureSource &source : m_structureSources) {
         structureTitleWidth =
-            qMax(structureTitleWidth, fontMetrics().horizontalAdvance(source.title));
+            qMax(structureTitleWidth, titleMetrics.horizontalAdvance(source.title));
     }
     for (int row = 0; row < m_structureSources.size(); ++row) {
         const StructureSource &source = m_structureSources.at(row);

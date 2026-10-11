@@ -169,8 +169,8 @@ public:
     static QRect instanceTrashRect(const QRect &row);
 
     /// 上面那三格**画出来**的那一圈（比命中格四周各小 `instanceRowActionMargin()`）。
-    /// 边长还会照 `gearGlyphRect()` 那样按行高收一收（`min(边长, 行高)`）—— 兜底，行高
-    /// 平时是 `versionTreeRowHeight()`（46），这一缩不生效。
+    /// 边长还会照 `gearGlyphRect()` 那样按行高收一收（`min(边长, 行高)`）—— 兜底，实例
+    /// 行的行高是 `instanceTreeRowHeight()`（58），这一缩不生效。
     static QRect instanceGearGlyphRect(const QRect &row);
     static QRect instancePinGlyphRect(const QRect &row);
     static QRect instanceTrashGlyphRect(const QRect &row);

@@ -407,7 +407,7 @@ void TitleBar::setNavItems(const QStringList &labels) {
         button->setFixedSize(kNavItemWidth, kButtonSize);
         m_navButtons.append(button);
         // 从左到右挨着摆在那一层自己的布局里（那一层被两段等长 stretch 夹在条的中正）。
-        // 显式 AlignVCenter：这一层的**高**是整条（44），按钮只有 28 —— 不写对齐就是
+        // 显式 AlignVCenter：这一层的**高**是整条（52），按钮只有 28 —— 不写对齐就是
         // 赌 QBoxLayout 对 Fixed 那一档的摆法（constructor 里那颗窗口按钮同一个道理）。
         m_navLayout->addWidget(button, 0, Qt::AlignVCenter);
         connect(button, &QAbstractButton::clicked, this, [this, i]() { emit navRequested(i); });

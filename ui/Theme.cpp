@@ -795,9 +795,9 @@ QString widgetStyleSheet() {
     //   - 宽度 18 → 20；
     //   - **`border: none` 拿掉了**。这是这一条里唯一一处看着像"退了一步"、其实是必须的
     //     动作：留着它这一格就算"有东西要画"，Qt 于是走另一条分支、把箭头整个吃掉（实测
-    //     旧样式表下箭头压根不存在，见 `ComboChevronStyle` 那段）。拿掉之后由
-    //     `ComboChevronStyle` 接手画那个 `∨` —— 墨色跟着 `color:` 走，换深浅主题照样跟着变。
-    //   ⇒ **改这一条之前先把 `ComboChevronStyle` 那段读了**，两处是一对。
+    //     旧样式表下箭头压根不存在，见 `WtfmlProxyStyle` 那段）。拿掉之后由
+    //     `WtfmlProxyStyle` 接手画那个 `∨` —— 墨色跟着 `color:` 走，换深浅主题照样跟着变。
+    //   ⇒ **改这一条之前先把 `WtfmlProxyStyle` 那段读了**，两处是一对。
     qss += QStringLiteral(
                "QComboBox { background-color: #ffffff; color: #000000; border: 1px solid %1;"
                " border-radius: 3px; padding: 3px; }"

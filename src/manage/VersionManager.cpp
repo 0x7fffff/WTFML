@@ -754,6 +754,33 @@ void VersionManager::repairVersionFiles(const QString &versionId) {
     downloadManager->endBatch();
 }
 
+VersionIntegrity::Report VersionManager::checkInstanceIntegrity(const QString &versionId) const {
+    VersionIntegrity::Report report;
+
+    // 和 repairVersionFiles() 同一条：**盘上那份**（走继承链合并）才是权威，不是 versionJsons
+    // 那张内存表 —— 体检一个早就装好的实例恰恰最常发生在重开启动器之后，那时候表是空的。
+    const QJsonObject versionJson = getVersionJson(versionId);
+    if (versionJson.isEmpty()) {
+        report.error = tr("读不出这个实例的 version.json，没法知道它该有哪些文件。");
+        return report;
+    }
+
+    // 两个解析结果由调用方递进去（VersionIntegrity::plan 不自己 new 一个 DownloadManager）：
+    // 「哪些库、哪个资源索引」这件事只有一个出处 —— 就是装配侧用的这两个函数。
+    const QList<VersionIntegrity::ExpectedFile> files =
+        VersionIntegrity::plan(versionJson, versionId,
+                               downloadManager->extractLibraries(versionJson),
+                               downloadManager->extractAssetIndex(versionJson));
+
+    report.checked = static_cast<int>(files.size());
+    for (const VersionIntegrity::ExpectedFile &file : files) {
+        if (VersionIntegrity::Verdict verdict = VersionIntegrity::check(file); !verdict.ok()) {
+            report.problems.append(verdict);
+        }
+    }
+    return report;
+}
+
 // ---------------------------------------------------------------------------
 // 下载页那几类资源：把一个文件下到实例里（模组 / 数据包 / 资源包 / 光影）
 // ---------------------------------------------------------------------------
@@ -3027,7 +3054,7 @@ void VersionManager::clearVersionJsonCache() {
     //   javaVersion / assetIndex 完全不同）。MainWindow 换文件夹那一路上原来只重置了
     //   "目录名对不上 jar 名"的告警和本机 Java 列表，版本 json 这两张表没人管：
     //   在 A 里启动过 `1.20.1` → 切到 B → 启动 B 里的 `1.20.1`，rawVersionJson() /
-    //   mergedVersionJson() 命中的仍是 **A 那份**，于是 classpath、natives、
+    //   mergedVersionJsons 命中的仍是 **A 那份**，于是 classpath、natives、
     //   `javaVersion`、`assetIndex` 全按 A 算，而游戏自己去读 `B/versions/1.20.1/1.20.1.json`
     //   —— 轻则 UnsupportedClassVersionError，重则两套库混着启动，而且屏幕上没有任何
     //   一句话说得通。同一条路还会污染 inheritanceProblem() 和实例列表的 channel 判定。
@@ -4691,8 +4718,18 @@ QString VersionManager::instanceGameVersion(const QString &instanceId) {
     }
     // 在线清单那一份（没取到就是空表）。判据里那一半"清单里真有这个 id"要用它。
     const QList<MinecraftVersion> knownVersions = downloadManager->getAvailableVersions();
-    const auto usable = [&knownVersions](const QString &text) {
-        return isKnownGameVersion(text, knownVersions);
+    // ★ 2026-10-11：`usable()` 在这个函数里至少被调 4 次（① ③ 的循环 ④ ⑤），而
+    //   `isKnownGameVersion()` 对**非空**清单是线性扫整份（900+ 条）—— 先把 id 收进一个
+    //   QSet，查一次是 O(1)。清单为空（离线第一趟）时照旧交给 `isKnownGameVersion()`，
+    //   那一支是"看长相"的放宽判据，不能省。
+    QSet<QString> knownVersionIds;
+    knownVersionIds.reserve(knownVersions.size());
+    for (const MinecraftVersion &version : knownVersions) {
+        knownVersionIds.insert(version.id);
+    }
+    const auto usable = [&knownVersions, &knownVersionIds](const QString &text) {
+        return knownVersions.isEmpty() ? isKnownGameVersion(text, knownVersions)
+                                       : knownVersionIds.contains(text);
     };
 
     // ① 我们自己记的那一格。它是**最准的**：装的时候就是从清单里抄下来的，显示名用的也是它。

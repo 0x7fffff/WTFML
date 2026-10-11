@@ -172,7 +172,7 @@ bool AuthManager::loginMicrosoft() {
     }
 
     m_loginInFlight = true;
-    // 新的一趟开始了，上一趟留下的"覆盖过微软槽"这一笔不许跟过来（见 finishLogin()）。
+    // 新的一趟开始了，上一趟留下的"覆盖过微软槽"这一笔不许跟过来（见 handleNewConnection()）。
     m_microsoftTokenOverwritten = false;
     if (m_loginTimeout == nullptr) {
         m_loginTimeout = new QTimer(this);
@@ -188,7 +188,7 @@ bool AuthManager::loginMicrosoft() {
             //       再按成功刷一遍底栏，而弹窗是模态的，用户点掉它之后才轮到成功那一步。
             //       回调那头本来就挡住了重入（handleNewConnection 开头的同一个判据），
             //       只有这里漏了。换令牌那条链每一条请求都有自己的 15 秒超时
-            //       （见 kRequestTimeoutMs），所以这里不再另设窗口也不会一直挂着。
+            //       （见 HttpClient::kDefaultTimeoutMs），所以这里不再另设窗口也不会一直挂着。
             if (m_handlingCallback) {
                 return;
             }
@@ -540,7 +540,7 @@ void AuthManager::handleNewConnection() {
         //   上面那两个"点一下启动就悄悄成了另一个人的登录"里，作祟的不是内存那份身份，
         //   而是**盘上的微软槽** —— 而 loadSavedToken() 读的正是盘：
         //     · 这一趟 exchangeAuthorizationCode() 已经把微软槽覆盖成**新账号 B** 的
-        //       刷新令牌了（:641 清掉 minecraft 槽，紧接着写微软槽）；
+        //       刷新令牌了（:685 清掉 minecraft 槽，紧接着写微软槽）；
         //     · runMinecraftChain() 失败 ⇒ minecraft 槽是空的，而微软槽里躺着 B 的凭据
         //       （上面那句"盘上留着微软那份、好把链重放一遍"说的就是它）；
         //     · 于是 reloadStoredAccount() 把**内存**退回"未登录"之后，用户点一下启动：
@@ -555,7 +555,7 @@ void AuthManager::handleNewConnection() {
         //
         //   NOTE: **只在换过人时清**（就是上面那一位存在的理由）。refreshMinecraftToken()
         //         那条路（续期，不是登录）也会覆盖微软槽，但它覆盖的是**同一个账号**的
-        //         令牌，清掉等于把一份好好的凭据扔了 —— 那条路也不走这里（它不走 finishLogin，
+        //         令牌，清掉等于把一份好好的凭据扔了 —— 那条路也不走这里（它不走 handleNewConnection，
         //         失败只是把 errorMessage 交回调用方）。
         //   NOTE: 代价是**"把链重放一遍"这个方便没了**（B 那份刷新令牌被清掉，用户得回到
         //         浏览器再登一次）。这是有意的取舍：那个"方便"的实质就是**本次启动时按一份
@@ -650,7 +650,7 @@ bool AuthManager::exchangeAuthorizationCode(const QString &code, QString *access
     // ── 覆盖微软槽之前的两道闸（2026-09-25 补的）──────────────────────────────
     // 下面这一句写的是"活动槽里那份微软令牌"。而一个账号条目是**两个槽拼出来的**
     // （AccountStore::captureActive()：uuid 取自 minecraft 槽、微软令牌取自 microsoft
-    // 槽），新登录要等 runMinecraftChain() 一路走到底、:665 才写 minecraft 那一半。
+    // 槽），新登录要等 runMinecraftChain() 一路走到底、:772 才写 minecraft 那一半。
     // 于是从这一句到那一句之间，盘上那个"账号"是 **A 的 uuid 配 B 的微软令牌**：
     //   ① 这中间只要有人调 captureActive()（用户在等登录的时候点一下「添加离线账号」，
     //      makeOfflineCurrent() 里正有一句），写出来的条目就是上面那个错配的东西。
@@ -690,7 +690,7 @@ bool AuthManager::exchangeAuthorizationCode(const QString &code, QString *access
     }
     // ★ 2026-09-27：从这一句起，盘上的微软槽已经是**新账号**的了。这一趟后面还有
     //   runMinecraftChain() 那半截（XSTS + 换 Minecraft 令牌 + 拉档案），它会失败
-    //   （超时 / 429 / 那道 403 都算）。失败收尾时必须记得"这里换过人" —— 见 finishLogin()
+    //   （超时 / 429 / 那道 403 都算）。失败收尾时必须记得"这里换过人" —— 见 handleNewConnection()
     //   里失败那一支的 NOTE。
     m_microsoftTokenOverwritten = true;
 
