@@ -1243,7 +1243,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     // 都是 `QStackedWidget`，所以一条 `currentChanged` 就够了（谁换的都算）。
     //
     // ★ 垫的底色是 `QPalette::Base`（**不是**顶上那一档的窗口底色）：这三层右栏每一页都
-    //   活在一层滚动区里，视口铺的是 `Base` —— 垫窗口那份的话，干等那 70 ms 里会看见一整块
+    //   活在一层滚动区里，视口铺的是 `Base` —— 垫窗口那份的话，起手那一帧会看见一整块
     //   偏灰的方块贴在页面正中（见 `Anim::pageAppear(widget, backdrop)` 那段）。
     const auto appearOnSwitch = [](QStackedWidget *stack) {
         if (stack == nullptr) {
@@ -1521,7 +1521,11 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
         launcherBehaviourCombo = new QComboBox(box);
         launcherBehaviourCombo->setObjectName(launcherBehaviourComboName());
         WheelGuard::install(launcherBehaviourCombo);
-        boxLayout->addWidget(launcherBehaviourCombo);
+        // ★ 2026-10-11：**每颗下拉框都按 `sizeHint` 靠左摆**（`AlignLeft`）。同一页上原来
+        //   只有「窗口模式」那一颗带了它，另几颗吃到拉伸 ⇒ 「进程优先级」那一条（项就
+        //   「正常（默认）」几个字）被拉成整行那么宽，右边一大片空白。这几颗是同一件事的
+        //   同一个控件（选一项），落到的宽度就该是同一条规矩。见 08a 那张截图。
+        boxLayout->addWidget(launcherBehaviourCombo, 0, Qt::AlignLeft);
         addHint(box, QStringLiteral("游戏起来之后启动器自己怎么办。「收起」是把窗口藏起来、"
                                     "进程还在（关掉进程会连带杀掉游戏）。"),
                 form);
@@ -1597,7 +1601,8 @@ void MainWindowUI::setupSettingsGamePanel(QStackedWidget *stack) {
         processPriorityCombo = new QComboBox(box);
         processPriorityCombo->setObjectName(processPriorityComboName());
         WheelGuard::install(processPriorityCombo);
-        boxLayout->addWidget(processPriorityCombo);
+        // ★ 2026-10-11：靠左按 `sizeHint` 摆 —— 理由见「启动器行为」那一颗上面那段。
+        boxLayout->addWidget(processPriorityCombo, 0, Qt::AlignLeft);
         addHint(box, QStringLiteral("游戏进程占 CPU 的优先级。这和任务管理器里「设置优先级」"
                                     "是同一件事，只是在这里设一次就一直生效。"
                                     "往低调可以在后台跑着游戏的时候让系统先顾别的；"
@@ -1927,7 +1932,8 @@ void MainWindowUI::setupSettingsDownloadPanel(QStackedWidget *stack) {
         downloadSourceCombo = new QComboBox(box);
         downloadSourceCombo->setObjectName(downloadSourceComboName());
         WheelGuard::install(downloadSourceCombo);
-        boxLayout->addWidget(downloadSourceCombo);
+        // ★ 2026-10-11：靠左按 `sizeHint` 摆 —— 理由见「启动器行为」那一颗上面那段。
+        boxLayout->addWidget(downloadSourceCombo, 0, Qt::AlignLeft);
         addHint(box, QStringLiteral("镜像源是第三方服务（BMCLAPI），国内通常快很多。"
                                     "下回来的文件不对时可以换回官方源重下。"),
                 form);

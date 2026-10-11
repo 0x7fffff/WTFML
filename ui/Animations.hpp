@@ -59,25 +59,50 @@ constexpr int pressInMs() { return 90; }
 /// 松开之后弹回来多快。
 constexpr int pressOutMs() { return 130; }
 /// 换页那一下（淡入 + 上抬）。
-constexpr int appearMs() { return 160; }
-/// 换页时**先干等**多久才开始淡（用户 2026-09-29：「这个框架啥的都是瞬间出现，能不能给它
-/// 设定一定延迟」）。
-///
-/// 等的是"新那一块还没上来"这一段：起手这一刻它就是全透明 + 抬着的，干等完才开始往上收。
-/// 单独更快或更慢都会看成"两件事"（它和 `appearMs()` 是同一次翻页的两段，不是两次动作）。
-/// 这一段里看得见的东西**不是"空"**、是那一层垫上去的窗口底色（见 `pageAppear()`）。
-constexpr int pageDelayMs() { return 70; }
+constexpr int appearMs() { return 130; }
 /// 整块覆盖那一层（`OverlayHost`）淡进来那一下。
-constexpr int overlayMs() { return 140; }
+constexpr int overlayMs() { return 130; }
 /// 底栏上拉面板滑上来那一下。
 constexpr int panelMs() { return 130; }
 /// 滚动条**冒出来**那一下（用户 2026-09-29：「每一次切页面的时候滚动条都是瞬间出现的」）。
 /// 和换页同一个量级 —— 它得跟页面那一下一起收住，单独更快或更慢都会看成"两件事"。
-constexpr int scrollBarMs() { return 160; }
+constexpr int scrollBarMs() { return 130; }
 /// 上拉面板的起手位比落点低多少像素。
 constexpr int panelSlideDistance() { return 16; }
 /// 换页时内容从下面抬多少像素。
-constexpr int pageRiseDistance() { return 10; }
+constexpr int pageRiseDistance() { return 8; }
+
+/// 换页那一发起手的**不透明度**（不是 0）。
+///
+/// ★★ 2026-10-11 实测出来的坑，也是"换页先闪一下白"的最后那一格：
+///   Qt 的动画时钟**不是**从 `start()` 那一刻起算的 —— 它锚在 `QUnifiedTimer` 的**第一次
+///   定时器到点**上。这台机器上量下来那一下要 **17 ms**（`ui_shot` 那条采样曲线：
+///   t=17ms 时动画值还是 0，t=33ms 才到 0.31）。于是"从 0 淡进来"的那一发，**第一帧
+///   照例是全透明的** —— 内容区那一整块就只是垫底那层窗口底色，看着就是闪了一下。
+///   把起手钉在 0.5 之后，**第一帧就已经看得见内容**了（半透明 + 抬着 `pageRiseDistance()`），
+///   那一格再也没有"整块平底"这回事（判据是 `ui_shot` 的 `32b`）。
+///
+/// NOTE: 它只治那一帧的观感，不改变缓动 —— 动画本身还是 0 → 1 走 `OutCubic`，映射
+///       `pageStartOpacity() + (1 - pageStartOpacity()) * t` 写在 `pageAppear()` 里。
+/// NOTE: 别的几发（整块覆盖层 `overlayAppear()`、滚动条 `scrollBarAppear()`）**照旧从 0
+///       淡**：它们本来就是"从无到有"，而且没有"一大块空底"这个观感问题。
+constexpr qreal pageStartOpacity() { return 0.5; }
+
+// ★★ 2026-10-11：**换页前面那 70 ms 的"干等"整个拿掉了**（原来那一下叫 `pageDelayMs()`）。
+//
+//   那一段是 2026-09-29 加的（用户原话「这个框架啥的都是瞬间出现，能不能给它设定一定延迟」），
+//   实现成"起手全透明 + 垫一层窗口底色，干等 70 ms 再开始淡"。它的**代价**当时没算清楚：
+//   那 70 ms 里内容区**是一整块空白**（`#f0f0f0` 那种平底，`ui_shot` 当时专门拍过一帧），
+//   于是每切一次选项卡都先闪一下白，再淡进来 —— 两件事，不是一个转场。
+//
+//   现在这一版的做法：**没有干等，直接淡**（`appearMs()` 从 160 收到 130，总时长 230 → 130）。
+//   "不要瞬间铺上"这件事靠的是那一段缓动 + `pageRiseDistance()` 的上抬，不再靠等 —— 等出来的
+//   "不是瞬间"，观感上就是"卡了一下"，而且中间那一段是空的，比瞬间铺上更难看。
+//
+//   NOTE: 垫底色那一层（`AnimEffect::setBackdrop()`）**留着**，它管的是另一件事：不垫的话
+//         那些**不透明的子控件视口**（列表/树的 viewport）就成了"谁都不画"的一格，屏幕上
+//         留着上一页的像素。来龙去脉见 `AnimEffect::draw()` 与 `pageStartOpacity()`。
+//   NOTE: 起手那一位钉在 `pageStartOpacity()`（不是 0）—— 同一个坑的最后一格，见那里。
 /// 按下时把按钮压暗**百分之几**（和悬停那一档 `Theme::rowHoverAccentPercent()` 同一个数）。
 constexpr int pressDepthPercent() { return 12; }
 
@@ -108,7 +133,7 @@ void scrollBarAppear(QWidget *bar);
 bool installScrollBarAnimation(QApplication &app);
 
 /**
- * @brief 换页：新那一块先干等 `pageDelayMs()`、再淡进来，并从下面抬 `pageRiseDistance()`。
+ * @brief 换页：新那一块淡进来，并从下面抬 `pageRiseDistance()`。
  * @param widget **要淡的那一块**。
  *
  * ★ 顶上那四颗选项卡翻页时，传进来的必须是**内容区整个控件**（`QTabWidget`），不是当前那
@@ -122,10 +147,12 @@ bool installScrollBarAnimation(QApplication &app);
  * 画的卡片，淡那一页就等于淡了整块。
  *
  * ★★ 淡的同时，那一块**底下先垫一层窗口底色**（`QPalette::Window`，取顶层窗口那一份），
- *   而且这一层**不跟着一起淡** —— 于是干等那一段看到的就是一块干净的窗口底色（"卡片还没
- *   上来"），内容从它上面浮出来。不垫的话，控件底下那些**不透明子控件**（列表/树的视口）
- *   那块会变成"谁都不画"的一格：屏幕上是上一帧留下的像素、`grab()` 出来是一块黑。
- *   来龙去脉写在 `AnimEffect::draw()` 里那一段。
+ *   而且这一层**不跟着一起淡**。★ 2026-10-11：原来垫它是为了填满"干等那 70 ms"（那一段
+ *   整个拿掉了，见 `appearMs()` 上面那段），**现在垫它是为了整发淡的每一帧**：内容从
+ *   `pageStartOpacity()` 淡到 1 的这一路上都不是全实，控件底下那些**不透明子控件**
+ *   （列表/树的视口）自己又不去画 —— 不垫的话它们那一格就是"谁都不画"（屏幕上是上一帧
+ *   留下的像素、`grab()` 出来是一块黑），半透明地压上去只会更花。
+ *   来龙去脉写在 `AnimEffect::draw()` 里。
  *
  * NOTE: 换页那一层是**嵌套**的（内层那几页也在 `QTabWidget` 里面）。同一时刻两层都在动
  *       只是"两件事撞在一起"，画面仍然是一层贴一张图，不会有元素跑出自己那一块。
@@ -135,19 +162,21 @@ bool installScrollBarAnimation(QApplication &app);
  *   列表」那一页（进页就自动测速，结果一个一个回来：行从一行字长成两行、favicon 补上、
  *   树跟着长高、滚动条冒出来）。现照现淡的话，**这一发淡的每一帧都不是同一张画面**，
  *   看着就是"动画卡卡的"（用户 2026-09-29 原话）。定住之后这一发只剩 blit，中途进来的
- *   数据照样落到控件上、只是要等它跑完才看得见（230 ms）。
+ *   数据照样落到控件上、只是要等它跑完才看得见（`appearMs()` 那 130 ms）。
+ *
+ *   NOTE: 照的时机是"第一帧真的画出来"那一刻 —— 换页那一刻先发的布局请求排在绘制请求
+ *         前面（`UpdateRequest` 是低优先级），所以照到的是**已经摆好版**的那一页。
  */
 void pageAppear(QWidget *widget);
 
 /**
- * @brief 同上，只是**干等那一段垫什么底色**由调用方指定（上面那一份垫的是顶层窗口的
+ * @brief 同上，只是**底下垫什么底色**由调用方指定（上面那一份垫的是顶层窗口的
  *        `QPalette::Window`，内容区之外那一圈铺的就是它）。
- * @param backdrop 干等的那 `pageDelayMs()` 毫秒里，这一块地方铺什么颜色。
+ * @param backdrop 起手那一帧（以及淡的过程中）这一块地方垫什么颜色。
  *
  * ★ 内层那几层（"左栏换一栏 → 右栏整块换"）底下垫的**不是窗口底色**：那些页都活在一层
- *   滚动区里，视口铺的是 `QPalette::Base`。垫错不报错、也不会有东西越界 —— 症状只是干等
- *   那 70 ms 里看见一整块偏灰的方块（`#f0f0f0` 对 `#ffffff`）贴在页面正中，看着像"这一页
- *   闪了一下"。
+ *   滚动区里，视口铺的是 `QPalette::Base`。垫错不报错、也不会有东西越界 —— 症状只是这一
+ *   整块偏灰（`#f0f0f0` 对 `#ffffff`）贴在页面正中，看着像"这一页闪了一下"。
  */
 void pageAppear(QWidget *widget, const QColor &backdrop);
 

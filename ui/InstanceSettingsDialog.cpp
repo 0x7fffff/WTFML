@@ -28,6 +28,7 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFont>
+#include <QFontMetrics>   // 左栏那一列的宽度（见 navListWidth()）
 #include <QGuiApplication>
 #include <QMimeData>
 #include <QGridLayout>
@@ -80,6 +81,17 @@ constexpr int kMemorySliderMinWidth = 200;
 /// 每个都 120 就得 240 + 那个 × + 那对单选钮，整行会被挤出门外；而这里填的是四位像素数，
 /// 80 已经能把「7680」连框一起摆下。
 constexpr int kWindowSizeSpinWidth = 80;
+/// ★ 2026-10-11：「跟随全局 / 自定义」那**七格档位下拉框**的宽度。
+///
+/// 加它之前这七个框是**各长各的** —— 它们默认吃拉伸，于是同一页上量下来是 59 / 143 / 307
+/// 三种宽度（「Java 路径」那一行挤、其它几行摊满），而"档位"是同一件事的同一个控件。
+/// 现在一律**不伸缩 + 一条下限**（见 `addOverrideRow()` 里那两行）：七格一样宽，右边那个值
+/// 控件因此也从同一条竖线上起头。
+///
+/// 为什么是"下限 + 不伸缩"而不是 `setFixedWidth()`：这七格里的字一模一样
+/// （就那两项），所以 `sizeHint()` 天然一样大 —— 钉住策略就够了。哪天真换了更大的字体，
+/// `sizeHint()` 跟着长、七格**还是一样宽**，写死像素反而会把字切掉。
+constexpr int kChoiceComboWidth = 110;
 /// 追加参数那一行的输入高度（三四行够放几条常见参数）。
 constexpr int kAppendJvmArgsHeight = 76;
 /// 左栏那一列导航在算出来的宽度上再加多少余量（左右各一半）。
@@ -405,7 +417,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     //       接线 —— 形状一样是故意的，但**不是同一个 `connect`**（那几个 `QStackedWidget`
     //       在那边、这个在这一层）。
     // ★ 垫的底色是 `QPalette::Base`：右栏每一页都活在一层滚动区里（见 `addPage()`），
-    //   视口铺的就是它。垫窗口那份的话，干等那 70 ms 会看见一整块偏灰的方块。
+    //   视口铺的就是它。垫窗口那份的话，起手那一帧会看见一整块偏灰的方块。
     connect(m_stack, &QStackedWidget::currentChanged, this, [this](int) {
         QWidget *page = m_stack->currentWidget();
         if (page != nullptr && page->isVisible()) {
@@ -1136,10 +1148,20 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         m_windowWidthSpin->setSingleStep(MainWindowUI::windowSizeStep());
         m_windowWidthSpin->setMinimumWidth(kWindowSizeSpinWidth);
         WheelGuard::install(m_windowWidthSpin);
-        choiceRow->addWidget(m_windowWidthSpin);
+        // ★ 2026-10-11：这一颗**也得带 `AlignLeft`**。原来只给下面那颗（高）带了，这一颗
+        //   吃到了拉伸 ⇒ 这一格被撑満，于是「×」和高那颗被顶到最右边去，屏幕上成了
+        //   `[跟随全局▾][1280▾]  ×        [720▾]` —— 一行两个数本来就该挨在一起。
+        choiceRow->addWidget(m_windowWidthSpin, 0, Qt::AlignLeft);
 
         auto *times = new QLabel(QStringLiteral("×"), cell);
         times->setObjectName(windowSizeTimesName());
+        // ★ 2026-10-11：这一颗**故意不带 `AlignLeft`**……原来就是这样，而它就是那一格的洞。
+        //   另三颗都带了对齐 ⇒ 盒子布局不会拉伸它们，那剩下的空间**全归这个没有对齐的那一颗**
+        //   （QLabel 的默认策略是 Preferred = 能长）。于是屏幕上成了
+        //   `[跟随全局▾][1280▾]      ×           [720▾]` —— 后两句在下面那条注释里写着"整行靠左
+        //   摆"，可代码里**没有任何一处**这么要求（见文件里「注释与代码相反」那条教训）。
+        //   真正的钉子是这一行末尾的 `addStretch()`：它把多出来的空间全吃掉，另四颗因此
+        //   一律停在自己的 `sizeHint()` 上，`宽 × 高` 挨在一起。
         choiceRow->addWidget(times);
 
         m_windowHeightSpin = new QSpinBox(cell);
@@ -1149,9 +1171,12 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         m_windowHeightSpin->setSingleStep(MainWindowUI::windowSizeStep());
         m_windowHeightSpin->setMinimumWidth(kWindowSizeSpinWidth);
         WheelGuard::install(m_windowHeightSpin);
-        // 整行按 sizeHint 靠左摆，不撑满（右边剩下的地方留给那对单选钮）—— 和设置页那一行
-        // 同一条规矩。
         choiceRow->addWidget(m_windowHeightSpin, 0, Qt::AlignLeft);
+        // 整行按 sizeHint 靠左摆，不撑满 —— 和设置页那一行同一条规矩（那边同一个判据在
+        // ui_check 的 Z2 里）。★ 2026-10-11：**这一句才是真正的执行者**，光给四颗都带
+        // `AlignLeft` 是不够的 —— 见上面 `times` 那一段（没有拉伸项时，多出来的空间会全落到
+        // 对齐"漏掉"的那一颗上）。
+        choiceRow->addStretch(1);
         // 顶上那句「跟随全局（当前 854×480）」要写全局那一份，从构造函数给的那份值里取。
         // **只在调用方给了正数时才记**：`<= 0` 是"调用方没给"的哨兵（见 .hpp 里
         // GlobalValues 那一段），那时那句话里不写尺寸。
@@ -2034,9 +2059,30 @@ QGridLayout *InstanceSettingsDialog::addForm(const QString &key, QWidget *page) 
 }
 
 int InstanceSettingsDialog::navListWidth(const QListWidget *list) {
-    int width = 0;
+    // ★ 这一列的宽度**不随"现在显示着哪几页"变**（2026-10-11 改）。原来的算法只看表里
+    //   **这一刻**有的那几条 ⇒ 用户在「高级选项」里勾掉「结构/原理图」（左栏里最宽的那一条）
+    //   之后，这一列当场窄掉十来像素、**右栏整幅跟着横着跳一下**；同一个对话框在两个实例上
+    //   开出来也可以不一样宽（"用不上的那一页"本身就不在表里）。宽度是这一页的**骨架**，
+    //   骨架不该跟着内容晃。现在把"这一页随时可能变出来的那几条"也算进来（钉死的那两条 +
+    //   `optionalPageKeys()` 那七条，与这一刻勾没勾、可不可用都无关），于是**同一个对话框
+    //   永远是同一个宽度**，而且只会比以前宽、绝不会窄（多出来那几条里就有最宽的那一条）。
+    //
+    // NOTE: 这一列里"装饰"占掉的那一块（样式给条目的边距）由表自己量出来，再用同一个数去
+    //       估不在表里的那几条 —— 别写死一个像素数，换字体/换样式就不是那个数了。
+    const QFontMetrics fm(list->font());
+    // 一列（QListWidget 只有第 0 列），而 `sizeHintForColumn(0)` 量的就是**所有行里最宽的
+    // 那一条** ⇒ 这里**一次**调用就够。早先那个 `for (i < count())` 是从 QTableWidget 那种
+    // 写法抄来的：列号越界时那个函数回 -1，被 `qMax` 吃掉，结果一样，但看着像在数行。
+    const int measured = list->sizeHintForColumn(0);
+    int width = qMax(0, measured);
+    int widestShownText = 0;
     for (int i = 0; i < list->count(); ++i) {
-        width = qMax(width, list->sizeHintForColumn(i));
+        widestShownText = qMax(widestShownText, fm.horizontalAdvance(list->item(i)->text()));
+    }
+    const int decoration = qMax(0, measured - widestShownText);
+    const QStringList everyKey = pinnedPageKeys() + optionalPageKeys();
+    for (const QString &key : everyKey) {
+        width = qMax(width, fm.horizontalAdvance(pageText(key)) + decoration);
     }
     return width + kNavListExtraWidth;
 }
@@ -3265,6 +3311,11 @@ QWidget *InstanceSettingsDialog::addOverrideRow(QGridLayout *grid, int row, cons
     // 下拉框也吃滚轮（在两项之间来回跳），而这一格上的滚轮多半是"想滚这一页"。
     // 和「窗口模式」那一个同一个理由。
     WheelGuard::install(combo);
+    // ★ 2026-10-11：**不伸缩 + 一条下限** —— 这七格是同一件事的同一个控件，加这两行之
+    //   前它们各占各的拉伸份额、同一页上能有 59 / 143 / 307 三种宽度（见 kChoiceComboWidth
+    //   上面那段）。右边那个值控件也因此从同一条竖线上起头。
+    combo->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    combo->setMinimumWidth(kChoiceComboWidth);
     choiceLayout->addWidget(combo);
     m_choiceCombos.insert(field, combo);
 
