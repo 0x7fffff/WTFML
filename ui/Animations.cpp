@@ -20,6 +20,7 @@
 #include <QPointer>
 #include <QPropertyAnimation>
 #include <QScrollBar>
+#include <QSharedPointer>
 #include <QTimer>
 #include <QTransform>
 #include <QTreeView>
@@ -37,6 +38,9 @@ constexpr const char kEffectName[] = "wtfmlAnimEffect";
 constexpr const char kFilterMark[] = "wtfmlAnimPressFilter";
 /// 滚动条那一份过滤器装没装过的那一位（同上）。
 constexpr const char kScrollFilterMark[] = "wtfmlAnimScrollFilter";
+/// 「按帧走」那一发底下那个步进定时器的名字。认它就是"我们自己那个"（一个控件上可能
+/// 前后叠着好几发，重启一发时要能把上一发那个停掉）。
+constexpr const char kStepperName[] = "wtfmlAnimStepper";
 
 /// 动效总开关。默认开。
 bool g_enabled = true;
@@ -225,21 +229,44 @@ void dropEffect(QWidget *widget) {
     }
 }
 
+/// 「按帧走」那一发的记账本（怎么走见 `runProgress()` 里那一大段）。定时器那个 lambda
+/// 攥着它（`QSharedPointer`），效果被摘掉时定时器跟着走、这本账也跟着走。
+struct StepRun {
+    QPointer<QVariantAnimation> animation;
+    int index = 0;   ///< 已经推了几档。
+    int steps = 1;   ///< 一共几档。
+    bool removeWhenDone = false;
+};
+
 /**
- * 跑一发 0→1 的进度动画，每一帧交给 `apply()` 去摆效果上的那几个数。
+ * 跑一发进度动画，每一帧交给 `apply()` 去摆效果上的那几个数。
+ *
+ * `apply` 收到的是**已经映射好的值**（`from` → `to`，走 `OutCubic`），不是 0→1。
+ *
+ * `stepMs`：
+ *   * `> 0` —— **按帧走**：定时器每一拍推一档（"为什么"整段写在这个函数下半截，见 ★★ 那一段）。
+ *     换页 / 覆盖层 / 滚动条这三发走这条。
+ *   * `0`   —— 按 Qt 自己的墙上时钟走。**按下 / 松手那两发走这条**：手指按着的时候那一档
+ *     要立刻见、要一直挂着（按住不放可以是任意长），跟"一段固定时长的转场"不是一回事。
  *
  * `removeWhenDone`：跑完把效果摘掉（淡入、松手这两条）。按下那一发**不摘** —— 手指还按着，
  * 那个"暗着"的状态要一直在。
  *
  * ★ 2026-10-11：这里原来还有一个 `delayMs` 参数（"起手先干等一段"），只有换页那一发用。
  *   那一段跟着 `pageDelayMs()` 一起拿掉了，见 `Animations.hpp` 里 `appearMs()` 上面那段。
+ *   同一天又发现"拿掉干等"之后**剩下来的那一发自己在跳**（下详），于是加了 `stepMs`。
  */
-void runProgress(QWidget *widget, AnimEffect *effect, qreal from, qreal to, int ms, bool removeWhenDone,
-                 const std::function<void(qreal)> &apply) {
+void runProgress(QWidget *widget, AnimEffect *effect, qreal from, qreal to, int ms, int stepMs,
+                 bool removeWhenDone, const std::function<void(qreal)> &apply) {
     // 同一个控件上又进来一发（连点两下、连切两页）：把上一发停掉。不停的话两个动画会
     // 交叉着写同一组数，看着像"抖"。
     const QList<QVariantAnimation *> running = effect->findChildren<QVariantAnimation *>();
     for (QVariantAnimation *old : running) {
+        old->stop();
+        old->deleteLater();
+    }
+    const QList<QTimer *> stepping = effect->findChildren<QTimer *>(QLatin1String(kStepperName));
+    for (QTimer *old : stepping) {
         old->stop();
         old->deleteLater();
     }
@@ -251,16 +278,89 @@ void runProgress(QWidget *widget, AnimEffect *effect, qreal from, qreal to, int 
     animation->setEasingCurve(QEasingCurve::OutCubic);
     QObject::connect(animation, &QVariantAnimation::valueChanged, effect,
                      [apply](const QVariant &value) { apply(value.toReal()); });
-    if (removeWhenDone) {
-        // NOTE: 摘效果这件事**不能**在 finished 里直接做：那一刻我们是站在动画自己的
-        //       信号里，而效果是动画的父亲 —— 删父亲等于把这个正在发信号的动画也删了。
-        //       挪到下一轮事件循环里做。
-        QObject::connect(animation, &QVariantAnimation::finished, widget,
-                         [w = QPointer<QWidget>(widget)]() {
-                             QTimer::singleShot(0, w, [w]() { dropEffect(w); });
-                         });
+
+    // NOTE: 摘效果这件事**不能**在 finished 里直接做：那一刻我们是站在动画自己的信号里，
+    //       而效果是动画的父亲 —— 删父亲等于把这个正在发信号的动画也删了。挪到下一轮做。
+    const auto dropLater = [w = QPointer<QWidget>(widget)]() {
+        QTimer::singleShot(0, w, [w]() { dropEffect(w); });
+    };
+
+    if (stepMs <= 0) {
+        if (removeWhenDone) {
+            QObject::connect(animation, &QVariantAnimation::finished, widget, dropLater);
+        }
+        animation->start(QAbstractAnimation::DeleteWhenStopped);
+        return;
     }
-    animation->start(QAbstractAnimation::DeleteWhenStopped);
+
+    // ---------------------------------------------------------------------
+    // ★★ 按帧走（2026-10-11 修用户报的「动画有严重的卡顿感」）
+    // ---------------------------------------------------------------------
+    //
+    // 【症状】换页那一发里，前面一大截是**定住的**，然后"啪"地跳掉三分之一。
+    //
+    // 【真因】**不是掉帧**，是这一发自己在跳。`QVariantAnimation` 的进度是按墙上时钟算的
+    //   （`当前时间 = 现在 - 起跑那一刻`），而它"什么时候被叫醒"取决于 `QUnifiedTimer`：
+    //   换页那一刻主线程正忙着（摆版、新那一页第一遍画），第一拍**来得很晚**。2026-10-11
+    //   在 `ui_shot` 里临时插了一段追踪量出来的原话（`画` = 窗口画了一帧、括号里是距上一
+    //   条过了多少毫秒、数字 = 那一刻动画走到哪儿）：
+    //
+    //       900x620  : (2)画 (0)(6)画 (0)(1)画 (23)0.46 (0)画 (15)0.66 (1)画 (14)0.80 ...
+    //       1600x1000: (0)画 (64)0.43 (1)画 (14)0.65 (1)画 (14)0.78 (1)画 (14)0.89 ...
+    //
+    //   也就是：切过去之后**先定住 23~64 ms**（一帧都没动），第一拍一到就直接跳到 0.43 ——
+    //   这一发一共才 `appearMs()`（130 ms），等于三分之一是跳过去的。后面的每一拍都稳稳
+    //   14~16 ms（帧率其实好好的）。用户说的"卡"就是这个。
+    //
+    // 【修法】**不按墙上时钟算，每一拍推一档**。定时器摆在 `stepMs` 上，每响一次
+    //   `index += 1`，再把动画时间戳摆到 `index / steps` 那一档去。迟到的第一拍于是只推
+    //   一档（0.33），而不是一口气跳到半路 —— **"第一拍什么时候来"不再影响这一发走到哪儿**，
+    //   最多是起手多定住一两帧（那一段的观感另有 `pageStartOpacity()` 管着）。
+    //
+    // 【为什么动画对象留着、却不 start】`setCurrentTime()` 在"停着"的状态下照样算值、
+    //   照样发 `valueChanged`、`currentValue()` 也跟着走 —— 2026-10-11 用一次性探针验过
+    //   （`build/tmp-wtfml-animprobe/ct.cpp`，跑完即删）：停着和"start 完再 pause"两种状态
+    //   下，同样四个采样点（16/32/48/130 ms）量出来的值一模一样
+    //   （0.3256 / 0.5716 / 0.7490 / 1）。留着它，`ui_check` ⑬ 那三条判据
+    //   （`findChildren<QVariantAnimation *>()` / `duration()` / `currentValue()`）一个字
+    //   都不用改。
+    //
+    //   NOTE: 走这条路时 `finished` **不会**发（从来没 start 过），所以"跑完摘效果"得由
+    //         步进器自己收尾。
+    auto state = QSharedPointer<StepRun>::create();
+    state->animation = animation;
+    state->steps = qMax(1, qRound(qreal(animation->duration()) / stepMs));
+    state->removeWhenDone = removeWhenDone;
+
+    auto *stepper = new QTimer(effect);
+    stepper->setObjectName(QLatin1String(kStepperName));
+    stepper->setTimerType(Qt::PreciseTimer);
+    stepper->setInterval(stepMs);
+    QObject::connect(stepper, &QTimer::timeout, effect, [state, stepper, dropLater]() {
+        ++state->index;
+        QVariantAnimation *animation = state->animation.data();
+        if (animation == nullptr) {   // 效果已经被摘了（定时器也快跟着走了）
+            stepper->stop();
+            return;
+        }
+        const bool last = state->index >= state->steps;
+        if (last) {
+            // 最后一拍**直接落到终点**：`steps * stepMs` 和时长不一定正好相等
+            // （130 / 16 = 8 拍 = 128 ms），差那 2 ms 不能让这一发停在 0.999 上。
+            animation->setCurrentTime(animation->duration());
+        } else {
+            animation->setCurrentTime(
+                qRound(qreal(state->index) * animation->duration() / state->steps));
+        }
+        if (!last) {
+            return;
+        }
+        stepper->stop();
+        if (state->removeWhenDone) {
+            dropLater();
+        }
+    });
+    stepper->start();
 }
 
 /// 这个控件（或它上面几层父控件里最近的那一个）是不是一颗按钮。
@@ -283,8 +383,8 @@ void pressDown(QAbstractButton *button) {
     if (effect->scrim() >= target - 0.001) {
         return;  // 已经暗到那儿了（按住不放的时候会重复发按下事件）
     }
-    runProgress(button, effect, effect->scrim(), target, Anim::pressInMs(), /*removeWhenDone=*/false,
-                [effect](qreal value) { effect->setScrim(value); });
+    runProgress(button, effect, effect->scrim(), target, Anim::pressInMs(), /*stepMs=*/0,
+                /*removeWhenDone=*/false, [effect](qreal value) { effect->setScrim(value); });
 }
 
 /// 松手：弹回原样，然后把这层效果摘掉。
@@ -293,8 +393,8 @@ void pressUp(QAbstractButton *button) {
     if (effect == nullptr) {
         return;
     }
-    runProgress(button, effect, effect->scrim(), 0.0, Anim::pressOutMs(), /*removeWhenDone=*/true,
-                [effect](qreal value) { effect->setScrim(value); });
+    runProgress(button, effect, effect->scrim(), 0.0, Anim::pressOutMs(), /*stepMs=*/0,
+                /*removeWhenDone=*/true, [effect](qreal value) { effect->setScrim(value); });
 }
 
 /**
@@ -425,7 +525,9 @@ void scrollBarAppear(QWidget *bar) {
     //  这一句保证不会把上一发垫的那层留着。）
     effect->setBackdrop(QColor());
     effect->setOpacity(0.0);
-    runProgress(bar, effect, 0.0, 1.0, scrollBarMs(), /*removeWhenDone=*/true,
+    // ★ 按帧走（`stepMs()`）：它跟换页是**同一时刻**起来的（滚动条是那一页进页之后才露的
+    //   头），主线程忙的是同一件事 —— 按墙上时钟走的话它一样会"定住再跳"。
+    runProgress(bar, effect, 0.0, 1.0, scrollBarMs(), stepMs(), /*removeWhenDone=*/true,
                 [effect](qreal progress) { effect->setOpacity(progress); });
 }
 
@@ -447,16 +549,17 @@ void pageAppear(QWidget *widget, const QColor &backdrop) {
         return;
     }
     const qreal rise = pageRiseDistance();
-    // 第一帧就摆到"还没进来"的样子：0 不透明 + 往下 `rise` 那么多（`draw()` 里是整块往下挪
-    // 着画，所以多出来的那一条在**上面**、被裁掉的是下面那一条）。
-    // ★★ 底下垫一层底色（调色板哪一档由调用方说，见两参数那一份的说明）：起手那一帧
-    //    （不透明度还是 0）**整块**就是这个色 —— 不垫的话那些不透明的子控件视口会变成
-    //    "谁都不画"的一格。那一层的来龙去脉写在 `AnimEffect::draw()` 里。
+    // 第一帧就摆到"还没进来"的样子：`pageStartOpacity()` 那么透 + 往下 `rise` 那么多
+    // （`draw()` 里是整块往下挪着画，所以多出来的那一条在**上面**、被裁掉的是下面那一条）。
+    // ★★ 底下垫一层底色（调色板哪一档由调用方说，见两参数那一份的说明）：这一整块地方
+    //    底下可能是"谁都不画"的（不透明子控件视口 + 半透明的输出），垫一层它就总是满的。
+    //    那一层的来龙去脉写在 `AnimEffect::draw()` 里。
     //    NOTE: 设了页面背景图（`Theme::Part::PageBackground`）时那张图是**页面自己**画的、
     //          也跟着一起淡，这一层垫的还是底色 —— 那一档下起手那一刻会短暂地少一层图。
     effect->setBackdrop(backdrop);
-    // ★★ 起手**不是全透明** —— 理由见 `Animations.hpp` 里 `pageStartOpacity()` 上面那段
-    //    （Qt 的动画时钟锚在第一次定时器到点上，从 0 淡的话第一帧照例是空的）。
+    // ★★ 起手**不是全透明**（0.85，不是 0）—— 这一发切过去之后头一两帧是躲不掉的
+    //    （主线程正忙着摆版、画新那一页），理由整段见 `Animations.hpp` 里
+    //    `pageStartOpacity()` 上面那段。
     effect->setOpacity(pageStartOpacity());
     effect->setShift(rise);
     // ★★ 这一发淡的是**一张定住的图**（第一帧照一次，后面每一帧都拿它）—— 理由整段写在
@@ -467,7 +570,7 @@ void pageAppear(QWidget *widget, const QColor &backdrop) {
     // 「起手那一位」只在下面这个 lambda 里用一次，收在两个常数里（`pageStartOpacity()` /
     // `pageRiseDistance()`），调用点别写数。
     const qreal from = pageStartOpacity();
-    runProgress(widget, effect, 0.0, 1.0, appearMs(), /*removeWhenDone=*/true,
+    runProgress(widget, effect, 0.0, 1.0, appearMs(), stepMs(), /*removeWhenDone=*/true,
                 [effect, rise, from](qreal t) {
                     effect->setOpacity(from + (1.0 - from) * t);
                     effect->setShift(rise * (1.0 - t));
@@ -484,7 +587,10 @@ void overlayAppear(QWidget *widget) {
     }
     effect->setBackdrop(QColor());  // 同上：提示卡那一层是盖在**已经画好的界面**上的，不垫底
     effect->setOpacity(0.0);
-    runProgress(widget, effect, 0.0, 1.0, overlayMs(), /*removeWhenDone=*/true,
+    // ★ 按帧走（`stepMs()`）：它开页那一刻主线程也在忙（建页、第一遍画）。
+    //   NOTE: 它起手仍是**全透明**（不是 `pageStartOpacity()`）—— 它是"从无到有"，
+    //         底下那层的观感问题跟换页不一样（见 `pageStartOpacity()` 那一节）。
+    runProgress(widget, effect, 0.0, 1.0, overlayMs(), stepMs(), /*removeWhenDone=*/true,
                 [effect](qreal progress) { effect->setOpacity(progress); });
 }
 
