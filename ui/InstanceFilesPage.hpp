@@ -62,7 +62,10 @@
  *      `eventFilter` 里的 Enter/Leave 管；**占位留着**，所以整行不会跟着伸缩）；
  *   ③ **右键点一行 = 开这一条的详情页**（`eventFilter` 里 `MouseButtonPress` 那一支），
  *      而且那一发**被吃掉** ⇒ 视图连选中态都不会动（用户点名：「此时保留上一页的选择」）；
- *   ④ 底下那条操作条上**「启用」按需露、「禁用」恒露**（见 SelectionAction 那两段的 NOTE）。
+ *   ④ ~~底下那条操作条上**「启用」按需露、「禁用」恒露**~~ —— ★ **2026-10-11 收回**
+ *      （用户原话：「下方那个框在禁用旁边增加启用」）：现在两颗**对称**，摆着、不适用就灰着，
+ *      见 SelectionAction 那一段的 NOTE。★ 上面那段引文里「没有禁用的时候不显示启用…」
+ *      就是当时那条规矩，**已经作废，别照着写**。
  *
  * 另外一条是**修 bug**：从前 `m_selectedPaths` 是按**盘上那个名字**对的，点一下行尾的
  * 开关（禁用 / 启用 = 改名）那一行就掉出选择。现在按 `identityPath()` 对（见
@@ -70,6 +73,17 @@
  *
  * 这一批**出手口都没变**：还是 `detailRequested(路径)` / `batchToggleRequested(…)`，
  * 这一层照旧一个字节都不碰盘。
+ *
+ * 【2026-10-10：顶上多出「来源」那几排下拉框 —— 只有「结构/原理图」那一页有】
+ *
+ * 用户原话：「那就像版本树一样根据存档来列…两个下拉框并排」+「**上面一排是存档的，
+ * 下面一排是投影的**」。原因：结构方块存下来的那些 `.nbt` **跟着存档走**
+ * （`<实例>/saves/<存档>/generated/minecraft/structures/**`），而投影（Litematica）
+ * 那些 `.litematic` 是**实例级**的（`<实例>/schematics/`）—— 一句话说不清"这一页在看
+ * 哪一个目录"，得同时列两个来源。见 setStructureSources() / scanDirectories()。
+ *
+ * 别的七页**一个像素都没变**：它们不调 setStructureSources()，`scanDirectories()` 给的
+ * 就是 `setDirectory()` 那一个目录，走的是从前逐字同一条路。
  *
  * 【这一层只**显示**，不碰盘】
  *
@@ -110,15 +124,26 @@ class QListWidgetItem;
 class QPushButton;
 class QToolButton;
 class QTimer;
+class QVBoxLayout;
 
 class InstanceFilesPage : public QWidget {
     Q_OBJECT
 
 public:
-    /// 这一页列什么。**只有存档那一页不是 FilesAndDirs**。
+    /// 这一页列什么。
     enum class Mode {
         FilesAndDirs,  ///< 文件 + 文件夹（一个资源包 / 数据包 / 光影包都可以是一个目录）
         DirsOnly,      ///< 只列文件夹（一个存档就是一个目录，saves 底下那些文件不是存档）
+        /// ★ 2026-10-11：**只列文件**。用户原话：「游戏模组文件夹里套的文件夹也会被列出来，
+        /// 而禁用对其的作用只是改个名」—— `mods/` 底下那些目录（`.connector`、
+        /// `mcef-libraries` 这类）**不是模组**，可它们占着一行、还带着行尾那颗开关，
+        /// 点下去是把**整个文件夹**改了名（真机上已经发生过一次：`mods/.connector`
+        /// 被改成了 `.connector.disabled`）。
+        ///
+        /// NOTE: 只给「模组」那一页 —— 另外三页（资源包 / 数据包 / 光影包）上一个**目录
+        ///       本身就是一份资源**（游戏自己就认没解压的那种），藏掉是另一回事，
+        ///       用户没提、也别顺手改。
+        FilesOnly,
     };
 
     explicit InstanceFilesPage(QWidget *parent = nullptr);
@@ -164,6 +189,37 @@ public:
     /// NOTE: 和「下载新 X」一样，这一层**只发信号**：挑哪个目录、拷到哪儿、要不要问一句
     ///       重名 —— 全在 MainWindow（这一层够不着 AppPaths，也开不了系统那个选择框）。
     void setImportText(const QString &text, const QString &tip);
+
+    /// 顶上那颗「加入选中的世界」（只有存档那一页给，见 `InstanceSettingsDialog`）。
+    /// 用户 2026-10-10 原话：「世界和服务器都做一个临时占位（加入选中的世界（仅限有这个
+    /// 参数的版本）/服务器）先试试看能不能生效」。
+    ///
+    /// @param text 按钮上写的字。**空串 = 这一页没有这颗按钮**（判据和 `setImportText()`
+    ///        一样是"文字空不空"）—— 那个版本的 json 里没有 `--quickPlaySingleplayer`
+    ///        时调用点传空串，这一颗就整颗不露。发了游戏不认识的选项不是"被忽略"，
+    ///        是游戏当场退出（见 `launcher/QuickPlay.hpp`）。
+    /// @param tip  悬停提示（说清"点了会发生什么"：会**离开这一页**去把游戏开起来）。
+    ///
+    /// NOTE: 这一层**不知道** quick play 是什么，也不读版本 json（那一层不 include src/）：
+    ///       它只发一句"用户点了这一颗"，进哪个世界、能不能进全在 MainWindow 那一层。
+    void setJoinText(const QString &text, const QString &tip);
+
+    /// 「加入选中的世界」那颗的**字**与**悬停提示**（**临时占位**，2026-10-10）。
+    ///
+    /// NOTE: 唯一出处。写的是「世界」而不是「这一页选中的那一条」—— 这一颗今天只有存档
+    ///       那一页接得起（别的几页上那一条是模组 / 资源包，`--quickPlaySingleplayer`
+    ///       对它们没有意义）。真要给别的页也用，这两句得先改名。
+    static QString joinText() { return QStringLiteral("加入选中的世界"); }
+    static QString joinTip() {
+        return QStringLiteral("用游戏自己的 --quickPlaySingleplayer 参数直接进选中的那个世界"
+                              "（**临时占位**：先试试看这条参数发出去游戏认不认）。");
+    }
+
+    /// 「加入选中的世界」那颗**没选中一条世界**时的悬停提示。**唯一出处**（刷新 / 验证
+    /// 工程都按它核对）。
+    static QString joinSelectFirstHint() {
+        return QStringLiteral("先在下面选中一个世界。");
+    }
 
     /// 顶上那颗「批量编辑」。**今天是个占位**（用户原话：「（这个先做占位）」）——
     /// 按钮摆在那儿、点下去 MainWindow 会说一句"还没做"。
@@ -211,12 +267,14 @@ public:
     /// NOTE: 数据包那一页没有开关（`InstanceSettingsDialog::fileKeyCanToggle` 对它给 false）
     ///       ⇒ 那一页的「禁用 / 启用」两颗**藏着**（不建/不摆会让那一条的宽度跟着变，
     ///       而这一条是居中的，变宽度就是整条跳一下）。
-    /// ★★ 2026-10-10（用户原话：「修改禁用/启用状态时改成**没有禁用的时候不显示启用**，
-    ///   但是**没有启用（全是禁用）的时候保持显示禁用**」）：这两颗**故意不一样** ——
-    ///   「启用」在**选中的里面一条禁用着的都没有**时整颗收起来（此刻它本来就是灰的，
-    ///   按下去无事可做）；而「禁用」**恒露着**，哪怕选中的全都已经禁用着（那一颗只是
-    ///   灰着，不收）。判据取的是**选中集**（和这两颗的灰化同一个口径），不是整页的条数
-    ///   （`stateFilterCount()` 是顶上那四颗筛选按钮的口径）。
+    /// ★★ 2026-10-11（用户原话：「下方那个框在**禁用旁边增加启用**」）—— 这两颗现在是
+    ///   **对称**的：**摆着，不适用就灰着**，和这条上其余每一颗逐字同一条规矩。
+    ///   （2026-10-10 曾经有一版**故意不对称**的规矩 ——「没有禁用的时候不显示启用，但是
+    ///   全是禁用的时候保持显示禁用」，那次是「别摆一颗按不动的」的意思；用户看到的是
+    ///   "这条上只有禁用、没有启用"，于是以为这一页根本没有启用。**已收回，别再按那版写。**）
+    ///   灰化的判据取的是**选中集**（`anyEnabled` / `anyDisabled`，和这两颗的灰化同一个
+    ///   口径），不是整页的条数（`stateFilterCount()` 是顶上那四颗筛选按钮的口径）。
+    ///   唯一"不摆"的情形是**整页没有开关**（数据包）⇒ 两颗一起藏（见上面那条 NOTE）。
     enum class SelectionAction {
         Update,      ///< 更新（把选中的那些升到最新版）
         Disable,     ///< 禁用（把选中的那些改名挂上 `.disabled`）
@@ -277,6 +335,64 @@ public:
     ///   在 `setCurrentIndex()` 之后一定会喊 `refresh()`）。
     void setDirectory(const QString &dir);
     QString directory() const { return m_directory; }
+
+    // ---------- 「结构/原理图」那一页顶上那两排「来源」（2026-10-10）----------
+    //
+    // 【为什么这一页要多出这么一个东西】
+    //
+    // 那一页上两样东西的**归属不一样**：投影（Litematica 的 `.litematic`）是**实例级**的
+    // —— 就在 `<实例>/schematics/` 一个目录里；而结构方块存下来的那些 `.nbt`
+    // **跟着存档走** —— `<实例>/saves/<存档>/generated/minecraft/structures/**`，
+    // 一个存档一份（实测确认过，见 FEATURES.md 的「★ 「结构」那半边」那一段）。
+    // 于是"这一页看哪一个目录"这句话在这一页上**说不全**，它得同时列两个来源。
+    //
+    // 用户 2026-10-10 原话：「那就像版本树一样根据存档来列…两个下拉框并排」，
+    // 补一句把次序钉死：「**横着并排，即上面一排是存档的，下面一排是投影的**」。
+    //
+    // 【这一层不知道什么】
+    //
+    // 哪些存档真有结构、装没装投影模组 —— 这两句话这一层都说不出口（它够不着 AppPaths，
+    // 也不 include src/）。**由 MainWindow 算好递进来**（它手上两样都有），这一层只管
+    // 摆控件、按下拉框里选中的那几个目录列文件。
+    struct StructureSource {
+        QString title;      ///< 这一排左边那个词（「存档」/「投影」）。
+        QStringList labels; ///< 下拉框里那几行字。
+        QStringList paths;  ///< 和 labels **一一对应**的目录（绝对路径）。
+    };
+
+    /// 摆上那几排来源下拉框。**一排一项，顺序就是屏幕上的次序**（第一排在最上面）。
+    ///
+    /// - **传空的（没调过也一样） = 这一页没有那两排**：列的还是 `setDirectory()` 给的那
+    ///   一个目录 —— 别的七页因此**一个像素都不变**。
+    /// - 一个来源**一行都没有**时（`labels` 空），下拉框里摆**一行灰的**
+    ///   `structureNoneText()`（用户原话：「如果没有任何存档含有结构那么存档总下拉打开
+    ///   显示无可用的结构」），选它就等于没选。
+    /// - 列表列的是**各排现在选中的那几个目录合起来的东西**（不是"选中谁列谁" —— 那两排
+    ///   同时在屏幕上，用户要的是同时看得见两样）。
+    /// - 两排的排头占**同一个宽度**（取递进来的那些 `title` 里最宽的那个）⇒ 两个下拉框
+    ///   左边对得齐。★ 这一条只有**真机**量得出来（离屏上量布局会假绿），钉在 ui_shot 的
+    ///   10d4 上 —— 那一条故意给两排喂**不一样长**的排头。
+    void setStructureSources(const QList<StructureSource> &sources);
+
+    /// 那一排「存档」的排头（**唯一出处**：界面和验证工程都读它）。
+    static QString structureWorldTitle() { return QStringLiteral("存档"); }
+    /// 那一排「投影」的排头。
+    static QString structureSchematicTitle() { return QStringLiteral("投影"); }
+    /// 「投影」那一排下拉框里那一行的字（这一排今天只有一个来源：那个文件夹本身）。
+    static QString structureSchematicText() { return QStringLiteral("原理图文件夹"); }
+    /// 一个来源一行都没有时，下拉框里那**一行灰字**。
+    static QString structureNoneText() { return QStringLiteral("无可用的结构"); }
+    /// 第 row 排那个下拉框的 objectName（验证工程按它找控件，**不解析文字**）。
+    static QString structureComboName(int row) {
+        return QStringLiteral("instanceFilesStructureCombo%1").arg(row);
+    }
+    /// 第 row 排那个排头标签的 objectName。
+    static QString structureTitleName(int row) {
+        return QStringLiteral("instanceFilesStructureTitle%1").arg(row);
+    }
+
+    /// 那几排来源下拉框（**给验证工程用**）。没摆过 = 空表。
+    QList<QComboBox *> structureSourceCombos() const { return m_structureCombos; }
 
     /// 上面那条"先不列"欠着的那一趟还没补吗。（**只给判据用**：产品代码不该按它分支 ——
     /// 谁要用这一页的内容，就该先把这一页摆到台前。）
@@ -365,6 +481,15 @@ public:
     /// 顶上那两颗（只有存档那一页露着，见 setImportText / setBatchText）。
     QPushButton *importButton() const { return m_import; }
     QPushButton *batchButton() const { return m_batch; }
+    /// 顶上那颗「加入选中的世界」（同上：只有存档那一页接得起 `setJoinText()`）。
+    QPushButton *joinButton() const { return m_join; }
+
+    /// 现在选中的那一条的**绝对路径**（没选中任何一条 = 空串）。
+    ///
+    /// NOTE: 读的是**视图里真选着的**那一行（`selectedItems()`），不是 `m_currentPath`
+    ///       那种缓存 —— 重列之后行是新的，缓存就会指着一个已经不在了的位置。
+    ///       和 `selectedPathList()` 同一个出处、同一把钥匙（`pathRole()`）。
+    QString currentPath() const;
     /// 第 @p row 行那一格**名字**（ElidedLabel，对外当个 QLabel）。验证工程按它量名字那一格
     /// 装不下时是省略号收尾、以及每一行都有这一格。
     /// NOTE: 2026-10-09 起它**不再是链接**（"点名字进详情页"退场，改成行尾那颗详情按钮），
@@ -519,6 +644,29 @@ public:
     /// 一整列名字全看不见 —— 见 InstanceFilesPage.cpp::makeRow 里那段）。
     static QString nameLabelName() { return QStringLiteral("instanceFilesNameLabel"); }
 
+    /// ★★ 2026-10-11：名字**后面**那个上箭头 —— "这一条查出来有新版本"（用户原话：
+    /// 「可更新的模组在名称后面显示一个上箭头（和名字一个字号）」）。
+    ///
+    /// 它接的是从前那颗「可更新」筛子兼着说的话：筛子只说得出口"这个目录里有几条这样的"
+    /// （而且**没查过的时候整颗收着**，见 stateFilterVisible() 里那段），"到底是哪一条"
+    /// 得站在那一行上才知道 —— 那正是这一串尾巴。
+    ///
+    /// ★★ 它是**名字那一格字符串的一部分**，不是旁边另起的一格。试过另起一格（一个并排的
+    ///   横排布局），屏幕上是这么坏的：名字那一格是 `QSizePolicy::Ignored` 的
+    ///   （"别拿它的 sizeHint 去撑这一行"，见 nameLabelMinWidth() 那段），它会把整行余下的
+    ///   宽度**全吃掉** —— 于是箭头被推到行的最右边，离名字几百像素，ui_shot 的 10d 那张图
+    ///   当场拍到了。拼进同一个字符串里，"紧挨着名字"和用户点名的那条"**和名字一个字号**"
+    ///   就都成了**结构保证**的（同一串字、同一个控件、同一个字体），而不是调出来的。
+    /// ★ 判据只有一处：`m_outdatedPaths`（`setUpdateResult()` 喂进来的那份名单，路径逐字
+    ///   相等；禁用/启用改过名的那条自然不在里面 —— 那一行本来就是关着的，见
+    ///   MainWindow::checkInstanceUpdates() 里"禁用着的不查"那条）。
+    static QString updateArrowText() { return QStringLiteral("↑"); }
+    /// 名字那一格**最终**写的那串：有新版本的在尾巴上缀一个空格 + `↑`（**唯一出处** ——
+    /// 摆行的地方和验证工程都读它，别就地拼）。@p outdated 为假时原样回 @p displayName。
+    static QString nameTextWithUpdateMark(const QString &displayName, bool outdated) {
+        return outdated ? displayName + QStringLiteral(" ") + updateArrowText() : displayName;
+    }
+
     /// 名字那一格**至少**要有这么宽（px）。名字那一格是这一行的主要内容，宁可让这一行
     /// 溢出被裁，也不许它缩到看不见。
     static int nameLabelMinWidth() { return 120; }
@@ -541,6 +689,7 @@ public:
     /// 一样：每一页都建，露不露由文字说了算）。
     static QString importButtonName() { return QStringLiteral("instanceFilesImportButton"); }
     static QString batchButtonName() { return QStringLiteral("instanceFilesBatchButton"); }
+    static QString joinButtonName() { return QStringLiteral("instanceFilesJoinButton"); }
 
     /// 行首那一格**图标**（QLabel，里面是一张 pixmap，见 setIconForPath()）。
     /// 和上面那两颗一样：一页里有很多个、名字都一样 ⇒ 按行取。
@@ -652,9 +801,13 @@ public:
     }
     /// 选着「可更新」、但**这个实例还没查过更新**（见 setUpdateResult 的 checked）。
     /// 这句话得说清下一步去哪儿按 —— 不说的话用户只会以为"筛坏了"。
+    ///
+    /// NOTE: 开了批量那四页上现在**够不着它**了（「可更新」那一颗在没查过的时候整颗收着，
+    ///       条件也就落不到这一档上，见 stateFilterVisible() 里那段）；摆下拉框的那几页
+    ///       还走得到（下拉框不收空档、也不写条数）。所以这句话现在照旧是"你上别处按一颗
+    ///       去"那一路。
     static QString updateNotCheckedText() {
-        return QStringLiteral("还没有查过更新 —— 到「概览」那一栏点一下「检查更新」，"
-                              "查完回来这里就能按「可更新」筛。");
+        return QStringLiteral("还没有查过更新 —— 到「概览」那一栏点「检查更新」，这里就会列出来。");
     }
     /// 选着「可更新」、查过了、这一页里一条要更新的都没有。
     static QString updateNoneText() {
@@ -662,6 +815,36 @@ public:
     }
     /// 目录不存在 / 是空的时候那一句（每一页都可以自己盖掉，见 setEmptyText）。
     static QString emptyText() { return QStringLiteral("这个文件夹还是空的。"); }
+
+    // ---------- 「这一页现在停在哪儿」（★★ 2026-10-11）----------
+    //
+    // 用户原话：「点进模组详情以后退出来保留刚才的滚动位置」。
+    //
+    // 这一层自己本来就有一份滚动位置（`m_scrollAnchor`，见下面那两个函数）—— 那是给
+    // "**同一页重列**"用的（点一下开关不跳回顶端），重列时那个对象还活着，它自然记得住。
+    // 点进资源详情页不一样：回来时这一页是**整个重新 new 出来的**
+    // （`MainWindow::openInstanceSettingsNow()` 里那个栈上的对话框，上一趟连着一起没了），
+    // 所以位置必须**在离开那一刻量下来、由外面带回来**。
+    //
+    // 带出来的就是这一对数字：最上面那一行的**身份**（`identityPath()` —— 和"还选择"、
+    // 重列锚点用的是同一把钥匙）+ 它当时离视口顶端多少像素。
+    struct ScrollPosition {
+        QString identity;  ///< 那一行的身份（`identityPath()`），空 = 没有位置
+        int delta = 0;     ///< 它当时离视口顶端多少像素（`visualItemRect().top()`，通常是负数）
+    };
+
+    /// 这一页**现在**停在哪儿（拿去跨"重建这一页"）。
+    /// NOTE: 是**现算**的，不是读 `m_scrollAnchor` —— 那一位只在重列那一趟前后有效，
+    ///       用户点详情按钮的那一刻它多半是空的（中间没发生过重列）。
+    ScrollPosition scrollPosition() const;
+
+    /// 把上一次带出去的位置**塞回来**：这一页下次真列出来时摆到那儿。
+    ///
+    /// ★ 只在"刚 new 出来、还没列过"这一刻调得到（调用点是 `openInstanceSettingsNow()`
+    ///   里、`showPage()` **之前**）。能活到那一趟是靠 `rememberScrollAnchor()` 那条
+    ///   规矩：**看见空表就不动手** —— 空页第一趟 `refresh()` / `rebuildRows()` 两次记
+    ///   之前表都是空的，塞进来的这一份因此原样活到 `restoreScrollAnchor()`。
+    void setScrollPosition(const ScrollPosition &position);
 
 signals:
     /// 用户点了「打开文件夹」，或者行首那颗（两种都开同一个目录）。
@@ -680,6 +863,15 @@ signals:
     ///   （「把点击条目进入对应详情页的功能变成一个详情按钮」）—— 名字那一发整个退场，
     ///   单击改成"选中这一行"。
     void detailRequested(const QString &path);
+
+    /// ★★ 2026-10-11 拆掉：这里曾经还有一发 `updateCheckRequested()`，让顶上那颗
+    ///   「可更新」在**还没查过**的时候兼作"现在就去查一趟"的第二个入口。
+    ///   用户当天的回复把那一版否掉了，原话：**「没有检查的时候先隐藏可更新按钮」**
+    ///   ⇒ 那一颗在没查过的时候压根摆不出来，"点它"也就没有发生的余地。
+    ///   现在这一页**不自带任何入口**，检查更新只有「概览」那一栏那一颗。
+    ///   ⚠ 别再把它加回来：这一层连 AppPaths 都够不着（见文件头那段），而且那颗按钮
+    ///     本来就该是纯粹的筛子 —— 点一下筛条件就走网络是两件事挤在一颗按钮上。
+    ///   哪一条有新版本改由**那一行自己的 ↑**说（见 makeRow 里那个箭头）。
 
     /// 用户点了悬浮操作条上的**「更新」**：把选中的这些升到最新版。
     /// @param paths 选中的那些条目的**绝对路径**（现在盘上那个名字）。
@@ -718,6 +910,11 @@ signals:
     /// 用户点了顶上那颗「导入世界」。**这一层不问"从哪儿导、导成什么名字"** —— 它连
     /// AppPaths 都够不着（见文件头那段），挑目录和拷文件全在 MainWindow。
     void importRequested();
+
+    /// 用户点了顶上那颗「加入选中的世界」。@param path 是选中那一条的**绝对路径**
+    /// （存档目录本身）—— 进游戏要的是那个目录的**名字**，由接的人自己取
+    /// （这一层和 `editRequested()` 一样只报"点了哪一条"）。
+    void joinRequested(const QString &path);
 
     /// 用户点了顶上那颗「批量编辑」。**今天是个占位**：接的人负责说那句"还没做"。
     void batchEditRequested();
@@ -839,12 +1036,16 @@ private:
     /// （`rebuildRows()` 末尾那个 0 毫秒定时器里，见那一段的 NOTE）。
     void restoreScrollAnchor();
 
+    /// 现算一遍"最上面那一行是谁、它在哪儿"（`scrollPosition()` 和
+    /// `rememberScrollAnchor()` 同一份算法，收在这儿只写一次）。
+    /// NOTE: **没有**"空表就不动手"那条规矩 —— 表空的时候它老老实实回一份空的
+    ///       （`m_list == nullptr` / 一行都没露 都算空）。那条规矩是 `rememberScrollAnchor()`
+    ///       自己加的，见它那段。
+    ScrollPosition captureScrollPosition() const;
+
     /// 重列之前最上面那一行是谁、当时在哪儿（见上面两个函数）。
-    struct ScrollAnchor {
-        QString identity;  ///< 那一行的身份（`identityPath()`），空 = 没有锚点
-        int delta = 0;     ///< 它当时离视口顶端多少像素（`visualItemRect().top()`，通常是负数）
-    };
-    ScrollAnchor m_scrollAnchor;
+    /// ★ 类型就是外面那一份 `ScrollPosition` —— 从详情页回来时带进来的正是它。
+    ScrollPosition m_scrollAnchor;
 
     /// 状态栏里第 @p index 格对应哪一档（那一格的数据里存的就是它，`Qt::UserRole`）。
     static StateFilter filterAt(const QComboBox *combo, int index);
@@ -898,6 +1099,18 @@ private:
     ///         - 全选 / 反选 / 取消 / 删除：恒可用。
     ///       判据是 `m_entries` 里那一条的 `disabled`（不是行控件的开关状态 —— 那个是画出来的）。
     void updateSelectionBar();
+
+    /// 顶上那颗「加入选中的世界」的**灰/亮**照"现在选没选中一条"重算一次（2026-10-10）。
+    ///
+    /// ★ 和 `m_selectionBar` 那一套**不是一回事**：那条只在批量那四页上活着（这一颗只在
+    ///   存档那一页上活着），而两条的灰化口径也不同（那条看的是"选中的那些里有没有
+    ///   可更新的"，这一颗看的是"有没有选中一条"）。
+    ///
+    /// NOTE: 三个地方要喊它 —— `setJoinText()`（接文字的时候顺手定一次初值）、
+    ///       `itemSelectionChanged`（用户点了一行）、以及重列之后（行是新的一批）。
+    ///       ★ 后两处**靠同一发信号**兜住：`rebuildRows()` 的 `clear()` 就会发一次
+    ///       `itemSelectionChanged`（见 .cpp 里那段 NOTE）。
+    void updateJoinEnabled();
 
     /// 把那条操作条摆到"viewport 下缘、横向居中"那一格。**由 viewport 的 Resize 事件和
     /// 每一次显隐驱动**（见 eventFilter）。
@@ -964,6 +1177,12 @@ private:
     bool m_canEdit = false;
     QString m_emptyText;
     QString m_directory;
+    /// 顶上那几排「来源」（见 setStructureSources）。**空 = 这一页没有那两排**，列的就是
+    /// m_directory 那一个目录 —— 那是别的七页走的路。
+    QList<StructureSource> m_structureSources;
+    /// 和 m_structureSources **逐位对齐**的那几个下拉框 / 排头标签。
+    QList<QComboBox *> m_structureCombos;
+    QList<QLabel *> m_structureTitles;
     /// 用不上的原因（空串 = 用得上）。见 setUnavailable()。
     QString m_unavailable;
     /// 上一次 refresh() 之后**目录里**是不是一条都没有（还没过筛选这一层）。**只由
@@ -1027,6 +1246,10 @@ private:
     QLineEdit *m_search = nullptr;
     /// 上面那一排（路径 + 两颗按钮）。「用不上」的时候整排一起收起来。
     QWidget *m_pathRow = nullptr;
+    /// 顶上那几排「来源」下拉框的容器（**只有「结构/原理图」那一页会露**，见
+    /// setStructureSources）。摆在路径那一排**之下**、状态那一排之上。
+    QWidget *m_structureRows = nullptr;
+    QVBoxLayout *m_structureLayout = nullptr;
     /// **按钮那排下面那一排**：非批量页上是「显示」+ 下拉框（用户原话是「三个按钮的下方
     /// 一个选择」），批量页上是那四颗横向按钮（2026-10-09）。**两套都在这一排里**，
     /// 按 `m_batchMode` 互相显隐（见 applyState）。
@@ -1049,6 +1272,13 @@ private:
     /// 顶上那两颗（「导入世界」/「批量编辑」）。同上：每一页都建，没接文字就藏着。
     QPushButton *m_import = nullptr;
     QPushButton *m_batch = nullptr;
+    /// 顶上那颗「加入选中的世界」（2026-10-10）。**每一页都建**（和上面那几颗同一条理由：
+    /// 这几页是同一段循环搭出来的），没接过 `setJoinText()` 的页上它藏着的。
+    QPushButton *m_join = nullptr;
+    /// 「加入选中的世界」的悬停提示（setJoinText() 递进来的那一句）。**存在这儿**是因为
+    /// 那颗按钮"选中/没选中"时提示要换（见 updateJoinEnabled()）—— 换完还得换得回**原来
+    /// 那一句**，而那句话是调用方给的，这一层编不出来。
+    QString m_joinTip;
     QListWidget *m_list = nullptr;
     QLabel *m_notice = nullptr;
 
@@ -1113,4 +1343,13 @@ private:
     /// 不在任何堆叠容器里（单独用这个控件的那几个验证工程）恒为 true —— 那种用法没有
     /// "当前页"这回事，照旧立刻列。
     bool isCurrentPage() const;
+
+    /// 第 row 排「来源」下拉框**现在选着的那个目录**（没得选 / 选的是「无可用的结构」
+    /// 那一行 ⇒ 空串）。见 setStructureSources()。
+    QString selectedStructurePath(int row) const;
+
+    /// 这一趟 refresh() 要读盘的那几个目录。**没有「来源」那两排时就是 `m_directory`
+    /// 一个**（别的七页走的路）；有那两排时是它们**现在选中的那几个**（去重、按排的次序）。
+    /// 唯一出处 —— refresh() 只读它。
+    QStringList scanDirectories() const;
 };

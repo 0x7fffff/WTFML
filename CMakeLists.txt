@@ -31,6 +31,7 @@ set(HEADER_FILES
     src/manage/InstanceIconLookup.hpp
     src/manage/ModpackImport.hpp
     src/manage/ModpackExport.hpp
+    src/manage/ServerListFile.hpp
     src/manage/ServerStatusCache.hpp
     src/manage/VersionManager.hpp
     src/manage/VersionDisplay.hpp
@@ -84,6 +85,7 @@ set(SOURCE_FILES
     src/manage/ModpackImport.cpp
     src/manage/ModpackExport.cpp
     src/manage/ServerStatusCache.cpp
+    src/manage/ServerListFile.cpp
     src/manage/DefaultSkin.cpp
     src/manage/PlayerSkinStore.cpp
     src/manage/RandomSkinStore.cpp

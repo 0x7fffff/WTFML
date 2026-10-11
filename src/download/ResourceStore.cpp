@@ -24,6 +24,14 @@
 
 namespace {
 
+/// 「这一串文件各自该换成哪一版」那一批**一发最多带多少个 sha1**（2026-10-11）。
+///
+/// 100 这个数和 `InstanceIconLookup::kLookupChunk` / `VersionManager::kLookupChunk` 是
+/// **同一个数**（那两处也是"一次带一串哈希/指纹"）—— 三处在做同一件事，没有理由各写一个。
+/// 一个 295 个模组的整合包 = 3 发，而不是 295 发（那 295 发正是 2026-10-11 那次限流的原因，
+/// 见 .hpp 里 fetchLatestVersions 那段）。
+constexpr int kLatestChunk = 100;
+
 /// CurseForge 那条路要额外带的头：`x-api-key`（**只有用户自己填了 key 才有**）。
 ///
 /// 默认那条路是社区镜像、不要 key（见 ModpackImport::curseForgeApiBase）：那时候一个头都
@@ -156,9 +164,114 @@ QString ResourceStore::curseForgeApiBase() const {
     return ModpackImport::curseForgeApiBase(m_curseForgeApiKey, m_curseForgeApiBaseOverride);
 }
 
+void ResourceStore::fetchLatestVersions(const QString &requestKey, const QStringList &sha1s,
+                                        const QString &gameVersion, const QString &loader) {
+    // 同一把钥匙上又来一批（用户又点了一次「检查更新」）：旧那几发**先掐掉** ——
+    // 和 `fetchVersions()` 开头那两句同一个理由（回来得晚的那一发不该盖掉新的）。
+    // 掐掉之后它们**照样会发 finished**，所以下面那个回调拿"代号"认人（见 LatestRun）。
+    if (auto previous = m_latestRuns.find(requestKey); previous != m_latestRuns.end()) {
+        const QList<QNetworkReply *> stale = previous->replies;
+        m_latestRuns.erase(previous);
+        for (QNetworkReply *reply : stale) {
+            if (reply != nullptr) {
+                reply->abort();
+            }
+        }
+    }
+
+    const auto emptyAnswer = [this, &requestKey]() {
+        emit latestVersionsFinished(requestKey,
+                                    QHash<QString, ResourceCatalog::VersionEntry>(), QString());
+    };
+
+    // 先把要发几发数出来（空表 / 全是空白的 sha1 = **一发都不发**，照样回一发）。
+    QList<QByteArray> bodies;
+    for (int offset = 0; offset < sha1s.size(); offset += kLatestChunk) {
+        const QByteArray body = ResourceCatalog::versionFilesUpdateRequestBody(
+            sha1s.mid(offset, kLatestChunk), gameVersion, loader);
+        if (!body.isEmpty()) {
+            bodies.append(body);
+        }
+    }
+    if (bodies.isEmpty()) {
+        emptyAnswer();
+        return;
+    }
+
+    LatestRun run;
+    run.generation = ++m_latestGeneration;
+    run.pending = bodies.size();
+    const quint64 generation = run.generation;
+    const QString url = ResourceCatalog::versionFilesUpdateUrl(m_modrinthApiBaseOverride);
+    m_latestRuns.insert(requestKey, run);
+
+    for (const QByteArray &body : bodies) {
+        // ★ `Content-Type` **必须给**（`resourceRequest` 那三个参数里最后一个）：
+        //   QNetworkAccessManager 不会替一个 POST 猜它，而缺了它的正文那边读不成 JSON。
+        QNetworkReply *reply =
+            m_net->post(resourceRequest(url, {}, QByteArrayLiteral("application/json")), body);
+        m_latestRuns[requestKey].replies.append(reply);
+
+        QObject::connect(reply, &QNetworkReply::finished, this,
+                         [this, reply, requestKey, generation]() {
+            reply->deleteLater();
+            auto it = m_latestRuns.find(requestKey);
+            // 两样都要对得上：这一把钥匙上还是我这一批（**代号**），而且这一发真的在名单里
+            // （被 abort 掉的那些不在里面 —— 它们是被后来那一批换掉的）。
+            if (it == m_latestRuns.end() || it->generation != generation) {
+                return;
+            }
+            const int status = statusOf(reply);
+            const QByteArray body = reply->readAll();
+            const QString what = QStringLiteral("读取版本列表");
+            QHash<QString, ResourceCatalog::VersionEntry> part;
+            bool ok = false;
+            if (status == HttpClient::kStatusTooManyRequests) {
+                it->problem = HttpClient::throttledText(what);
+            } else if (!okStatus(status)) {
+                it->problem = failureText(reply, body, what);
+            } else {
+                // 200 也得**看一眼形状**：网关的拦截页也是 200。读不出来就是"这一批没问到"
+                // —— 一条都不许当成"已是最新"（见 .hpp 里那条 NOTE）。
+                const QJsonDocument document = QJsonDocument::fromJson(body);
+                if (!document.isObject()) {
+                    it->problem = QStringLiteral("版本列表读不懂（接口回的不是一份版本清单）");
+                } else {
+                    part = ResourceCatalog::parseVersionFilesUpdate(body);
+                    ok = true;
+                }
+            }
+            if (ok) {
+                for (auto found = part.constBegin(); found != part.constEnd(); ++found) {
+                    it->merged.insert(found.key(), found.value());
+                }
+            }
+            if (--it->pending > 0) {
+                return;  // 还有几发没回来，等它们
+            }
+            // 收尾：**把这一批整个拿出来**再发信号 —— 发出去之后接的人可能立刻又开一批，
+            // 那时候这一格已经不是我的了。
+            const LatestRun finished = *it;
+            m_latestRuns.erase(it);
+            emit latestVersionsFinished(requestKey, finished.merged, finished.problem);
+        });
+    }
+}
+
 void ResourceStore::abortAll() {
     const QList<QNetworkReply *> replies = m_replies.values();
     m_replies.clear();
+    // 批次那几发也要掐（它们是**独立**的一张表，见 m_latestRuns 那段）—— 少掐这一处的
+    // 症状是"窗口关了之后那几个回调还会回来"，而那时候 `this` 已经被析构了。
+    const QList<LatestRun> latestRuns = m_latestRuns.values();
+    m_latestRuns.clear();
+    for (const LatestRun &run : latestRuns) {
+        for (QNetworkReply *reply : run.replies) {
+            if (reply != nullptr) {
+                reply->abort();
+            }
+        }
+    }
     for (QNetworkReply *reply : replies) {
         // abort 之后**不能再去读它**（HttpClient 那边的老规矩，漏了就是偶发崩溃）。
         // 掐掉会让它发 finished，那个回调第一件事就是"这一发还是不是手上这个"——

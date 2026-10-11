@@ -476,6 +476,18 @@ public:
     ///       rowSubTextRole() 上面那段"撞号的表现是屏幕上多出一笔"）。
     static int serverAddressRole() { return Qt::UserRole + 15; }
 
+    /// 「服务器列表」那一页第 0 列里**那一台服务器真正的名字**（`servers.dat` 里写的那个，
+    /// 可以是空串）。
+    ///
+    /// Why 要专门存一格：那一格显示的是 `unnamedMark()`（「（无名）」）—— 名字空的那些在屏幕
+    /// 上写的是一句**我们编的话**，而「编辑」那颗按钮要预填的是**文件里真正的那一串**（空就
+    /// 是空，用户想让它继续空着）。拿屏幕上的字当数据用的话，用户一点「编辑」就会看见
+    /// 「（无名）」被预填进输入框，一确定就把这四个字**真的写进 servers.dat** 了。
+    ///
+    /// NOTE: 号码 **`Qt::UserRole + 16`**（15 是 serverAddressRole() 的，见
+    ///       rowSubTextRole() 上面那段"撞号的表现是屏幕上多出一笔"）。
+    static int serverNameRole() { return Qt::UserRole + 16; }
+
     /// 「服务器列表」那一页的行高：比版本树那个常数**高一档**（多出来的那一档正好是
     /// 第二行小字的高度）。
     ///

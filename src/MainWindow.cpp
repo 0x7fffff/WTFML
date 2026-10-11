@@ -68,6 +68,7 @@
 #include <QDebug>
 #include <QDesktopServices>
 #include <QDir>
+#include <QDirIterator>
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QElapsedTimer>
@@ -146,7 +147,11 @@
 #include "util/ErrorReport.hpp"
 // 「服务器列表」那一页要读 servers.dat（NBT，老版本还是 gzip 过的）。
 #include "util/NbtUtil.hpp"
-// 同一页的「测速」：真的连上去问一遍每台现在什么样（图标 / MOTD / 人数 / 延迟）。
+// 同一页的「编辑」「添加」「删除」（2026-10-10）：改名字和地址、加一台、拿掉一台都要
+// **写** servers.dat —— NbtUtil 那一层故意只读，写侧单独一层（格式、按值匹配、gzip
+// 保留的理由都在它的文件头）。`ServerListFile::pathFor()` 也是这一份路径的唯一出处。
+#include "manage/ServerListFile.hpp"
+// 同一页的「刷新」：真的连上去问一遍每台现在什么样（图标 / MOTD / 人数 / 延迟）。
 #include "util/ServerPing.hpp"
 #include "util/SystemMemory.hpp"
 // 「导入整合包…」要读压缩包根目录里的 modrinth.index.json（ZipUtil::readEntry）。
@@ -2046,6 +2051,9 @@ void MainWindow::setupConnections() {
             &MainWindow::onDependencyVersionsFinished);
     connect(m_resourceStore, &ResourceStore::versionsFinished, this,
             &MainWindow::onUpdateCheckVersionsFinished);
+    // ★ 2026-10-11：更新检测里**Modrinth 那一拨**走的是批量那一发（见 batchItems 那段）。
+    connect(m_resourceStore, &ResourceStore::latestVersionsFinished, this,
+            &MainWindow::onUpdateCheckLatestFinished);
     connect(m_resourceStore, &ResourceStore::projectsFinished, this,
             &MainWindow::onDependencyProjectsFinished);
     // 详情页那一行前置要的名字（2026-09-28）。**和上面那一趟分开两个槽**，理由同 `versionsFinished`
@@ -5027,9 +5035,29 @@ ModDependencies::Target MainWindow::dependencyTargetFor(const QString &instanceI
     // 游戏版本和加载器都从**这个实例自己**读（不是从页面上那颗 chip）：前置要装进的是
     // 这个实例，而 chip 是用户在挑"看哪个版本"，两者可以不一样。
     const VersionDisplayParts parts = m_versionManager->displayParts(instanceId);
-    // `realVersion` = 这个实例**基于哪个原版**（PCL 那类合并实例只有它能说得出口，
-    // 见 VersionDisplayParts 那段）；它就是"这个实例的游戏版本"。
-    target.gameVersion = parts.realVersion;
+    // ★★ 2026-10-11：这一格走 `instanceGameVersion()`，**不是 `parts.realVersion`**。
+    //
+    //   缘由（用户 2026-10-11 原话：「看上去依然获取不到有效更新，比如说那个
+    //   hyperlands-new 实例里面有不少模组需要更新，但是实际上显示为一个都没有」）：
+    //   `parts.realVersion` 那一格**只有 `wtfml.meta` 里写着 `realVersion` 才有值**，
+    //   而今天**没有任何代码会写它**（见 VersionDisplayParts 那段自己的 NOTE）——
+    //   照他的盘量出来的是**72 个实例里 69 个递出去的是空串**（mw_check 的
+    //   `update-target` 探针，那一节就是干这个用的）。
+    //
+    //   而这两个筛参数**空着 = 不筛**（那是加载器那一格特意定的规矩，见下面那段），
+    //   于是检查更新问回来的成了"这个项目**最新**的那一版"——和这个实例的游戏版本
+    //   没有任何关系。真机实测（`update-live` 探针，同一个实例、同一批文件）：
+    //   递空串 ⇒ 报 40 条"可更新"，全是 26.3 / 26.4 的（那是另一代游戏版本上的 jar）；
+    //   递 1.21.11 ⇒ 报 12 条，逐条都是这个实例真能装的。前置那一趟同病：空串会让它
+    //   挑出别的游戏版本的依赖，装进去就崩（见上面那段注释里说的是同一件事）。
+    //
+    //   `instanceGameVersion()` 读的是**同一份 meta 的同一格**（① realVersion），读不出来
+    //   再顺继承链上 `clientVersion`（PCL / HMCL 那类把整份 json 合进实例目录的实例唯一
+    //   说得出口的地方）和链末端那个目录名 —— **导出整合包那一趟用的就是它**，两处要的
+    //   本来就是同一件事（"这个实例是哪个原版"），不该各有一份判据。（它比 ① 严一点：
+    //   那个值还得**像**一个真能装出来的版本号，认不出来就回空串 = 退回"不筛"，
+    //   也就是这一行今天的样子。）
+    target.gameVersion = m_versionManager->instanceGameVersion(instanceId);
     // ★ 加载器名走 instanceLoaderName()（理由同下面那道加载器闸）：PCL 那类合并实例
     //   （用户盘上 70 个里 67 个）从 parts.loaderName 读出来是空的，而那两个筛参数空着
     //   等于"不筛" —— 问回来的可能是任意加载器的前置。
@@ -5276,20 +5304,45 @@ void MainWindow::checkInstanceUpdates(const QString &instanceId, InstanceSetting
 
     // ① 候选文件（四个"能下载的资源"目录，不含存档/原理图 —— 那两样没有"更新"这回事）。
     QStringList paths;
+    // ★★ 2026-10-11：这一趟每个路径的**类别**（问版本列表时带不带加载器靠它，见
+    //   `ModDependencies::kindUsesLoader()` 那段）。收集的时候就记下来 —— 目录本来就是
+    //   按类走出来的，而反查那一趟只回一个路径，那时再猜就晚了。
+    QHash<QString, ResourceCatalog::Kind> pathKinds;
     const QHash<QString, QString> dirs = instanceFileDirs(instanceId);
     const QStringList wantedDirs = {QStringLiteral("mod"), QStringLiteral("resourcepack"),
                                     QStringLiteral("datapack"), QStringLiteral("shader")};
     for (const QString &kindKey : wantedDirs) {
+        ResourceCatalog::Kind kind = ResourceCatalog::Kind::Mod;
+        if (!ResourceCatalog::kindFromCategoryKey(kindKey, &kind)) {
+            continue;  // 页键认不回类别 = 这张表改了名，那一类这一趟不查（宁可少一类）
+        }
         const QString dir = dirs.value(kindKey);
         if (dir.isEmpty()) {
             continue;
         }
         QDir folder(dir);
-        // 不过滤"启用/禁用"：`X.jar.disabled` 也是那个文件，它的 sha1 照样能判。
         const QFileInfoList entries =
             folder.entryInfoList(QDir::Files | QDir::NoSymLinks, QDir::Name);
         for (const QFileInfo &info : entries) {
+            // ★★ 2026-10-11：**禁用着的那几条（`X.jar.disabled`）这一趟整个跳过**
+            //   （用户原话：「检查更新时跳过它」）。
+            //
+            //   从前这里是"不禁用/启用"（那四个字的后缀也是同一个文件、sha1 照样能判）——
+            //   改口径的理由：那一行在屏幕上是被**划掉**的（名字一道删除线、开关关着，
+            //   见 InstanceFilesPage::makeRow），游戏根本不加载它 ⇒ 替它问一趟"有没有新版本"
+            //   是替一个**用不到的东西**问：真答了也只是让那一行多出一个 ↑，而用户按不下去
+            //   （更新那一发是要**装进这个实例**的，装一个被禁用的文件没有意义）。
+            //   顺带这一趟也小一截（少读几个 jar、少发几发反查）。
+            //
+            //   NOTE: 判据就是盘上那个名字的后缀 —— 和文件页"这一条是不是禁用着"**逐字同一
+            //         个**（`disabledSuffix()`，大小写不敏感，和 InstanceFilesPage 里那处一样）。
+            //   NOTE: **不是**用 `identityPath()` 去重 —— 被跳过的那一条压根不进这份名单。
+            if (info.fileName().endsWith(InstanceFilesPage::disabledSuffix(),
+                                         Qt::CaseInsensitive)) {
+                continue;
+            }
             paths.append(info.absoluteFilePath());
+            pathKinds.insert(info.absoluteFilePath(), kind);
         }
     }
     if (paths.isEmpty()) {
@@ -5300,6 +5353,7 @@ void MainWindow::checkInstanceUpdates(const QString &instanceId, InstanceSetting
 
     m_updateCheck = UpdateCheckRun{};
     m_updateCheck.instanceId = instanceId;
+    m_updateCheck.pathKinds = pathKinds;
     // 结果回来时要递给**同一页**（见 UpdateCheckRun::dialog 那段）。弱引用：收页了就不递。
     m_updateCheck.dialog = dialog;
     appendLog(tr("正在检查「%1」里的资源有没有新版本（%2 个文件）...")
@@ -5352,6 +5406,22 @@ void MainWindow::onUpdateCheckLookupFinished(const InstanceIconLookup::Result &r
 
     const ModDependencies::Target target =
         dependencyTargetFor(instanceId, ResourceCatalog::Source::Modrinth);
+
+    // ★★ 2026-10-11：**一个文件只查一家**（缘由见 `UpdateCheckRun::fallbackItems` 那段）。
+    //   先量一遍"哪几个文件 Modrinth 认出来了" —— 同一个文件在两家都认出来时，
+    //   下面那两条记录（路径逐字同一个）只有**第一条**该往下走。
+    //   必须**单独走一趟**：`result.found` 的顺序不定（两份回复都是哈希表），
+    //   边遍历边攒的话，"CurseForge 那条"完全可能排在"Modrinth 那条"前面。
+    QSet<QString> modrinthPaths;
+    for (const InstanceIconLookup::Found &found : result.found) {
+        if (found.hit.projectId.isEmpty()) {
+            continue;
+        }
+        if (found.hit.source == ResourceCatalog::Source::Modrinth) {
+            modrinthPaths.insert(found.path);
+        }
+    }
+
     for (const InstanceIconLookup::Found &found : result.found) {
         if (found.hit.projectId.isEmpty()) {
             continue;
@@ -5361,11 +5431,47 @@ void MainWindow::onUpdateCheckLookupFinished(const InstanceIconLookup::Result &r
         item.iconKey = found.hit.iconCacheId();
         item.title = found.hit.title;
         item.sha1 = found.sha1;
+        // ★★ 2026-10-11：这一条问版本列表时**带不带加载器**（见
+        //   `ModDependencies::kindUsesLoader()` 那段 —— 资源包 / 光影包 / 数据包带上
+        //   实例的加载器就一条都问不到）。类别是收集候选文件那一步记下的。
+        item.loaderApplies = ModDependencies::kindUsesLoader(
+            m_updateCheck.pathKinds.value(found.path, ResourceCatalog::Kind::Mod));
+        // ★★ 2026-10-11：**Modrinth 认出来的那一拨不走单发**。
+        //
+        //   缘由见 `UpdateCheckRun::batchItems` 那段（用户报的「无法正常获取更新」）：一页
+        //   几百个模组各问一发版本列表，实测整批 429。这一拨改成"一次带一串 sha1"的批量
+        //   那一发（`POST /version_files/update`），一个项目都不单独问。
+        //
+        //   NOTE: 只有 Modrinth 有这个接口 —— CurseForge 那些照旧一项目一发（它们通常
+        //         只占一小撮，几发不成气候；而"两家的号不是一套"这件事在下面那把钥匙上
+        //         已经带着来源了）。
+        // ★★ 2026-10-11：这一条该带的加载器（`item.loaderApplies` 那一位的用法，
+        //   见 `ModDependencies::kindUsesLoader()` 那段）。**每一处拼钥匙 / 发请求都得
+        //   走它** —— 直接递 `target.loader` 的话，资源包那几类又带上「fabric」了。
+        const QString itemLoader = item.loaderApplies ? target.loader : QString();
+        if (found.hit.source == ResourceCatalog::Source::Modrinth && !found.sha1.isEmpty()) {
+            // 批量那一发**按钥匙分组**（加载器不同的两拨不能合成一发 —— 见
+            // `UpdateCheckRun::batchItems` 那段）。
+            const QString batchKey =
+                ModDependencies::latestVersionsKeyFor(QStringLiteral("update"), target.gameVersion,
+                                                      itemLoader);
+            m_updateCheck.batchItems[batchKey][found.sha1.toLower()].append(item);
+            m_updateCheck.batchLoader.insert(batchKey, itemLoader);
+            continue;
+        }
         // ★ 钥匙跟着**这一条自己的来源**走（两家的 id 空间不是一套，问错边问出来的是
         //   另一个项目）。来源在 hit 上，不在 target 上。
         const QString key = ModDependencies::versionsKeyFor(
-            QStringLiteral("update"), found.hit.projectId, target.gameVersion, target.loader,
+            QStringLiteral("update"), found.hit.projectId, target.gameVersion, itemLoader,
             found.hit.source);
+        // ★ 同一个文件 Modrinth 那边也认出来了 ⇒ **押着**（它已经在 `batchItems` 里了，
+        //   而两家的答案在这里同义）。等批量那一发回来看它有没有这个 sha1 的答案：有就
+        //   到此为止（这一条已经被判过），没有才退回问 CurseForge。
+        if (found.hit.source != ResourceCatalog::Source::Modrinth &&
+            modrinthPaths.contains(found.path)) {
+            m_updateCheck.fallbackItems[key].append(item);
+            continue;
+        }
         m_updateCheck.itemsByKey[key].append(item);
     }
 
@@ -5374,26 +5480,161 @@ void MainWindow::onUpdateCheckLookupFinished(const InstanceIconLookup::Result &r
          it != m_updateCheck.itemsByKey.constEnd(); ++it) {
         m_updateCheck.waitingKeys.insert(it.key());
     }
-    if (m_updateCheck.waitingKeys.isEmpty()) {
+    // 批量那几发（Modrinth 那一拨）：**一把钥匙一发**（模组那拨带加载器、资源包那拨不带
+    // —— 见 `UpdateCheckRun::batchItems` 那段）。空表就整个不发（"一个都不用问"也是走完了）。
+    for (auto it = m_updateCheck.batchItems.constBegin();
+         it != m_updateCheck.batchItems.constEnd(); ++it) {
+        m_updateCheck.pendingBatchKeys.insert(it.key());
+        m_resourceStore->fetchLatestVersions(it.key(), it.value().keys(), target.gameVersion,
+                                             m_updateCheck.batchLoader.value(it.key()));
+    }
+    if (m_updateCheck.waitingKeys.isEmpty() && m_updateCheck.pendingBatchKeys.isEmpty()) {
         // 一个都没认出来（新实例、或者全是自己改过的 jar）——**照样出一份报告**：
         // "一个都认不出来"正是用户需要知道的事，闷着不说是最坏的。
         finishUpdateCheck(instanceId);
         return;
     }
 
-    // 逐个项目问版本列表。**一把钥匙一发**，互相不撞。项目号从钥匙里读不出来（钥匙是拼
-    // 出来的一串），所以从这一组里那一条自己的 `iconKey`（`<来源>-<项目号>`）上取。
+    // 逐个项目问版本列表。**一把钥匙一发**，互相不撞。
     for (auto it = m_updateCheck.itemsByKey.constBegin();
          it != m_updateCheck.itemsByKey.constEnd(); ++it) {
-        const ModDependencies::InstalledItem &any = it.value().first();
-        ResourceCatalog::Source source = ResourceCatalog::Source::Modrinth;
-        const int dash = any.iconKey.indexOf(QLatin1Char('-'));
-        if (dash > 0) {
-            ResourceCatalog::sourceFromKey(any.iconKey.left(dash), &source);
+        requestUpdateCheckVersions(it.key());
+    }
+}
+
+// 更新检测：**按钥匙发那一发"问这个项目的版本列表"**（一把钥匙一发）。
+//
+// 单独一个函数的缘由是它有两个调用点 —— 反查那一趟回来时对 `itemsByKey` 里每把钥匙发一遍，
+// 以及批量那一发回来时给"退回问 CurseForge"的那些补发（见 `onUpdateCheckLatestFinished()`）。
+// 两处要发的东西是**逐字同一句**，抄第二份的话迟早有一边忘了带上来源。
+void MainWindow::requestUpdateCheckVersions(const QString &requestKey) {
+    const QList<ModDependencies::InstalledItem> items = m_updateCheck.itemsByKey.value(requestKey);
+    if (items.isEmpty()) {
+        return; // 这一把底下没人 = 不是这一趟的钥匙，不发
+    }
+    // 目标（游戏版本 / 加载器）每次现算：它读的是实例自己那几份文件，而这一趟的实例
+    // 就在 `m_updateCheck.instanceId` 上。
+    const ModDependencies::Target target =
+        dependencyTargetFor(m_updateCheck.instanceId, ResourceCatalog::Source::Modrinth);
+    // 项目号从钥匙里读不出来（钥匙是拼出来的一串），所以从这一组里那一条自己的 `iconKey`
+    // （`<来源>-<项目号>`）上取。
+    const ModDependencies::InstalledItem &any = items.first();
+    ResourceCatalog::Source source = ResourceCatalog::Source::Modrinth;
+    const int dash = any.iconKey.indexOf(QLatin1Char('-'));
+    if (dash > 0) {
+        ResourceCatalog::sourceFromKey(any.iconKey.left(dash), &source);
+    }
+    const QString projectId = dash > 0 ? any.iconKey.mid(dash + 1) : any.iconKey;
+    // ★★ 2026-10-11：加载器只对**模组**说得上话（见 `kindUsesLoader()` 那段）。这一把钥匙
+    //   底下那几条是同一类（钥匙里就带着这一格），随便读一条都一样。
+    const QString itemLoader = any.loaderApplies ? target.loader : QString();
+    // 先记账再发：答案回来时按 `waitingKeys` 认"是不是这一趟等的"，漏记就是"判了不算"。
+    m_updateCheck.waitingKeys.insert(requestKey);
+    m_resourceStore->fetchVersions(requestKey, projectId, source, target.gameVersion, itemLoader);
+}
+
+void MainWindow::onUpdateCheckLatestFinished(
+    const QString &requestKey, const QHash<QString, ResourceCatalog::VersionEntry> &latest,
+    const QString &problem) {
+    // 不是这一趟等的那一发就丢掉（这一把钥匙只有更新检测在用，但"是不是我这一趟"这件事
+    // 还是得问一句 —— 用户完全可能刚又点了一次检查）。
+    if (!m_updateCheck.pendingBatchKeys.contains(requestKey)) {
+        return;
+    }
+    m_updateCheck.pendingBatchKeys.remove(requestKey);
+    // ★★ 2026-10-11：这一趟里**问回来过的 sha1 攒一份**（跨那几把批量钥匙）。下面"退回问
+    //   CurseForge"那一拨判的是"Modrinth 到底答没答过这一个哈希"，而它现在只看得见
+    //   **这一发**的答案 —— 不看这一份的话，另一把钥匙答过的那些会被当成"没答"再问一遍
+    //   （同一个文件于是进报告两条）。
+    for (auto it = latest.constBegin(); it != latest.constEnd(); ++it) {
+        m_updateCheck.batchAnswered.insert(it.key());
+    }
+
+    // 押着的那些文件**在结果里只该有一条**：它们的答案由下面那一拨（退回问 CurseForge）
+    // 说了算，所以这一发**没给出它们 sha1 的答案**时不在这一圈里判 —— 不然同一个文件会
+    // 带着一条"说不清"进报告，下面那一发再给一条（"检查了 N 个资源"那个数于是比盘上的
+    // 文件还多）。见 `UpdateCheckRun::fallbackItems` 那段。
+    QSet<QString> heldPaths;
+    for (auto it = m_updateCheck.fallbackItems.constBegin();
+         it != m_updateCheck.fallbackItems.constEnd(); ++it) {
+        for (const ModDependencies::InstalledItem &item : it.value()) {
+            heldPaths.insert(item.path);
         }
-        const QString projectId = dash > 0 ? any.iconKey.mid(dash + 1) : any.iconKey;
-        m_resourceStore->fetchVersions(it.key(), projectId, source, target.gameVersion,
-                                       target.loader);
+    }
+
+    // 只判**这一发**问回来的那一拨（`batchItems` 现在按钥匙分层，别的钥匙底下那些不归它）。
+    const QHash<QString, QList<ModDependencies::InstalledItem>> answeredItems =
+        m_updateCheck.batchItems.value(requestKey);
+    for (auto it = answeredItems.constBegin(); it != answeredItems.constEnd(); ++it) {
+        const ResourceCatalog::VersionEntry found = latest.value(it.key());
+        for (const ModDependencies::InstalledItem &item : it.value()) {
+            if (found.id.isEmpty() && heldPaths.contains(item.path)) {
+                continue; // 交给退回的那一发（上面那段）
+            }
+            const ModDependencies::UpdateVerdict verdict =
+                ModDependencies::judgeUpdateAgainstLatest(item, found, problem);
+            m_updateCheck.verdicts.append(verdict);
+            // "这条可更新"的那一瞬间把它该换成的那一版留一份（和单发那条路同一个规矩，
+            // 见 UpdateCheckRun::latestByPath）。
+            if (verdict.state == ModDependencies::UpdateState::Outdated && !found.id.isEmpty()) {
+                m_updateCheck.latestByPath.insert(item.path, found);
+            }
+        }
+    }
+
+    // ★★ 2026-10-11：**别的批量钥匙还押着就先别退**。退回那一拨（下面那一段）判的是
+    //   "Modrinth 到底答没答过这一个哈希"，而答案分在**几发**里 —— 早退一步的后果是
+    //   另一把钥匙底下那些**已经答过**的文件被当成"没答"退回问 CurseForge：同一个文件
+    //   进报告两条（一条 Modrinth 判的、一条 CurseForge 判的，还可能一条"有新版本"、
+    //   一条"已是最新"），正是 `UpdateCheckRun::fallbackItems` 那一段要防的那个症状。
+    //   收尾判据和 `checkInstanceUpdates()` / `onUpdateCheckVersionsFinished()` 那两句
+    //   **逐字同一条**。
+    if (!m_updateCheck.pendingBatchKeys.isEmpty()) {
+        return;
+    }
+
+    // ★★ 2026-10-11：**退回问 CurseForge 的那一拨**（见 `UpdateCheckRun::fallbackItems`
+    //   那段）。押在这儿的都是"两家都认出来了、先让 Modrinth 开口"的文件，现在按答案分流：
+    //   · **答过它的 sha1** ⇒ Modrinth 答了，上面那个循环已经把它判过了，丢掉；
+    //   · **没答过** ⇒ 这一条到现在为止**一发都没问过**（Modrinth 那边没有这个哈希 / 它
+    //     在这个游戏版本+加载器下没有版本），退回问 CurseForge —— "一个文件至少被问过
+    //     一次"是这一套的底线，不然它就成了报告里凭空少掉的一条。
+    //
+    //   NOTE: 判据是**这一趟攒下来的那一份**（`batchAnswered`，跨所有批量钥匙），
+    //         不是这一发的回复 —— 批量现在分几发，只看这一发的话另一把钥匙答过的那些
+    //         会被当成"没答"再问一遍（见上面那段）。
+    QStringList refire;
+    for (auto it = m_updateCheck.fallbackItems.constBegin();
+         it != m_updateCheck.fallbackItems.constEnd(); ++it) {
+        bool answered = false;
+        for (const ModDependencies::InstalledItem &item : it.value()) {
+            if (!item.sha1.isEmpty() && m_updateCheck.batchAnswered.contains(item.sha1)) {
+                answered = true;
+                break;
+            }
+        }
+        if (answered) {
+            continue;
+        }
+        // 挪进 `itemsByKey` —— **这一挪同时把它算进收尾判据**（那把钥匙发出去之后
+        // `onUpdateCheckVersionsFinished()` 判的就是这儿这一组）。
+        m_updateCheck.itemsByKey[it.key()].append(it.value());
+        // 同一个项目的**另一条**（比如它底下还有一个只有 CurseForge 认出来的文件）如果
+        // 已经发出去过了，就不再发第二发 —— 答案本来就是同一份（版本列表是按项目问的），
+        // 而 `onUpdateCheckVersionsFinished()` 是按**答案回来时**那一组来判的，照样判得到。
+        if (!m_updateCheck.waitingKeys.contains(it.key())) {
+            refire.append(it.key());
+        }
+    }
+    // 先清空再发：`requestUpdateCheckVersions()` 会往 `waitingKeys` 里加，而这两件事的顺序
+    // 反过来就是"刚记上的账又被这一句抹掉"（也免得一边遍历 `fallbackItems` 一边动它）。
+    m_updateCheck.fallbackItems.clear();
+    for (const QString &key : refire) {
+        requestUpdateCheckVersions(key);
+    }
+
+    if (m_updateCheck.waitingKeys.isEmpty()) {
+        finishUpdateCheck(m_updateCheck.instanceId);
     }
 }
 
@@ -5406,10 +5647,14 @@ void MainWindow::onUpdateCheckVersionsFinished(const QString &requestKey,
     m_updateCheck.waitingKeys.remove(requestKey);
 
     // 那一发没成 → **空表**进 judgeUpdate：那几条判"说不清"（**不是**"已是最新"）。
+    // ★ 2026-10-11：`problem` **跟着一起递进去** —— 那一发自己报的那句话（"问得太勤了"
+    //   这种）就是这几条判"说不清"的理由。从前它在这一句上被丢掉，于是 429 在报告里长得
+    //   和"网断了"一模一样（见 ModDependencies::judgeUpdate 那段）。
     const QList<ResourceCatalog::VersionEntry> &answer =
         problem.isEmpty() ? versions : QList<ResourceCatalog::VersionEntry>();
     for (const ModDependencies::InstalledItem &item : m_updateCheck.itemsByKey.value(requestKey)) {
-        const ModDependencies::UpdateVerdict verdict = ModDependencies::judgeUpdate(item, answer);
+        const ModDependencies::UpdateVerdict verdict =
+            ModDependencies::judgeUpdate(item, answer, problem);
         m_updateCheck.verdicts.append(verdict);
         // ★ 2026-10-09：判"这条可更新"的那一瞬间，把**它该换成的那一版**也留一份 ——
         //   文件管理页悬浮条上那颗「更新」要的就是它（见 UpdateCheckRun::latestByPath）。
@@ -5419,7 +5664,19 @@ void MainWindow::onUpdateCheckVersionsFinished(const QString &requestKey,
             m_updateCheck.latestByPath.insert(item.path, answer.first());
         }
     }
-    if (m_updateCheck.waitingKeys.isEmpty()) {
+    // ★★ 2026-10-11：**批量那几发还押着就不算跑完**。
+    //
+    //   这一节手上这两样是两条**互相独立**的线：`waitingKeys` 是"一项目一发"那一拨
+    //   （CurseForge 那些），`pendingBatchKeys` 是 Modrinth 那一拨的批量那几发。只看
+    //   `waitingKeys` 的话，一个**两家都有**的实例上（真机：271 条走批量 + 80 条走单发）
+    //   只要 CurseForge 那 80 发里**任意一发**先回来、而它正好是最后一把没还的钥匙，
+    //   这一趟就当场收尾了 —— 批量那一发回来时它自己那一句闸（见上面）直接 return：
+    //   **那 271 条一条都不会进报告**，退回问 CurseForge 的那一拨（`fallbackItems`）
+    //   也一辈子不会发出去。屏幕上是一份"检查了 80 个资源"的正常报告，日志也干干净净
+    //   —— 用户看到的就是「无法正常获取更新」。
+    //   收尾判据必须和 `checkInstanceUpdates()` / `onUpdateCheckLatestFinished()` 那两句
+    //   （"空表 + 没有批量"）**逐字同一条**。
+    if (m_updateCheck.waitingKeys.isEmpty() && m_updateCheck.pendingBatchKeys.isEmpty()) {
         finishUpdateCheck(m_updateCheck.instanceId);
     }
 }
@@ -7434,7 +7691,8 @@ static void versionRuntimeIds(const QJsonObject &versionJson, QString *assetInde
 
 QStringList MainWindow::launchArguments(const QString &versionId, const QJsonObject &versionJson,
                                         const EffectiveJavaSettings &javaSettings,
-                                        const QString &token, bool offlineMode) const {
+                                        const QString &token, bool offlineMode,
+                                        const QuickPlay::Target &quickPlay) const {
     // 兜底值只在这一份 json 没写那两个字段时才用得上（唯一出处在 versionRuntimeIds）。
     QString assetIndexId;
     int javaMajorVersion = 0;
@@ -7473,10 +7731,20 @@ QStringList MainWindow::launchArguments(const QString &versionId, const QJsonObj
     return m_launcherManager->generateJvmArguments(
         token, versionId, assetIndexId, versionJson, javaSettings, offlineMode, javaMajorVersion,
         m_versionManager->versionJvmArgs(versionId), m_authManager->playerName(),
-        m_authManager->playerUuid(), window, screen);
+        m_authManager->playerUuid(), window, screen, quickPlay);
 }
 
 void MainWindow::onStartButtonClicked() {
+    // ★ 「加入选中的世界 / 加入服务器」排上的那一发：**开头就取走并清掉**（2026-10-10）。
+    //
+    // 为什么是开头不是末尾：这一路上有七八个早退（版本 json 缺了 / natives 没备成 /
+    // 启动提醒被取消 / Java 对不上的框里点了取消…），每一个早退都得让这一发跟着作废 ——
+    // 在末尾取的话，"取消掉启动提醒、过一会儿自己点一下启动"会让游戏莫名其妙地进一个
+    // 用户早就放弃的世界。而"取走"这件事必须发生在任何会让出事件循环的框之前，否则
+    // 那些框里再进来一次启动就会看见同一个还没被消费掉的值。
+    const QuickPlay::Target quickPlay = m_pendingQuickPlay;
+    m_pendingQuickPlay = QuickPlay::Target();
+
     // 先认"启动哪一个"：下面那道闸口是按版本判的（见那段说明），所以版本号要在它前面拿到。
     // 只认"已安装版本"下拉框：启动只可能发生在本地已经装好的版本上。
     const QString versionId = selectedVersionId(m_ui->getInstalledVersionCombo());
@@ -7776,7 +8044,7 @@ void MainWindow::onStartButtonClicked() {
     // 是**同一个函数**给的（见 launchArguments 的说明）—— 那边还要程序名，程序名在这里
     // 由 LauncherManager 自己从 javaSettings.javaPath 取（取不到退 PATH 上的 java）。
     const QStringList jvmArgs =
-        launchArguments(versionId, versionJson, javaSettings, token, offlineMode);
+        launchArguments(versionId, versionJson, javaSettings, token, offlineMode, quickPlay);
     // 记住"上次启动的版本"的时机是**进程真的起来了**，不是"表达式算完了"。
     // startGame() 有三条早退路径（找不到 Java / waitForStarted 超时 / 会话数到顶），
     // 以前它们都会先骗一句"已开始启动游戏"再显示错误。以"起来了"为准也是对的：
@@ -9222,6 +9490,85 @@ void MainWindow::openGroupMenuFor(QTreeWidgetItem *item) {
     m_ui->openGroupMenu(row, gearAnchorFor(m_ui, groupId));
 }
 
+namespace {
+
+/// 一个存档目录里**有没有结构方块存下来的东西**（`generated/minecraft/structures/**/*.nbt`）。
+///
+/// 判据是"有没有"，所以一找到第一条就停 —— 一个存档存过几百次结构的话，把整棵子树走完
+/// 是白走的（这一趟在**每一次**开实例设置时都要跑：每个存档一次）。
+bool dirHasStructureFiles(const QString &structuresDir) {
+    QDirIterator it(structuresDir, QStringList{QStringLiteral("*.nbt")}, QDir::Files,
+                    QDirIterator::Subdirectories);
+    return it.hasNext();
+}
+
+/// 「结构/原理图」那一页顶上那两排「来源」（★ 2026-10-10，见
+/// `InstanceFilesPage::setStructureSources()`）。
+///
+/// 用户原话：「那就像版本树一样根据存档来列…两个下拉框并排」+「**上面一排是存档的，
+/// 下面一排是投影的**」。这两句话**只有这一层说得出口**（AppPaths 和"装没装那个模组"
+/// 都在它手上，ui/ 那一层两样都够不着）。
+///
+/// 摆出来的规矩（逐条都是用户点名的）：
+///   - **没有结构的存档一个都不列**（「没有结构的存档不显示在列表里面」）；
+///   - **没装投影模组就没有「投影」那一排**（「没有装投影图则不显示投影图下拉」）；
+///   - 一个存档都没有、可投影装着 ⇒ 存档那一排照旧露着，里面是那**一行灰字**
+///     （「如果没有任何存档含有结构那么存档总下拉打开显示无可用的结构」）；
+///   - 两样都没有 ⇒ 返回**空表**，那一页只剩"这个实例还没有结构 / 原理图"那句提示
+///     （「如果存档里面没有且投影也没装的话就直接不显示任何框，只保留没有结构的提示
+///     文本」）。
+///
+/// ★★ 2026-10-10：**这一页"用不上"的判据跟着放宽了**（见调用处那一段）：`schematic`
+///    从"只认 Litematica"变成"两半里有一半有东西就露"。理由就是上面第一条 —— 结构那一
+///    半是**游戏自己**的东西，没装投影模组照样该看得见，"这一页没人会读"那句话在那一半
+///    上根本不成立。
+///
+/// NOTE: 两排的**排头**（「存档」/「投影」）走 `InstanceFilesPage` 上那三个静态函数 ——
+///       界面上写着的那几个字只有一个出处，这一层不自己抄一份（验证工程也读它们）。
+/// 这个实例里**有结构的那些存档** —— 名字和"那些 `.nbt` 在哪个目录"两张**平行**的表
+/// （「结构」那一排的全部内容）。
+InstanceFilesPage::StructureSource worldStructureSources(const QString &versionId) {
+    InstanceFilesPage::StructureSource worlds;
+    worlds.title = InstanceFilesPage::structureWorldTitle();
+    const QDir saves(AppPaths::versionDir(versionId) + QStringLiteral("/saves"));
+    const QFileInfoList saveDirs = saves.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot,
+                                                       QDir::Name | QDir::IgnoreCase);
+    for (const QFileInfo &save : saveDirs) {
+        // 结构方块存下来的东西落在这个存档自己的 generated/ 底下（实测确认过，见
+        // FEATURES.md 的「★ 「结构」那半边」那一段）。
+        const QString structures =
+            save.absoluteFilePath() + QStringLiteral("/generated/minecraft/structures");
+        if (!dirHasStructureFiles(structures)) {
+            continue;
+        }
+        worlds.labels.append(save.fileName());
+        worlds.paths.append(structures);
+    }
+    return worlds;
+}
+
+QList<InstanceFilesPage::StructureSource> structureSourcesFor(
+    const InstanceFilesPage::StructureSource &worlds,
+    bool litematica,
+    const QString &schematicsDir) {
+    QList<InstanceFilesPage::StructureSource> sources;
+    if (!worlds.labels.isEmpty() || litematica) {
+        // 一个存档都没有结构、可投影装着 ⇒ 这一排**露着但空着**（那行灰字在下拉框里，
+        // 见 InstanceFilesPage::setStructureSources()）。
+        sources.append(worlds);
+    }
+    if (litematica) {
+        InstanceFilesPage::StructureSource projections;
+        projections.title = InstanceFilesPage::structureSchematicTitle();
+        projections.labels.append(InstanceFilesPage::structureSchematicText());
+        projections.paths.append(schematicsDir);
+        sources.append(projections);
+    }
+    return sources;
+}
+
+}  // namespace
+
 void MainWindow::openInstanceSettings(const QString &versionId, const QString &pageKey) {
     if (versionId.isEmpty()) {
         InlineMessage::information(m_ui->overlay(), tr("实例设置"), tr("先选中一个实例。"));
@@ -9232,6 +9579,54 @@ void MainWindow::openInstanceSettings(const QString &versionId, const QString &p
     // NOTE: 那一句空 id 的判断必须排在**这一发之前** —— 它是"用户还没选实例"这种普通
     //       情况，不该顺手把别的页面收掉。
     runWhenOverlayFree([this, versionId, pageKey] { openInstanceSettingsNow(versionId, pageKey); });
+}
+
+bool MainWindow::instanceSupportsQuickPlay(const QString &versionId,
+                                           QuickPlay::Kind kind) const {
+    if (m_versionManager == nullptr) {
+        return false;
+    }
+    return QuickPlay::supports(m_versionManager->getVersionJson(versionId), kind);
+}
+
+void MainWindow::startQuickPlay(const QString &versionId, QuickPlay::Kind kind,
+                                const QString &value) {
+    // 第一道闸：**这个版本认不认这一条参数**（判据见 QuickPlay，界面上那两颗按钮在支持的
+    // 版本上才露，这是兜底）。发一条游戏不认识的选项不是"被忽略"，是 jopt-simple 抛
+    // UnrecognizedOptionException、游戏当场退出 —— 所以宁可在这儿说一句。
+    if (!instanceSupportsQuickPlay(versionId, kind)) {
+        InlineMessage::warning(m_ui->overlay(), tr("这个版本用不了"),
+                               QuickPlay::unsupportedText(kind));
+        return;
+    }
+
+    QuickPlay::Target target;
+    target.kind = kind;
+    target.value = value;
+    // 让位 + 排到下一轮：调用点在这个信号里，实例设置那一页正卡在它自己的嵌套事件循环里，
+    // 当场去启动等于"页还开着就开始挑 Java / 下运行时"（见 runWhenOverlayFree 那段）。
+    runWhenOverlayFree([this, versionId, target] { startQuickPlayNow(versionId, target); });
+}
+
+void MainWindow::startQuickPlayNow(const QString &versionId, const QuickPlay::Target &target) {
+    QComboBox *combo = m_ui->getInstalledVersionCombo();
+    const int row = combo == nullptr ? -1 : combo->findData(versionId);
+    if (row < 0) {
+        // 这一页开着的时候那个实例被删了 / 改名了（下拉框按 id 找不到了）。**不启动**：
+        // 启动走的是"下拉框里选中的那一个"，硬塞一个找不到的值只会开起别的实例来。
+        InlineMessage::warning(m_ui->overlay(), tr("找不到这个实例"),
+                               tr("「%1」现在不在已安装列表里，没有启动。")
+                                   .arg(instanceDisplayName(versionId)));
+        return;
+    }
+    // 排上这一发，再把下拉框切到那个实例 —— 顺序不能反：`setCurrentIndex()` 那一发会同步
+    // 牵动一堆界面（启动按钮、底栏、实例列表的选中），中间任何一处都不该看见"有 quick play
+    // 但版本还没切过去"的状态。
+    m_pendingQuickPlay = target;
+    combo->setCurrentIndex(row);
+    // 走**正常那条启动路**：令牌 / 挑 Java / 启动提醒 / 「正在下载的那一个不能启动」
+    // 那几道闸一道都不绕过（用户要的是"试试看能不能生效"，而不是"绕过启动器直接塞参数"）。
+    onStartButtonClicked();
 }
 
 void MainWindow::openInstanceSettingsNow(const QString &versionId, const QString &pageKey) {
@@ -9334,8 +9729,45 @@ void MainWindow::openInstanceSettingsNow(const QString &versionId, const QString
         //       被误判成"没有模组加载器"。判据与理由见 instanceModsUsable() 那段说明。
         dialog.setModUsable(instanceModsUsable(id));
         dialog.setShaderUsable(instanceShaderUsable(id));
-        dialog.setSchematicUsable(instanceHasMod(id, QStringLiteral("litematica")));
+        const bool hasLitematica = instanceHasMod(id, QStringLiteral("litematica"));
+        // ★ 2026-10-10：「结构/原理图」那一页顶上那两排「来源」（用户原话：「两个下拉框
+        //   并排…上面一排是存档的，下面一排是投影的」）。**判定全在这一层**（哪些存档真有
+        //   结构要读盘、装没装投影要查 mods/），摆控件的是那一页自己。
+        //   NOTE: 和上面那四个 setter 一样收在这个 lambda 里 —— 改名会把整个实例换到另一个
+        //         目录，哪些存档有结构也就跟着换一份。
+        const InstanceFilesPage::StructureSource worldStructures = worldStructureSources(id);
+        // ★★ 这一页「用不上」的判据从"装没装 Litematica"放宽成"两半里有一半有东西"：
+        //   结构那一半是**游戏自己**认的（结构方块就是原版的东西），一个实例里真有结构、
+        //   却因为没装投影模组把整页判成"没人会读"，那是把半页东西藏起来了。
+        //   而且用户对那一档的规矩正是「**没有装投影图则不显示投影图下拉**」—— 藏的是
+        //   **那一排**，不是整页。
+        //   NOTE: "这个版本认不认结构方块"在盘上读不出（没有那种记录）⇒ 拿"**这个实例里
+        //         真有结构**"当判据；两半都空的那一档本来就不该露（见上面那段规矩的最后一
+        //         条），所以这个判据和用户那句话是同一条线。
+        dialog.setSchematicUsable(hasLitematica || !worldStructures.labels.isEmpty());
+        if (InstanceFilesPage *schematics = dialog.filesPage(QStringLiteral("schematic"))) {
+            schematics->setStructureSources(structureSourcesFor(
+                worldStructures, hasLitematica, instanceFileDirs(id).value(QStringLiteral("schematic"))));
+        }
         dialog.setDatapackUsable(m_versionManager->instanceSupportsDatapacks(id));
+        // ★ 2026-10-10：那两颗「加入…」（**临时占位**，见 QuickPlay）。
+        //   **露不露** = 这个版本认不认那两条参数 —— 判据只有 `instanceSupportsQuickPlay()`
+        //   一处（和 `startQuickPlay()` 的第一道闸是同一句话）。空串 = 那一颗整颗收起来。
+        //   NOTE: 收在这里（而不是摆在各页自己的构造里）的理由和上面那四个 setter 逐字
+        //         相同：这一层才知道"这个实例是哪个版本"，而改名会让 id 换一个。
+        //   NOTE: **服务器那一页**的那颗要等 `loadServerList()` 之后的选中状态，所以它自己
+        //         那两句摆在最下面（见 `updateServerSelectionActions()`）。
+        dialog.setServerJoinText(
+            instanceSupportsQuickPlay(id, QuickPlay::Kind::Multiplayer)
+                ? InstanceSettingsDialog::serverJoinText()
+                : QString(),
+            InstanceSettingsDialog::serverJoinTip());
+        if (InstanceFilesPage *saves = dialog.filesPage(QStringLiteral("save"))) {
+            saves->setJoinText(instanceSupportsQuickPlay(id, QuickPlay::Kind::Singleplayer)
+                                   ? InstanceFilesPage::joinText()
+                                   : QString(),
+                               InstanceFilesPage::joinTip());
+        }
         loadServerList(&dialog, id);
         // 那几页里那些资源文件（模组 / 资源包 / 数据包 / 光影包）的图标（2026-09-27）：
         // 按文件内容反查，**在后台线程上跑**，回来了一个一个换上去（见那一支）。
@@ -9535,6 +9967,28 @@ void MainWindow::openInstanceSettingsNow(const QString &versionId, const QString
         //       折叠框时那一句警告（用户原话要的就是那一句，见 `fileEditingRequested` 那一段）。
         connect(saves, &InstanceFilesPage::editRequested, this,
                 [this, &dialog](const QString &path) { showWorldSettingsPage(&dialog, path); });
+
+        // ★ 2026-10-10：顶上那颗「加入选中的世界」（**临时占位**）。
+        //
+        //   发过来的是一行存档的**绝对路径**，而 `--quickPlaySingleplayer` 要的是**存档目录
+        //   名**（游戏就是按 `saves/` 底下那个目录名找世界的）⇒ 这儿摘一个 fileName() 出来。
+        //   NOTE: 摘名字这一步**只能在这一层**办：ui/ 那一层只知道"哪一条被选中了"，而
+        //         "游戏要的是名字不是路径"是那条启动参数的规矩，写在 launcher/QuickPlay.hpp 里。
+        //
+        //   NOTE: 路径空 = 没选中（那颗按钮此刻是灰的，见 InstanceFilesPage::updateJoinEnabled()
+        //         —— 这是第二道闸）。
+        connect(saves, &InstanceFilesPage::joinRequested, this,
+                [this, &targetId](const QString &path) {
+                    if (path.isEmpty()) {
+                        return;
+                    }
+                    const QString worldName = QFileInfo(path).fileName();
+                    if (worldName.isEmpty()) {
+                        return;
+                    }
+                    appendLog(tr("试着直接进入世界：%1").arg(worldName));
+                    startQuickPlay(targetId, QuickPlay::Kind::Singleplayer, worldName);
+                });
 
         // 顶上那颗「导入世界」：选一个世界目录 → 问它进来之后叫什么 → 拷进 saves/。
         // 两条对话框的顺序和「复制实例」一致（先选东西、再起名字，名字预填现成的那个）。
@@ -9828,15 +10282,14 @@ void MainWindow::openInstanceSettingsNow(const QString &versionId, const QString
             });
     // 服务器列表那一页的「刷新」：重读一遍 servers.dat 再递进去，**顺手测一遍**
     // （2026-09-27）—— 「刷新」的意思是"把这一页刷新成现在的样子"，而这一页现在不只是
-    // 那份文件的镜像（图标 / MOTD / 延迟都是刚问来的）。只重测不重读走「测速」。
+    // 那份文件的镜像（图标 / MOTD / 延迟都是刚问来的）。
+    // ★ 2026-10-10：「测速」并进来了（用户原话「服务器那一栏测速和刷新作用重复了」），
+    //   所以那一条 connect 没有第二份了 —— 这一发就是这一页"重新看一眼"的全部。
     connect(&dialog, &InstanceSettingsDialog::refreshServerListRequested, this,
             [this, &dialog, &targetId]() {
                 loadServerList(&dialog, targetId);
                 pingServers(&dialog, targetId);
             });
-    // 「测速」：只重测。两条都排在 execPage 之前（见上面那段 NOTE）。
-    connect(&dialog, &InstanceSettingsDialog::pingServersRequested, this,
-            [this, &dialog, &targetId]() { pingServers(&dialog, targetId); });
     // ★ 「点进去就自动测速」（用户 2026-09-27 原话）。这一发是**切到那一页**发出来的
     //   （见 InstanceSettingsDialog::applyPageKey），和上面那两条"用户按了某颗按钮"不是
     //   一回事。它每一页都会发一次 —— 用户切走再切回来就又测一遍，而"已经在跑"那一趟
@@ -9869,7 +10322,26 @@ void MainWindow::openInstanceSettingsNow(const QString &versionId, const QString
     //   新目录名的实例上，收一份旧名字就是"实例设置打不开"。
     // NOTE: 同样接在 execPage **之前**，理由和上面那条逐字相同。
     connect(&dialog, &InstanceSettingsDialog::fileResourceRequested, this,
-            [this, &targetId](const QString &pageKey, const QString &path) {
+            [this, &dialog, &targetId](const QString &pageKey, const QString &path) {
+                // ★★ 2026-10-11：**在收掉这一页之前**把"现在是哪一行在最上面"量下来
+                //   （用户原话：「点进模组详情以后退出来保留刚才的滚动位置」）。
+                //
+                //   非量不可的时机：下面那一发会把这一页收掉，而返回时开出来的是**另一个
+                //   对话框、另一个 InstanceFilesPage**（`openInstanceSettingsNow()` 里那个
+                //   栈上的对象）—— 位置只有这一刻还活在盘面上。摆回去那一段见
+                //   `openInstanceSettingsNow()` 里 `showPage()` 之前那一段。
+                //
+                //   NOTE: 按**引用**收 `dialog`，理由和上面那批 lambda 逐字相同（它也接在
+                //         `execPage()` 之前，那一发阻塞在嵌套事件循环里，这一层的栈一直
+                //         站着 —— 见 targetId 那一段）。右键点一行走的也是这一发
+                //         （见 InstanceSettingsDialog 那边这段注释），所以两条路都顾到了。
+                if (InstanceFilesPage *files = dialog.filesPage(pageKey)) {
+                    const InstanceFilesPage::ScrollPosition position = files->scrollPosition();
+                    m_fileScrollReturn.instanceId = targetId;
+                    m_fileScrollReturn.pageKey = pageKey;
+                    m_fileScrollReturn.identity = position.identity;
+                    m_fileScrollReturn.delta = position.delta;
+                }
                 openInstanceFileResource(targetId, pageKey, path);
             });
 
@@ -9885,6 +10357,135 @@ void MainWindow::openInstanceSettingsNow(const QString &versionId, const QString
                     clipboard->setText(address);
                     appendLog(tr("已复制服务器地址：%1").arg(address));
                 }
+            });
+
+    // ★ 2026-10-10：「编辑」那颗（用户原话「在服务器列表那里做一个编辑地址和名称的功能」）。
+    //   两样分开问**两句**（`InstanceFilesPage::setLineEdit()` 那样的两格表单这一层没有 ——
+    //   InlineMessage 一次只问一样），顺序和「导入世界」那一套一致：**先说名字、再报地址**。
+    //
+    //   落盘走 `src/manage/ServerListFile`（`NbtUtil` 那一层**故意只读**，见它的文件头）。
+    //   认出"要改的是哪一条"靠**按值匹配**（名字 + 地址，退一步只按地址）—— 不能按下标：
+    //   `NbtUtil::readServerList` 会跳过没有可用 `ip` 的条目，于是界面上第 N 行**不等于**
+    //   NBT 里第 N 条（见 ServerListFile.hpp 那段）。
+    connect(&dialog, &InstanceSettingsDialog::editServerRequested, this,
+            [this, &dialog, &targetId](const QString &oldName, const QString &oldAddress) {
+                // 地址那一句**预填现成的**：用户多半只改端口或者只改个名字，从原样起步最省事。
+                bool ok = false;
+                const QString newName = InlineMessage::getText(
+                    m_ui->overlay(), tr("编辑服务器"), tr("这一台叫什么？"), oldName, &ok);
+                if (!ok) {
+                    return;  // 取消了 —— 地址那一句也不必问
+                }
+                const QString newAddress = InlineMessage::getText(
+                    m_ui->overlay(), tr("编辑服务器"),
+                    tr("地址是什么？（`主机名:端口`，端口不写就是默认那个）"), oldAddress, &ok);
+                if (!ok) {
+                    return;
+                }
+                // 两个字都没变 ⇒ **一个字节都不写**（空转一遍还会把 mtime 推新、把 gzip
+                // 那一层重压一次，盘上那份东西凭什么变？）。
+                if (newName == oldName && newAddress == oldAddress) {
+                    return;
+                }
+                QString problem;
+                // 路径从 `ServerListFile::pathFor()` 来（唯一出处）—— 读侧（loadServerList）
+                // 用的也是它，两边拼错一处就是"改了这份、读的是那份"。
+                const QString datPath = ServerListFile::pathFor(targetId);
+                if (!ServerListFile::updateEntry(datPath, oldName, oldAddress, newName, newAddress,
+                                                 &problem)) {
+                    InlineMessage::warning(m_ui->overlay(), tr("没能改这一台"), problem);
+                    return;
+                }
+                appendLog(tr("已改服务器：%1（%2）→ %3（%4）")
+                              .arg(oldName.isEmpty() ? tr("（无名）") : oldName, oldAddress,
+                                   newName.isEmpty() ? tr("（无名）") : newName, newAddress));
+                // 改完重列一遍（**不新开一套"只换一行"的路**）：新表会让那一台的图标 / MOTD /
+                // 延迟回到「还没测」，所以顺手照「刷新」那一路重测一遍 —— 用户看见的就是
+                // "这一台现在的样子"，而不是一个改了名、底下还挂着旧状态的半截页面。
+                loadServerList(&dialog, targetId);
+                pingServers(&dialog, targetId);
+            });
+
+    // ★ 2026-10-10：「添加」（用户原话「服务器那个页面里放一个添加服务器的按钮，允许添加」）。
+    //   和「编辑」**逐字同一套**：两发 `getText()`（先说名字、再报地址）、落盘走
+    //   `ServerListFile`、失败用 `InlineMessage::warning` 挡住。差别只有两处：
+    //   ① 预填的是**空**（要加的那一台还没有名字 / 地址）；② 走的是 `addEntry()` —— 那个
+    //      入口在**文件根本不存在**时也不当失败（那正是"这个实例第一次加服务器"）。
+    connect(&dialog, &InstanceSettingsDialog::addServerRequested, this,
+            [this, &dialog, &targetId]() {
+                bool ok = false;
+                // 名字可以留空：`servers.dat` 里的 `name` 真能是空串（游戏那边显示成
+                // 未命名），所以这一句得明说"留空也行"，不然用户会以为填不满就不让过。
+                const QString name = InlineMessage::getText(
+                    m_ui->overlay(), tr("添加服务器"), tr("这一台叫什么？（可以留空）"), QString(),
+                    &ok);
+                if (!ok) {
+                    return;  // 取消了 —— 地址那一句也不必问
+                }
+                const QString address = InlineMessage::getText(
+                    m_ui->overlay(), tr("添加服务器"),
+                    tr("地址是什么？（`主机名:端口`，端口不写就是默认那个）"), QString(), &ok);
+                if (!ok) {
+                    return;
+                }
+                // 地址必填。这一道**在问话之后立刻挡**，不让它一路走到落盘再报错 ——
+                // 用户刚填完的那一格是什么，就在这儿说清楚（和 `updateEntry` 那边同一句话）。
+                if (address.trimmed().isEmpty()) {
+                    InlineMessage::warning(m_ui->overlay(), tr("没能加这一台"),
+                                           tr("地址不能是空的 —— 没有地址，"
+                                              "这一行在游戏里是一条点不动的空气。"));
+                    return;
+                }
+                QString problem;
+                if (!ServerListFile::addEntry(ServerListFile::pathFor(targetId), name, address,
+                                              &problem)) {
+                    InlineMessage::warning(m_ui->overlay(), tr("没能加这一台"), problem);
+                    return;
+                }
+                appendLog(tr("已加服务器：%1（%2）")
+                              .arg(name.isEmpty() ? tr("（无名）") : name, address));
+                loadServerList(&dialog, targetId);
+                pingServers(&dialog, targetId);
+            });
+
+    // ★ 2026-10-10：「删除」（用户原话「编辑要能改名字改地址以及删除」）。
+    //   和「编辑」同一套，多出来的只有**中间那一道问话** —— 这是这一页上唯一一次真会从
+    //   用户自己的文件里拿掉东西的操作。
+    //
+    //   ★ 那句问话**必须点名字**（用户点的是哪一台，问的就是哪一台）：`servers.dat` 里
+    //     名字是空串是合法的，所以那一档写「（无名）」+ 地址 —— 光说"这一台"的话，两台
+    //     没名字的服务器在屏幕上是同一个问题。
+    connect(&dialog, &InstanceSettingsDialog::deleteServerRequested, this,
+            [this, &dialog, &targetId](const QString &name, const QString &address) {
+                const QString who = name.isEmpty() ? tr("（无名）") : name;
+                if (!InlineMessage::question(
+                        m_ui->overlay(), tr("删除服务器"),
+                        tr("要把 %1（%2）从服务器列表里删掉吗？\n\n游戏里那份 servers.dat 里"
+                           "就少这一台了。")
+                            .arg(who, address),
+                        tr("是"), tr("否"), false, /*destructive=*/true)) {
+                    return;
+                }
+                QString problem;
+                // 按值认那一条（名字 + 地址，退一步只按地址）—— 见 ServerListFile 那段。
+                if (!ServerListFile::removeEntry(ServerListFile::pathFor(targetId), name, address,
+                                                 &problem)) {
+                    InlineMessage::warning(m_ui->overlay(), tr("没能删这一台"), problem);
+                    return;
+                }
+                appendLog(tr("已删服务器：%1（%2）").arg(who, address));
+                loadServerList(&dialog, targetId);
+                pingServers(&dialog, targetId);
+            });
+
+    // ★ 2026-10-10：「加入服务器」（**临时占位**）。和存档那一页那颗走的是同一条路
+    //   （`startQuickPlay()`）—— 差别只有 Kind 和那串值（这里给的就是 `servers.dat` 里写的
+    //   `host:port`，游戏自己认得这个写法）。
+    connect(&dialog, &InstanceSettingsDialog::joinServerRequested, this,
+            [this, &targetId](const QString &name, const QString &address) {
+                appendLog(tr("试着直接加入服务器：%1（%2）")
+                              .arg(name.isEmpty() ? tr("（无名）") : name, address));
+                startQuickPlay(targetId, QuickPlay::Kind::Multiplayer, address);
             });
 
     // ---------- 「改了就写」那两条（2026-09-26）----------
@@ -9948,6 +10549,28 @@ void MainWindow::openInstanceSettingsNow(const QString &versionId, const QString
     //   ② `execPage()` 是**阻塞**的（下面那一句会卡在嵌套事件循环里转到用户点返回），
     //      再往后的代码这一趟根本执行不到。
     // 认不出来的键 `showPage()` 自己判 -1 什么都不做（停「概览」）—— 不静默出错。
+    // ★★ 2026-10-11：**从资源详情页返回**时把那一页的滚动位置塞回去（用户原话：
+    //   「点进模组详情以后退出来保留刚才的滚动位置」）。位置是离开那一刻量的
+    //   （见 fileResourceRequested 那一条接线）。
+    //
+    // ★ 必须排在下面那句 `showPage()` **之前**：`showPage()` 会把那一页列出来，而
+    //   "列出来"这一趟的收尾就是 `restoreScrollAnchor()` —— 塞晚了这一趟已经落回顶端了，
+    //   而且那份锚点是**一次性的**（还完就丢，见那一支）。
+    //
+    //   对不上就整份作废（换了实例 / 开的是另一页 ⇒ 落回顶端才是对的）；不管用没用上，
+    //   到这儿都清掉 —— 这一趟之后它的使命就结束了，留着的话下一次开实例设置会拿一份
+    //   过期的位置去摆（而那时用户多半已经翻到别处去了）。
+    if (!m_fileScrollReturn.identity.isEmpty() && m_fileScrollReturn.instanceId == targetId &&
+        !pageKey.isEmpty() && m_fileScrollReturn.pageKey == pageKey) {
+        if (InstanceFilesPage *files = dialog.filesPage(pageKey)) {
+            InstanceFilesPage::ScrollPosition position;
+            position.identity = m_fileScrollReturn.identity;
+            position.delta = m_fileScrollReturn.delta;
+            files->setScrollPosition(position);
+        }
+    }
+    m_fileScrollReturn = FileScrollReturn();
+
     if (!pageKey.isEmpty()) {
         dialog.showPage(pageKey);
     }
@@ -11183,8 +11806,8 @@ void MainWindow::loadServerList(InstanceSettingsDialog *dialog, const QString &v
 QList<QPair<QString, QString>> MainWindow::serverListOf(const QString &versionId) const {
     QList<NbtUtil::ServerEntry> entries;
     QString problem;
-    NbtUtil::readServerList(AppPaths::versionDir(versionId) + QStringLiteral("/servers.dat"),
-                            &entries, &problem);
+    // 路径从 `ServerListFile::pathFor()` 来 —— 和写侧（改 / 加 / 删）**同一份实现**。
+    NbtUtil::readServerList(ServerListFile::pathFor(versionId), &entries, &problem);
     QList<QPair<QString, QString>> servers;
     servers.reserve(entries.size());
     for (const NbtUtil::ServerEntry &entry : entries) {
@@ -11196,8 +11819,7 @@ QList<QPair<QString, QString>> MainWindow::serverListOf(const QString &versionId
 QString MainWindow::serverListProblem(const QString &versionId) const {
     QList<NbtUtil::ServerEntry> entries;
     QString problem;
-    NbtUtil::readServerList(AppPaths::versionDir(versionId) + QStringLiteral("/servers.dat"),
-                            &entries, &problem);
+    NbtUtil::readServerList(ServerListFile::pathFor(versionId), &entries, &problem);
     return problem;
 }
 
@@ -11479,6 +12101,19 @@ bool MainWindow::toggleInstanceFile(const QString &path, QString *problem) {
     if (!info.exists()) {
         // 正常路径下走不到（那一行是刚列出来的），照实说明原因。
         return fail(tr("「%1」现在不在盘上。").arg(QDir::toNativeSeparators(path)));
+    }
+    // ★★ 2026-10-11：**目录一个都不许改**。下面那句 `QFile::rename` 是文件、目录通吃的，
+    //   而"禁用"在这里的意思是"让游戏看不见它"——对一个**文件夹**来说，改名的效果是
+    //   连着里面所有的东西一起从游戏眼里消失（真机上已经发生过一次：用户点了
+    //   `mods/.connector` 那一行，那个文件夹被改成了 `.connector.disabled`，里面的
+    //   jar 全不见了）。所以这一格**宁可什么都不做、把话说明白**。
+    //   NOTE: 今天「模组」那一页已经不列目录了（`Mode::FilesOnly`），这一道闸是**防线里
+    //         的第二层** —— 别的几页（资源包 / 数据包 / 光影包）上一个目录本身可以是一份
+    //         资源，照旧列着，而那一行上的开关本来就不该动它。
+    if (info.isDir()) {
+        return fail(tr("「%1」是一个文件夹，不能启用 / 禁用。\n\n"
+                       "（把一个文件夹改了名，它里面的东西会一起从游戏眼里消失。）")
+                        .arg(QDir::toNativeSeparators(path)));
     }
     const QString suffix = InstanceFilesPage::disabledSuffix();
     const QString target = info.fileName().endsWith(suffix, Qt::CaseInsensitive)

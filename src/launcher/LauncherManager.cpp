@@ -444,7 +444,8 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
                                                   const QString &playerName,
                                                   const QString &playerUuid,
                                                   const GameWindowSettings &window,
-                                                  const ScreenWorkArea &screen) const {
+                                                  const ScreenWorkArea &screen,
+                                                  const QuickPlay::Target &quickPlay) const {
     // 分辨率那两个数**这一层不再自己判**（从前那两个 `int windowWidth = 0` 参数就是干这个
     // 的）：哪些数要发、发不发，全在 gameWindowArguments() 那个纯函数里 —— 它是纯的，
     // 验证工程能直接把三档 + 屏幕尺寸喂进去看发出来什么。
@@ -988,6 +989,26 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
             args << windowArgs;
             qDebug() << "Game window args:" << windowArgs;
         }
+    }
+
+    // ------------------------------------------------------------------
+    // 「开游戏直接进这个存档 / 直接连这台服务器」（2026-10-10）
+    // ------------------------------------------------------------------
+    // NOTE: 和上面那一段同源 —— 版本 json 自己声明了 `--quickPlaySingleplayer` /
+    //       `--quickPlayMultiplayer`（1.20 起），而那两位在
+    //       `isVanillaGameArgument()` 的名单上，所以上面 `extraGameArguments()` 把 json
+    //       那一条连同它的 `${quickPlaySingleplayer}` 整条丢掉了。**该由谁发**这件事只有
+    //       这一个答案：和 `--username` / `--width` 一样，启动器自己发。
+    //
+    // ★ 判据（这个版本认不认这条参数）**不在这里** —— 它在界面那一层就拦住了
+    //   （`QuickPlay::supports()`，按钮在支持的版本上才露）。发一条不认它的版本不是
+    //   "忽略"，是游戏当场抛 UnrecognizedOptionException 退出，所以那道闸必须有；
+    //   而"命令行的拼装"和"这一档该不该出现"是两件事，各归各的地方（同 GameWindowSettings
+    //   那条规矩：LauncherManager 只问纯函数要参数、拼上去）。
+    if (!quickPlay.isEmpty()) {
+        const QStringList quickPlayArgs = QuickPlay::arguments(quickPlay);
+        qDebug() << "Quick play args:" << quickPlayArgs;
+        args << quickPlayArgs;
     }
 
     qDebug() << "Total arguments count:" << args.length();

@@ -238,7 +238,28 @@ struct InstalledItem {
     /// `xxx.jar` 是同一份），而**同一个文件的 sha1 换不了**。接口两条路都带它
     /// （Modrinth `files[].hashes.sha1`、CurseForge `hashes` 里 `algo == 1` 那条）。
     QString sha1;
+    /// ★★ 2026-10-11：问版本列表时**要不要带上实例的加载器**。
+    ///
+    /// 它就是 `kindUsesLoader()`（那支函数是这条规矩的唯一出处）在**这一条文件**上的答案，
+    /// 由调用方在"反查回来、知道这个路径在哪一类目录下"那一刻填上。
+    ///
+    /// 为什么不是"一律带上"：那个筛一旦带上，**只对模组是对的**。同一个模组的 Fabric /
+    /// Forge 两版是两条版本线（不带筛的话问回来的"最新"可能是另一个加载器的 jar，装进去
+    /// 就崩），所以模组必须带；而资源包 / 光影包 / 数据包在两家接口上写的是**别的词**
+    /// —— Modrinth 的资源包写 `minecraft`、光影写 `iris` / `optifine`（实测 Complementary
+    /// 那条就是 `['iris','optifine']`）、数据包写 `datapack` —— 带上「Fabric」上去
+    /// **不会报错、只是一个都不匹配**，于是那一类的每一条都判成"说不清"。真机实测
+    /// （2026-10-11，用户那个整合包）：14 个资源包 + 光影包一条都判不出来，报告里全是
+    /// "没问到版本列表（网络或接口没成）"—— 而同一个 sha1 把 `loaders` 去掉再问，
+    /// 接口**当场就答**（同一条 `curl` 实测，见 FEATURES.md）。
+    bool loaderApplies = true;
 };
+
+/// 这一类资源问版本列表时，**要不要带实例的加载器**（上面那一位的语义出处）。
+///
+/// 只有模组（和整合包那一类 —— 它自己就带加载器）要。资源包 / 光影包 / 数据包**一个都
+/// 不带**：加载器那几格里它们写的词和实例的加载器根本不是一套（见上面那段的实测）。
+bool kindUsesLoader(ResourceCatalog::Kind kind);
 
 /// 一条更新检测的结论。
 enum class UpdateState {
@@ -284,7 +305,37 @@ struct UpdateVerdict {
  * @param versions 空的（那一发失败 / 这个项目没有版本）→ 也说不出所以然，回 Unknown。
  */
 UpdateVerdict judgeUpdate(const InstalledItem &item,
-                          const QList<ResourceCatalog::VersionEntry> &versions);
+                          const QList<ResourceCatalog::VersionEntry> &versions,
+                          const QString &problem = QString());
+
+/**
+ * @brief 拿**批量那一发**给的"最新那一版"判盘上这一条是不是最新的（2026-10-11 加）。
+ *
+ * 和上面那个 `judgeUpdate()` 的判据**是同一条**（"盘上这一份是不是最新的那一版"），区别只在
+ * 手里有什么：那一条拿的是整个版本列表（所以能说"比它新的有几条"），这一条拿的是接口直接
+ * 给的**最新那一版**（`POST /version_files/update`，一次带一串 sha1 —— 见
+ * `ResourceStore::fetchLatestVersions()` 那段：一页几百个模组各问一发会把 Modrinth 问到
+ * 429，那一发就是为这件事加的）。
+ *
+ *   · `latest` 有东西、而且它某个文件的 sha1 就是 `item.sha1` → **已是最新**；
+ *   · `latest` 有东西、对不上 → **可更新**（换成它的那一版）；
+ *   · `latest` 空的 → **说不清**（不是"已是最新"）：接口对"这个哈希"什么都没给 —— 那个项目
+ *     在这个游戏版本 / 加载器下没有版本，或者它压根不在 Modrinth 上。
+ *
+ * @param problem 那一批自己的毛病（429 / 没连上 / 正文读不懂）。非空时**整批**都是
+ *        "说不清"，而且 `reason` 就是它 —— 这就是 2026-10-11 那次用户报「无法正常获取更新」
+ *        的正面修法：429 原来被吞成"没问到版本列表（网络或接口没成）"，用户看不见真因。
+ */
+UpdateVerdict judgeUpdateAgainstLatest(const InstalledItem &item,
+                                       const ResourceCatalog::VersionEntry &latest,
+                                       const QString &problem = QString());
+
+/// 批量那一发的钥匙（**唯一出处** —— 拼钥匙和"那一槽认不认这一发"读的是同一个字）。
+///
+/// 和 `versionsKeyFor()` 同一个规矩（分隔符 `|`、消费方挂在尾部），只是**没有"哪个项目"
+/// 那一格**：这一发问的是一整串 sha1，认得它的东西是"游戏版本 + 加载器 + 消费方"。
+QString latestVersionsKeyFor(const QString &consumer, const QString &gameVersion,
+                             const QString &loader = QString());
 
 // ---------------------------------------------------------------------------
 // 界面上的字（**唯一出处** —— 界面和验证工程都读这里，别在别处再写一遍）

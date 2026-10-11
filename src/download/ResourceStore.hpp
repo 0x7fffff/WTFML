@@ -118,6 +118,37 @@ public:
                        const QString &loader = QString());
 
     /**
+     * @brief 批量问"这一串文件各自该换成哪一版"（2026-10-11 加）。
+     *
+     * 用户 2026-10-11 报「无法正常获取更新」（他自己指定的是**模组更新**）。真因是这一条路
+     * **一个项目一发**：实例设置那个「检查更新」反查出项目号之后，一个项目一个项目地问版本
+     * 列表 —— 一页 295 个模组就是 295 发请求，几秒钟里全打向 `api.modrinth.com`，实测
+     * 第二趟**整批 429**（正文 `error code: 1015`，Cloudflare 那一层），于是报告里每一条都
+     * 变成「说不清」，而真因一个字都没露出来。
+     *
+     * 这个接口（`POST /version_files/update`）就是为它准备的：**一次带一串 sha1**，
+     * 回"每个 sha1 它那个项目在 `gameVersion` + `loader` 下**最新**的那一版"。295 个模组
+     * = 3 发（每发 100 个哈希，见 `.cpp` 里那个 `kLatestChunk`）。
+     *
+     * @param requestKey 用 `ModDependencies::latestVersionsKeyFor()` 拼的那把（**唯一出处**）。
+     * @param sha1s 盘上那些文件各自的 sha1（`InstanceIconLookup::Found::sha1`）。**空表 =
+     *        立刻回一发空的**（"一个都不用问"也是走完了，和 `fetchProjects()` 空表那条一致）。
+     * @param gameVersion / @param loader 筛参数（**空 = 不筛**）。★ 这两个**必须**和
+     *        `versionsUrl()` 那一路给的一样，不然同一个模组会被判成"可更新"到另一个加载器
+     *        或者另一个游戏版本上去 —— 而接口不会报错，只回一个"筛过之后"的答案。
+     *
+     * 结果走 `latestVersionsFinished()`。**分批发、合并着回**：一发（100 个哈希）一个请求，
+     * 全部回来才发一次信号（调用方不必知道里面分了几发）。problem 非空 = 整批就此作废
+     * （**一条都不许当成"已是最新"**，见下面那条 NOTE）。
+     *
+     * NOTE: 键是**小写的 sha1**，认不出来的哈希**不在表里**（不是空对象）—— 那一条是
+     *       "说不清"（这个项目在这个游戏版本/加载器下没有版本，或者它压根不在 Modrinth 上），
+     *       **不是**"已是最新"。
+     */
+    void fetchLatestVersions(const QString &requestKey, const QStringList &sha1s,
+                             const QString &gameVersion, const QString &loader = QString());
+
+    /**
      * @brief 批量问"这几个项目号叫什么"（2026-09-28 加）。
      *
      * 用户 2026-09-28 要的那两件事（前置模组一键下载 / 实例更新检测）都卡在**同一个缺口**上：
@@ -369,6 +400,16 @@ signals:
                           const QList<ResourceCatalog::VersionEntry> &versions,
                           const QString &problem);
 
+    /// 「这一串文件各自该换成哪一版」那一批回来了（见 fetchLatestVersions）。
+    ///
+    /// NOTE: 表里的键是**小写的 sha1**，认不出来的**不在表里** —— 那是"说不清"，不是
+    ///       "已是最新"。problem 非空 = 整批没成（**这一批一条都不许判成"已是最新"**：
+    ///       429 那种"问得太勤"要是被当成"没有新版本"，用户就会以为自己的模组是最新的 ——
+    ///       那比"说不清"坏得多）。
+    void latestVersionsFinished(const QString &requestKey,
+                                const QHash<QString, ResourceCatalog::VersionEntry> &latest,
+                                const QString &problem);
+
     /// 批量问项目的那一发回来了（见 fetchProjects）。
     ///
     /// NOTE: 和 `versionsFinished` 那条"三条路要分得开"的规矩**不一样**：这里少几条
@@ -449,6 +490,28 @@ private:
     QNetworkAccessManager *m_net = nullptr;
     /// 每个频道手上那一发（key -> reply）。回来的东西不是这一发就丢掉。
     QHash<QString, QNetworkReply *> m_replies;
+
+    /// 「这一串文件各自该换成哪一版」那一批（见 fetchLatestVersions）。**和上面那张表
+    /// 不是一个形状**：那一批是"分几发出去、合并着回**一发**信号"，所以要存的是"这一批
+    /// 跑到哪儿了"，而不是"这一发是谁"。
+    struct LatestRun {
+        /// 这一批的**代号**。★ 同一把钥匙上又来一批时（用户又点了一次「检查更新」），
+        /// 旧那几发的回调**还会回来**（abort 之后照样发 finished）—— 靠它认人：代号对不上
+        /// 就丢掉。少了这一位，旧的那一发会把**新**这一批的计数减掉，症状是"这一趟永远
+        /// 收不了尾"（报告一直不出来）。
+        quint64 generation = 0;
+        /// 还差几发没回来（到 0 就发信号）。
+        int pending = 0;
+        /// 已经拼起来的（**小写 sha1** → 它那个项目最新的一版）。
+        QHash<QString, ResourceCatalog::VersionEntry> merged;
+        /// 整批的毛病（任何一发报错都算整批的）。
+        QString problem;
+        /// 飞出去的那几发（重来 / 析构时要掐掉）。
+        QList<QNetworkReply *> replies;
+    };
+    QHash<QString, LatestRun> m_latestRuns;
+    /// 发批次的代号（只增不减，见 LatestRun::generation）。
+    quint64 m_latestGeneration = 0;
     /// 图标：`Hit::iconCacheId()` -> 图。前面还有一层盘上的（见上面的静态函数），这里是
     /// 这一趟运行的副本，命中它连盘都不用读。
     QHash<QString, QPixmap> m_icons;

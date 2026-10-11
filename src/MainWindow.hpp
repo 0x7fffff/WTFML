@@ -49,6 +49,7 @@
 #include "manage/InstanceIconLookup.hpp"
 // ServerPing::Status / ServerPing::Pinger —— 上面那个"一趟测速"的状态，以及跑它的那件
 // 东西（见 pingServers()）。这个头只碰 QtCore（QObject/QByteArray/QJsonValue），很轻。
+#include "launcher/QuickPlay.hpp"
 #include "util/ServerPing.hpp"
 
 class MainWindowUI;
@@ -316,6 +317,40 @@ private slots:
     ///   收着看不见，而它占着覆盖层那一位 ⇒ 此后每次开实例设置都被挡下，而且**每次都被
     ///   拽回下载页**（用户报的那条："卡住进不去实例设置、还老变到下载页"）。
     void openInstanceSettings(const QString &versionId, const QString &pageKey = QString());
+
+    /// 「加入选中的世界 / 加入服务器」那两颗按钮按下去之后走的那一条（2026-10-10）。
+    ///
+    /// 用户 2026-10-10 原话：「世界和服务器都做一个临时占位（加入选中的世界（仅限有这个
+    /// 参数的版本）/服务器）先试试看能不能生效」—— 所以它不是"说一句还没做"的占位，
+    /// 而是**真的把游戏按这个参数开起来**，走的就是点「启动」那一条路。
+    ///
+    /// 这一半只做两件事：问一句"这个版本认不认"（`QuickPlay::supports()`，界面上那两颗
+    /// 按钮在支持的版本上才露，这是兜底），然后**让位 + 排到下一轮**再开
+    /// （`runWhenOverlayFree()`）—— 调用点在这个信号里，实例设置那一页正卡在它自己的嵌套
+    /// 事件循环里，当场去启动等于"页还开着就开始下载/挑 Java"。
+    ///
+    /// @param versionId 哪一个实例（按钮所在那一页的实例）。
+    /// @param kind 进存档还是连服务器。
+    /// @param value Singleplayer 给**存档目录名**（不是路径）；Multiplayer 给服务器地址。
+    void startQuickPlay(const QString &versionId, QuickPlay::Kind kind, const QString &value);
+    /// 「这个实例（版本）认不认这条 quick play 参数」。**唯一判据出处**（`QuickPlay::supports()`
+    /// 是它唯一读的那份逻辑）。
+    ///
+    /// Why 要收成一个函数：同一句话有两个读者 —— ① `startQuickPlay()` 的第一道闸；
+    /// ② 界面上那两颗「加入」按钮**露不露**（见 `refreshInstanceDirs()` 里那两句
+    /// `setServerJoinText()` / `setJoinText()`）。两处各读一遍版本 json 的话，判据迟早会
+    /// 漂：按钮露着而 `startQuickPlay()` 说不支持（点了弹一句"用不了"），或者反过来
+    /// （明明能用，按钮却藏在页面里）。
+    ///
+    /// NOTE: 读的是**合并过的** json（`getVersionJson()`）而不是加载器自己那一份 —— 快速游玩
+    ///       那几条是**原版**的 `arguments.game` 条目，Forge / NeoForge 的 profile 里根本没有，
+    ///       靠继承才看得到（见 QuickPlay.hpp 那段）。
+    bool instanceSupportsQuickPlay(const QString &versionId, QuickPlay::Kind kind) const;
+    /// `startQuickPlay()` 让位之后真正跑的那一半（分成两个函数的理由见
+    /// `runWhenOverlayFree()` 那段 NOTE）。它把 `m_pendingQuickPlay` 排上、把「已安装版本」
+    /// 下拉框切到 @p versionId，然后**调点「启动」那一条路**（`onStartButtonClicked()`）——
+    /// 令牌 / 挑 Java / 启动提醒那几道闸因此一道都不绕过。
+    void startQuickPlayNow(const QString &versionId, const QuickPlay::Target &target);
     /// 「导出启动脚本」：把"按这个实例现在的这套参数启动"写成**一个 .bat**。
     ///
     /// 用户 2026-09-26 原话：「弹窗让用户选保存位置，出 .bat」。问路径那一半在对话框里
@@ -1318,6 +1353,19 @@ private:
     void onUpdateCheckVersionsFinished(const QString &requestKey,
                                        const QList<ResourceCatalog::VersionEntry> &versions,
                                        const QString &problem);
+    /// 发那一发"问这个项目的版本列表"（**一把钥匙一发**）。
+    ///
+    /// 单独一个函数的缘由是它有**两个调用点**：反查那一趟回来时对 `itemsByKey` 里每把钥匙
+    /// 发一遍，以及批量那一发回来时给"退回问 CurseForge"的那些补发（见
+    /// `UpdateCheckRun::fallbackItems` 那段）。两处要发的东西是逐字同一句（项目号得从
+    /// `<来源>-<项目号>` 那把 `iconKey` 上读），抄第二份迟早有一边忘了带上来源。
+    void requestUpdateCheckVersions(const QString &requestKey);
+    /// **批量那一发**回来了（`POST /version_files/update` —— Modrinth 认出来的那一拨，
+    /// 见 `UpdateCheckRun::batchItems` 那段）。判完之后和单发那条路走**同一个收尾**
+    /// （`finishUpdateCheck()`）。
+    void onUpdateCheckLatestFinished(
+        const QString &requestKey,
+        const QHash<QString, ResourceCatalog::VersionEntry> &latest, const QString &problem);
     /// 全判完了：把报告写成一份**用户看得懂**的清单（能更新的排前面），弹框 + 日志。
     /// ★ 按值收（理由见 .cpp 里实现那一段：这个函数开头会把 `m_updateCheck` 清空，而
     /// `onUpdateCheckVersionsFinished` 递进来的就是它自己那个成员 —— 按引用收 = 自己把
@@ -1527,13 +1575,18 @@ private:
     /// @param javaSettings 这次启动要用的那一套 Java 值（全局按实例覆盖合成之后的结果）。
     ///        program 就是它里面的 javaPath（空 = 还没挑过，用裸 `java` 让 cmd 走 PATH）。
     /// @param offlineMode 这一趟走不走离线（判据只有一处：offlineIdentity()）。
+    /// @param quickPlay 这一次要不要"开游戏直接进某个存档 / 直接连某台服务器"
+    ///        （`--quickPlaySingleplayer` / `--quickPlayMultiplayer`）。默认是**没有这一发**
+    ///        （`Target{}`）—— 导出启动脚本那一路就是这么调的（一个"直接进这个存档"的
+    ///        .bat 不是用户要的东西），真启动那一路从 `m_pendingQuickPlay` 取。
     ///
     /// NOTE: assetIndexId 与 javaMajorVersion 的兜底值（"29" / 21）也在这条路上算，见
     ///       versionRuntimeIds()。它**不**去挑 Java、也不下运行时 —— 那两件事分别是
     ///       ensureJavaForVersion 和 startGame 的事，都不属于"拼命令行"。
     QStringList launchArguments(const QString &versionId, const QJsonObject &versionJson,
                                 const EffectiveJavaSettings &javaSettings, const QString &token,
-                                bool offlineMode) const;
+                                bool offlineMode,
+                                const QuickPlay::Target &quickPlay = QuickPlay::Target()) const;
     /// 用户在那个「Java 版本对不上」的框里选的哪一条路。
     enum class JavaMismatchAnswer {
         /// 没问（绝大多数启动都走这条：实例没钉 Java、总闸关着、这个实例表过态不再问、
@@ -1809,6 +1862,16 @@ private:
     /// 只增不减（没人清它）：条目数 = 这台机器上"点过启动的 (身份, 实例) 组合"数，
     /// 几十项封顶，清不清都一样。
     QHash<QString, QHash<QString, qint64>> m_lastLaunchAttempts;
+
+    /// 「加入选中的世界 / 加入服务器」排上的那一发（2026-10-10）。
+    ///
+    /// **一次性**：`onStartButtonClicked()` 开头把它**取走并清掉**（不是在末尾清）—— 那
+    /// 一路上有七八个早退（版本 json 缺了 / 启动提醒被取消 / Java 对不上的框里点了取消…），
+    /// 每一个早退都得让"这一次要进某个世界"跟着作废。否则用户取消掉那个启动提醒、过一会儿
+    /// 自己点一下启动，游戏会**莫名其妙地进一个他早就放弃的世界**。
+    ///
+    /// 空值 = 没有这一发（绝大多数时候），命令行上因此多不出任何东西。
+    QuickPlay::Target m_pendingQuickPlay;
     /// 分组归属用哪个键认这个实例：有稳定 id（wtfml.meta 的 instanceId）就用它，
     /// 没有就退回**目录名**。
     ///
@@ -2126,6 +2189,59 @@ private:
         /// 还没回来的钥匙（到空 = 收尾）。★ **少等一发就会少几条** —— 报告里那几条会
         /// 凭空消失，而屏幕上一点异常都没有（"已经是最新的"和"没查到"是两句话）。
         QSet<QString> waitingKeys;
+        /// ★★ 2026-10-11：**Modrinth 认出来的那些**（小写 sha1 → 等这个答案的那几条文件）。
+        ///
+        /// 它们**不走上面那些单发请求** —— 那一拨走**批量那一发**（`POST
+        /// /version_files/update`，一次带一串 sha1，见 `ResourceStore::fetchLatestVersions()`）。
+        /// 缘由是用户 2026-10-11 报的「无法正常获取更新」：一页几百个模组各问一发版本列表，
+        /// 实测**整批 429**（Cloudflare 的 `error code: 1015`），报告里于是每条都是"说不清"。
+        /// 批量那一发把 295 个模组变成 3 发。
+        ///
+        /// NOTE: 同一个 sha1 底下可能挂着**两条路径**（`X.jar` 和 `X.jar.disabled`）——
+        ///       那一发只问一次，两条照同一份答案判。
+        ///
+        /// ★★ 2026-10-11：外面**又多了一层按钥匙分组的表**。缘由是同一趟里能出现**两把
+        ///   批量钥匙**：模组那一拨要带实例的加载器（`fabric`），资源包 / 光影包 / 数据包
+        ///   那一拨**一个加载器都不许带**（见 `ModDependencies::kindUsesLoader()` 那段）。
+        ///   只按 sha1 分组的话，两拨只能合成一发 —— 而那一发带不带加载器都是错的：
+        ///   带上，资源包那 27 条全判不出来（用户报的就是这个）；不带，模组的"最新"
+        ///   可能是另一个加载器的 jar。
+        QHash<QString, QHash<QString, QList<ModDependencies::InstalledItem>>> batchItems;
+        /// 批量那一发的钥匙 → 发那一发时要递回去的**加载器**（空串 = 不带这一格）。
+        /// 刻意**不放进钥匙里再拆**：拆字符串的写法一改就静默对不上（同 `versionsKeyFor`
+        /// 那段说的道理），而从 `batchItems` 里读第一条也在读同一个值 —— 存一份最省事。
+        QHash<QString, QString> batchLoader;
+        /// 批量那些发还没回来的（**空 = 都回来了**）。**和 `waitingKeys` 一样是收尾判据的
+        /// 一部分** —— 少看这一位的症状是报告早出来一步（那一拨一条都不在里面）。
+        QSet<QString> pendingBatchKeys;
+        /// 批量那几发**一共答出来过哪些 sha1**（跨所有批量钥匙攒的一份）。
+        ///
+        /// 只给"退回问 CurseForge"那一拨当判据用（"Modrinth 到底答没答过这一个哈希"）——
+        /// 批量分了几发之后，单看某一发的回复就判不全了，见 `onUpdateCheckLatestFinished()`
+        /// 里那两段。
+        QSet<QString> batchAnswered;
+        /// 这一个文件的路径在哪一类目录下（`kindUsesLoader()` / 后面那些按类分岔的判据的
+        /// 输入）。**反查那一趟回来时按它认回类别** —— 那趟只回一个路径，而"这个路径属于
+        /// 哪一类"是**收集候选文件那一步**就已经知道的事（目录就是按类走出来的）。
+        QHash<QString, ResourceCatalog::Kind> pathKinds;
+        /// ★★ 2026-10-11：**两家都认出来的那几条，押着等 Modrinth 先开口**（CurseForge
+        /// 的 `versionsRequestKey` → 那几条文件）。**这一栏里的还没发出去**。
+        ///
+        /// 缘由：`InstanceIconLookup::lookup()` 对**同一个文件**在两家都认出来时会摊成
+        /// **两条**记录（一条 Modrinth、一条 CurseForge，路径逐字同一个）—— 实测用户那个
+        /// 整合包 352 个模组里 **271 个都是这样**。从前那两条各问一发、各判一条：报告里同一个
+        /// 模组**出现两行**（还可能一行"有新版本"、一行"已是最新"—— 两家的版本列表本来就不
+        /// 是一套），"检查了 N 个资源"那个数也跟着翻倍（352 个模组报 623 个）。
+        ///
+        /// 现在**一个文件只查一家**：两家都有时走 Modrinth（这一栏就是等它先答），只有
+        /// CurseForge 认出来的那 80 个照旧直接问 CurseForge。而 Modrinth 那一发**没给出
+        /// 这个 sha1 的答案**时（作者只往 CF 传过那一版 / 这个哈希不在 Modrinth 的表里），
+        /// 这一栏**退回问 CurseForge** —— 见 `onUpdateCheckLatestFinished()` 那一处。
+        ///
+        /// NOTE: 这一栏非空 ⇒ `batchItems` 非空（能押在这儿的前提就是"同一个文件 Modrinth
+        ///       也认出来了"，那种文件一定在 `batchItems` 里）—— 所以"只有它非空才收尾"那句
+        ///       判据（`pendingBatchKeys` 非空）一定立着。
+        QHash<QString, QList<ModDependencies::InstalledItem>> fallbackItems;
         /// 已经判出来的（收尾时按它排序写报告）。
         QList<ModDependencies::UpdateVerdict> verdicts;
         /// ★ 2026-10-09 加：**判成"可更新"的那几条，它们各自该换成哪一版**（盘上路径 →
@@ -2178,6 +2294,26 @@ private:
     ///       「检查更新」。这是**刻意**的：现算一份"现在还是不是最新的"要再跑一整趟
     ///       反查 + 版本列表，而那正是他刚点过的那颗按钮。
     QHash<QString, QHash<QString, ResourceCatalog::VersionEntry>> m_instanceUpdateTargets;
+    /// 「从资源详情页返回时，那一页停在哪儿」（★★ 2026-10-11）。
+    ///
+    /// 用户原话：「点进模组详情以后退出来保留刚才的滚动位置」。
+    ///
+    /// 为什么得由这一层带着走：回来时那一页是**整个重新 new 出来的**
+    /// （`openInstanceSettingsNow()` 里那个栈上的对话框，收页那一刻连它一起没了），
+    /// 所以 `InstanceFilesPage` 自己那份"重列不跳回顶端"的锚点跨不过这一道重建
+    /// （见 `InstanceFilesPage::ScrollPosition`）。位置在**离开那一刻**量下来
+    /// （`fileResourceRequested` 那一条接线里），开回来时在 `showPage()` 之前塞回去。
+    ///
+    /// NOTE: 一次只可能有一份 —— 同一时刻只可能开着一条资源详情页，所以不做表、就这四个
+    ///       成员；`instanceId` + `pageKey` 对不上（换了实例、或者开的是另一页）就整份
+    ///       作废（那种时候落回顶端才是对的），用完在 `openInstanceSettingsNow()` 里清掉。
+    struct FileScrollReturn {
+        QString instanceId;
+        QString pageKey;
+        QString identity;  ///< 最上面那一行的身份（`InstanceFilesPage::identityPath()`）
+        int delta = 0;
+    };
+    FileScrollReturn m_fileScrollReturn;
     /// 已经问回来的版本列表，按**请求钥匙**存（ResourceCatalog::versionsRequestKey()）。
     /// 点第三层那一下要拿它换出 URL / sha1 / 大小。
     /// NOTE: 那些事实**不放在条目上**：条目在重搜时会被整个清掉，而"这一版的文件是哪几个"

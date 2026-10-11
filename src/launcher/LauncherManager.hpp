@@ -20,6 +20,7 @@
 #include "../settings/EffectiveJavaSettings.hpp"
 #include "../settings/GameWindowSettings.hpp"
 #include "ProcessPriority.hpp"
+#include "QuickPlay.hpp"
 
 /**
  * @brief 处理 Minecraft 的 JVM 参数生成和启动过程。
@@ -138,6 +139,12 @@ public:
      *        参数，是照工作区算一个大小再当 --width/--height 发下去的（见
      *        GameWindowSettings.hpp）。<= 0 = 调用方没给（验证工程那些纯值的构造点），
      *        那一档这时退回 window 里那两个数。
+     * @param quickPlay 这一次要不要"开游戏直接进某个存档 / 直接连某台服务器"
+     *        （`--quickPlaySingleplayer` / `--quickPlayMultiplayer`）。默认是**没有这一发**
+     *        （`Target{}`），命令行上因此多不出任何东西 —— 那是绝大多数启动的处境。
+     *        ★ 这一步**必须由启动器自己发**：版本 json 里那两条在
+     *        `VersionArguments::isVanillaGameArgument()` 的名单上，json 声明的那一条会被
+     *        整条丢掉（和 `--width`/`--height` 同一档）。判据和参数名见 `QuickPlay`。
      * @return 返回 JVM 参数列表。
      *
      * NOTE: 调用方传 javaMajorVersion <= 0（未传）时按"**沿用旧行为**"处理，不是"一条都
@@ -153,7 +160,8 @@ public:
                                      const QString &playerName = QString(),
                                      const QString &playerUuid = QString(),
                                      const GameWindowSettings &window = GameWindowSettings(),
-                                     const ScreenWorkArea &screen = ScreenWorkArea()) const;
+                                     const ScreenWorkArea &screen = ScreenWorkArea(),
+                                     const QuickPlay::Target &quickPlay = QuickPlay::Target()) const;
 
     /**
      * @brief 启动一个 Minecraft 游戏进程（新增一份会话）。

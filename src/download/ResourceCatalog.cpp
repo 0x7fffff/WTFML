@@ -1655,6 +1655,13 @@ QString versionsUrl(const QString &projectId, const QString &gameVersion,
     return url;
 }
 
+QString versionFilesUpdateUrl(const QString &apiBase) {
+    // 根地址和「批量问项目」那一条（`projectsRequestUrl()`）逐字同一个规矩：验证工程那个
+    // 口子优先，否则官方那一份（唯一出处仍是 `apiRoot()`）。
+    return (apiBase.isEmpty() ? apiRoot() : apiBase) +
+           QStringLiteral("/version_files/update");
+}
+
 QString searchRequestKey(Kind kind, Source source) {
     // 前缀是为了和下面那把一眼分得开（两把钥匙都会进同一张表）。来源必带：用户在一个页面上
     // 从 Modrinth 切成 CurseForge 时，前一趟回来的结果**不是**"我现在等的那一发"。
@@ -1685,6 +1692,56 @@ QString projectsRequestKey(const QStringList &projectIds, Source source) {
 /// 就是为了一次回复只建一棵树）。
 static QList<VersionEntry> parseCurseForgeDocument(const QJsonDocument &document);
 
+/// 一个 Modrinth **版本对象** → 我们那一条 `VersionEntry`。
+///
+/// ★ 2026-10-11 从 `parseVersions()` 里提出来：`parseVersionFilesUpdate()` 读的是
+///   **同一个形状**（那边只是一个 `{sha1: 版本对象}` 的表），两处各写一遍的话，"哪几个
+///   字段被读了"这件事就有了两个出处 —— 而漏读一个字段的症状是"那一栏永远空着"，
+///   屏幕上看不出是漏了还是接口没给。
+static VersionEntry entryFromModrinthObject(const QJsonObject &object) {
+    VersionEntry entry;
+    entry.id = object.value(QStringLiteral("id")).toString();
+    entry.versionNumber = object.value(QStringLiteral("version_number")).toString();
+    entry.name = object.value(QStringLiteral("name")).toString();
+    entry.versionType = object.value(QStringLiteral("version_type")).toString();
+    entry.datePublished = object.value(QStringLiteral("date_published")).toString();
+    // 这一版自己被下过多少次（详情页那行小字）。**读不到就是 0** —— 0 在界面上是
+    // "这一截不显示"，不是"没人下过"（见 VersionEntry::downloads 那段）。
+    entry.downloads = static_cast<qint64>(object.value(QStringLiteral("downloads")).toDouble());
+    entry.gameVersions = stringList(object.value(QStringLiteral("game_versions")));
+    entry.loaders = stringList(object.value(QStringLiteral("loaders")));
+
+    const QJsonArray files = object.value(QStringLiteral("files")).toArray();
+    entry.files.reserve(files.size());
+    for (const QJsonValue &fileValue : files) {
+        const QJsonObject fileObject = fileValue.toObject();
+        FileEntry file;
+        file.url = fileObject.value(QStringLiteral("url")).toString();
+        file.filename = fileObject.value(QStringLiteral("filename")).toString();
+        file.size = static_cast<qint64>(fileObject.value(QStringLiteral("size")).toDouble());
+        file.sha1 = fileObject.value(QStringLiteral("hashes"))
+                        .toObject()
+                        .value(QStringLiteral("sha1"))
+                        .toString();
+        file.primary = fileObject.value(QStringLiteral("primary")).toBool();
+        entry.files.append(file);
+    }
+
+    const QJsonArray dependencies = object.value(QStringLiteral("dependencies")).toArray();
+    entry.dependencies.reserve(dependencies.size());
+    for (const QJsonValue &dependencyValue : dependencies) {
+        const QJsonObject dependencyObject = dependencyValue.toObject();
+        Dependency dependency;
+        dependency.projectId = dependencyObject.value(QStringLiteral("project_id")).toString();
+        // 实测这一项**可能是 null**（没钉具体版本，"随便哪个版本都行"）——
+        // toString() 对 null 回空串，正好就是"没钉"。
+        dependency.versionId = dependencyObject.value(QStringLiteral("version_id")).toString();
+        dependency.type = dependencyObject.value(QStringLiteral("dependency_type")).toString();
+        entry.dependencies.append(dependency);
+    }
+    return entry;
+}
+
 QList<VersionEntry> parseVersions(const QByteArray &json) {
     QList<VersionEntry> out;
 
@@ -1707,56 +1764,70 @@ QList<VersionEntry> parseVersions(const QByteArray &json) {
     const QJsonArray array = document.array();
     out.reserve(array.size());
     for (const QJsonValue &item : array) {
-        const QJsonObject object = item.toObject();
-        VersionEntry entry;
-        entry.id = object.value(QStringLiteral("id")).toString();
-        entry.versionNumber = object.value(QStringLiteral("version_number")).toString();
-        entry.name = object.value(QStringLiteral("name")).toString();
-        entry.versionType = object.value(QStringLiteral("version_type")).toString();
-        entry.datePublished = object.value(QStringLiteral("date_published")).toString();
-        // 这一版自己被下过多少次（详情页那行小字）。**读不到就是 0** —— 0 在界面上是
-        // "这一截不显示"，不是"没人下过"（见 VersionEntry::downloads 那段）。
-        entry.downloads = static_cast<qint64>(object.value(QStringLiteral("downloads")).toDouble());
-        entry.gameVersions = stringList(object.value(QStringLiteral("game_versions")));
-        entry.loaders = stringList(object.value(QStringLiteral("loaders")));
-
-        const QJsonArray files = object.value(QStringLiteral("files")).toArray();
-        entry.files.reserve(files.size());
-        for (const QJsonValue &fileValue : files) {
-            const QJsonObject fileObject = fileValue.toObject();
-            FileEntry file;
-            file.url = fileObject.value(QStringLiteral("url")).toString();
-            file.filename = fileObject.value(QStringLiteral("filename")).toString();
-            file.size = static_cast<qint64>(fileObject.value(QStringLiteral("size")).toDouble());
-            file.sha1 = fileObject.value(QStringLiteral("hashes"))
-                            .toObject()
-                            .value(QStringLiteral("sha1"))
-                            .toString();
-            file.primary = fileObject.value(QStringLiteral("primary")).toBool();
-            entry.files.append(file);
-        }
-
-        const QJsonArray dependencies = object.value(QStringLiteral("dependencies")).toArray();
-        entry.dependencies.reserve(dependencies.size());
-        for (const QJsonValue &dependencyValue : dependencies) {
-            const QJsonObject dependencyObject = dependencyValue.toObject();
-            Dependency dependency;
-            dependency.projectId =
-                dependencyObject.value(QStringLiteral("project_id")).toString();
-            // 实测这一项**可能是 null**（没钉具体版本，"随便哪个版本都行"）——
-            // toString() 对 null 回空串，正好就是"没钉"。
-            dependency.versionId =
-                dependencyObject.value(QStringLiteral("version_id")).toString();
-            dependency.type = dependencyObject.value(QStringLiteral("dependency_type")).toString();
-            entry.dependencies.append(dependency);
-        }
-
-        out.append(entry);
+        out.append(entryFromModrinthObject(item.toObject()));
     }
 
     // 顺序**原样**返回：接口给的就是新的在前（两份真响应的 date_published 都严格递减，
     // 见头文件那段），界面直接从上往下画。这里刻意不排：写一个"1.9 比 1.10 旧"的
     // 比较器，错了不会有任何东西报警。
+    return out;
+}
+
+QByteArray versionFilesUpdateRequestBody(const QStringList &sha1s, const QString &gameVersion,
+                                         const QString &loader) {
+    QJsonArray hashes;
+    for (const QString &sha1 : sha1s) {
+        const QString trimmed = sha1.trimmed();
+        if (!trimmed.isEmpty()) {
+            hashes.append(trimmed);
+        }
+    }
+    if (hashes.isEmpty()) {
+        return QByteArray();
+    }
+    QJsonObject body;
+    body.insert(QStringLiteral("hashes"), hashes);
+    body.insert(QStringLiteral("algorithm"), QStringLiteral("sha1"));
+    // 那两个筛和 `versionsUrl()` 里**同一个规矩**：空 = 不筛（连这个键都不出现）。
+    // ★★ 加载器**必须在这儿翻一道**（`loaderRequestValue()`，和 `versionsUrl()` 那一句
+    //   逐字同一个出处）：调用方递进来的是 `dependencyTargetFor()` 给的那一个，也就是
+    //   `loaderGroupKey(instanceLoaderName(…))` —— **显示名**（「Fabric」）或者用户盘上
+    //   那种别的词（「OptiFine」）。Modrinth 这一发只认**小写那个词**，递「Fabric」上去
+    //   不会报错、只是**一个都不匹配** ⇒ 整批模组全被退回问 CurseForge（而屏幕上看着
+    //   像"这一批没查到"）。翻不出来的词（OptiFine 这种）回空串 = 那一格**整个不发** ——
+    //   这也是对的：宁可宽一点，也别拼一个筛不出来的词上去。
+    // NOTE: 这一发只有 Modrinth 认这一份形状，所以它**没有 `Source` 参数**（CurseForge
+    //       那边没有对应接口，调用方那边按来源分岔，见 `checkInstanceUpdates()`）；
+    //       翻的那一步于是写死走 `Source::Modrinth` 这一套词。
+    if (!gameVersion.isEmpty()) {
+        body.insert(QStringLiteral("game_versions"),
+                    QJsonArray::fromStringList(QStringList{gameVersion}));
+    }
+    const QString loaderParam = loaderRequestValue(loader, Source::Modrinth);
+    if (!loaderParam.isEmpty()) {
+        body.insert(QStringLiteral("loaders"),
+                    QJsonArray::fromStringList(QStringList{loaderParam}));
+    }
+    return QJsonDocument(body).toJson(QJsonDocument::Compact);
+}
+
+QHash<QString, VersionEntry> parseVersionFilesUpdate(const QByteArray &json) {
+    QHash<QString, VersionEntry> out;
+    const QJsonDocument document = QJsonDocument::fromJson(json);
+    if (!document.isObject()) {
+        return out;
+    }
+    const QJsonObject object = document.object();
+    out.reserve(object.size());
+    for (auto it = object.constBegin(); it != object.constEnd(); ++it) {
+        if (!it.value().isObject()) {
+            continue;
+        }
+        // 键**按小写收**：本地那个 sha1 是 `hashFile()` 算的（小写），而接口回的是我们
+        // 发上去的那一份（也是小写）—— 但"两边大小写一致"这件事没有谁保证，收的时候
+        // 归一一次，读的人就不必再记得这件事。
+        out.insert(it.key().toLower(), entryFromModrinthObject(it.value().toObject()));
+    }
     return out;
 }
 
