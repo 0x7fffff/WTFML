@@ -125,6 +125,8 @@
 #include "tasks/TaskHistory.hpp"
 #include "tasks/TaskManager.hpp"
 #include "tasks/TaskSnapshot.hpp"
+// 游戏异常退出那几句话（coding plan §4.3）：纯规则一张表，见下面 ZP 节。
+#include "diag/GameExitDiagnosis.hpp"
 
 static int g_failures = 0;
 static int g_checks = 0;
@@ -18899,6 +18901,57 @@ static void runErrorReportTests() {
               ErrorReport::systemDescription().contains(QSysInfo::currentCpuArchitecture()),
           "ZI3 系统那一行里带着架构",
           ErrorReport::systemDescription());
+
+    // ---------------------------------------------------------------------
+    section("ZI4. 「游戏异常退出」那一份多出来的三行 + 「可能的原因」那一节（§4.3）");
+    // ---------------------------------------------------------------------
+    // 这三行是 §4.3 点名要收的那几样（Java 版本 / 加载器版本 / 内存参数）。**只有那一路
+    // 会填** —— 日志窗那颗「导出错误报告」手上没有这几个值，留空（上面 ZI1 那个 10 行的
+    // 断言就是"留空 = 一行都不多"）。
+    ErrorReport::Facts crash = full;
+    crash.crashed = true;
+    crash.exitCode = -1073741819;
+    crash.finished = true;
+    crash.javaVersion = QStringLiteral("17（D:/Java/jdk17/bin/java.exe）");
+    crash.loaderVersion = QStringLiteral("Fabric 0.15.11");
+    crash.memoryArgs = QStringLiteral("-Xmx 4096 MB / -Xms 512 MB（本机共 32768 MB）");
+    const QString crashHeader = ErrorReport::header(crash, now);
+    const QStringList crashLines = crashHeader.split(QLatin1Char('\n'));
+    check(crashLines.size() == 13, "★ ZI4 填了那三样就多三行（10 + 3）",
+          QString::number(crashLines.size()));
+    check(crashLines.contains(QStringLiteral("加载器：Fabric 0.15.11")), "ZI4 加载器那一行");
+    check(crashLines.contains(QStringLiteral("Java：17（D:/Java/jdk17/bin/java.exe）")),
+          "ZI4 Java 那一行");
+    check(crashLines.contains(
+              QStringLiteral("内存：-Xmx 4096 MB / -Xms 512 MB（本机共 32768 MB）")),
+          "ZI4 内存那一行");
+    // 顺序：三行**接在账号后面**（上面那几行是人认这个实例，下面这几行才是这一趟的环境）。
+    check(crashHeader.indexOf(QStringLiteral("账号：")) < crashHeader.indexOf(QStringLiteral("加载器："))
+              && crashHeader.indexOf(QStringLiteral("加载器："))
+                     < crashHeader.indexOf(QStringLiteral("Java："))
+              && crashHeader.indexOf(QStringLiteral("Java："))
+                     < crashHeader.indexOf(QStringLiteral("内存："))
+              && crashHeader.indexOf(QStringLiteral("内存："))
+                     < crashHeader.indexOf(QStringLiteral("进程 ID：")),
+          "★ ZI4 三行接在账号后面、进程 ID 前面");
+
+    // 「可能的原因」那一节：排在两段日志**前面**（看报告的人第一眼要知道的是"大概是什么事"），
+    // 逐条前面带一个「· 」。一句都没有时**整个不写** —— 不写"暂时无法判断"那种废话。
+    crash.hints = QStringList{QStringLiteral("这条是第一条。"), QStringLiteral("这条是第二条。")};
+    const QString withHints =
+        ErrorReport::text(crash, now, QStringLiteral("[21:03:11] 炸了\n"),
+                          QStringLiteral("[21:03:10] 起\n"));
+    check(withHints.contains(
+              ErrorReport::sectionDivider(QStringLiteral("可能的原因（按规则判的，不是猜的）"))),
+          "★ ZI4 有提示时才有那一节");
+    check(withHints.indexOf(QStringLiteral("可能的原因")) < withHints.indexOf(QStringLiteral("错误与致命")),
+          "★ ZI4 那一节排在错误摘录**前面**");
+    check(withHints.contains(QStringLiteral("· 这条是第一条。\n· 这条是第二条。\n")),
+          "ZI4 逐条写成「· 那句话」");
+    crash.hints = QStringList();
+    check(!ErrorReport::text(crash, now, QStringLiteral("x\n"), QStringLiteral("y\n"))
+               .contains(QStringLiteral("可能的原因")),
+          "★ ZI4 一句提示都没有时那一节整个不写");
 }
 
 // =========================================================================
@@ -22028,6 +22081,265 @@ static void runVersionIntegrityTests() {
     AppPaths::setMinecraftDir(originalDir);  // 收摊
 }
 
+// ============================================================================
+// ZP. 游戏异常退出那几句话（2026-10-12，coding plan §4.3）
+//
+// 这一节盯的是**规则本身**：`src/diag/GameExitDiagnosis` 是个纯函数（值进、字符串出，
+// 不看时钟、不读盘、不开进程），所以那张表能在这里逐格念一遍。
+//
+// 为什么非要单独验它：§4.3 的原话是「仅做规则明确的提示…不做不透明的『AI 猜错』」。
+// "规则明确"这件事唯一能证明的方式，就是**每一条提示都能指着某个字段说"因为它这样"**
+// —— 而这条链路在真机上要真起一次游戏、真崩一次才走得到，在这里喂一组值就走完了。
+//
+// 判据里故意混了**几组"什么都不该说"的**（只拿到一个 Java 主版本、日志没收到、一条错误
+// 都没有）：那种情况下多说一句就是猜。
+// ============================================================================
+static void runGameExitDiagnosisTests() {
+    // ---------------------------------------------------------------------
+    section("ZP1. 退出码写成一句人话（认不出的原样写，不编）");
+    // ---------------------------------------------------------------------
+    check(GameExitDiagnosis::exitDescription(-1073741819)
+              == QStringLiteral("0xC0000005（内存访问冲突）"),
+          "★ ZP1 访问冲突那几个字是认出来的",
+          GameExitDiagnosis::exitDescription(-1073741819));
+    check(GameExitDiagnosis::exitDescription(-1073740940)
+              == QStringLiteral("0xC0000374（堆损坏）"),
+          "ZP1 堆损坏");
+    check(GameExitDiagnosis::exitDescription(-1073741515)
+              == QStringLiteral("0xC0000135（缺一个系统 DLL）"),
+          "ZP1 缺 DLL");
+    // 十六进制那一截是**由那个已知的码算出来的**（同一件事不写两遍）：`0xC0000006` 是
+    // 分页失败，而它的十进制是 -1073741818 —— 差一个数就会指到"访问冲突"上去。
+    check(GameExitDiagnosis::exitDescription(-1073741818)
+              == QStringLiteral("0xC0000006（内存分页失败）"),
+          "★ ZP1 名字和十六进制对得上（不另抄一张表）");
+    // 认不出来的**不编**：编一个像样的名字比不写更糟 —— 用户会拿着一个错的名字去搜。
+    check(GameExitDiagnosis::exitDescription(1) == QStringLiteral("1"), "★ ZP1 认不出的照原样写");
+    check(GameExitDiagnosis::exitDescription(0) == QStringLiteral("0"), "ZP1 零也是原样");
+
+    // ---------------------------------------------------------------------
+    section("ZP2. 哪些退出算「异常」");
+    // ---------------------------------------------------------------------
+    check(!GameExitDiagnosis::isAbnormal(0, false), "★ ZP2 以 0 正常退出的不算异常");
+    check(GameExitDiagnosis::isAbnormal(0, true),
+          "★ ZP2 崩了但码正好是 0 **也算**（那种 0 什么都不能证明）");
+    check(GameExitDiagnosis::isAbnormal(1, false), "ZP2 非 0 退出码算");
+    check(GameExitDiagnosis::isAbnormal(-1073741819, false), "ZP2 负的退出码算");
+    // 两个重载必须是同一条判据（上面那个调的就是下面这个）。
+    GameExitDiagnosis::Facts abnormalFacts;
+    abnormalFacts.exitCode = 7;
+    check(GameExitDiagnosis::isAbnormal(abnormalFacts)
+              == GameExitDiagnosis::isAbnormal(7, false),
+          "★ ZP2 两个重载说的是同一条规则");
+
+    // ---------------------------------------------------------------------
+    section("ZP3. 一句概括");
+    // ---------------------------------------------------------------------
+    GameExitDiagnosis::Facts facts;
+    facts.instanceName = QStringLiteral("我的整合包");
+    facts.instanceId = QStringLiteral("1.20.1-forge");
+    facts.crashed = true;
+    facts.exitCode = -1073741819;
+    check(GameExitDiagnosis::summary(facts)
+              == QStringLiteral("「我的整合包」崩溃退出（0xC0000005（内存访问冲突））。"),
+          "★ ZP3 崩溃那一档说的是「崩溃退出」",
+          GameExitDiagnosis::summary(facts));
+    facts.crashed = false;
+    facts.exitCode = 3;
+    check(GameExitDiagnosis::summary(facts) == QStringLiteral("「我的整合包」以非 0 退出码结束（3）。"),
+          "★ ZP3 非崩溃那一档说的是「以非 0 退出码结束」",
+          GameExitDiagnosis::summary(facts));
+    // 名字空着时不留一个空引号（那种「「」以非 0 退出码结束」看着像坏了）。
+    GameExitDiagnosis::Facts noName;
+    noName.instanceId = QStringLiteral("1.20.1-forge");
+    noName.exitCode = 3;
+    check(GameExitDiagnosis::summary(noName)
+              == QStringLiteral("「1.20.1-forge」以非 0 退出码结束（3）。"),
+          "ZP3 显示名空着时用实例 id 顶上");
+    noName.instanceId.clear();
+    check(GameExitDiagnosis::summary(noName) == QStringLiteral("游戏以非 0 退出码结束（3）。"),
+          "★ ZP3 两个名字都没有时不留空引号", GameExitDiagnosis::summary(noName));
+
+    // ---------------------------------------------------------------------
+    section("ZP4. 日志里那几句话认得出来");
+    // ---------------------------------------------------------------------
+    check(GameExitDiagnosis::logShowsOutOfMemory(
+              QStringLiteral("[21:03:11] [Render thread/ERROR] java.lang.OutOfMemoryError: Java heap space")),
+          "ZP4 OutOfMemoryError");
+    check(!GameExitDiagnosis::logShowsOutOfMemory(QStringLiteral("一切正常")),
+          "ZP4 没有就是没有");
+    check(!GameExitDiagnosis::logShowsOutOfMemory(QString()), "ZP4 空串不当成有");
+    // 三个加载器各自那句原文；大小写不敏感（有的加载器把整行大写）。
+    check(GameExitDiagnosis::logShowsMissingDependency(
+              QStringLiteral("Missing or unsupported mandatory dependencies:\n\tMod ID: x")),
+          "ZP4 NeoForge / Forge 那句");
+    check(GameExitDiagnosis::logShowsMissingDependency(
+              QStringLiteral("MISSING OR UNSUPPORTED MANDATORY DEPENDENCIES:")),
+          "ZP4 大写也认");
+    check(GameExitDiagnosis::logShowsMissingDependency(
+              QStringLiteral("Mod 'a' requires any version of mod 'b', which is missing!")),
+          "ZP4 Fabric 那句");
+    check(!GameExitDiagnosis::logShowsMissingDependency(QStringLiteral("Loaded 42 mods")),
+          "★ ZP4 没说不许猜（认的是加载器自己那句原文，不是我们按清单猜）");
+
+    // ---------------------------------------------------------------------
+    section("ZP5. 提示那张表：每一条都指着某个字段");
+    // ---------------------------------------------------------------------
+    // 这一节的底：**"这一趟收到了游戏的输出"**。⑧那一条（没收到输出）在 `logCaptured`
+    // 为假时**必然**多说一句，而下面绝大多数判据要量的是别的规则 —— 所以先把它摆成"收到了"，
+    // 想验⑧的那两处再单独翻过去（见 ZP5 ⑦/⑧）。
+    GameExitDiagnosis::Facts base;
+    base.logCaptured = true;
+
+    // ① Java 版本对不上 —— **两个数都非 0 才说话**：只拿到一个的时候分不出"对得上"和
+    //    "没测出来"，那时候说"版本不匹配"就是猜。
+    GameExitDiagnosis::Facts javaMismatch = base;
+    javaMismatch.requiredJavaMajor = 21;
+    javaMismatch.usedJavaMajor = 17;
+    javaMismatch.javaPath = QStringLiteral("D:/Java/jdk17/bin/java.exe");
+    const QStringList javaHints = GameExitDiagnosis::hints(javaMismatch);
+    check(javaHints.size() == 1 && javaHints.first().contains(QStringLiteral("要求 Java 21"))
+              && javaHints.first().contains(QStringLiteral("实际用的是 Java 17"))
+              && javaHints.first().contains(QStringLiteral("D:/Java/jdk17/bin/java.exe")),
+          "★ ZP5 ①Java 对不上（两个数都有时说得出来）",
+          javaHints.join(QStringLiteral(" | ")));
+    GameExitDiagnosis::Facts onlyRequired = javaMismatch;
+    onlyRequired.usedJavaMajor = 0;   // 实际用的那个没读出来
+    onlyRequired.javaPath.clear();
+    check(GameExitDiagnosis::hints(onlyRequired).isEmpty(),
+          "★ ZP5 ①只拿到「要什么」时**闭嘴**（那正是猜）");
+    GameExitDiagnosis::Facts sameMajor = javaMismatch;
+    sameMajor.usedJavaMajor = 21;
+    check(GameExitDiagnosis::hints(sameMajor).isEmpty(), "ZP5 ①对得上时也不说话");
+
+    // ② 内存：**超过物理内存**和**接近打满**分开说（前者一定分不到，后者抢起来才不够）。
+    GameExitDiagnosis::Facts overMemory = base;
+    overMemory.xmxMb = 65536;
+    overMemory.totalMemoryMb = 32768;
+    const QStringList overHints = GameExitDiagnosis::hints(overMemory);
+    check(overHints.size() == 1 && overHints.first().contains(QStringLiteral("65536"))
+              && overHints.first().contains(QStringLiteral("总共只有 32768 MB")),
+          "★ ZP5 ②要的比机器有的还多 ⇒ 一定分不到",
+          overHints.join(QStringLiteral(" | ")));
+    GameExitDiagnosis::Facts nearMemory = base;
+    nearMemory.xmxMb = 28672;   // 32768 的 7/8
+    nearMemory.totalMemoryMb = 32768;
+    const QStringList nearHints = GameExitDiagnosis::hints(nearMemory);
+    check(nearHints.size() == 1 && nearHints.first().contains(QStringLiteral("四分之三以上")),
+          "ZP5 ②占了四分之三以上 ⇒ 另一句（口风不一样）",
+          nearHints.join(QStringLiteral(" | ")));
+    // 边界：判据是 `xmx * 4 > 总内存 * 3`，所以**正好四分之三不算**"以上"（那一侧是开的）。
+    // 24576 / 32768 正好是四分之三 —— 这一档一个字都不该说。
+    GameExitDiagnosis::Facts exactlyThreeQuarters = base;
+    exactlyThreeQuarters.xmxMb = 24576;
+    exactlyThreeQuarters.totalMemoryMb = 32768;
+    check(GameExitDiagnosis::hints(exactlyThreeQuarters).isEmpty(),
+          "★ ZP5 ②正好四分之三 ⇒ 不算「以上」（边界是开的）");
+    GameExitDiagnosis::Facts smallMemory = base;
+    smallMemory.xmxMb = 4096;
+    smallMemory.totalMemoryMb = 32768;
+    check(GameExitDiagnosis::hints(smallMemory).isEmpty(), "ZP5 ②分得很少时不说内存");
+
+    // ③ 日志里那句 OutOfMemoryError —— 比"看着悬"那条更硬（JVM 自己说了）。
+    GameExitDiagnosis::Facts oom;
+    oom.sawOutOfMemory = true;
+    oom.logCaptured = true;
+    check(GameExitDiagnosis::hints(oom).size() == 1
+              && GameExitDiagnosis::hints(oom).first().contains(QStringLiteral("OutOfMemoryError")),
+          "★ ZP5 ③日志里写着 OutOfMemoryError");
+
+    // ④ 缺前置：依据是**加载器自己打的那句**，所以**不报个数**（我们手上确实没有那个数）。
+    GameExitDiagnosis::Facts missing;
+    missing.sawMissingDependency = true;
+    missing.logCaptured = true;
+    const QStringList missingHints = GameExitDiagnosis::hints(missing);
+    check(missingHints.size() == 1
+              && missingHints.first().contains(QStringLiteral("前置没装"))
+              && missingHints.first().contains(QStringLiteral("检查更新")),
+          "★ ZP5 ④缺前置那一条 (指向「检查更新」)",
+          missingHints.join(QStringLiteral(" | ")));
+    check(!missingHints.first().contains(QStringLiteral("个"))
+              || missingHints.first().contains(QStringLiteral("哪一个")),
+          "ZP5 ④不编一个数出来");
+
+    // ⑤ 崩的方式：同一句"坏内存"，**原版和装了加载器的口风不一样**。
+    GameExitDiagnosis::Facts vanillaCrash;
+    vanillaCrash.crashed = true;
+    vanillaCrash.exitCode = -1073741819;
+    vanillaCrash.logCaptured = true;
+    const QStringList vanillaHints = GameExitDiagnosis::hints(vanillaCrash);
+    check(vanillaHints.size() == 1
+              && vanillaHints.first().contains(QStringLiteral("驱动")),
+          "★ ZP5 ⑤原版崩在坏内存上 ⇒ 指向本机驱动/安全软件",
+          vanillaHints.join(QStringLiteral(" | ")));
+    GameExitDiagnosis::Facts moddedCrash = vanillaCrash;
+    moddedCrash.loaderName = QStringLiteral("Fabric");
+    const QStringList moddedHints = GameExitDiagnosis::hints(moddedCrash);
+    check(moddedHints.size() == 1 && moddedHints.first().contains(QStringLiteral("模组"))
+              && !moddedHints.first().contains(QStringLiteral("驱动")),
+          "★ ZP5 ⑤装了加载器 ⇒ 指向模组/前置（不是驱动）",
+          moddedHints.join(QStringLiteral(" | ")));
+
+    // ⑥ 加载期就死了：不是"跑到一半崩了"，排查方向差很远（缺运行库 / 被安全软件拦了）。
+    GameExitDiagnosis::Facts loadFailure;
+    loadFailure.exitCode = -1073741515;
+    loadFailure.logCaptured = true;
+    const QStringList loadHints = GameExitDiagnosis::hints(loadFailure);
+    check(loadHints.size() == 1 && loadHints.first().contains(QStringLiteral("加载阶段")),
+          "★ ZP5 ⑥缺 DLL 那一档说的是「进程压根没起来」",
+          loadHints.join(QStringLiteral(" | ")));
+
+    // ⑦ 非崩溃、非 0、日志里一条错误都没有 ⇒ 最像"它就是自己退出的"。**只在确实拿到了
+    //    日志的情况下说** —— 没开日志开关时"没有错误行"什么都不代表。
+    GameExitDiagnosis::Facts quietExit;
+    quietExit.exitCode = 1;
+    quietExit.logCaptured = true;
+    quietExit.errorLineCount = 0;
+    const QStringList quietHints = GameExitDiagnosis::hints(quietExit);
+    check(quietHints.size() == 1 && quietHints.first().contains(QStringLiteral("自己退出")),
+          "★ ZP5 ⑦自己退出那一档", quietHints.join(QStringLiteral(" | ")));
+    GameExitDiagnosis::Facts quietNoLog = quietExit;
+    quietNoLog.logCaptured = false;
+    check(GameExitDiagnosis::hints(quietNoLog).size() == 1
+              && GameExitDiagnosis::hints(quietNoLog).first().contains(QStringLiteral("没有收到")),
+          "★ ZP5 ⑦没拿到日志时**不说**「自己退出」，改说「没收到输出」",
+          GameExitDiagnosis::hints(quietNoLog).join(QStringLiteral(" | ")));
+
+    // ⑧ 什么都没拿到 ⇒ **一个空表**（不是一句"可能有很多原因"）。
+    GameExitDiagnosis::Facts nothing;
+    nothing.crashed = true;
+    nothing.exitCode = -1;   // 认不出来的码
+    nothing.logCaptured = false;
+    check(GameExitDiagnosis::hints(nothing).size() == 1
+              && GameExitDiagnosis::hints(nothing).first().contains(QStringLiteral("没有收到")),
+          "ZP5 ⑧跑到这儿至少会有一句「没收到输出」");
+
+    // 全都有的时候：条数 = 那几条都在，而且**不重复**。
+    GameExitDiagnosis::Facts everything;
+    everything.crashed = true;
+    everything.exitCode = -1073741819;
+    everything.requiredJavaMajor = 21;
+    everything.usedJavaMajor = 8;
+    everything.xmxMb = 65536;
+    everything.totalMemoryMb = 16384;
+    everything.loaderName = QStringLiteral("Forge");
+    everything.logCaptured = true;
+    everything.errorLineCount = 3;
+    everything.sawOutOfMemory = true;
+    everything.sawMissingDependency = true;
+    const QStringList all = GameExitDiagnosis::hints(everything);
+    check(all.size() == 5,
+          "★ ZP5 全都凑齐时五条各说各的（Java / 内存 / OOM / 缺前置 / 崩的方式）",
+          QString::number(all.size()));
+    QSet<QString> unique;
+    for (const QString &hint : all) {
+        unique.insert(hint);
+    }
+    check(unique.size() == all.size(), "ZP5 一条都不重复");
+    // ★ 顺序稳定：同一个输入永远同一串话（验证工程和以后的界面都指着这一条）。
+    check(GameExitDiagnosis::hints(everything) == all, "★ ZP5 同一份事实永远同一串话");
+}
+
 int main(int argc, char *argv[]) {
     QCoreApplication app(argc, argv);
     app.setApplicationName("WTFML");
@@ -23502,6 +23814,11 @@ int main(int argc, char *argv[]) {
     // QWidget 都不碰、一个网络都不开**：纯规则喂值进去、账本自己在一个临时目录里落盘读回
     // —— 不碰共享沙盒。
     runTaskLedgerTests();
+
+    // -----------------------------------------------------------------
+    // 游戏异常退出那几句话（2026-10-12，coding plan §4.3），见上面 ZP 节。纯函数：值进、
+    // 字符串出，不看时钟、不读盘、不起进程 —— 那一张提示表在这里逐格念一遍。
+    runGameExitDiagnosisTests();
 
     // -----------------------------------------------------------------
     out() << "\n===== " << (g_failures == 0 ? "全部通过" : "有失败项") << ": "

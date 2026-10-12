@@ -159,6 +159,16 @@ TaskDetailPage::TaskDetailPage(QWidget *parent) : QDialog(parent) {
     m_targetButton = makeActionButton(MainWindowUI::taskDetailTargetText(), Action::OpenTarget,
                                       MainWindowUI::taskDetailTargetName());
     actions->addWidget(m_targetButton);
+    // 下面这两颗是 §4.3 那一档（游戏异常退出）专用的：它们跟在「打开目标位置」**后面**，
+    // 而不是插在左边那两颗前面 —— 那一排左边是"当下还能做点什么"（取消 / 重试），右边是
+    // "事后看一眼"（日志 / 报告 / 摘要），两堆之间空着一段（见 06d/06e 那两张截图判据）。
+    m_reportButton = makeActionButton(MainWindowUI::taskDetailReportText(), Action::ExportReport,
+                                      MainWindowUI::taskDetailReportName());
+    actions->addWidget(m_reportButton);
+    m_crashDirButton = makeActionButton(MainWindowUI::taskDetailCrashDirText(),
+                                        Action::OpenCrashDir,
+                                        MainWindowUI::taskDetailCrashDirName());
+    actions->addWidget(m_crashDirButton);
     m_copyButton = makeActionButton(MainWindowUI::taskDetailCopyText(), Action::CopySummary,
                                     MainWindowUI::taskDetailCopyName());
     actions->addWidget(m_copyButton);
@@ -280,6 +290,8 @@ void TaskDetailPage::rebuild() {
     m_retryButton->setVisible(m_item.capabilities.retry);
     m_logButton->setVisible(m_item.capabilities.openLog);
     m_targetButton->setVisible(m_item.capabilities.openTarget);
+    m_reportButton->setVisible(m_item.capabilities.exportReport);
+    m_crashDirButton->setVisible(m_item.capabilities.openCrashDir);
     // 「复制摘要」永远在（它不需要任何能力位 —— 摘要就是这一页上那几行字，任何时候都抄得走）。
     m_copyButton->setVisible(!m_key.isEmpty());
 }

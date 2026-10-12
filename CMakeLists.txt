@@ -60,6 +60,7 @@ set(HEADER_FILES
     src/tasks/TaskSnapshot.hpp
     src/tasks/TaskManager.hpp
     src/tasks/TaskHistory.hpp
+    src/diag/GameExitDiagnosis.hpp
     src/util/AppPaths.hpp
     src/util/ThemeImage.hpp
     src/util/ImageDecode.hpp
@@ -122,6 +123,8 @@ set(SOURCE_FILES
     # 任务中心那一套（2026-10-12，coding plan §2）：账本 + 它的落盘。
     src/tasks/TaskManager.cpp
     src/tasks/TaskHistory.cpp
+    # 游戏异常退出那几句话（2026-10-12，coding plan §4.3）：纯规则，一张表。
+    src/diag/GameExitDiagnosis.cpp
     src/util/ImageDecode.cpp
     src/util/ThemeImage.cpp
     src/util/SystemMemory.cpp

@@ -102,6 +102,9 @@ set(SOURCE_FILES
     ${REPO_ROOT}/src/util/ServerPing.cpp
     # 「导出错误报告」那一份文本（2026-09-28）：MainWindow.cpp 直接调它。
     ${REPO_ROOT}/src/util/ErrorReport.cpp
+    # 游戏异常退出那几句话（2026-10-12，coding plan §4.3）：MainWindow::buildCrashRecord()
+    # 直接调它。少了这一个文件会报一串 `GameExitDiagnosis::…` 的 undefined reference。
+    ${REPO_ROOT}/src/diag/GameExitDiagnosis.cpp
     # 测速的「上次问到的那一份」（2026-09-27）：MainWindow 里那一趟先读它垫底、
     # 问回来一条写一条。少了这一个文件会报 ServerStatusCache::… 的 undefined reference。
     # ServerListFile（2026-10-10）：MainWindow.cpp 里服务器列表那一页的编辑那一发

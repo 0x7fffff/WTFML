@@ -52,6 +52,8 @@ public:
         OpenLog,      ///< 「打开日志」：开日志窗（那一个是全仓唯一允许另开窗口的东西）。
         OpenTarget,   ///< 「打开目标位置」：在文件管理器里打开这一项的目标（实例目录 / 落点目录）。
         CopySummary,  ///< 「复制摘要」：把这一项的摘要（含错因）放进剪贴板。
+        ExportReport, ///< 「导出错误报告」：把这一趟的事实 + 日志写成一份能发出去的文本（§4.3）。
+        OpenCrashDir, ///< 「打开崩溃报告目录」：在文件管理器里打开 `crash-reports/`（§4.3）。
     };
 
     explicit TaskDetailPage(QWidget *parent = nullptr);
@@ -104,5 +106,7 @@ private:
     QPushButton *m_retryButton = nullptr;
     QPushButton *m_logButton = nullptr;
     QPushButton *m_targetButton = nullptr;
+    QPushButton *m_reportButton = nullptr;
+    QPushButton *m_crashDirButton = nullptr;
     QPushButton *m_copyButton = nullptr;
 };

@@ -1530,6 +1530,8 @@ public:
     static QString taskDetailRetryName() { return QStringLiteral("taskDetailRetry"); }
     static QString taskDetailLogName() { return QStringLiteral("taskDetailLog"); }
     static QString taskDetailTargetName() { return QStringLiteral("taskDetailTarget"); }
+    static QString taskDetailReportName() { return QStringLiteral("taskDetailReport"); }
+    static QString taskDetailCrashDirName() { return QStringLiteral("taskDetailCrashDir"); }
     static QString taskDetailCopyName() { return QStringLiteral("taskDetailCopy"); }
     static QString taskDetailCloseName() { return QStringLiteral("taskDetailClose"); }
 
@@ -1542,6 +1544,8 @@ public:
     static QString taskDetailRetryText() { return QStringLiteral("重试"); }
     static QString taskDetailLogText() { return QStringLiteral("打开日志"); }
     static QString taskDetailTargetText() { return QStringLiteral("打开目标位置"); }
+    static QString taskDetailReportText() { return QStringLiteral("导出错误报告"); }
+    static QString taskDetailCrashDirText() { return QStringLiteral("打开崩溃报告目录"); }
     static QString taskDetailCopyText() { return QStringLiteral("复制摘要"); }
     static QString taskDetailCloseText() { return QStringLiteral("关闭"); }
 

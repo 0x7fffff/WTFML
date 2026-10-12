@@ -43,6 +43,8 @@ const char *kindKey(TaskKind kind) {
         return "java";
     case TaskKind::Integrity:
         return "integrity";
+    case TaskKind::Crash:
+        return "crash";
     case TaskKind::Other:
         break;
     }
@@ -70,6 +72,9 @@ TaskKind kindFromKey(const QString &key) {
     }
     if (key == QLatin1String("integrity")) {
         return TaskKind::Integrity;
+    }
+    if (key == QLatin1String("crash")) {
+        return TaskKind::Crash;
     }
     return TaskKind::Other;
 }

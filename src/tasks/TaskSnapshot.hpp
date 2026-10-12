@@ -44,6 +44,7 @@ enum class TaskKind {
     Export,     // 导出整合包
     Java,       // Java 的扫描 / 下载
     Integrity,  // 完整性扫描
+    Crash,      // 游戏异常退出之后补的那一项（§4.3）。**一建出来就是终态**，从不"在跑"
     Other,
 };
 
@@ -85,6 +86,11 @@ struct TaskCapabilities {
     bool canRetry = false;   // M1 里恒 false（取消/重试是 M2）
     bool canOpenTarget = false;
     bool canOpenLog = false;
+    /// 「导出错误报告」（§4.3）。**只有游戏异常退出那一项**为真 —— 报告要的是一份会话事实
+    /// （Java 版本 / 内存参数 / 退出码），别的那几类任务没有这些东西。
+    bool canExportReport = false;
+    /// 「打开崩溃报告目录」（§4.3）。同样只有游戏异常退出那一项为真。
+    bool canOpenCrashDir = false;
 };
 
 /// 一项任务在**某一刻**的样子。
@@ -160,6 +166,9 @@ inline int summaryPriority(const TaskSnapshot &task, bool unreadFailure) {
         case TaskKind::Java:
         case TaskKind::Integrity:
         case TaskKind::Other:
+        // `Crash` 是"一建出来就已经结束"的一项（见枚举上那句），走到这儿只可能是盘上
+        // 读回来的一份坏数据；按最低那一档摆着，不抢任何一格。
+        case TaskKind::Crash:
             return 6;
         }
         return 6;

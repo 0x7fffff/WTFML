@@ -23,6 +23,7 @@
 
 #include <QDateTime>
 #include <QString>
+#include <QStringList>
 
 namespace ErrorReport {
 
@@ -55,6 +56,20 @@ struct Facts {
     /// 报告里那两段日志各有多少行（**由调用方数好**：行数在这里数等于把两段文本再切一遍）。
     int errorLines = 0;
     int totalLines = 0;
+
+    // ---------- 下面这几样只有「游戏异常退出」那一项会填（§4.3）----------
+    //
+    // 别的几路（日志窗那颗「导出错误报告」）一律留空 —— 那一路手上确实没有这些值，
+    // 而**写一个猜的值比不写这一行坏得多**：拿到报告的人会照着它去排除方向。
+
+    /// 这一趟实际用的 Java：`21（D:\...\java.exe）`。空 = 不写这一行。
+    QString javaVersion;
+    /// 这个实例的加载器：`Fabric 0.15.11`。空 = 不写这一行（原版实例就是空）。
+    QString loaderVersion;
+    /// 给 JVM 的内存参数：`-Xmx 4096 MB / -Xms 512 MB（本机共 32768 MB）`。空 = 不写。
+    QString memoryArgs;
+    /// 「可能的原因」那几句（`GameExitDiagnosis::hints()` 给的）。空 = 那一节整个不写。
+    QStringList hints;
 };
 
 /// 这台机器是什么（`Windows 11 Home China (10.0.26200) x86_64` 这样一行）。

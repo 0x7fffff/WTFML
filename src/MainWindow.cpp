@@ -149,6 +149,8 @@
 #include "manage/VersionDisplay.hpp"
 #include "manage/VersionManager.hpp"
 #include "manage/WorldFiles.hpp"
+// 游戏异常退出那几句怎么得出来（coding plan §4.3）：纯函数，规则全在它自己那个文件里。
+#include "diag/GameExitDiagnosis.hpp"
 #include "settings/EffectiveJavaSettings.hpp"
 #include "settings/GlobalJavaSettings.hpp"
 #include "settings/LauncherSettings.hpp"
@@ -2765,6 +2767,12 @@ TaskCenter::Item MainWindow::taskCenterItem(const Tasks::TaskSnapshot &task) con
                               && Tasks::isTerminalState(task.state);
     item.capabilities.openLog = task.capabilities.canOpenLog;
     item.capabilities.openTarget = task.capabilities.canOpenTarget;
+    // 这两颗带 **"还在"** 那一道与：它们要读 `m_crashRecords` 里那一份事实，而那一份和
+    // 账本同寿（被「清除已完成」清掉之后这里也就没了）。账本里还有、本地那份没了的时候
+    // 不摆它们（点了只能弹一句"找不到这一项的记录"——那正是"点了没反应"那一类）。
+    item.capabilities.exportReport =
+        task.capabilities.canExportReport && m_crashRecords.contains(task.id);
+    item.capabilities.openCrashDir = task.capabilities.canOpenCrashDir;
     item.steps.reserve(task.steps.size());
     for (const Tasks::TaskStep &step : task.steps) {
         TaskCenter::Step uiStep;
@@ -2877,6 +2885,12 @@ void MainWindow::onTaskDetailAction(const QString &key, TaskDetailPage::Action a
     case TaskDetailPage::Action::CopySummary:
         copyTaskSummary(key);
         break;
+    case TaskDetailPage::Action::ExportReport:
+        exportCrashReport(key);
+        break;
+    case TaskDetailPage::Action::OpenCrashDir:
+        openCrashReportsDir(key);
+        break;
     }
     // 取消 / 重试都会让账本立刻动起来（终态信号是同步发的），这一页上那几行跟着重摆一遍
     // —— 不重摆的话用户看到的还是"正在进行"，而底下那一批已经收尾了。
@@ -2897,9 +2911,31 @@ void MainWindow::openTaskLog(const QString &key) {
     //   会话结束就没了（见 m_gameLogWindows 那一段）。拿一次"下载失败"去开游戏日志，
     //   开出来的多半是空的、或者上一次玩的那一场 —— 那比不开更让人糊涂。
     //
-    //   §4.3 那一项「游戏异常退出」会另外给「打开日志」一个**明确的**去处（那一条本来就知道
-    //   是哪一场、哪一份 crash report）。
-    Q_UNUSED(key);
+    //   §4.3 那一项「游戏异常退出」另外给「打开日志」一个**明确的**去处：它就是下面这一段。
+    bool parsed = false;
+    const Tasks::TaskId id = key.toInt(&parsed);
+    const auto crash = parsed ? m_crashRecords.constFind(id) : m_crashRecords.constEnd();
+    if (crash != m_crashRecords.constEnd()) {
+        // 这一项知道自己是**哪一场**。异常退出时日志窗不会自动关（见
+        // `GameLogWindow::autoCloseOnExit()`），所以它多半还在 —— 抬到前面来，而不是去开
+        // 启动器自己那份日志（那里面只有调度那几句，看不到游戏说了什么）。
+        if (GameLogWindow *window = m_gameLogWindows.value(crash.value().sessionId, nullptr)) {
+            window->show();
+            window->raise();
+            window->activateWindow();
+            return;
+        }
+        // 用户把那一扇关了。**不留一句"没了"就完事** —— 那一刻留下的两段日志还在
+        // （`CrashRecord`），「导出错误报告」导出来的正是它。把这条路指给他。
+        InlineMessage::warning(
+            m_ui->overlay(), tr("那扇日志窗已经关掉了"),
+            tr("这一场游戏的日志窗刚才被关掉了。当时留下的那两段日志还在 —— "
+               "按「导出错误报告」可以把它们导出来（错误那一段最多末尾 %1 行，"
+               "整份最多末尾 %2 行）。")
+                .arg(GameExitDiagnosis::kExcerptLineLimit)
+                .arg(GameExitDiagnosis::kLogTailLineLimit));
+        return;
+    }
     const QString path = AppPaths::minecraftDir() + QStringLiteral("/logs/wtfml.log");
     if (!QFile::exists(path)) {
         InlineMessage::warning(m_ui->overlay(), tr("还没有日志"), tr("这一次启动到现在没有写过日志。"));
@@ -2976,10 +3012,22 @@ Tasks::TaskCapabilities MainWindow::defaultTaskCapabilities(Tasks::TaskKind kind
     case Tasks::TaskKind::Export:
     case Tasks::TaskKind::Java:
     case Tasks::TaskKind::Integrity:
+    case Tasks::TaskKind::Crash:
     case Tasks::TaskKind::Other:
         // 游戏进程 / 本地打包 / Java 运行时那几条路**没有"取消"这一说**（要么进程自己退，
         // 要么那件事短到点不着）。给一颗点了没反应的「取消」比不给还糟。
+        //
+        // `Crash` 那一项更绝：它**建出来就已经结束了**（见枚举上那句），连"正在进行"
+        // 都没有过。
         break;
+    }
+    // ★ §4.3：只有「游戏异常退出」那一项有两颗别处没有的动作 —— 它手里有一份**会话事实**
+    //   （退出码 / Java / 内存 / 那一段日志），而这两颗正是"拿这份事实做点什么"。
+    //   别的任务没有这份东西，所以那两颗在它们身上根本不摆（摆出来点了只能弹一句
+    //   "没有可导出的东西"，那比不给更糟）。
+    if (kind == Tasks::TaskKind::Crash) {
+        caps.canExportReport = true;
+        caps.canOpenCrashDir = true;
     }
     // 打开日志永远能开（日志窗是常驻的）；打开目标位置也是 —— 这一项的 `targetId` 空的话
     // 那一颗按"数据目录"开（见 onTaskDetailAction），不会点了没反应。
@@ -8587,6 +8635,30 @@ void MainWindow::onStartButtonClicked() {
         //   用途只有一处：onGameFinished() 里那行日志的前缀（那时候会话已经从表里摘掉了，
         //   查不到名字，见那边的 NOTE）。
         m_sessionDisplayNames.insert(sessionId, instanceDisplayName(versionId));
+        // ★ §4.3：这一趟的"启动事实"也在这里留一份。退出那一刻 `javaSettings`、会话表、
+        //   `m_sessionDisplayNames` 全都已经不是这一趟的了，而异常退出那一项要报的正是
+        //   这几个数（实例名、身份、Java 路径、内存参数、加载器）。和上面那两份同寿 ——
+        //   在 onGameFinished() 里用掉并删掉（不清会随开过的实例数一直长）。
+        //
+        // NOTE: Java 的**主版本**故意不在这里取：那是"这一趟实际用的那个 Java 是什么版本"，
+        //       崩溃那一刻现读 `<javaPath>/release` 就够（见 buildCrashRecord），平时一次盘
+        //       都不碰。这里记的是"要什么"（`javaMajorVersion`，已经按主类抬高过）。
+        {
+            GameSessionFacts facts;
+            facts.instanceId = versionId;
+            facts.instanceName = instanceDisplayName(versionId);
+            facts.accountName = m_authManager->playerName();
+            facts.requiredJavaMajor = javaMajorVersion;
+            facts.javaPath = javaSettings.javaPath;
+            facts.xmxMb = javaSettings.xmx;
+            facts.xmsMb = javaSettings.xms;
+            facts.loaderName = instanceLoaderName(m_versionManager->displayParts(versionId),
+                                                  m_versionManager, &facts.loaderVersion);
+            const LauncherManager::GameSession session = m_launcherManager->session(sessionId);
+            facts.processId = session.processId;
+            facts.startedAtMs = session.startedAtMs;
+            m_sessionLaunchFacts.insert(sessionId, facts);
+        }
         // 实例树上"（运行中）"要当场出来：这一份已经从"开始启动"走到"进程真的起来了"。
         updateInstanceTreeRunState();
         // 这一档只对"真的起来了"生效 —— startGame() 那三条早退路径下面根本走不到这里。
@@ -13659,7 +13731,239 @@ QString writeExportFile(const QString &path, const QString &text) {
     return QString();
 }
 
+/**
+ * @brief 一段文本的**末尾** @p maxLines 行（行数不够就整段回）。
+ *
+ * 用途只有一个：异常退出那一刻把日志留一份（`CrashRecord`）—— 全量可能是几万行，而
+ * "最后那 200 行"正是要看的那一段（崩在哪儿，那几行就在末尾）。
+ *
+ * NOTE: 末尾没有换行的半行照旧算一行（和 `lineCountOf()` 同一个规矩，那两个数要能对得上）。
+ */
+QString lastLinesOf(const QString &text, int maxLines) {
+    if (text.isEmpty() || maxLines <= 0) {
+        return QString();
+    }
+    const QStringList lines = text.split(QLatin1Char('\n'));
+    // `split()` 对"以换行结尾"的文本会多出一截空的尾巴（"...\n".split('\n') 末尾是空串）——
+    // 丢掉它，否则留 200 行时实际只留到 199 行。
+    const int total = (!lines.isEmpty() && lines.last().isEmpty()) ? lines.size() - 1
+                                                                  : lines.size();
+    if (total <= maxLines) {
+        return text;
+    }
+    return lines.mid(total - maxLines, maxLines).join(QLatin1Char('\n'))
+           + QLatin1Char('\n');
+}
+
 }  // namespace
+
+// ========================= 游戏异常退出（coding plan §4.3） =========================
+//
+// 用户报的是「游戏崩了，除了一个不会自己关的日志窗，什么也没有」。§4.3 要的是把这件事
+// **记成账本上的一项**：底栏那一格亮一颗红点、任务中心里看得到、点进去有「打开日志」
+// 「导出错误报告」「打开崩溃报告目录」「复制摘要」四件事可做。
+//
+// 三层的分工（要改先看这一段）：
+//   - **那几句话怎么得出来**全在 `src/diag/GameExitDiagnosis`（纯函数、规则一张表，
+//     verify 能逐格念一遍）；
+//   - **这一份事实怎么留住**在下面这几行 —— 会话一结束 `LauncherManager` 那份记录就没了，
+//     `m_sessionDisplayNames` 也在同一趟里清掉，而用户按「导出错误报告」可能是很久以后；
+//   - **写盘 / 开目录**也在这一层（`ui/` 不认识数据目录，那是那一层的规矩）。
+
+MainWindow::CrashRecord MainWindow::buildCrashRecord(int sessionId, int exitCode,
+                                                     bool crashed) const {
+    CrashRecord record;
+    record.sessionId = sessionId;
+    record.facts.exitCode = exitCode;
+    record.facts.crashed = crashed;
+
+    // 启动那一刻抄下来的那几个值（实例名、身份、Java 路径、内存、加载器）—— 退出时
+    // `javaSettings` 和会话表**都已经不是这一趟的了**。会话号对不上时（startGame() 的早退
+    // 路径、验证工程直接喂 onGameFinished 那一槽）拿到的是一份空的，下面每一项都按
+    // "不知道"处理：`hints()` 相应地少说几句，**不编**。
+    const GameSessionFacts launch = m_sessionLaunchFacts.value(sessionId);
+    record.facts.instanceId = launch.instanceId;
+    record.facts.instanceName = launch.instanceName;
+    record.facts.requiredJavaMajor = launch.requiredJavaMajor;
+    record.facts.javaPath = launch.javaPath;
+    record.facts.xmxMb = launch.xmxMb;
+    record.facts.xmsMb = launch.xmsMb;
+    record.facts.loaderName = launch.loaderName;
+    record.facts.loaderVersion = launch.loaderVersion;
+    record.accountName = launch.accountName;
+    record.processId = launch.processId;
+    if (launch.startedAtMs > 0) {
+        record.startedAt = QDateTime::fromMSecsSinceEpoch(launch.startedAtMs);
+    }
+
+    // 这一趟**实际用的**那个 Java 的主版本是**现读**的（`<javaPath>/release` 里写着）——
+    // 启动那一刻不读，平时一次盘都不碰。读不出来就是 0 = "不知道"，那时 `hints()` 里
+    // "版本对不上"那一条不会说话（只拿到一个数就是猜，见那边的①）。
+    if (!launch.javaPath.isEmpty()) {
+        record.facts.usedJavaMajor = GlobalJavaSettings::probeJavaMajorVersion(launch.javaPath);
+    }
+    // 物理内存同理是现读的：提示里那句"占了这台机器的几分之几"要的是**崩溃这一刻**的机器
+    // 状态，不是启动那一刻的。
+    record.facts.totalMemoryMb = SystemMemory::read().totalMb;
+
+    // 两段日志从**窗里**读它自己那一份模型：「哪几档算错误」只有那边一个出处（理由同
+    // exportGameErrorReport 里那段）。窗可能已经没了（用户自己关掉了）—— 那时两段都是
+    // 空串，`logCaptured` 为假，`hints()` 会明说"这一趟没有收到输出"，而不是反过来假装
+    // "日志里干干净净"。
+    if (const GameLogWindow *window = m_gameLogWindows.value(sessionId, nullptr)) {
+        const QString errors = window->logTextFrom(GameLogWindow::LogLevel::Error);
+        const QString all = window->allLogText();
+        record.errorLines = lineCountOf(errors);
+        record.totalLines = lineCountOf(all);
+        record.errorExcerpt = lastLinesOf(errors, GameExitDiagnosis::kExcerptLineLimit);
+        record.logTail = lastLinesOf(all, GameExitDiagnosis::kLogTailLineLimit);
+    }
+    record.facts.errorLineCount = record.errorLines;
+    record.facts.logCaptured = !record.logTail.isEmpty();
+    // ★ 这两样认的是**整份输出的末尾**，不是上面那段 ERROR 摘录：加载器那句"缺前置"和
+    //   JVM 那句 `OutOfMemoryError` 在日志里的级别并不固定（有的加载器把整行大写、有的
+    //   级别只到 WARN），只扫 ERROR 那一档会漏掉它们最该被认出来的那几次。崩的那一刻，
+    //   这几句就在末尾，所以扫末尾那一段就够了。
+    record.facts.sawOutOfMemory = GameExitDiagnosis::logShowsOutOfMemory(record.logTail);
+    record.facts.sawMissingDependency =
+        GameExitDiagnosis::logShowsMissingDependency(record.logTail);
+    return record;
+}
+
+void MainWindow::reportGameCrash(int sessionId, int exitCode, bool crashed) {
+    // 账本上已经没了的那些（用户按过「清除已完成」）在这里顺手清掉 —— `m_crashRecords`
+    // 和账本**同寿**，不清的话它会随着崩过的次数一直长。
+    const QList<Tasks::TaskId> known = m_crashRecords.keys();
+    for (Tasks::TaskId old : known) {
+        if (!m_taskManager->has(old)) {
+            m_crashRecords.remove(old);
+        }
+    }
+
+    const CrashRecord record = buildCrashRecord(sessionId, exitCode, crashed);
+    const QString where = record.facts.instanceName.isEmpty() ? record.facts.instanceId
+                                                              : record.facts.instanceName;
+    const QString title = where.isEmpty() ? tr("游戏异常退出")
+                                          : tr("游戏异常退出 · %1").arg(where);
+    const QStringList hints = GameExitDiagnosis::hints(record.facts);
+    const QString exitText = GameExitDiagnosis::exitDescription(exitCode);
+
+    // 步骤表**建的时候就给全**（两步都已经是 Done）：这一项是"一建出来就是终态"的
+    // （见 TaskKind::Crash 那段），没有"正在进行"的那一刻可看。
+    QList<Tasks::TaskStep> steps;
+    steps.append(Tasks::TaskStep{tr("收集退出信息"), Tasks::TaskStepState::Done, exitText});
+    steps.append(Tasks::TaskStep{tr("对已知原因"), Tasks::TaskStepState::Done,
+                                 hints.isEmpty() ? tr("没有能指认的原因")
+                                                 : tr("%1 条").arg(hints.size())});
+    const Tasks::TaskId id =
+        beginTask(Tasks::TaskKind::Crash, title, record.facts.instanceId, steps);
+    if (id == Tasks::invalidTaskId()) {
+        return;
+    }
+    // ★ 顺序要紧：终态**只落一次**（见 TaskManager::finish），`fail()` 之后那六个写入口
+    //   一律被挡掉 —— 所以详情和那份记录都必须在它**之前**写进去。
+    m_taskManager->setDetail(id, tr("退出码 %1").arg(exitText));
+    m_crashRecords.insert(id, record);
+
+    // 摘要 = 一句概括，后面空一行接上那几句提示。**并成一整块**而不是分开摆：它们在任务
+    // 详情页上本来就是同一格（「出了什么问题」），而且「复制摘要」那一颗复制的正是这个
+    // 字段 —— 分成两处的话用户复制到的只有半句。
+    QString summary = GameExitDiagnosis::summary(record.facts);
+    if (!hints.isEmpty()) {
+        summary += QStringLiteral("\n\n") + hints.join(QLatin1Char('\n'));
+    }
+    finishTask(id, false, summary);
+}
+
+void MainWindow::exportCrashReport(const QString &key) {
+    bool parsed = false;
+    const Tasks::TaskId id = key.toInt(&parsed);
+    if (!parsed) {
+        return;
+    }
+    const auto found = m_crashRecords.constFind(id);
+    if (found == m_crashRecords.constEnd()) {
+        return;  // 走不到：那一颗键只在有这一份记录时才露
+    }
+    const CrashRecord &record = found.value();
+
+    ErrorReport::Facts facts;
+    facts.launcherVersion = QCoreApplication::applicationVersion();
+    facts.instanceName = record.facts.instanceName;
+    facts.instanceId = record.facts.instanceId;
+    facts.accountName = record.accountName;
+    facts.systemDescription = ErrorReport::systemDescription();
+    facts.processId = record.processId;
+    facts.startedAt = record.startedAt;
+    // 这一项**只可能**在"已经退出了"之后存在，所以 finished 恒真（那个 bool 是给"游戏还在
+    // 跑的时候从日志窗导报告"那一路用的，见 exportGameErrorReport）。
+    facts.finished = true;
+    facts.crashed = record.facts.crashed;
+    facts.exitCode = record.facts.exitCode;
+    facts.errorLines = record.errorLines;
+    facts.totalLines = record.totalLines;
+    // Java 那一行：主版本读得出来才写「Java N」，读不出来就只写路径；两样都没有（早退
+    // 路径、验证工程摆的现场）整行不写 —— 报告里多一行「Java：未知」只是噪音。
+    if (record.facts.usedJavaMajor > 0 && !record.facts.javaPath.isEmpty()) {
+        facts.javaVersion = tr("%1（%2）").arg(record.facts.usedJavaMajor).arg(record.facts.javaPath);
+    } else if (record.facts.usedJavaMajor > 0) {
+        facts.javaVersion = QString::number(record.facts.usedJavaMajor);
+    } else {
+        facts.javaVersion = record.facts.javaPath;
+    }
+    if (!record.facts.loaderName.isEmpty()) {
+        facts.loaderVersion =
+            record.facts.loaderVersion.isEmpty()
+                ? record.facts.loaderName
+                : QStringLiteral("%1 %2").arg(record.facts.loaderName, record.facts.loaderVersion);
+    }
+    if (record.facts.xmxMb > 0 || record.facts.xmsMb > 0) {
+        facts.memoryArgs = tr("-Xmx %1 MB / -Xms %2 MB").arg(record.facts.xmxMb).arg(record.facts.xmsMb);
+        if (record.facts.totalMemoryMb > 0) {
+            facts.memoryArgs += tr("（本机共 %1 MB）").arg(record.facts.totalMemoryMb);
+        }
+    }
+    facts.hints = GameExitDiagnosis::hints(record.facts);
+
+    const QDateTime now = QDateTime::currentDateTime();
+    const QString suggested =
+        QDir(exportDefaultDirectory())
+            .filePath(ErrorReport::suggestedFileName(record.facts.instanceName, now));
+    // 父窗是**主窗**（不是日志窗）：这一颗是从任务详情页上按的，而那一页有时正嵌在覆盖层
+    // 里 —— 保存框压在主窗上才是"用户刚点过的那一层"。
+    const QString path = QFileDialog::getSaveFileName(this, tr("导出错误报告"), suggested,
+                                                      tr("文本文件 (*.txt);;所有文件 (*)"));
+    if (path.isEmpty()) {
+        return;  // 用户取消
+    }
+    const QString writeError = writeExportFile(
+        path, ErrorReport::text(facts, now, record.errorExcerpt, record.logTail));
+    if (!writeError.isEmpty()) {
+        appendLog(tr("导出错误报告失败：%1").arg(writeError));
+        InlineMessage::warning(m_ui->overlay(), tr("导出失败"),
+                               tr("这个文件没能写出来（%1）：\n%2")
+                                   .arg(QDir::toNativeSeparators(path), writeError));
+        return;
+    }
+    appendLog(tr("✓ 错误报告已导出：%1").arg(QDir::toNativeSeparators(path)));
+}
+
+void MainWindow::openCrashReportsDir(const QString &key) {
+    // NOTE: 崩溃报告是**游戏自己**写在 `<数据目录>/crash-reports/` 里的（游戏进程的工作目录
+    //       就是数据目录，见 LauncherManager 里那句 setWorkingDirectory），它**不按实例分**
+    //       —— 所以这一格开的是那一整份目录，`key` 在这里只是"路由统一"用的，没有别的作用。
+    Q_UNUSED(key);
+    const QString dir = AppPaths::minecraftDir() + QStringLiteral("/crash-reports");
+    if (!QDir().exists(dir)) {
+        InlineMessage::warning(
+            m_ui->overlay(), tr("还没有崩溃报告"),
+            tr("游戏没有在 %1 下写过崩溃报告。\n\n"
+               "游戏跑到一半被强制结束、或者压根没跑到能写报告那一步时，是不会有这一份的。")
+                .arg(QDir::toNativeSeparators(dir)));
+        return;
+    }
+    QDesktopServices::openUrl(QUrl::fromLocalFile(dir));
+}
 
 void MainWindow::exportGameLog(int sessionId) {
     GameLogWindow *window = m_gameLogWindows.value(sessionId, nullptr);
@@ -14839,9 +15143,28 @@ void MainWindow::onGameFinished(int sessionId, int exitCode, QProcess::ExitStatu
     finishTask(m_launchTaskIds.take(sessionId),
                exitCode == 0 && exitStatus != QProcess::CrashExit,
                tr("游戏进程没等到能打日志就结束了，退出码 %1。").arg(exitCode));
+
+    // ---------- §4.3：异常退出 → 账本上补一项「游戏异常退出」 ----------
+    //
+    // 用户报的是「崩了以后除了一扇不会自动关的日志窗什么也没有」—— 补的这一项就是那件事
+    // 的**去处**：底栏亮一颗红点、任务中心里看得见、点进去能打开日志 / 导报告 / 开崩溃报告
+    // 目录 / 复制摘要。
+    //
+    // 位置有两处讲究：
+    //   · 排在**日志窗那一趟之后** —— 下面要读的就是那一窗里现在这份内容（末尾那行
+    //     "已崩溃退出"也在里面，正合适）；
+    //   · 排在 `m_sessionLaunchFacts.remove()` **之前** —— 那一份启动事实（实例名、身份、
+    //     Java 路径、内存、加载器）是这一项唯一的来源。
+    // 判据是 `GameExitDiagnosis::isAbnormal()`（崩溃，或者非 0 退出码；崩了但码正好是 0 的
+    // 也算 —— 那种"0"什么都不能证明），和那一层说的必须是同一条。
+    if (GameExitDiagnosis::isAbnormal(exitCode, exitStatus == QProcess::CrashExit)) {
+        reportGameCrash(sessionId, exitCode, exitStatus == QProcess::CrashExit);
+    }
     // 名字也到此为止（它唯一的用途就是上面那一行前缀）。不清的话这个表会随着开过的
     // 实例数一直长 —— 和 m_gameLogDismissedSessions 同一个理由。
     m_sessionDisplayNames.remove(sessionId);
+    // 启动事实同理（它唯一的用途是上面那一项）：**必须在 reportGameCrash() 之后**。
+    m_sessionLaunchFacts.remove(sessionId);
     updateInstanceTreeRunState();
     updateBottomBar();
 

@@ -70,6 +70,17 @@ QString header(const Facts &facts, const QDateTime &now) {
     if (!facts.accountName.isEmpty()) {
         lines.append(field(QStringLiteral("账号"), facts.accountName));
     }
+    // 加载器 / Java / 内存这三行只有「游戏异常退出」那一项会填（§4.3 点名要收的就是这几样）。
+    // 空着一律不写 —— 那一路手上确实没有这些值，编一个填上去最误导人。
+    if (!facts.loaderVersion.isEmpty()) {
+        lines.append(field(QStringLiteral("加载器"), facts.loaderVersion));
+    }
+    if (!facts.javaVersion.isEmpty()) {
+        lines.append(field(QStringLiteral("Java"), facts.javaVersion));
+    }
+    if (!facts.memoryArgs.isEmpty()) {
+        lines.append(field(QStringLiteral("内存"), facts.memoryArgs));
+    }
     if (facts.processId > 0) {
         lines.append(field(QStringLiteral("进程 ID"), QString::number(facts.processId)));
     }
@@ -97,6 +108,18 @@ QString sectionDivider(const QString &title) {
 QString text(const Facts &facts, const QDateTime &now, const QString &errors, const QString &log) {
     QString out = header(facts, now);
     out += QStringLiteral("\n\n");
+
+    // 「可能的原因」排在两段日志**前面**：拿到报告的人第一眼要知道的是"大概是什么事"，
+    // 而不是几百行日志。一句都没有时这一节整个不写 —— "暂时无法判断"那种话写上去，
+    // 看的人会以为我们判过一轮然后放弃了。
+    if (!facts.hints.isEmpty()) {
+        out += sectionDivider(QStringLiteral("可能的原因（按规则判的，不是猜的）"));
+        out += QLatin1Char('\n');
+        for (const QString &hint : facts.hints) {
+            out += QStringLiteral("· ") + hint + QLatin1Char('\n');
+        }
+        out += QLatin1Char('\n');
+    }
 
     out += sectionDivider(QStringLiteral("错误与致命（共 %1 行）").arg(facts.errorLines));
     out += QLatin1Char('\n');

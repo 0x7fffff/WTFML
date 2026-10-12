@@ -67,6 +67,9 @@
 #include "..\ui\IntegrityReportPage.hpp"
 // VersionIntegrity::Report —— 体检结论留一份在成员里（报告页每次开都重新喂一遍）。
 #include "manage/VersionIntegrity.hpp"
+// GameExitDiagnosis::Facts —— 游戏异常退出那一项（§4.3）留一份事实在成员里，事后
+// 「导出错误报告」还要用它，所以是按值存的。
+#include "diag/GameExitDiagnosis.hpp"
 
 class MainWindowUI;
 // 安装页那棵加载器树上的一个条目（loaderItem()）。这里只在私有函数的参数/返回值里按
@@ -160,6 +163,31 @@ public:
         m_lastLaunchAttempts[identity][versionId] = ms;
     }
 
+    /**
+     * @brief **给验证工程摆现场用**：把某一号会话的"启动事实"直接摆出来。
+     *
+     * `m_sessionLaunchFacts` 正常只有一条写点（`startGameGame()` 里拿到会话号之后那一段），
+     * 而验证工程验不了那一段 —— 它要真的起一个游戏进程。可"异常退出那一项说了什么"完全由
+     * 这一份事实决定，摆它 == 摆现场：摆上"要求 Java 21 / 实际用 17 / Xmx 比物理内存还大"，
+     * 那三条提示就该一条不差地出现。
+     *
+     * NOTE: 产品代码里**不要**调它。
+     */
+    void seedSessionFactsForTest(int sessionId, const QString &versionId, const QString &displayName,
+                                 int requiredJavaMajor, const QString &javaPath, int xmxMb,
+                                 int xmsMb, const QString &loaderName,
+                                 const QString &loaderVersion) {
+        GameSessionFacts facts;
+        facts.instanceId = versionId;
+        facts.instanceName = displayName;
+        facts.requiredJavaMajor = requiredJavaMajor;
+        facts.javaPath = javaPath;
+        facts.xmxMb = xmxMb;
+        facts.xmsMb = xmsMb;
+        facts.loaderName = loaderName;
+        facts.loaderVersion = loaderVersion;
+        m_sessionLaunchFacts.insert(sessionId, facts);
+    }
 private slots:
     void onStartButtonClicked();
     // 登录三态（AuthManager 的三个信号）。登录是异步的：点完按钮到浏览器回调回来之间
@@ -2807,4 +2835,68 @@ private:
         int exitCode = 0;
     };
     QHash<int, GameLogFacts> m_gameLogFacts;
+
+    // ---------- 游戏异常退出（coding plan §4.3） ----------
+
+    /// 一趟启动**在进程起来之前**就已经定下来、而退出时再也拿不到的那几个值。
+    ///
+    /// NOTE: Java 可执行文件那条路径是挑完 Java 之后才知道的（`ensureJavaForVersion` 会把它
+    ///       写进 `javaSettings.javaPath`），退出时 `javaSettings` 早就不是那一趟的了 ——
+    ///       所以必须在启动那一刻抄下来。主版本**不在这里**：这一趟实际用的那个主版本是
+    ///       异常退出那一刻现读 `<javaPath>/release` 得到的（见 buildCrashFacts 那段），
+    ///       平时一次盘都不读。
+    struct GameSessionFacts {
+        QString instanceId;
+        QString instanceName;
+        /// 这一趟用的身份（报告头部要写的那一行）。
+        QString accountName;
+        qint64 processId = 0;
+        qint64 startedAtMs = 0;
+        int requiredJavaMajor = 0;
+        QString javaPath;
+        int xmxMb = 0;
+        int xmsMb = 0;
+        QString loaderName;
+        QString loaderVersion;
+    };
+    /// 会话号 → 那一趟的启动事实。**启动成功那一刻记、退出那一刻用掉并删掉**（和
+    /// `m_sessionDisplayNames` 同寿）—— 不清的话它会随着开过的实例数一直长。
+    QHash<int, GameSessionFacts> m_sessionLaunchFacts;
+
+    /// 一项「游戏异常退出」任务留着的那一份东西。**任务收尾之后日志窗可能已经没了**，
+    /// 而「导出错误报告」那一刻还要用：退出码、Java / 内存那几个数、以及当时那一段日志。
+    struct CrashRecord {
+        GameExitDiagnosis::Facts facts;   ///< 诊断那几句读的东西
+        /// 这一场是**哪一号会话** —— 「打开日志」那颗键要拿它去找那一扇还开着的日志窗
+        /// （异常退出时日志窗不会自动关，见 `GameLogWindow::autoCloseOnExit()`）。
+        int sessionId = 0;
+        /// 导出那份报告还用的几样（诊断用不上，所以没塞进上面那个结构）。
+        QString accountName;
+        qint64 processId = 0;
+        QDateTime startedAt;
+        /// 不轻于 ERROR 的那些行（最多 `GameExitDiagnosis::kExcerptLineLimit` 行）。
+        QString errorExcerpt;
+        /// 整份输出的**末尾**（最多 `GameExitDiagnosis::kLogTailLineLimit` 行）：报告里
+        /// 那一段"完整日志"。
+        QString logTail;
+        /// 上面两段各自是从多少行里截出来的 —— 报告里要写明"只留了末尾 N 行"。
+        int errorLines = 0;
+        int totalLines = 0;
+    };
+    /// 任务号 → 那一份。**和账本同寿**：每次新建这一项时顺手把账本里已经没了的那些清掉
+    /// （用户按过「清除已完成」之后这里不该再留着）。
+    QHash<Tasks::TaskId, CrashRecord> m_crashRecords;
+
+    /// 这一项「游戏异常退出」要留住的那一份（启动事实 + 那一刻的日志）。
+    ///
+    /// NOTE: 启动事实可能是空的（早退路径、验证工程直接喂 `onGameFinished` 打的槽）——
+    ///       那时候出来的就是"只知道退出码"的一份，`hints()` 相应地少说几句，不编。
+    CrashRecord buildCrashRecord(int sessionId, int exitCode, bool crashed) const;
+    /// 异常退出了 → 账本上补一项，并留一份 `CrashRecord`。
+    void reportGameCrash(int sessionId, int exitCode, bool crashed);
+
+    /// 「导出错误报告」（§4.3）：拿 `m_crashRecords` 里那一份写成一份文本。
+    void exportCrashReport(const QString &key);
+    /// 「打开崩溃报告目录」（§4.3）：开这个实例的 `crash-reports/`。
+    void openCrashReportsDir(const QString &key);
 };

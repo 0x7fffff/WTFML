@@ -165,6 +165,11 @@
 // NbtTree 是搭树/写字节那半，WorldFiles 是"世界目录上读 / 写 level.dat"那半。
 #include "manage/WorldFiles.hpp"
 #include "settings/EffectiveJavaSettings.hpp"
+// 任务账本那一套（T34 读它来数"多了几条 crash"）：`load()` 是那一层给这一节的唯一口子
+// —— 账本落在启动器自带的固定位置（`defaultHistoryPath()`），从这里读到的就是**产品
+// 真的写下去的那份文件**，比去问某个私有成员可信。
+#include "tasks/TaskHistory.hpp"
+#include "tasks/TaskSnapshot.hpp"
 // T29：设置页「背景图」那两行，一头是**主题规格**（`ui/Theme.hpp`），另一头是那两行控件。
 // `ThemeImage` 是 MainWindow 收图那一步调的（把用户挑的那张拷进数据目录）—— 这一节要在
 // 沙盒里先真的存一张进去，才能量"设了图之后那两行长什么样"。
@@ -3821,6 +3826,207 @@ static void runIntegrityScanTests() {
     sandbox.sync();
     AppPaths::setMinecraftDir(originalDir);
     check(AppPaths::minecraftDir() == originalDir, "T33.6 数据根目录换回来了");
+}
+
+// T34. 游戏异常退出（coding plan §4.3）里"从 onGameFinished 那一路补出来"的那一半
+//
+// §4.3 分三处验：
+//   ① **那几句话本身**（每一条提示从哪个字段推出来、退出码怎么写成人话）在 verify 的
+//      ZP 段（纯函数，逐格念一遍）；
+//   ② **这一节**：真的把 `onGameFinished` 那一槽打进去 → 账本上**多出一项** kind=crash 的
+//      失败、标题/目标/那句原因都对得上；而且**以 0 正常退出的那一档一项都不补**；
+//   ③ **那一项在界面上露什么**（「导出错误报告」「打开崩溃报告目录」两颗键只在它身上露、
+//      详情页那两块字）在 ui_check 的 U29 段。
+//
+// ★ 为什么这一节**不换数据根目录**：账本落在**启动器自带**那一个固定位置
+//   （`TaskHistory::defaultHistoryPath()` 用的是 `defaultMinecraftDir()`，故意不跟当前
+//   游戏文件夹走 —— 见那边的说明）。所以这里只在跑之前数一遍"已经有几条 crash"，之后
+//   看**多了几条**：同一个可执行文件里别的节也会往这本账里写东西，绝对值靠不住。
+//
+// ★ 为什么那一格 Java 要**造一个假的**：`buildCrashRecord()` 报的"这一趟实际用的 Java"
+//   是**现读** `<javaPath>/release` 得到的（`probeJavaMajorVersion()` 先读那个文件，
+//   读不到才去真起一个 java -version）。造一个只有 `release` 的目录，那一句就是确定的
+//   —— 整个这一节因此一条外网请求、一个子进程都不发。
+// ---------------------------------------------------------------------------
+static void runGameCrashTests() {
+    const QString ledgerPath =
+        AppPaths::defaultMinecraftDir() + QStringLiteral("/wtfml.tasks");
+    const auto crashTasks = [&ledgerPath]() {
+        QList<Tasks::TaskSnapshot> found;
+        for (const Tasks::TaskSnapshot &task : Tasks::load(ledgerPath)) {
+            if (task.kind == Tasks::TaskKind::Crash) {
+                found.append(task);
+            }
+        }
+        return found;
+    };
+    // 账本上**已经有的**那些号。挑"这一发新补出来的那一条"靠它，而不是靠位置 ——
+    // 这一本账是同一个可执行文件里所有节一起写的、而且**跨运行留着**（见上面那一段），
+    // 位置会随别的节写了什么而变。顺带把 `TaskHistory.hpp` 那句「第 0 条是最近的」也
+    // 绕开了：按位置取的话，`last()` 拿到的是**最老**的那一条（地雷就在那儿）。
+    const auto crashIds = [&ledgerPath]() {
+        QSet<quint64> ids;
+        for (const Tasks::TaskSnapshot &task : Tasks::load(ledgerPath)) {
+            if (task.kind == Tasks::TaskKind::Crash) {
+                ids.insert(task.id);
+            }
+        }
+        return ids;
+    };
+    // 跑之前没有、跑之后有的那一条。正常只该有一条；真出了两条就按文件顺序取**先遇到的**
+    // 那一条（第 0 条是最近的 ⇒ 先遇到的更近）。
+    const auto newCrash = [&ledgerPath](const QSet<quint64> &known) {
+        Tasks::TaskSnapshot found;
+        for (const Tasks::TaskSnapshot &task : Tasks::load(ledgerPath)) {
+            if (task.kind == Tasks::TaskKind::Crash && !known.contains(task.id)) {
+                found = task;
+                break;
+            }
+        }
+        return found;
+    };
+    const int baseline = crashTasks().size();
+
+    // 一个"假 Java"：只有 `release`（`probeJavaMajorVersion()` 认的就是它里面的
+    // JAVA_VERSION），**不需要**一个能跑的 java.exe —— 那一步根本走不到。
+    QTemporaryDir jdkRoot;
+    check(jdkRoot.isValid(), "T34.0 临时目录建出来了（摆那个假 Java）");
+    if (!jdkRoot.isValid()) {
+        return;
+    }
+    const QDir jdk(jdkRoot.path());
+    jdk.mkpath(QStringLiteral("jdk17/bin"));
+    writeFileAt(jdk.filePath(QStringLiteral("jdk17/bin/java.exe")), QByteArrayLiteral("stub"));
+    writeFileAt(jdk.filePath(QStringLiteral("jdk17/release")),
+                QByteArrayLiteral("JAVA_VERSION=\"17.0.9\"\n"));
+    const QString javaPath = jdk.filePath(QStringLiteral("jdk17/bin/java.exe"));
+    check(QFileInfo::exists(javaPath), "T34.0 那个假 Java 摆在盘上了");
+
+    // 离线身份：MainWindow 构造末尾那次皮肤加载要走本地，这一节一个请求都不发。
+    TokenStore::clear(TokenStore::microsoftKey());
+    TokenStore::clear(TokenStore::minecraftKey());
+    TokenStore::clear(TokenStore::accountsKey());
+    TokenStore::clear(TokenStore::currentUuidKey());
+    const QString accountName = QStringLiteral("T34User");
+    seedOfflineRandomSkin(accountName, kSeededSkinUrl, QColor(0x60, 0xA0, 0x40));
+    QString offlineError;
+    check(AccountStore::addOffline(accountName, &offlineError),
+          "T34.0 建一个离线账号并设成当前身份", offlineError);
+
+    {
+        MainWindow w;
+        w.show();
+        QApplication::processEvents();
+
+        // ---------- ① 崩溃那一趟：账本上补出一项 ----------
+        //
+        // 摆的现场是**三条提示凑齐**的那一种：要 Java 21 而实际用的是 17（两个数都有 ⇒
+        // 说得出来）、崩在"坏内存"那一类上（装了加载器 ⇒ 口风指向模组）、以及这一趟
+        // 压根没拿到游戏的输出（没有日志窗 ⇒ 明说少一份依据）。内存那一条**故意不摆**：
+        // 它要跟这台机器的物理内存比，那个数在这里不可控（规则本身在 verify 的 ZP5）。
+        const int crashSession = 4242;
+        const QString crashInstance = QStringLiteral("1.199.1-T34崩溃");
+        w.seedSessionFactsForTest(crashSession, crashInstance, QStringLiteral("T34崩溃目标"), 21,
+                                  javaPath, 0, 0, QStringLiteral("Fabric"),
+                                  QStringLiteral("0.15.11"));
+        const QSet<quint64> beforeCrash = crashIds();
+        const bool invoked =
+            QMetaObject::invokeMethod(&w, "onGameFinished", Qt::DirectConnection,
+                                      Q_ARG(int, crashSession), Q_ARG(int, -1073741819),
+                                      Q_ARG(QProcess::ExitStatus, QProcess::CrashExit));
+        check(invoked, "★ T34.1 onGameFinished 那一槽真的打进去了");
+
+        QList<Tasks::TaskSnapshot> after = crashTasks();
+        check(after.size() == baseline + 1,
+              "★★ T34.1 崩溃退出 ⇒ 账本上**多出一项**「游戏异常退出」",
+              QStringLiteral("%1 → %2").arg(baseline).arg(after.size()));
+        if (after.size() == baseline + 1) {
+            const Tasks::TaskSnapshot crash = newCrash(beforeCrash);
+            check(crash.state == Tasks::TaskState::Failed,
+                  "★ T34.1 它是**失败**收尾的（底栏那颗红点靠这个亮起来）");
+            check(crash.title == QStringLiteral("游戏异常退出 · T34崩溃目标"),
+                  "★ T34.1 标题里带着**用户认得的那个名字**", crash.title);
+            check(crash.targetId == crashInstance,
+                  "★ T34.1 targetId = 实例 id（「打开目标位置」那一颗要照它开目录）",
+                  crash.targetId);
+            // 那一句原因 = 概括 + 空行 + 那几条提示（并成**一整块**：「复制摘要」复制的就是它）。
+            check(crash.errorSummary.startsWith(
+                      QStringLiteral("「T34崩溃目标」崩溃退出（0xC0000005（内存访问冲突））。")),
+                  "★★ T34.1 第一句说的是谁、怎么退的（退出码写成人话）",
+                  crash.errorSummary.left(60));
+            check(crash.errorSummary.contains(QStringLiteral("要求 Java 21"))
+                      && crash.errorSummary.contains(QStringLiteral("实际用的是 Java 17")),
+                  "★★ T34.1 「Java 版本对不上」那一条在（两个数都是现算的：要的来自会话事实、"
+                  "用的来自那个假 release 文件）",
+                  crash.errorSummary);
+            check(crash.errorSummary.contains(QStringLiteral("模组")),
+                  "★ T34.1 装了加载器 ⇒ 崩在坏内存上那句话指向模组（不是「驱动」）",
+                  crash.errorSummary);
+            check(crash.errorSummary.contains(QStringLiteral("没有收到游戏的输出")),
+                  "★ T34.1 这一趟没有日志窗 ⇒ 明说少一份依据（而不是假装日志干净）");
+        }
+
+        // ---------- ② 以 0 正常退出：一项都不补 ----------
+        //
+        // §4.3 要的是「游戏**异常**退出后…」—— 跑得好好的退出一项都不该冒出来。
+        QMetaObject::invokeMethod(&w, "onGameFinished", Qt::DirectConnection,
+                                  Q_ARG(int, 4243), Q_ARG(int, 0),
+                                  Q_ARG(QProcess::ExitStatus, QProcess::NormalExit));
+        check(crashTasks().size() == baseline + 1,
+              "★★ T34.2 以 0 正常退出 ⇒ 一条都不补（判据是 isAbnormal()）",
+              QString::number(crashTasks().size()));
+
+        // ---------- ③ 非崩溃、但退出码非 0：也算异常 ----------
+        const int quietSession = 4244;
+        w.seedSessionFactsForTest(quietSession, QStringLiteral("1.199.2-T34安静"),
+                                  QStringLiteral("T34安静退出"), 17, javaPath, 0, 0, QString(),
+                                  QString());
+        const QSet<quint64> beforeQuiet = crashIds();
+        QMetaObject::invokeMethod(&w, "onGameFinished", Qt::DirectConnection,
+                                  Q_ARG(int, quietSession), Q_ARG(int, 1),
+                                  Q_ARG(QProcess::ExitStatus, QProcess::NormalExit));
+        QList<Tasks::TaskSnapshot> quiet = crashTasks();
+        check(quiet.size() == baseline + 2,
+              "★ T34.3 非崩溃、但退出码是 1 ⇒ 也算异常退出，补一项",
+              QString::number(quiet.size()));
+        if (quiet.size() == baseline + 2) {
+            const Tasks::TaskSnapshot added = newCrash(beforeQuiet);
+            check(added.errorSummary.startsWith(
+                      QStringLiteral("「T34安静退出」以非 0 退出码结束（1）。")),
+                  "★ T34.3 这一档说的是「以非 0 退出码结束」，**不是**「崩溃退出」",
+                  added.errorSummary.left(60));
+        }
+
+        // ---------- ④ 那一份启动事实是**用掉就删**的 ----------
+        //
+        // 盯着这一条是因为 `m_sessionLaunchFacts` 不清会随开过的实例数一直长（和
+        // `m_sessionDisplayNames` 同一个理由）。同一个会话号再来一发，那一份已经没了 ⇒
+        // 出来的就是"只知道退出码"的一份：名字退回没有、标题里那个实例也不在了。
+        const QSet<quint64> beforeAgain = crashIds();
+        QMetaObject::invokeMethod(&w, "onGameFinished", Qt::DirectConnection,
+                                  Q_ARG(int, quietSession), Q_ARG(int, 1),
+                                  Q_ARG(QProcess::ExitStatus, QProcess::NormalExit));
+        QList<Tasks::TaskSnapshot> again = crashTasks();
+        check(again.size() == baseline + 3,
+              "★ T34.4 同一个会话号再来一发 ⇒ 又补一项（这一槽本身不认「这号跑过没有」）",
+              QString::number(again.size()));
+        if (again.size() == baseline + 3) {
+            const Tasks::TaskSnapshot added = newCrash(beforeAgain);
+            check(added.title == QStringLiteral("游戏异常退出")
+                      && added.errorSummary.startsWith(
+                          QStringLiteral("游戏以非 0 退出码结束（1）。")),
+                  "★★ T34.4 这一发手上没有任何会话事实了（名字那一份**用掉就删**）—— "
+                  "标题退回没有实例、那句概括也不带名字",
+                  added.title);
+        }
+    }
+
+    TokenStore::clear(TokenStore::microsoftKey());
+    TokenStore::clear(TokenStore::minecraftKey());
+    TokenStore::clear(TokenStore::accountsKey());
+    TokenStore::clear(TokenStore::currentUuidKey());
+    check(AccountStore::accounts().isEmpty() && AccountStore::activeUuid().isEmpty(),
+          "T34.9 这一节加的账号清干净了");
 }
 
 // ---------------------------------------------------------------------------
@@ -26601,6 +26807,12 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
     runIntegrityScanTests();
 
     // 同样排在**最后**：这一节也要造 MainWindow、也要换当前身份（离线账号）。
+    // 同样排在**最后**：这一节也要造 MainWindow、也要换当前身份（离线账号）。它**不换**
+    // 数据根目录（账本那一份故意挂在启动器自带的固定位置，见 T34 那段说明）—— 所以它
+    // 前后要是有别的节在读那本账，看到的会多出这一节补的那几项。
+    header("T34. 游戏异常退出（§4.3）：从 onGameFinished 那一路补出来的一项（离线）");
+    runGameCrashTests();
+
     header("T20. 实例设置「文件管理」那八页：目录从哪儿来 / 启用·禁用 / 删除（离线）");
     runInstanceFilesPagesTests();
 

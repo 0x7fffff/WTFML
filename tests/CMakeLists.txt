@@ -106,6 +106,11 @@ set(PROJECT_SOURCES
     # 传进来，所以报告头部那几行能被断言钉死）。
     ${REPO_ROOT}/src/util/ErrorReport.cpp
     ${REPO_ROOT}/src/util/ErrorReport.hpp
+    # GameExitDiagnosis：游戏异常退出之后那几句话（coding plan §4.3）。**纯函数**（值进、
+    # 字符串出，不看时钟、不读盘、不起进程）—— "哪条提示是从哪个字段推出来的"这件事只能
+    # 在这里逐格念一遍（真机上要真崩一次才走得到，见下面 ZP 节）。
+    ${REPO_ROOT}/src/diag/GameExitDiagnosis.cpp
+    ${REPO_ROOT}/src/diag/GameExitDiagnosis.hpp
 )
 
 # VersionArguments.hpp 是"启动参数按 version.json 展开"那次改动引入的。这个文件在各

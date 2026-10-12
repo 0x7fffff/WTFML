@@ -65,6 +65,9 @@ struct Capabilities {
     bool retry = false;
     bool openTarget = false;
     bool openLog = false;
+    /// 「导出错误报告」/「打开崩溃报告目录」（§4.3）：只有游戏异常退出那一项为真。
+    bool exportReport = false;
+    bool openCrashDir = false;
 };
 
 /// 面板里的一行（活动的那几行 + 已完成的那几行，形状一样、画法不同）。
