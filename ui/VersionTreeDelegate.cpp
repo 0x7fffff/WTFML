@@ -14,8 +14,10 @@
 #include "Theme.hpp"
 #include "VersionIcons.hpp"
 
-VersionTreeDelegate::VersionTreeDelegate(QObject *parent, bool leafArrow, int iconSize)
-    : QStyledItemDelegate(parent), m_leafArrow(leafArrow), m_iconSize(iconSize) {}
+VersionTreeDelegate::VersionTreeDelegate(QObject *parent, bool leafArrow, int iconSize,
+                                         bool navRow)
+    : QStyledItemDelegate(parent), m_leafArrow(leafArrow), m_iconSize(iconSize), m_navRow(navRow) {
+}
 
 int VersionTreeDelegate::rowIconSize() const {
     // 0 = 没传 = 按老规矩。两棵老树走的就是这一条，取到的值和改动前写死的那个常数一样。
@@ -115,6 +117,12 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     //   以及下面那一份**局部调色板**里换墨。
     const bool selected = (option.state & QStyle::State_Selected) != 0;
     opt.state &= ~QStyle::State_MouseOver;
+    // 侧栏导航的选中底由下面那支自己画成「内缩圆角块」。这里先把 Selected 从交给
+    // 平台样式的副本里拿掉，否则 Fusion 会先铺一块顶到四边的灰底，圆角外面会露出
+    // 四个灰色直角。普通数据列表仍然保留平台样式负责的那块选中底。
+    if (m_navRow) {
+        opt.state &= ~QStyle::State_Selected;
+    }
     // ★ 悬停那一行的加深底色（用户原话见上）。
     //
     // 这一层**画在 `CE_ItemViewItem` 之前**是有意的：选中那一行是样式紧接着用**不透明的**
@@ -129,7 +137,16 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     const bool hoverable = hovered && (index.flags() & Qt::ItemIsEnabled) != 0;
     if (hoverable) {
         const QColor hoverFill = Theme::rowHoverFill(option.palette.color(QPalette::Base));
-        painter->fillRect(option.rect, hoverFill);
+        if (m_navRow) {
+            const QRectF hoverRect = QRectF(option.rect.adjusted(3, 2, -3, -2));
+            painter->save();
+            painter->setPen(Qt::NoPen);
+            painter->setBrush(hoverFill);
+            painter->drawRoundedRect(hoverRect, 7.0, 7.0);
+            painter->restore();
+        } else {
+            painter->fillRect(option.rect, hoverFill);
+        }
         // 有子条目的那几棵树上（版本树、资源表：分类 → 版本号），条目左边留着一截**分支区**，
         // 而**选中**那一层是连这一截一起涂的 —— `QTreeView::drawRow()` 先按
         // `QRect(position, y, indentation, height)` 铺一遍选中色，**然后**才把画笔交给代理
@@ -158,9 +175,35 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     //   说了算的事 —— 这一句是保底，两边同一个色，重复涂一遍看不出区别。
     //   NOTE: 实例树那一边**故意不补**（它选中时的带子只有卡片那一圈，左边那根竖条正是
     //   用户 2026-09-29 点名要删掉的东西，见那条 ★★）。两张表的选中带形状本来就不一样。
-    if (selected && index.column() == 0 && option.rect.left() > 0) {
+    if (selected && !m_navRow && index.column() == 0 && option.rect.left() > 0) {
         painter->fillRect(QRect(0, option.rect.top(), option.rect.left(), option.rect.height()),
                           Theme::selectionFill());
+    }
+
+    // ★★ 侧栏那一列（`m_navRow`）：选中那一行**不是**那块浅灰，是"浅主题色底 + 左边一根
+    //    3 px 的主题色指示条"（用户 2026-10-12 那份改版文档点名的形状）。
+    //
+    //    平台样式那一层的 Selected 已在上面拿掉：这一档要的是内缩圆角块；如果先让
+    //    Fusion 铺满灰底，再在上面盖圆角块，四个圆角外仍会漏出灰色直角。
+    //    ★ 换色**只能**这么做：调色板里那一档 `Highlight` 被 `WtfmlProxyStyle::`
+    //      `selectedItemOption()` 拿去当"要不要接管"的判据了（见 Theme.hpp 里那段：
+    //      换过 Highlight 的表它就不接管），而这一层要的恰恰是"接管了之后再改一层色"。
+    if (m_navRow && selected) {
+        const QRectF selectedRect = QRectF(option.rect.adjusted(3, 2, -3, -2));
+        painter->save();
+        painter->setRenderHint(QPainter::Antialiasing, true);
+        painter->setPen(Qt::NoPen);
+        painter->setBrush(Theme::navSelectedFill(option.palette.color(QPalette::Base)));
+        painter->drawRoundedRect(selectedRect, 7.0, 7.0);
+
+        // 指示条也收在圆角块里面，上下留一点呼吸，不再像一根贯穿两行之间的分隔线。
+        const QRectF barRect(selectedRect.left(), selectedRect.top() + 6.0,
+                             Theme::navBarThickness(),
+                             qMax(0.0, selectedRect.height() - 12.0));
+        painter->setBrush(Theme::navSelectedBar());
+        painter->drawRoundedRect(barRect, Theme::navBarThickness() / 2.0,
+                                 Theme::navBarThickness() / 2.0);
+        painter->restore();
     }
 
     const QRect row = option.rect;
@@ -168,7 +211,16 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     //   （正文、第二行小字、图标、右边的箭头）都从下面这份 palette 取色 —— 不换的话深色主题下
     //   就是白字压浅灰（1.6:1，等于没字）。换哪几档只有一处出处（`selectionPalette()`），
     //   换的是**一份局部拷贝**：控件的调色板、别处的取色一点都不受影响。
-    const QPalette palette = Theme::selectionPalette(option.palette, selected);
+    QPalette palette = Theme::selectionPalette(option.palette, selected);
+    // 侧栏那一列选中时的**墨**：底已经是那块浅主题色了，墨得跟着换成主题色那一支里
+    // "白底上写字"的那一档（`Theme::navSelectedInk()`，约 8:1）—— 浅灰底配浅灰墨那一套
+    // 在这块底上不成立。换的是**这一份局部拷贝**（和上面那句一个规矩），控件的调色板、
+    // 别处的取色一点都不受影响。
+    if (m_navRow && selected) {
+        palette.setColor(QPalette::WindowText, Theme::navSelectedInk());
+        palette.setColor(QPalette::Text, Theme::navSelectedInk());
+        palette.setColor(QPalette::PlaceholderText, Theme::navSelectedInk());
+    }
     // 不可用的那几条（安装页上"选中了一个加载器之后其余几条"）**整行淡下去**：这一行
     // 的字和图标都是这儿自己画的，不处理的话"点得动"和"点了没反应"在屏幕上一模一样
     // —— 2026-09-23 用户报的"点不开了"正是这个形状，别再制造一次。

@@ -96,11 +96,41 @@ const QColor &scrimLiteral() {
 /// 样式一条都没匹配上"，而屏幕上看只是"这颗按钮颜色不对"，查起来要命。
 constexpr const char kButtonKindProperty[] = "wtfmlButtonKind";
 
+/// 页面骨架那几层"面"挂在控件上的属性名 / 属性值（2026-10-12）。
+///
+/// 用户 2026-10-12 那份改版文档里的第一条规则是「减少框」：整页只留**两个**面
+/// （侧栏 + 正文），其余靠排版分层。这一套属性就是那两个面（外加"小节卡片"和"页脚"
+/// 两档）的**唯一出处** —— 产品那边 `setProperty()` 写的是这两个常量，样式表里那几条
+/// 选择器读的也是它们。两边各写一遍字符串的话，改名字就成了"属性挂上了、样式一条都没
+/// 匹配上"，而屏幕上看只是"这一块没有底色"。
+constexpr const char kSurfaceProperty[] = "wtfmlSurface";
+/// 文字角色（页面标题 / 小节标题 / 次要说明）挂在 QLabel 上的属性名。
+constexpr const char kTextRoleProperty[] = "wtfmlTextRole";
+
+/// 它们那几个值。**只有这一处**（产品、样式表、验证工程三方共用，见头文件那段）。
+constexpr const char kSurfaceSidebar[] = "sidebar";
+constexpr const char kSurfaceWorkspace[] = "workspace";
+constexpr const char kSurfaceSection[] = "section";
+constexpr const char kSurfaceFooter[] = "footer";
+constexpr const char kTextRolePageTitle[] = "pageTitle";
+constexpr const char kTextRoleSectionTitle[] = "sectionTitle";
+constexpr const char kTextRoleSecondary[] = "secondary";
+
 /// 把 @p color 按 @p percent 罩在白上（`percent` = 0 给全白、100 给 @p color 本色）。
 QColor mixWithWhite(const QColor &color, int percent) {
     const int p = qBound(0, percent, 100);
     const auto mix = [p](int top) { return (255 * (100 - p) + top * p + 50) / 100; };
     return QColor(mix(color.red()), mix(color.green()), mix(color.blue()));
+}
+
+/// 把 @p color 按 @p percent 混进 @p base（`percent` = 0 给 @p base 本色、100 给 @p color
+/// 本色）。和 `rowHoverFill()` / `navSelectedFill()` 用的是**同一个式子**（含那一位 `+50`）
+/// —— 三处都是"从这一块自己的底色出发往主题色那头混"，差 1 就没法逐字节比了。
+QColor mixToward(const QColor &base, const QColor &color, int percent) {
+    const int p = qBound(0, percent, 100);
+    const auto mix = [p](int b, int a) { return (b * (100 - p) + a * p + 50) / 100; };
+    return QColor(mix(base.red(), color.red()), mix(base.green(), color.green()),
+                  mix(base.blue(), color.blue()));
 }
 
 /// 能单独改的调色板角色表（顺序 = `Role` 的枚举顺序）。
@@ -506,6 +536,31 @@ QColor rowHoverFill(const QColor &base) {
                   mix(base.blue(), accent.blue()));
 }
 
+QColor navSelectedFill(const QColor &base) {
+    // 混法**和 `rowHoverFill()` 逐字同式**（`(底*(100-p) + 主题*p + 50) / 100`）：两处
+    // 都是"从这一行自己的底色出发往主题色那头混"，只差比例。四舍五入那一位（`+50`）
+    // 不改的话两边会差 1 —— 那种差在屏幕上完全看不出来，但判据逐字节比的时候会红。
+    QColor accent = current().accent;
+    if (!accent.isValid()) {
+        accent = defaultAccentColor();
+    }
+    const int p = qBound(0, navSelectedAccentPercent(), 100);
+    const auto mix = [p](int b, int a) { return (b * (100 - p) + a * p + 50) / 100; };
+    return QColor(mix(base.red(), accent.red()), mix(base.green(), accent.green()),
+                  mix(base.blue(), accent.blue()));
+}
+
+QColor navSelectedInk() {
+    // 白底上写字那一档（`AccentShade::Ink`）—— 它压在 `navSelectedFill()` 那一层上
+    // （20% 的主题色罩在白上）对比度约 8:1。**不能**用 `AccentShade::Pure`：本色压在
+    // 自己 20% 的浅底上只有 2.4:1，那行字就糊了。
+    return accentShade(AccentShade::Ink);
+}
+
+QColor navSelectedBar() {
+    return accentShade(AccentShade::Pure);
+}
+
 QColor selectionFill() {
     // 用户 2026-09-29 原话：「选中的时候那个蓝色的换成深灰色」，紧接着又补了半句
     // 「再浅一点，#cccccc」。全仓只有这一处写这个色。
@@ -608,6 +663,23 @@ QString buttonKindKey(ButtonKind kind) {
     // 普通按钮**不挂属性**（挂一个 "accent" 只是让构造出来的控件都带一位恒真的值）。
     return QString();
 }
+
+// ---------------------------------------------------------------------------
+// 「面」与「文字角色」那两个属性（2026-10-12）
+// ---------------------------------------------------------------------------
+
+// 这一组就是上面那几个 `constexpr char` 的出口（**唯一出处**：产品、样式表、验证工程
+// 三方都读它，理由见头文件里那段）。写成函数而不是把常量放进头文件，是为了它们能和
+// 别的 `QString` 访问器一样用在 `setProperty()` / `findChild()` 那一族调用里。
+QString surfacePropertyName() { return QString::fromLatin1(kSurfaceProperty); }
+QString sidebarSurfaceValue() { return QString::fromLatin1(kSurfaceSidebar); }
+QString workspaceSurfaceValue() { return QString::fromLatin1(kSurfaceWorkspace); }
+QString sectionSurfaceValue() { return QString::fromLatin1(kSurfaceSection); }
+QString footerSurfaceValue() { return QString::fromLatin1(kSurfaceFooter); }
+QString textRolePropertyName() { return QString::fromLatin1(kTextRoleProperty); }
+QString pageTitleTextRoleValue() { return QString::fromLatin1(kTextRolePageTitle); }
+QString sectionTitleTextRoleValue() { return QString::fromLatin1(kTextRoleSectionTitle); }
+QString secondaryTextRoleValue() { return QString::fromLatin1(kTextRoleSecondary); }
 
 // ---------------------------------------------------------------------------
 // 滚动条
@@ -894,6 +966,64 @@ QString widgetStyleSheet() {
                     QString::number(scrollBarMinHandleLength()),
                     QString::number(scrollBarHandleRadius()),
                     QString::number(scrollBarHandleMargin()), handleHover, handlePressed);
+
+    // -----------------------------------------------------------------------
+    // 页面骨架那几层"面"（2026-10-12）
+    // -----------------------------------------------------------------------
+    //
+    // 用户 2026-10-12 那份改版文档：整页只留**侧栏 + 正文**两个面，其余靠排版分层（不再
+    // 用一堆 QGroupBox 套起来）。这两块的色**从调色板现问**（`QPalette::Base` / `Mid`）——
+    // 换深浅主题时 `apply()` 会重挂一遍样式表（见 `installButtonSheet()`），这一份跟着重算。
+    //
+    // ★ 侧栏是"轻微底色"（正文色混主题色 6%）：一眼分得出"这一列是导航"，又不至于像一块
+    //   独立的卡片。正文面就是 `Base`（今天那份卡片色）加一圈极细的边 —— 边**只有一档**
+    //   （`Mid`），不是主题色：整页上一个面而已，边上再点一笔主题色就变成第三个强调点了。
+    // ★ 小节卡片（`section`）比正文面**再淡一档**（6%），它装在正文面里面，"一块白压在白上"
+    //   是看不见的（用户要的是"标题 + 内容卡片"，卡片得看得出来是一块）。
+    // ★ 页脚（`footer`）**不铺底**、只画上面那条分隔线：它是正文面的一部分，铺底会把它切
+    //   成"又一个面"。用户要的"固定底栏"是**位置**上的固定（钉在正文面底部），不是又一个盒子。
+    // ★ 这几条**只管挂了这个属性的控件**（属性选择器），别处一个像素都不动。控件本身得是
+    //   QFrame（`QLabel`/裸 `QWidget` 不铺样式表给的底色）。
+    //
+    // ★★ **这里故意没有**那份文档里给的这几条（如实记一笔，不是漏了）：
+    //     `QListView[wtfmlNav="sidebar"]::item { min-height: 42px; padding: 0 12px;
+    //      border-radius: 7px; }` / `::item:selected { ... border-left: 3px solid ...; }`
+    //     —— 文档点名的两个"侧栏导航"（下载页左栏那六条分类、设置页左栏那五条）用的都是
+    //     `VersionTreeDelegate`，**整行是代理自己画的**（底色、文字、行高全在 paint() 里），
+    //     样式表里那几条 `::item` 规则一条都匹配不到那层底色：写上去就是死代码 ——
+    //     挂在那里让人以为"侧栏选中样式配好了"，而实际画出来的仍然只有代理那一支。
+    //     所以那一档落成了**代理里的 `navRow` 模式**（`new VersionTreeDelegate(..., true)`），
+    //     色一个字节都没另写：`navSelectedFill()`（浅主题色底，20%）、`navSelectedInk()`
+    //     （主题色那一支里"白底上写字"的那一档墨）、`navSelectedBar()` + `navBarThickness()`
+    //     （左边那根 3 px 的指示条），三处都在 ui/Theme.hpp 里。
+    //     行高和圆角同理：那份列表的行高一直是 `versionTreeRowHeight()`（46 ≥ 文档要的 42），
+    //     而代理画的是一整行**不带圆角**的方块 —— 多出来的圆角只能由代理画（今天没画）。
+    {
+        const QColor sheetBase =
+            appColor(QPalette::Base).isValid() ? appColor(QPalette::Base) : QColor(Qt::white);
+        QColor sheetLine = appColor(QPalette::Mid);
+        if (!sheetLine.isValid()) {
+            sheetLine = sheetBase.darker(115);
+        }
+        const QColor sidebarFill = mixToward(sheetBase, accentShade(AccentShade::Pure), 6);
+        // 小节卡片要能和正文面分得开，但仍然只是正文内部的一层。6% 在默认绿色下
+        // 足以建立层级，又不会像旧式 GroupBox 那样每节都变成一个沉重的框。
+        const QColor sectionFill = mixToward(sheetBase, accentShade(AccentShade::Pure), 6);
+        const QColor sheetSecondary = appColor(QPalette::PlaceholderText);
+        qss += QStringLiteral(
+                   "QFrame[%1=\"sidebar\"] { background-color: %2; border: none;"
+                   " border-radius: 8px; }"
+                   "QFrame[%1=\"workspace\"] { background-color: %3; border: 1px solid %4;"
+                   " border-radius: 8px; }"
+                   "QFrame[%1=\"section\"] { background-color: %5; border: none;"
+                   " border-radius: 10px; }"
+                   "QFrame[%1=\"footer\"] { background-color: transparent; border: none;"
+                   " border-top: 1px solid %4; }"
+                   "QLabel[%6=\"secondary\"] { color: %7; }")
+                   .arg(QString::fromLatin1(kSurfaceProperty), sidebarFill.name(),
+                        sheetBase.name(), sheetLine.name(), sectionFill.name(),
+                        QString::fromLatin1(kTextRoleProperty), sheetSecondary.name());
+    }
     return qss;
 }
 

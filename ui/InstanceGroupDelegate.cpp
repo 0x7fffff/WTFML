@@ -353,8 +353,10 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
     //     `src/MainWindow.cpp` 里有一句 `setFlags(flags() & ~Qt::ItemIsSelectable)`
     //     （组头是"一堆东西的标题"，不是"一个能启动的实例"）。这是**唯一**一处放这一位
     //     的地方，本文件不碰 `flags()`；这条路径上"能不能点得动"仍然只看 `ItemIsEnabled`。
-    if ((option.state & QStyle::State_MouseOver) != 0 &&
-        (index.flags() & Qt::ItemIsEnabled) != 0) {
+    // 这一位下面还要用两次（悬停底色 + 行尾那颗齿轮，见 2026-10-12 那一段），所以在这儿
+    // 读成一个名字 —— 读的仍然是**传进来**那一份，时序和上面那句一模一样。
+    const bool rowHovered = (option.state & QStyle::State_MouseOver) != 0;
+    if (rowHovered && (index.flags() & Qt::ItemIsEnabled) != 0) {
         painter->fillRect(opt.rect, Theme::rowHoverFill(option.palette.color(QPalette::Base)));
     }
     opt.state &= ~QStyle::State_MouseOver;
@@ -396,7 +398,17 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
                                                  Qt::ElideRight, textRect.width()));
     // 行尾那颗齿轮：画的是 gearGlyphRect()（比命中格小一圈、还要装进行高里），用次要那一档
     // 颜色 —— 它是行里的一个动作，不是正文。
-    if (hasGear) {
+    //
+    // ★ 2026-10-12：它和实例行那两颗一样**只在鼠标停在这一行时才画**（用户那份改版文档：
+    //   实例页"分组齿轮只在悬停时出现"；这也是实例行那两颗（置顶 / 垃圾桶）已经在用的
+    //   规矩，见 InstanceGroupDelegate::paint() 里 `&& hovered` 那两处）。
+    //   · **宽度照扣**（上面 `textRight` 那一段没跟着改）：鼠标挪进来的时候正文不会左右
+    //     跳一下 —— 和下载页那格刷新圈是同一条规矩（`hasRefresh` / `showRefresh` 拆开）。
+    //   · hovered 是**视图**填的 ⇒ 实例列表必须有 `setMouseTracking(true)`（MainWindowUI
+    //     里那一句，少它的话这颗齿轮再也不出现，且不报错、断言也不一定先红）。
+    //   · 不可用的那几行（`setDisabled()` 那条路）不画：那一整行是半透明的，画上去像是
+    //     "点得动"。判据和上面那层悬停底色逐字一样。
+    if (hasGear && rowHovered && (index.flags() & Qt::ItemIsEnabled) != 0) {
         const QRect glyph = gearGlyphRect(row);
         painter->drawPixmap(glyph.topLeft(),
                             VersionIcons::gear(glyph.width(),

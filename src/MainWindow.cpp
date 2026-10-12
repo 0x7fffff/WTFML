@@ -1902,6 +1902,10 @@ void MainWindow::setupConnections() {
                 if (row >= 0 && row < stack->count()) {
                     stack->setCurrentIndex(row);
                 }
+                // 页头那行说明跟着当前这一类走（2026-10-12 那次改版：页头要写"当前状态"）。
+                // 摆在这儿是**唯一**一处 —— 翻类有两条路（点条目、页头那颗刷新切过去），
+                // 两条最后都会走到 `currentRowChanged` 上，各写一遍迟早会有一边漏。
+                m_ui->setDownloadHeaderRow(row);
                 // 后面那几页（整合包/模组/数据包/资源包/光影）**第一次进页面时**才去搜一次
                 //（空搜索词 = 这一类里最热门的）。理由有两条，第二条才是主要的：
                 //   · 启动时一次发好几个请求是白花用户的等待（他多半只会进其中一页）；
@@ -1927,6 +1931,17 @@ void MainWindow::setupConnections() {
     if (QPushButton *back = m_ui->getDownloadBackButton()) {
         connect(back, &QPushButton::clicked, this,
                 &MainWindow::returnToInstanceSettingsFromDownload);
+    }
+    // 下载页**页头右上角**那颗刷新（2026-10-12 加的）。用户那份改版文档把刷新归到
+    // "当前分类自己的页面头部"—— 于是它和分类行行尾那一颗做的是同一件事（`refreshDownloadCategory()`），
+    // 只是作用对象不用再从"点在哪一行"推：就是**现在停着的那一类**。
+    // NOTE: 传的是 `currentRow()` 而不是捕获下来的某一行 —— 那颗键一直活着，翻类之后
+    //       它必须跟着新那一类走。
+    if (QPushButton *refresh = m_ui->getDownloadHeaderRefreshButton()) {
+        connect(refresh, &QPushButton::clicked, this, [this]() {
+            QListWidget *categories = m_ui->getDownloadCategoryList();
+            refreshDownloadCategory(categories != nullptr ? categories->currentRow() : -1);
+        });
     }
     // 顶上那四颗导航（2026-09-28，用户原话「点击顶部下载按钮就刷新页面回到主页」）。
     //

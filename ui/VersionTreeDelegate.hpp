@@ -44,12 +44,30 @@ public:
     ///        （`MainWindowUI::versionTreeIconSize()`，18 px）—— 版本树和加载器树都用这个
     ///        默认值，所以传 0 和以前完全一样。下载页那几张表要的是"能看清的缩略图"
     ///        （用户原话「会有图片啥的效仿 pcl 的布局放着」），会显式传一个大一点的数。
+    /// @param navRow 这一列是不是**侧栏那一列导航**（2026-10-12 那次改版加的）。
+    ///        **默认 false**（和从前一个字节都不差）—— 版本树、加载器树、四张资源表、
+    ///        服务器那一列全都不传。
+    ///        · `false`：选中那一行是那块浅灰 `#cccccc`（`Theme::selectionFill()`，
+    ///          2026-09-29 用户点名的），墨跟着换成 `selectionPalette()` 那一份。
+    ///        · `true`：**导航**（下载页左栏那六条分类、设置页左栏那五条）—— 选中那一行
+    ///          走的是一档**主题色**（浅主题色底 + 左边 3 px 主题色指示条 + 主题色深色
+    ///          文字），见 `Theme::navSelectedFill()/Ink()/Bar()`。用户 2026-10-12 那份
+    ///          改版文档原话：「选中项：浅主题色背景 + 左侧 3px 主题色指示条 + 主题色深色
+    ///          文字，而不是一整块深灰」。
+    ///          为什么这一档只能由代理自己铺、不能写成 Qt 样式表里那几条 `::item` 规则
+    ///          （文档里给的就是 QSS 的样子）：这两个列表用的是**这个代理**，整行都是它
+    ///          自己画的 ⇒ 样式表里 `QListView[wtfmlNav="sidebar"]::item:selected` 一条都
+    ///          匹配不上那层底色（画出来的是我们这一支）。色本身仍然只有 Theme 那一处出处。
     explicit VersionTreeDelegate(QObject *parent = nullptr, bool leafArrow = true,
-                                 int iconSize = 0);
+                                 int iconSize = 0, bool navRow = false);
 
     /// 叶子那一层的箭头画不画（见构造函数）。验证工程用它钉住**产品那边真的传了 false**：
     /// 只验"传 false 就不画箭头"是不够的，那条路自己也能通过。
     bool leafArrow() const { return m_leafArrow; }
+
+    /// 这一列是不是"侧栏导航"那一档（见构造函数）。验证工程同样要能钉住**产品那边真的
+    /// 开了这一档**（只验"开了就画成主题色"不成立 —— 那条路自己也能通过）。
+    bool navRow() const { return m_navRow; }
 
     /// 这一行前面那个图标实际画多大（0 表示"用默认那个常数"，见构造函数）。
     int iconSize() const { return m_iconSize; }
@@ -126,4 +144,5 @@ public:
 private:
     bool m_leafArrow = true;
     int m_iconSize = 0;
+    bool m_navRow = false;
 };

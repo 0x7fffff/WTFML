@@ -39,6 +39,19 @@
 
 namespace {
 
+/// 给 @p widget 挂一个"面"（`wtfmlSurface`）。名字与值都从 Theme 那一组**唯一出处**来，
+/// 这里只是把 `const char *` 那一下收成一行（属性名要 `QByteArray` 活得比这一次调用长）。
+void markSurface(QWidget *widget, const QString &value) {
+    const QByteArray name = Theme::surfacePropertyName().toUtf8();
+    widget->setProperty(name.constData(), value);
+}
+
+/// 给 @p label 挂一个"文字角色"（`wtfmlTextRole`）。同上。
+void markTextRole(QWidget *label, const QString &value) {
+    const QByteArray name = Theme::textRolePropertyName().toUtf8();
+    label->setProperty(name.constData(), value);
+}
+
 /// 每个选项卡页面共用的边距：贴着选项卡内容区留一圈呼吸空间。
 /// **值本身在 MainWindowUI::pageMargin()** —— 内容区那个覆盖层（OverlayHost）也是一整个
 /// "页面"，它留白得和别的页面一样，所以那一边读的是同一个出处。
@@ -90,13 +103,45 @@ constexpr int kApplyJvmArgsButtonMinWidth = 72;
 /// 比 kColumnSpacing（12）小一点：这一行里的东西是一组，挨着摆才像一组。
 constexpr int kFilterRowSpacing = 8;
 
-/// 一栏：控件本身 + 它自己的竖排布局。
+/// 侧栏那一列的宽度。**唯一出处**（`MainWindowUI::sidebarWidth()`）—— 用户 2026-10-12
+/// 那份文档里点名的是 208~220 px，取中间那个整数。
+///
+/// NOTE: 它取代了"按份数分宽"（下载 2:8 / 实例 3:7）：导航那一列本来就不是"和正文抢宽度"
+///       的东西，按比例分的话窗口一拉宽它也跟着长，多出来的全成了空白（这正是那份文档
+///       里"左侧导航 / 右侧正文缺少主次关系"那条）。主页**不**走这一档 —— 它左边是"选版本
+///       + 启动"，那是正文，仍然是 7:3 的份数。
+const int kSidebarWidth = MainWindowUI::sidebarWidth();
+
+/// 正文面（`wtfmlSurface="workspace"`）里那一圈内边距。比页面那一圈（9）大一档：
+/// 面自己已经是一圈了，里面的东西再贴着边就还是"贴边"。
+constexpr int kSurfacePadding = 14;
+
+/// 页头两行之间的间距。
+constexpr int kHeaderSpacing = 3;
+
+/// 一栏：控件本身 + 它自己的竖排布局 + 这一栏那个"面"，右栏还多一个页头。
+///
+/// ★ 2026-10-12 起 `layout` 不再**必然**是 `widget` 自己的布局：正文那一栏是
+///   `widget`（透明外框）→ 页头 → `surface`（"正文面"）→ `layout`。调用方照旧
+///   `column.layout->addWidget(...)` 往里塞东西，塞进去的自然落在正文面里，
+///   页头那一行永远在它上面 —— **这正是"页面标题 + 操作"该在的位置**（用户
+///   2026-10-12 那份文档：`页面标题 / 页面说明 / 主内容区 / 底部操作`）。
+///   侧栏那一栏没有页头：`surface == widget`、`layout` 就是它自己的布局。
 struct Column {
     QWidget *widget = nullptr;
     QVBoxLayout *layout = nullptr;
+    /// 这一栏那个"面"（侧栏是 `wtfmlSurface="sidebar"`，正文是 `"workspace"`）。
+    QFrame *surface = nullptr;
+    /// 页头（**只有正文那一栏有**，侧栏是 nullptr）。里面是标题 + 说明 + 右上角操作。
+    QWidget *header = nullptr;
+    /// 页头里那两行字。
+    QLabel *title = nullptr;
+    QLabel *subtitle = nullptr;
+    /// 页头右上角那一条（页面级操作塞这儿）。
+    QHBoxLayout *actions = nullptr;
 };
 
-/// 一个页面的左右两栏。
+/// 一个页面的左右两栏（= 用户 2026-10-12 那份文档里的统一页面骨架 `PageScaffold`）。
 struct TwoColumns {
     Column left;
     Column right;
@@ -136,25 +181,48 @@ QLabel *makeHomeHint(const QString &text, QWidget *parent) {
 }
 
 /**
- * @brief 把页面摆成左右两栏（仿 PCL）。
+ * @brief 把页面搭成那套统一骨架（用户 2026-10-12 那份改版文档里的 `PageScaffold`）。
  * @param page 选项卡页面。
  * @param tab 页面代号（"home" / "instance" / "download" / "settings"），进 objectName，
  *            **也决定份数**。
- * @return 两栏的控件与布局；调用方往 layout 里塞东西即可。
+ * @return 两栏的控件与布局；调用方往 `layout` 里塞东西即可。
  *
- * 份数按页不同（主页左宽右窄、另两页左窄右宽，见 MainWindowUI::leftColumnIsWider()），
- * 所以这里把 tab 一路传下去，不自己写死。
+ * 【这套骨架长什么样】（用户文档里那张 ASCII）
  *
- * **四个选项卡都走这条路**（2026-09-26 起「设置」页也走：左栏是那五条分类、右栏是堆叠页，
- * 见 setupSettingsPage()）。设置页栏内那张 grid 现在管的是**栏内**那一层
- * （addSettingsPanel() 里 setColumnStretch 的那一对，份数取自默认那一对；栏内每一行
- * 都是跨两列的上下结构，见 addSettingRow()，所以那一对如今只摆表格的形状）。
- * 栏做成真控件而不是裸布局，是为了验证工程能按 objectName 找回来量几何。
+ *     ┌──────────────────────────────────────────────────┐
+ *     │ 侧栏 216px │ 页面标题                    操作 │
+ *     │            │ 页面说明 / 路径 / 当前状态        │
+ *     │ 导航或列表 ├───────────────────────────────────┤
+ *     │            │ 主内容区（一个"正文面"）           │
+ *     └──────────────────────────────────────────────────┘
+ *
+ * 四条规则落在代码里就是：
+ *   ① **页面本身不画边框**：整页只有两个面（侧栏 + 正文），别的层一律透明；
+ *   ② **侧栏只用一个轻微底色**（`wtfmlSurface="sidebar"`）区分，不画矩形边框；
+ *   ③ **正文只有一个面**（`wtfmlSurface="workspace"`）—— 原来那些 `QGroupBox` 全部
+ *      让位于它，小节改走"标题 + 小节卡片"（`wtfmlSurface="section"`）；
+ *   ④ **页面级操作永远在右上角**：塞进 `columns.right.actions`（页头那一行的最右），
+ *      确认操作由调用方摆在自己的"底栏"上（`wtfmlSurface="footer"`）。
+ *
+ * 【哪些页走哪一档】主页那一栏是"选版本 + 启动"、那是**正文**，所以它不套侧栏面、
+ * 也不固定宽度（仍然是 7:3 的份数，见 `leftColumnIsWider()`）；另外三页的左栏是
+ * **导航**（一列分类 / 一列文件夹），走固定宽度的侧栏面。
+ *
+ * 【`layout` 落在哪儿】正文那一栏：`widget`（透明外框）→ 页头 → `surface`（正文面）→
+ * `layout`。也就是说调用方 `columns.right.layout->addWidget(...)` 塞进去的东西**都在
+ * 页头下面、正文面里面** —— 这正是文档里"主内容区"该在的位置。侧栏那一栏没有页头，
+ * `surface == widget`、`layout` 就是它自己的布局。
+ *
+ * 【只带名字的栏才是验证工程要的】栏做成真控件而不是裸布局，是为了验证工程能按
+ * objectName 找回来量几何；页头里那两行字与操作那一条也各有名字（见
+ * `pageHeaderName()` / `pageTitleName()` / `pageSubtitleName()` / `pageActionsName()`）。
  */
 TwoColumns buildTwoColumnPage(QWidget *page, const QString &tab) {
     auto *row = new QHBoxLayout(page);
     row->setContentsMargins(kPageMargin, kPageMargin, kPageMargin, kPageMargin);
     row->setSpacing(kColumnSpacing);
+
+    const bool home = tab == QLatin1String("home");
 
     // 栏本身是个控件（不是裸布局），而且**主页那一条左栏要能铺图**：用户点名要的
     // 「主页左侧自定义图像」就是这一格（`Theme::Part::HomeLeft`，见 Theme.hpp）。
@@ -176,55 +244,178 @@ TwoColumns buildTwoColumnPage(QWidget *page, const QString &tab) {
     };
 
     TwoColumns columns;
-    columns.left = makeColumn(MainWindowUI::leftColumnName(tab),
-                              tab == QLatin1String("home"));
+    columns.left = makeColumn(MainWindowUI::leftColumnName(tab), home);
     columns.right = makeColumn(MainWindowUI::rightColumnName(tab), false);
-    if (tab == QLatin1String("home")) {
+    if (home) {
         columns.right.widget->setMaximumWidth(kRichSideMaxWidth);
-    } else if (tab == QLatin1String("instance")) {
-        columns.left.widget->setMaximumWidth(kRichSideMaxWidth);
     } else {
-        // 下载 / 设置左栏都只是短分类；宽屏时封顶，避免它们变成大片空白。
-        columns.left.widget->setMaximumWidth(kNarrowSideMaxWidth);
+        // ---- 侧栏那一栏：固定宽度 + 一个轻微底色 ----
+        //
+        // ★ 固定宽度取代了"按份数分宽"（见 kSidebarWidth 那段）。
+        // ★ 面是 QFrame 而不是裸 QWidget：样式表给的底色只对 QFrame 这一族生效
+        //   （裸 QWidget 得自己画）。
+        auto *sidebar = new QFrame(columns.left.widget);
+        markSurface(sidebar, Theme::sidebarSurfaceValue());
+        auto *sidebarLayout = new QVBoxLayout(sidebar);
+        sidebarLayout->setContentsMargins(kSurfacePadding, kSurfacePadding, kSurfacePadding,
+                                          kSurfacePadding);
+        sidebarLayout->setSpacing(10);
+        columns.left.surface = sidebar;
+        // 侧栏里那些东西落在**面**里（侧栏没有页头，面就是这一栏的全部）
+        columns.left.layout->addWidget(sidebar, 1);
+        columns.left.layout = sidebarLayout;
+
+        // ---- 正文那一栏：页头 + 一个"正文面" ----
+        //
+        // ★ 页头**在面外面**（面里只有内容）：标题和说明是"这一页是什么"，内容面是
+        //   "这一页有什么" —— 把标题装进面里的话，那一圈边就同时框住了标题和内容，
+        //   又回到了"框套框"的观感（用户文档第一条要减掉的就是它）。
+        auto *header = new QWidget(columns.right.widget);
+        header->setObjectName(MainWindowUI::pageHeaderName(tab));
+        auto *headerLayout = new QVBoxLayout(header);
+        headerLayout->setContentsMargins(kSurfacePadding, 2, kSurfacePadding, 0);
+        headerLayout->setSpacing(kHeaderSpacing);
+
+        auto *titleRow = new QHBoxLayout;
+        titleRow->setSpacing(kColumnSpacing);
+        columns.right.title = new QLabel(header);
+        columns.right.title->setObjectName(MainWindowUI::pageTitleName(tab));
+        markTextRole(columns.right.title, Theme::pageTitleTextRoleValue());
+        {   // 标题的字：比正文大两档、加粗（和主页那几张卡片的标题同一档）。
+            QFont titleFont = columns.right.title->font();
+            titleFont.setBold(true);
+            // 页面标题要比卡片标题再高一档。原来的 +2 在默认 900px 窗口里只比正文
+            // 大一点点，右边有「刷新 / 分组设置」时尤其容易被按钮抢走视觉重心。
+            titleFont.setPointSizeF(titleFont.pointSizeF() + 3.0);
+            columns.right.title->setFont(titleFont);
+        }
+        titleRow->addWidget(columns.right.title);
+        titleRow->addStretch(1);
+        columns.right.actions = new QHBoxLayout;
+        columns.right.actions->setSpacing(kFilterRowSpacing);
+        titleRow->addLayout(columns.right.actions);
+        headerLayout->addLayout(titleRow);
+
+        columns.right.subtitle = new QLabel(header);
+        columns.right.subtitle->setObjectName(MainWindowUI::pageSubtitleName(tab));
+        markTextRole(columns.right.subtitle, Theme::secondaryTextRoleValue());
+        columns.right.subtitle->setWordWrap(true);
+        // 和主页那行说明同一条规矩：纯说明文字**不许**参与横向度量（折行 QLabel 报出来的
+        // sizeHint 是"整句排成一行"的宽度，让它决定这一栏多宽是本末倒置）。
+        columns.right.subtitle->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+        columns.right.subtitle->setVisible(false);
+        headerLayout->addWidget(columns.right.subtitle);
+
+        auto *workspace = new QFrame(columns.right.widget);
+        markSurface(workspace, Theme::workspaceSurfaceValue());
+        auto *workspaceLayout = new QVBoxLayout(workspace);
+        workspaceLayout->setContentsMargins(kSurfacePadding, kSurfacePadding, kSurfacePadding,
+                                            kSurfacePadding);
+        workspaceLayout->setSpacing(10);
+        columns.right.surface = workspace;
+
+        columns.right.header = header;
+        columns.right.layout->addWidget(header);
+        columns.right.layout->addWidget(workspace, 1);
+        columns.right.layout = workspaceLayout;
     }
+    // 主页那一栏左宽右窄，靠份数（见上面那段）；另几页的侧栏是**固定宽度**，
+    // 份数给它 0（它自己那一位由 `setFixedWidth()` 定死），多出来的宽度全归正文那一栏。
+    // NOTE: 这两句直接读 `leftColumnStretch(tab)`/`rightColumnStretch(tab)` —— 那一对
+    //       函数**自己**就编码了"只有主页按份数、另三页是 0:1"（见头文件里那段），
+    //       所以这里没有三元表达式，改份数还是只有那一处。
     row->addWidget(columns.left.widget, MainWindowUI::leftColumnStretch(tab));
     row->addWidget(columns.right.widget, MainWindowUI::rightColumnStretch(tab));
+    if (!home) {
+        columns.left.widget->setFixedWidth(kSidebarWidth);
+        // ★ 尺寸策略也要一起钉（2026-10-12）：`setFixedWidth()` 只写死了 min/max，策略留在
+        //   Preferred —— 屏幕上看着一样，但"这一栏跟不跟窗口长"这件事的判据是策略
+        //   （按份数分宽那一版是 Preferred/Expanding，两者只在策略上分得开）。ui_check 那条
+        //   "左栏的横向尺寸策略是 Fixed"量的是这一句；少它的话，将来谁把 setFixedWidth 挪走
+        //   换成 setMinimumWidth，屏幕上要到某个窗口宽度才看得出走样。
+        columns.left.widget->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+    }
     return columns;
 }
 
-/// 设置页里一行：**行名独占一行、内容在下一行**（2026-09-26 用户原话「设置界面的项目和
+/// 给正文那一栏的页头填标题与说明（`subtitle` 传空串就整行收起来，连位置都不占）。
+void fillPageHeader(Column &column, const QString &title, const QString &subtitle) {
+    if (column.title != nullptr) {
+        column.title->setText(title);
+    }
+    if (column.subtitle != nullptr) {
+        column.subtitle->setText(subtitle);
+        column.subtitle->setVisible(!subtitle.isEmpty());
+    }
+}
+
+/// 设置页里一个小节：**一个标题 + 一张内容卡片**。
+///
+/// ★ 2026-10-12：用户那份改版文档点名了这一条 —— 「小节使用"标题 + 内容卡片"，避免传统
+///   `QGroupBox` 的缺口式标题」。于是设置页里原来那种「一行粗体标题横跨两列、下面接着
+///   几行设置项」的排法换成了它：一节 = 一张 `wtfmlSurface="section"` 的卡片
+///   （浅一档的底 + 10 px 圆角，**不画边**），标题和这一节所有的项**都在卡片里面**。
+///
+///   为什么原来那种排法要换掉：标题横跨整幅、项也横跨整幅，两者之间只有"挨着"这一层
+///   关系 —— 一项到底是哪一节的，得靠"往上找最近那个粗体行"去猜；换成一节一张卡之后
+///   那是**装在里面**的关系，一眼就是。顺带卡片自己还会把内容收进一圈内边距里
+///   （18/17/18/18），"说明文字一行跨得太长"那件事也跟着好一档（另有 820 的宽度上限，
+///   见 `settingsFormMaxWidth()`）。
+///
+/// 【为什么卡片进 grid 而不是各节自己竖着排】每一栏那一页仍然是一张两列的 `QGridLayout`
+/// （`addSettingsPanel()` 里那对 3:7 的 `setColumnStretch` 还留着，ui_check 仍在核它），
+/// 卡片按行跨两列塞进去。这样滚动区那一套（`scroll->widget() == form`）、栏与栏之间"页
+/// 数 = 分类数"那条对应关系、每一页的名字一个都不用动。
+struct SettingsSection {
+    /// 这一节的卡片（`wtfmlSurface="section"`）。**它就是项们的父窗**。
+    QFrame *card = nullptr;
+    /// 卡片里那条竖排布局。项按顺序往里加（见 `addSettingItem()`）。
+    QVBoxLayout *layout = nullptr;
+};
+
+/// 起一节（标题 + 一张空的内容卡片），并在 @p row 那一行把它摆进 @p grid。
+/// @param row 按引用收：卡片占掉一行，函数自己推进（和原来 `addSectionTitle()` 里
+///            `row++` 是一个规矩，只是现在忘不掉了）。
+SettingsSection addSettingsSection(QGridLayout *grid, int &row, const QString &title,
+                                   QWidget *parent) {
+    SettingsSection section;
+    section.card = new QFrame(parent);
+    // 面挂在**属性**上（不是 objectName）：一页里这样的卡片有好几张，名字只能靠它认
+    //（产品、样式表、验证工程三方共用这一对字符串，见 Theme::surfacePropertyName()）。
+    markSurface(section.card, Theme::sectionSurfaceValue());
+    auto *layout = new QVBoxLayout(section.card);
+    // 这一圈内边距是**文档里给的**（「margins 18,16,18,18, spacing 12」）。
+    layout->setContentsMargins(18, 17, 18, 18);
+    layout->setSpacing(13);
+    auto *titleLabel = new QLabel(title, section.card);
+    markTextRole(titleLabel, Theme::sectionTitleTextRoleValue());
+    {
+        QFont titleFont = titleLabel->font();
+        titleFont.setBold(true);
+        titleFont.setPointSizeF(titleFont.pointSizeF() + 1.0);
+        titleLabel->setFont(titleFont);
+    }
+    layout->addWidget(titleLabel);
+    grid->addWidget(section.card, row, 0, 1, 2);
+    ++row;
+    section.layout = layout;
+    return section;
+}
+
+/// 往一节里加一项：**行名独占一行、内容在下一行**（2026-09-26 用户原话「设置界面的项目和
 /// 设置条目变成和实例设置一样的上下结构」—— 实例设置那边 2026-09-26 傍晚先改成了这样，
 /// 见 InstanceSettingsDialog.cpp 里的 addTitledRow()）。
 ///
-/// @param row 行名那一行的下标，**按引用收**（这一行占掉的两行由函数自己推进，见下）。
-///
-/// NOTE: 从前这里是「名字在左（右对齐）、控件在右」的两列行，名字那一列占 3 份宽。
-///       换成上下结构之后**没有任何一行再用单独一列**了，所以 addSettingsPanel() 里那对
-///       `setColumnStretch`（3:7）从此只剩下"表格的形状"这一层意思 —— 跨两列的控件拿到
+/// NOTE: 从前这里是「名字在左（右对齐）、控件在右」的两列行，名字那一列占 3 份宽。换成
+///       上下结构之后**没有任何一行再用单独一列**了，所以 addSettingsPanel() 里那对
+///       `setColumnStretch`（3:7）从此只剩下"表格的形状"这一层意思 —— 卡片跨两列，它里面
 ///       的宽度和列怎么分无关，留着它是为了两边的表格长得一样（ui_check 仍在核它）。
-///       顺带一个后果：内容那一格从前只有 7 份宽，现在是整幅宽 —— 于是下拉框、文本框那
-///       几个"填满整格"的控件比以前宽了些（那几个靠 `Qt::AlignLeft` 摆的没有变）。
-///
-/// NOTE: **行号由这里推进**（`row += 2`），调用方写 `addSettingRow(grid, row, …)` 就接着
-///       往下排。实例设置那边（addTitledRow）把 `row += 2` 留给调用方，于是那条约定只能
-///       靠注释提醒；那一栏当初就是这么踩的 —— 少加那一行**编得过、跑起来也不报错**，
-///       只是界面上少一整行（下一项盖在上面）。这一份收成引用参数，忘不掉了。
-void addSettingRow(QGridLayout *grid, int &row, const QString &labelText, QWidget *control,
-                   QWidget *parent) {
+void addSettingItem(const SettingsSection &section, const QString &labelText, QWidget *control,
+                    QWidget *parent) {
     QLabel *label = new QLabel(labelText, parent);
     label->setAlignment(Qt::AlignLeft);
-    grid->addWidget(label, row, 0, 1, 2);
-    grid->addWidget(control, row + 1, 0, 1, 2);
-    row += 2;
-}
-
-/// 设置页里的分组标题，横跨两列。
-void addSectionTitle(QGridLayout *grid, int row, const QString &text, QWidget *parent) {
-    QLabel *title = new QLabel(text, parent);
-    QFont titleFont = title->font();
-    titleFont.setBold(true);
-    title->setFont(titleFont);
-    grid->addWidget(title, row, 0, 1, 2);
+    section.layout->addWidget(label);
+    section.layout->addWidget(control);
 }
 
 /// 设置页里数字框的宽度（够写「65536 MB」再加一对上下箭头）。
@@ -513,13 +704,47 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     // ---------- 实例：左 = 游戏文件夹列表；右 = 那个文件夹里的实例 ----------
     QWidget *instanceTab = new ThemeBackground(Theme::Part::PageBackground, tabWidget);
     instanceTab->setObjectName(instanceTabName());
-    const TwoColumns instance = buildTwoColumnPage(instanceTab, QStringLiteral("instance"));
+    // NOTE: 这一份**不是 const**（另几页那三份是）：页头那两行字和右上角那条操作是
+    //       `buildTwoColumnPage()` 搭完之后才由这一页填的（`fillPageHeader()` 收的是
+    //       `Column&`）。
+    TwoColumns instance = buildTwoColumnPage(instanceTab, QStringLiteral("instance"));
+    // ---- 页头：标题「实例」+ 副标题（路径 + 实例数量，就是原来那句「当前文件夹：…」）----
+    //
+    // ★ 那句副标题**就是** `instanceFolderLabel`：它一直说的是"这一页的实例是从哪一份
+    //   .minecraft 里扫出来的、一共有几个"，用户 2026-10-12 那份文档里"页面说明 / 路径 /
+    //   当前状态"要的正是它。所以这里把页头那个说明标签**接过来用**（objectName 换成它
+    //   原来那个名字）—— 文案、灌数据那条路（MainWindow::refreshInstanceList）、
+    //   验证工程找它用的名字一处都不用动，只是从"框里的一行"变成了"标题下面那行说明"。
+    fillPageHeader(instance.right, instancePageTitle(), QString());
+    instanceFolderLabel = instance.right.subtitle;
+    instanceFolderLabel->setObjectName(MainWindowUI::instanceFolderLabelName());
+    // 它就是这一页的状态栏那一行，**不跟着"文字空不空"收起来**（文字由 MainWindow 灌，
+    // 界面这边不知道盘上有几份）。
+    instanceFolderLabel->setVisible(true);
+    // 右上角那颗页面级操作：「分组设置…」（它管的是**分组清单本身**，不是选中的那一个
+    // 实例 —— 见下面那段，那是 2026-09-25 就定下的语义）。
+    groupInstanceButton = new QPushButton(groupInstanceText(), instance.right.header);
+    groupInstanceButton->setObjectName(groupInstanceButtonName());
+    // 「分组设置…」= 打开另一个窗（一般性），不是"干这件事"。
+    Theme::markButton(groupInstanceButton, Theme::ButtonKind::Neutral);
+    instance.right.actions->addWidget(groupInstanceButton);
+
     {
-        QGroupBox *folderGroupBox = new QGroupBox(QStringLiteral("游戏文件夹"),
-                                                  instance.left.widget);
-        QVBoxLayout *folderLayout = new QVBoxLayout(folderGroupBox);
-        folderLayout->setContentsMargins(9, 9, 9, 9);
-        folderLayout->setSpacing(10);
+        // ---- 侧栏：一个页面小标题「游戏目录」+ 文件夹列表 + 两颗按钮（都在侧栏底部）----
+        //
+        // ★ 2026-10-12：这一栏原来是一个 `QGroupBox("游戏文件夹")`（缺口式标题 + 一圈边）。
+        //   用户那份文档的第一条就是「减少框」：**页面本身不画边框**、侧栏只用一个轻微
+        //   底色区分，小节标题改成**一行普通的粗体字**。于是那圈边整块没了，标题变成下面
+        //   这一行，列表和按钮直接落在侧栏面上。
+        QLabel *folderTitle = new QLabel(folderSectionTitleText(), instance.left.surface);
+        folderTitle->setObjectName(folderSectionTitleName());
+        markTextRole(folderTitle, Theme::sectionTitleTextRoleValue());
+        {
+            QFont titleFont = folderTitle->font();
+            titleFont.setBold(true);
+            folderTitle->setFont(titleFont);
+        }
+        instance.left.layout->addWidget(folderTitle);
 
         // 左边这张列表就是"启动器用哪一份 .minecraft"的选择器：选中哪一项，版本、资源、
         // 库、自管 Java 就全从那一份里找（PCL 左边那几张卡片是同一个意思）。
@@ -536,111 +761,104 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         //       从**尾巴**省略（路径最后一级目录名正是唯一认得出是哪一份的那截）。
         //       现在这件事放在真正画字的那个标签上：见 FolderRowWidget 里的
         //       `subtitle->setElideMode(...)`。
-        folderList = new QListWidget(folderGroupBox);
+        folderList = new QListWidget(instance.left.surface);
         folderList->setObjectName(folderListName());
         folderList->setUniformItemSizes(true);
         folderList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
         folderList->setSelectionMode(QAbstractItemView::SingleSelection);
-        folderLayout->addWidget(folderList, 1);
+        // ★ 列表**不画自己那圈边**：侧栏面已经是一层底了，再套一圈就是"框套框"
+        //   （用户文档第一条要减掉的正是它）。这条列表的行本来就是自绘的两行式行
+        //   （见 FolderRowWidget），有没有外框在观感上是"一块面板"和"一串行"的区别。
+        folderList->setFrameShape(QFrame::NoFrame);
+        instance.left.layout->addWidget(folderList, 1);
 
+        // 下面两颗按钮**贴着侧栏底部**（列表那一格吃掉剩下的高度）。
         // 这一行**只有「添加文件夹…」一个按钮**了：2026-09-24 用户说「下面那个移除文件夹
         // 也可以弃掉了」—— 「移除」现在只有行尾齿轮菜单里那一项（同一个
         // MainWindow::removeFolderFromList()，同一个确认框）。
-        QHBoxLayout *folderButtons = new QHBoxLayout;
-        addFolderButton = new QPushButton(addFolderText(), folderGroupBox);
+        //
+        // ★ 两颗的身份是**有意分开**的（用户文档里那两颗就是两种样子）：「添加文件夹…」
+        //   是"加东西进来"那一档（主题色描边，`ButtonKind::Accent` = 默认那一份样式）；
+        //   「导入整合包…」是**另一条**路（一般性），走中性那档白底黑字。两颗都顶满侧栏。
+        addFolderButton = new QPushButton(addFolderText(), instance.left.surface);
         addFolderButton->setObjectName(addFolderButtonName());
-        folderButtons->addWidget(addFolderButton);
-        folderLayout->addLayout(folderButtons);
+        addFolderButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        instance.left.layout->addWidget(addFolderButton);
 
         // 「导入整合包…」：从 Modrinth 格式的整合包（.zip / .mrpack）里**造一个新实例**。
         // 2026-09-25 从右栏挪到这儿（用户原话：「导入整合包放在左边添加文件夹下面」）：
         // 它和「添加文件夹…」是同一类动作（往这一列里添东西）—— 而右栏那三个都是
         // "对选中的实例做什么"，混在一排里用户得先猜它作用于选中项还是新建。
-        //
-        // 宽度**跟着「添加文件夹…」走**（两颗都不设 sizePolicy ⇒ 顶满这一栏）。上一版在
-        // 右栏里用 Fixed + AlignLeft 是怕把列表挤窄，挪到左栏之后这个顾虑没有了：这一栏
-        // 下面就是列表，按钮顶宽不会挤到任何东西。
-        importModpackButton = new QPushButton(importModpackText(), folderGroupBox);
+        importModpackButton = new QPushButton(importModpackText(), instance.left.surface);
         importModpackButton->setObjectName(importModpackButtonName());
-        folderLayout->addWidget(importModpackButton);
+        importModpackButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        // 「导入整合包…」= 一般性（白底黑字那一档），和上面那颗"主题色描边"的加文件夹区分开。
+        Theme::markButton(importModpackButton, Theme::ButtonKind::Neutral);
+        instance.left.layout->addWidget(importModpackButton);
 
         // 那颗按钮的说明，**从右栏那段提示里拆出来的头一段**（剩下的几句说的都是重命名 /
         // 分组 / 实例设置，跟这一组无关）。摆在这儿是因为它讲的就是上面那颗按钮 ——
         // 2026-09-25 之前它俩隔着两栏，读的人得自己把句子和按钮对起来。
         //
         // ★ 这一句**只能这么短**（2026-09-25 实测）：折行 QLabel 的 sizeHint 宽度是横向
-        //   advance 的**分档**（见下面那段 NOTE），而左栏的宽度是按各控件的 sizeHint 分的
-        //   —— 第一版写的是「收的是 Modrinth 格式的整合包（压缩包根目录里有一份
-        //   modrinth.index.json）。它会把加载器、模组、config 和资源包一次装成一个新实例。」
-        //   （约 70 个汉字），当场两条红：整窗 sizeHint 818 → **1042**（ui_check E5 的上限是
-        //   900），实例页左:右 也从 3:7 变成 276:590。
-        //   现在这一句的 sizeHint 是 228x40，整窗仍是 818 —— 也就是说**这一栏里再想加一整
-        //   句话就会顶宽**。真要写长，走那颗按钮的 tooltip（完全不吃布局），别加折行标签。
+        //   advance 的**分档**，而左栏从前是按各控件的 sizeHint 分宽度的 —— 第一版写的是
+        //   「收的是 Modrinth 格式的整合包（压缩包根目录里有一份 modrinth.index.json）。它
+        //   会把加载器、模组、config 和资源包一次装成一个新实例。」（约 70 个汉字），当场
+        //   两条红：整窗 sizeHint 818 → **1042**（ui_check E5 的上限是 900）。
+        //   NOTE: 2026-10-12 起侧栏是**固定宽度**（`sidebarWidth()`），折行标签再也顶不宽
+        //   它了 —— 但这条规矩照旧：真有话要说就走那颗按钮的 tooltip（完全不吃布局）。
         QLabel *importHint = new QLabel(
             QStringLiteral("收 Modrinth 格式的整合包（.zip / .mrpack），"
                            "加载器、模组、config 一次装好。"),
-            folderGroupBox);
+            instance.left.surface);
         importHint->setObjectName(importHintLabelName());
         importHint->setWordWrap(true);
-        folderLayout->addWidget(importHint);
+        markTextRole(importHint, Theme::secondaryTextRoleValue());
+        // 横向把自己从布局的度量里摘出去：侧栏是固定宽度，让这句话参与横向度量只会让它
+        // 把侧栏的内容挤出去（见 `buildTwoColumnPage()` 里说明那一行同一条规矩）。
+        importHint->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+        instance.left.layout->addWidget(importHint);
 
         // 原来这里还有一段提示（"选中的就是启动器当前使用的 .minecraft…自带的那一份
         // 移不掉…"），2026-09-24 用户说「下面那个文本也删了」，一起拿掉了。
         // 它那两句话现在各有各的出处，一件都没丢：
-        //   ① 「这一份就是当前在用的」—— 右边「实例列表」那一组顶上那句
-        //       instanceFolderLabel 就写着当前是哪一份；
+        //   ① 「这一份就是当前在用的」—— 页头那行说明（`instanceFolderLabel`）就写着
+        //      当前是哪一份；
         //   ② 「移除只动列表、删除才动盘」—— 齿轮菜单那两项各自的 tooltip
         //       （folderActionTooltip）以及它们弹的那个确认框里各写了一遍。
-        // NOTE: 折行 QLabel 的 sizeHint 宽度是**横向 advance 的分档**（不是线性）：
-        //       2026-09-24 实测把一段话写到 1260 px 宽时，它自己的 sizeHint 从 240 跳到
-        //       480、**整窗**的 sizeHint 从 818 顶到 1042，ui_check 的 E5（整窗 sizeHint
-        //       ≤ 900）当场红。2026-09-25 加上面那段 importHint 时又撞了一次（同一个 1042）
-        //       —— 现在那句短到 sizeHint 228，整窗还是 818。**往这一栏加话之前先量 E5**
-        //       （那条断言量的是整窗，红的现场离你改的地方很远）。
-        instance.left.layout->addWidget(folderGroupBox, 1);
     }
     {
-        // 「分组设置…」这一颗**不在下面那个框里**：2026-09-25 用户原话「分组设置先放右上角
-        // 框外不删了」。当天右栏那一排三颗（重命名… / 分组设置… / 实例设置…）一起删了，
-        // 另外两颗各有各的新家（「重命名…」进了「实例设置」那一页；「实例设置」= **点这一条
-        // 实例行**，行尾还常显一颗齿轮），只有它留下来，挪到框**外面**的右上角。
+        // 「分组设置…」这一颗**现在是页头右上角那颗页面级操作**（见上面 `instance.right.actions`
+        // 那一段）：2026-09-25 用户原话「分组设置先放右上角框外不删了」。当天右栏那一排三颗
+        // （重命名… / 分组设置… / 实例设置…）一起删了，另外两颗各有各的新家（「重命名…」进了
+        // 「实例设置」那一页；「实例设置」= **点这一条实例行**，行尾还常显一颗齿轮），只有它
+        // 留下来，从框**里面**挪到框**外面**的右上角。
         //
         // 为什么它本来就不该跟那一排站在一起：那两颗作用于**选中的那一个实例**，它作用于
         // **分组清单本身**（有哪些组、叫什么名字、什么顺序、默认展开还是收着、哪一个是
         // 置顶组 —— 见 ui/GroupDialog）。"选中的实例"对它没有意义，混在一排里用户得先猜
-        // 它是"对这条做什么"还是"对这一列做什么"（这句话在 2026-09-25 第一次挪它时就写过
-        // 一遍，当时是把它从"实例级"改成"分组级"）。摆在框外右上角、"实例列表"这个标题
-        // 之上，说的是"下面这一整块怎么组织"。
+        // 它是"对这条做什么"还是"对这一列做什么"。摆在页头、正文之上，说的是"下面这一整块
+        // 怎么组织" —— 2026-10-12 那次改版把"框外右上角"落实成了**页头的操作位**。
         //
-        // 右对齐靠前面垫一条 addStretch()：不垫的话它会横着拉满整栏，看着像另一个组。
-        QHBoxLayout *groupSettingsRow = new QHBoxLayout;
-        groupSettingsRow->addStretch(1);
-        groupInstanceButton = new QPushButton(groupInstanceText(), instance.right.widget);
-        groupInstanceButton->setObjectName(groupInstanceButtonName());
-        // 「移入分组…」= 挪个地方（一般性）。
-        Theme::markButton(groupInstanceButton, Theme::ButtonKind::Neutral);
-        groupSettingsRow->addWidget(groupInstanceButton);
-        instance.right.layout->addLayout(groupSettingsRow);
-
-        QGroupBox *instanceGroupBox = new QGroupBox(QStringLiteral("实例列表"),
-                                                    instance.right.widget);
-        QVBoxLayout *instanceLayout = new QVBoxLayout(instanceGroupBox);
-        instanceLayout->setContentsMargins(9, 9, 9, 9);
-        instanceLayout->setSpacing(10);
-
-        instanceFolderLabel = new QLabel(instanceGroupBox);
-        instanceFolderLabel->setObjectName(instanceFolderLabelName());
-        instanceFolderLabel->setWordWrap(true);
-        instanceLayout->addWidget(instanceFolderLabel);
-
+        // ---- 正文：就只有这一棵树（原来那个 `QGroupBox("实例列表")` 整块没了）----
+        //
+        // ★ 2026-10-12：用户那份文档第一条就是「减少框」—— 页面不画边框、正文只有一个面。
+        //   于是这一组那个缺口式标题 + 一圈边整块撤掉：树的四周本来就是正文面（`workspace`），
+        //   再套一圈就是"框套框"。原来那句「当前文件夹：…」也没丢，它现在是**页头那行说明**
+        //   （见上面），而且和标题同级、比框里那行更像"这一页的状态"。
+        //
         // 主页那个「已安装版本」下拉框的同一份数据，只是摆在这儿配左边的文件夹看。
         // 点击 = 在主页把它选中（两边按 id 双向同步，见 MainWindow::setupConnections）。
         //
         // 是**树**不是列表：实例可以归到用户建的组里，组是父节点、实例是子节点。
         // 一个组都没有的时候它就是平铺的一层（照样不插组头），观感和列表一样。
-        instanceList = new QTreeWidget(instanceGroupBox);
+        instanceList = new QTreeWidget(instance.right.surface);
         instanceList->setObjectName(instanceListName());
         instanceList->setHeaderHidden(true);
+        // ★ 这一棵树**自己那圈边不画**（2026-10-12）：它四周已经是正文那个面（`workspace`），
+        //   再套一圈就是用户那份文档第一条要减掉的"框套框"。行本身（组行 / 实例行）都是自绘的，
+        //   有没有外框在观感上差的是"一块面板"还是"一串行"。
+        instanceList->setFrameShape(QFrame::NoFrame);
         // 左边**不画** Qt 自带那个展开三角：展开/收起这件事画在行的**右**端（一个箭头，
         // 见 InstanceGroupDelegate），和版本树那几条分类长得一样（用户原话：「每一个组和
         // 版本下载几乎一致」）。开着的话一行上会有两个箭头，而且左边那个还会把组名往里推。
@@ -651,7 +869,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // sizeHint —— 实例多的时候（真机上有 61 个）滚动明显更顺。
         instanceList->setUniformRowHeights(true);
         // 组下面的实例缩进多少由它给。默认 20 在窄栏里有点深，收到 14：
-        // 右栏还得和左栏分 7:3 的宽度，缩进多一格就少一格放实例名。
+        // 正文那一栏还要留出滚动条和行尾那几颗按钮的宽度，缩进多一格就少一格放实例名。
         instanceList->setIndentation(14);
         // 分组头那一行不是默认画法：组名粗体、右边一个箭头 + 一颗齿轮（"点一下打开/关闭"
         // 和"这一组的更多操作"都画在那两个格里）。代理只接管挂着 groupIdRole() 的行，
@@ -676,7 +894,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // 展开/折叠动画（2026-09-29）：组行那一按，子条目是**滑**出来的。交给 Qt 自己
         // （`QTreeView::setAnimated`），规矩见 ui/Animations.hpp。
         Anim::animateExpansion(instanceList);
-        instanceLayout->addWidget(instanceList, 1);
+        instance.right.layout->addWidget(instanceList, 1);
 
         // NOTE: 这里原来是三颗按钮的一排（重命名… / 分组设置… / 实例设置…）加下面一段
         //       折行提示。**2026-09-25 全部拿掉了**，用户原话：「删掉实例页面右侧三个按钮
@@ -686,7 +904,8 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         //           行尾还会常显一颗齿轮 —— 两颗做的是同一件事（用户原话：「直接点空白区域
         //           （和左边图标版本名）进入实例设置」+ 追加答复「要，一颗齿轮常显」）；
         //         - 「重命名…」搬进了「实例设置」那一页（改实例名就在那一页里改）；
-        //         - 「分组设置…」挪到了上面那个框**外面**的右上角（见那一段 NOTE）。
+        //         - 「分组设置…」挪到了框**外面**的右上角（现在是页头那颗页面级操作，
+        //           见那一段 NOTE）。
         //
         //       那段提示一起删了：它当初讲的是"重命名会改目录名、分组只记在启动器自己的
         //       文件里、实例设置每一项都能跟随全局或自己填"—— 前两句现在各有各的出处
@@ -700,8 +919,8 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         //       applyStopGame(versionId)，能一次停掉**同一个实例的多份会话**；底栏那一行的
         //       电源只停**这一份**（会话号）—— 多开的那几份要逐个停。
         //       「导入整合包…」2026-09-25 从这一排挪去了左栏「游戏文件夹」那一组（在
-        //       「添加文件夹…」下面）。
-        instance.right.layout->addWidget(instanceGroupBox, 1);
+        //       「添加文件夹…」下面），2026-10-12 起那一组不再是一个框，它就是侧栏本身。
+        // 正文那一格由上面那棵树吃满 —— 它上面再没有别的东西了（页头在面外面）。
     }
 
     // ---------- 下载：左 = 分类入口（仿 PCL）；右 = 那个分类的内容 ----------
@@ -716,14 +935,38 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     //       （「数据包」是 2026-09-25 加的，见头文件那张表那段。）
     QWidget *downloadTab = new ThemeBackground(Theme::Part::PageBackground, tabWidget);
     downloadTab->setObjectName(downloadTabName());
-    const TwoColumns download = buildTwoColumnPage(downloadTab, QStringLiteral("download"));
+    // NOTE: 这一份**不是 const**（另两页那两份是）：页头那两处是搭完之后才由这一页填的
+    //       （`fillPageHeader()` 收的是 `Column&`）。
+    TwoColumns download = buildTwoColumnPage(downloadTab, QStringLiteral("download"));
     {
         const QStringList categoryKeys = downloadCategoryKeys();
         const QStringList categoryTexts = downloadCategoryTexts();
 
-        downloadCategoryList = new QListWidget(download.left.widget);
+        // ---- 页头：标题「下载」+ 说明（当前停在哪一类、那一类能干什么）+ 右上角那颗刷新 ----
+        //
+        // ★ 2026-10-12：用户那份改版文档给下载页点名的两件事就是这一块 —— 页面要有**稳定的
+        //   头部**（返回、标题、表单、安装键原来"看起来是散落的"），以及"刷新按钮属于
+        //   **当前分类自己的页面头部**"。于是：
+        //     · 标题恒为「下载」（翻哪一类都不变，这才叫稳定）；
+        //     · 说明跟着当前那一类走（`setDownloadHeaderRow()`，由 MainWindow 在
+        //       `currentRowChanged` 上刷）；
+        //     · 刷新那一颗放在**动作位**上（右上角），作用于当前这一类。
+        fillPageHeader(download.right, downloadPageTitle(),
+                       downloadHeaderSubtitle(downloadCategoryGameIndex()));
+        downloadHeaderSubtitleLabel = download.right.subtitle;
+        downloadHeaderRefreshButton = new QPushButton(downloadHeaderRefreshText(),
+                                                      download.right.header);
+        downloadHeaderRefreshButton->setObjectName(downloadHeaderRefreshButtonName());
+        // 「刷新」= 一般性（看一眼 / 重新拉一遍，不是"干这件事"）。
+        Theme::markButton(downloadHeaderRefreshButton, Theme::ButtonKind::Neutral);
+        download.right.actions->addWidget(downloadHeaderRefreshButton);
+
+        downloadCategoryList = new QListWidget(download.left.surface);
         downloadCategoryList->setObjectName(downloadCategoryListName());
         downloadCategoryList->setUniformItemSizes(true);
+        // ★ 2026-10-12：这一列**不画自己那圈边** —— 它整列就长在侧栏那个面上（见
+        //   `buildTwoColumnPage()`），再套一圈就是用户那份文档第一条要减掉的"框套框"。
+        downloadCategoryList->setFrameShape(QFrame::NoFrame);
         // 2026-09-23：这一列换成**和上面两棵树同一个代理**（用户原话："下载界面左边栏
         // 每一项做大点，每一项的右边放一个刷新按钮"）。换代理同时办成两件事：
         //   ① 行高从样式那个"一行文字"（实测 ~24 px）变成 versionTreeRowHeight()（46），
@@ -733,7 +976,14 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         //      那样"现在停在哪一类"就看不出来了。
         // NOTE: 条目文字是**粗体**（代理对顶层行一律加粗，见 VersionTreeDelegate::paint）——
         //       和版本树那四条分类一个长相，这一列本来也就是"分类"。
-        downloadCategoryList->setItemDelegate(new VersionTreeDelegate(downloadCategoryList));
+        // ★ 末一个参数 true = **导航那一档**（2026-10-12）：这一列选中时走的是"浅主题色底 +
+        //   左边 3 px 主题色指示条 + 主题色深色文字"，不是那块浅灰 —— 用户那份改版文档
+        //   原话：「选中项：浅主题色背景 + 左侧 3px 主题色指示条 + 主题色深色文字，而不是
+        //   一整块深灰」。灰那一档是给"选中的数据行"用的（版本树、资源表、实例列表），
+        //   而这一列是**导航**：它说的是"现在停在哪一类"，和"选中了哪一条数据"是两件事。
+        downloadCategoryList->setItemDelegate(
+            new VersionTreeDelegate(downloadCategoryList, /*leafArrow=*/true,
+                                    /*iconSize=*/0, /*navRow=*/true));
         // ★ 2026-09-25：这一列那五个刷新按钮**只在鼠标悬停到那一行时才显示**（用户原话：
         //    「下载界面只有鼠标悬停在按钮上时才显示对应的刷新按钮」）。代理读的是视图填的
         //    QStyle::State_MouseOver，而**视图默认不填** —— 量过（探针在 tmp/probe_hover）：
@@ -774,7 +1024,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         //   ① 「回到刚才那个实例」与用户此刻翻到哪一栏**无关**，本来就不该一栏一颗；
         //   ② 它在左栏顶上，翻栏时**不动**，不会跟着右栏一起刷没了。
         // **默认收着**（连位置都不占）：只有这一次是从某个实例的设置页点进来的才露面。
-        downloadBackButton = new QPushButton(downloadBackButtonText(), download.left.widget);
+        downloadBackButton = new QPushButton(downloadBackButtonText(), download.left.surface);
         downloadBackButton->setObjectName(downloadBackButtonName());
         downloadBackButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
         downloadBackButton->setToolTip(downloadBackTooltip());
@@ -907,17 +1157,39 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         //
         // NOTE: 这一组就是原来左栏那五个钮 —— 表、下标、文案一个字没改（见
         //       modLoaderOptionNames()），换掉的是"单选钮 + 右边一个组合框"那个形状。
-        QGroupBox *loaderBox = new QGroupBox(modLoaderLabelText(), installPage);
-        auto *loaderLayout = new QVBoxLayout(loaderBox);
-        loaderLayout->setContentsMargins(9, 9, 9, 9);
-        installLayout->addWidget(loaderBox);
+        //
+        // ★ 2026-10-12：原来这里是一个 `QGroupBox("模组加载器")`，现在换成设置页那种
+        //   「标题 + 小节卡片」（见 `addSettingsSection()`）。理由就是用户那份改版文档
+        //   第三条 —— 「右侧只有一个主要内容表面（不再用 `QGroupBox` 套起来）」：这一页
+        //   整块已经长在正文那个面上（`wtfmlSurface="workspace"`），再套一个带边的
+        //   `QGroupBox` 就是"框套框"，而那圈边和正文面那圈边挨得只有 10 px，屏幕上就是
+        //   两条平行的框。换成卡片之后这一节和设置页那些小节长得一模一样，缺口式标题也
+        //   没有了。**这是产品界面上最后一个 QGroupBox**。
+        auto *loaderCard = new QFrame(installPage);
+        markSurface(loaderCard, Theme::sectionSurfaceValue());
+        auto *loaderLayout = new QVBoxLayout(loaderCard);
+        // 和设置页那些小节同一圈内边距/行距（文档里给的 18,16,18,18 / 12）。
+        loaderLayout->setContentsMargins(18, 16, 18, 18);
+        loaderLayout->setSpacing(12);
+        {
+            auto *loaderTitle = new QLabel(modLoaderLabelText(), loaderCard);
+            markTextRole(loaderTitle, Theme::sectionTitleTextRoleValue());
+            QFont titleFont = loaderTitle->font();
+            titleFont.setBold(true);
+            loaderTitle->setFont(titleFont);
+            loaderLayout->addWidget(loaderTitle);
+        }
+        installLayout->addWidget(loaderCard);
 
-        loaderTree = new QTreeWidget(loaderBox);
+        loaderTree = new QTreeWidget(loaderCard);
         loaderTree->setObjectName(loaderTreeName());
         // 竖的那几条设置和版本树那边**一模一样**（表头藏起来、行高常数、左边那个小三角
         // 不画、同一个代理、同一个字号偏移）—— 用户要的就是"和上一页相同的模式"，
         // 两边长得不一样的话那句话就只兑现了一半。
         loaderTree->setHeaderHidden(true);
+        // ★ 树**自己不画那圈边**（2026-10-12，和实例列表、文件夹列表、下载页左栏那三张
+        //   同一条规矩）：它四周已经是上面那张小节卡片，再套一圈又是"框套框"。
+        loaderTree->setFrameShape(QFrame::NoFrame);
         loaderTree->setUniformRowHeights(true);
         loaderTree->setRootIsDecorated(false);
         loaderTree->setColumnCount(1);
@@ -997,16 +1269,34 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         installButton->setObjectName(installButtonName());
         installButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
         installButton->setMinimumWidth(kDownloadButtonMinWidth);
-        // 用户原话"安装键做大点在右侧居中"：字放大两档、给一个最小高度（字大了还顶着
-        // 老高度会显得挤），再在**这一页上横向居中**摆（安装页就是右栏，所以居中就是
-        // "在这一栏里居中"）。垂直方向仍然靠底下那个 stretch 顶上去。
+        // 字放大两档、给一个最小高度（字大了还顶着老高度会显得挤）。
+        //
+        // ★ 2026-10-12：摆法从"这一栏里横向居中"改成了**右下角的固定底栏**。用户那份
+        //   改版文档里的原话是「确认操作放右下角或固定底栏，不悬浮在页面中间」—— 居中
+        //   那一版正是"悬浮在页面中间"：上面是表单、下面是深浅不定的一截空白，这颗键
+        //   落在哪儿全看那一栏当时多高。现在它和表单之间有一条分隔线（`wtfmlSurface="footer"`
+        //   那条 `border-top`），摆位在**右下角**，和"填完表、按右下角那一颗"这条路上的
+        //   直觉一致。
+        //
+        // NOTE: 表格仍然是"内容在上、底栏在下"，只是中间不再垫 addStretch() —— 底栏跟着
+        //       内容走（`installLayout` 里最后那一条 stretch 留着，见下面），所以加载器
+        //       展开之后它不会被顶出可视区。
         QFont installFont = installButton->font();
         installFont.setPointSize(installFont.pointSize() + installButtonFontStep());
         installButton->setFont(installFont);
         installButton->setMinimumHeight(installButtonMinHeight());
-        installLayout->addWidget(installButton, 0, Qt::AlignHCenter);
+        // 底栏那一块：一条分隔线 + 里面右对齐的操作（那颗键靠右，前面垫一条 stretch）。
+        auto *installFooter = new QFrame(installPage);
+        installFooter->setObjectName(installFooterName());
+        markSurface(installFooter, Theme::footerSurfaceValue());
+        auto *footerLayout = new QHBoxLayout(installFooter);
+        footerLayout->setContentsMargins(0, 12, 0, 0);
+        footerLayout->setSpacing(kFilterRowSpacing);
+        footerLayout->addStretch(1);
+        footerLayout->addWidget(installButton);
+        installLayout->addWidget(installFooter);
         // 底下那一大块空着是**刻意**的：加载器那条展开之后的版本号有多长说不准，
-        // 给按钮留出"往上顶"的余量，免得它贴着窗口底边。
+        // 给按钮留出"余量"，免得它贴着窗口底边。
         installLayout->addStretch(1);
         gameStack->addWidget(installPage);
 
@@ -1375,17 +1665,28 @@ SettingsPanel addSettingsPanel(QStackedWidget *stack, const QString &key) {
     scroll->setObjectName(MainWindowUI::settingsPanelName(key));
     scroll->setWidgetResizable(true);
     scroll->setFrameShape(QFrame::NoFrame);
+    // ★ 2026-10-12：设置页那条"内容横向无限伸展、说明文字一行跨得太长"（用户原文）的
+    //   正解就是这两句 —— 表单**限量宽**（`settingsFormMaxWidth()`），窗口再宽它也不再
+    //   拉长；多出来的地方让滚动区把表单**居中**摆（上对齐：这一页是从上往下读的表）。
+    //
+    // NOTE: 宽度是给**表单**限的，不是给滚动区限的：滚动条仍然贴着正文面最右边那条线
+    //       （和别的页一个规矩），只有表单本身收窄。
+    // NOTE: 窗口默认 900 逻辑像素时，正文那一栏只有 620 上下 ⇒ 这个上限还够不着，
+    //       拉宽窗口才生效。所以量它的判据（ui_check）量的是 `maximumWidth()` 本身，
+    //       不是"这一趟实际多宽"。
+    scroll->setAlignment(Qt::AlignHCenter | Qt::AlignTop);
 
     SettingsPanel panel;
     panel.form = new QWidget(scroll);
     panel.form->setObjectName(MainWindowUI::settingsFormName(key));
+    panel.form->setMaximumWidth(MainWindowUI::settingsFormMaxWidth());
 
     panel.grid = new QGridLayout(panel.form);
     panel.grid->setContentsMargins(0, 0, 0, 0);
     panel.grid->setHorizontalSpacing(12);
     panel.grid->setVerticalSpacing(10);
-    // 这一对 3:7 从前是「选项名称放左边、设置内容放右边」用的 —— 现在栏内每一行都跨两列
-    // （见 addSettingRow()），所以它只摆表格的形状、不分隔任何一行了。
+    // 这一对 3:7 从前是「选项名称放左边、设置内容放右边」用的 —— 现在每一节都是一张跨两列
+    // 的卡片（见 addSettingsSection()），所以它只摆表格的形状、不分隔任何一行了。
     panel.grid->setColumnStretch(0, MainWindowUI::leftColumnStretch());
     panel.grid->setColumnStretch(1, MainWindowUI::rightColumnStretch());
     scroll->setWidget(panel.form);
@@ -1408,19 +1709,28 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
     // NOTE: 从前整页靠一层 QScrollArea 才放得下（窗口初始高度只有 620，只 resize 过、
     //       没有 setFixedSize），不给滚动就等于把最后那几项一直藏在可视区外。现在滚动
     //       归**栏**管（addSettingsPanel 里那段），理由见它上面。
-    const TwoColumns columns = buildTwoColumnPage(page, QStringLiteral("settings"));
+    // NOTE: 这一份**不是 const**（另几页那三份是）：页头那行标题是搭完之后才由这一页填的
+    //       （`fillPageHeader()` 收的是 `Column&`）。
+    TwoColumns columns = buildTwoColumnPage(page, QStringLiteral("settings"));
+    // 页头：标题「设置」。**没有说明那一行**（`fillPageHeader()` 收到空串就把它整行收起来
+    // 连位置都不占）—— 这一页"是什么"不需要解释，左栏那五条分类已经说完了。
+    fillPageHeader(columns.right, settingsPageTitle(), QString());
 
     const QStringList categoryKeys = settingsCategoryKeys();
     const QStringList categoryTexts = settingsCategoryTexts();
 
     // ---- 左栏：那五条分类（和下载页左栏那一列同一个代理、同一套写法）----
-    settingsCategoryList = new QListWidget(columns.left.widget);
+    settingsCategoryList = new QListWidget(columns.left.surface);
     settingsCategoryList->setObjectName(settingsCategoryListName());
     settingsCategoryList->setUniformItemSizes(true);
     // 同一个代理 = 一样高的行、大一号的字、"分类"那种粗体 —— 两栏里是同一种东西。
     // NOTE: **不设** rowRefreshRole()。那一格里画的刷新圈是下载页专有的（这一列没有
     //       "重新拉一遍"这回事），代理见到没设就不画。
-    settingsCategoryList->setItemDelegate(new VersionTreeDelegate(settingsCategoryList));
+    // 末一个参数 true = 和下载页左栏那一列**同一档**（侧栏导航）。两处的形状一样，
+    // 判据也一样（见 VersionTreeDelegate 构造函数那段）。
+    settingsCategoryList->setItemDelegate(
+        new VersionTreeDelegate(settingsCategoryList, /*leafArrow=*/true, /*iconSize=*/0,
+                                /*navRow=*/true));
     // ★ 悬停底色要它，理由见版本树那第一处：视图不填 State_MouseOver 就不出底色，也不报错。
     settingsCategoryList->setMouseTracking(true);
     QFont categoryFont = settingsCategoryList->font();
@@ -1468,6 +1778,21 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
     settingsCategoryStack->setCurrentIndex(0);
 }
 
+void MainWindowUI::setDownloadHeaderRow(int row) {
+    if (downloadHeaderSubtitleLabel == nullptr) {
+        return;  // 界面没搭出来（还没调 setupUi）——和别处那些 getter 一个规矩。
+    }
+    if (row < 0 || row >= downloadCategoryKeys().size()) {
+        // 越界什么都不改：页头宁可停在上一句，也不要空成一行（空字符串会把它整行收起来，
+        // 页头就"矮"了一截，看着像换了页）。
+        return;
+    }
+    downloadHeaderSubtitleLabel->setText(downloadHeaderSubtitle(row));
+    // 说明是**这一页的状态**，永远露着（`fillPageHeader()` 那套"空串就收起来"在这儿
+    // 用不上：它管的是"这一页有没有说明"，而这里每一类都有一句）。
+    downloadHeaderSubtitleLabel->setVisible(true);
+}
+
 void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
     // 这一栏的键。**必须**和 settingsCategoryKeys() 里那一格一字不差（面板的 objectName
     // 由它拼出来），ui_check 拿那张表逐页核。
@@ -1479,7 +1804,8 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
     // ---------- Java 版本 ----------
     // 2026-09-26 分栏时这一节拆成两半：**这一行**（运行时）留在这儿，那行"实例的 Java
     // 对不上时要不要问一句"搬去了「提示」栏 —— 它挡的是启动那一下，和那两条提醒是一回事。
-    addSectionTitle(grid, row++, QStringLiteral("Java 版本"), form);
+    // ---- 第 1 节：标题 + 一张小节卡片（见 addSettingsSection()）----
+    const SettingsSection section1 = addSettingsSection(grid, row, QStringLiteral("Java 版本"), form);
     {
         QWidget *box = makeHintedControl(form);
         auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
@@ -1511,11 +1837,12 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
                                     "要给某一个实例单独钉一个 Java，用它的「实例设置…」；"
                                     "那边对不上时会弹框问一句（那个开关在「提示」栏里）。"),
                 form);
-        addSettingRow(grid, row, QStringLiteral("运行时"), box, form);
+        addSettingItem(section1, QStringLiteral("运行时"), box, form);
     }
 
     // ---------- 内存分配 ----------
-    addSectionTitle(grid, row++, QStringLiteral("内存分配"), form);
+    // ---- 第 2 节：标题 + 一张小节卡片（见 addSettingsSection()）----
+    const SettingsSection section2 = addSettingsSection(grid, row, QStringLiteral("内存分配"), form);
     {
         // 第一行是「自动 / 手动」的总开关。自动档下那两个数字框是**禁用**的 ——
         // 它们显示的是刚算出来的建议值，让用户以为能改会变成"改了不生效"。
@@ -1528,7 +1855,7 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
         // 免得空标签把行高压成 0、布局跳一下。
         memoryAutoHint = addDynamicHint(box, QStringLiteral("正在读取系统内存…"), form);
         memoryAutoHint->setObjectName(memoryAutoHintName());
-        addSettingRow(grid, row, QStringLiteral("分配方式"), box, form);
+        addSettingItem(section2, QStringLiteral("分配方式"), box, form);
     }
     {
         // 「最大内存」这一行是**一根条 + 一个数字框**（两件东西说的是同一件事）。
@@ -1572,7 +1899,7 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
         addHint(box, QStringLiteral("给 JVM 的 -Xmx。左边拖着改，也可以直接填数字。"
                                     "模组多、整合包大就往上调；机器内存不够时先降这一项。"),
                 form);
-        addSettingRow(grid, row, QStringLiteral("最大内存"), box, form);
+        addSettingItem(section2, QStringLiteral("最大内存"), box, form);
     }
     // NOTE: 「最小内存」（-Xms）**这一行没有了**（2026-09-26）。用户原话：「不要 xms 了
     //       （或者隐藏起来），按照默认值」—— 界面上不再让他管这一项，值照旧存在设置里
@@ -1580,7 +1907,8 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
     //       那一行的说明文字说全（见 MainWindow::refreshMemoryUi 里那三支 setText）。
 
     // ---------- 启动后 ----------
-    addSectionTitle(grid, row++, QStringLiteral("启动后"), form);
+    // ---- 第 3 节：标题 + 一张小节卡片（见 addSettingsSection()）----
+    const SettingsSection section3 = addSettingsSection(grid, row, QStringLiteral("启动后"), form);
     {
         QWidget *box = makeHintedControl(form);
         auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
@@ -1595,11 +1923,12 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
         addHint(box, QStringLiteral("游戏起来之后启动器自己怎么办。「收起」是把窗口藏起来、"
                                     "进程还在（关掉进程会连带杀掉游戏）。"),
                 form);
-        addSettingRow(grid, row, QStringLiteral("启动器行为"), box, form);
+        addSettingItem(section3, QStringLiteral("启动器行为"), box, form);
     }
 
     // ---------- JVM 参数 ----------
-    addSectionTitle(grid, row++, QStringLiteral("JVM 参数"), form);
+    // ---- 第 4 节：标题 + 一张小节卡片（见 addSettingsSection()）----
+    const SettingsSection section4 = addSettingsSection(grid, row, QStringLiteral("JVM 参数"), form);
     {
         QWidget *box = makeHintedControl(form);
         auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
@@ -1626,7 +1955,7 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
                                     "按版本的那份写在 .minecraft/versions/<版本>/wtfml.meta "
                                     "的 jvmArgs 里，排在全局之后（同一条以后写的为准）。"),
                 form);
-        addSettingRow(grid, row, QStringLiteral("全局额外参数"), box, form);
+        addSettingItem(section4, QStringLiteral("全局额外参数"), box, form);
     }
 
     // 剩下的竖直空间留在底部：设置项不跟着窗口高度一起被拉长
@@ -1644,7 +1973,8 @@ void MainWindowUI::setupSettingsGamePanel(QStackedWidget *stack) {
     // NOTE: 2026-09-26 分栏时这三项单独成了一栏（这一栏的**全部**内容就是它们）—— 从前的
     //       相邻关系里，它们一边挨着「启动后」（那是启动器自己）、一边挨着「启动提醒」
     //       （那是要不要问一句），三件事各自的性质都还没这么清楚。
-    addSectionTitle(grid, row++, QStringLiteral("启动选项"), form);
+    // ---- 第 1 节：标题 + 一张小节卡片（见 addSettingsSection()）----
+    const SettingsSection section1 = addSettingsSection(grid, row, QStringLiteral("启动选项"), form);
     {
         QWidget *box = makeHintedControl(form);
         auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
@@ -1659,7 +1989,7 @@ void MainWindowUI::setupSettingsGamePanel(QStackedWidget *stack) {
                 form);
         // 行标题用 RowText() 那一句，**不是**勾选框上的那句话（原来两处共用同一个串，
         // 同一句话就并排出现两遍；见 showGameLogRowText() 上面那段）。
-        addSettingRow(grid, row, showGameLogRowText(), box, form);
+        addSettingItem(section1, showGameLogRowText(), box, form);
     }
     {
         QWidget *box = makeHintedControl(form);
@@ -1675,7 +2005,7 @@ void MainWindowUI::setupSettingsGamePanel(QStackedWidget *stack) {
                                     "往高调**不解决卡顿** —— 卡顿多半是内存或显卡的事，"
                                     "调高只会让别的程序更卡。"),
                 form);
-        addSettingRow(grid, row, QStringLiteral("进程优先级"), box, form);
+        addSettingItem(section1, QStringLiteral("进程优先级"), box, form);
     }
     {
         QWidget *box = makeHintedControl(form);
@@ -1695,7 +2025,7 @@ void MainWindowUI::setupSettingsGamePanel(QStackedWidget *stack) {
                                     "这三档都只影响「启动那一刻」；游戏里自己改过的窗口大小、"
                                     "以及游戏自己记住的那一份，启动器不覆盖。"),
                 form);
-        addSettingRow(grid, row, QStringLiteral("窗口模式"), box, form);
+        addSettingItem(section1, QStringLiteral("窗口模式"), box, form);
     }
     {
         QWidget *box = makeHintedControl(form);
@@ -1732,7 +2062,7 @@ void MainWindowUI::setupSettingsGamePanel(QStackedWidget *stack) {
                                     "原版的默认值 —— 没动过这一项时和以前一模一样。"
                                     "游戏内自己把窗口拖大过的话，以游戏记住的为准。"),
                 form);
-        addSettingRow(grid, row, QStringLiteral("窗口大小"), box, form);
+        addSettingItem(section1, QStringLiteral("窗口大小"), box, form);
     }
 
     // 剩下的竖直空间留在底部：设置项不跟着窗口高度一起被拉长
@@ -1754,7 +2084,8 @@ void MainWindowUI::setupSettingsWarnPanel(QStackedWidget *stack) {
     //       挤在同一张表里，第三条（Java 版本）原来挂在「启动」栏的 Java 那一节底下 ——
     //       它们管的是同一件事："现在这一下要不要再问一句"。**勾选框上那句话一个字都没动**，
     //       动的是"它摆在哪儿"和第三条那一行的行标题（原来叫「版本提醒」，说不清是提醒什么）。
-    addSectionTitle(grid, row++, QStringLiteral("启动前提醒"), form);
+    // ---- 第 1 节：标题 + 一张小节卡片（见 addSettingsSection()）----
+    const SettingsSection section1 = addSettingsSection(grid, row, QStringLiteral("启动前提醒"), form);
     {
         QWidget *box = makeHintedControl(form);
         auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
@@ -1769,7 +2100,7 @@ void MainWindowUI::setupSettingsWarnPanel(QStackedWidget *stack) {
                                     "版本真的不对时游戏会以 UnsupportedClassVersionError "
                                     "之类的方式失败，得去「实例设置…」里换回来。"),
                 form);
-        addSettingRow(grid, row, javaWarnMismatchRowText(), box, form);
+        addSettingItem(section1, javaWarnMismatchRowText(), box, form);
     }
     {
         QWidget *box = makeHintedControl(form);
@@ -1782,7 +2113,7 @@ void MainWindowUI::setupSettingsWarnPanel(QStackedWidget *stack) {
                                     "先问一句再启动 —— 手快连点两下会开出两份一模一样的游戏，"
                                     "而它们开着同一份存档。"),
                 form);
-        addSettingRow(grid, row, warnDuplicateLaunchRowText(), box, form);
+        addSettingItem(section1, warnDuplicateLaunchRowText(), box, form);
     }
     {
         QWidget *box = makeHintedControl(form);
@@ -1794,7 +2125,7 @@ void MainWindowUI::setupSettingsWarnPanel(QStackedWidget *stack) {
                                     "打开可能会丢进度。换账号启动、或者上一问选了「仍要启动」，"
                                     "走到的都是这一条。"),
                 form);
-        addSettingRow(grid, row, warnWorldLossRowText(), box, form);
+        addSettingItem(section1, warnWorldLossRowText(), box, form);
     }
 
     // 剩下的竖直空间留在底部：设置项不跟着窗口高度一起被拉长
@@ -1813,7 +2144,8 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
     // 字母）能在这儿改成别的，**留空就是默认那五个**。
     // 2026-09-26 分栏时它连同「账户」「版本名格式」一起并进「个性化」：这三节管的都不是
     // "游戏怎么起来"，而是"这东西看起来是什么样 / 我叫什么名字"。
-    addSectionTitle(grid, row++, QStringLiteral("外观"), form);
+    // ---- 第 1 节：标题 + 一张小节卡片（见 addSettingsSection()）----
+    const SettingsSection section1 = addSettingsSection(grid, row, QStringLiteral("外观"), form);
     {
         QWidget *box = makeHintedControl(form);
         auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
@@ -1831,7 +2163,7 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
                 QStringLiteral("窗口左上角那行字。留空就是默认的 %1。")
                     .arg(TitleBar::defaultBrandText()),
                 form);
-        addSettingRow(grid, row, QStringLiteral("标题文字"), box, form);
+        addSettingItem(section1, QStringLiteral("标题文字"), box, form);
     }
 
     // ---------- 背景图 ----------
@@ -1840,7 +2172,8 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
     //
     // NOTE: 挑图那一下**不是**把用户那个路径记下来：文件会被拷进数据目录
     //       （`src/util/ThemeImage.hpp`）。这一节只摆控件，收图和落盘都在 MainWindow。
-    addSectionTitle(grid, row++, QStringLiteral("背景图"), form);
+    // ---- 第 2 节：标题 + 一张小节卡片（见 addSettingsSection()）----
+    const SettingsSection section2 = addSettingsSection(grid, row, QStringLiteral("背景图"), form);
     {
         const auto addImageRow = [&](Theme::Part part, const QString &what) {
             const QString key = Theme::partKey(part);
@@ -1911,7 +2244,7 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
                                    "底下的底色透上来 —— 字要读得清就是靠它。")
                         .arg(what),
                     form);
-            addSettingRow(grid, row, Theme::partName(part), box, form);
+            addSettingItem(section2, Theme::partName(part), box, form);
 
             m_themeImageRows.append(widgets);
         };
@@ -1928,7 +2261,8 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
     // 换皮肤披风它一件都做不到，而这一格却叫「当前账户」，用户来设置页找"管账号"的地方
     // 会撞上一个只能登录的按钮。账号那一整块只在一个窗里做（ui/AccountSkinDialog），
     // 这里留一个入口。
-    addSectionTitle(grid, row++, QStringLiteral("账户"), form);
+    // ---- 第 3 节：标题 + 一张小节卡片（见 addSettingsSection()）----
+    const SettingsSection section3 = addSettingsSection(grid, row, QStringLiteral("账户"), form);
     {
         QWidget *box = makeHintedControl(form);
         auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
@@ -1943,12 +2277,13 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
         addHint(box, QStringLiteral("正版登录、添加离线账号、切换账号、换皮肤和披风都在这个窗里。"
                                     "登录后用户名显示在窗口左下角，启动游戏时用的也是它。"),
                 form);
-        addSettingRow(grid, row, QStringLiteral("账号"), box, form);
+        addSettingItem(section3, QStringLiteral("账号"), box, form);
     }
 
     // ---------- 版本名格式 ----------
     // 实例名长什么样，也是"看起来是什么样"那一类 —— 和「外观」同一栏。
-    addSectionTitle(grid, row++, QStringLiteral("版本名格式"), form);
+    // ---- 第 4 节：标题 + 一张小节卡片（见 addSettingsSection()）----
+    const SettingsSection section4 = addSettingsSection(grid, row, QStringLiteral("版本名格式"), form);
     {
         QWidget *box = makeHintedControl(form);
         auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
@@ -1977,7 +2312,7 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
                                     "拼出来的，勾掉哪一项哪一段就不显示。"
                                     "数据来自 .minecraft/versions/<版本>/wtfml.meta。"),
                 form);
-        addSettingRow(grid, row, QStringLiteral("显示哪些字段"), box, form);
+        addSettingItem(section4, QStringLiteral("显示哪些字段"), box, form);
     }
 
     // 剩下的竖直空间留在底部：设置项不跟着窗口高度一起被拉长
@@ -1991,7 +2326,8 @@ void MainWindowUI::setupSettingsDownloadPanel(QStackedWidget *stack) {
     int row = 0;
 
     // ---------- 下载源 ----------
-    addSectionTitle(grid, row++, QStringLiteral("下载源"), form);
+    // ---- 第 1 节：标题 + 一张小节卡片（见 addSettingsSection()）----
+    const SettingsSection section1 = addSettingsSection(grid, row, QStringLiteral("下载源"), form);
     {
         QWidget *box = makeHintedControl(form);
         auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
@@ -2003,7 +2339,7 @@ void MainWindowUI::setupSettingsDownloadPanel(QStackedWidget *stack) {
         addHint(box, QStringLiteral("镜像源是第三方服务（BMCLAPI），国内通常快很多。"
                                     "下回来的文件不对时可以换回官方源重下。"),
                 form);
-        addSettingRow(grid, row, QStringLiteral("来源"), box, form);
+        addSettingItem(section1, QStringLiteral("来源"), box, form);
     }
     {
         // CurseForge 的 API key（2026-09-25 加）。放在「下载源」这一组里是因为它和上面那格
@@ -2025,13 +2361,14 @@ void MainWindowUI::setupSettingsDownloadPanel(QStackedWidget *stack) {
                                     "它不用 key，但可能限流、也可能哪天就停了。"
                                     "改完按回车（或者点到别处）就记住。"),
                 form);
-        addSettingRow(grid, row, curseForgeApiKeyRowText(), box, form);
+        addSettingItem(section1, curseForgeApiKeyRowText(), box, form);
     }
 
     // ---------- 下下来的东西放在哪儿（2026-09-28） ----------
     // 用户原话见 LauncherSettings 里那一节（那是**唯一**的语义出处）。这里只搭控件：
     // 勾选状态由 MainWindow 灌（它才知道这项设置存在哪）。
-    addSectionTitle(grid, row++, QStringLiteral("下载的文件"), form);
+    // ---- 第 2 节：标题 + 一张小节卡片（见 addSettingsSection()）----
+    const SettingsSection section2 = addSettingsSection(grid, row, QStringLiteral("下载的文件"), form);
     {
         QWidget *box = makeHintedControl(form);
         auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
@@ -2044,7 +2381,7 @@ void MainWindowUI::setupSettingsDownloadPanel(QStackedWidget *stack) {
                                     "在下载页里直接下的仍然会弹框让你挑位置。\n"
                                     "不勾：不管从哪儿点进来的，每次都弹框让你自己挑。"),
                 form);
-        addSettingRow(grid, row, downloadAutoIntoInstanceRowText(), box, form);
+        addSettingItem(section2, downloadAutoIntoInstanceRowText(), box, form);
     }
 
     // ---------- 「下载缺前置时提醒」（2026-10-09） ----------
@@ -2061,7 +2398,7 @@ void MainWindowUI::setupSettingsDownloadPanel(QStackedWidget *stack) {
                                     "不勾：不查也不提示，只下你点的那一版 —— 前置缺了游戏会在"
                                     "启动时崩，而崩溃画面里一个字都不会提到少了哪个模组。"),
                 form);
-        addSettingRow(grid, row, warnMissingDependenciesRowText(), box, form);
+        addSettingItem(section2, warnMissingDependenciesRowText(), box, form);
     }
 
     // 剩下的竖直空间留在底部：设置项不跟着窗口高度一起被拉长

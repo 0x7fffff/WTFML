@@ -261,20 +261,27 @@ protected:
         if (host == nullptr) {
             return;
         }
-        const QRect inMe(m_target->mapTo(host, QPoint(0, 0)), m_target->size());
-        if (inMe.isEmpty()) {
+        const QRect inHost(m_target->mapTo(host, QPoint(0, 0)), m_target->size());
+        const QRect inMe = rect();
+        if (inHost.isEmpty() || inMe.isEmpty()) {
             return;
         }
         // ★ 「淡的是一张定住的图」：第一帧照一次就定住（尺寸变了才重照）。
         if (m_snapshot.isNull() || m_snapshotSize != m_target->size()) {
-            // NOTE: 幕布自己可能是 `m_target` 的孩子（`pageAppear()` 直接传一个光板页面
-            //       时就是）—— 照那一张的时候我们自己**一个像素都不画**，否则就是照镜子。
+            // NOTE: 不能直接 `m_target->grab()`：页面本身经常是透明光板，单独抓它时 Qt 会
+            //       用 `QPalette::Window` 补底（Fusion 下就是灰的），而屏幕上真正透出来的是
+            //       父层那张白卡片。动画期间于是会先灰、收掉幕布后才突然变白。
+            //       从 host 的对应区域抓，拿到的才是用户此刻真正看见的合成结果。
+            //       幕布自己可能就在 host 里面，所以照相时让自己一个像素都不画，避免照镜子。
             m_grabbing = true;
-            m_snapshot = m_target->grab();
+            m_snapshot = host->grab(inHost);
             m_snapshotSize = m_target->size();
             m_grabbing = false;
         }
         QPainter painter(this);
+        // `setGeometry()` 已经把幕布搬到了 inHost；QPainter 用的是幕布**自己的**坐标，
+        // 这里必须从 (0, 0) 画。再用 inHost 会把目标相对父层的偏移重复加一次，幕布左上会
+        // 留出一块透明区域，动画时正好透出后面的灰色窗口。
         // 「不许有元素超出」：画之前先把范围收到这一格（挪下去的那一条也不会跑出去）。
         painter.setClipRect(inMe, Qt::IntersectClip);
         // ★ 底下先铺满底色：起手那几帧是半透明的，而 `target` 底下可能有"谁都不画"的

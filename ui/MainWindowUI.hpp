@@ -36,7 +36,6 @@
 #include <QComboBox>
 #include <QEvent>
 #include <QFrame>
-#include <QGroupBox>
 #include <QHash>
 #include <QLabel>
 #include <QLineEdit>
@@ -607,6 +606,12 @@ public:
     ///       现在浅底那一档还是原来那个色，深底那一档借用同一个界面里已经调好的浅红。
     static QColor installNameErrorColor(const QPalette &palette);
     static QString installButtonName() { return QStringLiteral("installButton"); }
+    /// 安装页最下面那条**固定底栏**（一条分隔线 + 右下角那颗「安装」）。
+    ///
+    /// ★ 2026-10-12：用户那份改版文档要求"确认操作放右下角或固定底栏，不悬浮在页面中间"，
+    ///   那一颗原来是 `Qt::AlignHCenter` 摆的（就是"悬浮在中间"）。这一格的父窗就是那条
+    ///   底栏，样式由 `wtfmlSurface="footer"` 那条 QSS 给（只有一条上边框，不上底色）。
+    static QString installFooterName() { return QStringLiteral("installFooter"); }
     static QString installBackButtonName() { return QStringLiteral("installBackButton"); }
     /// 每个选项卡页面贴着内容区留的那一圈边距。
     /// **唯一出处** —— 内容区那个覆盖层（`OverlayHost`）也是一整个"页面"，它那边留白
@@ -648,6 +653,34 @@ public:
     static QString downloadStackName() { return QStringLiteral("downloadStack"); }
     /// 「游戏」那一页（唯一有内容的那页）的 objectName。
     static QString downloadGamePageName() { return QStringLiteral("downloadGamePage"); }
+    /// 下载页页头那个标题（2026-10-12 那次改版加的，见 cpp 里 `buildTwoColumnPage()` 那段）。
+    static QString downloadPageTitle() { return QStringLiteral("下载"); }
+    /// 页头那行说明写什么 —— **跟着当前停在哪一类变**（第 index 个分类）。
+    ///
+    /// ★ 2026-10-12：用户那份改版文档要的是"页面头部 = 标题 + 当前状态/来源说明"，而这一
+    ///   页的"当前状态"就是"你现在停在哪一类、那一类能干什么"。原来那句"这一栏能干什么"
+    ///   只写在搜索框的提示文字里（空框里才看得见，一打字就没了），现在它同时挂在页头上。
+    ///   「游戏」那一类没有搜索框（提示是空串），它自己有一句（挑版本、挑加载器、装）。
+    static QString downloadHeaderSubtitle(int index) {
+        const QString hint = downloadSearchHint(index);
+        if (!hint.isEmpty()) {
+            return hint;
+        }
+        return QStringLiteral("挑一个游戏版本，挑加载器，装进实例");
+    }
+    /// 页头右上角那颗刷新（**只作用于当前这一类**）。
+    ///
+    /// ★ 2026-10-12：用户那份改版文档把"刷新"从每个分类行里挪到了页面头部（原文：
+    ///   「刷新按钮属于"当前分类"自己的页面头部」）。行尾那一颗**留着**（那是用户
+    ///   2026-09-23 点名要的，见 VersionTreeDelegate::refreshRect()），页头这一颗是
+    ///   同一个动作的第二个入口 —— 两处都调 `MainWindow::refreshDownloadCategory()`。
+    static QString downloadHeaderRefreshButtonName() {
+        return QStringLiteral("downloadHeaderRefreshButton");
+    }
+    /// 页头那颗刷新的字。**唯一出处**（原来这一串字只有那颗按钮上写了一遍）。
+    static QString downloadHeaderRefreshText() {
+        return QCoreApplication::translate("MainWindowUI", "刷新");
+    }
     /// 分类的键（进条目的 userData，也是那几张资源表的 objectName 前缀）。
     /// **顺序就是界面上从上到下的顺序**，第 0 个是「游戏」（它没有资源表，有别的两张）。
     static QStringList downloadCategoryKeys() {
@@ -877,6 +910,18 @@ public:
 
     static QString folderListName() { return QStringLiteral("folderList"); }
     static QString instanceListName() { return QStringLiteral("instanceList"); }
+    /// 实例页页头那个**标题**。
+    ///
+    /// 2026-10-12：用户那份界面改版文档给每一页定了同一套骨架（侧栏 + 页头 + 一个正文面），
+    /// 页头第一行就是页面标题。文案只有这一处，验证工程也按这个名字/这句话找。
+    static QString instancePageTitle() { return QStringLiteral("实例"); }
+    /// 侧栏那个小节标题（原来是一个 `QGroupBox("游戏文件夹")` 的缺口式标题）。
+    ///
+    /// ★ 2026-10-12：那份文档点名「小节使用"标题 + 内容卡片"，避免传统 QGroupBox 的缺口式
+    ///   标题」—— 于是它变成一行普通的粗体字（`wtfmlTextRole="sectionTitle"`），框整块没了。
+    ///   文案一个字没改：它一直说的是"这一列管的是哪一份 .minecraft 目录"。
+    static QString folderSectionTitleText() { return QStringLiteral("游戏文件夹"); }
+    static QString folderSectionTitleName() { return QStringLiteral("folderSectionTitle"); }
     static QString instanceFolderLabelName() { return QStringLiteral("instanceFolderLabel"); }
     // 「游戏文件夹」那一列上的按钮。这里**必须**有 objectName —— 「移除」的文案当初
     // 从「删除文件夹」改成过「移除文件夹…」（那个词会让人以为盘上的文件也没了），按文案
@@ -1527,63 +1572,65 @@ public:
     static QString rightColumnName(const QString &tab) {
         return tab + QStringLiteral("RightColumn");
     }
-    /// 默认那一套份数：左 3 右 7。实例页（以及设置页**栏内**那张 grid，见「设置页」那一段）用它。
+
+    /// 侧栏那一列的宽度（**唯一出处**，2026-10-12 那套统一页面骨架里那一档）。
+    ///
+    /// 用户 2026-10-12 那份改版文档：`侧栏 208~220 px`。导航那一列是**固定宽度**、不再按
+    /// 份数分（见 `buildTwoColumnPage()` 里那段）；只有主页不套这一档 —— 它左边是"选版本 +
+    /// 启动"，那是正文。验证工程拿它当"侧栏就是该这么宽"的期望值，界面和测试各写一份的话
+    /// 改宽度时一定会有一边忘了改。
+    static int sidebarWidth() { return 216; }
+
+    /// 正文那一栏顶上那个页头（页面标题那一行 + 说明那一行）的名字。
+    /// @param tab "instance" / "download" / "settings"（主页没有页头）。
+    static QString pageHeaderName(const QString &tab) {
+        return tab + QStringLiteral("PageHeader");
+    }
+    /// 页头里那一行标题。
+    static QString pageTitleName(const QString &tab) {
+        return tab + QStringLiteral("PageTitle");
+    }
+    /// 页头里那一行说明（路径 / 当前状态那一类；空着时整行收起来）。
+    static QString pageSubtitleName(const QString &tab) {
+        return tab + QStringLiteral("PageSubtitle");
+    }
+    /// 栏**内**那些表格的份数：左 3 右 7。设置页每一栏那张 grid（见「设置页」那一段）
+    /// 和实例设置里那几张表格用它 —— ★ 它**不再是页面两栏的比例**（2026-10-12 起
+    /// 侧栏是固定宽度，见 sidebarWidth()）。
     static int leftColumnStretch() { return 3; }
-    /// 右栏占的份数（默认那一套）。
+    /// 栏内那张表格右列占的份数（默认那一套）。
     static int rightColumnStretch() { return 7; }
-    /// 右栏在页面上是不是真的更宽（验证工程拿它当"默认的 3:7 生效了"的判据）。
+    /// 栏内那张表格里右列是不是真的更宽（验证工程拿它当"默认的 3:7 生效了"的判据）。
     static bool rightColumnIsWider() { return rightColumnStretch() > leftColumnStretch(); }
     /// 主页那一套：7:3（把默认那一对对调过来），见 leftColumnIsWider()。
     static int homeLeftColumnStretch() { return 7; }
     static int homeRightColumnStretch() { return 3; }
-    /// 下载页那一套：2:8。用户原话"下载页左右改成 2：8"。
-    ///
-    /// NOTE: 比默认的 3:7 更偏向右栏 —— 左栏那列分类（游戏/整合包/模组/资源包/光影）
-    ///       最多三个字，而右栏现在要装下那棵树（每条还带一行发布日期）、以及安装页那一摊
-    ///       （名称框 + 加载器那棵树）。左栏按 sizeHint 本来也只吃那么点宽度，把份数让给
-    ///       右栏是"分类列表不被拉成一整条空白 + 右栏那棵树不用横向滚动"两边都对的取法。
-    static int downloadLeftColumnStretch() { return 2; }
-    static int downloadRightColumnStretch() { return 8; }
-    /// 设置页那一套：2:8。**理由和下载页那条一模一样** —— 左栏是一列分类名
-    /// （启动/游戏/提示/个性化/下载，最多三个字），按 sizeHint 本来也只吃那么点，
-    /// 把份数让给右栏，那一列就不会被拉成一整条空白。
-    static int settingsLeftColumnStretch() { return 2; }
-    static int settingsRightColumnStretch() { return 8; }
 
     /// 这一页是不是"左宽右窄"。
     /// @param tab "home" / "instance" / "download"。
     ///
     /// 只有主页是。主页的右栏现在**空着**（原来那张「版本列表」已经去掉 —— 实例页右边
     /// 已经有一张同样数据的列表了，主页那张是把同一件事说两遍），所以宽度让给左边的
-    /// "选版本 + 启动"那两样。另外两页的左栏仍是"只放选一个"的窄栏。
+    /// "选版本 + 启动"那两样。另外三页的左栏是**固定宽度的侧栏**（见 sidebarWidth()），
+    /// 份数给 0 —— 它多宽由那一栏自己的宽度定，和比例无关。
     static bool leftColumnIsWider(const QString &tab) {
         return tab == QStringLiteral("home");
     }
-    /// 某一页左栏占的份数（三页各一套，见上面那几个常数）。
+    /// 某一页左栏占的份数。
+    ///
+    /// ★ 2026-10-12：**只有主页还是按份数分宽**（7 份）。另三页（实例/下载/设置）的左栏
+    ///   换成了**固定宽度的侧栏**（`sidebarWidth()`，用户那份改版文档：`侧栏 208 px`，
+    ///   理由见 `kSidebarWidth` 那段）—— 侧栏自己那一位给 0，宽度全归正文那一栏。
+    ///   从前那两套 `downloadLeftColumnStretch()`（2:8）/`settingsLeftColumnStretch()`
+    ///   （也是 2:8）**连函数一起删了**：那两份数字是在"按比例分宽"那个前提下定的，
+    ///   侧栏定死之后它们没有任何读者，留着就是一份和界面无关的假规格。
     static int leftColumnStretch(const QString &tab) {
-        if (tab == QStringLiteral("home")) {
-            return homeLeftColumnStretch();
-        }
-        if (tab == QStringLiteral("download")) {
-            return downloadLeftColumnStretch();
-        }
-        if (tab == QStringLiteral("settings")) {
-            return settingsLeftColumnStretch();
-        }
-        return leftColumnStretch();
+        return tab == QStringLiteral("home") ? homeLeftColumnStretch() : 0;
     }
-    /// 某一页右栏占的份数（见 leftColumnStretch(const QString&)）。
+    /// 某一页右栏占的份数（见 leftColumnStretch(const QString&)）—— 左栏定死宽度之后，
+    /// 多出来的宽度**全归这一栏**（所以除了主页，这里一律是 1）。
     static int rightColumnStretch(const QString &tab) {
-        if (tab == QStringLiteral("home")) {
-            return homeRightColumnStretch();
-        }
-        if (tab == QStringLiteral("download")) {
-            return downloadRightColumnStretch();
-        }
-        if (tab == QStringLiteral("settings")) {
-            return settingsRightColumnStretch();
-        }
-        return rightColumnStretch();
+        return tab == QStringLiteral("home") ? homeRightColumnStretch() : 1;
     }
 
     // ---------- 设置页：左栏那几条分类 ----------
@@ -1611,6 +1658,19 @@ public:
     }
     static QString settingsCategoryListName() { return QStringLiteral("settingsCategoryList"); }
     static QString settingsCategoryStackName() { return QStringLiteral("settingsCategoryStack"); }
+    /// 设置页页头那个标题（2026-10-12 那次改版给每一页都加了页头，见 cpp 里
+    /// `buildTwoColumnPage()` 那段）。这一页**没有说明那一行**，只有标题。
+    static QString settingsPageTitle() { return QStringLiteral("设置"); }
+    /// 设置页那张表单**最宽**多宽（逻辑像素）。**唯一出处**（`addSettingsPanel()` 用它
+    /// 给 `panel.form` 限宽）。
+    ///
+    /// 用户 2026-10-12 那份文档点名 760~840，取中间那个整数。它治的是"设置页内容横向无限
+    /// 伸展，说明文字一行跨得太长"：窗口拉宽时表单不再跟着长，而是**居中**摆着（多出来的
+    /// 空白留在两边）。
+    ///
+    /// NOTE: 每一栏**各自**限一次（三栏三张表单），因为它挂在 `form` 上而不是滚动区上 ——
+    ///       滚动条仍然贴着正文面最右边那条线，只有表单收窄。
+    static int settingsFormMaxWidth() { return 820; }
     /// 某一栏那一整页的 objectName（堆叠页里的一页 = 一层滚动区，见 cpp 里的
     /// addSettingsPanel()）。
     static QString settingsPanelName(const QString &key) {
@@ -2140,6 +2200,21 @@ public:
     ///       里）。所以它不再按分类键索引 —— 用户翻到哪一栏，它都在同一个地方。
     QPushButton *getDownloadBackButton() const { return downloadBackButton; }
 
+    /// 下载页页头右上角那颗**刷新**（只作用于当前停着的那一类）。
+    ///
+    /// ★ 2026-10-12 加的（用户那份改版文档：「刷新按钮属于"当前分类"自己的页面头部」）。
+    ///   它和分类行行尾那一颗是同一个动作的两个入口，都接
+    ///   `MainWindow::refreshDownloadCategory()`；这一颗作用于
+    ///   `getDownloadCategoryList()->currentRow()`。
+    QPushButton *getDownloadHeaderRefreshButton() const { return downloadHeaderRefreshButton; }
+
+    /// 把下载页页头那行说明刷成第 @p row 类的那一句（`downloadHeaderSubtitle()`）。
+    ///
+    /// ★ 由 `MainWindow` 在"当前分类变了"那一条路上调（那一层才知道分类列表翻到哪儿了，
+    ///   见 `MainWindow::setupConnections` 里那条 `currentRowChanged`）。传越界的下标
+    ///   什么都不改（页头宁可停在上一句，也不要空成一行）。
+    void setDownloadHeaderRow(int row);
+
     /// 顶上那四颗导航，**最后一次是按在哪一颗上的**（按下去**之前**那一颗 = 那一按的来路；
     /// -1 = 这一次运行还没人按过）。两个出口都读它，判的都是同一句"这一按是从下载页上按的"：
     ///   ① 「下载」那一颗：**按的就是当前这一颗**（回这个功能的首页）才做那一套重置 ——
@@ -2418,6 +2493,12 @@ private:
     /// 这颗按钮）。
     /// 下载页左栏顶上那颗「返回实例设置」。**整个下载页一颗**（见 getDownloadBackButton）。
     QPushButton *downloadBackButton = nullptr;
+    /// 下载页页头右上角那颗刷新（见 getDownloadHeaderRefreshButton() 那段）。
+    QPushButton *downloadHeaderRefreshButton = nullptr;
+    /// 下载页页头那行说明（= 第 N 类的那一句，见 setDownloadHeaderRow()）。
+    /// ★ 它**就是** `buildTwoColumnPage()` 给正文那一栏建的标题下面那一行 —— 不是另建一个
+    ///   标签，页头那一行字只有这一处。
+    QLabel *downloadHeaderSubtitleLabel = nullptr;
     /// 顶上那四颗导航最后一次是按在哪一颗上的（见 lastNavSourceTab() 那段）。
     int m_lastNavSourceTab = -1;
     QStackedWidget *downloadStack = nullptr;

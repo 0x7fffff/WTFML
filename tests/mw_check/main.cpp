@@ -581,10 +581,19 @@ void recordPrompt(InlineMessageBox *box) {
 /// 点这一条提示上的第 index 颗按钮。点不着就把它整块收掉（等于"没选"，见 InlineMessage）。
 void clickPromptButton(int index) {
     InlineMessageBox *box = currentPrompt();
-    recordPrompt(box);
+    // ★ 框不在了就**什么都不做** —— 包括不把上一次记下来的话抹掉。
+    //   `recordPrompt(nullptr)` 会先把 `g_modal*` 清空（它要给"真的没弹东西"一个空记录），
+    //   所以**落空的**那一发不能顺手调它：`answerNextPrompt()` 那一族除了排 0 毫秒那一发，
+    //   还会排一发 300 毫秒的兜底（防"框还没摆上来"），而兜底那一发是在**答案已经点完、
+    //   框已经收掉之后**才醒的（它只按 `g_modalHandlerGeneration` 认过期，而那一格要到
+    //   `withPage` 的收尾才 ++，正好晚于 act() 里那一发 `processEvents()`）。于是
+    //   "答得够快 + 后面那一节干得够慢（>300 毫秒）"时，真正记下来的那一句话会被这一发
+    //   抹成空 —— 断言读到的就是"什么都没弹"，而盘上文件明明装进去了（2026-10-12 实测：
+    //   T30.7 三次里红一次，红的正是这一句）。
     if (box == nullptr) {
         return;
     }
+    recordPrompt(box);
     if (auto *button = box->findChild<QPushButton *>(InlineMessageBox::buttonName(index))) {
         button->click();
         return;

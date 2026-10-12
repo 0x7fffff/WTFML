@@ -798,11 +798,48 @@ int main(int argc, char *argv[]) {
 
     std::printf("===== B. 分组归属 =====\n");
     // 往上找最近的那个 QGroupBox：下拉框和按钮是不是同一组，看的就得是这个。
+    //
+    // ★ 2026-10-12（那次改版）之后**产品界面上一个 QGroupBox 都没有了** —— 页面改成
+    //   "侧栏 + 正文面"那套骨架，小节一律走 `wtfmlSurface="section"` 的卡片（见下）。
+    //   这个 lambda 留着是为了把它钉在**反面**：凡是从前"在某一组里"的那些断言，现在
+    //   都要同时说明"它现在长在哪个面上"，而不是悄悄留一个恒等于 nullptr 的空壳
+    //   （那种断言看着还是绿的，其实什么都没量）。
+    //   ★ 真要说"组"的地方只剩 `GroupDialog` 那个窗（它不在这几个页面里）。
     const auto nearestGroupBox = [](QWidget *w) -> QGroupBox * {
         for (QWidget *p = w != nullptr ? w->parentWidget() : nullptr; p != nullptr;
              p = p->parentWidget()) {
             if (auto *box = qobject_cast<QGroupBox *>(p)) {
                 return box;
+            }
+        }
+        return nullptr;
+    };
+    // ---- 页面骨架那两个"面"（2026-10-12 改版）----
+    //
+    // 骨架是 `buildTwoColumnPage()` 搭的：侧栏一个面（`wtfmlSurface="sidebar"`）、正文一个面
+    // （`"workspace"`），小节卡片是第三个值（`"section"`），安装页底下那条固定页脚是
+    // 第四个（`"footer"`）。属性名和值都只有 `ui/Theme.*` 一处出处 —— 验证工程这边
+    // **不写字面量**，理由和颜色一个规矩（写死的话改一处就会漏一处）。
+    const auto surfaceValueOf = [](QWidget *w) -> QString {
+        const QByteArray key = Theme::surfacePropertyName().toUtf8();
+        for (QWidget *p = w; p != nullptr; p = p->parentWidget()) {
+            const QVariant value = p->property(key.constData());
+            if (value.isValid() && !value.toString().isEmpty()) {
+                return value.toString();
+            }
+        }
+        return QString();
+    };
+    // 这一支上最近的**那个面**是不是 @p value 那一档（"它长在侧栏面上 / 正文面上"）。
+    const auto inSurface = [&surfaceValueOf](QWidget *w, const QString &value) {
+        return w != nullptr && surfaceValueOf(w) == value;
+    };
+    // 这一页里那个面（侧栏 / 正文）：按属性找，找到的第一个。
+    const auto surfaceOf = [](QWidget *root, const QString &value) -> QFrame * {
+        const QByteArray key = Theme::surfacePropertyName().toUtf8();
+        for (QFrame *frame : root->findChildren<QFrame *>()) {
+            if (frame->property(key.constData()).toString() == value) {
+                return frame;
             }
         }
         return nullptr;
@@ -814,23 +851,44 @@ int main(int argc, char *argv[]) {
     check(downloadGroup == nullptr, "「安装」按钮不在任何组里（它作用于整页，不属于某一组）");
     check(nearestGroupBox(installed) == nullptr, "已安装下拉框也不在组里");
     {
-        QGroupBox *loaderGroup = nearestGroupBox(loaderTree);
-        check(loaderGroup != nullptr && loaderGroup->title() == MainWindowUI::modLoaderLabelText(),
-              "加载器那棵树在「模组加载器」那个组里",
-              loaderGroup != nullptr ? loaderGroup->title() : QStringLiteral("<null>"));
-        // 那一组里**只有这一棵树**：原来那五个钮、四个组合框连它们各自的行容器一起没了。
+        // ★ 2026-10-12：这里原来是一个 `QGroupBox("模组加载器")`，现在换成设置页那种
+        //   「标题 + 小节卡片」。所以判据从"最近的那个组是不是它"改成"最近的那个面
+        //   是不是 `section` 那一档、那张卡片顶上的标题是不是这句话"。
+        //   连带的**反面**也一条不落：产品界面上不该再有任何 `QGroupBox`（下面 W 节
+        //   那种"一个都没有"的断言另有一条，这里先钉这一棵树的四周）。
+        check(nearestGroupBox(loaderTree) == nullptr,
+              "加载器那棵树**不再**长在任何 QGroupBox 里（那一组整块换成小节卡片了）");
+        check(inSurface(loaderTree, Theme::sectionSurfaceValue()),
+              "它长在一个 `wtfmlSurface=\"section\"` 的小节面上",
+              surfaceValueOf(loaderTree));
+        QWidget *loaderCard = loaderTree != nullptr ? loaderTree->parentWidget() : nullptr;
+        // 卡片顶上那一行标题（粗体 + `sectionTitle` 那一档角色）就是当年那组的标题。
+        const auto *cardTitle = loaderCard != nullptr
+                                    ? loaderCard->findChild<QLabel *>(QString(), Qt::FindDirectChildrenOnly)
+                                    : nullptr;
+        check(cardTitle != nullptr && cardTitle->text() == MainWindowUI::modLoaderLabelText() &&
+                  cardTitle->font().bold(),
+              "卡片顶上那行小标题就是「模组加载器」（粗体，和设置页那些小节一个形状）",
+              cardTitle != nullptr ? cardTitle->text() : QStringLiteral("<null>"));
+        // 那一节里**只有这一棵树**：原来那五个钮、四个组合框连它们各自的行容器一起没了。
         // 这条是"旧控件真的删干净了"的凭据 —— 留着哪怕一个空壳，用户也可能点到它。
-        check(loaderGroup != nullptr &&
-                  loaderGroup->findChildren<QRadioButton *>().isEmpty() &&
-                  loaderGroup->findChildren<QComboBox *>().isEmpty() &&
-                  loaderGroup->findChildren<QTreeWidget *>().size() == 1,
-              "组里没有单选钮、没有组合框，只有一棵树",
-              loaderGroup != nullptr
+        check(loaderCard != nullptr &&
+                  loaderCard->findChildren<QRadioButton *>().isEmpty() &&
+                  loaderCard->findChildren<QComboBox *>().isEmpty() &&
+                  loaderCard->findChildren<QTreeWidget *>().size() == 1,
+              "这一节里没有单选钮、没有组合框，只有一棵树",
+              loaderCard != nullptr
                   ? QString("radio=%1 combo=%2 tree=%3")
-                        .arg(loaderGroup->findChildren<QRadioButton *>().size())
-                        .arg(loaderGroup->findChildren<QComboBox *>().size())
-                        .arg(loaderGroup->findChildren<QTreeWidget *>().size())
+                        .arg(loaderCard->findChildren<QRadioButton *>().size())
+                        .arg(loaderCard->findChildren<QComboBox *>().size())
+                        .arg(loaderCard->findChildren<QTreeWidget *>().size())
                   : QStringLiteral("<null>"));
+        // 树**自己不画那圈边**（用户那份文档第一条要减掉的"框套框"）：它四周已经是
+        // 那张卡片了，再套一圈就是两条平行的框。
+        check(loaderTree != nullptr && loaderTree->frameShape() == QFrame::NoFrame,
+              "这棵树自己不画边框（四周已经是那张卡片）",
+              loaderTree != nullptr ? QString::number(int(loaderTree->frameShape()))
+                                    : QStringLiteral("<null>"));
         // 五条各带一张标志图（用户要的"对应的 forge neo... 也加上其标志"）：
         // 第 i 条上那张必须**正好是**第 i 个加载器的标志 —— 差一位的表现是
         // "Forge 那条上画着 NeoForge 的狐狸"，图标这东西没人会去逐条核对，只能靠这条钉住。
@@ -856,18 +914,49 @@ int main(int argc, char *argv[]) {
               "「不装（纯原版）」那条画的是草方块（它装出来的就是原版，和版本号前面那个一样）");
     }
     QGroupBox *folderGroup = nearestGroupBox(folderList);
-    check(folderGroup != nullptr && folderGroup->title() == QStringLiteral("游戏文件夹"),
-          "文件夹列表在「游戏文件夹」组里",
-          folderGroup != nullptr ? folderGroup->title() : QStringLiteral("<null>"));
-    check(folderGroup != nullptr && nearestGroupBox(addFolderBtn) == folderGroup,
-          "「添加文件夹…」和列表同处一组");
+    // ---- 实例页：侧栏（2026-10-12 起这一栏不再有 QGroupBox）----
+    //
+    // 用户那份改版文档第一条就是「减少框」：「页面本身不画边框」「左侧栏只使用轻微底色
+    // 区分（不画完整矩形边框）」。于是「游戏文件夹」那个组整块撤掉：
+    //   · 标题变成侧栏顶上**一行普通的粗体字**（`folderSectionTitleName()`，sectionTitle
+    //     那一档角色）—— 不再有缺口式标题、不再有那圈边；
+    //   · 列表和两颗按钮直接落在侧栏那个"面"（`wtfmlSurface="sidebar"`）上。
+    // 下面这几条钉的就是这个形状：**一整个面上有什么**，而不是"某一组里有什么"。
+    QWidget *instancePageForSidebar = tabs->widget(MainWindowUI::instancesTabIndex());
+    QFrame *instanceSidebar = surfaceOf(instancePageForSidebar, Theme::sidebarSurfaceValue());
+    check(folderGroup == nullptr &&
+              inSurface(folderList, Theme::sidebarSurfaceValue()),
+          "文件夹列表在实例页的**侧栏面**上（不再是「游戏文件夹」那一组）",
+          surfaceValueOf(folderList));
+    check(instanceSidebar != nullptr && inSurface(addFolderBtn, Theme::sidebarSurfaceValue()),
+          "「添加文件夹…」和列表同处那一栏");
+    // 侧栏顶上那行小标题：文字、粗体、`sectionTitle` 角色 —— 三样都得对，否则就是
+    // "框撤了、标题也没了"，那种界面在截图上看不出来，只有这里能红。
+    {
+        auto *title = instanceSidebar != nullptr ? instanceSidebar->findChild<QLabel *>(
+                                                       MainWindowUI::folderSectionTitleName())
+                                                : nullptr;
+        check(title != nullptr && title->text() == MainWindowUI::folderSectionTitleText() &&
+                  title->font().bold() &&
+                  title->property(Theme::textRolePropertyName().toUtf8().constData())
+                          .toString() == Theme::sectionTitleTextRoleValue(),
+              "侧栏顶上那行小标题是「游戏文件夹」（粗体 + sectionTitle 那一档角色）",
+              title != nullptr ? title->text() : QStringLiteral("<null>"));
+        // 它在列表**上面**（原来是组标题、现在是这栏的第一行）。
+        QLayout *leftLayout = instanceSidebar != nullptr ? instanceSidebar->layout() : nullptr;
+        check(leftLayout != nullptr && title != nullptr && folderList != nullptr &&
+                  leftLayout->indexOf(title) >= 0 && leftLayout->indexOf(folderList) >= 0 &&
+                  leftLayout->indexOf(title) < leftLayout->indexOf(folderList),
+              "那行小标题在列表**上面**");
+    }
     // 「移除文件夹…」那个按钮与列表下面那段提示 2026-09-24 一起删掉了（用户原话：
     // 「下面那个移除文件夹也可以弃掉了，下面那个文本也删了」）—— 「移除」现在只剩行尾
     // 齿轮菜单里那一项，它自己那几条断言在下面 V 节。
-    check(folderGroup != nullptr && folderGroup->findChildren<QPushButton *>().size() == 2,
-          "组里是「添加文件夹…」+「导入整合包…」两个按钮（「移除文件夹…」已经删掉）",
-          QString::number(folderGroup != nullptr
-                              ? folderGroup->findChildren<QPushButton *>().size()
+    check(instanceSidebar != nullptr &&
+              instanceSidebar->findChildren<QPushButton *>().size() == 2,
+          "这一栏里是「添加文件夹…」+「导入整合包…」两个按钮（「移除文件夹…」已经删掉）",
+          QString::number(instanceSidebar != nullptr
+                              ? instanceSidebar->findChildren<QPushButton *>().size()
                               : -1));
     check(addFolderBtn != nullptr && addFolderBtn->text() == MainWindowUI::addFolderText(),
           "那个按钮是「添加文件夹…」",
@@ -876,56 +965,64 @@ int main(int argc, char *argv[]) {
               addFolderBtn->objectName() == MainWindowUI::addFolderButtonName(),
           "「添加文件夹…」挂着自己的 objectName",
           addFolderBtn != nullptr ? addFolderBtn->objectName() : QStringLiteral("<null>"));
-    // 「删干净了没有」光靠上面那句"按钮数 == 1"是不够的（以后那一组里加别的按钮它就假了）。
+    // 「删干净了没有」光靠上面那句"按钮数 == 2"是不够的（以后那一栏里加别的按钮它就假了）。
     // 这里按 objectName **反着找**：产品那头这两个名字已经删掉了，所以判据里只能写字面量
     // —— 而这两条要钉的正是"它们找不回来了"。
-    check(folderGroup != nullptr &&
-              folderGroup->findChild<QPushButton *>(
+    check(instanceSidebar != nullptr &&
+              instanceSidebar->findChild<QPushButton *>(
                   QStringLiteral("removeFolderButton")) == nullptr,
           "「移除文件夹…」那个按钮真的不在了（按 objectName 找不到）");
-    check(folderGroup != nullptr &&
-              folderGroup->findChild<QLabel *>(QStringLiteral("folderHintLabel")) == nullptr,
+    check(instanceSidebar != nullptr &&
+              instanceSidebar->findChild<QLabel *>(QStringLiteral("folderHintLabel")) == nullptr,
           "列表下面那段提示也真的不在了（按 objectName 找不到）");
-    // ★ 但这一组**又有了**一段说明（2026-09-25）：「导入整合包…」下面那句。它和上面那句
+    // ★ 但这一栏**又有了**一段说明（2026-09-25）：「导入整合包…」下面那句。它和上面那句
     //   被删掉的话是两回事（那句讲的是"列表里这份文件夹"，这句讲的是那颗按钮收什么）。
     {
-        const auto *hint = folderGroup != nullptr
-                               ? folderGroup->findChild<QLabel *>(
+        const auto *hint = instanceSidebar != nullptr
+                               ? instanceSidebar->findChild<QLabel *>(
                                      MainWindowUI::importHintLabelName())
                                : nullptr;
         check(hint != nullptr && hint->text().contains(QStringLiteral("Modrinth")),
               "「导入整合包…」下面那句说明（按 objectName 找得回、写的是收什么格式）",
               hint != nullptr ? hint->text() : QStringLiteral("<null>"));
     }
-    QGroupBox *instanceGroup = nearestGroupBox(instanceList);
-    check(instanceGroup != nullptr && instanceGroup->title() == QStringLiteral("实例列表"),
-          "实例列表在「实例列表」组里",
-          instanceGroup != nullptr ? instanceGroup->title() : QStringLiteral("<null>"));
-    // 讲「导入整合包…」的那段话是**从左栏搬过来的**（不是又抄了一份）：这一组里的 QLabel
+    // ---- 右栏（正文面）：就只有那一棵实例树 ----
+    check(nearestGroupBox(instanceList) == nullptr &&
+              inSurface(instanceList, Theme::workspaceSurfaceValue()),
+          "实例列表在**正文面**上（「实例列表」那一组整块没了）",
+          surfaceValueOf(instanceList));
+    // 讲「导入整合包…」的那段话是**从左栏搬过来的**（不是又抄了一份）：正文面里的 QLabel
     // 不该再有那四个字 —— 两边都写一遍的话，改一处就会漏一处。
     {
+        QFrame *instanceWorkspace =
+            surfaceOf(instancePageForSidebar, Theme::workspaceSurfaceValue());
         bool rightStillTalksAboutImport = false;
-        if (instanceGroup != nullptr) {
-            for (const QLabel *l : instanceGroup->findChildren<QLabel *>()) {
+        if (instanceWorkspace != nullptr) {
+            for (const QLabel *l : instanceWorkspace->findChildren<QLabel *>()) {
                 if (l->text().contains(QStringLiteral("导入整合包"))) {
                     rightStillTalksAboutImport = true;
                 }
             }
         }
         check(!rightStillTalksAboutImport,
-              "右栏「实例列表」那一组里不再讲「导入整合包」（那段话跟着按钮搬去了左栏）");
+              "正文面里不再讲「导入整合包」（那段话跟着按钮留在左栏里）");
     }
-    check(instanceGroup != nullptr && nearestGroupBox(instanceFolderLabel) == instanceGroup,
-          "「当前文件夹」那句话和实例列表同一组（它说的就是这张列表的来源）");
-    // 「导入整合包…」**不在**这一组里（2026-09-25 之前它在）：用户原话「导入整合包放在
-    // 左边添加文件夹下面」，所以它归左栏「游戏文件夹」那一组，紧挨着「添加文件夹…」。
+    // 「当前文件夹：…」那句话**升级成了页头那行说明**（2026-10-12）：它原来在「实例列表」
+    // 那一组里当第一行，现在挂在页头标题「实例」下面（用户文档：`页面说明 / 路径 / 当前
+    // 状态`）。objectName 没换（`instanceFolderLabelName()`）—— MainWindow 灌数据那条路
+    // 一个字符都没动，只是它现在长在页头里、不在正文面里。
+    check(instanceFolderLabel != nullptr &&
+              instanceFolderLabel->objectName() == MainWindowUI::instanceFolderLabelName() &&
+              instanceFolderLabel->parentWidget() != nullptr &&
+              !isDescendantOf(instanceFolderLabel, instanceList),
+          "「当前文件夹」那句话不再挂在实例列表底下（它现在是页头那行说明）");
+    // 「导入整合包…」**不在**右栏（2026-09-25 之前它在）：用户原话「导入整合包放在
+    // 左边添加文件夹下面」，所以它在左栏、紧挨着「添加文件夹…」。
     // 这里把那条老断言翻过来钉住 —— 挪回去了（或者被谁顺手加回右栏）要在这里红。
-    check(folderGroup != nullptr &&
-              nearestGroupBox(ui.getImportModpackButton()) == folderGroup,
-          "「导入整合包…」归左栏「游戏文件夹」那一组（不在「实例列表」那一组里）",
-          nearestGroupBox(ui.getImportModpackButton()) != nullptr
-              ? nearestGroupBox(ui.getImportModpackButton())->title()
-              : QStringLiteral("<null>"));
+    check(!inSurface(ui.getImportModpackButton(), Theme::workspaceSurfaceValue()) &&
+              inSurface(ui.getImportModpackButton(), Theme::sidebarSurfaceValue()),
+          "「导入整合包…」在左栏侧栏面上（不在正文面那一支里）",
+          surfaceValueOf(ui.getImportModpackButton()));
     // NOTE: 这条以前顺带钉了「离线模式」那个勾选框 —— 它 2026-09-24 去掉了（用户原话：
     //       「现在不要启动界面那个离线登录勾选框了，在添加账户那里选择添加离线账号」），
     //       离线身份现在由"当前账号是什么"决定（MainWindow::offlineIdentity()）。
@@ -988,14 +1085,27 @@ int main(int argc, char *argv[]) {
                 : downloadPage->findChild<QWidget *>(
                       MainWindowUI::leftColumnName(QStringLiteral("download")));
         QListWidget *categories = ui.getDownloadCategoryList();
+        // ★ 2026-10-12：左栏那一格现在是**固定宽度的侧栏**，里面套着那个"侧栏面"
+        //   （`wtfmlSurface="sidebar"`）；分类那一列和这颗返回键都长在**那个面**上，
+        //   不再直接挂在栏控件下面。所以这两条从"父控件就是左栏"改成"就在左栏那个面上"。
+        QFrame *leftSurface =
+            downloadPage == nullptr ? nullptr : surfaceOf(downloadPage, Theme::sidebarSurfaceValue());
         check(leftColumn != nullptr && back != nullptr && leftColumn->isAncestorOf(back),
               "它长在**左栏**里（用户原话「就是左边栏的顶上」）");
-        check(leftColumn != nullptr && categories != nullptr &&
-                  categories->parentWidget() == leftColumn,
-              "分类那一列也在同一个盒子里（就是左右两栏那一对里的左边那一栏）");
+        check(leftSurface != nullptr && categories != nullptr &&
+                  inSurface(categories, Theme::sidebarSurfaceValue()),
+              "分类那一列也在左栏那个**侧栏面**上（不再画自己那圈边）",
+              surfaceValueOf(categories));
+        check(categories != nullptr && categories->frameShape() == QFrame::NoFrame,
+              "分类那一列自己不画边框（四周已经是侧栏面）",
+              categories != nullptr ? QString::number(int(categories->frameShape()))
+                                    : QStringLiteral("<null>"));
         // 在分类那一列**上面**。量的是布局里的**次序**，不是 y 坐标 —— 这一颗此刻收着，
         // 收着的控件布局不给它分配几何，拿 y 去比得到的是"两个都没摆过"的假数据。
-        QLayout *leftLayout = leftColumn == nullptr ? nullptr : leftColumn->layout();
+        // NOTE: 那一对里的布局是**侧栏面自己**那条布局（`buildTwoColumnPage()` 把
+        //       `columns.left.layout` 指过去的就是它），不是栏控件那条 —— 栏控件那条
+        //       里此刻只有侧栏面一个东西。
+        QLayout *leftLayout = leftSurface == nullptr ? nullptr : leftSurface->layout();
         check(leftLayout != nullptr && back != nullptr && categories != nullptr &&
                   leftLayout->indexOf(back) >= 0 && leftLayout->indexOf(categories) >= 0 &&
                   leftLayout->indexOf(back) < leftLayout->indexOf(categories),
@@ -1868,26 +1978,60 @@ int main(int argc, char *argv[]) {
                   .arg(installNameEdit != nullptr ? installNameEdit->font().pointSize() : -1));
     }
 
-    // 加载器那一组、名称框、安装按钮自上而下排开。这几条是"用户描述的那个形状"
-    // （名称框 → 加载器 → 安装按钮）在几何上的落点。
+    // 加载器那一卡、名称框、底栏自上而下排开。这几条是"用户描述的那个形状"
+    // （名称框 → 加载器 → 底栏里那颗安装键）在几何上的落点。
+    QFrame *loaderCard = nullptr;
+    QFrame *installFooter = nullptr;
+    const QByteArray surfaceKey = Theme::surfacePropertyName().toUtf8();
     {
         const QRect rTree = rectInPage(loaderTree);
-        QGroupBox *loaderGroup = nearestGroupBox(loaderTree);
-        const QRect rGroup = rectInPage(loaderGroup);
+        // ★ 2026-10-12：这一节原来是一个 `QGroupBox("模组加载器")`，现在换成了设置页那种
+        //   「标题 + 小节卡片」（用户那份改版文档：「右侧只有一个主要内容表面，不再用多个
+        //   QGroupBox 套起来」）。**这是产品界面上最后一个 QGroupBox**，所以第一条钉的
+        //   就是"这里再也没有组了" —— 判据从"组在名称框下面"改成"那张卡片在名称框下面"。
+        loaderCard = loaderTree != nullptr ? qobject_cast<QFrame *>(loaderTree->parentWidget())
+                                          : nullptr;
+        const QString cardSurface =
+            loaderCard != nullptr ? loaderCard->property(surfaceKey.constData()).toString()
+                                  : QString();
+        const QRect rGroup = rectInPage(loaderCard);
 
+        check(nearestGroupBox(loaderTree) == nullptr &&
+                  cardSurface == Theme::sectionSurfaceValue(),
+              "加载器那一节是**小节卡片**（wtfmlSurface=\"section\"）—— 这一页上再也没有 QGroupBox",
+              QStringLiteral("面=「%1」").arg(cardSurface));
         check(!rGroup.isNull() && rGroup.y() >= rEdit.y() + rEdit.height(),
-              "加载器那一组在名称框下面",
-              QString("group.y=%1 edit.bottom=%2").arg(rGroup.y()).arg(rEdit.y() + rEdit.height()));
+              "加载器那一卡在名称框下面",
+              QString("card.y=%1 edit.bottom=%2").arg(rGroup.y()).arg(rEdit.y() + rEdit.height()));
         // 树在组里、组里没有别的东西了（五条现在是同一棵树里的五行，"自上而下排开"
         // 这件事由树自己保证 —— 不用再数五个钮的 y 坐标）。
         check(!rTree.isNull() && !rGroup.isNull() && rTree.y() >= rGroup.y() &&
                   rTree.y() + rTree.height() <= rGroup.y() + rGroup.height(),
-              "那棵树在「模组加载器」组里",
-              QString("tree.y=%1 tree.bottom=%2 group=%3..%4")
+              "那棵树在「模组加载器」那张卡片里",
+              QString("tree.y=%1 tree.bottom=%2 card=%3..%4")
                   .arg(rTree.y())
                   .arg(rTree.y() + rTree.height())
                   .arg(rGroup.y())
                   .arg(rGroup.y() + rGroup.height()));
+        // 卡片里第一件东西是那个粗体小节标题（「标题 + 内容卡片」那个形状，和设置页同款）。
+        {
+            QLabel *cardTitle = nullptr;
+            if (loaderCard != nullptr) {
+                const QList<QLabel *> labels = loaderCard->findChildren<QLabel *>(
+                    QString(), Qt::FindDirectChildrenOnly);
+                if (!labels.isEmpty()) {
+                    cardTitle = labels.first();
+                }
+            }
+            check(cardTitle != nullptr && cardTitle->text() == MainWindowUI::modLoaderLabelText() &&
+                      cardTitle->font().bold(),
+                  "卡片里第一件东西是那个粗体小节标题「模组加载器」",
+                  cardTitle != nullptr ? cardTitle->text() : QStringLiteral("<null>"));
+        }
+        check(loaderTree != nullptr && loaderTree->frameShape() == QFrame::NoFrame,
+              "那棵树自己不画边框（四周已经是那张卡片，再套一圈就是框套框）",
+              loaderTree != nullptr ? QString::number(int(loaderTree->frameShape()))
+                                    : QStringLiteral("<null>"));
         // 树的高度是**按现在展开了几条**算出来的（五条收着就是 5 行高 + 边框）：
         // 写死成"铺满整页"的话，收着的时候底下空一大片、安装按钮还被顶到窗口最底下。
         const int expectedRows = 5;  // 刚搭好时五条全收着（见上面那节）
@@ -1900,21 +2044,43 @@ int main(int argc, char *argv[]) {
                   .arg(rTree.height())
                   .arg(expectedRows * MainWindowUI::versionTreeRowHeight() +
                        2 * loaderTree->frameWidth()));
-        check(!rInstall.isNull() && !rGroup.isNull() &&
-                  rInstall.y() >= rGroup.y() + rGroup.height(),
-              "「安装」在加载器那一组下面（底下的 stretch 把它往上顶，不贴窗底）",
-              QString("btn.y=%1 group.bottom=%2")
-                  .arg(rInstall.y()).arg(rGroup.y() + rGroup.height()));
+        // 底栏：`wtfmlSurface="footer"` 那一块（一条分隔线 + 里面右对齐的操作）。
+        // NOTE: 用户那份文档里写的是 `[取消] [安装]` 两颗；产品上**没有**「取消」—— 这一页
+        //       往回走的那颗是顶上左角那颗「← 返回版本列表」（"页面级操作永远放右上角"那条
+        //       在这儿落成了它的对偶：返回在最左、确认在最右）。所以这里钉的是"底栏在、
+        //       安装键在底栏里、且靠右下角"，不是"两颗键并排"。
+        installFooter = downloadPage->findChild<QFrame *>(MainWindowUI::installFooterName());
+        const QRect rFooter = rectInPage(installFooter);
+        const QString footerSurface =
+            installFooter != nullptr
+                ? installFooter->property(surfaceKey.constData()).toString()
+                : QString();
+        check(installFooter != nullptr && footerSurface == Theme::footerSurfaceValue(),
+              "安装页底下那条底栏在（wtfmlSurface=\"footer\"）",
+              QStringLiteral("面=「%1」").arg(footerSurface));
+        check(installFooter != nullptr && installBtn != nullptr &&
+                  installFooter->isAncestorOf(installBtn) && !installFooter->isAncestorOf(installNameEdit),
+              "「安装」长在这条底栏里（名称框不在里面 —— 底栏只管确认那一颗）");
+        check(!rInstall.isNull() && !rFooter.isNull() && !rGroup.isNull() &&
+                  rFooter.y() >= rGroup.y() + rGroup.height(),
+              "底栏在加载器那一卡**下面**（底下那块 stretch 把它留在内容之后）",
+              QString("footer.y=%1 card.bottom=%2")
+                  .arg(rFooter.y())
+                  .arg(rGroup.y() + rGroup.height()));
         check(rInstall.width() >= 96, "「安装」有最小宽度", QString::number(rInstall.width()));
         // 反面：它不该被 stretch 拉伸成整页宽的一条（那是"一个按钮占满一行"的样子）。
         check(!rInstall.isNull() && rInstall.width() < downloadPage->width() / 2,
               "「安装」只吃自己那点宽度（没被拉满一整行）",
               QString("btn=%1 page=%2").arg(rInstall.width()).arg(downloadPage->width()));
-        // 用户原话"安装键做大点在右侧居中"：
-        //   · 大 —— 字比同页那些控件大（字号加了两档）而且给了最小高度；
-        //   · 在右侧居中 —— 安装页就是右栏，所以"居中"= 在**这一栏**里横着居中
-        //     （量的是它自己和那一栏左右两条边的距离，两边差不多才算居中）。
-        QWidget *installPage = installBtn != nullptr ? installBtn->parentWidget() : nullptr;
+        // 用户原话"安装键做大点在右侧居中" → 2026-10-12 改版文档「确认操作放右下角或固定
+        // 底栏，不悬浮在页面中间」：**居中改成了靠右**。居中那一版正是"悬浮"——上面是表单、
+        // 下面是深浅不定的一截空白，这颗键落在哪儿全看那一栏当时多高。
+        // 大 —— 字比同页那些控件大（字号加了两档）而且给了最小高度。
+        QWidget *installPage = installBtn;
+        while (installPage != nullptr &&
+               installPage->objectName() != MainWindowUI::installPageName()) {
+            installPage = installPage->parentWidget();
+        }
         const QRect rPage = rectInPage(installPage);
         check(!rInstall.isNull() && installBtn != nullptr && installNameEdit != nullptr &&
                   installBtn->font().pointSize() >=
@@ -1927,17 +2093,28 @@ int main(int argc, char *argv[]) {
                         .arg(installNameEdit != nullptr ? installNameEdit->font().pointSize() : -1)
                         .arg(installBtn->minimumHeight())
                   : QStringLiteral("<null>"));
-        const int leftGap = rInstall.left() - rPage.left();
-        const int rightGap = rPage.right() - rInstall.right();
-        check(!rInstall.isNull() && !rPage.isNull() && qAbs(leftGap - rightGap) <= 2,
-              "「安装」在**右栏里**横着居中（不是靠左也不是靠右）",
-              QString("left=%1 right=%2 page=%3..%4 btn=%5..%6")
-                  .arg(leftGap)
-                  .arg(rightGap)
-                  .arg(rPage.left())
-                  .arg(rPage.right())
+        // 靠右：底栏里那颗键**右边**贴着底栏右边缘、左边空着一大截（前面垫着一条 stretch）。
+        // 反面（"悬浮在页面中间"）就是两边差不多 —— 那一条现在必须不成立。
+        const int footerLeftGap = rInstall.left() - rFooter.left();
+        const int footerRightGap = rFooter.right() - rInstall.right();
+        check(!rInstall.isNull() && !rFooter.isNull() && footerRightGap <= 2 &&
+                  footerLeftGap > footerRightGap * 4,
+              "「安装」在底栏里**靠右**（左边垫着 stretch —— 不再悬浮在这一栏中间）",
+              QString("left=%1 right=%2 footer=%3..%4 btn=%5..%6")
+                  .arg(footerLeftGap)
+                  .arg(footerRightGap)
+                  .arg(rFooter.left())
+                  .arg(rFooter.right())
                   .arg(rInstall.left())
                   .arg(rInstall.right()));
+        check(!rInstall.isNull() && !rFooter.isNull() && !rPage.isNull() &&
+                  rInstall.left() >= rPage.left() && rInstall.right() <= rPage.right(),
+              "「安装」整颗还在这一页的宽度里",
+              QString("btn=%1..%2 page=%3..%4")
+                  .arg(rInstall.left())
+                  .arg(rInstall.right())
+                  .arg(rPage.left())
+                  .arg(rPage.right()));
         // 展开一条加载器之后，「安装」**还得在页面上**：那棵树的高度是跟着"展开了几条"
         // 长的（上限 loaderTreeMaxRows() 行），长到头会不会把按钮顶出这一页、或者让
         // 名称框被压扁，光看代码看不出来 —— 得让树真长到最高再量一次。
@@ -5019,16 +5196,16 @@ int main(int argc, char *argv[]) {
               "三态的图两两不同（真的换了颜色，不是同一张）");
     }
 
-    std::printf("===== K. 每页的左右两栏（主页 7:3，下载 2:8，实例/设置 3:7） =====\n");
+    std::printf("===== K. 每页的左右两栏（主页按份数 7:3，另三页是固定宽度的侧栏） =====\n");
     {
-        // 比例的唯一出处就是 MainWindowUI 里那几个函数，验证工程拿它们当期望值算 ——
+        // 份数的唯一出处就是 MainWindowUI 里那几个函数，验证工程拿它们当期望值算 ——
         // 界面和测试各写一份份数的话，改比例时一定会有一边忘了改。
         const int defaultLeftStretch = MainWindowUI::leftColumnStretch();
         const int defaultRightStretch = MainWindowUI::rightColumnStretch();
         check(defaultLeftStretch == 3 && defaultRightStretch == 7,
-              "默认那一对份数是 3:7（实例页/设置页）",
+              "栏**内**那张表格的默认份数是 3:7（设置页每一栏、实例设置里那几张表格）",
               QString("%1:%2").arg(defaultLeftStretch).arg(defaultRightStretch));
-        check(MainWindowUI::rightColumnIsWider(), "默认这套里右栏更宽");
+        check(MainWindowUI::rightColumnIsWider(), "栏内那张表格里右列更宽");
         // 主页反着来：右栏那张「版本列表」去掉之后，宽度让给左边的版本选择和启动按钮。
         check(MainWindowUI::leftColumnIsWider(QStringLiteral("home")) &&
                   MainWindowUI::leftColumnStretch(QStringLiteral("home")) == 7 &&
@@ -5037,27 +5214,22 @@ int main(int argc, char *argv[]) {
               QString("%1:%2")
                   .arg(MainWindowUI::leftColumnStretch(QStringLiteral("home")))
                   .arg(MainWindowUI::rightColumnStretch(QStringLiteral("home"))));
-        // 下载页是**自己那一档** 2:8（用户原话"下载页左右改成2：8"）：左栏那列分类
-        // （游戏/整合包/模组/…）就是几个词，用不着 3 份；腾出来的给右栏 —— 那边有
-        // 版本树、安装页那张表单，还有安装按钮。
-        check(MainWindowUI::leftColumnStretch(QStringLiteral("download")) == 2 &&
-                  MainWindowUI::rightColumnStretch(QStringLiteral("download")) == 8,
-              "下载页是 2:8（比默认的 3:7 更偏右栏）",
-              QString("%1:%2")
-                  .arg(MainWindowUI::leftColumnStretch(QStringLiteral("download")))
-                  .arg(MainWindowUI::rightColumnStretch(QStringLiteral("download"))));
+        // ★ 另三页**不再是按比例分宽**（2026-10-12 那次改版）：左栏换成**固定宽度的
+        //   侧栏**（`sidebarWidth()`，用户那份文档："侧栏 208 px"），份数给 0 ——
+        //   宽度全归正文那一栏。从前那两套 2:8（下载页 / 设置页）连函数一起删了，
+        //   所以这里量的是**真实的栏宽**，不是份数：
+        //     · 左栏 == sidebarWidth()（一个像素都不多不少）；
+        //     · 右栏 == 页面宽 - 左栏 - 两条页边距 - 中间那条间距（也就是"剩下的全给它"）。
         check(!MainWindowUI::leftColumnIsWider(QStringLiteral("instance")) &&
-                  !MainWindowUI::leftColumnIsWider(QStringLiteral("download")),
-              "实例页和下载页没跟着反过来（左栏仍是只放「选一个」的窄栏）");
+                  !MainWindowUI::leftColumnIsWider(QStringLiteral("download")) &&
+                  !MainWindowUI::leftColumnIsWider(QStringLiteral("settings")),
+              "实例/下载/设置三页都没跟着反过来（左栏是那条窄侧栏）");
 
-        // 设置页走的是表格的两列（不是栏控件）：选项名称一列、内容一列，见 L 节。
         const QStringList tabKeys = {QStringLiteral("home"), QStringLiteral("instance"),
-                                     QStringLiteral("download")};
+                                     QStringLiteral("download"), QStringLiteral("settings")};
         for (int i = 0; i < tabKeys.size(); ++i) {
             const QString key = tabKeys.at(i);
-            const int leftStretch = MainWindowUI::leftColumnStretch(key);
-            const int rightStretch = MainWindowUI::rightColumnStretch(key);
-            const bool leftWider = MainWindowUI::leftColumnIsWider(key);
+            const bool home = MainWindowUI::leftColumnIsWider(key);
             tabs->setCurrentIndex(i);
             QApplication::processEvents();
             QWidget *page = tabs->widget(i);
@@ -5074,19 +5246,50 @@ int main(int argc, char *argv[]) {
                       .arg(left->x())
                       .arg(left->x() + left->width())
                       .arg(right->x()));
-            // 栏宽 == 各自的份数（几像素的取整误差不算数）。主页是反着来的那一页，
-            // 所以这里不能写死"右栏更宽"，得按这一页自己的份数判。
-            check((left->width() > right->width()) == leftWider &&
-                      qAbs(right->width() * leftStretch - left->width() * rightStretch) <= 10,
-                  QStringLiteral("%1 页：左:右 就是 %2:%3")
-                      .arg(key)
-                      .arg(leftStretch)
-                      .arg(rightStretch),
-                  QString("%1 : %2").arg(left->width()).arg(right->width()));
+            if (home) {
+                // 主页还是按份数分宽：栏宽 == 各自的份数（几像素的取整误差不算数）。
+                check(left->width() > right->width() &&
+                          qAbs(right->width() * MainWindowUI::leftColumnStretch(key) -
+                               left->width() * MainWindowUI::rightColumnStretch(key)) <= 10,
+                      QStringLiteral("%1 页：左:右 就是 %2:%3")
+                          .arg(key)
+                          .arg(MainWindowUI::leftColumnStretch(key))
+                          .arg(MainWindowUI::rightColumnStretch(key)),
+                      QString("%1 : %2").arg(left->width()).arg(right->width()));
+            } else {
+                check(left->width() == MainWindowUI::sidebarWidth(),
+                      QStringLiteral("%1 页：左栏就是那条固定宽度的侧栏（%2 px）")
+                          .arg(key)
+                          .arg(MainWindowUI::sidebarWidth()),
+                      QString("left.width=%1").arg(left->width()));
+                // 反面：它**不是**一栏按份数分宽的（改回去会是一条跟着窗口拉伸的窄栏，
+                // 拉宽窗口时跟着长 —— 这正是那份文档要修掉的"缺少主次关系"）。
+                // 判据取**尺寸策略**：`setFixedWidth()` 之后这一栏的横向策略就是 Fixed，
+                // 按份数分宽那一版是 Preferred/Expanding。
+                check(left->sizePolicy().horizontalPolicy() == QSizePolicy::Fixed,
+                      QStringLiteral("%1 页：左栏的横向尺寸策略是 Fixed（宽度定死，不跟窗口长）")
+                          .arg(key),
+                      QString::number(int(left->sizePolicy().horizontalPolicy())));
+            }
             check(left->x() == page->width() - (right->x() + right->width()),
                   QStringLiteral("%1 页：左右页边距相等（两栏加中间间距正好铺满）").arg(key),
                   QString("%1 vs %2").arg(left->x()).arg(page->width() - right->x() -
                                                          right->width()));
+            // 三页（非主页）的左栏那个面就是侧栏那一档（`wtfmlSurface="sidebar"`），
+            // 而且那个面**自己不画边框**（用户文档："不画完整矩形边框"）。
+            // NOTE: 面是左栏**里面**那张 `QFrame`（见 buildTwoColumnPage() 里 `makeColumn()`
+            //       那一段）—— 所以这里问的是"左栏里有没有这么一张面"，不是"左栏自己是不是"。
+            if (!home) {
+                check(surfaceOf(page, Theme::sidebarSurfaceValue()) != nullptr &&
+                          surfaceOf(left, Theme::sidebarSurfaceValue()) != nullptr,
+                      QStringLiteral("%1 页：左栏那个面是 `wtfmlSurface=\"sidebar\"`").arg(key),
+                      surfaceValueOf(left));
+                auto *sideFrame = surfaceOf(page, Theme::sidebarSurfaceValue());
+                check(sideFrame != nullptr && sideFrame->frameShape() == QFrame::NoFrame,
+                      QStringLiteral("%1 页：侧栏那个面不画边框（只靠底色区分）").arg(key),
+                      sideFrame != nullptr ? QString::number(int(sideFrame->frameShape()))
+                                           : QStringLiteral("<null>"));
+            }
         }
 
         // 左栏放什么：主页是"版本选择（上）+ 启动按钮（下）"，右栏空着。
@@ -5133,14 +5336,134 @@ int main(int argc, char *argv[]) {
               "没登录时那句话说的是默认外观",
               skinHint != nullptr ? skinHint->text() : QStringLiteral("<null>"));
 
-        // 实例页：左栏是「游戏文件夹」（列表 + 两个按钮），右栏是实例列表。
+        // 实例页：左栏那条侧栏里是「游戏文件夹」（小标题 + 列表 + 两个按钮），
+        // 右栏那个正文面里是实例列表。
         QWidget *instancePage = tabs->widget(1);
         QWidget *instanceLeft = instancePage->findChild<QWidget *>(
             MainWindowUI::leftColumnName(QStringLiteral("instance")));
         check(instanceLeft != nullptr && instanceList != nullptr &&
-                  isDescendantOf(nearestGroupBox(folderList), instanceLeft) &&
+                  inSurface(folderList, Theme::sidebarSurfaceValue()) &&
                   !isDescendantOf(instanceList, instanceLeft),
-              "实例页左栏是「游戏文件夹」那一组，实例列表不在左栏");
+              "实例页左栏里是文件夹列表（侧栏面上），实例列表不在左栏");
+    }
+
+    std::printf("\n===== K2. 页面骨架：页头 / 正文面 / 侧栏面（四页一颗 QGroupBox 都不许有） =====\n");
+    {
+        // 用户 2026-10-12 那份改版文档给的是**同一个骨架**（原图那两块）：
+        //     侧栏 | 页面标题 + 操作
+        //          | 页面说明 / 路径 / 当前状态
+        //          |------------------------------  ← 这一条之下才是正文
+        //          | 主内容
+        // 这一节量的就是这几层**在树上的位置关系**（页头在外面、正文面在页头下面、
+        // 标题/说明挂的是哪一档文字角色），以及那条"减框"规矩的最后一道闸：**产品那四页
+        // 里一颗 `QGroupBox` 都不许有**（用户原话：「右侧只有一个主要内容表面（不再用多个
+        // QGroupBox 套起来）」）。几何类的那几条（谁在上面、谁多宽）在上面 K 节。
+        struct SkeletonCase {
+            const char *key;
+            int index;
+            QString title;
+            /// 说明那一行的 objectName。★ 实例页**不是** `pageSubtitleName()`：那一页的
+            /// 说明就是原来那个「当前文件夹：…」标签（`instanceFolderLabel`），改版时把页头
+            /// 那个说明标签**接过来用**了（文案、灌数据那条路、验证工程找它的名字一处都没动，
+            /// 见 MainWindowUI.cpp 里那段）—— 只换 objectName 会牵连一串别处的 findChild。
+            QString subtitleName;
+        };
+        const QList<SkeletonCase> skeleton = {
+            {"instance", MainWindowUI::instancesTabIndex(), MainWindowUI::instancePageTitle(),
+             MainWindowUI::instanceFolderLabelName()},
+            {"download", MainWindowUI::downloadTabIndex(), MainWindowUI::downloadPageTitle(),
+             MainWindowUI::pageSubtitleName(QStringLiteral("download"))},
+            {"settings", MainWindowUI::settingsTabIndex(), MainWindowUI::settingsPageTitle(),
+             MainWindowUI::pageSubtitleName(QStringLiteral("settings"))},
+        };
+        const QByteArray textRoleKey = Theme::textRolePropertyName().toUtf8();
+        int groupsLeft = 0;
+        for (const SkeletonCase &kase : skeleton) {
+            tabs->setCurrentIndex(kase.index);
+            QApplication::processEvents();
+            QWidget *page = tabs->widget(kase.index);
+            const QString key = QString::fromUtf8(kase.key);
+            QWidget *header = page->findChild<QWidget *>(MainWindowUI::pageHeaderName(key));
+            QLabel *title = page->findChild<QLabel *>(MainWindowUI::pageTitleName(key));
+            QLabel *subtitle = page->findChild<QLabel *>(kase.subtitleName);
+            QFrame *workspace = surfaceOf(page, Theme::workspaceSurfaceValue());
+            QFrame *sidebar = surfaceOf(page, Theme::sidebarSurfaceValue());
+            check(header != nullptr && title != nullptr && subtitle != nullptr &&
+                      workspace != nullptr && sidebar != nullptr,
+                  QStringLiteral("%1 页：页头 / 标题 / 说明 / 正文面 / 侧栏面五样都在").arg(key),
+                  QStringLiteral("header=%1 title=%2 subtitle=%3 workspace=%4 sidebar=%5")
+                      .arg(header != nullptr ? 1 : 0)
+                      .arg(title != nullptr ? 1 : 0)
+                      .arg(subtitle != nullptr ? 1 : 0)
+                      .arg(workspace != nullptr ? 1 : 0)
+                      .arg(sidebar != nullptr ? 1 : 0));
+            // 标题就是这一页的名字，而且挂的是「页面标题」那一档文字角色 —— 样式表按这个
+            // 属性排字号/颜色（产品那边 `markTextRole()` 写的就是同一对字符串）。
+            check(title != nullptr && title->text() == kase.title && title->font().bold() &&
+                      title->property(textRoleKey.constData()).toString() ==
+                          Theme::pageTitleTextRoleValue(),
+                  QStringLiteral("%1 页：标题写的就是这一页的名字，且挂着「页面标题」那一档角色")
+                      .arg(key),
+                  title != nullptr ? QStringLiteral("「%1」角色「%2」")
+                                         .arg(title->text())
+                                         .arg(title->property(textRoleKey.constData()).toString())
+                                   : QStringLiteral("<null>"));
+            check(subtitle != nullptr &&
+                      subtitle->property(textRoleKey.constData()).toString() ==
+                          Theme::secondaryTextRoleValue(),
+                  QStringLiteral("%1 页：说明那一行挂着「次要」那一档角色").arg(key),
+                  subtitle != nullptr
+                      ? subtitle->property(textRoleKey.constData()).toString()
+                      : QStringLiteral("<null>"));
+            // ★ 页头**在正文面外面**（面里只有内容）。装进面里的话，那一圈底就把标题和
+            //   内容一起框住了 —— 用户文档第一条要减掉的正是它。
+            check(header != nullptr && workspace != nullptr && !workspace->isAncestorOf(header),
+                  QStringLiteral("%1 页：页头长在正文面**外面**（那一圈底不框标题）").arg(key));
+            // 页头在正文面**上面**：两个都换算到页面坐标上比下边缘/上边缘。
+            if (header != nullptr && workspace != nullptr) {
+                const QRect headerBox(header->mapTo(page, QPoint(0, 0)), header->size());
+                const QRect workspaceBox(workspace->mapTo(page, QPoint(0, 0)), workspace->size());
+                check(headerBox.y() + headerBox.height() <= workspaceBox.y(),
+                      QStringLiteral("%1 页：页头在正文面上面（标题先出来、内容在后）").arg(key),
+                      QStringLiteral("header.bottom=%1 workspace.y=%2")
+                          .arg(headerBox.y() + headerBox.height())
+                          .arg(workspaceBox.y()));
+            }
+            // 侧栏和正文面是**同一层**上的两栏：谁也不许套着谁。
+            check(!sidebar->isAncestorOf(workspace) && !workspace->isAncestorOf(sidebar),
+                  QStringLiteral("%1 页：侧栏和正文是两个并排的面（不是谁套着谁）").arg(key));
+            groupsLeft += page->findChildren<QGroupBox *>().size();
+        }
+        check(groupsLeft == 0,
+              "★ 产品那四页里一颗 QGroupBox 都没有了（用户那份文档第一条「减少框」：整页只留"
+              "侧栏和正文两个面，小节改用「标题 + 内容卡片」）",
+              QStringLiteral("还剩下 %1 颗").arg(groupsLeft));
+
+        // 侧栏那一列导航的**选中样式是代理画的**（浅主题色底 + 左边一条 3 px 主题色指示条 +
+        // 主题色深色字），所以那两列必须是带 `navRow` 的那一档代理 —— 换回普通代理的话，
+        // 选中项退回 Fusion 那个蓝、指示条整个消失，而样式表里没有一条 `::item` 规则能兜住。
+        // 两棵树的代理必须是**没开**这一档的（它们不是导航，选中色走另一套）。
+        auto *downloadCategories = ui.getDownloadCategoryList();
+        auto *settingsCategories =
+            tabs->widget(MainWindowUI::settingsTabIndex())
+                ->findChild<QListWidget *>(MainWindowUI::settingsCategoryListName());
+        const auto navRowOf = [](QAbstractItemView *view) {
+            return view != nullptr ? qobject_cast<VersionTreeDelegate *>(view->itemDelegate()) !=
+                                         nullptr &&
+                                         qobject_cast<VersionTreeDelegate *>(view->itemDelegate())->navRow()
+                                   : false;
+        };
+        check(navRowOf(downloadCategories) && navRowOf(settingsCategories),
+              "★ 下载页和设置页那两列导航挂的是「侧栏导航」那一档代理（选中 = 浅主题色底 + "
+              "3 px 指示条，不是 Fusion 那个蓝）",
+              QStringLiteral("download=%1 settings=%2")
+                  .arg(navRowOf(downloadCategories) ? 1 : 0)
+                  .arg(navRowOf(settingsCategories) ? 1 : 0));
+        check(!navRowOf(ui.getVersionTree()) && !navRowOf(ui.getLoaderTree()),
+              "而两棵树（版本树 / 加载器树）**没开**这一档（它们的选中色不是导航那一套）",
+              QStringLiteral("version=%1 loader=%2")
+                  .arg(navRowOf(ui.getVersionTree()) ? 1 : 0)
+                  .arg(navRowOf(ui.getLoaderTree()) ? 1 : 0));
     }
 
     std::printf("===== L. 设置页（左：一列分类，右：堆叠页；栏内才是 左名右控件 3:7） =====\n");
@@ -5195,6 +5518,12 @@ int main(int argc, char *argv[]) {
             // 里面那块 form 的 objectName == settingsFormName(key)、表格是 3:7 两列。
             int pagesOk = 0;
             int emptyPages = 0;
+            // ★ 2026-10-12 改版文档第三条：设置页的内容要**限宽**（`settingsFormMaxWidth()`），
+            //   而且滚动区把那张表**居上居中** —— 窗口拉宽时表单不许跟着无限伸展（用户说的
+            //   "说明文字一行跨得太长"就是这么来的）。两件事都属于"看着只是松紧"的那种，
+            //   屏幕上要到很宽的窗口才看得出走样，所以在这儿数一遍。
+            int formWidthOk = 0;
+            int scrollAlignOk = 0;
             for (int i = 0; i < categoryStack->count() && i < categoryKeys.size(); ++i) {
                 const QString key = categoryKeys.at(i);
                 QWidget *panel = categoryStack->widget(i);
@@ -5215,24 +5544,47 @@ int main(int argc, char *argv[]) {
                 emptyPages += (pageForm != nullptr && !pageForm->findChildren<QLabel *>().isEmpty())
                                   ? 0
                                   : 1;
+                formWidthOk += (pageForm != nullptr &&
+                                pageForm->maximumWidth() == MainWindowUI::settingsFormMaxWidth())
+                                   ? 1
+                                   : 0;
+                scrollAlignOk += (pageScroll != nullptr &&
+                                  pageScroll->alignment() == (Qt::AlignHCenter | Qt::AlignTop))
+                                     ? 1
+                                     : 0;
             }
             check(pagesOk == categoryKeys.size(),
                   "每一栏都是「一层滚动区 + 一张 3:7 的表格」，objectName 按键拼出来",
                   QStringLiteral("%1/%2").arg(pagesOk).arg(categoryKeys.size()));
             check(emptyPages == 0, "没有空栏（每一栏里都摆着东西）",
                   QStringLiteral("空的 %1 栏").arg(emptyPages));
+            check(formWidthOk == categoryKeys.size(),
+                  "★ 每一栏那张表单都限了宽（`settingsFormMaxWidth()`）—— 窗口再宽它也不跟着长，"
+                  "「说明文字一行跨得太长」那条就是靠这个收住的",
+                  QStringLiteral("%1/%2（上限 %3 px）")
+                      .arg(formWidthOk)
+                      .arg(categoryKeys.size())
+                      .arg(MainWindowUI::settingsFormMaxWidth()));
+            check(scrollAlignOk == categoryKeys.size(),
+                  "★ 滚动区把表单**居上居中**（`AlignHCenter | AlignTop`）—— 限了宽之后它得"
+                  "自己站中间，不然宽窗口下表格整块贴着左边、右边空一大片",
+                  QStringLiteral("%1/%2").arg(scrollAlignOk).arg(categoryKeys.size()));
 
-            // 每一栏里的行是**上下结构**（2026-09-26 用户原话：「设置界面的项目和设置条目变成
-            // 和实例设置一样的上下结构」）：行名独占一行、内容在下一行，两格都**从列 0 起、
-            // 跨两列**。从前是"名字在列 0、控件在列 1"的两列行，那时候这两条都不成立。
+            // 每一栏里的排法（★ 2026-10-12 起）：一栏 = 一串**小节卡片** ——
+            // 用户那份改版文档原话：「小节使用"标题 + 内容卡片"，避免传统 `QGroupBox` 的
+            // 缺口式标题」。于是"上下结构"这件事从"表格里相邻两行"变成了**卡片内部**的形状：
+            //   · 表格那一层：每一格都从列 0 起、跨两列（卡片整幅宽），没有一格只占一列；
+            //   · 卡片那一层：顶上第一行是**小节标题**（粗体 + sectionTitle 那一档角色），
+            //     之后每一项是「行名标签 → 控件」上下相邻、左边缘对齐的一对。
             //
             // 判据一（形状）：**没有任何一格只占一列**（`getItemPosition` 拿到的是布局真正的
             // 位置与跨度，不是"谁挨着谁"推出来的）。一条这样的格都不许有 —— 有一格在列 1 上，
             // 就说明还有一行是老样子。
-            // 判据二（几何）：行名的**下边缘不越过内容的上边缘**、且两者的左边缘对齐。
-            // 光看"列 0 列 1"是不够的 —— 上下结构真正的意思是"名字在上面那一行"，
-            // 万一将来有人把两格都摆到列 0、却摆进了同一行（跨了行），形状那条看不出来。
+            // 判据二（几何）：卡片里每一对「名字 / 控件」的，名字的**下边缘不越过控件的上边缘**、
+            // 且两者的左边缘对齐（光看列号看不出来"名字在上面那一行"）。
             int singleColumnItems = 0;
+            int cardsChecked = 0;
+            int cardShapeBad = 0;
             int pairsChecked = 0;
             int pairsBad = 0;
             for (int i = 0; i < categoryStack->count() && i < categoryKeys.size(); ++i) {
@@ -5255,31 +5607,87 @@ int main(int argc, char *argv[]) {
                         ++singleColumnItems;
                     }
                 }
-                for (int r = 0; r + 1 < pageGrid->rowCount(); ++r) {
-                    QLayoutItem *titleItem = pageGrid->itemAtPosition(r, 0);
-                    if (titleItem == nullptr ||
-                        qobject_cast<QLabel *>(titleItem->widget()) == nullptr) {
+                // 表格里每一格都得是**一张小节卡片**（`wtfmlSurface="section"`），而且那一格
+                // 里除了这张卡片没有别的东西 —— 「正文只有一个面、小节才用卡片」那条就落在
+                // 这儿：卡片是正文面里唯一那种"再画一层底"的东西。
+                for (int r = 0; r < pageGrid->rowCount(); ++r) {
+                    QLayoutItem *cardItem = pageGrid->itemAtPosition(r, 0);
+                    auto *card = cardItem != nullptr ? qobject_cast<QFrame *>(cardItem->widget())
+                                                     : nullptr;
+                    if (card == nullptr) {
                         continue;
                     }
-                    QLayoutItem *contentItem = pageGrid->itemAtPosition(r + 1, 0);
-                    if (contentItem == nullptr) {
+                    ++cardsChecked;
+                    const bool isSection =
+                        card->property(Theme::surfacePropertyName().toUtf8().constData())
+                            .toString() == Theme::sectionSurfaceValue();
+                    auto *cardLayout = qobject_cast<QVBoxLayout *>(card->layout());
+                    // 卡片自己那一圈内边距 / 行距是视觉规格（18,17,18,18 / 13）——
+                    // 它决定"这一节里的项离卡片边多远"，改了看起来只是松紧，只有断言能钉。
+                    const QMargins want(18, 17, 18, 18);
+                    if (!isSection || cardLayout == nullptr ||
+                        cardLayout->contentsMargins() != want || cardLayout->spacing() != 13) {
+                        ++cardShapeBad;
+                    }
+                    if (cardLayout == nullptr) {
                         continue;
                     }
-                    const QRect titleRect = titleItem->geometry();
-                    const QRect contentRect = contentItem->geometry();
-                    ++pairsChecked;
-                    if (!(titleRect.bottom() <= contentRect.top() &&
-                          titleRect.left() == contentRect.left())) {
-                        ++pairsBad;
+                    // 第一行是小节标题（粗体 + sectionTitle 角色），后面才是项。
+                    bool titleOk = false;
+                    QWidget *first = cardLayout->count() > 0
+                                         ? cardLayout->itemAt(0)->widget()
+                                         : nullptr;
+                    if (auto *titleLabel = qobject_cast<QLabel *>(first)) {
+                        const bool roleOk =
+                            titleLabel->property(Theme::textRolePropertyName().toUtf8().constData())
+                                .toString() == Theme::sectionTitleTextRoleValue();
+                        titleOk = titleLabel->font().bold() && roleOk;
+                    }
+                    if (!titleOk) {
+                        ++cardShapeBad;
+                    }
+                    // 之后是成对的「行名标签 → 控件」：名字在上面、控件在下面、左边缘对齐。
+                    QLabel *pendingLabel = nullptr;
+                    for (int k = 1; k < cardLayout->count(); ++k) {
+                        QWidget *w = cardLayout->itemAt(k)->widget();
+                        if (w == nullptr) {
+                            continue;
+                        }
+                        if (auto *label = qobject_cast<QLabel *>(w)) {
+                            // 一句说明（"说明文字"那种）也是 QLabel：它跟在上一个控件后面，
+                            // 不是下一项的名字 —— 判据还是"名字的下边缘不越过控件的上边缘"，
+                            // 所以这里一律把它当成"下一个可能的名字"，逐对去量。
+                            pendingLabel = label;
+                            continue;
+                        }
+                        if (pendingLabel != nullptr) {
+                            ++pairsChecked;
+                            const QRect labelRect = pendingLabel->geometry();
+                            const QRect controlRect = w->geometry();
+                            if (!(labelRect.bottom() <= controlRect.top() &&
+                                  labelRect.left() == controlRect.left())) {
+                                ++pairsBad;
+                            }
+                            pendingLabel = nullptr;
+                        }
                     }
                 }
             }
             check(singleColumnItems == 0,
                   "每一栏里的行都是上下结构（没有一格只占一列 ⇒ 没有「名字在左、内容在右」的行）",
                   QStringLiteral("有 %1 格只占一列").arg(singleColumnItems));
+            check(cardsChecked > 0 && cardShapeBad == 0,
+                  "每一栏里那一格格都是「标题 + 内容卡片」（section 面 + 18/17/18/18 + 13 行距 "
+                  "+ 粗体标题）",
+                  QStringLiteral("量了 %1 张卡片，形状不对的 %2 张")
+                      .arg(cardsChecked)
+                      .arg(cardShapeBad));
             check(pairsChecked > 0 && pairsBad == 0,
-                  "行名那一行的下面就是内容，且两者左边缘对齐（真的「上下」）",
-                  QStringLiteral("%1 对里错了 %2 对").arg(pairsChecked).arg(pairsBad));
+                  "卡片里行名那一行的下面就是内容，且两者左边缘对齐（真的「上下」）",
+                  QStringLiteral("量了 %1 张卡片、%2 对里错了 %3 对")
+                      .arg(cardsChecked)
+                      .arg(pairsChecked)
+                      .arg(pairsBad));
 
             // 点第 N 条 = 翻到第 N 页。挑一条**不是当前那条**的来点才量得出"真的换了"。
             const int probe = categoryList->count() > 1 ? categoryList->count() - 1 : 0;
@@ -5488,10 +5896,10 @@ int main(int argc, char *argv[]) {
                   "老名字「启动提醒」不再画（改名之后不许两处都在）");
         }
 
-        // 设置项外面还套了一层"控件 + 说明文字"的容器，所以要把控件往上提到**它所在那一栏**
-        // 直接挂在表单上的那一层，才问得到它在第几列。
+        // 设置项外面套了两层（"控件 + 说明文字"的容器、再外面一层小节卡片），所以要把控件
+        // 往上提到**它所在那一栏**直接挂在表单上的那一层，才问得到它在第几列。
         // NOTE: 分栏之后"表单"不止一张（每栏一张，objectName = settingsForm-<键>），所以
-        //       这三个 helper 都改成"先认出控件落在哪一栏，再问那一栏的表格"。
+        //       这几个 helper 都改成"先认出控件落在哪一栏，再问那一栏的表格"。
         const auto formOf = [](QWidget *w) -> QWidget * {
             const QString prefix = QStringLiteral("settingsForm-");
             for (QWidget *p = w; p != nullptr; p = p->parentWidget()) {
@@ -5504,51 +5912,50 @@ int main(int argc, char *argv[]) {
         const auto gridOf = [](QWidget *form) -> QGridLayout * {
             return form != nullptr ? qobject_cast<QGridLayout *>(form->layout()) : nullptr;
         };
-        const auto cellOf = [&formOf](QWidget *w) -> QWidget * {
-            QWidget *form = formOf(w);
-            if (form == nullptr) {
+        /// 设置项现在住在**小节卡片**里（`addSettingsSection()` 造的那张 `QFrame`，
+        /// 面挂在属性 `wtfmlSurface="section"` 上）——「行名 + 内容」那一对是它那条竖排
+        /// 布局里的相邻两项。所以"名字在控件上面"这句话，去卡片里数顺序才对得上。
+        const auto cardOf = [](QWidget *w) -> QFrame * {
+            const QByteArray key = Theme::surfacePropertyName().toUtf8();
+            for (QWidget *p = w; p != nullptr; p = p->parentWidget()) {
+                auto *frame = qobject_cast<QFrame *>(p);
+                if (frame != nullptr &&
+                    frame->property(key.constData()).toString() ==
+                        Theme::sectionSurfaceValue()) {
+                    return frame;
+                }
+            }
+            return nullptr;
+        };
+        const auto cardLayoutOf = [](QFrame *card) -> QVBoxLayout * {
+            return card != nullptr ? qobject_cast<QVBoxLayout *>(card->layout()) : nullptr;
+        };
+        /// 控件在卡片里那一条竖排布局上占的那一格（控件自己多半还套着"控件 + 说明"的容器）。
+        const auto cardItemOf = [&cardOf](QWidget *w) -> QWidget * {
+            QFrame *card = cardOf(w);
+            if (card == nullptr) {
                 return nullptr;
             }
-            QWidget *cell = w;
-            while (cell != nullptr && cell->parentWidget() != form) {
-                cell = cell->parentWidget();
+            QWidget *item = w;
+            while (item != nullptr && item->parentWidget() != card) {
+                item = item->parentWidget();
             }
-            return cell;
+            return item;
         };
-        const auto positionOf = [&formOf, &gridOf](QWidget *w) {
-            QWidget *form = formOf(w);
-            QGridLayout *grid = gridOf(form);
-            QWidget *cell = w;
-            while (cell != nullptr && form != nullptr && cell->parentWidget() != form) {
-                cell = cell->parentWidget();
+        /// 卡片里**紧挨在控件上面**的那一项，是标签就还回去 —— "行名在内容上面"的那一发。
+        const auto labelAbove = [&cardOf, &cardLayoutOf, &cardItemOf](QWidget *w) -> QLabel * {
+            QFrame *card = cardOf(w);
+            QVBoxLayout *layout = cardLayoutOf(card);
+            QWidget *item = cardItemOf(w);
+            if (layout == nullptr || item == nullptr) {
+                return nullptr;
             }
-            const int index = (cell != nullptr && grid != nullptr) ? grid->indexOf(cell) : -1;
-            int row = -1;
-            int col = -1;
-            int rowSpan = 1;
-            int colSpan = 1;
-            if (index >= 0) {
-                grid->getItemPosition(index, &row, &col, &rowSpan, &colSpan);
+            const int index = layout->indexOf(item);
+            if (index < 1) {
+                return nullptr;
             }
-            return QPoint(col, row);
-        };
-        /// 同上，但要的是**跨度**（上下结构里每一格都跨两列，只看列号看不出来）。
-        const auto spanOf = [&formOf, &gridOf](QWidget *w) {
-            QWidget *form = formOf(w);
-            QGridLayout *grid = gridOf(form);
-            QWidget *cell = w;
-            while (cell != nullptr && form != nullptr && cell->parentWidget() != form) {
-                cell = cell->parentWidget();
-            }
-            const int index = (cell != nullptr && grid != nullptr) ? grid->indexOf(cell) : -1;
-            int row = -1;
-            int col = -1;
-            int rowSpan = 1;
-            int colSpan = 1;
-            if (index >= 0) {
-                grid->getItemPosition(index, &row, &col, &rowSpan, &colSpan);
-            }
-            return QSize(colSpan, rowSpan);
+            QLayoutItem *above = layout->itemAt(index - 1);
+            return above != nullptr ? qobject_cast<QLabel *>(above->widget()) : nullptr;
         };
 
         {
@@ -5561,60 +5968,86 @@ int main(int argc, char *argv[]) {
                 ui.getGameWindowWidthSpin(),       ui.getGameWindowHeightSpin(),
                 ui.getWarnDuplicateLaunchCheck(),  ui.getWarnWorldLossCheck(),
                 ui.getTitleTextEdit()};
-            int inWholeRow = 0;
+            int inCard = 0;
             int orphaned = 0;
+            QSet<QWidget *> seenCards;
+            int cardSpanBad = 0;
             for (QWidget *control : controls) {
-                if (control != nullptr && formOf(control) == nullptr) {
+                if (control == nullptr) {
+                    continue;
+                }
+                if (formOf(control) == nullptr) {
                     ++orphaned;
                 }
-                if (control != nullptr && positionOf(control).x() == 0 &&
-                    spanOf(control).width() == 2) {
-                    ++inWholeRow;
+                QFrame *card = cardOf(control);
+                if (card != nullptr) {
+                    ++inCard;
+                }
+                if (card == nullptr || seenCards.contains(card)) {
+                    continue;
+                }
+                seenCards.insert(card);
+                // 卡片自己按 `grid->addWidget(card, row, 0, 1, 2)` 摆：从列 0 起、跨两列。
+                QGridLayout *grid = gridOf(formOf(card));
+                const int index = grid != nullptr ? grid->indexOf(card) : -1;
+                int row = -1;
+                int col = -1;
+                int rowSpan = 1;
+                int colSpan = 1;
+                if (index >= 0) {
+                    grid->getItemPosition(index, &row, &col, &rowSpan, &colSpan);
+                }
+                if (!(col == 0 && colSpan == 2)) {
+                    ++cardSpanBad;
                 }
             }
             check(orphaned == 0,
                   "每个设置控件都落在某一栏那张按名字取的表格里（没有谁挂在没名字的格子里）",
                   QString("%1/%2").arg(orphaned).arg(controls.size()));
-            // 2026-09-26 起设置页每一行是**上下结构**（行名独占一行、内容在下一行），
-            // 两格都从列 0 起、跨两列。从前是"内容落在第 1 列"（名字在列 0、控件在列 1）。
-            check(inWholeRow == controls.size(),
-                  "每个设置项的内容都从列 0 起、跨两列（上下结构里「内容那一行」）",
-                  QString("%1/%2").arg(inWholeRow).arg(controls.size()));
+            // 2026-10-12 起设置项外面是**小节卡片**（用户那份改版文档：「小节使用"标题 +
+            // 内容卡片"」）—— 控件不再直接摆在表格的格子里，表格里摆的是卡片。
+            check(inCard == controls.size(),
+                  "每个设置控件都长在某一张小节卡片里（wtfmlSurface=\"section\"）",
+                  QString("%1/%2").arg(inCard).arg(controls.size()));
+            check(seenCards.size() >= 4 && cardSpanBad == 0,
+                  "小节卡片都从列 0 起、跨两列（一页里的卡片各占整行一张）",
+                  QString("cards=%1 bad=%2").arg(seenCards.size()).arg(cardSpanBad));
 
-            // 「分配方式」那一行：勾选框和它下面那句说明装在**同一格**里（说明在格子最下面）
-            const QPoint autoPos = positionOf(ui.getMemoryAutoCheck());
-            const QPoint hintPos = positionOf(ui.getMemoryAutoHint());
-            check(ui.getMemoryAutoHint() != nullptr && hintPos.x() == 0 &&
-                      spanOf(ui.getMemoryAutoHint()).width() == 2 && hintPos.y() == autoPos.y(),
-                  "「分配方式」下面的说明和勾选框在同一格（都从列 0 起、跨两列、同一行）",
+            // 「分配方式」那一行：勾选框和它下面那句说明装在**同一个容器**里（说明在容器最后）。
+            check(ui.getMemoryAutoHint() != nullptr && ui.getMemoryAutoCheck() != nullptr &&
+                      ui.getMemoryAutoHint()->parentWidget() ==
+                          cardItemOf(ui.getMemoryAutoCheck()),
+                  "「分配方式」下面的说明和勾选框装在同一个容器里（说明跟着勾选框走）",
                   ui.getMemoryAutoHint() != nullptr
-                      ? QString("hint=(col=%1,span=%2,row=%3) check.row=%4")
-                            .arg(hintPos.x())
-                            .arg(spanOf(ui.getMemoryAutoHint()).width())
-                            .arg(hintPos.y())
-                            .arg(autoPos.y())
+                      ? QString("hint.parent=%1 item=%2")
+                            .arg(ui.getMemoryAutoHint()->parentWidget() != nullptr
+                                     ? ui.getMemoryAutoHint()->parentWidget()->objectName()
+                                     : QStringLiteral("<null>"))
+                            .arg(cardItemOf(ui.getMemoryAutoCheck()) != nullptr
+                                     ? cardItemOf(ui.getMemoryAutoCheck())->objectName()
+                                     : QStringLiteral("<null>"))
                       : QStringLiteral("<null>"));
+            check(ui.getMemoryAutoHint() != nullptr && ui.getMemoryAutoCheck() != nullptr &&
+                      ui.getMemoryAutoHint()->y() >=
+                          ui.getMemoryAutoCheck()->y() + ui.getMemoryAutoCheck()->height(),
+                  "那句说明量出来的几何在勾选框**下面**（不是并排）",
+                  ui.getMemoryAutoHint() != nullptr
+                      ? QString("check.bottom=%1 hint.y=%2")
+                            .arg(ui.getMemoryAutoCheck()->y() +
+                                 ui.getMemoryAutoCheck()->height())
+                            .arg(ui.getMemoryAutoHint()->y())
+                      : QString());
 
-            // 拿「最大内存」那一行验几何：**行名在上面那一行、内容在下面那一行**，
-            // 两格左边缘对齐 —— 这才是"上下结构"，并排的两列长得不是这样。
-            QWidget *maxForm = formOf(ui.getMemoryMaxSpin());
-            QGridLayout *maxGrid = gridOf(maxForm);
-            QWidget *maxCell = cellOf(ui.getMemoryMaxSpin());
-            const QPoint maxPos = positionOf(ui.getMemoryMaxSpin());
-            auto *maxLabel = static_cast<QLabel *>(
-                (maxGrid != nullptr && maxPos.y() >= 1 &&
-                 maxGrid->itemAtPosition(maxPos.y() - 1, 0) != nullptr)
-                    ? maxGrid->itemAtPosition(maxPos.y() - 1, 0)->widget()
-                    : nullptr);
-            check(maxPos.x() == 0 && spanOf(ui.getMemoryMaxSpin()).width() == 2 &&
-                      maxLabel != nullptr && maxLabel->text() == QStringLiteral("最大内存"),
-                  "「最大内存」那一行的上面一行是选项名称、下面一行才是控件",
-                  maxPos.x() == 0
-                      ? (maxLabel != nullptr ? maxLabel->text() : QStringLiteral("<null>"))
-                      : QString("col=%1").arg(maxPos.x()));
-            check(maxLabel != nullptr && maxCell != nullptr &&
-                      maxLabel->x() == maxCell->x() &&
-                      maxLabel->y() + maxLabel->height() <= maxCell->y(),
+            // 拿「最大内存」那一行验几何：**行名在卡片里紧挨着控件上面那一项**，
+            // 两者左边缘对齐 —— 这才是"上下结构"，并排的两列长得不是这样。
+            QWidget *maxItem = cardItemOf(ui.getMemoryMaxSpin());
+            auto *maxLabel = labelAbove(ui.getMemoryMaxSpin());
+            check(cardOf(ui.getMemoryMaxSpin()) != nullptr && maxLabel != nullptr &&
+                      maxLabel->text() == QStringLiteral("最大内存"),
+                  "「最大内存」那一行的上面一项是选项名称、下面一项才是控件",
+                  maxLabel != nullptr ? maxLabel->text() : QStringLiteral("<null>"));
+            check(maxLabel != nullptr && maxItem != nullptr && maxLabel->x() == maxItem->x() &&
+                      maxLabel->y() + maxLabel->height() <= maxItem->y(),
                   "选项名称量出来的几何在控件**上面**，且左边缘对齐",
                   maxLabel != nullptr
                       ? QString("label=(%1,%2 %3x%4) control=(%5,%6)")
@@ -5622,8 +6055,8 @@ int main(int argc, char *argv[]) {
                             .arg(maxLabel->y())
                             .arg(maxLabel->width())
                             .arg(maxLabel->height())
-                            .arg(maxCell != nullptr ? maxCell->x() : -1)
-                            .arg(maxCell != nullptr ? maxCell->y() : -1)
+                            .arg(maxItem != nullptr ? maxItem->x() : -1)
+                            .arg(maxItem != nullptr ? maxItem->y() : -1)
                       : QString());
         }
 
@@ -5888,6 +6321,11 @@ int main(int argc, char *argv[]) {
             paintProbe.setRootIsDecorated(false);
             paintProbe.setUniformRowHeights(true);
             paintProbe.setItemDelegate(new InstanceGroupDelegate(&paintProbe));
+            // ★ 2026-10-12：行尾那颗齿轮现在**只在鼠标停在那一行时才画**（用户那份改版文档：
+            //   实例页"分组齿轮只在悬停时出现"）⇒ 量它之前得先把悬停那一位填上，而
+            //   `State_MouseOver` 是**视图**填的：不开 mouseTracking，Qt 一个字都不改它，
+            //   下面那发合成的鼠标移动就推不动（这个坑上面 R 节那个刷新圈探针踩过，同一句话）。
+            paintProbe.setMouseTracking(true);
             auto *paintItem = new QTreeWidgetItem(&paintProbe);
             paintItem->setText(0, MainWindowUI::groupItemText(QStringLiteral("整合包"), 3));
             paintItem->setData(0, MainWindowUI::groupIdRole(), QStringLiteral("g1"));
@@ -5911,10 +6349,24 @@ int main(int argc, char *argv[]) {
             paintProbe.clearSelection();
             paintProbe.setCurrentItem(nullptr);
             QApplication::processEvents();
-            const QImage shot = captureWidget(paintProbe.viewport());
             const QRect paintRow = paintProbe.visualItemRect(paintItem);
+            // ★ 悬停：那颗齿轮只在悬停时才画（见上面 setMouseTracking 那条），所以先把
+            //   光标挪进这一行正中，再截图（合成一发 MouseMove，和 R 节那个悬停探针同一个做法）。
+            {
+                const QPoint cursor = paintRow.center();
+                QMouseEvent move(QEvent::MouseMove, QPointF(cursor),
+                                 QPointF(paintProbe.viewport()->mapToGlobal(cursor)),
+                                 Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+                QApplication::sendEvent(paintProbe.viewport(), &move);
+                QApplication::processEvents();
+            }
+            const QImage shot = captureWidget(paintProbe.viewport());
             // 行底色：最右边那一列一定是留白（齿轮和展开箭头都在它左边，各留了一圈版面）。
-            const QRgb bg = shot.pixel(paintRow.right() - 1, paintRow.center().y());
+            // ★ 悬停之后这一行的底色是**悬停那一档**，它只铺在 `cardRect()` 里（上下各收掉
+            //   半道空），所以这两个采样点的 y 都收进卡片里取 —— 有一个落在卡片外的话，
+            //   取到的是行的原底色，下面"底色是个定值"那条哨兵会当场红（而且红得像是产品坏了）。
+            const QRect hoverCardRect = InstanceGroupDelegate::cardRect(paintRow);
+            const QRgb bg = shot.pixel(paintRow.right() - 1, hoverCardRect.center().y());
             const auto inkIn = [&shot, bg](const QRect &cell) {
                 const QRect clip = cell.intersected(shot.rect());
                 int n = 0;
@@ -5936,7 +6388,7 @@ int main(int argc, char *argv[]) {
             // 哨兵：行底色得是个**定值**（当前项被摘掉之后就不会再有渐变 —— 上面那条
             // NOTE 说的就是"没摘掉的时候这一条自己会把整片渐变算成墨"）。做法是同一行里
             // 换个采样点再取一次，两次不一样就说明这一行还在渐变里，下面的判据不能信。
-            const QRgb bgProbe2 = shot.pixel(paintRow.right() - 1, paintRow.top() + 1);
+            const QRgb bgProbe2 = shot.pixel(paintRow.right() - 1, hoverCardRect.top() + 1);
             check(bg == bgProbe2,
                   "哨兵：这一行的底色是个定值（还在渐变里的话，下面那条量的是「渐变的行数」）",
                   QStringLiteral("中段 %1 / 顶端 %2")
@@ -5956,10 +6408,55 @@ int main(int argc, char *argv[]) {
             check(inkIn(gearCell) > 0,
                   "哨兵：齿轮那一格里真的画了东西（下面那个「这一带没墨」的量法本身有效）",
                   QStringLiteral("齿轮格 %1 px 墨").arg(inkIn(gearCell)));
-            check(inkIn(oldArrowBand) == 0,
+            // ★ 反面：光标**不在**这一行上时，齿轮那一格一个像素的墨都没有 —— 这就是用户那份
+            //   改版文档点名的"分组齿轮只在悬停时出现"。少了这一条，上面那条哨兵在"齿轮常显"
+            //   的那一版上也照样绿：它只证明"量法有效"，不证明"只在悬停时才画"。
+            //   挪出去用的是把光标发到**视口外面**那一发（和上面 R 节那个刷新圈探针逐字一样）。
+            {
+                QMouseEvent leave(QEvent::MouseMove, QPointF(QPoint(2, -6)),
+                                  QPointF(paintProbe.viewport()->mapToGlobal(QPoint(2, -6))),
+                                  Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+                QApplication::sendEvent(paintProbe.viewport(), &leave);
+                QApplication::processEvents();
+                const QImage plainShot = captureWidget(paintProbe.viewport());
+                const QRgb plainBg =
+                    plainShot.pixel(paintRow.right() - 1, hoverCardRect.center().y());
+                const auto inkInPlain = [&plainShot, plainBg](const QRect &cell) {
+                    const QRect clip = cell.intersected(plainShot.rect());
+                    int n = 0;
+                    for (int y = clip.top(); y <= clip.bottom(); ++y) {
+                        for (int x = clip.left(); x <= clip.right(); ++x) {
+                            if (plainShot.pixel(x, y) != plainBg) {
+                                ++n;
+                            }
+                        }
+                    }
+                    return n;
+                };
+                check(inkInPlain(gearCell) == 0,
+                      "★ 光标不在这一行上时，齿轮那一格一个像素的墨都没有"
+                      "（「分组齿轮只在悬停时出现」—— 用户那份改版文档点名的那条）",
+                      QStringLiteral("齿轮格 %1 px 墨").arg(inkInPlain(gearCell)));
+                // 挪出去之后底色也得回到**行的原底色**（悬停那一档没跟出去）——不然上面那条
+                // 「一个像素都没有」可能只是"整行都还是悬停色、齿轮恰好没画"这种假绿。
+                check(plainShot.pixel(paintRow.right() - 1, hoverCardRect.center().y()) != bg,
+                      "★ 光标挪出去之后，这一行的底色从悬停那一档**退了回去**"
+                      "（证明上面那条量的不是「一块还在悬停里的行」）",
+                      QStringLiteral("悬停 %1 / 挪出去 %2")
+                          .arg(QColor::fromRgb(bg).name(), QColor::fromRgb(plainBg).name()));
+            }
+            // ★ 量的是那一带**落在卡片里**的那一块：悬停之后行的底色只在 `cardRect()` 里
+            //   （上下各收掉半道空），拿整条 58 px 去比的话，上下那两道空自己就是"不是悬停色"
+            //   —— 量出来 144 px 全是那两条缝，和"箭头回没回来"一点关系都没有（2026-10-12 改版
+            //   加悬停那一层之后当场踩到）。两道空里本来也没人画箭头。
+            const QRect arrowBandInCard = oldArrowBand.intersected(hoverCardRect);
+            check(inkIn(arrowBandInCard) == 0,
                   "★ 组行行尾那两颗上下移箭头搬走之后，齿轮**左边**那一带一个像素的墨都没有"
                   "（谁把它们加回这棵树，这一条就红）",
-                  QStringLiteral("那一带 %1 px 不是底色").arg(inkIn(oldArrowBand)));
+                  QStringLiteral("那一带 %1 px 不是底色（量的是卡片里那一块 %2x%3）")
+                      .arg(inkIn(arrowBandInCard))
+                      .arg(arrowBandInCard.width())
+                      .arg(arrowBandInCard.height()));
 
             // ⑧ 行高：**每一行**都是版本树那个常数（用户原话「每个版本啥的上下高一点，像
             //    下载页那样」）—— 组行和实例行都要。只管组行的话，平铺那一档（没分过组、
@@ -16260,61 +16757,60 @@ int main(int argc, char *argv[]) {
         QPushButton *importBtn =
             ipage->findChild<QPushButton *>(MainWindowUI::importModpackButtonName());
         QTreeWidget *ilist = ipage->findChild<QTreeWidget *>(MainWindowUI::instanceListName());
-        QGroupBox *igroup = nearestGroupBox(ilist);
+        // ★ 2026-10-12：实例页那两个 `QGroupBox` 拆掉了（用户那份改版文档第一条「减少框」：
+        //   "右侧只有一个主要内容表面"）。这两颗按钮现在长在**左栏那个侧栏面**上
+        //   （`wtfmlSurface="sidebar"`），所以"那个组"换成"那张面"。
+        QFrame *iside = surfaceOf(ipage, Theme::sidebarSurfaceValue());
         check(importBtn != nullptr && addFolderBtn != nullptr && ilist != nullptr &&
-                  igroup != nullptr,
-              "量之前先确认四个控件都在（导入 / 添加文件夹 / 实例列表 / 那个组）");
+                  iside != nullptr &&
+                  surfaceValueOf(addFolderBtn) == Theme::sidebarSurfaceValue(),
+              "量之前先确认四个控件都在（导入 / 添加文件夹 / 实例列表 / 侧栏那个面）",
+              surfaceValueOf(addFolderBtn));
         if (importBtn != nullptr && addFolderBtn != nullptr && ilist != nullptr &&
-            igroup != nullptr) {
-            // 同一个坐标系里比：都换算到左栏那个组的坐标上。直接拿各自的 geometry() 比是在
-            // 比两套坐标系（按钮的父是组，列表在另一个组里）。
-            QGroupBox *folderGroup = nearestGroupBox(addFolderBtn);
-            check(folderGroup != nullptr, "「添加文件夹…」那个组找得到");
-            if (folderGroup != nullptr) {
-                // NOTE: 那两颗按钮同父（都在「游戏文件夹」组里），所以这里换算到**组的父
-                //       （左栏）**上量更稳 —— 组的 contentsMargins 不影响结论。
-                const auto boxIn = [ipage](QWidget *w) {
-                    return QRect(w->mapTo(ipage, QPoint(0, 0)), w->size());
-                };
-                const QRect importBox = boxIn(importBtn);
-                const QRect addBox = boxIn(addFolderBtn);
-                // ★ 「导入整合包…」紧挨在「添加文件夹…」**下面**（用户原话）。
-                //   "整个在下面"不是"有一半在下面"：两颗按钮的各行高度一样，靠 bottom/top
-                //   比就够了 —— 布局里它们一个是 addLayout 的行、一个是 addWidget，顺序不对
-                //   的话 top 会跑到上面去。
-                check(importBox.top() > addBox.bottom(),
-                      "整个在「添加文件夹…」的**下面**（不是上面，也不是挤在同一行）",
-                      QString("import.top=%1 add.bottom=%2")
-                          .arg(importBox.top())
-                          .arg(addBox.bottom()));
-                check(qAbs(importBox.left() - addBox.left()) <= 2,
-                      "左边缘和「添加文件夹…」对齐（贴左边，不是居中也不是靠右）",
-                      QString("%1 vs %2").arg(importBox.left()).arg(addBox.left()));
-                // ★ 一样宽 = 两颗都顶满这一栏。**这条是"别再改回 Fixed"的几何版**：
-                //   宽度策略那条（上面 B 节）钉的是"没被设成 Fixed"，这条钉的是"在这个
-                //   尺寸下真的长满了" —— 少了宽度策略、只要布局里给的是 AlignLeft，
-                //   宽度照样会缩成 sizeHint，而这条会红。
-                //   （差 2 像素的容差是给样式留的边框/内边距。）
-                check(qAbs(importBox.width() - addBox.width()) <= 2,
-                      "宽度和「添加文件夹…」一样（两颗都顶满左栏）",
-                      QString("%1 vs %2").arg(importBox.width()).arg(addBox.width()));
-                // 它确实在左栏：整颗都在实例列表的左边缘**左边**（右栏那三个是"对选中的
-                // 实例做什么"，和它隔着两栏）。
-                check(importBox.right() < boxIn(ilist).left(),
-                      "整颗都在实例列表的左边（在左栏里，没跑到右栏）",
-                      QString("import.right=%1 list.left=%2")
-                          .arg(importBox.right())
-                          .arg(boxIn(ilist).left()));
-                // 说明那句在按钮**下面**（说明是跟着那颗按钮的，摆到别处就白写了）。
-                QLabel *hint = folderGroup->findChild<QLabel *>(
-                    MainWindowUI::importHintLabelName());
-                check(hint != nullptr && boxIn(hint).top() > importBox.bottom(),
-                      "那句说明在按钮的下面（不是上面）",
-                      hint != nullptr ? QString("hint.top=%1 import.bottom=%2")
-                                            .arg(boxIn(hint).top())
-                                            .arg(importBox.bottom())
-                                      : QStringLiteral("<null>"));
-            }
+            iside != nullptr) {
+            // 同一个坐标系里比：都换算到**页面**坐标上。直接拿各自的 geometry() 比是在比两套
+            // 坐标系（当初两颗按钮的父是组、列表在另一个组里；现在它们的父都是那张侧栏面）。
+            const auto boxIn = [ipage](QWidget *w) {
+                return QRect(w->mapTo(ipage, QPoint(0, 0)), w->size());
+            };
+            const QRect importBox = boxIn(importBtn);
+            const QRect addBox = boxIn(addFolderBtn);
+            // ★ 「导入整合包…」紧挨在「添加文件夹…」**下面**（用户原话）。
+            //   "整个在下面"不是"有一半在下面"：两颗按钮的各行高度一样，靠 bottom/top
+            //   比就够了 —— 布局里它们一个是 addLayout 的行、一个是 addWidget，顺序不对
+            //   的话 top 会跑到上面去。
+            check(importBox.top() > addBox.bottom(),
+                  "整个在「添加文件夹…」的**下面**（不是上面，也不是挤在同一行）",
+                  QString("import.top=%1 add.bottom=%2")
+                      .arg(importBox.top())
+                      .arg(addBox.bottom()));
+            check(qAbs(importBox.left() - addBox.left()) <= 2,
+                  "左边缘和「添加文件夹…」对齐（贴左边，不是居中也不是靠右）",
+                  QString("%1 vs %2").arg(importBox.left()).arg(addBox.left()));
+            // ★ 一样宽 = 两颗都顶满这一栏。**这条是"别再改回 Fixed"的几何版**：
+            //   宽度策略那条（上面 B 节）钉的是"没被设成 Fixed"，这条钉的是"在这个
+            //   尺寸下真的长满了" —— 少了宽度策略、只要布局里给的是 AlignLeft，
+            //   宽度照样会缩成 sizeHint，而这条会红。
+            //   （差 2 像素的容差是给样式留的边框/内边距。）
+            check(qAbs(importBox.width() - addBox.width()) <= 2,
+                  "宽度和「添加文件夹…」一样（两颗都顶满左栏）",
+                  QString("%1 vs %2").arg(importBox.width()).arg(addBox.width()));
+            // 它确实在左栏：整颗都在实例列表的左边缘**左边**（右栏那三个是"对选中的
+            // 实例做什么"，和它隔着两栏）。
+            check(importBox.right() < boxIn(ilist).left(),
+                  "整颗都在实例列表的左边（在左栏里，没跑到右栏）",
+                  QString("import.right=%1 list.left=%2")
+                      .arg(importBox.right())
+                      .arg(boxIn(ilist).left()));
+            // 说明那句在按钮**下面**（说明是跟着那颗按钮的，摆到别处就白写了）。
+            QLabel *hint =
+                iside->findChild<QLabel *>(MainWindowUI::importHintLabelName());
+            check(hint != nullptr && boxIn(hint).top() > importBox.bottom(),
+                  "那句说明在按钮的下面（不是上面）",
+                  hint != nullptr ? QString("hint.top=%1 import.bottom=%2")
+                                        .arg(boxIn(hint).top())
+                                        .arg(importBox.bottom())
+                                  : QStringLiteral("<null>"));
         }
 
         // 量完把状态收回去：Y 节和"打开就停在主页"的约定都依赖停在主页。
@@ -24154,6 +24650,50 @@ int main(int argc, char *argv[]) {
         check(curtain != nullptr && !curtain->isVisible(),
               "⑬ 跑完把那层幕布收起来了（收起来之后它一个像素都不画 —— "
               "下一次换页接着用同一块，不再生灭一遍）");
+
+        // —— 透明页面的快照必须抓「屏幕上合成后的样子」（2026-10-12）——
+        //
+        // 页面自己常常不铺底，白色来自它后面的卡片。单独 `page->grab()` 时 Qt 会用页面的
+        // `Window` 角色补底：如果那一档是灰色，动画幕布就会整块先灰、结束后才恢复成下面
+        // 真正的白色。这里故意搭一个「白父层 + 灰调色板的透明页面」，同时把页面放在非零
+        // 坐标上，连幕布本地坐标重复偏移那一类漏底也一起守住。
+        {
+            QWidget compositeHost;
+            compositeHost.resize(140, 90);
+            compositeHost.setAutoFillBackground(true);
+            QPalette hostPalette = compositeHost.palette();
+            hostPalette.setColor(QPalette::Window, Qt::white);
+            compositeHost.setPalette(hostPalette);
+
+            auto *transparentPage = new QWidget(&compositeHost);
+            transparentPage->setGeometry(17, 11, 100, 60);
+            transparentPage->setAutoFillBackground(false);
+            QPalette transparentPalette = transparentPage->palette();
+            transparentPalette.setColor(QPalette::Window, QColor(0x80, 0x80, 0x80));
+            transparentPage->setPalette(transparentPalette);
+
+            compositeHost.show();
+            QApplication::processEvents();
+            const QColor before = compositeHost.grab().toImage().pixelColor(67, 41);
+
+            Anim::pageAppear(transparentPage, Qt::white);
+            QApplication::processEvents();
+            const QColor during = compositeHost.grab().toImage().pixelColor(67, 41);
+            QWidget *compositeCurtain = curtainOf(&compositeHost);
+
+            check(before.red() > 248 && before.green() > 248 && before.blue() > 248 &&
+                      during.red() > 248 && during.green() > 248 && during.blue() > 248,
+                  "★★ ⑬ 透明页面换页时背景从第一帧起就是白的（不会动画期间发灰、结束才变白）",
+                  QStringLiteral("动画前 %1,%2,%3 / 动画中 %4,%5,%6 / 幕布 %7")
+                      .arg(before.red())
+                      .arg(before.green())
+                      .arg(before.blue())
+                      .arg(during.red())
+                      .arg(during.green())
+                      .arg(during.blue())
+                      .arg(compositeCurtain != nullptr ? QStringLiteral("有")
+                                                       : QStringLiteral("无")));
+        }
 
         // —— 按下按钮那一下：装上过滤器，用真的鼠标事件走一趟 ——
         QPushButton *probe = new QPushButton(QStringLiteral("按下看看"), &host);

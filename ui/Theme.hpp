@@ -241,6 +241,41 @@ constexpr int rowHoverAccentPercent() { return 12; }
  */
 QColor rowHoverFill(const QColor &base);
 
+// ---------------------------------------------------------------------------
+// 侧栏那一列导航（2026-10-12）
+// ---------------------------------------------------------------------------
+//
+// 用户 2026-10-12 那份界面改版文档里点名的一条：左侧栏那一列**不是**一张普通列表，
+// 「选中项：浅主题色背景 + 左侧 3px 主题色指示条 + 主题色深色文字，而不是一整块深灰」。
+//
+// ★ 为什么这一档单独存在、而不是复用 `selectionFill()`（那块 `#cccccc` 浅灰）：
+//   灰是"这张表里被选中的一行"的语义 —— 版本树、加载器树、资源表、实例列表都在用它；
+//   侧栏那一列是**导航**（"你现在在哪个功能页"），和"选中的一行数据"不是一件事，
+//   两处长得一样的话，用户在下载页分不清"我选中了这一项"和"我停在这一栏"。
+//
+// ★ 它和 `rowHoverFill()` 一样从**这一列自己的底色**出发混主题色 —— 深色预设下
+//   才不会闪成一片近白（理由见 `rowHoverFill()` 那段）。混的比例比行悬停**大一档**
+//   （`rowHoverAccentPercent()` 是 12）：两者同色的话，鼠标一移到当前那一项上
+//   "选中"和"指着"就分不出来了。
+//
+// ★ 它**不进调色板**（不是 `Role`），理由和上面那几档一样：往调色板里塞东西等于把
+//   "跟着系统深浅走"钉死（ui_check W1 钉着这条）。落点在 `VersionTreeDelegate` 那条
+//   `navRow` 分支上（见那边的 NOTE：Qt 样式表里的 `::item` 规则管不着"整行由代理自己
+//   画"的表，所以这一档只能由代理自己铺 —— 色仍然只有这一处出处）。
+
+/// 侧栏那一列里"当前停在哪一条"往主题色混多少（百分比，见上面那段）。
+constexpr int navSelectedAccentPercent() { return 20; }
+
+/// 侧栏那一列里"当前停在哪一条"的底（入参是这一列自己的底色）。
+QColor navSelectedFill(const QColor &base);
+/// 它上面那行字：主题色那一支里"白底上写字"的那一档（`AccentShade::Ink`）。
+QColor navSelectedInk();
+/// 左边那根指示条的色：主题色本色（`AccentShade::Pure`）—— 它和顶栏是同一个色，
+/// "这一列属于这个应用"这件事只靠这一笔就说得清。
+QColor navSelectedBar();
+/// 那根指示条多宽（px）。
+constexpr int navBarThickness() { return 3; }
+
 /**
  * @brief 条目**被选中**时铺在它那一圈里的底：一块浅灰 `#cccccc`。
  *
@@ -350,6 +385,37 @@ QColor neutralInkColor();
 /// 全应用那一份控件样式表（按钮 / 输入框 / 勾选框；`apply()` 铺的就是它）。
 /// 要它是因为"这些东西长什么样"也得能量 —— 验证工程逐条读它算出来的色。
 QString widgetStyleSheet();
+
+// ---------------------------------------------------------------------------
+// 「面」与「文字角色」那两个属性（2026-10-12 那次界面改版）
+// ---------------------------------------------------------------------------
+
+/**
+ * @brief 页面骨架那几个"面"与几档文字，各自由一个**动态属性**认领。
+ *
+ * 用户 2026-10-12 那份改版文档把界面收成"侧栏 + 一个正文表面"（原文：「整个页面只保留
+ * 侧栏和一个正文表面，正文内部靠排版、间距和少量小节卡片建立层级」），并直接给了形状：
+ * `footer->setProperty("wtfmlSurface", "footer")`。这一组函数就是那两个属性名和那几个值
+ * 的**唯一出处**：`widgetStyleSheet()` 里那几条选择器按它们写，产品代码按它们挂，
+ * 验证工程也按它们找控件（`findChild<QFrame*>()` 那一族按 objectName 找，而面是**没有**
+ * objectName 的 —— 一页里同样的面有好几块，名字只能是属性）。
+ *
+ * 两件事分开记：
+ *   · `wtfmlSurface` —— **一块面的底**（侧栏 / 正文 / 小节卡片 / 页面底栏）；
+ *   · `wtfmlTextRole` —— **一行字是什么身份**（页面标题 / 小节标题 / 次要说明）。
+ *
+ * ★ 色**不在这儿**：面与字的颜色一律由 `widgetStyleSheet()` 按当前调色板现算
+ *   （见那几条 QSS 那句 `mixToward()` 的注释）—— 这里给的只是"叫什么"，不是"长什么样"。
+ */
+QString surfacePropertyName();
+QString sidebarSurfaceValue();
+QString workspaceSurfaceValue();
+QString sectionSurfaceValue();
+QString footerSurfaceValue();
+QString textRolePropertyName();
+QString pageTitleTextRoleValue();
+QString sectionTitleTextRoleValue();
+QString secondaryTextRoleValue();
 
 // ---------------------------------------------------------------------------
 // 滚动条
