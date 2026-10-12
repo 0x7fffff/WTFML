@@ -70,6 +70,12 @@ set(PROJECT_SOURCES
     # 临时游戏文件夹跑。
     ${REPO_ROOT}/src/manage/VersionIntegrity.cpp
     ${REPO_ROOT}/src/manage/VersionIntegrity.hpp
+    # 更新中心那两层（2026-10-13，§7.1）：判据（忽略 / 固定那一档，纯值 + 一次文件读写）和
+    # 回滚点（真拷文件、真还原）。都放进来 —— ZX / ZT 两节直接对着临时目录钉。
+    ${REPO_ROOT}/src/manage/UpdatePolicy.cpp
+    ${REPO_ROOT}/src/manage/UpdatePolicy.hpp
+    ${REPO_ROOT}/src/manage/UpdateRollback.cpp
+    ${REPO_ROOT}/src/manage/UpdateRollback.hpp
     # 备份那一层（§4.4）：打一份包、读清单、还原。和 WorldFiles 同一个理由放进验证工程 ——
     # 「清单读得回来吗」「还原之前那份安全快照做出来没有」「解压到一半失败时旧的那一份还在不在」
     # 这三件事都能绕开界面直接钉死，而且全是真的建 zip、真的解回来。

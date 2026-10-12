@@ -109,6 +109,8 @@ add_executable(ui_check main.cpp
                                 ${REPO_ROOT}/ui/TaskDetailPage.cpp
                                 # 完整性检查报告页（2026-10-12）：MainWindowUI.cpp 用到它那几个名字。
                                 ${REPO_ROOT}/ui/IntegrityReportPage.cpp
+                                # 更新中心那一页（2026-10-13，§7.1）：U33 直接 new 它。
+                                ${REPO_ROOT}/ui/UpdateCenterPage.cpp
                                 ${REPO_ROOT}/ui/WindowChrome.cpp)
 
 # InstanceFiles 那一层要的（`VersionInheritance::parentIdOf` / `maxDepth`）——

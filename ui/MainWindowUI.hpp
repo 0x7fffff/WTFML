@@ -1768,6 +1768,129 @@ public:
     static QString integrityReportCloseText() { return QStringLiteral("只查看"); }
 
     // ------------------------------------------------------------------
+    // 更新中心那一页（coding plan §7.1，2026-10-13）
+    // ------------------------------------------------------------------
+    // 「检查更新」查出来的那一份结论摊成能动手的一页（形状照完整性报告页：同一个
+    // `execPage()` 覆盖层路数）。名字和文案按那一套来 —— 这一页上出现的每一个字都从这儿取，
+    // 验证工程（ui_check / ui_shot）认的也是这里的名字，别在 .cpp 里另写字面量。
+    static QString updateCenterPageName() { return QStringLiteral("updateCenterPage"); }
+    static QString updateCenterSummaryName() { return QStringLiteral("updateCenterSummary"); }
+    static QString updateCenterErrorName() { return QStringLiteral("updateCenterError"); }
+    static QString updateCenterNoteName() { return QStringLiteral("updateCenterNote"); }
+    /// 第几组的标题那一行（`有新版本（3 条）`）。
+    static QString updateCenterGroupName(int index) {
+        return QStringLiteral("updateCenterGroup%1").arg(index);
+    }
+    /// 第几组里装行的那一块。
+    static QString updateCenterGroupBodyName(int index) {
+        return QStringLiteral("updateCenterGroupBody%1").arg(index);
+    }
+    /// 第几行那条资源（一个 QWidget：勾选框 + 名字 + 版本变化 + 那三颗 chip）。
+    static QString updateCenterRowName(int index) {
+        return QStringLiteral("updateCenterRow%1").arg(index);
+    }
+    static QString updateCenterRowCheckName(int index) {
+        return QStringLiteral("updateCenterRowCheck%1").arg(index);
+    }
+    static QString updateCenterRowNameLabelName(int index) {
+        return QStringLiteral("updateCenterRowLabel%1").arg(index);
+    }
+    static QString updateCenterRowStateName(int index) {
+        return QStringLiteral("updateCenterRowState%1").arg(index);
+    }
+    /// 名字下面那一行小字（盘上那个文件的名字）。
+    static QString updateCenterRowFileNameLabelName(int index) {
+        return QStringLiteral("updateCenterRowFile%1").arg(index);
+    }
+    /// 行尾那三颗：就更新这一条 / 忽略这一版 / 固定这一版。
+    static QString updateCenterRowUpdateName(int index) {
+        return QStringLiteral("updateCenterRowUpdate%1").arg(index);
+    }
+    static QString updateCenterRowIgnoreName(int index) {
+        return QStringLiteral("updateCenterRowIgnore%1").arg(index);
+    }
+    static QString updateCenterRowPinName(int index) {
+        return QStringLiteral("updateCenterRowPin%1").arg(index);
+    }
+    static QString updateCenterUpdateSelectedName() {
+        return QStringLiteral("updateCenterUpdateSelected");
+    }
+    static QString updateCenterUndoName() { return QStringLiteral("updateCenterUndo"); }
+    static QString updateCenterCloseName() { return QStringLiteral("updateCenterClose"); }
+    /// 装"没有结论"那句话的那一块（error 非空时露）。
+    static QString updateCenterEmptyTitleText() { return QStringLiteral("还没有结果可以看"); }
+    /// 两组的名字。**顺序就是摆的顺序**：能动手的那一组在上面（点这一下就是来看它的）。
+    static QString updateCenterOutdatedGroupTitleText(int count) {
+        return QStringLiteral("有新版本（%1 条）").arg(count);
+    }
+    static QString updateCenterRestGroupTitleText(int count) {
+        return QStringLiteral("已是最新或说不清（%1 条）").arg(count);
+    }
+    /// 某一行的名字那一格。`name` 取不到时（反查没认出来）退回文件名 —— 和报告那一版
+    /// （`finishUpdateCheck()` 里那个 displayName）**逐字同一个规矩**：手上总得有个东西
+    /// 能让用户对着它去盘上找。
+    static QString updateCenterRowLabelText(const QString &name, const QString &fileName) {
+        return name.isEmpty() ? fileName : name;
+    }
+    /// 某一行的状态那一格（右边那小字）。**这一句是"它现在算不算更新"的唯一说法**。
+    /// @param suppressed 「忽略这一版」/「固定这一版」那一档（`UpdateCenterPage::Suppress`）。
+    static QString updateCenterRowStateText(int state, int suppressed, const QString &versionText) {
+        // state: 0 = 有新版本、1 = 已是最新、2 = 说不清（`UpdateCenterPage::State`）
+        // suppressed: 0 = 没有、1 = 已忽略、2 = 已固定（`UpdateCenterPage::Suppress`）
+        switch (state) {
+        case 0:
+            if (suppressed == 1) {
+                return QStringLiteral("已忽略这一版（%1）").arg(versionText);
+            }
+            if (suppressed == 2) {
+                return QStringLiteral("已固定（不再提示）");
+            }
+            return QStringLiteral("可更新到 %1").arg(versionText);
+        case 1:
+            // 「已是最新」那一档顺带把**现在这一版**写出来（用户来这一页就是想知道"它到
+            // 底是哪一版"）。拿不到版本号时不留一个空括号。
+            return versionText.isEmpty() ? QStringLiteral("已是最新")
+                                         : QStringLiteral("已是最新（%1）").arg(versionText);
+        default:
+            return QStringLiteral("说不清");
+        }
+    }
+    /// 那一行「更新」那颗 chip 的字。
+    static QString updateCenterRowUpdateText() { return QStringLiteral("更新"); }
+    static QString updateCenterRowIgnoreText() { return QStringLiteral("忽略这一版"); }
+    static QString updateCenterRowIgnoreUndoText() { return QStringLiteral("不再忽略"); }
+    static QString updateCenterRowPinText() { return QStringLiteral("固定这一版"); }
+    static QString updateCenterRowPinUndoText() { return QStringLiteral("不再固定"); }
+    /// 行尾那三颗 chip 各自的鼠标提示（说清按下去会发生什么）。
+    static QString updateCenterRowUpdateTipText() {
+        return QStringLiteral("就更新这一条（换掉这个文件，换之前先留一份回滚点）");
+    }
+    static QString updateCenterRowIgnoreTipText() {
+        return QStringLiteral("这一版以后别再提示我；作者再发新版本时它会回来");
+    }
+    static QString updateCenterRowPinTipText() {
+        return QStringLiteral("我就停在这一版上，以后不提示更新；哪天文件换了它会自己失效");
+    }
+    /// 底下那颗主按钮：选了几条就写几条。**0 条时不写"更新选中的 0 项"**（那句话没有意义）。
+    static QString updateCenterUpdateSelectedText(int count) {
+        return count > 0 ? QStringLiteral("更新选中的 %1 项").arg(count)
+                         : QStringLiteral("更新选中的…");
+    }
+    /// 底下那颗「撤销上一次更新」。N = 回滚点里存了几个文件。
+    static QString updateCenterUndoText(int fileCount) {
+        return QStringLiteral("撤销上一次更新（%1 个文件）").arg(fileCount);
+    }
+    /// 那颗按钮的鼠标提示：说清它会把实例改回什么样子。
+    static QString updateCenterUndoTipText() {
+        return QStringLiteral("把上一次更新换掉的文件退回原样（那次更新新添的文件会删掉）");
+    }
+    static QString updateCenterCloseText() { return QStringLiteral("关闭"); }
+    /// 没查过（或者这个实例一条能查的都没有）时那一整块：一句大话 + 一句下一步。
+    static QString updateCenterEmptyHintText() {
+        return QStringLiteral("先在「实例设置 → 概览」里点一下「检查更新」，回来这儿就有东西可看了。");
+    }
+
+    // ------------------------------------------------------------------
     // 实例页左栏那张「游戏文件夹」列表（2026-09-24 改造：两行式 + 行尾齿轮菜单）
     // ------------------------------------------------------------------
     // 用户原话：「显示的时候和版本下载那里类似，上面（版本名同样的地方）写 customname，

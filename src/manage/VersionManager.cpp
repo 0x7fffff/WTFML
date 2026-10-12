@@ -286,6 +286,17 @@ VersionManager::VersionManager(QObject *parent)
     // 一模一样的话。现在只认整批结束的信号。
     connect(downloadManager, &DownloadManager::allDownloadsFinished, this,
             &VersionManager::onAllDownloadsFinished);
+    // 单个文件的结果（§7.1：更新任务里那一步"哪个资源成了/没成"）。★ **只管资源那一批**：
+    // 上面那句 NOTE 说的"每完成一个文件转发一次"会刷屏，这里转发的前提是"这一批下的是
+    // 用户在下载页/更新中心点名的那几个资源"（`m_resourceDownload.running`）——那种一批
+    // 就是几个到几十个文件，正好是逐条报得完、也正需要逐条报的东西。
+    connect(downloadManager, &DownloadManager::downloadFinished, this,
+            [this](const QString &fileName, bool success, const QString &errorMessage) {
+                if (m_resourceDownload.running) {
+                    emit resourceDownloadFileFinished(m_resourceDownload.label, fileName, success,
+                                                      errorMessage);
+                }
+            });
     connect(downloadManager, &DownloadManager::batchProgress, this,
             [this](int done, int total, int failed, const QString &currentFile) {
                 emit versionDownloadStats(done, total, failed, currentFile);
@@ -913,7 +924,12 @@ bool VersionManager::downloadResourceFiles(const QString &destinationDir,
                 label, false, tr("这一版的文件名没法用（%1），没有装。").arg(file.filename));
             return false;
         }
-        paths.append(destinationDir + QLatin1Char('/') + file.filename);
+        // 落点：**每一条自己可以带一个目录**（见 `ResourceFile::dir` 那段 —— 更新中心那一批
+        // 是跨类勾出来的）。空 = 还是用这一批的 `destinationDir`，也就是原来那条路。
+        // NOTE: `dir` 是我们自己拼的绝对路径（来自 `QFileInfo::absolutePath()`），**不是**
+        //       接口给的东西 —— 所以这里不需要再防它一次（要防的是 `filename`，上面刚防过）。
+        const QString dir = file.dir.isEmpty() ? destinationDir : file.dir;
+        paths.append(dir + QLatin1Char('/') + file.filename);
     }
 
     // 这一批在写哪个实例记进 m_currentVersionDownloading（缓存那一类传空串 = 谁都不锁）。

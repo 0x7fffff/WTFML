@@ -756,6 +756,37 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         actionCells.append(cell);
     }
 
+    // ---------- 「更新中心」（coding plan §7.1，2026-10-13）----------
+    //
+    // 用户原话（§7.1 那一条）：「把实例概览已有"检查更新"结果做成可操作列表」。这一颗就是
+    // 那一页的**门口**：上一次查出来的结论还在（`MainWindow` 记着），它不重查、不联网，只是
+    // 把那份结论摆开。
+    //
+    // ★ 为什么**不并进**「检查更新」那一颗（按完直接开页）：那一颗是"我现在要重新查一遍"，
+    //   而这一颗是"我要看/改/退回上次那个结果"——"查一次"要联网几十秒，"看一眼"是零成本。
+    //   合成一颗的话，用户想退回上一次更新时会先被迫等一次网络检查，而那一趟**完全可能失败**
+    //   （外网连不上、接口 429），于是"退回去"这件事就进不去了。更新完发现游戏起不来，正是
+    //   最需要它的时候。
+    //
+    // NOTE: 和「检查更新」一样**只发信号** —— 那一页要的结论存在 MainWindow 手里，这一层
+    //       连"有没有查过"都不知道。
+    {
+        auto *cell = new QWidget(this);
+        auto *column = new QVBoxLayout(cell);
+        column->setContentsMargins(0, 0, 0, 0);
+        column->setSpacing(4);
+        auto *button = new QPushButton(updateCenterText(), cell);
+        button->setObjectName(updateCenterButtonName());
+        button->setToolTip(updateCenterButtonTooltip());
+        connect(button, &QPushButton::clicked, this, [this]() { emit updateCenterRequested(); });
+        prepareActionButton(button);
+        column->addWidget(button);
+        auto *hint = new QLabel(updateCenterHint(), cell);
+        hint->setWordWrap(true);
+        column->addWidget(hint);
+        actionCells.append(cell);
+    }
+
     // ---------- 「检查并修复」（coding plan §4.1，2026-10-12）----------
     //
     // 摆在「检查更新」旁边：两颗都是"检查…"这一档（点了之后**会出现一个结果**，而不是改一格

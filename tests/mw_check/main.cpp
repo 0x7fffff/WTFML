@@ -128,6 +128,13 @@
 #include "VersionTreeDelegate.hpp"
 // T27.7：那一格世界设置本身（页面上摆了什么值、那几条规则各是第几行）。
 #include "WorldSettingsPage.hpp"
+// T28 / T32（§7.1）：那一趟「检查更新」的结论现在**开成一整页**（「更新中心」）—— 按页眉
+// 认它（`PageCloser::setOnlyTitle()`）。
+#include "UpdateCenterPage.hpp"
+// T38（§7.1）：那一页上「忽略这一版 / 固定这一版」记的那本账、以及更新前那一份回滚点。
+// 这一节**从盘上把它们读回来**核对（读内存里那份等于让产品自己证明自己）。
+#include "manage/UpdatePolicy.hpp"
+#include "manage/UpdateRollback.hpp"
 #include "auth/AccountStore.hpp"
 #include "auth/AuthManager.hpp"
 #include "auth/TokenStore.hpp"
@@ -901,10 +908,27 @@ public:
     }
     void stop() { m_timer.stop(); }
 
+    /// 只认**这个标题**的那一页（留空 = 每一页都算，默认如此）。
+    ///
+    /// ★ 2026-10-13（§7.1）：T32 那一节是**先把实例设置页开着**、再从那一页里点出更新中心的
+    /// —— 不加这一道的话，计时器 10 毫秒后先把**实例设置**那页记一条、顺手点掉，用户真正
+    /// 要看的那一页就再也不会来了（它是在"让位"之后才开的）。
+    void setOnlyTitle(const QString &title) { m_onlyTitle = title; }
+
     /// 开过又收掉的每一页说了什么（按先后顺序）。
     struct Seen {
         QString title;    ///< 覆盖层页眉上那句话
         QString summary;  ///< 体检报告页顶部那句总述（别的页上没有这一格，留空）
+        /// ★ 更新中心（§7.1，2026-10-13）那一页上的东西：总述那一句、两组的标题、
+        ///   每一行的名字（左栏）和状态（右边那一格）。**收页之前**读下来。
+        ///
+        /// 为什么读的是**控件上的字**而不是哪一份数据：这一页是 MainWindow 那一层
+        /// 翻好的（`updateCenterReportForPage()`），"翻得对不对"只有看屏幕上的字才算数
+        /// （读数据等于把翻译那一层绕过去自证）。
+        QString updateCenterSummary;
+        QStringList updateCenterGroupTitles;
+        QStringList updateCenterRowNames;
+        QStringList updateCenterRowStates;
     };
     QList<Seen> seen;
 
@@ -930,9 +954,37 @@ private:
         if (auto *title = host->findChild<QLabel *>(OverlayHost::overlayTitleLabelName())) {
             one.title = title->text();
         }
+        // 指定了标题就只认那一页（见 setOnlyTitle 那段）：**不记也不收**，让它继续开着。
+        if (!m_onlyTitle.isEmpty() && one.title != m_onlyTitle) {
+            return;
+        }
         if (auto *summary =
                 host->findChild<QLabel *>(MainWindowUI::integrityReportSummaryName())) {
             one.summary = summary->text();
+        }
+        // 更新中心（§7.1）：总述 + 两组的标题 + 每一行那两格。组的数量是**固定的两个**
+        // （见 UpdateCenterPage::rebuild() —— 一组空了也摆），行数按 `updateCenterRowN`
+        // 往后数到找不到为止。
+        if (auto *summary =
+                host->findChild<QLabel *>(MainWindowUI::updateCenterSummaryName())) {
+            one.updateCenterSummary = summary->text();
+        }
+        for (int group = 0; group < 8; ++group) {
+            auto *title = host->findChild<QLabel *>(MainWindowUI::updateCenterGroupName(group));
+            if (title == nullptr) {
+                break;
+            }
+            one.updateCenterGroupTitles.append(title->text());
+        }
+        for (int index = 0; index < 512; ++index) {
+            auto *row = host->findChild<QWidget *>(MainWindowUI::updateCenterRowName(index));
+            if (row == nullptr) {
+                break;
+            }
+            auto *name = row->findChild<QLabel *>(MainWindowUI::updateCenterRowNameLabelName(index));
+            auto *state = row->findChild<QLabel *>(MainWindowUI::updateCenterRowStateName(index));
+            one.updateCenterRowNames.append(name == nullptr ? QString() : name->text());
+            one.updateCenterRowStates.append(state == nullptr ? QString() : state->text());
         }
         seen.append(one);
         m_closing = true;
@@ -945,6 +997,7 @@ private:
     QTimer m_timer;
     QElapsedTimer m_clock;
     bool m_closing = false;
+    QString m_onlyTitle;
 };
 
 /// 让底栏**重画一次**（走 updateBottomBar() 那条真路）。
@@ -13682,7 +13735,10 @@ static void runInstanceUpdateFilterTests() {
             return;
         }
 
-        // 第一次开这一页：点「检查更新」，等它跑完，然后量那一格。
+        // ★ 2026-10-13（§7.1）：这一趟的结论**不再弹一段文本**，而是开成一整页（「更新
+        //   中心」）—— 和 T32 那一节同一个改动。那一页开出来的时候，**实例设置那一页会让位**
+        //   （`runWhenOverlayFree()` 静默收掉它，见 MainWindow 那段），所以"查完之后这一页
+        //   长什么样"必须在**重新开一次**实例设置里量（下面第二趟）。
         bool checkedFound = false;
         int comboCount = -1;
         int updateRows = -1;
@@ -13699,8 +13755,23 @@ static void runInstanceUpdateFilterTests() {
         QHash<QString, int> namePointSize;
         QSet<QString> struckPaths;
 
-        PromptAnswerer answerer({0});
-        answerer.start();
+        // 第一趟：开实例设置 → 量"还没查过"那一档 → 点「检查更新」→ **立刻收掉实例设置**
+        // → 回到底下那一层 pump 到更新中心那一页开出来。
+        //
+        // ★ 顺序是这一节的形状，不是随手的：那一趟结果回来时要开的新页**只能在覆盖层空着
+        //   的时候开**（`runWhenOverlayFree()`），而"让位"要等实例设置那一页**自己的嵌套
+        //   循环退出去**才真的生效（`evict()` 只是发一发 `backPressed()`，`m_mode` 要等
+        //   `execPage()` 醒过来才归 None）。所以**不能在实例设置那一页的嵌套循环里等新页**
+        //   —— 那一等就是个死结（`runWhenOverlayFree()` 轮数用完之后弹「先关掉现在这一页」，
+        //   而那一发也没人答）。点完按钮马上按返回箭头，让这一层先退出去，再在**外面**这一层
+        //   等着它。
+        // ★ 只认「更新中心」那一页（见 `PageCloser::setOnlyTitle()`）：不拦着的话计时器会先
+        //   把**实例设置**记一条、顺手点掉（它比新页先开出来）。
+        int centerPageCount = -1;
+        QString centerPageTitle;
+        PageCloser closer;
+        closer.setOnlyTitle(UpdateCenterPage::windowTitle());
+        closer.start();
         QTimer::singleShot(0, [&] {
             OverlayHost *host = currentPageOverlay();
             auto *page = host != nullptr ? host->findChild<InstanceSettingsDialog *>() : nullptr;
@@ -13727,17 +13798,48 @@ static void runInstanceUpdateFilterTests() {
                 updateChipTextBefore = state->text();
             }
             // ② 点那颗按钮。**它自己不会阻塞** —— 反查在后台线程上、版本列表那几发是异步的，
-            //    结果要等下面那个 pumpUntil 转着事件循环才回来。等的是"报告弹出来了"：那一句
-            //    在 MainWindow::finishUpdateCheck 里排在**递结果之后**，所以报告一出来，
-            //    那几页上就已经有那份名单了。
+            //    结果要等下面那个 pumpUntil 转着事件循环才回来。
             if (auto *button = page->findChild<QPushButton *>(
                     InstanceSettingsDialog::checkUpdatesButtonName())) {
                 checkedFound = true;
                 button->click();
             }
-            const bool finished = pumpUntil([&] { return !answerer.answered.isEmpty(); }, 20000);
-            // ③ 等到了再量那一格（没等到的话下面那几条会红，而且看得出是"那一趟没跑完"）。
-            if (finished && mods != nullptr && state != nullptr) {
+            // 收页（返回箭头 = reject）。**必须立刻收**（理由见上面那段）：这一层不退出去，
+            // 结果回来时那一页开不出来。
+            if (auto *back =
+                    host->findChild<QPushButton *>(OverlayHost::overlayBackButtonName())) {
+                back->click();
+            } else {
+                host->closeOverlay();
+            }
+        });
+        QMetaObject::invokeMethod(&w, "openInstanceSettings", Qt::DirectConnection,
+                                  Q_ARG(QString, idV));
+        QApplication::processEvents();
+        // 这一层现在空着 ⇒ 那一趟结果回来时自己开出「更新中心」，`closer` 记一条再收掉它。
+        pumpUntil([&closer] { return !closer.seen.isEmpty(); }, 20000);
+        closer.stop();
+        centerPageCount = closer.seen.size();
+        centerPageTitle = closer.seen.isEmpty() ? QString() : closer.seen.first().title;
+        // 收完之后覆盖层该整个空下来。
+        pumpUntil([] { return currentOverlay() == nullptr; }, 8000);
+
+        // 第二趟：重新开一次实例设置，量"查完之后这一页长什么样"。
+        //
+        // ★ 这一趟之所以量得到，是因为那一趟的结论**留在数据里**（不是活在那一个框里）——
+        //   这本来就是本节 T28.4 那条判据的立足点，现在只是**多关了一次**。
+        QTimer::singleShot(0, [&] {
+            OverlayHost *host = currentPageOverlay();
+            auto *page = host != nullptr ? host->findChild<InstanceSettingsDialog *>() : nullptr;
+            if (page == nullptr) {
+                return;
+            }
+            InstanceFilesPage *mods = page->filesPage(QStringLiteral("mod"));
+            page->showPage(QStringLiteral("mod"));
+            QPushButton *state = mods != nullptr
+                                     ? mods->stateButtonAt(InstanceFilesPage::StateFilter::Update)
+                                     : nullptr;
+            if (mods != nullptr && state != nullptr) {
                 // ★★ 2026-10-10：数"那四颗里露着几颗"没意义了 —— **一条都没有的档也会
                 //   收起来**，于是那个数取决于"这个实例里有没有禁用着的模组"这类别的事。
                 //   这一条问的是"这一页**有没有**「可更新」这一档"，走 `canFilterUpdates()`
@@ -13793,7 +13895,6 @@ static void runInstanceUpdateFilterTests() {
         QMetaObject::invokeMethod(&w, "openInstanceSettings", Qt::DirectConnection,
                                   Q_ARG(QString, idV));
         QApplication::processEvents();
-        answerer.stop();
 
         check(checkedFound, "T28.1 概览那一栏那颗「检查更新」找得到（下面就靠它跑一趟）");
         // ★★ 2026-10-11：**还没查过 ⇒ 那一颗整颗收着**（用户原话：「没有检查的时候先隐藏
@@ -13818,10 +13919,12 @@ static void runInstanceUpdateFilterTests() {
                   .arg(updateChipTextBefore,
                        InstanceFilesPage::stateFilterButtonText(
                            InstanceFilesPage::StateFilter::Update, 0)));
-        check(answerer.answered.size() == 1,
-              "★★ T28.2 那一趟真的跑完了（弹出来的那份报告正好一条 = 反查 + **批量那一发**"
-              "+ judgeUpdate 全接上了）",
-              QStringLiteral("弹了 %1 条").arg(answerer.answered.size()));
+        // ★ 2026-10-13（§7.1）：结论现在是**开成一整页**（「更新中心」），不再是弹一段文本
+        //   —— 判据跟着换成"那一页正好开了一次、而且开的是它"。
+        check(centerPageCount == 1 && centerPageTitle == UpdateCenterPage::windowTitle(),
+              "★★ T28.2 那一趟真的跑完了（反查 + **批量那一发** + judgeUpdate 全接上了 ⇒ "
+              "正好开出一页「更新中心」）",
+              QStringLiteral("开了 %1 页：%2").arg(centerPageCount).arg(centerPageTitle));
         check(comboCount == 4,
               "★ T28.2 模组那一页有「可更新」这一档（下载页里真有那一栏的四页之一）—— "
               "★ 2026-10-10 起量的是 `canFilterUpdates()`（那一档在不在），不是「露着几颗」",
@@ -14173,8 +14276,15 @@ static void runUpdateCheckSourceFallbackTests() {
             return;
         }
 
-        PromptAnswerer answerer({0});
-        answerer.start();
+        // ★ 2026-10-13（§7.1）：这一趟的结论**不再弹一段文本**，而是开成**一整页**
+        //   （「更新中心」）。所以这里换成 `PageCloser`（它每一拍看一眼有没有整页开着、
+        //   把上面那几格读下来再点返回）—— 和体检报告页那几节用的是同一件东西。
+        //
+        // ★ 点完按钮**马上收掉实例设置那一页**：新页只能在覆盖层空着的时候开，而"让位"
+        //   要等这一页自己的嵌套循环退出去才生效（理由逐字写在 T28 那一节里）。
+        PageCloser closer;
+        closer.setOnlyTitle(UpdateCenterPage::windowTitle());
+        closer.start();
         QTimer::singleShot(0, [&] {
             OverlayHost *host = currentPageOverlay();
             auto *page = host != nullptr ? host->findChild<InstanceSettingsDialog *>() : nullptr;
@@ -14186,7 +14296,6 @@ static void runUpdateCheckSourceFallbackTests() {
                     InstanceSettingsDialog::checkUpdatesButtonName())) {
                 button->click();
             }
-            pumpUntil([&] { return !answerer.answered.isEmpty(); }, 20000);
             if (auto *back =
                     host->findChild<QPushButton *>(OverlayHost::overlayBackButtonName())) {
                 back->click();
@@ -14197,7 +14306,10 @@ static void runUpdateCheckSourceFallbackTests() {
         QMetaObject::invokeMethod(&w, "openInstanceSettings", Qt::DirectConnection,
                                   Q_ARG(QString, idV));
         QApplication::processEvents();
-        answerer.stop();
+        // 这一层空着 ⇒ 那一趟结果回来时自己开出「更新中心」，`closer` 记一条再收掉它。
+        pumpUntil([&closer] { return !closer.seen.isEmpty(); }, 20000);
+        closer.stop();
+        pumpUntil([] { return currentOverlay() == nullptr; }, 8000);
 
         // 发出去的那几发（请求行里"含"这个串的有几发）。
         const auto countMatching = [&api](const QString &needle) {
@@ -14210,39 +14322,52 @@ static void runUpdateCheckSourceFallbackTests() {
             return n;
         };
 
-        check(answerer.answered.size() == 1,
-              "T32.1 那一趟真的跑完了、而且只弹了一份报告",
-              QStringLiteral("弹了 %1 条").arg(answerer.answered.size()));
-        const QString report =
-            answerer.answered.isEmpty() ? QString() : answerer.answered.first().text;
-        check(report.contains(ModDependencies::updateSummaryText(2, 1)),
-              "★★ T32.2 报告说的是「检查了 **2** 个资源，1 个有新版本」—— 盘上就是两个文件"
+        check(closer.seen.size() == 1,
+              "T32.1 那一趟真的跑完了、而且**只开了一页**（结论现在是开成一整页，不再弹一段字）",
+              QStringLiteral("开了 %1 页").arg(closer.seen.size()));
+        const PageCloser::Seen seen = closer.seen.isEmpty() ? PageCloser::Seen() : closer.seen.first();
+        check(seen.title == UpdateCenterPage::windowTitle(),
+              "T32.1 开出来的那一页就是「更新中心」（页眉上那行字）", seen.title);
+        check(seen.updateCenterSummary.contains(ModDependencies::updateSummaryText(2, 1)),
+              "★★ T32.2 顶上那句说的是「检查了 **2** 个资源，1 个有新版本」—— 盘上就是两个文件"
               "（那个双认的在两家各留了一条记录，从前这里会写成 3、而名单里同一行出现两次）",
-              report);
+              seen.updateCenterSummary);
         // ★★ 这一条是这一节的正题：**一条都不能是「说不清」**。退回问 CurseForge 那一发
-        //    要是没发出去（或者发出去没接上），那个双认的文件就只剩"说不清"。
-        check(!report.contains(ModDependencies::updateUnknownText()),
+        //    要是没发出去（或者发出去没接上），那个双认的文件那一行就只剩"说不清"。
+        const QString unknownText = MainWindowUI::updateCenterRowStateText(2, 0, QString());
+        check(!seen.updateCenterRowStates.contains(unknownText),
               "★★ T32.2 名单里**一条「说不清」都没有** —— 那一条已经在 CurseForge 那边"
               "问出口了（批量那一发对它一个答案都没给，全靠退回那一发兜住）",
-              report);
+              seen.updateCenterRowStates.join(QStringLiteral(" / ")));
         // 行数 = 2（每一条一行）。多于 2 = 同一个文件出了两行。
-        int lineCount = 0;
-        for (const QString &line : report.split(QLatin1Char('\n'))) {
-            if (line.startsWith(QStringLiteral("· "))) {
-                ++lineCount;
-            }
-        }
-        check(lineCount == 2, "★★ T32.2 名单正好两行（一个文件一行 —— 同一个模组出两行的话"
-                              "用户会以为盘上有两个一样的模组）",
-              QStringLiteral("%1 行").arg(lineCount));
-        check(report.count(dualTitle) == 1,
+        check(seen.updateCenterRowNames.size() == 2,
+              "★★ T32.2 名单正好两行（一个文件一行 —— 同一个模组出两行的话用户会以为盘上"
+              "有两个一样的模组）",
+              QStringLiteral("%1 行").arg(seen.updateCenterRowNames.size()));
+        check(seen.updateCenterRowNames.count(dualTitle) == 1,
               "★★ T32.2 那个两家都认得出的模组在名单里**只出现一次**",
-              QStringLiteral("%1 次").arg(report.count(dualTitle)));
-        check(report.contains(QStringLiteral("有新版本")) &&
-                  report.contains(dualTitle) && report.contains(cfOnlyTitle),
-              "★★ T32.2 两行分别判出了结论：双认的那条「有新版本」（答它的是 CurseForge "
-              "那一发）、只有 CF 认得的那条「已是最新」",
-              report);
+              QStringLiteral("%1 次").arg(seen.updateCenterRowNames.count(dualTitle)));
+        check(seen.updateCenterRowNames.contains(dualTitle) &&
+                  seen.updateCenterRowNames.contains(cfOnlyTitle),
+              "★★ T32.2 两行写的是**名字**（不是文件名）：双认的和只有 CF 认得的那两个都在"
+              "（名字取不到时才退回文件名）",
+              seen.updateCenterRowNames.join(QStringLiteral(" / ")));
+        // 状态那一格：双认的那条「可更新到 …」（答它的是 CurseForge 那一发）、只有 CF 认得
+        // 的那条「已是最新（…）」。
+        check(seen.updateCenterRowStates.size() == 2 &&
+                  seen.updateCenterRowStates.at(0).startsWith(QStringLiteral("可更新到")) &&
+                  seen.updateCenterRowStates.at(1).startsWith(QStringLiteral("已是最新")),
+              "★★ T32.2 两行分别判出了结论：双认的「可更新到 X」（答它的是 CurseForge 那一发）、"
+              "只有 CF 认得的「已是最新」",
+              seen.updateCenterRowStates.join(QStringLiteral(" / ")));
+        // 两组那一节：**组头自己带条数**，而且是"能动手的那一组在上面"。
+        check(seen.updateCenterGroupTitles.size() == 2 &&
+                  seen.updateCenterGroupTitles.at(0) ==
+                      MainWindowUI::updateCenterOutdatedGroupTitleText(1) &&
+                  seen.updateCenterGroupTitles.at(1) ==
+                      MainWindowUI::updateCenterRestGroupTitleText(1),
+              "★★ T32.2 两组都摆着、条数各是 1，而且**能动手的那一组在上面**",
+              seen.updateCenterGroupTitles.join(QStringLiteral(" / ")));
 
         // ---------- 那几发请求本身 ----------
         check(countMatching(QStringLiteral("/version_files/update")) == 1,
@@ -14276,6 +14401,525 @@ static void runUpdateCheckSourceFallbackTests() {
 
     restoreSettings();
     check(AppPaths::minecraftDir() == originalDir, "T32.9 数据根目录换回来了");
+}
+
+/// 按 objectName 找**最新那一代**控件（同一个名字下面同时躺着好几代的时候取最后一个）。
+///
+/// 为什么需要它：更新中心那一页重喂走的是 `deleteLater()`，而**从嵌套事件循环里发出的
+/// 延迟删除要等那一层退出去才真的派发**（Qt 的规矩：延迟删除事件带着发出时的循环层号，
+/// 只有回到那一层才放它走）。所以这一页开着的整段时间里，同一个 objectName 底下会同时
+/// 躺着好几代控件 —— 取第一个读到的是上一代（还写着「可更新到 2.0」），断言会红在一个
+/// 假象上。新控件是后 append 进父对象那张孩子表的，所以**最后一个**就是最新那一代。
+template <typename T> T *newestByObjectName(QObject *parent, const QString &name) {
+    const QList<T *> all = parent->findChildren<T *>(name);
+    return all.isEmpty() ? nullptr : all.constLast();
+}
+
+// =========================================================================
+// T38. 「更新中心」上那几颗动作（coding plan §7.1，2026-10-13）
+//
+// 那一页**长什么样**（两组、三颗 chip、勾选框）在 ui_check 的 U33 那一节里量；这一节量的
+// 是**按下去之后产品真的做了什么**：
+//
+//   · 「忽略这一版」→ 账本（`<数据目录>/wtfml.updates`）里记下"要换上的**那一版**的 id"，
+//     那一行当场写成「已忽略这一版（2.0）」、那一颗翻成「不再忽略」；
+//   · 「不再忽略」/「不再固定」→ 那一笔记录清掉、那一行回到「可更新到 2.0」；
+//   · 「固定这一版」→ 记的是**盘上那一份的内容 sha1**（不是版本号），那一行写「已固定」；
+//   · 那一行自己的「更新」→ **先摆回滚点**再动手。这一批我们**故意让它失败**（那一版给的
+//     地址指向假服务器上一个不存在的路径）⇒ 正好量到"失败了能退回去"这条承诺：失败框里
+//     **逐条**说着每个资源的结果、更新中心自己又开回来了、底下那颗「撤销上一次更新」露着；
+//   · 「撤销上一次更新」→ 问一句 → 把文件退回更新前那一份 → **用掉**那份回滚点。
+//
+// 这几段任何一处断了，屏幕上的样子都是"按了没反应"或者"那句话没变" —— 既不像崩溃也不像
+// 报错。只有把真的 MainWindow 立起来、真按那几颗 chip、真读盘才量得到。
+//
+// ★ 走法上有一处**不是随手写的**：这一页从开到关一直卡在 `OverlayHost::execPage()` 那一层
+//   嵌套事件循环里，而上面那些动作全在**这一层里面**发生（"收页"是 reject、下一件事由
+//   MainWindow 排到下一轮）。所以这里用一台 10 毫秒的自走定时器按阶段往下推，每一阶段**先
+//   等到该看到的样子再动手** —— 谁先谁后由产品那边决定，不由测试决定（"点完就往下走"的
+//   量法会读到上一代控件，见 `newestByObjectName()` 那段）。外面那一层只 `pumpUntil` 到
+//   最后一阶段为止（和 T28/T32 是同一个形状）。
+// =========================================================================
+static void runUpdateCenterActionTests() {
+    const QString originalDir = AppPaths::minecraftDir();
+    QTemporaryDir root;
+    check(root.isValid(), "T38.0 临时数据根目录建出来了");
+    if (!root.isValid()) {
+        return;
+    }
+
+    FakeLookupApi api;
+    check(api.start(), "T38.0 假接口服务器起来了");
+
+    QSettings sandbox;
+    const QVariant foldersBefore = sandbox.value(QStringLiteral("Launcher/Folders"));
+    const QVariant currentBefore = sandbox.value(QStringLiteral("Launcher/CurrentFolder"));
+    const QVariant sourceBefore = sandbox.value(QStringLiteral("Download/Source"));
+    const QVariant modrinthBefore = sandbox.value(QStringLiteral("Launcher/ModrinthApiBase"));
+    const QVariant curseForgeBefore = sandbox.value(QStringLiteral("Launcher/CurseForgeApiBase"));
+    const QString lastVersionBefore = LauncherSettings().lastLaunchedVersion();
+    const auto restoreSettings = [&] {
+        sandbox.setValue(QStringLiteral("Launcher/Folders"), foldersBefore);
+        sandbox.setValue(QStringLiteral("Launcher/CurrentFolder"), currentBefore);
+        sandbox.setValue(QStringLiteral("Download/Source"), sourceBefore);
+        sandbox.setValue(QStringLiteral("Launcher/ModrinthApiBase"), modrinthBefore);
+        sandbox.setValue(QStringLiteral("Launcher/CurseForgeApiBase"), curseForgeBefore);
+        sandbox.sync();
+        LauncherSettings().setLastLaunchedVersion(lastVersionBefore);
+        AppPaths::setMinecraftDir(originalDir);
+    };
+    sandbox.setValue(QStringLiteral("Launcher/Folders"), QStringList({root.path()}));
+    sandbox.setValue(QStringLiteral("Launcher/CurrentFolder"), root.path());
+    sandbox.setValue(QStringLiteral("Download/Source"),
+                     LauncherSettings::downloadSourceKey(DownloadSource::Official));
+    sandbox.setValue(QStringLiteral("Launcher/ModrinthApiBase"), api.modrinthBase());
+    sandbox.setValue(QStringLiteral("Launcher/CurseForgeApiBase"), api.curseForgeBase());
+    sandbox.sync();
+    AppPaths::setMinecraftDir(root.path());
+    QDir().mkpath(root.path() + QStringLiteral("/libraries"));
+    QDir().mkpath(root.path() + QStringLiteral("/assets"));
+
+    // 报得出游戏版本号和加载器的实例（和 T28/T32 同一个手法、同一个理由）。
+    const QString idV = QStringLiteral("1.97.4");
+    const QDir versionsDir(root.path() + QStringLiteral("/versions"));
+    makeInstalledVersion(versionsDir, idV);
+    makeVersionMeta(versionsDir, idV,
+                    QByteArrayLiteral("{\"loaderName\":\"Fabric\",\"loaderVersion\":\"0.15.11\"}"));
+    const QString dirV = AppPaths::versionDir(idV);
+
+    const QByteArray originalBytes = QByteArrayLiteral("T38-ORIGINAL-MOD");
+    const QString modJar = dirV + QStringLiteral("/mods/更新中心模组.jar");
+    writeFileAt(modJar, originalBytes);
+    // ② 一条**禁用着**的、内容和上面那一份**逐字节一样**（⇒ 同一个 sha1 ⇒ 真查的话它照样
+    //    判得出"可更新"）。它的用处只有一个：量这一趟**整个跳过**了它，而且"更新"那一批
+    //    也**没有**把它启用回来（§7.1 最后那半句「禁用资源保持跳过，不擅自启用或更新」）。
+    const QString disabledJar = dirV + QStringLiteral("/mods/禁用模组.jar.disabled");
+    writeFileAt(disabledJar, originalBytes);
+
+    ModpackExport::FileHashes hMod;
+    QString hashError;
+    const bool hashed = ModpackExport::hashFile(modJar, true, &hMod, &hashError);
+    check(hashed, "T38.0 那个模组的 sha1 算出来了（用产品自己那份实现）", hashError);
+    if (!hashed) {
+        restoreSettings();
+        return;
+    }
+
+    const QString project = QStringLiteral("UCPROJ38");
+    const QString modTitle = QStringLiteral("更新中心模组");
+    const QString targetVersionId = QStringLiteral("VN38");
+    const QString targetVersionNumber = QStringLiteral("2.0");
+    const QString targetFileName = QStringLiteral("更新中心模组-2.0.jar");
+    // ★★ 这一版给的地址指向**假服务器上一个不存在的路径**（那台机器只认得那几条反查路由，
+    //    别的一律 404）—— 于是这一批**必定失败**，而且**一个字节的外网都不碰**。选 404 而不
+    //    选别的：回滚点是**动手之前**摆的，所以"失败了"和"留了回滚点"这两件事同时成立，
+    //    正好把「更新前创建轻量回滚点，失败时可恢复原文件」那半句量完整。
+    const QString deadUrl = api.modrinthBase() + QStringLiteral("/nope-38.jar");
+
+    // `POST /v2/version_files`：哈希 → 项目号。
+    api.modrinthReply = QByteArrayLiteral("{\"") + hMod.sha1.toUtf8() +
+                        QByteArrayLiteral("\":{\"project_id\":\"") + project.toUtf8() +
+                        QByteArrayLiteral("\",\"version_number\":\"1.0\",\"files\":[{\"hashes\":{"
+                                          "\"sha1\":\"") +
+                        hMod.sha1.toUtf8() +
+                        QByteArrayLiteral("\",\"sha512\":\"cafe\"},"
+                                          "\"url\":\"https://cdn.modrinth.com/data/uc.jar\","
+                                          "\"filename\":\"更新中心模组.jar\",\"size\":10}]}}");
+    api.modrinthProjectsReply =
+        QByteArrayLiteral("[{\"id\":\"") + project.toUtf8() +
+        QByteArrayLiteral("\",\"title\":\"") + modTitle.toUtf8() +
+        QByteArrayLiteral("\",\"slug\":\"uc\",\"description\":\"一个模组\","
+                          "\"game_versions\":[\"1.97.4\"],\"loaders\":[\"fabric\"]}]");
+    // `POST /v2/version_files/update`：那一拨要换上的那一版（判"可更新"靠的就是它 ——
+    // 这一条的文件 sha1 和盘上那份**不一样**）。
+    api.modrinthVersionFilesUpdateReply =
+        QByteArrayLiteral("{\"") + hMod.sha1.toUtf8() +
+        QByteArrayLiteral("\":{\"id\":\"") + targetVersionId.toUtf8() +
+        QByteArrayLiteral("\",\"version_number\":\"") + targetVersionNumber.toUtf8() +
+        QByteArrayLiteral("\",\"date_published\":\"2026-09-01T00:00:00Z\","
+                          "\"game_versions\":[\"1.97.4\"],\"loaders\":[\"fabric\"],"
+                          "\"files\":[{\"hashes\":{"
+                          "\"sha1\":\"2222222222222222222222222222222222222222\","
+                          "\"sha512\":\"aa\"},"
+                          "\"url\":\"") +
+        deadUrl.toUtf8() +
+        QByteArrayLiteral("\",\"filename\":\"") + targetFileName.toUtf8() +
+        QByteArrayLiteral("\",\"size\":10,\"primary\":true}]}}");
+    // CurseForge 那一支也要答得上话（那一趟反查每回都发指纹那一发）：空结果、没有未匹配的。
+    api.curseForgeReply =
+        QByteArrayLiteral("{\"data\":{\"exactMatches\":[],\"unmatchedFingerprints\":[]}}");
+
+    TokenStore::clear(TokenStore::microsoftKey());
+    TokenStore::clear(TokenStore::minecraftKey());
+    TokenStore::clear(TokenStore::accountsKey());
+    TokenStore::clear(TokenStore::currentUuidKey());
+    const QString accountName = QStringLiteral("T38User");
+    seedOfflineRandomSkin(accountName, kSeededSkinUrl, QColor(0x60, 0x40, 0x90));
+    QString offlineError;
+    check(AccountStore::addOffline(accountName, &offlineError),
+          "T38.0 建一个离线账号并设成当前身份（这一节一个外网请求都不发）", offlineError);
+
+    // 那一笔记录在这本账里的键（**相对实例目录**那一条，唯一出处 `UpdatePolicy::storeKey()`）。
+    const QString policyKey = UpdatePolicy::storeKey(dirV, modJar);
+    check(!policyKey.isEmpty(), "T38.0 那一笔在账本里的键拼得出来", policyKey);
+    check(!QFileInfo::exists(UpdatePolicy::storePath()) &&
+              !QFileInfo::exists(UpdateRollback::snapshotDir(idV)),
+          "T38.0 开局是干净的：账本和回滚点都还不存在（后面每一条「写下去了」才说得通）");
+
+    {
+        MainWindow w;
+        w.show();
+        QApplication::processEvents();
+        OverlayHost *overlay = w.ui() != nullptr ? w.ui()->overlay() : nullptr;
+        check(overlay != nullptr, "T38.1 覆盖层拿得到（那一页开在它上面）");
+        if (overlay == nullptr) {
+            restoreSettings();
+            return;
+        }
+
+        // 每一回都从**盘上**重新读一遍那本账：读内存里那份等于让产品自己证明自己。
+        const auto policyEntry = [&]() {
+            QString problem;
+            const UpdatePolicy::Store store =
+                UpdatePolicy::load(UpdatePolicy::storePath(), &problem);
+            return UpdatePolicy::entryOf(store, idV, policyKey);
+        };
+        const auto snapshotFiles = [&]() -> int {
+            bool has = false;
+            return UpdateRollback::read(idV, &has).fileCount();
+        };
+        const auto centrePageOpen = [&]() -> bool {
+            OverlayHost *host = currentPageOverlay();
+            if (host == nullptr || !host->pageOpen()) {
+                return false;
+            }
+            auto *title = host->findChild<QLabel *>(OverlayHost::overlayTitleLabelName());
+            if (title == nullptr || title->text() != UpdateCenterPage::windowTitle()) {
+                return false;
+            }
+            auto *page = host->findChild<UpdateCenterPage *>(MainWindowUI::updateCenterPageName());
+            return page != nullptr && page->isVisible();
+        };
+        const auto rowState = [&]() -> QString {
+            OverlayHost *host = currentPageOverlay();
+            if (host == nullptr) {
+                return QString();
+            }
+            auto *label = newestByObjectName<QLabel>(
+                host, MainWindowUI::updateCenterRowStateName(0));
+            return label == nullptr ? QString() : label->text();
+        };
+        const auto chipText = [&](const QString &name) -> QString {
+            OverlayHost *host = currentPageOverlay();
+            if (host == nullptr) {
+                return QString();
+            }
+            auto *button = newestByObjectName<QPushButton>(host, name);
+            return button == nullptr ? QString() : button->text();
+        };
+        const auto clickChip = [&](const QString &name) -> bool {
+            OverlayHost *host = currentPageOverlay();
+            if (host == nullptr) {
+                return false;
+            }
+            auto *button = newestByObjectName<QPushButton>(host, name);
+            if (button == nullptr) {
+                return false;
+            }
+            button->click();
+            return true;
+        };
+        const auto countRows = [&]() -> int {
+            OverlayHost *host = currentPageOverlay();
+            if (host == nullptr) {
+                return 0;
+            }
+            int n = 0;
+            while (host->findChild<QWidget *>(MainWindowUI::updateCenterRowName(n)) != nullptr) {
+                ++n;
+            }
+            return n;
+        };
+        const auto undoButton = [&]() -> QPushButton * {
+            OverlayHost *host = currentPageOverlay();
+            if (host == nullptr) {
+                return nullptr;
+            }
+            return newestByObjectName<QPushButton>(host, MainWindowUI::updateCenterUndoName());
+        };
+
+        // 那一批失败时会弹一份"逐条结果"的框、撤销时会问一句 —— 都排一个 0 号答话器答掉。
+        PromptAnswerer answerer({0});
+        answerer.start();
+
+        const QString stateOutdated =
+            MainWindowUI::updateCenterRowStateText(0, 0, targetVersionNumber);
+        const QString stateIgnoredText =
+            MainWindowUI::updateCenterRowStateText(0, 1, targetVersionNumber);
+        const QString statePinnedText = MainWindowUI::updateCenterRowStateText(0, 2, QString());
+
+        int stage = 0;
+        QElapsedTimer driving;
+        driving.start();
+        int rowsOnPage = -1;
+        QString stateInitial;
+        QString ignoreChipInitial;
+        QString stateIgnored;
+        QString ignoreChipToggled;
+        QString stateUnignored;
+        QString statePinned;
+        QString pinChipToggled;
+        QString stateUnpinned;
+        bool policyIgnored = false;
+        bool policyCleared = false;
+        bool policyPinned = false;
+        bool policyUnpinned = false;
+        bool undoShownAfterFail = false;
+        QString undoTextAfterFail;
+        int snapshotAfterFail = -1;
+        bool undoHiddenAfterUndo = false;
+        int snapshotAfterUndo = -1;
+        bool jarBackAfterUndo = false;
+        QString stateAfterUndo;
+
+        QTimer driver;
+        driver.setInterval(10);
+        QObject::connect(&driver, &QTimer::timeout, [&] {
+            if (driving.elapsed() > 90000) {
+                driver.stop();  // 兜底：不让测试挂在一个永远不来的阶段上
+                return;
+            }
+            switch (stage) {
+            case 0: {
+                if (!centrePageOpen()) {
+                    return;  // 那一页还没开出来（这会儿多半还开着实例设置）
+                }
+                rowsOnPage = countRows();
+                stateInitial = rowState();
+                ignoreChipInitial = chipText(MainWindowUI::updateCenterRowIgnoreName(0));
+                if (!stateInitial.startsWith(QStringLiteral("可更新到"))) {
+                    return;  // 结论还没摆上来
+                }
+                clickChip(MainWindowUI::updateCenterRowIgnoreName(0));
+                stage = 1;
+                return;
+            }
+            case 1: {
+                // 等它**当场重喂**过一遍：那一行得写成「已忽略这一版（2.0）」。
+                if (!centrePageOpen() || rowState() != stateIgnoredText) {
+                    return;
+                }
+                stateIgnored = rowState();
+                ignoreChipToggled = chipText(MainWindowUI::updateCenterRowIgnoreName(0));
+                policyIgnored = policyEntry().ignoreVersionId == targetVersionId;
+                clickChip(MainWindowUI::updateCenterRowIgnoreName(0));  // 「不再忽略」
+                stage = 2;
+                return;
+            }
+            case 2: {
+                if (!centrePageOpen() || rowState() != stateOutdated) {
+                    return;
+                }
+                stateUnignored = rowState();
+                policyCleared = policyEntry().ignoreVersionId.isEmpty();
+                clickChip(MainWindowUI::updateCenterRowPinName(0));
+                stage = 3;
+                return;
+            }
+            case 3: {
+                if (!centrePageOpen() || rowState() != statePinnedText) {
+                    return;
+                }
+                statePinned = rowState();
+                pinChipToggled = chipText(MainWindowUI::updateCenterRowPinName(0));
+                policyPinned = policyEntry().pinnedSha1 == hMod.sha1;
+                clickChip(MainWindowUI::updateCenterRowPinName(0));  // 「不再固定」
+                stage = 4;
+                return;
+            }
+            case 4: {
+                if (!centrePageOpen() || rowState() != stateOutdated) {
+                    return;
+                }
+                stateUnpinned = rowState();
+                policyUnpinned = policyEntry().pinnedSha1.isEmpty();
+                clickChip(MainWindowUI::updateCenterRowUpdateName(0));  // 就更新这一条
+                stage = 5;
+                return;
+            }
+            case 5: {
+                // 那一批跑完了、更新中心**自己又开回来了**（失败 ⇒ 底下那颗「撤销上一次
+                // 更新」露着）。等它露出来再动手。
+                if (!centrePageOpen()) {
+                    return;
+                }
+                QPushButton *undo = undoButton();
+                if (undo == nullptr || undo->isHidden()) {
+                    return;
+                }
+                undoShownAfterFail = true;
+                undoTextAfterFail = undo->text();
+                snapshotAfterFail = snapshotFiles();
+                // 把那一个文件改成别的字节（"更新之后你自己又动过它"那种样子）—— 撤销必须
+                // 真把它退回去，才说明退的是**内容**，而不是"反正一样就什么都没干"。
+                writeFileAt(modJar, QByteArrayLiteral("T38-CHANGED-BY-USER"));
+                undo->click();  // → 问一句（答话器答它）→ 真还原
+                stage = 6;
+                return;
+            }
+            case 6: {
+                if (!centrePageOpen()) {
+                    return;
+                }
+                QPushButton *undo = undoButton();
+                if (undo == nullptr || !undo->isHidden()) {
+                    return;  // 撤销那条路还没走完（那一问还开着 / 还没重喂）
+                }
+                undoHiddenAfterUndo = undo->isHidden();
+                snapshotAfterUndo = snapshotFiles();
+                jarBackAfterUndo = readBytesAt(modJar) == originalBytes;
+                stateAfterUndo = rowState();
+                OverlayHost *host = currentPageOverlay();
+                if (auto *back = host->findChild<QPushButton *>(
+                        OverlayHost::overlayBackButtonName())) {
+                    back->click();  // 收页（返回箭头 = reject）
+                } else {
+                    host->closeOverlay();
+                }
+                stage = 7;
+                return;
+            }
+            default:
+                return;
+            }
+        });
+        driver.start();
+
+        // 先开实例设置 → 点「检查更新」→ **立刻收掉这一页**（理由逐字写在 T28 那一节里：
+        // 结果回来时要开的新页只能在覆盖层空着的时候开，而"让位"要等这一页自己的嵌套循环
+        // 退出去才生效）→ 回到底下那一层，让驱动器按阶段往下走。
+        bool checkedFound = false;
+        QTimer::singleShot(0, [&] {
+            OverlayHost *host = currentPageOverlay();
+            auto *page = host != nullptr ? host->findChild<InstanceSettingsDialog *>() : nullptr;
+            if (page == nullptr) {
+                return;
+            }
+            page->showPage(QStringLiteral("mod"));
+            if (auto *button = page->findChild<QPushButton *>(
+                    InstanceSettingsDialog::checkUpdatesButtonName())) {
+                checkedFound = true;
+                button->click();
+            }
+            if (auto *back = host->findChild<QPushButton *>(OverlayHost::overlayBackButtonName())) {
+                back->click();
+            } else {
+                host->closeOverlay();
+            }
+        });
+        QMetaObject::invokeMethod(&w, "openInstanceSettings", Qt::DirectConnection,
+                                  Q_ARG(QString, idV));
+        QApplication::processEvents();
+
+        const bool reachedEnd = pumpUntil([&] { return stage >= 7; }, 90000);
+        pumpUntil([] { return currentOverlay() == nullptr; }, 8000);
+        driver.stop();
+        answerer.stop();
+
+        check(checkedFound, "T38.1 实例设置那一页上「检查更新」那颗按钮找到了");
+        check(reachedEnd,
+              "★★ T38.2 整条路走完了：忽略这一版 → 不再忽略 → 固定这一版 → 不再固定 → "
+              "更新 → 撤销",
+              QStringLiteral("停在第 %1 阶段").arg(stage));
+        if (!reachedEnd) {
+            check(false, "T38.2 上面那一步没走完，后面那几条断言不看了");
+        }
+        check(rowsOnPage == 1,
+              "★★ T38.2 那一页上只有**一行** —— 那个禁用着的文件（内容和它逐字节一样、真查的"
+              "话照样判得出「可更新」）**整个跳过了**（§7.1：禁用资源保持跳过）",
+              QStringLiteral("%1 行").arg(rowsOnPage));
+
+        // ---------- 「忽略这一版」/「不再忽略」----------
+        check(stateInitial == stateOutdated,
+              "T38.2 还没动过的时候那一行写的是「可更新到 2.0」", stateInitial);
+        check(ignoreChipInitial == MainWindowUI::updateCenterRowIgnoreText(),
+              "T38.2 那一颗写着「忽略这一版」", ignoreChipInitial);
+        check(stateIgnored == stateIgnoredText && ignoreChipToggled
+                  == MainWindowUI::updateCenterRowIgnoreUndoText(),
+              "★★ T38.3 按下「忽略这一版」**当场**就变了：那一行写成「已忽略这一版（2.0）」、"
+              "那一颗翻成「不再忽略」（不重喂的话屏幕上一点变化都没有 —— 用户只能靠「再点"
+              "一次看看会不会还写那句话」来判断自己按中了没有）",
+              stateIgnored + QStringLiteral(" / ") + ignoreChipToggled);
+        check(policyIgnored,
+              "★★ T38.3 账本（wtfml.updates）里记的是**要换上的那一版**的 id（VN38）—— "
+              "写的是版本号而不是文件名：作者再发一版时这一条要自己回来");
+        check(stateUnignored == stateOutdated && policyCleared,
+              "★★ T38.3 「不再忽略」把那一笔清掉了、那一行也回到「可更新到 2.0」",
+              stateUnignored);
+
+        // ---------- 「固定这一版」/「不再固定」----------
+        check(statePinned == statePinnedText && pinChipToggled
+                  == MainWindowUI::updateCenterRowPinUndoText(),
+              "★★ T38.3 按下「固定这一版」：那一行写「已固定（不再提示）」、那一颗翻成"
+              "「不再固定」",
+              statePinned + QStringLiteral(" / ") + pinChipToggled);
+        check(policyPinned,
+              "★★ T38.3 固定记的是**盘上那一份的内容 sha1**（不是版本号）：判据手上只有 "
+              "sha1，编一个不存在的判据就是这个功能塌掉的形状");
+        check(stateUnpinned == stateOutdated && policyUnpinned,
+              "T38.3 「不再固定」也把那一笔清掉了、那一行回到「可更新到 2.0」", stateUnpinned);
+
+        // ---------- 「更新」那一批：失败、回滚点、逐条结果 ----------
+        check(undoShownAfterFail && undoTextAfterFail == MainWindowUI::updateCenterUndoText(1),
+              "★★ T38.4 那一批失败之后，更新中心**自己又开回来了**、底下那颗写的是"
+              "「撤销上一次更新（1 个文件）」（用户按完那一颗之后下一步就在这里：要么看看"
+              "剩下的、要么退回去）",
+              undoTextAfterFail);
+        check(snapshotAfterFail == 1,
+              "★★ T38.4 **动手之前**真留了一份回滚点（盘上那份清单里就是那 1 个文件）—— "
+              "§7.1「更新前创建轻量回滚点」这一条在界面按下去的那条路上真的走到了",
+              QStringLiteral("清单里 %1 个").arg(snapshotAfterFail));
+        {
+            // 失败那一框里**逐条**说着每个资源的结果（§7.1「不只显示总数」）。这一条只有
+            // 用户看得见的地方说得清 —— `m_taskManager` 是私有的，而屏幕上的那一框就是
+            // 产品对用户交的账。
+            bool reported = false;
+            QString reportedText;
+            for (const PromptAnswerer::Answered &one : answerer.answered) {
+                if (one.title == QStringLiteral("更新没能全都换上")) {
+                    reported = true;
+                    reportedText = one.text;
+                }
+            }
+            check(reported
+                      && reportedText.contains(QFileInfo(modJar).fileName()
+                                              + QStringLiteral(" —— 没换成功")),
+                  "★★ T38.4 失败那一框里**逐条**列着每个资源的结果（「· 更新中心模组.jar —— "
+                  "没换成功：…」），不是只说一句「有 1 个没换掉」",
+                  reportedText);
+        }
+        check(QFile::exists(disabledJar)
+                  && !QFile::exists(dirV + QStringLiteral("/mods/禁用模组.jar")),
+              "★★ T38.4 那个禁用着的文件**还是禁用着**（那一批没有顺手把它启用回来 —— "
+              "§7.1：禁止资源保持跳过，不擅自启用或更新）");
+
+        // ---------- 「撤销上一次更新」----------
+        check(undoHiddenAfterUndo && jarBackAfterUndo,
+              "★★ T38.5 「撤销上一次更新」真把文件退回更新前那一份了（内容逐字节回到原来"
+              "那些字节）",
+              QStringLiteral("退回来了：%1").arg(jarBackAfterUndo ? QStringLiteral("是")
+                                                                   : QStringLiteral("不是")));
+        check(snapshotAfterUndo == 0 && !QFileInfo::exists(UpdateRollback::snapshotDir(idV)),
+              "★★ T38.5 那一份回滚点**用掉了**（撤销成功之后清单和目录都不在了）—— 留着的"
+              "话下一次开页还会露一颗「撤销上一次更新」，而它指向的那次更新已经不存在了",
+              QStringLiteral("清单里 %1 个").arg(snapshotAfterUndo));
+        check(stateAfterUndo.startsWith(QStringLiteral("可更新到")),
+              "T38.5 退回原样之后那一行照样写着「可更新到 2.0」（盘上那份确实还是老的）",
+              stateAfterUndo);
+    }
+
+    restoreSettings();
+    check(AppPaths::minecraftDir() == originalDir, "T38.9 数据根目录换回来了");
 }
 
 static void runThemeImageRowTests() {
@@ -28047,6 +28691,11 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
     // 另一半 —— 那一趟里"同一个文件被两家各认了一遍"这件事（见那一节的开头那段）。
     header("T32. 更新检测：一个文件只查一家 + 退回问 CurseForge（离线，假接口）");
     runUpdateCheckSourceFallbackTests();
+
+    // 同样排在**最后**：这一节造真 MainWindow、换数据根目录（节尾逐字还原），还从那一页
+    // 上真按那几颗 chip（忽略 / 固定 / 更新 / 撤销），并且**真读盘**核那本账和那份回滚点。
+    header("T38. 更新中心上那几颗动作：忽略 / 固定 / 逐条更新 / 撤销回滚点（离线，假接口）");
+    runUpdateCenterActionTests();
 
     // 同样排在**最后**：这一节也要造 MainWindow、也要换数据根目录（节尾逐字还原），
     // 还会往**主题规格**和 `Theme/…` 那几个设置键里写东西（节尾一样还原）。它一个原生框

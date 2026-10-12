@@ -1079,6 +1079,15 @@ public:
         /// 可以空（空了就只比大小）。Modrinth 每条文件都给了 sha1，正常不会是空的。
         QString sha1;
         qint64 size = -1;
+        /// ★ 2026-10-13（coding plan §7.1 的「更新中心」）：这一条落在哪个目录。**空 =
+        /// 用 `downloadResourceFiles()` 那个 `destinationDir`**（原来那一路一个字节都不变）。
+        ///
+        /// 为什么需要"按条带目录"：更新中心那一批是**用户在同一页上勾出来的**，勾中的那些
+        /// 可以跨类（`mods/` 里两个 + `resourcepacks/` 里一个），而"换成哪一版"这件事是
+        /// **就地换**的 —— 那一条原来在哪个目录，新的那一份就回哪个目录。一个批次只有一个
+        /// 目录的话，要么跨类的那几条下不了，要么就得按目录拆成好几批（而
+        /// `downloadResourceFiles()` 一次只收一批，第二发会被 `isBusy()` 直接拒掉）。
+        QString dir;
     };
 
     /**
@@ -1169,6 +1178,29 @@ signals:
     ///       错法是静默的：界面上看是"下完一个模组，某个正在装的实例忽然被解禁了"。
     void resourceDownloadFinished(const QString &label, bool success,
                                   const QString &errorMessage = QString());
+
+    /**
+     * @brief 「往实例里下一个资源文件」那一批里**单个文件**的结果（coding plan §7.1：更新任务
+     *        要显示每个资源的结果，不只显示总数）。
+     *
+     * @param label 就是 `downloadResourceFiles()` 收的那一个（和 `resourceDownloadFinished`
+     *        带的**是同一个字符串** —— 调用方靠它认"这是我那一批"）。
+     * @param fileName 落盘那个文件的**名字**（`DownloadManager::downloadFinished()` 的口径，
+     *        就是 `ResourceFile::filename`）。**不是**绝对路径：那一位在这个信号里从来没有过。
+     * @param success 这一条成没成。
+     * @param errorMessage 失败原因（成功时空串）。
+     *
+     * ★ 只在这一批是**资源那一批**的时候发（`m_resourceDownload.running`）。加载器安装 /
+     *   整合包导入 / 带名字的实例那三条路上，界面拿这些逐条结果没有用处（那几件事的收尾是
+     *   "装好了没有"，不是"哪几个文件好了"），而每一条都转出去等于把 5000 个 asset 逐个
+     *   报一遍 —— 那正是上面那条 `downloadFinished -> onDownloadFinished` 的转发被删掉时
+     *   说过的毛病（见构造函数里那段注释）。
+     *
+     * NOTE: 和 `versionDownloadStats` 那一发**不是一回事**：那一发是"进度"（会丢、有节流、
+     *       给进度条用），这一发是"结果"（一条不漏、给账本里那一步用）。
+     */
+    void resourceDownloadFileFinished(const QString &label, const QString &fileName, bool success,
+                                      const QString &errorMessage = QString());
 
 private slots:
     void onVersionManifestFetched(const QList<MinecraftVersion> &versions);

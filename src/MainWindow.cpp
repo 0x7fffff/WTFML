@@ -23,6 +23,9 @@
 #include "..\ui\JavaManageDialog.hpp"
 #include "..\ui\AccountSkinDialog.hpp"
 #include "..\ui\ResourceDetailPage.hpp"
+// 更新前那个轻量回滚点（coding plan §7.1，2026-10-13）：`updateInstanceFiles()` 动手之前
+// 摆一份、`onUpdateCenterUndoRequested()` 照着它退回去。
+#include "manage/UpdateRollback.hpp"
 #include "..\ui\GameLogWindow.hpp"
 #include "..\ui\MainWindowUI.hpp"
 // 任务中心面板（2026-10-12，coding plan §3.2）：底栏中间那格点开之后向上弹出来的那块。
@@ -1563,6 +1566,18 @@ MainWindow::MainWindow(QWidget *parent)
     // 账本是启动器级的固定文件，不随当前游戏文件夹切换。这样正在下载/启动时切换目录，
     // 内存里的任务不会在下一次落盘时被写进另一份 .minecraft。
     m_taskManager->loadHistory();
+    // 「忽略这一版 / 固定这一版」那一本账（§7.1）：**启动时读一次**。
+    //
+    // ★ 读不回来（文件被改坏了 / 权限不对）**不拦任何事**：那是"以后别再提示我"这一档的
+    //   记忆，读丢了的最坏结果是那几条又提示了一次 —— 比"启动时弹一个框说这本账读不动、
+    //   然后用户什么也做不了"轻得多。所以只写日志。
+    {
+        QString policyProblem;
+        m_updatePolicy = UpdatePolicy::load(UpdatePolicy::storePath(), &policyProblem);
+        if (!policyProblem.isEmpty()) {
+            appendLog(tr("「更新中心」那份记录读不回来：%1").arg(policyProblem));
+        }
+    }
     // 本地已安装的先填上（同步扫盘）；在线清单是异步拉的，回来之后由
     // onVersionsFetched() 填"可安装"下拉框 —— 在那之前它显示占位文案。
     refreshInstalledVersions();
@@ -2484,6 +2499,11 @@ void MainWindow::setupConnections() {
     // 接进来的是另一个槽，那个槽不碰任何实例的安装状态。
     connect(m_versionManager, &VersionManager::resourceDownloadFinished, this,
             &MainWindow::onResourceDownloadFinished);
+    // ★ 2026-10-13（§7.1）：**每一个文件**下完之后那一条结果（成功 / 失败 + 原因）。
+    //   任务的账本上一步一个资源（§7.1 那条「更新任务显示每个资源的结果，不只显示总数」）
+    //   就是靠它填的。不是更新那一批的时候这一路什么都不做（见那个信号的 NOTE）。
+    connect(m_versionManager, &VersionManager::resourceDownloadFileFinished, this,
+            &MainWindow::onUpdateBatchFileFinished);
     // 加载器安装中间那几步（拉列表、挑版本、先补原版）只写日志、不弹窗：那几件事都在
     // "一次点击"里面，每步弹一个框等于点着玩。真正要用户做决定的（还没做、失败了）
     // 才走 versionDownloadFinished 那条弹窗的路。
@@ -6462,16 +6482,36 @@ void MainWindow::finishUpdateCheck(QString instanceId) {
     //   逐字同一个口径 —— 禁用着的那条带着 `.disabled`）。**不是**"说不清"那些：那几条
     //   按定义就是"判不出来"，把它们当成可更新是在说一句没有依据的话（报告里照旧按
     //   「说不清」单列一档）。
-    QStringList outdatedPaths;
-    outdatedPaths.reserve(outdated.size());
-    for (const ModDependencies::UpdateVerdict &verdict : outdated) {
-        outdatedPaths.append(verdict.item.path);
-    }
-    m_instanceOutdatedPaths.insert(instanceId, outdatedPaths);
-    // ★ 2026-10-09（需求 2）：上面那份名单旁边再存一份"路径 → 换成哪一版"（见
+    // ★ 2026-10-13（§7.1）：**原始结论也留一份**（见 m_instanceUpdateResults 那段）。
+    //   下面那份名单是"按忽略 / 固定筛过"的，而用户点了「不再忽略」之后不可能再跑一趟检测
+    //   （那要读几十兆 jar、发几十发网络）—— 得拿这一份当场重算。
+    UpdateCheckResult raw;
+    raw.verdicts = run.verdicts;
+    raw.lookupNote = run.lookupNote;
+    m_instanceUpdateResults.insert(instanceId, raw);
+    // ★ 2026-10-09（需求 2）：上面那份原始结论旁边再存一份"路径 → 换成哪一版"（见
     //   m_instanceUpdateTargets 那段）。**和上面那一句同一处**：两份东西说的本来就是同
     //   一件事的两面，"哪几条要更新"和"换成哪一版"分开写迟早会对不上。
     m_instanceUpdateTargets.insert(instanceId, run.latestByPath);
+    // ★ 2026-10-13（§7.1）：「固定这一版」那几条的判据是**盘上那一份的内容 sha1**，所以
+    //   用户自己把文件换过之后那条记录就该失效。这一趟检测正好把每个文件的 sha1 都算出来
+    //   了 —— 顺手清一遍（不清的话那几条会一直挂着"已固定"，而他明明已经换成新的了）。
+    {
+        QHash<QString, QString> sha1ByKey;
+        const QString instanceDirForPolicy = AppPaths::versionDir(instanceId);
+        for (const ModDependencies::UpdateVerdict &verdict : run.verdicts) {
+            const QString key = UpdatePolicy::storeKey(
+                instanceDirForPolicy, InstanceFilesPage::identityPath(verdict.item.path));
+            if (!key.isEmpty()) {
+                sha1ByKey.insert(key, verdict.item.sha1);
+            }
+        }
+        if (UpdatePolicy::dropStalePins(m_updatePolicy, instanceId, sha1ByKey) > 0) {
+            saveUpdatePolicy();
+        }
+    }
+    // 名单由**唯一那一处**按现在这本账算（见 rebuildInstanceOutdatedPaths）。
+    rebuildInstanceOutdatedPaths(instanceId);
     // **先记账再递**：递出去的那一份是上面这一行写的（不是从这里临时拼的），于是"这一页
     // 现在筛得出来的"和"下一次开这一页筛得出来的"永远是同一份。
     pushInstanceFileUpdates(run.dialog, instanceId);
@@ -6509,19 +6549,453 @@ void MainWindow::finishUpdateCheck(QString instanceId) {
 
     const int checked = run.verdicts.size();
     const QString summary = ModDependencies::updateSummaryText(checked, outdated.size());
-    QString text = summary;
-    if (!lines.isEmpty()) {
-        text += QStringLiteral("\n\n") + lines.join(QLatin1Char('\n'));
-    }
-    if (!run.lookupNote.isEmpty()) {
-        text += QStringLiteral("\n\n") + run.lookupNote;
-    }
 
     appendLog(tr("更新检测（%1）：%2").arg(instanceDisplayName(instanceId), summary));
     for (const QString &line : lines) {
         appendLog(QStringLiteral("  ") + line);
     }
-    InlineMessage::information(m_ui->overlay(), tr("更新检测"), text);
+    // ★ 2026-10-13（§7.1）：**这段文本不再弹框**，改成开「更新中心」那一页 —— 每一行都
+    //   带着自己的动作（逐条更新 / 忽略这一版 / 固定这一版），底下那颗能把上一次更新退回去。
+    //   从前那段文本关掉就没了，而那正是用户要按下去的入口（`summary` / `lines` 照旧进日志，
+    //   所以"这一趟查了什么"在日志里仍然查得到）。
+    //
+    // NOTE: 这一趟是异步回来的（反查 + 几发版本列表），用户完全可能已经把实例设置那一页
+    //       收掉、去干别的了。`runWhenOverlayFree()` 会等覆盖层空下来再开（占着的那一层
+    //       静默收掉，用户 2026-09-29 定的方向），和体检报告页同一个规矩。
+    runWhenOverlayFree([this, instanceId] { openUpdateCenter(instanceId); });
+}
+
+// ===========================================================================
+// 更新中心（coding plan §7.1，2026-10-13）
+// ===========================================================================
+//
+// 这一段的形状：**判据在 `src/manage/UpdatePolicy`**（"这一条现在要不要提示"）、
+// **回滚在 `src/manage/UpdateRollback`**（"动手之前先留一份旧的"）、**页面在
+// `ui/UpdateCenterPage`**（只画不判）。这一层夹在中间，干的只有三件事：
+//   ① 把上面那一趟检测的原始结论翻成页面认的那一份（`updateCenterReportForPage()`）；
+//   ② 用户按下去之后把它翻成一个动作（更新 / 记一笔忽略固定 / 还原）；
+//   ③ 每一批更新起一个任务账本条目，并**逐个资源**回报结果。
+//
+// 【为什么忽略 / 固定一动就要重算一遍名单】
+//
+// 「可更新」那一档在文件管理页上是个**筛选**（`m_instanceOutdatedPaths`）。不重算的话，
+// 用户刚忽略掉的那一条仍然算在"可更新 3 条"里 —— 而他明明看着那一行写着「已忽略这一版」。
+
+void MainWindow::rebuildInstanceOutdatedPaths(const QString &instanceId) {
+    if (instanceId.isEmpty()) {
+        return;
+    }
+    // 没查过 = 什么都不动。★ **不能**在那儿写一个空名单："键在不在 = 查过没有"（见
+    // m_instanceOutdatedPaths 那段），塞一个空表进去等于替用户说了一句"查过了，都是最新"。
+    const auto result = m_instanceUpdateResults.constFind(instanceId);
+    if (result == m_instanceUpdateResults.constEnd()) {
+        return;
+    }
+    const QString instanceDir = AppPaths::versionDir(instanceId);
+
+    QStringList outdatedPaths;
+    for (const ModDependencies::UpdateVerdict &verdict : result.value().verdicts) {
+        if (verdict.state != ModDependencies::UpdateState::Outdated) {
+            continue;
+        }
+        // 判据**只此一处**（见 UpdatePolicy 文件头：忽略记的是"那一版"、固定记的是"那一份"）。
+        // 钥匙先摘掉 `.disabled` —— 和文件管理页那把钥匙逐字同一个（`identityPath()`）。
+        const UpdatePolicy::Entry entry = UpdatePolicy::entryOf(
+            m_updatePolicy, instanceId,
+            UpdatePolicy::storeKey(instanceDir, InstanceFilesPage::identityPath(verdict.item.path)));
+        if (UpdatePolicy::suppressed(entry, verdict.item.sha1, verdict.latestVersionId)
+            != UpdatePolicy::Suppress::None) {
+            continue;
+        }
+        outdatedPaths.append(verdict.item.path);
+    }
+    m_instanceOutdatedPaths.insert(instanceId, outdatedPaths);
+
+    // 这一页要是正开着就**当场重摆**（用户刚按下的就是它上面那一行）。
+    if (m_updateCenterPage != nullptr && m_updateCenterInstanceId == instanceId) {
+        m_updateCenterPage->setReport(updateCenterReportForPage(instanceId));
+    }
+}
+
+bool MainWindow::saveUpdatePolicy() {
+    QString problem;
+    if (UpdatePolicy::save(m_updatePolicy, UpdatePolicy::storePath(), &problem)) {
+        return true;
+    }
+    // 写不成**只写日志**：用户按的是一颗"以后别提示我"，弹一个"存不进去"的框除了让他分心
+    // 以外没有下一步可做 —— 而那一份记录在这一次会话里仍然是生效的（内存里那份还在）。
+    appendLog(tr("「更新中心」那份记录没能写进盘：%1").arg(problem));
+    return false;
+}
+
+void MainWindow::openUpdateCenter(const QString &instanceId) {
+    OverlayHost *overlay = m_ui->overlay();
+    if (overlay == nullptr || instanceId.isEmpty()) {
+        return;
+    }
+    if (m_updateCenterPage == nullptr) {
+        m_updateCenterPage = new UpdateCenterPage(this);
+        connect(m_updateCenterPage, &UpdateCenterPage::updateRequested, this,
+                &MainWindow::onUpdateCenterUpdateRequested);
+        connect(m_updateCenterPage, &UpdateCenterPage::ignoreToggled, this,
+                &MainWindow::onUpdateCenterIgnoreToggled);
+        connect(m_updateCenterPage, &UpdateCenterPage::pinToggled, this,
+                &MainWindow::onUpdateCenterPinToggled);
+        connect(m_updateCenterPage, &UpdateCenterPage::undoRequested, this,
+                &MainWindow::onUpdateCenterUndoRequested);
+    }
+    // 这一页说的是哪个实例：**动作处理函数全靠它**（页面是复用的，而点动作时它可能已经
+    // 关了 —— 不许去问"现在选中的是哪个实例"，同 m_integrityReportVersionId 那条）。
+    m_updateCenterInstanceId = instanceId;
+    // 摆结论。**必须在 execPage 之前**：那一下阻塞在嵌套事件循环里。
+    m_updateCenterPage->setReport(updateCenterReportForPage(instanceId));
+    overlay->execPage(m_updateCenterPage, UpdateCenterPage::windowTitle());
+    // 收页了：这一页说的那个实例不再作数（下一次开的时候重新记）。
+    m_updateCenterInstanceId.clear();
+}
+
+UpdateCenterPage::Report MainWindow::updateCenterReportForPage(const QString &instanceId) const {
+    // **唯一翻译点**（和 integrityReportForPage() / taskCenterItem() 同一个路数）。
+    UpdateCenterPage::Report out;
+    out.instanceName = instanceDisplayName(instanceId);
+
+    const auto result = m_instanceUpdateResults.constFind(instanceId);
+    if (result == m_instanceUpdateResults.constEnd()) {
+        // 没查过：这一页**没有结论**可摆（列表整个空着），用户要看到的是这句话 + 下一步。
+        out.error = tr("这个实例还没查过更新。");
+        return out;
+    }
+    const QString instanceDir = AppPaths::versionDir(instanceId);
+    int outdatedCount = 0;
+    for (const ModDependencies::UpdateVerdict &verdict : result.value().verdicts) {
+        UpdateCenterPage::Row row;
+        row.path = verdict.item.path;
+        row.fileName = QFileInfo(verdict.item.path).fileName();
+        // 名字取不到时就空着 —— 页面会退回文件名（`updateCenterRowLabelText()`，
+        // 和下面日志里那个 displayName 逐字同一个规矩）。
+        row.name = verdict.item.title;
+        row.currentSha1 = verdict.item.sha1;
+        switch (verdict.state) {
+        case ModDependencies::UpdateState::Outdated:
+            row.state = UpdateCenterPage::State::Outdated;
+            row.targetVersionId = verdict.latestVersionId;
+            row.targetText = verdict.latestVersionNumber;
+            ++outdatedCount;
+            break;
+        case ModDependencies::UpdateState::UpToDate:
+            row.state = UpdateCenterPage::State::UpToDate;
+            // 「已是最新（1.2.3）」—— 版本号就是判"最新"时那一条（`judgeUpdate()` 看的是
+            // 列表第一条，`latestVersionNumber` 记的正是它）。
+            row.currentText = verdict.latestVersionNumber;
+            break;
+        case ModDependencies::UpdateState::Unknown:
+            row.state = UpdateCenterPage::State::Unknown;
+            row.note = verdict.reason;
+            break;
+        }
+        // 「忽略 / 固定」那一档：**这一处算，页面不再判一遍**（判两遍迟早对不上：用户会
+        // 看到那一行写着"已忽略"、而它还挂在"可更新"那一组的计数里）。
+        const UpdatePolicy::Entry entry = UpdatePolicy::entryOf(
+            m_updatePolicy, instanceId,
+            UpdatePolicy::storeKey(instanceDir, InstanceFilesPage::identityPath(row.path)));
+        switch (UpdatePolicy::suppressed(entry, row.currentSha1, row.targetVersionId)) {
+        case UpdatePolicy::Suppress::Ignored:
+            row.suppress = UpdateCenterPage::Suppress::Ignored;
+            break;
+        case UpdatePolicy::Suppress::Pinned:
+            row.suppress = UpdateCenterPage::Suppress::Pinned;
+            break;
+        case UpdatePolicy::Suppress::None:
+            break;
+        }
+        out.rows.append(row);
+    }
+    out.summary = ModDependencies::updateSummaryText(result.value().verdicts.size(), outdatedCount);
+    out.note = result.value().lookupNote;
+
+    // 回滚点：**每次开页都重新读一遍盘**（不缓存 —— 撤销那一下就是把它用掉，缓存一份就
+    // 会出现"按了撤销、那一颗还在"）。
+    bool hasSnapshot = false;
+    const UpdateRollback::Snapshot snapshot = UpdateRollback::read(instanceId, &hasSnapshot);
+    if (hasSnapshot) {
+        out.undoFileCount = snapshot.fileCount();
+        out.undoText = tr("撤销上一次更新（%1 个文件）").arg(snapshot.fileCount());
+    }
+    return out;
+}
+
+void MainWindow::onUpdateCenterUpdateRequested(const QStringList &paths) {
+    const QString instanceId = m_updateCenterInstanceId;
+    if (instanceId.isEmpty() || paths.isEmpty()) {
+        return;
+    }
+    // 先把这一页收掉（它正卡在 execPage 的嵌套事件循环里），**排到下一轮**再动手 ——
+    // 更新那一批失败了会往同一条覆盖层上弹提示，现在不排会撞上还没收干净的这一页。
+    // （和完整性报告页那颗「补齐…」是同一个路数。）
+    if (m_updateCenterPage != nullptr) {
+        m_updateCenterPage->reject();
+    }
+    const QStringList selected = paths;
+    QTimer::singleShot(0, this, [this, instanceId, selected] {
+        // 页键给空串：这一批是**跨类**勾出来的，落点全按每条自己那个目录算（见头文件那段）。
+        updateInstanceFiles(instanceId, QString(), selected);
+    });
+}
+
+void MainWindow::onUpdateCenterIgnoreToggled(const QString &path, bool ignored) {
+    const QString instanceId = m_updateCenterInstanceId;
+    if (instanceId.isEmpty() || path.isEmpty()) {
+        return;
+    }
+    const QString key = UpdatePolicy::storeKey(
+        AppPaths::versionDir(instanceId), InstanceFilesPage::identityPath(path));
+    if (key.isEmpty()) {
+        return;  // 不在实例目录底下（正常走不到）：宁可不记，也不拿一个空键去混记录
+    }
+    // 要忽略的是**要换上的那一版**（不是"这个项目"）—— 那一版的 id 从上一趟检测的原始
+    // 结论里取（`m_instanceUpdateTargets` 那一份是**全部**可更新的，忽略过的那条也在里面）。
+    QString targetVersionId;
+    if (ignored) {
+        const QHash<QString, ResourceCatalog::VersionEntry> targets =
+            m_instanceUpdateTargets.value(instanceId);
+        const auto it = targets.constFind(path);
+        if (it != targets.constEnd()) {
+            targetVersionId = it.value().id;
+        }
+        if (targetVersionId.isEmpty()) {
+            // 拼不出"要换成哪一版"就**不许记这一条**：记下去的是"忽略某一版"，而那一版是谁
+            // 都不知道 —— 那样记出来的记录永远对不上任何一次检测（等于一颗点了没反应的按钮）。
+            InlineMessage::warning(m_ui->overlay(), tr("忽略不了这一条"),
+                                   tr("这一条没查出一版可以记的（多半是这一趟检测的结果已经"
+                                      "过期了）。重新点一次「检查更新」再试。"));
+            return;
+        }
+    }
+    UpdatePolicy::setIgnored(m_updatePolicy, instanceId, key, ignored ? targetVersionId : QString());
+    saveUpdatePolicy();
+    appendLog(ignored ? tr("「更新中心」：%1 的这一版以后不再提示更新。")
+                            .arg(QFileInfo(path).fileName())
+                      : tr("「更新中心」：%1 又参与更新提示了。").arg(QFileInfo(path).fileName()));
+    rebuildInstanceOutdatedPaths(instanceId);
+    // ★ 2026-10-13：按完**当场重喂这一页**。不喂的话那一行照旧写着「可更新到 X」、三颗
+    //   chip 也照旧——用户按的是"以后别再提示我"，屏幕上却一点变化都没有，他只能靠"再点
+    //   一次看看会不会还写那句话"来判断自己按中了没有。重喂之后那一行写「已忽略」、那一颗
+    //   变成「不再忽略」、底下那颗「更新选中的 N 项」的计数也跟着减一。
+    //   （`setReport()` 的重建走 `deleteLater()`，所以从 chip 自己的 clicked 里重喂是安全的；
+    //     撤销那条路早就是这么做的。）
+    if (m_updateCenterPage != nullptr && m_updateCenterInstanceId == instanceId) {
+        m_updateCenterPage->setReport(updateCenterReportForPage(instanceId));
+    }
+}
+
+void MainWindow::onUpdateCenterPinToggled(const QString &path, bool pinned) {
+    const QString instanceId = m_updateCenterInstanceId;
+    if (instanceId.isEmpty() || path.isEmpty()) {
+        return;
+    }
+    const QString key = UpdatePolicy::storeKey(
+        AppPaths::versionDir(instanceId), InstanceFilesPage::identityPath(path));
+    if (key.isEmpty()) {
+        return;
+    }
+    // 固定记的是**盘上那一份现在的内容 sha1**（见 UpdatePolicy 文件头：判据手上只有 sha1）。
+    // 算不出来（文件读不动）就**不许记** —— 记一条空 sha1 等于记了一条永远判不出来的记录。
+    QString sha1;
+    if (pinned) {
+        for (const ModDependencies::UpdateVerdict &verdict : m_instanceUpdateResults.value(instanceId).verdicts) {
+            if (verdict.item.path == path) {
+                sha1 = verdict.item.sha1;
+                break;
+            }
+        }
+        if (sha1.isEmpty()) {
+            InlineMessage::warning(m_ui->overlay(), tr("固定不了这一条"),
+                                   tr("这一份文件的内容读不出来（或者上一趟检测没算出它的 sha1），"
+                                      "没法记「固定这一版」。"));
+            return;
+        }
+    }
+    UpdatePolicy::setPinned(m_updatePolicy, instanceId, key, pinned ? sha1 : QString());
+    saveUpdatePolicy();
+    appendLog(pinned ? tr("「更新中心」：%1 固定在这一版上，以后不再提示更新。")
+                           .arg(QFileInfo(path).fileName())
+                     : tr("「更新中心」：%1 不再固定了。").arg(QFileInfo(path).fileName()));
+    rebuildInstanceOutdatedPaths(instanceId);
+    // 同上（忽略那一档）：按完当场重喂，让那一行写成「已固定」、chip 翻成「不再固定」。
+    if (m_updateCenterPage != nullptr && m_updateCenterInstanceId == instanceId) {
+        m_updateCenterPage->setReport(updateCenterReportForPage(instanceId));
+    }
+}
+
+void MainWindow::onUpdateCenterUndoRequested() {
+    const QString instanceId = m_updateCenterInstanceId;
+    if (instanceId.isEmpty()) {
+        return;
+    }
+    bool hasSnapshot = false;
+    QString problem;
+    const UpdateRollback::Snapshot snapshot =
+        UpdateRollback::read(instanceId, &hasSnapshot, &problem);
+    if (!hasSnapshot) {
+        InlineMessage::warning(m_ui->overlay(), tr("没有可撤销的更新"),
+                               problem.isEmpty() ? tr("这个实例没有回滚点。") : problem);
+        return;
+    }
+    // ★ 问一次再动手：这一下**会覆盖盘上现在的文件**（用户可能已经在游戏里玩了半天、
+    //   自己换过东西）。撤销不是一个"点错了也没事"的动作。
+    const QString text =
+        tr("把「%1」退回上一次更新之前：\n\n"
+           "· 换回去 %2 个文件\n"
+           "· 删掉那次更新新添的 %3 个文件\n\n"
+           "这一趟更新之后你自己改过的东西**会一起被改回去**。")
+            .arg(instanceDisplayName(instanceId))
+            .arg(snapshot.fileCount())
+            .arg(snapshot.addedCount());
+    // 就一颗「继续」：这一问的目的是把"会发生什么"说在前面（不是二选一），所以
+    // `destructiveIndex` 留空 —— 撤销本身是要用户想清楚才按的，但把它标成一档"危险动作"
+    // 的红按钮，和这一段想说的"可以退回去"反而矛盾。
+    if (InlineMessage::ask(m_ui->overlay(), MessageKind::Warning, tr("撤销上一次更新"), text,
+                           {tr("撤销")}, 0, -1)
+        != 0) {
+        return;
+    }
+
+    const UpdateRollback::RestoreResult result =
+        UpdateRollback::restore(snapshot, AppPaths::versionDir(instanceId));
+    appendLog(tr("撤销「%1」上一次更新：换回去 %2 个、删掉 %3 个、失败 %4 个。")
+                  .arg(instanceDisplayName(instanceId))
+                  .arg(result.restored)
+                  .arg(result.removed)
+                  .arg(result.failed));
+    if (!result.ok()) {
+        // **一条失败不影响其余**（见 UpdateRollback::restore 那段）：照实说清现在是半新半旧，
+        // 并且**留着回滚点**（下一次再按还能把没退回去的那几条退回来）。
+        InlineMessage::warning(
+            m_ui->overlay(), tr("没能全退回去"),
+            tr("换回去 %1 个、删掉 %2 个，有 %3 个没能动。\n\n%4\n\n"
+               "回滚点留着，可以再按一次。")
+                .arg(result.restored)
+                .arg(result.removed)
+                .arg(result.failed)
+                .arg(result.problems.join(QStringLiteral("\n"))));
+    } else {
+        // 全退回去了：这一份回滚点**用掉了**（删掉 —— 留着的话下一次开页还会露一颗
+        // 「撤销上一次更新」，而它指向的那次更新已经不存在了）。
+        UpdateRollback::discard(instanceId);
+        appendLog(tr("「%1」已经退回更新前的样子。").arg(instanceDisplayName(instanceId)));
+    }
+    // 这一批文件的内容换过了 ⇒ 「固定这一版」那几条的判据（sha1）多半已经对不上，
+    // 顺手清一遍过期的（不清的话那几条会一直挂着"已固定"，而它其实早就失效了）。
+    QHash<QString, QString> sha1ByKey;
+    for (const ModDependencies::UpdateVerdict &verdict : m_instanceUpdateResults.value(instanceId).verdicts) {
+        const QString entryKey = UpdatePolicy::storeKey(
+            AppPaths::versionDir(instanceId), InstanceFilesPage::identityPath(verdict.item.path));
+        if (!entryKey.isEmpty()) {
+            sha1ByKey.insert(entryKey, verdict.item.sha1);
+        }
+    }
+    if (UpdatePolicy::dropStalePins(m_updatePolicy, instanceId, sha1ByKey) > 0) {
+        saveUpdatePolicy();
+    }
+    // 重摆这一页 + 让文件管理那几页的「可更新」跟着更新（盘上那几个文件已经不是原来那份了）。
+    rebuildInstanceOutdatedPaths(instanceId);
+    if (m_updateCenterPage != nullptr && m_updateCenterInstanceId == instanceId) {
+        m_updateCenterPage->setReport(updateCenterReportForPage(instanceId));
+    }
+    // 文件管理页那一份"可更新"名单也得重摆（它记的是路径，路径没变，但内容变了）。
+    // NOTE: 这一页现在没开着（撤销是从更新中心按的，而更新中心占着覆盖层），所以这里
+    //       只需要把**会话缓存**写对 —— 下一次开那一页时由开页那条路补上。
+}
+
+void MainWindow::onUpdateBatchFileFinished(const QString &label, const QString &fileName,
+                                           bool success, const QString &errorMessage) {
+    if (m_updateBatch.label.isEmpty() || m_updateBatch.label != label) {
+        return;  // 不是这一批（别的一批资源下载也在发同一个信号）
+    }
+    QList<int> &pending = m_updateBatch.pendingSteps[fileName];
+    if (pending.isEmpty()) {
+        return;  // 这一条不在我们登记过的名单里（正常走不到）
+    }
+    const int index = pending.takeFirst();
+    if (m_taskManager->has(m_updateBatch.task)) {
+        m_taskManager->setStepState(m_updateBatch.task, index,
+                                    success ? Tasks::TaskStepState::Done
+                                            : Tasks::TaskStepState::Failed,
+                                    success ? QString() : errorMessage);
+    }
+    if (success) {
+        const QString path = m_updateBatch.pathByFileName.value(fileName);
+        if (!path.isEmpty()) {
+            m_updateBatch.succeeded.append(path);
+        }
+        m_updateBatch.lines.append(tr("· %1 —— 已经换成新版本").arg(fileName));
+    } else {
+        ++m_updateBatch.failedSteps;
+        m_updateBatch.lines.append(
+            tr("· %1 —— 没换成功：%2").arg(fileName, errorMessage));
+    }
+}
+
+void MainWindow::finishUpdateBatch(bool success, const QString &errorMessage) {
+    const UpdateBatchRun run = m_updateBatch;
+    m_updateBatch = UpdateBatchRun{};
+    if (run.label.isEmpty()) {
+        return;
+    }
+    if (m_taskManager->has(run.task)) {
+        m_taskManager->setDetail(run.task, tr("换好 %1 个，失败 %2 个。")
+                                               .arg(run.succeeded.size())
+                                               .arg(run.failedSteps));
+        finishTask(run.task, success && run.failedSteps == 0,
+                   run.failedSteps > 0 ? tr("有 %1 个文件没能换掉。").arg(run.failedSteps)
+                                       : errorMessage);
+    }
+    appendLog(success ? tr("更新「%1」结束：换好 %2 个，失败 %3 个。")
+                            .arg(instanceDisplayName(run.instanceId))
+                            .arg(run.succeeded.size())
+                            .arg(run.failedSteps)
+                      : tr("更新「%1」没跑完：%2").arg(instanceDisplayName(run.instanceId), errorMessage));
+    // ★ §7.1 那条「不只显示总数」：**逐个资源**写进去（日志里那一行一行就是每个资源的结果）。
+    for (const QString &line : run.lines) {
+        appendLog(QStringLiteral("  ") + line);
+    }
+
+    if (!run.succeeded.isEmpty()) {
+        // 换掉的这几条从「可更新」名单里摘掉（不摘的话文件管理页上那几行还标着"可更新"，
+        // 而它们刚被换成了最新那一版 —— 再点一次「更新」会白下一遍）。
+        // NOTE: 只摘**这一批真换成功的**那几条；失败的留在名单里（那一行仍然是对的）。
+        const QStringList outdated = m_instanceOutdatedPaths.value(run.instanceId);
+        if (!outdated.isEmpty()) {
+            QStringList keep;
+            for (const QString &path : outdated) {
+                if (!run.succeeded.contains(path)) {
+                    keep.append(path);
+                }
+            }
+            m_instanceOutdatedPaths.insert(run.instanceId, keep);
+        }
+        // 那一份"换成哪一版"的账也一起摘（同一次动，见 m_instanceUpdateTargets 那段）。
+        QHash<QString, ResourceCatalog::VersionEntry> targets =
+            m_instanceUpdateTargets.value(run.instanceId);
+        for (const QString &path : run.succeeded) {
+            targets.remove(path);
+        }
+        m_instanceUpdateTargets.insert(run.instanceId, targets);
+    }
+
+    const QString text = run.lines.isEmpty() ? errorMessage : run.lines.join(QLatin1Char('\n'));
+    if (!success || run.failedSteps > 0) {
+        InlineMessage::warning(m_ui->overlay(), tr("更新没能全都换上"),
+                               tr("有 %1 个文件没能换掉。\n\n%2\n\n"
+                                  "可以在「更新中心」里把上一次更新撤销回去。")
+                                   .arg(run.failedSteps)
+                                   .arg(text));
+    }
+    // 收尾之后**再开一次更新中心**：用户刚按的就是它上面那一颗，他下一步要么看看剩下的
+    // 那几条、要么撤销（失败了的话）。排到下一轮 + 等覆盖层空下来，和 finishUpdateCheck()
+    // 那条路同一个规矩。
+    const QString instanceId = run.instanceId;
+    runWhenOverlayFree([this, instanceId] { openUpdateCenter(instanceId); });
 }
 
 void MainWindow::installResourceVersionNow(ResourceCatalog::Kind kind,
@@ -7152,6 +7626,15 @@ void MainWindow::onResourceDownloadFinished(const QString &label, bool success,
     //       记录吃了 —— 拿半截 .mrpack 去导入，而且整合包真下完时再没人接它。
     //       用 take() 而不是 value()+remove()：这一单**只活一次**，取走本身就是"用掉了"。
     const QString pendingModpack = m_pendingModpackImports.take(label);
+
+    // ★ 2026-10-13（§7.1）：这一批是不是「更新中心」那一批？是的话收尾归那一边 —— 那边
+    //   要说的是"**每个资源**的结果"（任务账本里那几步 + 一行一条的日志），而不是一句
+    //   "下好了 / 没下下来"。所以这里**整个交出去**（不弹那个通用框：那边失败时会弹一份
+    //   带着逐条结果的框，两个框叠着等于让用户白点一次）。
+    if (!m_updateBatch.label.isEmpty() && m_updateBatch.label == label) {
+        finishUpdateBatch(success, errorMessage);
+        return;
+    }
 
     if (!success) {
         appendLog(tr("✗ %1 没有下下来：%2").arg(label, errorMessage));
@@ -10840,6 +11323,20 @@ void MainWindow::openInstanceSettingsNow(const QString &versionId, const QString
     connect(&dialog, &InstanceSettingsDialog::checkUpdatesRequested, this,
             [this, &targetId, &dialog]() { checkInstanceUpdates(targetId, &dialog); });
 
+    // 「更新中心」（coding plan §7.1，2026-10-13）：紧挨着「检查更新」的那一颗。
+    //
+    // ★ **和上面那一条相反，这一颗不收页**：它开的那一页（更新中心）自己就是盖在内容区上
+    //   的一整页，而这一颗要先把当前这一页**收掉**才开得进去（`runWhenOverlayFree()` 会
+    //   静默收掉占着的那一层 —— 用户 2026-09-29 定的方向）。
+    // ★ 这一颗**一个网络都不发**（它读的是上一次检测留下来的那份结论）：所以断网的时候
+    //   「撤销上一次更新」也按得动 —— 那正是它存在的意义（见 InstanceSettingsDialog 里
+    //   那个信号的说明）。
+    connect(&dialog, &InstanceSettingsDialog::updateCenterRequested, this,
+            [this, &targetId]() {
+                const QString id = targetId;
+                runWhenOverlayFree([this, id] { openUpdateCenter(id); });
+            });
+
     // 「检查并修复」（coding plan §4.1，2026-10-12）：概览栏那颗按钮。**和「检查更新」不是
     // 一回事** —— 那个查的是模组有没有新版本（联网），这个查的是游戏文件齐不齐（只读盘）。
     //
@@ -13375,8 +13872,12 @@ void MainWindow::updateInstanceFiles(const QString &instanceId, const QString &p
         return;
     }
     // 落点由**页键**算（`mods` / `datapacks` / …，唯一出处在 instanceFileDirs()）。
-    const QString destinationDir = instanceFileDirs(instanceId).value(pageKey);
-    if (destinationDir.isEmpty()) {
+    //
+    // ★ 2026-10-13（§7.1）：这一份现在只剩**"这一页认不认得"这一道校验** —— 真正往哪儿写
+    //   由每条自己带（见下面 `ResourceFile::dir`）。`pageKey` 空 = 不是从某一页来的
+    //   （更新中心那一批是跨类勾出来的），那时候没有可校验的东西，跳过这一道。
+    const QString pageDir = instanceFileDirs(instanceId).value(pageKey);
+    if (!pageKey.isEmpty() && pageDir.isEmpty()) {
         // 正常走不到：这套东西只在那四个"能下载的"页上开（见 InstanceFilesPage）——
         // 但"哪几页"这个判据在 ui/ 那一边，这边不能假设递进来的键一定认得。
         InlineMessage::warning(m_ui->overlay(), tr("更新失败"),
@@ -13390,6 +13891,11 @@ void MainWindow::updateInstanceFiles(const QString &instanceId, const QString &p
 
     QList<VersionManager::ResourceFile> files;
     QStringList skipped;
+    /// 和 `files` **一一对应**的那两条：实例内相对路径（回滚点要它）和盘上那个绝对路径
+    /// （收尾时按文件名找回来用）。**不是 `paths`** —— 那里面还夹着被跳过的那几条。
+    QStringList relativePaths;
+    QStringList updatedPaths;
+    const QString instanceDir = AppPaths::versionDir(instanceId);
     for (const QString &path : paths) {
         const auto it = targets.constFind(path);
         const ResourceCatalog::FileEntry *file =
@@ -13401,19 +13907,34 @@ void MainWindow::updateInstanceFiles(const QString &instanceId, const QString &p
             skipped.append(QFileInfo(path).fileName());
             continue;
         }
+        // ★★ 2026-10-13（§7.1）：**就地换** —— 落回它自己那个目录、用它自己那个文件名。
+        //
+        // 从前是按**接口给的文件名**下到"这一页那个目录"里，而两家接口给的文件名常常和盘上
+        // 那一个不一样（`sodium-fabric-0.6.13.jar` vs `sodium-0.6.13.jar`）⇒ 换完之后盘上
+        // **多出一个 jar、旧的还在**，游戏同时加载两个同名模组那一类怪事就是从这儿来的，
+        // 而且"按几次更新就多几份"。就地换之后"更新"这个名字才名副其实。
+        // NOTE: 这一条也让回滚点那本账成立 —— 它记的是**盘上这个文件**（相对路径），
+        //       换个名字的话还原回去的就不是原来那一个了。
+        const QFileInfo info(path);
         VersionManager::ResourceFile resourceFile;
         resourceFile.url = file->url;
-        resourceFile.filename = file->filename;
+        resourceFile.filename = info.fileName();
+        resourceFile.dir = info.absolutePath();
         resourceFile.sha1 = file->sha1;
         resourceFile.size = file->size;
         files.append(resourceFile);
+        // `relativePaths` 是**相对实例目录**那一条（`mods/foo.jar`，不是 `foo.jar`）——
+        // 回滚点照着它去实例里找回原文件（见 UpdateRollback::create）。写成光文件名的
+        // 话，回滚点会以为"原来没有这个文件"，撤销那一下做的就是**删掉它**。
+        relativePaths.append(QDir(instanceDir).relativeFilePath(path));
+        updatedPaths.append(path);
     }
     if (files.isEmpty()) {
         // 一条都拼不出来：多半是**还没查过**（那一页上「可更新」的计数是 0、按钮本该是灰的，
         // 所以正常也走不到这儿）。说清下一步怎么办，别只是"没反应"。
         InlineMessage::warning(m_ui->overlay(), tr("更新失败"),
                                tr("这几条都没查到该换成哪一版。先在概览那一栏点一下「检查更新」，"
-                                  "回来再点这一颗。"));
+                                  "再点「更新中心」那一颗。"));
         return;
     }
     if (!skipped.isEmpty()) {
@@ -13421,19 +13942,76 @@ void MainWindow::updateInstanceFiles(const QString &instanceId, const QString &p
         appendLog(tr("这几条查不到要换成哪一版，没有一起更新：%1").arg(skipped.join(QStringLiteral("、"))));
     }
 
-    // 一整批下（**只有一个进度、一条"下好了"、一次收尾信号**）。名字里带上数量 ——
-    // 下完之后那句「%1 已经装进实例里了」要能自己说清是哪一批。
+    // ---------- 回滚点（§7.1：「更新前创建轻量回滚点，失败时可恢复原文件」）----------
+    //
+    // ★ **动手之前**摆好，摆不成就**整个停下来**（见 UpdateRollback::create 那段：用户是
+    //   看着"能退回来"这句话才按下去的，抄不出来还硬更新比没有这个功能更糟）。
+    //
+    // NOTE: 相对路径就是 `files` 里那些**文件名**（四个"能下载的资源"目录都在实例目录的
+    //       下一层，所以"这个文件在实例里的相对路径"就是它自己那个名字）—— 这一点由
+    //       `instanceFileDirs()` 保证（那些目录都是 `<实例目录>/<目录名>`）。
+    QString rollbackProblem;
+    const UpdateRollback::Snapshot snapshot =
+        UpdateRollback::create(instanceDir, instanceId, relativePaths, &rollbackProblem);
+    if (!snapshot.isValid()) {
+        InlineMessage::warning(m_ui->overlay(), tr("没有更新"),
+                               tr("没能给这一批文件留一份回滚点，所以一个都没动。\n\n%1")
+                                   .arg(rollbackProblem));
+        appendLog(tr("更新「%1」没开始：回滚点没摆成（%2）。")
+                      .arg(instanceDisplayName(instanceId), rollbackProblem));
+        return;
+    }
+    appendLog(tr("更新前留了一份回滚点：%1 个文件（%2）。")
+                  .arg(snapshot.fileCount())
+                  .arg(InstanceFilesPage::formatSize(snapshot.totalBytes())));
+
+    // ---------- 这一批的名字 + 任务账本 ----------
+    //
+    // 名字里带上数量 —— 收尾那句要能自己说清是哪一批。★ 这个名字**同时是**账本认这一批的
+    // 钥匙（见 m_updateBatch 那段）：下载器回来的只有"文件名"，而"文件名 → 第几步"这层
+    // 对应关系只有这一处知道。
     const QString label = tr("「%1」里的 %2 个更新")
                               .arg(instanceDisplayName(instanceId))
                               .arg(files.size());
+    m_updateBatch = UpdateBatchRun{};
+    m_updateBatch.label = label;
+    m_updateBatch.instanceId = instanceId;
+    // 一个资源一步（§7.1：「更新任务显示每个资源的结果，不只显示总数」）。
+    QList<Tasks::TaskStep> steps;
+    for (int i = 0; i < files.size(); ++i) {
+        const QString name = files.at(i).filename;
+        steps.append({name, Tasks::TaskStepState::Pending, QString()});
+        // 文件名 → 步骤下标。★ 同名多条时按**先后**取（`takeFirst()`），所以这里 append
+        // 的顺序就是它们下完报回来的顺序。
+        m_updateBatch.pendingSteps[name].append(i);
+        // 文件名 → 盘上那条的路径（成功之后要从「可更新」名单里摘的**就是它**）。
+        m_updateBatch.pathByFileName.insert(name, updatedPaths.value(i));
+    }
+    m_updateBatch.task = beginTask(
+        Tasks::TaskKind::Download, tr("更新「%1」的 %2 个资源")
+                                       .arg(instanceDisplayName(instanceId))
+                                       .arg(files.size()),
+        instanceId, steps);
+    m_taskManager->setProgress(m_updateBatch.task, 0, static_cast<qint64>(files.size()));
+
     appendLog(tr("正在更新 %1（%2）。")
-                  .arg(label, QDir::toNativeSeparators(destinationDir)));
+                  .arg(label, QDir::toNativeSeparators(files.first().dir)));
     // `busyInstanceId` 给这个实例：正在往它的 `mods/` 里写文件（见 downloadResourceFiles
     // 里那段 —— 界面靠它把这一个实例从"能启动"里滤掉）。
-    m_versionManager->downloadResourceFiles(destinationDir, instanceId, label, files);
+    //
+    // NOTE: 那个 `destinationDir` 形参现在只当**兜底**用（每条自己带 `dir`，见上面那段）；
+    //       传第一条的目录 —— 它非空就行（那一处只判空）。
+    if (!m_versionManager->downloadResourceFiles(files.first().dir, instanceId, label, files)) {
+        // 没开起来（已经有别的批次在跑 / 那三套安装状态机占着）：账本里那一条**当场收尾**，
+        // 别留一条永远"正在跑"的记录，回滚点也一起撤掉（一个字节都没动过，留着只会让
+        // 更新中心上那颗「撤销上一次更新」指向一次没发生的更新）。
+        m_taskManager->fail(m_updateBatch.task, tr("没能开始这一批更新。"));
+        m_updateBatch = UpdateBatchRun{};
+        UpdateRollback::discard(instanceId);
+    }
     // NOTE: 这一批下完之后**不刷新那一页**。理由：换的是同一个文件名，列表上那一行
-    //       一个字都不会变；而"可更新"那几颗计数要等**下一次检测**才算得准（见
-    //       m_instanceUpdateTargets 那段 NOTE）。
+    //       一个字都不会变；而"可更新"那几颗计数在收尾时按**真换成功的**那几条摘掉
+    //       （见 finishUpdateBatch）。
 }
 
 void MainWindow::toggleInstanceFiles(const QStringList &paths, bool disable) {

@@ -44,6 +44,8 @@ set(HEADER_FILES
     src/manage/VersionManager.hpp
     src/manage/VersionDisplay.hpp
     src/manage/VersionIntegrity.hpp
+    src/manage/UpdatePolicy.hpp
+    src/manage/UpdateRollback.hpp
     src/manage/BackupFiles.hpp
     src/manage/WorldFiles.hpp
     # 「上一次启动」那本账（2026-10-13，coding plan §5.1）：主页那张卡唯一的数据源。
@@ -116,6 +118,8 @@ set(SOURCE_FILES
     src/manage/VersionManager.cpp
     src/manage/VersionDisplay.cpp
     src/manage/VersionIntegrity.cpp
+    src/manage/UpdatePolicy.cpp
+    src/manage/UpdateRollback.cpp
     src/manage/BackupFiles.cpp
     src/manage/WorldFiles.cpp
     # 「上一次启动」那本账（2026-10-13，coding plan §5.1）。
@@ -150,6 +154,7 @@ set(SOURCE_FILES
     ui/TaskCenterPanel.cpp
     ui/TaskDetailPage.cpp
     ui/IntegrityReportPage.cpp
+    ui/UpdateCenterPage.cpp
     ui/GroupDialog.cpp
     ui/GroupListDelegate.cpp
     ui/InstanceSettingsDialog.cpp

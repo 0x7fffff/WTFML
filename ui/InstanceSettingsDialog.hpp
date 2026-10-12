@@ -938,6 +938,27 @@ public:
                               "认不出来的（自己改过的、作者删了老版本的）会写「说不清」——"
                               "那不是「没有问题」，是这一条没法判。");
     }
+    /// 概览页那颗「更新中心」的 objectName（2026-10-13，coding plan §7.1）。
+    ///
+    /// NOTE: 和「检查更新」是**两颗、不是一颗**：那一颗要联网重查一遍（几十个文件、好几发
+    ///       请求），而这一颗只是把**上一次查出来的**那份结论摆开看（一个网络都不发）——
+    ///       它也是「撤销上一次更新」唯一进得去的地方，所以那一颗按钮**不许**被"必须联网"
+    ///       卡住（更新完了发现游戏起不来，正是要退回去的那一刻）。
+    static QString updateCenterButtonName() { return QStringLiteral("instanceUpdateCenterButton"); }
+    static QString updateCenterText() { return QStringLiteral("更新中心"); }
+    /// 那一格下面那句解释。
+    static QString updateCenterHint() {
+        return QStringLiteral("看上一次检查更新的结果，逐条更新 / 忽略某一版 / 固定某一版，"
+                              "也能把上一次更新退回去。不联网。");
+    }
+    /// 那颗按钮的 tooltip（**说全的那一份**）。
+    static QString updateCenterButtonTooltip() {
+        return QStringLiteral("把上一次「检查更新」查出来的那一份结论摊成能动手的一页：\n"
+                              "· 勾几条（或只点一条）就把它们换成新版；\n"
+                              "· 「忽略这一版」= 这一版别再提示我（作者再发新版本时它会回来）；\n"
+                              "· 「固定这一版」= 我就停在这一版上；\n"
+                              "· 「撤销上一次更新」= 把上一次换掉的文件退回原样。");
+    }
 
     // ---- 「复制实例」（2026-09-28）----
     //
@@ -1601,6 +1622,19 @@ signals:
      *       记着开的是哪一个）。
      */
     void checkUpdatesRequested();
+
+    /**
+     * @brief 用户点了概览那一栏的「更新中心」（2026-10-13，coding plan §7.1）。
+     *
+     * 和上面那一颗同一档（一颗按钮 + 底下那句解释，点了之后**会出现一个结果**），但**不联网**：
+     * 只是把上一次「检查更新」查出来的那份结论摆成能动手的一页（`MainWindow::openUpdateCenter`）。
+     * 那一页也是「撤销上一次更新」唯一进得去的地方 —— 所以这一发必须在"没有网络"的时候
+     * 照样能用（更新完发现游戏起不来，正是要退回去的那一刻）。
+     *
+     * NOTE: **不传实例 id**，理由和 checkUpdatesRequested() 那条一样（这一页就是某个实例的
+     *       设置页）。
+     */
+    void updateCenterRequested();
 
     /**
      * @brief 用户点了概览那一栏的「复制实例」（2026-09-28）。

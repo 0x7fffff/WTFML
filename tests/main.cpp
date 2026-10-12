@@ -96,6 +96,11 @@
 // 体检那一层（plan / check / Report 三个纯值进出的口子）。见 ZN 节 —— 那一节全在一个临时
 // 游戏文件夹里跑：它要造 jar / 库 / 资源索引 / 资源对象四档文件，不碰共享沙箱。
 #include "manage/VersionIntegrity.hpp"
+// 更新中心那两件（coding plan §7.1，2026-10-13）：「忽略这一版 / 固定这一版」那本账
+// （见 ZT 节）和更新前那份轻量回滚点（见 ZU 节）。两节都是**纯值 + 一次文件读写**，
+// 各在一个 QTemporaryDir 里真存真读 —— 不碰共享沙箱、不联网。
+#include "manage/UpdatePolicy.hpp"
+#include "manage/UpdateRollback.hpp"
 // 世界（存档）那几个改盘的动作：「导入世界」和世界改名。见 ZJ 节 —— 那一节是**真的动盘**
 // 的（造两个临时游戏文件夹），所以它要 .cpp 而不只是头文件。
 #include "manage/WorldFiles.hpp"
@@ -23272,6 +23277,424 @@ static void runInstanceFilterTests() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// ZT. 更新中心的「忽略这一版 / 固定这一版」：一本账 + 两条判据（coding plan §7.1）
+//
+// 这一节盯的是"**什么时候它自己就回来了**"这件事 —— 那两档"别再提示我"最怕的不是记不住，
+// 是**记死了**（用户按一下就把这个资源永远钉在原地，作者再发新版本也不提示了）：
+//   · 忽略记的是**要换上的那一版的 id** ⇒ 下一趟要换的是另一版时，它自己回来；
+//   · 固定记的是**盘上那一份的 sha1** ⇒ 文件被换过（手动 / 又更新了一次）就自动失效；
+//   · 两个"不知道"（拿不到当前 sha1 / 拼不出目标版本）**一律按"没记过"算** —— 不知道的
+//     事不能当成知道（不知道当成知道，症状是"更新不提示了，而且用户不知道为什么"）。
+//
+// ★ 整节纯函数 + 一个 QTemporaryDir 里的真存真读：不联网、不碰共享沙箱、不碰 ui/。
+// ---------------------------------------------------------------------------
+static void runUpdatePolicyTests() {
+    section("ZT. 更新中心：忽略 / 固定那一本账（§7.1）");
+
+    const QString originalDir = AppPaths::minecraftDir();
+    QTemporaryDir temp;
+    check(temp.isValid(), "ZT0 临时数据根目录建出来了");
+    if (!temp.isValid()) {
+        return;
+    }
+    AppPaths::setMinecraftDir(temp.path());
+
+    const QString instanceDir = temp.path() + QStringLiteral("/versions/1.20.1-forge-47.2.0");
+    const QString instanceId = QStringLiteral("1.20.1-forge-47.2.0");
+    const QString otherId = QStringLiteral("1.19.2-fabric-0.15.11");
+    QDir().mkpath(instanceDir + QStringLiteral("/mods"));
+
+    // ---------- ZT1. 那把钥匙：相对实例目录、`/` 分隔 ----------
+    //
+    // 绝对路径一搬走（改数据目录 / 复制实例）就全废 —— 这一条是那本账能在盘上待住的根。
+    check(UpdatePolicy::storeKey(instanceDir, instanceDir + QStringLiteral("/mods/jei.jar")) ==
+              QStringLiteral("mods/jei.jar"),
+          "★ ZT1 键是**实例内相对路径**（绝对路径搬一次家就全废）",
+          UpdatePolicy::storeKey(instanceDir, instanceDir + QStringLiteral("/mods/jei.jar")));
+    // ★ 大小写 / 反斜杠：产品给的路径是 QFileInfo 出来的（在 Windows 上就是 `/`），但别的
+    //   调用点万一塞了个反斜杠进来，键不能变成两个。
+    check(UpdatePolicy::storeKey(instanceDir, instanceDir + QStringLiteral("/mods/jei.jar")) ==
+              UpdatePolicy::storeKey(instanceDir, instanceDir + QStringLiteral("\\mods\\jei.jar")),
+          "ZT1 反斜杠进来的那一条拼出**同一把**钥匙（不许一个文件记成两条）");
+    // 不在这个实例底下的路径：回空串、调用方必须跳过（空键会把不相干的记录混成一条）。
+    check(UpdatePolicy::storeKey(instanceDir, temp.path() + QStringLiteral("/other/mod.jar"))
+              .isEmpty(),
+          "★★ ZT1 不在这个实例底下的路径回**空键**（空键会把好几条混成一条、而且删不掉）");
+
+    // ---------- ZT2. 两档的判据 ----------
+    const QString shaNew = QStringLiteral("1111111111111111111111111111111111111111");
+    const QString shaOld = QStringLiteral("2222222222222222222222222222222222222222");
+    {
+        UpdatePolicy::Entry ignored;
+        ignored.ignoreVersionId = QStringLiteral("ver-2.0");
+        check(UpdatePolicy::suppressed(ignored, shaNew, QStringLiteral("ver-2.0")) ==
+                  UpdatePolicy::Suppress::Ignored,
+              "ZT2 记着的那一版就是要换上的那一版 ⇒ 忽略生效");
+        // ★★ 这一条是这一档存在的理由：作者发了更新的一版，它自己回来。
+        check(UpdatePolicy::suppressed(ignored, shaNew, QStringLiteral("ver-3.0")) ==
+                  UpdatePolicy::Suppress::None,
+              "★★ ZT2 要换上的换成了**另一版** ⇒ 忽略**自己失效**（用户讨厌的是那一版，"
+              "不是「别看更新」）");
+        // 拼不出目标版本（空）：判不了 ⇒ 按"没记过"算，提示照出。
+        check(UpdatePolicy::suppressed(ignored, shaNew, QString()) == UpdatePolicy::Suppress::None,
+              "★★ ZT2 拼不出要换上的那一版 ⇒ **不拦**（判不了的事不许当成「忽略了」）");
+
+        UpdatePolicy::Entry pinned;
+        pinned.pinnedSha1 = shaOld;
+        check(UpdatePolicy::suppressed(pinned, shaOld, QStringLiteral("ver-3.0")) ==
+                  UpdatePolicy::Suppress::Pinned,
+              "ZT2 盘上还是固定那一刻那一份 ⇒ 固定生效（后面有新版本也不提示）");
+        check(UpdatePolicy::suppressed(pinned, shaNew, QStringLiteral("ver-3.0")) ==
+                  UpdatePolicy::Suppress::None,
+              "★★ ZT2 盘上那一份**被换过了** ⇒ 固定自动失效（「停在那一份上」不是「别看更新」）");
+        check(UpdatePolicy::suppressed(pinned, QString(), QStringLiteral("ver-3.0")) ==
+                  UpdatePolicy::Suppress::None,
+              "★★ ZT2 拿不到盘上那一份的 sha1 ⇒ 固定那一档判不了 ⇒ **不拦**");
+        // 两档同时记着（先忽略、后来固定）：固定那一档先说话（它是更"死"的那一条）。
+        UpdatePolicy::Entry both;
+        both.ignoreVersionId = QStringLiteral("ver-2.0");
+        both.pinnedSha1 = shaOld;
+        check(UpdatePolicy::suppressed(both, shaOld, QStringLiteral("ver-2.0")) ==
+                  UpdatePolicy::Suppress::Pinned,
+              "ZT2 两档都记着 ⇒ 报「已固定」（用户两个都按过，他最后按的那个意思更具体）");
+
+        // 空记录 = 没记过。
+        check(UpdatePolicy::suppressed(UpdatePolicy::Entry(), shaNew, QStringLiteral("ver-2.0")) ==
+                  UpdatePolicy::Suppress::None,
+              "ZT2 一条记录都没有 ⇒ 照常提示");
+    }
+
+    // ---------- ZT3. 过期固定的清理 ----------
+    //
+    // 「固定」过期了要**清掉**，不能留着：留着的话界面上一直写着"已固定"，而它其实早就
+    // 什么都不管了（用户会以为"我固定住了"，实际每趟都在提示）。
+    {
+        UpdatePolicy::Store store;
+        UpdatePolicy::setPinned(store, instanceId, QStringLiteral("mods/jei.jar"), shaOld);
+        UpdatePolicy::setPinned(store, instanceId, QStringLiteral("mods/other.jar"), shaNew);
+        UpdatePolicy::setIgnored(store, instanceId, QStringLiteral("mods/ignored.jar"),
+                                 QStringLiteral("ver-2.0"));
+        check(store.countFor(instanceId) == 3, "ZT3 三笔账记进去了",
+              QString::number(store.countFor(instanceId)));
+
+        QHash<QString, QString> now;
+        now.insert(QStringLiteral("mods/jei.jar"), shaNew);      // 被换过了 ⇒ 这条固定过期
+        now.insert(QStringLiteral("mods/other.jar"), shaNew);    // 还是那一份 ⇒ 留着
+        now.insert(QStringLiteral("mods/ignored.jar"), shaNew);
+        const int dropped = UpdatePolicy::dropStalePins(store, instanceId, now);
+        check(dropped == 1, "★★ ZT3 只清掉过期的那一条固定", QString::number(dropped));
+        check(UpdatePolicy::entryOf(store, instanceId, QStringLiteral("mods/jei.jar")).isEmpty(),
+              "ZT3 过期的那条**整条没了**（不是留一个空壳）");
+        check(!UpdatePolicy::entryOf(store, instanceId, QStringLiteral("mods/other.jar")).isEmpty(),
+              "ZT3 没过期的那条还在");
+        // ★ 忽略那一档**不清**：它记的是"那一版"，只要那一版还在，用户的意思就还成立。
+        check(UpdatePolicy::entryOf(store, instanceId, QStringLiteral("mods/ignored.jar"))
+                  .ignoreVersionId == QStringLiteral("ver-2.0"),
+              "★★ ZT3 忽略那一档**不清**（它记的是「那一版」，和盘上现在是什么内容无关）");
+        // 盘上已经**没有**这个文件了（这一趟的清单里根本没有这个键）⇒ 那条记录指不到任何
+        // 东西了，清掉。
+        QHash<QString, QString> emptyMap;
+        check(UpdatePolicy::dropStalePins(store, instanceId, emptyMap) == 1,
+              "★ ZT3 盘上见不到这个文件（清单里连这个键都没有）⇒ 那条固定也清掉");
+        // ★★ 而"键在、sha1 空"是**另一回事**：那是"读不动 / 没算出来"，**不许**当成"换了"
+        //    —— 清一条记录是不可逆的，用户会发现固定自己没了、而且不知道为什么。
+        UpdatePolicy::Store keep;
+        UpdatePolicy::setPinned(keep, instanceId, QStringLiteral("mods/jei.jar"), shaOld);
+        QHash<QString, QString> unknown;
+        unknown.insert(QStringLiteral("mods/jei.jar"), QString());
+        check(UpdatePolicy::dropStalePins(keep, instanceId, unknown) == 0 &&
+                  UpdatePolicy::entryOf(keep, instanceId, QStringLiteral("mods/jei.jar"))
+                          .pinnedSha1 == shaOld,
+              "★★ ZT3 键在、但这一趟没算出 sha1 ⇒ **不许清**（「不知道」不能当成「换了」）");
+    }
+
+    // ---------- ZT4. 取消：传空就把那一档抹掉，两条都空了整条不留 ----------
+    {
+        UpdatePolicy::Store store;
+        UpdatePolicy::setIgnored(store, instanceId, QStringLiteral("mods/jei.jar"),
+                                 QStringLiteral("ver-2.0"));
+        UpdatePolicy::setPinned(store, instanceId, QStringLiteral("mods/jei.jar"), shaOld);
+        UpdatePolicy::setIgnored(store, instanceId, QStringLiteral("mods/jei.jar"), QString());
+        check(UpdatePolicy::entryOf(store, instanceId, QStringLiteral("mods/jei.jar")).pinnedSha1
+                  == shaOld,
+              "ZT4 取消忽略之后固定那一档还在（两档互不牵连）");
+        UpdatePolicy::setPinned(store, instanceId, QStringLiteral("mods/jei.jar"), QString());
+        check(UpdatePolicy::entryOf(store, instanceId, QStringLiteral("mods/jei.jar")).isEmpty(),
+              "★★ ZT4 两档都取消 ⇒ 这一条**整条不留**");
+        check(store.isEmpty(), "★★ ZT4 一个文件的记录都没有了 ⇒ 这个实例也不留在表里"
+                               "（不留空壳，盘上那份文件也就跟着空了）");
+    }
+
+    // ---------- ZT5. 真存真读 ----------
+    {
+        UpdatePolicy::Store store;
+        UpdatePolicy::setIgnored(store, instanceId, QStringLiteral("mods/jei.jar"),
+                                 QStringLiteral("ver-2.0"));
+        UpdatePolicy::setPinned(store, instanceId, QStringLiteral("shaderpacks/光影.zip"), shaOld);
+        UpdatePolicy::setIgnored(store, otherId, QStringLiteral("datapacks/包.zip"),
+                                 QStringLiteral("ver-9.9"));
+        QString problem;
+        check(UpdatePolicy::save(store, UpdatePolicy::storePath(), &problem),
+              "ZT5 账本写进盘了", problem);
+        // 落点：`<数据目录>/wtfml.updates`（挂在数据根目录下、可以整个拷走）。
+        check(QFileInfo::exists(UpdatePolicy::storePath()),
+              "ZT5 落在 `<数据目录>/wtfml.updates`", UpdatePolicy::storePath());
+
+        bool ok = false;
+        QString readProblem;
+        const UpdatePolicy::Store back = UpdatePolicy::load(UpdatePolicy::storePath(), &readProblem);
+        check(readProblem.isEmpty(), "ZT5 读回来没报毛病", readProblem);
+        check(back.countFor(instanceId) == 2 && back.countFor(otherId) == 1,
+              "ZT5 两个实例的账都对得上",
+              QStringLiteral("%1 / %2").arg(back.countFor(instanceId)).arg(back.countFor(otherId)));
+        const UpdatePolicy::Entry jei =
+            UpdatePolicy::entryOf(back, instanceId, QStringLiteral("mods/jei.jar"));
+        check(jei.ignoreVersionId == QStringLiteral("ver-2.0"),
+              "ZT5 逐字一样地回来了（忽略那一档）", jei.ignoreVersionId);
+        check(UpdatePolicy::entryOf(back, instanceId, QStringLiteral("shaderpacks/光影.zip"))
+                  .pinnedSha1 == shaOld,
+              "★ ZT5 路径里的中文原样回来（**不是**拼一把转义过的键去查 —— 那会一条都查不到）");
+
+        // 格式标记：认不出的文件按"这份账读不懂"处理，**绝不半信半疑地往里加记录**。
+        bool tagOk = false;
+        const UpdatePolicy::Store foreign =
+            UpdatePolicy::fromJson(QByteArrayLiteral("{\"format\":\"别的启动器\",\"version\":1}"),
+                                   &tagOk);
+        check(!tagOk && foreign.isEmpty(),
+              "★★ ZT5 别人写的 json（格式标记不认）⇒ 空表 + **读不懂**：半信半疑地读进来，"
+              "最坏的结果是把用户手上那几十个文件按一份莫名其妙的名单判成「已忽略」");
+        // 这一条是"读不懂"要**说出来**（`load()` 那句毛病说的是"不是我们写的那种格式"）。
+        // 读不懂却回一句"什么都没有"，用户下次打开会发现忽略全没了、而日志里一个字都没有。
+        const QString foreignPath = temp.path() + QStringLiteral("/foreign.updates");
+        {
+            QFile file(foreignPath);
+            if (file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+                file.write(QByteArrayLiteral("{\"format\":\"别的启动器\",\"version\":1}"));
+            }
+        }
+        QString foreignProblem;
+        const UpdatePolicy::Store fromDisk = UpdatePolicy::load(foreignPath, &foreignProblem);
+        check(fromDisk.isEmpty() && !foreignProblem.isEmpty(),
+              "★★ ZT5 读盘那一趟把这件事**说出来**了（日志里要看得见）", foreignProblem);
+        bool badOk = false;
+        const UpdatePolicy::Store bad = UpdatePolicy::fromJson(QByteArrayLiteral("{ 这不是 json"),
+                                                               &badOk);
+        check(!badOk, "★★ ZT5 根本不是 json ⇒ `ok = false`（和「不是我们写的」是两句话）");
+        check(UpdatePolicy::fromJson(UpdatePolicy::toJson(UpdatePolicy::Store())).isEmpty(),
+              "ZT5 空表写出去再读回来还是空的");
+
+        // 读盘：文件不在**不是错误**（从来没忽略过谁就是这样）。
+        QString missingProblem;
+        const UpdatePolicy::Store none =
+            UpdatePolicy::load(temp.path() + QStringLiteral("/wtfml.updates.nosuch"),
+                               &missingProblem);
+        check(missingProblem.isEmpty() && none.isEmpty(),
+              "★★ ZT5 文件不在 ⇒ 空表、而且**不算错**（从来没忽略过谁就是这个样子）",
+              missingProblem);
+    }
+
+    AppPaths::setMinecraftDir(originalDir);
+    check(AppPaths::minecraftDir() == originalDir, "ZT9 数据根目录换回来了");
+}
+
+// ---------------------------------------------------------------------------
+// ZU. 更新前那份轻量回滚点：抄一份 / 退回去 / 撤干净（coding plan §7.1）
+//
+// 这一节要**真动盘**（在一个临时游戏文件夹里造实例目录），因为这一层整个存在的意义就是
+// "动手之前手上有一份旧的"：抄得对不对、退回来的**是内容是字节**、更新新添的那个文件撤回
+// 时**要消失** —— 这三件事在纯值上一条都验不出来。
+//
+// ★ 最要紧的几条（错了会静默丢数据）：
+//   · 清单里"当时有没有这个文件"要记准（记错了 = 撤销时把一个**本来就在**的文件删掉）；
+//   · 只留**最新那一份**（留多代 = 每更新一次攒几十 MB，而用户永远只用最近那一次）；
+//   · 一条失败**不影响其余**（"3 个没退回去"比"失败了，一个都没动"诚实）。
+// ---------------------------------------------------------------------------
+static void runUpdateRollbackTests() {
+    section("ZU. 更新中心：更新前的轻量回滚点（§7.1）");
+
+    const QString originalDir = AppPaths::minecraftDir();
+    QTemporaryDir temp;
+    check(temp.isValid(), "ZU0 临时数据根目录建出来了");
+    if (!temp.isValid()) {
+        return;
+    }
+    AppPaths::setMinecraftDir(temp.path());
+
+    const QString instanceId = QStringLiteral("1.20.1-forge-47.2.0");
+    // ★ 实例 id 里带 `/`（`isKnownGameVersion()` 那一档放行的名字）：这一层得把它换成
+    //   合法的一段，否则这一份回滚点会落到别的目录里去。
+    const QString slashyId = QStringLiteral("20w14∞/test");
+    const QString instanceDir = temp.path() + QStringLiteral("/versions/") + instanceId;
+    const QString modsDir = instanceDir + QStringLiteral("/mods");
+    QDir().mkpath(modsDir);
+    QDir().mkpath(instanceDir + QStringLiteral("/shaderpacks"));
+
+    const auto writeAt = [](const QString &path, const QByteArray &bytes) {
+        QDir().mkpath(QFileInfo(path).absolutePath());
+        QFile file(path);
+        if (file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            file.write(bytes);
+        }
+    };
+    const auto readAt = [](const QString &path) {
+        QByteArray bytes;
+        QFile file(path);
+        if (file.open(QIODevice::ReadOnly)) {
+            bytes = file.readAll();
+        }
+        return bytes;
+    };
+
+    const QString jei = modsDir + QStringLiteral("/jei.jar");
+    const QString shader = instanceDir + QStringLiteral("/shaderpacks/光影.zip");
+    writeAt(jei, QByteArrayLiteral("JEI-1.0-OLD"));
+    writeAt(shader, QByteArrayLiteral("SHADER-OLD"));
+
+    // ---------- ZU1. 抄一份 ----------
+    const QStringList relative{
+        QStringLiteral("mods/jei.jar"),
+        QStringLiteral("shaderpacks/光影.zip"),
+        QStringLiteral("mods/新加的.jar"),  // 更新新添的那个：当时**不在**
+    };
+    QString problem;
+    const UpdateRollback::Snapshot snapshot =
+        UpdateRollback::create(instanceDir, instanceId, relative, &problem);
+    check(snapshot.isValid(), "ZU1 回滚点摆成了", problem);
+    check(snapshot.fileCount() == 2, "★ ZU1 清单里「当时在」的是 2 个（第三个当时不在）",
+          QString::number(snapshot.fileCount()));
+    check(snapshot.addedCount() == 1,
+          "★★ ZU1 当时**不在**的那一个也进了清单（撤销时要把更新新添的那份删掉）",
+          QString::number(snapshot.addedCount()));
+    check(snapshot.totalBytes() == 11 + 10,
+          "ZU1 大小是**数出来的**（JEI-1.0-OLD 11 + SHADER-OLD 10）",
+          QString::number(snapshot.totalBytes()));
+    // 落点：`<数据目录>/cache/update-rollback/<实例id>/`，原件摆在 `files/` 底下、相对路径
+    // 原样保留（"这份回滚点是哪个文件的"一眼看得出）。
+    check(snapshot.dir == UpdateRollback::snapshotDir(instanceId) &&
+              snapshot.dir.startsWith(temp.path() + QStringLiteral("/cache/update-rollback/")),
+          "ZU1 落在 `<数据目录>/cache/update-rollback/<实例id>/`", snapshot.dir);
+    check(QFileInfo::exists(snapshot.dir + QStringLiteral("/files/mods/jei.jar")) &&
+              QFileInfo::exists(snapshot.dir + QStringLiteral("/files/shaderpacks/光影.zip")),
+          "★ ZU1 原件照着**相对路径**摆在 `files/` 底下（还原不用另记一张映射表）");
+    check(QFileInfo::exists(snapshot.dir + QStringLiteral("/") + UpdateRollback::manifestName()),
+          "ZU1 那张清单也在（没有它这一份回滚点用不了）");
+
+    // ---------- ZU2. 上手改文件，再退回去 ----------
+    writeAt(jei, QByteArrayLiteral("JEI-2.0-NEW"));
+    writeAt(shader, QByteArrayLiteral("SHADER-NEW"));
+    writeAt(modsDir + QStringLiteral("/新加的.jar"), QByteArrayLiteral("BRAND-NEW"));
+    {
+        const UpdateRollback::RestoreResult result =
+            UpdateRollback::restore(snapshot, instanceDir);
+        check(result.ok() && result.restored == 2 && result.removed == 1,
+              "★ ZU2 退回去：换回来 2 个、删掉 1 个（更新新添的那一份）",
+              QStringLiteral("restored=%1 removed=%2 failed=%3")
+                  .arg(result.restored)
+                  .arg(result.removed)
+                  .arg(result.failed));
+        check(readAt(jei) == QByteArrayLiteral("JEI-1.0-OLD"),
+              "★★ ZU2 退回来的是**内容**（不只是「文件在那儿」）", QString::fromUtf8(readAt(jei)));
+        check(readAt(shader) == QByteArrayLiteral("SHADER-OLD"),
+              "ZU2 那个中文路径的文件也退回来了");
+        check(!QFileInfo::exists(modsDir + QStringLiteral("/新加的.jar")),
+              "★★ ZU2 更新新添的那一个**消失**了（「这个文件原来不在」也是一件事）");
+    }
+
+    // ---------- ZU3. 只留最新那一份 ----------
+    //
+    // 再摆一份（这一次少了 JEI）：上一趟那份要**整个**没掉 —— 留着的话，撤销按钮说的
+    // 和用户手上那份东西就对不上了。
+    {
+        const UpdateRollback::Snapshot second = UpdateRollback::create(
+            instanceDir, instanceId, QStringList{QStringLiteral("shaderpacks/光影.zip")});
+        check(second.isValid() && second.entries.size() == 1,
+              "ZU3 第二份回滚点摆成了（只记了 1 条）");
+        const UpdateRollback::Snapshot back = UpdateRollback::read(instanceId);
+        check(back.isValid() && back.entries.size() == 1,
+              "★★ ZU3 盘上**只剩最新那一份**（上一趟那份整个删掉了）",
+              QString::number(back.entries.size()));
+        check(!QFileInfo::exists(back.dir + QStringLiteral("/files/mods/jei.jar")),
+              "ZU3 上一趟那份的原件跟着没了");
+    }
+
+    // ---------- ZU4. 读 / 撤干净 / 清单读不动 ----------
+    {
+        bool ok = false;
+        const UpdateRollback::Snapshot read = UpdateRollback::read(instanceId, &ok);
+        check(ok && read.isValid() && read.instanceId == instanceId,
+              "ZU4 读得动那一份，而且说得清它是哪个实例的", read.instanceId);
+        check(read.createdAt.isValid(), "ZU4 时间戳也回来了（界面那句话说「什么时候留的」）");
+
+        check(UpdateRollback::discard(instanceId), "ZU4 撤掉了");
+        check(!QDir(UpdateRollback::snapshotDir(instanceId)).exists(),
+              "★ ZU4 整个目录都没了（不是只删清单）");
+        bool noneOk = false;
+        UpdateRollback::read(instanceId, &noneOk);
+        check(!noneOk, "★★ ZU4 撤完之后读不到「能用的那一份」（那正是「撤销」那颗按钮藏起来的判据）");
+        check(UpdateRollback::discard(instanceId),
+              "ZU4 本来就没有再撤一次也不算错（幂等）");
+
+        // ★ 清单读不动 = 这一份回滚点用不了：**数据不全的东西不能拿去还原**。
+        const QString dir = UpdateRollback::snapshotDir(instanceId);
+        QDir().mkpath(dir + QStringLiteral("/files/mods"));
+        writeAt(dir + QStringLiteral("/files/mods/jei.jar"), QByteArrayLiteral("JEI-1.0-OLD"));
+        writeAt(dir + QStringLiteral("/") + UpdateRollback::manifestName(),
+                 QByteArrayLiteral("{ 这不是 json"));
+        QDir().mkpath(instanceDir + QStringLiteral("/mods"));
+        writeAt(jei, QByteArrayLiteral("JEI-2.0-NEW"));
+        bool brokenOk = false;
+        QString brokenProblem;
+        const UpdateRollback::Snapshot broken =
+            UpdateRollback::read(instanceId, &brokenOk, &brokenProblem);
+        check(!brokenOk && !broken.isValid() && !brokenProblem.isEmpty(),
+              "★★ ZU4 清单读不动 ⇒ **不算「有一份」**（残缺的回滚点不能拿去还原）", brokenProblem);
+        // 而且这时候**一个文件都不许动**：调用方拿到的 invalid 快照去做 restore 是没人拦的，
+        // 所以这一条说的是"读侧不撒谎"。
+        check(readAt(jei) == QByteArrayLiteral("JEI-2.0-NEW"),
+              "ZU4 读那一趟本身一个字节都没碰");
+        UpdateRollback::discard(instanceId);
+    }
+
+    // ---------- ZU5. 路径的合法性（我们自己算错的那些） ----------
+    //
+    // 清单里的路径是我们按目录走出来的；真出现一个不合法的，那是**上面那一层算错了**，
+    // 当场拒绝比往实例目录外面写/删东西强。
+    {
+        QString badProblem;
+        const UpdateRollback::Snapshot bad = UpdateRollback::create(
+            instanceDir, instanceId,
+            QStringList{QStringLiteral("../外面.jar"), QStringLiteral("mods/好的.jar")},
+            &badProblem);
+        check(!bad.isValid() && !badProblem.isEmpty(),
+              "★★ ZU5 带 `..` 的路径 ⇒ **整份拒绝**（不就地跳过、也不往外面写）", badProblem);
+
+        // ★ 实例 id 里带 `/` 的那一档：目录名要换成合法的一段，但**账上记的还是原来的 id**。
+        QString slashyProblem;
+        const UpdateRollback::Snapshot slashy = UpdateRollback::create(
+            instanceDir, slashyId, QStringList{QStringLiteral("mods/jei.jar")}, &slashyProblem);
+        check(slashy.isValid(), "ZU5 实例 id 里带 `/` 也能摆一份", slashyProblem);
+        check(slashy.instanceId == slashyId,
+              "★ ZU5 账上记的还是**原来的 id**（改成合法的那一段只是目录名）", slashy.instanceId);
+        check(slashy.dir.startsWith(temp.path() + QStringLiteral("/cache/update-rollback/")) &&
+                  !slashy.dir.contains(QStringLiteral("20w14∞/test")),
+              "★ ZU5 而目录名里那个 `/` 被换掉了（它得是个合法的一段）", slashy.dir);
+        // ★★ 清洗是**多对一**的（`a/b` 和 `a\b` 都变成 `a-b`），所以末尾还挂了原来 id 的
+        //    哈希：两个实例共用一份回滚点的后果是"还原的时候把 A 的旧文件写进 B 里"。
+        check(UpdateRollback::snapshotDir(QStringLiteral("a/b")) !=
+                  UpdateRollback::snapshotDir(QStringLiteral("a\\b")),
+              "★★ ZU5 清洗之后**还是一一对应**（两个实例不许共用一份回滚点）");
+        bool slashyOk = false;
+        const UpdateRollback::Snapshot slashyBack = UpdateRollback::read(slashyId, &slashyOk);
+        check(slashyOk && slashyBack.instanceId == slashyId,
+              "★★ ZU5 按原来的 id 读得回来（存和读用的是同一个换算）");
+        UpdateRollback::discard(slashyId);
+    }
+
+    AppPaths::setMinecraftDir(originalDir);
+    check(AppPaths::minecraftDir() == originalDir, "ZU9 数据根目录换回来了");
+}
+
 int main(int argc, char *argv[]) {
     QCoreApplication app(argc, argv);
     app.setApplicationName("WTFML");
@@ -24768,6 +25191,17 @@ int main(int argc, char *argv[]) {
     // 实例页的搜索与筛选（2026-10-13，coding plan §7.2），见上面 ZS 节。**全是纯函数**：
     // 值进、bool 出，不读盘、不问时钟 —— 连一条实例都不必真的存在。
     runInstanceFilterTests();
+
+    // -----------------------------------------------------------------
+    // 更新中心的「忽略 / 固定」那本账（2026-10-13，coding plan §7.1），见上面 ZT 节。
+    // **纯函数 + 一个临时目录里的真存真读**：不联网、不碰共享沙箱、不开任何界面。
+    runUpdatePolicyTests();
+
+    // -----------------------------------------------------------------
+    // 更新前那份轻量回滚点（2026-10-13，coding plan §7.1），见上面 ZU 节。**真动盘**：
+    // 自己开一个临时游戏文件夹造实例目录（这一层整个存在的意义就是"动手之前手上有一份
+    // 旧的"，纯值上验不出来），跑完换回来。
+    runUpdateRollbackTests();
 
     // -----------------------------------------------------------------
     out() << "\n===== " << (g_failures == 0 ? "全部通过" : "有失败项") << ": "

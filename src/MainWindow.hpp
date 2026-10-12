@@ -79,6 +79,12 @@
 // 实例页的搜索与筛选（coding plan §7.2，2026-10-13）：`Query` / `Facts` 都是按值传的小
 // 结构（`instanceFilterQuery()` / `instanceFilterFacts()` 的返回值），所以得 include。
 #include "manage/InstanceFilter.hpp"
+// 「忽略这一版」「固定这一版」那一本账（coding plan §7.1，2026-10-13）：按值持有一份
+// `Store`（见 m_updatePolicy）。这个头只碰 QtCore + 一次文件读写。
+#include "manage/UpdatePolicy.hpp"
+// 更新中心那一页（coding plan §7.1）：`Report` / `Row` 按值造（updateCenterReportForPage()
+// 的返回值），所以得 include 而不是前置声明 —— 同 IntegrityReportPage 那一条。
+#include "..\ui\UpdateCenterPage.hpp"
 
 class MainWindowUI;
 // 安装页那棵加载器树上的一个条目（loaderItem()）。这里只在私有函数的参数/返回值里按
@@ -1602,6 +1608,58 @@ private:
     /// 自己的实参抹掉，整份结果会记在空键底下）。
     void finishUpdateCheck(QString instanceId);
 
+    // ---------- 更新中心（coding plan §7.1，2026-10-13）----------
+    //
+    // 计划原话：「把实例概览已有"检查更新"结果做成可操作列表；支持逐项/多选更新、忽略某个
+    // 版本、固定版本；更新前创建轻量回滚点，失败时可恢复原文件；更新任务显示每个资源的结果，
+    // 不只显示总数；禁用资源保持跳过，不擅自启用或更新。」
+    //
+    // 【为什么不改那个弹框、而是新开一页】
+    //
+    // 2026-09-28 那一版收尾弹的是**一段文本**（`InlineMessage::information`）：关掉就没了，
+    // 更不能动手。而 §7.1 要的四件事（逐条更新 / 忽略 / 固定 / 撤销）全都得**看着那一行**
+    // 按下去 —— 文本上没法按。所以换成 `ui/UpdateCenterPage`（形状照完整性报告页那一套）。
+    //
+    // 【判据在哪一层】
+    //
+    // "这一条现在要不要提示"（忽略 / 固定两档）**不在界面里判** —— `src/manage/UpdatePolicy`
+    // 是唯一出处，界面只画它算好的那一档（见那一页文件头那段）。回滚那一层同理
+    // （`src/manage/UpdateRollback`）。
+    /// 开「更新中心」那一页（`OverlayHost::execPage`，收在内容区里）。
+    ///
+    /// @param instanceId 看哪个实例的结论。**必须传**（不是"当前选中的那个"）：这一页可以从
+    ///        实例设置那一页点进来 —— 那时候"选中的实例"就是它，但也可以从底栏 / 主页绕进来，
+    ///        那时候去猜一个实例是错的。
+    void openUpdateCenter(const QString &instanceId);
+    /// 把上面那一页要的那份 `Report` 造出来 —— **唯一翻译点**（和 `integrityReportForPage()`
+    /// / `taskCenterItem()` 是同一个路数）。忽略 / 固定那两档在这一处算好，页面自己不再判。
+    UpdateCenterPage::Report updateCenterReportForPage(const QString &instanceId) const;
+    /// 按**现在**这本账（`m_updatePolicy`）把"这个实例哪几条要更新"重算一遍，写回
+    /// `m_instanceOutdatedPaths`，并把开着的更新中心那一页重摆一次。忽略 / 固定一动就要走它
+    /// —— 名单和界面必须**同一次**动，不然用户会看到"已经忽略了、但计数里还算着它"。
+    ///
+    /// NOTE: **不碰 `m_instanceUpdateTargets`** —— 那一份留的是**全部**"可更新"的条目
+    ///       （不管忽略没忽略），理由见那个成员那段（「不再忽略」要靠它把版本 id 找回来）。
+    void rebuildInstanceOutdatedPaths(const QString &instanceId);
+    /// 那一本账写回盘（`<数据目录>/wtfml.updates`）。写不成**只写日志**：用户按的是一颗
+    /// "以后别提示我"，弹一个"存不进去"的框除了让他分心以外没有下一步可做（那一份记录在
+    /// 这一次会话里仍然是生效的）。
+    bool saveUpdatePolicy();
+    /// 更新中心那一页的三个动作。**实例 id 从 `m_updateCenterInstanceId` 取**（和
+    /// `m_integrityReportVersionId` 一个路数：页面活着的期间它一直指着那一份结论）。
+    void onUpdateCenterUpdateRequested(const QStringList &paths);
+    void onUpdateCenterIgnoreToggled(const QString &path, bool ignored);
+    void onUpdateCenterPinToggled(const QString &path, bool pinned);
+    /// 「撤销上一次更新」：把那个实例的回滚点还原回去（见 `UpdateRollback::restore()`）。
+    void onUpdateCenterUndoRequested();
+    /// 某一批「更新」下完之后那一行结果（逐条）。**每个资源一条**（§7.1 那条要求）——
+    /// 下载那一侧的那个信号收在这里，翻成任务账本里那一步。
+    void onUpdateBatchFileFinished(const QString &label, const QString &fileName, bool success,
+                                   const QString &errorMessage);
+    /// 这一批「更新」收尾了（全下完了 / 半路失败）。成功的那几条要从"可更新"名单里摘掉，
+    /// 并按**每个资源的结果**写一行日志 + 一份能看的清单。
+    void finishUpdateBatch(bool success, const QString &errorMessage);
+
     // ---------- 文件管理那几页的批量按钮（2026-10-09）----------
     //
     // 用户原话：「在选中任意数量模组时在列表下方的位置（不是表尾而是悬浮）显示几个按钮：
@@ -1621,9 +1679,16 @@ private:
     // 了）。真要补前置，用户走的是下载页那条路（那儿有需求 1 的那个框）。
     /// 「更新」：把这一批路径各自换成一趟检测查出来的**最新那一版**，并成**一批**下。
     ///
-    /// @param instanceId 哪一页上的（`m_instanceUpdateTargets` 的键）。
+    /// ★ 2026-10-13（§7.1）：这一批是**就地换**的 —— 每一条落回**它自己原来那个目录、
+    /// 用原来那个文件名**（`ResourceFile::dir` / `filename` 都从盘上那一条算）。
+    /// 从前是按接口给的文件名下到"这一页那个目录"里，而两家接口给的文件名常常和盘上那个
+    /// 不一样（`sodium-fabric-0.6.13.jar` vs `sodium-0.6.13.jar`）⇒ 换完之后**多出一个
+    /// jar、旧的还在**，而且"更新"按几次就多几份。
+    ///
+    /// @param instanceId 哪个实例（`m_instanceUpdateTargets` 的键）。
     /// @param pageKey `instanceFileDirs()` 的键（`mod` / `resourcepack` / `datapack` /
-    ///        `shader`）—— 落点由它算，界面那边只说"是哪一页"。
+    ///        `shader`）—— 界面那边只说"是哪一页"。**空串 = 不是从某一页来的**（更新中心
+    ///        那一批是跨类勾出来的），那时候落点全按每条自己那个目录算，不做校验。
     void updateInstanceFiles(const QString &instanceId, const QString &pageKey,
                              const QStringList &paths);
     /// 「禁用」/「启用」：@p disable 为真 = 禁用。**只动该动的那几条**（选中集里本来就
@@ -2684,6 +2749,61 @@ private:
     ///       「检查更新」。这是**刻意**的：现算一份"现在还是不是最新的"要再跑一整趟
     ///       反查 + 版本列表，而那正是他刚点过的那颗按钮。
     QHash<QString, QHash<QString, ResourceCatalog::VersionEntry>> m_instanceUpdateTargets;
+    /// **会话级**：上一趟检测的**原始结论**（实例 id → 那一趟判出来的每一条 + 反查那一趟
+    /// 自己的毛病）。★ §7.1 加的。
+    ///
+    /// 为什么不能只留上面那两份名单：名单是**按忽略 / 固定筛过**的（"这一条还要不要提示"），
+    /// 而用户点了「忽略这一版」之后**不可能再跑一趟检测**（那要读几十兆 jar、发几十发网络）
+    /// —— 得拿原始那一份当场重算。没有这一份的话，"忽略"只能写成"把这一条从名单里抠掉"，
+    /// 而"不再忽略"就永远退不回来了（名单上已经没有它了）。
+    struct UpdateCheckResult {
+        QList<ModDependencies::UpdateVerdict> verdicts;
+        QString lookupNote;
+    };
+    QHash<QString, UpdateCheckResult> m_instanceUpdateResults;
+    /// ★ 2026-10-13（§7.1）：上面那两份名单里，**`m_instanceOutdatedPaths` 现在是"按忽略 /
+    /// 固定筛过"的**，而这一份 `m_instanceUpdateTargets` 仍然是**全部**可更新的条目。
+    ///
+    /// 为什么这一份不跟着筛：用户点了「不再忽略」时要能**当场**把"换成哪一版"找回来
+    /// （他不可能为了这个再跑一趟检测）。筛掉的那一条如果连版本 id 都丢了，"不再忽略"
+    /// 就只能记成一个空 —— 那一颗按钮就永远按不动了。
+    /// NOTE: 两份名单指向的仍然是同一件事（"可更新的那几条"），差别只在于**要不要提示**，
+    ///       所以按筛过的那一份去这一份里取，取得到的一定是对的。
+    /// 「忽略某一版」「固定某一版」那一本账（`<数据目录>/wtfml.updates`）。
+    ///
+    /// NOTE: **启动时读一次、改了就写**（见 saveUpdatePolicy）。和上面那几份会话缓存
+    ///       不一样 —— 那几份只活到运行结束，而这两档用户说的是"以后"（尤其"固定"：
+    ///       下次开启动器它还得算话），所以它必须落盘。
+    UpdatePolicy::Store m_updatePolicy;
+    /// 更新中心那一页（懒建一次、之后复用）。
+    UpdateCenterPage *m_updateCenterPage = nullptr;
+    /// 那一页现在说的是哪个实例的结论（**开那一页时记下来**）。
+    ///
+    /// 和 `m_integrityReportVersionId` 一个路数：页面是复用的、点动作时它可能已经关了，
+    /// 所以"这一按是对哪个实例按的"只能从这儿来 —— 不许去问"现在选中的是哪个实例"。
+    QString m_updateCenterInstanceId;
+    /// 正在跑的那一批「更新」（§7.1）。`label` 空 = 没有。
+    ///
+    /// 为什么要有它：`downloadResourceFiles()` 一次只收**一批**，而这一批里每个文件的
+    /// 结果（成功 / 失败 + 原因）要一条一条记进任务账本（§7.1 那条"不只显示总数"）。
+    /// 文件名 → 步骤下标这层对应关系**只有发起那一处知道**（下载那一侧回来的就是文件名）。
+    struct UpdateBatchRun {
+        QString label;                ///< 这一批叫什么（和 `resourceDownloadFinished` 带的是同一个）
+        QString instanceId;           ///< 更新的是哪个实例
+        Tasks::TaskId task = Tasks::invalidTaskId();
+        /// 文件名 → 还没落定的步骤下标（同名多条时按先后取）。**先登记再发起**：下载器
+        /// 可能同步就回一条（盘上那个文件已经对了的那一档），那时候没登记就丢一条结果。
+        QHash<QString, QList<int>> pendingSteps;
+        /// 文件名 → 盘上那条的绝对路径（成功之后要按它从「可更新」名单里摘）。
+        QHash<QString, QString> pathByFileName;
+        /// 已经确认下好了的那些路径。
+        QStringList succeeded;
+        /// 每个资源一行（`名字 —— 结果`），收尾时写日志 + 弹那份清单。
+        QStringList lines;
+        /// 有几步是失败的（收尾时决定记成功还是失败）。
+        int failedSteps = 0;
+    };
+    UpdateBatchRun m_updateBatch;
     /// 实例页那张树的**原料**：上一次 `refreshInstalledVersions()` 扫出来的那份（能启动
     /// 的实例 + 每一行前面那个图标）。**只有 `rebuildInstanceTree()` 读它**。
     ///
