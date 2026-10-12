@@ -196,6 +196,60 @@ bool levelFromToken(const QString &token, GameLogWindow::LogLevel *out) {
     return false;
 }
 
+/// 只认这一行**自己写出来的**级别。返回 false 就表示它可能是上一条的续行；调用方再决定
+/// fallback。计数必须看这一步，不能看 fallback 后的结果：否则一条 ERROR 后面的二十行崩栈
+/// 会被记成二十一条 ERROR。
+bool explicitLevelOf(const QString &line, GameLogWindow::LogLevel *out) {
+    int i = 0;
+    while (i < line.size() && line.at(i) == QLatin1Char('[')) {
+        const int close = line.indexOf(QLatin1Char(']'), i + 1);
+        if (close < 0) {
+            break;
+        }
+        const QString inside = line.mid(i + 1, close - i - 1);
+        GameLogWindow::LogLevel level = GameLogWindow::LogLevel::Info;
+        if (levelFromToken(inside, &level) ||
+            levelFromToken(inside.section(QLatin1Char('/'), -1), &level)) {
+            if (out != nullptr) {
+                *out = level;
+            }
+            return true;
+        }
+        i = close + 1;
+        while (i < line.size() && line.at(i).isSpace()) {
+            ++i;
+        }
+    }
+
+    const QString head = line.left(GameLogWindow::levelScanHead());
+    int p = 0;
+    while (p < head.size()) {
+        if (!head.at(p).isLetter()) {
+            ++p;
+            continue;
+        }
+        int end = p;
+        while (end < head.size() && head.at(end).isLetter()) {
+            ++end;
+        }
+        int after = end;
+        while (after < head.size() && head.at(after) == QLatin1Char(' ')) {
+            ++after;
+        }
+        if (after < head.size() && head.at(after) == QLatin1Char(':')) {
+            GameLogWindow::LogLevel level = GameLogWindow::LogLevel::Info;
+            if (levelFromToken(head.mid(p, end - p), &level)) {
+                if (out != nullptr) {
+                    *out = level;
+                }
+                return true;
+            }
+        }
+        p = end;
+    }
+    return false;
+}
+
 /**
  * @brief 正文那块文本控件：**每一行底下补一条细线**，其余照 QPlainTextEdit 原样。
  *
@@ -516,15 +570,27 @@ void GameLogWindow::appendText(const QString &text) {
 GameLogWindow::LogLevel GameLogWindow::rememberLine(const QString &text) {
     // 认不出来就跟上一行：崩栈的 `at net.minecraft...` 续行、我们自己补的那句
     // "游戏已退出" 都属于上一条日志，跟着上一行的颜色读起来正对。
-    // 模型还是空的（第一行就没级别）时算 Info —— 于是五档的计数加起来**永远**等于总行数。
-    const LogLevel level =
-        classifyLine(text, m_lines.isEmpty() ? LogLevel::Info : m_lines.last().level);
-    m_lines.append(LogLine{level, text});
-    ++m_levelCounts[levelIndex(level)];
+    // 模型还是空的（第一行就没级别）时算 Info；严重级别之后的无级别行只作为续行显示。
+    const LogLevel fallback = m_lines.isEmpty() ? LogLevel::Info : m_lines.last().level;
+    LogLevel level = LogLevel::Info;
+    const bool hasOwnLevel = explicitLevelOf(text, &level);
+    if (!hasOwnLevel) {
+        // 空行是记录之间的分隔，不该继承上一条 ERROR 的颜色；同时也不算一条 INFO。
+        level = text.isEmpty() ? LogLevel::Info : fallback;
+    }
+    // 没写级别的普通输出在 INFO 上按一行一条记；但 ERROR/WARN/FATAL/DEBUG 后面的无级别行
+    // 是崩栈或正文续行，只跟随颜色，不重复增加严重级别计数。
+    const bool counted = hasOwnLevel || (!text.isEmpty() && level == LogLevel::Info);
+    m_lines.append(LogLine{level, text, counted});
+    if (counted) {
+        ++m_levelCounts[levelIndex(level)];
+    }
     if (m_lines.size() > maxLogBlocks()) {
         // 视图那边由它的 maximumBlockCount 同步丢最老的（两个上限对齐，见构造函数里那段）。
         const LogLine dropped = m_lines.takeFirst();
-        --m_levelCounts[levelIndex(dropped.level)];
+        if (dropped.counted) {
+            --m_levelCounts[levelIndex(dropped.level)];
+        }
     }
     updateFilterButtons();
     return level;
@@ -759,50 +825,9 @@ GameLogWindow::LogLevel GameLogWindow::classifyLine(const QString &line, LogLeve
     //    这里**不设长度窗口**：线程名长的（`[Chunk Render Task 12/WARN]`）那几格会排到
     //    四十几个字符之后，切一刀反而把真级别切掉；而"连着开头"这件事本身就已经把
     //    消息体挡在外面了。
-    int i = 0;
-    while (i < line.size() && line.at(i) == QLatin1Char('[')) {
-        const int close = line.indexOf(QLatin1Char(']'), i + 1);
-        if (close < 0) {
-            break;  // 没闭合的方括号：这句前缀不成立，交给 ② 和 fallback
-        }
-        const QString inside = line.mid(i + 1, close - i - 1);
-        LogLevel level = LogLevel::Info;
-        // `[main/INFO]` 取斜杠后那一段（log4j 的 %t/%level 那套写法，线程名里本身就带
-        // 斜杠的也照切）；`[INFO]` 这种整段就是级别。
-        if (levelFromToken(inside, &level) ||
-            levelFromToken(inside.section(QLatin1Char('/'), -1), &level)) {
-            return level;
-        }
-        i = close + 1;
-        while (i < line.size() && line.at(i).isSpace()) {
-            ++i;
-        }
-    }
-
-    // ② 开头一小段里**带冒号**的裸词（`12:34:56 WARN: msg`）。冒号是必需的：不然
-    //    `Loaded 3 INFO files` 这种正文会被认成级别。
-    const QString head = line.left(levelScanHead());
-    int p = 0;
-    while (p < head.size()) {
-        if (!head.at(p).isLetter()) {
-            ++p;
-            continue;
-        }
-        int end = p;
-        while (end < head.size() && head.at(end).isLetter()) {
-            ++end;
-        }
-        int after = end;
-        while (after < head.size() && head.at(after) == QLatin1Char(' ')) {
-            ++after;
-        }
-        if (after < head.size() && head.at(after) == QLatin1Char(':')) {
-            LogLevel level = LogLevel::Info;
-            if (levelFromToken(head.mid(p, end - p), &level)) {
-                return level;
-            }
-        }
-        p = end;
+    LogLevel level = LogLevel::Info;
+    if (explicitLevelOf(line, &level)) {
+        return level;
     }
     return fallback;
 }
@@ -1060,7 +1085,8 @@ QString GameLogWindow::filterButtonText(LogLevel level, int count) {
 }
 
 QString GameLogWindow::filterButtonTooltip() {
-    return QStringLiteral("点一下就不显示这一档。数字是还留在这里的行数（最多 %1 行）。")
+    return QStringLiteral("点一下就不显示这一档。数字是日志记录数（崩栈续行不重复计算）。"
+                          "窗口最多保留 %1 行文本。")
         .arg(maxLogBlocks());
 }
 

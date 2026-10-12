@@ -5100,6 +5100,10 @@ int main(int argc, char *argv[]) {
         check(homeLeft != nullptr && isDescendantOf(installed, homeLeft) &&
                   isDescendantOf(startBtn, homeLeft),
               "主页左栏里是版本选择和启动按钮");
+        check(startBtn != nullptr &&
+                  startBtn->property("wtfmlButtonKind").toString() ==
+                      Theme::buttonKindKey(Theme::ButtonKind::Primary),
+              "主页的「启动游戏」是整页唯一的实心主动作");
         check(installed->y() + installed->height() <= startBtn->y(),
               "主页左栏：版本选择在启动按钮上方",
               QString("combo.bottom=%1 btn.y=%2")
@@ -17052,7 +17056,7 @@ int main(int argc, char *argv[]) {
                                 .arg(log->lineCountFor(level));
             }
             check(sum == log->lineCount(),
-                  "Z5 五档加起来正好等于总行数（认不出来跟着上一行走，所以不会漏账）",
+                  "Z5 这五个显式级别各是一条记录，所以记录数正好等于物理行数",
                   QStringLiteral("%1 合计 %2 / 总 %3")
                       .arg(perLevel.join(QStringLiteral(" ")))
                       .arg(sum)
@@ -17088,7 +17092,7 @@ int main(int argc, char *argv[]) {
                   textWrong.join(QStringLiteral("; ")));
 
             // ---- (c) 关掉一档：视图里没了，账上还在 ----
-            // 这是这一节最要命的一条：数字要是跟着"显示了几行"算，用户关掉 ERROR 之后
+            // 这是这一节最要命的一条：数字要是跟着"显示了几条"算，用户关掉 ERROR 之后
             // 明明刚才看到「ERROR 5」，一关就变成 0 了 —— 那等于把刚发生的事抹掉。
             log->setLevelVisible(L::Error, false);
             check(!log->logText().contains(QStringLiteral("[main/ERROR]")) &&
@@ -17096,7 +17100,7 @@ int main(int argc, char *argv[]) {
                       log->logText().contains(QStringLiteral("[main/INFO]")),
                   "Z5 关掉 ERROR：那一条不显示了，别的几条还在");
             check(log->lineCountFor(L::Error) == 1 && log->lineCount() == 5,
-                  "Z5 但**账没变**：数字说的是「有多少行」，不是「显示了几行」",
+                  "Z5 但**账没变**：数字说的是「有多少条记录」，不是「显示了几条」",
                   QStringLiteral("ERROR=%1 总=%2")
                       .arg(log->lineCountFor(L::Error))
                       .arg(log->lineCount()));
@@ -17146,6 +17150,15 @@ int main(int argc, char *argv[]) {
                   "Z5 把那五档勾回来、字也回来了（免得空窗看着像坏了）");
             check(view->placeholderText() == GameLogWindow::emptyPlaceholderText(),
                   "Z5 全回来之后占位那句话也回到「还没有输出」", view->placeholderText());
+
+            // 一条错误后面的崩栈是同一条记录的续行：正文和底色都保留，但顶部数字不能把
+            // 一次异常膨胀成几十次 ERROR。
+            log->appendText(QStringLiteral("    at net.minecraft.client.Main.main(Main.java:42)\n"));
+            check(log->lineCount() == 7 && log->lineCountFor(L::Error) == 2,
+                  "Z5 ERROR 的崩栈续行留在模型里，但不重复增加错误记录数",
+                  QStringLiteral("物理行=%1 ERROR记录=%2")
+                      .arg(log->lineCount())
+                      .arg(log->lineCountFor(L::Error)));
 
             // ---- (e) 半行：进程输出是按块来的，一个块可能断在行中间 ----
             log->getClearButton()->click();
@@ -23407,8 +23420,8 @@ int main(int argc, char *argv[]) {
             const QColor pressed = Theme::accentShade(Theme::AccentShade::Pressed);
 
             check(sameColor(pure, Theme::defaultAccentColor()) &&
-                      pure.name() == QLatin1String("#56eb6c"),
-                  "★★ W12 出厂主题色就是用户点名的那一支（#56eb6c，全仓只有一处写它）",
+                      pure.name() == QLatin1String("#2d8659"),
+                  "★★ W12 出厂主题色是沉稳的翡翠绿（#2d8659，全仓只有一处写它）",
                   pure.name());
             check(sameColor(Theme::partBackground(Theme::Part::TitleBar), pure),
                   "★★ W12 顶栏铺的就是**纯的那一支**（不是深一档的）");
@@ -23423,9 +23436,9 @@ int main(int argc, char *argv[]) {
                       .arg(ink.name())
                       .arg(contrast(ink, QColor(Qt::white)), 0, 'f', 2));
             check(contrast(edge, QColor(Qt::white)) >= 3.0 &&
-                      contrast(pure, QColor(Qt::white)) < 3.0,
-                  "★★ W12 那一圈边对白底够界面部件那条 3:1；而**纯的那一支不够** —— "
-                  "这就是「边要另取一档」的理由（白底上一条 #56eb6c 的边看着像没画）",
+                      contrast(pure, QColor(Qt::white)) >= 4.5,
+                  "★★ W12 描边对白底够界面部件 3:1，纯色对白字也够正文 4.5:1"
+                  "（顶栏和实心主按钮都能直接使用）",
                   QStringLiteral("边 %1:1 / 纯 %2:1")
                       .arg(contrast(edge, QColor(Qt::white)), 0, 'f', 2)
                       .arg(contrast(pure, QColor(Qt::white)), 0, 'f', 2));
@@ -23460,6 +23473,7 @@ int main(int argc, char *argv[]) {
 
             // ---------- 按钮：属性 + 真的铺到那颗按钮上 ----------
             check(Theme::buttonKindKey(Theme::ButtonKind::Accent).isEmpty() &&
+                      !Theme::buttonKindKey(Theme::ButtonKind::Primary).isEmpty() &&
                       !Theme::buttonKindKey(Theme::ButtonKind::Danger).isEmpty() &&
                       !Theme::buttonKindKey(Theme::ButtonKind::Neutral).isEmpty(),
                   "★ W12 普通按钮**不挂属性**（挂一个恒真的值只是让每颗按钮都带一位垃圾）");

@@ -25485,10 +25485,9 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
         GameLogWindow *levelWin = levelWindows.isEmpty() ? nullptr : levelWindows.first();
         check(levelWin != nullptr, "AE6 前提：换一份会话照样建窗（这一节全靠它）");
         if (levelWin != nullptr) {
-            // ① 认级别：五档各一条，最后那行认不出来 → 跟着上一条（FATAL），所以 FATAL 是 2。
-            //    这一组数同时钉住了"FATAL 认得出来"和"认不出来跟着上一条走"两件事 ——
-            //    少了后一条规则的话末行会掉进别的档，这组数立刻就变。
-            const int expect[GameLogWindow::levelCount()] = {1, 1, 1, 1, 2};   // Debug/Info/Warn/Error/Fatal
+            // ① 认级别：五档各一条；最后那行认不出级别，会沿用 FATAL 的颜色与筛选归属，
+            //    但它只是上一条日志的续行，不应把顶部的“日志记录数”再加一次。
+            const int expect[GameLogWindow::levelCount()] = {1, 1, 1, 1, 1};   // Debug/Info/Warn/Error/Fatal
             check(levelWin->lineCount() == 6, "AE6 六行一条不多一条不少",
                   QString::number(levelWin->lineCount()));
             QString wrong;
@@ -25502,9 +25501,9 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                 }
             }
             check(wrong.isEmpty(),
-                  "AE6 五档各认出来几条（认不出级别的那一行跟着上一条走 → FATAL 是 2）", wrong);
-            check(sum == levelWin->lineCount(),
-                  "AE6 五档的账加起来正好等于总行数（不然就是有行没记账）",
+                  "AE6 五档各有一条独立日志（续行归入 FATAL，但不重复计数）", wrong);
+            check(sum == 5 && levelWin->lineCount() == 6,
+                  "AE6 顶部统计五条日志记录，正文仍保留六个物理行",
                   QStringLiteral("%1 vs %2").arg(sum).arg(levelWin->lineCount()));
 
             // ② 顶上那排开关：五颗都在，而且**每颗上写的数字就是这一档的账**（用户要的统计）。

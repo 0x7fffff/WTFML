@@ -73,8 +73,8 @@ constexpr int kStatusLabelMinWidth = 260;
 /// 必须是同一个数，所以唯一的出处是 MainWindowUI::avatarSize()（见头文件）。
 const int kAvatarSize = MainWindowUI::avatarSize();
 
-/// 「启动游戏」按钮的高度。文字是两行（"启动游戏\n<显示名>"），给足高度免得被压成一行半。
-constexpr int kStartButtonMinHeight = 88;
+/// 「启动游戏」按钮的高度。两行文字仍有足够呼吸空间，但不再占掉启动卡近一半高度。
+constexpr int kStartButtonMinHeight = 76;
 
 /// 「额外 JVM 参数」多行输入框的高度，约三四行的样子；再高会把下面那几项挤出可视区。
 constexpr int kJvmArgsEditHeight = 72;
@@ -101,6 +101,39 @@ struct TwoColumns {
     Column left;
     Column right;
 };
+
+/// 主页两张常驻卡片：底色跟 Theme::Part::Card，既能压住用户自定义背景图保证文字可读，
+/// 也和资源详情页、覆盖层里的卡片保持同一种视觉语言。
+QFrame *makeHomeCard(QWidget *parent) {
+    auto *card = new QFrame(parent);
+    card->setFrameShape(QFrame::StyledPanel);
+    card->setAutoFillBackground(true);
+    const auto applyPalette = [card]() {
+        QPalette palette = QApplication::palette();
+        palette.setColor(QPalette::Window, Theme::partBackground(Theme::Part::Card));
+        card->setPalette(palette);
+    };
+    applyPalette();
+    Theme::follow(card, applyPalette);
+    return card;
+}
+
+QLabel *makeHomeTitle(const QString &text, QWidget *parent) {
+    auto *label = new QLabel(text, parent);
+    QFont font = label->font();
+    font.setBold(true);
+    font.setPointSizeF(font.pointSizeF() + 2.0);
+    label->setFont(font);
+    return label;
+}
+
+QLabel *makeHomeHint(const QString &text, QWidget *parent) {
+    auto *label = new QLabel(text, parent);
+    label->setWordWrap(true);
+    label->setForegroundRole(QPalette::PlaceholderText);
+    label->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    return label;
+}
 
 /**
  * @brief 把页面摆成左右两栏（仿 PCL）。
@@ -356,9 +389,20 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     homeTab->setObjectName(homeTabName());
     const TwoColumns home = buildTwoColumnPage(homeTab, QStringLiteral("home"));
     {
-        home.left.layout->addWidget(new QLabel(QStringLiteral("已安装版本"), home.left.widget));
+        auto *launchCard = makeHomeCard(home.left.widget);
+        launchCard->setObjectName(QStringLiteral("homeLaunchCard"));
+        launchCard->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        auto *launchLayout = new QVBoxLayout(launchCard);
+        launchLayout->setContentsMargins(22, 20, 22, 22);
+        launchLayout->setSpacing(10);
 
-        installedVersionCombo = new QComboBox(home.left.widget);
+        launchLayout->addWidget(makeHomeTitle(QStringLiteral("开始游戏"), launchCard));
+        launchLayout->addWidget(
+            makeHomeHint(QStringLiteral("选择一个已安装实例，准备好后即可启动。"), launchCard));
+        launchLayout->addSpacing(4);
+        launchLayout->addWidget(new QLabel(QStringLiteral("游戏实例"), launchCard));
+
+        installedVersionCombo = new QComboBox(launchCard);
 
         // 空状态用"没选中任何项(currentIndex() == -1) + placeholderText"表示，
         // 不再往列表里塞 "自定义版本" 那种假条目：控件自己会把占位文案画成灰字。
@@ -387,22 +431,31 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // 滚轮防护：见 MainWindowUI.hpp 里的 WheelGuard
         WheelGuard::install(installedVersionCombo);
         installedVersionCombo->setObjectName(installedVersionComboName());
-        home.left.layout->addWidget(installedVersionCombo);
+        launchLayout->addWidget(installedVersionCombo);
 
-        startButton = new QPushButton(QStringLiteral("启动游戏"), home.left.widget);
+        startButton = new QPushButton(QStringLiteral("启动游戏"), launchCard);
         // 文字是两行（"启动游戏\n<显示名>"，由 MainWindow::updateStartButtonText() 维护；
         // 高度固定给足，免得两行被压成一行半。
         startButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
         startButton->setMinimumHeight(kStartButtonMinHeight);
-        home.left.layout->addWidget(startButton);
+        QFont startFont = startButton->font();
+        startFont.setBold(true);
+        startFont.setPointSizeF(startFont.pointSizeF() + 1.0);
+        startButton->setFont(startFont);
+        Theme::markButton(startButton, Theme::ButtonKind::Primary);
+        launchLayout->addWidget(startButton);
+        launchLayout->addWidget(
+            makeHomeHint(QStringLiteral("实例与游戏文件可在「实例」页中管理。"), launchCard));
 
         // 这里原来有一个「离线模式」勾选框（2026-09-24 去掉的，用户原话：「现在不要启动
         // 界面那个离线登录勾选框了，在添加账户那里选择添加离线账号」）。它管的是"这次启动
         // 用哪种身份"，而现在那件事**只由当前账号是什么**决定 —— 离线就去账号窗里加一个
         // 离线账号、切过去，没有第二个开关。判据的唯一出处是 MainWindow::offlineIdentity()。
 
-        // 剩下的竖直空间留在底部：按钮不跟着窗口高度一起被拉长
+        // 启动卡落在视觉中心略偏上的位置；窗口变高时留白分到上下两侧，不再只堆在按钮下方。
         home.left.layout->addStretch(1);
+        home.left.layout->addWidget(launchCard);
+        home.left.layout->addStretch(2);
     }
     // ---------- 主页右栏：我的角色（3D 皮肤预览） ----------
     // 这里原来是空的：早先放着一张「版本列表」，和左边那个下拉框是同一份数据的两种看法，
@@ -410,22 +463,25 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     // 空着的那阵子这一栏的作用只剩"按份数把左边那套操作顶到 7 成宽"，现在拿它装皮肤预览 ——
     // 三成宽正好够放一个小人（见 SkinModel 里"缩放按控件尺寸自适应"那条，控件多大它多大）。
     {
-        QLabel *skinTitle = new QLabel(QStringLiteral("我的角色"), home.right.widget);
-        QFont skinTitleFont = skinTitle->font();
-        skinTitleFont.setBold(true);
-        skinTitle->setFont(skinTitleFont);
-        home.right.layout->addWidget(skinTitle);
+        auto *profileCard = makeHomeCard(home.right.widget);
+        profileCard->setObjectName(QStringLiteral("homeProfileCard"));
+        auto *profileLayout = new QVBoxLayout(profileCard);
+        profileLayout->setContentsMargins(16, 16, 16, 16);
+        profileLayout->setSpacing(10);
 
-        skinViewer = new SkinViewer(home.right.widget);
+        QLabel *skinTitle = makeHomeTitle(QStringLiteral("我的角色"), profileCard);
+        profileLayout->addWidget(skinTitle);
+
+        skinViewer = new SkinViewer(profileCard);
         skinViewer->setObjectName(skinViewerName());
         // 立刻喂一套外观。这个控件**任何时候都不该是空白的** —— 没登录、还没取到、
         // 取不到，这三种情况看到的都是这套默认外观，所以兜底放在这里而不是等业务层来灌：
         // 少一处"谁忘了设"的可能。业务层拿到真皮肤时再覆盖它。
         skinViewer->setSkin(SkinModel::defaultSteveSkin(), QImage(), false);
         // 份数 1：这一栏里竖直方向全是它的（标题和说明那两行是固定高度）。
-        home.right.layout->addWidget(skinViewer, 1);
+        profileLayout->addWidget(skinViewer, 1);
 
-        skinHintLabel = new QLabel(skinHintNotLoggedInText(), home.right.widget);
+        skinHintLabel = new QLabel(skinHintNotLoggedInText(), profileCard);
         skinHintLabel->setObjectName(skinHintLabelName());
         // 必须换行：这句最长的时候（「取不到 <名字> 的皮肤，显示的是默认外观」）有 20 多字，
         // 而这一栏只有 260 px 上下，不换行就会把整栏顶宽、把左边的 7 份挤掉。
@@ -435,20 +491,21 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // 3 份（约 260 px），让一个纯说明文字去决定它的宽度是本末倒置。摘掉之后这一栏的
         // 宽度仍然只由份数决定（主页那个精确的 7:3 就是靠这个成立的）。
         skinHintLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-        home.right.layout->addWidget(skinHintLabel);
+        profileLayout->addWidget(skinHintLabel);
 
         // 「账号与外观…」：多账号 / 换皮肤换披风的入口，按用户要求放在 3D 预览这一块
         // 的下方。**说明行（skinHintLabel）在它上面**：那句是预览的图注，紧贴着图才是
         // 图注该在的位置；把按钮塞进图和图注中间会把「图 + 它的注解」拆成两半。
         // 宽度**不**跟着这一栏长（这一栏只有 3 份，拉满会顶宽），贴左边固定宽度。
         accountSkinButton = new QPushButton(MainWindowUI::accountSkinButtonText(),
-                                            home.right.widget);
+                                            profileCard);
         accountSkinButton->setObjectName(MainWindowUI::accountSkinButtonName());
         // 「角色皮肤…」= 通往另一个窗的一扇门（一般性），不是"干这件事"。
         Theme::markButton(accountSkinButton, Theme::ButtonKind::Neutral);
         accountSkinButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
         accountSkinButton->setMinimumWidth(kAccountSkinButtonMinWidth);
-        home.right.layout->addWidget(accountSkinButton, 0, Qt::AlignLeft);
+        profileLayout->addWidget(accountSkinButton, 0, Qt::AlignLeft);
+        home.right.layout->addWidget(profileCard, 1);
     }
     // NOTE: 控件一个都不放也得把这栏建出来 —— 验证工程靠 leftColumnName()/rightColumnName()
     //       找这两栏量几何，主页右栏没了就等于主页的比例没地方量。

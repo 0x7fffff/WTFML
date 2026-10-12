@@ -49,8 +49,8 @@ struct PartInfo {
 /// NOTE: 最后那一位（出厂字色是不是白墨）在 `partLightInk()` 里另有一张表 —— 它只有标题栏
 ///       用得到，塞进这一张只会让上面五行都跟着多一个恒假的字段。
 const PartInfo kPartInfos[] = {
-    // ★ 标题栏出厂就是**主题色那一支**（2026-09-28 用户原话：「使用 #56eb6c 作为默认主题
-    //   颜色（顶栏用）」）。它原来和底栏一样是"窗口底色压暗一档"，两处**故意不一样了**：
+    // ★ 标题栏出厂就是**主题色那一支**（默认值由 defaultAccentColor() 统一提供）。
+    //   它原来和底栏一样是"窗口底色压暗一档"，两处**故意不一样了**：
     //   底下那条留着中性色 —— 它装的是启动/日志那一排控件，那些控件自己有自己的底色，
     //   而顶上那条整条就是一块主题色的底。ui_check W5 那两条照着这件事改过。
     {"titleBar", "标题栏", 105, QPalette::Window, false, true},
@@ -483,10 +483,11 @@ bool roleFromKey(const QString &key, Role *out) {
 // ---------------------------------------------------------------------------
 
 QColor defaultAccentColor() {
-    // ★ 用户 2026-09-28 点名的那一支：「使用 #56eb6c 作为默认主题颜色（顶栏用）」。
+    // 2026-10-12 把原先偏荧光的 #56eb6c 收成更沉稳的翡翠绿：顶栏长时间停在视野里，
+    // 降低明度后不再抢内容；同时白字对它仍有 4.5:1 以上的对比度，实心主按钮也能复用。
     //   全仓只有这一处写这六个十六进制位 —— 顶栏、按钮的字与边、当前那一颗导航底下那条
     //   线，量的都是它算出来的某一档（见 `accentShade()`），**不许在别处再写一遍**。
-    return QColor(0x56, 0xeb, 0x6c);
+    return QColor(0x2d, 0x86, 0x59);
 }
 
 QColor rowHoverFill(const QColor &base) {
@@ -564,18 +565,11 @@ QColor accentShade(AccentShade shade) {
     case AccentShade::Pure:
         return pure;
     case AccentShade::Ink:
-        // 白底上写字的那个绿：#56eb6c 的 **value 折半**（`darker(200)`，Qt 走的是 HSV）⇒
-        // #2b7536，对白底 **5.7:1**。用户点名那一支压在白底上只有 1.55:1 —— 当边框都嫌淡，
-        // 当字就是"看得见、读不清"。所以字这一档必须更深：对比度是这一档存在的全部理由。
+        // 白底上写字的那一档继续取纯色 value 的一半。默认主题色本身已经比旧版更深，
+        // 这里仍保留层级差：描边按钮的文字要比大面积顶栏和实心按钮更收、更清晰。
         return pure.darker(200);
     case AccentShade::Border:
-        // 那一圈边：#56eb6c 的 value 压到 1/1.5 ⇒ #39a949，对白底 **3.5:1**
-        // （WCAG 对"界面部件"那条线是 3:1 —— 边框要看得见，不必像字那么重）。
-        //
-        // ★ 为什么不是 1/1.4：那一档实测只有 **3.04:1** —— 恰好在线上。线的两侧只差
-        //   Qt 给 `darker()` 取整时进的那一位（`v*100/factor` 是整数除法，144 和 145 会
-        //   差出 0.03），等于把"够不够 3:1"交给一个取整细节去掷骰子。压到 1/1.5 之后
-        //   实测 3.45~3.49，留得下一档误差。
+        // 那一圈边取纯色 value 的 2/3：比文字轻一档，但对白底仍明显超过界面部件 3:1。
         return pure.darker(150);
     case AccentShade::Hover:
     case AccentShade::Pressed:
@@ -602,6 +596,8 @@ QColor neutralInkColor() {
 
 QString buttonKindKey(ButtonKind kind) {
     switch (kind) {
+    case ButtonKind::Primary:
+        return QStringLiteral("primary");
     case ButtonKind::Neutral:
         return QStringLiteral("neutral");
     case ButtonKind::Danger:
@@ -705,6 +701,21 @@ QString widgetStyleSheet() {
                       "QPushButton:pressed:enabled { background-color: %5; }")
                       .arg(ink.name(), border.name(), mixWithWhite(accentShade(AccentShade::Pure), 6).name(),
                            hover.name(), pressed.name());
+    // 主动作是页面上唯一一颗实心按钮。悬停和按下都向更深处走，白字对比度不会因为交互
+    // 状态而降低；普通确认 / 危险 / 次要按钮仍是白底描边，不会整页争夺注意力。
+    const auto primaryBlock = [](const QString &key, const QColor &fill,
+                                 const QColor &hoverFill, const QColor &pressedFill) {
+        return QStringLiteral("QPushButton[%1=\"%2\"] { background-color: %3; color: #ffffff;"
+                              " border-color: %3; border-radius: 6px; }"
+                              "QPushButton[%1=\"%2\"]:hover:enabled { background-color: %4;"
+                              " border-color: %4; }"
+                              "QPushButton[%1=\"%2\"]:pressed:enabled { background-color: %5;"
+                              " border-color: %5; }")
+            .arg(QString::fromLatin1(kButtonKindProperty), key, fill.name(), hoverFill.name(),
+                 pressedFill.name());
+    };
+    qss += primaryBlock(QStringLiteral("primary"), pure, pure.darker(108), pure.darker(118));
+
     // 危险 / 次要两档：只换字和边那两处颜色，其余（白底、圆角、内边距）照旧。
     const auto kindBlock = [](const QString &key, const QColor &color, const QColor &hoverFill,
                               const QColor &pressedFill) {
