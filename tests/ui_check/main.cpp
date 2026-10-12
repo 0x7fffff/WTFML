@@ -3744,20 +3744,20 @@ int main(int argc, char *argv[]) {
             // "它还在跑"。失败比完成优先级高（两个都真时写「失败」）。
             struct Case {
                 const char *title;
-                bool done;
-                bool failed;
+                TaskCenter::State state;
                 const char *want;
             };
             const Case cases[] = {
-                {"正在下载游戏文件", false, false, "正在下载游戏文件"},
-                {"正在下载游戏文件", true, false, "正在下载游戏文件（已完成）"},
-                {"正在下载游戏文件", false, true, "正在下载游戏文件（失败）"},
-                {"正在下载游戏文件", true, true, "正在下载游戏文件（失败）"},
+                {"正在下载游戏文件", TaskCenter::State::Running, "正在下载游戏文件"},
+                {"正在下载游戏文件", TaskCenter::State::Succeeded, "正在下载游戏文件（已完成）"},
+                {"正在下载游戏文件", TaskCenter::State::Failed, "正在下载游戏文件（失败）"},
+                {"正在下载游戏文件", TaskCenter::State::Cancelled, "正在下载游戏文件（已取消）"},
+                {"正在下载游戏文件", TaskCenter::State::Interrupted, "正在下载游戏文件（已中断）"},
             };
             int wrong = 0;
             for (const Case &c : cases) {
-                const QString got = MainWindowUI::taskSummaryText(QString::fromUtf8(c.title),
-                                                                 c.done, c.failed);
+                const QString got =
+                    MainWindowUI::taskSummaryText(QString::fromUtf8(c.title), c.state);
                 if (got != QString::fromUtf8(c.want)) {
                     ++wrong;
                     std::printf("        [判错] %s → 「%s」，该是「%s」\n", c.title,
@@ -3765,7 +3765,7 @@ int main(int argc, char *argv[]) {
                 }
             }
             check(wrong == 0,
-                  "E4 那一行字：在跑的原样、完成的缀「（已完成）」、失败的缀「（失败）」",
+                  "E4 那一行字：运行/成功/失败/取消/中断各自有准确文案",
                   QStringLiteral("错 %1 处").arg(wrong));
             check(MainWindowUI::taskSummaryDoneSuffix() != MainWindowUI::taskSummaryFailedSuffix(),
                   "E4 完成和失败那两个后缀**不是同一句**（不然「做完了」和「没做成」分不开）",
@@ -4348,7 +4348,7 @@ int main(int argc, char *argv[]) {
                     running.title = QStringLiteral("正在下载 26.2");
                     running.detail = QStringLiteral("已下载 3 / 9 个文件");
                     running.percent = -1;  // 测不出百分比 ⇒ 不确定态
-                    running.active = true;
+                    running.state = TaskCenter::State::Running;
                     TaskCenter::Step step;
                     step.name = QStringLiteral("校验文件");
                     step.state = TaskCenter::StepState::Done;
@@ -4357,12 +4357,24 @@ int main(int argc, char *argv[]) {
                     TaskCenter::Item done;
                     done.key = QStringLiteral("6");
                     done.title = QStringLiteral("安装 Fabric");
-                    done.active = false;
+                    done.state = TaskCenter::State::Succeeded;
                     done.finishedAt = QDateTime::currentDateTime();
                     items << done;
                     return items;
                 },
                 [&clearCalls]() { ++clearCalls; });
+            check(TaskCenter::terminalMark(TaskCenter::State::Succeeded) == QStringLiteral("✓")
+                      && TaskCenter::terminalMark(TaskCenter::State::Failed) == QStringLiteral("✗")
+                      && TaskCenter::terminalMark(TaskCenter::State::Cancelled) == QStringLiteral("—")
+                      && TaskCenter::terminalMark(TaskCenter::State::Interrupted) == QStringLiteral("!"),
+                  "I2 四种终态各有自己的记号（取消/中断不冒充成功）");
+            check(MainWindowUI::taskSummaryText(QStringLiteral("任务"),
+                                                TaskCenter::State::Cancelled)
+                          .endsWith(MainWindowUI::taskSummaryCancelledSuffix())
+                      && MainWindowUI::taskSummaryText(QStringLiteral("任务"),
+                                                       TaskCenter::State::Interrupted)
+                             .endsWith(MainWindowUI::taskSummaryInterruptedSuffix()),
+                  "I2 底栏能分别写出已取消和已中断");
             cell->click();
             QApplication::processEvents();
             QWidget *panel = window.findChild<QWidget *>(MainWindowUI::taskCenterPanelName());

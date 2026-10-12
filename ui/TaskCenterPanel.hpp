@@ -42,6 +42,10 @@ namespace TaskCenter {
 /// `MainWindow::taskCenterItems()`，那里同时是"这两个枚举必须同构"的唯一见证。
 enum class StepState { Pending, Running, Done, Failed };
 
+/// 一项任务当前所处的状态。和 `Tasks::TaskState` 一一对应；UI 保留完整状态，避免把
+/// Cancelled / Interrupted 这种终态压成“不是失败，所以成功”。
+enum class State { Queued, Running, WaitingUser, Paused, Succeeded, Failed, Cancelled, Interrupted };
+
 /// 一步：名字 + 到哪儿了。`note` 是给以后的"这一步跑了几秒"留的（M1 不用）。
 struct Step {
     QString name;
@@ -61,11 +65,9 @@ struct Item {
     /// （coding plan §3.4：「无 Content-Length 的 Fabric 下载显示'已下载多少'，
     /// 不显示假百分比」——"已下载多少"那句走 `detail`）。
     int percent = -1;
-    bool failed = false;
+    State state = State::Queued;
     /// 用户**还没看过**的一次失败：行尾挂一个红点（看见之后由 MainWindow 撤掉）。
     bool unreadFailure = false;
-    /// true = 「当前工作」那一栏，false = 「已完成」那一栏。
-    bool active = true;
     /// 什么时候收的尾。已完成那一行右边那个"19:42"由**界面自己**从它算出来
     /// （见 `TaskCenter::timeText()`）—— 时间怎么写成字是界面的事，不该由账本那边拼好了送进来。
     QDateTime finishedAt;
@@ -81,6 +83,9 @@ using ClearFinishedHandler = std::function<void()>;
 
 /// 一步那一个小记号。**唯一出处**：面板里画它、验证工程比对它，都读这一个函数。
 QString stepMark(StepState state);
+
+/// 已结束任务左边的状态记号。活动状态返回空串。
+QString terminalMark(State state);
 
 /// @p when 该写成"几点几分"（已完成那一行右边那个）。**时间格式的唯一出处**放在这里，
 /// 而不是让 `MainWindow` 拼好一个字符串送进来：那一层里有权的是"这件事什么时候完的"，

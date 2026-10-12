@@ -14,8 +14,7 @@
 namespace Tasks {
 
 TaskManager::TaskManager(QObject *parent) : QObject(parent) {
-    // NOTE: `m_historyPath` 留空 = "还没被指到别处去"，写读那一刻现算默认那份。理由见
-    //       resolvedHistoryPath()（数据目录会变）。
+    // NOTE: `m_historyPath` 留空 = 使用启动器级默认账本；测试可以显式指到临时文件。
 }
 
 TaskManager::~TaskManager() = default;
@@ -144,7 +143,7 @@ bool TaskManager::cancel(TaskId id) {
 
 bool TaskManager::setDetail(TaskId id, const QString &detail) {
     TaskSnapshot *task = find(id);
-    if (task == nullptr || task->detail == detail) {
+    if (task == nullptr || !isActiveState(task->state) || task->detail == detail) {
         return false;
     }
     task->detail = detail;
@@ -165,7 +164,8 @@ bool TaskManager::setSteps(TaskId id, const QList<TaskStep> &steps) {
 
 bool TaskManager::setStepState(TaskId id, int index, TaskStepState state, const QString &note) {
     TaskSnapshot *task = find(id);
-    if (task == nullptr || index < 0 || index >= task->steps.size()) {
+    if (task == nullptr || !isActiveState(task->state) || index < 0
+        || index >= task->steps.size()) {
         return false;
     }
     task->steps[index].state = state;
@@ -176,7 +176,7 @@ bool TaskManager::setStepState(TaskId id, int index, TaskStepState state, const 
 
 bool TaskManager::setProgress(TaskId id, qint64 doneUnits, qint64 totalUnits) {
     TaskSnapshot *task = find(id);
-    if (task == nullptr) {
+    if (task == nullptr || !isActiveState(task->state)) {
         return false;
     }
     if (task->doneUnits == doneUnits && task->totalUnits == totalUnits) {
@@ -190,7 +190,7 @@ bool TaskManager::setProgress(TaskId id, qint64 doneUnits, qint64 totalUnits) {
 
 bool TaskManager::setBytes(TaskId id, qint64 bytesDone, qint64 bytesTotal) {
     TaskSnapshot *task = find(id);
-    if (task == nullptr) {
+    if (task == nullptr || !isActiveState(task->state)) {
         return false;
     }
     if (task->bytesDone == bytesDone && task->bytesTotal == bytesTotal) {
@@ -204,7 +204,7 @@ bool TaskManager::setBytes(TaskId id, qint64 bytesDone, qint64 bytesTotal) {
 
 bool TaskManager::setCapabilities(TaskId id, const TaskCapabilities &capabilities) {
     TaskSnapshot *task = find(id);
-    if (task == nullptr) {
+    if (task == nullptr || !isActiveState(task->state)) {
         return false;
     }
     task->capabilities = capabilities;

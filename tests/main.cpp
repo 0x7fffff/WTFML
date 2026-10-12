@@ -19194,6 +19194,18 @@ static void runTaskLedgerTests() {
                   manager.snapshot(a).errorSummary.isEmpty(),
               "AM1 最后一步：状态还是成功、没被塞进一句错因");
 
+        // 终态是不可变快照：执行器排队中的迟到信号不能把已完成行改回去。
+        Tasks::TaskCapabilities lateCapabilities;
+        lateCapabilities.canCancel = true;
+        check(!manager.setDetail(a, QStringLiteral("迟到的详情"))
+                  && !manager.setProgress(a, 9, 10)
+                  && !manager.setBytes(a, 90, 100)
+                  && !manager.setStepState(a, 0, Tasks::TaskStepState::Failed)
+                  && !manager.setCapabilities(a, lateCapabilities),
+              "AM1 收尾后所有进度类更新都被拒绝（终态不可变）");
+        check(manager.snapshot(a).detail.isEmpty() && !manager.snapshot(a).capabilities.canCancel,
+              "AM1 迟到信号没有改动已完成快照");
+
         // 收尾那一下会把完成数补齐（"完成了"就该是 100%）。
         const Tasks::TaskId b = manager.begin(Tasks::TaskKind::Download, QStringLiteral("下载 B"));
         manager.setProgress(b, 3, 10);
@@ -19310,7 +19322,7 @@ static void runTaskLedgerTests() {
     }
 
     // ---------------------------------------------------------------------
-    section("AM4. markInterrupted / clearFinished / 落点现算");
+    section("AM4. markInterrupted / clearFinished / 启动器级固定落点");
     // ---------------------------------------------------------------------
     {
         // markInterrupted：只动非终态那几件；终态一个字节都不碰。
@@ -19369,13 +19381,20 @@ static void runTaskLedgerTests() {
               "AM4 再清一次（没有可清的了）⇒ 一个信号都不发、也不白落一次盘",
               QString::number(historySignals));
 
-        // 落点是**现算**的：默认那份挂"当前游戏文件夹"，而那是运行时会变的。
+        // 任务账本属于启动器，不属于当前选中的某一份 .minecraft。
         check(Tasks::defaultHistoryPath() ==
-                  AppPaths::minecraftDir() + QStringLiteral("/wtfml.tasks"),
-              "AM4 默认落点 = <当前游戏文件夹>/wtfml.tasks", Tasks::defaultHistoryPath());
+                  AppPaths::defaultMinecraftDir() + QStringLiteral("/wtfml.tasks"),
+              "AM4 默认落点 = <启动器自带数据目录>/wtfml.tasks", Tasks::defaultHistoryPath());
+        const QString originalRoot = AppPaths::minecraftDir();
+        AppPaths::setMinecraftDir(dir.filePath(QStringLiteral("另一份游戏目录")));
+        check(Tasks::defaultHistoryPath() ==
+                  AppPaths::defaultMinecraftDir() + QStringLiteral("/wtfml.tasks"),
+              "AM4 切换当前游戏文件夹不会改变任务账本路径", Tasks::defaultHistoryPath());
+        AppPaths::setMinecraftDir(originalRoot == AppPaths::defaultMinecraftDir() ? QString()
+                                                                                  : originalRoot);
         Tasks::TaskManager lazy;
         check(lazy.historyPath() == Tasks::defaultHistoryPath(),
-              "AM4 没被指过路 ⇒ historyPath() 现算默认那一份", lazy.historyPath());
+              "AM4 没被指过路 ⇒ historyPath() 使用启动器级默认账本", lazy.historyPath());
         const QString other = dir.filePath(QStringLiteral("换个地方.tasks"));
         lazy.setHistoryPath(other);
         check(lazy.historyPath() == other, "AM4 指过之后就按指的来", lazy.historyPath());

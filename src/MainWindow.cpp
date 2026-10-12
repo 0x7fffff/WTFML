@@ -205,6 +205,29 @@ QString selectedVersionId(const QComboBox *combo) {
     return combo->currentIndex() < 0 ? QString() : combo->currentData().toString();
 }
 
+/// 账本状态跨过 src/ui 边界时的唯一翻译点。
+TaskCenter::State taskCenterState(Tasks::TaskState state) {
+    switch (state) {
+    case Tasks::TaskState::Queued:
+        return TaskCenter::State::Queued;
+    case Tasks::TaskState::Running:
+        return TaskCenter::State::Running;
+    case Tasks::TaskState::WaitingUser:
+        return TaskCenter::State::WaitingUser;
+    case Tasks::TaskState::Paused:
+        return TaskCenter::State::Paused;
+    case Tasks::TaskState::Succeeded:
+        return TaskCenter::State::Succeeded;
+    case Tasks::TaskState::Failed:
+        return TaskCenter::State::Failed;
+    case Tasks::TaskState::Cancelled:
+        return TaskCenter::State::Cancelled;
+    case Tasks::TaskState::Interrupted:
+        return TaskCenter::State::Interrupted;
+    }
+    return TaskCenter::State::Interrupted;
+}
+
 // ---------------------------------------------------------------------------
 // 「世界设置」那一页的两趟翻译（2026-09-28）
 //
@@ -1523,9 +1546,8 @@ MainWindow::MainWindow(QWidget *parent)
     refreshFolderList();
     // 上次那本任务账读回来（§3.2：只存摘要与错误；**没跑完的标成"已中断"，不假装继续**）。
     //
-    // ★ 位置必须在 applyCurrentFolderToPaths() **之后**：账本落在**当前游戏文件夹**里
-    //   （`<数据目录>/wtfml.tasks`），换文件夹就是换一本账 —— 那条路径是**用的时候现算**
-    //   的（见 TaskManager::resolvedHistoryPath() 那段），所以读的是刚定下来的这一份。
+    // 账本是启动器级的固定文件，不随当前游戏文件夹切换。这样正在下载/启动时切换目录，
+    // 内存里的任务不会在下一次落盘时被写进另一份 .minecraft。
     m_taskManager->loadHistory();
     // 本地已安装的先填上（同步扫盘）；在线清单是异步拉的，回来之后由
     // onVersionsFetched() 填"可安装"下拉框 —— 在那之前它显示占位文案。
@@ -2638,8 +2660,7 @@ void MainWindow::updateBottomBarTaskSummary() {
 
     MainWindowUI::BottomBarTaskSummary summary;
     summary.hasTask = picked.id != Tasks::invalidTaskId();
-    summary.done = summary.hasTask && Tasks::isTerminalState(picked.state);
-    summary.failed = summary.hasTask && picked.state == Tasks::TaskState::Failed;
+    summary.state = taskCenterState(picked.state);
     summary.percent = picked.percent;
     summary.extraCount = picked.extraCount;
     summary.title = picked.title;
@@ -2661,8 +2682,7 @@ void MainWindow::updateBottomBarTaskSummary() {
     //       它属于哪件任务，那件任务的 detail 里会写（启动那一路就是启动任务）。
     if (!m_syncWaitStatus.isEmpty()) {
         summary.hasTask = true;
-        summary.done = false;
-        summary.failed = false;
+        summary.state = TaskCenter::State::Running;
         summary.percent = -1;
         summary.title = m_syncWaitStatus;
     }
@@ -2674,7 +2694,8 @@ void MainWindow::updateBottomBarTaskSummary() {
     // 一直挂在底栏上，直到下一次有东西变 —— 而那时候可能已经过了十分钟（一次下载下完、
     // 用户就去干别的了）。
     m_taskSummaryTimer->stop();
-    if (summary.hasTask && summary.done && picked.id != Tasks::invalidTaskId()) {
+    if (summary.hasTask && Tasks::isTerminalState(picked.state)
+        && picked.id != Tasks::invalidTaskId()) {
         const Tasks::TaskSnapshot task = m_taskManager->snapshot(picked.id);
         if (task.finishedAt.isValid()) {
             const qint64 left = MainWindowUI::taskSummaryRecentWindowMs()
@@ -2702,10 +2723,9 @@ QList<TaskCenter::Item> MainWindow::taskCenterItems() {
         // 百分比走账本层那条规则（`Tasks::percentOf()`）：测不出总量的回 -1，面板那一行
         // 就不画进度条（§3.4：不许编一个百分比出来，那句话由 detail 说）。
         item.percent = Tasks::percentOf(task);
-        const bool finished = Tasks::isTerminalState(task.state);
-        item.active = !finished;
-        item.failed = task.state == Tasks::TaskState::Failed;
-        item.unreadFailure = item.failed && m_unreadFailures.contains(task.id);
+        item.state = taskCenterState(task.state);
+        item.unreadFailure = task.state == Tasks::TaskState::Failed
+                             && m_unreadFailures.contains(task.id);
         item.finishedAt = task.finishedAt;
         item.steps.reserve(task.steps.size());
         for (const Tasks::TaskStep &step : task.steps) {

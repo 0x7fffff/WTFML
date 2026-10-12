@@ -126,7 +126,12 @@ TaskState stateFromKey(const QString &key) {
 }  // namespace
 
 QString defaultHistoryPath() {
-    return AppPaths::minecraftDir() + QStringLiteral("/wtfml.tasks");
+    // 任务中心描述的是**这个启动器进程**正在做的事，而不是某一份 .minecraft 的内容。
+    // 用户可以在任务仍在执行时切换游戏文件夹；如果路径跟着 minecraftDir() 变化，内存里
+    // 原来那本账会在下一次 begin()/finish() 时整本写进新目录，造成两份历史串台。
+    // 固定放在启动器自带的数据根目录，既保持“整个启动器可以拷走”的便携约定，也不会随
+    // 当前游戏文件夹切换。
+    return AppPaths::defaultMinecraftDir() + QStringLiteral("/wtfml.tasks");
 }
 
 int finishedHistoryLimit() {

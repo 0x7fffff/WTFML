@@ -4161,14 +4161,13 @@ void MainWindowUI::setBottomBarTaskSummary(const BottomBarTaskSummary &summary) 
                          textPalette.color(summary.hasTask ? QPalette::WindowText
                                                            : QPalette::PlaceholderText));
     statusLabel->setPalette(textPalette);
-    statusLabel->setText(summary.hasTask
-                             ? MainWindowUI::taskSummaryText(summary.title, summary.done,
-                                                             summary.failed)
-                             : MainWindowUI::taskSummaryNoTaskText());
+    statusLabel->setText(summary.hasTask ? MainWindowUI::taskSummaryText(summary.title, summary.state)
+                                         : MainWindowUI::taskSummaryNoTaskText());
 
     // 「失败」那一档整句染红：这一格只有一行字，"那次没办成"是它最要紧的信息。
     // （面板里那一行才有地方挂红点，见 ui/TaskCenterPanel.cpp。）
-    if (summary.failed) {
+    if (summary.state == TaskCenter::State::Failed
+        || summary.state == TaskCenter::State::Interrupted) {
         QPalette failedPalette = statusLabel->palette();
         failedPalette.setColor(QPalette::WindowText, folderDangerColor(textPalette));
         statusLabel->setPalette(failedPalette);

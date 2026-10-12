@@ -32,6 +32,11 @@
 
 namespace {
 
+bool isActive(TaskCenter::State state) {
+    return state == TaskCenter::State::Queued || state == TaskCenter::State::Running
+           || state == TaskCenter::State::WaitingUser || state == TaskCenter::State::Paused;
+}
+
 // ---------- 这一块面板自己的几个尺寸 ----------
 //
 // NOTE: 这里的留白**另起一套**（不复用 `MainWindowUI.cpp` 里 `BottomBarPanel` 那几个
@@ -110,6 +115,9 @@ public:
         auto *titleRow = new QHBoxLayout();
         titleRow->setContentsMargins(0, 0, 0, 0);
         titleRow->setSpacing(kRowInnerSpacing);
+        const bool active = isActive(item.state);
+        const bool failed = item.state == TaskCenter::State::Failed;
+        const bool interrupted = item.state == TaskCenter::State::Interrupted;
         if (item.unreadFailure) {
             // 用户还没看过的一次失败：一颗红点（图的颜色问 `folderDangerColor()`，和界面上
             // 别处的红是**同一个色** —— 见 MainWindowUI 里 runStateMarkColor() 那段）。
@@ -120,12 +128,10 @@ public:
             dot->setPixmap(VersionIcons::runStateMark(size,
                                                       MainWindowUI::folderDangerColor(palette())));
             titleRow->addWidget(dot, 0, Qt::AlignVCenter);
-        } else if (!item.active) {
-            // 已完成那一行左边那个记号：办成了 ✓、没办成 ✗。
-            auto *mark = new QLabel(TaskCenter::stepMark(item.failed ? TaskCenter::StepState::Failed
-                                                                     : TaskCenter::StepState::Done),
-                                    this);
-            if (item.failed) {
+        } else if (!active) {
+            // 已完成那一行左边那个记号：成功 / 失败 / 取消 / 中断各自说清楚。
+            auto *mark = new QLabel(TaskCenter::terminalMark(item.state), this);
+            if (failed || interrupted) {
                 QPalette markPalette = mark->palette();
                 markPalette.setColor(QPalette::WindowText,
                                      MainWindowUI::folderDangerColor(palette()));
@@ -138,12 +144,12 @@ public:
         ElidedLabel *title = makeTextLabel(this, MainWindowUI::taskCenterPanelRowTitleName(index));
         title->setText(item.title);
         titleRow->addWidget(title, 1, Qt::AlignVCenter);
-        if (item.active && item.percent >= 0) {
+        if (active && item.percent >= 0) {
             auto *percent = new QLabel(MainWindowUI::taskCenterPercentText(item.percent), this);
             percent->setObjectName(MainWindowUI::taskCenterPanelRowPercentName(index));
             applyMutedFont(percent, 0);
             titleRow->addWidget(percent, 0, Qt::AlignVCenter);
-        } else if (!item.active && item.finishedAt.isValid()) {
+        } else if (!active && item.finishedAt.isValid()) {
             auto *when = new QLabel(TaskCenter::timeText(item.finishedAt), this);
             when->setObjectName(MainWindowUI::taskCenterPanelRowTimeName(index));
             applyMutedFont(when, 0);
@@ -164,7 +170,7 @@ public:
         // NOTE: 测不出总量的时候**不画一根不确定态的条**（coding plan §3.4：「无
         //       Content-Length 的 Fabric 下载显示'已下载多少'，不显示假百分比」）。
         //       那种情况下这一行的信息在 `detail` 那句里（"已下载 2.8 MB"）。
-        if (item.active && item.percent >= 0) {
+        if (active && item.percent >= 0) {
             auto *bar = new QProgressBar(this);
             bar->setObjectName(MainWindowUI::taskCenterPanelRowBarName(index));
             bar->setRange(0, 100);
@@ -215,6 +221,25 @@ QString TaskCenter::stepMark(StepState state) {
         return QCoreApplication::translate("TaskCenter", "✓");
     case StepState::Failed:
         return QCoreApplication::translate("TaskCenter", "✗");
+    }
+    return QString();
+}
+
+QString TaskCenter::terminalMark(State state) {
+    switch (state) {
+    case State::Succeeded:
+        return QCoreApplication::translate("TaskCenter", "✓");
+    case State::Failed:
+        return QCoreApplication::translate("TaskCenter", "✗");
+    case State::Cancelled:
+        return QCoreApplication::translate("TaskCenter", "—");
+    case State::Interrupted:
+        return QCoreApplication::translate("TaskCenter", "!");
+    case State::Queued:
+    case State::Running:
+    case State::WaitingUser:
+    case State::Paused:
+        return QString();
     }
     return QString();
 }
@@ -350,7 +375,7 @@ void TaskCenterPanel::rebuild() {
     QList<TaskCenter::Item> active;
     QList<TaskCenter::Item> finished;
     for (const TaskCenter::Item &item : items) {
-        (item.active ? active : finished).append(item);
+        (isActive(item.state) ? active : finished).append(item);
     }
 
     // 行的编号**两栏接着数**（不各从 0 开始）：行的名字是按号找的（验证工程靠它量），

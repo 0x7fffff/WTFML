@@ -50,7 +50,7 @@ public:
     explicit TaskManager(QObject *parent = nullptr);
     ~TaskManager() override;
 
-    /// 历史文件落在哪。默认是 `defaultHistoryPath()`（`<数据目录>/wtfml.tasks`）。
+    /// 历史文件落在哪。默认是 `defaultHistoryPath()`（启动器级固定路径）。
     ///
     /// NOTE: 验证工程会把它指到一个临时目录 —— 不然那几条断言会往真数据目录里写东西。
     ///       `setHistoryPath(QString())` 是"回到默认那份"，不是"写到空路径去"。
@@ -122,13 +122,8 @@ signals:
     void historyChanged();
 
 private:
-    /// 这一趟到底写哪个文件：`m_historyPath` 非空就用它，空就**现算** `defaultHistoryPath()`。
-    ///
-    /// ★ 为什么不在构造里算一次存起来：`defaultHistoryPath()` 挂的是**当前游戏文件夹**
-    ///   （`AppPaths::minecraftDir()`），而那是运行时会变的 —— 用户在实例页上换一个文件夹，
-    ///   数据目录就整体换了地方。构造里存一份的话，换完之后新记的任务还会写进**上一个**
-    ///   文件夹里那份 `wtfml.tasks`，读回来的也是那一份（"换了文件夹，任务历史还在"这件事
-    ///   在界面上看不出来，只是悄悄串了台）。
+    /// 这一趟到底写哪个文件：`m_historyPath` 非空就用它，空就用启动器级的默认路径。
+    /// 测试仍可通过 setHistoryPath() 把账本隔离到临时目录。
     QString resolvedHistoryPath() const;
     /// 按号找一项。找不到回 nullptr。
     TaskSnapshot *find(TaskId id);

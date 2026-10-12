@@ -1353,9 +1353,8 @@ public:
     struct BottomBarTaskSummary {
         /// false = 一项都没有 ⇒ 画一句低强调度的占位话（§3.1：「无任务时不显示空进度条」）。
         bool hasTask = false;
-        /// 已经收尾的那一项（收起态里"短暂显示后收进历史"就是它）。
-        bool done = false;
-        bool failed = false;
+        /// 保留完整状态，取消/中断不能被“非失败”误画成成功。
+        TaskCenter::State state = TaskCenter::State::Queued;
         /// 用户**还没看过**的一次失败 ⇒ 标题前面挂一颗红点。
         bool unreadFailure = false;
         /// -1 = **测不出百分比** ⇒ 进度条画不确定态（不编一个数出来）。
@@ -1390,12 +1389,24 @@ public:
     static QString taskSummaryFailedSuffix() {
         return QCoreApplication::translate("MainWindowUI", "（失败）");
     }
+    static QString taskSummaryCancelledSuffix() {
+        return QCoreApplication::translate("MainWindowUI", "（已取消）");
+    }
+    static QString taskSummaryInterruptedSuffix() {
+        return QCoreApplication::translate("MainWindowUI", "（已中断）");
+    }
     /// 收起态那一行**最终**写出来的字。**唯一出处**：MainWindow 拿它填、验证工程拿它断言。
-    static QString taskSummaryText(const QString &title, bool done, bool failed) {
-        if (failed) {
+    static QString taskSummaryText(const QString &title, TaskCenter::State state) {
+        if (state == TaskCenter::State::Failed) {
             return title + taskSummaryFailedSuffix();
         }
-        return done ? title + taskSummaryDoneSuffix() : title;
+        if (state == TaskCenter::State::Cancelled) {
+            return title + taskSummaryCancelledSuffix();
+        }
+        if (state == TaskCenter::State::Interrupted) {
+            return title + taskSummaryInterruptedSuffix();
+        }
+        return state == TaskCenter::State::Succeeded ? title + taskSummaryDoneSuffix() : title;
     }
     /// 悬停在那一格上显示什么（它现在是一整颗能点的按钮）。
     static QString taskSummaryTip() {
