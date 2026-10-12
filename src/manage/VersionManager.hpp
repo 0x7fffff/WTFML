@@ -443,9 +443,12 @@ public:
     /// 有整合包正在导入（含"先装加载器"和"最后解压覆盖文件"那两段）。
     /// UI 用它和 isLoaderInstalling() 一起兜"能不能点启动" —— 判据只有
     /// MainWindow::onStartButtonClicked() 一处，别在别处再判一遍。
-    /// NOTE: 这里以前写的是 updateBottomBar()，**不是** —— 底栏那格看的是
-    ///       m_launchingSessions / m_downloadInFlight / m_syncWaitStatus 三个（见
-    ///       MainWindowUI::bottomBarShowsProgress），和这几个 "isXxx" 无关。
+    /// NOTE: 这里以前写的是 updateBottomBar()，**不是** —— 底栏那格中间那一句看的是
+    ///       **任务账本**（`MainWindow::updateBottomBarTaskSummary()`：哪一件该被看见由
+    ///       `Tasks::collapsedSummary()` 定，再加上 `m_syncWaitStatus` 那一层压倒），
+    ///       和这几个 "isXxx" 无关。
+    ///       （2026-10-12 任务中心那一次之前，这里引的是 `MainWindowUI::bottomBarShowsProgress`
+    ///       —— 那个函数连同它背后那套"谁借这一格"的优先级已经整个撤掉了。）
     bool isModpackImporting() const;
 
     /**

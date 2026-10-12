@@ -16516,16 +16516,20 @@ int main(int argc, char *argv[]) {
         }
 
         if (progress != nullptr && status != nullptr) {
-            // "中间的进度条如果正在下载"——现在没在下载也没在启动，就该是藏着的。
-            check(!progress->isVisible() && !status->isVisible(),
-                  "没有下载也没有启动时，中间那格是藏着的");
-            // 刷新（版本清单到达）不算"在下载"：它不该把进度条放出来。
+            // "中间的进度条如果正在下载"——现在没在下载也没在启动 ⇒ 那根条藏着。
+            // ★ 但那一**格**自己（和那句「暂无后台任务」）是亮的：2026-10-12 任务中心那一次
+            //   改的（原来整格藏起来）—— 它现在是"点一下展开任务中心"那颗按钮。
+            check(!progress->isVisible() && status->isVisible() &&
+                      status->text() == MainWindowUI::taskSummaryNoTaskText(),
+                  "没有下载也没有启动时：那根条藏着、那一格写着占位话", status->text());
+            // 刷新（版本清单到达）不算"在下载"：它既不该把进度条放出来，也不该在那格写出别的话。
             QMetaObject::invokeMethod(
                 &window, "onVersionsFetched", Qt::DirectConnection,
                 Q_ARG(QStringList, QStringList({QStringLiteral("1.20.1")})));
             QApplication::processEvents();
-            check(!progress->isVisible() && !status->isVisible(),
-                  "刷新版本清单之后中间那格仍然藏着（刷新≠下载）");
+            check(!progress->isVisible() &&
+                      status->text() == MainWindowUI::taskSummaryNoTaskText(),
+                  "刷新版本清单之后那一格还是占位话（刷新≠下载）", status->text());
         }
 
         QLabel *runMark = window.findChild<QLabel *>(MainWindowUI::runStateMarkName());
@@ -24851,35 +24855,48 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                                                               QDir::NoDotAndDotDot).size()));
     }
 
-    header("AB. 一边下载一边启动：底栏那格被借走之后要原样还回来");
+    header("AB. 下载进度进的是任务账本：底栏那格 + 任务中心面板（2026-10-12 任务中心那次）");
     // ------------------------------------------------------------------
-    // 用户报的原话：「启动后进度条没有恢复成下载的，而是留了个空条」。
+    // 这一节原来量的是「底栏那格被启动借走之后要原样还回来」（用户报的原话：「启动后进度
+    // 条没有恢复成下载的，而是留了个空条」）。
     //
-    // 场景是多账户多实例这批**新打开的那条路**：一批下载正在跑，用户又去启动一个早就
-    // 装好的实例。底栏中间那格本来只有「在下载」一个主人，启动那几段会把它**借走**
-    // （syncWait / launching 两支都是不确定态 + 一句「在等什么」）；借完要还。
+    // 2026-10-12 任务中心那一次把"借"这件事**从结构上拿掉了**：那一格不再归谁所有 ——
+    // 每一件活（下载 / 安装 / 导入 / 启动）都是账本里的一行，那一格画的是
+    // `Tasks::collapsedSummary()` 现算出来的那一行。于是"还回来"不再是需要写对的一段代码，
+    // 「忘了还」这个 bug 也就不存在了（判据换成：那一格任何时候都等于账本投影）。
     //
-    // 还的那一下走的是 updateBottomBar()：以前那棵树只写「**没**在下载就复位」，而
-    // 「在下载」时恰好一条分支都不匹配 —— 于是这一格停在借走时的样子（range(0, 0)、
-    // 文字还是「正在启动 …」），用户看到的就是一根**没有内容的空条**。以前看不见，
-    // 是因为「在启动」和「在下载」互斥（下载期间启动按钮是灰的），这一格从来没有
-    // 「换主人」这回事。
+    // 所以这一节改成量**新的那条链**：
+    //     setDownloadUiBusy / onVersionDownloadStats  →  账本  →  底栏那格 + 面板
     //
     // NOTE: 怎么把「在下载」摆出来 —— 这个态只由 setDownloadUiBusy(true) 置上，而那两处
     //       真实调用点（装加载器 / 导入整合包）都要联网。所以那个函数带 Q_INVOKABLE
     //       （见 MainWindow.hpp 里那段 NOTE），这里直接把它调起来：这就是真的那条路，
     //       只是省掉了前面联网那几步。
-    //       下面②「借走」那一步是**摆现场**，不是模仿被测代码 —— 启动那一段干的就是
-    //       setRange(0, 0) + 一句 launchingStatusText，这里照着摆一遍。
     {
-        QProgressBar *abBar = window.findChild<QProgressBar *>(MainWindowUI::progressBarName());
+        QPushButton *abCell = window.findChild<QPushButton *>(MainWindowUI::taskSummaryButtonName());
         QLabel *abStatus = window.findChild<QLabel *>(MainWindowUI::statusLabelName());
-        check(abBar != nullptr && abStatus != nullptr, "AB0 找得到底栏那根条和那行字");
+        QProgressBar *abBar = window.findChild<QProgressBar *>(MainWindowUI::progressBarName());
+        QLabel *abDot = window.findChild<QLabel *>(MainWindowUI::taskSummaryDotName());
+        check(abCell != nullptr && abStatus != nullptr && abBar != nullptr && abDot != nullptr,
+              "AB0 找得到底栏中间那格（那颗按钮 / 那行字 / 那根条 / 那颗红点）");
 
-        if (abBar != nullptr && abStatus != nullptr) {
-            // ---- ① 一批下载正在进行：400 / 1000 ----
+        if (abCell != nullptr && abStatus != nullptr && abBar != nullptr && abDot != nullptr) {
+            // ---- ① 起一批下载：账本里多一件，那一格写的是**它的标题** ----
             (void)QMetaObject::invokeMethod(&window, "setDownloadUiBusy", Qt::DirectConnection,
                                             Q_ARG(bool, true));
+            QApplication::processEvents();
+            // 这一批在界面上没有对应的实例（下面那三个 id 都是空的），走的是兜底那一支
+            // —— 标题「下载游戏文件」（见 MainWindow::beginDownloadTask()）。
+            check(abStatus->text() == QStringLiteral("下载游戏文件"),
+                  "AB1 起一批下载：中间那格写的是**这件任务的标题**（不再是一根空条）",
+                  abStatus->text());
+            // 还没报过数 ⇒ 数量不可测 ⇒ 条走不确定态（range 0..0）。**绝不编一个 0% 出来**
+            // （§3.4）。
+            check(abBar->isVisible() && abBar->minimum() == 0 && abBar->maximum() == 0,
+                  "AB1 还没报过总数：条是不确定态（不编 0%）",
+                  QStringLiteral("%1..%2").arg(abBar->minimum()).arg(abBar->maximum()));
+
+            // ---- ② 报一次数：进度落进账本，底栏 + 面板都看得见 ----
             // NOTE: 等过那个 200 ms 的节流窗口再报数。onVersionDownloadStats() 是**前缘
             //       节流**（src/MainWindow.cpp 里那句 m_progressThrottle.elapsed() < 200），
             //       而节流的起点是"上一发真报数"—— 这一节之前有没有别人报过（别的节留下的
@@ -24892,52 +24909,86 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                                             Q_ARG(int, 1000), Q_ARG(int, 0),
                                             Q_ARG(QString, QStringLiteral("objects/ab.jar")));
             QApplication::processEvents();
-            check(abBar->maximum() == 1000 && abBar->value() == 400,
-                  "AB1 前提：一批下载正在进行（条上是 400 / 1000）",
-                  QStringLiteral("%1 / %2").arg(abBar->value()).arg(abBar->maximum()));
-
-            // ---- ② 摆现场：这一格被启动借走之后的样子 ----
-            abBar->setRange(0, 0);
-            abStatus->setText(MainWindowUI::launchingStatusText(QStringLiteral("1.18.2")));
+            check(abBar->minimum() == 0 && abBar->maximum() == 100,
+                  "AB2 报过数之后底栏那根条换成**确定态**（0..100 的百分比条）",
+                  QStringLiteral("%1..%2").arg(abBar->minimum()).arg(abBar->maximum()));
+            // NOTE: 底栏那根条的 value 此刻**不一定**是 40 —— 百分比那一档走
+            //       `Anim::smoothProgress()` 是追值动画（一两拍 processEvents 推不到终点）。
+            //       真正该量的是"账本里记的那个数"，它在**面板那一行**上（面板不走动画、
+            //       直接 setValue）。点开面板读它。
+            abCell->click();
             QApplication::processEvents();
+            QWidget *abPanel = window.findChild<QWidget *>(MainWindowUI::taskCenterPanelName());
+            check(abPanel != nullptr && abPanel->isVisible(), "AB2 点中间那格弹出了任务中心面板");
+            if (abPanel != nullptr) {
+                QLabel *pct = abPanel->findChild<QLabel *>(
+                    MainWindowUI::taskCenterPanelRowPercentName(0));
+                QLabel *detail = abPanel->findChild<QLabel *>(
+                    MainWindowUI::taskCenterPanelRowDetailName(0));
+                auto *rowBar =
+                    abPanel->findChild<QProgressBar *>(MainWindowUI::taskCenterPanelRowBarName(0));
+                check(pct != nullptr && pct->text() == MainWindowUI::taskCenterPercentText(40),
+                      "AB2 面板里那行写着 40%（400 / 1000 落进账本的那一个数）",
+                      pct != nullptr ? pct->text() : QStringLiteral("<没找到>"));
+                check(rowBar != nullptr && rowBar->value() == 40,
+                      "AB2 面板里那根条也停在 40（面板不走追值动画）",
+                      rowBar != nullptr ? QString::number(rowBar->value())
+                                        : QStringLiteral("<没找到>"));
+                check(detail != nullptr && detail->text().contains(QStringLiteral("400 / 1000")),
+                      "AB2 那一行的小字写着「已下载 400 / 1000」",
+                      detail != nullptr ? detail->text() : QStringLiteral("<没找到>"));
+                abPanel->close();
+                QApplication::processEvents();
+                QApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            }
 
-            // ---- ③ 借完还回来：底栏被重画一次 ----
-            // 扳机见 repaintBottomBar() 上面那段（切一下选项卡，一行状态都不改）。
-            check(window.findChild<QTabWidget *>(MainWindowUI::tabWidgetName()) != nullptr,
-                  "AB1 找得到那个选项卡容器（拿它当重画底栏的扳机）");
-            repaintBottomBar(&window);
-            check(abBar->maximum() == 1000 && abBar->value() == 400,
-                  "AB1 底栏重画之后，进度条**回到下载那一批的进度**（不是那根空条）",
-                  QStringLiteral("%1 / %2（改之前会停在 0 / 0）")
-                      .arg(abBar->value())
-                      .arg(abBar->maximum()));
-            check(abStatus->text() == QStringLiteral("已下载 400 / 1000"),
-                  "AB1 那行字也回来了（不是「正在启动 …」）", abStatus->text());
-
-            // ---- ④ 这一批结束了：记下的那几个数要一起作废 ----
+            // ---- ③ 这一批结束但没有终态信号：走兜底那一支，按**失败**收 ----
+            // 「正常情况」是数据层先发一条终态（onVersionDownloadFinished），这里故意不
+            // 发那一条 —— 量的是 setDownloadUiBusy(false) 里那句兜底：账本上留下的会是
+            // 一件**失败**的任务（终态只落一次，见 TaskManager::finish），并挂一颗
+            // 「用户还没看过」的红点。
             (void)QMetaObject::invokeMethod(&window, "setDownloadUiBusy", Qt::DirectConnection,
                                             Q_ARG(bool, false));
             QApplication::processEvents();
-            check(abBar->maximum() == 100 && abBar->value() == 0 && abStatus->text().isEmpty(),
-                  "AB2 这一批结束后进度条复位、文字清空",
-                  QStringLiteral("%1 / %2 文字=%3")
-                      .arg(abBar->value())
-                      .arg(abBar->maximum())
-                      .arg(abStatus->text()));
+            check(abStatus->text() ==
+                      QStringLiteral("下载游戏文件") + MainWindowUI::taskSummaryFailedSuffix(),
+                  "AB3 没有终态信号就置闲：那一件按**失败**收尾，那句话缀「（失败）」",
+                  abStatus->text());
+            check(abDot->isVisible(),
+                  "AB3 还没看过的失败 ⇒ 那一格前面挂上红点（唯一撤掉它的动作是打开任务中心）");
 
-            // 再把上一批的残影摆回去、重画一次：**不能**被捡回来。这一条盯的是
-            // setDownloadUiBusy(false) 里那三笔清零 —— 没清的话，下一批下载刚点下去、
-            // 还没报数的那一小段会顶着上一批的「已下载 3000 / 3580」。
-            abBar->setRange(0, 1000);
-            abBar->setValue(400);
-            abStatus->setText(QStringLiteral("已下载 400 / 1000"));
+            // ---- ④ 多画几遍底栏：还是同一句话（那一格是账本的投影，「忘了还」不存在） ----
             repaintBottomBar(&window);
-            check(abBar->maximum() == 100 && abBar->value() == 0 && abStatus->text().isEmpty(),
-                  "AB2 上一批的进度不会被捡回来",
-                  QStringLiteral("%1 / %2 文字=%3")
-                      .arg(abBar->value())
-                      .arg(abBar->maximum())
-                      .arg(abStatus->text()));
+            repaintBottomBar(&window);
+            check(abStatus->text() ==
+                      QStringLiteral("下载游戏文件") + MainWindowUI::taskSummaryFailedSuffix(),
+                  "AB4 反复重画底栏，那句话一个字都不变（不再有借 / 还这回事）",
+                  abStatus->text());
+
+            // ---- ⑤ 打开任务中心：那次失败被「看过」了，红点灭掉；顺手把已完成清掉 ----
+            abCell->click();
+            QApplication::processEvents();
+            check(!abDot->isVisible(),
+                  "AB4 打开过任务中心之后那颗红点灭掉（看过了，就不是「没看过」）",
+                  abDot->isVisible() ? QStringLiteral("还亮着") : QStringLiteral("灭了"));
+            QWidget *abPanel2 = window.findChild<QWidget *>(MainWindowUI::taskCenterPanelName());
+            if (abPanel2 != nullptr) {
+                auto *clearBtn = abPanel2->findChild<QPushButton *>(
+                    MainWindowUI::taskCenterPanelClearButtonName());
+                check(clearBtn != nullptr, "AB4 有已完成的那件 ⇒ 面板里有那颗「清除已完成」");
+                if (clearBtn != nullptr) {
+                    clearBtn->click();
+                    QApplication::processEvents();
+                }
+                abPanel2->close();
+                QApplication::processEvents();
+                QApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            }
+            // 清完账本上没有已完成的了 ⇒ 那一格回到占位话。这一条同时是**给后面几节留一块
+            // 干净的底栏**：不清的话，那件失败的任务会在接下来 8 秒里一直占着中间那格
+            //（`taskSummaryRecentWindowMs()`），后面哪一节读它都会读到这一句。
+            check(abStatus->text() == MainWindowUI::taskSummaryNoTaskText() && !abBar->isVisible(),
+                  "AB4 清掉已完成之后那一格回到占位话（底栏留干净）", abStatus->text());
         }
     }
 

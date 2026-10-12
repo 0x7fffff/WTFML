@@ -54,6 +54,12 @@ set(HEADER_FILES
     src/download/ResourceCatalog.hpp
     src/download/ModDependencies.hpp
     src/download/ResourceStore.hpp
+    # 任务中心那一套（2026-10-12，coding plan §2）：账本的形状（TaskSnapshot / TaskId，
+    # 纯值 + 几条纯函数）、账本自己（TaskManager）、以及它的落盘（TaskHistory）。
+    src/tasks/TaskId.hpp
+    src/tasks/TaskSnapshot.hpp
+    src/tasks/TaskManager.hpp
+    src/tasks/TaskHistory.hpp
     src/util/AppPaths.hpp
     src/util/ThemeImage.hpp
     src/util/ImageDecode.hpp
@@ -73,6 +79,8 @@ set(HEADER_FILES
     ui/MotdText.hpp
     ui/ToggleSwitch.hpp
     ui/JavaManageDialog.hpp
+    # 底栏中间那格点开之后弹出来的任务中心面板（页面/行的形状见它的文件头）。
+    ui/TaskCenterPanel.hpp
 )
 
 set(SOURCE_FILES
@@ -111,6 +119,9 @@ set(SOURCE_FILES
     src/download/ResourceCatalog.cpp
     src/download/ModDependencies.cpp
     src/download/ResourceStore.cpp
+    # 任务中心那一套（2026-10-12，coding plan §2）：账本 + 它的落盘。
+    src/tasks/TaskManager.cpp
+    src/tasks/TaskHistory.cpp
     src/util/ImageDecode.cpp
     src/util/ThemeImage.cpp
     src/util/SystemMemory.cpp
@@ -125,6 +136,7 @@ set(SOURCE_FILES
     ui/MemorySlider.cpp
     ui/MotdText.cpp
     ui/ToggleSwitch.cpp
+    ui/TaskCenterPanel.cpp
     ui/GroupDialog.cpp
     ui/GroupListDelegate.cpp
     ui/InstanceSettingsDialog.cpp

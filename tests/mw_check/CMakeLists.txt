@@ -165,6 +165,11 @@ set(SOURCE_FILES
     # 拷进数据目录、顺手缩到 2560 以内）。少哪一个都会在链接那一步报一串 undefined reference。
     ${REPO_ROOT}/ui/ThemeBackground.cpp
     ${REPO_ROOT}/src/util/ThemeImage.cpp
+    # 任务中心那一套（2026-10-12）：面板本身（MainWindowUI.cpp 直接 new 它）和账本
+    # （MainWindow 直接 new 它 + 读它）。少哪一个都会在链接那一步报一串 undefined reference。
+    ${REPO_ROOT}/ui/TaskCenterPanel.cpp
+    ${REPO_ROOT}/src/tasks/TaskManager.cpp
+    ${REPO_ROOT}/src/tasks/TaskHistory.cpp
     ${REPO_ROOT}/ui/WindowChrome.cpp
     ${HEADER_FILES}
 )

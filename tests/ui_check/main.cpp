@@ -3724,42 +3724,106 @@ int main(int argc, char *argv[]) {
         check(!category->isExpanded(), "E3b 连点五下之后：翻了五次（不是三次、也不是一次）");
     }
 
-    std::printf("===== E4. 底栏中间那格归谁（真值表） =====\n");
+    std::printf("===== E4. 底栏中间那格：任务摘要（2026-10-12 任务中心那一版） =====\n");
     {
-        using Owner = MainWindowUI::BottomBarProgressOwner;
-        struct Case {
-            bool launching;
-            bool downloading;
-            bool blocking;
-            Owner want;
-            const char *why;
-        };
-        const Case cases[] = {
-            {false, false, false, Owner::None, "什么都没在忙"},
-            {true, false, false, Owner::Launch, "只有启动"},
-            {false, true, false, Owner::Download, "只有下载"},
-            {false, false, true, Owner::Blocking, "只有同步等待（换令牌 / 挑 Java）"},
-            {true, false, true, Owner::Launch, "启动 > 同步等待"},
-            {false, true, true, Owner::Blocking, "同步等待 > 下载（它是启动路上的一段）"},
-            {true, true, true, Owner::Launch, "三条一起来：启动最大"},
-        };
-        int wrong = 0;
-        for (const Case &c : cases) {
-            if (MainWindowUI::bottomBarProgressOwner(c.launching, c.downloading, c.blocking)
-                != c.want) {
-                ++wrong;
-                std::printf("        [判错] %s\n", c.why);
+        // 这一节原来量的是 `bottomBarProgressOwner` 那张七行的表（"启动 > 下载 > 同步等待"）。
+        // 2026-10-12 那次把"谁借这一格"整套优先级**拆掉**了：现在这一格只说**一句话**，
+        // 说哪一句由账本那边的 `Tasks::collapsedSummary()` 定 —— 那是 src/ 里的纯规则，
+        // 归 verify 的 AL/AM 两节；界面这一头只剩两件事可量：**把给它的那份摘要摆出来**、
+        // **没有任务时摆那句占位话**，外加"那句话怎么拼"的真值表。
+        using Summary = MainWindowUI::BottomBarTaskSummary;
+        QLabel *status = ui.getStatusLabel();
+        QLabel *extra = ui.getTaskExtraLabel();
+        QProgressBar *progress = ui.getProgressBar();
+        QPushButton *cell = ui.getTaskSummaryButton();
+        check(status != nullptr && extra != nullptr && progress != nullptr && cell != nullptr,
+              "E4 中间那格的几块控件都在（那句话 / 「另有 N 项」 / 进度条 / 整格那颗按钮）");
+        if (status != nullptr && extra != nullptr && progress != nullptr && cell != nullptr) {
+            // ---- ① 那句话怎么拼 ----
+            // 「收尾 = 过去式」：一件刚做完的事在收起态里还顶着现在进行时的样子，看着像
+            // "它还在跑"。失败比完成优先级高（两个都真时写「失败」）。
+            struct Case {
+                const char *title;
+                bool done;
+                bool failed;
+                const char *want;
+            };
+            const Case cases[] = {
+                {"正在下载游戏文件", false, false, "正在下载游戏文件"},
+                {"正在下载游戏文件", true, false, "正在下载游戏文件（已完成）"},
+                {"正在下载游戏文件", false, true, "正在下载游戏文件（失败）"},
+                {"正在下载游戏文件", true, true, "正在下载游戏文件（失败）"},
+            };
+            int wrong = 0;
+            for (const Case &c : cases) {
+                const QString got = MainWindowUI::taskSummaryText(QString::fromUtf8(c.title),
+                                                                 c.done, c.failed);
+                if (got != QString::fromUtf8(c.want)) {
+                    ++wrong;
+                    std::printf("        [判错] %s → 「%s」，该是「%s」\n", c.title,
+                                got.toUtf8().constData(), c.want);
+                }
             }
-            // 两个函数必须是同一件事的两种说法：显示 = 不是 None。
-            const bool shows = MainWindowUI::bottomBarShowsProgress(c.launching, c.downloading,
-                                                                    c.blocking);
-            if (shows != (c.want != Owner::None)) {
-                ++wrong;
-                std::printf("        [判错] bottomBarShowsProgress 与 owner 对不上：%s\n", c.why);
-            }
+            check(wrong == 0,
+                  "E4 那一行字：在跑的原样、完成的缀「（已完成）」、失败的缀「（失败）」",
+                  QStringLiteral("错 %1 处").arg(wrong));
+            check(MainWindowUI::taskSummaryDoneSuffix() != MainWindowUI::taskSummaryFailedSuffix(),
+                  "E4 完成和失败那两个后缀**不是同一句**（不然「做完了」和「没做成」分不开）",
+                  MainWindowUI::taskSummaryDoneSuffix() + QStringLiteral(" / ") +
+                      MainWindowUI::taskSummaryFailedSuffix());
+            check(!MainWindowUI::taskSummaryNoTaskText().isEmpty() &&
+                      !MainWindowUI::taskSummaryTip().isEmpty(),
+                  "E4 没任务时那句占位话、以及悬停提示都不是空的",
+                  MainWindowUI::taskSummaryNoTaskText() + QStringLiteral(" / ") +
+                      MainWindowUI::taskSummaryTip());
+
+            // ---- ② 一项都没有：占位话 + **不显示空进度条**（§3.1） ----
+            ui.setBottomBarTaskSummary(Summary());
+            QApplication::processEvents();
+            check(status->text() == MainWindowUI::taskSummaryNoTaskText(),
+                  "E4 一项任务都没有：摆那句低强调度的占位话", status->text());
+            check(!progress->isVisible(), "E4 一项任务都没有：那根进度条**不出现**（不留一根空的）");
+            check(!extra->isVisible(), "E4 一项任务都没有：右边那句「另有 N 项」也不占地方");
+
+            // ---- ③ 有一件事在跑：标题原样 + 进度条是**确定态** ----
+            Summary running;
+            running.hasTask = true;
+            running.title = QStringLiteral("正在下载 26.2");
+            running.percent = 42;
+            ui.setBottomBarTaskSummary(running);
+            QApplication::processEvents();
+            check(status->text() == QStringLiteral("正在下载 26.2") && progress->isVisible(),
+                  "E4 有任务在跑：标题原样摆出来，进度条也出现", status->text());
+            // NOTE: 指针停在哪**不在这里量** —— 百分比那一档是 `Anim::smoothProgress` 落上去的，
+            //       一两拍 processEvents 推不到 42；"条画在什么位置"是 ui_shot 的事（红绿钉子）。
+            check(progress->minimum() == 0 && progress->maximum() == 100,
+                  "E4 有百分比时进度条是**确定态**（0..100）",
+                  QStringLiteral("%1..%2").arg(progress->minimum()).arg(progress->maximum()));
+
+            // ---- ④ 测不出百分比：不确定态（绝不编一个数出来，§3.4） ----
+            Summary unknown;
+            unknown.hasTask = true;
+            unknown.title = QStringLiteral("正在换登录令牌");
+            unknown.percent = -1;
+            ui.setBottomBarTaskSummary(unknown);
+            QApplication::processEvents();
+            check(progress->minimum() == 0 && progress->maximum() == 0 && progress->isVisible(),
+                  "E4 测不出百分比时进度条走**不确定态**（range 0..0），不是编一个 0%",
+                  QStringLiteral("%1..%2").arg(progress->minimum()).arg(progress->maximum()));
+
+            // ---- ⑤ 「另有 N 项」 ----
+            Summary many = running;
+            many.extraCount = 2;
+            ui.setBottomBarTaskSummary(many);
+            QApplication::processEvents();
+            check(extra->isVisible() && extra->text() == MainWindowUI::taskSummaryMoreText(2),
+                  "E4 除了正显示的这项还有别的在跑时，右边写「另有 2 项」",
+                  extra->text());
+
+            // 收尾：还回开局那一份（后面的节还可能量这一格）
+            ui.setBottomBarTaskSummary(Summary());
+            QApplication::processEvents();
         }
-        check(wrong == 0, "E4 七种组合全对（含两条与 bottomBarShowsProgress 的一致性）",
-              QStringLiteral("错 %1 处").arg(wrong));
     }
 
     std::printf("===== E5. 底栏中间那格：长文件名不许把窗口撑宽（sizeHint 得有上限） =====\n");
@@ -3793,14 +3857,13 @@ int main(int argc, char *argv[]) {
         // NOTE: 底下那条"敲一下嵌套布局"是必须的 —— setText() 之后的 updateGeometry()
         //       只会把**控件所在的**那层布局标脏，而这一格在底栏里那个竖着排的嵌套布局
         //       里，它那份缓存不会跟着失效（不敲的话量到的还是改文字之前那个数）。
-        // 这一格开局是**藏着的**（"没在下载就看不见进度条"），而藏着的控件在布局那一层
-        // 算 0 —— 不显示出来，下面那两个 sizeHint 根本不跟着文字走（量了等于没量）。
-        // 所以量之前 show()、量完 hide() 还回去：D 段有一条断言正是"一开始进度那格是
-        // 藏着的"，忘了还就会出现一条和这一段毫不相干的红。
-        QWidget *bar = status->parentWidget();
-        status->show();
-        QApplication::processEvents();
-
+        //
+        // NOTE: 2026-10-12 起这一格**开局就是亮的**（任务中心那一次改的：中间那格平时
+        //       也写一句「暂无后台任务」，不再是"没在下载就整格藏起来"）。所以不再需要
+        //       "量之前 show()、量完 hide() 还回去"那一套 —— 藏着的控件在布局里算 0，
+        //       而它现在不藏了。`bar` 取**底栏本体**：它的爹经过这次改动已经是中间那颗
+        //       按钮了（`taskSummaryButton`），拿它当"底下那层布局"会敲不到底栏的 layout。
+        QWidget *bar = ui.getBottomBar();
         const QString shortText = status->text();
         const int shortWindowHint = window.sizeHint().width();
 
@@ -3845,7 +3908,6 @@ int main(int argc, char *argv[]) {
               QStringLiteral("%1").arg(window.minimumSizeHint().width()));
 
         status->setText(shortText);
-        status->hide();  // 开局就是藏着的，量完还回去（理由见上面那段）
         QApplication::processEvents();
     }
 
@@ -4110,9 +4172,14 @@ int main(int argc, char *argv[]) {
               "七块控件都在（头像/用户名/进度文字/进度条/状态正文/状态副行/状态方块）");
         if (avatar != nullptr && account != nullptr && status != nullptr && progress != nullptr &&
             runState != nullptr && runDetail != nullptr && mark != nullptr) {
-            // 中间那格：没在下载也没在启动时整格藏起来（"如果正在下载"那条要求）
-            check(!progress->isVisible() && !status->isVisible(),
-                  "一开始进度那格是藏着的（界面自己不知道有没有任务）");
+            // 中间那格：**没有任务时那根进度条不出现**（"如果正在下载"那条要求），但那一格
+            // 自己（连同那句占位话）是**亮着的** —— 2026-10-12 任务中心那一次改的：原来
+            // 整格藏起来，现在它是"平时也写一句「暂无后台任务」、点一下展开任务中心"的按钮。
+            check(!progress->isVisible() && status->isVisible(),
+                  "一开始没有任务：进度条藏着，但那格（和占位话）是亮着的",
+                  QStringLiteral("进度条 %1 / 那句话 %2")
+                      .arg(progress->isVisible() ? QStringLiteral("亮") : QStringLiteral("藏"))
+                      .arg(status->isVisible() ? QStringLiteral("亮") : QStringLiteral("藏")));
             // 左下角：没有实例在跑时什么都不显示，不留一句"未运行"占地方
             check(!runState->isVisible() && !runDetail->isVisible(),
                   "一开始运行状态那两行也是藏着的");
@@ -4236,8 +4303,10 @@ int main(int argc, char *argv[]) {
                       .arg(row2TextBand)
                       .arg(runDetail->maximumWidth())
                       .arg(runDetail->contentsMargins().left()));
+            // 收尾：那根进度条藏回去（上面 show() 过），并**把那一格还成开局那一份**
+            // ——不能再 `status->hide()` 了：它开局就是亮的（见本节开头那条）。
             progress->hide();
-            status->hide();
+            ui.setBottomBarTaskSummary(MainWindowUI::BottomBarTaskSummary());
             runState->hide();
             runDetail->hide();
             mark->hide();
@@ -4245,24 +4314,18 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    std::printf("===== I2. 底栏那格：「在忙」的三种情形（2026-09-22 补） =====\n");
+    std::printf("===== I2. 底栏中间那颗按钮 = 任务中心的入口（2026-10-12） =====\n");
     {
-        // 前两种本来就在，第三种（同步阻塞：换令牌 / 挑 Java / startGame()）是这次加的。
-        // 加它的理由就是用户报的那句"点了启动游戏就卡死"：那几段在 UI 线程上同步等，
-        // 界面完全不重绘，没有百分比可报 —— 但必须让用户看见"在等什么"。
-        check(!MainWindowUI::bottomBarShowsProgress(false, false, false),
-              "什么都没在忙 → 那格整个藏起来");
-        check(MainWindowUI::bottomBarShowsProgress(true, false, false),
-              "在启动 → 显示");
-        check(MainWindowUI::bottomBarShowsProgress(false, true, false),
-              "在下载 → 显示");
-        check(MainWindowUI::bottomBarShowsProgress(false, false, true),
-              "在同步阻塞（换令牌 / 挑 Java / 等进程起来）→ 也要显示",
-              "这一条是这次改动新加的，其余三条是原来的行为");
-        check(MainWindowUI::bottomBarShowsProgress(true, true, true),
-              "几件事叠在一起也算（同一个布尔量，不排他）");
+        // 这一节原来是 `bottomBarShowsProgress()` 那五条（"在启动 / 在下载 / 在同步阻塞"）。
+        // 那套布尔量 2026-10-12 随任务中心一起拆掉了：现在中间那格写哪句话由**任务账本**
+        // 决定（`Tasks::collapsedSummary()`，纯规则在 verify 的 AL/AM 两节量；"同步等待
+        // 压在上面"那条在 mw_check 量）。界面这一头留下的是这颗按钮**本身**：它是任务中心
+        // 的入口，点一下往上弹那块面板。
+        QPushButton *cell = ui.getTaskSummaryButton();
+        check(cell != nullptr && cell->isVisible() && cell->isEnabled(),
+              "I2 中间那格是一颗**亮着的**、能点的按钮（不再整格藏起来）");
 
-        // 「正在启动 <显示名> ...」这句话现在只有**一个**出处：startGame() 之前那次
+        // 「正在启动 <显示名> ...」这句话仍然只有**一个**出处：startGame() 之前那次
         // enterSyncWait() 和进程起来之后的 updateBottomBar() 都用它，两处各写一遍
         // 就会出现"文字在启动的那一瞬间跳一下"（ui_shot 那张 02-launching.png 也引它）。
         check(MainWindowUI::launchingStatusText(QStringLiteral("26.2")) ==
@@ -4272,6 +4335,103 @@ int main(int argc, char *argv[]) {
         check(MainWindowUI::launchingStatusText(QStringLiteral("26.2")) !=
                   MainWindowUI::launchingStatusText(QStringLiteral("1.20.1")),
               "显示名不一样，那句话就不一样（不是写死的常量）");
+
+        if (cell != nullptr) {
+            // 喂一份假内容：一件在跑 + 一件已完成（真数据是 MainWindow 的事，那几条在
+            // mw_check 量 —— ui/ 不许 include src/，见 ui/TaskCenterPanel.hpp 文件头）。
+            int clearCalls = 0;
+            ui.setTaskCenterContent(
+                []() {
+                    QList<TaskCenter::Item> items;
+                    TaskCenter::Item running;
+                    running.key = QStringLiteral("7");
+                    running.title = QStringLiteral("正在下载 26.2");
+                    running.detail = QStringLiteral("已下载 3 / 9 个文件");
+                    running.percent = -1;  // 测不出百分比 ⇒ 不确定态
+                    running.active = true;
+                    TaskCenter::Step step;
+                    step.name = QStringLiteral("校验文件");
+                    step.state = TaskCenter::StepState::Done;
+                    running.steps << step;
+                    items << running;
+                    TaskCenter::Item done;
+                    done.key = QStringLiteral("6");
+                    done.title = QStringLiteral("安装 Fabric");
+                    done.active = false;
+                    done.finishedAt = QDateTime::currentDateTime();
+                    items << done;
+                    return items;
+                },
+                [&clearCalls]() { ++clearCalls; });
+            cell->click();
+            QApplication::processEvents();
+            QWidget *panel = window.findChild<QWidget *>(MainWindowUI::taskCenterPanelName());
+            check(panel != nullptr && panel->isVisible(),
+                  "I2 点一下中间那格，弹出了任务中心那块面板");
+            if (panel != nullptr) {
+                check(panel->windowFlags().testFlag(Qt::Popup),
+                      "I2 它是 Qt::Popup（点界面别处自动收回去、不抢主窗口焦点）",
+                      QStringLiteral("flags = 0x%1").arg(uint(panel->windowFlags()), 0, 16));
+                // 行按**行号**找得回来（名字由 taskCenterPanelRowName() 给），两栏接着数：
+                // 第 0 行是「当前工作」那件、第 1 行是「已完成」那件。
+                QLabel *title0 =
+                    panel->findChild<QLabel *>(MainWindowUI::taskCenterPanelRowTitleName(0));
+                QLabel *title1 =
+                    panel->findChild<QLabel *>(MainWindowUI::taskCenterPanelRowTitleName(1));
+                check(title0 != nullptr && title0->text() == QStringLiteral("正在下载 26.2") &&
+                          title1 != nullptr && title1->text() == QStringLiteral("安装 Fabric"),
+                      "I2 两栏各画了一行（在跑的那件在前、已完成的那件在后）",
+                      (title0 != nullptr ? title0->text() : QStringLiteral("<没找到>")) +
+                          QStringLiteral(" / ") +
+                          (title1 != nullptr ? title1->text() : QStringLiteral("<没找到>")));
+                // 认一行靠那一行的 key（**不是行号**）：属性名走唯一出处。
+                QWidget *rowWidget0 =
+                    panel->findChild<QWidget *>(MainWindowUI::taskCenterPanelRowName(0));
+                check(rowWidget0 != nullptr &&
+                          rowWidget0->property(MainWindowUI::taskCenterPanelRowKeyProperty())
+                                  .toString() == QStringLiteral("7"),
+                      "I2 每一行挂着自己是谁（taskCenterPanelRowKeyProperty() = 任务号）",
+                      rowWidget0 != nullptr
+                          ? rowWidget0->property(MainWindowUI::taskCenterPanelRowKeyProperty())
+                                .toString()
+                          : QStringLiteral("<没找到>"));
+                // 百分比测不出时**不摆那根条**（coding plan §3.4：不编一个假百分比出来）。
+                //   这一行里那点信息由下面那句小字说（"已下载 3 / 9 个文件"）。
+                //   NOTE: 不确定态（range 0..0）是**底栏那一整格**的写法（"有东西在跑但说不清
+                //         到哪了"），不是面板里每一行的 —— 一行一行都摆一根空转的条，面板
+                //         一去几条就是几根在那儿空转。
+                auto *bar0 =
+                    panel->findChild<QProgressBar *>(MainWindowUI::taskCenterPanelRowBarName(0));
+                auto *detail0 =
+                    panel->findChild<QLabel *>(MainWindowUI::taskCenterPanelRowDetailName(0));
+                check(bar0 == nullptr, "I2 测不出百分比那一行**不摆**那根条（不编一个假百分比出来）",
+                      bar0 != nullptr
+                          ? QStringLiteral("还是摆了 %1..%2").arg(bar0->minimum()).arg(bar0->maximum())
+                          : QStringLiteral("<没找到>"));
+                check(detail0 != nullptr &&
+                          detail0->text() == QStringLiteral("已下载 3 / 9 个文件"),
+                      "I2 那一行的进度改由小字那句说（「已下载 3 / 9 个文件」）",
+                      detail0 != nullptr ? detail0->text() : QStringLiteral("<没找到>"));
+                // 「清除已完成」那颗按钮：有处理器才出现，点了要回一声。
+                auto *clear =
+                    panel->findChild<QPushButton *>(MainWindowUI::taskCenterPanelClearButtonName());
+                check(clear != nullptr, "I2 有一件已完成 ⇒ 面板里那颗「清除已完成」在");
+                if (clear != nullptr) {
+                    clear->click();
+                    QApplication::processEvents();
+                    check(clearCalls == 1, "I2 点「清除已完成」把话带回了调用方（一次）",
+                          QStringLiteral("回来 %1 次").arg(clearCalls));
+                }
+                panel->close();
+                QApplication::processEvents();
+                QApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            }
+            // 收尾：那个假 provider 捕的是这一节里的局部量，用完就卸掉（留着的话，后面
+            // 哪一节再点开面板就是拿着悬空引用在跑）。
+            ui.setTaskCenterContent(nullptr, nullptr);
+            check(window.findChild<QWidget *>(MainWindowUI::taskCenterPanelName()) == nullptr,
+                  "I2 关闭之后那块面板被删掉了（不留着一块看不见的面板）");
+        }
     }
 
     std::printf("===== I3. 多开时那几行字（2026-09-23 多账户多实例） =====\n");
@@ -4419,8 +4579,12 @@ int main(int argc, char *argv[]) {
                   QStringLiteral("朝上顶行宽 %1 / 朝下顶行宽 %2").arg(upTop).arg(downTop));
             check(upTop > 0 && upTop < upBottom, "I4 上窄下宽 = 尖朝上",
                   QStringLiteral("顶 %1 / 底 %2").arg(upTop).arg(upBottom));
-            check(window.findChildren<QLabel *>(MainWindowUI::bottomBarChevronName()).size() == 2,
-                  "I4 两颗按钮各带一个箭头",
+            // ★ 三格各带一个箭头（2026-10-12 任务中心那次从两颗变三颗）：左边"几份在跑"、
+            //   中间"任务摘要"、右边"账号"，三块都是往上弹的面板，所以箭头长得一样、名字也
+            //   共用（`makeChevronLabel()` 是唯一出处）。数的时候按**整窗**数 —— 这也就顺手
+            //   钉住了"三颗都得挂上"。
+            check(window.findChildren<QLabel *>(MainWindowUI::bottomBarChevronName()).size() == 3,
+                  "I4 三格（左「在跑的实例」/ 中「任务摘要」/ 右「账号」）各带一个箭头",
                   QStringLiteral("找到 %1 个")
                       .arg(window.findChildren<QLabel *>(MainWindowUI::bottomBarChevronName()).size()));
 
@@ -4877,7 +5041,9 @@ int main(int argc, char *argv[]) {
             // 后面哪一节再点开面板就是拿着悬空引用在跑）。
             ui.setBottomBarPanelContent(nullptr, nullptr);
             progress->hide();
-            ui.getStatusLabel()->hide();
+            // 那一格还成开局那一份 —— 不能再 `status->hide()`：它开局就是亮的
+            //（2026-10-12 任务中心那次改的，理由见 E4/I 那两节）。
+            ui.setBottomBarTaskSummary(MainWindowUI::BottomBarTaskSummary());
             QApplication::processEvents();
 
             // ⑧ 左下那一格**点不点得开**（2026-09-25 加）。判据在 MainWindow 手里
@@ -4919,10 +5085,10 @@ int main(int argc, char *argv[]) {
                       "I4 被告知「没有实例在跑」之后：箭头**收起来**、这一格**不再收鼠标**、"
                       "那句「点一下向上展开」也摘掉了",
                       describe());
-                // 箭头只是藏起来、**没有删**：「底栏两颗按钮各带一个箭头」那条断言（上面
+                // 箭头只是藏起来、**没有删**：「底栏三格各带一个箭头」那条断言（上面
                 // I4 ②）拿的是 findChildren，删了就当场红 —— 这里顺手把它钉住。
-                check(window.findChildren<QLabel *>(MainWindowUI::bottomBarChevronName()).size() == 2,
-                      "I4 收起来的箭头还在（findChildren 照旧数得到两个）",
+                check(window.findChildren<QLabel *>(MainWindowUI::bottomBarChevronName()).size() == 3,
+                      "I4 收起来的箭头还在（findChildren 照旧数得到三个）",
                       QStringLiteral("找到 %1 个")
                           .arg(window.findChildren<QLabel *>(
                                    MainWindowUI::bottomBarChevronName()).size()));
@@ -5034,7 +5200,9 @@ int main(int argc, char *argv[]) {
                   QStringLiteral("左 %1 px / 右 %2 px").arg(gapLeft).arg(gapRight));
 
             progress->hide();
-            status->hide();
+            // 那一格（和那句占位话）开局就是亮的 ⇒ 还成开局那一份，不能 hide。
+            ui.setBottomBarTaskSummary(MainWindowUI::BottomBarTaskSummary());
+            status->setText(MainWindowUI::taskSummaryNoTaskText());
             runState->hide();
             runDetail->hide();
             if (mark != nullptr) {

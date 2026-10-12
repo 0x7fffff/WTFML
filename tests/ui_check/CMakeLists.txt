@@ -102,6 +102,10 @@ add_executable(ui_check main.cpp
                                 # 左栏现在直接 new 它，少了这一个文件会在链接那一步报
                                 # `undefined reference to ThemeBackground::ThemeBackground(…)`。
                                 ${REPO_ROOT}/ui/ThemeBackground.cpp
+                                # 任务中心那块面板（2026-10-12）：`MainWindowUI.cpp` 直接
+                                # new 它（底栏中间那格点开那一下），少了这一个文件会在链接
+                                # 那一步报 `undefined reference to TaskCenterPanel::…`。
+                                ${REPO_ROOT}/ui/TaskCenterPanel.cpp
                                 ${REPO_ROOT}/ui/WindowChrome.cpp)
 
 # InstanceFiles 那一层要的（`VersionInheritance::parentIdOf` / `maxDepth`）——

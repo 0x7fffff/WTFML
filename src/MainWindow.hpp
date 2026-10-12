@@ -51,6 +51,13 @@
 // 东西（见 pingServers()）。这个头只碰 QtCore（QObject/QByteArray/QJsonValue），很轻。
 #include "launcher/QuickPlay.hpp"
 #include "util/ServerPing.hpp"
+// TaskManager / TaskSnapshot / TaskStep —— 底栏那格的"任务摘要"和任务中心那几行都按值用
+// （见 m_taskManager 那一段）。这个头只碰 QtCore（QObject/QDateTime/QList/QString），
+// 和上面那几个同一个理由：按值用就 include，不走"前置声明 + 指针"那一套。
+#include "tasks/TaskManager.hpp"
+// TaskCenter::Item —— taskCenterItems() 按值回一串（那是给任务中心面板的一份**纯显示**
+// DTO，见 ui/TaskCenterPanel.hpp 文件头）。同样是因为按值用它才 include 到这里。
+#include "..\ui\TaskCenterPanel.hpp"
 
 class MainWindowUI;
 // 安装页那棵加载器树上的一个条目（loaderItem()）。这里只在私有函数的参数/返回值里按
@@ -1756,9 +1763,37 @@ private:
     /// 见 .cpp 里的说明。NOTE: 这里原来写的是"走 QMessageBox"，那句话早和代码相反了
     /// （内嵌化那一批把 90 来处全换掉了），2026-09-27 一并改掉。
     void appendLog(const QString &text);
-    /// 刷新底部状态条那三格（头像/用户名、进度、实例运行状态）。
+    /// 刷新底部状态条那三格（头像/用户名、**任务摘要**、实例运行状态）。
     /// 显示规则见 .cpp；界面那边只负责把控件搭出来。
     void updateBottomBar();
+
+    // ---------- 任务中心（2026-10-12，coding plan §2 / §3） ----------
+    /// 底栏中间那格**现在该说什么**：把账本里那一堆翻成 `MainWindowUI::BottomBarTaskSummary`
+    /// 摆上去（谁说话算数由 `Tasks::collapsedSummary()` 定 —— 那是账本层的纯函数，
+    /// 这一格自己不再有一套优先级，旧那套 `bottomBarProgressOwner` 整个撤掉了）。
+    ///
+    /// NOTE: 「刚完成的那一项还露着」这一档是**有期限的**（`taskSummaryRecentWindowMs()`），
+    ///       所以这里顺带把那个到期重画的小定时器重新起一次。
+    void updateBottomBarTaskSummary();
+    /// 任务中心那块面板要画什么（点开/刷新时**现算**一遍，和底栏那两块面板一个路数）。
+    /// ★ 它有一处**副作用**：被调一次就算"用户看过了" ⇒ 把那几个没看过的失败标记清掉
+    ///   （面板里那几行是唯一能把失败原因看全的地方，"列出来了"就是"看过了"）。
+    QList<TaskCenter::Item> taskCenterItems();
+    /// 记一件新任务（发号 + 落盘）。回它的号。
+    Tasks::TaskId beginTask(Tasks::TaskKind kind, const QString &title,
+                            const QString &targetId = QString(),
+                            const QList<Tasks::TaskStep> &steps = QList<Tasks::TaskStep>());
+    /// 收尾：成功 / 失败（失败时把号记进"没看过"）。**找不到那个号就什么都不做**。
+    void finishTask(Tasks::TaskId id, bool success, const QString &errorSummary = QString());
+    /// 这一批下载对上的任务号（没有这一批 = 无效号）。
+    Tasks::TaskId downloadTaskId() const { return m_downloadTaskId; }
+    /// 「正在忙的这一批下载」起手：按当前那三个 id 判断这是哪一类活儿（补全 / 装实例 /
+    /// 导入整合包 / 普通下载），记一件任务并把号存进 m_downloadTaskId。
+    ///
+    /// NOTE: 判据就是 `m_repairingInstanceId` / `m_installingInstanceId` /
+    ///       `m_importingInstanceId` 那三个"界面上自己记的" —— 收尾那几条路（
+    ///       onVersionDownloadFinished）用的也是它们，所以两头的分档**天然一致**。
+    void beginDownloadTask();
 
     // ---------- 底栏那两块上拉面板（左：正在跑的实例 · 右：最近用过的账号） ----------
     //
@@ -2537,16 +2572,12 @@ private:
     // 下载是否在进行中。注意不能只问 m_versionManager：从点击"下载"到版本 JSON
     // 拉回来之前，VersionManager 那边还没有任何批次，这段时间也得算"忙"。
     bool m_downloadInFlight = false;
-    // 这一批下到哪了（总数为 0 = 还不知道 / 没有）。**启动那一段要把这一格让出去**，
-    // 让完之后得照原样还回来 —— 不然还回来的是一条没头没尾的空条。
-    //
-    // NOTE: 以前不用记这个，因为"在启动"和"在下载"以前是**互斥**的（下载期间启动按钮
-    //       是灰的），底栏那格从来不需要从一种忙态切回另一种。2026-09-23 解耦之后
-    //       "边下边开"成了正常路径，这里就成了真正的状态。
-    //       这三个数只在 updateDownloadProgressUi() 里写。
-    int m_downloadDone = 0;
-    int m_downloadTotal = 0;
-    int m_downloadFailed = 0;
+    // ★ 2026-10-12（coding plan §2.1、§3.1）：底栏中间那格**不再自己记**"下到哪了"。
+    //   以前这里有 m_downloadDone / m_downloadTotal / m_downloadFailed 三个数，专门为了
+    //   "启动那一段把这一格借走、借完照原样还回来"（所以得把上一帧记着）。现在没有
+    //   "借走"这回事了 —— 启动和下载是任务表里并列的两行，谁被显示出来由
+    //   `Tasks::collapsedSummary()` 现算，进度也都记在**任务自己**身上
+    //   （`TaskManager::setProgress()`）。三个数因此整个撤掉：留着就是第二份真相。
     // 正在导入的那个整合包会落在哪个实例名下（空 = 没有导入在进行）。
     //
     // 为什么界面要自己记这一笔：导入的那**一个**终态走的是公共的
@@ -2599,6 +2630,25 @@ private:
     // 存的是**会话号**不是版本号：同一个实例可以被多开，按版本号记的话第二个起来就把
     // 第一个那笔盖掉了（然后第一份出话时"启动中"照样挂着，直到它退出才收）。
     QSet<int> m_launchingSessions;
+    // ------------------------------------------------------------------
+    // 任务中心（2026-10-12，coding plan §2 / §3）
+    // ------------------------------------------------------------------
+    // **唯一**记录"现在有哪些事在跑、各自跑到哪儿了"的地方（见 src/tasks/TaskManager.hpp）。
+    // MainWindow 是**唯一**往它里面记的人：`DownloadManager` / `VersionManager` /
+    // `LauncherManager` 照旧是执行者，这里把它们的信号翻成一次 `begin()` /
+    // `setProgress()` / `succeed()`（§2.1「不把任务中心做成第二套业务逻辑」）。
+    Tasks::TaskManager *m_taskManager = nullptr;
+    /// 正在跑的那一批下载对应的任务号（无效号 = 没有这一批）。**一批一个号**：
+    /// 从 `setDownloadUiBusy(true)` 起、到那一条终态信号为止（见 beginDownloadTask()）。
+    Tasks::TaskId m_downloadTaskId = Tasks::invalidTaskId();
+    /// 会话号 → 那一次启动的任务号（和 m_launchingSessions / m_sessionDisplayNames 同寿）。
+    QHash<int, Tasks::TaskId> m_launchTaskIds;
+    /// 用户**还没看过**的那几次失败（面板里那一行挂红点、收起态那格挂红点）。
+    /// 打开任务中心面板就算看过了（那是"列给你看"的唯一动作）。
+    QSet<Tasks::TaskId> m_unreadFailures;
+    /// "刚完成的那一项还在收起态里露着"这件事到期了要重画一次（`taskSummaryRecentWindowMs()`）。
+    /// **单发**：每次摆摘要时按"还差多久到期"重新起一次（见 updateBottomBarTaskSummary()）。
+    QTimer *m_taskSummaryTimer = nullptr;
     // ★ 2026-09-27 加：会话号 → 那一份的实例显示名。**启动那一刻记一次**，退出时用掉、删掉。
     //
     // 唯一用途是 onGameFinished() 里那行日志的 `[实例名] ` 前缀 —— 那时会话已经从

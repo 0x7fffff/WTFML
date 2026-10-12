@@ -67,6 +67,9 @@
 // 「最大内存」那一行左半边那根条（见 MemorySlider.hpp 开头那段）。它和上面的对话框头
 // 一样属于 ui/ 自己的东西，不是业务层的。
 #include "MemorySlider.hpp"
+// 任务中心那块面板（2026-10-12）。这里要它的头只为一件事：`setTaskCenterContent()` 的
+// 参数类型和那个成员指针 —— 面板自己长什么样、怎么弹，全在它的 .cpp 里。
+#include "TaskCenterPanel.hpp"
 
 class QGridLayout;
 class QScrollArea;
@@ -1220,6 +1223,21 @@ public:
     ///       那一下点不动，不是把那句话弄糊。连带的：鼠标指针也不会变手型，划过不再高亮。
     void setRunPanelAvailable(bool available);
 
+    /// 把**任务中心**要画的东西装进来。**由 MainWindow 在构造时调一次**（任务账本在
+    /// 它手里，见 src/tasks/TaskManager.hpp）；没装的话面板里只有一句"现在没有任务"。
+    ///
+    /// @param provider 面板打开/刷新时**现问一遍**（不缓存：任务随时会多一个、会完一个，
+    ///        "上一次那几行"留着迟早会在界面上说假话 —— 和 `PanelRowsProvider` 一个路数）。
+    /// @param onClear 「清除已完成」被点了该告诉谁（可以给空的 = 那就没有那颗按钮）。
+    void setTaskCenterContent(TaskCenter::ItemProvider provider,
+                              TaskCenter::ClearFinishedHandler onClear) {
+        m_taskCenterProvider = std::move(provider);
+        m_taskCenterClearHandler = std::move(onClear);
+    }
+
+    /// 任务中心那块面板开着的话，把里面的内容重画一遍（**没开着就什么都不做** ——
+    /// 下一次 `popUp()` 自己会重建）。`MainWindow` 在"任务变了"之后喊一声。
+    void refreshTaskCenterPanel();
     /// 那两颗按钮点开之后**向上**弹出来的那块面板。名字挂在这里是为了让验证工程
     /// 能按 objectName 把它找回来量几何（它是个 Qt::Popup 窗口，父子关系照旧）。
     static QString bottomBarPanelName() { return QStringLiteral("bottomBarPanel"); }
@@ -1312,6 +1330,157 @@ public:
     static QString runStateDetailLabelName() { return QStringLiteral("runStateDetailLabel"); }
     static QString progressBarName() { return QStringLiteral("progressBar"); }
     static QString statusLabelName() { return QStringLiteral("statusLabel"); }
+
+    // ------------------------------------------------------------------
+    // 底栏中间那格 = **任务摘要**（2026-10-12，coding plan §3.1）
+    // ------------------------------------------------------------------
+    // 用户要的形状（§3.1 的原图）：
+    //
+    //   ┌ 任务摘要 ───────────────────┐
+    //   │ ↓ 安装 1.21.4 Fabric   62%  ∧ │
+    //   │ ███████████░░░░░░░░          │
+    //   └───────────────────────────────┘
+    //
+    // 这一格以前是「一句字 + 一根条」，三件事（启动 / 下载 / 同步等待）抢着往里写
+    // （那套优先级原来叫 `bottomBarProgressOwner`）。现在这一格只说**一句话**：手上
+    // 最该被看见的那一项任务 —— 谁说话算数由 `Tasks::collapsedSummary()` 说了算（那是
+    // 账本层的纯函数，见 src/tasks/TaskSnapshot.hpp），这里只负责把结果画出来。
+    // ★ 启动因此**不再抢走并覆盖下载**（§3.1 明写的那一条）：它俩是任务表里并列的两行，
+    //   收起态挑一行展示而已 —— 旧那套"启动最大、借完要还"的优先级整个撤掉了。
+    // ------------------------------------------------------------------
+
+    /// 底栏中间那格的**全部内容**。`MainWindow` 每次重画底栏都摆一份进来。
+    struct BottomBarTaskSummary {
+        /// false = 一项都没有 ⇒ 画一句低强调度的占位话（§3.1：「无任务时不显示空进度条」）。
+        bool hasTask = false;
+        /// 已经收尾的那一项（收起态里"短暂显示后收进历史"就是它）。
+        bool done = false;
+        bool failed = false;
+        /// 用户**还没看过**的一次失败 ⇒ 标题前面挂一颗红点。
+        bool unreadFailure = false;
+        /// -1 = **测不出百分比** ⇒ 进度条画不确定态（不编一个数出来）。
+        int percent = -1;
+        /// 除了正显示的这一项之外，还有几项在跑 —— 右边那句「另有 2 项」的数就是它。
+        int extraCount = 0;
+        QString title;
+    };
+
+    /// 摆上底栏中间那一格**现在该说什么**。**由 MainWindow 每次重画底栏时给**
+    /// （`updateBottomBar()`，谁说话算数由 `Tasks::collapsedSummary()` 定）。
+    ///
+    /// 界面这一头**不查数据**：它不知道有没有任务、更不知道哪一项该被看见 —— 那些都是
+    /// 账本那边的事（这里是 `ui/`，看不到 `src/`，见文件头那段）。
+    ///
+    /// NOTE: 声明摆在这个结构**后面**（这个头里别的地方都是"函数在前、它用的类型在后"），
+    ///       因为参数是**按值传**的 —— 按值用就得先看得见那个完整类型。别为了整齐把它挪到
+    ///       上面去，挪了就编不过（"incomplete type" 那一类）。
+    void setBottomBarTaskSummary(const BottomBarTaskSummary &summary);
+
+    /// 一项任务都没有时那一格写什么。
+    static QString taskSummaryNoTaskText() { return QStringLiteral("暂无后台任务"); }
+    /// 还有几项没显示出来：「另有 N 项」。**N ≥ 1 才该被调到**（0 项是"没有"，不是"另有"）。
+    static QString taskSummaryMoreText(int count) {
+        return QCoreApplication::translate("MainWindowUI", "另有 %1 项").arg(count);
+    }
+    /// 已经收尾那一项标题后面缀的词。**收尾 = 过去式**：刚做完的一件事在收起态里还顶着
+    /// 现在进行时的样子，看着像"它还在跑"。
+    static QString taskSummaryDoneSuffix() {
+        return QCoreApplication::translate("MainWindowUI", "（已完成）");
+    }
+    static QString taskSummaryFailedSuffix() {
+        return QCoreApplication::translate("MainWindowUI", "（失败）");
+    }
+    /// 收起态那一行**最终**写出来的字。**唯一出处**：MainWindow 拿它填、验证工程拿它断言。
+    static QString taskSummaryText(const QString &title, bool done, bool failed) {
+        if (failed) {
+            return title + taskSummaryFailedSuffix();
+        }
+        return done ? title + taskSummaryDoneSuffix() : title;
+    }
+    /// 悬停在那一格上显示什么（它现在是一整颗能点的按钮）。
+    static QString taskSummaryTip() {
+        return QCoreApplication::translate("MainWindowUI", "点一下展开任务中心");
+    }
+    /// 那一格右边小字（「另有 N 项」）的宽度上限（像素）—— `ElidedLabel` 的 sizeHint 就
+    /// 封在这个数上，所以再长的句子也顶不宽中间那一格（E5 那一段量的就是这件事）。
+    static int taskExtraTextWidth() { return 64; }
+    /// 一件任务**完成之后**还能在收起态那格上露多久（毫秒）。§3.1：「完成任务短暂显示后
+    /// 收进历史」—— "短暂"这个数就是它。
+    ///
+    /// NOTE: 它是**界面**这一层的数，不是账本那一层的：账本只知道"这件事什么时候收的尾"
+    ///       （`TaskSnapshot::finishedAt`），"还该不该露着"是这一格自己算的（判据在
+    ///       `Tasks::collapsedSummary()` 的 `recentWindowMs` 参数）。放在这里是因为这一格
+    ///       的尺寸/时限都归这一节管，验证工程也只需要读这一处。
+    static int taskSummaryRecentWindowMs() { return 8000; }
+
+    static QString taskSummaryButtonName() { return QStringLiteral("taskSummaryButton"); }
+    static QString taskExtraLabelName() { return QStringLiteral("taskExtraLabel"); }
+    /// 那一颗"还没看过的一次失败"的红点（**收着的时候它也在**，只是布局里占 0 宽）。
+    static QString taskSummaryDotName() { return QStringLiteral("taskSummaryDot"); }
+
+    /// 任务中心那块面板（`ui/TaskCenterPanel.hpp`）。
+    static QString taskCenterPanelName() { return QStringLiteral("taskCenterPanel"); }
+    /// 面板宽度那一档（§3.2：约 440–520）。面板按内容 `adjustSize()` 之后夹在这两档里。
+    static int taskCenterPanelMinWidth() { return 440; }
+    static int taskCenterPanelMaxWidth() { return 520; }
+    /// 面板高度上限 = 屏幕**可用**高度的百分之多少（§3.2：60%）。
+    static int taskCenterPanelHeightPercent() { return 60; }
+    /// 面板里那根进度条的高度（像素）。
+    static int taskCenterPanelBarHeight() { return 6; }
+    /// 步骤之间空多少（像素）。
+    static int taskCenterPanelStepSpacing() { return 12; }
+    /// 那一颗"还没看过的一次失败"的红点边长（像素）。比底栏那颗状态方块小一号：
+    /// 它挨着的是一行正文，不是整格的角标。
+    static int taskCenterPanelFailureDotSize() { return 8; }
+
+    /// 面板里一行上面那几个词的**唯一出处**（面板画它、验证工程断言它）。
+    static QString taskCenterPanelActiveSectionText() { return QStringLiteral("当前工作"); }
+    static QString taskCenterPanelDoneSectionText() { return QStringLiteral("已完成"); }
+    static QString taskCenterPanelClearText() { return QStringLiteral("清除已完成"); }
+    static QString taskCenterPanelEmptyText() { return QStringLiteral("现在没有任务"); }
+    /// 一行是**谁**。值就是 `TaskCenter::Item::key`（任务号的十进制字符串）。
+    ///
+    /// NOTE: 认一行要靠它、**不能靠行号** —— 「清除已完成」一按，下面那一栏整段没了，
+    ///       行的编号当场全变（和 `PanelRow::key` / `FolderRow::path` 是同一条道理）。
+    /// NOTE: 回的是 `const char *` 而不是 `QString` —— `QObject::setProperty()` / `property()`
+    ///       第一个参数只收 `const char *`（`QString` 转不过去，报的是"没有这个函数"，
+    ///       看着像 setProperty 不存在）。和 `InstanceFilesPage::rowPathProperty()` 同一个写法。
+    static const char *taskCenterPanelRowKeyProperty() { return "wtfmlTaskKey"; }
+    /// 一行里那几块的名字。**都带行号**，验证工程按号找控件，不用数"这行里有几个 QLabel"。
+    static QString taskCenterPanelRowName(int index) {
+        return QStringLiteral("taskCenterPanelRow%1").arg(index);
+    }
+    static QString taskCenterPanelRowTitleName(int index) {
+        return QStringLiteral("taskCenterPanelRow%1Title").arg(index);
+    }
+    static QString taskCenterPanelRowDetailName(int index) {
+        return QStringLiteral("taskCenterPanelRow%1Detail").arg(index);
+    }
+    static QString taskCenterPanelRowPercentName(int index) {
+        return QStringLiteral("taskCenterPanelRow%1Percent").arg(index);
+    }
+    static QString taskCenterPanelRowTimeName(int index) {
+        return QStringLiteral("taskCenterPanelRow%1Time").arg(index);
+    }
+    static QString taskCenterPanelRowBarName(int index) {
+        return QStringLiteral("taskCenterPanelRow%1Bar").arg(index);
+    }
+    static QString taskCenterPanelRowDotName(int index) {
+        return QStringLiteral("taskCenterPanelRow%1Dot").arg(index);
+    }
+    static QString taskCenterPanelRowStepName(int index, int step) {
+        return QStringLiteral("taskCenterPanelRow%1Step%2").arg(index).arg(step);
+    }
+    static QString taskCenterPanelClearButtonName() {
+        return QStringLiteral("taskCenterPanelClear");
+    }
+    static QString taskCenterPanelEmptyLabelName() {
+        return QStringLiteral("taskCenterPanelEmpty");
+    }
+    /// 一行右边那个百分比写成什么（「62%」）。**唯一出处**。
+    static QString taskCenterPercentText(int percent) {
+        return QStringLiteral("%1%").arg(qBound(0, percent, 100));
+    }
 
     // ------------------------------------------------------------------
     // 实例页左栏那张「游戏文件夹」列表（2026-09-24 改造：两行式 + 行尾齿轮菜单）
@@ -2112,51 +2281,6 @@ public:
         return !(homeTabCurrent && selectedVersionId == runningVersionId);
     }
 
-    /// 底栏中间那格（进度条 + 进度文字）该不该显示。
-    /// @param launching 正在启动游戏（进程起来了、游戏还没出话）。
-    /// @param downloading 正在下载。
-    /// @param blocking 正在**同步阻塞**地等一件事（换令牌、挑/下 Java、startGame()）。
-    /// @return 三种"在忙"任意一种都算。
-    ///
-    /// "同步阻塞"那一种 2026-09-22 才加进来：那几段在 UI 线程上等网络/等进程，界面完全
-    /// 不重绘，用户点了「启动游戏」看到的就是"卡死"（Windows 还会给标题挂上"无响应"）。
-    /// 那几段报不出百分比，但"在忙"这件事必须说出来 —— 见 MainWindow::enterSyncWait()。
-    static bool bottomBarShowsProgress(bool launching, bool downloading, bool blocking) {
-        return bottomBarProgressOwner(launching, downloading, blocking)
-               != BottomBarProgressOwner::None;
-    }
-
-    /// 底栏中间那格**归谁**（三件事都会占它，优先级从高到低）。
-    enum class BottomBarProgressOwner {
-        None,      ///< 没人在忙：进度条复位、那格清空
-        Download,  ///< 下载 —— 最低的一档（它随时会被上面两档借走，借完要还回来）
-        Blocking,  ///< 同步阻塞等待（换令牌 / 挑 Java / startGame，见 enterSyncWait()）
-        Launch,    ///< 启动中（进程起来了、游戏还没出话）—— 最高的一档
-    };
-
-    /// @brief 底栏中间那格现在归谁。
-    ///
-    /// 这是"谁说话算数"的**唯一出处**：updateBottomBar() 按它画，下载进度那条每 200 ms
-    /// 一帧的回调（MainWindow::updateDownloadProgressUi）也按它判"该不该动这一格"。
-    ///
-    /// 以前这条优先级只写在 updateBottomBar() 的 if 链里，下载进度回调**无条件**覆盖那格
-    /// 文字与进度条 —— "边下边开"时，enterSyncWait() 写的「正在校验登录状态…」「正在准备
-    /// Java 运行时…」和进程起来后的「正在启动 X …」会在 200 ms 内被顶掉，而那几句话正是
-    /// 2026-09-22 专为"点了启动就像卡死"做的。
-    static BottomBarProgressOwner bottomBarProgressOwner(bool launching, bool downloading,
-                                                         bool blocking) {
-        if (launching) {
-            return BottomBarProgressOwner::Launch;
-        }
-        if (blocking) {
-            return BottomBarProgressOwner::Blocking;
-        }
-        if (downloading) {
-            return BottomBarProgressOwner::Download;
-        }
-        return BottomBarProgressOwner::None;
-    }
-
     /// 底栏中间那格"正在启动"那句文案。**唯一一处**拼它。
     ///
     /// 两个调用点说的是同一件事：startGame() 之前那次 enterSyncWait()，和进程起来之后
@@ -2422,6 +2546,10 @@ public:
     /// （见 setBottomBarPanelContent()）。
     QPushButton *getRunStateButton() const { return runStateButton; }
     QPushButton *getAccountButton() const { return accountButton; }
+    /// 底栏中间那一格（2026-10-12 起它也是一整颗按钮：点一下向上展开任务中心）。
+    QPushButton *getTaskSummaryButton() const { return taskSummaryButton; }
+    /// 那格右边那句小字（「另有 N 项」）。**空着的时候它自己就收起来了**（布局里宽度 0）。
+    QLabel *getTaskExtraLabel() const { return taskExtraLabel; }
     QLabel *getAvatarLabel() const { return avatarLabel; }
     QLabel *getAccountLabel() const { return accountLabel; }
     QLabel *getAccountTypeLabel() const { return accountTypeLabel; }
@@ -2458,22 +2586,38 @@ private:
     /// 而且就是这一颗弹的时候，再点一下是收回，和底栏那两块面板一个路数）。
     void openFolderMenu(const FolderRow &row, QWidget *gear);
 
-    /// 底栏两头那两颗按钮里的一颗：是哪一颗（**按按钮指针认人**，不按"左右"）、
-    /// 点开的是哪一块面板。
+    /// 底栏那三格里的一格：是哪一颗按钮（**按按钮指针认人**，不按"左右"）、点开的是
+    /// 哪一块面板。三块面板的形状完全不同，所以这里是**一个枚举**而不是两个布尔量。
+    enum class BottomBarAnchorKind {
+        None,       ///< 没落在任何一颗按钮上
+        Instances,  ///< 左下那格：列正在跑的实例（`BottomBarPanel`）
+        Accounts,   ///< 右下那格：列最近用过的账号（`BottomBarPanel`）
+        Tasks,      ///< 中间那格：任务中心（`TaskCenterPanel`，2026-10-12 加）
+    };
     struct BottomBarAnchor {
         QPushButton *button = nullptr;
-        /// true = 右边那块（账号列表），false = 左边那块（实例列表）。
-        bool account = false;
+        BottomBarAnchorKind kind = BottomBarAnchorKind::None;
+        bool account() const { return kind == BottomBarAnchorKind::Accounts; }
     };
-    /// 底栏那两颗按钮"点开 / 收回"的唯一出处，三种情形都在这里分：
+    /// 底栏那三颗按钮"点开 / 收回"的唯一出处，三种情形都在这里分：
     /// 已经开着**同一颗**的 → 收回（不再开）；开着**另一颗**的 → 收旧的、开新的；
     /// 都没开着 → 开。**每一次点击都算数**（点另一颗那一下是面板收到的，见 .cpp 里
     /// BottomBarPanel::handleOutsidePress() 的第一段 NOTE）。
+    ///
+    /// NOTE: "现在开着哪一块"对中间那格要**另外问一句**（`taskCenterPanel()`）——
+    ///       两块 `BottomBarPanel` 都叫 `bottomBarPanel` 那一个名字，任务中心那块是
+    ///       另一个类、另一个名字，两者不在同一个 findChild 里。
     void toggleBottomBarPanel(const BottomBarAnchor &anchor);
     /// 把 @p anchor 那块面板弹出来。**"收"的那一半在 toggleBottomBarPanel()**：
     /// 这个函数只负责开，不管现在开着什么。
     void openBottomBarPanel(const BottomBarAnchor &anchor);
-    /// @p globalPos（全局坐标）落在底栏哪一颗按钮上。没落在任何一颗上 = 返回的 button 是空的。
+    /// 开任务中心那一块（中间那格用的；它和上面那个不是同一个类，见 toggle 的 NOTE）。
+    void openTaskCenterPanel();
+    /// 现在开着的任务中心面板（没开着 = nullptr）。它是个 Qt::Popup 窗口，close() 之后
+    /// 要等 deleteLater 才真删 —— 所以同一轮事件处理里还找得到（和 `bottomBarPanelName()`
+    /// 那两个 findChild 是同一个路数，见 toggleBottomBarPanel()）。
+    TaskCenterPanel *taskCenterPanel() const;
+    /// @p globalPos（全局坐标）落在底栏哪一颗按钮上。没落在任何一颗上 = 返回的 kind 是 None。
     BottomBarAnchor bottomBarAnchorAt(const QPoint &globalPos) const;
 
     // 控件指针
@@ -2592,6 +2736,13 @@ private:
     /// 底栏两头那两颗按钮：整格都是一颗按钮（里面装着原来的那几行字 + 右边一个朝上的箭头）。
     QPushButton *runStateButton = nullptr;
     QPushButton *accountButton = nullptr;
+    /// 中间那一格**也是一整颗按钮**（2026-10-12，coding plan §3.1「整块可点击」）：
+    /// 里面装着"任务标题 + 右边那句小字 + 一块进度条 + 右边一个朝上的箭头"。
+    /// 宽度**不钉**（中间那格本来就是吃富余宽度的那一份，见 .cpp 里那段 6:1:1）。
+    QPushButton *taskSummaryButton = nullptr;
+    QLabel *taskExtraLabel = nullptr;
+    /// 那一格标题左边那颗红点（"用户还没看过的一次失败"）。**藏着的时候不占宽度**。
+    QLabel *taskFailureDot = nullptr;
     QLabel *avatarLabel = nullptr;
     QLabel *accountLabel = nullptr;
     // 账户格那两行是**竖直排列**的（名字在上、登录方式在下），和左上角那格同构。
@@ -2612,6 +2763,9 @@ private:
     /// （见 setBottomBarPanelContent()）—— 界面这一头**不查数据**，只画。
     PanelRowsProvider m_panelRowsProvider;
     PanelActionHandler m_panelActionHandler;
+    /// 任务中心那两块：**去哪要那几行**（见 setTaskCenterContent()）。
+    TaskCenter::ItemProvider m_taskCenterProvider;
+    TaskCenter::ClearFinishedHandler m_taskCenterClearHandler;
     /// 「文件夹齿轮菜单里某一项被点了」该告诉谁（见 setFolderActionHandler()）。
     FolderActionHandler m_folderActionHandler;
     /// 「组齿轮菜单里某一项被点了」和「挑目标框里某一组被点了」该告诉谁

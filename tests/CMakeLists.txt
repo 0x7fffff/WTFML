@@ -176,6 +176,19 @@ if(EXISTS ${REPO_ROOT}/src/util/ImageDecode.cpp)
                                 ${REPO_ROOT}/src/util/ImageDecode.hpp)
 endif()
 
+# 任务账本那一套（2026-10-12，coding plan §2 / §3）。它**一个 QWidget 都不碰、一个网络都
+# 不开**，所以 verify 这一节能直接 new 一个、喂几条假任务进去，把那几条纯规则钉死：
+# 「终态只落一次」「号从盘上续」「没跑完的读回来算已中断」。
+# 理由同上：别的分支上没有它，存在才加。
+if(EXISTS ${REPO_ROOT}/src/tasks/TaskManager.cpp)
+    list(APPEND PROJECT_SOURCES ${REPO_ROOT}/src/tasks/TaskManager.cpp
+                                ${REPO_ROOT}/src/tasks/TaskManager.hpp
+                                ${REPO_ROOT}/src/tasks/TaskHistory.cpp
+                                ${REPO_ROOT}/src/tasks/TaskHistory.hpp
+                                ${REPO_ROOT}/src/tasks/TaskSnapshot.hpp
+                                ${REPO_ROOT}/src/tasks/TaskId.hpp)
+endif()
+
 # ThemeImage 是设置页「背景图」那两行收图的那一层（2026-09-28，用户点名要的"能换背景图"）。
 # 它能离线验：V5s 那一段在一个临时数据根目录里真存真删，只看盘上少了哪一个文件。
 # 理由同上：别的分支上没有它，存在才加。

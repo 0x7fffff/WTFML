@@ -1,0 +1,145 @@
+/**
+ * @file TaskManager.hpp
+ * @brief 任务账本：**唯一**记录"现在有哪些事在跑、各自跑到哪儿了"的地方。
+ * @author 0x7fffff
+ * @date 2026-10-12
+ *
+ * coding plan §2.1 的第一条：「不把任务中心做成第二套业务逻辑 —— 任务中心只**聚合状态和
+ * 操作**，不负责真正下载或启动」。所以这个类里没有一条网络、没有一个进程、不碰任何业务
+ * 规则：`DownloadManager` / `VersionManager` / `LauncherManager` 照旧是执行者，`MainWindow`
+ * 负责把它们的信号翻成这里的一次 `begin()` / `setProgress()` / `succeed()`。
+ *
+ * 【它管什么】
+ *
+ *   * 发号（`begin()` 回一个 `TaskId`，之后所有更新都按这个号认人）；
+ *   * 按 id 改一项任务的某几个字段，并把"变了"告诉外面（`taskChanged`）；
+ *   * **终态只能落一次**（`succeed()` / `fail()` / `cancel()` 第二次调用什么都不做、
+ *     一个信号都不发）—— coding plan §3.4 验收那条「相同信号重复抵达不会生成重复任务或
+ *     重复完成」就是这一条；
+ *   * 落盘/读回任务历史（`TaskHistory`），读回来的那次把没跑完的标成"已中断"。
+ *
+ * 【为什么不认识界面】
+ *
+ * `ui/` **不 include `src/`**（见 `ui/MainWindowUI.hpp` 与 `src/MainWindow.cpp` 里那几段）。
+ * 所以界面那边拿到的不是 `TaskSnapshot`，而是 `MainWindow` 翻好的 `TaskCenterRowData`
+ * （见 `ui/TaskCenterPanel.hpp`）。这个类里也就一个汉字都没有 —— 状态该写成什么词是界面
+ * 的事，不是账本的事。
+ *
+ * 【要不要构造它】
+ *
+ * 不用：它只在 `MainWindow` 里有一个（`m_taskManager`）。但**它一个 QWidget 都不碰、
+ * 一个网络都不开**，所以验证工程可以直接 `new` 它、喂几条假任务进去，把上面那几条规则
+ * 钉死（见 tests/main.cpp 的 AM 节）。
+ */
+
+#pragma once
+
+#include <QList>
+#include <QObject>
+#include <QString>
+
+#include "TaskId.hpp"
+#include "TaskSnapshot.hpp"
+
+namespace Tasks {
+
+class TaskManager : public QObject {
+    Q_OBJECT
+
+public:
+    explicit TaskManager(QObject *parent = nullptr);
+    ~TaskManager() override;
+
+    /// 历史文件落在哪。默认是 `defaultHistoryPath()`（`<数据目录>/wtfml.tasks`）。
+    ///
+    /// NOTE: 验证工程会把它指到一个临时目录 —— 不然那几条断言会往真数据目录里写东西。
+    ///       `setHistoryPath(QString())` 是"回到默认那份"，不是"写到空路径去"。
+    QString historyPath() const { return resolvedHistoryPath(); }
+    void setHistoryPath(const QString &path) { m_historyPath = path; }
+
+    /// 从盘上读一份历史，**启动时调一次**。会把当前账本整个换成盘上那一份
+    /// （读回来的没跑完的都成了 `Interrupted`）。回读到了几条。
+    int loadHistory();
+
+    /// 把账本写回去（已完成的按 `finishedHistoryLimit()` 截断）。
+    bool saveHistory() const;
+
+    // ---------- 发起 / 推进 / 收尾 ----------
+
+    /// 记一件新任务。回它的号（`invalidTaskId()` 那种情况不会出现：号是自增的）。
+    ///
+    /// @param steps 一开始那几步（可以先给空表，跑到哪一步再 `setStepState()`）。
+    /// @param capabilities 它**允许**什么操作（见 `TaskCapabilities` 那段：按钮不靠种类猜）。
+    TaskId begin(TaskKind kind, const QString &title, const QString &targetId = QString(),
+                 const QList<TaskStep> &steps = QList<TaskStep>(),
+                 const TaskCapabilities &capabilities = TaskCapabilities());
+
+    /// 换一句"现在在干什么"（面板里标题下面那行小字）。
+    bool setDetail(TaskId id, const QString &detail);
+
+    /// 整表换掉步骤。
+    bool setSteps(TaskId id, const QList<TaskStep> &steps);
+
+    /// 改第 @p index 步的状态（越界的下标什么都不做、回 false）。
+    bool setStepState(TaskId id, int index, TaskStepState state,
+                      const QString &note = QString());
+
+    /// 记单位进度（文件数 / 条目数）。`totalUnits <= 0` = **不可测**，界面画不确定态。
+    bool setProgress(TaskId id, qint64 doneUnits, qint64 totalUnits);
+
+    /// 记字节进度。下载那一类两样都记：百分比按单位算，详情里那句"2.8 MB / 18 MB"按字节。
+    bool setBytes(TaskId id, qint64 bytesDone, qint64 bytesTotal);
+
+    /// 改能力位（装上加载器之后中途变成"不能取消了"就是这么来的）。
+    bool setCapabilities(TaskId id, const TaskCapabilities &capabilities);
+
+    /// 收尾三兄弟。**终态只落一次**：第二次调用回 false 且一个信号都不发。
+    bool succeed(TaskId id);
+    bool fail(TaskId id, const QString &errorSummary);
+    bool cancel(TaskId id);
+
+    /// 用户点了「清除已完成」：把终态那些从账本里删掉（并落盘）。
+    void clearFinished();
+
+    // ---------- 读 ----------
+
+    /// 还在跑的（按发起的先后）。面板上面那一栏就是它。
+    QList<TaskSnapshot> active() const;
+    /// 已经收尾的（**最近的在前**）。面板下面那一栏就是它。
+    QList<TaskSnapshot> finished() const;
+    /// 全部（活动在前、收尾的在后，各自内部有序）——给"两个都要"的读者。
+    QList<TaskSnapshot> all() const;
+
+    TaskSnapshot snapshot(TaskId id) const;
+    bool has(TaskId id) const;
+
+signals:
+    /// 某一项**变了**（包括刚建出来那一下）。带号，外面可以只重画那一行。
+    void taskChanged(TaskId id);
+    /// 某一项收了尾。@p success 是 `Succeeded` 那一档（取消/中断都不算成功）。
+    void taskFinished(TaskId id, bool success);
+    /// "已完成"那一栏的内容变了（收尾、清除、读盘）。
+    void historyChanged();
+
+private:
+    /// 这一趟到底写哪个文件：`m_historyPath` 非空就用它，空就**现算** `defaultHistoryPath()`。
+    ///
+    /// ★ 为什么不在构造里算一次存起来：`defaultHistoryPath()` 挂的是**当前游戏文件夹**
+    ///   （`AppPaths::minecraftDir()`），而那是运行时会变的 —— 用户在实例页上换一个文件夹，
+    ///   数据目录就整体换了地方。构造里存一份的话，换完之后新记的任务还会写进**上一个**
+    ///   文件夹里那份 `wtfml.tasks`，读回来的也是那一份（"换了文件夹，任务历史还在"这件事
+    ///   在界面上看不出来，只是悄悄串了台）。
+    QString resolvedHistoryPath() const;
+    /// 按号找一项。找不到回 nullptr。
+    TaskSnapshot *find(TaskId id);
+    /// 收尾的公共部分（三个入口都走它）。
+    bool finish(TaskId id, TaskState state, const QString &errorSummary);
+    /// 变了之后该干的事：落盘（需要的话）再发 `taskChanged`。
+    void touch(TaskId id, bool persist);
+
+    QList<TaskSnapshot> m_tasks;
+    TaskId m_nextId = 1;
+    QString m_historyPath;
+};
+
+}  // namespace Tasks

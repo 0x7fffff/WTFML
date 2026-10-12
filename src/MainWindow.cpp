@@ -24,6 +24,10 @@
 #include "..\ui\ResourceDetailPage.hpp"
 #include "..\ui\GameLogWindow.hpp"
 #include "..\ui\MainWindowUI.hpp"
+// 任务中心面板（2026-10-12，coding plan §3.2）：底栏中间那格点开之后向上弹出来的那块。
+// 这一边给它两样东西 —— 一行长什么样（`TaskCenter::Item`，那层是**纯显示**的 DTO）和
+// 「清除已完成」被点了怎么办（见 setupConnections() 里 setTaskCenterContent() 那一段）。
+#include "..\ui\TaskCenterPanel.hpp"
 // 那一页本身（存档那支笔点开的「世界设置」）。**它摆什么、怎么摆只有它自己知道**，
 // 这一边只负责把盘上读出来的东西翻译成 `WorldSettingsPage::WorldView`（见
 // worldViewOf() 那段），以及把页面上改过的翻译回去。
@@ -146,6 +150,9 @@
 #include "settings/EffectiveJavaSettings.hpp"
 #include "settings/GlobalJavaSettings.hpp"
 #include "settings/LauncherSettings.hpp"
+// 任务账本（2026-10-12，coding plan §2 / §3）—— 底栏中间那格和任务中心面板都读它。
+// 这个类是这里 new 出来的（`m_taskManager`），所以要用真的定义。
+#include "tasks/TaskManager.hpp"
 #include "util/AppPaths.hpp"
 // 日志窗底下那颗「导出错误报告…」那一份文本怎么拼（头部那些事实 + 两段日志）。
 #include "util/ErrorReport.hpp"
@@ -1346,6 +1353,42 @@ QList<MainWindowUI::PanelRow> recentAccountPanelRows(const QList<SavedAccount> &
     return rows;
 }
 
+/**
+ * @brief 「这件事对账本上那件任务的收尾责任」——从建出来到 `disarm()` 之间任何一个早退
+ *        （`return`）都由析构里那一发兜住。
+ *
+ * 【为什么非要它】
+ *
+ * 一件漏收尾的任务，症状是"底栏中间那格从此一直显示它、任务中心里它永远在'当前工作'那一栏"
+ * （账本里再没有人会去碰它了）。而那种洞**只在走到那一条早退时才露出来**：`onStartButtonClicked()`
+ * 从"点了启动"到"进程起来"之间有七八个 `return`（版本信息缺失 / 继承链不全 / natives 起不来 /
+ * ASCII 别名建不出 / 启动前检查没过 / 用户在那个 Java 不匹配的框里点了取消），靠人记着每个
+ * 前面都补一句 `finishTask(...)`，迟早漏一个 —— 漏掉的那一条平时一次都测不到。
+ * 把责任挂在栈上就没有"漏一处"这回事：作用域一退出，没 `disarm()` 过的就一律按失败收尾。
+ *
+ * 【什么时候要 `disarm()`】
+ *
+ * 不是"没出错"就完事，而是"这件事**已经按别的说法收过尾了**"——三种：
+ *   · 成功（进程真的起来了 ⇒ 由 `onProcessOutput()` 那边收）；
+ *   · 用户自己取消（该记 `cancel()` 而不是失败，免得账本上多一次"失败的启动"）；
+ *   · 转交给别人（比如后面那条异步的路自己会收）。
+ */
+class TaskAbortGuard {
+public:
+    explicit TaskAbortGuard(std::function<void()> onAbort) : m_onAbort(std::move(onAbort)) {}
+    ~TaskAbortGuard() {
+        if (m_armed && m_onAbort) {
+            m_onAbort();
+        }
+    }
+    /// 这一趟的收尾**已经由别处负责了**（见类上那段），撤销兜底。
+    void disarm() { m_armed = false; }
+
+private:
+    std::function<void()> m_onAbort;
+    bool m_armed = true;
+};
+
 }  // namespace
 
 MainWindow::MainWindow(QWidget *parent)
@@ -1376,6 +1419,36 @@ MainWindow::MainWindow(QWidget *parent)
     //   "没有哪一页开着"的那一档就是它接的；实例设置开着时是**那一页**先接住
     //   （拖放事件从光标底下那个控件沿父链往上找第一个接了拖放的控件）。
     setAcceptDrops(true);
+    // ---------- 任务账本（2026-10-12，coding plan §2 / §3） ----------
+    // **唯一**记录"现在有哪些事在跑、各自跑到哪儿了"的地方。它自己一个网络都不开、一个
+    // 进程都不起（执行者照旧是 DownloadManager / VersionManager / LauncherManager）——
+    // 这一层负责把它们的信号翻成 begin() / setProgress() / succeed()（§2.1「不把任务中心
+    // 做成第二套业务逻辑」）。
+    m_taskManager = new Tasks::TaskManager(this);
+    // 收起态那一格的重画时机里有一档是"刚完成那一项露到头了"（§3.1「完成任务短暂显示后
+    // 收进历史」）—— 那个到期**没有任何信号会来**，只能自己起一个单发定时器。
+    m_taskSummaryTimer = new QTimer(this);
+    m_taskSummaryTimer->setSingleShot(true);
+    connect(m_taskSummaryTimer, &QTimer::timeout, this, &MainWindow::updateBottomBarTaskSummary);
+    // 账本一变就重画底栏那一格。**不去分辨"变的是哪一项"**：收起态显示谁是把整张账本
+    // 放在一起算出来的（`Tasks::collapsedSummary()`），只重画"变了的那一行"在这里没有
+    // 对应的东西可画（那一格只有一个整体）。
+    connect(m_taskManager, &Tasks::TaskManager::taskChanged, this,
+            [this](Tasks::TaskId) { updateBottomBarTaskSummary(); });
+    connect(m_taskManager, &Tasks::TaskManager::taskFinished, this,
+            [this](Tasks::TaskId, bool) { updateBottomBarTaskSummary(); });
+    // 「已完成」那一栏变了（收尾 / 清除 / 读盘）：面板要是开着，跟着重画一遍。
+    connect(m_taskManager, &Tasks::TaskManager::historyChanged, this, [this]() {
+        m_ui->refreshTaskCenterPanel();
+        updateBottomBarTaskSummary();
+    });
+    // 任务中心那块面板要画什么、以及「清除已完成」被点了做什么。**每次点开/重画现问一遍**
+    // （和底栏那两块面板一个路数：面板自己不会跟着账本刷新，缓存上一次那几行迟早说假话）。
+    //
+    // NOTE: provider 那一头有一处**副作用**（"列出来"就是"看过了"，见 taskCenterItems()），
+    //       所以它不能是 const 的、更不能被别人当"读一下"随便调。
+    m_ui->setTaskCenterContent([this]() { return taskCenterItems(); },
+                               [this]() { m_taskManager->clearFinished(); });
     setupConnections();
     connect(m_javaRuntimeController, &JavaRuntimeController::busyChanged, this, [this](bool busy) {
         if (m_javaManagePage != nullptr) {
@@ -1448,6 +1521,12 @@ MainWindow::MainWindow(QWidget *parent)
     // 就是这个根目录。左边那张列表此刻还没有条目可选，所以要挡着信号灌。
     applyCurrentFolderToPaths();
     refreshFolderList();
+    // 上次那本任务账读回来（§3.2：只存摘要与错误；**没跑完的标成"已中断"，不假装继续**）。
+    //
+    // ★ 位置必须在 applyCurrentFolderToPaths() **之后**：账本落在**当前游戏文件夹**里
+    //   （`<数据目录>/wtfml.tasks`），换文件夹就是换一本账 —— 那条路径是**用的时候现算**
+    //   的（见 TaskManager::resolvedHistoryPath() 那段），所以读的是刚定下来的这一份。
+    m_taskManager->loadHistory();
     // 本地已安装的先填上（同步扫盘）；在线清单是异步拉的，回来之后由
     // onVersionsFetched() 填"可安装"下拉框 —— 在那之前它显示占位文案。
     refreshInstalledVersions();
@@ -2378,30 +2457,22 @@ void MainWindow::setDownloadUiBusy(bool busy) {
     refreshInstalledVersions();
     updateFolderButtons();
 
-    QProgressBar *progressBar = m_ui->getProgressBar();
+    // ---------- 底栏那一格那个数字：从这里起/到这里止只由账本说了算 ----------
+    // 以前这一支直接写进度条和那句"已下载 d / t"（还要顺手把三个数清掉，免得两批之间
+    // 串台）。现在那三样都在**任务自己身上**（`Tasks::TaskSnapshot`），这一格只是账本的
+    // 一块投影 —— 要清的不是三个成员，而是"把这一批的那件任务收掉"。
     if (busy) {
-        // 还不知道总任务数：先转成不确定态的滚动条，拿到 stats 再换成确定态。
-        // 顺手把上一批留下的数字清掉 —— 不清的话"置忙"到"第一次 stats"之间那一小段，
-        // 进度条会是新批次的不确定态、而记的数还是上一批的，两者对不上。
-        m_downloadDone = 0;
-        m_downloadTotal = 0;
-        m_downloadFailed = 0;
-        progressBar->setRange(0, 0);
-        m_ui->getStatusLabel()->setText(tr("正在准备下载..."));
+        beginDownloadTask();
     } else {
-        // 这一批结束了，记下的进度一起作废：再留着的话，下一批还没报数时那一支会拿
-        // 上一批的数去还原（"已经下了 3000/3580"出现在一个刚点下去的下载上）。
-        m_downloadDone = 0;
-        m_downloadTotal = 0;
-        m_downloadFailed = 0;
-        progressBar->setRange(0, 100);
-        // ★ 2026-10-12（coding plan §9.4）：进度这一格的**每一次写值都走这一发**（见
-        //   `Animations.hpp` 里 `smoothProgress()` 那段）。这里总量刚换过 ⇒ 它照实跳，
-        //   不会去追；走它纯粹是为了"盘上只有这一条路写这一格"，两处写法就不会打架。
-        Anim::smoothProgress(progressBar, 0);
+        // 这一批到此为止。正常情况下那条终态信号（onVersionDownloadFinished）已经按成败
+        // 收过尾了，这一句是**兜底**：数据层要是哪一次没发出终态（被拒绝的批次、中途退出的
+        // 那几路），账本上就会留一件"永远在跑"的任务，底栏那一格从此一直显示它。
+        //
+        // NOTE: 对已经收过尾的那一件，`finishTask()` 什么都不做（终态只落一次，见
+        //       TaskManager::finish）—— 所以这一句不会把成功改写成失败、也不会多一颗红点。
+        finishTask(m_downloadTaskId, false, tr("这一批下载没有正常结束。"));
+        m_downloadTaskId = Tasks::invalidTaskId();
     }
-    // 这一格的显隐**不在这里定**：底栏中间那格要同时受"在下载"和"在启动"两条影响，
-    // 只有 updateBottomBar() 一处说了算，免得两处各改一次互相盖掉。
     updateBottomBar();
 }
 
@@ -2436,60 +2507,17 @@ void MainWindow::updateBottomBar() {
         m_ui->getAvatarLabel()->setPixmap(m_avatarPixmap);
     }
 
-    // ---------- 中：进度（启动优先于下载） ----------
-    // 两件事都会占这一格，启动优先 —— 下载可以慢慢来，用户刚点完启动那几秒需要反馈。
-    QProgressBar *progressBar = m_ui->getProgressBar();
-    QLabel *statusLabel = m_ui->getStatusLabel();
-    // 三种"在忙"都占这一格：启动中、下载中、以及在同步等待段里（见 enterSyncWait()）。
-    // **归谁**这条优先级放在 MainWindowUI::bottomBarProgressOwner() 里，那儿是它唯一的
-    // 出处 —— 下载进度那条回调也拿它判"现在该不该我说话"（见 updateDownloadProgressUi）。
-    const bool launching = !m_launchingSessions.isEmpty();
-    const auto owner = MainWindowUI::bottomBarProgressOwner(
-        launching, m_downloadInFlight, !m_syncWaitStatus.isEmpty());
-    const bool showProgress = owner != MainWindowUI::BottomBarProgressOwner::None;
-    progressBar->setVisible(showProgress);
-    statusLabel->setVisible(showProgress);
-    if (owner == MainWindowUI::BottomBarProgressOwner::Launch) {
-        // 启动进度没有可测量的百分比（JVM 和游戏自己在初始化，没有任何进度回调），
-        // 所以是不确定态的滚动条。等游戏吐出第一行输出（或进程结束）就收起来。
-        progressBar->setRange(0, 0);
-        statusLabel->setText(MainWindowUI::launchingStatusText(launchingInstanceName()));
-    } else if (owner == MainWindowUI::BottomBarProgressOwner::Blocking) {
-        // 还不知道总量的工作（同步网络 / 进程启动 / 后台导出）用不确定态滚动条。
-        progressBar->setRange(0, 0);
-        statusLabel->setText(m_syncWaitStatus);
-    } else if (owner == MainWindowUI::BottomBarProgressOwner::Download) {
-        // 下载还在跑，这一格还回给它 —— 照**上次记下的进度**还原，不是按回 0。
-        //
-        // NOTE: 以前这里只写"没在下载就复位"，因为"在启动"和"在下载"是互斥的：启动
-        //       那一段开始时下载一定已经停了。解耦之后启动是从下载态里**借走**这一格，
-        //       借完必须原样还回去（游戏吐出第一行输出时走到这一支，见 onProcessOutput）。
-        //       还成一根 setRange(0,100) / setValue(0) 的空条，用户看到的就是"下载没了"。
-        if (m_downloadTotal > 0) {
-            progressBar->setRange(0, m_downloadTotal);
-            // 还回去这一下也走同一条路（理由见上面 reset 那一支）。★ 注意这一趟**一定**是
-            // 第四档那种（"条子被钳回过 0"）：借走这一格时它是 `setRange(0, 0)`（那句没经过
-            // 本函数），还回来时条子已经停在 0 上、而记下的总量还是那个数 ⇒ 不认这一档的话
-            // 用户看到的是下载**从 0 重头爬**。
-            Anim::smoothProgress(progressBar, m_downloadDone);
-            QString text = tr("已下载 %1 / %2").arg(m_downloadDone).arg(m_downloadTotal);
-            if (m_downloadFailed > 0) {
-                text += tr("，失败 %1").arg(m_downloadFailed);
-            }
-            statusLabel->setText(text);
-        } else {
-            // 这一批还没报过数（刚点下载、版本 json 还在路上）：那一段本来就是不确定态。
-            progressBar->setRange(0, 0);
-            statusLabel->setText(tr("正在准备下载..."));
-        }
-    } else {
-        // 真的没在下载了：把进度条复位，下一次下载开始前它会先显示上次的旧值，闪一下。
-        progressBar->setRange(0, 100);
-        Anim::smoothProgress(progressBar, 0);
-        statusLabel->clear();
-    }
-    // 下载态下的字**文件名那一截**由 updateDownloadProgressUi() 维护（它每 200 ms 来一次，
-    // 这里不拼那一截，免得两处各说各的）；上面这一支只把"已下载 d / t"这个数还原回来。
+    // ---------- 中：任务摘要（coding plan §3.1） ----------
+    // 这一格的内容**不在这里算**：显示谁是 `Tasks::collapsedSummary()` 那条纯规则的事，
+    // 画成什么样是 `MainWindowUI::setBottomBarTaskSummary()` 的事。这里只负责"状态变了，
+    // 重画一遍"。
+    //
+    // NOTE: 这里原来是三支抢这一格的优先级（启动 / 下载 / 同步等待，判据叫
+    //       `bottomBarProgressOwner`）——**整个撤掉了**。§3.1 要的是"启动不再抢走并覆盖
+    //       下载"：那两件事现在是账本里并列的两行，收起态挑一行展示而已，没有"借走"
+    //       这回事，也就没有"借完要照原样还回去"。同步等待是唯一还压在上面的一层，
+    //       理由写在 updateBottomBarTaskSummary() 里。
+    updateBottomBarTaskSummary();
 
     // ---------- 右：当前实例运行状态 ----------
     QLabel *runStateLabel = m_ui->getRunStateLabel();
@@ -2506,6 +2534,12 @@ void MainWindow::updateBottomBar() {
     // NOTE: 判据里**没有**"选中的是哪个实例"——用户 2026-09-24 要的是"这台机器上有没有
     //       实例在跑"，那件事跟下拉框选着谁没关系（第二行的显示规则才看那个，见
     //       runStateShowsDetail()）。
+    //
+    // NOTE: 这个判据（`launching`）是**这一格自己的**，和中间那格的"任务摘要"没有关系：
+    //       中间那格现在看的是账本（哪件任务该被显示），左边这一格看的是"会话起没起来"。
+    //       一件 Launch 任务已经收过尾（游戏出话了）而这一份还在"启动中"是可能的
+    //       —— 两者本来就是先后关系，谁也不该去问对方要判据。
+    const bool launching = !m_launchingSessions.isEmpty();
     const MainWindowUI::RunStateMark mark =
         launching ? MainWindowUI::RunStateMark::Launching
                   : (games.isEmpty() ? MainWindowUI::RunStateMark::NotRunning
@@ -2583,6 +2617,194 @@ void MainWindow::updateBottomBar() {
     }
     runStateDetailLabel->setVisible(true);
     runStateDetailLabel->setText(lines.join(QStringLiteral("、")));
+}
+
+// ============================ 任务中心（coding plan §2 / §3） ============================
+//
+// 这一小片是**产品侧通往账本的唯一一道门**：上面那些执行者（下载 / 版本 / 启动）的信号
+// 在这里被翻成一次 `begin()` / `setProgress()` / `succeed()`，反过来底栏和任务中心面板
+// 只读账本、不认识任何一个执行者。
+//
+// NOTE: 这几个函数里一个汉字都不该进日志 —— 用户点名的规矩是「进度不进日志」（日志里那
+//       一份是给人事后排查的，几千个资源对象各写一行会把它淹掉）。
+
+void MainWindow::updateBottomBarTaskSummary() {
+    const QDateTime now = QDateTime::currentDateTime();
+    // 收起态显示谁 —— **唯一出处**在账本层那条纯函数里（§3.1 那一串优先级 + "刚完成那一
+    // 项还露着"的时间窗）。这里一个字都不加规则：加了就等于有两套优先级。
+    const Tasks::TaskSummary picked = Tasks::collapsedSummary(
+        m_taskManager->all(), m_unreadFailures, now,
+        MainWindowUI::taskSummaryRecentWindowMs());
+
+    MainWindowUI::BottomBarTaskSummary summary;
+    summary.hasTask = picked.id != Tasks::invalidTaskId();
+    summary.done = summary.hasTask && Tasks::isTerminalState(picked.state);
+    summary.failed = summary.hasTask && picked.state == Tasks::TaskState::Failed;
+    summary.percent = picked.percent;
+    summary.extraCount = picked.extraCount;
+    summary.title = picked.title;
+    // 红点看的是"**有没有没看过的失败**"，和正显示的是哪一项无关（§3.1：正在下载而上一件
+    // 事失败了，两个信号都该看得见）—— 这条也是账本层算的，原样搬过来。
+    summary.unreadFailure = picked.hasFailure;
+
+    // ---------- 同步等待压在账本上面 ----------
+    // 界面这一刻**是真的不响应**的（见 enterSyncWait()：UI 线程在等网络或等进程），
+    // "在等什么"这句话比"哪件任务排第一"更该被看见。
+    //
+    // ★ 不压的话还有一个具体的坏处：一份正在跑的下载每 200 ms 来一帧（见
+    //   onVersionDownloadStats），那一帧会把这句话顶掉 —— 2026-09-24 修过的正是这一类，
+    //   当时那几句话（「正在校验登录状态…」「正在准备 Java 运行时…」）是专为"点了启动
+    //   就像卡死"做的。现在那几帧只改**任务自己的** detail，改不到这一格的标题。
+    //
+    // NOTE: 它**不假装是一件任务**（不往账本里塞一行）：要的只是"别画成占位话、条子画成
+    //       不确定态"。点开的那块面板画的是**账本**，所以那句等待话在面板里看不到 ——
+    //       它属于哪件任务，那件任务的 detail 里会写（启动那一路就是启动任务）。
+    if (!m_syncWaitStatus.isEmpty()) {
+        summary.hasTask = true;
+        summary.done = false;
+        summary.failed = false;
+        summary.percent = -1;
+        summary.title = m_syncWaitStatus;
+    }
+
+    m_ui->setBottomBarTaskSummary(summary);
+
+    // ---------- 「刚完成那一项还露着」的倒计时 ----------
+    // 这一档**没有任何信号**会来告诉界面"到期了"：不自己起一个单发定时器的话，那句话会
+    // 一直挂在底栏上，直到下一次有东西变 —— 而那时候可能已经过了十分钟（一次下载下完、
+    // 用户就去干别的了）。
+    m_taskSummaryTimer->stop();
+    if (summary.hasTask && summary.done && picked.id != Tasks::invalidTaskId()) {
+        const Tasks::TaskSnapshot task = m_taskManager->snapshot(picked.id);
+        if (task.finishedAt.isValid()) {
+            const qint64 left = MainWindowUI::taskSummaryRecentWindowMs()
+                                - task.finishedAt.msecsTo(now);
+            if (left > 0) {
+                // +50 ms：保证这一发落在**过了期限之后**。掐着期限那一毫秒醒来会算出
+                // 同一个 left（还是 > 0），于是立刻再起一发 —— 那就是个死循环。
+                m_taskSummaryTimer->start(int(left) + 50);
+            }
+        }
+    }
+}
+
+QList<TaskCenter::Item> MainWindow::taskCenterItems() {
+    const QList<Tasks::TaskSnapshot> tasks = m_taskManager->all();
+    QList<TaskCenter::Item> items;
+    items.reserve(tasks.size());
+    for (const Tasks::TaskSnapshot &task : tasks) {
+        TaskCenter::Item item;
+        // 认人用**号**（不是行号）：面板开着的时候"清除已完成"会把行整体挪位，按行号回头
+        // 去查会对错人（见 ui/TaskCenterPanel.hpp 里 Item::key 那段）。
+        item.key = QString::number(task.id);
+        item.title = task.title;
+        item.detail = task.detail;
+        // 百分比走账本层那条规则（`Tasks::percentOf()`）：测不出总量的回 -1，面板那一行
+        // 就不画进度条（§3.4：不许编一个百分比出来，那句话由 detail 说）。
+        item.percent = Tasks::percentOf(task);
+        const bool finished = Tasks::isTerminalState(task.state);
+        item.active = !finished;
+        item.failed = task.state == Tasks::TaskState::Failed;
+        item.unreadFailure = item.failed && m_unreadFailures.contains(task.id);
+        item.finishedAt = task.finishedAt;
+        item.steps.reserve(task.steps.size());
+        for (const Tasks::TaskStep &step : task.steps) {
+            TaskCenter::Step uiStep;
+            uiStep.name = step.name;
+            uiStep.note = step.note;
+            // 两个枚举一一对应（`ui/` 不许 include `src/`，所以各有一份）。**这一处是
+            // "两份必须同构"的唯一见证**：谁多加一档，这里就得跟着加（缺哪一档下面那个
+            // switch 会掉到 default 上，验证工程能当场看出来）。
+            switch (step.state) {
+            case Tasks::TaskStepState::Pending:
+                uiStep.state = TaskCenter::StepState::Pending;
+                break;
+            case Tasks::TaskStepState::Running:
+                uiStep.state = TaskCenter::StepState::Running;
+                break;
+            case Tasks::TaskStepState::Done:
+                uiStep.state = TaskCenter::StepState::Done;
+                break;
+            case Tasks::TaskStepState::Failed:
+                uiStep.state = TaskCenter::StepState::Failed;
+                break;
+            }
+            item.steps.append(uiStep);
+        }
+        items.append(item);
+    }
+
+    // ★ 走到这儿就算**用户看过了**（这一格是唯一能把失败原因和"跑到哪一步"看全的地方，
+    //   也是那颗红点唯一的目的地）—— 把"没看过的失败"整片清掉，红点当场收起来。
+    //
+    // NOTE: 清在这句**之后**：上面那些 `item.unreadFailure` 是按清之前那一份算的（面板要
+    //       把"哪几条是新的"标出来），清在循环里的话第一行之后就全成"看过了"。
+    // NOTE: 这一处副作用是**名字里看不出来**的，所以这个函数只给面板那个 provider 用，
+    //       别人想读一眼账本请直接问 m_taskManager（那里的读侧没有副作用）。
+    if (!m_unreadFailures.isEmpty()) {
+        m_unreadFailures.clear();
+        updateBottomBarTaskSummary();
+    }
+    return items;
+}
+
+Tasks::TaskId MainWindow::beginTask(Tasks::TaskKind kind, const QString &title,
+                                    const QString &targetId,
+                                    const QList<Tasks::TaskStep> &steps) {
+    // 薄薄一层，故意留着：**所有**往账本里新增的地方都从这一处过（以后要在这里加"记一行
+    // 日志""按种类改能力位"这一类横切的事，只有这一个地方需要改）。
+    return m_taskManager->begin(kind, title, targetId, steps);
+}
+
+void MainWindow::finishTask(Tasks::TaskId id, bool success, const QString &errorSummary) {
+    if (id == Tasks::invalidTaskId() || !m_taskManager->has(id)) {
+        return;  // 号早就没了的（比如用户按过「清除已完成」）不算事
+    }
+    if (success) {
+        m_taskManager->succeed(id);
+        return;
+    }
+    // ★ 失败一律先记成"用户还没看过"（底栏那颗红点）—— 唯一撤掉它的动作是**打开任务中心**。
+    //
+    // NOTE: **故意不分**"这个失败刚才已经弹过窗了"：弹窗是另一条通道（用户可能正好没看
+    //       那一眼、或者那扇窗压在过去某个窗后面），而红点只是一个记号，点开一次就没了。
+    // NOTE: 按 `fail()` 的**返回值**决定要不要记红点：它回 false 表示这一项**早就收过尾**
+    //       了（终态只落一次，见 TaskManager::finish），那种情况不该把一次成功再标成"没看
+    //       过的失败"。
+    if (m_taskManager->fail(id, errorSummary)) {
+        m_unreadFailures.insert(id);
+        updateBottomBarTaskSummary();
+    }
+}
+
+void MainWindow::beginDownloadTask() {
+    // 同一批里 `setDownloadUiBusy(true)` 只该来一次；但要是上一批的号还留着（理论上不该），
+    // 也不能拿它当新的使 —— 那一行的进度会从上一批的位置开始爬。
+    if (m_downloadTaskId != Tasks::invalidTaskId() && m_taskManager->has(m_downloadTaskId)) {
+        return;
+    }
+    // 这一批到底是哪一类活：判据就是界面上自己记的那三个 id（它们在**置忙之前**就写好了，
+    // 见那三处的 NOTE），而收尾那几条路（onVersionDownloadFinished）用的也是它们 ——
+    // 所以起手和收尾的分档天然一致，不会出现"起手记成安装、收尾按下载报"。
+    Tasks::TaskKind kind = Tasks::TaskKind::Download;
+    QString title;
+    if (!m_importingInstanceId.isEmpty()) {
+        kind = Tasks::TaskKind::Import;  // 导入 = "装一整套东西"，和安装同一档优先级
+        title = tr("导入整合包 %1").arg(instanceDisplayName(m_importingInstanceId));
+    } else if (!m_installingInstanceId.isEmpty()) {
+        kind = Tasks::TaskKind::Install;
+        title = tr("安装 %1").arg(instanceDisplayName(m_installingInstanceId));
+    } else if (!m_repairingInstanceId.isEmpty()) {
+        kind = Tasks::TaskKind::Install;
+        title = tr("校验并补全 %1").arg(instanceDisplayName(m_repairingInstanceId));
+    } else {
+        // 兜底那一支：今天从界面上**走不到**（能置忙的三条路都会先写上那三个 id 之一 ——
+        // 版本下载没有单独的入口，它是那三条路里的一段）。留着是因为它是个安全的默认：
+        // 以后多一条"不特定属于某个实例的下载"，它会得到一个说不岔的标题，而不是一条
+        // 空标题的任务。种类给 `Download`（"把文件拿下来"）而不是 `Install`。
+        title = tr("下载游戏文件");
+    }
+    m_downloadTaskId = beginTask(kind, title);
 }
 
 void MainWindow::startPlayerSkinLoad() {
@@ -3089,62 +3311,53 @@ QString MainWindow::instanceDisplayName(const QString &versionId) const {
 
 void MainWindow::updateDownloadProgressUi(int done, int total, int failed,
                                           const QString &currentFile) {
-    QProgressBar *progressBar = m_ui->getProgressBar();
-    QLabel *statusLabel = m_ui->getStatusLabel();
+    // 这一批对上的那件任务（没有这一批 = 无效号）。**进度只往它身上写** —— 底栏那一格和
+    // 任务中心面板都是从账本投影出来的，没有第二处要同步（§2.1：账本是唯一真相）。
+    const Tasks::TaskId task = m_downloadTaskId;
 
-    // 记下来：启动那一段结束、这一格还回下载态时，updateBottomBar() 靠它还原，
-    // 而不是把进度条按回 0（那会显示成一根没有内容的空条）。见 m_downloadDone 的说明。
-    m_downloadDone = done;
-    m_downloadTotal = total;
-    m_downloadFailed = failed;
-
-    // 这一格**现在不归下载**（启动中 / 在同步等待段里）就一个像素都不许动 —— 上面那几个
-    // 数已经记下了，等那两档让开时 updateBottomBar() 会照它还原。
-    //
-    // NOTE: 2026-09-24 补的。以前这里无条件写进度条和文字，于是"边下边开"时
-    //       enterSyncWait() 写的「正在校验登录状态…」「正在准备 Java 运行时…」和进程起来
-    //       之后的「正在启动 X …」会在 200 ms 内被这一句顶掉（这一格的字只有一个标签，
-    //       谁后写谁算数）—— 而那几句话正是 2026-09-22 专为"点了启动就像卡死"做的。
-    //       判据和 updateBottomBar() 用的是**同一个**（bottomBarProgressOwner()）。
-    if (MainWindowUI::bottomBarProgressOwner(!m_launchingSessions.isEmpty(), m_downloadInFlight,
-                                             !m_syncWaitStatus.isEmpty())
-        != MainWindowUI::BottomBarProgressOwner::Download) {
-        return;
-    }
-
+    // 标题下面那行小字。**没报过总数时只说"已下载多少"，不许编一个百分比出来**（§3.4 明写
+    // 的那条验收）。`total <= 0` 在这里是"这一批还没报过总数"（版本 json 还在路上、
+    // 或者加载器安装器那类还算不出要下几个文件）——不是"这一批下了 0 个"。
+    QString detail;
     if (total <= 0) {
-        progressBar->setRange(0, 0);
-        statusLabel->setText(tr("正在准备下载..."));
-        return;
+        detail = done > 0 ? tr("已下载 %1 个文件").arg(done) : tr("正在准备下载...");
+    } else {
+        detail = tr("已下载 %1 / %2").arg(done).arg(total);
+        if (failed > 0) {
+            detail += tr("，失败 %1").arg(failed);
+        }
+        if (!currentFile.isEmpty()) {
+            // 路径可能很长（asset 目录层级深），只显示文件名
+            detail += QStringLiteral("  ") + QFileInfo(currentFile).fileName();
+        }
     }
 
-    progressBar->setRange(0, total);
-    // ★ 2026-10-12（coding plan §9.4）：「下载进度使用平滑追值，但任务真实进度倒退或
-    //   总量变化时必须如实更新」—— 这一发就是那条"平滑追值"唯一的入口（见
-    //   `Animations.hpp` 里 `smoothProgress()` 那段：总量换了 / 数字往回走 / 条子停在 0 上
-    //   / 原地不动，四种都照实跳，只有"真往前走了"才追）。这一格每 200 ms 来一次，
-    //   追值时长 240 ms，
-    //   所以连续快下时看见的是一个**一直在后面一点点**的平滑位置，而不是每 200 ms 一顿。
-    Anim::smoothProgress(progressBar, done);
+    if (task != Tasks::invalidTaskId() && m_taskManager->has(task)) {
+        // 两样都记：数量那半边决定百分比（条子画多长），文字那半边是"现在在干什么"。
+        // NOTE: `total <= 0` 原样传给账本（它是"不可测"的判据，见 Tasks::percentOf()）——
+        //       上面那句文案里的 done/total 是**说给人听**的，不要把 0 也传进去。
+        m_taskManager->setProgress(task, done > 0 ? done : 0, total > 0 ? total : 0);
+        m_taskManager->setDetail(task, detail);
+        // ⚠ 这一段里**不要**再自己写进度条和状态栏。它们由 `taskChanged` → 底栏重画那一发
+        //   统一摆（`Anim::smoothProgress()` 也在那条路上）——两处各写一次，用户看到的是
+        //   同一格在 240 ms 的追值动画里被第二只手按住，实际表现是"条子偶尔一顿"。
+    }
 
-    QString text = tr("已下载 %1 / %2").arg(done).arg(total);
-    if (failed > 0) {
-        text += tr("，失败 %1").arg(failed);
-    }
-    if (!currentFile.isEmpty()) {
-        // 路径可能很长（asset 目录层级深），只显示文件名
-        text += QStringLiteral("  ") + QFileInfo(currentFile).fileName();
-    }
-    statusLabel->setText(text);
+    // ★ 这里原来有一道"这一格现在不归下载就一个像素都不许动"的闸（判据是
+    //   `bottomBarProgressOwner`）——**撤掉了**，因为那个问题在结构上没有了：这一句只改
+    //   **任务自己的** detail，改不到底栏那一格的标题（那一格的标题由
+    //   `Tasks::collapsedSummary()` 现算，而"在同步等待"那一层压在它上面，见
+    //   updateBottomBarTaskSummary()）。2026-09-24 修的那一类"启动那几句话被 200 ms 一帧
+    //   的下载顶掉"因此不会再回来。
 }
 
 void MainWindow::onVersionDownloadStats(int done, int total, int failed,
                                         const QString &currentFile) {
     // 前缘节流：200 ms 内的后续更新直接丢掉。不这么做的话，5000 多个 asset 会疯狂重排
     // 状态栏，界面反而卡住。
-    // NOTE: 丢掉的那些**没有**"结束时补刷"这回事 —— 进度条和状态栏停在上一次越过阈值的
-    //       那一帧，最多比真实进度旧 200 ms。整批结束由 setDownloadUiBusy(false) 把进度条
-    //       归零收尾，所以停在哪一帧不影响收尾。
+    // NOTE: 丢掉的那些**没有**"结束时补刷"这回事 —— 底栏那一格停在上一次越过阈值的
+    //       那一帧，最多比真实进度旧 200 ms。整批结束由 setDownloadUiBusy(false) 把那一件
+    //       任务收掉（收尾之后那一格换成"（已完成）"，停在哪一帧都看不出来了）。
     if (m_progressThrottle.isValid() && m_progressThrottle.elapsed() < 200) {
         return;
     }
@@ -7798,6 +8011,25 @@ void MainWindow::onStartButtonClicked() {
         return;
     }
 
+    // ★ 2026-10-12（coding plan §3）：从这一句起，这一次启动就是账本上**一项在跑的任务**了。
+    //
+    // 记在"用户确认要启动"这一刻、而不是"进程真的起来了"那一刻：后面那几段全是同步的、
+    // 界面在这期间**完全不响应**（换令牌 15 秒超时 / 本机没 Java 时要下一个完整的运行时 /
+    // startGame 里等进程起来），而那正是最需要一句反馈的时候。记早了也不行 —— 上面那两个
+    // 早退（没选版本、"你选中的那个正在下载"）连"用户想启动谁"都还没定下来。
+    //
+    // NOTE: 那两段同步等待里底栏那一格显示的是**等待那句话**（见 updateBottomBarTaskSummary()
+    //       里同步等待压在上面那一段），这件任务的标题和步骤在**任务中心面板**里看得到。
+    const Tasks::TaskId launchTask =
+        beginTask(Tasks::TaskKind::Launch, tr("启动 %1").arg(instanceDisplayName(versionId)),
+                  versionId,
+                  {Tasks::TaskStep{tr("准备运行环境"), Tasks::TaskStepState::Running, QString()},
+                   Tasks::TaskStep{tr("启动游戏进程"), Tasks::TaskStepState::Pending, QString()}});
+    // 这一趟的收尾责任挂在栈上：从这儿往下到函数末尾有七八个早退（版本信息缺失 / 继承链
+    // 不全 / natives 起不来 / ASCII 别名建不出 / 启动前检查没过 / Java 不匹配那个框里点了
+    // 取消…），每一个都会让这件任务永远停在"正在启动"上。见 TaskAbortGuard 那段。
+    TaskAbortGuard launchGuard([this, launchTask]() { finishTask(launchTask, false); });
+
     // 这一趟走不走离线：**只看当前账号是不是离线账号**（唯一出处，见 offlineIdentity()）。
     const bool offlineMode = offlineIdentity();
 
@@ -8003,6 +8235,12 @@ void MainWindow::onStartButtonClicked() {
         return;
     }
 
+    // 账本上这件任务的第一步（「准备运行环境」= 换令牌 + 挑/下 Java）到此为止，下一步是
+    // 真正把进程拉起来。**摆在这一句**是因为它是这两步之间唯一说得准的分界：Java 拿到了，
+    // 后面剩下的都不再是"准备"（拼参数、startGame 都是"启动"那一步）。
+    m_taskManager->setStepState(launchTask, 0, Tasks::TaskStepState::Done);
+    m_taskManager->setStepState(launchTask, 1, Tasks::TaskStepState::Running);
+
     // 「改用匹配的 Java」：把刚挑中的那条路径写回**这个实例**。
     //
     // 用户原话是"在实例设置中恢复为匹配的 Java"，所以写的是那个实例的 wtfml.meta，
@@ -8084,6 +8322,14 @@ void MainWindow::onStartButtonClicked() {
         // 顺序上安全：startGame() 内部那条 "游戏已启动" 的 processOutput 是在它
         // return 之前同步发出的，那时这一份还不在集合里，所以不会被当成"游戏已经出话了"。
         m_launchingSessions.insert(sessionId);
+        // 这一份会话对上的就是刚才那件任务（多开时一人一件，认的是会话号不是版本号 ——
+        // 同一个实例开两份也不会串）。收尾在**游戏吐出第一行输出**那一刻
+        // （onProcessOutput / onProcessError），或者"一行都没出就死了"那一刻
+        // （onGameFinished）—— 都不在这条栈上。
+        m_launchTaskIds.insert(sessionId, launchTask);
+        // 这一趟的收尾**已经交给别处**了（上面那句 + 后面那些进程信号），栈上那个兜底
+        // 撤销 —— 不撤的话函数一退出它就把这件任务按失败收掉了。
+        launchGuard.disarm();
         // ★ 2026-09-27：名字在这一刻记一份。**这里记的是"这一份当初是谁"**，和 startGame()
         //   收到的那个名字是同一个值（都是 instanceDisplayName(versionId)）—— 之后用户改名、
         //   切账号都不影响它，理由同 startGame() 那段（多开最要紧的就是这条）。
@@ -13880,6 +14126,12 @@ void MainWindow::onProcessOutput(int sessionId, const QString &text) {
     // NOTE: 按会话号摘，不按"有没有在启动" —— 同时启动两三个实例时，用布尔量的话第一个
     //       出话就会把后面那几个的启动进度一起收掉。
     if (m_launchingSessions.remove(sessionId)) {
+        // 这一份出话了 ⇒ 账本上那件「启动 X」**成了**。收在这一刻、而不是"游戏退出"那一
+        // 刻：一次启动在进程起来的那一刻就办完了，之后几个小时是"游戏在运行"（那件事由
+        // 左下角那格说，见 runningGames()），把它记成"启动中"几个小时没有任何意义。
+        const Tasks::TaskId launchTask = m_launchTaskIds.take(sessionId);
+        m_taskManager->setStepState(launchTask, 1, Tasks::TaskStepState::Done);
+        finishTask(launchTask, true);
         updateBottomBar();
     }
 }
@@ -13892,6 +14144,10 @@ void MainWindow::onProcessError(int sessionId, const QString &text) {
     showGameLogLine(sessionId, text);
     // stderr 出东西也算"起来了"：有些版本把日志全写 stderr，等 stdout 会一直等下去。
     if (m_launchingSessions.remove(sessionId)) {
+        // 和 onProcessOutput() 那一段逐字一样（同一件事的另一个入口）。
+        const Tasks::TaskId launchTask = m_launchTaskIds.take(sessionId);
+        m_taskManager->setStepState(launchTask, 1, Tasks::TaskStepState::Done);
+        finishTask(launchTask, true);
         updateBottomBar();
     }
 }
@@ -14026,6 +14282,16 @@ void MainWindow::onGameFinished(int sessionId, int exitCode, QProcess::ExitStatu
     // 进程没了，它那一份的"启动中"要收掉；左下角那条"实例运行中"由 runningGames() 现算，
     // 这里只管重画（那一份在 LauncherManager 里已经从表里摘掉了）。
     m_launchingSessions.remove(sessionId);
+    // 账本上那件「启动 X」要是**还活着**，说明这一次它一行输出都没出就结束了（正常那一
+    // 路在上面 onProcessOutput() / onProcessError() 里已经收过尾了，那个表里就没它了）。
+    // 进程起来了但游戏自己没撑到能打日志 —— 按退出码如实说，不一律记成失败：以 0 退出
+    // 的（比如用户刚进去就自己关了）确实是一次成功的启动。
+    //
+    // NOTE: 对已经成功收过尾的那一件，这里什么都不做（终态只落一次，见 TaskManager::finish），
+    //       所以"游戏跑了三小时后正常退出"不会把那次成功改写成失败。
+    finishTask(m_launchTaskIds.take(sessionId),
+               exitCode == 0 && exitStatus != QProcess::CrashExit,
+               tr("游戏进程没等到能打日志就结束了，退出码 %1。").arg(exitCode));
     // 名字也到此为止（它唯一的用途就是上面那一行前缀）。不清的话这个表会随着开过的
     // 实例数一直长 —— 和 m_gameLogDismissedSessions 同一个理由。
     m_sessionDisplayNames.remove(sessionId);
@@ -14891,6 +15157,13 @@ void MainWindow::onVersionDownloadFinished(const QString &versionId, bool succes
         m_repairingInstanceId.clear();
     }
 
+    // 这一批在账本上收尾。**必须在 setDownloadUiBusy(false) 之前**：那个函数是"这一批
+    // 结束了"的公共通道，它自己会在末尾兜一次底（见那边）——先在这儿按成败如实收，
+    // 兜底那一句就什么都不做；反过来顺序的话，兜底会先把任务按失败收掉，这一句再说什么
+    // 都晚了（终态只落一次）。
+    finishTask(m_downloadTaskId, success, errorMessage);
+    m_downloadTaskId = Tasks::invalidTaskId();
+
     // 整批结束，无论成败都要把界面恢复回来
     setDownloadUiBusy(false);
     m_progressThrottle.invalidate();
@@ -15014,6 +15287,11 @@ void MainWindow::onVersionDownloadFinished(const QString &versionId, bool succes
 void MainWindow::onVersionDetailsFetched(const QString &versionId, const QJsonObject &versionJson) {
     if (versionJson.isEmpty()) {
         appendLog(tr("获取版本 %1 的信息失败。").arg(versionId));
+        // 账本上那件任务也到此为止（这一步还没进到"下载文件"，但用户点的那件事已经黄了）。
+        // NOTE: 收尾也在 setDownloadUiBusy(false) **之前**，理由和 onVersionDownloadFinished
+        //       那边逐字一样。
+        finishTask(m_downloadTaskId, false, tr("没能取到版本 %1 的信息。").arg(versionId));
+        m_downloadTaskId = Tasks::invalidTaskId();
         setDownloadUiBusy(false);
         InlineMessage::warning(m_ui->overlay(), tr("下载失败"),
                              tr("无法获取版本 %1 的信息，请检查网络后重试。").arg(versionId));

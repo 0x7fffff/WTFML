@@ -3498,39 +3498,86 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     runStateLabel->hide();
     runStateDetailLabel->hide();
 
-    // ---------- 中：进度（启动优先于下载） ----------
-    statusLabel = new ElidedLabel(bottomBar);
+    // ---------- 中：任务摘要（点一下展开任务中心） ----------
+    // 这一格**也是一整颗按钮**（coding plan §3.1「整块可点击」），做法跟两头那两颗一样：
+    // 悬停高亮走 applyBottomBarButtonStyle()、右边一个朝上的箭头、整格都是一个点击区。
+    // 宽度**不钉**（两头那两颗才钉）—— 中间这格本来就是"吃掉富余宽度"的那一份。
+    taskSummaryButton = new QPushButton(bottomBar);
+    taskSummaryButton->setObjectName(taskSummaryButtonName());
+    // 竖直方向铺满，理由同另外两颗（QPushButton 默认 Fixed，会让这一格只有一行字那么高）。
+    taskSummaryButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    taskSummaryButton->setCursor(Qt::PointingHandCursor);
+    taskSummaryButton->setToolTip(MainWindowUI::taskSummaryTip());
+    applyBottomBarButtonStyle(taskSummaryButton, bottomBar->palette());
+
+    // 里面一列两样：上面"标题 + 右边那句小字 + 箭头"，下面那根进度条。
+    QVBoxLayout *taskLayout = new QVBoxLayout(taskSummaryButton);
+    taskLayout->setContentsMargins(0, 0, 0, 0);
+    taskLayout->setSpacing(2);
+    QHBoxLayout *taskTextRow = new QHBoxLayout();
+    taskTextRow->setContentsMargins(0, 0, 0, 0);
+    taskTextRow->setSpacing(MainWindowUI::bottomBarChevronSpacing());
+
+    // 「还没看过的一次失败」那颗红点：**收起来的**（布局里宽度是 0，所以不显示的时候
+    // 右边那几样不会跟着挪）。它是个真控件，不是拼进文字里的字符 —— 图的颜色得能跟着
+    // 主题走（画的，见 setBottomBarTaskSummary()）。
+    taskFailureDot = new QLabel(taskSummaryButton);
+    taskFailureDot->setObjectName(MainWindowUI::taskSummaryDotName());
+    taskFailureDot->setFixedSize(MainWindowUI::taskCenterPanelFailureDotSize(),
+                                 MainWindowUI::taskCenterPanelFailureDotSize());
+    taskFailureDot->hide();
+    taskTextRow->addWidget(taskFailureDot, 0, Qt::AlignVCenter);
+
+    statusLabel = new ElidedLabel(taskSummaryButton);
     statusLabel->setObjectName(statusLabelName());
-    // 固定一个最小宽度：文件名长短变化时这一格不会再跳来跳去
+    // 固定一个最小宽度：这一格的字长长短短时，右边那几样不会再跳来跳去
     statusLabel->setMinimumWidth(kStatusLabelMinWidth);
     // **上限也得有**（2026-09-24 补的）。ElidedLabel 的 sizeHint() 是把宽度封在上限上，
     // 而上限的来源就是 maximumWidth() —— 不设上限时，一句长文件名会把这一格的 sizeHint
     // 顶到 3912、把底栏顶到 4338、把**主窗口**顶到 4338（默认窗口只有 900 宽，实测见
     // ui_check 的 E5 段）。理由全文（含"最小宽度那一半其实不受影响"）见头文件那段。
     statusLabel->setMaximumWidth(MainWindowUI::bottomBarStatusTextWidth());
-    // NOTE: 它是 ElidedLabel（**不是**普通 QLabel）：中间那格比这句长的时候（文件名长、
+    // NOTE: 它是 ElidedLabel（**不是**普通 QLabel）：中间那格比这句长的时候（任务标题长、
     //       窗口窄）普通 QLabel 是**硬裁**的 —— 最后一个字被切掉一半就杵在那儿。
     //       超出去的部分由它自己截成省略号。上下两个宽度一夹，布局就钉死了。
-    progressBar = new QProgressBar(bottomBar);
+    taskTextRow->addWidget(statusLabel, 0, Qt::AlignVCenter);
+
+    // 弹簧摆在**标题和小字之间**（不是小字右边）：§3.1 要的是「在**右侧**写'另有 2 项'」，
+    // 而标题那一格有自己的上限（320），弹簧在中间才把那句小字推到右边去。
+    taskTextRow->addStretch(1);
+
+    // 「另有 N 项」那句小字。宽度封顶（`taskExtraTextWidth()`）—— 它要是能被一句长话顶宽，
+    // 中间那格就会把旁边那颗按钮挤走（E5 那一段量的就是这件事）。
+    taskExtraLabel = new ElidedLabel(taskSummaryButton);
+    taskExtraLabel->setObjectName(taskExtraLabelName());
+    taskExtraLabel->setMaximumWidth(MainWindowUI::taskExtraTextWidth());
+    taskExtraLabel->setMinimumWidth(0);
+    {
+        QFont extraFont = taskExtraLabel->font();
+        extraFont.setPointSize(qMax(1, extraFont.pointSize() - 1));
+        taskExtraLabel->setFont(extraFont);
+        QPalette extraPalette = taskExtraLabel->palette();
+        extraPalette.setColor(QPalette::WindowText,
+                              extraPalette.color(QPalette::PlaceholderText));
+        taskExtraLabel->setPalette(extraPalette);
+    }
+    taskTextRow->addWidget(taskExtraLabel, 0, Qt::AlignVCenter);
+    taskTextRow->addWidget(makeChevronLabel(taskSummaryButton), 0, Qt::AlignVCenter);
+    taskLayout->addLayout(taskTextRow);
+
+    progressBar = new QProgressBar(taskSummaryButton);
     progressBar->setObjectName(progressBarName());
     progressBar->setRange(0, 100);
     progressBar->setValue(0);
     progressBar->setTextVisible(true);
+    taskLayout->addWidget(progressBar);
 
-    // 文字在上、进度条在下：底栏只有 56 px 高，横着并排会把进度条挤得太短
-    QVBoxLayout *progressLayout = new QVBoxLayout();
-    progressLayout->setSpacing(2);
-    progressLayout->addWidget(statusLabel);
-    progressLayout->addWidget(progressBar);
-    // 富余宽度**不完全**给中间那格：以前左右两格按自身宽度、中间那格吃掉全部富余，
-    // 900 px 的窗口下进度条横跨大半个底栏（实测 789 px，占底栏 88%），太长了。
-    // 现在拉伸因子写成 6 : 1 : 1（2026-09-23 从 4:1:1 提上来，理由见底下那段）——
-    // 左右各一份空档各自留白，所以中间那格仍然居中，窗口拉宽时按同样比例跟着长。
-    // NOTE: 别把中间那格写成 2 —— Qt 分配富余宽度是按拉伸因子直接切那个池子的，
-    //       不是"先满足最小宽度再分剩下的"，2:1:1 拿到的是 1/2 而不是 2/3。
-    // 一开始什么都没在下：整格藏起来（"没在下载就看不见进度条"）
-    statusLabel->hide();
+    // 一开始一项任务都没有：那一句低强调度的占位话 + **不显示空进度条**（§3.1）。
+    // 产品里 MainWindow 每次重画底栏都会摆一份真的进来（updateBottomBar()），
+    // 这里这个初值管的是**还没被谁摆过**的时候（独立构造 MainWindowUI 的地方吃它）。
+    taskExtraLabel->hide();
     progressBar->hide();
+    setBottomBarTaskSummary(BottomBarTaskSummary());
 
     // ---------- 右：头像 + 用户名 ----------
     // 真正的手绘皮肤头像要等 Minecraft profile API（登录流程现在只存了令牌，没取
@@ -3622,20 +3669,29 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     //       BottomBarPanel 里 dispatch 那段）—— 那两个动作都要弹模态窗，压在 Qt::Popup
     //       底下会点不动。所以**别**在这里顺手补一句"点完也 close 一下"：那是同一件事
     //       做两遍，而且顺序反了就白做。
-    QObject::connect(runStateButton, &QPushButton::clicked, runStateButton,
-                     [this]() { toggleBottomBarPanel({runStateButton, false}); });
-    QObject::connect(accountButton, &QPushButton::clicked, accountButton,
-                     [this]() { toggleBottomBarPanel({accountButton, true}); });
+    QObject::connect(runStateButton, &QPushButton::clicked, runStateButton, [this]() {
+        toggleBottomBarPanel({runStateButton, BottomBarAnchorKind::Instances});
+    });
+    QObject::connect(accountButton, &QPushButton::clicked, accountButton, [this]() {
+        toggleBottomBarPanel({accountButton, BottomBarAnchorKind::Accounts});
+    });
+    // 中间那格也是**一颗按钮**（2026-10-12）：点它向上展开任务中心。三格挂了同一个
+    // toggle，所以"点另一颗 = 收旧开新"在三个方向上都成立（那一件事全靠 toggle）。
+    QObject::connect(taskSummaryButton, &QPushButton::clicked, taskSummaryButton, [this]() {
+        toggleBottomBarPanel({taskSummaryButton, BottomBarAnchorKind::Tasks});
+    });
 
-    // 三格从左到右摆：实例状态（0）· 空档（1）· 进度（6）· 空档（1）· 账户（0）。
+    // 三格从左到右摆：实例状态（0）· 空档（1）· 任务摘要（6）· 空档（1）· 账户（0）。
     // 两头那两颗按钮的宽度都是钉死的，份数写 0；富余宽度全在中间三份里分。
     // NOTE: 中间那份**从 4 提到 6**（2026-09-23）：两头那两格原来吃掉 458 px，900 px 的
     //       窗口里富余只有 370 px，中间拿 4/6 就只有 247 px（实测条 262 px）—— 用户报
     //       「中间进度条奇小无比」。缩了两头（200+258 → 170+208）之后再让中间拿 6/8，
     //       实测条 356 px（900 的窗口，从 262 涨上来的），两边各留一份空档所以还居中。
+    // NOTE: 中间那一份 2026-10-12 从"一个裸布局"变成"一颗按钮"（任务摘要），份数照旧是 6
+    //       —— 按钮里面那个 layout 的边距显式清成了 0，所以宽度还是原来那 356 px。
     barLayout->addWidget(runStateButton, 0);
     barLayout->addStretch(1);
-    barLayout->addLayout(progressLayout, 6);
+    barLayout->addWidget(taskSummaryButton, 6);
     barLayout->addStretch(1);
     barLayout->addWidget(accountButton, 0);
 
@@ -3951,19 +4007,54 @@ void MainWindowUI::openGroupPicker(const QList<GroupRow> &rows, const QRect &anc
 }
 
 MainWindowUI::BottomBarAnchor MainWindowUI::bottomBarAnchorAt(const QPoint &globalPos) const {
-    // 两颗按钮摆在哪由底栏的布局说了算，所以判据只能是"这个全局坐标落在它自己的矩形里吗"
+    // 三颗按钮摆在哪由底栏的布局说了算，所以判据只能是"这个全局坐标落在它自己的矩形里吗"
     //（mapFromGlobal 之后按 rect() 判 —— 和所有"点在不在这个控件上"的写法一致）。
     const auto hits = [&globalPos](QPushButton *button) {
         return button != nullptr
                && button->rect().contains(button->mapFromGlobal(globalPos));
     };
     if (hits(runStateButton)) {
-        return {runStateButton, false};
+        return {runStateButton, BottomBarAnchorKind::Instances};
     }
     if (hits(accountButton)) {
-        return {accountButton, true};
+        return {accountButton, BottomBarAnchorKind::Accounts};
+    }
+    if (hits(taskSummaryButton)) {
+        return {taskSummaryButton, BottomBarAnchorKind::Tasks};
     }
     return {};
+}
+
+TaskCenterPanel *MainWindowUI::taskCenterPanel() const {
+    // 认它靠 objectName + 动态转型（和那两块 BottomBarPanel 一个路数）：面板挂在底栏底下，
+    // close() 之后要等 deleteLater 才真删，所以"现在开着哪一块"不用自己记指针 —— 记了
+    // 反而要操心它在哪一行被删掉。
+    return dynamic_cast<TaskCenterPanel *>(
+        bottomBar != nullptr ? bottomBar->findChild<QWidget *>(taskCenterPanelName()) : nullptr);
+}
+
+void MainWindowUI::openTaskCenterPanel() {
+    if (bottomBar == nullptr || taskSummaryButton == nullptr) {
+        return;
+    }
+    // 点在面板外面的那一下：和那两块面板同一套（理由全文见 BottomBarPanel 里
+    // handleOutsidePress() 那两段 NOTE —— 包括"为什么必须在 close() 之前钉
+    // WA_NoMouseReplay"）。
+    TaskCenterPanel::OutsidePressHandler onOutsidePress;
+    onOutsidePress.claimed = [this](const QPoint &globalPos) {
+        return bottomBarAnchorAt(globalPos).button != nullptr;
+    };
+    onOutsidePress.dismissed = [this](const QPoint &globalPos) {
+        const BottomBarAnchor hit = bottomBarAnchorAt(globalPos);
+        if (hit.button != nullptr) {
+            toggleBottomBarPanel(hit);
+        }
+    };
+    auto *panel = new TaskCenterPanel(taskSummaryButton, m_taskCenterProvider,
+                                      m_taskCenterClearHandler, onOutsidePress, bottomBar);
+    // 这次弹出来的面板归它自己管：关掉就删（不然点一次攒一个）。
+    panel->setAttribute(Qt::WA_DeleteOnClose);
+    panel->popUp();
 }
 
 void MainWindowUI::openBottomBarPanel(const BottomBarAnchor &anchor) {
@@ -3973,10 +4064,10 @@ void MainWindowUI::openBottomBarPanel(const BottomBarAnchor &anchor) {
     // 现问一遍要弹什么（不缓存：实例随时会结束、账号随时会多一个，"上次那几行"
     // 一旦留着就会弹出早就不是那样的一面板）。
     const QList<PanelRow> rows =
-        m_panelRowsProvider ? m_panelRowsProvider(anchor.account) : QList<PanelRow>();
+        m_panelRowsProvider ? m_panelRowsProvider(anchor.account()) : QList<PanelRow>();
     // 面板只知道"第几行第几颗"，"是哪一块面板"由这里补上再转给 MainWindow ——
     // 一块面板只可能属于一边，所以这个得在**建面板的时候**就绑死。
-    const BottomBarPanel::ActionCallback onAction = [this, account = anchor.account](
+    const BottomBarPanel::ActionCallback onAction = [this, account = anchor.account()](
                                                         const QString &key, int action) {
         if (m_panelActionHandler) {
             m_panelActionHandler(account, key, action);
@@ -3999,7 +4090,7 @@ void MainWindowUI::openBottomBarPanel(const BottomBarAnchor &anchor) {
             toggleBottomBarPanel(hit);
         }
     };
-    auto *panel = new BottomBarPanel(anchor.button, anchor.account, rows, onAction, onOutsidePress,
+    auto *panel = new BottomBarPanel(anchor.button, anchor.account(), rows, onAction, onOutsidePress,
                                      bottomBar);
     // 这次弹出来的面板归它自己管：关掉就删（不然点一次攒一个）。
     panel->setAttribute(Qt::WA_DeleteOnClose);
@@ -4019,21 +4110,118 @@ void MainWindowUI::toggleBottomBarPanel(const BottomBarAnchor &anchor) {
     //       而下面 open->close() 那一步照走，所以点在这颗点不动的格子上时，**已经开着的
     //       那一块会被收掉**（点外面本来就该收），只是不再开新的 —— 不然那一下看着像
     //       "点了没反应"，而那一块还杵在那儿。
-    const bool blocked = !anchor.account && !m_runPanelAvailable;
+    const bool blocked = anchor.kind == BottomBarAnchorKind::Instances && !m_runPanelAvailable;
     // "现在有没有开着一块"靠 findChild 认（和行尾齿轮菜单一个路数）：面板挂在 bottomBar
     // 底下，close 之后要等 deleteLater 才真删（同一轮事件处理里还找得到），不用自己记指针。
+    //
+    // NOTE: 中间那格那块是**另一个类、另一个名字**（`TaskCenterPanel`），所以这里要问两次
+    //       —— 一次问"那两块短行面板开着吗"、一次问"任务中心开着吗"。只问一次的话，
+    //       "任务中心开着时点左下那格"就会变成两块面板同时在屏幕上。
+    bool sameAnchor = false;
+    bool anyOpen = false;
     if (auto *open = dynamic_cast<BottomBarPanel *>(
             bottomBar->findChild<QWidget *>(MainWindowUI::bottomBarPanelName()))) {
-        const bool sameAnchor = open->anchor() == anchor.button;
+        sameAnchor = open->anchor() == anchor.button;
+        anyOpen = true;
         open->close();
-        if (sameAnchor || blocked) {
-            return;  // 再点一次**同一颗** = 收回去，就这一下
-        }
+    }
+    if (auto *panel = taskCenterPanel()) {
+        sameAnchor = sameAnchor || panel->anchor() == anchor.button;
+        anyOpen = true;
+        panel->close();
+    }
+    if (anyOpen && (sameAnchor || blocked)) {
+        return;  // 再点一次**同一颗** = 收回去，就这一下
     }
     if (blocked) {
         return;
     }
+    if (anchor.kind == BottomBarAnchorKind::Tasks) {
+        openTaskCenterPanel();
+        return;
+    }
     openBottomBarPanel(anchor);
+}
+
+void MainWindowUI::setBottomBarTaskSummary(const BottomBarTaskSummary &summary) {
+    if (statusLabel == nullptr || progressBar == nullptr) {
+        return;  // setupUi() 还没跑完（和那几个访问器拿空指针当判据是同一个意思）
+    }
+    // ---------- 那一行字 ----------
+    // 占位那一档（一项任务都没有）用调色板里的 PlaceholderText：§3.1 要的是**低强调度**
+    // 的一句"暂无后台任务"，和"真有一件事在跑"的标题不能长成一个样子。
+    //
+    // NOTE: 色的底取 `QApplication::palette()`，不取这个标签自己的 —— 它装在一颗挂了
+    //       QSS 的按钮里（applyBottomBarButtonStyle()），带样式表那句 `border: none;
+    //       background: transparent` 不影响文字色，但按钮上那份 palette 是从调色板推出来的
+    //       一份**副本**，主题换了之后哪个先更新不好说（和 runStateMarkPixmap 那条取
+    //       "底栏的调色板"是同一个顾虑）。取应用那一份就不必操心谁先收到事件。
+    QPalette textPalette = QApplication::palette();
+    textPalette.setColor(QPalette::WindowText,
+                         textPalette.color(summary.hasTask ? QPalette::WindowText
+                                                           : QPalette::PlaceholderText));
+    statusLabel->setPalette(textPalette);
+    statusLabel->setText(summary.hasTask
+                             ? MainWindowUI::taskSummaryText(summary.title, summary.done,
+                                                             summary.failed)
+                             : MainWindowUI::taskSummaryNoTaskText());
+
+    // 「失败」那一档整句染红：这一格只有一行字，"那次没办成"是它最要紧的信息。
+    // （面板里那一行才有地方挂红点，见 ui/TaskCenterPanel.cpp。）
+    if (summary.failed) {
+        QPalette failedPalette = statusLabel->palette();
+        failedPalette.setColor(QPalette::WindowText, folderDangerColor(textPalette));
+        statusLabel->setPalette(failedPalette);
+    }
+
+    // 那一颗红点（"用户还没看过的一次失败"）：**藏着的时候它也在**，只是宽度 0。
+    if (taskFailureDot != nullptr) {
+        if (summary.unreadFailure) {
+            taskFailureDot->setPixmap(VersionIcons::runStateMark(
+                MainWindowUI::taskCenterPanelFailureDotSize(),
+                folderDangerColor(textPalette)));
+            taskFailureDot->show();
+        } else {
+            taskFailureDot->hide();
+        }
+    }
+
+    // ---------- 右边那句小字（「另有 N 项」） ----------
+    if (taskExtraLabel != nullptr) {
+        if (summary.extraCount > 0) {
+            taskExtraLabel->setText(MainWindowUI::taskSummaryMoreText(summary.extraCount));
+            taskExtraLabel->show();
+        } else {
+            taskExtraLabel->clear();
+            taskExtraLabel->hide();
+        }
+    }
+
+    // ---------- 下面那根条 ----------
+    // §3.1：「无任务时不显示空进度条」。所以没任务时它是**藏着的**（不是复位之后留着）。
+    if (!summary.hasTask) {
+        progressBar->setRange(0, 100);
+        Anim::smoothProgress(progressBar, 0);
+        progressBar->hide();
+        return;
+    }
+    progressBar->show();
+    if (summary.percent < 0) {
+        // 测不出总量（同步等待那几段、启动那一段、以及"刚点下载、清单还在路上"）：
+        // 不确定态的滚动条 —— 绝不编一个百分比出来（§3.4 那条）。
+        progressBar->setRange(0, 0);
+        return;
+    }
+    progressBar->setRange(0, 100);
+    // 走同一条动画路数（§9.4 / ui/Animations.hpp 里那四条"原地落"的规则）：它自己认得出
+    // "总量变了 / 退回 0 了"那几档，不用这里再判一遍。
+    Anim::smoothProgress(progressBar, summary.percent);
+}
+
+void MainWindowUI::refreshTaskCenterPanel() {
+    if (TaskCenterPanel *panel = taskCenterPanel()) {
+        panel->refresh();
+    }
 }
 
 void MainWindowUI::setRunPanelAvailable(bool available) {
