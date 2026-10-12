@@ -36,6 +36,7 @@ set(HEADER_FILES
     ${REPO_ROOT}/src/manage/VersionManager.hpp
     ${REPO_ROOT}/src/manage/VersionDisplay.hpp
     ${REPO_ROOT}/src/manage/VersionIntegrity.hpp
+    ${REPO_ROOT}/src/manage/BackupFiles.hpp
     ${REPO_ROOT}/src/manage/WorldFiles.hpp
     ${REPO_ROOT}/src/settings/GameWindowSettings.hpp
     ${REPO_ROOT}/src/settings/GlobalJavaSettings.hpp
@@ -73,6 +74,9 @@ set(SOURCE_FILES
     # 体检那一层：VersionManager::checkInstanceIntegrity() 直接调它，少了这一个文件会在
     # 链接那一步报一串 `VersionIntegrity::…` 的 undefined reference。
     ${REPO_ROOT}/src/manage/VersionIntegrity.cpp
+    # 备份那一层（§4.4）：MainWindow 里打存档备份 / 建实例快照 / 还原那几条路直接调它。
+    # 少了这一个文件会在链接那一步报一串 `BackupFiles::…` 的 undefined reference。
+    ${REPO_ROOT}/src/manage/BackupFiles.cpp
     ${REPO_ROOT}/src/manage/WorldFiles.cpp
     ${REPO_ROOT}/src/settings/EffectiveJavaSettings.cpp
     ${REPO_ROOT}/src/settings/GameWindowSettings.cpp

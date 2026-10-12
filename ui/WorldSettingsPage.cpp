@@ -194,6 +194,43 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
             [this] { emit openFolderRequested(); });
     actions->addWidget(m_openFolder);
 
+    // ---------- §4.4：整份存档的备份 / 还原 / 打开备份目录 ----------
+    //
+    // ★ 三颗放在**这一排**（"这个世界能做的几件事"）而不是最底下那一排（"整页的两件动作"）：
+    //   它们动的是**这个存档**（打它、还原它、去看它的备份），和「重命名 / 打开文件夹 /
+    //   删除世界」是同一档；底下那两颗里，「备份一份」抄的是 `level.dat` 一个文件、
+    //   「保存」写的是页面上改过的几格 —— 那两件才是"整页"的。
+    //
+    // ★★ 「立即备份」和底下那颗「备份一份」**必须一眼分得开**，所以名字里带"立即"
+    //    （它的意思正是"现在就把整个文件夹打一份"），tooltip 也各说各的：一个是整个存档的
+    //   压缩包、一个是单文件的救命稻草。上面 `fullBackupButtonName()` 那段有完整来路。
+    m_fullBackup = new QPushButton(fullBackupText(), this);
+    m_fullBackup->setObjectName(fullBackupButtonName());
+    m_fullBackup->setToolTip(tr("把整个存档文件夹打成一个压缩包（按文件核对，可以整份还原）。"));
+    Theme::markButton(m_fullBackup, Theme::ButtonKind::Neutral);
+    connect(m_fullBackup, &QPushButton::clicked, this,
+            [this] { emit fullBackupRequested(); });
+    actions->addWidget(m_fullBackup);
+
+    m_restore = new QPushButton(restoreBackupText(), this);
+    m_restore->setObjectName(restoreButtonName());
+    m_restore->setToolTip(tr("从备份目录里挑一份还原回来。还原之前会先给现在这一份自动留一份。"));
+    // ★ 红：它把**这个存档现在这一份**整个换掉 —— 和实例概览那颗「从快照恢复…」同一档
+    //   （`Danger` 的界定是"删了就拿不回来"，里面点名的几条里就有"还原"）。
+    //   还原之前自动留的那一份是兜底，不是"没风险"（见 .hpp 里 restoreBackupText 那段）。
+    Theme::markButton(m_restore, Theme::ButtonKind::Danger);
+    connect(m_restore, &QPushButton::clicked, this,
+            [this] { emit restoreBackupRequested(); });
+    actions->addWidget(m_restore);
+
+    m_backupFolder = new QPushButton(openBackupFolderText(), this);
+    m_backupFolder->setObjectName(backupFolderButtonName());
+    m_backupFolder->setToolTip(tr("打开这个存档的备份放在哪儿（启动器数据目录下的 cache/backups）。"));
+    Theme::markButton(m_backupFolder, Theme::ButtonKind::Neutral);
+    connect(m_backupFolder, &QPushButton::clicked, this,
+            [this] { emit openBackupFolderRequested(); });
+    actions->addWidget(m_backupFolder);
+
     m_delete = new QPushButton(deleteText(), this);
     m_delete->setObjectName(deleteButtonName());
     m_delete->setToolTip(tr("把这个世界连同里面的东西从盘上删掉（会先问一句）。"));
@@ -490,6 +527,15 @@ QString WorldSettingsPage::backButtonName() {
 QString WorldSettingsPage::openFolderButtonName() {
     return QStringLiteral("worldSettingsOpenFolderButton");
 }
+QString WorldSettingsPage::fullBackupButtonName() {
+    return QStringLiteral("worldSettingsFullBackupButton");
+}
+QString WorldSettingsPage::restoreButtonName() {
+    return QStringLiteral("worldSettingsRestoreButton");
+}
+QString WorldSettingsPage::backupFolderButtonName() {
+    return QStringLiteral("worldSettingsBackupFolderButton");
+}
 QString WorldSettingsPage::renameButtonName() {
     return QStringLiteral("worldSettingsRenameButton");
 }
@@ -517,6 +563,15 @@ QString WorldSettingsPage::backupText() {
 }
 QString WorldSettingsPage::openFolderText() {
     return QStringLiteral("打开文件夹");
+}
+QString WorldSettingsPage::fullBackupText() {
+    return QStringLiteral("立即备份");
+}
+QString WorldSettingsPage::restoreBackupText() {
+    return QStringLiteral("恢复备份…");
+}
+QString WorldSettingsPage::openBackupFolderText() {
+    return QStringLiteral("打开备份目录");
 }
 QString WorldSettingsPage::renameText() {
     return QStringLiteral("重命名…");
@@ -670,8 +725,9 @@ void WorldSettingsPage::setUnreadable(const QString &dirName, const QString &rea
 
 void WorldSettingsPage::applyUnreadableState() {
     // 读不出来那一档：**整块正文藏起来**（它摆的那些值一个都不作数，连"改文件"那颗折叠钮
-    // 也是正文的一部分），顶上只留「返回」「重命名」「打开文件夹」「删除世界」「备份一份」
-    // —— 这几颗在这一档里正是最该做的事（改不了内容，但这个世界还在盘上，该能改名、能删）。
+    // 也是正文的一部分），顶上只留「返回」「重命名」「打开文件夹」「立即备份」「恢复备份…」
+    // 「打开备份目录」「删除世界」「备份一份」—— 这几颗在这一档里正是最该做的事（改不了
+    // 内容，但这个世界还在盘上，该能改名、能整份备份、能删）。
     m_body->setVisible(!m_unreadable);
     m_save->setVisible(!m_unreadable);
     m_backup->setVisible(true);

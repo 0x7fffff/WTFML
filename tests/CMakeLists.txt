@@ -70,6 +70,11 @@ set(PROJECT_SOURCES
     # 临时游戏文件夹跑。
     ${REPO_ROOT}/src/manage/VersionIntegrity.cpp
     ${REPO_ROOT}/src/manage/VersionIntegrity.hpp
+    # 备份那一层（§4.4）：打一份包、读清单、还原。和 WorldFiles 同一个理由放进验证工程 ——
+    # 「清单读得回来吗」「还原之前那份安全快照做出来没有」「解压到一半失败时旧的那一份还在不在」
+    # 这三件事都能绕开界面直接钉死，而且全是真的建 zip、真的解回来。
+    ${REPO_ROOT}/src/manage/BackupFiles.cpp
+    ${REPO_ROOT}/src/manage/BackupFiles.hpp
     # WorldFiles：「导入世界」和存档改名那两个改盘的动作。放进来是为了绕开原生选择框
     # （测试驱动不了它）直接调函数 —— 重名挡住没有、拷一半失败会不会留半份，都在这里钉。
     ${REPO_ROOT}/src/manage/WorldFiles.cpp

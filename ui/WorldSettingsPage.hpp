@@ -267,6 +267,16 @@ public:
     static QString backupButtonName();
     static QString backButtonName();
     static QString openFolderButtonName();
+    /// 「立即备份」（§4.4）：把**整个存档文件夹**打成一个压缩包。
+    ///
+    /// ★ 和上面那颗 `backupButtonName()`（「备份一份」，只抄 `level.dat` 那一个文件）**不是
+    ///   一件事**：那一颗是"编辑器手下留情"留的救命稻草（改坏了 level.dat 能回去），这一颗
+    ///   是用户自己点的、整份存档的备份。两颗都在页面上，名字必须让人一眼分得开。
+    static QString fullBackupButtonName();
+    /// 「恢复备份…」（§4.4）：从备份目录里挑一份还原回来。
+    static QString restoreButtonName();
+    /// 「打开备份目录」（§4.4）：落点那层文件夹。
+    static QString backupFolderButtonName();
     /// 「重命名…」（世界这一行的三颗之一）。
     static QString renameButtonName();
     /// 「删除世界…」（世界这一行的三颗之一；确认弹窗在 MainWindow 那一层）。
@@ -282,6 +292,9 @@ public:
     static QString saveText();
     static QString backupText();
     static QString openFolderText();
+    static QString fullBackupText();
+    static QString restoreBackupText();
+    static QString openBackupFolderText();
     static QString renameText();
     static QString deleteText();
     static QString ruleFilterPlaceholder();
@@ -324,6 +337,9 @@ public:
     QPushButton *backButton() const { return m_back; }
     QPushButton *backupButton() const { return m_backup; }
     QPushButton *openFolderButton() const { return m_openFolder; }
+    QPushButton *fullBackupButton() const { return m_fullBackup; }
+    QPushButton *restoreButton() const { return m_restore; }
+    QPushButton *backupFolderButton() const { return m_backupFolder; }
     QPushButton *renameButton() const { return m_rename; }
     QPushButton *deleteButton() const { return m_delete; }
     /// 那个折叠框的开关（验证工程靠它量"默认收起"和"点开之前发没发信号"）。
@@ -347,6 +363,13 @@ signals:
     void saveRequested();
     /// 用户点了「备份一份」。
     void backupRequested();
+    /// 用户点了「立即备份」（§4.4）—— 要的是**整个存档文件夹**那一份压缩包。
+    void fullBackupRequested();
+    /// 用户点了「恢复备份…」（§4.4）。挑哪一份、以及"还原之前先给现在这一份做安全快照"
+    /// 全在 MainWindow 那一层（这一层不碰盘、也没有那份清单）。
+    void restoreBackupRequested();
+    /// 用户点了「打开备份目录」（§4.4）。
+    void openBackupFolderRequested();
     /// 用户点了「打开文件夹」。
     void openFolderRequested();
     /// 用户想回到世界列表（点了「返回」，或者按了 Esc）。切格是 InstanceSettingsDialog
@@ -476,4 +499,9 @@ private:
     QPushButton *m_rename = nullptr;
     QPushButton *m_delete = nullptr;
     QPushButton *m_save = nullptr;
+    /// §4.4 那三颗（整份存档的备份 / 还原 / 打开备份目录）。和上面那六颗一样是常驻的
+    /// —— "读不出来"那一档也照样露着（那正是最需要留一份备份的时候）。
+    QPushButton *m_fullBackup = nullptr;
+    QPushButton *m_restore = nullptr;
+    QPushButton *m_backupFolder = nullptr;
 };

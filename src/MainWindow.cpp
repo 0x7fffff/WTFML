@@ -1646,6 +1646,16 @@ MainWindow::~MainWindow() {
     if (m_integrityThread != nullptr) {
         m_integrityThread->wait();
     }
+    // 备份 / 还原那一趟同理（§4.4）。**这一趟没法中途收手**（见 .hpp 里 m_backupAbort 那段
+    // —— 停下来只会留一个半截的包或者删了一半的目录），所以这里只能**等它跑完**：
+    // 一个几百 MB 的实例快照要几十秒，关窗会晚这么多才真的关上。
+    //
+    // NOTE: 这一位真正的用处是"跑完之后别把结果排回一个正在拆的窗口" —— 引擎不读它。
+    // NOTE: 不等的话同上：`m_backupThread` 的父对象是 this，Qt 直接 abort。
+    m_backupAbort.storeRelaxed(1);
+    if (m_backupThread != nullptr) {
+        m_backupThread->wait();
+    }
     delete m_ui;
 }
 
@@ -3010,6 +3020,10 @@ Tasks::TaskCapabilities MainWindow::defaultTaskCapabilities(Tasks::TaskKind kind
         break;
     case Tasks::TaskKind::Launch:
     case Tasks::TaskKind::Export:
+    // `Backup`（§4.4）和导出同一条路：本地走一遍目录、算哈希、起一次 PowerShell 打包
+    // （还原那一路还要先删旧的那一份）。掐断它意味着**盘上留一个半截的包或者删了一半的
+    // 目录**，比让它跑完糟得多 —— 所以不给「取消」（同 Export 那一条的理由）。
+    case Tasks::TaskKind::Backup:
     case Tasks::TaskKind::Java:
     case Tasks::TaskKind::Integrity:
     case Tasks::TaskKind::Crash:
@@ -10441,6 +10455,19 @@ void MainWindow::openInstanceSettingsNow(const QString &versionId, const QString
                 QTimer::singleShot(0, this, [this, id] { submitIntegrityCheck(id); });
             });
 
+    // ---------- §4.4：概览那一栏那两颗「快照」----------
+    //
+    // ★ 这两颗**不收页**（和上面「检查并修复」故意不一样）：体检的结果是**另一整页**（报告页），
+    //   不收这一页就叠了两层；而快照 / 还原的结果是一个弹框 + 账本里那一行 —— 留着这一页
+    //   正好让用户接着做别的（跟「导出…」那颗一样）。
+    //
+    // NOTE: 「创建快照…」那一问（默认排除还是完整）在 `snapshotInstance()` 里 —— 弹话要
+    //       OverlayHost，那玩意儿在 MainWindow 手里，这一层连读都没有读。
+    connect(&dialog, &InstanceSettingsDialog::createSnapshotRequested, this,
+            [this, &targetId]() { snapshotInstance(targetId); });
+    connect(&dialog, &InstanceSettingsDialog::restoreSnapshotRequested, this,
+            [this, &targetId]() { restoreInstanceSnapshot(targetId); });
+
     // 「文件管理」那三发（2026-09-26）：开文件夹 / 启用·禁用一条 / 删一条。
     //
     // NOTE: 这两条**要多捕获一个 &dialog** —— 动完盘得让那几页重列一遍（不然删掉的那一行
@@ -10687,6 +10714,24 @@ void MainWindow::openInstanceSettingsNow(const QString &versionId, const QString
                 });
         connect(world, &WorldSettingsPage::backRequested, this,
                 [this, &dialog]() { leaveWorldSettings(&dialog); });
+
+        // ---------- §4.4：整份存档的备份 / 还原 / 打开备份目录 ----------
+        //
+        // 三颗都**只做、只报**（和上面那颗「备份一份」一个形状）：它们不动页面上任何一格，
+        // 也不切页。还原那一颗例外 —— 它会把这一页上摆着的值全换掉（那些值就是 level.dat
+        // 里读出来的），所以跑完得把这一页重读一遍，见 onBackupRestoreFinished() 那段。
+        connect(world, &WorldSettingsPage::fullBackupRequested, this,
+                [this]() { backupWorldNow(m_worldDir); });
+        connect(world, &WorldSettingsPage::openBackupFolderRequested, this,
+                [this]() { openBackupFolder(BackupFiles::Kind::World); });
+        connect(world, &WorldSettingsPage::restoreBackupRequested, this,
+                [this, &dialog]() {
+                    // 先把这一页的弱引用交出去，再起那一趟 —— 那一趟跑完要拿它把这一页重读
+                    // 一遍（见 onBackupRestoreFinished）。用户在半路取消的话这一位就白记一次，
+                    // 没有副作用（跑完那一条出口**总会**把它清掉）。
+                    m_backupRefreshDialog = &dialog;
+                    restoreWorldBackup(m_worldDir);
+                });
 
         // ★ 「重命名…」（2026-09-29：原来在那一支笔的四项小菜单里，现在搬到页里当按钮）。
         //   整件事和原来那一条**逐字相同**，只多了一步：改完之后**页面上那个名字也得换**
@@ -14747,6 +14792,502 @@ void MainWindow::copyIntegrityReport() {
         m_integrityReport, instanceDisplayName(m_integrityReportVersionId));
     QGuiApplication::clipboard()->setText(text);
     appendLog(tr("完整性检查报告已经复制到剪贴板。"));
+}
+
+// ===========================================================================
+// 世界与实例备份（coding plan §4.4，2026-10-13）
+// ===========================================================================
+//
+// 四个入口（世界页三颗 + 概览那两颗）都收在这一段里。**干活的那一层在
+// `src/manage/BackupFiles`**（走目录、算 sha1、起 PowerShell 打包、还原之前做安全快照），
+// 这一段只负责：把描述拼出来、起一趟后台活、把结果记进任务账本并弹给用户。
+
+/// 一份备份有多大（正文里那句"共 N MB"）。
+///
+/// ★ **自己算**，不用 `QLocale::formattedDataSize()`：那个的写法跟着系统语言走
+///   （"1.5 MiB" / "1,5 MB"），而这几句要在判据里逐字断言 —— 跟着区域设置变的字符串
+///   没法钉。
+static QString backupSizeText(qint64 bytes) {
+    if (bytes >= 1024LL * 1024 * 1024) {
+        return QStringLiteral("%1 GB").arg(QString::number(double(bytes) / (1024.0 * 1024 * 1024), 'f', 2));
+    }
+    if (bytes >= 1024 * 1024) {
+        return QStringLiteral("%1 MB").arg(QString::number(double(bytes) / (1024.0 * 1024), 'f', 1));
+    }
+    return QStringLiteral("%1 KB").arg(QString::number(double(bytes) / 1024.0, 'f', 1));
+}
+
+QString MainWindow::backupPickLine(const QString &zipPath) {
+    const QFileInfo info(zipPath);
+    // **只看得到文件名、大小和修改时间** —— 读一份清单要起一次 PowerShell（见
+    // `BackupFiles::backupFilePrefix` 那段），挑之前对着几十份挨个读是几十秒。
+    // 这三样对"要挑哪一份"已经够了：文件名里有时间，大小看得出完整快照还是默认的。
+    return tr("%1（%2，%3）")
+        .arg(info.fileName(), backupSizeText(info.size()),
+             info.lastModified().toString(QStringLiteral("yyyy-MM-dd HH:mm")));
+}
+
+void MainWindow::openBackupFolder(BackupFiles::Kind kind) {
+    // 先建出来再开：第一次点它的时候那个目录多半还不存在（一份备份都没做过），
+    // 而这一颗按钮就是给"我要去看看里面有什么"用的 —— 在这儿弹一句"目录不在"
+    // 正好挡住用户要做的事（和快捷方式那九颗同一套做法）。
+    const QString dir = BackupFiles::backupDir(kind);
+    QDir().mkpath(dir);
+    onFolderOpenRequested(dir);
+}
+
+QString MainWindow::pickBackupZip(const QString &dir, const QString &label, const QString &what) {
+    // 按**文件名前缀**筛（`backupFilePrefix()`）：名字头一个词就是这个存档 / 实例的目录名。
+    // 这是"不读每个 zip 就能缩小范围"的唯一便宜办法，理由见那个函数的头文件那段。
+    const QString prefix = BackupFiles::backupFilePrefix(label);
+    QStringList zips;
+    const QFileInfoList entries =
+        QDir(dir).entryInfoList(QStringList{QStringLiteral("*.zip")}, QDir::Files, QDir::Name);
+    for (const QFileInfo &entry : entries) {
+        if (entry.fileName().startsWith(prefix, Qt::CaseInsensitive)) {
+            zips.append(entry.absoluteFilePath());
+        }
+    }
+    if (zips.isEmpty()) {
+        InlineMessage::information(
+            m_ui->overlay(), tr("还没有备份"),
+            tr("%1还没有备份过，所以没有能还原的东西。\n\n备份放在这儿：%2\n"
+               "（在这一页上先做一份备份，再来还原。）")
+                .arg(what, QDir::toNativeSeparators(dir)));
+        return QString();
+    }
+    // 最近的排最前：文件名里那个时间戳是**定长的**（`backupFileName()` 用 `yyyy-MM-dd-HHmmss`），
+    // 所以按名字倒序就是按时间倒序 —— 和 `latestWorldBackup()` 那边同一条理由。
+    std::sort(zips.begin(), zips.end(), std::greater<QString>());
+
+    QStringList items;
+    items.reserve(zips.size());
+    for (const QString &zip : zips) {
+        items.append(backupPickLine(zip));
+    }
+    int row = -1;
+    if (!InlineMessage::pickFromList(m_ui->overlay(), tr("挑一份备份"),
+                                     tr("要还原哪一份？（越上面越新）"), items, 0, &row)) {
+        return QString();
+    }
+    if (row < 0 || row >= zips.size()) {
+        return QString();
+    }
+    return zips.at(row);
+}
+
+void MainWindow::backupWorldNow(const QString &worldDir) {
+    if (worldDir.isEmpty()) {
+        return;
+    }
+    if (m_backupTaskId != Tasks::invalidTaskId()) {
+        InlineMessage::information(m_ui->overlay(), tr("现在做不了"),
+                                   tr("已经有一份备份或者还原在跑了，等它完了再来。"));
+        return;
+    }
+    const QString instanceId = instanceIdOfPath(worldDir);
+    // ★ 游戏开着的时候**不许备份**：它每隔几秒就在往 region 文件里写，这时候抄出来的那一份
+    //   可能正好截在半截写入上（解出来是个损坏的区块，而且要到真拿它去还原那天才发现）。
+    //   和「删除世界」那条闸同一个方向，只是理由不同。
+    if (!instanceId.isEmpty() && m_launcherManager->isVersionRunning(instanceId)) {
+        InlineMessage::warning(
+            m_ui->overlay(), tr("备份世界"),
+            tr("游戏正在运行。先关掉游戏再备份 —— 游戏开着的时候每隔几秒就在往存档里写，"
+               "这时候抄出来的那一份可能是不完整的。"));
+        return;
+    }
+
+    const QString worldName = QFileInfo(worldDir).fileName();
+    const QDateTime now = QDateTime::currentDateTime();
+    BackupFiles::Manifest manifest;
+    manifest.kind = BackupFiles::Kind::World;
+    // `root`（zip 里那一层前缀，也是还原时落回去的目录名）就是存档的目录名 —— 世界在游戏
+    // 列表里显示的就是它（1.13 起），所以它同时也是最合适的"这一份是谁的"。
+    manifest.root = worldName;
+    // `label` 只用来拼文件名。**用目录名而不是显示名**：还原时也是拿目录名去筛（见
+    // `pickBackupZip`），两边必须是同一个词 —— 用户改过显示名的话，用显示名做文件名会让
+    // 自己刚做的那一份在还原的列表里找不着。
+    manifest.label = worldName;
+    manifest.worldName = worldName;
+    manifest.sourceInstanceId = instanceId;
+    manifest.sourceInstanceName = instanceId.isEmpty() ? QString() : instanceDisplayName(instanceId);
+    manifest.gameVersion =
+        instanceId.isEmpty() ? QString() : m_versionManager->instanceGameVersion(instanceId);
+    manifest.createdAt = now;
+    // 存档没有"能重新下回来的部分"这一说，整份都在（`excluded` 留空）。
+    manifest.scope = QStringList{tr("这个存档的整个文件夹")};
+
+    const QString dir = BackupFiles::backupDir(BackupFiles::Kind::World);
+    const QString zip = QDir(dir).filePath(BackupFiles::backupFileName(worldName, now));
+    startBackupWrite(manifest, worldDir, zip, tr("备份世界「%1」").arg(worldName), instanceId,
+                     tr("备份完成"));
+}
+
+void MainWindow::restoreWorldBackup(const QString &worldDir) {
+    if (worldDir.isEmpty()) {
+        return;
+    }
+    if (m_backupTaskId != Tasks::invalidTaskId()) {
+        InlineMessage::information(m_ui->overlay(), tr("现在做不了"),
+                                   tr("已经有一份备份或者还原在跑了，等它完了再来。"));
+        return;
+    }
+    const QString instanceId = instanceIdOfPath(worldDir);
+    if (!instanceId.isEmpty() && m_launcherManager->isVersionRunning(instanceId)) {
+        InlineMessage::warning(m_ui->overlay(), tr("恢复备份"),
+                               tr("游戏正在运行。先关掉游戏再还原 —— 不然它退出的时候会把"
+                                  "内存里那份旧存档重新写一遍，把刚还原出来的东西盖掉。"));
+        return;
+    }
+
+    const QString worldName = QFileInfo(worldDir).fileName();
+    const QString zip =
+        pickBackupZip(BackupFiles::backupDir(BackupFiles::Kind::World), worldName, tr("这个世界"));
+    if (zip.isEmpty()) {
+        return;
+    }
+    // 默认**不**落在「还原」上：这一步会把这个世界现在的文件整个换掉（和删世界同一档）。
+    if (!InlineMessage::question(
+            m_ui->overlay(), tr("恢复备份"),
+            tr("「%1」现在的文件会被备份里那一份**整个换掉**。\n\n"
+               "还原之前会自动给现在这一份留一份安全快照，所以这一步是能退回来的。\n\n"
+               "要还原的是这一份：\n%2")
+                .arg(worldName, QDir::toNativeSeparators(zip)),
+            tr("还原"), tr("取消"), /*defaultYes=*/false, /*destructive=*/true)) {
+        return;
+    }
+
+    // ★ 还原**换掉的就是「世界设置」那一页上摆着的那几格**（名字、难度、规则全来自
+    //   `level.dat`），所以记下"跑完了把那一页重读一遍"。那一页可能已经被用户收掉了 ——
+    //   那就什么都不做（盘上的事已经做完了），所以存的是弱引用。
+    //
+    // NOTE: 那一页的弱引用**由调用点填**（`openInstanceSettingsNow()` 里那三条 connect 之一
+    //       —— 它手里才有那个 dialog，这个函数只拿得到一个目录）。没填 = 跑完不重读。
+    m_backupRefreshWorldDir = worldDir;
+
+    startBackupRestore(zip, QFileInfo(worldDir).absolutePath(),
+                       tr("还原世界「%1」").arg(worldName), instanceId, tr("还原完成"));
+}
+
+void MainWindow::snapshotInstance(const QString &versionId) {
+    if (versionId.isEmpty()) {
+        return;
+    }
+    if (m_backupTaskId != Tasks::invalidTaskId()) {
+        InlineMessage::information(m_ui->overlay(), tr("现在做不了"),
+                                   tr("已经有一份备份或者还原在跑了，等它完了再来。"));
+        return;
+    }
+    // 两道闸，和「导出…」「检查并修复」同一套判据：**谁在动这个实例的盘**。
+    if (installingVersionIds().contains(versionId)) {
+        InlineMessage::information(
+            m_ui->overlay(), tr("现在做不了"),
+            tr("「%1」这会儿正在装（或者正在导入 / 正在检查）。等它完了再做快照 —— "
+               "要打进去的正是这会儿正在被改的那些文件。")
+                .arg(instanceDisplayName(versionId)));
+        return;
+    }
+    if (m_launcherManager->isVersionRunning(versionId)) {
+        InlineMessage::information(m_ui->overlay(), tr("现在做不了"),
+                                   tr("「%1」正在运行。先关掉游戏再做快照 —— 游戏开着的时候"
+                                      "存档、日志这些文件一直在变。")
+                                       .arg(instanceDisplayName(versionId)));
+        return;
+    }
+
+    // ★ 那唯一一个分岔问在这里（§4.4：「默认排除可重新下载的 assets/libraries，可选择
+    //   完整快照」）。两颗按钮**都不是**默认那颗 —— 默认那颗是"推荐"的那个（排除那一档），
+    //   完整快照要用户刻意点。
+    const int picked = InlineMessage::ask(
+        m_ui->overlay(), MessageKind::Question, tr("创建快照"),
+        tr("快照会把「%1」整个目录打成一个压缩包，需要的时候可以整体还原回来。\n\n"
+           "默认**不**打包 assets 和 libraries —— 那两部分是能重新下回来的资源文件和游戏库"
+           "（通常几百 MB 到几个 GB），不打它们快照会小很多。")
+            .arg(instanceDisplayName(versionId)),
+        {tr("创建快照"), tr("完整快照（含可重新下载的部分）"), tr("取消")},
+        /*defaultIndex=*/0, /*destructiveIndex=*/-1, /*dismissOnOutsideClick=*/false);
+    if (picked != 0 && picked != 1) {
+        return;  // 取消 / Esc / 点外面
+    }
+    const bool complete = (picked == 1);
+
+    const QString instanceDir = AppPaths::versionDir(versionId);
+    if (!QFileInfo(instanceDir).isDir()) {
+        InlineMessage::warning(
+            m_ui->overlay(), tr("创建快照"),
+            tr("找不到这个实例的目录：\n%1").arg(QDir::toNativeSeparators(instanceDir)));
+        return;
+    }
+
+    // ★ 目录名（不是显示名）—— 和世界那边同一条理由：还原时拿它筛文件名。
+    //
+    // NOTE: `assets` / `libraries` 这两份**通常不住在实例目录里**（整个数据目录共用一份，
+    //       见 AppPaths::libraryDir() / assetsDir()）。所以"默认排除"对多数实例是个**空操作**
+    //       —— 这是实话，不是漏做：真正在实例目录里的那些（少数自己带了一份的安装方式）
+    //       才真的被排掉。`excluded` 那一格如实记着"这一份是按排除打的"，界面上的"包含范围"
+    //       也照实写。
+    const QString dirName = QFileInfo(instanceDir).fileName();
+    const QDateTime now = QDateTime::currentDateTime();
+    BackupFiles::Manifest manifest;
+    manifest.kind = BackupFiles::Kind::Instance;
+    manifest.root = dirName;
+    manifest.label = dirName;
+    manifest.sourceInstanceId = versionId;
+    manifest.sourceInstanceName = instanceDisplayName(versionId);
+    manifest.gameVersion = m_versionManager->instanceGameVersion(versionId);
+    manifest.complete = complete;
+    manifest.createdAt = now;
+    if (complete) {
+        manifest.scope = QStringList{tr("整个实例目录（包含能重新下回来的资源文件和游戏库）")};
+    } else {
+        manifest.excluded = QStringList{QStringLiteral("assets"), QStringLiteral("libraries")};
+        manifest.scope = QStringList{tr("实例目录（模组、配置、存档、日志…）"),
+                                     tr("没打包：assets、libraries（能重新下回来）")};
+    }
+
+    const QString dir = BackupFiles::backupDir(BackupFiles::Kind::Instance);
+    const QString zip = QDir(dir).filePath(BackupFiles::backupFileName(dirName, now));
+    startBackupWrite(manifest, instanceDir, zip,
+                     tr("创建「%1」的快照").arg(instanceDisplayName(versionId)), versionId,
+                     tr("快照创建完成"));
+}
+
+void MainWindow::restoreInstanceSnapshot(const QString &versionId) {
+    if (versionId.isEmpty()) {
+        return;
+    }
+    if (m_backupTaskId != Tasks::invalidTaskId()) {
+        InlineMessage::information(m_ui->overlay(), tr("现在做不了"),
+                                   tr("已经有一份备份或者还原在跑了，等它完了再来。"));
+        return;
+    }
+    if (installingVersionIds().contains(versionId) ||
+        m_launcherManager->isVersionRunning(versionId)) {
+        InlineMessage::information(
+            m_ui->overlay(), tr("现在做不了"),
+            tr("「%1」这会儿正在装，或者正在运行。等它停了再还原 —— 这一步会把整个实例目录"
+               "换掉。")
+                .arg(instanceDisplayName(versionId)));
+        return;
+    }
+
+    const QString instanceDir = AppPaths::versionDir(versionId);
+    const QString dirName = QFileInfo(instanceDir).fileName();
+    const QString zip = pickBackupZip(BackupFiles::backupDir(BackupFiles::Kind::Instance), dirName,
+                                      tr("这个实例"));
+    if (zip.isEmpty()) {
+        return;
+    }
+    if (!InlineMessage::question(
+            m_ui->overlay(), tr("从快照恢复"),
+            tr("「%1」现在的文件会被快照里那一份**整个换掉** —— 模组、配置、存档全算。\n\n"
+               "还原之前会自动给现在这一份留一份安全快照，所以这一步是能退回来的。\n\n"
+               "要还原的是这一份：\n%2")
+                .arg(instanceDisplayName(versionId), QDir::toNativeSeparators(zip)),
+            tr("还原"), tr("取消"), /*defaultYes=*/false, /*destructive=*/true)) {
+        return;
+    }
+    // 落点是 `<数据目录>/versions`（`root` 那一层前缀就是实例的目录名，解出来正好是
+    // `<versions>/<目录名>`）。**不是** `versionDir(versionId)` 本身：还原走的是
+    // "把那个目录整个换掉"，所以给的是它的父目录（见 BackupFiles::restoreBackup 的说明）。
+    startBackupRestore(zip, AppPaths::versionsDir(),
+                       tr("还原「%1」的快照").arg(instanceDisplayName(versionId)), versionId,
+                       tr("还原完成"));
+}
+
+Tasks::TaskId MainWindow::startBackupWrite(const BackupFiles::Manifest &manifest,
+                                           const QString &sourceDir, const QString &targetZip,
+                                           const QString &title, const QString &targetId,
+                                           const QString &successTitle) {
+    // 两步（§2「进度不可测时不显示假百分比」）：统计并核对文件 / 打包。
+    //
+    // ★ 不给百分比是**有意的**：「一共多少个文件、一共多大」要等整棵目录走完才知道，而
+    //   走的过程里给任何一个百分数都是编的 —— 和"没有 Content-Length 就不显示百分比"
+    //   同一条规矩（见 TaskSnapshot::percentOf）。
+    QList<Tasks::TaskStep> steps;
+    steps.append({tr("统计并核对文件"), Tasks::TaskStepState::Running, QString()});
+    steps.append({tr("打包"), Tasks::TaskStepState::Pending, QString()});
+    const Tasks::TaskId id = beginTask(Tasks::TaskKind::Backup, title, targetId, steps);
+    m_backupTaskId = id;
+    appendLog(tr("%1：%2 → %3").arg(title, QDir::toNativeSeparators(sourceDir),
+                                    QDir::toNativeSeparators(targetZip)));
+
+    m_backupAbort.storeRelaxed(0);
+    // 上一趟那个线程对象还挂着（跑完了，但 deletion 还排着队）：先放它走（同 m_integrityThread）。
+    if (m_backupThread != nullptr) {
+        m_backupThread->deleteLater();
+        m_backupThread = nullptr;
+    }
+
+    // 后台那一趟。`manifest` 按值拷进去 —— `BackupFiles::writeBackup()` 是纯函数（只读盘、
+    // 一个成员都不碰），所以这一趟完全不碰 VersionManager / DownloadManager，也就不用加锁。
+    m_backupThread = QThread::create([this, manifest, sourceDir, targetZip, successTitle]() {
+        const BackupFiles::WriteResult result =
+            BackupFiles::writeBackup(manifest, sourceDir, targetZip);
+        // 关窗了：**不排回来**（主窗口正在拆，排回去那一趟 invokeMethod 会砸在一个半死的
+        // 对象上）。包已经打完了，账本里那一项留给下一次启动判成"中断的"。
+        if (m_backupAbort.loadRelaxed() != 0) {
+            return;
+        }
+        QMetaObject::invokeMethod(
+            this, [this, result, successTitle]() { onBackupWriteFinished(result, successTitle); },
+            Qt::QueuedConnection);
+    });
+    m_backupThread->setParent(this);
+    m_backupThread->start();
+    return id;
+}
+
+Tasks::TaskId MainWindow::startBackupRestore(const QString &zipPath, const QString &targetParentDir,
+                                             const QString &title, const QString &targetId,
+                                             const QString &successTitle) {
+    // 四步 = 引擎里那四件事的顺序（见 BackupFiles::restoreBackup 的说明），**一步一步对上**
+    // —— `RestoreResult::stage` 就是按这个顺序报"走到哪儿了"的。
+    QList<Tasks::TaskStep> steps;
+    steps.append({tr("读清单"), Tasks::TaskStepState::Running, QString()});
+    steps.append({tr("把现在这一份收起来"), Tasks::TaskStepState::Pending, QString()});
+    steps.append({tr("解出备份里的文件"), Tasks::TaskStepState::Pending, QString()});
+    steps.append({tr("逐文件核对"), Tasks::TaskStepState::Pending, QString()});
+    const Tasks::TaskId id = beginTask(Tasks::TaskKind::Backup, title, targetId, steps);
+    m_backupTaskId = id;
+    appendLog(tr("%1：%2 → %3").arg(title, QDir::toNativeSeparators(zipPath),
+                                    QDir::toNativeSeparators(targetParentDir)));
+
+    m_backupAbort.storeRelaxed(0);
+    if (m_backupThread != nullptr) {
+        m_backupThread->deleteLater();
+        m_backupThread = nullptr;
+    }
+
+    m_backupThread = QThread::create([this, zipPath, targetParentDir, successTitle]() {
+        const BackupFiles::RestoreResult result =
+            BackupFiles::restoreBackup(zipPath, targetParentDir);
+        if (m_backupAbort.loadRelaxed() != 0) {
+            return;
+        }
+        QMetaObject::invokeMethod(
+            this,
+            [this, result, successTitle]() { onBackupRestoreFinished(result, successTitle); },
+            Qt::QueuedConnection);
+    });
+    m_backupThread->setParent(this);
+    m_backupThread->start();
+    return id;
+}
+
+void MainWindow::onBackupWriteFinished(const BackupFiles::WriteResult &result,
+                                       const QString &successTitle) {
+    const Tasks::TaskId id = m_backupTaskId;
+    m_backupTaskId = Tasks::invalidTaskId();
+    if (id != Tasks::invalidTaskId() && m_taskManager->has(id)) {
+        if (result.ok) {
+            m_taskManager->setStepState(id, 0, Tasks::TaskStepState::Done);
+            m_taskManager->setStepState(id, 1, Tasks::TaskStepState::Done);
+            m_taskManager->setDetail(id, tr("共 %1 个文件，%2")
+                                             .arg(result.manifest.fileCount())
+                                             .arg(backupSizeText(result.manifest.totalBytes)));
+            finishTask(id, true);
+        } else {
+            // 哪一步红的：**清单是空的 = 卡在统计那一步**（`writeBackup` 把收集到的文件
+            // 记在 `manifest.files` 里，"读不动某个文件""目录是空的"都走这一路）；
+            // 清单非空却失败了，那就只可能是打包那一步。
+            const int failedStep = result.manifest.files.isEmpty() ? 0 : 1;
+            m_taskManager->setStepState(id, failedStep, Tasks::TaskStepState::Failed,
+                                        result.problem);
+            finishTask(id, false, result.problem);
+        }
+    }
+
+    if (result.ok) {
+        appendLog(tr("%1：%2").arg(successTitle,
+                                   tr("共 %1 个文件，%2")
+                                       .arg(result.manifest.fileCount())
+                                       .arg(backupSizeText(result.manifest.totalBytes))));
+        InlineMessage::information(
+            m_ui->overlay(), successTitle,
+            tr("已经打好一份了：\n%1\n\n共 %2 个文件，%3。")
+                .arg(QDir::toNativeSeparators(result.zipPath))
+                .arg(result.manifest.fileCount())
+                .arg(backupSizeText(result.manifest.totalBytes)));
+    } else {
+        appendLog(tr("%1 没成：%2").arg(successTitle, result.problem));
+        InlineMessage::warning(m_ui->overlay(), successTitle, result.problem);
+    }
+}
+
+void MainWindow::onBackupRestoreFinished(const BackupFiles::RestoreResult &result,
+                                         const QString &successTitle) {
+    const Tasks::TaskId id = m_backupTaskId;
+    m_backupTaskId = Tasks::invalidTaskId();
+
+    // 引擎报的"走到哪一步"→ 账本上第几步（见 startBackupRestore 里那四步的顺序）。
+    const auto stepOf = [](BackupFiles::RestoreResult::Stage stage) {
+        switch (stage) {
+        case BackupFiles::RestoreResult::Stage::ReadManifest:
+            return 0;
+        case BackupFiles::RestoreResult::Stage::SafetySnapshot:
+        case BackupFiles::RestoreResult::Stage::RemoveOld:
+            return 1;
+        case BackupFiles::RestoreResult::Stage::Extract:
+            return 2;
+        case BackupFiles::RestoreResult::Stage::Verify:
+            return 3;
+        case BackupFiles::RestoreResult::Stage::Ok:
+            break;
+        }
+        return 3;
+    };
+
+    if (id != Tasks::invalidTaskId() && m_taskManager->has(id)) {
+        if (result.ok) {
+            for (int i = 0; i < 4; ++i) {
+                m_taskManager->setStepState(id, i, Tasks::TaskStepState::Done);
+            }
+            m_taskManager->setDetail(
+                id, tr("核对过 %1 个文件，全都对得上").arg(result.checked));
+            finishTask(id, true);
+        } else {
+            const int failed = stepOf(result.stage);
+            for (int i = 0; i < 4; ++i) {
+                // 红的这一步之前的一律算做完了，之后的还停在"没轮上"（和体检那四步一个写法）。
+                m_taskManager->setStepState(id, i,
+                                            i < failed   ? Tasks::TaskStepState::Done
+                                            : i == failed ? Tasks::TaskStepState::Failed
+                                                          : Tasks::TaskStepState::Pending,
+                                            i == failed ? result.problem : QString());
+            }
+            finishTask(id, false, result.problem);
+        }
+    }
+
+    if (result.ok) {
+        QString text = tr("已经还原好了。核对过 %1 个文件，全都对得上。").arg(result.checked);
+        if (!result.safetyZip.isEmpty()) {
+            text += tr("\n\n还原之前的「现在这一份」也留着，在这儿：\n%1")
+                        .arg(QDir::toNativeSeparators(result.safetyZip));
+        }
+        appendLog(tr("%1：%2").arg(successTitle, tr("核对过 %1 个文件").arg(result.checked)));
+        InlineMessage::information(m_ui->overlay(), successTitle, text);
+    } else {
+        appendLog(tr("%1 没成：%2").arg(successTitle, result.problem));
+        InlineMessage::warning(m_ui->overlay(), successTitle, result.problem);
+    }
+
+    // ★ 还原换掉的正是「世界设置」那一页上摆着的东西（名字 / 难度 / 规则全来自 level.dat），
+    //   所以跑完把那一页**重读一遍**（`setWorld()` 会重摆，随手把"改过还没存"那条台账也
+    //   重新记一遍基线 —— 换掉的内容不该再算成"用户改的"）。
+    //
+    // NOTE: 只在**成功**之后重读：失败时（比如"安全快照没做成就没动盘"）盘上那份没变，
+    //       页面上那些值还是对的，重读一遍只是白闪一下。而"删到一半失败"那种情况盘上是
+    //       真的变了 —— 所以那一路也重读（`result.stage == RemoveOld` 或 `Extract`）。
+    const bool diskChanged = result.ok || result.stage == BackupFiles::RestoreResult::Stage::RemoveOld
+                             || result.stage == BackupFiles::RestoreResult::Stage::Extract
+                             || result.stage == BackupFiles::RestoreResult::Stage::Verify;
+    if (diskChanged && !m_backupRefreshWorldDir.isEmpty() && !m_backupRefreshDialog.isNull()) {
+        showWorldSettingsPage(m_backupRefreshDialog.data(), m_backupRefreshWorldDir);
+    }
+    m_backupRefreshWorldDir.clear();
+    m_backupRefreshDialog = nullptr;
 }
 
 MainWindow::JavaMismatchAnswer MainWindow::askAboutJavaMismatch(

@@ -20,6 +20,7 @@
 #include <QColor>
 #include <QCoreApplication>
 #include <QCryptographicHash>
+#include <QDateTime>
 #include <QDebug>
 #include <QDir>
 #include <QElapsedTimer>
@@ -51,6 +52,7 @@
 #include <QUrl>
 #include <QWaitCondition>
 
+#include <algorithm>
 #include <stdexcept>
 
 #include "auth/AccountStore.hpp"
@@ -70,6 +72,10 @@
 #include "launcher/LibraryRules.hpp"
 #include "launcher/VersionArguments.hpp"
 #include "launcher/VersionInheritance.hpp"
+// 备份（世界 / 实例快照）那一层：清单、打包、还原。见 ZQ 节 —— 那一节是**真的动盘**的
+// （真打 zip、真删目录、真还原），所以它要 .cpp 而不只是头文件，而且要在一个临时游戏
+// 文件夹里跑（备份落点就是 `<数据目录>/cache/backups`）。
+#include "manage/BackupFiles.hpp"
 #include "manage/DefaultSkin.hpp"
 #include "manage/DroppedResource.hpp"  // V5z：拖进来那个文件到底是什么
 #include "manage/InstanceFiles.hpp"
@@ -22340,6 +22346,496 @@ static void runGameExitDiagnosisTests() {
     check(GameExitDiagnosis::hints(everything) == all, "★ ZP5 同一份事实永远同一串话");
 }
 
+/**
+ * @brief 世界与实例备份（2026-10-13，coding plan §4.4）：清单 / 打包 / 还原。
+ *
+ * 这一节**真打 zip**（走产品那条 PowerShell / .NET 的路）、**真删目录**、**真还原**，
+ * 所以它在一个 `QTemporaryDir` 里换一次 `AppPaths::setMinecraftDir()`（备份落点就是
+ * `<数据目录>/cache/backups`），跑完换回来 —— 不碰共享沙盒。
+ *
+ * 盯的是四件事，每一件都是"错了会静默丢东西"的那种：
+ *   ① 清单里的名字 / 大小 / sha1 是**数出来的**，不是别人说多少就是多少；
+ *   ② 排除只按**顶层目录名**（别处的同名目录照收）；
+ *   ③ 还原之前**先**给"现在这一份"做安全快照，**做不成就不许动**；
+ *   ④ 解出来了还要**逐文件对账**（"在"和"对"是两件事）。
+ */
+static void runBackupTests() {
+    section("ZQ. 世界与实例备份：清单 / 打包 / 还原（§4.4）");
+
+    const QString originalDir = AppPaths::minecraftDir();
+    QTemporaryDir temp;
+    check(temp.isValid(), "ZQ0 临时数据根目录建出来了");
+    if (!temp.isValid()) {
+        return;
+    }
+    AppPaths::setMinecraftDir(temp.path());
+
+    const auto sha1Of = [](const QByteArray &bytes) {
+        return QString::fromLatin1(QCryptographicHash::hash(bytes, QCryptographicHash::Sha1).toHex());
+    };
+    const auto fileAt = [](const QList<BackupFiles::FileRecord> &list, const QString &path) {
+        for (const BackupFiles::FileRecord &record : list) {
+            if (record.path == path) {
+                return record;
+            }
+        }
+        return BackupFiles::FileRecord();
+    };
+    const auto readAll = [](const QString &path) {
+        QByteArray bytes;
+        QFile file(path);
+        if (file.open(QIODevice::ReadOnly)) {
+            bytes = file.readAll();
+        }
+        return bytes;
+    };
+    const auto recordOf = [&sha1Of](const QString &path, const QByteArray &bytes) {
+        BackupFiles::FileRecord record;
+        record.path = path;
+        record.size = bytes.size();
+        record.sha1 = sha1Of(bytes);
+        return record;
+    };
+
+    const QString work = temp.path() + QStringLiteral("/work");
+    const QDateTime at = QDateTime::fromString(QStringLiteral("2026-10-13T10:15:30"), Qt::ISODate);
+
+    // ---------- ZQ1. 清单本身：往返、格式标记、前缀的合法性 ----------
+    //
+    // 清单是这一整套的凭据，所以先把它单独钉一遍：进 JSON 之前和出 JSON 之后**逐格一样**
+    // （少一格就是"还原出来落错地方"），认不出的格式 / 可疑的前缀**整份不认**。
+    BackupFiles::Manifest sample;
+    sample.kind = BackupFiles::Kind::World;
+    sample.root = QStringLiteral("基地周目");
+    sample.label = QStringLiteral("基地周目");
+    sample.sourceInstanceId = QStringLiteral("1.20.1-forge-47.2.0");
+    sample.sourceInstanceName = QStringLiteral("我的整合");
+    sample.gameVersion = QStringLiteral("1.20.1（Forge 47.2.0）");
+    sample.worldName = QStringLiteral("基地周目");
+    sample.createdAt = at;
+    sample.scope = QStringList{BackupFiles::scopeLine(QStringLiteral("saves/基地周目"), 2)};
+    sample.files = QList<BackupFiles::FileRecord>{
+        recordOf(QStringLiteral("level.dat"), QByteArrayLiteral("LEVELDATA")),
+        recordOf(QStringLiteral("region/r.0.0.mca"), QByteArrayLiteral("REGION-0-0"))};
+    // 故意写一个错的总数：清单是**记录**，不是凭据 —— 手改过这个数，界面上的"共 N MB"
+    // 不该跟着错（下面 ZQ1 第三条就是钉这个）。
+    sample.totalBytes = 999999;
+
+    bool ok = false;
+    const BackupFiles::Manifest back =
+        BackupFiles::manifestFromJson(BackupFiles::manifestToJson(sample), &ok);
+    check(ok && back.kind == BackupFiles::Kind::World && back.root == sample.root &&
+              back.label == sample.label && back.sourceInstanceId == sample.sourceInstanceId &&
+              back.sourceInstanceName == sample.sourceInstanceName &&
+              back.gameVersion == sample.gameVersion && back.worldName == sample.worldName &&
+              back.createdAt == sample.createdAt && back.scope == sample.scope,
+          "★ ZQ1 清单往返：§4.4 点名的四样（来源实例 id / 时间 / 游戏版本 / 包含范围）一字不差",
+          back.gameVersion);
+    check(back.files.size() == 2 &&
+              fileAt(back.files, QStringLiteral("region/r.0.0.mca")).sha1
+                  == sha1Of(QByteArrayLiteral("REGION-0-0")) &&
+              fileAt(back.files, QStringLiteral("region/r.0.0.mca")).size == 10,
+          "ZQ1 逐文件记录（名字 / 大小 / sha1）往返");
+    check(back.totalBytes == 19 && back.totalBytes != sample.totalBytes,
+          "★ ZQ1 totalBytes 以数出来的为准（手改过那个数不作数）",
+          QString::number(back.totalBytes));
+
+    // 格式标记对不上 → 整份不认。**这是最要紧的一条**：别的启动器做的包（或者以后我们自己
+    // 改了格式的旧包）只能被挡住，不能被半信半疑地往里解。
+    QByteArray forged = BackupFiles::manifestToJson(sample);
+    forged.replace(BackupFiles::formatTag().toUtf8(), QByteArrayLiteral("other-launcher/1"));
+    bool forgedOk = true;
+    check(!(BackupFiles::manifestFromJson(forged, &forgedOk).isValid()) && !forgedOk,
+          "★★ ZQ1 格式标记对不上就整份不认（别人的包绝不半信半疑地往里解）");
+
+    const QByteArray oddKind = QByteArrayLiteral(
+        "{\"format\":\"wtfml-backup/1\",\"kind\":\"tarball\",\"root\":\"x\","
+        "\"createdAt\":\"2026-10-13T10:15:30\"}");
+    bool oddOk = true;
+    check(!BackupFiles::manifestFromJson(oddKind, &oddOk).isValid() && !oddOk,
+          "★★ ZQ1 认不出的档（既不是 world 也不是 instance）→ 整份不认，不猜");
+
+    check(!BackupFiles::Manifest().isValid(), "ZQ1 空清单不算数（前缀和时间都得有）");
+    BackupFiles::Manifest escape = sample;
+    escape.root = QStringLiteral("../别人的目录");
+    check(!escape.isValid(), "★★ ZQ1 前缀里带 `..` 的清单不认（还原的落点是拼出来的）");
+    escape.root = QStringLiteral("a/b");
+    check(!escape.isValid(), "★★ ZQ1 前缀里带 `/` 的清单不认");
+    escape.root = QStringLiteral("C:/Windows");
+    check(!escape.isValid(), "★★ ZQ1 前缀是绝对路径的清单不认");
+    escape.root = QStringLiteral("..");
+    check(!escape.isValid(), "ZQ1 前缀就是 `..` 的清单不认");
+    const QByteArray slashRoot = QByteArrayLiteral(
+        "{\"format\":\"wtfml-backup/1\",\"kind\":\"world\",\"root\":\"../../x\","
+        "\"createdAt\":\"2026-10-13T10:15:30\"}");
+    bool slashOk = true;
+    check(!BackupFiles::manifestFromJson(slashRoot, &slashOk).isValid() && !slashOk,
+          "★ ZQ1 从 JSON 读进来那条路也挡住了（不是只有手搓的结构体才查）");
+
+    // 实例快照那两个字段只对它有意义：一个恒为 false 的 `complete` 落在世界备份上，
+    // 读的人只会以为那是个开关。
+    BackupFiles::Manifest snap = sample;
+    snap.kind = BackupFiles::Kind::Instance;
+    snap.root = QStringLiteral("1.20.1-forge-47.2.0");
+    snap.worldName.clear();
+    snap.complete = false;
+    snap.excluded = QStringList{QStringLiteral("assets"), QStringLiteral("libraries")};
+    const QByteArray snapJson = BackupFiles::manifestToJson(snap);
+    check(snapJson.contains(QByteArrayLiteral("\"excluded\"")) &&
+              !BackupFiles::manifestToJson(sample).contains(QByteArrayLiteral("\"excluded\"")),
+          "ZQ1 `excluded` / `complete` 只有实例快照才写（世界备份无从排除起）");
+    bool snapOk = false;
+    const BackupFiles::Manifest snapBack = BackupFiles::manifestFromJson(snapJson, &snapOk);
+    check(snapOk && snapBack.kind == BackupFiles::Kind::Instance && !snapBack.complete &&
+              snapBack.excluded == snap.excluded && snapBack.worldName.isEmpty(),
+          "ZQ1 实例快照那份（完整标记 + 排除表）往返");
+
+    // ---------- ZQ2. 走目录：哪些进、排序、排除只看顶层 ----------
+    const QString worldDir = work + QStringLiteral("/基地周目");
+    writeFileAt(worldDir + QStringLiteral("/level.dat"), QByteArrayLiteral("LEVELDATA"));
+    writeFileAt(worldDir + QStringLiteral("/region/r.0.0.mca"), QByteArrayLiteral("REGION-0-0"));
+    writeFileAt(worldDir + QStringLiteral("/region/r.0.-1.mca"), QByteArrayLiteral("REGION-0-N1"));
+    writeFileAt(worldDir + QStringLiteral("/sub/assets/keep.txt"), QByteArrayLiteral("keep"));
+    writeFileAt(worldDir + QStringLiteral("/assets/skip.txt"), QByteArrayLiteral("skip"));
+    writeFileAt(worldDir + QStringLiteral("/.session.lock"), QByteArrayLiteral("lock"));
+
+    QString collectProblem;
+    const QList<BackupFiles::FileRecord> allFiles =
+        BackupFiles::collectFiles(worldDir, QStringList(), &collectProblem);
+    check(collectProblem.isEmpty() && allFiles.size() == 6,
+          "ZQ2 走一遍世界目录：6 个文件（嵌套的、名字里带点的都在）",
+          QString::number(allFiles.size()) + " / " + collectProblem);
+    check(fileAt(allFiles, QStringLiteral("region/r.0.0.mca")).sha1
+              == sha1Of(QByteArrayLiteral("REGION-0-0")) &&
+              fileAt(allFiles, QStringLiteral(".session.lock")).size == 4,
+          "ZQ2 每条记录的校验值是按盘上内容真算的");
+
+    QStringList collected;
+    for (const BackupFiles::FileRecord &record : allFiles) {
+        collected.append(record.path);
+    }
+    QStringList sorted = collected;
+    std::sort(sorted.begin(), sorted.end());
+    check(collected == sorted,
+          "★★ ZQ2 清单按路径排序（同一份内容打两次包，清单要逐字一样）", collected.join('|'));
+    const QList<BackupFiles::FileRecord> again =
+        BackupFiles::collectFiles(worldDir, QStringList(), nullptr);
+    QStringList collectedAgain;
+    for (const BackupFiles::FileRecord &record : again) {
+        collectedAgain.append(record.path);
+    }
+    check(collectedAgain == collected, "ZQ2 走两遍结果一样");
+
+    const QList<BackupFiles::FileRecord> noAssets =
+        BackupFiles::collectFiles(worldDir, QStringList{QStringLiteral("assets")}, nullptr);
+    check(noAssets.size() == 5 && fileAt(noAssets, QStringLiteral("assets/skip.txt")).path.isEmpty(),
+          "★ ZQ2 顶层 `assets/` 被排除掉了（§4.4：默认不收能重新下回来的那一堆）",
+          QString::number(noAssets.size()));
+    check(fileAt(noAssets, QStringLiteral("sub/assets/keep.txt")).path
+              == QStringLiteral("sub/assets/keep.txt"),
+          "★★ ZQ2 排除**只看顶层**：某个模组自己 data 里的 assets 照收不误"
+          "（按名字全局排除会悄悄漏东西，几年之后才有人发现）");
+
+    const QString emptyDir = work + QStringLiteral("/空目录");
+    QDir().mkpath(emptyDir);
+    QString emptyProblem;
+    check(BackupFiles::collectFiles(emptyDir, QStringList(), &emptyProblem).isEmpty() &&
+              emptyProblem.isEmpty(),
+          "ZQ2 空目录回一张空表，**不是**一个错误（空表和「没走成」分得开）");
+    QString missingProblem;
+    check(BackupFiles::collectFiles(work + QStringLiteral("/没有这个目录"), QStringList(),
+                                    &missingProblem)
+                    .isEmpty() &&
+              !missingProblem.isEmpty(),
+          "ZQ2 目录不在时如实报错", missingProblem);
+
+    // ---------- ZQ3. 打包：真打一个 zip，再用产品的读侧读回来 ----------
+    BackupFiles::Manifest spec;
+    spec.kind = BackupFiles::Kind::World;
+    spec.root = QStringLiteral("基地周目");
+    spec.label = QStringLiteral("基地周目");
+    spec.sourceInstanceId = QStringLiteral("1.20.1-forge-47.2.0");
+    spec.sourceInstanceName = QStringLiteral("我的整合");
+    spec.gameVersion = QStringLiteral("1.20.1（Forge 47.2.0）");
+    spec.worldName = QStringLiteral("基地周目");
+    spec.scope = QStringList{BackupFiles::scopeLine(QStringLiteral("saves/基地周目"), 6)};
+    // createdAt 故意不填：用户在界面上点的没有"时间"这回事，是打包那一趟补上的。
+
+    const QString worldZip = BackupFiles::backupDir(BackupFiles::Kind::World) + QLatin1Char('/')
+                             + BackupFiles::backupFileName(spec.label, at);
+    const BackupFiles::WriteResult written = BackupFiles::writeBackup(spec, worldDir, worldZip);
+    check(written.ok && QFile::exists(worldZip), "ZQ3 世界备份真打出来了", written.problem);
+    check(written.manifest.fileCount() == 6 && written.manifest.createdAt.isValid() &&
+              written.manifest.totalBytes == 9 + 10 + 11 + 4 + 4 + 4,
+          "★ ZQ3 清单里的条数和总数是这一趟自己数出来的，时间也是这一趟补上的",
+          QString::number(written.manifest.fileCount()));
+    if (written.ok) {
+        const QByteArray zipBytes = readAll(worldZip);
+        check(zipBytes.contains(QByteArrayLiteral("wtfml-backup.json")) &&
+                  zipBytes.contains(QByteArrayLiteral("/region/r.0.0.mca")),
+              "★ ZQ3 zip 里：清单躺在**根上**，世界那堆文件在**一层前缀底下**"
+              "（清单放前缀里就会被解回用户的世界目录）");
+
+        bool readOk = false;
+        QString readProblem;
+        const BackupFiles::Manifest readBack =
+            BackupFiles::readManifest(worldZip, &readOk, &readProblem);
+        check(readOk && readBack.kind == BackupFiles::Kind::World &&
+                  readBack.root == QStringLiteral("基地周目") &&
+                  readBack.sourceInstanceId == spec.sourceInstanceId &&
+                  readBack.gameVersion == spec.gameVersion && readBack.fileCount() == 6,
+              "ZQ3 产品的读侧把这份包读回来了（含来源实例 id 和游戏版本）", readProblem);
+    }
+
+    // 别人的包：压缩包是好的，就是没有我们那份清单。
+    const QString foreignZip = work + QStringLiteral("/别人的包.zip");
+    writeFileAt(work + QStringLiteral("/别人的包.txt"), QByteArrayLiteral("hello"));
+    QString foreignZipError;
+    check(ZipUtil::createZip(
+              foreignZip,
+              {{QStringLiteral("别人的包.txt"), work + QStringLiteral("/别人的包.txt")}},
+              &foreignZipError),
+          "ZQ3 造一个别人的包（内容好好的，就是没有我们那份清单）", foreignZipError);
+    bool foreignOk = true;
+    QString foreignProblem;
+    BackupFiles::readManifest(foreignZip, &foreignOk, &foreignProblem);
+    check(!foreignOk && foreignProblem.contains(QStringLiteral("没有备份清单")),
+          "★★ ZQ3 「不是本启动器做的包」和「读不动」是**两句不同的话**（这里说的是前者，"
+          "不然用户会去怀疑一个其实好好的文件）",
+          foreignProblem);
+    bool junkOk = true;
+    QString junkProblem;
+    BackupFiles::readManifest(work + QStringLiteral("/别人的包.txt"), &junkOk, &junkProblem);
+    check(!junkOk && junkProblem.contains(QStringLiteral("不是一个压缩包")),
+          "ZQ3 拿一个根本不是压缩包的文件来 → 说的是「打不开」", junkProblem);
+
+    // 打不成的那几路：一个半成品都不许留在盘上。
+    const QString neverZip = work + QStringLiteral("/不该出现.zip");
+    const BackupFiles::WriteResult missing =
+        BackupFiles::writeBackup(spec, work + QStringLiteral("/没有这个目录"), neverZip);
+    check(!missing.ok && !missing.problem.isEmpty() && !QFile::exists(neverZip),
+          "★ ZQ3 来源目录不在 → 如实报错，盘上不留半成品", missing.problem);
+    BackupFiles::Manifest noRoot = spec;
+    noRoot.root.clear();
+    check(!BackupFiles::writeBackup(noRoot, worldDir, neverZip).ok,
+          "ZQ3 没说清前缀的清单打不了包（还原时落点拼不出来）");
+    const BackupFiles::WriteResult emptyWrite =
+        BackupFiles::writeBackup(spec, emptyDir, work + QStringLiteral("/空.zip"));
+    check(!emptyWrite.ok && !QFile::exists(work + QStringLiteral("/空.zip")),
+          "ZQ3 空目录没什么可备份的（不是打一个空包出来）", emptyWrite.problem);
+
+    // ---------- ZQ4. 还原：安全快照、拒绝、对账 ----------
+    const QString restoreParent = work + QStringLiteral("/还原到这儿");
+    QDir().mkpath(restoreParent);
+    const QString restoredWorld = restoreParent + QStringLiteral("/基地周目");
+
+    // ① 还原到一块空地：那儿本来什么都没有，所以**不该**做安全快照。
+    const BackupFiles::RestoreResult fresh = BackupFiles::restoreBackup(worldZip, restoreParent);
+    check(fresh.ok && fresh.checked == 6 && fresh.mismatched == 0 && fresh.safetyZip.isEmpty(),
+          "ZQ4 还原到一块空地：6 个文件全对上，没做安全快照（那儿本来什么都没有）",
+          fresh.problem);
+    check(fresh.targetPath == restoredWorld,
+          "★ ZQ4 落点 = 目标父目录 + 清单里那个前缀（不是文件名，也不是别处）",
+          fresh.targetPath);
+    check(readAll(restoredWorld + QStringLiteral("/level.dat")) == QByteArrayLiteral("LEVELDATA") &&
+              readAll(restoredWorld + QStringLiteral("/region/r.0.0.mca"))
+                  == QByteArrayLiteral("REGION-0-0"),
+          "★ ZQ4 解出来的内容一字不差（前缀被剥掉，落回来正是那个目录）");
+    check(!QFile::exists(restoredWorld + QStringLiteral("/wtfml-backup.json")) &&
+              !QFile::exists(restoreParent + QStringLiteral("/wtfml-backup.json")) &&
+              !QFile::exists(restoreParent + QStringLiteral("/level.dat")),
+          "★★ ZQ4 躺在 zip 根上的清单没有落进用户的世界目录，"
+          "存档那堆文件也没倒在上一层（前缀剥掉之后由我们补回来）");
+    check(QFile::exists(restoredWorld + QStringLiteral("/sub/assets/keep.txt")) &&
+              QFile::exists(restoredWorld + QStringLiteral("/.session.lock")),
+          "ZQ4 嵌套的、名字里带点的都回来了");
+
+    // ② 还原到"已经有一份"的地方：必须**先**做安全快照，再整个挪走。
+    //    往里塞一个备份里没有的文件 + 手改 level.dat —— 这两样如果没有被安全快照收走，
+    //    就在"还原"这个动作里**没了**。
+    writeFileAt(restoredWorld + QStringLiteral("/只在这儿有.txt"), QByteArrayLiteral("OLD-ONLY"));
+    writeFileAt(restoredWorld + QStringLiteral("/level.dat"), QByteArrayLiteral("CHANGED-BY-HAND"));
+    const BackupFiles::RestoreResult over = BackupFiles::restoreBackup(worldZip, restoreParent);
+    check(over.ok && !over.safetyZip.isEmpty() && QFile::exists(over.safetyZip),
+          "★ ZQ4 还原之前先给「现在这一份」做了一份安全快照", over.problem);
+    if (!over.safetyZip.isEmpty()) {
+        bool safetyOk = false;
+        QString safetyProblem;
+        const BackupFiles::Manifest safety =
+            BackupFiles::readManifest(over.safetyZip, &safetyOk, &safetyProblem);
+        check(safetyOk && safety.safety,
+              "★★ ZQ4 那一份是「自动做出来的」（清单里带着 safety 这个记号，界面才认得出它）",
+              safetyProblem);
+        check(safety.root == QStringLiteral("基地周目") &&
+                  safety.sourceInstanceId == spec.sourceInstanceId,
+              "ZQ4 安全快照记的还是原来那个前缀 / 来源实例（不然恢复回来会落到别的地方）");
+        check(fileAt(safety.files, QStringLiteral("只在这儿有.txt")).sha1
+                  == sha1Of(QByteArrayLiteral("OLD-ONLY")),
+              "★ ZQ4 安全快照里真有东西（那个「备份里没有、只在盘上」的文件也收进去了）");
+        check(fileAt(safety.files, QStringLiteral("level.dat")).sha1
+                  == sha1Of(QByteArrayLiteral("CHANGED-BY-HAND")),
+              "★★ ZQ4 安全快照是**改之前**那一份 —— 顺序反了的话这里会是解出来的内容");
+    }
+    check(!QFile::exists(restoredWorld + QStringLiteral("/只在这儿有.txt")),
+          "ZQ4 旧的整个挪走了（备份里没有的那个文件跟着一起走）");
+    check(readAll(restoredWorld + QStringLiteral("/level.dat")) == QByteArrayLiteral("LEVELDATA"),
+          "ZQ4 手改过的那一份被备份里的内容盖回去了");
+
+    // ③ 拿别人的包来还原：**在动盘之前**就停下，一个字节都不动。
+    writeFileAt(restoredWorld + QStringLiteral("/level.dat"), QByteArrayLiteral("STILL-HERE"));
+    const BackupFiles::RestoreResult refused = BackupFiles::restoreBackup(foreignZip, restoreParent);
+    check(!refused.ok && refused.stage == BackupFiles::RestoreResult::Stage::ReadManifest &&
+              !refused.problem.isEmpty(),
+          "★★ ZQ4 别人的包 → 第一步（读清单）就停下，连「第几步」都指得出来"
+          "（账本上那几步靠它，不去抠中文里的关键字）",
+          refused.problem);
+    check(readAll(restoredWorld + QStringLiteral("/level.dat")) == QByteArrayLiteral("STILL-HERE"),
+          "★★ ZQ4 拒绝的时候现在这一份**一个字节都没动**（读清单在动盘之前）");
+
+    // ④ 解出来了但对不上账：手搓一个"清单说 A、包里是 B"的包。
+    {
+        const QString tamper = work + QStringLiteral("/对不上");
+        const QByteArray realBytes = QByteArrayLiteral("真内容");
+        writeFileAt(tamper + QStringLiteral("/云存档/level.dat"), realBytes);
+        BackupFiles::Manifest lying;
+        lying.kind = BackupFiles::Kind::World;
+        lying.root = QStringLiteral("云存档");
+        lying.label = QStringLiteral("云存档");
+        lying.createdAt = at;
+        BackupFiles::FileRecord rec;
+        rec.path = QStringLiteral("level.dat");
+        rec.size = realBytes.size();                     // 长短先对上
+        rec.sha1 = sha1Of(QByteArrayLiteral("另一个内容"));  // 内容对不上
+        lying.files = QList<BackupFiles::FileRecord>{rec};
+        const QString lyingJson = work + QStringLiteral("/说谎的清单.json");
+        writeFileAt(lyingJson, BackupFiles::manifestToJson(lying));
+        const QString lyingZip = work + QStringLiteral("/对不上.zip");
+        QString lyingZipError;
+        check(ZipUtil::createZip(
+                  lyingZip,
+                  {{BackupFiles::manifestEntryName(), lyingJson},
+                   {QStringLiteral("云存档/level.dat"),
+                    tamper + QStringLiteral("/云存档/level.dat")}},
+                  &lyingZipError),
+              "ZQ4 手搓一个「清单和内容对不上」的包", lyingZipError);
+        const BackupFiles::RestoreResult mismatch = BackupFiles::restoreBackup(lyingZip, work);
+        check(!mismatch.ok && mismatch.stage == BackupFiles::RestoreResult::Stage::Verify &&
+                  mismatch.mismatched == 1 && mismatch.checked == 1,
+              "★★ ZQ4 解得开但对不上账 → 报出对不上的条数"
+              "（「文件在那儿」和「文件是对的」是两件事）",
+              mismatch.problem);
+        check(QFile::exists(work + QStringLiteral("/云存档/level.dat")),
+              "ZQ4 对不上账时解出来的那一份**留着**（用户手上有东西可救）");
+    }
+
+    // ⑤ **安全快照做不成就不许动** —— 这一整套里唯一不可接受的结果是"先把旧的删了、
+    //    再回来告诉你备份没做出来"。办法：把实例快照那个备份目录的位置摆成一个**文件**，
+    //    于是 mkpath 建不出来、zip 也落不了地。
+    {
+        const QString instanceDir = work + QStringLiteral("/我的实例");
+        writeFileAt(instanceDir + QStringLiteral("/options.txt"), QByteArrayLiteral("fov:70"));
+        writeFileAt(instanceDir + QStringLiteral("/assets/big.bin"), QByteArrayLiteral("60 MB 假装"));
+        writeFileAt(instanceDir + QStringLiteral("/mods/某模组/data/assets/pack.png"),
+                    QByteArrayLiteral("模组自己的"));
+        BackupFiles::Manifest snapSpec;
+        snapSpec.kind = BackupFiles::Kind::Instance;
+        snapSpec.root = QStringLiteral("我的实例");
+        snapSpec.label = QStringLiteral("我的实例");
+        snapSpec.excluded = QStringList{QStringLiteral("assets"), QStringLiteral("libraries")};
+        const QString snapZip = work + QStringLiteral("/实例快照.zip");
+        const BackupFiles::WriteResult snapWrite =
+            BackupFiles::writeBackup(snapSpec, instanceDir, snapZip);
+        check(snapWrite.ok, "ZQ5 实例快照也打得出来", snapWrite.problem);
+        check(fileAt(snapWrite.manifest.files, QStringLiteral("assets/big.bin")).path.isEmpty() &&
+                  fileAt(snapWrite.manifest.files, QStringLiteral("mods/某模组/data/assets/pack.png"))
+                          .path
+                      == QStringLiteral("mods/某模组/data/assets/pack.png"),
+              "★★ ZQ5 快照默认把能重新下回来的那两份（assets / libraries）排除掉了，"
+              "但模组自己带的 assets 一个不落");
+
+        const QString instanceBackups = BackupFiles::backupDir(BackupFiles::Kind::Instance);
+        QDir().mkpath(QFileInfo(instanceBackups).absolutePath());
+        writeFileAt(instanceBackups, QByteArrayLiteral("占住这个名字"));  // ← 让安全快照落不了地
+
+        writeFileAt(instanceDir + QStringLiteral("/options.txt"), QByteArrayLiteral("fov:90"));
+        const BackupFiles::RestoreResult blocked = BackupFiles::restoreBackup(snapZip, work);
+        check(!blocked.ok && blocked.stage == BackupFiles::RestoreResult::Stage::SafetySnapshot &&
+                  blocked.problem.contains(QStringLiteral("没有被改动")),
+              "★★ ZQ5 安全快照做不出来时当场停下，并且**明确说这个目录没被动过**",
+              blocked.problem);
+        check(readAll(instanceDir + QStringLiteral("/options.txt")) == QByteArrayLiteral("fov:90") &&
+                  QFile::exists(instanceDir + QStringLiteral("/assets/big.bin")),
+              "★★ ZQ5 那一趟现在这一份**一个字节都没动**（先删后说不可接受）");
+
+        QFile::remove(instanceBackups);
+        QDir().mkpath(instanceBackups);  // 还回去，别影响后面
+    }
+
+    // ---------- ZQ6. 落点、文件名、范围那一句 ----------
+    check(BackupFiles::backupRoot() == temp.path() + QStringLiteral("/cache/backups") &&
+              BackupFiles::backupDir(BackupFiles::Kind::World)
+                  == BackupFiles::backupRoot() + QStringLiteral("/worlds") &&
+              BackupFiles::backupDir(BackupFiles::Kind::Instance)
+                  == BackupFiles::backupRoot() + QStringLiteral("/instances"),
+          "ZQ6 备份落在 <数据目录>/cache/backups/{worlds,instances}",
+          BackupFiles::backupRoot());
+    const QString oddName = BackupFiles::backupFileName(QStringLiteral("基地:周目/一"), at);
+    check(oddName == QStringLiteral("基地-周目-一-2026-10-13-101530.zip"),
+          "★ ZQ6 文件名里的非法字符换成 `-`，时间戳定宽（按名字排序 = 按时间排序）", oddName);
+    check(BackupFiles::backupFileName(QStringLiteral("基地周目"), at, true)
+              == QStringLiteral("基地周目-恢复前-2026-10-13-101530.zip"),
+          "ZQ6 安全快照那一份文件名里带「恢复前」");
+    check(BackupFiles::backupFileName(QStringLiteral("基地：周目"), at)
+              .startsWith(BackupFiles::backupFilePrefix(QStringLiteral("基地：周目"))),
+          "★★ ZQ6 前缀筛子和文件名是**同一把尺子**"
+          "（不是的话用户自己的备份在列表里就看不见了）");
+    check(BackupFiles::backupFileName(QStringLiteral(" . "), at)
+              == QStringLiteral("backup-2026-10-13-101530.zip"),
+          "ZQ6 光剩下点和空格的 label 退回 `backup`（Windows 会把结尾的点悄悄吃掉，"
+          "两次备份就撞成同一个名字了）");
+    check(BackupFiles::backupFilePrefix(QString(200, QLatin1Char('a'))).size() == 81,
+          "ZQ6 label 太长时截到 80", QString::number(BackupFiles::backupFilePrefix(
+                                            QString(200, QLatin1Char('a'))).size()));
+    check(BackupFiles::scopeLine(QStringLiteral("saves/基地周目"), 6)
+              == QStringLiteral("saves/基地周目（6 个文件）"),
+          "ZQ6 范围那一句的唯一出处");
+
+    // ---------- ZQ7. 还原之后的逐文件对账（verifyTree）单独钉一遍 ----------
+    const QString checkDir = work + QStringLiteral("/对账");
+    writeFileAt(checkDir + QStringLiteral("/a.txt"), QByteArrayLiteral("AAAA"));
+    writeFileAt(checkDir + QStringLiteral("/b.txt"), QByteArrayLiteral("BBBBBB"));
+    writeFileAt(checkDir + QStringLiteral("/多出来的.txt"), QByteArrayLiteral("多说一个不算错"));
+
+    const BackupFiles::FileRecord goodA = recordOf(QStringLiteral("a.txt"), QByteArrayLiteral("AAAA"));
+    const BackupFiles::FileRecord goodB =
+        recordOf(QStringLiteral("b.txt"), QByteArrayLiteral("BBBBBB"));
+    check(BackupFiles::verifyTree(checkDir, {goodA, goodB}) == 0,
+          "ZQ7 全对上时 0 条对不上");
+    check(BackupFiles::verifyTree(
+              checkDir, {goodA, recordOf(QStringLiteral("没有这个.txt"), QByteArrayLiteral("x"))})
+              == 1,
+          "ZQ7 缺一个算一条");
+    BackupFiles::FileRecord shortOne = goodA;
+    shortOne.size += 1;
+    check(BackupFiles::verifyTree(checkDir, {shortOne}) == 1,
+          "ZQ7 长短不对就算不对（不用再算哈希）");
+    BackupFiles::FileRecord sameSizeWrongBody = goodB;
+    sameSizeWrongBody.sha1 = sha1Of(QByteArrayLiteral("CCCCCC"));
+    check(BackupFiles::verifyTree(checkDir, {sameSizeWrongBody}) == 1,
+          "★ ZQ7 长短一样但内容不一样 → 也算不对（只有哈希认得出这种）");
+    BackupFiles::FileRecord noHash = goodA;
+    noHash.sha1.clear();
+    check(BackupFiles::verifyTree(checkDir, {noHash}) == 0,
+          "ZQ7 清单里本来就没记校验值（手改过的清单）→ 查不了，不算它错");
+    check(BackupFiles::verifyTree(
+              checkDir, {recordOf(QStringLiteral("多出来的.txt"), QByteArrayLiteral("多说一个不算错"))})
+              == 0,
+          "ZQ7 备份里没有、盘上多出来的文件不算对不上（备份是「至少恢复这些」）");
+
+    AppPaths::setMinecraftDir(originalDir);
+}
+
+
 int main(int argc, char *argv[]) {
     QCoreApplication app(argc, argv);
     app.setApplicationName("WTFML");
@@ -23819,6 +24315,12 @@ int main(int argc, char *argv[]) {
     // 游戏异常退出那几句话（2026-10-12，coding plan §4.3），见上面 ZP 节。纯函数：值进、
     // 字符串出，不看时钟、不读盘、不起进程 —— 那一张提示表在这里逐格念一遍。
     runGameExitDiagnosisTests();
+
+    // -----------------------------------------------------------------
+    // 世界与实例备份（2026-10-13，coding plan §4.4），见上面 ZQ 节。**真打 zip、真删目录、
+    // 真还原**：自己开一个临时游戏文件夹（备份落点就是 `<数据目录>/cache/backups`）、跑完
+    // 换回去 —— 不碰共享沙盒；这一节留下的痕迹在盘上是好几个压缩包，留在沙箱里碍事。
+    runBackupTests();
 
     // -----------------------------------------------------------------
     out() << "\n===== " << (g_failures == 0 ? "全部通过" : "有失败项") << ": "

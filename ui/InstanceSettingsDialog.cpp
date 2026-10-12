@@ -809,6 +809,57 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         actionCells.append(cell);
     }
 
+    // ---------- §4.4 那两颗「快照」（2026-10-13）----------
+    //
+    // 摆在「复制实例」和「删除实例」中间：这一行是"整个实例"这一档的事儿 —— 左边那颗多出
+    // 一个实例、这两颗是把这一份**留起来 / 换回去**、右边那颗少掉一个。三颗都不动一格设置，
+    // 都是"对着整个实例做一件事"。
+    //
+    // NOTE: 「创建快照…」带省略号是**故意的**：按下去之后 MainWindow 会问一句"要不要连着
+    //       能重新下回来的那部分一起打包"（`InlineMessage::ask` 那三个选项）。省略号在这套
+    //       界面里就是"后面还会问一句"的意思，别为了好看去掉。
+    {
+        auto *cell = new QWidget(this);
+        auto *column = new QVBoxLayout(cell);
+        column->setContentsMargins(0, 0, 0, 0);
+        column->setSpacing(4);
+        auto *button = new QPushButton(createSnapshotText(), cell);
+        button->setObjectName(createSnapshotButtonName());
+        button->setToolTip(createSnapshotTooltip());
+        connect(button, &QPushButton::clicked, this,
+                [this]() { emit createSnapshotRequested(); });
+        prepareActionButton(button);
+        column->addWidget(button);
+        auto *hint = new QLabel(createSnapshotHint(), cell);
+        hint->setWordWrap(true);
+        column->addWidget(hint);
+        actionCells.append(cell);
+    }
+    {
+        auto *cell = new QWidget(this);
+        auto *column = new QVBoxLayout(cell);
+        column->setContentsMargins(0, 0, 0, 0);
+        column->setSpacing(4);
+        auto *button = new QPushButton(restoreSnapshotText(), cell);
+        button->setObjectName(restoreSnapshotButtonName());
+        button->setToolTip(restoreSnapshotTooltip());
+        // ★ 红：它把**现在这一份**整个换掉 —— 和「删除实例」同一档（`Danger` 那一档的界定
+        //   是"删了就拿不回来"，里面点名的几条里就有**还原**："还原上一次"）。
+        //
+        //   NOTE: 还原之前自动留的那一份安全快照（对面那颗「打开备份目录」翻得到）是**兜底**，
+        //         不是"这一步没风险"：用户按下去那一刻，屏幕上这一份就已经不在了，想回来得
+        //         自己再走一趟还原。红色说的正是这件事。
+        Theme::markButton(button, Theme::ButtonKind::Danger);
+        connect(button, &QPushButton::clicked, this,
+                [this]() { emit restoreSnapshotRequested(); });
+        prepareActionButton(button);
+        column->addWidget(button);
+        auto *hint = new QLabel(restoreSnapshotHint(), cell);
+        hint->setWordWrap(true);
+        column->addWidget(hint);
+        actionCells.append(cell);
+    }
+
     // ---------- 「删除实例」（2026-09-28）----------
     //
     // 用户原话：「顺便把删除实例功能做了，按钮放在概览里」。摆在「复制实例」下面 ——
@@ -839,8 +890,12 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         actionCells.append(cell);
     }
 
-    // 五格攒齐了，一次性摆成"每行三颗"。**必须摆在这一段之后**：那五格是在上面五个
+    // 七格攒齐了，一次性摆成"每行三颗"。**必须摆在这一段之后**：那七格是在上面七个
     // 作用域里各自建出来的，layoutActionCells() 要的是完整的一份。
+    //
+    // NOTE: 七格排三列 ⇒ 最后一行只有「删除实例」一颗（旁边两格空着、**不摊开**，
+    //       见 layoutActionCells() 那条 NOTE）。这不是排漏了 —— 那颗是这一页上唯一
+    //       真会丢东西的按钮，让它单独占一行反而更好按得准。
     layoutActionCells(actionGrid, actionCells);
     grid->addLayout(actionGrid, row++, 0, 1, 2);
 

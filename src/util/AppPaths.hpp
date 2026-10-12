@@ -291,6 +291,27 @@ inline QString worldBackupDir() {
     return minecraftDir() + QStringLiteral("/cache/world-backups");
 }
 
+/// 用户自己点出来的备份（存档 / 实例快照，coding plan §4.4）落在哪儿：
+/// <数据目录>/cache/backups/{worlds,instances}。
+///
+/// 和上面两份**差在"谁产生的"**：那两份是**我们**动用户的文件之前顺手留的（用户没点过，
+/// 甚至不知道它们存在），这一份是**用户点出来**的、他找得到、也**会自己要回去**的那种。
+/// 所以它摆在同一个 `cache/` 底下（同一条"挂数据根目录、可以整体拷走"的约定），但分成
+/// 另外两个目录 —— 上面那两份各有各的清理规矩（配置备份只留 20 代），而用户自己点的备份
+/// **我们一个都不删**：那是他的东西。
+///
+/// ★ 为什么**不能**摆在 `<实例>/backups/`（最自然的那一个选择）：实例快照默认排除
+///   `assets` / `libraries`，而"排除"是**按顶层目录名**做的 —— 备份目录要是住在实例里面，
+///   第二次备份就会把第一次那份 zip 打进第二次的包里，越大越离谱；完整快照更是把上一份
+///   整个吃进去。放在 `cache/` 底下、和 `versions/` 平级，这条链天然断掉。
+///
+/// NOTE: 目录名分两档（`worlds` / `instances`）而不是混着摆，理由和上面配置/存档分开那一段
+///       逐字同源：一个存档包和一个实例快照包**还原到的地方根本不是一回事**，混在一个列表里
+///       早晚会有人拿实例包去还原一个存档。文件名里也带着这一档（见 BackupFiles::backupFileName）。
+inline QString backupDir() {
+    return minecraftDir() + QStringLiteral("/cache/backups");
+}
+
 /// 「这个文件是哪个资源」那一趟反查（`InstanceIconLookup`）的结果留在本地：
 /// <数据目录>/cache/instance-icons，**一个实例一个 json**（文件名 = 实例 id 的 sha1）。
 ///

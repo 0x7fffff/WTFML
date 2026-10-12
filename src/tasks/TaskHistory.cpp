@@ -45,6 +45,8 @@ const char *kindKey(TaskKind kind) {
         return "integrity";
     case TaskKind::Crash:
         return "crash";
+    case TaskKind::Backup:
+        return "backup";
     case TaskKind::Other:
         break;
     }
@@ -75,6 +77,9 @@ TaskKind kindFromKey(const QString &key) {
     }
     if (key == QLatin1String("crash")) {
         return TaskKind::Crash;
+    }
+    if (key == QLatin1String("backup")) {
+        return TaskKind::Backup;
     }
     return TaskKind::Other;
 }

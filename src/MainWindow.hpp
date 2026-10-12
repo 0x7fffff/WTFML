@@ -67,6 +67,9 @@
 #include "..\ui\IntegrityReportPage.hpp"
 // VersionIntegrity::Report —— 体检结论留一份在成员里（报告页每次开都重新喂一遍）。
 #include "manage/VersionIntegrity.hpp"
+// 世界 / 实例的备份与还原（coding plan §4.4，2026-10-13）：那几颗按钮起的那一趟后台活
+// 直接调它，界面上挑备份 / 弹结果也读它的 `Manifest` / `WriteResult` / `RestoreResult`。
+#include "manage/BackupFiles.hpp"
 // GameExitDiagnosis::Facts —— 游戏异常退出那一项（§4.3）留一份事实在成员里，事后
 // 「导出错误报告」还要用它，所以是按值存的。
 #include "diag/GameExitDiagnosis.hpp"
@@ -476,6 +479,64 @@ private slots:
     void onIntegrityScanProgress(int checked, int total, int groupIndex);
     /// 体检跑完了（同样在 UI 线程上）。收任务、存结论、开报告页。
     void onIntegrityScanFinished(const VersionIntegrity::Report &report);
+
+    // ---------- 世界与实例备份（coding plan §4.4，2026-10-13）----------
+    //
+    // 四个入口（世界那一页三颗 + 概览那两颗）最后都落到**同一个**引擎
+    // （`src/manage/BackupFiles`）和**同一趟**后台活上。分成"打一份"和"还原一份"两条路：
+    //
+    //   打一份：世界页「立即备份」/ 概览「创建快照…」 → `startBackupWrite()`
+    //   还原：  世界页「恢复备份…」/ 概览「从快照恢复…」 → `startBackupRestore()`
+    //
+    // ★ 一次只跑一趟（共用 `m_backupTaskId`）：备份和还原都是"走一遍整棵目录、算每个文件的
+    //   哈希"，两趟叠着跑只会互相抢盘，而且账本里那两行进度会一起跳。
+    //
+    // NOTE: 走 `QThread::create` + `invokeMethod` 那一套（和体检同一个路数）而不是
+    //       `QtConcurrent`：这两趟都**没有**进度回调（"一共多少个文件"要等整棵走完才知道，
+    //       见 .cpp 里那一段），所以不需要 `QFutureWatcher` 那一层。
+
+    /// 用户点了世界页的「立即备份」：把整个存档文件夹打成一个 zip（`TaskKind::Backup`）。
+    void backupWorldNow(const QString &worldDir);
+    /// 用户点了世界页的「恢复备份…」：挑一份这个世界的备份还原回去。
+    void restoreWorldBackup(const QString &worldDir);
+    /// 用户点了概览栏的「创建快照…」：先问一句"要不要连能重新下回来的那部分一起打包"，
+    /// 再把这个实例打成一个 zip。
+    void snapshotInstance(const QString &versionId);
+    /// 用户点了概览栏的「从快照恢复…」：挑一份这个实例的快照还原回去。
+    void restoreInstanceSnapshot(const QString &versionId);
+    /// 打开备份目录（`Kind` 只决定进哪一个子目录：世界 / 实例）。
+    void openBackupFolder(BackupFiles::Kind kind);
+    /// 在 @p dir 底下按**文件名前缀**挑出属于 @p label 的那些备份，让用户选一份。
+    ///
+    /// @param what 只有"一份都还没有"那句话用得上（「这个世界」/「这个实例」）。
+    /// @return 选中的那份 zip 的绝对路径；一份都没有 / 用户取消 = **空串**（该说的话
+    ///         已经在这个函数里弹过了，调用方直接 return 就是）。
+    QString pickBackupZip(const QString &dir, const QString &label, const QString &what);
+
+    /// 起一趟"打一份备份"的后台活。返回账本里那一项的任务号（没起成 = 无效号）。
+    ///
+    /// @param manifest 描述（`files` / `totalBytes` 由后台那一趟自己填）
+    /// @param sourceDir 要打进去的目录
+    /// @param targetZip 落点（父目录由这一层建）
+    /// @param title 账本上那一行写什么
+    /// @param targetId 这一项挂在哪个实例上（打开日志 / 打开目标位置用它）
+    /// @param successTitle 成功之后那个框的标题（世界和实例各说各的）
+    Tasks::TaskId startBackupWrite(const BackupFiles::Manifest &manifest, const QString &sourceDir,
+                                   const QString &targetZip, const QString &title,
+                                   const QString &targetId, const QString &successTitle);
+    /// 起一趟"还原一份备份"的后台活（先做安全快照 → 挪走旧的那一份 → 解压 → 对账）。
+    Tasks::TaskId startBackupRestore(const QString &zipPath, const QString &targetParentDir,
+                                     const QString &title, const QString &targetId,
+                                     const QString &successTitle);
+    /// 后台那一趟打完了（**一定在 UI 线程上**）：收任务、记日志、弹结果。
+    void onBackupWriteFinished(const BackupFiles::WriteResult &result, const QString &successTitle);
+    /// 后台那一趟还原完了（同样在 UI 线程上）。
+    void onBackupRestoreFinished(const BackupFiles::RestoreResult &result,
+                                 const QString &successTitle);
+    /// 这一份备份的文件名在**盘上是否真在**（挑备份那两处按前缀筛完再核一遍）。
+    /// 顺带把"多大 / 什么时候的"拼成一句给清单用（**读一份清单要起一次 PowerShell**，
+    /// 所以挑之前只看得见文件名和这个便宜的大小/时间，见 `BackupFiles::backupFilePrefix`）。
+    static QString backupPickLine(const QString &zipPath);
     /// 「复制实例」（2026-09-28，用户原话「实例设置的概览里面加一条复制实例，点击以后让
     /// 用户选择复制到的文件夹，然后给定复制后的实例名称」）。
     ///
@@ -2771,6 +2832,27 @@ private:
     /// 体检报告页（**建一次留着**，每次开页 `setReport()` 重摆 —— 和任务详情页 / 资源详情页
     /// 同一个路数）。`ui/` 的类，所以是个裸指针 + `deleteLater`（见析构那一段）。
     IntegrityReportPage *m_integrityReportPage = nullptr;
+
+    // ---------- 备份 / 还原（coding plan §4.4，2026-10-13）----------
+    // 打一份和还原一份共用这一套：只有一趟能跑（见上面那段的 NOTE）。
+    /// 正在跑的那一趟的任务号（无效号 = 没在跑）。
+    Tasks::TaskId m_backupTaskId = Tasks::invalidTaskId();
+    /// 跑那一趟的线程（`QThread::create`，和 m_integrityThread 同一个路数）。
+    QThread *m_backupThread = nullptr;
+    /// 关窗时置上：让后台那一趟知道主窗口要没了（它跑完不再排回来）。
+    /// NOTE: 这两个引擎函数**没有中途收手的口子** —— 走到一半停下来只会留一个半截的包 /
+    ///       一个删了一部分的目录，比让它跑完糟得多（同 Export 不给「取消」那条理由）。
+    ///       所以这一位只用来"别把结果排回一个正在拆的窗口"，不是"掐断"。
+    QAtomicInt m_backupAbort{0};
+    /// 这一趟跑完之后要把「世界设置」那一页**重读一遍**（还原换掉的正是那一页上摆着的值）。
+    /// 存的是那个世界的目录；**空 = 不用重读**。
+    ///
+    /// NOTE: 只有**世界还原**那一条路会摆它 —— 打备份一个字节都不改盘，实例快照也不动
+    ///       这一页（它改的是实例目录，而那一页读的是 `level.dat`）。
+    QString m_backupRefreshWorldDir;
+    /// 上面那一页还在不在（`QPointer`，和测速那几处同一个路数）：用户完全可能在备份跑完
+    /// 之前就返回、把实例设置收掉了。收掉了就什么都不做（盘上的事已经做完了）。
+    QPointer<InstanceSettingsDialog> m_backupRefreshDialog;
     // ★ 2026-09-27 加：会话号 → 那一份的实例显示名。**启动那一刻记一次**，退出时用掉、删掉。
     //
     // 唯一用途是 onGameFinished() 里那行日志的 `[实例名] ` 前缀 —— 那时会话已经从

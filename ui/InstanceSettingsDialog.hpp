@@ -1051,6 +1051,36 @@ public:
         return QStringLiteral("扫描在后台跑，期间可以接着用启动器。扫完会开一页报告。");
     }
 
+    // ---- 概览栏那两颗「快照」（coding plan §4.4，2026-10-13）----
+    //
+    // 和「检查并修复」一样**只发信号**：清单、后台线程、任务账本、挑哪一份、"还原之前先给
+    // 现在这一份做安全快照"全在 MainWindow 那边（这一层连读盘都没有）。
+    //
+    // ★ 为什么是"快照"而不是"备份"：概览这一栏已经有一颗「导出…」（出的是**给别人用的**
+    //   整合包）。同一个实例上再来一颗叫「备份」的，用户分不清哪一颗是"我自己要回去用的"。
+    //   快照 = 给我自己还原用的那一份（默认排除能重新下回来的 assets / libraries）。
+    static QString createSnapshotButtonName() { return QStringLiteral("instanceSnapshotButton"); }
+    static QString createSnapshotText() { return QStringLiteral("创建快照…"); }
+    /// 那一格下面那句解释。**要点名默认排除的是什么** —— 那是用户唯一需要知道的分岔。
+    static QString createSnapshotHint() {
+        return QStringLiteral("把这个实例（模组、配置、存档…）打成一份可以整体还原的快照。"
+                              "默认不打包能重新下回来的资源文件和游戏库，要连着它们一起"
+                              "打包的话按下去之后可以选。");
+    }
+    static QString createSnapshotTooltip() {
+        return QStringLiteral("打在后台跑，期间可以接着用启动器。"
+                              "快照放在启动器数据目录的 cache/backups/instances 底下。");
+    }
+    static QString restoreSnapshotButtonName() { return QStringLiteral("instanceRestoreSnapshotButton"); }
+    static QString restoreSnapshotText() { return QStringLiteral("从快照恢复…"); }
+    static QString restoreSnapshotHint() {
+        return QStringLiteral("从以前留的快照里挑一份，把这个实例还原回那时候的样子。"
+                              "还原之前会先自动给现在这一份留一份，还原之后逐文件核对。");
+    }
+    static QString restoreSnapshotTooltip() {
+        return QStringLiteral("会先问一句，然后收掉这一页再干活（会覆盖这个实例现在的文件）。");
+    }
+
     // ---- 文件管理那八页的文案与 objectName（2026-09-26）----
 
     /// 快捷方式那九颗按钮：**两张按下标对齐的表**（按钮上的字 / 路径键）。
@@ -1571,6 +1601,21 @@ signals:
      * 这个实例这会儿装没装、任务账本怎么记。这一层只报"用户想做一次体检"。
      */
     void integrityCheckRequested();
+
+    /**
+     * @brief 用户点了概览栏那颗「创建快照…」（coding plan §4.4）。
+     *
+     * 按下去之后 MainWindow 先问一句"要不要连着能重新下回来的那部分一起打包"，然后起一趟
+     * 后台打包、记进任务账本。**这一层不碰盘**（见 .hpp 里 createSnapshotText 那段）。
+     */
+    void createSnapshotRequested();
+
+    /**
+     * @brief 用户点了概览栏那颗「从快照恢复…」（coding plan §4.4）。
+     *
+     * 挑哪一份、确认、以及"还原之前先给现在这一份做安全快照"全在 MainWindow 那边。
+     */
+    void restoreSnapshotRequested();
 
     /**
      * @brief 用户在一个文件夹上按了「打开」（快捷方式那九颗按钮，或者某一页的「打开文件夹」）。

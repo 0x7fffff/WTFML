@@ -45,6 +45,7 @@ enum class TaskKind {
     Java,       // Java 的扫描 / 下载
     Integrity,  // 完整性扫描
     Crash,      // 游戏异常退出之后补的那一项（§4.3）。**一建出来就是终态**，从不"在跑"
+    Backup,     // 打一份存档 / 实例快照（§4.4），或者从一份备份还原回去
     Other,
 };
 
@@ -162,6 +163,9 @@ inline int summaryPriority(const TaskSnapshot &task, bool unreadFailure) {
         case TaskKind::Import:
             return 3;  // 导入整合包 = "装一整套东西"，和安装同一档
         case TaskKind::Export:
+        // `Backup`（§4.4）和导出同一档：都是"本地打包一个目录"，只读盘、没有网络、
+        // 也就没有"等着它"的那种紧迫感 —— 让位给上面那几档。
+        case TaskKind::Backup:
             return 5;
         case TaskKind::Java:
         case TaskKind::Integrity:
