@@ -78,6 +78,26 @@ inline QString minecraftDir() {
 /// 已安装版本的根目录：<数据目录>/versions
 inline QString versionsDir() { return minecraftDir() + QStringLiteral("/versions"); }
 
+/// 游戏自己写的崩溃报告：<数据目录>/crash-reports
+///
+/// ★ 2026-10-13（coding plan §5.3）：原来这一句**逐字写在** `MainWindow::openCrashReportsDir()`
+///   里，现在多了一位读者（实例设置概览那排常用目录的「崩溃报告」），于是收进来。它和
+///   versions/ 平级、**不按实例分** —— 游戏进程的工作目录就是数据目录，崩溃报告落在那儿，
+///   写它的不是我们。
+inline QString crashReportsDir() {
+    return minecraftDir() + QStringLiteral("/crash-reports");
+}
+
+/// ReplayMod 的录像落点：<数据目录>/replay_recordings
+///
+/// NOTE: 目录名是**那个模组定的**（ReplayMod 从 1.x 起就叫这个），改不了；同样是
+///       "游戏/模组自己写、我们只读"，所以跟 crashReportsDir() 摆在一起。不按实例分
+///       （理由同上）。§5.3 那排常用目录拿 `QDir(...).exists()` 当"这一路现在有没有东西"，
+///       「录像」那一路还多一条判据（这个实例装没装 ReplayMod，见 instanceCommonFolderKeys）。
+inline QString replayRecordingsDir() {
+    return minecraftDir() + QStringLiteral("/replay_recordings");
+}
+
 /// 单个版本自身的目录：versions/<id>
 /// NOTE: versionId 是目录名、也是进 --version 的值，可以含中文/空格/全角括号（实测用户的
 ///       实例名就有 `26.2-Fabric 0.19.5`、`原版ATT2地图（无模组）` 这种）。这里不做任何

@@ -10608,7 +10608,18 @@ void MainWindow::openInstanceSettingsNow(const QString &versionId, const QString
         //   拼接）—— 这一趟要用它两次（`setFileDirs` 和下面 structure 那一格），算一次存下来。
         const QHash<QString, QString> fileDirs = instanceFileDirs(id);
         dialog.setInstanceDir(AppPaths::versionDir(id));
-        dialog.setFileDirs(fileDirs);
+        // ★ 2026-10-13（coding plan §5.3「实例工具入口补齐」）：概览那排「常用目录」多要
+        //   三路 —— 游戏目录 / 录像 / 崩溃报告。**并进同一份一起灌**（见 .hpp 里
+        //   setFileDirs() 那条 NOTE：这一层只是"按某个键取一个路径"，多出来的键没人当页读），
+        //   不去动 instanceFileDirs() 的形状（它那个九条有断言在数）。
+        QHash<QString, QString> shortcutDirs = fileDirs;
+        shortcutDirs.insert(QStringLiteral("game"), AppPaths::minecraftDir());
+        shortcutDirs.insert(QStringLiteral("replay"), AppPaths::replayRecordingsDir());
+        shortcutDirs.insert(QStringLiteral("crash"), AppPaths::crashReportsDir());
+        dialog.setFileDirs(shortcutDirs);
+        // 那排按钮分两段的判据（哪几路"现在真有东西"）—— 理由与逐条判据见
+        // instanceCommonFolderKeys()。**必须紧跟着 setFileDirs()**：它按这一份路径算。
+        dialog.setFolderPresentKeys(instanceCommonFolderKeys(id, shortcutDirs));
         // 左栏那一列是**按实例现算**的（2026-09-27）：这几页要"用得上"才列出来。四个判据
         // 全在这一层 —— loadername / mods 目录 / 装没装那个 mod / 游戏版本够不够新，ui/
         // 一样都够不着。
@@ -11591,6 +11602,41 @@ QHash<QString, QString> MainWindow::instanceFileDirs(const QString &versionId) c
         dirs.insert(entry.first, root + QLatin1Char('/') + entry.second);
     }
     return dirs;
+}
+
+QStringList MainWindow::instanceCommonFolderKeys(const QString &versionId,
+                                                 const QHash<QString, QString> &dirs) const {
+    // coding plan §5.3 原话：「仅在**目录存在**或**相关模组可识别**时优先展示，其他项收在
+    // "更多目录"」—— 这个函数就是那句话的那两条判据，一条不多。
+    //
+    // NOTE: **没有第二张"哪些一定得有"的表** —— 十三条里十二条的判据都是同一个
+    //       `QDir(path).exists()`，唯一一条例外是「录像」（下面说明）。加一条新的常用目录时
+    //       只该往 shortcutPathKeys() 那张表里加一行，不该在这儿再加一个分支。
+    const QString instanceDir = AppPaths::versionDir(versionId);
+    // 「录像」是唯一一条"目录还没有、也算有"的：没装 ReplayMod 的用户这辈子看不到这个
+    // 目录，装了但还没录过的实例上它往往也还没建（第一次开录像时才建）。所以**装了那个
+    // 模组就算有** —— 这正是 §5.3 那句"相关模组可识别"。识别的办法和仓里别的几处一样，
+    // 走 instanceHasMod()（mods/ 里文件名的那个整段词，见它上面那段说明）。
+    //
+    // NOTE: 目录名 `replay_recordings` 的出处是 AppPaths::replayRecordingsDir()（那个模组
+    //       定的名字），这一层不自己拼。
+    const bool hasReplayMod = instanceHasMod(versionId, QStringLiteral("replaymod"));
+
+    QStringList present;
+    const QStringList keys = InstanceSettingsDialog::shortcutPathKeys();
+    for (const QString &key : keys) {
+        // 「版本目录」开的是 setInstanceDir() 那一份、不在 dirs 里 —— 判据照旧是同一个
+        // （见 .hpp 里 setFileDirs() 那条 NOTE）。
+        const QString path = key == QStringLiteral("dir") ? instanceDir : dirs.value(key);
+        bool ok = !path.isEmpty() && QDir(path).exists();
+        if (key == QStringLiteral("replay")) {
+            ok = ok || hasReplayMod;
+        }
+        if (ok) {
+            present.append(key);
+        }
+    }
+    return present;
 }
 
 void MainWindow::openDownloadCategory(const QString &categoryKey, const QString &returnInstanceId) {
@@ -14274,7 +14320,9 @@ void MainWindow::openCrashReportsDir(const QString &key) {
     //       就是数据目录，见 LauncherManager 里那句 setWorkingDirectory），它**不按实例分**
     //       —— 所以这一格开的是那一整份目录，`key` 在这里只是"路由统一"用的，没有别的作用。
     Q_UNUSED(key);
-    const QString dir = AppPaths::minecraftDir() + QStringLiteral("/crash-reports");
+    // ★ 2026-10-13：这一句搬进了 AppPaths::crashReportsDir() —— §5.3 那排常用目录的
+    //   「崩溃报告」开的是**同一个**目录，两份硬编码迟早对不上。
+    const QString dir = AppPaths::crashReportsDir();
     if (!QDir().exists(dir)) {
         InlineMessage::warning(
             m_ui->overlay(), tr("还没有崩溃报告"),

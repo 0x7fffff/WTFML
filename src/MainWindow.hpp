@@ -670,6 +670,18 @@ private slots:
     /// 那一路也照着它写），原理图 / 存档 / 截图 / 日志不在下载页那几类里，目录名写在这儿。
     QHash<QString, QString> instanceFileDirs(const QString &versionId) const;
 
+    /// 概览那排「常用目录」里**现在真有东西**的那几路（coding plan §5.3）。
+    ///
+    /// 判据是 §5.3 原话那两条：「目录存在」或「相关模组可识别」—— 逐条理由见 .cpp 里那段。
+    /// 它和 `instanceFileDirs()` **不是一回事**：那一份回答"这个实例的每一路目录在哪儿"
+    /// （形状是九条，有断言在数），这一份回答"这十三条里哪几条现在值得摆在外面"。
+    ///
+    /// @param dirs 灌给 `InstanceSettingsDialog::setFileDirs()` 的那一份（含 `game` /
+    ///        `replay` / `crash` 三个额外键 —— 它们就在那儿被读的，这一层不自己再算一遍
+    ///        路径，两个地方算同一个路径正是"两份值"的经典起手式）。
+    QStringList instanceCommonFolderKeys(const QString &versionId,
+                                         const QHash<QString, QString> &dirs) const;
+
     /// 切到下载页的 @p categoryKey 那一栏（2026-09-27）。
     ///
     /// 入口是「文件管理」里那四页顶上的「下载新模组 / 资源包 / 数据包 / 光影」—— 用户原话

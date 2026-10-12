@@ -535,6 +535,12 @@ public:
     /// 把六页目录列表**重新列一遍**。MainWindow 动过盘（删了 / 改了名）之后喊它。
     void refreshFilePages();
 
+    // ---- 概览页那排常用目录的两段（§5.3）----
+    /// 按「在盘的在外、其余收着」把那一排**重摆一次**（唯一出处，见 .cpp 里那段）。
+    void relayoutShortcuts();
+    /// 点「更多目录…」/「收起更多目录」。
+    void toggleMoreShortcuts();
+
     // ---- 「配置文件」那一页的两条（见 openConfigFileRequested 那段）----
     /// 用户打开了 `config/` 底下的一条：目录 = 进去（这一层自己办），文件 = 发信号。
     void onConfigEntryActivated(const QString &path, bool isDir);
@@ -619,6 +625,12 @@ public:
     /// `schematic` / `config` / `save`），外加两个**只有概览页上那排快捷按钮用得上**的
     /// （`screenshots` / `logs` —— 它们没有自己的页）。`dir` 和 `server` 两个键不用给：
     /// 前者开的是 setInstanceDir() 那一份，后者给的是**解析好的一份列表**（见 setServerList()）。
+    ///
+    /// NOTE: 上面那九条是**文件管理那几页**要的，一条不多。★ 2026-10-13（§5.3）那排按钮又
+    ///       多要三路目录（`game` / `replay` / `crash`），它们**并在这同一份里一起灌**进来：
+    ///       这一层只是"按某个键取一个路径"，多出来的键没有任何人当"页"读过（那几页认的是
+    ///       `filePageKeys()`），而 MainWindow 那边的 `instanceFileDirs()` 形状保持不变
+    ///       （它有断言在数九条，为了这三条去动它不划算）。
     ///
     /// NOTE: 路径**由调用方算好递进来**，这一层不自己拼 `<实例目录>/mods` —— 那几个目录名
     ///       是 MC 的约定，仓库里已经有唯一一份出处（src/download/ResourceCatalog 的
@@ -1083,7 +1095,7 @@ public:
 
     // ---- 文件管理那八页的文案与 objectName（2026-09-26）----
 
-    /// 快捷方式那九颗按钮：**两张按下标对齐的表**（按钮上的字 / 路径键）。
+    /// 常用目录那一排按钮：**两张按下标对齐的表**（按钮上的字 / 路径键）。
     /// 路径键见 setFileDirs() 与 setInstanceDir()。
     ///
     /// NOTE: 2026-09-27 起它们长在**概览页**上（用户原话：「"快捷方式"放到概览的下方」），
@@ -1093,14 +1105,43 @@ public:
     ///       实例自己**（版本目录），再是**游戏玩出来的**那两样（存档、截图），然后是
     ///       **往里放东西**的那一串（模组 → 资源包 → 数据包 → 光影包 → 原理图），最后是
     ///       **出事时去翻**的日志。
+    ///
+    /// ★ 2026-10-13（coding plan §5.3「实例工具入口补齐」）：表从九条长到**十三条**，后
+    ///   四条（游戏目录 / 录像 / 崩溃报告 / 配置）接在后面 —— **一个已有的下标都没挪**，
+    ///   于是"第几颗是哪一路目录"这件事在验证工程里照旧。
+    ///   同时这一排分成两段：**现在真有东西的摆在外面**、其余收在「更多目录…」里，见
+    ///   setFolderPresentKeys() 那段。
     static QStringList shortcutTexts();
     static QStringList shortcutPathKeys();
-    /// 快捷方式一排摆几颗（九颗正好三排）。
+    /// 快捷方式一排摆几颗（三条正好一排）。
     static int shortcutPerRow() { return 3; }
     /// 第 @p index 颗快捷方式按钮。
     static QString shortcutButtonName(int index) {
         return QStringLiteral("instanceShortcutButton%1").arg(index);
     }
+
+    /// 「更多目录…」那颗按钮（收起时写「更多目录…」、展开后写「收起更多目录」）。
+    ///
+    /// ★ §5.3 原话：「仅在目录存在或相关模组可识别时**优先展示**，其他项收在"更多目录"」
+    ///   —— 它是那两段之间的**唯一开关**。一条"现在没有的"都没有时，**它自己也不摆**
+    ///   （不摆一颗按下去什么都不变的按钮）。
+    static QString shortcutMoreText() { return QStringLiteral("更多目录…"); }
+    static QString shortcutMoreLessText() { return QStringLiteral("收起更多目录"); }
+    static QString shortcutMoreButtonName() { return QStringLiteral("instanceShortcutMore"); }
+
+    /// 这一排里**现在真有东西**的那几个键（`shortcutPathKeys()` 里的值）。
+    ///
+    /// 判据全在调用方（MainWindow）：目录在不在盘上它是唯一知道"这个实例的根在哪儿、
+    /// 装没装 ReplayMod"的地方。**默认是"全都在"**（和那四个 `set*Usable()` 同一个口径）：
+    /// 直接 new 出来的对话框十三条全摆在外面、也没有「更多目录」—— 忘了调它只是"多摆了几颗
+    /// 按下去会先把目录建出来的按钮"，不是把谁藏起来。
+    void setFolderPresentKeys(const QStringList &keys);
+
+    /// 那两段当前的形状（验证工程读它）：十三颗按表序；「更多目录」是真有一截收着才摆。
+    QPushButton *shortcutMoreButton() const { return m_shortcutMoreButton; }
+    bool shortcutMoreExpanded() const { return m_shortcutMoreExpanded; }
+    /// 这一刻**收在「更多目录」里**的那几颗（展开之后它们就在外面了）。
+    QList<QWidget *> shortcutHiddenButtons() const;
 
     /// 六页目录列表控件的 objectName。**面板本身仍叫 `panelName(key)`**（那是堆叠页里
     /// 那一格的名字），这个是挂在他里面的列表控件。
@@ -2034,8 +2075,20 @@ private:
     QHash<QString, QString> m_fileDirs;
     /// 六页目录列表控件（键见 filePageKeys()）。refreshFilePages() 走它。
     QHash<QString, InstanceFilesPage *> m_filesPages;
-    /// 概览页上那九颗快捷方式按钮（顺序同 shortcutTexts()）。
+    /// 概览页上那一排常用目录按钮（**按表序**，见 shortcutTexts()）。
     QList<QWidget *> m_shortcutButtons;
+    /// 那一排所在的容器与网格（relayoutShortcuts() 要拿它们重摆）。
+    QWidget *m_shortcutCell = nullptr;
+    QGridLayout *m_shortcutGrid = nullptr;
+    /// 「更多目录…」那一颗（**没有收着的东西时是 nullptr** —— 见 .hpp 里那条 NOTE）。
+    QPushButton *m_shortcutMoreButton = nullptr;
+    /// 用户手点开的那一截现在开没开。
+    bool m_shortcutMoreExpanded = false;
+    /// 这一刻**在盘上**的那几路目录（setFolderPresentKeys()）。
+    ///
+    /// ★ 默认 = "全都在"（和那四个 `set*Usable()` 同一个口径）：直接 new 出来的对话框
+    ///   十三条全摆在外面、也没有「更多目录」。
+    QStringList m_shortcutPresentKeys = shortcutPathKeys();
 
     // ---- 「配置文件」那一页独有的两样（2026-09-27）----
     /// `config/` 的**根**。进去、出来都拿它当墙 —— 不许走到 `config/` 上面去（再往上是

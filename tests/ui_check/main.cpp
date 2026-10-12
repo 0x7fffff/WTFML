@@ -8840,10 +8840,13 @@ int main(int argc, char *argv[]) {
                           Dlg::panelName(Dlg::launchCategoryKey()),
                   "U0h 两页各自的表单也在自己那一页里（formName 与 panelName 一一对上）");
 
-            // ★ 那九颗快捷按钮和那七格勾选框都在**概览**里（2026-09-27）。
-            //   九颗是从「快捷方式」那一整页搬来的、勾选表是新写的，两样都换过父容器 ——
+            // ★ 那一排常用目录按钮和那七格勾选框都在**概览**里（2026-09-27）。
+            //   前者是从「快捷方式」那一整页搬来的、勾选表是新写的，两样都换过父容器 ——
             //   而"换父容器"这件事一旦漏了一个，症状是"那一颗按钮在哪儿都找不着"
             //   （它还在，只是挂在一页根本没露出来的控件底下）。
+            //
+            //   NOTE: 2026-10-13（§5.3）起那一排是**十三条、而且可能收着几颗** —— 这一条
+            //         数的仍然是"十三颗都在概览页里"（`belongsTo` 看的是父链，和露不露无关）。
             int shortcutInOverview = 0;
             int checkboxesInOverview = 0;
             for (int i = 0; i < Dlg::shortcutTexts().size(); ++i) {
@@ -8862,16 +8865,16 @@ int main(int argc, char *argv[]) {
             }
             check(shortcutInOverview == Dlg::shortcutTexts().size() &&
                       checkboxesInOverview == Dlg::optionalPageKeys().size(),
-                  "★ U0h 九颗快捷按钮与七格勾选框都落在**概览**那一页里",
+                  "★ U0h 十三颗常用目录按钮与七格勾选框都落在**概览**那一页里",
                   QStringLiteral("按钮 %1/%2、勾选框 %3/%4")
                       .arg(shortcutInOverview)
                       .arg(Dlg::shortcutTexts().size())
                       .arg(checkboxesInOverview)
                       .arg(Dlg::optionalPageKeys().size()));
-            // 「快捷方式」那一页**没了** —— 那九颗按钮在概览上，而那一页的 formName 在这一页
+            // 「快捷方式」那一页**没了** —— 那一排按钮在概览上，而那一页的 formName 在这一页
             // 上找不回来（键表里已经没这一条）。
             check(dialog.findChild<QWidget *>(Dlg::formName(QStringLiteral("shortcut"))) == nullptr,
-                  "★ U0h 「快捷方式」不再是单独一页（那九颗按钮在概览页里）");
+                  "★ U0h 「快捷方式」不再是单独一页（那一排按钮在概览页里）");
 
             // 几何：**只有一列**，左栏在内容区左边，宽度窄于内容区。
             dialog.show();
@@ -8922,8 +8925,8 @@ int main(int argc, char *argv[]) {
             // ---- U0j ★★ 页面按钮那一套的规格（2026-09-28）----
             //
             // 用户原话：「实例设置里面的所有按钮做成恒定宽度和高度的，每一行三个，间距适中
-            // 且左右能充分利用」。这一段拿**概览页上那九颗快捷方式按钮**把这句话量出来：
-            //   ① 九颗高度**一律** actionButtonHeight()；
+            // 且左右能充分利用」。这一段拿**概览页上那一排常用目录按钮**把这句话量出来：
+            //   ① 每一颗高度**一律** actionButtonHeight()；
             //   ② 同一行那三颗**一样宽**（"恒定宽度"）；
             //   ③ 同一行相邻两颗之间的空档正好是 actionButtonSpacing()（"间距适中"）；
             //   ④ 第一行那一排的跨度**明显宽于**三颗最窄加起来（"左右能充分利用" —— 它们
@@ -8934,8 +8937,11 @@ int main(int argc, char *argv[]) {
             //       会是一堆 0），再把窗放大（窗一窄，第 ④ 条就退化成"挤满 = 各自顶着最窄
             //       那个数"，两边看不出差别）。
             //
-            // NOTE: 这里量的 x()/width() 都是**相对那个装按钮的格子**的 —— 九颗同父，
+            // NOTE: 这里量的 x()/width() 都是**相对那个装按钮的格子**的 —— 它们同父，
             //       比宽度和间距不需要换算坐标。
+            // NOTE: 2026-10-13（§5.3）起这一排是十三条（默认"全都在"⇒ 十三颗全在外面、
+            //       也没有「更多目录…」），下面这些是按 `shortcutTexts().size()` 现算的，
+            //       一条都不写死条数。
             {
                 dialog.resize(1000, 720);
                 dialog.showPage(Dlg::overviewCategoryKey());
@@ -8951,7 +8957,7 @@ int main(int argc, char *argv[]) {
                     found += button != nullptr ? 1 : 0;
                 }
                 check(found == shortcuts.size() && !shortcuts.isEmpty(),
-                      "U0j 前提：概览上那九颗快捷方式按钮都按 objectName 找得回来",
+                      "U0j 前提：概览上那十三颗常用目录按钮都按 objectName 找得回来",
                       QStringLiteral("找到 %1/%2").arg(found).arg(shortcuts.size()));
 
                 QString heightBad;
@@ -8964,9 +8970,9 @@ int main(int argc, char *argv[]) {
                     }
                 }
                 check(heightBad.isEmpty(),
-                      "★★ U0j 概览上那九颗快捷方式按钮**高度一律** actionButtonHeight()",
+                      "★★ U0j 概览上那一排常用目录按钮**高度一律** actionButtonHeight()",
                       heightBad.isEmpty()
-                          ? QStringLiteral("九颗都是 %1").arg(Dlg::actionButtonHeight())
+                          ? QStringLiteral("每一颗都是 %1").arg(Dlg::actionButtonHeight())
                           : QStringLiteral("不是那个数的：") + heightBad);
 
                 const int perRow = Dlg::actionButtonsPerRow();
@@ -10421,27 +10427,41 @@ int main(int argc, char *argv[]) {
                   "是一片空白）");
         }
 
-        // ---- U10b 快捷方式那九颗按钮（2026-09-27 起住在**概览**页里）----
+        // ---- U10b 常用目录那一排按钮（2026-09-27 起住在**概览**页里）----
         //
         // ★ 它们从前是单独一页（「快捷方式」，夹在概览和启动之间），用户 2026-09-27 原话
-        //   「"快捷方式"放到概览的下方」⇒ 那一页没了、这九颗按钮整块搬进概览（键、objectName、
+        //   「"快捷方式"放到概览的下方」⇒ 那一页没了、这一排按钮整块搬进概览（键、objectName、
         //   底下那句话一个字都没改，只是换了个父）。U0h 那两条钉的就是"它们真的落在概览里"。
+        //
+        // ★ 2026-10-13（coding plan §5.3）：九条 → **十三条**（后补的四条接在表尾，一个已有
+        //   的下标都没挪），并且分成两段 —— 详见下面的 U10b2。
         {
             const QList<QWidget *> buttons = dialog.shortcutButtons();
             const QStringList texts = Dlg::shortcutTexts();
             const QStringList keys = Dlg::shortcutPathKeys();
-            check(buttons.size() == texts.size() && texts.size() == 9,
-                  "★ U10b 概览页里有九颗快捷按钮（用户点名的那一串 + 版本目录 / 日志）",
+            check(buttons.size() == texts.size() && texts.size() == 13,
+                  "★ U10b 概览页里有十三颗常用目录按钮（用户点名的那一串 + 版本目录 / 日志 / "
+                  "游戏目录 / 录像 / 崩溃报告 / 配置）",
                   QStringLiteral("%1 颗").arg(buttons.size()));
             check(keys.size() == texts.size(),
                   "★ U10b 两张表按下标一一对齐（按钮上的字 / 路径键），少一条就串位");
+            // ★ 后补的四条**接在表尾**：前面九条一个下标都没动，验证工程里"第 i 颗是哪一路"
+            //   （at(0)=版本目录 / at(2)=截图 / at(3)=模组 / at(7)=原理图）就还成立。
+            check(texts.value(8) == QStringLiteral("日志") &&
+                      keys.value(9) == QStringLiteral("game") &&
+                      keys.value(12) == QStringLiteral("config"),
+                  "★ U10b 后补的四条接在**表尾**（第 8 条还是「日志」，第 9/12 条是游戏目录/配置）",
+                  QStringLiteral("第 8 条 = %1 / 第 12 条 = %2")
+                      .arg(texts.value(8), keys.value(12)));
             // 几何得先把这一页摆到台面上再量：QStackedLayout 在 StackOne 模式下**只给当前
             // 那一页设几何**，收着的页压根没被摆过 —— 直接量会读到一排 0。
             showPage(dialog, Dlg::overviewCategoryKey());
             // 三颗一排：前三颗同一条 y、第四颗换行。
-            const bool sameRow = buttons.size() == 9 && buttons.at(0)->y() == buttons.at(1)->y() &&
+            const bool sameRow = buttons.size() == texts.size() &&
+                                 buttons.at(0)->y() == buttons.at(1)->y() &&
                                  buttons.at(1)->y() == buttons.at(2)->y();
-            const bool wrapped = buttons.size() == 9 && buttons.at(3)->y() > buttons.at(0)->y() &&
+            const bool wrapped = buttons.size() == texts.size() &&
+                                 buttons.at(3)->y() > buttons.at(0)->y() &&
                                  buttons.at(0)->x() < buttons.at(1)->x();
             check(sameRow && wrapped,
                   "★ U10b 三颗一排、第四颗换行（尺寸照默认那颗，不给它抻）");
@@ -10457,7 +10477,7 @@ int main(int argc, char *argv[]) {
             auto *modButton = qobject_cast<QPushButton *>(buttons.at(3));
             auto *shotButton = qobject_cast<QPushButton *>(buttons.at(2));
             check(first != nullptr && modButton != nullptr && shotButton != nullptr,
-                  "U10b 那九颗是普通按钮（不是自己画的那种）");
+                  "U10b 那十三颗是普通按钮（不是自己画的那种）");
             if (first != nullptr && modButton != nullptr && shotButton != nullptr) {
                 first->click();
                 const bool dirOk = lastPath == root;
@@ -10470,6 +10490,94 @@ int main(int argc, char *argv[]) {
                       "不是构造那一刻的快照）",
                       QStringLiteral("收到 %1 次，最后一条 %2").arg(opens).arg(lastPath));
             }
+        }
+
+        // ---- U10b2 §5.3：那一排分成两段（在盘的在外、其余收在「更多目录…」里）----
+        //
+        // ★ coding plan §5.3 原话：「仅在**目录存在**或**相关模组可识别**时优先展示，其他项
+        //   收在'更多目录'」。**判据不在这儿**（哪几路目录在盘上、哪个实例装了 ReplayMod 都
+        //   只有 MainWindow 知道，见 MainWindow::instanceCommonFolderKeys()）—— 这一层只认
+        //   递进来的那张表，所以这一条量的是"递进去一张只有三路的表之后，十三颗分别在哪一段"。
+        {
+            showPage(dialog, Dlg::overviewCategoryKey());
+            const QList<QWidget *> buttons = dialog.shortcutButtons();
+            const QStringList keys = Dlg::shortcutPathKeys();
+            // ① 默认这一档（没人喊过 setFolderPresentKeys）：十三颗全在外面，**没有**
+            //    「更多目录…」—— 不摆一颗按下去什么都不变的按钮。
+            check(dialog.shortcutMoreButton() == nullptr &&
+                      dialog.shortcutHiddenButtons().isEmpty() && !dialog.shortcutMoreExpanded(),
+                  "★ U10b2 没人说过哪几路「现在有东西」时：十三颗全摆在外面、也不摆"
+                  "「更多目录…」（一个都没收起来 ⇒ 那颗开关没有存在的理由）");
+
+            // ② 只在盘上三路（版本目录 / 模组 / 日志）⇒ 外面三颗 + 第四格那颗开关，其余收着。
+            //    收着的是 `setVisible(false)`（**还在表里**、下标一个没挪），不是删控件。
+            const QStringList present = {QStringLiteral("dir"), QStringLiteral("mod"),
+                                         QStringLiteral("logs")};
+            dialog.setFolderPresentKeys(present);
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::LayoutRequest);
+            QApplication::processEvents();
+            auto *more = dialog.shortcutMoreButton();
+            const QList<QWidget *> hidden = dialog.shortcutHiddenButtons();
+            check(more != nullptr && more->text() == Dlg::shortcutMoreText() &&
+                      !dialog.shortcutMoreExpanded(),
+                  "★ U10b2 真有东西的只有三路 ⇒ 第四格是「更多目录…」（收着的时候写的就是这"
+                  "四个字）");
+            check(hidden.size() == keys.size() - present.size(),
+                  "★ U10b2 另外那几路收在「更多目录」里（不是删掉 —— 它们照旧在表里）",
+                  QStringLiteral("收着 %1 颗，应 %2 颗")
+                      .arg(hidden.size())
+                      .arg(keys.size() - present.size()));
+            // 该在外面的 / 该收着的，按**位置**（表序）认：外面那三颗是 at(0)/at(3)/at(8)。
+            const QList<int> outside = {0, 3, 8};
+            bool seenOk = buttons.size() == keys.size();
+            for (int i = 0; i < buttons.size(); ++i) {
+                seenOk = seenOk &&
+                         (buttons.at(i)->isVisibleTo(&dialog) == outside.contains(i));
+            }
+            check(seenOk,
+                  "★ U10b2 该在外面的看得见、该收着的真看不见（按 isVisibleTo 数的，不是"
+                  "「有没有这个控件」）");
+            check(more != nullptr && buttons.value(0) != nullptr &&
+                      more->y() > buttons.at(0)->y() && more->x() == buttons.at(0)->x(),
+                  "★ U10b2 那颗开关接着外面那三颗往下排（第四格 —— 不是另起一块、也不是"
+                  "甩到行尾）");
+
+            // ③ 点一下 → 十三颗全露出来（开关自己改叫「收起更多目录」）。
+            if (more != nullptr) {
+                more->click();
+                QCoreApplication::sendPostedEvents(nullptr, QEvent::LayoutRequest);
+                QApplication::processEvents();
+                bool allSeen = true;
+                for (QWidget *button : buttons) {
+                    allSeen = allSeen && button->isVisibleTo(&dialog);
+                }
+                check(dialog.shortcutMoreExpanded() && more->text() == Dlg::shortcutMoreLessText() &&
+                          dialog.shortcutHiddenButtons().isEmpty() && allSeen,
+                      "★ U10b2 点一下「更多目录…」⇒ 十三颗全露出来，那颗开关改口叫"
+                      "「收起更多目录」");
+                // 再点一下 → 收回去（这一档必须是**可逆**的，否则用户点开就关不掉了）。
+                more->click();
+                QCoreApplication::sendPostedEvents(nullptr, QEvent::LayoutRequest);
+                QApplication::processEvents();
+                bool backOk = buttons.size() == keys.size();
+                for (int i = 0; i < buttons.size(); ++i) {
+                    backOk = backOk &&
+                             (buttons.at(i)->isVisibleTo(&dialog) == outside.contains(i));
+                }
+                check(!dialog.shortcutMoreExpanded() && more->text() == Dlg::shortcutMoreText() &&
+                          backOk,
+                      "★ U10b2 再点一下收回去，原样（「收起更多目录」是可逆的）");
+            }
+
+            // ④ 摆回"全都在"：后面那几节（U10c…U12 / U0j）还按十三颗全在外面量。
+            //    NOTE: 这一发会把「更多目录…」那颗**连控件一起删掉**，所以 `more` 从那以后
+            //          就是野指针了 —— 上面那几条一个都不能挪到这后面来。
+            dialog.setFolderPresentKeys(keys);
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::LayoutRequest);
+            QApplication::processEvents();
+            check(dialog.shortcutMoreButton() == nullptr &&
+                      dialog.shortcutHiddenButtons().isEmpty(),
+                  "★ U10b2 摆回「全都在」⇒「更多目录…」那一颗整颗消失（不是留着不画）");
         }
 
         // ---- U10c 模组那一页：列目录、排序、被禁用那一条怎么显示 ----
@@ -14747,7 +14855,7 @@ int main(int argc, char *argv[]) {
                 check(titled == 1,
                       "U12 表头上那句「显示哪些页」在概览页里正好一份（走 showPagesLabelText()）",
                       QStringLiteral("%1 份").arg(titled));
-                // 九颗快捷按钮也在概览页里（用户原话：「快捷方式"放到概览的下方」）——
+                // 那一排常用目录按钮也在概览页里（用户原话：「快捷方式"放到概览的下方」）——
                 // 这一条与 U0h 是同一件事的两半：那边按 objectName 找、这边按归属找。
                 const QList<QWidget *> shortcuts = dialog.shortcutButtons();
                 int shortcutsHere = 0;
@@ -14757,7 +14865,7 @@ int main(int argc, char *argv[]) {
                     }
                 }
                 check(!shortcuts.isEmpty() && shortcutsHere == shortcuts.size(),
-                      "U12 九颗快捷按钮也都在概览页里（「快捷方式」并进概览那一句）",
+                      "U12 十三颗常用目录按钮也都在概览页里（「快捷方式」并进概览那一句）",
                       QStringLiteral("%1/%2 颗").arg(shortcutsHere).arg(shortcuts.size()));
             }
 

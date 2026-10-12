@@ -899,31 +899,38 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     layoutActionCells(actionGrid, actionCells);
     grid->addLayout(actionGrid, row++, 0, 1, 2);
 
-    // ---------- 快捷方式那九颗按钮（2026-09-27 从「快捷方式」那一页整块搬来）----------
+    // ---------- 常用目录那一排按钮（2026-09-27 从「快捷方式」那一页整块搬来）----------
     //
     // 用户原话：「"快捷方式"放到概览的下方」—— 从这儿起「快捷方式」**不再是一页**，
-    // 这九颗按钮就是概览页的一部分（键、objectName、底下那句话一个字都没改，只是换了个父）。
+    // 这一排按钮就是概览页的一部分（键、objectName、底下那句话一个字都没改，只是换了个父）。
+    //
+    // ★ 2026-10-13（coding plan §5.3「实例工具入口补齐」）：九颗 → 十三颗，并且这一排
+    //   **不再是一个写死的网格**，而是两段 —— 现在真有东西的摆在外面、其余收在「更多目录…」
+    //   里。摆法的那一份唯一出处是 relayoutShortcuts()（这一段只管把控件建出来、按**表序**
+    //   收进 m_shortcutButtons）。
     {
         auto *cell = new QWidget(this);
         auto *column = new QVBoxLayout(cell);
         column->setContentsMargins(0, 0, 0, 0);
         column->setSpacing(6);
+        // 记住这两样：relayoutShortcuts() 之后还要拿它们重摆（那时早在别的函数里了）。
+        m_shortcutCell = cell;
 
         // ★ 2026-09-28：这九颗**从"默认尺寸靠左堆"改成这一页统一的那一套**（用户原话
         //   「所有按钮做成恒定宽度和高度的，每一行三个，间距适中且左右能充分利用」）——
         //   每颗和「导出…」那几颗一样大，三列铺满整幅。
         //
-        // NOTE: `shortcutPerRow()`（9 颗排几列）和这一套的 `kActionButtonsPerRow` **必须
+        // NOTE: `shortcutPerRow()`（一排几颗）和这一套的 `kActionButtonsPerRow` **必须
         //       是同一个数**（眼下都是 3）。排布改由 `layoutActionButtons()` 按后者算，
-        //       前者只剩"这颗按钮是哪一路目录"那一层意思；两边哪天分叉了，九颗会排成
-        //       六列或者三条 —— 界面上一眼看得出来，但没有任何断言拦得住。
+        //       前者只剩"这颗按钮是哪一路目录"那一层意思；两边哪天分叉了，会排成六列或者
+        //       三条 —— 界面上一眼看得出来，但没有任何断言拦得住。
         auto *buttonGrid = newActionGrid();
+        m_shortcutGrid = buttonGrid;
         const QStringList texts = shortcutTexts();
         const QStringList keys = shortcutPathKeys();
-        QList<QWidget *> shortcutWidgets;
         for (int i = 0; i < texts.size(); ++i) {
             auto *button = new QPushButton(texts.value(i), cell);
-            // 快捷方式那九颗 = "开一个目录"（一般性）。
+            // 这一排 = "开一个目录"（一般性）。
             Theme::markButton(button, Theme::ButtonKind::Neutral);
             button->setObjectName(shortcutButtonName(i));
             const QString key = keys.value(i);
@@ -934,10 +941,13 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                 emit openInstanceFolderRequested(
                     key == QStringLiteral("dir") ? m_instanceDir : m_fileDirs.value(key));
             });
-            shortcutWidgets.append(button);
+            // ★ **按表序**收着（不是按摆出来的次序）—— `shortcutButtonName(i)` 那句
+            //   "第 i 颗是第 i 路目录"就还成立，两段怎么挪都不影响它。
             m_shortcutButtons.append(button);
         }
-        layoutActionButtons(buttonGrid, shortcutWidgets);
+        // 摆法整份交给它：这会儿 m_shortcutPresentKeys 还是"全都在"，于是十三颗全在外面、
+        // 也没有「更多目录」（见 .hpp 里 setFolderPresentKeys() 那条 NOTE）。
+        relayoutShortcuts();
         column->addLayout(buttonGrid);
         auto *hint = new QLabel(filesHint(QStringLiteral("shortcut")), cell);
         hint->setObjectName(filesHintName(QStringLiteral("shortcut")));
@@ -2363,18 +2373,130 @@ void InstanceSettingsDialog::refreshPageChecks() {
 // ---------- 文件管理那八页（见 .hpp 里 filePageKeys() 上面那一段）----------
 
 QStringList InstanceSettingsDialog::shortcutTexts() {
-    return {tr("版本目录"), tr("存档"),     tr("截图"),     tr("模组"), tr("资源包"),
-            tr("数据包"),   tr("光影包"),   tr("结构/原理图"), tr("日志")};
+    return {tr("版本目录"), tr("存档"),     tr("截图"),       tr("模组"), tr("资源包"),
+            tr("数据包"),   tr("光影包"),   tr("结构/原理图"), tr("日志"),
+            // ★ 2026-10-13（§5.3）后补的四条：**一定要接在最后**，一个已有的下标都不挪
+            //   （验证工程里"第 i 颗是哪一路"是按位置认的）。
+            tr("游戏目录"), tr("录像"),     tr("崩溃报告"),   tr("配置")};
 }
 
 QStringList InstanceSettingsDialog::shortcutPathKeys() {
     // 和 shortcutTexts() **逐位对齐**。这些键由 MainWindow 从 setInstanceDir() /
     // setFileDirs() 灌进来（它才知道那些目录在哪儿）。
+    //
+    // `game` / `replay` / `crash` 三个是 §5.3 后补的，**不走 setFileDirs()**（那一份是
+    // "文件管理那几页"的目录，多三个进去会让那几页认错根）—— MainWindow 把它们**并进**
+    // 灌给 setFileDirs() 的那一份里（多出来的键没人读就是死数据，比改 instanceFileDirs()
+    // 的形状安全得多，那个函数还有一个断言在数它是九条）。
     return {QStringLiteral("dir"),        QStringLiteral("save"),
             QStringLiteral("screenshots"), QStringLiteral("mod"),
             QStringLiteral("resourcepack"), QStringLiteral("datapack"),
             QStringLiteral("shader"),     QStringLiteral("schematic"),
-            QStringLiteral("logs")};
+            QStringLiteral("logs"),       QStringLiteral("game"),
+            QStringLiteral("replay"),     QStringLiteral("crash"),
+            QStringLiteral("config")};
+}
+
+void InstanceSettingsDialog::setFolderPresentKeys(const QStringList &keys) {
+    // 传进来的就是**在盘上的那些**（调用方问的盘）。不认识的键照收不管 —— 多一个键
+    // 只是让它不参与任何一段（`shortcutPathKeys()` 里没有它，两段都轮不到它）。
+    m_shortcutPresentKeys = keys;
+    // 展开状态**不重置**：这个函数可能被调很多次（每次 openInstanceSettings 都会来一发），
+    // 用户手点开的那一截不该因为这个缩回去。收着的那些位子本来就由 present 决定。
+    relayoutShortcuts();
+}
+
+QList<QWidget *> InstanceSettingsDialog::shortcutHiddenButtons() const {
+    QList<QWidget *> hidden;
+    // 展开着就没有"收着"的了（它们在外面，只是下面那一段）。
+    if (m_shortcutMoreExpanded) {
+        return hidden;
+    }
+    const QStringList keys = shortcutPathKeys();
+    for (int i = 0; i < keys.size(); ++i) {
+        if (!m_shortcutPresentKeys.contains(keys.at(i))) {
+            hidden.append(m_shortcutButtons.value(i));
+        }
+    }
+    return hidden;
+}
+
+void InstanceSettingsDialog::toggleMoreShortcuts() {
+    m_shortcutMoreExpanded = !m_shortcutMoreExpanded;
+    relayoutShortcuts();
+    // NOTE: **不发 settingsEdited()** —— 展开/收起只动这一页的摆法，一个字节都不进 wtfml.meta。
+    //       发了的话，点一下「更多目录…」就等于把"实例设置改过"的账记上，关页时还会弹那道
+    //       "要保存吗"—— 而那里根本没有东西要保存。
+}
+
+/// 摆法那一份唯一出处（两段：外面 + 「更多目录」+ 收着的）。**建完按钮、以及每一次
+/// present / 展开态变了之后**都走它。
+///
+/// NOTE: 收着的那些**照样在网格里**（只是 `setVisible(false)`），不是摘出去 —— 它们的次序
+///       在表里，也就是**永远排在最后那一段**（缺的键按表序补在外面的后面）。于是收起来
+///       的时候网格里看不见的那几格全在尾巴上，前面几行不会出现空洞。哪天这张表的缺项
+///       不再是"一段尾巴"（比如中间空一个），这一条就不成立了。
+void InstanceSettingsDialog::relayoutShortcuts() {
+    if (m_shortcutGrid == nullptr) {
+        return;
+    }
+    // 先清网格：`takeAt()` 摘下来的那一项只是"摆法"，控件自己还挂在 m_shortcutCell 上。
+    while (QLayoutItem *item = m_shortcutGrid->takeAt(0)) {
+        delete item;
+    }
+
+    const QStringList keys = shortcutPathKeys();
+    bool anyAbsent = false;
+    for (const QString &key : keys) {
+        if (!m_shortcutPresentKeys.contains(key)) {
+            anyAbsent = true;
+            break;
+        }
+    }
+
+    // 「更多目录…」自己没有存在的理由时**整颗不建**（不摆一颗按下去什么都不变的按钮）。
+    if (!anyAbsent) {
+        m_shortcutMoreExpanded = false;
+        delete m_shortcutMoreButton;
+        m_shortcutMoreButton = nullptr;
+    } else if (m_shortcutMoreButton == nullptr) {
+        auto *more = new QPushButton(shortcutMoreText(), m_shortcutCell);
+        Theme::markButton(more, Theme::ButtonKind::Neutral);
+        more->setObjectName(shortcutMoreButtonName());
+        more->setToolTip(tr("这个实例里现在还没有那几个目录 —— 点开照旧可以进去（头一次进去会"
+                            "把目录建出来）。"));
+        connect(more, &QPushButton::clicked, this, &InstanceSettingsDialog::toggleMoreShortcuts);
+        m_shortcutMoreButton = more;
+    }
+
+    QList<QWidget *> ordered;
+    // 第一段：现在真有东西的（表序）。
+    for (int i = 0; i < keys.size(); ++i) {
+        if (m_shortcutPresentKeys.contains(keys.at(i))) {
+            if (QWidget *button = m_shortcutButtons.value(i)) {
+                button->setVisible(true);
+                ordered.append(button);
+            }
+        }
+    }
+    // 中间那一颗开关（有得收才摆）。
+    if (m_shortcutMoreButton != nullptr) {
+        m_shortcutMoreButton->setText(m_shortcutMoreExpanded ? shortcutMoreLessText()
+                                                            : shortcutMoreText());
+        m_shortcutMoreButton->setVisible(true);
+        ordered.append(m_shortcutMoreButton);
+    }
+    // 第二段：现在还没有的那些（表序）。展开着就摆在外面，收着就只占格子。
+    for (int i = 0; i < keys.size(); ++i) {
+        if (!m_shortcutPresentKeys.contains(keys.at(i))) {
+            if (QWidget *button = m_shortcutButtons.value(i)) {
+                button->setVisible(m_shortcutMoreExpanded);
+                ordered.append(button);
+            }
+        }
+    }
+    // 定高 / 最窄 / 横向可抻 都在这一手里（幂等，重摆几次都一样）。
+    layoutActionButtons(m_shortcutGrid, ordered);
 }
 
 QString InstanceSettingsDialog::filesHint(const QString &key) {
