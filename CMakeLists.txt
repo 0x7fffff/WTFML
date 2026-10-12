@@ -46,6 +46,8 @@ set(HEADER_FILES
     src/manage/VersionIntegrity.hpp
     src/manage/BackupFiles.hpp
     src/manage/WorldFiles.hpp
+    # 「上一次启动」那本账（2026-10-13，coding plan §5.1）：主页那张卡唯一的数据源。
+    src/manage/LaunchHistory.hpp
     src/settings/GlobalJavaSettings.hpp
     src/settings/GameWindowSettings.hpp
     src/settings/LauncherSettings.hpp
@@ -114,6 +116,8 @@ set(SOURCE_FILES
     src/manage/VersionIntegrity.cpp
     src/manage/BackupFiles.cpp
     src/manage/WorldFiles.cpp
+    # 「上一次启动」那本账（2026-10-13，coding plan §5.1）。
+    src/manage/LaunchHistory.cpp
     src/settings/EffectiveJavaSettings.cpp
     src/settings/GlobalJavaSettings.cpp
     src/settings/GameWindowSettings.cpp

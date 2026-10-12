@@ -73,6 +73,9 @@
 // GameExitDiagnosis::Facts —— 游戏异常退出那一项（§4.3）留一份事实在成员里，事后
 // 「导出错误报告」还要用它，所以是按值存的。
 #include "diag/GameExitDiagnosis.hpp"
+// 「上一次启动」那本账（coding plan §5.1，2026-10-13）：主页左栏那张卡要按值持有一条
+// `Record`（`latestPlayable()` 的返回值），所以得 include 而不是前置声明。
+#include "manage/LaunchHistory.hpp"
 
 class MainWindowUI;
 // 安装页那棵加载器树上的一个条目（loaderItem()）。这里只在私有函数的参数/返回值里按
@@ -190,6 +193,49 @@ public:
         facts.loaderName = loaderName;
         facts.loaderVersion = loaderVersion;
         m_sessionLaunchFacts.insert(sessionId, facts);
+    }
+
+    /**
+     * @brief **给验证工程摆现场用**：把"刚刚成功启动了一次"这件事直接记进「上一次启动」
+     *        那本账（coding plan §5.1）。
+     *
+     * 产品那一侧的唯一写点在 `onStartButtonClicked()` 里"会话号 > 0"那一段 —— 真起一个
+     * 游戏进程是验证工程做不到的事，而主页那张卡上会写出什么**完全由账上那一条决定**
+     * （哪一份、什么时候、进的是哪儿、结局如何），所以摆账 == 摆现场。
+     *
+     * ★ 摆进去的字节走的是**产品同一条写路**（同一个 `appendLaunchRecord()`、同一个落盘），
+     *   不是测试另抄一份 —— 否则这一节验的就只是测试自己。
+     *
+     * @param versionId 实例 id（= versions/ 下面那个目录名）。
+     * @param startedAtMs 启动时刻（毫秒）；**照产品记的是"进程真的起来"那一刻**。
+     *
+     * NOTE: 产品代码里**不要**调它。
+     */
+    void seedLaunchRecordForTest(const QString &versionId, qint64 startedAtMs) {
+        appendLaunchRecord(versionId, QuickPlay::Target(), startedAtMs);
+    }
+    /// 同上，但这一趟是**快捷启动**（走 quick play 直接进某个世界 / 某台服务器）。
+    void seedQuickPlayRecordForTest(const QString &versionId, QuickPlay::Kind kind,
+                                    const QString &value, qint64 startedAtMs) {
+        QuickPlay::Target target;
+        target.kind = kind;
+        target.value = value;
+        appendLaunchRecord(versionId, target, startedAtMs);
+    }
+    /**
+     * @brief **给验证工程摆现场用**：把账上那一条的结局改写成"这一趟结束了"。
+     *
+     * @param startedAtMs 启动时刻 —— 账上那一条就是靠它认的（产品那一侧也只有这一个键
+     *        能从"退出那一刻"追回"启动那一刻"记的那一条）。
+     * @param crashed 异常退出（`QProcess::CrashExit` 或非 0 退出码，判据是
+     *        `GameExitDiagnosis::isAbnormal()`）。
+     * @param neverStarted 游戏**连第一行日志都没打出来**就结束了 ⇒ 这一趟不算"玩过"
+     *        （`Result::StartFailed`）。产品的判据是"退出时它还在 `m_launchingSessions`
+     *        里"，验证工程摆不出真进程，所以这一位直接由调用方给。
+     */
+    void seedLaunchFinishForTest(qint64 startedAtMs, bool crashed, bool neverStarted) {
+        finishLaunchRecord(startedAtMs, launchHistoryResult(crashed, neverStarted),
+                           QDateTime::currentMSecsSinceEpoch());
     }
 private slots:
     void onStartButtonClicked();
@@ -2072,6 +2118,77 @@ private:
      * 「重复启动」那条永远不响，而它恰恰是最该响的那一条。
      */
     QString launchIdentityKey() const;
+
+    // ---------- 「上一次启动」那本账（coding plan §5.1，2026-10-13）----------
+    //
+    // 主页左栏那张卡（「上次游玩」）的全部数据都在这一小片里：读盘、记账、翻成那句话、
+    // 算"还能不能接着玩"。**判据层是 `manage/LaunchHistory`**（纯函数，verify 里逐格念），
+    // 这一片只管"什么时候记、记的是谁、界面上什么时候重画"。
+
+    /// 账上那一条的结局：从"这一趟结束时的两个事实"翻过来。
+    ///
+    /// ★ 这里**不是**"崩没崩"两个分支：游戏连第一行日志都没打出来就结束了的那一趟
+    ///   （`neverStarted`）单独算一档 —— §5.1 说"上一次"以**成功创建游戏进程**为准，那种
+    ///   情况进程确实起来了、用户却什么都没玩到，拿它当"上次玩的就是这一份"是撒谎。
+    static LaunchHistory::Result launchHistoryResult(bool crashed, bool neverStarted);
+
+    /// 账上那个目标 ⇄ 启动参数那一层的 `Kind`（**唯一出处**：写记录、"还能不能接着玩"、
+    /// 那一颗按钮按下去三处都读它 —— 三处各写一遍 switch，迟早会有一处写反，症状是
+    /// "接着游玩进的是服务器那一页的参数"）。
+    static QuickPlay::Kind quickPlayKindFor(LaunchHistory::Target target);
+
+    /// 把"这一趟成功了"记进账本。**产品那一侧唯一的调用点**是 `onStartButtonClicked()`
+    /// 里 `sessionId > 0` 那一段（进程真的起来了那一刻）—— §5.1 明写「以成功创建游戏进程
+    /// 为准，不以点击启动按钮为准」。
+    ///
+    /// @param versionId 实例 id。
+    /// @param quickPlay 这一趟要进哪儿（空的 = 普通启动）。**`Target::None` 不是"不知道"，
+    ///        是"这一趟就是普通启动"** —— §5.1：普通进主菜单那一趟不许猜。
+    /// @param startedAtMs 启动时刻（毫秒；取会话自己的 `startedAtMs`，不是"现在"）。
+    void appendLaunchRecord(const QString &versionId, const QuickPlay::Target &quickPlay,
+                            qint64 startedAtMs);
+
+    /// 那一趟结束了：把账上**最近那一条还写着"还在跑"、且启动时刻对得上**的记录改写成
+    /// 真正的结局与时长。
+    ///
+    /// 认的是**启动时刻**这个键：退出那一刻会话已经从 LauncherManager 的表里摘掉了
+    /// （见 `onGameFinished()` 那段 NOTE），追回"启动那一刻记的那一条"只有它。
+    void finishLaunchRecord(qint64 startedAtMs, LaunchHistory::Result result, qint64 finishedAtMs);
+
+    /// 账本从盘上读回来（构造末尾那一次）。读不出来 = 空账，**不是错误**：一次都没启动过
+    /// 的新用户就是这样。
+    void loadLaunchHistory();
+
+    /// 主页左栏那张卡按账上最新的一条重画一遍（`MainWindowUI::setHomeRecent()`）。
+    /// 三个时机都会调：构造末尾、启动成功那一刻、那一趟结束那一刻。
+    void updateHomeRecent();
+
+    /// 账上那一条现在还能不能「接着玩」——**卡片上那一颗按钮写什么字就是靠它**
+    /// （能 ⇒「继续游玩」，不能 ⇒ 降级成「启动实例」，§5.1）。
+    ///
+    /// 三种"不能"：① 那个实例已经不在已安装列表里了；② 记的是快捷启动，可目标（世界 /
+    /// 服务器）已经没了；③ 记的是快捷启动，可这个实例现在认不了那条参数（实例被换成另一个
+    /// 版本了）。三种都落到同一句"降级成启动实例" —— 按钮**不消失**。
+    bool homeRecentCanContinue(const LaunchHistory::Record &record) const;
+
+    /// 账上那条记录的目标（世界目录 / 服务器地址）现在还在不在。
+    /// 世界看 `<实例>/saves/<targetId>` 这个目录；服务器看 `servers.dat` 里还有没有
+    /// **地址对得上**的那一条（按值认，不按下标）。
+    bool quickPlayTargetAlive(const LaunchHistory::Record &record) const;
+
+    /// 主页那张卡上那颗「继续游玩 / 启动实例」按下去。
+    /// 目标还在 ⇒ 走**同一条** `startQuickPlay()`（§5.1：完整校验 / 登录 / Java /
+    /// 重复运行提醒一道都不绕过）；否则就是把「已安装版本」切到那一份、点启动。
+    void onHomeRecentContinueClicked();
+    /// 同上，那颗「实例设置」：开**账上那个实例**的设置页。
+    void onHomeRecentSettingsClicked();
+
+    /// 账本**内存里那一份**（`load()` 读过一次之后就只有 `appendLaunchRecord()` /
+    /// `finishLaunchRecord()` 会动它）。
+    ///
+    /// ★ 不每次现读盘：主页那张卡要在"启动成功""游戏退出"两个时机重画，而那是**热路径**
+    ///   （启动那一发已经在同步等进程了）。读一次、写的时候顺手更新内存那一份。
+    QList<LaunchHistory::Record> m_launchHistory;
 
     /// 上一次点启动的时刻，按 **身份 → 版本 → 毫秒**（`QDateTime::currentMSecsSinceEpoch()`）。
     /// 只增不减（没人清它）：条目数 = 这台机器上"点过启动的 (身份, 实例) 组合"数，

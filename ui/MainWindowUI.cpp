@@ -93,6 +93,12 @@ const int kAvatarSize = MainWindowUI::avatarSize();
 /// 「启动游戏」按钮的高度。两行文字仍有足够呼吸空间，但不再占掉启动卡近一半高度。
 constexpr int kStartButtonMinHeight = 76;
 
+/// 主页左栏两张卡之间的竖直留白（「开始游戏」和「上次游玩」）。
+///
+/// ★ 不走 `layout->setSpacing()`：那只管"相邻两项之间"，而这一栏里还有两段 `addStretch`，
+///   它们和卡片之间也会按 spacing 拉开 —— 那两段留白是这一栏"居中"的算法本身，动不得。
+constexpr int kHomeCardGap = 14;
+
 /// 「额外 JVM 参数」多行输入框的高度，约三四行的样子；再高会把下面那几项挤出可视区。
 constexpr int kJvmArgsEditHeight = 72;
 
@@ -653,9 +659,85 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // 用哪种身份"，而现在那件事**只由当前账号是什么**决定 —— 离线就去账号窗里加一个
         // 离线账号、切过去，没有第二个开关。判据的唯一出处是 MainWindow::offlineIdentity()。
 
+        // ---------- 主页左栏第二张卡：「上次游玩」（coding plan §5.1）----------
+        //
+        // §9.5 说主页只留三件事：启动、**最近活动**、账号与外观。上面那张是启动、右栏那张是
+        // 账号与外观，这一张就是中间那件。**它不是仪表盘**（§5.1 第一句）：只有一行"上次是
+        // 哪一份、什么时候、玩到哪儿"，加上两颗按钮，没有统计图、没有列表。
+        //
+        // ★ 一次都没启动过时**整张卡收起来**（`setHomeRecent()` 里 hide）：主页面不留一张
+        //   空的卡片等数据，§9.2 那条"不摆空壳"在这儿同样成立。
+        auto *recentCard = makeHomeCard(home.left.widget);
+        // ★ 这一行**不能漏**：`setHomeRecent()` 头一句就是拿 `homeRecentCard` 判空（那是
+        //   "界面还没搭完"那一档），漏了它整张卡就永远停在 `hide()` 那一档 —— 主页上一片
+        //   空白，而两颗按钮照旧接得上线（它们各自是成员）。2026-10-13 的 mw_check T36
+        //   抓到的就是这个形状（卡片收着、按钮还写着初始那两个字）。
+        homeRecentCard = recentCard;
+        recentCard->setObjectName(homeRecentCardName());
+        // 高度由内容定（和启动卡一样）：这一栏在竖直方向上是"居中一坨"，卡片不该自己去
+        // 抢留白。
+        recentCard->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        auto *recentLayout = new QVBoxLayout(recentCard);
+        recentLayout->setContentsMargins(22, 16, 22, 18);
+        recentLayout->setSpacing(6);
+
+        // 第一行：标题在左，「昨天 22:14」在右（§5.1 那张草图里时间就是右上角那一句，
+        // 不单独占一行）。
+        auto *recentHead = new QHBoxLayout();
+        recentHead->setSpacing(8);
+        recentHead->addWidget(makeHomeTitle(homeRecentTitleText(), recentCard));
+        recentHead->addStretch(1);
+        homeRecentWhenLabel = new QLabel(recentCard);
+        homeRecentWhenLabel->setObjectName(homeRecentWhenLabelName());
+        // 低强调度：它是"什么时候"，不是这张卡要说的事。
+        homeRecentWhenLabel->setForegroundRole(QPalette::PlaceholderText);
+        recentHead->addWidget(homeRecentWhenLabel);
+        recentLayout->addLayout(recentHead);
+
+        // 第二行：**启动那一刻**那一句实例名（里面已经带着版本和加载器）。
+        homeRecentNameLabel = new QLabel(recentCard);
+        homeRecentNameLabel->setObjectName(homeRecentNameLabelName());
+        homeRecentNameLabel->setWordWrap(true);
+        // 横向摘出度量：这一栏的宽度只由 7:3 的份数决定，不让一句长实例名把它顶宽
+        // （和下面 detailLabel / 右栏 skinHintLabel 同一条理由）。
+        homeRecentNameLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+        {
+            QFont nameFont = homeRecentNameLabel->font();
+            nameFont.setBold(true);
+            homeRecentNameLabel->setFont(nameFont);
+        }
+        recentLayout->addWidget(homeRecentNameLabel);
+
+        // 第三行（灰字）：目标 + 玩了多久 + 那一趟的结局。**每一段都可能没有**（普通启动
+        // 就没有目标），整段空着时这一行**收起来** —— 空 QLabel 也占一行字高，留着就是白留。
+        homeRecentDetailLabel = makeHomeHint(QString(), recentCard);
+        homeRecentDetailLabel->setObjectName(homeRecentDetailLabelName());
+        recentLayout->addWidget(homeRecentDetailLabel);
+
+        // 第四行：两颗按钮。左边那一颗是主动作（接着玩），右边那颗是"去改设置"。
+        auto *recentButtons = new QHBoxLayout();
+        recentButtons->setSpacing(8);
+        homeRecentContinueButton =
+            new QPushButton(homeRecentContinueText(), recentCard);
+        homeRecentContinueButton->setObjectName(homeRecentContinueButtonName());
+        Theme::markButton(homeRecentContinueButton, Theme::ButtonKind::Primary);
+        homeRecentSettingsButton =
+            new QPushButton(homeRecentSettingsText(), recentCard);
+        homeRecentSettingsButton->setObjectName(homeRecentSettingsButtonName());
+        Theme::markButton(homeRecentSettingsButton, Theme::ButtonKind::Neutral);
+        recentButtons->addWidget(homeRecentContinueButton);
+        recentButtons->addWidget(homeRecentSettingsButton);
+        recentButtons->addStretch(1);
+        recentLayout->addLayout(recentButtons);
+
+        // 一开始就是"没有记录"那一档。
+        recentCard->hide();
+
         // 启动卡落在视觉中心略偏上的位置；窗口变高时留白分到上下两侧，不再只堆在按钮下方。
         home.left.layout->addStretch(1);
         home.left.layout->addWidget(launchCard);
+        home.left.layout->addSpacing(kHomeCardGap);
+        home.left.layout->addWidget(recentCard);
         home.left.layout->addStretch(2);
     }
     // ---------- 主页右栏：我的角色（3D 皮肤预览） ----------
@@ -4243,4 +4325,32 @@ void MainWindowUI::setRunPanelAvailable(bool available) {
     runStateButton->setAttribute(Qt::WA_TransparentForMouseEvents, !available);
     // 点不动的格子不该再挂着"点一下向上展开实例列表"（鼠标都到不了它身上，也弹不出来）。
     runStateButton->setToolTip(available ? MainWindowUI::bottomBarRunPanelTip() : QString());
+}
+
+void MainWindowUI::setHomeRecent(const HomeRecent &recent) {
+    if (homeRecentCard == nullptr) {
+        return;  // setupUi() 还没跑完（和上面那些访问器拿空指针当判据是同一个意思）
+    }
+    // 一次都没启动过（或者账本读不出来、账上一条可玩的都没有）⇒ **整张卡收起来**。
+    // NOTE: 这里只 `hide()` 不删：`homeRecentCard` 造在 `setupUi()` 里，验证工程找它用的是
+    //       objectName，删掉就等于"这一档没地方量"。
+    if (!recent.visible) {
+        homeRecentCard->hide();
+        return;
+    }
+    homeRecentCard->show();
+    homeRecentNameLabel->setText(recent.instanceLine);
+
+    // 第二行那半句（目标 / 时长 / 结局）：**可能一句都没有**（普通启动 + 正常退出 + 时长还
+    // 没算出来），那时这一行整行收起来 —— 空的 QLabel 也占着一行字高，留着就是白留一块。
+    homeRecentDetailLabel->setText(recent.detailLine);
+    homeRecentDetailLabel->setVisible(!recent.detailLine.isEmpty());
+
+    homeRecentWhenLabel->setText(recent.whenLine);
+    homeRecentWhenLabel->setVisible(!recent.whenLine.isEmpty());
+
+    // 那一颗主动作：目标还在就是「继续游玩」，目标（或者那个实例本身）没了就**降级**成
+    // 「启动实例」（§5.1）。按钮**不消失** —— 目标被删了不该让这张卡变成死路一条。
+    homeRecentContinueButton->setText(recent.canContinue ? MainWindowUI::homeRecentContinueText()
+                                                        : MainWindowUI::homeRecentLaunchText());
 }

@@ -79,6 +79,10 @@ set(PROJECT_SOURCES
     # （测试驱动不了它）直接调函数 —— 重名挡住没有、拷一半失败会不会留半份，都在这里钉。
     ${REPO_ROOT}/src/manage/WorldFiles.cpp
     ${REPO_ROOT}/src/manage/WorldFiles.hpp
+    # 「上一次启动」那本账（§5.1）：格式怎么读写、时间怎么说成人话、目标没了怎么降级、
+    # 上限怎么截 —— 全是纯函数，**一条都不用起界面**就能逐格念。
+    ${REPO_ROOT}/src/manage/LaunchHistory.cpp
+    ${REPO_ROOT}/src/manage/LaunchHistory.hpp
     ${REPO_ROOT}/src/settings/EffectiveJavaSettings.cpp
     ${REPO_ROOT}/src/settings/EffectiveJavaSettings.hpp
     ${REPO_ROOT}/src/settings/GlobalJavaSettings.cpp

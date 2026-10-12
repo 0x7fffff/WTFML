@@ -1572,6 +1572,12 @@ MainWindow::MainWindow(QWidget *parent)
     // 不能塞进 refreshInstalledVersions()，那个函数每次清单到达、每次下载完成都会跑，
     // 塞进去就破坏了它"只保住、不新增"的语义。
     restoreLastLaunchedVersion();
+    // 「上一次启动」那本账（§5.1）：读回来 + 把主页左栏那张卡摆好。
+    //
+    // ★ 位置有一处讲究：必须在 `refreshInstalledVersions()` **之后** —— 那张卡上「继续游玩」
+    //   还是「启动实例」要看"那一份实例还在不在已安装列表里"，列表空着的时候问它只会得到
+    //   "不在"，卡片就会显示成降级的那一档（明明能玩）。
+    loadLaunchHistory();
     // 底栏那三格的初始值：登录名可能已经从存下来的令牌里恢复了，进度两格先藏起来，
     // 运行状态也要等第一次真的启动才有内容。
     updateBottomBar();
@@ -1748,6 +1754,18 @@ void MainWindow::setupConnections() {
             &MainWindow::onAccountSkinButtonClicked);
     connect(m_ui->getAddFolderButton(), &QPushButton::clicked, this,
             &MainWindow::onAddFolderClicked);
+    // 主页左栏那张「上次游玩」卡上的两颗（§5.1）。**只接一次**：卡片是 `setupUi()` 里造的
+    // 常驻控件（不是每次刷新重造），所以这里不会重复接线。
+    // NOTE: 那两张`getHomeRecent*Button()` 可能回 nullptr —— 那是"界面还没搭完"的处境，
+    //       `connect(nullptr, ...)` 会当场告警，所以先判一下。
+    if (QPushButton *recentContinue = m_ui->getHomeRecentContinueButton()) {
+        connect(recentContinue, &QPushButton::clicked, this,
+                &MainWindow::onHomeRecentContinueClicked);
+    }
+    if (QPushButton *recentSettings = m_ui->getHomeRecentSettingsButton()) {
+        connect(recentSettings, &QPushButton::clicked, this,
+                &MainWindow::onHomeRecentSettingsClicked);
+    }
     // NOTE: 「移除文件夹」那个按钮 2026-09-24 删掉了（用户原话：「下面那个移除文件夹
     //       也可以弃掉了」）—— 「移除」现在只有行尾齿轮菜单里那一项，走
     //       onFolderActionRequested() → removeFolderFromList()，和按钮原来那条是同一个函数。
@@ -8657,6 +8675,10 @@ void MainWindow::onStartButtonClicked() {
         // NOTE: Java 的**主版本**故意不在这里取：那是"这一趟实际用的那个 Java 是什么版本"，
         //       崩溃那一刻现读 `<javaPath>/release` 就够（见 buildCrashRecord），平时一次盘
         //       都不碰。这里记的是"要什么"（`javaMajorVersion`，已经按主类抬高过）。
+        //
+        // NOTE: 这一份会话快照提到这一层来（原来在下面那个块里）—— §5.1 记账那一句也要读
+        //       它的 `startedAtMs`："上一次启动"记的就是**进程真的起来**那一刻，不是"现在"。
+        const LauncherManager::GameSession session = m_launcherManager->session(sessionId);
         {
             GameSessionFacts facts;
             facts.instanceId = versionId;
@@ -8668,17 +8690,271 @@ void MainWindow::onStartButtonClicked() {
             facts.xmsMb = javaSettings.xms;
             facts.loaderName = instanceLoaderName(m_versionManager->displayParts(versionId),
                                                   m_versionManager, &facts.loaderVersion);
-            const LauncherManager::GameSession session = m_launcherManager->session(sessionId);
             facts.processId = session.processId;
             facts.startedAtMs = session.startedAtMs;
             m_sessionLaunchFacts.insert(sessionId, facts);
         }
+        // ★ §5.1：记进「上一次启动」那本账。**位置就是"以成功创建游戏进程为准"这句规矩的
+        //   落点** —— 这一整个 `if (sessionId > 0)` 块只有"进程真起来了"才走得到（startGame()
+        //   那三条早退路径在上面就返回了）。`quickPlay` 是这一趟开头取走的那个目标：空 = 普通
+        //   启动，有值 = 这一趟游戏自己会进那个世界 / 那台服务器。
+        appendLaunchRecord(versionId, quickPlay, session.startedAtMs);
         // 实例树上"（运行中）"要当场出来：这一份已经从"开始启动"走到"进程真的起来了"。
         updateInstanceTreeRunState();
         // 这一档只对"真的起来了"生效 —— startGame() 那三条早退路径下面根本走不到这里。
         applyLauncherBehaviourAfterLaunch();
     }
     updateBottomBar();
+}
+
+// ============================ 「上一次启动」那本账（coding plan §5.1） ============================
+//
+// 主页左栏那张卡（「上次游玩」）背后的那一小片。三件事分在三个地方写：
+//   · **判据层**在 `manage/LaunchHistory`（纯函数：格式、时间怎么说、目标没了怎么降级、
+//     上限怎么截），verify 里逐格念；
+//   · **这一片**是记账与翻译：什么时候记（进程真起来了那一刻）、结束之后怎么改写、
+//     翻成卡片上那三行字；
+//   · **摆样子**在 `ui/MainWindowUI`（`setHomeRecent()`），它只认三个字符串和一位布尔，
+//     一个字节的盘都不碰（`ui/` 不 include `src/`，和 `TaskCenter::Item` 同一个理由）。
+//
+// ★ §5.1 那条区分很要紧：「上一次」以**成功创建游戏进程**为准，不以点击启动按钮为准 ——
+//   所以产品的写点只有 `onStartButtonClicked()` 里 `sessionId > 0` 那一段，登录失败 /
+//   Java 挑不出来 / 进程没起来那几条早退路径一个字都不记（它们是"没试成"，不是"上次玩了
+//   什么"）。
+
+LaunchHistory::Result MainWindow::launchHistoryResult(bool crashed, bool neverStarted) {
+    // 判据的**唯一出处**在这儿，两个读者都走它：产品那一侧（onGameFinished 里现算的两个
+    // 事实 —— 退出码是不是异常、游戏有没有打出一行日志）和验证工程摆的那一位。
+    if (neverStarted) {
+        return LaunchHistory::Result::StartFailed;
+    }
+    return crashed ? LaunchHistory::Result::Crash : LaunchHistory::Result::NormalExit;
+}
+
+QuickPlay::Kind MainWindow::quickPlayKindFor(LaunchHistory::Target target) {
+    return target == LaunchHistory::Target::Server ? QuickPlay::Kind::Multiplayer
+                                                   : QuickPlay::Kind::Singleplayer;
+}
+
+void MainWindow::loadLaunchHistory() {
+    // 文件不在 / 认不出来 = 空账（`LaunchHistory::load()` 的规矩），不是错误：一次都没
+    // 启动过的新用户就是这样，那时主页那张卡整块收起来。
+    m_launchHistory = LaunchHistory::load(LaunchHistory::historyPath());
+    updateHomeRecent();
+}
+
+void MainWindow::appendLaunchRecord(const QString &versionId, const QuickPlay::Target &quickPlay,
+                                    qint64 startedAtMs) {
+    LaunchHistory::Record record;
+    record.instanceId = versionId;
+    // **启动那一刻**那一句显示名（里面已经带着版本和加载器）。实例以后改名、被删都不影响
+    // 这一条 —— "记录"该有的样子就是当时那句话。
+    record.instanceName = instanceDisplayName(versionId);
+    record.accountKey = launchIdentityKey();
+    record.startedAt = startedAtMs > 0 ? QDateTime::fromMSecsSinceEpoch(startedAtMs)
+                                       : QDateTime::currentDateTime();
+    // 写下去那一刻它是"还在跑"：结局在 onGameFinished 里改写（`finishLaunchRecord()`）。
+    record.result = LaunchHistory::Result::Running;
+    if (!quickPlay.isEmpty()) {
+        // 「世界 / 服务器只有通过 Quick Play 启动时才记录，普通进主菜单不能猜」（§5.1）——
+        // 走到这一支就说明**这一趟确实是游戏自己去那个进度**，值就是命令行上发出去的那一串
+        // （存档目录名 / 服务器地址），不另算一遍。
+        record.target = quickPlay.kind == QuickPlay::Kind::Multiplayer
+                            ? LaunchHistory::Target::Server
+                            : LaunchHistory::Target::World;
+        record.targetId = quickPlay.value;
+        if (record.target == LaunchHistory::Target::World) {
+            // 世界就是按**目录名**认的（见 WorldFiles.hpp 那段"两边都不读 level.dat 里的
+            // 世界名"），所以显示名 = 那一串本身就是对的。
+            record.targetDisplayName = quickPlay.value;
+        } else {
+            // 服务器：地址是稳定键，名字会改 —— 卡片上写名字更好认，所以现查一遍
+            // `servers.dat`（实例设置里那一页读的就是同一份）。查不到（这一台刚被删掉）
+            // 就让它空着，`targetLine()` 会退回写地址，卡片上不会多一句假话。
+            QList<NbtUtil::ServerEntry> entries;
+            QString problem;
+            NbtUtil::readServerList(ServerListFile::pathFor(versionId), &entries, &problem);
+            for (const NbtUtil::ServerEntry &entry : entries) {
+                if (entry.address == quickPlay.value) {
+                    record.targetDisplayName = entry.name;
+                    break;
+                }
+            }
+        }
+    }
+    m_launchHistory = LaunchHistory::prepend(m_launchHistory, record);
+    // 写不进去只记一句日志，**不弹窗**：这一趟的启动一点没被挡住（游戏照样起来了），只是
+    // 主页那张卡下次少一条记录 / 还显示上一条 —— 拿一个提示拦在用户和"进游戏"之间不成
+    // 比例。和 `ResourceStore` / `InstanceIconLookup` 那几处"best-effort 写盘"同一个口径。
+    if (!LaunchHistory::save(LaunchHistory::historyPath(), m_launchHistory)) {
+        appendLog(tr("没能把这次启动记进「上次游玩」：%1 写不进去。")
+                      .arg(QDir::toNativeSeparators(LaunchHistory::historyPath())));
+    }
+    updateHomeRecent();
+}
+
+void MainWindow::finishLaunchRecord(qint64 startedAtMs, LaunchHistory::Result result,
+                                    qint64 finishedAtMs) {
+    if (startedAtMs <= 0) {
+        return;  // 没记过这一趟（账上那条本该在），什么都不用改
+    }
+    for (LaunchHistory::Record &record : m_launchHistory) {
+        // 认的是**启动时刻**这一把钥匙：同一次启动写下去的就是它，退出那一刻会话早从
+        // LauncherManager 的表里摘掉了（见 onGameFinished 那段 NOTE）。
+        // `result == Running` 那一位是第二道闸：终态只落一次（重复的退出信号不改写第二次）。
+        if (record.result != LaunchHistory::Result::Running
+            || record.startedAt.toMSecsSinceEpoch() != startedAtMs) {
+            continue;
+        }
+        record.result = result;
+        if (finishedAtMs >= startedAtMs) {
+            record.durationSeconds = (finishedAtMs - startedAtMs) / 1000;
+        }
+        if (!LaunchHistory::save(LaunchHistory::historyPath(), m_launchHistory)) {
+            appendLog(tr("没能把这次启动的结局写进「上次游玩」：%1 写不进去。")
+                          .arg(QDir::toNativeSeparators(LaunchHistory::historyPath())));
+        }
+        updateHomeRecent();
+        return;
+    }
+}
+
+bool MainWindow::quickPlayTargetAlive(const LaunchHistory::Record &record) const {
+    if (record.targetId.isEmpty()) {
+        return false;
+    }
+    if (record.target == LaunchHistory::Target::World) {
+        // 世界：目录名就是游戏自己去 `saves/` 底下找的那把钥匙。**路径从
+        // `instanceFileDirs()` 来**（存档页 / 导入世界读的都是它），不自己拼那四个字母。
+        const QString savesDir = instanceFileDirs(record.instanceId).value(QStringLiteral("save"));
+        if (savesDir.isEmpty()) {
+            return false;
+        }
+        // ★ 这一格里的字是**从盘上那份 json 读回来的**（用户能手改、也认得出旧格式）⇒
+        //   拼路径之前先挡一下路径分隔符：不然 `../..` 这种值会让"世界还在不在"答错
+        //   （轻则卡片上那颗按钮的判断错，重则 `QDir::exists()` 去问一个实例目录外面的地方）。
+        if (record.targetId.contains(QLatin1Char('/'))
+            || record.targetId.contains(QLatin1Char('\\'))
+            || record.targetId == QStringLiteral("..")) {
+            return false;
+        }
+        return QDir(savesDir + QLatin1Char('/') + record.targetId).exists();
+    }
+    if (record.target == LaunchHistory::Target::Server) {
+        // 服务器：**按值认**（地址对得上就是它），不按下标 —— 用户可以在游戏里重排这一列。
+        QList<NbtUtil::ServerEntry> entries;
+        QString problem;
+        NbtUtil::readServerList(ServerListFile::pathFor(record.instanceId), &entries, &problem);
+        for (const NbtUtil::ServerEntry &entry : entries) {
+            if (entry.address == record.targetId) {
+                return true;
+            }
+        }
+        return false;
+    }
+    return false;  // Target::None 没有目标可谈（调用方一律先把它排除掉）
+}
+
+bool MainWindow::homeRecentCanContinue(const LaunchHistory::Record &record) const {
+    if (!record.isValid() || m_versionManager == nullptr) {
+        return false;
+    }
+    // ① 那一份实例还在不在。★ 用「已安装列表」回答，**不是**看 `versions/<id>` 目录在不在：
+    //    启动那一下找的就是"下拉框里有没有它"（`startQuickPlayNow()` 的第一道闸），
+    //    两处判据必须是同一把尺子，否则卡片上写着能接着玩、点下去却开不了。
+    if (!m_versionManager->installedVersions().contains(record.instanceId)) {
+        return false;
+    }
+    // ② 普通启动（账上记的不是快捷启动）：那一发就是"把这一份开起来"，照样算接着玩。
+    if (record.target == LaunchHistory::Target::None) {
+        return true;
+    }
+    // ③ 快捷启动：目标得还在，**而且**这个实例现在还得认那条参数（实例被换成另一个版本、
+    //    或者被整合包覆盖过，都可能让一条 quick play 参数变得发不出去 —— 发出去游戏当场退出，
+    //    见 QuickPlay.hpp 那段）。
+    return quickPlayTargetAlive(record)
+           && instanceSupportsQuickPlay(record.instanceId, quickPlayKindFor(record.target));
+}
+
+void MainWindow::updateHomeRecent() {
+    if (m_ui == nullptr) {
+        return;  // 构造还没走到那儿（和那几个访问器拿空指针当判据是同一个意思）
+    }
+    const LaunchHistory::Record record = LaunchHistory::latestPlayable(m_launchHistory);
+    MainWindowUI::HomeRecent recent;
+    if (record.isValid()) {
+        recent.visible = true;
+        // 第一行：**启动那一刻**那一句。名字那次没记下来（今天之前写的记录）就退回 id ——
+        // 宁可写一串目录名，也不要空一行。
+        recent.instanceLine =
+            record.instanceName.isEmpty() ? record.instanceId : record.instanceName;
+
+        // 第二行：目标 / 玩了多久 / 那一趟的结局，三段拼起来。**每一段都可能没有**，
+        // 都空就整行不占位置（界面那边会把它收起来）。
+        QString detail = LaunchHistory::targetLine(record);
+        const QString played = LaunchHistory::durationText(record.durationSeconds);
+        if (!played.isEmpty()) {
+            detail = detail.isEmpty() ? played
+                                      : detail + QStringLiteral(" · ") + played;
+        }
+        // 那句结局**紧贴着前面那句话**（中间不加分隔符）：它是那半句的注解，不是另一件事。
+        detail += LaunchHistory::resultNote(record);
+        recent.detailLine = detail;
+        recent.whenLine = LaunchHistory::whenText(record.startedAt);
+        recent.canContinue = homeRecentCanContinue(record);
+    }
+    m_ui->setHomeRecent(recent);
+}
+
+void MainWindow::onHomeRecentContinueClicked() {
+    const LaunchHistory::Record record = LaunchHistory::latestPlayable(m_launchHistory);
+    if (!record.isValid()) {
+        updateHomeRecent();  // 账空了（文件被人删了）⇒ 把卡片收起来
+        return;
+    }
+    // ★ 卡片上那颗按钮的状态是**上一趟重画**时算的，这一下可能已经隔了很久（实例被删、
+    //   世界被删都发生在之后）⇒ 现算一遍，不拿旧结论办事。
+    if (record.target != LaunchHistory::Target::None && homeRecentCanContinue(record)) {
+        // 目标还在 ⇒ 真的接着玩。走**同一条** `startQuickPlay()`：完整校验、登录、Java、
+        // 重复运行提醒一道都不绕过（§5.1 明写的那条）。
+        startQuickPlay(record.instanceId, quickPlayKindFor(record.target), record.targetId);
+        return;
+    }
+    // 其余都落在这儿：普通启动那一档，以及"目标没了 / 实例换了版本"的降级那一档。
+    // 做法和用户在主页选好实例再点启动**完全一样**（同一条路，不是另一条捷径）。
+    QComboBox *combo = m_ui->getInstalledVersionCombo();
+    const int row = combo == nullptr ? -1 : combo->findData(record.instanceId);
+    if (row < 0) {
+        // 那一份实例已经不在了（卡片上剩的是历史文字）。**说一句、不启动** —— 硬塞一个
+        // 下拉框里找不到的值，开起来的是现在选着的**另一个**实例，那是更糟的结果。
+        // NOTE: 措辞和 `startQuickPlayNow()` 那一处**逐字相同**：同一件事说两种话，用户会
+        //       以为是两件不同的事。
+        InlineMessage::warning(m_ui->overlay(), tr("找不到这个实例"),
+                               tr("「%1」现在不在已安装列表里，没有启动。")
+                                   .arg(record.instanceName.isEmpty() ? record.instanceId
+                                                                      : record.instanceName));
+        return;
+    }
+    combo->setCurrentIndex(row);
+    onStartButtonClicked();
+}
+
+void MainWindow::onHomeRecentSettingsClicked() {
+    const LaunchHistory::Record record = LaunchHistory::latestPlayable(m_launchHistory);
+    if (!record.isValid()) {
+        updateHomeRecent();
+        return;
+    }
+    if (m_versionManager == nullptr
+        || !m_versionManager->installedVersions().contains(record.instanceId)) {
+        // 和上面那颗按钮同一条理由：这一份已经不在了，开它的设置页只会给出一个空壳。
+        InlineMessage::warning(m_ui->overlay(), tr("找不到这个实例"),
+                               tr("「%1」现在不在已安装列表里。")
+                                   .arg(record.instanceName.isEmpty() ? record.instanceId
+                                                                      : record.instanceName));
+        return;
+    }
+    openInstanceSettings(record.instanceId);
 }
 
 // ============================ 「账号与外观」那个模块 ============================
@@ -15671,6 +15947,24 @@ void MainWindow::onGameFinished(int sessionId, int exitCode, QProcess::ExitStatu
     // 这一份结束了，"用户关过它的日志窗"这件事不再有意义 —— 下一个实例是另一回事，
     // 不清的话这个集合会随着开过的实例数一直长。
     m_gameLogDismissedSessions.remove(sessionId);
+
+    // ---------- §5.1：这一趟的结局写回「上一次启动」那本账 ----------
+    //
+    // 位置有三处讲究，全都要在这一段之前：
+    //   · `m_launchingSessions` 那一格判的是"游戏**连第一行日志都没打出来**就结束了"
+    //     （游戏吐出第一行输出时它才被摘掉，见 onProcessOutput）—— 那不算"玩过"；
+    //   · `m_sessionLaunchFacts` 里放着**启动时刻**，它是账上那一条唯一的钥匙
+    //     （会话早从 LauncherManager 的表里摘掉了，见上面那段 NOTE）；
+    //   · 那个判据本身只有一个出处（`GameExitDiagnosis::isAbnormal()`），下面
+    //     「异常退出补一项」那一支读的也是**同一个值**，不重算第二遍（两处各算一次的话，
+    //     以后改判据就会有一处漏改）。
+    const bool abnormalExit =
+        GameExitDiagnosis::isAbnormal(exitCode, exitStatus == QProcess::CrashExit);
+    finishLaunchRecord(
+        m_sessionLaunchFacts.value(sessionId).startedAtMs,
+        launchHistoryResult(abnormalExit, m_launchingSessions.contains(sessionId)),
+        QDateTime::currentMSecsSinceEpoch());
+
     // 进程没了，它那一份的"启动中"要收掉；左下角那条"实例运行中"由 runningGames() 现算，
     // 这里只管重画（那一份在 LauncherManager 里已经从表里摘掉了）。
     m_launchingSessions.remove(sessionId);
@@ -15698,7 +15992,8 @@ void MainWindow::onGameFinished(int sessionId, int exitCode, QProcess::ExitStatu
     //     Java 路径、内存、加载器）是这一项唯一的来源。
     // 判据是 `GameExitDiagnosis::isAbnormal()`（崩溃，或者非 0 退出码；崩了但码正好是 0 的
     // 也算 —— 那种"0"什么都不能证明），和那一层说的必须是同一条。
-    if (GameExitDiagnosis::isAbnormal(exitCode, exitStatus == QProcess::CrashExit)) {
+    // NOTE: `abnormalExit` 在上面（§5.1 记账那一段）就算好了，这一支读的就是同一个值。
+    if (abnormalExit) {
         reportGameCrash(sessionId, exitCode, exitStatus == QProcess::CrashExit);
     }
     // 名字也到此为止（它唯一的用途就是上面那一行前缀）。不清的话这个表会随着开过的

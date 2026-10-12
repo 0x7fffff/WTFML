@@ -38,6 +38,8 @@ set(HEADER_FILES
     ${REPO_ROOT}/src/manage/VersionIntegrity.hpp
     ${REPO_ROOT}/src/manage/BackupFiles.hpp
     ${REPO_ROOT}/src/manage/WorldFiles.hpp
+    # 「上一次启动」那本账（§5.1）：主页那张卡的数据源，MainWindow.cpp 直接调它。
+    ${REPO_ROOT}/src/manage/LaunchHistory.hpp
     ${REPO_ROOT}/src/settings/GameWindowSettings.hpp
     ${REPO_ROOT}/src/settings/GlobalJavaSettings.hpp
     ${REPO_ROOT}/src/settings/LauncherSettings.hpp
@@ -78,6 +80,9 @@ set(SOURCE_FILES
     # 少了这一个文件会在链接那一步报一串 `BackupFiles::…` 的 undefined reference。
     ${REPO_ROOT}/src/manage/BackupFiles.cpp
     ${REPO_ROOT}/src/manage/WorldFiles.cpp
+    # 「上一次启动」那一层（§5.1）：少了这一个文件会在链接那一步报一串
+    # `LaunchHistory::…` 的 undefined reference。
+    ${REPO_ROOT}/src/manage/LaunchHistory.cpp
     ${REPO_ROOT}/src/settings/EffectiveJavaSettings.cpp
     ${REPO_ROOT}/src/settings/GameWindowSettings.cpp
     ${REPO_ROOT}/src/settings/GlobalJavaSettings.cpp

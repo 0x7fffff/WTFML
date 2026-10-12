@@ -26466,6 +26466,248 @@ int main(int argc, char *argv[]) {
         QApplication::processEvents();
     }
 
+    // ---------- U31 主页那张「上次游玩」卡（coding plan §5.1）----------
+    //
+    // 这一节量的是**屏幕上那一张卡长什么样**：它在主页左栏落哪儿、三行字怎么摆、那一行
+    // 灰字空着的时候卡片是不是**真的矮一截**（不摆空壳）、两颗按钮哪一颗是主题色那一档。
+    // 判据层（账怎么写 / 时间怎么说 / 目标没了怎么降级）在 verify 的 ZR 段；**接线**
+    // （点下去走哪条路）在 mw_check 的 T36 —— 这里只管"看得见的那一份"，一件事只验一遍。
+    //
+    // ★ 全程走 `MainWindowUI::setHomeRecent()` 这一个入口：那一份 `HomeRecent` 就是产品
+    //   （`MainWindow::updateHomeRecent()`）给界面的唯一一份值，手工 setText 摆出来的卡片
+    //   不是产品会画出来的那张 —— 那正是这一节要防的"看着对、产品却不是这么画的"。
+    //   （2026-10-13：这一节的兄弟 T36 抓到的就是这一类形状 —— 卡片压根没被存成成员，
+    //   界面上一片空白，而两颗按钮照旧写得进字。）
+    {
+        // ★ 先把窗口摆出来、把主页切回前台，再看那两张卡的几何：这一节是**最后一段**，
+        //   前面十几节有的把选项卡停在别处、有的把窗口关掉了 —— 而**没摆上屏幕的东西不参加
+        //   布局**，那两张卡的几何会停在"建出来那个默认值"（QWidget 的 100x30）。
+        //   2026-10-13 实测就是这么红的：卡片 100x30、左栏 `isVisible()==0`，看着像"产品
+        //   压根没把它放进布局"，其实只是这一节没把界面摆出来。
+        window.show();
+        // 还得**给左栏留出足够的高度**：卡片是按内容定高的那一档，窗口矮的时候它会被布局
+        // 压扁（900x620 下实测卡片 131px < 自己的 sizeHint 173px），而"那一行空了卡片会不会
+        // 跟着矮"这种事在压扁了的状态下根本量不出来。
+        window.resize(900, 760);
+        if (tabs != nullptr) {
+            tabs->setCurrentIndex(MainWindowUI::homeTabIndex());
+        }
+        QApplication::processEvents();
+        QFrame *recentCard = ui.getHomeRecentCard();
+        QLabel *recentName = ui.getHomeRecentNameLabel();
+        QLabel *recentDetail = ui.getHomeRecentDetailLabel();
+        QLabel *recentWhen = ui.getHomeRecentWhenLabel();
+        QPushButton *recentGo = ui.getHomeRecentContinueButton();
+        QPushButton *recentSettings = ui.getHomeRecentSettingsButton();
+        check(recentCard != nullptr && recentName != nullptr && recentDetail != nullptr &&
+                  recentWhen != nullptr && recentGo != nullptr && recentSettings != nullptr,
+              "U31.0 那张卡的卡片本体 / 三行字 / 两颗按钮都找得到（按 objectName）");
+        QWidget *launchCard = startBtn != nullptr ? startBtn->parentWidget() : nullptr;
+        check(recentCard != nullptr && launchCard != nullptr &&
+                  recentCard->parentWidget() == launchCard->parentWidget(),
+              "U31.0 它就是同一栏（主页左栏）里的一张卡，不是另开在别处的");
+        if (recentCard != nullptr && launchCard != nullptr &&
+            recentCard->parentWidget() == launchCard->parentWidget()) {
+            // ① 一次都没启动过：**整张卡收起来**（§9.2：不摆一张空的等数据）。
+            check(!recentCard->isVisibleTo(recentCard->parentWidget()),
+                  "★★ U31.1 一次都没启动过 ⇒ 整张卡收起来（这一节开头 nobody 调过 "
+                  "setHomeRecent）");
+            check(recentCard->isVisibleTo(recentCard->parentWidget()) == false &&
+                      recentGo->isEnabled(),
+                  "U31.1 收起来的只是那张卡，它那两颗按钮没被顺手禁用（下一次摆出来照旧能点）");
+
+            // ② 摆一条"接着玩得起来"的：三行字各就各位。
+            MainWindowUI::HomeRecent recent;
+            recent.visible = true;
+            recent.instanceLine = QStringLiteral("基地周目-1.20.1-forge-47.2.0");
+            recent.detailLine = QStringLiteral("单人世界：基地周目 · 玩了 1 小时 12 分（还在玩）");
+            recent.whenLine = QStringLiteral("昨天 22:14");
+            recent.canContinue = true;
+            ui.setHomeRecent(recent);
+            QApplication::processEvents();
+            check(recentCard->isVisibleTo(recentCard->parentWidget()),
+                  "★★ U31.2 有记录了 ⇒ 那张卡露出来");
+            check(recentName->text() == recent.instanceLine &&
+                      recentDetail->text() == recent.detailLine &&
+                      recentWhen->text() == recent.whenLine,
+                  "★★ U31.2 三行字就是喂进去的那三句（一行一个字都不许另起炉灶）",
+                  QStringLiteral("%1｜%2｜%3")
+                      .arg(recentName->text(), recentDetail->text(), recentWhen->text()));
+            check(recentGo->text() == MainWindowUI::homeRecentContinueText(),
+                  "U31.2 接着玩得起来 ⇒ 那颗主动作写「继续游玩」", recentGo->text());
+            check(recentSettings->text() == MainWindowUI::homeRecentSettingsText(),
+                  "U31.2 旁边那颗永远写「实例设置」", recentSettings->text());
+
+            // ③ 摆在哪儿：**启动卡下面**，和它一样宽（同一栏里两张卡，7:3 那份宽度是共用
+            //    的）；名字在标题下面、详情在名字下面 —— 那一份次序是 §5.1 那张草图的。
+            check(recentCard->y() >= launchCard->y() + launchCard->height(),
+                  "★★ U31.3 那张卡在**启动卡下面**（§9.5：主页左栏是「启动 + 最近活动」两"
+                  "件事，次序就是它们的重要程度）",
+                  QStringLiteral("启动卡底 %1 / 这张卡顶 %2")
+                      .arg(launchCard->y() + launchCard->height())
+                      .arg(recentCard->y()));
+            check(recentCard->width() == launchCard->width(),
+                  "★ U31.3 两张卡同宽（同一栏里由同一个布局铺满，不是各自算一份）",
+                  QStringLiteral("%1 vs %2").arg(recentCard->width()).arg(launchCard->width()));
+            check(recentName->y() > recentWhen->y() && recentDetail->y() > recentName->y() &&
+                      recentGo->y() > recentDetail->y(),
+                  "★ U31.3 摆的次序是「时间和标题那一行 → 实例名 → 灰字那行 → 两颗按钮」",
+                  QStringLiteral("when %1 / name %2 / detail %3 / buttons %4")
+                      .arg(recentWhen->y())
+                      .arg(recentName->y())
+                      .arg(recentDetail->y())
+                      .arg(recentGo->y()));
+            check(recentWhen->x() > recentCard->width() / 2,
+                  "★★ U31.3 那句「昨天 22:14」在**右上角**（§5.1 那张草图里它不是单独一行，"
+                  "是这一行的右端）",
+                  QStringLiteral("x %1 / 卡片宽 %2").arg(recentWhen->x()).arg(recentCard->width()));
+
+            // ④ 灰字那一行空着时**整行收起来**，卡片跟着矮一截：空 QLabel 照样占一行字高，
+            //    留着就是白留一块（§9.2 那条"不摆空壳"落到了行这一级）。
+            //
+            //   ★ 量的是 `sizeHint()`，**不是**屏幕上那一刻的高度：offscreen 那块窗口被夹在
+            //     虚拟屏那一圈里，左栏是**被压扁**的（实测卡片 131px < 它自己的
+            //     `sizeHint()` 173px）—— 挤扁那一档的高度由"布局从谁身上抠"决定，这一行收
+            //     没收掉看不出来。屏幕像素上"真的矮了一截"那条钉子摆在 **ui_shot**
+            //     （原生窗口、正常高度），见 memory 里那条「布局类断言在 offscreen 上会假绿」。
+            const int withDetail = recentCard->sizeHint().height();
+            // 还原那一发要用**同一句**：灰字那行是会折行的（这一句在卡片宽度下正好两行），
+            // 换一句短的回来高度当然对不上 —— 那不是"收起来不可逆"。
+            const QString keepDetail = recent.detailLine;
+            recent.detailLine.clear();
+            ui.setHomeRecent(recent);
+            QApplication::processEvents();
+            const int withoutDetail = recentCard->sizeHint().height();
+            check(!recentDetail->isVisibleTo(recentCard) && withoutDetail < withDetail,
+                  "★★ U31.4 灰字那行空着 ⇒ 那一行**收起来**、卡片报出来的高度真的矮一截"
+                  "（不是留一块空白）",
+                  QStringLiteral("sizeHint %1px → %2px").arg(withDetail).arg(withoutDetail));
+            recent.detailLine = keepDetail;
+            ui.setHomeRecent(recent);
+            QApplication::processEvents();
+            check(recentDetail->isVisibleTo(recentCard) &&
+                      recentCard->sizeHint().height() == withDetail,
+                  "U31.4 那一行再有字 ⇒ 高度回到原来那一档（收起来是可逆的）",
+                  QStringLiteral("sizeHint %1px").arg(recentCard->sizeHint().height()));
+            // 时间那一位同理（账上一个时间都没有的老记录）。
+            recent.whenLine.clear();
+            ui.setHomeRecent(recent);
+            QApplication::processEvents();
+            check(!recentWhen->isVisibleTo(recentCard),
+                  "U31.4 时间那句空着也收起来（不写一句空话占着右上角）");
+            recent.whenLine = QStringLiteral("昨天 22:14");
+
+            // ⑤ 降级那一档：目标 / 那一份实例没了 ⇒ 字变成「启动实例」，但**按钮不消失**
+            //    （§5.1：目标被删了不该让这张卡变成死路一条）。
+            recent.canContinue = false;
+            ui.setHomeRecent(recent);
+            QApplication::processEvents();
+            check(recentGo->text() == MainWindowUI::homeRecentLaunchText() &&
+                      recentGo->isVisibleTo(recentCard),
+                  "★★ U31.5 降级那一档那颗按钮**照旧在**、只是换了句话（不是藏起来）",
+                  recentGo->text());
+            recent.canContinue = true;
+            ui.setHomeRecent(recent);
+            QApplication::processEvents();
+
+            // ⑥ 一句很长的实例名**不许把卡片顶宽**（名字那一格横向是 Ignored，见
+            //    setHomeRecent 那一带的 NOTE）：宽度只由 7:3 那份份数决定。
+            recent.instanceLine =
+                QStringLiteral("超长实例名超长实例名超长实例名超长实例名超长实例名"
+                               "-1.20.1-neoforge-21.1.0-再长一点");
+            ui.setHomeRecent(recent);
+            QApplication::processEvents();
+            check(recentCard->width() == launchCard->width() &&
+                      recentName->width() <= recentCard->width(),
+                  "★★ U31.6 一句很长的实例名**顶不宽**这张卡（名字那一格横向摘出了度量）",
+                  QStringLiteral("卡片 %1 / 启动卡 %2 / 名字 %3")
+                      .arg(recentCard->width())
+                      .arg(launchCard->width())
+                      .arg(recentName->width()));
+
+            // ⑦ 两颗按钮的**分档**：主动作那一颗是页面上唯一一颗**实心**的（底 = 主题色本色、
+            //    字 = 白），旁边那颗是白底黑字的「一般性」那一档。量的**渲染出来的像素**，不是
+            //    样式表字符串 —— 字符串那一条会跟着同一个错误一起写错（见 `Theme.cpp` 里
+            //    `primaryBlock` / `kindBlock` 那两段：这是"分了三档"唯一说得清的地方）。
+            {
+                const QColor pure = Theme::accentShade(Theme::AccentShade::Pure);
+                const QColor neutralInk = Theme::neutralInkColor();
+                const auto countNear = [](const QImage &image, const QColor &want, int tol) {
+                    int hits = 0;
+                    for (int y = 0; y < image.height(); ++y) {
+                        for (int x = 0; x < image.width(); ++x) {
+                            if (colorDistance(image.pixelColor(x, y), want) <= tol) {
+                                ++hits;
+                            }
+                        }
+                    }
+                    return hits;
+                };
+                const QImage goShot = captureWidget(recentGo);
+                const QImage settingsShot = captureWidget(recentSettings);
+                const QRect goAll = QRect(QPoint(0, 0), goShot.size());
+                const QRect settingsAll = QRect(QPoint(0, 0), settingsShot.size());
+
+                // 「继续游玩」那一颗：**整块的多数色就是主题色本色**（实心）。这是"主动作
+                // 是页面上唯一一颗实心按钮"唯一量得出来的样子 —— 中性/危险那两档全是白底。
+                const QColor goFill = dominantColor(goShot, goAll);
+                check(colorDistance(goFill, pure) <= 6,
+                      "★★ U31.7 「继续游玩」是**实心**那一档：整块多数色 = 主题色本色",
+                      QStringLiteral("多数色 %1（本色 %2）").arg(goFill.name(), pure.name()));
+
+                // 它上面那行字是**白**的：中间那一带里"离白比离本色更近"的像素得存在。
+                // （不数纯 `#ffffff`：`render()` 出来是灰度抗锯齿，字芯未必一格不差地打到
+                //   纯白；这条要钉的是"墨是白的"，不是"抗锯齿打了几格"。）
+                const QRect goBand(4, goShot.height() / 4, qMax(0, goShot.width() - 8),
+                                   qMax(1, goShot.height() / 2));
+                int goLight = 0;
+                for (int y = goBand.top(); y <= goBand.bottom(); ++y) {
+                    for (int x = goBand.left(); x <= goBand.right(); ++x) {
+                        const QColor c = goShot.pixelColor(x, y);
+                        if (colorDistance(c, QColor(Qt::white)) < colorDistance(c, pure)) {
+                            ++goLight;
+                        }
+                    }
+                }
+                // 实心那一颗从里到外**一个「一般性」的黑像素都不该有**（字白、边也是本色；
+                // 白绿之间怎么混都到不了 #202020 那一片）。
+                const int goNeutral = countNear(goShot, neutralInk, 30);
+                check(goLight > 0 && goNeutral == 0,
+                      "★★ U31.7 实心那一颗的字是**白**的（一个「一般性」的黑像素都没有 —— "
+                      "分档分的就是这个：底和墨一起换档）",
+                      QStringLiteral("偏白的像素 %1 个 / 中性墨 %2 个").arg(goLight).arg(goNeutral));
+
+                // 「实例设置」那一颗：白底 + 黑字黑边（`kindBlock("neutral")`）。
+                const QColor settingsFill = dominantColor(settingsShot, settingsAll);
+                const int settingsPure = countNear(settingsShot, pure, 30);
+                const int settingsNeutral = countNear(settingsShot, neutralInk, 30);
+                check(colorDistance(settingsFill, QColor(Qt::white)) <= 6 && settingsPure == 0 &&
+                          settingsNeutral > 0,
+                      "★★ U31.7 「实例设置」是**一般性**那一档：白底黑字黑边，主题色一个像素"
+                      "都不沾（用户 2026-09-28 点名的分档：启动那种确认性的走主题色，设置"
+                      "那种一般性的走黑）",
+                      QStringLiteral("多数色 %1 / 本色 %2 个 / 中性墨 %3 个")
+                          .arg(settingsFill.name())
+                          .arg(settingsPure)
+                          .arg(settingsNeutral));
+
+                // 两档的**高度**也真的差一档（§9.1：主动作 38 / 一般 34）。
+                check(recentGo->height() > recentSettings->height(),
+                      "★★ U31.7 §9.1 的两档高度落在屏幕上：主动作比一般性那一颗高",
+                      QStringLiteral("主动作 %1px / 一般 %2px")
+                          .arg(recentGo->height())
+                          .arg(recentSettings->height()));
+            }
+
+            // 收尾：把这张卡摆回"一次都没启动过"那一档，后面的量（§⑬ 之后那几节）看的是
+            // 一张干净的界面。
+            ui.setHomeRecent(MainWindowUI::HomeRecent());
+            QApplication::processEvents();
+            check(!recentCard->isVisibleTo(recentCard->parentWidget()),
+                  "★ U31 收尾：摆回「没有记录」那一档 ⇒ 那张卡又收起来了");
+        }
+    }
+
     std::printf("\n===== %s: %d/%d =====\n", g_fail == 0 ? "全部通过" : "有失败", g_pass,
                 g_pass + g_fail);
     return g_fail == 0 ? 0 : 1;
