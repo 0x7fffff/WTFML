@@ -9,13 +9,21 @@ if(MSVC)
     add_compile_options(/Zc:__cplusplus)
 endif()
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets Network Core Gui)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Network Core Gui Concurrent)
+
+# The launcher used to keep its verification programs under build/, which meant
+# they were invisible to source control and to CTest.  Keep normal developer
+# builds lean, but provide one switch that enables the complete regression suite.
+option(WTFML_BUILD_TESTS "Build the WTFML regression test executables" OFF)
+option(WTFML_STRICT_WARNINGS "Enable additional compiler diagnostics" OFF)
+option(WTFML_WARNINGS_AS_ERRORS "Treat launcher warnings as build errors" OFF)
 
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
 set(HEADER_FILES
     src/MainWindow.hpp
+    src/controllers/JavaRuntimeController.hpp
     src/launcher/LauncherManager.hpp
     src/launcher/LibraryRules.hpp
     src/launcher/ProcessPriority.hpp
@@ -70,6 +78,7 @@ set(HEADER_FILES
 set(SOURCE_FILES
     src/main.cpp
     src/MainWindow.cpp
+    src/controllers/JavaRuntimeController.cpp
     src/launcher/LauncherManager.cpp
     src/launcher/AsciiPathAlias.cpp
     src/launcher/VersionInheritance.cpp
@@ -184,6 +193,12 @@ set_target_properties(WTFMinecraftLauncher PROPERTIES qt_no_entrypoint TRUE)
 # 发 0.2.0 的时候才发现——所以改成从这一个宏出来，别再写第二份字面量。
 target_compile_definitions(WTFMinecraftLauncher PRIVATE WTFML_VERSION="${PROJECT_VERSION}")
 
+# MainWindow.cpp is still large while its controllers are being extracted.  A
+# debug build can exceed PE/COFF's default section count under MinGW.
+if(MINGW)
+    target_compile_options(WTFMinecraftLauncher PRIVATE -Wa,-mbig-obj)
+endif()
+
 target_include_directories(WTFMinecraftLauncher PRIVATE
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/ui      
@@ -194,7 +209,23 @@ target_link_libraries(WTFMinecraftLauncher PRIVATE
     Qt6::Network
     Qt6::Core
     Qt6::Gui
+    Qt6::Concurrent
 )
+
+if(WTFML_STRICT_WARNINGS)
+    if(MSVC)
+        target_compile_options(WTFMinecraftLauncher PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(WTFMinecraftLauncher PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+endif()
+if(WTFML_WARNINGS_AS_ERRORS)
+    if(MSVC)
+        target_compile_options(WTFMinecraftLauncher PRIVATE /WX)
+    else()
+        target_compile_options(WTFMinecraftLauncher PRIVATE -Werror)
+    endif()
+endif()
 
 # 令牌落盘用的 DPAPI（CryptProtectData）在这个库里。见 src/auth/TokenStore.cpp 的 protect()。
 #
@@ -208,4 +239,9 @@ target_link_libraries(WTFMinecraftLauncher PRIVATE
 # 同样是系统 DLL（Vista 起就有）。
 if(WIN32)
     target_link_libraries(WTFMinecraftLauncher PRIVATE crypt32 ole32 shlwapi windowscodecs dwmapi)
+endif()
+
+if(WTFML_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
 endif()

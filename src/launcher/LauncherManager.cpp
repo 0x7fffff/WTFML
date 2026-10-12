@@ -550,7 +550,7 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     //   不是"风格问题"，是**实打实的启动失败**：
     //   Forge/NeoForge 的 version json 用 `${library_directory}`（绝对）拼了 `-p` 模块路径，
     //   而 classpath 上是相对串 —— BootstrapLauncher 逐个比"这个 jar 是不是已经在 JVM 的
-    //   模块路径上了"，`Paths.get("libraries\\cpw\\...")` 和 `Paths.get("D:\\...\\libraries\\
+    //   模块路径上了"，相对的 `Paths.get("libraries/cpw/...")` 和绝对路径
     //   cpw\\...")` 不相等，于是它认为同一个 jar 出现了两次并抛：
     //     IllegalStateException: Module named cpw.mods.bootstraplauncher was already on the
     //     JVMs module path loaded from D:\...\bootstraplauncher-2.0.2.jar but class-path
@@ -1059,10 +1059,11 @@ int LauncherManager::startGame(const QStringList &arguments, const EffectiveJava
 
     // 会话**先登记再干活**：后面几条早退路径上的报错要能带上实例名（界面按 sessionId
     // 查显示名），所以这一笔必须在第一个 return 之前落下。失败时由 discardSession() 收回。
-    m_sessions.insert(sessionId, Entry{GameSession{sessionId, versionId,
-                                                   displayName.isEmpty() ? versionId : displayName,
-                                                   accountName, accountUuid, 0, 0},
-                                       nullptr, false});
+    Entry entry;
+    entry.info = GameSession{sessionId, versionId,
+                             displayName.isEmpty() ? versionId : displayName,
+                             accountName, accountUuid, 0, 0};
+    m_sessions.insert(sessionId, entry);
 
     // 游戏进程的输出怎么解码，从**最终命令行**上反推（见下面那个静态函数的说明），
     // 而不是另立一个"我们加没加编码参数"的开关。正常情况下这条判据是自洽的：

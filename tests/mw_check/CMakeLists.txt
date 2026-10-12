@@ -1,0 +1,220 @@
+# MainWindow 回归验证：offscreen 起真的 MainWindow，验"启动游戏"按钮第二行
+# 和"已安装版本"下拉框的同步。ui_check 只搭 MainWindowUI、拿不到同步逻辑，
+# 而这条同步有一个真陷阱：refreshInstalledVersions() 里重灌下拉框时信号被
+# QSignalBlocker 挡掉了，光接 currentTextChanged 会在"刷新"这条路径上漏掉。
+# 只有把真的 MainWindow 立起来才验得到。
+
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_AUTOMOC ON)
+# 2026-09-28：assets/icons.qrc（四个加载器的真图）也要走 RCC。产品那份 CMakeLists
+# 早就是开的，这三个验证工程原来只开了 AUTOMOC —— 不开的话 .qrc 会被**静默忽略**：
+# 编译链接全都过，只是 `:/assets/loader/*.png` 全是空图（症状见下面那行的注释）。
+set(CMAKE_AUTORCC ON)
+
+find_package(Qt6 REQUIRED COMPONENTS Widgets Network Core Gui Concurrent)
+
+set(REPO_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../..)
+get_filename_component(REPO_ROOT ${REPO_ROOT} REALPATH)
+
+set(HEADER_FILES
+    ${REPO_ROOT}/src/MainWindow.hpp
+    ${REPO_ROOT}/src/controllers/JavaRuntimeController.hpp
+    ${REPO_ROOT}/src/launcher/LauncherManager.hpp
+    ${REPO_ROOT}/src/launcher/LibraryRules.hpp
+    ${REPO_ROOT}/src/auth/AuthManager.hpp
+    ${REPO_ROOT}/src/auth/AccountStore.hpp
+    ${REPO_ROOT}/src/auth/SkinApi.hpp
+    ${REPO_ROOT}/src/auth/TokenStore.hpp
+    ${REPO_ROOT}/src/net/HttpClient.hpp
+    ${REPO_ROOT}/src/manage/FolderManager.hpp
+    ${REPO_ROOT}/src/manage/InstanceFiles.hpp
+    ${REPO_ROOT}/src/manage/DroppedResource.hpp
+    ${REPO_ROOT}/src/manage/ModpackImport.hpp
+    ${REPO_ROOT}/src/manage/ModpackExport.hpp
+    ${REPO_ROOT}/src/manage/VersionManager.hpp
+    ${REPO_ROOT}/src/manage/VersionDisplay.hpp
+    ${REPO_ROOT}/src/manage/VersionIntegrity.hpp
+    ${REPO_ROOT}/src/manage/WorldFiles.hpp
+    ${REPO_ROOT}/src/settings/GameWindowSettings.hpp
+    ${REPO_ROOT}/src/settings/GlobalJavaSettings.hpp
+    ${REPO_ROOT}/src/settings/LauncherSettings.hpp
+    ${REPO_ROOT}/src/download/DownloadManager.hpp
+    ${REPO_ROOT}/src/util/AppPaths.hpp
+    ${REPO_ROOT}/src/util/ZipUtil.hpp
+)
+
+# 和主工程同样的源文件，只是不含 src/main.cpp（那个有自己的 main）。
+set(SOURCE_FILES
+    ${REPO_ROOT}/src/MainWindow.cpp
+    ${REPO_ROOT}/src/controllers/JavaRuntimeController.cpp
+    ${REPO_ROOT}/src/launcher/LauncherManager.cpp
+    ${REPO_ROOT}/src/auth/AuthManager.cpp
+    ${REPO_ROOT}/src/auth/AccountStore.cpp
+    ${REPO_ROOT}/src/auth/SkinApi.cpp
+    ${REPO_ROOT}/src/auth/TokenStore.cpp
+    ${REPO_ROOT}/src/net/HttpClient.cpp
+    ${REPO_ROOT}/src/manage/DefaultSkin.cpp
+    ${REPO_ROOT}/src/manage/FolderManager.cpp
+    ${REPO_ROOT}/src/manage/InstanceFiles.cpp
+    ${REPO_ROOT}/src/manage/DroppedResource.cpp
+    ${REPO_ROOT}/src/manage/ModpackImport.cpp
+    # 导出整合包那一条路（VersionManager 里五个方法直接调它）：少了这一个文件，
+    # mw_check 会在链接那一步报一串 `ModpackExport::…` 的 undefined reference。
+    ${REPO_ROOT}/src/manage/ModpackExport.cpp
+
+    ${REPO_ROOT}/src/manage/InstanceGroupStore.cpp
+    ${REPO_ROOT}/src/manage/PlayerSkinStore.cpp
+    # 离线账号那张随机皮肤：AF 段要拿它预置"已经挑好的一张"，还要读它记在哪儿。
+    ${REPO_ROOT}/src/manage/RandomSkinStore.cpp
+    ${REPO_ROOT}/src/manage/VersionManager.cpp
+    ${REPO_ROOT}/src/manage/VersionDisplay.cpp
+    # 体检那一层：VersionManager::checkInstanceIntegrity() 直接调它，少了这一个文件会在
+    # 链接那一步报一串 `VersionIntegrity::…` 的 undefined reference。
+    ${REPO_ROOT}/src/manage/VersionIntegrity.cpp
+    ${REPO_ROOT}/src/manage/WorldFiles.cpp
+    ${REPO_ROOT}/src/settings/EffectiveJavaSettings.cpp
+    ${REPO_ROOT}/src/settings/GameWindowSettings.cpp
+    ${REPO_ROOT}/src/settings/GlobalJavaSettings.cpp
+    ${REPO_ROOT}/src/settings/LauncherSettings.cpp
+    ${REPO_ROOT}/src/download/DownloadManager.cpp
+    # 下载页那四页的取数（搜索 / 版本列表 / 图标）。MainWindow.cpp 里那条路要它们 ——
+    # 少了这两个文件，mw_check 会在链接那一步报一串"undefined reference"。
+    ${REPO_ROOT}/src/download/ResourceCatalog.cpp
+    ${REPO_ROOT}/src/download/ResourceStore.cpp
+    # 前置模组 / 更新检测那两套判据（2026-09-28）：MainWindow.cpp 直接调它们。少了这一个
+    # 文件，链接期报的是一串 `ModDependencies::…` 的 undefined reference。
+    ${REPO_ROOT}/src/download/ModDependencies.cpp
+    # ResourceStore 现在按内容解图（webp 走系统 WIC），所以也链它 —— 这里正是
+    # icon-live 那条真网络探针要验的那条路（见 main.cpp）。
+    ${REPO_ROOT}/src/util/ImageDecode.cpp
+    ${REPO_ROOT}/src/util/SystemMemory.cpp
+    ${REPO_ROOT}/src/util/ZipUtil.cpp
+    # 实例设置「文件管理」里的服务器列表读 servers.dat（2026-09-26）。MainWindow.cpp 直接
+    # 调 NbtUtil::readServerList()。
+    ${REPO_ROOT}/src/util/NbtUtil.cpp
+    # NbtTree（世界设置那条路，2026-09-28）：WorldFiles.cpp 直接调它，少了这一个文件
+    # 链接期报一串 `undefined reference to NbtTree::parse`。
+    ${REPO_ROOT}/src/util/NbtTree.cpp
+    # 服务器列表那一页的「测速」（2026-09-27）：MainWindow::pingServers() 直接调它。少了
+    # 这一个文件，mw_check 会在链接那一步报一串 `ServerPing::…` 的 undefined reference。
+    ${REPO_ROOT}/src/util/ServerPing.cpp
+    # 「导出错误报告」那一份文本（2026-09-28）：MainWindow.cpp 直接调它。
+    ${REPO_ROOT}/src/util/ErrorReport.cpp
+    # 测速的「上次问到的那一份」（2026-09-27）：MainWindow 里那一趟先读它垫底、
+    # 问回来一条写一条。少了这一个文件会报 ServerStatusCache::… 的 undefined reference。
+    # ServerListFile（2026-10-10）：MainWindow.cpp 里服务器列表那一页的编辑那一发
+    # 直接调它（只改 name / ip 两格）。少了这一个文件会报 ServerListFile 的 undefined reference。
+    ${REPO_ROOT}/src/manage/ServerListFile.cpp
+    ${REPO_ROOT}/src/manage/ServerStatusCache.cpp
+    # 「文件管理」那几页的图标反查（2026-09-27）：MainWindow 在后台线程里调它。
+    ${REPO_ROOT}/src/manage/InstanceIconLookup.cpp
+    ${REPO_ROOT}/ui/AccountSkinDialog.cpp
+    # 「游戏日志」窗是 2026-09-24 加的，MainWindow.cpp 直接 new 它 —— 少了这一个文件，
+    # mw_check 会在链接那一步报"undefined reference to GameLogWindow::…"。
+    ${REPO_ROOT}/ui/GameLogWindow.cpp
+    ${REPO_ROOT}/ui/MainWindowUI.cpp
+    # 「最大内存」那一行那根条（2026-09-26）：MainWindowUI.cpp 和
+    # InstanceSettingsDialog.cpp 都直接 new 它，少了这一个文件会在链接那一步报一串
+    # undefined reference to MemorySlider::…。
+    ${REPO_ROOT}/ui/MemorySlider.cpp
+
+    ${REPO_ROOT}/ui/GroupDialog.cpp
+    ${REPO_ROOT}/ui/GroupListDelegate.cpp
+    ${REPO_ROOT}/ui/InstanceSettingsDialog.cpp
+    ${REPO_ROOT}/ui/InstanceFilesPage.cpp
+    # 「配置文件」那一页（2026-09-27）：编辑器那一格和它那套纯函数（认 BOM / 认行尾 /
+    # 认是不是 UTF-8）都是 ui/ 的东西，InstanceSettingsDialog 直接 new 它。少了这两个
+    # 文件，链接期报的是 `undefined reference to ConfigFileEditorPage::…`。
+    ${REPO_ROOT}/ui/ConfigFileText.cpp
+    ${REPO_ROOT}/ui/ConfigFileEditorPage.cpp
+    # 「条目」那一格（2026-09-27）：见 ui_check 那份清单里同一段。
+    ${REPO_ROOT}/ui/ConfigEntries.cpp
+    # 「世界设置」那一页（2026-09-28）：见 ui_check 那份清单里同一段。
+    ${REPO_ROOT}/ui/WorldSettingsPage.cpp
+    # 规则那一格名字上盖的官方中文（2026-09-29）：WorldSettingsPage 直接调它。
+    ${REPO_ROOT}/ui/GameRuleNames.cpp
+    ${REPO_ROOT}/ui/JavaMismatchDialog.cpp
+    ${REPO_ROOT}/ui/JavaManageDialog.cpp
+    ${REPO_ROOT}/ui/SkinModel.cpp
+    ${REPO_ROOT}/ui/VersionIcons.cpp
+    # 四个加载器的标志那几张真图（2026-09-28）：qrc 不列在这儿，
+    # `:/assets/loader/*.png` 就是空图，loaderMark() 一路退回草方块
+    # （ui_check 那条「四张标志互不相同」会红，产品自己看着一切正常）。
+    ${REPO_ROOT}/assets/icons.qrc
+    ${REPO_ROOT}/ui/ToggleSwitch.cpp
+    ${REPO_ROOT}/ui/MotdText.cpp
+    ${REPO_ROOT}/ui/VersionTreeDelegate.cpp
+    ${REPO_ROOT}/ui/ResourceDetailPage.cpp
+    ${REPO_ROOT}/ui/InstanceGroupDelegate.cpp
+    ${REPO_ROOT}/ui/OverlayHost.cpp
+    ${REPO_ROOT}/ui/InlineMessage.cpp
+    ${REPO_ROOT}/ui/SkinViewer.cpp
+    # 顶上那条自己画的标题栏 + 外框挂件（2026-09-25，自定义外框那一趟）：
+    # MainWindowUI.cpp 直接 new 它们两个，少了这两行会在链接那一步报
+    # `undefined reference to TitleBar::TitleBar(QWidget*)` / `WindowChrome::…`。
+    ${REPO_ROOT}/ui/TitleBar.cpp
+    ${REPO_ROOT}/ui/Theme.cpp
+    # 动效那一层（2026-09-29）：按钮按下 / 换页 / 展开折叠。MainWindowUI.cpp 和
+    # OverlayHost.cpp 都直接调它，少了这一个文件会在链接那一步报一串 undefined reference
+    # to Anim::…。
+    ${REPO_ROOT}/ui/Animations.cpp
+    # 主题里那两张背景图（2026-09-28）：`ui/ThemeBackground.cpp` 是四个页面和主页左栏直接
+    # new 的那个容器，`src/util/ThemeImage.cpp` 是 MainWindow 收图那一步调的（挑回来的图
+    # 拷进数据目录、顺手缩到 2560 以内）。少哪一个都会在链接那一步报一串 undefined reference。
+    ${REPO_ROOT}/ui/ThemeBackground.cpp
+    ${REPO_ROOT}/src/util/ThemeImage.cpp
+    ${REPO_ROOT}/ui/WindowChrome.cpp
+    ${HEADER_FILES}
+)
+
+# VersionInheritance 是"带模组加载器的版本（inheritsFrom）"那次改动引入的。别的分支上
+# 没有这两个文件（VersionManager / InstanceFiles 也不会有那些调用），所以存在才加 ——
+# 缺了就让对应用例在运行时报 FAIL，而不是让 CMake 直接配置失败。
+if(EXISTS ${REPO_ROOT}/src/launcher/VersionInheritance.cpp)
+    list(APPEND SOURCE_FILES ${REPO_ROOT}/src/launcher/VersionInheritance.cpp
+                             ${REPO_ROOT}/src/launcher/VersionInheritance.hpp)
+endif()
+
+# AsciiPathAlias 是"Java 8 打不开非 ASCII 路径"那次修复（2026-09-28）引入的。
+# **LauncherManager.cpp 和 MainWindow.cpp 都直接调它**，所以少这一个文件时链接期报的是
+# 一串 `undefined reference to AsciiPathAlias::…` —— 编译过得去，别以为只是头文件的事。
+# 理由同上一段：别的分支上没有这两个文件，存在才加。
+if(EXISTS ${REPO_ROOT}/src/launcher/AsciiPathAlias.cpp)
+    list(APPEND SOURCE_FILES ${REPO_ROOT}/src/launcher/AsciiPathAlias.cpp
+                             ${REPO_ROOT}/src/launcher/AsciiPathAlias.hpp)
+endif()
+
+# LoaderMeta.hpp 是"Fabric 安装"那次改动引入的纯头文件（地址怎么拼、回复怎么挑）。
+# 见上面同一段的注释：存在才加，别的分支上没有它。
+if(EXISTS ${REPO_ROOT}/src/download/LoaderMeta.hpp)
+    list(APPEND SOURCE_FILES ${REPO_ROOT}/src/download/LoaderMeta.hpp)
+endif()
+
+
+add_executable(mw_check main.cpp ${SOURCE_FILES})
+
+if(MINGW)
+    target_compile_options(mw_check PRIVATE -Wa,-mbig-obj)
+endif()
+
+target_include_directories(mw_check PRIVATE ${REPO_ROOT}/src ${REPO_ROOT}/ui)
+target_link_libraries(mw_check PRIVATE Qt6::Widgets Qt6::Network Qt6::Core Qt6::Gui Qt6::Concurrent)
+# The integration driver is another very large assertion table; compiling it
+# without optimization keeps verification builds practical on MinGW.
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(mw_check PRIVATE -O0)
+endif()
+# AuthManager.cpp 落盘走 DPAPI，验证工程也编译它，所以同样要链 crypt32。
+# 后面三个是 ImageDecode.cpp 要的（起 COM / SHCreateMemStream / WIC 本体），
+# 见主工程 CMakeLists.txt 里同一段。
+target_link_libraries(mw_check PRIVATE crypt32 ole32 shlwapi windowscodecs dwmapi)
+
+add_test(NAME wtfml.main-window COMMAND mw_check)
+set_tests_properties(wtfml.main-window PROPERTIES
+    LABELS "ui;integration"
+    TIMEOUT 240
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+)
+

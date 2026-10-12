@@ -65,15 +65,6 @@ bool readStringField(const NbtTree::Node &root, const QString &path, bool *prese
     return true;
 }
 
-/// 把一格**已经存在**的值改掉（按它自己的类型收）。**不发明**：找不到那一格返回 false。
-bool writeField(NbtTree::Node *root, const QString &path, const QString &text) {
-    NbtTree::Node *node = NbtTree::descend(root, path);
-    if (node == nullptr) {
-        return false;
-    }
-    return NbtTree::setValueText(node, text);
-}
-
 /**
  * @brief 改一格的值；那一格在盘上根本没有时，按 @p whenMissing 决定拒绝还是**建一格**。
  *

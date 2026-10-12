@@ -271,7 +271,7 @@ public:
      *       把路径存进全局配置，于是"给某个实例下载一个运行时"会顺手改掉全局的 Java
      *       路径；现在下载归下载、存哪由调用方决定（见 ensureJavaForVersion 的值版）。
      */
-    bool downloadJavaFromMojang(int majorVersion, QString *javaPathOut = nullptr);
+    static bool downloadJavaFromMojang(int majorVersion, QString *javaPathOut = nullptr);
 
     /**
      * @brief Current maximum heap size in megabytes.

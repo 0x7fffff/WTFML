@@ -78,7 +78,7 @@
  *
  * 用户原话：「那就像版本树一样根据存档来列…两个下拉框并排」+「**上面一排是存档的，
  * 下面一排是投影的**」。原因：结构方块存下来的那些 `.nbt` **跟着存档走**
- * （`<实例>/saves/<存档>/generated/minecraft/structures/**`），而投影（Litematica）
+ * （`<实例>/saves/<存档>/generated/minecraft/structures/…`），而投影（Litematica）
  * 那些 `.litematic` 是**实例级**的（`<实例>/schematics/`）—— 一句话说不清"这一页在看
  * 哪一个目录"，得同时列两个来源。见 setStructureSources() / scanDirectories()。
  *

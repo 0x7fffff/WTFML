@@ -198,21 +198,6 @@ constexpr int kWindowSizeRowSpacing = 8;
 /// 就够 —— 再宽就是在暗示"这里可以写很长"，而条上那一格是量的。
 constexpr int kTitleTextEditWidth = 220;
 
-/// 把一个控件加到设置页那一行的容器里，**只占它需要的那点宽度、靠左**放。
-///
-/// 为什么不是默认的"填满整格"：内容那一格是整幅宽（900 px 的窗口下就有 600 多 px），
-/// 一个「4096 MB」的数字框被拉到那个宽度看着就是坏的 —— PCL 那种设置页里的数字框
-/// 也只有巴掌宽。下拉框和文本框不这么处理：它们的宽度是有信息量的（Java 路径、
-/// 参数列表都长）。
-///
-/// @param minWidth 最小宽度；比 sizeHint 小的话实际按 sizeHint 走。
-void addInlineControl(QVBoxLayout *box, QWidget *control, int minWidth) {
-    control->setMinimumWidth(minWidth);
-    // 对齐标志传 0 以外的值 = "按 sizeHint 摆、不要撑满整格"（QBoxLayout::addWidget
-    // 的文档里那句 "the widget fills the entire cell" 只在 alignment 为 0 时成立）。
-    box->addWidget(control, 0, Qt::AlignLeft);
-}
-
 /// 给设置页里的一行控件套一层"控件 + 说明文字"的容器（说明统一小一号、灰色）。
 /// @return 容器；调用方再往它的 layout 里塞真控件 —— 说明文字在**最后**加，
 ///         所以这里只把空布局还回去。

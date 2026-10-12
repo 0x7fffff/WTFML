@@ -82,7 +82,10 @@ struct Target {
      * 字符串格式：拼法一改，两边一起改。
      */
     QString installedKey(const QString &projectId) const {
-        return ResourceCatalog::Hit{.projectId = projectId, .source = source}.iconCacheId();
+        ResourceCatalog::Hit hit;
+        hit.projectId = projectId;
+        hit.source = source;
+        return hit.iconCacheId();
     }
 };
 

@@ -39,7 +39,7 @@
  *
  * 【图从哪来：**本机客户端 JAR 里**，一个字节都不用下】
  *
- * 实测：那 18 张图**不在资产索引里**（`assets/indexes/*.json` 里 `entity/player` 底下全是
+ * 实测：那 18 张图**不在资产索引里**（`assets/indexes/<索引>.json` 里 `entity/player` 底下全是
  * 攻击/受伤的音效 .ogg，一张贴图都没有），它们在客户端 JAR 里，形如
  * `assets/minecraft/textures/entity/player/wide/kai.png`（1.20.1 实测那张 1585 字节；
  * 老规矩那两张是 `assets/minecraft/textures/entity/{alex,steve}.png`）。

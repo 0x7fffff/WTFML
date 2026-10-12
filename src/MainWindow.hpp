@@ -84,6 +84,7 @@ class ResourceDetailPage;
 // 「Java 管理」那一整页（设置页那颗按钮开出来的四个版本）。同上：只按指针持有，
 // 懒建（第一次点开才建），而且它**不长记性**（四行每次开页现灌）。
 class JavaManageDialog;
+class JavaRuntimeController;
 // 「游戏日志」窗（一份游戏一个，见 ui/GameLogWindow.hpp）。同上，只按指针持有，
 // 而且是**按需**才建（收到第一行输出那一刻，见 showGameLogLine()）。
 class GameLogWindow;
@@ -97,6 +98,10 @@ class RandomSkinStore;
 // 值结构的定义没有意义。
 struct EffectiveJavaSettings;
 struct JavaSettingsOverride;
+namespace ModpackExport {
+enum class Format;
+struct ExportPlan;
+}  // namespace ModpackExport
 // 「版本名格式」开关的数据模型。这里只按 const 引用传，前置声明就够，
 // 不必为了一个参数类型把 VersionDisplay.hpp 拖进每个 include 了 MainWindow.hpp 的地方。
 struct VersionNameOptions;
@@ -376,10 +381,8 @@ private slots:
      * 格式**从扩展名读**（`.mrpack` = Modrinth / `.zip` = CurseForge），不做第三档参数：
      * 那正是对话框里那两个筛选项已经在问的东西（见那个信号的 NOTE）。
      *
-     * 这一趟要枚举实例目录、算哈希、联网反查、再打一个 zip，是全项目最重的同步动作之一。
-     * 于是：进度写**底栏那一格**（`m_syncWaitStatus` + `updateBottomBar()`，和启动路径那三段
-     * 同步等同一个手法 —— 不另开进度窗，用户给的方向是"不出现独立窗口"），中途不弹框
-     * （弹框只能在进去之前或出来之后），收尾用一句提示把数报清楚。
+     * 这一趟要枚举实例目录、算哈希、联网反查、再打一个 zip。打包阶段放在后台线程，
+     * 进度和结果仍回到主线程展示，不另开独立进度窗口。
      *
      * @param versionId 实例 id（= 目录名）。
      * @param path 用户挑好的完整路径（带 `.mrpack` 或 `.zip`）。
@@ -657,7 +660,7 @@ private slots:
     ///
     /// NOTE: Oculus 是 Forge 上那个 Iris 移植（用户盘上「落幕曲」「香草纪元」
     ///       「魔改版ATT2」三个包用的都是它），而 OptiFine 在 1.12.2 及以前是**当普通
-    ///       模组装进 mods/** 的（`OptiFine_1.12.2_HD_U_G5.jar`）—— 这两样原来一条都不认，
+    ///       模组装进 mods/ 下的（`OptiFine_1.12.2_HD_U_G5.jar`）—— 这两样原来一条都不认，
     ///       于是那三页在装了光影的实例上照样说"用不上"（2026-09-27 修）。
     bool instanceShaderUsable(const QString &versionId) const;
 
@@ -1045,6 +1048,8 @@ protected:
 
 private:
     void setupConnections();
+    void continueModpackExport(const ModpackExport::ExportPlan &plan, const QString &targetPath,
+                               ModpackExport::Format format);
 
     // ---------- 「世界设置」那两格状态（2026-09-28）----------
     //
@@ -1496,6 +1501,8 @@ private:
     /// NOTE: 这一个是**无条件**重扫。要跑几次 `java -version`（每次几十到几百毫秒），
     ///       所以"切到设置页顺手扫一下"那条路走的是下面那个带节流的 refreshJavaList()。
     void scanLocalJava();
+    /// 接收后台扫描结果，并把用户手动钉住但不在常规目录里的 Java 合并进去。
+    void applyDetectedJavaVersions(const QMap<int, QString> &versions);
     /// 第一次切到设置页时扫一次（一次会话里只扫这一遍）。加节流是为了不在启动路径上
     /// 加这段延迟 —— 用户专门来「Java 管理」那一页看的时候不走这条，那边要的是当场的
     /// 真实结果（见 openJavaManage）。
@@ -1508,11 +1515,11 @@ private:
     void pushVersionNameOptionsToUi(const VersionNameOptions &options);
     /// 选项卡切换：底栏左下角要不要显示实例名、以及要不要扫 Java，都在这里收口。
     void onMainTabChanged();
-    /// 开「Java 管理」那一页（设置页「启动」栏那颗按钮）。开之前重扫一遍盘。
+    /// 开「Java 管理」那一页（设置页「启动」栏那颗按钮），打开后在后台重扫一遍盘。
     void openJavaManage();
     /// 把 m_localJavaVersions 里的四个主版本灌进那一页。
     void pushJavaRowsToPage();
-    /// 那一页发上来的三件事。都是**同步**的（下载那一条是真的几百 MB 阻塞式下载）。
+    /// 那一页发上来的三件事；实际扫描 / 下载由 JavaRuntimeController 在后台完成。
     void onJavaDetectRequested();
     void onJavaDownloadRequested(int major);
     void onJavaDownloadAllMissing();
@@ -2465,6 +2472,8 @@ private:
     /// 只认第一发**（那一笔由 0 毫秒的单次定时器抹掉，所以不会留到下一次操作）。
     QSet<QString> m_versionEnterSearches;
     GlobalJavaSettings *m_javaSettings;
+    /// Java 扫描 / 下载队列。重活在后台线程执行，MainWindow 只负责展示结果。
+    JavaRuntimeController *m_javaRuntimeController;
     // 实例分组（<数据目录>/wtfml.folders）。**不需要**在换游戏文件夹时重置它：
     // 它每个访问器都会比一下"这次问的是哪一份 .minecraft"，不一样就自己重读。
     InstanceGroupStore *m_groupStore;
@@ -2601,6 +2610,8 @@ private:
     // 由 enterSyncWait() 写进来、leaveSyncWait() 清掉 —— 做成字符串而不是布尔量，
     // 是因为"在等什么"只有进那一段的人知道（换令牌 / 挑 Java / 等进程起来）。
     QString m_syncWaitStatus;
+    // 后台正在写整合包。用它挡住同一实例页上的重复点击；完成回调会清掉。
+    bool m_modpackExportBusy = false;
     // 进度按网络分片到达（5000 多个 asset），节流一下再刷界面
     QElapsedTimer m_progressThrottle;
     // 「设置」页的 Java 列表扫过没有。扫描要逐个跑 `java -version`，只在第一次
@@ -2610,9 +2621,6 @@ private:
     // 这台机器上装了哪些 Java（主版本 -> java.exe）。**唯一**的出处是 scanLocalJava()；
     // 认的人只有「Java 管理」那一页那四行。目录换了（folderChanged）时会作废重扫。
     QMap<int, QString> m_localJavaVersions;
-    // 「下载所有缺少的 Java」那一趟里用户按过返回没有。设它的是那一页的 rejected 信号
-    // （左上角那颗返回箭头接的就是它），读它的是那个循环 —— 只用在这一处。
-    bool m_javaManageStopped = false;
     // 窗口是不是为了「收起启动器，游戏退出后回来」这一档才藏起来的。
     // 只有它为真时 onGameFinished() 才会把窗口叫回来 —— 用户自己最小化的窗口
     // 不该被游戏的退出给弹出来。

@@ -1243,7 +1243,7 @@
   要有人把它改成 true。这八档全是原版血统的服务端，一视同仁 —— 本层不管这件事，接 UI 时
   得有个地方问用户。
 
-断言在 `build/verify` 的 **ZK** 一节（`ZK1`…`ZK10`）：全是离线喂数据和钉地址原串。
+断言在 `tests/` 的 **ZK** 一节（`ZK1`…`ZK10`）：全是离线喂数据和钉地址原串。
 
 ### 启动
 
@@ -1335,8 +1335,8 @@
   - 各行那颗 `选用` 就是原来那个下拉框的活：点谁就把**全局**这一档钉死成谁（点「自动」那
     一条则退回自动档）。手动档下**不再自动换 Java**，路径主版本对不上就直接报错。
   - 这里是**唯一**一处能"装/修 Java"的地方：下的是 Adoptium 的构建，装在游戏文件夹的
-    `java/<主版本>` 下面，**不会动系统里已经装好的 Java**。下载是 UI 线程上的同步活，
-    所以那一趟里**所有按钮都禁掉**（不然按三下就下三遍），按返回可以中途停下。
+    `java/<主版本>` 下面，**不会动系统里已经装好的 Java**。扫描、下载和解压都在后台线程，
+    文件分块写入并原子提交；任务期间所有动作按钮禁用，按返回会让批量队列在当前项结束后停止。
 
 - **游戏**：`启动选项` 四项 —— **显示游戏日志**（默认关；打开之后游戏一出话就弹日志窗）、
   **进程优先级**（五档，默认那档也**显式设一遍** —— 子进程继承父进程优先级，而启动器本身
@@ -1418,9 +1418,14 @@
 
 ## 验证工程
 
-`build/verify/` 下有五个独立 target（**gitignore 里，不在仓库**）：`verify`（数据层，
-`QCoreApplication`）、`ui_check`（控件与像素）、`mw_check`（真 `MainWindow`）、
-`ui_shot`（截图）、`zb_probe`（深度缓冲）。它们各自把结论写进自己的 `bin/out.txt`。
+`tests/` 里的 `verify`（数据层，`QCoreApplication`）、`ui_check`（控件与像素）和
+`mw_check`（真 `MainWindow`）已经纳入源码与 CTest；用
+`cmake --preset verification`、`cmake --build --preset verification`、
+`ctest --preset verification` 跑确定性的核心与主窗口回归。`ui_check` 因下面记录的 Qt
+offscreen 偶发堆损坏不作为 CI 门禁，需用 `ctest --preset visual` 单独运行。
+`build/verify/` 里仍保留本机视觉探针
+`ui_shot`（截图）和 `zb_probe`（深度缓冲），它们依赖真 Windows 桌面，不放进无头 CI。
+本机视觉探针各自把结论写进自己的 `bin/out.txt`。
 `ui_shot` 必须**在自己的 bin/ 下跑**（相对路径截图）。真 exe 的探针见 `winprobe.ps1`
 （要先 `SetProcessDPIAware`）。★ `ui_shot` 里**量像素一律走 `renderWidget()`**：它给的是
 **逻辑**像素，而 `window.grab()` 在这台机子上给的是**物理**像素（150% 缩放），拿

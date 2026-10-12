@@ -1,0 +1,131 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 23,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "dev-debug",
+      "displayName": "Developer debug build",
+      "generator": "MinGW Makefiles",
+      "binaryDir": "${sourceDir}/build/dev-debug-mingw13",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "D:/Qt/Qt/Tools/mingw1310_64/bin/g++.exe",
+        "CMAKE_BUILD_TYPE": "Debug",
+        "WTFML_BUILD_TESTS": "OFF",
+        "WTFML_STRICT_WARNINGS": "ON"
+      }
+    },
+    {
+      "name": "release",
+      "displayName": "Optimized release build",
+      "generator": "MinGW Makefiles",
+      "binaryDir": "${sourceDir}/build/release-mingw13",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "D:/Qt/Qt/Tools/mingw1310_64/bin/g++.exe",
+        "CMAKE_BUILD_TYPE": "Release",
+        "WTFML_BUILD_TESTS": "OFF",
+        "WTFML_STRICT_WARNINGS": "ON"
+      }
+    },
+    {
+      "name": "verification",
+      "displayName": "Release build with regression tests",
+      "generator": "MinGW Makefiles",
+      "binaryDir": "${sourceDir}/build/verification-mingw13",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "D:/Qt/Qt/Tools/mingw1310_64/bin/g++.exe",
+        "CMAKE_BUILD_TYPE": "Release",
+        "WTFML_BUILD_TESTS": "ON",
+        "WTFML_STRICT_WARNINGS": "ON",
+        "WTFML_WARNINGS_AS_ERRORS": "ON"
+      }
+    },
+    {
+      "name": "ci-verification",
+      "displayName": "CI verification (toolchain from PATH)",
+      "generator": "MinGW Makefiles",
+      "binaryDir": "${sourceDir}/build/ci",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "WTFML_BUILD_TESTS": "ON",
+        "WTFML_STRICT_WARNINGS": "ON",
+        "WTFML_WARNINGS_AS_ERRORS": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "dev-debug",
+      "configurePreset": "dev-debug",
+      "jobs": 2
+    },
+    {
+      "name": "release",
+      "configurePreset": "release",
+      "jobs": 2
+    },
+    {
+      "name": "verification",
+      "configurePreset": "verification",
+      "jobs": 2
+    },
+    {
+      "name": "ci-verification",
+      "configurePreset": "ci-verification",
+      "jobs": 2
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "verification",
+      "configurePreset": "verification",
+      "filter": {
+        "exclude": {
+          "label": "visual"
+        }
+      },
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error",
+        "jobs": 1
+      }
+    },
+    {
+      "name": "ci-verification",
+      "configurePreset": "ci-verification",
+      "filter": {
+        "exclude": {
+          "label": "visual"
+        }
+      },
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error",
+        "jobs": 1
+      }
+    },
+    {
+      "name": "visual",
+      "configurePreset": "verification",
+      "filter": {
+        "include": {
+          "label": "visual"
+        }
+      },
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error",
+        "jobs": 1
+      }
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+Setting up logger: D:\Desktop\the_project\WTFML\forge-1.8.9-11.15.1.1722-installer.jar.log
+JVM info: Microsoft - 25.0.1 - 25.0.1+8-LTS
+java.net.preferIPv4Stack=true
+Found java version 25.0.1
+Option           Description                    
+------           -----------                    
+--extract        Extract the contained jar file 
+-h, --help       Help with this installer       
+--installServer  Install a server to the current
+                   directory                    
+--offline        Don't attempt any network calls

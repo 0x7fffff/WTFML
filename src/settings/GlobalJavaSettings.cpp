@@ -20,6 +20,7 @@
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QNetworkReply>
+#include <QSaveFile>
 #include <QProcess>
 #include <QRegularExpression>
 #include <QRegularExpressionMatch>
@@ -420,32 +421,48 @@ bool flattenSingleRootDir(const QString &dir) {
 }
 
 bool downloadFileToLocal(const QUrl &url, const QString &destinationPath) {
+    QSaveFile file(destinationPath);
+    if (!file.open(QIODevice::WriteOnly)) {
+        return false;
+    }
+
     QNetworkAccessManager manager;
     QNetworkRequest request(url);
-    // NOTE: 这个超时**不能省**。这一路是同步的（下面是内嵌事件循环），而且是在 UI 线程上
-    //       下的（几十上百 MB 的 Java 运行时）：没有超时的话，对端连上了却不发数据时
-    //       loop.exec() 没有任何退出条件 —— 界面就那么定住，连"下载中"的进度都不动。
+    // NOTE: 这个超时**不能省**。这一路在工作线程里用内嵌事件循环等待；没有超时的话，
+    //       对端连上了却不发数据时 loop.exec() 没有任何退出条件。
     //       它是"不活动超时"，一直匀速在下的不会因此被切断。
     //       全仓联网处只有这里和下面那个 Adoptium 列表没有超时（别处 10/15/30 秒），
     //       取 30 秒和下载管理器那条约定一致。
     request.setTransferTimeout(30000);
     QNetworkReply *reply = manager.get(request);
     QEventLoop loop;
+    bool writeFailed = false;
+    QObject::connect(reply, &QNetworkReply::readyRead, [&] {
+        const QByteArray chunk = reply->readAll();
+        if (!chunk.isEmpty() && file.write(chunk) != chunk.size()) {
+            writeFailed = true;
+            reply->abort();
+        }
+    });
     QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
     loop.exec();
 
-    if (reply->error() != QNetworkReply::NoError) {
+    // finished 前通常已经发过最后一次 readyRead；仍然把尾部读尽，避免依赖信号时序。
+    const QByteArray tail = reply->readAll();
+    if (!tail.isEmpty() && file.write(tail) != tail.size()) {
+        writeFailed = true;
+    }
+
+    if (reply->error() != QNetworkReply::NoError || writeFailed) {
+        file.cancelWriting();
         reply->deleteLater();
         return false;
     }
 
-    QFile file(destinationPath);
-    if (!file.open(QIODevice::WriteOnly)) {
+    if (!file.commit()) {
         reply->deleteLater();
         return false;
     }
-    file.write(reply->readAll());
-    file.close();
     reply->deleteLater();
     return true;
 }

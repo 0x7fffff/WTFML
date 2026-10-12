@@ -76,6 +76,7 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFutureWatcher>
 #include <QGuiApplication>
 // 用户挑的实例图标要**解码再编码**成实例目录下那份 icon.png（见 writeInstanceIcon()）。
 #include <QImage>
@@ -108,6 +109,7 @@
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QTreeWidgetItemIterator>
+#include <QtConcurrent/QtConcurrentRun>
 // 日志窗那两颗导出键的保存框默认落在桌面（见 exportDefaultDirectory()）。
 #include <QStandardPaths>
 
@@ -117,10 +119,12 @@
 // 「配置文件」那一页挑最近那一份备份（`std::greater<QString>`：备份文件夹名倒序 == 时间
 // 倒序，见 ConfigFileText::backupFolderName() 那段 NOTE）。
 #include <functional>
+#include <memory>
 
 #include "auth/AccountStore.hpp"
 #include "auth/AuthManager.hpp"
 #include "auth/SkinApi.hpp"
+#include "controllers/JavaRuntimeController.hpp"
 // 下载页那几类资源的取数（搜索 / 版本列表 / 图标）。头文件那边只前置声明了这个类
 // （那里用不到它的定义），这里要用真的。
 #include "download/ResourceStore.hpp"
@@ -1287,8 +1291,7 @@ QString sessionIdentityKey(const LauncherManager::GameSession &session) {
 /// 的取舍（新加键就得连带处理老数据、还有"登录取自"那句 tooltip 的语义）。
 /// NOTE: `saved_at` 全是 `QDateTime::currentDateTimeUtc().toString(Qt::ISODate)` 写出来的
 ///       （唯一写方），形状一致，所以按文本比就是按时间比。
-QList<MainWindowUI::PanelRow> recentAccountPanelRows(const QList<SavedAccount> &accounts,
-                                                     const QString &activeUuid, int limit,
+QList<MainWindowUI::PanelRow> recentAccountPanelRows(const QList<SavedAccount> &accounts, int limit,
                                                      const QHash<QString, QPixmap> &faces) {
     QList<MainWindowUI::PanelRow> rows;
     if (accounts.isEmpty()) {
@@ -1356,6 +1359,7 @@ MainWindow::MainWindow(QWidget *parent)
       m_resourceStore(new ResourceStore(this)),
       m_serverPinger(new ServerPing::Pinger(this)),
       m_javaSettings(new GlobalJavaSettings(this)),
+      m_javaRuntimeController(new JavaRuntimeController(this)),
       m_groupStore(new InstanceGroupStore(this)),
       m_skinStore(new PlayerSkinStore(this)),
       m_randomSkinStore(new RandomSkinStore(this)),
@@ -1373,6 +1377,50 @@ MainWindow::MainWindow(QWidget *parent)
     //   （拖放事件从光标底下那个控件沿父链往上找第一个接了拖放的控件）。
     setAcceptDrops(true);
     setupConnections();
+    connect(m_javaRuntimeController, &JavaRuntimeController::busyChanged, this, [this](bool busy) {
+        if (m_javaManagePage != nullptr) {
+            m_javaManagePage->setBusy(busy);
+        }
+    });
+    connect(m_javaRuntimeController, &JavaRuntimeController::statusChanged, this,
+            [this](const QString &message) { appendLog(message); });
+    connect(m_javaRuntimeController, &JavaRuntimeController::detectionFinished, this,
+            &MainWindow::applyDetectedJavaVersions);
+    connect(m_javaRuntimeController, &JavaRuntimeController::runtimeFinished, this,
+            [this](int major, bool ok, const QString &javaPath, bool partOfBatch) {
+                if (ok) {
+                    appendLog(tr("Java %1 运行时已装好：%2")
+                                  .arg(major)
+                                  .arg(QDir::toNativeSeparators(javaPath)));
+                    return;
+                }
+                appendLog(tr("Java %1 运行时下载失败").arg(major));
+                if (!partOfBatch && m_javaManagePage != nullptr &&
+                    m_javaManagePage->isVisible()) {
+                    InlineMessage::warning(
+                        m_ui->overlay(), tr("Java 运行时下载失败"),
+                        tr("没能下到 Java %1。多半是网络不通（下载走的是 Adoptium）。\n"
+                           "可以自己装一个，再回来按「检测已有 Java」；"
+                           "或者去「实例设置…」里把某一份现成的 Java 指过去。")
+                            .arg(major));
+                }
+            });
+    connect(m_javaRuntimeController, &JavaRuntimeController::downloadSequenceFinished, this,
+            [this](bool batch, int okCount, int failCount, bool cancelled) {
+                if (cancelled) {
+                    appendLog(tr("Java 下载队列已停止；当前下载完成后没有再开始下一份。"));
+                }
+                if (batch && failCount > 0 && m_javaManagePage != nullptr &&
+                    m_javaManagePage->isVisible()) {
+                    InlineMessage::warning(
+                        m_ui->overlay(), tr("有些 Java 没下成"),
+                        tr("下好了 %1 份，有 %2 份没下成。多半是网络不通（下载走的是 "
+                           "Adoptium）。\n可以隔一会儿再点一次，或者自己装好之后按「检测已有 "
+                           "Java」。")
+                            .arg(okCount)
+                            .arg(failCount));
+                }
+            });
     // 下载页那五页的筛子先灌上（来源 / 类型 / 加载器那三项这一刻就定得下来；「版本」那一栏
     // 等在线清单一到才有的灌，见 onVersionsFetched）。界面那边只搭空框 —— ui/ 不 include
     // src/，"每一项是什么"只能由这一层灌进去。
@@ -1438,7 +1486,7 @@ MainWindow::MainWindow(QWidget *parent)
                 for (const SavedAccount &one : saved) {
                     faces.insert(one.uuid, accountFacePixmap(one));
                 }
-                return recentAccountPanelRows(saved, AccountStore::activeUuid(), 3, faces);
+                return recentAccountPanelRows(saved, 3, faces);
             }
             return runningGamePanelRows(
                 m_launcherManager->runningGames(), m_versionManager,
@@ -2389,8 +2437,7 @@ void MainWindow::updateBottomBar() {
         progressBar->setRange(0, 0);
         statusLabel->setText(MainWindowUI::launchingStatusText(launchingInstanceName()));
     } else if (owner == MainWindowUI::BottomBarProgressOwner::Blocking) {
-        // 同步等待那一段：不知道要等多久（网络 / 下 Java / 进程启动），所以也是不确定态。
-        // 文字就是进那一段之前写下的"在等什么"。
+        // 还不知道总量的工作（同步网络 / 进程启动 / 后台导出）用不确定态滚动条。
         progressBar->setRange(0, 0);
         statusLabel->setText(m_syncWaitStatus);
     } else if (owner == MainWindowUI::BottomBarProgressOwner::Download) {
@@ -3116,6 +3163,8 @@ QSet<QString> MainWindow::installingVersionIds() const {
 }
 
 void MainWindow::refreshInstalledVersions() {
+    QElapsedTimer refreshTimer;
+    refreshTimer.start();
     // 只扫本地磁盘（.minecraft/versions/<id>/<id>.jar），同步返回，随叫随到。
     //
     // 识别不出来的版本只在第一次上报：本函数一次会话会被调很多次（构造、版本清单到达、
@@ -3302,6 +3351,11 @@ void MainWindow::refreshInstalledVersions() {
     // 刷完必须手动同步按钮文字和 tooltip：上面 fillVersionCombo() 里套了
     // QSignalBlocker，重灌过程不会发信号，光靠 connect 那条接不到。
     updateStartButtonText();
+    const qint64 elapsedMs = refreshTimer.elapsed();
+    if (elapsedMs >= 250) {
+        qInfo() << "refreshInstalledVersions:" << elapsedMs << "ms for" << installed.size()
+                << "installed versions";
+    }
 }
 
 QSet<QString> MainWindow::runningVersionIds() const {
@@ -6371,7 +6425,10 @@ void MainWindow::onResourceProjectsFinished(const QString &requestKey,
 QString MainWindow::projectTitleKey(ResourceCatalog::Source source, const QString &projectId) {
     // `Hit::iconCacheId()` 是那个拼法（`<来源>-<项目号>`）的**唯一出处** —— 别在这儿再拼
     // 一遍字符串：拼法一改，图标缓存、实例里那份身份表、这个缓存三处就各认各的了。
-    return ResourceCatalog::Hit{.projectId = projectId, .source = source}.iconCacheId();
+    ResourceCatalog::Hit hit;
+    hit.projectId = projectId;
+    hit.source = source;
+    return hit.iconCacheId();
 }
 
 void MainWindow::rememberProjectTitles(const QList<ResourceCatalog::Hit> &hits,
@@ -6780,7 +6837,11 @@ void MainWindow::updateJavaPathLabel() {
 }
 
 void MainWindow::scanLocalJava() {
-    m_localJavaVersions = GlobalJavaSettings::scanLocalJavaVersions();
+    applyDetectedJavaVersions(GlobalJavaSettings::scanLocalJavaVersions());
+}
+
+void MainWindow::applyDetectedJavaVersions(const QMap<int, QString> &versions) {
+    m_localJavaVersions = versions;
     // 钉死的那条路径也要算数（它可能不在扫描结果里：用户在别的盘上装的 Java）。
     // 不算的话，用户明明配着一份能用的 Java 17，这一页却写着「缺失」+「下载」——
     // 界面在说谎（这条原来是给那个下拉框加的，理由一模一样）。
@@ -6795,6 +6856,7 @@ void MainWindow::scanLocalJava() {
             m_localJavaVersions.insert(pinnedMajor, pinned);
         }
     }
+    pushJavaRowsToPage();
 }
 
 void MainWindow::refreshJavaList() {
@@ -6850,24 +6912,18 @@ void MainWindow::openJavaManageNow() {
                 &MainWindow::onJavaUseAuto);
         connect(m_javaManagePage, &JavaManageDialog::useRuntimeRequested, this,
                 &MainWindow::onJavaUseRuntime);
-        // 「返回」= 关掉这一页 = reject()。这一条只服务于「下载所有缺少的 Java」那一趟：
-        // 它是**一份接一份**的同步下载，用户在中途按返回时得有个东西能看见（见那边）。
-        connect(m_javaManagePage, &QDialog::rejected, this,
-                [this] { m_javaManageStopped = true; });
+        // 当前文件会安全写完；批量队列剩下的项目不再启动。
+        connect(m_javaManagePage, &QDialog::rejected, m_javaRuntimeController,
+                &JavaRuntimeController::cancelAfterCurrent);
     }
-    m_javaManageStopped = false;
 
-    // 每开一次都重扫一遍：**盘上可能刚被别的东西改过**（用户自己在外面装了一个、
-    // 或者杀软把上一份删了）。这正是用户来这一页要解决的那类事，拿一份陈旧的
-    // 扫描结果给他看，他会以为"这里看不到 17"。
-    //
-    // NOTE: 这一趟是同步的（逐个认版本），所以要有那句等待提示 —— 和切到设置页
-    //       那一下做的事一模一样，只是那次没提示（那次是"顺手扫一下"，这次是
-    //       "用户专门来看这个"）。
-    enterSyncWait(tr("正在检测本机已安装的 Java..."));
-    scanLocalJava();
+    // 先画会话里已有的结果，再在后台按盘上现状刷新。execPage 自己会进入事件循环，
+    // 扫描完成信号可以在页面打开期间正常更新四行。
     pushJavaRowsToPage();
-    leaveSyncWait();
+    m_javaManagePage->setBusy(m_javaRuntimeController->isBusy());
+    if (!m_javaRuntimeController->isBusy()) {
+        m_javaRuntimeController->detectInstalled();
+    }
 
     // ★ 先把选项卡切过去再开页（`ownerTab` 不是当前那一颗的话，这一页一开出来就是
     //   "收着"的，用户按了那颗按钮屏幕上什么都不出现）。见 openInstanceSettings 那段。
@@ -6936,104 +6992,28 @@ void MainWindow::onJavaDetectRequested() {
     if (m_javaManagePage == nullptr) {
         return;
     }
-    m_javaManagePage->setBusy(true);
-    enterSyncWait(tr("正在检测本机已安装的 Java..."));
-    scanLocalJava();
-    pushJavaRowsToPage();
-    leaveSyncWait();
-    m_javaManagePage->setBusy(false);
+    m_javaRuntimeController->detectInstalled();
 }
 
 void MainWindow::onJavaDownloadRequested(int major) {
     if (m_javaManagePage == nullptr || major <= 0) {
         return;
     }
-    // 一次只下一份。**这一趟是 UI 线程上的同步活**（见 GlobalJavaSettings 那段），
-    // 几百 MB 下完之前界面是冻住的，所以那一页得先禁掉所有按钮 —— 不然用户按三下
-    // 就下三遍同一个版本（理由在 JavaManageDialog::setBusy 那段）。
-    m_javaManagePage->setBusy(true);
-    QString javaPath;
-    enterSyncWait(tr("正在下载 Java %1 运行时（可能要几分钟）...").arg(major));
-    const bool ok = m_javaSettings->downloadJavaFromMojang(major, &javaPath);
-    leaveSyncWait();
-    if (!ok) {
-        appendLog(tr("Java %1 运行时下载失败").arg(major));
-        InlineMessage::warning(
-            m_ui->overlay(), tr("Java 运行时下载失败"),
-            tr("没能下到 Java %1。多半是网络不通（下载走的是 Adoptium）。\n"
-               "可以自己装一个，再回来按「检测已有 Java」；"
-               "或者去「实例设置…」里把某一份现成的 Java 指过去。")
-                .arg(major));
-        m_javaManagePage->setBusy(false);
-        return;
-    }
-    // 下完把盘重新认一遍**再**画：只把这一行改成新路径的话，别的行仍然停在开页那一刻
-    // 的状态上（"下完了但那一行还说缺失"就是这么来的）。
-    scanLocalJava();
-    pushJavaRowsToPage();
-    m_javaManagePage->setBusy(false);
-    appendLog(tr("Java %1 运行时已装好：%2")
-                  .arg(major)
-                  .arg(QDir::toNativeSeparators(javaPath)));
+    m_javaRuntimeController->downloadRuntime(major);
 }
 
 void MainWindow::onJavaDownloadAllMissing() {
     if (m_javaManagePage == nullptr) {
         return;
     }
-    m_javaManageStopped = false;
     const QList<int> majors = JavaManageDialog::managedMajors();
-    int okCount = 0;
-    int failCount = 0;
+    QList<int> missing;
     for (int major : majors) {
-        if (m_javaManageStopped) {
-            break;
+        if (m_localJavaVersions.value(major).isEmpty()) {
+            missing.append(major);
         }
-        // 已经有的一律跳过：这一颗按钮的字面意思就是"缺少的"，把已经装好的那份
-        // 顺手覆盖掉是它没说过的事。
-        //
-        // NOTE: 这是**每一轮现算**的，不是循环外算好一张名单：中间任何一份下完之后
-        //       m_localJavaVersions 都会被刷一遍，拿着开局那份名单走会去重下。
-        if (!m_localJavaVersions.value(major).isEmpty()) {
-            continue;
-        }
-        m_javaManagePage->setBusy(true);
-        QString javaPath;
-        enterSyncWait(tr("正在下载 Java %1 运行时（可能要几分钟）...").arg(major));
-        const bool ok = m_javaSettings->downloadJavaFromMojang(major, &javaPath);
-        leaveSyncWait();
-        if (ok) {
-            ++okCount;
-            appendLog(tr("Java %1 运行时已装好：%2")
-                          .arg(major)
-                          .arg(QDir::toNativeSeparators(javaPath)));
-        } else {
-            ++failCount;
-            appendLog(tr("Java %1 运行时下载失败").arg(major));
-        }
-        scanLocalJava();
-        pushJavaRowsToPage();
-
-        // ★ 把这一趟里用户按下的那几下**放出来**，再解开忙态。
-        //
-        //   不主动放的话，"按了返回"这件事要等到整趟下完才轮得到 —— 下载是在 UI
-        //   线程上同步跑的，`enterSyncWait()` 里那次 processEvents 是
-        //   **ExcludeUserInputEvents**（见那边的注释），鼠标事件在整个下载期间一直
-        //   排着队。顺序也不能反过来：解开忙态之后再放，用户排着的那几下会落在一颗
-        //   又能点的「下载」上，接着就是一趟新的下载。
-        QCoreApplication::processEvents();
-        m_javaManagePage->setBusy(false);
     }
-
-    if (failCount > 0) {
-        // 有失败就报清楚失败了几份（"下完了"和"下成了三份、第四份没下到"是两回事）。
-        InlineMessage::warning(
-            m_ui->overlay(), tr("有些 Java 没下成"),
-            tr("下好了 %1 份，有 %2 份没下成。多半是网络不通（下载走的是 Adoptium）。\n"
-               "可以隔一会儿再点一次，或者自己装好之后按「检测已有 Java」。")
-                .arg(okCount)
-                .arg(failCount));
-    }
+    m_javaRuntimeController->downloadMissing(missing);
 }
 
 void MainWindow::refreshMemoryUi() {
@@ -9495,7 +9475,7 @@ void MainWindow::openGroupMenuFor(QTreeWidgetItem *item) {
 
 namespace {
 
-/// 一个存档目录里**有没有结构方块存下来的东西**（`generated/minecraft/structures/**/*.nbt`）。
+/// 一个存档目录里**有没有结构方块存下来的东西**（`generated/minecraft/structures/…` 下的 nbt）。
 ///
 /// 判据是"有没有"，所以一找到第一条就停 —— 一个存档存过几百次结构的话，把整棵子树走完
 /// 是白走的（这一趟在**每一次**开实例设置时都要跑：每个存档一次）。
@@ -11769,7 +11749,7 @@ bool MainWindow::instanceShaderUsable(const QString &versionId) const {
     // ② mods/ 里装了一个"加载光影的模组"。这三个名字**都是用户盘上真见过的**：
     //    `iris`（Fabric / NeoForge / Quilt 上那个）、`oculus`（Forge 上那个 Iris 移植 ——
     //    「落幕曲」「香草纪元」「魔改版ATT2」三个整合包用的都是它）、`optifine`
-    //    （1.12.2 及以前 OptiFine 是**当普通模组装进 mods/** 的，
+    //    （1.12.2 及以前 OptiFine 是**当普通模组装进 mods/ 下**的，
     //    `OptiFine_1.12.2_HD_U_G5.jar`）。三条原来一条都不认。
     // NOTE: 没有 `optifabric`（Fabric 上那个把 OptiFine 塞进来的桥）：它要求 OptiFine
     //       的 jar 也在 mods/ 里，所以上面那条 `optifine` 本来就盖住了它。
@@ -13331,6 +13311,11 @@ void MainWindow::exportModpack(const QString &versionId, const QString &targetPa
     if (versionId.isEmpty() || targetPath.isEmpty()) {
         return;
     }
+    if (m_modpackExportBusy) {
+        InlineMessage::information(m_ui->overlay(), tr("正在导出"),
+                                   tr("已经有一份整合包正在打包，等它完成后再开始下一份。"));
+        return;
+    }
 
     // ---------- ① 这个实例自己正在被改的时候不许导 ----------
     //
@@ -13411,47 +13396,78 @@ void MainWindow::exportModpack(const QString &versionId, const QString &targetPa
     // `include` 保持默认（存档 / 截图不进包）：这两样是**这个人的**东西，不是这个整合包的，
     // 打进 overrides 之后收包的人一装就把自己的存档盖了。被排掉的那几个目录名下面会照实报。
 
-    // 进度写**底栏那一格**（不另开进度窗 —— 用户给的方向是"不出现独立窗口"）。手法和启动
-    // 路径那三段同步等一样：进去之前先把话说出来，之后每次刷新都配一次 processEvents
-    // （**排掉用户输入**，理由见 enterSyncWait 里那段）。
-    //
-    // NOTE: 因此这一趟**中途不能取消**：取消要一个收得到点击的框，而这一趟 UI 线程是卡着
-    //       的（能收点击的那套是"嵌进覆盖层的提示 + 嵌套事件循环"，那是另一件事了）。
-    //       一个实例几百兆到一两 G，实测几秒到几十秒。
+    // 枚举、哈希和两发网络反查都放到独立线程。worker 自己构造 VersionManager，保证它内部
+    // 的 QNetworkAccessManager 在创建它的线程里使用；主窗口只接收排队回来的进度和值。
     appendLog(tr("开始导出「%1」（%2）...")
                   .arg(instanceDisplayName(versionId),
                        format == ModpackExport::Format::CurseForge ? tr("CurseForge 规范")
                                                                   : tr("Modrinth 规范")));
-    enterSyncWait(tr("正在导出整合包…"));
-    QElapsedTimer throttle;
+    m_modpackExportBusy = true;
+    m_syncWaitStatus = tr("正在后台分析整合包…");
+    updateBottomBar();
+
+    const QString modrinthBase = m_settings->modrinthApiBaseOverride();
+    const QString curseForgeKey = m_settings->curseForgeApiKey();
+    const QString curseForgeBase = m_settings->curseForgeApiBaseOverride();
+    const QPointer<MainWindow> window(this);
+    auto throttle = std::make_shared<QElapsedTimer>();
     const ModpackExport::ExportProgress progress =
-        [this, &throttle](int done, int total, const QString &current) {
-            // 节流 100 ms：底栏那一格重排一次不便宜，而一个实例有几百上千个文件。
-            // 最后一条**必刷**（done == total 那一发），否则进度会停在"少一格"上。
-            if (throttle.isValid() && throttle.elapsed() < 100 && done < total) {
+        [window, throttle](int done, int total, const QString &current) {
+            if (!window) {
                 return;
             }
-            throttle.start();
-            m_syncWaitStatus = tr("正在导出整合包…（%1/%2）%3")
-                                   .arg(done)
-                                   .arg(total)
-                                   .arg(current.isEmpty() ? QString()
-                                                          : QFileInfo(current).fileName());
-            updateBottomBar();
-            QApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+            if (throttle->isValid() && throttle->elapsed() < 100 && done < total) {
+                return;
+            }
+            throttle->start();
+            QMetaObject::invokeMethod(
+                window.data(),
+                [window, done, total, current] {
+                    if (!window ||
+                        !window->m_syncWaitStatus.startsWith(window->tr("正在后台分析整合包"))) {
+                        return;
+                    }
+                    window->m_syncWaitStatus = window->tr("正在后台分析整合包…（%1/%2）%3")
+                                                   .arg(done)
+                                                   .arg(total)
+                                                   .arg(current.isEmpty()
+                                                            ? QString()
+                                                            : QFileInfo(current).fileName());
+                    window->updateBottomBar();
+                },
+                Qt::QueuedConnection);
         };
-    const ModpackExport::ExportPlan plan =
-        m_versionManager->buildExportPlan(request, progress, ModpackExport::ExportCancel());
-    leaveSyncWait();
 
+    auto *watcher = new QFutureWatcher<ModpackExport::ExportPlan>(this);
+    connect(watcher, &QFutureWatcher<ModpackExport::ExportPlan>::finished, this,
+            [this, watcher, targetPath, format] {
+                const ModpackExport::ExportPlan plan = watcher->result();
+                watcher->deleteLater();
+                m_syncWaitStatus.clear();
+                updateBottomBar();
+                continueModpackExport(plan, targetPath, format);
+            });
+    watcher->setFuture(QtConcurrent::run(
+        [request, progress, window, modrinthBase, curseForgeKey, curseForgeBase] {
+            VersionManager worker;
+            worker.setModrinthApiBaseOverride(modrinthBase);
+            worker.setCurseForgeApiKey(curseForgeKey);
+            worker.setCurseForgeApiBaseOverride(curseForgeBase);
+            const ModpackExport::ExportCancel cancel = [window] { return window.isNull(); };
+            return worker.buildExportPlan(request, progress, cancel);
+        }));
+}
+
+void MainWindow::continueModpackExport(const ModpackExport::ExportPlan &plan,
+                                       const QString &targetPath,
+                                       ModpackExport::Format format) {
     if (plan.cancelled) {
-        // 今天没有能取消的界面（见上面那段 NOTE），所以这一支到不了。留着是因为**数据层
-        // 有这一档**：真接了取消的界面之后，这里就是那个出口，别让它静默地往下走成
-        // "一个文件都没认出来的包"。
+        m_modpackExportBusy = false;
         appendLog(tr("导出已取消。"));
         return;
     }
     if (!plan.problem.isEmpty()) {
+        m_modpackExportBusy = false;
         appendLog(tr("导出失败：%1").arg(plan.problem));
         InlineMessage::warning(m_ui->overlay(), tr("导出失败"), plan.problem);
         return;
@@ -13478,71 +13494,82 @@ void MainWindow::exportModpack(const QString &versionId, const QString &targetPa
                 .arg(reasons.join(QStringLiteral("\n\n"))),
             QStringList{tr("继续导出"), tr("取消")}, 1, -1);
         if (choice != 0) {
+            m_modpackExportBusy = false;
             appendLog(tr("已取消导出。"));
             return;
         }
     }
 
-    // ---------- ⑥ 落盘 ----------
-    //
-    // 打包**另起一段同步等**（底栏那句换成"正在打包"）：它是这一趟里最慢的一步
-    // （ZipUtil 走 PowerShell 压一遍，一两 G 的实例要几十秒），而且**没有进度点** ——
-    // 里面是一次调用，插不进去东西（数据层里那个 lambda 只报"包好了没"）。
-    enterSyncWait(tr("正在打包整合包…"));
-    const QString writeProblem = m_versionManager->writePackArchive(plan, targetPath);
-    leaveSyncWait();
-    if (!writeProblem.isEmpty()) {
-        appendLog(tr("导出失败：%1").arg(writeProblem));
-        InlineMessage::warning(m_ui->overlay(), tr("导出失败"), writeProblem);
-        return;
-    }
+    // ---------- ⑥ 后台落盘 ----------
+    // 压缩一两 GB 时不能占住 GUI 线程。worker 在自己的线程里构造 VersionManager，避免把
+    // 主线程那个 QObject（以及它的 QNetworkAccessManager）跨线程调用。
+    m_syncWaitStatus = tr("正在后台打包整合包…");
+    updateBottomBar();
+    auto *watcher = new QFutureWatcher<QString>(this);
+    connect(watcher, &QFutureWatcher<QString>::finished, this,
+            [this, watcher, plan, targetPath, format] {
+                const QString writeProblem = watcher->result();
+                watcher->deleteLater();
+                m_modpackExportBusy = false;
+                m_syncWaitStatus.clear();
+                updateBottomBar();
+                if (!writeProblem.isEmpty()) {
+                    appendLog(tr("导出失败：%1").arg(writeProblem));
+                    InlineMessage::warning(m_ui->overlay(), tr("导出失败"), writeProblem);
+                    return;
+                }
 
-    // ---------- ⑦ 报告 ----------
-    const QString shown = QDir::toNativeSeparators(targetPath);
-    appendLog(tr("✓ 整合包已导出：%1").arg(shown));
-    QStringList lines;
-    lines.append(tr("已经写到：\n%1").arg(shown));
-    lines.append(tr("问过 %1 个文件，认出来 %2 个（写进清单，装的人那边自己去下）；"
-                    "其余 %3 个原样打进了包里（模组本体、配置、资源包都在）。")
-                     .arg(plan.queried)
-                     .arg(plan.matched)
-                     .arg(plan.overrides.size()));
-    if (plan.notDistributable > 0) {
-        lines.append(tr("其中 %1 个的作者关掉了第三方分发 —— 它们只能跟着包走。")
-                         .arg(plan.notDistributable));
-    }
+                // ---------- ⑦ 报告 ----------
+                const QString shown = QDir::toNativeSeparators(targetPath);
+                appendLog(tr("✓ 整合包已导出：%1").arg(shown));
+                QStringList lines;
+                lines.append(tr("已经写到：\n%1").arg(shown));
+                lines.append(tr("问过 %1 个文件，认出来 %2 个（写进清单，装的人那边自己去下）；"
+                                "其余 %3 个原样打进了包里（模组本体、配置、资源包都在）。")
+                                 .arg(plan.queried)
+                                 .arg(plan.matched)
+                                 .arg(plan.overrides.size()));
+                if (plan.notDistributable > 0) {
+                    lines.append(tr("其中 %1 个的作者关掉了第三方分发 —— 它们只能跟着包走。")
+                                     .arg(plan.notDistributable));
+                }
     // 「其中」串的是上面那句「其余 N 个原样打进了包里」—— 这几句说的都是那一堆里的
     // （所以它们摆在「另外…」那句前面，那一句说的是**不在**那一堆里的）。
-    if (plan.keptLocalState > 0) {
-        lines.append(tr("其中 %1 个是你改过名字（或者禁用着）的 —— 它们也原样进包，"
-                        "名字和状态都照你盘上那样留着，装的人那边不会被改回启用。")
-                         .arg(plan.keptLocalState));
-    }
+                if (plan.keptLocalState > 0) {
+                    lines.append(tr("其中 %1 个是你改过名字（或者禁用着）的 —— 它们也原样进包，"
+                                    "名字和状态都照你盘上那样留着，装的人那边不会被改回启用。")
+                                     .arg(plan.keptLocalState));
+                }
     // ★ 2026-09-27：这一句和上面「作者关掉了第三方分发」那句**不能合成一句**。那一句
     //   说的是"接口明说了原因"，这一句说的是"接口没说" —— 接口没给 `isAvailable` 这一项时
     //   （字段改名、回复被截断等等），从前也算进那个数里，于是报告凭空替作者认下一个
     //   "关了第三方分发"。用户拿着那句话去 CurseForge 上翻作者设置，是永远翻不出所以然的。
-    if (plan.notDistributableUnknown > 0) {
-        lines.append(tr("另外 %1 个没能问出能不能分发（CurseForge 的回复里没有这一项）—— "
-                        "它们也原样进了包，装的人照样能用，只是不能替他单独更新或者去重。")
-                         .arg(plan.notDistributableUnknown));
-    }
-    if (!plan.hashFailures.isEmpty()) {
-        lines.append(tr("有 %1 个文件连哈希都没算出来（读取失败），它们也原样进了包。")
-                         .arg(plan.hashFailures.size()));
-    }
-    if (!plan.collect.skippedDirs.isEmpty()) {
-        lines.append(tr("没进包：%1（共 %2 个文件）。存档和截图是**你自己**的东西，"
-                        "打进包里会盖掉收包那个人的。")
-                         .arg(plan.collect.skippedDirs.join(QStringLiteral("、")),
-                              QString::number(plan.collect.skippedFileCount)));
-    }
-    lines.append(tr("这是 %1 的包：别人在启动器里用「导入整合包…」就能装回来。")
-                     .arg(format == ModpackExport::Format::CurseForge
-                              ? tr("CurseForge 规范")
-                              : tr("Modrinth 规范")));
-    InlineMessage::information(m_ui->overlay(), tr("导出完成"),
-                               lines.join(QStringLiteral("\n\n")));
+                if (plan.notDistributableUnknown > 0) {
+                    lines.append(tr("另外 %1 个没能问出能不能分发（CurseForge 的回复里没有这一项）—— "
+                                    "它们也原样进了包，装的人照样能用，只是不能替他单独更新或者去重。")
+                                     .arg(plan.notDistributableUnknown));
+                }
+                if (!plan.hashFailures.isEmpty()) {
+                    lines.append(tr("有 %1 个文件连哈希都没算出来（读取失败），它们也原样进了包。")
+                                     .arg(plan.hashFailures.size()));
+                }
+                if (!plan.collect.skippedDirs.isEmpty()) {
+                    lines.append(tr("没进包：%1（共 %2 个文件）。存档和截图是**你自己**的东西，"
+                                    "打进包里会盖掉收包那个人的。")
+                                     .arg(plan.collect.skippedDirs.join(QStringLiteral("、")),
+                                          QString::number(plan.collect.skippedFileCount)));
+                }
+                lines.append(tr("这是 %1 的包：别人在启动器里用「导入整合包…」就能装回来。")
+                                 .arg(format == ModpackExport::Format::CurseForge
+                                          ? tr("CurseForge 规范")
+                                          : tr("Modrinth 规范")));
+                InlineMessage::information(m_ui->overlay(), tr("导出完成"),
+                                           lines.join(QStringLiteral("\n\n")));
+            });
+    watcher->setFuture(QtConcurrent::run([plan, targetPath] {
+        VersionManager worker;
+        return worker.writePackArchive(plan, targetPath);
+    }));
 }
 
 void MainWindow::repairInstanceFiles(const QString &versionId) {

@@ -102,9 +102,6 @@ QPixmap scaledBlock(const QImage &img, int size) {
         img.scaled(size, size, Qt::IgnoreAspectRatio, Qt::FastTransformation));
 }
 
-/// 16 格坐标系（和草方块那块贴图一个尺度）→ 目标边长的像素。
-qreal u(qreal v, int size) { return v * size / 16.0; }
-
 // ---------------------------------------------------------------------------
 // 四个加载器的标志 —— 2026-09-28 起是**真图**。
 //
