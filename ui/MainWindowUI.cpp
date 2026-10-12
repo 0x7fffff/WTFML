@@ -944,6 +944,72 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         //
         // 是**树**不是列表：实例可以归到用户建的组里，组是父节点、实例是子节点。
         // 一个组都没有的时候它就是平铺的一层（照样不插组头），观感和列表一样。
+        // ---------- 搜索与筛选（coding plan §7.2）----------
+        //
+        // §7.2 原话：「搜索实例名、版本号、加载器；筛选原版/模组实例、可更新、最近运行；
+        // 搜索不改变分组归属；清空搜索恢复原展开状态」。四句里**三句都不是界面这一层的
+        // 事**：判据在 `src/manage/InstanceFilter.hpp`（纯函数），"不改分组归属 / 清空就
+        // 还原展开状态"两条落在 `MainWindow::rebuildInstanceTree()`（它才知道分组和展开
+        // 状态从哪儿来）。这一层只摆控件、只把"用户点了/打了什么"如实报出去。
+        //
+        // 摆进**正文面里**、树的上方（不是页头右上角那个"页面级操作"位）：搜索和筛选是
+        // "下面这棵树怎么摆"，和那颗「分组设置…」不是一类东西 —— 后者管的是分组清单本身。
+        instanceFilterRow = new QWidget(instance.right.surface);
+        instanceFilterRow->setObjectName(instanceFilterRowName());
+        {
+            auto *row = new QHBoxLayout(instanceFilterRow);
+            row->setContentsMargins(0, 0, 0, 0);
+            row->setSpacing(kFilterRowSpacing);
+            instanceSearchEdit = new QLineEdit(instanceFilterRow);
+            instanceSearchEdit->setObjectName(instanceSearchName());
+            instanceSearchEdit->setPlaceholderText(instanceSearchPlaceholder());
+            // 一个 ✕（一行一次清干净）。**不加**"清空搜索"那颗独立按钮：§7.2 要的是
+            // "清空搜索恢复原展开状态"，而那一格自己就带着这个动作，再摆一颗是同一件事
+            // 说两遍。
+            instanceSearchEdit->setClearButtonEnabled(true);
+            // 高度**钉成 chip 那一档**（§9.1：一行里并排的控件一样高）。`QLineEdit` 的自然
+            // 高度是"字号 + padding + 边框"算出来的，和旁边那四颗 `setFixedHeight(24)` 的
+            // chip 差 1px（2026-10-13 在真屏上量到 23 对 24 —— ui_shot 的 9d 量出来的；
+            // 那句"并排摆着差 1px 一眼就看出来"写在 ui/Theme.cpp 里 QLineEdit 那一段）。
+            // 这里**不**走 QSS（`min-height` 只会把它顶上去，钉不住），也不动全局那一档 ——
+            // 那是"输入框该多高"的出处，这一句管的是"这一行里它得和旁边一样高"。
+            instanceSearchEdit->setFixedHeight(Theme::chipHeight());
+            row->addWidget(instanceSearchEdit, 1);
+
+            // 四颗 chip **全都建着**（和下载页左栏那六个分类、文件页那四颗筛子同一套做法）：
+            // 会变的是"露不露"和"亮不亮"，不是"有没有这一颗"—— 建/不建会让"这一页该有什么"
+            // 散成两处知识。今天四颗恒露着（「可更新」那一颗**不**按"查过没有"收起来：
+            // 它是跨实例的筛子，收起来就没人知道"原来还能按更新筛"，见
+            // `MainWindow::rebuildInstanceTree()` 里那段 —— 那条规矩是**文件页**的）。
+            for (int i = 0; i < 4; ++i) {
+                const auto which = static_cast<InstanceFilterButton>(i);
+                auto *button = new QPushButton(instanceFilterText(which), instanceFilterRow);
+                button->setObjectName(instanceFilterButtonName(which));
+                button->setCheckable(true);
+                button->setToolTip(instanceFilterTipText(which));
+                // chip 那一档（24px 高、圆角、勾上是实底主题色）—— **和资源详情页那排
+                // 游戏版本同一处出处**（`Theme::markChipButton()`）。
+                Theme::markChipButton(button);
+                instanceFilterButtons.append(button);
+                row->addWidget(button);
+            }
+        }
+        instance.right.layout->addWidget(instanceFilterRow);
+
+        // 「没有符合筛选条件的实例」那一行：摆在这儿（筛选行下面、树上面）而不是树的
+        // 下边 —— 筛空了的时候树是空的，那句话直接跟着筛选行读下来才对得上"是上面那些
+        // 条件把它滤没的"。平时收着（`setVisible(false)`，连位置都不占）。
+        instanceNoMatchLabel = new QLabel(instanceNoMatchText(), instance.right.surface);
+        instanceNoMatchLabel->setObjectName(instanceNoMatchLabelName());
+        markTextRole(instanceNoMatchLabel, Theme::secondaryTextRoleValue());
+        instanceNoMatchLabel->setAlignment(Qt::AlignCenter);
+        instanceNoMatchLabel->setWordWrap(true);
+        // 和别处那些说明文字同一条规矩：纯说明**不许**参与横向度量（折行 QLabel 报出来的
+        // sizeHint 是"整句排成一行"的宽度）。
+        instanceNoMatchLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+        instanceNoMatchLabel->setVisible(false);
+        instance.right.layout->addWidget(instanceNoMatchLabel);
+
         instanceList = new QTreeWidget(instance.right.surface);
         instanceList->setObjectName(instanceListName());
         instanceList->setHeaderHidden(true);

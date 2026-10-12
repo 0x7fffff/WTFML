@@ -16,6 +16,7 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QProxyStyle>
+#include <QPushButton>
 #include <QSettings>
 #include <QStyle>
 #include <QStyleFactory>
@@ -770,6 +771,39 @@ void markIconButton(QWidget *button) {
         return;
     }
     button->setProperty(kButtonSizeProperty, QString::fromLatin1(kIconButtonValue));
+}
+
+QString chipStyleSheet(const QPalette &palette) {
+    // 那一圈边取 `Mid`（调色板里"看得见的细线"那一档）。
+    const QColor border = palette.color(QPalette::Mid);
+    QColor hover = palette.color(QPalette::Highlight);
+    hover.setAlpha(48);
+    return QStringLiteral("QPushButton { border: 1px solid %1; border-radius: %2px;"
+                          " padding: 2px 10px; background: transparent; }"
+                          // ★ 悬停这一条要 `:!checked`：不加的话，鼠标划过**按着的**那颗
+                          //   会把实底盖成半透明的一层 —— "哪一颗是按着的"当场看不出来。
+                          "QPushButton:hover:!checked { background-color: %3; }"
+                          "QPushButton:checked { background-color: %4; color: %5;"
+                          " border-color: %4; }")
+        .arg(border.name(QColor::HexArgb))
+        .arg(chipHeight() / 2)
+        .arg(hover.name(QColor::HexArgb), palette.color(QPalette::Highlight).name(QColor::HexArgb),
+             palette.color(QPalette::HighlightedText).name(QColor::HexArgb));
+}
+
+void markChipButton(QPushButton *button) {
+    if (button == nullptr) {
+        return;
+    }
+    button->setFixedHeight(chipHeight());
+    button->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    // 报一句"我按自己钉的那一档高度来"：全局那条 `min-height` 会把它顶到 `actionHeight()`
+    // （32），光 `setFixedHeight()` 拦不住（见 `markIconButton()` 那段实测）。
+    markIconButton(button);
+    button->setStyleSheet(chipStyleSheet(button->palette()));
+    // QSS 里嵌的是色名 ⇒ 主题一换得重算。chip 是**常驻**控件（不像资源详情页那一排是整排
+    // 重建的），没人会替它重挂，所以这一条必须自己接。
+    follow(button, [button]() { button->setStyleSheet(chipStyleSheet(button->palette())); });
 }
 
 QString widgetStyleSheet() {

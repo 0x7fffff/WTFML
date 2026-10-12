@@ -1036,6 +1036,83 @@ public:
         return GroupDialog::groupItemText(name, count);
     }
 
+    // ---------- 实例列表那张树的搜索与筛选（coding plan §7.2）----------
+    //
+    // 一页两件东西：一个搜索框 + 四颗筛选 chip，摆在正文面里、树的上方。**判据不在这儿**
+    // —— "哪几个串参与搜索、四档筛子怎么算"全在 `src/manage/InstanceFilter.hpp` 那一层
+    // （纯函数，verify 里逐格念），这一层只摆控件、只读自己的 `isChecked()`。
+    //
+    // ★ 四颗的关系**不是**下载页那种"一排单选"：原版 / 模组 是一对互斥的档，可更新 /
+    //   最近运行各自独立，四颗全不勾 = "不管"。互斥由 `MainWindow` 那一层认（点「模组」
+    //   把「原版」摘掉）—— 控件这一层**没有** `setAutoExclusive`（那样会把"再点一下取消"
+    //   也一起禁掉，而"点一颗自己就能取消"正是这里要的手感）。
+    enum class InstanceFilterButton {
+        Vanilla,    ///< 「原版」：没检测到模组加载器
+        Modded,     ///< 「模组」：检测到模组加载器
+        Updatable,  ///< 「可更新」
+        Recent,     ///< 「最近运行」
+    };
+    /// 那一排筛选 chip 的外框（验证工程按它量"整排有没有超出去"）。
+    static QString instanceFilterRowName() { return QStringLiteral("instanceFilterRow"); }
+    static QString instanceSearchName() { return QStringLiteral("instanceSearch"); }
+    /// 搜索框里那句占位说明。§7.2 点名的三样（实例名 / 版本号 / 加载器）就写在这儿 ——
+    /// 用户不用去猜"这一格搜的是什么"。
+    static QString instanceSearchPlaceholder() {
+        return QStringLiteral("搜索实例名、版本号或加载器");
+    }
+    /// 那一格搜不到东西时说的话。
+    ///
+    /// ★ 它**只在真筛过、且一条都没剩下**的时候露出来：不筛的时候树是空的（"一个实例都
+    ///   没有"）是另一件事，那句话由页头那行说明（`当前文件夹：…（0 个实例）`）来说。
+    ///   两件事混成一句的症状是"用户明明有 60 个实例，却看见'没有符合条件的实例'"。
+    static QString instanceNoMatchText() { return QStringLiteral("没有符合筛选条件的实例"); }
+    static QString instanceNoMatchLabelName() { return QStringLiteral("instanceNoMatch"); }
+
+    /// 某颗筛选 chip 的 objectName。**按这一档点名找**（不解析文字）：文字会改。
+    static QString instanceFilterButtonName(InstanceFilterButton button) {
+        switch (button) {
+        case InstanceFilterButton::Vanilla:
+            return QStringLiteral("instanceFilterVanilla");
+        case InstanceFilterButton::Modded:
+            return QStringLiteral("instanceFilterModded");
+        case InstanceFilterButton::Updatable:
+            return QStringLiteral("instanceFilterUpdatable");
+        case InstanceFilterButton::Recent:
+            return QStringLiteral("instanceFilterRecent");
+        }
+        return QString();
+    }
+    /// 那一颗上写的字。**唯一出处**（产品、验证工程、tooltip 都读它）。
+    static QString instanceFilterText(InstanceFilterButton button) {
+        switch (button) {
+        case InstanceFilterButton::Vanilla:
+            return QStringLiteral("原版");
+        case InstanceFilterButton::Modded:
+            return QStringLiteral("模组");
+        case InstanceFilterButton::Updatable:
+            return QStringLiteral("可更新");
+        case InstanceFilterButton::Recent:
+            return QStringLiteral("最近运行");
+        }
+        return QString();
+    }
+    /// 那一颗的悬停说明。**口径都写在这儿**（尤其"可更新"和"最近运行"这两档，用户没法
+    /// 从两个字里猜出它们认的是什么）。
+    static QString instanceFilterTipText(InstanceFilterButton button) {
+        switch (button) {
+        case InstanceFilterButton::Vanilla:
+            return QStringLiteral("只看没装模组加载器的实例（原版）。");
+        case InstanceFilterButton::Modded:
+            return QStringLiteral("只看装了模组加载器的实例（Forge / Fabric / NeoForge / Quilt）。");
+        case InstanceFilterButton::Updatable:
+            return QStringLiteral("只看查过更新、而且真有几条能更的实例"
+                                  "（在实例设置里点过「检查更新」的才算）。");
+        case InstanceFilterButton::Recent:
+            return QStringLiteral("只看启动过、账本上还留着记录的实例（最近 20 次以内）。");
+        }
+        return QString();
+    }
+
     static QString tabWidgetName() { return QStringLiteral("mainTabWidget"); }
     static QString homeTabName() { return QStringLiteral("homeTab"); }
     static QString instanceTabName() { return QStringLiteral("instanceTab"); }
@@ -2521,6 +2598,20 @@ public:
     // 右边那句"当前文件夹：<路径>"。换文件夹时它跟着变 —— 没有它的话，右边那些实例
     // 是从哪一份 .minecraft 里扫出来的就说不清了。
     QLabel *getInstanceFolderLabel() const { return instanceFolderLabel; }
+
+    /// 实例页那个搜索框（coding plan §7.2）。里面那一行就是**筛选条件之一**：谁读它、
+    /// 什么时候重灌树，见 `MainWindow::setupConnections` 里那条 `textChanged`。
+    QLineEdit *getInstanceSearchEdit() const { return instanceSearchEdit; }
+    /// 那一排筛选 chip 里第 @p button 颗。越界回 nullptr（不崩）。
+    QPushButton *getInstanceFilterButton(InstanceFilterButton button) const {
+        const int index = static_cast<int>(button);
+        return index >= 0 && index < instanceFilterButtons.size() ? instanceFilterButtons.at(index)
+                                                                  : nullptr;
+    }
+    /// 那一排 chip 的外框（量"整排有没有超出去"用的）。
+    QWidget *getInstanceFilterRow() const { return instanceFilterRow; }
+    /// "没有符合筛选条件的实例"那一行字（平时收着，见 `instanceNoMatchText()` 那段）。
+    QLabel *getInstanceNoMatchLabel() const { return instanceNoMatchLabel; }
     // 实例页右栏那三个按钮，作用于「实例列表」里当前选中的那一个实例。
     /// 「分组设置…」那一颗 —— 2026-09-25 傍晚起它在「实例列表」那个框**外面**的右上角
     /// （这一页右栏那一排三颗只剩它一颗，见上面那段 NOTE）。
@@ -2858,6 +2949,15 @@ private:
     QPushButton *groupInstanceButton = nullptr;
     QPushButton *importModpackButton = nullptr;
     QLabel *instanceFolderLabel = nullptr;
+    /// 实例页那一行搜索与筛选（coding plan §7.2）：一个搜索框 + 四颗 chip，摆进正文面里
+    /// 树的上方。**外框是自己一个控件**（不是裸布局）：验证工程要按 objectName 找回来量
+    /// "整排有没有超出正文面"（和下载页页头那条同一套做法）。
+    QWidget *instanceFilterRow = nullptr;
+    QLineEdit *instanceSearchEdit = nullptr;
+    /// 四颗 chip，下标 = `InstanceFilterButton` 的序号（见 `getInstanceFilterButton()`）。
+    QList<QPushButton *> instanceFilterButtons;
+    /// "没有符合筛选条件的实例"那一行（默认收着）。
+    QLabel *instanceNoMatchLabel = nullptr;
     QComboBox *installedVersionCombo = nullptr;
     /// 下载页左栏那份「下载分类」（见头文件上面那段）与右栏那份 QStackedWidget。
     /// 五页**全是真**的（2026-09-23 起）：第 0 页「游戏」是版本树 + 安装页，其余四页

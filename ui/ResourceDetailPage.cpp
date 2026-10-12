@@ -43,7 +43,6 @@ constexpr int kIconSize = 64;
 /// chip 那一行的高。**比 chip 本体高**：横向滚动条出现时要占掉十几像素，
 /// 不留余量的话那一条会把 chip 吃掉半截。
 constexpr int kChipRowHeight = 40;
-constexpr int kChipHeight = 24;
 
 /// 这条标签**现在会画出来的字**（截断之后的那一串）。paintEvent 和验证工程读的那个读数
 /// 都走这一份 —— 两处各算一遍的话，"量到的那串"和"屏幕上的那串"迟早不是一回事。
@@ -113,22 +112,10 @@ QFrame *makeCard(QWidget *parent) {
     return card;
 }
 
-/// chip 那颗按钮的外观。颜色**全从调色板来**（不写死灰）—— 换主题、换深色，这一排跟着走。
-/// 这是这一页唯一一处 QSS（其余外观都交给 Fusion + 代理，见用户定的 UI 样式基线）。
-QString chipStyle(const QPalette &palette) {
-    const QColor border = palette.color(QPalette::Mid);
-    QColor hover = palette.color(QPalette::Highlight);
-    hover.setAlpha(48);
-    return QStringLiteral("QPushButton { border: 1px solid %1; border-radius: %2px;"
-                          " padding: 2px 10px; background: transparent; }"
-                          "QPushButton:hover:!checked { background-color: %3; }"
-                          "QPushButton:checked { background-color: %4; color: %5;"
-                          " border-color: %4; }")
-        .arg(border.name(QColor::HexArgb))
-        .arg(kChipHeight / 2)
-        .arg(hover.name(QColor::HexArgb), palette.color(QPalette::Highlight).name(QColor::HexArgb),
-             palette.color(QPalette::HighlightedText).name(QColor::HexArgb));
-}
+/// chip 那一排的形状与颜色**从 2026-10-13 起是 `Theme::markChipButton()` 一处说了算**
+/// （实例页那排搜索筛子是第二个读者）：原来这一页自己那份 QSS 搬去了 `ui/Theme.cpp`
+/// （`chipStyleSheet()`），一个字节都没改。这一页唯一那句话照旧：chip 的外观不走 QSS 之外
+/// 的东西（其余外观都交给 Fusion + 代理，见用户定的 UI 样式基线）。
 
 }  // namespace
 
@@ -525,15 +512,8 @@ void ResourceDetailPage::rebuildChips() {
         auto *button = new QPushButton(chip.text, m_chipRow);
         button->setObjectName(chipButtonNamePrefix() + QString::number(i));
         button->setCheckable(true);
-        button->setFixedHeight(kChipHeight);
-        button->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-        // 这一排 chip 是"按自己那一档高度"的（24）：报一句免得被
-        // `actionHeight()` 那条 `min-height` 顶到 32、把这一排撑破（见 `markIconButton()`）。
-        Theme::markIconButton(button);
-        button->setStyleSheet(chipStyle(button->palette()));
-        // QSS 里嵌的是色名 ⇒ 主题一换得重算（这一排是**整排重建**的，但重建只在
-        // chip 列表变了时发生，主题变化不在其中）。
-        Theme::follow(button, [button]() { button->setStyleSheet(chipStyle(button->palette())); });
+        // 高度、圆角外观、换主题重挂三件事一起（原来是这一页自己那三行，见上面那段）。
+        Theme::markChipButton(button);
         // 身份挂属性上（和 rowKeyRole 那条同一个理由：文字是给人看的，会随文案改）。
         button->setProperty("chipKey", chip.key);
         connect(button, &QPushButton::clicked, this, [this, button] { onChipClicked(button); });

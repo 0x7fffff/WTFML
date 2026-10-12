@@ -63,6 +63,7 @@
 #include <utility>
 
 class QPainter;
+class QPushButton;
 class QStyle;
 class QWidget;
 
@@ -450,6 +451,48 @@ QString iconButtonSizeValue();
 /// 给一颗按钮钉成"图标按钮"（**只改尺寸那一档**，不动颜色）。和 `markButton()` 一样是
 /// 挂一个动态属性，下一趟按钮样式重算时生效。
 void markIconButton(QWidget *button);
+
+// ---------------------------------------------------------------------------
+// chip（可勾选的小按钮）
+// ---------------------------------------------------------------------------
+
+/**
+ * @brief 一排 chip 的高度（px）—— **唯一出处**。
+ *
+ * 24 而不是 `actionHeight()`（32）：chip 是**筛选条件**，不是"按下去会发生一件事"的主
+ * 行动按钮。它和一排里的输入框（`QLineEdit` 24px）同高，两者并排摆着才是"一行控件"；
+ * 用它那一档高度的话，筛选行会比搜索框高出一截、看着像两件不搭界的东西。
+ *
+ * NOTE: 它同时是**资源详情页那排游戏版本 chip** 的高度（原来那个数字写在那儿）。
+ */
+constexpr int chipHeight() { return 24; }
+
+/**
+ * @brief chip 那颗按钮长什么样（QSS 字符串）。
+ *
+ * 一圈细边 + 透明底；鼠标悬停时淡淡一层 Highlight；**勾上的那颗换成 Highlight 实底 +
+ * HighlightedText 的字**。颜色全从 @p palette 里取（不写死灰）—— 换主题、换深色，这一排
+ * 跟着走。
+ *
+ * ★ 为什么要单独一套 QSS：全局那一份按钮样式（`widgetStyleSheet()`）里**没有 `:checked`
+ *   这一条** —— 那四档 kind 说的是"这颗按钮是干什么的"，而"哪一颗此刻按着"是筛选这一类
+ *   控件自己的事。缺了它的症状很难自己发现：勾选状态**逻辑上是对的**（`isChecked()` 为真），
+ *   只有屏幕上那颗按着的和没按的长得一模一样。
+ * ★ 调用方必须 `setCheckable(true)`：这套样式只描述"勾上什么样"，不负责让按钮能勾。
+ */
+QString chipStyleSheet(const QPalette &palette);
+
+/**
+ * @brief 把一颗按钮摆成 chip（高度 + 圆角外观 + 换主题重挂），**勾选状态自己摆**。
+ *
+ * 三件事一起做，因为少任何一件都会留下一个"看着像 chip、其实不是"的按钮：
+ *   ① `setFixedHeight(chipHeight())`；
+ *   ② `markIconButton()` —— 报一句"我按自己钉的那一档高度来"，否则全局那条
+ *      `min-height` 会把它顶到 32（口径见 `markIconButton()` 那段）；
+ *   ③ 挂 chip 样式，并接一条 `Theme::follow()`：QSS 里嵌的是**色名**，主题一换得重算一遍
+ *      （常驻的那些 chip 不会有人替它们重建）。
+ */
+void markChipButton(QPushButton *button);
 
 /// 输入类控件（`QLineEdit` / `QComboBox` / `QAbstractSpinBox` / 勾选框那个框）的圆角。
 constexpr int controlRadius() { return 6; }

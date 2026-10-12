@@ -76,6 +76,9 @@
 // 「上一次启动」那本账（coding plan §5.1，2026-10-13）：主页左栏那张卡要按值持有一条
 // `Record`（`latestPlayable()` 的返回值），所以得 include 而不是前置声明。
 #include "manage/LaunchHistory.hpp"
+// 实例页的搜索与筛选（coding plan §7.2，2026-10-13）：`Query` / `Facts` 都是按值传的小
+// 结构（`instanceFilterQuery()` / `instanceFilterFacts()` 的返回值），所以得 include。
+#include "manage/InstanceFilter.hpp"
 
 class MainWindowUI;
 // 安装页那棵加载器树上的一个条目（loaderItem()）。这里只在私有函数的参数/返回值里按
@@ -236,6 +239,28 @@ public:
     void seedLaunchFinishForTest(qint64 startedAtMs, bool crashed, bool neverStarted) {
         finishLaunchRecord(startedAtMs, launchHistoryResult(crashed, neverStarted),
                            QDateTime::currentMSecsSinceEpoch());
+    }
+
+    /**
+     * @brief **给验证工程摆现场用**：把某一趟「检查更新」的结果直接摆出来（coding plan
+     *        §7.2 实例页那一颗「可更新」用的就是它）。
+     *
+     * 产品那一侧只在一个地方写这份名单（`finishUpdateCheck()` 里那一句 insert），而走到
+     * 那里要先跑一整趟反查 + 版本列表（真网络）。实例页的筛选**只读这一份名单**（键在
+     * 不在 = 查过没有，见 m_instanceOutdatedPaths 那段），所以摆它 == 摆现场。
+     *
+     * NOTE: 只摆**名单**那一位（`m_instanceOutdatedPaths`）—— 和它一起写的
+     *       `m_instanceUpdateTargets`（"换成哪一版"）是给"点更新"那条路用的，实例页的
+     *       筛子不读它，所以这里不去编一份假的。摆完顺手重灌一次树，那颗 chip 当场生效。
+     * NOTE: 产品代码里**不要**调它。
+     *
+     * @param versionId 实例 id。
+     * @param paths 查出来可更新的那些路径（**绝对路径**，禁用着的那条带 `.disabled`）；
+     *              给空表 = "查过了、一条都没有"（和"没查过"是两句话）。
+     */
+    void seedOutdatedPathsForTest(const QString &versionId, const QStringList &paths) {
+        m_instanceOutdatedPaths.insert(versionId, paths);
+        rebuildInstanceTree();
     }
 private slots:
     void onStartButtonClicked();
@@ -2227,6 +2252,27 @@ private:
     // 列表、以及实例页顶上的"当前文件夹"那句。扫的是**当前游戏文件夹**的
     // .minecraft/versions，同步返回。保住用户原来选中的那一项的逻辑在 fillVersionCombo() 里。
     void refreshInstalledVersions();
+    /// 实例页那张树重灌一遍 —— **搜索与筛选走的就是这一条**（coding plan §7.2）。
+    ///
+    /// 它和 `refreshInstalledVersions()` 是两条路：后者要**扫盘**（每个实例读一次
+    /// `wtfml.meta` 那份版本信息），这一条只用上一次扫出来的那一份
+    /// （`m_instancePageParts` + `m_instancePageMarks`）。用户在搜索框里打字、点一下
+    /// 筛选 chip 走的是这一条 —— 每敲一个字扫一遍盘，真机上 61 个实例会明显卡手。
+    ///
+    /// 【§7.2 那两句话落在这儿】
+    ///
+    ///   * 「搜索不改变分组归属」：归属照旧由 `homeGroupIdOf()` 答（它只认
+    ///     `wtfml.folders` / 版本类型），筛子只决定**哪些实例进桶**，一个字节都不写盘。
+    ///   * 「清空搜索恢复原展开状态」：筛着的时候每一组**都摆成展开的**（不展开的话，
+    ///     命中条目躲在收起来的组里 = 用户看着像"搜不到"），但那个展开状态**不落盘** ——
+    ///     清空之后各组回到 `wtfml.folders` 里记着的样子。
+    void rebuildInstanceTree();
+    /// 此刻的搜索/筛选条件（读界面上那个搜索框和四颗 chip）。
+    InstanceFilter::Query instanceFilterQuery() const;
+    /// 一个实例参与筛选的那几样**事实**：可搜索的串（`InstanceFilter::textsFor()`）、
+    /// 有没有加载器、有没有更新、账本上有没有它。**后两样只有这一层知道** ——
+    /// `m_instanceOutdatedPaths` 和 `m_launchHistory` 都住在这儿。
+    InstanceFilter::Facts instanceFilterFacts(const VersionDisplayParts &part) const;
     // 重灌实例页左边那张「游戏文件夹」列表（每一行：上面写 customname、下面写路径、
     // 行尾一颗齿轮），并把选中项停在 FolderManager 的当前目录上（界面那边挡了信号：
     // 重灌不是用户改选，不该反过来触发一次切换）。
@@ -2638,6 +2684,22 @@ private:
     ///       「检查更新」。这是**刻意**的：现算一份"现在还是不是最新的"要再跑一整趟
     ///       反查 + 版本列表，而那正是他刚点过的那颗按钮。
     QHash<QString, QHash<QString, ResourceCatalog::VersionEntry>> m_instanceUpdateTargets;
+    /// 实例页那张树的**原料**：上一次 `refreshInstalledVersions()` 扫出来的那份（能启动
+    /// 的实例 + 每一行前面那个图标）。**只有 `rebuildInstanceTree()` 读它**。
+    ///
+    /// ★ 为什么要有这一格（coding plan §7.2）：搜索框每敲一个字、每点一下筛选 chip 都要
+    ///   重灌一遍树，而重灌的原料（`installedVersions()` + 每实例一次 `displayParts()`、
+    ///   一次 `instanceRowMark()`）全是**读盘**的 —— 真机上 61 个实例，每敲一个字扫一遍
+    ///   会明显卡手。所以扫盘那一段（`refreshInstalledVersions()`）把结果留在这儿，
+    ///   筛选那一段（`rebuildInstanceTree()`）只重算分组、重新灌树。
+    ///
+    /// NOTE: 「什么时候会变」的答案和"哪些事会叫 `refreshInstalledVersions()`"逐字同一句
+    ///       —— 安装完、下载完、改名、换文件夹、换「版本名格式」…都走那条路，所以这份缓存
+    ///       不会比屏幕上那一棵树更旧。
+    QList<VersionDisplayParts> m_instancePageParts;
+    /// 和上面那份**一一对应**的行首图标（`instanceRowMark()` 的成品）。缓存它是因为算一张
+    /// 要读版本 json，而且它是"行前面那张图"，筛选前后**同一行画的还是同一张**。
+    QHash<QString, QIcon> m_instancePageMarks;
     /// 「从资源详情页返回时，那一页停在哪儿」（★★ 2026-10-11）。
     ///
     /// 用户原话：「点进模组详情以后退出来保留刚才的滚动位置」。

@@ -48,6 +48,8 @@ set(HEADER_FILES
     src/manage/WorldFiles.hpp
     # 「上一次启动」那本账（2026-10-13，coding plan §5.1）：主页那张卡唯一的数据源。
     src/manage/LaunchHistory.hpp
+    # 实例页那张树的搜索与筛选（2026-10-13，coding plan §7.2）：判据层，纯函数。
+    src/manage/InstanceFilter.hpp
     src/settings/GlobalJavaSettings.hpp
     src/settings/GameWindowSettings.hpp
     src/settings/LauncherSettings.hpp

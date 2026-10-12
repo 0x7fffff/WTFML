@@ -80,6 +80,9 @@
 // 那一节全是**纯函数**（给值、出字符串 / 一段字节），连时钟都不问（`whenText()` 的"现在"
 // 是参数），所以它不需要临时游戏文件夹，只有"落在哪个文件上"那一条要换一下数据根目录。
 #include "manage/LaunchHistory.hpp"
+// 实例页搜索与筛选的判据层（coding plan §7.2，2026-10-13）。见 ZS 节 —— 纯函数：
+// 「这一条算不算匹配」全在这儿，树那一侧一条都不必真的建出来。
+#include "manage/InstanceFilter.hpp"
 #include "manage/DefaultSkin.hpp"
 #include "manage/DroppedResource.hpp"  // V5z：拖进来那个文件到底是什么
 #include "manage/InstanceFiles.hpp"
@@ -23115,6 +23118,159 @@ static void runLaunchHistoryTests() {
     AppPaths::setMinecraftDir(originalDir);
 }
 
+// ---------------------------------------------------------------------------
+// ZS. 实例页的搜索与筛选：判据层（coding plan §7.2）
+//
+// §7.2 原话：「搜索实例名、版本号、加载器；筛选原版/模组实例、可更新、最近运行；搜索不
+// 改变分组归属；清空搜索恢复原展开状态」。四句里只有**前两句**是这一节的事（纯判据：
+// 一条实例算不算匹配）；后两句说的是"重灌树时别动别的状态"，那是接线，在 mw_check 的 T37。
+//
+// ★ 这一节最要紧的不是"能不能筛出来"，而是**会不会筛错**：
+//   · 空搜索词 + 四颗都不勾 ⇒ 一条都不许滤掉（`isActive()` 为假是那条路的唯一判据）；
+//   · 一个空串混进可比对的串里 ⇒ `contains("")` 恒真 ⇒ 搜什么都搜得到（最难发现的一种坏）；
+//   · 词与词是**与**、词与串是**或**（用户打两个词是"都要有"，不是"任一"）。
+// ---------------------------------------------------------------------------
+static void runInstanceFilterTests() {
+    section("ZS. 实例页的搜索与筛选：搜哪些串 / 四档筛子怎么算（§7.2）");
+
+    // 造一条长得像真机上那些的实例：目录名把加载器版本揉进去了，显示名另有一套开关。
+    const auto makeParts = [](const QString &id, const QString &custom, const QString &real,
+                              const QString &loader, const QString &loaderVersion) {
+        VersionDisplayParts parts;
+        parts.id = id;
+        parts.customName = custom;
+        parts.realVersion = real;
+        parts.loaderName = loader;
+        parts.loaderVersion = loaderVersion;
+        return parts;
+    };
+    const VersionNameOptions options;  // 出厂：自定义名 + 实际版本 + 加载器名
+
+    // ---------- ZS1. 参与搜索的串 ----------
+    const VersionDisplayParts pack = makeParts(QStringLiteral("我的整合包-1.18.2-Forge_40.3.12"),
+                                               QStringLiteral("我的整合包"),
+                                               QStringLiteral("1.18.2"), QStringLiteral("Forge"),
+                                               QStringLiteral("40.3.12"));
+    const QStringList texts = InstanceFilter::textsFor(pack, options);
+    check(texts.contains(QStringLiteral("我的整合包-1.18.2-Forge")),
+          "ZS1 显示名（按开关拼出来的那一串）在里头 —— 用户是照着屏幕上那一行打的",
+          texts.join(QStringLiteral(" | ")));
+    check(texts.contains(QStringLiteral("我的整合包-1.18.2-Forge_40.3.12")),
+          "ZS1 目录名也在（加载器版本号只在它这儿是齐的）");
+    check(texts.contains(QStringLiteral("1.18.2")) && texts.contains(QStringLiteral("Forge")),
+          "ZS1 实际版本与加载器名各自单独可搜（§7.2 点名的那三样）");
+    {
+        // 把"自定义名 / 实际版本"两个开关关掉：显示名里就只剩加载器了，而那两个串
+        // **照样得能搜到** —— 它们是这个实例的名字和版本，只是**这一版显示名里没写**。
+        VersionNameOptions off = options;
+        off.showCustomName = false;
+        off.showRealVersion = false;
+        const QStringList still = InstanceFilter::textsFor(pack, off);
+        check(still.contains(QStringLiteral("我的整合包")) && still.contains(QStringLiteral("1.18.2")),
+              "ZS1 开关关掉的那两段照样在可比对的串里（显示名里没有 ≠ 搜不到）",
+              still.join(QStringLiteral(" | ")));
+    }
+    {
+        // 空字段不许混进去：一个空串会让**任何**关键词都命中（`contains("")` 恒真）。
+        const VersionDisplayParts bare = makeParts(QStringLiteral("原版ATT2地图（无模组）"),
+                                                   QString(), QString(), QString(), QString());
+        const QStringList bareTexts = InstanceFilter::textsFor(bare, options);
+        check(!bareTexts.contains(QString()) && bareTexts.size() == 2,
+              "ZS1 空字段一个都不放进去（空串会让「搜什么都搜得到」）",
+              QStringLiteral("%1 个串：%2").arg(bareTexts.size()).arg(bareTexts.join('/')));
+        InstanceFilter::Facts facts;
+        facts.texts = bareTexts;
+        InstanceFilter::Query query;
+        query.text = QStringLiteral("绝对搜不到的一串字");
+        check(!InstanceFilter::matches(query, facts), "ZS1 前提成立：这一串确实搜不到");
+    }
+
+    // ---------- ZS2. 分词 ----------
+    check(InstanceFilter::searchTokens(QStringLiteral("  整合包   forge  ")).size() == 2,
+          "ZS2 前后空白折掉、中间连着几个空格算一个",
+          InstanceFilter::searchTokens(QStringLiteral("  整合包   forge  ")).join(QStringLiteral(",")));
+    check(InstanceFilter::searchTokens(QStringLiteral("\t1.18.2\nforge")).size() == 2,
+          "ZS2 制表符和换行也当分隔（从别处粘一串过来的样子）");
+    check(InstanceFilter::searchTokens(QString()).isEmpty()
+              && InstanceFilter::searchTokens(QStringLiteral("   ")).isEmpty(),
+          "ZS2 空串 / 全是空白 ⇒ 空表（待会儿一条都不拦）");
+
+    // ---------- ZS3. 匹配：词与词是与、词与串是或 ----------
+    InstanceFilter::Facts packFacts;
+    packFacts.texts = texts;
+    packFacts.hasLoader = true;
+    packFacts.updatable = true;
+    const auto hit = [&packFacts](const QString &text) {
+        InstanceFilter::Query query;
+        query.text = text;
+        return InstanceFilter::matches(query, packFacts);
+    };
+    check(hit(QStringLiteral("整合包")) && hit(QStringLiteral("FORGE")) && hit(QStringLiteral("1.18")),
+          "ZS3 命中子串就算（大小写不敏感 —— 用户不会照着大小写打）");
+    check(hit(QStringLiteral("整合包 forge")) && hit(QStringLiteral("forge 整合包")),
+          "ZS3 两个词都要命中，顺序随便（用户手里那两句常常不在同一段里）");
+    check(!hit(QStringLiteral("整合包 fabric")),
+          "ZS3 有一个词一个地方都命不中 ⇒ 整条不算（词与词是「与」）");
+    check(!hit(QStringLiteral("fabric")), "ZS3 压根没有那一串 ⇒ 不算");
+
+    // ---------- ZS4. 四档筛子 ----------
+    {
+        InstanceFilter::Facts plain;  // 没加载器、没更新、没记录
+        plain.texts = QStringList{QStringLiteral("原版 1.20.1")};
+        InstanceFilter::Facts modded = packFacts;  // 有加载器
+
+        InstanceFilter::Query vanilla;
+        vanilla.kind = InstanceFilter::Kind::Vanilla;
+        check(InstanceFilter::matches(vanilla, plain) && !InstanceFilter::matches(vanilla, modded),
+              "ZS4 「原版」= 没检测到模组加载器（判据是 loaderName，不是「装没装 mods」）");
+
+        InstanceFilter::Query moddedQuery;
+        moddedQuery.kind = InstanceFilter::Kind::Modded;
+        check(InstanceFilter::matches(moddedQuery, modded)
+                  && !InstanceFilter::matches(moddedQuery, plain),
+              "ZS4 「模组」= 检测到了模组加载器（两档互斥，同一个实例不会被两边都算上）");
+
+        InstanceFilter::Query updatable;
+        updatable.updatableOnly = true;
+        check(InstanceFilter::matches(updatable, modded) && !InstanceFilter::matches(updatable, plain),
+              "ZS4 「可更新」只认查过更新、且真有几条的那一份");
+
+        InstanceFilter::Query recent;
+        recent.recentOnly = true;
+        InstanceFilter::Facts played = plain;
+        played.recent = true;
+        check(InstanceFilter::matches(recent, played) && !InstanceFilter::matches(recent, plain),
+              "ZS4 「最近运行」只认账本上还留着记录的");
+
+        // 四档叠着用是**与**：筛子过不了的时候，搜索词再准也没用。
+        InstanceFilter::Query combined = vanilla;
+        combined.updatableOnly = true;
+        check(!InstanceFilter::matches(combined, plain),
+              "ZS4 两档叠着是「与」（原版 + 可更新：一条「原版、没查过更新」的实例过不了）");
+        combined.text = QStringLiteral("原版");
+        check(!InstanceFilter::matches(combined, plain), "ZS4 搜索词命中也不算数（叠着的两档没过）");
+    }
+
+    // ---------- ZS5. 「在不在筛」这一个判据 ----------
+    {
+        const InstanceFilter::Query empty;
+        check(!empty.isActive(),
+              "★ ZS5 一个字都没填、四颗都没勾 ⇒ **不在筛**（这条路上一条都不许滤掉）");
+        InstanceFilter::Query typed;
+        typed.text = QStringLiteral("   ");
+        check(!typed.isActive(), "ZS5 只打了几个空格一样是「没在筛」（按去掉空白之后算）");
+        typed.text = QStringLiteral("a");
+        check(typed.isActive(), "ZS5 有一个字就算在筛");
+        InstanceFilter::Query chip;
+        chip.recentOnly = true;
+        check(chip.isActive(), "ZS5 只勾了一颗筛选 chip 也算在筛");
+        // ★ 「不在筛」的那一条路必须**原样放行**：`matches()` 对着空条件也得回真。
+        InstanceFilter::Facts anything;
+        anything.texts = QStringList{QStringLiteral("随便什么")};
+        check(InstanceFilter::matches(empty, anything),
+              "★★ ZS5 空条件对任何一条都回真（`isActive()` 为假时调用方照样只走 matches()）");
+    }
+}
 
 int main(int argc, char *argv[]) {
     QCoreApplication app(argc, argv);
@@ -24607,6 +24763,11 @@ int main(int argc, char *argv[]) {
     // 值进、字符串/一段字节出，不问时钟（那一列的"现在"是参数）—— 只有"账本落在哪个文件上"
     // 那一条要换一下数据根目录（换完就还原），所以它和 ZQ 那一节一样自己开临时目录。
     runLaunchHistoryTests();
+
+    // -----------------------------------------------------------------
+    // 实例页的搜索与筛选（2026-10-13，coding plan §7.2），见上面 ZS 节。**全是纯函数**：
+    // 值进、bool 出，不读盘、不问时钟 —— 连一条实例都不必真的存在。
+    runInstanceFilterTests();
 
     // -----------------------------------------------------------------
     out() << "\n===== " << (g_failures == 0 ? "全部通过" : "有失败项") << ": "

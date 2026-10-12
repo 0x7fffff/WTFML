@@ -1897,7 +1897,13 @@ void MainWindow::setupConnections() {
         }
         const bool expand = !item->isExpanded();
         item->setExpanded(expand);
-        rememberGroupExpanded(item->data(0, MainWindowUI::groupIdRole()).toString(), expand);
+        // ★ 筛着的时候**不落盘**（coding plan §7.2「清空搜索恢复原展开状态」）：筛着的时候
+        //   每一组都是被我们摆成展开的，用户这一下点的是"这一次先收起来看看"，不是"以后
+        //   默认都收着"。落盘的话，清空搜索之后那一组的**原**展开状态就被这一次点击悄悄
+        //   改掉了 —— 而那句要求说的正是"清空之后要回到原来那样"。
+        if (!instanceFilterQuery().isActive()) {
+            rememberGroupExpanded(item->data(0, MainWindowUI::groupIdRole()).toString(), expand);
+        }
     };
     // 接线口和另外三棵树同一条（鼠标单击 + 键盘回车），另外交待**哪些行是"开/关"**：
     // 点得快的第二发（以及后面每一发）到的是双击事件，只有开关行才补那一发。
@@ -1921,6 +1927,44 @@ void MainWindow::setupConnections() {
     m_ui->setGroupPickHandler([this](const QString &groupId) {
         setSelectedInstanceHomeGroup(groupId);
     });
+    // ---------- 实例列表的搜索与筛选（coding plan §7.2）----------
+    //
+    // 两条线都汇到 `rebuildInstanceTree()`：**它自己现读**那几个控件（
+    // `instanceFilterQuery()`），所以这儿不必把"点了什么/打了什么"当参数传下去 ——
+    // 条件只有一个出处，就是那几个控件此刻的样子。
+    //
+    // NOTE: 不接 `textEdited` + 防抖那一套：这条路**不扫盘**（原料是
+    //       `m_instancePageParts`，见那一格），重灌一次只是建几十个树条目。真机 61 个
+    //       实例实测不卡 —— 需要防抖的话它会是这条路先冒出来的问题。
+    if (QLineEdit *search = m_ui->getInstanceSearchEdit()) {
+        connect(search, &QLineEdit::textChanged, this, [this] { rebuildInstanceTree(); });
+    }
+    for (int i = 0; i < 4; ++i) {
+        const auto which = static_cast<MainWindowUI::InstanceFilterButton>(i);
+        QPushButton *button = m_ui->getInstanceFilterButton(which);
+        if (button == nullptr) {
+            continue;
+        }
+        connect(button, &QPushButton::clicked, this, [this, which] {
+            // ★ 原版 / 模组**互斥**：点一颗就把另一颗摘掉（用户点的是"我要看哪一类"，
+            //   不是"再加一条条件"）。另外两颗（可更新 / 最近运行）各管各的、不动别人。
+            const bool pair = which == MainWindowUI::InstanceFilterButton::Vanilla
+                              || which == MainWindowUI::InstanceFilterButton::Modded;
+            if (pair) {
+                const auto other = which == MainWindowUI::InstanceFilterButton::Vanilla
+                                       ? MainWindowUI::InstanceFilterButton::Modded
+                                       : MainWindowUI::InstanceFilterButton::Vanilla;
+                if (QPushButton *sibling = m_ui->getInstanceFilterButton(other)) {
+                    // 挡信号：这一趟收尾**自己会**重灌一遍树，让 setChecked 绕一圈回去
+                    // 只会多灌一次（`toggled` 没接线，`clicked` 才是。这里挡它是因为
+                    // 将来谁把线接到 toggled 上时不会莫名其妙灌两遍）。
+                    const QSignalBlocker blocker(sibling);
+                    sibling->setChecked(false);
+                }
+            }
+            rebuildInstanceTree();
+        });
+    }
     // ---------- 下载页「游戏」那两层：版本树 → 安装页 ----------
     //
     // 点树里**一个版本号**（子条目）进安装页；点**分类**（顶层那四条）只展开/折叠 ——
@@ -3803,110 +3847,18 @@ void MainWindow::refreshInstalledVersions() {
     // MainWindowUI 里主页那一段），所以这里只灌下拉框，同步选中项也只剩实例页那张列表。
     fillVersionCombo(combo, parts, m_settings->versionNameOptions());
 
-    // 实例页：顶上写清这是从哪一份 .minecraft 里扫出来的（左边换个文件夹它就跟着变），
-    // 右边那张树灌同一批数据（按分组摆）。它本身不是"又一份数据源"，只是同一个东西
-    // 摆在文件夹旁边更好看 —— 点击行为是"点一下等于在主页把它选中"（见 setupConnections）。
-    const QString root = AppPaths::minecraftDir();
-    QString folderText = tr("当前文件夹：%1").arg(QDir::toNativeSeparators(root));
-    // 那个数字数的是**能启动的**（= 已经从 installed 里滤掉在装的那几个）：这一行是
-    // 实例页顶上那句"这里有几个实例"，和树里数得出来的行数必须是同一个数 —— 报
-    // installed.size() 的话，正在装的那一个会让这句话比树上多一个，看着像漏画了。
-    folderText += QDir(root).exists() ? tr("（%1 个实例）").arg(launchable.size())
-                                      : tr("（这个目录不在盘上了）");
-    m_ui->getInstanceFolderLabel()->setText(folderText);
-
-    // 按分组摆那张树。归属键走 instanceKey()（稳定 id，没有就退回目录名）。
-    //
-    // NOTE: 每个实例这里要读两次 wtfml.meta（上面 displayParts() 一次、这里 instanceId()
-    //       一次）。看着浪费，但这个文件是几百字节的可选文件、真机上最多 61 个实例，
-    //       而"把两者合并成一次读"要把 instanceId 塞进 VersionDisplayParts ——那是个
-    //       纯显示用的结构，塞一个身份字段进去会让"显示名怎么拼"和"归属怎么认"纠缠在
-    //       一起。分开读，代价是一次小文件打开。
-    const QList<InstanceGroupStore::Group> groups = m_groupStore->groups();
-    QList<InstanceGroupBucket> buckets;
-    QHash<QString, int> bucketOfGroup;
-    const QSet<QString> knownGroupIds = knownGroupIdsOf(m_groupStore);
-    for (const InstanceGroupStore::Group &group : groups) {
-        InstanceGroupBucket bucket;
-        bucket.groupId = group.id;
-        bucket.name = group.name;
-        bucket.expanded = group.expanded;
-        bucketOfGroup.insert(group.id, buckets.size());
-        buckets.append(bucket);
-    }
-    // 置顶组是哪一个（这一份 .minecraft 里没有就空串）。**这里读一次就够**：下面那圈
-    // 循环里每一行都要问两遍，而且它保证指向一个**还在清单里**的组（见它的三条出口），
-    // 所以 bucketOfGroup 里一定找得到。
-    const QString pinnedGroupId = m_groupStore->pinnedGroupId();
-    // 此刻**正在置顶**的那些实例（判据是 isPinned()，不是"这一行画在哪一组"）。它和上面
-    // 那个字段是两件事：有置顶组但一个实例都没置顶时它是空的。灌树那一步要它 ——
-    // 理由见 fillInstanceTree() 文件头那条 NOTE。
-    QSet<QString> pinnedInstanceIds;
-    QList<VersionDisplayParts> ungrouped;
+    // 实例页那张树：**扫盘这一段先把原料留好**（见 m_instancePageParts 那段 —— 搜索框每
+    // 敲一个字都要重灌树，那一条路不许再扫盘），然后重灌一遍。筛选条件此刻是什么样，
+    // 那一趟自己会读（`instanceFilterQuery()`）。
+    m_instancePageParts = parts;
+    m_instancePageMarks.clear();
+    m_instancePageMarks.reserve(parts.size());
     for (const VersionDisplayParts &part : parts) {
-        // 摆在哪一组由 homeGroupIdOf() 回答 —— 也就是它的「老家」（置顶着的那一条老家
-        // 不动，多出来的那一条才摆进置顶组，见下面那段）。没置顶时它就是 displayGroupIdOf()
-        // 逐字的结果：改这一处**不会**动到任何一个没置顶的实例（那一段 NOTE 就在它上面）。
-        const QString key = instanceKey(part.id);
-        const QString homeId = homeGroupIdOf(m_groupStore, key, part, m_versionManager,
-                                             knownGroupIds);
-        const auto found = bucketOfGroup.constFind(homeId);
-        if (found != bucketOfGroup.constEnd()) {
-            buckets[found.value()].parts.append(part);
-        } else {
-            ungrouped.append(part);
-        }
-
-        // ★ 两边都显示（用户 2026-09-26 定的）：置顶着的那一个在置顶组里**再摆一条同名
-        // 的**，老家那一条（上面刚摆完）从头到尾不动。取消置顶就是把这一条去掉。
-        if (pinnedGroupId.isEmpty() || !m_groupStore->isPinned(key)) {
-            continue;
-        }
-        pinnedInstanceIds.insert(part.id);
-        if (homeId == pinnedGroupId) {
-            // 老家**本来就在置顶组里**（用户自己把它塞进去的，pinOrigin 那一格是"压根
-            // 没有记录"）⇒ 上面那条已经摆过了。不判这一下的话同一行会出现两次。
-            continue;
-        }
-        // 置顶组一定在 bucketOfGroup 里（见上面那段），这里其实找不到 —— 但写出来是
-        // 为了让"找不到就什么都不做"这条规矩在纸面上也成立（真找不到时宁可少一条，
-        // 也不能往一个不存在的桶里写）。
-        const auto pinnedBucket = bucketOfGroup.constFind(pinnedGroupId);
-        if (pinnedBucket != bucketOfGroup.constEnd()) {
-            buckets[pinnedBucket.value()].parts.append(part);
-        }
+        m_instancePageMarks.insert(part.id, QIcon(instanceRowMark(
+                                                  part, m_versionManager,
+                                                  MainWindowUI::instanceTreeIconSize())));
     }
-    if (groups.isEmpty()) {
-        // 一个真实分组都没有：平铺，一个组头都不插。没分过组的用户看到的和换树之前
-        // 逐项一致（这也正是 mw_check 里"实例数 == 3"那条断言还成立的原因）。
-        buckets.clear();
-        InstanceGroupBucket all;
-        all.parts = parts;
-        buckets.append(all);
-    } else {
-        // 「未分组」排在有归属的后面：用户建了组，说明那些组是他主要在看的东西。
-        //
-        // NOTE: 它和真实分组一样**空着就不画**（fillInstanceTree 那道滤）。2026-09-25
-        //       之前它是"总是画出来"，那条理由（"少一格又出现比一直留着更难理解"）在
-        //       用户要求「空白的分组隐藏」之后就不成立了：现在藏起来的是**所有**空组，
-        //       一视同仁，而一格都没有的树本来就空着（没什么可画的）。
-        InstanceGroupBucket rest;
-        rest.name = MainWindowUI::ungroupedGroupText();
-        rest.parts = ungrouped;
-        buckets.append(rest);
-    }
-    // 每一行前面那个图标：**在这里一次算好**（而不是让灌树那个自由函数自己去问
-    // VersionManager）—— 算它要读版本 json（见 instanceRowMark() 那段），那是业务层的事，
-    // 而 fillInstanceTree 是只认树和值的自由函数。
-    QHash<QString, QIcon> marks;
-    marks.reserve(parts.size());
-    for (const VersionDisplayParts &part : parts) {
-        marks.insert(part.id, QIcon(instanceRowMark(part, m_versionManager,
-                                                    MainWindowUI::instanceTreeIconSize())));
-    }
-    fillInstanceTree(m_ui->getInstanceList(), buckets, m_settings->versionNameOptions(),
-                     runningVersionIds(), marks, pinnedGroupId, pinnedInstanceIds);
-    syncTreeToCombo(combo, m_ui->getInstanceList());
+    rebuildInstanceTree();
 
     // 占位文案随上下文变。**两个串都必须非空**：空占位文案会让 QComboBox 在往空
     // 模型里插第一批数据时静默选中第 0 项（qcombobox.cpp:1753-1759），而这里必须
@@ -3927,6 +3879,166 @@ void MainWindow::refreshInstalledVersions() {
     if (elapsedMs >= 250) {
         qInfo() << "refreshInstalledVersions:" << elapsedMs << "ms for" << installed.size()
                 << "installed versions";
+    }
+}
+
+InstanceFilter::Query MainWindow::instanceFilterQuery() const {
+    InstanceFilter::Query query;
+    if (const QLineEdit *search = m_ui->getInstanceSearchEdit()) {
+        query.text = search->text();
+    }
+    // 原版 / 模组是**一对互斥**的档：两颗都亮着时按"后点的那颗说了算"判不出来，所以
+    // 干脆按一颗读（两颗同时亮着只可能是代码里摆错了，那时候按「原版」算 —— 界面上
+    // 两颗都亮着的样子本身就是错的，不必为它编一套语义）。
+    const auto checked = [this](MainWindowUI::InstanceFilterButton which) {
+        const QPushButton *button = m_ui->getInstanceFilterButton(which);
+        return button != nullptr && button->isChecked();
+    };
+    const bool vanilla = checked(MainWindowUI::InstanceFilterButton::Vanilla);
+    const bool modded = checked(MainWindowUI::InstanceFilterButton::Modded);
+    if (vanilla && !modded) {
+        query.kind = InstanceFilter::Kind::Vanilla;
+    } else if (modded && !vanilla) {
+        query.kind = InstanceFilter::Kind::Modded;
+    }
+    query.updatableOnly = checked(MainWindowUI::InstanceFilterButton::Updatable);
+    query.recentOnly = checked(MainWindowUI::InstanceFilterButton::Recent);
+    return query;
+}
+
+InstanceFilter::Facts MainWindow::instanceFilterFacts(const VersionDisplayParts &part) const {
+    InstanceFilter::Facts facts;
+    facts.texts = InstanceFilter::textsFor(part, m_settings->versionNameOptions());
+    facts.hasLoader = !part.loaderName.isEmpty();
+    // 「可更新」认的是**实例设置里那趟检查**的结果（键在不在 = 查过没有，见
+    // m_instanceOutdatedPaths 那段）。没查过的实例在这一档里筛不出来 —— 那是对的，
+    // 谁也没说过它有更新。
+    facts.updatable = !m_instanceOutdatedPaths.value(part.id).isEmpty();
+    // 「最近运行」认的是启动账本（`wtfml.history`，跟着当前游戏文件夹走）。账本只留最近
+    // 二十来条 ⇒ 很久没玩过的实例会从这一档里掉出去，口径写在那一颗的 tooltip 里。
+    for (const LaunchHistory::Record &record : m_launchHistory) {
+        if (record.instanceId == part.id) {
+            facts.recent = true;
+            break;
+        }
+    }
+    return facts;
+}
+
+void MainWindow::rebuildInstanceTree() {
+    QTreeWidget *tree = m_ui->getInstanceList();
+    const QList<VersionDisplayParts> parts = m_instancePageParts;
+
+    // ---- ① 筛：过不了的实例**根本不进桶**（不是"画好了再藏起来"）----
+    //
+    // 「手工隐藏行」那条老毛病（§7.2 原话：「避免继续手工隐藏行」）在这一页上本来就不
+    // 存在：这棵树**每次都是整个重建的**（fillInstanceTree 里第一句就是 tree->clear()），
+    // 要少画几行只有一个正当办法 —— 不建它。
+    const InstanceFilter::Query query = instanceFilterQuery();
+    const bool filtering = query.isActive();
+    QList<VersionDisplayParts> shown;
+    shown.reserve(parts.size());
+    for (const VersionDisplayParts &part : parts) {
+        if (filtering && !InstanceFilter::matches(query, instanceFilterFacts(part))) {
+            continue;
+        }
+        shown.append(part);
+    }
+
+    // ---- ② 按分组摆（归属照旧由 homeGroupIdOf() 答，筛子一个字都不改它）----
+    //
+    // 这一段和 `refreshInstalledVersions()` 里原来那段逐句一样，只是喂进去的是 shown。
+    // 归属键走 instanceKey()（稳定 id，没有就退回目录名）。
+    //
+    // NOTE: 每个实例这里要读两次 wtfml.meta（上面 displayParts() 一次、这里 instanceId()
+    //       一次）。看着浪费，但这个文件是几百字节的可选文件、真机上最多 61 个实例，
+    //       而"把两者合并成一次读"要把 instanceId 塞进 VersionDisplayParts ——那是个
+    //       纯显示用的结构，塞一个身份字段进去会让"显示名怎么拼"和"归属怎么认"纠缠在
+    //       一起。分开读，代价是一次小文件打开。
+    const QList<InstanceGroupStore::Group> groups = m_groupStore->groups();
+    QList<InstanceGroupBucket> buckets;
+    QHash<QString, int> bucketOfGroup;
+    const QSet<QString> knownGroupIds = knownGroupIdsOf(m_groupStore);
+    for (const InstanceGroupStore::Group &group : groups) {
+        InstanceGroupBucket bucket;
+        bucket.groupId = group.id;
+        bucket.name = group.name;
+        // ★ 筛着的时候**每一组都摆成展开的**（§7.2「清空搜索恢复原展开状态」前半句）。
+        //   不这么做的话，命中条目躲在收起来的组里 = 用户看着像"搜不到"。那个展开状态
+        //   **不落盘**（下面灌树只管画，写盘那条路在 onInstanceTreeActivated 里、被
+        //   `filtering` 挡着），所以清空之后各组回到 wtfml.folders 里记着的样子。
+        bucket.expanded = filtering ? true : group.expanded;
+        bucketOfGroup.insert(group.id, buckets.size());
+        buckets.append(bucket);
+    }
+    const QString pinnedGroupId = m_groupStore->pinnedGroupId();
+    QSet<QString> pinnedInstanceIds;
+    QList<VersionDisplayParts> ungrouped;
+    for (const VersionDisplayParts &part : shown) {
+        const QString key = instanceKey(part.id);
+        const QString homeId = homeGroupIdOf(m_groupStore, key, part, m_versionManager,
+                                             knownGroupIds);
+        const auto found = bucketOfGroup.constFind(homeId);
+        if (found != bucketOfGroup.constEnd()) {
+            buckets[found.value()].parts.append(part);
+        } else {
+            ungrouped.append(part);
+        }
+
+        // ★ 两边都显示（用户 2026-09-26 定的）：置顶着的那一个在置顶组里**再摆一条同名
+        // 的**，老家那一条从头到尾不动。取消置顶就是把这一条去掉。
+        if (pinnedGroupId.isEmpty() || !m_groupStore->isPinned(key)) {
+            continue;
+        }
+        pinnedInstanceIds.insert(part.id);
+        if (homeId == pinnedGroupId) {
+            continue;
+        }
+        const auto pinnedBucket = bucketOfGroup.constFind(pinnedGroupId);
+        if (pinnedBucket != bucketOfGroup.constEnd()) {
+            buckets[pinnedBucket.value()].parts.append(part);
+        }
+    }
+    if (groups.isEmpty()) {
+        // 一个真实分组都没有：平铺，一个组头都不插。
+        buckets.clear();
+        InstanceGroupBucket all;
+        all.parts = shown;
+        buckets.append(all);
+    } else {
+        InstanceGroupBucket rest;
+        rest.name = MainWindowUI::ungroupedGroupText();
+        rest.parts = ungrouped;
+        buckets.append(rest);
+    }
+    fillInstanceTree(tree, buckets, m_settings->versionNameOptions(), runningVersionIds(),
+                     m_instancePageMarks, pinnedGroupId, pinnedInstanceIds);
+    syncTreeToCombo(m_ui->getInstalledVersionCombo(), tree);
+
+    // ---- ③ 顶上那行说明：这一份文件夹里有几个实例（筛着的时候再说一句筛出来几个）----
+    //
+    // 那个数字数的是**能启动的**（= 已经从 installed 里滤掉在装的那几个）：这一行是
+    // 实例页顶上那句"这里有几个实例"，和树里数得出来的行数必须是同一个数 —— 报
+    // installed.size() 的话，正在装的那一个会让这句话比树上多一个，看着像漏画了。
+    // 筛着的时候两个数**都要**：只报筛出来的那个数，用户会以为自己的实例没了。
+    const QString root = AppPaths::minecraftDir();
+    QString folderText = tr("当前文件夹：%1").arg(QDir::toNativeSeparators(root));
+    if (!QDir(root).exists()) {
+        folderText += tr("（这个目录不在盘上了）");
+    } else {
+        folderText += filtering
+                          ? tr("（%1 个实例，筛出 %2 个）").arg(parts.size()).arg(shown.size())
+                          : tr("（%1 个实例）").arg(parts.size());
+    }
+    m_ui->getInstanceFolderLabel()->setText(folderText);
+
+    // ---- ④ 一条都没剩下时那一句话 ----
+    //
+    // 只在**真筛过**的时候露：不筛时树是空的（一个实例都没有）是另一件事，那句话由上面
+    // 那行说明（「（0 个实例）」）去说 —— 混成一句的话，一个装着 60 个实例、只是还没扫完
+    // 或者盘不在的用户会看见"没有符合筛选条件的实例"。
+    if (QLabel *noMatch = m_ui->getInstanceNoMatchLabel()) {
+        noMatch->setVisible(filtering && shown.isEmpty());
     }
 }
 
