@@ -136,6 +136,13 @@ void GroupListDelegate::paint(QPainter *painter, const QStyleOptionViewItem &opt
     // 底下穿过去）。
     opt.text.clear();
     opt.icon = QIcon();
+    // ★ 全仓的"选中一行"从 2026-10-12 起都带一根 3 px 的主题色指示条
+    //   （`Theme::paintSelectionRail()`，用户答复：「完全照 §9.3（和侧栏导航同款）」）——
+    //   上面那一句 `drawControl` 里就画出来了，这一行**不用**再补也不用擦：这一张表每一行
+    //   左右是**铺满**的（`contentRect()` 只在高度上收那条 `rowGap()`，横向一点都不动），
+    //   所以指示条正好落在这一行选中色的左边缘上、高度也正好是卡片那一圈 —— 就是标准那一款。
+    //   （实例树那一边反过来：它左边留着一截缩进，指示条会落在分支区里 ⇒ 那边得擦掉，
+    //   见 `InstanceGroupDelegate` 里那段 ★★ 2026-10-12。）
     if (QStyle *style = opt.widget != nullptr ? opt.widget->style() : QApplication::style()) {
         style->drawControl(QStyle::CE_ItemViewItem, &opt, painter, opt.widget);
     }

@@ -5622,11 +5622,13 @@ int main(int argc, char *argv[]) {
                         card->property(Theme::surfacePropertyName().toUtf8().constData())
                             .toString() == Theme::sectionSurfaceValue();
                     auto *cardLayout = qobject_cast<QVBoxLayout *>(card->layout());
-                    // 卡片自己那一圈内边距 / 行距是视觉规格（18,17,18,18 / 13）——
+                    // 卡片自己那一圈内边距 / 行距是视觉规格（16,16,16,16 / 10）——
                     // 它决定"这一节里的项离卡片边多远"，改了看起来只是松紧，只有断言能钉。
-                    const QMargins want(18, 17, 18, 18);
+                    // ★ 2026-10-12（coding plan §9.1）：原来是（18,17,18,18 / 13），
+                    //   随"页面外边距 9→20、区块间距 12→16"那一次整批收进 16 / 10 这一档。
+                    const QMargins want(16, 16, 16, 16);
                     if (!isSection || cardLayout == nullptr ||
-                        cardLayout->contentsMargins() != want || cardLayout->spacing() != 13) {
+                        cardLayout->contentsMargins() != want || cardLayout->spacing() != 10) {
                         ++cardShapeBad;
                     }
                     if (cardLayout == nullptr) {
@@ -6976,27 +6978,54 @@ int main(int argc, char *argv[]) {
             //   手画正文的三个代理（VersionTreeDelegate / InstanceGroupDelegate /
             //   GroupListDelegate）读的是 `selectionPalette()` —— 它们抄不到样式那一半。
 
-            // ---- ⑫a 纯色：就是用户点名的那个数，且**不等于**调色板里那个蓝 ----
-            check(Theme::selectionFill() == QColor(0xcc, 0xcc, 0xcc),
-                  "★ 选中那一块的色 = 用户点名的 `#cccccc`",
-                  Theme::selectionFill().name());
+            // ---- ⑫a 那一档底：由**这一行自己的底色**混一档主题色，不是写死的色号 ----
+            //
+            // ★ 2026-10-12 起这一档换过一次（用户对这一条的答复：「完全照 §9.3（和侧栏导航
+            //   同款）」）：原来是写死的一块浅灰 `#cccccc`（用户 2026-09-29 点名的），
+            //   现在是"这一行的底色混 20% 主题色 + 左边一根 3 px 主题色指示条"。
+            //   ⇒ 这一节钉的东西跟着换了：**跟不跟底色走**、**是不是低饱和的浅主题色**，
+            //   而不是某一个色号（色号随主题色走，钉死了反而要跟着改两处）。
+            const QColor selectionFill = Theme::selectionFill();
+            check(selectionFill == Theme::selectionFill(QColor(Qt::white)),
+                  "★ 不传底色 = 白底（默认那身浅色主题上每一张表的底都是白，判据拿到的就是它）",
+                  selectionFill.name());
+            check(selectionFill.lightness() > 200 && selectionFill.hsvSaturation() < 40 &&
+                      selectionFill.green() > selectionFill.red(),
+                  "★ 那一档底是**低饱和的浅主题色**：够浅（明度 > 200）、够淡（饱和度 < 40）、"
+                  "方向对（这一支主题色是绿的）—— 既不是灰、也不是主题色本色",
+                  QStringLiteral("底 %1（明度 %2 / 饱和 %3）")
+                      .arg(selectionFill.name())
+                      .arg(selectionFill.lightness())
+                      .arg(selectionFill.hsvSaturation()));
+            const QColor selectionDarkBase(0x32, 0x32, 0x32);
+            const QColor onDarkBase = Theme::selectionFill(selectionDarkBase);
+            check(onDarkBase.lightness() < selectionFill.lightness() &&
+                      onDarkBase.lightness() > selectionDarkBase.lightness() &&
+                      onDarkBase.green() > onDarkBase.red(),
+                  "★ 底**跟着这一行自己的底色走**：深色主题的底 `#323232` 混出来仍然是"
+                  "「底色上浮一点、还是这一支主题色的方向」，不会闪成一片近白"
+                  "（这条就是行悬停那一档的同一把尺）",
+                  QStringLiteral("白底混出 %1 / 深底混出 %2 / 深底本色 %3")
+                      .arg(selectionFill.name(), onDarkBase.name(), selectionDarkBase.name()));
             const QColor appHighlight =
                 QGuiApplication::palette().color(QPalette::Active, QPalette::Highlight);
-            check(Theme::selectionFill().rgb() != appHighlight.rgb(),
+            check(selectionFill.rgb() != appHighlight.rgb(),
                   "★ 这一档**不是**调色板里那个 `Highlight`（Fusion 那个蓝）—— "
-                  "「蓝色的换成深灰色」这句话的最小守卫",
-                  QStringLiteral("灰 %1 / 调色板 Highlight %2")
-                      .arg(Theme::selectionFill().name(), appHighlight.name()));
+                  "「蓝色的换成深灰色」那句话的最小守卫",
+                  QStringLiteral("我们这一档 %1 / 调色板 Highlight %2")
+                      .arg(selectionFill.name(), appHighlight.name()));
 
-            // ---- ⑫b 墨：浅灰上必须是**暗**字 ----
+            // ---- ⑫b 墨：浅底上必须是**暗**字，深底上必须是**亮**字 ----
             //
             // ★ 方向是这一节的要害：第一版那块底是**暗**的（`#4a4a4a`）、墨得是亮的；用户
-            //   把底色改浅之后，墨必须**跟着翻过去** —— 亮墨压浅灰 = 等于没字。所以这里不只
+            //   把底色改浅之后，墨必须**跟着翻过去** —— 亮墨压浅底 = 等于没字。所以这里不只
             //   量"差得够远"，还钉住"底是亮的、墨是暗的"这两条方向。
+            //   ★ 2026-10-12 底改成"跟这一行自己的底色走"之后，方向**还得会翻回来**：
+            //     深色预设下那一片底是暗的，墨必须换回亮的那一支（见 .cpp 里那两档）。
             const QColor selectionInk = Theme::selectionInk();
             const QColor selectionSubInk = Theme::selectionSubInk();
             check(Theme::selectionFill().lightness() > 128 && selectionInk.lightness() < 128,
-                  "★ 底是**浅**的、墨是**暗**的（方向反了 = 白字压浅灰 = 等于没字）",
+                  "★ 底是**浅**的、墨是**暗**的（方向反了 = 白字压浅底 = 等于没字）",
                   QStringLiteral("底明度 %1 / 墨明度 %2")
                       .arg(Theme::selectionFill().lightness())
                       .arg(selectionInk.lightness()));
@@ -7006,11 +7035,23 @@ int main(int argc, char *argv[]) {
                       .arg(selectionInk.name(), Theme::selectionFill().name())
                       .arg(rgbDist(selectionInk, Theme::selectionFill())));
             check(rgbDist(selectionSubInk, Theme::selectionFill()) > 240,
-                  "★ 次要那一档墨（次要正文 / 行里那些小图标）也压得住浅灰 —— 不够的话"
+                  "★ 次要那一档墨（次要正文 / 行里那些小图标）也压得住这一块底 —— 不够的话"
                   "图标看着就是「没了」",
                   QStringLiteral("次要墨 %1 / 差 %2")
                       .arg(selectionSubInk.name())
                       .arg(rgbDist(selectionSubInk, Theme::selectionFill())));
+            const QColor inkOnDark = Theme::selectionInk(selectionDarkBase);
+            const QColor subInkOnDark = Theme::selectionSubInk(selectionDarkBase);
+            check(inkOnDark.lightness() > 128 && subInkOnDark.lightness() > 128 &&
+                      inkOnDark.lightness() > subInkOnDark.lightness() &&
+                      rgbDist(inkOnDark, Theme::selectionFill(selectionDarkBase)) > 300,
+                  "★ 底一暗下去，墨**自己翻回亮的那一支**（这一档底是跟着这一行的底色走的，"
+                  "写死一支暗墨的话深色预设上整行就是「没有字」）",
+                  QStringLiteral("深底上的墨 %1（明度 %2）/ 次要墨 %3（明度 %4）")
+                      .arg(inkOnDark.name())
+                      .arg(inkOnDark.lightness())
+                      .arg(subInkOnDark.name())
+                      .arg(subInkOnDark.lightness()));
             const QPalette unselectedPalette = QGuiApplication::palette();
             check(Theme::selectionPalette(unselectedPalette, /*selected=*/false) == unselectedPalette,
                   "★ 没选中时 `selectionPalette()` **一个字都不动**（是不是选中只看调用方传进来"
@@ -7059,48 +7100,83 @@ int main(int argc, char *argv[]) {
             //   "有多少个像素就是我们这一档、有几个还是那个蓝"。
             check(selectRowRect.left() > 2, "哨兵：这一行真的被缩进了（不缩进就谈不上「左边那一截」）",
                   QStringLiteral("左边 = %1").arg(selectRowRect.left()));
-            // ★ 为什么不是"某一点逐字节等于 `#cccccc`"：**当前项**那一行的底是 Fusion 自己
+            // ★ 为什么不是"某一点逐字节等于我们那一档"：**当前项**那一行的底是 Fusion 自己
             //   画的**竖渐变**（2026-09-29 把这一列逐行打印出来看过：上沿一条 `#b8b8b8`、
             //   紧跟着 `#d2d2d2`、往下平滑收到下沿那条 `#b4b4b4`），我们换掉的只是它用的那份
-            //   调色板 —— 整条渐变**就是**我们这一档灰调制出来的，但只有中间几行逐字节等于
-            //   `#cccccc`。所以判据是"这一列**平均**下来就是这一档、最偏的一个像素也在同一族
-            //   里" + "那个蓝一个像素都不剩"。**平**的地方有：分支区那一截（下面那条逐字节
-            //   判据量得到）、以及不在焦点上的那些选中行（走 `PE_PanelItemViewItem`，是我们
-            //   自己 `fillRect` 的）。
+            //   调色板 —— 整条渐变**就是**我们这一档底调制出来的，但只有中间几行逐字节等于
+            //   它。所以判据是"这一列**平均**下来就是这一档、最偏的一个像素也在同一族里" +
+            //   "那个蓝一个像素都不剩"。**平**的地方有：分支区那一截（下面那条逐字节判据量
+            //   得到）、以及不在焦点上的那些选中行（走 `PE_PanelItemViewItem`，是我们自己
+            //   `fillRect` 的）。
             int bodyPixels = 0;
             int bodyBlue = 0;
-            int bodySum = 0;
             int bodyWorst = 0;
+            int bodyTint = 0;
+            int sumR = 0;
+            int sumG = 0;
+            int sumB = 0;
+            QColor bodyWorstPixel;
             for (int y = selectRowRect.top(); y <= selectRowRect.bottom(); ++y) {
                 const QColor px = selectShot.pixelColor(selectRowRect.left() + 2, y);
                 ++bodyPixels;
-                bodySum += (px.red() + px.green() + px.blue()) / 3;
+                sumR += px.red();
+                sumG += px.green();
+                sumB += px.blue();
                 if (px.rgb() == probeHighlight.rgb()) {
                     ++bodyBlue;
                 }
-                bodyWorst = qMax(bodyWorst, rgbDist(px, probeSelection));
+                // ★ 这一档底是**带方向**的（这一支主题色是绿的）：渐变再怎么调，绿的通道
+                //   都得最高。写死"逐字节等于某一档"是不行的（当前项那层渐变），而"
+                //   整列平均下来对得上"又太松（从绿退回灰也能凑出同一个平均）—— 这两条
+                //   合起来才是"屏幕上真的铺的是我们这一档"。允许差一个数位（四舍五入）。
+                if (px.green() + 1 < px.red() || px.green() + 1 < px.blue()) {
+                    ++bodyTint;
+                }
+                const int d = rgbDist(px, probeSelection);
+                if (d > bodyWorst) {
+                    bodyWorst = d;
+                    bodyWorstPixel = px;
+                }
             }
-            const QColor bodyAverage(bodyPixels > 0 ? bodySum / bodyPixels : 0,
-                                     bodyPixels > 0 ? bodySum / bodyPixels : 0,
-                                     bodyPixels > 0 ? bodySum / bodyPixels : 0);
-            check(bodyPixels > 0 && bodyBlue == 0 && rgbDist(bodyAverage, probeSelection) <= 12 &&
-                      bodyWorst <= 80,
-                  "★ 选中一行：屏幕上铺的就是用户点名那一档（这一列**平均**下来正落在它上面、"
-                  "最偏的一个像素也在同一族里，而调色板那个蓝一个都没有）",
-                  QStringLiteral("这一列 %1 个像素：平均 %2（离目标 %3，最差 %4）/ %5 个是蓝 %6"
-                                 " / 底色 %7")
+            // ★ 平均色要**逐通道**算，不能拿"每像素的通道平均值"再合成一个灰 —— 那一手在
+            //   底色是灰的时候看不出区别，换成带方向的这一档就成了"拿灰去比绿"（离目标
+            //   22 全是这么来的，屏幕上其实只有 11）。
+            const QColor bodyAverage(bodyPixels > 0 ? sumR / bodyPixels : 0,
+                                     bodyPixels > 0 ? sumG / bodyPixels : 0,
+                                     bodyPixels > 0 ? sumB / bodyPixels : 0);
+            check(bodyPixels > 0 && bodyBlue == 0 && bodyTint == 0 &&
+                      rgbDist(bodyAverage, probeSelection) <= 12 && bodyWorst <= 120,
+                  "★ 选中一行：屏幕上铺的就是我们这一档（这一列**平均**下来正落在它上面、"
+                  "**每一个**像素都还带着这一支主题色的方向、最偏的那个也还在同一族里，"
+                  "而调色板那个蓝一个都没有）",
+                  QStringLiteral("这一列 %1 个像素：平均 %2（离目标 %3）/ 最差 %4 那个像素是 %5"
+                                 " / 方向不对的 %6 个 / %7 个是蓝 / 底色 %8")
                       .arg(bodyPixels)
                       .arg(bodyAverage.name())
                       .arg(rgbDist(bodyAverage, probeSelection))
                       .arg(bodyWorst)
+                      .arg(bodyWorstPixel.name())
+                      .arg(bodyTint)
                       .arg(bodyBlue)
                       .arg(probeHighlight.name(), probeBase.name()));
-            const QPoint selectStripSpot(2, selectRowRect.top() + 1);
+            // ★ 最左边那一列（x = 0..2）现在是**那根 3 px 的主题色指示条**（§9.3 点名要的
+            //   那一根）：样式早在画选中底的时候就把它铺上了，而代理紧接着又把左边那一截
+            //   分支区**整段**补了一遍底色（上面那段代码）—— 补的时候正好把它盖掉，所以
+            //   代理在那之后还得**再补一次指示条**。这条判据量到的是后者。
+            const QPoint railSpot(2, selectRowRect.top() + 1);
+            const QColor railPixel = selectShot.pixelColor(railSpot);
+            check(railPixel.rgb() == Theme::selectionBar().rgb(),
+                  "★ 选中那一行最左边是那根 3 px 的主题色指示条（和侧栏导航同一根 —— "
+                  "§9.3 点名、用户答复「完全照 §9.3（和侧栏导航同款）」）",
+                  QStringLiteral("x=2 那一列量到 %1（该是主题色 %2）")
+                      .arg(railPixel.name(), Theme::selectionBar().name()));
+            const QPoint selectStripSpot(selectRowRect.left() - 2, selectRowRect.top() + 1);
             const QColor selectStrip = selectShot.pixelColor(selectStripSpot);
             check(selectStrip.rgb() == probeSelection.rgb(),
-                  "★ 而且左边那一截分支区**也**是同一档 —— 版本树这一支的选中带是「整条行」，"
-                  "左边那一截是 `QTreeView::drawRow()` 先涂的，代理排在它后面、得自己再补一遍",
-                  QStringLiteral("x=2 那一列量到 %1").arg(selectStrip.name()));
+                  "★ 指示条右边那一截（还是分支区）铺的**也是**这一档底 —— 版本树这一支的选中带"
+                  "是「整条行」，左边那一截是 `QTreeView::drawRow()` 先涂的，代理排在它后面、"
+                  "得自己再补一遍",
+                  QStringLiteral("x=%1 那一列量到 %2").arg(selectStripSpot.x()).arg(selectStrip.name()));
             selectProbe.hide();
 
             // ---- ⑫d 一张**裸**表（没挂我们那三个代理）：只看"不再是那个蓝" ----
@@ -7122,8 +7198,8 @@ int main(int argc, char *argv[]) {
             const QColor plainInkPixel = plainShot.pixelColor(
                 plainRect.left() + 1, plainRect.top() + plainRect.height() - 2);
             check(plainInkPixel.rgb() != probeHighlight.rgb(),
-                  "★ 裸列表里选中一行：量到的**不是**调色板那个蓝（那一块灰或底色都行，"
-                  "反正蓝色在这一层没了）",
+                  "★ 裸列表里选中一行：量到的**不是**调色板那个蓝（那一档底、最左边那根指示条、"
+                  "或者底色都行，反正蓝色在这一层没了）",
                   QStringLiteral("量到 %1（蓝 = %2）")
                       .arg(plainInkPixel.name(), probeHighlight.name()));
             plainProbe.hide();
@@ -7152,7 +7228,7 @@ int main(int argc, char *argv[]) {
             const QColor controlledPixel = renderItemPanel(unselectedPalette);
             check(controlledPixel.rgb() == Theme::selectionFill().rgb(),
                   "★ 对照组：`Highlight` 就是应用调色板那一份 ⇒ **上面那条路我们接管**，"
-                  "画出来的是 `#cccccc`",
+                  "画出来的是我们那一档底",
                   QStringLiteral("量到 %1 / 该是 %2")
                       .arg(controlledPixel.name(), Theme::selectionFill().name()));
             QPalette accentPalette = unselectedPalette;
@@ -7164,7 +7240,7 @@ int main(int argc, char *argv[]) {
                       rgbDist(accentPixel, accentPure) <
                           rgbDist(accentPixel, Theme::selectionFill()),
                   "★ 而 `Highlight` 换成主题色的那一份**没被接管**（就是下拉框弹出层那条路）",
-                  QStringLiteral("量到 %1 / 主题色 %2 / 我们那块灰 %3")
+                  QStringLiteral("量到 %1 / 主题色 %2 / 我们那一档底 %3")
                       .arg(accentPixel.name(), accentPure.name(),
                            Theme::selectionFill().name()));
         }
@@ -10315,6 +10391,105 @@ int main(int argc, char *argv[]) {
                       "★★ U10P 没查出来新版本的那些行原样就是那个名字（唯一出处那边一行都不加）");
                 // 喂回去（这一节后面那一段量的另一页，别把这一页留在"查过"那一档上）。
                 dialog.setFileUpdates({}, true);
+            }
+
+            // ---- U10P-8 同页筛选：**只淡新冒出来的那几行**，整页不重播（★ 2026-10-12，
+            //      coding plan §9.4）----
+            //
+            // §9.4 那一句：「同页筛选/列表变化：只动画**新增**、删除和状态，**不重播整页**」。
+            // 这一段的判据全是**结构**上的（不是"看着好像淡了一下"）：
+            //   · 这一趟真**新冒出来**的行，每一个身上挂着一个效果、而且那一发动画的时长
+            //     就是 `rowAppearMs()`（效果挂在行上，动画是效果的子对象 —— 这儿的够法
+            //     和 ⑬ 那一段够幕布、够换页动画是同一招：只认公开类型 + `findChildren`）；
+            //   · 这一趟**本来就在**的行，一个效果都没有 —— 这就是「不重播整页」：旧的那几行
+            //     要是也被淡了，屏幕上就是整页在闪；
+            //   · 整个过程里行和列表的**几何一个像素都不动**。
+            //
+            // ★ 判据里"哪几行是新的"是**构造出来的**：先筛到一条不剩（`m_shownIdentities`
+            //   清空），再筛回来 ⇒ 那三条在重建这一趟里全是新的。反过来，紧接着换到「禁用」
+            //   那一档时那一条**本来就在名单里**⇒ 一条都不该淡。
+            {
+                const bool animWas = Anim::enabled();   // 这个工程平时关着，收尾要摆回去
+                Anim::setEnabled(true);
+                const auto rowWidgetAt = [page](int row) -> QWidget * {
+                    QListWidgetItem *item = page != nullptr ? page->list()->item(row) : nullptr;
+                    return item != nullptr ? page->list()->itemWidget(item) : nullptr;
+                };
+                // 「这一行正在被淡进来吗」= 身上挂着**我们那个效果**、而且那一发动画的时长
+                // 就是 `rowAppearMs()`。★ 那一发动画挂在**效果**身上（`runProgress()` 的
+                // `owner` 就是它），不挂在控件身上 —— 要够它得先够到那个效果（名字是全仓
+                // 唯一那个字符串，和上面够幕布、够步进器是同一招）。
+                const auto rowAnimIsFade = [](QWidget *row) {
+                    QGraphicsEffect *effect = row != nullptr ? row->graphicsEffect() : nullptr;
+                    if (effect == nullptr ||
+                        effect->objectName() != QStringLiteral("wtfmlAnimEffect")) {
+                        return false;
+                    }
+                    const QList<QVariantAnimation *> anims =
+                        effect->findChildren<QVariantAnimation *>();
+                    return anims.size() == 1 && anims.first()->duration() == Anim::rowAppearMs();
+                };
+                // ★★ 「不许有元素超出」在这一发上的样子：效果自己要回来的那个矩形**正好就是
+                //    这一行自己**（`QGraphicsEffect::boundingRectFor()` 是公开的虚函数，
+                //    够得到它不用把产品那边的类型露出来）。这一条才是"淡的时候会不会糊出
+                //    行外面去"的正经判据 —— 列表整块被收起/放出来会挪位置（那是布局的活），
+                //    拿列表的几何跟重列之前比是量的东西不对。
+                const auto rowEffectKeepsBounds = [](QWidget *row) {
+                    QGraphicsEffect *effect = row != nullptr ? row->graphicsEffect() : nullptr;
+                    if (effect == nullptr) {
+                        return false;
+                    }
+                    const QRectF own(row->rect());
+                    return effect->boundingRectFor(own) == own;
+                };
+                // 前提：筛到一条不剩（一趟之后"上一趟摆过的身份"就是空的）
+                search->setText(QStringLiteral("zzz-一个文件都不叫这个"));
+                const bool emptied = page->list()->count() == 0;
+                // 再筛回来：三条全是新的 ⇒ 三条都该在淡
+                search->clear();
+                const bool refilled = page->list()->count() == 3;
+                int faded = 0;
+                int boundsKept = 0;
+                for (int row = 0; row < page->list()->count(); ++row) {
+                    QWidget *w = rowWidgetAt(row);
+                    if (rowAnimIsFade(w)) {
+                        ++faded;
+                    }
+                    if (rowEffectKeepsBounds(w)) {
+                        ++boundsKept;
+                    }
+                }
+                // ★ 这一趟**故意不把事件循环再跑起来**：§9.4 要的那两条（"新冒出来的在淡"
+                //   和"本来就在的不淡"）都是**接线上**的事，重列那一发是同步的，当场就量得
+                //   到。"动画跑起来那一段时间里几何不动"由 ⑬ 那一段自己量（它本来就有一整
+                //   段真帧），这一段不必再往这一段 U10 里塞一发事件循环。
+                check(emptied && refilled && faded == 3 && boundsKept == 3,
+                      "★★ U10P 筛到一条不剩再筛回来：重新冒出来的那三条**都**在淡（一人一个"
+                      "效果、时长就是 `rowAppearMs()`），而且效果要回来的那个矩形**正好就是"
+                      "那一行自己**（多一个像素都不行 —— 用户点名的「不许有元素超出」）",
+                      QStringLiteral("筛空%1 / 筛回来%2 条 / 在淡的 %3 条 / 框住自己的 %4 条")
+                          .arg(emptied ? QStringLiteral("成") : QStringLiteral("没成"))
+                          .arg(page->list()->count())
+                          .arg(faded)
+                          .arg(boundsKept));
+                // 反面：换一档**不引入任何新行**（那一条本来就在上一趟的名单里）⇒ 一条都不淡。
+                // 这一条正是「不重播整页」：列表整个重建过，可屏幕上没有哪一行在闪。
+                selectState(InstanceFilesPage::StateFilter::Disabled);
+                QWidget *keptRow = page->list()->count() == 1 ? rowWidgetAt(0) : nullptr;
+                check(page->list()->count() == 1 && keptRow != nullptr &&
+                          keptRow->graphicsEffect() == nullptr,
+                      "★★ U10P 而换一档时**本来就在的那几行一个效果都不挂**（列表照样整个重"
+                      "建过，可屏幕上没有哪一行在闪 —— 「不重播整页」量的就是这一条）",
+                      QStringLiteral("换档后 %1 条、那一条身上%2")
+                          .arg(page->list()->count())
+                          .arg(keptRow != nullptr && keptRow->graphicsEffect() != nullptr
+                                   ? QStringLiteral("挂着效果")
+                                   : QStringLiteral("干净")));
+                // ★ 收尾把这一页摆回原样（下面那几段量的还是这三条、这一档）：动画开关也要
+                //   摆回去 —— 这个工程往后整段都是按"关着"搭界面的。
+                selectState(InstanceFilesPage::StateFilter::All);
+                search->clear();
+                Anim::setEnabled(animWas);
             }
 
             // ---- U10P-6b 换一页，把「收空档」的另一个方向也钉住 ----
@@ -23984,6 +24159,46 @@ int main(int argc, char *argv[]) {
             check(!keepButton.property("wtfmlButtonKind").isValid(),
                   "★ W12 把一颗按钮改回普通那一档 = 把那一位**抹掉**（不是写一个 'accent'）");
 
+            // ---------- §9.1 动作高度那一档（2026-10-12） ----------
+            // ★ 量的是**整颗控件**的高度，不是样式表里那个数：QSS 的 `min-height` 量的是
+            //   **内容**那一格 —— 这一套样式（6px 内边距 + 1px 边）配 `min-height: 32px`
+            //   整颗量出来是 **46**（2026-10-12 探针实测）。所以样式表里写的是
+            //   `actionHeight()` 减掉那一圈，而这一条盯的是最后那个数。
+            // ★ 三条一起量：普通 32 / 主动作 36 / **图标按钮按自己那一档**（写死 22 的那颗
+            //   在 `min-height: 18px` 下会量成 32 —— `setFixedSize()` 拦不住 QSS 的
+            //   `min-height`，只有 `markIconButton()` 那一句能把它按回去）。
+            {
+                QWidget heightHost;
+                auto *heightLayout = new QVBoxLayout(&heightHost);
+                heightLayout->setContentsMargins(0, 0, 0, 0);
+                auto *tallPlain = new QPushButton(QStringLiteral("确定"), &heightHost);
+                auto *tallPrimary = new QPushButton(QStringLiteral("启动游戏"), &heightHost);
+                Theme::markButton(tallPrimary, Theme::ButtonKind::Primary);
+                auto *tallIcon = new QPushButton(&heightHost);
+                tallIcon->setFixedSize(22, 22);
+                Theme::markIconButton(tallIcon);
+                heightLayout->addWidget(tallPlain);
+                heightLayout->addWidget(tallPrimary);
+                heightLayout->addWidget(tallIcon);
+                heightHost.show();
+                QApplication::processEvents();
+                check(tallPlain->height() == Theme::actionHeight() &&
+                          tallPrimary->height() == Theme::primaryActionHeight() &&
+                          tallIcon->height() == 22,
+                      "★★ §9.1 动作按钮 `actionHeight()` / 主动作 `primaryActionHeight()`"
+                      "（量整颗高度）/ 图标按钮按自己钉死的边长来",
+                      QStringLiteral("普通 %1px（要 %2）/ 主动作 %3px（要 %4）/ 图标 %5px（要 22）")
+                          .arg(tallPlain->height())
+                          .arg(Theme::actionHeight())
+                          .arg(tallPrimary->height())
+                          .arg(Theme::primaryActionHeight())
+                          .arg(tallIcon->height()));
+                check(tallIcon->property("wtfmlButtonSize").toString() ==
+                          Theme::iconButtonSizeValue(),
+                      "★ §9.1 `markIconButton()` 挂上去的属性名和样式表里那条复位规则用的是"
+                      "**同一个**");
+            }
+
             // ★ 真按钮真渲染：中心那一片是白的、四周那圈是边那一档、字是字那一档。
             //   这一条是"样式表写出来了"和"样式表生效了"的分界 —— 只比字符串的话，
             //   选择器写错一个字母照样通过。
@@ -24518,6 +24733,136 @@ int main(int argc, char *argv[]) {
         Anim::setEnabled(false);
         const bool off = Anim::enabled();
         check(on && !off, "⑬ 总开关能开能关（关掉之后几个函数全是空操作，一个效果都不装）");
+
+        // —— ★ 2026-10-12（coding plan §9.4）：那几个数落在那一条给的区间里 ——
+        //
+        // §9.4 逐字：「页面首次进入：160–200 ms，透明度 + **8 px** 位移；…面板展开：
+        // **160–180 ms**；按钮 hover：90–120 ms；下载进度使用**平滑追值**…；不动画窗口几何、
+        // 表格列宽和文字缩放」。这一条量的是**这些数本身**（每一个数"为什么是这个值"写在
+        // `Animations.hpp` 里它自己那一段）。
+        //
+        // ★ 「按钮 hover 90–120 ms」那一条**没有做**（探针实测：样式表的 `:hover` 造不出来、
+        //   也量不出来，要做只能把 `:hover` 底色从样式表里撤掉 —— 和「改视觉走 QSS」的基线
+        //   正面冲突），所以这里**没有**它那一条判据，见 `Animations.hpp` 顶上那段。
+        check(Anim::appearMs() >= 160 && Anim::appearMs() <= 200 &&
+                  Anim::pageRiseDistance() == 8 && Anim::panelMs() >= 160 &&
+                  Anim::panelMs() <= 180 && Anim::rowAppearMs() > 0 &&
+                  Anim::rowAppearMs() <= 200 && Anim::progressMs() > 0 &&
+                  Anim::rowAppearLimit() > 0,
+              "★ ⑬ §9.4 那几个时长/位移都落在案上给的区间里（换页 160–200 ms、抬正好 8 px、"
+              "面板 160–180 ms），新增的三位（行淡 / 追值 / 淡几行的上限）也都不是 0 那种"
+              "假参数",
+              QStringLiteral("换页 %1 ms / 抬 %2 px / 面板 %3 ms / 行淡 %4 ms（最多 %5 行）/ "
+                             "追值 %6 ms")
+                  .arg(Anim::appearMs())
+                  .arg(Anim::pageRiseDistance())
+                  .arg(Anim::panelMs())
+                  .arg(Anim::rowAppearMs())
+                  .arg(Anim::rowAppearLimit())
+                  .arg(Anim::progressMs()));
+
+        // —— ★ 追值那四条「如实更新」的规矩（2026-10-12）——
+        //
+        // §9.4 那一句：「下载进度使用平滑追值，**但任务真实进度倒退或总量变化时必须如实
+        // 更新**」。所以这一条判的不是"淡得好看不好看"，而是**那几条"必须"真的管住了**：
+        // 往前 ⇒ 从当前那一格追过去（当场还没到，跑完**正好**落在目标上，不是"落在附近"）；
+        // 倒退 / 总量变了 / 条子被钳回过 0 ⇒ **当场**就是真值，一格动画都不许有。
+        {
+            QProgressBar bar;
+            bar.setRange(0, 100);
+            // 「这一发还在跑吗」问的是**那个步进定时器还在不在跑**，不是"有没有动画对象"：
+            // 按帧走的那一路**故意**把 `QVariantAnimation` 留着不删（它从头到尾没 `start()`
+            // 过 —— 理由写在 `Animations.cpp` 的 `runProgress()` 里），所以 `findChildren`
+            // 里永远找得到它。定时器名字是全仓唯一那个字符串（和上面够幕布是同一招）。
+            const auto chasingNow = [](QObject *owner) {
+                const QList<QTimer *> steppers =
+                    owner->findChildren<QTimer *>(QStringLiteral("wtfmlAnimStepper"));
+                for (QTimer *timer : steppers) {
+                    if (timer->isActive()) {
+                        return true;
+                    }
+                }
+                return false;
+            };
+            Anim::setEnabled(true);
+            Anim::smoothProgress(&bar, 0);
+            const bool zeroLanded = bar.value() == 0 && !chasingNow(&bar);
+            Anim::smoothProgress(&bar, 5);   // 把条子挪离 0（这一步按第四条规矩就是当场落实）
+            const bool lifted = bar.value() == 5 && !chasingNow(&bar);
+            Anim::smoothProgress(&bar, 60);  // ① 往前 ⇒ 追
+            const bool chasing = bar.value() < 60 && chasingNow(&bar);
+            QEventLoop chaseWait;
+            QTimer::singleShot(Anim::progressMs() + 120, &chaseWait, &QEventLoop::quit);
+            chaseWait.exec();
+            check(zeroLanded && lifted && chasing && bar.value() == 60 && !chasingNow(&bar),
+                  "★ ⑬ 往前那一趟是**追**的（当场还没到、步进器在跑，跑够一段之后正好落在"
+                  "目标上 —— 不是「落在附近」，也不是「当场就跳过去」）",
+                  QStringLiteral("起手落在 0 和 5 上 %1、追的过程里 %2、跑完 %3（该是 60）、"
+                                 "跑完还在追 %4")
+                      .arg(zeroLanded && lifted ? QStringLiteral("对")
+                                                : QStringLiteral("**不对**"))
+                      .arg(chasing ? QStringLiteral("还没到、在跑")
+                                   : QStringLiteral("**已经到/没在追**"))
+                      .arg(bar.value())
+                      .arg(chasingNow(&bar)));
+            Anim::smoothProgress(&bar, 20);   // ② 倒退 ⇒ 当场落实
+            const bool backLanded = bar.value() == 20 && !chasingNow(&bar);
+            bar.setRange(0, 400);             // ③ 总量变了 ⇒ 当场落实
+            Anim::smoothProgress(&bar, 380);
+            const bool totalLanded = bar.value() == 380 && !chasingNow(&bar);
+            // ④ 「还回来」那一趟：条子被借走时钳回过 0（`setRange(0, 0)`），而记下的总量
+            //    没变过 —— 这一趟**不许**从 0 慢慢爬到"其实早就下到那儿了"的那个数字。
+            bar.setRange(0, 0);
+            bar.setRange(0, 400);
+            Anim::smoothProgress(&bar, 380);
+            const bool restoredLanded = bar.value() == 380 && !chasingNow(&bar);
+            check(backLanded && totalLanded && restoredLanded,
+                  "★★ ⑬ 三条「必须如实更新」都管住了：真进度**倒退**、**总量变了**、以及"
+                  "**条子被钳回过 0**（启动借走这一格又还回来那一趟）—— 三种情况当场就是"
+                  "真值，没有一发在追",
+                  QStringLiteral("倒退后 %1（该是 20）、换总量后 %2（该是 380）、还回来那一趟 "
+                                 "%3，在追的 %4")
+                      .arg(20)
+                      .arg(380)
+                      .arg(bar.value())
+                      .arg(chasingNow(&bar)));
+            Anim::setEnabled(false);
+            bar.setRange(0, 400);
+            Anim::smoothProgress(&bar, 399);
+            check(bar.value() == 399 && !chasingNow(&bar),
+                  "★ ⑬ 关掉动效时就是一句 `setValue()`（连「追上 399」这种事都不做）",
+                  QStringLiteral("%1、在追的 %2").arg(bar.value()).arg(chasingNow(&bar)));
+        }
+
+        // —— ★ 「新冒出来的那一行淡进来」那一发（2026-10-12）——
+        //
+        // §9.4 那一条的另一半：「同页筛选/列表变化：只动画**新增**、删除和状态，**不重播
+        // 整页**」。这一条量的是**那一发自己**的形状：开着的时候挂一个效果、动的是它的
+        // 不透明度，**几何一个像素都不动**（那是这一层唯一那条死规矩）；关着的时候一个
+        // 效果都不挂；跑完**自己收干净**（效果摘掉 —— 不收的话那个控件永远糊着一层）。
+        {
+            QWidget row;
+            row.resize(200, 40);
+            const QRect before = row.geometry();
+            const bool animWasOn = Anim::enabled();   // 收尾摆回去（下一段是按"关着"搭界的）
+            Anim::setEnabled(false);
+            Anim::rowAppear(&row);
+            const bool inert = row.graphicsEffect() == nullptr && row.geometry() == before;
+            Anim::setEnabled(true);
+            Anim::rowAppear(&row);
+            const bool faded = row.graphicsEffect() != nullptr && row.geometry() == before;
+            QEventLoop rowWait;
+            QTimer::singleShot(Anim::rowAppearMs() + 140, &rowWait, &QEventLoop::quit);
+            rowWait.exec();
+            Anim::setEnabled(animWasOn);
+            check(inert && faded && row.graphicsEffect() == nullptr && row.geometry() == before,
+                  "★★ ⑬ 行淡那一发：关着的时候一个效果都不挂、开着的时候挂上并在跑，"
+                  "**从头到尾几何一个像素都不动**，跑完自己把效果摘干净",
+                  QStringLiteral("关着 %1 / 开着 %2 / 跑完还剩效果 %3")
+                      .arg(inert ? QStringLiteral("干净") : QStringLiteral("挂了效果"))
+                      .arg(faded ? QStringLiteral("在跑") : QStringLiteral("没动"))
+                      .arg(row.graphicsEffect() != nullptr));
+        }
 
         // —— 换页那一下：把事件循环真的跑起来，跑够一整段，从头到尾盯着几何 ——
         //

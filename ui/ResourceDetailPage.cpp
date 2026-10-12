@@ -527,6 +527,9 @@ void ResourceDetailPage::rebuildChips() {
         button->setCheckable(true);
         button->setFixedHeight(kChipHeight);
         button->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+        // 这一排 chip 是"按自己那一档高度"的（24）：报一句免得被
+        // `actionHeight()` 那条 `min-height` 顶到 32、把这一排撑破（见 `markIconButton()`）。
+        Theme::markIconButton(button);
         button->setStyleSheet(chipStyle(button->palette()));
         // QSS 里嵌的是色名 ⇒ 主题一换得重算（这一排是**整排重建**的，但重建只在
         // chip 列表变了时发生，主题变化不在其中）。

@@ -25,6 +25,7 @@
 #include <QPalette>
 #include <QPixmap>
 #include <QPointer>
+#include <QProgressBar>
 #include <QPropertyAnimation>
 #include <QScrollBar>
 #include <QSharedPointer>
@@ -32,6 +33,7 @@
 #include <QTimer>
 #include <QTransform>
 #include <QTreeView>
+#include <QVariant>
 #include <QVariantAnimation>
 #include <QWidget>
 
@@ -51,6 +53,9 @@ constexpr const char kScrollFilterMark[] = "wtfmlAnimScrollFilter";
 /// 「按帧走」那一发底下那个步进定时器的名字。认它就是"我们自己那个"（一个控件上可能
 /// 前后叠着好几发，重启一发时要能把上一发那个停掉）。
 constexpr const char kStepperName[] = "wtfmlAnimStepper";
+/// 进度条上那一位"上一趟见到的 `maximum()`"（见 `Anim::smoothProgress()`）。
+/// 记在**进度条自己身上**：这一层没有实例、也不该为进度条另立一张表（那张表还得管生灭）。
+constexpr const char kProgressMaxMark[] = "wtfmlAnimProgressMax";
 
 /// 动效总开关。默认开。
 bool g_enabled = true;
@@ -273,8 +278,28 @@ protected:
             //       父层那张白卡片。动画期间于是会先灰、收掉幕布后才突然变白。
             //       从 host 的对应区域抓，拿到的才是用户此刻真正看见的合成结果。
             //       幕布自己可能就在 host 里面，所以照相时让自己一个像素都不画，避免照镜子。
+            //
+            // ★★ 2026-10-12（ui_check ⑬ 那条「透明页面换页时背景从第一帧起就是白的」逮住的）：
+            //   上面那条「从 host 抓」**漏了 host 就是 m_target 的那一路** —— `liftTarget()`
+            //   什么都没抬的时候（页面自己没有滚动区、也不是选项卡，`lift == widget`）幕布的
+            //   父层**就是**要照的那一块，`host->grab()` 于是又回到"抓一张透明光板"：
+            //   Qt 拿 `QPalette::Window` 补底，实测灰 `#808080` 配 `0.72` 的起手浓淡正好是
+            //   屏幕上那块先灰一下再变白。这时往**顶层窗口**的那一片区域抓，合成本身才是对的
+            //   （幕布是目标的**孩子**，它自己那一下照样由 `m_grabbing` 挡着不画）。
+            //   NOTE: 只改这一路 —— host 不是 target 那一路（选项卡 / 滚动区，也是界面上
+            //         真正跑得最多的那一路）一个字节都没动。
+            QWidget *grabSource = host;
+            if (grabSource == m_target) {
+                if (QWidget *top = m_target->window()) {
+                    grabSource = top;
+                }
+            }
+            const QRect inGrab(grabSource == host
+                                   ? inHost
+                                   : QRect(m_target->mapTo(grabSource, QPoint(0, 0)),
+                                           m_target->size()));
             m_grabbing = true;
-            m_snapshot = host->grab(inHost);
+            m_snapshot = grabSource->grab(inGrab);
             m_snapshotSize = m_target->size();
             m_grabbing = false;
         }
@@ -813,6 +838,58 @@ void slideUp(QWidget *window, const QPoint &target) {
                          }
                      });
     animation->start(QAbstractAnimation::DeleteWhenStopped);
+}
+
+void rowAppear(QWidget *row) {
+    if (row == nullptr || !enabled()) {
+        return;
+    }
+    AnimEffect *effect = ensureEffect(row);
+    if (effect == nullptr) {
+        return;
+    }
+    // ★ 起手全透明，一路淡到 1 —— 和滚动条那一发同一条路（`stepMs()`：这一趟往往正赶上
+    //   主线程在忙，按墙上时钟算进度的话第一拍会直接跳到半路）。
+    effect->setOpacity(0.0);
+    runProgress(effect, row, 0.0, 1.0, rowAppearMs(), stepMs(),
+                [w = QPointer<QWidget>(row)]() { dropEffect(w); },
+                [effect](qreal progress) { effect->setOpacity(progress); });
+}
+
+void smoothProgress(QProgressBar *bar, int value) {
+    if (bar == nullptr) {
+        return;
+    }
+    // 上一趟见到的那个总量（含"第一次调用"：`isValid()` 为假时按"变了"处理 ⇒ 原地落实）。
+    const QVariant remembered = bar->property(kProgressMaxMark);
+    const int previousMaximum = remembered.isValid() ? remembered.toInt() : -1;
+    const int maximum = bar->maximum();
+    bar->setProperty(kProgressMaxMark, maximum);
+    // 四条"如实更新"的路（规矩写在头文件那一段）：
+    //   · 总量变了（换了一批 / 从不确定态换回来 / 复位成 0–100）；
+    //   · 真进度倒退（重试、跳过校验那种情报不能被动画盖住）；
+    //   · 已经等于目标了（没什么好追的）；
+    //   · 这一格现在停在 0（"还回来"那一路：启动借走时被钳回 0，记下的总量却没变过
+    //     ⇒ 不拦的话用户看到的是下载在重头爬，见头文件那一段）；
+    //   以及动效关着的时候。
+    if (!enabled() || maximum != previousMaximum || value <= bar->value() || bar->value() <= 0) {
+        bar->setValue(value);
+        return;
+    }
+    // ★ 追值**不走效果器**：进度条要动的是它自己的那个数，不是"贴一张图"。
+    //   几何照旧一个像素都不动（这一层那条硬要求管着每一条路）。
+    runProgress(bar, bar, qreal(bar->value()), qreal(value), progressMs(), stepMs(),
+                // 收尾再钉一次：`qRound()` 那一串中间值可能停在 value-1 上。
+                [b = QPointer<QProgressBar>(bar), value]() {
+                    if (b != nullptr) {
+                        b->setValue(value);
+                    }
+                },
+                [b = QPointer<QProgressBar>(bar)](qreal current) {
+                    if (b != nullptr) {
+                        b->setValue(qRound(current));
+                    }
+                });
 }
 
 }  // namespace Anim

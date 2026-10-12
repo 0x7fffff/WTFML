@@ -57,8 +57,12 @@ void markTextRole(QWidget *label, const QString &value) {
 /// "页面"，它留白得和别的页面一样，所以那一边读的是同一个出处。
 const int kPageMargin = MainWindowUI::pageMargin();
 
-/// 左右两栏之间的间距。
-constexpr int kColumnSpacing = 12;
+/// 左右两栏之间的间距（= 令牌里的"区块间距"那一档）。
+///
+/// ★ 2026-10-12（coding plan §9.1）从 12 到 **16**：令牌只留三档（页面 20 / 区块 16 /
+///   控件 8），栏间距属于中间那一档。同一天 `InstanceSettingsDialog` 里那一份同名的
+///   局部常量也跟着改成 16（两处说的是同一件事：两栏之间留多少）。
+constexpr int kColumnSpacing = 16;
 
 /// 宽屏下“选择/导航”侧栏不再按比例无限长大。默认 900 px 窗口里各栏还没碰到这些上限，
 /// 所以原来的 7:3 / 3:7 / 2:8 比例完全保留；只有窗口明显拉宽后，多出来的空间才全部交给
@@ -99,8 +103,9 @@ constexpr int kDownloadButtonMinWidth = 96;
 /// 按钮缩成一小块。**主页那个和设置页那个共用这一个值** —— 它们说的是同一件事。
 constexpr int kAccountSkinButtonMinWidth = 140;
 constexpr int kApplyJvmArgsButtonMinWidth = 72;
-/// 下载页每一页顶上那一行筛子里，控件之间（以及那一行里两行之间）的间距。
-/// 比 kColumnSpacing（12）小一点：这一行里的东西是一组，挨着摆才像一组。
+/// 下载页每一页顶上那一行筛子里，控件之间（以及那一行里两行之间）的间距
+/// = 令牌里的"控件间距"那一档（见 `ui/Theme.hpp` 的尺寸令牌那一节）。
+/// 比 kColumnSpacing（16）小一档：这一行里的东西是一组，挨着摆才像一组。
 constexpr int kFilterRowSpacing = 8;
 
 /// 侧栏那一列的宽度。**唯一出处**（`MainWindowUI::sidebarWidth()`）—— 用户 2026-10-12
@@ -112,9 +117,11 @@ constexpr int kFilterRowSpacing = 8;
 ///       + 启动"，那是正文，仍然是 7:3 的份数。
 const int kSidebarWidth = MainWindowUI::sidebarWidth();
 
-/// 正文面（`wtfmlSurface="workspace"`）里那一圈内边距。比页面那一圈（9）大一档：
-/// 面自己已经是一圈了，里面的东西再贴着边就还是"贴边"。
-constexpr int kSurfacePadding = 14;
+/// 正文面（`wtfmlSurface="workspace"`）里那一圈内边距 = 令牌里的"区块间距"那一档。
+///
+/// ★ 2026-10-12（coding plan §9.1）：从 14 到 16，同时页面外边距 9 → 20。两圈的关系
+///   没变（面**里面**那一圈略小于**外面**那一圈：外面 20、里面 16），只是都跟着令牌走。
+constexpr int kSurfacePadding = 16;
 
 /// 页头两行之间的间距。
 constexpr int kHeaderSpacing = 3;
@@ -384,9 +391,13 @@ SettingsSection addSettingsSection(QGridLayout *grid, int &row, const QString &t
     //（产品、样式表、验证工程三方共用这一对字符串，见 Theme::surfacePropertyName()）。
     markSurface(section.card, Theme::sectionSurfaceValue());
     auto *layout = new QVBoxLayout(section.card);
-    // 这一圈内边距是**文档里给的**（「margins 18,16,18,18, spacing 12」）。
-    layout->setContentsMargins(18, 17, 18, 18);
-    layout->setSpacing(13);
+    // ★ 2026-10-12（coding plan §9.1）：内边距 18,17,18,18 → **16 四面**、行距 13 → **10**。
+    //   两个数都落进令牌那三档（区块间距 16 / 控件间距 10）：卡片自己那一圈属于"区块"，
+    //   卡里"行名 → 控件"那种成对的间距属于"控件"。改版那份文档给的 18/16/18/18 + 12
+    //   被 plan 这份的三档节奏取代（两处都是"松紧"，只有断言能钉住 —— ui_check 的 K2 里
+    //   那一条量的一直是这两个数）。
+    layout->setContentsMargins(16, 16, 16, 16);
+    layout->setSpacing(10);
     auto *titleLabel = new QLabel(title, section.card);
     markTextRole(titleLabel, Theme::sectionTitleTextRoleValue());
     {
@@ -2540,6 +2551,10 @@ public:
                 button->setIconSize(action.icon.size());
                 button->setFixedSize(MainWindowUI::bottomBarPanelActionSize(),
                                      MainWindowUI::bottomBarPanelActionSize());
+                // 只有图标那几颗是**自己的边长**（22）—— 得报一句，不然会被
+                // `actionHeight()` 那条 `min-height` 顶到 32（见 `markIconButton()`）。
+                // NOTE: 上面那个 `hasText` 那一支**不报**：那几颗本来就是一行里的动作按钮。
+                Theme::markIconButton(button);
             }
             button->setEnabled(action.enabled);
             button->setToolTip(action.tooltip);
@@ -2899,6 +2914,9 @@ public:
         gear->setIcon(QIcon(VersionIcons::gear(iconSize, palette().color(QPalette::WindowText))));
         gear->setIconSize(QSize(iconSize, iconSize));
         gear->setFixedSize(MainWindowUI::folderRowGearSize(), MainWindowUI::folderRowGearSize());
+        // 行尾那颗齿轮按自己的 24 来（报一句见 `Theme::markIconButton()`：`min-height`
+        // 连 `setFixedSize()` 都拦不住）。
+        Theme::markIconButton(gear);
         gear->setCursor(Qt::PointingHandCursor);
         gear->setToolTip(row.assistant
                              ? QCoreApplication::translate(

@@ -251,8 +251,8 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
         //   NOTE: **只换墨、不换那一块的形状** —— 实例行选中时的带子只有卡片那一圈，
         //   左边那一截分支区是用户点名要它保持底色的（见上面那条 ★★ 2026-09-29），
         //   所以这儿不去补涂它（版本树那一支反过来，它是整条行）。
-        const QPalette rowPalette = Theme::selectionPalette(
-            option.palette, (option.state & QStyle::State_Selected) != 0);
+        const bool selectedRow = (option.state & QStyle::State_Selected) != 0;
+        const QPalette rowPalette = Theme::selectionPalette(option.palette, selectedRow);
         // 行与行之间那道空（见 cardRect()）：这一行**画**的那一圈比整条行上下各小半个缺口。
         // 摆在这儿（initStyleOption 之后、量文字之前）是因为下面那句 SE_ItemViewItemText
         // 是从 opt.rect 上算的 —— 少了这一句，量出来的宽度还是整条行的，虽然宽度只跟左右有关、
@@ -284,6 +284,22 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
                 opt.text = metrics.elidedText(opt.text, Qt::ElideRight, avail);
             }
             style->drawControl(QStyle::CE_ItemViewItem, &opt, painter, opt.widget);
+        }
+        // ★★ 左边那根 3 px 指示条在这一行上**不要**（2026-10-12）。
+        //
+        //   全仓的"选中一行"从这一天起都带一根主题色指示条（`Theme::selectionRail()`，
+        //   用户答复：「完全照 §9.3（和侧栏导航同款）」），而那一条是**样式**在
+        //   `PE_PanelItemViewItem` 里画的（上一句 `drawControl` 的那条路）。实例行是个例外：
+        //   它选中时的带子**只有卡片那一圈** —— 用户 2026-09-29 原话「注意蓝色部分，左边
+        //   那里长了，改一下」，要删的正是左边冒出来的那一条（长注释在上面那段 ★★）。
+        //
+        //   上面那句 `fillRect` 擦的是 `drawRow()` 涂的分支区，它排在这一行**之前**；
+        //   指示条是紧接着 `drawControl` 画的 ⇒ 只能排在这一句**之后**擦，擦的是
+        //   "指示条那一档宽"（不是整截分支区）—— 分支区本来就已经是底色了。
+        if (selectedRow) {
+            painter->fillRect(QRect(0, option.rect.top(), Theme::selectionBarThickness(),
+                                    option.rect.height()),
+                              option.palette.brush(QPalette::Base));
         }
 
         // 三颗都用**正文色**（和实例页文件夹行那颗齿轮一个取色口径）：它们是行里的动作，

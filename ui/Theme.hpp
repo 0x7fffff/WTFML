@@ -55,12 +55,14 @@
 #include <QColor>
 #include <QHash>
 #include <QPalette>
+#include <QRect>
 #include <QString>
 #include <QStringList>
 
 #include <functional>
 #include <utility>
 
+class QPainter;
 class QStyle;
 class QWidget;
 
@@ -242,100 +244,84 @@ constexpr int rowHoverAccentPercent() { return 12; }
 QColor rowHoverFill(const QColor &base);
 
 // ---------------------------------------------------------------------------
-// 侧栏那一列导航（2026-10-12）
+// 列表 / 侧栏那一列「选中」的那一块（2026-10-12 合成一份）
 // ---------------------------------------------------------------------------
 //
-// 用户 2026-10-12 那份界面改版文档里点名的一条：左侧栏那一列**不是**一张普通列表，
-// 「选中项：浅主题色背景 + 左侧 3px 主题色指示条 + 主题色深色文字，而不是一整块深灰」。
+// 两块来历，现在是**同一档**：
+//   ① 用户 2026-09-29 原话「选中的时候那个蓝色的换成深灰色」，紧接着又补了半句
+//      「再浅一点，#cccccc」—— 那一版是**一整块固定浅灰**（版本树、加载器树、资源表、
+//      实例列表都铺它）；
+//   ② 用户 2026-10-12 那份界面改版文档点名侧栏那一列导航的选中项是「浅主题色背景 +
+//      左侧 3px 主题色指示条 + 主题色深色文字，而不是一整块深灰」。
 //
-// ★ 为什么这一档单独存在、而不是复用 `selectionFill()`（那块 `#cccccc` 浅灰）：
-//   灰是"这张表里被选中的一行"的语义 —— 版本树、加载器树、资源表、实例列表都在用它；
-//   侧栏那一列是**导航**（"你现在在哪个功能页"），和"选中的一行数据"不是一件事，
-//   两处长得一样的话，用户在下载页分不清"我选中了这一项"和"我停在这一栏"。
+// **2026-10-12 起两档合并**（用户当天对这一条的答复：「完全照 §9.3（和侧栏导航同款）」，
+// 也就是那份 `CODING_PLAN_FULL.md` 的 §9.3）：全仓每一处"选中一行"都是
+// **由这一行自己的底色混出的低饱和浅主题色底 + 左边一根 3 px 主题色指示条 +
+// 主题色那一支里的深墨**。原先那条"灰是'选中的一行数据'、导航是'你停在哪一栏'，
+// 二者不该长一样"的理由**作废了** —— 用户要的就是两处一样。
 //
-// ★ 它和 `rowHoverFill()` 一样从**这一列自己的底色**出发混主题色 —— 深色预设下
-//   才不会闪成一片近白（理由见 `rowHoverFill()` 那段）。混的比例比行悬停**大一档**
-//   （`rowHoverAccentPercent()` 是 12）：两者同色的话，鼠标一移到当前那一项上
-//   "选中"和"指着"就分不出来了。
+// ★ 底为什么从**这一行自己的底色**出发混，而不是写死一个浅绿：深色预设下
+//   `QPalette::Base` 是 `#323232`，罩一层近白会闪一大片（理由见 `rowHoverFill()` 那段）。
+//   混法和 `rowHoverFill()` **逐字同式**（同一个 `mixToward()`），只差比例 —— 浅色下
+//   底就是白，这一档和 `accentShade(AccentShade::Hover)` 只差那两个百分比。
+//
+// ★ 混的比例比行悬停**大一档**（`rowHoverAccentPercent()` 是 12）：两者同色的话，
+//   鼠标一移到当前那一项上"选中"和"指着"就分不出来了。
 //
 // ★ 它**不进调色板**（不是 `Role`），理由和上面那几档一样：往调色板里塞东西等于把
-//   "跟着系统深浅走"钉死（ui_check W1 钉着这条）。落点在 `VersionTreeDelegate` 那条
-//   `navRow` 分支上（见那边的 NOTE：Qt 样式表里的 `::item` 规则管不着"整行由代理自己
-//   画"的表，所以这一档只能由代理自己铺 —— 色仍然只有这一处出处）。
+//   "跟着系统深浅走"钉死（ui_check W1 钉着这条）。所以这一块**由我们自己画**，落点三处：
+//   - 一般列表 / 树：`WtfmlProxyStyle` 那两条原语（`PE_PanelItemViewItem` /
+//     `PE_PanelItemViewRow`）+ `CE_ItemViewItem` 里换墨 —— 一份代码管住全仓每一张表，
+//     连不用我们那几个代理的表、以及下拉框弹出来那张表也一起管住（换过 `Highlight` 的
+//     表除外，见 `selectedItemOption()`）；
+//   - 侧栏那一列导航（`VersionTreeDelegate` 的 `navRow` 分支）：那是**内缩圆角块**，
+//     平台样式先铺一层灰底的话四个圆角外面会露出灰色直角，所以由代理自己画；
+//   - 手画正文的那几个代理（`VersionTreeDelegate` / `InstanceGroupDelegate` /
+//     `GroupListDelegate`）：底色归样式、它们只从 `selectionPalette()` 取墨。
+//
+// ★ 判据在 ui_check **§⑫**：真搭探针树量像素（铺的就是这一档、左边那一根是主题色、
+//   调色板那个蓝一个像素都不剩、选中那一行的墨**是暗**的）。
 
-/// 侧栏那一列里"当前停在哪一条"往主题色混多少（百分比，见上面那段）。
-constexpr int navSelectedAccentPercent() { return 20; }
+/// 选中那一行往主题色混多少（百分比，见上面那段）。
+constexpr int selectionAccentPercent() { return 20; }
 
-/// 侧栏那一列里"当前停在哪一条"的底（入参是这一列自己的底色）。
-QColor navSelectedFill(const QColor &base);
-/// 它上面那行字：主题色那一支里"白底上写字"的那一档（`AccentShade::Ink`）。
-QColor navSelectedInk();
+/// 选中那一行的底。入参是**这一行自己的底色**（`option.palette.color(QPalette::Base)`）；
+/// 不传 = 白底（默认那身浅色主题上所有表的底色都是白）。
+QColor selectionFill(const QColor &base = QColor(Qt::white));
+/// 它上面那行字：主题色那一支里"白底上写字"的那一档（`AccentShade::Ink`，约 8:1）。
+/// 深底（深色预设）上自动换成那一支里"深底上写字"的那一档 —— 见 .cpp 里那段。
+QColor selectionInk(const QColor &base = QColor(Qt::white));
+/// 它上面那行**次要**小字（版本树第二行那行小字 / 占位文字 / 行里那些小图标）：
+/// 比正文浅一档，但压在这块底上仍然读得清。
+QColor selectionSubInk(const QColor &base = QColor(Qt::white));
 /// 左边那根指示条的色：主题色本色（`AccentShade::Pure`）—— 它和顶栏是同一个色，
-/// "这一列属于这个应用"这件事只靠这一笔就说得清。
-QColor navSelectedBar();
+/// "这一行被选中了"这件事只靠这一笔就说得清。
+QColor selectionBar();
 /// 那根指示条多宽（px）。
-constexpr int navBarThickness() { return 3; }
+constexpr int selectionBarThickness() { return 3; }
+/// 把那根指示条画在**画家坐标系 x = 0** 那一列上（竖直方向取 @p rowRect 的那一条）。
+///
+/// 唯一出处：样式那两条原语和代理都走这一句 —— 各自 `fillRect` 一个矩形的话，
+/// "那条竖条从哪儿起、多宽"就有了第二个说法。x 恒取 0 是因为行在画家坐标系里的
+/// 左边缘就是 0（横向滚动是烘进 `option.rect` 里的，不是平移画家）。
+void paintSelectionRail(QPainter *painter, const QRect &rowRect);
 
 /**
- * @brief 条目**被选中**时铺在它那一圈里的底：一块浅灰 `#cccccc`。
- *
- * 用户 2026-09-29 原话：「选中的时候那个蓝色的换成深灰色」，紧接着又补了半句
- * 「再浅一点，#cccccc」。
- *
- * ★ 为什么要有这个函数、而不是直接把调色板里的 `QPalette::Highlight` 换成灰：那一档
- *   现在**是平台给的蓝**（Fusion 的 `#308cc6`），而"出厂那一份一个字节都不碰调色板"
- *   这条不能破 —— 往调色板里塞东西等于把"跟着系统深浅走"钉死（见 `apply()` 里那段，
- *   ui_check W1 钉着这条）。所以选中那一块和悬停那一块一样，**由我们自己画**：画的
- *   地方是 `createStyle()` 那两个原语覆写（`PE_PanelItemViewItem` / `PE_PanelItemViewRow`）
- *   —— 一份代码管住全仓每一张表，样式表、控件、调色板一处都不用动。
- *
- * ★ **这一档不跟底色分档**（2026-09-29 第二次调整）：它是一块**浅**底，浅色主题（底
- *   `#ffffff`）和深色主题（底 `#323232`）上都是一块明显的灰，所以不需要入参。第一版写的是
- *   "浅底 `#4a4a4a` / 深底 `#5e5e5e`"那种按底色各挑一档 —— 那条规矩是给**暗**色块算的
- *   （深色主题的底色 `#323232` 和暗块只差 24 个数位，会糊成一片）；换成浅色块之后，
- *   按 `rowHoverFill()` 那样"从自己的底色出发"反而会给出一块和底色贴着的灰，不成立。
- *
- * ★ 它**不进调色板**（不是 `Role`）—— 和上面那几档同一个理由。
- *
- * ★ 判据在 ui_check 的 **§⑫**（M 段里 `§⑪` 之后）：量这一档就是 `#cccccc` 且**不是**调色板
- *   里那个蓝；真搭一棵探针树量"选中那一行屏幕上就是这一块灰（连左边那一截分支区同色）"；
- *   以及选中那一行的墨**是暗**的（亮墨压浅灰 = 等于没字）。
- */
-QColor selectionFill();
-
-/**
- * @brief 浅灰那一块上的**墨**（正文、图标、行尾那几颗按钮）。
- *
- * 一对两支：`selectionInk()` 是正文那一档（对 `#cccccc` 约 10.8:1），`selectionSubInk()`
- * 是次要文字那一档（版本树第二行那行小字 / 占位文字）—— 它比正文浅一档，但在浅灰上仍然是
- * "暗墨"（约 4.6:1），不然那行小字就没了。
- *
- * ★ 为什么非得单独给一对：这一套界面里正文一直是**黑**的（浅底上的选择），而选中那一块
- *   **不再跟主题深浅走**（固定 `#cccccc`）—— 深色系统主题下平台给的 `HighlightedText`
- *   是**白**的，白压 `#cccccc` 只有 1.6:1，字直接没了。（第二版之前是"暗块上的亮墨"，
- *   那是对着 `#4a4a4a` 算的，方向正好反过来。）两个代理各自手画正文（不归样式管），而样式
- *   那一半（实例行那种"交给 `CE_ItemViewItem` 印字"的）由 `createStyle()` 里那条覆写把
- *   `HighlightedText` 换成这两支之一。
- */
-QColor selectionInk();
-/// 浅灰那一块上的次要墨（见 `selectionInk()`）。
-QColor selectionSubInk();
-
-/**
- * @brief 把"选中那一行画在浅灰上"这件事落到**一份能直接取色的调色板**上。
+ * @brief 把"选中那一行画在浅主题色底上"这件事落到**一份能直接取色的调色板**上。
  *
  * @param palette  这一行原本那一份（`option.palette`）。
  * @param selected 这一行此刻是不是选中（`option.state & QStyle::State_Selected`）。
  *
  * 不选中时**原样返回**（一个字节都没动）。选中时返回一份拷贝，里面这几档换掉：
- * `WindowText` / `Text` / `HighlightedText` → `selectionInk()`，`PlaceholderText` →
- * `selectionSubInk()`，`Highlight` → `selectionFill()`（有几个地方按"这一行真正铺的那一层"
- * 重算文字对比度 —— 版本树上的 MOTD —— 读的就是 `Highlight`）。
+ * `WindowText` / `Text` / `HighlightedText` → `selectionInk(base)`，`PlaceholderText` →
+ * `selectionSubInk(base)`，`Highlight` → `selectionFill(base)`（有几个地方按"这一行真正铺
+ * 的那一层"重算文字对比度 —— 版本树上的 MOTD —— 读的就是 `Highlight`）。
+ * 那几个 `base` 一律取这一份调色板里的 `QPalette::Base`（= 这一行自己的底色）。
  *
  * ★ 为什么要这么一份：**手画正文/图标的代理有三个**（`VersionTreeDelegate` /
  *   `InstanceGroupDelegate` / `GroupListDelegate`），它们各自的正文、小字、行尾那几颗按钮
- *   都是从这一份里取色的。底色不再问调色板要（固定那一块浅灰），取色那一处就得跟着换 —— 抄三遍那段
- *   "换哪几档"迟早会漏掉一档（漏的那一档在屏幕上就是一行看不出来的字）。
+ *   都是从这一份里取色的。底色不再问调色板要（是我们自己混出来那一块），取色那一处就得
+ *   跟着换 —— 抄三遍那段"换哪几档"迟早会漏掉一档（漏的那一档在屏幕上就是一行看不出来的字）。
  *   样式那一半（`CE_ItemViewItem` 里印字的那些，比如实例行的正文）在
  *   `Theme::createStyle()` 里读的也是这个函数 —— 两条路同一个出处。
  *
@@ -416,6 +402,63 @@ QString textRolePropertyName();
 QString pageTitleTextRoleValue();
 QString sectionTitleTextRoleValue();
 QString secondaryTextRoleValue();
+
+// ---------------------------------------------------------------------------
+// 尺寸令牌（2026-10-12，coding plan §9.1）
+// ---------------------------------------------------------------------------
+//
+// 用户那份 coding plan 的 §9.1 点名了一条：「把页面间距、卡片圆角、侧栏宽度、页头高度、
+// 按钮高度收进 `Theme`/布局规格层」，并且**不要单纯统一成一个数字；要统一成有限的 3–4 档
+// 节奏**。于是全仓的"间距"只留三档：
+//
+//     页面外边距 20 ／ 区块间距 16 ／ 控件间距 8
+//
+// 圆角只留四档：控件 4 ／ 按钮 6 ／ 主表面 8 ／ 小节 10。
+//
+// ★ 间距那三档的**取数处仍然是 `MainWindowUI`**（`pageMargin()` / `kColumnSpacing` /
+//   `kFilterRowSpacing`）—— 页面骨架整个搭在那儿，那是"布局规格层"；这里只收两位
+//   **样式表自己也要用**的数（动作高度两档 + 圆角），不然同一个数会在 QSS 字符串里再写
+//   一遍（写了就会漂，而漂了只在屏幕上差几像素，谁都看不出来）。
+//
+// ★ 动作高度这一档只管 `QPushButton`。输入框 / 下拉框 / 数字框**仍然是 24**（那是
+//   2026-09-29 用户点名加高的，另一条线，见 `widgetStyleSheet()` 里那段）—— 动作按钮
+//   32、输入控件 24，这是两件事。
+//
+// ★ 两处**故意不跟令牌**的（写在这儿免得以后被"顺手统一"掉）：
+//   * 主页那颗「启动游戏」是 76（`kStartButtonMinHeight`）—— 它是这一页唯一的主角；
+//   * 下载页的「安装」是 40（`MainWindowUI::installButtonMinHeight()`）—— 它的字号比
+//     别处大 2pt（`installButtonFontStep()`），32 会显得挤。
+
+/// 普通动作按钮（确定 / 取消 / 应用 / 全部那些）的最小高度。
+constexpr int actionHeight() { return 32; }
+/// "页面上唯一最重要的动作"那一档（`ButtonKind::Primary`）。可用 36 就够，不必再大。
+constexpr int primaryActionHeight() { return 36; }
+
+/// 这一位是**图标按钮**（齿轮 / 底栏面板上那几颗 / 详情页顶上的 chip）：它按自己钉死的
+/// 边长来，不跟 `actionHeight()` 那一档。
+///
+/// ★ 为什么非要有这一位（2026-10-12 实测，一次探针搞清楚的两件事）：
+///   ① Qt 样式表里的 `min-height` 量的是**内容**那一格，不是整颗控件 —— 我们这一套
+///      （`padding: 6px` + `border: 1px`）配 `min-height: 32px` 量出来是 **46**，配
+///      `min-height: 18px` 才是 32。所以 QSS 里写的是 `actionHeight()` **减掉那一圈**。
+///   ② `min-height` 连 `setFixedSize()` 都拦不住：写死 22 的 `QPushButton` 在 18px 的
+///      `min-height` 下量出来照样是 32 —— 行尾那颗 24 的齿轮、面板上那几颗 22 的图标按钮
+///      会一起被顶大。所以它们得自己报一句"我按自己的边长来"（`markIconButton()`）。
+///   NOTE: `QToolButton`（文件管理行尾那三颗）不受影响，QSS 那条只管 `QPushButton`；
+///         `TitleBar` 那几颗是 `QAbstractButton`，同理不沾。
+QString iconButtonSizeValue();
+/// 给一颗按钮钉成"图标按钮"（**只改尺寸那一档**，不动颜色）。和 `markButton()` 一样是
+/// 挂一个动态属性，下一趟按钮样式重算时生效。
+void markIconButton(QWidget *button);
+
+/// 输入类控件（`QLineEdit` / `QComboBox` / `QAbstractSpinBox` / 勾选框那个框）的圆角。
+constexpr int controlRadius() { return 4; }
+/// `QPushButton` 的圆角（比输入类大一档：它比输入框矮胖，同一个圆角看着更方）。
+constexpr int buttonRadius() { return 6; }
+/// 主表面（`wtfmlSurface="workspace"` / `"sidebar"`）的圆角。
+constexpr int surfaceRadius() { return 8; }
+/// 小节卡片（`wtfmlSurface="section"`）的圆角。比主表面大一档：它是"面里的一层"。
+constexpr int sectionRadius() { return 10; }
 
 // ---------------------------------------------------------------------------
 // 滚动条

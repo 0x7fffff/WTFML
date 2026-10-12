@@ -613,10 +613,16 @@ public:
     ///   底栏，样式由 `wtfmlSurface="footer"` 那条 QSS 给（只有一条上边框，不上底色）。
     static QString installFooterName() { return QStringLiteral("installFooter"); }
     static QString installBackButtonName() { return QStringLiteral("installBackButton"); }
-    /// 每个选项卡页面贴着内容区留的那一圈边距。
-    /// **唯一出处** —— 内容区那个覆盖层（`OverlayHost`）也是一整个"页面"，它那边留白
-    /// 必须和别的页面一样，所以它读的是这一个数，而不是自己再写一个 9。
-    static int pageMargin() { return 9; }
+    /// 每个选项卡页面贴着内容区留的那一圈边距。**唯一出处** —— 内容区那个覆盖层
+    /// （`OverlayHost`）也是一整个"页面"，它那边留白必须和别的页面一样，所以它读的是
+    /// 这一个数，而不是自己再写一个。
+    ///
+    /// ★ 2026-10-12（coding plan §9.1）从 9 抬到 **20**：那一版文档给的"页面外边距
+    ///   20–24"，而 9 是照着"导航栏那种紧凑骨架"定的老数 —— 正文面本身已经是一张带圆角
+    ///   的卡片了，它离窗口边只有 9 px 时，四边那一圈呼吸空间全挤在选项卡自己的内边距上，
+    ///   看着是"内容顶在框上"。20 落在文档那一档的下沿（窗口 900 px 时左右各让出 11 px，
+    ///   正文面还够宽）。
+    static int pageMargin() { return 20; }
 
     /// 「安装」按钮的字号相对**默认**字号的偏移。用户原话"安装键做大点"。
     /// NOTE: 记的是**偏移**不是点数（和 versionTreeFontStep() 一个道理：默认字号在系统上
@@ -1664,13 +1670,16 @@ public:
     /// 设置页那张表单**最宽**多宽（逻辑像素）。**唯一出处**（`addSettingsPanel()` 用它
     /// 给 `panel.form` 限宽）。
     ///
-    /// 用户 2026-10-12 那份文档点名 760~840，取中间那个整数。它治的是"设置页内容横向无限
-    /// 伸展，说明文字一行跨得太长"：窗口拉宽时表单不再跟着长，而是**居中**摆着（多出来的
-    /// 空白留在两边）。
+    /// 它治的是"设置页内容横向无限伸展，说明文字一行跨得太长"：窗口拉宽时表单不再跟着长，
+    /// 而是**居中**摆着（多出来的空白留在两边）。
+    ///
+    /// ★ 2026-10-12（coding plan §9.1）从 820 到 **960**：改版那份文档给的是 760~840
+    ///   （取中间 820），plan 这份给的是"正文最大可读宽度约 900–1040"，**后者更新**，
+    ///   取 960（下沿往上一点，窗口 900 px 时表单仍然铺满，不会平白留一圈空）。
     ///
     /// NOTE: 每一栏**各自**限一次（三栏三张表单），因为它挂在 `form` 上而不是滚动区上 ——
     ///       滚动条仍然贴着正文面最右边那条线，只有表单收窄。
-    static int settingsFormMaxWidth() { return 820; }
+    static int settingsFormMaxWidth() { return 960; }
     /// 某一栏那一整页的 objectName（堆叠页里的一页 = 一层滚动区，见 cpp 里的
     /// addSettingsPanel()）。
     static QString settingsPanelName(const QString &key) {

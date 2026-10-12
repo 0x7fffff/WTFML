@@ -2395,7 +2395,10 @@ void MainWindow::setDownloadUiBusy(bool busy) {
         m_downloadTotal = 0;
         m_downloadFailed = 0;
         progressBar->setRange(0, 100);
-        progressBar->setValue(0);
+        // ★ 2026-10-12（coding plan §9.4）：进度这一格的**每一次写值都走这一发**（见
+        //   `Animations.hpp` 里 `smoothProgress()` 那段）。这里总量刚换过 ⇒ 它照实跳，
+        //   不会去追；走它纯粹是为了"盘上只有这一条路写这一格"，两处写法就不会打架。
+        Anim::smoothProgress(progressBar, 0);
     }
     // 这一格的显隐**不在这里定**：底栏中间那格要同时受"在下载"和"在启动"两条影响，
     // 只有 updateBottomBar() 一处说了算，免得两处各改一次互相盖掉。
@@ -2464,7 +2467,11 @@ void MainWindow::updateBottomBar() {
         //       还成一根 setRange(0,100) / setValue(0) 的空条，用户看到的就是"下载没了"。
         if (m_downloadTotal > 0) {
             progressBar->setRange(0, m_downloadTotal);
-            progressBar->setValue(m_downloadDone);
+            // 还回去这一下也走同一条路（理由见上面 reset 那一支）。★ 注意这一趟**一定**是
+            // 第四档那种（"条子被钳回过 0"）：借走这一格时它是 `setRange(0, 0)`（那句没经过
+            // 本函数），还回来时条子已经停在 0 上、而记下的总量还是那个数 ⇒ 不认这一档的话
+            // 用户看到的是下载**从 0 重头爬**。
+            Anim::smoothProgress(progressBar, m_downloadDone);
             QString text = tr("已下载 %1 / %2").arg(m_downloadDone).arg(m_downloadTotal);
             if (m_downloadFailed > 0) {
                 text += tr("，失败 %1").arg(m_downloadFailed);
@@ -2478,7 +2485,7 @@ void MainWindow::updateBottomBar() {
     } else {
         // 真的没在下载了：把进度条复位，下一次下载开始前它会先显示上次的旧值，闪一下。
         progressBar->setRange(0, 100);
-        progressBar->setValue(0);
+        Anim::smoothProgress(progressBar, 0);
         statusLabel->clear();
     }
     // 下载态下的字**文件名那一截**由 updateDownloadProgressUi() 维护（它每 200 ms 来一次，
@@ -3112,7 +3119,13 @@ void MainWindow::updateDownloadProgressUi(int done, int total, int failed,
     }
 
     progressBar->setRange(0, total);
-    progressBar->setValue(done);
+    // ★ 2026-10-12（coding plan §9.4）：「下载进度使用平滑追值，但任务真实进度倒退或
+    //   总量变化时必须如实更新」—— 这一发就是那条"平滑追值"唯一的入口（见
+    //   `Animations.hpp` 里 `smoothProgress()` 那段：总量换了 / 数字往回走 / 条子停在 0 上
+    //   / 原地不动，四种都照实跳，只有"真往前走了"才追）。这一格每 200 ms 来一次，
+    //   追值时长 240 ms，
+    //   所以连续快下时看见的是一个**一直在后面一点点**的平滑位置，而不是每 200 ms 一顿。
+    Anim::smoothProgress(progressBar, done);
 
     QString text = tr("已下载 %1 / %2").arg(done).arg(total);
     if (failed > 0) {

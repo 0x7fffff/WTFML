@@ -98,7 +98,7 @@ constexpr int kAppendJvmArgsHeight = 76;
 /// `sizeHintForColumn` 给的是"字有多宽"，条目的字贴着边看着像被切了。
 constexpr int kNavListExtraWidth = 28;
 /// 两栏之间空多少。和整页外边距那一档（12）同一档。
-constexpr int kColumnSpacing = 12;
+constexpr int kColumnSpacing = 16;
 /// 单独拿出来用时的初始大小。宽是"一列导航 + 一块还放得下两列表格的内容"量出来的
 /// （见 .cpp 构造函数里那句 NOTE：嵌进覆盖层时这个数不作数）。
 constexpr int kDialogWidth = 820;

@@ -6,6 +6,7 @@
  */
 #include "InstanceFilesPage.hpp"
 
+#include "Animations.hpp"
 #include "ElidedLabel.hpp"
 #include "Theme.hpp"   // 上面那两颗一般性的按钮（黑字黑边）
 #include "MainWindowUI.hpp"
@@ -1523,6 +1524,12 @@ void InstanceFilesPage::rebuildRows() {
     for (const QString &path : m_selectedPaths) {
         selectedIdentities.insert(identityPath(path));
     }
+    // ★ 2026-10-12（coding plan §9.4）：这一趟攒下来的两样东西（下面逐行填，出了循环再用）：
+    //   · `freshRows` —— 这一趟**新冒出来**的那几行控件（上一趟没摆过它们，见那一小段）；
+    //   · `shownIdentities` —— 这一趟摆出来的**全部**身份。**不能就地往 `m_shownIdentities`
+    //     里写**：它是下面判"新不新"的那份底账，边判边写等于每一行都判成旧的。
+    QList<QWidget *> freshRows;
+    QSet<QString> shownIdentities;
     {
         const QSignalBlocker blocker(m_list);
         // clear() 会连同 setItemWidget() 挂上去的那些行控件一起删掉 —— 统计队列/表跟着作废
@@ -1541,8 +1548,18 @@ void InstanceFilesPage::rebuildRows() {
             // 行高和实例树 / 版本树同一档：一页里换行高不会错，但"我们自己的列表"看着该是一个东西。
             item->setSizeHint(QSize(0, MainWindowUI::versionTreeRowHeight()));
             m_list->addItem(item);
-            m_list->setItemWidget(item, makeRow(entry.displayName, entry.path, entry.isDir,
-                                                entry.disabled, entry.size, entry.modified));
+            QWidget *row = makeRow(entry.displayName, entry.path, entry.isDir, entry.disabled,
+                                   entry.size, entry.modified);
+            m_list->setItemWidget(item, row);
+            // ★★ 2026-10-12（coding plan §9.4）：这一行是不是**新冒出来的**（上一趟没摆过它）
+            //   —— 是的话先攒着，等这一趟摆完再淡（见下面那一小段）。身份要对一遍，理由
+            //   和紧接着选择那一段**一模一样**（点一下开关就改名，按盘上那个名字比会把
+            //   同一行认成"旧的不见了、来了个新的"，于是每点一次开关都淡一下）。
+            const QString identity = identityPath(entry.path);
+            if (!m_shownIdentities.contains(identity)) {
+                freshRows.append(row);
+            }
+            shownIdentities.insert(identity);
             // ★★ 2026-10-10：选择按**身份**还回去，不是按盘上那个名字（`identityPath`，
             //   见 .hpp 里 m_selectedPaths 那段）—— 用户点一下行尾那个开关，MainWindow 就把
             //   `X.jar` 改成了 `X.jar.disabled` 再回头重列，按名字比的话这一行**当场掉出选择**
@@ -1551,11 +1568,28 @@ void InstanceFilesPage::rebuildRows() {
             //   ⚠ 已知道的边界（故意的，见 identityPath 那段）：`X.jar` 和 `X.jar.disabled`
             //     **同时存在**时两行的身份一样 ⇒ 选中一条会把两条一起选上。那种情况本身少见，
             //     不为它把这一层拆细。
-            if (m_batchMode && selectedIdentities.contains(identityPath(entry.path))) {
+            if (m_batchMode && selectedIdentities.contains(identity)) {
                 item->setSelected(true);
             }
         }
     }
+    // ★★ 2026-10-12（coding plan §9.4）：「同页筛选/列表变化：只动画**新增**、删除和状态，
+    //   **不重播整页**」那一半的正面。
+    //   · **只淡新冒出来的那几行**（`Anim::rowAppear()`，120 ms，只有淡没有抬）——
+    //     整页一个像素都不动，更不重播换页那一发（那一条现在由"筛一下不会调到
+    //     pageAppear()"这个结构本身保证：全仓 `pageAppear()` 的调用点只有换页那几处）。
+    //   · **整批换掉就不淡**：新来的超过 `rowAppearLimit()`（一页几十行一起淡看着是整页在闪）
+    //     ⇒ 一行都不淡。
+    //   · **第一趟不淡**：那是这一页头一次铺满，前头正跑着换页那一发（`m_rowsBuilt`）。
+    //   · 「删除」这一半**没做**：删掉的那些行是连控件一起销毁的，要淡它得先把那个控件
+    //     留活到动画跑完（`clear()` 会一起删），那是另一套（见 FEATURES 里记的那一句）。
+    if (m_rowsBuilt && !freshRows.isEmpty() && freshRows.size() <= Anim::rowAppearLimit()) {
+        for (QWidget *row : freshRows) {
+            Anim::rowAppear(row);
+        }
+    }
+    m_shownIdentities = shownIdentities;
+    m_rowsBuilt = true;
     // 这一趟真摆出来的那些路径 —— ★ 2026-10-10 起**只有"筛完一条不剩"那一个判据**在用它
     // （选择那份账改由 syncSelectedPaths() 从列表里现问一遍，见下面那一段）。
     QStringList shownPaths;

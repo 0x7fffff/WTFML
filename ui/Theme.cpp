@@ -96,6 +96,11 @@ const QColor &scrimLiteral() {
 /// 样式一条都没匹配上"，而屏幕上看只是"这颗按钮颜色不对"，查起来要命。
 constexpr const char kButtonKindProperty[] = "wtfmlButtonKind";
 
+/// 按钮身上那个"尺寸档"属性（`Theme::markIconButton()` 挂的）。今天只有一个值：图标按钮。
+/// **只有这一处出处**，理由同上（改名字 = 属性挂上了、选择器一条都没匹配到）。
+constexpr const char kButtonSizeProperty[] = "wtfmlButtonSize";
+constexpr const char kIconButtonValue[] = "icon";
+
 /// 页面骨架那几层"面"挂在控件上的属性名 / 属性值（2026-10-12）。
 ///
 /// 用户 2026-10-12 那份改版文档里的第一条规则是「减少框」：整页只留**两个**面
@@ -124,7 +129,7 @@ QColor mixWithWhite(const QColor &color, int percent) {
 }
 
 /// 把 @p color 按 @p percent 混进 @p base（`percent` = 0 给 @p base 本色、100 给 @p color
-/// 本色）。和 `rowHoverFill()` / `navSelectedFill()` 用的是**同一个式子**（含那一位 `+50`）
+/// 本色）。和 `rowHoverFill()` / `selectionFill()` 用的是**同一个式子**（含那一位 `+50`）
 /// —— 三处都是"从这一块自己的底色出发往主题色那头混"，差 1 就没法逐字节比了。
 QColor mixToward(const QColor &base, const QColor &color, int percent) {
     const int p = qBound(0, percent, 100);
@@ -266,9 +271,10 @@ QString accentSettingKey(const char *field) {
  * @brief 产品+三个验证工程共用的那一份代理样式。**它接手两件事**：
  *
  *   1. 下拉框右边那个 `∨`（下面这一大段）；
- *   2. **选中那一块的浅灰**（`PE_PanelItemViewItem` / `PE_PanelItemViewRow` 两条原语 +
+ *   2. **选中那一块**（`PE_PanelItemViewItem` / `PE_PanelItemViewRow` 两条原语 +
  *      `CE_ItemViewItem` 里换墨）—— 用户 2026-09-29 原话「选中的时候那个蓝色的换成深灰色」，
- *      紧接着「再浅一点，#cccccc」。
+ *      2026-10-12 起那一块是"这一行自己的底色混一档主题色 + 左边一根 3 px 主题色指示条"
+ *      （用户答复：「完全照 §9.3（和侧栏导航同款）」）。
  *      为什么落在这一层：调色板的 `Highlight` 是平台给的蓝，而"出厂那一份不碰调色板"这条
  *      不能破（破=把"跟着系统深浅"钉死，见 `apply()` 那段）。样式这一层一份代码就管住
  *      全仓每一张表，连不用我们那两个代理的表、以及下拉框弹出来那张表也一起管住了。
@@ -339,8 +345,9 @@ public:
     {
         // ★ 选中那一块：调色板里那一档（`Highlight`）是**平台给的蓝**，而"出厂那一份不碰
         //   调色板"这条不能破（破了就把"跟着系统深浅"钉死了，见 `apply()` 那段）⇒ 由这里
-        //   接过来自己画成浅灰。用户 2026-09-29 原话：「选中的时候那个蓝色的换成深灰色」，
-        //   紧接着「再浅一点，#cccccc」。
+        //   接过来自己画成"这一行自己的底色混一档主题色"。用户 2026-09-29 原话：「选中的
+        //   时候那个蓝色的换成深灰色」；2026-10-12 换成现在这一档（用户答复：「完全照 §9.3
+        //   （和侧栏导航同款）」）—— 底和左边那根指示条的理由都在 `ui/Theme.hpp` 那段里。
         //
         //   两条原语各管一半，缺一条屏幕上就留一块蓝：
         //   - `PE_PanelItemViewItem` = 条目那一格（每张表都有）；
@@ -348,9 +355,17 @@ public:
         //     交给代理之前自己铺的那一条，矩形是"整条行高 × 缩进宽度"）。
         //   代理侧还有一份同样的补涂（`VersionTreeDelegate::paint()` 里那段），因为这两条
         //   原语是不是真的被走到由**视图**决定 —— 补涂那一份是保底，两边同一个色。
+        //
+        //   ★ 指示条也在这里画：这张表是不是真的走这两条原语由**视图**决定，等它铺完再
+        //     补一条竖条的话，视图那条路上就又留一个"补没补"的分叉 ⇒ 一次画齐（代理那边
+        //     只在"它自己把这一格又盖了一遍"时才需要重画一次，见 `VersionTreeDelegate`）。
+        //   ★ 两处例子**故意不要这根条**（各自有自己那一圈形状），由它们自己拿底色擦掉：
+        //     实例行（带子只有卡片那一圈 —— 用户 2026-09-29 点名要删的正是左边那根竖条）
+        //     和分组对话框那份表（一行一块内缩的卡片）。见那两个代理里的 NOTE。
         if (pe == PE_PanelItemViewItem || pe == PE_PanelItemViewRow) {
             if (const QStyleOptionViewItem *vopt = selectedItemOption(opt)) {
-                p->fillRect(vopt->rect, selectionFill());
+                p->fillRect(vopt->rect, selectionFill(vopt->palette.color(QPalette::Base)));
+                paintSelectionRail(p, vopt->rect);
                 return;
             }
         }
@@ -401,11 +416,11 @@ public:
     void drawControl(ControlElement ce, const QStyleOption *opt, QPainter *p,
                      const QWidget *w) const override
     {
-        // ★ 选中那一行的**字**：底色那一块已经换成浅灰了（见上面那两条原语），而基样式紧接着
-        //   印字用的是 `HighlightedText` —— 那一档还是"照蓝底配的"（深色系统主题下是白、
-        //   浅色下是近黑）。浅灰上必须换一支**暗**墨：深色主题下平台给的是白字，白压
-        //   `#cccccc` 只有 1.6:1，等于没字（浅色主题下那一档恰好也能用，但同一支墨只有一处
-        //   出处，见 `selectionInk()`）。用户原话和整套理由见 `ui/Theme.hpp` 的 `selectionInk()`。
+        // ★ 选中那一行的**字**：底色那一块已经换成"这一行自己的底色混一档主题色"了（见上面
+        //   那两条原语），而基样式紧接着印字用的是 `HighlightedText` —— 那一档还是"照蓝底
+        //   配的"（深色系统主题下是白、浅色下是近黑）。这一块底上必须换一支**配套**的墨：
+        //   浅色主题下平台给的近黑勉强能用，深色主题下那支白字压上去就没了（见
+        //   `selectionInk()` 里那两档怎么翻）。用户原话和整套理由见 `ui/Theme.hpp` 那段。
         //
         //   改的是**这一份拷贝**、不是控件身上那份：换色只对这一次绘制生效，别的地方读
         //   `HighlightedText`（它们是照平台那一套算的）一点都不受影响。
@@ -536,51 +551,54 @@ QColor rowHoverFill(const QColor &base) {
                   mix(base.blue(), accent.blue()));
 }
 
-QColor navSelectedFill(const QColor &base) {
-    // 混法**和 `rowHoverFill()` 逐字同式**（`(底*(100-p) + 主题*p + 50) / 100`）：两处
-    // 都是"从这一行自己的底色出发往主题色那头混"，只差比例。四舍五入那一位（`+50`）
-    // 不改的话两边会差 1 —— 那种差在屏幕上完全看不出来，但判据逐字节比的时候会红。
+QColor selectionFill(const QColor &base) {
+    // 混法**和 `rowHoverFill()` 逐字同式**（同一个 `mixToward()`），只差比例 —— 两边都是
+    // "从这一行自己的底色出发往主题色那头混"。浅色下底就是白，所以这一档和
+    // `accentShade(AccentShade::Hover)` 也只差那两个百分比。
     QColor accent = current().accent;
     if (!accent.isValid()) {
         accent = defaultAccentColor();
     }
-    const int p = qBound(0, navSelectedAccentPercent(), 100);
-    const auto mix = [p](int b, int a) { return (b * (100 - p) + a * p + 50) / 100; };
-    return QColor(mix(base.red(), accent.red()), mix(base.green(), accent.green()),
-                  mix(base.blue(), accent.blue()));
+    return mixToward(base, accent, selectionAccentPercent());
 }
 
-QColor navSelectedInk() {
-    // 白底上写字那一档（`AccentShade::Ink`）—— 它压在 `navSelectedFill()` 那一层上
-    // （20% 的主题色罩在白上）对比度约 8:1。**不能**用 `AccentShade::Pure`：本色压在
-    // 自己 20% 的浅底上只有 2.4:1，那行字就糊了。
-    return accentShade(AccentShade::Ink);
+QColor selectionInk(const QColor &base) {
+    // ★ 墨**跟着那一块底的明暗翻**（2026-09-29 立下的规矩：底改浅了墨必须跟着翻过去 ——
+    //   反方向上"亮墨压浅底 = 等于没字"照样成立）。浮上来的一直是**主题色那一支**里
+    //   对应的那一档，不是黑/白两档写死的灰。
+    //
+    //   浅底（默认那身浅色主题：20% 主题色罩在白上）：`AccentShade::Ink` 压上去约 8:1。
+    //   **不能**用 `AccentShade::Pure` —— 本色压在自己 20% 的浅底上只有 2.4:1，那行字就糊了。
+    //   深底（深色预设：约 `#31433a`）：`Ink` 那一档压上去只剩 1.2:1（等于没字）⇒ 换成
+    //   那一支里"深底上写字"的那一档（主题色罩 25% 白 —— 罩白比例**越小越亮**），约 7.5:1。
+    if (selectionFill(base).lightness() > 128) {
+        return accentShade(AccentShade::Ink);
+    }
+    return mixWithWhite(accentShade(AccentShade::Pure), 25);
 }
 
-QColor navSelectedBar() {
+QColor selectionSubInk(const QColor &base) {
+    // 次要那一档（版本树第二行那行小字、占位文字、行里那些小图标）：浅底上约 5:1、
+    // 深底上约 5.7:1 —— 比正文那一档低一档（罩白的比例大一档，于是更靠主题色、
+    // 也就更暗），但一样读得清。
+    if (selectionFill(base).lightness() > 128) {
+        return QColor(0x55, 0x55, 0x55);
+    }
+    return mixWithWhite(accentShade(AccentShade::Pure), 45);
+}
+
+QColor selectionBar() {
     return accentShade(AccentShade::Pure);
 }
 
-QColor selectionFill() {
-    // 用户 2026-09-29 原话：「选中的时候那个蓝色的换成深灰色」，紧接着又补了半句
-    // 「再浅一点，#cccccc」。全仓只有这一处写这个色。
-    // ★ 这一档**故意不看底色**：第一版写的是"浅底 `#4a4a4a` / 深底 `#5e5e5e`"那种按底色
-    //   各挑一档，那是给**暗**色块算的（深色主题的底 `#323232` 和暗块只差 24 个数位、会糊
-    //   成一片）；换成一块**浅**灰之后，深浅两种主题上都浮得出来，那条理由不成立了
-    //   （详见 ui/Theme.hpp 那段）。墨的方向也跟着翻了一次，见 `selectionInk()`。
-    return QColor(0xcc, 0xcc, 0xcc);
-}
-
-QColor selectionInk() {
-    // 浅灰上必须是**暗**墨（对 `#cccccc` 约 10.8:1）。★ 第二版之前是亮墨 `#f2f2f2` ——
-    // 那是对着暗色块算的；现在这一块是浅的，亮墨压上去等于没字（ui_check 那条"墨是暗的"
-    // 钉的就是这件事）。也**不能**直接用平台给的正文色：深色系统主题下它是白的。
-    return QColor(0x1a, 0x1a, 0x1a);
-}
-
-QColor selectionSubInk() {
-    // 次要那一档（对 `#cccccc` 约 4.6:1）：版本树第二行那行小字、占位文字、行里那些小图标。
-    return QColor(0x55, 0x55, 0x55);
+void paintSelectionRail(QPainter *painter, const QRect &rowRect) {
+    if (painter == nullptr || rowRect.height() <= 0 || selectionBarThickness() <= 0) {
+        return;
+    }
+    // x 恒取 0：行在画家坐标系里的左边缘就是 0（横向滚动是烘进 `option.rect` 里的，
+    // 不是平移画家）—— ui_check §⑫ 量到的也正是 x = 0..2 这一列。
+    painter->fillRect(QRect(0, rowRect.top(), selectionBarThickness(), rowRect.height()),
+                      selectionBar());
 }
 
 QPalette selectionPalette(const QPalette &palette, bool selected) {
@@ -588,6 +606,9 @@ QPalette selectionPalette(const QPalette &palette, bool selected) {
     if (!selected) {
         return out;
     }
+    // 这一行**自己的底色**（`QAbstractItemView` 构造里给视口设的 backgroundRole 就是它）：
+    // 底和墨都从它推 —— 深色预设下底是 `#323232`，不从这个出发就会闪成一片近白。
+    const QColor base = palette.color(QPalette::Base);
     // 换上去的墨沿用**原来那一档的 alpha**（用户把"文字透明度"调低过的话，选中那一行的字
     // 也该一样淡 —— `kInkRoles` 里就有这几位，那个 alpha 正是这个意思）。
     const auto inkOn = [](const QColor &want, const QColor &was) {
@@ -598,15 +619,15 @@ QPalette selectionPalette(const QPalette &palette, bool selected) {
         return ink;
     };
     out.setColor(QPalette::WindowText,
-                 inkOn(selectionInk(), palette.color(QPalette::WindowText)));
-    out.setColor(QPalette::Text, inkOn(selectionInk(), palette.color(QPalette::Text)));
+                 inkOn(selectionInk(base), palette.color(QPalette::WindowText)));
+    out.setColor(QPalette::Text, inkOn(selectionInk(base), palette.color(QPalette::Text)));
     out.setColor(QPalette::HighlightedText,
-                 inkOn(selectionInk(), palette.color(QPalette::HighlightedText)));
+                 inkOn(selectionInk(base), palette.color(QPalette::HighlightedText)));
     out.setColor(QPalette::PlaceholderText,
-                 inkOn(selectionSubInk(), palette.color(QPalette::PlaceholderText)));
-    // 这一行真正铺的那一层是那块浅灰（不是调色板里那一档蓝）—— 有几处按"底色"重算文字
-    // 对比度（版本树上那两行 MOTD），读的就是 `Highlight`。
-    out.setColor(QPalette::Highlight, selectionFill());
+                 inkOn(selectionSubInk(base), palette.color(QPalette::PlaceholderText)));
+    // 这一行真正铺的那一层是那块浅主题色底（不是调色板里那一档蓝）—— 有几处按"底色"重算
+    // 文字对比度（版本树上那两行 MOTD），读的就是 `Highlight`。
+    out.setColor(QPalette::Highlight, selectionFill(base));
     return out;
 }
 
@@ -740,6 +761,17 @@ void markButton(QWidget *button, ButtonKind kind) {
     }
 }
 
+QString iconButtonSizeValue() {
+    return QString::fromLatin1(kIconButtonValue);
+}
+
+void markIconButton(QWidget *button) {
+    if (button == nullptr) {
+        return;
+    }
+    button->setProperty(kButtonSizeProperty, QString::fromLatin1(kIconButtonValue));
+}
+
 QString widgetStyleSheet() {
     const QColor ink = accentShade(AccentShade::Ink);
     const QColor border = accentShade(AccentShade::Border);
@@ -759,12 +791,28 @@ QString widgetStyleSheet() {
     // ★ `padding: 6px` 不是随手写的：Fusion 的 `PM_ButtonMargin` 就是 6，边框 1 ⇒
     //   2*(6+1) = 14，和样式自己算的**一模一样**。差一点点的话界面上是看不出来，但一堆
     //   "这一行放得下几颗按钮"的断言会整片地漂。
+    // ★ 2026-10-12（coding plan §9.1）：圆角走 `buttonRadius()`、**高度走 `actionHeight()`**。
+    //   `min-height` 这一位以前根本不存在 —— 一颗按钮多高全看系统字号 + `padding: 6px`
+    //   算出来多少（字号一换就在 30~33 之间飘，"一行里两颗一样高"是碰巧的）。钉成 32 之后
+    //   它是个**确定的数**，`Theme::actionHeight()` 那个常量也就是从这儿生效的。
+    //
+    //   NOTE: 两处**故意不跟**（都是 `setMinimumHeight()` 钉过的，QSS 这是"最小"高度，
+    //         只会被它们顶上去）：主页那颗「启动游戏」（76）、下载页那颗「安装」（40）。
+    //   NOTE: `min-height` 对**自己钉过固定高度**的小控件不生效（行尾那几颗 22/24 px 的
+    //         图标按钮都是 `setFixedSize()` 的）—— 那不是漏了，是"它自己说了算"。
+    // 按钮那一圈"镀层"：上下各 6px 内边距 + 各 1px 边框 = 14。
+    // ★★ QSS 的 `min-height` 量的是**内容**那一格，不是整颗控件（2026-10-12 探针实测：
+    //    这一套样式配 `min-height: 32px` 量出来是 **46**，配 18px 才是 32）。所以"整颗
+    //    `actionHeight()`"在样式表里得写成它**减掉这一圈**。写错不报错 —— 症状只是"每颗
+    //    按钮都胖了一圈"，而那条只能靠数值判据（ui_check 里那一条量的就是整颗高度）。
+    constexpr int kButtonChrome = 2 * 6 + 2 * 1;
     QString qss = QStringLiteral(
                       "QPushButton {"
                       " background-color: #ffffff;"
                       " color: %1;"
                       " border: 1px solid %2;"
-                      " border-radius: 4px;"
+                      " border-radius: %6px;"
+                      " min-height: %7px;"
                       " padding: 6px; }"
                       // 默认那一颗（对话框里回车就按下去的那颗）：淡淡一层主题色的底。
                       // **不能跟悬停同色** —— 同色的话"鼠标停在哪儿"就看不出默认是哪一颗了。
@@ -772,19 +820,25 @@ QString widgetStyleSheet() {
                       "QPushButton:hover:enabled { background-color: %4; }"
                       "QPushButton:pressed:enabled { background-color: %5; }")
                       .arg(ink.name(), border.name(), mixWithWhite(accentShade(AccentShade::Pure), 6).name(),
-                           hover.name(), pressed.name());
+                           hover.name(), pressed.name())
+                      .arg(buttonRadius())
+                      .arg(actionHeight() - kButtonChrome);
     // 主动作是页面上唯一一颗实心按钮。悬停和按下都向更深处走，白字对比度不会因为交互
     // 状态而降低；普通确认 / 危险 / 次要按钮仍是白底描边，不会整页争夺注意力。
     const auto primaryBlock = [](const QString &key, const QColor &fill,
                                  const QColor &hoverFill, const QColor &pressedFill) {
+        // ★ 2026-10-12（coding plan §9.1）：主动作单独高一档（36）。它是页面上唯一一颗实心
+        //   按钮，"这一页最重要的那一下"值得多 4px；其余那颗留在 32 上，一页里两档就够。
         return QStringLiteral("QPushButton[%1=\"%2\"] { background-color: %3; color: #ffffff;"
-                              " border-color: %3; border-radius: 6px; }"
+                              " border-color: %3; border-radius: %6px; min-height: %7px; }"
                               "QPushButton[%1=\"%2\"]:hover:enabled { background-color: %4;"
                               " border-color: %4; }"
                               "QPushButton[%1=\"%2\"]:pressed:enabled { background-color: %5;"
                               " border-color: %5; }")
             .arg(QString::fromLatin1(kButtonKindProperty), key, fill.name(), hoverFill.name(),
-                 pressedFill.name());
+                 pressedFill.name())
+            .arg(buttonRadius())
+            .arg(primaryActionHeight() - kButtonChrome);
     };
     qss += primaryBlock(QStringLiteral("primary"), pure, pure.darker(108), pure.darker(118));
 
@@ -813,6 +867,14 @@ QString widgetStyleSheet() {
     qss += QStringLiteral(
                "QPushButton:disabled { background-color: %1; color: %2; border-color: %3; }")
                .arg(disabledFill.name(), disabledInk.name(), disabledBorder.name());
+
+    // ★ 图标按钮那一档**必须摆在最后**（2026-10-12）：它和 `[wtfmlButtonKind="primary"]`
+    //   优先级一样（都是"元素 + 一个属性"），平手时后面写的赢。它只有一句话 ——
+    //   "我按自己钉死的边长来"，把上面那条 `min-height` 按回去。
+    //   实测（探针）：写死 22 的 `QPushButton` 在 `min-height: 18px` 下量出来是 **32**
+    //   —— `setFixedSize()` 拦不住它，只能靠这一条。`min-height: 0` 是有效的复位。
+    qss += QStringLiteral("QPushButton[%1=\"%2\"] { min-height: 0px; }")
+               .arg(QString::fromLatin1(kButtonSizeProperty), QString::fromLatin1(kIconButtonValue));
 
     // -----------------------------------------------------------------------
     // 输入框（2026-09-28）
@@ -844,13 +906,18 @@ QString widgetStyleSheet() {
     //   ★ 因此数字框的 `sizeHint()`（21）和它最后占的高度（24）**不是同一个数**：竖向 `Fixed`
     //     的控件过布局时要取"最小高度"那一关。**量高度别只量 `sizeHint()`** —— ui_check 的
     //     W13 就是那么栽过一次的（三个数都报 24、摆上屏幕数字框却是 27）。
+    //   ★ 2026-10-12（coding plan §9.1）：圆角 3 → `controlRadius()`（4）。输入类四个控件
+    //     （`QLineEdit` / `QComboBox` / 数字框里面的 `QLineEdit` / 勾选框那个方框）**共用
+    //     同一个数**，而按钮是 `buttonRadius()`（6，高一档）—— 按钮比输入框矮胖，同一个
+    //     圆角摆在它身上看着更方。
     qss += QStringLiteral(
                "QLineEdit { background-color: #ffffff; color: #000000; border: 1px solid %1;"
-               " border-radius: 3px; padding: 3px; }"
+               " border-radius: %6px; padding: 3px; }"
                "QLineEdit:focus { border-color: %2; }"
                "QLineEdit:disabled { background-color: %3; color: %4; border-color: %5; }")
                .arg(border.name(), ink.name(), disabledFill.name(), disabledInk.name(),
-                    disabledBorder.name());
+                    disabledBorder.name())
+               .arg(controlRadius());
     qss += QStringLiteral("QAbstractSpinBox { min-height: 18px; }");
     // ★ **数字框 / 下拉框里面那一格也是 `QLineEdit`** —— 上面那条会连它一起框上，画出来
     //   就是"框里还套着一个框"（自旋框自己已经有一圈边了）。这一条把它按回去。
@@ -883,7 +950,7 @@ QString widgetStyleSheet() {
     //   ⇒ **改这一条之前先把 `WtfmlProxyStyle` 那段读了**，两处是一对。
     qss += QStringLiteral(
                "QComboBox { background-color: #ffffff; color: #000000; border: 1px solid %1;"
-               " border-radius: 3px; padding: 3px; }"
+               " border-radius: %7px; padding: 3px; }"
                "QComboBox:focus { border-color: %2; }"
                "QComboBox:disabled { background-color: %3; color: %4; border-color: %5; }"
                "QComboBox::drop-down { width: 20px; }"
@@ -891,7 +958,8 @@ QString widgetStyleSheet() {
                " border: 1px solid %1;"
                " selection-background-color: %6; selection-color: #000000; outline: none; }")
                .arg(border.name(), ink.name(), disabledFill.name(), disabledInk.name(),
-                    disabledBorder.name(), pure.name());
+                    disabledBorder.name(), pure.name())
+               .arg(controlRadius());
 
     // -----------------------------------------------------------------------
     // 勾选框（2026-09-28）
@@ -910,11 +978,12 @@ QString widgetStyleSheet() {
                "QCheckBox:checked { color: %2; }"
                "QCheckBox:disabled { color: %3; }"
                "QCheckBox::indicator { background-color: #ffffff; border: 1px solid %1;"
-               " border-radius: 2px; }"
+               " border-radius: %6px; }"
                "QCheckBox::indicator:checked { background-color: %4; border-color: %2; }"
                "QCheckBox::indicator:disabled { background-color: %5; border-color: %3; }")
                .arg(black.name(), ink.name(), disabledInk.name(), pure.name(),
-                    disabledFill.name());
+                    disabledFill.name())
+               .arg(controlRadius());
 
     // -----------------------------------------------------------------------
     // 滚动条（2026-09-29）
@@ -993,9 +1062,11 @@ QString widgetStyleSheet() {
     //     样式表里那几条 `::item` 规则一条都匹配不到那层底色：写上去就是死代码 ——
     //     挂在那里让人以为"侧栏选中样式配好了"，而实际画出来的仍然只有代理那一支。
     //     所以那一档落成了**代理里的 `navRow` 模式**（`new VersionTreeDelegate(..., true)`），
-    //     色一个字节都没另写：`navSelectedFill()`（浅主题色底，20%）、`navSelectedInk()`
-    //     （主题色那一支里"白底上写字"的那一档墨）、`navSelectedBar()` + `navBarThickness()`
-    //     （左边那根 3 px 的指示条），三处都在 ui/Theme.hpp 里。
+    //     色一个字节都没另写：`selectionFill()`（这一列自己的底色混 20% 主题色）、
+    //     `selectionInk()`（主题色那一支里配套的那一档墨）、`selectionBar()` +
+    //     `selectionBarThickness()`（左边那根 3 px 的指示条），三处都在 ui/Theme.hpp 里 ——
+    //     从 2026-10-12 起**全仓的列表选中态都是这一套**（用户答复：「完全照 §9.3
+    //     （和侧栏导航同款）」）。
     //     行高和圆角同理：那份列表的行高一直是 `versionTreeRowHeight()`（46 ≥ 文档要的 42），
     //     而代理画的是一整行**不带圆角**的方块 —— 多出来的圆角只能由代理画（今天没画）。
     {
@@ -1010,19 +1081,24 @@ QString widgetStyleSheet() {
         // 足以建立层级，又不会像旧式 GroupBox 那样每节都变成一个沉重的框。
         const QColor sectionFill = mixToward(sheetBase, accentShade(AccentShade::Pure), 6);
         const QColor sheetSecondary = appColor(QPalette::PlaceholderText);
+        // ★ 2026-10-12（coding plan §9.1）：两个圆角各走 `surfaceRadius()`（8）/ `sectionRadius()`
+        //   （10）—— **数没变**，变的是它从"样式表里写着 8"变成"令牌层说了算"。层级是
+        //   小节卡片（10）> 主表面（8）> 普通动作（6）> 输入类（4），四档一路收小。
         qss += QStringLiteral(
                    "QFrame[%1=\"sidebar\"] { background-color: %2; border: none;"
-                   " border-radius: 8px; }"
+                   " border-radius: %8px; }"
                    "QFrame[%1=\"workspace\"] { background-color: %3; border: 1px solid %4;"
-                   " border-radius: 8px; }"
+                   " border-radius: %8px; }"
                    "QFrame[%1=\"section\"] { background-color: %5; border: none;"
-                   " border-radius: 10px; }"
+                   " border-radius: %9px; }"
                    "QFrame[%1=\"footer\"] { background-color: transparent; border: none;"
                    " border-top: 1px solid %4; }"
                    "QLabel[%6=\"secondary\"] { color: %7; }")
                    .arg(QString::fromLatin1(kSurfaceProperty), sidebarFill.name(),
                         sheetBase.name(), sheetLine.name(), sectionFill.name(),
-                        QString::fromLatin1(kTextRoleProperty), sheetSecondary.name());
+                        QString::fromLatin1(kTextRoleProperty), sheetSecondary.name())
+                   .arg(surfaceRadius())
+                   .arg(sectionRadius());
     }
     return qss;
 }
