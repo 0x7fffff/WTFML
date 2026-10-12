@@ -138,6 +138,7 @@ set(SOURCE_FILES
     ui/ToggleSwitch.cpp
     ui/TaskCenterPanel.cpp
     ui/TaskDetailPage.cpp
+    ui/IntegrityReportPage.cpp
     ui/GroupDialog.cpp
     ui/GroupListDelegate.cpp
     ui/InstanceSettingsDialog.cpp

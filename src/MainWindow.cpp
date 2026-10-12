@@ -18,6 +18,7 @@
 #include "..\ui\InstanceGroupDelegate.hpp"
 #include "..\ui\InstanceFilesPage.hpp"
 #include "..\ui\InstanceSettingsDialog.hpp"
+#include "..\ui\IntegrityReportPage.hpp"  // 完整性检查报告页（2026-10-12，coding plan §4.1）
 #include "..\ui\JavaMismatchDialog.hpp"
 #include "..\ui\JavaManageDialog.hpp"
 #include "..\ui\AccountSkinDialog.hpp"
@@ -1632,6 +1633,16 @@ MainWindow::~MainWindow() {
     m_gameLogWindows.clear();
     for (GameLogWindow *window : logWindows) {
         delete window;
+    }
+    // 体检那一趟可能还在跑（几千次 stat，慢盘上要好几秒）。**先把收手旗子举起来再等它**
+    // —— worker 每比几条看一眼那面旗，看到就退（见 submitIntegrityCheck 里那段）。
+    //
+    // NOTE: 不等的话是**崩**，不是"悄悄漏一个线程"：m_integrityThread 的父对象是 this（下面
+    //       这个对象要散了），而 Qt 对"QThread 还在跑、父对象却析构了"是直接 abort
+    //       （`QThread: Destroyed while thread is still running`）。
+    m_integrityAbort.storeRelaxed(1);
+    if (m_integrityThread != nullptr) {
+        m_integrityThread->wait();
     }
     delete m_ui;
 }
@@ -9377,6 +9388,15 @@ bool MainWindow::applyRename(const QString &oldId, const QString &newId) {
                              tr("「%1」正在运行，先关掉游戏再改名。").arg(instanceDisplayName(oldId)));
         return false;
     }
+    // 闸口一之二：**正在体检的不能改名**（coding plan §4.1「同一实例不允许同时扫描和删除/
+    // 改名」）。后台那一趟攥着的是改名前算好的那些**绝对路径**，改到一半才让它醒过来的话，
+    // 报告里每一条都会指着一个已经不存在的路径（全是假的"缺文件"）。
+    if (integrityScanningVersion(oldId)) {
+        InlineMessage::warning(m_ui->overlay(), tr("重命名实例"),
+                              tr("「%1」正在做完整性检查，等它完了再改名。")
+                                  .arg(instanceDisplayName(oldId)));
+        return false;
+    }
 
     const QString name = newId.trimmed();
 
@@ -9519,6 +9539,14 @@ bool MainWindow::confirmDeleteInstance(const QString &versionId) {
                               tr("「%1」正在安装，等它装完再删。").arg(name));
         return false;
     }
+    // 闸口三：**正在体检的也不能删**（coding plan §4.1「同一实例不允许同时扫描和删除/
+    // 改名」）。后台那一趟还在拿这个实例的绝对路径 stat 文件，删到一半它就在扫一堆不存在的
+    // 路径，报告里全是假的"缺文件"。
+    if (integrityScanningVersion(versionId)) {
+        InlineMessage::warning(m_ui->overlay(), tr("删除实例"),
+                              tr("「%1」正在做完整性检查，等它完了再删。").arg(name));
+        return false;
+    }
 
     // 这一趟**不可逆**，所以先问一句（用户原话：「删除前需要弹窗提示」）。正文里把目录的
     // 完整路径写出来：用户要能看清删的是哪一个目录、它长在哪，而不是只知道"某个实例"。
@@ -9554,6 +9582,12 @@ bool MainWindow::deleteInstance(const QString &versionId) {
     if (installingVersionIds().contains(versionId)) {
         InlineMessage::warning(m_ui->overlay(), tr("删除实例"),
                               tr("「%1」正在安装，等它装完再删。").arg(name));
+        return false;
+    }
+    // 闸口三（同上，理由见 confirmDeleteInstance 那一半）：正在体检的不能删。
+    if (integrityScanningVersion(versionId)) {
+        InlineMessage::warning(m_ui->overlay(), tr("删除实例"),
+                              tr("「%1」正在做完整性检查，等它完了再删。").arg(name));
         return false;
     }
 
@@ -10320,6 +10354,20 @@ void MainWindow::openInstanceSettingsNow(const QString &versionId, const QString
     //       "动完盘得刷新那一页"不一样：那些是**改这一页的样子**，这一件是把结果**告诉人**。
     connect(&dialog, &InstanceSettingsDialog::checkUpdatesRequested, this,
             [this, &targetId, &dialog]() { checkInstanceUpdates(targetId, &dialog); });
+
+    // 「检查并修复」（coding plan §4.1，2026-10-12）：概览栏那颗按钮。**和「检查更新」不是
+    // 一回事** —— 那个查的是模组有没有新版本（联网），这个查的是游戏文件齐不齐（只读盘）。
+    //
+    // 收页再起：点下这一颗就说明用户要看的是"体检结果"，而结果会开成**另一整页**（报告页）。
+    // 留着这一页的话，扫完那一下要么叠一层、要么得走"让位"（见 onIntegrityScanFinished 那段）；
+    // 先把它收掉最干净。**排到下一轮再起**：体检起手那几道守卫失败时会往**同一条覆盖层**上
+    // 弹提示，现在不排的话会撞上还没收干净的这一页。
+    connect(&dialog, &InstanceSettingsDialog::integrityCheckRequested, this,
+            [this, &targetId, &dialog]() {
+                dialog.reject();  // 和顶上那颗「← 返回」是同一条路
+                const QString id = targetId;
+                QTimer::singleShot(0, this, [this, id] { submitIntegrityCheck(id); });
+            });
 
     // 「文件管理」那三发（2026-09-26）：开文件夹 / 启用·禁用一条 / 删一条。
     //
@@ -14136,6 +14184,265 @@ void MainWindow::repairInstanceFiles(const QString &versionId) {
     m_repairingInstanceId = versionId;
     setDownloadUiBusy(true);
     m_versionManager->repairVersionFiles(versionId);
+}
+
+// ---------------------------------------------------------------------------
+// 完整性检查与修复（coding plan §4.1，2026-10-12）
+// ---------------------------------------------------------------------------
+
+bool MainWindow::integrityScanningVersion(const QString &versionId) const {
+    // 空版本号和"没在扫"是一回事（成员空串就是"没在体检"）。
+    return !versionId.isEmpty() && m_integrityScanVersionId == versionId;
+}
+
+void MainWindow::submitIntegrityCheck(const QString &versionId) {
+    if (versionId.isEmpty()) {
+        return;
+    }
+    // 已经在扫这个实例了（双击、或者上一次还在跑）：不重复起第二趟 —— 那会对着同一份文件
+    // 再哈希一遍，白白占 CPU，而且账本里那一格只有一个号，两趟叠着会互相盖掉进度。
+    if (integrityScanningVersion(versionId)) {
+        return;
+    }
+    // 别的实例正在扫：也拦一下（一次只跑一趟体检），说清在扫谁。
+    if (!m_integrityScanVersionId.isEmpty()) {
+        InlineMessage::information(
+            m_ui->overlay(), tr("现在做不了"),
+            tr("「%1」正在做完整性检查，等它完了再检查这个实例。")
+                .arg(instanceDisplayName(m_integrityScanVersionId)));
+        return;
+    }
+
+    // 三道守卫和 repairInstanceFiles() 是**同一套**（理由逐字相同）：这个实例自己在忙 /
+    // 别的批次在跑 / 继承链不完整。
+    const bool thisInstanceBusy = versionId == m_installingInstanceId ||
+                                  versionId == m_importingInstanceId ||
+                                  versionId == m_repairingInstanceId;
+    if (thisInstanceBusy) {
+        InlineMessage::information(
+            m_ui->overlay(), tr("现在做不了"),
+            tr("「%1」这会儿正在装（或者正在导入 / 正在检查）。等它完了再来。")
+                .arg(instanceDisplayName(versionId)));
+        return;
+    }
+    if (m_downloadInFlight || m_versionManager->isDownloading()) {
+        InlineMessage::information(
+            m_ui->overlay(), tr("现在做不了"),
+            tr("已经有一个下载或者安装任务在跑了，等它结束再检查这个实例。"));
+        return;
+    }
+    const QString inheritanceProblem = m_versionManager->inheritanceProblem(versionId);
+    if (!inheritanceProblem.isEmpty()) {
+        appendLog(tr("无法体检 %1 的文件：版本继承链不完整").arg(versionId));
+        InlineMessage::warning(m_ui->overlay(), tr("版本不完整"), inheritanceProblem);
+        return;
+    }
+
+    // 清单在 UI 线程上取好（快）：读 json + 解库 / 索引 + `VersionIntegrity::plan()`。
+    // **在开任务之前判**读不读得出 json —— 免得账本里多一条"跑了半秒就失败"的记录。
+    QString planError;
+    const QList<VersionIntegrity::ExpectedFile> files =
+        m_versionManager->integrityPlan(versionId, &planError);
+    if (!planError.isEmpty()) {
+        appendLog(tr("无法体检 %1 的文件：%2").arg(versionId, planError));
+        InlineMessage::warning(m_ui->overlay(), tr("版本信息缺失"), planError);
+        return;
+    }
+
+    // 起任务。四步就是**四组**（名字走 VersionIntegrity::groupName —— 和报告页上那四个
+    // 标题、和报告那段纯文本是同一个出处）。
+    QList<Tasks::TaskStep> steps;
+    for (VersionIntegrity::Group group : VersionIntegrity::allGroups()) {
+        steps.append({VersionIntegrity::groupName(group), Tasks::TaskStepState::Pending, QString()});
+    }
+    m_integrityTaskId =
+        beginTask(Tasks::TaskKind::Integrity,
+                  tr("检查「%1」的文件").arg(instanceDisplayName(versionId)), versionId, steps);
+    m_taskManager->setProgress(m_integrityTaskId, 0, static_cast<qint64>(files.size()));
+    appendLog(tr("开始体检「%1」的文件（%2 个）...")
+                  .arg(instanceDisplayName(versionId))
+                  .arg(files.size()));
+
+    m_integrityScanVersionId = versionId;
+    m_integrityAbort.storeRelaxed(0);
+
+    // 上一趟那个线程对象还挂着（跑完了，但 deletion 还排着队）：先放它走（同 m_instanceIconThread）。
+    if (m_integrityThread != nullptr) {
+        m_integrityThread->deleteLater();
+        m_integrityThread = nullptr;
+    }
+
+    // ---------- 后台那一趟 ----------
+    //
+    // ★ 清单（`files`）是按值拷进这一趟的 —— `VersionIntegrity::check()` 是**纯函数**
+    //   （只读盘、一个成员都不碰），所以后台那一趟完全不碰 VersionManager / DownloadManager，
+    //   也就不用给这个类加锁。进度和结论都走 `invokeMethod` 的 functor 重载排回主线程
+    //   （那个 functor 是被拷进事件里带过去的，连元类型都不用登记，见 m_instanceIconThread 那段）。
+    m_integrityThread = QThread::create([this, files]() {
+        constexpr int kProgressStride = 64;  // 每这么多条报一次进度（外加跨界那次）
+        VersionIntegrity::Report report;
+        report.checked = static_cast<int>(files.size());
+        int groupIndex = 0;
+        int lastReported = 0;
+        for (int i = 0; i < files.size(); ++i) {
+            if (m_integrityAbort.loadRelaxed() != 0) {
+                return;  // 关窗了：这一趟作废，一个 fail/succeed 都不记
+            }
+            const VersionIntegrity::ExpectedFile &file = files.at(i);
+            if (VersionIntegrity::Verdict verdict = VersionIntegrity::check(file); !verdict.ok()) {
+                report.problems.append(verdict);
+            }
+            // 清单是按 jar → 库 → 索引 → 对象排的，所以"这一条属于哪一组"就是它自己那一栏。
+            const int currentGroup = VersionIntegrity::groupIndex(file.group);
+            const bool boundary = currentGroup != groupIndex;
+            groupIndex = currentGroup;
+            if (boundary || i - lastReported >= kProgressStride || i + 1 == files.size()) {
+                lastReported = i;
+                const int checked = i + 1;
+                const int total = static_cast<int>(files.size());
+                QMetaObject::invokeMethod(
+                    this, [this, checked, total, currentGroup]() {
+                        onIntegrityScanProgress(checked, total, currentGroup);
+                    },
+                    Qt::QueuedConnection);
+            }
+        }
+        QMetaObject::invokeMethod(this, [this, report]() { onIntegrityScanFinished(report); },
+                                  Qt::QueuedConnection);
+    });
+    m_integrityThread->setParent(this);
+    m_integrityThread->start();
+}
+
+void MainWindow::onIntegrityScanProgress(int checked, int total, int groupIndex) {
+    if (m_integrityTaskId == Tasks::invalidTaskId() || !m_taskManager->has(m_integrityTaskId)) {
+        return;  // 用户按过「清除已完成」、或者这一项早就收尾了
+    }
+    m_taskManager->setProgress(m_integrityTaskId, checked, total);
+    // 四步按"正在比哪一组"标：前面 Done、当前 Running、后面 Pending（幂等，重复标没关系）。
+    const int stepCount = static_cast<int>(VersionIntegrity::allGroups().size());
+    for (int i = 0; i < stepCount; ++i) {
+        const Tasks::TaskStepState state = i < groupIndex   ? Tasks::TaskStepState::Done
+                                          : i == groupIndex ? Tasks::TaskStepState::Running
+                                                            : Tasks::TaskStepState::Pending;
+        m_taskManager->setStepState(m_integrityTaskId, i, state);
+    }
+}
+
+void MainWindow::onIntegrityScanFinished(const VersionIntegrity::Report &report) {
+    // 先把"正在扫的是谁"摘下来：下面开报告页那一路（可能会让位、排到下一轮）再读它。
+    const QString versionId = m_integrityScanVersionId;
+    m_integrityScanVersionId.clear();
+
+    // 四步全标 Done：**扫描本身是跑完了的**（哪怕查出 3000 个问题 —— 那是结论，不是失败）。
+    if (m_integrityTaskId != Tasks::invalidTaskId() && m_taskManager->has(m_integrityTaskId)) {
+        const int stepCount = static_cast<int>(VersionIntegrity::allGroups().size());
+        for (int i = 0; i < stepCount; ++i) {
+            m_taskManager->setStepState(m_integrityTaskId, i, Tasks::TaskStepState::Done);
+        }
+        // 面板 / 详情页上那一行小字写结论（`3120 个文件都完好` / `…里 2 个要修：…`）。
+        m_taskManager->setDetail(m_integrityTaskId, report.summary());
+        // "体检没跑起来"（读不出 json）才算这一项失败；查出问题算**成功的一次体检**。
+        if (!report.error.isEmpty()) {
+            finishTask(m_integrityTaskId, false, report.error);
+        } else {
+            finishTask(m_integrityTaskId, true);
+        }
+    }
+    m_integrityTaskId = Tasks::invalidTaskId();
+
+    if (versionId.isEmpty()) {
+        return;
+    }
+    appendLog(report.error.isEmpty()
+                  ? tr("体检「%1」完成：%2").arg(instanceDisplayName(versionId), report.summary())
+                  : tr("体检「%1」没跑起来：%2").arg(instanceDisplayName(versionId), report.error));
+
+    // 结论留一份（报告页读它）。**跟着实例走**：报告页每次开都按这个实例重摆。
+    m_integrityReport = report;
+    m_integrityReportVersionId = versionId;
+
+    // 开报告页。**排到下一轮、而且等覆盖层空下来**：体检是从实例设置那一页点起来的，扫完时
+    // 那一页可能还开着（用户没返回），直接 execPage 会叠一层。runWhenOverlayFree 会先静默
+    // 收掉占着的那一层（用户 2026-09-29 定的方向：「静默收掉，直接继续」）再开。
+    runWhenOverlayFree([this, versionId] { openIntegrityReportPage(versionId); });
+}
+
+IntegrityReportPage::Report MainWindow::integrityReportForPage(
+    const VersionIntegrity::Report &report, const QString &instanceName) const {
+    // **唯一翻译点**（和 taskCenterItem() 翻任务账本是同一个路数）：四组的名字 / 顺序 / 数
+    // 全走 VersionIntegrity 那边的唯一出处，这一层只负责搬。
+    IntegrityReportPage::Report out;
+    out.instanceName = instanceName;
+    out.summary = report.summary();
+    out.error = report.error;
+    // 四组**一个都不省**（理由见报告页文件头那段：省掉的话用户分不清是"没问题"还是"没查"）。
+    for (VersionIntegrity::Group group : VersionIntegrity::allGroups()) {
+        IntegrityReportPage::Group g;
+        g.name = VersionIntegrity::groupName(group);
+        g.missing = report.missingIn(group);
+        g.corrupt = report.corruptIn(group);
+        for (const VersionIntegrity::Verdict &v : report.problemsInGroup(group)) {
+            g.rows.append({v.label, v.detail(), v.path});
+        }
+        out.groups.append(g);
+    }
+    return out;
+}
+
+void MainWindow::openIntegrityReportPage(const QString &versionId) {
+    OverlayHost *overlay = m_ui->overlay();
+    if (overlay == nullptr) {
+        return;
+    }
+    // 这一页只在 onIntegrityScanFinished() 里、经 runWhenOverlayFree 调过来，所以走到这儿
+    // 覆盖层（正常）是空的。真被别的东西占上了（用户在这几毫秒里自己开了一页）就让 execPage
+    // 自己回一句 —— 不排下一轮，免得和 runWhenOverlayFree 互相排成环。
+    if (m_integrityReportPage == nullptr) {
+        m_integrityReportPage = new IntegrityReportPage(this);
+        connect(m_integrityReportPage, &IntegrityReportPage::actionRequested, this,
+                &MainWindow::onIntegrityReportAction);
+    }
+    if (m_integrityReportVersionId != versionId) {
+        return;  // 结论不是这个实例的（理论上不该 —— 上面刚摆好）
+    }
+    // 摆结论。**必须在 execPage 之前**：那一下阻塞在嵌套事件循环里。
+    m_integrityReportPage->setReport(
+        integrityReportForPage(m_integrityReport, instanceDisplayName(versionId)));
+    overlay->execPage(m_integrityReportPage, IntegrityReportPage::windowTitle());
+}
+
+void MainWindow::onIntegrityReportAction(IntegrityReportPage::Action action) {
+    switch (action) {
+    case IntegrityReportPage::Action::CopyReport:
+        copyIntegrityReport();
+        break;
+    case IntegrityReportPage::Action::Repair: {
+        const QString versionId = m_integrityReportVersionId;
+        if (versionId.isEmpty()) {
+            break;
+        }
+        // 先把这一页收掉（它卡在 execPage 的嵌套循环里），**排到下一轮**再起补全那批下载 ——
+        // 补全那一路会往**同一条覆盖层**上弹提示（"现在做不了"那一类），现在不排的话会撞上
+        // 还没收干净的这一页。
+        if (m_integrityReportPage != nullptr) {
+            m_integrityReportPage->reject();  // 和顶上那颗「← 返回」是同一条路
+        }
+        QTimer::singleShot(0, this, [this, versionId] { repairInstanceFiles(versionId); });
+        break;
+    }
+    }
+}
+
+void MainWindow::copyIntegrityReport() {
+    if (m_integrityReportVersionId.isEmpty()) {
+        return;
+    }
+    // 拼文本只此一处（`VersionIntegrity::plainReport()`）—— 界面这边不许再抄一份格式。
+    const QString text = VersionIntegrity::plainReport(
+        m_integrityReport, instanceDisplayName(m_integrityReportVersionId));
+    QGuiApplication::clipboard()->setText(text);
+    appendLog(tr("完整性检查报告已经复制到剪贴板。"));
 }
 
 MainWindow::JavaMismatchAnswer MainWindow::askAboutJavaMismatch(

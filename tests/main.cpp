@@ -21902,6 +21902,129 @@ static void runVersionIntegrityTests() {
               failed.summary());
     }
 
+    // ---------- ZN6. 分组（coding plan §4.1：结果按客户端 / 库 / 资源索引 / 资源对象 分）----------
+    {
+        check(VersionIntegrity::allGroups().size() == 4, "ZN6 四组");
+        check(VersionIntegrity::groupName(VersionIntegrity::Group::ClientJar)
+                      == QStringLiteral("客户端")
+                  && VersionIntegrity::groupName(VersionIntegrity::Group::Libraries)
+                         == QStringLiteral("库")
+                  && VersionIntegrity::groupName(VersionIntegrity::Group::AssetIndex)
+                         == QStringLiteral("资源索引")
+                  && VersionIntegrity::groupName(VersionIntegrity::Group::AssetObjects)
+                         == QStringLiteral("资源对象"),
+              "★ ZN6 四组的名字（报告页标题和那段纯文本都读它）");
+        // groupIndex() 必须和 allGroups() 的顺序对得上（界面把"正在比哪一组"翻成"第几步"靠它）。
+        for (VersionIntegrity::Group group : VersionIntegrity::allGroups()) {
+            const int index = VersionIntegrity::groupIndex(group);
+            check(index >= 0 && index < VersionIntegrity::allGroups().size()
+                      && VersionIntegrity::allGroups().at(index) == group,
+                  "ZN6 groupIndex() 回的下标在 allGroups() 里指回它自己",
+                  QString::number(index));
+        }
+
+        // plan() 在**列清单那一刻**就盖好了组（上面 ZN1 那三条）。
+        if (files.size() == 3) {
+            check(files.at(0).group == VersionIntegrity::Group::ClientJar
+                      && files.at(1).group == VersionIntegrity::Group::Libraries
+                      && files.at(2).group == VersionIntegrity::Group::AssetIndex,
+                  "★ ZN6 plan() 给每一条盖了组：jar / 库 / 索引各归各的那一格");
+        }
+        // check() 把组一路带到 Verdict 上（界面按组摊结果时读的就是它）。
+        const VersionIntegrity::ExpectedFile missingJar{
+            QStringLiteral("客户端 jar"),
+            AppPaths::minecraftDir() + QStringLiteral("/nope.jar"), QString(), 100,
+            VersionIntegrity::Group::ClientJar};
+        const VersionIntegrity::Verdict verdict = VersionIntegrity::check(missingJar);
+        check(verdict.group == VersionIntegrity::Group::ClientJar
+                  && verdict.status == VersionIntegrity::Status::Missing,
+              "★ ZN6 check() 把组带到 Verdict 上（缺文件那一档也带着）");
+    }
+
+    // ---------- ZN7. Report 按组数 + 那段纯文本（「复制报告」）----------
+    {
+        const auto problem = [](VersionIntegrity::Status status, VersionIntegrity::Group group,
+                                const QString &label) {
+            VersionIntegrity::Verdict verdict;
+            verdict.status = status;
+            verdict.group = group;
+            verdict.label = label;
+            verdict.path = QStringLiteral("D:/x/") + label;
+            return verdict;
+        };
+        VersionIntegrity::Report report;
+        report.checked = 3120;
+        report.problems
+            << problem(VersionIntegrity::Status::Missing, VersionIntegrity::Group::Libraries,
+                       QStringLiteral("libA"))
+            << problem(VersionIntegrity::Status::WrongSha1, VersionIntegrity::Group::Libraries,
+                       QStringLiteral("libB"))
+            << problem(VersionIntegrity::Status::Empty, VersionIntegrity::Group::AssetObjects,
+                       QStringLiteral("objA"));
+
+        check(report.missingIn(VersionIntegrity::Group::Libraries) == 1
+                  && report.corruptIn(VersionIntegrity::Group::Libraries) == 1
+                  && report.problemsIn(VersionIntegrity::Group::Libraries) == 2,
+              "★ ZN7 「库」那一组：缺 1 个、坏 1 个、合计 2 个",
+              QStringLiteral("m=%1 c=%2")
+                  .arg(report.missingIn(VersionIntegrity::Group::Libraries))
+                  .arg(report.corruptIn(VersionIntegrity::Group::Libraries)));
+        check(report.problemsIn(VersionIntegrity::Group::ClientJar) == 0
+                  && report.problemsIn(VersionIntegrity::Group::AssetIndex) == 0,
+              "ZN7 没问题的组报 0（说的是「这组没有要修的」，不是「这组没有文件」）");
+        check(report.missingIn(VersionIntegrity::Group::AssetObjects) == 1
+                  && report.corruptIn(VersionIntegrity::Group::AssetObjects) == 0,
+              "ZN7 资源对象那一组：缺 1 个");
+        check(report.problemsInGroup(VersionIntegrity::Group::Libraries).size() == 2
+                  && report.problemsInGroup(VersionIntegrity::Group::Libraries).at(0).label
+                         == QStringLiteral("libA"),
+              "ZN7 problemsInGroup() 只挑这一组的、且保持原来那个顺序");
+        // 按组数出来的总和 = 总数（两处口径必须一致 —— 别让分组那一层多算或者漏算）。
+        int byGroup = 0;
+        for (VersionIntegrity::Group group : VersionIntegrity::allGroups()) {
+            byGroup += report.problemsIn(group);
+        }
+        check(byGroup == report.problems.size()
+                  && byGroup == report.missing() + report.corrupt(),
+              "ZN7 四组加起来 = 总条数（分组这一层不会漏也不会重）", QString::number(byGroup));
+
+        const QStringList lines =
+            VersionIntegrity::plainReport(report, QStringLiteral("1.99.1")).split(QLatin1Char('\n'));
+        check(lines.value(0) == QStringLiteral("实例「1.99.1」完整性检查")
+                  && lines.value(1)
+                         == QStringLiteral("3120 个文件里 3 个要修：缺 2 个、坏 1 个"),
+              "★ ZN7 报告头两行：标题 + summary()",
+              lines.value(0) + QStringLiteral(" / ") + lines.value(1));
+        // 四组一个都不省（哪怕是 0 个要修的那两组）。
+        const auto hasLine = [&lines](const QString &needle) {
+            for (const QString &line : lines) {
+                if (line.contains(needle)) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        for (VersionIntegrity::Group group : VersionIntegrity::allGroups()) {
+            check(hasLine(VersionIntegrity::groupName(group) + QStringLiteral("（")),
+                  "★ ZN7 报告里四组都有一行（含 0 个要修的那两组）",
+                  VersionIntegrity::groupName(group));
+        }
+        check(hasLine(QStringLiteral("库（2 个要修）"))
+                  && hasLine(QStringLiteral("客户端（0 个要修）")),
+              "ZN7 组标题写成「名字（N 个要修）」");
+        check(hasLine(QStringLiteral("libA：缺少文件")),
+              "ZN7 逐条问题写成「名字：那句话」");
+        check(lines.contains(QStringLiteral("    D:/x/libA")),
+              "ZN7 路径缩进换一行（4 个空格）");
+
+        // 没跑起来那一档：只出两行。
+        VersionIntegrity::Report failed;
+        failed.error = QStringLiteral("读不出这个实例的 version.json，没法知道它该有哪些文件。");
+        const QString failedText = VersionIntegrity::plainReport(failed, QStringLiteral("X"));
+        check(failedText == QStringLiteral("实例「X」完整性检查\n") + failed.error,
+              "★ ZN7 没跑起来那一档：纯文本只有标题 + 那句 error", failedText);
+    }
+
     AppPaths::setMinecraftDir(originalDir);  // 收摊
 }
 

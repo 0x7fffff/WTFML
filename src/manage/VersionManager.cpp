@@ -822,23 +822,39 @@ void VersionManager::repairVersionFiles(const QString &versionId) {
     downloadManager->endBatch();
 }
 
-VersionIntegrity::Report VersionManager::checkInstanceIntegrity(const QString &versionId) const {
-    VersionIntegrity::Report report;
-
+QList<VersionIntegrity::ExpectedFile> VersionManager::integrityPlan(const QString &versionId,
+                                                                   QString *error) const {
+    if (error != nullptr) {
+        error->clear();
+    }
     // 和 repairVersionFiles() 同一条：**盘上那份**（走继承链合并）才是权威，不是 versionJsons
     // 那张内存表 —— 体检一个早就装好的实例恰恰最常发生在重开启动器之后，那时候表是空的。
     const QJsonObject versionJson = getVersionJson(versionId);
     if (versionJson.isEmpty()) {
-        report.error = tr("读不出这个实例的 version.json，没法知道它该有哪些文件。");
-        return report;
+        if (error != nullptr) {
+            *error = tr("读不出这个实例的 version.json，没法知道它该有哪些文件。");
+        }
+        return {};
     }
 
     // 两个解析结果由调用方递进去（VersionIntegrity::plan 不自己 new 一个 DownloadManager）：
     // 「哪些库、哪个资源索引」这件事只有一个出处 —— 就是装配侧用的这两个函数。
-    const QList<VersionIntegrity::ExpectedFile> files =
-        VersionIntegrity::plan(versionJson, versionId,
-                               downloadManager->extractLibraries(versionJson),
-                               downloadManager->extractAssetIndex(versionJson));
+    return VersionIntegrity::plan(versionJson, versionId,
+                                  downloadManager->extractLibraries(versionJson),
+                                  downloadManager->extractAssetIndex(versionJson));
+}
+
+VersionIntegrity::Report VersionManager::checkInstanceIntegrity(const QString &versionId) const {
+    VersionIntegrity::Report report;
+
+    // 清单那一半搬去了 integrityPlan()（界面那条后台路要单独取它）。这一条同步路照旧：
+    // 取清单 → 逐条比 → 只收不好的那些。
+    QString error;
+    const QList<VersionIntegrity::ExpectedFile> files = integrityPlan(versionId, &error);
+    if (!error.isEmpty()) {
+        report.error = error;
+        return report;
+    }
 
     report.checked = static_cast<int>(files.size());
     for (const VersionIntegrity::ExpectedFile &file : files) {

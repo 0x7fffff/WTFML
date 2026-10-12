@@ -1035,6 +1035,22 @@ public:
     /// 安全警告，光放 tooltip 里会有人一辈子看不到。
     static QString actionsHint();
 
+    // ---- 概览栏那颗「检查并修复」（coding plan §4.1，2026-10-12）----
+    //
+    // 和上面那颗「补全版本文件」是**同一件事的两半**：那一颗是"缺什么补什么"（直接开一批
+    // 下载），这一颗先**体检**（只算不装）—— 扫完在内容区开一整页把结论摊给用户看，页上
+    // 那颗「补齐缺失或损坏文件」再回到同一条补全路径。所以这一颗**只发信号**：清单、后台
+    // 线程、任务账本、报告页全在 MainWindow 那边，这一层连读盘都没有。
+    static QString integrityCheckButtonName() { return QStringLiteral("instanceIntegrityCheckButton"); }
+    static QString integrityCheckText() { return QStringLiteral("检查并修复"); }
+    static QString integrityCheckHint() {
+        return QStringLiteral("扫一遍这个实例的客户端、库和资源，把缺的、坏的分组列出来给你看，"
+                              "看完了再决定补不补。扫描只读盘，不动你的文件。");
+    }
+    static QString integrityCheckTooltip() {
+        return QStringLiteral("扫描在后台跑，期间可以接着用启动器。扫完会开一页报告。");
+    }
+
     // ---- 文件管理那八页的文案与 objectName（2026-09-26）----
 
     /// 快捷方式那九颗按钮：**两张按下标对齐的表**（按钮上的字 / 路径键）。
@@ -1547,6 +1563,14 @@ signals:
      * 这个实例这会儿装没装。这一层只报"用户想干这件事"。
      */
     void repairFilesRequested();
+
+    /**
+     * @brief 用户点了概览栏那颗「检查并修复」（coding plan §4.1）。
+     *
+     * **能不能开始、扫完怎么办，全由 MainWindow 说了算** —— 只有它知道有没有下载在跑、
+     * 这个实例这会儿装没装、任务账本怎么记。这一层只报"用户想做一次体检"。
+     */
+    void integrityCheckRequested();
 
     /**
      * @brief 用户在一个文件夹上按了「打开」（快捷方式那九颗按钮，或者某一页的「打开文件夹」）。

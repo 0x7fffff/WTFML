@@ -12,11 +12,36 @@
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonParseError>
+#include <QStringList>
 
 #include "../util/AppPaths.hpp"
 #include "InstanceFiles.hpp"
 
 namespace VersionIntegrity {
+
+QString groupName(Group group) {
+    // 这四个字是给人看的（报告那段纯文本 + 界面上那一列分组标题），改这里就是改两处。
+    switch (group) {
+    case Group::ClientJar:
+        return QStringLiteral("客户端");
+    case Group::Libraries:
+        return QStringLiteral("库");
+    case Group::AssetIndex:
+        return QStringLiteral("资源索引");
+    case Group::AssetObjects:
+        return QStringLiteral("资源对象");
+    }
+    return QStringLiteral("其它");
+}
+
+QList<Group> allGroups() {
+    // 顺序 = plan() 列清单的顺序 = 报告里该出现的顺序。**唯一出处**。
+    return {Group::ClientJar, Group::Libraries, Group::AssetIndex, Group::AssetObjects};
+}
+
+int groupIndex(Group group) {
+    return static_cast<int>(allGroups().indexOf(group));
+}
 
 QString Verdict::detail() const {
     // 每一个分支都要有一句人话：这一段直接被界面拿去显示（或者被验证工程拿去断言），
@@ -68,6 +93,44 @@ QString Report::summary() const {
         .arg(corrupt());
 }
 
+// ---------- 按组数（见头文件那段 NOTE：只数 problems）----------
+
+int Report::missingIn(Group group) const {
+    int count = 0;
+    for (const Verdict &v : problems) {
+        if (v.group == group && (v.status == Status::Missing || v.status == Status::Empty)) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+int Report::corruptIn(Group group) const {
+    // 和 corrupt() 一样：**别在别处按 status 再数一遍**。这里挑出这一组的条数，再减去其中
+    // 算"缺"的那部分 —— "缺"的判据只有 missingIn() 一处。
+    int count = 0;
+    for (const Verdict &v : problems) {
+        if (v.group == group) {
+            ++count;
+        }
+    }
+    return count - missingIn(group);
+}
+
+int Report::problemsIn(Group group) const {
+    return missingIn(group) + corruptIn(group);
+}
+
+QList<Verdict> Report::problemsInGroup(Group group) const {
+    QList<Verdict> out;
+    for (const Verdict &v : problems) {
+        if (v.group == group) {
+            out.append(v);
+        }
+    }
+    return out;
+}
+
 namespace {
 
 /// 资源对象那一档的判据（见头文件）：只看在不在、字节数对不对，**不哈希**。
@@ -90,7 +153,8 @@ void appendAssetObjects(QList<ExpectedFile> &files, const QJsonObject &objects) 
                       // ★ 判据里**故意**不带 sha1：见头文件里"资源对象不做哈希"那一段。
                       //   文件路径本身就是那个 sha1，再哈希一遍等于把同一件事算两遍，
                       //   而且是这 3000 个文件里最贵的那一步。
-                      QString(), object.value(QStringLiteral("size")).toVariant().toLongLong()});
+                      QString(), object.value(QStringLiteral("size")).toVariant().toLongLong(),
+                      Group::AssetObjects});
     }
 }
 
@@ -111,7 +175,8 @@ QList<ExpectedFile> plan(const QJsonObject &mergedJson, const QString &versionId
         files.append({QStringLiteral("客户端 jar"),
                       InstanceFiles::jarPath(versionId),
                       client.value(QStringLiteral("sha1")).toString(),
-                      client.value(QStringLiteral("size")).toVariant().toLongLong()});
+                      client.value(QStringLiteral("size")).toVariant().toLongLong(),
+                      Group::ClientJar});
     }
 
     // ② 库。**全体实例共用** <数据目录>/libraries 那一份（见 registerVersionFiles 里那段
@@ -121,7 +186,7 @@ QList<ExpectedFile> plan(const QJsonObject &mergedJson, const QString &versionId
             continue;
         }
         files.append({lib.name, AppPaths::libraryDir() + QLatin1Char('/') + lib.path, lib.sha1,
-                      lib.size});
+                      lib.size, Group::Libraries});
     }
 
     // ③ 资源索引那个 json。url / id 有一个是空的时候装配侧一句都不下（downloadAssets()
@@ -130,7 +195,7 @@ QList<ExpectedFile> plan(const QJsonObject &mergedJson, const QString &versionId
         files.append({QStringLiteral("资源索引 %1").arg(assetIndex.id),
                       AppPaths::assetsDir() + QStringLiteral("/indexes/") + assetIndex.id
                           + QStringLiteral(".json"),
-                      assetIndex.sha1, assetIndex.size});
+                      assetIndex.sha1, assetIndex.size, Group::AssetIndex});
     }
 
     // ④ 资源对象（索引里那份 objects 表）。这是这一层**唯一**的读盘：读的就是上面那条
@@ -156,6 +221,9 @@ Verdict check(const ExpectedFile &file) {
     verdict.label = file.label;
     verdict.path = file.path;
     verdict.expectedSize = file.size;
+    // ★ 分组一路带过来（plan() 在列清单那一刻就知道）：界面按组摊结果时就靠它，
+    //   不用回头去认 label 字符串（见头文件 Group 那段 NOTE）。
+    verdict.group = file.group;
 
     const QFileInfo info(file.path);
     if (!info.exists() || !info.isFile()) {
@@ -189,6 +257,29 @@ Verdict check(const ExpectedFile &file) {
         }
     }
     return verdict;  // status 保持 Ok
+}
+
+QString plainReport(const Report &report, const QString &instanceName) {
+    // 行尾统一用 \n（不走 QTextStream 的本地行尾）：这一份是往剪贴板/GitHub issue 里贴的，
+    // 在两台机器之间传的时候别掺进 \r 去。
+    QStringList lines;
+    lines << QStringLiteral("实例「%1」完整性检查").arg(instanceName);
+    // summary() 自己会把 error 原样回出来，所以这一行就把"没跑起来"说清楚了。
+    lines << report.summary();
+    if (!report.error.isEmpty()) {
+        return lines.join(QLatin1Char('\n'));
+    }
+    for (Group group : allGroups()) {
+        const QList<Verdict> problems = report.problemsInGroup(group);
+        // ★ 四组**一个都不省**，哪怕是"0 个要修"：省掉的话用户看到报告里没有"库"这一行，
+        //   分不清是"库没问题"还是"压根没查库"。这一条和 Report 里那段 NOTE 是一件事。
+        lines << QStringLiteral("%1（%2 个要修）").arg(groupName(group)).arg(problems.size());
+        for (const Verdict &v : problems) {
+            lines << QStringLiteral("  %1：%2").arg(v.label, v.detail());
+            lines << QStringLiteral("    %1").arg(v.path);
+        }
+    }
+    return lines.join(QLatin1Char('\n'));
 }
 
 }  // namespace VersionIntegrity

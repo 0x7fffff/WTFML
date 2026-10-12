@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <QAtomicInt>
 #include <QElapsedTimer>
 #include <QHash>
 #include <QJsonObject>
@@ -61,6 +62,11 @@
 // TaskDetailPage::Action —— onTaskDetailAction() 的参数类型。理由同上：**按值/按枚举用它
 // 就得 include**（前置声明说得出 `TaskDetailPage *`，说不出它的嵌套枚举）。
 #include "..\ui\TaskDetailPage.hpp"
+// IntegrityReportPage::Report / ::Action —— integrityReportForPage() 按值回一份，动作枚举
+// 也按值传。理由同上：按值用就得 include。
+#include "..\ui\IntegrityReportPage.hpp"
+// VersionIntegrity::Report —— 体检结论留一份在成员里（报告页每次开都重新喂一遍）。
+#include "manage/VersionIntegrity.hpp"
 
 class MainWindowUI;
 // 安装页那棵加载器树上的一个条目（loaderItem()）。这里只在私有函数的参数/返回值里按
@@ -407,6 +413,41 @@ private slots:
     /// 界面成什么样"：三道守卫（这个实例自己在忙 / 别的批次在跑 / 继承链不完整），
     /// 置 m_repairingInstanceId + 界面忙态，收尾在 onVersionDownloadFinished() 里。
     void repairInstanceFiles(const QString &versionId);
+
+    // ------------------------------------------------------------------
+    // 完整性检查与修复（coding plan §4.1，2026-10-12）
+    // ------------------------------------------------------------------
+    // 和上面那颗「补全文件」是同一件事的两半：那一颗缺什么补什么（直接开一批下载），这几
+    // 个先**体检**（只算不装，不联网、不改盘），扫完把结论摊在内容区一整页上，页上那颗
+    // 「补齐缺失或损坏文件」再回到 repairInstanceFiles() 那条现成的补全路。
+    //
+    // ★ 扫描在**后台线程**里跑（`QThread::create`）：清单在 UI 线程上取好（快），那几千条
+    //   比对（含几十兆 jar 的哈希）交给 worker，进度按 `invokeMethod` 排回主线程记进任务账本。
+    //   于是**扫描期间界面是活的**（coding plan §4.1：「扫描期间允许浏览别的页面」）。
+
+    /// 用户点了概览栏那颗「检查并修复」：起一趟体检（`TaskKind::Integrity` 那一项）。
+    ///
+    /// 三道守卫（和 repairInstanceFiles 同一套）：这个实例自己在忙 / 别的批次在跑 / 继承链
+    /// 不完整；再加一道"这个实例已经在扫了"。
+    void submitIntegrityCheck(const QString &versionId);
+    /// 这个实例是不是正在被体检（删除 / 改名那两处要按它拦一下，见 coding plan §4.1
+    /// 「同一实例不允许同时扫描和删除/改名」）。
+    bool integrityScanningVersion(const QString &versionId) const;
+    /// 开报告页（把最新那一份结论摊开）。扫完由 onIntegrityScanFinished() 排一轮调它。
+    void openIntegrityReportPage(const QString &versionId);
+    /// 把 `VersionIntegrity::Report` 翻成报告页认的那份形状（**唯一翻译点**，和
+    /// `taskCenterItem()` 翻任务账本是同一个路数）。
+    IntegrityReportPage::Report integrityReportForPage(const VersionIntegrity::Report &report,
+                                                       const QString &instanceName) const;
+    /// 用户点了报告页上的某颗动作（复制报告 / 补齐缺失或损坏文件）。
+    void onIntegrityReportAction(IntegrityReportPage::Action action);
+    /// 把这一份体检结论拼成纯文本放进剪贴板（走 `VersionIntegrity::plainReport()`）。
+    void copyIntegrityReport();
+    /// 后台那一趟体检报上来的进度（**一定在 UI 线程上**，worker 走 invokeMethod 排过来的）。
+    /// `groupIndex` 是"正在比哪一组"（0..3，见 `VersionIntegrity::allGroups()`）。
+    void onIntegrityScanProgress(int checked, int total, int groupIndex);
+    /// 体检跑完了（同样在 UI 线程上）。收任务、存结论、开报告页。
+    void onIntegrityScanFinished(const VersionIntegrity::Report &report);
     /// 「复制实例」（2026-09-28，用户原话「实例设置的概览里面加一条复制实例，点击以后让
     /// 用户选择复制到的文件夹，然后给定复制后的实例名称」）。
     ///
@@ -2683,6 +2724,25 @@ private:
     /// 任务详情页那一页（**建一次留着**，每次开页 `setTask()` 重摆 —— 和资源详情页 /
     /// 实例设置同一个路数）。`ui/` 的类，所以是个裸指针 + `deleteLater`（见析构那一段）。
     TaskDetailPage *m_taskDetailPage = nullptr;
+
+    // ---------- 完整性检查（coding plan §4.1，2026-10-12）----------
+    // 这几个成员和"那一趟体检"同寿。扫描在后台线程里跑，账本里记成 `TaskKind::Integrity`。
+    /// 正在跑的那一趟体检的任务号（无效号 = 没在体检）。
+    Tasks::TaskId m_integrityTaskId = Tasks::invalidTaskId();
+    /// 正在体检哪个实例（**空 = 没在体检**）—— `integrityScanningVersion()` 读它，删除 /
+    /// 改名那两处按它拦一下（§4.1「同一实例不允许同时扫描和删除/改名」）。
+    QString m_integrityScanVersionId;
+    /// 跑体检的那个线程（`QThread::create`，和 m_instanceIconThread 同一个路数）。
+    QThread *m_integrityThread = nullptr;
+    /// 关窗 / 收尾时置上，让后台那一趟早点收手（worker 每比几条看一眼它，见 .cpp）。
+    QAtomicInt m_integrityAbort{0};
+    /// 最新那一份体检结论（报告页每次开都重新喂它一遍）。和 `m_integrityReportVersionId`
+    /// 一起用：结论总是**跟着这个实例**走的，别把 A 的结论喂给 B 的报告页。
+    VersionIntegrity::Report m_integrityReport;
+    QString m_integrityReportVersionId;
+    /// 体检报告页（**建一次留着**，每次开页 `setReport()` 重摆 —— 和任务详情页 / 资源详情页
+    /// 同一个路数）。`ui/` 的类，所以是个裸指针 + `deleteLater`（见析构那一段）。
+    IntegrityReportPage *m_integrityReportPage = nullptr;
     // ★ 2026-09-27 加：会话号 → 那一份的实例显示名。**启动那一刻记一次**，退出时用掉、删掉。
     //
     // 唯一用途是 onGameFinished() 里那行日志的 `[实例名] ` 前缀 —— 那时会话已经从

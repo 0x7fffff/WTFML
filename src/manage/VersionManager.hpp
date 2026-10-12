@@ -231,6 +231,21 @@ public:
      */
     VersionIntegrity::Report checkInstanceIntegrity(const QString &versionId) const;
 
+    /**
+     * @brief 体检的**清单**（只列不查）：读 json + 解库/索引 + `VersionIntegrity::plan()`。
+     *
+     * 界面那条路要在**后台线程**里逐条比对（`VersionIntegrity::check()` 光读盘、不碰这个
+     * 对象），所以先把"该有哪些文件"在 UI 线程上算好 —— 这一步很快（一次索引 json 的读盘 +
+     * 几千条内存条目），真正花时间的是拿清单去哈希那几十兆的 jar 和库。把清单拎出来，
+     * 后台那一趟就**一个成员都碰不到**（`check()` 是纯函数），也就不用给这个类加锁。
+     *
+     * @param versionId 实例 id。
+     * @param error     出不来时写一句**给人看**的话（和 checkInstanceIntegrity 里那句同一个出处）。
+     * @return 清单（顺序：jar → 库 → 资源索引 → 资源对象）；error 非空时是空表。
+     */
+    QList<VersionIntegrity::ExpectedFile> integrityPlan(const QString &versionId,
+                                                        QString *error) const;
+
     /// 把"接着干下一件事"排到下一轮事件循环里执行，并给这一步套上异常兜底。
     ///
     /// **什么时候必须用它**：从异步回调里往回接续的时候 —— 网络回复的槽、安装器进程的信号、

@@ -662,16 +662,16 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         grid->addWidget(cell, row++, 0, 1, 2);
     }
 
-    // ---------- 四颗「对整个实例动手」的按钮（2026-09-28 改成一张三列网格）----------
+    // ---------- 五颗「对整个实例动手」的按钮（2026-09-28 改成一张三列网格）----------
     //
-    // 导出整合包 / 检查更新 / 复制实例 / 删除实例 —— 原来这四颗**各占一整行**（一颗按钮 +
-    // 它自己那句解释，一条一条摞下来）。用户 2026-09-28 原话「实例设置里面的所有按钮做成
-    // 恒定宽度和高度的，每一行三个，间距适中且左右能充分利用」，于是它们收成一张网格：
-    // 前三颗一行、第四颗单独一行，每格还是"按钮 + 它那句解释"（**解释一个字都没丢**，
-    // 只是从整幅宽缩成三分之一宽，靠 `setWordWrap(true)` 自己折行）。
+    // 导出整合包 / 检查更新 / 检查并修复 / 复制实例 / 删除实例 —— 原来头四颗**各占一整行**
+    // （一颗按钮 + 它自己那句解释，一条一条摞下来）。用户 2026-09-28 原话「实例设置里面的
+    // 所有按钮做成恒定宽度和高度的，每一行三个，间距适中且左右能充分利用」，于是它们收成
+    // 一张网格：每行三颗，每格还是"按钮 + 它那句解释"（**解释一个字都没丢**，只是从整幅宽
+    // 缩成三分之一宽，靠 `setWordWrap(true)` 自己折行）。
     //
-    // NOTE: 四颗一行摆三颗 ⇒ 最后那一行只填得满第一格。**空着的那两格不摊开**是写意的
-    //       （见 layoutActionCells() 里那段）：四颗里有一颗比别人宽就不是"恒定"了。
+    // NOTE: 五颗一行摆三颗 ⇒ 最后那一行只填得满前两格。**空着的那一格不摊开**是写意的
+    //       （见 layoutActionCells() 里那段）：五颗里有一颗比别人宽就不是"恒定"了。
     auto *actionGrid = newActionGrid();
     QList<QWidget *> actionCells;
     {
@@ -756,6 +756,31 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         actionCells.append(cell);
     }
 
+    // ---------- 「检查并修复」（coding plan §4.1，2026-10-12）----------
+    //
+    // 摆在「检查更新」旁边：两颗都是"检查…"这一档（点了之后**会出现一个结果**，而不是改一格
+    // 设置就写盘），只是一颗查的是**模组有没有新版本**、这一颗查的是**游戏文件齐不齐**。
+    //
+    // NOTE: 和「检查更新」同一个形状 —— 这一颗**只发信号**。清单、后台线程、任务账本、
+    //       报告页全在 MainWindow 那边（见 .hpp 里 integrityCheckText 那段）。
+    {
+        auto *cell = new QWidget(this);
+        auto *column = new QVBoxLayout(cell);
+        column->setContentsMargins(0, 0, 0, 0);
+        column->setSpacing(4);
+        auto *button = new QPushButton(integrityCheckText(), cell);
+        button->setObjectName(integrityCheckButtonName());
+        button->setToolTip(integrityCheckTooltip());
+        connect(button, &QPushButton::clicked, this,
+                [this]() { emit integrityCheckRequested(); });
+        prepareActionButton(button);
+        column->addWidget(button);
+        auto *hint = new QLabel(integrityCheckHint(), cell);
+        hint->setWordWrap(true);
+        column->addWidget(hint);
+        actionCells.append(cell);
+    }
+
     // ---------- 「复制实例」（2026-09-28）----------
     //
     // 用户原话：「实例设置的概览里面加一条复制实例，点击以后让用户选择复制到的文件夹，
@@ -814,7 +839,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         actionCells.append(cell);
     }
 
-    // 四格攒齐了，一次性摆成"每行三颗"。**必须摆在这一段之后**：那四格是在上面四个
+    // 五格攒齐了，一次性摆成"每行三颗"。**必须摆在这一段之后**：那五格是在上面五个
     // 作用域里各自建出来的，layoutActionCells() 要的是完整的一份。
     layoutActionCells(actionGrid, actionCells);
     grid->addLayout(actionGrid, row++, 0, 1, 2);

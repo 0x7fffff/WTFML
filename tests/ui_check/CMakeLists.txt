@@ -107,6 +107,8 @@ add_executable(ui_check main.cpp
                                 # 那一步报 `undefined reference to TaskCenterPanel::…`。
                                 ${REPO_ROOT}/ui/TaskCenterPanel.cpp
                                 ${REPO_ROOT}/ui/TaskDetailPage.cpp
+                                # 完整性检查报告页（2026-10-12）：MainWindowUI.cpp 用到它那几个名字。
+                                ${REPO_ROOT}/ui/IntegrityReportPage.cpp
                                 ${REPO_ROOT}/ui/WindowChrome.cpp)
 
 # InstanceFiles 那一层要的（`VersionInheritance::parentIdOf` / `maxDepth`）——

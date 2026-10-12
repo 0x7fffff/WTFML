@@ -1607,6 +1607,52 @@ public:
     }
 
     // ------------------------------------------------------------------
+    // 完整性检查报告页（coding plan §4.1，2026-10-12）
+    // ------------------------------------------------------------------
+    // 这一页是**体检结论**摊开看的那一块：一句总述 + 按「客户端 / 库 / 资源索引 / 资源对象」
+    // 分的四组 + 一整排按钮（只查看 / 复制报告 / 补齐缺失或损坏文件）。形状照任务详情页
+    // （同一个 `execPage()` 覆盖层路数），名字和文案按那一套来。
+    static QString integrityReportPageName() { return QStringLiteral("integrityReportPage"); }
+    static QString integrityReportSummaryName() { return QStringLiteral("integrityReportSummary"); }
+    static QString integrityReportErrorName() { return QStringLiteral("integrityReportError"); }
+    /// 第几组的标题那一行（`客户端（2 个要修）`）。
+    static QString integrityReportGroupName(int index) {
+        return QStringLiteral("integrityReportGroup%1").arg(index);
+    }
+    /// 第几组里逐条问题的那一块（`m_body` 里那一组自己的容器）。
+    static QString integrityReportGroupBodyName(int index) {
+        return QStringLiteral("integrityReportGroupBody%1").arg(index);
+    }
+    /// 某一条问题的那一行（`label：detail` + 换行缩进的路径）。index 是它在整页里的序号。
+    static QString integrityReportRowName(int index) {
+        return QStringLiteral("integrityReportRow%1").arg(index);
+    }
+    static QString integrityReportCopyName() { return QStringLiteral("integrityReportCopy"); }
+    static QString integrityReportRepairName() { return QStringLiteral("integrityReportRepair"); }
+    static QString integrityReportCloseName() { return QStringLiteral("integrityReportClose"); }
+
+    /// 一组标题怎么写：`客户端（2 个要修）`。
+    static QString integrityReportGroupTitleText(const QString &name, int problems) {
+        return QStringLiteral("%1（%2 个要修）").arg(name).arg(problems);
+    }
+    /// 一组里"缺几个、坏几个"那一句。**和总述用的是同一个分法**（见 VersionIntegrity）。
+    static QString integrityReportGroupDetailText(int missing, int corrupt) {
+        return QStringLiteral("缺 %1 个、坏 %2 个").arg(missing).arg(corrupt);
+    }
+    /// 一条问题那一行：`名字：那句话`，路径缩进换一行。路径单独一行是因为它可能很长。
+    static QString integrityReportRowText(const QString &label, const QString &detail,
+                                          const QString &path) {
+        return QStringLiteral("%1：%2\n    %3").arg(label, detail, path);
+    }
+    /// 报告页那一句出错时前面加的标题。
+    static QString integrityReportErrorTitleText() { return QStringLiteral("体检没跑起来"); }
+    /// 四组一条问题都没有时写的那句（比留一块空白强，也让验证工程分得清）。
+    static QString integrityReportAllGoodText() { return QStringLiteral("这一组没有要修的文件。"); }
+    static QString integrityReportCopyText() { return QStringLiteral("复制报告"); }
+    static QString integrityReportRepairText() { return QStringLiteral("补齐缺失或损坏文件"); }
+    static QString integrityReportCloseText() { return QStringLiteral("只查看"); }
+
+    // ------------------------------------------------------------------
     // 实例页左栏那张「游戏文件夹」列表（2026-09-24 改造：两行式 + 行尾齿轮菜单）
     // ------------------------------------------------------------------
     // 用户原话：「显示的时候和版本下载那里类似，上面（版本名同样的地方）写 customname，

@@ -48,12 +48,40 @@
 
 namespace VersionIntegrity {
 
+/// 这一条属于报告里的哪一组（coding plan §4.1：「结果按**客户端 / 库 / 资源索引 / 资源对象**
+/// 分组」）。
+///
+/// ★ 分组是 `plan()` **在列清单那一刻就知道**的事（它一段一段地列：先 jar、再库、再索引、
+///   最后那几千个资源对象），所以它由这一层记下来、一路带到 `Verdict` 上去 —— 而不是让界面
+///   回头去认 `label` 字符串的前缀（"资源索引 5" 这种名字是给人看的，拿它当判据的话，
+///   哪天把那个字改一下，分组就静悄悄地错了）。
+enum class Group {
+    ClientJar,     ///< 客户端 jar（`downloads.client`）—— 一个实例最多一条
+    Libraries,     ///< 库（实例之间共用 `<数据目录>/libraries` 那一份）
+    AssetIndex,    ///< 资源索引那个 json
+    AssetObjects,  ///< 资源对象（索引里那份 objects 表，几千条）
+};
+
+/// 这一组的名字（`客户端` / `库` / `资源索引` / `资源对象`）。**唯一出处** —— 报告那句
+/// 纯文本和界面上的分组标题都读它。
+QString groupName(Group group);
+
+/// 四组，按报告里该出现的**顺序**（客户端 → 库 → 资源索引 → 资源对象）。**唯一出处**：
+/// 界面那一列和报告那段纯文本都照它排，不加这个的话两处各写一遍顺序、迟早有一个是反的。
+QList<Group> allGroups();
+
+/// @p group 在 `allGroups()` 里的下标（0..3）。**唯一出处** —— 界面把"正在比哪一组"翻成
+/// "第几步"就靠它。别处别再按枚举值硬转一次：枚举顺序和 `allGroups()` 的顺序**今天**恰好
+/// 一致，但那是巧合、不是约定，改成别的顺序时硬转的那几处会静悄悄地错。
+int groupIndex(Group group);
+
 /// 体检清单里的一条：一个"本该在盘上"的文件，连同比它用的判据。
 struct ExpectedFile {
     QString label;      ///< 给用户看的名字（`客户端 jar` / 库坐标 / `资源索引 5` / `资源对象`）
     QString path;       ///< 绝对路径
     QString sha1;       ///< 空 = 这一条没有哈希判据（只比在不在、字节数）
     qint64 size = -1;   ///< <= 0 = 判据里没有字节数这一档
+    Group group = Group::ClientJar;  ///< 归报告里哪一组（见 Group）
 };
 
 /// 一条比对结论。
@@ -74,6 +102,7 @@ struct Verdict {
     QString path;
     qint64 actualSize = -1;    ///< 盘上真实的字节数（Missing / Unreadable 时是 -1）
     qint64 expectedSize = -1;  ///< 判据里那个字节数（<= 0 = 没有）
+    Group group = Group::ClientJar;  ///< 归报告里哪一组（从 ExpectedFile 带过来的）
 
     bool ok() const { return status == Status::Ok; }
     /// 一句话（`缺少文件` / `0 字节（下载写了一半留下的）` / `大小 123 字节，应为 456` /
@@ -97,6 +126,20 @@ struct Report {
     /// 一句话结论（`3120 个文件都完好` / `3120 个文件里 2 个要修：缺 1 个、坏 1 个`）。
     /// error 非空时就把那句 error 原样回出去。
     QString summary() const;
+
+    // ---------- 按组数（coding plan §4.1 的"结果分组"）----------
+    // NOTE: 这三条只数 `problems`（好的那些压根不在 Report 里）—— 所以"库里缺 0 个"说的是
+    //       "库里没有要修的东西"，不是"这个实例没有库"。界面上的分组行照这个意思写。
+
+    /// @p group 这一组里缺的条数（Missing + Empty）。
+    int missingIn(Group group) const;
+    /// @p group 这一组里坏的条数（WrongSize + WrongSha1 + Unreadable）。
+    int corruptIn(Group group) const;
+    /// @p group 这一组里要修的条数（缺 + 坏）。
+    int problemsIn(Group group) const;
+
+    /// 这一组的逐条问题（按 `problems` 原来的顺序）。
+    QList<Verdict> problemsInGroup(Group group) const;
 };
 
 /// @brief 算出这一份版本"该有哪些文件"。
@@ -116,5 +159,12 @@ QList<ExpectedFile> plan(const QJsonObject &mergedJson, const QString &versionId
 /// @note 哈希走 DownloadManager::calculateFileSha1()，和装配侧是**同一个**算法 ——
 ///       这里不另写一份读文件的循环。
 Verdict check(const ExpectedFile &file);
+
+/// @brief 「复制报告」那一份纯文本（coding plan §4.1）。按组排（顺序见 allGroups()），
+///        每组先一句"几个要修"，再逐条列「名字：那句话」+ 换行缩进的那个路径。
+/// @param instanceName 实例名，写进第一行（报告本身不记名字，由调用方给）。
+/// @note 和 summary() 一样，**这是给人看的纯文本**，不是结构化数据；界面把这一份塞进剪贴板，
+///       验证工程也照它断言。error 非空时只出两行（标题 + 那句 error）。
+QString plainReport(const Report &report, const QString &instanceName);
 
 }  // namespace VersionIntegrity
