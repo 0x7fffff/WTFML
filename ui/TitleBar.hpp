@@ -58,6 +58,7 @@
 
 class QHBoxLayout;
 class TitleBarButton;
+class QVariantAnimation;
 
 /**
  * @brief 顶上那条自己画的标题栏。
@@ -241,6 +242,10 @@ private:
     QColor m_hoverInk;
     QColor m_baseColor = Qt::transparent;
     QColor m_ink;
+    QVariantAnimation *m_hoverAnimation = nullptr;
+    QVariantAnimation *m_currentAnimation = nullptr;
+    qreal m_hoverProgress = 0.0;
+    qreal m_currentProgress = 0.0;
     bool m_hovered = false;
     /// 当前这一页（只有导航按钮会置位）。
     bool m_current = false;

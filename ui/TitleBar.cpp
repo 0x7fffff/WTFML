@@ -7,14 +7,17 @@
 
 #include "TitleBar.hpp"
 
+#include "Animations.hpp"
 #include "Theme.hpp"   // 条底色（Theme::Part::TitleBar）、危险操作的红（Theme::dangerColor()）
 #include "VersionIcons.hpp"
 
+#include <QEasingCurve>
 #include <QFontMetrics>
 #include <QHBoxLayout>
 #include <QPaintEvent>
 #include <QPainter>
 #include <QPalette>
+#include <QVariantAnimation>
 
 namespace {
 
@@ -108,6 +111,10 @@ constexpr int kNavGroupLeftMargin = 2 * kButtonSize + kWindowButtonsRightMargin;
 constexpr int kCurrentMarkHeight = 2;
 /// 那条横线左右各缩进多少（贴着字的宽度不好看，缩一点像"这一格被标住了"）。
 constexpr int kCurrentMarkInset = 10;
+/// 顶栏的状态反馈要比整页转场更短：鼠标已经到按钮上时，120 ms 足够看见渐变又不会拖手。
+constexpr int kHoverAnimationMs = 120;
+/// 当前页下划线略慢一拍，让它和 180 ms 的页面转场在同一时刻收住。
+constexpr int kCurrentAnimationMs = 180;
 /// 那两颗窗口按钮的字形边长。18 ⇒ `VersionIcons` 那套 22%~78% 的边距正好给出 10 px 的笔画跨度，
 /// 和系统那两颗按钮上的字形差不多大。
 constexpr int kGlyphSize = 18;
@@ -125,6 +132,14 @@ QFont enlargedFont(const QFont &base, qreal pointDelta, int pixelDelta) {
         out.setPixelSize(out.pixelSize() + pixelDelta);
     }
     return out;
+}
+
+QColor blendedColor(const QColor &from, const QColor &to, qreal progress) {
+    const qreal t = qBound(0.0, progress, 1.0);
+    return QColor::fromRgbF(from.redF() + (to.redF() - from.redF()) * t,
+                            from.greenF() + (to.greenF() - from.greenF()) * t,
+                            from.blueF() + (to.blueF() - from.blueF()) * t,
+                            from.alphaF() + (to.alphaF() - from.alphaF()) * t);
 }
 
 // ★ 条的颜色原来是这儿的一个 `barColor()`：把窗口底色压暗一档（`darker(105)`，和底栏
@@ -182,6 +197,24 @@ TitleBarButton::TitleBarButton(Glyph glyph, const QColor &hoverColor, const QCol
     setMouseTracking(true);
     // 进了条上的按钮不该把键盘焦点从内容区抢走（条上没有可以用键盘操作的东西）。
     setFocusPolicy(Qt::NoFocus);
+
+    m_hoverAnimation = new QVariantAnimation(this);
+    m_hoverAnimation->setDuration(kHoverAnimationMs);
+    m_hoverAnimation->setEasingCurve(QEasingCurve::OutCubic);
+    connect(m_hoverAnimation, &QVariantAnimation::valueChanged, this,
+            [this](const QVariant &value) {
+                m_hoverProgress = value.toReal();
+                update();
+            });
+
+    m_currentAnimation = new QVariantAnimation(this);
+    m_currentAnimation->setDuration(kCurrentAnimationMs);
+    m_currentAnimation->setEasingCurve(QEasingCurve::OutCubic);
+    connect(m_currentAnimation, &QVariantAnimation::valueChanged, this,
+            [this](const QVariant &value) {
+                m_currentProgress = value.toReal();
+                update();
+            });
 }
 
 void TitleBarButton::setBaseColor(const QColor &color) {
@@ -205,18 +238,43 @@ void TitleBarButton::setCurrent(bool current) {
         return;
     }
     m_current = current;
-    update();
+    const qreal target = current ? 1.0 : 0.0;
+    m_currentAnimation->stop();
+    if (!Anim::enabled() || !isVisible()) {
+        m_currentProgress = target;
+        update();
+        return;
+    }
+    m_currentAnimation->setStartValue(m_currentProgress);
+    m_currentAnimation->setEndValue(target);
+    m_currentAnimation->start();
 }
 
 bool TitleBarButton::event(QEvent *event) {
     switch (event->type()) {
     case QEvent::HoverEnter:
         m_hovered = true;
-        update();
+        m_hoverAnimation->stop();
+        if (!Anim::enabled()) {
+            m_hoverProgress = 1.0;
+            update();
+        } else {
+            m_hoverAnimation->setStartValue(m_hoverProgress);
+            m_hoverAnimation->setEndValue(1.0);
+            m_hoverAnimation->start();
+        }
         break;
     case QEvent::HoverLeave:
         m_hovered = false;
-        update();
+        m_hoverAnimation->stop();
+        if (!Anim::enabled()) {
+            m_hoverProgress = 0.0;
+            update();
+        } else {
+            m_hoverAnimation->setStartValue(m_hoverProgress);
+            m_hoverAnimation->setEndValue(0.0);
+            m_hoverAnimation->start();
+        }
         break;
     default:
         break;
@@ -228,11 +286,11 @@ void TitleBarButton::paintEvent(QPaintEvent *) {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing, true);
     // 底：不悬停时一般是全透（条自己的底色透上来），悬停时铺那一格色。
-    const QColor base = m_hovered ? m_hoverColor : m_baseColor;
+    const QColor base = blendedColor(m_baseColor, m_hoverColor, m_hoverProgress);
     if (base.alpha() > 0) {
         p.fillRect(rect(), base);
     }
-    const QColor ink = m_hovered ? m_hoverInk : m_ink;
+    const QColor ink = blendedColor(m_ink, m_hoverInk, m_hoverProgress);
     if (m_glyph == Glyph::Text) {
         // 导航按钮：一行字 + （当前那一颗）底下一条横线。
         QFont labelFont = font();
@@ -240,10 +298,13 @@ void TitleBarButton::paintEvent(QPaintEvent *) {
         p.setFont(labelFont);
         p.setPen(ink);
         p.drawText(rect(), Qt::AlignCenter, text());
-        if (m_current) {
-            p.fillRect(QRect(kCurrentMarkInset, height() - kCurrentMarkHeight,
-                             qMax(0, width() - 2 * kCurrentMarkInset), kCurrentMarkHeight),
-                       ink);
+        const int fullMarkWidth = qMax(0, width() - 2 * kCurrentMarkInset);
+        const int markWidth = qRound(fullMarkWidth * m_currentProgress);
+        if (markWidth > 0) {
+            QColor markInk = ink;
+            markInk.setAlphaF(markInk.alphaF() * m_currentProgress);
+            p.fillRect(QRect((width() - markWidth) / 2, height() - kCurrentMarkHeight,
+                             markWidth, kCurrentMarkHeight), markInk);
         }
         return;
     }

@@ -47,6 +47,12 @@ const int kPageMargin = MainWindowUI::pageMargin();
 /// 左右两栏之间的间距。
 constexpr int kColumnSpacing = 12;
 
+/// 宽屏下“选择/导航”侧栏不再按比例无限长大。默认 900 px 窗口里各栏还没碰到这些上限，
+/// 所以原来的 7:3 / 3:7 / 2:8 比例完全保留；只有窗口明显拉宽后，多出来的空间才全部交给
+/// 真正承载内容的那一栏。
+constexpr int kNarrowSideMaxWidth = 260;
+constexpr int kRichSideMaxWidth = 420;
+
 // ---------- 各处手调的尺寸 ----------
 // 集中放这里是为了"改外观只需看这一处"：这些数值是照着当前样式（Fusion）的控件度量
 // 调出来的，换背景色/字体/控件高度时就是这一组要重估。散在各自的构建代码里每次都得
@@ -140,6 +146,14 @@ TwoColumns buildTwoColumnPage(QWidget *page, const QString &tab) {
     columns.left = makeColumn(MainWindowUI::leftColumnName(tab),
                               tab == QLatin1String("home"));
     columns.right = makeColumn(MainWindowUI::rightColumnName(tab), false);
+    if (tab == QLatin1String("home")) {
+        columns.right.widget->setMaximumWidth(kRichSideMaxWidth);
+    } else if (tab == QLatin1String("instance")) {
+        columns.left.widget->setMaximumWidth(kRichSideMaxWidth);
+    } else {
+        // 下载 / 设置左栏都只是短分类；宽屏时封顶，避免它们变成大片空白。
+        columns.left.widget->setMaximumWidth(kNarrowSideMaxWidth);
+    }
     row->addWidget(columns.left.widget, MainWindowUI::leftColumnStretch(tab));
     row->addWidget(columns.right.widget, MainWindowUI::rightColumnStretch(tab));
     return columns;

@@ -191,7 +191,7 @@ void dropEffect(QWidget *widget) {
  *
  *   * 页面自己画的那些文字（「游戏文件夹」「实例列表」）**每一拍都在动**；
  *   * **子控件里的那些行**整整一发一动不动地停在 +27 设备像素（= `pageRiseDistance()`
- *     18 逻辑像素 × dpr 1.5）、浓淡停在起手那个 0.65（黑字压在白底上 = 亮度 90，
+ *     当时的 18 逻辑像素 × dpr 1.5）、浓淡停在当时的起手值 0.65（黑字压在白底上 = 亮度 90，
  *     帧帧都是 90）—— 也就是说那一块屏幕显示的是**这一发第一帧的合成结果**，
  *     跑完之后效果一摘才"啪"地对齐。用户看到的就是「瞬移」。
  *
@@ -408,7 +408,7 @@ void runProgress(QObject *owner, QWidget *repaintTarget, qreal from, qreal to, i
     //       1600x1000: (0)画 (64)0.43 (1)画 (14)0.65 (1)画 (14)0.78 (1)画 (14)0.89 ...
     //
     //   也就是：切过去之后**先定住 23~64 ms**（一帧都没动），第一拍一到就直接跳到 0.43 ——
-    //   这一发一共才 `appearMs()`（200 ms），等于五分之一是跳过去的。后面的每一拍都稳稳
+    //   当时这一发一共 `appearMs()`（200 ms），等于五分之一是跳过去的。后面的每一拍都稳稳
     //   14~16 ms（帧率其实好好的）。用户说的"卡"就是这个。
     //
     // 【修法】**不按墙上时钟算，每一拍推一档**。定时器摆在 `stepMs` 上，每响一次
@@ -419,7 +419,7 @@ void runProgress(QObject *owner, QWidget *repaintTarget, qreal from, qreal to, i
     //
     //   ★ 同一天下午：这一条修完用户还是说"像是从下面瞬移上去的，没有过渡"。再量真帧，
     //     还剩两个毛病：**两拍会挤在一起**、**后面几拍几乎不动**。于是同一天又补了三刀：
-    //     曲线换 `OutSine`、时长 130 → 200（拍到 13 拍）、步进器在"离上一拍太近"的那一拍上
+    //     曲线换 `OutSine`、时长当时由 130 → 200（拍到 13 拍）、步进器在"离上一拍太近"的那一拍上
     //     原地丢掉（单发链试过，慢一倍，见下面那一段）。
     //
     // 【为什么动画对象留着、却不 start】`setCurrentTime()` 在"停着"的状态下照样算值、
@@ -481,7 +481,7 @@ void runProgress(QObject *owner, QWidget *repaintTarget, qreal from, qreal to, i
         const bool last = state->index >= state->steps;
         if (last) {
             // 最后一拍**直接落到终点**：`steps * stepMs` 和时长不一定正好相等
-            // （200 / 16 = 13 拍 = 208 ms），差那 8 ms 不能让这一发停在 0.999 上。
+            // （例如 180 / 16 = 11 拍），余数不能让这一发停在 0.999 上。
             animation->setCurrentTime(animation->duration());
         } else {
             animation->setCurrentTime(
