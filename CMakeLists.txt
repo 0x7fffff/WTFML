@@ -137,6 +137,7 @@ set(SOURCE_FILES
     ui/MotdText.cpp
     ui/ToggleSwitch.cpp
     ui/TaskCenterPanel.cpp
+    ui/TaskDetailPage.cpp
     ui/GroupDialog.cpp
     ui/GroupListDelegate.cpp
     ui/InstanceSettingsDialog.cpp

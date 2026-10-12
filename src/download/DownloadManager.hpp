@@ -412,6 +412,45 @@ public:
     ///   完成"而文件还在路上。所以每一条回复都记着"我是第几批发出去的"，不属于当前这一批
     ///   的那几条只收连接、不记账、不发信号（见 m_batchGeneration）。
     void abandonBatch();
+
+    /// **用户点了取消**：停止发新作业、把在飞的那几条真的掐掉、保留已经原子提交的文件。
+    ///
+    /// 和 `abandonBatch()` 的两点差别，都是"取消"这个词要求的：
+    ///   · `abandonBatch()` 只管"之后不再报"，**已经在飞的那几百 MB 照样跑完**（它是给内部
+    ///     异常兜底用的，那时候多的是要收拾的事，不差这一件）。取消不行 —— 用户按的就是
+    ///     "别下了"，而且那几条会让 `isBusy()` 一直是 true ⇒ 底栏那格一直"在忙"、之后再点
+    ///     一次下载会被"已有下载任务正在进行"顶回来。
+    ///   · `abandonBatch()` 不动代次，所以已经在飞的那几条回来时**仍然算当前这一批**的账。
+    ///     取消要加代次：那几条是 `abort()` 出来的，回来的错误是 `Operation canceled` ——
+    ///     算进失败清单的话，用户看到的是"取消了，然后有 24 个文件下载失败"。
+    ///
+    /// ★ **一个字都不删**：已经落盘的（`QSaveFile` 原子提交过的那几个）留在原处。取消不是
+    ///   回滚，下一趟重下时 `fileAlreadyValid()` 会按 sha1/字节数把它们跳过。
+    ///
+    /// NOTE: 它会**同步**触发 `finished`（`abort()` 在某些后端是同步回调的），所以先加代次
+    ///       再 abort —— 那些回调走的就是"这一条不属于当前批次"那条路。
+    void cancelBatch();
+
+    /// 失败作业要重做时需要的**全部**东西（见 `failedJobs()`）。够 `downloadFile()` 再喂一遍。
+    struct FailedJob {
+        /// 这一条该从哪儿下（失败那一次用的那个地址）。
+        QString url;
+        /// 落到哪个**绝对**路径。
+        QString destinationPath;
+        /// 空 = 这一条本来就没有 sha1 可核。
+        QString expectedSha1;
+        /// -1 = 调用方也不知道该多大。
+        qint64 expectedSize = -1;
+        /// 走镜像时留着的那条退路（空 = 没有）。重试时照样带着。
+        QString officialUrl;
+    };
+
+    /// **上一次收尾的那一批**里失败的那几条。`beginBatch()` 会清空它。
+    ///
+    /// 只留"够重试用的那一份"，不留整个 `PendingJob`：重试时校验档一律按 SizeAndSha1 重新
+    /// 发（失败的那几个在盘上根本不存在，档位只影响 `fileAlreadyValid()` 那一次问话）。
+    QList<FailedJob> failedJobs() const;
+
     bool isBusy() const;
     DownloadStats stats() const;
 
@@ -563,6 +602,13 @@ private:
     int m_failedJobs = 0;
     int m_skippedJobs = 0;
     QStringList m_failedPaths;
+    /// 和 m_failedPaths **一一对应**的那一份详细信息（多了 url / sha1 / 字节数 / 退路），
+    /// 只给"重试失败的那几条"用 —— 见 failedJobs()。beginBatch() 清空。
+    ///
+    /// NOTE: 为什么不复用 m_failedPaths：那一份是给**日志和界面**看的（"哪些文件没下来"），
+    ///       序号也是按它算的；两张表合成一张的话，"重试"就得从一条路径反推出当初是拿哪个
+    ///       地址、按什么 sha1 下的 —— 推不出来（同一个目标路径可能来自镜像或官方两条地址）。
+    QList<FailedJob> m_failedJobInfos;
     QString m_currentFile;
     bool m_batchOpen = false;
     bool m_batchEmitted = false;

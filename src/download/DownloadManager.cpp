@@ -400,6 +400,7 @@ void DownloadManager::beginBatch() {
     m_failedJobs = 0;
     m_skippedJobs = 0;
     m_failedPaths.clear();
+    m_failedJobInfos.clear();
     m_currentFile.clear();
     m_batchEmitted = false;
     m_batchOpen = true;
@@ -424,6 +425,34 @@ void DownloadManager::abandonBatch() {
     m_batchEmitted = true;
     m_currentFile.clear();
 }
+
+void DownloadManager::cancelBatch() {
+    // 1. 还排着队的**不发了**。几百个作业留着的话，用户按了取消之后它们会一批批地继续
+    //    发出去（每一次有回复收尾都会泵一遍队列），看着就是"取消了还在下"。
+    m_pendingJobs.clear();
+    // 2. 封口 + 加代次。这两句合起来的**唯一**意思是"这一批到此为止、之后回来的所有回复
+    //    都与我无关"：m_batchEmitted 挡住收尾那一次发射，代次让已经在飞的那几条
+    //    （下面 abort() 逼回来的那些）在 `onDownloadReplyFinished` / `handleDownloadError`
+    //    里被认成 stale —— 不记账、不进失败清单、不发 downloadFinished、
+    //    **也不退回官方地址重发**（retryWithOfficialUrl 那头看的就是同一件事）。
+    m_batchOpen = false;
+    m_batchEmitted = true;
+    ++m_batchGeneration;
+    m_currentFile.clear();
+    // 3. ★ 已经在飞的那几条**真的掐掉**。必须在加完代次之后：abort() 会（在某些后端上同步）
+    //    触发 finished，那些回调走的正是上面那句"stale 那条路"。
+    //    NOTE: 先拷一份键再 abort —— 回调里会 `activeDownloads.remove(reply)`，边遍历边改
+    //          Qt 的哈希表是未定义行为。回复本身不会被立刻 delete（收尾那几步都走
+    //          `deleteLater()`），所以这一圈里那些指针一直是有效的。
+    const QList<QNetworkReply *> inflight = activeDownloads.keys();
+    for (QNetworkReply *reply : inflight) {
+        reply->abort();
+    }
+    // 4. 队列空了、批次封口了、在飞的那几条也被逼着收尾了 —— 这时候 isBusy() 必然回 false，
+    //    界面（底栏那一格、下载页那几颗按钮）下一轮就会解禁。
+}
+
+QList<DownloadManager::FailedJob> DownloadManager::failedJobs() const { return m_failedJobInfos; }
 
 bool DownloadManager::isBusy() const {
     // 队列也得算："还排着几百个没发出去"当然还是忙 —— 漏掉它的表现是界面解禁、
@@ -664,6 +693,23 @@ void DownloadManager::handleDownloadError(QNetworkReply *reply, const QString &e
         return;
     }
     m_failedJobs++;
+    // ★ 这一条**也是重试要的那一份**（§4.2「失败任务保存失败文件列表和原始 URL 来源，重试
+    //   只重做失败项」）。在这里登记而不是在 scheduleFile()：只有真失败了的才需要重做 ——
+    //   排进去的几千个作业里绝大多数是好的，全留着等于把整批再存一份。
+    //   NOTE: 那几张按 reply 存的小表（expectedSha1s / expectedSizes / m_officialFallbacks）
+    //         在这**之后**才被摘掉（onDownloadReplyFinished 的收尾），所以这里读得到。
+    //         同一份路径失败两次（镜像一次、官方一次）也不去重：后一条覆盖不了前一条的
+    //         sha1/字节数，两条都重试一遍是安全的（第二次会走"已经下好了"那条路跳过）。
+    FailedJob failed;
+    failed.url = reply->url().toString();
+    failed.destinationPath = destPath;
+    failed.expectedSha1 = expectedSha1s.value(reply);
+    failed.expectedSize = expectedSizes.value(reply, -1);
+    failed.officialUrl = m_officialFallbacks.value(reply);
+    if (failed.url.isEmpty() && !failed.officialUrl.isEmpty()) {
+        failed.url = failed.officialUrl;
+    }
+    m_failedJobInfos.append(failed);
     // 记完整路径而不是 QFileInfo::fileName()：批量里有 5000 多个 40 位哈希文件名，
     // 只说哈希对排查毫无帮助。
     if (!destPath.isEmpty() && !m_failedPaths.contains(destPath)) {

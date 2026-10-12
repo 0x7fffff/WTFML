@@ -1235,6 +1235,19 @@ public:
         m_taskCenterClearHandler = std::move(onClear);
     }
 
+    /// 任务中心面板里**某一行的那一行字点了**要告诉谁（参数是那一行的 `key`，见
+    /// `TaskCenterPanel::setRowActivatedHandler()`）。**由 MainWindow 在构造时调一次**。
+    /// 没装的话那几行点了没反应（而且不会有手型光标，"看着能点"的假象都不会有）。
+    void setTaskCenterRowActivatedHandler(const std::function<void(const QString &key)> &handler) {
+        m_taskCenterRowActivated = handler;
+    }
+
+    /// 任务中心面板里**行尾那颗小按钮**被点了要告诉谁（见 `TaskCenter::RowActionHandler`）。
+    /// 没装的话行尾什么都不长。
+    void setTaskCenterRowActionHandler(const TaskCenter::RowActionHandler &handler) {
+        m_taskCenterRowAction = handler;
+    }
+
     /// 任务中心那块面板开着的话，把里面的内容重画一遍（**没开着就什么都不做** ——
     /// 下一次 `popUp()` 自己会重建）。`MainWindow` 在"任务变了"之后喊一声。
     void refreshTaskCenterPanel();
@@ -1485,8 +1498,108 @@ public:
     static QString taskCenterPanelClearButtonName() {
         return QStringLiteral("taskCenterPanelClear");
     }
+    /// 那一行**行尾那颗「取消」**（只有能力位说可以、而且外面挂了处理器时才长）。
+    static QString taskCenterPanelRowCancelName(int index) {
+        return QStringLiteral("taskCenterPanelRow%1Cancel").arg(index);
+    }
+    static QString taskCenterPanelRowCancelText() { return QStringLiteral("取消"); }
     static QString taskCenterPanelEmptyLabelName() {
         return QStringLiteral("taskCenterPanelEmpty");
+    }
+
+    // ------------------------------------------------------------------
+    // 任务详情页（`ui/TaskDetailPage.hpp`，2026-10-12 加）
+    // ------------------------------------------------------------------
+
+    /// ★ **每一件东西的名字都从这里来**（验证工程按名字找控件量状态，找不到的按"没画"算）。
+    static QString taskDetailPageName() { return QStringLiteral("taskDetailPage"); }
+    static QString taskDetailStateName() { return QStringLiteral("taskDetailState"); }
+    static QString taskDetailTimeName() { return QStringLiteral("taskDetailTime"); }
+    static QString taskDetailTitleName() { return QStringLiteral("taskDetailTitle"); }
+    static QString taskDetailDetailName() { return QStringLiteral("taskDetailDetail"); }
+    static QString taskDetailBarName() { return QStringLiteral("taskDetailBar"); }
+    static QString taskDetailPercentName() { return QStringLiteral("taskDetailPercent"); }
+    static QString taskDetailBytesName() { return QStringLiteral("taskDetailBytes"); }
+    static QString taskDetailStepsName() { return QStringLiteral("taskDetailSteps"); }
+    static QString taskDetailStepName(int index) {
+        return QStringLiteral("taskDetailStep%1").arg(index);
+    }
+    static QString taskDetailNoStepsName() { return QStringLiteral("taskDetailNoSteps"); }
+    static QString taskDetailErrorName() { return QStringLiteral("taskDetailError"); }
+    static QString taskDetailCancelName() { return QStringLiteral("taskDetailCancel"); }
+    static QString taskDetailRetryName() { return QStringLiteral("taskDetailRetry"); }
+    static QString taskDetailLogName() { return QStringLiteral("taskDetailLog"); }
+    static QString taskDetailTargetName() { return QStringLiteral("taskDetailTarget"); }
+    static QString taskDetailCopyName() { return QStringLiteral("taskDetailCopy"); }
+    static QString taskDetailCloseName() { return QStringLiteral("taskDetailClose"); }
+
+    /// 这一页上那几个词。**唯一出处**：页面里画它、验证工程比对它，都读这几个函数。
+    static QString taskDetailStepsTitleText() { return QStringLiteral("到了哪一步"); }
+    static QString taskDetailErrorTitleText() { return QStringLiteral("出了什么问题"); }
+    static QString taskDetailNoStepsText() { return QStringLiteral("这一项没有分步。"); }
+    static QString taskDetailNoTitleText() { return QStringLiteral("（没有名字的任务）"); }
+    static QString taskDetailCancelText() { return QStringLiteral("取消"); }
+    static QString taskDetailRetryText() { return QStringLiteral("重试"); }
+    static QString taskDetailLogText() { return QStringLiteral("打开日志"); }
+    static QString taskDetailTargetText() { return QStringLiteral("打开目标位置"); }
+    static QString taskDetailCopyText() { return QStringLiteral("复制摘要"); }
+    static QString taskDetailCloseText() { return QStringLiteral("关闭"); }
+
+    /// 状态那一句（"已完成" / "失败" / "已取消" / "已中断" / "正在进行" / "等待中" /
+    /// "已暂停" / "等你决定"）。**不走 `taskSummaryText()`**：那一个拼的是底栏那一格
+    /// （"下载 1.20.1（已完成）"），这一页要的是**单独一个词** —— 标题和记号都已经在
+    /// 它旁边了，再拼一遍就是同一句话说两遍。
+    static QString taskDetailStateText(TaskCenter::State state) {
+        // NOTE: 写成逐条列出的 switch 而不是一张查表，是为了**将来多一个状态时编译器会替你
+        //       盯一眼**（`terminalMark()` 和 `taskCenterState()` 那两处是同一个理由）。
+        switch (state) {
+        case TaskCenter::State::Queued:
+            return QStringLiteral("等待中");
+        case TaskCenter::State::Running:
+            return QStringLiteral("正在进行");
+        case TaskCenter::State::WaitingUser:
+            return QStringLiteral("等你决定");
+        case TaskCenter::State::Paused:
+            return QStringLiteral("已暂停");
+        case TaskCenter::State::Succeeded:
+            return QStringLiteral("已完成");
+        case TaskCenter::State::Failed:
+            return QStringLiteral("失败");
+        case TaskCenter::State::Cancelled:
+            return QStringLiteral("已取消");
+        case TaskCenter::State::Interrupted:
+            return QStringLiteral("已中断");
+        }
+        return QString();
+    }
+
+    /// 起止那两个时间怎么写成一行（"19:42 开始 · 19:48 结束"）。两样都没有时回空串
+    /// （这一页那一行就收起来，不留一行空白）。
+    ///
+    /// NOTE: **同一天只写时分，跨天才会冒出日期那半截** —— 和历史面板那一行用同一个
+    ///       `TaskCenter::timeText()`（"几点几分"），多出来的那一截只在真的有用时才出现
+    ///       （"昨天 23:50 开始的这一批"要是只写 23:50，看着像今天的事）。
+    static QString taskDetailTimeLineText(const QDateTime &started, const QDateTime &finished) {
+        const QString startedText = TaskCenter::timeText(started);
+        const QString finishedText = TaskCenter::timeText(finished);
+        if (startedText.isEmpty() && finishedText.isEmpty()) {
+            return QString();
+        }
+        const auto withDate = [&](const QDateTime &when, const QString &text) {
+            if (!text.isEmpty() && started.isValid() && finished.isValid()
+                && started.date() != finished.date()) {
+                return when.toString(QStringLiteral("MM-dd HH:mm"));
+            }
+            return text;
+        };
+        if (startedText.isEmpty()) {
+            return QStringLiteral("%1 结束").arg(finishedText);
+        }
+        if (finishedText.isEmpty()) {
+            return QStringLiteral("%1 开始，还没结束").arg(startedText);
+        }
+        return QStringLiteral("%1 开始 · %2 结束")
+            .arg(withDate(started, startedText), withDate(finished, finishedText));
     }
     /// 一行右边那个百分比写成什么（「62%」）。**唯一出处**。
     static QString taskCenterPercentText(int percent) {
@@ -2777,6 +2890,10 @@ private:
     /// 任务中心那两块：**去哪要那几行**（见 setTaskCenterContent()）。
     TaskCenter::ItemProvider m_taskCenterProvider;
     TaskCenter::ClearFinishedHandler m_taskCenterClearHandler;
+    /// 「任务中心里某一行被点了」该告诉谁（见 setTaskCenterRowActivatedHandler()）。
+    std::function<void(const QString &key)> m_taskCenterRowActivated;
+    /// 「那一行行尾那颗小按钮被点了」该告诉谁（见 setTaskCenterRowActionHandler()）。
+    TaskCenter::RowActionHandler m_taskCenterRowAction;
     /// 「文件夹齿轮菜单里某一项被点了」该告诉谁（见 setFolderActionHandler()）。
     FolderActionHandler m_folderActionHandler;
     /// 「组齿轮菜单里某一项被点了」和「挑目标框里某一组被点了」该告诉谁

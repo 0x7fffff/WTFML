@@ -4052,6 +4052,11 @@ void MainWindowUI::openTaskCenterPanel() {
     };
     auto *panel = new TaskCenterPanel(taskSummaryButton, m_taskCenterProvider,
                                       m_taskCenterClearHandler, onOutsidePress, bottomBar);
+    // 点一行进详情页。★ **要在 popUp() 之前挂**：`rebuild()`（popUp() 里第一件事）就是按
+    //   这个处理器决定那几行"可不可点"的 —— 挂晚了的话这一面板里的行没手型光标、点了也没
+    //   反应，得关掉重开一次才行。
+    panel->setRowActivatedHandler(m_taskCenterRowActivated);
+    panel->setRowActionHandler(m_taskCenterRowAction);
     // 这次弹出来的面板归它自己管：关掉就删（不然点一次攒一个）。
     panel->setAttribute(Qt::WA_DeleteOnClose);
     panel->popUp();

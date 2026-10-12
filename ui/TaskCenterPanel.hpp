@@ -53,6 +53,20 @@ struct Step {
     QString note;
 };
 
+/// 这一项**当下允许哪些操作**。和 `Tasks::TaskCapabilities` 一一对应（唯一翻译点 =
+/// `MainWindow::taskCenterItems()`）。
+///
+/// ★ 它**不是**"这个状态本来该能干什么"，而是**账本那一刻记下来的那一位** —— 面板和详情页
+///   只照着它摆按钮，不再自己按状态推一遍。两处各推一遍的结局是"界面上有一颗点了没反应的
+///   按钮"（推的那一边不知道下载批次已经不在了）。
+struct Capabilities {
+    bool cancel = false;
+    bool pause = false;
+    bool retry = false;
+    bool openTarget = false;
+    bool openLog = false;
+};
+
 /// 面板里的一行（活动的那几行 + 已完成的那几行，形状一样、画法不同）。
 struct Item {
     /// 认人用。`MainWindow` 那边是 `TaskId` 的十进制字符串（面板拿它当**钥匙**，
@@ -65,18 +79,37 @@ struct Item {
     /// （coding plan §3.4：「无 Content-Length 的 Fabric 下载显示'已下载多少'，
     /// 不显示假百分比」——"已下载多少"那句走 `detail`）。
     int percent = -1;
+    /// 字节级进度那一句（"已下载 12.3 MB / 45.6 MB"）。空 = 这一项不按字节记账。
+    /// **只有详情页用它**：面板上那一行装不下（§3.4 说得很清楚，那一行小字是 `detail`）。
+    QString bytesText;
     State state = State::Queued;
     /// 用户**还没看过**的一次失败：行尾挂一个红点（看见之后由 MainWindow 撤掉）。
     bool unreadFailure = false;
+    /// 起于什么时候。**只有详情页用**（面板上那几行只画收尾时间，见 `finishedAt`）。
+    QDateTime startedAt;
     /// 什么时候收的尾。已完成那一行右边那个"19:42"由**界面自己**从它算出来
     /// （见 `TaskCenter::timeText()`）—— 时间怎么写成字是界面的事，不该由账本那边拼好了送进来。
     QDateTime finishedAt;
+    /// 失败/中断的简短原因（账本里的 `errorSummary`）。空 = 没出过错。
+    /// §3.4：「任务失败能看到失败阶段、简短原因和'查看日志/重试'」——这是"简短原因"那一半。
+    QString errorSummary;
     QList<Step> steps;
+    Capabilities capabilities;
 };
 
 /// 面板打开/刷新时现问一遍要画什么。**一次调用 = 一次快照**（跟 `PanelRowsProvider`
 /// 一个路数：不缓存，"上一次那几行"留着迟早会在界面上说假话）。
 using ItemProvider = std::function<QList<Item>()>;
+
+/// 行尾那颗小按钮上的动作（coding plan §3.2 的「行内快捷动作：取消 / 查看详情」那一半）。
+///
+/// 「查看详情」不在这一枚举里 —— 它是**点那一行本身**（整行的行为，不是行尾一颗按钮）。
+/// 两样分开是因为它们的位置不一样：详情页是"我想看看这是怎么回事"，取消是"别下了"，
+/// 后者要是也藏在详情页里，用户得点两下才够得着。
+enum class RowAction { Cancel };
+
+/// 行尾那颗小按钮被点了。参数是那一行的 `key` 和点的是哪一颗。
+using RowActionHandler = std::function<void(const QString &key, RowAction action)>;
 
 /// 「清除已完成」被点了。**清完由调用方让面板刷新一次**（refresh()），面板不知道账本在哪。
 using ClearFinishedHandler = std::function<void()>;
@@ -127,8 +160,24 @@ public:
     void popUp();
 
     /// 内容变了重画一遍（面板开着的时候 MainWindow 会喊）。**不重播滑入动效** ——
-    /// 它这会儿已经在屏幕上了，再滑一次看着就是"整块面板跳了一下"。
+    /// 它这会儿已经在屏幕上，再滑一次看着就是"整块面板跳了一下"。
     void refresh();
+
+    /// 面板里的一行被点了要告诉谁（参数是那一行的 `key`）。
+    ///
+    /// **可以给空的** = 面板里那几行点了没反应（M2 之前就是这样，验证工程搭裸面板时也这样）。
+    /// 挂上了才会给那几行手型光标 —— "看着能点、点了没反应"比不给更糟。
+    void setRowActivatedHandler(const std::function<void(const QString &key)> &handler) {
+        m_onRowActivated = handler;
+    }
+
+    /// 面板里某一行**行尾那颗小按钮**被点了要告诉谁（见 `RowActionHandler`）。
+    ///
+    /// **可以给空的** = 行尾什么都不长（那几行就只有"点开详情页"这一条路；详情页里照样有
+    /// 那一排按钮，所以取消这件事不会变得够不着）。
+    void setRowActionHandler(const TaskCenter::RowActionHandler &handler) {
+        m_onRowAction = handler;
+    }
 
 protected:
     void keyPressEvent(QKeyEvent *event) override;
@@ -139,6 +188,8 @@ protected:
 private:
     /// 把内容整块重建（两栏 + 那个「清除已完成」）。调用方负责随后摆位置。
     void rebuild();
+    /// 给某一行造一个"点了怎么办"（没挂处理器时回一个空的 —— 那一行就不可点）。
+    std::function<void()> rowActivate(const QString &key);
     /// 摆到 anchor 正上方。@p animate true = 从下面滑上来（第一次），false = 直接挪过去。
     void place(bool animate);
     /// 点在面板外面那一下。返回 true = 这一下已经办完了。
@@ -147,6 +198,10 @@ private:
     QWidget *m_anchor = nullptr;
     TaskCenter::ItemProvider m_provider;
     TaskCenter::ClearFinishedHandler m_onClear;
+    /// 面板里某一行被点了（参数是那一行的 `key`）。空 = 那几行不可点。
+    std::function<void(const QString &key)> m_onRowActivated;
+    /// 行尾那颗小按钮被点了（见 `RowActionHandler`）。空 = 行尾什么都不长。
+    TaskCenter::RowActionHandler m_onRowAction;
     OutsidePressHandler m_onOutsidePress;
     /// 内容都装在这里面（面板本身只有一个滚动区 + 它的边距）。
     QWidget *m_content = nullptr;

@@ -58,6 +58,9 @@
 // TaskCenter::Item —— taskCenterItems() 按值回一串（那是给任务中心面板的一份**纯显示**
 // DTO，见 ui/TaskCenterPanel.hpp 文件头）。同样是因为按值用它才 include 到这里。
 #include "..\ui\TaskCenterPanel.hpp"
+// TaskDetailPage::Action —— onTaskDetailAction() 的参数类型。理由同上：**按值/按枚举用它
+// 就得 include**（前置声明说得出 `TaskDetailPage *`，说不出它的嵌套枚举）。
+#include "..\ui\TaskDetailPage.hpp"
 
 class MainWindowUI;
 // 安装页那棵加载器树上的一个条目（loaderItem()）。这里只在私有函数的参数/返回值里按
@@ -88,6 +91,8 @@ class AccountSkinDialog;
 // 「资源详情」那一整页（下载页点一个模组进去看的那一页）。同上：只按指针持有，
 // 懒建（第一次点开才建）。
 class ResourceDetailPage;
+/// 任务详情页（`ui/TaskDetailPage.hpp`，2026-10-12 加，coding plan §3.2）。
+class TaskDetailPage;
 // 「Java 管理」那一整页（设置页那颗按钮开出来的四个版本）。同上：只按指针持有，
 // 懒建（第一次点开才建），而且它**不长记性**（四行每次开页现灌）。
 class JavaManageDialog;
@@ -1779,6 +1784,32 @@ private:
     /// ★ 它有一处**副作用**：被调一次就算"用户看过了" ⇒ 把那几个没看过的失败标记清掉
     ///   （面板里那几行是唯一能把失败原因看全的地方，"列出来了"就是"看过了"）。
     QList<TaskCenter::Item> taskCenterItems();
+    /// **一项** ⇒ 界面那一份（`taskCenterItems()` 和任务详情页共用的唯一翻译点）。
+    /// **没有副作用**（面板那个 `taskCenterItems()` 有"看一眼 = 看过了"那一笔，这个没有）。
+    TaskCenter::Item taskCenterItem(const Tasks::TaskSnapshot &task) const;
+    /// 任务详情页上的那一排按钮被点了（coding plan §3.4「失败能看到失败阶段、简短原因和
+    /// 『查看日志/重试』」—— 那一页是这句话落地的地方）。
+    ///
+    /// 这一页**自己什么活都不干**（`ui/` 不 include `src/`）：它只报"哪一项、点了哪一颗"，
+    /// 取消谁、重试什么、日志在哪、目标目录怎么拼全在这里。
+    void onTaskDetailAction(const QString &key, TaskDetailPage::Action action);
+    /// 任务中心里**某一行被点了** ⇒ 开那一页（`key` 是任务号的十进制字符串）。
+    ///
+    /// NOTE: 页面对象**建一次留着**（和资源详情页 / 实例设置同一个路数）：每一次点开都
+    ///       `setTask()` 重摆一遍。`overlay->execPage()` 是**阻塞**的（它内部那个嵌套
+    ///       事件循环要等到用户点返回），所以"开页之后"那句要写在 `execPage()` 之前或
+    ///       之后分清楚（见那一处）。
+    void openTaskDetailPage(const QString &key);
+    /// 把账本里那一项翻成详情页要的一份（找不到那个号时回 false，页照开但摆的是空的）。
+    bool fillTaskDetail(const QString &key, TaskCenter::Item *out) const;
+    /// 「打开日志」「打开目标位置」「复制摘要」那三颗（见 onTaskDetailAction()）。
+    void openTaskLog(const QString &key);
+    void openTaskTarget(const QString &key);
+    void copyTaskSummary(const QString &key);
+
+    /// 「这一类活**起手**就允许什么」那张表（唯一出处，见 .cpp 里那段说明）。
+    /// 会变的那几位（`canRetry`）不在这里 —— 它由 `finishTask()` 在失败那一刻补。
+    static Tasks::TaskCapabilities defaultTaskCapabilities(Tasks::TaskKind kind);
     /// 记一件新任务（发号 + 落盘）。回它的号。
     Tasks::TaskId beginTask(Tasks::TaskKind kind, const QString &title,
                             const QString &targetId = QString(),
@@ -2649,6 +2680,9 @@ private:
     /// "刚完成的那一项还在收起态里露着"这件事到期了要重画一次（`taskSummaryRecentWindowMs()`）。
     /// **单发**：每次摆摘要时按"还差多久到期"重新起一次（见 updateBottomBarTaskSummary()）。
     QTimer *m_taskSummaryTimer = nullptr;
+    /// 任务详情页那一页（**建一次留着**，每次开页 `setTask()` 重摆 —— 和资源详情页 /
+    /// 实例设置同一个路数）。`ui/` 的类，所以是个裸指针 + `deleteLater`（见析构那一段）。
+    TaskDetailPage *m_taskDetailPage = nullptr;
     // ★ 2026-09-27 加：会话号 → 那一份的实例显示名。**启动那一刻记一次**，退出时用掉、删掉。
     //
     // 唯一用途是 onGameFinished() 里那行日志的 `[实例名] ` 前缀 —— 那时会话已经从

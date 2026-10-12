@@ -485,6 +485,12 @@ void VersionManager::recoverFromInternalError(const QString &what) {
     // 也还能接着用别的功能。
     const QString reason =
         tr("下载过程中出了内部错误（%1），这一步已经停下。重启启动器后再试一次。").arg(what);
+    // 内部错误之后不给「重试」：那一条路重下几个文件修不好（这次是代码里的毛病）。
+    m_failedBatch.reset();
+    unwindDownloadBatch(reason);
+}
+
+void VersionManager::unwindDownloadBatch(const QString &reason) {
     // 整合包导入排在加载器**前面**：导入的第一步就是装加载器，所以这两件事可能同时是活的。
     // 那种时候要收的是整件事 —— 只收掉加载器那半截的话，导入的状态机还停在 InstallingLoader
     // 上，而此后每一次导入都会被"已有任务正在进行"顶回来，只能重启启动器。
@@ -503,7 +509,69 @@ void VersionManager::recoverFromInternalError(const QString &what) {
         failLoaderInstall(reason);
         return;
     }
+    // ★ 资源下载那一路（下载页那五类里挑一个装）原来**不在**这条收尾路上（2026-10-12 补）。
+    //   它不属于上面任何一套安装流程，`m_resourceDownload.running` 一旦留在 true 上，之后
+    //   每一次资源下载都会被"已有下载任务正在进行"顶回来，只能重启启动器 —— 和上面那三个
+    //   状态机是同一个病，只是它没有"相位"可以看，更容易被漏掉。
+    if (m_resourceDownload.running) {
+        const QString label = m_resourceDownload.label;
+        m_resourceDownload.reset();
+        emit resourceDownloadFinished(label, false, reason);
+        return;
+    }
     emit versionDownloadFinished(m_currentVersionDownloading, false, reason);
+}
+
+bool VersionManager::canCancelDownload() const { return downloadManager->isBusy(); }
+
+bool VersionManager::cancelActiveDownload() {
+    if (!downloadManager->isBusy()) {
+        return false;
+    }
+    // 先把批次掐掉，再收尾。顺序不能换：unwindDownloadBatch() 里那几段终态一发出去，界面
+    // 就会立刻解禁并且允许用户再点一次下载 —— 那一刻批次必须已经是"没在忙"。
+    downloadManager->cancelBatch();
+    m_failedBatch.reset();
+    unwindDownloadBatch(tr("已取消。已经下好的文件留在原处，一个都没删。"));
+    return true;
+}
+
+bool VersionManager::canRetryDownload() const { return m_failedBatch.valid; }
+
+bool VersionManager::retryDownload() {
+    if (!m_failedBatch.valid || m_failedBatch.jobs.isEmpty()) {
+        return false;
+    }
+    if (downloadManager->isBusy()) {
+        // 一次一批（和 downloadVersion / repairVersionFiles / downloadResourceFiles 是同一条
+        // 规矩）。硬叠上去的话两份进度会互相盖，而"取消"那一刻也说不清在取消谁。
+        qWarning() << "A download batch is already running, refusing to retry.";
+        return false;
+    }
+    const FailedBatch batch = m_failedBatch;
+    m_failedBatch.reset();
+
+    // ★ 把"这一批叫什么"照原样摆回去。收尾那一段（`onAllDownloadsFinished()` 的末尾）就是靠
+    //   这两个成员决定发哪个终态的 —— 这两句是"重试之后终态还能报对"的全部前提。不摆的话，
+    //   一次模组补下会被报成「版本 <上一个实例> 的文件已全部就绪」。
+    if (batch.resource) {
+        m_resourceDownload.running = true;
+        m_resourceDownload.label = batch.label;
+    }
+    m_currentVersionDownloading = batch.id;
+
+    downloadManager->beginBatch();
+    for (const DownloadManager::FailedJob &job : batch.jobs) {
+        // 校验档一律用 SizeAndSha1：失败的那几个在盘上根本不存在，这个档位只影响
+        // fileAlreadyValid() 那一次问话，而那一次必然回 false。真正的判据（sha1 / 字节数）
+        // 在收尾那一步，和档位无关（见 onDownloadReplyFinished）。
+        downloadManager->downloadFile(job.url, job.destinationPath, job.expectedSha1,
+                                       job.expectedSize, VerifyMode::SizeAndSha1,
+                                       job.officialUrl);
+    }
+    downloadManager->endBatch();
+    qInfo() << "Retrying" << batch.jobs.size() << "failed download(s).";
+    return true;
 }
 
 void VersionManager::fetchAvailableVersions() { downloadManager->fetchVersionManifest(); }
@@ -4000,6 +4068,29 @@ void VersionManager::onAllDownloadsFinished(bool success) {
                     tr("……还有 %1 个").arg(stats.failedPaths.size() - shown.size());
         }
         message = tr("%1 个文件下载失败：").arg(stats.failed) + QLatin1Char('\n') + list;
+    }
+
+    // ★ §4.2「失败任务保存失败文件列表和原始 URL 来源，重试只重做失败项」：在这里把那一份
+    //   记下来（DownloadManager 那边刚收完尾，失败清单还是这一批的）。
+    //
+    //   **只有"纯下文件"的批次留**：加载器安装 / 整合包导入 / 带名字的实例那三条路上，
+    //   重下几个文件补不回来（加载器的安装器进程还得再跑一次、导入还得解压覆盖），
+    //   露一颗点了修不好的「重试」比不露更糟。判据问的就是那三个状态机活没活着。
+    if (success) {
+        m_failedBatch.reset();
+    } else {
+        const bool plainFilesOnly = !m_loaderInstall.active() && !m_modpackInstall.active()
+                                    && !m_namedInstance.active();
+        m_failedBatch.reset();
+        if (plainFilesOnly) {
+            m_failedBatch.jobs = downloadManager->failedJobs();
+            // 一个失败作业都没登记上（比如 `scheduleFile()` 那两道"地址是空的"早退）⇒
+            // 没有可重做的，别露那颗按钮。
+            m_failedBatch.valid = !m_failedBatch.jobs.isEmpty();
+            m_failedBatch.resource = m_resourceDownload.running;
+            m_failedBatch.label = m_resourceDownload.label;
+            m_failedBatch.id = m_currentVersionDownloading;
+        }
     }
 
     // 加载器安装的几段在这里接续（一次点击 = 好几件事，见 .hpp 里 installLoaderVersion 的

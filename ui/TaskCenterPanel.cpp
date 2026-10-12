@@ -93,14 +93,20 @@ ElidedLabel *makeTextLabel(QWidget *parent, const QString &objectName) {
  * 行里每一块的 objectName 都带上**行号**（`MainWindowUI::taskCenterPanelRow*Name()` 给的）
  * —— 验证工程不用数"这一行里有几个 QLabel"这种一改就碎的判据。
  *
- * NOTE: 这一行**自己不点**。coding plan §3.2 的"点击任务进入内嵌 `TaskDetailPage`"不在
- *       M1 的范围里（M1 只做骨架：底栏那格 + 这块面板），行上也就没有可点的东西 —— 与其
- *       给一个点了没反应的整行，不如先不给。
+ * ★ 整行**可点**（2026-10-12，M2）：点一下进任务详情页（coding plan §3.2 的"点击任务进入
+ *   内嵌 `TaskDetailPage`"）。M1 里这一行故意不点 —— 那时候详情页还不存在，"点了没反应的
+ *   整行"比不给还糟。现在它只在**真挂上了处理器**的时候才装作可点（手型光标 + 悬停底色），
+ *   没挂的时候就是一行字（`MainWindow` 那边永远会挂，挂不上的只有验证工程搭的裸面板）。
  */
 class TaskCenterRowWidget : public QWidget {
 public:
-    TaskCenterRowWidget(const TaskCenter::Item &item, int index, QWidget *parent)
-        : QWidget(parent) {
+    TaskCenterRowWidget(const TaskCenter::Item &item, int index,
+                        const std::function<void()> &onActivate, QWidget *parent,
+                        const TaskCenter::RowActionHandler &onRowAction)
+        : QWidget(parent), m_onActivate(onActivate) {
+        if (m_onActivate) {
+            setCursor(Qt::PointingHandCursor);
+        }
         setObjectName(MainWindowUI::taskCenterPanelRowName(index));
         // 行是谁：面板里认这一行靠它（行号会随着"清掉一条已完成"整体挪位，钥匙不会）。
         // 这个角色只有一个读者 —— `MainWindow` 那边按 `Item::key` 喂进来，以后要做
@@ -144,6 +150,32 @@ public:
         ElidedLabel *title = makeTextLabel(this, MainWindowUI::taskCenterPanelRowTitleName(index));
         title->setText(item.title);
         titleRow->addWidget(title, 1, Qt::AlignVCenter);
+        // ---------- 行尾那颗「取消」（§3.2 的行内快捷动作）----------
+        // 只在**能力位说可以**、而且外面真挂了处理器的时候才长。没挂却露出来 = 一颗点了
+        // 没反应的按钮（这一面板是能单独搭起来用的，验证工程那几处就没挂）。
+        // NOTE: 它是**真按钮**（不是画出来靠事件过滤器认位置），所以点它**不会**同时触发
+        //       整行那一下 —— 父子控件的鼠标事件不会一起送给两边。
+        if (item.capabilities.cancel && onRowAction) {
+            auto *cancel = new QPushButton(MainWindowUI::taskCenterPanelRowCancelText(), this);
+            cancel->setObjectName(MainWindowUI::taskCenterPanelRowCancelName(index));
+            cancel->setCursor(Qt::PointingHandCursor);
+            cancel->setFlat(true);
+            applyMutedFont(cancel, -1);
+            const QString key = item.key;
+            // 收下这一下的**是这颗按钮自己**（上下文传 cancel）：这一行随时会被整块重建，
+            // 挂在这一行身上等于给一个马上就要没的东西接信号。
+            QObject::connect(cancel, &QPushButton::clicked, cancel, [onRowAction, key]() {
+                if (onRowAction) {
+                    onRowAction(key, TaskCenter::RowAction::Cancel);
+                }
+                // ★ 这里**故意不重建面板**：取消要走一趟异步（下载器得先把在飞的那几条收
+                //   干净才发终态），当场重画的话画出来的还是"正在进行"那一行，看着像点了没
+                //   反应。等账本那边 `taskChanged` 传来，`refreshTaskCenterPanel()` 会把这里
+                //   重画一遍。没成功取消（那一批刚好已经收尾）时账本一动不动、这一行也
+                //   不动 —— 那一刻它确实没有新状态可说。
+            });
+            titleRow->addWidget(cancel, 0, Qt::AlignVCenter);
+        }
         if (active && item.percent >= 0) {
             auto *percent = new QLabel(MainWindowUI::taskCenterPercentText(item.percent), this);
             percent->setObjectName(MainWindowUI::taskCenterPanelRowPercentName(index));
@@ -205,6 +237,22 @@ public:
             column->addLayout(stepsRow);
         }
     }
+
+protected:
+    void mousePressEvent(QMouseEvent *event) override {
+        // 左键那一下才开口。**收下这一下**（不往下传）：面板是 Qt::Popup，不收的话它会一路
+        // 走到面板的 handleOutsidePress()，把这一下当成"点在面板外面"顺手收回去 ——
+        // 症状是"点一行，面板没了，详情页也没开"。
+        if (event->button() == Qt::LeftButton && m_onActivate) {
+            event->accept();
+            m_onActivate();
+            return;
+        }
+        QWidget::mousePressEvent(event);
+    }
+
+private:
+    std::function<void()> m_onActivate;
 };
 
 }  // namespace
@@ -303,6 +351,20 @@ void TaskCenterPanel::popUp() {
     m_opened = true;
 }
 
+std::function<void()> TaskCenterPanel::rowActivate(const QString &key) {
+    // 每一行各捕一份**自己那把钥匙**：处理器只被告知"点的是哪一项"，不被告知"点的是第几行"
+    // —— 行号会随着"清掉一条已完成"整体往上挪，面板开着的时候用户点的那一行早就不是
+    // 他看见的那一行了。
+    if (!m_onRowActivated) {
+        return std::function<void()>();
+    }
+    return [this, key]() {
+        if (m_onRowActivated) {
+            m_onRowActivated(key);
+        }
+    };
+}
+
 void TaskCenterPanel::refresh() {
     if (!m_opened) {
         return;  // 还没弹出来过：下一次 popUp() 自己会重建
@@ -398,7 +460,8 @@ void TaskCenterPanel::rebuild() {
     if (!active.isEmpty()) {
         addSectionTitle(MainWindowUI::taskCenterPanelActiveSectionText());
         for (const TaskCenter::Item &item : active) {
-            layout->addWidget(new TaskCenterRowWidget(item, index, m_content));
+            layout->addWidget(new TaskCenterRowWidget(
+                item, index, rowActivate(item.key), m_content, m_onRowAction));
             ++index;
         }
     }
@@ -408,7 +471,8 @@ void TaskCenterPanel::rebuild() {
         }
         addSectionTitle(MainWindowUI::taskCenterPanelDoneSectionText());
         for (const TaskCenter::Item &item : finished) {
-            layout->addWidget(new TaskCenterRowWidget(item, index, m_content));
+            layout->addWidget(new TaskCenterRowWidget(
+                item, index, rowActivate(item.key), m_content, m_onRowAction));
             ++index;
         }
         // 「清除已完成」靠右摆（它是这一栏的收尾动作，不是一行的动作）。

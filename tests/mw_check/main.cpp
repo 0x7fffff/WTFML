@@ -24937,6 +24937,114 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                 check(detail != nullptr && detail->text().contains(QStringLiteral("400 / 1000")),
                       "AB2 那一行的小字写着「已下载 400 / 1000」",
                       detail != nullptr ? detail->text() : QStringLiteral("<没找到>"));
+
+                // ---- ②b 行尾那颗「取消」（§3.2 的行内快捷动作）----
+                // 这一件是**在跑的下载** ⇒ 账本那一位 `canCancel` 该是 true（见
+                // `MainWindow::defaultTaskCapabilities()`：只有下载 / 安装 / 导入那三档给
+                // 它）。面板只照着那一位摆按钮，不自己按状态推一遍。
+                // NOTE: 按**标题**认这一行而不是"第 0 行" —— 这一节之前别的节可能往账本里
+                //       留过东西（它们都是终态），行号不是我说了算的。
+                const auto findRowByTitle = [abPanel](const QString &title,
+                                                      int *outIndex) -> QWidget * {
+                    for (int i = 0; i < 20; ++i) {
+                        QWidget *row = abPanel->findChild<QWidget *>(
+                            MainWindowUI::taskCenterPanelRowName(i));
+                        if (row == nullptr) {
+                            break;
+                        }
+                        auto *text = row->findChild<QLabel *>(
+                            MainWindowUI::taskCenterPanelRowTitleName(i));
+                        if (text != nullptr && text->text() == title) {
+                            if (outIndex != nullptr) {
+                                *outIndex = i;
+                            }
+                            return row;
+                        }
+                    }
+                    return nullptr;
+                };
+                const QString abTaskTitle = QStringLiteral("下载游戏文件");
+                int abRowIndex = -1;
+                QWidget *abRow = findRowByTitle(abTaskTitle, &abRowIndex);
+                check(abRow != nullptr, "AB2 面板里按标题找得到这一件（账本那一行）");
+                auto *abRowCancel = abRowIndex < 0
+                                        ? nullptr
+                                        : abPanel->findChild<QPushButton *>(
+                                              MainWindowUI::taskCenterPanelRowCancelName(
+                                                  abRowIndex));
+                check(abRowCancel != nullptr,
+                      "AB2 在跑的下载：行尾那颗「取消」在（`canCancel` ∧ 还是活的，两样都要）",
+                      abRowCancel != nullptr ? abRowCancel->text() : QStringLiteral("<没找到>"));
+
+                // ---- ②c 点这一行 ⇒ 内嵌任务详情页（§3.2「点击任务进入内嵌 TaskDetailPage」）----
+                // NOTE: `overlay->execPage()` 是**陷在嵌套事件循环里**跑的（用户点了返回才
+                //       回来），读那一页必须在那个循环**里面**读 —— 先排一发 singleShot(0)，
+                //       它落在循环里；发送完这一下（同步）之后才轮到这里往下走。
+                OverlayHost *abOverlay = window.ui() == nullptr ? nullptr : window.ui()->overlay();
+                QString rdKey;
+                QString rdState;
+                QString rdTitle;
+                bool rdCancel = false;
+                bool rdRetry = false;
+                if (abRow != nullptr && abOverlay != nullptr) {
+                    int rdTries = 0;
+                    std::function<void()> rdInspect;
+                    rdInspect = [&]() {
+                        if (!abOverlay->pageOpen() && ++rdTries <= 50) {
+                            QTimer::singleShot(0, &window, rdInspect);
+                            return;
+                        }
+                        if (!abOverlay->pageOpen()) {
+                            rdState = QStringLiteral("（这一页没开起来）");
+                            return;
+                        }
+                        auto *page = window.findChild<TaskDetailPage *>(
+                            MainWindowUI::taskDetailPageName());
+                        if (page == nullptr) {
+                            rdState = QStringLiteral("（找不到那一页）");
+                            return;
+                        }
+                        rdKey = page->taskKey();
+                        auto *state =
+                            page->findChild<QLabel *>(MainWindowUI::taskDetailStateName());
+                        rdState = state == nullptr ? QString() : state->text();
+                        auto *title =
+                            page->findChild<QLabel *>(MainWindowUI::taskDetailTitleName());
+                        rdTitle = title == nullptr ? QString() : title->text();
+                        auto *rc =
+                            page->findChild<QPushButton *>(MainWindowUI::taskDetailCancelName());
+                        auto *rt =
+                            page->findChild<QPushButton *>(MainWindowUI::taskDetailRetryName());
+                        rdCancel = rc != nullptr && rc->isVisible();
+                        rdRetry = rt != nullptr && rt->isVisible();
+                        // 出路走顶上那颗返回（这一页里那颗「关闭」走的是同一条路）。
+                        if (auto *back = window.findChild<QPushButton *>(
+                                OverlayHost::overlayBackButtonName())) {
+                            back->click();
+                        }
+                    };
+                    QTimer::singleShot(0, &window, rdInspect);
+                    const QPoint abLocal(4, 4);
+                    const QPoint abGlobal = abRow->mapToGlobal(abLocal);
+                    QMouseEvent press(QEvent::MouseButtonPress, QPointF(abLocal),
+                                      QPointF(abGlobal), Qt::LeftButton, Qt::LeftButton,
+                                      Qt::NoModifier);
+                    QApplication::sendEvent(abRow, &press);
+                    QApplication::processEvents();
+                    const QString wantKey =
+                        abRow->property(MainWindowUI::taskCenterPanelRowKeyProperty()).toString();
+                    check(!rdKey.isEmpty() && rdKey == wantKey,
+                          "AB2 点这一行开出来的详情页，认的正是**这一行**的钥匙（不是隔壁那一行）",
+                          QStringLiteral("页上 %1 / 行上 %2").arg(rdKey, wantKey));
+                    check(rdState == MainWindowUI::taskDetailStateText(TaskCenter::State::Running),
+                          "AB2 这一页的状态那一句 =「正在进行」（和账本那一刻同一个词）", rdState);
+                    check(rdTitle == abTaskTitle,
+                          "AB2 详情页标题原样摆的（和底栏那格读的是同一份账本）", rdTitle);
+                    check(rdCancel && !rdRetry,
+                          "AB2 在跑的那一项：详情页上能取消、不能重试（面板和详情页读同一份能力位）",
+                          QStringLiteral("cancel=%1 retry=%2").arg(rdCancel).arg(rdRetry));
+                    check(!abOverlay->pageOpen(), "AB2 点过返回之后那一页收掉了（覆盖层空了）");
+                }
                 abPanel->close();
                 QApplication::processEvents();
                 QApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
@@ -24973,6 +25081,34 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                   abDot->isVisible() ? QStringLiteral("还亮着") : QStringLiteral("灭了"));
             QWidget *abPanel2 = window.findChild<QWidget *>(MainWindowUI::taskCenterPanelName());
             if (abPanel2 != nullptr) {
+                // ---- 收了尾的那一件：行尾那颗「取消」该**收起来**了 ----
+                // 「取消」是 `canCancel ∧ 还是活的` 两样都成立才露（`MainWindow::taskCenterItem()`
+                // 里那一句 `&& Tasks::isActiveState(...)`）—— 这一条量的是后半句：同一份能力位
+                // 到了终态上必须变脸。漏了它，界面上就会留一颗点了没反应的「取消」。
+                int abDoneIndex = -1;
+                QWidget *abDoneRow = nullptr;
+                for (int i = 0; i < 20; ++i) {
+                    QWidget *row = abPanel2->findChild<QWidget *>(
+                        MainWindowUI::taskCenterPanelRowName(i));
+                    if (row == nullptr) {
+                        break;
+                    }
+                    auto *text =
+                        row->findChild<QLabel *>(MainWindowUI::taskCenterPanelRowTitleName(i));
+                    if (text != nullptr && text->text() == QStringLiteral("下载游戏文件")) {
+                        abDoneIndex = i;
+                        abDoneRow = row;
+                        break;
+                    }
+                }
+                QPushButton *abDoneCancel =
+                    abDoneIndex < 0
+                        ? nullptr
+                        : abPanel2->findChild<QPushButton *>(
+                              MainWindowUI::taskCenterPanelRowCancelName(abDoneIndex));
+                check(abDoneRow != nullptr && abDoneCancel == nullptr,
+                      "AB4 收了尾（失败）那一件：行尾不再长那颗「取消」（终态上它没意义）",
+                      abDoneCancel != nullptr ? abDoneCancel->text() : QStringLiteral("<没找到>"));
                 auto *clearBtn = abPanel2->findChild<QPushButton *>(
                     MainWindowUI::taskCenterPanelClearButtonName());
                 check(clearBtn != nullptr, "AB4 有已完成的那件 ⇒ 面板里有那颗「清除已完成」");

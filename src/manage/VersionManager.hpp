@@ -181,6 +181,34 @@ public:
      */
     void repairVersionFiles(const QString &versionId);
 
+    // ------------------------------------------------------------------
+    // 取消 / 重试（coding plan §4.2）
+    // ------------------------------------------------------------------
+
+    /// 现在有一批下载在跑、**而且用户可以取消它**（= 界面那颗「取消」露不露的唯一判据）。
+    ///
+    /// NOTE: 判据就是 `downloadManager->isBusy()`。别在这里再加"什么阶段不能取消" ——
+    ///       加载器那几段（安装器进程正在跑）本来就不在批次里，`isBusy()` 那时候是 false，
+    ///       那一格自然就没有取消可点。多写一条只会和它漂开。
+    bool canCancelDownload() const;
+
+    /// 取消当前这一批（用户在任务详情页上点了「取消」）。
+    ///
+    /// 走的是和异常兜底**同一条**收尾路（`unwindDownloadBatch()`）：文件一个都不删，已经
+    /// 原子提交过的那几个留在原处（下一趟重下会按 sha1 跳过），只是这一批到此为止、
+    /// 该收的状态机都收掉。
+    ///
+    /// @return false = 当时没有可取消的批次（信号竞争、或者已经被别的东西收掉了）。
+    bool cancelActiveDownload();
+
+    /// 上一次失败的那一批**能不能重做**（界面上那颗「重试」露不露的唯一判据）。
+    bool canRetryDownload() const;
+
+    /// 重做上一次失败的那几个文件（**只重做失败项**，见 .cpp）。
+    ///
+    /// @return false = 没有可重做的，或者这会儿正有一批在跑（一次只有一批，见 .cpp）。
+    bool retryDownload();
+
     /**
      * @brief 给一个**已经装好的**实例做体检：扫一遍它该有的文件，**只报不装**。
      *
@@ -1444,7 +1472,20 @@ private:
     // deferNextStep() 的兜底出口：把排队的这一步抛出来的异常翻成一次失败收尾
     // （abandonBatch() + 终态信号）。见 deferNextStep() 的 NOTE。
     void recoverFromInternalError(const QString &what);
-    // 安装器输出的最后一行非空内容（心跳和失败报告都用它）。
+
+    /// 把"当前这一批**不再继续下去了**"这件事收尾：按"谁还活着"依次收掉整合包导入 → 带名字的
+    /// 实例 → 加载器安装 → 资源下载 → 纯版本下载，各自把话说出去。
+    ///
+    /// **两个调用者，只有 reason 那句话不一样**：`recoverFromInternalError()`（内部异常，
+    /// 先 `abandonBatch()`）和 `cancelActiveDownload()`（用户点的取消，先 `cancelBatch()`）。
+    /// 两处各写一份的话，早晚有一处漏掉新加的那个状态机 —— 漏掉的表现是"那个状态永远留在
+    /// 活着的相位上，之后每一次都报'已有任务正在进行'，只能重启启动器"。
+    ///
+    /// 顺序是从**最外层**往里：导入整合包的第一步就是装加载器（两个状态机同时活着），
+    /// 装一个带名字的实例时父版本是加载器（同理）—— 收里层那个的话，外层会卡在半路上。
+    void unwindDownloadBatch(const QString &reason);
+
+    /// 安装器输出的最后一行非空内容（心跳和失败报告都用它）。
     QString installerLastOutputLine() const;
 
     DownloadManager *downloadManager;
@@ -1494,6 +1535,23 @@ private:
         void reset() { *this = ResourceDownload(); }
     };
     ResourceDownload m_resourceDownload;
+
+    /// 上一次**失败**的那一批里，失败的那几个文件（§4.2 的「重试只重做失败项」）。
+    ///
+    /// `valid` = 这一批**值得**重试。只有"纯下文件"的批次才算数：加载器安装、整合包导入、
+    /// 带名字的实例那三条路上，重下几个文件补不回来（加载器的安装器得再跑一次、导入还得解压
+    /// 覆盖），露一颗点了也修不好的「重试」比不露更糟。
+    struct FailedBatch {
+        bool valid = false;
+        /// 是下载页那几类资源那一批 —— 收尾那一段靠它决定发 `resourceDownloadFinished`
+        /// 还是 `versionDownloadFinished`（重试之后终态还能报对，全靠这两个快照）。
+        bool resource = false;
+        QString id;
+        QString label;
+        QList<DownloadManager::FailedJob> jobs;
+        void reset() { *this = FailedBatch(); }
+    };
+    FailedBatch m_failedBatch;
 
     // ---- "这个加载器有哪些版本可选"那几发 GET 的状态 ----
     //

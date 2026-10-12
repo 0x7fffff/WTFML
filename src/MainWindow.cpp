@@ -28,6 +28,7 @@
 // 这一边给它两样东西 —— 一行长什么样（`TaskCenter::Item`，那层是**纯显示**的 DTO）和
 // 「清除已完成」被点了怎么办（见 setupConnections() 里 setTaskCenterContent() 那一段）。
 #include "..\ui\TaskCenterPanel.hpp"
+#include "..\ui\TaskDetailPage.hpp"
 // 那一页本身（存档那支笔点开的「世界设置」）。**它摆什么、怎么摆只有它自己知道**，
 // 这一边只负责把盘上读出来的东西翻译成 `WorldSettingsPage::WorldView`（见
 // worldViewOf() 那段），以及把页面上改过的翻译回去。
@@ -1472,6 +1473,16 @@ MainWindow::MainWindow(QWidget *parent)
     //       所以它不能是 const 的、更不能被别人当"读一下"随便调。
     m_ui->setTaskCenterContent([this]() { return taskCenterItems(); },
                                [this]() { m_taskManager->clearFinished(); });
+    // 点任务中心里的**一行** = 开任务详情页（coding plan §3.2「点击任务进入内嵌 TaskDetailPage」）。
+    m_ui->setTaskCenterRowActivatedHandler([this](const QString &key) { openTaskDetailPage(key); });
+    // 行尾那颗「取消」：走的是和详情页里那一颗**完全同一条路**（`onTaskDetailAction`）——
+    // 两处各写一遍的话，"取消"的语义迟早会分家（一处删文件、一处不删）。
+    m_ui->setTaskCenterRowActionHandler(
+        [this](const QString &key, TaskCenter::RowAction action) {
+            if (action == TaskCenter::RowAction::Cancel) {
+                onTaskDetailAction(key, TaskDetailPage::Action::Cancel);
+            }
+        });
     setupConnections();
     connect(m_javaRuntimeController, &JavaRuntimeController::busyChanged, this, [this](bool busy) {
         if (m_javaManagePage != nullptr) {
@@ -2709,49 +2720,73 @@ void MainWindow::updateBottomBarTaskSummary() {
     }
 }
 
+/// 账本里的一项 ⇒ 界面要的一份。**`taskCenterItems()`（面板）和任务详情页共用的唯一
+/// 翻译点** —— 两边各写一遍的话，同一项在面板上和详情页上会说出不同的话。
+TaskCenter::Item MainWindow::taskCenterItem(const Tasks::TaskSnapshot &task) const {
+    TaskCenter::Item item;
+    // 认人用**号**（不是行号）：面板开着的时候"清除已完成"会把行整体挪位，按行号回头
+    // 去查会对错人（见 ui/TaskCenterPanel.hpp 里 Item::key 那段）。
+    item.key = QString::number(task.id);
+    item.title = task.title;
+    item.detail = task.detail;
+    // 百分比走账本层那条规则（`Tasks::percentOf()`）：测不出总量的回 -1，面板那一行
+    // 就不画进度条（§3.4：不许编一个百分比出来，那句话由 detail 说）。
+    item.percent = Tasks::percentOf(task);
+    item.state = taskCenterState(task.state);
+    item.unreadFailure = task.state == Tasks::TaskState::Failed
+                         && m_unreadFailures.contains(task.id);
+    item.finishedAt = task.finishedAt;
+    item.startedAt = task.startedAt;
+    item.errorSummary = task.errorSummary;
+    // 字节那一句**只在真按字节记过账的时候才有**（`bytesTotal > 0`）：绝大多数任务
+    // （启动、扫描、打包）压根不走字节，那种情况下详情页不该多一行"已下载 0 B / 0 B"。
+    if (task.bytesTotal > 0) {
+        item.bytesText = tr("已下载 %1 / %2")
+                             .arg(InstanceFilesPage::formatSize(task.bytesDone),
+                                  InstanceFilesPage::formatSize(task.bytesTotal));
+    }
+    // ★ 「这一项现在允许什么操作」**只读账本那几位**（不许在这一层按状态再推一遍）。
+    //   唯一的加工是"取消"那一颗：账本记的是"这一类活**允许**取消"，而收尾之后
+    //   （终态）当然不该再露它 —— 所以是**与**上"还是活的"。
+    item.capabilities.cancel = task.capabilities.canCancel && Tasks::isActiveState(task.state);
+    item.capabilities.pause = task.capabilities.canPause && Tasks::isActiveState(task.state);
+    item.capabilities.retry = task.capabilities.canRetry
+                              && Tasks::isTerminalState(task.state);
+    item.capabilities.openLog = task.capabilities.canOpenLog;
+    item.capabilities.openTarget = task.capabilities.canOpenTarget;
+    item.steps.reserve(task.steps.size());
+    for (const Tasks::TaskStep &step : task.steps) {
+        TaskCenter::Step uiStep;
+        uiStep.name = step.name;
+        uiStep.note = step.note;
+        // 两个枚举一一对应（`ui/` 不许 include `src/`，所以各有一份）。**这一处是
+        // "两份必须同构"的唯一见证**：谁多加一档，这里就得跟着加（缺哪一档下面那个
+        // switch 会掉到 default 上，验证工程能当场看出来）。
+        switch (step.state) {
+        case Tasks::TaskStepState::Pending:
+            uiStep.state = TaskCenter::StepState::Pending;
+            break;
+        case Tasks::TaskStepState::Running:
+            uiStep.state = TaskCenter::StepState::Running;
+            break;
+        case Tasks::TaskStepState::Done:
+            uiStep.state = TaskCenter::StepState::Done;
+            break;
+        case Tasks::TaskStepState::Failed:
+            uiStep.state = TaskCenter::StepState::Failed;
+            break;
+        }
+        item.steps.append(uiStep);
+    }
+    return item;
+}
+
 QList<TaskCenter::Item> MainWindow::taskCenterItems() {
     const QList<Tasks::TaskSnapshot> tasks = m_taskManager->all();
     QList<TaskCenter::Item> items;
     items.reserve(tasks.size());
     for (const Tasks::TaskSnapshot &task : tasks) {
-        TaskCenter::Item item;
-        // 认人用**号**（不是行号）：面板开着的时候"清除已完成"会把行整体挪位，按行号回头
-        // 去查会对错人（见 ui/TaskCenterPanel.hpp 里 Item::key 那段）。
-        item.key = QString::number(task.id);
-        item.title = task.title;
-        item.detail = task.detail;
-        // 百分比走账本层那条规则（`Tasks::percentOf()`）：测不出总量的回 -1，面板那一行
-        // 就不画进度条（§3.4：不许编一个百分比出来，那句话由 detail 说）。
-        item.percent = Tasks::percentOf(task);
-        item.state = taskCenterState(task.state);
-        item.unreadFailure = task.state == Tasks::TaskState::Failed
-                             && m_unreadFailures.contains(task.id);
-        item.finishedAt = task.finishedAt;
-        item.steps.reserve(task.steps.size());
-        for (const Tasks::TaskStep &step : task.steps) {
-            TaskCenter::Step uiStep;
-            uiStep.name = step.name;
-            uiStep.note = step.note;
-            // 两个枚举一一对应（`ui/` 不许 include `src/`，所以各有一份）。**这一处是
-            // "两份必须同构"的唯一见证**：谁多加一档，这里就得跟着加（缺哪一档下面那个
-            // switch 会掉到 default 上，验证工程能当场看出来）。
-            switch (step.state) {
-            case Tasks::TaskStepState::Pending:
-                uiStep.state = TaskCenter::StepState::Pending;
-                break;
-            case Tasks::TaskStepState::Running:
-                uiStep.state = TaskCenter::StepState::Running;
-                break;
-            case Tasks::TaskStepState::Done:
-                uiStep.state = TaskCenter::StepState::Done;
-                break;
-            case Tasks::TaskStepState::Failed:
-                uiStep.state = TaskCenter::StepState::Failed;
-                break;
-            }
-            item.steps.append(uiStep);
-        }
-        items.append(item);
+        items.append(taskCenterItem(task));
     }
 
     // ★ 走到这儿就算**用户看过了**（这一格是唯一能把失败原因和"跑到哪一步"看全的地方，
@@ -2768,12 +2803,186 @@ QList<TaskCenter::Item> MainWindow::taskCenterItems() {
     return items;
 }
 
+bool MainWindow::fillTaskDetail(const QString &key, TaskCenter::Item *out) const {
+    bool ok = false;
+    const Tasks::TaskId id = key.toInt(&ok);
+    if (!ok || !m_taskManager->has(id)) {
+        return false;
+    }
+    *out = taskCenterItem(m_taskManager->snapshot(id));
+    return true;
+}
+
+void MainWindow::openTaskDetailPage(const QString &key) {
+    OverlayHost *overlay = m_ui->overlay();
+    if (overlay == nullptr) {
+        return;
+    }
+    if (overlay->isOpen()) {
+        // 已经有覆盖层开着（另一页、或者一条提示）。这一层不做页面栈 —— 和 `openPage()`
+        // 返回 nullptr 是同一件事（见 OverlayHost.hpp 那段）。**这里不排下一轮**：点行的
+        // 那一下人是看着面板点的，晚一轮再开等于"面板收起来了，页没开"。
+        return;
+    }
+    if (m_taskDetailPage == nullptr) {
+        m_taskDetailPage = new TaskDetailPage(this);
+        connect(m_taskDetailPage, &TaskDetailPage::actionRequested, this,
+                &MainWindow::onTaskDetailAction);
+    }
+    // 摆这一项要画的东西。**必须在 `execPage()` 之前**：那一下会阻塞在嵌套事件循环里
+    // （见 OverlayHost::execPage 的 NOTE），之后写的每一句都只有等用户点了返回才执行得到。
+    TaskCenter::Item item;
+    if (!fillTaskDetail(key, &item)) {
+        // 号早就没了（用户按过「清除已完成」，或者这一项是上一轮读盘读回来的历史）——
+        // 页照开，摆一份空的就是了（页上会写"（没有名字的任务）"）。**不弹窗**：用户没做错
+        // 什么，而且这一页本来就有个"我在看某一项"的位置。
+        item.key = key;
+    }
+    m_taskDetailPage->setTask(item);
+    // 归哪一颗选项卡：面板是从底栏中间那格弹出来的，而那一格**不属于任何一颗选项卡**
+    // （底栏是 tabWidget 的兄弟）—— 所以 `ownerTab` 给 -1，这一页就不跟着哪一颗走
+    // （见 OverlayHost 里 ownerTab 那一段）。
+    overlay->execPage(m_taskDetailPage, TaskDetailPage::windowTitle());
+}
+
+void MainWindow::onTaskDetailAction(const QString &key, TaskDetailPage::Action action) {
+    switch (action) {
+    case TaskDetailPage::Action::Cancel:
+        if (m_versionManager != nullptr && m_versionManager->cancelActiveDownload()) {
+            appendLog(tr("下载已取消。已经下好的文件留在原处。"));
+        }
+        break;
+    case TaskDetailPage::Action::Retry:
+        if (m_versionManager != nullptr && m_versionManager->retryDownload()) {
+            appendLog(tr("正在重试上一次没下下来的那几个文件…"));
+        }
+        break;
+    case TaskDetailPage::Action::OpenLog:
+        openTaskLog(key);
+        break;
+    case TaskDetailPage::Action::OpenTarget:
+        openTaskTarget(key);
+        break;
+    case TaskDetailPage::Action::CopySummary:
+        copyTaskSummary(key);
+        break;
+    }
+    // 取消 / 重试都会让账本立刻动起来（终态信号是同步发的），这一页上那几行跟着重摆一遍
+    // —— 不重摆的话用户看到的还是"正在进行"，而底下那一批已经收尾了。
+    if (m_taskDetailPage != nullptr) {
+        TaskCenter::Item fresh;
+        if (fillTaskDetail(key, &fresh)) {
+            m_taskDetailPage->setTask(fresh);
+        }
+    }
+}
+
+void MainWindow::openTaskLog(const QString &key) {
+    // ★ 这里打开的是**启动器自己那次启动的日志**（`<数据目录>/logs/wtfml.log`），不是某一场
+    //   游戏的日志窗。
+    //
+    //   理由：任务中心记的是**启动器干的活**（下载 / 安装 / 导入 / 启动这一段调度），那些话
+    //   全在这份日志里；而 `GameLogWindow` 装的是**游戏进程的输出**，它是按会话号开的、
+    //   会话结束就没了（见 m_gameLogWindows 那一段）。拿一次"下载失败"去开游戏日志，
+    //   开出来的多半是空的、或者上一次玩的那一场 —— 那比不开更让人糊涂。
+    //
+    //   §4.3 那一项「游戏异常退出」会另外给「打开日志」一个**明确的**去处（那一条本来就知道
+    //   是哪一场、哪一份 crash report）。
+    Q_UNUSED(key);
+    const QString path = AppPaths::minecraftDir() + QStringLiteral("/logs/wtfml.log");
+    if (!QFile::exists(path)) {
+        InlineMessage::warning(m_ui->overlay(), tr("还没有日志"), tr("这一次启动到现在没有写过日志。"));
+        return;
+    }
+    QDesktopServices::openUrl(QUrl::fromLocalFile(path));
+}
+
+void MainWindow::openTaskTarget(const QString &key) {
+    bool ok = false;
+    const Tasks::TaskId id = key.toInt(&ok);
+    if (!ok || !m_taskManager->has(id)) {
+        return;
+    }
+    const Tasks::TaskSnapshot task = m_taskManager->snapshot(id);
+    // 目标就是那一项自己记的那个 id（实例 id / 版本号），空的话落到数据目录 ——
+    // 一样"点得开"，不给一颗点了没反应的按钮。
+    const QString dir = task.targetId.isEmpty() ? AppPaths::minecraftDir()
+                                                : AppPaths::versionDir(task.targetId);
+    if (!QDir().exists(dir)) {
+        InlineMessage::warning(m_ui->overlay(), tr("打不开这一项的目标位置"),
+                               tr("这一项说的是 %1，而那个目录现在不在。")
+                                   .arg(QDir::toNativeSeparators(dir)));
+        return;
+    }
+    QDesktopServices::openUrl(QUrl::fromLocalFile(dir));
+}
+
+void MainWindow::copyTaskSummary(const QString &key) {
+    TaskCenter::Item item;
+    if (!fillTaskDetail(key, &item)) {
+        return;
+    }
+    // 摘要 = 这一页上那几行字，纯文本（贴到哪儿都读得下去）。**不带上整份日志**：
+    // 那是「导出错误报告」的活（见 util/ErrorReport），这一颗要的是"把这一项说清楚"。
+    QStringList lines;
+    lines << QStringLiteral("%1: %2").arg(MainWindowUI::taskDetailStateText(item.state),
+                                          item.title);
+    if (item.startedAt.isValid() || item.finishedAt.isValid()) {
+        lines << MainWindowUI::taskDetailTimeLineText(item.startedAt, item.finishedAt);
+    }
+    if (!item.detail.isEmpty()) {
+        lines << item.detail;
+    }
+    if (!item.bytesText.isEmpty()) {
+        lines << item.bytesText;
+    }
+    for (const TaskCenter::Step &step : item.steps) {
+        lines << TaskCenter::stepMark(step.state) + QLatin1Char(' ') + step.name
+                     + (step.note.isEmpty() ? QString() : QStringLiteral(" · ") + step.note);
+    }
+    if (!item.errorSummary.isEmpty()) {
+        lines << QString() << item.errorSummary;
+    }
+    QGuiApplication::clipboard()->setText(lines.join(QLatin1Char('\n')));
+    appendLog(tr("这一项的摘要已经复制到剪贴板。"));
+}
+
+Tasks::TaskCapabilities MainWindow::defaultTaskCapabilities(Tasks::TaskKind kind) {
+    // 「这一项**起手**就允许什么」。会变的那几位（`canRetry`）不在这里 —— 它要等失败那一刻
+    // 才知道有没有可重做的东西，由 `finishTask()` 补（见那边的 NOTE）。
+    //
+    // ★ 这张表是**唯一出处**：面板那一行的按钮、详情页那一排按钮，都只读账本里记的这几位，
+    //   谁都不再自己按状态推一遍（推两边迟早漂开，症状是"界面上有一颗点了没反应的按钮"）。
+    Tasks::TaskCapabilities caps;
+    switch (kind) {
+    case Tasks::TaskKind::Download:
+    case Tasks::TaskKind::Install:
+    case Tasks::TaskKind::Import:
+        // 这三档底下就是一批文件下载，取消能真的掐掉它（见 VersionManager::cancelActiveDownload）。
+        caps.canCancel = true;
+        break;
+    case Tasks::TaskKind::Launch:
+    case Tasks::TaskKind::Export:
+    case Tasks::TaskKind::Java:
+    case Tasks::TaskKind::Integrity:
+    case Tasks::TaskKind::Other:
+        // 游戏进程 / 本地打包 / Java 运行时那几条路**没有"取消"这一说**（要么进程自己退，
+        // 要么那件事短到点不着）。给一颗点了没反应的「取消」比不给还糟。
+        break;
+    }
+    // 打开日志永远能开（日志窗是常驻的）；打开目标位置也是 —— 这一项的 `targetId` 空的话
+    // 那一颗按"数据目录"开（见 onTaskDetailAction），不会点了没反应。
+    caps.canOpenLog = true;
+    caps.canOpenTarget = true;
+    return caps;
+}
+
 Tasks::TaskId MainWindow::beginTask(Tasks::TaskKind kind, const QString &title,
                                     const QString &targetId,
                                     const QList<Tasks::TaskStep> &steps) {
     // 薄薄一层，故意留着：**所有**往账本里新增的地方都从这一处过（以后要在这里加"记一行
     // 日志""按种类改能力位"这一类横切的事，只有这一个地方需要改）。
-    return m_taskManager->begin(kind, title, targetId, steps);
+    return m_taskManager->begin(kind, title, targetId, steps, defaultTaskCapabilities(kind));
 }
 
 void MainWindow::finishTask(Tasks::TaskId id, bool success, const QString &errorSummary) {
@@ -2791,6 +3000,17 @@ void MainWindow::finishTask(Tasks::TaskId id, bool success, const QString &error
     // NOTE: 按 `fail()` 的**返回值**决定要不要记红点：它回 false 表示这一项**早就收过尾**
     //       了（终态只落一次，见 TaskManager::finish），那种情况不该把一次成功再标成"没看
     //       过的失败"。
+    // ★ 「重试」露不露是**失败那一刻**才知道的（要问下载器"上一次失败的那一批里有没有
+    //   留下够重做的东西"）—— 所以它不跟着 begin() 那张表走，补在这里。
+    //
+    // NOTE: **必须在 `fail()` 之前**补。一收尾，`setCapabilities()` 就被那条「终态不可变」
+    //       的闸挡掉了（那六个写入口都判 `isActiveState()`）—— 顺序反过来这一句静默失败，
+    //       症状是详情页上永远没有「重试」，而且不报错。
+    if (m_versionManager != nullptr && m_versionManager->canRetryDownload()) {
+        Tasks::TaskCapabilities caps = m_taskManager->snapshot(id).capabilities;
+        caps.canRetry = true;
+        m_taskManager->setCapabilities(id, caps);
+    }
     if (m_taskManager->fail(id, errorSummary)) {
         m_unreadFailures.insert(id);
         updateBottomBarTaskSummary();
