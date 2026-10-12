@@ -1450,9 +1450,9 @@ public:
     /// 面板高度上限 = 屏幕**可用**高度的百分之多少（§3.2：60%）。
     static int taskCenterPanelHeightPercent() { return 60; }
     /// 面板里那根进度条的高度（像素）。
-    static int taskCenterPanelBarHeight() { return 6; }
+    static int taskCenterPanelBarHeight() { return 4; }
     /// 步骤之间空多少（像素）。
-    static int taskCenterPanelStepSpacing() { return 12; }
+    static int taskCenterPanelStepSpacing() { return 14; }
     /// 那一颗"还没看过的一次失败"的红点边长（像素）。比底栏那颗状态方块小一号：
     /// 它挨着的是一行正文，不是整格的角标。
     static int taskCenterPanelFailureDotSize() { return 8; }

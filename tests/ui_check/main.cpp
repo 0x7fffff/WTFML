@@ -3384,7 +3384,9 @@ int main(int argc, char *argv[]) {
         check(vbox->count() > 0 && vbox->itemAt(vbox->count() - 1) != nullptr &&
                   vbox->itemAt(vbox->count() - 1)->widget() == bar,
               "底栏是主布局最后一块（贴在窗口最底下）");
-        check(bar->height() == 56, "底栏是固定高度 56", QString::number(bar->height()));
+        // ★ 2026-10-13：56 → **62**（用户自己调的那一档，`kBottomBarHeight`）。M1 起底栏
+        //   中间那一格画的是任务账本（一行标题 + 一行状态），56 那一档挤得下不来。
+        check(bar->height() == 62, "底栏是固定高度 62", QString::number(bar->height()));
         const QRect br = bar->geometry();
         const QRect cr = window.centralWidget()->rect();
         check(br.x() == 0 && br.width() == cr.width(), "底栏通栏（左右都贴着窗口边）",
@@ -24488,8 +24490,8 @@ int main(int argc, char *argv[]) {
             const QColor pressed = Theme::accentShade(Theme::AccentShade::Pressed);
 
             check(sameColor(pure, Theme::defaultAccentColor()) &&
-                      pure.name() == QLatin1String("#2d8659"),
-                  "★★ W12 出厂主题色是沉稳的翡翠绿（#2d8659，全仓只有一处写它）",
+                      pure.name() == QLatin1String("#3d8068"),
+                  "★★ W12 出厂主题色是沉稳的绿（#3d8068，全仓只有一处写它）",
                   pure.name());
             check(sameColor(Theme::partBackground(Theme::Part::TitleBar), pure),
                   "★★ W12 顶栏铺的就是**纯的那一支**（不是深一档的）");

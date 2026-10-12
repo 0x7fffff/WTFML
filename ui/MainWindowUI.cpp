@@ -79,7 +79,7 @@ constexpr int kRichSideMaxWidth = 420;
 //       addInlineControl() 一个调用点，留在它旁边更好找。
 
 /// 底栏整条的高度。给固定值：栏里三格的内容高度都是自己定的，跟着窗口高变没有意义。
-constexpr int kBottomBarHeight = 56;
+constexpr int kBottomBarHeight = 62;
 
 /// 进度文字那格（"已下载 1234 / 3580 xxx.jar"）的宽度下限，免得**文件名一换整条就左右跳**。
 /// 它管的是底栏**中间那一格自己**的宽度，不是左右两格的 —— 左右那两格用的是
@@ -119,9 +119,8 @@ const int kSidebarWidth = MainWindowUI::sidebarWidth();
 
 /// 正文面（`wtfmlSurface="workspace"`）里那一圈内边距 = 令牌里的"区块间距"那一档。
 ///
-/// ★ 2026-10-12（coding plan §9.1）：从 14 到 16，同时页面外边距 9 → 20。两圈的关系
-///   没变（面**里面**那一圈略小于**外面**那一圈：外面 20、里面 16），只是都跟着令牌走。
-constexpr int kSurfacePadding = 16;
+/// 与页面外边距保持接近但略小：面内紧凑，面与窗口之间留出更明确的呼吸空间。
+constexpr int kSurfacePadding = 18;
 
 /// 页头两行之间的间距。
 constexpr int kHeaderSpacing = 3;

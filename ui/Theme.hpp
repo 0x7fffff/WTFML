@@ -430,9 +430,9 @@ QString secondaryTextRoleValue();
 //     别处大 2pt（`installButtonFontStep()`），32 会显得挤。
 
 /// 普通动作按钮（确定 / 取消 / 应用 / 全部那些）的最小高度。
-constexpr int actionHeight() { return 32; }
-/// "页面上唯一最重要的动作"那一档（`ButtonKind::Primary`）。可用 36 就够，不必再大。
-constexpr int primaryActionHeight() { return 36; }
+constexpr int actionHeight() { return 34; }
+/// "页面上唯一最重要的动作"那一档（`ButtonKind::Primary`），比普通动作略高一档。
+constexpr int primaryActionHeight() { return 38; }
 
 /// 这一位是**图标按钮**（齿轮 / 底栏面板上那几颗 / 详情页顶上的 chip）：它按自己钉死的
 /// 边长来，不跟 `actionHeight()` 那一档。
@@ -452,13 +452,13 @@ QString iconButtonSizeValue();
 void markIconButton(QWidget *button);
 
 /// 输入类控件（`QLineEdit` / `QComboBox` / `QAbstractSpinBox` / 勾选框那个框）的圆角。
-constexpr int controlRadius() { return 4; }
+constexpr int controlRadius() { return 6; }
 /// `QPushButton` 的圆角（比输入类大一档：它比输入框矮胖，同一个圆角看着更方）。
-constexpr int buttonRadius() { return 6; }
+constexpr int buttonRadius() { return 8; }
 /// 主表面（`wtfmlSurface="workspace"` / `"sidebar"`）的圆角。
-constexpr int surfaceRadius() { return 8; }
+constexpr int surfaceRadius() { return 10; }
 /// 小节卡片（`wtfmlSurface="section"`）的圆角。比主表面大一档：它是"面里的一层"。
-constexpr int sectionRadius() { return 10; }
+constexpr int sectionRadius() { return 12; }
 
 // ---------------------------------------------------------------------------
 // 滚动条
@@ -477,19 +477,19 @@ constexpr int sectionRadius() { return 10; }
  * ★ 这一位有三处读者：`widgetStyleSheet()` 里那两段 QSS（竖的给 `width`、横的给 `height`）、
  *   以及验证工程（量真控件的宽度 / 量把手的左右两边是不是各留了这么宽）。
  */
-constexpr int scrollBarThickness() { return 12; }
+constexpr int scrollBarThickness() { return 10; }
 
 /// 把手离滚动条自己那条边线的距离（左右各一份，横的那一档是上下各一份）。
-/// 于是**看得见的把手宽 = `scrollBarThickness()` - 2 * 这一位** = 6 px。
-constexpr int scrollBarHandleMargin() { return 3; }
+/// 于是**看得见的把手宽 = `scrollBarThickness()` - 2 * 这一位**。
+constexpr int scrollBarHandleMargin() { return 2; }
 
-/// 把手两头的圆角：**就是半宽**（6 px 宽的把手配 3 px 圆角 = 一个两头圆的胶囊）。
+/// 把手两头的圆角：**就是可见宽度的一半**，因此始终是两头圆的胶囊。
 /// 写成一算就出来的式子，免得两个数将来各自漂走（漂了只会"看着不那么圆"，不会报错）。
 constexpr int scrollBarHandleRadius() { return (scrollBarThickness() - 2 * scrollBarHandleMargin()) / 2; }
 
 /// 把手最短画多长。Fusion 自己也有一条（`PM_ScrollBarSliderMin`）；这一条是我们钉的，
 /// 内容长到上千行时把手不至于短成一个小点。
-constexpr int scrollBarMinHandleLength() { return 24; }
+constexpr int scrollBarMinHandleLength() { return 28; }
 
 /**
  * @brief 把手平时的色。**带 alpha 的一支中性灰**，跟着深浅各取一边。

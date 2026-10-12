@@ -532,7 +532,7 @@ QColor defaultAccentColor() {
     // 降低明度后不再抢内容；同时白字对它仍有 4.5:1 以上的对比度，实心主按钮也能复用。
     //   全仓只有这一处写这六个十六进制位 —— 顶栏、按钮的字与边、当前那一颗导航底下那条
     //   线，量的都是它算出来的某一档（见 `accentShade()`），**不许在别处再写一遍**。
-    return QColor(0x2d, 0x86, 0x59);
+    return QColor(0x3d, 0x80, 0x68);
 }
 
 QColor rowHoverFill(const QColor &base) {

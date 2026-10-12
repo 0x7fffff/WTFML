@@ -43,13 +43,13 @@ bool isActive(TaskCenter::State state) {
 //       `kPanelPadding` / `kPanelRowSpacing`）：那一套是给"一行一个实例"的短行调的
 //       （行高矮、行挨得近），这一块里是标题 + 小字 + 进度条 + 步骤，行高一档。两个面板
 //       长得很不一样，共用一个数只会两边都不合适。
-constexpr int kPanelPadding = 12;
+constexpr int kPanelPadding = 14;
 /// 两行之间（同一个按钮那一栏里）。
-constexpr int kRowSpacing = 7;
+constexpr int kRowSpacing = 9;
 /// 两栏之间（「当前工作」和「已完成」中间那一道）：比行距大一倍，分开两栏。
-constexpr int kSectionSpacing = 14;
+constexpr int kSectionSpacing = 18;
 /// 一行里面那几样之间。
-constexpr int kRowInnerSpacing = 4;
+constexpr int kRowInnerSpacing = 6;
 /// 面板宽度（coding plan §3.2：约 440–520 px）。
 constexpr int kMinWidth = 440;
 constexpr int kMaxWidth = 520;
