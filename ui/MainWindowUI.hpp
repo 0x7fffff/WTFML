@@ -2638,6 +2638,16 @@ public:
     }
     static QString downloadSourceComboName() { return QStringLiteral("downloadSourceCombo"); }
 
+    // ---------- 「同时最多下几个」（2026-10-13 加的，§9.2 并发数预设，在「下载源」那一组里） ----------
+    // 和 gameWindowModeCombo 同一个形状：**只有框没有项** —— 四档那个表在 src/ 的
+    // `DownloadConcurrency.hpp` 里（唯一出处），而 ui/ 不许 include src/（分层铁律）。
+    // 项由 MainWindow 灌（每项 itemData 存那个 int），出厂选中的那一档也由它选。
+    static QString downloadConcurrencyComboName() {
+        return QStringLiteral("downloadConcurrencyCombo");
+    }
+    /// 这一行的行标题（左列那一格）。
+    static QString downloadConcurrencyRowText() { return QStringLiteral("并发数"); }
+
     // ---------- CurseForge API key（2026-09-25 加的，在「下载源」那一组里） ----------
     // CurseForge 那一条路（下载页把来源选成 CurseForge、以及 CurseForge 格式的整合包导入）
     // 都要靠接口：前者搜项目、后者把那份只有编号的清单换成下载地址 —— 而官方接口要 key。
@@ -3212,18 +3222,6 @@ public:
     /// 传越界的值什么都不做（宁可停在上一档，也不要切到一页不存在的页上）。
     void setInstanceMode(InstanceMode mode);
 
-    /// 顶上那四颗导航，**最后一次是按在哪一颗上的**（按下去**之前**那一颗 = 那一按的来路；
-    /// -1 = 这一次运行还没人按过）。两个出口都读它，判的都是同一句"这一按是从下载页上按的"：
-    ///   ① 「下载」那一颗：**按的就是当前这一颗**（回这个功能的首页）才做那一套重置 ——
-    ///      从别处切过来的那一按是"切回来"，原来那一栏、筛子、来路都得留着；
-    ///   ② 「实例」那一颗：从下载页按的那一下等同于按「← 返回实例设置」。
-    ///
-    /// ★ 为什么这个事实得由这一层给：`TitleBar::navRequested` 上接着两条槽，这一层那条
-    ///   **先接先跑**（`setupUi` 早于 MainWindow 的 `setupConnections`），而且它自己就会
-    ///   把选项卡翻过去 ⇒ `MainWindow` 那条醒过来时 `currentIndex()` 说的已经是**新**的一颗。
-    ///   曾经用 `tabs->currentIndex() == index` 冒充过这条判据：那一格**永远为真**
-    ///   （等于没有这一条），注释里说的症状照样发生（`mw_check` T25.8 量得出来）。
-    int lastNavSourceTab() const { return m_lastNavSourceTab; }
     /// 让它露面/收起来。**收起时连位置都不占**（`setVisible(false)`，不是 `setEnabled`）。
     void setDownloadBackVisible(bool visible) {
         if (downloadBackButton != nullptr) {
@@ -3337,6 +3335,7 @@ public:
     QPlainTextEdit *getExtraJvmArgsEdit() const { return extraJvmArgsEdit; }
     QPushButton *getApplyExtraJvmArgsButton() const { return applyExtraJvmArgsButton; }
     QComboBox *getDownloadSourceCombo() const { return downloadSourceCombo; }
+    QComboBox *getDownloadConcurrencyCombo() const { return downloadConcurrencyCombo; }
     QLineEdit *getCurseForgeApiKeyEdit() const { return curseForgeApiKeyEdit; }
     QCheckBox *getShowGameLogCheck() const { return showGameLogCheck; }
     QCheckBox *getDownloadAutoIntoInstanceCheck() const { return downloadAutoIntoInstanceCheck; }
@@ -3556,8 +3555,6 @@ private:
     /// ★ 它**就是** `buildTwoColumnPage()` 给正文那一栏建的标题下面那一行 —— 不是另建一个
     ///   标签，页头那一行字只有这一处。
     QLabel *downloadHeaderSubtitleLabel = nullptr;
-    /// 顶上那四颗导航最后一次是按在哪一颗上的（见 lastNavSourceTab() 那段）。
-    int m_lastNavSourceTab = -1;
     QStackedWidget *downloadStack = nullptr;
     /// 设置页左栏那份「分类」与右栏那份堆叠页（见头文件上面「设置页：左栏那几条分类」那段）。
     /// 五页全是真的，每一页是一层滚动区（addSettingsPanel() 搭），堆叠页的下标就是
@@ -3605,6 +3602,8 @@ private:
     QPlainTextEdit *extraJvmArgsEdit = nullptr;
     QPushButton *applyExtraJvmArgsButton = nullptr;
     QComboBox *downloadSourceCombo = nullptr;
+    /// 「同时最多下几个」那个下拉框（2026-10-13，§9.2）。项由 MainWindow 灌。
+    QComboBox *downloadConcurrencyCombo = nullptr;
     QLineEdit *curseForgeApiKeyEdit = nullptr;
     QCheckBox *showGameLogCheck = nullptr;
     /// 「下载」栏里那个勾选框（2026-09-28）。

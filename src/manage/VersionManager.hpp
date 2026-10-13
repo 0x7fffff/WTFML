@@ -566,6 +566,15 @@ public:
     // 在下载期间并没有被禁用。
     void setUseMirror(bool useMirror);
 
+    /// 同时最多下几个文件（设置 → 下载 → 并发数，coding plan §9.2）。**和 setUseMirror 同一个
+    /// 形状**：数据层看不见 LauncherSettings（那是界面那一层的），设置要由 MainWindow 推过来。
+    ///
+    /// 改完立刻生效，但和"改道"不一样：这条线每一拍都重读，所以**正在下的那一批也跟着变**
+    /// —— 调小 = 飞着的那几条跑完就不再补；调大 = 下一条回复回来时一次补到位。已经在飞的那
+    /// 几条不会被叫回来（叫回来只是白白重下一段）。归一化（越界回默认）在 DownloadManager
+    /// 那一侧，见 `DownloadConcurrency.hpp`。
+    void setDownloadConcurrency(int count);
+
     /**
      * @brief 这一层内部那**唯一一份**下载器（`m_downloads` 那个成员）。
      *

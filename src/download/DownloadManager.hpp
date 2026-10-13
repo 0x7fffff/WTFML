@@ -30,6 +30,8 @@
 #include <QUrl>
 #include <QVariant>
 
+#include "DownloadConcurrency.hpp"  // 「同时最多下几个」那四档（§9.2，唯一出处）
+
 class QTimer;
 
 // Minecraft 数据的结构
@@ -219,7 +221,18 @@ public:
     ///       这种情形写的，不用跟着调。
     /// 放在 public 是给验证工程用的：V6i 的边界断言要按**同一个数**钉"到顶就不发"，硬写一个
     /// 字面量的话，下次调这个数用例会静默失效（2026-09-23 从 6 调到 24 时就是这么发现的）。
-    static constexpr int kMaxConcurrentDownloads = 24;
+    ///
+    /// ★★ 2026-10-13（§9.2 并发数预设）：**这个数从"唯一的那一条线"变成了"出厂默认那一条"** ——
+    ///    用户可以在设置 → 下载 → 并发数里挑 6/12/24/48，真正在用的是这个对象的
+    ///    `maxConcurrentDownloads()`。四条线的数、为什么是它们、越界的值怎么办，都在
+    ///    `DownloadConcurrency.hpp`（那里是**唯一出处**，这里的值就 = 它的 `kDefault`）。
+    static constexpr int kMaxConcurrentDownloads = DownloadConcurrency::kDefault;
+
+    /// ◆ 这一次运行真正在用的那一档（默认 = 出厂那一条）。设置里改完由 `VersionManager`
+    ///   推过来（见 `setDownloadConcurrency()`），**改完立刻生效**：正在下着的那一批也在
+    ///   下一拍就按新的数泵 —— 已经在飞的那几条不会被叫回来（叫回来只会白白重下一段）。
+    void setMaxConcurrentDownloads(int count);
+    int maxConcurrentDownloads() const { return m_maxConcurrentDownloads; }
 
     /// 还能不能再往外发一条（排队那一步问它）。
     ///
@@ -232,6 +245,10 @@ public:
     /// 重发），重发又是 380 条一起发 —— 最后整批挂死不动、进度条停在 1%。
     /// verify 的 V6i 按边界钉过。
     static bool mayIssueAnotherDownload(int activeCount, int queuedCount);
+
+    /// 同上，但上限由调用方给（队列泵用的是**这个对象当下那一档**）。
+    /// 两参数那个版本 = 拿出厂默认那一档问一遍，留它是为了验证工程能按那个数钉边界。
+    static bool mayIssueAnotherDownload(int activeCount, int queuedCount, int cap);
 
     /// 一个**还没证明**自己走 HTTP/2 的主机，一次最多放几条在飞。
     ///
@@ -616,6 +633,8 @@ private:
     bool m_shuttingDown = false;
     // 下载源。false = 官方（默认，也是加这一项之前的行为）。
     bool m_useMirror = false;
+    /// 同时最多几条在飞（出厂 = `kMaxConcurrentDownloads`；设置里能改，见 §9.2 那四档）。
+    int m_maxConcurrentDownloads = kMaxConcurrentDownloads;
 
     // ------------------------------------------------------------------
     // 失速看门狗（见 .cpp 顶部那段实测记录）

@@ -13,6 +13,7 @@
 #include "AuthManager.hpp"
 
 #include "AccountStore.hpp"    // 刷新成功后把新凭据写回列表（M5）
+#include "OAuthEndpoints.hpp"  // 回调地址 → 监听端口（唯一出处，§9.4）
 #include "TokenStore.hpp"      // 凭据落盘的字节格式（唯一出处）
 #include "../net/HttpClient.hpp"  // 同步 HTTP（唯一出处）
 
@@ -40,7 +41,19 @@
 #include <limits>  // tokenSecondsLeft() 那个夹取（int 的上界）
 
 namespace {
+// 正版登录那两格随构建配置走的常数（coding plan §9.4）。
+//
+// ★ 这两个宏由 CMakeLists 那两条 `WTFML_CLIENT_ID` / `WTFML_REDIRECT_URI` 缓存变量按需注入
+//   （带了 `-D` 才有定义）；**没带的时候用下面这份兜底值**，所以"不改那两条、照旧构建"
+//   出来的东西跟从前一模一样。想换成自己那份 Azure 应用注册时不必改源码。
+// ★ 回调地址一定要和"我们监听哪个端口"同步（见 OAuthEndpoints.hpp 那段）：换地址就等于
+//   换端口，端口是**从下面这串地址里算出来的**，不是另写的一位。
+#ifdef WTFML_CLIENT_ID
+static constexpr const char kClientId[] = WTFML_CLIENT_ID;
+#else
 static constexpr const char kClientId[] = "1f3dc837-04f1-4389-947e-d698b69571b7";
+#endif
+
 // NOTE: 两份凭据落在哪些键上、以及那串字节怎么保护，都**不在这里** ——
 //       见 TokenStore.hpp（多账号列表里的副本必须和活动槽是同一套格式，所以它只有一个
 //       出处）。这一层要知道的只有"键名从 TokenStore 取"。
@@ -54,8 +67,14 @@ static constexpr const char kMinecraftLoginUrl[] =
     "https://api.minecraftservices.com/authentication/login_with_xbox";
 static constexpr const char kMinecraftProfileUrl[] =
     "https://api.minecraftservices.com/minecraft/profile";
-static constexpr int kCallbackPort = 38226;
+#ifdef WTFML_REDIRECT_URI
+static constexpr const char kRedirectUri[] = WTFML_REDIRECT_URI;
+#else
 static constexpr const char kRedirectUri[] = "http://localhost:38226/";
+#endif
+// 回调地址**读不出端口**时的那一位（地址本来就不是一条 http/https 地址）。正常构建里
+// 用不到它：地址里写没写端口都算得出来，读不出来才是这条。
+static constexpr int kFallbackCallbackPort = 38226;
 static constexpr const char kOAuthScope[] = "XboxLive.signin offline_access";
 // 等浏览器回来的上限。见 AuthManager::loginInFlight() 的说明。
 static constexpr int kLoginTimeoutMinutes = 5;
@@ -141,7 +160,9 @@ AuthManager::AuthManager(QObject *parent)
       m_playerName(QString::fromLatin1(kDefaultPlayerName)),
       m_callbackServer(new QTcpServer(this)),
       m_networkManager(new QNetworkAccessManager(this)),
-      m_callbackPort(kCallbackPort) {
+      // 监听端口 = 回调地址里那个端口（唯一出处，见 OAuthEndpoints.hpp）。
+      m_callbackPort(OAuthEndpoints::callbackPort(QString::fromLatin1(kRedirectUri),
+                                                  kFallbackCallbackPort)) {
     connect(m_callbackServer, &QTcpServer::newConnection, this, &AuthManager::handleNewConnection);
     // 开窗时把上次登录的账户读回来：底栏一上来就显示上次那个名字，而不是占位的 "Player"。
     // 这一句**不碰网络**（loadMinecraftTokenData() 只读一遍 QSettings、再解一层

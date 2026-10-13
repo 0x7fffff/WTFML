@@ -1,0 +1,47 @@
+{
+  "default_profile": "modern_soft",
+  "profiles": {
+    "baseline": {
+      "accent": "#2d8659",
+      "action_height": 32,
+      "primary_action_height": 36,
+      "control_radius": 4,
+      "button_radius": 6,
+      "surface_radius": 8,
+      "section_radius": 10,
+      "scrollbar_thickness": 12,
+      "scrollbar_handle_margin": 3,
+      "scrollbar_min_handle_length": 24,
+      "page_margin": 20,
+      "bottom_bar_height": 56,
+      "surface_padding": 16,
+      "task_panel_padding": 12,
+      "task_row_spacing": 7,
+      "task_section_spacing": 14,
+      "task_row_inner_spacing": 4,
+      "task_progress_height": 6,
+      "task_step_spacing": 12
+    },
+    "modern_soft": {
+      "accent": "#3d8068",
+      "action_height": 34,
+      "primary_action_height": 38,
+      "control_radius": 6,
+      "button_radius": 8,
+      "surface_radius": 10,
+      "section_radius": 12,
+      "scrollbar_thickness": 10,
+      "scrollbar_handle_margin": 2,
+      "scrollbar_min_handle_length": 28,
+      "page_margin": 20,
+      "bottom_bar_height": 62,
+      "surface_padding": 18,
+      "task_panel_padding": 14,
+      "task_row_spacing": 9,
+      "task_section_spacing": 18,
+      "task_row_inner_spacing": 6,
+      "task_progress_height": 4,
+      "task_step_spacing": 14
+    }
+  }
+}

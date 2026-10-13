@@ -30,6 +30,7 @@ set(HEADER_FILES
     src/launcher/VersionInheritance.hpp
     src/auth/AuthManager.hpp
     src/auth/AccountStore.hpp
+    src/auth/OAuthEndpoints.hpp
     src/auth/SkinApi.hpp
     src/auth/TokenStore.hpp
     src/net/HttpClient.hpp
@@ -260,6 +261,27 @@ set_target_properties(WTFMinecraftLauncher PROPERTIES qt_no_entrypoint TRUE)
 # 从前这两处是**各写各的**（CMakeLists 写 0.1.0、main.cpp 写 1.0.0，早就不一致了），
 # 发 0.2.0 的时候才发现——所以改成从这一个宏出来，别再写第二份字面量。
 target_compile_definitions(WTFMinecraftLauncher PRIVATE WTFML_VERSION="${PROJECT_VERSION}")
+
+# 正版登录那两格（coding plan §9.4「客户端 ID 和回调地址通过构建配置注入」）。
+#
+# 默认**空 = 用源码里那份兜底值**（`src/auth/AuthManager.cpp` 里那两个 `#ifdef` 的另一半），
+# 所以不带 `-D` 构建出来的东西和从前逐字一样。要换成自己那份 Azure 应用注册时不用改源码：
+#
+#   cmake -DWTFML_CLIENT_ID=<你的应用 id> -DWTFML_REDIRECT_URI=http://localhost:38300/ …
+#
+# ★ 回调地址换了就等于换了监听端口：端口是 AuthManager 从这串地址里**算**出来的
+#   （`OAuthEndpoints::callbackPort()`），别再去找第二个地方改。
+# ★ 为什么不干脆把源码里那两个字面量删掉：删掉之后不带 `-D` 的构建会拿到空 client_id，
+#   表现是"点登录、浏览器开了、微软说这个应用不存在" —— 比多一个开关更糟。
+set(WTFML_CLIENT_ID "" CACHE STRING "Microsoft OAuth 客户端 ID（空 = 用源码里的兜底值）")
+set(WTFML_REDIRECT_URI "" CACHE STRING "OAuth 回调地址，端口随之生效（空 = 用源码里的兜底值）")
+
+if(WTFML_CLIENT_ID)
+    target_compile_definitions(WTFMinecraftLauncher PRIVATE WTFML_CLIENT_ID="${WTFML_CLIENT_ID}")
+endif()
+if(WTFML_REDIRECT_URI)
+    target_compile_definitions(WTFMinecraftLauncher PRIVATE WTFML_REDIRECT_URI="${WTFML_REDIRECT_URI}")
+endif()
 
 # MainWindow.cpp is still large while its controllers are being extracted.  A
 # debug build can exceed PE/COFF's default section count under MinGW.

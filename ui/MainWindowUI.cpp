@@ -1837,10 +1837,8 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     bar->setCurrentNav(tabWidget->currentIndex());
     // 条只发信号、不自己动手（见 TitleBar.hpp）：翻页是这一层的事。
     QObject::connect(bar, &TitleBar::navRequested, tabWidget, [this](int index) {
-        // ★ **先**记下这一按是从哪一颗上按下去的（= 此刻这一颗，翻页之前）。下面那一句
-        //   `setCurrentIndex()` 一执行，这个事实就没了 —— 而 `MainWindow` 那条槽醒过来的时候
-        //   它已经执行完了（见 `lastNavSourceTab()` 的注释）。
-        m_lastNavSourceTab = tabWidget->currentIndex();
+        const int sourceIndex = tabWidget->currentIndex();
+        const bool reselected = index == sourceIndex;
         // 用户原话：「顶端四个按钮点击以后自动到达对应选项卡的首页（比如说我现在正点开
         // sodium 的下载页面，现在我点击启动选项卡，直接切到那个页面，下载这个"弹窗"自动
         // 收起）」+「在下载页点击 下载（顶上那个，不是下载确认键），那就回到下载页的首页
@@ -1850,13 +1848,16 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         //    OverlayHost.hpp 那段），切回来还是原来那个界面、连滚到哪儿都在；
         // ② 点的**就是**现在这一颗 ⇒ "回到这个功能的首页"：把上面那一层收掉 —— 页面那一档
         //    走"返回箭头"那一发（`execPage()` 的那一次才醒得过来，理由见 dismiss()）。
-        if (index == tabWidget->currentIndex()) {
+        if (reselected) {
             if (overlayHost != nullptr) {
                 overlayHost->dismiss();
             }
-            return;
+        } else {
+            tabWidget->setCurrentIndex(index);
         }
-        tabWidget->setCurrentIndex(index);
+        // 翻页 / dismiss 都已经发出后再报业务语义。比让 MainWindow 也监听
+        // navRequested、并假设“UI 那条先 connect 所以先跑”更稳定。
+        emit bar->navigationApplied(sourceIndex, index, reselected);
     });
     // 反方向也要通：别处（底栏、主页那几个入口）翻页之后，条上标着的也得跟着换。
     QObject::connect(tabWidget, &QTabWidget::currentChanged, bar, &TitleBar::setCurrentNav);
@@ -2902,6 +2903,23 @@ void MainWindowUI::setupSettingsDownloadPanel(QStackedWidget *stack) {
                                     "下回来的文件不对时可以换回官方源重下。"),
                 form);
         addSettingItem(section1, QStringLiteral("来源"), box, form);
+    }
+    {
+        // 「同时最多下几个」（2026-10-13，§9.2）。放在「下载源」这一组里：和上面那两格是
+        // 同一件事 —— 这一批文件**怎么走**。四档那个表在 src/ 的 DownloadConcurrency.hpp
+        // 里（唯一出处），这里是**只有框没有项**，项和选中的那一档都由 MainWindow 灌。
+        QWidget *box = makeHintedControl(form);
+        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        downloadConcurrencyCombo = new QComboBox(box);
+        downloadConcurrencyCombo->setObjectName(downloadConcurrencyComboName());
+        WheelGuard::install(downloadConcurrencyCombo);
+        boxLayout->addWidget(downloadConcurrencyCombo, 0, Qt::AlignLeft);
+        addHint(box, QStringLiteral("同时最多几个文件在下载。调大在快网线上更快，"
+                                    "网线慢或者被限流时反而更容易超时 —— 默认那一档是实测"
+                                    "挑出来的平衡点。改完立刻生效，正在下的那一批也按新值走"
+                                    "（已经在下的那几个不会被叫停）。"),
+                form);
+        addSettingItem(section1, downloadConcurrencyRowText(), box, form);
     }
     {
         // CurseForge 的 API key（2026-09-25 加）。放在「下载源」这一组里是因为它和上面那格

@@ -778,7 +778,7 @@ private slots:
     /// 管不着的事**：点的是当前这一颗、而且现在是「下载」页时，把那一页**刷回它的首页**
     /// （用户原话「点击顶部下载按钮就刷新页面回到主页」）。翻页和"把覆盖层收起来"那两条
     /// 仍旧由 MainWindowUI 自己接的那一条负责（那边先接，所以它先跑）。
-    void onNavRequested(int index);
+    void onNavigationApplied(int sourceIndex, int targetIndex, bool reselected);
 
     // ---------- 「配置文件」那一页的编辑器（2026-09-27）----------
     //
@@ -2008,6 +2008,8 @@ private:
     void onMemorySliderMoved();
     void onLauncherBehaviourChanged();
     void onDownloadSourceChanged();
+    /// 「下载源」那一组里那颗「并发数」下拉框（2026-10-13，§9.2）。
+    void onDownloadConcurrencyChanged();
     /// 「下载新模组时直接放进当前实例」那一格（设置页「下载」栏）。
     ///
     /// 改了这一项**不影响已经发出的那一批下载** —— 落点在点下那一瞬间就定死了（见
@@ -2107,6 +2109,9 @@ private:
     /// 把「下载源」交给真正发请求的那一层（VersionManager → DownloadManager）。
     /// 启动时读盘、用户在设置页改，两条路都走这一句，别各写一遍。
     void syncDownloadSource();
+    /// 把「同时最多下几个」（设置 → 下载 → 并发数，§9.2）交给真正发请求的那一层。
+    /// 和上面那条同一个形状：读盘和用户改都走这一句，别各写一遍。
+    void syncDownloadConcurrency();
     /// 把 CurseForge 那两项设置交给数据层（VersionManager）。同上：读盘和用户改都走这一句。
     void syncCurseForgeSettings();
     /// 启动成功后按「启动后」那一项处理启动器自己。

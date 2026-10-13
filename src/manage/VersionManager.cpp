@@ -613,6 +613,10 @@ QString VersionManager::busyVersionId() const {
 
 void VersionManager::setUseMirror(bool useMirror) { downloadManager->setUseMirror(useMirror); }
 
+void VersionManager::setDownloadConcurrency(int count) {
+    downloadManager->setMaxConcurrentDownloads(count);
+}
+
 void VersionManager::setCurseForgeApiKey(const QString &apiKey) {
     m_curseForgeApiKey = apiKey.trimmed();
 }

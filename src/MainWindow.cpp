@@ -2325,9 +2325,10 @@ void MainWindow::setupConnections() {
     // 仍旧由 MainWindowUI 自己接的那一条负责（见那边搭导航那段）。这边补的一条只做
     // 下载页那一件 —— 那一层够不着"下载页的首页是哪一栏、筛子该怎么清"。
     //
-    // NOTE: 两条连接都在 `navRequested` 上，**MainWindowUI 那条先接**（setupUi 早于
-    //       setupConnections），所以覆盖层那一发先收完，这边再动手。
-    connect(m_ui->titleBar(), &TitleBar::navRequested, this, &MainWindow::onNavRequested);
+    // UI 先完成翻页 / 收页，再用一条带完整上下文的信号通知业务层。
+    // 不再依赖“哪条 connect 先执行”这种 Qt 隐式时序。
+    connect(m_ui->titleBar(), &TitleBar::navigationApplied, this,
+            &MainWindow::onNavigationApplied);
     // ---------- 下载页后面那几页：搜索框 + 三层资源表 ----------
     //
     // 这几页走的是同一条路，所以这里是**一圈循环**：每一页接上"回车就搜"和"点一下就动"，
@@ -2541,6 +2542,9 @@ void MainWindow::setupConnections() {
             &MainWindow::onLauncherBehaviourChanged);
     connect(m_ui->getDownloadSourceCombo(), &QComboBox::currentIndexChanged, this,
             &MainWindow::onDownloadSourceChanged);
+    // 「同时最多下几个」（2026-10-13，§9.2）。和上面那颗同一个形状：改完立刻生效。
+    connect(m_ui->getDownloadConcurrencyCombo(), &QComboBox::currentIndexChanged, this,
+            &MainWindow::onDownloadConcurrencyChanged);
     // 「下载新模组时直接放进当前实例」（2026-09-28）：和上面那一项同一条路 —— 设置里改完
     // 立刻生效（下载那一刻现读），不用重启启动器。
     connect(m_ui->getDownloadAutoIntoInstanceCheck(), &QCheckBox::toggled, this,
@@ -9847,12 +9851,26 @@ bool MainWindow::pickInstallerJava(const QString &gameVersion, int loaderIndex, 
 //   Java / 内存 / 启动后 / 下载源 / 版本名格式 —— 改完立刻存
 //   JVM 参数 —— 点「应用」才存（那是直接进命令行的东西，不能存半条）
 
+/// 「同时最多下几个」那颗下拉框里每一行的文字（2026-10-13，§9.2）。
+///
+/// 档位表（6/12/24/48、上下限、越界怎么办）在 `DownloadConcurrency.hpp` —— 那里是唯一出处；
+/// 这里只有**这一层的文字**（和枚举 → 文案那些一样，界面层不该为了画一个下拉框去 include
+/// src/ 的东西）。默认那一档多两个字：「（默认）」标的是**出厂**那一档，不跟着用户当前选谁走
+/// —— 它的用处是"我不知道该选哪个"，所以不写的话这一格就没有那个可以照抄的答案。
+static QString downloadConcurrencyChoiceText(int value) {
+    if (value == DownloadConcurrency::kDefault) {
+        return QObject::tr("%1 个（默认）").arg(value);
+    }
+    return QObject::tr("%1 个").arg(value);
+}
+
 void MainWindow::applySettingsToUi() {
     // 灌值时把信号全挡上：下面这些控件现在反映的是**盘上的值**，不是用户改的。
     // 不挡的话每条 currentIndexChanged/valueChanged 都会触发一遍"保存"，白写几次盘，
     // 更要紧的是那几条槽里还夹着真动作（改「版本名格式」会重刷实例列表）。
     const QSignalBlocker blockBehaviour(m_ui->getLauncherBehaviourCombo());
     const QSignalBlocker blockSource(m_ui->getDownloadSourceCombo());
+    const QSignalBlocker blockConcurrency(m_ui->getDownloadConcurrencyCombo());
     const QSignalBlocker blockShowLog(m_ui->getShowGameLogCheck());
     const QSignalBlocker blockWarnDuplicate(m_ui->getWarnDuplicateLaunchCheck());
     const QSignalBlocker blockWarnWorldLoss(m_ui->getWarnWorldLossCheck());
@@ -9959,6 +9977,24 @@ void MainWindow::applySettingsToUi() {
     sourceCombo->addItem(tr("镜像源（BMCLAPI）"), int(DownloadSource::Mirror));
     selectByEnumData(sourceCombo, m_settings->downloadSource());
 
+    // ---------- 「同时最多下几个」（2026-10-13，§9.2） ----------
+    // 四档那个表在 DownloadConcurrency.hpp（**唯一出处**）；这里的文字只能在这一层写
+    // （ui/ 不许 include src/，所以档位值由这里灌成 itemData，和下载源、窗口模式同一形状）。
+    QComboBox *concurrencyCombo = m_ui->getDownloadConcurrencyCombo();
+    const QList<int> presets = DownloadConcurrency::presets();
+    for (int value : presets) {
+        concurrencyCombo->addItem(downloadConcurrencyChoiceText(value), value);
+    }
+    {
+        const int concurrency = m_settings->downloadConcurrency();
+        // 盘上是个**表外的、但落在合法区间里的**数（手改过配置）时补一格 —— 不补的话下拉框
+        // 会指着一个"不是盘上那个值"的档，界面就在撒谎（而这一格正好是"用户以为自己调过"）。
+        if (!presets.contains(concurrency)) {
+            concurrencyCombo->addItem(tr("%1 个（自定义）").arg(concurrency), concurrency);
+        }
+        selectByEnumData(concurrencyCombo, concurrency);
+    }
+
     // CurseForge 的 API key（同一个「下载源」组里）。信号已经被上面那几个 blocker 挡上了。
     m_ui->getCurseForgeApiKeyEdit()->setText(m_settings->curseForgeApiKey());
 
@@ -9974,6 +10010,8 @@ void MainWindow::applySettingsToUi() {
     // 下载源得立刻交给发请求的那一层：构造函数里紧接着的
     // fetchAvailableVersions() 就会走它。
     syncDownloadSource();
+    // 「同时最多下几个」同理：不等用户去设置页改，开机那一刻就按盘上那一档发请求。
+    syncDownloadConcurrency();
     // CurseForge 那两项同理（虽然要等到导入整合包才用得上）。
     syncCurseForgeSettings();
 }
@@ -10371,6 +10409,18 @@ void MainWindow::onDownloadSourceChanged() {
     const int value = m_ui->getDownloadSourceCombo()->currentData().toInt();
     m_settings->setDownloadSource(static_cast<DownloadSource>(value));
     syncDownloadSource();
+}
+
+void MainWindow::onDownloadConcurrencyChanged() {
+    // itemData 里存的就是那个 int（`DownloadConcurrency` 的档位没有枚举，它本来就是个数）。
+    const int value = m_ui->getDownloadConcurrencyCombo()->currentData().toInt();
+    m_settings->setDownloadConcurrency(value);
+    // ★ 用**存进去之后**的那个数说话，不是下拉框上那个：越界的值会被归一化（见
+    //   DownloadConcurrency.hpp），照下拉框念的话日志里写的会是一个没生效的数。
+    syncDownloadConcurrency();
+    appendLog(tr("下载：同时最多 %1 个文件在下载（对正在下的这一批也生效，"
+                 "已经在下的那几个不会被叫停）。")
+                  .arg(m_settings->downloadConcurrency()));
 }
 
 void MainWindow::onDownloadAutoIntoInstanceChanged() {
@@ -10905,6 +10955,16 @@ void MainWindow::syncDownloadSource() {
     // 批次的 URL 在入队那一刻就定死了"（downloadFile 收到的是一整个字符串），所以代价是
     // 这次下载开始之后再改设置，要等下一次下载才见效。
     m_versionManager->setUseMirror(m_settings->downloadSource() == DownloadSource::Mirror);
+}
+
+void MainWindow::syncDownloadConcurrency() {
+    // 和上面那条同一个形状。★ 差别在于**这一项对正在下的那一批也生效**（源那一项只对之后
+    // 发出的请求生效，因为地址在入队那一刻就定死了）：并发线每一拍都重读，所以正在下的
+    // 那一批下一拍就按新值走 —— 调小是"飞着的那几条跑完就不再补"，调大是"下一条回来时一次
+    // 补到位"。已经在飞的那几条不会被叫回来（叫回来只是白白重下一段）。
+    //
+    // 归一化（越界回默认）在 DownloadManager 那一侧，见 DownloadConcurrency.hpp。
+    m_versionManager->setDownloadConcurrency(m_settings->downloadConcurrency());
 }
 
 void MainWindow::syncCurseForgeSettings() {
@@ -14697,7 +14757,7 @@ void MainWindow::returnToInstanceSettingsFromDownload() {
     openInstanceSettings(instanceId, pageKey);
 }
 
-void MainWindow::onNavRequested(int index) {
+void MainWindow::onNavigationApplied(int sourceIndex, int index, bool reselected) {
     // 顶上那四颗导航，这一层只管**下载页那两件**（用户 2026-09-28 原话「在这个情况下点击
     // 顶部下载按钮就刷新页面回到主页」+「如果点击了下载新模组按钮后再点击实例按钮，功能
     // 就和返回一样，如果点两下那就是先返回再回到实例主页」）。翻页、以及"点的是当前这一
@@ -14713,7 +14773,7 @@ void MainWindow::onNavRequested(int index) {
     //
     // ★ 判据四条：
     //   ① 点的是「实例」那一颗；
-    //   ② **刚才是从下载页按的**（`lastNavSourceTab()`）。少了这一条，"从实例进来 →
+    //   ② **刚才是从下载页按的**（`sourceIndex`）。少了这一条，"从实例进来 →
     //      切去主页逛了一圈 → 点实例"也会被当成"回实例设置"，可那一下用户要的是切到实例
     //      列表（他手上那一页早就切走了）。这一位**只有 MainWindowUI 说得出口**：翻页那一下
     //      是它先跑的，这边醒过来时 `currentIndex()` 已经是新的一颗了（见那个访问器的注释）。
@@ -14732,7 +14792,7 @@ void MainWindow::onNavRequested(int index) {
     //   被上面清空了 ⇒ 这里不接手，两下没人打架。
     const bool overlayFree = m_ui->overlay() == nullptr || !m_ui->overlay()->isOpen();
     if (index == MainWindowUI::instancesTabIndex()
-        && m_ui->lastNavSourceTab() == MainWindowUI::downloadTabIndex()
+        && sourceIndex == MainWindowUI::downloadTabIndex()
         && !m_downloadFromInstanceId.isEmpty() && overlayFree) {
         returnToInstanceSettingsFromDownload();
         return;
@@ -14741,7 +14801,7 @@ void MainWindow::onNavRequested(int index) {
     //
     // ★ 判据三条，缺一不可：
     //   ① 点的**就是**「下载」那一颗；
-    //   ② **刚才就是在下载页上按的**（`lastNavSourceTab()`）—— 也就是"这一按没有翻页"。
+    //   ② **这一按是重点当前页**（`reselected`）—— 也就是"这一按没有翻页"。
     //      少了这一条，"从实例进来、切去主页逛了一圈、再点下载"也会被当成"回主页" —— 可那
     //      一下用户要的是**切回来**（原来那一栏、连筛子带实例都在，见 MainWindowUI 搭导航
     //      那段①），顺手清掉就成了"我明明没点返回，回实例设置那颗键却没了"；
@@ -14754,7 +14814,7 @@ void MainWindow::onNavRequested(int index) {
     //    于是"切去了主页再点下载"走到这里时 `currentIndex()` 早就是下载页了 ⇒ 判据永远为真，
     //    等于没有这一条（注释说的那个症状照样发生，只有 `mw_check` T25.8 量得出来）。
     if (index != MainWindowUI::downloadTabIndex()
-        || m_ui->lastNavSourceTab() != MainWindowUI::downloadTabIndex()
+        || !reselected
         || m_downloadFromInstanceId.isEmpty()) {
         return;
     }

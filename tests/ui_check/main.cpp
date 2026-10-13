@@ -6214,6 +6214,8 @@ int main(int argc, char *argv[]) {
             MainWindowUI::launcherBehaviourComboName(), MainWindowUI::extraJvmArgsEditName(),
             MainWindowUI::applyExtraJvmArgsButtonName(),
             MainWindowUI::downloadSourceComboName(),
+            // 「同时最多下几个」（2026-10-13，§9.2）：和「下载源」同一组（这一批文件怎么走）。
+            MainWindowUI::downloadConcurrencyComboName(),
             // CurseForge 的 API key（2026-09-25）：和「下载源」同一组，可留空。
             MainWindowUI::curseForgeApiKeyEditName(),
             MainWindowUI::versionNameCustomCheckName(),
@@ -6235,7 +6237,7 @@ int main(int argc, char *argv[]) {
                 missing << name;
             }
         }
-        check(missing.isEmpty(), "二十六个设置控件都能按 objectName 找回来", missing.join(", "));
+        check(missing.isEmpty(), "二十七个设置控件都能按 objectName 找回来", missing.join(", "));
 
         // 「CurseForge API key」那一格（2026-09-25 加的，摆在下拉框那一组里）。它和别处
         // 不同的地方有两条，都值得单独钉住：
@@ -6294,6 +6296,21 @@ int main(int argc, char *argv[]) {
                   hint.trimmed());
         } else {
             check(false, "找得到「下载新模组」那颗勾选框");
+        }
+
+        // 「同时最多下几个」那颗下拉框（2026-10-13，§9.2）。界面层这里只钉一件**界面层管得着**
+        // 的事：**刚搭好时是一个空框**。四档那个表在 src/ 的 `DownloadConcurrency.hpp` 里
+        // （唯一出处），界面层不许 include src/ ⇒ 项只能由 MainWindow 灌（和「下载源」
+        // 「窗口模式」同一个形状）。在这一层断言"四档都在"等于要求界面层自己抄一份表出来。
+        // （"四档都在、选中的那一档是盘上那个"由 mw_check 盯。）
+        if (auto *concCombo = ui.getDownloadConcurrencyCombo()) {
+            check(concCombo->count() == 0,
+                  "刚搭好时那颗「并发数」是**空框**（项由 MainWindow 灌，界面层不自己抄表）",
+                  QString::number(concCombo->count()));
+            check(concCombo->objectName() == MainWindowUI::downloadConcurrencyComboName(),
+                  "它挂的就是那个 objectName（验证工程按名字找它）", concCombo->objectName());
+        } else {
+            check(false, "找得到「并发数」那颗下拉框");
         }
 
         // 行标题也找一份：这是**静态文字**（没有 objectName 可取），只能用文字找。
@@ -17802,6 +17819,7 @@ int main(int argc, char *argv[]) {
                 {QStringLiteral("game"), MainWindowUI::gameWindowModeComboName()},
                 {QStringLiteral("launch"), MainWindowUI::launcherBehaviourComboName()},
                 {QStringLiteral("download"), MainWindowUI::downloadSourceComboName()},
+                {QStringLiteral("download"), MainWindowUI::downloadConcurrencyComboName()},
             };
             for (const auto &comboWhere : combos) {
                 QWidget *panel = formOfCategory(comboWhere.first);

@@ -245,8 +245,25 @@ qint64 DownloadManager::demoteDeadline(qint64 nowMs, qint64 currentUntilMs) {
 }
 
 bool DownloadManager::mayIssueAnotherDownload(int activeCount, int queuedCount) {
+    return mayIssueAnotherDownload(activeCount, queuedCount, kMaxConcurrentDownloads);
+}
+
+bool DownloadManager::mayIssueAnotherDownload(int activeCount, int queuedCount, int cap) {
     // 排空的队列不用问；到顶了不管还排着多少条都不发 —— 后一半是这条函数存在的全部理由。
-    return queuedCount > 0 && activeCount < kMaxConcurrentDownloads;
+    return queuedCount > 0 && activeCount < cap;
+}
+
+void DownloadManager::setMaxConcurrentDownloads(int count) {
+    // 归一化在判据层（唯一出处，见 DownloadConcurrency.hpp）：越界的值回默认，不夹到边上。
+    const int normalized = DownloadConcurrency::normalize(count);
+    if (normalized == m_maxConcurrentDownloads) {
+        return;
+    }
+    m_maxConcurrentDownloads = normalized;
+    // 调小时，已经在飞的请求不撤回，pump 会看见“已超过上限”而什么都不做；
+    // 调大时，这一次 pump 会立即把新空出的槽位补上。否则设置页虽然说“立即生效”，
+    // 队列却必须等到下一条回复才会加速，用户看到的行为与文案不一致。
+    pumpDownloadQueue();
 }
 
 bool DownloadManager::mayIssueAnotherDownloadToHost(int activeForHost, bool hostKnownHttp2) {
@@ -560,9 +577,9 @@ void DownloadManager::pumpDownloadQueue() {
     // 的唯一事实 —— 别的下载（资源索引、客户端 jar）占着连接时这里自然少发几个。
     //
     // 两条判据都要过：全局还有位置（mayIssueAnotherDownload）+ **这个主机**还有位置
-    // （mayIssueAnotherDownloadToHost）。后面那条是 kMaxConcurrentDownloads 调大之后
-    // 必须补上的：全局放 24 条，但一个还没证明自己走 h2 的主机只能放 6 条，否则多出来的
-    // 会进 Qt 内部那个会超时的队列（见那两条常量的注释）。
+    // （mayIssueAnotherDownloadToHost）。后面那条是全局上限调大之后必须补上的：全局放
+    // 24 条（现在是**用户在设置里挑的那一档**，§9.2），但一个还没证明自己走 h2 的主机
+    // 只能放 6 条，否则多出来的会进 Qt 内部那个会超时的队列（见那两条常量的注释）。
     //
     // 队头那个作业的主机满了、**不等于**后面没有了：整合包导入的队列就是几个 CDN 交错排的
     // （见 preferredUrlOrder），队头这条排不上而后面那条能排上的情况很常见。所以这里跳过
@@ -570,7 +587,8 @@ void DownloadManager::pumpDownloadQueue() {
     // 不丢作业、也不改变谁先谁后之外的任何事。
     int i = 0;
     while (i < m_pendingJobs.size()
-           && mayIssueAnotherDownload(activeDownloads.size(), m_pendingJobs.size())) {
+           && mayIssueAnotherDownload(activeDownloads.size(), m_pendingJobs.size(),
+                                      m_maxConcurrentDownloads)) {
         const PendingJob &candidate = m_pendingJobs.at(i);
         // ★★ 2026-09-27：问的是**这条作业真正会打到**的那个主机，不是它首选地址那个主机。
         //    首选主机正被降级时 startDownload() 会当场改道，而回复是按改道后的主机记账的

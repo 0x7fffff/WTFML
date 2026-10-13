@@ -11743,14 +11743,15 @@ static void runDownloadFromInstanceTests() {
 
         // ---------- ⑧ 逛一圈再回来：「下载」那颗**不许**把"从实例进来"顺手清掉 ----------
         //
-        // 这一段量的是 `onNavRequested()` 里那条判据 ② 的**原话**：「"从实例进来、切去主页
+        // 这一段量的是 `onNavigationApplied()` 里那条判据 ② 的**原话**：「"从实例进来、切去主页
         // 逛了一圈、再点下载"……那一下用户要的是**切回来**（原来那一栏、连筛子带实例都在），
         // 顺手清掉就成了"我明明没点返回，回实例设置那颗键却没了"」。
         //
         // ★ 2026-09-28 它是**量的出来的**：这条判据原先写的是
         //   `tabs->currentIndex() == index`，而 MainWindowUI 那条槽**先跑**、并且它自己就把
         //   选项卡翻过来了（见 setupConnections 里那条连接的注释）⇒ 这一格永远为真 = 等于
-        //   没有这一条。真凭据只有"刚才那一颗"（`MainWindowUI::lastNavSourceTab()`）。
+        //   没有这一条。现在真凭据由 `navigationApplied(source, target, reselected)`
+        //   一次送达，不再靠两个槽的执行先后顺序。
         check(reopenInstanceToDownload() && categories->currentRow() == modRow,
               "T25.8 前提：再走一遍来路（落到下载页的模组那一栏）",
               QStringLiteral("现在在第 %1 行").arg(categories->currentRow()));
@@ -15314,15 +15315,21 @@ static void runThemeControlsTests() {
             presetCombo->setCurrentIndex(darkIndex);
             QApplication::processEvents();
             QSettings written;
+            // CTest 为了避免弹出真窗口固定使用 offscreen，而该平台插件不实现
+            // styleHints()->setColorScheme()（上面的注释已说明）。规格和落盘在任何
+            // 平台都必须验；调色板只在真正支持系统深浅提示的平台上验，避免伪失败。
+            const bool canApplyColorScheme =
+                QGuiApplication::platformName() != QLatin1String("offscreen");
+            const bool paletteMatches = Theme::isDarkPalette(QApplication::palette());
             check(Theme::current().presetId == QStringLiteral("dark") &&
-                      Theme::isDarkPalette(QApplication::palette()) &&
+                      (!canApplyColorScheme || paletteMatches) &&
                       written.value(QStringLiteral("Theme/Preset")).toString() ==
                           QStringLiteral("dark"),
                   "★★ T39.3 拨一下「深色」：内存里那份规格、应用调色板、盘上那一位**三样"
                   "一起变**（少了任何一样都是「改了没生效」或「下次启动又变回去」）",
                   QStringLiteral("规格 %1 / 调色板深吗 %2 / 盘上 %3")
                       .arg(Theme::current().presetId)
-                      .arg(Theme::isDarkPalette(QApplication::palette()) ? 1 : 0)
+                      .arg(paletteMatches ? 1 : 0)
                       .arg(written.value(QStringLiteral("Theme/Preset")).toString()));
             // 深色下那四个语义色**当场换成另一套**（`dangerColor()` 是按参数那份调色板算的），
             // 而色板是**画的**、不会自己跟着调色板走 ⇒ 得由 `refreshThemeControls()` 重涂。
@@ -20725,12 +20732,20 @@ int main(int argc, char *argv[]) {
             seed.setAutoSelectJava(false);
             seed.save();
         }
+        // 2026-10-13（§9.2）：顺手往盘上写一个**不是默认那一档**的并发数（6），下一节
+        // 看新窗口认不认 —— 和上面那个手动 Java 同一个做法（先造假局面、再看读盘）。
+        {
+            LauncherSettings seed;
+            seed.setDownloadConcurrency(6);
+        }
         {
             MainWindow w5;
             w5.show();
             QApplication::processEvents();
             QLabel *label5 = w5.findChild<QLabel *>(MainWindowUI::javaPathLabelName());
             QComboBox *source5 = comboByObjectName(&w5, MainWindowUI::downloadSourceComboName());
+            QComboBox *conc5 =
+                comboByObjectName(&w5, MainWindowUI::downloadConcurrencyComboName());
             check(label5 != nullptr && source5 != nullptr, "第五个窗口的设置页控件找得到");
             if (label5 != nullptr && source5 != nullptr) {
                 // ★ 2026-09-28：这一节原来还核"下拉框里正好两条、钉着的那条就是选中的"。
@@ -20744,6 +20759,44 @@ int main(int argc, char *argv[]) {
                 check(source5->currentData().toInt() == int(DownloadSource::Mirror),
                       "上一节存下的镜像源，冷启动就选上了（读盘那条路也走了 syncDownloadSource）",
                       QString::number(source5->currentData().toInt()));
+
+                // ---- 并发数（2026-10-13，§9.2）----
+                // 这一节量的是**冷启动那条路**：盘上写着 6 ⇒ 下拉框里四档都在、选中的是 6、
+                // 而且**真正发请求的那一层也拿到 6 了**（少了最后那半句，界面显示 6、下载
+                // 还是按 24 条一起飞 —— 不报错、也看不出哪儿没接上）。
+                check(conc5 != nullptr, "第五个窗口里那颗「并发数」下拉框找得到");
+                if (conc5 != nullptr) {
+                    check(conc5->count() == DownloadConcurrency::presets().size(),
+                          "★ 四档都在框里（正好的那个数，不多不少）",
+                          QStringLiteral("框里有 %1 项").arg(conc5->count()));
+                    check(conc5->currentData().toInt() == 6,
+                          "★★ 盘上写着的 6，冷启动就选上了（applySettingsToUi 灌的那一条路）",
+                          QString::number(conc5->currentData().toInt()));
+                    VersionManager *vm5 = w5.findChild<VersionManager *>();
+                    check(vm5 != nullptr &&
+                              vm5->downloads()->maxConcurrentDownloads() == 6,
+                          "★★ 而且**真发请求的那一层**也拿到 6 了（syncDownloadConcurrency "
+                          "在构造里跑过；漏了它 = 界面显示 6、实际还是按默认那一档飞）",
+                          vm5 != nullptr
+                              ? QString::number(vm5->downloads()->maxConcurrentDownloads())
+                              : QStringLiteral("拿不到 VersionManager"));
+                    // 当场改一档：盘上要跟着变、数据层也要跟着变（改完立刻生效那条路）。
+                    const int twelve = conc5->findData(12);
+                    if (twelve >= 0 && vm5 != nullptr) {
+                        conc5->setCurrentIndex(twelve);
+                        QApplication::processEvents();
+                        QSettings written;
+                        check(written.value(QStringLiteral("Download/Concurrency")).toInt() == 12 &&
+                                  vm5->downloads()->maxConcurrentDownloads() == 12,
+                              "★★ 当场拨到 12：盘上那一位和数据层那一档**一起变**（少了任何一样"
+                              "都是「改了没生效」或「下次启动又变回去」）",
+                              QStringLiteral("盘上 %1 / 数据层 %2")
+                                  .arg(written.value(QStringLiteral("Download/Concurrency")).toInt())
+                                  .arg(vm5->downloads()->maxConcurrentDownloads()));
+                    } else {
+                        check(false, "框里找得到「12」那一档（四档都在）");
+                    }
+                }
 
                 // 切回「自动」：**不**清掉记着的路径 —— 那个字段同时是"上次挑中的 Java"
                 // 的缓存，清掉的话每次启动都要重扫一遍本地 Java。走的是 onJavaUseAuto()
@@ -20771,6 +20824,12 @@ int main(int argc, char *argv[]) {
             reset.setAutoSelectJava(true);
             reset.setJavaPath(QString());
             reset.save();
+        }
+        // 并发数**要**还回默认那一档（§9.2）：上面那个 12 是给这一节造的，留着的话后面
+        // 真下东西的那几节会一律按 12 路跑 —— 那不是错，只是白慢（默认那一档是实测选的）。
+        {
+            LauncherSettings reset;
+            reset.setDownloadConcurrency(DownloadConcurrency::kDefault);
         }
     }
 

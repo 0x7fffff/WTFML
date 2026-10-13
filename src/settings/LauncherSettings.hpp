@@ -12,6 +12,7 @@
 #include <QString>
 #include <QStringList>
 
+#include "../download/DownloadConcurrency.hpp"
 #include "../launcher/ProcessPriority.hpp"
 #include "../manage/VersionDisplay.hpp"
 #include "GameWindowSettings.hpp"
@@ -163,6 +164,16 @@ public:
 
     /// 设置下载源并立刻落盘。
     void setDownloadSource(DownloadSource source);
+
+    /// 同时最多下几个文件（设置 → 下载 → 并发数；coding plan §9.2）。
+    ///
+    /// 出厂 = `DownloadConcurrency::kDefault`（24），也就是"谁都不动这一项时，行为一个字都
+    /// 不变"。四档、上下限、越界的值怎么归一，**唯一出处**是 `DownloadConcurrency.hpp`
+    /// （这一层只管存取那一个 int）。
+    int downloadConcurrency() const { return m_downloadConcurrency; }
+
+    /// 设置并发数并立刻落盘（存进去的是归一化之后的那个数）。
+    void setDownloadConcurrency(int count);
 
     // ------------------------------------------------------------------
     // 「下载新模组时直接放进当前实例」（2026-09-28 加的，在设置页「下载」栏里）
@@ -377,6 +388,8 @@ private:
     VersionNameOptions m_versionNameOptions;
     LauncherBehaviour m_launcherBehaviour = LauncherBehaviour::Unchanged;
     DownloadSource m_downloadSource = DownloadSource::Official;
+    /// 同时最多几个下载（见上面那一节）。默认取判据层那个出厂值 —— 别在这儿另写一个 24。
+    int m_downloadConcurrency = DownloadConcurrency::kDefault;
     /// 从实例设置里点的「下载新模组…」要不要直接落进那个实例（见上面那一节）。默认勾上。
     bool m_downloadAutoIntoInstance = true;
     /// 点下载模组 / 光影包时要不要先查前置（见上面那一节）。默认勾上。

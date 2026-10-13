@@ -25,6 +25,10 @@ static constexpr const char kFolders[] = "Launcher/Folders";
 static constexpr const char kCurrentFolder[] = "Launcher/CurrentFolder";
 static constexpr const char kFolderNames[] = "Launcher/FolderNames";
 static constexpr const char kDownloadSource[] = "Download/Source";
+// 「同时最多下几个」（2026-10-13，§9.2 并发数预设）。同一个前缀：它也是"下载怎么走"。
+// ★ 存的是**整数**，不是 `Download/Source` 那种记号 —— 那四档要有第五档"自定义"的位置
+//   （手改过配置的人写个 [1,64] 里的别的数，界面上就该照他写的显示），记号表反而挡路。
+static constexpr const char kDownloadConcurrency[] = "Download/Concurrency";
 // 「下载新模组时直接放进当前实例」（2026-09-28，设置页「下载」栏那一项）。
 // 和上面那条同一个前缀：它也是"下下来的东西往哪儿去"这一件事。
 static constexpr const char kDownloadAutoIntoInstance[] = "Download/AutoIntoInstance";
@@ -155,6 +159,17 @@ void LauncherSettings::setDownloadSource(DownloadSource source) {
         return;
     }
     m_downloadSource = source;
+    save();
+}
+
+void LauncherSettings::setDownloadConcurrency(int count) {
+    // 存的是**归一化之后**的那个数：这样"盘上写的"和"真在用的"永远是同一个值
+    // （越界的值在写的那一刻就归到默认，不留一个盘上写着 999、实际按 24 跑的形状）。
+    const int normalized = DownloadConcurrency::normalize(count);
+    if (m_downloadConcurrency == normalized) {
+        return;
+    }
+    m_downloadConcurrency = normalized;
     save();
 }
 
@@ -341,6 +356,10 @@ void LauncherSettings::load() {
         settings.value(kAfterLaunch, behaviourKey(m_launcherBehaviour)).toString());
     m_downloadSource = downloadSourceFromKey(
         settings.value(kDownloadSource, downloadSourceKey(m_downloadSource)).toString());
+    // 默认值取当前成员（构造时 = 判据层那个出厂值）：load() 被调第二次而盘上是空的时值留着。
+    // 归一化在这一句里 —— 盘上写着 999 或者一个负数时，读出来的是默认那一档。
+    m_downloadConcurrency = DownloadConcurrency::normalize(
+        settings.value(kDownloadConcurrency, m_downloadConcurrency).toInt());
     // 默认值取当前成员（构造时是 true）：盘上那一项是个布尔，手改成一个不认识的值时
     // toBool() 给 false —— 那等于"用户关掉了"，也就是**每次都弹保存框**，这个方向是安全的
     // （多问一句 vs 悄悄把文件放进他不知道的地方）。
@@ -418,6 +437,7 @@ void LauncherSettings::save() const {
     settings.setValue(kFolderNames, m_folderNames);
     settings.setValue(kAfterLaunch, behaviourKey(m_launcherBehaviour));
     settings.setValue(kDownloadSource, downloadSourceKey(m_downloadSource));
+    settings.setValue(kDownloadConcurrency, m_downloadConcurrency);
     settings.setValue(kDownloadAutoIntoInstance, m_downloadAutoIntoInstance);
     settings.setValue(kWarnMissingDependencies, m_warnMissingDependencies);
     settings.setValue(kShowGameLog, m_showGameLog);

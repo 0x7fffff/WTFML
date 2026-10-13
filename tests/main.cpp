@@ -56,8 +56,10 @@
 #include <stdexcept>
 
 #include "auth/AccountStore.hpp"
+#include "auth/OAuthEndpoints.hpp"
 #include "auth/SkinApi.hpp"
 #include "auth/TokenStore.hpp"
+#include "download/DownloadConcurrency.hpp"
 #include "download/DownloadManager.hpp"
 #include "download/LoaderMeta.hpp"
 #include "download/ModDependencies.hpp"
@@ -1307,6 +1309,41 @@ static int runVersionNameTests(const QString &sandbox) {
         check(mixed.customName.isEmpty() && mixed.loaderName == QStringLiteral("Forge"),
               "I4 非字符串字段只丢自己，不影响其他字段",
               mixed.customName + "/" + mixed.loaderName);
+
+        // ★★ 2026-10-13（coding plan §2.6 最后一条）：**旧的四个字段原样读，不许猜测剥离**。
+        //
+        //   这一条钉的是"别自作聪明"：`realVersion` 写成 `1.20.1-Forge`（PCL 那种把加载器
+        //   一起塞进版本名的写法）、`loaderName` 写成 `NeoForge-Beta`、显示名两头带空格
+        //   —— 这些都是**用户盘上真实存在的形状**（老启动器写的、或者别人手改的）。任何
+        //   "看见 -Forge 就切掉""顺手 trim 一下"的猜测都会让界面上显示的名字**不是盘上那个**，
+        //   而且这种改法是静默的：少一个字、多一个空格，没人会收到报错。
+        //   要改格式就走「版本名格式」那四个开关（那是明说的规则），不是在这儿猜。
+        check(writeMeta(R"({"name":"  我的整合包  ","realVersion":"1.20.1-Forge",)"
+                        R"("loaderName":"NeoForge-Beta","loaderVersion":"21.1.0-beta"})"),
+              "I4 能写出带后缀与空白的四个旧字段");
+        {
+            const VersionDisplayParts legacy = vm.displayParts(versionId);
+            VersionNameOptions allOn;
+            allOn.showLoaderVersion = true;
+            check(legacy.realVersion == QStringLiteral("1.20.1-Forge"),
+                  "★★ §2.6 旧 `realVersion` **原样读**（`1.20.1-Forge` 里的 `-Forge` 不切掉）",
+                  legacy.realVersion);
+            check(legacy.loaderName == QStringLiteral("NeoForge-Beta"),
+                  "★★ §2.6 旧 `loaderName` 原样读（`NeoForge-Beta` 不在连字符处断开）",
+                  legacy.loaderName);
+            check(legacy.loaderVersion == QStringLiteral("21.1.0-beta"),
+                  "★★ §2.6 旧 `loaderVersion` 原样读（`-beta` 那截留着）",
+                  legacy.loaderVersion);
+            check(legacy.customName == QStringLiteral("  我的整合包  "),
+                  "★★ §2.6 旧 `name` 原样读（**两头那几个空格不许 trim**）",
+                  QStringLiteral("[%1]").arg(legacy.customName));
+            const QString shown = formatVersionName(legacy, allOn);
+            check(shown.contains(QStringLiteral("1.20.1-Forge")) &&
+                      shown.contains(QStringLiteral("NeoForge-Beta")) &&
+                      shown.contains(QStringLiteral("21.1.0-beta")),
+                  "★★ §2.6 拼出来的那一串里这三段**逐字可见**（读原样、拼也用它原样）",
+                  shown);
+        }
 
         // nameFormat 预留字段
         check(writeMeta(R"({"name":"我的整合包","nameFormat":{"showRealVersion":false}})"),
@@ -25770,6 +25807,208 @@ static void runServerSettingsTests() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// ZA. 回调地址 → 监听端口（coding plan §9.4「客户端 ID 和回调地址通过构建配置注入」）
+//
+// 这两个常数从前是 AuthManager.cpp 里手写的两个字面量，而且**端口还是第三个数**：地址里
+// 写 38226、`kCallbackPort` 也写 38226，靠人眼对齐。改成随构建配置注入之后（CMake 那两条
+// `-DWTFML_CLIENT_ID` / `-DWTFML_REDIRECT_URI`），地址是谁给的就不一定了 —— 所以端口
+// **从地址里算**（`OAuthEndpoints::callbackPort()`，唯一出处）。这里钉的就是那个算法。
+//
+// ★ 这一节最要紧的两条：
+//   · "地址里没写端口"**不等于**读不出来 —— 浏览器那时会连协议默认端口（http 80 /
+//     https 443），我们照它听才对；回一个别的数（比如兜底的 38226）就是「听着一个没人会
+//     连的端口」，症状只有一句转圈到超时。
+//   · 真读不出来（不是 http/https、没有主机名）时**回调用方给的兜底值**，而不是 0 ——
+//     0 会让 `listen()` 去要一个随机端口，那就更没人连得上了。
+// ---------------------------------------------------------------------------
+static void runOAuthEndpointTests() {
+    section("ZA. 回调地址 → 监听端口（§9.4 构建注入那两格）");
+
+    // ---------- ZA1. 出厂那份兜底地址读出来还是 38226 ----------
+    {
+        const QString shipped = QStringLiteral("http://localhost:38226/");
+        check(OAuthEndpoints::callbackPort(shipped, 1234) == 38226,
+              "ZA1 出厂那份回调地址读出来就是 38226（换实现不许悄悄挪端口）",
+              QString::number(OAuthEndpoints::callbackPort(shipped, 1234)));
+        check(OAuthEndpoints::isUsableRedirectUri(shipped),
+              "ZA1 出厂那份地址本身是一条能用的 http 地址");
+    }
+
+    // ---------- ZA2. 地址里那个端口就是我们要听的端口 ----------
+    {
+        check(OAuthEndpoints::callbackPort(QStringLiteral("http://localhost:38300/"), 1234) == 38300,
+              "ZA2 换一条带端口的地址 ⇒ 听那个端口（这正是 `-DWTFML_REDIRECT_URI` 生效的样子）");
+        check(OAuthEndpoints::callbackPort(QStringLiteral("http://127.0.0.1:8080/callback"), 1234)
+                  == 8080,
+              "ZA2 主机名写成 IP、路径带一截都读得出端口");
+        check(OAuthEndpoints::callbackPort(QStringLiteral("https://localhost:65535/"), 1234)
+                  == 65535,
+              "ZA2 边界值 65535 原样读出来（不是「太大就当没有」）");
+        check(OAuthEndpoints::callbackPort(QStringLiteral("http://localhost:1/"), 1234) == 1,
+              "ZA2 边界值 1 也原样读出来");
+    }
+
+    // ---------- ZA3. 没写端口 ⇒ 协议默认端口，**不是**兜底值 ----------
+    {
+        check(OAuthEndpoints::callbackPort(QStringLiteral("http://localhost/"), 1234) == 80,
+              "★★ ZA3 `http://localhost/` 没写端口 ⇒ 80（浏览器就连 80，我们得在 80 上听；"
+              "回兜底值 1234 等于听着一个没人会连的端口）",
+              QString::number(OAuthEndpoints::callbackPort(QStringLiteral("http://localhost/"), 1234)));
+        check(OAuthEndpoints::callbackPort(QStringLiteral("https://localhost/"), 1234) == 443,
+              "★★ ZA3 https 同理 ⇒ 443",
+              QString::number(OAuthEndpoints::callbackPort(QStringLiteral("https://localhost/"), 1234)));
+    }
+
+    // ---------- ZA4. 读不出来 ⇒ 回兜底值（不许回 0） ----------
+    {
+        const QStringList junk = {
+            QString(),
+            QStringLiteral("localhost:38226/"),          // 没有协议
+            QStringLiteral("ftp://localhost:38226/"),    // 协议不是 http/https
+            QStringLiteral("http://"),                   // 有协议没主机
+            QStringLiteral("不是一条地址"),
+        };
+        bool allFallback = true;
+        QString firstBad;
+        for (const QString &one : junk) {
+            const int port = OAuthEndpoints::callbackPort(one, 1234);
+            if (port != 1234) {
+                allFallback = false;
+                firstBad = QStringLiteral("%1 ⇒ %2").arg(one, QString::number(port));
+                break;
+            }
+        }
+        check(allFallback, "★★ ZA4 读不出端口的五条输入一律回**调用方给的兜底值**（不是 0："
+                           "0 会让 listen() 去要一个随机端口，更没人连得上）",
+              firstBad);
+        bool noneUsable = true;
+        for (const QString &one : junk) {
+            if (OAuthEndpoints::isUsableRedirectUri(one)) {
+                noneUsable = false;
+            }
+        }
+        check(noneUsable, "ZA4 那五条也一律不是「能用的回调地址」");
+    }
+
+    // ---------- ZA5. 「能用吗」那一问只管协议和主机名 ----------
+    {
+        check(OAuthEndpoints::isUsableRedirectUri(QStringLiteral("http://localhost")),
+              "ZA5 末尾不带斜杠也算能用（路径怎么写不影响我们听哪个端口）");
+        check(OAuthEndpoints::isUsableRedirectUri(QStringLiteral("http://localhost/?a=b")),
+              "ZA5 带查询串也算能用");
+        check(!OAuthEndpoints::isUsableRedirectUri(QStringLiteral("localhost")),
+              "★ ZA5 光一个主机名不算（没有协议，浏览器也不知道该怎么发这一发）");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ZO. 「同时最多下几个」那几档（coding plan §9.2 并发数预设）
+//
+// 从前这个数是 DownloadManager 里一个字面量（24），现在它变成了"出厂默认那一档"，用户能在
+// 设置 → 下载 → 并发数里挑 6/12/24/48。判据层是 `DownloadConcurrency`（唯一出处：四档、
+// 上下限、越界的值怎么办）；这里钉的就是它 + 那条线在 DownloadManager 上真的被用上了。
+//
+// ★ 这一节最要紧的两条：
+//   · **队列泵问的是这个对象当下那一档**（不是那个常量）。漏了这一条的形状是"设置里改成 6
+//     了、界面上也显示 6、下载却还是 24 条一起飞" —— 不报错、也看不出是哪儿没接上。
+//   · 越界的值回**默认**而不是夹到边上：夹到边上会让"被限流 / 下不动"看起来像用户自己选的。
+// ---------------------------------------------------------------------------
+static void runDownloadConcurrencyTests() {
+    section("ZO. 「同时最多下几个」那几档（§9.2）");
+
+    // ---------- ZO0. 四档 + 出厂值 ----------
+    {
+        const QList<int> presets = DownloadConcurrency::presets();
+        check(presets == QList<int>({6, 12, 24, 48}),
+              "ZO0 四档就是实测过的那四条线（6/12/24/48），次序 = 界面上的次序",
+              QStringList([&presets] {
+                  QStringList out;
+                  for (int v : presets) { out << QString::number(v); }
+                  return out;
+              }()).join(QStringLiteral(",")));
+        check(presets.contains(DownloadConcurrency::kDefault),
+              "★ ZO0 出厂那一档**必须**是四档之一（否则下拉框一上来就指不到盘上那个值）",
+              QString::number(DownloadConcurrency::kDefault));
+        check(DownloadConcurrency::kMin >= 1,
+              "★ ZO0 下限不小于 1（0 会让队列一泵都不泵，表现是「下载停在 0%」）",
+              QString::number(DownloadConcurrency::kMin));
+        check(DownloadConcurrency::kMax >= presets.last(),
+              "ZO0 上限不低于最激进那一档（不然那一档自己就落在界外了）",
+              QString::number(DownloadConcurrency::kMax));
+        check(DownloadManager::kMaxConcurrentDownloads == DownloadConcurrency::kDefault,
+              "★ ZO0 DownloadManager 那个常量 == 判据层的出厂值（同一个数，不是各写一遍）",
+              QString::number(DownloadManager::kMaxConcurrentDownloads));
+    }
+
+    // ---------- ZO1. 归一化：越界回默认、表外的合法值原样留 ----------
+    {
+        check(DownloadConcurrency::normalize(0) == DownloadConcurrency::kDefault,
+              "★★ ZO1 0 ⇒ 默认（不夹到下限 1：那等于「用户自己选了一个 1 路」）",
+              QString::number(DownloadConcurrency::normalize(0)));
+        check(DownloadConcurrency::normalize(-5) == DownloadConcurrency::kDefault,
+              "ZO1 负数 ⇒ 默认",
+              QString::number(DownloadConcurrency::normalize(-5)));
+        check(DownloadConcurrency::normalize(999) == DownloadConcurrency::kDefault,
+              "★★ ZO1 越过大上限 ⇒ **默认**（不夹到 64：夹到边上会让被限流的形状看起来像用户选的）",
+              QString::number(DownloadConcurrency::normalize(999)));
+        check(DownloadConcurrency::normalize(DownloadConcurrency::kMin) == DownloadConcurrency::kMin &&
+                  DownloadConcurrency::normalize(DownloadConcurrency::kMax) == DownloadConcurrency::kMax,
+              "ZO1 两个边界值本身都留得住");
+        check(DownloadConcurrency::normalize(32) == 32,
+              "★★ ZO1 表外的合法值（手改过配置的 32）**原样留** —— 回默认等于把用户手写的数抹掉",
+              QString::number(DownloadConcurrency::normalize(32)));
+        bool presetsIntact = true;
+        for (int v : DownloadConcurrency::presets()) {
+            if (DownloadConcurrency::normalize(v) != v || !DownloadConcurrency::isPreset(v)) {
+                presetsIntact = false;
+            }
+        }
+        check(presetsIntact, "ZO1 四档自己过一遍归一化都原样回来，而且都被认成「是那一档」");
+        check(!DownloadConcurrency::isPreset(32) && !DownloadConcurrency::isPreset(0),
+              "ZO1 32 和 0 都不是那四档之一（下拉框要给它补一格「自定义」）");
+    }
+
+    // ---------- ZO2. DownloadManager 上真在用哪一档 ----------
+    {
+        DownloadManager mgr;
+        check(mgr.maxConcurrentDownloads() == DownloadManager::kMaxConcurrentDownloads,
+              "ZO2 刚建的下载器用的是**出厂那一档**（谁都不设的时候行为一个字不变）",
+              QString::number(mgr.maxConcurrentDownloads()));
+        mgr.setMaxConcurrentDownloads(6);
+        check(mgr.maxConcurrentDownloads() == 6, "★ ZO2 设成 6 ⇒ 就是 6",
+              QString::number(mgr.maxConcurrentDownloads()));
+        mgr.setMaxConcurrentDownloads(999);
+        check(mgr.maxConcurrentDownloads() == DownloadConcurrency::kDefault,
+              "★ ZO2 设一个越界的值 ⇒ 回到默认（归一化也在 setter 里过一遍）",
+              QString::number(mgr.maxConcurrentDownloads()));
+        mgr.setMaxConcurrentDownloads(12);
+        check(mgr.maxConcurrentDownloads() == 12, "ZO2 再设成 12 ⇒ 12",
+              QString::number(mgr.maxConcurrentDownloads()));
+    }
+
+    // ---------- ZO3. 「还能不能再发一条」那一问按**给的那个上限**算 ----------
+    {
+        // 上限 6 那一档：到 6 条就一条都不发（不管后面还排着多少）。
+        check(DownloadManager::mayIssueAnotherDownload(5, 1, 6),
+              "ZO3 上限 6、飞着 5 条、还排着 1 条 ⇒ 发");
+        check(!DownloadManager::mayIssueAnotherDownload(6, 1, 6),
+              "★★ ZO3 上限 6、飞着 6 条 ⇒ **不发**（哪怕后面还排着一百条）");
+        check(!DownloadManager::mayIssueAnotherDownload(6, 0, 6),
+              "ZO3 上限 6、飞着 6 条、队列空 ⇒ 也不发（队列空那一半照旧）");
+        check(DownloadManager::mayIssueAnotherDownload(0, 1, 6),
+              "ZO3 一条都没飞、有排队的 ⇒ 发");
+        check(!DownloadManager::mayIssueAnotherDownload(0, 0, 6),
+              "ZO3 队列空 ⇒ 不发（没东西可发）");
+        // 两参数那个版本 = 拿出厂那一档问一遍（验证工程的老断言按它钉边界）。
+        check(DownloadManager::mayIssueAnotherDownload(
+                  DownloadManager::kMaxConcurrentDownloads - 1, 1) &&
+                  !DownloadManager::mayIssueAnotherDownload(
+                      DownloadManager::kMaxConcurrentDownloads, 1),
+              "★ ZO3 两参数那个版本就是拿出厂那一档问的（老断言不跟着改动漂）");
+    }
+}
+
 int main(int argc, char *argv[]) {
     QCoreApplication app(argc, argv);
     app.setApplicationName("WTFML");
@@ -27305,6 +27544,18 @@ int main(int argc, char *argv[]) {
     // ZV 节。**几乎全是纯函数**：表本身 / 收不收 / 合回文件 / 体检报哪几条与次序。唯一的例外
     // 是 ZV6 那一条 —— "这个端口有人占着吗"要**真听一次**（本机、不联网）。
     runServerSettingsTests();
+
+    // -----------------------------------------------------------------
+    // 正版登录那两格随构建配置走的常数（2026-10-13，coding plan §9.4），见上面 ZA 节。
+    // **纯函数**：一串地址进去、端口出来（不联网、不开监听；真绑端口那一半在 AuthManager
+    // 里，归 mw_check）。
+    runOAuthEndpointTests();
+
+    // -----------------------------------------------------------------
+    // 「同时最多下几个」那几档（2026-10-13，coding plan §9.2 并发数预设），见上面 ZO 节。
+    // **纯函数 + 一个字面对象**：四档那个表、归一化、以及"队列泵问的是这个对象当下那一档"
+    // （真发请求那一半归 mw_check）。
+    runDownloadConcurrencyTests();
 
     // -----------------------------------------------------------------
     out() << "\n===== " << (g_failures == 0 ? "全部通过" : "有失败项") << ": "

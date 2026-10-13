@@ -147,6 +147,9 @@ signals:
     void closeRequested();
     /// 第 @p index 颗导航按钮被点了（**只报"点的是哪一颗"**，翻不翻页由调用方决定）。
     void navRequested(int index);
+    /// 根导航已经应用完成。这一发把“从哪儿来 / 去哪儿 / 是否重点当前页”
+    /// 一次说清，业务层不再依赖两个 `navRequested` 槽的连接先后顺序猜来路。
+    void navigationApplied(int sourceIndex, int targetIndex, bool reselected);
 
 protected:
     void paintEvent(QPaintEvent *event) override;
