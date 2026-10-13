@@ -16,8 +16,10 @@
 #include <QJsonObject>
 #include <QJsonParseError>
 #include <QJsonValue>
+#include <QLocale>
 #include <QObject>
 #include <QSet>
+#include <QStorageInfo>
 #include <QUuid>
 
 #include <algorithm>
@@ -35,6 +37,15 @@ namespace {
 const char *kFormatTag = "wtfml-backup/1";
 const char *kKindWorld = "world";
 const char *kKindInstance = "instance";
+
+/// 还原之前对着空闲空间判"放不放得下"时，在清单里那些字节之外再留的**固定**余量。
+/// ★ 宁可留大一点：留多了什么也没浪费（还原完就还回去了），留少了就是"判够了、解到一半
+///   盘满"——那正是加这一眼要避免的那件事（文件的元数据、簇对齐、临时文件都吃空间）。
+constexpr qint64 kSpaceHeadroomBytes = 16LL * 1024 * 1024;
+
+/// 除了上面那点固定余量，再按总量多留这么一份（百分比）。大存档按比例留才够用，
+/// 小存档靠那 16 MB 兜着。
+constexpr qint64 kSpaceHeadroomPercent = 5;
 
 /// 链接目录**一个都不进去**。和 `ModpackExport` 那份是同一件事、同一个理由：
 /// `QDir::NoSymLinks` 挡不住 junction（本仓实测过），而这里恰是被别人的链接牵着走的
@@ -498,6 +509,23 @@ Manifest readManifest(const QString &zipPath, bool *ok, QString *problemOut) {
     return manifest;
 }
 
+qint64 restoreSpaceNeeded(const Manifest &manifest) {
+    qint64 sum = 0;
+    for (const FileRecord &record : manifest.files) {
+        if (record.size > 0) {
+            sum += record.size;
+        }
+    }
+    return sum + qMax(kSpaceHeadroomBytes, sum * kSpaceHeadroomPercent / 100);
+}
+
+bool hasRoomFor(qint64 freeBytes, qint64 neededBytes) {
+    if (freeBytes < 0) {
+        return true;  // 问不出来 ⇒ 不拦（见头文件那一句）
+    }
+    return freeBytes >= neededBytes;
+}
+
 RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentDir) {
     RestoreResult result;
 
@@ -513,11 +541,34 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
     const QString target = QDir(targetParentDir).filePath(manifest.root);
     result.targetPath = target;
 
-    // ① 现在那儿已经有一份 → **先给它做一份安全快照**，再整个挪走。
+    // ② 动盘之前先看一眼这块盘放不放得下 —— **只在落点是一块空地时**看。
+    //
+    //    NOTE: 原地替换（落点上已经有一份）**不看这一眼**：把旧的挪走会把这部分空间还
+    //          回来，而我们手上没有"旧那份多大"这个数（算它得再走一遍目录），照剩下的
+    //          空间算会假报"放不下"。那一路交给解压 / 对账那两步如实报（安全快照在，
+    //          用户不会丢东西）。
+    //
+    //    ★ 这一眼**在安全快照之前**：判出放不下时盘上一共就动过零个字节 —— 和"读清单"
+    //      那一档一样干净。
+    const QFileInfo existing(target);
+    if (!existing.exists()) {
+        const qint64 free = QStorageInfo(targetParentDir).bytesAvailable();
+        const qint64 needed = restoreSpaceNeeded(manifest);
+        if (!hasRoomFor(free, needed)) {
+            result.stage = RestoreResult::Stage::Space;
+            result.problem = QObject::tr("这块盘放不下这一份备份：解开大约要 %1，只剩 %2。"
+                                         "\n清一清空间、或者把它还原到别的盘上再试。"
+                                         "\n**现在盘上原有的东西一个字节都没动。**")
+                                 .arg(QLocale().formattedDataSize(needed),
+                                      QLocale().formattedDataSize(free));
+            return result;
+        }
+    }
+
+    // ③ 现在那儿已经有一份 → **先给它做一份安全快照**，再整个挪走。
     //
     //    ★ 顺序不能反，而且安全快照**做不成就不往下走**：先删掉旧的、再回来告诉用户
     //      "刚才想给你留一份但是没留成"，是这一整套里唯一不可接受的结果。
-    const QFileInfo existing(target);
     if (existing.exists()) {
         if (existing.isDir()) {
             Manifest safety;
@@ -571,7 +622,7 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
         }
     }
 
-    // ② 解压。走 `extractSubtrees()` 是**故意的**：它把前缀剥掉，而且**不属于那个前缀的
+    // ④ 解压。走 `extractSubtrees()` 是**故意的**：它把前缀剥掉，而且**不属于那个前缀的
     //    条目一个都不碰** —— zip 根上躺着的那份清单因此不会落到用户的世界目录里。
     //
     //    ★ 落点必须是**那一层前缀那一份**（`target`），不是 `targetParentDir`：前缀是剥掉的，
@@ -591,7 +642,7 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
         return result;
     }
 
-    // ③ 逐文件对账。**"文件在那儿"和"文件是对的"是两件事** —— 解压到一半被打断、盘写满，
+    // ⑤ 逐文件对账。**"文件在那儿"和"文件是对的"是两件事** —— 解压到一半被打断、盘写满，
     //    留下的都是"在，但不对"的文件，只有这一趟认得出。
     result.checked = manifest.fileCount();
     result.mismatched = verifyTree(target, manifest.files);

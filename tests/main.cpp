@@ -22860,6 +22860,92 @@ static void runBackupTests() {
               == 0,
           "ZQ7 备份里没有、盘上多出来的文件不算对不上（备份是「至少恢复这些」）");
 
+    // ---------- ZQ8. 坏场景：包坏了 / 盘不够（coding plan §3.1③）----------
+    //
+    // 三个坏场景里，「**中断**」那一支已经在 ZQ7 钉过（长短不对 = 解到一半被打断留下的
+    // 半截文件，`verifyTree` 的 size 那一支认得出），ZQ4 ④ 也钉了端到端那一趟。这里补上
+    // 另外两个：① **包本身坏了**（读到一半断掉 / 根本不是包）；② **盘放不下**。
+    {
+        // ① 包坏了：把一份好好的包**切掉后半截**（zip 的中央目录在尾巴上，切了就读不动）。
+        const QByteArray wholeZip = readAll(worldZip);
+        check(!wholeZip.isEmpty(), "ZQ8 手上先得有一份好的包（ZQ3 打出来的那份）");
+        const QString brokenZip = work + QStringLiteral("/截断的包.zip");
+        writeFileAt(brokenZip, wholeZip.left(200));
+        bool brokenOk = true;
+        QString brokenProblem;
+        BackupFiles::readManifest(brokenZip, &brokenOk, &brokenProblem);
+        check(!brokenOk && !brokenProblem.isEmpty(),
+              "★★ ZQ8 半截的包读不动，而且**说得出一句话**（不是静默回一份空清单）",
+              brokenProblem);
+        writeFileAt(restoredWorld + QStringLiteral("/level.dat"), QByteArrayLiteral("STILL-HERE-2"));
+        const BackupFiles::RestoreResult fromBroken =
+            BackupFiles::restoreBackup(brokenZip, restoreParent);
+        check(!fromBroken.ok && fromBroken.stage == BackupFiles::RestoreResult::Stage::ReadManifest &&
+                  readAll(restoredWorld + QStringLiteral("/level.dat"))
+                      == QByteArrayLiteral("STILL-HERE-2"),
+              "★★ ZQ8 拿坏包来还原：第一步就停下，现在这一份一个字节没动",
+              fromBroken.problem);
+
+        // ② 盘放不下：先钉纯函数那一条（判据的出处）。
+        BackupFiles::Manifest small;
+        small.kind = BackupFiles::Kind::World;
+        small.root = QStringLiteral("小世界");
+        small.createdAt = at;
+        small.files = {recordOf(QStringLiteral("a"), QByteArrayLiteral("0123456789")),
+                       recordOf(QStringLiteral("b"), QByteArrayLiteral("abcdefghij"))};
+        const qint64 need = BackupFiles::restoreSpaceNeeded(small);
+        check(need > 20,
+              "★ ZQ8 「要多少空间」= 清单里各文件大小之和**再加一点余量**（不是刚好那 20 个字节）",
+              QString::number(need));
+        check(BackupFiles::hasRoomFor(need, need) && BackupFiles::hasRoomFor(need + 1, need)
+                  && !BackupFiles::hasRoomFor(need - 1, need),
+              "ZQ8 够 / 多一个 / 差一个：三种都判对");
+        check(BackupFiles::hasRoomFor(-1, need),
+              "★★ ZQ8 空闲空间**问不出来**（-1）时**不拦**"
+              "（宁可走到解压那一步如实失败，也不凭一个假数字挡人）");
+
+        // ② 端到端：手搓一个清单里写着"1 PB"的包，落到一块**空地**上。
+        const QString hugeParent = work + QStringLiteral("/塞不下");
+        QDir().mkpath(hugeParent);
+        const QByteArray tiny = QByteArrayLiteral("小得可怜");
+        const QString srcUnder = work + QStringLiteral("/源/大实例/region/r.0.0.mca");
+        writeFileAt(srcUnder, tiny);
+        BackupFiles::Manifest hugeManifest;
+        hugeManifest.kind = BackupFiles::Kind::Instance;
+        hugeManifest.root = QStringLiteral("大实例");
+        hugeManifest.label = QStringLiteral("大实例");
+        hugeManifest.createdAt = at;
+        BackupFiles::FileRecord hugeRec = recordOf(QStringLiteral("region/r.0.0.mca"), tiny);
+        hugeRec.size = 1LL << 50;  // 1 PB（清单在吹牛，反正轮不到解压那一步）
+        hugeManifest.files = {hugeRec};
+        const QString hugeJson = work + QStringLiteral("/大清单.json");
+        writeFileAt(hugeJson, BackupFiles::manifestToJson(hugeManifest));
+        const QString hugeZip = work + QStringLiteral("/塞不下.zip");
+        QString hugeZipError;
+        check(ZipUtil::createZip(hugeZip,
+                                 {{BackupFiles::manifestEntryName(), hugeJson},
+                                  {QStringLiteral("大实例/region/r.0.0.mca"), srcUnder}},
+                                 &hugeZipError),
+              "ZQ8 手搓一个「清单说要 1 PB」的包", hugeZipError);
+        const BackupFiles::RestoreResult noRoom = BackupFiles::restoreBackup(hugeZip, hugeParent);
+        check(!noRoom.ok && noRoom.stage == BackupFiles::RestoreResult::Stage::Space &&
+                  noRoom.problem.contains(QStringLiteral("放不下")),
+              "★★ ZQ8 空地那块盘放不下 → 在**动盘之前**就停下，而且话说得明白", noRoom.problem);
+        check(!QFileInfo::exists(hugeParent + QStringLiteral("/大实例")),
+              "★★ ZQ8 停下时那地上**什么都没建**"
+              "（看空间这一眼排在安全快照和解压之前，盘上一个字节都没动）");
+
+        // ③ 同一份包，落到**原地已经有一份**的地方：那一趟**不看**空间这一眼
+        //    （把旧的挪走会把空间还回来，凭剩下的空间算会假报"放不下"）⇒ 得能走到解压。
+        writeFileAt(hugeParent + QStringLiteral("/大实例/regions-先来的.txt"),
+                    QByteArrayLiteral("OLD"));
+        const BackupFiles::RestoreResult inPlace = BackupFiles::restoreBackup(hugeZip, hugeParent);
+        check(inPlace.stage != BackupFiles::RestoreResult::Stage::Space,
+              "★★ ZQ8 原地替换那一趟**不**因为「清单吹牛」就报空间不足"
+              "（旧那份挪走会把空间还回来，那一趟交给解压/对账如实报）",
+              inPlace.problem);
+    }
+
     AppPaths::setMinecraftDir(originalDir);
 }
 

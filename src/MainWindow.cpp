@@ -18449,6 +18449,9 @@ void MainWindow::onBackupRestoreFinished(const BackupFiles::RestoreResult &resul
         switch (stage) {
         case BackupFiles::RestoreResult::Stage::ReadManifest:
             return 0;
+        case BackupFiles::RestoreResult::Stage::Space:
+            // 空间那一眼在"把现在这一份收起来"**之前**，它是那一步的前置条件：这一步
+            // 没轮上（盘上一个字节都没动），红的就标在它头上，真正的理由在 `problem` 里。
         case BackupFiles::RestoreResult::Stage::SafetySnapshot:
         case BackupFiles::RestoreResult::Stage::RemoveOld:
             return 1;

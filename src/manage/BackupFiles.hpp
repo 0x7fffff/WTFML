@@ -149,7 +149,7 @@ Manifest readManifest(const QString &zipPath, bool *ok, QString *problemOut);
 
 /// 还原一份备份。
 struct RestoreResult {
-    /// 走到哪一步了。**成功也是它**（`Ok`）—— 上面那五步按这个顺序一字排开，调用方
+    /// 走到哪一步了。**成功也是它**（`Ok`）—— 下面那几步按这个顺序一字排开，调用方
     /// （任务账本上那几步）拿它标"第几步红了"，不用去猜 `problem` 那句话里说到了谁。
     ///
     /// NOTE: 加这一格是因为 `problem` 是**给人看的**（措辞随时会改），而"哪一步"是给
@@ -157,10 +157,11 @@ struct RestoreResult {
     enum class Stage {
         Ok,             ///< 走完了（`ok` 那一格才算数）
         ReadManifest,   ///< ① 读清单
-        SafetySnapshot, ///< ② 给"现在这一份"做安全快照
-        RemoveOld,      ///< ② 把"现在这一份"整个挪走
-        Extract,        ///< ③ 解压
-        Verify,         ///< ④ 逐文件对账（走完了但没对上）
+        Space,          ///< ② 动盘之前：这块盘放不放得下（**这一档盘上一个字节都没动**）
+        SafetySnapshot, ///< ③ 给"现在这一份"做安全快照
+        RemoveOld,      ///< ③ 把"现在这一份"整个挪走
+        Extract,        ///< ④ 解压
+        Verify,         ///< ⑤ 逐文件对账（走完了但没对上）
     };
 
     bool ok = false;
@@ -176,18 +177,31 @@ struct RestoreResult {
 /**
  * @brief 把 @p zipPath 里 `root/` 那一段还原到 @p targetParentDir 底下。
  *
- * 三件事按这个顺序做，**缺一不可**：
+ * 四件事按这个顺序做，**缺一不可**：
  *   1. 读清单。不是我们做的包 → 当场拒绝（**一个字节都不动**）；
- *   2. 现在那儿已经有一份 → **先给它做一份安全快照**（同样是一次 `writeBackup`，落进
+ *   2. 落点是一块**空地**时，先看一眼这块盘放不放得下（`restoreSpaceNeeded()` 对着
+ *      `QStorageInfo::bytesAvailable()`）。放不下 → 停在 `Stage::Space`，**同样一个字节都不动**
+ *      —— 让用户看到一句"盘不够"，而不是解到一半留下满地半截文件。原地替换（落点上已经有
+ *      一份）**不看这一眼**，理由见 .cpp 里那一处 NOTE；
+ *   3. 现在那儿已经有一份 → **先给它做一份安全快照**（同样是一次 `writeBackup`，落进
  *      同一个备份目录），再把它整个挪走（`removeTreeWithoutFollowingLinks`，不跟链接）。
  *      ★ 安全快照**做不成就不往下走** —— "先把旧的删了、再告诉你备份没做出来"是这一整套里
  *      唯一不可接受的结果；
- *   3. 解压 + **逐文件对账**（`verifyTree()`）。对不上就把话说明白（那多半是解压被中途打断，
+ *   4. 解压 + **逐文件对账**（`verifyTree()`）。对不上就把话说明白（那多半是解压被中途打断，
  *      或者盘满了）。
  *
  * NOTE: 这里**不碰界面也不碰账本**：进度那几句由调用方（MainWindow）往任务中心写。
  */
 RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentDir);
+
+/// 还原这一份备份大约要占多少字节 = 清单里各文件大小之和 + 一点余量（余量见 .cpp）。
+/// 纯函数（不碰盘）：`restoreBackup()` 拿它对着空闲空间判，验证工程拿它钉判据。
+qint64 restoreSpaceNeeded(const Manifest &manifest);
+
+/// @p freeBytes 够不够放 @p neededBytes。
+/// ★ @p freeBytes < 0 = **问不出来**（卷没准备好 / 认不出文件系统）⇒ 回 `true`（**不拦**）：
+///   宁可让它走下去、在解压那一步如实失败，也不要凭一个假数字把用户挡在门外。
+bool hasRoomFor(qint64 freeBytes, qint64 neededBytes);
 
 /// 对账：@p dir 底下那些文件跟 @p files 里记的名字/大小/sha1 对不对得上。
 /// @return 对不上的条数（0 = 全对上）。**多出来的文件不算**（备份是"至少恢复这些"），
