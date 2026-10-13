@@ -512,6 +512,50 @@ const MainWindowUI::ThemeImageRow &MainWindowUI::getThemeImageRow(int index) con
     return m_themeImageRows.at(index);
 }
 
+QPushButton *MainWindowUI::getThemeSemanticButton(int index) const {
+    // 和上面同一个路数：越界给 nullptr，调用方自己判空。
+    if (index < 0 || index >= m_themeSemanticButtons.size()) {
+        return nullptr;
+    }
+    return m_themeSemanticButtons.at(index);
+}
+
+QString MainWindowUI::themeSemanticKey(int index) {
+    // ★ 这四串是 `Theme::Spec` 里那四位（以及盘上 `Theme/Accents/<Key>` 那四个后缀）。
+    //   认的是**名字**不是下标：以后加一个语义色、或者把顺序动了，这边改一处就够
+    //   （`specToJson()` / `accentSettingKey()` 那两边照旧）。
+    switch (index) {
+    case 0:
+        return QStringLiteral("danger");
+    case 1:
+        return QStringLiteral("warning");
+    case 2:
+        return QStringLiteral("ok");
+    case 3:
+        return QStringLiteral("errorText");
+    default:
+        // 越界给空串：`themeSemanticButtonName()` 拿它拼名字，空串拼出来是个别的控件名
+        // （不会撞上任何一颗真按钮），调用方按"认不出"处理就行。
+        return QString();
+    }
+}
+
+QString MainWindowUI::themeSemanticText(int index) {
+    // 上下文写死 "MainWindowUI"：这个类不是 QObject（没有 tr()），和别的表同一个写法。
+    switch (index) {
+    case 0:
+        return QCoreApplication::translate("MainWindowUI", "危险");
+    case 1:
+        return QCoreApplication::translate("MainWindowUI", "警告");
+    case 2:
+        return QCoreApplication::translate("MainWindowUI", "正常");
+    case 3:
+        return QCoreApplication::translate("MainWindowUI", "报错");
+    default:
+        return QString();
+    }
+}
+
 QString MainWindowUI::runningDurationText(qint64 startedAtMs, qint64 nowMs) {
     // 负数（时钟被往回调过、或者 startedAtMs 是个没写过的 0）当"刚开始"：这一行是个说明，
     // 不该出现"已运行 -3 分钟"这种算术漏出来的话。
@@ -2441,14 +2485,231 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
         addSettingItem(section1, QStringLiteral("标题文字"), box, form);
     }
 
+    // ---------- 主题 ----------
+    // 2026-10-13 加的（coding plan §8.3）。用户 2026-09-28 立的底是「各个地方的背景等允许
+    // 切换……先不急着做入口」—— 铺了半个多月的框架（`ui/Theme` 的 Spec / Role / Part）
+    // 在这一节有了入口：**配色 + 主题色 + 文字不透明度 + 四个语义色**，外加恢复默认与
+    // 导入/导出。
+    //
+    // ★ 这一节只搭控件。**改完立刻生效也立刻落盘**那三步（改内存里那份规格 → 落盘 →
+    //   `Theme::apply()`）在 `MainWindow::applyThemeSpec()` —— `ui/` 不许 include `src/`。
+    // ★ 「配色」那三项要从 `Theme::presetIds()` 来（它是唯一出处），所以项**在这里灌**，
+    //   不在 MainWindow —— 和下面「摆法」那个下拉框是同一个写法（那一档的枚举也在 ui/）。
+    // ---- 第 2 节：标题 + 一张小节卡片（见 addSettingsSection()）----
+    const SettingsSection section2 = addSettingsSection(grid, row, QStringLiteral("主题"), form);
+    {
+        // ---- 配色（跟随系统 / 浅色 / 深色）----
+        {
+            QWidget *box = makeHintedControl(form);
+            auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+            themePresetCombo = new QComboBox(box);
+            themePresetCombo->setObjectName(themePresetComboName());
+            const QStringList presets = Theme::presetIds();
+            for (const QString &id : presets) {
+                themePresetCombo->addItem(Theme::presetName(id), id);
+            }
+            themePresetCombo->setMinimumWidth(themePresetComboWidth());
+            boxLayout->addWidget(themePresetCombo, 0, Qt::AlignLeft);
+            addHint(box,
+                    QStringLiteral("「跟随系统」是 Windows 那边切深浅、这边跟着变；"
+                                   "选了「浅色」或「深色」之后就钉住不再跟系统走。"),
+                    form);
+            addSettingItem(section2, themePresetRowText(), box, form);
+        }
+
+        // ---- 主题色（顶栏那一块、当前那一颗导航底下那条线、确认性按钮的字和边）----
+        {
+            QWidget *box = makeHintedControl(form);
+            auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+            QWidget *line = new QWidget(box);
+            auto *lineLayout = new QHBoxLayout(line);
+            lineLayout->setContentsMargins(0, 0, 0, 0);
+            lineLayout->setSpacing(themeSwatchRowSpacing());
+
+            themeAccentButton = new QPushButton(line);
+            themeAccentButton->setObjectName(themeAccentButtonName());
+            themeAccentButton->setFixedSize(themeSwatchWidth(), themeSwatchHeight());
+            // 这一颗的**面**是它现在那个色（`Theme::markColorSwatch()` 挂的样式表），
+            // 所以「它现在是什么色」不需要额外一行字来说。
+            Theme::markColorSwatch(themeAccentButton, Theme::current().accent);
+
+            themeAccentResetButton = new QPushButton(themeAccentResetText(), line);
+            themeAccentResetButton->setObjectName(themeAccentResetName());
+            // 一般性（和「清除图片」同一档：把这一项拿掉，不是丢掉一份东西）。
+            Theme::markButton(themeAccentResetButton, Theme::ButtonKind::Neutral);
+            themeAccentResetButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+
+            lineLayout->addWidget(themeAccentButton);
+            lineLayout->addWidget(themeAccentResetButton);
+            lineLayout->addStretch(1);
+            boxLayout->addWidget(line);
+            addHint(box,
+                    QStringLiteral("点左边那块色挑一个颜色。顶栏、侧栏选中项那根竖条、"
+                                   "确认性按钮（启动 / 下载 / 搜索那些）都用它。"),
+                    form);
+            addSettingItem(section2, themeAccentRowText(), box, form);
+        }
+
+        // ---- 文字不透明度 ----
+        {
+            QWidget *box = makeHintedControl(form);
+            auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+            QWidget *line = new QWidget(box);
+            auto *lineLayout = new QHBoxLayout(line);
+            lineLayout->setContentsMargins(0, 0, 0, 0);
+            lineLayout->setSpacing(themeSwatchRowSpacing());
+
+            themeTextOpacitySlider = new QSlider(Qt::Horizontal, line);
+            themeTextOpacitySlider->setObjectName(themeTextOpacitySliderName());
+            themeTextOpacitySlider->setRange(0, 100);
+            themeTextOpacitySlider->setValue(Theme::current().textOpacity);
+            themeTextOpacitySlider->setFixedWidth(themeOpacityWidth());
+            themeTextOpacityPercent = new QLabel(themePercentText(Theme::current().textOpacity), line);
+            themeTextOpacityPercent->setObjectName(themeTextOpacityPercentName());
+            themeTextOpacityPercent->setMinimumWidth(themePercentWidth());
+
+            lineLayout->addWidget(themeTextOpacitySlider);
+            lineLayout->addWidget(themeTextOpacityPercent);
+            lineLayout->addStretch(1);
+            boxLayout->addWidget(line);
+            addHint(box,
+                    QStringLiteral("界面上所有字的不透明度。调低 = 字变淡（下面那张背景图透出来"
+                                   "更明显）。100% 是出厂那一档。"),
+                    form);
+            addSettingItem(section2, themeTextOpacityRowText(), box, form);
+        }
+
+        // ---- 语义色（危险 / 警告 / 正常 / 报错）----
+        //
+        // 四个色块摆成两行两列：一行四块（连名字）在窄窗口下会被挤到换行，而换行是**中间
+        // 断开**的那种（第二对掉下去、第一对还撑着），看着像排版坏了。两行两列在宽窄两种
+        // 窗口下都是同一个形状。
+        {
+            QWidget *box = makeHintedControl(form);
+            auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+            QWidget *line = new QWidget(box);
+            auto *lineLayout = new QHBoxLayout(line);
+            lineLayout->setContentsMargins(0, 0, 0, 0);
+            lineLayout->setSpacing(themeSwatchGroupSpacing());
+
+            QWidget *grid = new QWidget(line);
+            auto *gridLayout = new QGridLayout(grid);
+            gridLayout->setContentsMargins(0, 0, 0, 0);
+            gridLayout->setHorizontalSpacing(themeSwatchRowSpacing() * 2);
+            gridLayout->setVerticalSpacing(themeSwatchRowSpacing());
+            m_themeSemanticButtons.clear();
+            for (int i = 0; i < themeSemanticCount(); ++i) {
+                auto *swatch = new QPushButton(grid);
+                swatch->setObjectName(themeSemanticButtonName(i));
+                swatch->setFixedSize(themeSwatchWidth(), themeSwatchHeight());
+                // ★ 尺寸那一档得**自己挂**：应用级样式表里 `QPushButton { min-height: 32px }`
+                //   会把 `setFixedSize()` 那一句按回去（实测：四块色量出来是 64×**32**）——
+                //   只有 `markIconButton()` 挂的这个属性配得上那条复位规则。
+                //   **颜色**这一层故意不管（那要按当前深浅现推，只有 `MainWindow` 知道，
+                //   见 `refreshThemeControls()`）—— 这里只说"这是一颗图标尺寸的按钮"。
+                Theme::markIconButton(swatch);
+                m_themeSemanticButtons.append(swatch);
+
+                auto *label = new QLabel(themeSemanticText(i), grid);
+                // 名字在**色块左边**（和另外三行"先看名字再看控件"不一样，但这一格是
+                // "红色是哪个红"的对照表，名字挨着色块读才对得上）。
+                gridLayout->addWidget(label, i / 2, (i % 2) * 2);
+                gridLayout->addWidget(swatch, i / 2, (i % 2) * 2 + 1);
+            }
+            gridLayout->setColumnStretch(4, 1);
+
+            themeSemanticResetButton = new QPushButton(themeSemanticResetText(), line);
+            themeSemanticResetButton->setObjectName(themeSemanticResetName());
+            Theme::markButton(themeSemanticResetButton, Theme::ButtonKind::Neutral);
+            themeSemanticResetButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+
+            lineLayout->addWidget(grid);
+            lineLayout->addSpacing(themeSwatchGroupSpacing());
+            // 和上面那颗「恢复默认」**对不齐**是故意的：它管的是四块色，摆在四块色右边。
+            lineLayout->addWidget(themeSemanticResetButton, 0, Qt::AlignTop);
+            lineLayout->addStretch(1);
+            boxLayout->addWidget(line);
+            addHint(box,
+                    QStringLiteral("红黄绿各是哪个红黄绿（删除失败那种红、警告的黄、"
+                                   "「一切正常」的绿、表单报错那处红）。"
+                                   "不挑就按当前深浅现推 —— 「跟随预设」把它还给预设。"),
+                    form);
+            addSettingItem(section2, themeSemanticRowText(), box, form);
+        }
+
+        // ---- 整份主题：恢复全部默认 + 导出 / 导入 ----
+        {
+            QWidget *box = makeHintedControl(form);
+            auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+            QWidget *line = new QWidget(box);
+            auto *lineLayout = new QHBoxLayout(line);
+            lineLayout->setContentsMargins(0, 0, 0, 0);
+            lineLayout->setSpacing(themeSwatchRowSpacing());
+
+            themeResetAllButton = new QPushButton(themeResetAllText(), line);
+            themeResetAllButton->setObjectName(themeResetAllButtonName());
+            // 危险那一档（用户 2026-09-28 那句"不可撤销"）：它把这一节**所有**改动一起抹掉
+            // ——包括下面「背景图」那一节那两块（都是同一份规格）。
+            Theme::markButton(themeResetAllButton, Theme::ButtonKind::Danger);
+
+            themeExportButton = new QPushButton(themeExportText(), line);
+            themeExportButton->setObjectName(themeExportButtonName());
+            // 「导出」是**看一眼 / 挪个地方**（`ButtonKind` 那张表里点名的）。
+            Theme::markButton(themeExportButton, Theme::ButtonKind::Neutral);
+
+            themeImportButton = new QPushButton(themeImportText(), line);
+            themeImportButton->setObjectName(themeImportButtonName());
+            // 「导入」是"干这件事"那一档（确认性）。
+            Theme::markButton(themeImportButton, Theme::ButtonKind::Accent);
+
+            for (QPushButton *button : {themeResetAllButton, themeExportButton, themeImportButton}) {
+                button->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+                lineLayout->addWidget(button);
+            }
+            lineLayout->addStretch(1);
+            boxLayout->addWidget(line);
+            addHint(box,
+                    QStringLiteral("「恢复全部默认」把这一栏（含下面的背景图）一起还原成出厂那一份。"
+                                   "「导出」存成一个 JSON 文件，能自己改、也能带到别的机器上导回来；"
+                                   "背景图那几张图**不在**这个文件里（只有路径）。"),
+                    form);
+            addSettingItem(section2, themeFileRowText(), box, form);
+        }
+
+        // ---- Tab 顺序：这一节按"从上到下、从左到右"排一遍 ----
+        //
+        // §8.3 那一句「合理 Tab 顺序」落到这一节就是这一段。**不写也不会错**（Qt 默认顺序 =
+        // 控件建出来的先后，而这一节正是从上往下建的）—— 写下来是为了把它**钉住**：以后谁
+        // 在这一节中间插一颗控件，默认顺序会跟着变（屏幕上一点异常都没有，只是按 Tab 的顺序
+        // 变得莫名其妙），而这一串不会。
+        //
+        // ★ 链上那几颗**彼此都不是兄弟**（各在各自那一行的盒子里），所以只能靠
+        //   `setTabOrder()` 跨层接 —— 它是全窗通用的；ui_check 的 W14 顺着这条链走一遍。
+        {
+            QVector<QWidget *> chain;
+            chain << themePresetCombo << themeAccentButton << themeAccentResetButton
+                  << themeTextOpacitySlider;
+            for (QPushButton *swatch : m_themeSemanticButtons) {
+                chain << swatch;
+            }
+            chain << themeSemanticResetButton << themeResetAllButton << themeExportButton
+                  << themeImportButton;
+            for (int i = 1; i < chain.size(); ++i) {
+                if (chain.at(i - 1) != nullptr && chain.at(i) != nullptr) {
+                    QWidget::setTabOrder(chain.at(i - 1), chain.at(i));
+                }
+            }
+        }
+    }
+
     // ---------- 背景图 ----------
     // 2026-09-28 加的：用户原话「能给主页左侧自定义图像吗？其他页面的背景能换图吗」。
     // 两块底各一行 —— 主页左栏、四个页面的内容区（见 ui/Theme.hpp 里 Part 那两项）。
     //
     // NOTE: 挑图那一下**不是**把用户那个路径记下来：文件会被拷进数据目录
     //       （`src/util/ThemeImage.hpp`）。这一节只摆控件，收图和落盘都在 MainWindow。
-    // ---- 第 2 节：标题 + 一张小节卡片（见 addSettingsSection()）----
-    const SettingsSection section2 = addSettingsSection(grid, row, QStringLiteral("背景图"), form);
+    // ---- 第 3 节：标题 + 一张小节卡片（见 addSettingsSection()）----
+    const SettingsSection section3 = addSettingsSection(grid, row, QStringLiteral("背景图"), form);
     {
         const auto addImageRow = [&](Theme::Part part, const QString &what) {
             const QString key = Theme::partKey(part);
@@ -2519,7 +2780,7 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
                                    "底下的底色透上来 —— 字要读得清就是靠它。")
                         .arg(what),
                     form);
-            addSettingItem(section2, Theme::partName(part), box, form);
+            addSettingItem(section3, Theme::partName(part), box, form);
 
             m_themeImageRows.append(widgets);
         };
@@ -2536,8 +2797,8 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
     // 换皮肤披风它一件都做不到，而这一格却叫「当前账户」，用户来设置页找"管账号"的地方
     // 会撞上一个只能登录的按钮。账号那一整块只在一个窗里做（ui/AccountSkinDialog），
     // 这里留一个入口。
-    // ---- 第 3 节：标题 + 一张小节卡片（见 addSettingsSection()）----
-    const SettingsSection section3 = addSettingsSection(grid, row, QStringLiteral("账户"), form);
+    // ---- 第 4 节：标题 + 一张小节卡片（见 addSettingsSection()）----
+    const SettingsSection section4 = addSettingsSection(grid, row, QStringLiteral("账户"), form);
     {
         QWidget *box = makeHintedControl(form);
         auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
@@ -2552,13 +2813,13 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
         addHint(box, QStringLiteral("正版登录、添加离线账号、切换账号、换皮肤和披风都在这个窗里。"
                                     "登录后用户名显示在窗口左下角，启动游戏时用的也是它。"),
                 form);
-        addSettingItem(section3, QStringLiteral("账号"), box, form);
+        addSettingItem(section4, QStringLiteral("账号"), box, form);
     }
 
     // ---------- 版本名格式 ----------
     // 实例名长什么样，也是"看起来是什么样"那一类 —— 和「外观」同一栏。
-    // ---- 第 4 节：标题 + 一张小节卡片（见 addSettingsSection()）----
-    const SettingsSection section4 = addSettingsSection(grid, row, QStringLiteral("版本名格式"), form);
+    // ---- 第 5 节：标题 + 一张小节卡片（见 addSettingsSection()）----
+    const SettingsSection section5 = addSettingsSection(grid, row, QStringLiteral("版本名格式"), form);
     {
         QWidget *box = makeHintedControl(form);
         auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
@@ -2587,7 +2848,32 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
                                     "拼出来的，勾掉哪一项哪一段就不显示。"
                                     "数据来自 .minecraft/versions/<版本>/wtfml.meta。"),
                 form);
-        addSettingItem(section4, QStringLiteral("显示哪些字段"), box, form);
+        addSettingItem(section5, QStringLiteral("显示哪些字段"), box, form);
+    }
+
+    // ---------- 动效 ----------
+    // 2026-10-13 加的（coding plan §8.3 后半句：「动画总开关继续保留，并尊重系统"减少动态
+    // 效果"」）。动效那一层（`ui/Animations`）本来就有个总开关，但**一直没有任何界面入口**
+    // —— 用户只能手改注册表。这一节就是那个入口。
+    //
+    // ★ 另外还多了一档"系统说别动"（`Animations::platformReducedMotion()`）：Windows 的
+    //   「辅助功能 → 视觉效果 → 动画效果」关掉时，这一档为真，**这个勾勾着也不动**。
+    //   所以下面那行说明必须说清"它可能被系统按住" —— 否则用户勾了没反应，只会以为坏了。
+    // ---- 第 6 节：标题 + 一张小节卡片（见 addSettingsSection()）----
+    const SettingsSection section6 = addSettingsSection(grid, row, QStringLiteral("动效"), form);
+    {
+        QWidget *box = makeHintedControl(form);
+        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        animationsCheck = new QCheckBox(animationsCheckText(), box);
+        animationsCheck->setObjectName(animationsCheckName());
+        boxLayout->addWidget(animationsCheck, 0, Qt::AlignLeft);
+        addHint(box,
+                QStringLiteral("按钮按下的反馈、换页、列表展开折叠那几段。"
+                               "关掉之后它们立刻完成 —— 界面一样能用。\n"
+                               "Windows 的「辅助功能 → 视觉效果 → 动画效果」关着的时候，"
+                               "这一档是不动的（系统说了算）。"),
+                form);
+        addSettingItem(section6, QStringLiteral("切换"), box, form);
     }
 
     // 剩下的竖直空间留在底部：设置项不跟着窗口高度一起被拉长

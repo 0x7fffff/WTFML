@@ -10,6 +10,7 @@
 #include <QCheckBox>
 #include <QDebug>
 #include <QFont>
+#include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -25,6 +26,71 @@
 namespace {
 /// `setList()` 那张列表最多露几行（再多就在列表内部滚）。见 setList() 里那段 ★。
 constexpr int kListVisibleRows = 6;
+
+// ---------- 取色卡片（`InlineMessage::pickColor()`）----------
+
+/// 色板：4 行 × 8 块。**第一行是中性那一档**（黑 → 白，最后一块是出厂主题色 —— 用户想回到
+/// 默认不用去记那个色号）；第二行是几个色相的"标准"那一档，第三行是它们的深一档，第四行是
+/// 浅一档。
+///
+/// ★ 为什么自己钉一张表而不是拿 `QColor::fromHsv()` 现算一整圈：色板要"每一块都好看"，
+///   而现算出来的那一圈里有几块（黄绿的中间档、饱和的青色）在浅色界面上是糊的。
+const char *const kPalette[] = {
+    "#000000", "#262626", "#4d4d4d", "#808080", "#b8b8b8", "#e6e6e6", "#ffffff", "#3d8068",
+    "#e53935", "#fb8c00", "#fdd835", "#43a047", "#00acc1", "#1e88e5", "#8e24aa", "#d81b60",
+    "#b71c1c", "#e65100", "#f9a825", "#2e7d32", "#00695c", "#1565c0", "#4527a0", "#ad1457",
+    "#ef9a9a", "#ffcc80", "#fff59d", "#a5d6a7", "#80deea", "#90caf9", "#ce93d8", "#f48fb1",
+};
+constexpr int kPaletteColumns = 8;
+/// 色板里每块多大、离多远。**8 列正好铺得下** `OverlayHost::promptContentWidth()`：
+/// 8 * 48 + 7 * 6 = 426（内容宽 442）—— 再宽一格就要被卡片裁掉了。
+constexpr int kSwatchWidth = 48;
+constexpr int kSwatchHeight = 24;
+constexpr int kSwatchSpacing = 6;
+/// 那个"你现在选的是哪个色"的预览块。和设置页那一行的色块一样大（64×24），
+/// 两处看着是同一件东西。
+constexpr int kPreviewWidth = 64;
+constexpr int kPreviewHeight = 24;
+/// 色号那一格多宽。装得下 `#aarrggbb`（九个字符）还有富余，又不至于宽得像要给一句话用。
+constexpr int kColorEditWidth = 120;
+
+/// 认色号。收三种写法：`#rrggbb` / `#aarrggbb`、**不带 `#` 的六位或八位十六进制**
+/// （用户从别处粘过来的色号常常没有）、以及 `QColor` 认得的颜色名（red / steelblue）。
+/// @return 认不出给一个无效色（调用方按"还没打完"处理）。
+QColor parseColorText(const QString &text) {
+    QString value = text.trimmed();
+    if (value.isEmpty()) {
+        return QColor();
+    }
+    if (!value.startsWith(QLatin1Char('#')) && (value.size() == 6 || value.size() == 8)) {
+        bool allHex = true;
+        for (const QChar ch : value) {
+            const QChar lower = ch.toLower();
+            const bool hex = (lower >= QLatin1Char('0') && lower <= QLatin1Char('9')) ||
+                             (lower >= QLatin1Char('a') && lower <= QLatin1Char('f'));
+            if (!hex) {
+                allHex = false;
+                break;
+            }
+        }
+        if (allHex) {
+            value.prepend(QLatin1Char('#'));
+        }
+    }
+    const QColor color = QColor::fromString(value);
+    return color.isValid() ? color : QColor();
+}
+
+/// 把一块预览摆成 @p color（无效色 = 一块空心的灰框 —— "这里还不是一个色"）。
+void paintPreview(QLabel *preview, const QColor &color) {
+    const QColor edge = color.isValid() ? Theme::swatchBorder(color) : QColor(0x9a, 0x9a, 0x9a);
+    preview->setStyleSheet(QStringLiteral("background-color: %1; border: 1px solid %2;"
+                                          " border-radius: %3px;")
+                               .arg(color.isValid() ? color.name(QColor::HexArgb)
+                                                    : QStringLiteral("transparent"))
+                               .arg(edge.name(QColor::HexArgb))
+                               .arg(Theme::controlRadius()));
+}
 }  // namespace
 
 InlineMessageBox::InlineMessageBox(MessageKind kind, const QString &title, const QString &text,
@@ -293,9 +359,39 @@ QString InlineMessageBox::linkUrl() const {
     return m_linkLabel != nullptr ? m_linkUrl : QString();
 }
 
+QWidget *InlineMessageBox::setContent(QWidget *content) {
+    if (content == nullptr) {
+        return nullptr;
+    }
+    auto *layout = qobject_cast<QVBoxLayout *>(this->layout());
+    Q_ASSERT(layout != nullptr);  // 同 setLineEdit()：布局是本类的实现细节。
+    if (m_content != nullptr) {
+        // 已经插过一块了：换内容（把旧那块摘下来还给调用方，同 OverlayHost 那条"还回去
+        // 而不是删掉"的规矩 —— 调用方是它的主人）。
+        layout->removeWidget(m_content);
+        m_content->setParent(nullptr);
+    }
+    m_content = content;
+    m_content->setParent(this);
+    // 和另外那几条一样**钉住宽度**（见头文件里那段）：卡片的高矮才算得准，而且塞宽了是
+    // 被卡片裁掉，不会把卡片撑开。
+    m_content->setFixedWidth(OverlayHost::promptContentWidth());
+    // 插在**按钮行前面**（写成 count()-1 不写死下标，同 setLineEdit 那一句）。
+    layout->insertWidget(layout->count() - 1, m_content);
+    return m_content;
+}
+
 void InlineMessageBox::showEvent(QShowEvent *event) {
     QDialog::showEvent(event);
     if (m_lineEdit == nullptr) {
+        // `setContent()` 那一档：那块东西里**第一个输入框**接着这一下（同一条规矩、
+        // 同一个理由 —— 用户点开"挑一个颜色"，直接打字就该进那一格）。
+        if (m_content != nullptr) {
+            if (auto *edit = m_content->findChild<QLineEdit *>()) {
+                edit->setFocus(Qt::OtherFocusReason);
+                edit->selectAll();
+            }
+        }
         return;
     }
     // 理由见头文件里那一段（setParent 会清焦点、QDialog 会把焦点交给默认按钮）。
@@ -428,6 +524,115 @@ bool pickFromList(OverlayHost *host, const QString &title, const QString &text,
         *rowOut = row;
     }
     return true;
+}
+
+QString colorEditName() {
+    return QStringLiteral("inlineColorEdit");
+}
+
+QString colorSwatchName(int index) {
+    return QStringLiteral("inlineColorSwatch%1").arg(index);
+}
+
+QString colorPreviewName() {
+    return QStringLiteral("inlineColorPreview");
+}
+
+int colorSwatchCount() {
+    return static_cast<int>(sizeof(kPalette) / sizeof(kPalette[0]));
+}
+
+QColor pickColor(OverlayHost *host, const QString &title, const QString &text,
+                 const QColor &initial) {
+    if (host == nullptr) {
+        // 和上面那几条一样**不许静默吞掉**：调用方拿到一个无效色（= "用户取消了"），
+        // 于是"我点了一下颜色没变"在日志里才有线索。
+        qWarning("InlineMessage: 没有 OverlayHost，这个「挑一个颜色」没有显示（%s）",
+                 qUtf8Printable(title));
+        return QColor();
+    }
+    if (host->promptOpen()) {
+        qWarning("InlineMessage: 已经有一条提示开着，这个「挑一个颜色」没有显示（%s）",
+                 qUtf8Printable(title));
+        return QColor();
+    }
+    // 按钮表和 getText() / pickFromList() 逐字一样（`{确定, 取消}`、默认确定）。
+    InlineMessageBox box(MessageKind::Question, title, text,
+                         QStringList{QObject::tr("确定"), QObject::tr("取消")}, 0, -1);
+
+    auto *content = new QWidget;
+    auto *layout = new QVBoxLayout(content);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(10);
+
+    // ---- 第一行：预览块 + 色号输入框 ----
+    auto *line = new QWidget(content);
+    auto *lineLayout = new QHBoxLayout(line);
+    lineLayout->setContentsMargins(0, 0, 0, 0);
+    lineLayout->setSpacing(8);
+
+    auto *preview = new QLabel(line);
+    preview->setObjectName(colorPreviewName());
+    preview->setFixedSize(kPreviewWidth, kPreviewHeight);
+
+    auto *edit = new QLineEdit(line);
+    edit->setObjectName(colorEditName());
+    edit->setText(initial.isValid() ? initial.name(QColor::HexRgb) : QString());
+    edit->setPlaceholderText(QStringLiteral("#3d8068"));
+    edit->setMinimumWidth(kColorEditWidth);
+    // 色号是**六到八个字符**，长度不设限反而让人以为能写别的（写长了认不出，确定会灰掉
+    // ——那是对的，但不如一开始就写不进去）。
+    edit->setMaxLength(9);
+
+    lineLayout->addWidget(preview);
+    lineLayout->addWidget(edit);
+    lineLayout->addStretch(1);
+    layout->addWidget(line);
+
+    // ---- 第二行：色板 ----
+    auto *grid = new QWidget(content);
+    auto *gridLayout = new QGridLayout(grid);
+    gridLayout->setContentsMargins(0, 0, 0, 0);
+    gridLayout->setHorizontalSpacing(kSwatchSpacing);
+    gridLayout->setVerticalSpacing(kSwatchSpacing);
+    for (int i = 0; i < colorSwatchCount(); ++i) {
+        auto *swatch = new QPushButton(grid);
+        swatch->setObjectName(colorSwatchName(i));
+        swatch->setFixedSize(kSwatchWidth, kSwatchHeight);
+        // ★ 键盘不给这 32 块（`NoFocus`）：Tab 一趟要穿过它们 32 次，"用键盘挑颜色"这件事
+        //   由上面那一格色号承担（它就是这一档的键盘路径）。
+        swatch->setFocusPolicy(Qt::NoFocus);
+        Theme::markColorSwatch(swatch, QColor::fromString(QString::fromLatin1(kPalette[i])));
+        QObject::connect(swatch, &QPushButton::clicked, edit,
+                         [edit, i] { edit->setText(QString::fromLatin1(kPalette[i])); });
+        gridLayout->addWidget(swatch, i / kPaletteColumns, i % kPaletteColumns);
+    }
+    gridLayout->setColumnStretch(kPaletteColumns, 1);
+    layout->addWidget(grid);
+
+    box.setContent(content);
+    // 这一行小字要在 execPrompt **之前**补（见 setNote() 那段）。
+    box.setNote(QObject::tr("色号可以手打：`#rrggbb`（六位）或 `#aarrggbb`（八位，带透明度），"
+                            "也可以不带 `#`。"));
+
+    // 现在这一格认不认得出一个色 —— **唯一出处**：预览块和「确定」那颗按钮都靠它。
+    QPushButton *accept = box.buttonAt(0);
+    const auto syncFromEdit = [preview, accept](const QString &value) {
+        const QColor color = parseColorText(value);
+        paintPreview(preview, color);
+        if (accept != nullptr) {
+            // 认不出的色号点了也没有意义，而"点了确定、颜色没变"是那种最难解释的失败。
+            accept->setEnabled(color.isValid());
+        }
+    };
+    QObject::connect(edit, &QLineEdit::textChanged, &box, syncFromEdit);
+    syncFromEdit(edit->text());
+
+    host->execPrompt(&box, false);
+    if (box.clickedIndex() != 0) {
+        return QColor();
+    }
+    return parseColorText(edit->text());
 }
 
 }  // namespace InlineMessage

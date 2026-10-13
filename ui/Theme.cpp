@@ -7,12 +7,15 @@
 
 #include "Theme.hpp"
 
+#include <QAbstractItemView>
 #include <QApplication>
 #include <QComboBox>
 #include <QDir>
 #include <QEvent>
 #include <QGuiApplication>
 #include <QHash>
+#include <QJsonObject>
+#include <QJsonValue>
 #include <QPainter>
 #include <QPainterPath>
 #include <QProxyStyle>
@@ -389,6 +392,43 @@ public:
             }
         }
 
+        // ★ 键盘焦点环（coding plan §8.3「全部关键操作具备键盘焦点、可见焦点环」）。
+        //
+        //   基样式（Fusion）画的是**一圈虚线**，而我们的按钮挂了应用级样式表之后那圈虚线
+        //   常常被自己的边盖掉/看不见 —— "按 Tab 键跳到哪儿了"就成了一个说不出口的状态。
+        //   这里把它接过来画成**两像素的主题色圆圈**：浅底上用 `AccentShade::Ink`（深绿）、
+        //   深底上用 `AccentShade::Hover`（浅绿），判据只有一处（`focusRingColor()`）。
+        //
+        //   ★ **条目视图（列表 / 树 / 表格）不接管**：那儿的"当前项"框和选中那一块是两回事，
+        //     基样式画的 `PE_FrameFocusRect` 在 view 上是"焦点在哪个格子上"的提示，换掉它
+        //     等于顺手改了列表的样子（我们的选中色是另画的，见上面那两条原语）。
+        //   ★ `w == nullptr` 时交回去：没有控件就没有"谁拿着焦点"这回事（探针调用的场景）。
+        if (pe == PE_FrameFocusRect) {
+            if (w == nullptr || qobject_cast<const QAbstractItemView *>(w) != nullptr ||
+                (opt->state & State_HasFocus) == 0) {
+                QProxyStyle::drawPrimitive(pe, opt, p, w);
+                return;
+            }
+            QColor ring = focusRingColor(opt->palette);
+            // 文字透明度调低过的话（`textOpacity`）那一整圈也跟着淡一档 —— 它挂在
+            // 调色板的墨色上就是那个意思，跟着走别自己算。
+            const int inkAlpha = opt->palette.color(QPalette::WindowText).alpha();
+            if (inkAlpha < 255) {
+                ring.setAlpha(inkAlpha);
+            }
+            p->save();
+            p->setRenderHint(QPainter::Antialiasing, true);
+            p->setBrush(Qt::NoBrush);
+            QPen pen(ring);
+            pen.setWidthF(2.0);
+            p->setPen(pen);
+            // 内缩 1 px：两像素的笔有一半落在外面，贴着边缘画会被裁掉一半（看上去就成一像素了）。
+            // 圆角 3 和输入框那一圈（样式表里 `border-radius`）对齐。
+            p->drawRoundedRect(QRectF(opt->rect).adjusted(1, 1, -1, -1), 3, 3);
+            p->restore();
+            return;
+        }
+
         // 别的向下箭头（带菜单的按钮、表头排序…）原样交回去。
         if (pe != PE_IndicatorArrowDown || qobject_cast<const QComboBox *>(w) == nullptr) {
             QProxyStyle::drawPrimitive(pe, opt, p, w);
@@ -570,6 +610,19 @@ QColor rowHoverFill(const QColor &base) {
                   mix(base.blue(), accent.blue()));
 }
 
+QColor neutralFill(const QColor &base, const QColor &ink, int percent) {
+    // 「中性那一档」：底色往墨色那头混。**唯二的读者是日志窗那一排开关和它行间那条线**
+    // （见 .hpp 里那段"开放深浅色之后写死的那几个灰站不住"）—— 浅色下和原来那几个字面量
+    // 只差 ≤5，深色下自动变深灰。
+    // 混法和 `mixWithWhite()` / `rowHoverFill()` **逐字同式**（那一位 `+50` 也照抄）：
+    // 三个地方算出来的是同一族数，屏幕上才不会出现"两处差 1"的斑。
+    // @param percent = 往墨那头走了几成：`0` 给 @p base 原样、`100` 给全墨。
+    const int p = qBound(0, percent, 100);
+    const auto mix = [p](int b, int i) { return (b * (100 - p) + i * p + 50) / 100; };
+    return QColor(mix(base.red(), ink.red()), mix(base.green(), ink.green()),
+                  mix(base.blue(), ink.blue()));
+}
+
 QColor selectionFill(const QColor &base) {
     // 混法**和 `rowHoverFill()` 逐字同式**（同一个 `mixToward()`），只差比例 —— 两边都是
     // "从这一行自己的底色出发往主题色那头混"。浅色下底就是白，所以这一档和
@@ -697,6 +750,14 @@ QColor neutralInkColor() {
     // 那个框和那行字，量的都是它。不用纯黑（`#000000`）：纯黑压在纯白上是 21:1，
     // 比正文（`#000000`）还重 —— 一颗"取消"不该比它旁边那颗"确定"更抢眼。
     return QColor(0x20, 0x20, 0x20);
+}
+
+QColor focusRingColor(const QPalette &palette) {
+    // 深浅两档就是主题色那一支里的两头（浅底用"白底上写字"的那一档、深底用"往白里混 12%"
+    // 的那一档）。**和别处"深色下用亮的那一档"是同一个判断**（`isDarkPalette()`），
+    // 别在这儿另立一条"看主题名"的规矩。
+    return isDarkPalette(palette) ? accentShade(AccentShade::Hover)
+                                  : accentShade(AccentShade::Ink);
 }
 
 QString buttonKindKey(ButtonKind kind) {
@@ -832,6 +893,90 @@ void markChipButton(QPushButton *button) {
     // QSS 里嵌的是色名 ⇒ 主题一换得重算。chip 是**常驻**控件（不像资源详情页那一排是整排
     // 重建的），没人会替它重挂，所以这一条必须自己接。
     follow(button, [button]() { button->setStyleSheet(chipStyleSheet(button->palette())); });
+}
+
+QColor swatchBorder(const QColor &color) {
+    // 深色块给白边、浅色块给黑边。两边都带一点 alpha：这一圈是"给它一个形状"，不是内容，
+    // 全实的话浅色页面上会是一圈扎眼的黑。
+    //
+    // NOTE: 判据取的是**这块色自己的明度**（不是当前主题的深浅）：一块近黑的主题色搁在浅色
+    //       页面上，跟着主题走照样是"一个没有形状的洞"。
+    return color.lightness() < 128 ? QColor(0xff, 0xff, 0xff, 0xa0)
+                                   : QColor(0x00, 0x00, 0x00, 0xa0);
+}
+
+/// 现在这一块是哪个色（存在按钮自己的动态属性上）。
+///
+/// ★ 为什么要存一份：`follow()` 那条重算**不能捕获调用方当时给的那个 `color`** —— 用户换过
+///   一个色之后，同一个按钮身上那条老登记还在，主题一变它会把**旧色**贴回去。存一份、
+///   重算时读回来，改色这条路上就只有一个出处。
+const char *const kSwatchColorProperty = "wtfmlSwatchColor";
+/// 这一块**登记过 follow 没有**。`follow()` 每调一次就新挂一个事件过滤器，重算里再调一次
+/// 就是每换一次主题多挂一个（越挂越多，`ui_check` W6 那种"只许跑一遍"的判据也会跟着炸）。
+const char *const kSwatchFollowProperty = "wtfmlSwatchFollow";
+
+QString swatchStyleSheet(const QColor &color) {
+    const QColor edge = swatchBorder(color);
+    // 悬停 / 按下**只动边框**：底色就是它要表达的那件事，跟着鼠标换掉等于这块色块什么都不是。
+    //   - 悬停 → 边框换成主题色本色（"这一块能点"）；
+    //   - 按下 → 边框换成主题色更深的那一档（这一下真的按下去了）。
+    // ★ 这几条 `:hover` / `:pressed` 是**必须写的**：应用级那份样式表里有同名的伪类规则，
+    //   不写的话鼠标一划过去，块里的色会被换成"按钮悬停"那一层淡主题色。
+    return QStringLiteral("QPushButton { background-color: %1; border: 1px solid %2;"
+                          " border-radius: %3px; padding: 0px; }"
+                          "QPushButton:hover { background-color: %1; border-color: %4; }"
+                          "QPushButton:pressed { background-color: %1; border-color: %5; }")
+        .arg(color.name(QColor::HexArgb), edge.name(QColor::HexArgb))
+        .arg(controlRadius())
+        .arg(accentShade(AccentShade::Pure).name(QColor::HexArgb),
+             accentShade(AccentShade::Ink).name(QColor::HexArgb));
+}
+
+void markColorSwatch(QPushButton *button, const QColor &color) {
+    if (button == nullptr) {
+        return;
+    }
+    // 先报一句"我按自己钉死的边长来"：全局那条 `min-height` 会把它顶到 `actionHeight()`
+    // （32），`setFixedSize()` 拦不住（见 markIconButton() 那段实测）。
+    markIconButton(button);
+    // ★ 2026-10-13：**把这一刻钉死的尺寸先记下来**，挂完样式表之后再钉一次（下一段有实测）。
+    //   "钉死"= 调用方 `setFixedSize()` 过 ⇒ 最小 == 最大；没钉过的是 0×0 对 QWIDGETSIZE_MAX，
+    //   不相等 ⇒ 这里就什么都不做。
+    const QSize pinned = button->minimumSize() == button->maximumSize() ? button->minimumSize()
+                                                                       : QSize();
+    button->setCursor(Qt::PointingHandCursor);
+    button->setProperty(kSwatchColorProperty, color);
+    button->setStyleSheet(swatchStyleSheet(color));
+    // ★★ 2026-10-13（ui_shot 第 41 节在**真机**上量出来的）：`setStyleSheet()` 那一下会走一遍
+    //    `QStyleSheetStyle::polish`，而它**会按样式表里的 `min-height` 把控件的最小高度改掉** ——
+    //    我们那条图标复位规则写的是 `min-height: 0px`，于是最小高度被打回 **2**（= 上下各 1px
+    //    边框），`setFixedSize()` 设的"最小 = 最大"就只剩下最大那一半。
+    //
+    //    后果不是"差几个像素"：最小高度不再是钉死那个数，布局就能把它压下去。真机实测
+    //    （ui_shot 第 41 节）：四块语义色量出来是 64×**18**（它们和 18 高的名字标签同一行），
+    //    而主题色那一块是 64×**24**（同一行挨着一颗 32 高的按钮，被撑到了最大那儿）——
+    //    屏幕上就是"上面那块比下面四块高一头"。钉回去之后五块都是 24。
+    //
+    //    NOTE: offscreen（ui_check 的跑法）量不出这一条：那边量到的是 64×24，看着好好的。
+    //          布局类断言在 offscreen 上会假绿，这是全仓那条老规矩。
+    if (pinned.isValid() && pinned.width() < QWIDGETSIZE_MAX && pinned.height() < QWIDGETSIZE_MAX) {
+        button->setFixedSize(pinned);
+    }
+    if (!button->property(kSwatchFollowProperty).toBool()) {
+        button->setProperty(kSwatchFollowProperty, true);
+        // QSS 里嵌的是色名，而**悬停那一圈跟着主题色走** ⇒ 主题一换得重算一遍（块里那个色
+        // 不跟着动 —— 它正是用户选的那个）。
+        follow(button, [button]() {
+            button->setStyleSheet(
+                swatchStyleSheet(button->property(kSwatchColorProperty).value<QColor>()));
+            // ★ 样式表重挂那一趟同样会把最小高度打回去 —— 这里也得跟着再钉一次（不然
+            //   "换了主题之后色块矮了一截"会在下一次布局时冒出来）。
+            const QSize again = button->maximumSize();
+            if (again.width() < QWIDGETSIZE_MAX && again.height() < QWIDGETSIZE_MAX) {
+                button->setFixedSize(again);
+            }
+        });
+    }
 }
 
 QString widgetStyleSheet() {
@@ -1680,6 +1825,192 @@ Spec load() {
     // 盘上那一份是能手改的、也可能是以后降级回退留下的：**认不出的一律退回出厂**，
     // 不猜也不报错（和 LauncherSettings::load() 那几处同一个路数）。
     return normalize(spec);
+}
+
+// ---------------------------------------------------------------------------
+// 导入 / 导出
+// ---------------------------------------------------------------------------
+
+namespace {
+
+/// JSON 里那几位字段名。**和 `QSettings` 里那套一一对应**（`preset` / `textOpacity` /
+/// `accent` / `roles` / `parts` / `semantic`）—— 两个格式说的是同一件事，看哪一份都行。
+constexpr const char *kJsonVersionKey = "wtfmlTheme";
+constexpr int kJsonVersion = 1;
+
+QColor colorFromJson(const QJsonValue &value) {
+    // 两种写法都收：一个裸字符串（手写时最省事），或者 `{"color": "#…"}`（导出给的形状）。
+    if (value.isString()) {
+        return colorFromString(value.toString());
+    }
+    if (value.isObject()) {
+        return colorFromString(value.toObject().value(QStringLiteral("color")).toString());
+    }
+    return QColor();
+}
+
+QJsonObject specFields(const Spec &spec) {
+    QJsonObject out;
+    out.insert(QStringLiteral("preset"), spec.presetId);
+    out.insert(QStringLiteral("textOpacity"), spec.textOpacity);
+    out.insert(QStringLiteral("accent"), colorToString(spec.accent));
+    if (!spec.roles.isEmpty()) {
+        QJsonObject roles;
+        for (auto it = spec.roles.constBegin(); it != spec.roles.constEnd(); ++it) {
+            roles.insert(roleKey(static_cast<Role>(it.key())), colorToString(it.value()));
+        }
+        out.insert(QStringLiteral("roles"), roles);
+    }
+    if (!spec.parts.isEmpty()) {
+        QJsonObject parts;
+        for (auto it = spec.parts.constBegin(); it != spec.parts.constEnd(); ++it) {
+            const Part part = static_cast<Part>(it.key());
+            const PartStyle &style = it.value();
+            QJsonObject one;
+            if (style.hasBackground) {
+                one.insert(QStringLiteral("background"), colorToString(style.background));
+            }
+            if (style.hasForeground) {
+                one.insert(QStringLiteral("foreground"), colorToString(style.foreground));
+            }
+            if (style.textOpacity >= 0) {
+                one.insert(QStringLiteral("textOpacity"), style.textOpacity);
+            }
+            if (style.hasImage) {
+                // ★ 写的是**导出这台机器上的那一条路径**（理由见 .hpp 里那段：图不在这份
+                //   文件里）。换台机器导入之后那几张图找不到，由 `MainWindow` 数出来说一句。
+                one.insert(QStringLiteral("image"), style.imagePath);
+                one.insert(QStringLiteral("imageName"), style.imageName);
+                one.insert(QStringLiteral("imageFit"), imageFitKey(style.fit));
+                one.insert(QStringLiteral("imageOpacity"), style.imageOpacity);
+            }
+            parts.insert(partKey(part), one);
+        }
+        out.insert(QStringLiteral("parts"), parts);
+    }
+    QJsonObject semantic;
+    if (spec.danger.isValid()) {
+        semantic.insert(QStringLiteral("danger"), colorToString(spec.danger));
+    }
+    if (spec.warning.isValid()) {
+        semantic.insert(QStringLiteral("warning"), colorToString(spec.warning));
+    }
+    if (spec.ok.isValid()) {
+        semantic.insert(QStringLiteral("ok"), colorToString(spec.ok));
+    }
+    if (spec.errorText.isValid()) {
+        semantic.insert(QStringLiteral("errorText"), colorToString(spec.errorText));
+    }
+    if (!semantic.isEmpty()) {
+        out.insert(QStringLiteral("semantic"), semantic);
+    }
+    return out;
+}
+
+}  // namespace
+
+QJsonObject specToJson(const Spec &spec) {
+    const Spec clean = normalize(spec);
+    QJsonObject out = specFields(clean);
+    out.insert(QLatin1String(kJsonVersionKey), kJsonVersion);
+    return out;
+}
+
+bool specFromJson(const QJsonObject &json, Spec *out, QString *error) {
+    const auto fail = [error](const QString &why) {
+        if (error != nullptr) {
+            *error = why;
+        }
+        return false;
+    };
+
+    // 认得出来是一份主题文件吗 —— 判据是"里面至少有一样我们认识的东西"（有任意一项就收）。
+    // 不要求那个版本号标记：手写一份只写 `{"accent": "#ff3d8068"}` 也该能用，而
+    // "导入了别的文件"这件事仍然挡得住（那些人一个认识的字段都没有）。
+    static const char *const fields[] = {"preset", "textOpacity", "accent", "roles", "parts",
+                                         "semantic"};
+    bool recognised = false;
+    for (const char *field : fields) {
+        if (json.contains(QLatin1String(field))) {
+            recognised = true;
+            break;
+        }
+    }
+    if (!recognised) {
+        return fail(QStringLiteral("里面认不出任何一项主题设置（没有 preset / accent / "
+                                   "roles / parts / semantic 中的任何一条）"));
+    }
+
+    Spec spec = defaultSpec();  // 从出厂那一份出发：**缺的那几项就是出厂**，不是"没有"
+    const QString preset = json.value(QStringLiteral("preset")).toString();
+    if (!preset.isEmpty()) {
+        spec.presetId = preset;  // 认不出的 id 由 normalize() 退回"跟着系统"
+    }
+    if (json.contains(QStringLiteral("textOpacity"))) {
+        spec.textOpacity = json.value(QStringLiteral("textOpacity")).toInt(spec.textOpacity);
+    }
+    if (json.contains(QStringLiteral("accent"))) {
+        const QColor accent = colorFromJson(json.value(QStringLiteral("accent")));
+        if (accent.isValid()) {
+            spec.accent = accent;
+        }
+    }
+
+    const QJsonObject roles = json.value(QStringLiteral("roles")).toObject();
+    for (auto it = roles.constBegin(); it != roles.constEnd(); ++it) {
+        Role role;
+        const QColor color = colorFromJson(it.value());
+        // 认不出的名字（不是我们这十来个角色之一）静默丢掉：`normalize()` 也是这个路数，
+        // 而且主题文件是能手改的，为一个错字把整份导入拒掉对用户没有好处。
+        if (roleFromKey(it.key(), &role) && color.isValid()) {
+            spec.roles.insert(static_cast<int>(role), color);
+        }
+    }
+
+    const QJsonObject parts = json.value(QStringLiteral("parts")).toObject();
+    for (auto it = parts.constBegin(); it != parts.constEnd(); ++it) {
+        Part part;
+        if (!partFromKey(it.key(), &part) || !it.value().isObject()) {
+            continue;
+        }
+        const QJsonObject one = it.value().toObject();
+        PartStyle style;
+        style.background = colorFromJson(one.value(QStringLiteral("background")));
+        style.hasBackground = style.background.isValid();
+        style.foreground = colorFromJson(one.value(QStringLiteral("foreground")));
+        style.hasForeground = style.foreground.isValid();
+        if (one.contains(QStringLiteral("textOpacity"))) {
+            style.textOpacity = one.value(QStringLiteral("textOpacity")).toInt(-1);
+        }
+        style.imagePath = one.value(QStringLiteral("image")).toString();
+        style.hasImage = !style.imagePath.isEmpty();
+        if (style.hasImage) {
+            ImageFit fit = ImageFit::Cover;
+            if (!imageFitFromKey(one.value(QStringLiteral("imageFit")).toString(), &fit)) {
+                fit = ImageFit::Cover;  // 认不出的摆法退回默认那一种（和 normalize() 一样）
+            }
+            style.fit = fit;
+            style.imageName = one.value(QStringLiteral("imageName")).toString();
+            style.imageOpacity = one.contains(QStringLiteral("imageOpacity"))
+                                     ? one.value(QStringLiteral("imageOpacity")).toInt(100)
+                                     : 100;
+        }
+        spec.parts.insert(static_cast<int>(part), style);
+    }
+
+    const QJsonObject semantic = json.value(QStringLiteral("semantic")).toObject();
+    spec.danger = colorFromJson(semantic.value(QStringLiteral("danger")));
+    spec.warning = colorFromJson(semantic.value(QStringLiteral("warning")));
+    spec.ok = colorFromJson(semantic.value(QStringLiteral("ok")));
+    spec.errorText = colorFromJson(semantic.value(QStringLiteral("errorText")));
+
+    if (out != nullptr) {
+        *out = normalize(spec);  // 收拾干净 —— 和盘上读回来那份走同一道闸
+    }
+    if (error != nullptr) {
+        error->clear();
+    }
+    return true;
 }
 
 // ---------------------------------------------------------------------------

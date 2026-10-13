@@ -2836,6 +2836,77 @@ public:
     /// 一行里两组之间那道更宽的缝。
     static int themeImageGroupSpacing() { return 16; }
 
+    // ---------- 「主题」那一节（2026-10-13 加的，coding plan §8.3） ----------
+    //
+    // 用户 2026-09-28 立的底：「各个地方的背景等允许切换……先不急着做入口，把 ui 框架改成
+    // 能高度个性化定义的状态」。框架（`ui/Theme` 的 `Spec` / `Role` / `Part`）铺了半个多月，
+    // 这一节就是那个"做入口"：**配色（跟随系统 / 浅色 / 深色）+ 主题色 + 文字不透明度 +
+    // 四个语义色**，外加恢复默认与导入/导出。
+    //
+    // ★ 这一节只搭控件：**改完立刻生效也立刻落盘**（那三步在 `MainWindow::applyThemeSpec()`）。
+    //   `ui/` 不许 include `src/`，所以没有任何一项的语义写在这里。
+    // ★ 那几个"色块"是**带自己样式表的 QPushButton**（应用级那份只对"素"按钮生效，
+    //   控件自己挂的样式表赢）—— 面上就是它现在那个色。键盘焦点也照常给（默认 StrongFocus）。
+
+    /// 配色那个下拉框（跟随系统 / 浅色 / 深色）。**项在这一层灌**（`Theme::presetIds()` ——
+    /// 预设这个枚举本来就在 ui/），itemData 存的是预设 id 那个串。
+    static QString themePresetComboName() { return QStringLiteral("themePresetCombo"); }
+    /// 主题色那块色（点一下弹调色板）和它右边那颗「恢复默认」。
+    static QString themeAccentButtonName() { return QStringLiteral("themeAccentButton"); }
+    static QString themeAccentResetName() { return QStringLiteral("themeAccentResetButton"); }
+    /// 文字不透明度那根条 + 它右边那个百分数。
+    static QString themeTextOpacitySliderName() { return QStringLiteral("themeTextOpacitySlider"); }
+    static QString themeTextOpacityPercentName() { return QStringLiteral("themeTextOpacityPercent"); }
+    /// 四个语义色的色块（下标见 `themeSemanticKey()`）。
+    static QString themeSemanticButtonName(int index) {
+        return QStringLiteral("themeSemantic") + themeSemanticKey(index);
+    }
+    /// 那一颗「跟随预设」（把四个语义色一起清掉）。
+    static QString themeSemanticResetName() { return QStringLiteral("themeSemanticResetButton"); }
+    /// 一整节的「恢复全部默认」+ 导入/导出。
+    static QString themeResetAllButtonName() { return QStringLiteral("themeResetAllButton"); }
+    static QString themeExportButtonName() { return QStringLiteral("themeExportButton"); }
+    static QString themeImportButtonName() { return QStringLiteral("themeImportButton"); }
+    /// 「动效」那个勾（§8.3 后半句：总开关继续保留 + 尊重系统的"减少动态效果"）。
+    static QString animationsCheckName() { return QStringLiteral("animationsCheck"); }
+
+    /// 语义色一共几个（危险 / 警告 / 正常 / 报错）。三个地方共用这一个数：这一节搭控件、
+    /// `MainWindow` 灌色、验证工程数按钮。
+    static int themeSemanticCount() { return 4; }
+    /// 第 @p index 个语义色在 `Theme::Spec` 里是哪一位（"danger" / "warning" / "ok" /
+    /// "errorText"）。**和 `Theme::accentSettingKey()` 那一套同名** —— 认的是它，不是下标。
+    static QString themeSemanticKey(int index);
+    /// 界面上那颗色块旁边写什么（「危险」/「警告」/「正常」/「报错」）。
+    static QString themeSemanticText(int index);
+    /// 那一行左列的行标题。
+    static QString themePresetRowText() { return QStringLiteral("配色"); }
+    static QString themeAccentRowText() { return QStringLiteral("主题色"); }
+    static QString themeTextOpacityRowText() { return QStringLiteral("文字不透明度"); }
+    static QString themeSemanticRowText() { return QStringLiteral("语义色"); }
+    static QString themeResetAllText() { return QStringLiteral("恢复全部默认"); }
+    static QString themeExportText() { return QStringLiteral("导出主题…"); }
+    static QString themeImportText() { return QStringLiteral("导入主题…"); }
+    static QString themeAccentResetText() { return QStringLiteral("恢复默认"); }
+    static QString themeSemanticResetText() { return QStringLiteral("跟随预设"); }
+    static QString animationsCheckText() { return QStringLiteral("界面动效"); }
+    /// 文字不透明度那个百分数（和背景图那一行同一套写法）。
+    static QString themePercentText(int opacity) { return QStringLiteral("%1%").arg(opacity); }
+    /// 色块那颗按钮多大（宽 × 高）。**和输入框那一档 24 一样高**（并排摆着才齐），宽取 64 ——
+    /// 够看出是个什么色，又不至于把一行撑开。
+    static int themeSwatchWidth() { return 64; }
+    static int themeSwatchHeight() { return 24; }
+    /// 「配色」那个下拉框的宽（装得下「跟随系统」再加一个箭头）。和背景图那一档同一个量级。
+    static int themePresetComboWidth() { return 160; }
+    /// 一行里两颗控件之间那点缝。和 `themeImageRowSpacing()` 是一回事（8）。
+    static int themeSwatchRowSpacing() { return 8; }
+    /// 一行里两组之间那道更宽的缝（16，同上）。
+    static int themeSwatchGroupSpacing() { return 16; }
+    /// 「整份主题」那一行的行标题（恢复默认 / 导出 / 导入三颗按钮都归它）。
+    static QString themeFileRowText() { return QStringLiteral("整份主题"); }
+    /// 文字不透明度那根条多长（和背景图那一根同一个量级）。
+    static int themeOpacityWidth() { return 180; }
+    static int themePercentWidth() { return 44; }
+
     // ---------- 「已安装版本」下拉框的占位文案 ----------
     // 空状态有两种，由 MainWindow::refreshInstalledVersions() 按当前情形切换：
     //   NoInstalledVersion —— 磁盘上一个装好的版本都没有
@@ -3293,6 +3364,21 @@ public:
     /// 第 @p index 行；越界给一个**空行**（那几个指针都是 nullptr），调用方自己判空。
     const ThemeImageRow &getThemeImageRow(int index) const;
 
+    /// 「主题」那一节那几颗（见上面那一节的说明）。色块都允许返回 nullptr（没建出来时）。
+    QComboBox *getThemePresetCombo() const { return themePresetCombo; }
+    QPushButton *getThemeAccentButton() const { return themeAccentButton; }
+    QPushButton *getThemeAccentResetButton() const { return themeAccentResetButton; }
+    QSlider *getThemeTextOpacitySlider() const { return themeTextOpacitySlider; }
+    QLabel *getThemeTextOpacityPercent() const { return themeTextOpacityPercent; }
+    /// 第 @p index 个语义色的色块；越界给 nullptr。
+    QPushButton *getThemeSemanticButton(int index) const;
+    QPushButton *getThemeSemanticResetButton() const { return themeSemanticResetButton; }
+    QPushButton *getThemeResetAllButton() const { return themeResetAllButton; }
+    QPushButton *getThemeExportButton() const { return themeExportButton; }
+    QPushButton *getThemeImportButton() const { return themeImportButton; }
+    /// 「动效」那个勾。
+    QCheckBox *getAnimationsCheck() const { return animationsCheck; }
+
     QCheckBox *getVersionNameCustomCheck() const { return versionNameCustomCheck; }
     QCheckBox *getVersionNameRealCheck() const { return versionNameRealCheck; }
     QCheckBox *getVersionNameLoaderCheck() const { return versionNameLoaderCheck; }
@@ -3525,6 +3611,19 @@ private:
     QLineEdit *titleTextEdit = nullptr;
     /// 「背景图」那一节的各行控件，按 `ThemeImageRow::partKey` 认（见这一节在头文件里那段）。
     QVector<ThemeImageRow> m_themeImageRows;
+    /// 「主题」那一节（2026-10-13）。顺序按 `themeSemanticKey()` 那四个来。
+    QComboBox *themePresetCombo = nullptr;
+    QPushButton *themeAccentButton = nullptr;
+    QPushButton *themeAccentResetButton = nullptr;
+    QSlider *themeTextOpacitySlider = nullptr;
+    QLabel *themeTextOpacityPercent = nullptr;
+    QVector<QPushButton *> m_themeSemanticButtons;
+    QPushButton *themeSemanticResetButton = nullptr;
+    QPushButton *themeResetAllButton = nullptr;
+    QPushButton *themeExportButton = nullptr;
+    QPushButton *themeImportButton = nullptr;
+    /// 「动效」那个勾（还是「个性化」栏，摆在「主题」之后）。
+    QCheckBox *animationsCheck = nullptr;
     QCheckBox *versionNameCustomCheck = nullptr;
     QCheckBox *versionNameRealCheck = nullptr;
     QCheckBox *versionNameLoaderCheck = nullptr;

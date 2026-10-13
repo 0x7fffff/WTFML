@@ -27,10 +27,12 @@
 // WheelGuard 住在 MainWindowUI.hpp 里（和 AccountSkinDialog.cpp / InstanceSettingsDialog.cpp
 // 一样，直接引那一份，不为一个三十行的小类再开一个头文件）。
 #include "MainWindowUI.hpp"
-#include "Theme.hpp"   // 下面四颗按钮的身份（都是一般性 = 黑字黑边）
+#include "Theme.hpp"   // 按钮身份、`neutralFill()`（那几档中性灰）、`isDarkPalette()`
 
+#include <QApplication>
 #include <QComboBox>
 #include <QCoreApplication>
+#include <QEvent>
 #include <QFontDatabase>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -61,24 +63,40 @@ constexpr int kWarnBg[] = {0xff, 0xf4, 0xcc};
 constexpr int kErrorBg[] = {0xff, 0xe0, 0xe0};
 constexpr int kFatalBg[] = {0xd3, 0x2f, 0x2f};
 
+/// ★ 深色底那一套（2026-10-13 加的，coding plan §8.3 开放深浅色入口那一天）。
+///
+/// 上面那一组是照着"白纸"挑的：深色预设下正文区的 `Base` 是深底、墨是浅的，同一批浅色
+/// 方块铺上去就是"浅墨压浅底" —— 一个字都读不出来。所以同一族色相各压一版：
+/// 挑色两条 —— ① 四个档两两看得出（和浅色那一组同一个要求）；② 明度都压在 0x40 上下，
+/// 浅墨（深色预设里那支 `#e0e0e0` 上下）压上去有 8:1 以上，Debug/Warn/Error 三档之间
+/// 也分得开（三通道距离都在 20 以上，验证工程那条阈值是 20）。
+/// **Fatal 两套相同**：`#d32f2f` 本来就是"深底"，白字压上去 5.3:1，两种主题下都对。
+constexpr int kDebugBgDark[] = {0x1e, 0x27, 0x33};
+constexpr int kWarnBgDark[] = {0x3a, 0x32, 0x18};
+constexpr int kErrorBgDark[] = {0x3a, 0x1f, 0x1f};
+constexpr int kFatalBgDark[] = {0xd3, 0x2f, 0x2f};
+
 /// 顶上那排开关"没开"和"开着但这一档没有颜色"（只有 Info 是后者）那两种灰。
 ///
-/// **这两个值是量出来的**：2026-09-24 改成自己画之前，原生 Fusion 画出来就是这个关态
-/// `#ababab`、开态 `#dbdbdb`（ui_check 里量过一整排五颗，五个都一样）。之所以把它们写死
-/// 而不是继续交给样式：**开关的两种状态都得由我们自己画**（理由见 filterButtonStyle），
-/// 一旦交给样式，就必须自己给出这两种灰 —— 不然"关掉之后还是原来那个灰"这件事没有确定的
-/// 去处。哪天换一套样式，两个数字会显得突兀，但那时要改的是这里，不是去猜。
-constexpr int kSwitchOffRgb[] = {0xab, 0xab, 0xab};
-constexpr int kSwitchOnRgb[] = {0xdb, 0xdb, 0xdb};
+/// **这两个值原来是量出来的**：2026-09-24 改成自己画之前，原生 Fusion 画出来就是这个关态
+/// `#ababab`、开态 `#dbdbdb`（ui_check 里量过一整排五颗，五个都一样）。之所以它们得由我们
+/// 自己给出而不是继续交给样式：**开关的两种状态都得由我们自己画**（理由见
+/// filterButtonStyle），一旦交给样式，就必须自己给出这两种灰。
+///
+/// ★ 2026-10-13：从字面量改成**算出来的**（`Theme::neutralFill()`，见
+///   `GameLogWindow::switchOffColor()`）—— 浅色下算出来和原来那两位只差 1（`#aa` / `#d9`），
+///   深色下自动是深灰。**关态那一个百分比（29）只有一个出处**（那边那个函数）。
+///   `kSwitchOnRgb` 那个兜底灰现在只剩这一处（下面那个 9%），
+///   真用到的档一个都不会走到它（只有 Info 没有底色，而它另有去处，见下）。
+constexpr int kSwitchOnPercent = 9;
 /// Info 那颗"开着"时候的颜色（2026-09-24 用户说「info 的按钮再亮一点」）。
 ///
-/// 正文区自己的底色就是 `#ffffff`（ui_check 量过：没染色的那一行、以及末尾那半行，
-/// 那一格都是纯白），所以这一档**有颜色可借** —— 只是那个颜色恰好等于窗口底色。
+/// 正文区自己的底色（浅色下 `#ffffff`，ui_check 量过：没染色的那一行、以及末尾那半行，
+/// 那一格都是纯白）就是这一档的颜色 —— INFO 在正文里"没有颜色"这件事本身就是它。
 /// 拿它当 Info 的开关色有三层好处：比原来那个灰亮、还是"这一档的颜色"、而且和
 /// Debug 的 `#eef2f6` 差得开（三通道距离 39，验证工程那条"五档两两不同"的阈值是 20）。
-constexpr int kInfoOnRgb[] = {0xff, 0xff, 0xff};
-/// 开关那一圈边。取 Fusion 的 Dark 那一档（原来的边框也在这一带）。
-constexpr int kSwitchEdgeRgb[] = {0x9f, 0x9f, 0x9f};
+/// ★ 现在是**问调色板要**（`QPalette::Base`）而不是写死 `#ffffff`：深色下它就是那个深底，
+///   这一档"和正文区同色"的意思两种主题下都成立。
 
 /// 行与行之间那条细线的颜色（用户 2026-09-24 说的「日志行与行之间加一条细线分隔一下」）。
 ///
@@ -86,7 +104,23 @@ constexpr int kSwitchEdgeRgb[] = {0x9f, 0x9f, 0x9f};
 /// （验证工程里"五档两两看得出来"的阈值是 20）。**不能比这更深** —— 再深一点整块正文就
 /// 变成表格了，而这里要的只是"两条 INFO 之间有条界线"（相邻两档的底色本来就分得开，
 /// 分不开的恰恰是相邻的两条 INFO：它们都不染底）。
-constexpr int kSeparatorRgb[] = {0xd8, 0xd8, 0xd8};
+/// ★ 2026-10-13 起也是算出来的（`separatorColor()`，从**正文区**的 `Base` 往它的墨混 15%）
+///   —— 浅色下算出来 `#d9d9d9`，和原来那个字面量差 1。
+constexpr int kSeparatorPercent = 15;
+
+/// 中性档的那三个百分比（关态底 / 边 / 那个兜底的开态灰）—— **和上一段说的同一件事**。
+constexpr int kSwitchOffPercent = 29;
+constexpr int kSwitchEdgePercent = 34;
+
+/// 三通道字面量 → 色（`k*Bg` 那一堆都是这么用的）。
+QColor fromRgb(const int rgb[3]) {
+    return QColor(rgb[0], rgb[1], rgb[2]);
+}
+
+/// 这一档该用哪一套底（浅色那组 / 深色那组）。`dark` 由 `Theme::isDarkPalette()` 给。
+QColor levelTint(const int light[3], const int dark[3], bool isDark) {
+    return fromRgb(isDark ? dark : light);
+}
 
 /// 正文比系统那个等宽字体大几号（点）。"稍微"大一点：再大就一屏放不下几行。
 constexpr qreal kLogFontPointDelta = 1.0;
@@ -101,10 +135,10 @@ constexpr qreal kLogFontPointDelta = 1.0;
 /// 而"按钮的颜色 == 那一行日志的颜色"正是这件事的全部意义，冲淡了就不成立了。
 /// 所以两种状态都写全（背景 + 边 + 圆角 + 内边距），由我们自己画。**两边的边和内边距必须
 /// 一模一样**：差一点就是"点一下按钮自己变大变小"、整排跟着跳（验证工程里有一条盯着它）。
-QString filterButtonStyle(const QColor &onBg, const QColor &onInk) {
+QString filterButtonStyle(const QColor &onBg, const QColor &onInk, const QColor &offBg,
+                          const QColor &offInk, const QColor &edge) {
     // 内边距取 `1px 5px`：两边加起来正好把按钮撑回**改之前那个高度**（19 px，量过），
     // 这一排不因为换了个画法就长高一点。
-    const QColor offBg(kSwitchOffRgb[0], kSwitchOffRgb[1], kSwitchOffRgb[2]);
 
     // 【悬停那一档为什么必须自己写一条】
     //
@@ -132,10 +166,8 @@ QString filterButtonStyle(const QColor &onBg, const QColor &onInk) {
                           " border-radius: 3px; padding: 1px 5px; }"
                           "QToolButton:hover:enabled:!checked { background-color: %4; }"
                           "QToolButton:checked { background-color: %5; color: %6; }")
-        .arg(offBg.name(),
-             QColor(0x00, 0x00, 0x00).name(),
-             QColor(kSwitchEdgeRgb[0], kSwitchEdgeRgb[1], kSwitchEdgeRgb[2]).name(),
-             hoverBg.name(), onBg.name(), onInk.name());
+        .arg(offBg.name(), offInk.name(), edge.name(), hoverBg.name(), onBg.name(),
+             onInk.name());
 }
 
 /// 这一档的**块**格式：底色（铺满整行）在里面。
@@ -150,9 +182,9 @@ QString filterButtonStyle(const QColor &onBg, const QColor &onInk) {
 /// NOTE: 没有底色那一档（Info）返回的就是一个**空的**块格式 —— `setBlockFormat` 是
 ///       "换掉"不是"合并"，所以空的那份正好把上一行继承下来的底色清掉（不显式清的话，
 ///       记在 Fatal 后面的一行会拖一条红底）。
-QTextBlockFormat blockFormatFor(GameLogWindow::LogLevel level) {
+QTextBlockFormat blockFormatFor(GameLogWindow::LogLevel level, const QPalette &palette) {
     QTextBlockFormat format;
-    const QColor background = GameLogWindow::levelBackground(level);
+    const QColor background = GameLogWindow::levelBackground(level, palette);
     if (background.isValid()) {
         format.setBackground(background);
     }
@@ -160,6 +192,7 @@ QTextBlockFormat blockFormatFor(GameLogWindow::LogLevel level) {
 }
 
 /// 这一档的**墨色**（只有 Fatal 有：深红底上再写深灰字读不清）。底色不在这里（见上）。
+/// 不带调色板：别的档要的就是"这一档不设墨"，让正文区自己那一支（深色主题下是浅的）生效。
 QTextCharFormat charFormatFor(GameLogWindow::LogLevel level) {
     QTextCharFormat format;
     const QColor ink = GameLogWindow::levelForeground(level);
@@ -281,7 +314,8 @@ protected:
         QPlainTextEdit::paintEvent(event);
 
         QPainter painter(viewport());
-        painter.setPen(GameLogWindow::separatorColor());
+        // 这条线画在**正文区**上，所以从这一块自己的底和墨算（深色下自动是深灰）。
+        painter.setPen(GameLogWindow::separatorColor(palette()));
         const int thickness = GameLogWindow::separatorHeight();
         const int right = qMax(0, viewport()->width() - 1);
 
@@ -348,9 +382,10 @@ GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent)
         //
         // 五颗都走同一份样式（**含 INFO 那颗**）：两种状态都由我们自己画，"没开"那个灰也就
         // 由同一份样式给 —— 单独留一颗走原生的话，它那圈立体感会和旁边四颗不一样。
-        // INFO 那颗的"开"色是**白**（它没有颜色可借，见 filterButtonBackground / kInfoOnRgb）。
-        button->setStyleSheet(filterButtonStyle(filterButtonBackground(level, true),
-                                               filterButtonForeground(level)));
+        // INFO 那颗的"开"色是**正文区自己的底色**（它没有颜色可借，见 filterButtonBackground）。
+        // ★ 样式**不在这里算**：`refreshFilterButtonStyles()` 一处算五颗（主题一变还得重来
+        //   一遍，见 changeEvent()）—— 两份的话迟早有一份忘了跟着调色板走，而忘了的表现
+        //   正是"深色主题下这几颗还是浅色的"。
         connect(button, &QToolButton::toggled, this, [this, level](bool on) {
             m_levelVisible[levelIndex(level)] = on;
             rebuildView();
@@ -358,6 +393,8 @@ GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent)
         m_filterButtons[i] = button;
         filters->addWidget(button);
     }
+    // 五颗的样式一次算出来（调色板这一刻已经定了：控件是从应用那儿继承来的）。
+    refreshFilterButtonStyles();
     filters->addStretch(1);
 
     // 右边这两件：**先摆下拉框，再摆清空**（"把清除放到这个的旁边"）—— 于是清空在最右、
@@ -641,7 +678,7 @@ void GameLogWindow::insertRun(LogLevel level, const QStringList &lines) {
         QTextCursor span(m_view->document());
         span.setPosition(startPos);
         span.setPosition(endPos - 1, QTextCursor::KeepAnchor);
-        span.setBlockFormat(blockFormatFor(level));
+        span.setBlockFormat(blockFormatFor(level, m_view->palette()));
         span.setCharFormat(charFormatFor(level));
     }
 
@@ -676,7 +713,7 @@ void GameLogWindow::insertPendingIntoView() {
     // 猜错的代价很小：换行到了会按真级别重摆一遍（rememberLine + insertRun），颜色当场
     // 改对。且"猜"不是乱猜 —— 就是 classifyLine 在认不出级别时本来会用的那个 fallback。
     const LogLevel guess = pendingLevelGuess();
-    cursor.setBlockFormat(blockFormatFor(guess));
+    cursor.setBlockFormat(blockFormatFor(guess, m_view->palette()));
     cursor.setCharFormat(charFormatFor(guess));
     cursor.insertText(m_pending);
     m_viewLastBlockIsPending = true;
@@ -793,6 +830,48 @@ void GameLogWindow::updateFilterButtons() {
     }
 }
 
+void GameLogWindow::refreshFilterButtonStyles() {
+    // 这一窗的颜色**不跟着调色板自己走**（开关和分隔线都是我们自己画的），所以每换一次
+    // 主题都得重算一遍 —— **一处算五颗**，别再在别处写第二份（见构造函数里那条 NOTE）。
+    const QPalette &palette = this->palette();
+    for (int i = 0; i < levelCount(); ++i) {
+        QToolButton *button = m_filterButtons.at(i);
+        if (button == nullptr) {
+            continue;
+        }
+        const LogLevel level = levelAt(i);
+        button->setStyleSheet(
+            filterButtonStyle(filterButtonBackground(level, /*on=*/true, palette),
+                              filterButtonForeground(level, palette),
+                              switchOffColor(palette),
+                              // 关着那一颗的字用的是**中性墨**，不是"这一档的墨"：
+                              // Fatal 那一档开着时是白字，而关着时它那颗底是中灰，
+                              // 白字压上去就成了"看不见的按钮"。
+                              palette.color(QPalette::WindowText),
+                              switchEdgeColor(palette)));
+    }
+    // 记下这一趟用的是哪一档中性灰：`changeEvent()` 拿它当"真的换了主题没有"的判据
+    // （这两个事件来得比主题变化勤得多）。
+    m_lastSwitchOff = switchOffColor(palette);
+}
+
+void GameLogWindow::changeEvent(QEvent *event) {
+    QDialog::changeEvent(event);
+    if (event->type() != QEvent::PaletteChange && event->type() != QEvent::StyleChange) {
+        return;
+    }
+    // ★ 先比一遍算出来的色：这两个事件会因为各种原因连着来（挂样式表、换调色板、
+    //   父窗重抛光……），每次都重建一遍视图（最多两万行）是白跑。
+    const QColor off = switchOffColor(palette());
+    if (off == m_lastSwitchOff) {
+        return;
+    }
+    refreshFilterButtonStyles();  // 它顺手把 `m_lastSwitchOff` 记成新值
+    // 正文那几档的底色是**块格式**（烘在文档里的），换主题得整块重建才换得掉；
+    // 行间那条线是按正文区自己的调色板现问的，重建时跟着一起重画。
+    rebuildView();
+}
+
 void GameLogWindow::refreshPlaceholder() {
     // 「还没有输出」和「都被筛掉了」是**两句不同的话**：前者的下一步是"等游戏出话"，
     // 后者的下一步是"把上面某几档勾回来"。做成一句的话，用户看到空窗只会以为日志窗坏了。
@@ -856,46 +935,78 @@ QString GameLogWindow::levelName(LogLevel level) {
 }
 
 QColor GameLogWindow::levelBackground(LogLevel level) {
+    // 不带调色板那一版问的是**应用调色板**（验证工程和几个自由函数用的就是它）。
+    return levelBackground(level, QApplication::palette());
+}
+
+QColor GameLogWindow::levelBackground(LogLevel level, const QPalette &palette) {
+    // 走哪一套底由 `Theme::isDarkPalette()` 说了算 —— **唯一判据**，和别处"深底上用亮的
+    // 那一档"是同一个（别看"主题叫什么"，那会把判据散成两处）。
+    const bool dark = Theme::isDarkPalette(palette);
     switch (level) {
         case LogLevel::Debug:
-            return QColor(kDebugBg[0], kDebugBg[1], kDebugBg[2]);
+            return levelTint(kDebugBg, kDebugBgDark, dark);
         case LogLevel::Info:
             // 不染（用窗口自己的底色）。日志里绝大多数是 INFO，全染上就成了一张色纸，
             // Warn/Error 反而不显眼了；"没染色的那些"本身就是最自然的一档。
             return QColor();
         case LogLevel::Warn:
-            return QColor(kWarnBg[0], kWarnBg[1], kWarnBg[2]);
+            return levelTint(kWarnBg, kWarnBgDark, dark);
         case LogLevel::Error:
-            return QColor(kErrorBg[0], kErrorBg[1], kErrorBg[2]);
+            return levelTint(kErrorBg, kErrorBgDark, dark);
         case LogLevel::Fatal:
-            return QColor(kFatalBg[0], kFatalBg[1], kFatalBg[2]);
+            return levelTint(kFatalBg, kFatalBgDark, dark);
     }
     return QColor();
 }
 
 QColor GameLogWindow::levelForeground(LogLevel level) {
-    // 只有 Fatal 要换墨：深红底上再写深灰字读不清。
+    // 只有 Fatal 要换墨：深红底上再写深灰字读不清。**两种主题下都是白的**（那块底是
+    // `#d32f2f`，两套通用），别的档一支墨都不设 —— 正文区自己那一支（深色下是浅的）正好。
     return level == LogLevel::Fatal ? QColor(0xff, 0xff, 0xff) : QColor();
 }
 
 QColor GameLogWindow::filterButtonBackground(LogLevel level, bool on) {
+    return filterButtonBackground(level, on, QApplication::palette());
+}
+
+QColor GameLogWindow::filterButtonBackground(LogLevel level, bool on, const QPalette &palette) {
     if (!on) {
-        return QColor(kSwitchOffRgb[0], kSwitchOffRgb[1], kSwitchOffRgb[2]);
+        return switchOffColor(palette);
     }
     // 开着那一格：有底色的档就用**正文那个色**；Info 没有（它返回无效色），用**正文区
-    // 自己的底色**（= 白，见 kInfoOnRgb）—— 那一档"没有颜色"这件事本身就是白的。
-    // kSwitchOnRgb（原生那个开态灰）只留给"哪天再多一档没有底色的"用。
-    const QColor tint = levelBackground(level);
+    // 自己的底色**（浅色下是白、深色下是那个深底）—— 那一档"没有颜色"这件事本身就是它。
+    // 最底下那个兜底灰只留给"哪天再多一档没有底色的"用（今天一档都走不到）。
+    const QColor tint = levelBackground(level, palette);
     if (tint.isValid()) {
         return tint;
     }
-    return level == LogLevel::Info ? QColor(kInfoOnRgb[0], kInfoOnRgb[1], kInfoOnRgb[2])
-                                   : QColor(kSwitchOnRgb[0], kSwitchOnRgb[1], kSwitchOnRgb[2]);
+    if (level == LogLevel::Info) {
+        return palette.color(QPalette::Base);
+    }
+    return Theme::neutralFill(palette.color(QPalette::Window),
+                              palette.color(QPalette::WindowText), kSwitchOnPercent);
 }
 
 QColor GameLogWindow::filterButtonForeground(LogLevel level) {
+    return filterButtonForeground(level, QApplication::palette());
+}
+
+QColor GameLogWindow::filterButtonForeground(LogLevel level, const QPalette &palette) {
     const QColor ink = levelForeground(level);
-    return ink.isValid() ? ink : QColor(0x00, 0x00, 0x00);
+    // Fatal 那一档白字（两套主题一样）；其余跟着**这块地方的墨**走：浅色下就是原来写死的
+    // 那个纯黑，深色下是调色板里的浅墨（再写死黑就是"黑字压深底"）。
+    return ink.isValid() ? ink : palette.color(QPalette::WindowText);
+}
+
+QColor GameLogWindow::switchOffColor(const QPalette &palette) {
+    return Theme::neutralFill(palette.color(QPalette::Window),
+                              palette.color(QPalette::WindowText), kSwitchOffPercent);
+}
+
+QColor GameLogWindow::switchEdgeColor(const QPalette &palette) {
+    return Theme::neutralFill(palette.color(QPalette::Window),
+                              palette.color(QPalette::WindowText), kSwitchEdgePercent);
 }
 
 // ---------------------------------------------------------------------------
@@ -1034,7 +1145,15 @@ QFont GameLogWindow::logFont() {
 }
 
 QColor GameLogWindow::separatorColor() {
-    return QColor(kSeparatorRgb[0], kSeparatorRgb[1], kSeparatorRgb[2]);
+    return separatorColor(QApplication::palette());
+}
+
+QColor GameLogWindow::separatorColor(const QPalette &palette) {
+    // 底色和墨都取 `Base` / `Text`（**不是** Window 那一对）：这条线画在正文区上 ——
+    // 那一块用的就是 Base 的底和 Text 的墨。浅色下算出来 `#d9d9d9`（原来那个字面量是
+    // `#d8d8d8`，差 1），深色下就是压在深底上的一条深灰。
+    return Theme::neutralFill(palette.color(QPalette::Base), palette.color(QPalette::Text),
+                              kSeparatorPercent);
 }
 
 // ---------------------------------------------------------------------------

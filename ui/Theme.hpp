@@ -54,6 +54,7 @@
 #include <QApplication>
 #include <QColor>
 #include <QHash>
+#include <QJsonObject>
 #include <QPalette>
 #include <QRect>
 #include <QString>
@@ -244,6 +245,26 @@ constexpr int rowHoverAccentPercent() { return 12; }
  */
 QColor rowHoverFill(const QColor &base);
 
+/**
+ * @brief 「中性那一档」：从 @p base 往 @p ink 混 @p percent —— 界面里那些**既不是主题色、
+ *        也不是正文**的灰都从它算。
+ *
+ * 2026-10-13 加的（coding plan §8.3「日志筛选按钮去掉写死浅灰」）。那些灰原来是一排写死的
+ * 字面量（`#ababab` / `#dbdbdb` / `#9f9f9f` / `#d8d8d8`），全部照着**某一次**在浅色系统上
+ * 量到的 Fusion 值挑的。**开放深浅色入口之后这就站不住了**：深色下同一批灰压在深底上，
+ * 关着的开关和开着的开关几乎分不出来。所以改成"拿这块地方**自己的**底色和墨色现算"——
+ * 浅色下和原来那几个字面量只差 ≤5（整块铺色，屏幕上分不出来），深色下自动是深灰。
+ *
+ * ★ 和 `rowHoverFill()` 是**一对**（同一个式子，只是那一头混的是墨色而不是主题色）：
+ *   悬停那一层要"底色带一点主题色"，中性面要"底色带一点墨"—— 两条都不能写死。
+ * ★ 混法必须和 `mixWithWhite()` **逐字同式**（`(底*(100-p) + 墨*p + 50) / 100`），
+ *   `percent` 就是"往墨那头走了几成"。
+ *
+ * 读者：日志窗那排开关的关态底（29）、它那圈边（34）、开态那个兜底灰（9）、行间那条
+ * 分隔线（15，从**正文区**的 `Base` 出发）。
+ */
+QColor neutralFill(const QColor &base, const QColor &ink, int percent = 29);
+
 // ---------------------------------------------------------------------------
 // 列表 / 侧栏那一列「选中」的那一块（2026-10-12 合成一份）
 // ---------------------------------------------------------------------------
@@ -369,6 +390,20 @@ QString buttonKindKey(ButtonKind kind);
 void markButton(QWidget *button, ButtonKind kind);
 /// 「一般性」那一档的黑（次要按钮的字与边、未勾选的勾选框）。**唯一出处。**
 QColor neutralInkColor();
+
+/**
+ * @brief 键盘焦点环那一圈色（coding plan §8.3「可见焦点环」）。
+ *
+ * 深底上给浅主题色、浅底上给深主题色（`AccentShade::Hover` / `AccentShade::Ink`），
+ * 判据就是 `isDarkPalette()` —— 和别处"深色下用亮的那一档"是同一个判断，别另立一条。
+ *
+ * ★ 为什么**不算进** `AccentShade` 那几档：那几档是"同一个色在画面上深浅不同"，这一圈色
+ *   是**跟着底翻的**（浅底用深的那档、深底用浅的那档），语义不是"第几档深浅"。
+ *
+ * 画它的地方只有一处：`Theme::createStyle()` 那层 `WtfmlProxyStyle` 里截
+ * `PE_FrameFocusRect`（见 .cpp 里那段 —— 那是全应用唯一一个"每个控件都会走"的点）。
+ */
+QColor focusRingColor(const QPalette &palette);
 /// 全应用那一份控件样式表（按钮 / 输入框 / 勾选框；`apply()` 铺的就是它）。
 /// 要它是因为"这些东西长什么样"也得能量 —— 验证工程逐条读它算出来的色。
 QString widgetStyleSheet();
@@ -493,6 +528,41 @@ QString chipStyleSheet(const QPalette &palette);
  *      （常驻的那些 chip 不会有人替它们重建）。
  */
 void markChipButton(QPushButton *button);
+
+// ---------------------------------------------------------------------------
+// 色块（一颗按钮，面上就是它代表的那块色）
+// ---------------------------------------------------------------------------
+//
+// 2026-10-13 加的（coding plan §8.3 的颜色入口）。设置页「主题色」和「语义色」那几行、
+// 以及取色卡片里那一张色板，用的都是这一套 —— 它们都是"**这颗按钮长什么样就是什么色**"，
+// 点一下 = 改这个色 / 选这个色。
+//
+// ★ 为什么是按钮而不是画上去的色块：它得能点、能拿到键盘焦点、能走 Tab。一颗 `QPushButton`
+//   三样都是白给的，而"自己画一块"这三样就得各写一遍（焦点环那一圈还得自己接上
+//   `PE_FrameFocusRect`，见 `focusRingColor()`）。
+// ★ 面上那个色是**我们自己挂的样式表**（应用级那份只对"素"按钮生效，控件自己挂的赢），
+//   所以它**不跟着调色板走**：换主题时块里那个色照旧是用户选的那个 —— 那正是它要表达的。
+
+/**
+ * @brief 色块那一圈边：**跟着这块色自己的明暗翻** —— 深色给白边、浅色给黑边。
+ *
+ * 判据取的是 `color.lightness() < 128`（和 `isDarkPalette()` 同一个式子）。没有这一圈，
+ * 一块近黑的主题色搁在浅色页面上就是"一个没有形状的洞"。
+ */
+QColor swatchBorder(const QColor &color);
+
+/**
+ * @brief 把 @p button 摆成一块**色块**（面上就是 @p color）。
+ *
+ * 三件事：`markIconButton()`（报一句"我按自己钉死的边长来"，否则全局那条 `min-height`
+ * 会把它顶到 32）、挂自己的样式表、把鼠标形状换成手形。
+ *
+ * @param button **调用方自己 `setFixedSize()`** —— 色块多大是各处的排版说了算
+ *        （设置页那一行 64×24、取色卡片里那张色板各 48×24），这一层不该再有一份尺寸表。
+ * NOTE: 悬停 / 按下**不换底**（换底色 = 换掉了它要表达的那件事），只在边框上给一点反应。
+ */
+void markColorSwatch(QPushButton *button, const QColor &color);
+
 
 /// 输入类控件（`QLineEdit` / `QComboBox` / `QAbstractSpinBox` / 勾选框那个框）的圆角。
 constexpr int controlRadius() { return 6; }
@@ -715,6 +785,24 @@ QColor errorTextColor(const QPalette &palette);
 void save(const Spec &spec);
 /// 从 `QSettings` 读回来（读不出来 / 认不出的项一律退回出厂那一档，不报错也不猜）。
 Spec load();
+
+// ---------------------------------------------------------------------------
+// 导入 / 导出（coding plan §8.3「提供…导入/导出主题」）
+// ---------------------------------------------------------------------------
+//
+// 一份主题进得去、出得来。**换成 JSON 只是为了"用户能手看、能手改"**，字段和
+// `QSettings` 里那套**一一对应**（`preset` / `textOpacity` / `accent` / `roles` /
+// `parts` / `semantic`），所以看盘上那一份和看导出来的那一份是同一件事。
+//
+// ★ 里头的**图片路径是导出这台机器上的那一条**（主题里存的就是路径）。换台机器导入之后
+//   那几张图找不到 —— 这是诚实的：图**不在**这一份文件里（真要带上就得把几兆的位图塞进
+//   一个 JSON）。`MainWindow` 导入之后会自己数一遍找不到的，并说一句（见那边）。
+
+/// `Spec` → JSON（颜色一律 `#aarrggbb`，和 `QSettings` 里那套同一个写法）。
+QJsonObject specToJson(const Spec &spec);
+/// JSON → `Spec`。认不出的项一律按出厂那一档处理（走 `normalize()`）。
+/// 失败（不是一份主题文件）时返回 false 并写 `*error`（参数可给 nullptr）。
+bool specFromJson(const QJsonObject &json, Spec *out, QString *error);
 
 // ---------------------------------------------------------------------------
 // 跟着调色板重算

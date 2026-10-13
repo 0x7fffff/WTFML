@@ -325,8 +325,16 @@ public:
     static QString levelName(LogLevel level);
 
     /// 这一档的文字染什么底色。**Info 故意返回无效颜色**（= 不染，用窗口自己的底色）。
+    ///
+    /// ★ 2026-10-13（coding plan §8.3 开放深浅色入口那一天）：**两套底**。原来那一组
+    ///   字面量是照着"白纸"挑的（下面那几个 `k*Bg`），深色预设下浅墨压在上面等于没字。
+    ///   所以多了一组深底版（`k*BgDark`），走哪一组由 `Theme::isDarkPalette()` 说了算
+    ///   （**唯一判据**，和别处"深底上用亮的那一档"是同一个）。Fatal 那个深红两套相同。
+    ///   带调色板那一版是**给它自己用的**；不带的那一版问的是应用调色板（验证工程用）。
     static QColor levelBackground(LogLevel level);
+    static QColor levelBackground(LogLevel level, const QPalette &palette);
     /// 这一档的文字用什么墨色。只有 Fatal 有（深红底上再写深灰字是看不清的）。
+    /// **不带调色板**：别的档要的就是"不设"，让调色板那一支墨（深色下是浅的）自己生效。
     static QColor levelForeground(LogLevel level);
 
     /**
@@ -345,8 +353,22 @@ public:
      *       —— 那既是最亮的一档，也正好是"Info 这一档的颜色"（它的整行底色就是这个）。
      */
     static QColor filterButtonBackground(LogLevel level, bool on);
-    /// 合成开关上那几个字的墨色：Fatal 那档是白的，其余是黑的。
+    static QColor filterButtonBackground(LogLevel level, bool on, const QPalette &palette);
+    /// 合成开关上那几个字的墨色：Fatal 那档是白的，其余**跟着这块地方的墨走**
+    /// （浅色下是纯黑 —— 就是原来写死的那一支；深色下是调色板里的浅墨）。
     static QColor filterButtonForeground(LogLevel level);
+    static QColor filterButtonForeground(LogLevel level, const QPalette &palette);
+
+    /**
+     * @brief 那排开关**关着**时的底色 / 那一圈边（2026-10-13 从写死的字面量挪过来）。
+     *
+     * 原来这两样是 `#ababab` / `#9f9f9f` 两个常量（"改成自己画之前量到的原生 Fusion 值"）。
+     * 深浅色入口一开，同一批灰压在深底上就站不住了 ⇒ 改成**从这一块地方的底色往它的墨色
+     * 混一档**（`Theme::neutralFill()`，29% / 34%）。浅色下算出来的和原来那两个字面量
+     * 只差 1，屏幕上分不出来；深色下自动是深灰。
+     */
+    static QColor switchOffColor(const QPalette &palette);
+    static QColor switchEdgeColor(const QPalette &palette);
 
     // ---------- 正文那块文本的长相 ----------
 
@@ -372,6 +394,7 @@ public:
      * 也得在 Debug 那个 `#eef2f6` 上看得见（差 45），同时不能深到像一条框线。
      */
     static QColor separatorColor();
+    static QColor separatorColor(const QPalette &palette);
     /// 那条线几像素高。1 = 真正的"细线"（2 就开始像表格了）。
     static int separatorHeight() { return 1; }
 
@@ -400,6 +423,19 @@ public:
     static QString hintLabelName() { return QStringLiteral("gameLogHintLabel"); }
     static QString lineLimitComboName() { return QStringLiteral("gameLogLineLimitCombo"); }
     static QString filterButtonName(LogLevel level);
+
+protected:
+    /**
+     * @brief 主题变了就重新算一遍这一窗的颜色（2026-10-13）。
+     *
+     * 这一窗的颜色有两处是**自己画**的（那一排开关的样式表、行间那条线），而这两处都
+     * 不跟着调色板自动走 —— 用户在设置页换了深色，这个开着的窗得跟着变，不然就是"深色
+     * 主题下一个亮着的日志窗"（正文那块跟着调色板变了，开关和分隔线没变，看着像坏的）。
+     *
+     * ★ 只在 `PaletteChange` / `StyleChange` 上做事，而且**先比一遍算出来的色**：
+     *   这两个事件会因为各种原因连着来几次，每次都重建一遍视图（两万行）是白跑。
+     */
+    void changeEvent(QEvent *event) override;
 
 private:
     /// 模型里的一行：级别 + 正文（**不带换行**，换行是摆出去的时候才加的）。
@@ -433,6 +469,8 @@ private:
     void dropPendingFromView();
     /// 那一排按钮上的计数与勾重新对一遍。
     void updateFilterButtons();
+    /// 五颗开关的样式表按**现在这一份调色板**重算一遍（构造函数和 `changeEvent()` 都走它）。
+    void refreshFilterButtonStyles();
     /// 空的时候该说哪句话（"还没有输出"还是"都被筛掉了"）。
     void refreshPlaceholder();
 
@@ -455,6 +493,9 @@ private:
     QVector<int> m_levelCounts;        ///< 每一档几条独立记录（续行不重复，**含被筛掉的**）
     QVector<bool> m_levelVisible;      ///< 每一档显不显示
     QVector<QToolButton *> m_filterButtons;
+    /// 上一趟算出来的"关态中性灰"（见 `refreshFilterButtonStyles()`）：`changeEvent()` 拿它
+    /// 当"真的换了主题没有"的判据 —— `PaletteChange` / `StyleChange` 来得比主题变化勤得多。
+    QColor m_lastSwitchOff;
     /// 末尾那一格现在装的是"半行"吗（是的话下一次写正文之前要先把它撤掉）。
     bool m_viewLastBlockIsPending = false;
 };

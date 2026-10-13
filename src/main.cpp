@@ -150,6 +150,15 @@ int main(int argc, char *argv[]) {
     Theme::setSpec(Theme::load());
     Theme::apply(app);
 
+    // 动效那一层（coding plan §8.3 后半句）：
+    //   · `load()` 读用户那个总开关（`Look/Animations`，**不在 `Theme/` 底下** ——
+    //     `Theme::save()` 会把 `Theme` 这一整组清掉重写，开关放那儿会被顺手抹了）；
+    //   · `refreshPlatformReducedMotion()` 问一次系统"动画效果"关没关（Windows 的辅助功能）。
+    //     它**只在产品这条路上调**（验证工程不调：那些工程要在 offscreen 下量几何和像素，
+    //     "这台机器的辅助功能是怎么设的"不该进判据）。
+    Anim::load();
+    Anim::refreshPlatformReducedMotion();
+
     // 动效那一层（2026-09-29，用户点名的那三样：按下按钮 / 切换页面 / 展开折叠）。
     //
     // 这一句是**按钮那一份动效的唯一接线点**：它往 `QApplication` 上挂一个事件过滤器，

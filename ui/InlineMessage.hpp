@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <QColor>
 #include <QDialog>
 #include <QString>
 #include <QStringList>
@@ -156,6 +157,25 @@ public:
     /// 那个勾选框勾上了没有。**没插过 = false**（没得勾，也就不算"确认过了"）。
     bool checkBoxChecked() const;
 
+    /**
+     * @brief 在正文和按钮行之间插一块**调用方自己搭的东西**，返回它。
+     *
+     * 给"这一格上面那几种形状都装不下"的那一档用（今天只有取色卡片 `InlineMessage::pickColor()`
+     * —— 它要在提示里摆一张色板）。上面那几条 `setLineEdit()` / `setList()` / `setCheckBox()`
+     * 说的都是"某一件事"，所以它们各自知道自己长什么样；这一条不描述内容，只提供一个位置。
+     *
+     * ★ 宽度**钉成 `OverlayHost::promptContentWidth()`**（和那几条同一条规矩）：卡片的高矮
+     *   才算得准，而且"所有提示一样宽"这件事不会因为谁塞了一块宽东西就破掉 —— 塞宽了是
+     *   **被卡片裁掉**，不是把卡片撑开。
+     * NOTE: 只能插一块（再调一次就是换内容）。和 `setLineEdit()` 一样**不进 ctor**。
+     * NOTE: 摆上去之后，这一块里**第一个 `QLineEdit`** 会拿到焦点（和 `setLineEdit()`
+     *       那一条同一个理由、同一个时机，见 `showEvent()`）。
+     */
+    QWidget *setContent(QWidget *content);
+
+    /// 插进来的那一块（没插过就是 nullptr）。给验证工程用。
+    QWidget *content() const { return m_content; }
+
     /// 插进来的那个勾选框（没插过就是 nullptr）。给验证工程用。
     QCheckBox *checkBox() const { return m_checkBox; }
 
@@ -246,6 +266,7 @@ private:
     QLabel *m_noteLabel = nullptr;
     QCheckBox *m_checkBox = nullptr;
     QLabel *m_linkLabel = nullptr;
+    QWidget *m_content = nullptr;
     QString m_linkUrl;
 };
 
@@ -306,6 +327,37 @@ QString getText(OverlayHost *host, const QString &title, const QString &label,
  */
 bool pickFromList(OverlayHost *host, const QString &title, const QString &text,
                   const QStringList &items, int initialRow, int *rowOut);
+
+/**
+ * @brief 挑一个颜色（`QColorDialog` 的替身）。
+ *
+ * 用户 2026-09-25 给的方向是「最终不出现独立窗口」，而"挑一个颜色"正是那种一句话就能问完
+ * 的小事 —— 所以它开成**内容区中间那一块卡片**（和别的提示一模一样宽），不是系统那个
+ * 颜色对话框。卡片里是一张**色板**（4 行 × 8 块，点一下就填进右边那一格）+ 一行十六进制
+ * 输入框（能手打、能手改别人给的色号）。
+ *
+ * @param title 标题（「主题色」「危险色」这些 —— 由调用方说清在挑哪一处）。
+ * @param text 一行说明（"这一处管的是画面上哪儿"）。
+ * @param initial 一开始填着的色。
+ * @return 用户挑的那个色。**取消 / Esc / 点外面都给一个无效色**（`isValid()` 为假）——
+ *         调用点那一行的形状是 `const QColor picked = InlineMessage::pickColor(...);
+ *         if (!picked.isValid()) return;`。
+ *
+ * NOTE: 和 `getText()` 一样是**同步**的（内部一个嵌套事件循环）。
+ * NOTE: 「确定」那一颗在输入框里不是一个能认出来的色之前**是灰的** —— 认不出的色号点了也
+ *       没有意义，而"点了确定、颜色没变"是那种最难解释的失败。色板点一下就一定是合法的。
+ */
+QColor pickColor(OverlayHost *host, const QString &title, const QString &text,
+                 const QColor &initial);
+
+/// 取色卡片里那一行十六进制输入框的 objectName（`pickColor()` 建的那一块）。给验证工程用。
+QString colorEditName();
+/// 取色卡片里色板第 @p index 块的 objectName（0 ~ `colorSwatchCount()-1`）。
+QString colorSwatchName(int index);
+/// 取色卡片里那个「现在选的是哪个色」的预览块。
+QString colorPreviewName();
+/// 色板一共几块（4 行 × 8 列）。
+int colorSwatchCount();
 
 /**
  * @brief 按钮表自己定的那种问话（原来手工拼 `QMessageBox box(this)` + `addButton` 那两处）。

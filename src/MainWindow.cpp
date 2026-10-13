@@ -2577,6 +2577,53 @@ void MainWindow::setupConnections() {
         connect(imageRow.opacity, &QSlider::valueChanged, this,
                 [this, i] { onThemeImageOpacityChanged(i); });
     }
+    // 「主题」那一节（配色 / 主题色 / 文字不透明度 / 语义色 / 整份导入导出）。
+    // 和上面那一节同一个手感：**改一下就生效、也立刻落盘**。
+    // NOTE: 越界不崩：`getThemeSemanticButton()` 给 nullptr，那边判空了；而"一共几个语义色"
+    //       和那四个槽里的 switch 是同一张表（`MainWindowUI::themeSemanticCount()`）。
+    if (m_ui->getThemePresetCombo() != nullptr) {
+        connect(m_ui->getThemePresetCombo(), &QComboBox::currentIndexChanged, this,
+                &MainWindow::onThemePresetChanged);
+    }
+    if (m_ui->getThemeAccentButton() != nullptr) {
+        connect(m_ui->getThemeAccentButton(), &QPushButton::clicked, this,
+                &MainWindow::onThemeAccentClicked);
+    }
+    if (m_ui->getThemeAccentResetButton() != nullptr) {
+        connect(m_ui->getThemeAccentResetButton(), &QPushButton::clicked, this,
+                &MainWindow::onThemeAccentResetClicked);
+    }
+    for (int i = 0; i < MainWindowUI::themeSemanticCount(); ++i) {
+        if (QPushButton *swatch = m_ui->getThemeSemanticButton(i)) {
+            connect(swatch, &QPushButton::clicked, this,
+                    [this, i] { onThemeSemanticClicked(i); });
+        }
+    }
+    if (m_ui->getThemeSemanticResetButton() != nullptr) {
+        connect(m_ui->getThemeSemanticResetButton(), &QPushButton::clicked, this,
+                &MainWindow::onThemeSemanticResetClicked);
+    }
+    if (m_ui->getThemeResetAllButton() != nullptr) {
+        connect(m_ui->getThemeResetAllButton(), &QPushButton::clicked, this,
+                &MainWindow::onThemeResetAllClicked);
+    }
+    if (m_ui->getThemeExportButton() != nullptr) {
+        connect(m_ui->getThemeExportButton(), &QPushButton::clicked, this,
+                &MainWindow::onThemeExportClicked);
+    }
+    if (m_ui->getThemeImportButton() != nullptr) {
+        connect(m_ui->getThemeImportButton(), &QPushButton::clicked, this,
+                &MainWindow::onThemeImportClicked);
+    }
+    if (m_ui->getThemeTextOpacitySlider() != nullptr) {
+        connect(m_ui->getThemeTextOpacitySlider(), &QSlider::valueChanged, this,
+                &MainWindow::onThemeTextOpacityChanged);
+    }
+    // 「动效」那个总开关（§8.3 后半句）。
+    if (m_ui->getAnimationsCheck() != nullptr) {
+        connect(m_ui->getAnimationsCheck(), &QCheckBox::toggled, this,
+                &MainWindow::onAnimationsToggled);
+    }
     // CurseForge 的 API key：**编辑完才存**（editingFinished = 回车或者焦点离开）。
     // 理由写在 onCurseForgeApiKeyEdited() 里。
     connect(m_ui->getCurseForgeApiKeyEdit(), &QLineEdit::editingFinished, this,
@@ -9783,6 +9830,13 @@ void MainWindow::applySettingsToUi() {
     // 那边连滑块带下拉框一起挡，理由写在那儿）。
     refreshThemeImageRows();
 
+    // 「主题」那一节（配色 / 主题色 / 文字不透明度 / 语义色 / 动效开关）。和上面那一句一样，
+    // 画的是 `Theme::current()` 和 `Anim::userEnabled()` 里的东西 —— 主题和动效都不归
+    // LauncherSettings 管，各自另有一组键（见 Theme.hpp / Animations.hpp）。
+    // NOTE: 这一句**必须**排在 `Theme::setSpec(Theme::load())` 之后（那一步在 src/main.cpp
+    //       里、比 MainWindow 构造还早），不然画出来的是出厂那一份。
+    refreshThemeControls();
+
     // ---------- 启动选项 ----------
     m_ui->getShowGameLogCheck()->setChecked(m_settings->showGameLog());
     // 两条启动提醒（上面那两个 blocker 已经挡上了）。这里**不能**顺手把值抄成
@@ -10421,14 +10475,9 @@ void MainWindow::setThemePartImage(const QString &partKey, const QString &imageP
         spec.parts.insert(static_cast<int>(part), style);
     }
 
-    Theme::setSpec(spec);  // 收拾干净（钳不透明度、认不出的摆法退回默认）
-    Theme::save(Theme::current());  // 落盘的是**收拾之后**那一份
-    if (qApp != nullptr) {
-        // 立刻铺开。没设图 + 出厂那一档时它只是把"该重画了"敲给每个控件（见 Theme::apply()
-        // 里那段），所以清图之后那一块会**当场**变回纯底色。
-        Theme::apply(*qApp);
-    }
-    refreshThemeImageRows();
+    // 收拾干净 → 落盘 → 立刻铺开 → 重画这一栏（见 applyThemeSpec()；没设图 + 出厂那一档时
+    // `apply()` 只是把"该重画了"敲给每个控件，所以清图之后那一块会**当场**变回纯底色）。
+    applyThemeSpec(spec);
 }
 
 void MainWindow::refreshThemeImageRows() {
@@ -10473,6 +10522,290 @@ void MainWindow::refreshThemeImageRows() {
         row.percent->setEnabled(has);
         row.clear->setEnabled(has);
     }
+}
+
+// ---------------------------------------------------------------------------
+// 「主题」那一节（设置页「个性化」；2026-10-13，coding plan §8.3）
+// ---------------------------------------------------------------------------
+// 配色 / 主题色 / 文字不透明度 / 四个语义色 + 恢复默认与导入导出。和「背景图」那一节动的
+// 是**同一份规格**（`Theme::Spec`），所以两边改完都走 `applyThemeSpec()`。
+//
+// ★ 取色那一格走的是 `InlineMessage::pickColor()`（覆盖层里那张卡片），**不是
+//   `QColorDialog`** —— 用户 2026-09-25 给的方向是「最终不出现独立窗口」（游戏日志窗除外）。
+
+void MainWindow::applyThemeSpec(const Theme::Spec &spec) {
+    Theme::setSpec(spec);           // 收拾干净（钳不透明度、认不出的摆法退回默认）
+    Theme::save(Theme::current());  // 落盘的是**收拾之后**那一份
+    if (qApp != nullptr) {
+        // 立刻铺开。出厂那一份（跟系统 + 一项覆盖都没有）只是把"该重画了"敲给每个控件
+        // （见 Theme::apply() 里那段），所以"恢复全部默认"之后界面会**当场**回到出厂样子。
+        Theme::apply(*qApp);
+    }
+    // 这一栏那两节的控件照着新规格重画一遍（挡着信号，见各自的说明）。
+    refreshThemeControls();
+    refreshThemeImageRows();
+}
+
+/// 第 @p index 个语义色现在的样子：用户点名过就是那个，没点名过按**当前深浅**现推
+/// （和界面上真正在用的那一支是同一个出处 —— `Theme::dangerColor()` 那一族）。
+///
+/// NOTE: 为什么"没点名"时也要给一个色：那四块色板是**给别人看的对照表**（哪一块红是哪个红），
+///       空着的话用户点开设置只看到四个空心框，还得自己猜现在用的是哪个红。
+static QColor semanticColorForIndex(const Theme::Spec &spec, int index) {
+    const QPalette palette = QApplication::palette();
+    switch (index) {
+    case 0:
+        return spec.danger.isValid() ? spec.danger : Theme::dangerColor(palette);
+    case 1:
+        return spec.warning.isValid() ? spec.warning : Theme::warningColor(palette);
+    case 2:
+        return spec.ok.isValid() ? spec.ok : Theme::okColor(palette);
+    case 3:
+        return spec.errorText.isValid() ? spec.errorText : Theme::errorTextColor(palette);
+    default:
+        return QColor();
+    }
+}
+
+/// 把 @p color 写进 @p spec 第 @p index 位（`semanticColorForIndex()` 的反向）。
+static void setSemanticColor(Theme::Spec *spec, int index, const QColor &color) {
+    switch (index) {
+    case 0:
+        spec->danger = color;
+        break;
+    case 1:
+        spec->warning = color;
+        break;
+    case 2:
+        spec->ok = color;
+        break;
+    case 3:
+        spec->errorText = color;
+        break;
+    default:
+        break;
+    }
+}
+
+void MainWindow::refreshThemeControls() {
+    const Theme::Spec &spec = Theme::current();
+
+    if (QComboBox *combo = m_ui->getThemePresetCombo()) {
+        // 挡信号：这一句是"把规格画出来"，不挡的话 setCurrentIndex 会回头再铺一遍
+        // （和 refreshThemeImageRows() 里那几条同一个理由）。
+        const QSignalBlocker block(combo);
+        const int index = combo->findData(spec.presetId);
+        if (index >= 0) {
+            combo->setCurrentIndex(index);
+        }
+    }
+    if (QPushButton *accent = m_ui->getThemeAccentButton()) {
+        Theme::markColorSwatch(accent, spec.accent);
+    }
+    if (QSlider *slider = m_ui->getThemeTextOpacitySlider()) {
+        const QSignalBlocker block(slider);
+        slider->setValue(spec.textOpacity);
+        if (QLabel *percent = m_ui->getThemeTextOpacityPercent()) {
+            percent->setText(MainWindowUI::themePercentText(spec.textOpacity));
+        }
+    }
+    for (int i = 0; i < MainWindowUI::themeSemanticCount(); ++i) {
+        if (QPushButton *swatch = m_ui->getThemeSemanticButton(i)) {
+            Theme::markColorSwatch(swatch, semanticColorForIndex(spec, i));
+        }
+    }
+    if (QCheckBox *check = m_ui->getAnimationsCheck()) {
+        const QSignalBlocker block(check);
+        check->setChecked(Anim::userEnabled());
+    }
+}
+
+void MainWindow::onThemePresetChanged() {
+    QComboBox *combo = m_ui->getThemePresetCombo();
+    if (combo == nullptr) {
+        return;
+    }
+    const QString id = combo->currentData().toString();
+    if (!Theme::isPresetId(id)) {
+        return;  // 认不出的项（理论上到不了）什么都不做，比铺一份来路不明的规格好
+    }
+    Theme::Spec spec = Theme::current();
+    // ★ 覆盖项**不动**：预设是"底色那一层"，覆盖是叠在它上面的。换了预设还是那一个
+    //   （"深色 + 我改的那几项"读起来才对，见 Spec::presetId 那段）。
+    spec.presetId = id;
+    applyThemeSpec(spec);
+}
+
+void MainWindow::onThemeAccentClicked() {
+    const QColor picked =
+        InlineMessage::pickColor(m_ui->overlay(), tr("主题色"),
+                                 tr("顶栏、侧栏选中项那根竖条、确认性按钮（启动 / 下载 / 搜索"
+                                    "那些）都用它。"),
+                                 Theme::current().accent);
+    if (!picked.isValid()) {
+        return;  // 用户取消了 —— 不是错误，什么都不做
+    }
+    Theme::Spec spec = Theme::current();
+    spec.accent = picked;
+    applyThemeSpec(spec);
+}
+
+void MainWindow::onThemeAccentResetClicked() {
+    Theme::Spec spec = Theme::current();
+    spec.accent = Theme::defaultAccentColor();
+    applyThemeSpec(spec);
+}
+
+void MainWindow::onThemeSemanticClicked(int index) {
+    const Theme::Spec &before = Theme::current();
+    const QColor picked =
+        InlineMessage::pickColor(m_ui->overlay(), MainWindowUI::themeSemanticText(index),
+                                 tr("这一处红 / 黄 / 绿在界面上是哪儿（见下面那行说明）。"),
+                                 semanticColorForIndex(before, index));
+    if (!picked.isValid()) {
+        return;
+    }
+    Theme::Spec spec = before;
+    setSemanticColor(&spec, index, picked);
+    applyThemeSpec(spec);
+}
+
+void MainWindow::onThemeSemanticResetClicked() {
+    Theme::Spec spec = Theme::current();
+    // 清成"没点名"（无效色）= 按当前深浅现推。不是"设成今天这个色" —— 那样切深浅之后
+    // 它就跟不动了。
+    spec.danger = QColor();
+    spec.warning = QColor();
+    spec.ok = QColor();
+    spec.errorText = QColor();
+    applyThemeSpec(spec);
+}
+
+void MainWindow::onThemeResetAllClicked() {
+    // 这一颗按红（`ButtonKind::Danger`：用户那句"不可撤销"），所以问一句 —— 设置页上
+    // 一颗按下去就把这一栏所有改动抹掉的按钮，不该是一下就中的。
+    const bool confirmed = InlineMessage::question(
+        m_ui->overlay(), tr("恢复全部默认"),
+        tr("配色、主题色、文字不透明度、四个语义色、以及这两块背景图，都会回到出厂那一份。\n"
+           "你自己改的那些不会留着。"),
+        tr("恢复"), tr("取消"), /*defaultYes=*/false, /*destructive=*/true);
+    if (!confirmed) {
+        return;
+    }
+    // 盘上那几张背景图一并删掉：规格里不记它们了，留着就是数据目录里几张再也用不上的图
+    // （和「清除」那一颗同一条规矩）。
+    for (int i = 0; i < MainWindowUI::themeImageRowCount(); ++i) {
+        const MainWindowUI::ThemeImageRow &row = m_ui->getThemeImageRow(i);
+        if (!row.partKey.isEmpty()) {
+            ThemeImage::remove(row.partKey);
+        }
+    }
+    applyThemeSpec(Theme::defaultSpec());
+}
+
+void MainWindow::onThemeExportClicked() {
+    const QString suggested = QDir(QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation))
+                                  .filePath(QStringLiteral("wtfml-theme.json"));
+    const QString target = QFileDialog::getSaveFileName(this, tr("导出主题"), suggested,
+                                                        tr("主题文件 (*.json);;所有文件 (*)"));
+    if (target.isEmpty()) {
+        return;  // 取消了
+    }
+    QFile file(target);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        InlineMessage::warning(m_ui->overlay(), tr("导出失败"),
+                               tr("写不进这个文件：\n%1\n\n%2")
+                                   .arg(QDir::toNativeSeparators(target), file.errorString()));
+        return;
+    }
+    // `Indented`：这一份文件是**给人看、给人改**的（见 Theme.hpp 那段），一行到底的 JSON
+    // 那样做就没意义了。
+    const QByteArray json =
+        QJsonDocument(Theme::specToJson(Theme::current())).toJson(QJsonDocument::Indented);
+    if (file.write(json) != json.size()) {
+        InlineMessage::warning(m_ui->overlay(), tr("导出失败"),
+                               tr("写到一半写不进去了：\n%1").arg(file.errorString()));
+        return;
+    }
+    file.close();
+    InlineMessage::information(m_ui->overlay(), tr("导出完成"),
+                               tr("主题已导出到：\n%1").arg(QDir::toNativeSeparators(target)));
+}
+
+void MainWindow::onThemeImportClicked() {
+    const QString source = QFileDialog::getOpenFileName(
+        this, tr("导入主题"), QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation),
+        tr("主题文件 (*.json);;所有文件 (*)"));
+    if (source.isEmpty()) {
+        return;
+    }
+    QFile file(source);
+    if (!file.open(QIODevice::ReadOnly)) {
+        InlineMessage::warning(m_ui->overlay(), tr("导入失败"),
+                               tr("读不了这个文件：\n%1\n\n%2")
+                                   .arg(QDir::toNativeSeparators(source), file.errorString()));
+        return;
+    }
+    const QByteArray raw = file.readAll();
+    file.close();
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(raw, &parseError);
+    if (document.isNull() || !document.isObject()) {
+        InlineMessage::warning(
+            m_ui->overlay(), tr("导入失败"),
+            tr("这不是一份主题文件：\n%1\n\n%2")
+                .arg(QDir::toNativeSeparators(source), parseError.errorString()));
+        return;
+    }
+    Theme::Spec spec;
+    QString error;
+    if (!Theme::specFromJson(document.object(), &spec, &error)) {
+        InlineMessage::warning(m_ui->overlay(), tr("导入失败"),
+                               tr("这不是一份主题文件：\n%1\n\n%2")
+                                   .arg(QDir::toNativeSeparators(source), error));
+        return;
+    }
+    applyThemeSpec(spec);
+
+    // 背景图那几张图**不在**这个文件里（里面只有导出那台机器上的路径，见 Theme.hpp 那段）——
+    // 数一遍这台机器上找不到的，说一句。**不报错、也不拒收**：主题的颜色那一半是好的，
+    // 少两张图只是那两块回到纯底色。
+    QStringList missing;
+    for (int i = 0; i < MainWindowUI::themeImageRowCount(); ++i) {
+        const MainWindowUI::ThemeImageRow &row = m_ui->getThemeImageRow(i);
+        Theme::Part part;
+        if (!Theme::partFromKey(row.partKey, &part)) {
+            continue;
+        }
+        const Theme::PartImage image = Theme::partImage(part);
+        if (image.isSet() && !QFileInfo::exists(image.path)) {
+            missing.append(Theme::partName(part));
+        }
+    }
+    if (missing.isEmpty()) {
+        InlineMessage::information(m_ui->overlay(), tr("导入完成"), tr("这份主题已经铺上了。"));
+    } else {
+        InlineMessage::information(
+            m_ui->overlay(), tr("导入完成"),
+            tr("颜色都铺上了，但这两块背景图在这台机器上找不到（主题文件里只有路径，不含图）："
+               "\n%1")
+                .arg(missing.join(QStringLiteral("\n"))));
+    }
+}
+
+void MainWindow::onThemeTextOpacityChanged(int value) {
+    Theme::Spec spec = Theme::current();
+    spec.textOpacity = value;
+    // 拖一下就生效、也落盘（和背景图那根不透明度条一个路数）—— "把字调淡"这件事一定要
+    // 一边拖一边看得见，不然用户只能靠猜。
+    applyThemeSpec(spec);
+}
+
+void MainWindow::onAnimationsToggled(bool enabled) {
+    Anim::setEnabled(enabled);
+    Anim::save();
+    // 不铺开、也不重画别的控件：这一位是**下一次动画开始时**读的（`Anim::enabled()`），
+    // 正在跑的那一段（比如刚点下去那一下）跑完就完了。
 }
 
 void MainWindow::onTitleTextChanged() {

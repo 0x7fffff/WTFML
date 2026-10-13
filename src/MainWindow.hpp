@@ -166,6 +166,12 @@ struct ExportPlan;
 // 「版本名格式」开关的数据模型。这里只按 const 引用传，前置声明就够，
 // 不必为了一个参数类型把 VersionDisplay.hpp 拖进每个 include 了 MainWindow.hpp 的地方。
 struct VersionNameOptions;
+// 一份主题规格（`ui/Theme.hpp`）。同上：`applyThemeSpec()` 只按 const 引用收，
+// 前置声明就够 —— 不必让每个 include 了 MainWindow.hpp 的地方都拖一份规格的定义
+// （那份定义里还挂着 QHash/QPalette 一串）。
+namespace Theme {
+struct Spec;
+}  // namespace Theme
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -1264,6 +1270,46 @@ private slots:
     /// 话、以及没设图时把后面那几颗灰掉）。**灌值那一段和每次改完都要调它一次。**
     void refreshThemeImageRows();
 
+    // ---------- 「主题」那一节（设置页「个性化」；2026-10-13 加的，coding plan §8.3） ----------
+    //
+    // 配色（跟随系统 / 浅色 / 深色）、主题色、文字不透明度、四个语义色，外加恢复默认与
+    // 导入/导出。和「背景图」那一节动的是**同一份规格**（`Theme::Spec`）—— 所以两边改完
+    // 走的是同一个 `applyThemeSpec()`。
+    //
+    // ★ 同样放在 `private slots:` 里：验证工程要能按名字把 `refreshThemeControls()` 调起来
+    //   （`pickColor()` 那一格底下是覆盖层，测试里点不了 —— 和背景图那条路一个道理）。
+
+    /// 「配色」那个下拉框换了一档：改 `presetId` 之后铺开（覆盖项**不动** —— 覆盖是叠在
+    /// 预设上面的，换了预设还是那一个，"深色 + 我改的那几项"读起来才对）。
+    void onThemePresetChanged();
+    /// 点主题色那块色：开取色卡片，挑完立刻生效。
+    void onThemeAccentClicked();
+    /// 主题色右边那颗「恢复默认」：回到出厂那一支绿。
+    void onThemeAccentResetClicked();
+    /// 第 @p index 个语义色（下标见 `MainWindowUI::themeSemanticKey()`）。
+    void onThemeSemanticClicked(int index);
+    /// 四个语义色旁边那颗「跟随预设」：把四个覆盖项一起清掉（之后按深浅现推）。
+    void onThemeSemanticResetClicked();
+    /// 「恢复全部默认」：整份规格回出厂（含「背景图」那一节那两块），并删掉存下来的那几张图。
+    void onThemeResetAllClicked();
+    /// 「导出主题…」/「导入主题…」：一份 JSON 文件（`Theme::specToJson()` / `specFromJson()`）。
+    void onThemeExportClicked();
+    void onThemeImportClicked();
+    /// 「文字不透明度」那根条。**拖一下就生效、也落盘**（和背景图那根不透明度条一个路数）。
+    void onThemeTextOpacityChanged(int value);
+    /// 「动效」那个勾：总开关（`Anim::setEnabled()` + 落盘）。
+    void onAnimationsToggled(bool enabled);
+    /// 把 `Theme::current()` 的样子画到这一节的控件上（配色下拉框 / 四块色 / 那根条 /
+    /// 动效那个勾）。**灌值那一段和每次改完都要调它一次**（挡着信号，理由同上面那一条）。
+    void refreshThemeControls();
+
+    /// 改主题规格的**唯一那三步**：收拾干净 → 落盘 → 立刻铺开，再把这一栏的控件重画一遍。
+    ///
+    /// ★ 为什么非要有这么一个函数：这一栏里**两节**（主题 / 背景图）改的都是同一份规格，
+    ///   而"改完立刻生效"这件事少一步就是"改了没生效、下次启动才出现" —— 那是这一栏最要命
+    ///   的失败模式。四步写在一个地方，"三处各抄一遍、其中一处漏了第三步"就不可能发生。
+    /// @param spec 要铺开的那一份（**整份**，不是差量 —— 规格是整份写回去的）。
+    void applyThemeSpec(const Theme::Spec &spec);
 protected:
     /// 只为一件事挂着：外框那两条 Win32 消息（WM_NCCALCSIZE / WM_NCHITTEST，见
     /// `ui/WindowChrome.hpp` 开头那两段）。接到手的是**这个窗口**的消息，Qt 已经替我们把

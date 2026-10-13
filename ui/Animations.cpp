@@ -28,6 +28,7 @@
 #include <QProgressBar>
 #include <QPropertyAnimation>
 #include <QScrollBar>
+#include <QSettings>
 #include <QSharedPointer>
 #include <QTabWidget>
 #include <QTimer>
@@ -38,6 +39,19 @@
 #include <QWidget>
 
 #include <functional>
+
+#if defined(Q_OS_WIN)
+// NOTE: 放在所有 Qt 头之后 —— windows.h 定义的东西太多（min/max 宏、`interface`……），
+//       先于 Qt 包含容易撞名。写法和 `src/launcher/LauncherManager.cpp` 里那一套一致。
+//       用途只有一个：下面的 `refreshPlatformReducedMotion()`（SystemParametersInfo）。
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
 
 namespace {
 
@@ -59,6 +73,13 @@ constexpr const char kProgressMaxMark[] = "wtfmlAnimProgressMax";
 
 /// 动效总开关。默认开。
 bool g_enabled = true;
+
+/// 系统那一档「减少动态效果」。**默认"没关"**（= 界面默认有动效）。
+/// 只有 `refreshPlatformReducedMotion()` 去问系统，`setPlatformReducedMotion()` 直接摆。
+bool g_platformReducedMotion = false;
+
+/// 用户那把开关存哪儿。**不在 `Theme/` 底下**（`Theme::save()` 会整组抹掉那个前缀）。
+const char *const kEnabledKey = "Look/Animations";
 
 /**
  * 动效用的那一个 `QGraphicsEffect`：把控件**渲染好的那一张图**贴回来，贴上之前可以
@@ -684,11 +705,53 @@ QWidget *liftTarget(QWidget *widget) {
 namespace Anim {
 
 bool enabled() {
+    // 两把闸串起来：用户那把（设置页那个勾）**和**系统那一档。任一条说"不要"，就一个
+    // 效果都不装（下面那些函数全是"不 enabled 就原地返回"）。
+    return g_enabled && !g_platformReducedMotion;
+}
+
+bool userEnabled() {
     return g_enabled;
 }
 
 void setEnabled(bool on) {
     g_enabled = on;
+}
+
+void load() {
+    QSettings settings;
+    g_enabled = settings.value(QLatin1String(kEnabledKey), true).toBool();
+}
+
+void save() {
+    QSettings settings;
+    settings.setValue(QLatin1String(kEnabledKey), g_enabled);
+    settings.sync();
+}
+
+bool platformReducedMotion() {
+    return g_platformReducedMotion;
+}
+
+void setPlatformReducedMotion(bool on) {
+    g_platformReducedMotion = on;
+}
+
+void refreshPlatformReducedMotion() {
+#if defined(Q_OS_WIN)
+    // Windows：设置 → 辅助功能 → 视觉效果 → 「动画效果」。
+    // `SPI_GETCLIENTAREAANIMATION` 写进一个 `BOOL`；调不通（老系统/被挡）就当"没关"。
+    BOOL animationsOn = TRUE;
+    if (::SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &animationsOn, 0)) {
+        g_platformReducedMotion = (animationsOn == FALSE);
+    } else {
+        g_platformReducedMotion = false;
+    }
+#else
+    // 别的平台**故意不猜**：这一层要的是"系统说不要动"这个确定的事实，猜错了就是替用户
+    // 做了决定。Linux/macOS 上 Qt 没有一条跨平台的等价 API（要碰各自的桌面环境设置）。
+    g_platformReducedMotion = false;
+#endif
 }
 
 bool installPressAnimation(QApplication &app) {
