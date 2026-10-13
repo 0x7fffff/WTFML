@@ -199,8 +199,8 @@ bool roleFromKey(const QString &key, Role *out);
  */
 enum class AccentShade {
     Pure,     ///< 用户点名的那个色 —— 顶栏的底、当前那一颗导航底下那条线
-    Ink,      ///< 白底上写字的那个绿（按钮文本）—— 对白底 5.7:1
-    Border,   ///< 按钮那一圈边 —— 对白底 3.5:1（WCAG 对"界面部件"那条线是 3:1）
+    Ink,      ///< 白底上写字的那个绿（按钮文本）= 纯色的 60% —— 对白底 9.5:1
+    Border,   ///< 按钮那一圈边 = 纯色的 80% —— 对白底 6.7:1（WCAG 对"界面部件"那条线是 3:1）
     Hover,    ///< 按钮悬停时那层浅浅的底（主题色 12% 罩在白上）
     Pressed,  ///< 按钮按下时那层底（主题色 28% 罩在白上）
     Count,
@@ -289,7 +289,7 @@ constexpr int selectionAccentPercent() { return 20; }
 /// 选中那一行的底。入参是**这一行自己的底色**（`option.palette.color(QPalette::Base)`）；
 /// 不传 = 白底（默认那身浅色主题上所有表的底色都是白）。
 QColor selectionFill(const QColor &base = QColor(Qt::white));
-/// 它上面那行字：主题色那一支里"白底上写字"的那一档（`AccentShade::Ink`，约 8:1）。
+/// 它上面那行字：主题色那一支里"白底上写字"的那一档（`AccentShade::Ink`，约 7.4:1）。
 /// 深底（深色预设）上自动换成那一支里"深底上写字"的那一档 —— 见 .cpp 里那段。
 QColor selectionInk(const QColor &base = QColor(Qt::white));
 /// 它上面那行**次要**小字（版本树第二行那行小字 / 占位文字 / 行里那些小图标）：
