@@ -111,6 +111,8 @@ add_executable(ui_check main.cpp
                                 ${REPO_ROOT}/ui/IntegrityReportPage.cpp
                                 # 更新中心那一页（2026-10-13，§7.1）：U33 直接 new 它。
                                 ${REPO_ROOT}/ui/UpdateCenterPage.cpp
+                                # 「新建服务端」那一页（2026-10-13，§6.2 / M4）。
+                                ${REPO_ROOT}/ui/NewServerPage.cpp
                                 ${REPO_ROOT}/ui/WindowChrome.cpp)
 
 # InstanceFiles 那一层要的（`VersionInheritance::parentIdOf` / `maxDepth`）——

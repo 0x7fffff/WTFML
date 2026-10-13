@@ -169,6 +169,11 @@
 // **写** servers.dat —— NbtUtil 那一层故意只读，写侧单独一层（格式、按值匹配、gzip
 // 保留的理由都在它的文件头）。`ServerListFile::pathFor()` 也是这一份路径的唯一出处。
 #include "manage/ServerListFile.hpp"
+// 服务端工作区那一层（coding plan §6 / 里程碑 M4）：判据层（状态 / EULA / properties）和
+// 扫盘那一层（`<数据目录>/Servers` 底下谁在住）。界面那一页只摆控件，判据全在这儿。
+#include "download/ServerInstall.hpp"
+#include "server/ServerModel.hpp"
+#include "server/ServerRegistry.hpp"
 // 同一页的「刷新」：真的连上去问一遍每台现在什么样（图标 / MOTD / 人数 / 延迟）。
 #include "util/ServerPing.hpp"
 #include "util/SystemMemory.hpp"
@@ -1801,6 +1806,39 @@ void MainWindow::setupConnections() {
     // 「添加文件夹…」下面），槽没变、接线也没变。
     connect(m_ui->getImportModpackButton(), &QPushButton::clicked, this,
             &MainWindow::onImportModpackClicked);
+    // ---------- 实例页顶部的模式切换 + 服务端那一页（coding plan §6.1 / M4）----------
+    //
+    // 两颗模式按钮互斥（点一颗就把另一颗的勾摘掉）—— `setInstanceMode()` 是"停在哪一页 +
+    // 谁勾着"的唯一出处，所以这里只把"用户点了哪一颗"交给它，不自己动 setChecked。
+    {
+        const int modeCount = 2;
+        for (int i = 0; i < modeCount; ++i) {
+            const auto mode = static_cast<MainWindowUI::InstanceMode>(i);
+            QPushButton *button = m_ui->getInstanceModeButton(mode);
+            if (button == nullptr) {
+                continue;
+            }
+            connect(button, &QPushButton::clicked, this,
+                    [this, mode] { setInstanceMode(mode); });
+        }
+        if (QPushButton *newServer = m_ui->getNewServerButton()) {
+            connect(newServer, &QPushButton::clicked, this, &MainWindow::openNewServerPage);
+        }
+        // 服务端列表里双击一行 = 打开它的目录（"我建的那个服务端在哪儿"是这一页最常用的一件事）。
+        if (QTreeWidget *serverList = m_ui->getServerList()) {
+            connect(serverList, &QTreeWidget::itemDoubleClicked, this,
+                    [this](QTreeWidgetItem *item, int) {
+                        if (item == nullptr) {
+                            return;
+                        }
+                        const QString id = item->data(0, Qt::UserRole).toString();
+                        if (!id.isEmpty()) {
+                            QDesktopServices::openUrl(
+                                QUrl::fromLocalFile(AppPaths::serverDir(id)));
+                        }
+                    });
+        }
+    }
     // 左边列表选中哪一份 .minecraft，启动器就换到哪一份上（PCL 的卡片是同一个交互）。
     connect(m_ui->getFolderList(), &QListWidget::currentRowChanged, this,
             &MainWindow::onFolderSelectionChanged);
@@ -3900,6 +3938,11 @@ void MainWindow::refreshInstalledVersions() {
         qInfo() << "refreshInstalledVersions:" << elapsedMs << "ms for" << installed.size()
                 << "installed versions";
     }
+
+    // 服务端那一页也顺手重扫一遍：它扫的是 `<数据目录>/Servers`，和上面那条实例目录同源，
+    // 而"换数据目录"正是这个函数被叫的场合之一（另一处是启动那一刻）。两页各自重灌，
+    // 谁也不去猜对方缓存了什么。
+    refreshServerList();
 }
 
 InstanceFilter::Query MainWindow::instanceFilterQuery() const {
@@ -6626,6 +6669,199 @@ bool MainWindow::saveUpdatePolicy() {
     // 以外没有下一步可做 —— 而那一份记录在这一次会话里仍然是生效的（内存里那份还在）。
     appendLog(tr("「更新中心」那份记录没能写进盘：%1").arg(problem));
     return false;
+}
+
+void MainWindow::setInstanceMode(MainWindowUI::InstanceMode mode) {
+    m_instanceMode = mode;
+    if (m_ui != nullptr) {
+        m_ui->setInstanceMode(mode);  // 停在哪一页 + 谁勾着（唯一出处）
+    }
+    if (mode == MainWindowUI::InstanceMode::Server) {
+        // 切到服务端那一页时顺手重扫一遍：盘上那个 Servers/ 可能刚被别的东西动过
+        // （用户在资源管理器里删了一个、或者拖进来一个装好的）。
+        refreshServerList();
+    }
+}
+
+void MainWindow::refreshServerList() {
+    if (m_ui == nullptr) {
+        return;
+    }
+    QTreeWidget *tree = m_ui->getServerList();
+    if (tree == nullptr) {
+        return;
+    }
+    const QString keepId = [&tree] {
+        const QTreeWidgetItem *current = tree->currentItem();
+        return current == nullptr ? QString() : current->data(0, Qt::UserRole).toString();
+    }();
+
+    tree->clear();
+    const QList<ServerRegistry::Entry> entries = ServerRegistry::scanAll();
+    for (const ServerRegistry::Entry &entry : entries) {
+        auto *item = new QTreeWidgetItem(tree);
+        item->setData(0, Qt::UserRole, entry.serverId);
+        // 一行两截：名字（主）+ 状态/档（次）。名字里带状态，是因为服务端没有"图标"那一栏
+        // 能替它说话（实例行行首有图标，这一页用一个档名 + 状态两个字）。
+        const QString status = ServerModel::statusName(
+            entry.installed ? ServerModel::Status::Ready : ServerModel::Status::NotInstalled);
+        item->setText(0, QStringLiteral("%1  —  %2 · %3")
+                             .arg(entry.name,
+                                  ServerInstall::flavorName(entry.flavor), status));
+        QString tip = entry.note;
+        if (!tip.isEmpty()) {
+            tip += QStringLiteral("\n");
+        }
+        tip += QDir::toNativeSeparators(entry.dirPath);
+        item->setToolTip(0, tip);
+        // 没装好的那一行给个"灰一点"的观感：这一页现在还没有自绘代理，先用禁用旗标把
+        // 它和"能启动的那些"分开（真正的操作按钮在 M4-2/M4-3 里补）。
+        item->setDisabled(!entry.installed);
+    }
+    if (QTreeWidgetItem *first = tree->topLevelItem(0)) {
+        tree->setCurrentItem(first);
+    }
+    // 把选中项还回去（重扫前后停在同一行上）。用户上一次选的那一个还在就选它。
+    if (!keepId.isEmpty()) {
+        for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+            QTreeWidgetItem *item = tree->topLevelItem(i);
+            if (item != nullptr && item->data(0, Qt::UserRole).toString() == keepId) {
+                tree->setCurrentItem(item);
+                break;
+            }
+        }
+    }
+    if (QLabel *empty = m_ui->getServerEmptyLabel()) {
+        empty->setVisible(entries.isEmpty());
+    }
+}
+
+void MainWindow::openNewServerPage() {
+    OverlayHost *overlay = m_ui == nullptr ? nullptr : m_ui->overlay();
+    if (overlay == nullptr) {
+        return;
+    }
+    if (m_newServerPage == nullptr) {
+        m_newServerPage = new NewServerPage(this);
+        connect(m_newServerPage, &NewServerPage::fieldsChanged, this,
+                [this] { updateNewServerSummary(m_newServerPage); });
+    }
+    // 摆那八档（**每次开页都重喂**：页面是复用的）。哪几档要填哪几格由这一层翻好
+    // （`ServerInstall` 那一层知道，页面不知道）。
+    QList<NewServerPage::FlavorOption> options;
+    for (const ServerInstall::Flavor flavor : ServerInstall::allFlavors()) {
+        NewServerPage::FlavorOption option;
+        option.token = ServerInstall::flavorToken(flavor);
+        option.name = ServerInstall::flavorName(flavor);
+        option.note = ServerInstall::flavorNote(flavor);
+        // 哪几档要哪几格 —— 和 `ServerInstall::planFor()` 里"缺它会 ok=false"的那几条一字对应。
+        switch (flavor) {
+        case ServerInstall::Flavor::Forge:
+        case ServerInstall::Flavor::NeoForge:
+            option.needsLoader = true;
+            break;
+        case ServerInstall::Flavor::Fabric:
+            option.needsLoader = true;
+            option.needsInstaller = true;
+            break;
+        case ServerInstall::Flavor::Quilt:
+            option.needsInstaller = true;
+            break;
+        case ServerInstall::Flavor::Paper:
+        case ServerInstall::Flavor::Purpur:
+            option.needsBuild = true;
+            break;
+        default:
+            break;
+        }
+        option.needsLoaderGame = true;
+        options.append(option);
+    }
+    m_newServerPage->setFlavors(options, ServerInstall::flavorToken(ServerInstall::Flavor::Vanilla));
+    // 默认名照用户真机上那份叫法（`Server<版本>`）。用当前主页选中的那一个版本当缺省
+    // （`selectedVersionId()` 是"下拉框里那个 id 是什么"的唯一出处，见本文件上面那个
+    // 自由函数 —— 它已经处理了"空着 = 没选"）
+    const QString currentVersion = selectedVersionId(m_ui->getInstalledVersionCombo());
+    m_newServerPage->setDefaults(
+        ServerRegistry::defaultServerName(ServerInstall::Flavor::Vanilla, currentVersion),
+        currentVersion);
+    updateNewServerSummary(m_newServerPage);
+    if (overlay->execPage(m_newServerPage, NewServerPage::windowTitle()) != QDialog::Accepted) {
+        return;
+    }
+    // 收页了 —— 建这个服务端：名字洗成目录名、重名加后缀、写 `.wtfml-server`。
+    const QString desired = ServerRegistry::sanitizeId(m_newServerPage->serverName());
+    if (desired.isEmpty()) {
+        InlineMessage::warning(m_ui->overlay(), QStringLiteral("这个名字不能当目录名"),
+                               QStringLiteral("换一个名字再试（名字里不能只有标点或空白）。"));
+        return;
+    }
+    const QString serverId = ServerRegistry::uniqueServerId(desired);
+    ServerModel::Info info;
+    info.name = m_newServerPage->serverName();
+    ServerInstall::Flavor flavor = ServerInstall::Flavor::Vanilla;
+    if (ServerInstall::flavorFromToken(m_newServerPage->flavorToken(), &flavor)) {
+        info.flavor = flavor;
+        info.flavorKnown = true;
+    }
+    info.gameVersion = m_newServerPage->gameVersion();
+    info.loaderVersion = m_newServerPage->loaderVersion();
+    info.installerVersion = m_newServerPage->installerVersion();
+    info.buildId = m_newServerPage->buildId();
+    info.memoryMb = m_newServerPage->memoryMb();
+    QString problem;
+    if (!ServerRegistry::createServer(serverId, info, &problem)) {
+        InlineMessage::critical(m_ui->overlay(), QStringLiteral("建不了这个服务端"), problem);
+        return;
+    }
+    // 切到服务端那一页（用户刚建的就在那儿），并重扫一遍让它出现在列表里。
+    setInstanceMode(MainWindowUI::InstanceMode::Server);
+}
+
+void MainWindow::updateNewServerSummary(NewServerPage *page) {
+    if (page == nullptr) {
+        return;
+    }
+    // 名字先过一遍（洗空了就没得建）。
+    if (ServerRegistry::sanitizeId(page->serverName()).isEmpty()) {
+        page->setSummary(QString(), QStringLiteral("先给它起个名字（会当成目录名）。"));
+        return;
+    }
+    // 再让 `ServerInstall` 判这一份填法成不成立（缺哪一格它会说人话）。
+    ServerInstall::Request request;
+    ServerInstall::Flavor flavor = ServerInstall::Flavor::Vanilla;
+    if (ServerInstall::flavorFromToken(page->flavorToken(), &flavor)) {
+        request.flavor = flavor;
+    }
+    request.gameVersion = page->gameVersion();
+    request.loaderVersion = page->loaderVersion();
+    request.installerVersion = page->installerVersion();
+    request.buildId = page->buildId();
+    const ServerInstall::Plan plan = ServerInstall::planFor(request);
+    if (!plan.ok) {
+        // `planFor` 给的 `problem` 就是给用户看的那句话（那一层承诺过）。
+        page->setSummary(QString(), plan.problem);
+        return;
+    }
+    // 成立了：把"这一档要下什么、装完是什么样"说清楚（`plan.note` 是补充，可空）。
+    QStringList lines;
+    if (plan.downloads.isEmpty()) {
+        lines.append(QStringLiteral("这一档的下载地址要联网现查（列表拉回来才知道下哪个）。"));
+    } else {
+        QStringList names;
+        for (const ServerInstall::Download &download : plan.downloads) {
+            names.append(download.fileName);
+        }
+        lines.append(QStringLiteral("要下：%1").arg(names.join(QStringLiteral("、"))));
+    }
+    if (plan.firstLaunchNeedsNetwork) {
+        lines.append(QStringLiteral("第一次启动还要联网拉东西。"));
+    }
+    if (!plan.note.isEmpty()) {
+        lines.append(plan.note);
+    }
+    lines.append(ServerInstall::installMethodText(plan.method));
+    page->setSummary(lines.join(QStringLiteral("\n")), QString());
 }
 
 void MainWindow::openUpdateCenter(const QString &instanceId) {

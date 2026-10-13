@@ -68,6 +68,10 @@ set(HEADER_FILES
     src/tasks/TaskManager.hpp
     src/tasks/TaskHistory.hpp
     src/diag/GameExitDiagnosis.hpp
+    # 服务端工作区（2026-10-13，coding plan §6 / 里程碑 M4）：一个服务端是什么（判据层，
+    # 纯函数）、盘上那一份谁在住（扫目录 + 读写 .wtfml-server）。
+    src/server/ServerModel.hpp
+    src/server/ServerRegistry.hpp
     src/util/AppPaths.hpp
     src/util/ThemeImage.hpp
     src/util/ImageDecode.hpp
@@ -137,6 +141,7 @@ set(SOURCE_FILES
     src/tasks/TaskHistory.cpp
     # 游戏异常退出那几句话（2026-10-12，coding plan §4.3）：纯规则，一张表。
     src/diag/GameExitDiagnosis.cpp
+    src/server/ServerRegistry.cpp
     src/util/ImageDecode.cpp
     src/util/ThemeImage.cpp
     src/util/SystemMemory.cpp
@@ -155,6 +160,7 @@ set(SOURCE_FILES
     ui/TaskDetailPage.cpp
     ui/IntegrityReportPage.cpp
     ui/UpdateCenterPage.cpp
+    ui/NewServerPage.cpp
     ui/GroupDialog.cpp
     ui/GroupListDelegate.cpp
     ui/InstanceSettingsDialog.cpp

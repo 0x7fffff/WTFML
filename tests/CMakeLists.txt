@@ -217,6 +217,17 @@ if(EXISTS ${REPO_ROOT}/src/util/ThemeImage.cpp)
                                 ${REPO_ROOT}/src/util/ThemeImage.hpp)
 endif()
 
+# 服务端工作区那一层（2026-10-13，coding plan §6 / 里程碑 M4）：判据层（`ServerModel`，
+# 纯值进、结构出：状态那七档、`eula.txt` 算不算接受、`server.properties` 解/写、我们记的
+# 那一份的字节格式）+ 扫盘那一层（`ServerRegistry`）。两样都能离线钉死 —— 后者在一个**临时
+# 数据根目录**里真建真读真删（见 main.cpp 的 ZW / ZX 两节）。
+# 理由同上：别的分支上没有它，存在才加。
+if(EXISTS ${REPO_ROOT}/src/server/ServerModel.hpp)
+    list(APPEND PROJECT_SOURCES ${REPO_ROOT}/src/server/ServerModel.hpp
+                                ${REPO_ROOT}/src/server/ServerRegistry.cpp
+                                ${REPO_ROOT}/src/server/ServerRegistry.hpp)
+endif()
+
 add_executable(verify main.cpp ${PROJECT_SOURCES})
 
 target_include_directories(verify PRIVATE ${REPO_ROOT}/src)

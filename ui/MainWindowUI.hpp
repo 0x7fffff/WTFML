@@ -1113,6 +1113,89 @@ public:
         return QString();
     }
 
+    // ---------- 实例页顶部的模式切换：客户端实例 | 服务端（coding plan §6.1）----------
+    //
+    // §6.1 原话：「实例管理页顶部增加模式切换：`客户端实例 | 服务端`。两边复用"左侧根目录 +
+    // 右侧条目"的页面骨架，但使用不同模型和操作」。
+    //
+    // ★ 摆位：这一排**在正文面里、最上面**（筛选行/树那一切的上方），不在页头右上角那排
+    //   页面级操作里 —— 切换的是"下面这一页说的是什么"，和「分组设置…」不是一类东西。
+    // ★ 左边那一栏（游戏文件夹）**两种模式共用**：服务端的根挂在 `<数据目录>/Servers` 底下，
+    //   "选哪一份 .minecraft"这件事两边都要（换了数据目录 = 换了一整套实例，也换了一整套服务端）。
+    enum class InstanceMode {
+        Client,  ///< 客户端实例（老那一页）
+        Server,  ///< 服务端（M4 新那一页）
+    };
+    static QString instanceModeRowName() { return QStringLiteral("instanceModeRow"); }
+    /// 某一颗模式按钮的 objectName。**按这一档点名找**（不解析文字）。
+    static QString instanceModeButtonName(InstanceMode mode) {
+        switch (mode) {
+        case InstanceMode::Client:
+            return QStringLiteral("instanceModeClient");
+        case InstanceMode::Server:
+            return QStringLiteral("instanceModeServer");
+        }
+        return QString();
+    }
+    /// 那一颗上写的字。**唯一出处**（§6.1 点名的那两个词）。
+    static QString instanceModeText(InstanceMode mode) {
+        switch (mode) {
+        case InstanceMode::Client:
+            return QStringLiteral("客户端实例");
+        case InstanceMode::Server:
+            return QStringLiteral("服务端");
+        }
+        return QString();
+    }
+    static QString instanceModeTipText(InstanceMode mode) {
+        switch (mode) {
+        case InstanceMode::Client:
+            return QStringLiteral("这一页管的是客户端实例（装在 versions/ 底下、点一下能启动"
+                                  "游戏的那些）。");
+        case InstanceMode::Server:
+            return QStringLiteral("这一页管的是服务端（装在数据目录的 Servers/ 底下、能开服"
+                                  "的那些）。");
+        }
+        return QString();
+    }
+    /// 正文那一层 `QStackedWidget`（第 0 页 = 客户端，第 1 页 = 服务端）。
+    static QString instanceModeStackName() { return QStringLiteral("instanceModeStack"); }
+
+    // ---------- 服务端那一页（coding plan §6 / M4）----------
+    static QString serverListName() { return QStringLiteral("serverList"); }
+    /// 「一个服务端都还没有」那句（和实例页「没有符合筛选条件的实例」不是一回事：这一句
+    /// 说的是"**盘上真的一条都没有**"）。平时收着，列表空着时才露。
+    static QString serverEmptyLabelName() { return QStringLiteral("serverEmpty"); }
+    static QString serverEmptyText() {
+        return QStringLiteral("还没有服务端。点下面的「新建服务端…」装一个。");
+    }
+    /// 「新建服务端…」那一颗（正文面底部）。**是造一个新东西出来**，不是改已有的 ——
+    /// 所以它是这一页的主操作，摆在列表下面、整栏宽。
+    static QString newServerButtonName() { return QStringLiteral("newServerButton"); }
+    static QString newServerText() { return QStringLiteral("新建服务端…"); }
+
+    // ---------- 「新建服务端」那一页（coding plan §6.2 / M4）----------
+    //
+    // ★ `ui/` **不 include `src/`**（见 GroupDialog 文件头那段老规矩）：这一页只摆控件、
+    //   只把"用户填了什么"如实报出去；八档的表、每一档要填哪几格、"这一档要下什么"那句
+    //   计划说明，全由 `MainWindow` 那一个翻译点喂进来（`NewServerPage::setFlavors()` /
+    //   `setSummary()`）。
+    static QString newServerPageName() { return QStringLiteral("newServerPage"); }
+    static QString newServerNameEditName() { return QStringLiteral("newServerNameEdit"); }
+    static QString newServerFlavorComboName() { return QStringLiteral("newServerFlavorCombo"); }
+    static QString newServerGameVersionEditName() {
+        return QStringLiteral("newServerGameVersionEdit");
+    }
+    static QString newServerLoaderEditName() { return QStringLiteral("newServerLoaderEdit"); }
+    static QString newServerInstallerEditName() {
+        return QStringLiteral("newServerInstallerEdit");
+    }
+    static QString newServerBuildEditName() { return QStringLiteral("newServerBuildEdit"); }
+    static QString newServerMemorySpinName() { return QStringLiteral("newServerMemorySpin"); }
+    /// 「这一档要下什么、装完是什么样」那一句（计划说明）。由 `MainWindow` 现算现喂。
+    static QString newServerSummaryLabelName() { return QStringLiteral("newServerSummary"); }
+    static QString newServerCreateButtonName() { return QStringLiteral("newServerCreateButton"); }
+
     static QString tabWidgetName() { return QStringLiteral("mainTabWidget"); }
     static QString homeTabName() { return QStringLiteral("homeTab"); }
     static QString instanceTabName() { return QStringLiteral("instanceTab"); }
@@ -2735,6 +2818,23 @@ public:
     QWidget *getInstanceFilterRow() const { return instanceFilterRow; }
     /// "没有符合筛选条件的实例"那一行字（平时收着，见 `instanceNoMatchText()` 那段）。
     QLabel *getInstanceNoMatchLabel() const { return instanceNoMatchLabel; }
+
+    // ---------- 实例页的模式切换 + 服务端那一页（coding plan §6.1 / M4）----------
+    /// 某一颗模式按钮（越界/认不出回 nullptr）。点它换页这件事由 `MainWindow` 接 ——
+    /// 这一层只摆控件、只把自己的 `isChecked()` 如实报出去（和筛选 chip 同一个路数）。
+    QPushButton *getInstanceModeButton(InstanceMode mode) const {
+        const int index = static_cast<int>(mode);
+        return index >= 0 && index < instanceModeButtons.size() ? instanceModeButtons.at(index)
+                                                                : nullptr;
+    }
+    /// 正文那一层 `QStackedWidget`（0 = 客户端实例，1 = 服务端）。
+    QStackedWidget *getInstanceModeStack() const { return instanceModeStack; }
+    /// 服务端那一页的列表（一行一个服务端）。
+    QTreeWidget *getServerList() const { return serverList; }
+    /// 「还没有服务端」那句（平时收着）。
+    QLabel *getServerEmptyLabel() const { return serverEmptyLabel; }
+    /// 「新建服务端…」那一颗。
+    QPushButton *getNewServerButton() const { return newServerButton; }
     // 实例页右栏那三个按钮，作用于「实例列表」里当前选中的那一个实例。
     /// 「分组设置…」那一颗 —— 2026-09-25 傍晚起它在「实例列表」那个框**外面**的右上角
     /// （这一页右栏那一排三颗只剩它一颗，见上面那段 NOTE）。
@@ -2777,6 +2877,14 @@ public:
     ///   见 `MainWindow::setupConnections` 里那条 `currentRowChanged`）。传越界的下标
     ///   什么都不改（页头宁可停在上一句，也不要空成一行）。
     void setDownloadHeaderRow(int row);
+
+    /// 把实例页正文切到 @p mode 那一页（客户端实例 / 服务端）。
+    ///
+    /// ★ **唯一出处** —— 顶上那两颗按钮的勾、`instanceModeStack` 停在第几页、以及"当前是
+    ///   哪一档"这件事，全从这一个函数走。`MainWindow` 在按钮那一路和"记住/恢复模式"那一路
+    ///   都调它，别在两处各设一遍（那样两颗按钮的勾和实际停着的页迟早对不上）。
+    /// 传越界的值什么都不做（宁可停在上一档，也不要切到一页不存在的页上）。
+    void setInstanceMode(InstanceMode mode);
 
     /// 顶上那四颗导航，**最后一次是按在哪一颗上的**（按下去**之前**那一颗 = 那一按的来路；
     /// -1 = 这一次运行还没人按过）。两个出口都读它，判的都是同一句"这一按是从下载页上按的"：
@@ -3081,6 +3189,14 @@ private:
     QList<QPushButton *> instanceFilterButtons;
     /// "没有符合筛选条件的实例"那一行（默认收着）。
     QLabel *instanceNoMatchLabel = nullptr;
+    /// 实例页正文那一层（第 0 页 = 客户端实例，第 1 页 = 服务端，见 coding plan §6.1）。
+    QStackedWidget *instanceModeStack = nullptr;
+    /// 顶上那两颗模式按钮，下标 = `InstanceMode` 的序号（见 `getInstanceModeButton()`）。
+    QList<QPushButton *> instanceModeButtons;
+    /// 服务端那一页：列表 + 空态那句 + 「新建服务端…」那颗（coding plan §6 / M4）。
+    QTreeWidget *serverList = nullptr;
+    QLabel *serverEmptyLabel = nullptr;
+    QPushButton *newServerButton = nullptr;
     QComboBox *installedVersionCombo = nullptr;
     /// 下载页左栏那份「下载分类」（见头文件上面那段）与右栏那份 QStackedWidget。
     /// 五页**全是真**的（2026-09-23 起）：第 0 页「游戏」是版本树 + 安装页，其余四页

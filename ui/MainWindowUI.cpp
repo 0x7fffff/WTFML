@@ -954,7 +954,16 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         //
         // 摆进**正文面里**、树的上方（不是页头右上角那个"页面级操作"位）：搜索和筛选是
         // "下面这棵树怎么摆"，和那颗「分组设置…」不是一类东西 —— 后者管的是分组清单本身。
-        instanceFilterRow = new QWidget(instance.right.surface);
+        // ★ 2026-10-13（coding plan §6.1）：这一整套（筛选行 + 空态 + 树）**挪进一个页面**
+        //   里，好和"服务端那一页"一起塞进 `instanceModeStack`。控件本身、objectName、
+        //   灌数据那条路一处都没动 —— 只是多套了一层容器。
+        QWidget *clientPage = new QWidget(instance.right.surface);
+        clientPage->setObjectName(QStringLiteral("instanceClientPage"));
+        auto *clientLayout = new QVBoxLayout(clientPage);
+        clientLayout->setContentsMargins(0, 0, 0, 0);
+        clientLayout->setSpacing(kFilterRowSpacing);
+
+        instanceFilterRow = new QWidget(clientPage);
         instanceFilterRow->setObjectName(instanceFilterRowName());
         {
             auto *row = new QHBoxLayout(instanceFilterRow);
@@ -994,12 +1003,12 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
                 row->addWidget(button);
             }
         }
-        instance.right.layout->addWidget(instanceFilterRow);
+        clientLayout->addWidget(instanceFilterRow);
 
         // 「没有符合筛选条件的实例」那一行：摆在这儿（筛选行下面、树上面）而不是树的
         // 下边 —— 筛空了的时候树是空的，那句话直接跟着筛选行读下来才对得上"是上面那些
         // 条件把它滤没的"。平时收着（`setVisible(false)`，连位置都不占）。
-        instanceNoMatchLabel = new QLabel(instanceNoMatchText(), instance.right.surface);
+        instanceNoMatchLabel = new QLabel(instanceNoMatchText(), clientPage);
         instanceNoMatchLabel->setObjectName(instanceNoMatchLabelName());
         markTextRole(instanceNoMatchLabel, Theme::secondaryTextRoleValue());
         instanceNoMatchLabel->setAlignment(Qt::AlignCenter);
@@ -1008,9 +1017,9 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // sizeHint 是"整句排成一行"的宽度）。
         instanceNoMatchLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
         instanceNoMatchLabel->setVisible(false);
-        instance.right.layout->addWidget(instanceNoMatchLabel);
+        clientLayout->addWidget(instanceNoMatchLabel);
 
-        instanceList = new QTreeWidget(instance.right.surface);
+        instanceList = new QTreeWidget(clientPage);
         instanceList->setObjectName(instanceListName());
         instanceList->setHeaderHidden(true);
         // ★ 这一棵树**自己那圈边不画**（2026-10-12）：它四周已经是正文那个面（`workspace`），
@@ -1052,7 +1061,84 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // 展开/折叠动画（2026-09-29）：组行那一按，子条目是**滑**出来的。交给 Qt 自己
         // （`QTreeView::setAnimated`），规矩见 ui/Animations.hpp。
         Anim::animateExpansion(instanceList);
-        instance.right.layout->addWidget(instanceList, 1);
+        clientLayout->addWidget(instanceList, 1);
+
+        // ---------- 顶部模式切换 + 服务端那一页（coding plan §6.1 / M4）----------
+        //
+        // 这一排是这一页**最上面**那一行：两颗按钮（「客户端实例」/「服务端」），下面那个
+        // `QStackedWidget` 按它换页。摆进正文面里（不是页头右上角那排页面级操作）—— 它
+        // 切的是"下面这一页说的是什么"，和「分组设置…」不是一类东西。
+        {
+            auto *modeRow = new QWidget(instance.right.surface);
+            modeRow->setObjectName(instanceModeRowName());
+            auto *modeLayout = new QHBoxLayout(modeRow);
+            modeLayout->setContentsMargins(0, 0, 0, 0);
+            modeLayout->setSpacing(kFilterRowSpacing);
+            for (int i = 0; i < 2; ++i) {
+                const auto mode = static_cast<InstanceMode>(i);
+                auto *button = new QPushButton(instanceModeText(mode), modeRow);
+                button->setObjectName(instanceModeButtonName(mode));
+                button->setCheckable(true);
+                button->setToolTip(instanceModeTipText(mode));
+                // chip 那一档（和筛选那几颗同一处出处）。**互斥**由 `MainWindow` 那一层认
+                // （点一颗就把另一颗的勾摘掉）—— 这里不挂 `setAutoExclusive`：那是"单选钮"
+                // 那一套，和这一页别处的手感不一致（见 InstanceFilterButton 那段）。
+                Theme::markChipButton(button);
+                instanceModeButtons.append(button);
+                modeLayout->addWidget(button);
+            }
+            // 两颗靠左，剩下的空当由弹簧吃掉。
+            modeLayout->addStretch(1);
+            instance.right.layout->addWidget(modeRow);
+        }
+
+        instanceModeStack = new QStackedWidget(instance.right.surface);
+        instanceModeStack->setObjectName(instanceModeStackName());
+        instanceModeStack->addWidget(clientPage);  // 第 0 页 = 客户端实例
+
+        // ---- 第 1 页：服务端 ----
+        //
+        // "一行一个服务端"的一份清单（灌数据在 MainWindow::refreshServerList()）。这一页
+        // 是**平铺的**（服务端没有分组），所以条目就是最上面一层、没有组头。
+        QWidget *serverPage = new QWidget(instanceModeStack);
+        serverPage->setObjectName(QStringLiteral("instanceServerPage"));
+        auto *serverLayout = new QVBoxLayout(serverPage);
+        serverLayout->setContentsMargins(0, 0, 0, 0);
+        serverLayout->setSpacing(kFilterRowSpacing);
+
+        serverEmptyLabel = new QLabel(serverEmptyText(), serverPage);
+        serverEmptyLabel->setObjectName(serverEmptyLabelName());
+        markTextRole(serverEmptyLabel, Theme::secondaryTextRoleValue());
+        serverEmptyLabel->setAlignment(Qt::AlignCenter);
+        serverEmptyLabel->setWordWrap(true);
+        serverEmptyLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+        serverEmptyLabel->setVisible(false);
+        serverLayout->addWidget(serverEmptyLabel);
+
+        serverList = new QTreeWidget(serverPage);
+        serverList->setObjectName(serverListName());
+        serverList->setHeaderHidden(true);
+        serverList->setFrameShape(QFrame::NoFrame);
+        serverList->setRootIsDecorated(false);
+        serverList->setUniformRowHeights(true);
+        serverList->setSelectionMode(QAbstractItemView::SingleSelection);
+        // 行首那个图标（按档画的那张 64×64 瓦片，见 assets/loader/*.png 与
+        // MainWindow::refreshServerList()）—— 边长和实例行同一个数，两处对不上 QIcon 会重采样。
+        serverList->setIconSize(QSize(instanceTreeIconSize(), instanceTreeIconSize()));
+        serverList->setMouseTracking(true);
+        serverLayout->addWidget(serverList, 1);
+
+        newServerButton = new QPushButton(newServerText(), serverPage);
+        newServerButton->setObjectName(newServerButtonName());
+        // 造一个新东西出来 = 这一页的主操作，走主题色那一档（和左栏「添加文件夹…」同一档）。
+        Theme::markButton(newServerButton, Theme::ButtonKind::Accent);
+        serverLayout->addWidget(newServerButton);
+
+        instanceModeStack->addWidget(serverPage);  // 第 1 页 = 服务端
+        instance.right.layout->addWidget(instanceModeStack, 1);
+        // 起手停在第 0 页（客户端实例）—— 顺带把那两颗按钮的勾摆正（`setInstanceMode()`
+        // 是"停在哪一页 + 谁勾着"的唯一出处）。
+        setInstanceMode(InstanceMode::Client);
 
         // NOTE: 这里原来是三颗按钮的一排（重命名… / 分组设置… / 实例设置…）加下面一段
         //       折行提示。**2026-09-25 全部拿掉了**，用户原话：「删掉实例页面右侧三个按钮
@@ -1773,6 +1859,8 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     appearOnSwitch(downloadStack);
     appearOnSwitch(gameStack);
     appearOnSwitch(settingsCategoryStack);
+    // 实例页那一层"客户端实例 / 服务端"也走同一条换页动画（见 §6.1 那段）。
+    appearOnSwitch(instanceModeStack);
 
     setupBottomBar(centralWidget, mainLayout);
 
@@ -1949,6 +2037,20 @@ void MainWindowUI::setDownloadHeaderRow(int row) {
     // 说明是**这一页的状态**，永远露着（`fillPageHeader()` 那套"空串就收起来"在这儿
     // 用不上：它管的是"这一页有没有说明"，而这里每一类都有一句）。
     downloadHeaderSubtitleLabel->setVisible(true);
+}
+
+void MainWindowUI::setInstanceMode(InstanceMode mode) {
+    const int index = static_cast<int>(mode);
+    if (instanceModeStack == nullptr || index < 0 || index >= instanceModeStack->count()) {
+        return;  // 界面没搭出来 / 越界：什么都不改（见头文件那段）
+    }
+    // 两颗按钮的勾和停着的那一页**一起**改（这是这个函数存在的全部意义）。
+    instanceModeStack->setCurrentIndex(index);
+    for (int i = 0; i < instanceModeButtons.size(); ++i) {
+        if (instanceModeButtons.at(i) != nullptr) {
+            instanceModeButtons.at(i)->setChecked(i == index);
+        }
+    }
 }
 
 void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {

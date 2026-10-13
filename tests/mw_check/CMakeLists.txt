@@ -191,6 +191,12 @@ set(SOURCE_FILES
     ${REPO_ROOT}/ui/IntegrityReportPage.cpp
     # 更新中心那一页（2026-10-13，§7.1）：MainWindow.cpp 直接 new 它。
     ${REPO_ROOT}/ui/UpdateCenterPage.cpp
+    # 「新建服务端」那一页（2026-10-13，§6.2 / M4）：MainWindow.cpp 直接 new 它。
+    ${REPO_ROOT}/ui/NewServerPage.cpp
+    # 服务端工作区（2026-10-13，§6 / M4）：MainWindow.cpp 里建服务端 / 重扫列表那几条路
+    # 直接调它。少了这一个文件会在链接那一步报一串 `ServerRegistry::…` 的 undefined
+    # reference（`ServerModel.hpp` 是纯头，不用列）。
+    ${REPO_ROOT}/src/server/ServerRegistry.cpp
     ${REPO_ROOT}/src/tasks/TaskManager.cpp
     ${REPO_ROOT}/src/tasks/TaskHistory.cpp
     ${REPO_ROOT}/ui/WindowChrome.cpp

@@ -85,8 +85,15 @@
 // 更新中心那一页（coding plan §7.1）：`Report` / `Row` 按值造（updateCenterReportForPage()
 // 的返回值），所以得 include 而不是前置声明 —— 同 IntegrityReportPage 那一条。
 #include "..\ui\UpdateCenterPage.hpp"
+// 「新建服务端」那一页（coding plan §6.2 / M4）：`m_newServerPage` 是个指针（前置声明就
+// 够），但 `updateNewServerSummary()` 的签名里按指针用它 —— 一并 include，省得再想
+// "哪一份要前置声明哪一份要 include"。
+#include "..\ui\NewServerPage.hpp"
 
-class MainWindowUI;
+// MainWindowUI —— `InstanceMode` 是**按值**存在成员里的（`m_instanceMode`），而前置声明
+// 说得出 `MainWindowUI *`、说不出它里面的嵌套枚举，所以这里得 include（同 TaskDetailPage /
+// IntegrityReportPage 那条老规矩）。这个头自己不 include MainWindow.hpp，不构成环。
+#include "..\ui\MainWindowUI.hpp"
 // 安装页那棵加载器树上的一个条目（loaderItem()）。这里只在私有函数的参数/返回值里按
 // 指针用，前置声明就够 —— 不值得为了一个参数类型让每个 include 了 MainWindow.hpp 的
 // 地方都把 QtWidgets 里那个大块头拖进来。
@@ -2332,6 +2339,25 @@ private:
     ///     命中条目躲在收起来的组里 = 用户看着像"搜不到"），但那个展开状态**不落盘** ——
     ///     清空之后各组回到 `wtfml.folders` 里记着的样子。
     void rebuildInstanceTree();
+
+    // ---------- 服务端那一页（coding plan §6 / 里程碑 M4）----------
+    //
+    /// 实例页正文切到 @p mode 那一页（客户端实例 / 服务端）。
+    ///
+    /// ★ 它做两件事：① 把界面切过去（`MainWindowUI::setInstanceMode()`，那两颗按钮的勾和
+    ///   停着的那一页的唯一出处）；② 切到服务端时**顺手重扫一遍** `Servers/`（盘上可能刚被
+    ///   别的东西动过）。`m_instanceMode` 在这儿记下来。
+    void setInstanceMode(MainWindowUI::InstanceMode mode);
+    /// 重扫 `<数据目录>/Servers`，把服务端列表重灌一遍（`ServerRegistry::scanAll()`）。
+    void refreshServerList();
+    /// 开「新建服务端」那一页（覆盖层整页，`OverlayHost::execPage()`）。它 `accept()` 之后
+    /// 才轮到这边建目录、写 `.wtfml-server`。
+    void openNewServerPage();
+    /// 给「新建服务端」那一页现算那句计划说明 + 「创建」能不能点（`fieldsChanged` 的接收端）。
+    ///
+    /// **唯一翻译点**：`ServerInstall::planFor()` 的结论 + `ServerRegistry` 的重名判据，
+    /// 全在这一个函数里被翻成人话喂给页面；页面自己一个判据都不算（`ui/` 不 include `src/`）。
+    void updateNewServerSummary(NewServerPage *page);
     /// 此刻的搜索/筛选条件（读界面上那个搜索框和四颗 chip）。
     InstanceFilter::Query instanceFilterQuery() const;
     /// 一个实例参与筛选的那几样**事实**：可搜索的串（`InstanceFilter::textsFor()`）、
@@ -2777,6 +2803,13 @@ private:
     UpdatePolicy::Store m_updatePolicy;
     /// 更新中心那一页（懒建一次、之后复用）。
     UpdateCenterPage *m_updateCenterPage = nullptr;
+    /// 实例页正文现在停在哪种模式（客户端实例 / 服务端，coding plan §6.1）。
+    ///
+    /// NOTE: 记的用户**最近一次**选的档（切开页面、切回来还是他选的那一档），不是"盘上有没有
+    ///       服务端"。两个模式的判据分得很清：这个字段只管"露哪一页"。
+    MainWindowUI::InstanceMode m_instanceMode = MainWindowUI::InstanceMode::Client;
+    /// 「新建服务端」那一页（懒建一次、之后复用，和更新中心同一个路数）。
+    NewServerPage *m_newServerPage = nullptr;
     /// 那一页现在说的是哪个实例的结论（**开那一页时记下来**）。
     ///
     /// 和 `m_integrityReportVersionId` 一个路数：页面是复用的、点动作时它可能已经关了，

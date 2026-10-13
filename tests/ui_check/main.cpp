@@ -127,6 +127,7 @@
 #include "IntegrityReportPage.hpp"
 #include "UpdateCenterPage.hpp"  // U33：更新中心（「检查更新」查出来的结论摊成能动手的一页）
 #include "JavaMismatchDialog.hpp"
+#include "NewServerPage.hpp"  // U34：「新建服务端」那一页（coding plan §6.2 / M4）
 #include "MainWindowUI.hpp"
 // Z11 那两条原生消息的契约断言：拼 MSG 这件事单独一个 TU（chrome_messages.cpp），
 // 免得这个一万多行的文件去 include <windows.h>（理由见那个文件的文件头）。
@@ -662,8 +663,9 @@ int main(int argc, char *argv[]) {
               "「安装」不在主页（它只在下载页的安装页上）");
         check(instancePage != nullptr && isAncestor(instancePage, folderList) &&
                   isAncestor(instancePage, instanceList) &&
-                  instancePage->findChildren<QPushButton *>().size() == 7,
-              // 七个 = 下面那三颗 + 搜索行那四颗筛选 chip（§7.2）。
+                  instancePage->findChildren<QPushButton *>().size() == 10,
+              // 十个 = 下面那三颗 + 搜索行那四颗筛选 chip（§7.2）+ 模式行那两颗
+              // （客户端实例 / 服务端）+ 右下那颗「新建服务端…」（§6.1 / M4）。
               // 三个 = 左栏「游戏文件夹」那一组的两个（「添加文件夹…」+「导入整合包…」）
               // + 「分组设置…」那一颗（它在「实例列表」那个框外面的右上角）。
               // 这个数字是**故意**钉死的：往这一页加控件时，要么它是这里数得着的一个，
@@ -678,9 +680,14 @@ int main(int argc, char *argv[]) {
               // 按钮：它们要"亮着/不亮"这个状态（和资源详情页那排游戏版本、文件页那四颗
               // 筛子同一档控件），拿 QCheckBox 来摆是另一套观感。四颗的名字 / 文字 / 互斥
               // 在下面 U32 那一段，这一条数的就是"这一页上到底有几颗 QPushButton"。
+              // 2026-10-13 从 7 又到 10：实例页顶部多了**模式切换**（客户端实例 | 服务端）
+              // 与服务端那半页（coding plan §6.1 / M4）。三颗新的：模式行那两颗 chip
+              // （要"亮着/不亮"这个状态，理由同上面那四颗筛选 chip）+「新建服务端…」
+              // （用户答"服务端根目录 = 一个自己的 Servers/ 文件夹"之后，服务端那半页的
+              // 建入口）。
               // 实例行行尾那三颗（齿轮/上箭头/垃圾桶）**不是按钮**：它们是代理画出来的格子，
               // 数不进来（它们的命中在 mw_check 里量）。
-              "实例页是「左文件夹 + 右实例」两张列表 + 三颗页面按钮 + 四颗筛选 chip",
+              "实例页是「左文件夹 + 右实例」两张列表 + 模式行两颗 + 三颗页面按钮 + 四颗筛选 chip",
               QString::number(instancePage != nullptr
                                   ? instancePage->findChildren<QPushButton *>().size()
                                   : -1));
@@ -27340,6 +27347,197 @@ int main(int argc, char *argv[]) {
 
         page.close();
         QApplication::processEvents();
+    }
+
+    // ---------- U34 实例页顶部模式切换 + 服务端那半页（coding plan §6.1 / M4-1）----------
+    //
+    // §6.1 落到界面上的那一份：实例页正文面顶上多一行**模式切换**（客户端实例 | 服务端），
+    // 下面那一整块跟着换页（`instanceModeStack`）—— 客户端那一页就是原来那张「文件夹 +
+    // 实例树」，服务端那一页是一棵空的树 + 一句「还没有服务端」+ 一颗「新建服务端…」。
+    // 这一节量的是**看得见的那一份**：两颗 chip 在不在 / 勾没勾对、换页换没换对、服务端
+    // 那半页那三样控件在不在、那句空状态是不是约定的那一句；再加「新建服务端」那一页自身
+    // 的形状（下拉框里那几档、按档露/收那三行、说明与「创建」能不能点）。
+    //
+    // NOTE: 接线（切模式真的重扫了盘、创建真的落了盘、双击真的开了目录）在 mw_check 的 T38；
+    //       判据层（认档、洗名字、读写 `.wtfml-server`）在 verify 的 ZW / ZX 段。这一节
+    //       只量"这一行长什么样"，不重验那两半。
+    {
+        window.show();
+        window.resize(980, 780);
+        if (tabs != nullptr) {
+            tabs->setCurrentIndex(MainWindowUI::instancesTabIndex());
+        }
+        QApplication::processEvents();
+
+        QPushButton *clientChip =
+            ui.getInstanceModeButton(MainWindowUI::InstanceMode::Client);
+        QPushButton *serverChip =
+            ui.getInstanceModeButton(MainWindowUI::InstanceMode::Server);
+        QStackedWidget *modeStack = ui.getInstanceModeStack();
+        QTreeWidget *serverTree = ui.getServerList();
+        QLabel *serverEmpty = ui.getServerEmptyLabel();
+        QPushButton *newServer = ui.getNewServerButton();
+        const bool modeThere = clientChip != nullptr && serverChip != nullptr &&
+                               modeStack != nullptr && serverTree != nullptr &&
+                               serverEmpty != nullptr && newServer != nullptr;
+        check(modeThere,
+              "U34.0 前提：模式行那两颗 chip / 换页容器 / 服务端那棵树 / 空状态那句 / "
+              "「新建服务端…」都按 objectName 找得到");
+        if (modeThere) {
+            // ---------- ① 两颗 chip：文字、能亮/能灭、初始停在「客户端实例」 ----------
+            check(clientChip->isCheckable() && serverChip->isCheckable() &&
+                      clientChip->text() == MainWindowUI::instanceModeText(
+                                                MainWindowUI::InstanceMode::Client) &&
+                      serverChip->text() == MainWindowUI::instanceModeText(
+                                                MainWindowUI::InstanceMode::Server),
+                  "★ U34.1 两颗模式 chip 的文字逐字是约定的「客户端实例 / 服务端」，而且都是"
+                  "「能亮/能灭」的那一档（它们要的是「正停在哪一边」这个状态）",
+                  QStringLiteral("%1 / %2").arg(clientChip->text(), serverChip->text()));
+            check(!clientChip->toolTip().isEmpty() && !serverChip->toolTip().isEmpty(),
+                  "★ U34.1 两颗各自挂着一句说明（悬停能看出这两半各自管什么）");
+            check(modeStack->count() == 2 && modeStack->currentIndex() == 0 &&
+                      clientChip->isChecked() && !serverChip->isChecked(),
+                  "★★ U34.2 起手停在「客户端实例」：换页容器的第 0 页 + 左边那颗勾着、"
+                  "右边那颗没勾",
+                  QStringLiteral("页数=%1 停在第%2页").arg(modeStack->count())
+                      .arg(modeStack->currentIndex()));
+
+            // ---------- ② 换页：setInstanceMode 是「停在哪一页 + 谁勾着」的唯一出处 ----------
+            ui.setInstanceMode(MainWindowUI::InstanceMode::Server);
+            QApplication::processEvents();
+            check(modeStack->currentIndex() == 1 && serverChip->isChecked() &&
+                      !clientChip->isChecked(),
+                  "★★ U34.2 切到服务端：换页容器停到第 1 页，而且**勾跟着换**（两颗是一组"
+                  "互斥的 chip，不是两颗各自能按的按钮）",
+                  QStringLiteral("停在第%1页 服务端勾=%2 客户端勾=%3")
+                      .arg(modeStack->currentIndex())
+                      .arg(serverChip->isChecked() ? 1 : 0)
+                      .arg(clientChip->isChecked() ? 1 : 0));
+            ui.setInstanceMode(MainWindowUI::InstanceMode::Client);
+            QApplication::processEvents();
+            check(modeStack->currentIndex() == 0 && clientChip->isChecked() &&
+                      !serverChip->isChecked(),
+                  "★ U34.2 切回客户端：又回到第 0 页、勾也换回来");
+
+            // ---------- ③ 那一行摆在哪：和换页容器同栏、在它上面 ----------
+            //
+            // 次序按**布局里那一位**比（不比屏幕坐标）：藏起来的控件不参加布局，算出来的
+            // 位置是个残留值。模式行和换页容器**同一栏**，行在前。
+            QWidget *modeRow = window.findChild<QWidget *>(MainWindowUI::instanceModeRowName());
+            auto *modeColumn = modeRow != nullptr
+                                   ? qobject_cast<QBoxLayout *>(modeRow->parentWidget()->layout())
+                                   : nullptr;
+            const int rowAt = modeColumn != nullptr ? modeColumn->indexOf(modeRow) : -1;
+            const int stackAt = modeColumn != nullptr ? modeColumn->indexOf(modeStack) : -1;
+            check(modeRow != nullptr && modeRow->parentWidget() == modeStack->parentWidget() &&
+                      rowAt >= 0 && rowAt < stackAt,
+                  "★★ U34.3 模式行和换页容器**同一栏、在它上面**（这一行是「下面那一整块"
+                  "看哪一边」的开关，不是另开一块面板）",
+                  QStringLiteral("同一栏=%1 次序 %2 < %3")
+                      .arg(modeRow != nullptr && modeRow->parentWidget() == modeStack->parentWidget()
+                               ? 1
+                               : 0)
+                      .arg(rowAt)
+                      .arg(stackAt));
+
+            // ---------- ④ 服务端那半页那三样 ----------
+            check(serverEmpty->text() == MainWindowUI::serverEmptyText(),
+                  "★ U34.4 服务端那半页的空状态逐字就是约定的那一句", serverEmpty->text());
+            check(!serverTree->rootIsDecorated() && serverTree->selectionMode() ==
+                      QAbstractItemView::SingleSelection,
+                  "★ U34.4 服务端那棵树不画根展开箭头、单选（和实例树同一档观感）");
+            check(newServer->text() == MainWindowUI::newServerText(),
+                  "★ U34.4 「新建服务端…」那颗的文字逐字就是约定的那一句", newServer->text());
+        }
+
+        // ---------- ⑤ 「新建服务端」那一页自身的形状 ----------
+        //
+        // 这一页**不联网、不碰盘**（见它的文件头）：挑档、填名字这些事都在它自己身上，
+        // 建目录 / 下载是 `accept()` 之后 `MainWindow` 的活。所以这里能离线把它驱动一遍。
+        {
+            NewServerPage page;
+            page.resize(720, 520);
+            page.show();
+            QApplication::processEvents();
+
+            QList<NewServerPage::FlavorOption> flavors;
+            {
+                NewServerPage::FlavorOption a;
+                a.token = QStringLiteral("fabric");
+                a.name = QStringLiteral("Fabric");
+                a.note = QStringLiteral("装了 Fabric 的服务端");
+                a.needsLoader = true;
+                a.needsInstaller = true;
+                a.needsLoaderGame = true;
+                flavors.append(a);
+                NewServerPage::FlavorOption b;
+                b.token = QStringLiteral("paper");
+                b.name = QStringLiteral("Paper");
+                b.note = QStringLiteral("Paper 服务端");
+                b.needsBuild = true;
+                b.needsLoaderGame = true;
+                flavors.append(b);
+            }
+            page.setFlavors(flavors, QStringLiteral("fabric"));
+            QApplication::processEvents();
+
+            auto *combo = page.findChild<QComboBox *>(MainWindowUI::newServerFlavorComboName());
+            auto *loaderEdit = page.findChild<QLineEdit *>(MainWindowUI::newServerLoaderEditName());
+            auto *installerEdit =
+                page.findChild<QLineEdit *>(MainWindowUI::newServerInstallerEditName());
+            auto *buildEdit = page.findChild<QLineEdit *>(MainWindowUI::newServerBuildEditName());
+            auto *memorySpin = page.findChild<QSpinBox *>(MainWindowUI::newServerMemorySpinName());
+            auto *summary = page.findChild<QLabel *>(MainWindowUI::newServerSummaryLabelName());
+            auto *createBtn =
+                page.findChild<QPushButton *>(MainWindowUI::newServerCreateButtonName());
+            const bool pageThere = combo != nullptr && loaderEdit != nullptr &&
+                                   installerEdit != nullptr && buildEdit != nullptr &&
+                                   memorySpin != nullptr && summary != nullptr &&
+                                   createBtn != nullptr;
+            check(pageThere, "U34.5 前提：「新建服务端」那一页那几格都按 objectName 找得到");
+            if (pageThere) {
+                check(combo->count() == 2 && combo->itemText(0) == QStringLiteral("Fabric") &&
+                          combo->itemText(1) == QStringLiteral("Paper") &&
+                          combo->itemData(0, Qt::UserRole).toString() == QStringLiteral("fabric"),
+                      "★ U34.5 下拉框逐条摆的就是喂进来的那几档（认的是 token，不是文字）");
+                // 停在 Fabric（要加载器 + 安装器，不要构建号）⇒ 那两行露着、构建号收着。
+                check(loaderEdit->isVisible() && installerEdit->isVisible() &&
+                          !buildEdit->isVisible(),
+                      "★★ U34.6 停在 Fabric：加载器/安装器两行露着、构建号那一行**收着**"
+                      "（填到哪一格才知道下一步填什么）",
+                      QStringLiteral("loader=%1 installer=%2 build=%3")
+                          .arg(loaderEdit->isVisible() ? 1 : 0)
+                          .arg(installerEdit->isVisible() ? 1 : 0)
+                          .arg(buildEdit->isVisible() ? 1 : 0));
+                // 换成 Paper（只要构建号）⇒ 反过来，而且**收着的那一行读回去是空串**
+                // （旧的字留在框里，读回去就成了"这一档也有加载器版本"）。
+                page.setFlavors(flavors, QStringLiteral("paper"));
+                QApplication::processEvents();
+                check(!loaderEdit->isVisible() && !installerEdit->isVisible() &&
+                          buildEdit->isVisible(),
+                      "★★ U34.6 换成 Paper：构建号那一行露出来、加载器/安装器两行收起来",
+                      QStringLiteral("loader=%1 installer=%2 build=%3")
+                          .arg(loaderEdit->isVisible() ? 1 : 0)
+                          .arg(installerEdit->isVisible() ? 1 : 0)
+                          .arg(buildEdit->isVisible() ? 1 : 0));
+                check(page.loaderVersion().isEmpty() && page.installerVersion().isEmpty() &&
+                          page.buildId().isEmpty(),
+                      "★ U34.6 没填的那几格读回去是空串（收着的行不算数）");
+                // 说明与「创建」：有问题时点名问题并把创建挡住，没问题时放行。
+                page.setSummary(QString(), QStringLiteral("先填个游戏版本"));
+                check(summary->text() == QStringLiteral("先填个游戏版本") && !createBtn->isEnabled(),
+                      "★★ U34.7 填法不成立时：把那句问题摆出来，「创建」**点不动**"
+                      "（点下去只会建一个半残的服务端）");
+                page.setSummary(QStringLiteral("要下 paper.jar"), QString());
+                check(summary->text() == QStringLiteral("要下 paper.jar") && createBtn->isEnabled(),
+                      "★ U34.7 填法成立时：摆计划说明，「创建」放行");
+                check(memorySpin->value() == 2048 && memorySpin->minimum() == 512,
+                      "★ U34.7 内存那一格起手 2048 MB、下界 512",
+                      QString::number(memorySpin->value()));
+            }
+            page.close();
+            QApplication::processEvents();
+        }
     }
 
     std::printf("\n===== %s: %d/%d =====\n", g_fail == 0 ? "全部通过" : "有失败", g_pass,

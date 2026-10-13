@@ -78,6 +78,44 @@ inline QString minecraftDir() {
 /// 已安装版本的根目录：<数据目录>/versions
 inline QString versionsDir() { return minecraftDir() + QStringLiteral("/versions"); }
 
+/// 服务端工作区的根目录：<数据目录>/Servers。**一个服务端一个子目录**（coding plan §6.1）。
+///
+/// ★ 2026-10-13（coding plan §6 / 里程碑 M4，用户点名的那一句：「像我 E:\MC 里面那样，只不过
+///   所有文件夹合到一个 .minecraft 里的文件夹（如 Servers）」）。真机上他的服务端就是一个
+///   个平铺在 `E:\MC` 底下的目录（`Server1.12.2`、`Server1.20.1`、`Server1.20.2(modded)`…），
+///   我们现在给它们一个共同的根，形状照旧：**一个服务端 = 这个根底下的一个目录**。
+///
+/// ★ 为什么**不**复用 `versions/`（这是最容易顺手做的一个选择，也是错的）：`versions/`
+///   底下每一个子目录都会被当成一个**客户端实例**（版本列表、图标、分组、`--version` 全按
+///   目录名认）。把一个服务端目录摆进去，症状不是报错，而是实例页上凭空多出一个点进去
+///   什么都启动不了的"实例"，而且用户删它的时候走的是删客户端那条路。
+///   反过来，服务端那一页也**不认** `versions/` —— 两边的条目表各扫各的根，谁也看不见谁。
+///
+/// NOTE: 和 `versions/`、`cache/` 平级，挂在数据根目录下，理由同上头那几位：换一份 .minecraft
+///       就是另一套服务端（"整个启动器连带数据可以整体拷走"这条在这里同样适用）。
+/// NOTE: 目录名首字母大写（`Servers`）是照用户自己那份的叫法（`E:\MC\Server1.20.1` 那种）
+///       顺手定的；它底下那些子目录名由用户定（新建时默认 `Server<游戏版本>`）。
+inline QString serversDir() { return minecraftDir() + QStringLiteral("/Servers"); }
+
+/// 单个服务端的目录：Servers/<id>。@p serverId 就是目录名（和 versions 那边同一个约定：
+/// 目录名即身份，可以是中文/空格）。
+inline QString serverDir(const QString &serverId) {
+    return serversDir() + QLatin1Char('/') + serverId;
+}
+
+/// 启动器给一个服务端记的那一份：Servers/<id>/.wtfml-server（可选文件）。
+///
+/// NOTE: 点开头 + 不叫 .json，理由和 `wtfml.meta` / `wtfml.folders` 同源：它住在**服务端自己
+///       的目录里**，而那个目录是游戏进程的工作目录 —— 服务端自己会往里写一堆东西
+///       （`server.properties`、`eula.txt`、`world/`、`logs/`…），插件/模组也可能扫根目录。
+///       点开头 + 我们自己的格式标记（见 `ServerModel::formatTag()`）能让两边互不打扰。
+inline QString serverMetaFileName() { return QStringLiteral(".wtfml-server"); }
+
+/// Servers/<id>/.wtfml-server
+inline QString serverMetaPath(const QString &serverId) {
+    return serverDir(serverId) + QLatin1Char('/') + serverMetaFileName();
+}
+
 /// 游戏自己写的崩溃报告：<数据目录>/crash-reports
 ///
 /// ★ 2026-10-13（coding plan §5.3）：原来这一句**逐字写在** `MainWindow::openCrashReportsDir()`

@@ -105,6 +105,11 @@
 // 的（造两个临时游戏文件夹），所以它要 .cpp 而不只是头文件。
 #include "manage/WorldFiles.hpp"
 #include "net/HttpClient.hpp"
+// 服务端工作区（coding plan §6 / 里程碑 M4）：判据层（状态那七档 / `eula.txt` 算不算接受 /
+// `server.properties` 解与写 / 我们记的那一份 —— 见 ZW 节）和扫盘那一层（`<数据目录>/Servers`
+// 底下谁在住、真建真读真删 —— 见 ZX 节）。两样都离线钉死，一节都不联网、不碰 ui/。
+#include "server/ServerModel.hpp"
+#include "server/ServerRegistry.hpp"
 #include "settings/EffectiveJavaSettings.hpp"
 #include "settings/GameWindowSettings.hpp"
 #include "settings/GlobalJavaSettings.hpp"
@@ -23695,6 +23700,431 @@ static void runUpdateRollbackTests() {
     check(AppPaths::minecraftDir() == originalDir, "ZU9 数据根目录换回来了");
 }
 
+// ---------------------------------------------------------------------------
+// ZW. 服务端判据层：状态 / EULA / server.properties / 我们记的那一份（coding plan §6 / M4）
+//
+// 这一节全是**纯函数**（值进、结构出）：一个服务端目录都不必真的存在、一个进程都不必起。
+// 盯的是几处"错了不会报错、只会静默丢东西"的地方：
+//   · `eula.txt` 到底算不算"接受了"（文件头那段声明里就有 `eula` 字样，判成"含 true 就算"会误判）；
+//   · 我们写下去的那份 `eula.txt` 里那句声明**必须原样留着**（它是"用户接受了"的文本凭证）；
+//   · `server.properties` 解了再写出去要**原地往返**（注释、键序、CRLF 一个字节都不许动 ——
+//     用户在表单里改了端口，别的东西不该跟着变）；
+//   · 从文件反推"这是哪一档"、以及"装好了没有"的判据（Spigot 那一档产物名拼不出来只能扫）。
+// ---------------------------------------------------------------------------
+static void runServerModelTests() {
+    section("ZW. 服务端判据层：状态 / EULA / properties（§6 / M4）");
+
+    // ---------- ZW1. 那七档状态 ----------
+    check(ServerModel::statusName(ServerModel::Status::NotInstalled) == QStringLiteral("未安装"),
+          "ZW1 「未安装」那句话的唯一出处");
+    check(ServerModel::statusName(ServerModel::Status::Crashed) == QStringLiteral("异常退出"),
+          "ZW1 异常退出是单独一档（和「已停止」不是一句话）");
+    check(ServerModel::isLive(ServerModel::Status::Starting) &&
+              ServerModel::isLive(ServerModel::Status::Running) &&
+              ServerModel::isLive(ServerModel::Status::Stopping) &&
+              !ServerModel::isLive(ServerModel::Status::Ready) &&
+              !ServerModel::isLive(ServerModel::Status::Stopped),
+          "ZW1 「在跑」只有启动中/运行中/停止中三档（可启动/已停止都不算）");
+    check(ServerModel::canStart(ServerModel::Status::Ready) &&
+              ServerModel::canStart(ServerModel::Status::Stopped) &&
+              ServerModel::canStart(ServerModel::Status::Crashed) &&
+              !ServerModel::canStart(ServerModel::Status::Running) &&
+              !ServerModel::canStart(ServerModel::Status::NotInstalled),
+          "★ ZW1 能启动的是可启动/已停止/异常退出；**没装好**和**正在跑**都不能按");
+
+    // ---------- ZW2. eula.txt 算不算"接受了" ----------
+    check(!ServerModel::eulaAccepted(QString()),
+          "ZW2 空字节（服务端还没跑过）⇒ 还没接受");
+    // ★ 服务端自己写的那份文件头里就有 `eula` 字样（网址那段），只按"含 true"判会误判。
+    check(!ServerModel::eulaAccepted(
+              QStringLiteral("#By changing the setting below to TRUE you are indicating your "
+                             "agreement to our EULA (https://aka.ms/MinecraftEULA).\n"
+                             "eula=false\n")),
+          "★★ ZW2 文件头那段声明里出现 TRUE / eula 字样**不算**接受（判的是 `eula=` 那一项）");
+    check(ServerModel::eulaAccepted(QStringLiteral("eula=true\n")),
+          "ZW2 eula=true ⇒ 接受");
+    check(ServerModel::eulaAccepted(QStringLiteral("eula=TRUE\n")),
+          "ZW2 大小写不敏感（服务端自己写的是小写，用户手改的可能是大写）");
+    // 后面的盖前面的（Java Properties 语义）：用户先写 false 又跟一行 true ⇒ 以最后那行为准。
+    check(ServerModel::eulaAccepted(QStringLiteral("eula=false\neula=true\n")),
+          "★ ZW2 两行都有 ⇒ **最后一个有效赋值**说了算");
+    check(!ServerModel::eulaAccepted(QStringLiteral("eula=true\neula=false\n")),
+          "★ ZW2 反过来（末尾是 false）⇒ 还没接受");
+    check(!ServerModel::eulaAccepted(QStringLiteral("agree=true\n")),
+          "ZW2 不是 eula 那一项 ⇒ 不算");
+
+    // ---------- ZW3. 我们写下去的那份 eula.txt ----------
+    const QString eulaText = ServerModel::eulaFileText(true);
+    check(eulaText.contains(QStringLiteral("ka.ms/MinecraftEULA")),
+          "★★ ZW3 写下去的那份**留着那句 EULA 声明**（它是「用户接受了」的文本凭证）");
+    check(ServerModel::eulaAccepted(eulaText),
+          "ZW3 我们自己写的那份，读回来就是「已接受」");
+    check(eulaText.endsWith(QStringLiteral("eula=true\n")),
+          "ZW3 最后那行就是 eula=true");
+    check(!ServerModel::eulaAccepted(ServerModel::eulaFileText(false)),
+          "ZW3 写 false 的那一份读回来是「没接受」（留个口子，产品里只会写 true）");
+
+    // ---------- ZW4. server.properties：解 / 改 / 原样写回 ----------
+    {
+        // ★ 带注释、带 CRLF、键序打乱 —— 解了再写出去，这些**一个字节都不许动**。
+        const QString raw = QStringLiteral("#Minecraft server properties\r\n"
+                                           "#(这是游戏自己写的文件头)\r\n"
+                                           "max-players=20\r\n"
+                                           "server-port=25565\r\n"
+                                           "motd=A Minecraft Server\r\n");
+        const ServerModel::Properties props = ServerModel::parseProperties(raw);
+        check(props.value(QStringLiteral("server-port")) == QStringLiteral("25565"),
+              "ZW4 读得出一项的值");
+        check(props.value(QStringLiteral("motd")) == QStringLiteral("A Minecraft Server"),
+              "★ ZW4 值里的空格原样（只裁两侧空白）");
+        check(!props.contains(QStringLiteral("max-players")) == false,
+              "ZW4 含有的键问得出来");
+        check(props.contains(QStringLiteral("server-port")) && !props.contains(QStringLiteral("nope")),
+              "ZW4 不存在的键回 false");
+        // 没动过 ⇒ 逐字吐回去（含那两行注释、含 CRLF）。
+        check(props.toString() == raw,
+              "★★ ZW4 没改过 ⇒ 解了再写出来**逐字一样**（注释、键序、CRLF 一个字节都不动）");
+    }
+    {
+        // 改一项：被改的那行重新拼，别的原样。
+        ServerModel::Properties props =
+            ServerModel::parseProperties(QStringLiteral("#头\nserver-port=25565\nmotd=hi\n"));
+        check(props.setValue(QStringLiteral("server-port"), QStringLiteral("25566")),
+              "ZW4 改一项返回 true（真改了）");
+        check(!props.setValue(QStringLiteral("server-port"), QStringLiteral("25566")),
+              "ZW4 改成一样的值返回 false（没改）");
+        const QString out = props.toString();
+        check(out.contains(QStringLiteral("server-port=25566")) &&
+                  out.contains(QStringLiteral("#头")) && out.contains(QStringLiteral("motd=hi")),
+              "★ ZW4 只改了那一行，注释和别的键还在");
+        // 加一项：没有的键追到末尾。
+        check(props.setValue(QStringLiteral("pvp"), QStringLiteral("true")),
+              "ZW4 加一项返回 true");
+        check(props.toString().endsWith(QStringLiteral("pvp=true\n")),
+              "ZW4 新加的键落在末尾");
+    }
+    {
+        // 冒号分隔 / `!` 注释 / 读不懂的行原样留着。
+        const ServerModel::Properties props = ServerModel::parseProperties(
+            QStringLiteral("!这是感叹号注释\nserver-port:25570\n这行读不懂\n"));
+        check(props.value(QStringLiteral("server-port")) == QStringLiteral("25570"),
+              "★ ZW4 冒号分隔也认（Java Properties 两种都行）");
+        // 读不懂的行走 raw 那条原样吐出。
+        check(props.toString().contains(QStringLiteral("这行读不懂")) &&
+                  props.toString().contains(QStringLiteral("!这是感叹号注释")),
+              "★ ZW4 读不懂的行与 `!` 注释原样保留");
+    }
+
+    // ---------- ZW5. 端口 ----------
+    check(ServerModel::serverPortOf(ServerModel::parseProperties(QString())) ==
+              ServerModel::defaultServerPort(),
+          "ZW5 没写端口 ⇒ 缺省 25565");
+    check(ServerModel::serverPortOf(ServerModel::parseProperties(
+              QStringLiteral("server-port=25566\n"))) == 25566,
+          "ZW5 写了的照读");
+    check(ServerModel::serverPortOf(ServerModel::parseProperties(
+              QStringLiteral("server-port=abc\n"))) == -1,
+          "★ ZW5 读不出来的回 **-1**（「不知道」，调用方别编一个数）");
+    check(ServerModel::serverPortOf(ServerModel::parseProperties(
+              QStringLiteral("server-port=99999\n"))) == -1,
+          "★ ZW5 越界的端口也回 -1");
+
+    // ---------- ZW6. 从文件反推是哪一档 ----------
+    const auto infer = [](const QStringList &paths) {
+        return ServerModel::inferFlavorFromPaths(paths);
+    };
+    check(infer(QStringList{QStringLiteral("server.jar")}) == ServerInstall::Flavor::Vanilla,
+          "ZW6 只有 server.jar ⇒ 原版那一档（纸/紫水/jar 类同命，缺省最稳）");
+    check(infer(QStringList{QStringLiteral("fabric-server-launch.jar"),
+                            QStringLiteral("server.jar")}) == ServerInstall::Flavor::Fabric,
+          "ZW6 fabric-server-launch.jar ⇒ Fabric");
+    check(infer(QStringList{QStringLiteral("quilt-server-launch.jar"),
+                            QStringLiteral("server.jar")}) == ServerInstall::Flavor::Quilt,
+          "ZW6 quilt-server-launch.jar ⇒ Quilt");
+    check(infer(QStringList{QStringLiteral("user_jvm_args.txt"),
+                            QStringLiteral(
+                                "libraries/net/minecraftforge/forge/1.20.1-47.2.0/win_args.txt")}) ==
+              ServerInstall::Flavor::Forge,
+          "★ ZW6 认得出 libraries 深处那张 win_args.txt ⇒ Forge");
+    check(infer(QStringList{QStringLiteral(
+              "libraries/net/neoforged/neoforge/21.1.0/win_args.txt")}) ==
+              ServerInstall::Flavor::NeoForge,
+          "★ ZW6 neoforged 那一支 ⇒ NeoForge（别和 minecraftforge 混）");
+
+    // ---------- ZW7. 装好了没有 ----------
+    {
+        ServerInstall::Request vanilla;
+        vanilla.flavor = ServerInstall::Flavor::Vanilla;
+        vanilla.gameVersion = QStringLiteral("1.20.1");
+        const ServerInstall::Plan vPlan = ServerInstall::planFor(vanilla);
+        check(ServerModel::isInstalled(vPlan, QStringList{QStringLiteral("server.jar")}),
+              "ZW7 原版：server.jar 在 ⇒ 装好了");
+        check(!ServerModel::isInstalled(vPlan, QStringList{QStringLiteral("eula.txt")}),
+              "ZW7 原版：没有 server.jar ⇒ 没装好");
+
+        ServerInstall::Request quilt;
+        quilt.flavor = ServerInstall::Flavor::Quilt;
+        quilt.gameVersion = QStringLiteral("1.20.1");
+        quilt.installerVersion = QStringLiteral("0.9.0");
+        const ServerInstall::Plan qPlan = ServerInstall::planFor(quilt);
+        check(!ServerModel::isInstalled(qPlan, QStringList{QStringLiteral("quilt-server-launch.jar")}),
+              "★★ ZW7 Quilt 那两张**都要**（光有壳、缺 server.jar 时它一句话不说就退出）");
+        check(ServerModel::isInstalled(
+                  qPlan, QStringList{QStringLiteral("quilt-server-launch.jar"),
+                                     QStringLiteral("server.jar")}),
+              "ZW7 Quilt 两张都在 ⇒ 装好了");
+
+        ServerInstall::Request spigot;
+        spigot.flavor = ServerInstall::Flavor::Spigot;
+        spigot.gameVersion = QStringLiteral("1.20.1");
+        const ServerInstall::Plan sPlan = ServerInstall::planFor(spigot);
+        check(sPlan.installedMarkers.isEmpty(),
+              "ZW7 Spigot 那一档的 markers 是空的（产物名拼不出来）");
+        check(ServerModel::isInstalled(
+                  sPlan, QStringList{QStringLiteral("spigot-1.20.1-R0.1-SNAPSHOT.jar")}),
+              "★★ ZW7 Spigot：扫 spigot-*.jar（名字带它自己的后缀，拼不出来）");
+        check(!ServerModel::isInstalled(sPlan, QStringList{QStringLiteral("server.jar")}),
+              "ZW7 Spigot：没有 spigot-*.jar ⇒ 没装好");
+    }
+
+    // ---------- ZW8. 我们记的那一份（.wtfml-server 的字节） ----------
+    {
+        ServerModel::Info info;
+        info.serverId = QStringLiteral("srv-1");
+        info.name = QStringLiteral("我的服");
+        info.flavor = ServerInstall::Flavor::Forge;
+        info.flavorKnown = true;
+        info.gameVersion = QStringLiteral("1.20.1");
+        info.loaderVersion = QStringLiteral("47.2.0");
+        info.memoryMb = 4096;
+        bool ok = false;
+        const ServerModel::Info back = ServerModel::fromJson(ServerModel::toJson(info), &ok);
+        check(ok, "ZW8 我们写的那一份读得回来");
+        check(back.serverId == info.serverId && back.name == info.name &&
+                  back.flavor == info.flavor && back.flavorKnown &&
+                  back.gameVersion == info.gameVersion &&
+                  back.loaderVersion == info.loaderVersion && back.memoryMb == 4096,
+              "ZW8 逐字一样地回来了", back.name);
+        // 空字节 = 真读懂了（这个服务端什么设置都没有），**不是**读不懂。
+        bool emptyOk = false;
+        check(ServerModel::fromJson(QByteArray(), &emptyOk).isEmpty() && emptyOk,
+              "★★ ZW8 空字节回**空 Info + ok=true**（真读懂了：什么都没有）");
+        // 别人写的 / 以后改了格式的 ⇒ 读不懂（别半信半疑地往里加东西）。
+        bool foreignOk = false;
+        check(ServerModel::fromJson(QByteArrayLiteral("{\"format\":\"别的启动器\",\"version\":1}"),
+                                    &foreignOk)
+                      .isEmpty() &&
+                  !foreignOk,
+              "★★ ZW8 格式标记不认 ⇒ 空 Info + **读不懂**");
+        bool junkOk = false;
+        check(ServerModel::fromJson(QByteArrayLiteral("{ 这不是 json"), &junkOk).isEmpty() &&
+                  !junkOk,
+              "ZW8 根本不是 json ⇒ 读不懂");
+
+        // 能不能直接拿来启动。
+        check(ServerModel::hasLaunchableInfo(info),
+              "ZW8 Forge：游戏版本 + 加载器版本都在 ⇒ 能拼出启动命令");
+        ServerModel::Info missing = info;
+        missing.loaderVersion.clear();
+        check(!ServerModel::hasLaunchableInfo(missing),
+              "ZW8 Forge 缺加载器版本 ⇒ 拼不出来（得让用户挑一次）");
+        ServerModel::Info fabric = info;
+        fabric.flavor = ServerInstall::Flavor::Fabric;
+        fabric.installerVersion.clear();
+        check(!ServerModel::hasLaunchableInfo(fabric),
+              "ZW8 Fabric 还要安装器版本");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ZX. 服务端工作区：`<数据目录>/Servers` 底下谁在住（coding plan §6 / M4）
+//
+// ★ 这一节**真动盘**：在一个 QTemporaryDir（当成临时数据根目录）里真建目录、真写文件、真删。
+//   盯的是这一层唯一一件本事 —— "把盘上那个目录读成一行事实"：
+//   · 自己记的那一份（`.wtfml-server`）优先，没有才从文件反推（反推的要标成"猜的"）；
+//   · "装好了没有"是照盘上的文件认的（缺哪一样要说得出来）；
+//   · `removeServer()` 的三道闸（空 id / 路径分隔符 / 不许删到根外面）。
+// ---------------------------------------------------------------------------
+static void runServerRegistryTests() {
+    section("ZX. 服务端工作区：Servers 底下谁在住（§6 / M4）");
+
+    const QString originalDir = AppPaths::minecraftDir();
+    QTemporaryDir temp;
+    check(temp.isValid(), "ZX0 临时数据根目录建出来了");
+    if (!temp.isValid()) {
+        return;
+    }
+    AppPaths::setMinecraftDir(temp.path());
+
+    // ---------- ZX1. 根目录与空表 ----------
+    check(ServerRegistry::rootDir() == temp.path() + QStringLiteral("/Servers"),
+          "ZX1 根就是 `<数据目录>/Servers`", ServerRegistry::rootDir());
+    check(ServerRegistry::serverIds().isEmpty(),
+          "★ ZX1 根还没建出来 ⇒ 空表（不是错误）");
+    QString rootProblem;
+    check(ServerRegistry::ensureRoot(&rootProblem) && QDir(ServerRegistry::rootDir()).exists(),
+          "ZX1 ensureRoot 把根建出来了", rootProblem);
+
+    // ---------- ZX2. 建一个（我们记的那一份说了算） ----------
+    {
+        ServerModel::Info info;
+        info.name = QStringLiteral("我的服");
+        info.flavor = ServerInstall::Flavor::Vanilla;
+        info.flavorKnown = true;
+        info.gameVersion = QStringLiteral("1.20.1");
+        QString problem;
+        check(ServerRegistry::createServer(QStringLiteral("Srv1"), info, &problem),
+              "ZX2 建出来了", problem);
+        check(QFileInfo::exists(AppPaths::serverMetaPath(QStringLiteral("Srv1"))),
+              "ZX2 `.wtfml-server` 落在服务端目录里");
+
+        QString describeProblem;
+        const ServerRegistry::Entry entry =
+            ServerRegistry::describe(QStringLiteral("Srv1"), &describeProblem);
+        check(entry.serverId == QStringLiteral("Srv1"), "ZX2 身份是目录名");
+        check(entry.name == QStringLiteral("我的服"),
+              "ZX2 显示名取我们记的那一份（不是目录名）", entry.name);
+        check(entry.flavorKnown && entry.flavor == ServerInstall::Flavor::Vanilla,
+              "★ ZX2 自己记的那一档是**已知**的（不打「反推」那句）");
+        check(!entry.installed && entry.note.contains(QStringLiteral("缺")),
+              "★★ ZX2 还没放 server.jar ⇒ **没装好**，而且说得出缺什么", entry.note);
+        check(entry.port == ServerModel::defaultServerPort(),
+              "ZX2 没有 server.properties ⇒ 端口是缺省那个", QString::number(entry.port));
+        check(!entry.eulaAccepted, "ZX2 还没有 eula.txt ⇒ 没接受");
+    }
+
+    // ---------- ZX3. 放一个 server.jar 进去 ⇒ 装好了 ----------
+    {
+        QFile jar(AppPaths::serverDir(QStringLiteral("Srv1"))
+                  + QStringLiteral("/server.jar"));
+        if (jar.open(QIODevice::WriteOnly)) {
+            jar.write("jar");
+            jar.close();
+        }
+        const ServerRegistry::Entry entry = ServerRegistry::describe(QStringLiteral("Srv1"));
+        check(entry.installed,
+              "★★ ZX3 盘上出现了 server.jar ⇒ 判成「装好了」（判据是文件，不是我们记的那一句）");
+        check(entry.note.isEmpty(), "ZX3 装好之后那句「缺 …」就没了", entry.note);
+    }
+
+    // ---------- ZX4. EULA 真存真读 ----------
+    {
+        QString problem;
+        check(ServerRegistry::acceptEula(QStringLiteral("Srv1"), &problem),
+              "ZX4 写下一份接受的 eula.txt", problem);
+        check(ServerRegistry::readEula(QStringLiteral("Srv1")),
+              "★ ZX4 写下去之后读回来就是「已接受」");
+        check(ServerRegistry::describe(QStringLiteral("Srv1")).eulaAccepted,
+              "ZX4 describe 那一行也跟着是「已接受」");
+    }
+
+    // ---------- ZX5. server.properties 真存真读 ----------
+    {
+        QString problem;
+        ServerModel::Properties props;
+        props.setValue(QStringLiteral("server-port"), QStringLiteral("25566"));
+        props.setValue(QStringLiteral("motd"), QStringLiteral("我的服务器"));
+        check(ServerRegistry::writeProperties(QStringLiteral("Srv1"), props, &problem),
+              "ZX5 写 server.properties", problem);
+        QString readProblem;
+        const ServerModel::Properties back =
+            ServerRegistry::readProperties(QStringLiteral("Srv1"), &readProblem);
+        check(readProblem.isEmpty(), "ZX5 读回来没报毛病", readProblem);
+        check(ServerModel::serverPortOf(back) == 25566 &&
+                  back.value(QStringLiteral("motd")) == QStringLiteral("我的服务器"),
+              "★ ZX5 端口和中文都逐字回来了（按 UTF-8 写、按 UTF-8 读）");
+        check(ServerRegistry::describe(QStringLiteral("Srv1")).port == 25566,
+              "ZX5 describe 那一行的端口跟着变");
+    }
+
+    // ---------- ZX6. 从外面拖进来的：没有我们记的那一份 ⇒ 从文件反推 ----------
+    {
+        const QString dir = AppPaths::serverDir(QStringLiteral("Paper1"));
+        QDir().mkpath(dir + QStringLiteral("/libraries/net/minecraftforge/forge/1.20.1-47.2.0"));
+        const auto touch = [](const QString &path) {
+            QFile file(path);
+            if (file.open(QIODevice::WriteOnly)) {
+                file.write("x");
+                file.close();
+            }
+        };
+        touch(dir + QStringLiteral(
+                       "/libraries/net/minecraftforge/forge/1.20.1-47.2.0/win_args.txt"));
+        touch(dir + QStringLiteral("/user_jvm_args.txt"));
+
+        const ServerRegistry::Entry entry = ServerRegistry::describe(QStringLiteral("Paper1"));
+        check(!entry.flavorKnown,
+              "★★ ZX6 没有 `.wtfml-server` ⇒ 那一档是**反推**的（标成「猜的」）");
+        check(entry.flavor == ServerInstall::Flavor::Forge,
+              "★★ ZX6 从 libraries 那张 win_args.txt 反推成 Forge", entry.name);
+        check(entry.installed,
+              "ZX6 两张参数文件都在 ⇒ 判成装好了");
+        check(entry.note.contains(QStringLiteral("反推")),
+              "★ ZX6 那一行写着「这一档是反推的」，让用户点一下确认");
+        check(entry.name == QStringLiteral("Paper1"),
+              "ZX6 没有我们记的名字 ⇒ 显示名退回目录名");
+    }
+
+    // ---------- ZX7. 名字的清洗 / 去重 ----------
+    {
+        check(ServerRegistry::sanitizeId(QStringLiteral("a/b:c")) == QStringLiteral("a_b_c"),
+              "ZX7 路径分隔符和冒号换成下划线", ServerRegistry::sanitizeId(QStringLiteral("a/b:c")));
+        check(ServerRegistry::sanitizeId(QStringLiteral("  .hidden ")) == QStringLiteral("hidden"),
+              "★ ZX7 首尾的点和空白摘掉（Windows 存下去会自己吃掉，不如先摘）");
+        check(ServerRegistry::sanitizeId(QStringLiteral("Server1.20.1")) ==
+                  QStringLiteral("Server1.20.1"),
+              "★ ZX7 名字里的点**不摘**（`Server1.20.1` 是用户真机上那种叫法）");
+        // ★ 空格必须原样留着（真机上的名字就有带空格的）。这一条专门盯"s 那串禁字符里
+        //   混进一个空格"那种写法 —— 症状是每个空格都被换成下划线。
+        check(ServerRegistry::sanitizeId(QStringLiteral("我的 服务端 2")) ==
+                  QStringLiteral("我的 服务端 2"),
+              "★★ ZX7 名字里的空格**原样留着**（不许被当成禁字符换掉）",
+              ServerRegistry::sanitizeId(QStringLiteral("我的 服务端 2")));
+        check(ServerRegistry::sanitizeId(QString()).isEmpty(),
+              "ZX7 洗空了 ⇒ 空串（调用方得让用户重敲）");
+        check(ServerRegistry::uniqueServerId(QStringLiteral("Srv1")) == QStringLiteral("Srv1-2"),
+              "★★ ZX7 撞名了就加后缀（Srv1 已存在 ⇒ Srv1-2）",
+              ServerRegistry::uniqueServerId(QStringLiteral("Srv1")));
+        check(ServerRegistry::uniqueServerId(QStringLiteral("全新")) == QStringLiteral("全新"),
+              "ZX7 没撞名的原样");
+        check(ServerRegistry::defaultServerName(ServerInstall::Flavor::Vanilla,
+                                                QStringLiteral("1.20.1")) ==
+                  QStringLiteral("Server1.20.1"),
+              "ZX7 默认名照用户真机上那份叫法（Server<版本>）");
+        check(ServerRegistry::defaultServerName(ServerInstall::Flavor::Vanilla, QString()) ==
+                  QStringLiteral("Server"),
+              "ZX7 不知道版本就回 Server");
+    }
+
+    // ---------- ZX8. 删之前那三道闸 ----------
+    {
+        check(!ServerRegistry::removeServer(QString(), nullptr),
+              "★★ ZX8 空 id 不许删");
+        check(!ServerRegistry::removeServer(QStringLiteral("."), nullptr) &&
+                  !ServerRegistry::removeServer(QStringLiteral(".."), nullptr),
+              "★★ ZX8 `.` / `..` 不许删（那是根）");
+        check(!ServerRegistry::removeServer(QStringLiteral("a/b"), nullptr) &&
+                  !ServerRegistry::removeServer(QStringLiteral("a\\b"), nullptr),
+              "★★ ZX8 带路径分隔符的不许删（别删到根外面去）");
+        check(ServerRegistry::removeServer(QStringLiteral("不存在的服"), nullptr),
+              "ZX8 本来就不在 = 已经达成目的（回 true）");
+    }
+
+    // ---------- ZX9. 真删一个 ----------
+    {
+        const QString dir = AppPaths::serverDir(QStringLiteral("Srv1"));
+        check(QDir(dir).exists(), "ZX9 删之前那个目录在");
+        check(ServerRegistry::removeServer(QStringLiteral("Srv1"), nullptr),
+              "ZX9 删成功");
+        check(!QDir(dir).exists(), "ZX9 目录连带里面的文件都没了");
+        check(!ServerRegistry::serverIds().contains(QStringLiteral("Srv1")),
+              "ZX9 列表里也不再是它");
+    }
+
+    AppPaths::setMinecraftDir(originalDir);
+    check(AppPaths::minecraftDir() == originalDir, "ZX9 数据根目录换回来了");
+}
+
 int main(int argc, char *argv[]) {
     QCoreApplication app(argc, argv);
     app.setApplicationName("WTFML");
@@ -25202,6 +25632,16 @@ int main(int argc, char *argv[]) {
     // 自己开一个临时游戏文件夹造实例目录（这一层整个存在的意义就是"动手之前手上有一份
     // 旧的"，纯值上验不出来），跑完换回来。
     runUpdateRollbackTests();
+
+    // -----------------------------------------------------------------
+    // 服务端工作区（2026-10-13，coding plan §6 / 里程碑 M4）：判据层（状态 / EULA /
+    // server.properties / 我们记的那一份），见上面 ZW 节。**纯函数**：值进、结构出。
+    runServerModelTests();
+
+    // -----------------------------------------------------------------
+    // 扫盘那一层（coding plan §6 / 里程碑 M4），见上面 ZX 节。**真动盘**：自己开一个临时
+    // 数据根目录，真建服务端目录、真读写那两个配置文件、真删 —— 跑完换回来。
+    runServerRegistryTests();
 
     // -----------------------------------------------------------------
     out() << "\n===== " << (g_failures == 0 ? "全部通过" : "有失败项") << ": "
