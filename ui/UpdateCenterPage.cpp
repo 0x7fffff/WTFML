@@ -209,8 +209,26 @@ void UpdateCenterPage::rebuild() {
         // 除了末尾那条弹簧，其余整块拆掉重画。
         while (body->count() > 1) {
             QLayoutItem *child = body->takeAt(0);
-            if (child->widget() != nullptr) {
-                child->widget()->deleteLater();
+            if (QWidget *w = child->widget()) {
+                // ★ **先把这一格摘出这一页、再排删除**（不是光一句 `deleteLater()`）。两件事
+                //   一起办，两件都是真的：
+                //   · 认人：组头和行上的 objectName 是**按组号/行号现拼的**
+                //     （`updateCenterGroupName()` / `updateCenterRowName()`）⇒ 新旧两批
+                //     **同名**，而 `deleteLater()` 要等下一趟事件循环才真的删。旧那一批在
+                //     新的一批画出来之后**还挂在这一页的孩子树里** ⇒ 谁 `findChild` 谁就
+                //     可能先撞上旧的那一批。mw_check T32 真撞上过：名单两行全对，组头却读成
+                //     「0 条」（那是构造里 `setReport(Report())` 那一趟留下的，它一个行都
+                //     没有 —— 所以只有行能读到新的那一批，正是这个症状）。
+                //   · 视觉：旧的那一批这时候几何还没变、也还可见 ⇒ 重画那一瞬间新旧叠在
+                //     一处（`InstanceFilesPage` 那个重建里为这个专门写过一句「先藏再排删除」）。
+                //   `setParent(nullptr)` 把这两件一并办了：控件**立刻**从这一页的孩子树里
+                //   消失，而 Qt 换爹的时候本来就会把它**自动藏起来**（换到 nullptr = 变成
+                //   顶层窗口，一样是藏着的）。
+                //   ★ 这里**不能**学 `IntegrityReportPage` / `TaskDetailPage` 那样当场
+                //     `delete`：这一趟重建可能是被**这一页自己的按钮**点出来的（忽略 / 固定
+                //     那两颗 → `setReport()`），当场删就是把正在发信号的那颗按钮删在信号里。
+                w->setParent(nullptr);
+                w->deleteLater();
             }
             delete child;
         }

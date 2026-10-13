@@ -1715,6 +1715,28 @@ MainWindow::~MainWindow() {
     if (m_backupThread != nullptr) {
         m_backupThread->wait();
     }
+    // 剩下两趟后台活（coding plan §3.1②）。它们和上面那两趟是**同一个坑**，只是一直没人接：
+    // `QThread::create()` 出来的这几个对象，父对象都是 this（下面这个对象要散了），而 Qt
+    // 对"线程还在跑、父对象却析构了"是直接 abort。这两趟又都是**网络活** ——
+    //   · 图标反查：打开实例设置（或文件管理那几页）就起，几个 sha1 + 一发反查；
+    //   · 检查更新：点「检查更新」就起。
+    // 关窗那一刻正卡在等响应上是最平常的一件事（`HttpClient` 那一条要等 15 秒），于是在
+    // 那十几秒里关启动器 = 崩一下。从前析构里只等了体检和备份那两趟 ⇒ 这两趟一直在裸奔。
+    //
+    // ★ 这一段的规矩**照着这张单子来**：父对象是 this 的线程，析构里必须**一个一个等过来**。
+    //   眼下是四条（体检 / 备份 / 图标反查 / 检查更新）—— 再加一趟就得多一条，加的时候
+    //   连同这句一起改。（`ServerPing::Pinger` 那八条不在这张单子上：它们的父对象是 Pinger，
+    //   而 `~Pinger()` 自己就 abort+wait，见那边。）
+    //
+    // NOTE: 这两趟**没有收手旗子**（`InstanceIconLookup::lookup()` 和检查更新那一趟里头没有
+    //       "看着旗子退出来"的口子），所以这里只能**等它跑完** —— 卡在超时上的话，关窗就会
+    //       晚那十几秒才真的关上。那比崩一下强（同一个取舍，见上面备份那一段）。
+    if (m_instanceIconThread != nullptr) {
+        m_instanceIconThread->wait();
+    }
+    if (m_updateCheck.thread != nullptr) {
+        m_updateCheck.thread->wait();
+    }
     delete m_ui;
 }
 
@@ -3094,6 +3116,28 @@ void MainWindow::updateBottomBarTaskSummary() {
     }
 }
 
+/// 「这一项**此刻**按『取消』真的会做点什么吗」。
+///
+/// ★ 判据必须和 `onTaskDetailAction()` 里那条取消分派**逐字对齐** —— 那儿能做的只有两件
+///   事（服务端安装那一趟、和 `VersionManager` 那一批下载）。所以这里也只问这两处，
+///   **不在这一层按 kind 或状态另推一遍**（推错的下场：装作某一阶段还能取消）。
+///
+/// ★ 为什么非要现问一遍：账本里那位 `canCancel` 是 `begin()` 按**种类**记的（"这一类活
+///   **允许**取消"），可这一类活里有几段**就是取消不掉**的 —— 加载器的安装器进程正在跑
+///   的时候（那是个 `QProcess`，不在下载批次里），还有整合包解压那一段。只读账本的话，
+///   那两段时间里详情页/面板上会留一颗**点了没反应**的「取消」。
+///   `VersionManager::canCancelDownload()` 上头那句"别再加阶段判据，`isBusy()` 那时候
+///   本来就是 false，那一格自然就没有取消可点" —— **说的就是这里**，从前没人接它。
+bool MainWindow::cancelWouldWork(const Tasks::TaskSnapshot &task) const {
+    // ① 服务端安装那一趟：自己跑 `QProcess` + 自己的元数据请求，不走下载批次。
+    if (m_serverInstall != nullptr && m_serverInstall->isRunning()
+        && m_serverInstallTaskId != Tasks::invalidTaskId() && task.id == m_serverInstallTaskId) {
+        return true;
+    }
+    // ② 其余的（下载 / 安装 / 导入）底下都是 `VersionManager` 那一批：有批次在飞才真能掐。
+    return m_versionManager != nullptr && m_versionManager->canCancelDownload();
+}
+
 /// 账本里的一项 ⇒ 界面要的一份。**`taskCenterItems()`（面板）和任务详情页共用的唯一
 /// 翻译点** —— 两边各写一遍的话，同一项在面板上和详情页上会说出不同的话。
 TaskCenter::Item MainWindow::taskCenterItem(const Tasks::TaskSnapshot &task) const {
@@ -3120,9 +3164,12 @@ TaskCenter::Item MainWindow::taskCenterItem(const Tasks::TaskSnapshot &task) con
                                   InstanceFilesPage::formatSize(task.bytesTotal));
     }
     // ★ 「这一项现在允许什么操作」**只读账本那几位**（不许在这一层按状态再推一遍）。
-    //   唯一的加工是"取消"那一颗：账本记的是"这一类活**允许**取消"，而收尾之后
-    //   （终态）当然不该再露它 —— 所以是**与**上"还是活的"。
-    item.capabilities.cancel = task.capabilities.canCancel && Tasks::isActiveState(task.state);
+    //   唯一的加工是"取消"那一颗：账本记的是"这一类活**允许**取消"，而收尾之后（终态）
+    //   当然不该再露它 —— 所以是**与**上"还是活的"。再加一道 `cancelWouldWork()`：这一类
+    //   活里还有几段**就是掐不动**（安装器进程 / 解压），那几段上留着它 = 一颗点了没反应
+    //   的按钮。三道缺一不可：允许 ∧ 还活着 ∧ 现在真掐得动。
+    item.capabilities.cancel = task.capabilities.canCancel && Tasks::isActiveState(task.state)
+                               && cancelWouldWork(task);
     item.capabilities.pause = task.capabilities.canPause && Tasks::isActiveState(task.state);
     item.capabilities.retry = task.capabilities.canRetry
                               && Tasks::isTerminalState(task.state);
@@ -9412,7 +9459,7 @@ void MainWindow::fillResourcePageGroups() {
     // 中间那一行（"这一版要装的前置"）跟着**这一次摆上去的那一份**走 —— 列表空的（下面
     // 两种空）就整个收起来：那时候屏幕上一条版本都没有，"这一版"指的是哪一版就说不清了。
     m_resourcePage.dependencies =
-        hasTopmost ? ModDependencies::requiredDependenciesOf(topmost)
+        hasTopmost ? ModDependencies::displayedRequiredDependencies(topmost)
                    : QList<ResourceCatalog::Dependency>();
     updateResourcePageDependencies();
 

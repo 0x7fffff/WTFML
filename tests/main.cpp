@@ -13903,19 +13903,19 @@ static void runResourceCatalogTests() {
             fabricMod.dependencies = {mrApi, cfApi, cloth};
 
             const QList<ResourceCatalog::Dependency> listed =
-                ModDependencies::requiredDependenciesOf(fabricMod);
+                ModDependencies::displayedRequiredDependencies(fabricMod);
             check(listed.size() == 1 &&
                       listed.first().projectId == QStringLiteral("9s6osm5g"),
                   "★★ Z6d Fabric API 不进「这一版要装的前置」—— Modrinth 和 CurseForge 两家的号都认",
                   QStringLiteral("%1 条").arg(listed.size()));
 
-            // 缺的那一份名单读的是同一个函数（`missingRequiredDependencies` → 这边），
-            // 所以那边也一并没有了 —— 详情页那一行和弹框那份名单**不可能不一样**。
-            const QList<ModDependencies::Lookup> missingNoApi =
+            // 隐藏只是展示规则：真安装判定不能跟着删。否则用户点
+            // 「一起下载」也不会安装 Fabric API，最后得到一份缺真前置的实例。
+            const QList<ModDependencies::Lookup> missingWithApi =
                 ModDependencies::missingRequiredDependencies(fabricMod, {}, target);
-            check(missingNoApi.size() == 1 &&
-                      missingNoApi.first().dependency.projectId == QStringLiteral("9s6osm5g"),
-                  "Z6d 弹框那份「还缺哪几个」里同样没有 Fabric API");
+            check(missingWithApi.size() == 3,
+                  "★★ Z6d Fabric API 只在详情展示中隐藏，缺失判定仍保留真依赖",
+                  QStringLiteral("%1 条").arg(missingWithApi.size()));
 
             // ★ 是**按号**排的，不是"看着像"就排：差一位的两个号一个都不能误伤。
             ResourceCatalog::VersionEntry lookalikes;
@@ -13926,7 +13926,7 @@ static void runResourceCatalogTests() {
             nearCf.projectId = QStringLiteral("3066120");  // 多一位
             nearCf.type = QStringLiteral("required");
             lookalikes.dependencies = {nearMr, nearCf};
-            check(ModDependencies::requiredDependenciesOf(lookalikes).size() == 2,
+            check(ModDependencies::displayedRequiredDependencies(lookalikes).size() == 2,
                   "★ Z6d 排的是那两个**号**，不是「名字里带 fabric 的都排」"
                   "（差一位的号一个都不能误伤）",
                   QStringLiteral("%1 条")

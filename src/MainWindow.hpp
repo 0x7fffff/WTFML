@@ -2159,6 +2159,10 @@ private:
     /// 「这一类活**起手**就允许什么」那张表（唯一出处，见 .cpp 里那段说明）。
     /// 会变的那几位（`canRetry`）不在这里 —— 它由 `finishTask()` 在失败那一刻补。
     static Tasks::TaskCapabilities defaultTaskCapabilities(Tasks::TaskKind kind);
+    /// 「这一项**此刻**按『取消』真的会做点什么吗」—— 和 `onTaskDetailAction()` 里那条取消
+    /// 分派逐字对齐（见 .cpp 里那段）。账本里那位 `canCancel` 只说了"这一类活允许取消"，
+    /// 这一类活里有几段**就是取消不掉**的（加载器的安装器进程、整合包解压），得在这儿收口。
+    bool cancelWouldWork(const Tasks::TaskSnapshot &task) const;
     /// 记一件新任务（发号 + 落盘）。回它的号。
     Tasks::TaskId beginTask(Tasks::TaskKind kind, const QString &title,
                             const QString &targetId = QString(),
