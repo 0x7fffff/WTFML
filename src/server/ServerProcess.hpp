@@ -147,7 +147,7 @@ private:
     QString m_serverId;
     QString m_dir;      ///< 工作目录（起手时原样记着，报错那种句子要用它）。
     QString m_program;  ///< `java`（或验证工程里那个 exe）—— 起不来时那句报错要写它。
-    QString m_pending;  ///< 还没凑够一行的那些字节（见 `drainOutput()`）。
+    QByteArray m_pending;  ///< 还没凑够一行的那些**字节**（★ 不许先解码，见 `ServerRun::takeLines()`）。
     QStringList m_log;
     ServerModel::Status m_status = ServerModel::Status::Stopped;
     int m_gracefulMs = 0;

@@ -17572,6 +17572,26 @@ int main(int argc, char *argv[]) {
     // 每个 run 都从"从没启动过任何版本"开始，否则上一轮留下的记录会让冷启动断言失效
     QFile::remove(settingsDir + QStringLiteral("/WTFML-check/mw_check.ini"));
 
+    // ---------- 启动器级那几份账本：也不许跨趟（coding plan §3.1⑤「纳入稳定回归」）----------
+    // 它们落在 `AppPaths::defaultMinecraftDir()`（= **<这个 exe 旁边>/.minecraft**），而那个
+    // 位置**故意不跟沙盒走**：`TaskHistory::filePath()` 读的就是它，因为任务历史是**启动器级**
+    // 账本 —— 用户换游戏文件夹它也不该跟着搬（见 `src/tasks/TaskHistory.hpp` 文件头那段）。
+    // 于是问题来了：上一趟收尾时写下的终态任务会被这一趟**恢复出来**，`collapsedSummary()`
+    // 还在它那 8 秒窗内时就会占着底栏中间那一格 ⇒ 那几条"没有下载也没有启动时那一格写着
+    // 占位话"偶发红（真凶是**上一趟**的服务端世界备份「备份世界「world」」，不是这一次跑
+    // 出来的东西）。`wtfml.folders` 同理：它是分组账本，留着的话 `seedDefaultGroups()`
+    // 就不会种默认那五组，实例页那一批判据跟着变脸。
+    //
+    // ⇒ 和上面那份 QSettings 沙盒同一个形状：跑之前清掉，这一趟才和"干净装一次"同构。
+    //    （清了之后这一趟自己还会把它们写回来，所以下一趟仍然从干净开始 —— 幂等。）
+    {
+        const QString dataDir = AppPaths::defaultMinecraftDir();
+        for (const QString &name : {QStringLiteral("wtfml.tasks"), QStringLiteral("wtfml.history"),
+                                    QStringLiteral("wtfml.folders")}) {
+            QFile::remove(dataDir + QLatin1Char('/') + name);
+        }
+    }
+
     // ---------- modpack-import-live：**真网络**跑一次整合包导入 ----------
     //   mw_check.exe modpack-import-live "<整合包.zip>" "<实例名>" "<游戏根目录>"
     //

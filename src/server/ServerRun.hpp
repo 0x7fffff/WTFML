@@ -120,6 +120,54 @@ inline bool isReadyLine(const QString &line) {
     return line.contains(QLatin1String("Done ("));
 }
 
+// ---------------------------------------------------------------------------
+// 「这一堆字节里有几整行了」
+// ---------------------------------------------------------------------------
+
+/**
+ * @brief 把新到手的一截**字节**拼到 `pending` 上，切出里面**所有完整的行**，剩下的留在
+ *        `pending` 里等下一趟。
+ *
+ * 这一层为什么必须按**字节**切、切完再解码 —— 2026-10-13 修的一个真 bug（mw_check 的
+ * T41.3 偶发红那一次）：`QProcess::readAllStandardOutput()` 到手的是**字节**，而一次
+ * `readyRead` 只保证"有东西来了"，**不保证切在字符边界上**。原来那版是
+ * `QString::fromLocal8Bit(readAllStandardOutput())`（到手就整块解码），一个三字节的汉字
+ * 正好被两次 `readyRead` 从中间劈开时，前后各解出半个字符 —— 拼回来是两个替换字符/乱码，
+ * 于是"回声回来了没有"这条断言**时红时绿**（管道怎么分包看系统心情；纯 ASCII 那几条
+ * 一直是绿的，所以之前没露头）。
+ *
+ * 先按字节切行就绕开了这件事：`\n`(0x0A) 和 `\r`(0x0D) 在 UTF-8 里**只可能是行尾**，
+ * 多字节字符的后续字节一律 ≥ 0x80 ⇒ 按这两个字节切永远不会把字符切开，切出来的每一段
+ * 都是完整的字节序列、可以放心逐行解码。
+ *
+ * ★ 空行**不回来**（原来是 `if (!line.isEmpty())` 那个判断）—— 服务端自己会打空行，
+ *   而且 `\r\n`（Windows 那套换行）会被切成"前一段 + 一个空段"，把空段也当一行报上去
+ *   会让行数凭空多出来。这个行为是**故意保持**的（mw_check T41.2 数的行数就吃它）。
+ *
+ * @param pending 跨趟攒着的那截（进来时是上一趟剩下的，返回时是这一趟剩下的）。
+ * @param chunk 刚 `readAllStandardOutput()` 到手的一截（**不要先解码**）。
+ * @return 这次能凑齐的那些行（已解码，按顺序）。
+ */
+inline QStringList takeLines(QByteArray &pending, const QByteArray &chunk) {
+    pending += chunk;
+    QStringList lines;
+    int cut = 0;
+    while (cut < pending.size()) {
+        const char ch = pending.at(cut);
+        if (ch != '\n' && ch != '\r') {
+            ++cut;
+            continue;
+        }
+        const QByteArray raw = pending.left(cut);
+        pending.remove(0, cut + 1);
+        if (!raw.isEmpty()) {
+            lines.append(QString::fromLocal8Bit(raw));
+        }
+        cut = 0;
+    }
+    return lines;
+}
+
 /**
  * @brief 进程退了之后是哪一档状态。
  *

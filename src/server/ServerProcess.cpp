@@ -223,24 +223,12 @@ void ServerProcess::drainOutput() {
     if (m_process == nullptr) {
         return;
     }
-    m_pending += QString::fromLocal8Bit(m_process->readAllStandardOutput());
-    // 服务端吐的是**逐行**的东西，而一次 `readyRead` 可能只到手半行（也可能一口气好几行）
-    // ⇒ 按行尾切，切不出来的那截留在 `m_pending` 里等下一趟。
-    // ★ 换行有两种：`\n` 是真行尾，`\r` 是它重画进度那一行时自己回的（不切的话那一行之
-    //   后会一直挂着 "…10%\r…30%" 长成一坨）。
-    int cut = 0;
-    while (cut < m_pending.size()) {
-        const QChar ch = m_pending.at(cut);
-        if (ch != QLatin1Char('\n') && ch != QLatin1Char('\r')) {
-            ++cut;
-            continue;
-        }
-        const QString line = m_pending.left(cut);
-        m_pending.remove(0, cut + 1);
-        if (!line.isEmpty()) {
-            appendLine(line);
-        }
-        cut = 0;
+    // ★ 先按**字节**切行、切出整行再解码 —— 不是拿到手就整块 `fromLocal8Bit`。
+    //   判据和那个"为什么"都在 `ServerRun::takeLines()` 的注释里（2026-10-13 修：管道
+    //   把一个多字节字符从中间劈成两截时，逐块解码会解出两个乱码，T41.3 那条断言就时红时绿）。
+    const QStringList lines = takeLines(m_pending, m_process->readAllStandardOutput());
+    for (const QString &line : lines) {
+        appendLine(line);
     }
 }
 

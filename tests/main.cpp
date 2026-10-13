@@ -24977,6 +24977,109 @@ static void runServerRunTests() {
             }
         }
     }
+
+    // ---------- ZZ5. 管道里的字节怎么切成行（★ 一个多字节字符被劈成两半的那一路） ----------
+    //
+    // 2026-10-13 修的真 bug：`drainOutput()` 原来拿到一截就整块 `fromLocal8Bit`，
+    // 一个三字节的汉字正好落在两次 `readyRead` 中间时，前后各解出半个 ⇒ 拼回来是乱码，
+    // mw_check 的 T41.3（"回声回来了没有"）就**时红时绿**（纯 ASCII 那几条一直绿，所以之前
+    // 没露头）。这一节把它钉成确定性的：喂字节、自己控制从哪儿切断。
+    {
+        // --- 一趟能凑几行：切出完整的行、剩下半行留到下趟 ---
+        {
+            QByteArray pending;
+            const QStringList first = ServerRun::takeLines(pending, QByteArrayLiteral("a\nb\ncc"));
+            check(first == QStringList{QStringLiteral("a"), QStringLiteral("b")},
+                  "★★ ZZ5 一趟到手三行里有两整行 + 半行 ⇒ 只报那两条", first.join(QLatin1Char('|')));
+            check(pending == QByteArrayLiteral("cc"),
+                  "★★ ZZ5 那半行**原样**留在攒着的那截里（不是丢掉也不是先解码）",
+                  QString::fromLatin1(pending));
+
+            const QStringList second = ServerRun::takeLines(pending, QByteArrayLiteral("c\nd\n"));
+            check(second == QStringList{QStringLiteral("ccc"), QStringLiteral("d")},
+                  "★★ ZZ5 攒着的那截和这一趟的头一个字**拼**成一行（跨趟拼行是常态，不是边角）",
+                  second.join(QLatin1Char('|')));
+            check(pending.isEmpty(), "★ ZZ5 吃干净之后攒着的那截要空（不然下次会重复报）");
+        }
+
+        // --- ★★ 多字节字符被切断：这是原来那版会红的那一路 ---
+        {
+            const QString text = QStringLiteral("[12:00:02] [Server thread/INFO]: [回声] say 你好");
+            const QByteArray whole = text.toUtf8() + QByteArrayLiteral("\n");
+
+            // 切在最后那个「好」三个字节的中间（末尾 `\n` 之前第 2 个字节上）。
+            const int cutAt = whole.size() - 2;
+            const auto byteAt = [](const QByteArray &b, int i) {
+                return static_cast<unsigned char>(b.at(i));
+            };
+            // 前置：切点那个字节是 UTF-8 的**后续字节**（0x80~0xBF）—— 后续字节不可能是一个
+            // 字符的开头，所以"切点落在它身上"就等于"这一刀切进了一个多字节字符里"。
+            check(byteAt(whole, cutAt) >= 0x80 && byteAt(whole, cutAt) <= 0xBF,
+                  "★★ ZZ5 前置：这一刀真的切在一个多字节字符**中间**（切点是个后续字节）");
+
+            QByteArray pending;
+            const QStringList half = ServerRun::takeLines(pending, whole.left(cutAt));
+            check(half.isEmpty(),
+                  "★★ ZZ5 切在字符中间时**一行都不许报**（原来那版会在这儿解出两个乱码、"
+                  "当成一整行报上去 —— T41.3 时红时绿就是它）",
+                  half.join(QLatin1Char('|')));
+
+            const QStringList rest = ServerRun::takeLines(pending, whole.mid(cutAt));
+            check(rest.size() == 1 && rest.first() == text,
+                  "★★ ZZ5 后半截一到手，拼出来的是**原来那句话**（一个字符都不差）",
+                  rest.join(QLatin1Char('|')));
+            check(pending.isEmpty(), "★ ZZ5 拼完又吃干净了");
+        }
+
+        // --- 一字节一字节地喂（最坏情况：每次 readyRead 只来一个字节） ---
+        {
+            const QString text = QStringLiteral("中文 漂 亮 🎉");  // 3 字节 ×3 + 4 字节（emoji）
+            const QByteArray whole = text.toUtf8() + QByteArrayLiteral("\n");
+            QByteArray pending;
+            QStringList got;
+            for (int i = 0; i < whole.size(); ++i) {
+                got += ServerRun::takeLines(pending, whole.mid(i, 1));
+            }
+            check(got.size() == 1 && got.first() == text,
+                  "★★ ZZ5 一个字节一个字节喂（最碎的那种分包）也只出**一行**、内容不变",
+                  got.join(QLatin1Char('|')));
+            check(pending.isEmpty(), "★ ZZ5 碎喂之后也不该剩下东西");
+        }
+
+        // --- 两种行尾：`\n` 是真行尾，`\r` 是它重画进度那一行自己回的 ---
+        {
+            QByteArray pending;
+            const QStringList crlf = ServerRun::takeLines(
+                pending, QByteArrayLiteral("x\r\ny\r\n"));
+            check(crlf == QStringList{QStringLiteral("x"), QStringLiteral("y")},
+                  "★★ ZZ5 `\\r\\n`（Windows 那套）切成两行，**不许**多出一个空行"
+                  "（行数一对不上，下游数行数的判据全跟着漂）",
+                  crlf.join(QLatin1Char('|')));
+            check(pending.isEmpty(), "★ ZZ5 CRLF 也吃干净");
+
+            const QStringList cr = ServerRun::takeLines(
+                pending, QByteArrayLiteral("...10%\r...30%\r"));
+            check(cr == QStringList{QStringLiteral("...10%"), QStringLiteral("...30%")},
+                  "★★ ZZ5 单独一个 `\\r`（进度条重画）也当行尾切 —— 不切的话会挂成一长条",
+                  cr.join(QLatin1Char('|')));
+
+            const QStringList blanks = ServerRun::takeLines(pending, QByteArrayLiteral("\n\n"));
+            check(blanks.isEmpty(), "★★ ZZ5 空行不回来（服务端自己会打空行）",
+                  blanks.join(QLatin1Char('|')));
+            check(pending.isEmpty(), "★ ZZ5 空行也吃干净");
+        }
+
+        // --- 攒着的那截在"没等到行尾"时不许自己长大之后又被当成一行 ---
+        {
+            QByteArray pending;
+            ServerRun::takeLines(pending, QByteArrayLiteral("no newline yet"));
+            check(pending == QByteArrayLiteral("no newline yet"),
+                  "★ ZZ5 迟迟没有行尾 ⇒ 全攒着（一个字都不丢）", QString::fromLatin1(pending));
+            const QStringList done = ServerRun::takeLines(pending, QByteArrayLiteral("\n"));
+            check(done.size() == 1 && done.first() == QStringLiteral("no newline yet"),
+                  "★ ZZ5 行尾终于到了 ⇒ 攒着的那些一次性成行", done.join(QLatin1Char('|')));
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
