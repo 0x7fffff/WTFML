@@ -13886,6 +13886,52 @@ static void runResourceCatalogTests() {
                   onlyReal.first().dependency.projectId == QStringLiteral("bbbbbbb2"),
               "Z6d optional 和没写项目号的都不进这一批，只留下那一条真的",
               QStringLiteral("%1 条").arg(onlyReal.size()));
+
+        // ⑥ ★ Fabric API 不列（用户 2026-10-13：「所有的 fabric 模组当然都要用 fabricAPI，
+        //    这个是前置简直是废话，需要的前置列表里排除一下吧」）。两家各一个号，都要认。
+        {
+            ResourceCatalog::VersionEntry fabricMod;
+            ResourceCatalog::Dependency mrApi;
+            mrApi.projectId = QStringLiteral("P7dR8mSH");  // Modrinth: fabric-api
+            mrApi.type = QStringLiteral("required");
+            ResourceCatalog::Dependency cfApi;
+            cfApi.projectId = QStringLiteral("306612");  // CurseForge: Fabric API
+            cfApi.type = QStringLiteral("required");
+            ResourceCatalog::Dependency cloth;
+            cloth.projectId = QStringLiteral("9s6osm5g");  // Cloth Config：真该列出来的那种
+            cloth.type = QStringLiteral("required");
+            fabricMod.dependencies = {mrApi, cfApi, cloth};
+
+            const QList<ResourceCatalog::Dependency> listed =
+                ModDependencies::requiredDependenciesOf(fabricMod);
+            check(listed.size() == 1 &&
+                      listed.first().projectId == QStringLiteral("9s6osm5g"),
+                  "★★ Z6d Fabric API 不进「这一版要装的前置」—— Modrinth 和 CurseForge 两家的号都认",
+                  QStringLiteral("%1 条").arg(listed.size()));
+
+            // 缺的那一份名单读的是同一个函数（`missingRequiredDependencies` → 这边），
+            // 所以那边也一并没有了 —— 详情页那一行和弹框那份名单**不可能不一样**。
+            const QList<ModDependencies::Lookup> missingNoApi =
+                ModDependencies::missingRequiredDependencies(fabricMod, {}, target);
+            check(missingNoApi.size() == 1 &&
+                      missingNoApi.first().dependency.projectId == QStringLiteral("9s6osm5g"),
+                  "Z6d 弹框那份「还缺哪几个」里同样没有 Fabric API");
+
+            // ★ 是**按号**排的，不是"看着像"就排：差一位的两个号一个都不能误伤。
+            ResourceCatalog::VersionEntry lookalikes;
+            ResourceCatalog::Dependency nearMr;
+            nearMr.projectId = QStringLiteral("P7dR8mS");  // 少一位
+            nearMr.type = QStringLiteral("required");
+            ResourceCatalog::Dependency nearCf;
+            nearCf.projectId = QStringLiteral("3066120");  // 多一位
+            nearCf.type = QStringLiteral("required");
+            lookalikes.dependencies = {nearMr, nearCf};
+            check(ModDependencies::requiredDependenciesOf(lookalikes).size() == 2,
+                  "★ Z6d 排的是那两个**号**，不是「名字里带 fabric 的都排」"
+                  "（差一位的号一个都不能误伤）",
+                  QStringLiteral("%1 条")
+                      .arg(ModDependencies::requiredDependenciesOf(lookalikes).size()));
+        }
     }
 
     // 挑一版：钉了版本必须正好是那条、没钉取最新的一条；挑不出来要**说得出为什么**。

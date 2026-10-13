@@ -42,20 +42,48 @@ bool kindUsesLoader(ResourceCatalog::Kind kind) {
 /// 前置这一趟的消费方名字（**唯一一处** —— 拼钥匙和"那个槽认不认这一发"读的是同一个字）。
 static QString dependencyConsumerName() { return QStringLiteral("dependency"); }
 
+/// 「这种前置不用列它」—— 现在只排掉 **Fabric API**（用户 2026-10-13：「所有的 fabric 模组
+/// 当然都要用 fabricAPI，这个是前置简直是废话，需要的前置列表里排除一下吧」）。
+///
+/// 凭据只能是**项目号**：接口给的那一条 `dependencies[]` 里除了项目号什么都没有（Modrinth
+/// 是 `project_id`、CurseForge 是 `modId`，都不带名字/文件名）。所以这里**两家的号都列上**
+/// —— 两个号的形状天然撞不上（Modrinth 是 8 位 base62、CurseForge 是纯数字），放一张表里
+/// 不会互相误伤。**两个号都实测过**（`api.modrinth.com/v2/project/fabric-api` 回来的是
+/// `P7dR8mSH`；CurseForge 那个页面上的 Project ID 写着 `306612`）。
+///
+/// ★ 这一层只能说"不列它"，**不能说"替你装上"**：这个函数不看盘、也不知道那个实例里到底
+///   有没有 Fabric API，编一句"已经装好了"出来比多提醒一次更糟（用户要的正是「别再提它」，
+///   不是「替我做个主」）。它**只影响"列不列"**，不进 `installedKeys` 那条判据 ——
+///   用户真要装 Fabric API 仍然是自己去下载页搜它。
+///
+/// NOTE: 同一条理由（"是个 X 模组就一定要它"）以后要排别人时**加进这张表就行**，别再另起
+///       一处判断 —— 详情页那一行和弹框那份名单读的都是 `requiredDependenciesOf()`。
+static bool isObviousPrerequisite(const QString &projectId) {
+    static const QSet<QString> kIds = {
+        QStringLiteral("P7dR8mSH"),  // Modrinth: fabric-api
+        QStringLiteral("306612"),    // CurseForge: Fabric API
+    };
+    return kIds.contains(projectId);
+}
+
 QList<ResourceCatalog::Dependency> requiredDependenciesOf(
     const ResourceCatalog::VersionEntry &version) {
     QList<ResourceCatalog::Dependency> out;
     for (const ResourceCatalog::Dependency &dependency : version.dependencies) {
-        // 这两条都是"不列它"，但**理由不一样**（写在这儿免得下次有人把后面那条当冗余删掉）：
+        // 这几条都是"不列它"，但**理由不一样**（写在这儿免得下次有人把后面那条当冗余删掉）：
         //   · optional / incompatible / embedded → 用户没要，或压根不该单独下一份；
         //   · projectId 空 → 接口给的烂数据（一版里出现过 `{"project_id":null}` 这种），
-        //     拿它拼出来的地址会是一个"问了一堆不相干的东西"的请求。
-        // 第三条（已经装着了）**不在这一层**：那是 `missingRequiredDependencies()` 的事，
+        //     拿它拼出来的地址会是一个"问了一堆不相干的东西"的请求；
+        //   · Fabric API → "是个 fabric 模组就要它"，列出来是废话（见上面那个函数）。
+        // "已经装着了"**不在这一层**：那是 `missingRequiredDependencies()` 的事，
         // 因为"装没装"是这个函数不该知道的东西（见 .hpp 文件头那段）。
         if (!dependency.required()) {
             continue;
         }
         if (dependency.projectId.isEmpty()) {
+            continue;
+        }
+        if (isObviousPrerequisite(dependency.projectId)) {
             continue;
         }
         out.append(dependency);
