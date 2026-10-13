@@ -12,12 +12,12 @@
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
-#include <QProgressBar>
 #include <QPushButton>
 #include <QVBoxLayout>
 
 #include "ElidedLabel.hpp"
 #include "MainWindowUI.hpp"
+#include "TaskProgressBar.hpp"
 #include "Theme.hpp"
 
 namespace {
@@ -99,11 +99,10 @@ TaskDetailPage::TaskDetailPage(QWidget *parent) : QDialog(parent) {
     auto *barRow = new QHBoxLayout;
     barRow->setContentsMargins(0, 0, 0, 0);
     barRow->setSpacing(8);
-    m_bar = new QProgressBar(this);
+    m_bar = new TaskProgressBar(this);
     m_bar->setObjectName(MainWindowUI::taskDetailBarName());
     m_bar->setRange(0, 100);
-    m_bar->setTextVisible(false);  // 数写右边那一格里，条里再写一遍是重复
-    m_bar->setFixedHeight(8);
+    m_bar->setFixedHeight(MainWindowUI::taskCenterPanelBarHeight());
     barRow->addWidget(m_bar, 1);
     auto *percent = makeMutedLabel(this, MainWindowUI::taskDetailPercentName());
     barRow->addWidget(percent, 0, Qt::AlignVCenter);

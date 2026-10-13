@@ -13,7 +13,6 @@
 #include <QLabel>
 #include <QMouseEvent>
 #include <QPainter>
-#include <QProgressBar>
 #include <QPushButton>
 #include <QScreen>
 #include <QScrollArea>
@@ -27,6 +26,7 @@
 #include "Animations.hpp"
 #include "ElidedLabel.hpp"
 #include "MainWindowUI.hpp"
+#include "TaskProgressBar.hpp"
 #include "Theme.hpp"
 #include "VersionIcons.hpp"
 
@@ -203,11 +203,11 @@ public:
         //       Content-Length 的 Fabric 下载显示'已下载多少'，不显示假百分比」）。
         //       那种情况下这一行的信息在 `detail` 那句里（"已下载 2.8 MB"）。
         if (active && item.percent >= 0) {
-            auto *bar = new QProgressBar(this);
+            // 自绘那条（§3.3）：条本身就**不画数**，数在上面那一行的 `percent` 里。
+            auto *bar = new TaskProgressBar(this);
             bar->setObjectName(MainWindowUI::taskCenterPanelRowBarName(index));
             bar->setRange(0, 100);
             bar->setValue(item.percent);
-            bar->setTextVisible(false);  // 数写上面那一行去了，条里再写一遍是重复
             bar->setFixedHeight(MainWindowUI::taskCenterPanelBarHeight());
             column->addWidget(bar);
         }

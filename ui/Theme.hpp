@@ -404,6 +404,24 @@ QColor neutralInkColor();
  * `PE_FrameFocusRect`（见 .cpp 里那段 —— 那是全应用唯一一个"每个控件都会走"的点）。
  */
 QColor focusRingColor(const QPalette &palette);
+
+/**
+ * @brief 自绘进度条（`ui/TaskProgressBar`）那一根**轨道**的底色。**唯一出处。**
+ *
+ * 从中性那一支算（`neutralFill()`）：底色往墨色那头混一档，于是浅底给一支浅灰、深底给一支
+ * 深灰 —— 和日志窗那排开关是同一个混法。**不写死一支灰**：底栏、任务面板、详情页三处的底
+ * 各不一样，写死一支在另一种底上不是看不见就是一块疙瘩。
+ */
+QColor progressTrackColor(const QPalette &palette);
+
+/**
+ * @brief 自绘进度条**往前走的那一截**的色（`ui/TaskProgressBar` 的**唯一出处**）。
+ *
+ * 就是主题色本身：浅底下用它本色（`AccentShade::Pure`）、深底下用亮一档
+ * （`AccentShade::Hover`）—— 判据和焦点环同一条（`isDarkPalette()`），别另立一条。
+ */
+QColor progressFillColor(const QPalette &palette);
+
 /// 全应用那一份控件样式表（按钮 / 输入框 / 勾选框；`apply()` 铺的就是它）。
 /// 要它是因为"这些东西长什么样"也得能量 —— 验证工程逐条读它算出来的色。
 QString widgetStyleSheet();

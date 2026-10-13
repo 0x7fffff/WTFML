@@ -187,6 +187,7 @@ set(SOURCE_FILES
     # （MainWindow 直接 new 它 + 读它）。少哪一个都会在链接那一步报一串 undefined reference。
     ${REPO_ROOT}/ui/TaskCenterPanel.cpp
     ${REPO_ROOT}/ui/TaskDetailPage.cpp
+    ${REPO_ROOT}/ui/TaskProgressBar.cpp
     # 完整性检查报告页（2026-10-12，coding plan §4.1）：MainWindow.cpp 直接 new 它。
     ${REPO_ROOT}/ui/IntegrityReportPage.cpp
     # 更新中心那一页（2026-10-13，§7.1）：MainWindow.cpp 直接 new 它。

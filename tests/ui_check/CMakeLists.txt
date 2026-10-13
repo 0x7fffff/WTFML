@@ -107,6 +107,7 @@ add_executable(ui_check main.cpp
                                 # 那一步报 `undefined reference to TaskCenterPanel::…`。
                                 ${REPO_ROOT}/ui/TaskCenterPanel.cpp
                                 ${REPO_ROOT}/ui/TaskDetailPage.cpp
+                                ${REPO_ROOT}/ui/TaskProgressBar.cpp
                                 # 完整性检查报告页（2026-10-12）：MainWindowUI.cpp 用到它那几个名字。
                                 ${REPO_ROOT}/ui/IntegrityReportPage.cpp
                                 # 更新中心那一页（2026-10-13，§7.1）：U33 直接 new 它。

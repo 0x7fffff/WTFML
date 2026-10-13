@@ -760,6 +760,18 @@ QColor focusRingColor(const QPalette &palette) {
                                   : accentShade(AccentShade::Ink);
 }
 
+QColor progressTrackColor(const QPalette &palette) {
+    // 底色往墨色那头混一档 —— 混法和 `neutralFill()` 里那三处逐字同式（含那一位 `+50`）。
+    // 14 是照着"浅底上要淡到像一条槽、又不能淡到看不见"挑的（浅色下大概 `#e3e3e3`）。
+    return neutralFill(palette.color(QPalette::Base), palette.color(QPalette::WindowText), 14);
+}
+
+QColor progressFillColor(const QPalette &palette) {
+    // 深浅两档和焦点环、以及"深色下用亮的那一档"是**同一个判断**（`isDarkPalette()`）。
+    return isDarkPalette(palette) ? accentShade(AccentShade::Hover)
+                                  : accentShade(AccentShade::Pure);
+}
+
 QString buttonKindKey(ButtonKind kind) {
     switch (kind) {
     case ButtonKind::Primary:

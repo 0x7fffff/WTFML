@@ -1,0 +1,128 @@
+/**
+ * @file TaskProgressBar.cpp
+ * @brief 自绘进度条的实现（取舍见头文件）。
+ * @author 0x7fffff
+ * @date 2026-10-13
+ */
+
+#include "TaskProgressBar.hpp"
+
+#include <QApplication>
+#include <QPaintEvent>
+#include <QPainter>
+#include <QTimer>
+
+#include "Animations.hpp"
+#include "Theme.hpp"
+
+namespace {
+
+/// 不确定态那一截占整条多宽（比例）。约"三分之一条子"—— 一眼看得出它在动，又不至于
+/// 大半条都是它。
+constexpr qreal kBusyBandFraction = 0.32;
+
+/// 相位每 16 ms（≈ 一帧 60 Hz）往前挪多少。0.012 ⇒ 一整圈约 1.3 秒。
+constexpr qreal kBusyPhaseStep = 0.012;
+
+/// 相位定时器的间隔（毫秒）。
+constexpr int kBusyTickMs = 16;
+
+}  // namespace
+
+TaskProgressBar::TaskProgressBar(QWidget *parent) : QProgressBar(parent) {
+    // 自绘的那一条**不画百分比文字**（数在标题行 / 右边那一格）。这一句同时替掉上游原来
+    // 把文字打开的那一位（`ui_modernize.py audit` 的 "progress text enabled"）。
+    setTextVisible(false);
+    m_busyTimer = new QTimer(this);
+    m_busyTimer->setInterval(kBusyTickMs);
+    connect(m_busyTimer, &QTimer::timeout, this, [this] {
+        // 只在**动效开着**时推相位。关掉动效（`Look/Animations` 那把开关、或系统"减少动态
+        // 效果"）⇒ 相位定在 0，那截带子**不动**（颜色照旧，只是不滚）。
+        if (!Anim::enabled()) {
+            return;
+        }
+        m_phase += kBusyPhaseStep;
+        if (m_phase > 1.0) {
+            m_phase -= 1.0;
+        }
+        update();
+    });
+}
+
+void TaskProgressBar::syncBusyTimer() {
+    const bool busy = minimum() == maximum();
+    const bool need = busy && isVisible() && Anim::enabled();
+    if (need == m_busyTimer->isActive()) {
+        return;
+    }
+    if (need) {
+        m_busyTimer->start();
+    } else {
+        m_busyTimer->stop();
+    }
+}
+
+void TaskProgressBar::showEvent(QShowEvent *event) {
+    QProgressBar::showEvent(event);
+    syncBusyTimer();
+}
+
+void TaskProgressBar::hideEvent(QHideEvent *event) {
+    QProgressBar::hideEvent(event);
+    syncBusyTimer();
+}
+
+void TaskProgressBar::paintEvent(QPaintEvent *) {
+    const int h = height();
+    const int w = width();
+    if (h <= 0 || w <= 0) {
+        return;
+    }
+    // 顺手把"该不该有定时器"再对一遍：`setRange(0, 0)` 这种改动到不了显隐事件里。
+    syncBusyTimer();
+
+    QPainter painter(this);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+
+    // ★ 色取**应用那一份**调色板，不取这一格自己的 —— 底栏那一条装在一颗挂着 QSS 的按钮
+    //   里，那颗按钮的 QPalette 里 `Window` 是黑的，照它算会掉进深色那一档（同一个顾虑
+    //   见 `MainWindowUI` 里给底栏选色那几处）。取应用那一份就不必操心谁先收到事件。
+    const QPalette palette = QApplication::palette();
+    const QColor track = Theme::progressTrackColor(palette);
+    const QColor fill = Theme::progressFillColor(palette);
+
+    const qreal radius = h / 2.0;
+    const QRectF rail(0, 0, w, h);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(track);
+    painter.drawRoundedRect(rail, radius, radius);
+
+    // 不确定态：`minimum() == maximum()`（底栏"有东西在跑但说不清到哪"那一档）。
+    if (minimum() == maximum()) {
+        const qreal band = w * kBusyBandFraction;
+        const qreal x = -band + (w + band * 2) * m_phase;
+        QLinearGradient gradient(x, 0, x + band, 0);
+        QColor clear = fill;
+        clear.setAlpha(0);
+        gradient.setColorAt(0.0, clear);
+        gradient.setColorAt(0.5, fill);
+        gradient.setColorAt(1.0, clear);
+        painter.setBrush(gradient);
+        painter.drawRoundedRect(QRectF(x, 0, band, h), radius, radius);
+        return;
+    }
+
+    // 确定态：按 `value()` 占 `range` 的比例把前一段涂满。两头圆角，露出来的那一截左端
+    // 也是圆的（贴住轨道左边那半圆）。
+    const int span = maximum() - minimum();
+    if (span <= 0) {
+        return;
+    }
+    const qreal ratio = qBound(0.0, qreal(value() - minimum()) / qreal(span), 1.0);
+    const qreal fillWidth = w * ratio;
+    if (fillWidth <= 0.0) {
+        return;
+    }
+    painter.setBrush(fill);
+    painter.drawRoundedRect(QRectF(0, 0, qMax(fillWidth, radius * 2.0), h), radius, radius);
+}

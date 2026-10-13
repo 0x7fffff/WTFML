@@ -14,6 +14,7 @@
 #include "MemorySlider.hpp"
 #include "OverlayHost.hpp"
 #include "SkinModel.hpp"
+#include "TaskProgressBar.hpp"
 #include "Theme.hpp"
 #include "ThemeBackground.hpp"
 #include "TitleBar.hpp"
@@ -4115,18 +4116,34 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     taskTextRow->addWidget(makeChevronLabel(taskSummaryButton), 0, Qt::AlignVCenter);
     taskLayout->addLayout(taskTextRow);
 
-    progressBar = new QProgressBar(taskSummaryButton);
+    // 下面那一行：自绘的细轨道 + 右边一格百分比（§3.3：底栏 / 面板 / 详情页三处统一到
+    // 同一条自绘组件上）。条**不再自己画数**（`TaskProgressBar` 只管画轨道）—— 所以数挪到
+    // 它右边这一格里，和任务详情页那一行（条在左、数在右）同构。
+    auto *taskProgressRow = new QHBoxLayout();
+    taskProgressRow->setContentsMargins(0, 0, 0, 0);
+    taskProgressRow->setSpacing(8);
+    progressBar = new TaskProgressBar(taskSummaryButton);
     progressBar->setObjectName(progressBarName());
     progressBar->setRange(0, 100);
     progressBar->setValue(0);
-    progressBar->setTextVisible(true);
-    taskLayout->addWidget(progressBar);
+    progressBar->setFixedHeight(MainWindowUI::taskCenterPanelBarHeight());
+    taskProgressRow->addWidget(progressBar, 1);
+    taskPercentLabel = new QLabel(taskSummaryButton);
+    taskPercentLabel->setObjectName(taskPercentLabelName());
+    {
+        QFont pctFont = taskPercentLabel->font();
+        pctFont.setPointSize(qMax(1, pctFont.pointSize() - 1));
+        taskPercentLabel->setFont(pctFont);
+    }
+    taskProgressRow->addWidget(taskPercentLabel, 0, Qt::AlignVCenter);
+    taskLayout->addLayout(taskProgressRow);
 
     // 一开始一项任务都没有：那一句低强调度的占位话 + **不显示空进度条**（§3.1）。
     // 产品里 MainWindow 每次重画底栏都会摆一份真的进来（updateBottomBar()），
     // 这里这个初值管的是**还没被谁摆过**的时候（独立构造 MainWindowUI 的地方吃它）。
     taskExtraLabel->hide();
     progressBar->hide();
+    taskPercentLabel->hide();
     setBottomBarTaskSummary(BottomBarTaskSummary());
 
     // ---------- 右：头像 + 用户名 ----------
@@ -4751,25 +4768,46 @@ void MainWindowUI::setBottomBarTaskSummary(const BottomBarTaskSummary &summary) 
         }
     }
 
-    // ---------- 下面那根条 ----------
-    // §3.1：「无任务时不显示空进度条」。所以没任务时它是**藏着的**（不是复位之后留着）。
+    // ---------- 下面那一行（条 + 右边那个数） ----------
+    // 右边那格百分比是**低强调度**的（和那句「另有 N 项」一个待遇），色的底取应用那一份
+    // （理由同上面 statusLabel 那段：这一格装在一颗挂着 QSS 的按钮里）。
+    if (taskPercentLabel != nullptr) {
+        QPalette pctPalette = QApplication::palette();
+        pctPalette.setColor(QPalette::WindowText, pctPalette.color(QPalette::PlaceholderText));
+        taskPercentLabel->setPalette(pctPalette);
+    }
+    // §3.1：「无任务时不显示空进度条」。所以没任务时**这一整行**（条 + 数）都是**藏着的**
+    // （不是复位之后留着）。
     if (!summary.hasTask) {
         progressBar->setRange(0, 100);
         Anim::smoothProgress(progressBar, 0);
         progressBar->hide();
+        if (taskPercentLabel != nullptr) {
+            taskPercentLabel->clear();
+            taskPercentLabel->hide();
+        }
         return;
     }
     progressBar->show();
     if (summary.percent < 0) {
         // 测不出总量（同步等待那几段、启动那一段、以及"刚点下载、清单还在路上"）：
-        // 不确定态的滚动条 —— 绝不编一个百分比出来（§3.4 那条）。
+        // 不确定态的滚动条 —— 绝不编一个百分比出来（§3.4 那条）。数没有真值 ⇒ 那一格收起。
         progressBar->setRange(0, 0);
+        if (taskPercentLabel != nullptr) {
+            taskPercentLabel->clear();
+            taskPercentLabel->hide();
+        }
         return;
     }
     progressBar->setRange(0, 100);
     // 走同一条动画路数（§9.4 / ui/Animations.hpp 里那四条"原地落"的规则）：它自己认得出
     // "总量变了 / 退回 0 了"那几档，不用这里再判一遍。
     Anim::smoothProgress(progressBar, summary.percent);
+    // 数走和面板那一行**同一个出处**（`taskCenterPercentText()`）；条本身不画数了。
+    if (taskPercentLabel != nullptr) {
+        taskPercentLabel->setText(MainWindowUI::taskCenterPercentText(summary.percent));
+        taskPercentLabel->show();
+    }
 }
 
 void MainWindowUI::refreshTaskCenterPanel() {

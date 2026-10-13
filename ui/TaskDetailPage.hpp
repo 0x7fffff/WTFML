@@ -37,9 +37,10 @@
 #include "TaskCenterPanel.hpp"
 
 class QLabel;
-class QProgressBar;
 class QPushButton;
 class QVBoxLayout;
+/// 自绘的进度条（`ui/TaskProgressBar`，coding plan §3.3）。这一页那一根和底栏、面板是同一个。
+class TaskProgressBar;
 
 class TaskDetailPage : public QDialog {
     Q_OBJECT
@@ -101,7 +102,7 @@ private:
     QLabel *m_bytesLabel = nullptr;
     QLabel *m_timeLabel = nullptr;
     QLabel *m_errorLabel = nullptr;
-    QProgressBar *m_bar = nullptr;
+    TaskProgressBar *m_bar = nullptr;
     QPushButton *m_cancelButton = nullptr;
     QPushButton *m_retryButton = nullptr;
     QPushButton *m_logButton = nullptr;

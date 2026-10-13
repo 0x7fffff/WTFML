@@ -70,6 +70,10 @@
 // 任务中心那块面板（2026-10-12）。这里要它的头只为一件事：`setTaskCenterContent()` 的
 // 参数类型和那个成员指针 —— 面板自己长什么样、怎么弹，全在它的 .cpp 里。
 #include "TaskCenterPanel.hpp"
+// 自绘的进度条（2026-10-13，coding plan §1.2 / §3.3）。这里要它的**完整定义**而不只是
+// 前向声明：`getProgressBar()` 的内联体要把 `TaskProgressBar *` 上转成 `QProgressBar *`，
+// 类型不完整就转不过去（实测报 "cannot convert … in return"）。
+#include "TaskProgressBar.hpp"
 
 class QGridLayout;
 class QScrollArea;
@@ -1780,6 +1784,9 @@ public:
     static QString runStateLabelName() { return QStringLiteral("runStateLabel"); }
     static QString runStateDetailLabelName() { return QStringLiteral("runStateDetailLabel"); }
     static QString progressBarName() { return QStringLiteral("progressBar"); }
+    /// 那根条右边那一格里的百分比（「42%」）。**名字是 2026-10-13 加的**（§3.3：条改成
+    /// 自绘、不再自己画数，数挪到条右边这一格）。
+    static QString taskPercentLabelName() { return QStringLiteral("taskPercentLabel"); }
     static QString statusLabelName() { return QStringLiteral("statusLabel"); }
 
     // ------------------------------------------------------------------
@@ -1887,7 +1894,11 @@ public:
     static int taskCenterPanelMaxWidth() { return 520; }
     /// 面板高度上限 = 屏幕**可用**高度的百分之多少（§3.2：60%）。
     static int taskCenterPanelHeightPercent() { return 60; }
-    /// 面板里那根进度条的高度（像素）。
+    /// 进度条那一根**细轨道**的高度（像素）。**三处共用的唯一出处**：任务中心面板里每一行、
+    /// 底栏中间那格、任务详情页 —— 2026-10-13（§3.3 统一自绘组件）起三处都读它（原来名字只
+    /// 提"面板"，详情页还各自写死 8；现在统一）。
+    ///
+    /// NOTE: 名字先没改（`ui_modernize.py` 的 `task_progress_height` 令牌按这个名字定位）。
     static int taskCenterPanelBarHeight() { return 4; }
     /// 步骤之间空多少（像素）。
     static int taskCenterPanelStepSpacing() { return 14; }
@@ -3423,6 +3434,8 @@ public:
     QLabel *getAccountTypeLabel() const { return accountTypeLabel; }
     // 进度只出现在底栏中间那一格，不进日志（旧版是钉在 QStatusBar 上的）
     QProgressBar *getProgressBar() const { return progressBar; }
+    /// 那根条右边那一格里的百分比（「42%」）。测不出百分比时它是**藏着的**（和条一起）。
+    QLabel *getTaskPercentLabel() const { return taskPercentLabel; }
     QLabel *getStatusLabel() const { return statusLabel; }
     // 底栏左侧：第一行是状态正文（它左边还有一颗三态的小方块），第二行是实例名
     // （只在需要区分时显示）
@@ -3651,7 +3664,11 @@ private:
     QLabel *accountLabel = nullptr;
     // 账户格那两行是**竖直排列**的（名字在上、登录方式在下），和左上角那格同构。
     QLabel *accountTypeLabel = nullptr;
-    QProgressBar *progressBar = nullptr;
+    /// 自绘进度条（`ui/TaskProgressBar`）。**声明成基类指针**：`getProgressBar()` 照旧回
+    /// `QProgressBar *`，测试那边按那个类型找。
+    TaskProgressBar *progressBar = nullptr;
+    /// 那根条右边那一格里的百分比（「42%」）—— 条不再自己画数了（见 `TaskProgressBar.hpp`）。
+    QLabel *taskPercentLabel = nullptr;
     QLabel *statusLabel = nullptr;
     QLabel *runStateLabel = nullptr;
     QLabel *runStateDetailLabel = nullptr;

@@ -144,6 +144,10 @@
 #include "OverlayHost.hpp"  // O 段：内容区覆盖层（设置界面 / 提示都开在这儿）
 #include "ResourceDetailPage.hpp"  // Z14：下载页点开一个资源之后那一整页
 #include "TaskDetailPage.hpp"      // I5：任务详情页（点任务中心里的一行开出来的那一页）
+// 自绘的进度条（2026-10-13，coding plan §3.3）：三处（底栏 / 面板行 / 详情页）共用的那一条。
+// 这一层要量的是"那三处**真的**换成了它"：按 objectName 找得到 `QProgressBar`、但
+// `qobject_cast<TaskProgressBar*>` 是空指针，就是漏换了一处（画出来还是原生那个样子）。
+#include "TaskProgressBar.hpp"
 #include "RowActivation.hpp"
 // Z15：「启用 / 禁用」那枚开关（画出来的，所以下面要量像素）和 MOTD 那套配色
 // （照游戏的样子画 MOTD 那一格）。
@@ -3763,9 +3767,28 @@ int main(int argc, char *argv[]) {
         QLabel *status = ui.getStatusLabel();
         QLabel *extra = ui.getTaskExtraLabel();
         QProgressBar *progress = ui.getProgressBar();
+        // 下面那些断言照旧按基类量（`value()/range()/isVisible()` 一个都没变），
+        // 这两样只用来钉"换没换成自绘的那一支 / 那个数画在哪一格上"。
+        auto *progressSelfDrawn = qobject_cast<TaskProgressBar *>(progress);
+        QLabel *percent = ui.getTaskPercentLabel();
         QPushButton *cell = ui.getTaskSummaryButton();
         check(status != nullptr && extra != nullptr && progress != nullptr && cell != nullptr,
               "E4 中间那格的几块控件都在（那句话 / 「另有 N 项」 / 进度条 / 整格那颗按钮）");
+        check(percent != nullptr,
+              "E4 底下那一行右边那一格百分比在（那根条自己不再画数了 —— 画上去的话它会顶着"
+              "「另有 N 项」的位置，而且缩起来的时候比条还长）");
+        // ★ 这一处必须是**自绘的那一支**（§3.3）：按 objectName 找得到基类不代表换过 ——
+        //   原生的 `QProgressBar` 也找得到，画出来是 Fusion 那个方块头 + 默认那圈描边。
+        check(progressSelfDrawn != nullptr,
+              "★★ E4 底栏那一格用的是**自绘的进度条**（TaskProgressBar），不是原生 QProgressBar");
+        if (progressSelfDrawn != nullptr) {
+            check(progressSelfDrawn->height() == MainWindowUI::taskCenterPanelBarHeight(),
+                  "★ E4 那根条的高度就是**三处共用**的那一位"
+                  "（`taskCenterPanelBarHeight()`，底栏 / 面板行 / 详情页同一个出处）",
+                  QStringLiteral("高 %1 期望 %2")
+                      .arg(progressSelfDrawn->height())
+                      .arg(MainWindowUI::taskCenterPanelBarHeight()));
+        }
         if (status != nullptr && extra != nullptr && progress != nullptr && cell != nullptr) {
             // ---- ① 那句话怎么拼 ----
             // 「收尾 = 过去式」：一件刚做完的事在收起态里还顶着现在进行时的样子，看着像
@@ -3812,6 +3835,11 @@ int main(int argc, char *argv[]) {
                   "E4 一项任务都没有：摆那句低强调度的占位话", status->text());
             check(!progress->isVisible(), "E4 一项任务都没有：那根进度条**不出现**（不留一根空的）");
             check(!extra->isVisible(), "E4 一项任务都没有：右边那句「另有 N 项」也不占地方");
+            // ★ §3.1 说的是"不显示空进度条" —— 那一行右边那个数**跟着一起收**，不是把它
+            //   清成空串还占着地方（占着地方 = 那一行的高度还在，底下那根条却没了）。
+            check(percent != nullptr && !percent->isVisible() && percent->text().isEmpty(),
+                  "★ E4 一项任务都没有：右边那格百分比也收起来（整行都不留）",
+                  percent != nullptr ? percent->text() : QStringLiteral("<没有那一格>"));
 
             // ---- ③ 有一件事在跑：标题原样 + 进度条是**确定态** ----
             Summary running;
@@ -3827,6 +3855,12 @@ int main(int argc, char *argv[]) {
             check(progress->minimum() == 0 && progress->maximum() == 100,
                   "E4 有百分比时进度条是**确定态**（0..100）",
                   QStringLiteral("%1..%2").arg(progress->minimum()).arg(progress->maximum()));
+            // 那个数走**唯一出处** `taskCenterPercentText()`（面板那一行也是它）——
+            // 两边各拼一遍的话，同一件事在这两处会写出不一样的写法来。
+            check(percent != nullptr && percent->isVisible() &&
+                      percent->text() == MainWindowUI::taskCenterPercentText(42),
+                  "★ E4 有百分比时右边那格写着那个数（和面板那一行同一个出处）",
+                  percent != nullptr ? percent->text() : QStringLiteral("<没有那一格>"));
 
             // ---- ④ 测不出百分比：不确定态（绝不编一个数出来，§3.4） ----
             Summary unknown;
@@ -3838,6 +3872,10 @@ int main(int argc, char *argv[]) {
             check(progress->minimum() == 0 && progress->maximum() == 0 && progress->isVisible(),
                   "E4 测不出百分比时进度条走**不确定态**（range 0..0），不是编一个 0%",
                   QStringLiteral("%1..%2").arg(progress->minimum()).arg(progress->maximum()));
+            // 测不出总量时**一个数都不许写**：编一个"0%"比不写更坏（§3.4）。
+            check(percent != nullptr && !percent->isVisible() && percent->text().isEmpty(),
+                  "★ E4 测不出百分比时右边那格**空着**（绝不编一个 0%）",
+                  percent != nullptr ? percent->text() : QStringLiteral("<没有那一格>"));
 
             // ---- ⑤ 「另有 N 项」 ----
             Summary many = running;
@@ -4519,6 +4557,22 @@ int main(int argc, char *argv[]) {
             QWidget *panel = window.findChild<QWidget *>(MainWindowUI::taskCenterPanelName());
             check(panel != nullptr && panel->isVisible(), "I6 面板又弹出来了（喂了一件在跑的）");
             if (panel != nullptr) {
+                // ★ 面板里那一行那根条也是**自绘的那一支**（§3.3 三处之一）。测得出百分比
+                //   的行才有它（上面 I2 量的是"测不出就不摆"那一侧）。
+                auto *rowBar = panel->findChild<QProgressBar *>(
+                    MainWindowUI::taskCenterPanelRowBarName(0));
+                check(qobject_cast<TaskProgressBar *>(rowBar) != nullptr,
+                      "★★ I6 面板里那一行那根条也是**自绘的**（TaskProgressBar），不是原生 QProgressBar",
+                      rowBar == nullptr ? QStringLiteral("<那一行没有条>")
+                                        : QStringLiteral("类名 %1")
+                                              .arg(QString::fromLatin1(rowBar->metaObject()->className())));
+                if (rowBar != nullptr) {
+                    check(rowBar->height() == MainWindowUI::taskCenterPanelBarHeight(),
+                          "★ I6 它和底栏那一根**同一个高度出处**（`taskCenterPanelBarHeight()`）",
+                          QStringLiteral("高 %1 期望 %2")
+                              .arg(rowBar->height())
+                              .arg(MainWindowUI::taskCenterPanelBarHeight()));
+                }
                 auto *cancel = panel->findChild<QPushButton *>(
                     MainWindowUI::taskCenterPanelRowCancelName(0));
                 check(cancel != nullptr && cancel->isVisible(),
@@ -4601,6 +4655,20 @@ int main(int argc, char *argv[]) {
         check(detailBar != nullptr && detailBar->isVisible() && detailBar->value() == 62,
               "I6 测得出百分比 ⇒ 那根条在，而且摆的是**确定态**的那个值",
               detailBar != nullptr ? QString::number(detailBar->value()) : QStringLiteral("<没找到>"));
+        // ★ 详情页那根条同样是**自绘的那一支**（§3.3 三处里的最后一处），而且高度和
+        //   另外两处**同一个出处** —— 三处各写一个数的话，同一根条在这三页上会长短不一。
+        check(qobject_cast<TaskProgressBar *>(detailBar) != nullptr,
+              "★★ I6 详情页那根条也是**自绘的**（TaskProgressBar），不是原生 QProgressBar",
+              detailBar == nullptr ? QStringLiteral("<没找到>")
+                                   : QStringLiteral("类名 %1").arg(
+                                         QString::fromLatin1(detailBar->metaObject()->className())));
+        check(detailBar != nullptr
+                  && detailBar->height() == MainWindowUI::taskCenterPanelBarHeight(),
+              "★ I6 它和底栏 / 面板那两根**同一个高度出处**（`taskCenterPanelBarHeight()`）",
+              detailBar != nullptr ? QStringLiteral("高 %1 期望 %2")
+                                         .arg(detailBar->height())
+                                         .arg(MainWindowUI::taskCenterPanelBarHeight())
+                                   : QStringLiteral("<没找到>"));
         auto *percentLabel = page.findChild<QLabel *>(MainWindowUI::taskDetailPercentName());
         check(percentLabel != nullptr && percentLabel->text() == QStringLiteral("62%"),
               "I6 百分比那一句走 `taskCenterPercentText()`（和面板那一行同一个出处）",

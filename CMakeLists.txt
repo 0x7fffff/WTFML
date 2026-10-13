@@ -110,6 +110,9 @@ set(HEADER_FILES
     ui/JavaManageDialog.hpp
     # 底栏中间那格点开之后弹出来的任务中心面板（页面/行的形状见它的文件头）。
     ui/TaskCenterPanel.hpp
+    # 自绘的进度条（2026-10-13，coding plan §3.3「统一自绘任务进度组件」）：
+    # 底栏 / 任务面板 / 详情页三处共用这一条，换掉原来各自的原生 QProgressBar。
+    ui/TaskProgressBar.hpp
 )
 
 set(SOURCE_FILES
@@ -184,6 +187,7 @@ set(SOURCE_FILES
     ui/ToggleSwitch.cpp
     ui/TaskCenterPanel.cpp
     ui/TaskDetailPage.cpp
+    ui/TaskProgressBar.cpp
     ui/IntegrityReportPage.cpp
     ui/UpdateCenterPage.cpp
     ui/NewServerPage.cpp
