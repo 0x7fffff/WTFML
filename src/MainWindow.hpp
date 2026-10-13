@@ -101,6 +101,12 @@
 // 服务端控制台那一页（coding plan §6.2 / M4-3）：`m_serverConsolePage` 是个指针，但这个
 // 头不 include 它的话 .cpp 那边还得记着补一个 —— 同「新建服务端」那一条的理由，一并进来。
 #include "..\ui\ServerConsolePage.hpp"
+// 「服务端设置」那一页（coding plan §6.3 / M4-4）：`m_serverSettingsPage` 是个指针，同
+// 上面那条的理由一并进来。
+#include "..\ui\ServerSettingsPage.hpp"
+// 服务端设置底下那三层判据：`ServerCheck::Facts` 在私有函数的返回值里**按值**出现，所以
+// 这个头必须看得见它的定义（`ServerCheck.hpp` 自己就把另外两张表带进来了）。
+#include "server/ServerCheck.hpp"
 
 // MainWindowUI —— `InstanceMode` 是**按值**存在成员里的（`m_instanceMode`），而前置声明
 // 说得出 `MainWindowUI *`、说不出它里面的嵌套枚举，所以这里得 include（同 TaskDetailPage /
@@ -2419,6 +2425,63 @@ private:
     /// 按 @p action（`MainWindowUI::ServerMenuAction` 的下标）做一件事。
     void runServerMenuAction(const QString &serverId, int action);
 
+    // ---------- 服务端设置那一页（coding plan §6.3 / 里程碑 M4-4）----------
+    //
+    // 整页（`OverlayHost::execPage()`）：左栏四页（常用设置 / 原始文本 / 世界备份 / 体检）、
+    // 右边一个堆叠页、底下一条保存带。这一页上摆的四样东西，背后的判据分别住在
+    // `ServerPropertiesForm`（那十几个旋钮）、`BackupFiles`（世界备份）、`ServerCheck` +
+    // `ServerPortCheck`（体检）里 —— 这一层只做两件事：把盘上的事实翻成界面上那几行，
+    // 把用户按的那一下落回盘上。
+    //
+    // ★ **两种编辑方式不打起来的那条规矩**：这一层手里始终握着**一份原文**
+    //   （`m_serverSettingsRaw`），它是唯一会被写回盘上的东西；表单里改过的那几项是叠在
+    //   它上面的补丁（`ServerSettingsPage::changedOnly()`）。
+    //   保存 = `parseProperties(原文)` → `applyEdits(补丁)` → `writeProperties()`
+    //   （见 `saveServerSettings()`）—— 于是注释、他手写的别的键、键的顺序、行尾，
+    //   一个字节都不动。
+    //
+    // ★ **服务端在跑的时候这一页是只读的**（`setEditable(false, …)`）：它停下来的那一刻
+    //   会把自己内存里那份 `server.properties` 写回盘上，现在改的会被盖掉。
+    // ★ 这一条**在 `private slots:` 里**（同上面那一小段的老规矩）：它本来就只被右键菜单
+    //   那一发驱动，而且 mw_check 的 T42 要靠元对象系统把这一页整页驱动起来（`openInstance
+    //   Settings()` 也是这么被 T27 调用的）。别的十几条留在下面 `private:` 里 —— 那些是
+    //   页面上的信号驱动的，判据从**真控件**那一头点进去量。
+private slots:
+    void openServerSettingsPage(const QString &serverId);
+
+private:
+    /// 把这一页四页都按**盘上现在的样子**重摆一遍（开页 / 放弃改动 / 保存之后 / 备份收尾）。
+    void refreshServerSettingsPage();
+    /// 保存那一页上的改动：原文 + 表单补丁 → `server.properties`。
+    void saveServerSettings();
+    /// 放弃改动：把这一页按盘上那一份重新摆一遍（表单基线、原文、保存带全回到开页那一刻）。
+    void revertServerSettings();
+    /// 切页那一下：把"表单补丁"和"原始文本"两边的编辑合起来（见 `sectionChanged` 那段）。
+    void mergeServerSettingsEdits(int fromSection, int toSection);
+    /// 现在改过几项 / 动没动原文 —— 保存带那句话与「保存」的灰亮的**唯一出处**。
+    void updateServerSettingsSaveState();
+
+    /// 跑一遍体检（开页 / 保存之后 / 用户点了「重新检查」），把结论摆到那一页上。
+    /// 顺带把端口那一次真监听的结论记进 `m_serverSettingsPortState`。
+    void runServerCheck();
+    /// 体检单上某一条的出路（`ServerCheck::actionToken()` 那个记号）。
+    void runServerCheckAction(const QString &token);
+    /// 体检的原料：**全是现查出来的事实**（判据那一层一个都不自己查）。
+    ServerCheck::Facts serverCheckFacts();
+    /// 盘上这一份 `server.properties` 里的世界目录名（`level-name`；值不合法回空串）。
+    QString serverWorldName(const QString &serverId) const;
+    /// 世界目录的绝对路径（`<服务端目录>/<level-name>`；`level-name` 不合法时回空串）。
+    QString serverWorldDir(const QString &serverId) const;
+
+    /// 用户点了「立即备份」：把这个世界打成一个 zip（走的就是 M2 那一套引擎）。
+    void backupServerWorld(const QString &serverId);
+    /// 用户点了「从这一份恢复…」/ 双击了那一行。
+    void restoreServerWorldBackup(const QString &serverId, const QString &zipPath);
+    /// 用户点了「删掉这一份…」。
+    void deleteServerBackup(const QString &zipPath);
+    /// 这个世界的备份在盘上有几份（按文件名前缀数，`BackupFiles` 那一套）。
+    int serverWorldBackupCount(const QString &serverId) const;
+
     /**
      * @brief EULA 那道闸：没同意过就先问一次。
      * @return 现在能不能启动（以前同意过 / 用户当场勾了并点了同意）。
@@ -2926,6 +2989,22 @@ private:
     ///   所以"这一按是对哪个服务端按的"只能从这儿来 —— **不许**去问"列表上现在选中谁"
     ///   （用户完全可能边看控制台边点别处）。换一个服务端开控制台时这一格跟着换。
     QString m_serverConsoleId;
+    /// 「服务端设置」那一页（懒建一次、之后复用，和控制台那张同一路数）。
+    ServerSettingsPage *m_serverSettingsPage = nullptr;
+    /// 那一页**现在说的是哪一个**服务端（同 `m_serverConsoleId` 那条理由：认它，不许去问
+    /// "列表上现在选中谁"）。
+    QString m_serverSettingsId;
+    /// 这一页**手里那份 `server.properties` 的原文** —— 唯一会被写回盘上的东西。
+    /// 表单里改过的那几项是叠在它上面的补丁（见 .hpp 里那段 ★）。
+    QString m_serverSettingsRaw;
+    /// 开页那一刻盘上那一份（「放弃改动」还原到它；保存成功之后它也换成新那一份）。
+    QString m_serverSettingsOriginal;
+    /// 这一页现在能不能改（服务端在跑 = 不能，见 `setEditable()` 那一段）。
+    bool m_serverSettingsEditable = true;
+    /// 体检里"那个端口现在有人占着吗"的结论（`ServerPortCheck::stateOf()` 那一发）。
+    /// **开页 / 重新检查 / 保存之后**各查一次 —— 它不是个"随时都准"的事实（用户可能刚把
+    /// 占着它的那个程序关掉）。
+    ServerPortCheck::State m_serverSettingsPortState = ServerPortCheck::State::Unknown;
     /// 那一页现在说的是哪个实例的结论（**开那一页时记下来**）。
     ///
     /// 和 `m_integrityReportVersionId` 一个路数：页面是复用的、点动作时它可能已经关了，
@@ -3310,6 +3389,12 @@ private:
     /// NOTE: 只有**世界还原**那一条路会摆它 —— 打备份一个字节都不改盘，实例快照也不动
     ///       这一页（它改的是实例目录，而那一页读的是 `level.dat`）。
     QString m_backupRefreshWorldDir;
+    /// 这一趟跑完之后要把「服务端设置」那一页**重摆一遍**（存 serverId；**空 = 不用**）。
+    ///
+    /// ★ 服务端世界的备份 / 还原和上面那两条路共用一个引擎、也共用 `m_backupTaskId`
+    ///   那一趟（同一时刻只有一份备份在跑）—— 但"跑完了要刷哪儿"是三件不同的事，所以
+    ///   各记各的：世界页那一条记目录、实例快照不刷、这一条记服务端。
+    QString m_backupRefreshServerId;
     /// 上面那一页还在不在（`QPointer`，和测速那几处同一个路数）：用户完全可能在备份跑完
     /// 之前就返回、把实例设置收掉了。收掉了就什么都不做（盘上的事已经做完了）。
     QPointer<InstanceSettingsDialog> m_backupRefreshDialog;

@@ -198,6 +198,9 @@
 // exe 当"服务端"（`--fake-server`）把它的整条命跑一遍。
 #include "server/ServerProcess.hpp"
 #include "server/ServerRun.hpp"
+// T42：「服务端设置」那一整页（coding plan §6.3 第二阶段 / M4-4）—— 这一节把它经真
+// `MainWindow` 整页开出来、改一格、保存、看盘上那份文件、按「立即备份」、读体检单。
+#include "ServerSettingsPage.hpp"
 // T38：那一页（「新建服务端…」开出来的）要按 objectName 认控件、填字段、点「创建」。
 #include "NewServerPage.hpp"
 // T27.7：「世界设置…」那条路要**自己造一份真的 level.dat**（T27 前面那些夹具里那一份是
@@ -16532,6 +16535,289 @@ static void runServerProcessTests() {
     }
 }
 
+// =========================================================================
+// T42. 「服务端设置」那一整页（coding plan §6.3 第二阶段 / M4-4）
+//
+// 这一节量的是**只能在这一层说得清**的事：那一页经真 `MainWindow` 开到内容区上之后，
+// 按下去的那几发到底有没有落到盘上 —— 表单改一格 → 保存 → 盘上那份 `server.properties`
+// 只动了那一行（别的行一个字节都不碰）；切到「原始文本」时表单的补丁**已经合进那份文本**
+// （两页看到的不是两份东西）；文本框里改一行 → 保存 → 整份写回去；「立即备份」→ 盘上真
+// 多一个 zip；体检单里那些条目是 `ServerCheck` 现算的。
+//
+// 判据层（字段表 / `accepts()` / `applyEdits()` / `inspect()`）在 verify 的 ZV 段钉死，
+// 那一页自己的形状（四种控件 / 三档颜色 / 出路去重）在 ui_check 的 U37 里 —— 这一节**不
+// 重复量**它们，只量"接出去、落到盘上没有"。
+// =========================================================================
+static void runServerSettingsPageTests() {
+    const QString originalDir = AppPaths::minecraftDir();
+    QTemporaryDir root;
+    check(root.isValid(), "T42 前提：拿得到一个临时的数据根目录");
+    // 数据根目录**两头都要改**（理由见 T39/T40）：`MainWindow` 构造里会拿盘上那个「当前
+    // 游戏文件夹」再把 AppPaths 改一次。收尾**逐字还原**那两个键。
+    QSettings sandbox;
+    const QVariant foldersBefore = sandbox.value(QStringLiteral("Launcher/Folders"));
+    const QVariant currentBefore = sandbox.value(QStringLiteral("Launcher/CurrentFolder"));
+    sandbox.setValue(QStringLiteral("Launcher/Folders"), QStringList({root.path()}));
+    sandbox.setValue(QStringLiteral("Launcher/CurrentFolder"), root.path());
+    sandbox.sync();
+    AppPaths::setMinecraftDir(root.path());
+
+    // ---------- 盘上摆一个服务端（判据层直接摆，不经过界面）----------
+    const QString serverId = QStringLiteral("我的服务端");
+    ServerModel::Info info;
+    info.name = serverId;
+    info.flavor = ServerInstall::Flavor::Vanilla;
+    info.flavorKnown = true;
+    info.gameVersion = QStringLiteral("1.20.1");
+    QString problem;
+    check(ServerRegistry::createServer(serverId, info, &problem),
+          "T42 前提：盘上摆了一个服务端", problem);
+    const QString serverDir = AppPaths::serverDir(serverId);
+    {
+        QFile jar(serverDir + QStringLiteral("/server.jar"));
+        if (jar.open(QIODevice::WriteOnly)) {
+            jar.close();
+        }
+    }
+    // 世界目录（备份那一段要它真在盘上）+ 一份带注释的 server.properties。
+    QDir().mkpath(serverDir + QStringLiteral("/world"));
+    {
+        QFile levelDat(serverDir + QStringLiteral("/world/level.dat"));
+        if (levelDat.open(QIODevice::WriteOnly)) {
+            levelDat.write(QByteArrayLiteral("LEVEL-DATA"));
+            levelDat.close();
+        }
+    }
+    const QString originalProps = QStringLiteral("#Minecraft server properties\n"
+                                                "motd=欢迎来到我的服务端\n"
+                                                "server-port=25565\n"
+                                                "level-name=world\n"
+                                                "view-distance=10\n");
+    {
+        QFile props(ServerRegistry::propertiesPath(serverId));
+        if (props.open(QIODevice::WriteOnly)) {
+            props.write(originalProps.toUtf8());
+            props.close();
+        }
+    }
+    const auto propsTextOnDisk = [&serverId]() {
+        QFile file(ServerRegistry::propertiesPath(serverId));
+        if (!file.open(QIODevice::ReadOnly)) {
+            return QString();
+        }
+        return QString::fromUtf8(file.readAll());
+    };
+
+    MainWindow w;
+    w.show();
+    QApplication::processEvents();
+
+    bool pageSeen = false;
+    QTimer::singleShot(0, [&pageSeen, &serverId, &originalProps, &propsTextOnDisk] {
+        OverlayHost *host = currentPageOverlay();
+        if (host == nullptr) {
+            return;
+        }
+        auto *page = host->findChild<ServerSettingsPage *>();
+        if (page == nullptr) {
+            return;
+        }
+        pageSeen = true;
+
+        auto *title = page->findChild<QLabel *>(MainWindowUI::serverSettingsTitleName());
+        auto *sections =
+            page->findChild<QListWidget *>(MainWindowUI::serverSettingsSectionListName());
+        auto *stack = page->findChild<QStackedWidget *>(MainWindowUI::serverSettingsStackName());
+        auto *save = page->findChild<QPushButton *>(MainWindowUI::serverSettingsSaveButtonName());
+        auto *saveNote = page->findChild<QLabel *>(MainWindowUI::serverSettingsSaveNoteName());
+        auto *backupNow =
+            page->findChild<QPushButton *>(MainWindowUI::serverSettingsBackupNowButtonName());
+        auto *backupList =
+            page->findChild<QTreeWidget *>(MainWindowUI::serverSettingsBackupListName());
+        auto *checkSummary =
+            page->findChild<QLabel *>(MainWindowUI::serverSettingsCheckSummaryName());
+        auto *checkList =
+            page->findChild<QTreeWidget *>(MainWindowUI::serverSettingsCheckListName());
+        auto *rawEdit =
+            page->findChild<QPlainTextEdit *>(MainWindowUI::serverSettingsRawEditName());
+        // ★ 表单那几格**每存一次就重造一批**：`setFields()` 里那一发是 `delete`（不是
+        //   `deleteLater()`，见那段 NOTE）—— 所以这一节**一律现查**，绝不把某一格编辑器的
+        //   指针留过一发保存。2026-10-13 实测：留住的那个指针在存完之后指向的是**另一格**
+        //   （T42.5 报出来的值是「20」，也就是「最多在线人数」那一格里的东西 —— 同一块
+        //   内存被后造的那一行复用了）。左栏 / 堆叠页 / 那几颗按钮 / 两份列表都是构造里
+        //   造一次就留着的东西，那些可以留。
+        const auto textFieldOf = [page](const QString &key) {
+            return page->findChild<QLineEdit *>(MainWindowUI::serverSettingsFieldName(key));
+        };
+        const auto numberFieldOf = [page](const QString &key) {
+            return page->findChild<QSpinBox *>(MainWindowUI::serverSettingsFieldName(key));
+        };
+        const bool wired = title != nullptr && sections != nullptr && stack != nullptr &&
+                           save != nullptr && saveNote != nullptr && backupNow != nullptr &&
+                           backupList != nullptr && checkSummary != nullptr &&
+                           checkList != nullptr && rawEdit != nullptr
+                           && textFieldOf(QStringLiteral("motd")) != nullptr
+                           && numberFieldOf(QStringLiteral("server-port")) != nullptr;
+        check(wired, "★ T42.0 前提：那一页整页开出来了，表单 / 原始文本 / 备份 / 体检四样都找得到");
+        if (!wired) {
+            if (auto *back =
+                    host->findChild<QPushButton *>(OverlayHost::overlayBackButtonName())) {
+                back->click();
+            }
+            return;
+        }
+
+        // ---------- ① 顶上说的是谁 + 表单起手摆的是盘上那一份 ----------
+        check(title->text() == serverId &&
+                  sections->count() == MainWindowUI::serverSettingsSectionCount() &&
+                  stack->count() == MainWindowUI::serverSettingsSectionCount(),
+              "★ T42.1 顶上那行字是**用户认得的那一个名字**，左栏四页摆齐了",
+              title->text());
+        check(textFieldOf(QStringLiteral("motd"))->text() == QStringLiteral("欢迎来到我的服务端")
+                  && numberFieldOf(QStringLiteral("server-port"))->value() == 25565,
+              "★★ T42.1 表单起手摆的就是盘上那份 `server.properties` 里写的（不是表的缺省值）",
+              QStringLiteral("motd=「%1」 port=%2")
+                  .arg(textFieldOf(QStringLiteral("motd"))->text())
+                  .arg(numberFieldOf(QStringLiteral("server-port"))->value()));
+        check(!save->isEnabled() &&
+                  saveNote->text() == MainWindowUI::serverSettingsCleanNote(),
+              "★ T42.1 刚开页 = 什么都没改 ⇒ 「保存」点不动、那行小字是「没改过什么」",
+              saveNote->text());
+
+        // ---------- ② 表单改一格 → 保存带亮 → 保存 → 盘上只动了那一行 ----------
+        textFieldOf(QStringLiteral("motd"))->setText(QStringLiteral("新的说明"));
+        check(save->isEnabled() &&
+                  saveNote->text() == MainWindowUI::serverSettingsDirtyFieldsNote(1),
+              "★★ T42.2 改了一格 ⇒ 「保存」亮了、小字说的是「改过 1 项」（那几句话是产品"
+              "措辞，只有翻译点那一个出处）",
+              saveNote->text());
+        save->click();
+        QApplication::processEvents();
+        const QString afterSave = propsTextOnDisk();
+        check(afterSave.contains(QStringLiteral("motd=新的说明")) &&
+                  afterSave.contains(QStringLiteral("#Minecraft server properties")) &&
+                  afterSave.contains(QStringLiteral("view-distance=10")) &&
+                  !afterSave.contains(QStringLiteral("欢迎来到我的服务端")),
+              "★★★ T42.2 保存之后盘上那一份**只动了 motd 那一行**：注释、别的键、键的顺序"
+              "都照旧（「用户那份 + 他改的那几项」，不是我们重新生成的一份）",
+              afterSave);
+        check(saveNote->text() == MainWindowUI::serverSettingsSavedNote() &&
+                  !save->isEnabled(),
+              "★★ T42.2 存完那一行小字换成「已经保存好了」、按钮又灭了（按过就没了）",
+              saveNote->text());
+
+        // ---------- ③ 切到「原始文本」：表单那笔改动**已经合进文本**了 ----------
+        // 这一步量的是"两页看到的不是两份东西"（见 `mergeServerSettingsEdits`）。
+        sections->setCurrentRow(static_cast<int>(ServerSettingsPage::Section::RawText));
+        QApplication::processEvents();
+        check(stack->currentIndex() == static_cast<int>(ServerSettingsPage::Section::RawText) &&
+                  rawEdit->toPlainText() == afterSave,
+              "★★★ T42.3 切到「原始文本」⇒ 文本框里就是**刚存下去的那一份**（表单那笔改动"
+              "早合进来了 —— 用户马上要看的正是「我改完之后这份文件长什么样」）",
+              rawEdit->toPlainText());
+
+        // ---------- ④ 在文本框里改一行 → 保存 → 整份写回去 ----------
+        rawEdit->setPlainText(rawEdit->toPlainText() + QStringLiteral("pvp=false\n"));
+        check(save->isEnabled() &&
+                  saveNote->text() == MainWindowUI::serverSettingsDirtyRawNote(),
+              "★★ T42.4 动了文本框 ⇒ 保存带说的是「原始文本动过」（不是「改过 N 项」）",
+              saveNote->text());
+        save->click();
+        QApplication::processEvents();
+        const QString afterRaw = propsTextOnDisk();
+        check(afterRaw.contains(QStringLiteral("pvp=false")) &&
+                  afterRaw.contains(QStringLiteral("motd=新的说明")),
+              "★★★ T42.4 文本框里加的那一行真的写下去了（保存写回去的就是**这一份原文**）",
+              afterRaw);
+
+        // ---------- ⑤ 切回表单：按新那份重摆，基线也跟着换 ----------
+        sections->setCurrentRow(static_cast<int>(ServerSettingsPage::Section::Common));
+        QApplication::processEvents();
+        check(stack->currentIndex() == static_cast<int>(ServerSettingsPage::Section::Common) &&
+                  textFieldOf(QStringLiteral("motd"))->text() == QStringLiteral("新的说明") &&
+                  !save->isEnabled(),
+              "★★ T42.5 切回表单 ⇒ 按盘上那份重摆、而且**基线也重设到它**（不是「改过」）",
+              textFieldOf(QStringLiteral("motd"))->text());
+
+        // ---------- ⑥ 「立即备份」→ 盘上真多一个 zip → 这一列跟着多一行 ----------
+        const QString backupDir = BackupFiles::backupDir(BackupFiles::Kind::World);
+        const auto zipCount = [&backupDir]() {
+            return QDir(backupDir).entryList(QStringList{QStringLiteral("*.zip")}, QDir::Files).size();
+        };
+        const int zipsBefore = zipCount();
+        // ★ 打完之后 `onBackupWriteFinished()` 会弹一张**阻塞**的「备份完成」卡片（那是产品的
+        //   规矩：这种事要当面说一声）。它是在后台那一趟跑完时**从 `pumpUntil` 那一堆
+        //   `processEvents()` 里面**弹出来的 —— 没人答的话这一节就永远挂在那层嵌套循环里
+        //   （2026-10-13 实测：整份 mw_check 卡在 T42.6 二十几分钟、栈停在
+        //   `InlineMessage::information` ← `onBackupWriteFinished`）。
+        PromptAnswerer answerer({0});
+        answerer.start();
+        backupNow->click();
+        const bool wrote = pumpUntil(
+            [&zipCount, &zipsBefore, backupList]() {
+                return zipCount() > zipsBefore && backupList->topLevelItemCount() > 0;
+            },
+            60000);
+        // 收尾那一下的账（那一页重摆过了）已经在上面那两条 `pumpUntil` 里做完了，这里只把
+        // 定时器停掉，别让它接着往后点别的框。
+        answerer.stop();
+        check(wrote, "★★★ T42.6 按「立即备份」⇒ 备份目录里真多一个 zip，而且这一列当场多了"
+                     "一行（收尾那一下会把这一页重摆一遍）",
+              QStringLiteral("zip %1 → %2 / 列 %3 行")
+                  .arg(zipsBefore)
+                  .arg(zipCount())
+                  .arg(backupList->topLevelItemCount()));
+        check(answerer.answered.size() == 1
+                  && answerer.answered.first().title.contains(QStringLiteral("备份")),
+              "★★ T42.6 打完那一下**当面说了一句**（一张阻塞的「备份完成」卡片 —— 后台那一趟"
+              "跑完时从嵌套循环里弹出来的）",
+              QStringLiteral("%1 条：%2")
+                  .arg(answerer.answered.size())
+                  .arg(answerer.answered.isEmpty() ? QString()
+                                                   : answerer.answered.first().title));
+        if (wrote) {
+            check(backupList->topLevelItem(0)->text(0).contains(QStringLiteral("-")) &&
+                      !backupList->topLevelItem(0)->data(0, Qt::UserRole).toString().isEmpty(),
+                  "★ T42.6 那一行的身份（userData）是盘上那个 zip 的路径 —— 认路径不认那行字",
+                  backupList->topLevelItem(0)->data(0, Qt::UserRole).toString());
+        }
+
+        // ---------- ⑦ 体检单是 `ServerCheck` 现算的 ----------
+        check(!checkSummary->text().isEmpty() && checkList->topLevelItemCount() >= 1,
+              "★★ T42.7 体检那一页有总括那句话、单子上也有条目（台词和条目都是 `ServerCheck` "
+              "按盘上那些事实现算的）",
+              QStringLiteral("总括「%1」/ %2 条")
+                  .arg(checkSummary->text())
+                  .arg(checkList->topLevelItemCount()));
+        // 备份完再来一趟：世界备份那一格不再是 0 —— 体检的原料确实跟着盘走。
+        check(checkSummary->text().contains(QStringLiteral("项")),
+              "★ T42.7 总括那句是 `summaryText()` 的形态（N 项要处理 · N 项提醒 · N 项说明）",
+              checkSummary->text());
+
+        // ---------- ⑧ 收页 ----------
+        if (auto *back = host->findChild<QPushButton *>(OverlayHost::overlayBackButtonName())) {
+            back->click();  // 返回箭头 = reject（见 OverlayHost::execPage）
+        }
+    });
+    QMetaObject::invokeMethod(&w, "openServerSettingsPage", Qt::DirectConnection,
+                              Q_ARG(QString, serverId));
+    QApplication::processEvents();
+
+    check(pageSeen, "★★ T42.0 点出来的是那一页（`openServerSettingsPage` 经元对象系统驱动）");
+    check(currentOverlay() == nullptr, "★ T42.8 按返回箭头 ⇒ 那一页收掉了（没卡在嵌套循环里）");
+    // 收页之后盘上那份文件还在（这一节写的是真盘）。
+    check(propsTextOnDisk().contains(QStringLiteral("pvp=false")),
+          "★ T42.8 收页之后盘上那份 `server.properties` 还是改过的那一份");
+
+    w.close();
+    QApplication::processEvents();
+    sandbox.setValue(QStringLiteral("Launcher/Folders"), foldersBefore);
+    sandbox.setValue(QStringLiteral("Launcher/CurrentFolder"), currentBefore);
+    sandbox.sync();
+    AppPaths::setMinecraftDir(originalDir);
+    check(AppPaths::minecraftDir() == originalDir, "T42.9 数据根目录换回来了");
+}
+
 int main(int argc, char *argv[]) {
     // ---------- session-holder：给"真的有一份会话在跑"当替身 ----------
     //   mw_check.exe session-holder
@@ -29668,6 +29954,12 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
     // 真进程打交道（那条"服务端"是本工程自己的 exe，见 `--fake-server` 那一支）。
     header("T41. 服务端「跑起来 / 停下来」：起 → 读到 `Done (` → 写一句 → 停 / 宽限到点强杀（离线）");
     runServerProcessTests();
+
+    // **也要造 MainWindow、也要换数据根目录**（同一节自己的沙盒，节尾逐字还原）。这一节走
+    // 一整条用户路：服务端列表右键 → 「服务端设置」→ 表单改一格 → 保存 → 盘上那份文件，
+    // 切「原始文本」→ 改一行 → 保存 → 整份写回去，再按「立即备份」看盘上真多一个 zip。
+    header("T42. 「服务端设置」那一整页：表单 / 原始文本 / 备份 / 体检（离线）");
+    runServerSettingsPageTests();
 
     std::printf("\n===== %s: %d/%d =====\n", g_fail == 0 ? "全部通过" : "有失败", g_pass,
                 g_pass + g_fail);

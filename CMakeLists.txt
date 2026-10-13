@@ -81,6 +81,12 @@ set(HEADER_FILES
     # （一条 QProcess，一个服务端一份）。
     src/server/ServerRun.hpp
     src/server/ServerProcess.hpp
+    # 「服务端设置」那几层的判据（2026-10-13，coding plan §6.3 / 里程碑 M4-4）：
+    # `server.properties` 常用字段那张表与它的值域（纯）、端口占用那一次真监听（薄）、
+    # 体检（纯值进、结论出）。
+    src/server/ServerPropertiesForm.hpp
+    src/server/ServerPortCheck.hpp
+    src/server/ServerCheck.hpp
     src/util/AppPaths.hpp
     src/util/ThemeImage.hpp
     src/util/ImageDecode.hpp
@@ -99,6 +105,8 @@ set(HEADER_FILES
     ui/ConfigEntries.hpp
     ui/MotdText.hpp
     ui/ToggleSwitch.hpp
+    # 「服务端设置」那一整页（2026-10-13，coding plan §6.3 / M4-4）。
+    ui/ServerSettingsPage.hpp
     ui/JavaManageDialog.hpp
     # 底栏中间那格点开之后弹出来的任务中心面板（页面/行的形状见它的文件头）。
     ui/TaskCenterPanel.hpp
@@ -157,6 +165,9 @@ set(SOURCE_FILES
     # 服务端的"跑"（2026-10-13，§6.2 的操作 / M4-3）：一个服务端一条 QProcess
     # （判据那一半在 `ServerRun.hpp`，是纯头）。
     src/server/ServerProcess.cpp
+    # 服务端设置那两张表 + 那一次真监听（2026-10-13，§6.3 / M4-4；判据那一半在各自的头里）。
+    src/server/ServerPropertiesForm.cpp
+    src/server/ServerPortCheck.cpp
     src/util/ImageDecode.cpp
     src/util/ThemeImage.cpp
     src/util/SystemMemory.cpp
@@ -177,6 +188,7 @@ set(SOURCE_FILES
     ui/UpdateCenterPage.cpp
     ui/NewServerPage.cpp
     ui/ServerConsolePage.cpp
+    ui/ServerSettingsPage.cpp
     ui/GroupDialog.cpp
     ui/GroupListDelegate.cpp
     ui/InstanceSettingsDialog.cpp

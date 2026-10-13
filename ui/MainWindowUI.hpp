@@ -1229,17 +1229,20 @@ public:
     enum class ServerMenuAction {
         Console = 0,   ///< 打开控制台
         Folder,        ///< 打开目录
+        Settings,      ///< 服务端设置（server.properties / 备份 / 体检）
         Repair,        ///< 修复（重跑安装）
         ForceKill,     ///< 强制结束
         Remove,        ///< 删掉这个服务端
     };
-    static int serverMenuActionCount() { return 5; }
+    static int serverMenuActionCount() { return 6; }
     static QString serverMenuText(ServerMenuAction action) {
         switch (action) {
         case ServerMenuAction::Console:
             return QStringLiteral("打开控制台");
         case ServerMenuAction::Folder:
             return QStringLiteral("打开目录");
+        case ServerMenuAction::Settings:
+            return QStringLiteral("服务端设置…");
         case ServerMenuAction::Repair:
             return QStringLiteral("修复（重新装一遍）");
         case ServerMenuAction::ForceKill:
@@ -1274,6 +1277,168 @@ public:
     static QString serverConsoleSendText() { return QStringLiteral("发送"); }
     static QString serverConsoleStopText() { return QStringLiteral("停止服务端"); }
     static QString serverConsoleForceKillText() { return QStringLiteral("强制结束"); }
+
+    // ---------- 服务端设置那一页（coding plan §6.3 第二阶段 / M4-4）----------
+    //
+    // 整页（`OverlayHost::execPage()`）：左栏四页（常用设置 / 原始文本 / 世界备份 / 体检），
+    // 右边一个堆叠页，底下一条保存带。它和 `NewServerPage` / `ServerConsolePage` 同一条
+    // 规矩：**只摆控件、判据一条都不在 ui/ 里**（哪几个字段、哪些值合法、该报哪几条，全由
+    // `MainWindow` 从那几张表翻好喂进来）。
+    //
+    // ★ 这一页手里**始终有一份原文**（`rawText()`）—— 它是唯一会被写回盘上的东西，表单里
+    //   改过的那几项是叠在它上面的补丁。两种编辑方式（表单 / 原始文本）怎么不打起来，见
+    //   `ServerSettingsPage.hpp` 文件头那段。
+    static QString serverSettingsPageName() { return QStringLiteral("serverSettingsPage"); }
+    static QString serverSettingsTitleName() { return QStringLiteral("serverSettingsTitle"); }
+    static QString serverSettingsStatusName() { return QStringLiteral("serverSettingsStatus"); }
+    /// 左栏那一列（四页）。
+    static QString serverSettingsSectionListName() {
+        return QStringLiteral("serverSettingsSections");
+    }
+    static QString serverSettingsStackName() { return QStringLiteral("serverSettingsStack"); }
+    /// 「常用设置」那一页里那张表单（每一格的名字见 `serverSettingsFieldName()`）。
+    static QString serverSettingsFormName() { return QStringLiteral("serverSettingsForm"); }
+    static QString serverSettingsRawEditName() { return QStringLiteral("serverSettingsRawText"); }
+    static QString serverSettingsRawNoteName() { return QStringLiteral("serverSettingsRawNote"); }
+    static QString serverSettingsBackupNoteName() {
+        return QStringLiteral("serverSettingsBackupNote");
+    }
+    static QString serverSettingsBackupListName() {
+        return QStringLiteral("serverSettingsBackups");
+    }
+    static QString serverSettingsCheckListName() {
+        return QStringLiteral("serverSettingsFindings");
+    }
+    static QString serverSettingsCheckSummaryName() {
+        return QStringLiteral("serverSettingsCheckSummary");
+    }
+    /// 体检那一条的出路按钮摆在这一格里面（按记号新建 / 复用）。
+    static QString serverSettingsCheckActionsName() {
+        return QStringLiteral("serverSettingsCheckActions");
+    }
+    static QString serverSettingsRevertButtonName() {
+        return QStringLiteral("serverSettingsRevert");
+    }
+    static QString serverSettingsSaveButtonName() { return QStringLiteral("serverSettingsSave"); }
+    static QString serverSettingsSaveNoteName() { return QStringLiteral("serverSettingsSaveNote"); }
+    static QString serverSettingsBackupNowButtonName() {
+        return QStringLiteral("serverSettingsBackupNow");
+    }
+    static QString serverSettingsRestoreButtonName() {
+        return QStringLiteral("serverSettingsRestore");
+    }
+    static QString serverSettingsDeleteBackupButtonName() {
+        return QStringLiteral("serverSettingsDeleteBackup");
+    }
+    static QString serverSettingsOpenBackupFolderButtonName() {
+        return QStringLiteral("serverSettingsOpenBackups");
+    }
+    static QString serverSettingsRecheckButtonName() {
+        return QStringLiteral("serverSettingsRecheck");
+    }
+
+    /// 表单里某一格的控件叫什么（**认人走它**）。前缀 + 键：`serverSettingsField_server-port`。
+    /// ★ 键是 `server.properties` 里那个词，所以我们这边加一项、验证工程不用改一个字。
+    static QString serverSettingsFieldName(const QString &key) {
+        return QStringLiteral("serverSettingsField_") + key;
+    }
+
+    /// 左栏那四页的标题。**顺序就是左栏的顺序**（`ServerSettingsPage::Section` 按下标对齐）。
+    static int serverSettingsSectionCount() { return 4; }
+    static QString serverSettingsSectionTitle(int index) {
+        switch (index) {
+        case 0:
+            return QStringLiteral("常用设置");
+        case 1:
+            return QStringLiteral("原始文本");
+        case 2:
+            return QStringLiteral("世界备份");
+        case 3:
+            return QStringLiteral("体检");
+        }
+        return QString();
+    }
+
+    static QString serverSettingsSaveText() { return QStringLiteral("保存"); }
+    static QString serverSettingsRevertText() { return QStringLiteral("放弃改动"); }
+    static QString serverSettingsBackupNowText() { return QStringLiteral("立即备份"); }
+    static QString serverSettingsRestoreText() { return QStringLiteral("从这一份恢复…"); }
+    static QString serverSettingsDeleteBackupText() { return QStringLiteral("删掉这一份…"); }
+    static QString serverSettingsOpenBackupFolderText() {
+        return QStringLiteral("打开备份文件夹");
+    }
+    static QString serverSettingsRecheckText() { return QStringLiteral("重新检查"); }
+
+    /// 保存带左边那行小字。**唯一出处**（`ServerSettingsPage::setSaveState()` 收的就是它
+    /// 拼好的整句）。五个状态各一句：表单脏 / 文本脏 / 两边都脏 / 干净的 / 刚存过。
+    ///
+    /// NOTE: "在跑所以改不了"那一句不在这一组里（`serverSettingsRunningNote()`）—— 那个是
+    ///       "整页只读"的原因，不是保存带自己的状态。
+    static QString serverSettingsDirtyFieldsNote(int count) {
+        return QStringLiteral("改过 %1 项 —— 保存之后写进 server.properties，别的行不动。")
+            .arg(count);
+    }
+    static QString serverSettingsDirtyRawNote() {
+        return QStringLiteral("原始文本动过 —— 保存之后整份写回去。");
+    }
+    static QString serverSettingsDirtyBothNote(int count) {
+        return QStringLiteral("改过 %1 项，原始文本也动过 —— 保存时合成一份写回去。").arg(count);
+    }
+    static QString serverSettingsCleanNote() { return QStringLiteral("没改过什么。"); }
+    static QString serverSettingsSavedNote() { return QStringLiteral("已经保存好了。"); }
+    /// 服务端在跑时整页只读的那句原因（`setEditable(false, …)` 收的就是它）。
+    static QString serverSettingsRunningNote() {
+        return QStringLiteral("服务端正在跑，停下来才改得动 —— 它退出时会把自己内存里那份写回"
+                              "盘上，现在改的会被盖掉。");
+    }
+    /// 顶上状态那行字的尾巴（在跑时挂上去）。
+    static QString serverSettingsRunningStatusSuffix() {
+        return QStringLiteral("（正在跑 —— 先停下来才能改）");
+    }
+
+    /// 「原始文本」那一页顶上那句（这一页不重排、不整理的说明）。
+    static QString serverSettingsRawNoteText() {
+        return QStringLiteral(
+            "这里就是 server.properties 全文，原样摆出来：注释、你没见过的那些键、"
+            "键的顺序、行尾都按盘上那一份。\n"
+            "在「常用设置」里改过的项，切到这一页时会先合进来 —— 保存写回去的就是这一份。");
+    }
+
+    /// 备份那一列的三格。**唯一出处**（表的列数、每列标题都读它）。
+    static QStringList serverSettingsBackupColumns() {
+        return QStringList{QStringLiteral("时间"), QStringLiteral("大小"),
+                           QStringLiteral("这一份是什么")};
+    }
+    /// 体检那一列的两格：左边那个词（`ServerCheck::severityName()`）右边那一句。
+    static QStringList serverSettingsCheckColumns() {
+        return QStringList{QStringLiteral("这一条"), QStringLiteral("说的是什么")};
+    }
+
+    /**
+     * @brief 体检单上某一条的出路，那颗按钮上写什么。
+     *
+     * @param token `ServerCheck::actionToken()` 那个记号（**认人认记号，不认这行字**）。
+     *        认不出来的记号回空串 —— 界面照旧把这一条摆出来，只是不配按钮（比编一个
+     *        "按一下就好了"出来强）。
+     */
+    static QString serverCheckActionText(const QString &token) {
+        if (token == QStringLiteral("reinstall")) {
+            return QStringLiteral("修复（重新装一遍）");
+        }
+        if (token == QStringLiteral("accept-eula")) {
+            return QStringLiteral("同意 EULA…");
+        }
+        if (token == QStringLiteral("fix-values")) {
+            return QStringLiteral("改回缺省值");
+        }
+        if (token == QStringLiteral("open-settings")) {
+            return QStringLiteral("去「常用设置」");
+        }
+        if (token == QStringLiteral("open-backups")) {
+            return QStringLiteral("去「世界备份」");
+        }
+        return QString();
+    }
 
     static QString tabWidgetName() { return QStringLiteral("mainTabWidget"); }
     static QString homeTabName() { return QStringLiteral("homeTab"); }

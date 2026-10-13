@@ -245,6 +245,20 @@ if(EXISTS ${REPO_ROOT}/src/server/ServerRun.hpp)
     list(APPEND PROJECT_SOURCES ${REPO_ROOT}/src/server/ServerRun.hpp)
 endif()
 
+# 「服务端设置」那几层（2026-10-13，coding plan §6.3 / 里程碑 M4-4）：
+#   * `ServerPropertiesForm` —— `server.properties` 常用字段那张表（每一项的值域、"这个值
+#     收不收"、把补丁叠回一份原文上、文件级的那几处不对）；
+#   * `ServerPortCheck` —— 那一件**真去占一次端口**的小事（它要 Qt6::Network，本工程已链）；
+#   * `ServerCheck` —— 体检（纯值进、结论出）。
+# 所以 `verify` 的 **ZV** 一节能把它们整片钉死（真占端口的只有那一发，占的是临时挑的号）。
+if(EXISTS ${REPO_ROOT}/src/server/ServerPropertiesForm.hpp)
+    list(APPEND PROJECT_SOURCES ${REPO_ROOT}/src/server/ServerPropertiesForm.hpp
+                                ${REPO_ROOT}/src/server/ServerPropertiesForm.cpp
+                                ${REPO_ROOT}/src/server/ServerPortCheck.hpp
+                                ${REPO_ROOT}/src/server/ServerPortCheck.cpp
+                                ${REPO_ROOT}/src/server/ServerCheck.hpp)
+endif()
+
 add_executable(verify main.cpp ${PROJECT_SOURCES})
 
 target_include_directories(verify PRIVATE ${REPO_ROOT}/src)

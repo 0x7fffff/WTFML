@@ -114,6 +114,8 @@ add_executable(ui_check main.cpp
                                 # 「新建服务端」那一页（2026-10-13，§6.2 / M4）。
                                 ${REPO_ROOT}/ui/NewServerPage.cpp
                                 ${REPO_ROOT}/ui/ServerConsolePage.cpp
+                                # 「服务端设置」那一页（2026-10-13，§6.3 / M4-4）。
+                                ${REPO_ROOT}/ui/ServerSettingsPage.cpp
                                 ${REPO_ROOT}/ui/WindowChrome.cpp)
 
 # InstanceFiles 那一层要的（`VersionInheritance::parentIdOf` / `maxDepth`）——

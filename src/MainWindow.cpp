@@ -3277,8 +3277,23 @@ void MainWindow::openTaskTarget(const QString &key) {
     const Tasks::TaskSnapshot task = m_taskManager->snapshot(id);
     // 目标就是那一项自己记的那个 id（实例 id / 版本号），空的话落到数据目录 ——
     // 一样"点得开"，不给一颗点了没反应的按钮。
-    const QString dir = task.targetId.isEmpty() ? AppPaths::minecraftDir()
-                                                : AppPaths::versionDir(task.targetId);
+    // 目标就是那一项自己记的那个 id，空的话落到数据目录 —— 一样"点得开"，不给一颗点了
+    // 没反应的按钮。
+    //
+    // ★ **服务端那一批任务记的是服务端 id，不是实例 id**（M4-2 的安装 / M4-4 的备份都走
+    //   `beginTask(..., serverId, ...)`），而 `AppPaths::versionDir()` 拼出来的是
+    //   `<数据目录>/versions/<id>` —— 对服务端来说那个目录**永远不存在**。所以按下
+    //   「打开目标位置」本来会报一句"那个目录现在不在"（而它明明就在 `Servers/<id>`）。
+    //   先按实例认，认不出来再看它是不是一个服务端。
+    QString dir;
+    if (task.targetId.isEmpty()) {
+        dir = AppPaths::minecraftDir();
+    } else {
+        dir = AppPaths::versionDir(task.targetId);
+        if (!QDir(dir).exists() && ServerRegistry::serverExists(task.targetId)) {
+            dir = ServerRegistry::describe(task.targetId).dirPath;
+        }
+    }
     if (!QDir().exists(dir)) {
         InlineMessage::warning(m_ui->overlay(), tr("打不开这一项的目标位置"),
                                tr("这一项说的是 %1，而那个目录现在不在。")
@@ -7494,6 +7509,9 @@ void MainWindow::runServerMenuAction(const QString &serverId, int action) {
     case MainWindowUI::ServerMenuAction::Folder:
         openServerFolder(serverId);
         break;
+    case MainWindowUI::ServerMenuAction::Settings:
+        openServerSettingsPage(serverId);
+        break;
     case MainWindowUI::ServerMenuAction::Repair:
         repairServer(serverId);
         break;
@@ -7504,6 +7522,691 @@ void MainWindow::runServerMenuAction(const QString &serverId, int action) {
         removeServer(serverId);
         break;
     }
+}
+
+// ===========================================================================
+// 「服务端设置」那一页（coding plan §6.3 / 里程碑 M4-4）
+// ===========================================================================
+//
+// 这一页上摆着四样东西，每一样背后都有一层判据（见 MainWindow.hpp 里那段）：
+//
+//   ① 常用设置   `ServerPropertiesForm`（那十几个旋钮的表与值域）
+//   ② 原始文本   这一层手里那份**原文**（`ServerModel::parseProperties` 解它）
+//   ③ 世界备份   `BackupFiles`（M2 那一套引擎 / 任务账本，和世界页**共用同一条路**）
+//   ④ 体检       `ServerCheck`（纯值进、结论出）+ `ServerPortCheck`（真占一次端口）
+//
+// ★ 这一节里会写盘的只有两处：`saveServerSettings()` 和那三颗备份按钮 —— 其余全是读。
+// ★ 两种编辑方式怎么不打起来（表单 / 原始文本），见 `saveServerSettings()` 那段。
+
+// 「12.4 MB」那一句的唯一出处（定义在世界页 / 实例页那一批下面）—— 这一节在它前面，
+// 所以要自己把它引出来（**不是另写一份**：这个格式两边必须一模一样）。
+static QString backupSizeText(qint64 bytes);
+
+namespace {
+
+/// 一个服务端世界的备份在盘上认哪一串前缀。
+///
+/// ★ **不能只用世界目录名**：`ServerRegistry` 底下两个服务端都叫 `world` 是常态，而挑备份
+///   那一套（`pickBackupZip()`）是按**文件名前缀**筛的 —— 只写世界名的话，两边会互相挑到
+///   对方的备份。加上 serverId（目录名，唯一）就不会撞。
+///
+/// NOTE: 中间那个 `-` 不会被 `BackupFiles::safeLabel()` 换成别的东西（它换的是
+///       `\/:*?"<>|` 和一切控制字符），所以前缀里的分隔符一路原样。
+QString serverBackupLabel(const QString &serverId, const QString &worldName) {
+    return serverId + QLatin1Char('-') + worldName;
+}
+
+/// 这一份的文件名是不是"还原之前自动做的那一份"（安全快照）。
+///
+/// ★ 从**文件名**认，不去读清单：读一份清单要起一次 PowerShell，而这一列里可能摆着几十份
+///   （见 `BackupFiles::backupFilePrefix()` 那段）。那个记号本身是 `backupFileName()` 定的
+///   ——「恢复前-」夹在前缀和时间戳中间。
+bool backupNameIsSafety(const QString &fileName, const QString &prefix) {
+    return fileName.mid(prefix.size()).startsWith(QStringLiteral("恢复前-"));
+}
+
+/// 盘上那一份 `server.properties` 的原文（文件不在 / 读不动 = 空串）。
+/// 编码跟着 `ServerRegistry` 那一对（`readProperties` / `writeProperties` 都是 UTF-8）。
+QString readServerPropertiesText(const QString &serverId) {
+    QFile file(ServerRegistry::propertiesPath(serverId));
+    if (!file.open(QIODevice::ReadOnly)) {
+        return QString();
+    }
+    return QString::fromUtf8(file.readAll());
+}
+
+/// 一棵目录的字节数（读不动的那些**不算失败**：跳过就是）。目录不在 = 0。
+qint64 directoryBytes(const QString &dirPath) {
+    if (!QFileInfo(dirPath).isDir()) {
+        return 0;
+    }
+    qint64 total = 0;
+    QDirIterator it(dirPath, QDir::Files | QDir::NoDotAndDotDot, QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        it.next();
+        total += it.fileInfo().size();
+    }
+    return total;
+}
+
+}  // namespace
+
+void MainWindow::openServerSettingsPage(const QString &serverId) {
+    OverlayHost *overlay = m_ui == nullptr ? nullptr : m_ui->overlay();
+    if (overlay == nullptr || serverId.isEmpty()) {
+        return;
+    }
+    if (m_serverSettingsPage == nullptr) {
+        m_serverSettingsPage = new ServerSettingsPage(this);
+        // NOTE: 这一批只接一次（页面复用）。**认人认 `m_serverSettingsId`，不认"列表上现在
+        //       选中谁"** —— 同控制台那一页那条理由。
+        connect(m_serverSettingsPage, &ServerSettingsPage::sectionChanged, this,
+                [this](int section) { mergeServerSettingsEdits(-1, section); });
+        connect(m_serverSettingsPage, &ServerSettingsPage::edited, this,
+                [this] { updateServerSettingsSaveState(); });
+        connect(m_serverSettingsPage, &ServerSettingsPage::saveRequested, this,
+                [this] { saveServerSettings(); });
+        connect(m_serverSettingsPage, &ServerSettingsPage::revertRequested, this,
+                [this] { revertServerSettings(); });
+        connect(m_serverSettingsPage, &ServerSettingsPage::backupNowRequested, this,
+                [this] { backupServerWorld(m_serverSettingsId); });
+        connect(m_serverSettingsPage, &ServerSettingsPage::restoreBackupRequested, this,
+                [this](const QString &zipPath) {
+                    restoreServerWorldBackup(m_serverSettingsId, zipPath);
+                });
+        connect(m_serverSettingsPage, &ServerSettingsPage::deleteBackupRequested, this,
+                [this](const QString &zipPath) { deleteServerBackup(zipPath); });
+        connect(m_serverSettingsPage, &ServerSettingsPage::openBackupFolderRequested, this,
+                [this] { openBackupFolder(BackupFiles::Kind::World); });
+        connect(m_serverSettingsPage, &ServerSettingsPage::recheckRequested, this,
+                [this] { runServerCheck(); });
+        connect(m_serverSettingsPage, &ServerSettingsPage::actionRequested, this,
+                [this](const QString &token) { runServerCheckAction(token); });
+    }
+    m_serverSettingsId = serverId;
+    m_serverSettingsPage->setSection(ServerSettingsPage::Section::Common);
+    refreshServerSettingsPage();
+
+    // ★ 开页要说清 `ownerTab`、并且**先切过去**（见 `OverlayHost::execPage` 那段）：这一页
+    //   是从服务端列表上开出来的，那一位就是"实例"这一颗。
+    const int instancesTab = MainWindowUI::instancesTabIndex();
+    if (QTabWidget *tabs = m_ui->getTabWidget()) {
+        if (instancesTab >= 0 && instancesTab < tabs->count()) {
+            tabs->setCurrentIndex(instancesTab);
+        }
+    }
+    overlay->execPage(m_serverSettingsPage, ServerSettingsPage::windowTitle(), instancesTab);
+    // 收页之后"这一页说的是谁"就没意义了（同控制台那一页末尾那一段）。
+    // NOTE: 手里那份原文也一起扔掉 —— 它只在开页期间有用，留着的话下一次开页前要是有人
+    //       读了它，读到的会是上一个服务端的内容。
+    m_serverSettingsId.clear();
+    m_serverSettingsRaw.clear();
+    m_serverSettingsOriginal.clear();
+}
+
+void MainWindow::refreshServerSettingsPage() {
+    ServerSettingsPage *page = m_serverSettingsPage;
+    const QString serverId = m_serverSettingsId;
+    if (page == nullptr || serverId.isEmpty()) {
+        return;
+    }
+    const ServerRegistry::Entry entry = ServerRegistry::describe(serverId);
+    page->setServerName(entry.name.isEmpty() ? serverId : entry.name);
+
+    // 在跑的时候整页只读（见 .hpp 里那段：它退出时会把自己内存里那份写回盘上）。
+    const ServerRun::ServerProcess *process = m_serverProcesses.value(serverId, nullptr);
+    const bool running = process != nullptr && process->isRunning();
+    m_serverSettingsEditable = !running;
+    QString statusText =
+        ServerModel::statusName(process != nullptr ? process->status() : ServerModel::Status::Stopped);
+    if (running) {
+        statusText += MainWindowUI::serverSettingsRunningStatusSuffix();
+    }
+    page->setStatusText(statusText);
+    page->setEditable(m_serverSettingsEditable,
+                      running ? MainWindowUI::serverSettingsRunningNote() : QString());
+
+    // ---------- ① 常用设置 + ② 原始文本 ----------
+    //
+    // ★ 两样**一起**摆：表单里那几格是叠在原文上的补丁，所以"原文"和"基线"必须是同一份
+    //   盘上读出来的东西（`setValues()` 自己就把基线重设到刚摆进去的那一份）。
+    const QString raw = readServerPropertiesText(serverId);
+    m_serverSettingsRaw = raw;
+    m_serverSettingsOriginal = raw;
+    const ServerModel::Properties properties = ServerModel::parseProperties(raw);
+
+    QList<ServerSettingsPage::FieldView> views;
+    const QList<ServerPropertiesForm::Field> &fields = ServerPropertiesForm::commonFields();
+    for (const ServerPropertiesForm::Field &field : fields) {
+        ServerSettingsPage::FieldView view;
+        view.key = field.key;
+        view.label = field.label;
+        view.hint = field.hint;
+        switch (field.kind) {
+        case ServerPropertiesForm::Kind::Text:
+            view.kind = ServerSettingsPage::Kind::Text;
+            break;
+        case ServerPropertiesForm::Kind::Number:
+            view.kind = ServerSettingsPage::Kind::Number;
+            break;
+        case ServerPropertiesForm::Kind::Switch:
+            view.kind = ServerSettingsPage::Kind::Switch;
+            break;
+        case ServerPropertiesForm::Kind::Choice:
+            view.kind = ServerSettingsPage::Kind::Choice;
+            break;
+        }
+        view.min = field.min;
+        view.max = field.max;
+        for (const ServerPropertiesForm::Choice &choice : field.choices) {
+            view.choiceTokens.append(choice.token);
+            view.choiceNames.append(choice.name);
+        }
+        views.append(view);
+    }
+    page->setFields(views);
+    page->setValues(ServerPropertiesForm::valuesOf(properties, fields));
+    page->setRawText(raw);
+
+    // ---------- ③ 世界备份 ----------
+    const QString worldName = serverWorldName(serverId);
+    const QString worldDir = serverWorldDir(serverId);
+    const QString backupDir = BackupFiles::backupDir(BackupFiles::Kind::World);
+    QList<ServerSettingsPage::BackupRow> rows;
+    if (!worldName.isEmpty()) {
+        const QString prefix = BackupFiles::backupFilePrefix(serverBackupLabel(serverId, worldName));
+        const QFileInfoList entries = QDir(backupDir).entryInfoList(
+            QStringList{QStringLiteral("*.zip")}, QDir::Files, QDir::Name | QDir::Reversed);
+        for (const QFileInfo &info : entries) {
+            if (!info.fileName().startsWith(prefix, Qt::CaseInsensitive)) {
+                continue;
+            }
+            ServerSettingsPage::BackupRow row;
+            row.path = info.absoluteFilePath();
+            row.when = info.lastModified().toString(QStringLiteral("yyyy-MM-dd HH:mm"));
+            row.size = backupSizeText(info.size());
+            row.safety = backupNameIsSafety(info.fileName(), prefix);
+            row.scope = row.safety ? tr("还原之前自动做的那一份")
+                                   : tr("这个世界的整个文件夹");
+            rows.append(row);
+        }
+    }
+    page->setBackupRows(rows);
+    page->setBackupNote(worldDir.isEmpty()
+                            ? tr("这个服务端的 level-name 现在这个值我们认不出来，不知道世界在"
+                                 "哪儿 —— 先去「常用设置」把它改成一个正常的目录名。")
+                            : tr("世界在：%1\n备份放在：%2（「立即备份」就打一份新的到这里）")
+                                  .arg(QDir::toNativeSeparators(worldDir),
+                                       QDir::toNativeSeparators(backupDir)));
+
+    // ---------- ④ 体检 ----------
+    runServerCheck();
+
+    // 保存带：刚摆完 = 什么都没改。
+    updateServerSettingsSaveState();
+}
+
+void MainWindow::updateServerSettingsSaveState() {
+    ServerSettingsPage *page = m_serverSettingsPage;
+    if (page == nullptr) {
+        return;
+    }
+    if (!m_serverSettingsEditable) {
+        // 在跑的时候那句话由 `setEditable()` 那一句管（`refreshSaveBar()` 会拿它盖住）。
+        page->setSaveState(false, MainWindowUI::serverSettingsRunningNote());
+        return;
+    }
+    const int changed = page->changedOnly().size();
+    const bool raw = page->rawEdited();
+    if (changed > 0 && raw) {
+        page->setSaveState(true, MainWindowUI::serverSettingsDirtyBothNote(changed));
+    } else if (changed > 0) {
+        page->setSaveState(true, MainWindowUI::serverSettingsDirtyFieldsNote(changed));
+    } else if (raw) {
+        page->setSaveState(true, MainWindowUI::serverSettingsDirtyRawNote());
+    } else {
+        page->setSaveState(false, MainWindowUI::serverSettingsCleanNote());
+    }
+}
+
+void MainWindow::mergeServerSettingsEdits(int fromSection, int toSection) {
+    ServerSettingsPage *page = m_serverSettingsPage;
+    if (page == nullptr || m_serverSettingsId.isEmpty()) {
+        return;
+    }
+    Q_UNUSED(fromSection);
+    if (toSection == static_cast<int>(ServerSettingsPage::Section::RawText)) {
+        // **离开表单、去看原文**：把表单里改过的那几项先合进文本框 —— 用户马上要看的正是
+        // "我改完之后这份文件长什么样"，这时候还摆着旧的那一份就是骗人（而且他很可能顺手
+        // 就在这一页上接着改，两边不一致会丢改动）。
+        //
+        // ★ 合的方式是"解析 → 叠补丁 → 吐回文本"——**和保存走的是同一条路**
+        //   （`saveServerSettings()` 前一半），所以"他在文本框里看到的那一份"和"按保存会
+        //   写下去的那一份"是同一份，一个字节都不差。
+        const ServerSettingsPage::Values edits = page->changedOnly();
+        if (!edits.isEmpty()) {
+            ServerModel::Properties properties = ServerModel::parseProperties(page->rawText());
+            ServerPropertiesForm::applyEdits(properties, edits);
+            page->setRawText(properties.toString());
+            // ★ 合完就算"用户动过文本框"了（内容真的变了、而且这一份是未保存的状态）——
+            //   `setRawText()` 把那个记号清掉了，所以在这儿补回来。补丁那边**不动基线**：
+            //   它还摆在表单上，切回去的时候两边一比还是"改过那几项"。
+            page->markRawEdited();
+        }
+        return;
+    }
+    if (toSection == static_cast<int>(ServerSettingsPage::Section::Common)) {
+        // **回到表单**：按文本框里**现在**那一份重摆表单，并把基线重设到它 —— 用户在文本框
+        // 里删了一行、改了一个值，切回来时就该看得见。
+        //
+        // NOTE: 这一步**只动表单和基线，不写盘**（保存还是那唯一一条写盘的路）。
+        const ServerModel::Properties properties = ServerModel::parseProperties(page->rawText());
+        page->setValues(
+            ServerPropertiesForm::valuesOf(properties, ServerPropertiesForm::commonFields()));
+    }
+    // 「世界备份」「体检」两页和这两样都不搭界，切过去什么都不用做。
+}
+
+void MainWindow::saveServerSettings() {
+    ServerSettingsPage *page = m_serverSettingsPage;
+    const QString serverId = m_serverSettingsId;
+    if (page == nullptr || serverId.isEmpty() || !m_serverSettingsEditable) {
+        return;
+    }
+    const QString raw = page->rawText();
+    ServerModel::Properties properties = ServerModel::parseProperties(raw);
+    // 表单里改过的那几项叠上去。值先过一遍 `accepts()`：界面上那几格是数字框 / 下拉框，
+    // 用户敲不出格外的值，但"不合法就绝不写进文件"这条规矩在这一层也照着走一遍
+    // （`applyEdits()` 的契约就写着"值必须已经过 `accepts()`"）。
+    ServerSettingsPage::Values edits = page->changedOnly();
+    ServerSettingsPage::Values accepted;
+    QStringList rejected;
+    for (const QPair<QString, QString> &edit : edits) {
+        const ServerPropertiesForm::Field *field = ServerPropertiesForm::fieldFor(edit.first);
+        if (field == nullptr) {
+            continue;
+        }
+        QString normalized;
+        QString problem;
+        if (!ServerPropertiesForm::accepts(*field, edit.second, &normalized, &problem)) {
+            rejected.append(tr("·「%1」：%2").arg(field->label, problem));
+            continue;
+        }
+        accepted.append(qMakePair(edit.first, normalized));
+    }
+    if (!rejected.isEmpty()) {
+        // ★ **整份都不写**（而不是"能写的那几项先写下去"）：写盘是一发原子的 `QSaveFile`，
+        //   写一半再报错，用户看着的是"保存了"而盘上是半份 —— 宁可让他把那一格改对再来。
+        InlineMessage::warning(
+            m_ui->overlay(), tr("有几项改不了"),
+            tr("这几项的值不对，所以**这一趟什么都没写**：\n%1\n\n"
+               "把这几项改对（表单里的格子、或者「原始文本」里那一行），再按一次保存。")
+                .arg(rejected.join(QStringLiteral("\n"))));
+        return;
+    }
+    const int changed = ServerPropertiesForm::applyEdits(properties, accepted);
+    QString problem;
+    if (!ServerRegistry::writeProperties(serverId, properties, &problem)) {
+        InlineMessage::critical(m_ui->overlay(), tr("保存不了"), problem);
+        return;
+    }
+    const ServerRegistry::Entry entry = ServerRegistry::describe(serverId);
+    appendLog(tr("服务端 %1 的 server.properties 已保存（改了 %2 项）。")
+                  .arg(entry.name.isEmpty() ? serverId : entry.name)
+                  .arg(changed));
+    // 存完之后把这一页整个按**盘上那份新文件**重摆一遍（原文、表单基线、备份那一列、
+    // 体检单都跟着换）—— 然后在那行小字上说明"刚刚存过"。
+    refreshServerSettingsPage();
+    page->setSaveState(false, MainWindowUI::serverSettingsSavedNote());
+}
+
+void MainWindow::revertServerSettings() {
+    ServerSettingsPage *page = m_serverSettingsPage;
+    if (page == nullptr || m_serverSettingsId.isEmpty() || !m_serverSettingsEditable) {
+        return;
+    }
+    // 放弃改动 = 把这一页按盘上那一份重新摆一遍（原文、表单基线、保存带全回到开页那一刻）。
+    // NOTE: 这一路**不碰盘**，所以什么都不用问。
+    refreshServerSettingsPage();
+    page->setSaveState(false, MainWindowUI::serverSettingsCleanNote());
+}
+
+// ---------------------------------------------------------------------------
+// 体检
+// ---------------------------------------------------------------------------
+
+ServerCheck::Facts MainWindow::serverCheckFacts() {
+    ServerCheck::Facts facts;
+    const QString serverId = m_serverSettingsId;
+    if (serverId.isEmpty()) {
+        // 默认那一份就已经是"最无害的那一档"（见 `Facts` 那段），直接回它。
+        return facts;
+    }
+    const ServerRegistry::Entry entry = ServerRegistry::describe(serverId);
+    facts.installed = entry.installed;
+    facts.installedNote = entry.installed ? QString() : entry.note;
+
+    const ServerModel::Info info = ServerRegistry::readMeta(serverId);
+    // ★ "我们记的那一份"在不在，判据是 `Info::isEmpty()` —— 用户从外面拖进来的服务端
+    //   就是这样（目录里没有 `.wtfml-server`）。这一条**不是错**：它多半照样能启动。
+    facts.metaKnown = !info.isEmpty();
+    QString launchProblem;
+    const ServerInstall::Plan plan = serverLaunchPlan(serverId, &launchProblem);
+    facts.launchable = plan.ok;
+    facts.launchProblem = launchProblem;
+    facts.eulaAccepted = ServerRegistry::readEula(serverId);
+
+    const ServerRun::ServerProcess *process = m_serverProcesses.value(serverId, nullptr);
+    facts.running = process != nullptr && process->isRunning();
+
+    const ServerModel::Properties properties = ServerRegistry::readProperties(serverId);
+    // `serverPortOf()` 读不出 / 越界回 -1（"不知道"）—— 那一项本身会以 `valueProblems`
+    // 里的一条报出来，体检不再重复报一次"端口不对"。
+    const int port = ServerModel::serverPortOf(properties);
+    facts.port = port;
+    // ★ 只在**查得出端口、而且它没在跑**的时候才去占一次：在跑的时候它自己就占着那个端口，
+    //   这一查必然报"被占用"（一句吓人的废话）。
+    facts.portState = (port > 0 && !facts.running) ? m_serverSettingsPortState
+                                                   : ServerPortCheck::State::Unknown;
+
+    facts.worldName = serverWorldName(serverId);
+    const QString worldDir = serverWorldDir(serverId);
+    facts.worldExists = !worldDir.isEmpty() && QFileInfo(worldDir).isDir();
+    facts.worldBytes = facts.worldExists ? directoryBytes(worldDir) : 0;
+    facts.modCount = countServerMods(entry.dirPath);
+    facts.worldBackupCount = serverWorldBackupCount(serverId);
+    facts.valueProblems = ServerPropertiesForm::problemsIn(properties);
+    facts.duplicateKeys = ServerPropertiesForm::duplicateKeys(properties);
+    facts.unknownKeys = ServerPropertiesForm::unknownKeys(properties);
+    return facts;
+}
+
+void MainWindow::runServerCheck() {
+    ServerSettingsPage *page = m_serverSettingsPage;
+    if (page == nullptr || m_serverSettingsId.isEmpty()) {
+        return;
+    }
+    // 端口那一次真监听**先做**（它是个同步的、几十微秒的动作）——体检单里那一条要的正是
+    // 它的结论。
+    const ServerModel::Properties properties = ServerRegistry::readProperties(m_serverSettingsId);
+    const int port = ServerModel::serverPortOf(properties);
+    m_serverSettingsPortState = port > 0 ? ServerPortCheck::stateOf(port, nullptr)
+                                         : ServerPortCheck::State::Unknown;
+
+    const ServerCheck::Facts facts = serverCheckFacts();
+    const QList<ServerCheck::Finding> findings = ServerCheck::inspect(facts);
+    QList<ServerSettingsPage::CheckRow> rows;
+    rows.reserve(findings.size());
+    for (const ServerCheck::Finding &finding : findings) {
+        ServerSettingsPage::CheckRow row;
+        // 两边的档位是按下标对齐的（0 要处理 / 1 提醒 / 2 说明）。
+        row.severity = static_cast<int>(finding.severity);
+        row.title = finding.title;
+        row.detail = finding.detail;
+        row.actionToken = ServerCheck::actionToken(finding.action);
+        rows.append(row);
+    }
+    page->setCheckRows(rows);
+    page->setCheckSummary(ServerCheck::summaryText(findings));
+}
+
+void MainWindow::runServerCheckAction(const QString &token) {
+    ServerSettingsPage *page = m_serverSettingsPage;
+    const QString serverId = m_serverSettingsId;
+    if (page == nullptr || serverId.isEmpty()) {
+        return;
+    }
+    if (token == QStringLiteral("reinstall")) {
+        // 重装是那一行行尾那颗「修复」做的同一件事（`repairServer()`）——**先收掉这一页**：
+        // 它正卡在 `execPage()` 的嵌套事件循环里，而重装要走一遍下载 + 装，收掉之后用户
+        // 才看得见任务中心里那一项在跑（同"开新页之前先收页面"那条老规矩）。
+        //
+        // ★ 收页走 `dismiss()`（不是 `closeOverlay()`）：这一页正卡在 `execPage()` 的嵌套
+        //   事件循环里，`dismiss()` 发的就是"返回箭头那一发"，`execPage()` 会正常返回；
+        //   `closeOverlay()` 走的是另一条路（见 `OverlayHost::dismiss()` 那段 ★）。
+        m_ui->overlay()->dismiss();
+        repairServer(serverId);
+        return;
+    }
+    if (token == QStringLiteral("accept-eula")) {
+        // EULA 那道闸就是 `ensureServerEula()`（那一发问的就是"同意并启动"）——这一页上
+        // 并没有"启动"这回事，所以这里借它把那段话问出来、把 `eula.txt` 写下去。
+        ensureServerEula(serverId);
+        refreshServerSettingsPage();
+        return;
+    }
+    if (token == QStringLiteral("fix-values")) {
+        // 把文件里不合法的那几项改回表里的缺省（**只动那几项**，别的行一个字节都不碰）。
+        const ServerModel::Properties properties = ServerRegistry::readProperties(serverId);
+        const QList<ServerPropertiesForm::ValueProblem> problems =
+            ServerPropertiesForm::problemsIn(properties);
+        if (problems.isEmpty()) {
+            return;  // 已经自己好了（另一处改的）：什么都不做
+        }
+        QStringList lines;
+        for (const ServerPropertiesForm::ValueProblem &problem : problems) {
+            const ServerPropertiesForm::Field *field =
+                ServerPropertiesForm::fieldFor(problem.key);
+            if (field != nullptr) {
+                lines.append(tr("·「%1」：%2 → %3")
+                                 .arg(field->label, problem.value.isEmpty() ? tr("（空的）")
+                                                                            : problem.value,
+                                      field->fallback));
+            }
+        }
+        if (!InlineMessage::question(
+                m_ui->overlay(), tr("改回缺省值"),
+                tr("这几项会被改回这张表上的缺省值（别的行一个字节都不动）：\n%1\n\n要改吗？")
+                    .arg(lines.join(QStringLiteral("\n"))),
+                tr("改回缺省值"), tr("取消"), /*defaultYes=*/true, /*destructive=*/false)) {
+            return;
+        }
+        ServerModel::Properties target = properties;
+        ServerSettingsPage::Values edits;
+        for (const ServerPropertiesForm::ValueProblem &problem : problems) {
+            const ServerPropertiesForm::Field *field =
+                ServerPropertiesForm::fieldFor(problem.key);
+            if (field != nullptr) {
+                edits.append(qMakePair(problem.key, field->fallback));
+            }
+        }
+        ServerPropertiesForm::applyEdits(target, edits);
+        QString problem;
+        if (!ServerRegistry::writeProperties(serverId, target, &problem)) {
+            InlineMessage::critical(m_ui->overlay(), tr("改不了"), problem);
+            return;
+        }
+        appendLog(tr("服务端 %1 的 server.properties 里有 %2 项改回了缺省值。")
+                      .arg(serverId)
+                      .arg(edits.size()));
+        refreshServerSettingsPage();
+        return;
+    }
+    if (token == QStringLiteral("open-settings")) {
+        page->setSection(ServerSettingsPage::Section::Common);
+        return;
+    }
+    if (token == QStringLiteral("open-backups")) {
+        page->setSection(ServerSettingsPage::Section::Backups);
+        return;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 世界备份（走 M2 那一套引擎，和「世界设置」那一页共用同一条路）
+// ---------------------------------------------------------------------------
+
+QString MainWindow::serverWorldName(const QString &serverId) const {
+    const ServerModel::Properties properties = ServerRegistry::readProperties(serverId);
+    const QString name = ServerPropertiesForm::worldDirName(properties);
+    if (!name.isEmpty()) {
+        return name;
+    }
+    // 走到这儿有两种情形：
+    //   * 文件里**没写** `level-name`（新装的、还没跑过的服务端就是这样）⇒ 按游戏自己的
+    //     缺省算，而那个缺省值的唯一出处是那张表（`Field::fallback`）；
+    //   * 写了但**值不合法** ⇒ 回空串：它到底住在哪儿我们说不准，**不猜**（猜出来的路径
+    //     可能指着一个根本不是世界的目录，拿去备份 / 恢复只会更糟）。
+    const ServerPropertiesForm::Field *field =
+        ServerPropertiesForm::fieldFor(QStringLiteral("level-name"));
+    if (field != nullptr && !properties.contains(field->key)) {
+        return field->fallback;
+    }
+    return QString();
+}
+
+QString MainWindow::serverWorldDir(const QString &serverId) const {
+    const QString name = serverWorldName(serverId);
+    if (name.isEmpty()) {
+        return QString();
+    }
+    return QDir(ServerRegistry::describe(serverId).dirPath).filePath(name);
+}
+
+int MainWindow::serverWorldBackupCount(const QString &serverId) const {
+    const QString worldName = serverWorldName(serverId);
+    if (worldName.isEmpty()) {
+        return 0;
+    }
+    const QString prefix = BackupFiles::backupFilePrefix(serverBackupLabel(serverId, worldName));
+    const QFileInfoList entries =
+        QDir(BackupFiles::backupDir(BackupFiles::Kind::World))
+            .entryInfoList(QStringList{QStringLiteral("*.zip")}, QDir::Files);
+    int count = 0;
+    for (const QFileInfo &info : entries) {
+        if (info.fileName().startsWith(prefix, Qt::CaseInsensitive)) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+void MainWindow::backupServerWorld(const QString &serverId) {
+    if (serverId.isEmpty()) {
+        return;
+    }
+    if (m_backupTaskId != Tasks::invalidTaskId()) {
+        InlineMessage::information(m_ui->overlay(), tr("现在做不了"),
+                                   tr("已经有一份备份或者还原在跑了，等它完了再来。"));
+        return;
+    }
+    const ServerRun::ServerProcess *process = m_serverProcesses.value(serverId, nullptr);
+    if (process != nullptr && process->isRunning()) {
+        // 和"游戏在跑不给备份世界"同一条理由：它每隔几秒就在往存档里写，这时候抄出来的
+        // 那一份可能正好截在半截写入上。
+        InlineMessage::warning(m_ui->overlay(), tr("备份世界"),
+                               tr("这个服务端正在跑。先让它停下来再备份 —— 它每隔几秒就在往"
+                                  "存档里写，这时候抄出来的那一份可能是不完整的。"));
+        return;
+    }
+    const QString worldName = serverWorldName(serverId);
+    const QString worldDir = serverWorldDir(serverId);
+    if (worldName.isEmpty()) {
+        InlineMessage::warning(
+            m_ui->overlay(), tr("备份不了"),
+            tr("这个服务端的 level-name 现在这个值我们认不出来，不知道世界在哪儿。\n"
+               "先去「常用设置」把它改成一个正常的目录名。"));
+        return;
+    }
+    if (!QFileInfo(worldDir).isDir()) {
+        InlineMessage::information(
+            m_ui->overlay(), tr("还没有世界"),
+            tr("「%1」这个目录还不存在 —— 服务端第一次启动之后才会生成它，"
+               "现在没有能备份的东西。")
+                .arg(worldName));
+        return;
+    }
+
+    const ServerRegistry::Entry entry = ServerRegistry::describe(serverId);
+    const QDateTime now = QDateTime::currentDateTime();
+    BackupFiles::Manifest manifest;
+    manifest.kind = BackupFiles::Kind::World;
+    // `root` 是 zip 里那一层前缀、也是还原时落回去的目录名 ⇒ 就是这个世界目录名。
+    manifest.root = worldName;
+    // `label` 只用来拼文件名 —— 带上 serverId（理由见 `serverBackupLabel()` 那段）。
+    manifest.label = serverBackupLabel(serverId, worldName);
+    manifest.worldName = worldName;
+    // NOTE: 这两格说的是"这个世界是从哪个**实例**里备出来的"，而服务端不是实例 ——
+    //       留空。它在界面上只有"打开目标位置"那一处读者，而那一处走的是 `targetId`
+    //       那一位（下面传的是服务端目录）。
+    manifest.sourceInstanceId = QString();
+    manifest.sourceInstanceName = entry.name.isEmpty() ? serverId : entry.name;
+    manifest.gameVersion = entry.gameVersion;
+    manifest.createdAt = now;
+    manifest.scope = QStringList{tr("这个服务端的整个世界文件夹")};
+
+    const QString dir = BackupFiles::backupDir(BackupFiles::Kind::World);
+    const QString zip = QDir(dir).filePath(
+        BackupFiles::backupFileName(manifest.label, now));
+    // ★ 跑完之后要把这一页的备份那一列**重摆一遍**（多了一份）—— 记下是哪个服务端。
+    m_backupRefreshServerId = serverId;
+    startBackupWrite(manifest, worldDir, zip, tr("备份世界「%1」").arg(worldName), entry.dirPath,
+                     tr("备份完成"));
+}
+
+void MainWindow::restoreServerWorldBackup(const QString &serverId, const QString &zipPath) {
+    if (serverId.isEmpty() || zipPath.isEmpty()) {
+        return;
+    }
+    if (m_backupTaskId != Tasks::invalidTaskId()) {
+        InlineMessage::information(m_ui->overlay(), tr("现在做不了"),
+                                   tr("已经有一份备份或者还原在跑了，等它完了再来。"));
+        return;
+    }
+    const ServerRun::ServerProcess *process = m_serverProcesses.value(serverId, nullptr);
+    if (process != nullptr && process->isRunning()) {
+        InlineMessage::warning(m_ui->overlay(), tr("恢复备份"),
+                               tr("这个服务端正在跑。先让它停下来再还原 —— 不然它退出的时候"
+                                  "会把内存里那份旧存档重新写一遍，把刚还原出来的盖掉。"));
+        return;
+    }
+    const QString worldName = serverWorldName(serverId);
+    const QString serverDir = ServerRegistry::describe(serverId).dirPath;
+    // 默认**不**落在「还原」上：这一步会把这个世界现在的文件整个换掉（和删世界同一档）。
+    if (!InlineMessage::question(
+            m_ui->overlay(), tr("恢复备份"),
+            tr("「%1」现在的文件会被备份里那一份**整个换掉**。\n\n"
+               "还原之前会自动给现在这一份留一份安全快照，所以这一步是能退回来的。\n\n"
+               "要还原的是这一份：\n%2")
+                .arg(worldName.isEmpty() ? serverId : worldName,
+                     QDir::toNativeSeparators(zipPath)),
+            tr("还原"), tr("取消"), /*defaultYes=*/false, /*destructive=*/true)) {
+        return;
+    }
+    // `root`（zip 里那一层前缀）就是世界目录名 ⇒ 解到**服务端目录**底下正好落回原地。
+    m_backupRefreshServerId = serverId;
+    startBackupRestore(zipPath, serverDir, tr("还原世界「%1」").arg(worldName), serverDir,
+                       tr("还原完成"));
+}
+
+void MainWindow::deleteServerBackup(const QString &zipPath) {
+    if (zipPath.isEmpty()) {
+        return;
+    }
+    const QFileInfo info(zipPath);
+    if (!info.exists()) {
+        InlineMessage::warning(m_ui->overlay(), tr("删不掉"),
+                               tr("这一份已经不在了：\n%1")
+                                   .arg(QDir::toNativeSeparators(zipPath)));
+        refreshServerSettingsPage();
+        return;
+    }
+    // 删了就拿不回来 ⇒ 默认那一边是「取消」（和删服务端 / 删世界同一档）。
+    if (!InlineMessage::question(
+            m_ui->overlay(), tr("删掉这一份备份"),
+            tr("这一份会被删掉，删了找不回来：\n%1\n\n要删吗？")
+                .arg(QDir::toNativeSeparators(zipPath)),
+            tr("删掉它"), tr("取消"), /*defaultYes=*/false, /*destructive=*/true)) {
+        return;
+    }
+    if (!QFile::remove(zipPath)) {
+        InlineMessage::critical(m_ui->overlay(), tr("删不掉"),
+                                tr("这一份删不掉（可能被别的程序占着）：\n%1")
+                                    .arg(QDir::toNativeSeparators(zipPath)));
+        return;
+    }
+    appendLog(tr("已删除一份备份：%1").arg(QDir::toNativeSeparators(zipPath)));
+    refreshServerSettingsPage();
 }
 
 bool MainWindow::ensureServerEula(const QString &serverId) {
@@ -7721,17 +8424,11 @@ int MainWindow::countServerMods(const QString &dirPath) {
 }
 
 qint64 MainWindow::serverWorldBytes(const QString &dirPath) {
-    const QString worldDir = QDir(dirPath).filePath(QStringLiteral("world"));
-    if (!QFileInfo(worldDir).isDir()) {
-        return 0;  // 还没有世界（第一次开服之前就是这个样子）
-    }
-    qint64 total = 0;
-    QDirIterator it(worldDir, QDir::Files | QDir::NoDotAndDotDot, QDirIterator::Subdirectories);
-    while (it.hasNext()) {
-        it.next();
-        total += it.fileInfo().size();
-    }
-    return total;
+    // ★ 这一处**写死 `world`**，是给控制台那一页（M4-3）用的：它只知道"目录里那个叫 world
+    //   的文件夹多大"，不认识 `level-name`。真按 `level-name` 算的那一份是
+    //   `serverWorldDir()`（M4-4 的体检和备份走它）—— 两处都在，因为一个在"没开过页"的
+    //   那条路上（列表行上那点信息），一个在"这一页正在看着谁"的那条路上。
+    return directoryBytes(QDir(dirPath).filePath(QStringLiteral("world")));
 }
 
 void MainWindow::updateNewServerSummary(NewServerPage *page) {
@@ -17397,6 +18094,16 @@ void MainWindow::onBackupWriteFinished(const BackupFiles::WriteResult &result,
         appendLog(tr("%1 没成：%2").arg(successTitle, result.problem));
         InlineMessage::warning(m_ui->overlay(), successTitle, result.problem);
     }
+
+    // ★ 「服务端设置」那一页上摆着备份清单（多了一份就要重摆一遍）—— 而它正卡在
+    //   `execPage()` 的嵌套事件循环里，"页还开着"这件事只能从这两格看出来：
+    //   `m_serverSettingsPage` 还在、而且它现在说的正是这一个服务端。
+    //   （收页之后 `m_serverSettingsId` 会被清掉，所以"关页之后才跑完"这一路自然跳过。）
+    if (!m_backupRefreshServerId.isEmpty() && m_serverSettingsPage != nullptr
+        && m_serverSettingsId == m_backupRefreshServerId) {
+        refreshServerSettingsPage();
+    }
+    m_backupRefreshServerId.clear();
 }
 
 void MainWindow::onBackupRestoreFinished(const BackupFiles::RestoreResult &result,
@@ -17472,6 +18179,15 @@ void MainWindow::onBackupRestoreFinished(const BackupFiles::RestoreResult &resul
     }
     m_backupRefreshWorldDir.clear();
     m_backupRefreshDialog = nullptr;
+
+    // 同 `onBackupWriteFinished()` 末尾那一段：这一页上摆着备份清单，还原之后**安全快照
+    // 多了一份**（`diskChanged` 那三档里，凡是真动过盘的多半都顺手做出来了），重摆一遍才
+    // 对得上盘上的样子。
+    if (diskChanged && !m_backupRefreshServerId.isEmpty() && m_serverSettingsPage != nullptr
+        && m_serverSettingsId == m_backupRefreshServerId) {
+        refreshServerSettingsPage();
+    }
+    m_backupRefreshServerId.clear();
 }
 
 MainWindow::JavaMismatchAnswer MainWindow::askAboutJavaMismatch(
