@@ -95,6 +95,9 @@
 
 #include <cstdio>
 #include <cstring>
+// `--fake-server` 那一支要读 stdin 的每一行（`std::getline`）。
+#include <iostream>
+#include <string>
 #include <functional>  // ZJ 节：那两发"没开起来就再排自己一轮"的检查员（递归 lambda）
 
 // R2 节要自己调一次 DPAPI，好站在"外部写入者"的位置造字节（产品里那个 protectToken() 是私有的）。
@@ -190,6 +193,11 @@
 // 这一节拿它算期望值 —— Spigot 那句"暂时不支持"、还有"这一档跑不跑安装器"，判据都不在
 // 测试里另写一遍。
 #include "server/ServerInstallRun.hpp"
+// T41：「跑起来 / 停下来」那一层。`ServerRun.hpp` 是那几条判据（**在 verify 的 ZZ 一节里
+// 钉死**，这一节不重复量），`ServerProcess.hpp` 是那条真 `QProcess` —— 这一节拿本工程自己的
+// exe 当"服务端"（`--fake-server`）把它的整条命跑一遍。
+#include "server/ServerProcess.hpp"
+#include "server/ServerRun.hpp"
 // T38：那一页（「新建服务端…」开出来的）要按 objectName 认控件、填字段、点「创建」。
 #include "NewServerPage.hpp"
 // T27.7：「世界设置…」那条路要**自己造一份真的 level.dat**（T27 前面那些夹具里那一份是
@@ -16279,6 +16287,251 @@ static void runDependencyAndBatchTests() {
     check(AppPaths::minecraftDir() == originalDir, "T31.4 数据根目录换回来了");
 }
 
+// =========================================================================
+// T41. 服务端「跑起来 / 停下来」（coding plan §6.2 的操作 + §6.3 的停止时序，M4-3）
+//
+// 那一层叫 `ServerRun::ServerProcess` —— 它管一条真进程的整条命：起、读它的 stdout、
+// 往它的 stdin 写、正常停、宽限到点强杀。这条路上任何一处断了，屏幕上的样子都是
+// 「点了没反应」或者「那行字一直是启动中」，既不像崩溃也不像报错。
+//
+// ★ 这一节把"服务端"换成了**这个 exe 自己**（`--fake-server`，见 `main()` 最前面那一支）：
+//   真服务端要几个 GB 的下载 + 联网，在这个工程里是个又贵又脆的依赖；而 `ServerProcess`
+//   本来就不认识 java —— 它只认识"一个会吐行、会读行的进程"。所以这里量得到的东西
+//   （状态怎么走、日志怎么切行、`stop` 写进去了没有、宽限到点强杀）和在真机上量到的
+//   是同一件事。
+//
+// ★ 这一节**不造 MainWindow、不碰数据根目录**：这一层只看它拿到的那几个入参（工作目录
+//   只是 `QProcess` 的 cwd），盘上什么都不写。所以它可以排在哪儿都行 —— 放在最后只是
+//   图个整齐。
+//
+// 判据那一半（`-Xmx` 插到第几位、`Done (` 认哪一行、退出码算哪一档状态、宽限时间那张表）
+// 在 verify 的 ZZ 一节里钉死，这一节不重复量 —— 这里量的是**它们真的被用上了**。
+// =========================================================================
+static void runServerProcessTests() {
+    const QString exe = QCoreApplication::applicationFilePath();
+    check(!exe.isEmpty() && QFileInfo::exists(exe),
+          "T41.0 这个 exe 自己就是那个「假服务端」（连程序都找不到就什么都别谈了）", exe);
+
+    QTemporaryDir dir;
+    check(dir.isValid(), "T41.0 一个临时工作目录建出来了");
+
+    // ---- T41.1 起 → 读到 `Done (` → 运行中 ----
+    {
+        ServerRun::ServerProcess process;
+        QString lastStatus;
+        QList<QPair<QString, int>> exits;
+        QObject::connect(&process, &ServerRun::ServerProcess::statusChanged, &process,
+                         [&lastStatus](const QString &, ServerModel::Status status) {
+                             lastStatus = ServerModel::statusName(status);
+                         });
+        QObject::connect(&process, &ServerRun::ServerProcess::exited, &process,
+                         [&exits](const QString &id, int code) { exits.append({id, code}); });
+
+        process.start(QStringLiteral("t41"), dir.path(), exe,
+                      {QStringLiteral("--fake-server"), QStringLiteral("normal")}, 4000);
+        check(process.isRunning(), "T41.1 起手那一刻进程就在跑");
+        check(process.status() == ServerModel::Status::Starting,
+              "T41.1 状态先停在「启动中」（那一行 `Done (` 还没到）",
+              ServerModel::statusName(process.status()));
+
+        const bool ready = pumpUntil(
+            [&process] { return process.status() == ServerModel::Status::Running; }, 20000);
+        check(ready, "T41.1 读到 `Done (` 之后自己翻成「运行中」（服务端没有窗口能替它说话）",
+              lastStatus);
+
+        // ---- T41.2 日志是**逐行**切开的 ----
+        // 一次 `readyRead` 里到的可能是三行、也可能是半行 —— 切不开的话控制台里会是一大坨。
+        QStringList lines = process.logLines();
+        check(lines.size() >= 3, "T41.2 开场白那三行一行一条（按行尾切开了）",
+              QString::number(lines.size()));
+        bool sawDone = false;
+        bool sawStarting = false;
+        for (const QString &line : lines) {
+            if (line.contains(QStringLiteral("Starting minecraft server"))) {
+                sawStarting = true;
+            }
+            if (ServerRun::isReadyLine(line)) {
+                sawDone = true;
+            }
+            check(!line.contains(QLatin1Char('\n')) && !line.contains(QLatin1Char('\r')),
+                  "T41.2 每一行里都不带行尾那种字符", line);
+        }
+        check(sawStarting && sawDone, "T41.2 那两行都在（而且 `isReadyLine` 认得出后者）");
+
+        // ---- T41.3 往它的 stdin 写一行：真的进去了 ----
+        // 假服务端会把每一行**原样回声**，所以"回声到了"就是"写下去了、而且补了换行"
+        // （少了换行它会一直躺在缓冲区里等下一行 —— 那句话永远不来）。
+        check(process.sendCommand(QStringLiteral("say 你好")), "T41.3 那一行写出去了");
+        const bool echoed = pumpUntil(
+            [&process] {
+                for (const QString &line : process.logLines()) {
+                    if (line.contains(QStringLiteral("[回声] say 你好"))) {
+                        return true;
+                    }
+                }
+                return false;
+            },
+            10000);
+        check(echoed, "T41.3 服务端那边读到了它（回声回来了 ⇒ 换行补上了）");
+
+        // ---- T41.4 正常停：写 `stop` → 它自己退 0 → 已停止 ----
+        check(process.requestStop(), "T41.4 那一句 `stop` 写出去了");
+        check(process.status() == ServerModel::Status::Stopping,
+              "T41.4 写完就停在「停止中」（等它存盘收尾）",
+              ServerModel::statusName(process.status()));
+        check(!process.forceKillAllowed(),
+              "T41.4 刚写完 `stop` 的时候「强制结束」还不给按（宽限时间就是给它存盘的）");
+
+        const bool stopped = pumpUntil([&process] { return !process.isRunning(); }, 20000);
+        check(stopped, "T41.4 它自己退干净了");
+        check(process.status() == ServerModel::Status::Stopped,
+              "T41.4 退出码 0 ⇒ 「已停止」（不是「异常退出」）",
+              ServerModel::statusName(process.status()));
+        check(exits.size() == 1 && exits.first().second == 0,
+              "T41.4 `exited` 发了一发、带的是 0",
+              QStringLiteral("%1 发").arg(exits.size()));
+        check(!process.wasForceKilled(), "T41.4 这一趟不是强杀收的场（界面上那句话才对得上）");
+    }
+
+    // ---- T41.5 它自己崩了：非 0 退出 = 异常退出 ----
+    {
+        ServerRun::ServerProcess process;
+        int code = 0;
+        bool got = false;
+        QObject::connect(&process, &ServerRun::ServerProcess::exited, &process,
+                         [&got, &code](const QString &, int c) {
+                             got = true;
+                             code = c;
+                         });
+        process.start(QStringLiteral("t41"), dir.path(), exe,
+                      {QStringLiteral("--fake-server"), QStringLiteral("crash")}, 4000);
+        const bool ended = pumpUntil([&got] { return got; }, 20000);
+        check(ended && code == 1, "T41.5 非 0 退出照原样报出来（退出码 1）",
+              QString::number(code));
+        check(process.status() == ServerModel::Status::Crashed,
+              "T41.5 那一档状态是「异常退出」", ServerModel::statusName(process.status()));
+    }
+
+    // ---- T41.6 宽限时间到点 → 才允许强杀（用户 2026-10-13 定的那一条）----
+    {
+        ServerRun::ServerProcess process;
+        bool forceSignalled = false;
+        bool got = false;
+        int code = 0;
+        QObject::connect(&process, &ServerRun::ServerProcess::forceKillAvailable, &process,
+                         [&forceSignalled](const QString &) { forceSignalled = true; });
+        QObject::connect(&process, &ServerRun::ServerProcess::exited, &process,
+                         [&got, &code](const QString &, int c) {
+                             got = true;
+                             code = c;
+                         });
+        // `never` 那一档：听见 `stop` 也不退（真机上就是"卡在存盘里"那个样子）。
+        const int gracefulMs = 1500;
+        process.start(QStringLiteral("t41"), dir.path(), exe,
+                      {QStringLiteral("--fake-server"), QStringLiteral("never")}, gracefulMs);
+        const bool ready = pumpUntil(
+            [&process] { return process.status() == ServerModel::Status::Running; }, 20000);
+        check(ready, "T41.6 这一档也起得来");
+
+        check(process.requestStop(), "T41.6 `stop` 写进去了（它就是不退）");
+        check(!process.forceKillAllowed(), "T41.6 宽限时间没到 ⇒ 还不给强杀");
+        QElapsedTimer clock;
+        clock.start();
+        const bool armed = pumpUntil([&forceSignalled] { return forceSignalled; }, 20000);
+        check(armed, "T41.6 到点之后 `forceKillAvailable` 发出来了",
+              QStringLiteral("等了 %1 ms").arg(clock.elapsed()));
+        check(clock.elapsed() >= gracefulMs - 200,
+              "T41.6 而且不是当场就发 —— 真的等了那一整段宽限时间",
+              QStringLiteral("%1 ms").arg(clock.elapsed()));
+        check(process.forceKillAllowed() && process.gracefulMs() == gracefulMs,
+              "T41.6 那一层记着的就是这一趟传进去的数（界面上那句话要拿它算秒）",
+              QString::number(process.gracefulMs()));
+
+        process.forceKill();
+        const bool killed = pumpUntil([&got] { return got; }, 20000);
+        check(killed && code != 0, "T41.6 强杀收场，退出码非 0",
+              QStringLiteral("%1").arg(code));
+        check(process.wasForceKilled(),
+              "T41.6 `wasForceKilled()` 记着这一趟是强杀收的场（那一句话据此换掉）");
+        check(process.status() == ServerModel::Status::Crashed,
+              "T41.6 强杀也是「异常退出」那一档（进程确实不是正常退的）",
+              ServerModel::statusName(process.status()));
+    }
+
+    // ---- T41.7 `stopAndWait()`：关掉启动器时用户选了「一起停掉」那一发 ----
+    {
+        ServerRun::ServerProcess process;
+        process.start(QStringLiteral("t41"), dir.path(), exe,
+                      {QStringLiteral("--fake-server"), QStringLiteral("normal")}, 4000);
+        const bool ready = pumpUntil(
+            [&process] { return process.status() == ServerModel::Status::Running; }, 20000);
+        check(ready, "T41.7 起得来");
+        QElapsedTimer clock;
+        clock.start();
+        const bool clean = process.stopAndWait();
+        check(clean, "T41.7 `stopAndWait()` 回来是「退干净了」那一档");
+        check(!process.isRunning(), "T41.7 回来的时候它真的不在了（这一发是等的，不是排队的）");
+        check(clock.elapsed() < 10000, "T41.7 而且它一退就回来了（没白等满那一整段）",
+              QStringLiteral("%1 ms").arg(clock.elapsed()));
+    }
+
+    // ---- T41.8 强杀那一趟 `stopAndWait()`：等不到就强杀收场 ----
+    {
+        ServerRun::ServerProcess process;
+        process.start(QStringLiteral("t41"), dir.path(), exe,
+                      {QStringLiteral("--fake-server"), QStringLiteral("never")}, 800);
+        const bool ready = pumpUntil(
+            [&process] { return process.status() == ServerModel::Status::Running; }, 20000);
+        check(ready, "T41.8 起得来");
+        QElapsedTimer clock;
+        clock.start();
+        const bool clean = process.stopAndWait();
+        check(!clean, "T41.8 它不肯退 ⇒ 回来是「没退干净」那一档；但进程已经收掉了");
+        check(!process.isRunning(), "T41.8 回来时进程一定不在（这一条是「关窗那一下不许挂」的底线）",
+              QStringLiteral("%1 ms").arg(clock.elapsed()));
+        check(process.wasForceKilled(), "T41.8 是强杀收的场");
+    }
+
+    // ---- T41.9 没在跑的时候那几发都是安全的（不崩、不误报）----
+    {
+        ServerRun::ServerProcess process;
+        check(!process.requestStop(), "T41.9 没在跑 ⇒ `requestStop()` 回 false，什么都不做");
+        check(!process.sendCommand(QStringLiteral("say 你好")),
+              "T41.9 没在跑 ⇒ `sendCommand()` 回 false（控制台底下那格这时候也不该能用）");
+        process.forceKill();
+        check(!process.isRunning(), "T41.9 没在跑 ⇒ `forceKill()` 是空操作");
+        check(process.status() == ServerModel::Status::Stopped,
+              "T41.9 一个没用过的对象就是「已停止」", ServerModel::statusName(process.status()));
+        check(ServerRun::ServerProcess::maxLogLines() > 0,
+              "T41.9 日志上限是个正数（控制台那一页拿它设 `setMaximumBlockCount`）",
+              QString::number(ServerRun::ServerProcess::maxLogLines()));
+    }
+
+    // ---- T41.10 起不来的那一路（java 路径写错 / 权限不够）----
+    // ★ 真机上最容易撞到的收场：`QProcess` 在这种时候**不会**发 `finished`，只有
+    //   `errorOccurred(FailedToStart)` —— 只接前者的写法会让这一行永远停在「启动中」。
+    {
+        ServerRun::ServerProcess process;
+        bool got = false;
+        int code = 0;
+        QObject::connect(&process, &ServerRun::ServerProcess::exited, &process,
+                         [&got, &code](const QString &, int c) {
+                             got = true;
+                             code = c;
+                         });
+        const QString missing =
+            dir.filePath(QStringLiteral("这个-java-不存在.exe"));
+        process.start(QStringLiteral("t41"), dir.path(), missing, {}, 4000);
+        const bool ended = pumpUntil([&got] { return got; }, 20000);
+        check(ended, "T41.10 起不来也**一定**有收场（不会永远停在「启动中」）");
+        check(code == -1, "T41.10 退出码报 −1（「没起得来」不是任何一种退出码）",
+              QString::number(code));
+        check(process.status() == ServerModel::Status::Crashed,
+              "T41.10 那一档状态是「异常退出」", ServerModel::statusName(process.status()));
+        check(!process.isRunning(), "T41.10 而且它确实没在跑");
+    }
+}
+
 int main(int argc, char *argv[]) {
     // ---------- session-holder：给"真的有一份会话在跑"当替身 ----------
     //   mw_check.exe session-holder
@@ -16308,7 +16561,10 @@ int main(int argc, char *argv[]) {
     //
     // NOTE: 一定要成对收尾 —— 这里的进程是**这个 exe 的副本**，活着的时候锁住的是沙盒里
     //       那个副本文件（见 AG 段末尾"停掉之后才删假 java"）。
-    if (argc >= 2 && argv[1][0] == '-') {
+    // ★ 这一支的形状判据是"argv[1] 以 `-` 开头" —— 而下面 `--fake-server` 那一支也长这样，
+    //   所以**必须把它摘出去**（不摘的话"服务端"会被当成"等着不起来的那份 java"睡上四分钟：
+    //   屏幕上的症状是"起得来、但没有一行输出、也永远不退"，T41 全红得像产品坏了）。
+    if (argc >= 2 && argv[1][0] == '-' && std::strcmp(argv[1], "--fake-server") != 0) {
         for (int i = 1; i < argc; ++i) {
             if (std::strcmp(argv[i], "-version") == 0) {
                 std::fprintf(stderr, "openjdk version \"17.0.12\" 2024-07-16\n");
@@ -16322,6 +16578,55 @@ int main(int argc, char *argv[]) {
 
     if (argc >= 2 && std::strcmp(argv[1], "session-holder") == 0) {
         Sleep(4 * 60 * 1000);
+        return 0;
+    }
+
+    // ---------- 被当成服务端起的时候：老老实实当一回 Minecraft 服务端 ----------
+    //   <这个 exe> --fake-server <mode>
+    //
+    // T41 要验的是 `ServerProcess` 那一整条路（起 → 读到 `Done (` → 写一句 → 停 / 强杀），
+    // 而真 JVM + 真服务端是个又贵又脆的依赖（几个 GB 的下载，还得联网）。所以那一节把
+    // program 指到**这个 exe 自己**、argv 里塞这一支：它和 java 没有区别（一个真的、活着的
+    // 进程，会往 stdout 吐行、会从 stdin 读行）。
+    //
+    // 三种 mode：
+    //   · `normal` —— 吐几句开场白 + 那一行 `Done (…)!`（产品就靠这一行判"起来了"），
+    //                 然后**逐行读 stdin**：`stop` ⇒ 自己退 0，别的原样回声（T41 拿它验
+    //                 `sendCommand()` 真的送进去了）；
+    //   · `never`  —— 吐完开场白就**再也不理 stdin**（读到 `stop` 也不退）：留给"宽限时间
+    //                 到点 → 强制结束"那一段。它一定会被杀掉，所以给个四分钟兜底；
+    //   · `crash`  —— 吐完开场白立刻退 1：量"非 0 退出 = 异常退出"和那个预警框。
+    //
+    // NOTE: 必须排在**最前面**，连 QApplication 都不建（同上面那两支的理由：这个进程是被
+    //       我们的 QProcess 起的，它不该去碰沙盒设置，也不该需要图形平台）。
+    // NOTE: 输出必须**不缓冲** —— 缓冲住的话父进程的 `readyRead` 要等到进程退出才来，
+    //       而"起来了"那一行恰恰是要在它还活着的时候读到的。
+    if (argc >= 3 && std::strcmp(argv[1], "--fake-server") == 0) {
+        std::setvbuf(stdout, nullptr, _IONBF, 0);
+        std::setvbuf(stderr, nullptr, _IONBF, 0);
+        const std::string mode = argv[2];
+        std::fprintf(stdout, "[12:00:00] [Server thread/INFO]: Starting minecraft server\n");
+        std::fprintf(stdout, "[12:00:01] [Server thread/INFO]: Preparing level \"world\"\n");
+        std::fprintf(stdout, "Done (1.234s)! For help, type \"help\"\n");
+        std::fflush(stdout);
+        if (mode == "crash") {
+            return 1;
+        }
+        std::string line;
+        while (std::getline(std::cin, line)) {
+            if (mode == "never") {
+                continue;  // 听见了，装作在忙
+            }
+            if (line == "stop") {
+                std::fprintf(stdout,
+                             "[12:00:02] [Server thread/INFO]: Stopping the server\n");
+                std::fflush(stdout);
+                return 0;
+            }
+            std::fprintf(stdout, "[12:00:02] [Server thread/INFO]: [回声] %s\n", line.c_str());
+            std::fflush(stdout);
+        }
+        // stdin 关了（父进程那一头收摊了）：当作被要求收工 —— 不许转在那儿把 exe 锁住。
         return 0;
     }
 
@@ -29358,6 +29663,11 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
     // 末尾那一段按路径选中 → 点禁用/启用/删除，量的是**盘上的字节**。
     header("T31. 前置依赖弹窗 + 从实例点进详情页再下载 + 批量动作真改盘（离线，假接口）");
     runDependencyAndBatchTests();
+
+    // **哪儿都能排**：这一节不造 MainWindow、不碰数据根目录、不看网络 —— 它只跟一条
+    // 真进程打交道（那条"服务端"是本工程自己的 exe，见 `--fake-server` 那一支）。
+    header("T41. 服务端「跑起来 / 停下来」：起 → 读到 `Done (` → 写一句 → 停 / 宽限到点强杀（离线）");
+    runServerProcessTests();
 
     std::printf("\n===== %s: %d/%d =====\n", g_fail == 0 ? "全部通过" : "有失败", g_pass,
                 g_pass + g_fail);

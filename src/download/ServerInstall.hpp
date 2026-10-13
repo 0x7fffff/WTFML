@@ -681,12 +681,22 @@ struct Plan {
     QStringList installedMarkers;
 
     /// 装完之后启动它发什么（**不含** java、不含内存/额外 JVM 参数、不含工作目录 ——
-    /// 那几样跟服务端是哪一档没关系，由调用方按实例设置补上）。
-    /// ★ 补在**前**面还是**后**面看那一档：Forge / NeoForge 那两档必须接在**后面**
-    /// （`@user_jvm_args.txt` 里也写着 `-Xmx`，同一个参数以最后出现的为准 —— 接在前面会被
-    /// 那张文件里的值盖掉，界面上那根内存滑杆就成了摆设）。
+    /// 那几样跟服务端是哪一档没关系，由调用方按实例设置补上；拼那一下的唯一出处是
+    /// `ServerRun::launchArguments()`）。
     /// 空 = 得先看目录里产物叫什么（见 note）。
     QStringList launchTokens;
+
+    /// ★ 调用方补的那几项 JVM 参数（内存…）该插在 `launchTokens` 的**第几位**。
+    ///
+    /// 默认 0 = 接在最前面。**Forge / NeoForge 是 1** —— 必须夹在两张 `@` 参数文件中间：
+    /// 排在 `@user_jvm_args.txt` **之后**（那张文件里也写着 `-Xmx`，同一个参数以最后出现的
+    /// 为准，接在前面会被它盖掉、界面上那根内存滑杆成了摆设），又排在 `@win_args.txt`
+    /// **之前**（那张文件**自带主类**，它之后的一切都会被 java 当成给服务端的程序参数 ⇒
+    /// `-Xmx` 一个字都不生效）。
+    /// ★ 2026-10-13：这里原来那两段 NOTE 说的是"接在这几个 token **后面**" —— 照它实现会
+    /// 拼出 `… win_args.txt nogui -Xmx4G`，而 `-Xmx` 落在主类后面**不生效**。那一版说法是
+    /// 错的，改用这一格表达"插在第几位"。
+    int launchJvmArgsIndex = 0;
 
     /// 第一次启动时它自己还要联网拉东西（下下来的那个 jar 是个启动器）。
     bool firstLaunchNeedsNetwork = false;
@@ -811,12 +821,15 @@ inline Plan planFor(const Request &request) {
         // 入口不是 jar，是这两张 `@` 参数文件。**我们不跑安装器生成的 run.bat**：那是一个
         // cmd 脚本，它自己再叫一次 java，内存从 user_jvm_args.txt 里读 —— 我们想让实例设置
         // 里那几个内存旋钮说了算，就得自己拼这条命令。
-        // NOTE: 顺序有讲究：命令行上的 `-Xmx` 必须排在 `@user_jvm_args.txt` **后面**才有用
-        //       （同一个参数以最后出现的那个为准），所以驱动层拼的时候要把内存那几项接在
-        //       这几个 token 后面，不能接在前面。
+        // NOTE: 顺序有讲究，**而且不是"接在前面还是接在后面"一句话说得清的**：我们的
+        //       `-Xmx` 要夹在两张文件**中间** —— 见下面 `launchJvmArgsIndex` 那一格和
+        //       `ServerRun.hpp` 文件头那段（`@win_args.txt` 自带主类，接在它后面等于没发）。
         plan.launchTokens = QStringList{QStringLiteral("@user_jvm_args.txt"),
                                         QStringLiteral("@") + argsPath,
                                         QStringLiteral("nogui")};
+        // 我们的内存那几项夹在两张参数文件**中间**（理由与那条被改掉的旧说法见
+        // `launchJvmArgsIndex` 上面那段）。
+        plan.launchJvmArgsIndex = 1;
         plan.note = QStringLiteral("装完的入口不是 jar，是它生成的两张参数文件；启动时我们不跑"
                                    "它的 run.bat，直接自己拼这条命令");
         return plan;

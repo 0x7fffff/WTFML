@@ -76,6 +76,11 @@ set(HEADER_FILES
     # 一份元数据、取回来怎么读、分成几步）+ 驱动层（取元数据 → 下载 → 跑安装器 → 核对）。
     src/server/ServerInstallRun.hpp
     src/server/ServerInstallController.hpp
+    # 服务端的启动 / 停止那一套（2026-10-13，coding plan §6.2 的操作 + §6.3 的停止时序 /
+    # 里程碑 M4-3）：判据层（纯头：那条命令怎么拼、起来没有、怎么停、宽限多久）+ 驱动层
+    # （一条 QProcess，一个服务端一份）。
+    src/server/ServerRun.hpp
+    src/server/ServerProcess.hpp
     src/util/AppPaths.hpp
     src/util/ThemeImage.hpp
     src/util/ImageDecode.hpp
@@ -149,6 +154,9 @@ set(SOURCE_FILES
     # 服务端安装的驱动层（2026-10-13，§6.2 / M4-2）：它带 QObject + QNetwork + QProcess
     # （判据那一半在 `ServerInstallRun.hpp`，是纯头）。
     src/server/ServerInstallController.cpp
+    # 服务端的"跑"（2026-10-13，§6.2 的操作 / M4-3）：一个服务端一条 QProcess
+    # （判据那一半在 `ServerRun.hpp`，是纯头）。
+    src/server/ServerProcess.cpp
     src/util/ImageDecode.cpp
     src/util/ThemeImage.cpp
     src/util/SystemMemory.cpp
@@ -168,6 +176,7 @@ set(SOURCE_FILES
     ui/IntegrityReportPage.cpp
     ui/UpdateCenterPage.cpp
     ui/NewServerPage.cpp
+    ui/ServerConsolePage.cpp
     ui/GroupDialog.cpp
     ui/GroupListDelegate.cpp
     ui/InstanceSettingsDialog.cpp

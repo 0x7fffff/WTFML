@@ -26,6 +26,7 @@
 #include <QFont>
 #include <QGridLayout>
 #include <QGuiApplication>
+#include <QHeaderView>
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QScreen>
@@ -1122,6 +1123,20 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         serverList->setRootIsDecorated(false);
         serverList->setUniformRowHeights(true);
         serverList->setSelectionMode(QAbstractItemView::SingleSelection);
+        // ★ 2026-10-13（§6.2 的操作 / M4-3）：**两列** —— 第 0 列是名字/状态那串字（吃满
+        //   剩下的宽度），第 1 列定宽，摆行尾那颗主操作按钮（`setItemWidget()` 挂上去）。
+        //   之所以是"加一列"而不是"把整行做成一个自绘控件"（实例文件页那种做法）：这一页的
+        //   行长什么样本来就已经有（一行两截的文字 + tooltip），只是**多了一颗按钮**，
+        //   为它把整行重做成控件不值当。
+        serverList->setColumnCount(2);
+        if (QHeaderView *header = serverList->header()) {
+            header->setStretchLastSection(false);
+            header->setSectionResizeMode(0, QHeaderView::Stretch);
+            header->setSectionResizeMode(1, QHeaderView::Fixed);
+            header->resizeSection(1, serverRowActionWidth());
+        }
+        // 行尾那颗按钮要能从行上右键弹出来（"其余几项进右键菜单"，用户 2026-10-13 定的）。
+        serverList->setContextMenuPolicy(Qt::CustomContextMenu);
         // 行首那个图标（按档画的那张 64×64 瓦片，见 assets/loader/*.png 与
         // MainWindow::refreshServerList()）—— 边长和实例行同一个数，两处对不上 QIcon 会重采样。
         serverList->setIconSize(QSize(instanceTreeIconSize(), instanceTreeIconSize()));

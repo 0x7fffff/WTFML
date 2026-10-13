@@ -94,6 +94,13 @@
 // 前置声明说得出指针，但 `installServer()` 的参数类型要完整定义，所以一并 include。
 // （`ServerInstallRun.hpp` 里那几个纯函数在这个头里用不到，在 .cpp 里才 include。）
 #include "server/ServerInstallController.hpp"
+// 服务端的"跑"（coding plan §6.2 的操作 / M4-3）：`m_serverProcesses` 是按值存的一本
+// 表，而 `ServerProcess` 是**成员指针** —— 一并 include（同上面那一条）。
+// （`ServerRun.hpp` 里那几个纯函数在 .cpp 里才用，但 `ServerProcess.hpp` 自己就 include 它。）
+#include "server/ServerProcess.hpp"
+// 服务端控制台那一页（coding plan §6.2 / M4-3）：`m_serverConsolePage` 是个指针，但这个
+// 头不 include 它的话 .cpp 那边还得记着补一个 —— 同「新建服务端」那一条的理由，一并进来。
+#include "..\ui\ServerConsolePage.hpp"
 
 // MainWindowUI —— `InstanceMode` 是**按值**存在成员里的（`m_instanceMode`），而前置声明
 // 说得出 `MainWindowUI *`、说不出它里面的嵌套枚举，所以这里得 include（同 TaskDetailPage /
@@ -2380,6 +2387,66 @@ private:
     /// 就用那个）。回 false = 已经弹过窗说清楚为什么了，调用方别再往下走。
     /// 这一档不跑安装器时不碰 java，直接回 true（`*out` 留空）。
     bool pickServerInstallerJava(const ServerInstall::Request &request, QString *out);
+
+    // ---------- 服务端的启动 / 停止 / 控制台（coding plan §6.2 的操作 + §6.3 / M4-3）----------
+    //
+    /// 某个服务端那一条进程（**一个服务端一条** —— 同时开几个是允许的，见
+    /// `ServerProcess.hpp` 文件头）。惰性创建、`this` 做父对象，信号只在这一处接一次。
+    ServerRun::ServerProcess *serverProcessFor(const QString &serverId);
+    /// **这一行的那颗按钮被点了**：未装好 = 修复 / 能启动 = 启动 / 在跑 = 停止。
+    /// 三档合成一个入口，是因为屏幕上就是**一颗**按钮（用户 2026-10-13 定的：
+    /// 行尾按钮 + 右键菜单）。
+    void activateServerRow(const QString &serverId);
+    /// 起它。装好没有 / 已经在跑 / EULA / Java —— 四道闸全在这一条路上。
+    void startServer(const QString &serverId);
+    /// 让它正常停下来（`stop`）。已经在停 / 没在跑 = 什么都不做。
+    void stopServer(const QString &serverId);
+    /// 强制结束（不等存盘）。**没在跑 = 什么都不做**。
+    void forceKillServer(const QString &serverId);
+    /// 开控制台那一页（覆盖层整页）。
+    void openServerConsole(const QString &serverId);
+    /// 把控制台那一页现在的状态 / 三颗按钮该不该按摆一遍。**没开着那一页就什么都不做**
+    /// （状态变了、来了一行日志、宽限到点，都走它）。
+    void updateServerConsole();
+    /// 打开这个服务端的目录（交给系统，和"打开实例文件夹"走同一个东西）。
+    void openServerFolder(const QString &serverId);
+    /// 重跑一遍安装（右键菜单里那一条）：按它**记着的那一份**再拼一次请求。
+    void repairServer(const QString &serverId);
+    /// 删掉一个服务端（**会连着 world/ 一起没** —— 所以那一问要说清楚）。
+    void removeServer(const QString &serverId);
+    /// 列表上右键那一发（`customContextMenuRequested` 的接收端）。
+    void showServerContextMenu(const QPoint &pos);
+    /// 按 @p action（`MainWindowUI::ServerMenuAction` 的下标）做一件事。
+    void runServerMenuAction(const QString &serverId, int action);
+
+    /**
+     * @brief EULA 那道闸：没同意过就先问一次。
+     * @return 现在能不能启动（以前同意过 / 用户当场勾了并点了同意）。
+     *
+     * ★ 三条规矩（见 `ServerRun::eulaPromptText()` 那段）：**不自动接受**、只写
+     *   `eula=true`、原文要有可点的一行。所以这里**只有一条写盘的路** —— 用户勾了那个框
+     *   并且按了「同意并启动」。
+     */
+    bool ensureServerEula(const QString &serverId);
+
+    /// 起它之前那条命令要的那份计划（按它记着的那一档现算）。
+    /// @param problem 非空 = 拼不出来，那句话是给用户看的（`ServerInstall::planFor()` 的
+    ///        结论，这一层不另编一句）。
+    ServerInstall::Plan serverLaunchPlan(const QString &serverId, QString *problem) const;
+
+    /// 把 @p serverId 那一行的行尾按钮 + 状态字按**现在的状态**摆一遍
+    /// （重扫列表、状态变了、进程退了，都走它）。不在列表里 / 已经没了 = 什么都不做。
+    void updateServerRow(const QString &serverId);
+    void onServerStatusChanged(const QString &serverId, ServerModel::Status status);
+    void onServerLineAppended(const QString &serverId, const QString &line);
+    void onServerExited(const QString &serverId, int exitCode);
+    void onServerForceKillAvailable(const QString &serverId);
+
+    /// `<目录>/mods` 里 `.jar` 的个数（`.jar.disabled` **不算**）—— 宽限时间那两个入参
+    /// 之一（另一个见 `serverWorldBytes()`）。纯函数（只看盘，不看界面）。
+    static int countServerMods(const QString &dirPath);
+    /// `<目录>/world` 那棵树的字节数（没有那个目录 / 读不出来 = 0）。
+    static qint64 serverWorldBytes(const QString &dirPath);
     /// 此刻的搜索/筛选条件（读界面上那个搜索框和四颗 chip）。
     InstanceFilter::Query instanceFilterQuery() const;
     /// 一个实例参与筛选的那几样**事实**：可搜索的串（`InstanceFilter::textsFor()`）、
@@ -2845,6 +2912,20 @@ private:
     Tasks::TaskId m_serverInstallTaskId = Tasks::invalidTaskId();
     /// 账本里那一项一共有几格（百分比按"走到第几格"算，见 `installServer()` 里的 NOTE）。
     int m_serverInstallStepCount = 0;
+    /// 服务端的**进程**：一个服务端一条（键 = `serverId`）。
+    ///
+    /// ★ 和客户端那条"一次 startGame = 一个会话"不同：**同时开几个服务端是允许的**
+    ///   （每一份有自己的端口和世界，互不干扰）。所以这是一本表，不是一个指针。
+    ///   值只增不减（进程对象很轻、连着信号，跑完留着下次直接 `start()` 复用）。
+    QHash<QString, ServerRun::ServerProcess *> m_serverProcesses;
+    /// 控制台那一页（懒建一次、之后复用，和「新建服务端」同一个路数）。
+    ServerConsolePage *m_serverConsolePage = nullptr;
+    /// 控制台那一页**现在说的是哪一个**服务端。
+    ///
+    /// ★ 和 `m_updateCenterInstanceId` 一个路数：页面是复用的、关页之后它还活在内存里，
+    ///   所以"这一按是对哪个服务端按的"只能从这儿来 —— **不许**去问"列表上现在选中谁"
+    ///   （用户完全可能边看控制台边点别处）。换一个服务端开控制台时这一格跟着换。
+    QString m_serverConsoleId;
     /// 那一页现在说的是哪个实例的结论（**开那一页时记下来**）。
     ///
     /// 和 `m_integrityReportVersionId` 一个路数：页面是复用的、点动作时它可能已经关了，

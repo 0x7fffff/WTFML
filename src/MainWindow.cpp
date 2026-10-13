@@ -94,6 +94,7 @@
 #include <QListWidget>
 // 拖进来的文件是从 QMimeData 上那串 url 读出来的（见 MainWindow::dropEvent）。
 #include <QMimeData>
+#include <QMenu>
 #include <QMouseEvent>
 // 底栏面板里那几行的图标要按"底栏那几行字的墨色"上色（图标是画的，颜色由调用方给）。
 #include <QPalette>
@@ -177,6 +178,7 @@
 // 服务端安装那四段的**判据层**（"还差哪一份元数据、取回来怎么读、分成几步"，coding plan
 // §6.2 / M4-2）：纯函数，`verify` 的 ZY 一节直接钉它。这里只用到那几个翻译。
 #include "server/ServerInstallRun.hpp"
+#include "server/ServerRun.hpp"  // 服务端"跑"的那几条判据（纯头，见它的文件头）
 // 同一页的「刷新」：真的连上去问一遍每台现在什么样（图标 / MOTD / 人数 / 延迟）。
 #include "util/ServerPing.hpp"
 #include "util/SystemMemory.hpp"
@@ -1732,61 +1734,128 @@ bool MainWindow::nativeEvent(const QByteArray &eventType, void *message, qintptr
 }
 
 void MainWindow::closeEvent(QCloseEvent *event) {
-    if (!m_launcherManager->hasRunningGame()) {
+    const QList<LauncherManager::GameSession> games = m_launcherManager->runningGames();
+    // 还在跑的那些服务端（键 = serverId，**按名字排序** —— 提示里报出来的名字每次都得是
+    // 同一个顺序，不然同一件事两句话看着像两件事）。
+    QStringList serverIds;
+    for (auto it = m_serverProcesses.constBegin(); it != m_serverProcesses.constEnd(); ++it) {
+        if (it.value() != nullptr && it.value()->isRunning()) {
+            serverIds.append(it.key());
+        }
+    }
+    serverIds.sort();
+
+    if (games.isEmpty() && serverIds.isEmpty()) {
         QMainWindow::closeEvent(event);
         return;
     }
 
-    // 游戏还在跑。以前这里什么都不做 —— 而"什么都不做"的实际后果是**把游戏强杀**：
-    // MainWindow 是 main() 里的栈对象，窗口关掉 → exec() 返回 → MainWindow 析构 →
-    // LauncherManager（它的子对象）析构 → m_gameProcess（它的子对象）析构，而
-    // QProcess 的析构是这么写的（Qt 6.10，qprocess.cpp）：
-    //
-    //     if (d->processState != NotRunning) { qWarning() << ...; kill(); waitForFinished(); }
-    //
-    // 也就是说，用户只是想关掉启动器，游戏却收到一个 TerminateProcess（Windows 上
-    // kill() 就是它）—— 游戏来不及存档、没有"保存并退出"。PCL 那种启动器关掉之后游戏
-    // 照跑，java.exe 本来也活得过启动器，这一步只是不让上面那条析构链碰到它。
-    //
-    // 所以这里问一句，而且**默认那一边是"别动游戏"**（回车 = 取消，不关窗口）：用户要
-    // 是真想停游戏，在游戏里按"退出游戏"那条路才是干净的。
-    // 同时开着好几份时，真名报出来（"还有 3 个游戏在跑：A、B、C"）比"游戏还在运行"
-    // 有用得多 —— 用户要判断的正是"我还开着哪些"。
-    const QList<LauncherManager::GameSession> games = m_launcherManager->runningGames();
-    QStringList names;
-    names.reserve(games.size());
-    for (const LauncherManager::GameSession &game : games) {
-        names.append(instanceDisplayName(game.versionId));
-    }
-    const QString text =
-        games.size() == 1
-            ? tr("游戏「%1」还在运行。\n\n关掉启动器**不会**关掉游戏 —— 它会继续跑，"
-                 "存档、联机都照常。\n要现在关掉启动器吗？")
-                  .arg(names.first())
-            : tr("还有 %1 个游戏在运行：%2。\n\n关掉启动器**不会**关掉游戏 —— "
-                 "它们会继续跑，存档、联机都照常。\n要现在关掉启动器吗？")
-                  .arg(games.size())
-                  .arg(names.join(QStringLiteral("、")));
-    // 按钮文字自己写：启动器没装 Qt 的中文翻译，标准按钮在界面上是英文的 Yes/No。
-    // NOTE: 关掉窗口这一发**本身**在跑 closeEvent，不能开独立窗（用户给的方向是最终
-    //       只有内容区那一块覆盖层）—— 内嵌提示在 closeEvent 里同样作数：窗口这时候
-    //       还没关掉，`execPrompt` 那个嵌套事件循环照转，"事件循环里再开事件循环"
-    //       这件事和原来 `box.exec()` 一模一样。
-    //       默认那一边照旧是**取消**（下标 1），回车 = 别动游戏。
-    //       第三格是 destructiveIndex —— 两个都不是危险动作（关的是启动器，游戏照跑），
-    //       所以给 -1。
-    const int choice = InlineMessage::ask(
-        m_ui->overlay(), MessageKind::Question, tr("游戏正在运行"), text,
-        QStringList{tr("关掉启动器"), tr("取消")}, 1, -1);
-    if (choice != 0) {
-        event->ignore();
-        return;
+    if (!games.isEmpty()) {
+        // 游戏还在跑。以前这里什么都不做 —— 而"什么都不做"的实际后果是**把游戏强杀**：
+        // MainWindow 是 main() 里的栈对象，窗口关掉 → exec() 返回 → MainWindow 析构 →
+        // LauncherManager（它的子对象）析构 → m_gameProcess（它的子对象）析构，而
+        // QProcess 的析构是这么写的（Qt 6.10，qprocess.cpp）：
+        //
+        //     if (d->processState != NotRunning) { qWarning() << ...; kill(); waitForFinished(); }
+        //
+        // 也就是说，用户只是想关掉启动器，游戏却收到一个 TerminateProcess（Windows 上
+        // kill() 就是它）—— 游戏来不及存档、没有"保存并退出"。PCL 那种启动器关掉之后游戏
+        // 照跑，java.exe 本来也活得过启动器，这一步只是不让上面那条析构链碰到它。
+        //
+        // 所以这里问一句，而且**默认那一边是"别动游戏"**（回车 = 取消，不关窗口）：用户要
+        // 是真想停游戏，在游戏里按"退出游戏"那条路才是干净的。
+        // 同时开着好几份时，真名报出来（"还有 3 个游戏在跑：A、B、C"）比"游戏还在运行"
+        // 有用得多 —— 用户要判断的正是"我还开着哪些"。
+        QStringList names;
+        names.reserve(games.size());
+        for (const LauncherManager::GameSession &game : games) {
+            names.append(instanceDisplayName(game.versionId));
+        }
+        const QString text =
+            games.size() == 1
+                ? tr("游戏「%1」还在运行。\n\n关掉启动器**不会**关掉游戏 —— 它会继续跑，"
+                     "存档、联机都照常。\n要现在关掉启动器吗？")
+                      .arg(names.first())
+                : tr("还有 %1 个游戏在运行：%2。\n\n关掉启动器**不会**关掉游戏 —— "
+                     "它们会继续跑，存档、联机都照常。\n要现在关掉启动器吗？")
+                      .arg(games.size())
+                      .arg(names.join(QStringLiteral("、")));
+        // 按钮文字自己写：启动器没装 Qt 的中文翻译，标准按钮在界面上是英文的 Yes/No。
+        // NOTE: 关掉窗口这一发**本身**在跑 closeEvent，不能开独立窗（用户给的方向是最终
+        //       只有内容区那一块覆盖层）—— 内嵌提示在 closeEvent 里同样作数：窗口这时候
+        //       还没关掉，`execPrompt` 那个嵌套事件循环照转，"事件循环里再开事件循环"
+        //       这件事和原来 `box.exec()` 一模一样。
+        //       默认那一边照旧是**取消**（下标 1），回车 = 别动游戏。
+        //       第三格是 destructiveIndex —— 两个都不是危险动作（关的是启动器，游戏照跑），
+        //       所以给 -1。
+        const int choice = InlineMessage::ask(
+            m_ui->overlay(), MessageKind::Question, tr("游戏正在运行"), text,
+            QStringList{tr("关掉启动器"), tr("取消")}, 1, -1);
+        if (choice != 0) {
+            event->ignore();
+            return;
+        }
     }
 
-    // 顺序要紧：**先**把进程交出去（脱离所有权 + 断信号），再让窗口关掉 —— 关窗口之后
-    // 紧接着就是析构链，交出去那一步必须在那之前做完（见 LauncherManager::detachRunningGame）。
-    m_launcherManager->detachRunningGame();
-    appendLog(tr("已关掉启动器，游戏继续在跑。"));
+    if (!serverIds.isEmpty()) {
+        // 服务端和游戏**不是一回事**，所以单独问一次（用户 2026-10-13 定的：问一句再决定
+        // ——「一起停掉」/「留着它们继续跑」）。
+        //
+        // 为什么值得单独问：服务端不是"关掉启动器它也一样活着"的那种进程 —— 它是我们的子
+        // 进程，启动器一退，那条析构链就会把它 TerminateProcess 掉，**正在写的世界文件
+        // 就烂在那儿**。而"停干净"和"留着它继续跑"都是合理的诉求：前者是"我这台机器上
+        // 不想再开服了"，后者是"我还想让它继续开着，只是把启动器关了"。
+        QStringList names;
+        names.reserve(serverIds.size());
+        for (const QString &id : serverIds) {
+            const ServerRegistry::Entry entry = ServerRegistry::describe(id);
+            names.append(entry.name.isEmpty() ? id : entry.name);
+        }
+        const QString text =
+            serverIds.size() == 1
+                ? tr("服务端「%1」还在运行。\n\n关掉启动器时要把它怎么办？\n"
+                     "「一起停掉」会让它**存完盘**再退（可能要等一会儿）；"
+                     "「留着它继续跑」的话，启动器关了它照样开着。")
+                      .arg(names.first())
+                : tr("还有 %1 个服务端在运行：%2。\n\n关掉启动器时要把它们怎么办？\n"
+                     "「一起停掉」会让它们**存完盘**再退（可能要等一会儿）；"
+                     "「留着它们继续跑」的话，启动器关了它们照样开着。")
+                      .arg(serverIds.size())
+                      .arg(names.join(QStringLiteral("、")));
+        // 默认那一边是**留着它们继续跑**（下标 1）：和游戏那一条同理 —— 不主动动别人的
+        // 进程更安全（突然停下来那一发万一赶在写存档的中间，就是丢存档的姿势）。
+        const int choice = InlineMessage::ask(
+            m_ui->overlay(), MessageKind::Question, tr("服务端正在运行"), text,
+            QStringList{tr("一起停掉"), tr("留着它们继续跑")}, 1, -1);
+        if (choice == 0) {
+            // ★ 停要**等它走完**，而且等的是宽限那两个数算出来的时间（`ServerRun::
+            //   gracefulStopMs()` —— 模组越多、存档越大，给的越宽）。这一句是阻塞的：
+            //   界面在这几秒里不动。选择让它静态地等，是因为另一种做法（发完 stop 就让
+            //   析构去杀）等于是**把这一问白问了** —— 那正是丢存档的那条路。
+            for (const QString &id : serverIds) {
+                if (ServerRun::ServerProcess *process = m_serverProcesses.value(id, nullptr)) {
+                    process->stopAndWait();
+                }
+            }
+            appendLog(tr("已关掉启动器，服务端已经停下来。"));
+        } else {
+            // 交出去：脱离所有权（`ServerProcess::detach()` 里那段说明），启动器退了它们
+            // 照样在系统里跑。
+            for (const QString &id : serverIds) {
+                if (ServerRun::ServerProcess *process = m_serverProcesses.value(id, nullptr)) {
+                    process->detach();
+                }
+            }
+            appendLog(tr("已关掉启动器，服务端继续在跑。"));
+        }
+    }
+
+    if (!games.isEmpty()) {
+        // 顺序要紧：**先**把进程交出去（脱离所有权 + 断信号），再让窗口关掉 —— 关窗口之后
+        // 紧接着就是析构链，交出去那一步必须在那之前做完（见 LauncherManager::detachRunningGame）。
+        m_launcherManager->detachRunningGame();
+        appendLog(tr("已关掉启动器，游戏继续在跑。"));
+    }
     QMainWindow::closeEvent(event);
 }
 
@@ -1855,7 +1924,9 @@ void MainWindow::setupConnections() {
         if (QPushButton *newServer = m_ui->getNewServerButton()) {
             connect(newServer, &QPushButton::clicked, this, &MainWindow::openNewServerPage);
         }
-        // 服务端列表里双击一行 = 打开它的目录（"我建的那个服务端在哪儿"是这一页最常用的一件事）。
+        // 服务端列表里双击一行 = 开控制台（2026-10-13 定的：双击那一下最想看的正是"它现在
+        // 在说什么"；"打开目录"退到右键菜单里那一项 —— 行尾那颗按钮和右键菜单一共六件事，
+        // 双击只能占一件）。
         if (QTreeWidget *serverList = m_ui->getServerList()) {
             connect(serverList, &QTreeWidget::itemDoubleClicked, this,
                     [this](QTreeWidgetItem *item, int) {
@@ -1864,10 +1935,12 @@ void MainWindow::setupConnections() {
                         }
                         const QString id = item->data(0, Qt::UserRole).toString();
                         if (!id.isEmpty()) {
-                            QDesktopServices::openUrl(
-                                QUrl::fromLocalFile(AppPaths::serverDir(id)));
+                            openServerConsole(id);
                         }
                     });
+            // 右键那一发（`setContextMenuPolicy(Qt::CustomContextMenu)` 在 MainWindowUI 里设的）。
+            connect(serverList, &QTreeWidget::customContextMenuRequested, this,
+                    &MainWindow::showServerContextMenu);
         }
     }
     // 左边列表选中哪一份 .minecraft，启动器就换到哪一份上（PCL 的卡片是同一个交互）。
@@ -6804,6 +6877,33 @@ void MainWindow::setInstanceMode(MainWindowUI::InstanceMode mode) {
     }
 }
 
+namespace {
+
+/// 服务端那一档在 `VersionIcons::loaderMark()` 那张表里的下标。
+///
+/// 那张表的顺序是 0 Fabric / 1 Forge / 2 NeoForge / 3 OptiFine / 4 草方块（「不装（纯原版）」）。
+/// 服务端八档里只有三个加载器有自己那张图，其余（原版 / Paper / Purpur / Quilt / Spigot）
+/// 一律拿草方块 —— 和"认不出下标就给草方块"是同一条规矩，别去新画一张。
+int loaderMarkIndexForServerFlavor(ServerInstall::Flavor flavor) {
+    switch (flavor) {
+    case ServerInstall::Flavor::Fabric:
+        return 0;
+    case ServerInstall::Flavor::Forge:
+        return 1;
+    case ServerInstall::Flavor::NeoForge:
+        return 2;
+    default:
+        return 4;
+    }
+}
+
+/// 启动器日志里一行最多留这么多个字符。服务端那些行可以很长（mod 列表、堆栈），
+/// 原样抄进去的话底栏那个日志窗会被一条长句撑得没法看。**只截写进日志的这一份**，
+/// 控制台那一页里照旧是原话。
+constexpr int kMaxLoggedServerLineChars = 400;
+
+}  // namespace
+
 void MainWindow::refreshServerList() {
     if (m_ui == nullptr) {
         return;
@@ -6819,25 +6919,28 @@ void MainWindow::refreshServerList() {
 
     tree->clear();
     const QList<ServerRegistry::Entry> entries = ServerRegistry::scanAll();
+    const QSize rowSize(0, MainWindowUI::serverWorkspaceRowHeight());
     for (const ServerRegistry::Entry &entry : entries) {
         auto *item = new QTreeWidgetItem(tree);
         item->setData(0, Qt::UserRole, entry.serverId);
-        // 一行两截：名字（主）+ 状态/档（次）。名字里带状态，是因为服务端没有"图标"那一栏
-        // 能替它说话（实例行行首有图标，这一页用一个档名 + 状态两个字）。
-        const QString status = ServerModel::statusName(
-            entry.installed ? ServerModel::Status::Ready : ServerModel::Status::NotInstalled);
-        item->setText(0, QStringLiteral("%1  —  %2 · %3")
-                             .arg(entry.name,
-                                  ServerInstall::flavorName(entry.flavor), status));
-        QString tip = entry.note;
-        if (!tip.isEmpty()) {
-            tip += QStringLiteral("\n");
-        }
-        tip += QDir::toNativeSeparators(entry.dirPath);
-        item->setToolTip(0, tip);
-        // 没装好的那一行给个"灰一点"的观感：这一页现在还没有自绘代理，先用禁用旗标把
-        // 它和"能启动的那些"分开（真正的操作按钮在 M4-2/M4-3 里补）。
-        item->setDisabled(!entry.installed);
+        // 行首那张图：档名对应的加载器标志（认不出来的档一律草方块，见那一处）。
+        item->setIcon(0, QIcon(VersionIcons::loaderMark(
+                            loaderMarkIndexForServerFlavor(entry.flavor),
+                            MainWindowUI::instanceTreeIconSize())));
+        item->setSizeHint(0, rowSize);
+        item->setSizeHint(1, rowSize);
+        // 第 1 列那颗按钮：一个服务端一颗（行尾）。**整行做成控件是不行的** —— 名字那一截
+        // 的文字渲染已经在了，为了塞一颗按钮把整行换成自绘控件，等于把这一页推回重画。
+        // 摆两列、第二列固定宽，是把"行尾有一颗按钮"这件事塞进现成列表里最省的做法。
+        auto *button = new QPushButton(tree);
+        button->setObjectName(MainWindowUI::serverRowActionName());
+        button->setFixedWidth(MainWindowUI::serverRowActionWidth());
+        connect(button, &QPushButton::clicked, this,
+                [this, id = entry.serverId] { activateServerRow(id); });
+        tree->setItemWidget(item, 1, button);
+        // 名字 / 状态字 / 那颗按钮的字与颜色 —— **全在 updateServerRow() 一处**
+        // （刚建出来的那一行也要走一遍，别在这儿再抄一份摆法）。
+        updateServerRow(entry.serverId);
     }
     if (QTreeWidgetItem *first = tree->topLevelItem(0)) {
         tree->setCurrentItem(first);
@@ -6907,7 +7010,15 @@ void MainWindow::openNewServerPage() {
         ServerRegistry::defaultServerName(ServerInstall::Flavor::Vanilla, currentVersion),
         currentVersion);
     updateNewServerSummary(m_newServerPage);
-    if (overlay->execPage(m_newServerPage, NewServerPage::windowTitle()) != QDialog::Accepted) {
+    // ★ 同控制台那一页：说清 `ownerTab` 并先切过去（这一页也是从服务端列表上开出来的）。
+    const int instancesTab = MainWindowUI::instancesTabIndex();
+    if (QTabWidget *tabs = m_ui->getTabWidget()) {
+        if (instancesTab >= 0 && instancesTab < tabs->count()) {
+            tabs->setCurrentIndex(instancesTab);
+        }
+    }
+    if (overlay->execPage(m_newServerPage, NewServerPage::windowTitle(), instancesTab)
+        != QDialog::Accepted) {
         return;
     }
     // 收页了 —— 建这个服务端：名字洗成目录名、重名加后缀、写 `.wtfml-server`。
@@ -7032,6 +7143,595 @@ bool MainWindow::pickServerInstallerJava(const ServerInstall::Request &request, 
     }
     *out = java;
     return true;
+}
+
+// ======================================================================
+// 服务端的「跑起来 / 停下来 / 控制台」（coding plan §6.2 的操作 + §6.3 的停止时序 / M4-3）
+// ======================================================================
+//
+// 这一片里**没有一条判据**：那条命令怎么拼、起来没有、退了算哪一档状态、宽限多久才允许
+// 强杀，全在 `ServerRun.hpp`（纯头，verify 的 ZZ 一节钉死）；进程本身在 `ServerProcess`
+// （mw_check 的 T41 拿本工程自己的 exe 当"服务端"跑整趟）。这一片是**接线** ——
+// "谁在什么时候按了什么 → 调哪一个"，以及"界面上那颗按钮现在该写什么字"。
+
+ServerRun::ServerProcess *MainWindow::serverProcessFor(const QString &serverId) {
+    if (serverId.isEmpty()) {
+        return nullptr;
+    }
+    if (ServerRun::ServerProcess *existing = m_serverProcesses.value(serverId, nullptr)) {
+        return existing;
+    }
+    auto *process = new ServerRun::ServerProcess(this);
+    m_serverProcesses.insert(serverId, process);
+    // ★ 这几条**只接一次**（一个服务端一份进程对象，表里那个值只增不减）。接在
+    //   `startServer()` 里的话，第二次启动会接上第二遍 —— 同一行日志记两回。
+    connect(process, &ServerRun::ServerProcess::message, this,
+            [this](const QString &text) { appendLog(text); });
+    connect(process, &ServerRun::ServerProcess::statusChanged, this,
+            &MainWindow::onServerStatusChanged);
+    connect(process, &ServerRun::ServerProcess::lineAppended, this,
+            &MainWindow::onServerLineAppended);
+    connect(process, &ServerRun::ServerProcess::forceKillAvailable, this,
+            &MainWindow::onServerForceKillAvailable);
+    connect(process, &ServerRun::ServerProcess::exited, this, &MainWindow::onServerExited);
+    return process;
+}
+
+void MainWindow::activateServerRow(const QString &serverId) {
+    if (serverId.isEmpty()) {
+        return;
+    }
+    const ServerRegistry::Entry entry = ServerRegistry::describe(serverId);
+    if (!entry.installed) {
+        repairServer(serverId);  // 未装好 ⇒ 那颗按钮就是「修复」
+        return;
+    }
+    const ServerRun::ServerProcess *process = m_serverProcesses.value(serverId, nullptr);
+    if (process != nullptr && process->isRunning()) {
+        stopServer(serverId);
+        return;
+    }
+    startServer(serverId);
+}
+
+void MainWindow::startServer(const QString &serverId) {
+    if (serverId.isEmpty()) {
+        return;
+    }
+    // 闸①：装好了没有。判据是 `ServerRegistry::describe()`（= `ServerModel::isInstalled()`），
+    // 和那一行上写着「未安装」的是同一个出处。
+    const ServerRegistry::Entry entry = ServerRegistry::describe(serverId);
+    if (!entry.installed) {
+        InlineMessage::warning(m_ui->overlay(), tr("这个服务端还不能启动"),
+                               ServerRun::notInstalledMessage());
+        return;
+    }
+    ServerRun::ServerProcess *process = serverProcessFor(serverId);
+    if (process == nullptr) {
+        return;
+    }
+    // 闸②：已经在跑了（同一行连点两下、或者右键菜单里又点了一次）。
+    if (process->isRunning()) {
+        appendLog(tr("%1 已经在跑了。").arg(serverId));
+        return;
+    }
+    // 闸③：EULA。**只有用户自己勾了才写**（见 ensureServerEula）。
+    if (!ensureServerEula(serverId)) {
+        return;
+    }
+    // 闸④：那条命令拼得出来吗（这一档要的信息在不在我们记的那一份里）。
+    QString problem;
+    const ServerInstall::Plan plan = serverLaunchPlan(serverId, &problem);
+    if (!plan.ok) {
+        InlineMessage::critical(m_ui->overlay(), tr("起不了这个服务端"), problem);
+        return;
+    }
+    // 闸⑤：java。判据和装加载器/装服务端那两条路**同一套**（版本 json 里的 `javaVersion`
+    // 说了算），拿不到就说清楚为什么。
+    const ServerModel::Info info = ServerRegistry::readMeta(serverId);
+    // 这一个自己指定过 Java 就用它（`Info::javaPath` 的原话），否则跟全局那一套。
+    const QString configuredJava =
+        info.javaPath.isEmpty() ? m_javaSettings->javaPath() : info.javaPath;
+    QString java = configuredJava;
+    int requiredJavaMajor = 0;
+    const QJsonObject gameJson = m_versionManager->getVersionJson(info.gameVersion);
+    if (!gameJson.isEmpty()) {
+        requiredJavaMajor = gameJson[QStringLiteral("javaVersion")]
+                                .toObject()[QStringLiteral("majorVersion")]
+                                .toInt();
+    }
+    QString javaReason;
+    if (!m_javaSettings->installerJavaFor(requiredJavaMajor, configuredJava, &java, &javaReason)) {
+        appendLog(tr("起这个服务端要的 Java 拿不到：%1").arg(javaReason));
+        InlineMessage::warning(m_ui->overlay(), tr("Java 版本不够"), javaReason);
+        return;
+    }
+    if (java != configuredJava) {
+        appendLog(tr("这个服务端要 Java %1，起的时候用 %2").arg(requiredJavaMajor).arg(java));
+    }
+
+    // 那条命令 + 宽限那两个入参（模组数量 / 存档大小，见 ServerRun.hpp 那张表）。
+    // 内存：这一个自己配过就用它，没配过（`memoryMb <= 0`，见 `ServerModel::Info` 那句）
+    // 就跟全局那一档 —— 和上面 java 的规矩一样。
+    const int memoryMb = info.memoryMb > 0 ? info.memoryMb : m_javaSettings->xmx();
+    const QStringList arguments = ServerRun::launchArguments(plan, memoryMb);
+    const int mods = countServerMods(entry.dirPath);
+    const qint64 worldBytes = serverWorldBytes(entry.dirPath);
+    const int gracefulMs = ServerRun::gracefulStopMs(mods, worldBytes);
+    appendLog(tr("起服务端 %1：%2 个模组、存档 %3 MB，停下来最多等 %4 秒。")
+                  .arg(entry.name.isEmpty() ? serverId : entry.name)
+                  .arg(mods)
+                  .arg(worldBytes / (1024 * 1024))
+                  .arg(gracefulMs / 1000));
+    if (!plan.note.isEmpty()) {
+        // 那一档自己的补充说明（"第一趟要联网""入口是两张参数文件"…）——**唯一出处**，
+        // 照抄，别在这儿另编一句。
+        appendLog(plan.note);
+    }
+    process->start(serverId, entry.dirPath, java, arguments, gracefulMs);
+}
+
+void MainWindow::stopServer(const QString &serverId) {
+    ServerRun::ServerProcess *process = m_serverProcesses.value(serverId, nullptr);
+    if (process == nullptr || !process->isRunning()) {
+        return;
+    }
+    if (process->requestStop()) {
+        return;
+    }
+    // 那一句写不进去（它的 stdin 已经关了 / 它根本不在读）⇒ 只剩强杀一条路。这时候还
+    // 摆着"再等 X 秒"就是骗人，直接说实话。
+    appendLog(tr("%1：让它停的那一句没能写进去，只能强制结束。").arg(serverId));
+    process->forceKill();
+}
+
+void MainWindow::forceKillServer(const QString &serverId) {
+    ServerRun::ServerProcess *process = m_serverProcesses.value(serverId, nullptr);
+    if (process == nullptr || !process->isRunning()) {
+        return;
+    }
+    process->forceKill();
+}
+
+void MainWindow::openServerConsole(const QString &serverId) {
+    OverlayHost *overlay = m_ui == nullptr ? nullptr : m_ui->overlay();
+    if (overlay == nullptr || serverId.isEmpty()) {
+        return;
+    }
+    if (m_serverConsolePage == nullptr) {
+        m_serverConsolePage = new ServerConsolePage(this);
+        m_serverConsolePage->setMaxLines(ServerRun::ServerProcess::maxLogLines());
+        // NOTE: 这三条只接一次（页面复用）。**认人认 `m_serverConsoleId`，不认"列表上现在
+        //       选中谁"** —— 用户完全可能边看控制台边点别处（同 m_updateCenterInstanceId
+        //       那一段的理由）。
+        connect(m_serverConsolePage, &ServerConsolePage::commandSubmitted, this,
+                [this](const QString &command) {
+                    ServerRun::ServerProcess *process =
+                        m_serverProcesses.value(m_serverConsoleId, nullptr);
+                    if (process == nullptr || !process->sendCommand(command)) {
+                        appendLog(tr("这一条没有送到服务端（它已经不在跑了）。"));
+                    }
+                });
+        connect(m_serverConsolePage, &ServerConsolePage::stopRequested, this,
+                [this] { stopServer(m_serverConsoleId); });
+        connect(m_serverConsolePage, &ServerConsolePage::forceKillRequested, this,
+                [this] { forceKillServer(m_serverConsoleId); });
+    }
+    m_serverConsoleId = serverId;
+    const ServerRegistry::Entry entry = ServerRegistry::describe(serverId);
+    m_serverConsolePage->setServerName(entry.name.isEmpty() ? serverId : entry.name);
+    const ServerRun::ServerProcess *process = m_serverProcesses.value(serverId, nullptr);
+    // 开页时把**攒下来的**那些行灌一遍：这一页关着的时候它也一直在跑，重新打开不该
+    // 只剩"从打开这一刻起"的日志。
+    m_serverConsolePage->setLog(process != nullptr ? process->logLines() : QStringList());
+    updateServerConsole();  // 状态那几行的唯一出处
+    // ★ 开页要说清 `ownerTab`、并且**先切过去**（见 OverlayHost::execPage 那段）：这一页
+    //   是从服务端列表上开出来的，那一位就是"实例"这一颗。不切的话，页眉上那颗返回箭头
+    //   收页之后用户会落在一个跟刚才没关系的选项卡上。
+    const int instancesTab = MainWindowUI::instancesTabIndex();
+    if (QTabWidget *tabs = m_ui->getTabWidget()) {
+        if (instancesTab >= 0 && instancesTab < tabs->count()) {
+            tabs->setCurrentIndex(instancesTab);
+        }
+    }
+    overlay->execPage(m_serverConsolePage, ServerConsolePage::windowTitle(), instancesTab);
+    // 收页之后"这一页说的是谁"就没意义了 —— 留着的话，返回键一按、下一行日志还会往一个
+    // 已经收起来的页面上写。
+    m_serverConsoleId.clear();
+}
+
+void MainWindow::updateServerConsole() {
+    if (m_serverConsolePage == nullptr || m_serverConsoleId.isEmpty()) {
+        return;
+    }
+    const ServerRun::ServerProcess *process = m_serverProcesses.value(m_serverConsoleId, nullptr);
+    const ServerModel::Status status =
+        process != nullptr ? process->status() : ServerModel::Status::Stopped;
+    const bool running = process != nullptr && process->isRunning();
+    const bool stopping = status == ServerModel::Status::Stopping;
+    m_serverConsolePage->setStatusText(ServerModel::statusName(status));
+    // 「停止」在停止中就不给按了（已经在停了，再点只是催它）；「强制结束」照宽限那一套来。
+    m_serverConsolePage->setStopAvailable(running && !stopping);
+    m_serverConsolePage->setForceKillAvailable(process != nullptr && process->forceKillAllowed());
+    // 没在跑的时候底下那格输入不能用 —— 写进去没人读（那比灰着更容易让人以为坏了）。
+    m_serverConsolePage->setCommandAvailable(running);
+}
+
+void MainWindow::openServerFolder(const QString &serverId) {
+    if (serverId.isEmpty()) {
+        return;
+    }
+    const QString dir = ServerRegistry::describe(serverId).dirPath;
+    appendLog(tr("正在打开 %1。").arg(QDir::toNativeSeparators(dir)));
+    // 走 QDesktopServices 而不是自己 QProcess 起 explorer.exe（和"打开实例文件夹"同一条路）。
+    // 开不了要说一句：静静地什么都不发生，用户只会一遍遍点它。
+    if (!QDesktopServices::openUrl(QUrl::fromLocalFile(dir))) {
+        InlineMessage::warning(m_ui->overlay(), tr("打不开这个文件夹"),
+                               tr("没能打开：\n%1").arg(QDir::toNativeSeparators(dir)));
+    }
+}
+
+void MainWindow::repairServer(const QString &serverId) {
+    if (serverId.isEmpty()) {
+        return;
+    }
+    const ServerModel::Info info = ServerRegistry::readMeta(serverId);
+    if (info.isEmpty()) {
+        // 从外面拖进来的服务端就是这样：盘上有，但那一份"我们记的"不在 ⇒ 不知道它该按
+        // 哪一档重装。这句话要给出下一步，不能只说"修不了"。
+        InlineMessage::warning(
+            m_ui->overlay(), tr("没法重装这一个"),
+            tr("这一个不是启动器装的（目录里没有我们记的那一份），所以我们不知道该按哪一档"
+               "把它补齐。\n让它自己下好入口文件，或者删了重新建一个。"));
+        return;
+    }
+    ServerInstall::Request request;
+    request.flavor = info.flavor;
+    request.gameVersion = info.gameVersion;
+    request.loaderVersion = info.loaderVersion;
+    request.installerVersion = info.installerVersion;
+    request.buildId = info.buildId;
+    installServer(serverId, request);
+}
+
+void MainWindow::removeServer(const QString &serverId) {
+    if (serverId.isEmpty()) {
+        return;
+    }
+    const ServerRun::ServerProcess *process = m_serverProcesses.value(serverId, nullptr);
+    if (process != nullptr && process->isRunning()) {
+        // 跑着的进程还开着这个目录里的文件（世界那几份是它自己在写），先让它停下。
+        InlineMessage::warning(m_ui->overlay(), tr("它还在跑"),
+                               tr("先把这一个服务端停下来再删 —— 它现在正开着目录里的文件。"));
+        return;
+    }
+    const ServerRegistry::Entry entry = ServerRegistry::describe(serverId);
+    const QString shown = entry.name.isEmpty() ? serverId : entry.name;
+    // ★ 这是**唯一一处会删用户东西的地方**，而且删的是别人几个月的存档 —— 所以：默认那
+    //   一边是「取消」（`defaultYes = false`，回车不会把它删掉）、那颗按钮按危险档染红。
+    const bool go = InlineMessage::question(
+        m_ui->overlay(), tr("删掉这个服务端"),
+        tr("「%1」这一整个目录会被删掉 —— 里面的世界（world/）、模组、配置**一起没**，"
+           "删了找不回来。\n\n确定要删吗？")
+            .arg(shown),
+        tr("删掉它"), tr("取消"), false, true);
+    if (!go) {
+        return;
+    }
+    QString problem;
+    if (!ServerRegistry::removeServer(serverId, &problem)) {
+        InlineMessage::critical(m_ui->overlay(), tr("删不掉"), problem);
+        return;
+    }
+    // 进程对象一起收掉：它现在没在跑，但表里留着的话，下次 `describe()` 同名的那个会
+    // 拿到上一辈子的状态（而且行都没了，它再发信号就是对着空气说）。
+    if (ServerRun::ServerProcess *dead = m_serverProcesses.take(serverId)) {
+        dead->deleteLater();
+    }
+    if (m_serverConsoleId == serverId) {
+        m_serverConsoleId.clear();
+    }
+    appendLog(tr("已删除服务端 %1。").arg(serverId));
+    refreshServerList();
+}
+
+void MainWindow::showServerContextMenu(const QPoint &pos) {
+    QTreeWidget *tree = m_ui == nullptr ? nullptr : m_ui->getServerList();
+    if (tree == nullptr) {
+        return;
+    }
+    QTreeWidgetItem *item = tree->itemAt(pos);
+    if (item == nullptr) {
+        return;
+    }
+    const QString serverId = item->data(0, Qt::UserRole).toString();
+    if (serverId.isEmpty()) {
+        return;  // 空白处右键：什么都不弹（这一页没有"对整个列表做的事"）
+    }
+    tree->setCurrentItem(item);
+    const ServerRegistry::Entry entry = ServerRegistry::describe(serverId);
+    const ServerRun::ServerProcess *process = m_serverProcesses.value(serverId, nullptr);
+    const bool running = process != nullptr && process->isRunning();
+
+    QMenu menu(this);
+    for (int i = 0; i < MainWindowUI::serverMenuActionCount(); ++i) {
+        const auto action = static_cast<MainWindowUI::ServerMenuAction>(i);
+        // ★ 用不上的那几项**不摆**（而不是摆一颗灰的）：
+        //   装好了就没有「修复」；没在跑就没有「强制结束」—— 摆一颗永远点不动的项，
+        //   比不摆它更容易让人以为界面坏了。
+        if (action == MainWindowUI::ServerMenuAction::Repair && entry.installed) {
+            continue;
+        }
+        if (action == MainWindowUI::ServerMenuAction::ForceKill && !running) {
+            continue;
+        }
+        QAction *entryAction = menu.addAction(MainWindowUI::serverMenuText(action));
+        if (action == MainWindowUI::ServerMenuAction::ForceKill) {
+            // 宽限时间那一条：没到点之前是不给按的（用户 2026-10-13 定的 —— 存盘中途被
+            // 打死正是丢存档的姿势）。
+            const bool allowed = process != nullptr && process->forceKillAllowed();
+            entryAction->setEnabled(allowed);
+            entryAction->setToolTip(allowed
+                                        ? ServerRun::forceKillNote(0)
+                                        : ServerRun::stoppingNote(
+                                              (process != nullptr ? process->gracefulMs() : 0)
+                                              / 1000));
+        }
+        connect(entryAction, &QAction::triggered, this,
+                [this, serverId, i] { runServerMenuAction(serverId, i); });
+    }
+    if (menu.isEmpty()) {
+        return;
+    }
+    menu.exec(tree->viewport()->mapToGlobal(pos));
+}
+
+void MainWindow::runServerMenuAction(const QString &serverId, int action) {
+    switch (static_cast<MainWindowUI::ServerMenuAction>(action)) {
+    case MainWindowUI::ServerMenuAction::Console:
+        openServerConsole(serverId);
+        break;
+    case MainWindowUI::ServerMenuAction::Folder:
+        openServerFolder(serverId);
+        break;
+    case MainWindowUI::ServerMenuAction::Repair:
+        repairServer(serverId);
+        break;
+    case MainWindowUI::ServerMenuAction::ForceKill:
+        forceKillServer(serverId);
+        break;
+    case MainWindowUI::ServerMenuAction::Remove:
+        removeServer(serverId);
+        break;
+    }
+}
+
+bool MainWindow::ensureServerEula(const QString &serverId) {
+    // 已经写着接受 = 直接放行（`ServerRegistry::readEula()` 是判据的唯一出处，它自己也
+    // 就是 `ServerModel::eulaAccepted()` 的落点）。
+    if (ServerRegistry::readEula(serverId)) {
+        return true;
+    }
+    OverlayHost *overlay = m_ui == nullptr ? nullptr : m_ui->overlay();
+    if (overlay == nullptr) {
+        return false;
+    }
+    // ★ 默认那一颗给 **-1**：这一格上一颗都不许被回车打中 —— "把同意两个字打在屏幕上"
+    //   这件事不能被一次误按回车办了。
+    InlineMessageBox box(MessageKind::Question, ServerRun::eulaPromptTitle(),
+                         ServerRun::eulaPromptText(),
+                         QStringList{tr("同意并启动"), tr("先不启动")}, -1, -1);
+    // 勾选框和「同意并启动」绑在一起：没勾之前那一颗是灰的（见 setCheckBox() 那段）。
+    box.setCheckBox(ServerRun::eulaCheckBoxText(), 0);
+    box.setLink(ServerRun::eulaLinkText(), ServerRun::eulaUrl());
+    // 那一行链接被点了 ⇒ **由这一层开**（和"打开实例文件夹"同一条路：要写日志、开不了
+    // 要说一句）。那一页自己不开浏览器（见 setLink() 那段）。
+    connect(&box, &InlineMessageBox::linkActivated, this, [this](const QString &url) {
+        if (url.isEmpty()) {
+            return;
+        }
+        appendLog(tr("正在打开 %1。").arg(url));
+        if (!QDesktopServices::openUrl(QUrl(url))) {
+            InlineMessage::warning(m_ui->overlay(), tr("打不开浏览器"),
+                                   tr("没能打开这一条网址：\n%1").arg(url));
+        }
+    });
+    overlay->execPrompt(&box, false);
+    // 两道都要过：点了「同意并启动」**并且**那个框是勾上的。只按前者的话，那个勾就成了
+    // 摆设（而那正是"只有你自己摁出来"这句话唯一的技术落点）。
+    if (box.clickedIndex() != 0 || !box.checkBoxChecked()) {
+        appendLog(tr("没有同意 EULA，%1 这次不启动。").arg(serverId));
+        return false;
+    }
+    QString problem;
+    if (!ServerRegistry::acceptEula(serverId, &problem)) {
+        InlineMessage::critical(m_ui->overlay(), tr("写不了 eula.txt"), problem);
+        return false;
+    }
+    appendLog(tr("%1：你已经同意 EULA，eula.txt 里写上了 eula=true。").arg(serverId));
+    return true;
+}
+
+ServerInstall::Plan MainWindow::serverLaunchPlan(const QString &serverId, QString *problem) const {
+    if (problem != nullptr) {
+        problem->clear();
+    }
+    const ServerModel::Info info = ServerRegistry::readMeta(serverId);
+    if (info.isEmpty()) {
+        if (problem != nullptr) {
+            *problem = tr("这一个不是启动器装的（目录里没有我们记的那一份），不知道它该按"
+                          "哪一档起。\n让它自己把入口文件备齐，或者删了重新建一个。");
+        }
+        return ServerInstall::Plan();
+    }
+    ServerInstall::Request request;
+    request.flavor = info.flavor;
+    request.gameVersion = info.gameVersion;
+    request.loaderVersion = info.loaderVersion;
+    request.installerVersion = info.installerVersion;
+    request.buildId = info.buildId;
+    const ServerInstall::Plan plan = ServerInstall::planFor(request);
+    if (!plan.ok && problem != nullptr) {
+        *problem = plan.problem;  // 那一层给的 problem 就是给用户看的话，别另编一句
+    }
+    return plan;
+}
+
+void MainWindow::updateServerRow(const QString &serverId) {
+    QTreeWidget *tree = m_ui == nullptr ? nullptr : m_ui->getServerList();
+    if (tree == nullptr || serverId.isEmpty()) {
+        return;
+    }
+    QTreeWidgetItem *item = nullptr;
+    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+        QTreeWidgetItem *candidate = tree->topLevelItem(i);
+        if (candidate != nullptr
+            && candidate->data(0, Qt::UserRole).toString() == serverId) {
+            item = candidate;
+            break;
+        }
+    }
+    if (item == nullptr) {
+        return;  // 这一行已经不在列表里了（删掉了 / 还没重扫出来）
+    }
+    const ServerRegistry::Entry entry = ServerRegistry::describe(serverId);
+    const ServerRun::ServerProcess *process = m_serverProcesses.value(serverId, nullptr);
+    const ServerModel::Status status =
+        process != nullptr
+            ? process->status()
+            : (entry.installed ? ServerModel::Status::Ready : ServerModel::Status::NotInstalled);
+
+    // 第 0 列：名字 — 档 · 状态。**服务端没有"图标"那一栏能替它说话**（实例行行首有
+    // 图标，这一页是名字 + 状态两个字）。
+    item->setText(0, QStringLiteral("%1  —  %2 · %3")
+                         .arg(entry.name, ServerInstall::flavorName(entry.flavor),
+                              ServerModel::statusName(status)));
+    QString tip = entry.note;
+    if (!tip.isEmpty()) {
+        tip += QStringLiteral("\n");
+    }
+    tip += QDir::toNativeSeparators(entry.dirPath);
+    item->setToolTip(0, tip);
+    // 没装好的那一行给个"灰一点"的观感（这一页还没有自绘代理）。
+    item->setDisabled(!entry.installed);
+
+    // 第 1 列：那颗按钮。**一行只有一颗**，按状态换身份（用户 2026-10-13 定的：
+    // 行尾按钮 + 右键菜单；其余几项全在右键里）。
+    auto *button = qobject_cast<QPushButton *>(tree->itemWidget(item, 1));
+    if (button == nullptr) {
+        return;
+    }
+    if (!entry.installed) {
+        button->setText(MainWindowUI::serverRepairText());
+        button->setEnabled(true);
+        button->setToolTip(tr("还没装好 —— 点它把该下的下下来。"));
+        Theme::markButton(button, Theme::ButtonKind::Accent);
+    } else if (process != nullptr && process->isRunning()) {
+        const bool stopping = status == ServerModel::Status::Stopping;
+        button->setText(stopping ? MainWindowUI::serverStoppingText()
+                                 : MainWindowUI::serverStopText());
+        button->setEnabled(!stopping);
+        button->setToolTip(stopping
+                               ? tr("已经让它停了，在等它存盘收尾。")
+                               : tr("让它自己存盘、收尾，然后退出（推荐）。"));
+        Theme::markButton(button, Theme::ButtonKind::Danger);
+    } else {
+        button->setText(MainWindowUI::serverStartText());
+        button->setEnabled(true);
+        button->setToolTip(tr("起这个服务端。右键那一列里还有控制台、目录、删除。"));
+        Theme::markButton(button, Theme::ButtonKind::Accent);
+    }
+}
+
+void MainWindow::onServerStatusChanged(const QString &serverId, ServerModel::Status status) {
+    updateServerRow(serverId);
+    updateServerConsole();
+    appendLog(tr("%1：%2").arg(serverId, ServerModel::statusName(status)));
+}
+
+void MainWindow::onServerLineAppended(const QString &serverId, const QString &line) {
+    // 启动器日志里留一份（排查"它怎么起不来"时我们要的就是它自己的原话）。
+    // ★ 只有长到离谱的那些才截断，而且**只截写进日志的这一份** —— 控制台那一页照旧是原话。
+    QString logged = line;
+    if (logged.size() > kMaxLoggedServerLineChars) {
+        logged = logged.left(kMaxLoggedServerLineChars) + QStringLiteral("…（这一行太长，截断了）");
+    }
+    appendLog(QStringLiteral("[%1] %2").arg(serverId, logged));
+    if (m_serverConsolePage != nullptr && m_serverConsoleId == serverId) {
+        m_serverConsolePage->appendLine(line);
+    }
+}
+
+void MainWindow::onServerForceKillAvailable(const QString &serverId) {
+    const ServerRun::ServerProcess *process = m_serverProcesses.value(serverId, nullptr);
+    const int seconds = (process != nullptr ? process->gracefulMs() : 0) / 1000;
+    appendLog(tr("%1：%2").arg(serverId, ServerRun::forceKillNote(seconds)));
+    if (m_serverConsolePage != nullptr && m_serverConsoleId == serverId) {
+        // 往控制台里也插一行：用户正盯着这一页看，那颗按钮为什么突然亮了得有个说法。
+        // `[wtfml]` 前缀把它和服务端自己吐的那些行分开（它不会吐这个前缀）。
+        m_serverConsolePage->appendLine(QStringLiteral("[wtfml] ")
+                                        + ServerRun::forceKillNote(seconds));
+        updateServerConsole();
+    }
+    updateServerRow(serverId);
+}
+
+void MainWindow::onServerExited(const QString &serverId, int exitCode) {
+    const ServerRun::ServerProcess *process = m_serverProcesses.value(serverId, nullptr);
+    const ServerRegistry::Entry entry = ServerRegistry::describe(serverId);
+    const QString shown = entry.name.isEmpty() ? serverId : entry.name;
+    updateServerRow(serverId);
+    updateServerConsole();
+    if (exitCode == 0) {
+        appendLog(tr("%1 已经退出。").arg(shown));
+        return;
+    }
+    if (process != nullptr && process->wasForceKilled()) {
+        // "你让我强杀的"和"它自己崩了"是两件事 —— 后者才该弹一个预警框。
+        appendLog(tr("%1 已经被强制结束。").arg(shown));
+        return;
+    }
+    appendLog(tr("%1 异常退出（退出码 %2）。").arg(shown).arg(exitCode));
+    // §11「错误既进入日志，也在用户当前流程中可见」：日志那一半上面已经写了，这一半是
+    // 弹窗 —— 用户点了启动之后常常就去干别的了，不弹一下他看不见。
+    InlineMessage::warning(
+        m_ui->overlay(), tr("这个服务端退出了"),
+        tr("「%1」异常退出（退出码 %2）。\n\n控制台里最后那几行写着它退出之前在说什么 ——"
+           "右键这一行点「打开控制台」就能看见。")
+            .arg(shown)
+            .arg(exitCode));
+}
+
+int MainWindow::countServerMods(const QString &dirPath) {
+    const QDir modsDir(QDir(dirPath).filePath(QStringLiteral("mods")));
+    if (!modsDir.exists()) {
+        return 0;
+    }
+    int count = 0;
+    const QFileInfoList entries = modsDir.entryInfoList(QDir::Files | QDir::NoDotAndDotDot);
+    for (const QFileInfo &info : entries) {
+        // ★ 禁用过的模组（`X.jar.disabled`，见文件管理那一页那颗开关）**不算**：它不会被
+        //   加载，也就不参与收尾。判据和那一页「这一条是哪个文件」用的是同一个（去掉那四个
+        //   字母之后看后缀），只是这里只需要一个数、不需要那把钥匙。
+        if (info.fileName().endsWith(QStringLiteral(".jar"), Qt::CaseInsensitive)) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+qint64 MainWindow::serverWorldBytes(const QString &dirPath) {
+    const QString worldDir = QDir(dirPath).filePath(QStringLiteral("world"));
+    if (!QFileInfo(worldDir).isDir()) {
+        return 0;  // 还没有世界（第一次开服之前就是这个样子）
+    }
+    qint64 total = 0;
+    QDirIterator it(worldDir, QDir::Files | QDir::NoDotAndDotDot, QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        it.next();
+        total += it.fileInfo().size();
+    }
+    return total;
 }
 
 void MainWindow::updateNewServerSummary(NewServerPage *page) {

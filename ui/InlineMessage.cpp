@@ -7,6 +7,7 @@
 
 #include "InlineMessage.hpp"
 
+#include <QCheckBox>
 #include <QDebug>
 #include <QFont>
 #include <QHBoxLayout>
@@ -216,6 +217,80 @@ void InlineMessageBox::setNote(const QString &text) {
 
 QString InlineMessageBox::noteText() const {
     return m_noteLabel != nullptr ? m_noteLabel->text() : QString();
+}
+
+QPushButton *InlineMessageBox::buttonAt(int index) const {
+    if (index < 0) {
+        return nullptr;
+    }
+    if (auto *row = findChild<QWidget *>(buttonRowName())) {
+        return row->findChild<QPushButton *>(buttonName(index));
+    }
+    return nullptr;
+}
+
+QCheckBox *InlineMessageBox::setCheckBox(const QString &text, int acceptButtonIndex) {
+    if (m_checkBox == nullptr) {
+        auto *layout = qobject_cast<QVBoxLayout *>(this->layout());
+        Q_ASSERT(layout != nullptr);  // 同 setLineEdit()：布局是本类的实现细节。
+        m_checkBox = new QCheckBox(text, this);
+        m_checkBox->setObjectName(checkBoxName());
+        // **一开始不勾**（我们不替任何人预勾）。这一句是多余的，但写出来是为了让"谁把它
+        // 改成 setChecked(true) 会让整个承诺作废"这件事在代码里看得见。
+        m_checkBox->setChecked(false);
+        // 插在**按钮行前面**（写成 count()-1 不写死下标，同 setLineEdit 那一句）。
+        layout->insertWidget(layout->count() - 1, m_checkBox);
+
+        if (QPushButton *accept = buttonAt(acceptButtonIndex)) {
+            // ★ 这是这一格真正的用途（见头文件）：没勾之前那一颗是灰的。
+            //   绑法走 `toggled`，而且**当场按现在的状态摆一次** —— 只接信号不摆初值的话，
+            //   那个按钮会以"能按"的样子出现，直到用户手一抖勾一下再取消才变灰。
+            accept->setEnabled(m_checkBox->isChecked());
+            connect(m_checkBox, &QCheckBox::toggled, accept, &QPushButton::setEnabled);
+        }
+    } else {
+        m_checkBox->setText(text);
+    }
+    return m_checkBox;
+}
+
+bool InlineMessageBox::checkBoxChecked() const {
+    return m_checkBox != nullptr && m_checkBox->isChecked();
+}
+
+QLabel *InlineMessageBox::setLink(const QString &text, const QString &url) {
+    if (m_linkLabel == nullptr) {
+        auto *layout = qobject_cast<QVBoxLayout *>(this->layout());
+        Q_ASSERT(layout != nullptr);  // 同 setLineEdit()：布局是本类的实现细节。
+        m_linkLabel = new QLabel(this);
+        m_linkLabel->setObjectName(linkName());
+        m_linkLabel->setWordWrap(true);
+        // 和正文一样钉住宽度：卡片的高矮才算得准（理由见 ctor 里那段）。
+        m_linkLabel->setFixedWidth(OverlayHost::promptContentWidth());
+        // ★ `false` —— 见头文件那段：点了只发链接激活那条信号，开浏览器是调用方的事
+        //   （那一层要写日志、开不了还要弹一句）。改成 true 会绕过这两个线索。
+        m_linkLabel->setOpenExternalLinks(false);
+        // 光靠鼠标悬停变手型还不够：这一行得能被键盘 Tab 到、能用回车激活（Tab 到之后按
+        // 回车，QLabel 自己会把 linkActivated 发出来）。所以是 TextBrowserInteraction，
+        // 不是只给鼠标用的 TextSelectableByMouse。
+        m_linkLabel->setTextInteractionFlags(Qt::TextBrowserInteraction);
+        m_linkLabel->setFocusPolicy(Qt::StrongFocus);
+        m_linkLabel->setTextFormat(Qt::RichText);
+        connect(m_linkLabel, &QLabel::linkActivated, this,
+                [this](const QString &url) { emit linkActivated(url); });
+        // 插在**按钮行前面**（写成 count()-1 不写死下标，同 setLineEdit 那一句）。
+        layout->insertWidget(layout->count() - 1, m_linkLabel);
+    }
+    m_linkUrl = url;
+    // ★ 用 `toHtmlEscaped()` 把显示的那几个字转义掉 —— 它是**内容**，不是标记。不转的话
+    //   带 `&` 或 `<` 的一句话会被 Qt 当成富文本吃掉一段（比如"允许与<服务器>"那种）。
+    m_linkLabel->setText(
+        QStringLiteral("<a href=\"%1\">%2</a>").arg(url.toHtmlEscaped(), text.toHtmlEscaped()));
+    return m_linkLabel;
+}
+
+QString InlineMessageBox::linkUrl() const {
+    return m_linkLabel != nullptr ? m_linkUrl : QString();
 }
 
 void InlineMessageBox::showEvent(QShowEvent *event) {

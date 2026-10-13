@@ -193,6 +193,8 @@ set(SOURCE_FILES
     ${REPO_ROOT}/ui/UpdateCenterPage.cpp
     # 「新建服务端」那一页（2026-10-13，§6.2 / M4）：MainWindow.cpp 直接 new 它。
     ${REPO_ROOT}/ui/NewServerPage.cpp
+    # 服务端控制台那一页（2026-10-13，§6.2 / M4-3）：U36 整页驱动它。
+    ${REPO_ROOT}/ui/ServerConsolePage.cpp
     # 服务端工作区（2026-10-13，§6 / M4）：MainWindow.cpp 里建服务端 / 重扫列表那几条路
     # 直接调它。少了这一个文件会在链接那一步报一串 `ServerRegistry::…` 的 undefined
     # reference（`ServerModel.hpp` 是纯头，不用列）。
@@ -202,6 +204,10 @@ set(SOURCE_FILES
     # `ServerInstallController::…` 的 undefined reference（判据那一半
     # `ServerInstallRun.hpp` 是纯头，不用列）。
     ${REPO_ROOT}/src/server/ServerInstallController.cpp
+    # 服务端"跑"那一层（2026-10-13，§6.2 的操作 / M4-3）：T41 直接 new 它、拿本工程自己的
+    # exe 当"服务端"跑一整趟（`--fake-server`）。少了这一个文件会在链接那一步报一串
+    # `ServerProcess::…` 的 undefined reference（判据那一半 `ServerRun.hpp` 是纯头，不用列）。
+    ${REPO_ROOT}/src/server/ServerProcess.cpp
     ${REPO_ROOT}/src/tasks/TaskManager.cpp
     ${REPO_ROOT}/src/tasks/TaskHistory.cpp
     ${REPO_ROOT}/ui/WindowChrome.cpp

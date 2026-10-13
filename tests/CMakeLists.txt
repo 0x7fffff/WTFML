@@ -236,6 +236,15 @@ if(EXISTS ${REPO_ROOT}/src/server/ServerInstallRun.hpp)
     list(APPEND PROJECT_SOURCES ${REPO_ROOT}/src/server/ServerInstallRun.hpp)
 endif()
 
+# 服务端的"跑"那条路（2026-10-13，coding plan §6.2 的操作 + §6.3 的停止时序 / 里程碑 M4-3）：
+# `ServerRun.hpp` 同样是**纯头**（那条启动命令怎么拼、起来没有、退了算哪一档状态、宽限多久
+# 才允许强杀）—— 不联网不起进程不看时钟，所以 `verify` 的 **ZZ** 一节能把它整片钉死。
+# 驱动层（`ServerProcess`，一条真 QProcess）不在这儿：归 mw_check（T41 拿它自己的 exe 当
+# "服务端"跑一整趟）。
+if(EXISTS ${REPO_ROOT}/src/server/ServerRun.hpp)
+    list(APPEND PROJECT_SOURCES ${REPO_ROOT}/src/server/ServerRun.hpp)
+endif()
+
 add_executable(verify main.cpp ${PROJECT_SOURCES})
 
 target_include_directories(verify PRIVATE ${REPO_ROOT}/src)

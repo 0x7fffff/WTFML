@@ -112,6 +112,9 @@
 #include "server/ServerRegistry.hpp"
 // 服务端安装那条路的判据层（coding plan §6.2 / M4-2）：纯头，见下面 ZY 一节。
 #include "server/ServerInstallRun.hpp"
+// 服务端"跑起来 / 停下来"那条路的判据层（coding plan §6.2 的操作 + §6.3 的停止时序 / M4-3）：
+// 纯头，见下面 ZZ 一节。真起进程的那一半（`ServerProcess`）归 mw_check 的 T41。
+#include "server/ServerRun.hpp"
 #include "settings/EffectiveJavaSettings.hpp"
 #include "settings/GameWindowSettings.hpp"
 #include "settings/GlobalJavaSettings.hpp"
@@ -24496,6 +24499,348 @@ static void runServerInstallRunTests() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// ZZ. 服务端「跑起来 / 停下来」那一层的**判据层**（coding plan §6.2 的操作 + §6.3 的停止时序 /
+//     里程碑 M4-3）
+//
+// `ServerRun.hpp` 和 `ServerInstallRun.hpp` 同一个形状：纯头、全 inline、不联网、不起进程、
+// 不看时钟 —— 喂几个数进来、回一个结论出去。所以这一节能把它整片钉死。真的 `QProcess` /
+// `QTimer`（`ServerProcess`）在 mw_check 的 T41，那儿拿本工程自己的 exe 当"服务端"跑整趟。
+//
+// ★ 这一层里最要紧的一条是 **内存那几项插在第几位**（`Plan::launchJvmArgsIndex`）：
+//   `ServerInstall.hpp` 里原来的注释把方向说反了（"接在这几个 token **后面**"），照着实现
+//   出来是 `java @user_jvm_args.txt @…/win_args.txt nogui -Xmx4G` —— 那张 win_args.txt
+//   **自带主类**，`-Xmx` 落在它后面会被 java 当成给服务端的**程序参数**，一个字都不生效、
+//   也不报错（界面上那根内存滑杆成了摆设）。所以 ZZ0 里那几条不是在测"顺序对不对"，是在
+//   钉死"那个坑不会再回来"。
+// ---------------------------------------------------------------------------
+static void runServerRunTests() {
+    section("ZZ. 服务端跑起来 / 停下来：命令怎么拼、起来没有、宽限多久（§6.2 / §6.3 / M4-3）");
+
+    // ---------- ZZ0. 那条启动命令怎么拼 ----------
+    {
+        ServerInstall::Request vanillaReq;
+        vanillaReq.flavor = ServerInstall::Flavor::Vanilla;
+        vanillaReq.gameVersion = QStringLiteral("1.20.1");
+        const ServerInstall::Plan vanilla = ServerInstall::planFor(vanillaReq);
+        check(vanilla.ok && !vanilla.launchTokens.isEmpty(), "★★ ZZ0 前置：原版那份计划是好的",
+              vanilla.problem);
+
+        // 带内存：接在最前面（原版这一档的 index 是 0）。
+        const QStringList withMem = ServerRun::launchArguments(vanilla, 4096);
+        check(withMem.size() == vanilla.launchTokens.size() + 1,
+              "★ ZZ0 内存那一项只**多出一个** token（没把原来的抄一遍也没丢）",
+              withMem.join(QLatin1Char(' ')));
+        check(withMem.value(0) == QStringLiteral("-Xmx4096m"),
+              "★★ ZZ0 `-Xmx` 接在最前面（index 0 那一档）", withMem.join(QLatin1Char(' ')));
+        check(withMem.mid(1) == vanilla.launchTokens,
+              "★ ZZ0 原来那串 token 原样跟在后面、一个不差", withMem.join(QLatin1Char(' ')));
+
+        // ★ `<= 0` 就一项都不发（"不限制"是 java 的默认档；编一个数出来比不发更危险 ——
+        //   同实例设置那条老规矩）。
+        for (const int memory : {0, -1, -4096}) {
+            const QStringList none = ServerRun::launchArguments(vanilla, memory);
+            bool hasXmx = false;
+            for (const QString &token : none) {
+                if (token.contains(QStringLiteral("-Xmx"))) {
+                    hasXmx = true;
+                }
+            }
+            check(!hasXmx && none == vanilla.launchTokens,
+                  QStringLiteral("★★ ZZ0 内存 %1 ⇒ 一个 `-Xmx` 都不发（原封不动）").arg(memory),
+                  none.join(QLatin1Char(' ')));
+        }
+
+        // 别的 JVM 参数排在内存那几项**后面**，但仍然在同一个插入位置上。
+        const QStringList extra = ServerRun::launchArguments(
+            vanilla, 2048, QStringList{QStringLiteral("-XX:+UseG1GC")});
+        check(extra.size() == vanilla.launchTokens.size() + 2
+                  && extra.value(0) == QStringLiteral("-Xmx2048m")
+                  && extra.value(1) == QStringLiteral("-XX:+UseG1GC"),
+              "★★ ZZ0 额外的 JVM 参数排在内存那几项后面", extra.join(QLatin1Char(' ')));
+
+        // 只给了别的参数、没给内存：那就只插它一个。
+        const QStringList onlyExtra = ServerRun::launchArguments(
+            vanilla, 0, QStringList{QStringLiteral("-XX:+UseG1GC")});
+        check(onlyExtra.value(0) == QStringLiteral("-XX:+UseG1GC")
+                  && onlyExtra.mid(1) == vanilla.launchTokens,
+              "★ ZZ0 没给内存 ⇒ 只有额外那一项被插进来", onlyExtra.join(QLatin1Char(' ')));
+
+        // 插在越界的那一位上：钳到两头，token 一个都不许丢。
+        ServerInstall::Plan past = vanilla;
+        past.launchJvmArgsIndex = 99;
+        const QStringList tail = ServerRun::launchArguments(past, 1024);
+        check(tail.size() == past.launchTokens.size() + 1
+                  && tail.last() == QStringLiteral("-Xmx1024m"),
+              "★ ZZ0 给的位子过了头 ⇒ 钳到最后一位（不丢 token）", tail.join(QLatin1Char(' ')));
+        past.launchJvmArgsIndex = -7;
+        const QStringList head = ServerRun::launchArguments(past, 1024);
+        check(head.value(0) == QStringLiteral("-Xmx1024m"),
+              "★ ZZ0 给的位子是负数 ⇒ 钳到最前面", head.join(QLatin1Char(' ')));
+    }
+
+    // ---------- ZZ0b. ★ Forge / NeoForge：内存必须夹在两张参数文件中间 ----------
+    {
+        ServerInstall::Request forgeReq;
+        forgeReq.flavor = ServerInstall::Flavor::Forge;
+        forgeReq.gameVersion = QStringLiteral("1.20.1");
+        forgeReq.loaderVersion = QStringLiteral("47.2.0");
+        const ServerInstall::Plan forge = ServerInstall::planFor(forgeReq);
+        check(forge.ok, "ZZ0b 前置：Forge 那份计划是好的", forge.problem);
+
+        ServerInstall::Request neoReq;
+        neoReq.flavor = ServerInstall::Flavor::NeoForge;
+        neoReq.gameVersion = QStringLiteral("1.20.1");
+        neoReq.loaderVersion = QStringLiteral("20.4.237");
+        const ServerInstall::Plan neo = ServerInstall::planFor(neoReq);
+        check(neo.ok, "ZZ0b 前置：NeoForge 那份计划是好的", neo.problem);
+
+        for (const ServerInstall::Plan &plan : {forge, neo}) {
+            const QString name = ServerInstall::flavorName(plan.flavor);
+            const QStringList args = ServerRun::launchArguments(plan, 4096);
+            const QString joined = args.join(QLatin1Char(' '));
+
+            check(args.size() == 4, QStringLiteral("★ ZZ0b %1 四个 token").arg(name), joined);
+            check(args.value(0) == QStringLiteral("@user_jvm_args.txt"),
+                  QStringLiteral("★★ ZZ0b %1 第一位是那张写着默认内存的参数文件").arg(name),
+                  joined);
+
+            const int memAt = args.indexOf(QStringLiteral("-Xmx4096m"));
+            int mainAt = -1;  // 自带主类的那一张（`@…/win_args.txt`）
+            for (int i = 0; i < args.size(); ++i) {
+                if (args.at(i).startsWith(QLatin1Char('@'))
+                    && args.at(i).endsWith(QStringLiteral("win_args.txt"))) {
+                    mainAt = i;
+                }
+            }
+            const int noguiAt = args.indexOf(QStringLiteral("nogui"));
+
+            check(memAt == 1, QStringLiteral("★★ ZZ0b %1 `-Xmx` 在第二位（两张文件中间）").arg(name),
+                  joined);
+            check(mainAt == 2 && noguiAt == 3,
+                  QStringLiteral("★★ ZZ0b %1 自带主类那张在 `-Xmx` **之后**").arg(name), joined);
+            // ★ 这一条就是那个坑本身：`-Xmx` 一旦跑到主类后面，它就成了"给服务端的参数"。
+            check(memAt >= 0 && mainAt >= 0 && memAt < mainAt,
+                  QStringLiteral("★★ ZZ0b %1 `-Xmx` 不许落在主类后面（落了就等于没发）")
+                      .arg(name),
+                  joined);
+        }
+    }
+
+    // ---------- ZZ0c. 七档都过一遍：那个"插第几位"的表不许漂 ----------
+    {
+        struct Sample {
+            ServerInstall::Request request;
+            int expectIndex;
+        };
+        QList<Sample> samples;
+        auto add = [&samples](ServerInstall::Flavor flavor, const QString &game,
+                              const QString &loader, const QString &installer, int expectIndex) {
+            ServerInstall::Request req;
+            req.flavor = flavor;
+            req.gameVersion = game;
+            req.loaderVersion = loader;
+            req.installerVersion = installer;
+            samples.append(Sample{req, expectIndex});
+        };
+        add(ServerInstall::Flavor::Vanilla, QStringLiteral("1.20.1"), QString(), QString(), 0);
+        add(ServerInstall::Flavor::Paper, QStringLiteral("1.21.4"), QString(), QString(), 0);
+        add(ServerInstall::Flavor::Purpur, QStringLiteral("1.21.4"), QString(), QString(), 0);
+        add(ServerInstall::Flavor::Fabric, QStringLiteral("1.20.1"), QStringLiteral("0.15.0"),
+            QStringLiteral("1.0.1"), 0);
+        add(ServerInstall::Flavor::Forge, QStringLiteral("1.20.1"), QStringLiteral("47.2.0"),
+            QString(), 1);
+        add(ServerInstall::Flavor::NeoForge, QStringLiteral("1.20.1"), QStringLiteral("20.4.237"),
+            QString(), 1);
+        add(ServerInstall::Flavor::Quilt, QStringLiteral("1.20.1"), QString(), QStringLiteral("0.9.0"),
+            0);
+
+        int ok = 0;
+        bool indicesOk = true;
+        bool atOk = true;
+        bool sizeOk = true;
+        for (const Sample &sample : samples) {
+            const ServerInstall::Plan plan = ServerInstall::planFor(sample.request);
+            if (!plan.ok) {
+                continue;
+            }
+            ++ok;
+            if (plan.launchJvmArgsIndex != sample.expectIndex) {
+                indicesOk = false;
+            }
+            // ★ 两张 `@` 参数文件是 Forge / NeoForge 那两档的记号：有它俩的档 index 必须是 1，
+            //   没有的必须是 0。这条把"表"和"token 的形状"绑在一起 —— 将来加一档忘了填
+            //   这一格，这儿就红。
+            const bool hasArgFiles =
+                !plan.launchTokens.isEmpty() && plan.launchTokens.first().startsWith(QLatin1Char('@'));
+            if (hasArgFiles != (plan.launchJvmArgsIndex == 1)) {
+                atOk = false;
+            }
+            if (ServerRun::launchArguments(plan, 2048).size() != plan.launchTokens.size() + 1) {
+                sizeOk = false;
+            }
+        }
+        check(ok == samples.size(), "★ ZZ0c 前置：七档的计划全都拼出来了（Spigot 不在里面）",
+              QStringLiteral("%1/%2").arg(ok).arg(samples.size()));
+        check(indicesOk, "★★ ZZ0c 每一档的 `launchJvmArgsIndex` 都对（0 一堆，Forge/NeoForge 是 1）");
+        check(atOk, "★★ ZZ0c 「两张 `@` 参数文件」和「index 是 1」永远是同一件事");
+        check(sizeOk, "★ ZZ0c 七档都只多出一个 `-Xmx` token");
+    }
+
+    // ---------- ZZ1. 让它停下来那一句 / 「起来了吗」 ----------
+    {
+        const QByteArray stop = ServerRun::stopCommandBytes();
+        check(stop == QByteArrayLiteral("stop\n"), "★★ ZZ1 正常停 = 写一行 `stop`", QString::fromLatin1(stop));
+        check(stop.endsWith('\n'), "★★ ZZ1 末尾那个换行**不能少**（不带回车它读到 EOF 才动）");
+        check(!stop.contains('\r'), "★ ZZ1 没有多余的回车（服务端那边是按行读的）");
+
+        bool readyAll = true;
+        for (const char *line :
+             {"Done (12.345s)! For help, type \"help\"",
+              "[12:00:00] [Server thread/INFO]: Done (1.234s)! For help, type \"help\"",
+              "[Server thread/INFO]: Done (0.001s)!"}) {
+            if (!ServerRun::isReadyLine(QString::fromLatin1(line))) {
+                readyAll = false;
+            }
+        }
+        check(readyAll, "★★ ZZ1 五档都那一种 `Done (…)` 认得出来（原版/Paper/Fabric/Forge/Neo）");
+
+        bool notReady = true;
+        for (const char *line :
+             {"Done loading 512 recipes",
+              "[Server thread/INFO]: Preparing level \"world\"",
+              "Done",
+              "",
+              "Starting minecraft server version 1.20.1"}) {
+            if (ServerRun::isReadyLine(QString::fromLatin1(line))) {
+                notReady = false;
+            }
+        }
+        check(notReady, "★★ ZZ1 别的句子一个都不许混进来（尤其那句光秃秃的 Done）");
+    }
+
+    // ---------- ZZ2. 退了之后算哪一档 ----------
+    {
+        check(ServerRun::statusAfterExit(0, true) == ServerModel::Status::Stopped,
+              "★★ ZZ2 退出码 0 ⇒ 已停止（我们发的 stop 生效了）");
+        check(ServerRun::statusAfterExit(0, false) == ServerModel::Status::Stopped,
+              "★★ ZZ2 还没说停它就 0 退出了，也算已停止（eula 没同意 / 端口被占就走这条，"
+              "报成「异常退出」等于让用户去查一个不存在的崩溃）");
+        check(ServerRun::statusAfterExit(1, false) == ServerModel::Status::Crashed,
+              "★★ ZZ2 非 0 ⇒ 异常退出");
+        check(ServerRun::statusAfterExit(1, true) == ServerModel::Status::Crashed,
+              "★★ ZZ2 我们叫它停、它却非 0 退出 ⇒ 仍然是异常退出");
+        check(ServerRun::statusAfterExit(-1, false) == ServerModel::Status::Crashed,
+              "★ ZZ2 `FailedToStart` 那一路（−1）也算异常退出");
+    }
+
+    // ---------- ZZ3. 宽限多久才允许强杀（那张表的唯一出处） ----------
+    {
+        constexpr qint64 kGiB = 1024LL * 1024LL * 1024LL;
+        check(ServerRun::gracefulStopMs(0, 0) == 15'000,
+              "★★ ZZ3 空目录空存档 = 起手 15 秒", QString::number(ServerRun::gracefulStopMs(0, 0)));
+
+        check(ServerRun::gracefulStopSeconds(0, 0) == 15, "★ ZZ3 秒数就是毫秒除以 1000");
+
+        // 模组那一头：每 32 个 +5 秒。
+        check(ServerRun::gracefulStopSeconds(32, 0) == 20, "★★ ZZ3 32 个模组 ⇒ 20 秒",
+              QString::number(ServerRun::gracefulStopSeconds(32, 0)));
+        check(ServerRun::gracefulStopSeconds(64, 0) == 25, "★ ZZ3 64 个模组 ⇒ 25 秒",
+              QString::number(ServerRun::gracefulStopSeconds(64, 0)));
+        check(ServerRun::gracefulStopSeconds(31, 0) == 15,
+              "★ ZZ3 不到一步的不算（31 个还是 15 秒 —— 别四舍五入到 20）");
+        // 封顶 +45 秒。
+        check(ServerRun::gracefulStopSeconds(100'000, 0) == 60,
+              "★★ ZZ3 几百个模组也只加到封顶那一档（15 + 45 = 60 秒）",
+              QString::number(ServerRun::gracefulStopSeconds(100'000, 0)));
+
+        // 存档那一头：每 1 GiB +5 秒，不足 1 GiB 也算一步。
+        check(ServerRun::gracefulStopSeconds(0, kGiB) == 20, "★★ ZZ3 1 GiB 存档 ⇒ 20 秒",
+              QString::number(ServerRun::gracefulStopSeconds(0, kGiB)));
+        check(ServerRun::gracefulStopSeconds(0, 1) == 20,
+              "★★ ZZ3 空世界但只要**有**这个世界也按一步算（1 字节和 1 GiB 同级？—— 这里"
+              "刻意如此：目录在就说明有东西要存）",
+              QString::number(ServerRun::gracefulStopSeconds(0, 1)));
+        check(ServerRun::gracefulStopSeconds(0, kGiB / 2) == 20,
+              "★ ZZ3 半个 GiB 也算一步（不然 0.9 GiB 和一个空目录一个待遇）");
+        check(ServerRun::gracefulStopSeconds(0, 2 * kGiB) == 25, "★ ZZ3 2 GiB ⇒ 25 秒");
+        // 封顶 +60 秒。
+        check(ServerRun::gracefulStopSeconds(0, 20 * kGiB) == 75,
+              "★★ ZZ3 20 GiB 也只加到封顶那一档（15 + 60 = 75 秒）",
+              QString::number(ServerRun::gracefulStopSeconds(0, 20 * kGiB)));
+
+        // 两头都拉满 ⇒ 总上限 120 秒。
+        check(ServerRun::gracefulStopSeconds(100'000, 50 * kGiB) == 120,
+              "★★ ZZ3 两头都拉满 ⇒ 总上限 120 秒",
+              QString::number(ServerRun::gracefulStopSeconds(100'000, 50 * kGiB)));
+
+        // ★ 两个方向的单调：东西越多只会等得越久，不会反而更短。
+        bool monotone = true;
+        int prevMods = 0;
+        int prevWorld = 0;
+        for (const int mods : {0, 1, 31, 32, 100, 500, 5000}) {
+            const int ms = ServerRun::gracefulStopMs(mods, 0);
+            if (ms < prevMods) {
+                monotone = false;
+            }
+            prevMods = ms;
+        }
+        for (const qint64 bytes : {0LL, 1LL, kGiB, 5 * kGiB, 100 * kGiB}) {
+            const int ms = ServerRun::gracefulStopMs(0, bytes);
+            if (ms < prevWorld) {
+                monotone = false;
+            }
+            prevWorld = ms;
+        }
+        check(monotone, "★★ ZZ3 模组更多 / 存档更大 ⇒ 等的时间只增不减");
+        check(ServerRun::gracefulStopMs(-3, -7) == 15'000,
+              "★ ZZ3 负数（读不出来 / 没扫到）按 0 走，不是「扣掉 5 秒」");
+    }
+
+    // ---------- ZZ4. 给用户看的那几句 ----------
+    {
+        const QString stopping = ServerRun::stoppingNote(20);
+        check(stopping.contains(QStringLiteral("20")), "★★ ZZ4 「停止中」那句把秒数写出来", stopping);
+        const QString force = ServerRun::forceKillNote(20);
+        check(force.contains(QStringLiteral("20")) && force.contains(QStringLiteral("存档")),
+              "★★ ZZ4 「可以强制结束了」那句把秒数写出来，并且**说清楚代价**（可能丢存档）", force);
+
+        const QString missing = ServerRun::notInstalledMessage();
+        check(!missing.isEmpty() && missing.contains(QStringLiteral("修复")),
+              "★★ ZZ4 没装好那句指向「修复」那一颗（不能只说「装不了」）", missing);
+
+        check(ServerRun::eulaUrl() == QStringLiteral("https://aka.ms/MinecraftEULA"),
+              "★★ ZZ4 EULA 原文地址（可点那一行的落点）", ServerRun::eulaUrl());
+        check(ServerRun::eulaUrl().startsWith(QStringLiteral("https://")),
+              "★ ZZ4 是 https —— 用户点开之前那一行得能看出这是外链");
+        check(!ServerRun::eulaLinkText().isEmpty()
+                  && ServerRun::eulaLinkText().contains(QStringLiteral("许可协议"))
+                  && ServerRun::eulaLinkText().contains(QStringLiteral("打开")),
+              "★★ ZZ4 那一行可点链接的文字（用户 2026-10-13 点名要的）—— 是一句「打开…」，"
+              "不是一个光秃秃的网址",
+              ServerRun::eulaLinkText());
+
+        check(ServerRun::eulaCheckBoxText().contains(QStringLiteral("我已经读过并同意")),
+              "★★ ZZ4 勾选框那句是**第一人称的声明**（「我读过并同意」），不是「本协议没问题」",
+              ServerRun::eulaCheckBoxText());
+
+        const QString text = ServerRun::eulaPromptText();
+        check(text.contains(QStringLiteral("eula=true")),
+              "★★ ZZ4 EULA 那道闸说清楚它到底会写什么", text);
+        check(text.contains(QStringLiteral("不会替你同意")),
+              "★★ ZZ4 而且说清楚**不自动接受**（coding plan §6.4 明写不做）", text);
+        check(!ServerRun::eulaPromptTitle().isEmpty(), "★ ZZ4 那道闸有标题");
+
+        for (const QString &s : {ServerRun::eulaPromptTitle(), ServerRun::eulaPromptText(),
+                                 ServerRun::eulaCheckBoxText(), ServerRun::eulaLinkText(),
+                                 ServerRun::notInstalledMessage(), stopping, force}) {
+            if (s.trimmed().isEmpty()) {
+                check(false, "★★ ZZ4 这几句话一句都不许是空的");
+            }
+        }
+    }
+}
+
 int main(int argc, char *argv[]) {
     QCoreApplication app(argc, argv);
     app.setApplicationName("WTFML");
@@ -26019,6 +26364,12 @@ int main(int argc, char *argv[]) {
     // **纯函数**：喂一份计划 + 一份字节进去，回一个结论出来（不联网、不建目录、不起 java
     // —— 真干那三件事的是驱动层，归 mw_check）。
     runServerInstallRunTests();
+
+    // -----------------------------------------------------------------
+    // 服务端"跑起来 / 停下来"那条路的判据层（2026-10-13，coding plan §6.2 的操作 + §6.3 的
+    // 停止时序 / 里程碑 M4-3），见上面 ZZ 节。**纯函数**：那条命令怎么拼、起来没有、退了算
+    // 哪一档状态、宽限多久才允许强杀（真起进程那一半 `ServerProcess` 归 mw_check 的 T41）。
+    runServerRunTests();
 
     // -----------------------------------------------------------------
     out() << "\n===== " << (g_failures == 0 ? "全部通过" : "有失败项") << ": "

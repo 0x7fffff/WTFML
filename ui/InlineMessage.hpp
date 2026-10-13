@@ -29,6 +29,7 @@
 #include <QString>
 #include <QStringList>
 
+class QCheckBox;
 class QLabel;
 class QLineEdit;
 class QListWidget;
@@ -135,6 +136,53 @@ public:
     /// 那一行小字现在写的是什么。没设过就是空串。
     QString noteText() const;
 
+    /**
+     * @brief 在正文（和附注）下面、按钮行上面补一个**勾选框**，返回它。
+     *
+     * 这是"我确认过了"那一档（2026-10-13 为服务端首次启动的 EULA 闸加的）。之所以长在这个
+     * 类上而不是另写一个框：卡片、宽度、按钮行、Esc/回车的规矩这里全都有了 —— 同
+     * `setLineEdit()` / `setList()` 那两条的理由。
+     *
+     * @param text 勾选框右边那一句。照抄调用方给的原话（EULA 那一句的出处是
+     *        `ServerRun::eulaCheckBoxText()`）。
+     * @param acceptButtonIndex **勾了才能按的那一颗按钮**（-1 = 不绑）。
+     *        ★ 这是这一格真正的用途：EULA 那道闸上，「同意并启动」在用户没勾之前必须是灰的
+     *        —— 允许他先按那一颗再回头补勾，就等于"那一勾没拦任何东西"，而它恰恰是这句
+     *        承诺（`eula=true` 只由用户那一下摁出来）唯一的技术落点。越界 / -1 = 不绑。
+     * @return 那个勾选框。**一开始是没勾上的**（我们不替任何人预勾）。
+     */
+    QCheckBox *setCheckBox(const QString &text, int acceptButtonIndex = -1);
+
+    /// 那个勾选框勾上了没有。**没插过 = false**（没得勾，也就不算"确认过了"）。
+    bool checkBoxChecked() const;
+
+    /// 插进来的那个勾选框（没插过就是 nullptr）。给验证工程用。
+    QCheckBox *checkBox() const { return m_checkBox; }
+
+    /**
+     * @brief 在正文下面补一行**可点的链接**，返回那个标签。
+     *
+     * 用户 2026-10-13 点名：「要提供通向 eula 的链接，且可以点击跳转」—— 让人把"同意"两个字
+     * 打在屏幕上之前，得能真看见他同意的是什么。
+     *
+     * @param text 显示的字（**不是**网址本身：一个光秃秃的 https://… 摆在提示里没人会读）。
+     * @param url 点了之后去哪。
+     *
+     * ★ 它自己**不开浏览器**：点了只发 `linkActivated(url)`，谁去开由调用方决定 —— 和
+     *   `ResourceDetailPage` 那条一模一样（那一层要能写日志、开不了还要弹一句）。所以这里
+     *   `setOpenExternalLinks(false)` 是**故意的**，别改成 true：改了之后这一路会绕过日志和
+     *   失败提示，而那两样正是"点了没反应"这类故障唯一的线索。
+     * NOTE: 和 `setLineEdit()` 一样是**可选的一步**，不进 ctor；也**只能插一行**（再调一次
+     *       就是换字 + 换落点）。
+     */
+    QLabel *setLink(const QString &text, const QString &url);
+
+    /// 那一行链接现在指向哪儿。没插过就是空串。
+    QString linkUrl() const;
+
+    /// 插进来的那个链接标签（没插过就是 nullptr）。给验证工程用。
+    QLabel *linkLabel() const { return m_linkLabel; }
+
     // ---------- objectName（验证工程靠它们认控件） ----------
     static QString titleLabelName() { return QStringLiteral("inlineMessageTitle"); }
     /// 插进来的那一行输入框。**只有"问名字"那一档有。**
@@ -150,6 +198,10 @@ public:
     static int listVisibleRows();
     /// 正文下面那一行小字。**只有走过 `setNote()` 的才有。**
     static QString noteLabelName() { return QStringLiteral("inlineMessageNote"); }
+    /// 插进来的那个勾选框。**只有走过 `setCheckBox()` 的才有。**
+    static QString checkBoxName() { return QStringLiteral("inlineMessageCheck"); }
+    /// 插进来的那一行可点链接。**只有走过 `setLink()` 的才有。**
+    static QString linkName() { return QStringLiteral("inlineMessageLink"); }
     static QString textLabelName() { return QStringLiteral("inlineMessageText"); }
     static QString buttonRowName() { return QStringLiteral("inlineMessageButtons"); }
     /// 第 index 颗按钮的名字。**位置是能变的**（按钮表由调用方给），所以认按钮要按下标，
@@ -157,6 +209,19 @@ public:
     static QString buttonName(int index) {
         return QStringLiteral("inlineMessageButton%1").arg(index);
     }
+
+    /// 第 index 颗按钮。**没那一颗就是 nullptr**（`setCheckBox()` 要把某一颗绑上去）。
+    QPushButton *buttonAt(int index) const;
+
+signals:
+    /**
+     * @brief 用户点了那一行链接（`setLink()` 插的那一行）。
+     * @param url `setLink()` 当时给的那一串。
+     *
+     * ★ 这一层**不开浏览器**（见 `setLink()` 那段），所以这条信号是唯一的出口；没人接就
+     *   等于用户点了没反应 —— 调用方一定要接。
+     */
+    void linkActivated(const QString &url);
 
 protected:
     /**
@@ -179,6 +244,9 @@ private:
     QLineEdit *m_lineEdit = nullptr;
     QListWidget *m_list = nullptr;
     QLabel *m_noteLabel = nullptr;
+    QCheckBox *m_checkBox = nullptr;
+    QLabel *m_linkLabel = nullptr;
+    QString m_linkUrl;
 };
 
 namespace InlineMessage {

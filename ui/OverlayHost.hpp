@@ -300,11 +300,21 @@ public:
     /// 卡片里面那圈留白。
     static int promptPadding() { return 18; }
 
-    /// 卡片里**内容**能用多宽 = 卡片宽 - 左右留白。
+    /// 卡片自己那圈边（`QFrame::StyledPanel` 画一个像素）。
+    /// ★ 2026-10-13 加上这一条：之前那个内容宽是拿"外宽 - 左右留白"算的，漏掉了这 2 个
+    ///   像素 —— 于是**每一张提示**里的那几格（正文 / 输入框 / 列表 / 链接行，它们都拿
+    ///   `promptContentWidth()` 钉宽度）都比卡片内容区宽 2 px，最右边那 2 px 被卡片裁掉。
+    ///   是 ui_shot 第 39 节那条"有东西出到卡片外面"量出来的（表现：`inlineMessageLink`
+    ///   宽 444、而卡片内容区只有 442）。
+    static int promptFrameWidth() { return 1; }
+
+    /// 卡片里**内容**能用多宽 = 卡片宽 - 左右留白 - 卡片那两圈边。
     /// 提示面板要拿它给自己的正文标签钉宽度：钉了之后"这段字换几行"就是一个确定的数，
     /// 卡片的 `sizeHint().height()` 才是准的（不钉的话得指望 heightForWidth 一路传上来，
     /// 那条路在嵌套布局里是会失手的那种）。
-    static int promptContentWidth() { return promptWidth() - 2 * promptPadding(); }
+    static int promptContentWidth() {
+        return promptWidth() - 2 * promptPadding() - 2 * promptFrameWidth();
+    }
 
     /// 提示框离内容区边缘至少留这么多（高度不够时先夹高度，不换宽度）。
     static int promptMargin() { return 24; }
