@@ -27538,6 +27538,84 @@ int main(int argc, char *argv[]) {
             page.close();
             QApplication::processEvents();
         }
+
+        // ---------- U35 「新建服务端」那一页的「目录」那一行（coding plan §6.2 / M4-2）----------
+        //
+        // 用户 2026-10-13 定的那一条：「创建」= 建目录 + 当趟把东西下下来。落盘那件事在
+        // mw_check 的 T40（真建、真下、真取消）；这一节只量**建之前用户看得见的那一格**：
+        // 名字会变成盘上哪个目录。它是**算出来的**（服务端根只有一份，一个服务端 = 根下面
+        // 一个以名字命名的目录），所以这一格**只读** —— 页面上不许有一个能改它的输入框。
+        //
+        // NOTE: 长路径那一趟（U35.3）量的是"**机制**"：那一格挂的是 `QSizePolicy::Ignored`
+        //       ⇒ 路径再长也不参与横向度量。`QLayout` 的 sizeHint 是纯算术，offscreen 上
+        //       这事测得准；但"屏幕上到底有没有被撑出去"那一半是布局类的，钉子摆在 ui_shot
+        //       的 §38（老规矩：布局类断言在 offscreen 上会假绿）。
+        {
+            NewServerPage page;
+            page.resize(720, 520);
+            page.show();
+            QApplication::processEvents();
+
+            auto *dirLabel = page.findChild<QLabel *>(MainWindowUI::newServerTargetDirName());
+            const bool dirThere = dirLabel != nullptr;
+            check(dirThere,
+                  "U35.0 前提：「目录」那一行按 objectName 找得到（而且是一个字，不是一个输入框）");
+            if (dirThere) {
+                // 只读：是 `QLabel`、字能框选复制（要能粘出去），但**改不了**（没有 editable）。
+                const Qt::TextInteractionFlags flags = dirLabel->textInteractionFlags();
+                check(flags.testFlag(Qt::TextSelectableByMouse) &&
+                          !flags.testFlag(Qt::TextEditable) &&
+                          page.findChild<QLineEdit *>(MainWindowUI::newServerTargetDirName()) ==
+                              nullptr,
+                      "★★ U35.1 那一格是**只读的**：字能框选（好粘出去），但页面上没有一个能"
+                      "改它的输入框 —— 服务端根只有一份，这一格是算出来的，不是选出来的");
+
+                // 没起名 ⇒ 什么都不摆（翻译点算出来的目录名还空着）。
+                page.setTargetDir(QString());
+                check(dirLabel->text().isEmpty(),
+                      "★ U35.2 名字还空着时那一格**什么都不摆**（没有目录可算）",
+                      QStringLiteral("「%1」").arg(dirLabel->text()));
+
+                // 起了名 ⇒ 逐字就是翻译点喂进来的那一个，悬停也就是它。
+                const QString wantDir =
+                    QDir::toNativeSeparators(QStringLiteral("D:/Sandbox/Servers/我的服务端"));
+                page.setTargetDir(wantDir);
+                QApplication::processEvents();
+                check(dirLabel->text() == wantDir && dirLabel->toolTip() == wantDir,
+                      "★★ U35.3 喂进来什么就摆什么（逐字），悬停那一句也就是这个目录 —— "
+                      "用户在建之前就看得见名字会变成盘上哪儿",
+                      QStringLiteral("摆的是「%1」").arg(dirLabel->text()));
+
+                // 空的那一趟把悬停换成"先起名"那句人话（不是留着一个空 tooltip）。
+                page.setTargetDir(QString());
+                QApplication::processEvents();
+                check(!dirLabel->toolTip().isEmpty(),
+                      "★ U35.3 名字洗空了那一趟，悬停给的是「先起名」那句话（不留一个空提示）",
+                      dirLabel->toolTip());
+
+                // 长路径不许把这一页撑宽：那一格挂的是 Ignored（路径可能很长，老规矩）。
+                page.setTargetDir(QStringLiteral("/x"));
+                QApplication::processEvents();
+                const int shortHint = page.sizeHint().width();
+                const QString longDir = QStringLiteral("D:/")
+                                        + QString(400, QLatin1Char('n'))
+                                        + QStringLiteral("/我的服务端");
+                page.setTargetDir(longDir);
+                QApplication::processEvents();
+                const int longHint = page.sizeHint().width();
+                check(dirLabel->sizePolicy().horizontalPolicy() == QSizePolicy::Ignored &&
+                          longHint == shortHint,
+                      "★★ U35.4 400 个字的长路径**不许**把这一页撑宽：那一格挂的是 "
+                      "`QSizePolicy::Ignored` ⇒ 页面的 sizeHint 一个字都不变（路径可能很长，"
+                      "同摘要那一句的老规矩；屏幕上真怎么样由 ui_shot §38 钉）",
+                      QStringLiteral("短路径 hint=%1 / 长路径 hint=%2（那一格自己的 sizeHint 宽 %3）")
+                          .arg(shortHint)
+                          .arg(longHint)
+                          .arg(dirLabel->sizeHint().width()));
+            }
+            page.close();
+            QApplication::processEvents();
+        }
     }
 
     std::printf("\n===== %s: %d/%d =====\n", g_fail == 0 ? "全部通过" : "有失败", g_pass,

@@ -72,6 +72,10 @@ set(HEADER_FILES
     # 纯函数）、盘上那一份谁在住（扫目录 + 读写 .wtfml-server）。
     src/server/ServerModel.hpp
     src/server/ServerRegistry.hpp
+    # 服务端安装那四段（2026-10-13，coding plan §6.2 / 里程碑 M4-2）：判据层（纯头：还差哪
+    # 一份元数据、取回来怎么读、分成几步）+ 驱动层（取元数据 → 下载 → 跑安装器 → 核对）。
+    src/server/ServerInstallRun.hpp
+    src/server/ServerInstallController.hpp
     src/util/AppPaths.hpp
     src/util/ThemeImage.hpp
     src/util/ImageDecode.hpp
@@ -142,6 +146,9 @@ set(SOURCE_FILES
     # 游戏异常退出那几句话（2026-10-12，coding plan §4.3）：纯规则，一张表。
     src/diag/GameExitDiagnosis.cpp
     src/server/ServerRegistry.cpp
+    # 服务端安装的驱动层（2026-10-13，§6.2 / M4-2）：它带 QObject + QNetwork + QProcess
+    # （判据那一半在 `ServerInstallRun.hpp`，是纯头）。
+    src/server/ServerInstallController.cpp
     src/util/ImageDecode.cpp
     src/util/ThemeImage.cpp
     src/util/SystemMemory.cpp

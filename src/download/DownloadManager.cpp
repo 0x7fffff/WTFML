@@ -1393,8 +1393,12 @@ void DownloadManager::onDownloadReplyFinished() {
                 errorMessage = QStringLiteral("Downloaded size does not match the expected size");
                 QFile::remove(destPath);
             } else if (shouldBeZipArchive(destPath) && !looksLikeZipArchive(destPath)) {
-                // ★ 到这一支 = **一个别的判据都没有**（没 sha1、也没给字节数）。全仓只有
-                //   加载器安装器 jar 走这儿（见 VersionManager 里那句 downloadFile）。
+                // ★ 到这一支 = `sha1` 那一栏是空的，而字节数**要么没给、要么给对了** ——
+                //   "它得是一份真 jar/zip"成了剩下唯一说得上话的判据。加载器安装器 jar 是
+                //   最常见的走法（既没 sha1 也没字节数），**但原版服务端那份 `server.jar`
+                //   一样会走到这儿**：大小比对了并不让它提前成功（2026-10-13 在 mw_check
+                //   的 T40 上实测踩到 —— 假服务器回的那段正文不是 zip，文件被当场删掉，
+                //   盘上"什么都没有"，很难联想到是这一条拦的）。
                 //   "200 + 一段正文"从此不再是"下好了"：jar 就得是 zip（`PK` 那四个字节），
                 //   一段 HTML 错误页/推广页会被当场拦下并**从盘上删掉**，下一趟会重下。
                 //

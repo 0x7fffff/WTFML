@@ -197,6 +197,11 @@ set(SOURCE_FILES
     # 直接调它。少了这一个文件会在链接那一步报一串 `ServerRegistry::…` 的 undefined
     # reference（`ServerModel.hpp` 是纯头，不用列）。
     ${REPO_ROOT}/src/server/ServerRegistry.cpp
+    # 服务端安装那四段的驱动层（2026-10-13，§6.2 / M4-2）：MainWindow.cpp 构造里直接 new
+    # 它、也直接接它那几条信号。少了这一个文件会在链接那一步报一串
+    # `ServerInstallController::…` 的 undefined reference（判据那一半
+    # `ServerInstallRun.hpp` 是纯头，不用列）。
+    ${REPO_ROOT}/src/server/ServerInstallController.cpp
     ${REPO_ROOT}/src/tasks/TaskManager.cpp
     ${REPO_ROOT}/src/tasks/TaskHistory.cpp
     ${REPO_ROOT}/ui/WindowChrome.cpp

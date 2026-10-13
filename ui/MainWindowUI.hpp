@@ -1191,6 +1191,8 @@ public:
         return QStringLiteral("newServerInstallerEdit");
     }
     static QString newServerBuildEditName() { return QStringLiteral("newServerBuildEdit"); }
+    /// 「目录」那一行那个**只读**的字（`Servers/<名字>`，算出来的，不是选出来的）。
+    static QString newServerTargetDirName() { return QStringLiteral("newServerTargetDir"); }
     static QString newServerMemorySpinName() { return QStringLiteral("newServerMemorySpin"); }
     /// 「这一档要下什么、装完是什么样」那一句（计划说明）。由 `MainWindow` 现算现喂。
     static QString newServerSummaryLabelName() { return QStringLiteral("newServerSummary"); }

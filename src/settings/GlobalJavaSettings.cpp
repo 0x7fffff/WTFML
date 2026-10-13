@@ -12,7 +12,6 @@
 
 #include <QDir>
 #include <QDirIterator>
-#include <QEventLoop>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>

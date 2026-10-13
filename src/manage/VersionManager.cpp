@@ -490,7 +490,7 @@ void VersionManager::recoverFromInternalError(const QString &what) {
     // 批次可能正开着（异常正好打在 beginBatch() 和 endBatch() 中间 —— 实测那次就是这样）。
     // 先把它放弃掉：不放弃的话 m_batchOpen 永远是 true，之后每一次下载都会被"已有下载任务
     // 正在进行"顶回来，只能重启启动器。abandonBatch() 是**只给这条路用**的：它不发任何信号。
-    downloadManager->abandonBatch();
+    abandonOwnBatch();
 
     // 用既有的终态出口把话说出去：界面那边照常弹窗（错误要弹窗），用户知道出了事、
     // 也还能接着用别的功能。
@@ -541,7 +541,7 @@ bool VersionManager::cancelActiveDownload() {
     }
     // 先把批次掐掉，再收尾。顺序不能换：unwindDownloadBatch() 里那几段终态一发出去，界面
     // 就会立刻解禁并且允许用户再点一次下载 —— 那一刻批次必须已经是"没在忙"。
-    downloadManager->cancelBatch();
+    cancelOwnBatch();
     m_failedBatch.reset();
     unwindDownloadBatch(tr("已取消。已经下好的文件留在原处，一个都没删。"));
     return true;
@@ -571,7 +571,7 @@ bool VersionManager::retryDownload() {
     }
     m_currentVersionDownloading = batch.id;
 
-    downloadManager->beginBatch();
+    beginOwnBatch();
     for (const DownloadManager::FailedJob &job : batch.jobs) {
         // 校验档一律用 SizeAndSha1：失败的那几个在盘上根本不存在，这个档位只影响
         // fileAlreadyValid() 那一次问话，而那一次必然回 false。真正的判据（sha1 / 字节数）
@@ -580,7 +580,7 @@ bool VersionManager::retryDownload() {
                                        job.expectedSize, VerifyMode::SizeAndSha1,
                                        job.officialUrl);
     }
-    downloadManager->endBatch();
+    endOwnBatch();
     qInfo() << "Retrying" << batch.jobs.size() << "failed download(s).";
     return true;
 }
@@ -604,8 +604,11 @@ void VersionManager::fetchVersionDetails(const QString &versionId) {
 bool VersionManager::isDownloading() const { return downloadManager->isBusy(); }
 
 QString VersionManager::busyVersionId() const {
-    // 门控的理由见头里那条 NOTE（那个成员收尾后不清空）。
-    return isDownloading() ? m_currentVersionDownloading : QString();
+    // 门控的理由见头里那条 NOTE（那个成员收尾后不清空）。★ 门控**用的是"这一批是不是我开的"**
+    // 而不是 `isDownloading()`：下载器是共用的，服务端安装那四段也在这上面开批次 ——
+    // 那一段时间里 isDownloading() 是真的，可这一格在写的是**上一次下过的那个版本号**，
+    // 照它答的话就是"用户在装服务端，1.20.1 那个实例忽然点不动了"。
+    return m_ownBatchOpen ? m_currentVersionDownloading : QString();
 }
 
 void VersionManager::setUseMirror(bool useMirror) { downloadManager->setUseMirror(useMirror); }
@@ -757,7 +760,7 @@ void VersionManager::downloadVersion(const QString &versionId, const QString &de
     }
 
     m_currentVersionDownloading = versionId;
-    downloadManager->beginBatch();
+    beginOwnBatch();
 
     const QJsonObject &versionJson = versionJsons[versionId];
 
@@ -771,7 +774,7 @@ void VersionManager::downloadVersion(const QString &versionId, const QString &de
 
     registerVersionFiles(versionJson, versionId, destinationPath + "/" + versionId + ".jar");
 
-    downloadManager->endBatch();
+    endOwnBatch();
 }
 
 void VersionManager::registerVersionFiles(const QJsonObject &versionJson,
@@ -824,13 +827,13 @@ void VersionManager::repairVersionFiles(const QString &versionId) {
     }
 
     m_currentVersionDownloading = versionId;
-    downloadManager->beginBatch();
+    beginOwnBatch();
 
     // 不写 json（见头文件里的 ②）；jar 的主人可能是父版本（见 ③）。
     registerVersionFiles(versionJson, InstanceFiles::jarOwnerId(versionId),
                          InstanceFiles::jarPath(versionId));
 
-    downloadManager->endBatch();
+    endOwnBatch();
 }
 
 QList<VersionIntegrity::ExpectedFile> VersionManager::integrityPlan(const QString &versionId,
@@ -943,7 +946,7 @@ bool VersionManager::downloadResourceFiles(const QString &destinationDir,
     m_resourceDownload.running = true;
     m_resourceDownload.label = label;
 
-    downloadManager->beginBatch();
+    beginOwnBatch();
     for (int i = 0; i < files.size(); ++i) {
         // 第六个参数（官方地址兜底）**不传**：那一条的用处是"镜像取不回来时按官方再试一次"，
         // 而 Modrinth 的 CDN 不在 BMCLAPI 的覆盖范围里，地址原样发（也**不**过 endpoint()，
@@ -953,7 +956,7 @@ bool VersionManager::downloadResourceFiles(const QString &destinationDir,
         downloadManager->downloadFile(files.at(i).url, paths.at(i), files.at(i).sha1,
                                        files.at(i).size, VerifyMode::SizeAndSha1);
     }
-    downloadManager->endBatch();
+    endOwnBatch();
     // 跑到这儿才是"这一批真的开起来了"。上面那五道早退各自发过一次
     // `resourceDownloadFinished(label, false, …)`，而那个 label 和"真正跑完"那条路带的是
     // **同一个字符串** —— 调用方只能靠这个返回值分辨"失败了"和"根本没开始"（见头文件）。
@@ -1171,7 +1174,7 @@ void VersionManager::startModpackFiles() {
                                   .arg(files.size()));
 
     const QString base = AppPaths::versionDir(id);
-    downloadManager->beginBatch();
+    beginOwnBatch();
     // NOTE: beginBatch() 与 endBatch() 之间**不允许**任何提前 return（见 downloadVersion
     //       顶部那段）：下面这个循环里一句早退都没有，就是为了这个。
     for (const ModpackImport::PackFile &file : files) {
@@ -1183,7 +1186,7 @@ void VersionManager::startModpackFiles() {
                                       file.sha1, file.size, VerifyMode::SizeAndSha1,
                                       urls.value(1));
     }
-    downloadManager->endBatch();
+    endOwnBatch();
 }
 
 void VersionManager::extractModpackOverrides() {
@@ -1305,7 +1308,7 @@ void VersionManager::failModpackImport(const QString &reason) {
     m_loaderInstall.reset();
     // 批次可能正开着（失败正好打在两批之间）：不放弃的话 m_batchOpen 永远是 true，之后每次
     // 下载都被"已有下载任务正在进行"顶回来（同 recoverFromInternalError 里那段）。
-    downloadManager->abandonBatch();
+    abandonOwnBatch();
 
     const QString id = m_modpackInstall.instanceId;
     m_modpackInstall.reset();
@@ -1460,7 +1463,7 @@ void VersionManager::failNamedInstance(const QString &reason) {
     m_loaderInstall.reset();
     // 批次可能正开着（失败正好打在两批之间）：不放弃的话 m_batchOpen 永远是 true，之后每次
     // 下载都被"已有下载任务正在进行"顶回来（同 failModpackImport 里那段）。
-    downloadManager->abandonBatch();
+    abandonOwnBatch();
 
     const QString id = m_namedInstance.instanceId;
     m_namedInstance.reset();
@@ -2068,7 +2071,7 @@ void VersionManager::startInstallerDownload() {
     emit loaderInstallMessage(tr("正在下载 %1 %2 的安装器...")
                                   .arg(m_loaderInstall.loaderName, m_loaderInstall.loaderVersion));
 
-    downloadManager->beginBatch();
+    beginOwnBatch();
     // phase 放在 beginBatch() **之后**设：那个函数在"上一批还没收尾就又开一批"那条异常
     // 支路里会替上一批收尾、并发一次 allDownloadsFinished（见它的实现），那一次不该被
     // 当成「安装器下好了」。
@@ -2099,7 +2102,7 @@ void VersionManager::startInstallerDownload() {
     downloadManager->downloadFile(installerUrl, m_loaderInstall.installerPath,
                                   QString(), -1, VerifyMode::ExistsOnly,
                                   m_loaderInstall.installerUrl);
-    downloadManager->endBatch();
+    endOwnBatch();
 }
 
 bool VersionManager::retryInstallerDownloadAlternate() {
@@ -4081,7 +4084,55 @@ void VersionManager::onVersionJsonFetched(const QJsonObject &versionJson) {
     emit versionDetailsFetched(pending, QJsonObject());
 }
 
+// ---------------------------------------------------------------------------
+// 批次的开与收："这一批是不是我开的"
+// ---------------------------------------------------------------------------
+//
+// NOTE: 这一层是 2026-10-13（M4-2）加的。下载器是**共用**的：服务端安装那四段
+//       （`src/server/ServerInstallController.cpp`）也在同一个 `DownloadManager` 上开批次，
+//       而 `allDownloadsFinished` 只有一个接收方（下面那个 `onAllDownloadsFinished`）。
+//       原来那个函数里没有"这一批是谁的"这道判据，于是一条**外来的**批次结束之后，它照样
+//       往下走到最后那一句，照着 `m_currentVersionDownloading`（**上一次**下过的那个版本号，
+//       收尾之后故意不清空）报一句「版本 X 的文件已全部就绪」——装服务端下完一个文件，
+//       界面上会弹一次"版本下载完成"（真机上还会**挡住用户**：`InlineMessage` 是模态的）。
+//       实测那次比这还难看：`m_failedJobs` 是上一批留下的（只有 `beginBatch()` 清它），
+//       于是那条外来的批次被报成"有文件未能下载完成"。
+//
+//       所以判据只能是"开批次的时候我就记住了"。四个包装把 `DownloadManager` 那四个
+//       批次动作各收成一处 —— 全仓调用它们的**只有这四个函数**，别处再写一遍就漏记了。
+
+void VersionManager::beginOwnBatch() {
+    m_ownBatchOpen = true;
+    downloadManager->beginBatch();
+}
+
+void VersionManager::endOwnBatch() {
+    // NOTE: 这里**不**清 `m_ownBatchOpen`。`endBatch()` 通常一个信号都不发（文件还在飞，
+    //       `checkAllDownloadsFinished()` 会被 `pendingDownloads` 顶回来），真正那一发是在
+    //       最后一个回复回来时才到的 —— 那一位由 `onAllDownloadsFinished()` 自己清。
+    downloadManager->endBatch();
+}
+
+void VersionManager::abandonOwnBatch() {
+    // `abandonBatch()` 把 `m_batchEmitted` 置真 ⇒ 这一批**永远不会有**完成信号了：销号。
+    // 不清的话，下一批**别人的**下载结束时会认成自己的（那一批的成败、总数都跟我们无关）。
+    m_ownBatchOpen = false;
+    downloadManager->abandonBatch();
+}
+
+void VersionManager::cancelOwnBatch() {
+    // 同上：`cancelBatch()` 也是封口 + `m_batchEmitted` 置真（见它自己那四步）。
+    m_ownBatchOpen = false;
+    downloadManager->cancelBatch();
+}
+
 void VersionManager::onAllDownloadsFinished(bool success) {
+    // ★ 这一批**不是我开的** ⇒ 一个字节都别管（来龙去脉见上面那一段 NOTE）。
+    if (!m_ownBatchOpen) {
+        return;
+    }
+    m_ownBatchOpen = false;
+
     const DownloadStats stats = downloadManager->stats();
 
     QString message;

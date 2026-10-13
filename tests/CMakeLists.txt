@@ -228,6 +228,14 @@ if(EXISTS ${REPO_ROOT}/src/server/ServerModel.hpp)
                                 ${REPO_ROOT}/src/server/ServerRegistry.hpp)
 endif()
 
+# 服务端安装那条路（2026-10-13，coding plan §6.2 / 里程碑 M4-2）：`ServerInstallRun.hpp` 是
+# **纯头**（还差哪一份元数据、取回来的那份怎么读、跑工具的命令行、分成几步）—— 全是纯函数，
+# 喂一份 json 就出结论，不联网不起进程。所以 `verify` 的 **ZY** 一节能把它整片钉死。
+# 驱动层（`ServerInstallController`）不在这儿：它要 QObject / QProcess，归 mw_check。
+if(EXISTS ${REPO_ROOT}/src/server/ServerInstallRun.hpp)
+    list(APPEND PROJECT_SOURCES ${REPO_ROOT}/src/server/ServerInstallRun.hpp)
+endif()
+
 add_executable(verify main.cpp ${PROJECT_SOURCES})
 
 target_include_directories(verify PRIVATE ${REPO_ROOT}/src)

@@ -566,6 +566,20 @@ public:
     // 在下载期间并没有被禁用。
     void setUseMirror(bool useMirror);
 
+    /**
+     * @brief 这一层内部那**唯一一份**下载器（`m_downloads` 那个成员）。
+     *
+     * ★ 存在的理由只有一个：**"一份批次状态"这条规矩要能被外面接上**。下载器的镜像降级、
+     *   按主机的并发守卫、看门狗、失败清单全挂在同一份对象上，所以谁要下东西都得拿**这一份**，
+     *   而不是自己 new 一个（同时开两批会让两边的收尾互相算错，见 coding plan §2.3）。
+     *   目前唯一的消费者是服务端安装（`ServerInstallController::setDownloadManager()`）。
+     *
+     * NOTE: **只借出去下文件**，别拿它去发"问一句就完事"的元数据请求 —— 那些回复会和
+     *       版本/资源那几条路争 `m_pendingVersionId` 之类的等待状态（见 `loaderNetwork` 那段
+     *       同一个理由）。名字避开了成员名（数据成员和成员函数不能同名），所以叫 `downloads()`。
+     */
+    DownloadManager *downloads() const { return downloadManager; }
+
     /// CurseForge 的两项设置。**和 setUseMirror 同一个形状**：数据层看不见
     /// LauncherSettings（那是界面那一层的），设置要由 MainWindow 推过来。
     ///
@@ -1532,6 +1546,25 @@ private:
     /// 装一个带名字的实例时父版本是加载器（同理）—— 收里层那个的话，外层会卡在半路上。
     void unwindDownloadBatch(const QString &reason);
 
+    // ------------------------------------------------------------------
+    // 批次的开与收：**这一批是不是我开的**
+    // ------------------------------------------------------------------
+    //
+    // 下载器是**共用**的（服务端安装那四段也在同一个 `DownloadManager` 上开批次），而
+    // `allDownloadsFinished` 只有 `onAllDownloadsFinished()` 一个接收方 —— 所以它必须能分辨
+    // "这一批是我开的"还是别人的。四位包装把 `DownloadManager` 那四个批次动作各收成一处
+    // （全仓调用它们**只有**这四个函数，别处再写一遍就漏记了）。来龙去脉见 .cpp 里那一段。
+
+    /// `downloadManager->beginBatch()` 的**唯一出处**（先把"这一批是我开的"记上）。
+    void beginOwnBatch();
+    /// `downloadManager->endBatch()` 的**唯一出处**。**不**销号：`endBatch()` 多数时候一个
+    /// 信号都不发，真正那一发要等最后一个回复回来（见 `onAllDownloadsFinished()`）。
+    void endOwnBatch();
+    /// `downloadManager->abandonBatch()` 的**唯一出处**（内部异常那条路）。销号。
+    void abandonOwnBatch();
+    /// `downloadManager->cancelBatch()` 的**唯一出处**（用户点取消那条路）。销号。
+    void cancelOwnBatch();
+
     /// 安装器输出的最后一行非空内容（心跳和失败报告都用它）。
     QString installerLastOutputLine() const;
 
@@ -1684,6 +1717,11 @@ private:
     // 往 versionJsons 里塞合并结果会把"原始那份"盖掉，而下载路径要靠原始那份落盘。
     mutable QMap<QString, QJsonObject> mergedVersionJsons;
     QString m_currentVersionDownloading;
+    // 现在这一批下载**是不是我自己开的**（见上面四个包装那一段）。分辨"别人的批次"全看它：
+    // `onAllDownloadsFinished()` 开头那道判据、还有 `busyVersionId()` 那道门控，问的都是它。
+    // 它在 `beginOwnBatch()` 置真、在"这一批不会再有完成信号了"的四个地方销号
+    // （`onAllDownloadsFinished()` / `abandonOwnBatch()` / `cancelOwnBatch()`）。
+    bool m_ownBatchOpen = false;
     // 正在取 version.json 的版本号。拿到手的 JSON 里没有 "id" 字段时（网络失败、
     // manifest 里没有这个版本），就靠它告诉 UI"这次失败了"，否则 UI 会一直等下去。
     QString m_pendingVersionId;

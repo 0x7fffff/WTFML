@@ -65,6 +65,18 @@ public:
     /// 起手填什么（名称默认 `Server<版本>`、游戏版本默认当前选中的那一个）。
     void setDefaults(const QString &name, const QString &gameVersion);
 
+    /**
+     * @brief 「目录」那一行显示什么（**只读**，用户改不了）。
+     *
+     * 服务端根目录**只有一份**（`<数据目录>/Servers`，就是左栏那一列「游戏文件夹」里的根），
+     * 一个服务端 = 根下面一个以它的名字命名的目录 —— 所以这一格是**算出来的**，不是选出来的。
+     * 摆出来是为了让用户在建之前就看见"名字会变成盘上哪个目录"，而不是建完才知道。
+     *
+     * NOTE: 名字里那些不能当目录名的字符由翻译点在喂进来之前已经处理掉了（`sanitizeId()`），
+     *       这一页照抄，不改一个字。
+     */
+    void setTargetDir(const QString &dir);
+
     /// 那一句计划说明 + 底下「创建」那颗能不能点。**由 `MainWindow` 现算现喂**（用户每改一格
     /// 就叫一次，见 `fieldsChanged`）。
     /// @param problem 非空 = 现在这一份填法还不成立，把那句话（而不是计划说明）摆出来。
@@ -94,6 +106,8 @@ private:
     QLineEdit *m_installerEdit = nullptr;
     QLineEdit *m_buildEdit = nullptr;
     QSpinBox *m_memorySpin = nullptr;
+    /// 「目录」那一行那个只读的字（`setTargetDir()` 写它）。
+    QLabel *m_targetDirLabel = nullptr;
     QLabel *m_summaryLabel = nullptr;
     QPushButton *m_createButton = nullptr;
 

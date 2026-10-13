@@ -79,6 +79,24 @@ NewServerPage::NewServerPage(QWidget *parent) : QDialog(parent) {
         box->addWidget(row);
     }
 
+    // ---------- 目录（只读：根只有一份，一个服务端 = 根下面一个目录）----------
+    {
+        auto *row = new QWidget(this);
+        auto *layout = new QHBoxLayout(row);
+        layout->setContentsMargins(0, 0, 0, 0);
+        layout->setSpacing(8);
+        auto *label = new QLabel(QStringLiteral("目录"), row);
+        label->setFixedWidth(96);
+        layout->addWidget(label);
+        m_targetDirLabel = makeMutedLabel(row, MainWindowUI::newServerTargetDirName());
+        m_targetDirLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        // 路径可能很长：**不许**参与横向度量（老规矩，和摘要那一句同一条）。
+        m_targetDirLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+        m_targetDirLabel->setToolTip(QStringLiteral("服务端根目录下面以它的名字命名的那个目录"));
+        layout->addWidget(m_targetDirLabel, 1);
+        box->addWidget(row);
+    }
+
     // ---------- 服务端类型 ----------
     {
         auto *row = new QWidget(this);
@@ -191,6 +209,16 @@ void NewServerPage::setDefaults(const QString &name, const QString &gameVersion)
     const QSignalBlocker b2(m_gameVersionEdit);
     m_nameEdit->setText(name);
     m_gameVersionEdit->setText(gameVersion);
+}
+
+void NewServerPage::setTargetDir(const QString &dir) {
+    if (m_targetDirLabel->text() == dir) {
+        return;
+    }
+    m_targetDirLabel->setText(dir);
+    m_targetDirLabel->setToolTip(dir.isEmpty()
+                                     ? QStringLiteral("先给它起个名字，目录名是照着名字来的。")
+                                     : dir);
 }
 
 void NewServerPage::setSummary(const QString &text, const QString &problem) {

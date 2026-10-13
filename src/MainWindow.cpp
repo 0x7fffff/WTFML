@@ -174,6 +174,9 @@
 #include "download/ServerInstall.hpp"
 #include "server/ServerModel.hpp"
 #include "server/ServerRegistry.hpp"
+// 服务端安装那四段的**判据层**（"还差哪一份元数据、取回来怎么读、分成几步"，coding plan
+// §6.2 / M4-2）：纯函数，`verify` 的 ZY 一节直接钉它。这里只用到那几个翻译。
+#include "server/ServerInstallRun.hpp"
 // 同一页的「刷新」：真的连上去问一遍每台现在什么样（图标 / MOTD / 人数 / 延迟）。
 #include "util/ServerPing.hpp"
 #include "util/SystemMemory.hpp"
@@ -238,6 +241,34 @@ TaskCenter::State taskCenterState(Tasks::TaskState state) {
         return TaskCenter::State::Interrupted;
     }
     return TaskCenter::State::Interrupted;
+}
+
+/**
+ * @brief 一串步骤名 ⇒ 账本要的那张步骤表（`Tasks::TaskStep`），第 @p runningIndex 格是
+ *        正在跑的那一格。
+ *
+ * 服务端安装那四段报步骤的方式是"一条直线、一格一格往前走"（`ServerInstallRun::stepNames()`
+ * 给名字，`stepsChanged` / `stepChanged` 给走到哪儿了），而账本要的是**整张表**。这一处就是
+ * 那个翻译：下标小于正在跑的都算跑完了、等于的算在跑、大于的还是待办。
+ *
+ * @param runningIndex 负数 = 还没开始（全都算待办）。
+ */
+QList<Tasks::TaskStep> taskStepsFromNames(const QStringList &names, int runningIndex) {
+    QList<Tasks::TaskStep> steps;
+    steps.reserve(names.size());
+    for (int i = 0; i < names.size(); ++i) {
+        Tasks::TaskStep step;
+        step.name = names.at(i);
+        if (i < runningIndex) {
+            step.state = Tasks::TaskStepState::Done;
+        } else if (i == runningIndex) {
+            step.state = Tasks::TaskStepState::Running;
+        } else {
+            step.state = Tasks::TaskStepState::Pending;
+        }
+        steps.append(step);
+    }
+    return steps;
 }
 
 // ---------------------------------------------------------------------------
@@ -2568,6 +2599,86 @@ void MainWindow::setupConnections() {
                 }
                 onLoaderVersionsFetched(gameVersion, loaderIndex, success, versions, errorMessage);
             });
+
+    // ---------- 服务端安装那四段（coding plan §6.2 / 里程碑 M4-2）----------
+    //
+    // 它拿的是 `VersionManager` 手上**那一份**下载器：下载器只有一份批次状态（镜像降级 /
+    // 按主机守卫 / 看门狗都在它身上），自己另起一份 = 同一时间有两条路在改同一批文件。
+    // 元数据那几次 GET 由控制器用**它自己**的 network manager 发（理由见那个头文件里的 NOTE）。
+    m_serverInstall = new ServerInstallRun::ServerInstallController(this);
+    m_serverInstall->setDownloadManager(m_versionManager->downloads());
+    // 原版那一档的地址在版本 json 的 `downloads.server` 里 —— 盘上已经有这个版本的客户端时
+    // 一个网络请求都不用发（"先装了客户端、再开一个同版本的服务端"是最常见的那条路）。
+    m_serverInstall->setLocalVersionJson([this](const QString &versionId) {
+        return m_versionManager->getVersionJson(versionId);
+    });
+    connect(m_serverInstall, &ServerInstallRun::ServerInstallController::message, this,
+            [this](const QString &text) { appendLog(text); });
+    // ★ 这几条连线**只接一次**（在构造里），靠 `m_serverInstallTaskId` 认"现在这一趟是哪一项"
+    //   —— 接在 `installServer()` 里的话，第二次安装会接上第二遍（同一件事被记两回账）。
+    connect(m_serverInstall, &ServerInstallRun::ServerInstallController::stepsChanged, this,
+            [this](const QStringList &names, int runningIndex) {
+                if (m_serverInstallTaskId == Tasks::invalidTaskId()) {
+                    return;
+                }
+                m_serverInstallStepCount = names.size();
+                m_taskManager->setSteps(m_serverInstallTaskId,
+                                        taskStepsFromNames(names, runningIndex));
+                m_taskManager->setProgress(m_serverInstallTaskId, qMax(0, runningIndex),
+                                           qMax(1, names.size()));
+            });
+    connect(m_serverInstall, &ServerInstallRun::ServerInstallController::stepChanged, this,
+            [this](int index, bool ok, const QString &note) {
+                if (m_serverInstallTaskId == Tasks::invalidTaskId()) {
+                    return;
+                }
+                m_taskManager->setStepState(m_serverInstallTaskId, index,
+                                            ok ? Tasks::TaskStepState::Done
+                                               : Tasks::TaskStepState::Failed,
+                                            note);
+                if (ok) {
+                    m_taskManager->setProgress(m_serverInstallTaskId, index + 1,
+                                               qMax(1, m_serverInstallStepCount));
+                }
+            });
+    connect(m_serverInstall, &ServerInstallRun::ServerInstallController::bytesChanged, this,
+            [this](qint64 done, qint64 total) {
+                if (m_serverInstallTaskId == Tasks::invalidTaskId()) {
+                    return;
+                }
+                m_taskManager->setBytes(m_serverInstallTaskId, done, total);
+            });
+    connect(m_serverInstall, &ServerInstallRun::ServerInstallController::finished, this,
+            [this](ServerInstallRun::Outcome outcome, const QString &errorSummary) {
+                const Tasks::TaskId id = m_serverInstallTaskId;
+                m_serverInstallTaskId = Tasks::invalidTaskId();
+                // 服务端那一页开着的时候重扫一遍：装好的那一行从「未安装」变成「可启动」
+                // （判据是 `ServerRegistry::describe()`，和任务中心那句"装好了"同一个出处）。
+                if (m_instanceMode == MainWindowUI::InstanceMode::Server) {
+                    refreshServerList();
+                }
+                if (id == Tasks::invalidTaskId()) {
+                    return;
+                }
+                switch (outcome) {
+                case ServerInstallRun::Outcome::Succeeded:
+                    finishTask(id, true);
+                    break;
+                case ServerInstallRun::Outcome::Cancelled:
+                    // ★ 取消是一种**正常**的收场（§3.3 里"取消"是单独一档），不是失败 ——
+                    //   所以不能借 `finishTask(id, false, …)` 那条路（那会把它记成失败、
+                    //   还点亮底栏那颗"没看过的失败"红点）。账本自己那颗入口就在这儿。
+                    m_taskManager->cancel(id);
+                    break;
+                case ServerInstallRun::Outcome::Failed:
+                    finishTask(id, false, errorSummary);
+                    // §11：「错误既进入日志，也在用户当前流程中可见」。日志那一半在
+                    // `message` 那条路上（控制器 `fail()` 里已经发过），这里补弹窗那一半 ——
+                    // 用户常常是点了「创建」就去干别的了，不弹一下他看不见。
+                    InlineMessage::critical(m_ui->overlay(), tr("装不了这个服务端"), errorSummary);
+                    break;
+                }
+            });
 }
 
 void MainWindow::enterSyncWait(const QString &statusText) {
@@ -2997,6 +3108,16 @@ void MainWindow::openTaskDetailPage(const QString &key) {
 void MainWindow::onTaskDetailAction(const QString &key, TaskDetailPage::Action action) {
     switch (action) {
     case TaskDetailPage::Action::Cancel:
+        // ★ 取消要**按这一项是谁**分派：服务端安装那一趟和版本/资源下载那一批不是同一份
+        //   状态（一个自己跑 QProcess + 自己的元数据请求，一个走 `VersionManager` 的批次）。
+        //   两边都无脑叫一遍的话，取消一次服务端安装会顺手把别人正在跑的下载掐掉 ——
+        //   而下载那一批可能是用户在下载页上排的、跟这一项毫无关系。
+        if (m_serverInstall != nullptr && m_serverInstall->isRunning()
+            && m_serverInstallTaskId != Tasks::invalidTaskId()
+            && key == QString::number(m_serverInstallTaskId)) {
+            m_serverInstall->cancel();
+            break;
+        }
         if (m_versionManager != nullptr && m_versionManager->cancelActiveDownload()) {
             appendLog(tr("下载已取消。已经下好的文件留在原处。"));
         }
@@ -6816,6 +6937,101 @@ void MainWindow::openNewServerPage() {
     }
     // 切到服务端那一页（用户刚建的就在那儿），并重扫一遍让它出现在列表里。
     setInstanceMode(MainWindowUI::InstanceMode::Server);
+    // ★ 用户 2026-10-13 定的：「创建」= 建目录 + 记一份账 + **当趟就把东西下下来 / 跑安装器**
+    //   （不是"建完让用户自己再点一下安装"）。排在切页之后：那一行先以「未安装」露出来，
+    //   紧接着任务中心就动起来 —— 用户看到的是"这一行正在变成能用的"。
+    ServerInstall::Request request;
+    request.flavor = info.flavor;
+    request.gameVersion = info.gameVersion;
+    request.loaderVersion = info.loaderVersion;
+    request.installerVersion = info.installerVersion;
+    request.buildId = info.buildId;
+    installServer(serverId, request);
+}
+
+void MainWindow::installServer(const QString &serverId, const ServerInstall::Request &request) {
+    if (m_serverInstall == nullptr || serverId.isEmpty()) {
+        return;
+    }
+    // §2.3：先单任务聚合。下载那一层只有一份批次状态，同时开两批会让两边的收尾互相算错
+    // —— 所以忙的时候说清楚，而不是让它排着队（队列是 M5 的事）。
+    if (m_serverInstall->isRunning()) {
+        InlineMessage::warning(m_ui->overlay(), tr("先等这一个装完"),
+                               tr("同一时间只装一个服务端 —— 下载是共用的一条路，两批一起跑"
+                                  "会把彼此的进度算乱。"));
+        return;
+    }
+    // 这一档这一轮接没接。**判据的唯一出处是 `ServerInstallRun::flavorSupported()`** ——
+    // 页面上那颗「创建」的禁用读的也是它（Spigot：列出但明说暂不支持）。
+    if (!ServerInstallRun::flavorSupported(request.flavor)) {
+        InlineMessage::warning(m_ui->overlay(), tr("这一档还没接"),
+                               ServerInstallRun::unsupportedReason(request.flavor));
+        return;
+    }
+    const ServerInstall::Plan plan = ServerInstall::planFor(request);
+    if (!plan.ok) {
+        // `planFor()` 给的 `problem` 就是给用户看的那句话（那一层承诺过），别再另编一句。
+        InlineMessage::critical(m_ui->overlay(), tr("装不了这个服务端"), plan.problem);
+        return;
+    }
+    // 跑安装器的那三档（Forge / NeoForge / Quilt）才要 java。**在记账之前**问：
+    // 问不到就什么都没排（不往任务中心里塞一项注定会失败的活）。
+    QString java;
+    if (!pickServerInstallerJava(request, &java)) {
+        return;  // 已经弹过窗说清楚为什么了
+    }
+
+    const QStringList names = ServerInstallRun::stepNames(request, plan);
+    const Tasks::TaskId id = beginTask(Tasks::TaskKind::Install,
+                                       tr("安装服务端 %1").arg(serverId), serverId,
+                                       taskStepsFromNames(names, 0));
+    m_serverInstallTaskId = id;
+    m_serverInstallStepCount = names.size();
+    // NOTE: 百分比按"走到第几格"算（`stepsChanged` / `stepChanged` 那两条连线里往前推）。
+    //       服务端安装的总量（一共要下多少字节）要等元数据取回来才知道，在那之前报任何
+    //       百分数都是编的 —— 同 `Tasks::percentOf()` 那条"测不出就不显示"的规矩。
+    m_taskManager->setProgress(id, 0, qMax(1, names.size()));
+
+    // ★ 起手先切到服务端那一页：用户刚点的就是那儿，而"装到哪个实例里"这件事在这一页上
+    //   （任务中心那一条也带 targetId，点「打开目标位置」就是它的目录）。
+    setInstanceMode(MainWindowUI::InstanceMode::Server);
+    m_serverInstall->start(request, serverId, java);
+}
+
+bool MainWindow::pickServerInstallerJava(const ServerInstall::Request &request, QString *out) {
+    if (out == nullptr) {
+        return false;
+    }
+    out->clear();
+    // 这一档跑不跑安装器 —— 判据是计划里有没有给工具参数（`installerJarName()` 的唯一出处
+    // 就在那一层，这里不按"是哪一档"另判一遍）。
+    const ServerInstall::Plan plan = ServerInstall::planFor(request);
+    if (!plan.ok || ServerInstallRun::installerJarName(plan).isEmpty()) {
+        return true;  // 不跑安装器 ⇒ 用不上 java（下下来就是服务端）
+    }
+    // 判据和装加载器那条路（`pickInstallerJava()`）**同一套**：版本 json 里的 `javaVersion`
+    // 说了算；盘上没有这个版本的 json（客户端还没装）就不知道要求，此时原样用配的那一份
+    // —— 不在这一步拦人（猜一个主版本比不猜更危险，同那边的理由）。
+    const QString configuredJava = m_javaSettings->javaPath();
+    QString java = configuredJava;
+    int requiredJavaMajor = 0;
+    const QJsonObject gameJson = m_versionManager->getVersionJson(request.gameVersion);
+    if (!gameJson.isEmpty()) {
+        requiredJavaMajor = gameJson[QStringLiteral("javaVersion")]
+                                .toObject()[QStringLiteral("majorVersion")]
+                                .toInt();
+    }
+    QString reason;
+    if (!m_javaSettings->installerJavaFor(requiredJavaMajor, configuredJava, &java, &reason)) {
+        appendLog(tr("装这个服务端要的 Java 拿不到：%1").arg(reason));
+        InlineMessage::warning(m_ui->overlay(), tr("Java 版本不够"), reason);
+        return false;
+    }
+    if (java != configuredJava) {
+        appendLog(tr("这个版本要 Java %1，装的时候改用 %2").arg(requiredJavaMajor).arg(java));
+    }
+    *out = java;
+    return true;
 }
 
 void MainWindow::updateNewServerSummary(NewServerPage *page) {
@@ -6823,15 +7039,31 @@ void MainWindow::updateNewServerSummary(NewServerPage *page) {
         return;
     }
     // 名字先过一遍（洗空了就没得建）。
-    if (ServerRegistry::sanitizeId(page->serverName()).isEmpty()) {
+    const QString desiredId = ServerRegistry::sanitizeId(page->serverName());
+    if (desiredId.isEmpty()) {
+        page->setTargetDir(QString());
         page->setSummary(QString(), QStringLiteral("先给它起个名字（会当成目录名）。"));
         return;
     }
+    // 「目录」那一行：服务端根目录只有一份（`<数据目录>/Servers`，就是左栏那一列里的根），
+    // 这一格是**算出来的** —— 走的和按下「创建」之后真建的那一个**同一条路**（sanitize →
+    // unique），所以这一行写的地址和它最后落在盘上的那一个是同一个。
+    page->setTargetDir(QDir::toNativeSeparators(
+        AppPaths::serverDir(ServerRegistry::uniqueServerId(desiredId))));
+
     // 再让 `ServerInstall` 判这一份填法成不成立（缺哪一格它会说人话）。
     ServerInstall::Request request;
     ServerInstall::Flavor flavor = ServerInstall::Flavor::Vanilla;
     if (ServerInstall::flavorFromToken(page->flavorToken(), &flavor)) {
         request.flavor = flavor;
+    }
+    // ★ Spigot：这一轮没接（官方不发成品，要用它的 BuildTools 现编，那一步要本机有 git）。
+    //   **按用户 2026-10-13 定的来**：那一档照旧留在下拉框里（用户得知道有这一档），选中它
+    //   时明说原因，并把「创建」收起来 —— 不留一颗按下去什么都不发生的按钮。
+    //   判据读的是 `ServerInstallRun::flavorSupported()` 这一个出处。
+    if (!ServerInstallRun::flavorSupported(request.flavor)) {
+        page->setSummary(QString(), ServerInstallRun::unsupportedReason(request.flavor));
+        return;
     }
     request.gameVersion = page->gameVersion();
     request.loaderVersion = page->loaderVersion();
@@ -6861,6 +7093,8 @@ void MainWindow::updateNewServerSummary(NewServerPage *page) {
         lines.append(plan.note);
     }
     lines.append(ServerInstall::installMethodText(plan.method));
+    // 按下「创建」会发生什么，直说一句：不是"建完一个空壳"，是当场排一趟安装。
+    lines.append(QStringLiteral("按「创建」会直接开始装（进度在任务中心那一格）。"));
     page->setSummary(lines.join(QStringLiteral("\n")), QString());
 }
 

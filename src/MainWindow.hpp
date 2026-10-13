@@ -89,6 +89,11 @@
 // 够），但 `updateNewServerSummary()` 的签名里按指针用它 —— 一并 include，省得再想
 // "哪一份要前置声明哪一份要 include"。
 #include "..\ui\NewServerPage.hpp"
+// 服务端安装那四段真的跑起来（coding plan §6.2 / M4-2）：`Request` 是按值传的小结构
+// （`installServer()` 的签名里有它），而 `ServerInstallController` 是**成员指针** ——
+// 前置声明说得出指针，但 `installServer()` 的参数类型要完整定义，所以一并 include。
+// （`ServerInstallRun.hpp` 里那几个纯函数在这个头里用不到，在 .cpp 里才 include。）
+#include "server/ServerInstallController.hpp"
 
 // MainWindowUI —— `InstanceMode` 是**按值**存在成员里的（`m_instanceMode`），而前置声明
 // 说得出 `MainWindowUI *`、说不出它里面的嵌套枚举，所以这里得 include（同 TaskDetailPage /
@@ -2358,6 +2363,23 @@ private:
     /// **唯一翻译点**：`ServerInstall::planFor()` 的结论 + `ServerRegistry` 的重名判据，
     /// 全在这一个函数里被翻成人话喂给页面；页面自己一个判据都不算（`ui/` 不 include `src/`）。
     void updateNewServerSummary(NewServerPage *page);
+
+    /**
+     * @brief 排一趟"安装这个服务端"的活（建目录之后那一发）。
+     *
+     * ★ 用户 2026-10-13 定的：按下「创建」= 建目录 + 记一份账 + **当趟就把东西下下来 /
+     *   跑安装器**，进度进任务中心；装好了那一行才从「未安装」变成「可启动」。所以这个
+     *   函数是"创建"那一下的后半截，不是另开的一个入口。
+     *
+     * 它只做三件事：① 在任务中心记一项 `Install`；② 把控制器那几路信号接到账本上；
+     * ③ 让它开跑。真正的四段（取元数据 / 下载 / 跑安装器 / 核对）在
+     * `ServerInstallRun::ServerInstallController` 里。
+     */
+    void installServer(const QString &serverId, const ServerInstall::Request &request);
+    /// 跑安装器要哪个 java（**判据和装加载器那条路同一套**：版本 json 说要哪个主版本，
+    /// 就用那个）。回 false = 已经弹过窗说清楚为什么了，调用方别再往下走。
+    /// 这一档不跑安装器时不碰 java，直接回 true（`*out` 留空）。
+    bool pickServerInstallerJava(const ServerInstall::Request &request, QString *out);
     /// 此刻的搜索/筛选条件（读界面上那个搜索框和四颗 chip）。
     InstanceFilter::Query instanceFilterQuery() const;
     /// 一个实例参与筛选的那几样**事实**：可搜索的串（`InstanceFilter::textsFor()`）、
@@ -2810,6 +2832,19 @@ private:
     MainWindowUI::InstanceMode m_instanceMode = MainWindowUI::InstanceMode::Client;
     /// 「新建服务端」那一页（懒建一次、之后复用，和更新中心同一个路数）。
     NewServerPage *m_newServerPage = nullptr;
+    /// 服务端安装那四段的驱动（构造里建一次，和 `m_versionManager` 一样常驻）。
+    ///
+    /// 它拿的是 `VersionManager` 手上**那一份**下载器（`setDownloadManager()` —— 理由见
+    /// 那个函数的说明：下载器只有一份批次状态），所以**不能**跟着哪一次安装来去。
+    ServerInstallRun::ServerInstallController *m_serverInstall = nullptr;
+    /// 正在装的那一趟在账本上的号（`invalidTaskId()` = 此刻没有在装的）。
+    ///
+    /// ★ 「取消」那一按要按**这一项是谁**分派：服务端安装和版本/资源下载不是同一份状态
+    ///   （一个跑 QProcess + 自己的元数据请求，一个走 `VersionManager` 的批次），两边都
+    ///   无脑叫一遍的话，取消服务端安装会顺手把别人正在跑的下载掐掉。判据就是这一个号。
+    Tasks::TaskId m_serverInstallTaskId = Tasks::invalidTaskId();
+    /// 账本里那一项一共有几格（百分比按"走到第几格"算，见 `installServer()` 里的 NOTE）。
+    int m_serverInstallStepCount = 0;
     /// 那一页现在说的是哪个实例的结论（**开那一页时记下来**）。
     ///
     /// 和 `m_integrityReportVersionId` 一个路数：页面是复用的、点动作时它可能已经关了，
