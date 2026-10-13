@@ -2163,6 +2163,13 @@ private:
     /// 分派逐字对齐（见 .cpp 里那段）。账本里那位 `canCancel` 只说了"这一类活允许取消"，
     /// 这一类活里有几段**就是取消不掉**的（加载器的安装器进程、整合包解压），得在这儿收口。
     bool cancelWouldWork(const Tasks::TaskSnapshot &task) const;
+    /// 「这一项**此刻**按『重试』真的会重做**它自己**那几个失败的文件吗」—— 和
+    /// `cancelWouldWork()` 左右对称的另一半（coding plan §3.1①「逐任务能力表」）。
+    ///
+    /// 账本里那位 `canRetry` 说的是"**它失败的那一刻**有一批能重做的失败清单" —— 那是个
+    /// 历史事实，会**留在账本里跨重启**，而真正那份失败清单（`VersionManager::m_failedBatch`）
+    /// 只在内存里、只有一格。所以那一颗能不能露，得再问一次"现在这格还是不是它的"。
+    bool retryWouldWork(const Tasks::TaskSnapshot &task) const;
     /// 记一件新任务（发号 + 落盘）。回它的号。
     Tasks::TaskId beginTask(Tasks::TaskKind kind, const QString &title,
                             const QString &targetId = QString(),
@@ -3391,6 +3398,14 @@ private:
     /// 正在跑的那一批下载对应的任务号（无效号 = 没有这一批）。**一批一个号**：
     /// 从 `setDownloadUiBusy(true)` 起、到那一条终态信号为止（见 beginDownloadTask()）。
     Tasks::TaskId m_downloadTaskId = Tasks::invalidTaskId();
+    /// 「那一批**失败下来、等着重试**的东西是谁的」—— 就是 `VersionManager::m_failedBatch`
+    /// 里那一份失败清单的主人（那里面**只留得住一批**，见 `finishTask()`）。
+    ///
+    /// ★ 为什么必须记这个号：`m_failedBatch` 只有一格，新一批失败会把它**盖掉**。没有这个
+    ///   号的话，用户点开**上一件**失败任务的详情页，上面那颗「重试」照样露着（账本里那位
+    ///   `canRetry` 是它自己失败那一刻钉下的），点下去重做的却是**后一批**的文件 —— 一颗
+    ///   按了会做错事的按钮。判据见 `retryWouldWork()`（「取消」那一颗的孪生兄弟）。
+    Tasks::TaskId m_retryableTaskId = Tasks::invalidTaskId();
     /// 会话号 → 那一次启动的任务号（和 m_launchingSessions / m_sessionDisplayNames 同寿）。
     QHash<int, Tasks::TaskId> m_launchTaskIds;
     /// 用户**还没看过**的那几次失败（面板里那一行挂红点、收起态那格挂红点）。

@@ -19286,6 +19286,65 @@ static void runTaskLedgerTests() {
     }
 
     // ---------------------------------------------------------------------
+    section("AL4. retryOffered：那颗「重试」露不露（§3.1① 逐任务能力表的重试那一半）");
+    // ---------------------------------------------------------------------
+    //
+    // 三样缺一不可（`capabilities.canRetry` ∧ 已收尾 ∧ **那一格失败清单还是它的、还在**）。
+    // 最要紧的是最后那两样：账本里的 `canRetry` 是**失败那一刻**钉下的、会跨重启留在盘上，
+    // 而真那份失败清单只在内存里、只有一格 —— 少了它俩，上一件失败任务的详情页会露着一颗
+    // 按下去重做**别人**那批文件的「重试」。
+    {
+        const auto make = [](Tasks::TaskId id, bool canRetry, Tasks::TaskState state) {
+            Tasks::TaskSnapshot task;
+            task.id = id;
+            task.kind = Tasks::TaskKind::Download;
+            task.capabilities.canRetry = canRetry;
+            task.state = state;
+            return task;
+        };
+        const Tasks::TaskId owner = 42;
+        const Tasks::TaskSnapshot mine = make(owner, true, Tasks::TaskState::Failed);
+
+        check(Tasks::retryOffered(mine, owner, true),
+              "★★ AL4 允许重试 ∧ 已失败 ∧ 那一格就是它的、还在 ⇒ 露");
+
+        // ① 号不对上：是新一批失败把那一格**盖掉**了（重做会是别人的文件）。
+        check(!Tasks::retryOffered(mine, 43, true),
+              "★★ AL4 那一格已经**换人**了（新一批失败盖掉了它）⇒ 上一件的「重试」必须收起来"
+              "（点了会去重做后一批的文件 —— 按了做错事比没按钮更糟）");
+        // ② 那一格没了：启动器重启过（账本那位 canRetry 还在，内存里那份清单没了）。
+        check(!Tasks::retryOffered(mine, owner, false),
+              "★★ AL4 账本里那一位还在、可那一格失败清单**没了**（重启过）⇒ 不许露"
+              "（点了什么都不会发生）");
+        // ③ 账本没给这个能力位。
+        check(!Tasks::retryOffered(make(owner, false, Tasks::TaskState::Failed), owner, true),
+              "★★ AL4 这一类活账本没给 `canRetry` ⇒ 不许露（界面不按种类自己猜）");
+        // ④ 还在跑：正在下的那一项露「重试」没有含义（AB2 在真界面上也量了这一条）。
+        for (const Tasks::TaskState active : {Tasks::TaskState::Queued, Tasks::TaskState::Running,
+                                              Tasks::TaskState::WaitingUser,
+                                              Tasks::TaskState::Paused}) {
+            check(!Tasks::retryOffered(make(owner, true, active), owner, true),
+                  QStringLiteral("★★ AL4 八档状态里那一档还在跑（%1）⇒ 不露").arg(int(active)));
+        }
+        // ⑤ 四档终态**都**允许露（能不能重试是"这一类活"的事，不是"怎么收的场"）。
+        for (const Tasks::TaskState done : {Tasks::TaskState::Succeeded, Tasks::TaskState::Failed,
+                                            Tasks::TaskState::Cancelled,
+                                            Tasks::TaskState::Interrupted}) {
+            check(Tasks::retryOffered(make(owner, true, done), owner, true),
+                  QStringLiteral("★ AL4 终态（%1）都按账本那一位说话").arg(int(done)));
+        }
+        // ⑥ 无效号不许"误配"：没有清单时 owner 是无效号，而 `TaskManager::snapshot()` 找不到
+        //    人时回的是**默认快照**（id 也是那个无效号）—— 那一条不许被判成"对得上"。
+        {
+            Tasks::TaskSnapshot missing;      // id = invalidTaskId()
+            missing.capabilities.canRetry = true;
+            missing.state = Tasks::TaskState::Failed;
+            check(!Tasks::retryOffered(missing, Tasks::invalidTaskId(), false),
+                  "★★ AL4 「找不到这一项」时回的默认快照 + 无效号 ⇒ 仍然不露（靠 held 那一道挡）");
+        }
+    }
+
+    // ---------------------------------------------------------------------
     section("AM1. TaskManager：终态只落一次（§3.4「重复信号不生成重复完成」）");
     // ---------------------------------------------------------------------
     {

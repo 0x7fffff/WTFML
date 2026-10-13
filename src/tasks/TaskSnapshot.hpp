@@ -126,6 +126,32 @@ inline bool isTerminalState(TaskState state) {
     return !isActiveState(state);
 }
 
+/// 这一项此刻该不该露那颗「重试」。
+///
+/// ★ coding plan §3.1①「逐任务能力表」的重试那一半（取消那一半是
+///   `MainWindow::cancelWouldWork()`，两者是孪生兄弟）。
+///
+/// 三样**缺一不可**，每一道挡住的都是真出现过的那一种毛病：
+///
+/// | 那一道 | 挡住什么 |
+/// |---|---|
+/// | `capabilities.canRetry` | 这一类活**允许**重试吗（账本起的表说了算，界面不按种类猜） |
+/// | `isTerminalState(state)` | 还在跑的那一项不该露它（正在下的时候"重试"没有含义） |
+/// | `task.id == failedBatchOwner && failedBatchHeld` | 点了**真会重做它自己那几个文件**吗 |
+///
+/// 第三道为什么必须带上号：那份"失败清单"（`VersionManager::m_failedBatch`）**只有一格**、
+/// 只活在内存里 —— 新一批失败会把它盖掉、启动器重启会把它整个丢掉。账本里那位 `canRetry`
+/// 是**失败那一刻钉下的历史事实**（会跨重启留在盘上），光看它的话，用户点开上一件失败任务，
+/// 上面那颗「重试」点下去重做的是**后一批**的文件（或者重启后什么都不会发生）—— 一颗按了
+/// 会做错事的按钮，比一颗没有的按钮糟得多。
+///
+/// @param failedBatchOwner 那一格失败清单现在**是谁的**（没有 = `Tasks::invalidTaskId()`）。
+/// @param failedBatchHeld 那一格现在**还在不在**（内存里那份快照还在 = 重试点得动）。
+inline bool retryOffered(const TaskSnapshot &task, TaskId failedBatchOwner, bool failedBatchHeld) {
+    return task.capabilities.canRetry && isTerminalState(task.state)
+           && failedBatchHeld && task.id == failedBatchOwner;
+}
+
 /// 这一项报得出百分比吗。`totalUnits <= 0` 就是**不可测** —— 返回 -1，调用方画不确定态。
 ///
 /// ★ 这条是 §3.4 验收里那句「无 Content-Length 的 Fabric 下载显示'已下载多少'，不显示假

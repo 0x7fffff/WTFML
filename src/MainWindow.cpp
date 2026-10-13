@@ -3138,6 +3138,14 @@ bool MainWindow::cancelWouldWork(const Tasks::TaskSnapshot &task) const {
     return m_versionManager != nullptr && m_versionManager->canCancelDownload();
 }
 
+bool MainWindow::retryWouldWork(const Tasks::TaskSnapshot &task) const {
+    // 判据本体在账本层的纯函数 `Tasks::retryOffered()`（verify 的 AL 节钉着它那张真值表）——
+    // 这一层只负责把两个"现在"喂进去：那一格失败清单**是谁的**（`m_retryableTaskId`，
+    // 失败收尾时记下）和**还在不在**（`VersionManager::canRetryDownload()`）。
+    const bool held = m_versionManager != nullptr && m_versionManager->canRetryDownload();
+    return Tasks::retryOffered(task, m_retryableTaskId, held);
+}
+
 /// 账本里的一项 ⇒ 界面要的一份。**`taskCenterItems()`（面板）和任务详情页共用的唯一
 /// 翻译点** —— 两边各写一遍的话，同一项在面板上和详情页上会说出不同的话。
 TaskCenter::Item MainWindow::taskCenterItem(const Tasks::TaskSnapshot &task) const {
@@ -3171,8 +3179,11 @@ TaskCenter::Item MainWindow::taskCenterItem(const Tasks::TaskSnapshot &task) con
     item.capabilities.cancel = task.capabilities.canCancel && Tasks::isActiveState(task.state)
                                && cancelWouldWork(task);
     item.capabilities.pause = task.capabilities.canPause && Tasks::isActiveState(task.state);
-    item.capabilities.retry = task.capabilities.canRetry
-                              && Tasks::isTerminalState(task.state);
+    // ★ 「重试」和「取消」是同一套三道与（`cancelWouldWork()` 那段注释）：账本那位说的是
+    //   "这一类活**允许**做什么"，收尾之后（终态）当然不该再露，最后再问一次**现在**这一按
+    //   真的会做它自己那件事吗 —— 三样都在 `retryWouldWork()` 里（唯一出处
+    //   `Tasks::retryOffered()`），这里**故意不再抄一遍**那三道判据。
+    item.capabilities.retry = retryWouldWork(task);
     item.capabilities.openLog = task.capabilities.canOpenLog;
     item.capabilities.openTarget = task.capabilities.canOpenTarget;
     // 这两颗带 **"还在"** 那一道与：它们要读 `m_crashRecords` 里那一份事实，而那一份和
@@ -3289,11 +3300,22 @@ void MainWindow::onTaskDetailAction(const QString &key, TaskDetailPage::Action a
             appendLog(tr("下载已取消。已经下好的文件留在原处。"));
         }
         break;
-    case TaskDetailPage::Action::Retry:
-        if (m_versionManager != nullptr && m_versionManager->retryDownload()) {
+    case TaskDetailPage::Action::Retry: {
+        // ★ 只认**这一项自己**那一批（`retryWouldWork()` 就是这条判据的唯一出处）：界面那边
+        //   已经把不合条件的那颗按钮收起来了，这里是第二道闸 —— 页对象是**建一次留着**的，
+        //   用户完全可能在页开着的时候又失败了一批，而按钮画的还是上一帧那份。
+        bool parsed = false;
+        const Tasks::TaskId retryId = key.toInt(&parsed);
+        if (parsed && m_versionManager != nullptr
+            && retryWouldWork(m_taskManager->snapshot(retryId))
+            && m_versionManager->retryDownload()) {
+            // 那一格失败清单**刚被这一按吃掉了**（`retryDownload()` 自己 reset）⇒ 号也跟着
+            // 松开，不然同一颗按钮留在页上还能再点一次（再点一次什么都不会发生）。
+            m_retryableTaskId = Tasks::invalidTaskId();
             appendLog(tr("正在重试上一次没下下来的那几个文件…"));
         }
         break;
+    }
     case TaskDetailPage::Action::OpenLog:
         openTaskLog(key);
         break;
@@ -3486,6 +3508,12 @@ void MainWindow::finishTask(Tasks::TaskId id, bool success, const QString &error
         return;  // 号早就没了的（比如用户按过「清除已完成」）不算事
     }
     if (success) {
+        // 成功那一批会把 `VersionManager` 那一格失败清单 reset 掉（见那边收尾那一段）
+        // ⇒ 要是这一格本来就是它的，号也得跟着松开（不然上一件失败任务还会被当成"现在
+        // 这一格的主人"，`retryWouldWork()` 会跟着一起说谎）。
+        if (m_retryableTaskId == id) {
+            m_retryableTaskId = Tasks::invalidTaskId();
+        }
         m_taskManager->succeed(id);
         return;
     }
@@ -3506,6 +3534,13 @@ void MainWindow::finishTask(Tasks::TaskId id, bool success, const QString &error
         Tasks::TaskCapabilities caps = m_taskManager->snapshot(id).capabilities;
         caps.canRetry = true;
         m_taskManager->setCapabilities(id, caps);
+        // ★ 顺手记下"现在那一格里装的是**谁的**失败清单"（`VersionManager` 只有一格，
+        //   新一批失败会把它盖掉）—— 「重试」那一颗要按这个号认人，见 `retryWouldWork()`。
+        //
+        // NOTE: **只在这一支里记**（`canRetryDownload()` 为真 = 清单真的留下来了）。上面那位
+        //       `canRetry` 是钉进账本、要跨重启的历史事实；这个号是**内存里那份清单的钥匙**，
+        //       两者不同寿，判据里必须一起看。
+        m_retryableTaskId = id;
     }
     if (m_taskManager->fail(id, errorSummary)) {
         m_unreadFailures.insert(id);
