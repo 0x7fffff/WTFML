@@ -1157,8 +1157,19 @@ QString widgetStyleSheet() {
                " border: 1px dashed %3; }"
                "QPushButton[wtfmlQuickEmpty=\"true\"]:hover:enabled { background-color: %4; }"
                "QPushButton[wtfmlQuickEmpty=\"true\"]:pressed:enabled { background-color: %5; }")
-               .arg(mixWithWhite(pure, 3).name(), disabledInk.name(), border.name(),
+               .arg(mixWithWhite(pure, 3).name(), ink.name(), border.name(),
                     mixWithWhite(pure, 8).name(), mixWithWhite(pure, 13).name());
+
+    // 主页次动作使用浅主题色表面，避免和 Disabled 共用一脸系统灰。它仍比实心 Primary
+    // 弱很多，因此“启动”保持唯一主动作，账号、设置和实例卡则明确表现为可以点击。
+    qss += QStringLiteral(
+               "QPushButton[wtfmlHomeAction=\"true\"] { background-color: %1; color: %2;"
+               " border-color: transparent; }"
+               "QPushButton[wtfmlHomeAction=\"true\"]:hover:enabled { background-color: %3; }"
+               "QPushButton[wtfmlHomeAction=\"true\"]:pressed:enabled { background-color: %4; }"
+               "QPushButton[wtfmlHomeAction=\"true\"]:focus { border-color: %5; }")
+               .arg(mixWithWhite(pure, 8).name(), ink.name(), mixWithWhite(pure, 14).name(),
+                    mixWithWhite(pure, 22).name(), border.name());
 
     // -----------------------------------------------------------------------
     // 输入框（2026-09-28）

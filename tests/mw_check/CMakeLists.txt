@@ -21,6 +21,7 @@ get_filename_component(REPO_ROOT ${REPO_ROOT} REALPATH)
 set(HEADER_FILES
     ${REPO_ROOT}/src/MainWindow.hpp
     ${REPO_ROOT}/src/controllers/JavaRuntimeController.hpp
+    ${REPO_ROOT}/src/controllers/ActivityCenterController.hpp
     ${REPO_ROOT}/src/launcher/LauncherManager.hpp
     ${REPO_ROOT}/src/launcher/LibraryRules.hpp
     ${REPO_ROOT}/src/auth/AuthManager.hpp
@@ -56,6 +57,7 @@ set(HEADER_FILES
 set(SOURCE_FILES
     ${REPO_ROOT}/src/MainWindow.cpp
     ${REPO_ROOT}/src/controllers/JavaRuntimeController.cpp
+    ${REPO_ROOT}/src/controllers/ActivityCenterController.cpp
     ${REPO_ROOT}/src/launcher/LauncherManager.cpp
     ${REPO_ROOT}/src/auth/AuthManager.cpp
     ${REPO_ROOT}/src/auth/AccountStore.cpp

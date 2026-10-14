@@ -24,6 +24,7 @@ set(CMAKE_AUTORCC ON)
 set(HEADER_FILES
     src/MainWindow.hpp
     src/controllers/JavaRuntimeController.hpp
+    src/controllers/ActivityCenterController.hpp
     src/launcher/LauncherManager.hpp
     src/launcher/LibraryRules.hpp
     src/launcher/ProcessPriority.hpp
@@ -120,6 +121,7 @@ set(SOURCE_FILES
     src/main.cpp
     src/MainWindow.cpp
     src/controllers/JavaRuntimeController.cpp
+    src/controllers/ActivityCenterController.cpp
     src/launcher/LauncherManager.cpp
     src/launcher/AsciiPathAlias.cpp
     src/launcher/VersionInheritance.cpp

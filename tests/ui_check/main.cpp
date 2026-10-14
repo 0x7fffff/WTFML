@@ -5495,16 +5495,19 @@ int main(int argc, char *argv[]) {
                         return rows;
                     },
                     nullptr);
-                const auto measureAccountPanel = [&window, accBtn](QWidget **rowOut) {
+                const auto measureAccountPanel = [&window, accBtn](int *rowHeightOut) {
                     accBtn->click();
                     QApplication::processEvents();
                     QWidget *panel =
                         window.findChild<QWidget *>(MainWindowUI::bottomBarPanelName());
-                    if (rowOut != nullptr) {
-                        *rowOut = panel != nullptr
-                                      ? panel->findChild<QWidget *>(
-                                            MainWindowUI::bottomBarPanelRowName(0))
-                                      : nullptr;
+                    if (rowHeightOut != nullptr) {
+                        QWidget *row = panel != nullptr
+                                           ? panel->findChild<QWidget *>(
+                                                 MainWindowUI::bottomBarPanelRowName(0))
+                                           : nullptr;
+                        // 面板带 WA_DeleteOnClose；只在 close() 前取数，绝不把它的子控件
+                        // 裸指针带出这个 helper。
+                        *rowHeightOut = row != nullptr ? row->height() : -1;
                     }
                     const int height = panel != nullptr ? panel->height() : -1;
                     if (panel != nullptr) {
@@ -5515,9 +5518,8 @@ int main(int argc, char *argv[]) {
                     }
                     return height;
                 };
-                QWidget *oneRow = nullptr;
-                const int heightOne = measureAccountPanel(&oneRow);
-                const int rowHeight = oneRow != nullptr ? oneRow->height() : -1;
+                int rowHeight = -1;
+                const int heightOne = measureAccountPanel(&rowHeight);
                 wantedRows = 3;
                 const int heightThree = measureAccountPanel(nullptr);
                 check(rowHeight > 0 && heightOne > 0 && heightOne < 2 * rowHeight,
@@ -5530,9 +5532,9 @@ int main(int argc, char *argv[]) {
                       "I4 账号多起来（三行）那块跟着长高 —— 多账户时才展开那份切换列表",
                       QStringLiteral("三行 %1 / 一行 %2").arg(heightThree).arg(heightOne));
                 wantedRows = 1;
-                QWidget *accountRow1 = nullptr;
-                measureAccountPanel(&accountRow1);
-                check(accountRow1 != nullptr &&
+                int accountRowHeight = -1;
+                measureAccountPanel(&accountRowHeight);
+                check(accountRowHeight > 0 &&
                           window.findChild<QWidget *>(MainWindowUI::bottomBarPanelName()) == nullptr,
                       "I4 量完那一块收回去了（这一节的收尾不留给下一节）");
                 // 这一份 provider 捕的是上面那个局部量 —— **用完立刻卸**（⑦ 虽然也会把它

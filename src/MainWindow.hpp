@@ -53,7 +53,7 @@
 #include "launcher/QuickPlay.hpp"
 #include "util/ServerPing.hpp"
 // TaskManager / TaskSnapshot / TaskStep —— 底栏那格的"任务摘要"和任务中心那几行都按值用
-// （见 m_taskManager 那一段）。这个头只碰 QtCore（QObject/QDateTime/QList/QString），
+// （见 ActivityCenterController 那一段）。这个头只碰 QtCore（QObject/QDateTime/QList/QString），
 // 和上面那几个同一个理由：按值用就 include，不走"前置声明 + 指针"那一套。
 #include "tasks/TaskManager.hpp"
 // TaskCenter::Item —— taskCenterItems() 按值回一串（那是给任务中心面板的一份**纯显示**
@@ -146,6 +146,7 @@ class TaskDetailPage;
 // 懒建（第一次点开才建），而且它**不长记性**（四行每次开页现灌）。
 class JavaManageDialog;
 class JavaRuntimeController;
+class ActivityCenterController;
 // 「游戏日志」窗（一份游戏一个，见 ui/GameLogWindow.hpp）。同上，只按指针持有，
 // 而且是**按需**才建（收到第一行输出那一刻，见 showGameLogLine()）。
 class GameLogWindow;
@@ -234,6 +235,9 @@ public:
         facts.loaderVersion = loaderVersion;
         m_sessionLaunchFacts.insert(sessionId, facts);
     }
+
+    /// 给验证工程摆现场：这一号会话是用户从启动器里主动停止的。
+    void markGameStopRequestedForTest(int sessionId) { m_userStoppedSessions.insert(sessionId); }
 
     /**
      * @brief **给验证工程摆现场用**：把"刚刚成功启动了一次"这件事直接记进「上一次启动」
@@ -2186,7 +2190,6 @@ private:
 
     /// 「这一类活**起手**就允许什么」那张表（唯一出处，见 .cpp 里那段说明）。
     /// 会变的那几位（`canRetry`）不在这里 —— 它由 `finishTask()` 在失败那一刻补。
-    static Tasks::TaskCapabilities defaultTaskCapabilities(Tasks::TaskKind kind);
     /// 「这一项**此刻**按『取消』真的会做点什么吗」—— 和 `onTaskDetailAction()` 里那条取消
     /// 分派逐字对齐（见 .cpp 里那段）。账本里那位 `canCancel` 只说了"这一类活允许取消"，
     /// 这一类活里有几段**就是取消不掉**的（加载器的安装器进程、整合包解压），得在这儿收口。
@@ -3415,6 +3418,9 @@ private:
     // 存的是**会话号**不是版本号：同一个实例可以被多开，按版本号记的话第二个起来就把
     // 第一个那笔盖掉了（然后第一份出话时"启动中"照样挂着，直到它退出才收）。
     QSet<int> m_launchingSessions;
+    /// 用户已经确认“停止游戏”、正在等 QProcess::finished 回来的会话。
+    /// 强杀通常会给出 CrashExit / 非零退出码，但这是用户主动操作，不能据此生成异常退出任务。
+    QSet<int> m_userStoppedSessions;
     // ------------------------------------------------------------------
     // 任务中心（2026-10-12，coding plan §2 / §3）
     // ------------------------------------------------------------------
@@ -3422,7 +3428,7 @@ private:
     // MainWindow 是**唯一**往它里面记的人：`DownloadManager` / `VersionManager` /
     // `LauncherManager` 照旧是执行者，这里把它们的信号翻成一次 `begin()` /
     // `setProgress()` / `succeed()`（§2.1「不把任务中心做成第二套业务逻辑」）。
-    Tasks::TaskManager *m_taskManager = nullptr;
+    ActivityCenterController *m_activityCenter = nullptr;
     /// 正在跑的那一批下载对应的任务号（无效号 = 没有这一批）。**一批一个号**：
     /// 从 `setDownloadUiBusy(true)` 起、到那一条终态信号为止（见 beginDownloadTask()）。
     Tasks::TaskId m_downloadTaskId = Tasks::invalidTaskId();
@@ -3433,12 +3439,10 @@ private:
     ///   号的话，用户点开**上一件**失败任务的详情页，上面那颗「重试」照样露着（账本里那位
     ///   `canRetry` 是它自己失败那一刻钉下的），点下去重做的却是**后一批**的文件 —— 一颗
     ///   按了会做错事的按钮。判据见 `retryWouldWork()`（「取消」那一颗的孪生兄弟）。
-    Tasks::TaskId m_retryableTaskId = Tasks::invalidTaskId();
     /// 会话号 → 那一次启动的任务号（和 m_launchingSessions / m_sessionDisplayNames 同寿）。
     QHash<int, Tasks::TaskId> m_launchTaskIds;
     /// 用户**还没看过**的那几次失败（面板里那一行挂红点、收起态那格挂红点）。
     /// 打开任务中心面板就算看过了（那是"列给你看"的唯一动作）。
-    QSet<Tasks::TaskId> m_unreadFailures;
     /// "刚完成的那一项还在收起态里露着"这件事到期了要重画一次（`taskSummaryRecentWindowMs()`）。
     /// **单发**：每次摆摘要时按"还差多久到期"重新起一次（见 updateBottomBarTaskSummary()）。
     QTimer *m_taskSummaryTimer = nullptr;

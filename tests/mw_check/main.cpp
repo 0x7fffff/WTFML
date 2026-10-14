@@ -4108,6 +4108,21 @@ static void runGameCrashTests() {
                   "标题退回没有实例、那句概括也不带名字",
                   added.title);
         }
+
+        // ---------- ⑤ 用户从任务中心主动停止：强杀形状也不算异常 ----------
+        // Windows 上 QProcess::kill() 通常给 CrashExit / 非零码；这里钉的是“谁要求停的”，
+        // 不能只看进程退出形状，否则用户自己的停止动作会制造一条失败任务和红点。
+        const int stoppedSession = 4245;
+        w.seedSessionFactsForTest(stoppedSession, QStringLiteral("1.199.3-T34主动停止"),
+                                  QStringLiteral("T34主动停止"), 17, javaPath, 0, 0,
+                                  QString(), QString());
+        w.markGameStopRequestedForTest(stoppedSession);
+        QMetaObject::invokeMethod(&w, "onGameFinished", Qt::DirectConnection,
+                                  Q_ARG(int, stoppedSession), Q_ARG(int, -1),
+                                  Q_ARG(QProcess::ExitStatus, QProcess::CrashExit));
+        check(crashTasks().size() == baseline + 3,
+              "★★ T34.5 用户主动停止 ⇒ 即使是 CrashExit / 非零码也不补异常退出任务",
+              QString::number(crashTasks().size()));
     }
 
     TokenStore::clear(TokenStore::microsoftKey());

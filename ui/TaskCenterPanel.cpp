@@ -422,8 +422,7 @@ void TaskCenterPanel::popUp() {
 void TaskCenterPanel::showEmbedded() {
     m_opened = true;
     m_compact = width() > 0 && width() < kWorkspaceMinWidth;
-    m_runningPane->setVisible(!m_compact);
-    m_detailPane->setVisible(!m_compact);
+    applyWorkspaceMode();
     rebuild();
     show();
 }
@@ -432,12 +431,41 @@ std::function<void()> TaskCenterPanel::rowActivate(const QString &key) {
     // 每一行各捕一份**自己那把钥匙**：处理器只被告知"点的是哪一项"，不被告知"点的是第几行"
     // —— 行号会随着"清掉一条已完成"整体往上挪，面板开着的时候用户点的那一行早就不是
     // 他看见的那一行了。
+    if (!m_embedded && !m_onRowActivated) {
+        return {};
+    }
     return [this, key]() {
         selectTask(key);
-        if (m_compact && m_onRowActivated) {
+        if (m_embedded && m_compact) {
+            m_compactDetailOpen = true;
+            applyWorkspaceMode();
+        } else if (m_compact && m_onRowActivated) {
             m_onRowActivated(key);
         }
     };
+}
+
+void TaskCenterPanel::applyWorkspaceMode() {
+    if (!m_embedded) {
+        return;
+    }
+    m_runningPane->setVisible(!m_compact);
+    if (!m_compact) {
+        m_scroll->show();
+        m_detailPane->show();
+        m_detailPane->setMinimumWidth(kDetailWidth);
+        m_detailPane->setMaximumWidth(kDetailWidth);
+        m_detailPane->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
+        return;
+    }
+
+    // 窄屏不再尝试从已经打开的 OverlayHost 再开一层详情页：任务列表和详情在同一页内切换。
+    m_runningPane->hide();
+    m_scroll->setVisible(!m_compactDetailOpen);
+    m_detailPane->setVisible(m_compactDetailOpen);
+    m_detailPane->setMinimumWidth(0);
+    m_detailPane->setMaximumWidth(QWIDGETSIZE_MAX);
+    m_detailPane->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 }
 
 void TaskCenterPanel::refresh() {
@@ -452,8 +480,7 @@ void TaskCenterPanel::place(bool animate) {
     if (m_embedded) {
         const int availableWidth = qMax(0, width());
         m_compact = availableWidth > 0 && availableWidth < kWorkspaceMinWidth;
-        m_runningPane->setVisible(!m_compact);
-        m_detailPane->setVisible(!m_compact);
+        applyWorkspaceMode();
         return;
     }
     if (m_anchor == nullptr) {
@@ -474,8 +501,7 @@ void TaskCenterPanel::place(bool animate) {
 
     const int availableWidth = available.isValid() ? available.width() - 16 : kWorkspaceMaxWidth;
     m_compact = availableWidth < kWorkspaceMinWidth;
-    m_runningPane->setVisible(!m_compact);
-    m_detailPane->setVisible(!m_compact);
+    applyWorkspaceMode();
     adjustSize();
     const int wantedWidth = m_compact ? qMin(kCompactWidth, availableWidth)
                                       : qBound(kWorkspaceMinWidth, availableWidth,
@@ -733,6 +759,18 @@ void TaskCenterPanel::rebuildDetail(const QList<TaskCenter::Item> &items) {
     }
 
     const TaskCenter::Item &item = *selected;
+    if (m_embedded && m_compact) {
+        auto *back = new QPushButton(tr("← 返回任务列表"), m_detailContent);
+        back->setObjectName(QStringLiteral("taskCenterCompactBack"));
+        Theme::markButton(back, Theme::ButtonKind::Ghost);
+        connect(back, &QPushButton::clicked, back, [this]() {
+            m_compactDetailOpen = false;
+            m_selectedKey.clear();
+            rebuildDetail(m_provider ? m_provider() : QList<TaskCenter::Item>());
+            applyWorkspaceMode();
+        });
+        layout->addWidget(back, 0, Qt::AlignLeft);
+    }
     auto *title = new QLabel(item.title, m_detailContent);
     title->setWordWrap(true);
     QFont titleFont = title->font();
@@ -837,8 +875,10 @@ void TaskCenterPanel::resizeEvent(QResizeEvent *event) {
         return;
     }
     m_compact = compact;
-    m_runningPane->setVisible(!m_compact);
-    m_detailPane->setVisible(!m_compact);
+    if (!m_compact) {
+        m_compactDetailOpen = false;
+    }
+    applyWorkspaceMode();
 }
 
 bool TaskCenterPanel::handleOutsidePress(QMouseEvent *event) {

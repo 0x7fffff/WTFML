@@ -224,6 +224,8 @@ private:
     void rebuildRunning();
     void rebuildDetail(const QList<TaskCenter::Item> &items);
     void selectTask(const QString &key);
+    /// 宽屏三列 / 窄屏“列表或详情占满整页”的唯一布局切换点。
+    void applyWorkspaceMode();
     /// 给某一行造一个"点了怎么办"（没挂处理器时回一个空的 —— 那一行就不可点）。
     std::function<void()> rowActivate(const QString &key);
     /// 摆到 anchor 正上方。@p animate true = 从下面滑上来（第一次），false = 直接挪过去。
@@ -254,6 +256,7 @@ private:
     QString m_selectedKey;
     bool m_runningCollapsed = false;
     bool m_compact = false;
+    bool m_compactDetailOpen = false;
     bool m_opened = false;
     bool m_embedded = false;
 };

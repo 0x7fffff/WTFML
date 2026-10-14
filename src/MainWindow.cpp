@@ -135,6 +135,7 @@
 #include "auth/AuthManager.hpp"
 #include "auth/SkinApi.hpp"
 #include "controllers/JavaRuntimeController.hpp"
+#include "controllers/ActivityCenterController.hpp"
 // 下载页那几类资源的取数（搜索 / 版本列表 / 图标）。头文件那边只前置声明了这个类
 // （那里用不到它的定义），这里要用真的。
 #include "download/ResourceStore.hpp"
@@ -159,7 +160,7 @@
 #include "settings/GlobalJavaSettings.hpp"
 #include "settings/LauncherSettings.hpp"
 // 任务账本（2026-10-12，coding plan §2 / §3）—— 底栏中间那格和任务中心面板都读它。
-// 这个类是这里 new 出来的（`m_taskManager`），所以要用真的定义。
+// 账本现在由 ActivityCenterController 持有；MainWindow 仍在迁移期通过 controller 更新执行进度。
 #include "tasks/TaskManager.hpp"
 #include "util/AppPaths.hpp"
 // 日志窗底下那颗「导出错误报告…」那一份文本怎么拼（头部那些事实 + 两段日志）。
@@ -1503,7 +1504,7 @@ MainWindow::MainWindow(QWidget *parent)
     // 进程都不起（执行者照旧是 DownloadManager / VersionManager / LauncherManager）——
     // 这一层负责把它们的信号翻成 begin() / setProgress() / succeed()（§2.1「不把任务中心
     // 做成第二套业务逻辑」）。
-    m_taskManager = new Tasks::TaskManager(this);
+    m_activityCenter = new ActivityCenterController(this);
     // 收起态那一格的重画时机里有一档是"刚完成那一项露到头了"（§3.1「完成任务短暂显示后
     // 收进历史」）—— 那个到期**没有任何信号会来**，只能自己起一个单发定时器。
     m_taskSummaryTimer = new QTimer(this);
@@ -1512,14 +1513,11 @@ MainWindow::MainWindow(QWidget *parent)
     // 账本一变就重画底栏那一格。**不去分辨"变的是哪一项"**：收起态显示谁是把整张账本
     // 放在一起算出来的（`Tasks::collapsedSummary()`），只重画"变了的那一行"在这里没有
     // 对应的东西可画（那一格只有一个整体）。
-    connect(m_taskManager, &Tasks::TaskManager::taskChanged, this,
-            [this](Tasks::TaskId) { updateBottomBarTaskSummary(); });
-    connect(m_taskManager, &Tasks::TaskManager::taskFinished, this,
-            [this](Tasks::TaskId, bool) { updateBottomBarTaskSummary(); });
+    connect(m_activityCenter, &ActivityCenterController::activityChanged, this,
+            &MainWindow::updateBottomBarTaskSummary);
     // 「已完成」那一栏变了（收尾 / 清除 / 读盘）：面板要是开着，跟着重画一遍。
-    connect(m_taskManager, &Tasks::TaskManager::historyChanged, this, [this]() {
+    connect(m_activityCenter, &ActivityCenterController::historyChanged, this, [this]() {
         m_ui->refreshTaskCenterPanel();
-        updateBottomBarTaskSummary();
     });
     // 任务中心那块面板要画什么、以及「清除已完成」被点了做什么。**每次点开/重画现问一遍**
     // （和底栏那两块面板一个路数：面板自己不会跟着账本刷新，缓存上一次那几行迟早说假话）。
@@ -1527,7 +1525,7 @@ MainWindow::MainWindow(QWidget *parent)
     // NOTE: provider 那一头有一处**副作用**（"列出来"就是"看过了"，见 taskCenterItems()），
     //       所以它不能是 const 的、更不能被别人当"读一下"随便调。
     m_ui->setTaskCenterContent([this]() { return taskCenterItems(); },
-                               [this]() { m_taskManager->clearFinished(); });
+                               [this]() { m_activityCenter->clearFinished(); });
     // 点任务中心里的**一行** = 开任务详情页（coding plan §3.2「点击任务进入内嵌 TaskDetailPage」）。
     m_ui->setTaskCenterRowActivatedHandler([this](const QString &key) { openTaskDetailPage(key); });
     // 行尾那颗「取消」：走的是和详情页里那一颗**完全同一条路**（`onTaskDetailAction`）——
@@ -1655,7 +1653,7 @@ MainWindow::MainWindow(QWidget *parent)
     //
     // 账本是启动器级的固定文件，不随当前游戏文件夹切换。这样正在下载/启动时切换目录，
     // 内存里的任务不会在下一次落盘时被写进另一份 .minecraft。
-    m_taskManager->loadHistory();
+    m_activityCenter->loadHistory();
     // 「忽略这一版 / 固定这一版」那一本账（§7.1）：**启动时读一次**。
     //
     // ★ 读不回来（文件被改坏了 / 权限不对）**不拦任何事**：那是"以后别再提示我"这一档的
@@ -2835,9 +2833,9 @@ void MainWindow::setupConnections() {
                     return;
                 }
                 m_serverInstallStepCount = names.size();
-                m_taskManager->setSteps(m_serverInstallTaskId,
+        m_activityCenter->tasks()->setSteps(m_serverInstallTaskId,
                                         taskStepsFromNames(names, runningIndex));
-                m_taskManager->setProgress(m_serverInstallTaskId, qMax(0, runningIndex),
+                m_activityCenter->tasks()->setProgress(m_serverInstallTaskId, qMax(0, runningIndex),
                                            qMax(1, names.size()));
             });
     connect(m_serverInstall, &ServerInstallRun::ServerInstallController::stepChanged, this,
@@ -2845,12 +2843,12 @@ void MainWindow::setupConnections() {
                 if (m_serverInstallTaskId == Tasks::invalidTaskId()) {
                     return;
                 }
-                m_taskManager->setStepState(m_serverInstallTaskId, index,
+                m_activityCenter->tasks()->setStepState(m_serverInstallTaskId, index,
                                             ok ? Tasks::TaskStepState::Done
                                                : Tasks::TaskStepState::Failed,
                                             note);
                 if (ok) {
-                    m_taskManager->setProgress(m_serverInstallTaskId, index + 1,
+                    m_activityCenter->tasks()->setProgress(m_serverInstallTaskId, index + 1,
                                                qMax(1, m_serverInstallStepCount));
                 }
             });
@@ -2859,7 +2857,7 @@ void MainWindow::setupConnections() {
                 if (m_serverInstallTaskId == Tasks::invalidTaskId()) {
                     return;
                 }
-                m_taskManager->setBytes(m_serverInstallTaskId, done, total);
+                m_activityCenter->tasks()->setBytes(m_serverInstallTaskId, done, total);
             });
     connect(m_serverInstall, &ServerInstallRun::ServerInstallController::finished, this,
             [this](ServerInstallRun::Outcome outcome, const QString &errorSummary) {
@@ -2881,7 +2879,7 @@ void MainWindow::setupConnections() {
                     // ★ 取消是一种**正常**的收场（§3.3 里"取消"是单独一档），不是失败 ——
                     //   所以不能借 `finishTask(id, false, …)` 那条路（那会把它记成失败、
                     //   还点亮底栏那颗"没看过的失败"红点）。账本自己那颗入口就在这儿。
-                    m_taskManager->cancel(id);
+                    m_activityCenter->tasks()->cancel(id);
                     break;
                 case ServerInstallRun::Outcome::Failed:
                     finishTask(id, false, errorSummary);
@@ -3132,9 +3130,8 @@ void MainWindow::updateBottomBarTaskSummary() {
     const QDateTime now = QDateTime::currentDateTime();
     // 收起态显示谁 —— **唯一出处**在账本层那条纯函数里（§3.1 那一串优先级 + "刚完成那一
     // 项还露着"的时间窗）。这里一个字都不加规则：加了就等于有两套优先级。
-    const Tasks::TaskSummary picked = Tasks::collapsedSummary(
-        m_taskManager->all(), m_unreadFailures, now,
-        MainWindowUI::taskSummaryRecentWindowMs());
+    const Tasks::TaskSummary picked = m_activityCenter->collapsedSummary(
+        now, MainWindowUI::taskSummaryRecentWindowMs());
 
     MainWindowUI::BottomBarTaskSummary summary;
     summary.hasTask = picked.id != Tasks::invalidTaskId();
@@ -3174,7 +3171,7 @@ void MainWindow::updateBottomBarTaskSummary() {
     m_taskSummaryTimer->stop();
     if (summary.hasTask && Tasks::isTerminalState(picked.state)
         && picked.id != Tasks::invalidTaskId()) {
-        const Tasks::TaskSnapshot task = m_taskManager->snapshot(picked.id);
+        const Tasks::TaskSnapshot task = m_activityCenter->tasks()->snapshot(picked.id);
         if (task.finishedAt.isValid()) {
             const qint64 left = MainWindowUI::taskSummaryRecentWindowMs()
                                 - task.finishedAt.msecsTo(now);
@@ -3211,10 +3208,10 @@ bool MainWindow::cancelWouldWork(const Tasks::TaskSnapshot &task) const {
 
 bool MainWindow::retryWouldWork(const Tasks::TaskSnapshot &task) const {
     // 判据本体在账本层的纯函数 `Tasks::retryOffered()`（verify 的 AL 节钉着它那张真值表）——
-    // 这一层只负责把两个"现在"喂进去：那一格失败清单**是谁的**（`m_retryableTaskId`，
-    // 失败收尾时记下）和**还在不在**（`VersionManager::canRetryDownload()`）。
+    // 这一层只负责把执行器的“现在还能不能重试”喂给活动中心；失败清单属于哪一项由
+    // ActivityCenterController 自己持有。
     const bool held = m_versionManager != nullptr && m_versionManager->canRetryDownload();
-    return Tasks::retryOffered(task, m_retryableTaskId, held);
+    return m_activityCenter->retryWouldWork(task, held);
 }
 
 /// 账本里的一项 ⇒ 界面要的一份。**`taskCenterItems()`（面板）和任务详情页共用的唯一
@@ -3231,7 +3228,7 @@ TaskCenter::Item MainWindow::taskCenterItem(const Tasks::TaskSnapshot &task) con
     item.percent = Tasks::percentOf(task);
     item.state = taskCenterState(task.state);
     item.unreadFailure = task.state == Tasks::TaskState::Failed
-                         && m_unreadFailures.contains(task.id);
+                         && m_activityCenter->isUnreadFailure(task.id);
     item.finishedAt = task.finishedAt;
     item.startedAt = task.startedAt;
     item.errorSummary = task.errorSummary;
@@ -3291,7 +3288,7 @@ TaskCenter::Item MainWindow::taskCenterItem(const Tasks::TaskSnapshot &task) con
 }
 
 QList<TaskCenter::Item> MainWindow::taskCenterItems() {
-    const QList<Tasks::TaskSnapshot> tasks = m_taskManager->all();
+    const QList<Tasks::TaskSnapshot> tasks = m_activityCenter->tasks()->all();
     QList<TaskCenter::Item> items;
     items.reserve(tasks.size());
     for (const Tasks::TaskSnapshot &task : tasks) {
@@ -3304,9 +3301,8 @@ QList<TaskCenter::Item> MainWindow::taskCenterItems() {
     // NOTE: 清在这句**之后**：上面那些 `item.unreadFailure` 是按清之前那一份算的（面板要
     //       把"哪几条是新的"标出来），清在循环里的话第一行之后就全成"看过了"。
     // NOTE: 这一处副作用是**名字里看不出来**的，所以这个函数只给面板那个 provider 用，
-    //       别人想读一眼账本请直接问 m_taskManager（那里的读侧没有副作用）。
-    if (!m_unreadFailures.isEmpty()) {
-        m_unreadFailures.clear();
+    //       别人想读一眼账本请直接问 ActivityCenterController 的账本读侧（没有副作用）。
+    if (m_activityCenter->markAllViewed()) {
         updateBottomBarTaskSummary();
     }
     return items;
@@ -3315,10 +3311,10 @@ QList<TaskCenter::Item> MainWindow::taskCenterItems() {
 bool MainWindow::fillTaskDetail(const QString &key, TaskCenter::Item *out) const {
     bool ok = false;
     const Tasks::TaskId id = key.toInt(&ok);
-    if (!ok || !m_taskManager->has(id)) {
+    if (!ok || !m_activityCenter->tasks()->has(id)) {
         return false;
     }
-    *out = taskCenterItem(m_taskManager->snapshot(id));
+    *out = taskCenterItem(m_activityCenter->tasks()->snapshot(id));
     return true;
 }
 
@@ -3378,11 +3374,11 @@ void MainWindow::onTaskDetailAction(const QString &key, TaskDetailPage::Action a
         bool parsed = false;
         const Tasks::TaskId retryId = key.toInt(&parsed);
         if (parsed && m_versionManager != nullptr
-            && retryWouldWork(m_taskManager->snapshot(retryId))
+            && retryWouldWork(m_activityCenter->tasks()->snapshot(retryId))
             && m_versionManager->retryDownload()) {
             // 那一格失败清单**刚被这一按吃掉了**（`retryDownload()` 自己 reset）⇒ 号也跟着
             // 松开，不然同一颗按钮留在页上还能再点一次（再点一次什么都不会发生）。
-            m_retryableTaskId = Tasks::invalidTaskId();
+            m_activityCenter->markRetryConsumed();
             appendLog(tr("正在重试上一次没下下来的那几个文件…"));
         }
         break;
@@ -3458,10 +3454,10 @@ void MainWindow::openTaskLog(const QString &key) {
 void MainWindow::openTaskTarget(const QString &key) {
     bool ok = false;
     const Tasks::TaskId id = key.toInt(&ok);
-    if (!ok || !m_taskManager->has(id)) {
+    if (!ok || !m_activityCenter->tasks()->has(id)) {
         return;
     }
-    const Tasks::TaskSnapshot task = m_taskManager->snapshot(id);
+    const Tasks::TaskSnapshot task = m_activityCenter->tasks()->snapshot(id);
     // 目标就是那一项自己记的那个 id（实例 id / 版本号），空的话落到数据目录 ——
     // 一样"点得开"，不给一颗点了没反应的按钮。
     // 目标就是那一项自己记的那个 id，空的话落到数据目录 —— 一样"点得开"，不给一颗点了
@@ -3520,109 +3516,22 @@ void MainWindow::copyTaskSummary(const QString &key) {
     appendLog(tr("这一项的摘要已经复制到剪贴板。"));
 }
 
-Tasks::TaskCapabilities MainWindow::defaultTaskCapabilities(Tasks::TaskKind kind) {
-    // 「这一项**起手**就允许什么」。会变的那几位（`canRetry`）不在这里 —— 它要等失败那一刻
-    // 才知道有没有可重做的东西，由 `finishTask()` 补（见那边的 NOTE）。
-    //
-    // ★ 这张表是**唯一出处**：面板那一行的按钮、详情页那一排按钮，都只读账本里记的这几位，
-    //   谁都不再自己按状态推一遍（推两边迟早漂开，症状是"界面上有一颗点了没反应的按钮"）。
-    Tasks::TaskCapabilities caps;
-    switch (kind) {
-    case Tasks::TaskKind::Download:
-    case Tasks::TaskKind::Install:
-    case Tasks::TaskKind::Import:
-        // 这三档底下就是一批文件下载，取消能真的掐掉它（见 VersionManager::cancelActiveDownload）。
-        caps.canCancel = true;
-        break;
-    case Tasks::TaskKind::Launch:
-    case Tasks::TaskKind::Export:
-    // `Backup`（§4.4）和导出同一条路：本地走一遍目录、算哈希、起一次 PowerShell 打包
-    // （还原那一路还要先删旧的那一份）。掐断它意味着**盘上留一个半截的包或者删了一半的
-    // 目录**，比让它跑完糟得多 —— 所以不给「取消」（同 Export 那一条的理由）。
-    case Tasks::TaskKind::Backup:
-    case Tasks::TaskKind::Java:
-    case Tasks::TaskKind::Integrity:
-    case Tasks::TaskKind::Crash:
-    case Tasks::TaskKind::Other:
-        // 游戏进程 / 本地打包 / Java 运行时那几条路**没有"取消"这一说**（要么进程自己退，
-        // 要么那件事短到点不着）。给一颗点了没反应的「取消」比不给还糟。
-        //
-        // `Crash` 那一项更绝：它**建出来就已经结束了**（见枚举上那句），连"正在进行"
-        // 都没有过。
-        break;
-    }
-    // ★ §4.3：只有「游戏异常退出」那一项有两颗别处没有的动作 —— 它手里有一份**会话事实**
-    //   （退出码 / Java / 内存 / 那一段日志），而这两颗正是"拿这份事实做点什么"。
-    //   别的任务没有这份东西，所以那两颗在它们身上根本不摆（摆出来点了只能弹一句
-    //   "没有可导出的东西"，那比不给更糟）。
-    if (kind == Tasks::TaskKind::Crash) {
-        caps.canExportReport = true;
-        caps.canOpenCrashDir = true;
-    }
-    // 打开日志永远能开（日志窗是常驻的）；打开目标位置也是 —— 这一项的 `targetId` 空的话
-    // 那一颗按"数据目录"开（见 onTaskDetailAction），不会点了没反应。
-    caps.canOpenLog = true;
-    caps.canOpenTarget = true;
-    return caps;
-}
-
 Tasks::TaskId MainWindow::beginTask(Tasks::TaskKind kind, const QString &title,
                                     const QString &targetId,
                                     const QList<Tasks::TaskStep> &steps) {
-    // 薄薄一层，故意留着：**所有**往账本里新增的地方都从这一处过（以后要在这里加"记一行
-    // 日志""按种类改能力位"这一类横切的事，只有这一个地方需要改）。
-    return m_taskManager->begin(kind, title, targetId, steps, defaultTaskCapabilities(kind));
+    return m_activityCenter->begin(kind, title, targetId, steps);
 }
 
 void MainWindow::finishTask(Tasks::TaskId id, bool success, const QString &errorSummary) {
-    if (id == Tasks::invalidTaskId() || !m_taskManager->has(id)) {
-        return;  // 号早就没了的（比如用户按过「清除已完成」）不算事
-    }
-    if (success) {
-        // 成功那一批会把 `VersionManager` 那一格失败清单 reset 掉（见那边收尾那一段）
-        // ⇒ 要是这一格本来就是它的，号也得跟着松开（不然上一件失败任务还会被当成"现在
-        // 这一格的主人"，`retryWouldWork()` 会跟着一起说谎）。
-        if (m_retryableTaskId == id) {
-            m_retryableTaskId = Tasks::invalidTaskId();
-        }
-        m_taskManager->succeed(id);
-        return;
-    }
-    // ★ 失败一律先记成"用户还没看过"（底栏那颗红点）—— 唯一撤掉它的动作是**打开任务中心**。
-    //
-    // NOTE: **故意不分**"这个失败刚才已经弹过窗了"：弹窗是另一条通道（用户可能正好没看
-    //       那一眼、或者那扇窗压在过去某个窗后面），而红点只是一个记号，点开一次就没了。
-    // NOTE: 按 `fail()` 的**返回值**决定要不要记红点：它回 false 表示这一项**早就收过尾**
-    //       了（终态只落一次，见 TaskManager::finish），那种情况不该把一次成功再标成"没看
-    //       过的失败"。
-    // ★ 「重试」露不露是**失败那一刻**才知道的（要问下载器"上一次失败的那一批里有没有
-    //   留下够重做的东西"）—— 所以它不跟着 begin() 那张表走，补在这里。
-    //
-    // NOTE: **必须在 `fail()` 之前**补。一收尾，`setCapabilities()` 就被那条「终态不可变」
-    //       的闸挡掉了（那六个写入口都判 `isActiveState()`）—— 顺序反过来这一句静默失败，
-    //       症状是详情页上永远没有「重试」，而且不报错。
-    if (m_versionManager != nullptr && m_versionManager->canRetryDownload()) {
-        Tasks::TaskCapabilities caps = m_taskManager->snapshot(id).capabilities;
-        caps.canRetry = true;
-        m_taskManager->setCapabilities(id, caps);
-        // ★ 顺手记下"现在那一格里装的是**谁的**失败清单"（`VersionManager` 只有一格，
-        //   新一批失败会把它盖掉）—— 「重试」那一颗要按这个号认人，见 `retryWouldWork()`。
-        //
-        // NOTE: **只在这一支里记**（`canRetryDownload()` 为真 = 清单真的留下来了）。上面那位
-        //       `canRetry` 是钉进账本、要跨重启的历史事实；这个号是**内存里那份清单的钥匙**，
-        //       两者不同寿，判据里必须一起看。
-        m_retryableTaskId = id;
-    }
-    if (m_taskManager->fail(id, errorSummary)) {
-        m_unreadFailures.insert(id);
-        updateBottomBarTaskSummary();
-    }
+    const bool retryPayloadAvailable =
+        m_versionManager != nullptr && m_versionManager->canRetryDownload();
+    m_activityCenter->finish(id, success, errorSummary, retryPayloadAvailable);
 }
 
 void MainWindow::beginDownloadTask() {
     // 同一批里 `setDownloadUiBusy(true)` 只该来一次；但要是上一批的号还留着（理论上不该），
     // 也不能拿它当新的使 —— 那一行的进度会从上一批的位置开始爬。
-    if (m_downloadTaskId != Tasks::invalidTaskId() && m_taskManager->has(m_downloadTaskId)) {
+    if (m_downloadTaskId != Tasks::invalidTaskId() && m_activityCenter->tasks()->has(m_downloadTaskId)) {
         return;
     }
     // 这一批到底是哪一类活：判据就是界面上自己记的那三个 id（它们在**置忙之前**就写好了，
@@ -4174,12 +4083,12 @@ void MainWindow::updateDownloadProgressUi(int done, int total, int failed,
         }
     }
 
-    if (task != Tasks::invalidTaskId() && m_taskManager->has(task)) {
+    if (task != Tasks::invalidTaskId() && m_activityCenter->tasks()->has(task)) {
         // 两样都记：数量那半边决定百分比（条子画多长），文字那半边是"现在在干什么"。
         // NOTE: `total <= 0` 原样传给账本（它是"不可测"的判据，见 Tasks::percentOf()）——
         //       上面那句文案里的 done/total 是**说给人听**的，不要把 0 也传进去。
-        m_taskManager->setProgress(task, done > 0 ? done : 0, total > 0 ? total : 0);
-        m_taskManager->setDetail(task, detail);
+        m_activityCenter->tasks()->setProgress(task, done > 0 ? done : 0, total > 0 ? total : 0);
+        m_activityCenter->tasks()->setDetail(task, detail);
         // ⚠ 这一段里**不要**再自己写进度条和状态栏。它们由 `taskChanged` → 底栏重画那一发
         //   统一摆（`Anim::smoothProgress()` 也在那条路上）——两处各写一次，用户看到的是
         //   同一格在 240 ms 的追值动画里被第二只手按住，实际表现是"条子偶尔一顿"。
@@ -7317,7 +7226,7 @@ void MainWindow::installServer(const QString &serverId, const ServerInstall::Req
     // NOTE: 百分比按"走到第几格"算（`stepsChanged` / `stepChanged` 那两条连线里往前推）。
     //       服务端安装的总量（一共要下多少字节）要等元数据取回来才知道，在那之前报任何
     //       百分数都是编的 —— 同 `Tasks::percentOf()` 那条"测不出就不显示"的规矩。
-    m_taskManager->setProgress(id, 0, qMax(1, names.size()));
+    m_activityCenter->tasks()->setProgress(id, 0, qMax(1, names.size()));
 
     // ★ 起手先切到服务端那一页：用户刚点的就是那儿，而"装到哪个实例里"这件事在这一页上
     //   （任务中心那一条也带 targetId，点「打开目标位置」就是它的目录）。
@@ -8985,8 +8894,8 @@ void MainWindow::onUpdateBatchFileFinished(const QString &label, const QString &
         return;  // 这一条不在我们登记过的名单里（正常走不到）
     }
     const int index = pending.takeFirst();
-    if (m_taskManager->has(m_updateBatch.task)) {
-        m_taskManager->setStepState(m_updateBatch.task, index,
+    if (m_activityCenter->tasks()->has(m_updateBatch.task)) {
+        m_activityCenter->tasks()->setStepState(m_updateBatch.task, index,
                                     success ? Tasks::TaskStepState::Done
                                             : Tasks::TaskStepState::Failed,
                                     success ? QString() : errorMessage);
@@ -9010,8 +8919,8 @@ void MainWindow::finishUpdateBatch(bool success, const QString &errorMessage) {
     if (run.label.isEmpty()) {
         return;
     }
-    if (m_taskManager->has(run.task)) {
-        m_taskManager->setDetail(run.task, tr("换好 %1 个，失败 %2 个。")
+    if (m_activityCenter->tasks()->has(run.task)) {
+        m_activityCenter->tasks()->setDetail(run.task, tr("换好 %1 个，失败 %2 个。")
                                                .arg(run.succeeded.size())
                                                .arg(run.failedSteps));
         finishTask(run.task, success && run.failedSteps == 0,
@@ -11574,8 +11483,8 @@ void MainWindow::onStartButtonClicked() {
     // 账本上这件任务的第一步（「准备运行环境」= 换令牌 + 挑/下 Java）到此为止，下一步是
     // 真正把进程拉起来。**摆在这一句**是因为它是这两步之间唯一说得准的分界：Java 拿到了，
     // 后面剩下的都不再是"准备"（拼参数、startGame 都是"启动"那一步）。
-    m_taskManager->setStepState(launchTask, 0, Tasks::TaskStepState::Done);
-    m_taskManager->setStepState(launchTask, 1, Tasks::TaskStepState::Running);
+    m_activityCenter->tasks()->setStepState(launchTask, 0, Tasks::TaskStepState::Done);
+    m_activityCenter->tasks()->setStepState(launchTask, 1, Tasks::TaskStepState::Running);
 
     // 「改用匹配的 Java」：把刚挑中的那条路径写回**这个实例**。
     //
@@ -16524,7 +16433,7 @@ void MainWindow::updateInstanceFiles(const QString &instanceId, const QString &p
                                        .arg(instanceDisplayName(instanceId))
                                        .arg(files.size()),
         instanceId, steps);
-    m_taskManager->setProgress(m_updateBatch.task, 0, static_cast<qint64>(files.size()));
+    m_activityCenter->tasks()->setProgress(m_updateBatch.task, 0, static_cast<qint64>(files.size()));
 
     appendLog(tr("正在更新 %1（%2）。")
                   .arg(label, QDir::toNativeSeparators(files.first().dir)));
@@ -16537,7 +16446,7 @@ void MainWindow::updateInstanceFiles(const QString &instanceId, const QString &p
         // 没开起来（已经有别的批次在跑 / 那三套安装状态机占着）：账本里那一条**当场收尾**，
         // 别留一条永远"正在跑"的记录，回滚点也一起撤掉（一个字节都没动过，留着只会让
         // 更新中心上那颗「撤销上一次更新」指向一次没发生的更新）。
-        m_taskManager->fail(m_updateBatch.task, tr("没能开始这一批更新。"));
+        m_activityCenter->tasks()->fail(m_updateBatch.task, tr("没能开始这一批更新。"));
         m_updateBatch = UpdateBatchRun{};
         UpdateRollback::discard(instanceId);
     }
@@ -17424,7 +17333,7 @@ void MainWindow::reportGameCrash(int sessionId, int exitCode, bool crashed) {
     // 和账本**同寿**，不清的话它会随着崩过的次数一直长。
     const QList<Tasks::TaskId> known = m_crashRecords.keys();
     for (Tasks::TaskId old : known) {
-        if (!m_taskManager->has(old)) {
+        if (!m_activityCenter->tasks()->has(old)) {
             m_crashRecords.remove(old);
         }
     }
@@ -17451,7 +17360,7 @@ void MainWindow::reportGameCrash(int sessionId, int exitCode, bool crashed) {
     }
     // ★ 顺序要紧：终态**只落一次**（见 TaskManager::finish），`fail()` 之后那六个写入口
     //   一律被挡掉 —— 所以详情和那份记录都必须在它**之前**写进去。
-    m_taskManager->setDetail(id, tr("退出码 %1").arg(exitText));
+    m_activityCenter->tasks()->setDetail(id, tr("退出码 %1").arg(exitText));
     m_crashRecords.insert(id, record);
 
     // 摘要 = 一句概括，后面空一行接上那几句提示。**并成一整块**而不是分开摆：它们在任务
@@ -18153,7 +18062,7 @@ void MainWindow::submitIntegrityCheck(const QString &versionId) {
     m_integrityTaskId =
         beginTask(Tasks::TaskKind::Integrity,
                   tr("检查「%1」的文件").arg(instanceDisplayName(versionId)), versionId, steps);
-    m_taskManager->setProgress(m_integrityTaskId, 0, static_cast<qint64>(files.size()));
+    m_activityCenter->tasks()->setProgress(m_integrityTaskId, 0, static_cast<qint64>(files.size()));
     appendLog(tr("开始体检「%1」的文件（%2 个）...")
                   .arg(instanceDisplayName(versionId))
                   .arg(files.size()));
@@ -18210,17 +18119,17 @@ void MainWindow::submitIntegrityCheck(const QString &versionId) {
 }
 
 void MainWindow::onIntegrityScanProgress(int checked, int total, int groupIndex) {
-    if (m_integrityTaskId == Tasks::invalidTaskId() || !m_taskManager->has(m_integrityTaskId)) {
+    if (m_integrityTaskId == Tasks::invalidTaskId() || !m_activityCenter->tasks()->has(m_integrityTaskId)) {
         return;  // 用户按过「清除已完成」、或者这一项早就收尾了
     }
-    m_taskManager->setProgress(m_integrityTaskId, checked, total);
+    m_activityCenter->tasks()->setProgress(m_integrityTaskId, checked, total);
     // 四步按"正在比哪一组"标：前面 Done、当前 Running、后面 Pending（幂等，重复标没关系）。
     const int stepCount = static_cast<int>(VersionIntegrity::allGroups().size());
     for (int i = 0; i < stepCount; ++i) {
         const Tasks::TaskStepState state = i < groupIndex   ? Tasks::TaskStepState::Done
                                           : i == groupIndex ? Tasks::TaskStepState::Running
                                                             : Tasks::TaskStepState::Pending;
-        m_taskManager->setStepState(m_integrityTaskId, i, state);
+        m_activityCenter->tasks()->setStepState(m_integrityTaskId, i, state);
     }
 }
 
@@ -18230,13 +18139,13 @@ void MainWindow::onIntegrityScanFinished(const VersionIntegrity::Report &report)
     m_integrityScanVersionId.clear();
 
     // 四步全标 Done：**扫描本身是跑完了的**（哪怕查出 3000 个问题 —— 那是结论，不是失败）。
-    if (m_integrityTaskId != Tasks::invalidTaskId() && m_taskManager->has(m_integrityTaskId)) {
+    if (m_integrityTaskId != Tasks::invalidTaskId() && m_activityCenter->tasks()->has(m_integrityTaskId)) {
         const int stepCount = static_cast<int>(VersionIntegrity::allGroups().size());
         for (int i = 0; i < stepCount; ++i) {
-            m_taskManager->setStepState(m_integrityTaskId, i, Tasks::TaskStepState::Done);
+            m_activityCenter->tasks()->setStepState(m_integrityTaskId, i, Tasks::TaskStepState::Done);
         }
         // 面板 / 详情页上那一行小字写结论（`3120 个文件都完好` / `…里 2 个要修：…`）。
-        m_taskManager->setDetail(m_integrityTaskId, report.summary());
+        m_activityCenter->tasks()->setDetail(m_integrityTaskId, report.summary());
         // "体检没跑起来"（读不出 json）才算这一项失败；查出问题算**成功的一次体检**。
         if (!report.error.isEmpty()) {
             finishTask(m_integrityTaskId, false, report.error);
@@ -18725,11 +18634,11 @@ void MainWindow::onBackupWriteFinished(const BackupFiles::WriteResult &result,
                                        const QString &successTitle) {
     const Tasks::TaskId id = m_backupTaskId;
     m_backupTaskId = Tasks::invalidTaskId();
-    if (id != Tasks::invalidTaskId() && m_taskManager->has(id)) {
+    if (id != Tasks::invalidTaskId() && m_activityCenter->tasks()->has(id)) {
         if (result.ok) {
-            m_taskManager->setStepState(id, 0, Tasks::TaskStepState::Done);
-            m_taskManager->setStepState(id, 1, Tasks::TaskStepState::Done);
-            m_taskManager->setDetail(id, tr("共 %1 个文件，%2")
+            m_activityCenter->tasks()->setStepState(id, 0, Tasks::TaskStepState::Done);
+            m_activityCenter->tasks()->setStepState(id, 1, Tasks::TaskStepState::Done);
+            m_activityCenter->tasks()->setDetail(id, tr("共 %1 个文件，%2")
                                              .arg(result.manifest.fileCount())
                                              .arg(backupSizeText(result.manifest.totalBytes)));
             finishTask(id, true);
@@ -18738,7 +18647,7 @@ void MainWindow::onBackupWriteFinished(const BackupFiles::WriteResult &result,
             // 记在 `manifest.files` 里，"读不动某个文件""目录是空的"都走这一路）；
             // 清单非空却失败了，那就只可能是打包那一步。
             const int failedStep = result.manifest.files.isEmpty() ? 0 : 1;
-            m_taskManager->setStepState(id, failedStep, Tasks::TaskStepState::Failed,
+            m_activityCenter->tasks()->setStepState(id, failedStep, Tasks::TaskStepState::Failed,
                                         result.problem);
             finishTask(id, false, result.problem);
         }
@@ -18797,19 +18706,19 @@ void MainWindow::onBackupRestoreFinished(const BackupFiles::RestoreResult &resul
         return 3;
     };
 
-    if (id != Tasks::invalidTaskId() && m_taskManager->has(id)) {
+    if (id != Tasks::invalidTaskId() && m_activityCenter->tasks()->has(id)) {
         if (result.ok) {
             for (int i = 0; i < 4; ++i) {
-                m_taskManager->setStepState(id, i, Tasks::TaskStepState::Done);
+                m_activityCenter->tasks()->setStepState(id, i, Tasks::TaskStepState::Done);
             }
-            m_taskManager->setDetail(
+            m_activityCenter->tasks()->setDetail(
                 id, tr("核对过 %1 个文件，全都对得上").arg(result.checked));
             finishTask(id, true);
         } else {
             const int failed = stepOf(result.stage);
             for (int i = 0; i < 4; ++i) {
                 // 红的这一步之前的一律算做完了，之后的还停在"没轮上"（和体检那四步一个写法）。
-                m_taskManager->setStepState(id, i,
+                m_activityCenter->tasks()->setStepState(id, i,
                                             i < failed   ? Tasks::TaskStepState::Done
                                             : i == failed ? Tasks::TaskStepState::Failed
                                                           : Tasks::TaskStepState::Pending,
@@ -19090,7 +18999,7 @@ void MainWindow::onProcessOutput(int sessionId, const QString &text) {
         // 刻：一次启动在进程起来的那一刻就办完了，之后几个小时是"游戏在运行"（那件事由
         // 左下角那格说，见 runningGames()），把它记成"启动中"几个小时没有任何意义。
         const Tasks::TaskId launchTask = m_launchTaskIds.take(sessionId);
-        m_taskManager->setStepState(launchTask, 1, Tasks::TaskStepState::Done);
+        m_activityCenter->tasks()->setStepState(launchTask, 1, Tasks::TaskStepState::Done);
         finishTask(launchTask, true);
         updateBottomBar();
     }
@@ -19106,7 +19015,7 @@ void MainWindow::onProcessError(int sessionId, const QString &text) {
     if (m_launchingSessions.remove(sessionId)) {
         // 和 onProcessOutput() 那一段逐字一样（同一件事的另一个入口）。
         const Tasks::TaskId launchTask = m_launchTaskIds.take(sessionId);
-        m_taskManager->setStepState(launchTask, 1, Tasks::TaskStepState::Done);
+        m_activityCenter->tasks()->setStepState(launchTask, 1, Tasks::TaskStepState::Done);
         finishTask(launchTask, true);
         updateBottomBar();
     }
@@ -19219,6 +19128,9 @@ GameLogWindow *MainWindow::ensureGameLogWindow(int sessionId, bool userAsked) {
 }
 
 void MainWindow::onGameFinished(int sessionId, int exitCode, QProcess::ExitStatus exitStatus) {
+    // 必须在任何“是否异常”的判断之前取走：QProcess::kill() 在 Windows 上通常表现为
+    // CrashExit / 非零退出码，但从任务中心主动点“停止游戏”不是一次意外崩溃。
+    const bool userStopped = m_userStoppedSessions.remove(sessionId);
     // ★ 2026-09-27 修：这里原来读的是 `m_launcherManager->session(sessionId)`，而**这一趟
     //    走到这儿的时候那份会话已经从表里摘掉了** —— handleProcessFinished() 里 discard 在
     //    emit 之前（那是有意的，见那边的 NOTE），LauncherManager.hpp 的 gameFinished 文档
@@ -19231,7 +19143,9 @@ void MainWindow::onGameFinished(int sessionId, int exitCode, QProcess::ExitStatu
     game.sessionId = sessionId;
     game.displayName = m_sessionDisplayNames.value(sessionId);
     const QString tag = sessionLogTag(game);
-    if (exitStatus == QProcess::CrashExit) {
+    if (userStopped) {
+        appendLog(tr("%1游戏已由用户停止。").arg(tag));
+    } else if (exitStatus == QProcess::CrashExit) {
         appendLog(tr("%1游戏崩溃，退出码：%2").arg(tag).arg(exitCode));
     } else {
         appendLog(tr("%1游戏进程已结束，退出码：%2").arg(tag).arg(exitCode));
@@ -19259,7 +19173,8 @@ void MainWindow::onGameFinished(int sessionId, int exitCode, QProcess::ExitStatu
         snapshot.exitCode = exitCode;
     }
     if (GameLogWindow *logWindow = m_gameLogWindows.value(sessionId, nullptr)) {
-        if (GameLogWindow::autoCloseOnExit(exitCode, exitStatus == QProcess::CrashExit)) {
+        if (userStopped ||
+            GameLogWindow::autoCloseOnExit(exitCode, exitStatus == QProcess::CrashExit)) {
             logWindow->close();
         } else {
             logWindow->appendText(exitStatus == QProcess::CrashExit
@@ -19282,7 +19197,7 @@ void MainWindow::onGameFinished(int sessionId, int exitCode, QProcess::ExitStatu
     //     「异常退出补一项」那一支读的也是**同一个值**，不重算第二遍（两处各算一次的话，
     //     以后改判据就会有一处漏改）。
     const bool abnormalExit =
-        GameExitDiagnosis::isAbnormal(exitCode, exitStatus == QProcess::CrashExit);
+        !userStopped && GameExitDiagnosis::isAbnormal(exitCode, exitStatus == QProcess::CrashExit);
     finishLaunchRecord(
         m_sessionLaunchFacts.value(sessionId).startedAtMs,
         launchHistoryResult(abnormalExit, m_launchingSessions.contains(sessionId)),
@@ -19407,7 +19322,10 @@ void MainWindow::stopGameSession(int sessionId) {
     if (!confirmStopGame(game.displayName, 1)) {
         return;
     }
+    // 先记再 kill，避免极快进程在 stopGame() 返回之前就把 finished 投递回来。
+    m_userStoppedSessions.insert(sessionId);
     if (!m_launcherManager->stopGame(sessionId)) {
+        m_userStoppedSessions.remove(sessionId);
         // 上面那一问期间它退出了（游戏自己崩了/被别处停了）。
         appendLog(tr("「%1」刚刚已经结束了。").arg(game.displayName));
         return;

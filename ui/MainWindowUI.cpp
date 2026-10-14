@@ -772,6 +772,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
             new QPushButton(homeRecentSettingsText(), recentCard);
         homeRecentSettingsButton->setObjectName(homeRecentSettingsButtonName());
         Theme::markButton(homeRecentSettingsButton, Theme::ButtonKind::Neutral);
+        homeRecentSettingsButton->setProperty("wtfmlHomeAction", true);
         recentButtons->addWidget(homeRecentContinueButton);
         recentButtons->addWidget(homeRecentSettingsButton);
         recentButtons->addStretch(1);
@@ -856,6 +857,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         accountSkinButton->setObjectName(MainWindowUI::accountSkinButtonName());
         // 「角色皮肤…」= 通往另一个窗的一扇门（一般性），不是"干这件事"。
         Theme::markButton(accountSkinButton, Theme::ButtonKind::Neutral);
+        accountSkinButton->setProperty("wtfmlHomeAction", true);
         accountSkinButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
         accountSkinButton->setMinimumWidth(kAccountSkinButtonMinWidth);
         profileLayout->addWidget(accountSkinButton, 0, Qt::AlignLeft);
@@ -5086,6 +5088,9 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &favorites,
             card->setMinimumHeight(iconsOnly ? 66 : compact ? 82 : 96);
             Theme::markButton(card, item.empty ? Theme::ButtonKind::Ghost
                                                : Theme::ButtonKind::Neutral);
+            if (!item.empty) {
+                card->setProperty("wtfmlHomeAction", true);
+            }
 
             if (item.empty) {
                 card->setProperty("wtfmlQuickEmpty", true);

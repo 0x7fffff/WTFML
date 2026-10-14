@@ -97,9 +97,10 @@ UI 不直接 include 业务对象，通过显示 DTO 和信号交互。
 - `[ ]` 四个根选项卡各自保持路由栈；返回只 `pop`，重点当前项只 `popToRoot`；
 - `[ ]` 删除隐藏占位页、`runWhenOverlayFree()`、导航用 `singleShot(0)` 和手工来路变量；
 - `[ ]` 后台任务完成只产生通知/活动中心条目，不驱逐当前页或自动跳转；
-- `[ ]` 将 `MainWindow` 按实例、安装、资源、启动、账号、服务端、维护和活动中心
+- `[~]` 将 `MainWindow` 按实例、安装、资源、启动、账号、服务端、维护和活动中心
   逐个抽出 controller；`JavaRuntimeController` 是已经完成的第一步，不纳入这八个待拆业务域
-  重复计算；
+  重复计算；活动中心已完成第一刀：账本所有权、默认 capability、未读失败与重试归属已迁入
+  `ActivityCenterController`，执行器的逐项进度写口和 UI DTO 翻译仍处于双轨迁移期；
 - `[ ]` 将 `VersionManager` 里的原版安装、加载器安装、整合包导入和修复拆为独立 Job；
 - `[ ]` 将 `wtfml.meta` 收口为带 `schemaVersion` 的 `InstanceMetadataStore`，不再向全项目暴露
   任意 `QJsonObject` 补丁；
