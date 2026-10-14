@@ -22,6 +22,7 @@ set(HEADER_FILES
     ${REPO_ROOT}/src/MainWindow.hpp
     ${REPO_ROOT}/src/controllers/JavaRuntimeController.hpp
     ${REPO_ROOT}/src/controllers/ActivityCenterController.hpp
+    ${REPO_ROOT}/src/controllers/HomeQuickController.hpp
     ${REPO_ROOT}/src/launcher/LauncherManager.hpp
     ${REPO_ROOT}/src/launcher/LibraryRules.hpp
     ${REPO_ROOT}/src/auth/AuthManager.hpp
@@ -43,7 +44,7 @@ set(HEADER_FILES
     ${REPO_ROOT}/src/manage/UpdateRollback.hpp
     ${REPO_ROOT}/src/manage/BackupFiles.hpp
     ${REPO_ROOT}/src/manage/WorldFiles.hpp
-    # 「上一次启动」那本账（§5.1）：主页那张卡的数据源，MainWindow.cpp 直接调它。
+    # 启动历史账本（§5.1）：主页“最近游玩”排的数据源，MainWindow.cpp 直接调它。
     ${REPO_ROOT}/src/manage/LaunchHistory.hpp
     ${REPO_ROOT}/src/settings/GameWindowSettings.hpp
     ${REPO_ROOT}/src/settings/GlobalJavaSettings.hpp
@@ -58,6 +59,7 @@ set(SOURCE_FILES
     ${REPO_ROOT}/src/MainWindow.cpp
     ${REPO_ROOT}/src/controllers/JavaRuntimeController.cpp
     ${REPO_ROOT}/src/controllers/ActivityCenterController.cpp
+    ${REPO_ROOT}/src/controllers/HomeQuickController.cpp
     ${REPO_ROOT}/src/launcher/LauncherManager.cpp
     ${REPO_ROOT}/src/auth/AuthManager.cpp
     ${REPO_ROOT}/src/auth/AccountStore.cpp

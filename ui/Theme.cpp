@@ -1021,9 +1021,9 @@ QString widgetStyleSheet() {
     const QColor pure = accentShade(AccentShade::Pure);
     const QColor hover = accentShade(AccentShade::Hover);
     const QColor pressed = accentShade(AccentShade::Pressed);
-    // 次要 / 危险那两档的色。红**故意不取 `dangerColor()`**：那一支是"按深浅现推"的
-    // （深底上用浅红），而按钮的底一直是白的 —— 白底上用 `dangerColor()` 在深色预设下会
-    // 拿到那个浅红（对白底 2.3:1，读不清）。所以这一档直接钉死那个对白底 4.8:1 的深红，
+    // 次要 / 危险那两档的色。红**故意不取 `dangerColor()`**：那一支是"按深浅现推"的；
+    // 而按钮使用很浅的固定底色，深色预设给出的浅红在这里对比度不够。所以这一档直接钉死
+    // 那个对浅底仍有 4.8:1 的深红，
     // 它和 `errorTextColor()` 浅底那一档是同一个。
     const QColor red(0xc0, 0x28, 0x28);
     const QColor black = neutralInkColor();

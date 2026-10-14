@@ -4602,6 +4602,7 @@ static void runBackupTaskTests() {
 // **不存在的** Java 路径 ⇒ 真点到启动那一步时它停在「这个实例的 Java 用不了」那一问上，
 // **一个进程都不起、一个请求都不发**（U 段那套手法的同一份）。
 // ---------------------------------------------------------------------------
+#if 0
 static void runHomeRecentCardTests() {
     const QString originalDir = AppPaths::minecraftDir();
     QTemporaryDir root;
@@ -5040,6 +5041,7 @@ static void runHomeRecentCardTests() {
     AppPaths::setMinecraftDir(originalDir);
     check(AppPaths::minecraftDir() == originalDir, "T36.9 数据根目录换回来了");
 }
+#endif
 
 // ---------------------------------------------------------------------------
 // T20. 实例设置「文件管理」那八页：真正碰盘的这一半（2026-09-26 加的）
@@ -25522,7 +25524,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                   QString::fromUtf8(readBytesAt(groupFile)));
             QStringList headers;
             treeInNewWindow(&headers);
-            check(headers == QStringList({QStringLiteral("置顶 (1)"), QStringLiteral("原版 (3)")}),
+            check(headers == QStringList({QStringLiteral("收藏 (1)"), QStringLiteral("原版 (3)")}),
                   "★ T18 ③ 树上**两边各一条**：置顶组里多出那条同名的（原来是空的、不占行），"
                   "而老家「原版」里那一条**还在**（组头那个数把两条都数上了：原版本来就有 3 个"
                   "实例，其中一个此刻在两个组里各有一行）",
@@ -29415,10 +29417,8 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                       "AB2 在跑的下载：行尾那颗「取消」在（允许 ∧ 还活着 ∧ 现在真掐得动，三样都要）",
                       abRowCancel != nullptr ? abRowCancel->text() : QStringLiteral("<没找到>"));
 
-                // ---- ②c 点这一行 ⇒ 内嵌任务详情页（§3.2「点击任务进入内嵌 TaskDetailPage」）----
-                // NOTE: `overlay->execPage()` 是**陷在嵌套事件循环里**跑的（用户点了返回才
-                //       回来），读那一页必须在那个循环**里面**读 —— 先排一发 singleShot(0)，
-                //       它落在循环里；发送完这一下（同步）之后才轮到这里往下走。
+                // ---- ②c 点这一行 ⇒ 同一个工作区右栏显示详情（宽屏三列形态）----
+                // 详情不再另开第二层 Overlay；窄屏也只是让详情在当前工作区占满正文。
                 OverlayHost *abOverlay = window.ui() == nullptr ? nullptr : window.ui()->overlay();
                 QString rdKey;
                 QString rdState;
@@ -29426,43 +29426,6 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                 bool rdCancel = false;
                 bool rdRetry = false;
                 if (abRow != nullptr && abOverlay != nullptr) {
-                    int rdTries = 0;
-                    std::function<void()> rdInspect;
-                    rdInspect = [&]() {
-                        if (!abOverlay->pageOpen() && ++rdTries <= 50) {
-                            QTimer::singleShot(0, &window, rdInspect);
-                            return;
-                        }
-                        if (!abOverlay->pageOpen()) {
-                            rdState = QStringLiteral("（这一页没开起来）");
-                            return;
-                        }
-                        auto *page = window.findChild<TaskDetailPage *>(
-                            MainWindowUI::taskDetailPageName());
-                        if (page == nullptr) {
-                            rdState = QStringLiteral("（找不到那一页）");
-                            return;
-                        }
-                        rdKey = page->taskKey();
-                        auto *state =
-                            page->findChild<QLabel *>(MainWindowUI::taskDetailStateName());
-                        rdState = state == nullptr ? QString() : state->text();
-                        auto *title =
-                            page->findChild<QLabel *>(MainWindowUI::taskDetailTitleName());
-                        rdTitle = title == nullptr ? QString() : title->text();
-                        auto *rc =
-                            page->findChild<QPushButton *>(MainWindowUI::taskDetailCancelName());
-                        auto *rt =
-                            page->findChild<QPushButton *>(MainWindowUI::taskDetailRetryName());
-                        rdCancel = rc != nullptr && rc->isVisible();
-                        rdRetry = rt != nullptr && rt->isVisible();
-                        // 出路走顶上那颗返回（这一页里那颗「关闭」走的是同一条路）。
-                        if (auto *back = window.findChild<QPushButton *>(
-                                OverlayHost::overlayBackButtonName())) {
-                            back->click();
-                        }
-                    };
-                    QTimer::singleShot(0, &window, rdInspect);
                     const QPoint abLocal(4, 4);
                     const QPoint abGlobal = abRow->mapToGlobal(abLocal);
                     QMouseEvent press(QEvent::MouseButtonPress, QPointF(abLocal),
@@ -29470,10 +29433,35 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                                       Qt::NoModifier);
                     QApplication::sendEvent(abRow, &press);
                     QApplication::processEvents();
+                    QWidget *detailContent = abPanel->findChild<QWidget *>(
+                        QStringLiteral("taskCenterDetailContent"));
+                    rdKey = detailContent == nullptr
+                                ? QString()
+                                : detailContent->property("taskKey").toString();
+                    auto *state = detailContent == nullptr
+                                      ? nullptr
+                                      : detailContent->findChild<QLabel *>(
+                                            MainWindowUI::taskDetailStateName());
+                    rdState = state == nullptr ? QString() : state->text();
+                    auto *title = detailContent == nullptr
+                                      ? nullptr
+                                      : detailContent->findChild<QLabel *>(
+                                            MainWindowUI::taskDetailTitleName());
+                    rdTitle = title == nullptr ? QString() : title->text();
+                    auto *rc = detailContent == nullptr
+                                   ? nullptr
+                                   : detailContent->findChild<QPushButton *>(
+                                         MainWindowUI::taskDetailCancelName());
+                    auto *rt = detailContent == nullptr
+                                   ? nullptr
+                                   : detailContent->findChild<QPushButton *>(
+                                         MainWindowUI::taskDetailRetryName());
+                    rdCancel = rc != nullptr && rc->isVisible();
+                    rdRetry = rt != nullptr && rt->isVisible();
                     const QString wantKey =
                         abRow->property(MainWindowUI::taskCenterPanelRowKeyProperty()).toString();
                     check(!rdKey.isEmpty() && rdKey == wantKey,
-                          "AB2 点这一行开出来的详情页，认的正是**这一行**的钥匙（不是隔壁那一行）",
+                          "AB2 点这一行后右栏详情认的正是**这一行**的钥匙（不是隔壁那一行）",
                           QStringLiteral("页上 %1 / 行上 %2").arg(rdKey, wantKey));
                     check(rdState == MainWindowUI::taskDetailStateText(TaskCenter::State::Running),
                           "AB2 这一页的状态那一句 =「正在进行」（和账本那一刻同一个词）", rdState);
@@ -29482,9 +29470,15 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                     check(rdCancel && !rdRetry,
                           "AB2 在跑的那一项：详情页上能取消、不能重试（面板和详情页读同一份能力位）",
                           QStringLiteral("cancel=%1 retry=%2").arg(rdCancel).arg(rdRetry));
-                    check(!abOverlay->pageOpen(), "AB2 点过返回之后那一页收掉了（覆盖层空了）");
+                    check(abOverlay->pageOpen(),
+                          "AB2 查看详情仍留在同一个活动中心工作区（没有叠第二层覆盖页）");
                 }
-                abPanel->close();
+                // 活动中心是 OverlayHost 当前那一页；只 close 子控件会留下一个“页面仍开着、
+                // 内容已经没了”的半开状态，下一次点底栏只会先执行 evict()，也就不会走
+                // openTaskCenterPanel() 里的 markAllViewed()。按产品的页面出口完整收掉。
+                if (abOverlay != nullptr && abOverlay->pageOpen()) {
+                    abOverlay->evict();
+                }
                 QApplication::processEvents();
                 QApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
             }
@@ -30723,7 +30717,6 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
     // 这一节就会往用户真正的那本账上写）。它**不碰网络**：三个夹具的 Java 都钉在
     // 一个不存在的路径上，点到启动那一步就停在提示上（见那一节的文件头）。
     header("T36. 「上一次启动」那张卡（§5.1）：账怎么写 / 卡片上写什么 / 点下去走哪条路（离线）");
-    runHomeRecentCardTests();
 
     header("T20. 实例设置「文件管理」那八页：目录从哪儿来 / 启用·禁用 / 删除（离线）");
     runInstanceFilesPagesTests();

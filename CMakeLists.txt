@@ -25,6 +25,7 @@ set(HEADER_FILES
     src/MainWindow.hpp
     src/controllers/JavaRuntimeController.hpp
     src/controllers/ActivityCenterController.hpp
+    src/controllers/HomeQuickController.hpp
     src/launcher/LauncherManager.hpp
     src/launcher/LibraryRules.hpp
     src/launcher/ProcessPriority.hpp
@@ -50,7 +51,7 @@ set(HEADER_FILES
     src/manage/UpdateRollback.hpp
     src/manage/BackupFiles.hpp
     src/manage/WorldFiles.hpp
-    # 「上一次启动」那本账（2026-10-13，coding plan §5.1）：主页那张卡唯一的数据源。
+    # 启动历史账本（2026-10-13，coding plan §5.1）：主页“最近游玩”排与统计的数据源。
     src/manage/LaunchHistory.hpp
     # 实例页那张树的搜索与筛选（2026-10-13，coding plan §7.2）：判据层，纯函数。
     src/manage/InstanceFilter.hpp
@@ -122,6 +123,7 @@ set(SOURCE_FILES
     src/MainWindow.cpp
     src/controllers/JavaRuntimeController.cpp
     src/controllers/ActivityCenterController.cpp
+    src/controllers/HomeQuickController.cpp
     src/launcher/LauncherManager.cpp
     src/launcher/AsciiPathAlias.cpp
     src/launcher/VersionInheritance.cpp

@@ -73,7 +73,7 @@
 // GameExitDiagnosis::Facts —— 游戏异常退出那一项（§4.3）留一份事实在成员里，事后
 // 「导出错误报告」还要用它，所以是按值存的。
 #include "diag/GameExitDiagnosis.hpp"
-// 「上一次启动」那本账（coding plan §5.1，2026-10-13）：主页左栏那张卡要按值持有一条
+// 启动历史账本（coding plan §5.1，2026-10-13）：主页“最近游玩”排按值持有记录
 // `Record`（`latestPlayable()` 的返回值），所以得 include 而不是前置声明。
 #include "manage/LaunchHistory.hpp"
 // 实例页的搜索与筛选（coding plan §7.2，2026-10-13）：`Query` / `Facts` 都是按值传的小
@@ -2336,7 +2336,7 @@ private:
 
     // ---------- 「上一次启动」那本账（coding plan §5.1，2026-10-13）----------
     //
-    // 主页左栏那张卡（「上次游玩」）的全部数据都在这一小片里：读盘、记账、翻成那句话、
+    // 主页“最近游玩”排的全部数据都在这一小片里：读盘、记账并刷新快速启动区；
     // 算"还能不能接着玩"。**判据层是 `manage/LaunchHistory`**（纯函数，verify 里逐格念），
     // 这一片只管"什么时候记、记的是谁、界面上什么时候重画"。
 
@@ -2374,34 +2374,13 @@ private:
     /// 的新用户就是这样。
     void loadLaunchHistory();
 
-    /// 主页左栏那张卡按账上最新的一条重画一遍（`MainWindowUI::setHomeRecent()`）。
-    /// 三个时机都会调：构造末尾、启动成功那一刻、那一趟结束那一刻。
+    /// 按启动历史与收藏状态重画主页两排快速入口。
     void updateHomeRecent();
-
-    /// 账上那一条现在还能不能「接着玩」——**卡片上那一颗按钮写什么字就是靠它**
-    /// （能 ⇒「继续游玩」，不能 ⇒ 降级成「启动实例」，§5.1）。
-    ///
-    /// 三种"不能"：① 那个实例已经不在已安装列表里了；② 记的是快捷启动，可目标（世界 /
-    /// 服务器）已经没了；③ 记的是快捷启动，可这个实例现在认不了那条参数（实例被换成另一个
-    /// 版本了）。三种都落到同一句"降级成启动实例" —— 按钮**不消失**。
-    bool homeRecentCanContinue(const LaunchHistory::Record &record) const;
-
-    /// 账上那条记录的目标（世界目录 / 服务器地址）现在还在不在。
-    /// 世界看 `<实例>/saves/<targetId>` 这个目录；服务器看 `servers.dat` 里还有没有
-    /// **地址对得上**的那一条（按值认，不按下标）。
-    bool quickPlayTargetAlive(const LaunchHistory::Record &record) const;
-
-    /// 主页那张卡上那颗「继续游玩 / 启动实例」按下去。
-    /// 目标还在 ⇒ 走**同一条** `startQuickPlay()`（§5.1：完整校验 / 登录 / Java /
-    /// 重复运行提醒一道都不绕过）；否则就是把「已安装版本」切到那一份、点启动。
-    void onHomeRecentContinueClicked();
-    /// 同上，那颗「实例设置」：开**账上那个实例**的设置页。
-    void onHomeRecentSettingsClicked();
 
     /// 账本**内存里那一份**（`load()` 读过一次之后就只有 `appendLaunchRecord()` /
     /// `finishLaunchRecord()` 会动它）。
     ///
-    /// ★ 不每次现读盘：主页那张卡要在"启动成功""游戏退出"两个时机重画，而那是**热路径**
+    /// ★ 不每次现读盘：主页快速入口要在"启动成功""游戏退出"两个时机重画，而那是**热路径**
     ///   （启动那一发已经在同步等进程了）。读一次、写的时候顺手更新内存那一份。
     QList<LaunchHistory::Record> m_launchHistory;
 

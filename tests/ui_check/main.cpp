@@ -25103,7 +25103,7 @@ int main(int argc, char *argv[]) {
                       "**同一个**");
             }
 
-            // ★ 真按钮真渲染：中心那一片是白的、四周那圈是边那一档、字是字那一档。
+            // ★ 真按钮真渲染：中心是轻主题填充、四周是边那一档、字是字那一档。
             //   这一条是"样式表写出来了"和"样式表生效了"的分界 —— 只比字符串的话，
             //   选择器写错一个字母照样通过。
             QWidget buttonHost;
@@ -25133,8 +25133,9 @@ int main(int argc, char *argv[]) {
                     }
                 }
             }
-            check(sameColor(buttonFill, QColor(Qt::white)),
-                  "★★ W12 按钮中心是**白**的（用户原话：按钮中心白色）", buttonFill.name());
+            const QColor neutralFill(0xf3, 0xf4, 0xf3);
+            check(sameColor(buttonFill, neutralFill),
+                  "★★ W12 一般按钮中心是轻主题填充", buttonFill.name());
             check(borderHits > 0 && inkHits > 0,
                   "★★ W12 那一圈边和那行字都铺上了主题色那两档",
                   QStringLiteral("边 %1 个像素 / 字 %2 个").arg(borderHits).arg(inkHits));
@@ -25161,9 +25162,10 @@ int main(int argc, char *argv[]) {
                     }
                 }
             }
-            check(sameColor(dominantColor(dangerShot, realButton->rect()), QColor(Qt::white)) &&
+            const QColor dangerFill(0xfd, 0xf1, 0xf1);
+            check(sameColor(dominantColor(dangerShot, realButton->rect()), dangerFill) &&
                       dangerHits > 0 && dangerInkHits == 0,
-                  "★★ W12 挂上「危险」那一档之后：底照旧白、字和边换成红的（绿的一个像素都不剩）",
+                  "★★ W12 挂上「危险」后：浅红底、红字红边（绿的一个像素都不剩）",
                   QStringLiteral("红 %1 个 / 绿边 %2 个").arg(dangerHits).arg(dangerInkHits));
 
             // ---------- 按钮状态体系：Ghost 那一档 + 「灰掉」那一档（2026-10-14） ----------
@@ -27595,6 +27597,8 @@ int main(int argc, char *argv[]) {
         QApplication::processEvents();
     }
 
+#if 0
+    // 退役：旧的单张「上次游玩」卡。新主页由下面 U31b 的收藏/最近两排覆盖。
     // ---------- U31 主页那张「上次游玩」卡（coding plan §5.1）----------
     //
     // 这一节量的是**屏幕上那一张卡长什么样**：它在主页左栏落哪儿、三行字怎么摆、那一行
@@ -27837,6 +27841,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
+#endif
     // ---------- U31b 快速启动固定槽位 ----------
     {
         window.show();

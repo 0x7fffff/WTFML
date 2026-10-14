@@ -1457,41 +1457,8 @@ public:
     /// 产品里改一个字就不用两边各写一遍字面量。
     static QString accountSkinButtonText() { return QStringLiteral("账号与外观…"); }
 
-    // ---------- 主页那张「上次游玩」卡（coding plan §5.1）----------
-    //
-    // 主页按 §9.5 只留三件事：启动、最近活动、账号与外观。左边那张卡是"启动"，右边那张是
-    // 账号与外观，**这一张就是中间那件"最近活动"**，摆在启动卡下面。
-    static QString homeRecentCardName() { return QStringLiteral("homeRecentCard"); }
-    static QString homeRecentNameLabelName() { return QStringLiteral("homeRecentName"); }
-    static QString homeRecentDetailLabelName() { return QStringLiteral("homeRecentDetail"); }
-    static QString homeRecentWhenLabelName() { return QStringLiteral("homeRecentWhen"); }
-    static QString homeRecentContinueButtonName() { return QStringLiteral("homeRecentContinue"); }
-    static QString homeRecentSettingsButtonName() { return QStringLiteral("homeRecentSettings"); }
-    static QString homeRecentTitleText() { return QStringLiteral("上次游玩"); }
-    /// 接着玩得起来时那一颗写的字。
-    static QString homeRecentContinueText() { return QStringLiteral("继续游玩"); }
-    /// 目标（或者那个实例）已经没了时**降级**成这一句（§5.1）。
-    static QString homeRecentLaunchText() { return QStringLiteral("启动实例"); }
-    static QString homeRecentSettingsText() { return QStringLiteral("实例设置"); }
     static QString homeFavoriteCountSpinName() { return QStringLiteral("homeFavoriteCountSpin"); }
     static QString homeRecentCountSpinName() { return QStringLiteral("homeRecentCountSpin"); }
-
-    /// 主页「上次游玩」那张卡要的几个值 —— **界面这一层的只读镜像**（`ui/` 不 include
-    /// `src/`，和 `TaskCenter::Item` 同一个理由；翻译点在 `MainWindow::updateHomeRecent()`）。
-    struct HomeRecent {
-        /// 一次都没启动过 ⇒ false，**整张卡收起来**（§9.2：不摆一张空的）。
-        bool visible = false;
-        /// 第一行：启动那一刻那一句实例名（`instanceDisplayName()` 给的，里面已经带着版本
-        /// 和加载器）。
-        QString instanceLine;
-        /// 第二行（灰字）：目标 + 玩了多久 + 那一趟的结局。**各自可选**，都空就整行不占位置。
-        QString detailLine;
-        /// 右上角那一句时间（「昨天 22:14」）。
-        QString whenLine;
-        /// 接着玩得起来吗 —— 目标还在 ⇒ 那一颗写「继续游玩」，否则写「启动实例」。
-        bool canContinue = false;
-    };
-    void setHomeRecent(const HomeRecent &recent);
 
     enum class HomeQuickAction { Launch, Edit, ChooseInstance };
     struct HomeQuickItem {
@@ -3156,14 +3123,6 @@ public:
 
     // 控件访问接口
     QPushButton *getStartButton() const { return startButton; }
-    // 主页「上次游玩」那张卡（§5.1）。**一次都没启动过时整张卡收起来** —— 验证工程就靠
-    // `getHomeRecentCard()->isVisible()` 判那一档（不是判里面某一行有没有字）。
-    QFrame *getHomeRecentCard() const { return homeRecentCard; }
-    QPushButton *getHomeRecentContinueButton() const { return homeRecentContinueButton; }
-    QPushButton *getHomeRecentSettingsButton() const { return homeRecentSettingsButton; }
-    QLabel *getHomeRecentNameLabel() const { return homeRecentNameLabel; }
-    QLabel *getHomeRecentDetailLabel() const { return homeRecentDetailLabel; }
-    QLabel *getHomeRecentWhenLabel() const { return homeRecentWhenLabel; }
     QPushButton *getAccountSkinSettingsButton() const { return accountSkinSettingsButton; }
     QPushButton *getAddFolderButton() const { return addFolderButton; }
     // 实例页左边那张列表：一行一个「游戏文件夹」，选中的那一份就是启动器当前用的
@@ -3545,12 +3504,6 @@ private:
     //       全都排在 setupUi() 之后才没炸。
     // NOTE: 新加控件指针时**一并写上 = nullptr**，别让它单独破例。
     QPushButton *startButton = nullptr;
-    QFrame *homeRecentCard = nullptr;
-    QPushButton *homeRecentContinueButton = nullptr;
-    QPushButton *homeRecentSettingsButton = nullptr;
-    QLabel *homeRecentNameLabel = nullptr;
-    QLabel *homeRecentDetailLabel = nullptr;
-    QLabel *homeRecentWhenLabel = nullptr;
     QWidget *homeFavoriteSection = nullptr;
     QWidget *homeQuickRecentSection = nullptr;
     QHBoxLayout *homeFavoriteRow = nullptr;

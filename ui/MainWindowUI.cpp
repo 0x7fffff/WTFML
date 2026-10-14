@@ -647,8 +647,8 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         launchCard->setObjectName(QStringLiteral("homeLaunchCard"));
         launchCard->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
         auto *launchLayout = new QVBoxLayout(launchCard);
-        launchLayout->setContentsMargins(22, 20, 22, 22);
-        launchLayout->setSpacing(10);
+        launchLayout->setContentsMargins(18, 14, 18, 16);
+        launchLayout->setSpacing(8);
 
         launchLayout->addWidget(makeHomeTitle(QStringLiteral("开始游戏"), launchCard));
         launchLayout->addWidget(
@@ -687,7 +687,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         installedVersionCombo->setObjectName(installedVersionComboName());
         launchLayout->addWidget(installedVersionCombo);
 
-        startButton = new QPushButton(QStringLiteral("启动游戏"), launchCard);
+        startButton = new QPushButton(QStringLiteral("启动游戏"), home.left.widget);
         // 文字是两行（"启动游戏\n<显示名>"，由 MainWindow::updateStartButtonText() 维护；
         // 高度固定给足，免得两行被压成一行半。
         startButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
@@ -697,95 +697,14 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         startFont.setPointSizeF(startFont.pointSizeF() + 1.0);
         startButton->setFont(startFont);
         Theme::markButton(startButton, Theme::ButtonKind::Primary);
-        launchLayout->addWidget(startButton);
-        launchLayout->addWidget(
-            makeHomeHint(QStringLiteral("实例与游戏文件可在「实例」页中管理。"), launchCard));
 
         // 这里原来有一个「离线模式」勾选框（2026-09-24 去掉的，用户原话：「现在不要启动
         // 界面那个离线登录勾选框了，在添加账户那里选择添加离线账号」）。它管的是"这次启动
         // 用哪种身份"，而现在那件事**只由当前账号是什么**决定 —— 离线就去账号窗里加一个
         // 离线账号、切过去，没有第二个开关。判据的唯一出处是 MainWindow::offlineIdentity()。
 
-        // ---------- 主页左栏第二张卡：「上次游玩」（coding plan §5.1）----------
-        //
-        // §9.5 说主页只留三件事：启动、**最近活动**、账号与外观。上面那张是启动、右栏那张是
-        // 账号与外观，这一张就是中间那件。**它不是仪表盘**（§5.1 第一句）：只有一行"上次是
-        // 哪一份、什么时候、玩到哪儿"，加上两颗按钮，没有统计图、没有列表。
-        //
-        // ★ 一次都没启动过时**整张卡收起来**（`setHomeRecent()` 里 hide）：主页面不留一张
-        //   空的卡片等数据，§9.2 那条"不摆空壳"在这儿同样成立。
-        auto *recentCard = makeHomeCard(home.left.widget);
-        // ★ 这一行**不能漏**：`setHomeRecent()` 头一句就是拿 `homeRecentCard` 判空（那是
-        //   "界面还没搭完"那一档），漏了它整张卡就永远停在 `hide()` 那一档 —— 主页上一片
-        //   空白，而两颗按钮照旧接得上线（它们各自是成员）。2026-10-13 的 mw_check T36
-        //   抓到的就是这个形状（卡片收着、按钮还写着初始那两个字）。
-        homeRecentCard = recentCard;
-        recentCard->setObjectName(homeRecentCardName());
-        // 高度由内容定（和启动卡一样）：这一栏在竖直方向上是"居中一坨"，卡片不该自己去
-        // 抢留白。
-        recentCard->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-        auto *recentLayout = new QVBoxLayout(recentCard);
-        recentLayout->setContentsMargins(22, 16, 22, 18);
-        recentLayout->setSpacing(6);
-
-        // 第一行：标题在左，「昨天 22:14」在右（§5.1 那张草图里时间就是右上角那一句，
-        // 不单独占一行）。
-        auto *recentHead = new QHBoxLayout();
-        recentHead->setSpacing(8);
-        recentHead->addWidget(makeHomeTitle(homeRecentTitleText(), recentCard));
-        recentHead->addStretch(1);
-        homeRecentWhenLabel = new QLabel(recentCard);
-        homeRecentWhenLabel->setObjectName(homeRecentWhenLabelName());
-        // 低强调度：它是"什么时候"，不是这张卡要说的事。
-        homeRecentWhenLabel->setForegroundRole(QPalette::PlaceholderText);
-        recentHead->addWidget(homeRecentWhenLabel);
-        recentLayout->addLayout(recentHead);
-
-        // 第二行：**启动那一刻**那一句实例名（里面已经带着版本和加载器）。
-        homeRecentNameLabel = new QLabel(recentCard);
-        homeRecentNameLabel->setObjectName(homeRecentNameLabelName());
-        homeRecentNameLabel->setWordWrap(true);
-        // 横向摘出度量：这一栏的宽度只由 7:3 的份数决定，不让一句长实例名把它顶宽
-        // （和下面 detailLabel / 右栏 skinHintLabel 同一条理由）。
-        homeRecentNameLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-        {
-            QFont nameFont = homeRecentNameLabel->font();
-            nameFont.setBold(true);
-            homeRecentNameLabel->setFont(nameFont);
-        }
-        recentLayout->addWidget(homeRecentNameLabel);
-
-        // 第三行（灰字）：目标 + 玩了多久 + 那一趟的结局。**每一段都可能没有**（普通启动
-        // 就没有目标），整段空着时这一行**收起来** —— 空 QLabel 也占一行字高，留着就是白留。
-        homeRecentDetailLabel = makeHomeHint(QString(), recentCard);
-        homeRecentDetailLabel->setObjectName(homeRecentDetailLabelName());
-        recentLayout->addWidget(homeRecentDetailLabel);
-
-        // 第四行：两颗按钮。左边那一颗是主动作（接着玩），右边那颗是"去改设置"。
-        auto *recentButtons = new QHBoxLayout();
-        recentButtons->setSpacing(8);
-        homeRecentContinueButton =
-            new QPushButton(homeRecentContinueText(), recentCard);
-        homeRecentContinueButton->setObjectName(homeRecentContinueButtonName());
-        Theme::markButton(homeRecentContinueButton, Theme::ButtonKind::Primary);
-        homeRecentSettingsButton =
-            new QPushButton(homeRecentSettingsText(), recentCard);
-        homeRecentSettingsButton->setObjectName(homeRecentSettingsButtonName());
-        Theme::markButton(homeRecentSettingsButton, Theme::ButtonKind::Neutral);
-        homeRecentSettingsButton->setProperty("wtfmlHomeAction", true);
-        recentButtons->addWidget(homeRecentContinueButton);
-        recentButtons->addWidget(homeRecentSettingsButton);
-        recentButtons->addStretch(1);
-        recentLayout->addLayout(recentButtons);
-
-        // 一开始就是"没有记录"那一档。
-        recentCard->hide();
-
-        // 启动卡落在视觉中心略偏上的位置；窗口变高时留白分到上下两侧，不再只堆在按钮下方。
-        home.left.layout->addStretch(1);
+        // 启动卡和下面两排快速入口共同组成主页操作区；不在顶上塞伸缩空白。
         home.left.layout->addWidget(launchCard);
-        home.left.layout->addSpacing(kHomeCardGap);
-        home.left.layout->addWidget(recentCard);
 
         const auto makeQuickSection = [&](const QString &title, const QString &name,
                                           QWidget **sectionOut, QHBoxLayout **rowOut) {
@@ -793,8 +712,8 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
             section->setObjectName(name);
             section->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
             auto *column = new QVBoxLayout(section);
-            column->setContentsMargins(16, 14, 16, 14);
-            column->setSpacing(8);
+            column->setContentsMargins(14, 10, 14, 10);
+            column->setSpacing(6);
             column->addWidget(makeHomeTitle(title, section));
             auto *row = new QHBoxLayout;
             row->setContentsMargins(0, 0, 0, 0);
@@ -810,7 +729,9 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
                          &homeFavoriteSection, &homeFavoriteRow);
         makeQuickSection(QStringLiteral("上次游玩"), QStringLiteral("homeQuickRecentSection"),
                          &homeQuickRecentSection, &homeQuickRecentRow);
-        home.left.layout->addStretch(2);
+        // 主启动动作钉在左栏最下端；中间剩余高度由这一处吸收，不再分散成几块神秘留白。
+        home.left.layout->addStretch(1);
+        home.left.layout->addWidget(startButton);
     }
     // ---------- 主页右栏：我的角色（3D 皮肤预览） ----------
     // 这里原来是空的：早先放着一张「版本列表」，和左边那个下拉框是同一份数据的两种看法，
@@ -5028,34 +4949,6 @@ void MainWindowUI::setRunPanelAvailable(bool available) {
     runStateButton->setToolTip(available ? MainWindowUI::bottomBarRunPanelTip() : QString());
 }
 
-void MainWindowUI::setHomeRecent(const HomeRecent &recent) {
-    if (homeRecentCard == nullptr) {
-        return;  // setupUi() 还没跑完（和上面那些访问器拿空指针当判据是同一个意思）
-    }
-    // 一次都没启动过（或者账本读不出来、账上一条可玩的都没有）⇒ **整张卡收起来**。
-    // NOTE: 这里只 `hide()` 不删：`homeRecentCard` 造在 `setupUi()` 里，验证工程找它用的是
-    //       objectName，删掉就等于"这一档没地方量"。
-    if (!recent.visible) {
-        homeRecentCard->hide();
-        return;
-    }
-    homeRecentCard->show();
-    homeRecentNameLabel->setText(recent.instanceLine);
-
-    // 第二行那半句（目标 / 时长 / 结局）：**可能一句都没有**（普通启动 + 正常退出 + 时长还
-    // 没算出来），那时这一行整行收起来 —— 空的 QLabel 也占着一行字高，留着就是白留一块。
-    homeRecentDetailLabel->setText(recent.detailLine);
-    homeRecentDetailLabel->setVisible(!recent.detailLine.isEmpty());
-
-    homeRecentWhenLabel->setText(recent.whenLine);
-    homeRecentWhenLabel->setVisible(!recent.whenLine.isEmpty());
-
-    // 那一颗主动作：目标还在就是「继续游玩」，目标（或者那个实例本身）没了就**降级**成
-    // 「启动实例」（§5.1）。按钮**不消失** —— 目标被删了不该让这张卡变成死路一条。
-    homeRecentContinueButton->setText(recent.canContinue ? MainWindowUI::homeRecentContinueText()
-                                                        : MainWindowUI::homeRecentLaunchText());
-}
-
 void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &favorites,
                                     const QList<HomeQuickItem> &recent) {
     const auto rebuildRow = [this](QWidget *section, QHBoxLayout *row,
@@ -5085,7 +4978,7 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &favorites,
             card->setToolTip(item.name);
             card->setCursor(Qt::PointingHandCursor);
             card->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-            card->setMinimumHeight(iconsOnly ? 66 : compact ? 82 : 96);
+            card->setMinimumHeight(iconsOnly ? 58 : 88);
             Theme::markButton(card, item.empty ? Theme::ButtonKind::Ghost
                                                : Theme::ButtonKind::Neutral);
             if (!item.empty) {
@@ -5095,7 +4988,7 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &favorites,
             if (item.empty) {
                 card->setProperty("wtfmlQuickEmpty", true);
                 auto *emptyLayout = new QVBoxLayout(card);
-                emptyLayout->setContentsMargins(10, 9, 10, 9);
+                emptyLayout->setContentsMargins(8, 7, 8, 7);
                 emptyLayout->setSpacing(4);
                 auto *plus = new QLabel(QStringLiteral("＋"), card);
                 plus->setAlignment(Qt::AlignCenter);
@@ -5118,8 +5011,8 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &favorites,
             }
 
             auto *content = new QVBoxLayout(card);
-            content->setContentsMargins(10, 9, 10, 9);
-            content->setSpacing(5);
+            content->setContentsMargins(8, 7, 8, 7);
+            content->setSpacing(4);
             auto *identity = new QHBoxLayout;
             identity->setSpacing(7);
             auto *icon = new QLabel(card);
@@ -5131,6 +5024,9 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &favorites,
             if (!iconsOnly) {
                 auto *name = new ElidedLabel(card);
                 name->setText(item.name);
+                // 名字只拿图标和动作之外剩下的宽度，并在不足时省略；不能用 sizeHint 把中间
+                // 那张卡挤没，也不能让左右两张先把它的空间吃掉。
+                name->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
                 QFont font = name->font();
                 font.setBold(true);
                 name->setFont(font);

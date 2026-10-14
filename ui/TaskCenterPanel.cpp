@@ -401,6 +401,7 @@ TaskCenterPanel::TaskCenterPanel(QWidget *anchor, const TaskCenter::ItemProvider
     m_detailScroll->setWidgetResizable(true);
     m_detailScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_detailContent = new QWidget(m_detailScroll);
+    m_detailContent->setObjectName(QStringLiteral("taskCenterDetailContent"));
     m_detailContent->setLayout(new QVBoxLayout);
     m_detailScroll->setWidget(m_detailContent);
     detailLayout->addWidget(m_detailScroll);
@@ -723,6 +724,7 @@ void TaskCenterPanel::rebuildDetail(const QList<TaskCenter::Item> &items) {
     }
     if (selected == items.constEnd()) {
         m_selectedKey.clear();
+        m_detailContent->setProperty("taskKey", QVariant());
         int active = 0;
         int done = 0;
         int attention = 0;
@@ -759,6 +761,7 @@ void TaskCenterPanel::rebuildDetail(const QList<TaskCenter::Item> &items) {
     }
 
     const TaskCenter::Item &item = *selected;
+    m_detailContent->setProperty("taskKey", item.key);
     if (m_embedded && m_compact) {
         auto *back = new QPushButton(tr("← 返回任务列表"), m_detailContent);
         back->setObjectName(QStringLiteral("taskCenterCompactBack"));
@@ -772,12 +775,14 @@ void TaskCenterPanel::rebuildDetail(const QList<TaskCenter::Item> &items) {
         layout->addWidget(back, 0, Qt::AlignLeft);
     }
     auto *title = new QLabel(item.title, m_detailContent);
+    title->setObjectName(MainWindowUI::taskDetailTitleName());
     title->setWordWrap(true);
     QFont titleFont = title->font();
     titleFont.setBold(true);
     title->setFont(titleFont);
     layout->addWidget(title);
     auto *state = new QLabel(MainWindowUI::taskDetailStateText(item.state), m_detailContent);
+    state->setObjectName(MainWindowUI::taskDetailStateName());
     applyMutedFont(state, 0);
     layout->addWidget(state);
     if (!item.detail.isEmpty()) {
@@ -824,6 +829,11 @@ void TaskCenterPanel::rebuildDetail(const QList<TaskCenter::Item> &items) {
             return;
         }
         auto *button = new QPushButton(text, m_detailContent);
+        if (action == TaskCenter::RowAction::Cancel) {
+            button->setObjectName(MainWindowUI::taskDetailCancelName());
+        } else if (action == TaskCenter::RowAction::Retry) {
+            button->setObjectName(MainWindowUI::taskDetailRetryName());
+        }
         Theme::markButton(button, kind);
         const QString key = item.key;
         connect(button, &QPushButton::clicked, button, [this, key, action]() {

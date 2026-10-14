@@ -136,6 +136,7 @@
 #include "auth/SkinApi.hpp"
 #include "controllers/JavaRuntimeController.hpp"
 #include "controllers/ActivityCenterController.hpp"
+#include "controllers/HomeQuickController.hpp"
 // 下载页那几类资源的取数（搜索 / 版本列表 / 图标）。头文件那边只前置声明了这个类
 // （那里用不到它的定义），这里要用真的。
 #include "download/ResourceStore.hpp"
@@ -1675,7 +1676,7 @@ MainWindow::MainWindow(QWidget *parent)
     // 不能塞进 refreshInstalledVersions()，那个函数每次清单到达、每次下载完成都会跑，
     // 塞进去就破坏了它"只保住、不新增"的语义。
     restoreLastLaunchedVersion();
-    // 「上一次启动」那本账（§5.1）：读回来 + 把主页左栏那张卡摆好。
+    // 启动历史账本（§5.1）：读回来并刷新主页“最近游玩”排。
     //
     // ★ 位置有一处讲究：必须在 `refreshInstalledVersions()` **之后** —— 那张卡上「继续游玩」
     //   还是「启动实例」要看"那一份实例还在不在已安装列表里"，列表空着的时候问它只会得到
@@ -1960,18 +1961,6 @@ void MainWindow::setupConnections() {
             &MainWindow::onAccountSkinButtonClicked);
     connect(m_ui->getAddFolderButton(), &QPushButton::clicked, this,
             &MainWindow::onAddFolderClicked);
-    // 主页左栏那张「上次游玩」卡上的两颗（§5.1）。**只接一次**：卡片是 `setupUi()` 里造的
-    // 常驻控件（不是每次刷新重造），所以这里不会重复接线。
-    // NOTE: 那两张`getHomeRecent*Button()` 可能回 nullptr —— 那是"界面还没搭完"的处境，
-    //       `connect(nullptr, ...)` 会当场告警，所以先判一下。
-    if (QPushButton *recentContinue = m_ui->getHomeRecentContinueButton()) {
-        connect(recentContinue, &QPushButton::clicked, this,
-                &MainWindow::onHomeRecentContinueClicked);
-    }
-    if (QPushButton *recentSettings = m_ui->getHomeRecentSettingsButton()) {
-        connect(recentSettings, &QPushButton::clicked, this,
-                &MainWindow::onHomeRecentSettingsClicked);
-    }
     // NOTE: 「移除文件夹」那个按钮 2026-09-24 删掉了（用户原话：「下面那个移除文件夹
     //       也可以弃掉了」）—— 「移除」现在只有行尾齿轮菜单里那一项，走
     //       onFolderActionRequested() → removeFolderFromList()，和按钮原来那条是同一个函数。
@@ -11623,13 +11612,8 @@ void MainWindow::onStartButtonClicked() {
 
 // ============================ 「上一次启动」那本账（coding plan §5.1） ============================
 //
-// 主页左栏那张卡（「上次游玩」）背后的那一小片。三件事分在三个地方写：
-//   · **判据层**在 `manage/LaunchHistory`（纯函数：格式、时间怎么说、目标没了怎么降级、
-//     上限怎么截），verify 里逐格念；
-//   · **这一片**是记账与翻译：什么时候记（进程真起来了那一刻）、结束之后怎么改写、
-//     翻成卡片上那三行字；
-//   · **摆样子**在 `ui/MainWindowUI`（`setHomeRecent()`），它只认三个字符串和一位布尔，
-//     一个字节的盘都不碰（`ui/` 不 include `src/`，和 `TaskCenter::Item` 同一个理由）。
+// 主页「上次游玩」快速入口背后的账。判据层在 `manage/LaunchHistory`，这一片负责在进程
+// 真正起来和结束时记账，再把历史翻成快速入口列表；UI 只负责排版和动作回调。
 //
 // ★ §5.1 那条区分很要紧：「上一次」以**成功创建游戏进程**为准，不以点击启动按钮为准 ——
 //   所以产品的写点只有 `onStartButtonClicked()` 里 `sessionId > 0` 那一段，登录失败 /
@@ -11733,218 +11717,31 @@ void MainWindow::finishLaunchRecord(qint64 startedAtMs, LaunchHistory::Result re
     }
 }
 
-bool MainWindow::quickPlayTargetAlive(const LaunchHistory::Record &record) const {
-    if (record.targetId.isEmpty()) {
-        return false;
-    }
-    if (record.target == LaunchHistory::Target::World) {
-        // 世界：目录名就是游戏自己去 `saves/` 底下找的那把钥匙。**路径从
-        // `instanceFileDirs()` 来**（存档页 / 导入世界读的都是它），不自己拼那四个字母。
-        const QString savesDir = instanceFileDirs(record.instanceId).value(QStringLiteral("save"));
-        if (savesDir.isEmpty()) {
-            return false;
-        }
-        // ★ 这一格里的字是**从盘上那份 json 读回来的**（用户能手改、也认得出旧格式）⇒
-        //   拼路径之前先挡一下路径分隔符：不然 `../..` 这种值会让"世界还在不在"答错
-        //   （轻则卡片上那颗按钮的判断错，重则 `QDir::exists()` 去问一个实例目录外面的地方）。
-        if (record.targetId.contains(QLatin1Char('/'))
-            || record.targetId.contains(QLatin1Char('\\'))
-            || record.targetId == QStringLiteral("..")) {
-            return false;
-        }
-        return QDir(savesDir + QLatin1Char('/') + record.targetId).exists();
-    }
-    if (record.target == LaunchHistory::Target::Server) {
-        // 服务器：**按值认**（地址对得上就是它），不按下标 —— 用户可以在游戏里重排这一列。
-        QList<NbtUtil::ServerEntry> entries;
-        QString problem;
-        NbtUtil::readServerList(ServerListFile::pathFor(record.instanceId), &entries, &problem);
-        for (const NbtUtil::ServerEntry &entry : entries) {
-            if (entry.address == record.targetId) {
-                return true;
-            }
-        }
-        return false;
-    }
-    return false;  // Target::None 没有目标可谈（调用方一律先把它排除掉）
-}
-
-bool MainWindow::homeRecentCanContinue(const LaunchHistory::Record &record) const {
-    if (!record.isValid() || m_versionManager == nullptr) {
-        return false;
-    }
-    // ① 那一份实例还在不在。★ 用「已安装列表」回答，**不是**看 `versions/<id>` 目录在不在：
-    //    启动那一下找的就是"下拉框里有没有它"（`startQuickPlayNow()` 的第一道闸），
-    //    两处判据必须是同一把尺子，否则卡片上写着能接着玩、点下去却开不了。
-    if (!m_versionManager->installedVersions().contains(record.instanceId)) {
-        return false;
-    }
-    // ② 普通启动（账上记的不是快捷启动）：那一发就是"把这一份开起来"，照样算接着玩。
-    if (record.target == LaunchHistory::Target::None) {
-        return true;
-    }
-    // ③ 快捷启动：目标得还在，**而且**这个实例现在还得认那条参数（实例被换成另一个版本、
-    //    或者被整合包覆盖过，都可能让一条 quick play 参数变得发不出去 —— 发出去游戏当场退出，
-    //    见 QuickPlay.hpp 那段）。
-    return quickPlayTargetAlive(record)
-           && instanceSupportsQuickPlay(record.instanceId, quickPlayKindFor(record.target));
-}
-
 void MainWindow::updateHomeRecent() {
     if (m_ui == nullptr) {
         return;  // 构造还没走到那儿（和那几个访问器拿空指针当判据是同一个意思）
     }
-    const LaunchHistory::Record record = LaunchHistory::latestPlayable(m_launchHistory);
-    MainWindowUI::HomeRecent recent;
-    if (record.isValid()) {
-        recent.visible = true;
-        // 第一行：**启动那一刻**那一句。名字那次没记下来（今天之前写的记录）就退回 id ——
-        // 宁可写一串目录名，也不要空一行。
-        recent.instanceLine =
-            record.instanceName.isEmpty() ? record.instanceId : record.instanceName;
-
-        // 第二行：目标 / 玩了多久 / 那一趟的结局，三段拼起来。**每一段都可能没有**，
-        // 都空就整行不占位置（界面那边会把它收起来）。
-        QString detail = LaunchHistory::targetLine(record);
-        const QString played = LaunchHistory::durationText(record.durationSeconds);
-        if (!played.isEmpty()) {
-            detail = detail.isEmpty() ? played
-                                      : detail + QStringLiteral(" · ") + played;
-        }
-        // 那句结局**紧贴着前面那句话**（中间不加分隔符）：它是那半句的注解，不是另一件事。
-        detail += LaunchHistory::resultNote(record);
-        recent.detailLine = detail;
-        recent.whenLine = LaunchHistory::whenText(record.startedAt);
-        recent.canContinue = homeRecentCanContinue(record);
-    }
-    // 旧的单张“上次游玩”卡保留为兼容控件但不再展示；信息进入下面的多条快速启动排。
-    Q_UNUSED(recent);
-    m_ui->setHomeRecent(MainWindowUI::HomeRecent());
-
-    // 新快速启动区：收藏复用实例管理的“置顶”状态；最近从启动账本按实例去重。
-    // 两排允许出现同一实例，身份差异由 UI 的单条丝带表达。
-    QList<MainWindowUI::HomeQuickItem> favorites;
-    QList<MainWindowUI::HomeQuickItem> recentlyPlayed;
     QComboBox *combo = m_ui->getInstalledVersionCombo();
     const QString currentId = combo != nullptr ? combo->currentData().toString() : QString();
-    QHash<QString, LaunchHistory::Record> latestByInstance;
-    QStringList recentIds;
-    for (const LaunchHistory::Record &entry : m_launchHistory) {
-        if (!entry.isValid() || entry.result == LaunchHistory::Result::StartFailed
-            || latestByInstance.contains(entry.instanceId)) {
-            continue;
-        }
-        latestByInstance.insert(entry.instanceId, entry);
-        recentIds.append(entry.instanceId);
-    }
-    const auto makeItem = [&](const QString &id) {
-        MainWindowUI::HomeQuickItem item;
-        item.key = id;
-        const int row = combo != nullptr ? combo->findData(id) : -1;
-        item.name = row >= 0 ? combo->itemText(row) : instanceDisplayName(id);
-        item.icon = row >= 0 ? combo->itemIcon(row) : QIcon();
-        item.current = id == currentId;
-        item.favorite = m_groupStore != nullptr && m_groupStore->isPinned(id);
-        item.recent = latestByInstance.contains(id);
-        if (item.recent) {
-            const LaunchHistory::Record history = latestByInstance.value(id);
-            item.detail = LaunchHistory::whenText(history.startedAt);
-            const QString played = LaunchHistory::durationText(history.durationSeconds);
-            if (!played.isEmpty()) {
-                item.detail += item.detail.isEmpty() ? played : QStringLiteral(" · ") + played;
-            }
-        }
-        return item;
-    };
+    QList<HomeQuickController::Instance> installed;
     if (combo != nullptr) {
-        for (int row = 0;
-             row < combo->count() && favorites.size() < m_settings->homeFavoriteCount(); ++row) {
-            const QString id = combo->itemData(row).toString();
-            if (!id.isEmpty() && m_groupStore != nullptr && m_groupStore->isPinned(id)) {
-                favorites.append(makeItem(id));
+        installed.reserve(combo->count());
+        for (int row = 0; row < combo->count(); ++row) {
+            HomeQuickController::Instance instance;
+            instance.id = combo->itemData(row).toString();
+            if (instance.id.isEmpty()) {
+                continue;
             }
+            instance.name = combo->itemText(row);
+            instance.icon = combo->itemIcon(row);
+            instance.favorite = m_groupStore != nullptr && m_groupStore->isPinned(instance.id);
+            installed.append(instance);
         }
     }
-    for (const QString &id : recentIds) {
-        if (recentlyPlayed.size() >= m_settings->homeRecentCount()) {
-            break;
-        }
-        if (m_versionManager != nullptr && m_versionManager->installedVersions().contains(id)) {
-            recentlyPlayed.append(makeItem(id));
-        }
-    }
-    // 收藏也按最近启动时间排；没有历史的收藏保留在末尾。
-    std::stable_sort(favorites.begin(), favorites.end(), [&](const auto &left, const auto &right) {
-        const int leftRank = recentIds.indexOf(left.key);
-        const int rightRank = recentIds.indexOf(right.key);
-        if (leftRank < 0) return false;
-        if (rightRank < 0) return true;
-        return leftRank < rightRank;
-    });
-    // 数量设置表达的是“这一排有几个槽位”，不是“最多取几条数据”。不足的部分保留为空槽，
-    // 这样新增/删除实例时卡片不会左右跳动；设为 0 时列表仍为空，UI 会把整排收掉。
-    const auto padSlots = [](QList<MainWindowUI::HomeQuickItem> *items, int count) {
-        while (items != nullptr && items->size() < count) {
-            MainWindowUI::HomeQuickItem slot;
-            slot.empty = true;
-            slot.name = QObject::tr("添加实例");
-            items->append(slot);
-        }
-    };
-    padSlots(&favorites, m_settings->homeFavoriteCount());
-    padSlots(&recentlyPlayed, m_settings->homeRecentCount());
-    m_ui->setHomeQuickRows(favorites, recentlyPlayed);
-}
-
-void MainWindow::onHomeRecentContinueClicked() {
-    const LaunchHistory::Record record = LaunchHistory::latestPlayable(m_launchHistory);
-    if (!record.isValid()) {
-        updateHomeRecent();  // 账空了（文件被人删了）⇒ 把卡片收起来
-        return;
-    }
-    // ★ 卡片上那颗按钮的状态是**上一趟重画**时算的，这一下可能已经隔了很久（实例被删、
-    //   世界被删都发生在之后）⇒ 现算一遍，不拿旧结论办事。
-    if (record.target != LaunchHistory::Target::None && homeRecentCanContinue(record)) {
-        // 目标还在 ⇒ 真的接着玩。走**同一条** `startQuickPlay()`：完整校验、登录、Java、
-        // 重复运行提醒一道都不绕过（§5.1 明写的那条）。
-        startQuickPlay(record.instanceId, quickPlayKindFor(record.target), record.targetId);
-        return;
-    }
-    // 其余都落在这儿：普通启动那一档，以及"目标没了 / 实例换了版本"的降级那一档。
-    // 做法和用户在主页选好实例再点启动**完全一样**（同一条路，不是另一条捷径）。
-    QComboBox *combo = m_ui->getInstalledVersionCombo();
-    const int row = combo == nullptr ? -1 : combo->findData(record.instanceId);
-    if (row < 0) {
-        // 那一份实例已经不在了（卡片上剩的是历史文字）。**说一句、不启动** —— 硬塞一个
-        // 下拉框里找不到的值，开起来的是现在选着的**另一个**实例，那是更糟的结果。
-        // NOTE: 措辞和 `startQuickPlayNow()` 那一处**逐字相同**：同一件事说两种话，用户会
-        //       以为是两件不同的事。
-        InlineMessage::warning(m_ui->overlay(), tr("找不到这个实例"),
-                               tr("「%1」现在不在已安装列表里，没有启动。")
-                                   .arg(record.instanceName.isEmpty() ? record.instanceId
-                                                                      : record.instanceName));
-        return;
-    }
-    combo->setCurrentIndex(row);
-    onStartButtonClicked();
-}
-
-void MainWindow::onHomeRecentSettingsClicked() {
-    const LaunchHistory::Record record = LaunchHistory::latestPlayable(m_launchHistory);
-    if (!record.isValid()) {
-        updateHomeRecent();
-        return;
-    }
-    if (m_versionManager == nullptr
-        || !m_versionManager->installedVersions().contains(record.instanceId)) {
-        // 和上面那颗按钮同一条理由：这一份已经不在了，开它的设置页只会给出一个空壳。
-        InlineMessage::warning(m_ui->overlay(), tr("找不到这个实例"),
-                               tr("「%1」现在不在已安装列表里。")
-                                   .arg(record.instanceName.isEmpty() ? record.instanceId
-                                                                      : record.instanceName));
-        return;
-    }
-    openInstanceSettings(record.instanceId);
+    const HomeQuickController::Rows rows = HomeQuickController::build(
+        installed, m_launchHistory, currentId, m_settings->homeFavoriteCount(),
+        m_settings->homeRecentCount());
+    m_ui->setHomeQuickRows(rows.favorites, rows.recent);
 }
 
 // ============================ 「账号与外观」那个模块 ============================
