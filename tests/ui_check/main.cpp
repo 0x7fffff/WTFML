@@ -8889,6 +8889,21 @@ int main(int argc, char *argv[]) {
 
             check(pageListOf(dialog) != nullptr && stackOf(dialog) != nullptr,
                   "U0a 左栏那一列、右栏那层堆叠页都按 objectName 找得回来");
+            QPushButton *fixedLaunch =
+                dialog.findChild<QPushButton *>(Dlg::launchInstanceButtonName());
+            int launchRequests = 0;
+            QObject::connect(&dialog, &Dlg::launchInstanceRequested,
+                             [&launchRequests]() { ++launchRequests; });
+            if (fixedLaunch != nullptr) {
+                fixedLaunch->click();
+            }
+            check(fixedLaunch != nullptr &&
+                      fixedLaunch->text() == Dlg::launchInstanceText() &&
+                      fixedLaunch->property("wtfmlButtonKind").toString() ==
+                          QStringLiteral("primary") &&
+                      launchRequests == 1,
+                  "★★ U0a 左栏底部有固定的主动作“启动实例”，任意页都走同一条启动请求",
+                  fixedLaunch != nullptr ? fixedLaunch->text() : QStringLiteral("<没有按钮>"));
 
             // ★ 「中栏」那个控件**没了**。名字是**硬编码**的：`subCategoryListName()` /
             //   `categoryListName()` 那两个常量已经连声明一起删了 —— 而这一条要的正是
@@ -27818,6 +27833,58 @@ int main(int argc, char *argv[]) {
             check(!recentCard->isVisibleTo(recentCard->parentWidget()),
                   "★ U31 收尾：摆回「没有记录」那一档 ⇒ 那张卡又收起来了");
         }
+    }
+
+    // ---------- U31b 快速启动固定槽位 ----------
+    {
+        window.show();
+        if (tabs != nullptr) {
+            tabs->setCurrentIndex(MainWindowUI::homeTabIndex());
+        }
+        QList<MainWindowUI::HomeQuickItem> favorites;
+        MainWindowUI::HomeQuickItem real;
+        real.key = QStringLiteral("demo-instance");
+        real.name = QStringLiteral("演示实例");
+        favorites.append(real);
+        for (int i = 0; i < 2; ++i) {
+            MainWindowUI::HomeQuickItem empty;
+            empty.empty = true;
+            empty.name = QStringLiteral("添加实例");
+            favorites.append(empty);
+        }
+        ui.setHomeQuickRows(favorites, {});
+        QApplication::processEvents();
+
+        QWidget *favoriteSection =
+            window.findChild<QWidget *>(QStringLiteral("homeFavoriteSection"));
+        QWidget *recentSection =
+            window.findChild<QWidget *>(QStringLiteral("homeQuickRecentSection"));
+        const QList<QPushButton *> emptySlots =
+            favoriteSection != nullptr
+                ? favoriteSection->findChildren<QPushButton *>(
+                      QRegularExpression(QStringLiteral("^homeQuickEmpty_favorite_")))
+                : QList<QPushButton *>();
+        check(favoriteSection != nullptr && favoriteSection->isVisibleTo(&window) &&
+                  recentSection != nullptr && !recentSection->isVisibleTo(&window) &&
+                  emptySlots.size() == 2,
+              "★★ U31b 设置 3 个槽但只有 1 个实例 ⇒ 收藏排固定保留 3 格（2 个空槽）；"
+              "数量为 0 的最近排整排隐藏",
+              QStringLiteral("空槽 %1").arg(emptySlots.size()));
+
+        int chooseRequests = 0;
+        ui.setHomeQuickActionHandler(
+            [&chooseRequests](const QString &key, MainWindowUI::HomeQuickAction action) {
+                if (key.isEmpty() && action == MainWindowUI::HomeQuickAction::ChooseInstance) {
+                    ++chooseRequests;
+                }
+            });
+        if (!emptySlots.isEmpty()) {
+            emptySlots.first()->click();
+        }
+        check(chooseRequests == 1,
+              "★★ U31b 点击空槽只发“选择实例”，不会落进启动或编辑实例的路径");
+        ui.setHomeQuickRows({}, {});
+        QApplication::processEvents();
     }
 
     // ---------- U32 实例页那一行「搜索 + 四颗筛选 chip」（coding plan §7.2）----------

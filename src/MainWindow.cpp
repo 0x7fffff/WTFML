@@ -1557,6 +1557,12 @@ MainWindow::MainWindow(QWidget *parent)
         });
     m_ui->setHomeQuickActionHandler(
         [this](const QString &key, MainWindowUI::HomeQuickAction action) {
+            if (action == MainWindowUI::HomeQuickAction::ChooseInstance) {
+                if (QTabWidget *tabs = m_ui->getTabWidget()) {
+                    tabs->setCurrentIndex(MainWindowUI::instancesTabIndex());
+                }
+                return;
+            }
             if (key.isEmpty() || m_versionManager == nullptr
                 || !m_versionManager->installedVersions().contains(key)) {
                 updateHomeRecent();
@@ -11966,6 +11972,18 @@ void MainWindow::updateHomeRecent() {
         if (rightRank < 0) return true;
         return leftRank < rightRank;
     });
+    // 数量设置表达的是“这一排有几个槽位”，不是“最多取几条数据”。不足的部分保留为空槽，
+    // 这样新增/删除实例时卡片不会左右跳动；设为 0 时列表仍为空，UI 会把整排收掉。
+    const auto padSlots = [](QList<MainWindowUI::HomeQuickItem> *items, int count) {
+        while (items != nullptr && items->size() < count) {
+            MainWindowUI::HomeQuickItem slot;
+            slot.empty = true;
+            slot.name = QObject::tr("添加实例");
+            items->append(slot);
+        }
+    };
+    padSlots(&favorites, m_settings->homeFavoriteCount());
+    padSlots(&recentlyPlayed, m_settings->homeRecentCount());
     m_ui->setHomeQuickRows(favorites, recentlyPlayed);
 }
 
@@ -13650,6 +13668,15 @@ void MainWindow::openInstanceSettingsNow(const QString &versionId, const QString
                                   global, m_versionManager->versionJvmArgs(versionId),
                                   !m_versionManager->skipJavaVersionWarning(versionId),
                                   windowModeChoices(), this);
+    connect(&dialog, &InstanceSettingsDialog::launchInstanceRequested, this,
+            [this, versionId]() {
+                QComboBox *combo = m_ui->getInstalledVersionCombo();
+                const int row = combo == nullptr ? -1 : combo->findData(versionId);
+                if (row >= 0) {
+                    combo->setCurrentIndex(row);
+                    onStartButtonClicked();
+                }
+            });
     // ---------- 概览栏那四行的初值（2026-09-26）----------
     //
     // 三张图标**由这里解好递进去**：ui/ 不做"这个实例默认该长什么样"那个判断（它要读版本

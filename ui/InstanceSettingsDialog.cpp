@@ -123,13 +123,16 @@ QString titleTextFor(const QString &displayName) {
 ///       定高的（"贴着内容"那条），而横排布局会把这一格的**高**整个给它，定高控件在那
 ///       一格里的落点是 Qt 说了算。套一层之后贴顶是写出来的，不靠猜。设置页左栏那一列
 ///       也是这个写法。
-void addNavColumn(QHBoxLayout *columns, QListWidget *list) {
+void addNavColumn(QHBoxLayout *columns, QListWidget *list, QWidget *footer = nullptr) {
     auto *column = new QWidget(list->parentWidget());
     auto *layout = new QVBoxLayout(column);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
     layout->addWidget(list);
     layout->addStretch(1);
+    if (footer != nullptr) {
+        layout->addWidget(footer);
+    }
     columns->addWidget(column);
 }
 
@@ -403,7 +406,14 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     m_pageList->setFont(listFont);
     // 只为一件事：**别让"拿到焦点"变成一次翻页**（见 eventFilter() 上面那一整段）。
     m_pageList->installEventFilter(this);
-    addNavColumn(columns, m_pageList);
+    auto *launchInstance = new QPushButton(launchInstanceText(), this);
+    launchInstance->setObjectName(launchInstanceButtonName());
+    launchInstance->setToolTip(launchInstanceHint());
+    launchInstance->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    Theme::markButton(launchInstance, Theme::ButtonKind::Primary);
+    connect(launchInstance, &QPushButton::clicked, this,
+            [this]() { emit launchInstanceRequested(); });
+    addNavColumn(columns, m_pageList, launchInstance);
 
     m_stack = new QStackedWidget(this);
     m_stack->setObjectName(stackName());

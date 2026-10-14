@@ -5071,14 +5071,46 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &favorites,
         }
         const bool iconsOnly = items.size() >= 5;
         const bool compact = items.size() >= 3;
-        for (const HomeQuickItem &item : items) {
+        for (int itemIndex = 0; itemIndex < items.size(); ++itemIndex) {
+            const HomeQuickItem &item = items.at(itemIndex);
             auto *card = new QPushButton(section);
-            card->setObjectName(QStringLiteral("homeQuickCard_%1").arg(item.key));
+            card->setObjectName(item.empty
+                                    ? QStringLiteral("homeQuickEmpty_%1_%2")
+                                          .arg(favoriteRow ? QStringLiteral("favorite")
+                                                           : QStringLiteral("recent"))
+                                          .arg(itemIndex)
+                                    : QStringLiteral("homeQuickCard_%1").arg(item.key));
             card->setToolTip(item.name);
             card->setCursor(Qt::PointingHandCursor);
             card->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
             card->setMinimumHeight(iconsOnly ? 66 : compact ? 82 : 96);
-            Theme::markButton(card, Theme::ButtonKind::Neutral);
+            Theme::markButton(card, item.empty ? Theme::ButtonKind::Ghost
+                                               : Theme::ButtonKind::Neutral);
+
+            if (item.empty) {
+                card->setProperty("wtfmlQuickEmpty", true);
+                auto *emptyLayout = new QVBoxLayout(card);
+                emptyLayout->setContentsMargins(10, 9, 10, 9);
+                emptyLayout->setSpacing(4);
+                auto *plus = new QLabel(QStringLiteral("＋"), card);
+                plus->setAlignment(Qt::AlignCenter);
+                QFont plusFont = plus->font();
+                plusFont.setPointSizeF(plusFont.pointSizeF() + 7.0);
+                plus->setFont(plusFont);
+                emptyLayout->addWidget(plus, 1, Qt::AlignCenter);
+                if (!iconsOnly) {
+                    auto *hint = makeHomeHint(QStringLiteral("添加实例"), card);
+                    hint->setAlignment(Qt::AlignCenter);
+                    emptyLayout->addWidget(hint);
+                }
+                QObject::connect(card, &QPushButton::clicked, card, [this]() {
+                    if (m_homeQuickActionHandler) {
+                        m_homeQuickActionHandler(QString(), HomeQuickAction::ChooseInstance);
+                    }
+                });
+                row->addWidget(card, 1);
+                continue;
+            }
 
             auto *content = new QVBoxLayout(card);
             content->setContentsMargins(10, 9, 10, 9);

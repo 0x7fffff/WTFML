@@ -1493,12 +1493,14 @@ public:
     };
     void setHomeRecent(const HomeRecent &recent);
 
-    enum class HomeQuickAction { Launch, Edit };
+    enum class HomeQuickAction { Launch, Edit, ChooseInstance };
     struct HomeQuickItem {
         QString key;
         QString name;
         QString detail;
         QIcon icon;
+        /// 固定槽位还没有实例时为 true。空槽仍参与布局，但不会伪装成可启动实例。
+        bool empty = false;
         bool current = false;
         bool recent = false;
         bool favorite = false;

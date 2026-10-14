@@ -334,6 +334,13 @@ public:
     }
 
     static QString pageListName() { return QStringLiteral("instanceSettingsPageList"); }
+    static QString launchInstanceButtonName() {
+        return QStringLiteral("instanceSettingsLaunchInstance");
+    }
+    static QString launchInstanceText() { return QStringLiteral("▶ 启动实例"); }
+    static QString launchInstanceHint() {
+        return QStringLiteral("从实例设置的任意页面启动当前实例");
+    }
     static QString stackName() { return QStringLiteral("instanceSettingsStack"); }
     /// 堆叠页里某一页的 objectName（@param key 见 pinnedPageKeys() / filePageKeys()）。
     static QString panelName(const QString &key) {
@@ -1546,6 +1553,9 @@ protected:
     void dropEvent(QDropEvent *event) override;
 
 signals:
+    /// 左栏底部的固定入口；真正启动仍统一交给 MainWindow 的启动链。
+    void launchInstanceRequested();
+
     /**
      * @brief 页面上的值**改完了**，该写盘了（2026-09-26 起这一页没有「确定」）。
      *

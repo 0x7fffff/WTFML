@@ -1149,6 +1149,17 @@ QString widgetStyleSheet() {
     qss += QStringLiteral("QPushButton[%1=\"%2\"] { min-height: 0px; }")
                .arg(QString::fromLatin1(kButtonSizeProperty), QString::fromLatin1(kIconButtonValue));
 
+    // 主页快速启动的空槽：它是布局占位和“去实例页添加”的入口，不应长得像已经能启动的
+    // 实例。半透明感在 QWidget 上用一层极浅主题色表达；虚线边只用于空槽，不把普通卡片
+    // 又带回“框框套框框”的旧观感。
+    qss += QStringLiteral(
+               "QPushButton[wtfmlQuickEmpty=\"true\"] { background-color: %1; color: %2;"
+               " border: 1px dashed %3; }"
+               "QPushButton[wtfmlQuickEmpty=\"true\"]:hover:enabled { background-color: %4; }"
+               "QPushButton[wtfmlQuickEmpty=\"true\"]:pressed:enabled { background-color: %5; }")
+               .arg(mixWithWhite(pure, 3).name(), disabledInk.name(), border.name(),
+                    mixWithWhite(pure, 8).name(), mixWithWhite(pure, 13).name());
+
     // -----------------------------------------------------------------------
     // 输入框（2026-09-28）
     // -----------------------------------------------------------------------
