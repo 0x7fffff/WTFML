@@ -1555,6 +1555,24 @@ MainWindow::MainWindow(QWidget *parent)
                 break;
             }
         });
+    m_ui->setHomeQuickActionHandler(
+        [this](const QString &key, MainWindowUI::HomeQuickAction action) {
+            if (key.isEmpty() || m_versionManager == nullptr
+                || !m_versionManager->installedVersions().contains(key)) {
+                updateHomeRecent();
+                return;
+            }
+            if (action == MainWindowUI::HomeQuickAction::Edit) {
+                openInstanceSettings(key);
+                return;
+            }
+            QComboBox *combo = m_ui->getInstalledVersionCombo();
+            const int row = combo == nullptr ? -1 : combo->findData(key);
+            if (row >= 0) {
+                combo->setCurrentIndex(row);
+                onStartButtonClicked();
+            }
+        });
     setupConnections();
     connect(m_javaRuntimeController, &JavaRuntimeController::busyChanged, this, [this](bool busy) {
         if (m_javaManagePage != nullptr) {
@@ -1912,6 +1930,20 @@ void MainWindow::closeEvent(QCloseEvent *event) {
 void MainWindow::setupConnections() {
     // UI 按钮信号
     connect(m_ui->getStartButton(), &QPushButton::clicked, this, &MainWindow::onStartButtonClicked);
+    if (QSpinBox *spin = m_ui->getHomeFavoriteCountSpin()) {
+        spin->setValue(m_settings->homeFavoriteCount());
+        connect(spin, qOverload<int>(&QSpinBox::valueChanged), this, [this](int value) {
+            m_settings->setHomeFavoriteCount(value);
+            updateHomeRecent();
+        });
+    }
+    if (QSpinBox *spin = m_ui->getHomeRecentCountSpin()) {
+        spin->setValue(m_settings->homeRecentCount());
+        connect(spin, qOverload<int>(&QSpinBox::valueChanged), this, [this](int value) {
+            m_settings->setHomeRecentCount(value);
+            updateHomeRecent();
+        });
+    }
     // NOTE: 这里原来接的是主页那个「离线模式」勾选框 —— 它一变就得重画底栏（名字下面那行
     //       写的是"这次启动用哪种身份"）。勾选框去掉了，现在让那个身份变的动作是
     //       **换账号 / 加一个离线账号**，而那两个槽自己就会调 updateBottomBar()，
@@ -2058,6 +2090,7 @@ void MainWindow::setupConnections() {
     connect(m_ui->getInstalledVersionCombo(), &QComboBox::currentIndexChanged, this,
             [this] {
                 updateStartButtonText();
+                updateHomeRecent();
                 // 底栏左下角那条状态要看"选中的是不是正在跑的那个实例"，
                 // 所以换版本也得跟着刷一遍。
                 updateBottomBar();
@@ -4313,6 +4346,7 @@ void MainWindow::refreshInstalledVersions() {
     // 而"换数据目录"正是这个函数被叫的场合之一（另一处是启动那一刻）。两页各自重灌，
     // 谁也不去猜对方缓存了什么。
     refreshServerList();
+    updateHomeRecent();
 }
 
 InstanceFilter::Query MainWindow::instanceFilterQuery() const {
@@ -11868,7 +11902,71 @@ void MainWindow::updateHomeRecent() {
         recent.whenLine = LaunchHistory::whenText(record.startedAt);
         recent.canContinue = homeRecentCanContinue(record);
     }
-    m_ui->setHomeRecent(recent);
+    // 旧的单张“上次游玩”卡保留为兼容控件但不再展示；信息进入下面的多条快速启动排。
+    Q_UNUSED(recent);
+    m_ui->setHomeRecent(MainWindowUI::HomeRecent());
+
+    // 新快速启动区：收藏复用实例管理的“置顶”状态；最近从启动账本按实例去重。
+    // 两排允许出现同一实例，身份差异由 UI 的单条丝带表达。
+    QList<MainWindowUI::HomeQuickItem> favorites;
+    QList<MainWindowUI::HomeQuickItem> recentlyPlayed;
+    QComboBox *combo = m_ui->getInstalledVersionCombo();
+    const QString currentId = combo != nullptr ? combo->currentData().toString() : QString();
+    QHash<QString, LaunchHistory::Record> latestByInstance;
+    QStringList recentIds;
+    for (const LaunchHistory::Record &entry : m_launchHistory) {
+        if (!entry.isValid() || entry.result == LaunchHistory::Result::StartFailed
+            || latestByInstance.contains(entry.instanceId)) {
+            continue;
+        }
+        latestByInstance.insert(entry.instanceId, entry);
+        recentIds.append(entry.instanceId);
+    }
+    const auto makeItem = [&](const QString &id) {
+        MainWindowUI::HomeQuickItem item;
+        item.key = id;
+        const int row = combo != nullptr ? combo->findData(id) : -1;
+        item.name = row >= 0 ? combo->itemText(row) : instanceDisplayName(id);
+        item.icon = row >= 0 ? combo->itemIcon(row) : QIcon();
+        item.current = id == currentId;
+        item.favorite = m_groupStore != nullptr && m_groupStore->isPinned(id);
+        item.recent = latestByInstance.contains(id);
+        if (item.recent) {
+            const LaunchHistory::Record history = latestByInstance.value(id);
+            item.detail = LaunchHistory::whenText(history.startedAt);
+            const QString played = LaunchHistory::durationText(history.durationSeconds);
+            if (!played.isEmpty()) {
+                item.detail += item.detail.isEmpty() ? played : QStringLiteral(" · ") + played;
+            }
+        }
+        return item;
+    };
+    if (combo != nullptr) {
+        for (int row = 0;
+             row < combo->count() && favorites.size() < m_settings->homeFavoriteCount(); ++row) {
+            const QString id = combo->itemData(row).toString();
+            if (!id.isEmpty() && m_groupStore != nullptr && m_groupStore->isPinned(id)) {
+                favorites.append(makeItem(id));
+            }
+        }
+    }
+    for (const QString &id : recentIds) {
+        if (recentlyPlayed.size() >= m_settings->homeRecentCount()) {
+            break;
+        }
+        if (m_versionManager != nullptr && m_versionManager->installedVersions().contains(id)) {
+            recentlyPlayed.append(makeItem(id));
+        }
+    }
+    // 收藏也按最近启动时间排；没有历史的收藏保留在末尾。
+    std::stable_sort(favorites.begin(), favorites.end(), [&](const auto &left, const auto &right) {
+        const int leftRank = recentIds.indexOf(left.key);
+        const int rightRank = recentIds.indexOf(right.key);
+        if (leftRank < 0) return false;
+        if (rightRank < 0) return true;
+        return leftRank < rightRank;
+    });
+    m_ui->setHomeQuickRows(favorites, recentlyPlayed);
 }
 
 void MainWindow::onHomeRecentContinueClicked() {
@@ -12846,12 +12944,12 @@ void MainWindow::pinInstance(const QString &versionId) {
     // 否则存下去的那一刻就对不上了（见 InstanceGroupStore 文件头）。
     QString error;
     if (!m_groupStore->pinInstance(instanceKey(versionId), &error)) {
-        InlineMessage::critical(m_ui->overlay(), tr("置顶失败"), error);
+        InlineMessage::critical(m_ui->overlay(), tr("收藏失败"), error);
         return;
     }
     // 写成功会发 groupsChanged ⇒ 整棵树重灌（那个实例挪进置顶组、它那一行那颗上箭头消失，
     // 因为已经在里面了）。**不再手动刷一遍**：手动刷只会和信号那条路撞在一起。
-    appendLog(tr("已置顶：%1").arg(instanceDisplayName(versionId)));
+    appendLog(tr("已收藏：%1").arg(instanceDisplayName(versionId)));
 }
 
 void MainWindow::unpinInstance(const QString &versionId) {
@@ -12872,12 +12970,12 @@ void MainWindow::unpinInstance(const QString &versionId) {
     //       走到这儿就说明在。真要在外面，这一下也只是写一条"未分组"，无害。
     QString error;
     if (!m_groupStore->unpinInstance(instanceKey(versionId), &error)) {
-        InlineMessage::critical(m_ui->overlay(), tr("取消置顶失败"), error);
+        InlineMessage::critical(m_ui->overlay(), tr("取消收藏失败"), error);
         return;
     }
     // 写成功会发 groupsChanged ⇒ 整棵树重灌（那个实例回到记录里那一组、它那一行那颗箭头
     // 换回朝上的）。**不再手动刷一遍**，理由同 pinInstance()。
-    appendLog(tr("已取消置顶：%1").arg(instanceDisplayName(versionId)));
+    appendLog(tr("已取消收藏：%1").arg(instanceDisplayName(versionId)));
 }
 
 bool MainWindow::confirmDeleteInstance(const QString &versionId) {

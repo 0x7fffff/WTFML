@@ -1389,7 +1389,7 @@ public:
     static QString groupButtonText() { return QStringLiteral("分组…"); }
     /// 第三行那个勾选框上的字。**用户 2026-09-26 点名的这一句**（原来叫「置顶（固定在最
     /// 前面）」，那是"置顶 = 搬进置顶组"那套旧语义留下的说法）。
-    static QString pinCheckText() { return QStringLiteral("显示在置顶组中"); }
+    static QString pinCheckText() { return QStringLiteral("加入收藏"); }
     /// 「更改图标」/「导出…」两颗按钮上的字。
     static QString changeIconText() { return QStringLiteral("更改图标"); }
     /// 第四行那颗按钮上的字。**用户 2026-09-26 给这一行起的名字就是「导出」**
@@ -1416,8 +1416,8 @@ public:
     ///       少说中间那一件，用户就会以为勾上等于"搬家"（那是这一版之前的语义）。
     static QString pinHint() {
         return QStringLiteral("勾上之后这个实例会在两个地方各有一条：原来那一组里留一条，"
-                              "置顶组里再摆一条同名的（置顶组永远排在最前面）。"
-                              "取消勾选，置顶组里那一条就没了，原来那一组从头到尾不动。");
+                              "收藏组里再摆一条同名的，并出现在主页收藏排。"
+                              "取消勾选，收藏组和主页里的收藏条目就会移除。");
     }
     /// 第四行那颗按钮下面那句话（**看得见的那一行**，短）。
     ///

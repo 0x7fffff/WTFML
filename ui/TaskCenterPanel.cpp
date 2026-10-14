@@ -17,6 +17,7 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPushButton>
+#include <QResizeEvent>
 #include <QScreen>
 #include <QScrollArea>
 #include <QTimer>
@@ -311,14 +312,16 @@ TaskCenterPanel::TaskCenterPanel(QWidget *anchor, const TaskCenter::ItemProvider
                                  const TaskCenter::ClearFinishedHandler &onClear,
                                  const TaskCenter::RunningProvider &runningProvider,
                                  const TaskCenter::RunningActionHandler &runningAction,
-                                 const OutsidePressHandler &onOutsidePress, QWidget *parent)
-    : QWidget(parent, Qt::Popup | Qt::FramelessWindowHint),
+                                 const OutsidePressHandler &onOutsidePress, QWidget *parent,
+                                 bool embedded)
+    : QWidget(parent, embedded ? Qt::Widget : Qt::Popup | Qt::FramelessWindowHint),
       m_anchor(anchor),
       m_provider(provider),
       m_onClear(onClear),
       m_runningProvider(runningProvider),
       m_runningAction(runningAction),
-      m_onOutsidePress(onOutsidePress) {
+      m_onOutsidePress(onOutsidePress),
+      m_embedded(embedded) {
     setObjectName(MainWindowUI::taskCenterPanelName());
     // 底色和底栏那两块面板**同一档**（`Theme::Part::Panel`）：三块都是从底栏弹出来的，
     // 颜色不一样就成了"三块不同的东西"。理由全文见 MainWindowUI.cpp 里 BottomBarPanel 那段。
@@ -416,6 +419,15 @@ void TaskCenterPanel::popUp() {
     m_opened = true;
 }
 
+void TaskCenterPanel::showEmbedded() {
+    m_opened = true;
+    m_compact = width() > 0 && width() < kWorkspaceMinWidth;
+    m_runningPane->setVisible(!m_compact);
+    m_detailPane->setVisible(!m_compact);
+    rebuild();
+    show();
+}
+
 std::function<void()> TaskCenterPanel::rowActivate(const QString &key) {
     // 每一行各捕一份**自己那把钥匙**：处理器只被告知"点的是哪一项"，不被告知"点的是第几行"
     // —— 行号会随着"清掉一条已完成"整体往上挪，面板开着的时候用户点的那一行早就不是
@@ -437,6 +449,13 @@ void TaskCenterPanel::refresh() {
 }
 
 void TaskCenterPanel::place(bool animate) {
+    if (m_embedded) {
+        const int availableWidth = qMax(0, width());
+        m_compact = availableWidth > 0 && availableWidth < kWorkspaceMinWidth;
+        m_runningPane->setVisible(!m_compact);
+        m_detailPane->setVisible(!m_compact);
+        return;
+    }
     if (m_anchor == nullptr) {
         return;
     }
@@ -801,14 +820,31 @@ void TaskCenterPanel::rebuildDetail(const QList<TaskCenter::Item> &items) {
 }
 
 void TaskCenterPanel::keyPressEvent(QKeyEvent *event) {
-    if (event->key() == Qt::Key_Escape) {
+    if (!m_embedded && event->key() == Qt::Key_Escape) {
         close();
         return;
     }
     QWidget::keyPressEvent(event);
 }
 
+void TaskCenterPanel::resizeEvent(QResizeEvent *event) {
+    QWidget::resizeEvent(event);
+    if (!m_embedded) {
+        return;
+    }
+    const bool compact = event->size().width() < kWorkspaceMinWidth;
+    if (compact == m_compact) {
+        return;
+    }
+    m_compact = compact;
+    m_runningPane->setVisible(!m_compact);
+    m_detailPane->setVisible(!m_compact);
+}
+
 bool TaskCenterPanel::handleOutsidePress(QMouseEvent *event) {
+    if (m_embedded) {
+        return false;
+    }
     const QPoint local = event->position().toPoint();
     if (rect().contains(local)) {
         return false;  // 落在面板自己身上：照旧往下走

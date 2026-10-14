@@ -165,7 +165,8 @@ struct TwoColumns {
 /// 也和资源详情页、覆盖层里的卡片保持同一种视觉语言。
 QFrame *makeHomeCard(QWidget *parent) {
     auto *card = new QFrame(parent);
-    card->setFrameShape(QFrame::StyledPanel);
+    // 卡片靠底色和留白分层，不再叠一圈 Fusion 的深色 StyledPanel 边线。
+    card->setFrameShape(QFrame::NoFrame);
     card->setAutoFillBackground(true);
     const auto applyPalette = [card]() {
         QPalette palette = QApplication::palette();
@@ -784,6 +785,30 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         home.left.layout->addWidget(launchCard);
         home.left.layout->addSpacing(kHomeCardGap);
         home.left.layout->addWidget(recentCard);
+
+        const auto makeQuickSection = [&](const QString &title, const QString &name,
+                                          QWidget **sectionOut, QHBoxLayout **rowOut) {
+            auto *section = makeHomeCard(home.left.widget);
+            section->setObjectName(name);
+            section->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+            auto *column = new QVBoxLayout(section);
+            column->setContentsMargins(16, 14, 16, 14);
+            column->setSpacing(8);
+            column->addWidget(makeHomeTitle(title, section));
+            auto *row = new QHBoxLayout;
+            row->setContentsMargins(0, 0, 0, 0);
+            row->setSpacing(8);
+            column->addLayout(row);
+            section->hide();
+            *sectionOut = section;
+            *rowOut = row;
+            home.left.layout->addSpacing(kHomeCardGap);
+            home.left.layout->addWidget(section);
+        };
+        makeQuickSection(QStringLiteral("收藏"), QStringLiteral("homeFavoriteSection"),
+                         &homeFavoriteSection, &homeFavoriteRow);
+        makeQuickSection(QStringLiteral("上次游玩"), QStringLiteral("homeQuickRecentSection"),
+                         &homeQuickRecentSection, &homeQuickRecentRow);
         home.left.layout->addStretch(2);
     }
     // ---------- 主页右栏：我的角色（3D 皮肤预览） ----------
@@ -1902,7 +1927,11 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     //       在那时候就会响，而那些页还没上屏、几何也没定下来，给它们装效果纯属白干
     //       （`tabWidget` 是 `centralWidget` 里生出来的，这条判据在它身上同样说得通）。
     QObject::connect(tabWidget, &QTabWidget::currentChanged, tabWidget, [this](int) {
-        if (tabWidget->isVisible()) {
+        // 覆盖层页面在别的主选项卡上“停放”时，切回所属页会由 OverlayHost 立即恢复。
+        // 此时若再给底下的 QTabWidget 盖一层换页幕布，幕布的 Base 色会短暂从页面周围
+        // 露出来，形成用户看到的灰屏和一拍延迟。普通根页面仍保留原来的换页动画。
+        if (tabWidget->isVisible()
+            && (overlayHost == nullptr || !overlayHost->pageOpen())) {
             Anim::pageAppear(tabWidget, tabWidget->palette().color(QPalette::Base));
         }
     });
@@ -2889,6 +2918,24 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
                 form);
         addSettingItem(section6, QStringLiteral("切换"), box, form);
     }
+
+    const SettingsSection section7 =
+        addSettingsSection(grid, row, QStringLiteral("主页快速启动"), form);
+    const auto addCount = [&](const QString &label, const QString &name, QSpinBox **out) {
+        QWidget *box = makeHintedControl(form);
+        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        auto *spin = new QSpinBox(box);
+        spin->setObjectName(name);
+        spin->setRange(0, 5);
+        spin->setSuffix(QStringLiteral(" 个"));
+        WheelGuard::install(spin);
+        boxLayout->addWidget(spin, 0, Qt::AlignLeft);
+        addHint(box, QStringLiteral("设为 0 时整排隐藏；窗口变窄时条目自动精简为图标。"), form);
+        addSettingItem(section7, label, box, form);
+        *out = spin;
+    };
+    addCount(QStringLiteral("收藏排数量"), homeFavoriteCountSpinName(), &homeFavoriteCountSpin);
+    addCount(QStringLiteral("上次游玩排数量"), homeRecentCountSpinName(), &homeRecentCountSpin);
 
     // 剩下的竖直空间留在底部：设置项不跟着窗口高度一起被拉长
     grid->setRowStretch(row, 1);
@@ -4676,12 +4723,28 @@ TaskCenterPanel *MainWindowUI::taskCenterPanel() const {
     // 认它靠 objectName + 动态转型（和那两块 BottomBarPanel 一个路数）：面板挂在底栏底下，
     // close() 之后要等 deleteLater 才真删，所以"现在开着哪一块"不用自己记指针 —— 记了
     // 反而要操心它在哪一行被删掉。
+    if (overlayHost != nullptr) {
+        if (auto *page = dynamic_cast<TaskCenterPanel *>(
+                overlayHost->findChild<QWidget *>(taskCenterPanelName()))) {
+            return page;
+        }
+    }
     return dynamic_cast<TaskCenterPanel *>(
         bottomBar != nullptr ? bottomBar->findChild<QWidget *>(taskCenterPanelName()) : nullptr);
 }
 
 void MainWindowUI::openTaskCenterPanel() {
-    if (bottomBar == nullptr || taskSummaryButton == nullptr) {
+    if (bottomBar == nullptr || taskSummaryButton == nullptr || overlayHost == nullptr) {
+        return;
+    }
+    if (taskCenterPanel() != nullptr) {
+        overlayHost->dismiss();
+        return;
+    }
+    if (overlayHost->isOpen()) {
+        if (overlayHost->evict()) {
+            QTimer::singleShot(0, taskSummaryButton, [this]() { openTaskCenterPanel(); });
+        }
         return;
     }
     // 点在面板外面的那一下：和那两块面板同一套（理由全文见 BottomBarPanel 里
@@ -4730,17 +4793,30 @@ void MainWindowUI::openTaskCenterPanel() {
                 m_panelActionHandler(false, key, action);
             }
         };
+    QWidget *page = overlayHost->openPage(QStringLiteral("活动中心"));
+    if (page == nullptr) {
+        return;
+    }
+    auto *pageLayout = qobject_cast<QVBoxLayout *>(page->layout());
+    if (pageLayout == nullptr) {
+        overlayHost->closeOverlay();
+        return;
+    }
     auto *panel = new TaskCenterPanel(taskSummaryButton, m_taskCenterProvider,
                                       m_taskCenterClearHandler, runningProvider, runningAction,
-                                      onOutsidePress, bottomBar);
+                                      onOutsidePress, page, /*embedded=*/true);
     // 点一行进详情页。★ **要在 popUp() 之前挂**：`rebuild()`（popUp() 里第一件事）就是按
     //   这个处理器决定那几行"可不可点"的 —— 挂晚了的话这一面板里的行没手型光标、点了也没
     //   反应，得关掉重开一次才行。
     panel->setRowActivatedHandler(m_taskCenterRowActivated);
     panel->setRowActionHandler(m_taskCenterRowAction);
-    // 这次弹出来的面板归它自己管：关掉就删（不然点一次攒一个）。
-    panel->setAttribute(Qt::WA_DeleteOnClose);
-    panel->popUp();
+    panel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    pageLayout->addWidget(panel);
+    QObject::connect(overlayHost, &OverlayHost::backPressed, panel, [this, panel]() {
+        overlayHost->closeOverlay();
+        panel->deleteLater();
+    });
+    panel->showEmbedded();
 }
 
 void MainWindowUI::openBottomBarPanel(const BottomBarAnchor &anchor) {
@@ -4814,7 +4890,9 @@ void MainWindowUI::toggleBottomBarPanel(const BottomBarAnchor &anchor) {
     if (auto *panel = taskCenterPanel()) {
         sameAnchor = sameAnchor || panel->anchor() == anchor.button;
         anyOpen = true;
-        panel->close();
+        if (overlayHost != nullptr) {
+            overlayHost->dismiss();
+        }
     }
     if (anyOpen && (sameAnchor || blocked)) {
         return;  // 再点一次**同一颗** = 收回去，就这一下
@@ -4974,4 +5052,156 @@ void MainWindowUI::setHomeRecent(const HomeRecent &recent) {
     // 「启动实例」（§5.1）。按钮**不消失** —— 目标被删了不该让这张卡变成死路一条。
     homeRecentContinueButton->setText(recent.canContinue ? MainWindowUI::homeRecentContinueText()
                                                         : MainWindowUI::homeRecentLaunchText());
+}
+
+void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &favorites,
+                                    const QList<HomeQuickItem> &recent) {
+    const auto rebuildRow = [this](QWidget *section, QHBoxLayout *row,
+                                   const QList<HomeQuickItem> &items, bool favoriteRow) {
+        if (section == nullptr || row == nullptr) {
+            return;
+        }
+        while (QLayoutItem *child = row->takeAt(0)) {
+            delete child->widget();
+            delete child;
+        }
+        section->setVisible(!items.isEmpty());
+        if (items.isEmpty()) {
+            return;
+        }
+        const bool iconsOnly = items.size() >= 5;
+        const bool compact = items.size() >= 3;
+        for (const HomeQuickItem &item : items) {
+            auto *card = new QPushButton(section);
+            card->setObjectName(QStringLiteral("homeQuickCard_%1").arg(item.key));
+            card->setToolTip(item.name);
+            card->setCursor(Qt::PointingHandCursor);
+            card->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+            card->setMinimumHeight(iconsOnly ? 66 : compact ? 82 : 96);
+            Theme::markButton(card, Theme::ButtonKind::Neutral);
+
+            auto *content = new QVBoxLayout(card);
+            content->setContentsMargins(10, 9, 10, 9);
+            content->setSpacing(5);
+            auto *identity = new QHBoxLayout;
+            identity->setSpacing(7);
+            auto *icon = new QLabel(card);
+            const int iconSide = iconsOnly ? 38 : 32;
+            icon->setFixedSize(iconSide, iconSide);
+            icon->setAlignment(Qt::AlignCenter);
+            icon->setPixmap(item.icon.pixmap(iconSide, iconSide));
+            identity->addWidget(icon, 0, Qt::AlignVCenter);
+            if (!iconsOnly) {
+                auto *name = new ElidedLabel(card);
+                name->setText(item.name);
+                QFont font = name->font();
+                font.setBold(true);
+                name->setFont(font);
+                identity->addWidget(name, 1, Qt::AlignVCenter);
+            }
+            content->addLayout(identity);
+
+            QString ribbon;
+            if (item.current) {
+                ribbon = QStringLiteral("当前");
+            } else if (favoriteRow && item.recent) {
+                ribbon = QStringLiteral("最近");
+            } else if (!favoriteRow && item.favorite) {
+                ribbon = QStringLiteral("收藏");
+            }
+            if (!ribbon.isEmpty()) {
+                auto *badge = new QLabel(ribbon, card);
+                badge->setObjectName(QStringLiteral("homeQuickRibbon"));
+                badge->setAlignment(Qt::AlignCenter);
+                badge->setFixedHeight(18);
+                QPalette badgePalette = badge->palette();
+                badgePalette.setColor(QPalette::Window,
+                                      ribbon == QStringLiteral("当前")
+                                          ? Theme::accentShade(Theme::AccentShade::Pure)
+                                          : ribbon == QStringLiteral("最近")
+                                                ? QColor(46, 139, 166)
+                                                : QColor(181, 132, 46));
+                badgePalette.setColor(QPalette::WindowText, Qt::white);
+                badge->setAutoFillBackground(true);
+                badge->setPalette(badgePalette);
+                content->addWidget(badge, 0, Qt::AlignLeft);
+            }
+
+            if (!iconsOnly) {
+                auto *actions = new QHBoxLayout;
+                actions->setSpacing(6);
+                auto *launch = new QPushButton(QStringLiteral("启动"), card);
+                Theme::markButton(launch, Theme::ButtonKind::Accent);
+                const QString key = item.key;
+                QObject::connect(launch, &QPushButton::clicked, launch, [this, key]() {
+                    if (m_homeQuickActionHandler) {
+                        m_homeQuickActionHandler(key, HomeQuickAction::Launch);
+                    }
+                });
+                actions->addWidget(launch, 1);
+                if (!compact) {
+                    auto *edit = new QPushButton(QStringLiteral("编辑"), card);
+                    Theme::markButton(edit, Theme::ButtonKind::Ghost);
+                    QObject::connect(edit, &QPushButton::clicked, edit, [this, key]() {
+                        if (m_homeQuickActionHandler) {
+                            m_homeQuickActionHandler(key, HomeQuickAction::Edit);
+                        }
+                    });
+                    actions->addWidget(edit);
+                }
+                content->addLayout(actions);
+            }
+
+            QObject::connect(card, &QPushButton::clicked, card, [this, card, item]() {
+                auto *popup = new QFrame(card->window(), Qt::Popup | Qt::FramelessWindowHint);
+                popup->setAttribute(Qt::WA_DeleteOnClose);
+                popup->setObjectName(QStringLiteral("homeQuickPopup"));
+                markSurface(popup, Theme::workspaceSurfaceValue());
+                popup->setAutoFillBackground(true);
+                auto *layout = new QVBoxLayout(popup);
+                layout->setContentsMargins(16, 14, 16, 14);
+                layout->setSpacing(8);
+                auto *title = new QLabel(item.name, popup);
+                QFont titleFont = title->font();
+                titleFont.setBold(true);
+                title->setFont(titleFont);
+                title->setWordWrap(true);
+                layout->addWidget(title);
+                if (!item.detail.isEmpty()) {
+                    auto *detail = makeHomeHint(item.detail, popup);
+                    layout->addWidget(detail);
+                }
+                auto *actions = new QHBoxLayout;
+                auto *edit = new QPushButton(QStringLiteral("实例设置"), popup);
+                Theme::markButton(edit, Theme::ButtonKind::Ghost);
+                auto *launch = new QPushButton(QStringLiteral("启动实例"), popup);
+                Theme::markButton(launch, Theme::ButtonKind::Primary);
+                const QString key = item.key;
+                QObject::connect(edit, &QPushButton::clicked, popup, [this, popup, key]() {
+                    popup->close();
+                    if (m_homeQuickActionHandler) {
+                        m_homeQuickActionHandler(key, HomeQuickAction::Edit);
+                    }
+                });
+                QObject::connect(launch, &QPushButton::clicked, popup, [this, popup, key]() {
+                    popup->close();
+                    if (m_homeQuickActionHandler) {
+                        m_homeQuickActionHandler(key, HomeQuickAction::Launch);
+                    }
+                });
+                actions->addWidget(edit);
+                actions->addStretch(1);
+                actions->addWidget(launch);
+                layout->addLayout(actions);
+                popup->setFixedWidth(qMax(320, card->width() * 3));
+                popup->adjustSize();
+                const QPoint anchor = card->mapToGlobal(QPoint(0, 0));
+                popup->move(anchor.x(), anchor.y() - popup->height() - 6);
+                popup->show();
+            });
+            row->addWidget(card, 1);
+        }
+    };
+    rebuildRow(homeFavoriteSection, homeFavoriteRow, favorites, true);
+    rebuildRow(homeQuickRecentSection, homeQuickRecentRow, recent, false);
 }

@@ -1030,6 +1030,9 @@ QString widgetStyleSheet() {
     const QColor disabledInk = disabledInkColor();
     const QColor disabledBorder = disabledBorderColor();
     const QColor disabledFill = disabledFillColor();
+    const QColor accentFill = mixWithWhite(pure, 6);
+    const QColor neutralFill(0xf3, 0xf4, 0xf3);
+    const QColor dangerFill(0xfd, 0xf1, 0xf1);
 
     // ★ `padding: 6px` 不是随手写的：Fusion 的 `PM_ButtonMargin` 就是 6，边框 1 ⇒
     //   2*(6+1) = 14，和样式自己算的**一模一样**。差一点点的话界面上是看不出来，但一堆
@@ -1051,19 +1054,19 @@ QString widgetStyleSheet() {
     constexpr int kButtonChrome = 2 * 6 + 2 * 1;
     QString qss = QStringLiteral(
                       "QPushButton {"
-                      " background-color: #ffffff;"
+                      " background-color: %3;"
                       " color: %1;"
-                      " border: 1px solid %2;"
+                      " border: 1px solid transparent;"
                       " border-radius: %6px;"
                       " min-height: %7px;"
                       " padding: 6px; }"
                       // 默认那一颗（对话框里回车就按下去的那颗）：淡淡一层主题色的底。
                       // **不能跟悬停同色** —— 同色的话"鼠标停在哪儿"就看不出默认是哪一颗了。
-                      "QPushButton:default:enabled { background-color: %3; }"
+                      "QPushButton:default:enabled { background-color: %4; }"
                       "QPushButton:hover:enabled { background-color: %4; }"
-                      "QPushButton:pressed:enabled { background-color: %5; }")
-                      .arg(ink.name(), border.name(), mixWithWhite(accentShade(AccentShade::Pure), 6).name(),
-                           hover.name(), pressed.name())
+                      "QPushButton:pressed:enabled { background-color: %5; }"
+                      "QPushButton:focus { border-color: %2; }")
+                      .arg(ink.name(), border.name(), accentFill.name(), hover.name(), pressed.name())
                       .arg(buttonRadius())
                       .arg(actionHeight() - kButtonChrome);
     // 主动作是页面上唯一一颗实心按钮。悬停和按下都向更深处走，白字对比度不会因为交互
@@ -1085,18 +1088,22 @@ QString widgetStyleSheet() {
     };
     qss += primaryBlock(QStringLiteral("primary"), pure, pure.darker(108), pure.darker(118));
 
-    // 危险 / 次要两档：只换字和边那两处颜色，其余（白底、圆角、内边距）照旧。
-    const auto kindBlock = [](const QString &key, const QColor &color, const QColor &hoverFill,
-                              const QColor &pressedFill) {
-        return QStringLiteral("QPushButton[%1=\"%2\"] { color: %3; border-color: %3; }"
-                              "QPushButton[%1=\"%2\"]:hover:enabled { background-color: %4; }"
-                              "QPushButton[%1=\"%2\"]:pressed:enabled { background-color: %5; }")
-            .arg(QString::fromLatin1(kButtonKindProperty), key, color.name(), hoverFill.name(),
-                 pressedFill.name());
+    // 危险 / 次要两档用轻填充建立形状，不再常驻一圈深色框；透明边仍占着 1px，
+    // 键盘焦点出现时才换成有意义的语义色，因此不会改变按钮几何。
+    const auto kindBlock = [](const QString &key, const QColor &color, const QColor &fill,
+                              const QColor &hoverFill, const QColor &pressedFill) {
+        return QStringLiteral("QPushButton[%1=\"%2\"] { color: %3; background-color: %4;"
+                              " border-color: transparent; }"
+                              "QPushButton[%1=\"%2\"]:focus { border-color: %3; }"
+                              "QPushButton[%1=\"%2\"]:hover:enabled { background-color: %5; }"
+                              "QPushButton[%1=\"%2\"]:pressed:enabled { background-color: %6; }")
+            .arg(QString::fromLatin1(kButtonKindProperty), key, color.name(), fill.name(),
+                 hoverFill.name(), pressedFill.name());
     };
-    qss += kindBlock(QStringLiteral("danger"), red, QColor(0xfd, 0xea, 0xea), QColor(0xf7, 0xd5, 0xd5));
-    qss += kindBlock(QStringLiteral("neutral"), black, QColor(0xf0, 0xf0, 0xf0),
-                     QColor(0xe0, 0xe0, 0xe0));
+    qss += kindBlock(QStringLiteral("danger"), red, dangerFill, QColor(0xfd, 0xe5, 0xe5),
+                     QColor(0xf7, 0xd5, 0xd5));
+    qss += kindBlock(QStringLiteral("neutral"), black, neutralFill, QColor(0xe9, 0xec, 0xe9),
+                     QColor(0xdc, 0xe1, 0xdc));
 
     // ---------- Ghost（2026-10-14，coding plan §3.3「统一按钮视觉层级」）----------
     //
@@ -1130,8 +1137,9 @@ QString widgetStyleSheet() {
     //   按钮，底 `#F7F7F7` / 字 `#202020`。
     //   所以这一条挪到**最后**追加，把两种 kind 的字和边一并按下去。
     qss += QStringLiteral(
-               "QPushButton:disabled { background-color: %1; color: %2; border-color: %3; }")
-               .arg(disabledFill.name(), disabledInk.name(), disabledBorder.name());
+               "QPushButton:disabled { background-color: %1; color: %2;"
+               " border-color: transparent; }")
+               .arg(disabledFill.name(), disabledInk.name());
 
     // ★ 图标按钮那一档**必须摆在最后**（2026-10-12）：它和 `[wtfmlButtonKind="primary"]`
     //   优先级一样（都是"元素 + 一个属性"），平手时后面写的赢。它只有一句话 ——
@@ -1353,10 +1361,6 @@ QString widgetStyleSheet() {
     {
         const QColor sheetBase =
             appColor(QPalette::Base).isValid() ? appColor(QPalette::Base) : QColor(Qt::white);
-        QColor sheetLine = appColor(QPalette::Mid);
-        if (!sheetLine.isValid()) {
-            sheetLine = sheetBase.darker(115);
-        }
         const QColor sidebarFill = mixToward(sheetBase, accentShade(AccentShade::Pure), 6);
         // 小节卡片要能和正文面分得开，但仍然只是正文内部的一层。6% 在默认绿色下
         // 足以建立层级，又不会像旧式 GroupBox 那样每节都变成一个沉重的框。
@@ -1367,16 +1371,15 @@ QString widgetStyleSheet() {
         //   小节卡片（10）> 主表面（8）> 普通动作（6）> 输入类（4），四档一路收小。
         qss += QStringLiteral(
                    "QFrame[%1=\"sidebar\"] { background-color: %2; border: none;"
+                   " border-radius: %7px; }"
+                   "QFrame[%1=\"workspace\"] { background-color: %3; border: none;"
+                   " border-radius: %7px; }"
+                   "QFrame[%1=\"section\"] { background-color: %4; border: none;"
                    " border-radius: %8px; }"
-                   "QFrame[%1=\"workspace\"] { background-color: %3; border: 1px solid %4;"
-                   " border-radius: %8px; }"
-                   "QFrame[%1=\"section\"] { background-color: %5; border: none;"
-                   " border-radius: %9px; }"
-                   "QFrame[%1=\"footer\"] { background-color: transparent; border: none;"
-                   " border-top: 1px solid %4; }"
-                   "QLabel[%6=\"secondary\"] { color: %7; }")
+                   "QFrame[%1=\"footer\"] { background-color: transparent; border: none; }"
+                   "QLabel[%5=\"secondary\"] { color: %6; }")
                    .arg(QString::fromLatin1(kSurfaceProperty), sidebarFill.name(),
-                        sheetBase.name(), sheetLine.name(), sectionFill.name(),
+                        sheetBase.name(), sectionFill.name(),
                         QString::fromLatin1(kTextRoleProperty), sheetSecondary.name())
                    .arg(surfaceRadius())
                    .arg(sectionRadius());

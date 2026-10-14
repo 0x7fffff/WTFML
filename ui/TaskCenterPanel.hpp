@@ -36,6 +36,7 @@
 
 class QScrollArea;
 class QPushButton;
+class QResizeEvent;
 
 namespace TaskCenter {
 
@@ -178,13 +179,17 @@ public:
                     const TaskCenter::ClearFinishedHandler &onClear,
                     const TaskCenter::RunningProvider &runningProvider,
                     const TaskCenter::RunningActionHandler &runningAction,
-                    const OutsidePressHandler &onOutsidePress, QWidget *parent);
+                    const OutsidePressHandler &onOutsidePress, QWidget *parent,
+                    bool embedded = false);
 
     /// 贴的是哪颗按钮（"再点一次收回"要按它认人：点的是同一颗才算收回）。
     QWidget *anchor() const { return m_anchor; }
 
     /// 第一次打开：摆到 anchor 正上方、**带滑入动效**、显示出来。
     void popUp();
+
+    /// 作为覆盖层里的完整工作区使用。此时不做屏幕定位，也没有 Popup 的点击外部关闭语义。
+    void showEmbedded();
 
     /// 内容变了重画一遍（面板开着的时候 MainWindow 会喊）。**不重播滑入动效** ——
     /// 它这会儿已经在屏幕上，再滑一次看着就是"整块面板跳了一下"。
@@ -211,6 +216,7 @@ protected:
     void mousePressEvent(QMouseEvent *event) override;
     void mouseDoubleClickEvent(QMouseEvent *event) override;
     void paintEvent(QPaintEvent *) override;
+    void resizeEvent(QResizeEvent *event) override;
 
 private:
     /// 把内容整块重建（两栏 + 那个「清除已完成」）。调用方负责随后摆位置。
@@ -249,4 +255,5 @@ private:
     bool m_runningCollapsed = false;
     bool m_compact = false;
     bool m_opened = false;
+    bool m_embedded = false;
 };

@@ -85,7 +85,7 @@ QString InstanceGroupStore::defaultGroupId(DefaultKind kind) {
 QString InstanceGroupStore::defaultGroupName(DefaultKind kind) {
     switch (kind) {
     case DefaultKind::Pinned:
-        return QStringLiteral("置顶");
+        return QStringLiteral("收藏");
     case DefaultKind::Moddable:
         return QStringLiteral("可安装mod");
     case DefaultKind::Vanilla:
@@ -227,6 +227,11 @@ QList<InstanceGroupStore::Group> InstanceGroupStore::groups() const {
         // 而空名字在树里就是一行空白。
         const QString name = object.value(kNameField).toString().trimmed();
         group.name = name.isEmpty() ? id : name;
+        // 默认收藏组曾经叫“置顶”。只迁移这个稳定 id 且仍使用旧默认名的条目；用户自己
+        // 改过的组名原样保留。下一次写盘时会自然保存成新名字。
+        if (id == kDefaultIdPinned && group.name == QStringLiteral("置顶")) {
+            group.name = QStringLiteral("收藏");
+        }
         // **缺省是展开**（toBool 的缺省值）：这一条是 2026-09-25 才有的，之前写的文件
         // 里一个都没有，而那时界面上组一律是展开的 —— 缺省值就把老文件读成了老样子。
         group.expanded = object.value(kExpandedField).toBool(true);
@@ -400,7 +405,7 @@ bool InstanceGroupStore::setGroupPinned(const QString &groupId, bool pinned, QSt
     // 空 id 是调用方的 bug（拿一个空的组 id 过来），不是用户操作失误 —— 和
     // setGroupExpanded() 那段同一个判据、同一句话的形状。
     if (groupId.isEmpty()) {
-        return fail(tr("内部错误：没有指定要改哪个分组的置顶状态。"));
+        return fail(tr("内部错误：没有指定要改哪个分组的收藏状态。"));
     }
 
     ensureLoaded();
@@ -484,7 +489,7 @@ bool InstanceGroupStore::pinInstance(const QString &instanceKey, QString *errorO
     };
 
     if (instanceKey.isEmpty()) {
-        return fail(tr("内部错误：没有指定要给哪个实例置顶。"));
+        return fail(tr("内部错误：没有指定要收藏哪个实例。"));
     }
 
     ensureLoaded();
@@ -534,7 +539,7 @@ bool InstanceGroupStore::unpinInstance(const QString &instanceKey, QString *erro
     };
 
     if (instanceKey.isEmpty()) {
-        return fail(tr("内部错误：没有指定要给哪个实例取消置顶。"));
+        return fail(tr("内部错误：没有指定要取消收藏哪个实例。"));
     }
 
     ensureLoaded();

@@ -4446,11 +4446,34 @@ int main(int argc, char *argv[]) {
             QApplication::processEvents();
             QWidget *panel = window.findChild<QWidget *>(MainWindowUI::taskCenterPanelName());
             check(panel != nullptr && panel->isVisible(),
-                  "I2 点一下中间那格，弹出了任务中心那块面板");
+                  "I2 点一下中间那格，打开了完整任务中心工作区");
             if (panel != nullptr) {
-                check(panel->windowFlags().testFlag(Qt::Popup),
-                      "I2 它是 Qt::Popup（点界面别处自动收回去、不抢主窗口焦点）",
-                      QStringLiteral("flags = 0x%1").arg(uint(panel->windowFlags()), 0, 16));
+                check(!panel->isWindow() && ui.overlay() != nullptr
+                          && ui.overlay()->pageOpen(),
+                      "I2 任务中心是主窗口内容区中的完整页面，不是独立 Popup");
+                QTabBar *topTabs = ui.getTabWidget() != nullptr ? ui.getTabWidget()->tabBar()
+                                                                 : nullptr;
+                check(topTabs != nullptr
+                          && panel->mapToGlobal(QPoint(0, 0)).y()
+                                 > topTabs->mapToGlobal(topTabs->rect().bottomLeft()).y(),
+                      "I2 任务中心从顶端四个主选项卡下方开始，不覆盖导航按钮");
+                QTabWidget *tabs = ui.getTabWidget();
+                const int ownerTab = tabs != nullptr ? tabs->currentIndex() : -1;
+                const int otherTab = tabs != nullptr && tabs->count() > 1
+                                         ? (ownerTab + 1) % tabs->count()
+                                         : -1;
+                if (tabs != nullptr && otherTab >= 0) {
+                    tabs->setCurrentIndex(otherTab);
+                    check(!panel->isVisible(),
+                          "I2 切到其它主页面时任务中心停放，不盖住新页面");
+                    tabs->setCurrentIndex(ownerTab);
+                    check(panel->isVisible() && ui.overlay()->graphicsEffect() == nullptr,
+                          "I2 切回时任务中心立即恢复，不用灰色覆盖层淡入");
+                    QWidget *curtain =
+                        tabs->findChild<QWidget *>(QStringLiteral("wtfmlPageCurtain"));
+                    check(curtain == nullptr || !curtain->isVisible(),
+                          "I2 任务中心停放期间切主页面不显示灰色换页幕布");
+                }
                 check(panel->findChild<QWidget *>(QStringLiteral("taskCenterRunningPane")) !=
                               nullptr
                           && panel->findChild<QWidget *>(QStringLiteral("taskCenterTaskList")) !=
@@ -4519,7 +4542,7 @@ int main(int argc, char *argv[]) {
                 check(cancel0 == nullptr,
                       "I2 能力位说不能取消的行，行尾**不长**那颗「取消」",
                       cancel0 != nullptr ? cancel0->text() : QStringLiteral("<没找到>"));
-                panel->close();
+                ui.overlay()->dismiss();
                 QApplication::processEvents();
                 QApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
             }
@@ -4566,7 +4589,7 @@ int main(int argc, char *argv[]) {
             cell->click();
             QApplication::processEvents();
             QWidget *panel = window.findChild<QWidget *>(MainWindowUI::taskCenterPanelName());
-            check(panel != nullptr && panel->isVisible(), "I6 面板又弹出来了（喂了一件在跑的）");
+            check(panel != nullptr && panel->isVisible(), "I6 任务中心页面再次打开（喂了一件在跑的）");
             if (panel != nullptr) {
                 // ★ 面板里那一行那根条也是**自绘的那一支**（§3.3 三处之一）。测得出百分比
                 //   的行才有它（上面 I2 量的是"测不出就不摆"那一侧）。
@@ -4598,7 +4621,7 @@ int main(int argc, char *argv[]) {
                           "I6 点那颗「取消」把「哪一行、点的是哪一颗」带回了调用方",
                           QStringLiteral("回来 %1 次 / key=%2").arg(cancelCalls).arg(cancelledKey));
                 }
-                panel->close();
+                ui.overlay()->dismiss();
                 QApplication::processEvents();
                 QApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
             }
@@ -7951,7 +7974,7 @@ int main(int argc, char *argv[]) {
         // 五个默认分组（"恢复默认"要换成它们）。id 照产品里那五个写死的值 —— 这一节不
         // 依赖 InstanceGroupStore（ui/ 不 include src/ 那条规矩），但**形状**要和它一样。
         QList<Group> defaults;
-        defaults.append({QStringLiteral("default-pinned"), QStringLiteral("置顶"), true});
+        defaults.append({QStringLiteral("default-pinned"), QStringLiteral("收藏"), true});
         defaults.append({QStringLiteral("default-moddable"), QStringLiteral("可安装mod"), true});
         defaults.append({QStringLiteral("default-vanilla"), QStringLiteral("原版"), true});
         defaults.append({QStringLiteral("default-snapshot"), QStringLiteral("快照版"), true});
@@ -8702,7 +8725,7 @@ int main(int argc, char *argv[]) {
             }
             check(ask.groups() == groups,
                   "答「否」的时候一个组都没换（问过才做，取消 = 磁盘和清单都原样）");
-            check(g_modalText.contains(QStringLiteral("置顶")),
+            check(g_modalText.contains(QStringLiteral("收藏")),
                   "那个框里点名说了会换成哪几个默认分组", g_modalText);
         }
 
@@ -8715,7 +8738,7 @@ int main(int argc, char *argv[]) {
               QString::number(list != nullptr ? list->count() : -1));
         check(list != nullptr && list->item(0) != nullptr &&
                   list->item(0)->text() ==
-                      GroupDialog::groupItemText(QStringLiteral("置顶"), 0) &&
+                      GroupDialog::groupItemText(QStringLiteral("收藏"), 0) &&
                   list->item(2) != nullptr &&
                   list->item(2)->text() ==
                       GroupDialog::groupItemText(QStringLiteral("原版"), 2),
@@ -25528,6 +25551,33 @@ int main(int argc, char *argv[]) {
             //   规则还在。为什么量字符串不量像素：那一圈边只有 1px，又压在同样的白底上，
             //   "多了一圈"在像素上和一个正常的框分不开；选择器在不在是能直接读的。
             const QString sheet = Theme::widgetStyleSheet();
+            check(sheet.contains(QLatin1String("QFrame[wtfmlSurface=\"workspace\"]")) &&
+                      sheet.contains(QLatin1String("QFrame[wtfmlSurface=\"footer\"]")) &&
+                      !sheet.contains(QLatin1String("border-top: 1px")),
+                  "★★ 页面工作区和页脚不再画装饰性分隔线（层级只靠底色与留白）");
+            {
+                // 2026-10-14 真机回归：去掉 workspace 的边框后，格式串跳过了 `%4`，
+                // 但参数表仍把 QPalette::Mid 塞在第 4 位。QString::arg() 会按“下一个现存
+                // 占位符”顺延，于是 Mid（Windows 浅色下恰好约 #a0a0a0）误填给 section，
+                // 设置页和下载安装页的卡片整块变成深灰。这里不只搜选择器，而是真画一张
+                // section，盯住它不能再退回分隔线色。
+                QFrame sectionProbe;
+                sectionProbe.setProperty("wtfmlSurface", Theme::sectionSurfaceValue());
+                sectionProbe.setFixedSize(80, 48);
+                sectionProbe.show();
+                QApplication::processEvents();
+                const QImage sectionShot = captureWidget(&sectionProbe);
+                const QColor sectionCenter(sectionShot.pixel(sectionShot.width() / 2,
+                                                              sectionShot.height() / 2));
+                const QColor mid = QApplication::palette().color(QPalette::Mid);
+                check(!sameColor(sectionCenter, mid),
+                      "★★ 小节卡片没有被 QPalette::Mid（Windows 浅色下的 #a0a0a0）误填",
+                      QStringLiteral("卡片 %1 / Mid %2").arg(sectionCenter.name(), mid.name()));
+            }
+            check(sheet.contains(QLatin1String("QPushButton { background-color:")) &&
+                      sheet.contains(QLatin1String("border: 1px solid transparent")) &&
+                      sheet.contains(QLatin1String("QPushButton:focus { border-color:")),
+                  "★★ 普通按钮默认没有深色框，透明边保住几何，只有键盘焦点显示主题色边界");
             check(sheet.contains(QLatin1String("QAbstractSpinBox QLineEdit")) &&
                       sheet.contains(QLatin1String("QComboBox QLineEdit")) &&
                       sheet.contains(QLatin1String("border: none")),

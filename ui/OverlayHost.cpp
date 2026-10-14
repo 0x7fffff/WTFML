@@ -264,9 +264,10 @@ void OverlayHost::applyVisibility() {
     }
     const bool wasVisible = isVisible();
     setVisible(promptShown || pageShown);
-    if (isVisible() && !wasVisible) {
-        // 2026-09-29：整块覆盖的那一层淡进来（只淡、不抬 —— 它是"盖住内容区"的，
-        // 抬起来边上会露出一条没盖住的缝）。规矩见 ui/Animations.hpp。
+    if (isVisible() && !wasVisible && promptShown) {
+        // 只有提示卡片需要整层淡入。页面必须立即出现：页面从别的主选项卡返回时若再从
+        // 透明度 0 淡入，会先露出底下已禁用页面的灰色外观，看起来既像卡顿又像闪灰。
+        // 页面本身已经是导航结果，不需要再用一层 0→1 的覆盖层动画重复确认。
         Anim::overlayAppear(this);
     }
     if (isVisible()) {

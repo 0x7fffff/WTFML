@@ -22739,7 +22739,7 @@ int main(int argc, char *argv[]) {
             for (const QJsonValue &value : seeded) {
                 seededNames << value.toObject().value(QStringLiteral("name")).toString();
             }
-            check(seededNames == QStringList({QStringLiteral("置顶"), QStringLiteral("可安装mod"),
+            check(seededNames == QStringList({QStringLiteral("收藏"), QStringLiteral("可安装mod"),
                                               QStringLiteral("原版"), QStringLiteral("快照版"),
                                               QStringLiteral("远古版")}),
                   "T1 五个默认组真的写进了文件（可改名、可删）",

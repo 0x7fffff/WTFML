@@ -76,6 +76,7 @@
 #include "TaskProgressBar.hpp"
 
 class QGridLayout;
+class QHBoxLayout;
 class QScrollArea;
 class QVBoxLayout;
 class OverlayHost;
@@ -519,10 +520,10 @@ public:
     /// 这里是提示，那里是标题。原来那颗按钮上写的「实例设置…」带省略号（Qt 的规矩：点下去
     /// 还要问点什么的才带），这个齿轮点下去直接把那一页开出来、不先问什么，所以不带。
     static QString rowInstanceSettingsTipText() { return QStringLiteral("实例设置"); }
-    static QString rowPinTipText() { return QStringLiteral("置顶"); }
+    static QString rowPinTipText() { return QStringLiteral("收藏"); }
     /// 同一格反过来那一颗（下箭头）弹的话。它是 `rowPinTipText()` 的反义词，**不是**
     /// 「取消置顶」四个字以外的东西 —— 用户原话就把它写成"即取消置顶"。
-    static QString rowUnpinTipText() { return QStringLiteral("取消置顶"); }
+    static QString rowUnpinTipText() { return QStringLiteral("取消收藏"); }
     static QString rowDeleteInstanceTipText() { return QStringLiteral("删除这个实例"); }
     /// 悬停在那两个**行里的按钮**上时弹的那句话（2026-09-24 用户原话：「鼠标悬停在箭头上
     /// 出现刷新二字，之后不少功能要做悬停」）。谁把它弹出来的、按哪一格判，见
@@ -1472,6 +1473,8 @@ public:
     /// 目标（或者那个实例）已经没了时**降级**成这一句（§5.1）。
     static QString homeRecentLaunchText() { return QStringLiteral("启动实例"); }
     static QString homeRecentSettingsText() { return QStringLiteral("实例设置"); }
+    static QString homeFavoriteCountSpinName() { return QStringLiteral("homeFavoriteCountSpin"); }
+    static QString homeRecentCountSpinName() { return QStringLiteral("homeRecentCountSpin"); }
 
     /// 主页「上次游玩」那张卡要的几个值 —— **界面这一层的只读镜像**（`ui/` 不 include
     /// `src/`，和 `TaskCenter::Item` 同一个理由；翻译点在 `MainWindow::updateHomeRecent()`）。
@@ -1489,6 +1492,24 @@ public:
         bool canContinue = false;
     };
     void setHomeRecent(const HomeRecent &recent);
+
+    enum class HomeQuickAction { Launch, Edit };
+    struct HomeQuickItem {
+        QString key;
+        QString name;
+        QString detail;
+        QIcon icon;
+        bool current = false;
+        bool recent = false;
+        bool favorite = false;
+    };
+    using HomeQuickActionHandler =
+        std::function<void(const QString &key, HomeQuickAction action)>;
+    void setHomeQuickRows(const QList<HomeQuickItem> &favorites,
+                          const QList<HomeQuickItem> &recent);
+    void setHomeQuickActionHandler(const HomeQuickActionHandler &handler) {
+        m_homeQuickActionHandler = handler;
+    }
     static QString bottomBarName() { return QStringLiteral("bottomBar"); }
     static QString avatarLabelName() { return QStringLiteral("avatarLabel"); }
     /// 底栏头像那一块的边长（像素）。**唯一出处**：主窗口拿它去裁头像
@@ -3342,6 +3363,8 @@ public:
     QCheckBox *getMemoryAutoCheck() const { return memoryAutoCheck; }
     QLabel *getMemoryAutoHint() const { return memoryAutoHint; }
     QSpinBox *getMemoryMaxSpin() const { return memoryMaxSpin; }
+    QSpinBox *getHomeFavoriteCountSpin() const { return homeFavoriteCountSpin; }
+    QSpinBox *getHomeRecentCountSpin() const { return homeRecentCountSpin; }
     MemorySlider *getMemoryMaxSlider() const { return memoryMaxSlider; }
     QComboBox *getLauncherBehaviourCombo() const { return launcherBehaviourCombo; }
     QPlainTextEdit *getExtraJvmArgsEdit() const { return extraJvmArgsEdit; }
@@ -3526,6 +3549,10 @@ private:
     QLabel *homeRecentNameLabel = nullptr;
     QLabel *homeRecentDetailLabel = nullptr;
     QLabel *homeRecentWhenLabel = nullptr;
+    QWidget *homeFavoriteSection = nullptr;
+    QWidget *homeQuickRecentSection = nullptr;
+    QHBoxLayout *homeFavoriteRow = nullptr;
+    QHBoxLayout *homeQuickRecentRow = nullptr;
     QPushButton *accountSkinSettingsButton = nullptr;
     QPushButton *addFolderButton = nullptr;
     QListWidget *folderList = nullptr;
@@ -3609,6 +3636,8 @@ private:
     QCheckBox *memoryAutoCheck = nullptr;
     QLabel *memoryAutoHint = nullptr;
     QSpinBox *memoryMaxSpin = nullptr;
+    QSpinBox *homeFavoriteCountSpin = nullptr;
+    QSpinBox *homeRecentCountSpin = nullptr;
     MemorySlider *memoryMaxSlider = nullptr;
     QComboBox *launcherBehaviourCombo = nullptr;
     QPlainTextEdit *extraJvmArgsEdit = nullptr;
@@ -3702,6 +3731,7 @@ private:
     std::function<void(const QString &key)> m_taskCenterRowActivated;
     /// 「那一行行尾那颗小按钮被点了」该告诉谁（见 setTaskCenterRowActionHandler()）。
     TaskCenter::RowActionHandler m_taskCenterRowAction;
+    HomeQuickActionHandler m_homeQuickActionHandler;
     /// 「文件夹齿轮菜单里某一项被点了」该告诉谁（见 setFolderActionHandler()）。
     FolderActionHandler m_folderActionHandler;
     /// 「组齿轮菜单里某一项被点了」和「挑目标框里某一组被点了」该告诉谁

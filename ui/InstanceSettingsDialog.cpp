@@ -3366,7 +3366,7 @@ void InstanceSettingsDialog::setPinned(bool pinned, const QString &pinnedGroupId
     m_pinCheck->setEnabled(!pinnedGroupId.isEmpty());
     m_pinCheck->setToolTip(
         pinnedGroupId.isEmpty()
-            ? tr("这一份 .minecraft 里没有置顶组。先去实例页左栏的「分组设置…」里勾一个。")
+            ? tr("这一份 .minecraft 里没有收藏组。先去实例页左栏的「分组设置…」里勾一个。")
             : QString());
 }
 

@@ -2887,12 +2887,12 @@ static int runInstanceGroupTests(const QString &sandbox) {
         for (const InstanceGroupStore::Group &group : seeded) {
             seededPairs << group.id + QLatin1Char('=') + group.name;
         }
-        check(seededPairs == QStringList({QStringLiteral("default-pinned=置顶"),
+        check(seededPairs == QStringList({QStringLiteral("default-pinned=收藏"),
                                           QStringLiteral("default-moddable=可安装mod"),
                                           QStringLiteral("default-vanilla=原版"),
                                           QStringLiteral("default-snapshot=快照版"),
                                           QStringLiteral("default-old=远古版")}),
-              "Q14 种下去的就是那五个（id 写死、顺序就是界面上的顺序，置顶在最前）",
+              "Q14 种下去的就是那五个（id 写死、顺序就是界面上的顺序，收藏在最前）",
               seededPairs.join(QLatin1Char('|')));
         check(InstanceGroupStore::defaultGroups().size() == 5,
               "Q14 defaultGroups() 是五条",

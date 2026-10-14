@@ -97,14 +97,11 @@ QPalette cardChromePalette() {
     return palette;
 }
 
-/// 一圈细边、底色是 Base 的卡（头卡用它）。
+/// 底色是 Base 的卡（头卡用它）。层级靠底色和留白，不画额外框线。
 ///
-/// 和 `OverlayHost` 里那张提示卡同一种做法（`QFrame::StyledPanel` + 把 Window 那档颜色
-/// 换成 Base）—— 那一样是"一块浮起来的白底"，两边长得不一样的话，同一套界面里会看出来
-/// 是两个人做的。
 QFrame *makeCard(QWidget *parent) {
     auto *card = new QFrame(parent);
-    card->setFrameShape(QFrame::StyledPanel);
+    card->setFrameShape(QFrame::NoFrame);
     card->setAutoFillBackground(true);
     card->setPalette(cardChromePalette());
     // 卡是**常驻**的（这一页建一次留着）⇒ 主题一换得自己重算一遍。

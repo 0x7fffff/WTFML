@@ -33,8 +33,8 @@ QLabel *makeMutedLabel(QWidget *parent, const QString &objectName) {
 
 QFrame *makeSeparator(QWidget *parent) {
     auto *line = new QFrame(parent);
-    line->setFrameShape(QFrame::HLine);
-    line->setFrameShadow(QFrame::Plain);
+    line->setFrameShape(QFrame::NoFrame);
+    line->setFixedHeight(8);
     return line;
 }
 

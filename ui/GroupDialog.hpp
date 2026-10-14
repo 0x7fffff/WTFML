@@ -186,7 +186,7 @@ public slots:
     /// 「设为置顶组」那个勾选框（就在「默认展开」右边，同一行）。
     static QString pinnedCheckName() { return QStringLiteral("groupPinnedCheck"); }
     /// 那颗勾选框上的字。**唯一出处** —— 勾选框、验证工程认的那句话都念它。
-    static QString pinnedCheckText() { return QStringLiteral("设为置顶组"); }
+    static QString pinnedCheckText() { return QStringLiteral("设为收藏组"); }
     /// 勾选框底下那句极短的说明。
     ///
     /// NOTE: 「置顶组」是个新概念（2026-09-25 才有的），光看那五个字不知道勾上会怎样 ——
@@ -194,7 +194,7 @@ public slots:
     ///       这张窗只有 460 宽，折行的 QLabel 一长就把整窗的 sizeHint 顶宽（这个仓库有过
     ///       一次"一句话把整窗顶破"的记录）。现在这句 21 个字，一行放得下。
     static QString pinnedHintText() {
-        return QStringLiteral("实例行行尾那颗上箭头点了会把它移进这一组。");
+        return QStringLiteral("收藏的实例会同时显示在这个组和主页快速启动区。");
     }
     static QString restoreDefaultsButtonName() {
         return QStringLiteral("restoreDefaultsButton");

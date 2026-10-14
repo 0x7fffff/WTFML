@@ -72,6 +72,11 @@ public:
      */
     void setLastLaunchedVersion(const QString &versionId);
 
+    int homeFavoriteCount() const { return m_homeFavoriteCount; }
+    int homeRecentCount() const { return m_homeRecentCount; }
+    void setHomeFavoriteCount(int count);
+    void setHomeRecentCount(int count);
+
     // ------------------------------------------------------------------
     // 「游戏文件夹」（实例页左边那张列表）
     // ------------------------------------------------------------------
@@ -382,6 +387,8 @@ public:
 
 private:
     QString m_lastLaunchedVersion;
+    int m_homeFavoriteCount = 3;
+    int m_homeRecentCount = 3;
     QStringList m_folders;
     QString m_currentFolder;
     QStringList m_folderNames;

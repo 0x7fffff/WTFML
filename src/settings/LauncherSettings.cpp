@@ -16,6 +16,8 @@ namespace {
 // 键名带 Version/ 前缀，和 GlobalJavaSettings 的 Java/ 前缀一个路子：
 // 不用 beginGroup，键名本身就是分组，在注册表里直接看得出归属。
 static constexpr const char kLastLaunched[] = "Version/LastLaunched";
+static constexpr const char kHomeFavoriteCount[] = "Home/FavoriteCount";
+static constexpr const char kHomeRecentCount[] = "Home/RecentCount";
 static constexpr const char kNameShowCustom[] = "Version/NameShowCustom";
 static constexpr const char kNameShowReal[] = "Version/NameShowReal";
 static constexpr const char kNameShowLoaderName[] = "Version/NameShowLoaderName";
@@ -102,6 +104,22 @@ void LauncherSettings::setLastLaunchedVersion(const QString &versionId) {
     }
     m_lastLaunchedVersion = versionId;
     save();
+}
+
+void LauncherSettings::setHomeFavoriteCount(int count) {
+    count = qBound(0, count, 5);
+    if (m_homeFavoriteCount != count) {
+        m_homeFavoriteCount = count;
+        save();
+    }
+}
+
+void LauncherSettings::setHomeRecentCount(int count) {
+    count = qBound(0, count, 5);
+    if (m_homeRecentCount != count) {
+        m_homeRecentCount = count;
+        save();
+    }
 }
 
 QStringList LauncherSettings::folders() const { return m_folders; }
@@ -348,6 +366,8 @@ ProcessPriority LauncherSettings::processPriorityFromKey(const QString &key) {
 void LauncherSettings::load() {
     QSettings settings;
     m_lastLaunchedVersion = settings.value(kLastLaunched, m_lastLaunchedVersion).toString();
+    m_homeFavoriteCount = qBound(0, settings.value(kHomeFavoriteCount, 3).toInt(), 5);
+    m_homeRecentCount = qBound(0, settings.value(kHomeRecentCount, 3).toInt(), 5);
     // 默认值同样取当前成员：load() 被调第二次而盘上是空的时，值应该留着而不是被抹掉。
     m_folders = settings.value(kFolders, m_folders).toStringList();
     m_currentFolder = settings.value(kCurrentFolder, m_currentFolder).toString();
@@ -432,6 +452,8 @@ void LauncherSettings::load() {
 void LauncherSettings::save() const {
     QSettings settings;
     settings.setValue(kLastLaunched, m_lastLaunchedVersion);
+    settings.setValue(kHomeFavoriteCount, m_homeFavoriteCount);
+    settings.setValue(kHomeRecentCount, m_homeRecentCount);
     settings.setValue(kFolders, m_folders);
     settings.setValue(kCurrentFolder, m_currentFolder);
     settings.setValue(kFolderNames, m_folderNames);

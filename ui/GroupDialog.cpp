@@ -119,8 +119,8 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
         m_pinnedCheck = new QCheckBox(pinnedCheckText(), groupBox);
         m_pinnedCheck->setObjectName(pinnedCheckName());
         m_pinnedCheck->setToolTip(
-            tr("这一组是置顶组：实例行行尾那颗上箭头一点，就把那个实例移进这一组。\n"
-               "只能有一个置顶组 —— 勾了这一颗，别的组就不是了。"));
+            tr("这一组是收藏组：收藏的实例会同时出现在主页快速启动区和这个组里。\n"
+               "只能有一个收藏组 —— 勾了这一颗，别的组就不再作为收藏来源。"));
         orderRow->addWidget(m_pinnedCheck);
         layout->addLayout(orderRow);
 

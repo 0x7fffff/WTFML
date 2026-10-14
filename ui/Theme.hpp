@@ -383,11 +383,11 @@ QPalette selectionPalette(const QPalette &palette, bool selected);
  *         少染一颗只是那颗按钮朴素一点。
  */
 enum class ButtonKind {
-    Accent,   ///< 确认性：白底 + 主题色的字和边（**默认**，不挂属性）
+    Accent,   ///< 确认性：淡主题色底 + 主题色文字（**默认**，不挂属性）
     Primary,  ///< 页面唯一主动作：主题色实底 + 白字（例如主页的「启动游戏」）
-    Neutral,  ///< 一般性：白底 + 黑字黑边
+    Neutral,  ///< 一般性：浅中性色底 + 深色文字，默认不画边
     Ghost,    ///< 低频辅助：没有底、没有边，只有字（边留成透明的 1px，**几何不变**）
-    Danger,   ///< 不可撤销：白底 + 红字红边
+    Danger,   ///< 不可撤销：淡红底 + 红字，默认不画边
 };
 
 /// 属性名 + 属性值（`markButton()` 挂的就是这一对）；`QSS` 里那几条选择器也照着它写。
