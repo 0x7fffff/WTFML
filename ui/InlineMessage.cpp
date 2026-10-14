@@ -13,6 +13,7 @@
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QLayout>
 #include <QLineEdit>
 #include <QListWidget>
 #include <QPalette>
@@ -83,7 +84,12 @@ QColor parseColorText(const QString &text) {
 
 /// 把一块预览摆成 @p color（无效色 = 一块空心的灰框 —— "这里还不是一个色"）。
 void paintPreview(QLabel *preview, const QColor &color) {
-    const QColor edge = color.isValid() ? Theme::swatchBorder(color) : QColor(0x9a, 0x9a, 0x9a);
+    // 那一圈边**跟着调色板走**（2026-10-14，coding plan §3.3「收口剩余局部样式和硬编码
+    // 颜色」）：原来写死的是 `#9a9a9a` —— 浅色下正好，深色下那块空心框比周围的底亮一大截，
+    // 看着像"这里有个东西"而不是"这里还没有色"。`disabledBorderColor()` 就是这一层里
+    // "轮廓还在、但不抢眼"那一档的出处（和灰掉的控件那一圈是同一个色）。
+    const QColor edge = color.isValid() ? Theme::swatchBorder(color)
+                                        : Theme::disabledBorderColor();
     preview->setStyleSheet(QStringLiteral("background-color: %1; border: 1px solid %2;"
                                           " border-radius: %3px;")
                                .arg(color.isValid() ? color.name(QColor::HexArgb)
@@ -170,6 +176,39 @@ InlineMessageBox::InlineMessageBox(MessageKind kind, const QString &title, const
         rowLayout->addWidget(button);
     }
     layout->addWidget(row);
+    relinkTabOrder();
+}
+
+void InlineMessageBox::relinkTabOrder() {
+    // 理由见头文件里那一段（焦点链默认跟创建顺序，而后面那几行都是后插的）。
+    //
+    // ★ 顺序按**布局**走，不按几何走：说"先上后下、先左后右"到底就是布局里那一串的
+    //   先后（竖排 = 从上到下，里面那张横排 = 从左到右）。几何在这里量不得 —— 这几处
+    //   调用都发生在 `show()` **之前**，那会儿布局还没跑过，每个控件都停在默认位置
+    //   （`(0,0,100,30)`），量出来的顺序恒等于创建顺序 —— 那正是要改掉的那一份。
+    QVector<QWidget *> focusables;
+    const auto collect = [&focusables](auto &&self, QLayout *layout) -> void {
+        if (layout == nullptr) {
+            return;
+        }
+        for (int i = 0; i < layout->count(); ++i) {
+            QLayoutItem *item = layout->itemAt(i);
+            QWidget *widget = item->widget();
+            if (widget != nullptr) {
+                if ((widget->focusPolicy() & Qt::TabFocus) != 0) {
+                    focusables.append(widget);
+                }
+                // 这一个自己还带布局（按钮行那张横排）⇒ 把它里面那几格按顺序接上。
+                self(self, widget->layout());
+            } else if (QLayout *inner = item->layout()) {
+                self(self, inner);
+            }
+        }
+    };
+    collect(collect, layout());
+    for (int i = 1; i < focusables.size(); ++i) {
+        QWidget::setTabOrder(focusables.at(i - 1), focusables.at(i));
+    }
 }
 
 QLineEdit *InlineMessageBox::setLineEdit(const QString &initial) {
@@ -189,6 +228,8 @@ QLineEdit *InlineMessageBox::setLineEdit(const QString &initial) {
     // 所以"最后一个"就是按钮行。（写成 `count() - 1` 而不是写死 2：将来正文上面再加
     // 一行什么，这一句不用跟着改。）
     layout->insertWidget(layout->count() - 1, m_lineEdit);
+    // 插在按钮行**前面**，可它建得比按钮行晚 ⇒ 不重排的话 Tab 会往回跳（见 relinkTabOrder）。
+    relinkTabOrder();
     // NOTE: 这里**不**叫 setFocus() —— 叫了也不管用（`setParent()` 之后会被清掉，
     //       见 showEvent() 那段）。真正定光标的是 `showEvent()` 里那一下。
     return m_lineEdit;
@@ -211,6 +252,7 @@ QListWidget *InlineMessageBox::setList(const QStringList &items, int initialRow)
         m_list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
         // 插在**按钮行前面**（同 setLineEdit 那一句，写成 count()-1 不写死下标）。
         layout->insertWidget(layout->count() - 1, m_list);
+        relinkTabOrder();  // 同 setLineEdit：它建得比按钮行晚，Tab 得跟着重排。
     }
     m_list->clear();
     m_list->addItems(items);
@@ -277,6 +319,7 @@ void InlineMessageBox::setNote(const QString &text) {
         // 写成 `count() - 1` 而不是写死下标，和 setLineEdit() 同一个理由（将来上面再加一行，
         // 这两处都不用跟着改）。
         layout->insertWidget(layout->count() - 1, m_noteLabel);
+        relinkTabOrder();  // 小字本身 Tab 不到，可它会把下面那排控件的落点顶下去。
     }
     m_noteLabel->setText(text);
 }
@@ -306,6 +349,7 @@ QCheckBox *InlineMessageBox::setCheckBox(const QString &text, int acceptButtonIn
         m_checkBox->setChecked(false);
         // 插在**按钮行前面**（写成 count()-1 不写死下标，同 setLineEdit 那一句）。
         layout->insertWidget(layout->count() - 1, m_checkBox);
+        relinkTabOrder();  // 同 setLineEdit：那个勾建得比按钮行晚，Tab 得跟着重排。
 
         if (QPushButton *accept = buttonAt(acceptButtonIndex)) {
             // ★ 这是这一格真正的用途（见头文件）：没勾之前那一颗是灰的。
@@ -346,6 +390,7 @@ QLabel *InlineMessageBox::setLink(const QString &text, const QString &url) {
                 [this](const QString &url) { emit linkActivated(url); });
         // 插在**按钮行前面**（写成 count()-1 不写死下标，同 setLineEdit 那一句）。
         layout->insertWidget(layout->count() - 1, m_linkLabel);
+        relinkTabOrder();  // 这一行是 StrongFocus、Tab 够得着，也得跟着重排。
     }
     m_linkUrl = url;
     // ★ 用 `toHtmlEscaped()` 把显示的那几个字转义掉 —— 它是**内容**，不是标记。不转的话
@@ -378,6 +423,7 @@ QWidget *InlineMessageBox::setContent(QWidget *content) {
     m_content->setFixedWidth(OverlayHost::promptContentWidth());
     // 插在**按钮行前面**（写成 count()-1 不写死下标，同 setLineEdit 那一句）。
     layout->insertWidget(layout->count() - 1, m_content);
+    relinkTabOrder();  // 调用方那块里可能有好几格能 Tab 到，一起按看得见的顺序排。
     return m_content;
 }
 
@@ -578,7 +624,7 @@ QColor pickColor(OverlayHost *host, const QString &title, const QString &text,
     auto *edit = new QLineEdit(line);
     edit->setObjectName(colorEditName());
     edit->setText(initial.isValid() ? initial.name(QColor::HexRgb) : QString());
-    edit->setPlaceholderText(QStringLiteral("#3d8068"));
+    edit->setPlaceholderText(Theme::defaultAccentColor().name(QColor::HexRgb));
     edit->setMinimumWidth(kColorEditWidth);
     // 色号是**六到八个字符**，长度不设限反而让人以为能写别的（写长了认不出，确定会灰掉
     // ——那是对的，但不如一开始就写不进去）。

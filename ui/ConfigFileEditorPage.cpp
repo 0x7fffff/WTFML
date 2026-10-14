@@ -232,7 +232,7 @@ ConfigFileEditorPage::ConfigFileEditorPage(QWidget *parent) : QWidget(parent) {
     //   而是在切"这一格里看什么" —— 所以和「返回」摆在一头，不跟文件那两颗挤在另一头。
     m_indexToggle = new QPushButton(indexToggleText(), this);
     m_indexToggle->setObjectName(indexToggleName());
-    Theme::markButton(m_indexToggle, Theme::ButtonKind::Neutral);
+    Theme::markButton(m_indexToggle, Theme::ButtonKind::Ghost);
     m_indexToggle->setCheckable(true);
     m_indexToggle->setChecked(true);
     connect(m_indexToggle, &QPushButton::toggled, this, [this] { refreshIndexVisibility(); });
@@ -261,7 +261,7 @@ ConfigFileEditorPage::ConfigFileEditorPage(QWidget *parent) : QWidget(parent) {
 
     m_openFolder = new QPushButton(openFolderText(), this);
     m_openFolder->setObjectName(openFolderButtonName());
-    Theme::markButton(m_openFolder, Theme::ButtonKind::Neutral);
+    Theme::markButton(m_openFolder, Theme::ButtonKind::Ghost);
     // 这一层不自己开：开目录是 QDesktopServices 的事，而失败还要弹一句 —— 那得走覆盖层
     // （见文件头那段"这一层不碰盘"）。
     connect(m_openFolder, &QPushButton::clicked, this,

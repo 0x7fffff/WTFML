@@ -257,6 +257,17 @@ protected:
     void showEvent(QShowEvent *event) override;
 
 private:
+    /**
+     * @brief 按**屏幕上看到的顺序**（先上后下、同一行先左后右）把这一窗里的 Tab 顺序重排一遍。
+     *
+     * ★ 为什么非要有这一下：焦点链默认跟的是**创建顺序**，而这个类里「输入框 / 列表 /
+     *   小字那一行 / 那个勾 / 那行链接 / 调用方自己那块」全是 `setXxx()` **后来才插**进来的
+     *   —— 它们创建得比**按钮行还晚**（ctor 里那一排按钮建完之后才轮到它们）。照默认走，
+     *   Tab 从输入框出发会**往回跳**到下面那排按钮上，再按一下又跳回输入框：眼睛看着的顺序
+     *   和键盘走的顺序正好拧着。每一处"插了一行"之后都调它一次，位置变了就重排。
+     */
+    void relinkTabOrder();
+
     int m_clicked = -1;
     MessageKind m_kind = MessageKind::Information;
     QLabel *m_titleLabel = nullptr;

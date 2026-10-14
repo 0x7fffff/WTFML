@@ -189,7 +189,7 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
 
     m_openFolder = new QPushButton(openFolderText(), this);
     m_openFolder->setObjectName(openFolderButtonName());
-    Theme::markButton(m_openFolder, Theme::ButtonKind::Neutral);
+    Theme::markButton(m_openFolder, Theme::ButtonKind::Ghost);
     connect(m_openFolder, &QPushButton::clicked, this,
             [this] { emit openFolderRequested(); });
     actions->addWidget(m_openFolder);
@@ -226,7 +226,7 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
     m_backupFolder = new QPushButton(openBackupFolderText(), this);
     m_backupFolder->setObjectName(backupFolderButtonName());
     m_backupFolder->setToolTip(tr("打开这个存档的备份放在哪儿（启动器数据目录下的 cache/backups）。"));
-    Theme::markButton(m_backupFolder, Theme::ButtonKind::Neutral);
+    Theme::markButton(m_backupFolder, Theme::ButtonKind::Ghost);
     connect(m_backupFolder, &QPushButton::clicked, this,
             [this] { emit openBackupFolderRequested(); });
     actions->addWidget(m_backupFolder);

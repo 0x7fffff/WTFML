@@ -28,12 +28,14 @@
 
 #include <QDateTime>
 #include <QList>
+#include <QPixmap>
 #include <QString>
 #include <QWidget>
 
 #include <functional>
 
 class QScrollArea;
+class QPushButton;
 
 namespace TaskCenter {
 
@@ -109,13 +111,33 @@ using ItemProvider = std::function<QList<Item>()>;
 /// 「查看详情」不在这一枚举里 —— 它是**点那一行本身**（整行的行为，不是行尾一颗按钮）。
 /// 两样分开是因为它们的位置不一样：详情页是"我想看看这是怎么回事"，取消是"别下了"，
 /// 后者要是也藏在详情页里，用户得点两下才够得着。
-enum class RowAction { Cancel };
+enum class RowAction { Cancel, Retry, OpenTarget, OpenLog, ExportReport, OpenCrashDir };
 
 /// 行尾那颗小按钮被点了。参数是那一行的 `key` 和点的是哪一颗。
 using RowActionHandler = std::function<void(const QString &key, RowAction action)>;
 
 /// 「清除已完成」被点了。**清完由调用方让面板刷新一次**（refresh()），面板不知道账本在哪。
 using ClearFinishedHandler = std::function<void()>;
+
+/// 左栏里的一份运行中实例。复用底栏实例面板已经算好的标题、时长、图标和动作。
+struct RunningAction {
+    QPixmap icon;
+    QString text;
+    QString tooltip;
+    bool enabled = true;
+    int action = -1;
+};
+
+struct RunningItem {
+    QString key;
+    QPixmap icon;
+    QString title;
+    QString subtitle;
+    QList<RunningAction> actions;
+};
+
+using RunningProvider = std::function<QList<RunningItem>()>;
+using RunningActionHandler = std::function<void(const QString &key, int action)>;
 
 /// 一步那一个小记号。**唯一出处**：面板里画它、验证工程比对它，都读这一个函数。
 QString stepMark(StepState state);
@@ -154,6 +176,8 @@ public:
     /// @param onClear 「清除已完成」被点了该告诉谁（可以给空的 = 那就没有那颗按钮）。
     TaskCenterPanel(QWidget *anchor, const TaskCenter::ItemProvider &provider,
                     const TaskCenter::ClearFinishedHandler &onClear,
+                    const TaskCenter::RunningProvider &runningProvider,
+                    const TaskCenter::RunningActionHandler &runningAction,
                     const OutsidePressHandler &onOutsidePress, QWidget *parent);
 
     /// 贴的是哪颗按钮（"再点一次收回"要按它认人：点的是同一颗才算收回）。
@@ -191,6 +215,9 @@ protected:
 private:
     /// 把内容整块重建（两栏 + 那个「清除已完成」）。调用方负责随后摆位置。
     void rebuild();
+    void rebuildRunning();
+    void rebuildDetail(const QList<TaskCenter::Item> &items);
+    void selectTask(const QString &key);
     /// 给某一行造一个"点了怎么办"（没挂处理器时回一个空的 —— 那一行就不可点）。
     std::function<void()> rowActivate(const QString &key);
     /// 摆到 anchor 正上方。@p animate true = 从下面滑上来（第一次），false = 直接挪过去。
@@ -201,6 +228,8 @@ private:
     QWidget *m_anchor = nullptr;
     TaskCenter::ItemProvider m_provider;
     TaskCenter::ClearFinishedHandler m_onClear;
+    TaskCenter::RunningProvider m_runningProvider;
+    TaskCenter::RunningActionHandler m_runningAction;
     /// 面板里某一行被点了（参数是那一行的 `key`）。空 = 那几行不可点。
     std::function<void(const QString &key)> m_onRowActivated;
     /// 行尾那颗小按钮被点了（见 `RowActionHandler`）。空 = 行尾什么都不长。
@@ -208,6 +237,16 @@ private:
     OutsidePressHandler m_onOutsidePress;
     /// 内容都装在这里面（面板本身只有一个滚动区 + 它的边距）。
     QWidget *m_content = nullptr;
+    QWidget *m_runningContent = nullptr;
+    QWidget *m_detailContent = nullptr;
+    QWidget *m_runningPane = nullptr;
+    QWidget *m_detailPane = nullptr;
     QScrollArea *m_scroll = nullptr;
+    QScrollArea *m_runningScroll = nullptr;
+    QScrollArea *m_detailScroll = nullptr;
+    QPushButton *m_collapseRunning = nullptr;
+    QString m_selectedKey;
+    bool m_runningCollapsed = false;
+    bool m_compact = false;
     bool m_opened = false;
 };

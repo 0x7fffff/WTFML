@@ -280,7 +280,7 @@ ResourceDetailPage::ResourceDetailPage(QWidget *parent) : QDialog(parent) {
     m_mcmod->setObjectName(mcmodButtonName());
     // 这几颗都是「看一眼 / 拿一份出去」（一般性）—— 转到网页、
     // 复制名字，一件都不改盘上的东西。
-    Theme::markButton(m_mcmod, Theme::ButtonKind::Neutral);
+    Theme::markButton(m_mcmod, Theme::ButtonKind::Ghost);
     m_mcmod->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     m_mcmod->setVisible(false);
     connect(m_mcmod, &QPushButton::clicked, this,
@@ -289,7 +289,7 @@ ResourceDetailPage::ResourceDetailPage(QWidget *parent) : QDialog(parent) {
 
     m_copyName = new QPushButton(tr("复制名称"), card);
     m_copyName->setObjectName(copyNameButtonName());
-    Theme::markButton(m_copyName, Theme::ButtonKind::Neutral);
+    Theme::markButton(m_copyName, Theme::ButtonKind::Ghost);
     m_copyName->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     m_copyName->setVisible(false);
     connect(m_copyName, &QPushButton::clicked, this,

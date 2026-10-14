@@ -7,8 +7,11 @@
 
 #include "TaskCenterPanel.hpp"
 
+#include <algorithm>
+
 #include <QGuiApplication>
 #include <QHBoxLayout>
+#include <QIcon>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QMouseEvent>
@@ -50,16 +53,19 @@ constexpr int kRowSpacing = 9;
 constexpr int kSectionSpacing = 18;
 /// 一行里面那几样之间。
 constexpr int kRowInnerSpacing = 6;
-/// 面板宽度（coding plan §3.2：约 440–520 px）。
-constexpr int kMinWidth = 440;
-constexpr int kMaxWidth = 520;
+/// 三列工作区的宽度；窄屏会自动退回单列任务列表。
+constexpr int kCompactWidth = 520;
+constexpr int kWorkspaceMinWidth = 820;
+constexpr int kWorkspaceMaxWidth = 1120;
+constexpr int kRunningWidth = 220;
+constexpr int kDetailWidth = 300;
 /// 高度上限 = 窗口可用高度的百分之多少（§3.2：60%）。
-constexpr int kHeightPercent = 60;
+constexpr int kHeightPercent = 72;
 /// 面板和那颗按钮之间那一道缝（和 `BottomBarPanel` 的 `kPanelGap` 同一个值 ——
 /// 两块面板都是从同一颗按钮往上弹的，缝不一样宽看着就是"两块面板没对齐"）。
 constexpr int kPanelGap = 6;
 /// 标题/小字那一格比面板最多窄这么点（左右边距 + 右边那个百分比/时间的位置）。
-constexpr int kTextMaxWidth = kMaxWidth - 2 * kPanelPadding - 56;
+constexpr int kTextMaxWidth = kCompactWidth - 2 * kPanelPadding - 56;
 
 /// 小一号、灰一点的字（"正在下载资源对象"、"19:42"、栏名都用它）。
 ///
@@ -303,11 +309,15 @@ QString TaskCenter::timeText(const QDateTime &when) {
 
 TaskCenterPanel::TaskCenterPanel(QWidget *anchor, const TaskCenter::ItemProvider &provider,
                                  const TaskCenter::ClearFinishedHandler &onClear,
+                                 const TaskCenter::RunningProvider &runningProvider,
+                                 const TaskCenter::RunningActionHandler &runningAction,
                                  const OutsidePressHandler &onOutsidePress, QWidget *parent)
     : QWidget(parent, Qt::Popup | Qt::FramelessWindowHint),
       m_anchor(anchor),
       m_provider(provider),
       m_onClear(onClear),
+      m_runningProvider(runningProvider),
+      m_runningAction(runningAction),
       m_onOutsidePress(onOutsidePress) {
     setObjectName(MainWindowUI::taskCenterPanelName());
     // 底色和底栏那两块面板**同一档**（`Theme::Part::Panel`）：三块都是从底栏弹出来的，
@@ -317,12 +327,54 @@ TaskCenterPanel::TaskCenterPanel(QWidget *anchor, const TaskCenter::ItemProvider
     panelPalette.setColor(QPalette::Window, Theme::partBackground(Theme::Part::Panel));
     setPalette(panelPalette);
 
-    // 内容整块装在一个滚动区里：任务一多（几十行历史）面板不能一直往上长 —— 高度上限
-    // 是"屏幕可用高度的 60%"，超出去的部分由它自己滚。
+    auto *workspace = new QHBoxLayout(this);
+    workspace->setContentsMargins(kPanelPadding, kPanelPadding, kPanelPadding, kPanelPadding);
+    workspace->setSpacing(kSectionSpacing);
+
+    // 左列：运行中实例。按钮可以把整列收成一条窄边，给任务列表让位置。
+    m_runningPane = new QWidget(this);
+    m_runningPane->setObjectName(QStringLiteral("taskCenterRunningPane"));
+    m_runningPane->setFixedWidth(kRunningWidth);
+    auto *runningLayout = new QVBoxLayout(m_runningPane);
+    runningLayout->setContentsMargins(0, 0, 0, 0);
+    runningLayout->setSpacing(kRowSpacing);
+    auto *runningHeader = new QHBoxLayout;
+    auto *runningTitle = new QLabel(tr("运行中实例"), m_runningPane);
+    runningHeader->addWidget(runningTitle);
+    runningHeader->addStretch(1);
+    m_collapseRunning = new QPushButton(QStringLiteral("‹"), m_runningPane);
+    m_collapseRunning->setObjectName(QStringLiteral("taskCenterRunningCollapse"));
+    m_collapseRunning->setToolTip(tr("收起运行中实例"));
+    Theme::markButton(m_collapseRunning, Theme::ButtonKind::Ghost);
+    Theme::markIconButton(m_collapseRunning);
+    runningHeader->addWidget(m_collapseRunning);
+    runningLayout->addLayout(runningHeader);
+    m_runningScroll = new QScrollArea(m_runningPane);
+    m_runningScroll->setFrameShape(QFrame::NoFrame);
+    m_runningScroll->setWidgetResizable(true);
+    m_runningScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_runningContent = new QWidget(m_runningScroll);
+    m_runningContent->setLayout(new QVBoxLayout);
+    m_runningScroll->setWidget(m_runningContent);
+    runningLayout->addWidget(m_runningScroll, 1);
+    workspace->addWidget(m_runningPane);
+
+    connect(m_collapseRunning, &QPushButton::clicked, this, [this]() {
+        m_runningCollapsed = !m_runningCollapsed;
+        m_runningScroll->setVisible(!m_runningCollapsed);
+        m_runningPane->setFixedWidth(m_runningCollapsed ? 36 : kRunningWidth);
+        m_collapseRunning->setText(m_runningCollapsed ? QStringLiteral("›") : QStringLiteral("‹"));
+        m_collapseRunning->setToolTip(m_runningCollapsed ? tr("展开运行中实例")
+                                                         : tr("收起运行中实例"));
+        place(false);
+    });
+
+    // 中列：按时间和状态排列的任务横行。
     m_scroll = new QScrollArea(this);
+    m_scroll->setObjectName(QStringLiteral("taskCenterTaskList"));
     m_scroll->setFrameShape(QFrame::NoFrame);
     m_scroll->setWidgetResizable(true);
-    // 横向**永远不滚**：宽度是钉死的两档（440 / 520），行里的字自己省略号收尾。
+    // 横向**永远不滚**：中列跟随工作区宽度伸缩，行里的字自己省略号收尾。
     m_scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_scroll->setFocusPolicy(Qt::NoFocus);
     m_content = new QWidget(m_scroll);
@@ -333,10 +385,23 @@ TaskCenterPanel::TaskCenterPanel(QWidget *anchor, const TaskCenter::ItemProvider
     contentLayout->addStretch(1);
     m_scroll->setWidget(m_content);
 
-    auto *box = new QVBoxLayout(this);
-    box->setContentsMargins(kPanelPadding, kPanelPadding, kPanelPadding, kPanelPadding);
-    box->setSpacing(0);
-    box->addWidget(m_scroll);
+    workspace->addWidget(m_scroll, 1);
+
+    // 右列：选中任务的上下文详情；未选择时显示摘要。
+    m_detailPane = new QWidget(this);
+    m_detailPane->setObjectName(QStringLiteral("taskCenterDetailPane"));
+    m_detailPane->setFixedWidth(kDetailWidth);
+    auto *detailLayout = new QVBoxLayout(m_detailPane);
+    detailLayout->setContentsMargins(0, 0, 0, 0);
+    m_detailScroll = new QScrollArea(m_detailPane);
+    m_detailScroll->setFrameShape(QFrame::NoFrame);
+    m_detailScroll->setWidgetResizable(true);
+    m_detailScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_detailContent = new QWidget(m_detailScroll);
+    m_detailContent->setLayout(new QVBoxLayout);
+    m_detailScroll->setWidget(m_detailContent);
+    detailLayout->addWidget(m_detailScroll);
+    workspace->addWidget(m_detailPane);
 
     rebuild();
 }
@@ -355,11 +420,9 @@ std::function<void()> TaskCenterPanel::rowActivate(const QString &key) {
     // 每一行各捕一份**自己那把钥匙**：处理器只被告知"点的是哪一项"，不被告知"点的是第几行"
     // —— 行号会随着"清掉一条已完成"整体往上挪，面板开着的时候用户点的那一行早就不是
     // 他看见的那一行了。
-    if (!m_onRowActivated) {
-        return std::function<void()>();
-    }
     return [this, key]() {
-        if (m_onRowActivated) {
+        selectTask(key);
+        if (m_compact && m_onRowActivated) {
             m_onRowActivated(key);
         }
     };
@@ -386,26 +449,31 @@ void TaskCenterPanel::place(bool animate) {
     const QRect available = screen != nullptr ? screen->availableGeometry() : QRect();
     if (available.isValid()) {
         m_scroll->setMaximumHeight(available.height() * kHeightPercent / 100 - 2 * kPanelPadding);
+        m_runningScroll->setMaximumHeight(m_scroll->maximumHeight());
+        m_detailScroll->setMaximumHeight(m_scroll->maximumHeight());
     }
 
+    const int availableWidth = available.isValid() ? available.width() - 16 : kWorkspaceMaxWidth;
+    m_compact = availableWidth < kWorkspaceMinWidth;
+    m_runningPane->setVisible(!m_compact);
+    m_detailPane->setVisible(!m_compact);
     adjustSize();
-    // 宽度钉在两档里（§3.2：约 440–520）：比 440 窄就撑开、比 520 宽就收住。
-    // 高度交给内容（滚动区自己封了顶）。
-    if (width() < kMinWidth) {
-        resize(kMinWidth, height());
-    } else if (width() > kMaxWidth) {
-        resize(kMaxWidth, height());
-    }
+    const int wantedWidth = m_compact ? qMin(kCompactWidth, availableWidth)
+                                      : qBound(kWorkspaceMinWidth, availableWidth,
+                                               kWorkspaceMaxWidth);
+    resize(wantedWidth, height());
 
     const QPoint anchorTopLeft = m_anchor->mapToGlobal(QPoint(0, 0));
-    // 水平方向对齐那颗按钮的**中线**：这块面板比按钮宽得多（440 vs 356），左对齐会伸到
-    // 窗口右边外面去。居中之后两边出头一样多。
+    // 水平方向对齐那颗按钮的**中线**：这块面板通常比按钮宽得多，左对齐容易伸到窗口
+    // 右边外面去。居中之后两边出头一样多。
     int x = anchorTopLeft.x() + m_anchor->width() / 2 - width() / 2;
     int y = anchorTopLeft.y() - height() - kPanelGap;
     if (available.isValid()) {
         // 贴边兜底：窗口贴着屏幕上边时（或任务多、面板高）往上放不下，就压进屏幕里
         // —— 顶出去的那一半用户是看不到的，也没法拖（它是 Qt::Popup）。
-        x = qBound(available.left() + 4, x, available.right() - width() - 4);
+        const int xMax = available.right() - width() - 4;
+        x = xMax >= available.left() + 4 ? qBound(available.left() + 4, x, xMax)
+                                         : available.left();
         y = qMax(available.top() + 4, y);
     }
     const QPoint target(x, y);
@@ -434,6 +502,7 @@ void TaskCenterPanel::rebuild() {
 
     const QList<TaskCenter::Item> items =
         m_provider ? m_provider() : QList<TaskCenter::Item>();
+    rebuildRunning();
     QList<TaskCenter::Item> active;
     QList<TaskCenter::Item> finished;
     for (const TaskCenter::Item &item : items) {
@@ -501,6 +570,233 @@ void TaskCenterPanel::rebuild() {
         }
     }
     // 内容比上限矮的时候，行堆在上面而不是被摊开（stretch 吃掉下面的空）。
+    layout->addStretch(1);
+    rebuildDetail(items);
+}
+
+void TaskCenterPanel::selectTask(const QString &key) {
+    if (key.isEmpty() || key == m_selectedKey) {
+        return;
+    }
+    m_selectedKey = key;
+    const QList<TaskCenter::Item> items =
+        m_provider ? m_provider() : QList<TaskCenter::Item>();
+    rebuildDetail(items);
+}
+
+void TaskCenterPanel::rebuildRunning() {
+    auto *layout = qobject_cast<QVBoxLayout *>(m_runningContent != nullptr
+                                                  ? m_runningContent->layout()
+                                                  : nullptr);
+    if (layout == nullptr) {
+        return;
+    }
+    while (QLayoutItem *item = layout->takeAt(0)) {
+        delete item->widget();
+        delete item;
+    }
+    const QList<TaskCenter::RunningItem> rows =
+        m_runningProvider ? m_runningProvider() : QList<TaskCenter::RunningItem>();
+    if (rows.isEmpty()) {
+        auto *empty = new QLabel(tr("当前没有运行中的实例"), m_runningContent);
+        empty->setWordWrap(true);
+        applyMutedFont(empty, -1);
+        layout->addWidget(empty);
+    }
+    for (const TaskCenter::RunningItem &item : rows) {
+        auto *card = new QWidget(m_runningContent);
+        card->setObjectName(QStringLiteral("taskCenterRunningRow"));
+        auto *column = new QVBoxLayout(card);
+        column->setContentsMargins(0, 6, 0, 6);
+        column->setSpacing(4);
+        auto *head = new QHBoxLayout;
+        if (!item.icon.isNull()) {
+            auto *icon = new QLabel(card);
+            icon->setPixmap(item.icon);
+            icon->setFixedSize(24, 24);
+            head->addWidget(icon, 0, Qt::AlignVCenter);
+        }
+        auto *texts = new QVBoxLayout;
+        auto *title = new ElidedLabel(card);
+        title->setText(item.title);
+        texts->addWidget(title);
+        if (!item.subtitle.isEmpty()) {
+            auto *subtitle = new ElidedLabel(card);
+            subtitle->setText(item.subtitle);
+            applyMutedFont(subtitle, -1);
+            texts->addWidget(subtitle);
+        }
+        head->addLayout(texts, 1);
+        column->addLayout(head);
+        if (!item.actions.isEmpty()) {
+            auto *actions = new QHBoxLayout;
+            actions->addStretch(1);
+            for (const TaskCenter::RunningAction &action : item.actions) {
+                auto *button = new QPushButton(card);
+                if (!action.icon.isNull()) {
+                    button->setIcon(QIcon(action.icon));
+                    button->setIconSize(action.icon.size());
+                    Theme::markIconButton(button);
+                } else {
+                    button->setText(action.text);
+                    Theme::markButton(button, Theme::ButtonKind::Ghost);
+                }
+                button->setEnabled(action.enabled);
+                button->setToolTip(action.tooltip);
+                const QString key = item.key;
+                const int actionId = action.action;
+                connect(button, &QPushButton::clicked, button, [this, key, actionId]() {
+                    if (m_runningAction) {
+                        m_runningAction(key, actionId);
+                    }
+                });
+                actions->addWidget(button);
+            }
+            column->addLayout(actions);
+        }
+        layout->addWidget(card);
+    }
+    layout->addStretch(1);
+}
+
+void TaskCenterPanel::rebuildDetail(const QList<TaskCenter::Item> &items) {
+    auto *layout = qobject_cast<QVBoxLayout *>(m_detailContent != nullptr
+                                                  ? m_detailContent->layout()
+                                                  : nullptr);
+    if (layout == nullptr) {
+        return;
+    }
+    while (QLayoutItem *item = layout->takeAt(0)) {
+        delete item->widget();
+        delete item;
+    }
+    auto selected = items.constEnd();
+    if (!m_selectedKey.isEmpty()) {
+        selected = std::find_if(items.constBegin(), items.constEnd(), [this](const auto &item) {
+            return item.key == m_selectedKey;
+        });
+    }
+    if (selected == items.constEnd()) {
+        m_selectedKey.clear();
+        int active = 0;
+        int done = 0;
+        int attention = 0;
+        for (const TaskCenter::Item &item : items) {
+            if (isActive(item.state)) {
+                ++active;
+            } else {
+                ++done;
+            }
+            if (item.state == TaskCenter::State::WaitingUser
+                || item.state == TaskCenter::State::Failed
+                || item.state == TaskCenter::State::Interrupted) {
+                ++attention;
+            }
+        }
+        auto *title = new QLabel(tr("任务概览"), m_detailContent);
+        QFont titleFont = title->font();
+        titleFont.setBold(true);
+        title->setFont(titleFont);
+        layout->addWidget(title);
+        for (const QString &line : {tr("正在进行：%1").arg(active),
+                                    tr("已完成：%1").arg(done),
+                                    tr("需要处理：%1").arg(attention)}) {
+            auto *label = new QLabel(line, m_detailContent);
+            layout->addWidget(label);
+        }
+        auto *hint = new QLabel(tr("在中间选择一项，可查看步骤、错误和可用操作。"),
+                                m_detailContent);
+        hint->setWordWrap(true);
+        applyMutedFont(hint, -1);
+        layout->addWidget(hint);
+        layout->addStretch(1);
+        return;
+    }
+
+    const TaskCenter::Item &item = *selected;
+    auto *title = new QLabel(item.title, m_detailContent);
+    title->setWordWrap(true);
+    QFont titleFont = title->font();
+    titleFont.setBold(true);
+    title->setFont(titleFont);
+    layout->addWidget(title);
+    auto *state = new QLabel(MainWindowUI::taskDetailStateText(item.state), m_detailContent);
+    applyMutedFont(state, 0);
+    layout->addWidget(state);
+    if (!item.detail.isEmpty()) {
+        auto *detail = new QLabel(item.detail, m_detailContent);
+        detail->setWordWrap(true);
+        layout->addWidget(detail);
+    }
+    if (!item.bytesText.isEmpty()) {
+        auto *bytes = new QLabel(item.bytesText, m_detailContent);
+        applyMutedFont(bytes, -1);
+        layout->addWidget(bytes);
+    }
+    if (isActive(item.state) && item.percent >= 0) {
+        auto *bar = new TaskProgressBar(m_detailContent);
+        bar->setRange(0, 100);
+        bar->setValue(item.percent);
+        bar->setFixedHeight(MainWindowUI::taskCenterPanelBarHeight());
+        layout->addWidget(bar);
+    }
+    if (!item.errorSummary.isEmpty()) {
+        auto *error = new QLabel(item.errorSummary, m_detailContent);
+        error->setWordWrap(true);
+        QPalette colors = error->palette();
+        colors.setColor(QPalette::WindowText, MainWindowUI::folderDangerColor(colors));
+        error->setPalette(colors);
+        layout->addWidget(error);
+    }
+    if (!item.steps.isEmpty()) {
+        auto *heading = new QLabel(tr("步骤"), m_detailContent);
+        layout->addWidget(heading);
+        for (const TaskCenter::Step &step : item.steps) {
+            auto *label = new QLabel(TaskCenter::stepMark(step.state) + QLatin1Char(' ')
+                                         + step.name
+                                         + (step.note.isEmpty() ? QString()
+                                                                : QStringLiteral(" · ") + step.note),
+                                     m_detailContent);
+            label->setWordWrap(true);
+            layout->addWidget(label);
+        }
+    }
+    auto addAction = [&](const QString &text, TaskCenter::RowAction action,
+                         Theme::ButtonKind kind) {
+        if (!m_onRowAction) {
+            return;
+        }
+        auto *button = new QPushButton(text, m_detailContent);
+        Theme::markButton(button, kind);
+        const QString key = item.key;
+        connect(button, &QPushButton::clicked, button, [this, key, action]() {
+            if (m_onRowAction) {
+                m_onRowAction(key, action);
+            }
+        });
+        layout->addWidget(button);
+    };
+    if (item.capabilities.cancel) {
+        addAction(tr("取消任务"), TaskCenter::RowAction::Cancel, Theme::ButtonKind::Neutral);
+    }
+    if (item.capabilities.retry) {
+        addAction(tr("重试"), TaskCenter::RowAction::Retry, Theme::ButtonKind::Accent);
+    }
+    if (item.capabilities.openTarget) {
+        addAction(tr("打开目标位置"), TaskCenter::RowAction::OpenTarget,
+                  Theme::ButtonKind::Ghost);
+    }
+    if (item.capabilities.openLog) {
+        addAction(tr("打开日志"), TaskCenter::RowAction::OpenLog, Theme::ButtonKind::Ghost);
+    }
+    if (item.capabilities.exportReport) {
+        addAction(tr("导出错误报告"), TaskCenter::RowAction::ExportReport,
+                  Theme::ButtonKind::Ghost);
+    }
+    if (item.capabilities.openCrashDir) {
+        addAction(tr("打开崩溃报告目录"), TaskCenter::RowAction::OpenCrashDir,
+                  Theme::ButtonKind::Ghost);
+    }
     layout->addStretch(1);
 }
 

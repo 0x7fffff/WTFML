@@ -371,6 +371,11 @@ QPalette selectionPalette(const QPalette &palette, bool selected);
  *   - `Primary` —— 页面上唯一最重要的动作；今天只给主页的「启动游戏」使用实心主题色。
  *   - `Neutral` —— **看一眼或者挪个地方**：取消 / 关闭 / 返回 / 打开文件夹 / 刷新 /
  *     清空搜索 / 切换 / 分组 / 更换图标 / 导出 / 浏览 / 那些"快捷方式" / 菜单项。
+ *   - `Ghost` —— **低频的辅助动作**：卡片里的一句"复制到剪贴板""查看报告"、行尾的
+ *     "换个样子"这类。它和 `Neutral` 是同一种判断的两档，分界线是**频率与分量**：
+ *     `Neutral` 是一颗"看得出是个按钮"的次要按钮（白底 + 一圈边），`Ghost` 只有字
+ *     （没有底、没有边），挪到边上不抢眼。**判不准就用 `Neutral`** —— Ghost 用滥了
+ *     一整页会变成"一堆没有形状的字"。
  *   - `Danger` —— **删了就拿不回来**：删除（实例 / 文件 / 账号 / 分组）/ 恢复默认分组设置 /
  *     还原上一次 / 清空日志 / 写进存档（「世界设置…」那一页的保存）。
  *
@@ -381,6 +386,7 @@ enum class ButtonKind {
     Accent,   ///< 确认性：白底 + 主题色的字和边（**默认**，不挂属性）
     Primary,  ///< 页面唯一主动作：主题色实底 + 白字（例如主页的「启动游戏」）
     Neutral,  ///< 一般性：白底 + 黑字黑边
+    Ghost,    ///< 低频辅助：没有底、没有边，只有字（边留成透明的 1px，**几何不变**）
     Danger,   ///< 不可撤销：白底 + 红字红边
 };
 
@@ -390,6 +396,24 @@ QString buttonKindKey(ButtonKind kind);
 void markButton(QWidget *button, ButtonKind kind);
 /// 「一般性」那一档的黑（次要按钮的字与边、未勾选的勾选框）。**唯一出处。**
 QColor neutralInkColor();
+
+/**
+ * @brief 「灰掉」那一档的三个色（`QPushButton:disabled` 的底 / 字·边 / 边）。**唯一出处。**
+ *
+ * coding plan §3.3 点名要"单独设计 Disabled 状态：降低对比度但仍保留轮廓和文字可读性，
+ * 不能让正常 Secondary 和 Disabled 看起来是同一档"。所以：
+ *   - **轮廓还在**（`disabledBorderColor()` 那 1px）—— 完全抹掉边的话，灰掉的一格在
+ *     白底上就只剩几个灰字，"这儿本来有一颗按钮"这件事看不出来了；
+ *   - **字还读得清**（`disabledInkColor()` 对底 ≥ 3:1，见 ui_check 那条现算的判据）——
+ *     再浅一档就纯是装饰了；
+ *   - 和 `Neutral`（白底 + 纯黑字 + 纯黑边）**差着一整档**，一眼分得开。
+ *
+ * NOTE: 开成函数是给验证工程用的 —— 从前 ui_check 里把 `#9a9a9a` 抄了一份（下拉框那颗
+ *       V 箭头禁用时的墨色），两个数各写一处，改一处就静默地对不上了。
+ */
+QColor disabledInkColor();
+QColor disabledBorderColor();
+QColor disabledFillColor();
 
 /**
  * @brief 键盘焦点环那一圈色（coding plan §8.3「可见焦点环」）。

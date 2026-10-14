@@ -967,8 +967,13 @@ template <typename Enum> bool selectByEnumData(QComboBox *combo, Enum value) {
 ///       换成终止、或者两颗换个位置，那一下点下去会静悄悄地做错事（关实例变成开设置）。
 constexpr int kRunningPanelStopAction = 0;
 constexpr int kRunningPanelSettingsAction = 1;
+/// 「看这一场游戏的输出」（2026-10-14 加，coding plan §3.3「运行中实例弹层优先展示实例名、
+/// 运行时长和『打开日志/停止』等可用动作」）。**摆在最后**：前两颗是"对**这一份会话**
+/// 做什么"（关了它 / 改它的设置），这一颗是"看它说了什么"，最不打紧的一下摆边上。
+constexpr int kRunningPanelLogAction = 2;
 
-/// 左面板里一行的那两颗按钮（电源 = 关掉这份会话，齿轮 = 进这个实例的设置）。
+/// 左面板里一行的那三颗按钮（电源 = 关掉这份会话，齿轮 = 进这个实例的设置，
+/// 「日志」= 打开这一场的日志窗）。
 /// @param ink 图标那一档颜色（和底栏那几行字同一个墨色 —— 画的图标不带自己的颜色）。
 QList<MainWindowUI::PanelAction> runningPanelActions(const QColor &ink) {
     const int iconSize = MainWindowUI::bottomBarPanelActionIconSize();
@@ -979,7 +984,13 @@ QList<MainWindowUI::PanelAction> runningPanelActions(const QColor &ink) {
     MainWindowUI::PanelAction settings;
     settings.icon = VersionIcons::gear(iconSize, ink);
     settings.tooltip = QObject::tr("打开这个实例的设置");
-    return {stop, settings};
+    // 这一颗是**字的**（理由见 bottomBarPanelLogText() 那段：14 px 上画不出一个一眼认得出
+    // 的"日志"符号）。NOTE: 图标那两颗是 `setFixedSize(actionSize)` 的正方形，这一颗按字
+    //        撑宽 —— 行尾那几颗是"齐着右边摆"的，混着摆不会错位（见行控件那一段）。
+    MainWindowUI::PanelAction log;
+    log.text = MainWindowUI::bottomBarPanelLogText();
+    log.tooltip = QObject::tr("打开这一场游戏的日志窗");
+    return {stop, settings, log};
 }
 
 /// 这个实例属于哪个分类（正式版 / 快照版 / 远古版 / 愚人节版）。
@@ -1523,8 +1534,25 @@ MainWindow::MainWindow(QWidget *parent)
     // 两处各写一遍的话，"取消"的语义迟早会分家（一处删文件、一处不删）。
     m_ui->setTaskCenterRowActionHandler(
         [this](const QString &key, TaskCenter::RowAction action) {
-            if (action == TaskCenter::RowAction::Cancel) {
+            switch (action) {
+            case TaskCenter::RowAction::Cancel:
                 onTaskDetailAction(key, TaskDetailPage::Action::Cancel);
+                break;
+            case TaskCenter::RowAction::Retry:
+                onTaskDetailAction(key, TaskDetailPage::Action::Retry);
+                break;
+            case TaskCenter::RowAction::OpenTarget:
+                onTaskDetailAction(key, TaskDetailPage::Action::OpenTarget);
+                break;
+            case TaskCenter::RowAction::OpenLog:
+                onTaskDetailAction(key, TaskDetailPage::Action::OpenLog);
+                break;
+            case TaskCenter::RowAction::ExportReport:
+                onTaskDetailAction(key, TaskDetailPage::Action::ExportReport);
+                break;
+            case TaskCenter::RowAction::OpenCrashDir:
+                onTaskDetailAction(key, TaskDetailPage::Action::OpenCrashDir);
+                break;
             }
         });
     setupConnections();
@@ -12168,9 +12196,46 @@ void MainWindow::onBottomBarPanelAction(bool account, const QString &key, int ac
             openInstanceSettings(game.versionId);
             return;
         }
+        case kRunningPanelLogAction:
+            openGameLogForSession(key.toInt());
+            return;
         default:
             return;
     }
+}
+
+void MainWindow::openGameLogForSession(int sessionId) {
+    if (sessionId <= 0) {
+        return;
+    }
+    // 那一扇已经开着（"随时能看输出"的常驻窗）⇒ 抬到前面来，一个字都不重开。
+    if (GameLogWindow *window = m_gameLogWindows.value(sessionId, nullptr)) {
+        window->show();
+        window->raise();
+        window->activateWindow();
+        return;
+    }
+    // 窗还没建出来。两种情形在**产品行为**上差得很远，所以这儿分开办：
+    //
+    //   · 会话还在跑（窗还没建 = 那一刻还没收到过它的输出，见 ensureGameLogWindow 里
+    //     "第一条输出才建窗"那一段，或者是**用户自己关过**这一扇，见 m_gameLogDismissed-
+    //     Sessions）⇒ 用户点名要看，就给他建一扇出来。这一刻可能是空的（一句输出都还没有），
+    //     那一窗自己会摆一句"还没有输出"—— 从这个窗往后每一行都能看见。
+    //   · 会话已经结束了 ⇒ 那一份日志**已经没了**（它只活在窗里，见 m_gameLogWindows 那
+    //     一段）。这里**不留一句"点不动"**：说清"它结束了、日志跟着没了"。
+    //     （异常退出那一路另有去处：任务中心那一项记着当时那两段日志，见 openTaskLog()。）
+    const LauncherManager::GameSession game = m_launcherManager->session(sessionId);
+    if (game.sessionId == 0) {
+        appendLog(tr("这一场游戏已经结束了，它那份日志窗也跟着没了。"));
+        return;
+    }
+    GameLogWindow *window = ensureGameLogWindow(sessionId, /*userAsked=*/true);
+    if (window == nullptr) {
+        return;
+    }
+    window->show();
+    window->raise();
+    window->activateWindow();
 }
 
 void MainWindow::logoutCurrentAccount() {
@@ -18923,78 +18988,109 @@ void MainWindow::onProcessError(int sessionId, const QString &text) {
 }
 
 void MainWindow::showGameLogLine(int sessionId, const QString &text) {
-    // 没开这个开关就什么都不做 —— 这是绝大多数用户的状态，这条路径上不该有任何开销。
-    if (!m_settings->showGameLog()) {
-        return;
-    }
     // sessionId <= 0 是"不挂在任何实例上的话"（比如"同时运行的游戏已经有 8 个了"那一句，
     // 它是 startGame 在登记会话之前发的，见那边的说明）。那种话没有日志窗可言。
     if (sessionId <= 0) {
         return;
     }
-
-    GameLogWindow *window = m_gameLogWindows.value(sessionId, nullptr);
+    // 开关只管“要不要自动冒出一扇新窗”。已经存在的窗可能是用户从底栏明确点开的；
+    // 即使自动显示关着，那扇窗也必须继续收到输出，否则用户得到的只是一扇永远为空的窗。
+    if (!m_settings->showGameLog() && !m_gameLogWindows.contains(sessionId)) {
+        return;
+    }
+    GameLogWindow *window = ensureGameLogWindow(sessionId, /*userAsked=*/false);
     if (window == nullptr) {
-        // 用户关掉过这一份的窗就不再开（见 m_gameLogDismissedSessions 的说明）。
-        if (m_gameLogDismissedSessions.contains(sessionId)) {
-            return;
-        }
-        // 第一次收到**这一份**的输出才建窗（不去"启动成功"那一刻建）：这样三条早退路径
-        // 上一个空窗都不会冒出来，而"进程真的起来了"那一句（startGame 内部同步发的第一条
-        // processOutput）正好在建窗这一刻被写上 —— 用户看到的第一行就是"游戏已启动"。
-        const QString name = m_launcherManager->session(sessionId).displayName;
-        // **父窗口传 nullptr**（2026-09-24 改，原来传的是 this）。在 Windows 上"有主的窗"
-        // 永远压在自己的主窗上面，用户点启动器也翻不上来 —— 那正是用户说的「日志一定会
-        // 显示在启动器前面，会遮挡」。这是平台规则，不是能调的风格，所以只能不给它主。
-        // 代价是"跟着启动器一起关掉"要自己接（见析构里那一段）。
-        window = new GameLogWindow(name, nullptr);
-        // 错开的位置数**在插进去之前**取：开第二扇时那是 1（往下错一点，不盖住第一扇）。
-        const int cascade = m_gameLogWindows.size();
-        m_gameLogWindows.insert(sessionId, window);
-        // 这一份会话的事实留一个快照（「导出错误报告」要用，见 m_gameLogFacts 的说明）：
-        // **建窗这一刻**取，因为再往后这个会话只会越来越空（结束时记录会被摘掉）。
-        // 那一刻会话一定还在（窗是收到它的第一行输出才建的）。
-        {
-            const LauncherManager::GameSession live = m_launcherManager->session(sessionId);
-            GameLogFacts snapshot;
-            snapshot.instanceId = live.versionId;
-            snapshot.accountName = live.accountName;
-            snapshot.processId = live.processId;
-            snapshot.startedAtMs = live.startedAtMs;
-            m_gameLogFacts.insert(sessionId, snapshot);
-        }
-        // 底下那两颗导出键（2026-09-28）。它们只发信号，弹框、写盘全在这里 —— `ui/` 那一层
-        // 不认识数据目录，也不该认识（见 GameLogWindow 的文件头）。
-        connect(window, &GameLogWindow::exportLogRequested, this,
-                [this, sessionId] { exportGameLog(sessionId); });
-        connect(window, &GameLogWindow::exportReportRequested, this,
-                [this, sessionId] { exportGameErrorReport(sessionId); });
-        // 窗自己带 WA_DeleteOnClose，所以**关掉就会销毁**。销毁之前先把这一笔摘掉，
-        // 顺便记下"用户关过这一份" —— 两个动作都必须在 finished 里做，不能在 destroyed 里：
-        // finished 是"用户关窗"这一个动作的信号，destroyed 在父窗口析构时也会来一次，
-        // 而那一次不该被当成"用户不想看日志"。
-        connect(window, &QDialog::finished, this, [this, sessionId](int) {
-            m_gameLogWindows.remove(sessionId);
-            m_gameLogDismissedSessions.insert(sessionId);
-            // 窗没了，那份快照也就没用了（它唯一的用途是"给那一扇窗导一份报告"）——
-            // 不清的话它会随着开过的实例数一直长。
-            m_gameLogFacts.remove(sessionId);
-        });
-        // 摆到启动器**旁边**（右 → 左 → 居中），别一上来就压住它 —— 用户抱怨的另一半
-        // 正是"挡着"。启动器跨屏时按它在那一块屏的可用区域算（扣掉任务栏）。
-        const QScreen *screen = QGuiApplication::screenAt(frameGeometry().center());
-        if (screen == nullptr) {
-            screen = QGuiApplication::primaryScreen();
-        }
-        if (screen != nullptr) {
-            window->move(GameLogWindow::placementFor(frameGeometry(), window->size(),
-                                                      screen->availableGeometry(), cascade));
-        }
-        window->show();
-        // 非模态（没用 exec()）：游戏跑着的时候用户还要在启动器上干别的。做成模态的话
-        // 那扇窗会把整个启动器挡住 —— 一个"看输出"的窗没有拦人的道理。
+        return;
     }
     window->appendText(text);
+}
+
+/*!
+ * 把**这一份会话**的日志窗拿出来，没有就现建一扇。建不出来的情形返回 nullptr。
+ *
+ * `userAsked` 说的是"这一发是用户点名要看"，它只影响两道闸：
+ *
+ *   · `m_settings->showGameLog()`（「显示游戏日志」那个开关）—— 它拦的是**自动冒出来的
+ *     窗**（用户没要求过、却被输出顶到眼前的那一种）。用户自己点了「日志」，那是他
+ *     要的东西，开关拦不到他。
+ *   · `m_gameLogDismissedSessions`（用户关过这一扇，之后不再自动开）—— 同一个道理，
+ *     他关过一次不等于这次也不看。点了就再开，并且**把这一笔摘掉**，往后这个会话的输出
+ *     还能照常进这扇窗（不摘的话窗开着、字却进不来，那才是真的坏）。
+ *
+ * 调用方负责 `show()/raise()/activateWindow()`（见 openGameLogForSession）：自动那一路
+ * 是建窗即 show（空窗不该冒出来），用户点名那一路要先把旧窗抬起来，两条路的前置动作不同。
+ */
+GameLogWindow *MainWindow::ensureGameLogWindow(int sessionId, bool userAsked) {
+    if (sessionId <= 0) {
+        return nullptr;
+    }
+    GameLogWindow *window = m_gameLogWindows.value(sessionId, nullptr);
+    if (window != nullptr) {
+        return window;
+    }
+    // 用户关掉过这一份的窗就不再**自动**开（见 m_gameLogDismissedSessions 的说明）。
+    // 用户自己点名要的那一发例外，而且顺手把那一笔记号撤了。
+    if (m_gameLogDismissedSessions.contains(sessionId)) {
+        if (!userAsked) {
+            return nullptr;
+        }
+        m_gameLogDismissedSessions.remove(sessionId);
+    }
+    // 第一次收到**这一份**的输出才建窗（不去"启动成功"那一刻建）：这样三条早退路径
+    // 上一个空窗都不会冒出来，而"进程真的起来了"那一句（startGame 内部同步发的第一条
+    // processOutput）正好在建窗这一刻被写上 —— 用户看到的第一行就是"游戏已启动"。
+    const QString name = m_launcherManager->session(sessionId).displayName;
+    // **父窗口传 nullptr**（2026-09-24 改，原来传的是 this）。在 Windows 上"有主的窗"
+    // 永远压在自己的主窗上面，用户点启动器也翻不上来 —— 那正是用户说的「日志一定会
+    // 显示在启动器前面，会遮挡」。这是平台规则，不是能调的风格，所以只能不给它主。
+    // 代价是"跟着启动器一起关掉"要自己接（见析构里那一段）。
+    window = new GameLogWindow(name, nullptr);
+    // 错开的位置数**在插进去之前**取：开第二扇时那是 1（往下错一点，不盖住第一扇）。
+    const int cascade = m_gameLogWindows.size();
+    m_gameLogWindows.insert(sessionId, window);
+    // 这一份会话的事实留一个快照（「导出错误报告」要用，见 m_gameLogFacts 的说明）：
+    // **建窗这一刻**取，因为再往后这个会话只会越来越空（结束时记录会被摘掉）。
+    // 那一刻会话一定还在（窗是收到它的第一行输出才建的）。
+    {
+        const LauncherManager::GameSession live = m_launcherManager->session(sessionId);
+        GameLogFacts snapshot;
+        snapshot.instanceId = live.versionId;
+        snapshot.accountName = live.accountName;
+        snapshot.processId = live.processId;
+        snapshot.startedAtMs = live.startedAtMs;
+        m_gameLogFacts.insert(sessionId, snapshot);
+    }
+    // 底下那两颗导出键（2026-09-28）。它们只发信号，弹框、写盘全在这里 —— `ui/` 那一层
+    // 不认识数据目录，也不该认识（见 GameLogWindow 的文件头）。
+    connect(window, &GameLogWindow::exportLogRequested, this,
+            [this, sessionId] { exportGameLog(sessionId); });
+    connect(window, &GameLogWindow::exportReportRequested, this,
+            [this, sessionId] { exportGameErrorReport(sessionId); });
+    // 窗自己带 WA_DeleteOnClose，所以**关掉就会销毁**。销毁之前先把这一笔摘掉，
+    // 顺便记下"用户关过这一份" —— 两个动作都必须在 finished 里做，不能在 destroyed 里：
+    // finished 是"用户关窗"这一个动作的信号，destroyed 在父窗口析构时也会来一次，
+    // 而那一次不该被当成"用户不想看日志"。
+    connect(window, &QDialog::finished, this, [this, sessionId](int) {
+        m_gameLogWindows.remove(sessionId);
+        m_gameLogDismissedSessions.insert(sessionId);
+        // 窗没了，那份快照也就没用了（它唯一的用途是"给那一扇窗导一份报告"）——
+        // 不清的话它会随着开过的实例数一直长。
+        m_gameLogFacts.remove(sessionId);
+    });
+    // 摆到启动器**旁边**（右 → 左 → 居中），别一上来就压住它 —— 用户抱怨的另一半
+    // 正是"挡着"。启动器跨屏时按它在那一块屏的可用区域算（扣掉任务栏）。
+    const QScreen *screen = QGuiApplication::screenAt(frameGeometry().center());
+    if (screen == nullptr) {
+        screen = QGuiApplication::primaryScreen();
+    }
+    if (screen != nullptr) {
+        window->move(GameLogWindow::placementFor(frameGeometry(), window->size(),
+                                                  screen->availableGeometry(), cascade));
+    }
+    // 非模态（没用 exec()）：游戏跑着的时候用户还要在启动器上干别的。做成模态的话
+    // 那扇窗会把整个启动器挡住 —— 一个"看输出"的窗没有拦人的道理。
+    window->show();
+    return window;
 }
 
 void MainWindow::onGameFinished(int sessionId, int exitCode, QProcess::ExitStatus exitStatus) {

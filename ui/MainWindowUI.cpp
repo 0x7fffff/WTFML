@@ -1137,6 +1137,18 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
             modeLayout->addStretch(1);
             instance.right.layout->addWidget(modeRow);
         }
+        // ★ 焦点链：左栏底下那两颗按钮 → 这一排模式 → 搜索框（2026-10-14，§3.3）。
+        //   这一排是这一页**最上面**那一行，可它是**最后**建的（筛选行 / 树那一整套先建，
+        //   这一排后来才补上去），于是按 Tab 的顺序是"搜索框 → 四颗筛子 → 树 → 模式按钮"
+        //   ——焦点从下面那棵树又窜回到最上面这一行。串成"左栏 → 模式 → 搜索"，一路往下。
+        //   （左栏那两颗是建在这一排之前的，所以这里从它们接出去。）
+        if (importModpackButton != nullptr && instanceModeButtons.size() == 2) {
+            QWidget::setTabOrder(importModpackButton, instanceModeButtons.at(0));
+            QWidget::setTabOrder(instanceModeButtons.at(0), instanceModeButtons.at(1));
+            if (instanceSearchEdit != nullptr) {
+                QWidget::setTabOrder(instanceModeButtons.at(1), instanceSearchEdit);
+            }
+        }
 
         instanceModeStack = new QStackedWidget(instance.right.surface);
         instanceModeStack->setObjectName(instanceModeStackName());
@@ -2538,7 +2550,7 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
             themeAccentResetButton = new QPushButton(themeAccentResetText(), line);
             themeAccentResetButton->setObjectName(themeAccentResetName());
             // 一般性（和「清除图片」同一档：把这一项拿掉，不是丢掉一份东西）。
-            Theme::markButton(themeAccentResetButton, Theme::ButtonKind::Neutral);
+            Theme::markButton(themeAccentResetButton, Theme::ButtonKind::Ghost);
             themeAccentResetButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
 
             lineLayout->addWidget(themeAccentButton);
@@ -2622,7 +2634,7 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
 
             themeSemanticResetButton = new QPushButton(themeSemanticResetText(), line);
             themeSemanticResetButton->setObjectName(themeSemanticResetName());
-            Theme::markButton(themeSemanticResetButton, Theme::ButtonKind::Neutral);
+            Theme::markButton(themeSemanticResetButton, Theme::ButtonKind::Ghost);
             themeSemanticResetButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
 
             lineLayout->addWidget(grid);
@@ -2657,7 +2669,7 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
             themeExportButton = new QPushButton(themeExportText(), line);
             themeExportButton->setObjectName(themeExportButtonName());
             // 「导出」是**看一眼 / 挪个地方**（`ButtonKind` 那张表里点名的）。
-            Theme::markButton(themeExportButton, Theme::ButtonKind::Neutral);
+            Theme::markButton(themeExportButton, Theme::ButtonKind::Ghost);
 
             themeImportButton = new QPushButton(themeImportText(), line);
             themeImportButton->setObjectName(themeImportButtonName());
@@ -3237,13 +3249,37 @@ public:
         }
         if (m_anchor != nullptr) {
             const QPoint anchorTopLeft = m_anchor->mapToGlobal(QPoint(0, 0));
-            const int x = m_alignRight ? anchorTopLeft.x() + m_anchor->width() - width()
-                                       : anchorTopLeft.x();
+            int x = m_alignRight ? anchorTopLeft.x() + m_anchor->width() - width()
+                                 : anchorTopLeft.x();
+            int y = anchorTopLeft.y() - height() - kPanelGap;
+            // ★ 2026-10-14（coding plan §3.3「窄窗口避让……只实现一次」）：把它**夹进那一块
+            //   屏的可用区域**。面板是个顶层窗口，按锚点算出来的落点会**跑到屏幕外面**去 ——
+            //   窗口贴着屏幕右边那一块（或者面板比窗口还宽）时，右端那块面板有半截在屏外，
+            //   屏幕上就是"点了没反应"。夹的是**屏幕**（不是启动器窗口）那一块：面板可以
+            //   压在启动器外面，只要人还看得见它。
+            //   NOTE: 只夹到边界、**不留边距** —— 现有那两条几何判据钉的是"左边缘贴按钮
+            //         左边缘"/"右边缘贴按钮右边缘"（ui_check I4），多留一格边距就是在正常
+            //         情形下也把那两条判据顶红。零边距的夹法在正常情形下**一个像素都不动**。
+            //   NOTE: 面板比可用区域还宽/还高时（极端窄的屏）夹不动，那就不夹（`qBound`
+            //         要求下界 ≤ 上界，反过来的话它在 debug 里会直接断言）。
+            const QScreen *screen = m_anchor->screen() != nullptr ? m_anchor->screen()
+                                                                 : QGuiApplication::primaryScreen();
+            if (screen != nullptr) {
+                const QRect avail = screen->availableGeometry();
+                const int xMax = avail.right() - width() + 1;
+                const int yMax = avail.bottom() - height() + 1;
+                if (xMax >= avail.left()) {
+                    x = qBound(avail.left(), x, xMax);
+                }
+                if (yMax >= avail.top()) {
+                    y = qBound(avail.top(), y, yMax);
+                }
+            }
             // 2026-09-29：上拉面板**从下面滑上来**。它是顶层窗口（Qt::Popup），所以"滑"
             // 就是它自己的 pos() 在动 —— 落到哪儿还是一样算，只是先把起手位摆在落点下面
             // `panelSlideDistance()` 那一格上。关掉动效时 `slideUp()` 直接 move 到落点，
             // 和从前那一句 move(x, …) 一模一样（见 ui/Animations.hpp）。
-            Anim::slideUp(this, QPoint(x, anchorTopLeft.y() - height() - kPanelGap));
+            Anim::slideUp(this, QPoint(x, y));
         }
         show();
         raise();
@@ -3478,6 +3514,7 @@ public:
         line->addStretch(1);
 
         QPushButton *gear = new QPushButton(this);
+        m_gear = gear;
         gear->setObjectName(MainWindowUI::folderRowGearName(index));
         const int iconSize = MainWindowUI::folderMenuIconSize();
         gear->setIcon(QIcon(VersionIcons::gear(iconSize, palette().color(QPalette::WindowText))));
@@ -3504,6 +3541,13 @@ public:
         // 把没截的那份原文挂在这儿。
         setToolTip(row.title + QLatin1Char('\n') + row.subtitle);
     }
+
+    /// 行尾那颗齿轮。**只有 `setFolderRows()` 串焦点链的时候要** —— 那几颗按钮是运行时
+    /// 才建的，得在它们建出来之后当场把顺序接上（见那儿那段）。
+    QPushButton *gearButton() const { return m_gear; }
+
+private:
+    QPushButton *m_gear = nullptr;
 };
 
 /**
@@ -4497,6 +4541,24 @@ void MainWindowUI::setFolderRows(const QList<FolderRow> &rows) {
             list->setCurrentItem(item);
         }
     }
+    // ★ 焦点链：列表本身 → 各行那颗齿轮 → 左栏底下那两颗按钮（2026-10-14，§3.3）。
+    //   这几颗齿轮是**这一趟才建的**（每次重灌都重建），而 Qt 的默认顺序是"建的时候谁早
+    //   谁在前" ⇒ 它们会落在整条焦点链的最末尾，也就是**底栏之后**：按 Tab 走到最右下
+    //   那一颗，下一格"唰"地跳回左栏最上面那一行，眼睛看到的就是一个往上窜的乱序。
+    //   这里当场串一遍。`setTabOrder` 干的是"把第二格挪到第一格后面"，重灌时重串一遍
+    //   是安全的（`clear()` 已经把上一代的行连控件一起删了，不会有残骸留在链上）。
+    QWidget *previous = list;
+    for (int i = 0; i < list->count(); ++i) {
+        auto *row = dynamic_cast<FolderRowWidget *>(list->itemWidget(list->item(i)));
+        if (row == nullptr || row->gearButton() == nullptr) {
+            continue;
+        }
+        QWidget::setTabOrder(previous, row->gearButton());
+        previous = row->gearButton();
+    }
+    if (addFolderButton != nullptr) {
+        QWidget::setTabOrder(previous, addFolderButton);
+    }
 }
 
 void MainWindowUI::openFolderMenu(const FolderRow &row, QWidget *gear) {
@@ -4635,8 +4697,42 @@ void MainWindowUI::openTaskCenterPanel() {
             toggleBottomBarPanel(hit);
         }
     };
+    const TaskCenter::RunningProvider runningProvider = [this]() {
+        QList<TaskCenter::RunningItem> result;
+        const QList<PanelRow> rows =
+            m_panelRowsProvider ? m_panelRowsProvider(false) : QList<PanelRow>();
+        for (const PanelRow &row : rows) {
+            if (row.placeholder) {
+                continue;
+            }
+            TaskCenter::RunningItem item;
+            item.key = row.key;
+            item.icon = row.icon;
+            item.title = row.title;
+            item.subtitle = row.subtitle;
+            for (int i = 0; i < row.actions.size(); ++i) {
+                const PanelAction &source = row.actions.at(i);
+                TaskCenter::RunningAction action;
+                action.icon = source.icon;
+                action.text = source.text;
+                action.tooltip = source.tooltip;
+                action.enabled = source.enabled;
+                action.action = i;
+                item.actions.append(action);
+            }
+            result.append(item);
+        }
+        return result;
+    };
+    const TaskCenter::RunningActionHandler runningAction =
+        [this](const QString &key, int action) {
+            if (m_panelActionHandler) {
+                m_panelActionHandler(false, key, action);
+            }
+        };
     auto *panel = new TaskCenterPanel(taskSummaryButton, m_taskCenterProvider,
-                                      m_taskCenterClearHandler, onOutsidePress, bottomBar);
+                                      m_taskCenterClearHandler, runningProvider, runningAction,
+                                      onOutsidePress, bottomBar);
     // 点一行进详情页。★ **要在 popUp() 之前挂**：`rebuild()`（popUp() 里第一件事）就是按
     //   这个处理器决定那几行"可不可点"的 —— 挂晚了的话这一面板里的行没手型光标、点了也没
     //   反应，得关掉重开一次才行。

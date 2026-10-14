@@ -338,14 +338,14 @@ InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
 
     m_refresh = new QPushButton(refreshText(), m_pathRow);
     m_refresh->setObjectName(refreshButtonName());
-    Theme::markButton(m_refresh, Theme::ButtonKind::Neutral);
+    Theme::markButton(m_refresh, Theme::ButtonKind::Ghost);
     // 刷新是**这一页自己的事**（重新列一遍目录，只有读），不用绕到 MainWindow 去。
     connect(m_refresh, &QPushButton::clicked, this, &InstanceFilesPage::refresh);
     pathRow->addWidget(m_refresh);
 
     m_openFolder = new QPushButton(openFolderText(), m_pathRow);
     m_openFolder->setObjectName(openFolderButtonName());
-    Theme::markButton(m_openFolder, Theme::ButtonKind::Neutral);
+    Theme::markButton(m_openFolder, Theme::ButtonKind::Ghost);
     // ★ 2026-10-10：开的是**这一趟第一份读的目录** —— 「结构/原理图」那一页上它可能是
     //   某个存档的 structures/（那两个来源的第一排就是「存档」，见 scanDirectories()）。
     //   别的七页 `scanDirectories()` 就是 `m_directory` 一个 ⇒ 这一句和从前逐字一样。

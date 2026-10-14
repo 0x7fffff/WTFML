@@ -114,7 +114,7 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     m_refreshButton = new QPushButton(refreshButtonText(), this);
     m_refreshButton->setObjectName(refreshButtonName());
     // 「重新取一次」= 刷新（一般性那一档）。
-    Theme::markButton(m_refreshButton, Theme::ButtonKind::Neutral);
+    Theme::markButton(m_refreshButton, Theme::ButtonKind::Ghost);
     accountButtons->addWidget(m_loginButton);
     accountButtons->addWidget(m_switchButton);
     accountButtons->addWidget(m_removeButton);
@@ -188,7 +188,7 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     m_hideCapeButton = new QPushButton(hideCapeButtonText(), this);
     m_hideCapeButton->setObjectName(hideCapeButtonName());
     // 「不显示披风」= 拿掉一层（和「清除图片」同一档）；旁边那颗「应用披风」是确认性。
-    Theme::markButton(m_hideCapeButton, Theme::ButtonKind::Neutral);
+    Theme::markButton(m_hideCapeButton, Theme::ButtonKind::Ghost);
     capeButtons->addWidget(m_applyCapeButton);
     capeButtons->addWidget(m_hideCapeButton);
     capeButtons->addStretch(1);

@@ -2192,7 +2192,18 @@ int InstanceSettingsDialog::navListWidth(const QListWidget *list) {
     //
     // NOTE: 这一列里"装饰"占掉的那一块（样式给条目的边距）由表自己量出来，再用同一个数去
     //       估不在表里的那几条 —— 别写死一个像素数，换字体/换样式就不是那个数了。
-    const QFontMetrics fm(list->font());
+    // ★★ 2026-10-14：这里的字度量必须和**代理量行宽时用的那个字体**一致。
+    //   左边这一列用的是 `VersionTreeDelegate`，它给**顶层条目**（这一列全是顶层）换的是
+    //   **粗体**（见 `VersionTreeDelegate::sizeHint` 那句 `if (!index.parent().isValid())`）。
+    //   原来这里拿列表自己的（非粗体）字体去量文字，于是
+    //   `decoration = sizeHintForColumn − 最宽那条的文字宽` 里混进了「粗体比普通体宽出来的
+    //   那一点」；而"最宽的那一条"在粗体下和在普通体下**可能不是同一条** ⇒ 勾掉几页之后
+    //   decoration 差个把像素、右栏跟着横着抖 1 px（真 windows 字体下量到过 `140 → 139`，
+    //   offscreen 的桩字体里那两条恰好一样宽、所以量不出来）。两边都在粗体下标量之后，
+    //   差值就剩下一圈**纯粹的样式装饰**（常数），这一列的宽度只由"一共有哪些页"决定。
+    QFont rowFont = list->font();
+    rowFont.setBold(true);
+    const QFontMetrics fm(rowFont);
     // 一列（QListWidget 只有第 0 列），而 `sizeHintForColumn(0)` 量的就是**所有行里最宽的
     // 那一条** ⇒ 这里**一次**调用就够。早先那个 `for (i < count())` 是从 QTableWidget 那种
     // 写法抄来的：列号越界时那个函数回 -1，被 `qMax` 吃掉，结果一样，但看着像在数行。

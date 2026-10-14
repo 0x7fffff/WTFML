@@ -752,6 +752,28 @@ QColor neutralInkColor() {
     return QColor(0x20, 0x20, 0x20);
 }
 
+// 「灰掉」那一档的三个色（详见头文件里那段）。★ 三处**必须一起看**：底浅一档、字浅两档、
+// 边浅浅地留一道 —— 单看哪一个都只是"一个灰色"，合起来才是"这一格现在按不动，但形状还在"。
+QColor disabledInkColor() {
+    // ★ 2026-10-14（coding plan §3.3「单独设计 Disabled 状态」）：从 `#9a9a9a` 提到
+    //   **`#8a8a8a`**。原来那个对 `disabledFillColor()` 只有 2.6:1 —— 一页里字号最小的
+    //   那几颗（12~13px）灰掉之后基本是"看不清"而不是"读得清"。这一档是 3.2:1，
+    //   既还是明显灰的（对白底 3.4:1、对次要用那支纯黑 15:1），又读得出来写的是什么。
+    //   判据不是"我觉得好看"：ui_check 里那条**现算对比度**，下限就是 3:1。
+    return QColor(0x8a, 0x8a, 0x8a);
+}
+
+QColor disabledBorderColor() {
+    // 轮廓那一圈：比字再浅一档。抹掉它的话，灰掉的一格在白底上只剩几个灰字 ——
+    // "这儿本来有一颗按钮"这件事就看不出来了（而那正是禁用态要传达的一半信息）。
+    return QColor(0xd2, 0xd2, 0xd2);
+}
+
+QColor disabledFillColor() {
+    // 底：贴白但明显不是白（对着 `#ffffff` 的页面底一眼能看出这一格是"塌"下去的）。
+    return QColor(0xf7, 0xf7, 0xf7);
+}
+
 QColor focusRingColor(const QPalette &palette) {
     // 深浅两档就是主题色那一支里的两头（浅底用"白底上写字"的那一档、深底用"往白里混 12%"
     // 的那一档）。**和别处"深色下用亮的那一档"是同一个判断**（`isDarkPalette()`），
@@ -778,6 +800,8 @@ QString buttonKindKey(ButtonKind kind) {
         return QStringLiteral("primary");
     case ButtonKind::Neutral:
         return QStringLiteral("neutral");
+    case ButtonKind::Ghost:
+        return QStringLiteral("ghost");
     case ButtonKind::Danger:
         return QStringLiteral("danger");
     case ButtonKind::Accent:
@@ -1003,9 +1027,9 @@ QString widgetStyleSheet() {
     // 它和 `errorTextColor()` 浅底那一档是同一个。
     const QColor red(0xc0, 0x28, 0x28);
     const QColor black = neutralInkColor();
-    const QColor disabledInk(0x9a, 0x9a, 0x9a);
-    const QColor disabledBorder(0xd2, 0xd2, 0xd2);
-    const QColor disabledFill(0xf7, 0xf7, 0xf7);
+    const QColor disabledInk = disabledInkColor();
+    const QColor disabledBorder = disabledBorderColor();
+    const QColor disabledFill = disabledFillColor();
 
     // ★ `padding: 6px` 不是随手写的：Fusion 的 `PM_ButtonMargin` 就是 6，边框 1 ⇒
     //   2*(6+1) = 14，和样式自己算的**一模一样**。差一点点的话界面上是看不出来，但一堆
@@ -1074,6 +1098,28 @@ QString widgetStyleSheet() {
     qss += kindBlock(QStringLiteral("neutral"), black, QColor(0xf0, 0xf0, 0xf0),
                      QColor(0xe0, 0xe0, 0xe0));
 
+    // ---------- Ghost（2026-10-14，coding plan §3.3「统一按钮视觉层级」）----------
+    //
+    // 「低频辅助动作」那一档：**只有字**。和 `Neutral` 的分别不是颜色而是**形状** ——
+    // 它没有底、没有边，所以它挪到卡片边上不抢眼（这是这一档存在的全部意义）。
+    //
+    // ★★ 边**不是删掉，是留成透明的 1px**。这一条是这一段最容易写错的地方：写
+    //    `border: none` 看着"更干净"，可它会把控件矮 2px、窄 2px（基样式那条
+    //    `QPushButton` 规则给的就是 1px 边）—— 于是同一个布局里换一档 kind，行里所有
+    //    东西都跟着挪 1px。留着透明的边，三档的几何**一模一样**。
+    //   NOTE: 悬停/按下那两层浅灰和 `Neutral` 用的是同一对（`#f0f0f0` / `#e0e0e0`）：
+    //         两档的区别在"平时有没有形"，不在"按下去什么色"。
+    //   NOTE: 勾上那一档给的是主题色那层淡底（和基样式里 `:default` 同一支色）—— 一颗
+    //         checkable 的 Ghost（比如"只看选中的"那种小开关）得让人看出它现在是"亮着"的。
+    const QString ghostTint = mixWithWhite(pure, 6).name();
+    qss += QStringLiteral("QPushButton[%1=\"ghost\"] { background-color: transparent;"
+                          " border-color: transparent; color: %2; }"
+                          "QPushButton[%1=\"ghost\"]:hover:enabled { background-color: %3; }"
+                          "QPushButton[%1=\"ghost\"]:pressed:enabled { background-color: %4; }"
+                          "QPushButton[%1=\"ghost\"]:checked { background-color: %5; }")
+               .arg(QString::fromLatin1(kButtonKindProperty), black.name(),
+                    QColor(0xf0, 0xf0, 0xf0).name(), QColor(0xe0, 0xe0, 0xe0).name(), ghostTint);
+
     // ★ 「灰掉」这一条**必须摆在上面那两块之后**（2026-10-09 真机踩到）。
     //   Qt 的样式表按**优先级**排：`QPushButton[wtfmlButtonKind="neutral"]` 和
     //   `QPushButton:disabled` 都是"元素 + 一个属性/伪类"，**优先级一模一样** ——
@@ -1109,19 +1155,26 @@ QString widgetStyleSheet() {
     // ★ 高度（2026-09-29 用户原话：「下拉框和所有输入框的高度略微改高点」）。
     //   下面两条**要一起看**，它们必须落成一样高（并排摆着差 1px 一眼就看出来）：
     //
-    //     `QLineEdit` / `QComboBox` 的 `padding: 3px`  ⇒ 24px（原来 `1px 3px` → 20px）
-    //     `QAbstractSpinBox` 的 `min-height: 18px`     ⇒ 24px（原来 19px）
+    //     `QLineEdit` / `QComboBox`：`padding: 1px 3px` + `min-height: 20px`
+    //     `QAbstractSpinBox`：       `min-height: 18px`
     //
-    //   水平那一位**故意还是 3px**（`padding: 3px` 就是四边 3px，和原来写的一样）：用户只说了
-    //   高度，横着那 1px 没有理由动 —— 动了就是"这一页上所有输入框的字整体右移 1px"。
+    //   ★★ 2026-10-14（coding plan §3.3 的高度收口）：这一套原来是 **`padding: 3px`**、
+    //     靠"字体的自然内容高 + 上下各 3px"凑出 24。那笔账是拿**离屏那套桩字体**算的：
+    //     真 windows 的字体下自然内容高是 19（输入框）/ 20（下拉框）/ 18（数字框），
+    //     于是三样落成 **25 / 26 / 24** —— 数字框那条 `min-height` 把它钉住了，另外两样
+    //     直接吃字体的自然高。并排摆着差 1~2 px，正是当初要消掉的那个毛病。
+    //     ⇒ 现在改成**给内容盒统一下限** + 竖向 padding 收成 1px：
+    //        输入框 / 下拉框：20 + 2×1 + 2×1（边）= 24
+    //        数字框：          18 + 6（它自己那一圈框，基样式画的）= 24
+    //       正常字号下两边都是 24px；大字号下允许控件随字体一起长高，不能为对齐裁字。
     //
-    //   ★ 为什么数字框不是同样的 `padding`：它那一圈边是**基样式自己画的**（下面那条把里面的
-    //     `QLineEdit` 按了回去），给它加 `padding` 就是"框里再套一个框"；而它的高度**至少**
-    //     是 25px（实测：任何一条"框"规则一挂上去就 25 打底，`padding` 只能在 25 上再加）。
-    //     所以它走 `min-height` —— Qt 里那一位是**设控件的最小高度**（`setMinimumHeight()`，
-    //     值 = `boxSize(内容高)`），数字框那一圈框占 6px ⇒ 18 + 6 = 24。
-    //     NOTE: 同一招对 `QLineEdit` **不好使**（`min-height: 16px` 算出来 20，而它的自然高度
-    //           就是 20，等于没写）—— 两种控件用两种写法不是没统一，是只能这么写。
+    //   水平那一位**故意还是 3px**：用户只说了高度，横着那 1px 没有理由动 —— 动了就是
+    //   "这一页上所有输入框的字整体右移 1px"。
+    //
+    //   ★ 为什么数字框不是同样的算法：它那一圈边是**基样式自己画的**（下面那条把里面的
+    //     `QLineEdit` 按了回去），给它加 `padding` 就是"框里再套一个框"。它走 `min-height`
+    //     —— Qt 里那一位是**设控件的最小高度**（`setMinimumHeight()`，值 = `boxSize(内容高)`），
+    //     数字框那一圈框占 6px ⇒ 18 + 6 = 24。两种控件用两种写法不是没统一，是只能这么写。
     //   ★ 因此数字框的 `sizeHint()`（21）和它最后占的高度（24）**不是同一个数**：竖向 `Fixed`
     //     的控件过布局时要取"最小高度"那一关。**量高度别只量 `sizeHint()`** —— ui_check 的
     //     W13 就是那么栽过一次的（三个数都报 24、摆上屏幕数字框却是 27）。
@@ -1131,18 +1184,26 @@ QString widgetStyleSheet() {
     //     圆角摆在它身上看着更方。
     qss += QStringLiteral(
                "QLineEdit { background-color: #ffffff; color: #000000; border: 1px solid %1;"
-               " border-radius: %6px; padding: 3px; }"
+               " border-radius: %6px; padding: 1px 3px;"
+               " min-height: 20px; }"
                "QLineEdit:focus { border-color: %2; }"
                "QLineEdit:disabled { background-color: %3; color: %4; border-color: %5; }")
                .arg(border.name(), ink.name(), disabledFill.name(), disabledInk.name(),
                     disabledBorder.name())
                .arg(controlRadius());
+    // 只钉最小高度，不钉最大高度：正常字号下三者仍是 24px；系统使用大字号时允许控件
+    // 跟着长高，不能为了像素对齐把字裁掉。
     qss += QStringLiteral("QAbstractSpinBox { min-height: 18px; }");
     // ★ **数字框 / 下拉框里面那一格也是 `QLineEdit`** —— 上面那条会连它一起框上，画出来
     //   就是"框里还套着一个框"（自旋框自己已经有一圈边了）。这一条把它按回去。
     //   用**后代**选择器（Qt 的 `>` 子选择器不可靠，后代选择器一定生效）。
+    //   ★ 2026-10-14：**高度那两位也要按回去**（`min-height: 0px` 是有记录的复位写法，见
+    //     下面 `markIconButton()` 那一条）。不按回去的话：里面那一格被钉成"内容高 20"，
+    //     而它比数字框自己要的 18 还大 ⇒ **反过来把数字框撑到 26** —— 三样等高的意图从
+    //     另一头破掉。
     qss += QStringLiteral("QAbstractSpinBox QLineEdit, QComboBox QLineEdit {"
-                          " border: none; background: transparent; padding: 0; }");
+                          " border: none; background: transparent; padding: 0;"
+                          " min-height: 0px; max-height: 16777215px; }");
 
     // -----------------------------------------------------------------------
     // 下拉框（2026-09-28）
@@ -1169,7 +1230,8 @@ QString widgetStyleSheet() {
     //   ⇒ **改这一条之前先把 `WtfmlProxyStyle` 那段读了**，两处是一对。
     qss += QStringLiteral(
                "QComboBox { background-color: #ffffff; color: #000000; border: 1px solid %1;"
-               " border-radius: %7px; padding: 3px; }"
+               " border-radius: %7px; padding: 1px 3px;"
+               " min-height: 20px; }"
                "QComboBox:focus { border-color: %2; }"
                "QComboBox:disabled { background-color: %3; color: %4; border-color: %5; }"
                "QComboBox::drop-down { width: 20px; }"

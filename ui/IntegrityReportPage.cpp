@@ -97,7 +97,7 @@ IntegrityReportPage::IntegrityReportPage(QWidget *parent) : QDialog(parent) {
     actions->addStretch(1);
     m_copyButton = new QPushButton(MainWindowUI::integrityReportCopyText(), this);
     m_copyButton->setObjectName(MainWindowUI::integrityReportCopyName());
-    Theme::markButton(m_copyButton, Theme::ButtonKind::Neutral);
+    Theme::markButton(m_copyButton, Theme::ButtonKind::Ghost);
     m_copyButton->setCursor(Qt::PointingHandCursor);
     connect(m_copyButton, &QPushButton::clicked, this,
             [this] { requestAction(Action::CopyReport); });

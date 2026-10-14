@@ -488,13 +488,18 @@ GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent)
     m_exportLogButton = new QPushButton(exportLogButtonText(), this);
     m_exportLogButton->setObjectName(exportLogButtonName());
     m_exportLogButton->setToolTip(exportLogButtonTooltip());
-    // 底下这三颗都走一般性（黑）：导出是"存一份出去"（什么都不改），关闭是"退出这一页"。
-    Theme::markButton(m_exportLogButton, Theme::ButtonKind::Neutral);
+    // 两颗导出键走 **Ghost**（2026-10-14，coding plan §3.3）：它们是这一页最不打紧的
+    // 两下 —— 只读、低频（出事的时候才按一次）、按错了也没有任何后果。摆成有框的按钮，
+    // 它们会和「关闭」抢同一条视线；只留字，视线就自然落在"退出这一页"那颗上。
+    // NOTE: 「关闭」和上面那颗「清空」**留在一般性（黑）**：一扇窗最右边那颗永远是
+    //       "退出这一页"，它得是个看得出是按钮的东西；「清空」清的是这个窗看到的内容
+    //       （盘上那份一行没少），够"一般性"。
+    Theme::markButton(m_exportLogButton, Theme::ButtonKind::Ghost);
     buttons->addWidget(m_exportLogButton);
     m_exportReportButton = new QPushButton(exportReportButtonText(), this);
     m_exportReportButton->setObjectName(exportReportButtonName());
     m_exportReportButton->setToolTip(exportReportButtonTooltip());
-    Theme::markButton(m_exportReportButton, Theme::ButtonKind::Neutral);
+    Theme::markButton(m_exportReportButton, Theme::ButtonKind::Ghost);
     buttons->addWidget(m_exportReportButton);
     m_closeButton = new QPushButton(closeButtonText(), this);
     m_closeButton->setObjectName(closeButtonName());
@@ -858,6 +863,25 @@ void GameLogWindow::refreshFilterButtonStyles() {
 void GameLogWindow::changeEvent(QEvent *event) {
     QDialog::changeEvent(event);
     if (event->type() != QEvent::PaletteChange && event->type() != QEvent::StyleChange) {
+        return;
+    }
+    // ★★ **构造还没走完的时候这两个事件也会来**（2026-10-14 实测，深色那一份下直接崩）。
+    //
+    //    来源：构造函数里那一发 `setWindowFlags()`（要加最大化/最小化两颗钮，见那一段的
+    //    NOTE）会走到 `QWidgetPrivate::setParent()` → `inheritStyle()`。而**应用级样式表
+    //    在这一趟跑之前被换过**（换主题 / 启动时铺首那一份）时，这一发就在新控件**刚建出来
+    //    还没摆完**的时候送一个 StyleChange 进来 —— 那一刻 `m_filterButtons` 还是空向量、
+    //    `m_view` 还是 nullptr，`refreshFilterButtonStyles()` 里那句 `.at(i)` 读到界外、
+    //    `rebuildView()` 里那句 `m_view->verticalScrollBar()` 直接空指针。
+    //
+    //    为什么平时看不见：**应用级样式表这一趟没换过**的时候 `inheritStyle()` 算出"继承的
+    //    样式和手上这个是同一个"，Qt 压根不发这一个事件（浅色那一趟一直是这么过来的 ——
+    //    所以这一条只在"主题是运行时换的 / 换了之后再开这个窗"这一条路上才露头）。
+    //
+    //    这一趟**没有任何东西要重算**：一个字都还没往模型里装，构造收尾自己会调一次
+    //    `refreshFilterButtonStyles()`。所以直接早退（判据取 `m_view` —— 它在构造里是
+    //    **最后一个**建出来的，它在了就意味着上面那几件都在了）。
+    if (m_view == nullptr) {
         return;
     }
     // ★ 先比一遍算出来的色：这两个事件会因为各种原因连着来（挂样式表、换调色板、

@@ -74,6 +74,7 @@
 #include <QRadioButton>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QScreen>   // I4：底栏弹层避让那一条要问"这一块屏的可用区域"（offscreen 是 800x600）
 #include <QSet>
 #include <QSettings>     // W7/W8：主题落盘那一趟（读写都在一个各自独立的窝里，见那一段）
 #include <QSpinBox>
@@ -4450,6 +4451,16 @@ int main(int argc, char *argv[]) {
                 check(panel->windowFlags().testFlag(Qt::Popup),
                       "I2 它是 Qt::Popup（点界面别处自动收回去、不抢主窗口焦点）",
                       QStringLiteral("flags = 0x%1").arg(uint(panel->windowFlags()), 0, 16));
+                check(panel->findChild<QWidget *>(QStringLiteral("taskCenterRunningPane")) !=
+                              nullptr
+                          && panel->findChild<QWidget *>(QStringLiteral("taskCenterTaskList")) !=
+                                 nullptr
+                          && panel->findChild<QWidget *>(QStringLiteral("taskCenterDetailPane")) !=
+                                 nullptr,
+                      "I2 任务中心具备运行中实例 / 任务列表 / 上下文详情三列结构");
+                check(panel->findChild<QPushButton *>(
+                              QStringLiteral("taskCenterRunningCollapse")) != nullptr,
+                      "I2 运行中实例列提供收起按钮");
                 // 行按**行号**找得回来（名字由 taskCenterPanelRowName() 给），两栏接着数：
                 // 第 0 行是「当前工作」那件、第 1 行是「已完成」那件。
                 QLabel *title0 =
@@ -4965,7 +4976,14 @@ int main(int argc, char *argv[]) {
                                                    ink);
                     gear.tooltip = QStringLiteral("实例设置");
                     gear.enabled = false;  // 灰掉一颗，"灰的那颗点不动"才有得量
-                    game.actions << power << gear;
+                    // 第三颗是**字的**（2026-10-14 加：运行中实例弹层"打开日志/停止"那一套，
+                    // 见 MainWindowUI::bottomBarPanelLogText()）。摆成和产品里一样的
+                    // 「图标 / 图标 / 字」三颗，那条"文字那颗按字撑宽、图标那两颗是正方形"
+                    // 才有得量。
+                    MainWindowUI::PanelAction log;
+                    log.text = MainWindowUI::bottomBarPanelLogText();
+                    log.tooltip = QStringLiteral("打开这一场游戏的日志窗");
+                    game.actions << power << gear << log;
                     rows << game;
 
                     MainWindowUI::PanelRow note;
@@ -5059,8 +5077,11 @@ int main(int argc, char *argv[]) {
                     MainWindowUI::bottomBarPanelRowActionName(0, 0));
                 QPushButton *gearBtn = panel->findChild<QPushButton *>(
                     MainWindowUI::bottomBarPanelRowActionName(0, 1));
-                check(powerBtn != nullptr && gearBtn != nullptr,
-                      "I4 实例那一行行尾有两颗按钮（第 0 颗 = 关闭 / 第 1 颗 = 实例设置）");
+                QPushButton *logBtn = panel->findChild<QPushButton *>(
+                    MainWindowUI::bottomBarPanelRowActionName(0, 2));
+                check(powerBtn != nullptr && gearBtn != nullptr && logBtn != nullptr,
+                      "I4 实例那一行行尾有三颗按钮（第 0 = 关闭 / 第 1 = 实例设置 / "
+                      "第 2 = 打开日志窗）");
                 check(powerBtn != nullptr && powerBtn->size() == QSize(actionSize, actionSize),
                       "I4 行尾按钮的大小钉死在 bottomBarPanelActionSize()",
                       powerBtn != nullptr
@@ -5078,6 +5099,40 @@ int main(int argc, char *argv[]) {
                 check(gearBtn != nullptr && !gearBtn->isEnabled(),
                       "I4 灰掉的那一颗真的点不动（照 PanelAction::enabled 走，右面板"
                       "「当前」那颗也靠它）");
+                // 「打开日志」那颗（2026-10-14 加）：**没给图标就给字**，而且按字撑宽 ——
+                // 图标那两颗是钉死的正方形（22），文字这颗要是也被压成 22 宽，「日志」两个字
+                // 就只剩半个。两条合起来钉住 "PanelAction 的两种形态各走各的那一支"。
+                check(logBtn != nullptr && logBtn->icon().isNull() && !logBtn->text().isEmpty(),
+                      "I4 第三颗画的是**字**不是图标（没给 icon 就走 text 那一支）",
+                      logBtn != nullptr
+                          ? QStringLiteral("text =「%1」/ icon 空 = %2")
+                                .arg(logBtn->text(),
+                                     logBtn->icon().isNull() ? QStringLiteral("是")
+                                                             : QStringLiteral("不是"))
+                          : QStringLiteral("<没找到>"));
+                check(logBtn != nullptr && logBtn->text() == MainWindowUI::bottomBarPanelLogText(),
+                      "I4 那颗上的字就是 bottomBarPanelLogText()（产品里那颗和它同一个出处）",
+                      logBtn != nullptr ? logBtn->text() : QStringLiteral("<没找到>"));
+                check(logBtn != nullptr && logBtn->width() > actionSize &&
+                          logBtn->width() >= logBtn->sizeHint().width(),
+                      "I4 文字那颗比图标那颗宽（按字撑开，没被压成图标那个正方形）",
+                      logBtn != nullptr
+                          ? QStringLiteral("宽 %1 / 图标那颗 %2 / 想要 %3")
+                                .arg(logBtn->width())
+                                .arg(actionSize)
+                                .arg(logBtn->sizeHint().width())
+                          : QStringLiteral("<没找到>"));
+                // 三颗的**左右次序就是编号次序**（0 → 1 → 2）。面板是"编号 = 第几颗"认人的
+                // （动作回调里那个下标），摆错位置的话用户按下去的是另一件事。
+                check(powerBtn != nullptr && gearBtn != nullptr && logBtn != nullptr &&
+                          powerBtn->x() < gearBtn->x() && gearBtn->x() < logBtn->x(),
+                      "I4 三颗按钮从左到右就是 0/1/2（编号认人，摆错了按下去做的是别的事）",
+                      logBtn != nullptr
+                          ? QStringLiteral("x = %1 / %2 / %3")
+                                .arg(powerBtn != nullptr ? powerBtn->x() : -1)
+                                .arg(gearBtn != nullptr ? gearBtn->x() : -1)
+                                .arg(logBtn->x())
+                          : QStringLiteral("<没找到>"));
                 check(panel->findChild<QPushButton *>(
                           MainWindowUI::bottomBarPanelRowActionName(1, 0)) == nullptr,
                       "I4 说明那一行行尾一颗按钮都没有");
@@ -5187,6 +5242,34 @@ int main(int argc, char *argv[]) {
                 check(window.findChild<QWidget *>(MainWindowUI::bottomBarPanelName()) == nullptr,
                       "I4 点完行尾按钮，面板已经收回去了");
             }
+            // ④b **第三颗**（那颗文字按钮「日志」）点下去报的是编号 2，不是 0 —— "第几颗"
+            //     是面板唯一认得出的身份（按钮上是图标还是字、写着什么，都不参与判断）。
+            //     这条和上面那条第 0 颗的合起来说明"编号 = 位置"这件事两头都成立。
+            firedPanels.clear();
+            firedKeys.clear();
+            firedActions.clear();
+            runBtn->click();
+            QApplication::processEvents();
+            QWidget *panelText = window.findChild<QWidget *>(MainWindowUI::bottomBarPanelName());
+            QPushButton *logAgain =
+                panelText != nullptr
+                    ? panelText->findChild<QPushButton *>(
+                          MainWindowUI::bottomBarPanelRowActionName(0, 2))
+                    : nullptr;
+            check(logAgain != nullptr, "I4 再开一次，那颗文字按钮还在原位（第 0 行第 2 颗）");
+            if (logAgain != nullptr) {
+                logAgain->click();
+                QApplication::processEvents();
+                check(firedPanels == QList<bool>{false} &&
+                          firedKeys == QList<QString>{QStringLiteral("sess-7")} &&
+                          firedActions == QList<int>{2},
+                      "I4 点第三颗回来的是动作号 2（文字那颗和图标那两颗一样按位置认人）",
+                      QStringLiteral("account=%1 key=%2 action=%3")
+                          .arg(firedPanels.value(0))
+                          .arg(firedKeys.value(0))
+                          .arg(firedActions.value(0)));
+                QApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            }
             // ⑤ 开关：开着的时候再点**同一颗**按钮要**收回**（用户 2026-09-23 原话：
             //    「那个按钮，点开以后处于展开状态时再次点击按钮收回」）。
             //    NOTE: 这一下 Qt 会把它重放给按钮（Qt::Popup 点外面自动关的时候专门补的，
@@ -5233,10 +5316,30 @@ int main(int argc, char *argv[]) {
                       .arg(window.findChildren<QWidget *>(MainWindowUI::bottomBarPanelName()).size()));
             if (rightPanel != nullptr) {
                 const QPoint accAnchor = accBtn->mapToGlobal(QPoint(accBtn->width(), 0));
-                check(rightPanel->x() + rightPanel->width() == accAnchor.x(),
-                      "I4 右边那块右边缘贴按钮右边缘",
-                      QStringLiteral("面板右边 %1 / 按钮右边 %2")
-                          .arg(rightPanel->x() + rightPanel->width()).arg(accAnchor.x()));
+                // ★★ 这一条量的是**整条规矩**（2026-10-14，§3.3「窄窗口避让」）：
+                //    「右边缘贴按钮右边缘」**且**「整块不许越过屏幕右边缘」。这两句会打架
+                //    —— 而它们在 **offscreen 那一趟真的打架**：那块虚拟屏只有 800x600，
+                //    而主窗是按 900 摆的，右边那颗按钮的全局 x 落在屏幕**外面**（888），
+                //    于是面板被避让逻辑夹回屏幕里（右边缘 = 800），"贴着按钮"这句当场不成立。
+                //    NOTE: 所以期望值要按"按钮在不在屏幕里"分两支 —— 只钉前一句的话，
+                //          离屏那一趟必红；只钉后一句的话，正常那一趟就量不出"贴着"了
+                //          （而"贴着按钮"正是用户 2026-09-23 点名的那句）。
+                const QRect accScreen =
+                    accBtn->screen() != nullptr ? accBtn->screen()->availableGeometry() : QRect();
+                const bool anchorOnScreen =
+                    !accScreen.isNull() && accAnchor.x() <= accScreen.right() + 1;
+                const int wantRight =
+                    anchorOnScreen ? accAnchor.x() : accScreen.right() + 1;
+                check(rightPanel->x() + rightPanel->width() == wantRight,
+                      anchorOnScreen
+                          ? "I4 右边那块右边缘贴按钮右边缘"
+                          : "I4 按钮在屏幕外面时，右边那块被夹在屏幕右边缘上",
+                      QStringLiteral("面板右边 %1 / 期望 %2（按钮右边 %3，屏幕 %4..%5）")
+                          .arg(rightPanel->x() + rightPanel->width())
+                          .arg(wantRight)
+                          .arg(accAnchor.x())
+                          .arg(accScreen.left())
+                          .arg(accScreen.right()));
                 check(rightPanel->y() + rightPanel->height() <=
                           accBtn->mapToGlobal(QPoint(0, 0)).y(),
                       "I4 右边那块也是在按钮上方");
@@ -5338,6 +5441,80 @@ int main(int argc, char *argv[]) {
                     rightPanel->close();
                     QApplication::processEvents();
                 }
+            }
+            // ⑥b 账户那一块**只有一行高的时候就一行高**（2026-10-14，coding plan §3.3
+            //     「账户弹层保持紧凑，单账户不浪费成大列表，多账户时再展开切换列表」）。
+            //     面板的高度跟着**行数**走（popUp() 里 adjustSize()）：一个账号时那块就是
+            //     "一行 + 上下内边距"，**不许**留出三行那种大盒子的空位；账号多起来（这里是
+            //     三行）那块自然就长高了。判据刻意不写死字号/内边距那几个数字（它们是
+            //     MainWindowUI.cpp 里的文件级常量），只钉"**不到两行**"和"三行那块更高"。
+            {
+                int wantedRows = 1;
+                ui.setBottomBarPanelContent(
+                    [&wantedRows](bool account) -> QList<MainWindowUI::PanelRow> {
+                        if (!account) {
+                            MainWindowUI::PanelRow none;
+                            none.placeholder = true;
+                            none.title = MainWindowUI::bottomBarPanelNoRunningTitle();
+                            return {none};
+                        }
+                        QList<MainWindowUI::PanelRow> rows;
+                        for (int i = 0; i < wantedRows; ++i) {
+                            MainWindowUI::PanelRow one;
+                            one.key = QStringLiteral("uuid-%1").arg(i);
+                            one.title = QStringLiteral("账号 %1").arg(i + 1);
+                            one.subtitle = MainWindowUI::bottomBarPanelOnlineAccountText();
+                            MainWindowUI::PanelAction use;
+                            use.text = MainWindowUI::bottomBarPanelSelectText();
+                            one.actions = {use};
+                            rows << one;
+                        }
+                        return rows;
+                    },
+                    nullptr);
+                const auto measureAccountPanel = [&window, accBtn](QWidget **rowOut) {
+                    accBtn->click();
+                    QApplication::processEvents();
+                    QWidget *panel =
+                        window.findChild<QWidget *>(MainWindowUI::bottomBarPanelName());
+                    if (rowOut != nullptr) {
+                        *rowOut = panel != nullptr
+                                      ? panel->findChild<QWidget *>(
+                                            MainWindowUI::bottomBarPanelRowName(0))
+                                      : nullptr;
+                    }
+                    const int height = panel != nullptr ? panel->height() : -1;
+                    if (panel != nullptr) {
+                        panel->close();
+                        QApplication::processEvents();
+                        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+                        QApplication::processEvents();
+                    }
+                    return height;
+                };
+                QWidget *oneRow = nullptr;
+                const int heightOne = measureAccountPanel(&oneRow);
+                const int rowHeight = oneRow != nullptr ? oneRow->height() : -1;
+                wantedRows = 3;
+                const int heightThree = measureAccountPanel(nullptr);
+                check(rowHeight > 0 && heightOne > 0 && heightOne < 2 * rowHeight,
+                      "I4 只有一个账号时那块**不到两行高**（不被撑成三行那种大盒子）",
+                      QStringLiteral("面板 %1 / 一行 %2 / 两行 %3")
+                          .arg(heightOne)
+                          .arg(rowHeight)
+                          .arg(rowHeight * 2));
+                check(heightThree > heightOne,
+                      "I4 账号多起来（三行）那块跟着长高 —— 多账户时才展开那份切换列表",
+                      QStringLiteral("三行 %1 / 一行 %2").arg(heightThree).arg(heightOne));
+                wantedRows = 1;
+                QWidget *accountRow1 = nullptr;
+                measureAccountPanel(&accountRow1);
+                check(accountRow1 != nullptr &&
+                          window.findChild<QWidget *>(MainWindowUI::bottomBarPanelName()) == nullptr,
+                      "I4 量完那一块收回去了（这一节的收尾不留给下一节）");
+                // 这一份 provider 捕的是上面那个局部量 —— **用完立刻卸**（⑦ 虽然也会把它
+                // 置空，但"依赖下一节替我收尾"这种约定迟早会在中间插进一句话之后变成悬空引用）。
+                ui.setBottomBarPanelContent(nullptr, nullptr);
             }
             // ⑦ 兜底：没装 provider（或它给了个空列表）时，面板里留**一句话**而不是一块
             //    空白 —— 空白一块比一句话更难查（用户分不清"没弹出来"和"弹出来是空的"）。
@@ -11765,8 +11942,14 @@ int main(int argc, char *argv[]) {
         {
             const QString longDir = root + QStringLiteral("/长名字/mods");
             // 名字照用户盘上那几条抄（`.jar.disabled` 的**长名字 + 禁用**，两头都占上）。
-            const QString longName =
-                QStringLiteral("yet_another_config_lib_v3-3.7.1+1.21.4-fabric.jar");
+            // ★ 2026-10-14：底下这串得**真的**比行名那一格宽 —— 那是"会省略"这个判据的
+            //   前提。用户盘上那一条（52 个字符）在真 windows 的字形下只占 337 px，而行名
+            //   那一格在真机上排出来是 **444 px** ⇒ 装得下、根本不省略（offscreen 那套桩
+            //   字体宽得多，所以这条一直只红在真机上）。这里把它接长到一百来个字符，
+            //   真机（~650 px）和桩字体下都稳稳溢出。后缀保持 `.jar`（页面按后缀认它）。
+            const QString longName = QStringLiteral(
+                "yet_another_config_lib_v3-3.7.1+1.21.4-fabric"
+                "-with-a-very-long-variant-suffix-for-elide-testing.jar");
             mkfile(longDir + QStringLiteral("/") + longName + QStringLiteral(".disabled"));
 
             Dlg longDlg(instanceDisplayName, instanceDirName, Dlg::Override(), global, QStringList(),
@@ -14504,15 +14687,22 @@ int main(int argc, char *argv[]) {
             check(editor.gutterWidth() > 0,
                   "★ U11b 有行号那一格（宽度 > 0）", QStringLiteral("%1 px").arg(editor.gutterWidth()));
 
-            // 行号那一格会跟着行数变宽：99 行 → 100 行那一下多一位数。
+            // 行号那一格会跟着行数变宽。★ 2026-10-14：行数从 120 提到 **2000**。
+            //   为什么：那一格有个"个位数行号也别贴着边"的**下限**（`kGutterMinWidth`），
+            //   宽度是 `rightPad + max(下限, 字宽 × (位数+1))`。真 windows 平台给编辑框的
+            //   等宽字体数字比 offscreen 那套桩字体**窄**，所以三位数（120 行）连同下限一起
+            //   算出来还是那个下限、量下来 `40 → 40`（看着像"不跟着变"）；桩字体下三位数已经
+            //   越过了下限，才量得出变宽。要量的是"位数多了会变宽"这条**不变的规矩**，
+            //   就得让位数多到两种字体都肯定越限：**4 位数（2000 行）**下 `5 × 字宽 > 下限`
+            //   在两套字体上都成立。
             const int widthAtTwo = editor.gutterWidth();
             QString manyLines;
-            for (int i = 0; i < 120; ++i) {
+            for (int i = 0; i < 2000; ++i) {
                 manyLines += QStringLiteral("line\n");
             }
             editor.editor()->setPlainText(manyLines);
             check(editor.gutterWidth() > widthAtTwo,
-                  "★ U11b 行数一多，行号那一格跟着变宽（三位数放不进原来那么宽）",
+                  "★ U11b 行数一多，行号那一格跟着变宽（四位数放不进原来那么宽）",
                   QStringLiteral("%1 → %2 px").arg(widthAtTwo).arg(editor.gutterWidth()));
             check(editor.isDirty(), "U11b 改了就是脏的");
 
@@ -22550,6 +22740,12 @@ int main(int argc, char *argv[]) {
 
         // ---- Z15a 开关本身 ----
         {
+            // ★ 2026-10-14：这个**空壳父控件**只为底下"量像素"那一段存在（让开关是子控件、
+            //   不是顶层窗口 —— 见那一段的注释）。它必须声明在 toggle **前面**：析构是反
+            //   着来的，这样 toggle 先析构、把自己从父的孩子表里摘掉，host 才轮到析构；
+            //   反过来写的话，host 析构时会 `delete` 一个**还在栈上**的孩子 —— 这一节
+            //   写过一版就是这么崩的（跑到 Z15a 最后一条之后悄没声地死掉，没有报错）。
+            QWidget host;
             ToggleSwitch toggle;
             // 尺寸的**唯一出处**：控件自己的那两个静态函数读的就是 MainWindowUI 里那三个
             // 常数。两处各写一份的话，"画出来的药丸"和"布局给它的地方"会各算各的
@@ -22588,8 +22784,23 @@ int main(int argc, char *argv[]) {
             //
             // 判据落在"圆钮在哪一头"上：这是"开关"这个形状的全部意义 —— 只看颜色的话，
             // 一个不画圆钮的实现照样能过（而它看着就是一个色块，不是开关）。
+            //
+            // ★★ 2026-10-14：**必须挂在一个父控件上量**。下面这几行原来是把开关当**顶层
+            //   窗口** `show()` 的：原生 windows 平台会给顶层窗口一个最小宽度（Win32 给
+            //   标题栏那三颗按钮留的位置），`resize(34, 18)` 之后 `width()` 实际成了
+            //   **120**。而 `paintEvent` 是照 `width()` 摆圆钮的 —— 这是对的，控件就该按
+            //   自己拿到的格子画 —— 于是"开着"那半边的圆钮被摆到了 x≈106，而这里按
+            //   `switchWidth()` 算出来的取样点还在 x≈25、量到的是**轨道的高亮色**。
+            //   这是只红在真 windows、offscreen 上恒绿的假红（那套桩平台不设最小宽度）。
+            //   挂到父控件上，`resize()` 给多少就是多少，两套平台量到的是同一枚开关。
+            //（那个 `host` 在 Z15a 这个块的开头就声明好了 —— 声明次序就是析构次序。）
+            toggle.setParent(&host);
             toggle.resize(ToggleSwitch::switchWidth(), ToggleSwitch::switchHeight());
             toggle.show();
+            check(toggle.width() == ToggleSwitch::switchWidth(),
+                  "★ Z15a 量像素之前，开关的**实际宽度**就是那个常数（它是子控件，"
+                  "没被平台撑成顶层窗口那个最小宽）",
+                  QStringLiteral("%1 px").arg(toggle.width()));
             const int knobMargin = MainWindowUI::toggleSwitchKnobMargin();
             const int knob = qMax(4, ToggleSwitch::switchHeight() - 2 * knobMargin);
             const auto sample = [&toggle](const QImage &image, int x, int y) {
@@ -23347,17 +23558,42 @@ int main(int argc, char *argv[]) {
                     delegate->paint(&painter, opt, liveIndex);
                 }
 
+                // ★★ 2026-10-14：判据原来只问"绿通道比另两个大一大截"，在真 windows 上被
+                //   **ClearType 的彩边**骗了。真 windows 文字默认走次像素抗锯齿：抗锯齿是
+                //   按 R/G/B 三个子像素**分别**算覆盖率的，于是白底黑字（和灰字）的**边沿
+                //   像素**会带出一族三通道被拉得七零八落的颜色 —— 这一条第一次在真机上跑时
+                //   量到的是 `(255,182,102)`、`(102,0,0)`、`(143,57,0)`、`(255,213,169)`。
+                //   它们里有的是红主导的，于是被判成"红字"：量出来的红墨横跨 y=10..53
+                //   （整块文字区、连第一行那四个黑字都算进去了），绿墨才 y=19..39 ⇒
+                //   `红在上面`、这一条恒假。offscreen 那套桩平台给的是灰度抗锯齿、没有彩边，
+                //   所以它一直只红在真机上（假红）。
+                //   ⇒ 把判据收成**"这就是 MOTD 那两个纯色"**（收紧，不是放宽）：游戏里
+                //   `§a` 是 `#55ff55`、`§c` 是 `#ff5555`，代理照白底压过一档之后量到的
+                //   真身是 `(52,155,52)` 和 `(255,85,85)` —— 这两个色的**两个弱通道彼此
+                //   相等**（绿：R=B；红：G=B）、而且都不是 0；ClearType 的彩边恰恰是把这个
+                //   相等关系拉开的。三条一起判：主通道亮一大截 + 两个弱通道相等 + 弱通道
+                //   不是黑洞。
+                //   （试过在字体上关掉次像素抗锯齿 —— 真机上这圈彩边照旧，所以不走那条路。）
+                const auto isMotdGreen = [](const QColor &c) {
+                    return c.green() > 150 && c.red() > 30 && c.blue() > 30 &&
+                           c.green() > c.red() + 50 && c.green() > c.blue() + 50 &&
+                           qAbs(c.red() - c.blue()) <= 20;
+                };
+                const auto isMotdRed = [](const QColor &c) {
+                    return c.red() > 150 && c.green() > 30 && c.blue() > 30 &&
+                           c.red() > c.green() + 50 && c.red() > c.blue() + 50 &&
+                           qAbs(c.green() - c.blue()) <= 20;
+                };
+
                 QRect greenInk;
                 QRect redInk;
                 for (int y = 0; y < canvas.height(); ++y) {
                     for (int x = 0; x < canvas.width(); ++x) {
                         const QColor color = canvas.pixelColor(x, y);
                         const QRect px(x, y, 1, 1);
-                        if (color.green() > 100 && color.green() > color.red() + 40 &&
-                            color.green() > color.blue() + 40) {
+                        if (isMotdGreen(color)) {
                             greenInk = greenInk.isNull() ? px : greenInk.united(px);
-                        } else if (color.red() > 100 && color.red() > color.green() + 40 &&
-                                   color.red() > color.blue() + 40) {
+                        } else if (isMotdRed(color)) {
                             redInk = redInk.isNull() ? px : redInk.united(px);
                         }
                     }
@@ -24106,6 +24342,8 @@ int main(int argc, char *argv[]) {
         //      offscreen 跑的。所以这儿的写法是"平台认这一档时窗口底色必须真的是深的；平台
         //      不认时调色板必须**一个字节不动**" —— 两种情况都有话说，不会因为"这台机器上
         //      测不了"就假装通过。**真机那一趟在 ui_shot 的 30) 里量**（那边是原生的）。
+        //    ★ 2026-10-14：「平台认不认」这一判据从 `colorScheme()` **换成了 `standardPalette()`**
+        //      —— 见下面那段实测（真机上那个 getter 不回报刚设进去的那一档）。
         //   ② 「语义色按当前这一档现推」是**纯函数**（`isDarkPalette()` 只看窗口底色的明度），
         //      所以拿两个自己捏的调色板量，在哪儿跑都成立。
         Theme::setSpec(Theme::presetSpec(QStringLiteral("dark")));
@@ -24114,7 +24352,17 @@ int main(int argc, char *argv[]) {
         Theme::setSpec(Theme::presetSpec(QStringLiteral("light")));
         Theme::apply(app);
         const QPalette lightPalette = app.palette();
-        const bool schemeHonoured = app.styleHints()->colorScheme() == Qt::ColorScheme::Dark;
+        // ★★ 2026-10-14：判"平台认不认这一档"**别问 `styleHints()->colorScheme()`**，直接问平台
+        //   自己：把 ColorScheme 拨过去，看它给的**基色**（`style()->standardPalette()`）变没变。
+        //   真 windows 上那个 getter 不回报刚 set 进去的那一档（实测：真机上深浅两份预设铺出来
+        //   的调色板一深一浅、`colorScheme()` 却不是 Dark）—— 照 getter 分岔会一头栽进"平台不认"
+        //   那一支，把一台其实认的机器当成不认来判（那一条自己就永远红着）。
+        //   NOTE: 这一段会动一下全局的 ColorScheme，底下 `Theme::apply()` 反正要重设，不用还原。
+        app.styleHints()->setColorScheme(Qt::ColorScheme::Dark);
+        const QPalette platformDark = app.style()->standardPalette();
+        app.styleHints()->setColorScheme(Qt::ColorScheme::Light);
+        const QPalette platformLight = app.style()->standardPalette();
+        const bool schemeHonoured = platformDark != platformLight;
         if (schemeHonoured) {
             check(Theme::isDarkPalette(darkPalette) && !Theme::isDarkPalette(lightPalette),
                   "★★ W2 深色 / 浅色两个预设铺出来的窗口底色真的一深一浅",
@@ -24878,6 +25126,123 @@ int main(int argc, char *argv[]) {
                   "★★ W12 挂上「危险」那一档之后：底照旧白、字和边换成红的（绿的一个像素都不剩）",
                   QStringLiteral("红 %1 个 / 绿边 %2 个").arg(dangerHits).arg(dangerInkHits));
 
+            // ---------- 按钮状态体系：Ghost 那一档 + 「灰掉」那一档（2026-10-14） ----------
+            //
+            // coding plan §3.3「统一按钮视觉层级 / 单独设计 Disabled 状态」。前三档是用户
+            // 2026-09-28 点名的那三句（确认性 = 主题色 / 一般性 = 黑 / 不可撤销 = 红），
+            // 这一轮补的是第四档 `Ghost`（**低频辅助动作**）和「灰掉」那一档的收口。
+            //
+            // ★ Ghost 和 `Neutral` 的分别**不在颜色，在形状**：它没底、没边，于是能贴在
+            //   卡片角上不抢眼（"复制到剪贴板"那种一年按不了几次的动作）。这一段量三样：
+            //   ① 它是不是真的一档（属性值不和别档撞）；② 它的**几何和普通那档一模一样**
+            //   （最容易写坏的地方）；③ 屏幕上真的**透出底下的东西**。
+            {
+                const QString ghostKey = Theme::buttonKindKey(Theme::ButtonKind::Ghost);
+                check(!ghostKey.isEmpty() &&
+                          ghostKey != Theme::buttonKindKey(Theme::ButtonKind::Primary) &&
+                          ghostKey != Theme::buttonKindKey(Theme::ButtonKind::Danger) &&
+                          ghostKey != Theme::buttonKindKey(Theme::ButtonKind::Neutral) &&
+                          ghostKey != Theme::buttonKindKey(Theme::ButtonKind::Accent),
+                      "★ §3.3 「Ghost」（低频辅助动作）是**独立的一档**：属性和另外三档都不同",
+                      ghostKey);
+
+                // ① 几何：换一档 kind，**整颗按钮一寸都不动**。
+                //    ★ 这一条钉的是这一档最容易写坏的那一处：把 Ghost 写成 `border: none`
+                //      （看着"更干净"）会让控件**矮 2px、窄 2px** —— 于是同一个布局里换一档
+                //      kind，行里所有东西都跟着挪一格。边是**留成透明的**，不是删掉。
+                QWidget kindHost;
+                auto *kindLayout = new QHBoxLayout(&kindHost);
+                kindLayout->setContentsMargins(0, 0, 0, 0);
+                kindLayout->setSpacing(0);
+                const QString kindText = QStringLiteral("复制到剪贴板");
+                auto *ghostButton = new QPushButton(kindText, &kindHost);
+                Theme::markButton(ghostButton, Theme::ButtonKind::Ghost);
+                auto *kindPeer = new QPushButton(kindText, &kindHost);
+                Theme::markButton(kindPeer, Theme::ButtonKind::Neutral);
+                kindLayout->addWidget(ghostButton);
+                kindLayout->addWidget(kindPeer);
+                kindHost.show();
+                QApplication::processEvents();
+                check(ghostButton->sizeHint() == kindPeer->sizeHint() &&
+                          ghostButton->height() == kindPeer->height() &&
+                          ghostButton->height() == Theme::actionHeight(),
+                      "★★ §3.3 Ghost 的**几何和普通那档一模一样**（同一行字、同一个高度和宽度）："
+                      "差别只在画出来的底和边 —— 边是留成透明的，不是删掉",
+                      QStringLiteral("Ghost %1×%2 / 普通 %3×%4（要 %5 高）")
+                          .arg(ghostButton->sizeHint().width()).arg(ghostButton->height())
+                          .arg(kindPeer->sizeHint().width()).arg(kindPeer->height())
+                          .arg(Theme::actionHeight()));
+
+                // ② 真渲染：把一颗 Ghost 和一颗普通按钮摆在一块**底色明确不是白**的板上，
+                //    抓整块板。Ghost 那一格的中心跟**板子的底色是同一个色**（它就是"看不见
+                //    那块底"），普通那一格的中心是白的 —— 两条一起量才排得掉"整块板都白"
+                //    这种假绿（只量"Ghost 那儿不是白"，把按钮画成一个黑洞也照样过）。
+                QWidget paintHost;
+                paintHost.resize(240, 104);
+                paintHost.setAutoFillBackground(true);
+                QPalette paintPalette = paintHost.palette();
+                paintPalette.setColor(QPalette::Window, QColor(0xd0, 0xd0, 0xd0));
+                paintHost.setPalette(paintPalette);
+                auto *paintGhost = new QPushButton(kindText, &paintHost);
+                Theme::markButton(paintGhost, Theme::ButtonKind::Ghost);
+                paintGhost->setFocusPolicy(Qt::NoFocus);
+                paintGhost->setGeometry(20, 8, 160, Theme::actionHeight());
+                auto *paintSolid = new QPushButton(kindText, &paintHost);
+                Theme::markButton(paintSolid, Theme::ButtonKind::Neutral);
+                paintSolid->setFocusPolicy(Qt::NoFocus);
+                paintSolid->setGeometry(20, 58, 160, Theme::actionHeight());
+                paintHost.show();
+                QApplication::processEvents();
+                const QImage paintShot = captureWidget(&paintHost);
+                const QColor boardColor = QColor(paintShot.pixel(228, 4));
+                const QColor ghostArea = dominantColor(paintShot, paintGhost->geometry());
+                const QColor solidArea = dominantColor(paintShot, paintSolid->geometry());
+                check(sameColor(ghostArea, boardColor) &&
+                          !sameColor(boardColor, QColor(Qt::white)) &&
+                          sameColor(solidArea, QColor(Qt::white)),
+                      "★★ §3.3 Ghost 那一格**透出底下的东西**（中心跟板子同一个色），旁边那颗普通"
+                      "按钮是白的 —— 「不抢眼」在屏幕上就是这个样子",
+                      QStringLiteral("板 %1 / Ghost %2 / 普通 %3")
+                          .arg(boardColor.name(), ghostArea.name(), solidArea.name()));
+                // 那行字照旧铺上（只是没有底和边）—— "没底"不等于"没字"。
+                int ghostInkHits = 0;
+                const QRect ghostBox = paintGhost->geometry();
+                for (int y = ghostBox.top(); y <= ghostBox.bottom(); ++y) {
+                    for (int x = ghostBox.left(); x <= ghostBox.right(); ++x) {
+                        // 深像素那一档：那行字是 `#202020`（对黑的差 = 96 ≤ 0x80），
+                        // 板子的 `#d0d0d0`（624）和任何浅灰都不算。
+                        if (colorDistance(QColor(paintShot.pixel(x, y)), QColor(0, 0, 0)) <= 0x80) {
+                            ++ghostInkHits;
+                        }
+                    }
+                }
+                check(ghostInkHits > 0,
+                      "★ §3.3 Ghost 只是没有底和边，**那行字照旧铺上**（黑色那档）——"
+                      "「没底」不等于「没字」",
+                      QStringLiteral("那一格上 %1 个深像素").arg(ghostInkHits));
+
+                // ③ 灰掉那一档**还得读得出来**。它是最容易被做成"淡淡的"的那一档：用户要
+                //    看出"这颗不能按"，但字的内容仍然要说出口（"启用"两个字灰到看不见，
+                //    用户就不知道这颗按钮是干什么的）。判据取 WCAG 那 3:1（次要信息那一档），
+                //    对的是**禁用时真正的底** `disabledFillColor()`。
+                const double disabledContrast =
+                    contrast(Theme::disabledInkColor(), Theme::disabledFillColor());
+                check(disabledContrast >= 3.0,
+                      "★★ §3.3 灰掉那一档的字对底 ≥ 3:1（灰归灰，「这颗按钮叫什么」还得读得出来）",
+                      QStringLiteral("%1 对 %2 = %3:1")
+                          .arg(Theme::disabledInkColor().name(), Theme::disabledFillColor().name())
+                          .arg(disabledContrast, 0, 'f', 2));
+                // 而它和「一般性（黑）」那一档**不是同一个色**：同色的话，一颗"不能按"的
+                // 按钮和一颗"能按、只是没那么要紧"的按钮，屏幕上分不出来。
+                check(colorDistance(Theme::disabledInkColor(), Theme::neutralInkColor()) > 100,
+                      "★ §3.3 「灰掉」和「一般性」是**两档两色**：灰的是「这颗不能按」，"
+                      "黑的是「这颗能按、只是没那么要紧」",
+                      QStringLiteral("灰 %1 / 黑 %2")
+                          .arg(Theme::disabledInkColor().name(), Theme::neutralInkColor().name()));
+                kindHost.hide();
+                paintHost.hide();
+            }
+
             // ---------- §8.3 焦点环（2026-10-13） ----------
             //
             // coding plan §8.3：「全部关键操作具备键盘焦点、**可见焦点环**和合理 Tab 顺序」。
@@ -24934,10 +25299,11 @@ int main(int argc, char *argv[]) {
             // 一个属性/伪类"），平手时**后写的赢** —— 而那条 `:disabled` 原来写在最前面。
             // 修法 = 把它挪到两种 kind 后面追加（见 `Theme::widgetStyleSheet()` 里那段）。
             //
-            // 量法：**数深像素**。禁用那一档的那几个色（底 `#F7F7F7` / 字 `#9A9A9A` /
-            // 边 `#D2D2D2`）一个都不比 `#808080` 深；带病那一版字是 `#202020`，一数就是
-            // 一大片。**量的是渲染出来的像素**，不是样式表字符串 —— 字符串那一条会跟着
-            // 同一个错误一起写错（那正是这个 bug 当初能过掉的原因）。
+            // 量法：**数深像素**。禁用那一档的那几个色（底 `disabledFillColor()` /
+            // 字 `disabledInkColor()` / 边 `disabledBorderColor()`）一个都不比 `#808080`
+            // 深；带病那一版字是 `#202020`，一数就是一大片。**量的是渲染出来的像素**，
+            // 不是样式表字符串 —— 字符串那一条会跟着同一个错误一起写错（那正是这个 bug
+            // 当初能过掉的原因）。
             const auto disabledShot = [](QPushButton *button) {
                 button->setEnabled(false);
                 button->style()->unpolish(button);
@@ -24975,13 +25341,44 @@ int main(int argc, char *argv[]) {
             const int dangerDisabledDark = countPixelsIn(dangerDisabledShot, QColor(0, 0, 0), 0x80);
             const int dangerDisabledRed = countPixelsIn(dangerDisabledShot, dangerInk, 30);
             check(neutraDisabeldDark == 0 && dangerDisabledDark == 0 && dangerDisabledRed == 0,
-                  "★★ W12 灰掉那一档把**中性 / 危险**那两种也按下去（字和边一起变 `#9A9A9A` / "
-                  "`#D2D2D2`：深像素一个都不剩、危险那一档的**红也一起下去**）—— 平手时"
+                  "★★ W12 灰掉那一档把**中性 / 危险**那两种也按下去（字和边一起换成 "
+                  "`disabledInkColor()` / `disabledBorderColor()`：深像素一个都不剩、"
+                  "危险那一档的**红也一起下去**）—— 平手时"
                   "后写的赢，所以那条 `:disabled` 必须摆在两种 kind 之后",
                   QStringLiteral("中性档深像素 %1 个 / 危险档深像素 %2 个 / 危险档红 %3 个")
                       .arg(neutraDisabeldDark)
                       .arg(dangerDisabledDark)
                       .arg(dangerDisabledRed));
+
+            // ★ 灰掉那一档对 **Ghost** 一视同仁（2026-10-14，§3.3）：它是一档**四档共用**的
+            //   状态，不是"主题色那一颗才有"。容易漏掉的原因很实在 —— Ghost 平时没有底，
+            //   灰掉的时候那条 `:disabled` 才第一次给它铺上底，用同一把尺子量一遍。
+            //   NOTE: "勾着又灰掉"的 Ghost 是**淡底 + 灰字**（`[ghost]:checked` 那条的优先级
+            //         比 `QPushButton:disabled` 高一位，只吃底不吃字）：这是故意的 ——
+            //         一颗灰掉的开关也得说得出自己是开是关。字色归 `:disabled` 管。
+            {
+                QWidget ghostDisabledHost;
+                auto *ghostDisabledButton =
+                    new QPushButton(QStringLiteral("查看报告"), &ghostDisabledHost);
+                Theme::markButton(ghostDisabledButton, Theme::ButtonKind::Ghost);
+                ghostDisabledButton->setFocusPolicy(Qt::NoFocus);
+                auto *ghostDisabledRow = new QVBoxLayout(&ghostDisabledHost);
+                ghostDisabledRow->setContentsMargins(0, 0, 0, 0);
+                ghostDisabledRow->addWidget(ghostDisabledButton);
+                ghostDisabledHost.show();
+                QApplication::processEvents();
+                const QImage ghostDisabledShot = disabledShot(ghostDisabledButton);
+                const int ghostDisabledGrey =
+                    countPixelsIn(ghostDisabledShot, Theme::disabledInkColor(), 100);
+                const int ghostDisabledDark =
+                    countPixelsIn(ghostDisabledShot, QColor(0, 0, 0), 0x80);
+                check(ghostDisabledGrey > 0 && ghostDisabledDark == 0,
+                      "★★ §3.3 Ghost 灰掉之后那行字也跟着灰（`disabledInkColor()` 那一档，"
+                      "深像素一个都不剩）—— 灰掉是四档共用的一件事",
+                      QStringLiteral("灰 %1 个 / 深像素 %2 个")
+                          .arg(ghostDisabledGrey).arg(ghostDisabledDark));
+                ghostDisabledHost.hide();
+            }
             buttonHost.hide();
             Theme::setSpec(Theme::defaultSpec());
             Theme::apply(app);
@@ -25136,6 +25533,75 @@ int main(int argc, char *argv[]) {
                       sheet.contains(QLatin1String("border: none")),
                   "★★ W13 数字框/下拉框里那颗输入框被**复位**掉了（不给它们套第二圈边）");
 
+            // ---------- 按钮状态体系：四档 × 状态，一条条点名（2026-10-14，§3.3） ----------
+            //
+            // 上面那一段量的是**像素**（真按钮、真渲染），这一段量的是**表**：四档层级各自
+            // 把状态写全了没有。两样都要 —— 像素那条钉的是"照这个样子画出来了"，这一条钉的
+            // 是"四档是**一整套**"：漏写一个状态，屏幕上就是"按下去什么都不动"，而那种毛病
+            // 单看任何一颗按钮都是"看起来正常"。
+            {
+                const struct {
+                    Theme::ButtonKind kind;
+                    const char *key;
+                } tiers[] = {
+                    {Theme::ButtonKind::Primary, "primary"},
+                    {Theme::ButtonKind::Danger, "danger"},
+                    {Theme::ButtonKind::Neutral, "neutral"},
+                    {Theme::ButtonKind::Ghost, "ghost"},
+                };
+                QString missingStates;
+                for (const auto &tier : tiers) {
+                    const QString selector =
+                        QStringLiteral("QPushButton[wtfmlButtonKind=\"%1\"]")
+                            .arg(QLatin1String(tier.key));
+                    // ★ 悬停 / 按下那两条**都带 `:enabled`**：不带的话，一颗**禁用着**的按钮
+                    //   鼠标划过去底色照样翻上来（`:hover` 是"鼠标在不在上面"，不问能不能按）。
+                    if (!sheet.contains(selector + QStringLiteral(":hover:enabled")) ||
+                        !sheet.contains(selector + QStringLiteral(":pressed:enabled"))) {
+                        missingStates += QLatin1String(tier.key) + QLatin1Char(' ');
+                    }
+                }
+                check(missingStates.isEmpty(),
+                      "★★ §3.3 四档层级（主动作 / 危险 / 一般性 / Ghost）各自把**悬停 + 按下**"
+                      "两个状态都写全了（而且都带 `:enabled` —— 不带的话灰掉的按钮悬停时底色"
+                      "会翻上来）",
+                      missingStates.isEmpty() ? QStringLiteral("四档齐全")
+                                              : QStringLiteral("缺状态的是：%1").arg(missingStates));
+
+                // ★ 那一档的写法：底和边**都是透明的**，而边那 1px **还在**。
+                //   写 `border: none` 看着"更干净"，可它会让控件矮 2px、窄 2px —— 于是同一个
+                //   布局里换一档 kind，行里所有东西都跟着挪一格（上面那段量的就是它）。
+                const QString ghostRule =
+                    QStringLiteral("QPushButton[wtfmlButtonKind=\"ghost\"] {");
+                const int ghostAt = sheet.indexOf(ghostRule);
+                const QString ghostBody =
+                    ghostAt < 0 ? QString() : sheet.mid(ghostAt, ghostRule.size() + 90);
+                check(ghostAt >= 0 &&
+                          ghostBody.contains(QLatin1String("background-color: transparent")) &&
+                          ghostBody.contains(QLatin1String("border-color: transparent")) &&
+                          !ghostBody.contains(QLatin1String("border: none")),
+                      "★★ §3.3 Ghost 那一档的写法：底和边**都是透明的**，边那 1px **还在**"
+                      "（写成 `border: none` 就矮 2px 窄 2px，换一档整行挪位）");
+                // 勾上那一档也要有：一颗 checkable 的 Ghost（"只看选中的"那种小开关）得让人
+                // 看出它现在是亮着的。
+                check(sheet.contains(ghostRule.left(ghostRule.size() - 2) +
+                                     QStringLiteral(":checked")),
+                      "★ §3.3 Ghost 多一条**勾上**那一档（否则一颗 checkable 的 Ghost 勾上之后"
+                      "屏幕上什么都不变）");
+
+                // ★ 那条共用的 `QPushButton:disabled` 必须摆在**四档之后**（2026-10-09 真机
+                //   踩到的坑）：它和 `[wtfmlButtonKind="..."]` 优先级一样，平手时**后写的赢** ——
+                //   摆在前面的话，灰掉的按钮底灰了、字和边却还是原来那一档。
+                //   上面那几条像素断言量的是"中性 / 危险真的灰了"，这一条量的是**位置**：
+                //   后面新加一档（Ghost 就是新加的）时，这条规矩得跟着守住。
+                const int disabledAt = sheet.indexOf(QLatin1String("QPushButton:disabled"));
+                check(disabledAt > ghostAt && ghostAt >= 0,
+                      "★★ §3.3 那条共用的 `QPushButton:disabled` 摆在**四档之后**（Ghost 也在它"
+                      "前面）—— 平手时后写的赢，摆在前面的话新加的那一档灰不干净",
+                      QStringLiteral("`:disabled` 在第 %1 个字符 / Ghost 那一档在第 %2 个")
+                          .arg(disabledAt).arg(ghostAt));
+            }
+
             // ★ 2026-09-28：下拉框那一套样式（用户原话「所有单选框换成下拉的」带来的）。
             //   四条选择器缺一条的症状都是**看得见**的：少了 `QComboBox {` 就退回 Fusion
             //   原生的灰框（上面那两条像素断言会红）、少了 `:focus` 就"点进去看不见在哪"
@@ -25167,15 +25633,20 @@ int main(int argc, char *argv[]) {
             //   `border: none` 被谁顺手加回来"这件事，症状是**箭头整个消失**（屏幕上静悄悄少
             //   一样东西），得在这儿拦住。
             const QString dropDownRule = QStringLiteral("QComboBox::drop-down { width: 20px; }");
+            // ★ 2026-10-14：数字框那条的高度从"只钉 min"改成了 **min + max 一起钉**（见
+            //   `Theme.cpp` 里高度那一段）—— 这儿认得字符串跟着改。判的还是同一件事：
+            //   "数字框那一档高度钉住了没有"。
+            const QString spinHeightRule =
+                QStringLiteral("QAbstractSpinBox { min-height: 18px; }");
             check(sheet.contains(dropDownRule) &&
                       !sheet.contains(QLatin1String("QComboBox::drop-down { border: none")) &&
-                      sheet.contains(QLatin1String("QAbstractSpinBox { min-height: 18px; }")),
+                      sheet.contains(spinHeightRule),
                   "★★ W13 下拉框那一格：`::drop-down` 里**不许有 `border: none`**（有它 Qt 就把"
-                  "箭头整个吃掉），数字框那条 `min-height` 也在",
+                  "箭头整个吃掉），数字框那一档高度（min + max）也钉着",
                   QStringLiteral("规则 %1 / 带 border:none 的旧写法 %2 / 数字框那条 %3")
                       .arg(sheet.contains(dropDownRule) ? 1 : 0)
                       .arg(sheet.contains(QLatin1String("QComboBox::drop-down { border: none")) ? 1 : 0)
-                      .arg(sheet.contains(QLatin1String("QAbstractSpinBox { min-height: 18px; }")) ? 1 : 0));
+                      .arg(sheet.contains(spinHeightRule) ? 1 : 0));
 
             // ★ 高度：改之前三样是 20 / 20 / 19（并排摆着差 1px 就看得出来），现在**一样高**。
             //
@@ -25285,14 +25756,17 @@ int main(int argc, char *argv[]) {
                   "★★ W13 箭头那一格**擦干净了**（基样式那圈立体边一个像素都没漏在右边缘里）",
                   QStringLiteral("那一列上 %1 个 #555555").arg(bevelHits));
 
-            // ★ 禁用那一档：V 的墨色跟着 `color:` 走（禁用 = `#9a9a9a`），**不许还是黑的**。
-            //   这一条钉的是"箭头跟着调色板走"（换深浅主题 / 换禁用态都跟着变），而不是一张
-            //   贴死的图 —— 贴图那种做法在这条断言下会红。
+            // ★ 禁用那一档：V 的墨色跟着 `color:` 走（禁用 = `Theme::disabledInkColor()`），
+            //   **不许还是黑的**。这一条钉的是"箭头跟着调色板走"（换深浅主题 / 换禁用态都
+            //   跟着变），而不是一张贴死的图 —— 贴图那种做法在这条断言下会红。
+            //   NOTE: 2026-10-14 起那个色**不问字面量、问 `disabledInkColor()`**：这一轮
+            //         它从 `#9a9a9a` 提到了 `#8a8a8a`（对比度那条判据要 ≥ 3:1），写死字面量
+            //         的话这种"改一档色"的收口会连着红两个文件，而红的那一处什么也没错。
             sizeCombo->setEnabled(false);
             QApplication::processEvents();
             const QImage comboDisabledShot = captureWidget(sizeCombo);
             const int disabledInkHits =
-                countColorIn(comboDisabledShot, arrowCell, QColor(0x9a, 0x9a, 0x9a), 100);
+                countColorIn(comboDisabledShot, arrowCell, Theme::disabledInkColor(), 100);
             const int disabledBlackHits =
                 countColorIn(comboDisabledShot, arrowCell, QColor(Qt::black), 30);
             check(disabledInkHits > 0 && disabledBlackHits == 0,
@@ -26874,9 +27348,10 @@ int main(int argc, char *argv[]) {
                                        : Theme::buttonKindKey(Theme::ButtonKind::Accent);
             };
             const QString neutral = Theme::buttonKindKey(Theme::ButtonKind::Neutral);
+            const QString ghost = Theme::buttonKindKey(Theme::ButtonKind::Ghost);
             const QString danger = Theme::buttonKindKey(Theme::ButtonKind::Danger);
-            check(kindOf(fullBackup) == neutral && kindOf(backupFolder) == neutral,
-                  "U30.1 「立即备份」「打开备份目录」是**一般性**那一档（黑字黑边）",
+            check(kindOf(fullBackup) == neutral && kindOf(backupFolder) == ghost,
+                  "U30.1 「立即备份」保留一般性按钮，「打开备份目录」降为低频 Ghost",
                   kindOf(fullBackup) + QStringLiteral(" / ") + kindOf(backupFolder));
             // ★★ 「恢复备份…」是红的：它把**这个存档现在这一份**整个换掉。`Danger` 那一档的
             //    界定是"删了就拿不回来"，点名的几条里就有"还原"（见 Theme.hpp 里 ButtonKind
@@ -28672,9 +29147,9 @@ int main(int argc, char *argv[]) {
             check(kindOf(deleteBackup) == Theme::buttonKindKey(Theme::ButtonKind::Danger) &&
                       kindOf(restore) == Theme::buttonKindKey(Theme::ButtonKind::Accent) &&
                       kindOf(backupNow) == Theme::buttonKindKey(Theme::ButtonKind::Accent) &&
-                      kindOf(openBackups) == Theme::buttonKindKey(Theme::ButtonKind::Neutral),
+                      kindOf(openBackups) == Theme::buttonKindKey(Theme::ButtonKind::Ghost),
                   "★★ U37.9 四颗各挂各的档：删 = 危险（红）、恢复和立即备份 = 主题色（确认性"
-                  "动作）、打开备份文件夹 = 一般档",
+                  "动作）、打开备份文件夹 = Ghost",
                   QStringLiteral("删=%1 恢复=%2 备份=%3 打开=%4")
                       .arg(kindOf(deleteBackup), kindOf(restore), kindOf(backupNow),
                            kindOf(openBackups)));
@@ -28856,6 +29331,208 @@ int main(int argc, char *argv[]) {
                       .arg(revertSignals));
 
             page.close();
+            QApplication::processEvents();
+        }
+    }
+
+    // ==================================================================
+    std::printf("\n===== U38. §3.3 键盘焦点与 Tab 顺序（2026-10-14） =====\n");
+    // ------------------------------------------------------------------
+    // plan §3.3 那一句「完善键盘焦点、Tab 顺序和减少动态效果」，以及 §3.1 最后那条
+    // 「每收口一个页面同步检查键盘导航、焦点可见性和减少动态效果」。
+    //
+    // 可见的焦点环归 §8.3（画在 `PE_FrameFocusRect`，ui_shot 41 那一节量的是真像素）；
+    // 这一节管的是**顺序**：按 Tab 从一格走到下一格，走的方向得跟眼睛看到的顺序一致 ——
+    // 先上后下、同一行里先左后右。
+    //
+    // ★ 为什么是几何判据、而不是把每一条链的控件名抄一遍：抄名字只钉住"今天这一份布置"，
+    //   而真会犯的毛病是"新加了一格，它建得比底下那排按钮还晚 ⇒ 焦点链把它排到按钮后面"
+    //   ——那种只有这条通用规矩抓得住（下面第一条就是这么抓出来的：`InlineMessageBox` 里
+    //   输入框 / 列表 / 那个勾都是 `setXxx()` 后插的，建得比按钮行晚）。
+    //   名字链那一条留在 W14，因为主题那一栏的顺序是用户点名的。
+    {
+        // 从 `first` 出发沿焦点链走一圈，收出"按 Tab 真能到"的那些（不显示的、不是
+        // TabFocus 的都跳过 —— 和 Qt 自己按 Tab 时挑法一致）。
+        const auto tabChain = [](QWidget *first, QWidget *container) {
+            QVector<QWidget *> chain;
+            QWidget *cursor = first;
+            while (cursor != nullptr && chain.size() < 128) {
+                cursor = cursor->nextInFocusChain();
+                if (cursor == nullptr || cursor == first) {
+                    break;
+                }
+                if (!(cursor->focusPolicy() & Qt::TabFocus) || !cursor->isVisibleTo(container)) {
+                    continue;
+                }
+                chain.append(cursor);
+            }
+            return chain;
+        };
+        const auto nameOf = [](QWidget *w) {
+            const QString byName = w->objectName();
+            return byName.isEmpty() ? QString::fromLatin1(w->metaObject()->className()) : byName;
+        };
+        // 「往回跳」= 眼睛看到的顺序反了。按 Tab 一格一格走，方向得一直是**往下**；唯一
+        // 允许往上走的情形是「换到更右边那一栏」（左栏走到头 → 右边那一页的头，那是正常
+        // 的"下一栏"，不是回头）：
+        //   · 同一"行"里（纵向重叠过半）：只许往右，往左算往回跳；
+        //   · 不是同一行：往上算往回跳，**除非**同时也往右（换栏）。
+        // ★ 为什么不是"只要往上就报"：多栏布局里"左栏最后一行 → 右栏第一行"必然是往上的
+        //   （右栏从页头下面起，比左栏底矮不了多少也会更高），那是正着走，不是往回跳。
+        //   判"回头"的是"往上**且**没往右"。
+        // ★ 这一条抓到的两类（都是本节真红过的）：`InlineMessageBox` 里输入框 / 列表 /
+        //   那个勾都是 `setXxx()` 后插的，建得比按钮行晚；左栏那几颗齿轮更是
+        //   `setFolderRows()` 运行时才建。
+        // 一次报**全部**（最多列前 4 处）：这一条真正要修的往往是"整页建的时候顺序和摆的
+        // 顺序对不上"，只报第一处会让人修一处、跑一趟、再冒一处。
+        const auto backwardJump = [&nameOf](QWidget *container, const QVector<QWidget *> &chain) {
+            QStringList jumps;
+            for (int i = 1; i < chain.size(); ++i) {
+                const QPoint a = chain.at(i - 1)->mapTo(container, QPoint(0, 0));
+                const QPoint b = chain.at(i)->mapTo(container, QPoint(0, 0));
+                const QRect ra(a, chain.at(i - 1)->size());
+                const QRect rb(b, chain.at(i)->size());
+                const int overlapY = qMin(ra.bottom(), rb.bottom()) - qMax(ra.top(), rb.top());
+                const bool sameRow = overlapY > qMin(ra.height(), rb.height()) / 2;
+                const bool back = sameRow ? (rb.left() < ra.left())
+                                          : (rb.top() < ra.top() && rb.left() <= ra.left());
+                if (!back) {
+                    continue;
+                }
+                if (jumps.size() < 4) {
+                    jumps << QStringLiteral("第 %1 格 → 第 %2 格：%3(%4,%5) → %6(%7,%8)")
+                                 .arg(i - 1)
+                                 .arg(i)
+                                 .arg(nameOf(chain.at(i - 1)))
+                                 .arg(a.x())
+                                 .arg(a.y())
+                                 .arg(nameOf(chain.at(i)))
+                                 .arg(b.x())
+                                 .arg(b.y());
+                }
+            }
+            return jumps.join(QStringLiteral("；"));
+        };
+
+        // ---- a) 问一句名字那一档：输入框在最上面，按钮在它下面 ----
+        {
+            InlineMessageBox inputBox(
+                MessageKind::Question, QStringLiteral("重命名实例"),
+                QStringLiteral("新名字会成为 versions 下面那个目录的名字，也就是这个实例的"
+                               "版本号。"),
+                QStringList{QStringLiteral("确定"), QStringLiteral("取消")}, 0, -1);
+            inputBox.setLineEdit(QStringLiteral("26.3"));
+            inputBox.show();
+            QApplication::processEvents();
+            const QVector<QWidget *> chain = tabChain(&inputBox, &inputBox);
+            check(chain.size() >= 3,
+                  "U38. 问名字那一档起码有三格能 Tab 到（输入框 + 两颗按钮）",
+                  QStringLiteral("只走到 %1 格").arg(chain.size()));
+            const QString jump = backwardJump(&inputBox, chain);
+            check(jump.isEmpty(),
+                  "★★ U38. 问名字那一档按 Tab **不往回跳**（输入框 → 右边那排按钮，从上到"
+                  "下、从左到右）",
+                  jump);
+            inputBox.hide();
+            QApplication::processEvents();
+        }
+
+        // ---- b) 从一张列表里挑一个那一档：列表在最上面，按钮在它下面 ----
+        {
+            InlineMessageBox listBox(
+                MessageKind::Question, QStringLiteral("挑一个"),
+                QStringLiteral("下面这几条里挑一条。"),
+                QStringList{QStringLiteral("确定"), QStringLiteral("取消")}, 0, -1);
+            listBox.setList(QStringList{QStringLiteral("一"), QStringLiteral("二"),
+                                        QStringLiteral("三")},
+                            0);
+            listBox.show();
+            QApplication::processEvents();
+            const QVector<QWidget *> chain = tabChain(&listBox, &listBox);
+            check(chain.size() >= 3, "U38. 挑一条那一档起码有三格能 Tab 到（列表 + 两颗按钮）",
+                  QStringLiteral("只走到 %1 格").arg(chain.size()));
+            const QString jump = backwardJump(&listBox, chain);
+            check(jump.isEmpty(),
+                  "★★ U38. 挑一条那一档按 Tab 也不往回跳（列表 → 右边那排按钮）", jump);
+            listBox.hide();
+            QApplication::processEvents();
+        }
+
+        // ---- c) 带那个勾的一档（EULA 那道闸）：勾在按钮上面 ----
+        {
+            InlineMessageBox eulaBox(
+                MessageKind::Question, QStringLiteral("同意并启动"),
+                QStringLiteral("要接着跑就得先应下这一条。"),
+                QStringList{QStringLiteral("同意并启动"), QStringLiteral("取消")}, 0, -1);
+            eulaBox.setCheckBox(QStringLiteral("我已阅读并同意"), 0);
+            eulaBox.show();
+            QApplication::processEvents();
+            const QVector<QWidget *> chain = tabChain(&eulaBox, &eulaBox);
+            const QString jump = backwardJump(&eulaBox, chain);
+            check(chain.size() >= 3 && jump.isEmpty(),
+                  "★★ U38. 带那个勾的一档按 Tab 也不往回跳（那个勾 → 右边那排按钮）", jump);
+            eulaBox.hide();
+            QApplication::processEvents();
+        }
+
+        // ---- d) 游戏日志窗（用户点名的唯一一扇独立窗）----
+        {
+            GameLogWindow log(QStringLiteral("⑭ Tab 顺序"));
+            log.appendText(QStringLiteral("[12:00:00] [main/INFO]: 一行字\n"));
+            log.resize(900, 600);
+            log.show();
+            QApplication::processEvents();
+            const QVector<QWidget *> chain = tabChain(&log, &log);
+            check(chain.size() >= 3,
+                  "U38. 日志窗里起码有三格能 Tab 到（筛选那几颗 + 下面那两颗）",
+                  QStringLiteral("只走到 %1 格").arg(chain.size()));
+            const QString jump = backwardJump(&log, chain);
+            check(jump.isEmpty(), "★★ U38. 日志窗按 Tab 不往回跳（筛选项在上面、操作在下面）",
+                  jump);
+            log.hide();
+            QApplication::processEvents();
+        }
+
+        // ---- e) 主窗口当前那一页（拿一个**真的 MainWindowUI**，不是搭出来的小盒子）----
+        //     这一条盯的是"整窗都在这一条规矩底下"：底栏、页表那几颗、当前页里那几十格
+        //     一起走一遍。别的选项卡上的那些页这时不显示，链上自然跳过它们。
+        if (!window.isVisible()) {
+            std::printf("  SKIP U38. 主窗口这会儿没上屏，整窗的 Tab 顺序量不了\n");
+            std::fflush(stdout);
+        } else {
+            const QVector<QWidget *> chain = tabChain(&window, &window);
+            const QString jump = backwardJump(&window, chain);
+            check(chain.size() >= 10,
+                  "U38. 主窗口当前这一页有十几格能 Tab 到（量得到东西，不是空链）",
+                  QStringLiteral("只走到 %1 格").arg(chain.size()));
+            check(jump.isEmpty(),
+                  "★★ U38. 整窗按 Tab 不往回跳（页表 → 当前页 → 底栏，一路向下）", jump);
+        }
+
+        // ---- f) 实例设置那一扇（左栏页表 + 右栏当前那一页）----
+        //     和主窗口**同一个形状**（一列页表 + 一页内容），所以同一套"往上就是往回跳"
+        //     的规矩也摆在这儿：这一扇是用户天天开的那一扇，页表左右两半的焦点顺序和主
+        //     窗口一样会犯"建的时候顺序和摆的顺序对不上"的毛病。
+        {
+            using Dlg = InstanceSettingsDialog;
+            Dlg::GlobalValues globalValues;
+            globalValues.javaPath = QStringLiteral("C:/全局/java.exe");
+            globalValues.xmx = 4096;
+            globalValues.xms = 1024;
+            globalValues.autoMemory = false;
+            Dlg dialog(QStringLiteral("我的整合包"), QStringLiteral("我的整合包-1.20.1-Forge"),
+                       Dlg::Override(), globalValues, QStringList(), true);
+            dialog.resize(980, 700);
+            dialog.show();
+            QApplication::processEvents();
+            const QVector<QWidget *> chain = tabChain(&dialog, &dialog);
+            check(chain.size() >= 8,
+                  "U38. 实例设置那一扇里能 Tab 到的不止两三格（量得到东西，不是空链）",
+                  QStringLiteral("只走到 %1 格").arg(chain.size()));
+            const QString jump = backwardJump(&dialog, chain);
+            check(jump.isEmpty(),
+                  "★★ U38. 实例设置那一扇按 Tab 也不往回跳（左栏页表 → 右边那一页）", jump);
+            dialog.hide();
             QApplication::processEvents();
         }
     }

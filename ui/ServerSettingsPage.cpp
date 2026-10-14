@@ -270,7 +270,7 @@ ServerSettingsPage::ServerSettingsPage(QWidget *parent) : QDialog(parent) {
             MainWindowUI::serverSettingsOpenBackupFolderButtonName());
         // 看一眼而已 ⇒ 一般性那一档；服务端在跑的时候它照样能按（开个文件夹不碰盘上那些
         // 正被写着的文件）。
-        Theme::markButton(m_openBackupFolderButton, Theme::ButtonKind::Neutral);
+        Theme::markButton(m_openBackupFolderButton, Theme::ButtonKind::Ghost);
         m_openBackupFolderButton->setCursor(Qt::PointingHandCursor);
         connect(m_openBackupFolderButton, &QPushButton::clicked, this,
                 &ServerSettingsPage::openBackupFolderRequested);
@@ -342,7 +342,7 @@ ServerSettingsPage::ServerSettingsPage(QWidget *parent) : QDialog(parent) {
         m_recheckButton = new QPushButton(MainWindowUI::serverSettingsRecheckText(), row);
         m_recheckButton->setObjectName(MainWindowUI::serverSettingsRecheckButtonName());
         // 重查一遍 = 一般性那一档；在跑的时候也留着（它只读、不改任何东西）。
-        Theme::markButton(m_recheckButton, Theme::ButtonKind::Neutral);
+        Theme::markButton(m_recheckButton, Theme::ButtonKind::Ghost);
         m_recheckButton->setCursor(Qt::PointingHandCursor);
         connect(m_recheckButton, &QPushButton::clicked, this, &ServerSettingsPage::recheckRequested);
         rowLayout->addWidget(m_recheckButton, 0);

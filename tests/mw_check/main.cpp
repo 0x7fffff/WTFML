@@ -9503,7 +9503,7 @@ static void runBottomBarPanelTests() {
                       rowIcon(panel, 0).toImage() == rowIcon(panel, 1).toImage() &&
                       rowIcon(panel, 0).toImage() != rowIcon(panel, 2).toImage(),
                   "AH2 行首那块的图按实例分类给（两个正式版一样、远古版不一样）");
-            // 行尾两颗按钮：电源 + 齿轮，都得有图形和一句能看懂的说明。
+            // 行尾前两颗按钮：电源 + 齿轮，都得有图形和一句能看懂的说明。
             int missing = 0;
             for (int row = 0; row < 3; ++row) {
                 for (int action = 0; action < 2; ++action) {
@@ -9517,8 +9517,23 @@ static void runBottomBarPanelTests() {
             check(missing == 0,
                   "AH2 每一行行尾都有那两颗图标按钮（电源/齿轮，各带一句 tooltip）",
                   QStringLiteral("不合格 %1 颗").arg(missing));
-            check(rowAction(panel, 0, 2) == nullptr,
-                  "AH2 行尾只有两颗（多一颗说明编号和产品对不上了）");
+            // 第三颗（2026-10-14 加的那颗「日志」）：**字的**、带 tooltip、三行都有。
+            // 和上面那两颗的判据正好相反（那两颗不许有 text，这颗不许有 icon）——
+            // 合起来钉的是"PanelAction 的两种形态各走各的那一支"。
+            int textMissing = 0;
+            for (int row = 0; row < 3; ++row) {
+                QPushButton *button = rowAction(panel, row, 2);
+                if (button == nullptr || !button->icon().isNull() ||
+                    button->text() != MainWindowUI::bottomBarPanelLogText() ||
+                    button->toolTip().isEmpty()) {
+                    ++textMissing;
+                }
+            }
+            check(textMissing == 0,
+                  "AH2 每一行行尾第三颗是那句「日志」（文字按钮，带一句 tooltip）",
+                  QStringLiteral("不合格 %1 颗").arg(textMissing));
+            check(rowAction(panel, 0, 3) == nullptr,
+                  "AH2 行尾就三颗（多一颗说明编号和产品对不上了）");
         }
     }
 
@@ -9542,6 +9557,105 @@ static void runBottomBarPanelTests() {
                   "AH3 开的是那一行那个实例的设置（不是下拉框里选中的那个）", dialogTitle);
             check(g_modalTitle.isEmpty(),
                   "AH3 也没有别的框冒出来（齿轮只开设置窗）", g_modalTitle);
+        }
+    }
+
+    // ---- AH3b 第三颗「日志」：点一下就把**这一行那份会话**的日志窗开出来 ----
+    // 2026-10-14 加（coding plan §3.3「运行中实例弹层优先展示实例名、运行时长和
+    // 『打开日志/停止』等可用动作」）。这一颗走的是**另一条路**：`openGameLogForSession()`
+    // —— "用户点名要看"，它必须能跨过两道闸：
+    //   · 「显示游戏日志」那个开关（默认是**关**的：它拦的是"自动冒出来的窗"）；
+    //   · `m_gameLogDismissedSessions`（用户关过这一扇就不再自动开）。
+    // 所以这一节四段：① 点一下开出一扇（而且那时候盘上这个开关确实是关的）；
+    // ② 同一个会话再点一下还是那一扇（抬到前面，不重开）；③ 用户关掉它、再点 → **又开
+    // 出来**（"关过就不再开"那条闸对点名要看的那一发不成立）；④ 收尾关掉。
+    {
+        const auto logWindowsNow = []() {
+            QList<GameLogWindow *> found;
+            for (QWidget *top : QApplication::topLevelWidgets()) {
+                if (auto *log = qobject_cast<GameLogWindow *>(top)) {
+                    found.append(log);
+                }
+            }
+            return found;
+        };
+        const auto dropLogWindows = [&logWindowsNow]() {
+            for (GameLogWindow *left : logWindowsNow()) {
+                left->close();
+            }
+            QApplication::processEvents();
+            // WA_DeleteOnClose 走的是 deleteLater，不推这一下"关了"和"没了"分不开
+            // （ui_check I4 收尾那两处同一个路数）。
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            QApplication::processEvents();
+        };
+        dropLogWindows();
+        check(logWindowsNow().isEmpty(), "AH3b 前提：动手之前一扇日志窗都没有");
+
+        // 前提②：盘上那个开关现在是**关**的 —— 少了这一条，下面那几条量的就成了"开着的时候
+        // 建不建窗"，而那件事 AE 节已经量过了。
+        LauncherSettings ah3bSettings;
+        check(!ah3bSettings.showGameLog(),
+              "AH3b 前提：盘上「显示游戏日志」是关着的（这一颗点出来才算跨过了那道闸）");
+
+        QWidget *panel = openPanel(instancesButton);
+        // 第 2 颗 = 「日志」（第 0 = 电源 / 第 1 = 齿轮，见 MainWindow.cpp 里那三个
+        // kRunningPanel*Action）。点的是**最后一行**（a1.2.6）—— 和 AH3 同一行，于是
+        // "标题里那个名字"只可能是那一行带下来的，不是当前选中的那个实例。
+        QPushButton *logButton = rowAction(panel, 2, 2);
+        check(logButton != nullptr, "AH3b 最后一行那颗「日志」找得到");
+        if (logButton != nullptr) {
+            logButton->click();
+            // 面板先收、动作排到下一轮（见 MainWindowUI 里 dispatch 那段）。
+            QApplication::processEvents();
+            const QList<GameLogWindow *> opened = logWindowsNow();
+            check(opened.size() == 1,
+                  "AH3b 点「日志」开出一扇窗（开关关着也开 —— 这是用户点名要的那一发）",
+                  QStringLiteral("开出来 %1 扇").arg(opened.size()));
+            check(opened.value(0) != nullptr &&
+                      opened.value(0)->windowTitle().contains(oldId),
+                  "AH3b 那一扇的标题是**这一行**那个实例（不是当前选中的那个）",
+                  opened.value(0) != nullptr ? opened.value(0)->windowTitle() : QString());
+            const QString manualLine = QStringLiteral("[AH3b] 手动打开后的输出");
+            const bool delivered = QMetaObject::invokeMethod(
+                &w, "onProcessOutput", Qt::DirectConnection, Q_ARG(int, s3),
+                Q_ARG(QString, manualLine));
+            QApplication::processEvents();
+            check(delivered && opened.value(0) != nullptr &&
+                      opened.value(0)->allLogText().contains(manualLine),
+                  "★★ AH3b 自动显示关着时，手动打开的日志窗照样继续收到后续输出",
+                  opened.value(0) != nullptr ? opened.value(0)->allLogText()
+                                             : QStringLiteral("<没有窗>"));
+
+            // ② 同一个会话再点一次：还是那一扇（已经开着就抬到前面，一个字都不重开）。
+            QWidget *panelAgain = openPanel(instancesButton);
+            QPushButton *logAgain = rowAction(panelAgain, 2, 2);
+            check(logAgain != nullptr, "AH3b 再点开面板，那颗「日志」还在原位");
+            if (logAgain != nullptr) {
+                logAgain->click();
+                QApplication::processEvents();
+                check(logWindowsNow().size() == 1,
+                      "AH3b 同一个会话再点一次：还是那一扇（抬到前面，不重开一扇）",
+                      QString::number(logWindowsNow().size()));
+            }
+
+            // ③ 用户把它关了（= 走 finished，记进"关过就不再自动开"），再点「日志」——
+            //    必须**又开出来**。这一条是"点名要看"和"自动冒出来"两条路的**分界**：
+            //    少了它，把 openGameLogForSession 写成"照 showGameLogLine 那套闸走"也绿。
+            dropLogWindows();
+            check(logWindowsNow().isEmpty(), "AH3b 用户把那一扇关掉了（关掉就销毁）");
+            QWidget *panelThird = openPanel(instancesButton);
+            QPushButton *logThird = rowAction(panelThird, 2, 2);
+            if (logThird != nullptr) {
+                logThird->click();
+                QApplication::processEvents();
+                check(logWindowsNow().size() == 1,
+                      "AH3b 关掉之后再点一次：**又开出来**（「关过就不再自动开」拦的是自动那一发）",
+                      QStringLiteral("开出来 %1 扇").arg(logWindowsNow().size()));
+            } else {
+                check(false, "AH3b 第三次点开面板，那颗「日志」找不到了");
+            }
+            dropLogWindows();
         }
     }
 

@@ -2090,6 +2090,29 @@ private:
     void showGameLogLine(int sessionId, const QString &text);
 
     /**
+     * @brief 把**这一份会话**的日志窗拿出来（没有就现建一扇）。建不出来时返回 nullptr。
+     * @param sessionId 哪一份会话。<= 0 直接返回 nullptr。
+     * @param userAsked 这一发是不是"用户点名要看"（运行中实例弹层里那颗「日志」）。
+     *
+     * 和 showGameLogLine() 的分工：那个是"来了一行输出，顺手写进窗里"，这个是"把窗本身
+     * 弄出来"。`userAsked` 因此能在两道闸上破例（「显示游戏日志」开关、用户关过不再自动
+     * 开），详见实现里那段说明。
+     *
+     * NOTE: 建窗时**顺手 show()**（自动那一路的第一行输出必须立刻可见）。用户点名那一路
+     *       另外接 show/raise/activateWindow —— 见 openGameLogForSession()。
+     */
+    GameLogWindow *ensureGameLogWindow(int sessionId, bool userAsked);
+
+    /**
+     * @brief 用户点名要看这一场游戏的日志（运行中实例弹层那颗「日志」）。
+     * @param sessionId 哪一份会话。
+     *
+     * 窗已经开着就只把它抬到前面（一个字都不重开）；会话还在跑而窗还没建就现建一扇；
+     * 会话已经结束了就说清"它那份日志跟着没了"（那一份只活在窗里）。
+     */
+    void openGameLogForSession(int sessionId);
+
+    /**
      * @brief 把**那一份日志窗里现在的内容**存成一个文本文件（底下那颗「导出日志…」）。
      * @param sessionId 哪一份会话。
      *
