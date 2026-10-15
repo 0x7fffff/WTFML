@@ -408,15 +408,26 @@ bool flattenSingleRootDir(const QString &dir) {
 
     const QStringList children =
         onlyChild.entryList(QDir::Dirs | QDir::Files | QDir::NoDotAndDotDot);
+    QStringList moved;
+    moved.reserve(children.size());
     for (const QString &child : children) {
         const QString target = root.absoluteFilePath(child);
         if (QFileInfo::exists(target)) {
-            continue;
+            for (auto it = moved.crbegin(); it != moved.crend(); ++it) {
+                QDir().rename(root.absoluteFilePath(*it), onlyChild.absoluteFilePath(*it));
+            }
+            return false;
         }
-        QDir().rename(onlyChild.absoluteFilePath(child), target);
+        if (!QDir().rename(onlyChild.absoluteFilePath(child), target)) {
+            // 移动失败时保留源目录；继续递归删除会让尚未移动的 Java 文件直接丢失。
+            for (auto it = moved.crbegin(); it != moved.crend(); ++it) {
+                QDir().rename(root.absoluteFilePath(*it), onlyChild.absoluteFilePath(*it));
+            }
+            return false;
+        }
+        moved.append(child);
     }
-    onlyChild.removeRecursively();
-    return true;
+    return QDir().rmdir(onlyChild.absolutePath());
 }
 
 bool downloadFileToLocal(const QUrl &url, const QString &destinationPath) {

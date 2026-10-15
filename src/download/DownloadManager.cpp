@@ -871,8 +871,7 @@ void DownloadManager::onAssetIndexDownloaded() {
         if (body.isEmpty()) {
             errorMessage = QStringLiteral("Server returned an empty body");
         } else if (file.open(QIODevice::WriteOnly)) {
-            file.write(body);
-            if (!file.commit()) {
+            if (file.write(body) != body.size() || !file.commit()) {
                 errorMessage = QStringLiteral("Failed to save asset index file");
             } else {
                 // 和 onDownloadReplyFinished() 一样必须核 SHA1：镜像源下这条地址是拿索引号
@@ -1392,10 +1391,10 @@ void DownloadManager::onDownloadReplyFinished() {
             // （注释里那句"截断/非 JSON 正文"说的是同一类）。
             errorMessage = QStringLiteral("Server returned an empty body");
         } else if (file.open(QIODevice::WriteOnly)) {
-            file.write(body);
+            const bool fullyWritten = file.write(body) == body.size();
             // commit() 才是"真的落到 destPath 上"那一步：它失败 = 目标路径上一个字节都
             // 没变（临时文件由 QSaveFile 自己收拾），所以下面失败那条路上不需要再 remove()。
-            if (!file.commit()) {
+            if (!fullyWritten || !file.commit()) {
                 errorMessage = QStringLiteral("Failed to write the downloaded file");
             } else if (!expectedSha1.isEmpty()) {
                 if (verifyFileSha1(destPath, expectedSha1)) {

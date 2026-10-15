@@ -185,9 +185,11 @@ bool AuthManager::loginMicrosoft() {
     }
 
     m_codeVerifier = createCodeVerifier();
+    m_oauthState = createCodeVerifier();
     const QUrl authUrl(buildAuthUrl());
     if (!QDesktopServices::openUrl(authUrl)) {
         m_callbackServer->close();
+        m_oauthState.clear();
         emit loginFailed(tr("无法打开默认浏览器。"));
         return false;
     }
@@ -215,6 +217,7 @@ bool AuthManager::loginMicrosoft() {
             }
             m_callbackServer->close();
             m_loginInFlight = false;
+            m_oauthState.clear();
             // 走 loginFailed 而不是自己憋着：界面就是靠它把几个按钮放回可点状态的。
             // NOTE: 这句**不许点名某个按钮** —— 原来写的是「再点一次"微软登录"重来」，
             //       而那个按钮已经并进「账号与外观」那个窗里了（设置页那格现在只是一个
@@ -458,6 +461,11 @@ void AuthManager::handleNewConnection() {
     }
 
     const QUrlQuery query(requestedUrl.query());
+    const QString state = query.queryItemValue("state");
+    if (m_oauthState.isEmpty() || state != m_oauthState) {
+        socket->disconnectFromHost();
+        return;
+    }
     const QString code = query.queryItemValue("code");
     const QString error = query.queryItemValue("error");
 
@@ -525,6 +533,7 @@ void AuthManager::handleNewConnection() {
     // 回调服务器用完就关：它只在"等这一次回调"这段时间里该开着。留着就是一个一直张着的
     // 本地端口，本机别的程序随手连一下就能触发一次假的登录失败。
     m_handlingCallback = false;
+    m_oauthState.clear();
     m_callbackServer->close();
     m_loginInFlight = false;
     if (m_loginTimeout != nullptr) {
@@ -610,7 +619,7 @@ bool AuthManager::startCallbackServer() {
         return true;
     }
 
-    return m_callbackServer->listen(QHostAddress::Any, m_callbackPort);
+    return m_callbackServer->listen(QHostAddress::LocalHost, m_callbackPort);
 }
 
 QString AuthManager::buildAuthUrl() {
@@ -624,6 +633,7 @@ QString AuthManager::buildAuthUrl() {
     query.addQueryItem(QStringLiteral("scope"), kOAuthScope);
     query.addQueryItem(QStringLiteral("code_challenge"), codeChallenge);
     query.addQueryItem(QStringLiteral("code_challenge_method"), QStringLiteral("S256"));
+    query.addQueryItem(QStringLiteral("state"), m_oauthState);
     url.setQuery(query);
     return url.toString();
 }

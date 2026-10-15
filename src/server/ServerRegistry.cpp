@@ -17,6 +17,7 @@
 #include <QFileInfo>
 #include <QSaveFile>
 
+#include "manage/FolderManager.hpp"
 #include "util/AppPaths.hpp"
 
 namespace ServerRegistry {
@@ -305,8 +306,8 @@ bool writeMeta(const QString &serverId, const ServerModel::Info &info, QString *
         }
         return false;
     }
-    file.write(ServerModel::toJson(info));
-    if (!file.commit()) {
+    const QByteArray bytes = ServerModel::toJson(info);
+    if (file.write(bytes) != bytes.size() || !file.commit()) {
         if (problemOut != nullptr) {
             *problemOut = QStringLiteral("写 %1 没落盘：%2")
                               .arg(ServerModel::formatTag(), file.errorString());
@@ -425,7 +426,8 @@ bool removeServer(const QString &serverId, QString *problemOut) {
         }
         return false;
     }
-    if (!QDir(dir).removeRecursively()) {
+    // 服务端里的世界或内容目录可能是 junction；这里只摘链接本身，绝不删除链接目标。
+    if (!removeTreeWithoutFollowingLinks(dir)) {
         if (problemOut != nullptr) {
             *problemOut = QStringLiteral("删不掉：%1").arg(QDir::toNativeSeparators(dir));
         }

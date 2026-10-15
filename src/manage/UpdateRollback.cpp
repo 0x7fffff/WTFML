@@ -17,6 +17,7 @@
 #include <QJsonParseError>
 #include <QJsonValue>
 #include <QObject>
+#include <QSaveFile>
 
 #include "manage/FolderManager.hpp"
 #include "util/AppPaths.hpp"
@@ -386,19 +387,25 @@ RestoreResult restore(const Snapshot &snapshot, const QString &instanceDir) {
             note(QObject::tr("建不了「%1」的目录。").arg(entry.relativePath));
             continue;
         }
-        // ★ 先抄到旁边一个临时名、再换上去：`QFile::copy()` 遇到已存在的目标**直接失败**，
-        //   而"先删了再抄"在抄失败的那一刻就把用户现在这一份也搭进去了。换名是原子的，
-        //   最坏的结果是"现在这一份还在"（临时文件留着也无害，下一次更新会把它一起清掉）。
-        const QString temp = target + QStringLiteral(".wtfml-rollback-tmp");
-        QFile::remove(temp);
-        if (!QFile::copy(source, temp)) {
+        // QSaveFile 在目标旁写临时文件并原子替换。不能先删 target 再 rename：后一动作失败
+        // 时，用户当前文件和回滚文件会同时丢失。
+        QFile in(source);
+        QSaveFile out(target);
+        if (!in.open(QIODevice::ReadOnly) || !out.open(QIODevice::WriteOnly)) {
             ++result.failed;
             note(QObject::tr("抄不回来「%1」。").arg(entry.relativePath));
             continue;
         }
-        QFile::remove(target);
-        if (!QFile::rename(temp, target)) {
-            QFile::remove(temp);
+        bool copied = true;
+        QByteArray buffer(256 * 1024, Qt::Uninitialized);
+        while (!in.atEnd()) {
+            const qint64 got = in.read(buffer.data(), buffer.size());
+            if (got <= 0 || out.write(buffer.constData(), got) != got) {
+                copied = false;
+                break;
+            }
+        }
+        if (!copied || !out.commit()) {
             ++result.failed;
             note(QObject::tr("换不上「%1」。").arg(entry.relativePath));
             continue;

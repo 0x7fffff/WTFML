@@ -272,6 +272,8 @@ private:
     //       读（见 refreshMinecraftToken()），多一个成员就是多一份会和盘上失配的副本。
     QDateTime m_tokenExpiry;  // 比 expires_in 提前 30 秒到期，见 applyMinecraftTokenData()
     QString m_codeVerifier;
+    /// 当前 OAuth 请求的一次性关联值；回调必须逐字匹配，完成后立即清空。
+    QString m_oauthState;
     QTcpServer *m_callbackServer;
     QNetworkAccessManager *m_networkManager;
     int m_callbackPort;
