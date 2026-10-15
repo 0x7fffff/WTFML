@@ -35,16 +35,31 @@ HomeQuickController::Rows HomeQuickController::build(
         item.current = instance.id == currentId;
         item.favorite = instance.favorite;
         item.recent = latestByInstance.contains(instance.id);
+        item.detail = instance.version;
         if (item.recent) {
             const LaunchHistory::Record record = latestByInstance.value(instance.id);
-            item.detail = LaunchHistory::whenText(record.startedAt);
+            item.detail += QStringLiteral("\n上次启动：") + LaunchHistory::whenText(record.startedAt);
             const QString played = LaunchHistory::durationText(record.durationSeconds);
             if (!played.isEmpty()) {
                 item.detail += item.detail.isEmpty() ? played : QStringLiteral(" · ") + played;
             }
+            item.detail += LaunchHistory::resultNote(record);
+        } else {
+            item.detail += QStringLiteral("\n尚无游玩记录");
         }
         return item;
     };
+
+    // 「当前」不是另一份持久化状态：它严格来自主页启动下拉框当前选中的实例，和真正按下
+    // 启动按钮时会启动谁保持同一个来源。没有选中实例时留一张空槽，仍可从这里进入列表。
+    if (const auto current = installedById.constFind(currentId); current != installedById.constEnd()) {
+        rows.current.append(makeItem(current.value()));
+    } else {
+        MainWindowUI::HomeQuickItem slot;
+        slot.empty = true;
+        slot.name = QObject::tr("选择实例");
+        rows.current.append(slot);
+    }
 
     for (const Instance &instance : installed) {
         if (instance.favorite && rows.favorites.size() < favoriteCount) {

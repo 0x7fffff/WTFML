@@ -172,8 +172,6 @@ void TaskDetailController::openTarget(const QString &key) {
         return;
     }
     const Tasks::TaskSnapshot task = m_activity->tasks()->snapshot(id);
-    // 目标就是那一项自己记的那个 id（实例 id / 版本号），空的话落到数据目录 ——
-    // 一样"点得开"，不给一颗点了没反应的按钮。
     // 目标就是那一项自己记的那个 id，空的话落到数据目录 —— 一样"点得开"，不给一颗点了
     // 没反应的按钮。
     //

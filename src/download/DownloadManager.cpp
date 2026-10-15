@@ -946,7 +946,13 @@ void DownloadManager::onAssetIndexDownloaded() {
         // 里，计数和失败清单都不动，直接返回（下面那些收尾是给"这个 reply 真的结账"用的）。
         return;
     } else {
-        // 索引下载失败也要计入失败，否则整批会被报成"全部完成"。
+        // 索引成功时不占文件进度；但失败必须临时占一格并同时结掉，否则统计会出现
+        // `failed == 1, total == done == 0`，进度条和失败摘要彼此矛盾。它仍然只是失败摘要里的
+        // 元数据项，不会在成功批次里冒充"下载了一个实例文件"。
+        if (!stale) {
+            ++m_totalJobs;
+            ++m_doneJobs;
+        }
         // NOTE: 必须在 activeDownloads.remove() 之前调用 —— handleDownloadError
         // 靠这张表反查目标路径来记失败清单。
         handleDownloadError(reply, errorMessage);

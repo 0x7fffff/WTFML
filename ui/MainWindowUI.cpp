@@ -31,6 +31,8 @@
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QScreen>
+#include <QSignalBlocker>
+#include <QStyle>
 #include <QMenuBar>
 #include <QMouseEvent>
 #include <QPainter>
@@ -97,11 +99,11 @@ const int kAvatarSize = MainWindowUI::avatarSize();
 constexpr int kStartButtonMinHeight = 76;
 /// 主窗口竖直方向的明确下限。540px 能容纳主页约 368px 的比例角色卡，以及标题栏、
 /// 页面边距和底栏；比之前被下载页误顶出来的 710px 低，也不会缩到人物预览被压坏。
-constexpr int kMainWindowMinHeight = 540;
+constexpr int kMainWindowMinHeight = 620;
 /// 主页角色预览使用稳定的展示规格。窗口变宽时人物不应跟着无限放大；220px 是默认
 /// 900px 窗口下实际量到的画布宽度，按 SkinViewer 的比例对应约 311px 高。
-constexpr int kHomeSkinViewerWidth = 220;
-constexpr int kHomeProfileHorizontalPadding = 16 * 2;
+constexpr int kHomeSkinViewerWidth = 160;
+constexpr int kHomeProfileHorizontalPadding = 8 * 2;
 
 /// 主页左栏两张卡之间的竖直留白（「开始游戏」和「上次游玩」）。
 ///
@@ -195,9 +197,13 @@ public:
             if (item == nullptr || item->isEmpty() || (widget != nullptr && widget->isHidden())) {
                 continue;
             }
-            contentHeight += widget != nullptr && widget->hasHeightForWidth()
+            int itemHeight = widget != nullptr && widget->hasHeightForWidth()
                                  ? widget->heightForWidth(innerWidth)
                                  : item->sizeHint().height();
+            if (widget != nullptr) {
+                itemHeight = qBound(widget->minimumHeight(), itemHeight, widget->maximumHeight());
+            }
+            contentHeight += itemHeight;
             ++visibleItems;
         }
         if (visibleItems > 1) {
@@ -333,7 +339,7 @@ TwoColumns buildTwoColumnPage(QWidget *page, const QString &tab) {
     columns.left = makeColumn(MainWindowUI::leftColumnName(tab), home);
     columns.right = makeColumn(MainWindowUI::rightColumnName(tab), false);
     if (home) {
-        columns.right.widget->setMaximumWidth(kRichSideMaxWidth);
+        columns.right.widget->setFixedWidth(kHomeSkinViewerWidth + kHomeProfileHorizontalPadding);
     } else {
         // ---- 侧栏那一栏：固定宽度 + 一个轻微底色 ----
         //
@@ -718,7 +724,30 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     // 这一页原来那个底色，一个像素都不差（见 ui/ThemeBackground.hpp 的文件头）。
     QWidget *homeTab = new ThemeBackground(Theme::Part::PageBackground, tabWidget);
     homeTab->setObjectName(homeTabName());
-    const TwoColumns home = buildTwoColumnPage(homeTab, QStringLiteral("home"));
+    auto *homePageLayout = new QVBoxLayout(homeTab);
+    homePageLayout->setContentsMargins(0, 0, 0, 0);
+    homePageLayout->setSpacing(0);
+    homeHeroArea = new QWidget(homeTab);
+    homeHeroArea->setObjectName(QStringLiteral("homeHeroArea"));
+    const TwoColumns home = buildTwoColumnPage(homeHeroArea, QStringLiteral("home"));
+    homePageLayout->addWidget(homeHeroArea, 1);
+    auto *homeBottomArea = new QWidget(homeTab);
+    auto *homeBottomLayout = new QVBoxLayout(homeBottomArea);
+    homeBottomLayout->setContentsMargins(pageMargin(), 0, pageMargin(), pageMargin());
+    homeBottomLayout->setSpacing(12);
+    homePageLayout->addWidget(homeBottomArea);
+    {
+        auto *eyebrow = makeHomeHint(QStringLiteral("WTFML / MINECRAFT LAUNCHER"), home.left.widget);
+        home.left.layout->addSpacing(20);
+        home.left.layout->addWidget(eyebrow);
+        auto *welcome = makeHomeTitle(QStringLiteral("下一个世界，等你开启。"), home.left.widget);
+        QFont font = welcome->font();
+        font.setPointSizeF(font.pointSizeF() + 12);
+        welcome->setFont(font);
+        welcome->setWordWrap(true);
+        home.left.layout->addWidget(welcome);
+        home.left.layout->addWidget(makeHomeHint(QStringLiteral("自由探索，从这里开始。"), home.left.widget));
+    }
     {
         // 下拉框继续作为启动逻辑的内部选择模型，但不再出现在主页上。用户从底部的
         // 「选择实例」进入完整选择页；这样既不会在顶部重复占一块，也不用复制启动状态机。
@@ -763,51 +792,95 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         startFont.setPointSizeF(startFont.pointSizeF() + 1.0);
         startButton->setFont(startFont);
         Theme::markButton(startButton, Theme::ButtonKind::Primary);
+        // 启动入口统一放进「当前」实例卡片。保留这个兼容控件供既有业务连接使用，但不再
+        // 参与主页布局，否则会和卡片里的「启动」形成两颗功能完全相同的按钮。
+        startButton->hide();
 
         // 这里原来有一个「离线模式」勾选框（2026-09-24 去掉的，用户原话：「现在不要启动
         // 界面那个离线登录勾选框了，在添加账户那里选择添加离线账号」）。它管的是"这次启动
         // 用哪种身份"，而现在那件事**只由当前账号是什么**决定 —— 离线就去账号窗里加一个
         // 离线账号、切过去，没有第二个开关。判据的唯一出处是 MainWindow::offlineIdentity()。
 
-        // 左栏上半段刻意留白。快速入口与启动区是一组操作，全部沉到底部。
-        home.left.layout->addStretch(1);
+        // 正常态把启动区沉到底部；实例选择态把这一块推到主页内容区顶部，并在其下展开列表。
+        // 用同一组控件移动而不是复制第二套启动按钮，避免“列表里选的”和“真正启动的”漂开。
+        homeLaunchArea = new QWidget(home.left.widget);
+        homeLaunchArea->setObjectName(QStringLiteral("homeLaunchArea"));
+        // 主页正常态由上面的弹簧把启动区压到最下方；列表展开时它必须只占自身内容高度，
+        // 剩余空间完全交给实例列表，不能把已经收起的欢迎区留成一片空白。
+        homeLaunchArea->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        auto *homeLaunchLayout = new QVBoxLayout(homeLaunchArea);
+        homeLaunchLayout->setContentsMargins(0, 0, 0, 0);
+        homeLaunchLayout->setSpacing(0);
+        homeLaunchSpacer = new QSpacerItem(0, 0, QSizePolicy::Minimum, QSizePolicy::Expanding);
+        home.left.layout->addItem(homeLaunchSpacer);
 
-        const auto makeQuickSection = [&](const QString &title, const QString &name,
-                                          QWidget **sectionOut, QHBoxLayout **rowOut) {
-            auto *section = makeHomeCard(home.left.widget);
-            section->setObjectName(name);
-            section->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-            auto *column = new QVBoxLayout(section);
-            column->setContentsMargins(12, 3, 12, 3);
-            column->setSpacing(2);
-            column->addWidget(makeHomeTitle(title, section));
-            auto *row = new QHBoxLayout;
-            row->setContentsMargins(0, 0, 0, 0);
-            row->setSpacing(8);
-            column->addLayout(row);
-            section->hide();
-            *sectionOut = section;
-            *rowOut = row;
-            home.left.layout->addSpacing(kHomeCardGap);
-            home.left.layout->addWidget(section);
+        // 三种快捷来源共用**同一块**内容区：它们是对同一批实例的不同看法，不能再各占一整排。
+        // 标签刻意贴在左上，不拉成等宽的三段导航；主启动按钮仍是这一区域唯一高强调动作。
+        homeQuickSection = makeHomeCard(homeLaunchArea);
+        homeQuickSection->setObjectName(QStringLiteral("homeQuickSection"));
+        homeQuickSection->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        auto *quickColumn = new QVBoxLayout(homeQuickSection);
+        quickColumn->setContentsMargins(12, 8, 12, 8);
+        quickColumn->setSpacing(7);
+        auto *quickTabs = new QHBoxLayout;
+        quickTabs->setContentsMargins(0, 0, 0, 0);
+        quickTabs->setSpacing(4);
+        const auto makeQuickTab = [this, quickTabs](const QString &text, const QString &name,
+                                                    HomeQuickMode mode) {
+            auto *button = new QPushButton(text, homeQuickSection);
+            button->setObjectName(name);
+            button->setCheckable(true);
+            button->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+            button->setProperty("wtfmlHomeQuickTab", true);
+            Theme::markButton(button, Theme::ButtonKind::Ghost);
+            QObject::connect(button, &QPushButton::clicked, button,
+                             [this, mode]() { setHomeQuickMode(mode); });
+            quickTabs->addWidget(button);
+            return button;
         };
-        makeQuickSection(QStringLiteral("收藏"), QStringLiteral("homeFavoriteSection"),
-                         &homeFavoriteSection, &homeFavoriteRow);
-        makeQuickSection(QStringLiteral("上次游玩"), QStringLiteral("homeQuickRecentSection"),
-                         &homeQuickRecentSection, &homeQuickRecentRow);
-        home.left.layout->addSpacing(4);
-        auto *launchRow = new QHBoxLayout;
-        launchRow->setContentsMargins(0, 0, 0, 0);
-        launchRow->setSpacing(8);
-        launchRow->addWidget(startButton, 1);
-        homeInstanceSelectButton = new QPushButton(QStringLiteral("选择实例"), home.left.widget);
+        homeQuickCurrentTab = makeQuickTab(QStringLiteral("当前"),
+                                            QStringLiteral("homeQuickCurrentTab"),
+                                            HomeQuickMode::Current);
+        homeQuickRecentTab = makeQuickTab(QStringLiteral("最近"),
+                                           QStringLiteral("homeQuickRecentTab"),
+                                           HomeQuickMode::Recent);
+        homeQuickFavoriteTab = makeQuickTab(QStringLiteral("收藏"),
+                                             QStringLiteral("homeQuickFavoriteTab"),
+                                             HomeQuickMode::Favorite);
+        quickTabs->addStretch(1);
+        homeInstanceSelectButton = new QPushButton(QStringLiteral("列表"), homeQuickSection);
         homeInstanceSelectButton->setObjectName(homeInstanceSelectButtonName());
         homeInstanceSelectButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-        homeInstanceSelectButton->setFixedSize(112, kStartButtonMinHeight);
-        homeInstanceSelectButton->setToolTip(QStringLiteral("从游戏文件夹中选择要启动的实例"));
+        homeInstanceSelectButton->setToolTip(QStringLiteral("展开或收起实例列表"));
         Theme::markButton(homeInstanceSelectButton, Theme::ButtonKind::Neutral);
-        launchRow->addWidget(homeInstanceSelectButton);
-        home.left.layout->addLayout(launchRow);
+        quickTabs->addWidget(homeInstanceSelectButton);
+        quickColumn->addLayout(quickTabs);
+        const auto makeQuickPage = [this, quickColumn](const QString &name, QWidget **sectionOut,
+                                                        QHBoxLayout **rowOut) {
+            auto *section = new QWidget(homeQuickSection);
+            section->setObjectName(name);
+            section->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+            auto *row = new QHBoxLayout(section);
+            row->setContentsMargins(0, 0, 0, 0);
+            row->setSpacing(8);
+            quickColumn->addWidget(section);
+            *sectionOut = section;
+            *rowOut = row;
+        };
+        makeQuickPage(QStringLiteral("homeQuickCurrentSection"), &homeQuickCurrentSection,
+                      &homeQuickCurrentRow);
+        makeQuickPage(QStringLiteral("homeFavoriteSection"), &homeFavoriteSection,
+                      &homeFavoriteRow);
+        makeQuickPage(QStringLiteral("homeQuickRecentSection"), &homeQuickRecentSection,
+                      &homeQuickRecentRow);
+        homeLaunchLayout->addSpacing(kHomeCardGap);
+        homeLaunchLayout->addWidget(homeQuickSection);
+        homeBottomLayout->addWidget(homeLaunchArea);
+        homePickerHost = new QWidget(home.left.widget);
+        homePickerHost->setObjectName(homeInstancePickerName());
+        homePickerHost->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        homePickerHost->hide();
+        homeBottomLayout->addWidget(homePickerHost, 1);
     }
     // ---------- 主页右栏：我的角色（3D 皮肤预览） ----------
     // 这里原来是空的：早先放着一张「版本列表」，和左边那个下拉框是同一份数据的两种看法，
@@ -816,6 +889,8 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     // 三成宽正好够放一个小人（见 SkinModel 里"缩放按控件尺寸自适应"那条，控件多大它多大）。
     {
         auto *profileCard = new HomeProfileCard(home.right.widget);
+        homeProfileCard = profileCard;
+        homeRightColumn = home.right.widget;
         profileCard->setFrameShape(QFrame::NoFrame);
         profileCard->setAutoFillBackground(true);
         const auto applyProfilePalette = [profileCard]() {
@@ -830,16 +905,56 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // 不再用一个与窗口/栏宽无关的固定像素值。
         profileCard->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
         auto *profileLayout = new QVBoxLayout(profileCard);
-        profileLayout->setContentsMargins(16, 16, 16, 16);
+        profileLayout->setContentsMargins(8, 12, 8, 12);
         profileLayout->setSpacing(10);
 
-        QLabel *skinTitle = makeHomeTitle(QStringLiteral("我的角色"), profileCard);
-        profileLayout->addWidget(skinTitle);
+        accountSkinButton = new QPushButton(profileCard);
+        accountSkinButton->setObjectName(MainWindowUI::accountSkinButtonName());
+        accountSkinButton->setToolTip(MainWindowUI::accountSkinButtonText());
+        accountSkinButton->setMinimumHeight(64);
+        accountSkinButton->setProperty("wtfmlAccountHeader", true);
+        accountSkinButton->setAccessibleName(MainWindowUI::accountSkinButtonText());
+        Theme::markButton(accountSkinButton, Theme::ButtonKind::Neutral);
+        accountSkinButton->setProperty("wtfmlHomeAction", true);
+        auto *accountHeader = new QHBoxLayout(accountSkinButton);
+        accountHeader->setContentsMargins(10, 8, 10, 8);
+        accountHeader->setSpacing(8);
+        homeAvatarLabel = new QLabel(accountSkinButton);
+        homeAvatarLabel->setObjectName(QStringLiteral("homeAvatarLabel"));
+        homeAvatarLabel->setFixedSize(28, 28);
+        homeAvatarLabel->setAlignment(Qt::AlignCenter);
+        homeAvatarLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
+        accountHeader->addWidget(homeAvatarLabel);
+        auto *accountIdentity = new QVBoxLayout;
+        accountIdentity->setSpacing(0);
+        accountIdentity->setContentsMargins(0, 0, 0, 0);
+
+        // 账号身份跟玩家模型放在一起：这里是主页的唯一账号入口，避免底栏再出现一份同样的
+        // 头像、名字和登录状态。文字由 MainWindow::updateBottomBar() 同步灌入。
+        homeAccountLabel = new ElidedLabel(accountSkinButton);
+        homeAccountLabel->setObjectName(QStringLiteral("homeAccountLabel"));
+        QFont accountFont = homeAccountLabel->font();
+        accountFont.setBold(true);
+        homeAccountLabel->setFont(accountFont);
+        homeAccountLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+        homeAccountLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
+        homeAccountLabel->setMinimumHeight(homeAccountLabel->fontMetrics().height() + 2);
+        accountIdentity->addWidget(homeAccountLabel);
+        homeAccountTypeLabel = makeHomeHint(QString(), accountSkinButton);
+        homeAccountTypeLabel->setObjectName(QStringLiteral("homeAccountTypeLabel"));
+        homeAccountTypeLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
+        homeAccountTypeLabel->setMinimumHeight(homeAccountTypeLabel->fontMetrics().height() + 2);
+        accountIdentity->addWidget(homeAccountTypeLabel);
+        accountHeader->addLayout(accountIdentity, 1);
+        auto *accountArrow = new QLabel(QStringLiteral("⌄"), accountSkinButton);
+        accountArrow->setAttribute(Qt::WA_TransparentForMouseEvents);
+        accountHeader->addWidget(accountArrow);
+        profileLayout->addWidget(accountSkinButton);
 
         skinViewer = new SkinViewer(profileCard);
         skinViewer->setObjectName(skinViewerName());
         skinViewer->setFixedWidth(kHomeSkinViewerWidth);
-        skinViewer->setMinimumHeight(skinViewer->heightForWidth(kHomeSkinViewerWidth));
+        skinViewer->setFixedHeight(200);
         // 立刻喂一套外观。这个控件**任何时候都不该是空白的** —— 没登录、还没取到、
         // 取不到，这三种情况看到的都是这套默认外观，所以兜底放在这里而不是等业务层来灌：
         // 少一处"谁忘了设"的可能。业务层拿到真皮肤时再覆盖它。
@@ -864,22 +979,18 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // 的下方。**说明行（skinHintLabel）在它上面**：那句是预览的图注，紧贴着图才是
         // 图注该在的位置；把按钮塞进图和图注中间会把「图 + 它的注解」拆成两半。
         // 宽度**不**跟着这一栏长（这一栏只有 3 份，拉满会顶宽），贴左边固定宽度。
-        accountSkinButton = new QPushButton(MainWindowUI::accountSkinButtonText(),
-                                            profileCard);
-        accountSkinButton->setObjectName(MainWindowUI::accountSkinButtonName());
         // 「角色皮肤…」= 通往另一个窗的一扇门（一般性），不是"干这件事"。
         Theme::markButton(accountSkinButton, Theme::ButtonKind::Neutral);
         accountSkinButton->setProperty("wtfmlHomeAction", true);
-        accountSkinButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-        accountSkinButton->setMinimumWidth(kAccountSkinButtonMinWidth);
-        // 入口已经搬到底栏账号面板；保留这个隐藏控件只为兼容旧接线与对象名。
-        accountSkinButton->hide();
+        accountSkinButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        // 主页是账号的唯一入口；它留在身份文字与模型之间，既不抢主启动按钮，也不会让用户
+        // 在其它选项卡误以为账号仍是全局底栏功能。
         // 与左侧沉底的快速启动区对齐；上方多余空间由 stretch 吸收，不灌进预览框。
         // 宽度也钉在默认展示规格：窗口变宽只增加周围留白，不把人物本身放大。
         profileCard->setFixedWidth(kHomeSkinViewerWidth + kHomeProfileHorizontalPadding);
         profileCard->setMinimumHeight(profileCard->heightForWidth(profileCard->width()));
-        home.right.layout->addStretch(1);
         home.right.layout->addWidget(profileCard, 0, Qt::AlignHCenter);
+        home.right.layout->addStretch(1);
     }
     // NOTE: 控件一个都不放也得把这栏建出来 —— 验证工程靠 leftColumnName()/rightColumnName()
     //       找这两栏量几何，主页右栏没了就等于主页的比例没地方量。
@@ -1918,6 +2029,11 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     });
     // 反方向也要通：别处（底栏、主页那几个入口）翻页之后，条上标着的也得跟着换。
     QObject::connect(tabWidget, &QTabWidget::currentChanged, bar, &TitleBar::setCurrentNav);
+    QObject::connect(tabWidget, &QTabWidget::currentChanged, tabWidget, [this](int index) {
+        if (index != homeTabIndex()) {
+            closeHomeInstancePicker();
+        }
+    });
 
     // ================= 换页那一下 =================
     // 2026-09-29 用户点名要的第二个动效（「切换页面」）：新那一块**先等一拍、再淡进来**，
@@ -2873,6 +2989,8 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
         accountSkinSettingsButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
         accountSkinSettingsButton->setMinimumWidth(kAccountSkinButtonMinWidth);
         boxLayout->addWidget(accountSkinSettingsButton, 0, Qt::AlignLeft);
+        // 账号入口集中到主页右上身份区；设置页不再保留第二扇门。
+        accountSkinSettingsButton->hide();
         addHint(box, QStringLiteral("正版登录、添加离线账号、切换账号、换皮肤和披风都在这个窗里。"
                                     "登录后用户名显示在窗口左下角，启动游戏时用的也是它。"),
                 form);
@@ -4351,6 +4469,17 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     accountRow->addLayout(accountTextLayout);
     accountRow->addStretch(1);
     accountRow->addWidget(makeChevronLabel(accountButton), 0, Qt::AlignVCenter);
+    // 账号身份与入口已经完整移到主页右上区域；底栏保留这组兼容控件给业务层更新数据，
+    // 但不再把它放进可见布局。右下角改为跨页面的轻量工具箱入口。
+    accountButton->hide();
+
+    toolboxButton = new QPushButton(QStringLiteral("工具箱  ︿"), bottomBar);
+    toolboxButton->setObjectName(toolboxButtonName());
+    toolboxButton->setFixedWidth(MainWindowUI::bottomBarRunStateColumnWidth());
+    toolboxButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
+    toolboxButton->setCursor(Qt::PointingHandCursor);
+    toolboxButton->setToolTip(QStringLiteral("展开或收起工具箱"));
+    applyBottomBarButtonStyle(toolboxButton, bottomBar->palette());
 
     // 那两颗按钮点开都是**向上**弹一块面板（像官启那样）。面板里画什么由 MainWindow 灌
     // （每次点开现问一遍，见 setBottomBarPanelContent()），这里只留"怎么弹、弹在哪、
@@ -4368,8 +4497,8 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     QObject::connect(runStateButton, &QPushButton::clicked, runStateButton, [this]() {
         toggleBottomBarPanel({runStateButton, BottomBarAnchorKind::Instances});
     });
-    QObject::connect(accountButton, &QPushButton::clicked, accountButton, [this]() {
-        toggleBottomBarPanel({accountButton, BottomBarAnchorKind::Accounts});
+    QObject::connect(toolboxButton, &QPushButton::clicked, toolboxButton, [this]() {
+        toggleBottomBarPanel({toolboxButton, BottomBarAnchorKind::Tools});
     });
     // 中间那格也是**一颗按钮**（2026-10-12）：点它向上展开任务中心。三格挂了同一个
     // toggle，所以"点另一颗 = 收旧开新"在三个方向上都成立（那一件事全靠 toggle）。
@@ -4389,7 +4518,7 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     barLayout->addStretch(1);
     barLayout->addWidget(taskSummaryButton, 6);
     barLayout->addStretch(1);
-    barLayout->addWidget(accountButton, 0);
+    barLayout->addWidget(toolboxButton, 0);
 
     mainLayout->addWidget(bottomBar);
 }
@@ -4740,8 +4869,8 @@ MainWindowUI::BottomBarAnchor MainWindowUI::bottomBarAnchorAt(const QPoint &glob
     if (hits(runStateButton)) {
         return {runStateButton, BottomBarAnchorKind::Instances};
     }
-    if (hits(accountButton)) {
-        return {accountButton, BottomBarAnchorKind::Accounts};
+    if (hits(toolboxButton)) {
+        return {toolboxButton, BottomBarAnchorKind::Tools};
     }
     if (hits(taskSummaryButton)) {
         return {taskSummaryButton, BottomBarAnchorKind::Tasks};
@@ -4767,6 +4896,8 @@ void MainWindowUI::openTaskCenterPanel() {
     if (bottomBar == nullptr || taskSummaryButton == nullptr || overlayHost == nullptr) {
         return;
     }
+    // 任务中心是全局覆盖面板；主页实例列表是页面布局状态。两者不同时展开。
+    closeHomeInstancePicker();
     if (taskCenterPanel() != nullptr) {
         overlayHost->dismiss();
         return;
@@ -4924,6 +5055,11 @@ void MainWindowUI::toggleBottomBarPanel(const BottomBarAnchor &anchor) {
             overlayHost->dismiss();
         }
     }
+    if (auto *tools = bottomBar->findChild<QFrame *>(MainWindowUI::toolboxPanelName())) {
+        sameAnchor = sameAnchor || anchor.kind == BottomBarAnchorKind::Tools;
+        anyOpen = true;
+        tools->close();
+    }
     if (anyOpen && (sameAnchor || blocked)) {
         return;  // 再点一次**同一颗** = 收回去，就这一下
     }
@@ -4934,7 +5070,52 @@ void MainWindowUI::toggleBottomBarPanel(const BottomBarAnchor &anchor) {
         openTaskCenterPanel();
         return;
     }
+    if (anchor.kind == BottomBarAnchorKind::Tools) {
+        toggleToolboxPanel();
+        return;
+    }
     openBottomBarPanel(anchor);
+}
+
+void MainWindowUI::toggleToolboxPanel() {
+    if (bottomBar == nullptr || toolboxButton == nullptr) {
+        return;
+    }
+    closeHomeInstancePicker();
+    if (auto *open = bottomBar->findChild<QFrame *>(toolboxPanelName())) {
+        open->close();
+        return;
+    }
+
+    auto *panel = new QFrame(bottomBar, Qt::Popup | Qt::FramelessWindowHint);
+    panel->setObjectName(toolboxPanelName());
+    panel->setAttribute(Qt::WA_DeleteOnClose);
+    panel->setAttribute(Qt::WA_NoMouseReplay);
+    panel->setAutoFillBackground(true);
+    markSurface(panel, Theme::workspaceSurfaceValue());
+    auto *layout = new QVBoxLayout(panel);
+    layout->setContentsMargins(14, 12, 14, 12);
+    layout->setSpacing(10);
+    layout->addWidget(makeHomeTitle(QStringLiteral("工具箱"), panel));
+
+    auto *grid = new QGridLayout;
+    grid->setContentsMargins(0, 0, 0, 0);
+    grid->setHorizontalSpacing(8);
+    grid->setVerticalSpacing(8);
+    const QStringList tools = {QStringLiteral("附魔助手"), QStringLiteral("文本生成器"),
+                               QStringLiteral("坐标换算"), QStringLiteral("哈希校验")};
+    for (int index = 0; index < tools.size(); ++index) {
+        auto *button = new QPushButton(tools.at(index), panel);
+        button->setMinimumSize(128, 42);
+        button->setToolTip(QStringLiteral("该工具将在后续功能阶段接入"));
+        Theme::markButton(button, Theme::ButtonKind::Neutral);
+        grid->addWidget(button, index / 2, index % 2);
+    }
+    layout->addLayout(grid);
+    panel->adjustSize();
+    const QPoint anchor = toolboxButton->mapToGlobal(QPoint(toolboxButton->width(), 0));
+    panel->move(anchor.x() - panel->width(), anchor.y() - panel->height() - 6);
+    panel->show();
 }
 
 void MainWindowUI::setBottomBarTaskSummary(const BottomBarTaskSummary &summary) {
@@ -5056,7 +5237,8 @@ void MainWindowUI::setRunPanelAvailable(bool available) {
     runStateButton->setToolTip(available ? MainWindowUI::bottomBarRunPanelTip() : QString());
 }
 
-void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &favorites,
+void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
+                                    const QList<HomeQuickItem> &favorites,
                                     const QList<HomeQuickItem> &recent) {
     const auto rebuildRow = [this](QWidget *section, QHBoxLayout *row,
                                    const QList<HomeQuickItem> &items, bool favoriteRow) {
@@ -5067,15 +5249,71 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &favorites,
             delete child->widget();
             delete child;
         }
-        section->setVisible(!items.isEmpty());
         if (items.isEmpty()) {
             return;
         }
         const bool iconsOnly = items.size() >= 5;
         const bool compact = items.size() >= 3;
-        const int cardHeight = iconsOnly ? 54 : 84;
+        const int cardHeight = 84;
         for (int itemIndex = 0; itemIndex < items.size(); ++itemIndex) {
             const HomeQuickItem &item = items.at(itemIndex);
+            if (section == homeQuickCurrentSection && !item.empty) {
+                auto *card = makeHomeCard(section);
+                card->setObjectName(QStringLiteral("homeCurrentInstanceCard"));
+                card->setFixedHeight(cardHeight);
+                auto *line = new QHBoxLayout(card);
+                line->setContentsMargins(14, 6, 14, 6);
+                line->setSpacing(12);
+                auto *icon = new QLabel(card);
+                icon->setPixmap(item.icon.isNull() ? VersionIcons::grassBlock(32)
+                                                   : item.icon.pixmap(32, 32));
+                icon->setFixedSize(32, 32);
+                line->addWidget(icon);
+                auto *identity = new QVBoxLayout;
+                identity->setSpacing(2);
+                auto *name = new ElidedLabel(card);
+                name->setText(item.name);
+                name->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+                QFont font = name->font();
+                font.setBold(true);
+                name->setFont(font);
+                identity->addWidget(name);
+                const QString version = item.detail.section(QLatin1Char('\n'), 0, 0);
+                const QString activity = item.detail.section(QLatin1Char('\n'), 1);
+                auto *detail = makeHomeHint(version, card);
+                detail->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+                detail->setToolTip(item.detail);
+                identity->addWidget(detail);
+                line->addLayout(identity, 1);
+                auto *activityLabel = makeHomeHint(activity, card);
+                activityLabel->setObjectName(QStringLiteral("homeCurrentActivity"));
+                activityLabel->setText(activity.split(QStringLiteral(" · ")).join(QLatin1Char('\n')));
+                activityLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+                activityLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+                activityLabel->setToolTip(activity);
+                line->addWidget(activityLabel, 1);
+                auto *launch = new QPushButton(QStringLiteral("启动"), card);
+                launch->setMinimumWidth(90);
+                Theme::markButton(launch, Theme::ButtonKind::Primary);
+                QObject::connect(launch, &QPushButton::clicked, launch, [this, key = item.key]() {
+                    if (m_homeQuickActionHandler) {
+                        m_homeQuickActionHandler(key, HomeQuickAction::Launch);
+                    }
+                });
+                line->addWidget(launch);
+                auto *edit = new QPushButton(card);
+                edit->setIcon(QIcon(VersionIcons::gear(18, QApplication::palette().color(QPalette::WindowText))));
+                edit->setToolTip(QStringLiteral("实例设置"));
+                Theme::markButton(edit, Theme::ButtonKind::Ghost);
+                QObject::connect(edit, &QPushButton::clicked, edit, [this, key = item.key]() {
+                    if (m_homeQuickActionHandler) {
+                        m_homeQuickActionHandler(key, HomeQuickAction::Edit);
+                    }
+                });
+                line->addWidget(edit);
+                row->addWidget(card, 1);
+                continue;
+            }
             auto *card = new QPushButton(section);
             card->setObjectName(item.empty
                                     ? QStringLiteral("homeQuickEmpty_%1_%2")
@@ -5090,8 +5328,7 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &favorites,
             // 后被它压回普通按钮高度，正是六张卡文字叠在一起的根因。属性选择器负责复位
             // QSS，这里再用固定高度表达卡片自己的布局尺寸。
             card->setProperty("wtfmlQuickCard", true);
-            card->setProperty("wtfmlQuickCardSize", iconsOnly ? QStringLiteral("icon")
-                                                               : QStringLiteral("normal"));
+            card->setProperty("wtfmlQuickCardSize", QStringLiteral("normal"));
             card->setFixedHeight(cardHeight);
             Theme::markButton(card, item.empty ? Theme::ButtonKind::Ghost
                                                : Theme::ButtonKind::Neutral);
@@ -5124,7 +5361,7 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &favorites,
                 continue;
             }
 
-            auto *content = new QVBoxLayout(card);
+            auto *content = new QHBoxLayout(card);
             content->setContentsMargins(8, 7, 8, 7);
             content->setSpacing(4);
             auto *identity = new QHBoxLayout;
@@ -5133,7 +5370,8 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &favorites,
             const int iconSide = iconsOnly ? 38 : 32;
             icon->setFixedSize(iconSide, iconSide);
             icon->setAlignment(Qt::AlignCenter);
-            icon->setPixmap(item.icon.pixmap(iconSide, iconSide));
+            icon->setPixmap(item.icon.isNull() ? VersionIcons::grassBlock(iconSide)
+                                               : item.icon.pixmap(iconSide, iconSide));
             identity->addWidget(icon, 0, Qt::AlignVCenter);
             if (!iconsOnly) {
                 auto *name = new ElidedLabel(card);
@@ -5146,33 +5384,7 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &favorites,
                 name->setFont(font);
                 identity->addWidget(name, 1, Qt::AlignVCenter);
             }
-            QString ribbon;
-            if (item.current) {
-                ribbon = QStringLiteral("当前");
-            } else if (favoriteRow && item.recent) {
-                ribbon = QStringLiteral("最近");
-            } else if (!favoriteRow && item.favorite) {
-                ribbon = QStringLiteral("收藏");
-            }
-            if (!ribbon.isEmpty()) {
-                auto *badge = new QLabel(ribbon, card);
-                badge->setObjectName(QStringLiteral("homeQuickRibbon"));
-                badge->setAlignment(Qt::AlignCenter);
-                badge->setFixedHeight(18);
-                QPalette badgePalette = badge->palette();
-                badgePalette.setColor(QPalette::Window,
-                                      ribbon == QStringLiteral("当前")
-                                          ? Theme::accentShade(Theme::AccentShade::Pure)
-                                          : ribbon == QStringLiteral("最近")
-                                                ? QColor(46, 139, 166)
-                                                : QColor(181, 132, 46));
-                badgePalette.setColor(QPalette::WindowText, Qt::white);
-                badge->setAutoFillBackground(true);
-                badge->setPalette(badgePalette);
-                // 丝带与名字共用首行，不再为它单独占一整行；两排因此能明显收短。
-                identity->addWidget(badge, 0, Qt::AlignVCenter);
-            }
-            content->addLayout(identity);
+            content->addLayout(identity, 1);
 
             if (!iconsOnly) {
                 auto *actions = new QHBoxLayout;
@@ -5185,7 +5397,7 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &favorites,
                         m_homeQuickActionHandler(key, HomeQuickAction::Launch);
                     }
                 });
-                actions->addWidget(launch, 1);
+                actions->addWidget(launch);
                 if (!compact) {
                     auto *edit = new QPushButton(QStringLiteral("编辑"), card);
                     Theme::markButton(edit, Theme::ButtonKind::Ghost);
@@ -5249,42 +5461,80 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &favorites,
             row->addWidget(card, 1);
         }
     };
+    rebuildRow(homeQuickCurrentSection, homeQuickCurrentRow, current, false);
     rebuildRow(homeFavoriteSection, homeFavoriteRow, favorites, true);
     rebuildRow(homeQuickRecentSection, homeQuickRecentRow, recent, false);
+    // 收藏/最近数量设为 0 时，不留一颗点了只会看空白的标签。当前页总有一张当前实例或
+    // 「选择实例」空槽，因而始终可达。
+    if (homeQuickFavoriteTab != nullptr) {
+        homeQuickFavoriteTab->setVisible(!favorites.isEmpty());
+    }
+    if (homeQuickRecentTab != nullptr) {
+        homeQuickRecentTab->setVisible(!recent.isEmpty());
+    }
+    if (current.isEmpty()) {
+        // 仅旧适配入口会给空 current；让它仍然展示传进来的第一块内容，保住既有验证与
+        // 外部嵌入调用的可见语义。正式主页永远传入一张当前实例/空槽，不走这里。
+        m_homeQuickMode = !favorites.isEmpty() ? HomeQuickMode::Favorite
+                                                : HomeQuickMode::Recent;
+    } else if ((m_homeQuickMode == HomeQuickMode::Favorite && favorites.isEmpty())
+               || (m_homeQuickMode == HomeQuickMode::Recent && recent.isEmpty())) {
+        m_homeQuickMode = HomeQuickMode::Current;
+    }
+    setHomeQuickMode(m_homeQuickMode);
+}
+
+void MainWindowUI::setHomeQuickMode(HomeQuickMode mode) {
+    // 已经隐藏的类别不能成为当前页；这一层守住，设置更新和点击标签两条路都不会留下空面板。
+    if (mode == HomeQuickMode::Favorite
+        && (homeQuickFavoriteTab == nullptr || !homeQuickFavoriteTab->isVisible())) {
+        mode = HomeQuickMode::Current;
+    }
+    if (mode == HomeQuickMode::Recent
+        && (homeQuickRecentTab == nullptr || !homeQuickRecentTab->isVisible())) {
+        mode = HomeQuickMode::Current;
+    }
+    m_homeQuickMode = mode;
+    const auto apply = [mode](QPushButton *tab, QWidget *page, HomeQuickMode ownMode) {
+        const bool active = mode == ownMode;
+        if (tab != nullptr) {
+            const QSignalBlocker blocker(tab);
+            tab->setChecked(active);
+            tab->setProperty("wtfmlHomeQuickTabActive", active);
+            tab->style()->unpolish(tab);
+            tab->style()->polish(tab);
+        }
+        if (page != nullptr) {
+            page->setVisible(active);
+        }
+    };
+    apply(homeQuickCurrentTab, homeQuickCurrentSection, HomeQuickMode::Current);
+    apply(homeQuickRecentTab, homeQuickRecentSection, HomeQuickMode::Recent);
+    apply(homeQuickFavoriteTab, homeFavoriteSection, HomeQuickMode::Favorite);
 }
 
 void MainWindowUI::openHomeInstancePicker(
     const QList<HomePickerFolder> &folders, const QList<HomePickerInstance> &instances,
     const HomePickerFolderHandler &folderHandler,
     const HomePickerInstanceHandler &instanceHandler) {
-    if (overlayHost == nullptr || overlayHost->isOpen()) {
+    if (homePickerHost == nullptr || homeLaunchSpacer == nullptr) {
         return;
     }
-    QWidget *page = overlayHost->openPage(QStringLiteral("选择实例"), homeTabIndex());
-    if (page == nullptr) {
+    if (homeInstancePickerOpen()) {
+        closeHomeInstancePicker();
         return;
     }
-    page->setObjectName(homeInstancePickerName());
-    auto *root = new QHBoxLayout(page);
-    root->setContentsMargins(pageMargin(), pageMargin(), pageMargin(), pageMargin());
+    while (QLayoutItem *child = homePickerHost->layout() == nullptr
+                                      ? nullptr
+                                      : homePickerHost->layout()->takeAt(0)) {
+        delete child->widget();
+        delete child;
+    }
+    delete homePickerHost->layout();
+    QWidget *page = homePickerHost;
+    auto *root = new QVBoxLayout(page);
+    root->setContentsMargins(0, 0, 0, 0);
     root->setSpacing(16);
-
-    auto *folderPane = new QWidget(page);
-    folderPane->setObjectName(QStringLiteral("homePickerFolderPane"));
-    folderPane->setMinimumWidth(210);
-    folderPane->setMaximumWidth(300);
-    markSurface(folderPane, Theme::workspaceSurfaceValue());
-    auto *folderLayout = new QVBoxLayout(folderPane);
-    folderLayout->setContentsMargins(14, 14, 14, 14);
-    folderLayout->setSpacing(8);
-    folderLayout->addWidget(makeHomeTitle(QStringLiteral("游戏文件夹"), folderPane));
-    folderLayout->addWidget(
-        makeHomeHint(QStringLiteral("先选择实例所在的文件夹"), folderPane));
-    auto *folderList = new QListWidget(folderPane);
-    folderList->setObjectName(QStringLiteral("homePickerFolderList"));
-    folderList->setFrameShape(QFrame::NoFrame);
-    folderLayout->addWidget(folderList, 1);
-    root->addWidget(folderPane);
 
     auto *instancePane = new QWidget(page);
     instancePane->setObjectName(QStringLiteral("homePickerInstancePane"));
@@ -5295,11 +5545,19 @@ void MainWindowUI::openHomeInstancePicker(
     auto *heading = new QHBoxLayout;
     heading->addWidget(makeHomeTitle(QStringLiteral("实例"), instancePane));
     heading->addStretch(1);
+    auto *folderFilter = new QComboBox(instancePane);
+    folderFilter->setObjectName(QStringLiteral("homePickerFolderFilter"));
+    folderFilter->setToolTip(QStringLiteral("按游戏文件夹筛选"));
+    folderFilter->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    folderFilter->setMinimumContentsLength(10);
+    folderFilter->addItem(QStringLiteral("全部文件夹"), QString());
+    WheelGuard::install(folderFilter);
+    heading->addWidget(folderFilter);
     auto *search = new QLineEdit(instancePane);
     search->setObjectName(QStringLiteral("homePickerSearch"));
     search->setPlaceholderText(QStringLiteral("搜索名称、版本或加载器"));
     search->setClearButtonEnabled(true);
-    search->setMinimumWidth(230);
+    search->setMinimumWidth(140);
     heading->addWidget(search);
     auto *filter = new QComboBox(instancePane);
     filter->setObjectName(QStringLiteral("homePickerLoaderFilter"));
@@ -5331,34 +5589,17 @@ void MainWindowUI::openHomeInstancePicker(
     root->addWidget(instancePane, 1);
 
     for (const HomePickerFolder &folder : folders) {
-        auto *item = new QListWidgetItem(
-            folder.subtitle.isEmpty() ? folder.title
-                                      : folder.title + QLatin1Char('\n') + folder.subtitle,
-            folderList);
-        item->setData(Qt::UserRole, folder.path);
-        item->setToolTip(folder.subtitle);
-        item->setSizeHint(QSize(0, 54));
-        if (folder.current) {
-            QFont font = item->font();
-            font.setBold(true);
-            item->setFont(font);
-            folderList->setCurrentItem(item);
-        }
-    }
-    if (folderList->currentRow() < 0 && folderList->count() > 0) {
-        folderList->setCurrentRow(0);
+        folderFilter->addItem(folder.title, folder.path);
+        folderFilter->setItemData(folderFilter->count() - 1, folder.subtitle, Qt::ToolTipRole);
     }
 
-    const auto rebuild = [folderList, instanceList, empty, search, filter, instances]() {
-        const QListWidgetItem *folderItem = folderList->currentItem();
-        const QString folderPath = folderItem == nullptr
-                                       ? QString()
-                                       : folderItem->data(Qt::UserRole).toString();
+    const auto rebuild = [folderFilter, instanceList, empty, search, filter, instances]() {
+        const QString folderPath = folderFilter->currentData().toString();
         const QString needle = search->text().trimmed();
         const QString mode = filter->currentData().toString();
         instanceList->clear();
         for (const HomePickerInstance &instance : instances) {
-            if (instance.folderPath != folderPath) {
+            if (!folderPath.isEmpty() && instance.folderPath != folderPath) {
                 continue;
             }
             const QString haystack = instance.title + QLatin1Char(' ') + instance.subtitle
@@ -5392,14 +5633,10 @@ void MainWindowUI::openHomeInstancePicker(
         }
         empty->setVisible(instanceList->count() == 0);
     };
-    QObject::connect(folderList, &QListWidget::currentRowChanged, page,
-                     [folderList, folderHandler, rebuild](int) {
-                         const QListWidgetItem *item = folderList->currentItem();
-                         if (item != nullptr && folderHandler) {
-                             folderHandler(item->data(Qt::UserRole).toString());
-                         }
-                         rebuild();
-                     });
+    // 文件夹只作为局部筛选；真正切换活动文件夹由选中实例的回调完成。
+    Q_UNUSED(folderHandler);
+    QObject::connect(folderFilter, &QComboBox::currentIndexChanged, page,
+                     [rebuild](int) { rebuild(); });
     QObject::connect(search, &QLineEdit::textChanged, page,
                      [rebuild](const QString &) { rebuild(); });
     QObject::connect(filter, &QComboBox::currentIndexChanged, page,
@@ -5411,7 +5648,73 @@ void MainWindowUI::openHomeInstancePicker(
                          }
                          instanceHandler(item->data(Qt::UserRole + 1).toString(),
                                          item->data(Qt::UserRole).toString());
-                         overlayHost->dismiss();
+                         closeHomeInstancePicker();
                      });
     rebuild();
+    homeLaunchSpacer->changeSize(0, 0, QSizePolicy::Minimum, QSizePolicy::Fixed);
+    homeLaunchSpacer->invalidate();
+    if (homeHeroArea != nullptr) {
+        homeHeroArea->hide();
+    }
+    if (auto *layout = qobject_cast<QVBoxLayout *>(homePickerHost->parentWidget()->parentWidget()->layout())) {
+        layout->setStretch(0, 0);
+        layout->setStretch(1, 1);
+    }
+    if (homeProfileCard != nullptr) {
+        homeProfileCard->hide();
+    }
+    if (homeRightColumn != nullptr) {
+        homeRightColumn->hide();
+    }
+    if (homeInstanceSelectButton != nullptr) {
+        homeInstanceSelectButton->setText(QStringLiteral("返回"));
+    }
+    homePickerHost->show();
+    if (homeLaunchArea != nullptr) {
+        homeLaunchArea->show();
+    }
+    // QSpacerItem::changeSize() 只标记自身失效。这里的父布局同时有一个隐藏/显示的
+    // 列表区，必须立即激活布局，才会真正收回顶部空白、让列表接管全部余高。
+    if (QWidget *column = page->parentWidget(); column != nullptr && column->layout() != nullptr) {
+        column->layout()->invalidate();
+        column->layout()->activate();
+        column->updateGeometry();
+    }
+}
+
+bool MainWindowUI::homeInstancePickerOpen() const {
+    return homePickerHost != nullptr && homePickerHost->isVisible();
+}
+
+void MainWindowUI::closeHomeInstancePicker() {
+    if (!homeInstancePickerOpen()) {
+        return;
+    }
+    homePickerHost->hide();
+    if (homeHeroArea != nullptr) {
+        homeHeroArea->show();
+    }
+    if (auto *layout = qobject_cast<QVBoxLayout *>(homePickerHost->parentWidget()->parentWidget()->layout())) {
+        layout->setStretch(0, 1);
+        layout->setStretch(1, 0);
+    }
+    if (homeLaunchSpacer != nullptr) {
+        homeLaunchSpacer->changeSize(0, 0, QSizePolicy::Minimum, QSizePolicy::Expanding);
+        homeLaunchSpacer->invalidate();
+    }
+    if (homeRightColumn != nullptr) {
+        homeRightColumn->show();
+    }
+    if (homeProfileCard != nullptr) {
+        homeProfileCard->show();
+    }
+    if (homeInstanceSelectButton != nullptr) {
+        homeInstanceSelectButton->setText(QStringLiteral("列表"));
+    }
+    if (homePickerHost->parentWidget() != nullptr && homePickerHost->parentWidget()->layout() != nullptr) {
+        QLayout *layout = homePickerHost->parentWidget()->layout();
+        layout->invalidate();
+        layout->activate();
+        homePickerHost->parentWidget()->updateGeometry();
+    }
 }

@@ -16,9 +16,11 @@ public:
         QString name;
         QIcon icon;
         bool favorite = false;
+        QString version;
     };
 
     struct Rows {
+        QList<MainWindowUI::HomeQuickItem> current;
         QList<MainWindowUI::HomeQuickItem> favorites;
         QList<MainWindowUI::HomeQuickItem> recent;
     };

@@ -1153,8 +1153,9 @@ QString widgetStyleSheet() {
     // min-height / padding 复位，否则 QSS polish 会把 C++ 里给卡片的高度压回普通按钮。
     qss += QStringLiteral(
         "QPushButton[wtfmlQuickCard=\"true\"] { padding: 0px; }"
-        "QPushButton[wtfmlQuickCardSize=\"normal\"] { min-height: 84px; max-height: 84px; }"
+        "QPushButton[wtfmlQuickCardSize=\"normal\"] { min-height: 82px; max-height: 82px; }"
         "QPushButton[wtfmlQuickCardSize=\"icon\"] { min-height: 54px; max-height: 54px; }");
+    qss += QStringLiteral("QPushButton[wtfmlAccountHeader=\"true\"] { padding: 0px; min-height: 62px; }");
 
     // 主页快速启动的空槽：它是布局占位和“去实例页添加”的入口，不应长得像已经能启动的
     // 实例。半透明感在 QWidget 上用一层极浅主题色表达；虚线边只用于空槽，不把普通卡片

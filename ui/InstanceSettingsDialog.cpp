@@ -56,8 +56,14 @@
 #include <QToolButton>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
+#include <QTreeWidgetItemIterator>
+#include <QDirIterator>
+#include <QSet>
+#include <QImageReader>
 #include <QVBoxLayout>
 #include <utility>
+#include <algorithm>
+#include <functional>
 
 #include "ConfigFileEditorPage.hpp"
 #include "InstanceFilesPage.hpp"
@@ -123,13 +129,12 @@ QString titleTextFor(const QString &displayName) {
 ///       定高的（"贴着内容"那条），而横排布局会把这一格的**高**整个给它，定高控件在那
 ///       一格里的落点是 Qt 说了算。套一层之后贴顶是写出来的，不靠猜。设置页左栏那一列
 ///       也是这个写法。
-void addNavColumn(QHBoxLayout *columns, QListWidget *list, QWidget *footer = nullptr) {
+void addNavColumn(QHBoxLayout *columns, QWidget *list, QWidget *footer = nullptr) {
     auto *column = new QWidget(list->parentWidget());
     auto *layout = new QVBoxLayout(column);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
-    layout->addWidget(list);
-    layout->addStretch(1);
+    layout->addWidget(list, 1);
     if (footer != nullptr) {
         layout->addWidget(footer);
     }
@@ -151,7 +156,8 @@ QString pageKeyAtStackIndex(int index) {
     }
     const QStringList files = InstanceSettingsDialog::filePageKeys();
     const int fileIndex = index - InstanceSettingsDialog::filePageFirstIndex();
-    return fileIndex >= 0 && fileIndex < files.size() ? files.at(fileIndex) : QString();
+    if (fileIndex >= 0 && fileIndex < files.size()) return files.at(fileIndex);
+    return InstanceSettingsDialog::lifecyclePageKeys().value(fileIndex - files.size());
 }
 
 /// 往表格里加一行：**行名独占一行、内容在下一行**（2026-09-26 用户原话「上一行设置名称，
@@ -396,7 +402,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     //       "重新拉一遍"这回事），代理见到没设就不画。
     m_pageList = new QListWidget(this);
     m_pageList->setObjectName(pageListName());
-    m_pageList->setUniformItemSizes(true);
+    m_pageList->setUniformItemSizes(false);
     m_pageList->setItemDelegate(new VersionTreeDelegate(m_pageList));
     // 悬停底色由代理画（`Theme::rowHoverFill()`），但那一位 `State_MouseOver` 是**视图**填的。
     // ★ 少了这一句，代理里那段一个字都不会生效 —— 不报错、断言也不一定先红，屏幕上就是"悬停没反应"。
@@ -413,7 +419,22 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     Theme::markButton(launchInstance, Theme::ButtonKind::Primary);
     connect(launchInstance, &QPushButton::clicked, this,
             [this]() { emit launchInstanceRequested(); });
-    addNavColumn(columns, m_pageList, launchInstance);
+    m_pageList->hide(); // 保留旧访问接口，界面导航统一由树承担。
+    m_navigationTree = new QTreeWidget(this);
+    m_navigationTree->setObjectName(QStringLiteral("instanceLifecycleTree"));
+    m_navigationTree->setHeaderHidden(true);
+    m_navigationTree->setColumnCount(1);
+    m_navigationTree->setIndentation(16);
+    m_navigationTree->setFixedWidth(208);
+    m_navigationTree->setMinimumHeight(0);
+    m_navigationTree->setFrameShape(QFrame::NoFrame);
+    m_navigationTree->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    connect(m_navigationTree, &QTreeWidget::currentItemChanged, this,
+            [this](QTreeWidgetItem *item, QTreeWidgetItem *) {
+                if (item != nullptr && !item->data(0, Qt::UserRole).toString().isEmpty())
+                    showPage(item->data(0, Qt::UserRole).toString());
+            });
+    addNavColumn(columns, m_navigationTree, launchInstance);
 
     m_stack = new QStackedWidget(this);
     m_stack->setObjectName(stackName());
@@ -1934,6 +1955,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     // NOTE: 越界保护的理由和设置页那条一样 —— 左栏的条目和堆叠页要是对不上，宁可停在原来
     //       那页，也不要 setCurrentIndex(-1) 把右栏整片清空（"点一下界面就空了"用户只会
     //       当成崩了）。
+    setupLifecyclePages();
     connect(m_pageList, &QListWidget::currentRowChanged, this,
             [this](int row) { applyEntry(row); });
     // 打开就是第一条（概览）—— 左栏亮着哪一条、右栏就是哪一页，两边不能各说各的。
@@ -2242,6 +2264,10 @@ int InstanceSettingsDialog::navListWidth(const QListWidget *list) {
 }
 
 QString InstanceSettingsDialog::pageText(const QString &key) {
+    if (key == QStringLiteral("launch")) return QStringLiteral("启动设置");
+    if (key == QStringLiteral("schematic")) return QStringLiteral("原理图");
+    const int lifecycleIndex = lifecyclePageKeys().indexOf(key);
+    if (lifecycleIndex >= 0) return lifecyclePageTexts().value(lifecycleIndex);
     // 两张按下标对齐的表各查一遍（键表是**身份**，别拿文字去反查）。
     const QStringList pinned = pinnedPageKeys();
     const int pinnedIndex = pinned.indexOf(key);
@@ -2295,11 +2321,11 @@ void InstanceSettingsDialog::setPageChoices(const QJsonObject &stored) {
 }
 
 void InstanceSettingsDialog::applyEntry(int row) {
-    const QStringList keys = shownEntryKeys();
-    if (row < 0 || row >= keys.size()) {
+    const QListWidgetItem *item = m_pageList->item(row);
+    if (item == nullptr || item->data(Qt::UserRole).toString().isEmpty()) {
         return;
     }
-    applyPageKey(keys.at(row));
+    applyPageKey(item->data(Qt::UserRole).toString());
 }
 
 void InstanceSettingsDialog::applyPageKey(const QString &key) {
@@ -2314,6 +2340,27 @@ void InstanceSettingsDialog::applyPageKey(const QString &key) {
     // 用户手里碰不到这一位：点同一条时 QListWidget 本来就不发信号（见 .hpp 那条 NOTE）。
     const bool alreadyHere = m_stack->currentIndex() == index;
     m_stack->setCurrentIndex(index);
+    refreshLifecycleFiles(key);
+    {
+        const QSignalBlocker blocker(m_navigationTree);
+        m_navigationTree->setCurrentItem(nullptr);
+        QString navigationKey = key;
+        if (key == QStringLiteral("integrity") || key == QStringLiteral("repair"))
+            navigationKey = QStringLiteral("integritymenu");
+        if (key == QStringLiteral("logs") || key == QStringLiteral("crash") || key == QStringLiteral("diagnosis"))
+            navigationKey = QStringLiteral("diagnosticsmenu");
+        if (key == QStringLiteral("export") || key == QStringLiteral("migration") || key == QStringLiteral("upgrade"))
+            navigationKey = QStringLiteral("operationsmenu");
+        for (QTreeWidgetItemIterator it(m_navigationTree); *it; ++it) {
+            if ((*it)->data(0, Qt::UserRole).toString() == navigationKey) {
+                m_navigationTree->setCurrentItem(*it);
+                for (auto *parent = (*it)->parent(); parent != nullptr; parent = parent->parent())
+                    parent->setExpanded(true);
+                m_navigationTree->scrollToItem(*it);
+                break;
+            }
+        }
+    }
     // 切到这一页就**当场重列一遍**：打开这个对话框的这段时间里，盘上那些文件夹完全可能
     // 被别的东西动过（游戏正在写日志、用户自己开了个资源管理器）。列目录只有读，很便宜，
     // 而"我看见的和盘上不一样"是这一页最没道理的一种错。
@@ -2335,28 +2382,51 @@ void InstanceSettingsDialog::rebuildEntryList() {
     // 左栏这一列只是它的画 —— 所以从它反查，别自己存一份。
     const QString currentKey = pageKeyAtStackIndex(m_stack->currentIndex());
     const QStringList keys = shownEntryKeys();
+    rebuildNavigationTree();
     {
         // 重灌这一列时的每一句都是"程序化改控件"，压着信号：选中的还原由下面那一发
         // applyPageKey() 自己办（`setCurrentRow()` 在"本来就亮着这一条"时不发信号，
         // 光靠信号会漏）。
         const QSignalBlocker blocker(m_pageList);
         m_pageList->clear();
-        for (const QString &key : keys) {
-            auto *item = new QListWidgetItem(pageText(key), m_pageList);
-            // 身份进 userData：条目文字是显示内容、会随文案改，不能拿它当身份。
-            item->setData(Qt::UserRole, key);
+        const QList<QPair<QString, QStringList>> groups = {
+            {tr("基础设置"), pinnedPageKeys()},
+            {tr("内容管理"), {QStringLiteral("mod"), QStringLiteral("resourcepack"),
+                              QStringLiteral("datapack"), QStringLiteral("shader")}},
+            {tr("世界与联机"), {QStringLiteral("save"), QStringLiteral("server")}},
+            {tr("创作工具"), {QStringLiteral("schematic")}}
+        };
+        for (const auto &group : groups) {
+            QStringList visible;
+            for (const QString &key : group.second) {
+                if (keys.contains(key)) visible.append(key);
+            }
+            if (visible.isEmpty()) continue;
+            auto *heading = new QListWidgetItem(group.first, m_pageList);
+            heading->setFlags(Qt::NoItemFlags);
+            heading->setForeground(palette().color(QPalette::PlaceholderText));
+            heading->setSizeHint(QSize(0, 28));
+            for (const QString &key : visible) {
+                auto *item = new QListWidgetItem(QStringLiteral("  ") + pageText(key), m_pageList);
+                item->setData(Qt::UserRole, key);
+            }
         }
         // ★ 尺寸**每次都重算** —— 这一列的内容是会变的（勾掉一条就少一格），照抄构造时
         //   那份宽高会留下"标签被裁掉"或者"右边空一大截"。行高**交给样式算**
         //   （sizeHintForRow），别写死数字：换字体/换样式就错。和设置页那一列同一条规矩。
-        int rowsHeight = 0;
-        for (int i = 0; i < m_pageList->count(); ++i) {
-            rowsHeight += m_pageList->sizeHintForRow(i);
-        }
-        m_pageList->setFixedHeight(rowsHeight + 2 * m_pageList->frameWidth() + 2);
+        // 导航随可用高度滚动，分组再多也不能把底部启动按钮挤出窗口。
+        m_pageList->setMinimumHeight(0);
+        m_pageList->setMaximumHeight(QWIDGETSIZE_MAX);
         m_pageList->setFixedWidth(navListWidth(m_pageList));
         // 当前那一页还在表里就选回去；不在（被勾掉 / 变不可用 / 本来就没有条目）就是 -1。
-        m_pageList->setCurrentRow(keys.indexOf(currentKey));
+        int selectedRow = -1;
+        for (int i = 0; i < m_pageList->count(); ++i) {
+            if (m_pageList->item(i)->data(Qt::UserRole).toString() == currentKey) {
+                selectedRow = i;
+                break;
+            }
+        }
+        m_pageList->setCurrentRow(selectedRow);
     }
     refreshPageChecks();
 
@@ -2368,10 +2438,16 @@ void InstanceSettingsDialog::rebuildEntryList() {
     //     是最容易让人以为"点坏了"的一种状态。
     if (keys.contains(currentKey)) {
         applyPageKey(currentKey);
-    } else if (currentKey == configPageKey()) {
+    } else if (currentKey == configPageKey() || lifecyclePageKeys().contains(currentKey)) {
+        applyPageKey(currentKey);
         return;
     } else {
-        m_pageList->setCurrentRow(0);
+        for (int i = 0; i < m_pageList->count(); ++i) {
+            if (!m_pageList->item(i)->data(Qt::UserRole).toString().isEmpty()) {
+                m_pageList->setCurrentRow(i);
+                break;
+            }
+        }
         if (!keys.isEmpty()) {
             applyPageKey(keys.first());
         }
@@ -3530,7 +3606,14 @@ void InstanceSettingsDialog::showPage(const QString &key) {
     //       多发的那一次在「服务器列表」上就是白连一轮）。
     {
         const QSignalBlocker blocker(m_pageList);
-        m_pageList->setCurrentRow(shownEntryKeys().indexOf(key));
+        int row = -1;
+        for (int i = 0; i < m_pageList->count(); ++i) {
+            if (m_pageList->item(i)->data(Qt::UserRole).toString() == key) {
+                row = i;
+                break;
+            }
+        }
+        m_pageList->setCurrentRow(row);
     }
     // 无论上面那一发有没有真的换过去（`setCurrentRow()` 在"本来就亮着这一条"时不发信号），
     // 这里都摆一次。同一页重复摆的那一多半由 alreadyHere 挡掉。
@@ -3540,6 +3623,221 @@ void InstanceSettingsDialog::showPage(const QString &key) {
 QString InstanceSettingsDialog::currentPageKey() const {
     // 判据只有右栏那一位（见 .hpp 那段）：反查函数本来就在、`rebuildEntryList()` 也在用。
     return m_stack == nullptr ? QString() : pageKeyAtStackIndex(m_stack->currentIndex());
+}
+
+void InstanceSettingsDialog::rebuildNavigationTree() {
+    if (m_navigationTree == nullptr) return;
+    QSet<QString> collapsed;
+    const bool rebuilding = m_navigationTree->topLevelItemCount() > 0;
+    for (QTreeWidgetItemIterator it(m_navigationTree); *it; ++it) {
+        if ((*it)->childCount() > 0 && !(*it)->isExpanded())
+            collapsed.insert((*it)->data(0, Qt::UserRole + 1).toString());
+    }
+    const QSignalBlocker blocker(m_navigationTree);
+    m_navigationTree->clear();
+    const auto add = [this](QTreeWidgetItem *parent, const QString &text, const QString &key) {
+        auto *item = parent != nullptr ? new QTreeWidgetItem(parent)
+                                      : new QTreeWidgetItem(m_navigationTree);
+        item->setText(0, text);
+        item->setData(0, Qt::UserRole, key);
+        item->setToolTip(0, text);
+        item->setSizeHint(0, QSize(0, key.isEmpty() ? 32 : 36));
+        if (key.isEmpty()) item->setFlags(Qt::ItemIsEnabled);
+        return item;
+    };
+    const auto group = [&add](QTreeWidgetItem *parent, const QString &text, const QString &id) {
+        auto *item = add(parent, text, QString());
+        item->setData(0, Qt::UserRole + 1, id);
+        return item;
+    };
+    const auto leaf = [&add](QTreeWidgetItem *parent, const QString &key) {
+        return add(parent, InstanceSettingsDialog::pageText(key), key);
+    };
+    leaf(nullptr, overviewCategoryKey());
+    leaf(nullptr, launchCategoryKey());
+    auto *content = group(nullptr, tr("内容管理"), QStringLiteral("content"));
+    for (const QString &key : {QStringLiteral("mod"), QStringLiteral("resourcepack"),
+                               QStringLiteral("datapack"), QStringLiteral("shader")}) {
+        // 保留用户明确关闭页面的选择；可用性不足在既有页面里解释，不吞掉导航入口。
+        if (m_pageOverrides.value(key).toBool(true)) leaf(content, key);
+    }
+    auto *worlds = group(nullptr, tr("世界与联机"), QStringLiteral("worlds"));
+    for (const QString &key : {QStringLiteral("save"), QStringLiteral("server"), QStringLiteral("worldbackup")})
+        if (m_pageOverrides.value(key).toBool(true)) leaf(worlds, key);
+    auto *creative = group(nullptr, tr("创作工具"), QStringLiteral("creative"));
+    for (const QString &key : {QStringLiteral("screenshots"), QStringLiteral("replay"),
+                               QStringLiteral("schematic"), QStringLiteral("structure")})
+        if (m_pageOverrides.value(key).toBool(true)) leaf(creative, key);
+    auto *maintenance = group(nullptr, tr("维护"), QStringLiteral("maintenance"));
+    leaf(maintenance, QStringLiteral("integritymenu"));
+    leaf(maintenance, QStringLiteral("diagnosticsmenu"));
+    add(maintenance, tr("快照与恢复"), QStringLiteral("snapshots"));
+    leaf(maintenance, QStringLiteral("operationsmenu"));
+    for (QTreeWidgetItemIterator it(m_navigationTree); *it; ++it) {
+        if ((*it)->childCount() > 0)
+            (*it)->setExpanded(!rebuilding || !collapsed.contains((*it)->data(0, Qt::UserRole + 1).toString()));
+    }
+}
+
+void InstanceSettingsDialog::setupLifecyclePages() {
+    for (const QString &key : lifecyclePageKeys()) {
+        QWidget *page = addPage(key);
+        auto *layout = qobject_cast<QVBoxLayout *>(page->layout());
+        auto *title = new QLabel(pageText(key), page);
+        QFont font = title->font();
+        font.setBold(true);
+        font.setPointSize(font.pointSize() + 2);
+        title->setFont(font);
+        layout->addWidget(title);
+        const auto hint = [layout, page](const QString &text) {
+            auto *label = new QLabel(text, page);
+            label->setWordWrap(true);
+            layout->addWidget(label);
+        };
+        const auto action = [layout, page, this](const QString &text, const std::function<void()> &callback) {
+            auto *button = new QPushButton(text, page);
+            Theme::markButton(button, Theme::ButtonKind::Neutral);
+            connect(button, &QPushButton::clicked, this, callback);
+            layout->addWidget(button, 0, Qt::AlignLeft);
+        };
+        QStringList children;
+        if (key == QStringLiteral("integritymenu"))
+            children = {QStringLiteral("integrity"), QStringLiteral("repair")};
+        if (key == QStringLiteral("diagnosticsmenu"))
+            children = {QStringLiteral("logs"), QStringLiteral("crash"), QStringLiteral("diagnosis")};
+        if (key == QStringLiteral("operationsmenu"))
+            children = {QStringLiteral("export"), QStringLiteral("migration"), QStringLiteral("upgrade")};
+        if (!children.isEmpty()) {
+            for (const QString &child : children)
+                action(pageText(child), [this, child]() { showPage(child); });
+            layout->addStretch(1);
+            continue;
+        }
+        QString parentMenu;
+        if (key == QStringLiteral("integrity") || key == QStringLiteral("repair")) parentMenu = QStringLiteral("integritymenu");
+        if (key == QStringLiteral("logs") || key == QStringLiteral("crash") || key == QStringLiteral("diagnosis")) parentMenu = QStringLiteral("diagnosticsmenu");
+        if (key == QStringLiteral("export") || key == QStringLiteral("migration") || key == QStringLiteral("upgrade")) parentMenu = QStringLiteral("operationsmenu");
+        if (!parentMenu.isEmpty())
+            action(tr("返回%1").arg(pageText(parentMenu)), [this, parentMenu]() { showPage(parentMenu); });
+        const bool browse = key == QStringLiteral("screenshots") || key == QStringLiteral("replay")
+                            || key == QStringLiteral("logs") || key == QStringLiteral("crash")
+                            || key == QStringLiteral("structure");
+        if (browse) {
+            hint(key == QStringLiteral("structure")
+                     ? tr("浏览各存档 generated 目录中的结构文件；双击打开文件，右键打开所在目录。")
+                     : tr("按修改时间从新到旧显示。双击打开文件，右键打开所在目录。"));
+            action(tr("刷新"), [this, key]() { refreshLifecycleFiles(key); });
+            auto *list = new QListWidget(page);
+            list->setObjectName(QStringLiteral("instanceLifecycleFiles_%1").arg(key));
+            list->setIconSize(QSize(96, 64));
+            list->setContextMenuPolicy(Qt::CustomContextMenu);
+            layout->addWidget(list, 1);
+            m_lifecycleLists.insert(key, list);
+            connect(list, &QListWidget::itemActivated, this, [this](QListWidgetItem *item) {
+                const QString path = item->data(Qt::UserRole).toString();
+                if (!path.isEmpty()) emit openInstanceFileRequested(path);
+            });
+            connect(list, &QListWidget::customContextMenuRequested, this, [this, list](const QPoint &point) {
+                if (auto *item = list->itemAt(point)) {
+                    const QString path = item->data(Qt::UserRole).toString();
+                    if (!path.isEmpty()) emit openInstanceFolderRequested(QFileInfo(path).absolutePath());
+                }
+            });
+            continue;
+        }
+        if (key == QStringLiteral("integrity")) {
+            hint(tr("检查核心文件、依赖库和资源，查看缺失或异常文件报告，再按报告选择修复。"));
+            action(tr("开始完整性检查"), [this]() { emit integrityCheckRequested(); });
+        } else if (key == QStringLiteral("repair")) {
+            hint(tr("先检查实例并在报告中确认需要补全的文件；不会自动替换模组或用户配置。"));
+            action(tr("检查并选择修复项目"), [this]() { emit integrityCheckRequested(); });
+        } else if (key == QStringLiteral("snapshots")) {
+            hint(tr("实例快照包含整个实例的用户数据，与单个世界备份独立。恢复前沿用现有预览和安全备份流程。"));
+            action(createSnapshotText(), [this]() { emit createSnapshotRequested(); });
+            action(restoreSnapshotText(), [this]() { emit restoreSnapshotRequested(); });
+        } else if (key == QStringLiteral("worldbackup")) {
+            hint(tr("选择需要管理的世界。备份只覆盖这个世界，恢复沿用现有备份选择与安全确认流程。"));
+            auto *list = new QListWidget(page);
+            list->setObjectName(QStringLiteral("instanceWorldBackupList"));
+            m_lifecycleLists.insert(key, list);
+            layout->addWidget(list, 1);
+            action(tr("刷新世界列表"), [this, key]() { refreshLifecycleFiles(key); });
+            action(tr("创建世界备份"), [this, list]() {
+                if (auto *item = list->currentItem()) {
+                    const QString path = item->data(Qt::UserRole).toString();
+                    if (!path.isEmpty()) emit backupSelectedWorldRequested(path);
+                }
+            });
+            action(tr("恢复世界备份…"), [this, list]() {
+                if (auto *item = list->currentItem()) {
+                    const QString path = item->data(Qt::UserRole).toString();
+                    if (!path.isEmpty()) emit restoreSelectedWorldRequested(path);
+                }
+            });
+        } else if (key == QStringLiteral("export")) {
+            hint(exportHint());
+            action(tr("导出整合包…"), [this]() {
+                if (auto *button = findChild<QPushButton *>(exportButtonName())) button->click();
+            });
+        } else if (key == QStringLiteral("diagnosis")) {
+            hint(tr("通过启动日志和崩溃报告排查启动失败；启动前完整性检查可定位文件缺失。综合 Java、内存与模组的独立诊断报告仍待实现。"));
+            action(tr("查看日志"), [this]() { showPage(QStringLiteral("logs")); });
+            action(tr("查看崩溃报告"), [this]() { showPage(QStringLiteral("crash")); });
+            action(tr("检查启动文件"), [this]() { emit integrityCheckRequested(); });
+        } else if (key == QStringLiteral("migration")) {
+            hint(tr("实例迁移流程尚未实现。迁移需要规划目标路径、校验文件并更新引用；现有复制功能保留原实例，不等同于迁移。"));
+        } else if (key == QStringLiteral("upgrade")) {
+            hint(tr("Minecraft 版本升级向导尚未实现。需要目标版本与加载器兼容性确认、升级副本和恢复点；现有模组更新中心不等同于版本升级。"));
+        }
+        layout->addStretch(1);
+    }
+}
+
+void InstanceSettingsDialog::refreshLifecycleFiles(const QString &key) {
+    auto *list = m_lifecycleLists.value(key);
+    if (list == nullptr) return;
+    list->clear();
+    const QString root = m_fileDirs.value(key == QStringLiteral("structure") || key == QStringLiteral("worldbackup")
+                                             ? QStringLiteral("save") : key);
+    QFileInfoList files;
+    if (!root.isEmpty() && QDir(root).exists()) {
+        if (key == QStringLiteral("worldbackup")) {
+            files = QDir(root).entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Time);
+        } else if (key == QStringLiteral("structure")) {
+            for (const QFileInfo &world : QDir(root).entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot)) {
+                const QString generated = world.absoluteFilePath() + QStringLiteral("/generated");
+                QDirIterator it(generated, {QStringLiteral("*.nbt")}, QDir::Files, QDirIterator::Subdirectories);
+                while (it.hasNext()) {
+                    it.next();
+                    if (QDir(generated).relativeFilePath(it.filePath()).contains(QStringLiteral("/structures/")))
+                        files.append(it.fileInfo());
+                }
+            }
+        } else {
+            QStringList filters;
+            if (key == QStringLiteral("screenshots")) filters = {QStringLiteral("*.png"), QStringLiteral("*.jpg"), QStringLiteral("*.jpeg")};
+            if (key == QStringLiteral("replay")) filters = {QStringLiteral("*.mcpr")};
+            files = QDir(root).entryInfoList(filters, QDir::Files, QDir::Time);
+        }
+    }
+    std::sort(files.begin(), files.end(), [](const QFileInfo &a, const QFileInfo &b) {
+        return a.lastModified() > b.lastModified();
+    });
+    for (const QFileInfo &file : files) {
+        auto *item = new QListWidgetItem(file.fileName() + QLatin1Char('\n')
+            + file.lastModified().toString(QStringLiteral("yyyy-MM-dd HH:mm")), list);
+        item->setData(Qt::UserRole, file.absoluteFilePath());
+        item->setToolTip(file.absoluteFilePath());
+        if (key == QStringLiteral("screenshots")) {
+            QImageReader reader(file.absoluteFilePath());
+            reader.setScaledSize(reader.size().scaled(QSize(96, 64), Qt::KeepAspectRatio));
+            item->setIcon(QPixmap::fromImage(reader.read()));
+        }
+    }
+    if (files.isEmpty()) {
+        auto *item = new QListWidgetItem(tr("暂无文件"), list);
+        item->setFlags(Qt::NoItemFlags);
+    }
 }
 
 QWidget *InstanceSettingsDialog::addOverrideRow(QGridLayout *grid, int row, const QString &field,

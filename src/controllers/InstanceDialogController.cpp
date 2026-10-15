@@ -29,6 +29,8 @@
 #include <QClipboard>
 #include <QComboBox>
 #include <QDir>
+#include <QDesktopServices>
+#include <QUrl>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -322,8 +324,8 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
         //         目录，哪些存档有结构也就跟着换一份。
         dialog.setSchematicUsable(usable.schematic);
         if (InstanceFilesPage *schematics = dialog.filesPage(QStringLiteral("schematic"))) {
-            schematics->setStructureSources(structureSourcesFor(
-                usable.worlds, usable.litematica, fileDirs.value(QStringLiteral("schematic"))));
+            // 原理图与原版结构已拆为独立页面；原理图只列实例级 schematics 目录。
+            schematics->setStructureSources({});
         }
         dialog.setDatapackUsable(usable.datapack);
         // ★ 2026-10-10：那两颗「加入…」（**临时占位**，见 QuickPlay）。
@@ -443,6 +445,17 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     // NOTE: 这两条**要多捕获一个 &dialog** —— 动完盘得让那几页重列一遍（不然删掉的那一行
     //       还在屏幕上，用户会以为没删掉）。dialog 是栈上的局部对象、这一句又写在
     //       execPage 之前，所以引用一直活着；那几发也只在 execPage 期间可能发生。
+    connect(&dialog, &InstanceSettingsDialog::backupSelectedWorldRequested, m_owner,
+            [this](const QString &path) { m_owner->backupWorldNow(path); });
+    connect(&dialog, &InstanceSettingsDialog::restoreSelectedWorldRequested, m_owner,
+            [this, &dialog](const QString &path) { m_owner->m_backupController->restoreWorld(path, &dialog); });
+    connect(&dialog, &InstanceSettingsDialog::openInstanceFileRequested, m_owner,
+            [this](const QString &path) {
+                if (!QFileInfo(path).isFile() || !QDesktopServices::openUrl(QUrl::fromLocalFile(path))) {
+                    InlineMessage::warning(m_owner->m_ui->overlay(), tr("打开文件"),
+                                           tr("无法打开文件：%1").arg(QDir::toNativeSeparators(path)));
+                }
+            });
     connect(&dialog, &InstanceSettingsDialog::openInstanceFolderRequested, m_owner,
             [this](const QString &path) {
                 if (path.isEmpty()) {

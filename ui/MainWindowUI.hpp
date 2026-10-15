@@ -78,6 +78,7 @@
 class QGridLayout;
 class QHBoxLayout;
 class QScrollArea;
+class QSpacerItem;
 class QVBoxLayout;
 class OverlayHost;
 class TitleBar;
@@ -1464,6 +1465,7 @@ public:
     static QString homeInstancePickerName() { return QStringLiteral("homeInstancePicker"); }
 
     enum class HomeQuickAction { Launch, Edit, ChooseInstance };
+    enum class HomeQuickMode { Current, Recent, Favorite };
     struct HomeQuickItem {
         QString key;
         QString name;
@@ -1477,11 +1479,20 @@ public:
     };
     using HomeQuickActionHandler =
         std::function<void(const QString &key, HomeQuickAction action)>;
-    void setHomeQuickRows(const QList<HomeQuickItem> &favorites,
+    void setHomeQuickRows(const QList<HomeQuickItem> &current,
+                          const QList<HomeQuickItem> &favorites,
                           const QList<HomeQuickItem> &recent);
+    /// 旧验证和旧调用点仍按“收藏 / 最近”两排传参；保留这个适配入口，避免它们为了布局迁移
+    /// 误把第一份列表当成“当前”。产品代码统一走三参版本。
+    void setHomeQuickRows(const QList<HomeQuickItem> &favorites,
+                          const QList<HomeQuickItem> &recent) {
+        setHomeQuickRows({}, favorites, recent);
+    }
     void setHomeQuickActionHandler(const HomeQuickActionHandler &handler) {
         m_homeQuickActionHandler = handler;
     }
+    HomeQuickMode homeQuickMode() const { return m_homeQuickMode; }
+    void setHomeQuickMode(HomeQuickMode mode);
     struct HomePickerFolder {
         QString path;
         QString title;
@@ -1505,6 +1516,8 @@ public:
                                 const QList<HomePickerInstance> &instances,
                                 const HomePickerFolderHandler &folderHandler,
                                 const HomePickerInstanceHandler &instanceHandler);
+    void closeHomeInstancePicker();
+    bool homeInstancePickerOpen() const;
     static QString bottomBarName() { return QStringLiteral("bottomBar"); }
     static QString avatarLabelName() { return QStringLiteral("avatarLabel"); }
     /// 底栏头像那一块的边长（像素）。**唯一出处**：主窗口拿它去裁头像
@@ -1612,6 +1625,8 @@ public:
 
     static QString runStateButtonName() { return QStringLiteral("runStateButton"); }
     static QString accountButtonName() { return QStringLiteral("accountButton"); }
+    static QString toolboxButtonName() { return QStringLiteral("toolboxButton"); }
+    static QString toolboxPanelName() { return QStringLiteral("toolboxPanel"); }
 
     // ---------- 上拉面板里"一行长什么样" ----------
     //
@@ -3447,6 +3462,9 @@ public:
     // 所以它比别处多一层：界面只管把贴图喂进去，贴图从哪来是业务层的事。
     SkinViewer *getSkinViewer() const { return skinViewer; }
     QLabel *getSkinHintLabel() const { return skinHintLabel; }
+    QLabel *getHomeAccountLabel() const { return homeAccountLabel; }
+    QLabel *getHomeAvatarLabel() const { return homeAvatarLabel; }
+    QLabel *getHomeAccountTypeLabel() const { return homeAccountTypeLabel; }
     /// 「账号与外观…」的兼容入口（主页不展示；可见入口在底栏账号面板与设置页）。
     QPushButton *getAccountSkinButton() const { return accountSkinButton; }
 
@@ -3472,6 +3490,7 @@ public:
     /// （见 setBottomBarPanelContent()）。
     QPushButton *getRunStateButton() const { return runStateButton; }
     QPushButton *getAccountButton() const { return accountButton; }
+    QPushButton *getToolboxButton() const { return toolboxButton; }
     /// 底栏中间那一格（2026-10-12 起它也是一整颗按钮：点一下向上展开任务中心）。
     QPushButton *getTaskSummaryButton() const { return taskSummaryButton; }
     /// 那格右边那句小字（「另有 N 项」）。**空着的时候它自己就收起来了**（布局里宽度 0）。
@@ -3521,6 +3540,7 @@ private:
         Instances,  ///< 左下那格：列正在跑的实例（`BottomBarPanel`）
         Accounts,   ///< 右下那格：列最近用过的账号（`BottomBarPanel`）
         Tasks,      ///< 中间那格：任务中心（`TaskCenterPanel`，2026-10-12 加）
+        Tools,      ///< 右下那格：工具箱轻量菜单
     };
     struct BottomBarAnchor {
         QPushButton *button = nullptr;
@@ -3536,6 +3556,7 @@ private:
     ///       两块 `BottomBarPanel` 都叫 `bottomBarPanel` 那一个名字，任务中心那块是
     ///       另一个类、另一个名字，两者不在同一个 findChild 里。
     void toggleBottomBarPanel(const BottomBarAnchor &anchor);
+    void toggleToolboxPanel();
     /// 把 @p anchor 那块面板弹出来。**"收"的那一半在 toggleBottomBarPanel()**：
     /// 这个函数只负责开，不管现在开着什么。
     void openBottomBarPanel(const BottomBarAnchor &anchor);
@@ -3557,11 +3578,26 @@ private:
     // NOTE: 新加控件指针时**一并写上 = nullptr**，别让它单独破例。
     QPushButton *startButton = nullptr;
     QPushButton *homeInstanceSelectButton = nullptr;
+    QWidget *homeLaunchArea = nullptr;
+    QWidget *homeHeroArea = nullptr;
+    QWidget *homePickerHost = nullptr;
+    QWidget *homeProfileCard = nullptr;
+    QWidget *homeRightColumn = nullptr;
+    QSpacerItem *homeLaunchSpacer = nullptr;
+    QWidget *homeQuickSection = nullptr;
+    QPushButton *homeQuickCurrentTab = nullptr;
+    QPushButton *homeQuickRecentTab = nullptr;
+    QPushButton *homeQuickFavoriteTab = nullptr;
+    QWidget *homeQuickCurrentSection = nullptr;
     QWidget *homeFavoriteSection = nullptr;
     QWidget *homeQuickRecentSection = nullptr;
+    QHBoxLayout *homeQuickCurrentRow = nullptr;
     QHBoxLayout *homeFavoriteRow = nullptr;
     QHBoxLayout *homeQuickRecentRow = nullptr;
     QPushButton *accountSkinSettingsButton = nullptr;
+    QLabel *homeAccountLabel = nullptr;
+    QLabel *homeAvatarLabel = nullptr;
+    QLabel *homeAccountTypeLabel = nullptr;
     QPushButton *addFolderButton = nullptr;
     QListWidget *folderList = nullptr;
     QTreeWidget *instanceList = nullptr;
@@ -3701,6 +3737,7 @@ private:
     /// 底栏两头那两颗按钮：整格都是一颗按钮（里面装着原来的那几行字 + 右边一个朝上的箭头）。
     QPushButton *runStateButton = nullptr;
     QPushButton *accountButton = nullptr;
+    QPushButton *toolboxButton = nullptr;
     /// 中间那一格**也是一整颗按钮**（2026-10-12，coding plan §3.1「整块可点击」）：
     /// 里面装着"任务标题 + 右边那句小字 + 一块进度条 + 右边一个朝上的箭头"。
     /// 宽度**不钉**（中间那格本来就是吃富余宽度的那一份，见 .cpp 里那段 6:1:1）。
@@ -3740,6 +3777,7 @@ private:
     /// 「那一行行尾那颗小按钮被点了」该告诉谁（见 setTaskCenterRowActionHandler()）。
     TaskCenter::RowActionHandler m_taskCenterRowAction;
     HomeQuickActionHandler m_homeQuickActionHandler;
+    HomeQuickMode m_homeQuickMode = HomeQuickMode::Current;
     /// 「文件夹齿轮菜单里某一项被点了」该告诉谁（见 setFolderActionHandler()）。
     FolderActionHandler m_folderActionHandler;
     /// 「组齿轮菜单里某一项被点了」和「挑目标框里某一组被点了」该告诉谁

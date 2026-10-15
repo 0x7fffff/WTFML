@@ -316,7 +316,24 @@ public:
     /// 换言之 `stackIndex = filePageFirstIndex() + filePageKeys() 里的下标`。
     static int filePageFirstIndex() { return 2; }
     /// 堆叠页一共有几页。
-    static int pageCount() { return filePageFirstIndex() + filePageKeys().size(); }
+    static QStringList lifecyclePageKeys() {
+        return {QStringLiteral("worldbackup"), QStringLiteral("screenshots"),
+                QStringLiteral("replay"), QStringLiteral("structure"),
+                QStringLiteral("integrity"), QStringLiteral("repair"),
+                QStringLiteral("logs"), QStringLiteral("crash"), QStringLiteral("diagnosis"),
+                QStringLiteral("snapshots"), QStringLiteral("export"),
+                QStringLiteral("migration"), QStringLiteral("upgrade"),
+                QStringLiteral("integritymenu"), QStringLiteral("diagnosticsmenu"), QStringLiteral("operationsmenu")};
+    }
+    static QStringList lifecyclePageTexts() {
+        return {QStringLiteral("世界备份"), QStringLiteral("截图"), QStringLiteral("Replay"),
+                QStringLiteral("结构"), QStringLiteral("完整性检查"), QStringLiteral("实例修复"),
+                QStringLiteral("日志"), QStringLiteral("崩溃报告"), QStringLiteral("启动诊断"),
+                QStringLiteral("快照管理"), QStringLiteral("导出整合包"),
+                QStringLiteral("实例迁移"), QStringLiteral("版本升级"),
+                QStringLiteral("完整性"), QStringLiteral("诊断"), QStringLiteral("实例操作")};
+    }
+    static int pageCount() { return filePageFirstIndex() + filePageKeys().size() + lifecyclePageKeys().size(); }
 
     /// @p key 那一页在堆叠页里占第几格。认不出来的键回 -1（调用方要判）。
     ///
@@ -333,7 +350,9 @@ public:
             return pinned;
         }
         const int index = filePageKeys().indexOf(key);
-        return index < 0 ? -1 : filePageFirstIndex() + index;
+        if (index >= 0) return filePageFirstIndex() + index;
+        const int extra = lifecyclePageKeys().indexOf(key);
+        return extra < 0 ? -1 : filePageFirstIndex() + filePageKeys().size() + extra;
     }
 
     static QString pageListName() { return QStringLiteral("instanceSettingsPageList"); }
@@ -1713,6 +1732,9 @@ signals:
      * @param path 要打开的目录（绝对路径）。
      */
     void openInstanceFolderRequested(const QString &path);
+    void openInstanceFileRequested(const QString &path);
+    void backupSelectedWorldRequested(const QString &path);
+    void restoreSelectedWorldRequested(const QString &path);
 
     /**
      * @brief 用户按了某一条行尾的「禁用」/「启用」。
@@ -2094,6 +2116,11 @@ private:
     // ---------- 左栏那一列 + 右栏堆叠页（见 pinnedPageKeys() 上面那一段）----------
     /// 左栏**唯一**那一列。当前行 = 界面上当前摆着的那一页。
     QListWidget *m_pageList = nullptr;
+    QTreeWidget *m_navigationTree = nullptr;
+    QHash<QString, QListWidget *> m_lifecycleLists;
+    void setupLifecyclePages();
+    void rebuildNavigationTree();
+    void refreshLifecycleFiles(const QString &key);
     /// 右栏那份堆叠页，下标见 pageCount() / filePageFirstIndex()。
     QStackedWidget *m_stack = nullptr;
 

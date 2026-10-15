@@ -88,8 +88,6 @@
 #include <QFutureWatcher>
 #include <QGuiApplication>
 // 玩家外观那一套（皮肤/披风贴图）和存档图标都按 QImage 处理。
-// NOTE: 原来这里写的是"用户挑的实例图标要解码再编码成 icon.png"—— 那件事 2026-10-15 搬进了
-//       `controllers/InstanceSettingsController.cpp`，但 QImage 在这一层还有别的用处。
 #include <QImage>
 #include <QLabel>
 #include <QLineEdit>
@@ -107,7 +105,6 @@
 #include <QProcess>
 #include <QPushButton>
 // 那几处"先写临时文件、再原子替换"的落盘（启动脚本 / 导出 / 备份那几处）。
-// NOTE: 写实例图标那一处 2026-10-15 搬去了 controllers/InstanceSettingsController.cpp。
 #include <QSaveFile>
 #include <QScreen>
 #include <QSignalBlocker>
@@ -1144,10 +1141,6 @@ QSet<QString> knownGroupIdsOf(const InstanceGroupStore *groups) {
     return known;
 }
 
-/// ★ 2026-10-15：`writeInstanceIcon()` 搬进了 `controllers/InstanceSettingsController.cpp`
-///   （它是"实例设置写侧"那几个字节：用户挑的那张图 → 实例目录下那份 icon.png）。那边是
-///   唯一调用点所在的地方。
-
 /// 一个实例**默认**该归到哪个默认组 —— 只给"用户还从来没给它表过态"的实例用（见调用点）。
 ///
 /// 判据就是用户 2026-09-24 定的那五个组名：
@@ -1482,9 +1475,9 @@ MainWindow::MainWindow(QWidget *parent)
     m_serverPingController = new ServerPingController(
         ServerPingController::Host{
             [this](const QString &id) { return serverListOf(id); }}, this);
-    // 服务端控制台那一页（coding plan §6.2 / M4-3，2026-10-15 从 MainWindow 搬出来）：
-    // 页对象、「这一页现在说的是谁」、那三颗按钮该不该按都在它手里；这一层只交出"写日志 /
-    // 让它停 / 强杀"这三件它自己做不到的事。
+    // 控制器迁移总览（2026-10-15）：服务端控制台、实例文件图标反查、启动历史、游戏会话、
+    // 任务详情和实例设置写侧已经各自持有页面/状态/业务判断。MainWindow 只保留跨域协调所需的
+    // Host 回调和兼容入口；具体所有权与生命周期约束写在各 Controller 的文件头，不在这里重复。
     m_serverConsole = new ServerConsoleController(
         m_serverWorkspace, m_ui, this,
         ServerConsoleController::Host{
@@ -1527,13 +1520,9 @@ MainWindow::MainWindow(QWidget *parent)
     m_instanceDialogController = new InstanceDialogController(this);
     m_instanceEditorController = new InstanceEditorController(this);
     m_importController = new ImportController(this);
-    // ★ 2026-10-15：`m_gameSessionController` 要 "上一次启动"那本账（记结局），所以它在
-    //   **下面**、`m_launchHistory` 就位之后才建。
+    // GameSessionController 要写启动历史，所以必须等 m_launchHistory 就位后再创建。
     m_launchController = new LaunchController(this);
     m_connectionsController = new ConnectionsController(this);
-    // ★ 2026-10-15：「文件管理」那几页的图标反查**连它自己那份会话缓存**一起搬进了这个
-    //   控制器（从前是这一层的七个私有成员 + 一句 friend）。留在这儿的只有四样"只有这一层
-    //   说得出来"的东西：实例目录表、显示名、日志、下载页那份 `m_resourceHits`。
     m_instanceIconController = new InstanceIconController(
         m_settings, m_resourceStore,
         InstanceIconController::Host{
@@ -1545,10 +1534,6 @@ MainWindow::MainWindow(QWidget *parent)
             }},
         this);
     // ---------- 「上一次启动」那本账（coding plan §5.1） ----------
-    // 2026-10-15 从本类搬进 `LaunchHistoryController`：读盘、记账、改结局、写盘失败只记日志
-    // 那一套，连同内存里那一份账。留在这儿的是"启动那一刻的显示名"和"当时是谁"那两格
-    // （只有主窗口说得出来），见 `appendLaunchRecord()`。
-    //
     // ★ 它在这儿建（不是初始化列表里），和上面那份任务账本同一个理由：它要读盘，得等前面
     //   几样都就位了；而且必须**赶在第一次 `updateHomeRecent()` 之前** —— 那之后凡是
     //   "实例列表变了"的路（重扫实例树那一条在构造里就会走）都会去问它要账本。
@@ -1559,11 +1544,6 @@ MainWindow::MainWindow(QWidget *parent)
             &MainWindow::updateHomeRecent);
     connect(m_launchHistory, &LaunchHistoryController::logMessage, this,
             [this](const QString &text) { appendLog(text); });
-    // ★★ 2026-10-15：**一次游戏会话从进程起来到结束**那一段（四本账 + 日志窗那一套 +
-    //   进程信号进来之后干什么）整块搬进了这个控制器 —— 从前那是这一层的九个私有成员加
-    //   一句 `friend class GameSessionController`。主窗口这一侧现在只剩这几样"只有它说得
-    //   出来"的东西（记日志 / 收尾那件任务 / 重画底栏和实例树 / 异常退出补一项 / 导出那两颗
-    //   键 / 实例显示名 / 日志窗要摆到启动器旁边 / 把窗口叫回来）—— **判断和记账全在那一层**。
     m_gameSessionController = new GameSessionController(
         m_launcherManager, m_settings, m_versionManager, m_launchHistory, m_ui,
         GameSessionController::Host{
@@ -1587,10 +1567,6 @@ MainWindow::MainWindow(QWidget *parent)
                 activateWindow();
             }},
         this);
-    // 任务详情页那一族（coding plan §3，2026-10-15 从 MainWindow 搬出来）：页对象、"打开
-    // 日志"该开哪一份、"打开目标位置"怎么认服务端、摘要长什么样，都在它手里；这一层只交出
-    // 「取消 / 重试」那两条（它们跨两个执行者，判据得和 `cancelWouldWork()` / `retryWouldWork()`
-    // 摆在一起，见那两条的 ★）。
     m_taskDetail = new TaskDetailController(
         m_activityCenter, m_crashReports, m_versionManager, m_gameSessionController,
         m_ui->overlay(), this,
@@ -2136,11 +2112,19 @@ void MainWindow::updateBottomBar() {
     // NOTE: loggedIn() 是"盘上有账户"的意思（AuthManager::loggedIn() = uuid 非空），
     //       令牌过期了它照样是 true —— 那没关系：这一行说的是**身份**，令牌过没过期是
     //       启动那一刻刷新才知道的事（那时失败会有弹窗说清原因）。
-    m_ui->getAccountTypeLabel()->setText(
+    const QString accountType =
         offlineIdentity()
             ? MainWindowUI::accountTypeOfflineText()
             : (m_authManager->loggedIn() ? MainWindowUI::accountTypeOnlineText()
-                                         : MainWindowUI::accountTypeNotLoggedInText()));
+                                         : MainWindowUI::accountTypeNotLoggedInText());
+    m_ui->getAccountTypeLabel()->setText(accountType);
+    // 主页是账号的唯一可见入口；底栏那份标签暂时仍为兼容旧面板保留数据，但不再承担身份展示。
+    if (QLabel *homeName = m_ui->getHomeAccountLabel()) {
+        homeName->setText(name);
+    }
+    if (QLabel *homeType = m_ui->getHomeAccountTypeLabel()) {
+        homeType->setText(accountType);
+    }
     // 头像优先用**真皮肤**抠出来的那一块（m_avatarPixmap，在 applyPlayerSkin() 里算好
     // 存着 —— 这里每次进度刷新都会被调到，不能现算）。没有它的时候（未登录、还没取到、
     // 取不到、贴图载不进来）退回首字母方块：退路必须留着，一块空白的头像比一个首字母
@@ -2152,6 +2136,15 @@ void MainWindow::updateBottomBar() {
                                                        : name.left(1).toUpper());
     } else {
         m_ui->getAvatarLabel()->setPixmap(m_avatarPixmap);
+    }
+    if (QLabel *avatar = m_ui->getHomeAvatarLabel()) {
+        if (m_avatarPixmap.isNull()) {
+            avatar->setPixmap(QPixmap::fromImage(
+                SkinModel::headAvatar(SkinModel::defaultSteveSkin(), avatar->width())));
+        } else {
+            avatar->setPixmap(m_avatarPixmap.scaled(avatar->size(), Qt::KeepAspectRatio,
+                                                    Qt::FastTransformation));
+        }
     }
 
     // ---------- 中：任务摘要（coding plan §3.1） ----------
@@ -2422,9 +2415,7 @@ QList<TaskCenter::Item> MainWindow::taskCenterItems() {
 }
 
 void MainWindow::openTaskDetailPage(const QString &key) {
-    // ★ 2026-10-15：整页搬进 `TaskDetailController` 了（页对象、"打开日志"该开哪一份、
-    //   "打开目标位置"怎么认服务端、复制出来的摘要长什么样）。这一条留着是因为面板那一行
-    //   的 `rowActivated` 认的是这个名字。
+    // 保留这个兼容入口：面板的 rowActivated 和验证工程按这个名字调用。
     m_taskDetail->open(key);
 }
 
@@ -4487,8 +4478,6 @@ void MainWindow::onResourceIconReady(const QString &iconId, const QPixmap &icon)
     // ★ 这一句**必须排在 m_resourceStore->requestIcon() 之后**（也就是"图标回来时"）：
     //   盘上已经有缓存的话 requestIcon() 是**同步**发 iconReady 的（见它那条 NOTE），
     //   所以这里是"记了账、立刻就用上"，而记账那一步在 requestIcon 之前就写完了。
-    //   ★★ 2026-10-15：记账那一套（"认得出这个资源的那几条文件"那张表 + 会话缓存 + 摆给
-    //      正开着的那一页）整个搬进了 `InstanceIconController`，这里只剩一声喊。
     m_instanceIconController->rememberResourceIcon(iconId, icon);
 }
 
@@ -6039,10 +6028,7 @@ void MainWindow::forceKillServer(const QString &serverId) {
 }
 
 void MainWindow::openServerConsole(const QString &serverId) {
-    // ★ 2026-10-15：这一页整个搬进了 `ServerConsoleController`（页对象、「这一页现在说的是
-    //   谁」、那三颗按钮该不该按、命令往哪个进程送）。这一条留着是因为两个调用点认的是
-    //   **这个名字**：列表上右键那一条（`runServerMenuAction`）和
-    //   `ConnectionsController` 接的那份菜单。
+    // 保留这个兼容入口：服务端菜单和 ConnectionsController 按这个名字调用。
     m_serverConsole->open(serverId);
 }
 
@@ -8707,7 +8693,20 @@ void MainWindow::updateHomeRecent() {
                 continue;
             }
             instance.name = combo->itemText(row);
+            if (m_versionManager != nullptr) {
+                const VersionDisplayParts parts = m_versionManager->displayParts(instance.id);
+                QString loaderVersion;
+                const QString loader = instanceLoaderName(parts, m_versionManager, &loaderVersion);
+                instance.version = QStringLiteral("Minecraft %1 · %2")
+                    .arg(parts.realVersion.isEmpty() ? parts.id : parts.realVersion,
+                         loader.isEmpty() ? QStringLiteral("原版")
+                                          : (loader + QLatin1Char(' ') + loaderVersion).trimmed());
+            }
             instance.icon = combo->itemIcon(row);
+            if (instance.icon.isNull() && m_versionManager != nullptr) {
+                instance.icon = QIcon(instanceRowMark(
+                    m_versionManager->displayParts(instance.id), m_versionManager, 32));
+            }
             instance.favorite = m_groupStore != nullptr && m_groupStore->isPinned(instance.id);
             installed.append(instance);
         }
@@ -8715,7 +8714,7 @@ void MainWindow::updateHomeRecent() {
     const HomeQuickController::Rows rows = HomeQuickController::build(
         installed, m_launchHistory->records(), currentId, m_settings->homeFavoriteCount(),
         m_settings->homeRecentCount());
-    m_ui->setHomeQuickRows(rows.favorites, rows.recent);
+    m_ui->setHomeQuickRows(rows.current, rows.favorites, rows.recent);
 }
 
 void MainWindow::openHomeInstancePicker() {
@@ -8829,6 +8828,8 @@ void MainWindow::openHomeInstancePicker() {
             const int row = combo == nullptr ? -1 : combo->findData(instanceId);
             if (row >= 0) {
                 combo->setCurrentIndex(row);
+                // 选中实例后回到“当前”，让收起列表后的启动区立刻说清将启动谁。
+                m_ui->setHomeQuickMode(MainWindowUI::HomeQuickMode::Current);
             }
         });
 }
@@ -9119,8 +9120,7 @@ void MainWindow::onBottomBarPanelAction(bool account, const QString &key, int ac
 }
 
 void MainWindow::openGameLogForSession(int sessionId) {
-    // ★ 2026-10-15：整段搬进控制器（"哪一扇开着 / 用户关过没有 / 会话还在不在"这三件事
-    //   读的都是它那边的表）。名字留着 —— mw_check 和底栏那一行按名字驱动它。
+    // 保留这个兼容入口：底栏和验证工程按这个名字调用。
     m_gameSessionController->openGameLogForSession(sessionId);
 }
 
@@ -9688,9 +9688,7 @@ bool MainWindow::deleteInstance(const QString &versionId) {
 }
 
 QString MainWindow::instanceKey(const QString &versionId) const {
-    // ★ 2026-10-15：这条规矩（有稳定 id 用 id、没有退回目录名）的唯一出处搬到了
-    //   `InstanceSettingsController::instanceKeyFor()` —— 那边是**写**归属的那一侧，
-    //   两边各写一遍的下场就是"读的时候按目录名找、写的时候按 id 存"。这里只转发。
+    // 稳定 id / 目录名的取舍必须和实例设置写侧共用同一条规则。
     return InstanceSettingsController::instanceKeyFor(m_versionManager, versionId);
 }
 
@@ -10945,11 +10943,7 @@ bool MainWindow::renameInstanceWorld(const QString &instanceId, const QString &w
 
 // ---------- 「文件管理」那几页的图标（2026-09-27）----------
 //
-// ★★ 2026-10-15：这一整套（趟的状态 / 会话缓存 / "这一条是哪个资源"那张表 / 往页上摆）
-//    整个搬进了 `InstanceIconController` —— 从前的这里是一串只有一行体的转发，转发本身
-//    不是拆分，功能还留在这一层。现在只剩下面这一个入口：实例设置页开出来时会喊它一声
-//    （唯一的调用点在 `InstanceDialogController` 里）。其余几样（缓存钥匙、候选文件表、
-//    认过没有、这一条是哪个资源）都由那边直接提供。
+// 入口由 InstanceDialogController 调用；扫描状态、缓存和资源映射归 InstanceIconController。
 
 void MainWindow::requestInstanceFileIcons(InstanceSettingsDialog *dialog, const QString &versionId) {
     m_instanceIconController->requestInstanceFileIcons(dialog, versionId);
