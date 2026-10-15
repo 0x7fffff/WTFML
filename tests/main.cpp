@@ -539,15 +539,18 @@ static int runPipelineTests(QCoreApplication &app, const QString &sandbox) {
     };
     const QJsonObject goodJson = buildJson(jar.url, jar.sha1, jar.size);
 
-    // 一次批次 = jar 1 + 库 2 + 索引 1 + asset 对象 3
-    const int kExpectedTotal = 7;
+    // 一次批次**登记**的作业 = jar 1 + 库 2 + 索引 1 + asset 对象 3
+    const int kRegisteredJobs = 7;
     // asset 对象（索引里点名的内容）和索引本身都落在 AppPaths::assetsDir() 下，也就是沙盒的
     // .minecraft/assets —— downloadAssets() 现在不收目录参数了，两边必然同源。所以这 3 个
     // 对象在任何一批里都"已经存在"，会走 ExistsOnly 的跳过分支（也正好验证了这条分支）。
     const int kAssetObjects = 3;
+    // 冷批次**真的下**的那几个：jar 1 + 库 2。3 个对象全在盘上（跳过），索引不计进分母。
+    const int kColdDownloads = 3;
     // 暖批次里只有索引还值得重取（它走 onAssetIndexDownloaded 那条无条件重取的路，
-    // 不经过 fileAlreadyValid，和 VerifyMode 无关），其余 6 项全部跳过
-    const int kWarmSkipped = kExpectedTotal - 1;
+    // 不经过 fileAlreadyValid，和 VerifyMode 无关），其余 6 项全部跳过 —— 而索引不进分母，
+    // 所以暖批次的分母是 **0**。
+    const int kWarmSkipped = kRegisteredJobs - 1;
 
     const auto startGood = [&](const QString &base) {
         return [&, base](DownloadManager &mgr) {
@@ -577,13 +580,18 @@ static int runPipelineTests(QCoreApplication &app, const QString &sandbox) {
         check(o.emissions == 1, "F1 冷批次: allDownloadsFinished 恰好发射 1 次",
               QString::number(o.emissions));
         check(o.success, "F1 冷批次: success == true");
-        check(o.stats.total == kExpectedTotal && o.stats.done == kExpectedTotal,
-              "F1 冷批次: total == done == 7",
+        check(o.stats.total == kColdDownloads && o.stats.done == kColdDownloads,
+              "F1 冷批次: total == done == 3（分母里只有真要下的 jar + 两个库）",
               QString("%1/%2").arg(o.stats.done).arg(o.stats.total));
         check(o.stats.failed == 0, "F1 冷批次: 无失败");
         check(o.stats.skipped == kAssetObjects,
               "F1 冷批次: 只有已在盘上的 asset 对象被跳过（ExistsOnly）",
               QString("skipped=%1").arg(o.stats.skipped));
+        // ★ 用户看进度条时读到的就是这两个数。从前 total 里塞着"跳过的 + 索引"，
+        //   两个数加不出登记总数；现在分母 + 跳过 = 登记的作业 - 索引那一格。
+        check(o.stats.total + o.stats.skipped == kRegisteredJobs - 1,
+              "★ F1 冷批次: 分母 + 跳过 = 登记总数 - 索引那一格（两个数终于对得上）",
+              QString("%1 + %2 vs %3").arg(o.stats.total).arg(o.stats.skipped).arg(kRegisteredJobs));
         check(o.busyWhileInFlight && o.busyAfterEndBatch,
               "F1 冷批次: 作业在途时 isBusy() 为真（含 endBatch 之后）");
         check(!o.busyAfter, "F1 冷批次: 全部结束后 isBusy() 为假");
@@ -605,7 +613,9 @@ static int runPipelineTests(QCoreApplication &app, const QString &sandbox) {
         check(o.stats.skipped == kWarmSkipped,
               "F2 暖批次: 6 个已存在文件被跳过（索引永远重取）",
               QString("skipped=%1").arg(o.stats.skipped));
-        check(o.stats.done == kExpectedTotal, "F2 暖批次: 跳过也计入 done/total（进度分母）",
+        check(o.stats.total == 0 && o.stats.done == 0,
+              "★ F2 暖批次: 一个都不用下 ⇒ 分母是 0（改动前 total == done == 7："
+              "分母里塞着 6 个跳过的 + 1 个索引）",
               QString("%1/%2").arg(o.stats.done).arg(o.stats.total));
         check(!o.busyAfter, "F2 暖批次: 结束后 isBusy() 为假");
     }
@@ -622,6 +632,9 @@ static int runPipelineTests(QCoreApplication &app, const QString &sandbox) {
         check(o.success, "F3 只刷新索引: success == true");
         check(o.stats.skipped == kWarmSkipped, "F3 只刷新索引: 其余 6 个跳过",
               QString("skipped=%1").arg(o.stats.skipped));
+        check(o.stats.total == 0,
+              "★ F3 只刷新索引: 索引那一条不进分母（它是「清单」不是这个实例的文件）",
+              QString("total=%1").arg(o.stats.total));
     }
 
     // F4 失败注入：客户端 jar 指向不存在的文件
@@ -697,8 +710,8 @@ static int runPipelineTests(QCoreApplication &app, const QString &sandbox) {
         out() << "        复用实例: 第一批 skipped=" << s1.skipped << "，第二批 skipped="
               << s2.skipped << "，emissions=" << emissions << "\n";
         check(emissions == 2, "F5 连跑两批: 每批各发射 1 次", QString::number(emissions));
-        check(s1.total == kExpectedTotal && s2.total == kExpectedTotal,
-              "F5 连跑两批: 每批 total 重置为 7",
+        check(s1.total == kColdDownloads && s2.total == 0,
+              "F5 连跑两批: 每批的分母各自重算（冷 3 / 暖 0 —— 不是上一批留下的 7）",
               QString("%1, %2").arg(s1.total).arg(s2.total));
         check(s1.skipped == kAssetObjects && s2.skipped == kWarmSkipped,
               "F5 连跑两批: 第二批全部走跳过分支",
@@ -739,9 +752,43 @@ static int runPipelineTests(QCoreApplication &app, const QString &sandbox) {
         check(o.stats.failedPaths.contains(indexPath),
               "F6 索引 SHA1 不对: 失败清单里是索引文件本身");
         check(!QFile::exists(indexPath), "F6 索引 SHA1 不对: 坏索引没有留在盘上");
-        check(o.stats.total == 4,
-              "F6 索引 SHA1 不对: 索引没被解析（否则会多出 3 个 asset 任务）",
+        check(o.stats.total == 3,
+              "★ F6 索引 SHA1 不对: 索引没被解析（否则会多出 3 个 asset 任务）—— "
+              "分母里是 jar 1 + 库 2，索引那条本来就不在分母里",
               QString("total=%1").arg(o.stats.total));
+    }
+
+    // F7 点名重下（setFlaggedPaths）：盘上那份**好好的**，只有"点名"这一个理由会让它重下。
+    //
+    // 这是体检 → 补全那条链的最后一环（链子的另外几截在 G5.9-G5.11）：体检按字节数把资源
+    // 对象判成"坏"，而补全那一档只看"在不在"（ExistsOnly，几千个文件全量哈希要几秒）——
+    // 于是体检说"要修 1 个"、补全说"一个都不用下"。点名之后补全就不问盘上那份了。
+    // 这里拿 F2 那个暖批次（文件全都在）当对照：**同一批文件，点不点名分母就不同**。
+    {
+        const QString warmJar = warmBase + "/versions/synth-1/synth-1.jar";
+        check(QFile::exists(warmJar), "F7 前提: 暖批次那份 jar 在盘上（F2 下的）");
+        const BatchObservation o = runBatch(app, [&](DownloadManager &mgr) {
+            mgr.setFlaggedPaths(QStringList{warmJar});
+            startGood(warmBase)(mgr);
+        });
+        out() << "        点名重下: total=" << o.stats.total << " skipped=" << o.stats.skipped << "\n";
+        check(o.emissions == 1 && o.success, "F7 点名重下: 整批照旧一个成功终态");
+        check(o.stats.total == 1 && o.stats.done == 1,
+              "★ F7 点名的那个进了分母（同一批**不点名**时是 0 —— 见 F2）",
+              QString("total=%1").arg(o.stats.total));
+        check(o.stats.skipped == kWarmSkipped - 1,
+              "★ F7 只少了它一个跳过（其余照旧跳过：点名是**按路径**认人，不是整批重下）",
+              QString("skipped=%1").arg(o.stats.skipped));
+        check(o.stats.failed == 0, "F7 那条是从 file:// 重取的，没有失败");
+
+        // 反面：点一条**对不上号**的路径 ⇒ 一条都不多下（对照 F2 的 0/0）。
+        const BatchObservation bogus = runBatch(app, [&](DownloadManager &mgr) {
+            mgr.setFlaggedPaths(QStringList{warmBase + "/nobody/else.jar"});
+            startGood(warmBase)(mgr);
+        });
+        check(bogus.stats.total == 0 && bogus.stats.skipped == kWarmSkipped,
+              "★ F7 点名表里对不上号的路径什么都不做（分母 0、6 个照旧跳过）",
+              QString("total=%1 skipped=%2").arg(bogus.stats.total).arg(bogus.stats.skipped));
     }
 
     return g_failures == 0 ? 0 : 1;
@@ -846,8 +893,8 @@ static int runVersionManagerBatch(QCoreApplication &app, const QString &sandbox)
     check(lastSuccess, "G1 冷批次: success == true");
     check(statsSignals > 0, "G1 冷批次: 进度通过 versionDownloadStats 发出（不再进日志）",
           QString::number(statsSignals));
-    check(lastDone == lastTotal && lastTotal == 4,
-          "G1 冷批次: 4 个作业全部完成（jar 1 + 库 2 + 索引 1）",
+    check(lastDone == lastTotal && lastTotal == 3,
+          "G1 冷批次: 分母里的 3 个作业全部完成（jar 1 + 库 2；索引不进分母）",
           QString("%1/%2").arg(lastDone).arg(lastTotal));
     check(!vm.isDownloading(), "G1 冷批次: 结束后 isDownloading() 为假");
 
@@ -965,8 +1012,11 @@ static int runVersionManagerBatch(QCoreApplication &app, const QString &sandbox)
           << lastTotal << "\n";
     check(emissions == 1 && lastSuccess, "G5.1 补全: 恰好一个成功终态",
           QString("emissions=%1 success=%2").arg(emissions).arg(lastSuccess));
-    check(lastDone == 4 && lastTotal == 4,
-          "G5.1 补全: 4 个文件全过了一遍（jar 1 + 库 2 + 索引 1）",
+    // ★ 用户 2026-10-15 报的就是这一对数：他点一次补全，看到的分母是"这个实例一共有几个
+    //   文件"。现在分母只剩**缺的和坏的**（这里 = 内容不对的 jar + 被删掉的那个库），
+    //   本来就好的那个库和每次都重取的索引都不在里头。
+    check(lastDone == 2 && lastTotal == 2,
+          "★ G5.1 补全: 分母 == 缺的 + 坏的 == 2（好的那个库、索引都不进分母）",
           QString("%1/%2").arg(lastDone).arg(lastTotal));
     check(readBytes(jarPath) == realJar,
           "★ G5.2 内容不对的 jar 被换回来了（字节数一样，靠 sha1 认出来的）");
@@ -976,6 +1026,13 @@ static int runVersionManagerBatch(QCoreApplication &app, const QString &sandbox)
           "G5.4 本来就是好的那个库一个字节都没动（校验通过就跳过，不是全量重写）");
     check(lastMessage.contains(QStringLiteral("跳过")),
           "G5.5 汇总里说明了有几个是本来就存在的", lastMessage);
+    // ★ 逐字钉住那句话的形状：从前写的是「%1 个文件已全部就绪（**其中** %2 个本来就存在，
+    //   已跳过）」——而 %2 当时是包含在 %1 里的，于是"13 个已全部就绪（其中 12 个本来就
+    //   存在）"被读成"只下了 1 个"。改完之后两个数是**并列**的（另有），而且分母本身
+    //   就只剩缺的那几个。
+    check(lastMessage.contains(
+              QStringLiteral("2 个文件已全部就绪（另有 1 个本来就存在，已跳过）。")),
+          "★ G5.5 汇总: 「下了 2 个」和「另有 1 个本来就在」是两个并列的数", lastMessage);
     check(readBytes(jsonPath) == jsonBefore,
           "★ G5.6 补全**不动** version.json（和 downloadVersion 的区别 ②）");
     check(!vm.isDownloading(), "G5.6 结束后 isDownloading() 为假");
@@ -994,10 +1051,91 @@ static int runVersionManagerBatch(QCoreApplication &app, const QString &sandbox)
     check(emissions == 1 && lastSuccess, "G5.7 重复补全: 仍然是一个成功终态", lastMessage);
     check(lastMessage.contains(QStringLiteral("跳过")),
           "G5.7 重复补全: 汇总里明说这次跳过了", lastMessage);
+    check(lastMessage.contains(QStringLiteral("一个文件都不用下")),
+          "★ G5.7 重复补全: 一个都没缺时不许说「0 个文件已全部就绪」"
+          "（用户读到的那个说不通的 n-1 就是它）",
+          lastMessage);
     check(readBytes(jarPath) == realJar && readBytes(lib0Path) == QByteArray("vm-lib-body-0") &&
               readBytes(lib1Path) == lib1Before,
           "G5.7 重复补全: 三个文件一个字节都没动");
     check(!vm.isDownloading(), "G5.7 结束后 isDownloading() 为假");
+
+    // --- G5.12：体检点名的那几条（2026-10-15 加的第二个入参）------------------------
+    //
+    // 「体检说这个文件是坏的、补全却跳过它」这个洞的补法：把体检那份清单（每条都带绝对路径）
+    // 一起交给补全，那一批就**不问盘上那份**、直接重下。链子是
+    // MainWindow::repairInstanceFiles → repairVersionFiles(id, flaggedPaths) →
+    // DownloadManager::setFlaggedPaths() → fileAlreadyValid() 头一句。
+    //
+    // 为什么非有它不可：jar / 库两边问盘的判据都是"字节数 + sha1"，体检说坏了补全自己也看得出来；
+    // 但**资源对象**那一档补全只看在不在（ExistsOnly，几千个文件全量哈希要几秒），于是
+    // "尺寸不对"的对象体检报「坏」、补全说"一个都不用下" —— 用户看到两份界面互相打脸。
+    // 这一节没有资源对象（索引里 objects 是空的，真去下那些对象要出网），所以这里拿**库和 jar**
+    // 钉这条链：它们盘上全是好的（G5.7 刚验过），只有"被点名"这一个理由会让它们重下一遍。
+    {
+        emissions = 0;
+        finished = false;
+        lastSuccess = false;
+        lastMessage.clear();
+        lastDone = 0;
+        lastTotal = 0;
+        const QByteArray lib0Before = readBytes(lib0Path);
+        vm.repairVersionFiles(versionId, QStringList{jarPath});
+        if (!finished) {
+            loop.exec();
+        }
+        check(emissions == 1 && lastSuccess, "G5.12 点名补全: 一个成功终态", lastMessage);
+        // ★ 和不点名那两趟（G5.7 的「一个文件都不用下」）对照着看：同样三个文件都在盘上、
+        //   全都完好，只有 jar 被点了名 ⇒ 分母是 1 而不是 0。
+        check(lastDone == 1 && lastTotal == 1,
+              "★ G5.12 点名的那一条进了分母（同样是「全都好好的」，不点名时这个数是 0）",
+              QString("%1/%2").arg(lastDone).arg(lastTotal));
+        check(readBytes(jarPath) == realJar,
+              "G5.12 点名的 jar 真被重新下了一遍（内容还是对的 —— 它是从 file:// 重取的）");
+        check(readBytes(lib0Path) == lib0Before && readBytes(lib1Path) == lib1Before,
+              "G5.12 没点名的那两个一个字节都没动");
+        check(lastMessage.contains(
+                  QStringLiteral("1 个文件已全部就绪（另有 2 个本来就存在，已跳过）。")),
+              "G5.12 汇总: 点名的那个算「下了 1 个」，另外两个算「本来就存在」", lastMessage);
+    }
+
+    // 点名的路径对不上号（别的实例的文件、或者一条早就不存在的老路径）⇒ 一条都不多下。
+    // 这一条钉的是"**只认路径**"：不能写成"清单非空就整批重下"。
+    {
+        emissions = 0;
+        finished = false;
+        lastSuccess = false;
+        lastMessage.clear();
+        lastDone = 0;
+        lastTotal = 0;
+        vm.repairVersionFiles(versionId,
+                              QStringList{work + QStringLiteral("/nobody/else/whatever.jar")});
+        if (!finished) {
+            loop.exec();
+        }
+        check(lastTotal == 0 && lastMessage.contains(QStringLiteral("一个文件都不用下")),
+              "★ G5.13 点名表里对不上号的路径: 一条都不多下（点名表是**按路径**认人的）",
+              QString("%1/%2 %3").arg(lastDone).arg(lastTotal).arg(lastMessage));
+    }
+
+    // 再补一次、**不点名** ⇒ 又回到"一个文件都不用下"：那张点名表是**这一批**的交代，
+    // beginBatch() 会清掉它（不然 G5.9 点过名的那条会一直跟着后面每一批重下）。
+    {
+        emissions = 0;
+        finished = false;
+        lastSuccess = false;
+        lastMessage.clear();
+        lastDone = 0;
+        lastTotal = 0;
+        vm.repairVersionFiles(versionId);
+        if (!finished) {
+            loop.exec();
+        }
+        check(lastTotal == 0 && lastMessage.contains(QStringLiteral("一个文件都不用下")),
+              "★ G5.14 点名只管这一批: 下一批不点名就又一条都不下（beginBatch 清掉了那张表）",
+              QString("%1/%2 %3").arg(lastDone).arg(lastTotal).arg(lastMessage));
+        check(readBytes(jarPath) == realJar, "G5.14 jar 还是好的（没有又被重下一遍）");
+    }
 
     // 读不出 json：**立刻**回一个失败终态，而且一个批次都不开（UI 不能卡在「检查中」）
     emissions = 0;
@@ -22565,6 +22703,22 @@ static void runVersionIntegrityTests() {
               "ZN7 逐条问题写成「名字：那句话」");
         check(lines.contains(QStringLiteral("    D:/x/libA")),
               "ZN7 路径缩进换一行（4 个空格）");
+
+        // ★ problemPaths()：报告给**补全**的那一份（2026-10-15 加）。补全只认路径，
+        //   所以这里钉住"就是 problems 里那几条的 path、顺序也不动"。
+        const QStringList paths = report.problemPaths();
+        check(paths == QStringList({QStringLiteral("D:/x/libA"), QStringLiteral("D:/x/libB"),
+                                    QStringLiteral("D:/x/objA")}),
+              "★ ZN7 problemPaths(): 要修的那几条的路径，按 problems 原来的顺序（补全照它点名）",
+              paths.join(QStringLiteral(" | ")));
+        VersionIntegrity::Report nothingToFix;
+        nothingToFix.checked = 3120;
+        check(nothingToFix.problemPaths().isEmpty(),
+              "★ ZN7 一个要修的都没有 ⇒ 空表（补全那边就是老行为：问盘、缺什么补什么）");
+        VersionIntegrity::Report notRun;
+        notRun.error = QStringLiteral("读不出这个实例的 version.json");
+        check(notRun.problemPaths().isEmpty(),
+              "★ ZN7 体检压根没跑起来 ⇒ 也是空表，不会点名去重下任何东西");
 
         // 没跑起来那一档：只出两行。
         VersionIntegrity::Report failed;

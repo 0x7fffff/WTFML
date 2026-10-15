@@ -79,6 +79,18 @@ int Report::corrupt() const {
     return problems.size() - missing();
 }
 
+QStringList Report::problemPaths() const {
+    // 只把 path 摘出来给补全用（见头文件）。**不做去重**：problems 里同一个路径不会出现两次
+    // （plan() 一段一段地列，每个文件只列一条），去重那一层留给真正在乎的人
+    // （DownloadManager::fileAlreadyValid() 就是按 contains 问的，重不重复都不影响它）。
+    QStringList paths;
+    paths.reserve(problems.size());
+    for (const Verdict &v : problems) {
+        paths.append(v.path);
+    }
+    return paths;
+}
+
 QString Report::summary() const {
     if (!error.isEmpty()) {
         return error;

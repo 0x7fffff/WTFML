@@ -815,7 +815,8 @@ void VersionManager::registerVersionFiles(const QJsonObject &versionJson,
     downloadManager->downloadAssets(assetIndex);
 }
 
-void VersionManager::repairVersionFiles(const QString &versionId) {
+void VersionManager::repairVersionFiles(const QString &versionId,
+                                        const QStringList &flaggedPaths) {
     // 两道早退都在 beginBatch() 之前，而且都要发终态（理由见 downloadVersion() 顶部那段 NOTE）。
     const QJsonObject versionJson = getVersionJson(versionId);
     if (versionJson.isEmpty()) {
@@ -832,6 +833,11 @@ void VersionManager::repairVersionFiles(const QString &versionId) {
 
     m_currentVersionDownloading = versionId;
     beginOwnBatch();
+
+    // 体检点过名的那几条：这一批不问盘上那份，直接重下（见 .hpp 的 @param 和
+    // DownloadManager::setFlaggedPaths()）。**必须在 beginBatch() 之后**——它会清掉上一批
+    // 留下的那张表。体检没跑过 / 体检的不是这个实例时这里是一张空表，就是老行为。
+    downloadManager->setFlaggedPaths(flaggedPaths);
 
     // 不写 json（见头文件里的 ②）；jar 的主人可能是父版本（见 ③）。
     registerVersionFiles(versionJson, InstanceFiles::jarOwnerId(versionId),
@@ -4141,11 +4147,24 @@ void VersionManager::onAllDownloadsFinished(bool success) {
 
     QString message;
     if (success) {
-        message = stats.skipped > 0
-                      ? tr("%1 个文件已全部就绪（其中 %2 个本来就存在，已跳过）。")
-                            .arg(stats.total)
-                            .arg(stats.skipped)
-                      : tr("%1 个文件已全部就绪。").arg(stats.total);
+        // 三句话，判据是那两个数**各自的含义**（2026-10-15 改，见 DownloadStats 那段）：
+        // `total` = "这一次真的下了几个"，`skipped` = "问了盘、本来就在的那几个"，
+        // 两者**不是**包含关系 —— 从前那句「其中 %2 个本来就存在」按包含读，于是
+        // "13 个已全部就绪（其中 12 个本来就存在）"被读成"只下了 1 个"，用户报的就是它。
+        if (stats.total == 0) {
+            // 一个都没下 = 全都好好的（补全那颗按钮点在一个装好的实例上就是这个形状）。
+            // 另有 skipped == 0 的情况：这一批压根没有作业登记上来。
+            message = stats.skipped > 0
+                          ? tr("一个文件都不用下：%1 个文件都已在盘上（已跳过）。")
+                                .arg(stats.skipped)
+                          : tr("没有要下载的文件。");
+        } else if (stats.skipped > 0) {
+            message = tr("%1 个文件已全部就绪（另有 %2 个本来就存在，已跳过）。")
+                          .arg(stats.total)
+                          .arg(stats.skipped);
+        } else {
+            message = tr("%1 个文件已全部就绪。").arg(stats.total);
+        }
     } else {
         // 失败清单只列前 10 项，剩下的折成一行 —— 5000 个 asset 全列出来没人看。
         const QStringList shown = stats.failedPaths.mid(0, 10);

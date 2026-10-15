@@ -403,6 +403,8 @@ void DownloadManager::fetchVersionJson(const QString &versionId) {
 
 QJsonObject DownloadManager::getVersionJson() const { return currentVersionJson; }
 
+void DownloadManager::setFlaggedPaths(const QStringList &paths) { m_flaggedPaths = paths; }
+
 void DownloadManager::beginBatch() {
     // 上一批还没收尾就又被开始了，先替它收尾，否则它的完成信号会丢。
     if (m_batchOpen) {
@@ -418,6 +420,8 @@ void DownloadManager::beginBatch() {
     m_skippedJobs = 0;
     m_failedPaths.clear();
     m_failedJobInfos.clear();
+    // "体检点名的那几条"只对**上一批**成立（见 setFlaggedPaths）：新的一批谁都没点名。
+    m_flaggedPaths.clear();
     m_currentFile.clear();
     m_batchEmitted = false;
     m_batchOpen = true;
@@ -441,6 +445,9 @@ void DownloadManager::abandonBatch() {
     // （那几个交完货才回来的回复会走到那里，然后立刻返回）。
     m_batchEmitted = true;
     m_currentFile.clear();
+    // 这一批的交代（"点名的那几条"，见 setFlaggedPaths）跟着作废：批次都放弃了，它不该管到
+    // 下一批上去（下一批可能是**不在批次里**的那几条裸 downloadFile）。
+    m_flaggedPaths.clear();
 }
 
 void DownloadManager::cancelBatch() {
@@ -456,6 +463,8 @@ void DownloadManager::cancelBatch() {
     m_batchEmitted = true;
     ++m_batchGeneration;
     m_currentFile.clear();
+    // 同 abandonBatch()：取消了，"点名的那几条"也一起作废（见 setFlaggedPaths）。
+    m_flaggedPaths.clear();
     // 3. ★ 已经在飞的那几条**真的掐掉**。必须在加完代次之后：abort() 会（在某些后端上同步）
     //    触发 finished，那些回调走的正是上面那句"stale 那条路"。
     //    NOTE: 先拷一份键再 abort —— 回调里会 `activeDownloads.remove(reply)`，边遍历边改
@@ -489,6 +498,11 @@ DownloadStats DownloadManager::stats() const {
 
 bool DownloadManager::fileAlreadyValid(const QString &path, const QString &expectedSha1,
                                        qint64 expectedSize, VerifyMode mode) {
+    // ★ 体检点过名的那几条：不看盘上这份，直接当"要下"（见 setFlaggedPaths 的说明）。
+    //   排在最前面 —— 这一句是"这条别人已经替我判过了"，比下面任何一条判据都靠前。
+    if (m_flaggedPaths.contains(path)) {
+        return false;
+    }
     const QFileInfo info(path);
     if (!info.exists() || !info.isFile()) {
         return false;
@@ -538,11 +552,13 @@ void DownloadManager::scheduleFile(const QString &url, const QString &destinatio
     // 每个作业都重置一次"已发射"，不管是跳过还是真下。不带批次的用法（一次 fetch、
     // 一次 assets）没有 beginBatch 来重置它，只能靠这里。
     m_batchEmitted = false;
-    m_totalJobs++;
 
     const QString fileName = QFileInfo(destinationPath).fileName();
     if (url.isEmpty() || destinationPath.isEmpty()) {
         qWarning() << "Refused download with empty url or destination:" << url << destinationPath;
+        // 这一条**进分母**：它是"这一批该拿的、没拿到的"，进度条上它就是那个没完成的一格。
+        // （和下面跳过那一支刚好相反 —— 那一支是"压根不需要拿"。）
+        m_totalJobs++;
         m_doneJobs++;
         m_failedJobs++;
         if (!destinationPath.isEmpty() && !m_failedPaths.contains(destinationPath)) {
@@ -555,8 +571,18 @@ void DownloadManager::scheduleFile(const QString &url, const QString &destinatio
     }
 
     if (fileAlreadyValid(destinationPath, expectedSha1, expectedSize, mode)) {
-        // 跳过也要计入 done/total，否则进度条的分母会对不上，最后一批还会少发一次信号。
-        m_doneJobs++;
+        // ★★ 盘上已经好好的那几个**只记 skipped、不进 done/total**（2026-10-15 改）
+        //
+        //   从前这里写的是「跳过也要计入 done/total，否则进度条的分母会对不上，最后一批还会
+        //   少发一次信号」—— 后半句本来就是假的（整批结束的判据是 `pendingDownloads` /
+        //   `m_pendingJobs` / `m_batchOpen`，见 checkAllDownloadsFinished，一个都不碰这两个
+        //   计数器），前半句则是那个坑本身：分母因此变成"这个实例一共有多少文件"。
+        //
+        //   用户在真机上撞的就是它：一个装好的实例点一次「补全文件」，先看到进度条在开跑那
+        //   一瞬间就满了（几千个"已完成"是问盘问出来的），收尾再报一句
+        //   「n 个文件已全部就绪（其中 n-1 个本来就存在，已跳过）」—— 读起来像"补全了一个
+        //   文件"，而那一个其实是永远要重取的资源索引（现在也不计了，见 downloadAssets）。
+        //   用户要看的是**缺的那几个下到哪儿了**，那就让分母只剩它们。
         m_skippedJobs++;
         emit downloadFinished(fileName, true, QString());
         emitBatchProgress(destinationPath);
@@ -564,6 +590,7 @@ void DownloadManager::scheduleFile(const QString &url, const QString &destinatio
         return;
     }
 
+    m_totalJobs++;
     // 排进队列之后立刻试着发一次：队列是空的、连接也有富余的时候，这一句就把它发出去了
     // （所以"只下一两个文件"的那些调用点感觉不到队列存在）。
     m_pendingJobs.enqueue(
@@ -790,7 +817,10 @@ void DownloadManager::downloadAssets(const AssetIndex &assetIndex) {
     QDir().mkpath(QFileInfo(indexPath).absolutePath());
 
     m_batchEmitted = false;
-    m_totalJobs++;
+    // ★ 索引这一条**不进 done/total**（2026-10-15 改，见 DownloadStats 那段）。它是"清单"
+    //   不是"这个实例的文件"，而且每次都要重取 —— 让它占一格的话，一个什么都没缺的实例点
+    //   一次「补全文件」也会报出"下载了 1 个"，用户读到的就是那个说不通的「n-1 个已存在」。
+    //   收尾那边照样等它（它进 pendingDownloads / activeDownloads），一个字节都没少做。
     m_currentFile = indexPath;
 
     // NOTE: 索引文件必须无条件重取（走不了"已存在就跳过"）。Mojang 修订索引后
@@ -937,7 +967,8 @@ void DownloadManager::onAssetIndexDownloaded() {
         pendingDownloads = 0;
     }
     if (!stale) {
-        m_doneJobs++;
+        // 只有 `emitBatchProgress`：这一条**不配对地**改 done（它压根没进过 total，见
+        // downloadAssets 里那段）。进度条那一格照样刷新一下当前文件名，免得停在上一个文件上。
         emitBatchProgress(indexPath);
     }
     checkAllDownloadsFinished();

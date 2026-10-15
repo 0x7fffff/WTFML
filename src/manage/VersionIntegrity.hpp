@@ -43,6 +43,7 @@
 #include <QJsonObject>
 #include <QList>
 #include <QString>
+#include <QStringList>
 
 #include "../download/DownloadManager.hpp"
 
@@ -137,6 +138,16 @@ struct Report {
     int corruptIn(Group group) const;
     /// @p group 这一组里要修的条数（缺 + 坏）。
     int problemsIn(Group group) const;
+
+    /// 要修的那几条的**绝对路径**（按 problems 原来的顺序，可能带重复 —— 同一个文件不会
+    /// 出现两次，但别处别指望它去重）。
+    ///
+    /// ★ 唯一读者是**补全**那一侧：MainWindow 把这一份交给
+    ///   VersionManager::repairVersionFiles()，那一批就不再问"盘上这份在不在、对不对"
+    ///   （见 DownloadManager::setFlaggedPaths）。没有它的时候，体检按字节数判"坏"的资源对象
+    ///   会被补全当成"已经好了"跳过 —— 两份界面互相打脸。
+    /// NOTE: 报告压根没跑起来（`error` 非空）时 problems 是空的，回的就是空表。
+    QStringList problemPaths() const;
 
     /// 这一组的逐条问题（按 `problems` 原来的顺序）。
     QList<Verdict> problemsInGroup(Group group) const;

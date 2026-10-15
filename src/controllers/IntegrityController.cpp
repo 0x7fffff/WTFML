@@ -35,6 +35,15 @@ bool IntegrityController::scanning(const QString &versionId) const {
     return !versionId.isEmpty() && m_scanVersionId == versionId;
 }
 
+QStringList IntegrityController::flaggedPaths(const QString &versionId) const {
+    // 报告只有**一份**（最近那一趟）。问的是别的实例时一个字都不回：把 A 的清单交给 B 的
+    // 补全，会让 B 去重下几个跟它没关系的文件（而且那些路径在 B 那边根本对不上号）。
+    if (versionId.isEmpty() || m_reportVersionId != versionId) {
+        return QStringList();
+    }
+    return m_report.problemPaths();
+}
+
 void IntegrityController::shutdown() {
     m_abort.storeRelaxed(1);
     if (m_thread != nullptr) m_thread->wait();
