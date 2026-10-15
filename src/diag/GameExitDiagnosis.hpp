@@ -14,7 +14,7 @@
  * 【它不知道"日志窗"是什么】
  *
  * 那些 `errorLineCount` / `sawOutOfMemory` 由调用方从日志窗那份模型里数好、看一眼递进来。
- * 这里**不去读日志文本**：一来读不到（会话结束时窗可能已经没了，见 `m_gameLogFacts` 那段），
+ * 这里**不去读日志文本**：一来读不到（会话结束时窗可能已经没了，见 `GameSessionController::GameLogFacts` 那段），
  * 二来"哪些行算错误"只有日志窗那边一个出处（见 `util/ErrorReport.hpp` 的文件头）。
  *
  * 【它也不认识任务账本】

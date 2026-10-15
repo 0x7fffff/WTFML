@@ -44,6 +44,29 @@ public:
                          const QString &fullLog);
     QSet<Tasks::TaskId> recordIds() const;
     bool hasRecord(Tasks::TaskId id) const;
+
+    /// 账上**还没处理掉**的那几笔异常退出 —— 底栏那颗红方块的判据就是"这个空不空"。
+    ///
+    /// 【为什么不是 recordIds()】
+    ///
+    /// `m_records` 只在 `report()` 里顺手清一遍（见那个函数开头那两行），所以它**留着已经
+    /// 作废的号**是常态；而"用户处理掉没有"这件事只有账本说得清（`Tasks::TaskManager::has()`：
+    /// 清掉那一项 —— 任务中心里那颗「清理」走的就是 `clearFinished()` —— 号就从账本里没了）。
+    /// 于是这里的每一项都要过一遍账本，回出去的是**两处都还在**的那些。
+    ///
+    /// NOTE: 只说"这一次运行里" —— 异常退出那一笔的详情（退出码、日志尾巴、报告）本来就不
+    ///       落盘（见 `TaskManager::saveHistory()` 只存摘要），所以重启之后 `m_records` 是空的、
+    ///       这里也回空，红跟着消失。这是**有意的**：重启之后那份报告已经拿不出来了，
+    ///       再举着红说"出过事"只会让用户点开一个拿不到东西的入口。
+    QSet<Tasks::TaskId> pendingRecordIds() const;
+
+    /// 上面那几笔里**最靠后**那一笔的实例显示名（底栏第二行写它）。没有 pending 的回空串。
+    ///
+    /// 用户 2026-10-15 定的是「显示最后启动的那个实例的状态」：几件事同时摆着的时候，
+    /// 说话的是**最近那一个**。号是单调递增的（见 `Tasks::TaskId` 的文件头），所以"最靠后"
+    /// 就是号最大的那一个，不用另存时间戳。
+    QString latestPendingInstanceName() const;
+
     int sessionIdForTask(Tasks::TaskId id) const;
     void exportReport(const QString &key);
     void openReportsDirectory();

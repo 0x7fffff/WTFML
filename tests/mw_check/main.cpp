@@ -401,9 +401,13 @@ QComboBox *comboByObjectName(QWidget *parent, const QString &name) {
     return byObjectName<QComboBox>(parent, name);
 }
 
-/// 一个颜色落在**哪一档状态色**上：0=红、1=黄、2=绿、-1=认不出。
+/// 一个颜色落在**哪一档状态色**上：0=红、1=黄、2=绿、-1=认不出（含灰）。
 /// 只看色相和饱和度（分类的边界与 ui_check 的 J2 段同一套），不看具体色值 ——
 /// 这样它验的是"选了哪个状态"，而"深底/浅底各取哪个值"是另一件事。
+///
+/// NOTE: ★ 2026-10-15 起"没实例在跑"那一档是**灰**的，而灰**没有色相** ⇒ 它在这儿
+///       回 -1，和"认不出"撞在一起。要量那一档请用下面的 `runStateIsGrey()`；
+///       `-1` 不能再被当成"那档灰"来用（这一条正是那次改动最容易漏的地方）。
 int runStateHueBand(const QColor &color) {
     if (color.saturation() < 60) {
         return -1;
@@ -420,6 +424,12 @@ int runStateHueBand(const QColor &color) {
     }
     return -1;
 }
+
+/// 那一档灰（"没实例在跑"）：**说不上是什么颜色** —— 饱和度低到一定程度。
+///
+/// 灰不走色相（`QColor::hue()` 对它是 -1），所以它量不了"在红/黄/绿哪一段"；
+/// 这一档和"红"（有实例异常退出）的分别正是**饱和**：一个说不上颜色，一个是纯正的红。
+bool runStateIsGrey(const QColor &color) { return color.saturation() <= 40; }
 
 /// 左下角那三档色值是**照哪个调色板**算出来的。产品取的是**底栏**的（方块画在底栏
 /// 那块底上）；测试必须取同一处，不然量到的永远是"另一档主题"的颜色。
@@ -20036,9 +20046,12 @@ int main(int argc, char *argv[]) {
                   "没有实例在跑时左下角写「当前没有运行中的实例」", runState->text());
             check(runState->text() != MainWindowUI::runStateRunningText() &&
                       runState->text() !=
-                          MainWindowUI::runStateLaunchingText(QStringLiteral("X")),
-                  "（不会说成「实例运行中」、也不是「启动中」那句）", runState->text());
-            // 那颗方块这时候是**红的**，而且不是藏着的（三个状态都有一颗亮的方块）。
+                          MainWindowUI::runStateLaunchingText(QStringLiteral("X")) &&
+                      runState->text() != MainWindowUI::runStateErrorText(),
+                  "（不会说成「实例运行中」、也不是「启动中」/「有实例异常退出」那两句）",
+                  runState->text());
+            // 那颗方块这时候是**灰的**（★ 2026-10-15 用户改的：「黄和绿不变，红色改有实例
+            // 报错，没有实例用灰色」），而且不是藏着的（四档都有一颗亮的方块）。
             // 判据是"量到的那张图的像素" —— 不是再调一次 runStateMarkColor()：那个函数
             // 是取色的规则，这里要验的是"MainWindow 真的按那个规则摆了图"。
             check(runMark->isVisible() && !runMark->pixmap().isNull(),
@@ -20046,26 +20059,34 @@ int main(int argc, char *argv[]) {
                                                        .arg(runMark->pixmap().width())
                                                        .arg(runMark->pixmap().height()));
             const QPalette markPalette = runStateMarkPalette(&window);
-            const QColor wantRed =
-                MainWindowUI::runStateMarkColor(MainWindowUI::RunStateMark::NotRunning, markPalette);
+            const QColor wantGrey =
+                MainWindowUI::runStateMarkColor(MainWindowUI::RunStateMark::Idle, markPalette);
             const QImage got = runMark->pixmap().toImage();
-            check(!got.isNull() && got.pixelColor(got.width() / 2, got.height() / 2) == wantRed &&
-                      got.pixelColor(got.width() / 2, got.height() / 2) !=
-                          MainWindowUI::runStateMarkColor(MainWindowUI::RunStateMark::Running,
-                                                          markPalette),
-                  "没实例在跑 → 方块画的是**红**那一档（不是绿的）",
-                  QStringLiteral("量到 %1，红该是 %2、绿是 %3")
-                      .arg(got.pixelColor(got.width() / 2, got.height() / 2).name())
-                      .arg(wantRed.name())
+            // 空图不许调 pixelColor()（图是空的时候那一下是没定义的），先出图再量色。
+            const QColor gotColor = got.isNull() ? QColor()
+                                                 : got.pixelColor(got.width() / 2, got.height() / 2);
+            check(!got.isNull() && gotColor == wantGrey &&
+                      gotColor != MainWindowUI::runStateMarkColor(
+                                      MainWindowUI::RunStateMark::Running, markPalette) &&
+                      gotColor != MainWindowUI::runStateMarkColor(
+                                      MainWindowUI::RunStateMark::Error, markPalette),
+                  "没实例在跑 → 方块画的是**灰**那一档（既不是绿的，也不是「有实例异常退出」那个红）",
+                  QStringLiteral("量到 %1，灰该是 %2、绿是 %3、红是 %4")
+                      .arg(gotColor.name())
+                      .arg(wantGrey.name())
                       .arg(MainWindowUI::runStateMarkColor(MainWindowUI::RunStateMark::Running,
                                                            markPalette)
+                               .name())
+                      .arg(MainWindowUI::runStateMarkColor(MainWindowUI::RunStateMark::Error,
+                                                           markPalette)
                                .name()));
-            // 再来一条**不看色值**的：量到的那个像素落在哪个色相段里。上面那条证的是
-            // "和按规则算出来的一模一样"，这条证的是"那确实是红"，两条一起才挡得住
+            // 再来一条**不看色值**的：量到的那个像素"说不上是什么颜色"。上面那条证的是
+            // "和按规则算出来的一模一样"，这条证的是"那确实是一档灰"，两条一起才挡得住
             // "规则和用法一起走偏"（比如两边都用深色档的取色，等式照样成立）。
-            check(runStateHueBand(got.pixelColor(got.width() / 2, got.height() / 2)) == 0,
-                  "而且那个像素的**色相**就在红那一段（0±20）",
-                  got.pixelColor(got.width() / 2, got.height() / 2).name());
+            // NOTE: 这条**不能**写成 `runStateHueBand(...) == 0`（那是它还是红的时候的写法）：
+            //       灰没有色相，hueBand 对它回 -1，跟"认不出"是同一个值。
+            check(runStateIsGrey(gotColor),
+                  "而且那个像素确实是一档**灰**（饱和度低到说不上是哪个颜色）", gotColor.name());
             // 第二行这时候是空的（没有实例名可说）：藏起来 + 文字清空，两件事都要
             check(!runDetail->isVisible() && runDetail->text().isEmpty(),
                   "没有实例在跑时第二行是空的（藏起来，不留上一句的残影）", runDetail->text());
@@ -26162,11 +26183,14 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                           shot.pixelColor(shot.width() / 2, shot.height() / 2) == wantYellow &&
                           shot.pixelColor(shot.width() / 2, shot.height() / 2) !=
                               MainWindowUI::runStateMarkColor(
-                                  MainWindowUI::RunStateMark::NotRunning, markPalette) &&
+                                  MainWindowUI::RunStateMark::Idle, markPalette) &&
                           shot.pixelColor(shot.width() / 2, shot.height() / 2) !=
                               MainWindowUI::runStateMarkColor(
-                                  MainWindowUI::RunStateMark::Running, markPalette),
-                      "AG2 启动中 → 方块画的是**黄**那一档（不是红、也不是绿）",
+                                  MainWindowUI::RunStateMark::Running, markPalette) &&
+                          shot.pixelColor(shot.width() / 2, shot.height() / 2) !=
+                              MainWindowUI::runStateMarkColor(
+                                  MainWindowUI::RunStateMark::Error, markPalette),
+                      "AG2 启动中 → 方块画的是**黄**那一档（不是灰、绿、红里任何一个）",
                       QStringLiteral("量到 %1，黄该是 %2")
                           .arg(shot.pixelColor(shot.width() / 2, shot.height() / 2).name())
                           .arg(wantYellow.name()));
@@ -26174,10 +26198,18 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                       "AG2 而且那个像素的**色相**就在黄那一段（30~60）",
                       shot.pixelColor(shot.width() / 2, shot.height() / 2).name());
 
-                // ---- ② 有实例在跑（但已经出了话）→ 绿 ----
-                // 这一步用不着那条启动路：直接把"启动中"这一档摘掉（进程结束/游戏出话走的
-                // 就是这条路），剩下的状态就是"有实例在跑"。摘法走 LauncherManager 的公开
-                // 接口，别去动 MainWindow 的私有成员。
+                // ---- ③ 会话被**硬停**掉之后 → 红（「有实例异常退出」） ----
+                // ★ 2026-10-15 用户改了这一档：「黄和绿不变，红色改有实例报错，没有实例用灰
+                //   色」。所以"停掉之后"现在**不是**"没实例"那一档（那是灰），而是"账上还有
+                //   没处理的异常退出"那一档 —— 而这一步正好造出那种情形：
+                //
+                //   这里走的是 `LauncherManager::stopGame()` 这个**裸**接口（产品那条路是
+                //   `GameSessionController::stopGameSession()`，它会先把会话记成"用户主动
+                //   停止"，见 `m_userStoppedSessions`）。少了那一笔，这一趟在会话那一层就是
+                //   一次**异常退出**（`kill()` 是 TerminateProcess，Qt 报的是
+                //   CrashExit / 0xf291）⇒ 账本上补一项「游戏异常退出」，方块该是红的。
+                //   换句话说：这一节同时把"红是从哪来的"这条链路真跑了一遍（进程 → 会话 →
+                //   账本 → 底栏那一格），这正是红那一档唯一说得出话的判据。
                 LauncherManager *manager = w.findChild<LauncherManager *>();
                 check(manager != nullptr, "AG3 拿得到那个 LauncherManager");
                 if (manager != nullptr) {
@@ -26186,21 +26218,32 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                     }
                     const bool empty =
                         pumpUntil([manager] { return manager->runningGames().isEmpty(); }, 8000);
-                    check(empty, "AG3 那一份会话停掉了（假 java 静静地退出了）");
+                    check(empty, "AG3 那一份会话停掉了（假 java 那一趟收到 kill）");
                     repaintBottomBar(&w);
-                    check(run->text() == MainWindowUI::runStateNotRunningText() &&
-                              !detail->isVisible(),
-                          "AG3 停掉之后回到「当前没有运行中的实例」那一态（第二行仍旧空）",
+                    check(run->text() == MainWindowUI::runStateErrorText(),
+                          "AG3 硬停掉之后写「有实例异常退出」（不再是「当前没有运行中的实例」）",
                           run->text());
+                    // 第二行说出事的是谁。名字来自那一趟的**启动事实**（`instanceDisplayName()`
+                    // 那一份 = 名字 + "-" + 目录名，和绿那一支第二行、下拉框里那一句同一个写法）
+                    // —— **不是**上面「启动中...」那句里那个（那一句走 launchingStatusName()，
+                    // 只看自定义名、不受显示设置影响）。两者在这一节里正好分得开：这里拼出来的
+                    // 是「我的整合包-特别版-状态方块测试」，那句话里只有「我的整合包-特别版」。
+                    check(detail->isVisible() &&
+                              detail->text() == QStringLiteral("%1-%2").arg(customName, id),
+                          "AG3 第二行写出事的那个实例（显示名 = 自定义名-目录名）", detail->text());
                     const QImage back = mark->pixmap().toImage();
-                    check(!back.isNull() && back.pixelColor(back.width() / 2, back.height() / 2) ==
+                    // 空图**不许**调 pixelColor()（它在图是空的时候是没定义的），所以先出图
+                    // 再量色 —— 判据本身照样是"量到的那一格"。
+                    const QColor backColor = back.isNull()
+                                                 ? QColor()
+                                                 : back.pixelColor(back.width() / 2, back.height() / 2);
+                    check(!back.isNull() && backColor ==
                                                 MainWindowUI::runStateMarkColor(
-                                                    MainWindowUI::RunStateMark::NotRunning,
+                                                    MainWindowUI::RunStateMark::Error,
                                                     markPalette) &&
-                              runStateHueBand(
-                                  back.pixelColor(back.width() / 2, back.height() / 2)) == 0,
-                          "AG3 方块跟着回到**红**那一档（颜色是每次重画重新要的，不是只设一次）",
-                          back.pixelColor(back.width() / 2, back.height() / 2).name());
+                              !runStateIsGrey(backColor) && runStateHueBand(backColor) == 0,
+                          "AG3 方块跟着变成**红**那一档（颜色是每次重画重新要的，不是只设一次）",
+                          backColor.name());
                 }
             }
         }

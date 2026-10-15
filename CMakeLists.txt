@@ -42,9 +42,11 @@ set(HEADER_FILES
     src/controllers/ConnectionsController.hpp
     src/controllers/InstanceIconController.hpp
     src/controllers/ActivityCenterController.hpp
+    src/controllers/TaskDetailController.hpp
     src/controllers/HomeQuickController.hpp
     src/controllers/InstanceMaintenanceController.hpp
     src/controllers/ServerWorkspaceController.hpp
+    src/controllers/ServerConsoleController.hpp
     src/controllers/ServerSettingsController.hpp
     src/controllers/ThemeSettingsController.hpp
     src/controllers/PlayerSkinController.hpp
@@ -185,9 +187,11 @@ set(SOURCE_FILES
     src/controllers/ConnectionsController.cpp
     src/controllers/InstanceIconController.cpp
     src/controllers/ActivityCenterController.cpp
+    src/controllers/TaskDetailController.cpp
     src/controllers/HomeQuickController.cpp
     src/controllers/InstanceMaintenanceController.cpp
     src/controllers/ServerWorkspaceController.cpp
+    src/controllers/ServerConsoleController.cpp
     src/controllers/ServerSettingsController.cpp
     src/controllers/ThemeSettingsController.cpp
     src/controllers/PlayerSkinController.cpp

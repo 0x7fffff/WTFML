@@ -546,25 +546,16 @@ void LaunchController::onStartButtonClicked() {
         // JVM/游戏初始化。
         // 顺序上安全：startGame() 内部那条 "游戏已启动" 的 processOutput 是在它
         // return 之前同步发出的，那时这一份还不在集合里，所以不会被当成"游戏已经出话了"。
-        m_owner->m_launchingSessions.insert(sessionId);
-        // 这一份会话对上的就是刚才那件任务（多开时一人一件，认的是会话号不是版本号 ——
-        // 同一个实例开两份也不会串）。收尾在**游戏吐出第一行输出**那一刻
-        // （onProcessOutput / onProcessError），或者"一行都没出就死了"那一刻
-        // （onGameFinished）—— 都不在这条栈上。
-        m_owner->m_launchTaskIds.insert(sessionId, launchTask);
+        //
+        // ★★ 2026-10-15：下面那四笔（启动进度 / 对上的任务 / 名字 / 启动事实）现在**一次
+        //   就位**，走 `GameSessionController::beginSession()` —— 它们同寿，而且判断和记账
+        //   都搬进了那一层（从前是这一层往主窗口的四个私有成员里各插一笔，靠一句 friend）。
         // 这一趟的收尾**已经交给别处**了（上面那句 + 后面那些进程信号），栈上那个兜底
         // 撤销 —— 不撤的话函数一退出它就把这件任务按失败收掉了。
         launchGuard.disarm();
-        // ★ 2026-09-27：名字在这一刻记一份。**这里记的是"这一份当初是谁"**，和 startGame()
-        //   收到的那个名字是同一个值（都是 m_owner->instanceDisplayName(versionId)）—— 之后用户改名、
-        //   切账号都不影响它，理由同 startGame() 那段（多开最要紧的就是这条）。
-        //   用途只有一处：onGameFinished() 里那行日志的前缀（那时候会话已经从表里摘掉了，
-        //   查不到名字，见那边的 NOTE）。
-        m_owner->m_sessionDisplayNames.insert(sessionId, m_owner->instanceDisplayName(versionId));
-        // ★ §4.3：这一趟的"启动事实"也在这里留一份。退出那一刻 `javaSettings`、会话表、
-        //   `m_owner->m_sessionDisplayNames` 全都已经不是这一趟的了，而异常退出那一项要报的正是
-        //   这几个数（实例名、身份、Java 路径、内存参数、加载器）。和上面那两份同寿 ——
-        //   在 onGameFinished() 里用掉并删掉（不清会随开过的实例数一直长）。
+        // ★ §4.3：这一趟的"启动事实"在**进程真的起来**这一刻留一份。退出那一刻
+        //   `javaSettings`、会话表、名字全都已经不是这一趟的了，而异常退出那一项要报的正是
+        //   这几个数（实例名、身份、Java 路径、内存参数、加载器）。
         //
         // NOTE: Java 的**主版本**故意不在这里取：那是"这一趟实际用的那个 Java 是什么版本"，
         //       崩溃那一刻现读 `<javaPath>/release` 就够（见 buildCrashRecord），平时一次盘
@@ -572,9 +563,12 @@ void LaunchController::onStartButtonClicked() {
         //
         // NOTE: 这一份会话快照提到这一层来（原来在下面那个块里）—— §5.1 记账那一句也要读
         //       它的 `startedAtMs`："上一次启动"记的就是**进程真的起来**那一刻，不是"现在"。
+        // NOTE: 名字记的是**"这一份当初是谁"**，和 startGame() 收到的那个名字是同一个值
+        //       （都是 `m_owner->instanceDisplayName(versionId)`）—— 之后用户改名、切账号都
+        //       不影响它，理由同 startGame() 那段（多开最要紧的就是这条）。
         const LauncherManager::GameSession session = m_owner->m_launcherManager->session(sessionId);
         {
-            MainWindow::GameSessionFacts facts;
+            GameSessionController::GameSessionFacts facts;
             facts.instanceId = versionId;
             facts.instanceName = m_owner->instanceDisplayName(versionId);
             facts.accountName = m_owner->m_authManager->playerName();
@@ -586,7 +580,12 @@ void LaunchController::onStartButtonClicked() {
                                                   m_owner->m_versionManager, &facts.loaderVersion);
             facts.processId = session.processId;
             facts.startedAtMs = session.startedAtMs;
-            m_owner->m_sessionLaunchFacts.insert(sessionId, facts);
+            // 这一份会话对上的就是刚才那件任务（多开时一人一件，认的是会话号不是版本号 ——
+            // 同一个实例开两份也不会串）。收尾在**游戏吐出第一行输出**那一刻
+            // （onProcessOutput / onProcessError），或者"一行都没出就死了"那一刻
+            // （onGameFinished）—— 都不在这条栈上，所以那四笔的状态由那一层自己管。
+            m_owner->m_gameSessionController->beginSession(sessionId, facts.instanceName, launchTask,
+                                                           facts);
         }
         // ★ §5.1：记进「上一次启动」那本账。**位置就是"以成功创建游戏进程为准"这句规矩的
         //   落点** —— 这一整个 `if (sessionId > 0)` 块只有"进程真起来了"才走得到（startGame()

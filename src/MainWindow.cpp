@@ -156,9 +156,11 @@
 #include "controllers/ConnectionsController.hpp"
 #include "controllers/InstanceIconController.hpp"
 #include "controllers/ActivityCenterController.hpp"
+#include "controllers/TaskDetailController.hpp"
 #include "controllers/HomeQuickController.hpp"
 #include "controllers/InstanceMaintenanceController.hpp"
 #include "controllers/ServerWorkspaceController.hpp"
+#include "controllers/ServerConsoleController.hpp"
 #include "controllers/ServerSettingsController.hpp"
 #include "controllers/ThemeSettingsController.hpp"
 #include "controllers/InstancePagesController.hpp"
@@ -1480,6 +1482,16 @@ MainWindow::MainWindow(QWidget *parent)
     m_serverPingController = new ServerPingController(
         ServerPingController::Host{
             [this](const QString &id) { return serverListOf(id); }}, this);
+    // 服务端控制台那一页（coding plan §6.2 / M4-3，2026-10-15 从 MainWindow 搬出来）：
+    // 页对象、「这一页现在说的是谁」、那三颗按钮该不该按都在它手里；这一层只交出"写日志 /
+    // 让它停 / 强杀"这三件它自己做不到的事。
+    m_serverConsole = new ServerConsoleController(
+        m_serverWorkspace, m_ui, this,
+        ServerConsoleController::Host{
+            [this](const QString &text) { appendLog(text); },
+            [this](const QString &id) { stopServer(id); },
+            [this](const QString &id) { forceKillServer(id); }},
+        this);
     m_folderController = new FolderController(
         m_folderManager, m_launcherManager, m_ui, this,
         FolderController::Host{
@@ -1515,10 +1527,23 @@ MainWindow::MainWindow(QWidget *parent)
     m_instanceDialogController = new InstanceDialogController(this);
     m_instanceEditorController = new InstanceEditorController(this);
     m_importController = new ImportController(this);
-    m_gameSessionController = new GameSessionController(this);
+    // ★ 2026-10-15：`m_gameSessionController` 要 "上一次启动"那本账（记结局），所以它在
+    //   **下面**、`m_launchHistory` 就位之后才建。
     m_launchController = new LaunchController(this);
     m_connectionsController = new ConnectionsController(this);
-    m_instanceIconController = new InstanceIconController(this);
+    // ★ 2026-10-15：「文件管理」那几页的图标反查**连它自己那份会话缓存**一起搬进了这个
+    //   控制器（从前是这一层的七个私有成员 + 一句 friend）。留在这儿的只有四样"只有这一层
+    //   说得出来"的东西：实例目录表、显示名、日志、下载页那份 `m_resourceHits`。
+    m_instanceIconController = new InstanceIconController(
+        m_settings, m_resourceStore,
+        InstanceIconController::Host{
+            [this](const QString &versionId) { return instanceFileDirs(versionId); },
+            [this](const QString &versionId) { return instanceDisplayName(versionId); },
+            [this](const QString &text) { appendLog(text); },
+            [this](const QString &iconKey, const ResourceCatalog::Hit &hit) {
+                m_resourceHits.insert(iconKey, hit);
+            }},
+        this);
     // ---------- 「上一次启动」那本账（coding plan §5.1） ----------
     // 2026-10-15 从本类搬进 `LaunchHistoryController`：读盘、记账、改结局、写盘失败只记日志
     // 那一套，连同内存里那一份账。留在这儿的是"启动那一刻的显示名"和"当时是谁"那两格
@@ -1534,6 +1559,47 @@ MainWindow::MainWindow(QWidget *parent)
             &MainWindow::updateHomeRecent);
     connect(m_launchHistory, &LaunchHistoryController::logMessage, this,
             [this](const QString &text) { appendLog(text); });
+    // ★★ 2026-10-15：**一次游戏会话从进程起来到结束**那一段（四本账 + 日志窗那一套 +
+    //   进程信号进来之后干什么）整块搬进了这个控制器 —— 从前那是这一层的九个私有成员加
+    //   一句 `friend class GameSessionController`。主窗口这一侧现在只剩这几样"只有它说得
+    //   出来"的东西（记日志 / 收尾那件任务 / 重画底栏和实例树 / 异常退出补一项 / 导出那两颗
+    //   键 / 实例显示名 / 日志窗要摆到启动器旁边 / 把窗口叫回来）—— **判断和记账全在那一层**。
+    m_gameSessionController = new GameSessionController(
+        m_launcherManager, m_settings, m_versionManager, m_launchHistory, m_ui,
+        GameSessionController::Host{
+            [this](const QString &text) { appendLog(text); },
+            [this](Tasks::TaskId id) {
+                m_activityCenter->tasks()->setStepState(id, 1, Tasks::TaskStepState::Done);
+            },
+            [this](Tasks::TaskId id, bool ok, const QString &note) { finishTask(id, ok, note); },
+            [this] { updateBottomBar(); },
+            [this] { updateInstanceTreeRunState(); },
+            [this](const QString &versionId) { return instanceDisplayName(versionId); },
+            [this](int sessionId, int exitCode, bool crashed) {
+                reportGameCrash(sessionId, exitCode, crashed);
+            },
+            [this](int sessionId) { exportGameLog(sessionId); },
+            [this](int sessionId) { exportGameErrorReport(sessionId); },
+            [this] { return frameGeometry(); },
+            [this] {
+                showNormal();
+                raise();
+                activateWindow();
+            }},
+        this);
+    // 任务详情页那一族（coding plan §3，2026-10-15 从 MainWindow 搬出来）：页对象、"打开
+    // 日志"该开哪一份、"打开目标位置"怎么认服务端、摘要长什么样，都在它手里；这一层只交出
+    // 「取消 / 重试」那两条（它们跨两个执行者，判据得和 `cancelWouldWork()` / `retryWouldWork()`
+    // 摆在一起，见那两条的 ★）。
+    m_taskDetail = new TaskDetailController(
+        m_activityCenter, m_crashReports, m_versionManager, m_gameSessionController,
+        m_ui->overlay(), this,
+        TaskDetailController::Host{
+            [this](const QString &text) { appendLog(text); },
+            [this](const Tasks::TaskSnapshot &task) { return cancelWouldWork(task); },
+            [this](const QString &key) { cancelTaskFromDetail(key); },
+            [this](const QString &key) { retryTaskFromDetail(key); }},
+        this);
     connect(m_serverWorkspace, &ServerWorkspaceController::message, this,
             [this](const QString &text) { appendLog(text); });
     connect(m_serverWorkspace, &ServerWorkspaceController::statusChanged, this,
@@ -1549,11 +1615,22 @@ MainWindow::MainWindow(QWidget *parent)
     m_taskSummaryTimer = new QTimer(this);
     m_taskSummaryTimer->setSingleShot(true);
     connect(m_taskSummaryTimer, &QTimer::timeout, this, &MainWindow::updateBottomBarTaskSummary);
-    // 账本一变就重画底栏那一格。**不去分辨"变的是哪一项"**：收起态显示谁是把整张账本
-    // 放在一起算出来的（`Tasks::collapsedSummary()`），只重画"变了的那一行"在这里没有
-    // 对应的东西可画（那一格只有一个整体）。
-    connect(m_activityCenter, &ActivityCenterController::activityChanged, this,
-            &MainWindow::updateBottomBarTaskSummary);
+    // 账本一变就重画底栏那**两**格（中间那格 + 右下那格）。**不去分辨"变的是哪一项"**：
+    // 收起态显示谁是把整张账本放在一起算出来的（`Tasks::collapsedSummary()`），只重画
+    // "变了的那一行"在这里没有对应的东西可画（那一格只有一个整体）。
+    //
+    // ★ 2026-10-15：右边那格也得跟着来一发 —— 红那一档的判据就是"账上还有没有没处理的
+    //   异常退出"（`CrashReportController::pendingRecordIds()`），而这句话两头都要能变：
+    //   出事的**那一刻**要变红（那一发是 `taskFinished` ⇒ 走到这儿），用户把任务中心里
+    //   那一项**清掉**之后要变回灰/绿（那一发是 `historyChanged`，也走到这儿）。
+    //   漏掉这一句的症状是：红要么不出现，要么清完了还挂在那儿不走。
+    //
+    // NOTE: 整条底栏（`updateBottomBar()`）**不许**接在这上面：账本每来一帧进度都会发这个
+    //       信号（下载那份是 200 ms 一帧），接上去等于每帧连头像和账号名一起重刷。
+    connect(m_activityCenter, &ActivityCenterController::activityChanged, this, [this]() {
+        updateBottomBarTaskSummary();
+        updateBottomBarRunState();
+    });
     // 「已完成」那一栏变了（收尾 / 清除 / 读盘）：面板要是开着，跟着重画一遍。
     connect(m_activityCenter, &ActivityCenterController::historyChanged, this, [this]() {
         m_ui->refreshTaskCenterPanel();
@@ -1783,17 +1860,10 @@ MainWindow::MainWindow(QWidget *parent)
 }
 
 MainWindow::~MainWindow() {
-    // 日志窗**没有父窗口**（理由见 showGameLogLine 里那段），所以 Qt 不会顺手把它们带走 ——
-    // 这里自己收，否则关掉启动器之后屏幕上会留着几扇无主的日志窗。
-    //
-    // NOTE: 先把表清空再逐个 delete。窗的 finished 处理函数会来动这张表
-    //       （m_gameLogWindows.remove），一边删一边被删的容器是未定义行为。
-    //       values() 拿的是一份拷贝，清表在这一刻，所以那几下 remove 落空而不出错。
-    const QList<GameLogWindow *> logWindows = m_gameLogWindows.values();
-    m_gameLogWindows.clear();
-    for (GameLogWindow *window : logWindows) {
-        delete window;
-    }
+    // 日志窗**没有父窗口**（理由见 GameSessionController::ensureGameLogWindow() 那段），
+    // 所以 Qt 不会顺手把它们带走 —— 这里自己收，否则关掉启动器之后屏幕上会留着几扇无主的
+    // 日志窗。那一份表连同收法都在那一位控制器里（它建的那些窗，它自己收）。
+    m_gameSessionController->closeAllGameLogWindows();
     // 体检那一趟可能还在跑（几千次 stat，慢盘上要好几秒）。**先把收手旗子举起来再等它**
     // —— worker 每比几条看一眼那面旗，看到就退（见 submitIntegrityCheck 里那段）。
     //
@@ -1816,17 +1886,20 @@ MainWindow::~MainWindow() {
     // 关窗那一刻正卡在等响应上是最平常的一件事（`HttpClient` 那一条要等 15 秒），于是在
     // 那十几秒里关启动器 = 崩一下。从前析构里只等了体检和备份那两趟 ⇒ 这两趟一直在裸奔。
     //
-    // ★ 这一段的规矩**照着这张单子来**：父对象是 this 的线程，析构里必须**一个一个等过来**。
-    //   眼下是四条（体检 / 备份 / 图标反查 / 检查更新）—— 再加一趟就得多一条，加的时候
-    //   连同这句一起改。（`ServerPing::Pinger` 那八条不在这张单子上：它们的父对象是 Pinger，
+    // ★ 这一段的规矩**照着这张单子来**：**这一层（或者这一层的子控制器）**起了的线程，
+    //   析构里必须**一个一个等过来**。眼下是四条（体检 / 备份 / 图标反查 / 检查更新）——
+    //   再加一趟就得多一条，加的时候连同这句一起改。四条里三条已经把"等"收进了各自的
+    //   控制器（`shutdown()` / `waitForLookup()`），检查更新那一趟还在这段里直接等。
+    //   （`ServerPing::Pinger` 那八条不在这张单子上：它们的父对象是 Pinger，
     //   而 `~Pinger()` 自己就 abort+wait，见那边。）
     //
     // NOTE: 这两趟**没有收手旗子**（`InstanceIconLookup::lookup()` 和检查更新那一趟里头没有
     //       "看着旗子退出来"的口子），所以这里只能**等它跑完** —— 卡在超时上的话，关窗就会
     //       晚那十几秒才真的关上。那比崩一下强（同一个取舍，见上面备份那一段）。
-    if (m_instanceIconThread != nullptr) {
-        m_instanceIconThread->wait();
-    }
+    // NOTE: 图标那一趟 2026-10-15 起它的线程父对象是**那个控制器**（不是这一层）——
+    //       和"父对象是 this"是同一个坑（控制器也是 this 的子对象，一样要散），所以这一
+    //       条照样得留：等的活儿在控制器里，等这一下得在这一层发。
+    m_instanceIconController->waitForLookup();
     if (m_updateCheck.thread != nullptr) {
         m_updateCheck.thread->wait();
     }
@@ -2094,15 +2167,28 @@ void MainWindow::updateBottomBar() {
     updateBottomBarTaskSummary();
 
     // ---------- 右：当前实例运行状态 ----------
+    // ★ 2026-10-15 从这一支里**整块搬进它自己的函数**（和中间那格 `updateBottomBarTaskSummary()`
+    //   对称）。理由不是"函数太长"：红那一档现在看的是**账本**（账上还有没有没处理的异常退出），
+    //   而账本每变一次都会来一发信号 —— 一发信号就重画整条底栏（连头像、账号名一起）是浪费，
+    //   也把"这事儿归谁刷新"弄糊了。拆开之后：账本变 ⇒ 只叫这一格和中间那一格。
+    updateBottomBarRunState();
+}
+
+/// 底栏右下那一格（"当前实例运行状态"）整个重画一遍 —— 方块的颜色、第一行、第二行。
+///
+/// **唯一出处**在下面那段注释里（四档的顺序）；这里只管画。
+void MainWindow::updateBottomBarRunState() {
     QLabel *runStateLabel = m_ui->getRunStateLabel();
     QLabel *runStateDetailLabel = m_ui->getRunStateDetailLabel();
     QLabel *runStateMarkLabel = m_ui->getRunStateMarkLabel();
     const QList<LauncherManager::GameSession> games = m_launcherManager->runningGames();
 
-    // 三态的顺序是**唯一的判据**（放这里当唯一出处，下面三支只负责画）：
-    //   · 正在启动优先 —— 那一段里进程已经起来了（所以 runningGames() 里已经有它），
-    //     但用户等的是"游戏窗口出来"，这时候该说的是"启动中"（黄），不是"运行中"（绿）；
-    //   · 然后是"一个都没有"（红）；
+    // 四档的顺序是**唯一的判据**（放这里当唯一出处，下面几支只负责画）：
+    //   · 正在启动优先（黄）—— 那一段里进程已经起来了（所以 runningGames() 里已经有它），
+    //     但用户等的是"游戏窗口出来"，这时候该说的是"启动中"，不是"运行中"；
+    //   · 然后是**账上还有没处理的异常退出**（红，用户 2026-10-15 改的就这一档）——
+    //     "出过事"比"此刻还在跑"更需要被看见；
+    //   · 然后是"一个都没有"（灰）；
     //   · 剩下的就是真的在跑（绿）。
     //
     // NOTE: 判据里**没有**"选中的是哪个实例"——用户 2026-09-24 要的是"这台机器上有没有
@@ -2113,11 +2199,19 @@ void MainWindow::updateBottomBar() {
     //       中间那格现在看的是账本（哪件任务该被显示），左边这一格看的是"会话起没起来"。
     //       一件 Launch 任务已经收过尾（游戏出话了）而这一份还在"启动中"是可能的
     //       —— 两者本来就是先后关系，谁也不该去问对方要判据。
-    const bool launching = !m_launchingSessions.isEmpty();
+    //
+    // ★ 红那一档问的是 `CrashReportController::pendingRecordIds()`（"账上还有没有那一项"），
+    //   **不是** `runningGames()`：红说的是"发生过的事"，跟此刻有没有进程在跑是两个维度
+    //   （两份东西可以同时为真）。灰那一档才是原来那个问题（"一个都没有且没欠着事"）。
+    //   用户 2026-10-15 原话：「黄和绿不变，红色改有实例报错，没有实例用灰色」。
+    const bool launching = m_gameSessionController->hasLaunchingSessions();
+    const bool pendingCrash = !m_crashReports->pendingRecordIds().isEmpty();
     const MainWindowUI::RunStateMark mark =
         launching ? MainWindowUI::RunStateMark::Launching
-                  : (games.isEmpty() ? MainWindowUI::RunStateMark::NotRunning
-                                     : MainWindowUI::RunStateMark::Running);
+                  : (pendingCrash
+                         ? MainWindowUI::RunStateMark::Error
+                         : (games.isEmpty() ? MainWindowUI::RunStateMark::Idle
+                                            : MainWindowUI::RunStateMark::Running));
     // 那颗方块的图**每次重画都重新要一张**（VersionIcons 里按"边长+颜色"缓存着，
     // 所以这一步不贵）：状态变了颜色就得跟着变，而这里正是"状态唯一定下来"的地方。
     //
@@ -2148,11 +2242,25 @@ void MainWindow::updateBottomBar() {
         return;
     }
 
+    if (mark == MainWindowUI::RunStateMark::Error) {
+        // 红：有实例异常退出、账上那一项还没处理掉（用户 2026-10-15 定的这一句）。
+        runStateLabel->setText(MainWindowUI::runStateErrorText());
+        runStateLabel->setVisible(true);
+        // 第二行写**出事的那个实例**（和绿那一支写实例名是同一个意思：这一格说状态的时候
+        // 总是连着说是谁）。名字空了就整行收起来 —— 宁可少一行，也不要一行空白。
+        const QString crashedName = m_crashReports->latestPendingInstanceName();
+        runStateDetailLabel->setText(crashedName);
+        runStateDetailLabel->setVisible(!crashedName.isEmpty());
+        return;
+    }
+
     if (games.isEmpty()) {
         // 没有实例在跑：写「当前没有运行中的实例」。**不是藏起来** —— 用户 2026-09-23 要的
         // 就是这句话，而且那一格现在还兼着"点开看实例列表"那颗按钮，藏起来连按钮一起没了。
         // NOTE: 连带的好处是那一格的文字**任何时候都非空**，布局上不再有"从无到有"这一步
         //       （那一步正是"中间那根条突然缩短一截"的来源）。
+        // NOTE: 这一档的方块 2026-10-15 从红改成灰了（红挪去说"出过事"）—— 那句话本身
+        //       一个字没动，见 runStateNotRunningText() 那段。
         runStateLabel->setText(MainWindowUI::runStateNotRunningText());
         runStateLabel->setVisible(true);
         runStateDetailLabel->setText(QString());
@@ -2313,211 +2421,53 @@ QList<TaskCenter::Item> MainWindow::taskCenterItems() {
     return items;
 }
 
-bool MainWindow::fillTaskDetail(const QString &key, TaskCenter::Item *out) const {
-    const QSet<Tasks::TaskId> crashRecordIds = m_crashReports->recordIds();
-    const bool retryPayloadAvailable =
-        m_versionManager != nullptr && m_versionManager->canRetryDownload();
-    return m_activityCenter->itemForKey(
-        key, out, [this](const Tasks::TaskSnapshot &task) { return cancelWouldWork(task); },
-        retryPayloadAvailable, crashRecordIds);
-}
-
 void MainWindow::openTaskDetailPage(const QString &key) {
-    OverlayHost *overlay = m_ui->overlay();
-    if (overlay == nullptr) {
-        return;
-    }
-    if (overlay->isOpen()) {
-        // 已经有覆盖层开着（另一页、或者一条提示）。这一层不做页面栈 —— 和 `openPage()`
-        // 返回 nullptr 是同一件事（见 OverlayHost.hpp 那段）。**这里不排下一轮**：点行的
-        // 那一下人是看着面板点的，晚一轮再开等于"面板收起来了，页没开"。
-        return;
-    }
-    if (m_taskDetailPage == nullptr) {
-        m_taskDetailPage = new TaskDetailPage(this);
-        connect(m_taskDetailPage, &TaskDetailPage::actionRequested, this,
-                &MainWindow::onTaskDetailAction);
-    }
-    // 摆这一项要画的东西。**必须在 `execPage()` 之前**：那一下会阻塞在嵌套事件循环里
-    // （见 OverlayHost::execPage 的 NOTE），之后写的每一句都只有等用户点了返回才执行得到。
-    TaskCenter::Item item;
-    if (!fillTaskDetail(key, &item)) {
-        // 号早就没了（用户按过「清除已完成」，或者这一项是上一轮读盘读回来的历史）——
-        // 页照开，摆一份空的就是了（页上会写"（没有名字的任务）"）。**不弹窗**：用户没做错
-        // 什么，而且这一页本来就有个"我在看某一项"的位置。
-        item.key = key;
-    }
-    m_taskDetailPage->setTask(item);
-    // 归哪一颗选项卡：面板是从底栏中间那格弹出来的，而那一格**不属于任何一颗选项卡**
-    // （底栏是 tabWidget 的兄弟）—— 所以 `ownerTab` 给 -1，这一页就不跟着哪一颗走
-    // （见 OverlayHost 里 ownerTab 那一段）。
-    overlay->execPage(m_taskDetailPage, TaskDetailPage::windowTitle());
+    // ★ 2026-10-15：整页搬进 `TaskDetailController` 了（页对象、"打开日志"该开哪一份、
+    //   "打开目标位置"怎么认服务端、复制出来的摘要长什么样）。这一条留着是因为面板那一行
+    //   的 `rowActivated` 认的是这个名字。
+    m_taskDetail->open(key);
 }
 
 void MainWindow::onTaskDetailAction(const QString &key, TaskDetailPage::Action action) {
-    switch (action) {
-    case TaskDetailPage::Action::Cancel:
-        // ★ 取消要**按这一项是谁**分派：服务端安装那一趟和版本/资源下载那一批不是同一份
-        //   状态（一个自己跑 QProcess + 自己的元数据请求，一个走 `VersionManager` 的批次）。
-        //   两边都无脑叫一遍的话，取消一次服务端安装会顺手把别人正在跑的下载掐掉 ——
-        //   而下载那一批可能是用户在下载页上排的、跟这一项毫无关系。
-        if (m_serverInstall != nullptr && m_serverInstall->isRunning()
-            && m_serverInstallTaskId != Tasks::invalidTaskId()
-            && key == QString::number(m_serverInstallTaskId)) {
-            m_serverInstall->cancel();
-            break;
-        }
-        if (m_versionManager != nullptr && m_versionManager->cancelActiveDownload()) {
-            appendLog(tr("下载已取消。已经下好的文件留在原处。"));
-        }
-        break;
-    case TaskDetailPage::Action::Retry: {
-        // ★ 只认**这一项自己**那一批（`retryWouldWork()` 就是这条判据的唯一出处）：界面那边
-        //   已经把不合条件的那颗按钮收起来了，这里是第二道闸 —— 页对象是**建一次留着**的，
-        //   用户完全可能在页开着的时候又失败了一批，而按钮画的还是上一帧那份。
-        bool parsed = false;
-        const Tasks::TaskId retryId = key.toInt(&parsed);
-        if (parsed && m_versionManager != nullptr
-            && retryWouldWork(m_activityCenter->tasks()->snapshot(retryId))
-            && m_versionManager->retryDownload()) {
-            // 那一格失败清单**刚被这一按吃掉了**（`retryDownload()` 自己 reset）⇒ 号也跟着
-            // 松开，不然同一颗按钮留在页上还能再点一次（再点一次什么都不会发生）。
-            m_activityCenter->markRetryConsumed();
-            appendLog(tr("正在重试上一次没下下来的那几个文件…"));
-        }
-        break;
+    // 面板那一行行尾那几颗（取消 / 重试 / 打开目标 / 打开日志 / 导出报告 / 打开崩溃目录）
+    // 走的就是这一条 —— 和详情页里那几颗**完全同一条路**（页里也发 `actionRequested`）。
+    m_taskDetail->action(key, action);
+}
+
+void MainWindow::cancelTaskFromDetail(const QString &key) {
+    // ★ 取消要**按这一项是谁**分派：服务端安装那一趟和版本/资源下载那一批不是同一份
+    //   状态（一个自己跑 QProcess + 自己的元数据请求，一个走 `VersionManager` 的批次）。
+    //   两边都无脑叫一遍的话，取消一次服务端安装会顺手把别人正在跑的下载掐掉 ——
+    //   而下载那一批可能是用户在下载页上排的、跟这一项毫无关系。
+    //
+    // NOTE: 这一条**留在 MainWindow**（`TaskDetailController` 只是按名字转手过来）：判据
+    //       必须和 `cancelWouldWork()` 那条**逐字对齐** —— "那颗按钮露不露"和"按下去做的
+    //       是哪一件事"是同一件事的两面，摆在一起才看得住。
+    if (m_serverInstall != nullptr && m_serverInstall->isRunning()
+        && m_serverInstallTaskId != Tasks::invalidTaskId()
+        && key == QString::number(m_serverInstallTaskId)) {
+        m_serverInstall->cancel();
+        return;
     }
-    case TaskDetailPage::Action::OpenLog:
-        openTaskLog(key);
-        break;
-    case TaskDetailPage::Action::OpenTarget:
-        openTaskTarget(key);
-        break;
-    case TaskDetailPage::Action::CopySummary:
-        copyTaskSummary(key);
-        break;
-    case TaskDetailPage::Action::ExportReport:
-        exportCrashReport(key);
-        break;
-    case TaskDetailPage::Action::OpenCrashDir:
-        openCrashReportsDir(key);
-        break;
-    }
-    // 取消 / 重试都会让账本立刻动起来（终态信号是同步发的），这一页上那几行跟着重摆一遍
-    // —— 不重摆的话用户看到的还是"正在进行"，而底下那一批已经收尾了。
-    if (m_taskDetailPage != nullptr) {
-        TaskCenter::Item fresh;
-        if (fillTaskDetail(key, &fresh)) {
-            m_taskDetailPage->setTask(fresh);
-        }
+    if (m_versionManager != nullptr && m_versionManager->cancelActiveDownload()) {
+        appendLog(tr("下载已取消。已经下好的文件留在原处。"));
     }
 }
 
-void MainWindow::openTaskLog(const QString &key) {
-    // ★ 这里打开的是**启动器自己那次启动的日志**（`<数据目录>/logs/wtfml.log`），不是某一场
-    //   游戏的日志窗。
-    //
-    //   理由：任务中心记的是**启动器干的活**（下载 / 安装 / 导入 / 启动这一段调度），那些话
-    //   全在这份日志里；而 `GameLogWindow` 装的是**游戏进程的输出**，它是按会话号开的、
-    //   会话结束就没了（见 m_gameLogWindows 那一段）。拿一次"下载失败"去开游戏日志，
-    //   开出来的多半是空的、或者上一次玩的那一场 —— 那比不开更让人糊涂。
-    //
-    //   §4.3 那一项「游戏异常退出」另外给「打开日志」一个**明确的**去处：它就是下面这一段。
+void MainWindow::retryTaskFromDetail(const QString &key) {
+    // ★ 只认**这一项自己**那一批（`retryWouldWork()` 就是这条判据的唯一出处）：界面那边
+    //   已经把不合条件的那颗按钮收起来了，这里是第二道闸 —— 页对象是**建一次留着**的，
+    //   用户完全可能在页开着的时候又失败了一批，而按钮画的还是上一帧那份。
     bool parsed = false;
-    const Tasks::TaskId id = key.toInt(&parsed);
-    const int crashSessionId = parsed ? m_crashReports->sessionIdForTask(id) : 0;
-    if (crashSessionId > 0) {
-        // 这一项知道自己是**哪一场**。异常退出时日志窗不会自动关（见
-        // `GameLogWindow::autoCloseOnExit()`），所以它多半还在 —— 抬到前面来，而不是去开
-        // 启动器自己那份日志（那里面只有调度那几句，看不到游戏说了什么）。
-        if (GameLogWindow *window = m_gameLogWindows.value(crashSessionId, nullptr)) {
-            window->show();
-            window->raise();
-            window->activateWindow();
-            return;
-        }
-        // 用户把那一扇关了。**不留一句"没了"就完事** —— 那一刻留下的两段日志还在
-        // （`CrashRecord`），「导出错误报告」导出来的正是它。把这条路指给他。
-        InlineMessage::warning(
-            m_ui->overlay(), tr("那扇日志窗已经关掉了"),
-            tr("这一场游戏的日志窗刚才被关掉了。当时留下的那两段日志还在 —— "
-               "按「导出错误报告」可以把它们导出来（错误那一段最多末尾 %1 行，"
-               "整份最多末尾 %2 行）。")
-                .arg(GameExitDiagnosis::kExcerptLineLimit)
-                .arg(GameExitDiagnosis::kLogTailLineLimit));
-        return;
+    const Tasks::TaskId retryId = key.toInt(&parsed);
+    if (parsed && m_versionManager != nullptr
+        && retryWouldWork(m_activityCenter->tasks()->snapshot(retryId))
+        && m_versionManager->retryDownload()) {
+        // 那一格失败清单**刚被这一按吃掉了**（`retryDownload()` 自己 reset）⇒ 号也跟着
+        // 松开，不然同一颗按钮留在页上还能再点一次（再点一次什么都不会发生）。
+        m_activityCenter->markRetryConsumed();
+        appendLog(tr("正在重试上一次没下下来的那几个文件…"));
     }
-    const QString path = AppPaths::minecraftDir() + QStringLiteral("/logs/wtfml.log");
-    if (!QFile::exists(path)) {
-        InlineMessage::warning(m_ui->overlay(), tr("还没有日志"), tr("这一次启动到现在没有写过日志。"));
-        return;
-    }
-    QDesktopServices::openUrl(QUrl::fromLocalFile(path));
-}
-
-void MainWindow::openTaskTarget(const QString &key) {
-    bool ok = false;
-    const Tasks::TaskId id = key.toInt(&ok);
-    if (!ok || !m_activityCenter->tasks()->has(id)) {
-        return;
-    }
-    const Tasks::TaskSnapshot task = m_activityCenter->tasks()->snapshot(id);
-    // 目标就是那一项自己记的那个 id（实例 id / 版本号），空的话落到数据目录 ——
-    // 一样"点得开"，不给一颗点了没反应的按钮。
-    // 目标就是那一项自己记的那个 id，空的话落到数据目录 —— 一样"点得开"，不给一颗点了
-    // 没反应的按钮。
-    //
-    // ★ **服务端那一批任务记的是服务端 id，不是实例 id**（M4-2 的安装 / M4-4 的备份都走
-    //   `beginTask(..., serverId, ...)`），而 `AppPaths::versionDir()` 拼出来的是
-    //   `<数据目录>/versions/<id>` —— 对服务端来说那个目录**永远不存在**。所以按下
-    //   「打开目标位置」本来会报一句"那个目录现在不在"（而它明明就在 `Servers/<id>`）。
-    //   先按实例认，认不出来再看它是不是一个服务端。
-    QString dir;
-    if (task.targetId.isEmpty()) {
-        dir = AppPaths::minecraftDir();
-    } else {
-        dir = AppPaths::versionDir(task.targetId);
-        if (!QDir(dir).exists() && ServerRegistry::serverExists(task.targetId)) {
-            dir = ServerRegistry::describe(task.targetId).dirPath;
-        }
-    }
-    if (!QDir().exists(dir)) {
-        InlineMessage::warning(m_ui->overlay(), tr("打不开这一项的目标位置"),
-                               tr("这一项说的是 %1，而那个目录现在不在。")
-                                   .arg(QDir::toNativeSeparators(dir)));
-        return;
-    }
-    QDesktopServices::openUrl(QUrl::fromLocalFile(dir));
-}
-
-void MainWindow::copyTaskSummary(const QString &key) {
-    TaskCenter::Item item;
-    if (!fillTaskDetail(key, &item)) {
-        return;
-    }
-    // 摘要 = 这一页上那几行字，纯文本（贴到哪儿都读得下去）。**不带上整份日志**：
-    // 那是「导出错误报告」的活（见 util/ErrorReport），这一颗要的是"把这一项说清楚"。
-    QStringList lines;
-    lines << QStringLiteral("%1: %2").arg(MainWindowUI::taskDetailStateText(item.state),
-                                          item.title);
-    if (item.startedAt.isValid() || item.finishedAt.isValid()) {
-        lines << MainWindowUI::taskDetailTimeLineText(item.startedAt, item.finishedAt);
-    }
-    if (!item.detail.isEmpty()) {
-        lines << item.detail;
-    }
-    if (!item.bytesText.isEmpty()) {
-        lines << item.bytesText;
-    }
-    for (const TaskCenter::Step &step : item.steps) {
-        lines << TaskCenter::stepMark(step.state) + QLatin1Char(' ') + step.name
-                     + (step.note.isEmpty() ? QString() : QStringLiteral(" · ") + step.note);
-    }
-    if (!item.errorSummary.isEmpty()) {
-        lines << QString() << item.errorSummary;
-    }
-    QGuiApplication::clipboard()->setText(lines.join(QLatin1Char('\n')));
-    appendLog(tr("这一项的摘要已经复制到剪贴板。"));
 }
 
 Tasks::TaskId MainWindow::beginTask(Tasks::TaskKind kind, const QString &title,
@@ -4537,14 +4487,9 @@ void MainWindow::onResourceIconReady(const QString &iconId, const QPixmap &icon)
     // ★ 这一句**必须排在 m_resourceStore->requestIcon() 之后**（也就是"图标回来时"）：
     //   盘上已经有缓存的话 requestIcon() 是**同步**发 iconReady 的（见它那条 NOTE），
     //   所以这里是"记了账、立刻就用上"，而记账那一步在 requestIcon 之前就写完了。
-    const QStringList filePaths = m_instanceIcons.pathsByIconKey.value(iconId);
-    if (!filePaths.isEmpty()) {
-        for (const QString &path : filePaths) {
-            // 空的也存 —— 它记的是"这一条问过了、没有"（见 m_instanceIconMissing 那段）。
-            m_instanceFileIcons.insert(instanceIconCacheKey(path), icon);
-        }
-        pushInstanceFileIcons();
-    }
+    //   ★★ 2026-10-15：记账那一套（"认得出这个资源的那几条文件"那张表 + 会话缓存 + 摆给
+    //      正开着的那一页）整个搬进了 `InstanceIconController`，这里只剩一声喊。
+    m_instanceIconController->rememberResourceIcon(iconId, icon);
 }
 
 void MainWindow::onResourceItemActivated(QTreeWidgetItem *item) {
@@ -4917,21 +4862,14 @@ QSet<QString> MainWindow::installedModKeys(const QString &instanceId, bool *know
         }
         return keys;
     }
-    const QString prefix = modsDir + QLatin1Char('/');
-    for (auto it = m_instanceFileIdentities.constBegin();
-         it != m_instanceFileIdentities.constEnd(); ++it) {
-        // 键是 `路径\n大小\n时间`（见 instanceIconCacheKey）⇒ 前缀比得上就说明这个文件在
-        // 这个实例的 mods 里。**必须带那个 `/`**：不带的话 `…/mods2/x.jar` 也会算进来。
-        if (it.key().startsWith(prefix)) {
-            keys.insert(it.value());
-        }
-    }
+    // 认出来的那些在那一层（"这一条是哪个资源"那张表跟着反查那一趟住在
+    // `InstanceIconController` 里，2026-10-15 搬过去的）。
+    keys = m_instanceIconController->recognizedResourceKeysUnder(modsDir);
     // ★ `known` 说的是"这个实例的 mods 到底认过没有"，而不是"认出来几个" ——
     //   一个模组都没认出（新实例、全是自己改过的 jar）和"没进过文件管理页"都表现为空表，
     //   而界面上那两句话不一样（见 startDependencyCheck）。
     if (known != nullptr) {
-        *known = !m_instanceIcons.versionId.isEmpty() &&
-                 m_instanceIcons.versionId == instanceId;
+        *known = m_instanceIconController->recognizedInstanceIs(instanceId);
     }
     return keys;
 }
@@ -6101,67 +6039,16 @@ void MainWindow::forceKillServer(const QString &serverId) {
 }
 
 void MainWindow::openServerConsole(const QString &serverId) {
-    OverlayHost *overlay = m_ui == nullptr ? nullptr : m_ui->overlay();
-    if (overlay == nullptr || serverId.isEmpty()) {
-        return;
-    }
-    if (m_serverConsolePage == nullptr) {
-        m_serverConsolePage = new ServerConsolePage(this);
-        m_serverConsolePage->setMaxLines(ServerRun::ServerProcess::maxLogLines());
-        // NOTE: 这三条只接一次（页面复用）。**认人认 `m_serverConsoleId`，不认"列表上现在
-        //       选中谁"** —— 用户完全可能边看控制台边点别处（同 m_updateCenterInstanceId
-        //       那一段的理由）。
-        connect(m_serverConsolePage, &ServerConsolePage::commandSubmitted, this,
-                [this](const QString &command) {
-                    ServerRun::ServerProcess *process =
-                        m_serverWorkspace->process(m_serverConsoleId);
-                    if (process == nullptr || !process->sendCommand(command)) {
-                        appendLog(tr("这一条没有送到服务端（它已经不在跑了）。"));
-                    }
-                });
-        connect(m_serverConsolePage, &ServerConsolePage::stopRequested, this,
-                [this] { stopServer(m_serverConsoleId); });
-        connect(m_serverConsolePage, &ServerConsolePage::forceKillRequested, this,
-                [this] { forceKillServer(m_serverConsoleId); });
-    }
-    m_serverConsoleId = serverId;
-    const ServerRegistry::Entry entry = ServerRegistry::describe(serverId);
-    m_serverConsolePage->setServerName(entry.name.isEmpty() ? serverId : entry.name);
-    const ServerRun::ServerProcess *process = m_serverWorkspace->process(serverId);
-    // 开页时把**攒下来的**那些行灌一遍：这一页关着的时候它也一直在跑，重新打开不该
-    // 只剩"从打开这一刻起"的日志。
-    m_serverConsolePage->setLog(process != nullptr ? process->logLines() : QStringList());
-    updateServerConsole();  // 状态那几行的唯一出处
-    // ★ 开页要说清 `ownerTab`、并且**先切过去**（见 OverlayHost::execPage 那段）：这一页
-    //   是从服务端列表上开出来的，那一位就是"实例"这一颗。不切的话，页眉上那颗返回箭头
-    //   收页之后用户会落在一个跟刚才没关系的选项卡上。
-    const int instancesTab = MainWindowUI::instancesTabIndex();
-    if (QTabWidget *tabs = m_ui->getTabWidget()) {
-        if (instancesTab >= 0 && instancesTab < tabs->count()) {
-            tabs->setCurrentIndex(instancesTab);
-        }
-    }
-    overlay->execPage(m_serverConsolePage, ServerConsolePage::windowTitle(), instancesTab);
-    // 收页之后"这一页说的是谁"就没意义了 —— 留着的话，返回键一按、下一行日志还会往一个
-    // 已经收起来的页面上写。
-    m_serverConsoleId.clear();
+    // ★ 2026-10-15：这一页整个搬进了 `ServerConsoleController`（页对象、「这一页现在说的是
+    //   谁」、那三颗按钮该不该按、命令往哪个进程送）。这一条留着是因为两个调用点认的是
+    //   **这个名字**：列表上右键那一条（`runServerMenuAction`）和
+    //   `ConnectionsController` 接的那份菜单。
+    m_serverConsole->open(serverId);
 }
 
 void MainWindow::updateServerConsole() {
-    if (m_serverConsolePage == nullptr || m_serverConsoleId.isEmpty()) {
-        return;
-    }
-    const ServerRun::ServerProcess *process = m_serverWorkspace->process(m_serverConsoleId);
-    const ServerModel::Status status =
-        process != nullptr ? process->status() : ServerModel::Status::Stopped;
-    const bool running = process != nullptr && process->isRunning();
-    const bool stopping = status == ServerModel::Status::Stopping;
-    m_serverConsolePage->setStatusText(ServerModel::statusName(status));
-    // 「停止」在停止中就不给按了（已经在停了，再点只是催它）；「强制结束」照宽限那一套来。
-    m_serverConsolePage->setStopAvailable(running && !stopping);
-    m_serverConsolePage->setForceKillAvailable(process != nullptr && process->forceKillAllowed());
-    // 没在跑的时候底下那格输入不能用 —— 写进去没人读（那比灰着更容易让人以为坏了）。
-    m_serverConsolePage->setCommandAvailable(running);
+    // 状态那几行的唯一出处现在在控制器里（见 ServerConsoleController::refresh()）。
+    m_serverConsole->refresh();
 }
 
 void MainWindow::openServerFolder(const QString &serverId) {
@@ -6233,9 +6120,7 @@ void MainWindow::removeServer(const QString &serverId) {
     // 进程对象一起收掉：它现在没在跑，但表里留着的话，下次 `describe()` 同名的那个会
     // 拿到上一辈子的状态（而且行都没了，它再发信号就是对着空气说）。
     m_serverWorkspace->removeProcess(serverId);
-    if (m_serverConsoleId == serverId) {
-        m_serverConsoleId.clear();
-    }
+    m_serverConsole->forget(serverId);
     appendLog(tr("已删除服务端 %1。").arg(serverId));
     refreshServerList();
 }
@@ -6996,22 +6881,17 @@ void MainWindow::onServerLineAppended(const QString &serverId, const QString &li
         logged = logged.left(kMaxLoggedServerLineChars) + QStringLiteral("…（这一行太长，截断了）");
     }
     appendLog(QStringLiteral("[%1] %2").arg(serverId, logged));
-    if (m_serverConsolePage != nullptr && m_serverConsoleId == serverId) {
-        m_serverConsolePage->appendLine(line);
-    }
+    // 控制台那一页正开着它的话，这一行也进那一页（认人认"这一页现在说的是谁"，见控制器）。
+    m_serverConsole->appendLine(serverId, line);
 }
 
 void MainWindow::onServerForceKillAvailable(const QString &serverId) {
     const ServerRun::ServerProcess *process = m_serverWorkspace->process(serverId);
     const int seconds = (process != nullptr ? process->gracefulMs() : 0) / 1000;
     appendLog(tr("%1：%2").arg(serverId, ServerRun::forceKillNote(seconds)));
-    if (m_serverConsolePage != nullptr && m_serverConsoleId == serverId) {
-        // 往控制台里也插一行：用户正盯着这一页看，那颗按钮为什么突然亮了得有个说法。
-        // `[wtfml]` 前缀把它和服务端自己吐的那些行分开（它不会吐这个前缀）。
-        m_serverConsolePage->appendLine(QStringLiteral("[wtfml] ")
-                                        + ServerRun::forceKillNote(seconds));
-        updateServerConsole();
-    }
+    // 正开着它那一页的话，往控制台里也插一行 + 把状态重摆一遍（那颗按钮为什么突然亮了
+    // 得有个说法）—— 页不在就不做，判据在控制器里。
+    m_serverConsole->announceForceKill(serverId, seconds);
     updateServerRow(serverId);
 }
 
@@ -8756,7 +8636,7 @@ void MainWindow::applyLauncherBehaviourAfterLaunch() {
         hide();
         break;
     case LauncherBehaviour::CloseAndRestore:
-        m_hiddenForGame = true;
+        m_gameSessionController->noteHiddenForGame();
         hide();
         break;
     case LauncherBehaviour::Unchanged:
@@ -9239,37 +9119,9 @@ void MainWindow::onBottomBarPanelAction(bool account, const QString &key, int ac
 }
 
 void MainWindow::openGameLogForSession(int sessionId) {
-    if (sessionId <= 0) {
-        return;
-    }
-    // 那一扇已经开着（"随时能看输出"的常驻窗）⇒ 抬到前面来，一个字都不重开。
-    if (GameLogWindow *window = m_gameLogWindows.value(sessionId, nullptr)) {
-        window->show();
-        window->raise();
-        window->activateWindow();
-        return;
-    }
-    // 窗还没建出来。两种情形在**产品行为**上差得很远，所以这儿分开办：
-    //
-    //   · 会话还在跑（窗还没建 = 那一刻还没收到过它的输出，见 ensureGameLogWindow 里
-    //     "第一条输出才建窗"那一段，或者是**用户自己关过**这一扇，见 m_gameLogDismissed-
-    //     Sessions）⇒ 用户点名要看，就给他建一扇出来。这一刻可能是空的（一句输出都还没有），
-    //     那一窗自己会摆一句"还没有输出"—— 从这个窗往后每一行都能看见。
-    //   · 会话已经结束了 ⇒ 那一份日志**已经没了**（它只活在窗里，见 m_gameLogWindows 那
-    //     一段）。这里**不留一句"点不动"**：说清"它结束了、日志跟着没了"。
-    //     （异常退出那一路另有去处：任务中心那一项记着当时那两段日志，见 openTaskLog()。）
-    const LauncherManager::GameSession game = m_launcherManager->session(sessionId);
-    if (game.sessionId == 0) {
-        appendLog(tr("这一场游戏已经结束了，它那份日志窗也跟着没了。"));
-        return;
-    }
-    GameLogWindow *window = ensureGameLogWindow(sessionId, /*userAsked=*/true);
-    if (window == nullptr) {
-        return;
-    }
-    window->show();
-    window->raise();
-    window->activateWindow();
+    // ★ 2026-10-15：整段搬进控制器（"哪一扇开着 / 用户关过没有 / 会话还在不在"这三件事
+    //   读的都是它那边的表）。名字留着 —— mw_check 和底栏那一行按名字驱动它。
+    m_gameSessionController->openGameLogForSession(sessionId);
 }
 
 void MainWindow::logoutCurrentAccount() {
@@ -10670,11 +10522,11 @@ void MainWindow::openInstanceFileResource(const QString &versionId, const QStrin
     }
     // ② 这一条是哪个资源。认不出来 = 没匹配上 ⇒ **什么都不做**（那一行的名字本来也没
     //    变成链接，正常走不到这儿；测试里点一下量得到的就是"没反应"）。
-    const auto identity = m_instanceFileIdentities.constFind(instanceIconCacheKey(path));
-    if (identity == m_instanceFileIdentities.constEnd()) {
+    //    表在那一层（反查那一趟填的，见 `InstanceIconController`）；这一层只拿那把钥匙。
+    QString iconKey;
+    if (!m_instanceIconController->fileResourceIconKey(path, &iconKey)) {
         return;
     }
-    const QString iconKey = identity.value();
     // ③ 先收掉实例设置那一页 —— **只能走 dismiss()**，理由和 openDownloadCategory() 里
     //    逐字相同：那一页正卡在 `execPage()` 的嵌套事件循环里，只 `closeOverlay()` 的话
     //    一个信号都不发，那个循环永远不返回。
@@ -11092,34 +10944,31 @@ bool MainWindow::renameInstanceWorld(const QString &instanceId, const QString &w
 }
 
 // ---------- 「文件管理」那几页的图标（2026-09-27）----------
-
-QString MainWindow::instanceIconCacheKey(const QString &path) {
-    return InstanceIconController::instanceIconCacheKey(path);
-}
-
-QStringList MainWindow::instanceIconCandidatePaths(const QString &versionId) const {
-    return m_instanceIconController->instanceIconCandidatePaths(versionId);
-}
+//
+// ★★ 2026-10-15：这一整套（趟的状态 / 会话缓存 / "这一条是哪个资源"那张表 / 往页上摆）
+//    整个搬进了 `InstanceIconController` —— 从前的这里是一串只有一行体的转发，转发本身
+//    不是拆分，功能还留在这一层。现在只剩下面这一个入口：实例设置页开出来时会喊它一声
+//    （唯一的调用点在 `InstanceDialogController` 里）。其余几样（缓存钥匙、候选文件表、
+//    认过没有、这一条是哪个资源）都由那边直接提供。
 
 void MainWindow::requestInstanceFileIcons(InstanceSettingsDialog *dialog, const QString &versionId) {
     m_instanceIconController->requestInstanceFileIcons(dialog, versionId);
 }
 
-void MainWindow::startInstanceFileIconLookup() {
-    m_instanceIconController->startInstanceFileIconLookup();
-}
-
-void MainWindow::onInstanceIconLookupFinished(const InstanceIconLookup::Result &result) {
-    m_instanceIconController->onInstanceIconLookupFinished(result);
-}
-
-void MainWindow::pushInstanceFileIcons() {
-    m_instanceIconController->pushInstanceFileIcons();
-}
-
 void MainWindow::pushInstanceFileUpdates(InstanceSettingsDialog *dialog,
                                          const QString &instanceId) {
-    m_instanceIconController->pushInstanceFileUpdates(dialog, instanceId);
+    if (dialog == nullptr) {
+        // 这一页已经收掉了（或者压根没开着）——那就不递，盘上那份账照样记着
+        //（下一次开这一页时由开页那条路补上，见调用点）。
+        return;
+    }
+    // 键在不在 = **查过没有**，值是查出来可更新的那些路径。
+    //
+    // ★ 这一份账（`m_instanceOutdatedPaths`）是**检查更新**那一趟的，不是图标那一套 ——
+    //   所以这一下留在这一层（2026-10-15 从 InstanceIconController 挪回来的）。
+    const auto it = m_instanceOutdatedPaths.constFind(instanceId);
+    const bool checked = it != m_instanceOutdatedPaths.constEnd();
+    dialog->setFileUpdates(checked ? it.value() : QStringList(), checked);
 }
 
 bool MainWindow::applyInstanceSettings(const QString &versionId,
@@ -11262,12 +11111,18 @@ QString writeExportFile(const QString &path, const QString &text) {
 // 三层的分工（要改先看这一段）：
 //   - **那几句话怎么得出来**全在 `src/diag/GameExitDiagnosis`（纯函数、规则一张表，
 //     verify 能逐格念一遍）；
-//   - **这一份事实怎么留住**在下面这几行 —— 会话一结束 `LauncherManager` 那份记录就没了，
-//     `m_sessionDisplayNames` 也在同一趟里清掉，而用户按「导出错误报告」可能是很久以后；
+//   - **这一份事实怎么留住**在 `GameSessionController` 那一层（2026-10-15 连那几本账一起
+//     搬走了）—— 会话一结束 `LauncherManager` 那份记录就没了，启动事实也在同一趟里清掉，
+//     而用户按「导出错误报告」可能是很久以后；这一层只把它摆成 `CrashReportController`
+//     要的那一份；
 //   - **写盘 / 开目录**也在这一层（`ui/` 不认识数据目录，那是那一层的规矩）。
 
 void MainWindow::reportGameCrash(int sessionId, int exitCode, bool crashed) {
-    const GameSessionFacts launch = m_sessionLaunchFacts.value(sessionId);
+    // 这一趟的启动事实和那份日志都**在会话还活着的时候**留在了控制器那边（会话一结束，
+    // LauncherManager 那份记录和日志窗里的两段日志就都没了），这里只把它们摆成
+    // `CrashReportController` 要的那一份。
+    const GameSessionController::GameSessionFacts launch =
+        m_gameSessionController->sessionFacts(sessionId);
     CrashReportController::LaunchFacts facts;
     facts.instanceId = launch.instanceId;
     facts.instanceName = launch.instanceName;
@@ -11282,7 +11137,7 @@ void MainWindow::reportGameCrash(int sessionId, int exitCode, bool crashed) {
     facts.loaderVersion = launch.loaderVersion;
     QString errors;
     QString all;
-    if (const GameLogWindow *window = m_gameLogWindows.value(sessionId, nullptr)) {
+    if (const GameLogWindow *window = m_gameSessionController->gameLogWindow(sessionId)) {
         errors = window->logTextFrom(GameLogWindow::LogLevel::Error);
         all = window->allLogText();
     }
@@ -11298,7 +11153,7 @@ void MainWindow::openCrashReportsDir(const QString &key) {
     m_crashReports->openReportsDirectory();
 }
 void MainWindow::exportGameLog(int sessionId) {
-    GameLogWindow *window = m_gameLogWindows.value(sessionId, nullptr);
+    GameLogWindow *window = m_gameSessionController->gameLogWindow(sessionId);
     if (window == nullptr) {
         return;  // 走不到：这两颗键就长在那个窗上
     }
@@ -11336,15 +11191,15 @@ void MainWindow::exportGameLog(int sessionId) {
 }
 
 void MainWindow::exportGameErrorReport(int sessionId) {
-    GameLogWindow *window = m_gameLogWindows.value(sessionId, nullptr);
+    GameLogWindow *window = m_gameSessionController->gameLogWindow(sessionId);
     if (window == nullptr) {
         return;
     }
     const QDateTime now = QDateTime::currentDateTime();
 
-    // 事实从**快照**里取（理由见 m_gameLogFacts 的说明：会话一结束，那份记录就查不到了，
-    // 而"崩溃之后导一份报告"正是这件事最主要的用法）。
-    const GameLogFacts saved = m_gameLogFacts.value(sessionId);
+    // 事实从**快照**里取（理由见 GameSessionController::GameLogFacts 的说明：会话一结束，
+    // 那份记录就查不到了，而"崩溃之后导一份报告"正是这件事最主要的用法）。
+    const GameSessionController::GameLogFacts saved = m_gameSessionController->logFacts(sessionId);
     ErrorReport::Facts facts;
     facts.launcherVersion = QCoreApplication::applicationVersion();
     facts.instanceName = window->instanceName();
@@ -11553,12 +11408,19 @@ void MainWindow::repairInstanceFiles(const QString &versionId) {
 
     // 不弹一次"确定吗"：这颗按钮自己就是那一下确认（它写着"开始检查…"，下面那句说明也把
     // 要干的事说全了），再问一遍只是让用户多点一次。真的会花时间的地方在底栏那根进度条上。
+    //
+    // ★ 体检点过名的那几条要一起交下去（见 VersionManager::repairVersionFiles 的 @param）：
+    //   体检说"这个资源对象是坏的"时，补全那一侧的判据（只问在不在）看不见它，会跳过 ——
+    //   两份界面就互相打脸。这个实例**最近一趟**体检的清单从控制台那一层拿（体检的是别的
+    //   实例、或者压根没体检过时是空表，那就是老行为）。修完照旧留着：报告是"最近一趟"的
+    //   快照，再点一次补全照样会把这几条重下一遍（无害，它们本来就是坏的那几条）。
+    const QStringList flagged = m_integrityController->flaggedPaths(versionId);
     appendLog(tr("开始校验「%1」的文件（已存在的会跳过）...").arg(instanceDisplayName(versionId)));
     // 顺序：**先记名字再置忙**。setDownloadUiBusy() 里那句 refreshInstalledVersions() 读的
     // 就是这个判据（正在补全的实例不该出现在启动列表里），反过来的话它漏得出那一次刷新。
     m_repairingInstanceId = versionId;
     setDownloadUiBusy(true);
-    m_versionManager->repairVersionFiles(versionId);
+    m_versionManager->repairVersionFiles(versionId, flagged);
 }
 
 // ---------------------------------------------------------------------------
@@ -11656,6 +11518,21 @@ void MainWindow::snapshotInstance(const QString &versionId) {
 
 void MainWindow::restoreInstanceSnapshot(const QString &versionId) {
     m_backupController->restoreInstance(versionId);
+}
+
+Tasks::TaskId MainWindow::startBackupRestore(const QString &zipPath, const QString &targetParentDir,
+                                            const QString &title, const QString &targetId,
+                                            const QString &successTitle) {
+    // ★★ 2026-10-15：这一发**一个界面调用点都没有**（界面上那两条路是上面那两个：世界页
+    //    「恢复备份…」和概览「从快照恢复…」，zip 和落点由它们自己决定）。留着它只为一件事：
+    //    **mw_check 是照着名字驱动它的**（`QMetaObject::invokeMethod(&w, "startBackupRestore",
+    //    …)`，T35.3 / T35.4 那一节拿它验"还原那一趟跑完了""别人的包 ⇒ 账本上是失败"）。
+    //
+    // ★ 这一条正是"搬功能之前先想清楚谁还按名字喊它"：d2717c9 拆分时它跟着旧实现一起没了，
+    //   而那三处调用**不会报错** —— invokeMethod 找不到就返回 false，于是那七条断言静默
+    //   失效，屏幕上看着像"还原功能坏了"。挪走实现的时候留一个同名的薄壳，是这一层和
+    //   验证工程之间唯一的那条约定（见 tests/mw_check 那一节的说明）。
+    return m_backupController->startRestore(zipPath, targetParentDir, title, targetId, successTitle);
 }
 
 MainWindow::JavaMismatchAnswer MainWindow::askAboutJavaMismatch(

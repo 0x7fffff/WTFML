@@ -1,20 +1,18 @@
 #include "InstanceIconController.hpp"
-#include "MainWindow.hpp"
-#include "InstanceFilesPage.hpp"
 #include "InstanceSettingsDialog.hpp"
-#include "MainWindowUI.hpp"
+#include "InstanceFilesPage.hpp"
 #include "download/ResourceStore.hpp"
 #include "manage/InstanceFiles.hpp"
-#include "manage/VersionManager.hpp"
 #include "settings/LauncherSettings.hpp"
 #include "util/AppPaths.hpp"
 #include <QDir>
 #include <QFileInfo>
-#include <QFutureWatcher>
+#include <QThread>
 #include <QTimer>
-#include <QtConcurrent/QtConcurrentRun>
 
-InstanceIconController::InstanceIconController(MainWindow *owner) : QObject(owner), m_owner(owner) {}
+InstanceIconController::InstanceIconController(LauncherSettings *settings, ResourceStore *resourceStore,
+                                               Host host, QObject *parent)
+    : QObject(parent), m_host(std::move(host)), m_settings(settings), m_resourceStore(resourceStore) {}
 
 QString InstanceIconController::instanceIconCacheKey(const QString &path) {
     // 路径 + 大小 + 修改时间。**三样都要**（理由见声明处那条 NOTE）：只按路径键住的话，
@@ -26,12 +24,12 @@ QString InstanceIconController::instanceIconCacheKey(const QString &path) {
     //   就是这条。禁用 = 把 `X.jar` 改名成 `X.jar.disabled`（见
     //   `InstanceFilesPage::disabledSuffix()`）：**改的是名字，盘上那份内容一个字节都没动**
     //   （大小和修改时间也一样 —— 改名不动这两个），所以"这一条是哪个资源"在改名前后
-    //   就是同一件事。不摘的话这一把钥匙整个换掉：`m_owner->m_instanceFileIcons` 那一份里明明有它
+    //   就是同一件事。不摘的话这一把钥匙整个换掉：`m_instanceFileIcons` 那一份里明明有它
     //   也认不出来，于是要么白重读一遍那几十兆（重算哈希）、要么干脆没有 —— 而屏幕上
-    //   两种都表现为那一格退回占位拼图。同一把钥匙还锁着 `m_owner->m_instanceFileIdentities`
-    //   （详情那一页的来路）和 `m_owner->m_instanceIconMissing`（"问过了、没有"那条负缓存）。
+    //   两种都表现为那一格退回占位拼图。同一把钥匙还锁着 `m_fileResources`
+    //   （详情那一页的来路）和 `m_instanceIconMissing`（"问过了、没有"那条负缓存）。
     //
-    // NOTE: 摘的只是**钥匙**。两张表里存的那些路径（`m_owner->m_instanceIcons.paths` /
+    // NOTE: 摘的只是**钥匙**。两张表里存的那些路径（`m_instanceIcons.paths` /
     //       `Found::path`）照旧是**盘上真那个名字** —— 推给界面时用的正是它。
     // NOTE: 大小和修改时间是**拿盘上真那个路径**取的（上面那一句 `QFileInfo`），
     //       和钥匙上那一段无关。
@@ -42,7 +40,7 @@ QString InstanceIconController::instanceIconCacheKey(const QString &path) {
 }
 
 QStringList InstanceIconController::instanceIconCandidatePaths(const QString &versionId) const {
-    const QHash<QString, QString> dirs = m_owner->instanceFileDirs(versionId);
+    const QHash<QString, QString> dirs = m_host.fileDirs(versionId);
     // 五个目录：四个能下载的（模组 / 资源包 / 数据包 / 光影包）+ 原理图。**不含存档**
     // （那一页全是目录，而一个存档不是一个能反查的资源）。原理图那一页大多是
     // `.litematic`（`isLookupCandidate()` 会把它们筛掉），但用户往里放 `.zip` 也是常事。
@@ -72,9 +70,9 @@ void InstanceIconController::requestInstanceFileIcons(InstanceSettingsDialog *di
         return;
     }
     // 这一页现在是谁 —— 结果回来时按它认人（见 InstanceIconRun::dialog 那段）。
-    m_owner->m_instanceIcons.dialog = dialog;
-    m_owner->m_instanceIcons.versionId = versionId;
-    m_owner->m_instanceIcons.paths = instanceIconCandidatePaths(versionId);
+    m_instanceIcons.dialog = dialog;
+    m_instanceIcons.versionId = versionId;
+    m_instanceIcons.paths = instanceIconCandidatePaths(versionId);
     // 已经知道的先摆上：这一趟要问的那几个还在路上，但上一趟问到的、以及这一趟里
     // "已经问过、没有"的那些，现在就该是对的（不是等整个后台线程跑完才一起摆）。
     pushInstanceFileIcons();
@@ -88,15 +86,15 @@ void InstanceIconController::startInstanceFileIconLookup() {
     //   NOTE: 这一条早退**不再丢下新开的那一页** —— 那一趟收尾时会拿"这一趟是给谁问的"
     //         和"现在这一页是谁"比一比，不一样就回头替新那页再走一遍这里（见
     //         onInstanceIconLookupFinished 末尾那段）。
-    if (m_owner->m_instanceIcons.active) {
+    if (m_instanceIcons.active) {
         return;
     }
 
     // 还没问过的那些：会话缓存里两样都没有的。
     QStringList missing;
-    for (const QString &path : m_owner->m_instanceIcons.paths) {
+    for (const QString &path : m_instanceIcons.paths) {
         const QString key = instanceIconCacheKey(path);
-        if (m_owner->m_instanceFileIcons.contains(key) || m_owner->m_instanceIconMissing.contains(key)) {
+        if (m_instanceFileIcons.contains(key) || m_instanceIconMissing.contains(key)) {
             continue;
         }
         missing.append(path);
@@ -107,61 +105,58 @@ void InstanceIconController::startInstanceFileIconLookup() {
     }
 
     InstanceIconLookup::Options options;
-    // 三个口子和 ResourceStore / VersionManager 那两处**同一份设置**（CurseForge 的 key
-    // 是用户自己填的那一份；两个 override 只有验证工程会写）。
-    options.curseForgeApiKey = m_owner->m_settings->curseForgeApiKey();
-    options.modrinthApiBaseOverride = m_owner->m_settings->modrinthApiBaseOverride();
-    options.curseForgeApiBaseOverride = m_owner->m_settings->curseForgeApiBaseOverride();
+    options.curseForgeApiKey = m_settings->curseForgeApiKey();
+    options.modrinthApiBaseOverride = m_settings->modrinthApiBaseOverride();
+    options.curseForgeApiBaseOverride = m_settings->curseForgeApiBaseOverride();
     // ★★ 2026-10-10（用户原话：「模组图标做本地缓存功能，不要每次都拉取」）：这一趟的结果
     //    留一份在这个实例名下（见 InstanceIconLookup 的 .hpp 里【结果留一份在盘上】那段）——
     //    第二次进这一页就**只读那一份 JSON**，几十兆 jar 不重读、接口一个都不问。
     //    改这个实例里某一个文件（甚至只是把它禁用掉）只让**那一条**重查：钥匙里带着大小和
     //    修改时间，而"禁用"只是改了个名。
     options.cacheDir = AppPaths::instanceIconCacheDir();
-    options.cacheKey = m_owner->m_instanceIcons.versionId;
+    options.cacheKey = m_instanceIcons.versionId;
 
     // 上一趟那个线程对象还挂着（跑完了，但 deletion 还排着队）：先放它走 —— 不收拾的话
     // 每问一次就在父对象底下攒一个僵尸 QThread（同 ServerPing::Pinger::start() 那段）。
-    if (m_owner->m_instanceIconThread != nullptr) {
-        m_owner->m_instanceIconThread->deleteLater();
-        m_owner->m_instanceIconThread = nullptr;
+    if (m_instanceIconThread != nullptr) {
+        m_instanceIconThread->deleteLater();
+        m_instanceIconThread = nullptr;
     }
 
-    m_owner->m_instanceIcons.active = true;
+    m_instanceIcons.active = true;
     // ★★ 2026-09-27：**这一趟问的是哪几个文件**记一份，回调里只认这一份（理由见
-    //    m_owner->m_instanceIconRunPaths 声明处那段）。上面那道 `active` 闸排在"换 paths"之后，
+    //    m_instanceIconRunPaths 声明处那段）。上面那道 `active` 闸排在"换 paths"之后，
     //    所以这一句必须放在这里、而不是跟着 paths 一起在最上面写 —— 它要写的是**这一趟**
     //    的事实，不是"最后一次请求"的事实。
-    m_owner->m_instanceIconRunPaths = missing;
-    m_owner->m_instanceIconRunVersionId = m_owner->m_instanceIcons.versionId;
-    m_owner->appendLog(m_owner->tr("正在认「%1」里的资源图标（%2 个文件）...")
-                  .arg(m_owner->instanceDisplayName(m_owner->m_instanceIcons.versionId))
-                  .arg(missing.size()));
+    m_instanceIconRunPaths = missing;
+    m_instanceIconRunVersionId = m_instanceIcons.versionId;
+    m_host.log(tr("正在认「%1」里的资源图标（%2 个文件）...")
+                   .arg(m_host.displayName(m_instanceIcons.versionId))
+                   .arg(missing.size()));
     // `QThread::create` 那个重载收一个函数对象（Qt 5.10 起），省掉"再写一个 QThread 子类
     // 并在 .cpp 里 moc"。结果**回主线程那一句走 invokeMethod 的 functor 重载**（而不是
     // 一个带自定义类型参数的信号）：那样连元类型都不用登记 —— 那个 functor 是被拷进事件
     // 里带过去的，中间不过 QVariant（`InstanceIconLookup::Result` 里那两层容器要按
     // Q_DECLARE_METATYPE 一层层登记才对，漏一层就是**静默**收不到，见 ServerPing 里那条）。
-    m_owner->m_instanceIconThread = QThread::create([this, missing, options]() {
+    m_instanceIconThread = QThread::create([this, missing, options]() {
         const InstanceIconLookup::Result result = InstanceIconLookup::lookup(missing, options);
         QMetaObject::invokeMethod(
-            m_owner, [this, result]() { m_owner->onInstanceIconLookupFinished(result); },
-            Qt::QueuedConnection);
+            this, [this, result]() { onInstanceIconLookupFinished(result); }, Qt::QueuedConnection);
     });
-    m_owner->m_instanceIconThread->setParent(m_owner);
-    m_owner->m_instanceIconThread->start();
+    m_instanceIconThread->setParent(this);
+    m_instanceIconThread->start();
 }
 
 void InstanceIconController::onInstanceIconLookupFinished(const InstanceIconLookup::Result &result) {
-    m_owner->m_instanceIcons.active = false;
+    m_instanceIcons.active = false;
     // ★★ 2026-09-27：这一趟**问过的那批文件**，以及"结果回来时这一页还是不是它"。
-    //    下面②那个循环**只许读这一份**：m_owner->m_instanceIcons.paths 在这一趟跑着的时候可能
+    //    下面②那个循环**只许读这一份**：m_instanceIcons.paths 在这一趟跑着的时候可能
     //    已经被"A 跑着、用户又开了 B 那一页"换掉了，照它写负缓存等于把 A 的"没找到"记到
     //    B 的文件头上（写进去就不清，B 这一整个会话都没有图标）。
-    const QStringList runPaths = m_owner->m_instanceIconRunPaths;
-    const QString runVersionId = m_owner->m_instanceIconRunVersionId;
-    m_owner->m_instanceIconRunPaths.clear();
-    m_owner->m_instanceIconRunVersionId.clear();
+    const QStringList runPaths = m_instanceIconRunPaths;
+    const QString runVersionId = m_instanceIconRunVersionId;
+    m_instanceIconRunPaths.clear();
+    m_instanceIconRunVersionId.clear();
 
     // ---------- ① 认出来的：换成一个"资源身份"，交给 ResourceStore 去取那张图 ----------
     //
@@ -176,44 +171,44 @@ void InstanceIconController::onInstanceIconLookupFinished(const InstanceIconLook
         //   多读几栏，**没有多发一个请求**。
         const ResourceCatalog::Hit hit = found.hit;
         // 这一条文件属于哪一格（`<来源>-<项目号>`）—— 图标回来时按它找回**行**（见
-        // onResourceIconReady）。同一个资源被反查出来两次（同一个 jar 摆了两份）时
+        // rememberResourceIcon）。同一个资源被反查出来两次（同一个 jar 摆了两份）时
         // 两条路径都记上：两张图本来就该是同一张。
         const QString iconKey = hit.iconCacheId();
-        QStringList &paths = m_owner->m_instanceIcons.pathsByIconKey[iconKey];
+        QStringList &paths = m_instanceIcons.pathsByIconKey[iconKey];
         if (!paths.contains(found.path)) {
             paths.append(found.path);
         }
         foundPaths.insert(found.path);
         // 这一条是哪个资源（会话缓存，按"路径 + 大小 + 修改时间"记 —— 同一个名字上换了
-        // 一个文件就自然作废，见 instanceIconCacheKey）。整份 Hit 存进 m_owner->m_resourceHits：
+        // 一个文件就自然作废，见 instanceIconCacheKey）。整份 Hit 存进 m_fileResources：
         // 点名字开那一页走的就是**下载页点一行**那条路（openResourceDetailPage 按这把
         // 钥匙取标题 / 简介 / slug / 游戏版本；两处的分别只有"来路"那一位，见 DetailSource），
-        // 这一层不需要再为它多存一份。
-        m_owner->m_instanceFileIdentities.insert(instanceIconCacheKey(found.path), iconKey);
-        m_owner->m_resourceHits.insert(iconKey, hit);
+        // 而同一份 Hit 也交给主窗口那一份（下载页那份表才是那一条路的出处）。
+        m_fileResources.insert(instanceIconCacheKey(found.path), hit);
+        m_host.rememberHit(iconKey, hit);
         // 已经在问 / 已经在缓存里的话 requestIcon() 自己会处理（可能**同步**就把 iconReady
         // 发出来了 —— 那时候上面那一行必须先写完，见它那条 NOTE）。
-        m_owner->m_resourceStore->requestIcon(hit);
+        m_resourceStore->requestIcon(hit);
     }
 
     // ---------- ② 没认出来的那一批 ----------
     //
     // ★ 判据是 `result.problem`：只有**整趟完整跑完**了才把"没有"记下来。断网那一趟
     //   要是也记，用户这一整个会话都再也看不到图标了 —— 而那本来是"网好了就会有"
-    //   （见 m_owner->m_instanceIconMissing 那段）。problem 非空时还有一个后果：①里那些**认出来了
+    //   （见 m_instanceIconMissing 那段）。problem 非空时还有一个后果：①里那些**认出来了
     //   的**照旧记账（那是真的），只是不再问第二遍。
     const bool complete = result.problem.isEmpty();
     if (!complete) {
         // 只记一句日志、**不弹窗**：图标取不到是常态（自己改过的 jar、作者没传过的、
         // 断网的），画个占位拼图就是正确的界面 —— 它挡不住用户做任何事。
-        m_owner->appendLog(m_owner->tr("资源图标没查完：%1").arg(result.problem));
+        m_host.log(tr("资源图标没查完：%1").arg(result.problem));
     }
     for (const QString &path : runPaths) {
         if (foundPaths.contains(path)) {
             continue;
         }
         if (complete) {
-            m_owner->m_instanceIconMissing.insert(instanceIconCacheKey(path));
+            m_instanceIconMissing.insert(instanceIconCacheKey(path));
         }
         // 记不上也要摆：这一条现在还是一张占位图（见 InstanceFilesPage::iconForPath），
         // 而"这一条问过了、没有"这件事在这一页活着的时候得记住 —— 不然用户点一下
@@ -223,11 +218,11 @@ void InstanceIconController::onInstanceIconLookupFinished(const InstanceIconLook
     // 而那几格退回占位拼图就是正确的界面（不弹窗，理由同上）。这句话得说，是因为"认出来了
     // 但没图"和"压根没认出来"在屏幕上是一个样子，而这两件事的下一步不一样。
     if (!result.iconProblem.isEmpty()) {
-        m_owner->appendLog(m_owner->tr("有几个资源的图标地址没取到：%1").arg(result.iconProblem));
+        m_host.log(tr("有几个资源的图标地址没取到：%1").arg(result.iconProblem));
     }
     if (result.unreadable > 0) {
-        m_owner->appendLog(m_owner->tr("有 %1 个文件读不动（多半被别的程序占着），这一批里没有它们的图标。")
-                      .arg(result.unreadable));
+        m_host.log(tr("有 %1 个文件读不动（多半被别的程序占着），这一批里没有它们的图标。")
+                       .arg(result.unreadable));
     }
     pushInstanceFileIcons();
     // ★★ 2026-09-27：这一趟跑着的时候用户**换了页**的话，替新那一页补一趟。
@@ -235,55 +230,96 @@ void InstanceIconController::onInstanceIconLookupFinished(const InstanceIconLook
     // 为什么非补不可：换页那次请求撞在 `active` 闸上直接 return 了（见
     // startInstanceFileIconLookup 那条早退），而这里刚从回来的这一趟是**上一页**的 ——
     // 没有人替新那页问的话，它的图标要等用户再进一次文件管理页才出现。
-    // 判据看的是**趟**（runVersionId）而不是 `m_owner->m_instanceIcons.paths` 变没变：同一个实例
+    // 判据看的是**趟**（runVersionId）而不是 `m_instanceIcons.paths` 变没变：同一个实例
     // 反复进出这一页不该重跑一趟（那正是那条 early-return 想省的）。
     // NOTE: 这一页已经关掉了（dialog 是 QPointer，关了就是空）就什么都不做 —— 没人看。
     // NOTE: 不会再套一层循环：补跑那一趟的 runVersionId 就是**当时**的 versionId，它收尾时
     //       这一条判据必然相等（同一页期间路径表也不会自己变）。
-    if (m_owner->m_instanceIcons.dialog != nullptr && m_owner->m_instanceIcons.versionId != runVersionId) {
+    if (m_instanceIcons.dialog != nullptr && m_instanceIcons.versionId != runVersionId) {
         startInstanceFileIconLookup();
     }
 }
 
 void InstanceIconController::pushInstanceFileIcons() {
-    InstanceSettingsDialog *dialog = m_owner->m_instanceIcons.dialog;
+    InstanceSettingsDialog *dialog = m_instanceIcons.dialog;
     if (dialog == nullptr) {
         return;
     }
-    for (const QString &path : m_owner->m_instanceIcons.paths) {
+    for (const QString &path : m_instanceIcons.paths) {
         const QString key = instanceIconCacheKey(path);
-        const auto cached = m_owner->m_instanceFileIcons.constFind(key);
-        if (cached != m_owner->m_instanceFileIcons.constEnd()) {
+        const auto cached = m_instanceFileIcons.constFind(key);
+        if (cached != m_instanceFileIcons.constEnd()) {
             dialog->setFileIcon(path, cached.value());
-        } else if (m_owner->m_instanceIconMissing.contains(key)) {
+        } else if (m_instanceIconMissing.contains(key)) {
             // 空 pixmap = "问过了、没有" ⇒ 那一格摆占位拼图（见 setIconForPath）。
             dialog->setFileIcon(path, QPixmap());
         }
         // 两样都没有 = 还没问回来 ⇒ **什么都不做**，那一格现在摆的就是占位图。
 
-        // ★ 行上的名字点不点得动（2026-09-27）：认得出来（`m_owner->m_instanceFileIdentities` 里有
-        //   它、而且那份 Hit 带着名字）才给那一行带上链接的样子，否则给**空串**。
+        // ★ 行上的名字点不点得动（2026-09-27）：认得出来（`m_fileResources` 里有它、
+        //   而且那份 Hit 带着名字）才给那一行带上链接的样子，否则给**空串**。
         //   空串这一支不是"没话说"，而是"把上一趟可能戴上的摘掉"：同一个路径换了内容
         //   （大小/时间变了）时键也换了，这一趟的负结果必须覆盖上一趟的正结果，不然
         //   那一行会顶着一个已经不对的资源名字、点进去是另一个东西。
-        const auto identity = m_owner->m_instanceFileIdentities.constFind(key);
-        dialog->setFileResource(
-            path, identity == m_owner->m_instanceFileIdentities.constEnd()
-                      ? QString()
-                      : m_owner->m_resourceHits.value(identity.value()).title);
+        const auto identity = m_fileResources.constFind(key);
+        dialog->setFileResource(path, identity == m_fileResources.constEnd()
+                                          ? QString()
+                                          : identity.value().title);
     }
 }
 
-void InstanceIconController::pushInstanceFileUpdates(InstanceSettingsDialog *dialog,
-                                         const QString &instanceId) {
-    if (dialog == nullptr) {
-        // 这一页已经收掉了（或者压根没开着）——那就不递，盘上那份账照样记着
-        //（下一次开这一页时由开页那条路补上，见调用点）。
+void InstanceIconController::rememberResourceIcon(const QString &iconKey, const QPixmap &icon) {
+    const QStringList filePaths = m_instanceIcons.pathsByIconKey.value(iconKey);
+    if (filePaths.isEmpty()) {
+        // 这一张图标不对应任何一条**盘上躺着的文件**（它可能是下载页那边问回来的）——
+        // 这一层一个字都不记。
         return;
     }
-    // 键在不在 = **查过没有**，值是查出来可更新的那些路径（见 m_owner->m_instanceOutdatedPaths）。
-    const auto it = m_owner->m_instanceOutdatedPaths.constFind(instanceId);
-    const bool checked = it != m_owner->m_instanceOutdatedPaths.constEnd();
-    dialog->setFileUpdates(checked ? it.value() : QStringList(), checked);
+    for (const QString &path : filePaths) {
+        // 空的也存 —— 它记的是"这一条问过了、没有"（见 m_instanceIconMissing 那段）。
+        m_instanceFileIcons.insert(instanceIconCacheKey(path), icon);
+    }
+    pushInstanceFileIcons();
 }
 
+QSet<QString> InstanceIconController::recognizedResourceKeysUnder(const QString &dir) const {
+    QSet<QString> keys;
+    if (dir.isEmpty()) {
+        return keys;
+    }
+    const QString prefix = dir + QLatin1Char('/');
+    for (auto it = m_fileResources.constBegin(); it != m_fileResources.constEnd(); ++it) {
+        // 键是 `路径\n大小\n时间`（见 instanceIconCacheKey）⇒ 前缀比得上就说明这个文件在
+        // 这个目录里。**必须带那个 `/`**：不带的话 `…/mods2/x.jar` 也会算进来。
+        if (it.key().startsWith(prefix)) {
+            keys.insert(it.value().iconCacheId());
+        }
+    }
+    return keys;
+}
+
+bool InstanceIconController::recognizedInstanceIs(const QString &instanceId) const {
+    // ★ 说的是"这个实例到底认过没有"，而不是"认出来几个" —— 一个都没认出（新实例、全是
+    //   自己改过的 jar）和"没进过文件管理页"都表现为空表，而界面上那两句话不一样。
+    return !m_instanceIcons.versionId.isEmpty() && m_instanceIcons.versionId == instanceId;
+}
+
+bool InstanceIconController::fileResourceIconKey(const QString &path, QString *iconKey) const {
+    const auto identity = m_fileResources.constFind(instanceIconCacheKey(path));
+    if (identity == m_fileResources.constEnd()) {
+        return false;
+    }
+    if (iconKey != nullptr) {
+        *iconKey = identity.value().iconCacheId();
+    }
+    return true;
+}
+
+void InstanceIconController::waitForLookup() {
+    // NOTE: 这一趟**没有收手旗子**（`InstanceIconLookup::lookup()` 里头没有"看着旗子退出来"
+    //       的口子），所以这里只能**等它跑完** —— 卡在超时上的话，关窗就会晚那十几秒才真的
+    //       关上（同一个取舍，见 MainWindow 析构里备份那一段）。
+    if (m_instanceIconThread != nullptr) {
+        m_instanceIconThread->wait();
+    }
+}

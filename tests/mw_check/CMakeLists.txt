@@ -39,9 +39,11 @@ set(HEADER_FILES
     ${REPO_ROOT}/src/controllers/ConnectionsController.hpp
     ${REPO_ROOT}/src/controllers/InstanceIconController.hpp
     ${REPO_ROOT}/src/controllers/ActivityCenterController.hpp
+    ${REPO_ROOT}/src/controllers/TaskDetailController.hpp
     ${REPO_ROOT}/src/controllers/HomeQuickController.hpp
     ${REPO_ROOT}/src/controllers/InstanceMaintenanceController.hpp
     ${REPO_ROOT}/src/controllers/ServerWorkspaceController.hpp
+    ${REPO_ROOT}/src/controllers/ServerConsoleController.hpp
     ${REPO_ROOT}/src/controllers/ServerSettingsController.hpp
     ${REPO_ROOT}/src/controllers/ThemeSettingsController.hpp
     ${REPO_ROOT}/src/controllers/PlayerSkinController.hpp
@@ -111,9 +113,11 @@ set(SOURCE_FILES
     ${REPO_ROOT}/src/controllers/ConnectionsController.cpp
     ${REPO_ROOT}/src/controllers/InstanceIconController.cpp
     ${REPO_ROOT}/src/controllers/ActivityCenterController.cpp
+    ${REPO_ROOT}/src/controllers/TaskDetailController.cpp
     ${REPO_ROOT}/src/controllers/HomeQuickController.cpp
     ${REPO_ROOT}/src/controllers/InstanceMaintenanceController.cpp
     ${REPO_ROOT}/src/controllers/ServerWorkspaceController.cpp
+    ${REPO_ROOT}/src/controllers/ServerConsoleController.cpp
     ${REPO_ROOT}/src/controllers/ServerSettingsController.cpp
     ${REPO_ROOT}/src/controllers/ThemeSettingsController.cpp
     ${REPO_ROOT}/src/controllers/PlayerSkinController.cpp

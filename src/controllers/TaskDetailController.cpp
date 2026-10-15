@@ -1,0 +1,231 @@
+#include "controllers/TaskDetailController.hpp"
+
+#include "InlineMessage.hpp"
+#include "MainWindowUI.hpp"
+#include "OverlayHost.hpp"
+#include "TaskCenterPanel.hpp"
+#include "controllers/ActivityCenterController.hpp"
+#include "controllers/CrashReportController.hpp"
+#include "controllers/GameSessionController.hpp"
+#include "GameLogWindow.hpp"
+#include "diag/GameExitDiagnosis.hpp"
+#include "manage/VersionManager.hpp"
+#include "server/ServerRegistry.hpp"
+#include "tasks/TaskManager.hpp"
+#include "util/AppPaths.hpp"
+
+#include <QClipboard>
+#include <QDesktopServices>
+#include <QDir>
+#include <QFile>
+#include <QGuiApplication>
+#include <QUrl>
+
+#include <utility>
+
+TaskDetailController::TaskDetailController(ActivityCenterController *activity,
+                                           CrashReportController *crash, VersionManager *versions,
+                                           GameSessionController *sessions, OverlayHost *overlay,
+                                           QWidget *pageParent, Host host, QObject *parent)
+    : QObject(parent), m_activity(activity), m_crash(crash), m_versions(versions),
+      m_sessions(sessions), m_overlay(overlay), m_pageParent(pageParent), m_host(std::move(host)) {
+}
+
+void TaskDetailController::log(const QString &message) const {
+    if (m_host.log) m_host.log(message);
+}
+
+bool TaskDetailController::fillItem(const QString &key, TaskCenter::Item *out) const {
+    const QSet<Tasks::TaskId> crashRecordIds = m_crash->recordIds();
+    const bool retryPayloadAvailable =
+        m_versions != nullptr && m_versions->canRetryDownload();
+    return m_activity->itemForKey(
+        key, out,
+        [this](const Tasks::TaskSnapshot &task) {
+            return m_host.cancelWouldWork ? m_host.cancelWouldWork(task) : false;
+        },
+        retryPayloadAvailable, crashRecordIds);
+}
+
+void TaskDetailController::open(const QString &key) {
+    if (m_overlay == nullptr) {
+        return;
+    }
+    if (m_overlay->isOpen()) {
+        // 已经有覆盖层开着（另一页、或者一条提示）。这一层不做页面栈 —— 和 `openPage()`
+        // 返回 nullptr 是同一件事（见 OverlayHost.hpp 那段）。**这里不排下一轮**：点行的
+        // 那一下人是看着面板点的，晚一轮再开等于"面板收起来了，页没开"。
+        return;
+    }
+    if (m_page == nullptr) {
+        m_page = new TaskDetailPage(m_pageParent);
+        connect(m_page, &TaskDetailPage::actionRequested, this,
+                [this](const QString &key, TaskDetailPage::Action action) { this->action(key, action); });
+    }
+    // 摆这一项要画的东西。**必须在 `execPage()` 之前**：那一下会阻塞在嵌套事件循环里
+    // （见 OverlayHost::execPage 的 NOTE），之后写的每一句都只有等用户点了返回才执行得到。
+    TaskCenter::Item item;
+    if (!fillItem(key, &item)) {
+        // 号早就没了（用户按过「清除已完成」，或者这一项是上一轮读盘读回来的历史）——
+        // 页照开，摆一份空的就是了（页上会写"（没有名字的任务）"）。**不弹窗**：用户没做错
+        // 什么，而且这一页本来就有个"我在看某一项"的位置。
+        item.key = key;
+    }
+    m_page->setTask(item);
+    // 归哪一颗选项卡：面板是从底栏中间那格弹出来的，而那一格**不属于任何一颗选项卡**
+    // （底栏是 tabWidget 的兄弟）—— 所以 `ownerTab` 给 -1，这一页就不跟着哪一颗走
+    // （见 OverlayHost 里 ownerTab 那一段）。
+    m_overlay->execPage(m_page, TaskDetailPage::windowTitle());
+}
+
+void TaskDetailController::action(const QString &key, TaskDetailPage::Action action) {
+    switch (action) {
+    case TaskDetailPage::Action::Cancel:
+        // ★ 取消要**按这一项是谁**分派：服务端安装那一趟和版本/资源下载那一批不是同一份
+        //   状态（一个自己跑 QProcess + 自己的元数据请求，一个走 `VersionManager` 的批次）。
+        //   两边都无脑叫一遍的话，取消一次服务端安装会顺手把别人正在跑的下载掐掉 ——
+        //   而下载那一批可能是用户在下载页上排的、跟这一项毫无关系。
+        //   **那一条分派留在主窗口**（它和 `cancelWouldWork()` 必须逐字对齐，见文件头）。
+        if (m_host.cancelTask) m_host.cancelTask(key);
+        break;
+    case TaskDetailPage::Action::Retry:
+        // ★ 只认**这一项自己**那一批（`retryWouldWork()` 就是这条判据的唯一出处）：界面那边
+        //   已经把不合条件的那颗按钮收起来了，这里是第二道闸 —— 页对象是**建一次留着**的，
+        //   用户完全可能在页开着的时候又失败了一批，而按钮画的还是上一帧那份。
+        //   同「取消」：那一条判据留在主窗口。
+        if (m_host.retryTask) m_host.retryTask(key);
+        break;
+    case TaskDetailPage::Action::OpenLog:
+        openLog(key);
+        break;
+    case TaskDetailPage::Action::OpenTarget:
+        openTarget(key);
+        break;
+    case TaskDetailPage::Action::CopySummary:
+        copySummary(key);
+        break;
+    case TaskDetailPage::Action::ExportReport:
+        // 「导出错误报告」那一份文本的出处是 `CrashReportController`（纯函数在
+        // `util/ErrorReport` 里），这一层只是按这一项的号转手。
+        m_crash->exportReport(key);
+        break;
+    case TaskDetailPage::Action::OpenCrashDir:
+        m_crash->openReportsDirectory();
+        break;
+    }
+    // 取消 / 重试都会让账本立刻动起来（终态信号是同步发的），这一页上那几行跟着重摆一遍
+    // —— 不重摆的话用户看到的还是"正在进行"，而底下那一批已经收尾了。
+    if (m_page != nullptr) {
+        TaskCenter::Item fresh;
+        if (fillItem(key, &fresh)) {
+            m_page->setTask(fresh);
+        }
+    }
+}
+
+void TaskDetailController::openLog(const QString &key) {
+    // ★ 这里打开的是**启动器自己那次启动的日志**（`<数据目录>/logs/wtfml.log`），不是某一场
+    //   游戏的日志窗。
+    //
+    //   理由：任务中心记的是**启动器干的活**（下载 / 安装 / 导入 / 启动这一段调度），那些话
+    //   全在这份日志里；而 `GameLogWindow` 装的是**游戏进程的输出**，它是按会话号开的、
+    //   会话结束就没了（见 GameSessionController 里那一份表）。拿一次"下载失败"去开游戏日志，
+    //   开出来的多半是空的、或者上一次玩的那一场 —— 那比不开更让人糊涂。
+    //
+    //   §4.3 那一项「游戏异常退出」另外给「打开日志」一个**明确的**去处：它就是下面这一段。
+    bool parsed = false;
+    const Tasks::TaskId id = key.toInt(&parsed);
+    const int crashSessionId = parsed ? m_crash->sessionIdForTask(id) : 0;
+    if (crashSessionId > 0) {
+        // 这一项知道自己是**哪一场**。异常退出时日志窗不会自动关（见
+        // `GameLogWindow::autoCloseOnExit()`），所以它多半还在 —— 抬到前面来，而不是去开
+        // 启动器自己那份日志（那里面只有调度那几句，看不到游戏说了什么）。
+        if (GameLogWindow *window = m_sessions->gameLogWindow(crashSessionId)) {
+            window->show();
+            window->raise();
+            window->activateWindow();
+            return;
+        }
+        // 用户把那一扇关了。**不留一句"没了"就完事** —— 那一刻留下的两段日志还在
+        // （`CrashRecord`），「导出错误报告」导出来的正是它。把这条路指给他。
+        InlineMessage::warning(
+            m_overlay, tr("那扇日志窗已经关掉了"),
+            tr("这一场游戏的日志窗刚才被关掉了。当时留下的那两段日志还在 —— "
+               "按「导出错误报告」可以把它们导出来（错误那一段最多末尾 %1 行，"
+               "整份最多末尾 %2 行）。")
+                .arg(GameExitDiagnosis::kExcerptLineLimit)
+                .arg(GameExitDiagnosis::kLogTailLineLimit));
+        return;
+    }
+    const QString path = AppPaths::minecraftDir() + QStringLiteral("/logs/wtfml.log");
+    if (!QFile::exists(path)) {
+        InlineMessage::warning(m_overlay, tr("还没有日志"), tr("这一次启动到现在没有写过日志。"));
+        return;
+    }
+    QDesktopServices::openUrl(QUrl::fromLocalFile(path));
+}
+
+void TaskDetailController::openTarget(const QString &key) {
+    bool ok = false;
+    const Tasks::TaskId id = key.toInt(&ok);
+    if (!ok || !m_activity->tasks()->has(id)) {
+        return;
+    }
+    const Tasks::TaskSnapshot task = m_activity->tasks()->snapshot(id);
+    // 目标就是那一项自己记的那个 id（实例 id / 版本号），空的话落到数据目录 ——
+    // 一样"点得开"，不给一颗点了没反应的按钮。
+    // 目标就是那一项自己记的那个 id，空的话落到数据目录 —— 一样"点得开"，不给一颗点了
+    // 没反应的按钮。
+    //
+    // ★ **服务端那一批任务记的是服务端 id，不是实例 id**（M4-2 的安装 / M4-4 的备份都走
+    //   `beginTask(..., serverId, ...)`），而 `AppPaths::versionDir()` 拼出来的是
+    //   `<数据目录>/versions/<id>` —— 对服务端来说那个目录**永远不存在**。所以按下
+    //   「打开目标位置」本来会报一句"那个目录现在不在"（而它明明就在 `Servers/<id>`）。
+    //   先按实例认，认不出来再看它是不是一个服务端。
+    QString dir;
+    if (task.targetId.isEmpty()) {
+        dir = AppPaths::minecraftDir();
+    } else {
+        dir = AppPaths::versionDir(task.targetId);
+        if (!QDir(dir).exists() && ServerRegistry::serverExists(task.targetId)) {
+            dir = ServerRegistry::describe(task.targetId).dirPath;
+        }
+    }
+    if (!QDir().exists(dir)) {
+        InlineMessage::warning(m_overlay, tr("打不开这一项的目标位置"),
+                               tr("这一项说的是 %1，而那个目录现在不在。")
+                                   .arg(QDir::toNativeSeparators(dir)));
+        return;
+    }
+    QDesktopServices::openUrl(QUrl::fromLocalFile(dir));
+}
+
+void TaskDetailController::copySummary(const QString &key) {
+    TaskCenter::Item item;
+    if (!fillItem(key, &item)) {
+        return;
+    }
+    // 摘要 = 这一页上那几行字，纯文本（贴到哪儿都读得下去）。**不带上整份日志**：
+    // 那是「导出错误报告」的活（见 util/ErrorReport），这一颗要的是"把这一项说清楚"。
+    QStringList lines;
+    lines << QStringLiteral("%1: %2").arg(MainWindowUI::taskDetailStateText(item.state),
+                                          item.title);
+    if (item.startedAt.isValid() || item.finishedAt.isValid()) {
+        lines << MainWindowUI::taskDetailTimeLineText(item.startedAt, item.finishedAt);
+    }
+    if (!item.detail.isEmpty()) {
+        lines << item.detail;
+    }
+    if (!item.bytesText.isEmpty()) {
+        lines << item.bytesText;
+    }
+    for (const TaskCenter::Step &step : item.steps) {
+        lines << TaskCenter::stepMark(step.state) + QLatin1Char(' ') + step.name
+                     + (step.note.isEmpty() ? QString() : QStringLiteral(" · ") + step.note);
+    }
+    if (!item.errorSummary.isEmpty()) {
+        lines << QString() << item.errorSummary;
+    }
+    QGuiApplication::clipboard()->setText(lines.join(QLatin1Char('\n')));
+    log(tr("这一项的摘要已经复制到剪贴板。"));
+}

@@ -4560,11 +4560,12 @@ QString MainWindowUI::groupActionTooltip(int action, const GroupRow &row) {
 }
 
 QColor MainWindowUI::runStateMarkColor(RunStateMark state, const QPalette &palette) {
-    // 三个色现在都是**语义色**（Theme 那一层）：红 = 危险/没在跑、黄 = 警告/启动中、
-    // 绿 = 正常/在跑。深浅两档的判据、以及"用户点名要某个色"这一档，都在 Theme 里 ——
-    // 这里只剩下"哪一档状态是哪一个语义"（那是界面的说法，不是主题的说法）。
+    // 三个色是**语义色**（Theme 那一层）：红 = 出过事、黄 = 警告/启动中、绿 = 正常/在跑。
+    // 深浅两档的判据、以及"用户点名要某个色"这一档，都在 Theme 里 —— 这里只剩下"哪一档
+    // 状态是哪一个语义"（那是界面的说法，不是主题的说法）。灰那一档不走 Theme：调色板
+    // 自己就有一位现成的"灰掉"，照它的深浅给，比我们再挑一个数更贴。
     switch (state) {
-    case RunStateMark::NotRunning:
+    case RunStateMark::Error:
         // 红这一档**直接复用**「删除」那一项的红（同一个界面上的两种红各调各的没有道理，
         // 调歪了就是"一处红看着干净、另一处发脏"这种没人查得出的毛病）。
         return folderDangerColor(palette);
@@ -4572,6 +4573,15 @@ QColor MainWindowUI::runStateMarkColor(RunStateMark state, const QPalette &palet
         return Theme::warningColor(palette);
     case RunStateMark::Running:
         return Theme::okColor(palette);
+    case RunStateMark::Idle:
+        // 灰：**调色板 Disabled 档的正文色**。选它而不是 disabledInkColor() 那两个自己挑的
+        // 数，理由有两条：
+        //   · 这一格画在底栏那块布上，而底栏的调色板是**传进来的这一份**（见
+        //     MainWindow::updateBottomBar() 里为什么取底栏的 palette）—— 调色板自己那一档
+        //     灰就是"同一块布上灰掉的东西"，不会撞色；
+        //   · 深浅两套各有一位现成的灰（浅底给中灰、深底给另一档），主题换过去它跟着走，
+        //     不用我们再维护一对数。
+        return palette.color(QPalette::Disabled, QPalette::WindowText);
     }
     return palette.color(QPalette::WindowText);
 }

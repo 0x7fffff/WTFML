@@ -4800,8 +4800,9 @@ int main(int argc, char *argv[]) {
         check(MainWindowUI::runStateRunningCountText(3) != MainWindowUI::runStateRunningText(),
               "和「一份」那句是两句不同的话（不然多开就看不出来）");
 
-        // 另外两句（2026-09-24 加的）：没有实例在跑 / 正在启动。
-        // 三句话**两两不同**是这一节的要点 —— 那句话本来就是为了让人一眼看出是哪个状态。
+        // 另外两句（2026-09-24 加的）：没有实例在跑 / 正在启动；再加上 2026-10-15 那
+        // 一句「有实例异常退出」。
+        // 四句话**两两不同**是这一节的要点 —— 那句话本来就是为了让人一眼看出是哪个状态。
         check(MainWindowUI::runStateNotRunningText() == QStringLiteral("当前没有运行中的实例"),
               "一个都没在跑时那句是「当前没有运行中的实例」",
               MainWindowUI::runStateNotRunningText());
@@ -4812,6 +4813,17 @@ int main(int argc, char *argv[]) {
         check(MainWindowUI::runStateNotRunningText() != QStringLiteral("实例未运行"),
               "（2026-09-24 改过的那句：不再是「实例未运行」）",
               MainWindowUI::runStateNotRunningText());
+
+        // 第四句（2026-10-15 用户加的）：「有实例异常退出」。用户原话就是这五个字。
+        // NOTE: 这一句和「当前没有运行中的实例」**必须**是两句 —— 红那一档说的是"出过事"，
+        //       灰那一档说的是"没在跑"，两句混成一句的话用户根本分不出"要不要去看一眼"。
+        check(MainWindowUI::runStateErrorText() == QStringLiteral("有实例异常退出"),
+              "有实例异常退出时那句是「有实例异常退出」", MainWindowUI::runStateErrorText());
+        check(MainWindowUI::runStateErrorText() != MainWindowUI::runStateNotRunningText() &&
+                  MainWindowUI::runStateErrorText() != MainWindowUI::runStateRunningText() &&
+                  MainWindowUI::runStateErrorText() !=
+                      MainWindowUI::runStateLaunchingText(QStringLiteral("X")),
+              "「有实例异常退出」和另外三句都不是同一句话");
         // 启动中那句 = 名字 + 「启动中...」。名字**不由这里拼**（走 launchingStatusName()），
         // 这里只钉"名字被原样放进去了、后面缀的是那三个点"。
         check(MainWindowUI::runStateLaunchingText(QStringLiteral("我的整合包")) ==
@@ -5768,15 +5780,22 @@ int main(int argc, char *argv[]) {
               "正在启动时第二行**一律不显示**（名字在第一行那句话里）");
     }
 
-    std::printf("===== J2. 底栏那颗状态方块的三态（2026-09-24 补） =====\n");
+    std::printf("===== J2. 底栏那颗状态方块的四档（2026-09-24 补，2026-10-15 改成四档） =====\n");
     {
-        // 用户原话：「左下角没有实例的时候显示（红色的）■…启动的时候那个符号（也可以画图
-        // 代替）变成黄色…启动以后符号变成绿色，和原来一样」。三个状态各一句话 + 一个颜色，
-        // 这里钉的是**颜色**那一半（文字和判据在别处：J 节那片真值表、I3 那几句文案）。
+        // 用户原话（2026-09-24）：「左下角没有实例的时候显示（红色的）■…启动的时候那个符号
+        // （也可以画图代替）变成黄色…启动以后符号变成绿色，和原来一样」。
+        //
+        // ★ 2026-10-15 用户改了其中一档：「黄和绿不变，红色改有实例报错，没有实例用灰色」。
+        //   所以现在四档是 灰（没实例）/ 黄（启动中）/ 绿（在跑）/ 红（有实例异常退出），
+        //   这一节钉的是**颜色**那一半（文字和判据在别处：J 节那片真值表、I3 那几句文案）。
         //
         // 颜色的判据只看**色相落在哪一段**（外加饱和度要够）—— 不写死 #c02828 那种十六进制：
         // 那等于把色值抄了一遍（改色时两处一起改才绿，测试就成了"复读机"）。色相是
         // "这是红/黄/绿哪一种"的本体，深浅两套各自微调色值时它都不变。
+        //
+        // ★ 灰那一档**不能用色相量**（灰没有色相：QColor::hue() 对它是 -1，本节的 hueOf()
+        //   又把它归成 0，正好和红撞上）。它量的换成"**说不上是什么颜色**"：饱和度低到
+        //   一定程度。红/黄/绿那三档仍然按色相分段量。
         const auto hueOf = [](const QColor &c) {
             // QColor::hue() 对灰色返回 -1，这里统一成 0..359
             const int h = c.hue();
@@ -5786,7 +5805,8 @@ int main(int argc, char *argv[]) {
             const int h = hueOf(c);
             return h >= lo && h <= hi;
         };
-        // 浅底和深底各来一遍：三态在两种主题下都得是"一眼分得出的红/黄/绿"。
+        // 浅底和深底各来一遍：四档在两种主题下都得一眼分得出（红/黄/绿各是各的，
+        // 灰一眼看去就是"没颜色"）。
         // 判据是**窗口底色**的明度（和 folderDangerColor() 同一处），所以这里只摆这一项。
         // 别用 QPalette(QColor) 那个单参构造：它算出来的 Window 是哪个色不好记，
         // 而这一节量的正是"底色深浅"这条判据。
@@ -5798,14 +5818,25 @@ int main(int argc, char *argv[]) {
         const char *names[2] = {"浅底", "深底"};
         for (int i = 0; i < 2; ++i) {
             const QColor red =
-                MainWindowUI::runStateMarkColor(MainWindowUI::RunStateMark::NotRunning, palettes[i]);
+                MainWindowUI::runStateMarkColor(MainWindowUI::RunStateMark::Error, palettes[i]);
             const QColor yellow =
                 MainWindowUI::runStateMarkColor(MainWindowUI::RunStateMark::Launching, palettes[i]);
             const QColor green =
                 MainWindowUI::runStateMarkColor(MainWindowUI::RunStateMark::Running, palettes[i]);
+            const QColor grey =
+                MainWindowUI::runStateMarkColor(MainWindowUI::RunStateMark::Idle, palettes[i]);
+            // 灰：**说不上是什么颜色** —— 饱和度低。判据用 ≤40 而不是 ==0：深浅两套各自
+            // 给的那一档灰（`QPalette::Disabled / WindowText`）在这两套调色板里都是纯灰，
+            // 留一点余量是给"以后会不会带一点点色偏"的，不是给"灰得发绿"的。
+            check(grey.saturation() <= 40,
+                  QStringLiteral("%1：没有实例在跑 → 灰色（饱和度低）").arg(QString::fromUtf8(names[i])),
+                  QStringLiteral("%1 色相 %2 饱和 %3")
+                      .arg(grey.name())
+                      .arg(hueOf(grey))
+                      .arg(grey.saturation()));
             // 红：色相贴着 0/360 那一段（360 和 0 是同一个地方，两头都收）
             check((inBand(red, 0, 20) || inBand(red, 340, 359)) && red.saturation() >= 100,
-                  QStringLiteral("%1：没有实例在跑 → 红色").arg(QString::fromUtf8(names[i])),
+                  QStringLiteral("%1：有实例异常退出 → 红色").arg(QString::fromUtf8(names[i])),
                   QStringLiteral("%1 色相 %2 饱和 %3")
                       .arg(red.name())
                       .arg(hueOf(red))
@@ -5822,32 +5853,41 @@ int main(int argc, char *argv[]) {
                       .arg(green.name())
                       .arg(hueOf(green))
                       .arg(green.saturation()));
-            // 三个色**两两分得开**：只各自落在自己那一段还不够，红画成橙色那种
+            // 红/黄/绿三个色**两两分得开**：只各自落在自己那一段还不够，红画成橙色那种
             // "两段都挨着"的错也要挡住（色相彼此至少差 40，黄绿红三档实测差 60+）。
+            // NOTE: 灰不掺和这一条（它没有色相），它由上面的饱和度那一条和下面那条
+            //       "四张图两两不同"管着。
             const int hRed = hueOf(red);
             const int hYellow = hueOf(yellow);
             const int hGreen = hueOf(green);
             check(qAbs(hYellow - hRed) >= 40 && qAbs(hGreen - hYellow) >= 40 &&
                       qAbs(hGreen - hRed) >= 40,
-                  QStringLiteral("%1：三个状态的色相两两差得开（≥40）").arg(QString::fromUtf8(names[i])),
+                  QStringLiteral("%1：红/黄/绿的色相两两差得开（≥40）").arg(QString::fromUtf8(names[i])),
                   QStringLiteral("%1 / %2 / %3").arg(hRed).arg(hYellow).arg(hGreen));
+            // 灰和那三个色是**四个不同的色**（灰不能正好等于红 —— 那正是"把没实例画成红"
+            // 那件旧事又回来了，而上面所有色相断言都拦不住它）。
+            check(grey.rgb() != red.rgb() && grey.rgb() != yellow.rgb() && grey.rgb() != green.rgb(),
+                  QStringLiteral("%1：灰和红/黄/绿是三个不同的色").arg(QString::fromUtf8(names[i])),
+                  QStringLiteral("%1 / %2 / %3").arg(grey.name(), red.name(), yellow.name()));
         }
         // 红那一档**就是**「删除」那一项的红（同一个界面上的两种红共用一个出处）
-        check(MainWindowUI::runStateMarkColor(MainWindowUI::RunStateMark::NotRunning, light) ==
+        check(MainWindowUI::runStateMarkColor(MainWindowUI::RunStateMark::Error, light) ==
                       MainWindowUI::folderDangerColor(light) &&
-                  MainWindowUI::runStateMarkColor(MainWindowUI::RunStateMark::NotRunning, dark) ==
+                  MainWindowUI::runStateMarkColor(MainWindowUI::RunStateMark::Error, dark) ==
                       MainWindowUI::folderDangerColor(dark),
               "红那一档复用 folderDangerColor()（两种主题都是同一个红）");
 
         // ---- 那张图本身：一个**实心**方块（用户写的就是 ■）----
-        for (int i = 0; i < 3; ++i) {
+        // 四档全走一遍（4 = `RunStateMark` 现在的档数：漏一档这里就少画一遍，而下面那几条
+        // "两两不同"仍然会绿 —— 所以枚举加一档就要回来把它加一）。
+        for (int i = 0; i < 4; ++i) {
             const auto state = MainWindowUI::RunStateMark(i);
             const QPixmap pixmap = MainWindowUI::runStateMarkPixmap(state, light);
             const QColor want = MainWindowUI::runStateMarkColor(state, light);
             const QImage image = pixmap.toImage();
             check(!image.isNull() && image.width() == MainWindowUI::runStateMarkSize() &&
                       image.height() == MainWindowUI::runStateMarkSize(),
-                  QStringLiteral("三态都画出一张 %1x%1 的图")
+                  QStringLiteral("四档都画出一张 %1x%1 的图")
                       .arg(MainWindowUI::runStateMarkSize()),
                   QStringLiteral("%1x%2").arg(image.width()).arg(image.height()));
             // 逐像素：整张图每一格都是那个颜色、而且完全不透明。
@@ -5865,7 +5905,7 @@ int main(int argc, char *argv[]) {
                 }
             }
             check(wrong == 0 && translucent == 0,
-                  QStringLiteral("三态那张图是**实心**的（每像素都是那个色、没有半透明边）"),
+                  QStringLiteral("四档那张图是**实心**的（每像素都是那个色、没有半透明边）"),
                   QStringLiteral("state=%1 异色 %2 半透明 %3").arg(i).arg(wrong).arg(translucent));
             // 四角也是那个色 —— 这一条是"没开抗锯齿"的直接判据（开了的话角上会是
             // 50% 的色，值看着差不多、`!=` 一比就红）。
@@ -5875,15 +5915,18 @@ int main(int argc, char *argv[]) {
                       image.pixelColor(image.width() - 1, image.height() - 1) == want,
                   QStringLiteral("四角也是纯色（没开抗锯齿，不然角上会是半透明的）"));
         }
-        // 三张图**不是同一张**（不然"变色"这件事根本没发生，而上面那些色相断言还是会绿）
-        const QImage imgRed = MainWindowUI::runStateMarkPixmap(
-                                  MainWindowUI::RunStateMark::NotRunning, light).toImage();
+        // 四张图**两两不是同一张**（不然"变色"这件事根本没发生，而上面那些色相断言还是会绿）
+        const QImage imgGrey = MainWindowUI::runStateMarkPixmap(
+                                   MainWindowUI::RunStateMark::Idle, light).toImage();
         const QImage imgYellow = MainWindowUI::runStateMarkPixmap(
                                      MainWindowUI::RunStateMark::Launching, light).toImage();
         const QImage imgGreen = MainWindowUI::runStateMarkPixmap(
                                     MainWindowUI::RunStateMark::Running, light).toImage();
-        check(imgRed != imgYellow && imgYellow != imgGreen && imgRed != imgGreen,
-              "三态的图两两不同（真的换了颜色，不是同一张）");
+        const QImage imgRed = MainWindowUI::runStateMarkPixmap(
+                                  MainWindowUI::RunStateMark::Error, light).toImage();
+        check(imgGrey != imgYellow && imgGrey != imgGreen && imgGrey != imgRed &&
+                  imgYellow != imgGreen && imgYellow != imgRed && imgGreen != imgRed,
+              "四档的图两两不同（真的换了颜色，不是同一张）");
     }
 
     std::printf("===== K. 每页的左右两栏（主页按份数 7:3，另三页是固定宽度的侧栏） =====\n");

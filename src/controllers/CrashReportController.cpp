@@ -104,6 +104,29 @@ QSet<Tasks::TaskId> CrashReportController::recordIds() const {
     return QSet<Tasks::TaskId>(m_records.keyBegin(), m_records.keyEnd());
 }
 
+QSet<Tasks::TaskId> CrashReportController::pendingRecordIds() const {
+    // 判据只有"账本里还有没有这个号"一条（理由写在头文件那段）。**不在这里删 m_records**：
+    // 这个函数是 const、每个进度帧都可能被调到（底栏），而清理那一趟归 report() ——
+    // 两处都删会让"谁负责清"这件事没有出处。
+    QSet<Tasks::TaskId> ids;
+    for (Tasks::TaskId id : m_records.keys())
+        if (m_activity->tasks()->has(id)) ids.insert(id);
+    return ids;
+}
+
+QString CrashReportController::latestPendingInstanceName() const {
+    const QSet<Tasks::TaskId> pending = pendingRecordIds();
+    Tasks::TaskId latest = Tasks::invalidTaskId();
+    for (Tasks::TaskId id : pending)
+        if (id > latest) latest = id;
+    if (latest == Tasks::invalidTaskId()) return QString();
+    // 名字可能有空的那一天（记录里那份是从启动那一刻的事实抄来的，理论上非空）——
+    // 空的时候退回实例 id，别让第二行变成一句空白（那看着像界面坏了）。
+    const Record record = m_records.value(latest);
+    return record.facts.instanceName.isEmpty() ? record.facts.instanceId
+                                              : record.facts.instanceName;
+}
+
 bool CrashReportController::hasRecord(Tasks::TaskId id) const { return m_records.contains(id); }
 
 int CrashReportController::sessionIdForTask(Tasks::TaskId id) const {

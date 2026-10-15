@@ -82,6 +82,11 @@
 // 「上一次启动」那本账的**驱动层**（2026-10-15 从本类搬出去的那一片）。下面那三个给验证工程
 // 摆现场的 inline 入口直接调它的静态函数和成员函数，按值用 ⇒ 得 include（同 ServerInstallController
 // 那一条的理由）。这个头不 include MainWindow.hpp，不构成环。
+// 一次游戏会话的那一整块（2026-10-15 从本类搬出去的那一片）：**那几本账和"进程信号进来
+// 之后干什么"都在它那儿**（九个私有成员 + 一句 friend 一起走的）。上面那几个给验证工程
+// 摆现场的 inline 入口按值用它的嵌套类型 `GameSessionFacts`，按值用 ⇒ 得 include。
+// 这个头只碰 QtCore / QtGui 的几个类型，不 include MainWindow.hpp，不构成环。
+#include "controllers/GameSessionController.hpp"
 #include "controllers/LaunchHistoryController.hpp"
 // 「实例设置」写侧那一套（2026-10-15 从本类搬出去的那一片）：`showInstanceSettingsNotice()`
 // 的签名里按 const 引用用它的嵌套类型 `Notice`，前置声明说不出那么细的名字 ⇒ 得 include。
@@ -109,9 +114,9 @@
 // 前置声明说得出指针，但 `installServer()` 的参数类型要完整定义，所以一并 include。
 // （`ServerInstallRun.hpp` 里那几个纯函数在这个头里用不到，在 .cpp 里才 include。）
 #include "server/ServerInstallController.hpp"
-// 服务端控制台那一页（coding plan §6.2 / M4-3）：`m_serverConsolePage` 是个指针，但这个
-// 头不 include 它的话 .cpp 那边还得记着补一个 —— 同「新建服务端」那一条的理由，一并进来。
-#include "..\ui\ServerConsolePage.hpp"
+// 服务端控制台那一页（coding plan §6.2 / M4-3）**整个搬进 `ServerConsoleController` 了**
+// （2026-10-15）：页对象和"这一页现在说的是谁"都在那边，这一层只留一条转手的口子 ——
+// 于是 `ui/ServerConsolePage.hpp` 这个头不再需要（前置声明那个控制器就够）。
 // 「服务端设置」那一页（coding plan §6.3 / M4-4）：`m_serverSettingsPage` 是个指针，同
 // 上面那条的理由一并进来。
 #include "..\ui\ServerSettingsPage.hpp"
@@ -182,6 +187,8 @@ class JavaManageDialog;
 class JavaRuntimeController;
 class ActivityCenterController;
 class ServerWorkspaceController;
+class ServerConsoleController;
+class TaskDetailController;
 // 「游戏日志」窗（一份游戏一个，见 ui/GameLogWindow.hpp）。同上，只按指针持有，
 // 而且是**按需**才建（收到第一行输出那一刻，见 showGameLogLine()）。
 class GameLogWindow;
@@ -259,7 +266,8 @@ public:
     /**
      * @brief **给验证工程摆现场用**：把某一号会话的"启动事实"直接摆出来。
      *
-     * `m_sessionLaunchFacts` 正常只有一条写点（`startGameGame()` 里拿到会话号之后那一段），
+     * 那一份启动事实（`GameSessionController::m_sessionLaunchFacts`）正常只有一条写点
+     * （`LaunchController` 里拿到会话号之后那一趟 `beginSession()`），
      * 而验证工程验不了那一段 —— 它要真的起一个游戏进程。可"异常退出那一项说了什么"完全由
      * 这一份事实决定，摆它 == 摆现场：摆上"要求 Java 21 / 实际用 17 / Xmx 比物理内存还大"，
      * 那三条提示就该一条不差地出现。
@@ -270,20 +278,15 @@ public:
                                  int requiredJavaMajor, const QString &javaPath, int xmxMb,
                                  int xmsMb, const QString &loaderName,
                                  const QString &loaderVersion) {
-        GameSessionFacts facts;
-        facts.instanceId = versionId;
-        facts.instanceName = displayName;
-        facts.requiredJavaMajor = requiredJavaMajor;
-        facts.javaPath = javaPath;
-        facts.xmxMb = xmxMb;
-        facts.xmsMb = xmsMb;
-        facts.loaderName = loaderName;
-        facts.loaderVersion = loaderVersion;
-        m_sessionLaunchFacts.insert(sessionId, facts);
+        m_gameSessionController->seedSessionFacts(sessionId, versionId, displayName,
+                                                  requiredJavaMajor, javaPath, xmxMb, xmsMb,
+                                                  loaderName, loaderVersion);
     }
 
     /// 给验证工程摆现场：这一号会话是用户从启动器里主动停止的。
-    void markGameStopRequestedForTest(int sessionId) { m_userStoppedSessions.insert(sessionId); }
+    void markGameStopRequestedForTest(int sessionId) {
+        m_gameSessionController->markUserStoppedForTest(sessionId);
+    }
 
     /**
      * @brief **给验证工程摆现场用**：把"刚刚成功启动了一次"这件事直接记进「上一次启动」
@@ -320,7 +323,7 @@ public:
      * @param crashed 异常退出（`QProcess::CrashExit` 或非 0 退出码，判据是
      *        `GameExitDiagnosis::isAbnormal()`）。
      * @param neverStarted 游戏**连第一行日志都没打出来**就结束了 ⇒ 这一趟不算"玩过"
-     *        （`Result::StartFailed`）。产品的判据是"退出时它还在 `m_launchingSessions`
+     *        （`Result::StartFailed`）。产品的判据是"退出时它还在那一层的 `m_launchingSessions`
      *        里"，验证工程摆不出真进程，所以这一位直接由调用方给。
      */
     void seedLaunchFinishForTest(qint64 startedAtMs, bool crashed, bool neverStarted) {
@@ -672,6 +675,12 @@ private slots:
     void restoreWorldBackup(const QString &worldDir);
     void snapshotInstance(const QString &versionId);
     void restoreInstanceSnapshot(const QString &versionId);
+    /// 起一趟"还原一份备份"（先做安全快照 → 挪走旧的那一份 → 解压 → 对账）—— 界面**不直接
+    /// 走它**（走上面那两条），它是 `BackupController::startRestore()` 的薄壳，留着是给
+    /// **mw_check 按名字驱动**的那几条断言（T35.3 / T35.4，见 .cpp 里那条 ★★）。
+    Tasks::TaskId startBackupRestore(const QString &zipPath, const QString &targetParentDir,
+                                     const QString &title, const QString &targetId,
+                                     const QString &successTitle);
     void openBackupFolder(BackupFiles::Kind kind);
 
     /// 「复制实例」（2026-09-28，用户原话「实例设置的概览里面加一条复制实例，点击以后让
@@ -1061,46 +1070,13 @@ private slots:
 
     /// 把「文件管理」那几页里那些**资源文件**的图标要回来（2026-09-27）。
     ///
-    /// ★ 用户原话：「模组和资源包等都有一个图标，把图标显示出来」。盘上那个文件名**不是
-    ///   身份**（用户改过名、各家起名不一样），所以"这是哪个资源"只能按**文件内容**反查
-    ///   （sha1 → Modrinth、指纹 → CurseForge，见 `InstanceIconLookup`）。那几发是网络，
-    ///   而算哈希要读一遍整个文件 —— 两样都**不能在界面线程上做**（用户对"锁住其他按钮"
-    ///   的意见见 pingServers 那段）。
-    ///
-    /// 所以这一发只做三件事：列一遍候选文件、把**已经知道的**先摆上去、需要问的丢给后台
-    /// 线程。重复调用是安全的：已经有一趟在跑时不重开（只把界面接回新开的那一页）。
+    /// ★★ 2026-10-15：这一整套（那一趟的状态、会话缓存、"这一条是哪个资源"那张表、往页上
+    ///   摆）整个搬进了 `src/controllers/InstanceIconController.*` —— 从前这里是一串只有
+    ///   一行体的转发，功能其实还留在这一层（那正是"只搬辅助函数"）。现在这一层只剩**这
+    ///   一个入口**：实例设置页开出来时喊它一声（调用点在 `InstanceDialogController`）。
+    ///   其余几样（缓存钥匙 / 候选文件表 / 这个实例认过没有 / 这一条是哪个资源）都由那边
+    ///   直接提供，不再从这一层绕一圈。
     void requestInstanceFileIcons(InstanceSettingsDialog *dialog, const QString &versionId);
-
-    /// ★ 2026-09-27 拆出来的那一段：照**现在这一页**（`m_instanceIcons.paths`）里还没问过
-    /// 的那些开一趟后台。`requestInstanceFileIcons()` 和"上一趟收尾时发现用户已经换了页"
-    /// （见 onInstanceIconLookupFinished 末尾）两处都走它。
-    ///
-    /// 不这么拆的话，"A 的线程还在跑、用户又开了 B 的设置页"这一形态下 B 会被**静默丢下**：
-    /// 那次请求撞在 `active` 闸上直接 return 了，而 A 跑完时谁也不会回头替 B 问 —— B 的
-    /// 文件要等用户再进一次这一页才有图标。
-    void startInstanceFileIconLookup();
-
-    /// 后台那一趟回来了。见 .cpp 里那一段。
-    void onInstanceIconLookupFinished(const InstanceIconLookup::Result &result);
-
-    /// 把**现在知道的**那些图标摆到正开着的那一页上（没开着就什么都不做）。
-    /// 「图标到手」和「新开了一页」两条路都走它 —— 两处各摆一遍的话，两边的判据迟早漂开。
-    ///
-    /// ★ 2026-09-27 起它同时摆"这一条的名字点不点得动"（见 setFileResource()）：两件事
-    ///   读的是同一份会话缓存、同一个循环、同一个"这一条现在算不算知道"的判据 ——
-    ///   拆成两个函数摆，迟早出现"图标有了、名字点不动"这种两边打架的界面。
-    void pushInstanceFileIcons();
-
-    /// 这一条文件的**缓存钥匙**：路径 + 大小 + 修改时间。
-    ///
-    /// NOTE: 为什么要带上后两样（而不是只按路径）：路径复用了、内容换了的形态是**真的
-    ///       会发生的**（删掉一个模组、换上另一个同名文件），只按路径键住的话，那一格会
-    ///       一直画着**上一个**资源的图标 —— 不报错、看着也像张正经图标，只有用户认得出来。
-    static QString instanceIconCacheKey(const QString &path);
-
-    /// 这个实例里那些**可能查得到图标**的文件（绝对路径）：四个能下载的目录 + 原理图，
-    /// 只要 `.jar` / `.zip`（判据是 `InstanceIconLookup::isLookupCandidate()`）。
-    QStringList instanceIconCandidatePaths(const QString &versionId) const;
 
     /// 实例设置里**点一条文件的名字**（2026-09-27，用户原话见 .cpp 里那段）⇒ 开那个资源
     /// 自己的那一页。
@@ -1368,10 +1344,8 @@ private:
     friend class InstanceDialogController;
     friend class InstanceEditorController;
     friend class ImportController;
-    friend class GameSessionController;
     friend class LaunchController;
     friend class ConnectionsController;
-    friend class InstanceIconController;
     void setupConnections();
 
     // ---------- 「世界设置」那两格状态（2026-09-28）----------
@@ -1617,9 +1591,10 @@ private:
                                                 ResourceCatalog::Source source);
     /// 这个实例的 mods 里**已经认出来的**那些资源（键 = `<来源>-<项目号>`）。
     ///
-    /// ★ 这份判据的**强度就是"这个会话认过多少"**：`m_instanceFileIdentities` 是文件管理页
-    ///   那一趟反查填的，没进过那一页就是空的。所以多出来一个 @p known 出参：**空表**
-    ///   和"确实一个都没装"是两件事，界面上那两句话不一样（见 `known` 的用法）。
+    /// ★ 这份判据的**强度就是"这个会话认过多少"**：那张"这一条是哪个资源"的表是文件管理页
+    ///   那一趟反查填的，没进过那一页就是空的（表在 `InstanceIconController` 里，2026-10-15
+    ///   搬过去的）。所以多出来一个 @p known 出参：**空表**和"确实一个都没装"是两件事，
+    ///   界面上那两句话不一样（见 `known` 的用法）。
     QSet<QString> installedModKeys(const QString &instanceId, bool *known) const;
     /// 起一趟前置检查（见上面那段）。占着 `m_dependencyCheck`。
     void startDependencyCheck(ResourceCatalog::Kind kind, const QString &displayTitle,
@@ -1673,6 +1648,11 @@ private:
     ///
     /// 从两处喊：①开这一页的时候（拿下面那份会话缓存 —— 用户查过一次之后关掉再进来，
     /// 「可更新」还得筛得出东西）；②一趟检测收尾时（这时候才刚有结果）。
+    ///
+    /// ★ 2026-10-15：它一度挂在 `InstanceIconController` 名下（那一层也负责"往文件管理那几页
+    ///   上摆东西"），可它读的 `m_instanceOutdatedPaths` 是**检查更新**那一趟的账，和图标
+    ///   反查没有一分钱关系 —— 为了这一下让那一层去够主窗口的私有成员，正是这一轮要拆掉
+    ///   的那种耦合。所以摆回来了：**自己的账自己递给页**。
     void pushInstanceFileUpdates(InstanceSettingsDialog *dialog, const QString &instanceId);
     /// 反查那一趟回来了（更新检测这条路上的收尾：逐个项目问版本列表）。
     void onUpdateCheckLookupFinished(const InstanceIconLookup::Result &result,
@@ -2101,7 +2081,7 @@ private:
      *       「显示游戏日志」这几个字的字面意思。代价是那一窗里没有这个开关打开之前的输出，
      *       这是**明说的**（见设置页那句说明）。
      *
-     * NOTE: 用户手动关掉过的窗不会自己再冒出来（m_gameLogDismissedSessions）。
+     * NOTE: 用户手动关掉过的窗不会自己再冒出来（那一笔现在记在 `GameSessionController` 那一层）。
      *       "我刚把它关了、你又给我弹回来"是这类窗最招人烦的失败模式。
      */
     void showGameLogLine(int sessionId, const QString &text);
@@ -2166,6 +2146,15 @@ private:
     /// 显示规则见 .cpp；界面那边只负责把控件搭出来。
     void updateBottomBar();
 
+    /// 底栏右下那一格（"当前实例运行状态"）：方块的颜色 + 两行字，整个重画一遍。
+    ///
+    /// ★ 2026-10-15 从 `updateBottomBar()` 里**整块搬出来**，和中间那格
+    ///   `updateBottomBarTaskSummary()` 对称：这一格的红/灰都看**账本**（账上还有没有没处理的
+    ///   异常退出 ⇒ 见 `CrashReportController::pendingRecordIds()`），而账本每变一次都会发信号。
+    ///   分开之后"账本变 ⇒ 只重画这两格"，不必连头像和账号名一起重刷 —— 判据仍然是**四档的
+    ///   顺序**那一处（launching > 账上有事 > 没实例 > 在跑），写在这个函数的定义里。
+    void updateBottomBarRunState();
+
     // ---------- 任务中心（2026-10-12，coding plan §2 / §3） ----------
     /// 底栏中间那格**现在该说什么**：把账本里那一堆翻成 `MainWindowUI::BottomBarTaskSummary`
     /// 摆上去（谁说话算数由 `Tasks::collapsedSummary()` 定 —— 那是账本层的纯函数，
@@ -2184,22 +2173,24 @@ private:
     /// 任务详情页上的那一排按钮被点了（coding plan §3.4「失败能看到失败阶段、简短原因和
     /// 『查看日志/重试』」—— 那一页是这句话落地的地方）。
     ///
-    /// 这一页**自己什么活都不干**（`ui/` 不 include `src/`）：它只报"哪一项、点了哪一颗"，
-    /// 取消谁、重试什么、日志在哪、目标目录怎么拼全在这里。
+    /// ★ 2026-10-15：这一页整个搬进 `TaskDetailController` 了（页对象、"打开日志"开哪一份、
+    ///   "打开目标位置"怎么认服务端、摘要长什么样，全在那边）。这一条和下面那条只按名字
+    ///   转手 —— 两个调用点认的是这个名字：面板那一行的 `actionRequested`（见
+    ///   `setTaskCenterRowActivatedHandler` 那几条）和页自己发上来的那一发。
     void onTaskDetailAction(const QString &key, TaskDetailPage::Action action);
     /// 任务中心里**某一行被点了** ⇒ 开那一页（`key` 是任务号的十进制字符串）。
     ///
     /// NOTE: 页面对象**建一次留着**（和资源详情页 / 实例设置同一个路数）：每一次点开都
     ///       `setTask()` 重摆一遍。`overlay->execPage()` 是**阻塞**的（它内部那个嵌套
     ///       事件循环要等到用户点返回），所以"开页之后"那句要写在 `execPage()` 之前或
-    ///       之后分清楚（见那一处）。
+    ///       之后分清楚（见控制器里那一处）。
     void openTaskDetailPage(const QString &key);
-    /// 把账本里那一项翻成详情页要的一份（找不到那个号时回 false，页照开但摆的是空的）。
-    bool fillTaskDetail(const QString &key, TaskCenter::Item *out) const;
-    /// 「打开日志」「打开目标位置」「复制摘要」那三颗（见 onTaskDetailAction()）。
-    void openTaskLog(const QString &key);
-    void openTaskTarget(const QString &key);
-    void copyTaskSummary(const QString &key);
+    /// 「取消」那一下（页上那颗、以及面板那一行行尾那颗）—— 转手给控制器，但**分派留在
+    /// 这里**：服务端安装那一趟和版本/资源下载那一批不是同一份状态，怎么分派的判据和
+    /// `cancelWouldWork()` 必须逐字对齐（见 .cpp 里那段 ★）。
+    void cancelTaskFromDetail(const QString &key);
+    /// 「重试」那一下，同上（判据本体是 `retryWouldWork()`，和取消左右对称）。
+    void retryTaskFromDetail(const QString &key);
 
     /// 「这一类活**起手**就允许什么」那张表（唯一出处，见 .cpp 里那段说明）。
     /// 会变的那几位（`canRetry`）不在这里 —— 它由 `finishTask()` 在失败那一刻补。
@@ -2491,10 +2482,11 @@ private:
     void stopServer(const QString &serverId);
     /// 强制结束（不等存盘）。**没在跑 = 什么都不做**。
     void forceKillServer(const QString &serverId);
-    /// 开控制台那一页（覆盖层整页）。
+    /// 开控制台那一页（覆盖层整页）。★ 转手给 `ServerConsoleController::open()` ——
+    /// 页对象、`ownerTab`、「这一页现在说的是谁」全在那边（2026-10-15）。
     void openServerConsole(const QString &serverId);
     /// 把控制台那一页现在的状态 / 三颗按钮该不该按摆一遍。**没开着那一页就什么都不做**
-    /// （状态变了、来了一行日志、宽限到点，都走它）。
+    /// （状态变了、来了一行日志、宽限到点，都走它）。★ 同上，转手给控制器。
     void updateServerConsole();
     /// 打开这个服务端的目录（交给系统，和"打开实例文件夹"走同一个东西）。
     void openServerFolder(const QString &serverId);
@@ -2784,74 +2776,15 @@ private:
 
     // ---------- 「文件管理」那几页的图标（2026-09-27）----------
     //
-    /// 一趟图标反查的状态。形状和上面那趟测速**故意是一样的**（弱引用 + 后台线程 +
-    /// 结果回来时"那一页还在不在"不确定），理由也逐字相同。
-    struct InstanceIconRun {
-        /// 现在开着的那一页。**弱引用** —— 关掉之后它是空的，回来的图标就只进缓存、
-        /// 不碰界面（往一个析构了的对话框上写是 use-after-free）。
-        QPointer<InstanceSettingsDialog> dialog;
-        /// 这一趟列出来的候选文件（绝对路径）。回灌那一步走的就是它 —— 只摆这一份里的，
-        /// 而不是把整张会话缓存（可能上千条）挨个问那六页一遍。
-        ///
-        /// NOTE: 这是"**现在这一页**是谁"的快照，每次 requestInstanceFileIcons() 都整个换掉。
-        ///       **别拿它当"某一趟问了哪些文件"用** —— 那个是下面 m_instanceIconRunPaths，
-        ///       两者在这一页被换掉之后就不一样了。
-        QStringList paths;
-        /// 这一页是**哪个实例**（versionId）。只为一件事：这一趟在跑的时候用户换了一页
-        /// 的话，收尾时看得出"现在这一页已经不是这一趟问的那一页"，得给新那页补一趟。
-        QString versionId;
-        /// `Hit::iconCacheId()`（带来源前缀）→ 认得出这个资源的那些**文件**。
-        ///
-        /// 反过来的方向（一个文件 → 它的 iconId）在下面那张表里；这一张是给
-        /// `onResourceIconReady()` 用的：图标是按身份回来的，而屏幕上要换的是**行**。
-        /// NOTE: 跨对话框累积（同一个资源在别的实例里也有，那张图本来就该两边都画上）。
-        QHash<QString, QStringList> pathsByIconKey;
-        /// 现在算不算"有一趟在跑"。**这一位是权威**（见 requestInstanceFileIcons 里那道闸）。
-        bool active = false;
-    };
-    InstanceIconRun m_instanceIcons;
-    /// ★ 2026-09-27 加：**这一趟真的问了哪些文件**（绝对路径），以及是给哪个实例问的。
-    ///
-    /// 为什么不读 `m_instanceIcons.paths`：那是"最后一次请求"换上去的那一份，而
-    /// requestInstanceFileIcons() 里换它的那一句排在 `active` 闸**之前** —— 于是"A 的线程
-    /// 还在读盘、用户又开了 B 的设置页"这一形态下，A 的结果回来时那张表**已经是 B 的了**。
-    /// 以前负缓存（m_instanceIconMissing）正是照那张表写的：A 那一趟的"没找到"被逐条记到了
-    /// **B 的文件**头上，而且那张表除析构外**从不清理** ⇒ B 这一整个会话都看不到图标，
-    /// 连"再点一次刷新"都没用（下一次请求在同一个假钥匙上照样跳过）。按趟记账之后，被记的
-    /// 永远是**真的问过**的那一批。
-    QStringList m_instanceIconRunPaths;
-    /// 这一趟是给哪个实例问的（同上；收尾时拿它和 `m_instanceIcons.versionId` 比一比，
-    /// 不一样就说明用户中途换了页，得补一趟）。
-    QString m_instanceIconRunVersionId;
-    /// 跑那一趟的线程。`QThread::create()` 出来的（省掉"再写一个 QThread 子类"，
-    /// 同 ServerPing::Pinger 里那条 NOTE）。跑完就 deleteLater（见 .cpp 里那段）。
-    QThread *m_instanceIconThread = nullptr;
-    /// **会话级**的真图标缓存，键是 `instanceIconCacheKey()`（路径 + 大小 + 时间）。
-    ///
-    /// 为什么要有（而不是"每次都重新反查"）：那张图是一次读盘 + 联网换来的，而用户关掉
-    /// 设置页再打开是很平常的一件事（改个开关就要进去一次）—— 每次重来一遍的话，一列
-    /// 几十个 jar 要重新读一遍（几百 MB），而且那几秒里图标是占位图。值**可以是空
-    /// pixmap**（见 m_instanceIconMissing 那段）。
-    QHash<QString, QPixmap> m_instanceFileIcons;
-    /// 问过了、**没有**图标的那一批（同一把钥匙）。存它只为一件事：别把同一个文件问第二遍。
-    ///
-    /// ★ 只有"这一趟**完整跑完**了"才会往里写（`Result::problem` 空，见
-    ///   onInstanceIconLookupFinished）。断网那一趟要是也记成"没有"，用户这一整个会话就
-    ///   再也看不到图标了 —— 而那本来是"网好了就会有"。
-    QSet<QString> m_instanceIconMissing;
-    /// 认出来的那几条**是哪个资源**：同一把钥匙（路径 + 大小 + 时间）→ `Hit::iconCacheId()`
-    /// （`<来源>-<项目号>`），而那一份 Hit 就存在下面的 `m_resourceHits` 里。
-    ///
-    /// ★ 2026-09-27 补，为的是"点名字进它自己的那一页"（见 openInstanceFileResource()）：
-    ///   那件事要的正好就是下载页点一行要的那几栏（标题 / 简介 / slug / 游戏版本），
-    ///   而它们**本来就在手上** —— 反查那一趟早就把整个项目对象问回来了（见
-    ///   `InstanceIconLookup::Found::hit`），只是从前读完图标地址就把其余几栏丢了。
-    ///
-    /// NOTE: 和 m_instanceFileIcons 同一把钥匙 ⇒ 同一个名字上换了一个文件就自然作废，
-    ///       不会出现"词条写着 A、名字是 B"。
-    /// NOTE: 键是**路径的钥匙**而不是路径，所以文件删掉之后这一条留着也不会有人读到它
-    ///       （pushInstanceFileIcons() 只走 `m_instanceIcons.paths` 里那些还在的路径）。
-    QHash<QString, QString> m_instanceFileIdentities;
+    // ★★ 2026-10-15：这一整块（那一趟的状态 `InstanceIconRun`、按趟记账的两格、跑那一趟的
+    //    线程、会话缓存两张表、"这一条是哪个资源"那张表）**连同 `InstanceIconLookup` 那一趟
+    //    一起搬进了 `src/controllers/InstanceIconController.*`**。搬走的缘起：这些成员从前
+    //    是这一层的私货，于是每一个用得着它们的控制器都得靠 `friend class` 才够得着 ——
+    //    功能没分出去，只是换了个文件摆。现在这一层一个字节的状态都不留：
+    //      · 要"这个实例认过没有" / "这个目录下认出来哪些" → 问那个控制器；
+    //      · 某张图标回来了 → 喊 `rememberResourceIcon()`（那一层自己记账、自己摆页）；
+    //      · 析构里那一等 → `waitForLookup()`。
+
     /// ---------- 实例更新检测那一趟（2026-09-28）----------
     ///
     /// 一趟的形状：枚举这个实例的 mods → 后台线程反查一次（`InstanceIconLookup`，顺手
@@ -3046,18 +2979,14 @@ private:
     LaunchController *m_launchController = nullptr;
     ConnectionsController *m_connectionsController = nullptr;
     InstanceIconController *m_instanceIconController = nullptr;
-    /// 控制台那一页（懒建一次、之后复用，和「新建服务端」同一个路数）。
-    ServerConsolePage *m_serverConsolePage = nullptr;
-    /// 控制台那一页**现在说的是哪一个**服务端。
-    ///
-    /// ★ 和 `m_updateCenterInstanceId` 一个路数：页面是复用的、关页之后它还活在内存里，
-    ///   所以"这一按是对哪个服务端按的"只能从这儿来 —— **不许**去问"列表上现在选中谁"
-    ///   （用户完全可能边看控制台边点别处）。换一个服务端开控制台时这一格跟着换。
-    QString m_serverConsoleId;
+    /// 控制台那一页（coding plan §6.2 / M4-3）。2026-10-15 起**页对象和"这一页现在说的是
+    /// 哪一个服务端"都在控制器里**（`src/controllers/ServerConsoleController`），这一层
+    /// 只留 `openServerConsole()` / `updateServerConsole()` 两条转手的口子。
+    ServerConsoleController *m_serverConsole = nullptr;
     /// 「服务端设置」那一页（懒建一次、之后复用，和控制台那张同一路数）。
     ServerSettingsPage *m_serverSettingsPage = nullptr;
-    /// 那一页**现在说的是哪一个**服务端（同 `m_serverConsoleId` 那条理由：认它，不许去问
-    /// "列表上现在选中谁"）。
+    /// 那一页**现在说的是哪一个**服务端（同 `ServerConsoleController` 里那一格的理由：
+    /// 认它，不许去问"列表上现在选中谁"）。
     QString m_serverSettingsId;
     /// 这一页**手里那份 `server.properties` 的原文** —— 唯一会被写回盘上的东西。
     /// 表单里改过的那几项是叠在它上面的补丁（见 .hpp 里那段 ★）。
@@ -3361,16 +3290,6 @@ private:
     // refreshAvailableVersions() 里那一格）。**只摆第一次**：用户把它收起来之后，
     // 清单刷新（每次启动那一次、以及手动刷新拉回来那一次）不该又把它撑开。
     bool mLatestGroupExpandSeeded = false;
-    // 哪几份会话的启动进度还在走：从"进程真的起来了"（startGame 返回非零）到那一份自己
-    // 吐出第一行输出为止 —— 中间那段是 JVM 和游戏自己在初始化，界面上没别的反馈。
-    // 命名刻意不叫 m_launching：它表示的是"这段进度要显示"而不是"正在启动"。
-    //
-    // 存的是**会话号**不是版本号：同一个实例可以被多开，按版本号记的话第二个起来就把
-    // 第一个那笔盖掉了（然后第一份出话时"启动中"照样挂着，直到它退出才收）。
-    QSet<int> m_launchingSessions;
-    /// 用户已经确认“停止游戏”、正在等 QProcess::finished 回来的会话。
-    /// 强杀通常会给出 CrashExit / 非零退出码，但这是用户主动操作，不能据此生成异常退出任务。
-    QSet<int> m_userStoppedSessions;
     // ------------------------------------------------------------------
     // 任务中心（2026-10-12，coding plan §2 / §3）
     // ------------------------------------------------------------------
@@ -3389,24 +3308,16 @@ private:
     ///   号的话，用户点开**上一件**失败任务的详情页，上面那颗「重试」照样露着（账本里那位
     ///   `canRetry` 是它自己失败那一刻钉下的），点下去重做的却是**后一批**的文件 —— 一颗
     ///   按了会做错事的按钮。判据见 `retryWouldWork()`（「取消」那一颗的孪生兄弟）。
-    /// 会话号 → 那一次启动的任务号（和 m_launchingSessions / m_sessionDisplayNames 同寿）。
-    QHash<int, Tasks::TaskId> m_launchTaskIds;
     /// 用户**还没看过**的那几次失败（面板里那一行挂红点、收起态那格挂红点）。
     /// 打开任务中心面板就算看过了（那是"列给你看"的唯一动作）。
     /// "刚完成的那一项还在收起态里露着"这件事到期了要重画一次（`taskSummaryRecentWindowMs()`）。
     /// **单发**：每次摆摘要时按"还差多久到期"重新起一次（见 updateBottomBarTaskSummary()）。
     QTimer *m_taskSummaryTimer = nullptr;
-    /// 任务详情页那一页（**建一次留着**，每次开页 `setTask()` 重摆 —— 和资源详情页 /
-    /// 实例设置同一个路数）。`ui/` 的类，所以是个裸指针 + `deleteLater`（见析构那一段）。
-    TaskDetailPage *m_taskDetailPage = nullptr;
+    /// 任务详情页那一页（coding plan §3.2 / §3.4）。2026-10-15 起**页对象和这一页上的决定
+    /// 都在控制器里**（`src/controllers/TaskDetailController`）：页是**建一次留着**、每次开页
+    /// `setTask()` 重摆的那一条规矩也归它管。
+    TaskDetailController *m_taskDetail = nullptr;
 
-    // ★ 2026-09-27 加：会话号 → 那一份的实例显示名。**启动那一刻记一次**，退出时用掉、删掉。
-    //
-    // 唯一用途是 onGameFinished() 里那行日志的 `[实例名] ` 前缀 —— 那时会话已经从
-    // LauncherManager 的表里摘掉了（discard 在 emit 之前，是有意的），`session(id)` 返回的
-    // 是空快照，所以名字只能自己留一份。多开时没有它，"游戏进程已结束，退出码：0" 这一行
-    // 分不清是谁退了（它上面那些 [游戏输出] 行都有名字，对比之下更刺眼）。
-    QHash<int, QString> m_sessionDisplayNames;
     // 现在正卡在哪一段同步等待上（空串 = 没在等）。内容就是底栏那格要写的那句话，
     // 由 enterSyncWait() 写进来、leaveSyncWait() 清掉 —— 做成字符串而不是布尔量，
     // 是因为"在等什么"只有进那一段的人知道（换令牌 / 挑 Java / 等进程起来）。
@@ -3414,75 +3325,21 @@ private:
     // 后台正在写整合包。用它挡住同一实例页上的重复点击；完成回调会清掉。
     // 进度按网络分片到达（5000 多个 asset），节流一下再刷界面
     QElapsedTimer m_progressThrottle;
-    // 窗口是不是为了「收起启动器，游戏退出后回来」这一档才藏起来的。
-    // 只有它为真时 onGameFinished() 才会把窗口叫回来 —— 用户自己最小化的窗口
-    // 不该被游戏的退出给弹出来。
-    bool m_hiddenForGame = false;
-    // 哪几份会话现在开着日志窗（会话号 → 那个窗）。**一份会话一个窗**：多开时两份输出
-    // 混在一个窗里等于没法看，见 ui/GameLogWindow.hpp 的说明。
-    //
-    // NOTE: 那个窗建出来就带 WA_DeleteOnClose（关掉即销毁），所以这里的指针**会**失效 ——
-    //       窗自己在 finished() 里把这一笔摘掉（见 showGameLogLine 里的接法）。不要在这里
-    //       存裸指针却在别处直接用：除了 showGameLogLine() 和 onGameFinished()，
-    //       没有第三处读它。
-    //
-    // NOTE: 那些窗**没有父窗口**（理由见 showGameLogLine 里那段），所以"关启动器顺手关掉
-    //       它们"这件事得在 ~MainWindow 里自己办 —— Qt 不会替我们收。
-    QHash<int, GameLogWindow *> m_gameLogWindows;
-    // 用户**手动关掉过**日志窗的那几份会话。关掉之后这一份不再自动开新窗 ——
-    // "我刚把它关了、下一行输出又给我弹回来"是这类窗最招人烦的失败模式。
-    // 会话结束（onGameFinished）时清掉：下一份游戏是另一回事。
-    QSet<int> m_gameLogDismissedSessions;
 
-    // ---------- 导出那两份文件要用的事实（2026-09-28） ----------
+    // ---------- 一次游戏会话的那一段（2026-10-15 整块搬走） ----------
     //
-    // 「导出错误报告」的头部要写实例名/id、账号、进程号、启动时间、退出码 —— 这些东西里
-    // **大半在会话结束之后就查不到了**：`LauncherManager::session()` 在那一份结束时已经把
-    // 记录摘掉了（那是它刻意的，见 gameFinished 的文档），而`m_sessionDisplayNames` 也在
-    // onGameFinished() 末尾清掉。崩溃之后导一份报告正是这件事最主要的用法，所以得在
-    // **会话还活着的时候**留一份快照。
+    // ★★ 它原来有九个成员落在这一层：哪几份会话的启动进度在走、各自对上哪件任务、这一份
+    //   当初是谁（实例名 / 身份 / Java / 内存 / 加载器）、用户主动停过哪几份、窗口是不是为了
+    //   启动才藏起来的、哪几份开着日志窗 / 用户关过哪几扇 / 导出报告要的那份快照。
+    //   现在**连"进程信号进来之后干什么"一起**在 `GameSessionController` 里（见那边的
+    //   类注释），这一层只剩下面这一个指针 —— 要读它们就走那几个查询（`sessionFacts()` /
+    //   `gameLogWindow()` / `logFacts()` / `hasLaunchingSessions()`）。
     //
-    // NOTE: 这不是"把会话表抄一份"——抄的是**导出那一份文件要用的那几个值**，而且只在
-    //       "这一份开着日志窗"时才有（窗关了、会话结束了，这一笔立刻删掉，见
-    //       showGameLogLine 里那个 finished 接法）。不删的话它会随开过的实例数一直长。
-    struct GameLogFacts {
-        QString instanceId;   ///< `versions/` 下面那个目录名
-        QString accountName;  ///< 这一趟用的身份
-        qint64 processId = 0;
-        qint64 startedAtMs = 0;
-        /// 收到过 onGameFinished() 没有（没收到 = 导出时游戏还在跑，报告里会明说）。
-        bool finished = false;
-        bool crashed = false;
-        int exitCode = 0;
-    };
-    QHash<int, GameLogFacts> m_gameLogFacts;
+    // NOTE: 那两个事实结构的**定义**也搬到了那个头文件里（`GameSessionFacts` /
+    //       `GameLogFacts`）—— 它们从"这一层的私有嵌套类"变成了那一层的东西，因为写下它们
+    //       的是 LaunchController（启动那一刻），读完它们的是那一层自己和导出那两条路。
 
     // ---------- 游戏异常退出（coding plan §4.3） ----------
-
-    /// 一趟启动**在进程起来之前**就已经定下来、而退出时再也拿不到的那几个值。
-    ///
-    /// NOTE: Java 可执行文件那条路径是挑完 Java 之后才知道的（`ensureJavaForVersion` 会把它
-    ///       写进 `javaSettings.javaPath`），退出时 `javaSettings` 早就不是那一趟的了 ——
-    ///       所以必须在启动那一刻抄下来。主版本**不在这里**：这一趟实际用的那个主版本是
-    ///       异常退出那一刻现读 `<javaPath>/release` 得到的（见 buildCrashFacts 那段），
-    ///       平时一次盘都不读。
-    struct GameSessionFacts {
-        QString instanceId;
-        QString instanceName;
-        /// 这一趟用的身份（报告头部要写的那一行）。
-        QString accountName;
-        qint64 processId = 0;
-        qint64 startedAtMs = 0;
-        int requiredJavaMajor = 0;
-        QString javaPath;
-        int xmxMb = 0;
-        int xmsMb = 0;
-        QString loaderName;
-        QString loaderVersion;
-    };
-    /// 会话号 → 那一趟的启动事实。**启动成功那一刻记、退出那一刻用掉并删掉**（和
-    /// `m_sessionDisplayNames` 同寿）—— 不清的话它会随着开过的实例数一直长。
-    QHash<int, GameSessionFacts> m_sessionLaunchFacts;
 
     /// 异常退出了 → 账本上补一项，并留一份 `CrashRecord`。
     void reportGameCrash(int sessionId, int exitCode, bool crashed);
