@@ -133,6 +133,16 @@ set(PROJECT_SOURCES
     # 连一次 —— 纯函数那半只证明"我按我写的规则拆了包"，协议那头对不对得看那一趟。
     ${REPO_ROOT}/src/util/ServerPing.cpp
     ${REPO_ROOT}/src/util/ServerPing.hpp
+    # 工具箱那四件（2026-10-16）：纯函数，判据在 tests/main.cpp 里那几节（彩色文本三种写法
+    # 的往返、坐标 8:1 与 F3+C 那行 tp、哈希的"已知值"归一化与流式读取、铁砧那套惩罚机制）。
+    ${REPO_ROOT}/src/tools/TextFormat.cpp
+    ${REPO_ROOT}/src/tools/TextFormat.hpp
+    ${REPO_ROOT}/src/tools/CoordConvert.cpp
+    ${REPO_ROOT}/src/tools/CoordConvert.hpp
+    ${REPO_ROOT}/src/tools/FileHash.cpp
+    ${REPO_ROOT}/src/tools/FileHash.hpp
+    ${REPO_ROOT}/src/tools/AnvilPlanner.cpp
+    ${REPO_ROOT}/src/tools/AnvilPlanner.hpp
     # ServerListFile（2026-10-10）：servers.dat 的读（转 NbtUtil）和「只动 name / ip
     # 两格」的写。它要 NbtUtil（读）和 ZipUtil（gzip 那一层）—— 那两样都在上面。
     ${REPO_ROOT}/src/manage/ServerListFile.cpp

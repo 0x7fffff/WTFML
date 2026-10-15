@@ -100,6 +100,12 @@
 // 应用计划那一层（2026-10-15，coding plan §5 / §7）。见 PE 节 —— 一段一行地算这一趟会发生
 // 什么（除了通用文件组的干跑，全是纯值）。
 #include "presets/PresetPlanner.hpp"
+// 工具箱那四件小工具的判据层（2026-10-16，coding plan §9.11）。见 ZAA–ZAD 四节 —— 全是
+// **纯函数**（哈希那一节要真读一个文件，它在一个 QTemporaryDir 里读），不联网、不开界面。
+#include "tools/AnvilPlanner.hpp"
+#include "tools/CoordConvert.hpp"
+#include "tools/FileHash.hpp"
+#include "tools/TextFormat.hpp"
 #include "manage/DefaultSkin.hpp"
 #include "manage/DroppedResource.hpp"  // V5z：拖进来那个文件到底是什么
 #include "manage/InstanceFiles.hpp"
@@ -28869,6 +28875,1055 @@ static void runDownloadConcurrencyTests() {
     }
 }
 
+// ===========================================================================
+// 工具箱那四层（2026-10-16，coding plan §9.11；用户那天点名的那一批小工具）
+//
+// 这一批的共同形状：**纯函数**（除了哈希要读一个真文件 —— 它在临时目录里读）。
+// 界面那一侧（`ui/ToolboxPage.cpp` + `src/controllers/ToolboxController.cpp`）一条断言都不在
+// 这一节里，这一节只管"算得对不对"。
+// ===========================================================================
+
+/// ZAA 节。`§` 码 / JSON 组件 / `/tellraw` 三份形态之间的往返。
+static void runTextFormatTests() {
+    section("ZAA. 彩色文本：§ 码 ↔ 正文段 ↔ JSON 组件 ↔ /tellraw（工具箱第 2 件）");
+
+    // ---------- ZAA1. `§` 那张表（颜色、码位、名字、预览值）----------
+    {
+        check(TextFormat::kSectionSign == QChar(0x00A7),
+              "ZAA1 `§` 就是 U+00A7（全仓唯一的那个字面量出处）",
+              QStringLiteral("U+%1").arg(int(TextFormat::kSectionSign.unicode()), 4, 16, QChar('0')));
+
+        check(TextFormat::colorFromCode(QChar('a')) == TextFormat::Color::Green
+                  && TextFormat::colorFromCode(QChar('A')) == TextFormat::Color::Green,
+              "ZAA1 `§a` 与 `§A` 是同一个色（码位不分大小写）");
+        check(TextFormat::colorFromCode(QChar('0')) == TextFormat::Color::Black
+                  && TextFormat::colorFromCode(QChar('f')) == TextFormat::Color::White,
+              "ZAA1 两头那两个：`§0` 黑、`§f` 白");
+        check(TextFormat::colorFromCode(QChar('r')) == TextFormat::Color::Default
+                  && TextFormat::colorFromCode(QChar('z')) == TextFormat::Color::Default,
+              "★ ZAA1 `§r`（复位）和认不出来的 `§z` 都不是颜色 —— 回 Default，**不猜**");
+        check(TextFormat::isColorCode(QChar('c')) && !TextFormat::isColorCode(QChar('r'))
+                  && !TextFormat::isColorCode(QChar('g')),
+              "ZAA1 颜色码只认 0-9 a-f（`g` 不在里面）");
+        check(TextFormat::isFormatCode(QChar('l')) && TextFormat::isFormatCode(QChar('r'))
+                  && TextFormat::isFormatCode(QChar('k')) && !TextFormat::isFormatCode(QChar('a')),
+              "ZAA1 格式码认 k l m n o 与复位的 r");
+
+        const QList<TextFormat::Color> colors = {
+            TextFormat::Color::Black,      TextFormat::Color::DarkBlue,
+            TextFormat::Color::DarkGreen,  TextFormat::Color::DarkAqua,
+            TextFormat::Color::DarkRed,    TextFormat::Color::DarkPurple,
+            TextFormat::Color::Gold,       TextFormat::Color::Gray,
+            TextFormat::Color::DarkGray,   TextFormat::Color::Blue,
+            TextFormat::Color::Green,      TextFormat::Color::Aqua,
+            TextFormat::Color::Red,        TextFormat::Color::LightPurple,
+            TextFormat::Color::Yellow,     TextFormat::Color::White};
+        int okay = 0;
+        for (const TextFormat::Color color : colors) {
+            const QChar code = TextFormat::codeForColor(color);
+            const QString name = TextFormat::colorName(color);
+            if (!code.isNull() && TextFormat::colorFromCode(code) == color && !name.isEmpty()
+                && TextFormat::colorFromName(name) == color
+                && TextFormat::colorFromCode(code.toUpper()) == color) {
+                ++okay;
+            }
+        }
+        check(okay == colors.size(),
+              "ZAA1 十六色逐条往返：色 → 码 → 色、色 → 名 → 色、以及大写码（16/16）",
+              QStringLiteral("%1/16").arg(okay));
+        check(TextFormat::codeForColor(TextFormat::Color::Default).isNull()
+                  && TextFormat::colorName(TextFormat::Color::Default).isEmpty()
+                  && TextFormat::colorFromName(QStringLiteral("金黄色"))
+                         == TextFormat::Color::Default
+                  && TextFormat::colorFromName(QStringLiteral("")) == TextFormat::Color::Default,
+              "ZAA1 Default 既没有码也没有名字；认不出来的颜色名回 Default（不猜）");
+
+        check(TextFormat::colorRgb(TextFormat::Color::Black) == 0x000000
+                  && TextFormat::colorRgb(TextFormat::Color::White) == 0xFFFFFF
+                  && TextFormat::colorRgb(TextFormat::Color::Red) == 0xFF5555
+                  && TextFormat::colorRgb(TextFormat::Color::Gold) == 0xFFAA00
+                  && TextFormat::colorRgb(TextFormat::Color::Green) == 0x55FF55
+                  && TextFormat::colorRgb(TextFormat::Color::DarkRed) == 0xAA0000,
+              "ZAA1 那十六个值是游戏那份（红 0xFF5555 / 金 0xFFAA00 / 绿 0x55FF55 / 深红 0xAA0000）",
+              QStringLiteral("red=%1").arg(TextFormat::colorRgb(TextFormat::Color::Red), 6, 16, QChar('0')));
+        check(TextFormat::colorRgb(TextFormat::Color::Default) == 0xFFFFFF,
+              "ZAA1 Default 的预览值取浅底正文色（白）—— 它不是「某个色」，是「没写过」");
+
+        check(TextFormat::colorText(TextFormat::Color::Red) == QStringLiteral("红")
+                  && TextFormat::formatText(QChar('l')) == QStringLiteral("粗体")
+                  && TextFormat::formatText(QChar('r')) == QStringLiteral("复位")
+                  && TextFormat::formatText(QChar('z')).isEmpty(),
+              "ZAA1 界面那几个字：红 / 粗体 / 复位，认不出来的格式码回空串");
+        check(TextFormat::colorText(TextFormat::Color::Default) == QStringLiteral("默认"),
+              "ZAA1 没有颜色时显示「默认」");
+    }
+
+    // ---------- ZAA2. `§` 正文读成一段一段 ----------
+    {
+        check(TextFormat::parseLegacy(QString()).isEmpty(),
+              "★ ZAA2 空串回**空表**（不是「一段空正文」：界面上那两件事不一样）");
+
+        const QList<TextFormat::Segment> parsed =
+            TextFormat::parseLegacy(QStringLiteral("§c红§l粗"));
+        bool shapes = parsed.size() == 2 && parsed.at(0).text == QStringLiteral("红")
+                      && parsed.at(0).style.color == TextFormat::Color::Red
+                      && !parsed.at(0).style.bold && parsed.at(1).text == QStringLiteral("粗")
+                      && parsed.at(1).style.color == TextFormat::Color::Red
+                      && parsed.at(1).style.bold;
+        check(shapes, "ZAA2 `§c红§l粗` ⇒ 两段：红（红）/ 粗（红 + 粗）",
+              QStringLiteral("%1 段").arg(parsed.size()));
+
+        // ★ 这一条是 `§` 那套规矩里最容易写错的一条：颜色码把格式位一起清掉。
+        const QList<TextFormat::Segment> reset =
+            TextFormat::parseLegacy(QStringLiteral("§a§lb§cc"));
+        const bool resetOkay = reset.size() == 2
+                               && reset.at(0).style.color == TextFormat::Color::Green
+                               && reset.at(0).style.bold
+                               && reset.at(1).style.color == TextFormat::Color::Red
+                               && !reset.at(1).style.bold;
+        check(resetOkay,
+              "★★ ZAA2 `§a§lb§cc` 里那个 `c` **不粗**（颜色码把四个格式位一起清了，游戏就是这么读的）",
+              QStringLiteral("%1 段 / 第二段 bold=%2")
+                  .arg(reset.size())
+                  .arg(reset.size() > 1 && reset.at(1).style.bold ? QStringLiteral("1") : QStringLiteral("0")));
+
+        const QList<TextFormat::Segment> restored =
+            TextFormat::parseLegacy(QStringLiteral("§c红§r普通"));
+        check(restored.size() == 2 && restored.at(1).text == QStringLiteral("普通")
+                  && restored.at(1).style.color == TextFormat::Color::Default
+                  && restored.at(1).style.isPlain(),
+              "ZAA2 `§r` 把颜色和格式位一起复位（回默认色 + 都不加）");
+
+        // 连着几段同样式并成一段（`§c红§c字` 本来就是一段）。
+        check(TextFormat::parseLegacy(QStringLiteral("§c红§c字")).size() == 1,
+              "ZAA2 `§c红§c字` 并成**一段**（样式一样就是一段，模型不无谓变长）");
+
+        // 收尾那个孤零零的 `§`、以及 `§x` 这种不是码的：原样留着。
+        const QList<TextFormat::Segment> lonely =
+            TextFormat::parseLegacy(QStringLiteral("abc§"));
+        check(lonely.size() == 1 && lonely.at(0).text == QStringLiteral("abc§"),
+              "★ ZAA2 收尾那个孤零零的 `§` **原样留着**（丢掉就等于改写用户输入）",
+              lonely.isEmpty() ? QString() : lonely.at(0).text);
+        const QList<TextFormat::Segment> notCode =
+            TextFormat::parseLegacy(QStringLiteral("§z不是码"));
+        check(notCode.size() == 1 && notCode.at(0).text == QStringLiteral("§z不是码"),
+              "ZAA2 `§z` 不是码 ⇒ 两个字符都留着（不按「码」吃掉一格）",
+              notCode.isEmpty() ? QString() : notCode.at(0).text);
+        check(TextFormat::parseLegacy(QStringLiteral("§§")).size() == 1,
+              "ZAA2 `§§` 不是转义（第二个 `§` 也不是码）⇒ 还是同一段正文");
+    }
+
+    // ---------- ZAA3. 拼回 `§` 正文 ----------
+    {
+        const QList<TextFormat::Segment> red = {
+            TextFormat::Segment{QStringLiteral("红"), [] {
+                                    TextFormat::Style style;
+                                    style.color = TextFormat::Color::Red;
+                                    return style;
+                                }()}};
+        check(TextFormat::toLegacy(red) == QStringLiteral("§c红§r"),
+              "ZAA3 一段红正文拼回去是 `§c红§r`（收尾那一下免得后面粘上去的正文被顺带染色）",
+              TextFormat::toLegacy(red));
+        const QList<TextFormat::Segment> plain = {
+            TextFormat::Segment{QStringLiteral("普通"), TextFormat::Style{}}};
+        check(TextFormat::toLegacy(plain) == QStringLiteral("普通"),
+              "ZAA3 没有样式的那一段**不补** `§r`（只在有必要时补）", TextFormat::toLegacy(plain));
+        check(TextFormat::toLegacy({}).isEmpty(), "ZAA3 空表回空串");
+    }
+
+    // ---------- ZAA4. JSON 组件（`/tellraw` 的正文）----------
+    {
+        const QList<TextFormat::Segment> segments =
+            TextFormat::parseLegacy(QStringLiteral("§c红§l粗§r普通"));
+        const QString json = TextFormat::toJsonText(segments);
+        check(!json.contains(QStringLiteral("false")) && json.contains(QStringLiteral("\"color\":\"red\"")),
+              "ZAA4 颜色与格式位**只写非默认的那些**（写全了全是 false，噪音太大）", json);
+
+        check(json.contains(QStringLiteral("\\\"")) == false,
+              "ZAA4 提交的正文里没有手拼的转义（引号和反斜杠都交给 QJson）", json);
+
+        // 转义那一条要真喂一段带引号和反斜杠的正文进去问。
+        const QList<TextFormat::Segment> tricky = {
+            TextFormat::Segment{QStringLiteral("他说\"你好\"\\路径"), TextFormat::Style{}}};
+        const QString trickyJson = TextFormat::toJsonText(tricky);
+        const QJsonArray trickyArray = QJsonDocument::fromJson(trickyJson.toUtf8()).array();
+        check(trickyArray.size() == 1
+                  && trickyArray.at(0).toObject().value(QStringLiteral("text")).toString()
+                         == QStringLiteral("他说\"你好\"\\路径"),
+              "★ ZAA4 正文里的 `\"` 和 `\\` 转义之后读回来**逐字一样**", trickyJson);
+
+        // 往返：一段一段 → JSON → 一段一段。
+        const TextFormat::JsonParseResult back = TextFormat::parseJson(json);
+        check(back.ok && back.segments == segments,
+              "★ ZAA4 往返：正文 → JSON 组件 → 正文，逐段逐样式一样（ok 也要是 true）",
+              QStringLiteral("%1 段 → %2 段").arg(segments.size()).arg(back.segments.size()));
+        check(TextFormat::parseJson(QStringLiteral("[]")).ok
+                  && TextFormat::parseJson(QStringLiteral("[]")).segments.isEmpty(),
+              "ZAA4 `[]` 是合法的一份空正文");
+    }
+
+    // ---------- ZAA5. 反着读 JSON：认哪些、不认哪些 ----------
+    {
+        const TextFormat::JsonParseResult pureStrings =
+            TextFormat::parseJson(QStringLiteral("[\"甲\",\"乙\"]"));
+        check(pureStrings.ok && pureStrings.segments.size() == 2
+                  && pureStrings.segments.at(0).text == QStringLiteral("甲"),
+              "ZAA5 一串纯字符串元素也认（`[\"a\",\"b\"]`）");
+
+        const TextFormat::JsonParseResult extra = TextFormat::parseJson(
+            QStringLiteral("[{\"text\":\"父\",\"color\":\"gold\",\"extra\":[{\"text\":\"子\",\"bold\":true}]}]"));
+        check(extra.ok && extra.segments.size() == 2
+                  && extra.segments.at(1).text == QStringLiteral("子")
+                  && extra.segments.at(1).style.color == TextFormat::Color::Gold
+                  && extra.segments.at(1).style.bold,
+              "★ ZAA5 `extra` 里的孩子**继承父组件那一段样式**（金 + 粗）",
+              QStringLiteral("%1 段").arg(extra.segments.size()));
+
+        // ★ 顶上就是一段光字符串（`/tellraw @a "你好"` 的那种写法）。
+        const TextFormat::JsonParseResult bare =
+            TextFormat::parseJson(QStringLiteral("\"你好\""));
+        check(bare.ok && bare.segments.size() == 1
+                  && bare.segments.at(0).text == QStringLiteral("你好"),
+              "★★ ZAA5 顶上是一段光字符串也能读（QJsonDocument 装不下标量，这一档得自己套一层读）",
+              QStringLiteral("ok=%1 段数=%2")
+                  .arg(bare.ok ? QStringLiteral("1") : QStringLiteral("0"))
+                  .arg(bare.segments.size()));
+
+        for (const QString &kind : {QStringLiteral("translate"), QStringLiteral("score"),
+                                    QStringLiteral("selector"), QStringLiteral("keybind"),
+                                    QStringLiteral("nbt")}) {
+            const TextFormat::JsonParseResult one = TextFormat::parseJson(
+                QStringLiteral("[{\"%1\":\"x\"}]").arg(kind));
+            check(!one.ok && one.unsupported.contains(kind),
+                  QStringLiteral("ZAA5 `%1` 那一档**不猜**：ok=false 且把类型名报出来").arg(kind),
+                  one.unsupported.join(QStringLiteral(",")));
+        }
+
+        const TextFormat::JsonParseResult hexColor =
+            TextFormat::parseJson(QStringLiteral("[{\"text\":\"x\",\"color\":\"#ff0000\"}]"));
+        check(!hexColor.ok && hexColor.unsupported.contains(QStringLiteral("hex_color")),
+              "ZAA5 `#RRGGBB` 那套十六位色不在表里 ⇒ 报出来，**别当成默认色读过去**",
+              hexColor.unsupported.join(QStringLiteral(",")));
+
+        const TextFormat::JsonParseResult broken =
+            TextFormat::parseJson(QStringLiteral("{这不是 json"));
+        check(!broken.ok, "ZAA5 读不动的那一份回 ok=false（而不是「什么都没有」）");
+    }
+
+    // ---------- ZAA6. `/tellraw` 命令 ----------
+    {
+        const QList<TextFormat::Segment> segments = {TextFormat::Segment{
+            QStringLiteral("你好"), [] {
+                TextFormat::Style style;
+                style.color = TextFormat::Color::Green;
+                return style;
+            }()}};
+        const QString command = TextFormat::toTellrawCommand(segments);
+        check(command.startsWith(QStringLiteral("/tellraw @a ")) && command.contains(QStringLiteral("你好")),
+              "ZAA6 默认收话的人是 `@a`、前面带 `/`（聊天栏里粘要带）", command);
+        const QString noSlash = TextFormat::toTellrawCommand(segments, QStringLiteral("@p"), false);
+        check(noSlash.startsWith(QStringLiteral("tellraw @p "))
+                  && !noSlash.startsWith(QStringLiteral("/")),
+              "ZAA6 命令方块里不带 `/`、选择器原样用（这一层不解析选择器语法）", noSlash);
+        const QString empty = TextFormat::toTellrawCommand({});
+        check(!empty.isEmpty() && empty.contains(QStringLiteral("[]")),
+              "★ ZAA6 空正文**照样出一条合法命令**（回空串界面就分不清「没生成」和「生成了个空的」）",
+              empty);
+
+    }
+}
+
+/// ZAB 节。8:1 换算、区块 / 区域文件坐标、以及 F3+C 复制出来的那条命令。
+static void runCoordConvertTests() {
+    section("ZAB. 坐标换算：8:1 / 区块 / 区域文件 / F3+C 那条命令（工具箱第 3 件）");
+
+    using CoordConvert::Dimension;
+
+    // ---------- ZAB1. 维度 id ----------
+    {
+        check(CoordConvert::dimensionFromId(QStringLiteral("minecraft:overworld")) == Dimension::Overworld
+                  && CoordConvert::dimensionFromId(QStringLiteral("overworld")) == Dimension::Overworld
+                  && CoordConvert::dimensionFromId(QStringLiteral("the_nether")) == Dimension::Nether
+                  && CoordConvert::dimensionFromId(QStringLiteral("minecraft:the_nether")) == Dimension::Nether
+                  && CoordConvert::dimensionFromId(QStringLiteral("nether")) == Dimension::Nether
+                  && CoordConvert::dimensionFromId(QStringLiteral("minecraft:the_end")) == Dimension::End,
+              "ZAB1 带不带 `minecraft:`、以及 `nether` 这种简写都认（大小写也不计较）");
+        check(CoordConvert::dimensionFromId(QStringLiteral("")) == Dimension::Unknown
+                  && CoordConvert::dimensionFromId(QStringLiteral("minecraft:the_moon")) == Dimension::Unknown,
+              "★ ZAB1 认不出来回 **Unknown**（`minecraft:overworld` 和一个拼错的 id 不能同等对待）");
+        check(CoordConvert::dimensionId(Dimension::Overworld) == QStringLiteral("minecraft:overworld")
+                  && CoordConvert::dimensionId(Dimension::Nether) == QStringLiteral("minecraft:the_nether")
+                  && CoordConvert::dimensionId(Dimension::End) == QStringLiteral("minecraft:the_end"),
+              "ZAB1 反过来的那三个 id 就是游戏里写的那三个");
+        check(CoordConvert::dimensionText(Dimension::Unknown) == QStringLiteral("未知维度"),
+              "ZAB1 `Unknown` 在界面上写「未知维度」");
+        check(CoordConvert::convertible(Dimension::Overworld, Dimension::Nether)
+                  && CoordConvert::convertible(Dimension::Nether, Dimension::Overworld)
+                  && CoordConvert::convertible(Dimension::Overworld, Dimension::Overworld),
+              "ZAB1 主世界 ↔ 下界能换算、同维度能「换算」（等于不动）");
+        check(!CoordConvert::convertible(Dimension::Overworld, Dimension::End)
+                  && !CoordConvert::convertible(Dimension::End, Dimension::Nether),
+              "★ ZAB1 末地 ↔ 别处**不在**这个关系里（末地坐标不与主世界成比例）");
+        check(CoordConvert::convertible(Dimension::End, Dimension::End)
+                  && !CoordConvert::convertible(Dimension::Unknown, Dimension::Overworld),
+              "ZAB1 同维度那一档对末地也算（「不用换算」），但**认不出来的维度什么都算不上**");
+    }
+
+    // ---------- ZAB2. 向下取整（负数那一侧才是要紧的）----------
+    {
+        check(CoordConvert::floorDiv(-1, 16) == -1 && CoordConvert::floorDiv(-16, 16) == -1
+                  && CoordConvert::floorDiv(-17, 16) == -2 && CoordConvert::floorDiv(-15, 16) == -1,
+              "★★ ZAB2 `-1 / 16` 必须**向下**取整成 -1（C++ 的 `/` 会给 0，`>>` 给 -1 —— 两者在负数那侧差一格）",
+              QStringLiteral("floorDiv(-1,16)=%1").arg(CoordConvert::floorDiv(-1, 16)));
+        check(CoordConvert::floorDiv(15, 16) == 0 && CoordConvert::floorDiv(16, 16) == 1
+                  && CoordConvert::floorDiv(31, 16) == 1,
+              "ZAB2 正数那一侧和普通除法一样（15 ⇒ 0、16 ⇒ 1）");
+        check(CoordConvert::floorToInt(-0.3) == -1 && CoordConvert::floorToInt(-1.0) == -1
+                  && CoordConvert::floorToInt(0.9) == 0 && CoordConvert::floorToInt(-16.5) == -17,
+              "ZAB2 浮点坐标按**向下**取整（-0.3 ⇒ -1，不是 0）",
+              QString::number(CoordConvert::floorToInt(-0.3)));
+        check(CoordConvert::blockToChunk(-1) == -1 && CoordConvert::blockToChunk(-16) == -1
+                  && CoordConvert::blockToChunk(0) == 0 && CoordConvert::blockToChunk(16) == 1,
+              "ZAB2 方块 → 区块：-1 那个方块在区块 -1 里（方块 -16…-1）");
+        check(CoordConvert::chunkToRegion(-1) == -1 && CoordConvert::chunkToRegion(31) == 0
+                  && CoordConvert::chunkToRegion(32) == 1,
+              "ZAB2 区块 → 区域文件（32 个区块一份）");
+        check(CoordConvert::regionFileName(-2, 3) == QStringLiteral("r.-2.3.mca"),
+              "ZAB2 区域文件那个名字就是 `r.<x>.<z>.mca`（负数带那个减号）",
+              CoordConvert::regionFileName(-2, 3));
+        check(CoordConvert::blockRangeText(-1) == QStringLiteral("-16…-1")
+                  && CoordConvert::blockRangeText(0) == QStringLiteral("0…15"),
+              "ZAB2 一个区块盖住哪一片方块：-1 ⇒ `-16…-1`",
+              CoordConvert::blockRangeText(-1));
+    }
+
+    // ---------- ZAB3. 8:1 换算 ----------
+    {
+        const CoordConvert::Position overworld{80.5, 63.0, -76.5};
+        const CoordConvert::Position nether =
+            CoordConvert::convert(Dimension::Overworld, Dimension::Nether, overworld);
+        check(qFuzzyCompare(nether.x, 10.0625) && qFuzzyCompare(nether.z, -9.5625)
+                  && qFuzzyCompare(nether.y, 63.0),
+              "ZAB3 主世界 → 下界：x、z 各除以 8，**y 一个字节都不动**",
+              CoordConvert::positionText(nether));
+        const CoordConvert::Position back =
+            CoordConvert::convert(Dimension::Nether, Dimension::Overworld, nether);
+        check(qFuzzyCompare(back.x, overworld.x) && qFuzzyCompare(back.z, overworld.z),
+              "ZAB3 下界 → 主世界：×8，和上面那一趟能对上（80.5 / -76.5 回来）",
+              CoordConvert::positionText(back));
+
+        const CoordConvert::Position same =
+            CoordConvert::convert(Dimension::Nether, Dimension::Nether, nether);
+        check(qFuzzyCompare(same.x, nether.x) && qFuzzyCompare(same.z, nether.z),
+              "ZAB3 同维度 = 原样回");
+        const CoordConvert::Position end =
+            CoordConvert::convert(Dimension::Overworld, Dimension::End, overworld);
+        check(qFuzzyCompare(end.x, overworld.x) && qFuzzyCompare(end.z, overworld.z),
+              "★ ZAB3 末地在任一头 ⇒ **原样回**（`convertible()` 先说是 false，界面不许显示结果）",
+              CoordConvert::positionText(end));
+    }
+
+    // ---------- ZAB4. F3+C 复制出来的那条命令 ----------
+    {
+        // 游戏里按 F3+C 往剪贴板里放的就是这一整条（维度 + 位置 + 两个朝向角）。
+        const CoordConvert::ParsedTp f3c = CoordConvert::parseTeleportCommand(
+            QStringLiteral("/execute in minecraft:overworld run tp @s 80.500000 63.000000 -76.500000 "
+                           "0.000000 0.000000"));
+        check(f3c.ok && f3c.hasDimension && f3c.dimension == Dimension::Overworld
+                  && qFuzzyCompare(f3c.position.x, 80.5) && qFuzzyCompare(f3c.position.y, 63.0)
+                  && qFuzzyCompare(f3c.position.z, -76.5),
+              "★★ ZAB4 F3+C 那条整命令读得出**位置**和**维度**（这是这个工具的输入）",
+              CoordConvert::positionText(f3c.position));
+        check(f3c.hasRotation && qFuzzyCompare(f3c.yaw, 0.0) && qFuzzyCompare(f3c.pitch, 0.0),
+              "ZAB4 最后那两个数是朝向角（有就给，**不影响位置**）");
+
+        const CoordConvert::ParsedTp withRotation = CoordConvert::parseTeleportCommand(
+            QStringLiteral("/tp Steve 1 2 3 90 0"));
+        check(withRotation.ok && withRotation.hasRotation && qFuzzyCompare(withRotation.yaw, 90.0)
+                  && !withRotation.hasDimension && withRotation.dimension == Dimension::Unknown,
+              "ZAB4 `/tp Steve 1 2 3 90 0`：选择器那一格有就跳过；没说维度 ⇒ Unknown（**不是**主世界）");
+
+        const CoordConvert::ParsedTp bare =
+            CoordConvert::parseTeleportCommand(QStringLiteral("tp 1 2 3"));
+        check(bare.ok && qFuzzyCompare(bare.position.y, 2.0) && !bare.hasRotation,
+              "ZAB4 `tp 1 2 3`（连选择器都没有、前面也没 `/`）也认");
+
+        const CoordConvert::ParsedTp nether = CoordConvert::parseTeleportCommand(
+            QStringLiteral("/execute in the_nether run tp @s -12.5 40 -300.25"));
+        check(nether.ok && nether.dimension == Dimension::Nether
+                  && qFuzzyCompare(nether.position.z, -300.25),
+              "ZAB4 维度 id 不带 `minecraft:` 前缀也认（游戏两个版本都出现过）",
+              CoordConvert::positionText(nether.position));
+
+        const CoordConvert::ParsedTp relative =
+            CoordConvert::parseTeleportCommand(QStringLiteral("/tp @s ~ ~1 ~"));
+        check(!relative.ok && relative.relative && !relative.error.isEmpty(),
+              "★★ ZAB4 `~` / `^` 那种相对坐标：**ok 一定是 false**、标成 relative、并给一句人话",
+              relative.error);
+        const CoordConvert::ParsedTp caret =
+            CoordConvert::parseTeleportCommand(QStringLiteral("/tp @s ^ ^ ^1"));
+        check(!caret.ok && caret.relative, "ZAB4 `^` 那套局部坐标同理");
+
+        const CoordConvert::ParsedTp empty = CoordConvert::parseTeleportCommand(QString());
+        check(!empty.ok && !empty.error.isEmpty(), "ZAB4 空格子里读不出东西 ⇒ ok=false + 一句人话",
+              empty.error);
+        const CoordConvert::ParsedTp noTp =
+            CoordConvert::parseTeleportCommand(QStringLiteral("/kill @s"));
+        check(!noTp.ok && noTp.error.contains(QStringLiteral("tp")),
+              "ZAB4 不是传送命令 ⇒ 明说只认 tp（错误那句话里要点到 tp）", noTp.error);
+        const CoordConvert::ParsedTp badExecute =
+            CoordConvert::parseTeleportCommand(QStringLiteral("/execute run tp @s 1 2 3"));
+        check(!badExecute.ok && badExecute.error.contains(QStringLiteral("execute")),
+              "ZAB4 `execute` 后面缺 `in` ⇒ 明说只认 `execute in <维度> run` 这一种",
+              badExecute.error);
+        const CoordConvert::ParsedTp shortCoords =
+            CoordConvert::parseTeleportCommand(QStringLiteral("/tp @s 1 2"));
+        check(!shortCoords.ok, "ZAB4 三个坐标不全 ⇒ 不算读出来", shortCoords.error);
+        const CoordConvert::ParsedTp notNumber =
+            CoordConvert::parseTeleportCommand(QStringLiteral("/tp @s 1 abc 3"));
+        check(!notNumber.ok && !notNumber.error.isEmpty(),
+              "ZAB4 中间那个不是数 ⇒ 报出来（**不当 0**）", notNumber.error);
+    }
+
+    // ---------- ZAB5. 拼回去 ----------
+    {
+        const CoordConvert::Position position{123.45, 64.0, -78.9};
+        check(CoordConvert::positionText(position) == QStringLiteral("123.45 64.00 -78.90"),
+              "ZAB5 坐标显示两位小数", CoordConvert::positionText(position));
+        check(CoordConvert::toTeleportCommand(position, Dimension::Unknown)
+                  == QStringLiteral("/tp @s 123.45 64.00 -78.90"),
+              "ZAB5 没维度时就是一条朴素 `/tp`",
+              CoordConvert::toTeleportCommand(position, Dimension::Unknown));
+        const QString withDimension = CoordConvert::toTeleportCommand(position, Dimension::Nether);
+        check(withDimension
+                  == QStringLiteral("/execute in minecraft:the_nether run tp @s 123.45 64.00 -78.90"),
+              "ZAB5 说了维度就带上 `execute in … run`（粘回聊天栏能直接跑）", withDimension);
+
+        const CoordConvert::ParsedTp roundTrip = CoordConvert::parseTeleportCommand(withDimension);
+        check(roundTrip.ok && roundTrip.dimension == Dimension::Nether
+                  && qFuzzyCompare(roundTrip.position.x, position.x)
+                  && qFuzzyCompare(roundTrip.position.z, position.z),
+              "★ ZAB5 拼出去的那条能**原样读回来**（两边的写法是同一套）",
+              CoordConvert::positionText(roundTrip.position));
+    }
+}
+
+/// ZAC 节。三档摘要、已知值的归一化、结论，以及真读一个文件（带进度与取消）。
+static void runFileHashTests() {
+    section("ZAC. 文件哈希：三档摘要 / 已知值归一化 / 结论 / 真读一个文件（工具箱第 1 件）");
+
+    // ---------- ZAC1. 三档的名字与位数 ----------
+    {
+        const QList<FileHash::Algorithm> algorithms = FileHash::algorithms();
+        check(algorithms == QList<FileHash::Algorithm>({FileHash::Algorithm::Sha256,
+                                                       FileHash::Algorithm::Sha1,
+                                                       FileHash::Algorithm::Md5}),
+              "ZAC1 三档的次序就是界面上那一排（SHA-256 在最前面，是大家默认要的那一个）",
+              QStringLiteral("%1 档").arg(algorithms.size()));
+        check(FileHash::algorithmName(FileHash::Algorithm::Sha256) == QStringLiteral("SHA-256")
+                  && FileHash::algorithmName(FileHash::Algorithm::Sha1) == QStringLiteral("SHA-1")
+                  && FileHash::algorithmName(FileHash::Algorithm::Md5) == QStringLiteral("MD5"),
+              "ZAC1 界面上的名字：SHA-256 / SHA-1 / MD5");
+        check(FileHash::algorithmKey(FileHash::Algorithm::Sha256) == QStringLiteral("sha256")
+                  && FileHash::algorithmKey(FileHash::Algorithm::Md5) == QStringLiteral("md5"),
+              "ZAC1 配置那侧的名字是小写");
+        check(FileHash::hexLength(FileHash::Algorithm::Sha256) == 64
+                  && FileHash::hexLength(FileHash::Algorithm::Sha1) == 40
+                  && FileHash::hexLength(FileHash::Algorithm::Md5) == 32,
+              "ZAC1 三档的位数：64 / 40 / 32");
+    }
+
+    // ---------- ZAC2. 真摘要（NIST / RFC 那几条公开向量）----------
+    {
+        check(FileHash::digestOf(QByteArray(), FileHash::Algorithm::Sha256)
+                  == QStringLiteral("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+              "ZAC2 SHA-256("") 就是那串 e3b0c442…（空输入）",
+              FileHash::digestOf(QByteArray(), FileHash::Algorithm::Sha256));
+        check(FileHash::digestOf(QByteArray("abc"), FileHash::Algorithm::Sha256)
+                  == QStringLiteral("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"),
+              "ZAC2 SHA-256(\"abc\") = ba7816bf…",
+              FileHash::digestOf(QByteArray("abc"), FileHash::Algorithm::Sha256));
+        check(FileHash::digestOf(QByteArray("abc"), FileHash::Algorithm::Sha1)
+                  == QStringLiteral("a9993e364706816aba3e25717850c26c9cd0d89d"),
+              "ZAC2 SHA-1(\"abc\") = a9993e36…",
+              FileHash::digestOf(QByteArray("abc"), FileHash::Algorithm::Sha1));
+        check(FileHash::digestOf(QByteArray("abc"), FileHash::Algorithm::Md5)
+                  == QStringLiteral("900150983cd24fb0d6963f7d28e17f72"),
+              "ZAC2 MD5(\"abc\") = 90015098…",
+              FileHash::digestOf(QByteArray("abc"), FileHash::Algorithm::Md5));
+        check(FileHash::digestOf(QByteArray("abc"), FileHash::Algorithm::Sha256).size() == 64
+                  && FileHash::digestOf(QByteArray("abc"), FileHash::Algorithm::Sha256)
+                         == FileHash::digestOf(QByteArray("abc"), FileHash::Algorithm::Sha256)
+                            .toLower(),
+              "ZAC2 出去的是**小写**十六进制（后面比那一半靠这个）");
+    }
+
+    // ---------- ZAC3. 用户粘进来的"已知值" ----------
+    {
+        const QString sha256 = QStringLiteral(
+            "3f79bb7b435b05321651daefd374cdc681dc06faa65e374e38337b88ca046dea");
+
+        const FileHash::Expected plain = FileHash::parseExpected(sha256);
+        check(plain.valid && plain.hex == sha256 && !plain.hasAlgorithm
+                  && plain.algorithm == FileHash::Algorithm::Sha256,
+              "ZAC3 裸的小写 64 位 ⇒ 合法，长度自己说了是哪一档");
+
+        const FileHash::Expected upper = FileHash::parseExpected(sha256.toUpper());
+        check(upper.valid && upper.hex == sha256,
+              "ZAC3 全大写 ⇒ 归一化成小写（大小写不是「不同的摘要」）", upper.hex);
+
+        QStringList dashed;
+        for (int index = 0; index < sha256.size(); index += 2) {
+            dashed << sha256.mid(index, 2);
+        }
+        const FileHash::Expected hyphens = FileHash::parseExpected(dashed.join(QChar('-')).toUpper());
+        check(hyphens.valid && hyphens.hex == sha256,
+              "★ ZAC3 下载页那种 `A1-B2-…` 带连字符的大写写法也算同一串", hyphens.error);
+
+        const FileHash::Expected spaced =
+            FileHash::parseExpected(QStringLiteral("  sha256: ") + sha256.left(32) + QChar('\n')
+                                    + sha256.mid(32) + QStringLiteral("  "));
+        check(spaced.valid && spaced.hex == sha256 && spaced.hasAlgorithm
+                  && spaced.algorithm == FileHash::Algorithm::Sha256,
+              "★ ZAC3 带 `sha256:` 前缀、中间还夹着换行和空格的写法照样认（从网页上复制就是这个样子）",
+              spaced.error);
+
+        const FileHash::Expected named = FileHash::parseExpected(QStringLiteral("SHA-256 = ") + sha256);
+        check(named.valid && named.hasAlgorithm && named.algorithm == FileHash::Algorithm::Sha256,
+              "ZAC3 `SHA-256 = <那一串>` 这种写法也认", named.error);
+
+        const FileHash::Expected md5 = FileHash::parseExpected(
+            QStringLiteral("md5:900150983cd24fb0d6963f7d28e17f72"));
+        check(md5.valid && md5.algorithm == FileHash::Algorithm::Md5,
+              "ZAC3 点了名的那一档按点名的算（`md5:` 那一条）", md5.error);
+
+        const FileHash::Expected sha1 =
+            FileHash::parseExpected(QStringLiteral("a9993e364706816aba3e25717850c26c9cd0d89d"));
+        check(sha1.valid && sha1.algorithm == FileHash::Algorithm::Sha1,
+              "ZAC3 40 位 ⇒ 自己认出来是 SHA-1（用户没写算法也能对上）");
+
+        const FileHash::Expected notHex =
+            FileHash::parseExpected(QStringLiteral("zzz9bb7b435b05321651daefd374cdc681dc06faa65e374e38337b88ca046dea"));
+        check(!notHex.valid && notHex.error.contains(QStringLiteral("十六进制")),
+              "★ ZAC3 不是十六进制的字符 ⇒ 报出来（不是「不一致」，是这一格本身读不懂）", notHex.error);
+
+        const FileHash::Expected wrongLength = FileHash::parseExpected(sha256.left(63));
+        check(!wrongLength.valid && wrongLength.error.contains(QStringLiteral("长度")),
+              "★ ZAC3 长度对不上任何一档 ⇒ 报长度（63 位既不是 64 也不是 40/32）", wrongLength.error);
+
+        const FileHash::Expected mismatch =
+            FileHash::parseExpected(QStringLiteral("sha256:") + sha1.hex);
+        check(!mismatch.valid && mismatch.error.contains(QStringLiteral("SHA-256")),
+              "★ ZAC3 点名的算法和长度对不上 ⇒ 明说是哪一处对不上", mismatch.error);
+
+        const FileHash::Expected blank = FileHash::parseExpected(QStringLiteral("   "));
+        check(!blank.valid && blank.error.isEmpty(),
+              "★ ZAC3 空着**不算错**（「我只想看摘要」是正常用法），所以不给错误那句话");
+    }
+
+    // ---------- ZAC4. 比一下 ----------
+    {
+        const FileHash::Expected expected =
+            FileHash::parseExpected(QStringLiteral("sha256:")
+                                    + FileHash::digestOf(QByteArray("abc"), FileHash::Algorithm::Sha256));
+        const FileHash::Verdict match =
+            FileHash::compare(FileHash::digestOf(QByteArray("abc"), FileHash::Algorithm::Sha256), expected);
+        check(match.valid && match.matches && match.text == QStringLiteral("一致。"),
+              "★ ZAC4 一致就说「一致。」", match.text);
+        const FileHash::Verdict upperCaseActual = FileHash::compare(
+            FileHash::digestOf(QByteArray("abc"), FileHash::Algorithm::Sha256).toUpper(), expected);
+        check(upperCaseActual.matches,
+              "★ ZAC4 我们算出来的那串大写也照样算一致（比的是十六进制本身，不是字符串）");
+        const FileHash::Verdict differ =
+            FileHash::compare(FileHash::digestOf(QByteArray("abd"), FileHash::Algorithm::Sha256),
+                              expected);
+        check(differ.valid && !differ.matches && differ.text.contains(QStringLiteral("不一致")),
+              "ZAC4 不一致时说「不一致」并把算出来那一串带上（用户要拿去核）", differ.text);
+        check(differ.expectedAlgorithm == FileHash::Algorithm::Sha256 && differ.expectedHasAlgorithm,
+              "★ ZAC4 结论里带着「已知值点的是哪一档」（比不同档的摘要没有意义，界面要拿它提示）");
+        const FileHash::Verdict noExpected = FileHash::compare(
+            FileHash::digestOf(QByteArray("abc"), FileHash::Algorithm::Sha256), FileHash::Expected{});
+        check(!noExpected.valid && noExpected.text == QStringLiteral("没有已知值可比。"),
+              "ZAC4 没给已知值 ⇒ 只说「没得比」，不当成「不一致」", noExpected.text);
+    }
+
+    // ---------- ZAC5. 真读一个文件（进度 / 取消 / 读不动）----------
+    {
+        QTemporaryDir temp;
+        check(temp.isValid(), "ZAC5 临时目录建出来了", temp.path());
+        if (temp.isValid()) {
+            const QByteArray content("hello world\n");
+            const QString path = temp.path() + QStringLiteral("/wtfml-toolbox-hash.txt");
+            writeFileAt(path, content);
+
+            qint64 lastDone = -1;
+            qint64 lastTotal = -1;
+            int progressCalls = 0;
+            const FileHash::Result result = FileHash::digestOfFile(
+                path, FileHash::Algorithm::Sha256,
+                [&](qint64 done, qint64 total) {
+                    ++progressCalls;
+                    lastDone = done;
+                    lastTotal = total;
+                });
+            check(result.ok && result.bytes == content.size()
+                      && result.hex == FileHash::digestOf(content, FileHash::Algorithm::Sha256),
+                  "★ ZAC5 文件那一档和「给一段字节算」给出同一个摘要（流式分块没有算错）",
+                  result.ok ? result.hex : result.error);
+            check(progressCalls >= 1 && lastDone == content.size() && lastTotal == content.size(),
+                  "ZAC5 进度回调报的是「读了多少 / 一共多少」",
+                  QStringLiteral("%1 次，最后一次 %2/%3").arg(progressCalls).arg(lastDone).arg(lastTotal));
+
+            const FileHash::Result missing = FileHash::digestOfFile(
+                temp.path() + QStringLiteral("/wtfml-toolbox-nope.bin"), FileHash::Algorithm::Md5);
+            check(!missing.ok && !missing.error.isEmpty() && missing.hex.isEmpty()
+                      && missing.bytes == -1,
+                  "★ ZAC5 打不开 ⇒ ok=false + 一句人话 + hex 空 + 大小 -1", missing.error);
+
+            // 取消：造一个 3 MiB 的文件，读到第二块时喊停。
+            QByteArray big;
+            big.resize(3 * FileHash::kChunkBytes);
+            for (int index = 0; index < big.size(); ++index) {
+                big[index] = char(index % 251);
+            }
+            const QString bigPath = temp.path() + QStringLiteral("/wtfml-toolbox-big.bin");
+            writeFileAt(bigPath, big);
+            int seen = 0;
+            const FileHash::Result cancelled = FileHash::digestOfFile(
+                bigPath, FileHash::Algorithm::Sha256, [&seen](qint64, qint64) { ++seen; },
+                [&seen]() { return seen >= 1; });
+            check(!cancelled.ok && cancelled.error == QStringLiteral("已取消") && cancelled.hex.isEmpty(),
+                  "★ ZAC5 用户点了取消 ⇒ 停下来、写「已取消」、不给半截摘要",
+                  QStringLiteral("error=%1 seen=%2").arg(cancelled.error).arg(seen));
+            check(seen < 3, "★ ZAC5 取消是**真的**停下了（3 MiB 三块，只读了第一块）",
+                  QStringLiteral("读了 %1 块").arg(seen));
+        }
+    }
+
+    // ---------- ZAC6. 文件多大写成什么 ----------
+    {
+        check(FileHash::fileSizeText(0) == QStringLiteral("0 B")
+                  && FileHash::fileSizeText(1023) == QStringLiteral("1023 B"),
+              "ZAC6 不到 1 KB 就写字节");
+        check(FileHash::fileSizeText(1024) == QStringLiteral("1.0 KB")
+                  && FileHash::fileSizeText(1536) == QStringLiteral("1.5 KB"),
+              "ZAC6 KB 那一档一位小数");
+        check(FileHash::fileSizeText(1024 * 1024) == QStringLiteral("1.0 MB")
+                  && FileHash::fileSizeText(3 * 1024 * 1024) == QStringLiteral("3.0 MB"),
+              "ZAC6 MB 那一档（整包几百 MB 就是它）");
+        check(FileHash::fileSizeText(-1).isEmpty(),
+              "★ ZAC6 问不出来（-1）回空串，不写「-1 B」", FileHash::fileSizeText(-1));
+    }
+}
+
+/// ZAD 节那两个穷举用的单位（`plan()` 那套 DP 的独立对照）。
+struct ToolboxBruteUnit {
+    QMap<QString, int> enchantments;
+    int penalty = 0;
+    bool isBook = true;
+};
+
+/**
+ * @brief 把所有合并次序展开数一遍，回最小总代价。
+ *
+ * 这是 ZAD 那条"计划确确实实最省"的**独立算法**（写法故意和 `AnvilPlanner` 里那套子集 DP
+ * 不一样）：两边算出来的数一样，才说明 DP 的剪枝没把最优解剪掉。
+ * NOTE: 中间件按附魔书算（`AnvilPlanner` 里那条规矩：合出来的那一本还是书）。
+ */
+static int toolboxBruteForceMinCost(const QList<ToolboxBruteUnit> &units) {
+    if (units.size() <= 1) {
+        return 0;
+    }
+    int best = 0x7fffffff;
+    for (int left = 0; left < units.size(); ++left) {
+        for (int right = 0; right < units.size(); ++right) {
+            if (left == right) {
+                continue;
+            }
+            for (int swapped = 0; swapped < 2; ++swapped) {
+                const ToolboxBruteUnit &targetItem = units.at(swapped == 0 ? left : right);
+                const ToolboxBruteUnit &sacrificeItem = units.at(swapped == 0 ? right : left);
+                Anvil::Unit target;
+                target.enchantments = targetItem.enchantments;
+                target.penalty = targetItem.penalty;
+                target.isBook = targetItem.isBook;
+                Anvil::Unit sacrifice;
+                sacrifice.enchantments = sacrificeItem.enchantments;
+                sacrifice.penalty = sacrificeItem.penalty;
+                sacrifice.isBook = sacrificeItem.isBook;
+                const Anvil::MergeCost merge = Anvil::mergeCost(target, sacrifice);
+
+                QList<ToolboxBruteUnit> rest;
+                rest.append(ToolboxBruteUnit{merge.result, merge.resultPenalty, true});
+                for (int index = 0; index < units.size(); ++index) {
+                    if (index != left && index != right) {
+                        rest.append(units.at(index));
+                    }
+                }
+                best = qMin(best, merge.total + toolboxBruteForceMinCost(rest));
+            }
+        }
+    }
+    return best;
+}
+
+/// ZAD 节。铁砧那套账：前科、附魔价值、互斥、39 级上限，以及"计划确实最省"。
+static void runAnvilPlannerTests() {
+    section("ZAD. 附魔顺序助手：铁砧那套账（前科 / 价值 / 39 级上限）（工具箱第 5 件）");
+
+    // ---------- ZAD1. 那张表 ----------
+    {
+        check(Anvil::normalizeId(QStringLiteral("  MineCraft:Sharpness  "))
+                  == QStringLiteral("sharpness")
+                  && Anvil::normalizeId(QStringLiteral("sharpness")) == QStringLiteral("sharpness"),
+              "ZAD1 归一化：去 `minecraft:` 前缀、转小写、去空白");
+
+        const Anvil::EnchantInfo *sharpness = Anvil::findEnchantment(QStringLiteral("minecraft:sharpness"));
+        check(sharpness != nullptr && sharpness->id == QStringLiteral("sharpness")
+                  && sharpness->maxLevel == 5 && sharpness->itemMultiplier == 1
+                  && sharpness->bookMultiplier == 1,
+              "★ ZAD1 锋利：上限 V、倍率 物品 1 / 书 1（wiki 那两列照抄）",
+              sharpness == nullptr ? QStringLiteral("没找到") : QString::number(sharpness->maxLevel));
+        check(Anvil::enchantmentName(QStringLiteral("sharpness")) == QStringLiteral("锋利"),
+              "ZAD1 中文名就是界面上那一个");
+        check(Anvil::enchantmentName(QStringLiteral("some_new_enchant")) == QStringLiteral("some_new_enchant"),
+              "★ ZAD1 表里没有的那条**原样回自己**（宁可显示个生 id，也不显示空白）");
+
+        struct Pinned {
+            const char *id;
+            int maxLevel;
+            int item;
+            int book;
+        };
+        const Pinned pinned[] = {
+            {"protection", 4, 1, 1}, {"thorns", 3, 8, 4},   {"efficiency", 5, 1, 1},
+            {"silk_touch", 1, 8, 4}, {"unbreaking", 3, 2, 1}, {"mending", 1, 4, 2},
+            {"soul_speed", 3, 8, 4}, {"fortune", 3, 4, 2},  {"infinity", 1, 8, 4},
+        };
+        int tallied = 0;
+        for (const Pinned &row : pinned) {
+            const Anvil::EnchantInfo *info = Anvil::findEnchantment(QString::fromLatin1(row.id));
+            if (info != nullptr && info->maxLevel == row.maxLevel && info->itemMultiplier == row.item
+                && info->bookMultiplier == row.book) {
+                ++tallied;
+            }
+        }
+        check(tallied == int(sizeof(pinned) / sizeof(pinned[0])),
+              "★ ZAD1 九条量化过的：上限与那两列倍率和 wiki 逐条一样（9/9）",
+              QStringLiteral("%1/9").arg(tallied));
+
+        // ★ 互斥那一列**两边都要写**（表自己声明的规矩），而且写进去的 id 必须在表里。
+        int asymmetric = 0;
+        int dangling = 0;
+        const QList<Anvil::EnchantInfo> &table = Anvil::enchantmentTable();
+        for (const Anvil::EnchantInfo &info : table) {
+            for (const QString &other : info.incompatible) {
+                const Anvil::EnchantInfo *peer = Anvil::findEnchantment(other);
+                if (peer == nullptr) {
+                    ++dangling;
+                } else if (!peer->incompatible.contains(info.id)) {
+                    ++asymmetric;
+                }
+            }
+        }
+        check(dangling == 0, "★ ZAD1 互斥那一列里写进去的 id 都真的在表里（没有写错名字的）",
+              QStringLiteral("%1 条悬空").arg(dangling));
+        check(asymmetric == 0,
+              "★ ZAD1 互斥关系是**对称**的（两边都写了：锋利↔亡灵杀手、保护四兄弟、精准采集↔时运…）",
+              QStringLiteral("%1 条只写了一边").arg(asymmetric));
+        check(table.size() >= 40,
+              "ZAD1 表里至少有四十条（1.13 之后的一整套 + 1.21 那三条锤子的）",
+              QStringLiteral("%1 条").arg(table.size()));
+    }
+
+    // ---------- ZAD2. 前科（2^n − 1）----------
+    {
+        check(Anvil::penaltyForUses(0) == 0 && Anvil::penaltyForUses(1) == 1
+                  && Anvil::penaltyForUses(2) == 3 && Anvil::penaltyForUses(3) == 7
+                  && Anvil::penaltyForUses(4) == 15 && Anvil::penaltyForUses(5) == 31,
+              "★ ZAD2 前科表就是 wiki 那张 0/1/3/7/15/31（2^n − 1）",
+              QStringLiteral("%1 %2 %3 %4 %5 %6")
+                  .arg(Anvil::penaltyForUses(0))
+                  .arg(Anvil::penaltyForUses(1))
+                  .arg(Anvil::penaltyForUses(2))
+                  .arg(Anvil::penaltyForUses(3))
+                  .arg(Anvil::penaltyForUses(4))
+                  .arg(Anvil::penaltyForUses(5)));
+        check(Anvil::penaltyForUses(-3) == 0, "★ ZAD2 负数当 0（「崭新的东西」）");
+        check(Anvil::usesForPenalty(0) == 0 && Anvil::usesForPenalty(1) == 1
+                  && Anvil::usesForPenalty(3) == 2 && Anvil::usesForPenalty(7) == 3,
+              "ZAD2 反着来：这笔前科是「用过几次」");
+        check(Anvil::usesForPenalty(2) == -1 && Anvil::usesForPenalty(-1) == -1,
+              "★ ZAD2 不是 2^n − 1 的形态回 **-1**（不是 2 次、不是 0 次）");
+    }
+
+    // ---------- ZAD3. 一次合并的账 ----------
+    {
+        // wiki 那个例子：钻石靴（灵魂疾行 III）+ 一本「荆棘 III + 摔落保护 IV」的书。
+        // 书那一边的价值 wiki 明写是 16（荆棘 III 4×3 + 摔落保护 IV 1×4）。
+        Anvil::Unit boots;
+        boots.enchantments.insert(QStringLiteral("soul_speed"), 3);
+        boots.isBook = false;
+        Anvil::Unit book;
+        book.enchantments.insert(QStringLiteral("thorns"), 3);
+        book.enchantments.insert(QStringLiteral("feather_falling"), 4);
+
+        const Anvil::MergeCost merged = Anvil::mergeCost(boots, book);
+        check(merged.enchantValue == 16,
+              "★★ ZAD3 那本书的价值 = 16（荆棘 III 4×3 + 摔落保护 IV 1×4）—— wiki 那个例子逐字对上",
+              QString::number(merged.enchantValue));
+        check(merged.result.value(QStringLiteral("soul_speed")) == 3
+                  && merged.result.value(QStringLiteral("thorns")) == 3
+                  && merged.result.value(QStringLiteral("feather_falling")) == 4
+                  && merged.result.size() == 3,
+              "ZAD3 靴子上那条灵魂疾行 III **没被动**（书是牺牲品，靴子留下）",
+              QStringLiteral("%1 条附魔").arg(merged.result.size()));
+        check(merged.total == 16 && merged.penalties == 0 && !merged.tooExpensive,
+              "ZAD3 崭新的一对：总代价 = 牺牲品那一侧的价值 + 两边前科(0+0) = 16",
+              QString::number(merged.total));
+
+        // ★ 左右不能对调着看：附魔价值只算牺牲品那一边。
+        const Anvil::MergeCost swapped = Anvil::mergeCost(book, boots);
+        check(swapped.enchantValue == 24,
+              "★★ ZAD3 换个左右手：这回被吃的是靴子（不是书）⇒ 价值按**物品**那一列算 = 8×3 = 24",
+              QString::number(swapped.enchantValue));
+
+        // wiki 那条"用**合并之后**的等级"的例子：两本深海探索者 II ⇒ 6（III × 书 2）。
+        Anvil::Unit depthA;
+        depthA.enchantments.insert(QStringLiteral("depth_strider"), 2);
+        Anvil::Unit depthB;
+        depthB.enchantments.insert(QStringLiteral("depth_strider"), 2);
+        const Anvil::MergeCost depth = Anvil::mergeCost(depthA, depthB);
+        check(depth.enchantValue == 6 && depth.result.value(QStringLiteral("depth_strider")) == 3,
+              "★★ ZAD3 两本深海探索者 II ⇒ 价值 **6**（wiki 原话：按合并后那 III 算，不是 II 的 4）",
+              QStringLiteral("价值 %1 / 结果等级 %2")
+                  .arg(depth.enchantValue)
+                  .arg(depth.result.value(QStringLiteral("depth_strider"))));
+
+        // 同级 +1，封顶到上限。
+        Anvil::Unit sharpBookA;
+        sharpBookA.enchantments.insert(QStringLiteral("sharpness"), 5);
+        Anvil::Unit sharpBookB;
+        sharpBookB.enchantments.insert(QStringLiteral("sharpness"), 5);
+        const Anvil::MergeCost capped = Anvil::mergeCost(sharpBookA, sharpBookB);
+        check(capped.result.value(QStringLiteral("sharpness")) == 5 && capped.enchantValue == 5,
+              "★ ZAD3 两本锋利 V：同级那条 +1 被**上限 5 封住**（不是 VI），价值按结果那 5 级算");
+
+        // 等级不一样：目标保住高的那一边。
+        Anvil::Unit low;
+        low.enchantments.insert(QStringLiteral("sharpness"), 2);
+        const Anvil::MergeCost higher = Anvil::mergeCost(low, sharpBookB);
+        check(higher.result.value(QStringLiteral("sharpness")) == 5 && higher.enchantValue == 5,
+              "★ ZAD3 锋利 II + 锋利 V ⇒ V（牺牲品更高就是抬到它那一档）",
+              QString::number(higher.result.value(QStringLiteral("sharpness"))));
+
+        // 两本荆棘 III：上限 III，同级那一格 +1 也顶不上去。
+        Anvil::Unit thornA;
+        thornA.enchantments.insert(QStringLiteral("thorns"), 3);
+        Anvil::Unit thornB;
+        thornB.enchantments.insert(QStringLiteral("thorns"), 3);
+        const Anvil::MergeCost thorns = Anvil::mergeCost(thornA, thornB);
+        check(thorns.result.value(QStringLiteral("thorns")) == 3 && thorns.enchantValue == 12,
+              "ZAD3 两本荆棘 III ⇒ 还是 III（上限就是 III），价值 4×3 = 12",
+              QString::number(thorns.enchantValue));
+    }
+
+    // ---------- ZAD4. 互斥那一条 ----------
+    {
+        Anvil::Unit sharp;
+        sharp.enchantments.insert(QStringLiteral("sharpness"), 3);
+        Anvil::Unit smite;
+        smite.enchantments.insert(QStringLiteral("smite"), 2);
+        const Anvil::MergeCost conflict = Anvil::mergeCost(sharp, smite);
+        check(conflict.incompatible == 1 && !conflict.result.contains(QStringLiteral("smite"))
+                  && conflict.result.value(QStringLiteral("sharpness")) == 3,
+              "★★ ZAD4 锋利 + 亡灵杀手互斥：**目标保住自己那条**，牺牲品那条进不来",
+              QStringLiteral("结果 %1 条").arg(conflict.result.size()));
+        check(conflict.enchantValue == 0 && conflict.total == 1,
+              "★ ZAD4 互斥那一条**不计价值、只 +1 级**（wiki：add 1 level in Java）",
+              QString::number(conflict.total));
+
+        // 两边都互斥时，每一条各 +1。
+        Anvil::Unit mixed;
+        mixed.enchantments.insert(QStringLiteral("smite"), 2);
+        mixed.enchantments.insert(QStringLiteral("bane_of_arthropods"), 1);
+        const Anvil::MergeCost two = Anvil::mergeCost(sharp, mixed);
+        check(two.incompatible == 2 && two.total == 2,
+              "★ ZAD4 两条互斥 ⇒ +2（每一条互斥的附魔各 +1）", QString::number(two.total));
+    }
+
+    // ---------- ZAD5. 前科怎么传下去 + 39 级那条线 ----------
+    {
+        Anvil::Unit left;
+        left.enchantments.insert(QStringLiteral("protection"), 4);
+        left.penalty = 1;
+        Anvil::Unit right;
+        right.enchantments.insert(QStringLiteral("feather_falling"), 4);
+        right.penalty = 1;
+        const Anvil::MergeCost merge = Anvil::mergeCost(left, right);
+        check(merge.penalties == 2 && merge.resultPenalty == 3,
+              "★★ ZAD5 合并后的前科 = 2 × max(左, 右) + 1（两边各 1 ⇒ 3，不是 1+1=2）",
+              QStringLiteral("penalties=%1 resultPenalty=%2").arg(merge.penalties).arg(merge.resultPenalty));
+
+        // ★ 39 级那条线：**超过** 39 才拒绝（39 本身能做）。
+        Anvil::Unit target;
+        target.enchantments.insert(QStringLiteral("protection"), 4);
+        target.penalty = 20;
+        Anvil::Unit sacrificeBook;
+        sacrificeBook.enchantments.insert(QStringLiteral("silk_touch"), 1);  // 书 4×1 = 4
+        sacrificeBook.penalty = 15;                                          // 20 + 15 + 4 = 39
+        const Anvil::MergeCost atLimit = Anvil::mergeCost(target, sacrificeBook);
+        check(atLimit.total == 39 && !atLimit.tooExpensive,
+              "★★ ZAD5 正好 39 级**能做**（wiki 那句是「39 级以上才拒绝」）",
+              QString::number(atLimit.total));
+        Anvil::Unit sacrificeBook2 = sacrificeBook;
+        sacrificeBook2.penalty = 16;  // 20 + 16 + 4 = 40
+        const Anvil::MergeCost overLimit = Anvil::mergeCost(target, sacrificeBook2);
+        check(overLimit.total == 40 && overLimit.tooExpensive,
+              "★★ ZAD5 40 级 ⇒ 「Too Expensive!」（这个数只跟代价有关，跟玩家有多少级无关）",
+              QString::number(overLimit.total));
+    }
+
+    // ---------- ZAD6. 计划：一件 / 两件 / 拦下来的那些 ----------
+    {
+        const Anvil::Plan nothing = Anvil::plan({});
+        check(!nothing.ok && !nothing.error.isEmpty(), "ZAD6 手上什么都没有 ⇒ 不算，给一句人话",
+              nothing.error);
+
+        QList<Anvil::Unit> eleven;
+        for (int index = 0; index < Anvil::kMaxUnits + 1; ++index) {
+            Anvil::Unit unit;
+            unit.enchantments.insert(QStringLiteral("sharpness"), 1);
+            eleven.append(unit);
+        }
+        const Anvil::Plan tooMany = Anvil::plan(eleven);
+        check(!tooMany.ok && tooMany.error.contains(QString::number(Anvil::kMaxUnits)),
+              "ZAD6 超过 kMaxUnits 件 ⇒ 明说上限（再多要穷举的次序就太多了）", tooMany.error);
+
+        Anvil::Unit unknown;
+        unknown.enchantments.insert(QStringLiteral("some_new_enchant"), 1);
+        const Anvil::Plan unknownPlan = Anvil::plan({unknown});
+        check(!unknownPlan.ok && unknownPlan.error.contains(QStringLiteral("some_new_enchant")),
+              "★★ ZAD6 表里没有的附魔 ⇒ **宁可不算**，并把是哪一条说出来（不许给一条基于猜的计划）",
+              unknownPlan.error);
+
+        Anvil::Unit single;
+        single.enchantments.insert(QStringLiteral("sharpness"), 3);
+        const Anvil::Plan alone = Anvil::plan({single});
+        check(alone.ok && alone.steps.isEmpty() && alone.totalCost == 0 && alone.consumed.isEmpty()
+                  && alone.finalEnchantments.value(QStringLiteral("sharpness")) == 3,
+              "ZAD6 只有一件 ⇒ 计划是「一件都不用合」（代价 0、没有步骤）");
+
+        Anvil::Unit a;
+        a.enchantments.insert(QStringLiteral("sharpness"), 3);
+        Anvil::Unit b;
+        b.enchantments.insert(QStringLiteral("sharpness"), 3);
+        const Anvil::Plan pair = Anvil::plan({a, b});
+        check(pair.ok && pair.steps.size() == 1 && pair.consumed.size() == 1
+                  && pair.totalCost == Anvil::mergeCost(a, b).total
+                  && pair.finalEnchantments.value(QStringLiteral("sharpness")) == 4,
+              "ZAD6 两本锋利 III ⇒ 一步：合出锋利 IV、那一件被吃掉",
+              QStringLiteral("代价 %1").arg(pair.totalCost));
+
+        const Anvil::Plan renamed = Anvil::plan({a, b}, true);
+        check(renamed.totalCost == pair.totalCost + 1,
+              "★ ZAD6 `includeRename` 把「顺带改个名」那 1 级算进去（正好多 1）",
+              QStringLiteral("%1 → %2").arg(pair.totalCost).arg(renamed.totalCost));
+
+        // ★ 改名那 1 级也要走 39 级那条线（不能因为"原本 39 能做"就放过）。
+        Anvil::Unit target;
+        target.enchantments.insert(QStringLiteral("protection"), 4);
+        target.penalty = 20;
+        Anvil::Unit sacrificeBook;
+        sacrificeBook.enchantments.insert(QStringLiteral("silk_touch"), 1);
+        sacrificeBook.penalty = 15;  // 不带改名 39、带改名 40
+        const Anvil::Plan renamedOver = Anvil::plan({target, sacrificeBook}, true);
+        check(renamedOver.ok && renamedOver.anyTooExpensive && renamedOver.totalCost == 40,
+              "★★ ZAD6 带上改名这一级就压线过去了 ⇒ 计划里明说「这一条在生存里做不出来」",
+              QStringLiteral("代价 %1 / tooExpensive=%2")
+                  .arg(renamedOver.totalCost)
+                  .arg(renamedOver.anyTooExpensive ? QStringLiteral("1") : QStringLiteral("0")));
+    }
+
+    // ---------- ZAD7. 计划确实最省（拿穷举当独立对照）----------
+    {
+        struct Group {
+            const char *name;
+            QList<ToolboxBruteUnit> units;
+        };
+        QList<Group> groups;
+        groups.append(Group{
+            "锋利III + 锋利III + 耐久II + 经验修补I",
+            {{QMap<QString, int>{{QStringLiteral("sharpness"), 3}}, 0, true},
+             {QMap<QString, int>{{QStringLiteral("sharpness"), 3}}, 0, true},
+             {QMap<QString, int>{{QStringLiteral("unbreaking"), 2}}, 1, true},
+             {QMap<QString, int>{{QStringLiteral("mending"), 1}}, 0, true}}});
+        groups.append(Group{
+            "锋利III + 亡灵杀手II（互斥）+ 抢夺III + 耐久II",
+            {{QMap<QString, int>{{QStringLiteral("sharpness"), 3}}, 0, true},
+             {QMap<QString, int>{{QStringLiteral("smite"), 2}}, 0, true},
+             {QMap<QString, int>{{QStringLiteral("looting"), 3}}, 1, true},
+             {QMap<QString, int>{{QStringLiteral("unbreaking"), 2}}, 3, true}}});
+        groups.append(Group{
+            "一件装备当底子（不是书）+ 三本书",
+            {{QMap<QString, int>{{QStringLiteral("protection"), 4}}, 0, false},
+             {QMap<QString, int>{{QStringLiteral("thorns"), 3}}, 0, true},
+             {QMap<QString, int>{{QStringLiteral("mending"), 1}}, 0, true},
+             {QMap<QString, int>{{QStringLiteral("unbreaking"), 3}}, 0, true}}});
+
+        for (const Group &group : groups) {
+            QList<Anvil::Unit> units;
+            for (const ToolboxBruteUnit &item : group.units) {
+                Anvil::Unit unit;
+                unit.enchantments = item.enchantments;
+                unit.penalty = item.penalty;
+                unit.isBook = item.isBook;
+                units.append(unit);
+            }
+            const Anvil::Plan planned = Anvil::plan(units);
+            const int brute = toolboxBruteForceMinCost(group.units);
+            check(planned.ok && planned.totalCost == brute,
+                  QStringLiteral("★★ ZAD7 %1：计划那套 DP 算出来的代价 == 穷举所有次序的最小值")
+                      .arg(QString::fromUtf8(group.name)),
+                  QStringLiteral("计划 %1 / 穷举 %2")
+                      .arg(planned.ok ? QString::number(planned.totalCost) : planned.error)
+                      .arg(brute));
+            if (!planned.ok) {
+                continue;
+            }
+            // 步骤与账本自洽：步数 = 件数 - 1、每一步的两头都"还算数"、总代价 = 各步之和。
+            int sum = 0;
+            for (const Anvil::Step &step : planned.steps) {
+                sum += step.cost.total;
+            }
+            check(planned.steps.size() == units.size() - 1 && sum == planned.totalCost,
+                  QStringLiteral("ZAD7 %1：步数 = 件数 - 1、总代价 = 各步之和（账本自洽）")
+                      .arg(QString::fromUtf8(group.name)),
+                  QStringLiteral("%1 步 / 和 %2 vs 总 %3")
+                      .arg(planned.steps.size())
+                      .arg(sum)
+                      .arg(planned.totalCost));
+            // 被吃掉的那些：恰好是"件数 - 1"个互不相同的下标。
+            QSet<int> consumed;
+            for (int index : planned.consumed) {
+                consumed.insert(index);
+            }
+            check(consumed.size() == planned.consumed.size()
+                      && consumed.size() == units.size() - 1
+                      && !consumed.contains(-1),
+                  QStringLiteral("★ ZAD7 %1：被吃掉的恰好是「件数 - 1」个**互不相同**的下标（没有一步吃掉空气）")
+                      .arg(QString::fromUtf8(group.name)),
+                  QStringLiteral("%1 个").arg(consumed.size()));
+            // 最后一步的结果 = 计划说的"合完是什么"。
+            if (!planned.steps.isEmpty()) {
+                check(planned.steps.last().result == planned.finalEnchantments,
+                      QStringLiteral("ZAD7 %1：最后一步的产出 == 计划最后那一件的附魔")
+                          .arg(QString::fromUtf8(group.name)));
+            }
+        }
+    }
+}
+
 int main(int argc, char *argv[]) {
     QCoreApplication app(argc, argv);
     app.setApplicationName("WTFML");
@@ -30444,6 +31499,16 @@ int main(int argc, char *argv[]) {
     // **纯函数 + 一个字面对象**：四档那个表、归一化、以及"队列泵问的是这个对象当下那一档"
     // （真发请求那一半归 mw_check）。
     runDownloadConcurrencyTests();
+
+    // -----------------------------------------------------------------
+    // 工具箱那四件小工具（2026-10-16，coding plan §9.11），见上面 ZAA–ZAD 四节。
+    // **纯函数**：彩色文本那三份形态的往返 / 坐标换算与 F3+C 那条命令 / 哈希与那串"已知值"
+    // （要真读一个文件，在临时目录里）/ 铁砧那套账（最后那一条拿穷举当独立对照）。
+    // 界面那一侧（ToolboxPage + ToolboxController）的断言不在这一节里。
+    runTextFormatTests();
+    runCoordConvertTests();
+    runFileHashTests();
+    runAnvilPlannerTests();
 
     // -----------------------------------------------------------------
     out() << "\n===== " << (g_failures == 0 ? "全部通过" : "有失败项") << ": "

@@ -110,6 +110,10 @@ add_executable(ui_check main.cpp
                                 ${REPO_ROOT}/ui/TaskProgressBar.cpp
                                 # 完整性检查报告页（2026-10-12）：MainWindowUI.cpp 用到它那几个名字。
                                 ${REPO_ROOT}/ui/IntegrityReportPage.cpp
+                                # 工具箱那一页（2026-10-16）：底栏那把扳手弹出来的面板上那五颗
+                                # 按钮的名字与键都从 ToolboxPage 那张表来，少了这一个文件会在
+                                # 链接那一步报一串 `undefined reference to ToolboxPage::…`。
+                                ${REPO_ROOT}/ui/ToolboxPage.cpp
                                 # 更新中心那一页（2026-10-13，§7.1）：U33 直接 new 它。
                                 ${REPO_ROOT}/ui/UpdateCenterPage.cpp
                                 # 「新建服务端」那一页（2026-10-13，§6.2 / M4）。

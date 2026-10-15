@@ -160,27 +160,6 @@ QString homeGroupIdOf(const InstanceGroupStore *groups, const QString &key,
     return known.contains(origin) ? origin : QString();
 }
 
-QList<InstanceFilesPage::StructureSource> structureSourcesFor(
-    const InstancePagesController::WorldStructures &worlds, bool litematica,
-    const QString &schematicsDir) {
-    QList<InstanceFilesPage::StructureSource> sources;
-    if (!worlds.labels.isEmpty() || litematica) {
-        InstanceFilesPage::StructureSource world;
-        world.title = InstanceFilesPage::structureWorldTitle();
-        world.labels = worlds.labels;
-        world.paths = worlds.paths;
-        sources.append(world);
-    }
-    if (litematica) {
-        InstanceFilesPage::StructureSource projections;
-        projections.title = InstanceFilesPage::structureSchematicTitle();
-        projections.labels.append(InstanceFilesPage::structureSchematicText());
-        projections.paths.append(schematicsDir);
-        sources.append(projections);
-    }
-    return sources;
-}
-
 } // namespace
 
 InstanceDialogController::InstanceDialogController(MainWindow *owner)

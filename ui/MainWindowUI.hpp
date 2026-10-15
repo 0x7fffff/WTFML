@@ -1715,7 +1715,16 @@ public:
         m_taskCenterRowActivated = handler;
     }
 
-    /// 任务中心面板里**行尾那颗小按钮**被点了要告诉谁（见 `TaskCenter::RowActionHandler`）。
+    /// 底栏那把扳手弹出来的面板上，**某一颗工具按钮被点了**要告诉谁。
+    ///
+    /// 参数是那件工具的键（`ToolboxPage::toolKey()`）。**这一层只管发这一句** —— 面板按下
+    /// 哪一件、页面开在哪一颗 chip 上、算什么东西，全在 `ToolboxController` 那一边（用户
+    /// 2026-10-16 原话：「不要再往 mainwindow 里堆超级屎山了，用 controller 等等方式合理
+    /// 分散功能」）。没装 handler 的话那五颗按钮点了什么都不发生（而且不会崩）。
+    void setToolboxToolHandler(const std::function<void(const QString &key)> &handler) {
+        m_toolboxToolHandler = handler;
+    }
+
     /// 没装的话行尾什么都不长。
     void setTaskCenterRowActionHandler(const TaskCenter::RowActionHandler &handler) {
         m_taskCenterRowAction = handler;
@@ -3557,6 +3566,12 @@ private:
     ///       另一个类、另一个名字，两者不在同一个 findChild 里。
     void toggleBottomBarPanel(const BottomBarAnchor &anchor);
     void toggleToolboxPanel();
+    /// 收掉工具箱那一块上拉面板（没开着就什么都不做）。
+    ///
+    /// ★ 两条路都走它：「再点一次那颗扳手 = 收回」和「面板里点了某一件工具 = 先收掉再把
+    ///   那一件交给 handler」。面板是 `WA_DeleteOnClose` 的（**不存指针，一律现找**），
+    ///   所以"收"这件事只有这一处说得出口，别在别处再写一遍 `findChild`。
+    void closeToolboxPanel();
     /// 把 @p anchor 那块面板弹出来。**"收"的那一半在 toggleBottomBarPanel()**：
     /// 这个函数只负责开，不管现在开着什么。
     void openBottomBarPanel(const BottomBarAnchor &anchor);
@@ -3774,6 +3789,8 @@ private:
     TaskCenter::ClearFinishedHandler m_taskCenterClearHandler;
     /// 「任务中心里某一行被点了」该告诉谁（见 setTaskCenterRowActivatedHandler()）。
     std::function<void(const QString &key)> m_taskCenterRowActivated;
+    /// 「工具箱面板里某一颗工具按钮被点了」该告诉谁（见 setToolboxToolHandler()）。
+    std::function<void(const QString &key)> m_toolboxToolHandler;
     /// 「那一行行尾那颗小按钮被点了」该告诉谁（见 setTaskCenterRowActionHandler()）。
     TaskCenter::RowActionHandler m_taskCenterRowAction;
     HomeQuickActionHandler m_homeQuickActionHandler;

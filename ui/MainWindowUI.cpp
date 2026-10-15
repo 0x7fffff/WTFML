@@ -18,6 +18,7 @@
 #include "Theme.hpp"
 #include "ThemeBackground.hpp"
 #include "TitleBar.hpp"
+#include "ToolboxPage.hpp"  // 工具箱那五件工具的键与名字（底栏面板那五颗按钮用的那张表）
 #include "VersionIcons.hpp"
 #include "VersionTreeDelegate.hpp"
 #include "WindowChrome.hpp"
@@ -4505,6 +4506,14 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     QObject::connect(taskSummaryButton, &QPushButton::clicked, taskSummaryButton, [this]() {
         toggleBottomBarPanel({taskSummaryButton, BottomBarAnchorKind::Tasks});
     });
+    // ★ 右头那一格（头像 + 用户名）：点它向上展开"最近用过的账号"。
+    //   NOTE: 2026-10-16 补回来的 —— 上一版重构主页 / 生命周期导航时这一句连着的那一段
+    //         被删掉了，于是那一格**点了什么都不发生**（`toggleBottomBarPanel` 里认得
+    //         `Accounts` 这一档、`openBottomBarPanel` 也画得出来，只是没人叫它）。mw_check
+    //         的 AH7–AH11b 那十四条就是拿它当判据红的。
+    QObject::connect(accountButton, &QPushButton::clicked, accountButton, [this]() {
+        toggleBottomBarPanel({accountButton, BottomBarAnchorKind::Accounts});
+    });
 
     // 三格从左到右摆：实例状态（0）· 空档（1）· 任务摘要（6）· 空档（1）· 账户（0）。
     // 两头那两颗按钮的宽度都是钉死的，份数写 0；富余宽度全在中间三份里分。
@@ -5082,8 +5091,8 @@ void MainWindowUI::toggleToolboxPanel() {
         return;
     }
     closeHomeInstancePicker();
-    if (auto *open = bottomBar->findChild<QFrame *>(toolboxPanelName())) {
-        open->close();
+    if (bottomBar->findChild<QFrame *>(toolboxPanelName()) != nullptr) {
+        closeToolboxPanel();
         return;
     }
 
@@ -5102,13 +5111,34 @@ void MainWindowUI::toggleToolboxPanel() {
     grid->setContentsMargins(0, 0, 0, 0);
     grid->setHorizontalSpacing(8);
     grid->setVerticalSpacing(8);
-    const QStringList tools = {QStringLiteral("附魔助手"), QStringLiteral("文本生成器"),
-                               QStringLiteral("坐标换算"), QStringLiteral("哈希校验")};
+    // ★ 2026-10-16：这一排从前是"四颗写着工具名、点了没反应的空按钮"（tooltip 老实写着
+    //   「该工具将在后续功能阶段接入」）。现在它们真接上了：键与名字都从
+    //   `ToolboxPage::tools()` 那**一张表**来（页面上那排 chip、这个面板上这五颗、
+    //   `ToolboxController::open()` 认的三个地方共用它），点一下把这件工具的键交给
+    //   handler（`MainWindow` 那头转给 `ToolboxController::open()`）。
+    //
+    // NOTE: 面板本身是 `Qt::Popup`，点它里面一颗按钮之后 Qt 会把它收掉 —— 但"收掉"这件
+    //       事不该由"Qt 的行为"顺手办，所以这里显式 `closeToolboxPanel()` 一次。
+    const QList<ToolboxPage::Tool> tools = ToolboxPage::tools();
     for (int index = 0; index < tools.size(); ++index) {
-        auto *button = new QPushButton(tools.at(index), panel);
+        const ToolboxPage::Tool tool = tools.at(index);
+        auto *button = new QPushButton(ToolboxPage::toolName(tool), panel);
+        button->setObjectName(ToolboxPage::toolButtonName(tool));
         button->setMinimumSize(128, 42);
-        button->setToolTip(QStringLiteral("该工具将在后续功能阶段接入"));
-        Theme::markButton(button, Theme::ButtonKind::Neutral);
+        button->setToolTip(ToolboxPage::toolSummary(tool));
+        Theme::markButton(button, ToolboxPage::Tool::Anvil == tool ? Theme::ButtonKind::Accent
+                                                                   : Theme::ButtonKind::Neutral);
+        const QString key = ToolboxPage::toolKey(tool);
+        // NOTE: 上下文对象给的是 `button` 自己而不是 `this` —— `MainWindowUI` **不是**
+        //       QObject（这一整层都没有对象身份），所以这里只有 `QObject::connect` 这一种
+        //       写法，而上下文得挑一个"随面板一起走"的控件（这个面板是 WA_DeleteOnClose，
+        //       按钮跟着面板一起没，连接也就跟着断了）。
+        QObject::connect(button, &QPushButton::clicked, button, [this, key]() {
+            closeToolboxPanel();
+            if (m_toolboxToolHandler) {
+                m_toolboxToolHandler(key);
+            }
+        });
         grid->addWidget(button, index / 2, index % 2);
     }
     layout->addLayout(grid);
@@ -5116,6 +5146,17 @@ void MainWindowUI::toggleToolboxPanel() {
     const QPoint anchor = toolboxButton->mapToGlobal(QPoint(toolboxButton->width(), 0));
     panel->move(anchor.x() - panel->width(), anchor.y() - panel->height() - 6);
     panel->show();
+}
+
+void MainWindowUI::closeToolboxPanel() {
+    // 收那一块**只有这一条路**（"再点一次同一颗 = 收回"和"点里面一件工具 = 先收再开"
+    // 都走它）：面板是 `WA_DeleteOnClose` 的，找它一律现找、不存指针。
+    if (bottomBar == nullptr) {
+        return;
+    }
+    if (auto *open = bottomBar->findChild<QFrame *>(toolboxPanelName())) {
+        open->close();
+    }
 }
 
 void MainWindowUI::setBottomBarTaskSummary(const BottomBarTaskSummary &summary) {

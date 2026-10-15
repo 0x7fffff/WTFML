@@ -146,6 +146,12 @@ set(HEADER_FILES
     src/util/NbtTree.hpp
     src/util/ServerPing.hpp
     src/util/ErrorReport.hpp
+    # 工具箱那五件（2026-10-16，用户点名的那一批）：纯逻辑层，各自的"照什么规矩、不做什么"
+    # 都写在头文件开头那一段里。
+    src/tools/TextFormat.hpp
+    src/tools/CoordConvert.hpp
+    src/tools/FileHash.hpp
+    src/tools/AnvilPlanner.hpp
     ui/ConfigFileText.hpp
     ui/ConfigFileEditorPage.hpp
     ui/WorldSettingsPage.hpp
@@ -155,6 +161,8 @@ set(HEADER_FILES
     ui/ConfigEntries.hpp
     ui/MotdText.hpp
     ui/ToggleSwitch.hpp
+    # 工具箱那一整页（五件小工具共用一页 + 顶上那排 chip，见它文件头那一段）。
+    ui/ToolboxPage.hpp
     # 「服务端设置」那一整页（2026-10-13，coding plan §6.3 / M4-4）。
     ui/ServerSettingsPage.hpp
     ui/JavaManageDialog.hpp
@@ -173,6 +181,7 @@ set(SOURCE_FILES
     src/controllers/LauncherPreferencesController.cpp
     src/controllers/CrashReportController.cpp
     src/controllers/IntegrityController.cpp
+    src/controllers/ToolboxController.cpp
     src/controllers/BackupController.cpp
     src/controllers/ServerPingController.cpp
     src/controllers/FolderController.cpp
@@ -269,11 +278,16 @@ set(SOURCE_FILES
     src/util/NbtTree.cpp
     src/util/ServerPing.cpp
     src/util/ErrorReport.cpp
+    src/tools/TextFormat.cpp
+    src/tools/CoordConvert.cpp
+    src/tools/FileHash.cpp
+    src/tools/AnvilPlanner.cpp
     ui/AccountSkinDialog.cpp
     ui/GameLogWindow.cpp
     ui/MainWindowUI.cpp
     ui/MemorySlider.cpp
     ui/MotdText.cpp
+    ui/ToolboxPage.cpp
     ui/ToggleSwitch.cpp
     ui/TaskCenterPanel.cpp
     ui/TaskDetailPage.cpp

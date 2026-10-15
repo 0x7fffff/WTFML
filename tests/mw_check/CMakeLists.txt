@@ -193,6 +193,17 @@ set(SOURCE_FILES
     # 服务器列表那一页的「测速」（2026-09-27）：MainWindow::pingServers() 直接调它。少了
     # 这一个文件，mw_check 会在链接那一步报一串 `ServerPing::…` 的 undefined reference。
     ${REPO_ROOT}/src/util/ServerPing.cpp
+    # 工具箱那五件工具（2026-10-16）：MainWindow.cpp 里那几句把底栏面板接到
+    # ToolboxController 上，而 controller 自己要用这四个纯逻辑模块 + 那一页。少任何一个都会在
+    # 链接那一步报一串 undefined reference。
+    ${REPO_ROOT}/src/controllers/ToolboxController.cpp
+    ${REPO_ROOT}/src/controllers/ToolboxController.hpp
+    ${REPO_ROOT}/ui/ToolboxPage.cpp
+    ${REPO_ROOT}/ui/ToolboxPage.hpp
+    ${REPO_ROOT}/src/tools/TextFormat.cpp
+    ${REPO_ROOT}/src/tools/CoordConvert.cpp
+    ${REPO_ROOT}/src/tools/FileHash.cpp
+    ${REPO_ROOT}/src/tools/AnvilPlanner.cpp
     # 「导出错误报告」那一份文本（2026-09-28）：MainWindow.cpp 直接调它。
     ${REPO_ROOT}/src/util/ErrorReport.cpp
     # 游戏异常退出那几句话（2026-10-12，coding plan §4.3）：MainWindow::buildCrashRecord()

@@ -139,6 +139,7 @@
 #include "controllers/LauncherPreferencesController.hpp"
 #include "controllers/CrashReportController.hpp"
 #include "controllers/IntegrityController.hpp"
+#include "controllers/ToolboxController.hpp"
 #include "controllers/BackupController.hpp"
 #include "controllers/ServerPingController.hpp"
 #include "controllers/FolderController.hpp"
@@ -1447,6 +1448,16 @@ MainWindow::MainWindow(QWidget *parent)
     m_crashReports = new CrashReportController(
         m_activityCenter, m_ui->overlay(), this,
         CrashReportController::Host{[this](const QString &text) { appendLog(text); }}, this);
+    // 工具箱那五件小工具（2026-10-16）：页面、算术、线程全在那个 controller 里，这儿只有
+    // "建它"和"把底栏面板上那五颗按钮接到它身上"两句话。
+    m_toolboxController = new ToolboxController(
+        m_ui->overlay(), this,
+        ToolboxController::Host{
+            [this](const QString &text) { appendLog(text); },
+            [this](std::function<void()> open) { runWhenOverlayFree(open); }},
+        this);
+    m_ui->setToolboxToolHandler(
+        [this](const QString &key) { m_toolboxController->open(key); });
     m_integrityController = new IntegrityController(
         m_versionManager, m_activityCenter, m_ui->overlay(), this,
         IntegrityController::Host{
@@ -1847,6 +1858,9 @@ MainWindow::~MainWindow() {
     //       这个对象要散了），而 Qt 对"QThread 还在跑、父对象却析构了"是直接 abort
     //       （`QThread: Destroyed while thread is still running`）。
     m_integrityController->shutdown();
+    // 工具箱里"算哈希"那一条也是 `QThread::create()` 出来的（父对象是 controller 自己，
+    // 同一个坑，同一个收法）。
+    m_toolboxController->shutdown();
     // 备份 / 还原那一趟同理（§4.4）。**这一趟没法中途收手**（见 .hpp 里 m_backupAbort 那段
     // —— 停下来只会留一个半截的包或者删了一半的目录），所以这里只能**等它跑完**：
     // 一个几百 MB 的实例快照要几十秒，关窗会晚这么多才真的关上。

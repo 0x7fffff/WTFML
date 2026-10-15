@@ -139,6 +139,7 @@ class JavaSettingsController;
 class LauncherPreferencesController;
 class CrashReportController;
 class IntegrityController;
+class ToolboxController;
 class BackupController;
 class ServerPingController;
 class FolderController;
@@ -2966,6 +2967,8 @@ private:
     LauncherPreferencesController *m_launcherPreferences = nullptr;
     CrashReportController *m_crashReports = nullptr;
     IntegrityController *m_integrityController = nullptr;
+    /// 工具箱那五件小工具（底栏那把扳手）。页面、算术、后台线程全在它那儿（2026-10-16）。
+    ToolboxController *m_toolboxController = nullptr;
     BackupController *m_backupController = nullptr;
     ServerPingController *m_serverPingController = nullptr;
     FolderController *m_folderController = nullptr;
