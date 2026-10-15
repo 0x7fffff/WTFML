@@ -29,6 +29,16 @@ set(HEADER_FILES
     # 「上一次启动」那本账的驱动层（2026-10-15 从 MainWindow 搬出来的）：MainWindow.hpp 里
     # 那三个给验证工程摆现场的 inline 入口直接调它的静态函数和成员函数，少了这个头就编不过。
     ${REPO_ROOT}/src/controllers/LaunchHistoryController.hpp
+    # 「实例设置」写侧那一套（2026-10-15 从 MainWindow 搬出来的）：MainWindow.hpp 里
+    # showInstanceSettingsNotice() 的签名按 const 引用用它的嵌套类型 Notice。
+    ${REPO_ROOT}/src/controllers/InstanceSettingsController.hpp
+    # 「实例设置」那几页要的那几格事实（2026-10-15 从 MainWindow 搬出来的）：
+    # MainWindow.cpp 里那个 `refreshInstanceDirs` 和 `structureSourcesFor()` 都按名字用它的
+    # 嵌套类型 WorldStructures。
+    ${REPO_ROOT}/src/controllers/InstancePagesController.hpp
+    # 「服务器列表」那一页上会写盘的那三件事（同上）：MainWindow.hpp 里
+    # showServerListNotice() 的签名按 const 引用用它的嵌套类型 Notice。
+    ${REPO_ROOT}/src/controllers/ServerListController.hpp
     ${REPO_ROOT}/src/launcher/LauncherManager.hpp
     ${REPO_ROOT}/src/launcher/LibraryRules.hpp
     ${REPO_ROOT}/src/auth/AuthManager.hpp
@@ -73,6 +83,15 @@ set(SOURCE_FILES
     # `LaunchHistoryController::…` 的 undefined reference（它调的 ServerListFile / NbtUtil
     # 下面都已经在清单里了）。
     ${REPO_ROOT}/src/controllers/LaunchHistoryController.cpp
+    # 「实例设置」写侧那一套（同上）。它调的 InstanceGroupStore / VersionManager /
+    # InstanceFiles 下面都已经在清单里了。
+    ${REPO_ROOT}/src/controllers/InstanceSettingsController.cpp
+    # 「实例设置」那几页要的那几格事实（同上）。它只要 AppPaths / ResourceCatalog /
+    # VersionManager —— 下面都已经在清单里了。
+    ${REPO_ROOT}/src/controllers/InstancePagesController.cpp
+    # 「服务器列表」那一页上会写盘的那三件事（同上）。它只要 ServerListFile ——
+    # 那个已经在清单里了。
+    ${REPO_ROOT}/src/controllers/ServerListController.cpp
     ${REPO_ROOT}/src/launcher/LauncherManager.cpp
     ${REPO_ROOT}/src/auth/AuthManager.cpp
     ${REPO_ROOT}/src/auth/AccountStore.cpp

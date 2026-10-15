@@ -30,6 +30,9 @@ set(HEADER_FILES
     src/controllers/ServerWorkspaceController.hpp
     src/controllers/PlayerSkinController.hpp
     src/controllers/LaunchHistoryController.hpp
+    src/controllers/InstanceSettingsController.hpp
+    src/controllers/InstancePagesController.hpp
+    src/controllers/ServerListController.hpp
     src/launcher/LauncherManager.hpp
     src/launcher/LibraryRules.hpp
     src/launcher/ProcessPriority.hpp
@@ -151,6 +154,9 @@ set(SOURCE_FILES
     src/controllers/ServerWorkspaceController.cpp
     src/controllers/PlayerSkinController.cpp
     src/controllers/LaunchHistoryController.cpp
+    src/controllers/InstanceSettingsController.cpp
+    src/controllers/InstancePagesController.cpp
+    src/controllers/ServerListController.cpp
     src/launcher/LauncherManager.cpp
     src/launcher/AsciiPathAlias.cpp
     src/launcher/VersionInheritance.cpp

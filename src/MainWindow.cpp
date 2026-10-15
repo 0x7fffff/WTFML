@@ -87,7 +87,9 @@
 #include <QFileInfo>
 #include <QFutureWatcher>
 #include <QGuiApplication>
-// 用户挑的实例图标要**解码再编码**成实例目录下那份 icon.png（见 writeInstanceIcon()）。
+// 玩家外观那一套（皮肤/披风贴图）和存档图标都按 QImage 处理。
+// NOTE: 原来这里写的是"用户挑的实例图标要解码再编码成 icon.png"—— 那件事 2026-10-15 搬进了
+//       `controllers/InstanceSettingsController.cpp`，但 QImage 在这一层还有别的用处。
 #include <QImage>
 #include <QLabel>
 #include <QLineEdit>
@@ -104,7 +106,8 @@
 #include <QProgressBar>
 #include <QProcess>
 #include <QPushButton>
-// 写图标那张图走它（写临时文件 → 原子替换），见 writeInstanceIcon()。
+// 那几处"先写临时文件、再原子替换"的落盘（启动脚本 / 导出 / 备份那几处）。
+// NOTE: 写实例图标那一处 2026-10-15 搬去了 controllers/InstanceSettingsController.cpp。
 #include <QSaveFile>
 #include <QScreen>
 #include <QSignalBlocker>
@@ -139,6 +142,7 @@
 #include "controllers/HomeQuickController.hpp"
 #include "controllers/InstanceMaintenanceController.hpp"
 #include "controllers/ServerWorkspaceController.hpp"
+#include "controllers/InstancePagesController.hpp"
 #include "controllers/PlayerSkinController.hpp"
 // 下载页那几类资源的取数（搜索 / 版本列表 / 图标）。头文件那边只前置声明了这个类
 // （那里用不到它的定义），这里要用真的。
@@ -1034,35 +1038,12 @@ int versionChannelIndexOf(const VersionManager *versions, const QString &version
 /// 这个实例**实际**基于哪个加载器 —— 给界面看的名字（空串 = 没认出来）。
 /// @param versionOut 认出来时顺手带上加载器版本（只有"加载器对不上"那道闸要用它）。
 ///
-/// 先看 @p parts 里**已经读过**的那一格（`displayParts()` 顺手带出来的，不额外读盘，
-/// 那也是"显示名和图标是同一次读取的两半"那条 NOTE 的意思），为空时再回扣一次
-/// `VersionManager::instanceModLoader()`。
-///
-/// ★ 为什么要回扣：`wtfml.meta` 里的 `loaderName` **只有我们自己的安装器会写**。PCL /
-///   HMCL 那类把整份 json 合进实例目录的实例（用户盘上 70 个里 67 个）那一格是空的 ——
-///   回扣那一趟照着版本 json 的 `libraries` 认，才是它们的加载器唯一的出处。四条路都读
-///   同一个名字：实例行那个标志（defaultInstanceMark）、自动归类（defaultGroupIdFor）、
-///   光影包那一页（instanceShaderUsable）、以及装模组时的"加载器对不上"那道闸。
+/// ★ 判断与那两条规矩（"先看已经读过的那一格、为空再回扣一次版本 json"、"为什么必须回扣"）
+///   在 `InstancePagesController::loaderName()` 里。这个自由函数留着是因为 mw_check 的
+///   判据按名字驱动它，而且它在文件里还有十来处调用点。
 QString instanceLoaderName(const VersionDisplayParts &parts, const VersionManager *versions,
                            QString *versionOut = nullptr) {
-    if (versionOut != nullptr) {
-        versionOut->clear();
-    }
-    if (!parts.loaderName.isEmpty()) {
-        if (versionOut != nullptr) {
-            *versionOut = parts.loaderVersion;
-        }
-        return parts.loaderName;
-    }
-    QString name;
-    QString version;
-    if (versions != nullptr && versions->instanceModLoader(parts.id, &name, &version)) {
-        if (versionOut != nullptr) {
-            *versionOut = version;
-        }
-        return name;
-    }
-    return QString();
+    return InstancePagesController::loaderName(parts, versions, versionOut);
 }
 
 /// 加载器名字 → **分组用的那个小写键**（`VersionGroup::loader` 的写法）。
@@ -1160,47 +1141,9 @@ QSet<QString> knownGroupIdsOf(const InstanceGroupStore *groups) {
     return known;
 }
 
-/// 把用户挑的那张图落成实例目录下的 icon.png（用户 2026-09-26 原话：「选一张本地图片文件」）。
-///
-/// **解码再编码，不是原字节复制**：用户挑的可能是 jpg / webp / bmp，而读的那一侧只认
-/// icon.png 这一个名字（见 AppPaths::versionIconPath()）。原字节拷过去的话，盘上就有一个
-/// 扩展名写着 .png、内容却是 JPEG 的文件 —— 今天 Qt 按内容认、照样解得开，但那个名字从此
-/// 是一句假话，谁照着它去写解析都会踩空。
-///
-/// NOTE: 走 QSaveFile（写临时文件 → 原子替换）：写到一半失败时盘上留着的要么是原来那张、
-///       要么是新那张，不会是一张半截的图 —— 那东西下次启动会被当成"这张图坏了"，而用户
-///       完全不知道自己哪里做错了。
-///
-/// @return 写成功了返回 true。失败时填 @p errorOut，调用方**必须把它说出来**：用户刚挑完
-///         图、按了确定，图标没换上却一声不响，正是最难查的那种"没生效"。
-bool writeInstanceIcon(const QString &versionId, const QString &sourcePath, QString *errorOut) {
-    const QImage source(sourcePath);
-    if (source.isNull()) {
-        if (errorOut != nullptr) {
-            *errorOut = QObject::tr("读不出这张图：%1\n\n"
-                                    "（它可能不是图片格式，也可能已经不在那儿了。）")
-                            .arg(QDir::toNativeSeparators(sourcePath));
-        }
-        return false;
-    }
-    QSaveFile file(AppPaths::versionIconPath(versionId));
-    if (!file.open(QIODevice::WriteOnly)) {
-        if (errorOut != nullptr) {
-            *errorOut = QObject::tr("图标写不进去：%1").arg(file.errorString());
-        }
-        return false;
-    }
-    // QSaveFile 的 commit() 失败时自己会把临时文件撤掉，所以这两句之间不用再清理一遍。
-    if (!source.save(&file, "PNG") || !file.commit()) {
-        if (errorOut != nullptr) {
-            *errorOut = QObject::tr("图标没能放到 %1：%2")
-                            .arg(QDir::toNativeSeparators(AppPaths::versionIconPath(versionId)),
-                                 file.errorString());
-        }
-        return false;
-    }
-    return true;
-}
+/// ★ 2026-10-15：`writeInstanceIcon()` 搬进了 `controllers/InstanceSettingsController.cpp`
+///   （它是"实例设置写侧"那几个字节：用户挑的那张图 → 实例目录下那份 icon.png）。那边是
+///   唯一调用点所在的地方。
 
 /// 一个实例**默认**该归到哪个默认组 —— 只给"用户还从来没给它表过态"的实例用（见调用点）。
 ///
@@ -1534,6 +1477,49 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_activityCenter, &ActivityCenterController::historyChanged, this, [this]() {
         m_ui->refreshTaskCenterPanel();
     });
+    // ---------- 「实例设置」写侧那一套（coding plan §4，2026-10-15） ----------
+    // 它自己一块界面都不碰（**一个字节的中文都没有**），要问、要说的那几件事全走下面这六个
+    // 回调：这几件恰恰是"只有主窗口做得成"的事（谁在跑要问 LauncherManager、那句话怎么说要
+    // 挑中文、重扫实例树是主窗口的活）。
+    //
+    // ★ 为什么这几个回调是**同步**的：`notice` 是在 controller 那一句代码的位置上当场执行的，
+    //   顺序变了用户看到的东西就变（提示卡片是一张盖一张的）。所以这里一行都不许改成排队/异步。
+    m_instanceSettings = new InstanceSettingsController(
+        m_versionManager, m_groupStore, m_settings,
+        InstanceSettingsController::Host{
+            // 谁在跑。**必须问 LauncherManager**，不能自己看那个"正在启动"的标志位 ——
+            // 一个会话起来之后标志位就落了，而游戏还在跑。
+            [this](const QString &versionId) {
+                return m_launcherManager->isVersionRunning(versionId);
+            },
+            // 谁在体检。那一位是主窗口手上的（`m_integrityScanningVersion`），controller
+            // 那一层够不着也不该够着。
+            [this](const QString &versionId) { return integrityScanningVersion(versionId); },
+            [this](const InstanceSettingsController::Notice &notice) {
+                showInstanceSettingsNotice(notice);
+            },
+            [this](const QString &text) { appendLog(text); },
+            // 名字/图标都变了 ⇒ 实例树得重扫（那棵树上那一格画的就是这两个）。
+            [this]() { refreshInstalledVersions(); },
+            // 改完名要显式选中新那一个：刷新时下拉框那边是"保住原来选中的 id"，而那个 id
+            // 已经不在了，于是它会停在空选。
+            [this](const QString &newId) {
+                QComboBox *combo = m_ui->getInstalledVersionCombo();
+                const int index = combo->findData(newId);
+                if (index >= 0) {
+                    combo->setCurrentIndex(index);  // 这条连接是活的，按钮文字会跟着刷新
+                }
+                updateStartButtonText();
+            },
+            // 分组/置顶那三条规则走的是**现有那两个入口**（不是在这儿另写一遍
+            // `wtfml.folders` 的读写）：它们各自会发 groupsChanged 把树重灌，而且
+            // "没有置顶组时什么都不做""认不出来就落未分组"这些判断都已经在那边了。
+            [this](const QString &versionId, const QString &groupId) {
+                setInstanceHomeGroup(versionId, groupId);
+            },
+            [this](const QString &versionId) { pinInstance(versionId); },
+            [this](const QString &versionId) { unpinInstance(versionId); }},
+        this);
     // 任务中心那块面板要画什么、以及「清除已完成」被点了做什么。**每次点开/重画现问一遍**
     // （和底栏那两块面板一个路数：面板自己不会跟着账本刷新，缓存上一次那几行迟早说假话）。
     //
@@ -12181,90 +12167,96 @@ void MainWindow::onFolderDeleteRequested(const QString &path) {
 //           而不是在某个界面的入口上。
 
 bool MainWindow::applyRename(const QString &oldId, const QString &newId) {
-    // 闸口一：**正在跑的不能改名**，而且必须在调 renameInstance() **之前** —— 运行中的
-    // 实例在 Windows 上 jar 被 JVM 锁着，改到一半才失败的话用户看到的是一句"拒绝访问"，
-    // 而真正该说的是这一句。
+    // ★ 2026-10-15：那四道闸、"改完谁跟着走"、以及"哪一半成了/哪一半没成"这套分账，全在
+    //   `InstanceSettingsController::rename()` 里。这一层只是个转发。
     //
-    // NOTE: 这一道原来在 onRenameInstanceClicked() 里（界面的入口上）。改名搬进实例设置
-    //       那一页之后，入口变成了"任何一条点进设置页的路"，守卫放在入口上迟早会漏一条
-    //       —— 放在这里，所有调用点（含验证工程）都绕不过去。
-    if (m_launcherManager->isVersionRunning(oldId)) {
+    // 为什么留着这一层而不是把调用点全改成问 controller：验证工程按**名字**驱动这个槽
+    // （`QMetaObject::invokeMethod(this, "applyRename", ...)`，见 mw_check 的 S 段）——
+    // 那是"这个槽驱动得起来"这条判据本身，不是实现细节。同 applyGroupList / applyInstanceSettings。
+    return m_instanceSettings->rename(oldId, newId);
+}
+
+void MainWindow::showInstanceSettingsNotice(const InstanceSettingsController::Notice &notice) {
+    // 这一层的活是**把事实说成人话**：controller 那边只有"哪一档、是谁、数据层说的原因"，
+    // 标题和正文在这里挑。所以下面每一句话都是**逐字**从原来的 applyRename() 里搬过来的
+    // （验证工程按行数/原文对数，改一个字就是回归）。
+    switch (notice.kind) {
+    case InstanceSettingsController::Notice::Kind::RenameBlockedRunning:
+        // 「先关掉游戏再改名」这句不能省：用户很可能以为"改个名字而已"，看到"拒绝访问"
+        // 会去查杀毒软件。
         InlineMessage::warning(m_ui->overlay(), tr("重命名实例"),
-                             tr("「%1」正在运行，先关掉游戏再改名。").arg(instanceDisplayName(oldId)));
-        return false;
-    }
-    // 闸口一之二：**正在体检的不能改名**（coding plan §4.1「同一实例不允许同时扫描和删除/
-    // 改名」）。后台那一趟攥着的是改名前算好的那些**绝对路径**，改到一半才让它醒过来的话，
-    // 报告里每一条都会指着一个已经不存在的路径（全是假的"缺文件"）。
-    if (integrityScanningVersion(oldId)) {
+                               tr("「%1」正在运行，先关掉游戏再改名。")
+                                   .arg(instanceDisplayName(notice.instanceId)));
+        break;
+    case InstanceSettingsController::Notice::Kind::RenameBlockedScanning:
+        // 说清楚"等它完了"（不是"重开启动器"）：那一趟还在跑，等它自己结束就行。
         InlineMessage::warning(m_ui->overlay(), tr("重命名实例"),
-                              tr("「%1」正在做完整性检查，等它完了再改名。")
-                                  .arg(instanceDisplayName(oldId)));
-        return false;
-    }
-
-    const QString name = newId.trimmed();
-
-    // 名字合不合法。判据和数据层是**同一份**（InstanceFiles::validateRenameTarget），
-    // 界面绝不自己抄一遍规则 —— 抄一遍的下场是两边慢慢漂开，出现"界面放行、数据层拒绝"
-    // 或者更糟的"界面拒绝、数据层其实能接受"。
-    const QString problem = InstanceFiles::validateRenameTarget(name, oldId);
-    if (!problem.isEmpty()) {
-        // 不循环重问：用户看到原因后可以自己再点一次，那样他能顺便改别的决定。
-        InlineMessage::warning(m_ui->overlay(), tr("重命名实例"), problem);
-        return false;
-    }
-
-    // 分组归属的**老键必须在改名之前取**：改名会把老目录名连同"按目录名认人"那条
-    // 退路一起改掉，改完再问它，问的是磁盘上一个已经不存在的目录。
-    const QString oldKey = instanceKey(oldId);
-
-    // 执行：改磁盘、含失败回滚，都在数据层。失败原因是给用户看的一整句
-    // （可能带"回滚到什么程度"），界面原样弹出来，不再自己加工。
-    QString error;
-    if (!m_versionManager->renameInstance(oldId, name, &error)) {
-        InlineMessage::critical(m_ui->overlay(), tr("重命名失败"), error);
-        // NOTE: 失败可能是"回滚干净了"也可能是"停在半路上"。两种都不在这里重刷列表 ——
-        //       刷新只会把界面对着磁盘重画一遍，而用户需要的是先看清弹窗里那句话。
-        return false;
-    }
-
-    // 改完名字要跟着动的状态。漏掉下面这一条的后果很具体：用户下次打开启动器，
-    // restoreLastLaunchedVersion() 拿老 id 去找人找不到，选中项是空的，他会以为
-    // 刚改名的那个实例丢了。
-    if (m_settings->lastLaunchedVersion() == oldId) {
-        m_settings->setLastLaunchedVersion(name);
-    }
-
-    // 分组归属也要跟着挪。两件事叠在一起，所以这里必须按顺序取两次键：
-    //   - 改名**之前**那个键（上面取的 oldKey）：老实例可能还没有稳定 id，
-    //     那时它的键是**老目录名**；
-    //   - 改名**之后**那个键：renameInstance() 刚好在这一次把稳定 id 生成出来了
-    //     （见它的第 2 步），所以新键多半是那个 uuid，而不是新目录名。
-    // 只取一次（无论是哪一次）都会让归属在改名的同时丢掉 —— 而丢归属的表现是
-    // "改完名它自己从组里出来了"，用户会以为分组没保存上。
-    const QString newKey = instanceKey(name);
-    QString groupError;
-    if (!m_groupStore->rekey(oldKey, newKey, &groupError)) {
-        // 实例本身已经改好名了，只是分组没搬过去。**不能当成改名失败** ——
-        // 那会让用户以为名字没改成功，然后再点一次。说清楚哪一半成了、哪一半没成。
+                               tr("「%1」正在做完整性检查，等它完了再改名。")
+                                   .arg(instanceDisplayName(notice.instanceId)));
+        break;
+    case InstanceSettingsController::Notice::Kind::RenameRejected:
+        // `detail` 就是 `InstanceFiles::validateRenameTarget()` 给的那一整句，原样说。
+        InlineMessage::warning(m_ui->overlay(), tr("重命名实例"), notice.detail);
+        break;
+    case InstanceSettingsController::Notice::Kind::RenameFailed:
+        // 这句原因可能带"回滚到什么程度"，原样说 —— 加工它只会丢掉那个信息。
+        InlineMessage::critical(m_ui->overlay(), tr("重命名失败"), notice.detail);
+        break;
+    case InstanceSettingsController::Notice::Kind::RenameGroupNotMoved:
+        // 说清楚"名字改成了、归属没搬"：不能只弹"改名失败"，那会让人再点一次。
         InlineMessage::warning(m_ui->overlay(), tr("分组归属没跟着搬"),
-                             tr("实例已经改名为「%1」，但它原来的分组归属没能搬过去：\n%2\n\n"
-                                "可以在「分组…」里重新归一次。")
-                                 .arg(name, groupError));
+                               tr("实例已经改名为「%1」，但它原来的分组归属没能搬过去：\n%2\n\n"
+                                  "可以在「分组…」里重新归一次。")
+                                   .arg(notice.instanceId, notice.detail));
+        break;
+    case InstanceSettingsController::Notice::Kind::SettingsIdFailed:
+        // 连身份都写不下去 ⇒ **整次没保存**（说清这一点的同时把"为什么"也给出来：
+        // 文件被占着 / 目录不可写，这两条用户自己能查）。
+        InlineMessage::critical(m_ui->overlay(), tr("实例设置没能保存"),
+                                tr("「%1」的 wtfml.meta 写不进去，这次的设置没有保存。\n\n"
+                                   "（这份文件可能被别的程序占着，或者它所在的目录不可写。）")
+                                    .arg(instanceDisplayName(notice.instanceId)));
+        break;
+    case InstanceSettingsController::Notice::Kind::SettingsGroupNotMoved:
+        // 和改名那一条同款，只是没有新名字：设置**存上了**，只是归属没搬 ⇒ 不能说成
+        // "没能保存"（那会让用户重来一次）。
+        InlineMessage::warning(m_ui->overlay(), tr("分组归属没跟着搬"),
+                               tr("「%1」的分组归属没能搬过去：\n%2\n\n"
+                                  "可以在「分组…」里重新归一次。")
+                                   .arg(instanceDisplayName(notice.instanceId), notice.detail));
+        break;
+    case InstanceSettingsController::Notice::Kind::IconNotSaved:
+        // 只有图标这一项没成 —— 说清"别的东西照常保存了"（否则用户会以为整次白改）。
+        InlineMessage::warning(m_ui->overlay(), tr("图标没能保存"), notice.detail);
+        break;
+    case InstanceSettingsController::Notice::Kind::SettingsSaveFailed:
+        // 数据层不弹窗是约定，所以弹在这一层。detail 里已经写清了"是哪个文件、为什么"。
+        InlineMessage::critical(m_ui->overlay(), tr("实例设置没能保存"), notice.detail);
+        break;
     }
+}
 
-    refreshInstalledVersions();
-    // 刷新时下拉框那边是"保住原来选中的那个 id"，而那个 id 已经不在了 —— 于是它
-    // 会停在空选。显式选中新名字：用户刚改完，看到的应该是刚改完的那个实例。
-    QComboBox *combo = m_ui->getInstalledVersionCombo();
-    const int index = combo->findData(name);
-    if (index >= 0) {
-        combo->setCurrentIndex(index);  // 这条连接是活的，按钮文字会跟着刷新
+void MainWindow::showServerListNotice(const ServerListController::Notice &notice) {
+    // 和上面那一条同款：controller 那边只有"哪一档、数据层说的原因"，标题和正文在这儿挑。
+    // 每一句话都是**逐字**从原来那三个 lambda 里搬过来的（验证工程按原文对数）。
+    switch (notice.kind) {
+    case ServerListController::Notice::Kind::UpdateFailed:
+        InlineMessage::warning(m_ui->overlay(), tr("没能改这一台"), notice.detail);
+        break;
+    case ServerListController::Notice::Kind::AddRejected:
+        // 地址为空这一档**没有** detail（`detail` 是数据层给的原因，而这一档根本没走到
+        // 数据层）—— 所以这句话写在弹窗这一边，和 `updateEntry` 那边是同一句。
+        InlineMessage::warning(m_ui->overlay(), tr("没能加这一台"),
+                               tr("地址不能是空的 —— 没有地址，"
+                                  "这一行在游戏里是一条点不动的空气。"));
+        break;
+    case ServerListController::Notice::Kind::AddFailed:
+        InlineMessage::warning(m_ui->overlay(), tr("没能加这一台"), notice.detail);
+        break;
+    case ServerListController::Notice::Kind::RemoveFailed:
+        InlineMessage::warning(m_ui->overlay(), tr("没能删这一台"), notice.detail);
+        break;
     }
-    updateStartButtonText();
-    appendLog(tr("实例已重命名：%1 → %2").arg(oldId, name));
-    return true;
 }
 
 void MainWindow::pinInstance(const QString &versionId) {
@@ -12430,12 +12422,10 @@ bool MainWindow::deleteInstance(const QString &versionId) {
 }
 
 QString MainWindow::instanceKey(const QString &versionId) const {
-    // 有稳定 id 就用它，没有就退回目录名 —— 见 InstanceGroupStore 文件头那段。
-    // NOTE: 退回目录名不是"临时凑合"，它是老实例（2026-09 之前建的，一个都没有稳定 id）
-    //       唯一的现实身份。更要紧的是**读和写必须走同一个函数**：读的时候按目录名找、
-    //       写的时候按 id 存，归属会在存下去的那一刻就对不上，而那个错不报任何东西。
-    const QString id = m_versionManager->instanceId(versionId);
-    return id.isEmpty() ? versionId : id;
+    // ★ 2026-10-15：这条规矩（有稳定 id 用 id、没有退回目录名）的唯一出处搬到了
+    //   `InstanceSettingsController::instanceKeyFor()` —— 那边是**写**归属的那一侧，
+    //   两边各写一遍的下场就是"读的时候按目录名找、写的时候按 id 存"。这里只转发。
+    return InstanceSettingsController::instanceKeyFor(m_versionManager, versionId);
 }
 
 void MainWindow::onGroupInstanceClicked() {
@@ -12828,22 +12818,13 @@ void MainWindow::openGroupMenuFor(QTreeWidgetItem *item) {
 
 namespace {
 
-/// 一个存档目录里**有没有结构方块存下来的东西**（`generated/minecraft/structures/…` 下的 nbt）。
-///
-/// 判据是"有没有"，所以一找到第一条就停 —— 一个存档存过几百次结构的话，把整棵子树走完
-/// 是白走的（这一趟在**每一次**开实例设置时都要跑：每个存档一次）。
-bool dirHasStructureFiles(const QString &structuresDir) {
-    QDirIterator it(structuresDir, QStringList{QStringLiteral("*.nbt")}, QDir::Files,
-                    QDirIterator::Subdirectories);
-    return it.hasNext();
-}
-
 /// 「结构/原理图」那一页顶上那两排「来源」（★ 2026-10-10，见
 /// `InstanceFilesPage::setStructureSources()`）。
 ///
 /// 用户原话：「那就像版本树一样根据存档来列…两个下拉框并排」+「**上面一排是存档的，
-/// 下面一排是投影的**」。这两句话**只有这一层说得出口**（AppPaths 和"装没装那个模组"
-/// 都在它手上，ui/ 那一层两样都够不着）。
+/// 下面一排是投影的**」。其中"**哪几个存档真有结构**"要读盘（结构方块存下来的东西落在
+/// 存档自己的 `generated/` 底下），那件事由 `InstancePagesController::worldStructures()`
+/// 算 —— 这一层只把那份事实摆成那一页要的形状。
 ///
 /// 摆出来的规矩（逐条都是用户点名的）：
 ///   - **没有结构的存档一个都不列**（「没有结构的存档不显示在列表里面」）；
@@ -12861,37 +12842,20 @@ bool dirHasStructureFiles(const QString &structuresDir) {
 ///
 /// NOTE: 两排的**排头**（「存档」/「投影」）走 `InstanceFilesPage` 上那三个静态函数 ——
 ///       界面上写着的那几个字只有一个出处，这一层不自己抄一份（验证工程也读它们）。
-/// 这个实例里**有结构的那些存档** —— 名字和"那些 `.nbt` 在哪个目录"两张**平行**的表
-/// （「结构」那一排的全部内容）。
-InstanceFilesPage::StructureSource worldStructureSources(const QString &versionId) {
-    InstanceFilesPage::StructureSource worlds;
-    worlds.title = InstanceFilesPage::structureWorldTitle();
-    const QDir saves(AppPaths::versionDir(versionId) + QStringLiteral("/saves"));
-    const QFileInfoList saveDirs = saves.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot,
-                                                       QDir::Name | QDir::IgnoreCase);
-    for (const QFileInfo &save : saveDirs) {
-        // 结构方块存下来的东西落在这个存档自己的 generated/ 底下（实测确认过，见
-        // FEATURES.md 的「★ 「结构」那半边」那一段）。
-        const QString structures =
-            save.absoluteFilePath() + QStringLiteral("/generated/minecraft/structures");
-        if (!dirHasStructureFiles(structures)) {
-            continue;
-        }
-        worlds.labels.append(save.fileName());
-        worlds.paths.append(structures);
-    }
-    return worlds;
-}
-
+///       所以 `InstancePagesController` 那边给的是"哪几个存档有结构"（两张平行的表），
+///       排头是在这儿戴上去的。
 QList<InstanceFilesPage::StructureSource> structureSourcesFor(
-    const InstanceFilesPage::StructureSource &worlds,
-    bool litematica,
+    const InstancePagesController::WorldStructures &worlds, bool litematica,
     const QString &schematicsDir) {
     QList<InstanceFilesPage::StructureSource> sources;
     if (!worlds.labels.isEmpty() || litematica) {
         // 一个存档都没有结构、可投影装着 ⇒ 这一排**露着但空着**（那行灰字在下拉框里，
         // 见 InstanceFilesPage::setStructureSources()）。
-        sources.append(worlds);
+        InstanceFilesPage::StructureSource worldSource;
+        worldSource.title = InstanceFilesPage::structureWorldTitle();
+        worldSource.labels = worlds.labels;
+        worldSource.paths = worlds.paths;
+        sources.append(worldSource);
     }
     if (litematica) {
         InstanceFilesPage::StructureSource projections;
@@ -13056,59 +13020,57 @@ void MainWindow::openInstanceSettingsNow(const QString &versionId, const QString
     //       必须看新值。下面那些 lambda 也是同一个理由全都按引用捕获它。
     QString targetId = versionId;
     const auto refreshInstanceDirs = [this, &dialog](const QString &id) {
-        // ★ 2026-10-11：`instanceFileDirs()` 每跑一趟都要新建一个九项的 QHash（含九次 QString
+        // ★ 2026-10-15：这一段"算"的活全在 `InstancePagesController` 里了（哪几页用得上、
+        //   那几页指向哪个目录、有结构的存档是哪几个 —— 原来一百来行判断就夹在这儿）。
+        //   这一层剩下的**只有摆**：把那一份事实挨个 `set` 到对话框上。
+        //
+        // ★ 2026-10-11：`fileDirs()` 每跑一趟都要新建一个九项的 QHash（含九次 QString
         //   拼接）—— 这一趟要用它两次（`setFileDirs` 和下面 structure 那一格），算一次存下来。
-        const QHash<QString, QString> fileDirs = instanceFileDirs(id);
+        const QHash<QString, QString> fileDirs = InstancePagesController::fileDirs(id);
         dialog.setInstanceDir(AppPaths::versionDir(id));
         // ★ 2026-10-13（coding plan §5.3「实例工具入口补齐」）：概览那排「常用目录」多要
-        //   三路 —— 游戏目录 / 录像 / 崩溃报告。**并进同一份一起灌**（见 .hpp 里
-        //   setFileDirs() 那条 NOTE：这一层只是"按某个键取一个路径"，多出来的键没人当页读），
-        //   不去动 instanceFileDirs() 的形状（它那个九条有断言在数）。
+        //   三路 —— 游戏目录 / 录像 / 崩溃报告。**并进同一份一起灌**（见 InstanceSettingsDialog
+        //   里 setFileDirs() 那条 NOTE：这一层只是"按某个键取一个路径"，多出来的键没人当页读），
+        //   不去动 fileDirs() 的形状（它那个九条有断言在数）。
         QHash<QString, QString> shortcutDirs = fileDirs;
         shortcutDirs.insert(QStringLiteral("game"), AppPaths::minecraftDir());
         shortcutDirs.insert(QStringLiteral("replay"), AppPaths::replayRecordingsDir());
         shortcutDirs.insert(QStringLiteral("crash"), AppPaths::crashReportsDir());
         dialog.setFileDirs(shortcutDirs);
         // 那排按钮分两段的判据（哪几路"现在真有东西"）—— 理由与逐条判据见
-        // instanceCommonFolderKeys()。**必须紧跟着 setFileDirs()**：它按这一份路径算。
-        dialog.setFolderPresentKeys(instanceCommonFolderKeys(id, shortcutDirs));
+        // InstancePagesController::commonFolderKeys()。**必须紧跟着 setFileDirs()**：它按
+        // 这一份路径算。
+        dialog.setFolderPresentKeys(InstancePagesController::commonFolderKeys(
+            id, shortcutDirs, InstanceSettingsDialog::shortcutPathKeys()));
         // 左栏那一列是**按实例现算**的（2026-09-27）：这几页要"用得上"才列出来。四个判据
-        // 全在这一层 —— loadername / mods 目录 / 装没装那个 mod / 游戏版本够不够新，ui/
+        // 全在业务层 —— loadername / mods 目录 / 装没装那个 mod / 游戏版本够不够新，ui/
         // 一样都够不着。
         //
         // ★ 四个 setter 的**默认都是"可用"**（直接 new 出来的对话框七条全列）：忘了调哪一个，
         //   那个实例上就会多列出一页来 —— 而多一页是"用户点进去看见一句用不上"，不是静默
         //   的错。所以宁可这样默认，也不要反过来（默认不可用 = 忘了调就把一整页藏了）。
         //
-        // NOTE: 「模组」的判据是 instanceModsUsable()（有模组加载器 **或** mods/ 里有 jar）
+        // NOTE: 「模组」的判据是 `modsUsable()`（有模组加载器 **或** mods/ 里有 jar）
         //       ⇒ **OptiFine 也算**，装 OptiFine 的实例会多一条「模组」。这是有意的：
         //       OptiFine 从 1.13 起就是塞进 mods/ 的，那一页在那样的实例上真的用得上。
         //       ★ 2026-09-27：原来这里写的是 `displayParts().loaderName` 非空，而那一格
         //       只有我们自己的安装器会写 ⇒ 用户盘上 70 个实例里 67 个（全是 PCL 装的）
-        //       被误判成"没有模组加载器"。判据与理由见 instanceModsUsable() 那段说明。
-        dialog.setModUsable(instanceModsUsable(id));
-        dialog.setShaderUsable(instanceShaderUsable(id));
-        const bool hasLitematica = instanceHasMod(id, QStringLiteral("litematica"));
+        //       被误判成"没有模组加载器"。判据与理由见那个函数那段说明。
+        const InstancePagesController::Usability usable =
+            InstancePagesController::usability(m_versionManager, id);
+        dialog.setModUsable(usable.mods);
+        dialog.setShaderUsable(usable.shader);
         // ★ 2026-10-10：「结构/原理图」那一页顶上那两排「来源」（用户原话：「两个下拉框
-        //   并排…上面一排是存档的，下面一排是投影的」）。**判定全在这一层**（哪些存档真有
+        //   并排…上面一排是存档的，下面一排是投影的」）。**判定全在业务层**（哪些存档真有
         //   结构要读盘、装没装投影要查 mods/），摆控件的是那一页自己。
         //   NOTE: 和上面那四个 setter 一样收在这个 lambda 里 —— 改名会把整个实例换到另一个
         //         目录，哪些存档有结构也就跟着换一份。
-        const InstanceFilesPage::StructureSource worldStructures = worldStructureSources(id);
-        // ★★ 这一页「用不上」的判据从"装没装 Litematica"放宽成"两半里有一半有东西"：
-        //   结构那一半是**游戏自己**认的（结构方块就是原版的东西），一个实例里真有结构、
-        //   却因为没装投影模组把整页判成"没人会读"，那是把半页东西藏起来了。
-        //   而且用户对那一档的规矩正是「**没有装投影图则不显示投影图下拉**」—— 藏的是
-        //   **那一排**，不是整页。
-        //   NOTE: "这个版本认不认结构方块"在盘上读不出（没有那种记录）⇒ 拿"**这个实例里
-        //         真有结构**"当判据；两半都空的那一档本来就不该露（见上面那段规矩的最后一
-        //         条），所以这个判据和用户那句话是同一条线。
-        dialog.setSchematicUsable(hasLitematica || !worldStructures.labels.isEmpty());
+        dialog.setSchematicUsable(usable.schematic);
         if (InstanceFilesPage *schematics = dialog.filesPage(QStringLiteral("schematic"))) {
             schematics->setStructureSources(structureSourcesFor(
-                worldStructures, hasLitematica, fileDirs.value(QStringLiteral("schematic"))));
+                usable.worlds, usable.litematica, fileDirs.value(QStringLiteral("schematic"))));
         }
-        dialog.setDatapackUsable(m_versionManager->instanceSupportsDatapacks(id));
+        dialog.setDatapackUsable(usable.datapack);
         // ★ 2026-10-10：那两颗「加入…」（**临时占位**，见 QuickPlay）。
         //   **露不露** = 这个版本认不认那两条参数 —— 判据只有 `instanceSupportsQuickPlay()`
         //   一处（和 `startQuickPlay()` 的第一道闸是同一句话）。空串 = 那一颗整颗收起来。
@@ -13777,6 +13739,67 @@ void MainWindow::openInstanceSettingsNow(const QString &versionId, const QString
                 }
             });
 
+    // ---------- 服务器列表那三件会写盘的事（2026-10-15 搬进 `ServerListController`）----------
+    //
+    // 改一台 / 加一台 / 删一台的**判断**都搬到那一层了（"一个字节都不写"那道闸、地址必填、
+    // 「（无名）」那条显示规矩、以及"动完统一重读重测"）。这一层剩下的是**只有它办得了的
+    // 两件事**：问话（`OverlayHost` 在这儿）和重读重测（`pingServers` 要那个对话框）。
+    //
+    // NOTE: 它是**这一趟的局部对象**（不是成员，和 `m_instanceSettings` 那种不一样）：它那
+    //       两条回调要用 `&dialog` 和 `&targetId`，而这两个都只活在这一趟里 —— 和上面那一批
+    //       "dialog 是栈上的局部对象"的 lambda 同一个道理。它和 `dialog` 一样活到 `execPage()`
+    //       结束，而那三发信号只可能在 `execPage()` 期间发出来。
+    ServerListController serverEdits(ServerListController::Host{
+        [this](ServerListController::Ask which, const QString &initial, QString *out) {
+            // **四句问话的文案全在这儿** —— 只有主窗口有 OverlayHost，而且"哪一档说哪句话"
+            // 正是这一层该管的事（那一层只说"要问哪一格"）。
+            QString title;
+            QString label;
+            switch (which) {
+                case ServerListController::Ask::EditName:
+                    title = tr("编辑服务器");
+                    label = tr("这一台叫什么？");
+                    break;
+                case ServerListController::Ask::EditAddress:
+                    title = tr("编辑服务器");
+                    label = tr("地址是什么？（`主机名:端口`，端口不写就是默认那个）");
+                    break;
+                case ServerListController::Ask::AddName:
+                    title = tr("添加服务器");
+                    // 名字可以留空：`servers.dat` 里的 `name` 真能是空串（游戏那边显示成
+                    // 未命名），所以这一句得明说"留空也行"，不然用户会以为填不满就不让过。
+                    label = tr("这一台叫什么？（可以留空）");
+                    break;
+                case ServerListController::Ask::AddAddress:
+                    title = tr("添加服务器");
+                    label = tr("地址是什么？（`主机名:端口`，端口不写就是默认那个）");
+                    break;
+            }
+            bool ok = false;
+            const QString answer =
+                InlineMessage::getText(m_ui->overlay(), title, label, initial, &ok);
+            if (ok) {
+                *out = answer;
+            }
+            return ok;
+        },
+        [this](const QString &who, const QString &address) {
+            // 那一句问话里的名字已经过了 `displayName()`（空名字那一档是「（无名）」）——
+            // 用户点的是哪一台，问的就是哪一台。
+            return InlineMessage::question(
+                m_ui->overlay(), tr("删除服务器"),
+                tr("要把 %1（%2）从服务器列表里删掉吗？\n\n游戏里那份 servers.dat 里"
+                   "就少这一台了。")
+                    .arg(who, address),
+                tr("是"), tr("否"), /*defaultYes=*/false, /*destructive=*/true);
+        },
+        [this](const ServerListController::Notice &notice) { showServerListNotice(notice); },
+        [this](const QString &text) { appendLog(text); },
+        [this, &dialog](const QString &id) {
+            loadServerList(&dialog, id);
+            pingServers(&dialog, id);
+        }});
+
     // ★ 2026-10-10：「编辑」那颗（用户原话「在服务器列表那里做一个编辑地址和名称的功能」）。
     //   两样分开问**两句**（`InstanceFilesPage::setLineEdit()` 那样的两格表单这一层没有 ——
     //   InlineMessage 一次只问一样），顺序和「导入世界」那一套一致：**先说名字、再报地址**。
@@ -13785,43 +13808,11 @@ void MainWindow::openInstanceSettingsNow(const QString &versionId, const QString
     //   认出"要改的是哪一条"靠**按值匹配**（名字 + 地址，退一步只按地址）—— 不能按下标：
     //   `NbtUtil::readServerList` 会跳过没有可用 `ip` 的条目，于是界面上第 N 行**不等于**
     //   NBT 里第 N 条（见 ServerListFile.hpp 那段）。
+    //   ★ 2026-10-15：那两句话本身（标题 / 那两格问什么 / 要不要预填）在**上面那个 Host 里**
+    //     —— 这一层只剩"把这一发转给它"。
     connect(&dialog, &InstanceSettingsDialog::editServerRequested, this,
-            [this, &dialog, &targetId](const QString &oldName, const QString &oldAddress) {
-                // 地址那一句**预填现成的**：用户多半只改端口或者只改个名字，从原样起步最省事。
-                bool ok = false;
-                const QString newName = InlineMessage::getText(
-                    m_ui->overlay(), tr("编辑服务器"), tr("这一台叫什么？"), oldName, &ok);
-                if (!ok) {
-                    return;  // 取消了 —— 地址那一句也不必问
-                }
-                const QString newAddress = InlineMessage::getText(
-                    m_ui->overlay(), tr("编辑服务器"),
-                    tr("地址是什么？（`主机名:端口`，端口不写就是默认那个）"), oldAddress, &ok);
-                if (!ok) {
-                    return;
-                }
-                // 两个字都没变 ⇒ **一个字节都不写**（空转一遍还会把 mtime 推新、把 gzip
-                // 那一层重压一次，盘上那份东西凭什么变？）。
-                if (newName == oldName && newAddress == oldAddress) {
-                    return;
-                }
-                QString problem;
-                // 路径从 `ServerListFile::pathFor()` 来（唯一出处）—— 读侧（loadServerList）
-                // 用的也是它，两边拼错一处就是"改了这份、读的是那份"。
-                const QString datPath = ServerListFile::pathFor(targetId);
-                if (!ServerListFile::updateEntry(datPath, oldName, oldAddress, newName, newAddress,
-                                                 &problem)) {
-                    InlineMessage::warning(m_ui->overlay(), tr("没能改这一台"), problem);
-                    return;
-                }
-                appendLog(tr("已改服务器：%1（%2）→ %3（%4）")
-                              .arg(oldName.isEmpty() ? tr("（无名）") : oldName, oldAddress,
-                                   newName.isEmpty() ? tr("（无名）") : newName, newAddress));
-                // 改完重列一遍（**不新开一套"只换一行"的路**）：新表会让那一台的图标 / MOTD /
-                // 延迟回到「还没测」，所以顺手照「刷新」那一路重测一遍 —— 用户看见的就是
-                // "这一台现在的样子"，而不是一个改了名、底下还挂着旧状态的半截页面。
-                loadServerList(&dialog, targetId);
-                pingServers(&dialog, targetId);
+            [&serverEdits, &targetId](const QString &oldName, const QString &oldAddress) {
+                serverEdits.edit(targetId, oldName, oldAddress);
             });
 
     // ★ 2026-10-10：「添加」（用户原话「服务器那个页面里放一个添加服务器的按钮，允许添加」）。
@@ -13830,41 +13821,7 @@ void MainWindow::openInstanceSettingsNow(const QString &versionId, const QString
     //   ① 预填的是**空**（要加的那一台还没有名字 / 地址）；② 走的是 `addEntry()` —— 那个
     //      入口在**文件根本不存在**时也不当失败（那正是"这个实例第一次加服务器"）。
     connect(&dialog, &InstanceSettingsDialog::addServerRequested, this,
-            [this, &dialog, &targetId]() {
-                bool ok = false;
-                // 名字可以留空：`servers.dat` 里的 `name` 真能是空串（游戏那边显示成
-                // 未命名），所以这一句得明说"留空也行"，不然用户会以为填不满就不让过。
-                const QString name = InlineMessage::getText(
-                    m_ui->overlay(), tr("添加服务器"), tr("这一台叫什么？（可以留空）"), QString(),
-                    &ok);
-                if (!ok) {
-                    return;  // 取消了 —— 地址那一句也不必问
-                }
-                const QString address = InlineMessage::getText(
-                    m_ui->overlay(), tr("添加服务器"),
-                    tr("地址是什么？（`主机名:端口`，端口不写就是默认那个）"), QString(), &ok);
-                if (!ok) {
-                    return;
-                }
-                // 地址必填。这一道**在问话之后立刻挡**，不让它一路走到落盘再报错 ——
-                // 用户刚填完的那一格是什么，就在这儿说清楚（和 `updateEntry` 那边同一句话）。
-                if (address.trimmed().isEmpty()) {
-                    InlineMessage::warning(m_ui->overlay(), tr("没能加这一台"),
-                                           tr("地址不能是空的 —— 没有地址，"
-                                              "这一行在游戏里是一条点不动的空气。"));
-                    return;
-                }
-                QString problem;
-                if (!ServerListFile::addEntry(ServerListFile::pathFor(targetId), name, address,
-                                              &problem)) {
-                    InlineMessage::warning(m_ui->overlay(), tr("没能加这一台"), problem);
-                    return;
-                }
-                appendLog(tr("已加服务器：%1（%2）")
-                              .arg(name.isEmpty() ? tr("（无名）") : name, address));
-                loadServerList(&dialog, targetId);
-                pingServers(&dialog, targetId);
-            });
+            [&serverEdits, &targetId]() { serverEdits.add(targetId); });
 
     // ★ 2026-10-10：「删除」（用户原话「编辑要能改名字改地址以及删除」）。
     //   和「编辑」同一套，多出来的只有**中间那一道问话** —— 这是这一页上唯一一次真会从
@@ -13874,26 +13831,8 @@ void MainWindow::openInstanceSettingsNow(const QString &versionId, const QString
     //     名字是空串是合法的，所以那一档写「（无名）」+ 地址 —— 光说"这一台"的话，两台
     //     没名字的服务器在屏幕上是同一个问题。
     connect(&dialog, &InstanceSettingsDialog::deleteServerRequested, this,
-            [this, &dialog, &targetId](const QString &name, const QString &address) {
-                const QString who = name.isEmpty() ? tr("（无名）") : name;
-                if (!InlineMessage::question(
-                        m_ui->overlay(), tr("删除服务器"),
-                        tr("要把 %1（%2）从服务器列表里删掉吗？\n\n游戏里那份 servers.dat 里"
-                           "就少这一台了。")
-                            .arg(who, address),
-                        tr("是"), tr("否"), false, /*destructive=*/true)) {
-                    return;
-                }
-                QString problem;
-                // 按值认那一条（名字 + 地址，退一步只按地址）—— 见 ServerListFile 那段。
-                if (!ServerListFile::removeEntry(ServerListFile::pathFor(targetId), name, address,
-                                                 &problem)) {
-                    InlineMessage::warning(m_ui->overlay(), tr("没能删这一台"), problem);
-                    return;
-                }
-                appendLog(tr("已删服务器：%1（%2）").arg(who, address));
-                loadServerList(&dialog, targetId);
-                pingServers(&dialog, targetId);
+            [&serverEdits, &targetId](const QString &name, const QString &address) {
+                serverEdits.remove(targetId, name, address);
             });
 
     // ★ 2026-10-10：「加入服务器」（**临时占位**）。和存档那一页那颗走的是同一条路
@@ -14036,73 +13975,18 @@ void MainWindow::openInstanceSettingsNow(const QString &versionId, const QString
 // ---------- 实例设置「文件管理」那八页（见 .hpp 里那一段）----------
 
 QHash<QString, QString> MainWindow::instanceFileDirs(const QString &versionId) const {
-    const QString root = AppPaths::versionDir(versionId);
-    QHash<QString, QString> dirs;
-
-    // 能下载的那四类走 ResourceCatalog 那张表 —— 那是目录名的**唯一出处**
-    // （整合包那一路 curseForgeFilePath() 也照它写，注释里点名要求一致）。
-    const QList<QPair<QString, ResourceCatalog::Kind>> downloadable = {
-        {QStringLiteral("mod"), ResourceCatalog::Kind::Mod},
-        {QStringLiteral("resourcepack"), ResourceCatalog::Kind::ResourcePack},
-        {QStringLiteral("datapack"), ResourceCatalog::Kind::DataPack},
-        {QStringLiteral("shader"), ResourceCatalog::Kind::Shader},
-    };
-    for (const QPair<QString, ResourceCatalog::Kind> &entry : downloadable) {
-        dirs.insert(entry.first,
-                    root + QLatin1Char('/') + ResourceCatalog::folderForKind(entry.second));
-    }
-
-    // 这五样下载页里没有对应的"类"（没有"存档"/"配置文件"这一类资源），目录名直接写在这儿。
-    // 「原理图」用的是 Litematica 的默认目录名；另外四个是游戏自己建的。
-    //
-    // ★ `config` 是 2026-09-27 加的（实例设置里那一页「配置文件」）。**它不是游戏建的** ——
-    //   是模组自己建的（原版客户端根本没有这个目录，那时候那一页会说"进一次游戏"）。
-    const QList<QPair<QString, QString>> plain = {
-        {QStringLiteral("schematic"), QStringLiteral("schematics")},
-        {QStringLiteral("config"), QStringLiteral("config")},
-        {QStringLiteral("save"), QStringLiteral("saves")},
-        {QStringLiteral("screenshots"), QStringLiteral("screenshots")},
-        {QStringLiteral("logs"), QStringLiteral("logs")},
-    };
-    for (const QPair<QString, QString> &entry : plain) {
-        dirs.insert(entry.first, root + QLatin1Char('/') + entry.second);
-    }
-    return dirs;
+    // 判断搬到 `InstancePagesController::fileDirs()` 了；这个成员留着是因为它在仓里有
+    // 十来个调用点（落点那几个入口、配置备份、存档页、图标反查、实例工具入口……），
+    // 逐个改成静态调用只是换一种写法，不解决任何事。
+    return InstancePagesController::fileDirs(versionId);
 }
 
 QStringList MainWindow::instanceCommonFolderKeys(const QString &versionId,
                                                  const QHash<QString, QString> &dirs) const {
-    // coding plan §5.3 原话：「仅在**目录存在**或**相关模组可识别**时优先展示，其他项收在
-    // "更多目录"」—— 这个函数就是那句话的那两条判据，一条不多。
-    //
-    // NOTE: **没有第二张"哪些一定得有"的表** —— 十三条里十二条的判据都是同一个
-    //       `QDir(path).exists()`，唯一一条例外是「录像」（下面说明）。加一条新的常用目录时
-    //       只该往 shortcutPathKeys() 那张表里加一行，不该在这儿再加一个分支。
-    const QString instanceDir = AppPaths::versionDir(versionId);
-    // 「录像」是唯一一条"目录还没有、也算有"的：没装 ReplayMod 的用户这辈子看不到这个
-    // 目录，装了但还没录过的实例上它往往也还没建（第一次开录像时才建）。所以**装了那个
-    // 模组就算有** —— 这正是 §5.3 那句"相关模组可识别"。识别的办法和仓里别的几处一样，
-    // 走 instanceHasMod()（mods/ 里文件名的那个整段词，见它上面那段说明）。
-    //
-    // NOTE: 目录名 `replay_recordings` 的出处是 AppPaths::replayRecordingsDir()（那个模组
-    //       定的名字），这一层不自己拼。
-    const bool hasReplayMod = instanceHasMod(versionId, QStringLiteral("replaymod"));
-
-    QStringList present;
-    const QStringList keys = InstanceSettingsDialog::shortcutPathKeys();
-    for (const QString &key : keys) {
-        // 「版本目录」开的是 setInstanceDir() 那一份、不在 dirs 里 —— 判据照旧是同一个
-        // （见 .hpp 里 setFileDirs() 那条 NOTE）。
-        const QString path = key == QStringLiteral("dir") ? instanceDir : dirs.value(key);
-        bool ok = !path.isEmpty() && QDir(path).exists();
-        if (key == QStringLiteral("replay")) {
-            ok = ok || hasReplayMod;
-        }
-        if (ok) {
-            present.append(key);
-        }
-    }
-    return present;
+    // 同前：判断在 `InstancePagesController::commonFolderKeys()`。那一份"有哪几条常用目录"
+    // 是界面的事（`InstanceSettingsDialog::shortcutPathKeys()`），所以从这儿递进去。
+    return InstancePagesController::commonFolderKeys(versionId, dirs,
+                                                     InstanceSettingsDialog::shortcutPathKeys());
 }
 
 void MainWindow::openDownloadCategory(const QString &categoryKey, const QString &returnInstanceId) {
@@ -15051,104 +14935,19 @@ bool MainWindow::confirmDiscardWorldEdits() {
         tr("丢掉改动"), tr("留在这儿"), false);
 }
 
-namespace {
-
-/// 文件名切出来的"词"里有没有 @p token（忽略大小写）。
-///
-/// ★ 2026-09-27 新加的。原来 `instanceHasMod()` 是拿文件名跟 token 做 `startsWith()` ——
-///   在一个"jar 可以随便改名"的世界里不够：**中文整合包和 PCL 都会给 jar 前面挂一个
-///   中文名**，用户盘上真有的两例就是 `[投影] litematica-fabric-26.2-0.28.7.jar` 和
-///   `[虹膜] iris-fabric-1.11.4+mc26.2.jar`。按前缀认的话这两样都算"没装"，而它们明明
-///   装着 —— 于是「光影包」「原理图」那两页谎报"用不上"（用户 2026-09-27 报的
-///   「原理图和光影包没正常显示」）。
-///
-/// 切词规则：**只有 ASCII 的字母数字算"词里的字"**，别的一律当分隔符 —— `-` `_` `+` `.`
-/// 空格、方括号，以及**中日韩字**（那一档是刻意的：`虹膜iris-….jar` 这种一个分隔符都不
-/// 带的写法也切得出来，中文不会粘住后面的词）。
-/// 命中判据两条：词**等于**它，或者词**以它开头**（`irisfly.jar` / `litematicafoo.jar`
-/// 这种粘连写法照旧算 —— 和从前那个前缀语义对齐，不多不少）。
-bool fileNameHasToken(const QString &fileName, const QString &token) {
-    if (token.isEmpty()) {
-        return false;
-    }
-    const QString wanted = token.toLower();
-    const auto hit = [&wanted](const QString &word) {
-        return word == wanted || word.startsWith(wanted);
-    };
-    QString word;
-    for (const QChar character : fileName.toLower()) {
-        if (character.isLetterOrNumber() && character.unicode() < 128) {
-            word += character;
-            continue;
-        }
-        if (hit(word)) {
-            return true;
-        }
-        word.clear();
-    }
-    return hit(word);
-}
-
-}  // namespace
-
 bool MainWindow::instanceHasMod(const QString &versionId, const QString &nameToken) const {
-    const QString modsDir =
-        AppPaths::versionDir(versionId) + QLatin1Char('/') +
-        ResourceCatalog::folderForKind(ResourceCatalog::Kind::Mod);
-    // 只认 `.jar`：被禁用的那些现在叫 `.jar.disabled`，扫不到 —— 那正是禁用的意思。
-    const QStringList jars = QDir(modsDir).entryList({QStringLiteral("*.jar")}, QDir::Files);
-    for (const QString &jar : jars) {
-        if (fileNameHasToken(jar, nameToken)) {
-            return true;
-        }
-    }
-    return false;
+    // 判断（文件名切词、命中判据）在 `InstancePagesController::hasMod()` /
+    // `jarNameHasToken()`。这个成员留着是因为它也有别的读者（常用目录那一列认 ReplayMod、
+    // 自动归类那一带），它们拿的是主窗口。
+    return InstancePagesController::hasMod(versionId, nameToken);
 }
 
 bool MainWindow::instanceShaderUsable(const QString &versionId) const {
-    // ① 加载器**就是** OptiFine（它自己就认 shaderpacks/）。加载器名走 instanceLoaderName()
-    //    而不是 `displayParts().loaderName`：后者只有我们自己的安装器会写，而用户那两个
-    //    OptiFine 实例（`1.20.1-OptiFine_I6` / `1.20.2-OptiFine_I7_pre1`）是 PCL 装的、
-    //    meta 里没有那一格 —— 它们又没有 mods/ 目录，于是①和②两条同时落空，光影包那一页
-    //    在**真的装了 OptiFine** 的实例上说"用不上"（2026-09-27 连同「模组」一起修的）。
-    //    比对基准走 VersionManager::loaderDisplayName()，不写一遍字面量。
-    const QString loader = instanceLoaderName(m_versionManager->displayParts(versionId),
-                                             m_versionManager);
-    if (loader == VersionManager::loaderDisplayName(VersionManager::LoaderKind::OptiFine)) {
-        return true;
-    }
-    // ② mods/ 里装了一个"加载光影的模组"。这三个名字**都是用户盘上真见过的**：
-    //    `iris`（Fabric / NeoForge / Quilt 上那个）、`oculus`（Forge 上那个 Iris 移植 ——
-    //    「落幕曲」「香草纪元」「魔改版ATT2」三个整合包用的都是它）、`optifine`
-    //    （1.12.2 及以前 OptiFine 是**当普通模组装进 mods/ 下**的，
-    //    `OptiFine_1.12.2_HD_U_G5.jar`）。三条原来一条都不认。
-    // NOTE: 没有 `optifabric`（Fabric 上那个把 OptiFine 塞进来的桥）：它要求 OptiFine
-    //       的 jar 也在 mods/ 里，所以上面那条 `optifine` 本来就盖住了它。
-    static const QStringList loaders = {
-        QStringLiteral("iris"),
-        QStringLiteral("oculus"),
-        QStringLiteral("optifine"),
-    };
-    for (const QString &token : loaders) {
-        if (instanceHasMod(versionId, token)) {
-            return true;
-        }
-    }
-    return false;
+    return InstancePagesController::shaderUsable(m_versionManager, versionId);
 }
 
 bool MainWindow::instanceModsUsable(const QString &versionId) const {
-    // ① 基于一个模组加载器。判据走 instanceLoaderName()（**不是** displayParts().loaderName
-    //    —— 那一格只有我们自己的安装器会写，理由写在那个函数的说明里）。
-    if (!instanceLoaderName(m_versionManager->displayParts(versionId), m_versionManager)
-             .isEmpty()) {
-        return true;
-    }
-    // ② mods/ 里已经有 jar。和 instanceHasMod() 一样只认 `.jar`：被禁用的那些现在叫
-    //    `.jar.disabled`，扫不到 —— 那正是禁用的意思。
-    const QDir modsDir(AppPaths::versionDir(versionId) + QLatin1Char('/') +
-                       ResourceCatalog::folderForKind(ResourceCatalog::Kind::Mod));
-    return !modsDir.entryList({QStringLiteral("*.jar")}, QDir::Files).isEmpty();
+    return InstancePagesController::modsUsable(m_versionManager, versionId);
 }
 
 void MainWindow::loadServerList(InstanceSettingsDialog *dialog, const QString &versionId) const {
@@ -16277,183 +16076,38 @@ void MainWindow::pushInstanceFileUpdates(InstanceSettingsDialog *dialog,
 
 bool MainWindow::applyInstanceSettings(const QString &versionId,
                                       const InstanceSettingsDialog &dialog) {
-    // ★ 分组归属的**老键必须在写 meta 之前取**。下面那一句 `ensureInstanceId()` 会给
-    //   "还没有稳定 id"的老实例补一个，而归属是按 `instanceKey()`（有 id 用 id、没有就
-    //   退回目录名）存的 ⇒ 补上 id 之后同一个实例的键**换了一个**，不跟着搬它就会
-    //   **静默掉出原来那一组**。用户看到的是"我只改了个内存设置，它自己从组里出来了"，
-    //   而且没有任何日志、没有任何弹窗 —— 事后才发现。
+    // ★ 2026-10-15：那一整套（补稳定 id → 搬归属键 → 拼字段 → 图标那几个字节 → 写 meta →
+    //   判要不要重扫树 → 分组/置顶那三条规则）搬进了 `InstanceSettingsController::apply()`。
+    //   这一层剩下的是**只有它能做的那一半**：把对话框现读成一份 `Edit`（那些值），以及
+    //   回答"它老家本来在哪一组"（`homeGroupIdOf()`，显示层那一套）。
     //
-    //   NOTE: 已经走过改名那条路的实例到这里时 id 早就有了（`renameInstance()` 那一步
-    //         生成的），oldKey == newKey —— `rekey()` 自己认得出这是空操作，一个字节
-    //         都不写盘（见它开头那一句）。
-    const QString oldGroupKey = instanceKey(versionId);
+    // NOTE: 这个适配器只能留在这一层 —— `InstanceSettingsDialog` 是 `ui/` 的类型，而
+    //       controller 那一层不许 include `ui/`。所以"能验得了"这件事靠的是把 `Edit`
+    //       切出来：`applyInstanceSettings()` 收对话框引用、验证工程驱动不了它，而
+    //       `apply()` 收的是纯值，验得了。
+    const InstanceSettingsDialog::Override override = dialog.override();
 
-    // 先把稳定 id 落下去。**必须排在最前**：这一项覆盖要"跟着这个实例走"，而实例的
-    // 身份就是那个 id（目录名会被改，改名之后按目录名记的东西全丢）。失败就不写 ——
-    // 写成一次"靠目录名认出来的覆盖"比这次没写成糟得多。
-    if (m_versionManager->ensureInstanceId(versionId).isEmpty()) {
-        InlineMessage::critical(m_ui->overlay(), tr("实例设置没能保存"),
-                              tr("「%1」的 wtfml.meta 写不进去，这次的设置没有保存。\n\n"
-                                 "（这份文件可能被别的程序占着，或者它所在的目录不可写。）")
-                                  .arg(instanceDisplayName(versionId)));
-        return false;
-    }
+    InstanceSettingsController::Edit edit;
+    edit.java = toSettingsOverride(override);
+    edit.extraJvmArgs = dialog.appendJvmArgs();
+    edit.window = toWindowOverride(override);
+    edit.warnJavaMismatch = dialog.warnJavaMismatch();
+    edit.iconChoice = dialog.iconChoice();
+    edit.pickedIconPath = dialog.pickedIconPath();
+    // 这个常量住在 ui/ 那一侧（它是对话框上那一格显示成「本地那张」的判据）⇒ 从这里填进去，
+    // controller 那边**不抄一份**。
+    edit.localIconValue = InstanceSettingsDialog::localIconValue();
+    edit.pageChoices = dialog.pageChoices();
+    edit.pinned = dialog.pinned();
+    edit.chosenGroupId = dialog.chosenGroupId();
+    // "老家"要按版本分类现算 —— 那一位住在这一层（`homeGroupIdOf()`，实例树上那一行画在
+    // 哪个组里用的也是它）。
+    edit.homeGroupAtOpen =
+        homeGroupIdOf(m_groupStore, instanceKey(versionId),
+                      m_versionManager->displayParts(versionId), m_versionManager,
+                      knownGroupIdsOf(m_groupStore));
 
-    // 键换过了（老实例刚拿到 id）就把归属搬过去 —— 这一步**必须在这里**，不能挪到
-    // 下面那次写 meta 之后：`ensureInstanceId()` 已经把 id 落盘了，也就是说"键已经换了"
-    // 是既成事实，再往下走无论成败，归属都只剩这一条路能保住。
-    //
-    // NOTE: 搬失败**不当成"设置没保存"**（照 applyRename 的先例）：那会让用户以为要重来
-    //       一次，而设置那半边马上就写好了。说清楚哪一半没成，让他自己去「分组…」再归一次。
-    const QString newGroupKey = instanceKey(versionId);
-    QString groupError;
-    if (!m_groupStore->rekey(oldGroupKey, newGroupKey, &groupError)) {
-        InlineMessage::warning(m_ui->overlay(), tr("分组归属没跟着搬"),
-                             tr("「%1」的分组归属没能搬过去：\n%2\n\n"
-                                "可以在「分组…」里重新归一次。")
-                                 .arg(instanceDisplayName(versionId), groupError));
-    }
-
-    // "值 → 要写进 meta 的字段"整批交给 javaOverrideMetaFields()：五项里"跟随全局"
-    // 的要**删键**而不是写一个等于全局的值（写了的话用户之后改全局，这个实例就不跟着
-    // 走了，而他明明选的是「跟随全局」），追加参数为空时那个键也要删。这套判断放在
-    // settings/ 那边是有意的 —— 在这里就没法被断言盯上（这个函数收的是对话框引用，
-    // 验证工程驱动不了它）。
-    QJsonObject fields =
-        javaOverrideMetaFields(toSettingsOverride(dialog.override()), dialog.appendJvmArgs(),
-                               VersionManager::jvmArgsField());
-
-    // 窗口那三项（模式 / 宽 / 高，2026-09-28）。**同一个约定**（没有值 = 写 Null = 删键），
-    // 由 gameWindowOverrideToJson() 一次性给全 —— 那三个键的读侧写侧都在 src/settings/
-    // 那一处（键名一个都不在这边重写）。
-    // NOTE: 一次一个键合进去（`QJsonObject` 没有整块注入的接口）。值本身是 Null 的那几项
-    //       就是"删键"（updateVersionMeta 的约定），照原样交给它。
-    const QJsonObject windowFields = gameWindowOverrideToJson(toWindowOverride(dialog.override()));
-    for (auto it = windowFields.constBegin(); it != windowFields.constEnd(); ++it) {
-        fields.insert(it.key(), it.value());
-    }
-
-    // 提醒开关：勾着（要提醒）就**删掉**那个键，取消勾选才写 true。
-    // 和那五项同一个约定（Null = 删键）—— 写一个"等于默认值"的 false 进 meta 会让这个
-    // 文件里多出一堆没信息量的键，而且"没写过"和"写过 false"从此分不开。
-    fields.insert(VersionManager::skipJavaVersionWarningField(),
-                  dialog.warnJavaMismatch() ? QJsonValue(QJsonValue::Null) : QJsonValue(true));
-
-    // ---------- 图标（2026-09-26）----------
-    //
-    // 用户刚挑了一张图 ⇒ **先把它拷进实例目录**，再往 meta 里写"用本地那张"。顺序反过来的话，
-    // 写成功、拷失败会在盘上留下一句指向一个不存在的文件的 meta（树那一格从此永远是默认图标，
-    // 而文件里明明写着 local）。
-    //
-    // NOTE: 拷失败**不把整次保存赔进去**（只报一声、meta 里那一格保持原样）：用户改的内存 /
-    //       Java 路径和图标是两件事，为前者把后者一起丢掉是替用户做主。写回去的那个值是
-    //       **磁盘上现在是什么**、不是"这次没改"，所以这一次写入不会动它 —— 而要是直接写
-    //       dialog.iconChoice()，用户清掉图标就会把盘上那张删了却还以为换成了默认的。
-    //
-    // ★ `iconBefore` 是**这一次写之前** disk 上那个值，用来回答"这次改动里包含图标吗"
-    //   （见函数末尾那一发 refreshInstalledVersions()）。
-    const QString iconBefore = m_versionManager->versionIcon(versionId);
-    QString iconValue = dialog.iconChoice();
-    const QString pickedIcon = dialog.pickedIconPath();
-    if (!pickedIcon.isEmpty()) {
-        QString iconError;
-        if (writeInstanceIcon(versionId, pickedIcon, &iconError)) {
-            iconValue = InstanceSettingsDialog::localIconValue();
-        } else {
-            InlineMessage::warning(m_ui->overlay(), tr("图标没能保存"), iconError);
-            iconValue = m_versionManager->versionIcon(versionId);
-        }
-    }
-    // 空串 = 「默认」= **删掉那个键**，不写一个"等于默认"的值 —— 和上面两项同一个约定。
-    fields.insert(VersionManager::iconField(),
-                  iconValue.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(iconValue));
-
-    // ---------- 左栏显示哪几页（2026-09-27）----------
-    //
-    // 一个**顶层对象**（`{"save": false}`）—— updateVersionMeta 的合并是"这一格的整块替换"，
-    // 所以不用（也不能）逐条删键：整块交上去，那一格就以这份为准。
-    // 空对象（七条全显示 = 没勾掉任何一条）写 Null ⇒ **删键**，和上面三项同一个约定。
-    //
-    // NOTE: 这里**不校验**那几页此刻可不可用 —— 值是从对话框现读的（pageChoices()），而它
-    //       本来就只写"可用且没勾"的那几条（见它那段说明）。可用性是每次现算的，不写盘。
-    const QJsonObject pageChoices = dialog.pageChoices();
-    fields.insert(VersionManager::settingsPagesField(),
-                  pageChoices.isEmpty() ? QJsonValue(QJsonValue::Null)
-                                        : QJsonValue(pageChoices));
-
-    QString error;
-    if (!m_versionManager->updateVersionMeta(versionId, fields, &error)) {
-        // 数据层不弹窗是约定，所以弹在这一层。error 里已经写清了"是哪个文件、为什么"。
-        InlineMessage::critical(m_ui->overlay(), tr("实例设置没能保存"), error);
-        return false;
-    }
-    appendLog(tr("实例设置已保存：%1").arg(versionId));
-
-    // 图标换了，就得让实例树上那一格跟着换。`updateVersionMeta()` **没有任何"meta 变了"
-    // 的信号**（它是数据层，不认得上层谁在看），而写入 Meta 之后树上那一格的图标是从
-    // meta 现读的 —— 不重扫的话用户回到实例页看到的还是老图标，得等下一次下载或者重启。
-    //
-    // 判据是"写之前那个值和现在盘上那个值一样不一样"，**不是**"这次有没有碰图标那一格"：
-    // 实时写盘之后 applyInstanceSettings() 每次值一变就会被调一次（改个内存数字也算），
-    // 无条件重扫等于每敲一下就全盘扫一遍目录。
-    //
-    // NOTE: 只有图标这一项在这儿重扫。名字那一项走 renameRequested → applyRename，
-    //       那边自己会刷（`applyRename()` 里那句）。分组/置顶在下面，它们各自走
-    //       setInstanceHomeGroup / pin / unpin，那三个会发 groupsChanged 把树重灌。
-    if (m_versionManager->versionIcon(versionId) != iconBefore) {
-        refreshInstalledVersions();
-    }
-
-    // ---------- 分组 / 置顶（2026-09-26，当天晚些时候改成"两边都显示"）----------
-    //
-    // 排在写 meta **之后**、`rekey()` **之后**（那一步在上面）：归属的键刚刚才定下来，在它
-    // 之前写等于写到旧键上。
-    //
-    // 三条规则，合起来就是"用户在「分组…」和那颗勾选框上摆成什么样，结果就是什么样"：
-    //   ① 老家被**用户改过** → 改老家（setInstanceHomeGroup：置顶着的那一档只改"老家"那
-    //      一格，members 继续指着置顶组）；
-    //   ② 原来没置顶、现在勾上了 → 置顶（记下"置顶前老家在哪一组"，老家那一条不动）；
-    //   ③ 原来置顶、现在取消了   → 取消置顶（回到记着的那一组）。
-    //
-    // NOTE: 判"改没改"是拿对话框里那一格的值和**打开对话框时**那一格的值比，不是拿它和
-    //       "现在存在哪一组"比 —— 和验证工程驱动这颗按钮时同一个口径，见 .hpp 里
-    //       setGroupChoices() 那段。
-    //
-    // NOTE: ②③ 和 ① 现在**互不相干**了。旧语义（置顶 = 把它挪进置顶组）里这两件事抢同一格：
-    //       勾上置顶会把「分组」那一格当场挪到置顶组上去（旧代码里那个 applyPinState()），
-    //       于是"分组被改过"这一问必须有额外的规矩才分得清是用户改的还是置顶顺手摆的。
-    //       现在那一格是老家、勾选框只管多摆一条，两者不再打架，那段规矩连同 hasPinGroup
-    //       那道闸一起删了 —— 没有置顶组时勾选框本来就是灰的（setPinned()），勾不上。
-    //
-    // NOTE: 三条路都走**现有那几个入口**（setInstanceHomeGroup / pinInstance / unpinInstance），
-    //       不在这里另写一遍 wtfml.folders 的读写：它们各自会发 groupsChanged、自己把树重灌，
-    //       而且"没有置顶组时什么都不做""认不出来就落未分组"这些判断都已经在那儿了。
-    //
-    // NOTE: 顺序是**先改老家、再摆置顶**。这一版两种顺序算出来的答案是同一个（理由写在
-    //       InstanceGroupStore::setInstanceHomeGroup() 上面那段 NOTE 里），钉死它只是为了让
-    //       读代码的人不用先在脑子里把那四种组合各跑一遍。
-    const QString key = instanceKey(versionId);
-    const QSet<QString> knownGroupIds = knownGroupIdsOf(m_groupStore);
-    const QString groupAtOpen =
-        homeGroupIdOf(m_groupStore, key, m_versionManager->displayParts(versionId),
-                      m_versionManager, knownGroupIds);
-    const bool wasPinned = m_groupStore->isPinned(key);
-    const bool nowPinned = dialog.pinned();
-
-    // ① 老家被改过。
-    if (dialog.chosenGroupId() != groupAtOpen) {
-        setInstanceHomeGroup(versionId, dialog.chosenGroupId());
-    }
-    // ② 刚勾上置顶。
-    if (nowPinned && !wasPinned) {
-        pinInstance(versionId);
-    }
-    // ③ 原来置顶、现在取消了：回到记着的那一组（判据在本函数进来的那一刻，所以上面 ① 改
-    //    没改过老家都不影响这一档 —— 换过老家之后再取消置顶，回的就是刚换的那一组）。
-    if (wasPinned && !nowPinned) {
-        unpinInstance(versionId);
-    }
-    return true;
+    return m_instanceSettings->apply(versionId, edit);
 }
 
 /// 把一个参数按 cmd.exe 的规矩包起来（「导出启动脚本」那一串参数要用它）。

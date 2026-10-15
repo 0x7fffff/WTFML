@@ -739,7 +739,8 @@
   那一层、**崩溃报告**开的是 `<数据目录>/crash-reports`、**录像**是 `<数据目录>/
   replay_recordings`（目录名是那个模组定的）—— 后两个**不按实例分**（游戏进程的工作目录就是
   数据目录，写它们的是游戏/模组自己）。★ 判据本身只有一处
-  `MainWindow::instanceCommonFolderKeys()`（只有那一层知道游戏目录在哪儿、装没装那个模组），
+  `InstancePagesController::commonFolderKeys()`（只有那一层知道游戏目录在哪儿、装没装那个模组；
+  2026-10-15 之前它是 `MainWindow::instanceCommonFolderKeys()`，主窗口那个同名成员现在只是转发），
   ui/ 那一层只认递进来的那张表。**一条都没收着的时候「更多目录…」那颗整个不存在**（不摆一颗
   按下去什么都不变的按钮）；点开 / 收起是**纯视图**的改动（一个字节都不进 `wtfml.meta`，
   所以也不记进"实例设置改过"那本账）。
@@ -1276,6 +1277,13 @@
     将来新加的）原样带着走；**不许按下标**（`NbtUtil::readServerList` 会跳过没有可用 `ip`
     的条目，界面上第 N 行**不等于** NBT 里第 N 条）。这一页现在**没有任何备份机制** ——
     靠的就是"认不出就一个字都不写 + `QSaveFile` 原子替换"。
+  - ★ 「**什么时候该写**」是另一层的事，2026-10-15 从
+    `MainWindow::openInstanceSettingsNow()` 里搬进了 `src/controllers/ServerListController`
+    —— 那上面那四道闸（两样都没变就别写 / 地址必填 / 「（无名）」这条显示规矩 / 改完重读
+    重测）连同三行日志一起归它管，主窗口那一层只剩"四句问话怎么说"。**"那份文件变了"从
+    这一层只喊一声 `changed(instanceId)`**（重读重测留在这边，因为只有主窗口知道那份表摆在
+    哪个控件上）。这么一分之后，"有没有落盘 / 有没有记日志"这件事**不用开窗口**就验得了
+    （verify 的 ZK17 节起是用一个假 Host 驱动的）。
   - **那几颗按钮的文字/提示一律不就地写**：`serverEditText()` / `serverEditTip()` /
     `serverAddText()` / `serverAddTip()` / `serverDeleteText()` / `serverDeleteTip()` /
     `serverSelectFirstHint()`，需要选中行的那几颗（编辑 / 删除 / 加入服务器）一行都没选中时
@@ -1330,12 +1338,12 @@
   - ⇒ **这一页没法"只读一个目录"就把两种都列出来**。要先回答"这一页是给哪个存档看的"
     —— 这就是顶上那两排**来源**（下面一条）的来由。
 - **摆出来的样子（2026-10-10 起，用户原话「那就像版本树一样根据存档来列…两个下拉框并排」+「**上面一排是存档的，下面一排是投影的**」）**：顶上那两排**来源**（`setStructureSources()`），一排一个来源，每排是「排头 + 下拉框」；下面那份列表就是这两排选中的目录合起来的（`scanDirectories()`）。四条规矩**逐条都是用户点名的**：
-  - **没有结构的存档一个都不列**（`worldStructureSources()` 每个存档走一遍 `generated/minecraft/structures/`，`dirHasStructureFiles()` 一找到第一条 `.nbt` 就停）；
+  - **没有结构的存档一个都不列**（`InstancePagesController::worldStructures()` 每个存档走一遍 `generated/minecraft/structures/`，一找到第一条 `.nbt` 就停）；
   - **没装投影模组就没有「投影」那一排**；
   - 一个存档都没有结构、可投影装着 ⇒ **存档那一排照旧露着**，下拉框里是**一行灰的、点不动的**「无可用的结构」；
   - 两样都没有 ⇒ 返回**空表**，那一页**一个框都不摆**，只剩"这个实例还没有结构 / 原理图"那句提示。
   - ★ 两排的**排头一样宽**（拿**递进来的那些 title** 现量最宽的那个，不是照「存档」两个字写死 —— 哪一天某一排排头多一个字，它那一排的下拉框就整体右移一格）。★ 换一排的来源 = 当场重列（和「刷新」同一件事，只是目录换了）。
-  - 判据全在 `MainWindow` 那一层（`AppPaths` 和"装没装那个模组"都在它手上）；`InstanceFilesPage` 上那三个静态函数（`structureWorldTitle()` / `structureSchematicTitle()` / `structureSchematicText()`）是那几个字的**唯一出处**。
+  - 判据全在业务层那两层（`InstancePagesController` 算"哪几个存档有结构、装没装投影"，`MainWindow` 里那个 `structureSourcesFor()` 把那份事实摆成这一页要的形状）。2026-10-15 之前这些都写在 `MainWindow::openInstanceSettingsNow()` 里那个 lambda 上；`InstanceFilesPage` 上那三个静态函数（`structureWorldTitle()` / `structureSchematicTitle()` / `structureSchematicText()`）是那几个字的**唯一出处**（所以排头由摆控件那一层戴，不跟着事实走）。
 - **量力而行那三档**：
   - 只列名字/大小/时间：**做的是这一档**。
   - 列表里加一句"这份是什么"（给原版 `.nbt` 能直接写出 `10×10×10、19 种方块、1.20.4`）：
@@ -1344,7 +1352,7 @@
     过去，里面那几 MB 的 `BlockStates` long array 一起算 ⇒ 后台那一路会卡一下。**没做**。
   - 画预览 / 转格式：**不做**（等于自己实现两边的调色板 + 位压缩解码，和"启动器"这个身份
     不成比例）。
-- ★ 用户那句「仅限存在投影模组/结构方块的版本可以勾选显示」里的"结构方块"当初被当成"版本够不够新（1.9+ 是原版方块）"这种**版本层**的判据 —— 那是错的，真判据是"这个实例里**存不存在**带结构的存档"（`worldStructureSources()` 非空）。拿版本号当判据的话，一个 1.20.4 的实例点进去看见的是一个**空目录**（他们的结构在存档里，`schematics/` 是空的）。
+- ★ 用户那句「仅限存在投影模组/结构方块的版本可以勾选显示」里的"结构方块"当初被当成"版本够不够新（1.9+ 是原版方块）"这种**版本层**的判据 —— 那是错的，真判据是"这个实例里**存不存在**带结构的存档"（`InstancePagesController::worldStructures()` 非空）。拿版本号当判据的话，一个 1.20.4 的实例点进去看见的是一个**空目录**（他们的结构在存档里，`schematics/` 是空的）。
 
 ### 下载与安装
 

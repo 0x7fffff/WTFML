@@ -137,6 +137,12 @@ set(PROJECT_SOURCES
     # 两格」的写。它要 NbtUtil（读）和 ZipUtil（gzip 那一层）—— 那两样都在上面。
     ${REPO_ROOT}/src/manage/ServerListFile.cpp
     ${REPO_ROOT}/src/manage/ServerListFile.hpp
+    # ServerListController（2026-10-15）：上面那三个写入口**谁在指挥**（改 / 加 / 删那三条
+    # 链路上的四道闸）。2026-10-15 从 MainWindow 搬出来，收成一个假 Host 就能驱动的形状 ——
+    # ZK13 起那一节正是靠这一点才验得了（从前那些闸夹在 OverlayHost 中间，要验得开真窗口）。
+    # 它只要 ServerListFile（在上面）和 QtCore。
+    ${REPO_ROOT}/src/controllers/ServerListController.cpp
+    ${REPO_ROOT}/src/controllers/ServerListController.hpp
     ${REPO_ROOT}/src/launcher/QuickPlay.hpp
     ${REPO_ROOT}/src/util/ZipUtil.cpp
     ${REPO_ROOT}/src/util/ZipUtil.hpp

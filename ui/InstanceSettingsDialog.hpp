@@ -25,7 +25,10 @@
  * 【约定：对话框只改自己手里那份值，不碰磁盘】
  *
  * **这一层一个字节都不写盘**：它把控件读成一份值（override() / appendJvmArgs() /
- * iconChoice() …），落盘在 MainWindow::applyInstanceSettings() 里。
+ * iconChoice() …）交给调用方。落盘那一步**只有一条路**：`MainWindow::applyInstanceSettings()`
+ * 把这些值读成一份 `InstanceSettingsController::Edit`，再交给
+ * `InstanceSettingsController::apply()`（2026-10-15 从主窗口搬过去的；主窗口那一层只剩
+ * "读对话框"这个适配器和一个按 `Notice::Kind` 挑中文的地方）。
  *
  * ★ 2026-09-26 起这一页**没有「确定」也没有「取消」**（用户原话：「实例设置里面的那个
  * 取消和确定删了，修改了的设置实时写入」）。于是"什么时候写"从"点确定那一刻"变成了

@@ -1,0 +1,368 @@
+#include "controllers/InstanceSettingsController.hpp"
+
+#include "util/AppPaths.hpp"
+#include "manage/InstanceFiles.hpp"
+#include "manage/InstanceGroupStore.hpp"
+#include "manage/VersionManager.hpp"
+#include "settings/LauncherSettings.hpp"
+
+#include <QDir>
+#include <QImage>
+#include <QJsonObject>
+#include <QObject>
+#include <QSaveFile>
+#include <QString>
+
+#include <utility>
+
+namespace {
+
+/// 把用户挑的那张图落成实例目录下的 icon.png（用户 2026-09-26 原话：「选一张本地图片文件」）。
+///
+/// **解码再编码，不是原字节复制**：用户挑的可能是 jpg / webp / bmp，而读的那一侧只认
+/// icon.png 这一个名字（见 AppPaths::versionIconPath()）。原字节拷过去的话，盘上就有一个
+/// 扩展名写着 .png、内容却是 JPEG 的文件 —— 今天 Qt 按内容认、照样解得开，但那个名字从此
+/// 是一句假话，谁照着它去写解析都会踩空。
+///
+/// NOTE: 走 QSaveFile（写临时文件 → 原子替换）：写到一半失败时盘上留着的要么是原来那张、
+///       要么是新那张，不会是一张半截的图 —— 那东西下次启动会被当成"这张图坏了"，而用户
+///       完全不知道自己哪里做错了。
+///
+/// @return 写成功了返回 true。失败时填 @p errorOut，调用方**必须把它说出来**：用户刚挑完
+///         图、按了确定，图标没换上却一声不响，正是最难查的那种"没生效"。
+///
+/// NOTE: 这是这一层里**唯一**一处直接造中文的地方，理由和 `VersionManager::renameInstance()`
+///       那个 `error` 出参一样：它是**数据层的错**（读不出图 / 写不进去 / 提交失败），
+///       是"事实"本身、不是"该怎么说"那一层。调用方原样转述给用户，不加工。
+bool writeInstanceIcon(const QString &versionId, const QString &sourcePath, QString *errorOut) {
+    const QImage source(sourcePath);
+    if (source.isNull()) {
+        if (errorOut != nullptr) {
+            *errorOut = QObject::tr("读不出这张图：%1\n\n"
+                                    "（它可能不是图片格式，也可能已经不在那儿了。）")
+                            .arg(QDir::toNativeSeparators(sourcePath));
+        }
+        return false;
+    }
+    QSaveFile file(AppPaths::versionIconPath(versionId));
+    if (!file.open(QIODevice::WriteOnly)) {
+        if (errorOut != nullptr) {
+            *errorOut = QObject::tr("图标写不进去：%1").arg(file.errorString());
+        }
+        return false;
+    }
+    // QSaveFile 的 commit() 失败时自己会把临时文件撤掉，所以这两句之间不用再清理一遍。
+    if (!source.save(&file, "PNG") || !file.commit()) {
+        if (errorOut != nullptr) {
+            *errorOut = QObject::tr("图标没能放到 %1：%2")
+                            .arg(QDir::toNativeSeparators(AppPaths::versionIconPath(versionId)),
+                                 file.errorString());
+        }
+        return false;
+    }
+    return true;
+}
+
+}  // namespace
+
+InstanceSettingsController::InstanceSettingsController(VersionManager *versions,
+                                                       InstanceGroupStore *groups,
+                                                       LauncherSettings *settings, Host host,
+                                                       QObject *parent)
+    : QObject(parent), m_versions(versions), m_groups(groups), m_settings(settings),
+      m_host(std::move(host)) {}
+
+QString InstanceSettingsController::instanceKeyFor(const VersionManager *versions,
+                                                   const QString &versionId) {
+    // 有稳定 id 就用它，没有就退回目录名 —— 见 InstanceGroupStore 文件头那段。
+    // NOTE: 退回目录名不是"临时凑合"，它是老实例（2026-09 之前建的，一个都没有稳定 id）
+    //       唯一的现实身份。更要紧的是**读和写必须走同一个函数**：读的时候按目录名找、
+    //       写的时候按 id 存，归属会在存下去的那一刻就对不上，而那个错不报任何东西。
+    if (versions == nullptr) {
+        return versionId;
+    }
+    const QString id = versions->instanceId(versionId);
+    return id.isEmpty() ? versionId : id;
+}
+
+QString InstanceSettingsController::instanceKey(const QString &versionId) const {
+    return instanceKeyFor(m_versions, versionId);
+}
+
+bool InstanceSettingsController::rename(const QString &oldId, const QString &newId) {
+    const auto notify = [this](Notice::Kind kind, const QString &instanceId,
+                               const QString &detail) {
+        if (m_host.notice) {
+            Notice notice;
+            notice.kind = kind;
+            notice.instanceId = instanceId;
+            notice.detail = detail;
+            m_host.notice(notice);
+        }
+    };
+
+    // 闸口一：**正在跑的不能改名**，而且必须在调 renameInstance() **之前** —— 运行中的
+    // 实例在 Windows 上 jar 被 JVM 锁着，改到一半才失败的话用户看到的是一句"拒绝访问"，
+    // 而真正该说的是这一句。
+    //
+    // NOTE: 这一道原来在 onRenameInstanceClicked() 里（界面的入口上）。改名搬进实例设置
+    //       那一页之后，入口变成了"任何一条点进设置页的路"，守卫放在入口上迟早会漏一条
+    //       —— 放在这里，所有调用点（含验证工程）都绕不过去。
+    if (m_host.isRunning && m_host.isRunning(oldId)) {
+        notify(Notice::Kind::RenameBlockedRunning, oldId, QString());
+        return false;
+    }
+    // 闸口一之二：**正在体检的不能改名**（coding plan §4.1「同一实例不允许同时扫描和删除/
+    // 改名」）。后台那一趟攥着的是改名前算好的那些**绝对路径**，改到一半才让它醒过来的话，
+    // 报告里每一条都会指着一个已经不存在的路径（全是假的"缺文件"）。
+    if (m_host.isScanning && m_host.isScanning(oldId)) {
+        notify(Notice::Kind::RenameBlockedScanning, oldId, QString());
+        return false;
+    }
+
+    const QString name = newId.trimmed();
+
+    // 名字合不合法。判据和数据层是**同一份**（InstanceFiles::validateRenameTarget），
+    // 界面绝不自己抄一遍规则 —— 抄一遍的下场是两边慢慢漂开，出现"界面放行、数据层拒绝"
+    // 或者更糟的"界面拒绝、数据层其实能接受"。
+    const QString problem = InstanceFiles::validateRenameTarget(name, oldId);
+    if (!problem.isEmpty()) {
+        // 不循环重问：用户看到原因后可以自己再点一次，那样他能顺便改别的决定。
+        notify(Notice::Kind::RenameRejected, oldId, problem);
+        return false;
+    }
+
+    // 分组归属的**老键必须在改名之前取**：改名会把老目录名连同"按目录名认人"那条
+    // 退路一起改掉，改完再问它，问的是磁盘上一个已经不存在的目录。
+    const QString oldKey = instanceKey(oldId);
+
+    // 执行：改磁盘、含失败回滚，都在数据层。失败原因是给用户看的一整句
+    // （可能带"回滚到什么程度"），界面原样弹出来，不再自己加工。
+    QString error;
+    if (!m_versions->renameInstance(oldId, name, &error)) {
+        notify(Notice::Kind::RenameFailed, name, error);
+        // NOTE: 失败可能是"回滚干净了"也可能是"停在半路上"。两种都不在这里重刷列表 ——
+        //       刷新只会把界面对着磁盘重画一遍，而用户需要的是先看清弹窗里那句话。
+        return false;
+    }
+
+    // 改完名字要跟着动的状态。漏掉下面这一条的后果很具体：用户下次打开启动器，
+    // restoreLastLaunchedVersion() 拿老 id 去找人找不到，选中项是空的，他会以为
+    // 刚改名的那个实例丢了。
+    if (m_settings != nullptr && m_settings->lastLaunchedVersion() == oldId) {
+        m_settings->setLastLaunchedVersion(name);
+    }
+
+    // 分组归属也要跟着挪。两件事叠在一起，所以这里必须按顺序取两次键：
+    //   - 改名**之前**那个键（上面取的 oldKey）：老实例可能还没有稳定 id，
+    //     那时它的键是**老目录名**；
+    //   - 改名**之后**那个键：renameInstance() 刚好在这一次把稳定 id 生成出来了
+    //     （见它的第 2 步），所以新键多半是那个 uuid，而不是新目录名。
+    // 只取一次（无论是哪一次）都会让归属在改名的同时丢掉 —— 而丢归属的表现是
+    // "改完名它自己从组里出来了"，用户会以为分组没保存上。
+    const QString newKey = instanceKey(name);
+    QString groupError;
+    if (m_groups != nullptr && !m_groups->rekey(oldKey, newKey, &groupError)) {
+        // 实例本身已经改好名了，只是分组没搬过去。**不能当成改名失败** ——
+        // 那会让用户以为名字没改成功，然后再点一次。说清楚哪一半成了、哪一半没成。
+        notify(Notice::Kind::RenameGroupNotMoved, name, groupError);
+    }
+
+    if (m_host.instanceTreeChanged) {
+        m_host.instanceTreeChanged();
+    }
+    // 刷新时下拉框那边是"保住原来选中的那个 id"，而那个 id 已经不在了 —— 于是它
+    // 会停在空选。显式选中新名字：用户刚改完，看到的应该是刚改完的那个实例。
+    if (m_host.instanceRenamed) {
+        m_host.instanceRenamed(name);
+    }
+    if (m_host.log) {
+        m_host.log(tr("实例已重命名：%1 → %2").arg(oldId, name));
+    }
+    return true;
+}
+
+bool InstanceSettingsController::apply(const QString &versionId, const Edit &edit) {
+    const auto notify = [this](Notice::Kind kind, const QString &instanceId,
+                               const QString &detail) {
+        if (m_host.notice) {
+            Notice notice;
+            notice.kind = kind;
+            notice.instanceId = instanceId;
+            notice.detail = detail;
+            m_host.notice(notice);
+        }
+    };
+
+    // ★ 分组归属的**老键必须在写 meta 之前取**。下面那一句 `ensureInstanceId()` 会给
+    //   "还没有稳定 id"的老实例补一个，而归属是按 `instanceKey()`（有 id 用 id、没有就
+    //   退回目录名）存的 ⇒ 补上 id 之后同一个实例的键**换了一个**，不跟着搬它就会
+    //   **静默掉出原来那一组**。用户看到的是"我只改了个内存设置，它自己从组里出来了"，
+    //   而且没有任何日志、没有任何弹窗 —— 事后才发现。
+    //
+    //   NOTE: 已经走过改名那条路的实例到这里时 id 早就有了（`renameInstance()` 那一步
+    //         生成的），oldKey == newKey —— `rekey()` 自己认得出这是空操作，一个字节
+    //         都不写盘（见它开头那一句）。
+    const QString oldGroupKey = instanceKey(versionId);
+
+    // 先把稳定 id 落下去。**必须排在最前**：这一项覆盖要"跟着这个实例走"，而实例的
+    // 身份就是那个 id（目录名会被改，改名之后按目录名记的东西全丢）。失败就不写 ——
+    // 写成一次"靠目录名认出来的覆盖"比这次没写成糟得多。
+    if (m_versions->ensureInstanceId(versionId).isEmpty()) {
+        notify(Notice::Kind::SettingsIdFailed, versionId, QString());
+        return false;
+    }
+
+    // 键换过了（老实例刚拿到 id）就把归属搬过去 —— 这一步**必须在这里**，不能挪到
+    // 下面那次写 meta 之后：`ensureInstanceId()` 已经把 id 落盘了，也就是说"键已经换了"
+    // 是既成事实，再往下走无论成败，归属都只剩这一条路能保住。
+    //
+    // NOTE: 搬失败**不当成"设置没保存"**（照 applyRename 的先例）：那会让用户以为要重来
+    //       一次，而设置那半边马上就写好了。说清楚哪一半没成，让他自己去「分组…」再归一次。
+    const QString newGroupKey = instanceKey(versionId);
+    QString groupError;
+    if (m_groups != nullptr && !m_groups->rekey(oldGroupKey, newGroupKey, &groupError)) {
+        notify(Notice::Kind::SettingsGroupNotMoved, versionId, groupError);
+    }
+
+    // "值 → 要写进 meta 的字段"整批交给 javaOverrideMetaFields()：五项里"跟随全局"
+    // 的要**删键**而不是写一个等于全局的值（写了的话用户之后改全局，这个实例就不跟着
+    // 走了，而他明明选的是「跟随全局」），追加参数为空时那个键也要删。这套判断放在
+    // settings/ 那边是有意的 —— 在这里就没法被断言盯上（这个函数收的是对话框引用，
+    // 验证工程驱动不了它）。
+    QJsonObject fields = javaOverrideMetaFields(edit.java, edit.extraJvmArgs,
+                                               VersionManager::jvmArgsField());
+
+    // 窗口那三项（模式 / 宽 / 高，2026-09-28）。**同一个约定**（没有值 = 写 Null = 删键），
+    // 由 gameWindowOverrideToJson() 一次性给全 —— 那三个键的读侧写侧都在 src/settings/
+    // 那一处（键名一个都不在这边重写）。
+    // NOTE: 一次一个键合进去（`QJsonObject` 没有整块注入的接口）。值本身是 Null 的那几项
+    //       就是"删键"（updateVersionMeta 的约定），照原样交给它。
+    const QJsonObject windowFields = gameWindowOverrideToJson(edit.window);
+    for (auto it = windowFields.constBegin(); it != windowFields.constEnd(); ++it) {
+        fields.insert(it.key(), it.value());
+    }
+
+    // 提醒开关：勾着（要提醒）就**删掉**那个键，取消勾选才写 true。
+    // 和那五项同一个约定（Null = 删键）—— 写一个"等于默认值"的 false 进 meta 会让这个
+    // 文件里多出一堆没信息量的键，而且"没写过"和"写过 false"从此分不开。
+    fields.insert(VersionManager::skipJavaVersionWarningField(),
+                  edit.warnJavaMismatch ? QJsonValue(QJsonValue::Null) : QJsonValue(true));
+
+    // ---------- 图标（2026-09-26）----------
+    //
+    // 用户刚挑了一张图 ⇒ **先把它拷进实例目录**，再往 meta 里写"用本地那张"。顺序反过来的话，
+    // 写成功、拷失败会在盘上留下一句指向一个不存在的文件的 meta（树那一格从此永远是默认图标，
+    // 而文件里明明写着 local）。
+    //
+    // NOTE: 拷失败**不把整次保存赔进去**（只报一声、meta 里那一格保持原样）：用户改的内存 /
+    //       Java 路径和图标是两件事，为前者把后者一起丢掉是替用户做主。写回去的那个值是
+    //       **磁盘上现在是什么**、不是"这次没改"，所以这一次写入不会动它 —— 而要是直接写
+    //       `edit.iconChoice`，用户清掉图标就会把盘上那张删了却还以为换成了默认的。
+    //
+    // ★ `iconBefore` 是**这一次写之前** disk 上那个值，用来回答"这次改动里包含图标吗"
+    //   （见函数末尾那一发"要不要重扫树"）。
+    const QString iconBefore = m_versions->versionIcon(versionId);
+    QString iconValue = edit.iconChoice;
+    if (!edit.pickedIconPath.isEmpty()) {
+        QString iconError;
+        if (writeInstanceIcon(versionId, edit.pickedIconPath, &iconError)) {
+            iconValue = edit.localIconValue;
+        } else {
+            notify(Notice::Kind::IconNotSaved, versionId, iconError);
+            iconValue = m_versions->versionIcon(versionId);
+        }
+    }
+    // 空串 = 「默认」= **删掉那个键**，不写一个"等于默认"的值 —— 和上面两项同一个约定。
+    fields.insert(VersionManager::iconField(),
+                  iconValue.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(iconValue));
+
+    // ---------- 左栏显示哪几页（2026-09-27）----------
+    //
+    // 一个**顶层对象**（`{"save": false}`）—— updateVersionMeta 的合并是"这一格的整块替换"，
+    // 所以不用（也不能）逐条删键：整块交上去，那一格就以这份为准。
+    // 空对象（七条全显示 = 没勾掉任何一条）写 Null ⇒ **删键**，和上面三项同一个约定。
+    //
+    // NOTE: 这里**不校验**那几页此刻可不可用 —— 值是从对话框现读的（`edit.pageChoices`），
+    //       而它本来就只写"可用且没勾"的那几条（见 `pageChoices()` 那段说明）。可用性是
+    //       每次现算的，不写盘。
+    fields.insert(VersionManager::settingsPagesField(),
+                  edit.pageChoices.isEmpty() ? QJsonValue(QJsonValue::Null)
+                                             : QJsonValue(edit.pageChoices));
+
+    QString error;
+    if (!m_versions->updateVersionMeta(versionId, fields, &error)) {
+        // 数据层不弹窗是约定，所以弹在这一层。error 里已经写清了"是哪个文件、为什么"。
+        notify(Notice::Kind::SettingsSaveFailed, versionId, error);
+        return false;
+    }
+    if (m_host.log) {
+        m_host.log(tr("实例设置已保存：%1").arg(versionId));
+    }
+
+    // 图标换了，就得让实例树上那一格跟着换。`updateVersionMeta()` **没有任何"meta 变了"
+    // 的信号**（它是数据层，不认得上层谁在看），而写入 Meta 之后树上那一格的图标是从
+    // meta 现读的 —— 不重扫的话用户回到实例页看到的还是老图标，得等下一次下载或者重启。
+    //
+    // 判据是"写之前那个值和现在盘上那个值一样不一样"，**不是**"这次有没有碰图标那一格"：
+    // 实时写盘之后 apply() 每次值一变就会被调一次（改个内存数字也算），
+    // 无条件重扫等于每敲一下就全盘扫一遍目录。
+    //
+    // NOTE: 只有图标这一项在这儿重扫。名字那一项走 renameRequested → rename()，
+    //       那边自己会刷。分组/置顶在下面，它们各自走 setHomeGroup / pin / unpin，
+    //       那三个会发 groupsChanged 把树重灌。
+    if (m_versions->versionIcon(versionId) != iconBefore && m_host.instanceTreeChanged) {
+        m_host.instanceTreeChanged();
+    }
+
+    // ---------- 分组 / 置顶（2026-09-26，当天晚些时候改成"两边都显示"）----------
+    //
+    // 排在写 meta **之后**、`rekey()` **之后**（那一步在上面）：归属的键刚刚才定下来，在它
+    // 之前写等于写到旧键上。
+    //
+    // 三条规则，合起来就是"用户在「分组…」和那颗勾选框上摆成什么样，结果就是什么样"：
+    //   ① 老家被**用户改过** → 改老家（setHomeGroup：置顶着的那一档只改"老家"那一格，
+    //      members 继续指着置顶组）；
+    //   ② 原来没置顶、现在勾上了 → 置顶（记下"置顶前老家在哪一组"，老家那一条不动）；
+    //   ③ 原来置顶、现在取消了   → 取消置顶（回到记着的那一组）。
+    //
+    // NOTE: 判"改没改"是拿 `edit.chosenGroupId` 和**打开对话框时**那一格的值
+    //       （`edit.homeGroupAtOpen`）比，不是拿它和"现在存在哪一组"比 —— 和验证工程驱动
+    //       这颗按钮时同一个口径，见 .hpp 里 setGroupChoices() 那段。
+    //
+    // NOTE: ②③ 和 ① 现在**互不相干**了。旧语义（置顶 = 把它挪进置顶组）里这两件事抢同一格：
+    //       勾上置顶会把「分组」那一格当场挪到置顶组上去（旧代码里那个 applyPinState()），
+    //       于是"分组被改过"这一问必须有额外的规矩才分得清是用户改的还是置顶顺手摆的。
+    //       现在那一格是老家、勾选框只管多摆一条，两者不再打架，那段规矩连同 hasPinGroup
+    //       那道闸一起删了 —— 没有置顶组时勾选框本来就是灰的（setPinned()），勾不上。
+    //
+    // NOTE: 三条路都走**主窗口那几个现有入口**（走 `Host`），不在这里另写一遍 wtfml.folders
+    //       的读写：它们各自会发 groupsChanged、自己把树重灌，而且"没有置顶组时什么都不做"
+    //       "认不出来就落未分组"这些判断都已经在那儿了。
+    //
+    // NOTE: 顺序是**先改老家、再摆置顶**。这一版两种顺序算出来的答案是同一个（理由写在
+    //       InstanceGroupStore::setInstanceHomeGroup() 上面那段 NOTE 里），钉死它只是为了让
+    //       读代码的人不用先在脑子里把那四种组合各跑一遍。
+    const bool wasPinned = m_groups != nullptr && m_groups->isPinned(instanceKey(versionId));
+
+    // ① 老家被改过。
+    if (edit.chosenGroupId != edit.homeGroupAtOpen) {
+        if (m_host.setHomeGroup) {
+            m_host.setHomeGroup(versionId, edit.chosenGroupId);
+        }
+    }
+    // ② 刚勾上置顶。
+    if (edit.pinned && !wasPinned) {
+        if (m_host.pin) {
+            m_host.pin(versionId);
+        }
+    }
+    // ③ 原来置顶、现在取消了：回到记着的那一组（判据是本函数进来的那一刻，所以上面 ① 改
+    //    没改过老家都不影响这一档 —— 换过老家之后再取消置顶，回的就是刚换的那一组）。
+    if (wasPinned && !edit.pinned) {
+        if (m_host.unpin) {
+            m_host.unpin(versionId);
+        }
+    }
+    return true;
+}

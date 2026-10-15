@@ -83,6 +83,14 @@
 // 摆现场的 inline 入口直接调它的静态函数和成员函数，按值用 ⇒ 得 include（同 ServerInstallController
 // 那一条的理由）。这个头不 include MainWindow.hpp，不构成环。
 #include "controllers/LaunchHistoryController.hpp"
+// 「实例设置」写侧那一套（2026-10-15 从本类搬出去的那一片）：`showInstanceSettingsNotice()`
+// 的签名里按 const 引用用它的嵌套类型 `Notice`，前置声明说不出那么细的名字 ⇒ 得 include。
+// 这个头只碰 QtCore（QObject/QString/functional），不 include MainWindow.hpp，不构成环。
+#include "controllers/InstanceSettingsController.hpp"
+// 「服务器列表」那一页上会写盘的那三件事（2026-10-15 从本类搬出去的那一片）：理由同上
+// （`showServerListNotice()` 的签名按 const 引用用它的嵌套类型 `Notice`）。这个头只碰
+// QtCore，不 include MainWindow.hpp，不构成环。
+#include "controllers/ServerListController.hpp"
 // 实例页的搜索与筛选（coding plan §7.2，2026-10-13）：`Query` / `Facts` 都是按值传的小
 // 结构（`instanceFilterQuery()` / `instanceFilterFacts()` 的返回值），所以得 include。
 #include "manage/InstanceFilter.hpp"
@@ -169,6 +177,11 @@ class RandomSkinStore;
 //       updateSkinHint 的实现），所以前置声明够用 —— 但那个类型是按值返回的，用它的地方
 //       必须 include 那边（只有 MainWindow.cpp 用）。
 class PlayerSkinController;
+// ★ 2026-10-15：「实例设置」那一页**写侧**的那一套（改名的四道闸 + 改完谁跟着走）——
+// src/controllers/InstanceSettingsController.hpp。同上，只按指针持有（它是 this 的子对象）。
+// NOTE: 它的 `Notice`（"要告诉用户的那件事"，**事实不是句子**）在这里只按 const 引用传，
+//       所以前置声明够用；挑那句话成中文的 `showInstanceSettingsNotice()` 在 MainWindow.cpp 里。
+class InstanceSettingsController;
 // 「每实例设置」那两层的值类型（src/settings/EffectiveJavaSettings.hpp）。这里只按
 // const 引用传，前置声明就够 —— 让每个 include 了 MainWindow.hpp 的地方都拖一份
 // 值结构的定义没有意义。
@@ -411,6 +424,11 @@ private slots:
     /// 改名的**执行部分**：校验名字 → 改磁盘 → 同步状态（LastLaunched / 选中项）→ 刷界面。
     /// 失败时弹窗并返回 false。
     ///
+    /// ★ 2026-10-15：**判断和那些状态搬去了 `InstanceSettingsController::rename()`**，这里
+    ///   只剩一个转发。留着这一层（而不是把调用点全改成问 controller）是因为验证工程按
+    ///   **名字**驱动它（`QMetaObject::invokeMethod("applyRename")`，见 mw_check 的 S 段）——
+    ///   那是"这个槽驱动得起来"这条判据本身，不是实现细节。
+    ///
     /// NOTE: 和"问新名字"那一步分成两步，是为了**能被验证工程驱动** —— 这一半里藏着最容易
     ///       漏的那件事：改完名要同步 Version/LastLaunched，不然用户下次打开启动器，选中项
     ///       会空着，他会以为实例丢了。那条只有真的跑一遍才验得出来。
@@ -418,6 +436,18 @@ private slots:
     ///       那一档换成 InlineMessage::getText() 之后这个理由**不成立了**：问名字那一格现在
     ///       是能按 objectName 找得到、能真的打字的 QLineEdit。见 InlineMessage.hpp。）
     bool applyRename(const QString &oldId, const QString &newId);
+    /// 把 controller 报上来的一件事（`InstanceSettingsController::Notice`）说给用户听。
+    ///
+    /// **中文只在这一层**：controller 那边只有"哪一档、是谁、数据层说的原因是什么"这几格
+    /// 事实，标题与正文在这里按 `kind` 挑。这样那一层能被验证工程直接驱动（不需要一个界面
+    /// 就能验"改名拦在哪一道"），而"怎么说"仍然只有一个出处。
+    void showInstanceSettingsNotice(const InstanceSettingsController::Notice &notice);
+    /// 把 `ServerListController` 报上来的一件事说给用户听（上面那条的**第二个实例**）。
+    ///
+    /// 同款边界：那一层只有"哪一档、数据层说的原因是什么"，标题与正文在这一层挑。
+    /// ★ 注意它是**局部对象**（不是成员）—— 见 `openInstanceSettingsNow()` 里那一段：
+    ///   它那两条回调要用栈上的 `dialog` 和 `targetId`，所以只能活在那一趟里。
+    void showServerListNotice(const ServerListController::Notice &notice);
     /// 「分组设置…」：管**分组本身**（新建 / 重命名 / 删除 / 上下移 / 默认展开 / 恢复默认）。
     ///
     /// NOTE: 2026-09-25 起它**不读选中的实例**（用户原话：「下方的分组设置不再是针对单个
@@ -760,11 +790,17 @@ private slots:
     ///
     /// 四个能下载的类走 ResourceCatalog::folderForKind()（那是目录名的唯一出处，整合包
     /// 那一路也照着它写），原理图 / 存档 / 截图 / 日志不在下载页那几类里，目录名写在这儿。
+    ///
+    /// ★ 2026-10-15：那张表和"哪几页用得上"那几条判据一起搬到
+    ///   `InstancePagesController::fileDirs()` 了（连同 `instanceCommonFolderKeys()` /
+    ///   `instanceHasMod()` / `instanceShaderUsable()` / `instanceModsUsable()`）。这个成员
+    ///   留着只是转发 —— 它在仓里有十来个调用点，而且 mw_check 的判据按名字读它。
     QHash<QString, QString> instanceFileDirs(const QString &versionId) const;
 
     /// 概览那排「常用目录」里**现在真有东西**的那几路（coding plan §5.3）。
     ///
-    /// 判据是 §5.3 原话那两条：「目录存在」或「相关模组可识别」—— 逐条理由见 .cpp 里那段。
+    /// 判据是 §5.3 原话那两条：「目录存在」或「相关模组可识别」—— 逐条理由见
+    /// `InstancePagesController::commonFolderKeys()`（2026-10-15 起判据在那边）。
     /// 它和 `instanceFileDirs()` **不是一回事**：那一份回答"这个实例的每一路目录在哪儿"
     /// （形状是九条，有断言在数），这一份回答"这十三条里哪几条现在值得摆在外面"。
     ///
@@ -942,8 +978,9 @@ private slots:
     ///   会改** —— 用户盘上就有 `[投影] litematica-fabric-26.2-0.28.7.jar` 和
     ///   `[虹膜] iris-fabric-1.11.4+mc26.2.jar`（前面挂一个中文名是那儿的常态）。按前缀
     ///   认的话这两样都算"没装"，而它们明明装着 —— 那两页于是谎报"用不上"，用户
-    ///   2026-09-27 报的「原理图和光影包没正常显示」就是这个。切词规则见 .cpp 里
-    ///   `fileNameHasToken()`。
+    ///   2026-09-27 报的「原理图和光影包没正常显示」就是这个。切词规则见
+    ///   `InstancePagesController::jarNameHasToken()`（2026-10-15 起判据在那边，
+    ///   这个成员只是转发；它在仓里还有别的读者，所以没删）。
     bool instanceHasMod(const QString &versionId, const QString &nameToken) const;
 
     /// 这个实例能不能用光影包：mods/ 里装了 **Iris / Oculus / OptiFine**（都是"加载
@@ -954,6 +991,8 @@ private slots:
     ///       「魔改版ATT2」三个包用的都是它），而 OptiFine 在 1.12.2 及以前是**当普通
     ///       模组装进 mods/ 下的（`OptiFine_1.12.2_HD_U_G5.jar`）—— 这两样原来一条都不认，
     ///       于是那三页在装了光影的实例上照样说"用不上"（2026-09-27 修）。
+    ///
+    /// ★ 2026-10-15：判据搬到 `InstancePagesController::shaderUsable()` 了，这个成员转发。
     bool instanceShaderUsable(const QString &versionId) const;
 
     /// 这个实例用不用得上「模组」那一页 —— 两条路任一条命中就算用得上：
@@ -970,6 +1009,8 @@ private slots:
     /// "基于哪个加载器"，而往 mods/ 里丢一个 jar 不构成任何加载器证据。"这一页对他有没有
     /// 用"才是这里的问题 —— 真机上就有两个实例走了这一条（json 认不出加载器、可 mods/ 里
     /// 躺着 136 / 27 个 jar，那一页显然是该给的）。
+    ///
+    /// ★ 2026-10-15：判据搬到 `InstancePagesController::modsUsable()` 了，这个成员转发。
     bool instanceModsUsable(const QString &versionId) const;
 
     /// 读一次 servers.dat 递给对话框（解析在 src/util/NbtUtil 里）。
@@ -2398,6 +2439,18 @@ private:
     /// NOTE: 构造里建（不是初始化列表），和 `m_activityCenter` 同一个理由 —— 它要读盘，得等
     ///       前面几样都就位了。
     LaunchHistoryController *m_launchHistory = nullptr;
+
+    /// 「实例设置」那一页**写侧**那一套（`src/controllers/InstanceSettingsController.hpp`）。
+    ///
+    /// 它收的是"盘上变不变"那几件事：改名的**四道闸**（正在跑的不许改 / 正在体检的不许改 /
+    /// 名字合不合法 / 数据层改不动）、改完之后**谁跟着走**（`LauncherSettings` 记的"上次启动
+    /// 的那一个"、分组归属键的老键新键、实例树、下拉框），以及"哪一半成了、哪一半没成"这套
+    /// 分账。**一个字节的中文都没有** —— 文案走 `showInstanceSettingsNotice()`。
+    ///
+    /// ★ 为什么它能拆出去而"打开那一页"不能：`openInstanceSettingsNow()` 一千来行是**十几个
+    ///   闭环的接线台**（构造页、灌数据、接信号、跳页），那些拆出去只是把 connect() 换个地方
+    ///   写、不是架构改善（用户 2026-10-15 原话）。而这一位接管的是**状态和判断**本身。
+    InstanceSettingsController *m_instanceSettings = nullptr;
 
     /// 上一次点启动的时刻，按 **身份 → 版本 → 毫秒**（`QDateTime::currentMSecsSinceEpoch()`）。
     /// 只增不减（没人清它）：条目数 = 这台机器上"点过启动的 (身份, 实例) 组合"数，
