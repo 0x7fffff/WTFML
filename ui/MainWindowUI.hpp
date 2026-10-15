@@ -171,9 +171,8 @@ public:
     // 验证工程靠这些名字认控件。**不要**改回按占位文案或条目文本去认——那些是
     // 会被产品逻辑改写的显示内容（占位文案现在就要随"有没有可选版本"切换），
     // 拿显示内容当身份标识的测试会在产品改动时以看不懂的方式挂掉。
-    /// 设置页「个性化」栏里「账户」那一格的入口按钮：「账号与外观…」。它和主页右栏那个入口打开的是
-    /// **同一个窗**（文案也是同一份，见 accountSkinButtonText()），名字不同只是因为
-    /// objectName 得唯一 —— findChild 靠它认控件。
+    /// 设置页「个性化」栏里「账户」那一格的入口按钮：「账号与外观…」。主页可见入口已经
+    /// 搬到底栏账号面板；隐藏兼容控件仍沿用同一文案，避免旧接线分叉。
     static QString accountSkinSettingsButtonName() {
         return QStringLiteral("accountSkinSettingsButton");
     }
@@ -1459,6 +1458,10 @@ public:
 
     static QString homeFavoriteCountSpinName() { return QStringLiteral("homeFavoriteCountSpin"); }
     static QString homeRecentCountSpinName() { return QStringLiteral("homeRecentCountSpin"); }
+    static QString homeInstanceSelectButtonName() {
+        return QStringLiteral("homeInstanceSelectButton");
+    }
+    static QString homeInstancePickerName() { return QStringLiteral("homeInstancePicker"); }
 
     enum class HomeQuickAction { Launch, Edit, ChooseInstance };
     struct HomeQuickItem {
@@ -1479,6 +1482,29 @@ public:
     void setHomeQuickActionHandler(const HomeQuickActionHandler &handler) {
         m_homeQuickActionHandler = handler;
     }
+    struct HomePickerFolder {
+        QString path;
+        QString title;
+        QString subtitle;
+        bool current = false;
+    };
+    struct HomePickerInstance {
+        QString folderPath;
+        QString id;
+        QString title;
+        QString subtitle;
+        QString loaderKey;
+        QIcon icon;
+        bool favorite = false;
+        bool recent = false;
+    };
+    using HomePickerFolderHandler = std::function<void(const QString &path)>;
+    using HomePickerInstanceHandler =
+        std::function<void(const QString &folderPath, const QString &instanceId)>;
+    void openHomeInstancePicker(const QList<HomePickerFolder> &folders,
+                                const QList<HomePickerInstance> &instances,
+                                const HomePickerFolderHandler &folderHandler,
+                                const HomePickerInstanceHandler &instanceHandler);
     static QString bottomBarName() { return QStringLiteral("bottomBar"); }
     static QString avatarLabelName() { return QStringLiteral("avatarLabel"); }
     /// 底栏头像那一块的边长（像素）。**唯一出处**：主窗口拿它去裁头像
@@ -3123,6 +3149,7 @@ public:
 
     // 控件访问接口
     QPushButton *getStartButton() const { return startButton; }
+    QPushButton *getHomeInstanceSelectButton() const { return homeInstanceSelectButton; }
     QPushButton *getAccountSkinSettingsButton() const { return accountSkinSettingsButton; }
     QPushButton *getAddFolderButton() const { return addFolderButton; }
     // 实例页左边那张列表：一行一个「游戏文件夹」，选中的那一份就是启动器当前用的
@@ -3390,12 +3417,12 @@ public:
     QCheckBox *getVersionNameLoaderCheck() const { return versionNameLoaderCheck; }
     QCheckBox *getVersionNameLoaderVersionCheck() const { return versionNameLoaderVersionCheck; }
 
-    // 主页右栏那个可拖动旋转的 3D 皮肤预览，以及它下面那句说明。
+    // 主页右栏那个可拖动旋转的 3D 皮肤预览；说明标签保留作状态/无障碍数据但不再显示。
     // 这个控件是**自己画的**（QWidget 子类 + paintEvent，不是标准控件），
     // 所以它比别处多一层：界面只管把贴图喂进去，贴图从哪来是业务层的事。
     SkinViewer *getSkinViewer() const { return skinViewer; }
     QLabel *getSkinHintLabel() const { return skinHintLabel; }
-    /// 「账号与外观…」：登录多个账号、换皮肤换披风那个模块的入口。
+    /// 「账号与外观…」的兼容入口（主页不展示；可见入口在底栏账号面板与设置页）。
     QPushButton *getAccountSkinButton() const { return accountSkinButton; }
 
     QTabWidget *getTabWidget() const { return tabWidget; }
@@ -3504,6 +3531,7 @@ private:
     //       全都排在 setupUi() 之后才没炸。
     // NOTE: 新加控件指针时**一并写上 = nullptr**，别让它单独破例。
     QPushButton *startButton = nullptr;
+    QPushButton *homeInstanceSelectButton = nullptr;
     QWidget *homeFavoriteSection = nullptr;
     QWidget *homeQuickRecentSection = nullptr;
     QHBoxLayout *homeFavoriteRow = nullptr;

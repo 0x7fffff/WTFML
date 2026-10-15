@@ -85,6 +85,21 @@
 // 实例页搜索与筛选的判据层（coding plan §7.2，2026-10-13）。见 ZS 节 —— 纯函数：
 // 「这一条算不算匹配」全在这儿，树那一侧一条都不必真的建出来。
 #include "manage/InstanceFilter.hpp"
+// 实例预设（coding plan §5–§6 / P1，2026-10-14）。见 PA 节 —— 值那一层和盘那一层都收一个
+// `root` 参数，所以整节在一个 `QTemporaryDir` 里真存真读，连界面都不用起。
+#include "presets/PresetStore.hpp"
+// 原版设置那一段（2026-10-15，coding plan §6 P2）。见 PB 节 —— 全是纯函数（字节进、字节出），
+// 两份假 `options.txt` 一喂就能逐格念，不碰盘、不联网、不开界面。
+#include "presets/VanillaOptions.hpp"
+// 服务器列表那一段（2026-10-15，coding plan §6 P3）。见 PC 节 —— 判据那几条是纯值，落盘那几条
+// **真的动盘**（在 `QTemporaryDir` 里造一份真 `servers.dat`，读回来逐格看），不碰共享沙箱。
+#include "presets/ServerListPreset.hpp"
+// 通用文件组那一段（2026-10-15，coding plan §6 P3 后半）。见 PD 节 —— 和 PC 一样**真的动盘**
+// （两个临时目录之间真拷真比字节），另外还**真造 junction** 来验那两道逃逸闸。
+#include "presets/GenericFiles.hpp"
+// 应用计划那一层（2026-10-15，coding plan §5 / §7）。见 PE 节 —— 一段一行地算这一趟会发生
+// 什么（除了通用文件组的干跑，全是纯值）。
+#include "presets/PresetPlanner.hpp"
 #include "manage/DefaultSkin.hpp"
 #include "manage/DroppedResource.hpp"  // V5z：拖进来那个文件到底是什么
 #include "manage/InstanceFiles.hpp"
@@ -23368,6 +23383,2392 @@ static void runLaunchHistoryTests() {
 }
 
 // ---------------------------------------------------------------------------
+// PA. 实例预设：值那一层 + 盘那一层（coding plan §5–§6 / P1）
+//
+// §6 的 P1 原话是「PresetStore CRUD、排序与唯一默认项；schema 校验、损坏项隔离和原子写入；
+// 新建、复制、重命名、删除和从实例提取；管理页；ID 使用 UUID，显示名不作为磁盘路径」，两条
+// 验收是「损坏单个预设不阻止其他预设加载」和「非法名称无法逃逸目录」。
+//
+// 这一节收的是**除"从实例提取"和"管理页"之外**的全部：那两样一个要适配器层（P2/P3）、一个
+// 要界面（P1 的后半），都不是这一节念得出来的。
+//
+// ★ 这一节里最要紧的三条，都不是"能不能跑"，而是**这三句规矩有没有被写歪**：
+//   · id 那道闸的判据是"必须是一个规范的 UUID"，不是"里面没有斜杠" —— 后一种黑名单挡不住
+//     `..`、挡不住 `C:`，也挡不住 `NUL`（Windows 上那个"写下去就不见了"的设备名）；
+//   · 一份读不回来**只进 broken、不进列表**，别的几份照旧列得出来；
+//   · 下标读不回来时那一趟**不写盘**（写回去等于把用户排好的顺序抹平，而屏幕上什么都不说）。
+//
+// 整节纯函数 + 一个 QTemporaryDir 里的真存真读：不联网、不碰共享沙箱、不碰 ui/。
+// ---------------------------------------------------------------------------
+static void runPresetStoreTests() {
+    section("PA. 实例预设：UUID 当目录名 / 一份坏了不连坐 / 那五件增删改（§5–§6 P1）");
+
+    QTemporaryDir temp;
+    check(temp.isValid(), "PA0 临时目录建出来了");
+    if (!temp.isValid()) {
+        return;
+    }
+    // ★ 预设那一层的每一个动盘函数都收一个 `root` 参数，所以这一整节连全局数据目录都不用
+    //   改 —— 喂进来的就是 root（唯一那个"默认落点"单独在 PA4 念一次）。
+    const QString root = temp.path() + QStringLiteral("/presets");
+    const QString outside = temp.path() + QStringLiteral("/外面");
+
+    // ---------- PA1. id 那一道闸 ----------
+    const QString idA = Presets::newPresetId();
+    const QString idB = Presets::newPresetId();
+    check(idA != idB && idA.size() == 36 && Presets::isValidPresetId(idA)
+              && Presets::isValidPresetId(idB),
+          "PA1 造出来的 id 是规范 UUID（36 个字符、不带花括号），两次不一样", idA);
+
+    const QStringList badIds = {
+        QString(),                QStringLiteral(".."),
+        QStringLiteral("../外面"), QStringLiteral("a/b"),
+        QStringLiteral("C:/x"),   QStringLiteral("我的预设"),
+        QStringLiteral("NUL"),    QStringLiteral("nul.txt"),
+        QStringLiteral("{%1}").arg(idA), idA.toUpper(),
+    };
+    QStringList acceptedBadIds;
+    for (const QString &bad : badIds) {
+        if (Presets::isValidPresetId(bad)) {
+            acceptedBadIds.append(bad.isEmpty() ? QStringLiteral("(空串)") : bad);
+        }
+    }
+    check(acceptedBadIds.isEmpty(),
+          "★★ PA1 不是规范 UUID 的一律不算 id —— 含 `..`、`C:/x`、中文、`NUL`（Windows 上那个"
+          "『写下去就不见了』的设备名），以及花括号/大写那两种写法（同一个 id 有两种写法，"
+          "在盘上就是两个目录）",
+          acceptedBadIds.join(QStringLiteral(" / ")));
+
+    // ---------- PA1. 显示名收一收 ----------
+    const QString messyName = QStringLiteral("  我的  预设\n第二行\u3000尾巴  ");
+    check(Presets::cleanDisplayName(messyName) == QStringLiteral("我的 预设 第二行 尾巴"),
+          "★ PA1 显示名：去首尾空白 + 把换行/制表/全角空格都折成一个空格（名字要进任务标题，"
+          "那边是按一行算的）",
+          Presets::cleanDisplayName(messyName));
+    check(Presets::cleanDisplayName(QString(120, QLatin1Char('x'))).size() == 80
+              && Presets::cleanDisplayName(QStringLiteral("  \n\t ")).isEmpty(),
+          "★ PA1 名字钳到 80 个字；清完是空串 = 用户什么都没输");
+
+    // ---------- PA1. 条目里那个相对路径 ----------
+    const QStringList safePaths = {
+        QStringLiteral("config/foo.txt"),   QStringLiteral("config\\foo.txt"),
+        QStringLiteral("控制台.txt"),       QStringLiteral("sub/dir/"),
+        QStringLiteral("./a.txt"),          QStringLiteral("a/./b"),
+        QStringLiteral("console.txt"),
+    };
+    const QStringList unsafePaths = {
+        QString(),                          QStringLiteral("/绝对"),
+        QStringLiteral("C:/绝对"),          QStringLiteral("\\\\服务器\\共享"),
+        QStringLiteral(".."),               QStringLiteral("a/../../b"),
+        QStringLiteral("a:b"),              QStringLiteral("a//b"),
+        QStringLiteral("NUL"),              QStringLiteral("nul.txt"),
+        QStringLiteral("COM1"),
+    };
+    const auto mismatched = [](const QStringList &list, bool want) {
+        QStringList out;
+        for (const QString &one : list) {
+            if (Presets::isSafeRelativePath(one) != want) {
+                out.append(one.isEmpty() ? QStringLiteral("(空串)") : one);
+            }
+        }
+        return out;
+    };
+    const QStringList badSafe = mismatched(safePaths, true);
+    const QStringList badUnsafe = mismatched(unsafePaths, false);
+    check(badSafe.isEmpty(), "★ PA1 这几条条目路径放行（`\\` 和 `/` 都当分隔符认）",
+          badSafe.join(QStringLiteral(" / ")));
+    check(badUnsafe.isEmpty(),
+          "★★ PA1 这五样挡掉：空串 / 绝对路径（含盘符和 UNC）/ 任何一段是 `..` / 任何一段带"
+          "冒号 / Windows 那几个保留设备名（`nul.txt` 也算 —— 那个空设备跟后缀无关）",
+          badUnsafe.join(QStringLiteral(" / ")));
+
+    // ---------- PA2. 枚举 ⇄ 落盘用的词 ----------
+    bool modeRoundTrip = true;
+    for (Presets::ApplyMode mode :
+         {Presets::ApplyMode::Merge, Presets::ApplyMode::Replace, Presets::ApplyMode::Append,
+          Presets::ApplyMode::CopyIfMissing, Presets::ApplyMode::Skip}) {
+        modeRoundTrip = modeRoundTrip && Presets::applyModeFromKey(Presets::applyModeKey(mode)) == mode;
+    }
+    check(modeRoundTrip, "★ PA2 五种应用方式：枚举 → 词 → 枚举，一格不差");
+
+    bool kindRoundTrip = true;
+    for (Presets::SectionKind kind :
+         {Presets::SectionKind::VanillaOptions, Presets::SectionKind::VanillaKeys,
+          Presets::SectionKind::ServerList, Presets::SectionKind::MalilibKeys,
+          Presets::SectionKind::GenericFiles, Presets::SectionKind::Custom}) {
+        kindRoundTrip = kindRoundTrip && Presets::sectionKindFromKey(Presets::sectionKindKey(kind)) == kind;
+    }
+    check(kindRoundTrip, "★ PA2 六种段：枚举 → 词 → 枚举，一格不差");
+
+    bool modeKnown = true;
+    bool kindKnown = true;
+    const Presets::ApplyMode unknownMode =
+        Presets::applyModeFromKey(QStringLiteral("以后加的档"), &modeKnown);
+    const Presets::SectionKind unknownKind =
+        Presets::sectionKindFromKey(QStringLiteral("以后加的档"), &kindKnown);
+    check(!modeKnown && unknownMode == Presets::ApplyMode::Merge && !kindKnown
+              && unknownKind == Presets::SectionKind::Custom,
+          "★ PA2 认不出来的词：模式落 `Merge`（四个里最不容易弄坏用户东西的那一档）、种类落 "
+          "`Custom`，而且都把 ok 按下去 —— 读的那一边要判得出『这一份坏了』");
+
+    check(Presets::schemaVersion() == 1
+              && Presets::manifestFormatTag() == QStringLiteral("wtfml-preset/1")
+              && Presets::indexFormatTag() == QStringLiteral("wtfml-presets-index/1"),
+          "PA2 版本号 1 和那两个格式标记（★ 这两个字面量就是『认不出来就整份不认』的门槛，"
+          "改它们 = 改格式）");
+
+    // ---------- PA3. 一份写下去读回来，逐格一样 ----------
+    Presets::PresetSection options;
+    options.id = Presets::newPresetId();
+    options.kind = Presets::SectionKind::VanillaOptions;
+    options.title = QStringLiteral("游戏设置");
+    options.mode = Presets::ApplyMode::Merge;
+    options.items = QJsonArray{QJsonObject{{QStringLiteral("key"), QStringLiteral("fov")},
+                                           {QStringLiteral("value"), 80}}};
+
+    Presets::PresetManifest full;
+    full.id = Presets::newPresetId();
+    full.name = QStringLiteral("我的习惯");
+    full.description = QStringLiteral("视野和音量那一套");
+    full.createdAt =
+        QDateTime::fromString(QStringLiteral("2026-10-14T09:00:00.250"), Qt::ISODateWithMs);
+    full.updatedAt =
+        QDateTime::fromString(QStringLiteral("2026-10-14T10:30:00"), Qt::ISODateWithMs);
+    full.sourceInstanceId = QStringLiteral("1.20.1-forge-47.2.0");
+    full.sections = {options};
+
+    bool valueOk = false;
+    const Presets::PresetManifest readBack =
+        Presets::manifestFromJson(Presets::manifestToBytes(full), &valueOk);
+    check(valueOk && readBack.id == full.id && readBack.name == full.name
+              && readBack.description == full.description
+              && readBack.createdAt.toMSecsSinceEpoch() == full.createdAt.toMSecsSinceEpoch()
+              && readBack.updatedAt.toMSecsSinceEpoch() == full.updatedAt.toMSecsSinceEpoch()
+              && readBack.sourceInstanceId == full.sourceInstanceId,
+          "★★ PA3 逐格往返：id / 名字 / 说明 / 两个时间（到毫秒）/ 从哪个实例提取来的");
+    check(readBack.sections.size() == 1 && readBack.sections.first().id == options.id
+              && readBack.sections.first().kind == options.kind
+              && readBack.sections.first().title == options.title
+              && readBack.sections.first().mode == options.mode
+              && readBack.sections.first().items == options.items,
+          "★★ PA3 段也逐格往返，载荷 `items` **原样**（这一层不解释它是什么）");
+    check(readBack.section(Presets::SectionKind::VanillaOptions) != nullptr
+              && readBack.section(Presets::SectionKind::ServerList) == nullptr,
+          "PA3 `section(kind)` 按种类找那一截（没有回 nullptr）");
+
+    // 空着的那几格**根本不写下去**。
+    Presets::PresetManifest plain;
+    plain.id = Presets::newPresetId();
+    plain.name = QStringLiteral("手建的");
+    const QJsonObject plainRoot = QJsonDocument::fromJson(Presets::manifestToBytes(plain)).object();
+    check(!plainRoot.contains(QStringLiteral("description"))
+              && !plainRoot.contains(QStringLiteral("sourceInstanceId")),
+          "PA3 空着的字段根本不写下去（不是写一个空串 —— 写空串读的人会以为那是个开关）");
+    check(plainRoot.contains(QStringLiteral("createdAt"))
+              && plainRoot.contains(QStringLiteral("updatedAt"))
+              && plainRoot.value(QStringLiteral("createdAt")).toString().isEmpty(),
+          "★ PA3 两个时间**总是**写（没记上就写空串）：『字段不在』和『写了但认不出来』少一层歧义");
+    bool plainOk = false;
+    const Presets::PresetManifest plainBack =
+        Presets::manifestFromJson(Presets::manifestToBytes(plain), &plainOk);
+    check(plainOk && !plainBack.createdAt.isValid(),
+          "★ PA3 缺时间**不算坏**（手写一份出来试的情况是存在的）");
+
+    // 空段照样写下去（"我这一趟就是要覆盖成空"和"我没有这一段"是两件事）。
+    Presets::PresetSection emptySection;
+    emptySection.kind = Presets::SectionKind::ServerList;
+    Presets::PresetManifest withEmpty = plain;
+    withEmpty.sections = {emptySection};
+    const QJsonObject sectionObject =
+        Presets::sectionToJson(emptySection);
+    check(!sectionObject.contains(QStringLiteral("items"))
+              && !sectionObject.contains(QStringLiteral("title"))
+              && sectionObject.value(QStringLiteral("mode")).toString() == QStringLiteral("merge")
+              && withEmpty.sections.first().isEmpty(),
+          "★ PA3 空段不写 `items`/`title`，但 `mode` 总是写；而『这一段是空的』由 `isEmpty()` 说");
+
+    // ---------- PA3. 坏的那几档 ----------
+    const auto bytesOf = [](const QString &json) { return json.toUtf8(); };
+    const QByteArray goodBytes = Presets::manifestToBytes(full);
+
+    QByteArray wrongTag = goodBytes;
+    wrongTag.replace(QByteArrayLiteral("wtfml-preset/1"), QByteArrayLiteral("别人的/9"));
+    bool tagOk = true;
+    check(!Presets::manifestFromJson(wrongTag, &tagOk).isValid() && !tagOk,
+          "★★ PA3 格式标记对不上 ⇒ 整份不认（不半信半疑地读成一堆空壳）");
+    bool junkOk = true;
+    check(!Presets::manifestFromJson(QByteArrayLiteral("这不是 json"), &junkOk).isValid() && !junkOk,
+          "PA3 整个文件不是 JSON ⇒ 空壳 + ok=false");
+
+    const auto versionAccepted = [&](const QString &version) {
+        bool versionOk = true;
+        Presets::manifestFromJson(
+            bytesOf(QStringLiteral("{\"format\":\"wtfml-preset/1\",\"schemaVersion\":%1,"
+                                   "\"id\":\"%2\",\"name\":\"x\"}")
+                        .arg(version, full.id)),
+            &versionOk);
+        return versionOk;
+    };
+    check(!versionAccepted(QStringLiteral("\"1\"")),
+          "★★ PA3 版本号写成字符串（\"1\"）⇒ 不认 —— 由着 Qt 读的话它会给出 0，于是"
+          "『以后版本写的』被当成好的一路读下去");
+    check(!versionAccepted(QStringLiteral("2")),
+          "★★ PA3 版本比我们新 ⇒ 整份不认（猜着读 = 拿半懂的东西去改用户的实例）");
+    check(!versionAccepted(QStringLiteral("0")) && !versionAccepted(QStringLiteral("-1")),
+          "PA3 版本是 0 / 负数 ⇒ 也不认（『没写版本』不该被当成『第一代』）");
+    check(versionAccepted(QStringLiteral("1")), "PA3 我们这一代（1）认");
+
+    const auto sectionsAccepted = [&](const QJsonValue &sections) {
+        QJsonObject object;
+        object.insert(QStringLiteral("format"), Presets::manifestFormatTag());
+        object.insert(QStringLiteral("schemaVersion"), 1);
+        object.insert(QStringLiteral("id"), full.id);
+        object.insert(QStringLiteral("name"), QStringLiteral("x"));
+        object.insert(QStringLiteral("sections"), sections);
+        bool sectionOk = true;
+        Presets::manifestFromJson(QJsonDocument(object).toJson(), &sectionOk);
+        return sectionOk;
+    };
+    check(!sectionsAccepted(QJsonArray{QJsonObject{
+              {QStringLiteral("kind"), QStringLiteral("未来的种类")}}}),
+          "★★ PA3 段的种类认不出来 ⇒ **整份**不认（读不懂还硬套 = 拿半懂的东西去改用户的实例）");
+    check(!sectionsAccepted(QJsonArray{QJsonObject{{QStringLiteral("mode"), QStringLiteral("merge")}}}),
+          "PA3 缺 `kind` 那一位走的是同一条（空串一样认不出来）");
+    check(!sectionsAccepted(QJsonArray{QJsonObject{
+              {QStringLiteral("kind"), QStringLiteral("serverList")},
+              {QStringLiteral("mode"), QStringLiteral("以后加的档")}}}),
+          "★★ PA3 `mode` 写了但我们不认识 ⇒ 也不认 —— 写侧那个词拼错是**不报错**的，"
+          "只能靠读的时候挡住");
+    check(sectionsAccepted(QJsonArray{QJsonObject{{QStringLiteral("kind"),
+                                                   QStringLiteral("serverList")}}}),
+          "★ PA3 `mode` **不在**的时候按默认档 `Merge` 算，而且不算坏（可选字段缺了不是错）");
+    check(!sectionsAccepted(QJsonArray{QJsonObject{
+              {QStringLiteral("kind"), QStringLiteral("serverList")},
+              {QStringLiteral("items"), QStringLiteral("不是数组")}}}),
+          "PA3 `items` 不是数组 ⇒ 不认");
+    check(!sectionsAccepted(QJsonArray{QJsonValue(7)}) && !sectionsAccepted(QStringLiteral("不是数组")),
+          "PA3 段不是对象 / `sections` 不是数组 ⇒ 不认");
+
+    bool noNameOk = true;
+    check(!Presets::manifestFromJson(
+               bytesOf(QStringLiteral("{\"format\":\"wtfml-preset/1\",\"schemaVersion\":1,"
+                                      "\"id\":\"%1\"}")
+                           .arg(full.id)),
+               &noNameOk)
+               .isValid()
+              && !noNameOk,
+          "★ PA3 缺名字（或者缺 id）⇒ 不认：身份那两格是这一份拿不拿得出去的全部");
+
+    // ---------- PA3. 下标往返 ----------
+    Presets::PresetIndex index;
+    index.order = QStringList{idA, idB};
+    index.defaultPresetId = idB;
+    bool indexOk = false;
+    const Presets::PresetIndex indexBack =
+        Presets::indexFromJson(Presets::indexToBytes(index), &indexOk);
+    check(indexOk && indexBack.order == index.order && indexBack.defaultPresetId == idB
+              && indexBack.contains(idA),
+          "PA3 下标往返（次序 + 那个唯一的默认项）");
+    check(!Presets::indexToJson(Presets::PresetIndex()).contains(QStringLiteral("default")),
+          "PA3 没有默认项时 `default` 那一位根本不写");
+    bool dupOk = false;
+    const Presets::PresetIndex dupBack = Presets::indexFromJson(
+        bytesOf(QStringLiteral("{\"format\":\"wtfml-presets-index/1\",\"schemaVersion\":1,"
+                               "\"order\":[\"%1\",\"%1\",\"%2\"]}")
+                    .arg(idA, idB)),
+        &dupOk);
+    check(dupOk && dupBack.order.size() == 2 && dupBack.order.first() == idA,
+          "★ PA3 次序表里同一个 id 出现两遍只留第一处（留两遍界面就会多出一行）",
+          QString::number(dupBack.order.size()));
+    bool badIndexOk = true;
+    check(!Presets::indexFromJson(QByteArrayLiteral("这不是 json"), &badIndexOk).contains(idA)
+              && !badIndexOk,
+          "PA3 下标读不回来 ⇒ 空下标 + ok=false（调用方那一下要知道）");
+
+    // ---------- PA4. 落点 + 盘上那一趟 ----------
+    const QString originalDir = AppPaths::minecraftDir();
+    const QString presetRootDefault = Presets::presetsRoot();
+    AppPaths::setMinecraftDir(temp.path() + QStringLiteral("/别的游戏文件夹"));
+    check(Presets::presetsRoot() == presetRootDefault
+              && presetRootDefault
+                     == AppPaths::defaultMinecraftDir() + QStringLiteral("/presets"),
+          "★★ PA4 预设跟着**启动器**走、不跟着当前游戏文件夹走（`<启动器数据根>/presets`）—— "
+          "换一个 .minecraft，昨天攒的那份习惯还得在（和任务账本同一层）",
+          presetRootDefault);
+    AppPaths::setMinecraftDir(originalDir);
+
+    check(Presets::list(root).isEmpty(),
+          "PA4 一次都没做过预设的新用户：根目录都不在，列表还是空的（不崩）");
+
+    const Presets::PresetManifest created =
+        Presets::create(root, QStringLiteral("  我的习惯  "), QStringLiteral("视野那一套"));
+    check(!created.id.isEmpty() && created.name == QStringLiteral("我的习惯")
+              && created.description == QStringLiteral("视野那一套") && created.createdAt.isValid()
+              && created.updatedAt.isValid(),
+          "★ PA4 新建：新 id、名字收过（首尾空白去了）、两个时间都记上了", created.id);
+    check(QFileInfo::exists(Presets::manifestPath(root, created.id))
+              && QFileInfo(Presets::filesDir(root, created.id)).isDir()
+              && QFileInfo::exists(Presets::indexPath(root)),
+          "★★ PA4 落成 §5 那个形状：`<root>/<id>/manifest.json` + `<root>/<id>/files/` + "
+          "`index.json`");
+    check(Presets::isValidPresetId(
+              QFileInfo(Presets::presetDir(root, created.id)).fileName()),
+          "★★ PA4 **显示名一个字节都不进路径**（目录名就是那个 UUID）");
+
+    check(Presets::create(root, QStringLiteral("   \n\t ")).id.isEmpty(),
+          "★ PA4 名字清完是空串 ⇒ 不建（回一个空壳，判据是 `id.isEmpty()`）");
+    check(Presets::list(root).size() == 1, "PA4 那一次没建出东西来");
+
+    const Presets::PresetManifest escaped =
+        Presets::create(root, QStringLiteral("../../外面"));
+    check(!escaped.id.isEmpty() && Presets::isValidPresetId(escaped.id)
+              && QDir(Presets::presetDir(root, escaped.id)).exists() && !QDir(outside).exists(),
+          "★★ PA4 名字叫 `../../外面` 也照建 —— 它只出现在界面上，路径里那一位还是 UUID，"
+          "外面那个目录连建都没被建出来");
+    check(Presets::remove(root, escaped.id), "PA4 把那一份收掉");
+
+    const Presets::PresetManifest second = Presets::create(root, QStringLiteral("按键那一套"));
+    const Presets::PresetManifest third = Presets::create(root, QStringLiteral("服务器那一套"));
+    QList<Presets::PresetSummary> listed = Presets::list(root);
+    check(listed.size() == 3 && listed.at(0).id == created.id && listed.at(1).id == second.id
+              && listed.at(2).id == third.id,
+          "★★ PA4 新建的排在**末尾**，列表次序 = 用户排的次序（不抢他排好的位置）",
+          QString::number(listed.size()));
+    check(listed.first().name == QStringLiteral("我的习惯")
+              && listed.first().description == QStringLiteral("视野那一套")
+              && listed.first().sectionCount == 0 && !listed.first().isDefault,
+          "PA4 列表那一栏要的那几样：显示名 / 说明 / 段数 / 是不是默认项");
+
+    // ---------- PA5. 那一道逃逸闸 ----------
+    QDir().mkpath(outside);
+    writeFileAt(outside + QStringLiteral("/重要的东西.txt"), QByteArrayLiteral("别删我"));
+    check(!Presets::remove(root, QStringLiteral("../外面")),
+          "★★ PA5 `remove(root, \"../外面\")` 回 false —— 那道闸在动盘之前先把它挡了");
+    check(QFileInfo::exists(outside + QStringLiteral("/重要的东西.txt")),
+          "★★ PA5 外面那份东西**还在**（这条路的症状不是报错，是『删掉一份预设』顺手删了别的东西）");
+    check(!Presets::remove(root, QStringLiteral("../../.."))
+              && !Presets::remove(root, QString()),
+          "PA5 别的几种写法（`../../..`、空串）一样挡在门口");
+
+    bool escapeOk = true;
+    QString escapeReason;
+    Presets::loadManifest(root, QStringLiteral("../外面"), &escapeOk, &escapeReason);
+    check(!escapeOk && escapeReason.contains(QStringLiteral("不是一份预设")),
+          "★ PA5 读那一边也一样，而且说得出为什么", escapeReason);
+
+    Presets::PresetManifest forged;
+    forged.id = QStringLiteral("../外面");
+    forged.name = QStringLiteral("伪造的");
+    check(!Presets::saveManifest(root, forged)
+              && !QFileInfo::exists(outside + QStringLiteral("/manifest.json")),
+          "★★ PA5 写那一边也挡（`presetDir()` 拼出来的路径正好落在外面那个目录里，"
+          "而它一个字节都没写进去）");
+    Presets::PresetManifest nameless = created;
+    nameless.name = QStringLiteral("   ");
+    check(!Presets::saveManifest(root, nameless),
+          "★ PA5 名字清完是空的 manifest 写不下去");
+    check(Presets::loadManifest(root, created.id).name == QStringLiteral("我的习惯"),
+          "PA5 刚才那一发一个字都没落到盘上");
+
+    // ---------- PA6. 改名只改显示名 ----------
+    writeFileAt(Presets::filesDir(root, created.id) + QStringLiteral("/config/keys.txt"),
+                QByteArrayLiteral("W=前进"));
+    const Presets::PresetManifest before = Presets::loadManifest(root, created.id);
+    check(Presets::rename(root, created.id, QStringLiteral("  新名字  ")), "PA6 改名成功");
+    const Presets::PresetManifest renamed = Presets::loadManifest(root, created.id);
+    check(renamed.name == QStringLiteral("新名字") && renamed.id == before.id
+              && renamed.createdAt == before.createdAt && renamed.updatedAt >= before.updatedAt,
+          "★★ PA6 改名**只改显示名**：id 和创建时间一个字都不动，目录名还是那个 UUID");
+    check(QFileInfo::exists(Presets::manifestPath(root, created.id))
+              && QFileInfo::exists(Presets::filesDir(root, created.id)
+                                   + QStringLiteral("/config/keys.txt")),
+          "★★ PA6 目录、`manifest.json`、`files/` 里用户放的东西**一个都没动**（普通重命名不改"
+          "磁盘上的身份）");
+    check(!Presets::rename(root, created.id, QStringLiteral("   ")), "PA6 清完是空串回 false");
+    check(Presets::rename(root, created.id, QStringLiteral("新名字"))
+              && Presets::loadManifest(root, created.id).updatedAt == renamed.updatedAt,
+          "★ PA6 改成同一个名字算成功，但『改了一次』这个动作没发生过 ⇒ 时间也不动");
+    check(!Presets::rename(root, QStringLiteral("../外面"), QStringLiteral("x"))
+              && !Presets::rename(root, Presets::newPresetId(), QStringLiteral("x")),
+          "PA6 非法 / 不存在的 id 回 false");
+
+    // ---------- PA7. 排序 + 那个唯一的默认项 ----------
+    check(Presets::move(root, third.id, -1), "PA7 往上挪一位");
+    listed = Presets::list(root);
+    check(listed.at(0).id == created.id && listed.at(1).id == third.id
+              && listed.at(2).id == second.id,
+          "★★ PA7 挪动真的换了位（次序表的次序就是列表的次序）");
+    check(!Presets::move(root, third.id, -5) && !Presets::move(root, second.id, +1)
+              && !Presets::move(root, Presets::newPresetId(), -1),
+          "★ PA7 挪不动的那一头回 false（界面按这个判『那一侧的三角画不画』）");
+
+    check(Presets::setDefault(root, third.id), "PA7 设默认项");
+    check(Presets::defaultPresetId(root) == third.id, "PA7 那个唯一的默认项就是它");
+    listed = Presets::list(root);
+    check(listed.at(1).isDefault && !listed.at(0).isDefault && !listed.at(2).isDefault,
+          "★★ PA7 列表里**只有一份**顶着默认项（§4『设为唯一默认项』）");
+    check(!Presets::setDefault(root, Presets::newPresetId()),
+          "PA7 不在下标里的 id 设不成默认");
+    check(Presets::setDefault(root, QString()) && Presets::defaultPresetId(root).isEmpty(),
+          "PA7 空串 = 取消默认");
+    check(Presets::setDefault(root, third.id), "PA7 再设回来");
+
+    check(Presets::remove(root, third.id), "PA7 删掉那一份");
+    check(Presets::defaultPresetId(root).isEmpty(),
+          "★★ PA7 删掉的正好是默认项 ⇒ **默认位空出来**，不偷偷换给列表里的下一份"
+          "（那一下用户看不见，而默认项是个有后果的开关）");
+    check(Presets::list(root).size() == 2 && !QDir(Presets::presetDir(root, third.id)).exists(),
+          "★ PA7 目录连同它的东西一起收掉了，别的两份还在");
+    check(Presets::remove(root, third.id), "PA7 再删一次：目录已经不在了也算删掉了（幂等）");
+
+    // ---------- PA8. 复制一份 ----------
+    Presets::PresetManifest sourceWithSection = Presets::loadManifest(root, created.id);
+    sourceWithSection.sections = {options};
+    check(Presets::saveManifest(root, sourceWithSection), "PA8 把源那一份改成一个带段的");
+
+    const Presets::PresetManifest copy = Presets::duplicate(root, created.id);
+    check(!copy.id.isEmpty() && copy.id != created.id
+              && copy.name == QStringLiteral("新名字 副本"),
+          "★★ PA8 复制出来的是**新 id**（副本是另一份，不是同一份的两个名字）", copy.name);
+    check(copy.sections.size() == 1
+              && copy.sections.first().kind == Presets::SectionKind::VanillaOptions
+              && copy.sections.first().items == options.items,
+          "★★ PA8 段原样搬过去（载荷也是原样）");
+    check(QFileInfo(Presets::filesDir(root, copy.id) + QStringLiteral("/config/keys.txt")).size()
+              == QByteArrayLiteral("W=前进").size(),
+          "★ PA8 `files/` 里用户放的东西也搬过来了（那份目录是这一份的一部分）");
+    check(Presets::list(root).last().id == copy.id, "PA8 复制出来的排在末尾");
+    const Presets::PresetManifest named = Presets::duplicate(root, created.id, QStringLiteral("  另一个  "));
+    check(named.name == QStringLiteral("另一个"), "PA8 给了名字就用给的（一样要收一遍）");
+    check(Presets::duplicate(root, QStringLiteral("../外面")).id.isEmpty()
+              && Presets::duplicate(root, Presets::newPresetId()).id.isEmpty(),
+          "★ PA8 源读不回来 ⇒ 空壳（不拿半懂的东西去造一份新的）");
+
+    // ---------- PA9. 一份坏了不许连坐别的（P1 点名的验收）----------
+    const Presets::PresetManifest doomed = Presets::create(root, QStringLiteral("坏掉的那一份"));
+    const int aliveBefore = Presets::list(root).size();
+    writeFileAt(Presets::manifestPath(root, doomed.id), QByteArrayLiteral("{ 这不是 json"));
+    QList<Presets::BrokenPreset> broken;
+    const QList<Presets::PresetSummary> survivors = Presets::list(root, &broken);
+    check(survivors.size() == aliveBefore - 1 && broken.size() == 1
+              && broken.first().id == doomed.id,
+          "★★ PA9 一份坏了**只丢它自己**：别的照旧列得出来",
+          QStringLiteral("活了 %1 份、坏了 %2 份").arg(survivors.size()).arg(broken.size()));
+    check(broken.first().reason.contains(QStringLiteral("manifest.json")),
+          "★ PA9 坏的那一份说得出**是哪个文件**（这句人话原样能显示给用户，界面不再加工）",
+          broken.first().reason);
+    check(!Presets::loadManifest(root, doomed.id).isValid(), "PA9 直接读它也是空壳");
+
+    // 下标里有、盘上已经没有了（§8.2 那个「默认项丢失」的组合要的正是这一档）。
+    const QString ghostId = Presets::newPresetId();
+    check(Presets::saveIndex(root, Presets::appendToIndex(Presets::loadIndex(root), ghostId)),
+          "PA9 往下标里塞一个盘上没有的 id");
+    QList<Presets::BrokenPreset> withGhost;
+    const QList<Presets::PresetSummary> survivors2 = Presets::list(root, &withGhost);
+    QString ghostReason;
+    for (const Presets::BrokenPreset &one : withGhost) {
+        if (one.id == ghostId) {
+            ghostReason = one.reason;
+        }
+    }
+    check(survivors2.size() == survivors.size() && !ghostReason.isEmpty()
+              && ghostReason.contains(QStringLiteral("已经不在了")),
+          "★★ PA9 下标里有、盘上没了的 ⇒ 进 broken **而不进列表**", ghostReason);
+    check(Presets::loadIndex(root).contains(ghostId),
+          "★★ PA9 读的那一趟**没有替用户改下标**（读的时候顺手改盘是最难查的那一类）");
+
+    // ---------- PA10. 盘上有、下标里没有的 → 照样列出来 ----------
+    Presets::PresetManifest loose;
+    loose.id = Presets::newPresetId();
+    loose.name = QStringLiteral("用户自己拷进来的");
+    check(Presets::saveManifest(root, loose), "PA10 直接在盘上放一份（不进下标）");
+    listed = Presets::list(root);
+    check(listed.size() == survivors.size() + 1 && listed.last().id == loose.id,
+          "★★ PA10 『盘上有、下标里没有』的那一份**照样列出来、排在末尾** —— 不丢东西是这一条"
+          "的全部理由",
+          listed.last().name);
+
+    // ---------- PA11. 下标本身坏了：读不回来就不许写回去 ----------
+    const QByteArray rottenIndex = QByteArrayLiteral("{\"format\":\"别人的/9\"}");
+    writeFileAt(Presets::indexPath(root), rottenIndex);
+    bool rottenOk = true;
+    const Presets::PresetIndex rotten = Presets::loadIndex(root, &rottenOk);
+    check(!rottenOk && rotten.order.isEmpty() && rotten.defaultPresetId.isEmpty(),
+          "★ PA11 下标读不回来 ⇒ 空下标 + ok=false（那一位是给调用方看的：这一趟别写回去）");
+    check(Presets::list(root).size() >= survivors.size(),
+          "★★ PA11 下标整个废掉之后，盘上那些预设**还是列得出来**（读不回来的下标不连坐用户"
+          "的东西）",
+          QString::number(Presets::list(root).size()));
+    check(Presets::remove(root, loose.id), "PA11 下标坏着也能删一份（目录那一趟照做）");
+    QFile rottenFile(Presets::indexPath(root));
+    const bool rottenOpened = rottenFile.open(QIODevice::ReadOnly);
+    check(rottenOpened, "PA11 那份坏下标读得出来（接下来比的是**字节**，不是『能读回一点』）");
+    const QByteArray afterRemove = rottenFile.readAll();
+    rottenFile.close();
+    check(afterRemove == rottenIndex,
+          "★★ PA11 那一趟**没有把空下标写回去** —— 写回去 = 把用户排好的顺序抹平，而屏幕上"
+          "什么都不说");
+    check(!Presets::move(root, created.id, 1) && !Presets::setDefault(root, created.id),
+          "PA11 次序和默认项那两件在下标坏着时**回 false**（不动盘、也不假装成功）");
+}
+
+// ---------------------------------------------------------------------------
+// PB. 原版设置那一段：`options.txt` 的保序模型（coding plan §6 P2）
+//
+// §6 P2 原话：「建立保序的 `options.txt` 模型；保留未知行和目标版本新增字段；基础设置与
+// `key_` 按键分组选择；默认 Merge，Replace 必须明确确认；检测标准按键的精确重复；显示器、
+// 全屏分辨率等硬件相关项默认不选」，外加那两句「不要简单用 `QMap` 重写整个文件，也不要把
+// 缺失字段当空值写回」。
+//
+// ★ 这一节最要紧的三格，全是"我们**没**弄坏用户东西"的那种红：
+//   · **原地往返**：读进来再写出去逐字节相同（别人的行、行尾、非 UTF-8 的字节都不许动）；
+//   · **目标版本新增的键一个都不许丢** —— 拿一张 map 重写整个文件，坏就坏在这儿；
+//   · **认不出来的行任何一档都不删**，连"覆盖"都不删。
+//
+// 整节纯函数：两份假 `options.txt` 一喂，不该动盘、不该联网、不碰 ui/。
+// ---------------------------------------------------------------------------
+static void runVanillaOptionsTests() {
+    section("PB. 原版设置：options.txt 保序 / 未知行不许丢 / 按键冲突（§6 P2）");
+
+    // 一份"从用户那儿来的"预设底稿：里面**故意**混了四种东西 —— 基础设置、两条抢同一个键
+    // 的标准按键、硬件相关项（默认不选）、还有我们认不出来的（`resourcePacks` 归 §4 那块、
+    // `lastServer` 是状态不是设置、模组写的那条谁也不知道是什么）。
+    const QByteArray sourceBytes = QByteArrayLiteral(
+        "fov:0.5\n"
+        "renderDistance:8\n"
+        "lang:zh_cn\n"
+        "guiScale:3\n"
+        "fullscreen:true\n"
+        "key_forward:key.keyboard.w\n"
+        "key_sneak:key.keyboard.w\n"
+        "key_jump:key.keyboard.space\n"
+        "resourcePacks:[\"vanilla\"]\n"
+        "unknownModOption:42\n"
+        "lastServer:127.0.0.1\n");
+    // 目标实例此刻的那一份：**行序和上面完全不同**（真人手上的 file 就是这样），里面还有
+    // 目标版本才有的新键、一行手改的、以及一条 `key_*`。
+    const QByteArray targetBytes = QByteArrayLiteral(
+        "key_forward:key.keyboard.up\n"
+        "key_back:key.keyboard.s\n"
+        "key_sprint:key.keyboard.space\n"
+        "fov:1.0\n"
+        "renderDistance:12\n"
+        "fullscreenResolution:1920x1080@60:24\n"
+        "resourcePacks:[\"file/x.zip\"]\n"
+        "lastServer:192.168.0.9\n"
+        "tutorialStep:none\n"
+        "# 手改过的一行（没有冒号）\n"
+        "someNewOptionFromFutureVersion:yes\n");
+
+    const Presets::OptionsFile source = Presets::parseOptions(sourceBytes);
+    const Presets::OptionsFile target = Presets::parseOptions(targetBytes);
+
+    // ---------- PB0. 原地往返：这一层的地基 ----------
+    check(source.toBytes() == sourceBytes,
+          "★★ PB0 读进来再写出去**逐字节相同** —— 这就是这一层的门槛（行序、别人的行、"
+          "值里那第二个冒号，一个都不许动）");
+    check(target.toBytes() == targetBytes, "★★ PB0 目标那一份也一样");
+    {
+        // 手改过的文件长什么样都得原样过：CRLF、最后一行没有换行、空行、`:` 开头的空键行、
+        // 以及一段**不是 UTF-8** 的字节（老版本 Java 在中文系统上写过平台编码）。
+        QByteArray weird;
+        weird += "fov:0.0\r\n";                                        // CRLF
+        weird += "\n";                                                 // 空行
+        weird += ":没有键的那一行\n";                                  // 冒号在第一位
+        weird += "soundDevice:";
+        weird.append('\xd1');                                          // 非 UTF-8 的两个字节
+        weird.append('\xd2');                                          // （老版本 Java 在
+        weird += "\n";                                                 //   中文系统上写过）
+        weird += "lastLineNoNewline:1";                                // 最后一行没有换行
+        const Presets::OptionsFile round = Presets::parseOptions(weird);
+        check(round.toBytes() == weird,
+              "★★ PB0 手改过的那一份（CRLF + 空行 + 空键行 + 非 UTF-8 字节 + 末尾没有换行）"
+              "也逐字节往返 —— 没被改过的行写回去的就是**原来的字节**");
+        check(Presets::parseOptions(QByteArray()).toBytes().isEmpty(), "PB0 空文件一样过");
+    }
+
+    // ---------- PB1. 同一个键出现两次：最后一条说了算（游戏是 put） ----------
+    {
+        const QByteArray twice = QByteArrayLiteral("fov:0.1\nfov:0.9\nrenderDistance:4\n");
+        Presets::OptionsFile file = Presets::parseOptions(twice);
+        check(file.value(QStringLiteral("fov")) == QStringLiteral("0.9"),
+              "★★ PB1 重复的键**最后一条说了算**（游戏读它的时候是往表里 put，后写盖前写）",
+              file.value(QStringLiteral("fov")));
+        check(file.lastIndexOfKey(QStringLiteral("fov")) == 1,
+              "PB1 那个下标也是最后一条", QString::number(file.lastIndexOfKey(QStringLiteral("fov"))));
+        file.setValue(QStringLiteral("fov"), QStringLiteral("0.5"));
+        const QByteArray after = file.toBytes();
+        check(after == QByteArrayLiteral("fov:0.1\nfov:0.5\nrenderDistance:4\n"),
+              "★★ PB1 改的是**最后那一条**（改前面那条等于白改：游戏看不到），前面那条"
+              "原样留着（我们不知道它为什么在那儿）",
+              QString::fromUtf8(after));
+    }
+
+    // ---------- PB2. 认哪些键、哪一档默认勾 ----------
+    check(Presets::optionsFieldOf(QStringLiteral("key_forward")) == Presets::OptionsField::Hotkey,
+          "PB2 `key_*` 是标准按键那一档");
+    check(Presets::optionsFieldOf(QStringLiteral("fov")) == Presets::OptionsField::Game &&
+              Presets::optionsFieldOf(QStringLiteral("soundCategory_music")) ==
+                  Presets::OptionsField::Game &&
+              Presets::optionsFieldOf(QStringLiteral("modelPart_cape")) ==
+                  Presets::OptionsField::Game,
+          "PB2 基础设置那一档认得出来（含 `soundCategory_*` / `modelPart_*` 两个**前缀家族**"
+          "—— 它们的尾巴是游戏自己排的枚举，列不完）");
+    check(Presets::optionsFieldOf(QStringLiteral("fullscreenResolution")) ==
+                  Presets::OptionsField::Hardware &&
+              Presets::optionsFieldOf(QStringLiteral("guiScale")) ==
+                  Presets::OptionsField::Hardware &&
+              Presets::optionsFieldOf(QStringLiteral("touchscreen")) ==
+                  Presets::OptionsField::Hardware,
+          "PB2 硬件相关项（§6 P2 点名的「显示器、全屏分辨率」那几条）");
+    check(Presets::optionsFieldOf(QStringLiteral("resourcePacks")) ==
+                  Presets::OptionsField::Unknown &&
+              Presets::optionsFieldOf(QStringLiteral("lastServer")) ==
+                  Presets::OptionsField::Unknown &&
+              Presets::optionsFieldOf(QStringLiteral("someNewOptionFromFutureVersion")) ==
+                  Presets::OptionsField::Unknown &&
+              Presets::optionsFieldOf(QString()) == Presets::OptionsField::Unknown,
+          "PB2 认不出来的那一档：资源包（归 §4 那块）、`lastServer`（是状态不是设置）、"
+          "别的版本写的、空键");
+    check(Presets::optionsDefaultSelected(QStringLiteral("fov")) &&
+              Presets::optionsDefaultSelected(QStringLiteral("key_forward")),
+          "PB2 基础设置与标准按键**默认勾**（§6 P2 那句「分组选择」的默认档）");
+    check(!Presets::optionsDefaultSelected(QStringLiteral("guiScale")) &&
+              !Presets::optionsDefaultSelected(QStringLiteral("fullscreenResolution")) &&
+              !Presets::optionsDefaultSelected(QStringLiteral("resourcePacks")) &&
+              !Presets::optionsDefaultSelected(QStringLiteral("someNewOptionFromFutureVersion")),
+          "★★ PB2 硬件相关项**默认不选**（§6 P2 点名），认不出来的也不选 —— 不认识的键的"
+          "正确值只有用户知道，替他搬过去是拿猜出来的值改他的实例");
+    check(Presets::optionsFieldKey(Presets::OptionsField::Game) == QStringLiteral("game") &&
+              Presets::optionsFieldKey(Presets::OptionsField::Hotkey) == QStringLiteral("hotkey") &&
+              Presets::optionsFieldKey(Presets::OptionsField::Hardware) ==
+                  QStringLiteral("hardware") &&
+              Presets::optionsFieldKey(Presets::OptionsField::Unknown) ==
+                  QStringLiteral("unknown"),
+          "PB2 每一档都有一个稳定的落盘/翻译键（中文名归 ui/ 那一层）");
+
+    // ---------- PB3. 分组与默认勾选 ----------
+    {
+        const QList<Presets::OptionsEntryGroup> groups = Presets::groupOptions(source);
+        check(groups.size() == 4 && groups.at(0).field == Presets::OptionsField::Game &&
+                  groups.at(1).field == Presets::OptionsField::Hotkey &&
+                  groups.at(2).field == Presets::OptionsField::Hardware &&
+                  groups.at(3).field == Presets::OptionsField::Unknown,
+              "PB3 四组，顺序固定（基础设置 / 标准按键 / 硬件相关 / 认不出来的）");
+        QStringList counts;
+        for (const Presets::OptionsEntryGroup &group : groups) {
+            counts << QString::number(group.lines.size());
+        }
+        check(counts == QStringList({QStringLiteral("3"), QStringLiteral("3"),
+                                     QStringLiteral("2"), QStringLiteral("3")}),
+              "PB3 每一组里的条数（基础设置 3 / 按键 3 / 硬件 2 / 认不出 3）",
+              counts.join(QLatin1Char('/')));
+
+        const QSet<QString> selected = Presets::defaultSelection(source);
+        QStringList picked;
+        for (const QString &key : source.keys()) {
+            if (selected.contains(key)) {
+                picked << key;
+            }
+        }
+        check(picked == QStringList({QStringLiteral("fov"), QStringLiteral("renderDistance"),
+                                     QStringLiteral("lang"), QStringLiteral("key_forward"),
+                                     QStringLiteral("key_sneak"), QStringLiteral("key_jump")}),
+              "★★ PB3 默认勾上的就是那六个（硬件那两条、`resourcePacks`、模组那条、"
+              "`lastServer` 一个都不在里面）—— 顺序照文件里的行序",
+              picked.join(QLatin1Char('/')));
+    }
+
+    // ---------- PB4. 段：拆成"游戏设置"和"原版按键"两段 ----------
+    {
+        const QSet<QString> selected = Presets::defaultSelection(source);
+        const QList<Presets::PresetSection> sections = Presets::sectionsFromOptions(source, selected);
+        check(sections.size() == 2 &&
+                  sections.at(0).kind == Presets::SectionKind::VanillaOptions &&
+                  sections.at(1).kind == Presets::SectionKind::VanillaKeys,
+              "PB4 拆成两段（§6 P2 那句「基础设置与 `key_` 按键分组选择」）");
+        check(sections.at(0).items.size() == 3 && sections.at(1).items.size() == 3,
+              "PB4 设置那一半 3 项、按键那一半 3 项（`guiScale` / `fullscreen` 默认没勾 ⇒ "
+              "一条都不进段）",
+              QStringLiteral("%1 / %2")
+                  .arg(sections.at(0).items.size())
+                  .arg(sections.at(1).items.size()));
+        check(sections.at(0).mode == Presets::ApplyMode::Merge &&
+                  sections.at(1).mode == Presets::ApplyMode::Merge,
+              "★★ PB4 两段的默认档都是**合并**（§6 P2：「默认 Merge，Replace 必须明确确认」"
+              "—— 覆盖档是用户在界面上点头之后才写进这一段的）");
+        const QJsonObject first = sections.at(1).items.at(0).toObject();
+        check(first.value(QStringLiteral("key")).toString() == QStringLiteral("key_forward") &&
+                  first.value(QStringLiteral("value")).toString() ==
+                      QStringLiteral("key.keyboard.w"),
+              "PB4 载荷形状 `{\"key\":…,\"value\":…}` 且**保序**（第一条就是文件里第一条）");
+        check(!sections.at(0).id.isEmpty() && !sections.at(1).id.isEmpty() &&
+                  sections.at(0).id != sections.at(1).id,
+              "PB4 两段各自带一个段 id", sections.at(0).id + QLatin1Char('/') + sections.at(1).id);
+        check(Presets::optionsSectionId(Presets::SectionKind::VanillaOptions) == sections.at(0).id &&
+                  Presets::optionsSectionId(Presets::SectionKind::VanillaKeys) == sections.at(1).id,
+              "PB4 段 id 是**由段种类推出来的**（两次调用、两次读到的一样：冲突提示和"
+              "「这一段是同一个东西」那个判断才有落脚点）");
+        check(sections.at(0).id ==
+                  Presets::optionsSectionId(Presets::SectionKind::VanillaOptions),
+              "PB4 （再念一次，防止有人把它改成现搓的 UUID）");
+
+        // 读回：两份段 → 一份"值"的文件（应用那一层的第一步）。
+        bool readOk = false;
+        const Presets::OptionsFile back = Presets::optionsFromSections(sections, &readOk);
+        check(readOk && back.value(QStringLiteral("fov")) == QStringLiteral("0.5") &&
+                  back.value(QStringLiteral("key_jump")) == QStringLiteral("key.keyboard.space"),
+              "PB4 从这两段里读得回那六个值（`fov` / 按键都对得上）");
+
+        // 坏掉的载荷：三条来路各自一条断言（读不回来的段不许拿去改用户的实例）。
+        const auto brokenSection = [](const QByteArray &items) {
+            Presets::PresetSection section;
+            section.kind = Presets::SectionKind::VanillaOptions;
+            section.items = QJsonDocument::fromJson(items).array();
+            return QList<Presets::PresetSection>({section});
+        };
+        bool badOk = true;
+        Presets::optionsFromSections(brokenSection(QByteArrayLiteral("[42]")), &badOk);
+        check(!badOk, "★★ PB4 项不是对象 ⇒ 读不回来（不许拿去改用户的实例）");
+        badOk = true;
+        Presets::optionsFromSections(brokenSection(QByteArrayLiteral("[{\"key\":\"fov\"}]")),
+                                     &badOk);
+        check(!badOk,
+              "★★ PB4 缺 `value` **不算空串** —— 这一份被谁动过（§8.1「区分缺失、`null` 与"
+              "错误类型」）");
+        badOk = true;
+        Presets::optionsFromSections(
+            brokenSection(QByteArrayLiteral("[{\"key\":\"\",\"value\":\"1\"}]")), &badOk);
+        check(!badOk, "★★ PB4 空键也算读不回来");
+        badOk = false;
+        Presets::optionsFromSections(
+            brokenSection(QByteArrayLiteral("[{\"key\":\"fov\",\"value\":\"0.5\"}]")), &badOk);
+        check(badOk, "PB4 对照：好端端的那一条读得回来");
+    }
+
+    // ---------- PB5. 空值照样进段（"这一趟就是要把它清空"） ----------
+    {
+        const QByteArray unbound = QByteArrayLiteral("key_sneak:\nfov:0.5\n");
+        const Presets::OptionsFile file = Presets::parseOptions(unbound);
+        const QSet<QString> selected = Presets::defaultSelection(file);
+        const QList<Presets::PresetSection> sections = Presets::sectionsFromOptions(file, selected);
+        const QJsonObject item = sections.at(1).items.at(0).toObject();
+        check(sections.at(1).items.size() == 1 &&
+                  item.value(QStringLiteral("value")).toString().isEmpty(),
+              "★★ PB5 空绑定（用户自己把它清成「未绑定」的那种）**照样写进段里** —— 「我这一趟"
+              "要把它清空」和「我没有这一项」是两件事");
+    }
+
+    // ---------- PB6. 按键冲突：精确重复 ----------
+    {
+        const QSet<QString> selected = Presets::defaultSelection(source);
+        const QList<Presets::OptionsConflict> conflicts =
+            Presets::optionsConflicts(source, target, selected);
+        check(conflicts.size() == 2,
+              "★★ PB6 报**两条**：① 预设自己有两条抢同一个键（`key_forward` / `key_sneak` "
+              "都是 `key.keyboard.w`）；② 预设的 `key_jump` 要空格，而目标上的 `key_sprint` "
+              "此刻正绑着空格 —— 后者就是真机上「装完预设发现跳跃没了」的来路",
+              QString::number(conflicts.size()));
+        if (conflicts.size() == 2) {
+            // 定序按绑定串（`space` < `w`）：界面上的行不会每次刷新都换位置。
+            const Presets::OptionsConflict &space = conflicts.at(0);
+            const Presets::OptionsConflict &w = conflicts.at(1);
+            check(space.binding == QStringLiteral("key.keyboard.space") &&
+                      space.sourceKeys == QStringList({QStringLiteral("key_jump")}) &&
+                      space.targetKeys == QStringList({QStringLiteral("key_sprint")}) &&
+                      space.claimedBy() == 2,
+                  "PB6 空格那一条：预设这一侧是 `key_jump`、目标那一侧是 `key_sprint`",
+                  space.sourceKeys.join(QLatin1Char('+')) + QLatin1Char('@') + space.binding);
+            check(w.binding == QStringLiteral("key.keyboard.w") &&
+                      w.sourceKeys == QStringList({QStringLiteral("key_forward"),
+                                                   QStringLiteral("key_sneak")}) &&
+                      w.targetKeys.isEmpty() && w.claimedBy() == 2,
+                  "★★ PB6 而**目标上会被预设改掉的那条不算进目标侧**（`key_forward` 目标上"
+                  "现在绑的是 up，预设这一趟会把它改成 w）—— 算进来的话等于报了一个应用完"
+                  "就不存在的冲突",
+                  w.sourceKeys.join(QLatin1Char('+')) + QLatin1Char('@') + w.binding);
+        }
+
+        // 精确 = 逐字节相同：两个都带 `shift` 的不同键不算冲突。
+        const QByteArray nearMiss = QByteArrayLiteral("key_a:key.keyboard.left.shift\n"
+                                                      "key_b:key.keyboard.right.shift\n");
+        const Presets::OptionsFile nearFile = Presets::parseOptions(nearMiss);
+        check(Presets::optionsConflicts(nearFile, Presets::OptionsFile(),
+                                        Presets::defaultSelection(nearFile))
+                  .isEmpty(),
+              "★★ PB6 「精确重复」是**逐字节相同**：`left.shift` 和 `right.shift` 里都带着 "
+              "`shift`，但它们是两个键 —— 真要做「物理上是不是同一个键」的判断得先会有修饰键"
+              "的键位表，而那件事没有唯一答案");
+
+        // 空绑定不算冲突（未绑定可以有一堆）。
+        const QByteArray twoFree = QByteArrayLiteral("key_a:\nkey_b:\n");
+        const Presets::OptionsFile freeFile = Presets::parseOptions(twoFree);
+        check(Presets::optionsConflicts(freeFile, Presets::OptionsFile(),
+                                        Presets::defaultSelection(freeFile))
+                  .isEmpty(),
+              "PB6 两条都空着（用户清掉的）不算冲突");
+
+        // 目标上原来就重着的、预设不牵的那些：不是这一趟弄出来的，不许记到我们头上。
+        const QByteArray targetDup = QByteArrayLiteral("key_x:key.keyboard.q\n"
+                                                       "key_y:key.keyboard.q\n");
+        check(Presets::optionsConflicts(source, Presets::parseOptions(targetDup),
+                                        Presets::defaultSelection(source))
+                  .size() == 1,
+              "★★ PB6 目标上原来就重着的（`key_x` / `key_y` 都绑 q）、而预设一个字都没提它们"
+              "⇒ 还是只报预设自己那一条（报出来只会让用户以为是我们干的）");
+    }
+
+    // ---------- PB7. 计划：合并 ----------
+    const QSet<QString> selected = Presets::defaultSelection(source);
+    {
+        const Presets::OptionsApplyReport report =
+            Presets::planOptionsApply(Presets::SectionKind::VanillaOptions, source, target,
+                                      selected, Presets::ApplyMode::Merge);
+        check(report.ok && !report.needsConfirm,
+              "PB7 合并档不用确认（§6 P2 的默认档）", report.problem);
+        check(report.written == 3 && report.added == 1,
+              "PB7 计划里说得清要写几项、其中几项是**新加的**（`lang` 目标上没有 ⇒ 1 项要"
+              "追加）",
+              QStringLiteral("写 %1 / 加 %2").arg(report.written).arg(report.added));
+        check(report.skipped == 5,
+              "PB7 预设里这一段的 8 项里有 5 项没勾（硬件 2 + 认不出 3）",
+              QString::number(report.skipped));
+        check(report.removed == 0 && report.untouchable == 0,
+              "PB7 合并档一项都不删（`untouchable` 那个数只在覆盖档填 —— 别的档报出来只会让人"
+              "以为我们在权衡什么）");
+        check(!report.hasConflicts(),
+              "★★ PB7 设置那一段**不报按键冲突**（§7 那张计划表里也只有「原版按键」那一行"
+              "带冲突数：报在这儿等于把别的段的账记到它头上）");
+    }
+
+    // ---------- PB8. 执行：合并之后那两份文件长什么样 ----------
+    {
+        const Presets::OptionsApplyResult result =
+            Presets::applyOptions(Presets::SectionKind::VanillaOptions, target, source, selected,
+                                  Presets::ApplyMode::Merge);
+        const QByteArray merged = result.bytes;
+        check(QString::fromUtf8(merged).contains(QStringLiteral("fov:0.5\nrenderDistance:8\n")),
+              "★★ PB8 改的是**那一行的值**、位置一个都不动（`fov` 还在它原来那一行上，后面"
+              "紧跟的还是 `renderDistance`）",
+              QString::fromUtf8(merged));
+        // ★ 最硬的那一条：整个文件逐字节比。多一行、少一行、把哪一行挪个位置、换行符被
+        //   统一过 —— 全都会红。上面那几条 `contains` 负责在红了之后说清楚是哪一格。
+        const QByteArray expectedMerge = QByteArrayLiteral(
+            "key_forward:key.keyboard.up\n"
+            "key_back:key.keyboard.s\n"
+            "key_sprint:key.keyboard.space\n"
+            "fov:0.5\n"
+            "renderDistance:8\n"
+            "fullscreenResolution:1920x1080@60:24\n"
+            "resourcePacks:[\"file/x.zip\"]\n"
+            "lastServer:192.168.0.9\n"
+            "tutorialStep:none\n"
+            "# 手改过的一行（没有冒号）\n"
+            "someNewOptionFromFutureVersion:yes\n"
+            "lang:zh_cn\n");
+        check(merged == expectedMerge,
+              "★★ PB8 合并完**逐字节就是这几行**：目标那 11 行一行没少、被勾中的两条在原地改"
+              "成新值、`lang` 追加在最后",
+              QString::fromUtf8(merged));
+        check(QString::fromUtf8(merged).contains(
+                  QStringLiteral("resourcePacks:[\"file/x.zip\"]")) &&
+                  QString::fromUtf8(merged).contains(QStringLiteral("lastServer:192.168.0.9")) &&
+                  QString::fromUtf8(merged).contains(QStringLiteral("tutorialStep:none")) &&
+                  QString::fromUtf8(merged).contains(QStringLiteral("# 手改过的一行（没有冒号）")),
+              "★★ PB8 认不出来的行、手改过的行、目标上那些状态键**一个都不许丢**（拿一张 map"
+              "重写整个文件就坏在这儿）");
+        check(QString::fromUtf8(merged).contains(
+                  QStringLiteral("someNewOptionFromFutureVersion:yes")),
+              "★★ PB8 目标版本新增的字段也在（§6 P2 点名的那一条）");
+        check(QString::fromUtf8(merged).contains(
+                  QStringLiteral("fullscreenResolution:1920x1080@60:24")),
+              "★★ PB8 硬件那条这一趟**没勾** ⇒ 目标上原来那份分辨率原样留着（值里那个"
+              "第二个冒号也原样）");
+        check(QString::fromUtf8(merged).endsWith(QStringLiteral("someNewOptionFromFutureVersion:yes\n"
+                                                               "lang:zh_cn\n")),
+              "PB8 目标上没有的那一项**追加在文件末尾**（我们不知道游戏会把它写在第几行，"
+              "硬插到「看着该在的位置」等于凭空造一种排序规则）",
+              QString::fromUtf8(merged).right(60));
+        check(QString::fromUtf8(merged).contains(QStringLiteral("key_forward:key.keyboard.up")) &&
+                  QString::fromUtf8(merged).contains(QStringLiteral("key_sprint:key.keyboard.space")),
+              "★★ PB8 设置那一半**管不着 `key_*`**：目标上那两条按键一个字节都没动");
+        check(QString::fromUtf8(merged).contains(QStringLiteral("fov:1.0")) == false,
+              "PB8 老的值确实被换掉了（不是「两份都在」）");
+    }
+
+    // ---------- PB9. 覆盖档：必须明确确认过才动手 ----------
+    {
+        const Presets::OptionsApplyResult refused =
+            Presets::applyOptions(Presets::SectionKind::VanillaOptions, target, source, selected,
+                                  Presets::ApplyMode::Replace);
+        check(!refused.report.ok && refused.report.needsConfirm &&
+                  !refused.report.problem.isEmpty(),
+              "★★ PB9 覆盖档没确认过 ⇒ 不动手，而且**说得出为什么**（§6 P2「Replace 必须明确"
+              "确认」）", refused.report.problem);
+        check(refused.bytes == targetBytes,
+              "★★ PB9 没确认的那一趟**目标一个字节都没动**（不是「先写了再回滚」）");
+
+        const Presets::OptionsApplyResult replaced =
+            Presets::applyOptions(Presets::SectionKind::VanillaOptions, target, source, selected,
+                                  Presets::ApplyMode::Replace, true);
+        const QByteArray out = replaced.bytes;
+        check(replaced.report.ok && replaced.report.removed == 1,
+              "PB9 确认过之后：覆盖档要删掉目标上**这一类**里预设没有的那些键（"
+              "`fullscreenResolution` 一条）",
+              QStringLiteral("删 %1").arg(replaced.report.removed));
+        check(!QString::fromUtf8(out).contains(QStringLiteral("fullscreenResolution")),
+              "PB9 那一条真的没了");
+        check(replaced.report.untouchable == 5,
+              "★★ PB9 `untouchable` 数的是目标上我们**认不出来**的那几行（`resourcePacks` /"
+              "`lastServer` / `tutorialStep` / 没冒号那行 / 目标版本那条 = 5）",
+              QString::number(replaced.report.untouchable));
+        check(QString::fromUtf8(out).contains(QStringLiteral("resourcePacks:[\"file/x.zip\"]")) &&
+                  QString::fromUtf8(out).contains(QStringLiteral("lastServer:192.168.0.9")) &&
+                  QString::fromUtf8(out).contains(QStringLiteral("# 手改过的一行（没有冒号）")) &&
+                  QString::fromUtf8(out).contains(
+                      QStringLiteral("someNewOptionFromFutureVersion:yes")) &&
+                  QString::fromUtf8(out).contains(QStringLiteral("tutorialStep:none")),
+              "★★ PB9 **覆盖档也不删认不出来的行**（那是别人写的东西，不是「多余的东西」——"
+              "把不认识的键当成该被覆盖掉的，正是 §6 P2 点名的那个坑）");
+        check(QString::fromUtf8(out).contains(QStringLiteral("key_forward:key.keyboard.up")) &&
+                  QString::fromUtf8(out).contains(QStringLiteral("key_back:key.keyboard.s")),
+              "PB9 覆盖档的**域**只有设置那几档：按键那一份原样在");
+        check(QString::fromUtf8(out).contains(QStringLiteral("fov:0.5")) &&
+                  QString::fromUtf8(out).contains(QStringLiteral("lang:zh_cn")),
+              "PB9 预设里勾中的那些都写进去了（含新追加的 `lang`）");
+    }
+
+    // ---------- PB10. 其余几档 ----------
+    {
+        // 缺了才拷：目标上已经有的一个字节都不动。
+        const Presets::OptionsApplyResult copy =
+            Presets::applyOptions(Presets::SectionKind::VanillaOptions, target, source, selected,
+                                  Presets::ApplyMode::CopyIfMissing);
+        check(copy.report.ok && copy.report.written == 1 && copy.report.added == 1 &&
+                  QString::fromUtf8(copy.bytes).contains(QStringLiteral("fov:1.0")),
+              "★★ PB10「缺了才拷」：目标上已经有 `fov` / `renderDistance` ⇒ 只补那一条"
+              "（「别动用户已经调好的」那一档）",
+              QStringLiteral("写 %1").arg(copy.report.written));
+
+        // 跳过：一个字节都不动，而且老实说"一项都没写"。
+        const Presets::OptionsApplyResult skip =
+            Presets::applyOptions(Presets::SectionKind::VanillaOptions, target, source, selected,
+                                  Presets::ApplyMode::Skip);
+        check(skip.report.ok && skip.report.written == 0 && skip.report.skipped == 8 &&
+                  skip.bytes == targetBytes,
+              "PB10「跳过」：一项都不写、8 项全算没动、目标原样");
+
+        // 追加：对 options.txt 没有意义（键是唯一的）⇒ 按合并走（写在这儿免得以后有人
+        // 以为漏了一档）。
+        const Presets::OptionsApplyResult append =
+            Presets::applyOptions(Presets::SectionKind::VanillaOptions, target, source, selected,
+                                  Presets::ApplyMode::Append);
+        check(append.bytes ==
+                  Presets::applyOptions(Presets::SectionKind::VanillaOptions, target, source,
+                                        selected, Presets::ApplyMode::Merge)
+                      .bytes,
+              "PB10「追加」和「合并」结果一样（这是**故意**的，不是漏了一档）");
+
+        // 按键那一段：只写 `key_*`，而且冲突照 §7 那张表报在它自己头上。
+        const Presets::OptionsApplyResult keys =
+            Presets::applyOptions(Presets::SectionKind::VanillaKeys, target, source, selected,
+                                  Presets::ApplyMode::Merge);
+        check(keys.report.ok && keys.report.written == 3 && keys.report.hasConflicts(),
+              "★★ PB10 按键那一段：写 3 项、而且**冲突数报在它自己这一行上**（§7 那张计划表"
+              "「原版按键 合并 23 项，冲突 1 项」）",
+              QStringLiteral("写 %1 / 冲突 %2")
+                  .arg(keys.report.written)
+                  .arg(keys.report.conflicts.size()));
+        check(QString::fromUtf8(keys.bytes).contains(QStringLiteral("key_forward:key.keyboard.w")) &&
+                  QString::fromUtf8(keys.bytes).contains(QStringLiteral("fov:1.0")),
+              "PB10 按键那一段管不着 `fov`（它原样在）");
+
+        // 不归这一层管的段：目标原样回去 + 一句人话。
+        const Presets::OptionsApplyResult wrong =
+            Presets::applyOptions(Presets::SectionKind::ServerList, target, source, selected,
+                                  Presets::ApplyMode::Merge);
+        check(!wrong.report.ok && wrong.bytes == targetBytes &&
+                  !wrong.report.problem.isEmpty(),
+              "PB10 不归这一层管的段 ⇒ 不动目标、报告里说清楚",
+              wrong.report.problem);
+        check(Presets::optionsHandlesSection(Presets::SectionKind::VanillaOptions) &&
+                  Presets::optionsHandlesSection(Presets::SectionKind::VanillaKeys) &&
+                  !Presets::optionsHandlesSection(Presets::SectionKind::ServerList) &&
+                  !Presets::optionsHandlesSection(Presets::SectionKind::Custom),
+              "PB10 `optionsHandlesSection()` 就是应用那一层的分派判据");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// PC. 服务器列表那一段：`servers.dat` 的计划与落盘（coding plan §6 P3）
+//
+// §6 P3 原话：「`servers.dat` 支持 Append / Replace / Skip；按规范化地址去重并保留顺序」。
+//
+// ★ 这一节和 PB 那一节最大的不同：这一层**真的动盘**（PB 是字节进字节出）。所以夹具是
+//   真的 `servers.dat`（用 ZK 那一节那套 NBT 组字节的帮手造出来的），跑完再读回来逐格看。
+//   纯判据那几条（归一化、计划的数）不碰盘。
+//
+// ★★ 这一节里最值钱的几条：
+//   · **去重按规范化地址**（`MC.Example.com` 和 `mc.example.com:25565` 是同一台），但
+//     报出来的"没写的那几条"一条都不许少 —— 悄悄丢掉是这一档最坏的错法；
+//   · **已有的顺序一格都不许重排**（新条目一律接在表尾）；
+//   · **「覆盖」是就地改名不是清空重建** —— 盘上那些 `icon` / `hidden` 一个都不许丢；
+//   · **没确认的「覆盖」一个字节都不写**；
+//   · **认不出来的元素任何一档都不动**（连「覆盖」都不动）；
+//   · **一条都不用动时连写都不写**（否则用户实例里会多出一个变了 mtime 的文件）。
+// ---------------------------------------------------------------------------
+static void runServerListPresetTests() {
+    section("PC. 服务器列表那一段：追加 / 覆盖 / 跳过与去重（§6 P3）");
+
+    // ---------------------------------------------------------------------
+    section("PC0. 「同一台服务器」怎么判（纯值）");
+    // ---------------------------------------------------------------------
+    {
+        check(Presets::normalizeServerAddress(QStringLiteral("MC.Example.com")) ==
+                  QStringLiteral("mc.example.com:25565"),
+              "★★ PC0 主机折小写 + 补上默认端口 —— `MC.Example.com` 就是 `mc.example.com:25565`",
+              Presets::normalizeServerAddress(QStringLiteral("MC.Example.com")));
+        check(Presets::sameServerAddress(QStringLiteral("mc.example.com"),
+                                         QStringLiteral("MC.Example.com:25565")) &&
+                  Presets::sameServerAddress(QStringLiteral("  a.example.com:25566 "),
+                                             QStringLiteral("A.EXAMPLE.com:25566")) &&
+                  !Presets::sameServerAddress(QStringLiteral("mc.example.com"),
+                                              QStringLiteral("mc.example.com:25566")),
+              "★★ PC0 这三种写法是同一台、换个端口就不是（两头空白也照去）");
+        check(Presets::normalizeServerAddress(QStringLiteral("mc.example.com:不是数字")) ==
+                  QStringLiteral("mc.example.com:不是数字"),
+              "★★ PC0 **认不出来的地址原样回去**（不给它补 25565）—— 把看不懂的地址悄悄"
+              "「修」一下，换来的是一句假的「这两条是同一台」",
+              Presets::normalizeServerAddress(QStringLiteral("mc.example.com:不是数字")));
+        check(Presets::normalizeServerAddress(QStringLiteral("[::1]")) ==
+                  Presets::normalizeServerAddress(QStringLiteral("[::1]:25565")),
+              "PC0 IPv6 字面量：`[::1]` 和 `[::1]:25565` 归一成同一个串",
+              Presets::normalizeServerAddress(QStringLiteral("[::1]")));
+        check(Presets::normalizeServerAddress(QString()).isEmpty() &&
+                  !Presets::sameServerAddress(QStringLiteral(""), QStringLiteral("a.com")),
+              "PC0 空地址归一成空串，而且**不和任何一条**算同一台");
+    }
+
+    // ---------------------------------------------------------------------
+    section("PC1. 计划：追加只添目标上没有的，条数一条都不少报");
+    // ---------------------------------------------------------------------
+    const QList<NbtUtil::ServerEntry> target{
+        NbtUtil::ServerEntry{QStringLiteral("A服"), QStringLiteral("a.example.com")},
+        NbtUtil::ServerEntry{QStringLiteral("B服"), QStringLiteral("b.example.com:25565")},
+    };
+    const QList<NbtUtil::ServerEntry> source{
+        NbtUtil::ServerEntry{QStringLiteral("家"), QStringLiteral("home.example.com")},
+        NbtUtil::ServerEntry{QStringLiteral("A 的另一种写法"), QStringLiteral("A.EXAMPLE.com:25565")},
+        NbtUtil::ServerEntry{QStringLiteral("又来一遍"), QStringLiteral("home.example.com:25565")},
+        NbtUtil::ServerEntry{QStringLiteral("B 服"), QStringLiteral("b.example.com")},
+    };
+    {
+        const Presets::ServerListPlan plan =
+            Presets::planServerList(target, 0, source, Presets::ApplyMode::Append);
+        check(plan.ok && plan.acceptedCount() == 1 && plan.targetEntryCount == 2,
+              "★★ PC1 四台里只有 1 台是要添的（另外三台的地址在目标上 / 在源里已经有了）",
+              QStringLiteral("写 %1 / 目标 %2")
+                  .arg(plan.acceptedCount())
+                  .arg(plan.targetEntryCount));
+        check(plan.acceptedCount() == 1 &&
+                  plan.accepted.at(0).address == QStringLiteral("home.example.com"),
+              "★★ PC1 添的是**源里第一条**（保序 —— 排在后面的不能因为「没被跳过」就插到前面）");
+        check(plan.skippedCount() == 3 &&
+                  plan.skippedAddresses.contains(QStringLiteral("A.EXAMPLE.com:25565")) &&
+                  plan.skippedAddresses.contains(QStringLiteral("b.example.com")),
+              "★★ PC1 没写的那 3 条**一条都不许少报**（这就是界面上那句「这 3 台已经在"
+              "列表里了」的出处）",
+              plan.skippedAddresses.join(QStringLiteral(",")));
+        check(plan.addedCount == 1, "PC1 报告里写的都一样：四条源、一条真添");
+
+        // 「合并」和「缺了才拷」对一张列表来说就是「追加」（写在这儿免得以后有人以为漏了两档）。
+        const Presets::ServerListPlan merged =
+            Presets::planServerList(target, 0, source, Presets::ApplyMode::Merge);
+        const Presets::ServerListPlan copyIfMissing =
+            Presets::planServerList(target, 0, source, Presets::ApplyMode::CopyIfMissing);
+        check(merged.acceptedCount() == plan.acceptedCount() &&
+                  copyIfMissing.acceptedCount() == plan.acceptedCount(),
+              "PC1「合并」「缺了才拷」和「追加」算出来是同一件事（**故意**的，不是漏了一档）");
+
+        const Presets::ServerListPlan skipped =
+            Presets::planServerList(target, 0, source, Presets::ApplyMode::Skip);
+        check(skipped.ok && skipped.acceptedCount() == 0 && skipped.skippedCount() == 4,
+              "PC1「跳过」：一项都不写、源里那四条全算没动");
+    }
+
+    // ---------------------------------------------------------------------
+    section("PC2. 计划：源里有空地址 ⇒ 整份不认");
+    // ---------------------------------------------------------------------
+    {
+        const Presets::ServerListPlan plan = Presets::planServerList(
+            target, 0,
+            {NbtUtil::ServerEntry{QStringLiteral("好的"), QStringLiteral("ok.example.com")},
+             NbtUtil::ServerEntry{QStringLiteral("坏的"), QString()}},
+            Presets::ApplyMode::Append);
+        check(!plan.ok && plan.acceptedCount() == 0 && !plan.problem.isEmpty(),
+              "★★ PC2 源里有一条没有地址 ⇒ 整份都不认（地址是这一条唯一的实质内容），"
+              "报告里说清楚",
+              plan.problem);
+    }
+
+    // ---------------------------------------------------------------------
+    section("PC3. 真落盘：追加，保序、去重、没碰过的条目逐字节不变");
+    // ---------------------------------------------------------------------
+    QTemporaryDir dir;
+    check(dir.isValid(), "PC3 建得出一个临时目录来摆夹具");
+    if (!dir.isValid()) {
+        return;
+    }
+    const QString datPath = dir.filePath(QStringLiteral("servers.dat"));
+
+    // 目标上那两条：第一条是"游戏真写出来的那个形状"（hidden / ip / name / icon 四格全在），
+    // 第二条只有 ip + name。★ 那两格 extra 是这一节后半段（覆盖）最要紧的东西。
+    QList<NbtServerItem> current{
+        NbtServerItem{QStringLiteral("A服"), QStringLiteral("a.example.com"), true, true, false,
+                      true, QStringLiteral("iVBORw0KGgo=")},
+        NbtServerItem{QStringLiteral("B服"), QStringLiteral("b.example.com"), true, true, false,
+                      false, QString()},
+    };
+    check(writeBytesAt(datPath, nbtServersDat(current)), "PC3 夹具落盘了");
+    {
+        QList<NbtUtil::ServerEntry> rows;
+        QString problem;
+        const NbtUtil::Status status = ServerListFile::read(datPath, &rows, &problem);
+        check(status == NbtUtil::Status::Ok && rows.size() == 2,
+              "PC3 夹具是合法的 servers.dat（读侧认得出来）", problem);
+    }
+
+    {
+        const QList<NbtUtil::ServerEntry> add{
+            NbtUtil::ServerEntry{QStringLiteral("家"), QStringLiteral("home.example.com")},
+            NbtUtil::ServerEntry{QStringLiteral("A 的另一种写法"),
+                                 QStringLiteral("A.EXAMPLE.com:25565")},
+        };
+        const Presets::ServerListReport report = Presets::applyServerListToInstance(
+            datPath, Presets::ApplyMode::Append, add);
+        check(report.ok && report.written == 1 && report.added == 1 && report.skipped == 1,
+              "★★ PC3 写进去 1 条、跳过 1 条（那条是 `A.EXAMPLE.com:25565` = 目标上的 A服）",
+              QStringLiteral("写 %1 / 添 %2 / 跳 %3：%4")
+                  .arg(report.written)
+                  .arg(report.added)
+                  .arg(report.skipped)
+                  .arg(report.problem));
+
+        current.append(NbtServerItem{QStringLiteral("家"), QStringLiteral("home.example.com")});
+        check(readBytesAt(datPath) == nbtServersDat(current),
+              "★★ PC3 盘上逐字节 = 「原来那两条一个字节没动 + 新的接在表尾」（顺序没被重排，"
+              "A服那两格 extra 还在）");
+
+        QList<NbtUtil::ServerEntry> rows;
+        const NbtUtil::Status status = ServerListFile::read(datPath, &rows, nullptr);
+        check(status == NbtUtil::Status::Ok && rows.size() == 3 &&
+                  rows.at(0).name == QStringLiteral("A服") &&
+                  rows.at(1).name == QStringLiteral("B服") &&
+                  rows.at(2).name == QStringLiteral("家"),
+              "PC3 读回来就是那三条，次序也是那个次序");
+
+        // 再追加一遍同一批：这次一条都不用动 ⇒ **连写都不写**（mtime 不许变）。
+        const QByteArray before = readBytesAt(datPath);
+        const qint64 stampBefore = QFileInfo(datPath).lastModified().toMSecsSinceEpoch();
+        QThread::msleep(20);
+        const Presets::ServerListReport again = Presets::applyServerListToInstance(
+            datPath, Presets::ApplyMode::Append, add);
+        check(again.ok && again.written == 0 && again.skipped == 2,
+              "★★ PC3 再追加一遍：一条都不用写（两条都算跳过）",
+              QStringLiteral("写 %1 / 跳 %2").arg(again.written).arg(again.skipped));
+        check(readBytesAt(datPath) == before &&
+                  QFileInfo(datPath).lastModified().toMSecsSinceEpoch() == stampBefore,
+              "★★ PC3 而且**没碰盘**：字节和 mtime 都没变（把一个没变的文件重写一遍，只会在"
+              "用户的实例里留下一个变了时间的文件）");
+    }
+
+    // ---------------------------------------------------------------------
+    section("PC4. 目标上还没有 servers.dat：建一份游戏认得出的、而且是 gzip");
+    // ---------------------------------------------------------------------
+    {
+        const QString freshPath = dir.filePath(QStringLiteral("fresh/servers.dat"));
+        // 目录都不在：这一档游戏自己也是这个行为（实例目录本来就有，这里造的是最狠的一档）。
+        QDir().mkpath(dir.filePath(QStringLiteral("fresh")));
+        const QList<NbtUtil::ServerEntry> add{
+            NbtUtil::ServerEntry{QStringLiteral("第一台"), QStringLiteral("first.example.com")},
+        };
+        const Presets::ServerListReport report = Presets::applyServerListToInstance(
+            freshPath, Presets::ApplyMode::Append, add);
+        check(report.ok && report.written == 1 && report.removed == 0 &&
+                  QFileInfo::exists(freshPath),
+              "PC4 文件不在 ⇒ 不是失败，照建一份出来", report.problem);
+
+        const QByteArray bytes = readBytesAt(freshPath);
+        check(bytes.size() >= 2 && static_cast<uchar>(bytes.at(0)) == 0x1F &&
+                  static_cast<uchar>(bytes.at(1)) == 0x8B,
+              "★★ PC4 新建的那一份**是 gzip**（游戏读的是 `NbtIo.readCompressed`，裸的会被"
+              "当场当成坏的 —— 「启动器加的第一台服务器进游戏看不见」正是这条路最不该有的"
+              "结果）");
+        QList<NbtUtil::ServerEntry> rows;
+        QString problem;
+        const NbtUtil::Status status = ServerListFile::read(freshPath, &rows, &problem);
+        check(status == NbtUtil::Status::Ok && rows.size() == 1 &&
+                  rows.at(0).name == QStringLiteral("第一台") &&
+                  rows.at(0).address == QStringLiteral("first.example.com"),
+              "★★ PC4 游戏那一侧（`NbtUtil` 读的）真读得出来", problem);
+
+        // 一台上都没有的时候连文件都不建（"跳过"这一档最典型）。
+        const QString nonePath = dir.filePath(QStringLiteral("none/servers.dat"));
+        QDir().mkpath(dir.filePath(QStringLiteral("none")));
+        const Presets::ServerListReport nothing = Presets::applyServerListToInstance(
+            nonePath, Presets::ApplyMode::Skip, add);
+        check(nothing.ok && !QFileInfo::exists(nonePath),
+              "★★ PC4「跳过」+ 文件不在 ⇒ **连文件都不建**（用户让跳过，我们就什么都别做）");
+    }
+
+    // ---------------------------------------------------------------------
+    section("PC5. 「覆盖」= 就地改名 + 拿掉对不上的，不是清空重建");
+    // ---------------------------------------------------------------------
+    {
+        // 先把夹具摆回那两条（上一条 PC3 末尾它已经是三条了）。
+        current = {
+            NbtServerItem{QStringLiteral("A服"), QStringLiteral("a.example.com"), true, true, false,
+                          true, QStringLiteral("iVBORw0KGgo=")},
+            NbtServerItem{QStringLiteral("B服"), QStringLiteral("b.example.com"), true, true, false,
+                          false, QString()},
+            NbtServerItem{QStringLiteral("C服"), QStringLiteral("c.example.com"), true, true, false,
+                          false, QString()},
+        };
+        check(writeBytesAt(datPath, nbtServersDat(current)), "PC5 夹具重新落盘");
+
+        // 预设：改名 A（地址写法换一个，仍是同一台）、添一台新的 D。B / C 对不上 ⇒ 拿掉。
+        const QList<NbtUtil::ServerEntry> replaceWith{
+            NbtUtil::ServerEntry{QStringLiteral("A 改过名"), QStringLiteral("A.example.com:25565")},
+            NbtUtil::ServerEntry{QStringLiteral("D服"), QStringLiteral("d.example.com")},
+        };
+
+        // 没确认：一个字节都不写，而且报告里把数给出来（界面拿它去问用户）。
+        const QByteArray before = readBytesAt(datPath);
+        const Presets::ServerListReport asked = Presets::applyServerListToInstance(
+            datPath, Presets::ApplyMode::Replace, replaceWith, false);
+        check(!asked.ok && asked.needsConfirm && readBytesAt(datPath) == before,
+              "★★ PC5 没确认的「覆盖」：**一个字节都不写**（不是「先写了再回滚」）",
+              asked.problem);
+        check(asked.written == 2 && asked.added == 1 && asked.removed == 2,
+              "★★ PC5 而且报告里说得出这一下要动什么：写 2 条（其中添 1 条新的）、拿掉 2 条",
+              QStringLiteral("写 %1 / 添 %2 / 拿 %3")
+                  .arg(asked.written)
+                  .arg(asked.added)
+                  .arg(asked.removed));
+
+        // 确认了：A 就地改名（**icon 那两格还在**），B / C 拿掉，D 接在表尾。
+        const Presets::ServerListReport report = Presets::applyServerListToInstance(
+            datPath, Presets::ApplyMode::Replace, replaceWith, true);
+        check(report.ok && report.written == 2 && report.removed == 2 && report.untouchable == 0,
+              "PC5 确认之后真的动了", report.problem);
+
+        QList<NbtServerItem> want{
+            NbtServerItem{QStringLiteral("A 改过名"), QStringLiteral("A.example.com:25565"), true,
+                          true, false, true, QStringLiteral("iVBORw0KGgo=")},
+            NbtServerItem{QStringLiteral("D服"), QStringLiteral("d.example.com")},
+        };
+        check(readBytesAt(datPath) == nbtServersDat(want),
+              "★★ PC5 盘上逐字节 = 「A 那条**就地改名**（`hidden` 和 `icon` 两格原样带着走）"
+              "+ D 接在表尾」（清空重建会把那两格抹掉）");
+
+        // 认不出来的元素：任何一档都不动（连「覆盖」也不动），而且报数。
+        QList<NbtServerItem> withGhost = want;
+        withGhost.append(NbtServerItem{QString(), QString(), false, false, false, false, QString()});
+        check(writeBytesAt(datPath, nbtServersDat(withGhost)), "PC5 带一条没有 ip 的夹具落盘");
+        const QList<NbtUtil::ServerEntry> onlyA{
+            NbtUtil::ServerEntry{QStringLiteral("A 又改名"), QStringLiteral("a.example.com")},
+        };
+        const Presets::ServerListReport ghost = Presets::applyServerListToInstance(
+            datPath, Presets::ApplyMode::Replace, onlyA, true);
+        check(ghost.ok && ghost.untouchable == 1,
+              "★★ PC5 认不出来的那一条**留着**（我们看不懂它，就没有资格替用户抹掉），"
+              "条数报在 `untouchable` 上",
+              QStringLiteral("untouchable=%1").arg(ghost.untouchable));
+        check(QFileInfo::exists(datPath) &&
+                  readBytesAt(datPath) ==
+                      nbtServersDat({NbtServerItem{QStringLiteral("A 又改名"),
+                                                   QStringLiteral("a.example.com"), true, true,
+                                                   false, true, QStringLiteral("iVBORw0KGgo=")},
+                                     NbtServerItem{QString(), QString(), false, false, false, false,
+                                                   QString()}}),
+              "★★ PC5 而且它就地改名之后那两格 extra 还在、认不出的那条位置也没动");
+    }
+
+    // ---------------------------------------------------------------------
+    section("PC6. 读不动的那些：拒写，一个字节都不动");
+    // ---------------------------------------------------------------------
+    {
+        const QString brokenPath = dir.filePath(QStringLiteral("broken.dat"));
+        const QByteArray garbage = QByteArrayLiteral("\x0a\x00\x00\xff\xff not nbt at all");
+        check(writeBytesAt(brokenPath, garbage), "PC6 一份坏文件落盘了");
+        const Presets::ServerListReport report = Presets::applyServerListToInstance(
+            brokenPath, Presets::ApplyMode::Append,
+            {NbtUtil::ServerEntry{QStringLiteral("X"), QStringLiteral("x.example.com")}});
+        check(!report.ok && !report.problem.isEmpty() && readBytesAt(brokenPath) == garbage,
+              "★★ PC6 看不懂的那一份：报错 + **逐字节没动**", report.problem);
+
+        // `servers` 那一格不是一张表。
+        const QString oddPath = dir.filePath(QStringLiteral("odd.dat"));
+        check(writeBytesAt(oddPath,
+                           nbtTag(0x0A, QByteArray(),
+                                  nbtCompoundBody({nbtTag(0x08, QByteArrayLiteral("servers"),
+                                                          nbtString(QStringLiteral("我不是表")))}))),
+              "PC6 一份 `servers` 是字符串的落盘了");
+        const QByteArray oddBefore = readBytesAt(oddPath);
+        const Presets::ServerListReport odd = Presets::applyServerListToInstance(
+            oddPath, Presets::ApplyMode::Append,
+            {NbtUtil::ServerEntry{QStringLiteral("X"), QStringLiteral("x.example.com")}});
+        check(!odd.ok && readBytesAt(oddPath) == oddBefore,
+              "★★ PC6 `servers` 那一格不是表 ⇒ 拒写（一个字节都不动）", odd.problem);
+
+        // 路径是空串：连找哪个文件都不知道。
+        const Presets::ServerListReport nowhere = Presets::applyServerListToInstance(
+            QString(), Presets::ApplyMode::Append, {});
+        check(!nowhere.ok && !nowhere.problem.isEmpty(),
+              "PC6 没给路径 ⇒ 拒（报告里说清楚）", nowhere.problem);
+    }
+
+    // ---------------------------------------------------------------------
+    section("PC7. 预设段 ⇄ 这一份列表");
+    // ---------------------------------------------------------------------
+    {
+        const QList<NbtUtil::ServerEntry> entries{
+            NbtUtil::ServerEntry{QStringLiteral("家"), QStringLiteral("home.example.com")},
+            NbtUtil::ServerEntry{QString(), QStringLiteral("c.example.com")},
+        };
+        const QList<Presets::PresetSection> sections =
+            Presets::sectionsFromServerList(entries, Presets::ApplyMode::Append);
+        check(sections.size() == 1 && sections.at(0).kind == Presets::SectionKind::ServerList &&
+                  sections.at(0).id == Presets::sectionIdFor(Presets::SectionKind::ServerList) &&
+                  sections.at(0).mode == Presets::ApplyMode::Append &&
+                  sections.at(0).items.size() == 2,
+              "PC7 一段「服务器列表」：种类、id、模式、条数都对");
+        check(sections.at(0).items.at(1).toObject().value(QStringLiteral("name")).isString() &&
+                  sections.at(0).items.at(1).toObject().value(QStringLiteral("name")).toString()
+                      .isEmpty(),
+              "★★ PC7 名字是空串的那一条**照样写一格 `\"name\": \"\"`**（「省掉的 name」和"
+              "「名字是空的」在读回来那一头是两句话）");
+
+        // 真的过一遍 JSON 文本再读回（段要能过一遍字节才是真的能用）。
+        const QByteArray sectionBytes =
+            QJsonDocument(sections.at(0).items).toJson(QJsonDocument::Compact);
+        Presets::PresetSection back;
+        back.id = sections.at(0).id;
+        back.kind = sections.at(0).kind;
+        back.mode = sections.at(0).mode;
+        back.items = QJsonDocument::fromJson(sectionBytes).array();
+        QList<NbtUtil::ServerEntry> round;
+        QString problem;
+        check(back.items.size() == 2 &&
+                  Presets::serverListFromSection(back, &round, &problem) && round.size() == 2 &&
+                  round.at(0).name == QStringLiteral("家") &&
+                  round.at(0).address == QStringLiteral("home.example.com") &&
+                  round.at(1).name.isEmpty() &&
+                  round.at(1).address == QStringLiteral("c.example.com"),
+              "★★ PC7 过一遍 JSON 字节再读回来一字不差（含那条没有名字的）", problem);
+
+        // 读不回来的那些：一项都不许放过去。
+        Presets::PresetSection bad;
+        bad.kind = Presets::SectionKind::ServerList;
+        bad.items.append(QStringLiteral("我不是对象"));
+        check(!Presets::serverListFromSection(bad, &round, &problem) && !problem.isEmpty(),
+              "★★ PC7 项不是对象 ⇒ 整段读不回来", problem);
+
+        Presets::PresetSection missingAddress;
+        missingAddress.kind = Presets::SectionKind::ServerList;
+        missingAddress.items.append(QJsonObject{{QStringLiteral("name"), QStringLiteral("没有地址")}});
+        check(!Presets::serverListFromSection(missingAddress, &round, &problem) &&
+                  !problem.isEmpty(),
+              "★★ PC7 缺了 `address` ⇒ 整段读不回来（读不回来的段**不许拿去改用户的实例**）",
+              problem);
+
+        Presets::PresetSection emptyAddress;
+        emptyAddress.kind = Presets::SectionKind::ServerList;
+        emptyAddress.items.append(QJsonObject{{QStringLiteral("name"), QStringLiteral("空地址")},
+                                              {QStringLiteral("address"), QStringLiteral("  ")}});
+        check(!Presets::serverListFromSection(emptyAddress, &round, &problem) &&
+                  !problem.isEmpty(),
+              "PC7 地址是空白 ⇒ 一样不认（和 `ServerListFile::addEntry()` 同一条）", problem);
+
+        Presets::PresetSection wrongKind;
+        wrongKind.kind = Presets::SectionKind::VanillaOptions;
+        check(!Presets::serverListFromSection(wrongKind, &round, &problem) &&
+                  !Presets::serverListHandlesSection(Presets::SectionKind::VanillaOptions) &&
+                  Presets::serverListHandlesSection(Presets::SectionKind::ServerList),
+              "PC7 不归这一层管的段 ⇒ 拒绝（`serverListHandlesSection()` 就是分派判据）");
+    }
+
+    // ---------------------------------------------------------------------
+    section("PC8. 端到端：造一份预设、提取、落到另一个实例上");
+    // ---------------------------------------------------------------------
+    {
+        const QString fromPath = dir.filePath(QStringLiteral("e2e-from.dat"));
+        const QString toPath = dir.filePath(QStringLiteral("e2e-to.dat"));
+        check(writeBytesAt(fromPath,
+                           nbtServersDat({NbtServerItem{QStringLiteral("家"),
+                                                        QStringLiteral("home.example.com")},
+                                          NbtServerItem{QStringLiteral("服二"),
+                                                        QStringLiteral("two.example.com:25566")}})),
+              "PC8 源实例那一份落盘了");
+        check(writeBytesAt(toPath,
+                           nbtServersDat({NbtServerItem{QStringLiteral("已有的"),
+                                                        QStringLiteral("two.example.com:25566")}})),
+              "PC8 目标实例那一份落盘了");
+
+        // 提取（走这一层自己的读）→ 一段预设 → 读回来 → 落到目标上。
+        NbtTree::Document document;
+        bool gzipped = false;
+        QString why;
+        const ServerListFile::FileState state =
+            ServerListFile::loadDocument(fromPath, &document, &gzipped, &why);
+        QList<NbtUtil::ServerEntry> extracted;
+        int untouchable = 0;
+        check(state == ServerListFile::FileState::Ok &&
+                  Presets::serverEntriesOf(&document, &extracted, &untouchable, &why) &&
+                  extracted.size() == 2 && untouchable == 0,
+              "PC8 从源实例里把那两条读出来了", why);
+        const QList<Presets::PresetSection> sections =
+            Presets::sectionsFromServerList(extracted, Presets::ApplyMode::Append);
+        QList<NbtUtil::ServerEntry> payload;
+        check(Presets::serverListFromSection(sections.at(0), &payload, &why),
+              "PC8 段读回来（这一趟和真落盘走的是同一段）", why);
+
+        const Presets::ServerListReport report = Presets::applyServerListToInstance(
+            toPath, sections.at(0).mode, payload);
+        check(report.ok && report.written == 1 && report.skipped == 1 &&
+                  readBytesAt(toPath) ==
+                      nbtServersDat({NbtServerItem{QStringLiteral("已有的"),
+                                                   QStringLiteral("two.example.com:25566")},
+                                     NbtServerItem{QStringLiteral("家"),
+                                                   QStringLiteral("home.example.com")}}),
+              "★★ PC8 端到端：目标上已有的那台没被重复添进去、源里另一台接在表尾",
+              QStringLiteral("写 %1 / 跳 %2：%3")
+                  .arg(report.written)
+                  .arg(report.skipped)
+                  .arg(report.problem));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// PD. 通用文件组那一段：`config/` / `defaultconfigs/` / 资源包 / 光影（coding plan §6 P3 后半）
+//
+// §6 P3 后半原话：「GenericFileAdapter 支持 `config/`、`defaultconfigs/`、资源包和光影包；
+// 每项支持 Replace / CopyIfMissing / Skip；路径穿越、绝对路径和符号链接逃逸检查；未知配置
+// 明确标记为"只能复制/覆盖"」。
+//
+// ★ 这一节和 PC 那一节一样**真的动盘**（两个临时目录之间真拷真读），而它最值钱的几条是
+//   "我们**没**弄坏用户东西"和"我们**没**跑出这一组去"：
+//   · **`Replace` 不删目标上多出来的文件** —— 那是不可恢复的，而"覆盖"这两个字在这儿的
+//     意思只有一个：同名的那份换成我的；
+//   · **`CopyIfMissing` 逐文件判**（一项是一棵子树时，用户已经调过的那几份一个都不动）；
+//   · **`Merge` / `Append` 下什么都不写**（对一坨字节谈不上合并）—— 条数报出来给用户选，
+//     而不是悄悄按复制做；
+//   · **三道路径闸**：绝对路径 / `..` / 空段 / 非法字符 / 保留设备名，以及**源侧和目标侧的
+//     junction**（那两条只有真造一根链接才验得出来）。
+// ---------------------------------------------------------------------------
+static void runGenericFilesTests() {
+    section("PD. 通用文件组：config / defaultconfigs / 资源包 / 光影（§6 P3 后半）");
+
+    // ---------------------------------------------------------------------
+    section("PD0. 四个落点与路径归属（纯值）");
+    // ---------------------------------------------------------------------
+    {
+        check(Presets::fileGroupDirName(Presets::FileGroup::Config) == QStringLiteral("config") &&
+                  Presets::fileGroupDirName(Presets::FileGroup::DefaultConfigs) ==
+                      QStringLiteral("defaultconfigs") &&
+                  Presets::fileGroupDirName(Presets::FileGroup::ShaderPacks) ==
+                      QStringLiteral("shaderpacks"),
+              "PD0 那三个落点是 `config` / `defaultconfigs` / `shaderpacks`");
+        check(Presets::fileGroupDirName(Presets::FileGroup::ResourcePacks) ==
+                  ResourceCatalog::folderForKind(ResourceCatalog::Kind::ResourcePack) &&
+                  Presets::fileGroupDirName(Presets::FileGroup::ShaderPacks) ==
+                      ResourceCatalog::folderForKind(ResourceCatalog::Kind::Shader),
+              "★★ PD0 资源包和光影那两个目录名**问的是 ResourceCatalog 那张表**（和下载页"
+              "落到同一个地方，不是各写一遍）",
+              Presets::fileGroupDirName(Presets::FileGroup::ResourcePacks));
+
+        const QList<Presets::FileGroup> groups = Presets::allFileGroups();
+        check(groups.size() == 4 && groups.at(0) == Presets::FileGroup::Config &&
+                  groups.at(1) == Presets::FileGroup::DefaultConfigs &&
+                  groups.at(2) == Presets::FileGroup::ResourcePacks &&
+                  groups.at(3) == Presets::FileGroup::ShaderPacks,
+              "PD0 四组的次序就是界面上那个次序");
+
+        Presets::FileGroup got = Presets::FileGroup::Config;
+        check(Presets::fileGroupFromDirName(QStringLiteral("shaderpacks"), &got) &&
+                  got == Presets::FileGroup::ShaderPacks &&
+                  Presets::fileGroupDirName(got) == QStringLiteral("shaderpacks") &&
+                  !Presets::fileGroupFromDirName(QStringLiteral("mods"), &got) &&
+                  !Presets::fileGroupFromDirName(QString(), &got),
+              "PD0 目录名认回来是同一组（`mods` / 空串认不出来）");
+        check(Presets::fileGroupOfPath(QStringLiteral("config/a.json"), &got) &&
+                  got == Presets::FileGroup::Config &&
+                  Presets::fileGroupOfPath(QStringLiteral("shaderpacks/BSL.zip"), &got) &&
+                  got == Presets::FileGroup::ShaderPacks &&
+                  !Presets::fileGroupOfPath(QStringLiteral("mods/x.jar"), &got) &&
+                  !Presets::fileGroupOfPath(QStringLiteral("a.json"), &got) &&
+                  !Presets::fileGroupOfPath(QStringLiteral("config"), &got) &&
+                  !Presets::fileGroupOfPath(QStringLiteral("/config/a.json"), &got),
+              "★★ PD0 一条路径属于哪一组 = **它的第一段**（`mods/x.jar`、没有第一层的 `a.json`、"
+              "光一个 `config` 都不属于）");
+    }
+
+    // ---------------------------------------------------------------------
+    section("PD1. 第 1 道闸：名字本身（纯值）");
+    // ---------------------------------------------------------------------
+    {
+        QString why;
+        check(Presets::genericPathIsSafe(QStringLiteral("config/sodium-options.json"), &why) &&
+                  Presets::genericPathIsSafe(QStringLiteral("shaderpacks/BSL/内部.bin"), &why) &&
+                  Presets::genericPathIsSafe(QStringLiteral("config/子目录/文件.toml"), &why),
+              "PD1 正常的那几条过", why);
+        check(!Presets::genericPathIsSafe(QString(), &why) &&
+                  !Presets::genericPathIsSafe(QStringLiteral("C:/x/a.json"), &why) &&
+                  !Presets::genericPathIsSafe(QStringLiteral("C:x/a.json"), &why) &&
+                  !Presets::genericPathIsSafe(QStringLiteral("/etc/passwd"), &why) &&
+                  !Presets::genericPathIsSafe(QStringLiteral("\\\\服务器\\共享\\a"), &why),
+              "★★ PD1 绝对的路径（含 `C:x` 那种「看着是相对的」）一律拒", why);
+        check(!Presets::genericPathIsSafe(QStringLiteral("config/../../windows/a.json"), &why) &&
+                  !Presets::genericPathIsSafe(QStringLiteral("../config/a.json"), &why) &&
+                  !Presets::genericPathIsSafe(QStringLiteral("config/./a.json"), &why) &&
+                  !Presets::genericPathIsSafe(QStringLiteral("config//a.json"), &why) &&
+                  !Presets::genericPathIsSafe(QStringLiteral("config/a.json/.."), &why),
+              "★★ PD1 `..` / `.` / 空段一律拒（**路径穿越**那一条就是它们）", why);
+        check(!Presets::genericPathIsSafe(QStringLiteral("config/a:b.json"), &why) &&
+                  !Presets::genericPathIsSafe(QStringLiteral("config/CON"), &why) &&
+                  !Presets::genericPathIsSafe(QStringLiteral("config/名字 "), &why) &&
+                  !Presets::genericPathIsSafe(QStringLiteral("config/名字."), &why),
+              "★★ PD1 每一段还要过实例名那套规矩（Windows 的禁区、保留设备名 CON、结尾的空格"
+              "和点）—— 那一条**只有一处实现**（`validatePathSegment()`）", why);
+    }
+
+    // ---------------------------------------------------------------------
+    section("PD2. 扫这一组");
+    // ---------------------------------------------------------------------
+    QTemporaryDir scratch;
+    check(scratch.isValid(), "PD2 建得出一个临时目录来摆夹具");
+    if (!scratch.isValid()) {
+        return;
+    }
+    const QString sourceRoot = scratch.filePath(QStringLiteral("源实例"));
+    const QString targetRoot = scratch.filePath(QStringLiteral("目标实例"));
+    QDir().mkpath(sourceRoot + QStringLiteral("/config/子目录"));
+    QDir().mkpath(sourceRoot + QStringLiteral("/shaderpacks"));
+    check(writeBytesAt(sourceRoot + QStringLiteral("/config/b.txt"), QByteArrayLiteral("B")) &&
+              writeBytesAt(sourceRoot + QStringLiteral("/config/a.json"),
+                           QByteArrayLiteral("{\"a\":1}")) &&
+              writeBytesAt(sourceRoot + QStringLiteral("/config/子目录/深.txt"),
+                           QByteArrayLiteral("深")) &&
+              writeBytesAt(sourceRoot + QStringLiteral("/config/无扩展名"), QByteArrayLiteral("x")),
+          "PD2 夹具落盘了");
+
+    QList<Presets::GenericItem> items;
+    QStringList refused;
+    QString problem;
+    check(Presets::scanFileGroup(sourceRoot, Presets::FileGroup::Config, &items, &refused,
+                                 &problem) &&
+              refused.isEmpty(),
+          "PD2 扫 `config/` 扫出来了", problem);
+    check(items.size() == 4 && items.at(0).relativePath == QStringLiteral("config/a.json") &&
+              items.at(1).relativePath == QStringLiteral("config/b.txt") &&
+              items.at(2).relativePath == QStringLiteral("config/子目录") &&
+              items.at(2).directory && items.at(3).relativePath == QStringLiteral("config/无扩展名"),
+          "★★ PD2 一项 = 这一组目录**底下第一层**的某一个东西；次序是名字序（稳的），"
+          "目录算一项",
+          QStringLiteral("%1 项：%2")
+              .arg(items.size())
+              .arg(items.isEmpty() ? QString() : items.at(0).relativePath));
+    check(items.at(2).sizeBytes == QFileInfo(sourceRoot + QStringLiteral("/config/子目录/深.txt"))
+                                      .size(),
+          "PD2 目录那一项的大小 = 整棵的和（只用于显示）",
+          QString::number(items.at(2).sizeBytes));
+    check(items.at(0).copyOnly && Presets::genericItemIsCopyOnly(Presets::FileGroup::Config,
+                                                                 items.at(0).relativePath),
+          "★★ PD2 每一项都带着「只能复制/覆盖」那个记号（§6 P3 最后一条；今天这一组里"
+          "全都不是 `false`）");
+
+    {
+        // 这一组不在 ⇒ 空清单（"刚建的实例没有 shaderpacks/" 是最正常的事）。
+        QList<Presets::GenericItem> none;
+        check(Presets::scanFileGroup(targetRoot, Presets::FileGroup::ShaderPacks, &none, nullptr,
+                                     &problem) &&
+                  none.isEmpty(),
+              "PD2 这一组的目录不在 ⇒ 成功 + 空清单（不是失败）");
+        // 这一组的位置上摆着一个**文件** ⇒ 拒。
+        check(QDir().mkpath(targetRoot) &&
+                  writeBytesAt(targetRoot + QStringLiteral("/defaultconfigs"),
+                               QByteArrayLiteral("x")),
+              "PD2 在 defaultconfigs 那个位置上摆了个文件");
+        check(!Presets::scanFileGroup(targetRoot, Presets::FileGroup::DefaultConfigs, &none,
+                                      nullptr, &problem) &&
+                  !problem.isEmpty(),
+              "PD2 那个位置上不是目录 ⇒ 拒（并说清是哪一个）", problem);
+    }
+
+    // ---------------------------------------------------------------------
+    section("PD3. 计划：五档各是什么意思");
+    // ---------------------------------------------------------------------
+    {
+        Presets::GenericPlan plan = Presets::planFileGroup(sourceRoot, items, targetRoot,
+                                                          Presets::ApplyMode::Replace);
+        check(plan.ok && plan.replaced == 4 && plan.copied == 0 && plan.skipped == 0 &&
+                  plan.needsChoice == 0 && plan.writesAnything(),
+              "PD3「覆盖」：四项全是覆盖、要动盘",
+              QStringLiteral("覆盖 %1").arg(plan.replaced));
+
+        plan = Presets::planFileGroup(sourceRoot, items, targetRoot,
+                                      Presets::ApplyMode::CopyIfMissing);
+        check(plan.ok && plan.copied == 4 && plan.skipped == 0,
+              "PD3「缺了才拷」：目标上一个都没有 ⇒ 四项都要拷",
+              QStringLiteral("拷 %1 / 跳 %2").arg(plan.copied).arg(plan.skipped));
+
+        plan = Presets::planFileGroup(sourceRoot, items, targetRoot, Presets::ApplyMode::Skip);
+        check(plan.ok && plan.skipped == 4 && !plan.writesAnything(),
+              "PD3「跳过」：四项全跳过、**一个字都不写**");
+
+        plan = Presets::planFileGroup(sourceRoot, items, targetRoot, Presets::ApplyMode::Merge);
+        check(plan.ok && plan.needsChoice == 4 && !plan.writesAnything(),
+              "★★ PD3「合并」：一坨字节谈不上合并 ⇒ **四项全是要你选、一个字节都不写**"
+              "（悄悄按复制做的话，用户以为合并过的那份配置里其实有几格是旧的）");
+        check(plan.items.at(0).reason.contains(QStringLiteral("复制和覆盖")),
+              "★★ PD3 而且理由说的是「只有复制和覆盖两种做法」（§6 P3 那条的界面版本）",
+              plan.items.at(0).reason);
+
+        plan = Presets::planFileGroup(sourceRoot, items, targetRoot, Presets::ApplyMode::Append);
+        check(plan.ok && plan.needsChoice == 4 && !plan.writesAnything(),
+              "★★ PD3「追加」也一样（对文件没有「追加一条」这回事）");
+
+        // 路径不安全的那一项 ⇒ **整组不认**（不是"跳过那一项"）。
+        QList<Presets::GenericItem> bad = items;
+        bad.append(Presets::GenericItem{QStringLiteral("config/../外面.txt"), false, true, 0});
+        plan = Presets::planFileGroup(sourceRoot, bad, targetRoot, Presets::ApplyMode::Replace);
+        check(!plan.ok && !plan.problem.isEmpty() && !plan.writesAnything() && plan.total() == 0,
+              "★★ PD3 清单里混进一条 `config/../外面.txt` ⇒ 整组不认、一个字节都不写",
+              plan.problem);
+        // ★ 那一条坏项在**尾巴上**，所以前三项已经攒进 `replaced` 了 —— 不清干净的话
+        //   `writesAnything()` 会回 true，读者会以为"这一趟要写 4 项"。
+        check(plan.replaced == 0 && plan.copied == 0 && plan.skipped == 0 &&
+                  plan.needsChoice == 0,
+              "★★ PD3 而且**四个计数一个都不留**（「整组不认」的计划里没有半截数字）",
+              QStringLiteral("覆盖 %1 / 拷 %2 / 跳 %3 / 要你选 %4")
+                  .arg(plan.replaced)
+                  .arg(plan.copied)
+                  .arg(plan.skipped)
+                  .arg(plan.needsChoice));
+    }
+
+    // ---------------------------------------------------------------------
+    section("PD4. 缺了才拷：逐文件判，已经有的一个都不动");
+    // ---------------------------------------------------------------------
+    {
+        QDir().mkpath(targetRoot + QStringLiteral("/config"));
+        check(writeBytesAt(targetRoot + QStringLiteral("/config/b.txt"),
+                           QByteArrayLiteral("用户改过的 B")) &&
+                  writeBytesAt(targetRoot + QStringLiteral("/config/用户自己的.txt"),
+                               QByteArrayLiteral("别动我")),
+              "PD4 目标上先摆两份（其中一份是用户自己加的）");
+
+        const Presets::GenericReport report = Presets::applyFileGroup(
+            sourceRoot, targetRoot, Presets::FileGroup::Config, Presets::ApplyMode::CopyIfMissing);
+        check(report.ok && report.copied == 3 && report.skipped == 1 && report.filesWritten == 3,
+              "★★ PD4 四项里三项拷了、`config/b.txt` 那一项跳过（目标上有它了）",
+              QStringLiteral("拷 %1 / 跳 %2 / 写了 %3 份：%4")
+                  .arg(report.copied)
+                  .arg(report.skipped)
+                  .arg(report.filesWritten)
+                  .arg(report.problem));
+        check(readBytesAt(targetRoot + QStringLiteral("/config/b.txt")) ==
+                  QByteArrayLiteral("用户改过的 B") &&
+                  readBytesAt(targetRoot + QStringLiteral("/config/a.json")) ==
+                      QByteArrayLiteral("{\"a\":1}") &&
+                  readBytesAt(targetRoot + QStringLiteral("/config/子目录/深.txt")) ==
+                      QByteArrayLiteral("深") &&
+                  readBytesAt(targetRoot + QStringLiteral("/config/用户自己的.txt")) ==
+                      QByteArrayLiteral("别动我"),
+              "★★ PD4 用户改过的那份原样、我们自己加的那份也原样、缺的补上了");
+
+        // 再跑一遍：这一次**一份都不缺** ⇒ 四项全是跳过（不是"复制 0 个文件"）。
+        const Presets::GenericReport again = Presets::applyFileGroup(
+            sourceRoot, targetRoot, Presets::FileGroup::Config, Presets::ApplyMode::CopyIfMissing);
+        check(again.ok && again.skipped == 4 && again.filesWritten == 0 && again.copied == 0,
+              "★★ PD4 再跑一遍：四项全跳过、一份都没写（干跑那一趟就是为这个数的）",
+              QStringLiteral("拷 %1 / 跳 %2").arg(again.copied).arg(again.skipped));
+    }
+
+    // ---------------------------------------------------------------------
+    section("PD5. 覆盖：同名的那份换成我的，**多出来的不删**");
+    // ---------------------------------------------------------------------
+    {
+        check(writeBytesAt(targetRoot + QStringLiteral("/config/a.json"), QByteArrayLiteral("旧")),
+              "PD5 先把目标上那份改成「旧」");
+        const Presets::GenericReport report = Presets::applyFileGroup(
+            sourceRoot, targetRoot, Presets::FileGroup::Config, Presets::ApplyMode::Replace);
+        check(report.ok && report.replaced == 4 && report.filesWritten == 4,
+              "PD5 覆盖那一档：四项真的都写了", report.problem);
+        check(readBytesAt(targetRoot + QStringLiteral("/config/a.json")) ==
+                  QByteArrayLiteral("{\"a\":1}"),
+              "PD5 同名的那一份换成了预设里的");
+        check(readBytesAt(targetRoot + QStringLiteral("/config/用户自己的.txt")) ==
+                  QByteArrayLiteral("别动我"),
+              "★★ PD5 **目标上多出来的那份还在**（整棵子树替换会顺手删掉用户自己的东西，"
+              "而那不可恢复 —— 「覆盖」在这儿的含义只有「同名的那份换成我的」）");
+    }
+
+    // ---------------------------------------------------------------------
+    section("PD6. 提取：实例 → 预设的 files/");
+    // ---------------------------------------------------------------------
+    {
+        const QString presetFiles = scratch.filePath(QStringLiteral("预设/files"));
+        const Presets::GenericReport report = Presets::extractFileGroup(
+            targetRoot, presetFiles, Presets::FileGroup::Config);
+        // ★ 5 项而不是 4 项：提取扫的是**实例上现在这一份**，而它比预设那 4 项多一份
+        //   `config/用户自己的.txt`（那一份正是我们刚刚证明过"覆盖不删"的那一个）。
+        check(report.ok && report.replaced == 5 && report.filesWritten == 5,
+              "★★ PD6 五份都收进去了（四项 + 用户自己加的那一份；`子目录` 那一项是 1 份文件）",
+              QStringLiteral("项 %1 / 文件 %2：%3")
+                  .arg(report.replaced)
+                  .arg(report.filesWritten)
+                  .arg(report.problem));
+        check(readBytesAt(presetFiles + QStringLiteral("/config/a.json")) ==
+                      QByteArrayLiteral("{\"a\":1}") &&
+                  readBytesAt(presetFiles + QStringLiteral("/config/子目录/深.txt")) ==
+                      QByteArrayLiteral("深") &&
+                  readBytesAt(presetFiles + QStringLiteral("/config/用户自己的.txt")) ==
+                      QByteArrayLiteral("别动我"),
+              "PD6 收下来的就是实例里现在这一份（含用户自己加的那个文件）");
+
+        // 收到一个干净的实例上：那一趟就是"第一次给这个实例配这一组"。
+        const QString freshRoot = scratch.filePath(QStringLiteral("空实例"));
+        QDir().mkpath(freshRoot);
+        const Presets::GenericReport land = Presets::applyFileGroup(
+            presetFiles, freshRoot, Presets::FileGroup::Config, Presets::ApplyMode::CopyIfMissing);
+        check(land.ok && land.copied == 5 && land.filesWritten == 5 &&
+                  readBytesAt(freshRoot + QStringLiteral("/config/子目录/深.txt")) ==
+                      QByteArrayLiteral("深"),
+              "★★ PD6 端到端：提取出来的一份落到空实例上，一个字不差", land.problem);
+    }
+
+    // ---------------------------------------------------------------------
+    section("PD7. 第 3 道闸：源侧 / 目标侧的 junction");
+    // ---------------------------------------------------------------------
+    {
+        // 窗外那一份（**绝对不该被拷进来、也绝对不该被写进去**）。
+        const QString outsideDir = scratch.filePath(QStringLiteral("外面"));
+        QDir().mkpath(outsideDir);
+        check(writeBytesAt(outsideDir + QStringLiteral("/秘密.txt"), QByteArrayLiteral("外面")),
+              "PD7 外面那一份落盘了");
+
+        // ① 源侧：`config/链接` 是一根真 junction 指着外面。
+        const QString sourceLink = sourceRoot + QStringLiteral("/config/链接");
+        const bool madeSourceLink =
+            QProcess::execute(QStringLiteral("cmd"),
+                              {QStringLiteral("/c"), QStringLiteral("mklink"), QStringLiteral("/J"),
+                               QDir::toNativeSeparators(sourceLink),
+                               QDir::toNativeSeparators(outsideDir)}) == 0 &&
+            QFileInfo(sourceLink).isJunction();
+        check(madeSourceLink, "★ PD7 先造出一根真 junction：源侧 `config/链接` → 外面（mklink /J）");
+        if (madeSourceLink) {
+            QList<Presets::GenericItem> scanned;
+            QStringList refused;
+            QString why;
+            check(Presets::scanFileGroup(sourceRoot, Presets::FileGroup::Config, &scanned, &refused,
+                                         &why),
+                  "PD7 扫是成功的（拒的是那一项，不是整组）", why);
+            check(refused.size() == 1 && refused.at(0).contains(QStringLiteral("链接")),
+                  "★★ PD7 那根链接**不进清单**、而是报在 `refused` 里（悄悄略过的话，用户"
+                  "看到的清单和盘上对不上）",
+                  refused.join(QStringLiteral(" | ")));
+            bool listed = false;
+            for (const Presets::GenericItem &one : scanned) {
+                listed = listed || one.relativePath == QStringLiteral("config/链接");
+            }
+            check(!listed, "★★ PD7 而且它真的不在清单里");
+
+            const QString target2 = scratch.filePath(QStringLiteral("目标实例2"));
+            QDir().mkpath(target2);
+            const Presets::GenericReport report = Presets::applyFileGroup(
+                sourceRoot, target2, Presets::FileGroup::Config, Presets::ApplyMode::Replace);
+            check(report.ok && !QFileInfo::exists(target2 + QStringLiteral("/config/链接")) &&
+                      !QFileInfo::exists(target2 + QStringLiteral("/config/链接/秘密.txt")),
+                  "★★ PD7 落盘那一趟也没把那根链接拷过去（外面那份一个字都没进实例）",
+                  report.problem);
+
+            // ② 目标侧：`config/` 底下那一份**自己**是根链接 ⇒ 不往它里面写。
+            const QString target3 = scratch.filePath(QStringLiteral("目标实例3"));
+            QDir().mkpath(target3 + QStringLiteral("/config"));
+            const QString targetLink = target3 + QStringLiteral("/config/b.txt");
+            const bool madeTargetLink =
+                QProcess::execute(QStringLiteral("cmd"),
+                                  {QStringLiteral("/c"), QStringLiteral("mklink"),
+                                   QStringLiteral("/J"), QDir::toNativeSeparators(targetLink),
+                                   QDir::toNativeSeparators(outsideDir)}) == 0 &&
+                QFileInfo(targetLink).isJunction();
+            check(madeTargetLink, "★ PD7 再造一根：目标侧 `config/b.txt` → 外面");
+            if (madeTargetLink) {
+                const Presets::GenericReport hit = Presets::applyFileGroup(
+                    sourceRoot, target3, Presets::FileGroup::Config, Presets::ApplyMode::Replace);
+                check(!hit.ok && hit.problem.contains(QStringLiteral("链接")),
+                    "★★ PD7 往一根链接里写 ⇒ **拒**（不然「覆盖一份配置」会变成「改掉链接"
+                    "那头那个目录里的东西」，而用户看到的只是覆盖了一份配置）",
+                    hit.problem);
+                check(!QFileInfo::exists(outsideDir + QStringLiteral("/b.txt")) ||
+                          readBytesAt(outsideDir + QStringLiteral("/b.txt")) !=
+                              QByteArrayLiteral("B"),
+                    "★★ PD7 而且外面那个目录里没有多出 `b.txt`（真·没写进去）");
+            }
+
+            // ③ 目标侧但**是目录那一层**：`config/子目录` 是根链接。★ 这一条是三道闸里
+            //    最容易被漏掉的一种形状 —— 名字那两道判的是字面路径（`config/子目录/深.txt`
+            //    看着完全正常），而递归一旦走下去，写的就是链接那头那个目录。
+            const QString target4 = scratch.filePath(QStringLiteral("目标实例4"));
+            QDir().mkpath(target4 + QStringLiteral("/config"));
+            const QString targetDirLink = target4 + QStringLiteral("/config/子目录");
+            const bool madeDirLink =
+                QProcess::execute(QStringLiteral("cmd"),
+                                  {QStringLiteral("/c"), QStringLiteral("mklink"),
+                                   QStringLiteral("/J"), QDir::toNativeSeparators(targetDirLink),
+                                   QDir::toNativeSeparators(outsideDir)}) == 0 &&
+                QFileInfo(targetDirLink).isJunction();
+            check(madeDirLink, "★ PD7 第三根：目标侧 `config/子目录`（**目录那一层**）→ 外面");
+            if (madeDirLink) {
+                const Presets::GenericReport through = Presets::applyFileGroup(
+                    sourceRoot, target4, Presets::FileGroup::Config, Presets::ApplyMode::Replace);
+                check(!through.ok && through.problem.contains(QStringLiteral("链接")),
+                    "★★ PD7 那一项底下有文件 ⇒ 递归**当场停在那根链接上**（不然「覆盖一份"
+                    "配置」会写到外面那个目录里去，而名字那两道闸看它一切正常）",
+                    through.problem);
+                check(!QFileInfo::exists(outsideDir + QStringLiteral("/深.txt")),
+                    "★★ PD7 外面那个目录里确实没多出 `深.txt`");
+                check(QDir().rmdir(targetDirLink), "PD7 第三根也摘掉了");
+            }
+
+            // 清掉那两根链接（**只摘链接本体**，不动它那一头）—— 见 ZJ5 那条 NOTE：
+            // `QTemporaryDir::removeRecursively()` 是会跟着 junction 往下删的。
+            check(QDir().rmdir(sourceLink) && QDir().rmdir(targetLink),
+                  "PD7 两根链接都摘掉了（rmdir 只摘链接本体）");
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    section("PD8. 预设段 ⇄ 这一组");
+    // ---------------------------------------------------------------------
+    {
+        QList<Presets::GenericItem> items;
+        QString problem;
+        check(Presets::scanFileGroup(sourceRoot, Presets::FileGroup::Config, &items, nullptr,
+                                     &problem),
+              "PD8 再扫一遍（上一条那根链接已经摘掉了）", problem);
+
+        QList<Presets::PresetSection> sections;
+        check(Presets::sectionsFromFileGroup(Presets::FileGroup::Config, items,
+                                             Presets::ApplyMode::CopyIfMissing, &sections,
+                                             &problem) &&
+                  sections.size() == 1 &&
+                  sections.at(0).kind == Presets::SectionKind::GenericFiles &&
+                  sections.at(0).mode == Presets::ApplyMode::CopyIfMissing &&
+                  sections.at(0).items.size() == items.size(),
+              "PD8 一段「通用文件组」：种类、模式、条数都对", problem);
+
+        Presets::FileGroup fromId = Presets::FileGroup::Config;
+        check(Presets::fileGroupFromSectionId(sections.at(0).id, &fromId) &&
+                  fromId == Presets::FileGroup::Config,
+              "★★ PD8 段自己那个 id 说得出来「这一段是哪一组」（界面要按它摆标题）");
+        check(Presets::sectionIdFor(Presets::SectionKind::GenericFiles,
+                                    Presets::fileGroupDirName(Presets::FileGroup::ShaderPacks)) !=
+                  Presets::sectionIdFor(Presets::SectionKind::GenericFiles,
+                                        Presets::fileGroupDirName(Presets::FileGroup::Config)) &&
+                  Presets::sectionIdFor(Presets::SectionKind::GenericFiles) ==
+                      Presets::sectionIdFor(Presets::SectionKind::GenericFiles, QString()),
+              "★★ PD8 四组各有各的 id；而且**不加那半截名字时还是老算法**（加了参数没有动"
+              "盘上任何一份预设的身份）");
+
+        // 过一遍 JSON 字节再读回。
+        const QByteArray sectionBytes =
+            QJsonDocument(sections.at(0).items).toJson(QJsonDocument::Compact);
+        Presets::PresetSection back;
+        back.id = sections.at(0).id;
+        back.kind = sections.at(0).kind;
+        back.mode = sections.at(0).mode;
+        back.items = QJsonDocument::fromJson(sectionBytes).array();
+        QList<Presets::GenericItem> round;
+        check(Presets::fileGroupFromSection(back, &round, &problem) && round.size() == 4 &&
+                  round.at(0).relativePath == QStringLiteral("config/a.json") &&
+                  round.at(0).copyOnly,
+              "★★ PD8 过一遍 JSON 字节再读回来一字不差（含 `copyOnly` 那一格）", problem);
+
+        // 读不回来的那几条。
+        Presets::PresetSection bad = back;
+        bad.items = QJsonArray{QStringLiteral("我不是对象")};
+        check(!Presets::fileGroupFromSection(bad, &round, &problem) && !problem.isEmpty(),
+              "★★ PD8 项不是对象 ⇒ 整段读不回来", problem);
+
+        bad = back;
+        bad.items = QJsonArray{QJsonObject{{QStringLiteral("path"), QStringLiteral("config/../x")}}};
+        check(!Presets::fileGroupFromSection(bad, &round, &problem) && !problem.isEmpty(),
+              "★★ PD8 路径带 `..` ⇒ 整段读不回来（读不回来的段不许拿去改用户的实例）", problem);
+
+        bad = back;
+        bad.items = QJsonArray{QJsonObject{{QStringLiteral("path"), QStringLiteral("mods/x.jar")}}};
+        check(!Presets::fileGroupFromSection(bad, &round, &problem) && !problem.isEmpty(),
+              "★★ PD8 路径不在这一层管的任何一个目录里 ⇒ 整段读不回来", problem);
+
+        bad = back;
+        bad.items = QJsonArray{
+            QJsonObject{{QStringLiteral("path"), QStringLiteral("config/a.json")}},
+            QJsonObject{{QStringLiteral("path"), QStringLiteral("shaderpacks/x.zip")}}};
+        check(!Presets::fileGroupFromSection(bad, &round, &problem) && !problem.isEmpty(),
+              "★★ PD8 同一段里的项落在不同的组上 ⇒ 整段读不回来（「一段只能是一组」）", problem);
+
+        bad = back;
+        bad.items = QJsonArray{QJsonObject{{QStringLiteral("copyOnly"), true}}};
+        check(!Presets::fileGroupFromSection(bad, &round, &problem) && !problem.isEmpty(),
+              "PD8 缺了 `path` ⇒ 整段读不回来", problem);
+
+        Presets::PresetSection wrongKind;
+        wrongKind.kind = Presets::SectionKind::ServerList;
+        check(!Presets::fileGroupFromSection(wrongKind, &round, &problem) &&
+                  Presets::genericFilesHandlesSection(Presets::SectionKind::GenericFiles) &&
+                  !Presets::genericFilesHandlesSection(Presets::SectionKind::ServerList),
+              "PD8 不归这一层管的段 ⇒ 拒绝（`genericFilesHandlesSection()` 是分派判据）");
+
+        // 写出去的时候混进一条不属于这一组的 ⇒ 拒（不然盘上那份预设会自相矛盾）。
+        QList<Presets::GenericItem> mixed = items;
+        mixed.append(Presets::GenericItem{QStringLiteral("shaderpacks/x.zip"), false, true, 0});
+        check(!Presets::sectionsFromFileGroup(Presets::FileGroup::Config, mixed,
+                                              Presets::ApplyMode::Replace, &sections, &problem) &&
+                  !problem.isEmpty(),
+              "★★ PD8 写出去那一趟也判归属（`config` 那一段里混进一条 `shaderpacks/…` ⇒ 拒）",
+              problem);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// PE. 把一份预设落到一个实例上这件事的**计划**（coding plan §5 的 `PresetPlanner` / §7）
+//
+// 这一层只回答一件事：**"你按下应用之后会发生什么"**。§7 那张表就是它的全部输出：
+//
+//     游戏设置          合并 18 项
+//     原版按键          合并 23 项，冲突 1 项
+//     服务器列表        追加 3 个
+//     配置文件          复制 8 个，覆盖 1 个
+//
+// 所以这一节的重量在两件事上：
+//   · **表上那几个数是从适配器那边真算出来的**（走 `sectionsFrom*()` 造真段 —— 手搓一个
+//     `QJsonArray` 去喂它，验的就只是"加法对不对"，那件事没有价值）；
+//   · **几道闸真的会拦**：还没确认的「覆盖」、游戏在跑、不认识的种类、段和它的身份对不上。
+//
+// ★ 除了通用文件组那一段的干跑（要真数一遍目标上缺哪几份），这一节全是纯值 —— 这也正是
+//   这一层该有的样子：拿任意一份预设对任意一个实例**算**，算完不满意就丢掉，盘上什么都没变。
+// ---------------------------------------------------------------------------
+static void runPresetPlannerTests() {
+    section("PE. 应用计划：一段一行地算这一趟会怎么样（§5 / §7）");
+
+    // ---------------------------------------------------------------------
+    section("PE0. 那些字（动作词与量词）");
+    // ---------------------------------------------------------------------
+    {
+        const QStringList verbs = {Presets::applyPlanVerb(Presets::ApplyMode::Merge),
+                                   Presets::applyPlanVerb(Presets::ApplyMode::Replace),
+                                   Presets::applyPlanVerb(Presets::ApplyMode::Append),
+                                   Presets::applyPlanVerb(Presets::ApplyMode::CopyIfMissing),
+                                   Presets::applyPlanVerb(Presets::ApplyMode::Skip)};
+        check(verbs.at(0) == QStringLiteral("合并") && verbs.at(1) == QStringLiteral("覆盖") &&
+                  verbs.at(2) == QStringLiteral("追加") &&
+                  verbs.at(3) == QStringLiteral("缺了才拷") &&
+                  verbs.at(4) == QStringLiteral("跳过"),
+              "PE0 五档的动作词就是 §7 表上那五个字（唯一出处，别处不许再写一遍）",
+              verbs.join(QStringLiteral(" / ")));
+        check(Presets::applyPlanUnit(Presets::SectionKind::VanillaOptions) ==
+                      QStringLiteral("项") &&
+                  Presets::applyPlanUnit(Presets::SectionKind::VanillaKeys) ==
+                      QStringLiteral("项") &&
+                  Presets::applyPlanUnit(Presets::SectionKind::ServerList) ==
+                      QStringLiteral("个") &&
+                  Presets::applyPlanUnit(Presets::SectionKind::GenericFiles) ==
+                      QStringLiteral("个"),
+              "PE0 量词：设置和按键说「项」、服务器和文件说「个」（§7 那两行就是这么写的）");
+    }
+
+    QTemporaryDir scratch;
+    check(scratch.isValid(), "PE 建得出一个临时目录来摆夹具");
+    if (!scratch.isValid()) {
+        return;
+    }
+
+    // ---- 一份真的预设段：从 `options.txt` 的字节造出来（P2 那一层的原样产物）----
+    const QByteArray sourceBytes = QByteArrayLiteral("fov:0.5\nkey_attack:key.keyboard.a\n");
+    // ★ 目标上比预设**多一个** `gamma` —— 那一个正是「覆盖」档要拿掉的（`fov` 是被同名
+    //   覆盖掉的，不算"删"）。少了它，"覆盖会删东西"这条在夹具上根本演不出来。
+    const QByteArray targetBytes =
+        QByteArrayLiteral("fov:0.0\ngamma:1.0\nkey_jump:key.keyboard.a\n");
+    const Presets::OptionsFile sourceFile = Presets::parseOptions(sourceBytes);
+    const Presets::OptionsFile targetFile = Presets::parseOptions(targetBytes);
+    QList<Presets::PresetSection> optionSections =
+        Presets::sectionsFromOptions(sourceFile, QSet<QString>{QStringLiteral("fov"),
+                                                              QStringLiteral("key_attack")});
+    check(optionSections.size() == 2, "PE 夹具：一份 `options.txt` 造出两段（设置 + 按键）",
+          QString::number(optionSections.size()));
+
+    // ---------------------------------------------------------------------
+    section("PE1. 没有目标实例 / 空预设");
+    // ---------------------------------------------------------------------
+    {
+        Presets::PlanRequest empty;
+        Presets::ApplyPlan plan = Presets::planPresetApplication(empty);
+        check(!plan.ok && !plan.problem.isEmpty(),
+              "★★ PE1 没说往哪个实例上落 ⇒ 整份计划算不出来（不是「一份空计划」）", plan.problem);
+
+        Presets::PlanRequest request;
+        request.target.instanceRoot = scratch.filePath(QStringLiteral("实例"));
+        plan = Presets::planPresetApplication(request);
+        check(plan.ok && plan.isEmpty() && !plan.writesAnything() && plan.canApply() &&
+                  !plan.needsConfirm(),
+              "PE1 一份**一段都没有**的预设：算得出来、表是空的、没有拦路虎（空预设是合法的，"
+              "不是错误）");
+    }
+
+    // ---------------------------------------------------------------------
+    section("PE2. 两行真数（设置 + 按键，都合并）");
+    // ---------------------------------------------------------------------
+    {
+        Presets::PlanRequest request;
+        request.target.instanceRoot = scratch.filePath(QStringLiteral("实例"));
+        request.target.options = targetFile;
+        request.sections = optionSections;
+
+        const Presets::ApplyPlan plan = Presets::planPresetApplication(request);
+        check(plan.ok && plan.rows.size() == 2 &&
+                  plan.rows.at(0).kind == Presets::SectionKind::VanillaOptions &&
+                  plan.rows.at(1).kind == Presets::SectionKind::VanillaKeys,
+              "★★ PE2 表上的次序 = 段在预设里的次序（§7 那张表不重排）",
+              QStringLiteral("%1 行").arg(plan.rows.size()));
+
+        const Presets::ApplyPlanRow &optionsRow = plan.rows.at(0);
+        check(optionsRow.count == 1 && optionsRow.removed == 0 && optionsRow.conflictCount == 0 &&
+                  !optionsRow.risky() && !optionsRow.blocked && !optionsRow.needsConfirm,
+              "★★ PE2 设置那一行：`fov` 从 0.0 改成 0.5 = 动 1 项、没删东西、没冲突",
+              Presets::applyPlanRowText(optionsRow));
+        check(Presets::applyPlanRowText(optionsRow) == QStringLiteral("合并 1 项"),
+              "★★ PE2 那一行的右栏就是字面那个样子", Presets::applyPlanRowText(optionsRow));
+
+        const Presets::ApplyPlanRow &keysRow = plan.rows.at(1);
+        check(keysRow.count == 1 && keysRow.conflictCount == 1 && keysRow.risky(),
+              "★★ PE2 按键那一行：`key_attack` 要绑 `key.keyboard.a`，而目标上 `key_jump` "
+              "正绑着同一个键 ⇒ 冲突 1 项",
+              Presets::applyPlanRowText(keysRow));
+        check(Presets::applyPlanRowText(keysRow) == QStringLiteral("合并 1 项，冲突 1 项"),
+              "★★ PE2 而且那一行就是 §7 那个形状（「合并 23 项，冲突 1 项」）",
+              Presets::applyPlanRowText(keysRow));
+        check(plan.totalCount() == 2 && plan.riskyRowCount() == 1 && plan.blockedRowCount() == 0 &&
+                  !plan.needsConfirm() && plan.canApply(),
+              "PE2 整份：一共动 2 项、有风险的那一行只有按键那一行、可以开工");
+    }
+
+    // ---------------------------------------------------------------------
+    section("PE3. 「覆盖」的两趟协议（§6 P2「Replace 必须明确确认」）");
+    // ---------------------------------------------------------------------
+    {
+        Presets::PlanRequest request;
+        request.target.instanceRoot = scratch.filePath(QStringLiteral("实例"));
+        request.target.options = targetFile;
+        QList<Presets::PresetSection> sections = optionSections;
+        sections[0].mode = Presets::ApplyMode::Replace;
+        request.sections = sections;
+
+        const Presets::ApplyPlan first = Presets::planPresetApplication(request);
+        const Presets::ApplyPlanRow &row = first.rows.at(0);
+        check(first.ok && row.needsConfirm && !row.blocked && row.risky() && !row.problem.isEmpty(),
+              "★★ PE3 第一趟（还没点头）：「覆盖」那一行标着要确认", row.problem);
+        check(row.count == 1 && row.removed == 1,
+              "★★★ PE3 而且**数照样给出来**（动 1 项、删掉 1 项）—— 只告诉用户「要确认」而不告诉"
+              "他「会删掉什么」，那个确认框等于没问",
+              Presets::applyPlanRowText(row));
+        check(Presets::applyPlanRowText(row) == QStringLiteral("覆盖 1 项，删掉 1 项"),
+              "PE3 那一行的右栏", Presets::applyPlanRowText(row));
+        check(first.needsConfirm() && !first.canApply(),
+              "★★ PE3 整份计划**不许开工**（`canApply()` 是那条闸的唯一出处）");
+        check(!first.rows.at(1).needsConfirm,
+              "PE3 而按键那一段是「合并」⇒ 不该陪着一起要确认（一格是一格）");
+
+        request.replaceConfirmed = true;
+        const Presets::ApplyPlan second = Presets::planPresetApplication(request);
+        check(!second.needsConfirm() && second.canApply() && !second.rows.at(0).needsConfirm &&
+                  second.rows.at(0).count == 1 && second.rows.at(0).removed == 1,
+              "★★ PE3 用户点头之后再算一趟：那一道闸放开，其余的数一个字都没变",
+              Presets::applyPlanRowText(second.rows.at(0)));
+    }
+
+    // ---------------------------------------------------------------------
+    section("PE4. 空段铺上去 = 把那一片清空（这一行最容易被写成「覆盖 0 项」）");
+    // ---------------------------------------------------------------------
+    {
+        Presets::PresetSection empty;
+        empty.id = Presets::optionsSectionId(Presets::SectionKind::VanillaOptions);
+        empty.kind = Presets::SectionKind::VanillaOptions;
+        empty.mode = Presets::ApplyMode::Replace;
+
+        Presets::PlanRequest request;
+        request.target.instanceRoot = scratch.filePath(QStringLiteral("实例"));
+        request.target.options = targetFile;
+        request.sections = {empty};
+        request.replaceConfirmed = true;
+
+        const Presets::ApplyPlan plan = Presets::planPresetApplication(request);
+        const Presets::ApplyPlanRow &row = plan.rows.at(0);
+        check(plan.ok && !row.blocked && row.count == 0 && row.removed == 2,
+              "★★ PE4 「覆盖成空」：一个键都不写、但目标上那一域认得出的 2 个键（`fov` 和 "
+              "`gamma`）会被删掉",
+              Presets::applyPlanRowText(row));
+        check(Presets::applyPlanRowText(row) == QStringLiteral("覆盖，删掉 2 项"),
+              "★★★ PE4 那一行**绝不能写成「覆盖 0 项」** —— 把「什么都写」和「什么都没留下」说成"
+              "同一件事，是最要紧的那半截被藏起来了",
+              Presets::applyPlanRowText(row));
+        check(row.removed > 0 && row.risky() && row.count == 0 && !plan.writesAnything(),
+              "★★ PE4 而且它算「有风险」的那一行（会删东西）—— 哪怕「会动的项数」是 0");
+    }
+
+    // ---------------------------------------------------------------------
+    section("PE5. 服务器列表那一段");
+    // ---------------------------------------------------------------------
+    {
+        const QList<NbtUtil::ServerEntry> sourceEntries = {
+            NbtUtil::ServerEntry{QStringLiteral("甲服"), QStringLiteral("play.example.com")},
+            NbtUtil::ServerEntry{QStringLiteral("乙服"), QStringLiteral("mc.example.org:25566")}};
+        QList<Presets::PresetSection> sections =
+            Presets::sectionsFromServerList(sourceEntries, Presets::ApplyMode::Append);
+        check(sections.size() == 1, "PE5 夹具：一份预设里的服务器列表段");
+
+        Presets::PlanRequest request;
+        request.target.instanceRoot = scratch.filePath(QStringLiteral("实例"));
+        request.sections = sections;
+        // 目标上已经有"甲服"了（地址一模一样）。
+        request.target.servers = {
+            NbtUtil::ServerEntry{QStringLiteral("甲服（旧的）"), QStringLiteral("play.example.com")},
+            // 预设里没有的一台 ⇒ 「覆盖」档要拿掉的正是它（对得上的那一台是就地改名）。
+            NbtUtil::ServerEntry{QStringLiteral("丙服（要被拿掉）"),
+                                 QStringLiteral("old.example.net")}};
+
+        Presets::ApplyPlan plan = Presets::planPresetApplication(request);
+        check(plan.rows.size() == 1 && !plan.rows.at(0).blocked && plan.rows.at(0).count == 1 &&
+                  plan.rows.at(0).skipped == 1,
+              "★★ PE5 追加 2 条、其中「甲服」已经在列表里了 ⇒ 添 1 条、跳 1 条",
+              Presets::applyPlanRowText(plan.rows.at(0)));
+        check(Presets::applyPlanRowText(plan.rows.at(0)) == QStringLiteral("追加 1 个，跳过 1 个"),
+              "★★ PE5 那一行的右栏（§7 那个形状）",
+              Presets::applyPlanRowText(plan.rows.at(0)));
+
+        // 「跳过」那一档：适配器照样数得出"你这一段跳过了 2 条"，但一个字节都不会动。
+        request.sections = Presets::sectionsFromServerList(sourceEntries,
+                                                          Presets::ApplyMode::Skip);
+        plan = Presets::planPresetApplication(request);
+        check(plan.rows.at(0).count == 0 && plan.rows.at(0).skipped == 2 &&
+                  !plan.writesAnything(),
+              "★★ PE5 「跳过」：数得出跳过 2 条，`count` 清零（表上不许虚报会动的东西）",
+              Presets::applyPlanRowText(plan.rows.at(0)));
+
+        // 「覆盖」+ 没点头 ⇒ 要确认，但"会拿掉几条"照样给出来。
+        request.sections = Presets::sectionsFromServerList(sourceEntries,
+                                                          Presets::ApplyMode::Replace);
+        plan = Presets::planPresetApplication(request);
+        check(plan.rows.at(0).needsConfirm && plan.rows.at(0).removed == 1 &&
+                  plan.rows.at(0).count == 2 && !plan.canApply(),
+              "★★ PE5 「覆盖」没点头：要写 2 条、会拿掉 1 条（目标上对不上的那一台），先要确认",
+              Presets::applyPlanRowText(plan.rows.at(0)));
+        check(Presets::applyPlanRowText(plan.rows.at(0)) == QStringLiteral("覆盖 2 个，删掉 1 个"),
+              "PE5 那一行的右栏", Presets::applyPlanRowText(plan.rows.at(0)));
+
+        // 目标那一份读不动 ⇒ 这一段**做不了**（而不是"目标上是空的"）。
+        request.target.serversProblem = QStringLiteral("servers.dat 读不动（不是 NBT）");
+        plan = Presets::planPresetApplication(request);
+        check(plan.ok && plan.rows.at(0).blocked &&
+                  plan.rows.at(0).problem.contains(QStringLiteral("读不动")),
+              "★★ PE5 目标那一份读不动 ⇒ 这一段做不了（整份计划照样算得出来 —— 做不了的是"
+              "**这一段**）",
+              Presets::applyPlanRowText(plan.rows.at(0)));
+        check(Presets::applyPlanRowText(plan.rows.at(0)) == QStringLiteral("做不了"),
+              "PE5 做不了的那一行右栏只说得出这三个字");
+    }
+
+    // ---------------------------------------------------------------------
+    section("PE6. 通用文件组那一段（唯一会读盘的一档）");
+    // ---------------------------------------------------------------------
+    {
+        const QString presetFiles = scratch.filePath(QStringLiteral("预设/files"));
+        const QString instanceRoot = scratch.filePath(QStringLiteral("目标实例"));
+        QDir().mkpath(presetFiles + QStringLiteral("/config"));
+        QDir().mkpath(instanceRoot);
+        check(writeBytesAt(presetFiles + QStringLiteral("/config/a.json"),
+                           QByteArrayLiteral("{\"a\":1}")),
+              "PE6 夹具：预设那一侧有一份 `config/a.json`");
+
+        QList<Presets::GenericItem> items;
+        QString why;
+        check(Presets::scanFileGroup(presetFiles, Presets::FileGroup::Config, &items, nullptr,
+                                     &why),
+              "PE6 扫出预设那一侧的这一组", why);
+        QList<Presets::PresetSection> sections;
+        check(Presets::sectionsFromFileGroup(Presets::FileGroup::Config, items,
+                                             Presets::ApplyMode::CopyIfMissing, &sections, &why),
+              "PE6 造出「通用文件组」那一段", why);
+
+        Presets::PlanRequest request;
+        request.presetFilesRoot = presetFiles;
+        request.target.instanceRoot = instanceRoot;
+        request.sections = sections;
+
+        Presets::ApplyPlan plan = Presets::planPresetApplication(request);
+        check(plan.rows.size() == 1 && !plan.rows.at(0).blocked && plan.rows.at(0).count == 1,
+              "★★ PE6 目标上还没有那一份 ⇒ 要拷 1 个（`CopyIfMissing` 那一档真数了一遍目标）",
+              Presets::applyPlanRowText(plan.rows.at(0)));
+        check(Presets::applyPlanRowText(plan.rows.at(0)) == QStringLiteral("缺了才拷 1 个"),
+              "PE6 那一行的右栏", Presets::applyPlanRowText(plan.rows.at(0)));
+
+        QDir().mkpath(instanceRoot + QStringLiteral("/config"));
+        check(writeBytesAt(instanceRoot + QStringLiteral("/config/a.json"),
+                           QByteArrayLiteral("用户自己调过的")),
+              "PE6 目标上摆一份同名的（用户自己调的）");
+        plan = Presets::planPresetApplication(request);
+        check(plan.rows.at(0).count == 0 && plan.rows.at(0).skipped == 1 &&
+                  !plan.writesAnything(),
+              "★★ PE6 目标上已经有了 ⇒ 这一项是「不用动」，**不是「拷了 0 个」**",
+              Presets::applyPlanRowText(plan.rows.at(0)));
+        check(Presets::applyPlanRowText(plan.rows.at(0)) == QStringLiteral("跳过 1 个"),
+              "★★ PE6 那一行的右栏说「跳过」，不说「缺了才拷 0 个」",
+              Presets::applyPlanRowText(plan.rows.at(0)));
+
+        // 「合并」在一坨字节上做不了主 ⇒ 要用户选，而且**一个字节都不写**。
+        QList<Presets::PresetSection> merged;
+        const bool builtMerged = Presets::sectionsFromFileGroup(
+            Presets::FileGroup::Config, items, Presets::ApplyMode::Merge, &merged, &why);
+        check(builtMerged, "PE6 再用「合并」那一档造一段出来", why);
+        if (!builtMerged) {
+            return;
+        }
+        request.sections = merged;
+        plan = Presets::planPresetApplication(request);
+        check(plan.rows.at(0).needsChoice == 1 && plan.rows.at(0).count == 0 &&
+                  !plan.writesAnything() && plan.rows.at(0).risky(),
+              "★★★ PE6 「合并」：这一项只有复制和覆盖两种做法 ⇒ 那一行是「要你选」（§6 P3 最后"
+              "那一条在计划表上的样子）",
+              Presets::applyPlanRowText(plan.rows.at(0)));
+        check(Presets::applyPlanRowText(plan.rows.at(0)) == QStringLiteral("要你选 1 个"),
+              "PE6 那一行的右栏", Presets::applyPlanRowText(plan.rows.at(0)));
+
+        // 段的身份和它的内容对不上 ⇒ **不认**这一段（`fileGroupFromSection()` 判不了这一条）。
+        QList<Presets::PresetSection> wrongId = sections;
+        wrongId[0].id = Presets::sectionIdFor(Presets::SectionKind::GenericFiles,
+                                             QStringLiteral("shaderpacks"));
+        request.sections = wrongId;
+        plan = Presets::planPresetApplication(request);
+        check(plan.rows.at(0).blocked &&
+                  plan.rows.at(0).problem.contains(QStringLiteral("对不上")),
+              "★★★ PE6 段说自己是光影那一组、可里面的路径全在 `config/` 底下 ⇒ 整段不认"
+              "（两份说法对不上时，我们没有资格拿它去改用户的实例）",
+              plan.rows.at(0).problem);
+
+        // 没有源根：数不出"缺哪几份"，**不许**当成"没有东西要拷"。
+        request.sections = sections;
+        request.presetFilesRoot.clear();
+        plan = Presets::planPresetApplication(request);
+        check(plan.rows.at(0).blocked &&
+                  plan.rows.at(0).problem.contains(QStringLiteral("文件根")),
+              "★★ PE6 没给预设那一侧的文件根 ⇒ 这一段做不了（当成「没有东西要拷」的话，用户会"
+              "以为预设里那几份配置是空的）",
+              plan.rows.at(0).problem);
+    }
+
+    // ---------------------------------------------------------------------
+    section("PE7. 还不认识的种类（MaLiLib 那一段落 blocked，不拖累别的行）");
+    // ---------------------------------------------------------------------
+    {
+        Presets::PresetSection unknown;
+        unknown.id = Presets::sectionIdFor(Presets::SectionKind::MalilibKeys);
+        unknown.kind = Presets::SectionKind::MalilibKeys;
+        unknown.mode = Presets::ApplyMode::Merge;
+
+        Presets::PlanRequest request;
+        request.target.instanceRoot = scratch.filePath(QStringLiteral("实例"));
+        request.target.options = targetFile;
+        request.sections = {optionSections.at(1), unknown};
+
+        const Presets::ApplyPlan plan = Presets::planPresetApplication(request);
+        check(plan.ok && !plan.rows.at(0).blocked &&
+                  plan.rows.at(0).count == 1 && plan.rows.at(1).blocked &&
+                  plan.rows.at(1).problem.contains(QStringLiteral("MaLiLib")),
+              "★★★ PE7 MaLiLib 那一段这一版还没落 ⇒ 它单独落一行「做不了」（**悄悄跳过**的话"
+              "用户会以为「MaLiLib 的热键跟着预设过来了」）",
+              plan.rows.at(1).problem);
+        check(Presets::applyPlanRowText(plan.rows.at(1)) == QStringLiteral("做不了") &&
+                  plan.blockedRowCount() == 1 && plan.canApply() && plan.totalCount() == 1,
+              "★★ PE7 做不了的那一段**不拦着别的段**（整份 still 可以开工）");
+    }
+
+    // ---------------------------------------------------------------------
+    section("PE8. 实例正在跑");
+    // ---------------------------------------------------------------------
+    {
+        Presets::PlanRequest request;
+        request.target.instanceRoot = scratch.filePath(QStringLiteral("实例"));
+        request.target.options = targetFile;
+        request.sections = optionSections;
+        request.gameRunning = true;
+
+        const Presets::ApplyPlan plan = Presets::planPresetApplication(request);
+        check(plan.ok && !plan.blockedReason.isEmpty() && !plan.canApply() &&
+                  plan.rows.size() == 2 && plan.totalCount() == 2,
+              "★★★ PE8 实例正在跑 ⇒ **整趟**不许开工（游戏退出时会把它自己那一份整片写回去，"
+              "我们写的会被盖掉 —— 而用户看到的是「应用成功了、重启就没了」）；表照样算出来给他看",
+              plan.blockedReason);
+    }
+
+    // ---------------------------------------------------------------------
+    section("PE9. 右栏那几条规则的边角（手工搓行，不经过适配器）");
+    // ---------------------------------------------------------------------
+    {
+        Presets::ApplyPlanRow row;
+        row.kind = Presets::SectionKind::VanillaOptions;
+        row.mode = Presets::ApplyMode::Merge;
+        check(Presets::applyPlanRowText(row) == QStringLiteral("不动"),
+              "★★ PE9 什么都不动的那一行说「不动」（而「合并 0 项」听起来像「有一段是空的但我"
+              "「什么都没做」，两句话不一样）",
+              Presets::applyPlanRowText(row));
+
+        row.skipped = 3;
+        check(Presets::applyPlanRowText(row) == QStringLiteral("跳过 3 项"),
+              "PE9 有跳过的就说跳过了几个", Presets::applyPlanRowText(row));
+
+        row.skipped = 0;
+        row.mode = Presets::ApplyMode::Skip;
+        check(Presets::applyPlanRowText(row) == QStringLiteral("跳过"),
+              "★ PE9 「跳过」那一档：一个字，不带数字", Presets::applyPlanRowText(row));
+
+        row.blocked = true;
+        check(Presets::applyPlanRowText(row) == QStringLiteral("做不了") &&
+                  row.risky() && !Presets::applyPlanRowText(row).contains(QStringLiteral("跳过")),
+              "PE9 做不了的那一行不再提「跳过」（那会让人以为这一档就是不用管）",
+              Presets::applyPlanRowText(row));
+
+        row = Presets::ApplyPlanRow{};
+        row.kind = Presets::SectionKind::GenericFiles;
+        row.mode = Presets::ApplyMode::CopyIfMissing;
+        row.count = 8;
+        row.skipped = 2;
+        check(Presets::applyPlanRowText(row) == QStringLiteral("缺了才拷 8 个，跳过 2 个"),
+              "PE9 一行里那几个数用「，」接起来（§7 那个形状）",
+              Presets::applyPlanRowText(row));
+
+        row.conflictCount = 1;
+        row.removed = 3;
+        check(Presets::applyPlanRowText(row) ==
+                  QStringLiteral("缺了才拷 8 个，删掉 3 个，冲突 1 项，跳过 2 个"),
+              "★★ PE9 次序是**动的 / 删的 / 冲突 / 跳过的**（先是「会怎样」、「会拿掉什么」，"
+              "再是「要你注意什么」），而且冲突那一项永远说「项」（抢键位的是键）",
+              Presets::applyPlanRowText(row));
+    }
+}
+
+
+// ---------------------------------------------------------------------------
 // ZS. 实例页的搜索与筛选：判据层（coding plan §7.2）
 //
 // §7.2 原话：「搜索实例名、版本号、加载器；筛选原版/模组实例、可更新、最近运行；搜索不
@@ -27501,6 +29902,32 @@ int main(int argc, char *argv[]) {
     // 那一条要换一下数据根目录（换完就还原），所以它和 ZQ 那一节一样自己开临时目录。
     runLaunchHistoryTests();
 
+    // -----------------------------------------------------------------
+    // 实例预设（2026-10-14，coding plan §5–§6 / P1），见上面 PA 节。值那一层是纯函数，
+    // 盘那一层在一个临时目录里真存真读（每一件都收一个 `root` 参数，所以连全局数据根目录
+    // 都不用改）—— 不联网、不碰共享沙箱、不开界面。
+    runPresetStoreTests();
+
+    // -----------------------------------------------------------------
+    // 原版设置那一段（2026-10-15，coding plan §6 P2），见上面 PB 节。**全是纯函数**：`options.txt`
+    // 的字节进、字节出 —— 门槛是"读进来再写出去逐字节相同"，所以这一节一条临时目录都不用开。
+    runVanillaOptionsTests();
+
+    // -----------------------------------------------------------------
+    // 服务器列表那一段（2026-10-15，coding plan §6 P3），见上面 PC 节。判据那几条是纯值；
+    // "落到那个实例上"那几条**真动盘** —— 在一个临时目录里造真 `servers.dat`，跑完读回来
+    // 逐字节比（"没碰过的条目一个字节都不变"只有比字节才验得出来）。
+    runServerListPresetTests();
+    // -----------------------------------------------------------------
+    // 通用文件组那一段（2026-10-15，coding plan §6 P3 后半），见上面 PD 节。这一节的重量在
+    // "我们**没**弄坏用户东西"和"我们**没**跑出这一组去"：覆盖不删多出来的文件、缺了才拷
+    // 是逐文件判的、源侧和目标侧那两根 junction 都真造了一根来验。
+    runGenericFilesTests();
+    // -----------------------------------------------------------------
+    // 应用计划那一层（2026-10-15，coding plan §5 / §7），见上面 PE 节。这一节验的是 §7 那张
+    // 表：段一行、数从适配器那边真算出来、几道闸（没点头的覆盖 / 游戏在跑 / 不认识的种类）
+    // 真的会拦。★ 这一层只读：除了通用文件组的干跑，一个字节都不写。
+    runPresetPlannerTests();
     // -----------------------------------------------------------------
     // 实例页的搜索与筛选（2026-10-13，coding plan §7.2），见上面 ZS 节。**全是纯函数**：
     // 值进、bool 出，不读盘、不问时钟 —— 连一条实例都不必真的存在。

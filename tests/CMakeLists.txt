@@ -89,6 +89,36 @@ set(PROJECT_SOURCES
     # 上限怎么截 —— 全是纯函数，**一条都不用起界面**就能逐格念。
     ${REPO_ROOT}/src/manage/LaunchHistory.cpp
     ${REPO_ROOT}/src/manage/LaunchHistory.hpp
+    # 实例预设（2026-10-14，coding plan §5–§6 / P1）：值那一层（格式标记、schema 版本、
+    # 枚举⇄词、段与整份的读回）与盘那一层（下标、单份、增删改）。★ 两个都收一个 `root`
+    # 参数，所以 `verify` 的 **PA** 一节拿 `QTemporaryDir` 一喂就能逐格念 —— 包括最难查的
+    # 那两格：「一份坏了另外几份照旧列得出来」和「名字里带 `../` 也逃不出预设目录」。
+    ${REPO_ROOT}/src/presets/PresetTypes.hpp
+    ${REPO_ROOT}/src/presets/PresetStore.cpp
+    ${REPO_ROOT}/src/presets/PresetStore.hpp
+    # 原版设置那一段（2026-10-15，coding plan §6 P2）：`options.txt` 的保序读写（门槛就是
+    # **原地往返**，测试里那几条逐字节比的就是它）、认得的键那张表、按键冲突，以及"这一段
+    # 怎么落到目标上"的计划与执行。`verify` 的 **PB** 一节拿两份假 `options.txt` 一喂就能
+    # 逐格念 —— 包括最容易做错的那两格：「目标版本新增的键一个都不许丢」和「认不出来的行
+    # 任何一档都不删」。
+    ${REPO_ROOT}/src/presets/VanillaOptions.cpp
+    ${REPO_ROOT}/src/presets/VanillaOptions.hpp
+    # 服务器列表那一段（2026-10-15，coding plan §6 P3）：归一化地址、Append / Replace / Skip
+    # 的计划与报告，以及真的落在一份 `servers.dat` 上的那一趟（读回来还是不是游戏认得出来
+    # 的那棵树、没碰过的条目是不是逐字节没变）。`verify` 的 **PC** 一节拿 `QTemporaryDir`
+    # 造一份真文件（gzip / 裸的两种都有）就能逐格念。
+    ${REPO_ROOT}/src/presets/ServerListPreset.cpp
+    ${REPO_ROOT}/src/presets/ServerListPreset.hpp
+    # 通用文件组那一段（2026-10-15，coding plan §6 P3 的后半）：`config/` / `defaultconfigs/`
+    # / 资源包 / 光影 —— 只做整份的动作（缺了才拷 / 覆盖 / 跳过）+ 那三道路径闸。`verify`
+    # 的 **PD** 一节在两个临时目录之间真拷真读（含 junction 逃逸那两条：源侧和目标的）。
+    ${REPO_ROOT}/src/presets/GenericFiles.cpp
+    ${REPO_ROOT}/src/presets/GenericFiles.hpp
+    # 应用计划那一层（2026-10-15，coding plan §5 / §7）：一段一行地算"这一趟会怎么样"。
+    # `verify` 的 **PE** 一节：手搓几段假段 + 一份快照，念表上那一列字和那几个数（那一层
+    # 只读盘、一个字节都不写，所以除了通用文件组的干跑之外全都是纯值）。
+    ${REPO_ROOT}/src/presets/PresetPlanner.cpp
+    ${REPO_ROOT}/src/presets/PresetPlanner.hpp
     ${REPO_ROOT}/src/settings/EffectiveJavaSettings.cpp
     ${REPO_ROOT}/src/settings/EffectiveJavaSettings.hpp
     ${REPO_ROOT}/src/settings/GlobalJavaSettings.cpp

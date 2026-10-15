@@ -57,6 +57,7 @@
 #include <QList>
 #include <QString>
 
+#include "util/NbtTree.hpp"
 #include "util/NbtUtil.hpp"
 
 namespace ServerListFile {
@@ -137,5 +138,66 @@ bool addEntry(const QString &datPath, const QString &name, const QString &addres
  */
 bool removeEntry(const QString &datPath, const QString &name, const QString &address,
                  QString *problemOut);
+
+// ---------------------------------------------------------------------------
+// 预设那一段用的那几口（2026-10-15，coding plan §6 P3）
+//
+// 「实例预设」要把一批服务器**一次**落到这个文件上（§6 P3：Append / Replace / Skip、
+// 按规范化地址去重、保留顺序）—— 那是**同一棵树上的多次改动**，上面那三个"改一条 / 加一条
+// / 删一条"各走一趟的入口凑不出来。
+//
+// ★ 所以这里露出来的不是"再来一套写盘"，而是**同一条路的那几步**：上面那三个入口本来就是
+//   "读进来 → 认出 servers 那一格 → 动它 → 写回去"这三步加一小段判断。把这几步露出来，
+//   是为了让"这份文件怎么读进来、怎么写回去"**仍然只有一处实现** —— 预设那一段自己再写
+//   一遍 gzip 检测和 QSaveFile 原子替换，就是第二个能把用户的服务器列表写坏的入口，而那
+//   正是 `NbtUtil.hpp` 文件头那条设计决定要防的东西（见本文件头「为什么新开一个文件」）。
+//
+// ★ 判据（哪个地址算同一台、哪几条要跳过、Replace 要拿掉什么）**不在这儿** —— 在
+//   `src/presets/ServerListPreset.hpp`。这一层只认识"值"，不认识"预设"。
+// ---------------------------------------------------------------------------
+
+/// 一份 `servers.dat` 在盘上的三种状态。★ 分开是有意义的：**没有这个文件**和**这个文件
+/// 读不动**是两句话 —— 前者对"追加"这一档是正常开局（第一次加服务器就是这个状态），
+/// 后者才是不许动（同 `NbtUtil::Status` 那三分）。
+enum class FileState {
+    Ok,          ///< 读到了（**空表也算**）
+    Missing,     ///< 这个位置上没有东西
+    Unreadable,  ///< 有东西但读不动（是目录 / 太大 / gzip 解不开 / 不是 NBT / 读不出来）
+};
+
+/**
+ * @brief 把这个文件读成**整棵树**（gzip 那一层一起处理），一个字节都不改。
+ *
+ * @param gzipped 读到了就写"原来那份压没压"（`Missing` / `Unreadable` 时不动它）——
+ *        写回去要跟着它（见本文件头「写回去的形状跟着读进来那一份」）。
+ * @param problemOut `Unreadable` 那一档留一句给人看的话。
+ */
+FileState loadDocument(const QString &datPath, NbtTree::Document *out, bool *gzipped,
+                       QString *problemOut);
+
+/// 把一棵树按 @p gzipped 说的形状**原子写回**去（`QSaveFile`，见 .cpp 里 `commitBytes`）。
+bool storeDocument(const QString &datPath, const NbtTree::Document &document, bool gzipped,
+                   QString *problemOut);
+
+/**
+ * @brief 认出并校验 `servers` 那一格。
+ *
+ * @param out 认出来时指进 @p document 里的那一格（★ **两者必须一起用**：那个指针指向的东西
+ *        跟着 `document` 走）。
+ * @return 这一格不在 / 不是一张表（元素不是复合标签）⇒ false + 一句人话。
+ */
+bool serversListOf(NbtTree::Document *document, NbtTree::Node **out, QString *problemOut);
+
+/// 从零建一棵游戏认得出来的树：**无名**根复合标签 + 一格 `servers` 的
+/// `TAG_List<TAG_Compound>`（元素类型要带着走 —— 空的表也得有它，不然游戏读到的是坏的）。
+NbtTree::Document emptyDocument();
+
+/// 一条服务器在盘上的形状：一个复合标签、`ip` + `name` 两格字符串（顺序照原版自己写的
+/// 那份夹具）。**唯一出处** —— "加一条"和"预设追加"两处都用它。
+NbtTree::Node entryNode(const QString &name, const QString &address);
+
+/// 新建一份 `servers.dat` 时按什么形状落盘（理由见 .cpp 里 `addEntry()` 那段 ★）：
+/// gzip。★ 摆在头文件里是为了让"新建时不准落裸的"这条规矩**只有一处**。
+constexpr bool kFreshFileGzipped = true;
 
 }  // namespace ServerListFile

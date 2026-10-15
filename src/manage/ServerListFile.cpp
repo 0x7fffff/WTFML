@@ -190,64 +190,30 @@ struct LoadedList {
     bool gzipped = false;
 };
 
-/// 把 @p datPath 读进来，认出并校验 `servers` 那一格。三个入口共用的那一段开头。
+/// 把 @p datPath 读进来，认出并校验 `servers` 那一格。三个入口共用的那一段开头 ——
+/// 它现在只是把公开那两口（`loadDocument` / `serversListOf`）串起来，**加上自己那句提示**。
 ///
 /// 认不出（文件不在 / 太大 / 读不动 / gzip 解不开 / parse 不过 / `servers` 那一格不是
 /// 一张服务器表）一律返回 false 并在 @p problem 里留一句给人看的话式**一个字节都不写**。
 /// NOTE: 文件不在这一档对"改"和"删"是失败，对"加"**不是**（见 `addEntry()`）—— 所以这一条
 ///       留在这儿由 `addEntry()` 自己在调用之前先判一次，别的入口直接用返回值。
 bool loadServers(const QString &datPath, LoadedList *out, QString *problem) {
-    const QFileInfo info(datPath);
-    if (!info.exists() || info.isDir()) {
+    QString why;
+    // ★ 那两口在 `namespace ServerListFile` 里，而这一段在它**外面**（匿名命名空间）——
+    //   所以要写全名。摆在外面是因为它是"读进来 + 认出那一格"这一段的实现，和三个入口同层。
+    const ServerListFile::FileState state =
+        ServerListFile::loadDocument(datPath, &out->document, &out->gzipped, &why);
+    if (state == ServerListFile::FileState::Missing) {
         // 三个入口共用这一句，所以不能写成"先在游戏里加一台服务器"（那是**改**那一条路该
         // 给的提示，"删"读起来就成了让人去加一台再加了删）。只说清"为什么现在没得动"。
         *problem = QStringLiteral("这个实例还没有 servers.dat —— 游戏里加过一台之后它才会出现。");
         return false;
     }
-    if (info.size() > kMaxFileSize) {
-        *problem = QStringLiteral("servers.dat 有 %1 MB，太大了，没有动它。")
-                       .arg(QString::number(info.size() / (1024.0 * 1024.0), 'f', 1));
+    if (state == ServerListFile::FileState::Unreadable) {
+        *problem = why;
         return false;
     }
-
-    // ---------- 读进来（gzip 那一档先解开） ----------
-    QByteArray bytes;
-    QString problem2;
-    if (!readWholeFile(datPath, &bytes, &problem2)) {
-        *problem = problem2;
-        return false;
-    }
-    out->gzipped = looksGzipped(bytes);
-    if (out->gzipped) {
-        const QString tempPlain = tempPathFor(QStringLiteral("serverlist-read"));
-        QString why;
-        if (!ZipUtil::gunzipTo(datPath, tempPlain, &why)) {
-            *problem = why.isEmpty()
-                           ? QStringLiteral("servers.dat 读不动：gzip 解不开")
-                           : QStringLiteral("servers.dat 读不动：%1").arg(why);
-            return false;
-        }
-        const bool got = readWholeFile(tempPlain, &bytes, &problem2);
-        QFile::remove(tempPlain);
-        if (!got) {
-            *problem = problem2;
-            return false;
-        }
-    }
-
-    // ---------- 解开整棵树 ----------
-    if (!NbtTree::parse(bytes, &out->document, &problem2)) {
-        *problem = QStringLiteral("servers.dat 读不动：%1").arg(problem2);
-        return false;
-    }
-    NbtTree::Node *servers = NbtTree::field(&out->document.root, QStringLiteral("servers"));
-    if (servers == nullptr || servers->type != NbtTree::Type::List ||
-        (!servers->items.isEmpty() && servers->itemType != NbtTree::Type::Compound)) {
-        *problem = QStringLiteral("servers.dat 里那一格 servers 不是一张服务器表，没有动它。");
-        return false;
-    }
-    out->servers = servers;
-    return true;
+    return ServerListFile::serversListOf(&out->document, &out->servers, problem);
 }
 
 /// 认"要动的是哪一条"，回来的是它在 `servers` 那个 list 里的**下标**。
@@ -294,12 +260,129 @@ bool findEntryIndex(const NbtTree::Node &servers, const QString &name, const QSt
     return true;
 }
 
-/// 按原版自己写的那个形状造一条新的服务器条目：一个复合标签，`ip` + `name` 两格字符串。
-///
-/// 顺序跟着 `build/verify` 里那份"游戏真写出来的形状"的夹具（`ip` 在前、`name` 在后）。
-/// NBT 是按名字取值的，顺序不影响游戏读；这里照夹具写只是为了让"加进去的那一条"和
-/// "验证工程里那条已知合法的"长得一模一样。
-NbtTree::Node makeEntry(const QString &name, const QString &address) {
+}  // namespace
+
+namespace ServerListFile {
+
+QString pathFor(const QString &versionId) {
+    return AppPaths::versionDir(versionId) + QStringLiteral("/servers.dat");
+}
+
+NbtUtil::Status read(const QString &datPath, QList<NbtUtil::ServerEntry> *out,
+                     QString *problemOut) {
+    return NbtUtil::readServerList(datPath, out, problemOut);
+}
+
+// ---------------------------------------------------------------------------
+// 预设那一段用的那几口（见 .hpp 里那一段的开头）
+// ---------------------------------------------------------------------------
+
+FileState loadDocument(const QString &datPath, NbtTree::Document *out, bool *gzipped,
+                       QString *problemOut) {
+    if (problemOut != nullptr) {
+        problemOut->clear();
+    }
+    const QFileInfo info(datPath);
+    if (!info.exists()) {
+        return FileState::Missing;
+    }
+    if (info.isDir()) {
+        // 同名的一个目录摆在那儿：既不是文件也不是"还没有" —— 这一档谁都不许动它。
+        if (problemOut != nullptr) {
+            *problemOut = QStringLiteral("servers.dat 那个位置上是个文件夹，没有动它。");
+        }
+        return FileState::Unreadable;
+    }
+    if (info.size() > kMaxFileSize) {
+        if (problemOut != nullptr) {
+            *problemOut = QStringLiteral("servers.dat 有 %1 MB，太大了，没有动它。")
+                              .arg(QString::number(info.size() / (1024.0 * 1024.0), 'f', 1));
+        }
+        return FileState::Unreadable;
+    }
+
+    // ---------- 读进来（gzip 那一档先解开） ----------
+    QByteArray bytes;
+    QString problem;
+    if (!readWholeFile(datPath, &bytes, &problem)) {
+        if (problemOut != nullptr) {
+            *problemOut = problem;
+        }
+        return FileState::Unreadable;
+    }
+    const bool compressed = looksGzipped(bytes);
+    if (compressed) {
+        // ★ 解压走 `ZipUtil::gunzipTo()`（临时文件那一路）：gzip 只有那一处实现，理由见
+        //   `ZipUtil.hpp` 里那一句"别把它当通用解压用"。
+        const QString tempPlain = tempPathFor(QStringLiteral("serverlist-read"));
+        QString why;
+        if (!ZipUtil::gunzipTo(datPath, tempPlain, &why)) {
+            if (problemOut != nullptr) {
+                *problemOut = why.isEmpty() ? QStringLiteral("servers.dat 读不动：gzip 解不开")
+                                            : QStringLiteral("servers.dat 读不动：%1").arg(why);
+            }
+            return FileState::Unreadable;
+        }
+        const bool got = readWholeFile(tempPlain, &bytes, &problem);
+        QFile::remove(tempPlain);
+        if (!got) {
+            if (problemOut != nullptr) {
+                *problemOut = problem;
+            }
+            return FileState::Unreadable;
+        }
+    }
+
+    // ---------- 解开整棵树 ----------
+    if (!NbtTree::parse(bytes, out, &problem)) {
+        if (problemOut != nullptr) {
+            // ★ `NbtTree::parse()` 拒绝的每一档（类型不认识 / 长度越界 / 嵌套太深 / 末尾多
+            //   出来一截）都算"我们看不懂这一份" —— 不留"部分解出来"的树，也就没有下文。
+            *problemOut = QStringLiteral("servers.dat 读不动：%1").arg(problem);
+        }
+        return FileState::Unreadable;
+    }
+    if (gzipped != nullptr) {
+        *gzipped = compressed;
+    }
+    return FileState::Ok;
+}
+
+bool serversListOf(NbtTree::Document *document, NbtTree::Node **out, QString *problemOut) {
+    if (problemOut != nullptr) {
+        problemOut->clear();
+    }
+    NbtTree::Node *servers = NbtTree::field(&document->root, QStringLiteral("servers"));
+    if (servers == nullptr || servers->type != NbtTree::Type::List ||
+        (!servers->items.isEmpty() && servers->itemType != NbtTree::Type::Compound)) {
+        if (problemOut != nullptr) {
+            *problemOut = QStringLiteral("servers.dat 里那一格 servers 不是一张服务器表，没有动它。");
+        }
+        return false;
+    }
+    if (out != nullptr) {
+        *out = servers;
+    }
+    return true;
+}
+
+NbtTree::Document emptyDocument() {
+    NbtTree::Document document;
+    // 无名根（`level.dat` 也是无名的；`servers.dat` 这份游戏自己写的也匿名）。
+    document.rootName = QString();
+    document.root.type = NbtTree::Type::Compound;
+
+    NbtTree::Field serversField;
+    serversField.first = QStringLiteral("servers");
+    serversField.second.type = NbtTree::Type::List;
+    // ★ 空的表**也要带着元素类型**：少了它写回去的是一张"元素类型是 End"的表，而那是坏的
+    //   （`NbtTree::serialize()` 按 `itemType` 落盘）。第一次加服务器那次就撞在这儿。
+    serversField.second.itemType = NbtTree::Type::Compound;
+    document.root.fields.append(serversField);
+    return document;
+}
+
+NbtTree::Node entryNode(const QString &name, const QString &address) {
     NbtTree::Node item;
     item.type = NbtTree::Type::Compound;
 
@@ -318,17 +401,12 @@ NbtTree::Node makeEntry(const QString &name, const QString &address) {
     return item;
 }
 
-}  // namespace
-
-namespace ServerListFile {
-
-QString pathFor(const QString &versionId) {
-    return AppPaths::versionDir(versionId) + QStringLiteral("/servers.dat");
-}
-
-NbtUtil::Status read(const QString &datPath, QList<NbtUtil::ServerEntry> *out,
-                     QString *problemOut) {
-    return NbtUtil::readServerList(datPath, out, problemOut);
+bool storeDocument(const QString &datPath, const NbtTree::Document &document, bool gzipped,
+                   QString *problemOut) {
+    if (problemOut != nullptr) {
+        problemOut->clear();
+    }
+    return commitBytes(datPath, NbtTree::serialize(document), gzipped, problemOut);
 }
 
 bool updateEntry(const QString &datPath, const QString &oldName, const QString &oldAddress,
@@ -392,25 +470,14 @@ bool addEntry(const QString &datPath, const QString &name, const QString &addres
     if (!info.exists()) {
         // ---------- 第一次在这个实例里加服务器：从零建一棵游戏认得出来的树 ----------
         //
-        // 形状是照着一份"游戏自己写的"对着建的：**无名**根复合标签 → 一格 `servers`，
-        // 那是一张 `TAG_List<TAG_Compound>`。空的表也带着元素类型（`itemType`），
-        // `NbtTree` 写回去时用的就是它 —— 这一步不这么做的话，游戏会读到一张"元素类型
-        // 是 End"的表，那是坏的。
-        NbtTree::Document document;
-        document.rootName = QString();
-        document.root.type = NbtTree::Type::Compound;
-
-        NbtTree::Field serversField;
-        serversField.first = QStringLiteral("servers");
-        serversField.second.type = NbtTree::Type::List;
-        serversField.second.itemType = NbtTree::Type::Compound;
-        document.root.fields.append(serversField);
-
+        // 形状是照着一份"游戏自己写的"对着建的（见 `emptyDocument()`）—— 那一段实现只有
+        // 一处，预设那一段"目标上还没有 servers.dat"时走的也是它。
+        NbtTree::Document document = emptyDocument();
         NbtTree::Node *servers = &document.root.fields.last().second;
-        servers->items.append(makeEntry(name, address));
+        servers->items.append(entryNode(name, address));
 
         // ★ gzip（不是跟着"原来那份"—— 没有原来那份）。见文件头那段。
-        return commitBytes(datPath, NbtTree::serialize(document), /*gzipped=*/true, problemOut);
+        return commitBytes(datPath, NbtTree::serialize(document), kFreshFileGzipped, problemOut);
     }
 
     LoadedList loaded;
@@ -419,7 +486,7 @@ bool addEntry(const QString &datPath, const QString &name, const QString &addres
         return failWith(problemOut, problem);
     }
     // 接在表尾（原版在游戏里点"添加服务器"也是接到尾巴上）。这一格本身是空表也照接。
-    loaded.servers->items.append(makeEntry(name, address));
+    loaded.servers->items.append(entryNode(name, address));
 
     return commitBytes(datPath, NbtTree::serialize(loaded.document), loaded.gzipped, problemOut);
 }

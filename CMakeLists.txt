@@ -55,6 +55,25 @@ set(HEADER_FILES
     src/manage/LaunchHistory.hpp
     # 实例页那张树的搜索与筛选（2026-10-13，coding plan §7.2）：判据层，纯函数。
     src/manage/InstanceFilter.hpp
+    # 实例预设（2026-10-14，coding plan §5–§6 / P1）：先落「值」和「账」两层，
+    # 段里那点载荷归各个适配器，界面那一半等 P1 的管理页上线时再接。
+    src/presets/PresetTypes.hpp
+    src/presets/PresetStore.hpp
+    # 原版设置那一段（2026-10-15，coding plan §6 P2）：`options.txt` 的保序模型 + 认得的
+    # 键那张表 + 按键冲突 + "这一段怎么落到实例上"的计划。纯值层（字节进、字节出）。
+    src/presets/VanillaOptions.hpp
+    # 服务器列表那一段（2026-10-15，coding plan §6 P3）：`servers.dat` 的判据 —— 地址怎么算
+    # 同一台、Append / Replace / Skip 各是什么、这一趟会动哪几条。写盘那一半仍旧只有一处
+    # 实现（`src/manage/ServerListFile` 露出来的那几口），这一层一个 QFile 都不开。
+    src/presets/ServerListPreset.hpp
+    # 通用文件组那一段（2026-10-15，coding plan §6 P3）：`config/` / `defaultconfigs/` /
+    # 资源包 / 光影 —— 我们看不懂里面的东西，所以只做整份的动作（缺了才拷 / 覆盖 / 跳过），
+    # 三道路径闸和"这一项只能复制或覆盖"那记号都在这一份里。
+    src/presets/GenericFiles.hpp
+    # 把一份预设落到一个实例上这件事的**计划**那一层（2026-10-15，coding plan §5 的
+    # `PresetPlanner` / §7 那张计划表 / 里程碑 M1 的「应用前可见精确计划」）：一段一行，
+    # 按段的种类分派给上面三个适配器，再把各自的报告翻成同一张表。**只读，一个字节都不写。**
+    src/presets/PresetPlanner.hpp
     src/settings/GlobalJavaSettings.hpp
     src/settings/GameWindowSettings.hpp
     src/settings/LauncherSettings.hpp
@@ -153,6 +172,16 @@ set(SOURCE_FILES
     src/manage/WorldFiles.cpp
     # 「上一次启动」那本账（2026-10-13，coding plan §5.1）。
     src/manage/LaunchHistory.cpp
+    # 实例预设的盘那一层（2026-10-14，coding plan §5–§6 / P1）：下标 + 单份 + 那几件增删改。
+    src/presets/PresetStore.cpp
+    # 原版设置那一段的判据（2026-10-15，coding plan §6 P2）：见头文件那一位。
+    src/presets/VanillaOptions.cpp
+    # 服务器列表那一段的判据 + 落到实例上（2026-10-15，coding plan §6 P3）：见头文件那一位。
+    src/presets/ServerListPreset.cpp
+    # 通用文件组那一段的判据 + 落盘（2026-10-15，coding plan §6 P3）：见头文件那一位。
+    src/presets/GenericFiles.cpp
+    # 应用计划那一层（2026-10-15，coding plan §5 / §7）：见头文件那一位。
+    src/presets/PresetPlanner.cpp
     src/settings/EffectiveJavaSettings.cpp
     src/settings/GlobalJavaSettings.cpp
     src/settings/GameWindowSettings.cpp

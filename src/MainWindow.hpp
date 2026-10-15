@@ -2409,6 +2409,8 @@ private:
     // 列表、以及实例页顶上的"当前文件夹"那句。扫的是**当前游戏文件夹**的
     // .minecraft/versions，同步返回。保住用户原来选中的那一项的逻辑在 fillVersionCombo() 里。
     void refreshInstalledVersions();
+    /// 主页右下角「选择实例」打开的工作区内选择页。它只负责选择，不承载实例管理动作。
+    void openHomeInstancePicker();
     /// 实例页那张树重灌一遍 —— **搜索与筛选走的就是这一条**（coding plan §7.2）。
     ///
     /// 它和 `refreshInstalledVersions()` 是两条路：后者要**扫盘**（每个实例读一次

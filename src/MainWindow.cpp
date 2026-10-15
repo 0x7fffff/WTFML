@@ -1358,6 +1358,7 @@ QList<MainWindowUI::PanelRow> runningGamePanelRows(const QList<LauncherManager::
 
 /// 右面板里那一行右边的那颗按钮的下标（onBottomBarPanelAction() 认的就是它）。
 constexpr int kAccountPanelUseAction = 0;
+const QString kAccountPanelManageKey = QStringLiteral("__wtfml_manage_accounts__");
 
 /// 一份**会话**的身份键：这个人是谁。
 ///
@@ -1557,9 +1558,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_ui->setHomeQuickActionHandler(
         [this](const QString &key, MainWindowUI::HomeQuickAction action) {
             if (action == MainWindowUI::HomeQuickAction::ChooseInstance) {
-                if (QTabWidget *tabs = m_ui->getTabWidget()) {
-                    tabs->setCurrentIndex(MainWindowUI::instancesTabIndex());
-                }
+                openHomeInstancePicker();
                 return;
             }
             if (key.isEmpty() || m_versionManager == nullptr
@@ -1578,6 +1577,8 @@ MainWindow::MainWindow(QWidget *parent)
                 onStartButtonClicked();
             }
         });
+    connect(m_ui->getHomeInstanceSelectButton(), &QPushButton::clicked, this,
+            &MainWindow::openHomeInstancePicker);
     setupConnections();
     connect(m_javaRuntimeController, &JavaRuntimeController::busyChanged, this, [this](bool busy) {
         if (m_javaManagePage != nullptr) {
@@ -1711,7 +1712,17 @@ MainWindow::MainWindow(QWidget *parent)
                 for (const SavedAccount &one : saved) {
                     faces.insert(one.uuid, accountFacePixmap(one));
                 }
-                return recentAccountPanelRows(saved, 3, faces);
+                QList<MainWindowUI::PanelRow> rows = recentAccountPanelRows(saved, 3, faces);
+                MainWindowUI::PanelRow manage;
+                manage.key = kAccountPanelManageKey;
+                manage.title = MainWindowUI::accountSkinButtonText();
+                manage.subtitle = tr("管理账号、皮肤与披风");
+                MainWindowUI::PanelAction open;
+                open.text = tr("打开");
+                open.tooltip = tr("打开账号与外观");
+                manage.actions.append(open);
+                rows.append(manage);
+                return rows;
             }
             return runningGamePanelRows(
                 m_launcherManager->runningGames(), m_versionManager,
@@ -1953,8 +1964,8 @@ void MainWindow::setupConnections() {
     //       写的是"这次启动用哪种身份"）。勾选框去掉了，现在让那个身份变的动作是
     //       **换账号 / 加一个离线账号**，而那两个槽自己就会调 updateBottomBar()，
     //       所以这里没有对应的接线了。
-    // 「账号与外观…」那两个入口（主页右栏 3D 预览下面那个 + 设置页「个性化」栏里「账户」那格的）。
-    // 同一件事、同一个窗 —— 所以接的是同一个槽。
+    // 「账号与外观…」的隐藏兼容入口 + 设置页入口。主页可见入口已经搬到底栏账号面板
+    // 末行；三条路最终都进同一个槽。
     connect(m_ui->getAccountSkinButton(), &QPushButton::clicked, this,
             &MainWindow::onAccountSkinButtonClicked);
     connect(m_ui->getAccountSkinSettingsButton(), &QPushButton::clicked, this,
@@ -11744,6 +11755,121 @@ void MainWindow::updateHomeRecent() {
     m_ui->setHomeQuickRows(rows.favorites, rows.recent);
 }
 
+void MainWindow::openHomeInstancePicker() {
+    if (m_ui == nullptr || m_folderManager == nullptr || m_versionManager == nullptr) {
+        return;
+    }
+
+    const QString currentFolder = m_folderManager->currentFolder();
+    QList<MainWindowUI::HomePickerFolder> folders;
+    QList<MainWindowUI::HomePickerInstance> instances;
+
+    QSet<QString> recentIds;
+    for (const LaunchHistory::Record &record : m_launchHistory) {
+        if (record.isValid() && record.result != LaunchHistory::Result::StartFailed) {
+            recentIds.insert(record.instanceId);
+        }
+    }
+
+    const auto loaderFromId = [](const QString &id) {
+        const QString lower = id.toLower();
+        // NeoForge 必须排在 Forge 前面，否则名字里那段 "forge" 会先误命中。
+        if (lower.contains(QStringLiteral("neoforge"))) {
+            return QStringLiteral("neoforge");
+        }
+        if (lower.contains(QStringLiteral("fabric"))) {
+            return QStringLiteral("fabric");
+        }
+        if (lower.contains(QStringLiteral("optifine"))) {
+            return QStringLiteral("optifine");
+        }
+        if (lower.contains(QStringLiteral("forge"))) {
+            return QStringLiteral("forge");
+        }
+        return QString();
+    };
+
+    for (const QString &folderPath : m_folderManager->folders()) {
+        MainWindowUI::HomePickerFolder folder;
+        folder.path = folderPath;
+        folder.title = folderTitle(folderPath);
+        folder.subtitle = QDir::toNativeSeparators(folderPath);
+        folder.current = (folderPath == currentFolder);
+        folders.append(folder);
+
+        if (!QFileInfo(folderPath).isDir()) {
+            continue;
+        }
+        if (folder.current) {
+            for (const VersionDisplayParts &part : m_instancePageParts) {
+                MainWindowUI::HomePickerInstance row;
+                row.folderPath = folderPath;
+                row.id = part.id;
+                row.title = formatVersionName(part, m_settings->versionNameOptions());
+                const QString loader = instanceLoaderName(part, m_versionManager);
+                row.loaderKey = loaderGroupKey(loader);
+                row.subtitle = loader.isEmpty()
+                                   ? (part.realVersion.isEmpty() ? QStringLiteral("原版")
+                                                                 : part.realVersion)
+                                   : QStringLiteral("%1 · %2")
+                                         .arg(part.realVersion.isEmpty() ? part.id
+                                                                        : part.realVersion,
+                                              loader);
+                row.icon = m_instancePageMarks.value(part.id);
+                row.favorite = m_groupStore != nullptr
+                               && m_groupStore->isPinned(instanceKey(part.id));
+                row.recent = recentIds.contains(part.id);
+                instances.append(row);
+            }
+            continue;
+        }
+
+        // 非当前文件夹不能借用 VersionManager（它绑定着当前 AppPaths），这里只做一次轻量目录
+        // 枚举；真正选中后 FolderManager 会切根并由 refreshInstalledVersions() 完整校验。
+        QDir versionsDir(QDir(folderPath).filePath(QStringLiteral("versions")));
+        const QFileInfoList entries = versionsDir.entryInfoList(
+            QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name | QDir::IgnoreCase);
+        for (const QFileInfo &entry : entries) {
+            const QString id = entry.fileName();
+            const QDir versionDir(entry.absoluteFilePath());
+            if (!QFileInfo::exists(versionDir.filePath(id + QStringLiteral(".json")))
+                && !QFileInfo::exists(versionDir.filePath(id + QStringLiteral(".jar")))) {
+                continue;
+            }
+            MainWindowUI::HomePickerInstance row;
+            row.folderPath = folderPath;
+            row.id = id;
+            row.title = id;
+            row.loaderKey = loaderFromId(id);
+            row.subtitle = row.loaderKey.isEmpty() ? QStringLiteral("原版") : row.loaderKey;
+            row.icon = QIcon(VersionIcons::grassBlock(MainWindowUI::instanceTreeIconSize()));
+            instances.append(row);
+        }
+    }
+
+    m_ui->openHomeInstancePicker(
+        folders, instances,
+        [this](const QString &folderPath) {
+            if (m_folderManager != nullptr) {
+                m_folderManager->setCurrentFolder(folderPath);
+            }
+        },
+        [this](const QString &folderPath, const QString &instanceId) {
+            if (m_folderManager == nullptr || m_ui == nullptr) {
+                return;
+            }
+            if (folderPath != m_folderManager->currentFolder()
+                && !m_folderManager->setCurrentFolder(folderPath)) {
+                return;
+            }
+            QComboBox *combo = m_ui->getInstalledVersionCombo();
+            const int row = combo == nullptr ? -1 : combo->findData(instanceId);
+            if (row >= 0) {
+                combo->setCurrentIndex(row);
+            }
+        });
+}
+
 // ============================ 「账号与外观」那个模块 ============================
 //
 // 三件事在这个模块里的分工（写清楚免得下次改错地方）：
@@ -11989,6 +12115,10 @@ void MainWindow::onBottomBarPanelAction(bool account, const QString &key, int ac
     if (account) {
         if (action != kAccountPanelUseAction) {
             return;  // 右面板那一行只有一颗按钮；别的编号是接线错了，什么都不做
+        }
+        if (key == kAccountPanelManageKey) {
+            onAccountSkinButtonClicked();
+            return;
         }
         // 这一行那颗按钮**是哪种**由行的状态决定（当前账号那颗是「登出」，别人是「选择」/
         // 「登录」），而行的状态是 recentAccountPanelRows() 一家算的 —— 这里用**同一个判据**

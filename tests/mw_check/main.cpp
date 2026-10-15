@@ -9789,9 +9789,11 @@ static void runBottomBarPanelTests() {
                   "AH7 三行 = 按 saved_at 倒序的**最后三个**（Bob 最新，然后是 Carol、Alex）",
                   QStringLiteral("[%1] [%2] [%3]")
                       .arg(rowTitle(panel, 0), rowTitle(panel, 1), rowTitle(panel, 2)));
-            check(panel->findChild<QLabel *>(MainWindowUI::bottomBarPanelRowTitleName(3)) ==
-                      nullptr,
-                  "AH7 只出三个（列表里一共有五个账号，Alice 和 Steve 不在这块面板上）");
+            check(rowTitle(panel, 3) == MainWindowUI::accountSkinButtonText() &&
+                      panel->findChild<QLabel *>(
+                          MainWindowUI::bottomBarPanelRowTitleName(4)) == nullptr,
+                  "AH7 三个最近账号之后只有一行「账号与外观…」入口（Alice 和 Steve 不在"
+                  "最近账号列表里）");
             check(rowSubtitle(panel, 0) == MainWindowUI::bottomBarPanelOnlineAccountText() &&
                       rowSubtitle(panel, 1) == MainWindowUI::bottomBarPanelOnlineAccountText() &&
                       rowSubtitle(panel, 2) == MainWindowUI::bottomBarPanelOfflineAccountText(),

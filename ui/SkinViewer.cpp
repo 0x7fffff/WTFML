@@ -43,6 +43,9 @@ constexpr int kWalkFrameMs = 16;
 
 SkinViewer::SkinViewer(QWidget *parent) : QWidget(parent) {
     setObjectName(viewerName());
+    QSizePolicy viewerPolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    viewerPolicy.setHeightForWidth(true);
+    setSizePolicy(viewerPolicy);
     // 初始视角就是默认视角。别把这三个初值写到成员初始化列表里再在这里改一遍 ——
     // 那样"初始视角"就有两个出处了。
     m_yaw = defaultYaw();
@@ -133,11 +136,23 @@ double SkinViewer::defaultYaw() { return SkinModel::defaultYaw(); }
 double SkinViewer::defaultPitch() { return SkinModel::defaultPitch(); }
 double SkinViewer::defaultZoom() { return 1.0; }
 
-QSize SkinViewer::sizeHint() const { return QSize(180, 200); }
+namespace {
+// SkinModel 按模型高 32、最大横向跨度 24，并分别让它占视口高度的 85%、宽度的 90%。
+// 两个限制恰好同时生效时，人物上下接近顶格，左右也只留少量安全边距。
+constexpr double kIdealViewportHeightPerWidth = (0.90 * 32.0) / (0.85 * 24.0);
+}
+
+QSize SkinViewer::sizeHint() const { return QSize(180, heightForWidth(180)); }
 
 QSize SkinViewer::minimumSizeHint() const {
-    // 比这个再小就分不出是个人了。右栏最窄时（窗口拖窄）也仍有 260 上下，够。
-    return QSize(96, 120);
+    // 最小尺寸也沿用同一比例；缩小时不会重新变成一块横向很宽、人物很小的画布。
+    return QSize(96, heightForWidth(96));
+}
+
+bool SkinViewer::hasHeightForWidth() const { return true; }
+
+int SkinViewer::heightForWidth(int width) const {
+    return qMax(1, qRound(qMax(1, width) * kIdealViewportHeightPerWidth));
 }
 
 void SkinViewer::setView(double yaw, double pitch, double zoom) {

@@ -384,7 +384,6 @@ int main(int argc, char *argv[]) {
     // 验证跑的是系统原生样式、产品跑的是 Fusion，测的就不是要发的那份东西了。
     QApplication::setStyle(Theme::createStyle());
 
-
     QMainWindow window;
     MainWindowUI ui(&window);
 
@@ -421,7 +420,6 @@ int main(int argc, char *argv[]) {
     window.resize(900, 620);
     window.show();
     QApplication::processEvents();
-
     QComboBox *installed = ui.getInstalledVersionCombo();
     QPushButton *startBtn = ui.getStartButton();
     // 下载页那两层（2026-09-22）：[0] 版本树（四个分类 + 底下的版本号）→ [1] 安装页。
@@ -17696,7 +17694,7 @@ int main(int argc, char *argv[]) {
         tabs->setCurrentIndex(0);
         QApplication::processEvents();
 
-        // ---- Y1 入口按钮在 3D 预览下面 ----
+        // ---- Y1 入口已经搬到底栏账户面板；主页只留角色预览 ----
         QPushButton *entry = ui.getAccountSkinButton();
         SkinViewer *homeViewer = ui.getSkinViewer();
         QLabel *hint = ui.getSkinHintLabel();
@@ -17704,33 +17702,16 @@ int main(int argc, char *argv[]) {
               "入口按钮、3D 预览、说明行三块控件都在");
         if (entry != nullptr && homeViewer != nullptr && hint != nullptr) {
             check(entry->text() == MainWindowUI::accountSkinButtonText(),
-                  "按钮上写的是产品文案那一句", entry->text());
+                  "兼容入口仍保留产品文案（旧接线不用分叉）", entry->text());
             check(entry->objectName() == MainWindowUI::accountSkinButtonName(),
                   "objectName 也对得上（验证工程和 mw_check 都按它认控件）");
-            check(entry->parentWidget() == homeViewer->parentWidget(),
-                  "按钮和 3D 预览在同一栏里（主页右栏）");
-            check(entry->parentWidget() == hint->parentWidget(),
-                  "说明行也在这一栏里");
-            if (entry->parentWidget() == homeViewer->parentWidget()) {
-                QWidget *column = homeViewer->parentWidget();
-                const int viewerBottom =
-                    homeViewer->mapTo(column, QPoint(0, homeViewer->height())).y();
-                const int entryTop = entry->mapTo(column, QPoint(0, 0)).y();
-                const int hintTop = hint->mapTo(column, QPoint(0, 0)).y();
-                check(entryTop >= viewerBottom, "按钮在 3D 预览**下面**",
-                      QString("预览底 %1，按钮顶 %2").arg(viewerBottom).arg(entryTop));
-                check(entryTop > hintTop,
-                      "而且排在说明行下面（说明行是那张图的图注，紧贴着图）",
-                      QString("说明行顶 %1，按钮顶 %2").arg(hintTop).arg(entryTop));
-            }
-            // 宽度固定贴左边：这一栏只有 3 份（约 260 px），按钮拉满会把左栏挤掉。
-            check(entry->width() < entry->parentWidget()->width(),
-                  "按钮宽度不跟着这一栏长（拉满会顶宽）",
-                  QString("按钮 %1 px / 这一栏 %2 px")
-                      .arg(entry->width())
-                      .arg(entry->parentWidget()->width()));
-            check(entry->width() >= 120, "也不会窄到看不出是个按钮",
-                  QString::number(entry->width()));
+            check(!entry->isVisibleTo(&window),
+                  "主页不再显示账号入口（入口统一收到下方登录区域）");
+            check(!hint->isVisibleTo(&window),
+                  "主页不再显示那句重复解释外观状态的文本");
+            check(homeViewer->isVisibleTo(&window), "角色预览仍然完整显示");
+            check(ui.getAccountButton() != nullptr && ui.getAccountButton()->isVisibleTo(&window),
+                  "底栏登录区域仍然是可见入口");
         }
 
         // ---- Y2 底栏名字下面那一行 ----

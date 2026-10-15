@@ -5,6 +5,8 @@
 > 本文是唯一主计划，已合并原“完整版 Coding Plan”和 UI/实例预设计划。
 > 完成状态以当前源码为准；极速版以后从完整版裁剪，不在当前阶段维护第二套实现。
 > `NEXT_TBD.md` 仅作为评审备忘；其中已确认的建议已经吸收到本文，后续不单独维护第二套进度。
+> 2026-10-14 已继续吸收仓库外的《启动部分的设计》《游戏实例的设计》《其余的一些设计》；
+> 三份文档是产品输入，若与源码现状、安全原则或本文冲突，以本文为准。
 
 ## 1. 当前结论与状态
 
@@ -30,6 +32,8 @@ WTFML 的启动器主路径，以及此前规划的任务中心、修复、备�
 - [x] 世界、实例及服务端世界备份和恢复；
 - [x] 主页收藏 / 上次游玩快速启动排、启动结果记录和继续世界/服务器；
 - [x] 独立服务端安装、运行、控制台、设置、检查和备份；
+- [x] `ActivityCenterController` 持有任务账本，`HomeQuickController` 负责主页收藏/最近排的
+  去重、排序、身份和空槽组装；
 - [~] 取消、重试已有入口和部分实现，仍需逐任务检查真实安全点；
 - [~] 白名单、OP、封禁、插件/模组更新等服务端日常管理仍可完善。
 
@@ -41,9 +45,10 @@ WTFML 的启动器主路径，以及此前规划的任务中心、修复、备�
 - [x] 多文件暂存写入和失败恢复；
 - [x] 验证源码是否真正应用指定 profile；
 - [ ] 固定的多页面、多 DPI 截图基线；
-- [ ] 统一自绘任务进度组件替换剩余原生 `QProgressBar`。
+- [x] 底栏、活动中心和任务详情已统一使用自绘任务进度组件；业务页面中仅作普通表单用途的
+  原生进度控件不强制替换。
 
-### 1.3 2026-10-13 实现快照
+### 1.3 2026-10-14 实现快照
 
 以下项目已经进入源码和测试，后续计划不得再把它们当作“从零开始”：
 
@@ -55,9 +60,12 @@ WTFML 的启动器主路径，以及此前规划的任务中心、修复、备�
 - [x] 下载并发预设 6 / 12 / 24 / 48 已接入设置、持久化和下载队列，调大后立即补满可用槽位；
 - [x] OAuth Client ID 与回调地址支持 CMake 注入，监听端口由回调地址统一推导；
 - [x] UI 现代化脚本、`baseline` / `modern_soft` profile 和使用文档已入库；
-- [x] 核心构建通过；真实 Windows 环境主窗口集成测试 `2518/2518` 通过；
-- [~] UI 验证当前为 `2877/2884`；剩余 7 条必须结合现代化 profile 的新截图判断是更新
-  几何基线还是修正布局，不能直接删除断言，也不能为了旧像素值撤销新风格。
+- [x] 任务中心已在同一工作区内完成宽屏三列和窄屏“列表/详情”切换，不再叠第二层覆盖页；
+- [x] 主页大启动按钮已置于快速启动区底部；退役的单张“上次游玩”卡及产品接线已移除；
+- [x] 用户从任务中心停止游戏会记录为主动停止，不再产生异常退出和崩溃任务；
+- [x] 核心构建通过；真实 Windows 环境主窗口集成测试 `2485/2485` 通过；
+- [~] UI 验证在跳过已知 U10O 堆损坏段时为 `2872/2875`；剩余 3 条先修复测试计数/夹具，
+  再决定是否存在产品视觉回归。U10O 的独立堆损坏仍需工具化定位，不能以“重跑即可”结案。
 
 ## 2. 架构原则
 
@@ -100,7 +108,8 @@ UI 不直接 include 业务对象，通过显示 DTO 和信号交互。
 - `[~]` 将 `MainWindow` 按实例、安装、资源、启动、账号、服务端、维护和活动中心
   逐个抽出 controller；`JavaRuntimeController` 是已经完成的第一步，不纳入这八个待拆业务域
   重复计算；活动中心已完成第一刀：账本所有权、默认 capability、未读失败与重试归属已迁入
-  `ActivityCenterController`，执行器的逐项进度写口和 UI DTO 翻译仍处于双轨迁移期；
+  `ActivityCenterController`；主页快速启动的纯组装已迁入 `HomeQuickController`。执行器的逐项
+  进度写口和 UI DTO 翻译仍处于双轨迁移期；
 - `[ ]` 将 `VersionManager` 里的原版安装、加载器安装、整合包导入和修复拆为独立 Job；
 - `[ ]` 将 `wtfml.meta` 收口为带 `schemaVersion` 的 `InstanceMetadataStore`，不再向全项目暴露
   任意 `QJsonObject` 补丁；
@@ -150,8 +159,8 @@ struct InstanceDescriptor {
   ETA 等执行器尚未提供的数据不在 UI 中猜测；
 - `[x]` 右列选中任务时显示步骤、日志、错误与操作；未选中时显示“进行中 /
   已完成 / 需要处理”摘要；
-- `[~]` 窄窗口已自动收起左右列，并保留现有内嵌任务详情页作为降级路径；后续可改成
-  当前面板内的详情抽屉；
+- `[x]` 窄窗口在当前工作区内切换“任务列表/任务详情”，带明确返回入口；不再尝试从已经
+  打开的活动中心覆盖页中继续打开第二层详情页；
 - `[ ]` 列宽动画 180–220 ms，尊重减少动态效果，不动画文字缩放和表格列宽；
 - `[~]` 任务操作已按 capability 提供取消、重试、打开目标、日志、错误报告和崩溃目录；
   “完成后启动实例”尚待任务模型提供目标实例 capability，不按任务类型在 UI 现猜按钮；
@@ -159,15 +168,33 @@ struct InstanceDescriptor {
 
 ### 2.8 主页快速启动区定案
 
-- `[x]` 当前实例的大启动按钮独占一排，下面依次显示“收藏”和“上次游玩”；
+- `[x]` “收藏”和“上次游玩”位于主页主体，大启动按钮独占一排并固定在该区域底部；
 - `[x]` 两排数量分别可设为 0–5，默认 3；为 0 时整排隐藏；大于 0 时固定保留 N 个槽位，
   数据不足用“添加实例”空槽补齐，避免实例增删时整排左右跳动；
-- `[x]` 收藏复用实例管理中的收藏状态，两排都按最近启动顺序排列且允许重复；
+- `[x]` 收藏复用实例管理中的收藏状态，两排允许重复；最近排按有效启动历史排序，收藏排按
+  同一历史把最近使用项提前、无历史项稳定留在末尾；
 - `[x]` 重复身份只显示一条丝带，优先级为当前 > 最近 > 收藏；
 - `[x]` 条目数量增加时逐步精简，到 5 个时只保留图标；点击条目向上打开详情与操作；
 - `[~]` 当前已按数量档位退化；后续结合截图把判据改为可用宽度，并补窄窗口边界测试；
 - `[ ]` 将三种丝带颜色接入主题设置；文字保持固定，不能用颜色作为唯一信息来源；
 - `[ ]` 固定截图验收弹层在屏幕边缘、125%–200% DPI 和长实例名下的位置与尺寸。
+
+快速启动的数据边界已经确定：
+
+```text
+实例清单 + 收藏状态 + LaunchHistory + 数量设置
+                    ↓
+            HomeQuickController
+                    ↓
+        收藏槽位 / 最近槽位显示 DTO
+```
+
+- `[x]` UI 不自行去重、排序或补空槽；
+- `[ ]` 等实例稳定 UUID 落地后，将历史与收藏关联从 `storageId` 迁移到 `instanceId`；
+- `[ ]` “最近启动”继续使用现有 `LaunchHistory`。只有未来存在可靠的游戏遥测协议时，才增加
+  “成功进入主菜单/有效游玩”时间；不得从进程存活时长猜测已经进入主菜单；
+- `[ ]` 快速启动详情弹层补齐版本、加载器、打开目录等信息，并依据屏幕可用空间选择上/下方；
+- `[x]` 不新增独立 `quick_launch.json` 保存已有收藏和历史的副本，避免三份状态互相漂移。
 
 ### 2.9 实例管理生命周期结构
 
@@ -184,13 +211,18 @@ struct InstanceDescriptor {
 - `[x]` 实例设置左栏底部提供固定“启动实例”主动作，并统一回到主窗口启动链；
 - `[~]` 已有概览、启动设置、模组/资源包/数据包/光影、存档、服务器和完整性能力；下一步
   先把现有页面映射到分组树，再增加新页面，避免为未实现功能摆放死入口；
-- `[ ]` 增加截图、Replay、原理图和原版结构目录入口，先做浏览/打开位置，再逐步补预览；
+- `[x]` 截图、Replay、原理图等已有目录入口；
+- `[ ]` 将这些入口升级为实例内页面：截图先做缩略图/排序/打开位置，Replay 先做列表/播放/导出，
+  原理图先解析名称、作者、尺寸、区域与方块数；原版结构支持 `.nbt` 浏览、导入和导出；
 - `[ ]` 将日志、崩溃报告、启动诊断收进“诊断”，共享一次启动产生的记录与任务详情；
 - `[ ]` 区分世界备份与整实例快照；恢复前必须预览覆盖范围并建立可回滚点；
 - `[ ]` 版本升级、实例迁移和整合包导出统一走任务中心，使用规划 → 兼容性确认 → 执行 →
   验证的流程，不在 UI 线程直接复制整个目录。
 
 第一阶段仍可以一个下载批次对应一个任务；真正多批次并发与排队等待下载调度器重构。
+
+实例页的固定启动动作始终位于左栏底部、不参与导航滚动。第一版只提供正常启动；“安全模式、
+跳过 Mod、启动并查看日志”必须先定义可恢复的临时启动配置和准确语义，不能仅靠临时改名文件实现。
 
 ## 3. 当前最高优先级：稳定与 UI 收口
 
@@ -244,7 +276,8 @@ python tools/ui_modernize.py verify --build --tests
 - [ ] 深色主题逐页验收透明页面、日志、弹层和下拉框；
 - [~] 完善键盘焦点、Tab 顺序和减少动态效果；
 - [ ] 截图确认后更新依赖旧尺寸的 UI 测试。
-- [ ] 逐条处置当前 7 条 UI 验证失败：先保存失败画面和期望画面，再决定改布局或改基线；
+- [ ] 逐条处置当前 3 条 UI 验证差额，并单独定位 U10O 堆损坏：先保存失败画面和期望画面，
+  再决定改布局或改基线；
   禁止用放宽所有几何断言的方式一次性“变绿”。
 
 ## 4. 实例预设：产品定义
@@ -496,23 +529,89 @@ UI 覆盖无预设、单预设、多预设、默认项丢失、100+ 冲突、窄
 - [x] Client ID 和回调地址通过构建配置注入；回调监听端口不再维护第二份常数；
 - [ ] 发布构建移除或替换源码兜底 App ID，并检查产物、日志和仓库中没有敏感凭据。
 
+### 9.5 内容管理深化
+
+内容管理继续围绕“实例生命周期”而不是尝试替代 ModMenu：
+
+- `[~]` 模组已有列表、搜索、启停、更新、删除、详情、依赖和批量操作；补齐名称、版本、作者、
+  来源、许可证、目标 Minecraft/Loader 等一致元数据展示；
+- `[ ]` 混合选择已启用/禁用模组时，启用和禁用动作采用可解释的灰化或拆分结果，不允许同一
+  按钮对部分条目静默无效；批量更新给出逐项兼容结论和失败重试；
+- `[ ]` 模组配置管理只负责识别、文本编辑、备份、恢复和跨实例复制 `.toml/.json/.cfg/.yaml`；
+  未知格式不生成假表单，结构化编辑依赖明确 adapter；
+- `[ ]` 资源包页面从普通文件列表升级为“可用/已启用”双区，读取并维护 `options.txt` 中的顺序；
+  支持启停、拖动优先级、`pack.mcmeta` 信息和版本兼容提示；
+- `[ ]` 数据包与光影复用文件安全、详情和更新基础设施，但保留各自目录与兼容判据，不用一个
+  “通用资源”页面抹平语义差异。
+
+### 9.6 世界、创作资源与备份
+
+- `[~]` 存档已有列表、定向世界设置、备份与恢复；补充世界名、版本、最后游玩、大小和 Seed
+  的只读摘要，删除仍需二次确认且优先进入可恢复路径；
+- `[ ]` 世界地图第一阶段只读 `level.dat` 与 `region/*.mca`，展示已生成区域、范围和玩家位置；
+  Mod 世界明确标注结果可能不完整；
+- `[ ]` 区块分析与删除后置。删除区块必须先生成世界备份，不扩成通用世界编辑器；
+- `[ ]` 原理图支持 `.litematic/.schematic/.nbt` 元数据与方块统计；格式转换和三维投影渲染暂缓；
+- `[ ]` 世界备份仅覆盖指定世界，实例快照覆盖 `mods/config/saves/resourcepacks/shaderpacks`
+  等选定内容；两者在名称、预览和恢复范围上保持明确区分。
+
+### 9.7 服务端实例管理
+
+服务端定位为朋友联机、小型服务器和整合包配套服务端，不扩成专业托管面板。
+
+- `[x]` 已有服务端注册、安装、启动/优雅停止、控制台、常用设置、原始配置、检查和世界备份；
+- `[ ]` 把服务端实例页整理为“概览 / 启动设置 / 内容 / 世界与联机 / 玩家 / 维护”，复用客户端
+  的安全文件操作和任务 DTO，不复制整套控制器；
+- `[ ]` 内容管理支持模组、数据包；Paper/Spigot 插件等服务端类型稳定后再开放插件页；
+- `[ ]` 玩家管理读写 `whitelist.json`、`ops.json`、`banned-players.json` 与 `banned-ips.json`；
+  在线踢出等动作必须通过运行控制台并回显结果；
+- `[ ]` MOTD 提供格式化预览；服务端资源包选择本地 zip、计算 SHA-1，并明确 URL 托管仍需用户
+  提供，启动器不假装本地路径能被其他玩家访问；
+- `[ ]` 自动重启必须带次数/时间窗上限，并区分用户停止、正常退出与崩溃，避免无限重启循环。
+
+### 9.8 统一运行输出
+
+`RuntimeOutputPanel` 属于运行状态而不是实例设置页，由活动中心的运行中实例入口打开：
+
+- `[~]` 客户端已有日志窗口、过滤与导出，服务端已有控制台和命令输入；
+- `[ ]` 抽出共享的日志模型、过滤、搜索、行数上限和导出接口，客户端模式不显示命令输入；
+- `[ ]` 服务端模式保留命令历史和启动就绪识别；崩溃结论交给诊断层，不在输出组件里自行猜测；
+- `[ ]` 同一会话的活动任务、日志、退出诊断和崩溃报告使用稳定 `sessionId` 关联。
+
+### 9.9 实例升级、迁移与跨实例复制
+
+- `[ ]` “复制到其他实例”先生成计划：目标版本/Loader 一致时允许直接复制；能解析平台项目时建议
+  下载目标兼容版本；无法确认时标为风险并让用户明确选择跳过或原样复制；
+- `[ ]` 整体版本升级默认“创建升级副本”，原地升级作为高级选项；迁移范围逐项列出存档、模组、
+  配置、资源包等，日志和截图默认不选；
+- `[ ]` 升级流程为快照 → 解析兼容性 → 用户处理不兼容项 → 安装目标核心/Loader → 迁移 → 校验；
+- `[ ]` 文件位置迁移与游戏版本升级是两种独立操作：前者更新注册路径，后者改变游戏描述，不共用
+  一个含糊的“迁移”按钮；
+- `[ ]` 所有长操作进入活动中心，支持逐项报告、可恢复中断和完成后“设为当前/启动”能力。
+
+### 9.10 新实例配置导入
+
+该能力并入第 4–8 节的实例预设，不再另建第二套导入系统。安装流程默认可选原版设置、按键、
+服务器列表、资源包与光影；模组和未知配置默认关闭，必须经过版本、Loader、依赖和覆盖预览。
+
 ## 10. 推荐提交顺序
 
 ```text
-1. ui-test: capture and resolve the 7 remaining modern-profile visual assertions
-2. ui: finalize screenshot baseline and shared progress component
+1. test: locate U10O heap corruption and make all UI failures print actionable details
+2. ui-test: resolve the 3 remaining modern-profile differences and capture fixed DPI baselines
 3. stability: finish task capability/cancellation audit and destructive-path fixtures
-4. architecture: extract one bounded domain controller with dual-path regression coverage
-5. presets: add manifest types and atomic preset store
-6. presets-ui: add management and extraction workflow
-7. presets: add vanilla options and keybinding merge
-8. presets: add servers and generic file adapters
-9. presets: add MaLiLib adapter and conflict analysis
-10. presets: add IPN and Controlify file-level support
-11. install: add preset selector and apply preview
-12. tasks: integrate preset apply into installation task
-13. resources: resolve preset mods and packs by compatibility
-14. product: complete update center, downloader and self-update
+4. architecture: continue one bounded MainWindow controller extraction with dual-path regression coverage
+5. instance-ui: map existing pages into lifecycle navigation without adding dead entries
+6. content: add resource-pack enabled/order model and normalize mod metadata/batch semantics
+7. presets: add manifest types and atomic preset store
+8. presets-ui: add management and extraction workflow
+9. presets: add vanilla options, keybinding, servers and generic-file adapters
+10. presets: add MaLiLib adapter and conflict analysis
+11. install: add preset selector, exact apply preview and task integration
+12. instance: add screenshot/Replay/schematic structured pages, then diagnostics grouping
+13. operations: add cross-instance copy planner and upgrade-copy workflow
+14. server: add player lists, content pages and guarded restart policy
+15. product: complete updater, downloader reliability, accessibility and release validation
 ```
 
 每个提交必须独立构建。默认自动应用必须等预览、备份和错误报告完成后再开启。
@@ -521,7 +620,8 @@ UI 覆盖无预设、单预设、多预设、默认项丢失、100+ 冲突、窄
 
 ### M0：当前功能稳定化
 
-UI 截图基线、当前 7 条 UI 验证差异、任务取消/重试审计、备份/服务端/主页回归、UI 工具自身测试。
+U10O 堆损坏定位、UI 截图基线、当前 3 条 UI 验证差额、任务取消/重试审计、
+备份/服务端/主页回归、UI 工具自身测试。
 同时完成按钮状态体系和底栏左右弹层现代化；它们属于全局框架视觉，不拖到实例预设之后返工。
 
 完成 M0 的硬条件：核心与主窗口测试保持全绿；现代化 profile 的视觉验证全绿；每条被更新的
@@ -541,12 +641,13 @@ MaLiLib 字段级适配、统一冲突展示、IPN 热键、Controlify 安全文
 
 ### M3：资源和长期维护
 
-Modrinth/CurseForge 兼容解析、同步已有实例、导入导出、schema 迁移，再评估继承、云同步和
-首次退出后二阶段应用。
+Modrinth/CurseForge 兼容解析、资源包顺序、内容元数据、跨实例复制、升级副本、同步已有实例、
+导入导出和 schema 迁移；再评估继承、云同步和首次退出后二阶段应用。
 
 ### M4：发布完整度
 
-统一更新中心、下载限速/代理/断点续传、自更新、深色主题、可访问性和正版登录发布验收。
+服务端玩家/内容管理与受限自动重启、统一运行输出、下载限速/代理/断点续传、自更新、深色主题、
+可访问性和正版登录发布验收。
 
 发布硬阻塞：用于正式发布的 Azure App ID 必须通过 Mojang 审核，并用获批的应用完成
 首次登录、令牌刷新、过期、无游戏资格、无 Xbox 档案和登出的真实全链验收。审核是

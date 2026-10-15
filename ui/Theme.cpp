@@ -1149,6 +1149,13 @@ QString widgetStyleSheet() {
     qss += QStringLiteral("QPushButton[%1=\"%2\"] { min-height: 0px; }")
                .arg(QString::fromLatin1(kButtonSizeProperty), QString::fromLatin1(kIconButtonValue));
 
+    // 快速启动卡自己按内容档位钉高度。和图标按钮相同，先把通用 QPushButton 的
+    // min-height / padding 复位，否则 QSS polish 会把 C++ 里给卡片的高度压回普通按钮。
+    qss += QStringLiteral(
+        "QPushButton[wtfmlQuickCard=\"true\"] { padding: 0px; }"
+        "QPushButton[wtfmlQuickCardSize=\"normal\"] { min-height: 84px; max-height: 84px; }"
+        "QPushButton[wtfmlQuickCardSize=\"icon\"] { min-height: 54px; max-height: 54px; }");
+
     // 主页快速启动的空槽：它是布局占位和“去实例页添加”的入口，不应长得像已经能启动的
     // 实例。半透明感在 QWidget 上用一层极浅主题色表达；虚线边只用于空槽，不把普通卡片
     // 又带回“框框套框框”的旧观感。
