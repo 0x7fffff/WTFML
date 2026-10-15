@@ -24,8 +24,10 @@
 #include <QProcess>
 #include <QSet>
 
-// PlayerSkinStore::PlayerSkinProfile —— 主窗口按值存一份"最近要过的那份档案"（见
-// m_skinProfile），所以这里非得 include 不可（前置声明只够拿指针/引用）。
+// PlayerSkinStore::PlayerSkinProfile —— 那个"档案到了"的薄壳槽按它收（见
+// onSkinProfileReady）。★ 2026-10-15：按值存一份的那个人（m_skinProfile）住进
+// PlayerSkinController 了，所以这里其实退化成"只按 const 引用用"（前置声明也够）——
+// 但这个头还带着 PlayerSkinStore 自己的声明，而 `m_skinStore` 就在下面，所以照样 include。
 // 它是 Core+Network 的头，拖进来的东西不多。
 #include "manage/PlayerSkinStore.hpp"
 // SavedAccount —— accountFacePixmap() 收的就是它（底栏账号面板里那一行是谁）。
@@ -74,8 +76,13 @@
 // 「导出错误报告」还要用它，所以是按值存的。
 #include "diag/GameExitDiagnosis.hpp"
 // 启动历史账本（coding plan §5.1，2026-10-13）：主页“最近游玩”排按值持有记录
-// `Record`（`latestPlayable()` 的返回值），所以得 include 而不是前置声明。
+// `Record`（`latestPlayable()` 的返回值、`LaunchHistoryController::records()` 的元素类型），
+// 所以得 include 而不是前置声明。
 #include "manage/LaunchHistory.hpp"
+// 「上一次启动」那本账的**驱动层**（2026-10-15 从本类搬出去的那一片）。下面那三个给验证工程
+// 摆现场的 inline 入口直接调它的静态函数和成员函数，按值用 ⇒ 得 include（同 ServerInstallController
+// 那一条的理由）。这个头不 include MainWindow.hpp，不构成环。
+#include "controllers/LaunchHistoryController.hpp"
 // 实例页的搜索与筛选（coding plan §7.2，2026-10-13）：`Query` / `Facts` 都是按值传的小
 // 结构（`instanceFilterQuery()` / `instanceFilterFacts()` 的返回值），所以得 include。
 #include "manage/InstanceFilter.hpp"
@@ -94,10 +101,6 @@
 // 前置声明说得出指针，但 `installServer()` 的参数类型要完整定义，所以一并 include。
 // （`ServerInstallRun.hpp` 里那几个纯函数在这个头里用不到，在 .cpp 里才 include。）
 #include "server/ServerInstallController.hpp"
-// 服务端的"跑"（coding plan §6.2 的操作 / M4-3）：`m_serverProcesses` 是按值存的一本
-// 表，而 `ServerProcess` 是**成员指针** —— 一并 include（同上面那一条）。
-// （`ServerRun.hpp` 里那几个纯函数在 .cpp 里才用，但 `ServerProcess.hpp` 自己就 include 它。）
-#include "server/ServerProcess.hpp"
 // 服务端控制台那一页（coding plan §6.2 / M4-3）：`m_serverConsolePage` 是个指针，但这个
 // 头不 include 它的话 .cpp 那边还得记着补一个 —— 同「新建服务端」那一条的理由，一并进来。
 #include "..\ui\ServerConsolePage.hpp"
@@ -120,6 +123,10 @@ class QDropEvent;
 class QTreeWidget;  // 下载页那几张资源表（只用指针和引用，所以前置声明够）
 class QTreeWidgetItem;
 class QThread;  // 图标反查那一趟（见 m_instanceIconThread），同上只按指针持有
+// onPlayerSkinChanged 收到的两张贴图。**只用 const 引用传**（图是
+// PlayerSkinController 那边载好发过来的），所以前置声明够 —— 定义在 MainWindow.cpp 里
+// 从来就有（那边的 SkinModel 那条路要用）。
+class QImage;
 class LauncherManager;
 class AuthManager;
 class FolderManager;
@@ -147,6 +154,7 @@ class TaskDetailPage;
 class JavaManageDialog;
 class JavaRuntimeController;
 class ActivityCenterController;
+class ServerWorkspaceController;
 // 「游戏日志」窗（一份游戏一个，见 ui/GameLogWindow.hpp）。同上，只按指针持有，
 // 而且是**按需**才建（收到第一行输出那一刻，见 showGameLogLine()）。
 class GameLogWindow;
@@ -155,6 +163,12 @@ class SkinApi;
 // 给**离线账号**挑随机皮肤那一层（src/manage/RandomSkinStore.hpp）。同上，只按指针持有 ——
 // 它挑出来的还是官方 CDN 上的地址，下不下来、画不画得出来都交给 PlayerSkinStore 那条路。
 class RandomSkinStore;
+// ★ 2026-10-15：玩家外观那一整套（挑哪一张 / 取回来 / 认领 / 记账 / 退回默认外观）——
+// src/controllers/PlayerSkinController.hpp。同上，只按指针持有（它是 this 的子对象）。
+// NOTE: 它的 `hintFacts()` 返回一个嵌套的聚合类型，而这里只**传 const 引用**（见
+//       updateSkinHint 的实现），所以前置声明够用 —— 但那个类型是按值返回的，用它的地方
+//       必须 include 那边（只有 MainWindow.cpp 用）。
+class PlayerSkinController;
 // 「每实例设置」那两层的值类型（src/settings/EffectiveJavaSettings.hpp）。这里只按
 // const 引用传，前置声明就够 —— 让每个 include 了 MainWindow.hpp 的地方都拖一份
 // 值结构的定义没有意义。
@@ -278,8 +292,9 @@ public:
      *        里"，验证工程摆不出真进程，所以这一位直接由调用方给。
      */
     void seedLaunchFinishForTest(qint64 startedAtMs, bool crashed, bool neverStarted) {
-        finishLaunchRecord(startedAtMs, launchHistoryResult(crashed, neverStarted),
-                           QDateTime::currentMSecsSinceEpoch());
+        m_launchHistory->recordFinish(startedAtMs,
+                                      LaunchHistoryController::resultFor(crashed, neverStarted),
+                                      QDateTime::currentMSecsSinceEpoch());
     }
 
     /**
@@ -329,29 +344,41 @@ private slots:
     void onCapeSelectRequested(const QString &capeId);
     void onCapeHideRequested();
 
-    // ---------- 主页右栏那个小人 + 底栏头像（三个都是 PlayerSkinStore 的信号） ----------
-    /// 官方回的档案到了。和手上这份一样时**什么都不做**（不重下贴图、不重画）——
-    /// 用户在游戏里没换皮肤时，后台那次刷新必须是完全看不见的。
-    /// @param uuid 这份档案是**谁的**（PlayerSkinStore 已经规整过的那一串）。回来的时候
-    ///        "当下是谁"可能已经变了，落盘和画都得认它，不能认 m_authManager 里那个。
+    // ---------- 主页右栏那个小人 + 底栏头像 ----------
+    //
+    // ★ 2026-10-15：**挑图 / 取图 / 认领 / 记账 / 退回默认外观**那一整套（连带那九个成员）
+    //   整个搬进了 `controllers/PlayerSkinController` —— 四个真决策（挑哪一张、回来的是不是
+    //   刚才那一位、什么时候才记账、取不到怎么降级）见那边的文件头。主窗口这边从此只有
+    //   三件事：把图交给那几个控件（onPlayerSkinChanged）、按事实挑一句话（updateSkinHint）、
+    //   把"要重走一遍"转给那边（startPlayerSkinLoad）。**文案一个字都没搬**（那一层不认识
+    //   中文，也不许认识 `ui/`）。
+    //
+    // NOTE: 下面那三个**薄壳槽**是给验证工程留的 —— mw_check 里 X 节和 AF5/AF6/AF7 就是按
+    //       名字直接打它们来演"档案到了 / 贴图到了 / 挑好的那张回来了"（QMetaObject::
+    //       invokeMethod）。那是**全程不联网**验完整条外观路径的唯一办法，所以名字必须是
+    //       这几个。逻辑一行都不在这儿，整份在 controller 里。
+    /// 官方回的档案到了（转 `PlayerSkinController::onProfileReady`）。
     void onSkinProfileReady(const QString &uuid, const PlayerSkinProfile &profile);
-    /// 一张贴图在本地就绪了。皮肤和披风是**分开**回来的，这里按 URL 认领。
+    /// 一张贴图在本地就绪了（转 `PlayerSkinController::onTextureReady`）。
     void onSkinTextureReady(const QString &url, const QString &path);
-    /// 要不到（网络失败、下回来的不是皮肤图、存不下来）。**只记日志、不弹窗** ——
-    /// 这是全仓唯一一处不弹窗的错误，理由见 PlayerSkinStore.hpp 文件头。
-    void onSkinFailed(const QString &message);
-    /// 离线账号的随机皮肤挑好了（RandomSkinStore::skinReady）。
-    ///
-    /// 拿到的是**官方 CDN 上的一个地址**，接下来和"官方回的档案"走完全同一条路：记盘 →
-    /// 当成这一份档案的 skinUrl → requestSkinTexture() 去下。离线账号没有披风，
-    /// 所以 capeUrl 留空（那个人没有披风本来就是常态，见 requestSkinTexture）。
+    /// 离线账号的随机皮肤挑好了（转 `PlayerSkinController::onRandomSkinReady`）。
     void onRandomSkinReady(const QString &skinUrl);
-    /// 把一份外观贴到界面上（右栏那个小人 + 底栏头像 + 右栏那句话）。
-    /// @param skinPath 空串 = 用默认外观。载不进来（文件没了/下了一半）也走这一档。
-    /// @param slim 纤细模型（手臂 3 宽）。
+
+    /// 外观那条路说"现在该画这一套了"（`PlayerSkinController::skinChanged`）。
     ///
-    /// NOTE: 是**槽**不只是私有函数：验证工程靠 QMetaObject::invokeMethod 驱动它
-    ///       （沙盒里现写两张 PNG 喂进来），**不联网**就能验完整条界面路径。
+    /// 收到的两张图一定是**画得出来的**（载不进来时那一层已经退回默认外观了），所以这里
+    /// 只管摆，顺序和原来 applyPlayerSkin() 尾巴上那个一模一样：
+    ///   右栏那个小人 → 底栏头像图（算一次存起来）→ 那个窗里的 3D 预览 → 右栏那句话 → 底栏。
+    /// @param cape 空图 = 这一套没有披风（常态）。
+    /// @param slim 纤细模型（手臂 3 宽）。
+    void onPlayerSkinChanged(const QImage &skin, const QImage &cape, bool slim);
+
+    /// 把一份外观贴到界面上。**这一层已经只剩转手了** —— 真正的判断（载不进来要不要退回
+    /// 默认外观）在 controller 的 `applyPlayerSkin()` 里。
+    /// @param skinPath 空串 = 用默认外观。
+    ///
+    /// NOTE: 名字留着、而且是**槽**，是因为验证工程靠 QMetaObject::invokeMethod 驱动它
+    ///       （沙盒里现写两张 PNG 喂进来），不联网就能验"喂一份外观，三个窗口跟着走"。
     void applyPlayerSkin(const QString &skinPath, const QString &capePath, bool slim);
 
     /**
@@ -378,9 +405,8 @@ private slots:
     QPixmap accountFacePixmap(const SavedAccount &account) const;
 
     /// 猜"某个离线账号当初是按哪个实例算的官方默认皮肤"（见 accountFacePixmap() ④）。
-    /// @param currentVersionId 现在选中的那个实例（由调用方给，好让这个函数不碰界面）。
-    /// @return 按可能性从高到低的几个版本号，去重；一个都猜不出来时是空表。
-    QStringList offlineDefaultSkinCacheVersions(const QString &currentVersionId) const;
+    /// ★ 2026-10-15 起这一位在 `PlayerSkinController` 那边（它要读"上一轮真的算过哪个实例"，
+    ///   而那一位跟着决策一起搬过去了）；这里只剩上面那个 ④ 在向它要几个候选版本号。
     void onAddFolderClicked();
     /// 改名的**执行部分**：校验名字 → 改磁盘 → 同步状态（LastLaunched / 选中项）→ 刷界面。
     /// 失败时弹窗并返回 false。
@@ -2336,25 +2362,22 @@ private:
 
     // ---------- 「上一次启动」那本账（coding plan §5.1，2026-10-13）----------
     //
-    // 主页“最近游玩”排的全部数据都在这一小片里：读盘、记账并刷新快速启动区；
-    // 算"还能不能接着玩"。**判据层是 `manage/LaunchHistory`**（纯函数，verify 里逐格念），
-    // 这一片只管"什么时候记、记的是谁、界面上什么时候重画"。
-
-    /// 账上那一条的结局：从"这一趟结束时的两个事实"翻过来。
-    ///
-    /// ★ 这里**不是**"崩没崩"两个分支：游戏连第一行日志都没打出来就结束了的那一趟
-    ///   （`neverStarted`）单独算一档 —— §5.1 说"上一次"以**成功创建游戏进程**为准，那种
-    ///   情况进程确实起来了、用户却什么都没玩到，拿它当"上次玩的就是这一份"是撒谎。
-    static LaunchHistory::Result launchHistoryResult(bool crashed, bool neverStarted);
-
-    /// 账上那个目标 ⇄ 启动参数那一层的 `Kind`（**唯一出处**：写记录、"还能不能接着玩"、
-    /// 那一颗按钮按下去三处都读它 —— 三处各写一遍 switch，迟早会有一处写反，症状是
-    /// "接着游玩进的是服务器那一页的参数"）。
-    static QuickPlay::Kind quickPlayKindFor(LaunchHistory::Target target);
+    // **2026-10-15 起：账本本身搬去了 `LaunchHistoryController`**（读盘、记账、改结局、写盘
+    // 失败只记日志那一套，连同内存里那一份账）。判据层照旧是 `manage/LaunchHistory`（纯函数，
+    // verify 里逐格念）。留在这一片的是**只有主窗口说得出的那几格**：
+    //
+    //   · `appendLaunchRecord()` —— 补上"启动那一刻的显示名"和"当时是谁"这两格，转手给账本
+    //     （那两格一个要读界面上那个下拉框、一个要读当前账号）；
+    //   · `updateHomeRecent()` —— 把账本翻成主页那两排快速入口（要读下拉框里每一行的图标
+    //     和收藏分组），账本一变就重画。
 
     /// 把"这一趟成功了"记进账本。**产品那一侧唯一的调用点**是 `onStartButtonClicked()`
     /// 里 `sessionId > 0` 那一段（进程真的起来了那一刻）—— §5.1 明写「以成功创建游戏进程
     /// 为准，不以点击启动按钮为准」。
+    ///
+    /// 这一层只负责补上那两格**主窗口才知道的事实**（`instanceDisplayName()` 读的是界面上
+    /// 那个下拉框、`launchIdentityKey()` 读的是当前账号），记账本身在
+    /// `LaunchHistoryController::recordStart()` 里。
     ///
     /// @param versionId 实例 id。
     /// @param quickPlay 这一趟要进哪儿（空的 = 普通启动）。**`Target::None` 不是"不知道"，
@@ -2363,26 +2386,18 @@ private:
     void appendLaunchRecord(const QString &versionId, const QuickPlay::Target &quickPlay,
                             qint64 startedAtMs);
 
-    /// 那一趟结束了：把账上**最近那一条还写着"还在跑"、且启动时刻对得上**的记录改写成
-    /// 真正的结局与时长。
-    ///
-    /// 认的是**启动时刻**这个键：退出那一刻会话已经从 LauncherManager 的表里摘掉了
-    /// （见 `onGameFinished()` 那段 NOTE），追回"启动那一刻记的那一条"只有它。
-    void finishLaunchRecord(qint64 startedAtMs, LaunchHistory::Result result, qint64 finishedAtMs);
-
-    /// 账本从盘上读回来（构造末尾那一次）。读不出来 = 空账，**不是错误**：一次都没启动过
-    /// 的新用户就是这样。
-    void loadLaunchHistory();
-
-    /// 按启动历史与收藏状态重画主页两排快速入口。
+    /// 按启动历史与收藏状态重画主页两排快速入口（账本一变就重画，见 `m_launchHistory`）。
     void updateHomeRecent();
 
-    /// 账本**内存里那一份**（`load()` 读过一次之后就只有 `appendLaunchRecord()` /
-    /// `finishLaunchRecord()` 会动它）。
+    /// 「上一次启动」那本账（`src/controllers/LaunchHistoryController.hpp`）。
     ///
     /// ★ 不每次现读盘：主页快速入口要在"启动成功""游戏退出"两个时机重画，而那是**热路径**
-    ///   （启动那一发已经在同步等进程了）。读一次、写的时候顺手更新内存那一份。
-    QList<LaunchHistory::Record> m_launchHistory;
+    ///   （启动那一发已经在同步等进程了）。读一次、写的时候顺手更新内存那一份（那一份现在
+    ///   住在这一层手上，读它走 `records()`）。
+    ///
+    /// NOTE: 构造里建（不是初始化列表），和 `m_activityCenter` 同一个理由 —— 它要读盘，得等
+    ///       前面几样都就位了。
+    LaunchHistoryController *m_launchHistory = nullptr;
 
     /// 上一次点启动的时刻，按 **身份 → 版本 → 毫秒**（`QDateTime::currentMSecsSinceEpoch()`）。
     /// 只增不减（没人清它）：条目数 = 这台机器上"点过启动的 (身份, 实例) 组合"数，
@@ -2467,7 +2482,6 @@ private:
     //
     /// 某个服务端那一条进程（**一个服务端一条** —— 同时开几个是允许的，见
     /// `ServerProcess.hpp` 文件头）。惰性创建、`this` 做父对象，信号只在这一处接一次。
-    ServerRun::ServerProcess *serverProcessFor(const QString &serverId);
     /// **这一行的那颗按钮被点了**：未装好 = 修复 / 能启动 = 启动 / 在跑 = 停止。
     /// 三档合成一个入口，是因为屏幕上就是**一颗**按钮（用户 2026-10-13 定的：
     /// 行尾按钮 + 右键菜单）。
@@ -2583,7 +2597,7 @@ private:
     InstanceFilter::Query instanceFilterQuery() const;
     /// 一个实例参与筛选的那几样**事实**：可搜索的串（`InstanceFilter::textsFor()`）、
     /// 有没有加载器、有没有更新、账本上有没有它。**后两样只有这一层知道** ——
-    /// `m_instanceOutdatedPaths` 和 `m_launchHistory` 都住在这儿。
+    /// `m_instanceOutdatedPaths` 和账本（`m_launchHistory->records()`）都住在这儿。
     InstanceFilter::Facts instanceFilterFacts(const VersionDisplayParts &part) const;
     // 重灌实例页左边那张「游戏文件夹」列表（每一行：上面写 customname、下面写路径、
     // 行尾一颗齿轮），并把选中项停在 FolderManager 的当前目录上（界面那边挡了信号：
@@ -2713,13 +2727,13 @@ private:
     void updateDownloadProgressUi(int done, int total, int failed, const QString &currentFile);
 
     // ---------- 主页右栏那个小人 + 底栏头像 ----------
-    /// 开窗 / 登录成功之后走一遍：**先默认外观兜底**，再拿缓存档案里的贴图（命中缓存时
-    /// 是同步的，所以开窗那一瞬间就是上次的样子），最后后台刷一次档案。
+    /// 让外观那条路重走一遍（开窗 / 登录成功 / 切账号 / 换版本 / 换完外观走的都是它）。
+    ///
+    /// ★ 2026-10-15：**这一整套决策已经搬到 `controllers/PlayerSkinController` 里**（那边
+    ///   叫 `reload()`，四个决策见那边的文件头）。这一位现在只剩一件事：把它需要而它看不见
+    ///   的那一格告诉它 —— **现在选中的是哪个实例**（那两个下拉框在这一层）。名字留着是因为
+    ///   那六处调用点读起来就是这个意思，一处都不用改。
     void startPlayerSkinLoad();
-    /// 要一张贴图。@param allowDownload false（当前是离线账号时）**只认已经在缓存里的那一份**
-    /// —— fetchTexture() 在缓存不命中时会真的去下一个，那正是"离线"要求别做的事。
-    /// @return 这一张是不是**已经在手上了**（缓存命中）。不是"发出去请求了"。
-    bool requestSkinTexture(const QString &url, bool allowDownload);
     // ---------- 「账号与外观」那个窗 ----------
     /// 把这个窗建出来并接好线（幂等：已经建过就什么都不做）。
     void setupAccountSkinDialog();
@@ -2732,9 +2746,12 @@ private:
 
     /// 这一趟启动走的是不是**离线身份**。
     ///
-    /// **唯一出处**：当前账号本身是不是一个离线账号（盘上活动槽那一项）。底栏那行身份、
-    /// 启动时要不要令牌、外观这条路联不联网，读的都是它 —— 三处各判一次的话，就会出现
-    /// "底栏说离线、启动时却去要凭据"。
+    /// **唯一出处**：`PlayerSkinController::offlineIdentity()`（当前账号本身是不是一个离线
+    /// 账号，盘上活动槽那一项）。底栏那行身份、启动时要不要令牌、外观这条路联不联网，读的
+    /// 都是它 —— 三处各判一次的话，就会出现"底栏说离线、启动时却去要凭据"。
+    ///
+    /// ★ 2026-10-15：外观那一套搬去 controller 时把它一起带过去了（那边要按它决定"能不能
+    ///   联网"），这一位自此只是一句转手 —— 留着是为了不动下面那十几处调用点。
     ///
     /// NOTE: 2026-09-24 之前判的是主页那个「离线模式」勾选框。用户把那个勾选框去掉了
     ///       （原话：「现在不要启动界面那个离线登录勾选框了，在添加账户那里选择添加离线
@@ -2746,6 +2763,11 @@ private:
     ///
     /// **唯一一处**决定它写什么。四句文案要是散在四条路上（开窗、拿到档案、拿到贴图、
     /// 失败），迟早出现"皮肤换好了、话还停在上一句"。
+    ///
+    /// ★ 2026-10-15：它不再去读外观那一套的九个成员（那些已经跟着决策搬进
+    ///   `PlayerSkinController` 了），改成问 `m_playerSkin->hintFacts()` 要**几格事实**
+    ///   再挑一句。分工是：controller 说"现在是什么状况"，这里说"这种状况该讲哪句中文"
+    ///   —— 文案仍然只在这一层出现（`MainWindowUI` 那五句）。
     void updateSkinHint();
 
     MainWindowUI *m_ui;
@@ -3044,12 +3066,8 @@ private:
     Tasks::TaskId m_serverInstallTaskId = Tasks::invalidTaskId();
     /// 账本里那一项一共有几格（百分比按"走到第几格"算，见 `installServer()` 里的 NOTE）。
     int m_serverInstallStepCount = 0;
-    /// 服务端的**进程**：一个服务端一条（键 = `serverId`）。
-    ///
-    /// ★ 和客户端那条"一次 startGame = 一个会话"不同：**同时开几个服务端是允许的**
-    ///   （每一份有自己的端口和世界，互不干扰）。所以这是一本表，不是一个指针。
-    ///   值只增不减（进程对象很轻、连着信号，跑完留着下次直接 `start()` 复用）。
-    QHash<QString, ServerRun::ServerProcess *> m_serverProcesses;
+    /// 服务端进程的所有权、复用与信号汇聚属于服务端域，主窗口只呈现状态。
+    ServerWorkspaceController *m_serverWorkspace = nullptr;
     /// 控制台那一页（懒建一次、之后复用，和「新建服务端」同一个路数）。
     ServerConsolePage *m_serverConsolePage = nullptr;
     /// 控制台那一页**现在说的是哪一个**服务端。
@@ -3288,6 +3306,10 @@ private:
     // 改外观那一层（**要令牌**：换皮肤、换披风）。和上面那个是两条路，见 SkinApi.hpp
     // 文件头那句分工。
     SkinApi *m_skinApi;
+    // ★ 2026-10-15：**玩家外观那一整套**（挑哪一张、取回来、认领、记账、退回默认外观）。
+    // 上面那三个 Store 是它的数据源（它只接信号、不接管所有权），而它自己持有"现在屏幕上
+    // 是哪两张图""手上这份档案是谁的"那九个状态。见 controllers/PlayerSkinController.hpp。
+    PlayerSkinController *m_playerSkin = nullptr;
     // 「账号与外观」那个窗。**懒建**：没点过那个入口就是空的（见
     // setupAccountSkinDialog()）。它是 this 的子对象、也没开 WA_DeleteOnClose，所以关掉
     // 之后指针照样有效 —— 再点一次是把它 show 回来，不是重建。
@@ -3301,42 +3323,17 @@ private:
     /// NOTE: 它和别的整页有一处不同：那一页**不长记性**（四行的内容每次开页现灌），
     ///       所以不存在"关掉之后里面的数据过期了"这回事 —— 见 openJavaManage。
     JavaManageDialog *m_javaManagePage = nullptr;
-    // 现在屏幕上用的是哪两张贴图（本地路径）。**只记真的载入成功了的** —— 所以空串
-    // 就等于"现在显示的是默认外观"，右栏那句话的判据之一就是它。
-    QString m_skinPath;
-    QString m_capePath;
-    // 最近一次**要过**的那份档案。唯一的用途：贴图是按 URL 分开回来的（皮肤一个、
-    // 披风一个），回来时得知道"这一张是皮肤还是披风"，也有个东西能判"和上次一样吗"。
-    PlayerSkinProfile m_skinProfile;
-    // 屏幕上这张脸是**按哪个实例算出来的官方默认皮肤**（空 = 不是算出来的那张：可能是
-    // 随机挑的、正版外观、或者默认外观）。
+    // ★ 2026-10-15：这里原来有九个成员（m_skinPath / m_capePath / m_skinProfile /
+    //   m_offlineDefaultSkinVersion / m_pendingRandomSkin* / m_randomSkinRequestUuid /
+    //   m_skinFetchInFlight）—— **它们跟着决策一起搬进 PlayerSkinController 了**。
+    //   留在这里的头一条理由本来就不成立：它们是"这一层是谁在显示什么"的状态，而决定
+    //   "显示什么"的那四件事现在全在那边（见 controllers/PlayerSkinController.hpp）。
+    //   这一层要这些事实时问 `m_playerSkin->hintFacts()`；要那张图时等 `skinChanged`。
     //
-    // NOTE: 它有两个用处，都不是可有可无的：① 右栏那句话要在"随机挑的"和"游戏会给的"
-    //       两种离线外观之间选一句说；② 用户换版本时要按新版本**重算**（两套规矩算出来的
-    //       是两张不同的图，见 DefaultSkin.hpp 文件头）。存的是目录名（版本 id），
-    //       显示的时候才换成显示名。
-    QString m_offlineDefaultSkinVersion;
-    // 随机挑中的那一张（地址 + 它该记在哪个账号名下）。**挑的那一刻不落盘** ——
-    // 等贴图真的到了盘上再由 onSkinTextureReady() 记账，见那边那段。
-    // 空串 = 没有待记的（正常态）。
-    QString m_pendingRandomSkinUrl;
-    QString m_pendingRandomSkinUuid;
-    // ★ 2026-09-27 加：**发这一次请求时**当前是哪个离线账号。
-    //
-    // onRandomSkinReady() 原来只判 `offlineIdentity()`（"现在这位是离线账号"），而那回答的
-    // 不是"是不是**同一个**离线账号" —— 从 A 切到 B（两个都是离线账号）之后，A 那一趟的结果
-    // 照样通过，于是 A 挑的那张被记进 random-<B>.txt、画在 B 脸上，而 A 那边永远没有记录
-    // （每次开启动器重挑一张，脸一直变）。这一位就是那个"同一性"判据的唯一出处：
-    // 请求发出时写一次，回来时比一次，不一样就整份丢掉。
-    // NOTE: 这一位和 onSkinProfileReady() 那边拿信号里带的 uuid 去比是**同一件事** ——
-    //       那条路是信号自己带着身份回来的，这边没有，只好自己记一份。
-    QString m_randomSkinRequestUuid;
-    // 去官方问的这一次还在路上（决定那句话是"正在获取"还是"取不到"）。
-    // NOTE: **只表示"真的发出去了一个请求"**，缓存命中不算 —— 命中是同步回来的，
-    //       标成"在路上"会让那句话卡在"正在获取"上下不来。
-    bool m_skinFetchInFlight = false;
     // 底栏头像那块图。**不能**在 updateBottomBar() 里现算：那个函数每次进度刷新
     // （几百毫秒一次）都会被调，现算等于一直在重渲染同一张 8×8 的皮肤。
+    // NOTE: 这一格**没搬** —— 它是"底栏要的那张图"，不是外观那条路上的状态：外观说
+    //       "现在画这一套"，这一格是那一套的一个派生结果（onPlayerSkinChanged 里算一次）。
     QPixmap m_avatarPixmap;
     // 下载是否在进行中。注意不能只问 m_versionManager：从点击"下载"到版本 JSON
     // 拉回来之前，VersionManager 那边还没有任何批次，这段时间也得算"忙"。

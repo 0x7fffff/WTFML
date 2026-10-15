@@ -4589,7 +4589,9 @@ static void runBackupTaskTests() {
 //
 // §5.1 要的是「一小块最近活动提示，不是一个仪表盘」，所以这一段分三处验：
 //
-//   ① **账怎么写**：`appendLaunchRecord()` / `finishLaunchRecord()` 是产品唯一的写点，
+//   ① **账怎么写**：`LaunchHistoryController::recordStart()` / `recordFinish()` 是产品唯一的
+//      写点（2026-10-15 之前这两条叫 `appendLaunchRecord()` / `finishLaunchRecord()`，长在
+//      MainWindow 里；主窗口现在只剩一个补"启动那一刻的显示名 / 当时是谁"的转手），
 //      摆账就摆这两条（`seedLaunchRecordForTest` 那一族全走它们），摆完看盘上那份
 //      `wtfml.history` 逐格对不对。判据层（格式 / 时间怎么说 / 目标没了怎么降级 / 上限）
 //      在 verify 的 ZR 段逐条念过，这里验的是**接线**：产品读的是同一本账。
@@ -4833,7 +4835,8 @@ static void runHomeRecentCardTests() {
 
         // 异常退出那一档：结局那句话**紧贴**着时长（中间不加分隔符）—— 它是那半句的注解。
         // ★ 必须**另起一条「还在跑」的记录**再把它判成异常退出：上一段那一条已经落在「正常
-        //   退出」这个终态上了，而产品的 `finishLaunchRecord()` 有一条「终态只落一次」的
+        //   退出」这个终态上了，而产品的 `LaunchHistoryController::recordFinish()` 有一条
+        //   「终态只落一次」的
         //   规矩（见 LaunchHistory 那段实现）—— 它**故意**不把一条已经收尾的记录改写成另一个
         //   结局。拿老那一条去喂，量到的是"产品没改"这个**正确的行为**。
         const qint64 tCrash = t0 + 2 * 60 * 1000;  // 时长 = 8 分钟（秒数取整规则见 durationText）

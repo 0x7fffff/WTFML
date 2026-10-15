@@ -137,6 +137,9 @@
 #include "controllers/JavaRuntimeController.hpp"
 #include "controllers/ActivityCenterController.hpp"
 #include "controllers/HomeQuickController.hpp"
+#include "controllers/InstanceMaintenanceController.hpp"
+#include "controllers/ServerWorkspaceController.hpp"
+#include "controllers/PlayerSkinController.hpp"
 // 下载页那几类资源的取数（搜索 / 版本列表 / 图标）。头文件那边只前置声明了这个类
 // （那里用不到它的定义），这里要用真的。
 #include "download/ResourceStore.hpp"
@@ -224,28 +227,7 @@ QString selectedVersionId(const QComboBox *combo) {
     return combo->currentIndex() < 0 ? QString() : combo->currentData().toString();
 }
 
-/// 账本状态跨过 src/ui 边界时的唯一翻译点。
-TaskCenter::State taskCenterState(Tasks::TaskState state) {
-    switch (state) {
-    case Tasks::TaskState::Queued:
-        return TaskCenter::State::Queued;
-    case Tasks::TaskState::Running:
-        return TaskCenter::State::Running;
-    case Tasks::TaskState::WaitingUser:
-        return TaskCenter::State::WaitingUser;
-    case Tasks::TaskState::Paused:
-        return TaskCenter::State::Paused;
-    case Tasks::TaskState::Succeeded:
-        return TaskCenter::State::Succeeded;
-    case Tasks::TaskState::Failed:
-        return TaskCenter::State::Failed;
-    case Tasks::TaskState::Cancelled:
-        return TaskCenter::State::Cancelled;
-    case Tasks::TaskState::Interrupted:
-        return TaskCenter::State::Interrupted;
-    }
-    return TaskCenter::State::Interrupted;
-}
+// 任务账本到界面 DTO 的枚举翻译由 ActivityCenterController 统一负责。
 
 /**
  * @brief 一串步骤名 ⇒ 账本要的那张步骤表（`Tasks::TaskStep`），第 @p runningIndex 格是
@@ -1483,12 +1465,18 @@ MainWindow::MainWindow(QWidget *parent)
       m_versionManager(new VersionManager(this)),
       m_resourceStore(new ResourceStore(this)),
       m_serverPinger(new ServerPing::Pinger(this)),
+      m_serverWorkspace(new ServerWorkspaceController(this)),
       m_javaSettings(new GlobalJavaSettings(this)),
       m_javaRuntimeController(new JavaRuntimeController(this)),
       m_groupStore(new InstanceGroupStore(this)),
       m_skinStore(new PlayerSkinStore(this)),
       m_randomSkinStore(new RandomSkinStore(this)),
-      m_skinApi(new SkinApi(this)) {
+      m_skinApi(new SkinApi(this)),
+      // ★ 2026-10-15：玩家外观那一整套。它只**接**上面那三个 Store 的信号（不接管所有权：
+      //   那三个本来就是这一层的子对象，活得比"这一趟外观"长得多），自己持有那九个状态。
+      //   排在 m_skinApi 后面就够了 —— 它构造时只用那三个指针，不读盘。
+      m_playerSkin(
+          new PlayerSkinController(m_authManager, m_skinStore, m_randomSkinStore, this)) {
     // 安装页那棵树默认停在「不装（纯原版）」那一条（打开安装页时也是它，见
     // openInstallPage()）—— 这一位构造完就得是个真值，免得任何早于安装页读到它的路
     // （selectedLoaderIndex()）拿到一个没初始化的下标。
@@ -1507,6 +1495,31 @@ MainWindow::MainWindow(QWidget *parent)
     // 这一层负责把它们的信号翻成 begin() / setProgress() / succeed()（§2.1「不把任务中心
     // 做成第二套业务逻辑」）。
     m_activityCenter = new ActivityCenterController(this);
+    // ---------- 「上一次启动」那本账（coding plan §5.1） ----------
+    // 2026-10-15 从本类搬进 `LaunchHistoryController`：读盘、记账、改结局、写盘失败只记日志
+    // 那一套，连同内存里那一份账。留在这儿的是"启动那一刻的显示名"和"当时是谁"那两格
+    // （只有主窗口说得出来），见 `appendLaunchRecord()`。
+    //
+    // ★ 它在这儿建（不是初始化列表里），和上面那份任务账本同一个理由：它要读盘，得等前面
+    //   几样都就位了；而且必须**赶在第一次 `updateHomeRecent()` 之前** —— 那之后凡是
+    //   "实例列表变了"的路（重扫实例树那一条在构造里就会走）都会去问它要账本。
+    m_launchHistory = new LaunchHistoryController(this);
+    // 账本一变就重画主页那两排快速入口。发的位置那一侧管着（读回来 / 记了一条 / 真改到了
+    // 一条的结局那三处；结局没对上任何一条的空转不发），这边只管接。
+    connect(m_launchHistory, &LaunchHistoryController::changed, this,
+            &MainWindow::updateHomeRecent);
+    connect(m_launchHistory, &LaunchHistoryController::logMessage, this,
+            [this](const QString &text) { appendLog(text); });
+    connect(m_serverWorkspace, &ServerWorkspaceController::message, this,
+            [this](const QString &text) { appendLog(text); });
+    connect(m_serverWorkspace, &ServerWorkspaceController::statusChanged, this,
+            &MainWindow::onServerStatusChanged);
+    connect(m_serverWorkspace, &ServerWorkspaceController::lineAppended, this,
+            &MainWindow::onServerLineAppended);
+    connect(m_serverWorkspace, &ServerWorkspaceController::forceKillAvailable, this,
+            &MainWindow::onServerForceKillAvailable);
+    connect(m_serverWorkspace, &ServerWorkspaceController::exited, this,
+            &MainWindow::onServerExited);
     // 收起态那一格的重画时机里有一档是"刚完成那一项露到头了"（§3.1「完成任务短暂显示后
     // 收进历史」）—— 那个到期**没有任何信号会来**，只能自己起一个单发定时器。
     m_taskSummaryTimer = new QTimer(this);
@@ -1677,12 +1690,13 @@ MainWindow::MainWindow(QWidget *parent)
     // 不能塞进 refreshInstalledVersions()，那个函数每次清单到达、每次下载完成都会跑，
     // 塞进去就破坏了它"只保住、不新增"的语义。
     restoreLastLaunchedVersion();
-    // 启动历史账本（§5.1）：读回来并刷新主页“最近游玩”排。
+    // 启动历史账本（§5.1）：读回来并刷新主页“最近游玩”排（读完发一声 `changed()`，接在
+    // `updateHomeRecent()` 上；那一发是**同步**的，所以下面几行看到的已经是刷新过的界面）。
     //
     // ★ 位置有一处讲究：必须在 `refreshInstalledVersions()` **之后** —— 那张卡上「继续游玩」
     //   还是「启动实例」要看"那一份实例还在不在已安装列表里"，列表空着的时候问它只会得到
     //   "不在"，卡片就会显示成降级的那一档（明明能玩）。
-    loadLaunchHistory();
+    m_launchHistory->load();
     // 底栏那三格的初始值：登录名可能已经从存下来的令牌里恢复了，进度两格先藏起来，
     // 运行状态也要等第一次真的启动才有内容。
     updateBottomBar();
@@ -1821,13 +1835,7 @@ void MainWindow::closeEvent(QCloseEvent *event) {
     const QList<LauncherManager::GameSession> games = m_launcherManager->runningGames();
     // 还在跑的那些服务端（键 = serverId，**按名字排序** —— 提示里报出来的名字每次都得是
     // 同一个顺序，不然同一件事两句话看着像两件事）。
-    QStringList serverIds;
-    for (auto it = m_serverProcesses.constBegin(); it != m_serverProcesses.constEnd(); ++it) {
-        if (it.value() != nullptr && it.value()->isRunning()) {
-            serverIds.append(it.key());
-        }
-    }
-    serverIds.sort();
+    const QStringList serverIds = m_serverWorkspace->runningServerIds();
 
     if (games.isEmpty() && serverIds.isEmpty()) {
         QMainWindow::closeEvent(event);
@@ -1917,18 +1925,14 @@ void MainWindow::closeEvent(QCloseEvent *event) {
             //   界面在这几秒里不动。选择让它静态地等，是因为另一种做法（发完 stop 就让
             //   析构去杀）等于是**把这一问白问了** —— 那正是丢存档的那条路。
             for (const QString &id : serverIds) {
-                if (ServerRun::ServerProcess *process = m_serverProcesses.value(id, nullptr)) {
-                    process->stopAndWait();
-                }
+                m_serverWorkspace->stopAndWait(id);
             }
             appendLog(tr("已关掉启动器，服务端已经停下来。"));
         } else {
             // 交出去：脱离所有权（`ServerProcess::detach()` 里那段说明），启动器退了它们
             // 照样在系统里跑。
             for (const QString &id : serverIds) {
-                if (ServerRun::ServerProcess *process = m_serverProcesses.value(id, nullptr)) {
-                    process->detach();
-                }
+                m_serverWorkspace->detach(id);
             }
             appendLog(tr("已关掉启动器，服务端继续在跑。"));
         }
@@ -2739,21 +2743,18 @@ void MainWindow::setupConnections() {
     connect(m_authManager, &AuthManager::loginSucceeded, this, &MainWindow::onLoginSucceeded);
     connect(m_authManager, &AuthManager::loginFailed, this, &MainWindow::onLoginFailed);
 
-    // 玩家外观（主页右栏那个小人 + 底栏头像）。三条都只走这一处 —— 数据层不知道界面
-    // 长什么样，界面不知道贴图从哪来。
-    connect(m_skinStore, &PlayerSkinStore::profileReady, this, &MainWindow::onSkinProfileReady);
-    connect(m_skinStore, &PlayerSkinStore::textureReady, this, &MainWindow::onSkinTextureReady);
-    connect(m_skinStore, &PlayerSkinStore::failed, this, &MainWindow::onSkinFailed);
-    // 离线账号那张随机皮肤。**同一个来源、两条降级路**：skinReady 之后走的是上面那三个
-    // 信号一样的界面路径（挑出来的地址就是官方 CDN 上的地址）；failed 也照样只记日志 ——
-    // 但**不能直接接 onSkinFailed**，那句话的前缀是"取玩家皮肤失败"，而这一条失败的是
-    // "挑一张"这件事，跟某个人的皮肤没关系。
-    connect(m_randomSkinStore, &RandomSkinStore::skinReady, this, &MainWindow::onRandomSkinReady);
-    connect(m_randomSkinStore, &RandomSkinStore::failed, this, [this](const QString &message) {
-        appendLog(tr("取随机皮肤失败：%1").arg(message));
-        m_skinFetchInFlight = false;
-        updateSkinHint();
-    });
+    // ★ 2026-10-15：玩家外观那三条（Store 的三个信号）**不再接在这里** —— 它们现在接在
+    //   PlayerSkinController 自己身上（见那个 const 函数里的接线），因为"档案到了怎么办"
+    //   已经是它的判断（认人、落盘、要不要重画）。这一层只收它的两个出口：
+    //     ① skinChanged —— 现在该画这一套了（右栏小人 + 底栏头像 + 那个窗的 3D 预览）；
+    //     ② hintChanged —— 事实变了，那句话重挑一遍（`updateSkinHint()`）。
+    //   外加一条日志通道：那几行"取不到/记不下"仍然要走在 appendLog() 这条公共路上
+    //   （验证工程是数那条路上的行数）。三件事一条都不做，只改"谁是谁的来源"。
+    connect(m_playerSkin, &PlayerSkinController::skinChanged, this,
+            &MainWindow::onPlayerSkinChanged);
+    connect(m_playerSkin, &PlayerSkinController::hintChanged, this, &MainWindow::updateSkinHint);
+    connect(m_playerSkin, &PlayerSkinController::logMessage, this,
+            [this](const QString &text) { appendLog(text); });
 
     // 游戏进程信号。三条都带 sessionId（哪一份会话说的）—— 同时开着好几份时，日志里
     // 那句"哪来的"和底栏那格"还有谁在跑"全靠它归属。
@@ -3135,7 +3136,7 @@ void MainWindow::updateBottomBarTaskSummary() {
 
     MainWindowUI::BottomBarTaskSummary summary;
     summary.hasTask = picked.id != Tasks::invalidTaskId();
-    summary.state = taskCenterState(picked.state);
+    summary.state = ActivityCenterController::presentationState(picked.state);
     summary.percent = picked.percent;
     summary.extraCount = picked.extraCount;
     summary.title = picked.title;
@@ -3217,105 +3218,39 @@ bool MainWindow::retryWouldWork(const Tasks::TaskSnapshot &task) const {
 /// 账本里的一项 ⇒ 界面要的一份。**`taskCenterItems()`（面板）和任务详情页共用的唯一
 /// 翻译点** —— 两边各写一遍的话，同一项在面板上和详情页上会说出不同的话。
 TaskCenter::Item MainWindow::taskCenterItem(const Tasks::TaskSnapshot &task) const {
-    TaskCenter::Item item;
-    // 认人用**号**（不是行号）：面板开着的时候"清除已完成"会把行整体挪位，按行号回头
-    // 去查会对错人（见 ui/TaskCenterPanel.hpp 里 Item::key 那段）。
-    item.key = QString::number(task.id);
-    item.title = task.title;
-    item.detail = task.detail;
-    // 百分比走账本层那条规则（`Tasks::percentOf()`）：测不出总量的回 -1，面板那一行
-    // 就不画进度条（§3.4：不许编一个百分比出来，那句话由 detail 说）。
-    item.percent = Tasks::percentOf(task);
-    item.state = taskCenterState(task.state);
-    item.unreadFailure = task.state == Tasks::TaskState::Failed
-                         && m_activityCenter->isUnreadFailure(task.id);
-    item.finishedAt = task.finishedAt;
-    item.startedAt = task.startedAt;
-    item.errorSummary = task.errorSummary;
-    // 字节那一句**只在真按字节记过账的时候才有**（`bytesTotal > 0`）：绝大多数任务
-    // （启动、扫描、打包）压根不走字节，那种情况下详情页不该多一行"已下载 0 B / 0 B"。
-    if (task.bytesTotal > 0) {
-        item.bytesText = tr("已下载 %1 / %2")
-                             .arg(InstanceFilesPage::formatSize(task.bytesDone),
-                                  InstanceFilesPage::formatSize(task.bytesTotal));
-    }
-    // ★ 「这一项现在允许什么操作」**只读账本那几位**（不许在这一层按状态再推一遍）。
-    //   唯一的加工是"取消"那一颗：账本记的是"这一类活**允许**取消"，而收尾之后（终态）
-    //   当然不该再露它 —— 所以是**与**上"还是活的"。再加一道 `cancelWouldWork()`：这一类
-    //   活里还有几段**就是掐不动**（安装器进程 / 解压），那几段上留着它 = 一颗点了没反应
-    //   的按钮。三道缺一不可：允许 ∧ 还活着 ∧ 现在真掐得动。
-    item.capabilities.cancel = task.capabilities.canCancel && Tasks::isActiveState(task.state)
-                               && cancelWouldWork(task);
-    item.capabilities.pause = task.capabilities.canPause && Tasks::isActiveState(task.state);
-    // ★ 「重试」和「取消」是同一套三道与（`cancelWouldWork()` 那段注释）：账本那位说的是
-    //   "这一类活**允许**做什么"，收尾之后（终态）当然不该再露，最后再问一次**现在**这一按
-    //   真的会做它自己那件事吗 —— 三样都在 `retryWouldWork()` 里（唯一出处
-    //   `Tasks::retryOffered()`），这里**故意不再抄一遍**那三道判据。
-    item.capabilities.retry = retryWouldWork(task);
-    item.capabilities.openLog = task.capabilities.canOpenLog;
-    item.capabilities.openTarget = task.capabilities.canOpenTarget;
-    // 这两颗带 **"还在"** 那一道与：它们要读 `m_crashRecords` 里那一份事实，而那一份和
-    // 账本同寿（被「清除已完成」清掉之后这里也就没了）。账本里还有、本地那份没了的时候
-    // 不摆它们（点了只能弹一句"找不到这一项的记录"——那正是"点了没反应"那一类）。
-    item.capabilities.exportReport =
-        task.capabilities.canExportReport && m_crashRecords.contains(task.id);
-    item.capabilities.openCrashDir = task.capabilities.canOpenCrashDir;
-    item.steps.reserve(task.steps.size());
-    for (const Tasks::TaskStep &step : task.steps) {
-        TaskCenter::Step uiStep;
-        uiStep.name = step.name;
-        uiStep.note = step.note;
-        // 两个枚举一一对应（`ui/` 不许 include `src/`，所以各有一份）。**这一处是
-        // "两份必须同构"的唯一见证**：谁多加一档，这里就得跟着加（缺哪一档下面那个
-        // switch 会掉到 default 上，验证工程能当场看出来）。
-        switch (step.state) {
-        case Tasks::TaskStepState::Pending:
-            uiStep.state = TaskCenter::StepState::Pending;
-            break;
-        case Tasks::TaskStepState::Running:
-            uiStep.state = TaskCenter::StepState::Running;
-            break;
-        case Tasks::TaskStepState::Done:
-            uiStep.state = TaskCenter::StepState::Done;
-            break;
-        case Tasks::TaskStepState::Failed:
-            uiStep.state = TaskCenter::StepState::Failed;
-            break;
-        }
-        item.steps.append(uiStep);
-    }
-    return item;
+    const bool retryPayloadAvailable =
+        m_versionManager != nullptr && m_versionManager->canRetryDownload();
+    return m_activityCenter->item(task, cancelWouldWork(task), retryPayloadAvailable,
+                                  m_crashRecords.contains(task.id));
 }
 
 QList<TaskCenter::Item> MainWindow::taskCenterItems() {
-    const QList<Tasks::TaskSnapshot> tasks = m_activityCenter->tasks()->all();
-    QList<TaskCenter::Item> items;
-    items.reserve(tasks.size());
-    for (const Tasks::TaskSnapshot &task : tasks) {
-        items.append(taskCenterItem(task));
+    QSet<Tasks::TaskId> crashRecordIds;
+    for (auto it = m_crashRecords.cbegin(); it != m_crashRecords.cend(); ++it) {
+        crashRecordIds.insert(it.key());
     }
-
-    // ★ 走到这儿就算**用户看过了**（这一格是唯一能把失败原因和"跑到哪一步"看全的地方，
-    //   也是那颗红点唯一的目的地）—— 把"没看过的失败"整片清掉，红点当场收起来。
-    //
-    // NOTE: 清在这句**之后**：上面那些 `item.unreadFailure` 是按清之前那一份算的（面板要
-    //       把"哪几条是新的"标出来），清在循环里的话第一行之后就全成"看过了"。
-    // NOTE: 这一处副作用是**名字里看不出来**的，所以这个函数只给面板那个 provider 用，
-    //       别人想读一眼账本请直接问 ActivityCenterController 的账本读侧（没有副作用）。
-    if (m_activityCenter->markAllViewed()) {
+    bool viewStateChanged = false;
+    const bool retryPayloadAvailable =
+        m_versionManager != nullptr && m_versionManager->canRetryDownload();
+    QList<TaskCenter::Item> items = m_activityCenter->items(
+        [this](const Tasks::TaskSnapshot &task) { return cancelWouldWork(task); },
+        retryPayloadAvailable, crashRecordIds, &viewStateChanged);
+    if (viewStateChanged) {
         updateBottomBarTaskSummary();
     }
     return items;
 }
 
 bool MainWindow::fillTaskDetail(const QString &key, TaskCenter::Item *out) const {
-    bool ok = false;
-    const Tasks::TaskId id = key.toInt(&ok);
-    if (!ok || !m_activityCenter->tasks()->has(id)) {
-        return false;
+    QSet<Tasks::TaskId> crashRecordIds;
+    for (auto it = m_crashRecords.cbegin(); it != m_crashRecords.cend(); ++it) {
+        crashRecordIds.insert(it.key());
     }
-    *out = taskCenterItem(m_activityCenter->tasks()->snapshot(id));
-    return true;
+    const bool retryPayloadAvailable =
+        m_versionManager != nullptr && m_versionManager->canRetryDownload();
+    return m_activityCenter->itemForKey(
+        key, out, [this](const Tasks::TaskSnapshot &task) { return cancelWouldWork(task); },
+        retryPayloadAvailable, crashRecordIds);
 }
 
 void MainWindow::openTaskDetailPage(const QString &key) {
@@ -3559,318 +3494,69 @@ void MainWindow::beginDownloadTask() {
 }
 
 void MainWindow::startPlayerSkinLoad() {
-    // 先摆默认外观。**这一步之后，右栏那个小人任何时候都不是空白的** —— 未登录、
-    // 还没取到、取不到，看到的都是它。默认外观是程序画的经典配色（见
-    // SkinModel::defaultSteveSkin()），不是把官方那张 Steve 贴图打进仓库。
-    applyPlayerSkin(QString(), QString(), false);
-    // 上一次那个账号的档案要清掉：换账号登录时它已经没用了，留着会让"贴图回来时
-    // 认领"那一步把上一套外观当成这一套。
-    m_skinProfile = PlayerSkinProfile();
-    // 同理：下面重新算出来之前，"这张脸是按哪个版本算的"这件事不能留着上一轮的值 ——
-    // 留着会让右栏那句话拿旧版本的显示名去说新的一张图。
-    m_offlineDefaultSkinVersion.clear();
-
-    // ---------- 离线账号那一档：从库里的随机挑一张 ----------
+    // ★ 2026-10-15：这一趟的**全部判断**都搬进 PlayerSkinController 了（挑哪一张 / 回来的
+    //   是不是刚才那一位 / 什么时候才记账 / 取不到怎么降级 —— 四个见那边的文件头）。这一位
+    //   现在只剩一件事：把它看不见的那一格交给它 —— **现在选中的是哪个实例**（下拉框在这一
+    //   层）。那一格不是可有可无的：离线账号那张官方默认皮肤是**跟着实例走**的，换版本这张
+    //   脸真的会变（两套规矩算出来的不是同一张，见 DefaultSkin.hpp 文件头）。
     //
-    // 这一档必须在下面 !loggedIn() **之前**：离线账号必然同时是"没有登录态"
-    // （AuthManager::setOfflinePlayer() 把 uuid 和令牌一起清了，见 AuthManager.cpp），
-    // 摆在那句后面就等于永远走不到 —— 以前就是这样，离线账号的预览永远是那张写死的
-    // 内置 Steve。
-    //
-    // 判据是 offlineIdentity()（当前账号本身是不是离线账号），不是"有没有勾某个框"。
-    // **未登录（压根没有当前账号）不走这一档**：没有身份就没有可记的地方（那张图要按
-    // 账号记在盘上），也没人可挑。
-    if (offlineIdentity()) {
-        // ① 先算"游戏会给这个名字分配哪一张官方默认皮肤"（见 DefaultSkin）：那个"随机"其实
-        //    是确定的，图就在**本地那个版本的客户端 JAR** 里，一个字节都不用下。同一个
-        //    (账号, 版本) 算过一次之后连 JAR 都不碰（缓存命中 = 两次 QFile::exists）。
-        //
-        //    名字取的是**进 --username 的那一个**（m_authManager->playerName()）而不是
-        //    AccountStore 里那份存档：游戏是拿前者算 uuid 的，差一个字符就是另一张脸。
-        //    版本取的是当前选中的那个实例 —— 换版本这张脸真的会变（两套规矩算出来的不是
-        //    同一张，见 DefaultSkin.hpp 文件头），所以换版本时下面有一处会重跑这一整段。
-        const QString versionId = selectedVersionId(m_ui->getInstalledVersionCombo());
-        QString defaultPath;
-        bool defaultSlim = false;
-        QString defaultReason;
-        const DefaultSkin::Result resolveResult = DefaultSkin::resolve(
-            m_authManager->playerName(), versionId, &defaultPath, &defaultSlim, &defaultReason);
-        if (resolveResult == DefaultSkin::Result::Resolved) {
-            m_offlineDefaultSkinVersion = versionId;
-            // 这张图**不是一份档案**（它没有地址、离线账号也没有披风），所以 m_skinProfile
-            // 保持空着：上一轮若有别人的贴图回来，地址对不上就丢掉了（见 onSkinTextureReady）。
-            // NOTE: 这条路上 m_skinFetchInFlight 一直是 false —— 图是从盘上（或 JAR 里）
-            //       直接拿的，不是"在路上"，那句话不该说"正在获取"。
-            applyPlayerSkin(defaultPath, QString(), defaultSlim);
-            return;
-        }
-        // Unavailable 是**常态**：没装任何版本、或者那个目录里没有客户端 JAR（不是原版
-        // 客户端，第三方安装器做的薄壳 JAR 就长那样）—— 都不值得报。Failed 才是真出错
-        // （读 JAR 失败、写不出去），那种留一行日志，不然"怎么老是随机那张"无从查起。
-        if (resolveResult == DefaultSkin::Result::Failed) {
-            appendLog(tr("算离线默认皮肤失败：%1").arg(defaultReason));
-        }
-
-        // ② 算不出来才走"随机挑一张"。
-        //
-        // 身份用的是 AccountStore 里那个 uuid，**不是** m_authManager->playerUuid() ——
-        // 后者对离线账号返回空串（它的 m_uuid 被清掉了）。离线账号的 uuid 是
-        // md5("OfflinePlayer:" + 名字)，同名就是同一个 uuid，所以同一个人换不掉那张脸。
-        const QString accountUuid = AccountStore::activeUuid();
-        const QString chosen = RandomSkinStore::loadChosenSkinUrl(accountUuid);
-        if (chosen.isEmpty()) {
-            // 还没挑过（第一次用这个账号）→ 要一页去。回来之后 onRandomSkinReady()
-            // 接着走下面这段。这一格点亮是为了让那句话说"正在获取"。
-            m_skinFetchInFlight = true;
-            // ★ 2026-09-27：把**发请求时这位是谁**记下来。回来的时候用户可能已经切到另一个
-            //   离线账号了，而那两个都是"离线身份" —— 只判 offlineIdentity() 分不出来，
-            //   详见 onRandomSkinReady() 里那段。
-            //   NOTE: 只在**真的发出去了**的时候才记（fetchRandomSkin() 那个返回值）。已经有
-            //         一趟在飞时这一趟什么都没开始，改掉这一位等于把上一趟的结果认到这一位
-            //         名下 —— 那正是要防的那个错（切账号时这条路必被走到）。
-            if (m_randomSkinStore->fetchRandomSkin()) {
-                m_randomSkinRequestUuid = accountUuid;
-            }
-        } else {
-            // 挑过了，还是那一张。**当成一份档案用** —— 于是下不下得来、存哪、怎么画
-            // 全是现成那条路（requestSkinTexture → fetchTexture → onSkinTextureReady）。
-            // 离线账号没有披风，所以 capeUrl 留空。
-            m_skinProfile =
-                PlayerSkinProfile{chosen, QString(), QStringLiteral("classic")};
-            requestSkinTexture(chosen, /*allowDownload=*/true);
-        }
-        updateSkinHint();
-        return;
-    }
-
-    if (!m_authManager->loggedIn()) {
-        // 没登录就没有 uuid，连问都不用问（问也问不出东西来）。那句话现在是
-        // "未登录，显示的是默认外观"，由上面那次 updateSkinHint() 写好。
-        return;
-    }
-    const QString uuid = m_authManager->playerUuid();
-    // 当前账号是离线账号的意思是"别联网"（启动时走的就是离线登录），这时候还发一个外观
-    // 请求是自相矛盾的 —— 所以整条联网路径都跳过，只认已经躺在缓存里的那一份。
-    //
-    // NOTE: 判据从"勾选框勾没勾"换成了 offlineIdentity()。而且这一档现在**必然**同时是
-    //       "没有登录态"（setOfflinePlayer() 把 uuid 和令牌一起清了），上面那句 !loggedIn()
-    //       其实已经先返回了 —— 留着它是为了这条路自己读起来是完整的，不靠上面的早退。
-    const bool offline = offlineIdentity();
-
-    // 1) 盘上那份档案：开窗那一刻零网络把**上次**的样子画出来。贴图是内容寻址的，
-    //    命中缓存时 fetchTexture() 是**同步**发信号回来的，所以这一句之后就画好了。
-    PlayerSkinProfile cached;
-    if (PlayerSkinStore::loadCachedProfile(uuid, &cached)) {
-        m_skinProfile = cached;
-        requestSkinTexture(cached.skinUrl, /*allowDownload=*/!offline);
-        requestSkinTexture(cached.capeUrl, /*allowDownload=*/!offline);
-    }
-
-    // 2) 后台刷一次档案：用户在游戏里换了皮肤，重开启动器就能看到。回来那份和手上
-    //    这份一样时 onSkinProfileReady() 什么都不做。
-    if (!offline) {
-        m_skinStore->refreshForUuid(uuid);
-    }
-    updateSkinHint();
+    // NOTE: 六处调用点（开窗末尾、登录成功、切账号、换版本、换完外观、退出登录）读起来还是
+    //       "把外观拉一遍"，所以名字没改。
+    m_playerSkin->reload(selectedVersionId(m_ui->getInstalledVersionCombo()));
 }
 
-bool MainWindow::requestSkinTexture(const QString &url, bool allowDownload) {
-    if (url.isEmpty()) {
-        // 这个人没有披风（多数账号都没有）。**常态**，不是错误，也不是失败。
-        return false;
-    }
-    if (QFile::exists(PlayerSkinStore::cachePathForUrl(url))) {
-        // 命中缓存：fetchTexture() 会同步发 textureReady 回来，所以这一句之后那张
-        // 贴图已经在屏幕上了。
-        m_skinStore->fetchTexture(url);
-        return true;
-    }
-    if (allowDownload) {
-        // 这一张要真的去下载了 —— 那句话得说"正在获取"，而不是"取不到"。
-        m_skinFetchInFlight = true;
-        m_skinStore->fetchTexture(url);
-    }
-    return false;
-}
+// ---------- 下面四个是**薄壳**：验证工程按名字打量它们 ----------
+//
+// mw_check 的 X 节（喂一份外观 / 演"档案到了""贴图到了"）和 AF5/AF6/AF7（演"挑好的那张回来
+// 了"）都是 `QMetaObject::invokeMethod` 直接打这几个名字 —— 那是**全程不联网**验完整条外观
+// 路径的唯一办法，所以名字必须留在这里、逻辑一行都不能留在这里。
 
 void MainWindow::onSkinProfileReady(const QString &uuid, const PlayerSkinProfile &profile) {
-    // 回来的时候身份可能已经变了：用户在请求飞着的时候换了账号、删掉了那个账号，或者
-    // 登出了。**不是同一个身份就整份丢掉** —— 这份档案是发请求时那个人的，照着它落盘
-    // 会把 A 的脸写进 profile-<B>.json（那份文件跨重启生效：下次开窗先按它画出 A 的
-    // 外观，直到下一次刷新成功才纠正），照着它画就是"切了账号，脸还是上一个人的"。
-    //
-    // NOTE: 和 onRandomSkinReady() 那道判据是同一件事 —— 都是"发请求时那位 == 现在这位"。
-    //       区别在判据从哪来：那条路是信号自己带着身份回来的（uuid 就在形参里），随机皮肤
-    //       那条没有，只好在发请求时自己记一份（m_randomSkinRequestUuid）。
-    //       判据取 uuidKey()：它和 refreshForUuid() 里用的是同一个规整函数，所以"带不带横线"
-    //       不会让这一比较失败。
-    if (uuid.isEmpty() || uuid != PlayerSkinStore::uuidKey(m_authManager->playerUuid())) {
-        return;
-    }
-    const bool sameAsBefore = profile.sameAs(m_skinProfile);
-    const QString previousCapeUrl = m_skinProfile.capeUrl;
-    m_skinProfile = profile;
-    if (sameAsBefore && !m_skinPath.isEmpty()) {
-        // 手上的就是这一份，而且已经在屏幕上 → 这次刷新**完全看不见**：不重下贴图、
-        // 不重画、那句话也不动。用户在游戏里没换皮肤时，绝大多数刷新都走这一条。
-        m_skinFetchInFlight = false;
-        updateSkinHint();
-        return;
-    }
-
-    QString error;
-    // 落盘用**信号带回来的那个身份**，不用 m_authManager 里当下那个（上面那道闸之后
-    // 它俩本来就相等了 —— 写 uuid 是让"这份是谁的"在读者眼里只有一处出处）。
-    if (!PlayerSkinStore::saveProfile(uuid, profile, &error)) {
-        // 存不下来不影响这一次显示（贴图照样下、照样画），只是下次开窗要先重取一遍。
-        appendLog(tr("存玩家外观档案失败：%1").arg(error));
-    }
-    // 披风那一格只在**地址真的换了**的时候才作废。
-    //
-    // 作废是必须的：新档案里没有披风时（用户在游戏里把披风摘了），留着的那条旧路径会让
-    // 下一趟 applyPlayerSkin(skin, m_capePath) 把上一套的披风又画回去，而且再没有哪一趟
-    // 会来纠正它 —— 新的披风那一张根本不会到达。
-    //
-    // 但**不能一律清掉**：披风先到、皮肤还在路上的时候（见 onSkinTextureReady）那一格是
-    // "记忆"，不是"现在画着的东西"，清了就等于把刚记住的那张丢了 —— 于是同一个 bug 换个
-    // 位置又出现一次。所以判据是"地址换没换"，而不是"档案换没换"。
-    //
-    // 皮肤那一格不用管：它下一趟必被新贴图覆盖，留着还能让"新披风先到"那一趟有皮肤可配。
-    if (profile.capeUrl != previousCapeUrl) {
-        m_capePath.clear();
-    }
-    requestSkinTexture(profile.skinUrl, /*allowDownload=*/true);
-    requestSkinTexture(profile.capeUrl, /*allowDownload=*/true);
-    updateSkinHint();
+    // 整份判断在 `PlayerSkinController::onProfileReady()`：认人（回来的是不是发请求时那位）、
+    // 落盘、和手上那份一样就什么都不做，以及"披风地址换了才作废"那一条。
+    m_playerSkin->onProfileReady(uuid, profile);
 }
 
 void MainWindow::onSkinTextureReady(const QString &url, const QString &path) {
-    // 两张贴图是**分开**回来的（皮肤一张、披风一张），所以这里做的是"把这一张记到它
-    // 该去的那一格，再用手上这两格重画一遍" —— 谁先到都能画。
-    const bool slim = m_skinProfile.variant == QStringLiteral("slim");
-    if (!url.isEmpty() && url == m_skinProfile.skinUrl) {
-        // 皮肤到手了：不再是"正在获取"。就算这张图后面载不进来，也该由那句
-        // "取不到…"来说，而不是一直停在"正在获取"。
-        m_skinFetchInFlight = false;
-        // 随机挑的那一张**到这里才记账**（2026-09-25 修）：能走到这一句就说明字节已经在
-        // 盘上了（这个信号的契约就是"本地就绪"，fetchTexture() 里那几条失败路一条都不发它），
-        // 而那条记录是永不失效的 —— 记一条"图上没有"的地址，等于把这个账号钉死在重下同
-        // 一个失败地址上。挑的那一刻只把它放进了 m_pendingRandomSkin*，见 onRandomSkinReady()。
-        // NOTE: 记的是**挑的时候那个账号**（不是当下这个）：用户在这几百毫秒里换了账号时，
-        //       这张图仍然是那个人挑的那一张，记在他名下才对（记错人就没用了 —— 下次
-        //       没人会去读它）。两个都对得上才记，所以中途切过账号的情况这里天然放过。
-        if (!m_pendingRandomSkinUrl.isEmpty() && url == m_pendingRandomSkinUrl) {
-            QString error;
-            if (!RandomSkinStore::saveChosenSkinUrl(m_pendingRandomSkinUuid, url, &error)) {
-                // 记不下来不影响这一次显示（这一趟照样画得出来），只是下次开启动器会重挑一张。
-                appendLog(tr("记下随机皮肤失败：%1").arg(error));
-            }
-            m_pendingRandomSkinUrl.clear();
-            m_pendingRandomSkinUuid.clear();
-        }
-        applyPlayerSkin(path, m_capePath, slim);
-        return;
-    }
-    if (!url.isEmpty() && url == m_skinProfile.capeUrl) {
-        if (m_skinPath.isEmpty()) {
-            // **披风先到了，皮肤还在路上**（披风那张小得多，经常先下完）。
-            //
-            // 这时候千万不能顺手 applyPlayerSkin(m_skinPath, path, slim) —— 皮肤那个参数
-            // 是空的，而 applyPlayerSkin() 里"皮肤载不进来就退回默认外观"那条路会**把
-            // 披风一起清掉**（默认外观本来就没有披风）。等皮肤那一趟回来时 m_capePath
-            // 已经是空的，披风再也补不回来了：表现是**皮肤有了、披风永远没有**，而且
-            // 每一趟都停在默认外观那句话上。2026-09-21 真机上就是这个现象。
-            //
-            // 所以这里只**记住**，不画：皮肤那一趟（上面那个分支）会带上 m_capePath
-            // 一起画出来。这一小段时间里屏幕上是上一套外观（或者默认外观），不闪。
-            m_capePath = path;
-            // ★ 2026-09-27：皮肤那一趟**根本不会来**的时候（这个人的档案里没有皮肤那一格 ——
-            //    Mojang 的档案里"只有披风、没有 SKIN"是可能的），这一位必须在这儿落回 false：
-            //    它的意思是"还有图在下"，而下完的就是手上这一张、皮肤那一张从没被请求过。
-            //    不落的话那句「正在获取…」会一直挂着 —— 没有任何一条路会再来纠正它（皮肤
-            //    那个分支永远不会执行、也不会失败，因为没有请求发出去）。
-            //    NOTE: 皮肤在路上的时候**不能**落（那才是正常的一小段），所以判据是
-            //          "档案里根本没有皮肤地址"，而不是"m_skinPath 还空着"。
-            if (m_skinProfile.skinUrl.isEmpty()) {
-                m_skinFetchInFlight = false;
-            }
-            return;
-        }
-        applyPlayerSkin(m_skinPath, path, slim);
-        return;
-    }
-    // 两个都对不上：这是一次**过期**的回调（档案已经换成别人了）。丢掉 —— 照着它画
-    // 等于把上一个账号的皮肤画回来。
+    // 整份判断在 `PlayerSkinController::onTextureReady()`：两张贴图**分开**回来，按 URL 认领
+    // 到该去的那一格，再用手上这两格重画一遍（谁先到都能画）。
+    m_playerSkin->onTextureReady(url, path);
 }
 
 void MainWindow::onRandomSkinReady(const QString &skinUrl) {
-    // 回来的时候身份可能已经变了：用户在这几百毫秒里换了账号、删掉了那个离线账号，
-    // 或者干脆登录成正式账号了。**不是同一个离线身份就丢掉** —— 记下去等于把 A 的脸
-    // 记到 B 名下，而且再也不会有人来纠正它（那份记录是"永不失效"的）。
-    //
-    // ★★ 2026-09-27 修：这里原来只有 `if (!offlineIdentity()) return;` 这一道，而它回答的
-    //    是"现在这位**是不是**离线账号"，**不是**"是不是**刚才那一位**" —— 从离线 A 切到
-    //    离线 B 之后（两个都满足那一句，而且这是最常见的切法）A 那一趟的结果照样走得下去：
-    //      · m_pendingRandomSkinUuid 被写成 **B**（下面那句读的是"当下"），
-    //      · 贴图到了以后 onSkinTextureReady() 就把 A 挑的那张记进 `random-<B>.txt`；
-    //      · 而 A 名下永远不会有记录 ⇒ A 每次开启动器都重挑一张、脸一直变（那份记录存在的
-    //        全部意义正是"挑一次就定住"）。
-    //    判据换成"发请求时那位 == 现在这位"：`m_randomSkinRequestUuid` 是发请求那一刻写的
-    //    （见 startPlayerSkinLoad() 里那一句），两个都是 AccountStore 给的同一个规整 uuid，
-    //    直接比字符串就行。
-    //
-    //    NOTE: **没记过账的那一趟（这一位跑到现在一个请求都没发过）按当下这位收下**。
-    //          两种收法是"当下这位"和"发请求时那位"的差别，而没有记账就没有"发请求时那位"
-    //          可言 —— 那一趟的来路只能是"盘上已经记着一行，于是这一位从没挑过"（见
-    //          startPlayerSkinLoad()：有记录就走 applyPlayerSkin，一个请求都不发），这时候
-    //          它跟"当下这位"本来就是同一位。生产里回不来"没记账却有结果"这种组合（信号
-    //          只有 fetchRandomSkin() 会发，而它一发就把那一位记上了），所以这一条不放松
-    //          任何东西 —— 它挡的只是"把空串当成一个身份去比"。mw_check 的 AF5/AF6/AF7 就是
-    //          直接踢这个槽函数来演"挑好的那张回来了"，那几趟正落在这个组合上。
-    const bool requesterKnown = !m_randomSkinRequestUuid.isEmpty();
-    if (!offlineIdentity() ||
-        (requesterKnown && AccountStore::activeUuid() != m_randomSkinRequestUuid)) {
-        // ★★ 2026-09-27：丢掉之后**再问一次**。这一趟是替上一位挑的，而当下这一位（离线）
-        //    可能正等着自己那一张 —— 切账号时 startPlayerSkinLoad() 那一趟确实发出去了，
-        //    但再切一次就会被 RandomSkinStore::fetchRandomSkin() 的 m_inFlight 挡回来
-        //    （那一趟返回 false，所以 m_randomSkinRequestUuid 没被改写，这里才认得出"过期"）。
-        //    此刻 m_inFlight 已经落回 false（reply 的回调第一句就清掉了，而这里是它直接
-        //    发信号叫进来的），所以这一句能真的发出去。
-        //    NOTE: 只在**现在这位是离线账号**时才补 —— 正版账号的皮肤走官方那条路，
-        //          切过去的时候已经有另一条路在刷了，不该由这里再捅一次。
-        if (offlineIdentity()) {
-            startPlayerSkinLoad();
-        }
-        return;
-    }
-    // 挑中的这一张**先记在内存里**，等贴图真的落在盘上再写那行记录（见
-    // onSkinTextureReady 里那一段）。原来是在这里就写的，而这一句之前图一个字节都还没到：
-    // requestSkinTexture() 会因为超时、非 200、或者"不是一张 64 宽的皮肤 PNG"
-    // （PlayerSkinStore::fetchTexture）**一个字节都不落盘**，而记录已经写下了 —— 那条记录
-    // 是永不失效的，于是这个账号从此每次都去重下同一条永远失败的地址、永远停在默认外观，
-    // 而且"换一张"没有界面入口（要手动删 skins/random-<uuid>.txt）。记账的语义本来是
-    // "这个人挑过哪一张、那张是好的"，那就该等它好。
-    m_pendingRandomSkinUrl = skinUrl;
-    m_pendingRandomSkinUuid = AccountStore::activeUuid();
-    m_skinProfile = PlayerSkinProfile{skinUrl, QString(), QStringLiteral("classic")};
-    // 走那条公用的路。**缓存命中时它是同步的**（fetchTexture 命中就同步发 textureReady），
-    // 所以挑第二张的时候这一句之后屏幕上就已经换好了；真要下的时候它会自己把
-    // m_skinFetchInFlight 点起来。
-    requestSkinTexture(skinUrl, /*allowDownload=*/true);
-    updateSkinHint();
+    // 整份判断在 `PlayerSkinController::onRandomSkinReady()`："发请求时那位 == 现在这位"那道
+    // 闸、以及"过期就按当下这位再问一次"都在那边（见那段长注释）。
+    m_playerSkin->onRandomSkinReady(skinUrl);
 }
 
-void MainWindow::onSkinFailed(const QString &message) {
-    // 外观是**装饰**：取不到就静默退回默认外观。这是全仓唯一一处不弹窗的错误，
-    // 理由（别的错误都让用户做不成他想做的事，而这个只是不好看）写在
-    // PlayerSkinStore.hpp 文件头。但日志得留一行，否则真出问题无从查起。
-    appendLog(tr("取玩家皮肤失败：%1").arg(message));
-    m_skinFetchInFlight = false;
-    if (m_skinPath.isEmpty()) {
-        // 已经有真皮肤在屏幕上时**不改那句话**：多数失败是**披风**那一张（皮肤早就画
-        // 好了），这时候说"取不到皮肤"是错的。
-        updateSkinHint();
+void MainWindow::applyPlayerSkin(const QString &skinPath, const QString &capePath, bool slim) {
+    // 整份判断在 `PlayerSkinController::applyPlayerSkin()`：那里管"载不进来就退回默认外观"
+    // （那张图没有地址、离线账号也没有披风），载成功才把那两格路径记下来。
+    // 这一层收到的是那边发回来的 `skinChanged`（见 onPlayerSkinChanged）。
+    m_playerSkin->applyPlayerSkin(skinPath, capePath, slim);
+}
+
+void MainWindow::onPlayerSkinChanged(const QImage &skin, const QImage &cape, bool slim) {
+    // ★ 2026-10-15：这一段就是原来 applyPlayerSkin() 的尾巴，一步都没改顺序 —— 只是触发它的
+    //   从"这一层自己判断完了"换成了"PlayerSkinController 说现在该画这一套"。
+    //
+    // 收到的两张图一定是**画得出来的**（载不进来时那一边已经退回默认外观了），所以这里只管
+    // 摆，不再有一句"这张图打不开怎么办"。
+    m_ui->getSkinViewer()->setSkin(skin, cape, slim);
+    // 头像在这里**算一次存起来**：updateBottomBar() 每次进度刷新（几百毫秒一次）都会被调，
+    // 在它里面现算等于一直在重渲染同一张 8×8 的皮肤。裁切和放大都在
+    // SkinModel::headAvatar() 里（最近邻放大，保持像素画的那个方块感）。
+    m_avatarPixmap = QPixmap::fromImage(SkinModel::headAvatar(skin, MainWindowUI::avatarSize()));
+    // 那个窗里的 3D 预览跟着**同一份贴图**走：它和这里是同一个东西的两个窗口，各下各的、
+    // 各画各的就会出现"主页换了、那个窗还是旧外观"。挂在这一路上是因为全仓**唯一**一处决定
+    // "现在显示的是哪一套外观"的就是 `PlayerSkinController::skinChanged` 这一条（贴图从哪来、
+    // 档案怎么换都不影响这条）。
+    if (m_accountSkinDialog != nullptr) {
+        m_accountSkinDialog->setLooks(skin, cape, slim);
     }
+    // 画了新东西 → 那句话按"手上有没有真皮肤"重挑一档（那一边把事实都准备好了）。
+    updateSkinHint();
+    updateBottomBar();
 }
 
 QPixmap MainWindow::accountFacePixmap(const SavedAccount &account) const {
@@ -3936,8 +3622,11 @@ QPixmap MainWindow::accountFacePixmap(const SavedAccount &account) const {
         //    猜错只是 QFile::exists 落空，**绝不会触发读 JAR** —— 那一条路要起一次
         //    PowerShell（几百毫秒），挂在"点开面板"这一下上是不行的。所以这里**直接拼
         //    cachePathFor()**，一步都不走 resolve()。
-        const QStringList versions =
-            offlineDefaultSkinCacheVersions(selectedVersionId(m_ui->getInstalledVersionCombo()));
+        // 猜"当初按哪个实例算的"那三档在 PlayerSkinController 里（它才知道上一轮真的按谁
+        // 算过），这里把另两格喂给它：当下选中的实例、上次启动的版本。
+        const QStringList versions = m_playerSkin->offlineDefaultSkinCacheVersions(
+            selectedVersionId(m_ui->getInstalledVersionCombo()),
+            m_settings->lastLaunchedVersion());
         for (const QString &versionId : versions) {
             for (const DefaultSkin::Rule rule :
                  {DefaultSkin::Rule::Eighteen, DefaultSkin::Rule::Two}) {
@@ -3960,91 +3649,38 @@ QPixmap MainWindow::accountFacePixmap(const SavedAccount &account) const {
     return QPixmap::fromImage(SkinModel::letterAvatar(account.name, size));
 }
 
-QStringList MainWindow::offlineDefaultSkinCacheVersions(const QString &currentVersionId) const {
-    // 猜"当初按哪个实例算的那张官方默认皮肤"，**按可能性从高到低**：
-    //   · 上一轮真的算过的那一个（m_offlineDefaultSkinVersion）—— 最准的一个；
-    //   · 现在选中的那个实例 —— 用户切到谁身上就按谁算；
-    //   · 上次启动过的版本 —— 换过实例、或者那会儿没选中任何版本时的兜底。
-    // 三档都空就是空表（那时候这条路直接落空，退回首字母方块）。
-    // NOTE: 一个账号只要**当过**当前账号，它的那张图就躺在盘上，而这三种猜测里总有一个
-    //       能命中 —— 这正是"面板里三个人的脸都能画出来"的来源。
-    QStringList versions;
-    const auto add = [&versions](const QString &versionId) {
-        if (!versionId.isEmpty() && !versions.contains(versionId)) {
-            versions.append(versionId);
-        }
-    };
-    add(m_offlineDefaultSkinVersion);
-    add(currentVersionId);
-    add(m_settings->lastLaunchedVersion());
-    return versions;
-}
-
-void MainWindow::applyPlayerSkin(const QString &skinPath, const QString &capePath, bool slim) {
-    QImage skin;
-    if (!skinPath.isEmpty()) {
-        skin = QImage(skinPath);
-    }
-    QImage cape;
-    if (!capePath.isEmpty()) {
-        cape = QImage(capePath);
-    }
-    if (skin.isNull()) {
-        // 载不进来（文件被删了、下了一半、或者路径本来就是空的）→ 退回默认外观。
-        // 这是**正常的一条路**，不是异常：这条路上 UI 什么都不用说，右栏那句话会由
-        // updateSkinHint() 按"手上有没有真皮肤"重新挑一档。
-        skin = SkinModel::defaultSteveSkin();
-        cape = QImage();
-        m_skinPath.clear();
-        m_capePath.clear();
-    } else {
-        // 只记**真的载入成功了的**路径：所以 m_skinPath 为空就等于"现在显示的是默认外观"。
-        m_skinPath = skinPath;
-        m_capePath = cape.isNull() ? QString() : capePath;
-    }
-
-    m_ui->getSkinViewer()->setSkin(skin, cape, slim);
-    // 头像在这里**算一次存起来**：updateBottomBar() 每次进度刷新（几百毫秒一次）都会
-    // 被调，在它里面现算等于一直在重渲染同一张 8×8 的皮肤。裁切和放大都在
-    // SkinModel::headAvatar() 里（最近邻放大，保持像素画的那个方块感）。
-    m_avatarPixmap = QPixmap::fromImage(SkinModel::headAvatar(skin, MainWindowUI::avatarSize()));
-    // 那个窗里的 3D 预览跟着**同一份贴图**走：它和这里是同一个东西的两个窗口，
-    // 各下各的、各画各的就会出现"主页换了、那个窗还是旧外观"。挂在 applyPlayerSkin()
-    // 里是因为这是全仓**唯一**一处决定"现在显示的是哪一套外观"的地方（贴图从哪来、
-    // 档案怎么换都不影响这条）。
-    if (m_accountSkinDialog != nullptr) {
-        m_accountSkinDialog->setLooks(skin, cape, slim);
-    }
-    updateSkinHint();
-    updateBottomBar();
-}
-
 void MainWindow::updateSkinHint() {
+    // ★ 2026-10-15：这里不再去读外观那九个成员（它们跟着决策搬进 PlayerSkinController 了），
+    //   改成问它要**几格事实**再挑一句。分工是：那一边说"现在是什么状况"，这里说"这种状况
+    //   该讲哪一句中文" —— 文案仍然只在这一层出现（`MainWindowUI` 那五句），那一层一个中文字
+    //   都不认识（也不许认识 `ui/`）。
     const QString name = m_authManager->playerName();
     QLabel *hint = m_ui->getSkinHintLabel();
+    const PlayerSkinController::HintFacts facts = m_playerSkin->hintFacts();
     // 离线账号有一套自己的话（"正版外观"那句对它是错的，"未登录"那句也不对 ——
     // 它是**故意**不登录的，读起来像出错了）。判据只有一个：当前账号本身是不是离线账号。
-    const bool offline = offlineIdentity();
-    if (!m_skinPath.isEmpty()) {
-        if (!offline) {
-            hint->setText(MainWindowUI::skinHintLoadedText(name, !m_capePath.isEmpty()));
-        } else if (!m_offlineDefaultSkinVersion.isEmpty()) {
+    if (facts.hasSkin) {
+        if (!facts.offline) {
+            hint->setText(MainWindowUI::skinHintLoadedText(name, facts.hasCape));
+        } else if (!facts.offlineDefaultSkinVersionId.isEmpty()) {
             // 算出来的那张官方默认皮肤（见 DefaultSkin）：说得比"随机挑的"准一点 —— 这是
             // 那个版本的客户端本来就会给他分配的那一张。版本号**不是废话**：换版本这张脸
             // 真的会变（两套规矩算出来的不是同一张），那句话要能解释这件事。
+            // NOTE: 这一格存的是目录名，显示名是这一层翻的（`instanceDisplayName()`）——
+            //       那一层拿不到下拉框，也不该拿到。
             hint->setText(MainWindowUI::skinHintOfflineDefaultSkinText(
-                name, instanceDisplayName(m_offlineDefaultSkinVersion)));
+                name, instanceDisplayName(facts.offlineDefaultSkinVersionId)));
         } else {
             hint->setText(MainWindowUI::skinHintOfflineLoadedText(name));
         }
-    } else if (offline) {
+    } else if (facts.offline) {
         // 那张随机外观还没画上：不是"还在要"就是"没要到"。这两句都不弹窗（理由同
         // PlayerSkinStore.hpp 文件头：外观是装饰，取不到也照样能启动游戏）。
-        hint->setText(m_skinFetchInFlight ? MainWindowUI::skinHintLoadingText(name)
-                                          : MainWindowUI::skinHintFailedText(name));
-    } else if (!m_authManager->loggedIn()) {
+        hint->setText(facts.fetching ? MainWindowUI::skinHintLoadingText(name)
+                                     : MainWindowUI::skinHintFailedText(name));
+    } else if (!facts.loggedIn) {
         hint->setText(MainWindowUI::skinHintNotLoggedInText());
-    } else if (m_skinFetchInFlight) {
+    } else if (facts.fetching) {
         hint->setText(MainWindowUI::skinHintLoadingText(name));
     } else {
         hint->setText(MainWindowUI::skinHintFailedText(name));
@@ -4298,7 +3934,7 @@ InstanceFilter::Facts MainWindow::instanceFilterFacts(const VersionDisplayParts 
     facts.updatable = !m_instanceOutdatedPaths.value(part.id).isEmpty();
     // 「最近运行」认的是启动账本（`wtfml.history`，跟着当前游戏文件夹走）。账本只留最近
     // 二十来条 ⇒ 很久没玩过的实例会从这一档里掉出去，口径写在那一颗的 tooltip 里。
-    for (const LaunchHistory::Record &record : m_launchHistory) {
+    for (const LaunchHistory::Record &record : m_launchHistory->records()) {
         if (record.instanceId == part.id) {
             facts.recent = true;
             break;
@@ -7279,29 +6915,6 @@ bool MainWindow::pickServerInstallerJava(const ServerInstall::Request &request, 
 // （mw_check 的 T41 拿本工程自己的 exe 当"服务端"跑整趟）。这一片是**接线** ——
 // "谁在什么时候按了什么 → 调哪一个"，以及"界面上那颗按钮现在该写什么字"。
 
-ServerRun::ServerProcess *MainWindow::serverProcessFor(const QString &serverId) {
-    if (serverId.isEmpty()) {
-        return nullptr;
-    }
-    if (ServerRun::ServerProcess *existing = m_serverProcesses.value(serverId, nullptr)) {
-        return existing;
-    }
-    auto *process = new ServerRun::ServerProcess(this);
-    m_serverProcesses.insert(serverId, process);
-    // ★ 这几条**只接一次**（一个服务端一份进程对象，表里那个值只增不减）。接在
-    //   `startServer()` 里的话，第二次启动会接上第二遍 —— 同一行日志记两回。
-    connect(process, &ServerRun::ServerProcess::message, this,
-            [this](const QString &text) { appendLog(text); });
-    connect(process, &ServerRun::ServerProcess::statusChanged, this,
-            &MainWindow::onServerStatusChanged);
-    connect(process, &ServerRun::ServerProcess::lineAppended, this,
-            &MainWindow::onServerLineAppended);
-    connect(process, &ServerRun::ServerProcess::forceKillAvailable, this,
-            &MainWindow::onServerForceKillAvailable);
-    connect(process, &ServerRun::ServerProcess::exited, this, &MainWindow::onServerExited);
-    return process;
-}
-
 void MainWindow::activateServerRow(const QString &serverId) {
     if (serverId.isEmpty()) {
         return;
@@ -7311,7 +6924,7 @@ void MainWindow::activateServerRow(const QString &serverId) {
         repairServer(serverId);  // 未装好 ⇒ 那颗按钮就是「修复」
         return;
     }
-    const ServerRun::ServerProcess *process = m_serverProcesses.value(serverId, nullptr);
+    const ServerRun::ServerProcess *process = m_serverWorkspace->process(serverId);
     if (process != nullptr && process->isRunning()) {
         stopServer(serverId);
         return;
@@ -7331,7 +6944,7 @@ void MainWindow::startServer(const QString &serverId) {
                                ServerRun::notInstalledMessage());
         return;
     }
-    ServerRun::ServerProcess *process = serverProcessFor(serverId);
+    ServerRun::ServerProcess *process = m_serverWorkspace->ensureProcess(serverId);
     if (process == nullptr) {
         return;
     }
@@ -7397,7 +7010,7 @@ void MainWindow::startServer(const QString &serverId) {
 }
 
 void MainWindow::stopServer(const QString &serverId) {
-    ServerRun::ServerProcess *process = m_serverProcesses.value(serverId, nullptr);
+    ServerRun::ServerProcess *process = m_serverWorkspace->process(serverId);
     if (process == nullptr || !process->isRunning()) {
         return;
     }
@@ -7411,7 +7024,7 @@ void MainWindow::stopServer(const QString &serverId) {
 }
 
 void MainWindow::forceKillServer(const QString &serverId) {
-    ServerRun::ServerProcess *process = m_serverProcesses.value(serverId, nullptr);
+    ServerRun::ServerProcess *process = m_serverWorkspace->process(serverId);
     if (process == nullptr || !process->isRunning()) {
         return;
     }
@@ -7432,7 +7045,7 @@ void MainWindow::openServerConsole(const QString &serverId) {
         connect(m_serverConsolePage, &ServerConsolePage::commandSubmitted, this,
                 [this](const QString &command) {
                     ServerRun::ServerProcess *process =
-                        m_serverProcesses.value(m_serverConsoleId, nullptr);
+                        m_serverWorkspace->process(m_serverConsoleId);
                     if (process == nullptr || !process->sendCommand(command)) {
                         appendLog(tr("这一条没有送到服务端（它已经不在跑了）。"));
                     }
@@ -7445,7 +7058,7 @@ void MainWindow::openServerConsole(const QString &serverId) {
     m_serverConsoleId = serverId;
     const ServerRegistry::Entry entry = ServerRegistry::describe(serverId);
     m_serverConsolePage->setServerName(entry.name.isEmpty() ? serverId : entry.name);
-    const ServerRun::ServerProcess *process = m_serverProcesses.value(serverId, nullptr);
+    const ServerRun::ServerProcess *process = m_serverWorkspace->process(serverId);
     // 开页时把**攒下来的**那些行灌一遍：这一页关着的时候它也一直在跑，重新打开不该
     // 只剩"从打开这一刻起"的日志。
     m_serverConsolePage->setLog(process != nullptr ? process->logLines() : QStringList());
@@ -7469,7 +7082,7 @@ void MainWindow::updateServerConsole() {
     if (m_serverConsolePage == nullptr || m_serverConsoleId.isEmpty()) {
         return;
     }
-    const ServerRun::ServerProcess *process = m_serverProcesses.value(m_serverConsoleId, nullptr);
+    const ServerRun::ServerProcess *process = m_serverWorkspace->process(m_serverConsoleId);
     const ServerModel::Status status =
         process != nullptr ? process->status() : ServerModel::Status::Stopped;
     const bool running = process != nullptr && process->isRunning();
@@ -7523,7 +7136,7 @@ void MainWindow::removeServer(const QString &serverId) {
     if (serverId.isEmpty()) {
         return;
     }
-    const ServerRun::ServerProcess *process = m_serverProcesses.value(serverId, nullptr);
+    const ServerRun::ServerProcess *process = m_serverWorkspace->process(serverId);
     if (process != nullptr && process->isRunning()) {
         // 跑着的进程还开着这个目录里的文件（世界那几份是它自己在写），先让它停下。
         InlineMessage::warning(m_ui->overlay(), tr("它还在跑"),
@@ -7550,9 +7163,7 @@ void MainWindow::removeServer(const QString &serverId) {
     }
     // 进程对象一起收掉：它现在没在跑，但表里留着的话，下次 `describe()` 同名的那个会
     // 拿到上一辈子的状态（而且行都没了，它再发信号就是对着空气说）。
-    if (ServerRun::ServerProcess *dead = m_serverProcesses.take(serverId)) {
-        dead->deleteLater();
-    }
+    m_serverWorkspace->removeProcess(serverId);
     if (m_serverConsoleId == serverId) {
         m_serverConsoleId.clear();
     }
@@ -7575,7 +7186,7 @@ void MainWindow::showServerContextMenu(const QPoint &pos) {
     }
     tree->setCurrentItem(item);
     const ServerRegistry::Entry entry = ServerRegistry::describe(serverId);
-    const ServerRun::ServerProcess *process = m_serverProcesses.value(serverId, nullptr);
+    const ServerRun::ServerProcess *process = m_serverWorkspace->process(serverId);
     const bool running = process != nullptr && process->isRunning();
 
     QMenu menu(this);
@@ -7764,7 +7375,7 @@ void MainWindow::refreshServerSettingsPage() {
     page->setServerName(entry.name.isEmpty() ? serverId : entry.name);
 
     // 在跑的时候整页只读（见 .hpp 里那段：它退出时会把自己内存里那份写回盘上）。
-    const ServerRun::ServerProcess *process = m_serverProcesses.value(serverId, nullptr);
+    const ServerRun::ServerProcess *process = m_serverWorkspace->process(serverId);
     const bool running = process != nullptr && process->isRunning();
     m_serverSettingsEditable = !running;
     QString statusText =
@@ -8006,7 +7617,7 @@ ServerCheck::Facts MainWindow::serverCheckFacts() {
     facts.launchProblem = launchProblem;
     facts.eulaAccepted = ServerRegistry::readEula(serverId);
 
-    const ServerRun::ServerProcess *process = m_serverProcesses.value(serverId, nullptr);
+    const ServerRun::ServerProcess *process = m_serverWorkspace->process(serverId);
     facts.running = process != nullptr && process->isRunning();
 
     const ServerModel::Properties properties = ServerRegistry::readProperties(serverId);
@@ -8200,7 +7811,7 @@ void MainWindow::backupServerWorld(const QString &serverId) {
                                    tr("已经有一份备份或者还原在跑了，等它完了再来。"));
         return;
     }
-    const ServerRun::ServerProcess *process = m_serverProcesses.value(serverId, nullptr);
+    const ServerRun::ServerProcess *process = m_serverWorkspace->process(serverId);
     if (process != nullptr && process->isRunning()) {
         // 和"游戏在跑不给备份世界"同一条理由：它每隔几秒就在往存档里写，这时候抄出来的
         // 那一份可能正好截在半截写入上。
@@ -8263,7 +7874,7 @@ void MainWindow::restoreServerWorldBackup(const QString &serverId, const QString
                                    tr("已经有一份备份或者还原在跑了，等它完了再来。"));
         return;
     }
-    const ServerRun::ServerProcess *process = m_serverProcesses.value(serverId, nullptr);
+    const ServerRun::ServerProcess *process = m_serverWorkspace->process(serverId);
     if (process != nullptr && process->isRunning()) {
         InlineMessage::warning(m_ui->overlay(), tr("恢复备份"),
                                tr("这个服务端正在跑。先让它停下来再还原 —— 不然它退出的时候"
@@ -8366,28 +7977,7 @@ bool MainWindow::ensureServerEula(const QString &serverId) {
 }
 
 ServerInstall::Plan MainWindow::serverLaunchPlan(const QString &serverId, QString *problem) const {
-    if (problem != nullptr) {
-        problem->clear();
-    }
-    const ServerModel::Info info = ServerRegistry::readMeta(serverId);
-    if (info.isEmpty()) {
-        if (problem != nullptr) {
-            *problem = tr("这一个不是启动器装的（目录里没有我们记的那一份），不知道它该按"
-                          "哪一档起。\n让它自己把入口文件备齐，或者删了重新建一个。");
-        }
-        return ServerInstall::Plan();
-    }
-    ServerInstall::Request request;
-    request.flavor = info.flavor;
-    request.gameVersion = info.gameVersion;
-    request.loaderVersion = info.loaderVersion;
-    request.installerVersion = info.installerVersion;
-    request.buildId = info.buildId;
-    const ServerInstall::Plan plan = ServerInstall::planFor(request);
-    if (!plan.ok && problem != nullptr) {
-        *problem = plan.problem;  // 那一层给的 problem 就是给用户看的话，别另编一句
-    }
-    return plan;
+    return ServerWorkspaceController::launchPlan(serverId, problem);
 }
 
 void MainWindow::updateServerRow(const QString &serverId) {
@@ -8408,7 +7998,7 @@ void MainWindow::updateServerRow(const QString &serverId) {
         return;  // 这一行已经不在列表里了（删掉了 / 还没重扫出来）
     }
     const ServerRegistry::Entry entry = ServerRegistry::describe(serverId);
-    const ServerRun::ServerProcess *process = m_serverProcesses.value(serverId, nullptr);
+    const ServerRun::ServerProcess *process = m_serverWorkspace->process(serverId);
     const ServerModel::Status status =
         process != nullptr
             ? process->status()
@@ -8476,7 +8066,7 @@ void MainWindow::onServerLineAppended(const QString &serverId, const QString &li
 }
 
 void MainWindow::onServerForceKillAvailable(const QString &serverId) {
-    const ServerRun::ServerProcess *process = m_serverProcesses.value(serverId, nullptr);
+    const ServerRun::ServerProcess *process = m_serverWorkspace->process(serverId);
     const int seconds = (process != nullptr ? process->gracefulMs() : 0) / 1000;
     appendLog(tr("%1：%2").arg(serverId, ServerRun::forceKillNote(seconds)));
     if (m_serverConsolePage != nullptr && m_serverConsoleId == serverId) {
@@ -8490,7 +8080,7 @@ void MainWindow::onServerForceKillAvailable(const QString &serverId) {
 }
 
 void MainWindow::onServerExited(const QString &serverId, int exitCode) {
-    const ServerRun::ServerProcess *process = m_serverProcesses.value(serverId, nullptr);
+    const ServerRun::ServerProcess *process = m_serverWorkspace->process(serverId);
     const ServerRegistry::Entry entry = ServerRegistry::describe(serverId);
     const QString shown = entry.name.isEmpty() ? serverId : entry.name;
     updateServerRow(serverId);
@@ -8516,29 +8106,11 @@ void MainWindow::onServerExited(const QString &serverId, int exitCode) {
 }
 
 int MainWindow::countServerMods(const QString &dirPath) {
-    const QDir modsDir(QDir(dirPath).filePath(QStringLiteral("mods")));
-    if (!modsDir.exists()) {
-        return 0;
-    }
-    int count = 0;
-    const QFileInfoList entries = modsDir.entryInfoList(QDir::Files | QDir::NoDotAndDotDot);
-    for (const QFileInfo &info : entries) {
-        // ★ 禁用过的模组（`X.jar.disabled`，见文件管理那一页那颗开关）**不算**：它不会被
-        //   加载，也就不参与收尾。判据和那一页「这一条是哪个文件」用的是同一个（去掉那四个
-        //   字母之后看后缀），只是这里只需要一个数、不需要那把钥匙。
-        if (info.fileName().endsWith(QStringLiteral(".jar"), Qt::CaseInsensitive)) {
-            ++count;
-        }
-    }
-    return count;
+    return ServerWorkspaceController::countEnabledMods(dirPath);
 }
 
 qint64 MainWindow::serverWorldBytes(const QString &dirPath) {
-    // ★ 这一处**写死 `world`**，是给控制台那一页（M4-3）用的：它只知道"目录里那个叫 world
-    //   的文件夹多大"，不认识 `level-name`。真按 `level-name` 算的那一份是
-    //   `serverWorldDir()`（M4-4 的体检和备份走它）—— 两处都在，因为一个在"没开过页"的
-    //   那条路上（列表行上那点信息），一个在"这一页正在看着谁"的那条路上。
-    return directoryBytes(QDir(dirPath).filePath(QStringLiteral("world")));
+    return ServerWorkspaceController::defaultWorldBytes(dirPath);
 }
 
 void MainWindow::updateNewServerSummary(NewServerPage *page) {
@@ -11623,109 +11195,27 @@ void MainWindow::onStartButtonClicked() {
 
 // ============================ 「上一次启动」那本账（coding plan §5.1） ============================
 //
-// 主页「上次游玩」快速入口背后的账。判据层在 `manage/LaunchHistory`，这一片负责在进程
-// 真正起来和结束时记账，再把历史翻成快速入口列表；UI 只负责排版和动作回调。
+// 主页「上次游玩」快速入口背后的账。**账本身 2026-10-15 搬去了 `LaunchHistoryController`**
+// （读盘、记账、改结局、快捷启动那个目标怎么翻、写盘失败只记日志那一套，连同内存里那一份）；
+// 判据层照旧在 `manage/LaunchHistory`。留在这一片的是**只有主窗口说得出的那两格**：见下面
+// `appendLaunchRecord()` 和 `updateHomeRecent()`。
 //
 // ★ §5.1 那条区分很要紧：「上一次」以**成功创建游戏进程**为准，不以点击启动按钮为准 ——
 //   所以产品的写点只有 `onStartButtonClicked()` 里 `sessionId > 0` 那一段，登录失败 /
 //   Java 挑不出来 / 进程没起来那几条早退路径一个字都不记（它们是"没试成"，不是"上次玩了
 //   什么"）。
 
-LaunchHistory::Result MainWindow::launchHistoryResult(bool crashed, bool neverStarted) {
-    // 判据的**唯一出处**在这儿，两个读者都走它：产品那一侧（onGameFinished 里现算的两个
-    // 事实 —— 退出码是不是异常、游戏有没有打出一行日志）和验证工程摆的那一位。
-    if (neverStarted) {
-        return LaunchHistory::Result::StartFailed;
-    }
-    return crashed ? LaunchHistory::Result::Crash : LaunchHistory::Result::NormalExit;
-}
-
-QuickPlay::Kind MainWindow::quickPlayKindFor(LaunchHistory::Target target) {
-    return target == LaunchHistory::Target::Server ? QuickPlay::Kind::Multiplayer
-                                                   : QuickPlay::Kind::Singleplayer;
-}
-
-void MainWindow::loadLaunchHistory() {
-    // 文件不在 / 认不出来 = 空账（`LaunchHistory::load()` 的规矩），不是错误：一次都没
-    // 启动过的新用户就是这样，那时主页那张卡整块收起来。
-    m_launchHistory = LaunchHistory::load(LaunchHistory::historyPath());
-    updateHomeRecent();
-}
-
 void MainWindow::appendLaunchRecord(const QString &versionId, const QuickPlay::Target &quickPlay,
                                     qint64 startedAtMs) {
-    LaunchHistory::Record record;
-    record.instanceId = versionId;
-    // **启动那一刻**那一句显示名（里面已经带着版本和加载器）。实例以后改名、被删都不影响
-    // 这一条 —— "记录"该有的样子就是当时那句话。
-    record.instanceName = instanceDisplayName(versionId);
-    record.accountKey = launchIdentityKey();
-    record.startedAt = startedAtMs > 0 ? QDateTime::fromMSecsSinceEpoch(startedAtMs)
-                                       : QDateTime::currentDateTime();
-    // 写下去那一刻它是"还在跑"：结局在 onGameFinished 里改写（`finishLaunchRecord()`）。
-    record.result = LaunchHistory::Result::Running;
-    if (!quickPlay.isEmpty()) {
-        // 「世界 / 服务器只有通过 Quick Play 启动时才记录，普通进主菜单不能猜」（§5.1）——
-        // 走到这一支就说明**这一趟确实是游戏自己去那个进度**，值就是命令行上发出去的那一串
-        // （存档目录名 / 服务器地址），不另算一遍。
-        record.target = quickPlay.kind == QuickPlay::Kind::Multiplayer
-                            ? LaunchHistory::Target::Server
-                            : LaunchHistory::Target::World;
-        record.targetId = quickPlay.value;
-        if (record.target == LaunchHistory::Target::World) {
-            // 世界就是按**目录名**认的（见 WorldFiles.hpp 那段"两边都不读 level.dat 里的
-            // 世界名"），所以显示名 = 那一串本身就是对的。
-            record.targetDisplayName = quickPlay.value;
-        } else {
-            // 服务器：地址是稳定键，名字会改 —— 卡片上写名字更好认，所以现查一遍
-            // `servers.dat`（实例设置里那一页读的就是同一份）。查不到（这一台刚被删掉）
-            // 就让它空着，`targetLine()` 会退回写地址，卡片上不会多一句假话。
-            QList<NbtUtil::ServerEntry> entries;
-            QString problem;
-            NbtUtil::readServerList(ServerListFile::pathFor(versionId), &entries, &problem);
-            for (const NbtUtil::ServerEntry &entry : entries) {
-                if (entry.address == quickPlay.value) {
-                    record.targetDisplayName = entry.name;
-                    break;
-                }
-            }
-        }
-    }
-    m_launchHistory = LaunchHistory::prepend(m_launchHistory, record);
-    // 写不进去只记一句日志，**不弹窗**：这一趟的启动一点没被挡住（游戏照样起来了），只是
-    // 主页那张卡下次少一条记录 / 还显示上一条 —— 拿一个提示拦在用户和"进游戏"之间不成
-    // 比例。和 `ResourceStore` / `InstanceIconLookup` 那几处"best-effort 写盘"同一个口径。
-    if (!LaunchHistory::save(LaunchHistory::historyPath(), m_launchHistory)) {
-        appendLog(tr("没能把这次启动记进「上次游玩」：%1 写不进去。")
-                      .arg(QDir::toNativeSeparators(LaunchHistory::historyPath())));
-    }
-    updateHomeRecent();
-}
-
-void MainWindow::finishLaunchRecord(qint64 startedAtMs, LaunchHistory::Result result,
-                                    qint64 finishedAtMs) {
-    if (startedAtMs <= 0) {
-        return;  // 没记过这一趟（账上那条本该在），什么都不用改
-    }
-    for (LaunchHistory::Record &record : m_launchHistory) {
-        // 认的是**启动时刻**这一把钥匙：同一次启动写下去的就是它，退出那一刻会话早从
-        // LauncherManager 的表里摘掉了（见 onGameFinished 那段 NOTE）。
-        // `result == Running` 那一位是第二道闸：终态只落一次（重复的退出信号不改写第二次）。
-        if (record.result != LaunchHistory::Result::Running
-            || record.startedAt.toMSecsSinceEpoch() != startedAtMs) {
-            continue;
-        }
-        record.result = result;
-        if (finishedAtMs >= startedAtMs) {
-            record.durationSeconds = (finishedAtMs - startedAtMs) / 1000;
-        }
-        if (!LaunchHistory::save(LaunchHistory::historyPath(), m_launchHistory)) {
-            appendLog(tr("没能把这次启动的结局写进「上次游玩」：%1 写不进去。")
-                          .arg(QDir::toNativeSeparators(LaunchHistory::historyPath())));
-        }
-        updateHomeRecent();
-        return;
-    }
+    // 转手之前只补两格"只有这一层说得出来"的事实：
+    //   · **显示名**：`instanceDisplayName()` 读的是界面上那个下拉框，而且这一句要被**记下来**
+    //     —— 实例以后改名、被删都不影响这一条（"记录"该有的样子就是当时那句话）；
+    //   · **身份键**：`launchIdentityKey()` 读的是当前账号（离线账号的 uuid 是空的，那种情况
+    //     退回账号名）。
+    // 记账本身（认不认这一趟、快捷启动的目标怎么翻、结局怎么改写、写不进去怎么说话）全在
+    // 那一层里，见它文件头那段"为什么这一件事该有一个自己的 controller"。
+    m_launchHistory->recordStart(versionId, instanceDisplayName(versionId), launchIdentityKey(),
+                                 quickPlay, startedAtMs);
 }
 
 void MainWindow::updateHomeRecent() {
@@ -11750,7 +11240,7 @@ void MainWindow::updateHomeRecent() {
         }
     }
     const HomeQuickController::Rows rows = HomeQuickController::build(
-        installed, m_launchHistory, currentId, m_settings->homeFavoriteCount(),
+        installed, m_launchHistory->records(), currentId, m_settings->homeFavoriteCount(),
         m_settings->homeRecentCount());
     m_ui->setHomeQuickRows(rows.favorites, rows.recent);
 }
@@ -11765,7 +11255,7 @@ void MainWindow::openHomeInstancePicker() {
     QList<MainWindowUI::HomePickerInstance> instances;
 
     QSet<QString> recentIds;
-    for (const LaunchHistory::Record &record : m_launchHistory) {
+    for (const LaunchHistory::Record &record : m_launchHistory->records()) {
         if (record.isValid() && record.result != LaunchHistory::Result::StartFailed) {
             recentIds.insert(record.instanceId);
         }
@@ -11925,12 +11415,11 @@ void MainWindow::setupAccountSkinDialog() {
 }
 
 bool MainWindow::offlineIdentity() const {
-    // 读的是**盘上的活动槽**（AccountStore 那几个函数都是静态的、直接读写盘），不是
-    // AuthManager 里那份内存副本 —— 两者在"切账号"那一刻会短暂不一致（activate() 先写盘，
-    // 紧接着才调 setOfflinePlayer() / reloadStoredAccount()），而盘上那份才是权威。
-    // 没有当前账号（从没登录、或者刚把当前那个删掉）时 activeUuid() 是空串，isOffline()
-    // 对空串回 false —— 那种状态是"未登录"，不是"离线"。
-    return AccountStore::isOffline(AccountStore::activeUuid());
+    // ★ 2026-10-15：判据（连那段"为什么读盘不读内存副本"的道理）整个搬进
+    //   `PlayerSkinController::offlineIdentity()` 了 —— 外观那一套要按它决定"这一趟能不能
+    //   联网"，而这一层还有十几处读它，所以留一句转手。**唯一出处仍然是那一个静态函数**：
+    //   谁要判"现在是不是离线身份"都该走它，不要在这儿另写一份。
+    return PlayerSkinController::offlineIdentity();
 }
 
 QString MainWindow::accountSkinStatusText() const {
@@ -14985,49 +14474,12 @@ QString MainWindow::instanceIdOfPath(const QString &path) const {
 }
 
 QString MainWindow::latestConfigBackup(const QString &instanceId, const QString &path) const {
-    if (instanceId.isEmpty()) {
-        return QString();
-    }
-    const QString root = AppPaths::configBackupDir();
-    const QStringList names =
-        QDir(root + QLatin1Char('/') + instanceId).entryList(QDir::Dirs | QDir::NoDotAndDotDot);
-    QStringList mine;
-    for (const QString &name : names) {
-        // ★ 只认我们自己生成的那个形状（见 ConfigFileText::isBackupFolderName()）：用户往这个
-        //   目录里放了个同名文件夹的话，那不是"这个文件的上一次"。
-        if (ConfigFileText::isBackupFolderName(name)) {
-            mine.append(name);
-        }
-    }
-    // 名字倒序 == 时间倒序（定长的数字段，见 ConfigFileText::backupFolderName() 那段 NOTE）
-    // —— 命中的第一个就是最近那一份。
-    std::sort(mine.begin(), mine.end(), std::greater<QString>());
-    // 这一格**提到循环外面**：它跟 name 一点关系都没有，而 instanceFileDirs() 每跑一趟都要
-    // 建一个九项的 QHash（两串字面量 + 九次 QString 拼接）。原来那一版在循环里重算它。
-    const QString configDir =
-        instanceFileDirs(instanceId).value(QStringLiteral("config"));
-    for (const QString &name : mine) {
-        const QString candidate =
-            ConfigFileText::backupPathFor(root, instanceId, configDir, path, name);
-        if (QFileInfo::exists(candidate)) {
-            return candidate;
-        }
-    }
-    return QString();
+    return InstanceMaintenanceController::latestConfigBackup(
+        instanceId, instanceFileDirs(instanceId).value(QStringLiteral("config")), path);
 }
 
 void MainWindow::pruneConfigBackups(const QString &instanceId, int keep) {
-    if (instanceId.isEmpty()) {
-        return;
-    }
-    const QString dir = AppPaths::configBackupDir() + QLatin1Char('/') + instanceId;
-    const QStringList names = QDir(dir).entryList(QDir::Dirs | QDir::NoDotAndDotDot);
-    // 挑该删的这一步在 ConfigFileText 里（纯函数、验证工程直接喂名字进去量）：认不出的
-    // 名字一个都不碰。
-    const QStringList doomed = ConfigFileText::backupFoldersToRemove(names, keep);
-    for (const QString &name : doomed) {
-        QDir(dir + QLatin1Char('/') + name).removeRecursively();
-    }
+    InstanceMaintenanceController::pruneConfigBackups(instanceId, keep);
 }
 
 void MainWindow::openConfigFile(InstanceSettingsDialog *dialog, const QString &path) {
@@ -15328,71 +14780,12 @@ void MainWindow::restoreConfigFile(InstanceSettingsDialog *dialog, const QString
 // gzip（PowerShell 那一下大概一秒），换的是"我们只动用户点名的那几格"。
 
 bool MainWindow::backupWorldLevelData(const QString &worldDir, QString *problemOut) {
-    if (problemOut != nullptr) {
-        problemOut->clear();
-    }
-    const QString path = WorldFiles::levelDataPath(worldDir);
-    const auto fail = [problemOut](const QString &why) {
-        if (problemOut != nullptr) {
-            *problemOut = why;
-        }
-        return false;
-    };
-    if (!QFileInfo::exists(path)) {
-        return fail(tr("这个存档里没有 level.dat。"));
-    }
-
-    // 目录形状和配置备份一样：`<备份根>/<存档目录名>/<时间戳>/level.dat`
-    // （`ConfigFileText::backupPathFor()` 拼出来的就是它）。
-    const QString worldName = QFileInfo(worldDir).fileName();
-    const QString root = AppPaths::worldBackupDir();
-    const QStringList existing =
-        QDir(root + QLatin1Char('/') + worldName).entryList(QDir::Dirs | QDir::NoDotAndDotDot);
-    const QString folder = ConfigFileText::backupFolderName(QDateTime::currentDateTime(), existing);
-    const QString target = ConfigFileText::backupPathFor(root, worldName, worldDir, path, folder);
-    if (!QDir().mkpath(QFileInfo(target).absolutePath())) {
-        return fail(tr("建不出备份目录：%1").arg(QDir::toNativeSeparators(target)));
-    }
-
-    // ★ 抄的是**盘上那一份的字节**（不是"我们解出来又压回去的那一份"）：这样备份是原件
-    //   的逐字节复制，"还原"才有确定的意思。顺手也绕开了"压回去的字节和原来不完全一样"
-    //   这件事（gzip 头里有个 mtime，压两次未必一致）。
-    if (!QFile::copy(path, target)) {
-        return fail(tr("没能把 level.dat 抄到 %1（磁盘满了？还是那个文件打不开？）")
-                        .arg(QDir::toNativeSeparators(target)));
-    }
-
-    // 清理只删我们自己生成的文件夹名（见 ConfigFileText::backupFoldersToRemove()），
-    // 而且是**按存档**算代数：一个世界的备份留 20 份，不吃别人的。
-    const QString dir = root + QLatin1Char('/') + worldName;
-    const QStringList names = QDir(dir).entryList(QDir::Dirs | QDir::NoDotAndDotDot);
-    const QStringList doomed = ConfigFileText::backupFoldersToRemove(names, kConfigBackupGenerations);
-    for (const QString &name : doomed) {
-        QDir(dir + QLatin1Char('/') + name).removeRecursively();
-    }
-    return true;
+    return InstanceMaintenanceController::backupWorldLevelData(
+        worldDir, kConfigBackupGenerations, problemOut);
 }
 
 QString MainWindow::latestWorldBackup(const QString &worldDir) const {
-    const QString worldName = QFileInfo(worldDir).fileName();
-    const QString dir = AppPaths::worldBackupDir() + QLatin1Char('/') + worldName;
-    const QStringList names = QDir(dir).entryList(QDir::Dirs | QDir::NoDotAndDotDot);
-    // 名字倒序 == 时间倒序（定长的数字段，见 ConfigFileText::backupFolderName() 那段 NOTE）：
-    // 命中的第一个就是最近那一份。
-    QStringList mine;
-    for (const QString &name : names) {
-        if (ConfigFileText::isBackupFolderName(name)) {
-            mine.append(name);
-        }
-    }
-    std::sort(mine.begin(), mine.end(), std::greater<QString>());
-    for (const QString &name : mine) {
-        const QString candidate = dir + QLatin1Char('/') + name + QStringLiteral("/level.dat");
-        if (QFileInfo::exists(candidate)) {
-            return candidate;
-        }
-    }
-    return QString();
+    return InstanceMaintenanceController::latestWorldBackup(worldDir);
 }
 
 void MainWindow::showWorldSettingsPage(InstanceSettingsDialog *dialog, const QString &worldDir) {
@@ -19125,9 +18518,9 @@ void MainWindow::onGameFinished(int sessionId, int exitCode, QProcess::ExitStatu
     //     以后改判据就会有一处漏改）。
     const bool abnormalExit =
         !userStopped && GameExitDiagnosis::isAbnormal(exitCode, exitStatus == QProcess::CrashExit);
-    finishLaunchRecord(
+    m_launchHistory->recordFinish(
         m_sessionLaunchFacts.value(sessionId).startedAtMs,
-        launchHistoryResult(abnormalExit, m_launchingSessions.contains(sessionId)),
+        LaunchHistoryController::resultFor(abnormalExit, m_launchingSessions.contains(sessionId)),
         QDateTime::currentMSecsSinceEpoch());
 
     // 进程没了，它那一份的"启动中"要收掉；左下角那条"实例运行中"由 runningGames() 现算，

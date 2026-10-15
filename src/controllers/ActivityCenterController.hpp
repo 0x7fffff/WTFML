@@ -1,9 +1,12 @@
 #pragma once
 
 #include "tasks/TaskManager.hpp"
+#include "TaskCenterPanel.hpp"
 
 #include <QObject>
 #include <QSet>
+
+#include <functional>
 
 /**
  * Owns the activity ledger and the cross-task decisions used by the activity
@@ -33,6 +36,19 @@ public:
     bool markAllViewed();
     bool retryWouldWork(const Tasks::TaskSnapshot &task, bool retryPayloadAvailable) const;
     void markRetryConsumed();
+
+    TaskCenter::Item item(const Tasks::TaskSnapshot &task, bool cancelAvailable,
+                          bool retryPayloadAvailable, bool crashRecordAvailable) const;
+    QList<TaskCenter::Item> items(
+        const std::function<bool(const Tasks::TaskSnapshot &)> &cancelAvailable,
+        bool retryPayloadAvailable, const QSet<Tasks::TaskId> &crashRecordIds,
+        bool *viewStateChanged = nullptr);
+    bool itemForKey(const QString &key, TaskCenter::Item *out,
+                    const std::function<bool(const Tasks::TaskSnapshot &)> &cancelAvailable,
+                    bool retryPayloadAvailable,
+                    const QSet<Tasks::TaskId> &crashRecordIds) const;
+
+    static TaskCenter::State presentationState(Tasks::TaskState state);
 
     static Tasks::TaskCapabilities defaultCapabilities(Tasks::TaskKind kind);
 

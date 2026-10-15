@@ -26,6 +26,10 @@ set(HEADER_FILES
     src/controllers/JavaRuntimeController.hpp
     src/controllers/ActivityCenterController.hpp
     src/controllers/HomeQuickController.hpp
+    src/controllers/InstanceMaintenanceController.hpp
+    src/controllers/ServerWorkspaceController.hpp
+    src/controllers/PlayerSkinController.hpp
+    src/controllers/LaunchHistoryController.hpp
     src/launcher/LauncherManager.hpp
     src/launcher/LibraryRules.hpp
     src/launcher/ProcessPriority.hpp
@@ -143,6 +147,10 @@ set(SOURCE_FILES
     src/controllers/JavaRuntimeController.cpp
     src/controllers/ActivityCenterController.cpp
     src/controllers/HomeQuickController.cpp
+    src/controllers/InstanceMaintenanceController.cpp
+    src/controllers/ServerWorkspaceController.cpp
+    src/controllers/PlayerSkinController.cpp
+    src/controllers/LaunchHistoryController.cpp
     src/launcher/LauncherManager.cpp
     src/launcher/AsciiPathAlias.cpp
     src/launcher/VersionInheritance.cpp

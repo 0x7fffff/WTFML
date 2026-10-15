@@ -23,6 +23,12 @@ set(HEADER_FILES
     ${REPO_ROOT}/src/controllers/JavaRuntimeController.hpp
     ${REPO_ROOT}/src/controllers/ActivityCenterController.hpp
     ${REPO_ROOT}/src/controllers/HomeQuickController.hpp
+    ${REPO_ROOT}/src/controllers/InstanceMaintenanceController.hpp
+    ${REPO_ROOT}/src/controllers/ServerWorkspaceController.hpp
+    ${REPO_ROOT}/src/controllers/PlayerSkinController.hpp
+    # 「上一次启动」那本账的驱动层（2026-10-15 从 MainWindow 搬出来的）：MainWindow.hpp 里
+    # 那三个给验证工程摆现场的 inline 入口直接调它的静态函数和成员函数，少了这个头就编不过。
+    ${REPO_ROOT}/src/controllers/LaunchHistoryController.hpp
     ${REPO_ROOT}/src/launcher/LauncherManager.hpp
     ${REPO_ROOT}/src/launcher/LibraryRules.hpp
     ${REPO_ROOT}/src/auth/AuthManager.hpp
@@ -60,6 +66,13 @@ set(SOURCE_FILES
     ${REPO_ROOT}/src/controllers/JavaRuntimeController.cpp
     ${REPO_ROOT}/src/controllers/ActivityCenterController.cpp
     ${REPO_ROOT}/src/controllers/HomeQuickController.cpp
+    ${REPO_ROOT}/src/controllers/InstanceMaintenanceController.cpp
+    ${REPO_ROOT}/src/controllers/ServerWorkspaceController.cpp
+    ${REPO_ROOT}/src/controllers/PlayerSkinController.cpp
+    # 「上一次启动」那本账的驱动层（同上）：少了这一个文件会在链接那一步报一串
+    # `LaunchHistoryController::…` 的 undefined reference（它调的 ServerListFile / NbtUtil
+    # 下面都已经在清单里了）。
+    ${REPO_ROOT}/src/controllers/LaunchHistoryController.cpp
     ${REPO_ROOT}/src/launcher/LauncherManager.cpp
     ${REPO_ROOT}/src/auth/AuthManager.cpp
     ${REPO_ROOT}/src/auth/AccountStore.cpp
