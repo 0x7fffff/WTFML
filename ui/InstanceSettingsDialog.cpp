@@ -756,6 +756,10 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         auto *button = new QPushButton(checkUpdatesText(), cell);
         button->setObjectName(checkUpdatesButtonName());
         button->setToolTip(checkUpdatesButtonTooltip());
+        // ★ 白（`Neutral`）："检查…"这一档**只读不写** —— 按下去出现的是一个结果，盘上
+        //   一个字都不变（同「打开目录…」「导出…」）。2026-10-15 之前这里没挂档，于是它
+        //   跟着底色吃了**绿的那一档**（见 Theme.hpp 里 `ButtonKind` 那段）。
+        Theme::markButton(button, Theme::ButtonKind::Neutral);
         connect(button, &QPushButton::clicked, this,
                 [this]() { emit checkUpdatesRequested(); });
         prepareActionButton(button);
@@ -788,6 +792,9 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         auto *button = new QPushButton(updateCenterText(), cell);
         button->setObjectName(updateCenterButtonName());
         button->setToolTip(updateCenterButtonTooltip());
+        // ★ 白（`Neutral`）：它连网都不联，只是把上一次那份结论摆开（见上面那段 NOTE）——
+        //   比「检查更新」还轻，同一档。
+        Theme::markButton(button, Theme::ButtonKind::Neutral);
         connect(button, &QPushButton::clicked, this, [this]() { emit updateCenterRequested(); });
         prepareActionButton(button);
         column->addWidget(button);
@@ -812,6 +819,9 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         auto *button = new QPushButton(integrityCheckText(), cell);
         button->setObjectName(integrityCheckButtonName());
         button->setToolTip(integrityCheckTooltip());
+        // ★ 白（`Neutral`）：和对面那颗「检查更新」同一档 —— 按下去先**出一份报告**
+        //   （真去补文件是报告页上另一颗按钮的事），所以它自己这一步是只读的。
+        Theme::markButton(button, Theme::ButtonKind::Neutral);
         connect(button, &QPushButton::clicked, this,
                 [this]() { emit integrityCheckRequested(); });
         prepareActionButton(button);
