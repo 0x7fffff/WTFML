@@ -21,10 +21,29 @@ get_filename_component(REPO_ROOT ${REPO_ROOT} REALPATH)
 set(HEADER_FILES
     ${REPO_ROOT}/src/MainWindow.hpp
     ${REPO_ROOT}/src/controllers/JavaRuntimeController.hpp
+    ${REPO_ROOT}/src/controllers/JavaSettingsController.hpp
+    ${REPO_ROOT}/src/controllers/LauncherPreferencesController.hpp
+    ${REPO_ROOT}/src/controllers/CrashReportController.hpp
+    ${REPO_ROOT}/src/controllers/IntegrityController.hpp
+    ${REPO_ROOT}/src/controllers/BackupController.hpp
+    ${REPO_ROOT}/src/controllers/ServerPingController.hpp
+    ${REPO_ROOT}/src/controllers/FolderController.hpp
+    ${REPO_ROOT}/src/controllers/ModpackExportController.hpp
+    ${REPO_ROOT}/src/controllers/InstanceFileController.hpp
+    ${REPO_ROOT}/src/controllers/InstanceTransferController.hpp
+    ${REPO_ROOT}/src/controllers/InstanceDialogController.hpp
+    ${REPO_ROOT}/src/controllers/InstanceEditorController.hpp
+    ${REPO_ROOT}/src/controllers/ImportController.hpp
+    ${REPO_ROOT}/src/controllers/GameSessionController.hpp
+    ${REPO_ROOT}/src/controllers/LaunchController.hpp
+    ${REPO_ROOT}/src/controllers/ConnectionsController.hpp
+    ${REPO_ROOT}/src/controllers/InstanceIconController.hpp
     ${REPO_ROOT}/src/controllers/ActivityCenterController.hpp
     ${REPO_ROOT}/src/controllers/HomeQuickController.hpp
     ${REPO_ROOT}/src/controllers/InstanceMaintenanceController.hpp
     ${REPO_ROOT}/src/controllers/ServerWorkspaceController.hpp
+    ${REPO_ROOT}/src/controllers/ServerSettingsController.hpp
+    ${REPO_ROOT}/src/controllers/ThemeSettingsController.hpp
     ${REPO_ROOT}/src/controllers/PlayerSkinController.hpp
     # 「上一次启动」那本账的驱动层（2026-10-15 从 MainWindow 搬出来的）：MainWindow.hpp 里
     # 那三个给验证工程摆现场的 inline 入口直接调它的静态函数和成员函数，少了这个头就编不过。
@@ -74,10 +93,29 @@ set(HEADER_FILES
 set(SOURCE_FILES
     ${REPO_ROOT}/src/MainWindow.cpp
     ${REPO_ROOT}/src/controllers/JavaRuntimeController.cpp
+    ${REPO_ROOT}/src/controllers/JavaSettingsController.cpp
+    ${REPO_ROOT}/src/controllers/LauncherPreferencesController.cpp
+    ${REPO_ROOT}/src/controllers/CrashReportController.cpp
+    ${REPO_ROOT}/src/controllers/IntegrityController.cpp
+    ${REPO_ROOT}/src/controllers/BackupController.cpp
+    ${REPO_ROOT}/src/controllers/ServerPingController.cpp
+    ${REPO_ROOT}/src/controllers/FolderController.cpp
+    ${REPO_ROOT}/src/controllers/ModpackExportController.cpp
+    ${REPO_ROOT}/src/controllers/InstanceFileController.cpp
+    ${REPO_ROOT}/src/controllers/InstanceTransferController.cpp
+    ${REPO_ROOT}/src/controllers/InstanceDialogController.cpp
+    ${REPO_ROOT}/src/controllers/InstanceEditorController.cpp
+    ${REPO_ROOT}/src/controllers/ImportController.cpp
+    ${REPO_ROOT}/src/controllers/GameSessionController.cpp
+    ${REPO_ROOT}/src/controllers/LaunchController.cpp
+    ${REPO_ROOT}/src/controllers/ConnectionsController.cpp
+    ${REPO_ROOT}/src/controllers/InstanceIconController.cpp
     ${REPO_ROOT}/src/controllers/ActivityCenterController.cpp
     ${REPO_ROOT}/src/controllers/HomeQuickController.cpp
     ${REPO_ROOT}/src/controllers/InstanceMaintenanceController.cpp
     ${REPO_ROOT}/src/controllers/ServerWorkspaceController.cpp
+    ${REPO_ROOT}/src/controllers/ServerSettingsController.cpp
+    ${REPO_ROOT}/src/controllers/ThemeSettingsController.cpp
     ${REPO_ROOT}/src/controllers/PlayerSkinController.cpp
     # 「上一次启动」那本账的驱动层（同上）：少了这一个文件会在链接那一步报一串
     # `LaunchHistoryController::…` 的 undefined reference（它调的 ServerListFile / NbtUtil

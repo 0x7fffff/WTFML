@@ -1,0 +1,193 @@
+#include "controllers/CrashReportController.hpp"
+
+#include "controllers/ActivityCenterController.hpp"
+#include "InlineMessage.hpp"
+#include "util/AppPaths.hpp"
+#include "util/ErrorReport.hpp"
+#include "util/SystemMemory.hpp"
+#include "settings/GlobalJavaSettings.hpp"
+
+#include <QCoreApplication>
+#include <QDesktopServices>
+#include <QDir>
+#include <QFileDialog>
+#include <QSaveFile>
+#include <QStandardPaths>
+#include <QUrl>
+
+#include <utility>
+
+CrashReportController::CrashReportController(ActivityCenterController *activity,
+                                             OverlayHost *overlay, QWidget *dialogParent,
+                                             Host host, QObject *parent)
+    : QObject(parent), m_activity(activity), m_overlay(overlay),
+      m_dialogParent(dialogParent), m_host(std::move(host)) {}
+
+void CrashReportController::log(const QString &message) const {
+    if (m_host.log) m_host.log(message);
+}
+
+int CrashReportController::lineCount(const QString &text) {
+    if (text.isEmpty()) return 0;
+    int count = text.count(QLatin1Char('\n'));
+    return count + (text.endsWith(QLatin1Char('\n')) ? 0 : 1);
+}
+
+QString CrashReportController::lastLines(const QString &text, int maxLines) {
+    if (text.isEmpty() || maxLines <= 0) return {};
+    const QStringList lines = text.split(QLatin1Char('\n'));
+    const int total = !lines.isEmpty() && lines.last().isEmpty() ? lines.size() - 1 : lines.size();
+    if (total <= maxLines) return text;
+    return lines.mid(total - maxLines, maxLines).join(QLatin1Char('\n')) + QLatin1Char('\n');
+}
+
+CrashReportController::Record CrashReportController::buildRecord(
+    int sessionId, int exitCode, bool crashed, const LaunchFacts &launch,
+    const QString &errorLog, const QString &fullLog) const {
+    Record record;
+    record.sessionId = sessionId;
+    record.facts.exitCode = exitCode;
+    record.facts.crashed = crashed;
+    record.facts.instanceId = launch.instanceId;
+    record.facts.instanceName = launch.instanceName;
+    record.facts.requiredJavaMajor = launch.requiredJavaMajor;
+    record.facts.javaPath = launch.javaPath;
+    record.facts.xmxMb = launch.xmxMb;
+    record.facts.xmsMb = launch.xmsMb;
+    record.facts.loaderName = launch.loaderName;
+    record.facts.loaderVersion = launch.loaderVersion;
+    record.accountName = launch.accountName;
+    record.processId = launch.processId;
+    if (launch.startedAtMs > 0) record.startedAt = QDateTime::fromMSecsSinceEpoch(launch.startedAtMs);
+    if (!launch.javaPath.isEmpty())
+        record.facts.usedJavaMajor = GlobalJavaSettings::probeJavaMajorVersion(launch.javaPath);
+    record.facts.totalMemoryMb = SystemMemory::read().totalMb;
+    record.errorLines = lineCount(errorLog);
+    record.totalLines = lineCount(fullLog);
+    record.errorExcerpt = lastLines(errorLog, GameExitDiagnosis::kExcerptLineLimit);
+    record.logTail = lastLines(fullLog, GameExitDiagnosis::kLogTailLineLimit);
+    record.facts.errorLineCount = record.errorLines;
+    record.facts.logCaptured = !record.logTail.isEmpty();
+    record.facts.sawOutOfMemory = GameExitDiagnosis::logShowsOutOfMemory(record.logTail);
+    record.facts.sawMissingDependency = GameExitDiagnosis::logShowsMissingDependency(record.logTail);
+    return record;
+}
+
+Tasks::TaskId CrashReportController::report(int sessionId, int exitCode, bool crashed,
+                                            const LaunchFacts &launch,
+                                            const QString &errorLog,
+                                            const QString &fullLog) {
+    for (Tasks::TaskId id : m_records.keys())
+        if (!m_activity->tasks()->has(id)) m_records.remove(id);
+    const Record record = buildRecord(sessionId, exitCode, crashed, launch, errorLog, fullLog);
+    const QString where = record.facts.instanceName.isEmpty() ? record.facts.instanceId
+                                                              : record.facts.instanceName;
+    const QString title = where.isEmpty() ? tr("游戏异常退出") : tr("游戏异常退出 · %1").arg(where);
+    const QStringList hints = GameExitDiagnosis::hints(record.facts);
+    const QString exitText = GameExitDiagnosis::exitDescription(exitCode);
+    QList<Tasks::TaskStep> steps{
+        {tr("收集退出信息"), Tasks::TaskStepState::Done, exitText},
+        {tr("对已知原因"), Tasks::TaskStepState::Done,
+         hints.isEmpty() ? tr("没有能指认的原因") : tr("%1 条").arg(hints.size())}};
+    const Tasks::TaskId id = m_activity->begin(Tasks::TaskKind::Crash, title,
+                                               record.facts.instanceId, steps);
+    if (id == Tasks::invalidTaskId()) return id;
+    m_activity->tasks()->setDetail(id, tr("退出码 %1").arg(exitText));
+    m_records.insert(id, record);
+    QString summary = GameExitDiagnosis::summary(record.facts);
+    if (!hints.isEmpty()) summary += QStringLiteral("\n\n") + hints.join(QLatin1Char('\n'));
+    m_activity->finish(id, false, summary, false);
+    return id;
+}
+
+QSet<Tasks::TaskId> CrashReportController::recordIds() const {
+    return QSet<Tasks::TaskId>(m_records.keyBegin(), m_records.keyEnd());
+}
+
+bool CrashReportController::hasRecord(Tasks::TaskId id) const { return m_records.contains(id); }
+
+int CrashReportController::sessionIdForTask(Tasks::TaskId id) const {
+    const auto it = m_records.constFind(id);
+    return it == m_records.cend() ? 0 : it->sessionId;
+}
+
+QString CrashReportController::exportDirectory() {
+    const QString desktop = QStandardPaths::writableLocation(QStandardPaths::DesktopLocation);
+    return desktop.isEmpty() ? QDir::homePath() : desktop;
+}
+
+QString CrashReportController::writeExportFile(const QString &path, const QString &text) {
+    QString body = text;
+    body.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
+    body.replace(QStringLiteral("\n"), QStringLiteral("\r\n"));
+    const QByteArray bytes = body.toUtf8();
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) return file.errorString();
+    if (file.write(bytes) != bytes.size() || !file.commit()) return file.errorString();
+    return {};
+}
+
+void CrashReportController::exportReport(const QString &key) {
+    bool parsed = false;
+    const Tasks::TaskId id = key.toInt(&parsed);
+    const auto found = parsed ? m_records.constFind(id) : m_records.cend();
+    if (found == m_records.cend()) return;
+    const Record &record = found.value();
+    ErrorReport::Facts facts;
+    facts.launcherVersion = QCoreApplication::applicationVersion();
+    facts.instanceName = record.facts.instanceName;
+    facts.instanceId = record.facts.instanceId;
+    facts.accountName = record.accountName;
+    facts.systemDescription = ErrorReport::systemDescription();
+    facts.processId = record.processId;
+    facts.startedAt = record.startedAt;
+    facts.finished = true;
+    facts.crashed = record.facts.crashed;
+    facts.exitCode = record.facts.exitCode;
+    facts.errorLines = record.errorLines;
+    facts.totalLines = record.totalLines;
+    if (record.facts.usedJavaMajor > 0 && !record.facts.javaPath.isEmpty())
+        facts.javaVersion = tr("%1（%2）").arg(record.facts.usedJavaMajor).arg(record.facts.javaPath);
+    else if (record.facts.usedJavaMajor > 0)
+        facts.javaVersion = QString::number(record.facts.usedJavaMajor);
+    else
+        facts.javaVersion = record.facts.javaPath;
+    if (!record.facts.loaderName.isEmpty())
+        facts.loaderVersion = record.facts.loaderVersion.isEmpty()
+                                  ? record.facts.loaderName
+                                  : QStringLiteral("%1 %2").arg(record.facts.loaderName,
+                                                                 record.facts.loaderVersion);
+    if (record.facts.xmxMb > 0 || record.facts.xmsMb > 0) {
+        facts.memoryArgs = tr("-Xmx %1 MB / -Xms %2 MB").arg(record.facts.xmxMb).arg(record.facts.xmsMb);
+        if (record.facts.totalMemoryMb > 0)
+            facts.memoryArgs += tr("（本机共 %1 MB）").arg(record.facts.totalMemoryMb);
+    }
+    facts.hints = GameExitDiagnosis::hints(record.facts);
+    const QDateTime now = QDateTime::currentDateTime();
+    const QString suggested = QDir(exportDirectory()).filePath(
+        ErrorReport::suggestedFileName(record.facts.instanceName, now));
+    const QString path = QFileDialog::getSaveFileName(m_dialogParent, tr("导出错误报告"),
+                                                      suggested, tr("文本文件 (*.txt);;所有文件 (*)"));
+    if (path.isEmpty()) return;
+    const QString error = writeExportFile(path, ErrorReport::text(
+        facts, now, record.errorExcerpt, record.logTail));
+    if (!error.isEmpty()) {
+        log(tr("导出错误报告失败：%1").arg(error));
+        InlineMessage::warning(m_overlay, tr("导出失败"),
+                               tr("这个文件没能写出来（%1）：\n%2")
+                                   .arg(QDir::toNativeSeparators(path), error));
+        return;
+    }
+    log(tr("✓ 错误报告已导出：%1").arg(QDir::toNativeSeparators(path)));
+}
+
+void CrashReportController::openReportsDirectory() {
+    const QString dir = AppPaths::crashReportsDir();
+    if (!QDir().exists(dir)) {
+        InlineMessage::warning(m_overlay, tr("还没有崩溃报告"),
+            tr("游戏没有在 %1 下写过崩溃报告。\n\n游戏跑到一半被强制结束、或者压根没跑到能写报告那一步时，是不会有这一份的。")
+                .arg(QDir::toNativeSeparators(dir)));
+        return;
+    }
+    QDesktopServices::openUrl(QUrl::fromLocalFile(dir));
+}

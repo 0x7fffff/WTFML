@@ -128,6 +128,25 @@
 // 地方都把 QtWidgets 里那个大块头拖进来。
 class QDragEnterEvent;  // 拖进来的文件（只用指针，所以前置声明够）
 class QDropEvent;
+class ServerSettingsController;
+class ThemeSettingsController;
+class JavaSettingsController;
+class LauncherPreferencesController;
+class CrashReportController;
+class IntegrityController;
+class BackupController;
+class ServerPingController;
+class FolderController;
+class ModpackExportController;
+class InstanceFileController;
+class InstanceTransferController;
+class InstanceDialogController;
+class InstanceEditorController;
+class ImportController;
+class GameSessionController;
+class LaunchController;
+class ConnectionsController;
+class InstanceIconController;
 class QTreeWidget;  // 下载页那几张资源表（只用指针和引用，所以前置声明够）
 class QTreeWidgetItem;
 class QThread;  // 图标反查那一趟（见 m_instanceIconThread），同上只按指针持有
@@ -648,63 +667,13 @@ private slots:
     /// 体检跑完了（同样在 UI 线程上）。收任务、存结论、开报告页。
     void onIntegrityScanFinished(const VersionIntegrity::Report &report);
 
-    // ---------- 世界与实例备份（coding plan §4.4，2026-10-13）----------
-    //
-    // 四个入口（世界那一页三颗 + 概览那两颗）最后都落到**同一个**引擎
-    // （`src/manage/BackupFiles`）和**同一趟**后台活上。分成"打一份"和"还原一份"两条路：
-    //
-    //   打一份：世界页「立即备份」/ 概览「创建快照…」 → `startBackupWrite()`
-    //   还原：  世界页「恢复备份…」/ 概览「从快照恢复…」 → `startBackupRestore()`
-    //
-    // ★ 一次只跑一趟（共用 `m_backupTaskId`）：备份和还原都是"走一遍整棵目录、算每个文件的
-    //   哈希"，两趟叠着跑只会互相抢盘，而且账本里那两行进度会一起跳。
-    //
-    // NOTE: 走 `QThread::create` + `invokeMethod` 那一套（和体检同一个路数）而不是
-    //       `QtConcurrent`：这两趟都**没有**进度回调（"一共多少个文件"要等整棵走完才知道，
-    //       见 .cpp 里那一段），所以不需要 `QFutureWatcher` 那一层。
-
-    /// 用户点了世界页的「立即备份」：把整个存档文件夹打成一个 zip（`TaskKind::Backup`）。
+    // 世界与实例备份的状态、线程与结果处理均由 BackupController 持有。
     void backupWorldNow(const QString &worldDir);
-    /// 用户点了世界页的「恢复备份…」：挑一份这个世界的备份还原回去。
     void restoreWorldBackup(const QString &worldDir);
-    /// 用户点了概览栏的「创建快照…」：先问一句"要不要连能重新下回来的那部分一起打包"，
-    /// 再把这个实例打成一个 zip。
     void snapshotInstance(const QString &versionId);
-    /// 用户点了概览栏的「从快照恢复…」：挑一份这个实例的快照还原回去。
     void restoreInstanceSnapshot(const QString &versionId);
-    /// 打开备份目录（`Kind` 只决定进哪一个子目录：世界 / 实例）。
     void openBackupFolder(BackupFiles::Kind kind);
-    /// 在 @p dir 底下按**文件名前缀**挑出属于 @p label 的那些备份，让用户选一份。
-    ///
-    /// @param what 只有"一份都还没有"那句话用得上（「这个世界」/「这个实例」）。
-    /// @return 选中的那份 zip 的绝对路径；一份都没有 / 用户取消 = **空串**（该说的话
-    ///         已经在这个函数里弹过了，调用方直接 return 就是）。
-    QString pickBackupZip(const QString &dir, const QString &label, const QString &what);
 
-    /// 起一趟"打一份备份"的后台活。返回账本里那一项的任务号（没起成 = 无效号）。
-    ///
-    /// @param manifest 描述（`files` / `totalBytes` 由后台那一趟自己填）
-    /// @param sourceDir 要打进去的目录
-    /// @param targetZip 落点（父目录由这一层建）
-    /// @param title 账本上那一行写什么
-    /// @param targetId 这一项挂在哪个实例上（打开日志 / 打开目标位置用它）
-    /// @param successTitle 成功之后那个框的标题（世界和实例各说各的）
-    Tasks::TaskId startBackupWrite(const BackupFiles::Manifest &manifest, const QString &sourceDir,
-                                   const QString &targetZip, const QString &title,
-                                   const QString &targetId, const QString &successTitle);
-    /// 起一趟"还原一份备份"的后台活（先做安全快照 → 挪走旧的那一份 → 解压 → 对账）。
-    Tasks::TaskId startBackupRestore(const QString &zipPath, const QString &targetParentDir,
-                                     const QString &title, const QString &targetId,
-                                     const QString &successTitle);
-    /// 后台那一趟打完了（**一定在 UI 线程上**）：收任务、记日志、弹结果。
-    void onBackupWriteFinished(const BackupFiles::WriteResult &result, const QString &successTitle);
-    /// 后台那一趟还原完了（同样在 UI 线程上）。
-    void onBackupRestoreFinished(const BackupFiles::RestoreResult &result,
-                                 const QString &successTitle);
-    /// 这一份备份的文件名在**盘上是否真在**（挑备份那两处按前缀筛完再核一遍）。
-    /// 顺带把"多大 / 什么时候的"拼成一句给清单用（**读一份清单要起一次 PowerShell**，
-    /// 所以挑之前只看得见文件名和这个便宜的大小/时间，见 `BackupFiles::backupFilePrefix`）。
-    static QString backupPickLine(const QString &zipPath);
     /// 「复制实例」（2026-09-28，用户原话「实例设置的概览里面加一条复制实例，点击以后让
     /// 用户选择复制到的文件夹，然后给定复制后的实例名称」）。
     ///
@@ -1069,32 +1038,8 @@ private slots:
     /// 上面那份列表读不动的原因（空串 = 读到了）。见 loadServerList() 那条 NOTE。
     QString serverListProblem(const QString &versionId) const;
 
-    /// 问一遍每台服务器现在什么样，把结果灌回那一页（2026-09-27，见 .cpp 里那段）。
-    ///
-    /// ★ 2026-09-27 起它**不再自己等**：整趟交给后台线程上的 `ServerPing::Pinger`，一台
-    ///   问完回来一台（用户原话：「现在如果没测完会锁住其他按钮，不能这样」）。所以这一发
-    ///   立刻返回，界面在这几秒里照常能用 —— 「测速」那颗按钮自己显示「测速中…」，
-    ///   别的都不禁用。
-    ///
-    /// NOTE: 重复调用是**安全的**：已经有一趟在跑、而且**地址表一模一样**时，它只把界面
-    ///       接回来（换到新开的那一页、把已经攒下的结果摆上去），不重开一趟。
-    /// ★★ 2026-09-27：地址表**不一样**时不能这么接 —— 结果是按下标摆的，接回来就是
-    ///       张冠李戴（B 那一页的第 3 行显示 A 的第 3 台）。那一路改成"记下欠着的活、
-    ///       等这一趟收摊再开"，见 .cpp 里那段和 onServerPingAllFinished。
+    /// 请求服务器列表测速；运行状态与缓存回灌由 ServerPingController 持有。
     void pingServers(InstanceSettingsDialog *dialog, const QString &versionId);
-
-    /// 照一份地址表**真开一趟**（读缓存垫底、把表摆上、丢给 Pinger）。前提：没有别的趟
-    /// 在跑（调用方判 `m_serverPing.active`）。
-    ///
-    /// NOTE: 「这份地址表现在该显示成什么样」那两下（读缓存 → 一行行摆法）**不是成员**：
-    ///       它们只用 ServerStatusCache，而 `InstanceSettingsDialog::ServerRowStatus` 是
-    ///       嵌套类型、这个头只前向声明了那个类（要在这儿写出返回类型就得把 ui/ 的头拉进来）。
-    ///       见 .cpp 里那对文件内的函数。
-    void beginServerPingRun(InstanceSettingsDialog *dialog, const QString &versionId,
-                            const QStringList &addresses);
-
-    /// 把 `m_serverPing` 现在攒下的东西摆到那一页上。**没开着就什么都不做**。
-    void pushServerPingRows();
 
     /// 启用 / 禁用一条：把文件名改成 `<原名>.disabled`，或者反过来。
     /// @return **动过盘没有** —— 真了调用点才需要让那一页重列（没动过还重列会让用户
@@ -1420,9 +1365,14 @@ protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
+    friend class InstanceDialogController;
+    friend class InstanceEditorController;
+    friend class ImportController;
+    friend class GameSessionController;
+    friend class LaunchController;
+    friend class ConnectionsController;
+    friend class InstanceIconController;
     void setupConnections();
-    void continueModpackExport(const ModpackExport::ExportPlan &plan, const QString &targetPath,
-                               ModpackExport::Format format);
 
     // ---------- 「世界设置」那两格状态（2026-09-28）----------
     //
@@ -1846,10 +1796,6 @@ private:
                                     const QString &problem);
     void onResourceIconReady(const QString &iconId, const QPixmap &icon);
 
-    /// 服务器那一趟测速：一台问完了 / 全问完了（都从**工作线程**发出来，Qt 自己排队投递到
-    /// 主线程，所以这两个函数里可以随便碰界面）。
-    void onServerPingOne(int index, const ServerPing::Status &status);
-    void onServerPingAllFinished();
     /// 从请求钥匙反查是哪一类（钥匙是 ResourceCatalog::searchRequestKey() 拼的）。
     /// 拼和认都走那一个函数，所以这里不解析字符串。
     ///
@@ -2836,46 +2782,6 @@ private:
     /// 回车也不会把界面卡住（见 ResourceStore.hpp 文件头那段）。
     ResourceStore *m_resourceStore;
 
-    // ---------- 「服务器列表」那一趟测速（2026-09-27）----------
-    //
-    /// 一趟测速的状态。
-    ///
-    /// ★ 为什么要有这么一个东西：测速从 2026-09-27 起跑在**后台线程**上、一台一台排队
-    ///   回来，而结果回来的时候"用户还在不在那一页""那一页还在不在"都是不确定的
-    ///   （这几秒里他完全可能把设置页关掉、去点别的东西）。所以：
-    ///     * `dialog` 是**弱引用** —— 关掉之后它是空的，那些回来的结果就只写缓存、不碰界面
-    ///       （往一个已经析构的对话框上写是 use-after-free，不是"多画一笔"）；
-    ///     * `fresh` / `cached` 的键是**服务器在 servers.dat 里的下标**（`Pinger` 的信号
-    ///       带的就是那个下标），所以"哪一台问回来了"和"哪一台还只有上次那份"分得清。
-    struct ServerPingRun {
-        QPointer<InstanceSettingsDialog> dialog;
-        /// 地址表（就是发给 Pinger 的那一份），下标 ↔ servers.dat 里的行。
-        QStringList addresses;
-        /// 这一趟是**哪个实例**的。只为一件事：`addresses` 一样、实例不一样时（两台服务器
-        /// 列表碰巧相同）日志里能说清是哪一趟 —— 摆到界面上按的是地址表，不看这个。
-        QString versionId;
-        /// ★★ 2026-09-27 加：这一趟跑着的时候用户又问了**另一份地址表**（换了实例、改了
-        /// servers.dat 再按「刷新」…）时记在这儿 —— 那一刻不能改账，因为这一趟剩下的结果
-        /// 还在队列里、按下标写的是**这一份**表（见 pingServers 里那段）。等这一趟收摊
-        /// （onServerPingAllFinished）才照这份表真开一趟。
-        ///
-        /// NOTE: 空 = 没有欠着的活（绝大多数趟）。
-        QStringList pendingAddresses;
-        QPointer<InstanceSettingsDialog> pendingDialog;
-        QString pendingVersionId;
-        /// 盘上缓存里"上一次问到"的那一份（键是下标）。**只在 fresh 里没有它时才用**。
-        QHash<int, ServerStatusCache::Entry> cached;
-        /// 这一趟真的问回来的（键是下标，同一台问了第二次也覆盖它）。
-        QHash<int, ServerPing::Status> fresh;
-        /// 现在算不算"有一趟在跑"。**这一位是权威**（`Pinger::running()` 只说线程在不在，
-        /// 而"线程跑完了、结果还在排队"的那一小会儿它已经是假了）。
-        bool active = false;
-    };
-    ServerPingRun m_serverPing;
-    /// 跑那一趟的东西（见 ServerPing::Pinger）。**整个窗口只有一个**：同一时刻只跑一趟，
-    /// 连点两下不会发两遍请求（start() 自己那条"已经在跑就不重开"）。
-    ServerPing::Pinger *m_serverPinger;
-
     // ---------- 「文件管理」那几页的图标（2026-09-27）----------
     //
     /// 一趟图标反查的状态。形状和上面那趟测速**故意是一样的**（弱引用 + 后台线程 +
@@ -3121,6 +3027,25 @@ private:
     int m_serverInstallStepCount = 0;
     /// 服务端进程的所有权、复用与信号汇聚属于服务端域，主窗口只呈现状态。
     ServerWorkspaceController *m_serverWorkspace = nullptr;
+    ServerSettingsController *m_serverSettingsController = nullptr;
+    ThemeSettingsController *m_themeSettingsController = nullptr;
+    JavaSettingsController *m_javaSettingsController = nullptr;
+    LauncherPreferencesController *m_launcherPreferences = nullptr;
+    CrashReportController *m_crashReports = nullptr;
+    IntegrityController *m_integrityController = nullptr;
+    BackupController *m_backupController = nullptr;
+    ServerPingController *m_serverPingController = nullptr;
+    FolderController *m_folderController = nullptr;
+    ModpackExportController *m_modpackExportController = nullptr;
+    InstanceFileController *m_instanceFileController = nullptr;
+    InstanceTransferController *m_instanceTransferController = nullptr;
+    InstanceDialogController *m_instanceDialogController = nullptr;
+    InstanceEditorController *m_instanceEditorController = nullptr;
+    ImportController *m_importController = nullptr;
+    GameSessionController *m_gameSessionController = nullptr;
+    LaunchController *m_launchController = nullptr;
+    ConnectionsController *m_connectionsController = nullptr;
+    InstanceIconController *m_instanceIconController = nullptr;
     /// 控制台那一页（懒建一次、之后复用，和「新建服务端」同一个路数）。
     ServerConsolePage *m_serverConsolePage = nullptr;
     /// 控制台那一页**现在说的是哪一个**服务端。
@@ -3370,12 +3295,6 @@ private:
     /// 「资源详情」那一整页（下载页点一个资源进去）。和上面那个一样：懒建、是 this 的子对象、
     /// 没开 WA_DeleteOnClose —— 关掉之后指针照样有效（见 setupResourceDetailPage）。
     ResourceDetailPage *m_resourceDetailPage = nullptr;
-    /// 「Java 管理」那一整页（设置页「启动」栏那颗按钮开出来的）。同上面两个：懒建、
-    /// 是 this 的子对象、没开 WA_DeleteOnClose —— 关掉之后指针照样有效。
-    ///
-    /// NOTE: 它和别的整页有一处不同：那一页**不长记性**（四行的内容每次开页现灌），
-    ///       所以不存在"关掉之后里面的数据过期了"这回事 —— 见 openJavaManage。
-    JavaManageDialog *m_javaManagePage = nullptr;
     // ★ 2026-10-15：这里原来有九个成员（m_skinPath / m_capePath / m_skinProfile /
     //   m_offlineDefaultSkinVersion / m_pendingRandomSkin* / m_randomSkinRequestUuid /
     //   m_skinFetchInFlight）—— **它们跟着决策一起搬进 PlayerSkinController 了**。
@@ -3481,51 +3400,6 @@ private:
     /// 实例设置同一个路数）。`ui/` 的类，所以是个裸指针 + `deleteLater`（见析构那一段）。
     TaskDetailPage *m_taskDetailPage = nullptr;
 
-    // ---------- 完整性检查（coding plan §4.1，2026-10-12）----------
-    // 这几个成员和"那一趟体检"同寿。扫描在后台线程里跑，账本里记成 `TaskKind::Integrity`。
-    /// 正在跑的那一趟体检的任务号（无效号 = 没在体检）。
-    Tasks::TaskId m_integrityTaskId = Tasks::invalidTaskId();
-    /// 正在体检哪个实例（**空 = 没在体检**）—— `integrityScanningVersion()` 读它，删除 /
-    /// 改名那两处按它拦一下（§4.1「同一实例不允许同时扫描和删除/改名」）。
-    QString m_integrityScanVersionId;
-    /// 跑体检的那个线程（`QThread::create`，和 m_instanceIconThread 同一个路数）。
-    QThread *m_integrityThread = nullptr;
-    /// 关窗 / 收尾时置上，让后台那一趟早点收手（worker 每比几条看一眼它，见 .cpp）。
-    QAtomicInt m_integrityAbort{0};
-    /// 最新那一份体检结论（报告页每次开都重新喂它一遍）。和 `m_integrityReportVersionId`
-    /// 一起用：结论总是**跟着这个实例**走的，别把 A 的结论喂给 B 的报告页。
-    VersionIntegrity::Report m_integrityReport;
-    QString m_integrityReportVersionId;
-    /// 体检报告页（**建一次留着**，每次开页 `setReport()` 重摆 —— 和任务详情页 / 资源详情页
-    /// 同一个路数）。`ui/` 的类，所以是个裸指针 + `deleteLater`（见析构那一段）。
-    IntegrityReportPage *m_integrityReportPage = nullptr;
-
-    // ---------- 备份 / 还原（coding plan §4.4，2026-10-13）----------
-    // 打一份和还原一份共用这一套：只有一趟能跑（见上面那段的 NOTE）。
-    /// 正在跑的那一趟的任务号（无效号 = 没在跑）。
-    Tasks::TaskId m_backupTaskId = Tasks::invalidTaskId();
-    /// 跑那一趟的线程（`QThread::create`，和 m_integrityThread 同一个路数）。
-    QThread *m_backupThread = nullptr;
-    /// 关窗时置上：让后台那一趟知道主窗口要没了（它跑完不再排回来）。
-    /// NOTE: 这两个引擎函数**没有中途收手的口子** —— 走到一半停下来只会留一个半截的包 /
-    ///       一个删了一部分的目录，比让它跑完糟得多（同 Export 不给「取消」那条理由）。
-    ///       所以这一位只用来"别把结果排回一个正在拆的窗口"，不是"掐断"。
-    QAtomicInt m_backupAbort{0};
-    /// 这一趟跑完之后要把「世界设置」那一页**重读一遍**（还原换掉的正是那一页上摆着的值）。
-    /// 存的是那个世界的目录；**空 = 不用重读**。
-    ///
-    /// NOTE: 只有**世界还原**那一条路会摆它 —— 打备份一个字节都不改盘，实例快照也不动
-    ///       这一页（它改的是实例目录，而那一页读的是 `level.dat`）。
-    QString m_backupRefreshWorldDir;
-    /// 这一趟跑完之后要把「服务端设置」那一页**重摆一遍**（存 serverId；**空 = 不用**）。
-    ///
-    /// ★ 服务端世界的备份 / 还原和上面那两条路共用一个引擎、也共用 `m_backupTaskId`
-    ///   那一趟（同一时刻只有一份备份在跑）—— 但"跑完了要刷哪儿"是三件不同的事，所以
-    ///   各记各的：世界页那一条记目录、实例快照不刷、这一条记服务端。
-    QString m_backupRefreshServerId;
-    /// 上面那一页还在不在（`QPointer`，和测速那几处同一个路数）：用户完全可能在备份跑完
-    /// 之前就返回、把实例设置收掉了。收掉了就什么都不做（盘上的事已经做完了）。
-    QPointer<InstanceSettingsDialog> m_backupRefreshDialog;
     // ★ 2026-09-27 加：会话号 → 那一份的实例显示名。**启动那一刻记一次**，退出时用掉、删掉。
     //
     // 唯一用途是 onGameFinished() 里那行日志的 `[实例名] ` 前缀 —— 那时会话已经从
@@ -3538,16 +3412,8 @@ private:
     // 是因为"在等什么"只有进那一段的人知道（换令牌 / 挑 Java / 等进程起来）。
     QString m_syncWaitStatus;
     // 后台正在写整合包。用它挡住同一实例页上的重复点击；完成回调会清掉。
-    bool m_modpackExportBusy = false;
     // 进度按网络分片到达（5000 多个 asset），节流一下再刷界面
     QElapsedTimer m_progressThrottle;
-    // 「设置」页的 Java 列表扫过没有。扫描要逐个跑 `java -version`，只在第一次
-    // 切到设置页时做一次；用户后来装了新 Java 想让它重扫，去「Java 管理」那一页按
-    // 「检测已有 Java」（2026-09-28 起），或者重开启动器。
-    bool m_javaListScanned = false;
-    // 这台机器上装了哪些 Java（主版本 -> java.exe）。**唯一**的出处是 scanLocalJava()；
-    // 认的人只有「Java 管理」那一页那四行。目录换了（folderChanged）时会作废重扫。
-    QMap<int, QString> m_localJavaVersions;
     // 窗口是不是为了「收起启动器，游戏退出后回来」这一档才藏起来的。
     // 只有它为真时 onGameFinished() 才会把窗口叫回来 —— 用户自己最小化的窗口
     // 不该被游戏的退出给弹出来。
@@ -3618,35 +3484,6 @@ private:
     /// `m_sessionDisplayNames` 同寿）—— 不清的话它会随着开过的实例数一直长。
     QHash<int, GameSessionFacts> m_sessionLaunchFacts;
 
-    /// 一项「游戏异常退出」任务留着的那一份东西。**任务收尾之后日志窗可能已经没了**，
-    /// 而「导出错误报告」那一刻还要用：退出码、Java / 内存那几个数、以及当时那一段日志。
-    struct CrashRecord {
-        GameExitDiagnosis::Facts facts;   ///< 诊断那几句读的东西
-        /// 这一场是**哪一号会话** —— 「打开日志」那颗键要拿它去找那一扇还开着的日志窗
-        /// （异常退出时日志窗不会自动关，见 `GameLogWindow::autoCloseOnExit()`）。
-        int sessionId = 0;
-        /// 导出那份报告还用的几样（诊断用不上，所以没塞进上面那个结构）。
-        QString accountName;
-        qint64 processId = 0;
-        QDateTime startedAt;
-        /// 不轻于 ERROR 的那些行（最多 `GameExitDiagnosis::kExcerptLineLimit` 行）。
-        QString errorExcerpt;
-        /// 整份输出的**末尾**（最多 `GameExitDiagnosis::kLogTailLineLimit` 行）：报告里
-        /// 那一段"完整日志"。
-        QString logTail;
-        /// 上面两段各自是从多少行里截出来的 —— 报告里要写明"只留了末尾 N 行"。
-        int errorLines = 0;
-        int totalLines = 0;
-    };
-    /// 任务号 → 那一份。**和账本同寿**：每次新建这一项时顺手把账本里已经没了的那些清掉
-    /// （用户按过「清除已完成」之后这里不该再留着）。
-    QHash<Tasks::TaskId, CrashRecord> m_crashRecords;
-
-    /// 这一项「游戏异常退出」要留住的那一份（启动事实 + 那一刻的日志）。
-    ///
-    /// NOTE: 启动事实可能是空的（早退路径、验证工程直接喂 `onGameFinished` 打的槽）——
-    ///       那时候出来的就是"只知道退出码"的一份，`hints()` 相应地少说几句，不编。
-    CrashRecord buildCrashRecord(int sessionId, int exitCode, bool crashed) const;
     /// 异常退出了 → 账本上补一项，并留一份 `CrashRecord`。
     void reportGameCrash(int sessionId, int exitCode, bool crashed);
 

@@ -24,10 +24,29 @@ set(CMAKE_AUTORCC ON)
 set(HEADER_FILES
     src/MainWindow.hpp
     src/controllers/JavaRuntimeController.hpp
+    src/controllers/JavaSettingsController.hpp
+    src/controllers/LauncherPreferencesController.hpp
+    src/controllers/CrashReportController.hpp
+    src/controllers/IntegrityController.hpp
+    src/controllers/BackupController.hpp
+    src/controllers/ServerPingController.hpp
+    src/controllers/FolderController.hpp
+    src/controllers/ModpackExportController.hpp
+    src/controllers/InstanceFileController.hpp
+    src/controllers/InstanceTransferController.hpp
+    src/controllers/InstanceDialogController.hpp
+    src/controllers/InstanceEditorController.hpp
+    src/controllers/ImportController.hpp
+    src/controllers/GameSessionController.hpp
+    src/controllers/LaunchController.hpp
+    src/controllers/ConnectionsController.hpp
+    src/controllers/InstanceIconController.hpp
     src/controllers/ActivityCenterController.hpp
     src/controllers/HomeQuickController.hpp
     src/controllers/InstanceMaintenanceController.hpp
     src/controllers/ServerWorkspaceController.hpp
+    src/controllers/ServerSettingsController.hpp
+    src/controllers/ThemeSettingsController.hpp
     src/controllers/PlayerSkinController.hpp
     src/controllers/LaunchHistoryController.hpp
     src/controllers/InstanceSettingsController.hpp
@@ -148,10 +167,29 @@ set(SOURCE_FILES
     src/main.cpp
     src/MainWindow.cpp
     src/controllers/JavaRuntimeController.cpp
+    src/controllers/JavaSettingsController.cpp
+    src/controllers/LauncherPreferencesController.cpp
+    src/controllers/CrashReportController.cpp
+    src/controllers/IntegrityController.cpp
+    src/controllers/BackupController.cpp
+    src/controllers/ServerPingController.cpp
+    src/controllers/FolderController.cpp
+    src/controllers/ModpackExportController.cpp
+    src/controllers/InstanceFileController.cpp
+    src/controllers/InstanceTransferController.cpp
+    src/controllers/InstanceDialogController.cpp
+    src/controllers/InstanceEditorController.cpp
+    src/controllers/ImportController.cpp
+    src/controllers/GameSessionController.cpp
+    src/controllers/LaunchController.cpp
+    src/controllers/ConnectionsController.cpp
+    src/controllers/InstanceIconController.cpp
     src/controllers/ActivityCenterController.cpp
     src/controllers/HomeQuickController.cpp
     src/controllers/InstanceMaintenanceController.cpp
     src/controllers/ServerWorkspaceController.cpp
+    src/controllers/ServerSettingsController.cpp
+    src/controllers/ThemeSettingsController.cpp
     src/controllers/PlayerSkinController.cpp
     src/controllers/LaunchHistoryController.cpp
     src/controllers/InstanceSettingsController.cpp
