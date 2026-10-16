@@ -1835,7 +1835,16 @@ void VersionManager::onFabricLoaderListReply(QNetworkReply *reply) {
     const QByteArray body = reply->readAll();
     QJsonParseError parseError;
     const QJsonDocument doc = QJsonDocument::fromJson(body, &parseError);
-    if (reply->error() != QNetworkReply::NoError || !doc.isArray()) {
+    // ★★ 2026-10-16（1.12.2 实测，用户报「明明有联网怎么老是失败」）：**先看回复里有没有
+    //   能读的东西，再看传输层报没报错** —— 不能拿 `reply->error()` 当第一道门。
+    //
+    //   Fabric 的接口遇到它**从没支持过**的游戏版本（1.12.2）回的是 `HTTP 400`、
+    //   **正文带着一个 `[]`**；Qt 把 400 记进 `reply->error()`，照着从前那个
+    //   `error != NoError` 的判断走，用户拿到的是「检查网络后重试」——
+    //   一个**永远不可能成功**的版本被报成网络抖动，连点 5 次就是同一句话 5 遍
+    //   （wtfml.log 里那天就是 5 遍）。正文读得出来就说明这一趟传输是通的，
+    //   该走的是下面那条「列表是空的 ⇒ 这个版本还没支持」。
+    if (!doc.isArray()) {
         failLoaderInstall(tr("拿不到 %1 的加载器列表（%2）。检查网络后重试。")
                               .arg(m_loaderInstall.gameVersion, reply->errorString()));
         return;
@@ -1844,8 +1853,10 @@ void VersionManager::onFabricLoaderListReply(QNetworkReply *reply) {
     const LoaderMeta::LoaderPick pick =
         LoaderMeta::pickFabricLoader(doc.array(), m_loaderInstall.channel);
     if (!pick.ok()) {
-        // 快照、或者比 Fabric 还早的版本：接口会回一个空数组。这不是网络问题，
-        // 也不能退回"装原版"——用户要的是带加载器的版本，装出来一个纯原版是骗人。
+        // 快照、或者比 Fabric 还支持的最老那一档（1.14）更早的版本（1.12.2 就是）：接口
+        // 回一个 `[]`（**而且带 400**，所以上一道门不能拿 `reply->error()` 判，见上面那条
+        // NOTE）。这不是网络问题，也不能退回"装原版"——用户要的是带加载器的版本，装出来
+        // 一个纯原版是骗人。
         failLoaderInstall(tr("Fabric 还没有支持 %1 的加载器（拿到的列表是空的）。")
                               .arg(m_loaderInstall.gameVersion));
         return;
@@ -2344,14 +2355,23 @@ void VersionManager::onProbeFinished(int exitCode, bool crashed) {
     if (!m_installerOptions.supportsInstallClient) {
         // 老安装器把"装客户端"做成了图形界面（不给参数就弹窗等人点），命令行里没有这条路。
         // 本启动器没法替用户点那个窗口，所以**明说**，不要拿一段 Java 堆栈糊过去。
+        //
+        // ★ 2026-10-16：那颗「装一次**哪个版本**」改成 `%3` 拼出来的一个串，**不要复用
+        //   `%1`** —— `QString::arg(a, b, c)` 是"同一个编号**全部**替换"，`%1` 写两遍就
+        //   两处都吃第一个参数、第三颗参数没处可去。Qt 当场往日志里丢一句
+        //   「1 argument(s) missing in %1 %2 的安装器…」，而用户看到的是
+        //   「装一次 Forge」—— 到底装哪个游戏版本，那一句里说不出来（实测就是这么打印的）。
+        const QString namedVersion =
+            m_loaderInstall.loaderName + QLatin1Char(' ') + m_loaderInstall.gameVersion;
         failLoaderInstall(tr("%1 %2 的安装器没有命令行安装这条路（它的帮助里只有 --extract / "
                              "--installServer / --offline）—— 那个年代的安装器装客户端只能靠"
                              "它的图形界面、要人点一下，本启动器替你点不了。\n"
-                             "这个版本请用原版启动器或 PCL 装一次 %1：装完本启动器认得出它、"
-                             "也能正常启动。1.12.2 及更新的游戏版本本启动器都能自动装"
-                             "（1.12.2 / 26.2 实测过）。")
+                             "这个版本请用原版启动器或 PCL 装一次 %3：装完本启动器认得出它、"
+                             "也能正常启动。（**原版** 1.12.2 及更新的游戏版本本启动器都能自己"
+                             "装，1.12.2 / 26.2 实测过 —— 卡住的只是这个年代的**加载器安装器**"
+                             "本身。）")
                               .arg(m_loaderInstall.loaderName, m_loaderInstall.loaderVersion,
-                                   m_loaderInstall.gameVersion));
+                                   namedVersion));
         return;
     }
 
