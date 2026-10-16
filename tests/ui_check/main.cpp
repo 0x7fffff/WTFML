@@ -13491,9 +13491,14 @@ int main(int argc, char *argv[]) {
                   "「这一行没有这一格」不一样，一列下来三格要对得齐）",
                   unknownDetail != nullptr ? unknownDetail->toolTip() : QString());
 
-            // 三格的**次序**。★ 2026-10-10：用户原话「详情和启用/禁用换个顺序」—— 行尾从此是
-            // **`[详情][开关][删除]`**（从前是 `[开关][详情][删除]`，那正是这条断言原来钉的
-            // 那一句，所以它必然要跟着改）。
+            // 行尾那几格的**次序**。★ 2026-10-10：用户原话「详情和启用/禁用换个顺序」—— 行尾
+            // 从此是 **`[详情][开关][删除]`**（从前是 `[开关][详情][删除]`）。
+            // ★★ 2026-10-16：资源包这一页的那颗「启用 / 禁用」**整个退场**了 —— 改名当启停
+            // 对资源包已经不成立（`fileKeyCanToggle()` 只留给模组和光影，资源包改走
+            // `options.txt` 的启用顺序页，见 U10d），所以这一页的行尾只剩
+            // **`[详情][删除]`**。这条断言问的次序还在（详情最左、删除最右），多钉一个
+            // "开关这一格**压根没有**"（`toggleButtonAt()` 回 nullptr）—— 只钉前两格的话，
+            // 开关哪天被顺手加回来照样绿。
             //
             // ★ 判据取**布局里的下标**（`QLayout::indexOf`），不取 x 坐标，两条理由：
             //   ① 详情那一格**现在默认是藏着的**（悬停才露，见 U10R ②），而"一个藏着的控件
@@ -13509,15 +13514,14 @@ int main(int argc, char *argv[]) {
             QAbstractButton *packToggle =
                 packRow < 0 ? nullptr : packPage->toggleButtonAt(packRow);
             QToolButton *packDelete = packRow < 0 ? nullptr : packPage->deleteButtonAt(packRow);
-            check(packRowLayout != nullptr && packDetail != nullptr && packToggle != nullptr &&
-                      packDelete != nullptr && packRowLayout->indexOf(packDetail) >= 0 &&
-                      packRowLayout->indexOf(packDetail) < packRowLayout->indexOf(packToggle) &&
-                      packRowLayout->indexOf(packToggle) < packRowLayout->indexOf(packDelete),
-                  "★★ U10N 行尾三格是 **[详情][开关][删除]**（用户原话「详情和启用/禁用换个"
-                  "顺序」—— 详情在最左、删除在最右）",
+            check(packRowLayout != nullptr && packDetail != nullptr && packDelete != nullptr &&
+                      packToggle == nullptr && packRowLayout->indexOf(packDetail) >= 0 &&
+                      packRowLayout->indexOf(packDetail) < packRowLayout->indexOf(packDelete),
+                  "★★ U10N 资源包那一页行尾是 **[详情][删除]**：改名开关退场（资源包走"
+                  "options.txt 的启用顺序页），详情在最左、删除在最右",
                   QStringLiteral("详情=%1 开关=%2 删除=%3")
                       .arg(packRowLayout != nullptr ? packRowLayout->indexOf(packDetail) : -1)
-                      .arg(packRowLayout != nullptr ? packRowLayout->indexOf(packToggle) : -1)
+                      .arg(packToggle != nullptr ? packRowLayout->indexOf(packToggle) : -1)
                       .arg(packRowLayout != nullptr ? packRowLayout->indexOf(packDelete) : -1));
 
             // ③ 点一下：报的**就是这一条文件的路径**，而且只报一次。
@@ -26313,7 +26317,29 @@ int main(int argc, char *argv[]) {
                 // 用 Tab 进来的焦点（真按 Tab 键也是这一档）——`setFocusPolicy` 没动过，
                 // 所以这一句同时也盯着"按钮默认可聚焦"这件事。
                 ringButton->setFocus(Qt::TabFocusReason);
+                // ★★ 2026-10-16：焦点环改成**只对键盘显示**了 —— `WtfmlProxyStyle` 画那圈环
+                //   之前先看 `wtfmlKeyboardFocus` 这个属性，而属性是应用级过滤器
+                //   （`Theme::apply()` 里挂的那一只 `ButtonFocusVisibility`）在"键盘来了"的
+                //   时候摆上的、鼠标一点就撤掉（那一层自己的语义在上面 U 那三条里钉）。
+                //   所以这里**照真路走一遍**：激活窗口 + 送一发 `FocusIn(TabFocusReason)`
+                //   —— 和上面那三条用的是同一个套路。★ 这里**不**手工 `setProperty()`：
+                //   属性归过滤器管，送事件才是它在真机上被摆上的方式。
+                //   这一条问的也就成了它该问的问题："键盘焦点进来之后那圈环有没有真上屏、
+                //   是不是那一档色"（环画在按钮自己的矩形里，所以下面量的是按钮那张图）。
+                ringHost.activateWindow();
+                QFocusEvent keyboardFocus(QEvent::FocusIn, Qt::TabFocusReason);
+                QApplication::sendEvent(ringButton, &keyboardFocus);
                 QApplication::processEvents();
+                check(ringButton->hasFocus() &&
+                          ringButton->property("wtfmlKeyboardFocus").toBool(),
+                      "★★ §8.3 键盘焦点进来了 ⇒ `wtfmlKeyboardFocus` 属性摆上"
+                      "（环画不画就看它这一格）",
+                      QStringLiteral("焦点 %1 / 属性 %2")
+                          .arg(ringButton->hasFocus() ? QStringLiteral("有")
+                                                      : QStringLiteral("无"),
+                               ringButton->property("wtfmlKeyboardFocus").toBool()
+                                   ? QStringLiteral("开")
+                                   : QStringLiteral("关")));
 
                 const QImage ringShot = captureWidget(ringButton);
                 const QColor ringInk = Theme::focusRingColor(ringButton->palette());
@@ -28515,8 +28541,18 @@ int main(int argc, char *argv[]) {
                       restore->text() == QStringLiteral("从快照恢复…"),
                   "U30.2 那四个字（连省略号）就是唯一出处里写的",
                   create->text() + QStringLiteral(" / ") + restore->text());
+            // ★★ 2026-10-16：这两颗**不再摆在概览上**了 —— 概览只留「更新」那一格，快照那
+            //   两格搬进了专属的「快照」页（`InstanceSettingsDialog` 建页时的 `snapshots`
+            //   那一支调 `moveOverviewAction()`）。所以这条断言**拆成两句**：概览上不许露脸、
+            //   切到快照页才露脸 —— 只留后半句的话，哪天有人把它们又摆回概览也照样绿
+            //   （`findChild` 找得到控件 ≠ 它在这一页上）。
+            //   `mw_check` T27.1 钉的是复制 / 删除那一对的同一件事。
+            check(!create->isVisible() && !restore->isVisible(),
+                  "★★ U30.2 概览那一页上**不再**摆快照那两颗（动作都搬进各自那页）");
+            dialog.showPage(QStringLiteral("snapshots"));
+            QApplication::processEvents();
             check(create->isVisible() && restore->isVisible(),
-                  "U30.2 概览那一页开着的时候两颗都看得见");
+                  "U30.2 切到「快照」那一页，两颗都看得见");
             // ★ 省略号是**故意的**：按下去之后还会再问一句（创建那颗问"要不要连着能重新
             //   下回来的那部分一起打包"）/ 还要挑一份（恢复那颗）。这套界面里省略号就是
             //   "后面还有一步"的意思，两颗都得带着。
@@ -28589,26 +28625,40 @@ int main(int argc, char *argv[]) {
                   updateCenter != nullptr ? kindOf(updateCenter)
                                           : QStringLiteral("<没找到>"));
 
-            // ---- 摆在「复制实例」和「删除实例」中间 ----
-            if (copy != nullptr && remove != nullptr) {
-                const auto orderOf = [](QWidget *w) {
-                    const QPoint p = w->mapToGlobal(QPoint(0, 0));
-                    return QPoint(p.x(), p.y());
-                };
-                const auto before = [](const QPoint &a, const QPoint &b) {
-                    return a.y() < b.y() || (a.y() == b.y() && a.x() < b.x());
-                };
-                check(before(orderOf(copy), orderOf(create)) &&
-                          before(orderOf(create), orderOf(restore)) &&
-                          before(orderOf(restore), orderOf(remove)),
-                      "★ U30.2 次序是「复制实例 → 创建快照… → 从快照恢复… → 删除实例」："
-                      "左边多出一个、中间这两颗是留一份 / 换回去、右边少掉一个",
-                      QStringLiteral("(%1,%2) (%3,%4) (%5,%6) (%7,%8)")
-                          .arg(orderOf(copy).x()).arg(orderOf(copy).y())
-                          .arg(orderOf(create).x()).arg(orderOf(create).y())
-                          .arg(orderOf(restore).x()).arg(orderOf(restore).y())
-                          .arg(orderOf(remove).x()).arg(orderOf(remove).y()));
-            }
+            // ---- 2026-10-16：四颗一条线的旧次序**已经分家** ----
+            //
+            // 从前这四颗在概览上排成一条线：「复制实例 → 创建快照… → 从快照恢复… →
+            // 删除实例」。现在复制 / 删除去了「实例操作」页、快照那两颗去了「快照」页 ——
+            // **不在同一页上就没有一条线可比**，所以改成每一页各自比一遍（量法不变：
+            // 同一行比 x、换行比 y）。
+            const auto pointOf = [](QWidget *w) {
+                if (w == nullptr) {
+                    return QPoint(-1, -1);
+                }
+                const QPoint p = w->mapToGlobal(QPoint(0, 0));
+                return QPoint(p.x(), p.y());
+            };
+            const auto before = [](const QPoint &a, const QPoint &b) {
+                return a.y() < b.y() || (a.y() == b.y() && a.x() < b.x());
+            };
+            dialog.showPage(QStringLiteral("operationsmenu"));
+            QApplication::processEvents();
+            check(copy != nullptr && remove != nullptr && copy->isVisible() &&
+                      remove->isVisible() && before(pointOf(copy), pointOf(remove)),
+                  "★ U30.2 实例操作页上「复制实例」排在「删除实例」**前面**"
+                  "（左边多出一个、右边少掉一个）",
+                  QStringLiteral("(%1,%2) (%3,%4)")
+                      .arg(pointOf(copy).x()).arg(pointOf(copy).y())
+                      .arg(pointOf(remove).x()).arg(pointOf(remove).y()));
+            dialog.showPage(QStringLiteral("snapshots"));
+            QApplication::processEvents();
+            check(create != nullptr && restore != nullptr && create->isVisible() &&
+                      restore->isVisible() && before(pointOf(create), pointOf(restore)),
+                  "★ U30.2 快照页上「创建快照…」排在「从快照恢复…」**前面**"
+                  "（留一份 / 换回去）",
+                  QStringLiteral("(%1,%2) (%3,%4)")
+                      .arg(pointOf(create).x()).arg(pointOf(create).y())
+                      .arg(pointOf(restore).x()).arg(pointOf(restore).y()));
 
             // ---- 点一下：各发各的信号（这一层只发信号，干活在 MainWindow）----
             int createClicks = 0;
