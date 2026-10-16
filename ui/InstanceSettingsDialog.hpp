@@ -329,7 +329,7 @@ public:
         return {QStringLiteral("世界备份"), QStringLiteral("截图"), QStringLiteral("Replay"),
                 QStringLiteral("结构"), QStringLiteral("完整性检查"), QStringLiteral("实例修复"),
                 QStringLiteral("日志"), QStringLiteral("崩溃报告"), QStringLiteral("启动诊断"),
-                QStringLiteral("快照管理"), QStringLiteral("导出整合包"),
+                QStringLiteral("快照与恢复"), QStringLiteral("导出整合包"),
                 QStringLiteral("实例迁移"), QStringLiteral("版本升级"),
                 QStringLiteral("完整性"), QStringLiteral("诊断"), QStringLiteral("实例操作")};
     }
@@ -355,7 +355,15 @@ public:
         return extra < 0 ? -1 : filePageFirstIndex() + filePageKeys().size() + extra;
     }
 
+    /// 旧的左栏那一列（`QListWidget`）。★ 2026-10-16 起它已经**不是界面上的导航**了 ——
+    /// 界面导航统一由 `navigationTreeName()` 那棵树承担，这一列在构造里 `hide()` 掉、只剩
+    /// "旧访问接口"这一个身份（见 .cpp 里那句 `m_pageList->hide()`）。要量"左栏"请用树。
     static QString pageListName() { return QStringLiteral("instanceSettingsPageList"); }
+    /// 左栏那棵导航树的 objectName（界面导航的唯一出处）。
+    static QString navigationTreeName() { return QStringLiteral("instanceLifecycleTree"); }
+    /// 左栏那棵导航树的宽度（**定宽**：它是一页的骨架，不跟着"现在露着哪几页"变 —— 见
+    /// .cpp 里 `setFixedWidth()` 那一句和 ui_check 的 U0g-2）。
+    static int navigationTreeWidth() { return 208; }
     static QString launchInstanceButtonName() {
         return QStringLiteral("instanceSettingsLaunchInstance");
     }
@@ -414,8 +422,13 @@ public:
     ///       另存一份"现在在哪一页"的影子状态迟早会和右栏对不上。
     QString currentPageKey() const;
 
-    /// 这两条给验证工程问几何用（认控件主要还是按 objectName）。
+    /// 这几条给验证工程问几何/结构用（认控件主要还是按 objectName）。
+    ///
+    /// ★ 2026-10-16：**左栏那条导航现在是 `navigationTree()`**。`pageList()` 返回的是
+    ///   那一列旧的 `QListWidget`（构造里就 `hide()` 了）—— 它还是"旧访问接口"，但内容
+    ///   已经不跟着页面表走了（还是老的四组十三行），**别再拿它量左栏**。
     QListWidget *pageList() const { return m_pageList; }
+    QTreeWidget *navigationTree() const { return m_navigationTree; }
     QStackedWidget *stack() const { return m_stack; }
 
     /// 左栏**此刻**摆着哪几条（键，从上到下）。**唯一出处**就是它：左栏那一列、

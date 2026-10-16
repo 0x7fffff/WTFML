@@ -903,6 +903,35 @@ void slideUp(QWidget *window, const QPoint &target) {
     animation->start(QAbstractAnimation::DeleteWhenStopped);
 }
 
+/// 往下弹的那一档（主页右上那张账号卡片那块面板）：从落点上面 `panelSlideDistance()`
+/// 滑下来。**和 `slideUp()` 是同一条动效的两头** —— 时长、缓动、收尾兜底全都一样，
+/// 只有起手位在另一边（2026-10-16 加的，见 MainWindowUI 里 BottomBarPanel::popUp()）。
+void slideDown(QWidget *window, const QPoint &target) {
+    if (window == nullptr) {
+        return;
+    }
+    if (!enabled()) {
+        window->move(target);
+        return;
+    }
+    const QPoint start = target - QPoint(0, panelSlideDistance());
+    window->move(start);
+    auto *animation = new QPropertyAnimation(window, "pos", window);
+    animation->setDuration(panelMs());
+    animation->setStartValue(start);
+    animation->setEndValue(target);
+    // NOTE: 缓动曲线和 `slideUp()` 一致（那一发的理由写在它那儿）：面板弹出来要干脆，
+    //       16 px 走完就该能点上面的东西。
+    animation->setEasingCurve(QEasingCurve::OutCubic);
+    QObject::connect(animation, &QPropertyAnimation::finished, window,
+                     [w = QPointer<QWidget>(window), target]() {
+                         if (w != nullptr) {
+                             w->move(target);
+                         }
+                     });
+    animation->start(QAbstractAnimation::DeleteWhenStopped);
+}
+
 void rowAppear(QWidget *row) {
     if (row == nullptr || !enabled()) {
         return;

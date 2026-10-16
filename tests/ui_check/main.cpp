@@ -4222,7 +4222,8 @@ int main(int argc, char *argv[]) {
                   : QStringLiteral("<null>"));
     }
 
-    std::printf("===== I. 底栏三格（左：运行状态，中：进度，右：账户） =====\n");
+    std::printf("===== I. 底栏两格（左：运行状态，中：任务摘要/进度；右：工具箱。账号那格"
+                "2026-10-16 收进主页卡片） =====\n");
     {
         QLabel *avatar = ui.getAvatarLabel();
         QLabel *account = ui.getAccountLabel();
@@ -4252,8 +4253,13 @@ int main(int argc, char *argv[]) {
             // 所以初值跟那两行一起藏着 —— 不然会先亮一个"没有含义的颜色"再被改掉。
             check(!mark->isVisible(), "一开始那颗状态方块也是藏着的");
 
-            // 三格的左右顺序：运行状态 → 进度 → 账户（都在同一个底栏里）。
-            // NOTE: 量之前必须先把它们显示出来 —— 布局不给隐藏的控件分位置，
+            // 两格（2026-10-16 起）的左右顺序：运行状态 → 任务摘要（进度）→ 工具箱。
+            // ★★ 底栏**从三格变回两格**：右边那一格（头像 + 用户名）整个收进了主页右上
+            //    那张账号卡片 —— `accountButton` 还在、业务层照旧往里写数据，但它**不再进
+            //    布局**（`hide()`），所以它里面那几样（头像/用户名/第二行）的几何是"没人
+            //    给它分位置"的旧值，**不能**再拿它们当"右边那一格"来量。右下角换成了跨页面的
+            //    「工具箱」入口（`toolboxButton`，宽度和左边那格一样、也是 170）。
+            // NOTE: 量之前必须先把要量的控件显示出来 —— 布局不给隐藏的控件分位置，
             //       藏着的控件几何停在旧值（通常是 0），拿它比大小等于没比。
             progress->show();
             status->show();
@@ -4261,30 +4267,44 @@ int main(int argc, char *argv[]) {
             runDetail->show();
             mark->show();
             QApplication::processEvents();
+            QPushButton *accCell = ui.getAccountButton();
+            QPushButton *toolsCell = ui.getToolboxButton();
+            check(accCell != nullptr && toolsCell != nullptr,
+                  "底栏那两格（隐藏的账号格 + 工具箱入口）都在");
+            check(accCell != nullptr && !accCell->isVisible(),
+                  "底栏右边那一格（账号那组）不显示了 —— 入口整个收进主页右上那张卡片",
+                  accCell != nullptr ? QStringLiteral("visible=%1").arg(accCell->isVisible())
+                                     : QString());
+            check(toolsCell != nullptr && toolsCell->isVisible(),
+                  "右下角换成了跨页面的「工具箱」入口");
             const auto centerX = [bar](QWidget *w) {
                 return w->mapTo(bar, w->rect().center()).x();
             };
-            check(centerX(runState) < centerX(progress) && centerX(progress) < centerX(avatar),
-                  "三格从左到右依次是 运行状态 / 进度 / 账户",
-                  QString("%1 / %2 / %3")
-                      .arg(centerX(runState))
-                      .arg(centerX(progress))
-                      .arg(centerX(avatar)));
+            check(centerX(runState) < centerX(progress), "运行状态那格在进度那格左边",
+                  QString("%1 / %2").arg(centerX(runState)).arg(centerX(progress)));
+            if (toolsCell != nullptr) {
+                check(centerX(progress) < centerX(toolsCell),
+                      "进度那格在工具箱那格左边（从左到右：运行状态 / 任务摘要 / 工具箱）",
+                      QString("%1 / %2").arg(centerX(progress)).arg(centerX(toolsCell)));
+            }
             check(avatar->mapTo(bar, QPoint(0, 0)).x() < account->mapTo(bar, QPoint(0, 0)).x(),
                   "用户名在头像右边（账户那一组内部）");
 
             // 中间那格**不吃掉全部富余宽度**：左右各留空档，两头都留白所以它还居中。
             // 以前富余宽度全给中间那格，900 px 下进度条横跨大半个底栏（用户嫌太长）。
+            // ★ 2026-10-16：右边那头拿**工具箱**那格的左边缘当参照（原来拿的是隐藏的
+            //   账号格里那颗头像 —— 它不在布局里，量出来的空档是负的，等于没量）。
             const int runStateRight = runState->mapTo(bar, QPoint(runState->width(), 0)).x();
             const int progressLeft = progress->mapTo(bar, QPoint(0, 0)).x();
             const int progressRight = progress->mapTo(bar, QPoint(progress->width(), 0)).x();
-            const int avatarLeft = avatar->mapTo(bar, QPoint(0, 0)).x();
-            check(progressLeft > runStateRight && avatarLeft > progressRight,
+            const int toolsLeft =
+                toolsCell != nullptr ? toolsCell->mapTo(bar, QPoint(0, 0)).x() : 0;
+            check(progressLeft > runStateRight && toolsLeft > progressRight,
                   "进度那格左右都留了空档（不再把富余宽度吃干净）",
                   QString("中间 %1 px，左空档 %2 px、右空档 %3 px")
                       .arg(progressRight - progressLeft)
                       .arg(progressLeft - runStateRight)
-                      .arg(avatarLeft - progressRight));
+                      .arg(toolsLeft - progressRight));
             // 头像是个正方形方块（不加 border-radius，这里只量尺寸）
             check(avatar->width() == avatar->height() && avatar->width() == 32,
                   "头像是 32x32 的方块",
@@ -4876,11 +4896,19 @@ int main(int argc, char *argv[]) {
         // 那几条在 mw_check 里量。
         QPushButton *runBtn = ui.getRunStateButton();
         QPushButton *accBtn = ui.getAccountButton();
+        // ★ 2026-10-16：账号那一块面板的锚点**换成了主页右上那张账号卡片** —— 底栏那颗
+        //   账号按钮 `hide()` 之后点不到它了（用户原话：「这个的对应功能继承到右上角那个
+        //   按钮去」）。`accBtn` 继续留着量"底栏那组兼容控件还在、宽度还钉着"，
+        //   而凡是"点开/收起那一块"的地方、以及量面板几何时的锚点，都走 `accCard`。
+        //   NOTE: 卡片在主页那一页上，几何是**那一页当前摆着的时候**才算得准（量之前那一节
+        //         会把主页切到最前面）。
+        QPushButton *accCard = ui.getAccountSkinButton();
         QLabel *runState = ui.getRunStateLabel();
         QLabel *runDetail = ui.getRunStateDetailLabel();
         QLabel *avatar = ui.getAvatarLabel();
         QProgressBar *progress = ui.getProgressBar();
-        check(runBtn != nullptr && accBtn != nullptr, "I4 底栏两头那两颗按钮都在");
+        check(runBtn != nullptr && accBtn != nullptr && accCard != nullptr,
+              "I4 底栏那两颗按钮 + 主页那张账号卡片都在");
         if (runBtn != nullptr && accBtn != nullptr && runState != nullptr &&
             runDetail != nullptr && avatar != nullptr && progress != nullptr) {
             // ① 整格是**一颗按钮**：原来那两行字（右边是头像那组）现在装在按钮里面。
@@ -5328,8 +5356,9 @@ int main(int argc, char *argv[]) {
             QApplication::processEvents();
             check(window.findChild<QWidget *>(MainWindowUI::bottomBarPanelName()) != nullptr,
                   "I4 收回之后再点一下还能打开（开关是双向的）");
-            // 右边那颗：贴按钮**右**边缘（面板比按钮宽的时候往左长，不出窗口）。
-            // 这会儿左边那块是开着的：点右边那颗要**这块收、那块开**，不能两块一起挂着。
+            // 右边那一块（2026-10-16 起锚点是**主页右上那张账号卡片**）：贴卡片**右**边缘
+            //（面板比卡片宽的时候往左长，不出窗口），而且往下弹 —— 卡片贴着头顶，往上弹没地方。
+            // 这会儿左边那块是开着的：点卡片要**这块收、那块开**，不能两块一起挂着。
             // NOTE: 真鼠标下这一下多半先被左那块（Qt::Popup）吃掉、只收不开（Qt 的规矩：
             //       点面板外面 = 关掉，这一下不往下传 —— 探针 popup_probe 实测如此），
             //       要再点一下才开；这里量的是"clicked 真落到按钮上时不许叠两块"。
@@ -5337,7 +5366,15 @@ int main(int argc, char *argv[]) {
             check(leftOpen != nullptr && leftOpen->isVisible() &&
                       leftOpen->x() == runBtn->mapToGlobal(QPoint(0, 0)).x(),
                   "I4 换面之前左边那块开着（量下面那条的前提）");
-            accBtn->click();
+            // ★ 2026-10-16：这一下点是**主页那张账号卡片**（底栏那颗已经 `hide()` 了）。
+            //   换成真鼠标的话也一样：卡片在主页那一页，`hits()` 里那句 `isVisible()` 就是
+            //   为它加的门（隐藏的控件按矩形照旧"命中"）。这里是直接 `click()`，
+            //   所以不依赖卡片是不是当前摆着 —— 但几何那两条要准，先得把主页切到前面。
+            if (QTabWidget *tabs = ui.getTabWidget()) {
+                tabs->setCurrentIndex(MainWindowUI::homeTabIndex());
+                QApplication::processEvents();
+            }
+            accCard->click();
             QApplication::processEvents();
             QApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
             QWidget *rightPanel = window.findChild<QWidget *>(MainWindowUI::bottomBarPanelName());
@@ -5348,34 +5385,42 @@ int main(int argc, char *argv[]) {
                   QStringLiteral("还剩 %1 块")
                       .arg(window.findChildren<QWidget *>(MainWindowUI::bottomBarPanelName()).size()));
             if (rightPanel != nullptr) {
-                const QPoint accAnchor = accBtn->mapToGlobal(QPoint(accBtn->width(), 0));
+                const QPoint accAnchor = accCard->mapToGlobal(QPoint(accCard->width(), 0));
                 // ★★ 这一条量的是**整条规矩**（2026-10-14，§3.3「窄窗口避让」）：
-                //    「右边缘贴按钮右边缘」**且**「整块不许越过屏幕右边缘」。这两句会打架
+                //    「右边缘贴锚点右边缘」**且**「整块不许越过屏幕右边缘」。这两句会打架
                 //    —— 而它们在 **offscreen 那一趟真的打架**：那块虚拟屏只有 800x600，
-                //    而主窗是按 900 摆的，右边那颗按钮的全局 x 落在屏幕**外面**（888），
-                //    于是面板被避让逻辑夹回屏幕里（右边缘 = 800），"贴着按钮"这句当场不成立。
-                //    NOTE: 所以期望值要按"按钮在不在屏幕里"分两支 —— 只钉前一句的话，
+                //    而主窗是按 900 摆的，右边那个锚点的全局 x 落在屏幕**外面**（888），
+                //    于是面板被避让逻辑夹回屏幕里（右边缘 = 800），"贴着锚点"这句当场不成立。
+                //    NOTE: 所以期望值要按"锚点在不在屏幕里"分两支 —— 只钉前一句的话，
                 //          离屏那一趟必红；只钉后一句的话，正常那一趟就量不出"贴着"了
-                //          （而"贴着按钮"正是用户 2026-09-23 点名的那句）。
+                //          （而"贴着锚点"正是用户 2026-09-23 点名的那句）。
+                //    ★ 2026-10-16：锚点从**底栏那颗账号按钮**换成**主页右上那张账号卡片**
+                //      （见本节开头的 NOTE），两支判据本身一个字都没改。
                 const QRect accScreen =
-                    accBtn->screen() != nullptr ? accBtn->screen()->availableGeometry() : QRect();
+                    accCard->screen() != nullptr ? accCard->screen()->availableGeometry() : QRect();
                 const bool anchorOnScreen =
                     !accScreen.isNull() && accAnchor.x() <= accScreen.right() + 1;
                 const int wantRight =
                     anchorOnScreen ? accAnchor.x() : accScreen.right() + 1;
                 check(rightPanel->x() + rightPanel->width() == wantRight,
                       anchorOnScreen
-                          ? "I4 右边那块右边缘贴按钮右边缘"
-                          : "I4 按钮在屏幕外面时，右边那块被夹在屏幕右边缘上",
-                      QStringLiteral("面板右边 %1 / 期望 %2（按钮右边 %3，屏幕 %4..%5）")
+                          ? "I4 账号那一块右边缘贴卡片右边缘"
+                          : "I4 卡片在屏幕外面时，账号那一块被夹在屏幕右边缘上",
+                      QStringLiteral("面板右边 %1 / 期望 %2（卡片右边 %3，屏幕 %4..%5）")
                           .arg(rightPanel->x() + rightPanel->width())
                           .arg(wantRight)
                           .arg(accAnchor.x())
                           .arg(accScreen.left())
                           .arg(accScreen.right()));
-                check(rightPanel->y() + rightPanel->height() <=
-                          accBtn->mapToGlobal(QPoint(0, 0)).y(),
-                      "I4 右边那块也是在按钮上方");
+                // ★ 2026-10-16：方向反过来 —— 卡片贴着头顶，那块是**从卡片下面掉下来**的
+                //   （`dropDown = true` ⇒ popUp() 走 slideDown()）。锚点换成卡片之后，
+                //   "面板在上方"这句不再是这一块的真话。
+                check(rightPanel->y() >=
+                          accCard->mapToGlobal(QPoint(0, accCard->height())).y(),
+                      "I4 账号那一块是在卡片**下方**（卡片贴着头顶，往上弹没地方）",
+                      QStringLiteral("面板顶 %1 / 卡片底 %2")
+                          .arg(rightPanel->y())
+                          .arg(accCard->mapToGlobal(QPoint(0, accCard->height())).y()));
                 // 右面板的行**是外面按 account = true 喂进来的**（同一个 provider，两块
                 // 面板要的东西不一样）—— 这里量"账号行照画"。
                 QLabel *accountTitle0 =
@@ -5447,7 +5492,7 @@ int main(int argc, char *argv[]) {
                 firedPanels.clear();
                 firedKeys.clear();
                 firedActions.clear();
-                accBtn->click();
+                accCard->click();
                 QApplication::processEvents();
                 QApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
                 rightPanel = window.findChild<QWidget *>(MainWindowUI::bottomBarPanelName());
@@ -5505,8 +5550,9 @@ int main(int argc, char *argv[]) {
                         return rows;
                     },
                     nullptr);
-                const auto measureAccountPanel = [&window, accBtn](int *rowHeightOut) {
-                    accBtn->click();
+                // ★ 2026-10-16：开/收那一块的点法跟着锚点走（点的是主页那张账号卡片）。
+                const auto measureAccountPanel = [&window, accCard](int *rowHeightOut) {
+                    accCard->click();
                     QApplication::processEvents();
                     QWidget *panel =
                         window.findChild<QWidget *>(MainWindowUI::bottomBarPanelName());
@@ -5661,7 +5707,12 @@ int main(int argc, char *argv[]) {
         // 这两条都是**量出来的**结论，所以钉进测试：再有人把按钮的高度提示当回事、
         // 或者把两头那两格加宽回去，这里当场红。
         QPushButton *runBtn = ui.getRunStateButton();
-        QPushButton *accBtn = ui.getAccountButton();
+        // ★ 2026-10-16：右边那一格不再是隐藏的账号格，而是**工具箱**入口 ——
+        //   底栏现在两头各一格、都是 170 宽（`bottomBarRunStateColumnWidth()`），
+        //   所以"两头那两格一样高、进度条比它们都宽、并且居中"这几条照旧成立，
+        //   只是右边那个参照物换成了真在布局里的那颗。隐藏的账号格**不参与布局**
+        //   （它的高度停在 sizeHint 上，拿它量"铺满底栏"必红）。
+        QPushButton *accBtn = ui.getToolboxButton();
         QLabel *runState = ui.getRunStateLabel();
         QLabel *runDetail = ui.getRunStateDetailLabel();
         QLabel *mark = ui.getRunStateMarkLabel();
@@ -5929,7 +5980,8 @@ int main(int argc, char *argv[]) {
               "四档的图两两不同（真的换了颜色，不是同一张）");
     }
 
-    std::printf("===== K. 每页的左右两栏（主页按份数 7:3，另三页是固定宽度的侧栏） =====\n");
+    std::printf("===== K. 每页的左右两栏（主页右栏定宽、左栏吃剩下的；另三页是固定宽度的"
+                "侧栏） =====\n");
     {
         // 份数的唯一出处就是 MainWindowUI 里那几个函数，验证工程拿它们当期望值算 ——
         // 界面和测试各写一份份数的话，改比例时一定会有一边忘了改。
@@ -5939,11 +5991,13 @@ int main(int argc, char *argv[]) {
               "栏**内**那张表格的默认份数是 3:7（设置页每一栏、实例设置里那几张表格）",
               QString("%1:%2").arg(defaultLeftStretch).arg(defaultRightStretch));
         check(MainWindowUI::rightColumnIsWider(), "栏内那张表格里右列更宽");
-        // 主页反着来：右栏那张「版本列表」去掉之后，宽度让给左边的版本选择和启动按钮。
+        // 主页反着来（左宽右窄）。★ 2026-10-16：这一对份数现在只是**入参**了 ——
+        // 主页右栏是定宽的（`homeRightColumnWidth()`，见下面那一段量的），
+        // 这里只钉"左栏那边仍然标着更宽"这件事，别拿这两个数去算栏宽。
         check(MainWindowUI::leftColumnIsWider(QStringLiteral("home")) &&
                   MainWindowUI::leftColumnStretch(QStringLiteral("home")) == 7 &&
                   MainWindowUI::rightColumnStretch(QStringLiteral("home")) == 3,
-              "主页是 7:3（左宽右窄）",
+              "主页标的是左宽右窄（7:3 那对份数还在，但宽度规则已经是右栏定宽）",
               QString("%1:%2")
                   .arg(MainWindowUI::leftColumnStretch(QStringLiteral("home")))
                   .arg(MainWindowUI::rightColumnStretch(QStringLiteral("home"))));
@@ -5980,15 +6034,21 @@ int main(int argc, char *argv[]) {
                       .arg(left->x() + left->width())
                       .arg(right->x()));
             if (home) {
-                // 主页还是按份数分宽：栏宽 == 各自的份数（几像素的取整误差不算数）。
+                // ★★ 2026-10-16：主页右栏**不再按份数分宽** —— 它钉死在一个常量上
+                //    （`homeRightColumnWidth()`，人物预览那一栏的宽度：160 的画布 +
+                //    左右各 8 的内边距），左栏吃剩下的全部。
+                //    NOTE: 断言只钉**右栏**那个数（它是与窗口宽度无关的常量，offscreen
+                //          那一趟也照样量得准）；左栏是"剩下的"，窗口多宽它就多宽，
+                //          钉它的绝对值就是在量窗口尺寸、不是量这条规矩。
                 check(left->width() > right->width() &&
-                          qAbs(right->width() * MainWindowUI::leftColumnStretch(key) -
-                               left->width() * MainWindowUI::rightColumnStretch(key)) <= 10,
-                      QStringLiteral("%1 页：左:右 就是 %2:%3")
-                          .arg(key)
-                          .arg(MainWindowUI::leftColumnStretch(key))
-                          .arg(MainWindowUI::rightColumnStretch(key)),
+                          right->width() == MainWindowUI::homeRightColumnWidth(),
+                      QStringLiteral("home 页：右栏钉在人物预览那一栏的宽度上（%1 px），"
+                                     "左栏吃剩下的全部")
+                          .arg(MainWindowUI::homeRightColumnWidth()),
                       QString("%1 : %2").arg(left->width()).arg(right->width()));
+                check(right->sizePolicy().horizontalPolicy() == QSizePolicy::Fixed,
+                      "home 页：右栏的横向尺寸策略是 Fixed（宽度定死，不跟窗口长）",
+                      QString::number(int(right->sizePolicy().horizontalPolicy())));
             } else {
                 check(left->width() == MainWindowUI::sidebarWidth(),
                       QStringLiteral("%1 页：左栏就是那条固定宽度的侧栏（%2 px）")
@@ -6025,7 +6085,9 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        // 左栏放什么：主页是"版本选择（上）+ 启动按钮（下）"，右栏空着。
+        // 左栏放什么：★ 2026-10-16 起主页**不再摆**那颗版本下拉框和那颗大启动按钮 ——
+        // 两者都还在（业务层照旧往里灌数据、接信号）但 `hide()` 了。可见的入口换成：
+        // 左栏底下那张「当前实例」卡片里的「启动」，以及底部快捷区那颗「列表」。
         tabs->setCurrentIndex(MainWindowUI::homeTabIndex());
         QApplication::processEvents();
         QWidget *homePage = tabs->widget(MainWindowUI::homeTabIndex());
@@ -6035,21 +6097,22 @@ int main(int argc, char *argv[]) {
             homePage->findChild<QWidget *>(MainWindowUI::rightColumnName(QStringLiteral("home")));
         check(homeLeft != nullptr && isDescendantOf(installed, homeLeft) &&
                   isDescendantOf(startBtn, homeLeft),
-              "主页左栏里是版本选择和启动按钮");
+              "主页左栏里（还）是版本选择和启动按钮 —— 兼容控件留在那一栏里，只是不摆了");
         check(startBtn != nullptr &&
                   startBtn->property("wtfmlButtonKind").toString() ==
                       Theme::buttonKindKey(Theme::ButtonKind::Primary),
               "主页的「启动游戏」是整页唯一的实心主动作");
-        check(installed->y() + installed->height() <= startBtn->y(),
-              "主页左栏：版本选择在启动按钮上方",
-              QString("combo.bottom=%1 btn.y=%2")
-                  .arg(installed->y() + installed->height())
-                  .arg(startBtn->y()));
+        check(startBtn != nullptr && !startBtn->isVisible() &&
+                  installed != nullptr && !installed->isVisible(),
+              "主页上不再摆它们了：版本下拉框和那颗大启动按钮都是收着的",
+              QStringLiteral("combo visible=%1 / 启动按钮 visible=%2")
+                  .arg(installed != nullptr ? int(installed->isVisible()) : -1)
+                  .arg(startBtn != nullptr ? int(startBtn->isVisible()) : -1));
         // 主页右栏 2026-09 曾经是空的（那张「版本列表」去掉了），现在装的是「我的角色」：
-        // 标题 + 3D 小人 + 一行说明。**宽度仍然只由份数决定** —— 上面那条精确的 7:3
-        // 就靠这一点成立，所以那行说明特意把自己从布局的横向度量里摘了出去
-        // （wordWrap 的 QLabel 报出来的 sizeHint 是"整句排成一行"的宽度，好几百 px，
-        //  让纯说明文字去决定这一栏多宽是本末倒置），见 MainWindowUI.cpp 里那段注释。
+        // 顶上一张账号卡片 + 3D 小人 +（默认收起来的那行说明）。★ 2026-10-16：这一栏的
+        // 宽度**不再由份数决定** —— 它被 `setFixedWidth()` 钉死（见上面那一段量的
+        // `homeRightColumnWidth()`），里面那行说明把自己从横向度量里摘出去只是"顺手"，
+        // 不再是"这一栏宽度成立的前提"。
         auto *skinViewer =
             homeRight != nullptr
                 ? homeRight->findChild<SkinViewer *>(MainWindowUI::skinViewerName())
@@ -8911,27 +8974,67 @@ int main(int argc, char *argv[]) {
                 QWidget *page = stack != nullptr ? panelAt(stack, stack->currentIndex()) : nullptr;
                 return page != nullptr ? page->objectName() : QString();
             };
-            // 左栏里那一 **键** 现在在第几行（-1 = 这一列里没有它）。照旧拿键表下标去
-            // setCurrentRow() 是不行的 —— 这一列的内容是算出来的，行号只对 shownEntryKeys()
-            // 有意义（差一格就是"点「存档」开出来的是「模组」"，界面上不报任何东西）。
-            const auto rowOfKey = [&pageListOf](const Dlg &d, const QString &key) {
-                QListWidget *list = pageListOf(d);
-                if (list == nullptr) {
-                    return -1;
+            // 左栏那条导航**换成了树**之后，从前那个"某一键在第几行"（`rowOfKey`）整条退场：
+            // 树里认人靠 `UserRole` 上那个键（`navItemOf()`），没有行号这一层 —— 也就没有
+            // "差一格点错页"这种错法了（这一节里原来那条 `setCurrentRow(i)` 就是这么量的）。
+
+            // ★★ 2026-10-16：左栏那条导航**变成了一棵树**（`navigationTreeName()` —— 界面
+            //   导航的唯一出处）。上面那个 `pageListOf` 现在只指得到一列**旧的、`hide()` 着
+            //   的** `QListWidget`：它的内容还是老的四组十三行、`shownEntryKeys()` 改了它
+            //   也不动。所以凡是"量左栏"的判据一律改认下面这几个。
+            //
+            //   树的形状（`rebuildNavigationTree()`）：顶上两条光叶子（概览 / 启动），底下
+            //   四组（内容管理 / 世界与联机 / 创作工具 / 维护），组里的叶子才是页。组的
+            //   `UserRole` 是**空的**、`UserRole + 1` 才是组号 —— 判据一并分开认这两格，
+            //   "组也被当成一页"这种错法（点一下组名右栏空掉）就当场红。
+            const auto navTreeOf = [](const Dlg &d) {
+                return d.findChild<QTreeWidget *>(Dlg::navigationTreeName());
+            };
+            // 左栏此刻**亮着**的那一条的键（亮的是组 / 什么都没亮 → 空）。
+            const auto navKeyOf = [&navTreeOf](const Dlg &d) {
+                QTreeWidget *tree = navTreeOf(d);
+                QTreeWidgetItem *item = tree == nullptr ? nullptr : tree->currentItem();
+                return item == nullptr ? QString() : item->data(0, Qt::UserRole).toString();
+            };
+            const auto navItemOf = [](QTreeWidget *tree, const QString &key) -> QTreeWidgetItem * {
+                if (tree == nullptr || key.isEmpty()) {
+                    return nullptr;
                 }
-                for (int i = 0; i < list->count(); ++i) {
-                    if (list->item(i)->data(Qt::UserRole).toString() == key) {
-                        return i;
+                for (QTreeWidgetItemIterator it(tree); *it; ++it) {
+                    if ((*it)->data(0, Qt::UserRole).toString() == key) {
+                        return *it;
                     }
                 }
-                return -1;
+                return nullptr;
+            };
+            // 树里**能点的那些键**（叶子），按深度优先的次序 —— 组不算（它的键是空的）。
+            const auto navLeafKeys = [](QTreeWidget *tree) {
+                QStringList keys;
+                if (tree == nullptr) {
+                    return keys;
+                }
+                for (QTreeWidgetItemIterator it(tree); *it; ++it) {
+                    const QString key = (*it)->data(0, Qt::UserRole).toString();
+                    if (!key.isEmpty()) {
+                        keys.append(key);
+                    }
+                }
+                return keys;
             };
 
             Dlg dialog(instanceDisplayName, instanceDirName, Dlg::Override(), global,
                        QStringList(), true);
 
-            check(pageListOf(dialog) != nullptr && stackOf(dialog) != nullptr,
-                  "U0a 左栏那一列、右栏那层堆叠页都按 objectName 找得回来");
+            check(navTreeOf(dialog) != nullptr && stackOf(dialog) != nullptr &&
+                      pageListOf(dialog) != nullptr,
+                  "U0a 左栏那棵树、右栏那层堆叠页都按 objectName 找得回来",
+                  QStringLiteral("树 %1 / 堆叠页 %2 / 旧那一列 %3")
+                      .arg(navTreeOf(dialog) != nullptr ? QStringLiteral("在")
+                                                        : QStringLiteral("<没有>"),
+                           stackOf(dialog) != nullptr ? QStringLiteral("在")
+                                                      : QStringLiteral("<没有>"),
+                           pageListOf(dialog) != nullptr ? QStringLiteral("在")
+                                                         : QStringLiteral("<没有>")));
             QPushButton *fixedLaunch =
                 dialog.findChild<QPushButton *>(Dlg::launchInstanceButtonName());
             int launchRequests = 0;
@@ -8973,25 +9076,90 @@ int main(int argc, char *argv[]) {
                   "★ U0a 左栏默认那一列 = 概览 / 启动 + 七条可选页（顺序就是 optionalPageKeys()）",
                   dialog.shownEntryKeys().join(QLatin1Char('|')));
 
-            int entryHit = 0;
-            QStringList entrySeen;
-            for (int i = 0; i < defaultKeys.size(); ++i) {
-                auto *item = pageListOf(dialog)->item(i);
-                entryHit += (item != nullptr && item->text() == Dlg::pageText(defaultKeys.at(i)) &&
-                             item->data(Qt::UserRole).toString() == defaultKeys.at(i))
-                                ? 1
-                                : 0;
-                entrySeen.append(defaultKeys.at(i));
+            // ★ U0a 左栏那棵树：**顶上两条光叶子 + 四组**。组的 `UserRole` 必须**空着**
+            //   （它自己不是一页），`UserRole + 1` 才是组号 —— 这两格混了的话"点一下组名
+            //   右栏就空掉"这种错法量不出来。
+            QTreeWidget *nav = navTreeOf(dialog);
+            const QStringList navKeys = navLeafKeys(nav);
+            const QStringList groupIds = {QStringLiteral("content"), QStringLiteral("worlds"),
+                                          QStringLiteral("creative"),
+                                          QStringLiteral("maintenance")};
+            int groupHit = 0;
+            QStringList groupSeen;
+            for (int i = 0; nav != nullptr && i < nav->topLevelItemCount(); ++i) {
+                QTreeWidgetItem *top = nav->topLevelItem(i);
+                if (top == nullptr || top->data(0, Qt::UserRole + 1).toString().isEmpty()) {
+                    continue;
+                }
+                groupSeen.append(top->data(0, Qt::UserRole + 1).toString());
             }
-            entrySeen.removeDuplicates();
-            check(pageListOf(dialog)->count() == defaultKeys.size() &&
-                      entryHit == defaultKeys.size(),
-                  "U0a 左栏每一条都是「文字 + userData」按下标对齐的（键表改了这里跟着红）",
-                  QStringLiteral("共 %1 条、对上 %2 条")
-                      .arg(pageListOf(dialog)->count())
-                      .arg(entryHit));
-            check(entrySeen.size() == defaultKeys.size(),
-                  "U0a 那一列里的键两两不同（它们要进 objectName）");
+            for (const QString &id : groupIds) {
+                groupHit += groupSeen.contains(id) ? 1 : 0;
+            }
+            check(nav != nullptr && nav->topLevelItemCount() == 6 &&
+                      groupSeen.size() == groupIds.size() && groupHit == groupIds.size() &&
+                      nav->topLevelItem(0)->data(0, Qt::UserRole).toString() ==
+                          Dlg::overviewCategoryKey() &&
+                      nav->topLevelItem(1)->data(0, Qt::UserRole).toString() ==
+                          Dlg::launchCategoryKey(),
+                  "★★ U0a 左栏那棵树 = 顶上两条光叶子（概览 / 启动）+ 四组（内容管理 / 世界与"
+                  "联机 / 创作工具 / 维护）—— 组自己不是一页（它的 UserRole 是空的）",
+                  QStringLiteral("顶层 %1 项、组 %2 个")
+                      .arg(nav != nullptr ? nav->topLevelItemCount() : -1)
+                      .arg(groupSeen.size()));
+
+            // 每一条叶子说的都是 `pageText(key)` 那句话（那一句是左栏条目、勾选框标签、
+            // tooltip 的唯一出处 —— 换了名字这里跟着红）。
+            QStringList navTextMiss;
+            for (const QString &key : navKeys) {
+                QTreeWidgetItem *item = navItemOf(nav, key);
+                if (item == nullptr || item->text(0) != Dlg::pageText(key)) {
+                    navTextMiss.append(key);
+                }
+            }
+            check(!navKeys.isEmpty() && navTextMiss.isEmpty(),
+                  "U0a 树上每一条叶子的字都是 pageText() 给的（键与文字对不上就在这里红）",
+                  navTextMiss.isEmpty() ? QStringLiteral("（%1 条全对上）").arg(navKeys.size())
+                                        : navTextMiss.join(QLatin1Char('|')));
+
+            // 树里能点的那几条 = 概览 / 启动 + 七条可选页 + **另有自己那一行的八条生命周期
+            // 页**。最后那一组是"维护"那组（四条）+ 世界备份 / 截图 / 回放 / 结构各一条 ——
+            // 下面那个数按名字钉死，是因为"哪几条另有自己的行"是**界面的分组规格**，不是
+            // 从键表算得出来的东西（另八条生命周期页走的是那三条 `*menu` 的门）。
+            const QStringList ownRowKeys = {
+                QStringLiteral("worldbackup"),       QStringLiteral("screenshots"),
+                QStringLiteral("replay"),            QStringLiteral("structure"),
+                QStringLiteral("integritymenu"),     QStringLiteral("diagnosticsmenu"),
+                QStringLiteral("snapshots"),         QStringLiteral("operationsmenu")};
+            QStringList strayKeys;
+            for (const QString &key : navKeys) {
+                if (!defaultKeys.contains(key) && !Dlg::lifecyclePageKeys().contains(key)) {
+                    strayKeys.append(key);
+                }
+            }
+            int defaultRowHit = 0;
+            int ownRowHit = 0;
+            for (const QString &key : defaultKeys) {
+                defaultRowHit += navKeys.contains(key) ? 1 : 0;
+            }
+            for (const QString &key : ownRowKeys) {
+                ownRowHit += navKeys.contains(key) ? 1 : 0;
+            }
+            QStringList navDedup = navKeys;
+            navDedup.removeDuplicates();
+            check(strayKeys.isEmpty() && defaultRowHit == defaultKeys.size() &&
+                      ownRowHit == ownRowKeys.size() &&
+                      navKeys.size() == defaultKeys.size() + ownRowKeys.size() &&
+                      navDedup.size() == navKeys.size(),
+                  "★ U0a 树里的键不多不少：默认那九条一条不落、另有自己那一行的八条生命周期页"
+                  "都在、也没有第九条野键（键两两不同 —— 它们要进 objectName）",
+                  QStringLiteral("默认 %1/%2、自有行 %3/%4、共 %5 条（去重后 %6）")
+                      .arg(defaultRowHit)
+                      .arg(defaultKeys.size())
+                      .arg(ownRowHit)
+                      .arg(ownRowKeys.size())
+                      .arg(navKeys.size())
+                      .arg(navDedup.size()));
             // 每一条都说得出一句人话（pageText() 是左栏条目、勾选框标签、tooltip 的唯一出处）。
             int textHit = 0;
             for (const QString &key : defaultKeys) {
@@ -9016,22 +9184,32 @@ int main(int argc, char *argv[]) {
                       .arg(Dlg::optionalPageKeys().size())
                       .arg(Dlg::filePageKeys().size()));
             // 「快捷方式」不再是一页（2026-09-27 那九颗按钮搬进了概览）。键表少一条 ⇒
-            // pageCount() 从 11 掉到 10；这一条同时钉住"少的是哪一条"。
-            check(Dlg::pageCount() == 10 && Dlg::filePageKeys().size() == 8 &&
+            // 少一页；2026-10-16 起又补上了那一整批**生命周期页**（worldbackup … operationsmenu
+            // 那 16 条），所以 pageCount() 现在是 26 = 钉死 2 + 文件 8 + 生命周期 16。
+            // 下面这一条把三张表的**关系**钉死，"加一页忘了动表"当场红。
+            check(Dlg::pageCount() == 26 && Dlg::filePageKeys().size() == 8 &&
+                      Dlg::lifecyclePageKeys().size() == 16 &&
+                      Dlg::pageCount() == Dlg::pinnedPageKeys().size() +
+                                             Dlg::filePageKeys().size() +
+                                             Dlg::lifecyclePageKeys().size() &&
                       !Dlg::filePageKeys().contains(QStringLiteral("shortcut")) &&
                       Dlg::filePageFirstIndex() == 2,
-                  "★ U0a 「快捷方式」不再是一页 ⇒ 文件页 8 条、pageCount() == 10",
-                  QStringLiteral("pageCount %1 / 文件页 %2")
+                  "★ U0a 「快捷方式」不再是一页、那一批生命周期页各占一页 ⇒ 文件页 8 条、"
+                  "生命周期页 16 条、pageCount() == 26",
+                  QStringLiteral("pageCount %1 / 文件页 %2 / 生命周期页 %3")
                       .arg(Dlg::pageCount())
-                      .arg(Dlg::filePageKeys().size()));
+                      .arg(Dlg::filePageKeys().size())
+                      .arg(Dlg::lifecyclePageKeys().size()));
 
             // 堆叠页：页数 = pageCount()，而且**顺序就是键表的顺序**（概览、启动，然后那
-            // 八页）。加一页忘了动这张表的话，下面这几条当场红。
+            // 八页文件页，最后是那十六条生命周期页）。加一页忘了动这张表的话，下面这几条
+            // 当场红。
             QStackedWidget *stack = stackOf(dialog);
             QStringList expectedPanels = Dlg::pinnedPageKeys();
             expectedPanels.append(Dlg::filePageKeys());
+            expectedPanels.append(Dlg::lifecyclePageKeys());
             check(expectedPanels.size() == Dlg::pageCount(),
-                  "U0a 前提：pageCount() = 钉死那两条 + 文件那八页");
+                  "U0a 前提：pageCount() = 钉死那两条 + 文件那八页 + 生命周期那十六条");
             check(stack->count() == Dlg::pageCount(),
                   "U0a 堆叠页的页数 == pageCount()",
                   QStringLiteral("页上共 %1 页 / pageCount %2")
@@ -9092,8 +9270,8 @@ int main(int argc, char *argv[]) {
                 }
                 return false;
             };
-            check(!insideScrollArea(pageListOf(dialog)),
-                  "★ U0a 左栏**不在任何滚动区里**（它要钉在原地 —— 装进去就是"
+            check(!insideScrollArea(navTreeOf(dialog)),
+                  "★ U0a 左栏那棵树**不在任何滚动区里**（它要钉在原地 —— 装进去就是"
                   "「滚内容连导航一起滚」那一版）");
 
             // ★ 用户原话「实例设置里面的那个取消和确定删了」：整页上一颗都不该有。
@@ -9127,54 +9305,87 @@ int main(int argc, char *argv[]) {
                                          : strayButtons.join(QLatin1Char('|')));
 
             // 打开就是第一条：左栏亮「概览」、右栏是概览那一页。
-            check(pageListOf(dialog)->currentRow() == 0 &&
+            check(navKeyOf(dialog) == Dlg::overviewCategoryKey() &&
                       currentPanel(dialog) == Dlg::panelName(Dlg::overviewCategoryKey()),
                   "U0b 打开就停在「概览」（左栏亮哪一条、右栏就是哪一页）",
-                  currentPanel(dialog));
+                  QStringLiteral("亮着 %1 / 右栏 %2")
+                      .arg(navKeyOf(dialog), currentPanel(dialog)));
 
-            // 左栏点第 N 条 = 右栏第 N 页，**逐条走一遍**。行号 → 页那一层映射是这一列最
-            // 容易改坏的地方（差一格就是"点「存档」开出来的是「模组」"，界面上不报任何东西）。
+            // 左栏点哪一条 = 右栏换哪一页，**树上每一条叶子逐条走一遍**。树里那 17 条覆盖
+            // 了三种挂法（顶层两条 / 组里那十五条 / 组本身不算），差一格就是"点「存档」开
+            // 出来的是「模组」"，界面上不报任何东西。
             int entryPageHit = 0;
-            for (int i = 0; i < defaultKeys.size(); ++i) {
-                pageListOf(dialog)->setCurrentRow(i);
-                entryPageHit +=
-                    currentPanel(dialog) == Dlg::panelName(defaultKeys.value(i)) ? 1 : 0;
+            QStringList entryPageMiss;
+            const QStringList walkKeys = navLeafKeys(navTreeOf(dialog));
+            for (const QString &key : walkKeys) {
+                navTreeOf(dialog)->setCurrentItem(navItemOf(navTreeOf(dialog), key));
+                if (currentPanel(dialog) != Dlg::panelName(key)) {
+                    entryPageMiss.append(key);
+                } else {
+                    ++entryPageHit;
+                }
             }
-            check(entryPageHit == defaultKeys.size(),
-                  "★ U0c 左栏点第 N 条 = 右栏第 N 页（默认那九条逐条走过）",
-                  QStringLiteral("对上 %1/%2 页").arg(entryPageHit).arg(defaultKeys.size()));
+            check(!walkKeys.isEmpty() && entryPageHit == walkKeys.size(),
+                  "★ U0c 左栏点哪一条 = 右栏换哪一页（树上那十七条叶子逐条走过）",
+                  entryPageMiss.isEmpty()
+                      ? QStringLiteral("对上 %1/%1 页").arg(entryPageHit)
+                      : QStringLiteral("对上 %1/%2，没对上：%3")
+                            .arg(entryPageHit)
+                            .arg(walkKeys.size())
+                            .arg(entryPageMiss.join(QLatin1Char('|'))));
+
+            // 组**自己**点不动（它不是一页）：把组选中，右栏不许被清空 —— 这一条钉的就是
+            // 上面那个"组的 UserRole 是空的"那份设计。
+            {
+                const QString beforeGroup = currentPanel(dialog);
+                int groupItemsTried = 0;
+                for (int i = 0; nav != nullptr && i < nav->topLevelItemCount(); ++i) {
+                    QTreeWidgetItem *top = nav->topLevelItem(i);
+                    if (top == nullptr || top->childCount() == 0) {
+                        continue;
+                    }
+                    ++groupItemsTried;
+                    nav->setCurrentItem(top);
+                    QApplication::processEvents();
+                }
+                check(groupItemsTried > 0 && currentPanel(dialog) == beforeGroup,
+                      "★ U0c 按组名（「内容管理」那一类）右栏**原地不动**（组不是一页）",
+                      QStringLiteral("试了 %1 个组 / 右栏 %2")
+                          .arg(groupItemsTried)
+                          .arg(currentPanel(dialog)));
+            }
 
             // ★ 没有入口的那一页（「配置文件」）**照样摆得出来**：showPage() 认得它，
-            //   而左栏里**没有它** ⇒ 选中被清成 -1。这一条同时钉住两件事：
+            //   而左栏里**没有它** ⇒ 选中被清空。这一条同时钉住两件事：
             //   页面本身还在（不然 showPage 直接 return、右栏原地不动），以及
             //   "左栏不许亮着一个用户没点过的东西"。
             //
-            // NOTE: 判据是 `currentRow() == -1` **不是**"亮着别的某一条" —— 后者会让
-            //       用户以为"配置文件就是那一条"。
+            // NOTE: 判据是"左栏什么都没亮"（`currentItem() == nullptr`）**不是**"亮着别的
+            //       某一条" —— 后者会让用户以为"配置文件就是那一条"。
             dialog.showPage(Dlg::configPageKey());
             check(currentPanel(dialog) == Dlg::panelName(Dlg::configPageKey()) &&
-                      pageListOf(dialog)->currentRow() == -1,
-                  "★ U0d showPage(\"config\") 摆得出那一页，而左栏里没有它（选中清成 -1）",
-                  QStringLiteral("右栏 %1 / 选中 %2")
-                      .arg(currentPanel(dialog))
-                      .arg(pageListOf(dialog)->currentRow()));
+                      navTreeOf(dialog)->currentItem() == nullptr,
+                  "★ U0d showPage(\"config\") 摆得出那一页，而左栏里没有它（选中清空）",
+                  QStringLiteral("右栏 %1 / 亮着 %2")
+                      .arg(currentPanel(dialog),
+                           navTreeOf(dialog)->currentItem() == nullptr
+                               ? QStringLiteral("<空>")
+                               : navKeyOf(dialog)));
 
             // 再摆回一条**有条目的**页：左栏那一行跟着亮起来（和用户自己点是同一条路）。
             dialog.showPage(Dlg::launchCategoryKey());
             check(currentPanel(dialog) == Dlg::panelName(Dlg::launchCategoryKey()) &&
-                      pageListOf(dialog)->currentRow() ==
-                          rowOfKey(dialog, Dlg::launchCategoryKey()),
+                      navKeyOf(dialog) == Dlg::launchCategoryKey(),
                   "U0e showPage(\"launch\") 之后左栏亮的就是那一条、右栏就是启动那一页",
-                  QStringLiteral("选中 %1 / 期望 %2")
-                      .arg(pageListOf(dialog)->currentRow())
-                      .arg(rowOfKey(dialog, Dlg::launchCategoryKey())));
+                  QStringLiteral("亮着 %1 / 右栏 %2")
+                      .arg(navKeyOf(dialog), currentPanel(dialog)));
 
-            // 越界：`setCurrentRow(-1)` 那一发会进到 currentRowChanged 里。右栏**不能**被
-            // 清空（那种"点一下界面就空了"，用户只会当成崩了）。
+            // 越界：把当前项清成 nullptr 那一发会进到 currentItemChanged 里。右栏**不能**
+            // 被清空（那种"点一下界面就空了"，用户只会当成崩了）。
             const QString beforeOutOfRange = currentPanel(dialog);
-            pageListOf(dialog)->setCurrentRow(-1);
+            navTreeOf(dialog)->setCurrentItem(nullptr);
             check(currentPanel(dialog) == beforeOutOfRange,
-                  "★ U0f 行号越界（setCurrentRow(-1)）之后右栏**原地不动**，没有被清空",
+                  "★ U0f 左栏选中被清空之后右栏**原地不动**，没有被清空",
                   currentPanel(dialog));
 
             // 控件**真的落在该落的那一栏里** —— 这是每次重排都最容易错的地方（控件全部
@@ -9245,21 +9456,27 @@ int main(int argc, char *argv[]) {
             // 几何：**只有一列**，左栏在内容区左边，宽度窄于内容区。
             dialog.show();
             QApplication::processEvents();
-            QListWidget *pageList = pageListOf(dialog);
+            QTreeWidget *navShown = navTreeOf(dialog);
             // NOTE: 左栏外面套了一层竖排容器（贴顶那个写法），所以它的 x() 是**相对那一层**
             //       的（永远是 0）。要比左右就得换算到整窗上，见 mapTo。
-            const int listX = pageList->mapTo(&dialog, QPoint(0, 0)).x();
+            const int listX = navShown->mapTo(&dialog, QPoint(0, 0)).x();
             const int stackX = stack->mapTo(&dialog, QPoint(0, 0)).x();
-            // 左栏的宽度是**按最长的那一条条目算出来的**（navListWidth），不是写死的像素
-            // —— 上下界一起卡：太窄是"算错了/没算"，太宽是"把内容区挤没了"。
-            check(listX < stackX && pageList->width() > 40 && pageList->width() < 200,
-                  "U0g 左栏在内容区左边，宽度正常（按最长条目算出来的）",
-                  QStringLiteral("x %1/%2，宽 %3").arg(listX).arg(stackX).arg(pageList->width()));
-            check(pageList->width() < stack->width(),
+            // ★ 2026-10-16：左栏的宽度**是钉死的**（`navigationTreeWidth()`），不再"按最长的
+            //   那一条条目算出来"。判据跟着改成"就是那个数" —— 比原来那对上下界更紧，
+            //   而且"哪天有人把定宽改成算出来的"会当场红。
+            check(listX < stackX && navShown->width() == Dlg::navigationTreeWidth(),
+                  "U0g 左栏在内容区左边，宽度就是 navigationTreeWidth()",
+                  QStringLiteral("x %1/%2，宽 %3（期望 %4）")
+                      .arg(listX)
+                      .arg(stackX)
+                      .arg(navShown->width())
+                      .arg(Dlg::navigationTreeWidth()));
+            check(navShown->width() < stack->width(),
                   "U0g 左栏比内容区窄（导航列不该跟内容抢地方）",
-                  QStringLiteral("%1 vs %2").arg(pageList->width()).arg(stack->width()));
+                  QStringLiteral("%1 vs %2").arg(navShown->width()).arg(stack->width()));
 
-            // ★★ U0g-2 左栏的宽度**不随"现在显示着哪几页"变**（2026-10-11 修）
+            // ★★ U0g-2 左栏的宽度**不随"现在显示着哪几页"变**（2026-10-11 修，2026-10-16
+            // 换成树之后这条**更硬**了：树本来就是定宽）。
             //
             // 原来那个算法只看表里**这一刻**有的那几条 ⇒ 用户在「高级选项」里勾掉「结构/原理图」
             // （左栏里最宽的那一条）之后，这一列当场窄掉十来像素、**右栏整幅跟着横着跳一下**；
@@ -9267,25 +9484,26 @@ int main(int argc, char *argv[]) {
             // 宽度是这一页的**骨架**，骨架不该跟着内容晃 —— 和「少一颗的那一行不摊开」是同一条
             // 性质的规矩。
             //
-            // NOTE: 拿"把七条可选页**全勾掉**"来量是最狠也最省事的一发：表里只剩钉死那两条，
-            //       要是有哪一条比它们宽，原来的算法一定当场窄下来。
+            // NOTE: 拿"把七条可选页**全勾掉**"来量是最狠也最省事的一发：树上那七条叶子当场
+            //       消失（"内容管理"那一组会剩个空组），要是有哪一条比钉死那几条宽，原来的
+            //       算法一定当场窄下来。
             {
-                const int countBefore = pageList->count();
-                const int widthBefore = pageList->width();
+                const int countBefore = navLeafKeys(navShown).size();
+                const int widthBefore = navShown->width();
                 QJsonObject hideAll;
                 for (const QString &key : Dlg::optionalPageKeys()) {
                     hideAll.insert(key, false);
                 }
                 dialog.setPageChoices(hideAll);
                 QApplication::processEvents();
-                check(pageList->count() < countBefore,
-                      "U0g-2 前提：七条可选页真的都从表里收起来了（不然这一条量的是空气）",
+                check(navLeafKeys(navShown).size() < countBefore,
+                      "U0g-2 前提：七条可选页真的都从树上收起来了（不然这一条量的是空气）",
                       QStringLiteral("条目 %1 → %2")
                           .arg(countBefore)
-                          .arg(pageList->count()));
-                check(pageList->width() == widthBefore,
+                          .arg(navLeafKeys(navShown).size()));
+                check(navShown->width() == widthBefore,
                       "★★ U0g-2 左栏宽度不跟着「显示哪些页」变（勾掉最宽的那一条也不缩）",
-                      QStringLiteral("%1 → %2").arg(widthBefore).arg(pageList->width()));
+                      QStringLiteral("%1 → %2").arg(widthBefore).arg(navShown->width()));
             }
 
             // ---- U0j ★★ 页面按钮那一套的规格（2026-09-28）----
@@ -11847,32 +12065,50 @@ int main(int argc, char *argv[]) {
                   "★ U10f 装不了光影的实例：「光影包」那一页整页换成一句解释"
                   "（列表、那排按钮、以及那两排筛选一起收起来）",
                   shader != nullptr ? shader->noticeLabel()->text() : QString());
-            // ★ 2026-09-27：「用不上」从此**同时**落在两处 —— 页里那一句（上面量过了）和
-            //   左栏那一列（那一条**列都不列出来**）。原来挂在左栏条目上的那句 tooltip 搬到
-            //   了概览页那一格勾选框上（它的判据在 U12 那一段）。
-            const auto leftRowsWithKey = [&other](const QString &key) {
-                int rows = 0;
-                for (int i = 0; i < other.pageList()->count(); ++i) {
-                    if (other.pageList()->item(i)->data(Qt::UserRole).toString() == key) {
-                        ++rows;
+            // ★ 2026-10-16（**这一条的方向反过来了**）：左栏换成树之后，「用不上」的页
+            //   **留在导航里**、由那一页自己解释为什么用不上。
+            //
+            //   从前的规矩是"两条落两处"：页里那一句 + 左栏**一条都不列**（用户根本点不进
+            //   这一页）。树那一版的取舍写在 `rebuildNavigationTree()` 的注释里 ——
+            //   「保留用户明确关闭页面的选择；可用性不足在既有页面里解释，**不吞掉导航入口**」：
+            //   只在树上认"用户自己勾掉的"（`m_pageOverrides`），不再看 `m_pageAvailable`。
+            //   于是"点得进去"这件事仍然成立：点进去那一页整幅是一句解释 + 那两颗按钮，
+            //   而不是"树上少一条、用户不知道这一页去哪了"。
+            //
+            //   NOTE: 量的是**树上那棵导航**（`navigationTree()` —— 界面导航的唯一出处），
+            //         不再是 `pageList()` 那一列旧的、`hide()` 着的列表：它的内容早就不跟
+            //         页面表走了（还是老的四组十三行），拿它量两个方向都会量错。
+            const auto leftHasKey = [&other](const QString &key) {
+                QTreeWidget *tree = other.navigationTree();
+                if (tree == nullptr) {
+                    return false;
+                }
+                for (QTreeWidgetItemIterator it(tree); *it; ++it) {
+                    if ((*it)->data(0, Qt::UserRole).toString() == key) {
+                        return true;
                     }
                 }
-                return rows;
+                return false;
             };
-            check(leftRowsWithKey(QStringLiteral("shader")) == 0 &&
+            check(leftHasKey(QStringLiteral("shader")) &&
                       !other.shownEntryKeys().contains(QStringLiteral("shader")),
-                  "★ U10f 用不上的那一条**不在左栏那一列里**（用户根本点不进这一页）");
-            check(leftRowsWithKey(Dlg::configPageKey()) == 0 &&
-                      other.pageList()->count() == other.shownEntryKeys().size() &&
-                      !other.shownEntryKeys().contains(Dlg::configPageKey()),
-                  "★★ U10f 没有入口的那一页（「配置文件」）也不在左栏里 —— 那一列是"
-                  "shownEntryKeys() 的**唯一**画法（差一条就是「能点进去 / 点不进去」）");
-            // 反过来：装了 Iris 之后那一页要回到正常形态（左栏里那一条也回来）。
+                  "★★ U10f 用不上的那一条**留在树上**（点得进去、由那一页自己解释）—— 而"
+                  "shownEntryKeys() 里已经没它了（「能用」这份账仍然只算可用的页）",
+                  QStringLiteral("树上有 %1 / shownEntryKeys 里 %2")
+                      .arg(leftHasKey(QStringLiteral("shader")) ? QStringLiteral("有")
+                                                                : QStringLiteral("<没有>"),
+                           other.shownEntryKeys().contains(QStringLiteral("shader"))
+                               ? QStringLiteral("有")
+                               : QStringLiteral("<没有>")));
+            // 反过来：这一条钉的是"树只认用户自己勾掉的" —— 可用性变了，树上一个条目都不动。
+            const int shaderRowsBefore = leftHasKey(QStringLiteral("shader")) ? 1 : 0;
             other.setShaderUsable(true);
             check(shader != nullptr && shader->refreshButton()->isVisibleTo(shader) &&
                       shader->noticeLabel()->text() != Dlg::shaderUnavailableText() &&
-                      leftRowsWithKey(QStringLiteral("shader")) == 1,
-                  "★ U10f 装了 Iris / OptiFine 之后那一页回到正常（这一档是可逆的）");
+                      (leftHasKey(QStringLiteral("shader")) ? 1 : 0) == shaderRowsBefore &&
+                      other.shownEntryKeys().contains(QStringLiteral("shader")),
+                  "★ U10f 装了 Iris / OptiFine 之后那一页回到正常（页里的解释收掉、树上那条"
+                  "一直都在 —— 可用性不进树）");
             // 原理图那一档是同一个形状（谁来定"用得上"是 MainWindow 的事 —— 它去 mods
             // 里找 litematica；这个对话框自己一个字都不猜）。
             other.setSchematicUsable(false);
@@ -11880,8 +12116,8 @@ int main(int argc, char *argv[]) {
             InstanceFilesPage *schematic = other.filesPage(QStringLiteral("schematic"));
             // 量的是**那排按钮**不是列表：这个实例那几页的目录压根没喂进来，列表本来就是空的
             // （空目录也是收起来）—— 只看列表分不出"用不上"和"还没有"。
-            // NOTE: 左栏里那一条已经没了（上面那一对 leftRowsWithKey 钉的就是这件事），
-            //       这里量的是**页里**那一半。
+            // NOTE: 左栏里那一条**还在树上**（上面 `leftHasKey` 那一对钉的就是这件事 ——
+            //       树不跟可用性走），这里量的是**页里**那一半（整页换解释 + 收掉那排按钮）。
             check(schematic != nullptr &&
                       !schematic->refreshButton()->isVisibleTo(schematic) &&
                       schematic->noticeLabel()->text() == Dlg::schematicUnavailableText(),
@@ -15031,34 +15267,46 @@ int main(int argc, char *argv[]) {
                       QDir::cleanPath(files->directory()) ==
                           QDir::cleanPath(configDir + QStringLiteral("/ftbquests")),
                   "★★ U11c 而且它**真的进去**了（那一页换成了 config/ftbquests 再列一遍）");
-            // ★★ 左栏那一列**不许因为"拿到焦点"就自己挑一条**（2026-09-27）。
+            // ★★ 左栏那条导航**不许因为"拿到焦点"就自己挑一条**（2026-09-27）。
             //
             //   这一条钉的是一个 Qt 的兜底行为，不是我们写的：`QAbstractItemView::focusInEvent()`
             //   在"视图拿到焦点、而当前条目无效"时会替你选中第一条（源码里那句
             //   `if (model && !d->currentIndexSet && !currentIndexValid)`）—— 而这一列上的
-            //   每一次选中**都是翻页**（`currentRowChanged` → applyEntry() → applyPageKey()）。
-            //   「配置文件」正是一个没有左栏条目的页（左栏选中 = -1），于是用户按一下 Tab
+            //   每一次选中**都是翻页**（`currentItemChanged` → showPage()）。
+            //   「配置文件」正是一个没有左栏条目的页（左栏选中 = 空），于是用户按一下 Tab
             //   进来、或者切出去再切回来（窗口重新激活走的是同一个原因），右栏摆着的配置
             //   文件就被左栏顶掉、跳回概览 —— 一次没有用户意图的翻页。挡住它的是对话框
             //   `eventFilter()` 里那一发。
             //
+            //   ★ 2026-10-16：导航换成树之后，**这一发要打在树上** —— 那列旧的
+            //     `QListWidget` 已经 `hide()`（焦点根本轮不到它），只打它等于守着一扇没人
+            //     走的门；而树上同一个兜底一条不少（`QTreeWidget` 也是 `QAbstractItemView`）。
+            //     产品侧照着这个形状改的：`m_navigationTree->installEventFilter(this)`
+            //     + eventFilter 里 `watched == m_navigationTree` 那一路。两件都守。
+            //
             //   NOTE: 直接**合成一发 FocusIn 发给左栏**，而不是 `setFocus()` —— offscreen
             //         底下那个窗口不是活动窗口，`setFocus()` 根本不会把 FocusIn 送到控件上，
             //         拿它当驱动这一条会**永远绿**（看着像过了，其实什么都没测）。
+            //
+            //   NOTE: 拿**真 QTreeWidget**（`navigationTree()`）发，不拿 objectName 找 ——
+            //         这一条量的就是那棵树的实际行为。
             {
                 const int before = dialog.stack()->currentIndex();
+                QTreeWidget *navFocus = dialog.navigationTree();
                 QFocusEvent focusIn(QEvent::FocusIn, Qt::TabFocusReason);
-                QApplication::sendEvent(dialog.pageList(), &focusIn);
-                check(dialog.stack()->currentIndex() == before &&
-                          dialog.pageList()->currentRow() == -1,
-                      "★★ U11c 左栏那一列**拿到焦点也不许自己挑一条** —— 它挑的每一条都是"
+                QApplication::sendEvent(navFocus, &focusIn);
+                check(navFocus != nullptr && dialog.stack()->currentIndex() == before &&
+                          navFocus->currentItem() == nullptr,
+                      "★★ U11c 左栏那棵树**拿到焦点也不许自己挑一条** —— 它挑的每一条都是"
                       "一次翻页，而「配置文件」本来就没有条目：Qt 的 focusInEvent() 会在"
                       "「当前条目无效」时替你选中第一条，右栏摆着配置文件、左栏一按 Tab "
                       "就跳回概览",
                       QStringLiteral("堆叠页 %1 → %2，左栏选中 %3")
                           .arg(before)
                           .arg(dialog.stack()->currentIndex())
-                          .arg(dialog.pageList()->currentRow()));
+                          .arg(navFocus != nullptr && navFocus->currentItem() != nullptr
+                                   ? navFocus->currentItem()->data(0, Qt::UserRole).toString()
+                                   : QStringLiteral("<空>")));
             }
             check(up != nullptr && up->isVisible(),
                   "★★ U11c 进到子目录之后「上级」就画出来了");
@@ -15283,7 +15531,8 @@ int main(int argc, char *argv[]) {
                       QString::fromUtf8(QJsonDocument(dialog.pageChoices()).toJson(QJsonDocument::Compact)));
             }
 
-            // ---- ③ 用不上的一条：**不勾 + 灰着 + tooltip 说为什么 + 左栏里没有它** ----
+            // ---- ③ 用不上的一条：**不勾 + 灰着 + tooltip 说为什么**（2026-10-16 起它
+            //      **仍然留在左栏的树上**，由那一页自己解释 —— 见 U10f 那一段的说明）----
             //
             // 用户原话：「如果没有对应的加载器，保持对应选项不可勾选的状态，悬停文本解释」，
             // 补的那句是「对于没有数据包的版本，数据包也默认隐藏且不可勾选」。
@@ -15299,7 +15548,8 @@ int main(int argc, char *argv[]) {
                       "★★ U12 而且悬停文本解释为什么 —— 走 pageUnavailableText() 那一个分发处",
                       box != nullptr ? box->toolTip() : QStringLiteral("<没有那个控件>"));
                 check(!dialog.shownEntryKeys().contains(QStringLiteral("datapack")),
-                      "★★ U12 左栏那一列里也没有它（默认隐藏那一半）",
+                      "★★ U12 「能用」那份账里没有它（shownEntryKeys 少掉这一条 —— 另一半"
+                      "「树上仍然点得进去」在 U10f 那一段量）",
                       dialog.shownEntryKeys().join(QLatin1Char(' ')));
                 check(dialog.shownEntryKeys().size() ==
                           Dlg::pinnedPageKeys().size() + Dlg::optionalPageKeys().size() - 1,
@@ -15407,13 +15657,22 @@ int main(int argc, char *argv[]) {
                 check(!dialog.shownEntryKeys().contains(QStringLiteral("save")),
                       "★★ U12 勾掉「存档」⇒ 左栏那一列里当场少一条",
                       dialog.shownEntryKeys().join(QLatin1Char(' ')));
+                // ★ 2026-10-16：左栏那条导航已经从那一列（`pageList()`，构造里就 `hide()`
+                //   了、只剩"旧访问接口"这一个身份）搬到树上 ⇒ 这一句量的是**树上选中了
+                //   哪一条**。U0 那一节量过：树就是界面导航的唯一出处。
+                const auto navKeyNow = [&dialog]() {
+                    QTreeWidget *tree =
+                        dialog.findChild<QTreeWidget *>(Dlg::navigationTreeName());
+                    const QTreeWidgetItem *item = tree != nullptr ? tree->currentItem() : nullptr;
+                    return item != nullptr ? item->data(0, Qt::UserRole).toString() : QString();
+                };
                 check(dialog.stack()->currentIndex() == 0 &&
-                          dialog.pageList()->currentRow() == 0,
+                          navKeyNow() == Dlg::overviewCategoryKey(),
                       "★★ U12 而且当前那一页被赶回概览 —— 右栏摆着一页、左栏里却没有它，是"
                       "最容易让人以为「点坏了」的一种状态",
-                      QStringLiteral("堆叠页 %1 / 左栏选中 %2")
+                      QStringLiteral("堆叠页 %1 / 树上选中 %2")
                           .arg(dialog.stack()->currentIndex())
-                          .arg(dialog.pageList()->currentRow()));
+                          .arg(navKeyNow()));
                 const QJsonObject choices = dialog.pageChoices();
                 check(choices.size() == 1 && choices.value(QStringLiteral("save")) == false,
                       "★★ U12 pageChoices() 里**只**记着这一条 false（存下来的只可能是 false）",
@@ -17737,24 +17996,31 @@ int main(int argc, char *argv[]) {
         tabs->setCurrentIndex(0);
         QApplication::processEvents();
 
-        // ---- Y1 入口已经搬到底栏账户面板；主页只留角色预览 ----
+        // ---- Y1 账号入口**就在主页右上那张卡片上**（2026-10-16 用户定的）----
+        // 底栏那颗账号按钮收起来之后，「最近用过的账号」那块面板改由这张卡片打开
+        // （用户原话：「这个的对应功能继承到右上角那个按钮去」）。卡片本身没有文字
+        // —— 头像 + 名字 + 身份那两行是**卡片里**的控件画的，产品文案落在 tooltip
+        // 和无障碍名上（老那个"账号与外观…"按钮的那套接线一个字都没改）。
         QPushButton *entry = ui.getAccountSkinButton();
         SkinViewer *homeViewer = ui.getSkinViewer();
         QLabel *hint = ui.getSkinHintLabel();
         check(entry != nullptr && homeViewer != nullptr && hint != nullptr,
-              "入口按钮、3D 预览、说明行三块控件都在");
+              "入口卡片、3D 预览、说明行三块控件都在");
         if (entry != nullptr && homeViewer != nullptr && hint != nullptr) {
-            check(entry->text() == MainWindowUI::accountSkinButtonText(),
-                  "兼容入口仍保留产品文案（旧接线不用分叉）", entry->text());
+            check(entry->toolTip() == MainWindowUI::accountSkinButtonText() &&
+                      entry->accessibleName() == MainWindowUI::accountSkinButtonText(),
+                  "兼容入口仍保留产品文案（tooltip / 无障碍名两处，旧接线不用分叉）",
+                  entry->toolTip() + " / " + entry->accessibleName());
             check(entry->objectName() == MainWindowUI::accountSkinButtonName(),
                   "objectName 也对得上（验证工程和 mw_check 都按它认控件）");
-            check(!entry->isVisibleTo(&window),
-                  "主页不再显示账号入口（入口统一收到下方登录区域）");
+            check(entry->isVisibleTo(&window),
+                  "主页右上那张账号卡片是**可见**的账号入口（点它开最近账号那块面板）");
             check(!hint->isVisibleTo(&window),
                   "主页不再显示那句重复解释外观状态的文本");
             check(homeViewer->isVisibleTo(&window), "角色预览仍然完整显示");
-            check(ui.getAccountButton() != nullptr && ui.getAccountButton()->isVisibleTo(&window),
-                  "底栏登录区域仍然是可见入口");
+            check(ui.getAccountButton() != nullptr &&
+                      !ui.getAccountButton()->isVisibleTo(&window),
+                  "底栏那一格已经收起来了（功能整个继承给主页那张卡片）");
         }
 
         // ---- Y2 底栏名字下面那一行 ----

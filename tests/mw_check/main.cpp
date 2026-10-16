@@ -9373,13 +9373,19 @@ static void runBottomBarPanelTests() {
     QApplication::processEvents();
     QPushButton *instancesButton =
         byObjectName<QPushButton>(&w, MainWindowUI::runStateButtonName());
+    // ★ 2026-10-16：账号那块的锚点**换成了主页右上那张账号卡片**（用户原话：「这个的
+    //   对应功能继承到右上角那个按钮去」）—— 底栏那颗账号按钮已经 `hide()`、不再进布局，
+    //   点它一下什么都不发生（它上面没有接线了）。所以下面所有 `openPanel(accountsButton)`
+    //   量到的都是"点卡片开的那一块"，而**不是**"点底栏那颗开的"。
+    //   NOTE: 用 objectName 找卡片（`accountSkinButtonName()`），不直接拿 `getAccountSkinButton()`
+    //         —— 和左右两颗一样都从窗口这棵树上找，找得到就说明它真在窗口里。
     QPushButton *accountsButton =
-        byObjectName<QPushButton>(&w, MainWindowUI::accountButtonName());
+        byObjectName<QPushButton>(&w, MainWindowUI::accountSkinButtonName());
     LauncherManager *manager = w.findChild<LauncherManager *>();
     AuthManager *auth = w.findChild<AuthManager *>();
     check(instancesButton != nullptr && accountsButton != nullptr && manager != nullptr &&
               auth != nullptr,
-          "AH0 底栏那两颗按钮、LauncherManager、AuthManager 都找得到");
+          "AH0 底栏那颗运行状态按钮、主页那张账号卡片、LauncherManager、AuthManager 都找得到");
 
     // 面板每次点开都是**新的一个**（关掉就 deleteLater），所以每开一次都重新捞一遍。
     //
@@ -28409,6 +28415,39 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                 check(w10.findChild<AccountSkinDialog *>() == nullptr,
                       "Z2 没点之前那个窗**还没有**被建出来（懒建，不点不占内存）");
 
+                // ★ 2026-10-16：这一页的入口**不再是"点一下卡片就开"** —— 卡片那一下开的是
+                //   "最近用过的账号"那一块面板（用户定的：底栏账号格的功能继承到卡片上），
+                //   而这一页的门在**面板末行那颗「账号与外观…」**上（那一颗排的动作是
+                //   `QTimer::singleShot(0, …)` 排进下一轮的，见 BottomBarPanel::dispatch）。
+                //   所以这里要走两下：卡片 → 末行那颗。
+                //   NOTE: 断言那一发定时器**排在末行点击之后**，正好落在动作那一发后面 ——
+                //         动作那一下才进 execPage 的嵌套循环，断言跟着就在里面跑上了
+                //         （反过来的话断言先跑，那时这一页还没开）。
+                entry->click();
+                QApplication::processEvents();
+                QWidget *panel0 = w10.findChild<QWidget *>(MainWindowUI::bottomBarPanelName());
+                QPushButton *manageButton = nullptr;
+                if (panel0 != nullptr) {
+                    // 末行那一颗按**标题**认：账号有几行由缓存里的账号数决定（这里排前头的
+                    // 是几个 fixture 账号），记死行号会在别的布景下红在一个和产品无关的地方。
+                    for (int i = 0; i < 8 && manageButton == nullptr; ++i) {
+                        QLabel *rowLabel = panel0->findChild<QLabel *>(
+                            MainWindowUI::bottomBarPanelRowTitleName(i));
+                        if (rowLabel == nullptr) {
+                            break;
+                        }
+                        if (rowLabel->text() == MainWindowUI::accountSkinButtonText()) {
+                            manageButton = panel0->findChild<QPushButton *>(
+                                MainWindowUI::bottomBarPanelRowActionName(i, 0));
+                        }
+                    }
+                }
+                check(manageButton != nullptr,
+                      "Z2 那一块面板里末行那颗「账号与外观…」找得到（这一页的门在它上面）");
+                if (manageButton != nullptr) {
+                    manageButton->click();
+                }
+
                 QTimer::singleShot(0, [&w10, entry] {
                     OverlayHost *host =
                         w10.findChild<OverlayHost *>(OverlayHost::overlayHostName());
@@ -28659,10 +28698,36 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                         byObjectName<QPushButton>(&w11, MainWindowUI::accountSkinButtonName());
                     check(entry != nullptr, "Z9 第十一个窗口里入口按钮也找得到");
                     if (entry != nullptr) {
-                        // ★ 2026-09-25：和 Z2 同一个形状 —— 这个入口现在是 `execPage()`
-                        //   （整页盖住内容区 + 内部一个嵌套事件循环），"点开之后要干的那些事"
-                        //   必须排进这一发定时器，最后按返回箭头离开，`click()` 才会返回。
-                        //   见 Z2 开头那段（那里把理由写全了）。
+                        // ★ 2026-10-16：和 Z2 同一个走法 —— 卡片那一下开的是"最近用过的
+                        //   账号"那块面板，这一页的门在面板**末行**那颗「账号与外观…」上。
+                        //   两步都做完之后，断言那一发才排进队（排在动作那一发后面）。
+                        entry->click();
+                        QApplication::processEvents();
+                        QWidget *panel0 =
+                            w11.findChild<QWidget *>(MainWindowUI::bottomBarPanelName());
+                        QPushButton *manageButton = nullptr;
+                        if (panel0 != nullptr) {
+                            for (int i = 0; i < 8 && manageButton == nullptr; ++i) {
+                                QLabel *rowLabel = panel0->findChild<QLabel *>(
+                                    MainWindowUI::bottomBarPanelRowTitleName(i));
+                                if (rowLabel == nullptr) {
+                                    break;
+                                }
+                                if (rowLabel->text() == MainWindowUI::accountSkinButtonText()) {
+                                    manageButton = panel0->findChild<QPushButton *>(
+                                        MainWindowUI::bottomBarPanelRowActionName(i, 0));
+                                }
+                            }
+                        }
+                        check(manageButton != nullptr,
+                              "Z9 面板末行那颗「账号与外观…」也找得到");
+                        if (manageButton != nullptr) {
+                            manageButton->click();
+                        }
+                        // ★ 2026-09-25：这个入口是 `execPage()`（整页盖住内容区 + 内部一个
+                        //   嵌套事件循环），"点开之后要干的那些事"必须排进这一发定时器，
+                        //   最后按返回箭头离开，`click()` 才会返回。见 Z2 开头那段（那里把
+                        //   理由写全了）。
                         QTimer::singleShot(0, [&w11, &auth, accountName, offlineUuid, entry] {
                             OverlayHost *host =
                                 w11.findChild<OverlayHost *>(OverlayHost::overlayHostName());

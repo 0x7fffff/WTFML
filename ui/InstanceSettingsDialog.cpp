@@ -20,6 +20,7 @@
 #include "Animations.hpp"
 #include "Theme.hpp"   // 浮层的底色（Theme::Part::Panel）
 
+#include <QAbstractItemView>  // eventFilter()：那两件导航控件共同的兜底（focusInEvent 替人挑第一条）
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDir>
@@ -421,11 +422,11 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             [this]() { emit launchInstanceRequested(); });
     m_pageList->hide(); // 保留旧访问接口，界面导航统一由树承担。
     m_navigationTree = new QTreeWidget(this);
-    m_navigationTree->setObjectName(QStringLiteral("instanceLifecycleTree"));
+    m_navigationTree->setObjectName(navigationTreeName());
     m_navigationTree->setHeaderHidden(true);
     m_navigationTree->setColumnCount(1);
     m_navigationTree->setIndentation(16);
-    m_navigationTree->setFixedWidth(208);
+    m_navigationTree->setFixedWidth(navigationTreeWidth());
     m_navigationTree->setMinimumHeight(0);
     m_navigationTree->setFrameShape(QFrame::NoFrame);
     m_navigationTree->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
@@ -434,7 +435,18 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                 if (item != nullptr && !item->data(0, Qt::UserRole).toString().isEmpty())
                     showPage(item->data(0, Qt::UserRole).toString());
             });
+    // ★ 2026-10-16：**只为一件事：别让"拿到焦点"变成一次翻页** —— 和上面 `m_pageList`
+    //   那一发是同一件事，`QTreeWidget` 一样是 `QAbstractItemView`、兜底一模一样。
+    //   导航这一趟从那一列搬到树上之后，这一发不跟着搬的话，那扇门就只剩"守着一个
+    //   `hide()` 着的控件"（焦点永远轮不到它）—— 而树上那条路当场就是活的。
+    //   见 eventFilter() 上面那一整段。
+    m_navigationTree->installEventFilter(this);
     addNavColumn(columns, m_navigationTree, launchInstance);
+    // ★ 2026-10-16：**焦点链里导航树排在底下那颗「启动实例」前头**。焦点链是**按建控件的
+    //   顺序**串的，而那颗按钮建得比这棵树早（它本来就先有，树是后加到这一列上的）⇒ 按
+    //   Tab 的顺序当场变成"从左下角那颗按钮往上跳回树上"，和眼睛看到的上下顺序反了
+    //   （ui_check U38 那条几何判据报的就是这一处）。上图下文：先树上那一列，再底下那颗。
+    QWidget::setTabOrder(m_navigationTree, launchInstance);
 
     m_stack = new QStackedWidget(this);
     m_stack->setObjectName(stackName());
@@ -2481,8 +2493,19 @@ bool InstanceSettingsDialog::eventFilter(QObject *watched, QEvent *event) {
     //       就有兜底（回第一条），所以键盘一样能走，只是"没碰过它之前什么都不高亮"。
     //       判据带上 `!currentIndex().isValid()`：当前条目有效时 focusInEvent() 什么都不会做，
     //       那种时候这一发没有吃掉的道理。
-    if (watched == m_pageList && event->type() == QEvent::FocusIn &&
-        !m_pageList->currentIndex().isValid()) {
+    //
+    // ★ 2026-10-16：守的是**两件**控件。界面导航从 `m_pageList`（那一列现在已经
+    //   `hide()`，焦点根本轮不到它）搬到了 `m_navigationTree` 上，而那个兜底属于
+    //   `QAbstractItemView` —— 树上一条不少。这一发是**逐控件**的（`watched ==`），
+    //   所以"搬了导航忘了搬这一发"的后果就是：用户在「配置文件」那一页按一下 Tab，
+    //   右栏当场被顶回概览 —— 一次没有用户意图的翻页。旧那一列留着不花任何代价
+    //   （它已不可见），将来谁把它放回来也不会一下子踩空。
+    const auto autoPickPending = [](const QAbstractItemView *view) {
+        return view != nullptr && !view->currentIndex().isValid();
+    };
+    if (event->type() == QEvent::FocusIn &&
+        ((watched == m_pageList && autoPickPending(m_pageList)) ||
+         (watched == m_navigationTree && autoPickPending(m_navigationTree)))) {
         return true;
     }
     return QDialog::eventFilter(watched, event);
@@ -3671,7 +3694,12 @@ void InstanceSettingsDialog::rebuildNavigationTree() {
     auto *maintenance = group(nullptr, tr("维护"), QStringLiteral("maintenance"));
     leaf(maintenance, QStringLiteral("integritymenu"));
     leaf(maintenance, QStringLiteral("diagnosticsmenu"));
-    add(maintenance, tr("快照与恢复"), QStringLiteral("snapshots"));
+    // ★ 2026-10-16：这一条原来是自己写死了那一行字（`add(...)`）的，而别处都走 `leaf()`
+    //   ⇒ 那一行写的是「快照与恢复」、`pageText()` 里那一条还是旧名「快照管理」，同一页
+    //   在左栏和它自己的页头上是两个名字。字面按这一行留下的那个（「快照与恢复」）**搬
+    //   进 `lifecyclePageTexts()`**，这一行改回 `leaf()` —— 左栏那一行从此重新由
+    //   `pageText()` 说了算（那一句本来就是这个文件里写明了的唯一出处）。
+    leaf(maintenance, QStringLiteral("snapshots"));
     leaf(maintenance, QStringLiteral("operationsmenu"));
     for (QTreeWidgetItemIterator it(m_navigationTree); *it; ++it) {
         if ((*it)->childCount() > 0)

@@ -103,8 +103,11 @@ constexpr int kStartButtonMinHeight = 76;
 constexpr int kMainWindowMinHeight = 620;
 /// 主页角色预览使用稳定的展示规格。窗口变宽时人物不应跟着无限放大；220px 是默认
 /// 900px 窗口下实际量到的画布宽度，按 SkinViewer 的比例对应约 311px 高。
-constexpr int kHomeSkinViewerWidth = 160;
 constexpr int kHomeProfileHorizontalPadding = 8 * 2;
+/// 人物预览画布宽度（160）= 右栏宽度（唯一出处 `MainWindowUI::homeRightColumnWidth()`）
+/// 减掉卡片左右内边距 —— 两者必须是同一个数推出来的，不然卡片会跟右栏错开。
+constexpr int kHomeSkinViewerWidth =
+    MainWindowUI::homeRightColumnWidth() - kHomeProfileHorizontalPadding;
 
 /// 主页左栏两张卡之间的竖直留白（「开始游戏」和「上次游玩」）。
 ///
@@ -297,9 +300,11 @@ QLabel *makeHomeHint(const QString &text, QWidget *parent) {
  *   ④ **页面级操作永远在右上角**：塞进 `columns.right.actions`（页头那一行的最右），
  *      确认操作由调用方摆在自己的"底栏"上（`wtfmlSurface="footer"`）。
  *
- * 【哪些页走哪一档】主页那一栏是"选版本 + 启动"、那是**正文**，所以它不套侧栏面、
- * 也不固定宽度（仍然是 7:3 的份数，见 `leftColumnIsWider()`）；另外三页的左栏是
- * **导航**（一列分类 / 一列文件夹），走固定宽度的侧栏面。
+ * 【哪些页走哪一档】主页那一栏是"选实例 + 启动"、那是**正文**，所以它不套侧栏面；
+ * ★ 2026-10-16 起它的右栏（「我的角色」）是**定宽**的一栏（`homeRightColumnWidth()`），
+ * 左栏吃剩下的全部 —— 那个"仍然按 7:3 的份数分宽"的说法已经不成立了（见头文件里
+ * `homeLeftColumnStretch()` 那段）。另外三页的左栏是**导航**（一列分类 / 一列文件夹），
+ * 走固定宽度的侧栏面。
  *
  * 【`layout` 落在哪儿】正文那一栏：`widget`（透明外框）→ 页头 → `surface`（正文面）→
  * `layout`。也就是说调用方 `columns.right.layout->addWidget(...)` 塞进去的东西**都在
@@ -340,7 +345,14 @@ TwoColumns buildTwoColumnPage(QWidget *page, const QString &tab) {
     columns.left = makeColumn(MainWindowUI::leftColumnName(tab), home);
     columns.right = makeColumn(MainWindowUI::rightColumnName(tab), false);
     if (home) {
-        columns.right.widget->setFixedWidth(kHomeSkinViewerWidth + kHomeProfileHorizontalPadding);
+        // ★ 2026-10-16：右栏**钉死**在人物预览那一栏的宽度上（唯一出处见头文件
+        //   `homeRightColumnWidth()`）—— 主页不再按份数分宽，左栏吃剩下的全部。
+        columns.right.widget->setFixedWidth(MainWindowUI::homeRightColumnWidth());
+        // 尺寸策略也要一起钉，理由和下面侧栏那一段**逐字相同**（`setFixedWidth()` 只写死
+        // min/max，策略留在 Preferred —— 屏幕上看着一样，但"跟不跟窗口长"这件事的判据
+        // 是策略）。ui_check 那条就是量这一句；少它的话，将来谁把 setFixedWidth 换成
+        // setMinimumWidth，屏幕上要到某个窗口宽度才看得出走样。
+        columns.right.widget->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
     } else {
         // ---- 侧栏那一栏：固定宽度 + 一个轻微底色 ----
         //
@@ -951,6 +963,14 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         accountArrow->setAttribute(Qt::WA_TransparentForMouseEvents);
         accountHeader->addWidget(accountArrow);
         profileLayout->addWidget(accountSkinButton);
+        // ★ 2026-10-16（用户原话：「这个的对应功能继承到右上角那个按钮去」）：底栏那颗账号
+        //   按钮 `hide()` 之后，"最近用过的账号"那一块面板就**换到这张卡片上**了 ——
+        //   点一下在卡片下面展开（卡片贴着头顶，只能往下弹，见 BottomBarPanel 那两个方向）。
+        //   面板里的内容一个字没改：最近三个账号 + 每行那颗「登录 / 登出」+ 末行
+        //   「账号与外观…」（进那个大窗的那条路就在末行里，所以这一颗**不再**直接开窗）。
+        QObject::connect(accountSkinButton, &QPushButton::clicked, accountSkinButton, [this]() {
+            toggleAccountsPanel();
+        });
 
         skinViewer = new SkinViewer(profileCard);
         skinViewer->setObjectName(skinViewerName());
@@ -988,7 +1008,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // 在其它选项卡误以为账号仍是全局底栏功能。
         // 与左侧沉底的快速启动区对齐；上方多余空间由 stretch 吸收，不灌进预览框。
         // 宽度也钉在默认展示规格：窗口变宽只增加周围留白，不把人物本身放大。
-        profileCard->setFixedWidth(kHomeSkinViewerWidth + kHomeProfileHorizontalPadding);
+        profileCard->setFixedWidth(MainWindowUI::homeRightColumnWidth());
         profileCard->setMinimumHeight(profileCard->heightForWidth(profileCard->width()));
         home.right.layout->addWidget(profileCard, 0, Qt::AlignHCenter);
         home.right.layout->addStretch(1);
@@ -3369,14 +3389,17 @@ public:
     /// @param anchor 贴着哪颗按钮弹（也决定"至少和按钮一样宽"）。
     /// @param alignRight true = 右边缘和按钮右边缘对齐（右端那颗按钮用），
     ///                   false = 左边缘对齐（左端那颗用）。
+    /// @param dropDown true = 面板挂在锚点**下面**（主页右上那张账号卡片用），
+    ///                 false = 挂在锚点**上面**（底栏那几颗按钮用 —— 底下就是窗沿，
+    ///                 往上弹才不会压住内容区）。
     /// @param rows 面板里的几行（数据由 MainWindow 翻好，见 setBottomBarPanelContent()）。
     /// @param onAction 行尾的按钮被点了该告诉谁（可以给空的 = 这些按钮点了没反应）。
     /// @param onOutsidePress 点在外面那一下该告诉谁（两个回调都可以给空的 = 只知道"要收回去"）。
-    BottomBarPanel(QWidget *anchor, bool alignRight,
+    BottomBarPanel(QWidget *anchor, bool alignRight, bool dropDown,
                    const QList<MainWindowUI::PanelRow> &rows, const ActionCallback &onAction,
                    const OutsidePressHandler &onOutsidePress, QWidget *parent)
         : QWidget(parent, Qt::Popup | Qt::FramelessWindowHint), m_anchor(anchor),
-          m_alignRight(alignRight), m_onOutsidePress(onOutsidePress) {
+          m_alignRight(alignRight), m_dropDown(dropDown), m_onOutsidePress(onOutsidePress) {
         setObjectName(MainWindowUI::bottomBarPanelName());
         // 底色比底栏再深一档：它是压在内容区上面的一块，得从底下那堆东西里分出来。
         // **不写死颜色**：从当前调色板推出来，浅色/深色主题下都成立（和底栏同一个路数）。
@@ -3426,7 +3449,7 @@ public:
     /// 贴的是哪颗按钮（"再点一次收回"要按它认人：点的是同一颗才算收回）。
     QWidget *anchor() const { return m_anchor; }
 
-    /// 摆到 anchor 的正上方并显示出来。
+    /// 摆到 anchor 的正上方（`dropDown` 时是正下方）并显示出来。
     void popUp() {
         adjustSize();
         // 至少和那颗按钮一样宽：以后装实例列表/账号列表，比按钮还窄就没法看了。
@@ -3437,7 +3460,12 @@ public:
             const QPoint anchorTopLeft = m_anchor->mapToGlobal(QPoint(0, 0));
             int x = m_alignRight ? anchorTopLeft.x() + m_anchor->width() - width()
                                  : anchorTopLeft.x();
-            int y = anchorTopLeft.y() - height() - kPanelGap;
+            // ★ 两个方向各有一处讲究：
+            //   · 底栏那几颗（`dropDown = false`）往上弹 —— 它们底下就是窗沿；
+            //   · 主页右上那张账号卡片（`dropDown = true`）往下弹 —— 它贴着头顶，往上弹
+            //     连"从哪儿滑上来"都没有地方（会被下面那段夹回屏幕里、压在卡片上）。
+            int y = m_dropDown ? anchorTopLeft.y() + m_anchor->height() + kPanelGap
+                               : anchorTopLeft.y() - height() - kPanelGap;
             // ★ 2026-10-14（coding plan §3.3「窄窗口避让……只实现一次」）：把它**夹进那一块
             //   屏的可用区域**。面板是个顶层窗口，按锚点算出来的落点会**跑到屏幕外面**去 ——
             //   窗口贴着屏幕右边那一块（或者面板比窗口还宽）时，右端那块面板有半截在屏外，
@@ -3465,7 +3493,13 @@ public:
             // 就是它自己的 pos() 在动 —— 落到哪儿还是一样算，只是先把起手位摆在落点下面
             // `panelSlideDistance()` 那一格上。关掉动效时 `slideUp()` 直接 move 到落点，
             // 和从前那一句 move(x, …) 一模一样（见 ui/Animations.hpp）。
-            Anim::slideUp(this, QPoint(x, y));
+            // ★ 2026-10-16：往下弹那一档（主页账号卡片）方向反过来 —— 那一块是"从上面
+            //   掉下来"的，用 `slideDown()`（同距离、同一条动效开关，只是起手位在落点上面）。
+            if (m_dropDown) {
+                Anim::slideDown(this, QPoint(x, y));
+            } else {
+                Anim::slideUp(this, QPoint(x, y));
+            }
         }
         show();
         raise();
@@ -3551,6 +3585,8 @@ protected:
 private:
     QWidget *m_anchor = nullptr;
     bool m_alignRight = false;
+    /// 挂在锚点下面（往下弹）还是上面（往上弹），见构造函数那段。
+    bool m_dropDown = false;
     OutsidePressHandler m_onOutsidePress;
 };
 
@@ -4506,14 +4542,9 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     QObject::connect(taskSummaryButton, &QPushButton::clicked, taskSummaryButton, [this]() {
         toggleBottomBarPanel({taskSummaryButton, BottomBarAnchorKind::Tasks});
     });
-    // ★ 右头那一格（头像 + 用户名）：点它向上展开"最近用过的账号"。
-    //   NOTE: 2026-10-16 补回来的 —— 上一版重构主页 / 生命周期导航时这一句连着的那一段
-    //         被删掉了，于是那一格**点了什么都不发生**（`toggleBottomBarPanel` 里认得
-    //         `Accounts` 这一档、`openBottomBarPanel` 也画得出来，只是没人叫它）。mw_check
-    //         的 AH7–AH11b 那十四条就是拿它当判据红的。
-    QObject::connect(accountButton, &QPushButton::clicked, accountButton, [this]() {
-        toggleBottomBarPanel({accountButton, BottomBarAnchorKind::Accounts});
-    });
+    // ★ 右头那一格（头像 + 用户名）**不再有接线**：它 `hide()` 之后那一格点不到，
+    //   而它的对应功能 2026-10-16 已经按用户要求**继承到主页右上那张账号卡片**上
+    //   （见 setupUi() 里 `accountSkinButton` 那一条 connect、以及 toggleAccountsPanel()）。
 
     // 三格从左到右摆：实例状态（0）· 空档（1）· 任务摘要（6）· 空档（1）· 账户（0）。
     // 两头那两颗按钮的宽度都是钉死的，份数写 0；富余宽度全在中间三份里分。
@@ -4872,9 +4903,18 @@ MainWindowUI::BottomBarAnchor MainWindowUI::bottomBarAnchorAt(const QPoint &glob
     // 三颗按钮摆在哪由底栏的布局说了算，所以判据只能是"这个全局坐标落在它自己的矩形里吗"
     //（mapFromGlobal 之后按 rect() 判 —— 和所有"点在不在这个控件上"的写法一致）。
     const auto hits = [&globalPos](QPushButton *button) {
-        return button != nullptr
+        return button != nullptr && button->isVisible()
                && button->rect().contains(button->mapFromGlobal(globalPos));
     };
+    // ★ 2026-10-16：主页右上那张账号卡片也在这一串里 —— 账号面板现在挂在它身上
+    //   （用户原话：「这个的对应功能继承到右上角那个按钮去」），所以"点在面板外面那一下
+    //   是不是点了同一颗/另一颗开关"也得认得出它。漏了这一句的症状：面板开着的时候点
+    //   卡片本身收不回去（那一下既没落在底栏任何一颗上，也就没人接着办事）。
+    //   NOTE: `isVisible()` 那道闸是必须的 —— 底栏那颗账号按钮是 `hide()` 着的，
+    //         它按 rect() 仍然"命中"（隐藏控件的位置是上一个布局留下的），会抢在别人前面。
+    if (hits(accountSkinButton)) {
+        return {accountSkinButton, BottomBarAnchorKind::Accounts, /*dropDown=*/true};
+    }
     if (hits(runStateButton)) {
         return {runStateButton, BottomBarAnchorKind::Instances};
     }
@@ -5022,8 +5062,8 @@ void MainWindowUI::openBottomBarPanel(const BottomBarAnchor &anchor) {
             toggleBottomBarPanel(hit);
         }
     };
-    auto *panel = new BottomBarPanel(anchor.button, anchor.account(), rows, onAction, onOutsidePress,
-                                     bottomBar);
+    auto *panel = new BottomBarPanel(anchor.button, anchor.account(), anchor.dropDown, rows, onAction,
+                                     onOutsidePress, bottomBar);
     // 这次弹出来的面板归它自己管：关掉就删（不然点一次攒一个）。
     panel->setAttribute(Qt::WA_DeleteOnClose);
     panel->popUp();

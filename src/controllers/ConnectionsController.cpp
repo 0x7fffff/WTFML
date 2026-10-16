@@ -88,10 +88,13 @@ void ConnectionsController::setup() {
     //       写的是"这次启动用哪种身份"）。勾选框去掉了，现在让那个身份变的动作是
     //       **换账号 / 加一个离线账号**，而那两个槽自己就会调 m_owner->updateBottomBar()，
     //       所以这里没有对应的接线了。
-    // 「账号与外观…」的隐藏兼容入口 + 设置页入口。主页可见入口已经搬到底栏账号面板
-    // 末行；三条路最终都进同一个槽。
-    connect(m_owner->m_ui->getAccountSkinButton(), &QPushButton::clicked, m_owner,
-            &MainWindow::onAccountSkinButtonClicked);
+    // 「账号与外观…」的隐藏兼容入口 + 设置页入口。这两条仍然直通那个窗。
+    //
+    // ★ 主页那张账号卡片（`getAccountSkinButton()`）**2026-10-16 不在这一串里了** ——
+    //   它现在点开的是"最近用过的账号"那块面板（接线在 MainWindowUI 自己那儿，见
+    //   `toggleAccountsPanel()`），而进「账号与外观」窗的那条路挪进面板**末行**那一颗
+    //   （用户原话：「这个的对应功能继承到右上角那个按钮去」）。两边都留着的话，点一下
+    //   卡片会同时冒出面板和那个窗。
     connect(m_owner->m_ui->getAccountSkinSettingsButton(), &QPushButton::clicked, m_owner,
             &MainWindow::onAccountSkinButtonClicked);
     connect(m_owner->m_ui->getAddFolderButton(), &QPushButton::clicked, m_owner,

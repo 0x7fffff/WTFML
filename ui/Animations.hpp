@@ -305,6 +305,10 @@ void animateExpansion(QTreeView *view);
 /// 调用方先把面板 `show()` 出来（顺序见 `BottomBarPanel::popUp()`）。
 void slideUp(QWidget *window, const QPoint &target);
 
+/// 往下弹的那一档（主页右上那张账号卡片下面那块面板）：从落点**上面**同样一格滑下来。
+/// 和 `slideUp()` 是同一条动效的两头（同时长、同缓动、同收尾兜底），只有起手位在另一边。
+void slideDown(QWidget *window, const QPoint &target);
+
 /**
  * @brief 「这一行是新来的」：把刚摆上去的**一行**淡进来（`rowAppearMs()`）。
  *

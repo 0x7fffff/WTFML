@@ -2554,6 +2554,17 @@ public:
     /// 改宽度时一定会有一边忘了改。
     static int sidebarWidth() { return 216; }
 
+    /// 主页**右栏**（「我的角色」那一栏）的宽度（**唯一出处**，2026-10-16 起）。
+    ///
+    /// ★ 主页右栏**不再按份数分宽**：装上「我的角色」那张卡片之后，这一栏的宽度由卡片
+    ///   自己钉死（卡片里那 160 px 的人物画布 + 左右各 8 px 内边距），左栏吃剩下的全部。
+    ///   从前那个"精确的 7:3"（见 `homeLeftColumnStretch()`）是"这一栏只由份数决定宽度"
+    ///   那个前提下的说法 —— 前提没了，那份比例也就不再是这一栏的真话（验证工程按它量
+    ///   会量出 664:176 这种数）。
+    ///   NOTE: 右栏列本身在 `buildTwoColumnPage()` 里就 `setFixedWidth()` 到这一个数，
+    ///         所以它是**跟窗口宽度无关**的常量 —— 这正是验证工程能拿它当期望值的原因。
+    static constexpr int homeRightColumnWidth() { return 176; }
+
     /// 正文那一栏顶上那个页头（页面标题那一行 + 说明那一行）的名字。
     /// @param tab "instance" / "download" / "settings"（主页没有页头）。
     static QString pageHeaderName(const QString &tab) {
@@ -2575,28 +2586,34 @@ public:
     static int rightColumnStretch() { return 7; }
     /// 栏内那张表格里右列是不是真的更宽（验证工程拿它当"默认的 3:7 生效了"的判据）。
     static bool rightColumnIsWider() { return rightColumnStretch() > leftColumnStretch(); }
-    /// 主页那一套：7:3（把默认那一对对调过来），见 leftColumnIsWider()。
+    /// 主页那一套份数：7:3。
+    /// ★ 2026-10-16：这一对**不再是主页两栏的宽度规则** —— 主页右栏装上「我的角色」
+    ///   之后宽度被 `setFixedWidth()` 钉死（见 `homeRightColumnWidth()`），左栏吃剩下的
+    ///   全部。这两个数现在只是 `buildTwoColumnPage()` 里那一次 `addWidget(..., stretch)`
+    ///   的入参（右栏定宽之后 stretch 对它无效，左栏是唯一能长的那一栏，所以 7 也一样
+    ///   不影响结果）。**量宽度请看 `homeRightColumnWidth()`**，别拿 7:3 去算。
     static int homeLeftColumnStretch() { return 7; }
     static int homeRightColumnStretch() { return 3; }
 
     /// 这一页是不是"左宽右窄"。
     /// @param tab "home" / "instance" / "download"。
     ///
-    /// 只有主页是。主页的右栏现在**空着**（原来那张「版本列表」已经去掉 —— 实例页右边
-    /// 已经有一张同样数据的列表了，主页那张是把同一件事说两遍），所以宽度让给左边的
-    /// "选版本 + 启动"那两样。另外三页的左栏是**固定宽度的侧栏**（见 sidebarWidth()），
-    /// 份数给 0 —— 它多宽由那一栏自己的宽度定，和比例无关。
+    /// 只有主页是。主页右栏装的是「我的角色」（3D 预览），它是**定宽**的一栏；左栏是
+    /// "选实例 + 启动"那一摊，吃剩下的全部宽度。另外三页的左栏是**固定宽度的侧栏**
+    /// （见 sidebarWidth()），份数给 0 —— 它多宽由那一栏自己的宽度定，和比例无关。
     static bool leftColumnIsWider(const QString &tab) {
         return tab == QStringLiteral("home");
     }
     /// 某一页左栏占的份数。
     ///
-    /// ★ 2026-10-12：**只有主页还是按份数分宽**（7 份）。另三页（实例/下载/设置）的左栏
+    /// ★ 2026-10-12：只给主页一个非 0 的份数。另三页（实例/下载/设置）的左栏
     ///   换成了**固定宽度的侧栏**（`sidebarWidth()`，用户那份改版文档：`侧栏 208 px`，
     ///   理由见 `kSidebarWidth` 那段）—— 侧栏自己那一位给 0，宽度全归正文那一栏。
     ///   从前那两套 `downloadLeftColumnStretch()`（2:8）/`settingsLeftColumnStretch()`
     ///   （也是 2:8）**连函数一起删了**：那两份数字是在"按比例分宽"那个前提下定的，
     ///   侧栏定死之后它们没有任何读者，留着就是一份和界面无关的假规格。
+    /// ★ 2026-10-16：主页这一对也**退化成入参**了（右栏定宽，见 homeLeftColumnStretch()）
+    ///   —— 主页真正的宽度规则是 `homeRightColumnWidth()`。
     static int leftColumnStretch(const QString &tab) {
         return tab == QStringLiteral("home") ? homeLeftColumnStretch() : 0;
     }
@@ -3474,8 +3491,19 @@ public:
     QLabel *getHomeAccountLabel() const { return homeAccountLabel; }
     QLabel *getHomeAvatarLabel() const { return homeAvatarLabel; }
     QLabel *getHomeAccountTypeLabel() const { return homeAccountTypeLabel; }
-    /// 「账号与外观…」的兼容入口（主页不展示；可见入口在底栏账号面板与设置页）。
+    /// 主页右上那张账号卡片（头像 + 名字 + 「⌄」）。**2026-10-16 起它是账号那个入口**：
+    /// 点一下在卡片**下面**展开「最近用过的账号」那一块面板（见 `toggleAccountsPanel()`）。
     QPushButton *getAccountSkinButton() const { return accountSkinButton; }
+
+    /// 点一下主页右上那张账号卡片：把「最近用过的账号」那块面板挂在卡片下面开/收。
+    ///
+    /// ★ 2026-10-16（用户原话：「这个的对应功能继承到右上角那个按钮去」）：底栏那颗账号
+    ///   按钮被 `hide()` 之后（账号身份整个搬到主页右栏），那一块面板就**换锚点**到了这张
+    ///   卡片上 —— 面板本身（行、行尾那颗「登录/登出」、末行「账号与外观」）一个字没改，
+    ///   变的只是"点哪里打开它"和"它往哪个方向弹"。
+    void toggleAccountsPanel() {
+        toggleBottomBarPanel({accountSkinButton, BottomBarAnchorKind::Accounts, /*dropDown=*/true});
+    }
 
     QTabWidget *getTabWidget() const { return tabWidget; }
 
@@ -3494,10 +3522,14 @@ public:
     // NOTE: 产品代码没有取过底栏本身（只取它里面的几个标签/进度条），只有验证工程
     //       用它来量底栏的几何。
     QFrame *getBottomBar() const { return bottomBar; }
-    /// 底栏两头那两颗按钮（左：实例运行状态 · 右：头像/用户名）。点它们会**向上**弹出一块
-    /// 面板（左边那块列在跑的实例、右边那块列最近用过的账号），内容由 MainWindow 灌进来
-    /// （见 setBottomBarPanelContent()）。
+    /// 底栏那几颗按钮（左：实例运行状态 · 中：任务摘要 · 右：工具箱）。点它们会**向上**弹出
+    /// 一块面板（左那块列在跑的实例、中间那块是任务中心、右那块是工具箱菜单），内容由
+    /// MainWindow 灌进来（见 setBottomBarPanelContent()）。
     QPushButton *getRunStateButton() const { return runStateButton; }
+    /// 底栏右头那一格（头像 + 用户名 + 「⌃」）。★ 2026-10-16 起它**不摆出来了**
+    /// （`setupBottomBar()` 里 `hide()`）：账号身份与入口整个搬到主页右上那张卡片，
+    /// 这里只留下这一组控件供业务层继续灌数据（`updateBottomBar()` 那两行文字）。
+    /// 账号面板现在的锚点是 **`getAccountSkinButton()` 那张卡片**。
     QPushButton *getAccountButton() const { return accountButton; }
     QPushButton *getToolboxButton() const { return toolboxButton; }
     /// 底栏中间那一格（2026-10-12 起它也是一整颗按钮：点一下向上展开任务中心）。
@@ -3554,6 +3586,11 @@ private:
     struct BottomBarAnchor {
         QPushButton *button = nullptr;
         BottomBarAnchorKind kind = BottomBarAnchorKind::None;
+        /// 面板挂在锚点**下面**（往下弹），不是上面。只有一档是 true：主页右上那张
+        /// 账号卡片 —— 它本身就贴着头顶，往上弹只会跑到屏幕外面去（见 BottomBarPanel::popUp()）。
+        /// ★ 2026-10-16（用户原话：「这个的对应功能继承到右上角那个按钮去」）：底栏那颗
+        ///   账号按钮 `hide()` 之后，账号面板换到主页卡片上，方向也就跟着翻了过来。
+        bool dropDown = false;
         bool account() const { return kind == BottomBarAnchorKind::Accounts; }
     };
     /// 底栏那三颗按钮"点开 / 收回"的唯一出处，三种情形都在这里分：
