@@ -356,6 +356,12 @@ endif()
 target_link_libraries(mw_check PRIVATE crypt32 ole32 shlwapi windowscodecs dwmapi)
 
 add_test(NAME wtfml.main-window COMMAND mw_check)
+add_test(NAME wtfml.workspace COMMAND mw_check workspace-check)
+set_tests_properties(wtfml.workspace PROPERTIES
+    LABELS "ui;integration"
+    TIMEOUT 30
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+)
 set_tests_properties(wtfml.main-window PROPERTIES
     LABELS "ui;integration"
     TIMEOUT 240

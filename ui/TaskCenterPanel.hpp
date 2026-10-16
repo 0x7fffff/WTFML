@@ -194,6 +194,8 @@ public:
     /// 内容变了重画一遍（面板开着的时候 MainWindow 会喊）。**不重播滑入动效** ——
     /// 它这会儿已经在屏幕上，再滑一次看着就是"整块面板跳了一下"。
     void refresh();
+    /// 合并当前事件轮的状态通知，避免在行内动作回调中删除发送者。
+    void requestRefresh();
 
     /// 面板里的一行被点了要告诉谁（参数是那一行的 `key`）。
     ///
@@ -217,6 +219,7 @@ protected:
     void mouseDoubleClickEvent(QMouseEvent *event) override;
     void paintEvent(QPaintEvent *) override;
     void resizeEvent(QResizeEvent *event) override;
+    void showEvent(QShowEvent *event) override;
 
 private:
     /// 把内容整块重建（两栏 + 那个「清除已完成」）。调用方负责随后摆位置。
@@ -258,5 +261,6 @@ private:
     bool m_compact = false;
     bool m_compactDetailOpen = false;
     bool m_opened = false;
+    bool m_refreshPending = false;
     bool m_embedded = false;
 };

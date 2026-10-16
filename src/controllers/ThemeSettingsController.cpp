@@ -181,6 +181,7 @@ void ThemeSettingsController::changePreset() {
     if (combo == nullptr || !Theme::isPresetId(combo->currentData().toString())) return;
     Theme::Spec spec = Theme::current();
     spec.presetId = combo->currentData().toString();
+    spec.accent = Theme::tokens(spec.presetId).primary;
     applySpec(spec);
 }
 
@@ -197,7 +198,7 @@ void ThemeSettingsController::chooseAccent() {
 
 void ThemeSettingsController::resetAccent() {
     Theme::Spec spec = Theme::current();
-    spec.accent = Theme::defaultAccentColor();
+    spec.accent = Theme::tokens(spec.presetId).primary;
     applySpec(spec);
 }
 

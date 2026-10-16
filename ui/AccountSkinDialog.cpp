@@ -20,7 +20,9 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFont>
+#include <QFrame>
 #include <QHBoxLayout>
+#include <QGridLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -52,19 +54,26 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     resize(kInitialWidth, kInitialHeight);
 
     QVBoxLayout *root = new QVBoxLayout(this);
+    root->setContentsMargins(16, 12, 16, 12);
+    root->setSpacing(12);
 
     // ---------- 顶部：当前身份 / 最近一次动作的结果 ----------
     m_statusLabel = new QLabel(notLoggedInNote(), this);
     m_statusLabel->setObjectName(statusLabelName());
     m_statusLabel->setWordWrap(true);
-    root->addWidget(m_statusLabel);
+    m_statusLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    auto *statusRow = new QHBoxLayout;
+    statusRow->addWidget(m_statusLabel, 1);
+    root->addLayout(statusRow);
 
     QHBoxLayout *main = new QHBoxLayout();
+    main->setSpacing(20);
     root->addLayout(main, 1);
 
     // ---------- 左：账号 ----------
     QVBoxLayout *left = new QVBoxLayout();
-    main->addLayout(left, 1);
+    left->setSpacing(8);
+    main->addLayout(left, 5);
 
     QLabel *accountTitle = new QLabel(accountSectionTitle(), this);
     QFont sectionFont = accountTitle->font();
@@ -96,7 +105,7 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     hintPalette.setColor(QPalette::WindowText, hintPalette.color(QPalette::PlaceholderText));
     loginHint->setPalette(hintPalette);
 
-    QHBoxLayout *accountButtons = new QHBoxLayout();
+    QGridLayout *accountButtons = new QGridLayout();
     left->addLayout(accountButtons);
     m_loginButton = new QPushButton(loginButtonText(), this);
     m_loginButton->setObjectName(loginButtonName());
@@ -115,13 +124,12 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     m_refreshButton->setObjectName(refreshButtonName());
     // 「重新取一次」= 刷新（一般性那一档）。
     Theme::markButton(m_refreshButton, Theme::ButtonKind::Ghost);
-    accountButtons->addWidget(m_loginButton);
-    accountButtons->addWidget(m_switchButton);
-    accountButtons->addWidget(m_removeButton);
+    accountButtons->addWidget(m_loginButton, 0, 0);
+    accountButtons->addWidget(m_switchButton, 0, 1);
+    accountButtons->addWidget(m_removeButton, 0, 2);
     // 「刷新外观」和账号那三个按钮排在一行：它刷的是**这一整个窗**（账号列表 + 皮肤 +
     // 披风，见 MainWindow::refreshAccountSkin()），不是只管右边那一栏。
-    accountButtons->addWidget(m_refreshButton);
-    accountButtons->addStretch(1);
+    Theme::markButton(m_loginButton, Theme::ButtonKind::Primary);
 
     // 离线账号那一路。和上面那排按钮分开摆，是因为它**不是**对"选中项"做事（不依赖列表
     // 里选中了谁），而是一个"加东西"的入口 —— 和「登录新账号…」地位相当，只是不用浏览器。
@@ -142,22 +150,32 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
 
     // ---------- 右：外观 ----------
     QVBoxLayout *right = new QVBoxLayout();
-    main->addLayout(right, 1);
+    right->setSpacing(8);
+    main->addLayout(right, 6);
 
     QLabel *looksTitle = new QLabel(looksSectionTitle(), this);
     looksTitle->setFont(sectionFont);
     right->addWidget(looksTitle);
+    auto *appearance = new QHBoxLayout;
+    appearance->setSpacing(16);
+    right->addLayout(appearance, 1);
 
     m_viewer = new SkinViewer(this);
     m_viewer->setObjectName(viewerName());
     m_viewer->setMinimumHeight(kViewerMinHeight);
+    m_viewer->setFixedWidth(160);
+    m_viewer->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
     // 一进来就有东西可看：没登录、还没取到、取不到，看到的都是这套默认外观
     // （和主页右栏同一个做法 —— 那个控件任何时候都不该是空白的）。
     m_viewer->setSkin(SkinModel::defaultSteveSkin(), QImage(), false);
-    right->addWidget(m_viewer, 1);
+    appearance->addWidget(m_viewer);
+    auto *controls = new QVBoxLayout;
+    controls->setSpacing(8);
+    appearance->addLayout(controls, 1);
 
-    QHBoxLayout *uploadRow = new QHBoxLayout();
-    right->addLayout(uploadRow);
+    QVBoxLayout *uploadRow = new QVBoxLayout();
+    controls->addWidget(new QLabel(tr("皮肤"), this));
+    controls->addLayout(uploadRow);
     m_uploadButton = new QPushButton(uploadButtonText(), this);
     m_uploadButton->setObjectName(uploadButtonName());
     m_variantCombo = new QComboBox(this);
@@ -170,28 +188,32 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     WheelGuard::install(m_variantCombo);
     uploadRow->addWidget(m_uploadButton);
     uploadRow->addWidget(m_variantCombo);
-    uploadRow->addStretch(1);
+    controls->addWidget(m_refreshButton);
 
     QLabel *capeTitle = new QLabel(capeSectionTitle(), this);
     capeTitle->setFont(sectionFont);
-    right->addWidget(capeTitle);
+    controls->addSpacing(8);
+    controls->addWidget(capeTitle);
 
     m_capeList = new QListWidget(this);
     m_capeList->setObjectName(capeListName());
-    m_capeList->setMinimumHeight(kListMinHeight);
-    right->addWidget(m_capeList, 1);
+    m_capeList->setMinimumHeight(72);
+    controls->addWidget(m_capeList, 1);
 
     QHBoxLayout *capeButtons = new QHBoxLayout();
-    right->addLayout(capeButtons);
+    controls->addLayout(capeButtons);
     m_applyCapeButton = new QPushButton(applyCapeButtonText(), this);
     m_applyCapeButton->setObjectName(applyCapeButtonName());
+    m_applyCapeButton->setText(tr("应用"));
+    m_applyCapeButton->setToolTip(applyCapeButtonText());
     m_hideCapeButton = new QPushButton(hideCapeButtonText(), this);
     m_hideCapeButton->setObjectName(hideCapeButtonName());
+    m_hideCapeButton->setText(tr("隐藏"));
+    m_hideCapeButton->setToolTip(hideCapeButtonText());
     // 「不显示披风」= 拿掉一层（和「清除图片」同一档）；旁边那颗「应用披风」是确认性。
     Theme::markButton(m_hideCapeButton, Theme::ButtonKind::Ghost);
     capeButtons->addWidget(m_applyCapeButton);
     capeButtons->addWidget(m_hideCapeButton);
-    capeButtons->addStretch(1);
 
     // ---------- 底：关闭 ----------
     // NOTE: 只有「关闭」，没有「确定」—— 这个窗里的每一件事（切换、上传、换披风）**当场

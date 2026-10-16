@@ -30,11 +30,10 @@
  *   读 `palette()` 的地方**自动**跟着走，不用挨个去改）。硬把 Role 那拨也做成 Part，就等于
  *   同一件事存两份，早晚对不上。
  *
- * 【默认那一份 = 今天的样子，一个像素都不差】
+ * 【默认与兼容】
  *
- * `defaultSpec()` 是"跟着系统 + 一项覆盖都没有"。`apply()` 在那种情况下**连调色板都不碰**
- * （见 .cpp 里那段 NOTE，以及 ui_check W1 那条断言）—— 这一层加进来是为了"以后能改"，
- * 不是"改了点什么"。所以它落在盘上、落在界面上都是零差异。
+ * `defaultSpec()` 使用翡翠实验室。海洋蓝和炭灰由相同的 Tokens 映射到调色板与 QSS。
+ * 已存储的系统主题继续跟随系统；旧 light 标识迁移为 emerald，自定义覆盖仍优先。
  *
  * 【换主题那一刻会发生什么】
  *
@@ -69,6 +68,16 @@ class QStyle;
 class QWidget;
 
 namespace Theme {
+
+// 色号来自《WTFML_三主题配色规范》，组件共用，用户覆盖仍在 Spec 中保存。
+struct Tokens {
+    QColor primary, deep, primaryHover, primaryPressed;
+    QColor page, main, card, subtle, hover, selected, input;
+    QColor text, secondary, disabled, stroke, divider, focus, thumb, track;
+    QColor logWindow, logToolbar, logBase, logHint, logBorder, logDivider;
+};
+Tokens tokens(const QString &presetId);
+Tokens tokens();
 
 // ---------------------------------------------------------------------------
 // 能单独定义的那几块骨架
@@ -615,13 +624,13 @@ void markColorSwatch(QPushButton *button, const QColor &color);
 
 
 /// 输入类控件（`QLineEdit` / `QComboBox` / `QAbstractSpinBox` / 勾选框那个框）的圆角。
-constexpr int controlRadius() { return 6; }
+constexpr int controlRadius() { return 4; }
 /// `QPushButton` 的圆角（比输入类大一档：它比输入框矮胖，同一个圆角看着更方）。
-constexpr int buttonRadius() { return 8; }
+constexpr int buttonRadius() { return 4; }
 /// 主表面（`wtfmlSurface="workspace"` / `"sidebar"`）的圆角。
-constexpr int surfaceRadius() { return 10; }
+constexpr int surfaceRadius() { return 4; }
 /// 小节卡片（`wtfmlSurface="section"`）的圆角。比主表面大一档：它是"面里的一层"。
-constexpr int sectionRadius() { return 12; }
+constexpr int sectionRadius() { return 4; }
 
 // ---------------------------------------------------------------------------
 // 滚动条

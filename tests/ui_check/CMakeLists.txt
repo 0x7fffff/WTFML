@@ -160,6 +160,18 @@ endif()
 target_link_libraries(ui_check PRIVATE dwmapi)
 
 add_test(NAME wtfml.ui COMMAND ui_check)
+add_test(NAME wtfml.ui-refresh COMMAND ui_check --ui-refresh-check)
+set_tests_properties(wtfml.ui-refresh PROPERTIES
+    LABELS "ui"
+    TIMEOUT 30
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+)
+add_test(NAME wtfml.theme COMMAND ui_check --theme-check)
+set_tests_properties(wtfml.theme PROPERTIES
+    LABELS "ui;theme"
+    TIMEOUT 60
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+)
 set_tests_properties(wtfml.ui PROPERTIES
     LABELS "ui;visual"
     TIMEOUT 180

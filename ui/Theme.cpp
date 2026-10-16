@@ -28,6 +28,53 @@
 #include <QWidget>
 
 namespace Theme {
+Tokens tokens(const QString &id) {
+    if (id == QLatin1String("dark")) {
+        static const Tokens dark = {QColor("#536F80"), QColor("#303D46"), QColor("#648397"), QColor("#405A6A"),
+                QColor("#242C32"), QColor("#222A30"), QColor("#2C363D"), QColor("#303D46"),
+                QColor("#35444D"), QColor("#385461"), QColor("#20292F"), QColor("#D5DEE3"),
+                QColor("#A3B3BE"), QColor("#778792"), QColor("#4C6573"), QColor("#34434B"),
+                QColor("#80B5CA"), QColor("#526773"), QColor("#27333A"), QColor("#242C32"),
+                QColor("#303D46"), QColor("#171E23"), QColor("#99A9B3"), QColor("#4C6573"), QColor("#34434B")};
+        return dark;
+    }
+    if (id == QLatin1String("ocean")) {
+        static const Tokens ocean = {QColor("#196DAA"), QColor("#195F9D"), QColor("#135F98"), QColor("#104F7F"),
+                QColor("#F3F8FD"), QColor("#F8FBFF"), QColor("#FFFFFF"), QColor("#E1EDF9"),
+                QColor("#EAF4FE"), QColor("#D2E7F8"), QColor("#FFFFFF"), QColor("#263647"),
+                QColor("#687D90"), QColor("#9AABBB"), QColor("#A9C7E4"), QColor("#D3E3F4"),
+                QColor("#196DAA"), QColor("#A9C4DC"), QColor("#EBF3FA"), QColor("#F3F8FD"),
+                QColor("#E1EDF9"), QColor("#FDFEFF"), QColor("#6B7B8B"), QColor("#91B8E0"), QColor("#BCD2EC")};
+        return ocean;
+    }
+    static const Tokens emerald = {QColor("#087A68"), QColor("#075E51"), QColor("#096D5E"), QColor("#055548"),
+            QColor("#F2FAF7"), QColor("#F8FCFA"), QColor("#FFFFFF"), QColor("#D8F1E9"),
+            QColor("#E5F5EF"), QColor("#C7E9DB"), QColor("#FFFFFF"), QColor("#20352E"),
+            QColor("#607C70"), QColor("#94A9A0"), QColor("#A8CFC0"), QColor("#D5E7DD"),
+            QColor("#087A68"), QColor("#AAC8BA"), QColor("#EDF5F0"), QColor("#F6FAF8"),
+            QColor("#E4F2EC"), QColor("#FCFEFD"), QColor("#64776D"), QColor("#9CCDBB"), QColor("#B2D6C5")};
+    return emerald;
+}
+
+Tokens tokens() {
+    Tokens t = tokens(current().presetId == QLatin1String("system") && isDark()
+                          ? QStringLiteral("dark") : current().presetId);
+    const auto overrideRole = [](Role role, QColor &color) {
+        const QColor value = current().roles.value(int(role));
+        if (value.isValid()) color = value;
+    };
+    overrideRole(Role::Window, t.page);
+    overrideRole(Role::Base, t.input);
+    overrideRole(Role::Base, t.card);
+    overrideRole(Role::AlternateBase, t.main);
+    overrideRole(Role::WindowText, t.text);
+    overrideRole(Role::PlaceholderText, t.secondary);
+    overrideRole(Role::Button, t.subtle);
+    overrideRole(Role::Highlight, t.selected);
+    overrideRole(Role::Mid, t.divider);
+    return t;
+}
+
 namespace {
 
 // ---------------------------------------------------------------------------
@@ -591,10 +638,12 @@ QColor defaultAccentColor() {
     // 降低明度后不再抢内容；同时白字对它仍有 4.5:1 以上的对比度，实心主按钮也能复用。
     //   全仓只有这一处写这六个十六进制位 —— 顶栏、按钮的字与边、当前那一颗导航底下那条
     //   线，量的都是它算出来的某一档（见 `accentShade()`），**不许在别处再写一遍**。
-    return QColor(0x3d, 0x80, 0x68);
+    return QColor(QStringLiteral("#087A68"));
 }
 
 QColor rowHoverFill(const QColor &base) {
+    if (current().presetId != QLatin1String("system") && current().accent == tokens().primary)
+        return tokens().hover;
     // 认不出（盘上手改歪了）就退回出厂那一支 —— 和 accentShade() 同一个兜底。
     QColor accent = current().accent;
     if (!accent.isValid()) {
@@ -624,6 +673,8 @@ QColor neutralFill(const QColor &base, const QColor &ink, int percent) {
 }
 
 QColor selectionFill(const QColor &base) {
+    if (current().presetId != QLatin1String("system") && current().accent == tokens().primary)
+        return tokens().selected;
     // 混法**和 `rowHoverFill()` 逐字同式**（同一个 `mixToward()`），只差比例 —— 两边都是
     // "从这一行自己的底色出发往主题色那头混"。浅色下底就是白，所以这一档和
     // `accentShade(AccentShade::Hover)` 也只差那两个百分比。
@@ -749,7 +800,7 @@ QColor neutralInkColor() {
     // 「一般性」那一档的黑。**唯一出处**：次要按钮（Neutral）的字和边、未勾选的勾选框
     // 那个框和那行字，量的都是它。不用纯黑（`#000000`）：纯黑压在纯白上是 21:1，
     // 比正文（`#000000`）还重 —— 一颗"取消"不该比它旁边那颗"确定"更抢眼。
-    return QColor(0x20, 0x20, 0x20);
+    return tokens().text;
 }
 
 // 「灰掉」那一档的三个色（详见头文件里那段）。★ 三处**必须一起看**：底浅一档、字浅两档、
@@ -760,21 +811,22 @@ QColor disabledInkColor() {
     //   那几颗（12~13px）灰掉之后基本是"看不清"而不是"读得清"。这一档是 3.2:1，
     //   既还是明显灰的（对白底 3.4:1、对次要用那支纯黑 15:1），又读得出来写的是什么。
     //   判据不是"我觉得好看"：ui_check 里那条**现算对比度**，下限就是 3:1。
-    return QColor(0x8a, 0x8a, 0x8a);
+    return tokens().disabled;
 }
 
 QColor disabledBorderColor() {
     // 轮廓那一圈：比字再浅一档。抹掉它的话，灰掉的一格在白底上只剩几个灰字 ——
     // "这儿本来有一颗按钮"这件事就看不出来了（而那正是禁用态要传达的一半信息）。
-    return QColor(0xd2, 0xd2, 0xd2);
+    return tokens().divider;
 }
 
 QColor disabledFillColor() {
     // 底：贴白但明显不是白（对着 `#ffffff` 的页面底一眼能看出这一格是"塌"下去的）。
-    return QColor(0xf7, 0xf7, 0xf7);
+    return tokens().subtle;
 }
 
 QColor focusRingColor(const QPalette &palette) {
+    if (current().presetId != QLatin1String("system")) return tokens().focus;
     // 深浅两档就是主题色那一支里的两头（浅底用"白底上写字"的那一档、深底用"往白里混 12%"
     // 的那一档）。**和别处"深色下用亮的那一档"是同一个判断**（`isDarkPalette()`），
     // 别在这儿另立一条"看主题名"的规矩。
@@ -862,6 +914,7 @@ QString rgbaCss(const QColor &color) {
 }  // namespace
 
 QColor scrollHandleColor() {
+    if (current().presetId != QLatin1String("system")) return tokens().thumb;
     // 110/255 ≈ 43%：压在 `#fcfcfc` 上量出来是一支 `#919191` 上下的灰 —— 一眼看得见，
     // 又不会把旁边那行字比下去。深底上那支浅灰同理。
     return scrollHandleAt(110);
@@ -1016,23 +1069,24 @@ void markColorSwatch(QPushButton *button, const QColor &color) {
 }
 
 QString widgetStyleSheet() {
-    const QColor ink = accentShade(AccentShade::Ink);
-    const QColor border = accentShade(AccentShade::Border);
+    const Tokens t = tokens();
+    const QColor ink = t.text;
+    const QColor border = t.focus;
     const QColor pure = accentShade(AccentShade::Pure);
-    const QColor hover = accentShade(AccentShade::Hover);
-    const QColor pressed = accentShade(AccentShade::Pressed);
+    const QColor hover = t.hover;
+    const QColor pressed = t.selected;
     // 次要 / 危险那两档的色。红**故意不取 `dangerColor()`**：那一支是"按深浅现推"的；
     // 而按钮使用很浅的固定底色，深色预设给出的浅红在这里对比度不够。所以这一档直接钉死
     // 那个对浅底仍有 4.8:1 的深红，
     // 它和 `errorTextColor()` 浅底那一档是同一个。
-    const QColor red(0xc0, 0x28, 0x28);
+    const QColor red = isDark() ? QColor("#FFB8BD") : QColor("#c02828");
     const QColor black = neutralInkColor();
     const QColor disabledInk = disabledInkColor();
     const QColor disabledBorder = disabledBorderColor();
     const QColor disabledFill = disabledFillColor();
-    const QColor accentFill = mixWithWhite(pure, 6);
-    const QColor neutralFill(0xf3, 0xf4, 0xf3);
-    const QColor dangerFill(0xfd, 0xf1, 0xf1);
+    const QColor accentFill = t.subtle;
+    const QColor neutralFill = t.subtle;
+    const QColor dangerFill = isDark() ? QColor("#493239") : QColor("#fdf1f1");
 
     // ★ `padding: 6px` 不是随手写的：Fusion 的 `PM_ButtonMargin` 就是 6，边框 1 ⇒
     //   2*(6+1) = 14，和样式自己算的**一模一样**。差一点点的话界面上是看不出来，但一堆
@@ -1075,7 +1129,7 @@ QString widgetStyleSheet() {
                                  const QColor &hoverFill, const QColor &pressedFill) {
         // ★ 2026-10-12（coding plan §9.1）：主动作单独高一档（36）。它是页面上唯一一颗实心
         //   按钮，"这一页最重要的那一下"值得多 4px；其余那颗留在 32 上，一页里两档就够。
-        return QStringLiteral("QPushButton[%1=\"%2\"] { background-color: %3; color: #ffffff;"
+        return QStringLiteral("QPushButton[%1=\"%2\"], QPushButton[%1=\"%2\"]:default:enabled { background-color: %3; color: #ffffff;"
                               " border-color: %3; border-radius: %6px; min-height: %7px; }"
                               "QPushButton[%1=\"%2\"]:hover:enabled { background-color: %4;"
                               " border-color: %4; }"
@@ -1086,7 +1140,9 @@ QString widgetStyleSheet() {
             .arg(buttonRadius())
             .arg(primaryActionHeight() - kButtonChrome);
     };
-    qss += primaryBlock(QStringLiteral("primary"), pure, pure.darker(108), pure.darker(118));
+    qss += primaryBlock(QStringLiteral("primary"), pure,
+                        pure == t.primary ? t.primaryHover : pure.darker(108),
+                        pure == t.primary ? t.primaryPressed : pure.darker(118));
 
     // 危险 / 次要两档用轻填充建立形状，不再常驻一圈深色框；透明边仍占着 1px，
     // 键盘焦点出现时才换成有意义的语义色，因此不会改变按钮几何。
@@ -1100,10 +1156,8 @@ QString widgetStyleSheet() {
             .arg(QString::fromLatin1(kButtonKindProperty), key, color.name(), fill.name(),
                  hoverFill.name(), pressedFill.name());
     };
-    qss += kindBlock(QStringLiteral("danger"), red, dangerFill, QColor(0xfd, 0xe5, 0xe5),
-                     QColor(0xf7, 0xd5, 0xd5));
-    qss += kindBlock(QStringLiteral("neutral"), black, neutralFill, QColor(0xe9, 0xec, 0xe9),
-                     QColor(0xdc, 0xe1, 0xdc));
+    qss += kindBlock(QStringLiteral("danger"), red, dangerFill, dangerFill.darker(108), dangerFill.darker(118));
+    qss += kindBlock(QStringLiteral("neutral"), black, neutralFill, t.hover, t.selected);
 
     // ---------- Ghost（2026-10-14，coding plan §3.3「统一按钮视觉层级」）----------
     //
@@ -1118,14 +1172,14 @@ QString widgetStyleSheet() {
     //         两档的区别在"平时有没有形"，不在"按下去什么色"。
     //   NOTE: 勾上那一档给的是主题色那层淡底（和基样式里 `:default` 同一支色）—— 一颗
     //         checkable 的 Ghost（比如"只看选中的"那种小开关）得让人看出它现在是"亮着"的。
-    const QString ghostTint = mixWithWhite(pure, 6).name();
+    const QString ghostTint = t.selected.name();
     qss += QStringLiteral("QPushButton[%1=\"ghost\"] { background-color: transparent;"
                           " border-color: transparent; color: %2; }"
                           "QPushButton[%1=\"ghost\"]:hover:enabled { background-color: %3; }"
                           "QPushButton[%1=\"ghost\"]:pressed:enabled { background-color: %4; }"
                           "QPushButton[%1=\"ghost\"]:checked { background-color: %5; }")
                .arg(QString::fromLatin1(kButtonKindProperty), black.name(),
-                    QColor(0xf0, 0xf0, 0xf0).name(), QColor(0xe0, 0xe0, 0xe0).name(), ghostTint);
+                    t.hover.name(), t.selected.name(), ghostTint);
 
     // ★ 「灰掉」这一条**必须摆在上面那两块之后**（2026-10-09 真机踩到）。
     //   Qt 的样式表按**优先级**排：`QPushButton[wtfmlButtonKind="neutral"]` 和
@@ -1165,8 +1219,7 @@ QString widgetStyleSheet() {
                " border: 1px dashed %3; }"
                "QPushButton[wtfmlQuickEmpty=\"true\"]:hover:enabled { background-color: %4; }"
                "QPushButton[wtfmlQuickEmpty=\"true\"]:pressed:enabled { background-color: %5; }")
-               .arg(mixWithWhite(pure, 3).name(), ink.name(), border.name(),
-                    mixWithWhite(pure, 8).name(), mixWithWhite(pure, 13).name());
+               .arg(t.main.name(), ink.name(), t.stroke.name(), t.hover.name(), t.selected.name());
 
     // 主页次动作使用浅主题色表面，避免和 Disabled 共用一脸系统灰。它仍比实心 Primary
     // 弱很多，因此“启动”保持唯一主动作，账号、设置和实例卡则明确表现为可以点击。
@@ -1176,8 +1229,7 @@ QString widgetStyleSheet() {
                "QPushButton[wtfmlHomeAction=\"true\"]:hover:enabled { background-color: %3; }"
                "QPushButton[wtfmlHomeAction=\"true\"]:pressed:enabled { background-color: %4; }"
                "QPushButton[wtfmlHomeAction=\"true\"]:focus { border-color: %5; }")
-               .arg(mixWithWhite(pure, 8).name(), ink.name(), mixWithWhite(pure, 14).name(),
-                    mixWithWhite(pure, 22).name(), border.name());
+               .arg(t.subtle.name(), ink.name(), t.hover.name(), t.selected.name(), border.name());
 
     // -----------------------------------------------------------------------
     // 输入框（2026-09-28）
@@ -1390,11 +1442,12 @@ QString widgetStyleSheet() {
     //     而代理画的是一整行**不带圆角**的方块 —— 多出来的圆角只能由代理画（今天没画）。
     {
         const QColor sheetBase =
-            appColor(QPalette::Base).isValid() ? appColor(QPalette::Base) : QColor(Qt::white);
-        const QColor sidebarFill = mixToward(sheetBase, accentShade(AccentShade::Pure), 6);
+            current().presetId != QLatin1String("system") ? t.main
+            : appColor(QPalette::Base).isValid() ? appColor(QPalette::Base) : QColor(Qt::white);
+        const QColor sidebarFill = t.subtle;
         // 小节卡片要能和正文面分得开，但仍然只是正文内部的一层。6% 在默认绿色下
         // 足以建立层级，又不会像旧式 GroupBox 那样每节都变成一个沉重的框。
-        const QColor sectionFill = mixToward(sheetBase, accentShade(AccentShade::Pure), 6);
+        const QColor sectionFill = t.card;
         const QColor sheetSecondary = appColor(QPalette::PlaceholderText);
         // ★ 2026-10-12（coding plan §9.1）：两个圆角各走 `surfaceRadius()`（8）/ `sectionRadius()`
         //   （10）—— **数没变**，变的是它从"样式表里写着 8"变成"令牌层说了算"。层级是
@@ -1414,6 +1467,26 @@ QString widgetStyleSheet() {
                    .arg(surfaceRadius())
                    .arg(sectionRadius());
     }
+    // -----------------------------------------------------------------------
+    // 三套预设给输入类控件 / 正文面那些"贴上去的颜色"（2026-10-16）
+    // -----------------------------------------------------------------------
+    //
+    // ★ 这一块**排在最后** ⇒ 按 QSS 的规矩（同优先级后写的赢）它盖在上面那几条之上。
+    //   所以每加一句都得回上面看一眼**它盖掉的是哪一条**，以及那一条是不是钉过的规格。
+    //
+    // ★ 圆角走 `controlRadius()`：**别在样式表里另写一个数** —— 换主题时那个数跟着主题一起
+    //   变，`ui_modernize.py` 那类按名字定位的东西也认这个令牌。
+    qss += QStringLiteral(
+        "QLineEdit, QComboBox, QComboBox QAbstractItemView {"
+        " background-color: %1; color: %2; border: 1px solid %3; border-radius: %7px; }"
+        "QLineEdit:focus, QComboBox:focus { border-color: %4; }"
+        "QLineEdit:disabled, QComboBox:disabled { color: %5; background-color: %6; }"
+        "QCheckBox::indicator:unchecked { background-color: %1; border-color: %3; }"
+        "QComboBox QAbstractItemView { selection-background-color: %8; selection-color: %2; }"
+        "QTabWidget::pane { background-color: %9; border: none; }")
+        .arg(t.input.name(), t.text.name(), t.stroke.name(), t.focus.name(),
+             t.disabled.name(), t.subtle.name(), QString::number(controlRadius()),
+             t.selected.name(), t.page.name());
     return qss;
 }
 
@@ -1432,36 +1505,37 @@ QStyle *createStyle() {
 // ---------------------------------------------------------------------------
 
 QStringList presetIds() {
-    return {QStringLiteral("system"), QStringLiteral("light"), QStringLiteral("dark")};
+    return {QStringLiteral("emerald"), QStringLiteral("ocean"), QStringLiteral("dark"),
+            QStringLiteral("system")};
 }
 
 QString presetName(const QString &id) {
     if (id == QLatin1String("light")) {
-        return QStringLiteral("浅色");
+        return QStringLiteral("翡翠实验室");
     }
     if (id == QLatin1String("dark")) {
-        return QStringLiteral("深色");
+        return QStringLiteral("炭灰");
     }
+    if (id == QLatin1String("emerald")) return QStringLiteral("翡翠实验室");
+    if (id == QLatin1String("ocean")) return QStringLiteral("海洋蓝");
     return QStringLiteral("跟着系统");
 }
 
 bool isPresetId(const QString &id) {
-    return presetIds().contains(id);
+    return presetIds().contains(id) || id == QLatin1String("light");
 }
 
 Spec presetSpec(const QString &id) {
     Spec spec;
     spec.presetId = isPresetId(id) ? id : defaultSpec().presetId;
+    spec.accent = tokens(spec.presetId).primary;
     return spec;
 }
 
 Spec defaultSpec() {
-    // 出厂那一份**故意什么都没有**：跟系统、不透明度 100、一项覆盖都没有 ⇒ `apply()`
-    // 一个字节都不碰（见文件头那段"默认那一份 = 今天的样子"）。
-    // NOTE: 主题色是唯一一位"出厂就有值"的 —— 它不是覆盖项（不进 `roles` / `parts`），
-    //       落在顶栏那一块的出厂色和按钮的样式表上，所以"不碰调色板"这条照旧成立。
+    // 新安装默认使用翡翠实验室；已有的系统主题和自定义覆盖继续读回。
     Spec spec;
-    spec.presetId = QStringLiteral("system");
+    spec.presetId = QStringLiteral("emerald");
     spec.accent = defaultAccentColor();
     return spec;
 }
@@ -1472,11 +1546,12 @@ Spec defaultSpec() {
 
 Spec normalize(const Spec &spec) {
     Spec clean;
-    clean.presetId = isPresetId(spec.presetId) ? spec.presetId : defaultSpec().presetId;
+    clean.presetId = spec.presetId == QLatin1String("light") ? QStringLiteral("emerald")
+                       : isPresetId(spec.presetId) ? spec.presetId : defaultSpec().presetId;
     clean.textOpacity = clampOpacity(spec.textOpacity);
     // 主题色：认不得（盘上手改歪了 / 没写过）一律退回出厂那一支 —— 它没有"空"这个状态，
     // 界面上随时都有顶栏那一块要画。
-    clean.accent = spec.accent.isValid() ? spec.accent : defaultAccentColor();
+    clean.accent = spec.accent.isValid() ? spec.accent : tokens(clean.presetId).primary;
     for (auto it = spec.roles.constBegin(); it != spec.roles.constEnd(); ++it) {
         // 越界的下标（盘上手改出来的）直接丢：认不出的角色没有"画面上是哪儿"可言。
         if (it.key() < 0 || it.key() >= roleCount() || !it.value().isValid()) {
@@ -1549,6 +1624,25 @@ bool isDark() {
 
 QPalette buildPalette(const Spec &spec, const QPalette &base) {
     QPalette palette = base;
+    if (spec.presetId != QLatin1String("system")) {
+        const Tokens t = tokens(spec.presetId);
+        palette.setColor(QPalette::Window, t.page);
+        palette.setColor(QPalette::Base, t.input);
+        palette.setColor(QPalette::AlternateBase, t.main);
+        palette.setColor(QPalette::WindowText, t.text);
+        palette.setColor(QPalette::Text, t.text);
+        palette.setColor(QPalette::Button, t.subtle);
+        palette.setColor(QPalette::ButtonText, t.text);
+        palette.setColor(QPalette::Highlight, t.selected);
+        palette.setColor(QPalette::HighlightedText, t.text);
+        palette.setColor(QPalette::PlaceholderText, t.secondary);
+        palette.setColor(QPalette::Mid, t.divider);
+        palette.setColor(QPalette::Dark, t.stroke);
+        palette.setColor(QPalette::ToolTipBase, t.card);
+        palette.setColor(QPalette::ToolTipText, t.text);
+        palette.setColor(QPalette::Link, t.focus);
+        for (const auto role : kInkRoles) palette.setColor(QPalette::Disabled, role, t.disabled);
+    }
     for (auto it = spec.roles.constBegin(); it != spec.roles.constEnd(); ++it) {
         if (it.key() < 0 || it.key() >= roleCount() || !it.value().isValid()) {
             continue;
@@ -1692,6 +1786,12 @@ QColor partBackground(Part part) {
         return it->background;
     }
     const PartInfo &info = kPartInfos[index];
+    if (current().presetId != QLatin1String("system")) {
+        const Tokens t = tokens();
+        if (part == Part::TitleBar) return current().accent == t.primary ? t.deep : current().accent;
+        if (part == Part::BottomBar) return t.subtle;
+        if (part == Part::Panel || part == Part::Card) return t.card;
+    }
     if (info.accent) {
         // 顶栏：主题色那一支（用户点名要的）。用户单独给这一块设过底色的话上面那条已经
         // 返回了 —— 覆盖永远赢过出厂值。
@@ -1876,6 +1976,7 @@ Spec load() {
     QSettings settings;
     Spec spec = defaultSpec();
     spec.presetId = settings.value(QLatin1String(kPresetKey), spec.presetId).toString();
+    spec.accent = tokens(spec.presetId).primary;
     spec.textOpacity = settings.value(QLatin1String(kTextOpacityKey), spec.textOpacity).toInt();
     // 主题色：没写过（老版本存的那一份）就是出厂那一支 —— 它没有"空"这个状态。
     const QColor accent = colorFromString(settings.value(QLatin1String(kAccentKey)).toString());

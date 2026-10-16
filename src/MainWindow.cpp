@@ -2185,6 +2185,8 @@ void MainWindow::updateBottomBar() {
 ///
 /// **唯一出处**在下面那段注释里（四档的顺序）；这里只管画。
 void MainWindow::updateBottomBarRunState() {
+    // 与底栏使用同一份会话事实；队列刷新避免删除正在发 clicked 的行内按钮。
+    m_ui->refreshTaskCenterPanel();
     QLabel *runStateLabel = m_ui->getRunStateLabel();
     QLabel *runStateDetailLabel = m_ui->getRunStateDetailLabel();
     QLabel *runStateMarkLabel = m_ui->getRunStateMarkLabel();
@@ -8784,6 +8786,8 @@ void MainWindow::openHomeInstancePicker() {
                 row.title = formatVersionName(part, m_settings->versionNameOptions());
                 const QString loader = instanceLoaderName(part, m_versionManager);
                 row.loaderKey = loaderGroupKey(loader);
+                row.searchKeywords = QStringList{part.customName, part.realVersion, part.loaderName,
+                                                 part.loaderVersion, folder.title}.join(QLatin1Char(' '));
                 row.subtitle = loader.isEmpty()
                                    ? (part.realVersion.isEmpty() ? QStringLiteral("原版")
                                                                  : part.realVersion)
@@ -8817,6 +8821,7 @@ void MainWindow::openHomeInstancePicker() {
             row.id = id;
             row.title = id;
             row.loaderKey = loaderFromId(id);
+            row.searchKeywords = folder.title;
             row.subtitle = row.loaderKey.isEmpty() ? QStringLiteral("原版") : row.loaderKey;
             row.icon = QIcon(VersionIcons::grassBlock(MainWindowUI::instanceTreeIconSize()));
             instances.append(row);

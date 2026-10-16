@@ -485,6 +485,8 @@ private:
     /// 造这个窗时给的那个实例名（见 instanceName()）。只存不用 —— 标题那一下用完就没别处
     /// 需要它了，导出报告那一条得能取回来（那时候会话多半已经从 LauncherManager 里摘掉了）。
     QString m_instanceName;
+    // 在窗口打开时确定，切换设置不触发已有海量日志重绘。
+    bool m_logColors = true;
     /// 现在最多显示几行（`0` = 全部）。**只是视图那一层的闸**，模型不跟着变。
     int m_displayLineLimit = defaultLineLimit();
 

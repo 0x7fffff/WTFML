@@ -361,6 +361,199 @@ int main(int argc, char *argv[]) {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
 
     QApplication app(argc, argv);
+    if (app.arguments().contains(QStringLiteral("--ui-refresh-check"))) {
+        const int fontId = QFontDatabase::addApplicationFont(QDir(qEnvironmentVariable("WINDIR")).filePath(QStringLiteral("Fonts/msyh.ttc")));
+        const QStringList families = QFontDatabase::applicationFontFamilies(fontId);
+        if (!families.isEmpty()) app.setFont(QFont(families.first(), 9));
+        app.setStyle(Theme::createStyle());
+        Theme::setSpec(Theme::defaultSpec());
+        Theme::apply(app);
+        Anim::setEnabled(false);
+        QMainWindow preview;
+        MainWindowUI ui(&preview);
+        preview.resize(1000, 650);
+        preview.show();
+        app.processEvents();
+        int failures = 0;
+        const auto expect = [&failures](bool ok, const char *message) {
+            printf("%s %s\n", ok ? "PASS" : "FAIL", message);
+            if (!ok) ++failures;
+        };
+        expect(ui.getTabWidget()->tabText(MainWindowUI::instancesTabIndex()) == QStringLiteral("管理"), "management navigation label");
+        MainWindowUI::HomePickerInstance instance;
+        instance.id = QStringLiteral("custom-instance");
+        instance.title = QStringLiteral("Adventure");
+        instance.folderPath = QStringLiteral("D:/Games/Minecraft");
+        instance.loaderKey = QStringLiteral("fabric");
+        instance.favorite = true;
+        instance.recent = true;
+        instance.searchKeywords = QStringLiteral("1.21.1 0.16.9 我的整合包");
+        ui.openHomeInstancePicker({}, {instance}, {}, {});
+        auto *search = preview.findChild<QLineEdit *>(QStringLiteral("homePickerSearch"));
+        auto *list = preview.findChild<QListWidget *>(QStringLiteral("homePickerInstanceList"));
+        if (search && list) {
+            for (const QString &query : {QStringLiteral("1.21 fabric 收藏"), QStringLiteral("0.16.9"),
+                                        QStringLiteral("games recent"), QStringLiteral("我的整合包")}) {
+                search->setText(query);
+                expect(list->count() == 1, "expanded search keywords match");
+            }
+            search->setText(QStringLiteral("1.21 forge"));
+            expect(list->count() == 0, "all search terms must match");
+        } else expect(false, "home search controls exist");
+        ui.closeHomeInstancePicker();
+        auto *button = ui.getToolboxButton();
+        expect(button->width() == 112, "toolbox trigger stays compact");
+        button->click();
+        auto *panel = preview.findChild<QFrame *>(MainWindowUI::toolboxPanelName());
+        expect(panel && panel->isVisible(), "toolbox opens on first click");
+        if (panel) {
+            const QPoint global = button->mapToGlobal(button->rect().center());
+            QMouseEvent press(QEvent::MouseButtonPress, QPointF(panel->mapFromGlobal(global)), QPointF(global),
+                              Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+            QApplication::sendEvent(panel, &press);
+            expect(!panel->isVisible(), "popup forwards same-anchor press to close");
+        }
+        button->click();
+        panel = preview.findChild<QFrame *>(MainWindowUI::toolboxPanelName());
+        expect(panel && panel->isVisible(), "toolbox reopens before deferred deletion");
+        button->click();
+        expect(!panel || !panel->isVisible(), "toolbox closes on next button click");
+        AccountSkinDialog account;
+        account.setStatusText(QStringLiteral("当前账号：Player（离线登录）"));
+        account.setAccounts({{QStringLiteral("offline-player"), QStringLiteral("Player"), {}, true, true},
+                             {QStringLiteral("other-player"), QStringLiteral("Adventure"), {}, false, true}});
+        account.resize(900, 900);
+        account.show();
+        app.processEvents();
+        auto *status = account.findChild<QLabel *>(AccountSkinDialog::statusLabelName());
+        expect(status && status->alignment().testFlag(Qt::AlignRight), "account identity is right aligned");
+        auto *viewer = account.findChild<SkinViewer *>(AccountSkinDialog::viewerName());
+        expect(viewer && viewer->width() == 160, "account character preview has bounded width");
+        auto *login = account.findChild<QPushButton *>(AccountSkinDialog::loginButtonName());
+        expect(login && login->grab().toImage().pixelColor(8, 8) == Theme::tokens().primary,
+               "default login button keeps solid primary background");
+        if (app.arguments().contains(QStringLiteral("--ui-refresh-preview")))
+            account.grab().save(QStringLiteral("build/account-layout-preview.png"));
+        QList<TaskCenter::RunningItem> runningItems;
+        TaskCenterPanel running(nullptr, {}, {}, [&runningItems]() { return runningItems; }, {}, {}, nullptr, true);
+        running.resize(1000, 500);
+        running.showEmbedded();
+        app.processEvents();
+        TaskCenter::RunningItem game;
+        game.key = QStringLiteral("session-1");
+        game.title = QStringLiteral("Live instance");
+        runningItems.append(game);
+        running.requestRefresh();
+        running.requestRefresh();
+        app.processEvents();
+        expect(running.findChildren<QWidget *>(QStringLiteral("taskCenterRunningRow")).size() == 1,
+               "running instance appears without reopening panel");
+        runningItems.clear();
+        running.requestRefresh();
+        app.processEvents();
+        expect(running.findChildren<QWidget *>(QStringLiteral("taskCenterRunningRow")).isEmpty(),
+               "finished instance disappears without reopening panel");
+        running.hide();
+        runningItems.append(game);
+        running.requestRefresh();
+        app.processEvents();
+        running.show();
+        app.processEvents();
+        expect(running.findChildren<QWidget *>(QStringLiteral("taskCenterRunningRow")).size() == 1,
+               "parked task center resyncs when shown");
+        printf("UI refresh check: %d failure(s)\n", failures);
+        return failures == 0 ? 0 : 1;
+    }
+    if (app.arguments().contains(QStringLiteral("--theme-check"))) {
+        QTemporaryDir settingsDir(QDir::current().filePath(QStringLiteral(".theme-check-XXXXXX")));
+        if (!settingsDir.isValid()) return 2;
+        QSettings::setDefaultFormat(QSettings::IniFormat);
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsDir.path());
+        app.setOrganizationName(QStringLiteral("WTFMLThemeCheck"));
+        app.setApplicationName(QStringLiteral("ThemeCheck"));
+        app.setStyle(Theme::createStyle());
+        const QString fontPath = QDir(qEnvironmentVariable("WINDIR")).filePath(QStringLiteral("Fonts/msyh.ttc"));
+        const int fontId = QFile::exists(fontPath) ? QFontDatabase::addApplicationFont(fontPath) : -1;
+        const QStringList fontFamilies = QFontDatabase::applicationFontFamilies(fontId);
+        app.setFont(QFont(fontFamilies.isEmpty() ? QStringLiteral("Microsoft YaHei UI") : fontFamilies.first(), 9));
+        int failures = 0;
+        auto expect = [&failures](bool ok, const char *name) {
+            printf("%s %s\n", ok ? "PASS" : "FAIL", name);
+            if (!ok) ++failures;
+        };
+        for (const QString &id : {QStringLiteral("emerald"), QStringLiteral("ocean"), QStringLiteral("dark")}) {
+            Theme::setSpec(Theme::presetSpec(id));
+            Theme::apply(app);
+            const auto t = Theme::tokens();
+            expect(app.palette().color(QPalette::Window) == t.page, "page palette follows preset");
+            expect(Theme::current().accent == t.primary, "brand follows preset");
+            expect(Theme::partBackground(Theme::Part::TitleBar) == t.deep, "title uses deep brand");
+            expect(Theme::partBackground(Theme::Part::BottomBar) == t.subtle, "bottom bar uses subtle surface");
+            expect(Theme::selectionFill(t.card) == t.selected, "selection uses specified color");
+            expect(Theme::widgetStyleSheet().contains(t.input.name()), "inputs use theme colors");
+            QSettings().setValue(QStringLiteral("Look/LogColors"), true);
+            GameLogWindow log(QStringLiteral("Theme check"));
+            log.appendText(QStringLiteral("[main/INFO]: info\n[main/WARN]: warn\n[main/ERROR]: error\n[main/FATAL]: fatal\n"));
+            auto *view = log.findChild<QPlainTextEdit *>();
+            expect(view != nullptr && view->palette().color(QPalette::Base) == t.logBase, "log body follows preset");
+            if (view) {
+                QTextCursor cursor(view->document()->firstBlock());
+                cursor.movePosition(QTextCursor::NextCharacter, QTextCursor::KeepAnchor);
+                expect(cursor.charFormat().foreground().color() ==
+                       (id == QLatin1String("dark") ? QColor("#79D4A5") : QColor("#202020")), "INFO text color");
+                const QTextBlock warning = view->document()->firstBlock().next();
+                expect(warning.blockFormat().background().color() ==
+                       (id == QLatin1String("dark") ? QColor("#171E23") : QColor("#FFF0BF")), "WARN background color");
+                QTextCursor error(warning.next());
+                error.movePosition(QTextCursor::NextCharacter, QTextCursor::KeepAnchor);
+                expect(error.charFormat().foreground().color() ==
+                       (id == QLatin1String("dark") ? QColor("#FFB8BD") : QColor("#202020")), "ERROR text color");
+                QTextCursor fatal(warning.next().next());
+                fatal.movePosition(QTextCursor::NextCharacter, QTextCursor::KeepAnchor);
+                expect(fatal.charFormat().foreground().color() ==
+                       (id == QLatin1String("dark") ? QColor("#FF858B") : QColor("#202020")), "FATAL text color");
+            }
+            QSettings().setValue(QStringLiteral("Look/LogColors"), false);
+            GameLogWindow mono(QStringLiteral("Monochrome"));
+            mono.appendText(QStringLiteral("[main/ERROR]: error\n"));
+            auto *monoView = mono.findChild<QPlainTextEdit *>();
+            if (monoView) {
+                QTextCursor cursor(monoView->document()->firstBlock());
+                cursor.movePosition(QTextCursor::NextCharacter, QTextCursor::KeepAnchor);
+                expect(cursor.charFormat().foreground().color() ==
+                       (id == QLatin1String("dark") ? QColor("#D5DEE3") : QColor("#202020")), "monochrome text color");
+                expect(monoView->document()->firstBlock().blockFormat().background().style() == Qt::NoBrush,
+                       "monochrome clears level backgrounds");
+            } else expect(false, "monochrome log view exists");
+            Theme::save(Theme::current());
+            expect(!QSettings().value(QStringLiteral("Look/LogColors"), true).toBool(),
+                   "saving theme preserves log color preference");
+            expect(Theme::load().presetId == id, "theme selection survives save/load");
+            if (app.arguments().contains(QStringLiteral("--theme-preview"))) {
+                const QString directory = QDir::current().filePath(QStringLiteral("build/theme-preview"));
+                QDir().mkpath(directory);
+                QMainWindow preview;
+                MainWindowUI previewUi(&preview);
+                preview.resize(1000, 650);
+                preview.show();
+                app.processEvents();
+                expect(preview.grab().save(directory + QLatin1Char('/') + id + QStringLiteral("-home.png")),
+                       "save home preview");
+                previewUi.getTabWidget()->setCurrentIndex(3);
+                app.processEvents();
+                expect(preview.grab().save(directory + QLatin1Char('/') + id + QStringLiteral("-settings.png")),
+                       "save settings preview");
+                log.show();
+                app.processEvents();
+                expect(view && view->viewport()->palette().color(QPalette::Base) == t.logBase,
+                       "visible log viewport keeps specified background");
+                expect(log.grab().save(directory + QLatin1Char('/') + id + QStringLiteral("-log.png")),
+                       "save log preview");
+            }
+        }
+        printf("Theme check: %d failure(s)\n", failures);
+        return failures == 0 ? 0 : 1;
+    }
 
     // ★★ 把 Qt 的无障碍那一层**关掉**：offscreen 插件下它是恒开的，于是每个控件被藏起来 /
     //    析构时都要走一趟 `QAccessible::updateAccessibility`，而这个工程建/销的控件比产品

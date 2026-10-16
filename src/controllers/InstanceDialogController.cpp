@@ -166,6 +166,12 @@ InstanceDialogController::InstanceDialogController(MainWindow *owner)
     : QObject(owner), m_owner(owner) {}
 
 void InstanceDialogController::open(const QString &versionId, const QString &pageKey) {
+    // 主页快捷入口留在主页上，关闭设置后原来的实例选择状态仍在。
+    // 从下载等其它入口返回设置时，仍归属实例管理页。
+    const QTabWidget *entryTabs = m_owner->m_ui->getTabWidget();
+    const int settingsTab = entryTabs != nullptr
+                                   && entryTabs->currentIndex() == MainWindowUI::homeTabIndex()
+                               ? MainWindowUI::homeTabIndex() : MainWindowUI::instancesTabIndex();
 
     // 已经写了的那部分覆盖从 meta 里读回来当起点，「当前全局是哪个值」由 global 提供。
     // 读归读，**这里一个字节都不写** —— 写盘只发生在下面那两条接线里（2026-09-26 起这一页
@@ -1173,21 +1179,17 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
         dialog.showPage(pageKey);
     }
 
-    // ---------- 这一页归「实例」那一颗选项卡（2026-09-28）----------
+    // ---------- 保持入口所属的选项卡 ----------
     //
-    // ★ 见 .hpp 那段：不钉的话，从下载页那颗「← 返回实例设置」进来时这一页会被记成
-    //   **下载页的**页面，而用户点「实例」看见的是实例列表（那一页收着看不见）、又因为它
-    //   占着覆盖层那一位而从此开不了新的实例设置，每次还被拽回下载页。
-    //   钉住 + 先把选项卡切过去（**切完再开**：`ownerTab` 不是当前这一颗的话，这一页一开
-    //   出来就是"收着"的，用户按了那颗返回键屏幕上什么都不出现）。
+    // 主页快捷入口归主页，避免切页时清掉主页的筛选与列表状态；其它入口归实例页。
+    // 先切根页再打开覆盖层，保证覆盖层与根页的归属一致。
     //
     // NOTE: "让位"那一段（收掉占着的那一层、静默继续）在 `m_owner->openInstanceSettings()` 里、
     //       这一半之前 —— 走到这儿时这一层**一定是空的**，所以切选项卡不会顺手把用户翻到
     //       别的选项卡上去（从前那颗闸会弹话，弹话时就不该翻页）。
-    const int instancesTab = MainWindowUI::instancesTabIndex();
     if (QTabWidget *tabs = m_owner->m_ui->getTabWidget()) {
-        if (instancesTab >= 0 && instancesTab < tabs->count()) {
-            tabs->setCurrentIndex(instancesTab);
+        if (settingsTab >= 0 && settingsTab < tabs->count()) {
+            tabs->setCurrentIndex(settingsTab);
         }
     }
 
@@ -1210,6 +1212,6 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     // NOTE: 这一页**不再 accept**（没有「确定」了），所以这里**不看返回值** —— 关页
     //       不等于放弃（该写的早就在上面那些 lambda 里写完了），"关掉"就是"关掉"。
     dialog.setTitleVisible(false);
-    m_owner->m_ui->overlay()->execPage(&dialog, dialog.titleText(), instancesTab);
+    m_owner->m_ui->overlay()->execPage(&dialog, dialog.titleText(), settingsTab);
 }
 

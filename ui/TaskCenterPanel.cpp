@@ -348,8 +348,14 @@ TaskCenterPanel::TaskCenterPanel(QWidget *anchor, const TaskCenter::ItemProvider
     m_collapseRunning = new QPushButton(QStringLiteral("‹"), m_runningPane);
     m_collapseRunning->setObjectName(QStringLiteral("taskCenterRunningCollapse"));
     m_collapseRunning->setToolTip(tr("收起运行中实例"));
+    m_collapseRunning->setAccessibleName(tr("收起运行中实例"));
+    m_collapseRunning->setCheckable(true);
+    m_collapseRunning->setChecked(true);
+    // 鼠标点击不留下焦点框；Tab 仍可聚焦并用空格切换。
+    m_collapseRunning->setFocusPolicy(Qt::TabFocus);
     Theme::markButton(m_collapseRunning, Theme::ButtonKind::Ghost);
     Theme::markIconButton(m_collapseRunning);
+    m_collapseRunning->setFixedSize(28, 28);
     runningHeader->addWidget(m_collapseRunning);
     runningLayout->addLayout(runningHeader);
     m_runningScroll = new QScrollArea(m_runningPane);
@@ -362,13 +368,15 @@ TaskCenterPanel::TaskCenterPanel(QWidget *anchor, const TaskCenter::ItemProvider
     runningLayout->addWidget(m_runningScroll, 1);
     workspace->addWidget(m_runningPane);
 
-    connect(m_collapseRunning, &QPushButton::clicked, this, [this]() {
-        m_runningCollapsed = !m_runningCollapsed;
+    connect(m_collapseRunning, &QPushButton::toggled, this, [this, runningTitle](bool expanded) {
+        m_runningCollapsed = !expanded;
+        runningTitle->setVisible(expanded);
         m_runningScroll->setVisible(!m_runningCollapsed);
         m_runningPane->setFixedWidth(m_runningCollapsed ? 36 : kRunningWidth);
         m_collapseRunning->setText(m_runningCollapsed ? QStringLiteral("›") : QStringLiteral("‹"));
         m_collapseRunning->setToolTip(m_runningCollapsed ? tr("展开运行中实例")
                                                          : tr("收起运行中实例"));
+        m_collapseRunning->setAccessibleName(m_collapseRunning->toolTip());
         place(false);
     });
 
@@ -475,6 +483,20 @@ void TaskCenterPanel::refresh() {
     }
     rebuild();
     place(/*animate=*/false);
+}
+
+void TaskCenterPanel::requestRefresh() {
+    if (m_refreshPending) return;
+    m_refreshPending = true;
+    QTimer::singleShot(0, this, [this]() {
+        m_refreshPending = false;
+        if (m_opened && isVisible()) refresh();
+    });
+}
+
+void TaskCenterPanel::showEvent(QShowEvent *event) {
+    QWidget::showEvent(event);
+    requestRefresh();
 }
 
 void TaskCenterPanel::place(bool animate) {

@@ -1508,6 +1508,7 @@ public:
         QIcon icon;
         bool favorite = false;
         bool recent = false;
+        QString searchKeywords = {};
     };
     using HomePickerFolderHandler = std::function<void(const QString &path)>;
     using HomePickerInstanceHandler =

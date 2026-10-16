@@ -42,6 +42,7 @@
 #include <QPushButton>
 #include <QScrollBar>
 #include <QSignalBlocker>
+#include <QSettings>
 #include <QTextBlock>
 #include <QTextBlockFormat>
 #include <QTextCursor>
@@ -58,10 +59,9 @@ constexpr int kFollowTailSlack = 4;
 /// 级别那几档的底色。**都在这里，一处**（验证工程按它们量像素）。
 /// 挑色的两条：四个染色的档两两看得出来（`0xeef2f6` 和窗口底色白只差 23，那是有意的 ——
 /// Debug 是"最不值得看"的一档），以及深红那档配上白字还读得清。
-constexpr int kDebugBg[] = {0xee, 0xf2, 0xf6};
-constexpr int kWarnBg[] = {0xff, 0xf4, 0xcc};
-constexpr int kErrorBg[] = {0xff, 0xe0, 0xe0};
-constexpr int kFatalBg[] = {0xd3, 0x2f, 0x2f};
+constexpr int kWarnBg[] = {0xff, 0xf0, 0xbf};
+constexpr int kErrorBg[] = {0xf9, 0xd9, 0xde};
+constexpr int kFatalBg[] = {0xed, 0xb5, 0xbd};
 
 /// ★ 深色底那一套（2026-10-13 加的，coding plan §8.3 开放深浅色入口那一天）。
 ///
@@ -71,7 +71,6 @@ constexpr int kFatalBg[] = {0xd3, 0x2f, 0x2f};
 /// 浅墨（深色预设里那支 `#e0e0e0` 上下）压上去有 8:1 以上，Debug/Warn/Error 三档之间
 /// 也分得开（三通道距离都在 20 以上，验证工程那条阈值是 20）。
 /// **Fatal 两套相同**：`#d32f2f` 本来就是"深底"，白字压上去 5.3:1，两种主题下都对。
-constexpr int kDebugBgDark[] = {0x1e, 0x27, 0x33};
 constexpr int kWarnBgDark[] = {0x3a, 0x32, 0x18};
 constexpr int kErrorBgDark[] = {0x3a, 0x1f, 0x1f};
 constexpr int kFatalBgDark[] = {0xd3, 0x2f, 0x2f};
@@ -106,7 +105,6 @@ constexpr int kSwitchOnPercent = 9;
 /// 分不开的恰恰是相邻的两条 INFO：它们都不染底）。
 /// ★ 2026-10-13 起也是算出来的（`separatorColor()`，从**正文区**的 `Base` 往它的墨混 15%）
 ///   —— 浅色下算出来 `#d9d9d9`，和原来那个字面量差 1。
-constexpr int kSeparatorPercent = 15;
 
 /// 中性档的那三个百分比（关态底 / 边 / 那个兜底的开态灰）—— **和上一段说的同一件事**。
 constexpr int kSwitchOffPercent = 29;
@@ -182,9 +180,9 @@ QString filterButtonStyle(const QColor &onBg, const QColor &onInk, const QColor 
 /// NOTE: 没有底色那一档（Info）返回的就是一个**空的**块格式 —— `setBlockFormat` 是
 ///       "换掉"不是"合并"，所以空的那份正好把上一行继承下来的底色清掉（不显式清的话，
 ///       记在 Fatal 后面的一行会拖一条红底）。
-QTextBlockFormat blockFormatFor(GameLogWindow::LogLevel level, const QPalette &palette) {
+QTextBlockFormat blockFormatFor(GameLogWindow::LogLevel level, const QPalette &palette, bool colors) {
     QTextBlockFormat format;
-    const QColor background = GameLogWindow::levelBackground(level, palette);
+    const QColor background = colors ? GameLogWindow::levelBackground(level, palette) : QColor();
     if (background.isValid()) {
         format.setBackground(background);
     }
@@ -193,9 +191,18 @@ QTextBlockFormat blockFormatFor(GameLogWindow::LogLevel level, const QPalette &p
 
 /// 这一档的**墨色**（只有 Fatal 有：深红底上再写深灰字读不清）。底色不在这里（见上）。
 /// 不带调色板：别的档要的就是"这一档不设墨"，让正文区自己那一支（深色主题下是浅的）生效。
-QTextCharFormat charFormatFor(GameLogWindow::LogLevel level) {
+QColor logInk(GameLogWindow::LogLevel level, const QPalette &palette, bool colors = true) {
+    if (!Theme::isDarkPalette(palette)) return QColor("#202020");
+    if (!colors) return QColor("#D5DEE3");
+    static const QColor darkInk[] = {QColor("#94A3AF"), QColor("#79D4A5"), QColor("#FFD166"),
+                                    QColor("#FFB8BD"), QColor("#FF858B")};
+    const int index = int(level);
+    return darkInk[index >= 0 && index < GameLogWindow::levelCount() ? index : 1];
+}
+
+QTextCharFormat charFormatFor(GameLogWindow::LogLevel level, const QPalette &palette, bool colors) {
     QTextCharFormat format;
-    const QColor ink = GameLogWindow::levelForeground(level);
+    const QColor ink = logInk(level, palette, colors);
     if (ink.isValid()) {
         format.setForeground(ink);
     }
@@ -342,6 +349,15 @@ protected:
 
 GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent)
     : QDialog(parent), m_instanceName(instanceName) {
+    m_logColors = QSettings().value(QStringLiteral("Look/LogColors"), true).toBool();
+    const auto logTokens = Theme::tokens();
+    QPalette logPalette = palette();
+    logPalette.setColor(QPalette::Window, logTokens.logWindow);
+    logPalette.setColor(QPalette::Button, logTokens.logToolbar);
+    logPalette.setColor(QPalette::Base, logTokens.logBase);
+    logPalette.setColor(QPalette::Text, Theme::isDark() ? QColor("#D5DEE3") : QColor("#202020"));
+    logPalette.setColor(QPalette::PlaceholderText, logTokens.logHint);
+    setPalette(logPalette);
     setWindowTitle(windowTitleText(instanceName));
     // 允许最大化/最小化（2026-09-24 用户说的「允许这个窗口最大化最小化」）。QDialog 默认
     // 只给一个关闭钮：一个"想摊开看"的窗，拉到整屏看长崩栈是常态（一行几十个字符，
@@ -456,6 +472,12 @@ GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent)
     layout->addWidget(m_hintLabel);
 
     m_view = new LogView(this);
+    // 视口有自己的调色板；只设置外层对话框会在 QSS 抛光后留下输入框底色。
+    m_view->setPalette(logPalette);
+    m_view->viewport()->setPalette(logPalette);
+    m_view->setStyleSheet(QStringLiteral("QPlainTextEdit { background-color: %1; color: %2; border: 1px solid %3; }")
+                             .arg(logTokens.logBase.name(), logPalette.color(QPalette::Text).name(),
+                                  logTokens.logBorder.name()));
     m_view->setObjectName(logViewName());
     // 只读：这是"看输出"的窗，不是输入框。只读之后光标不闪、也打不进字，但它**仍然可以
     // 选中复制**（那正是用户拿报错去搜的时候要干的）。
@@ -683,8 +705,8 @@ void GameLogWindow::insertRun(LogLevel level, const QStringList &lines) {
         QTextCursor span(m_view->document());
         span.setPosition(startPos);
         span.setPosition(endPos - 1, QTextCursor::KeepAnchor);
-        span.setBlockFormat(blockFormatFor(level, m_view->palette()));
-        span.setCharFormat(charFormatFor(level));
+        span.setBlockFormat(blockFormatFor(level, m_view->palette(), m_logColors));
+        span.setCharFormat(charFormatFor(level, m_view->palette(), m_logColors));
     }
 
     // 收尾那一格（光标行）**显式清掉格式**：它是上面那个换行分出来的新块，会把这一档的
@@ -718,8 +740,8 @@ void GameLogWindow::insertPendingIntoView() {
     // 猜错的代价很小：换行到了会按真级别重摆一遍（rememberLine + insertRun），颜色当场
     // 改对。且"猜"不是乱猜 —— 就是 classifyLine 在认不出级别时本来会用的那个 fallback。
     const LogLevel guess = pendingLevelGuess();
-    cursor.setBlockFormat(blockFormatFor(guess, m_view->palette()));
-    cursor.setCharFormat(charFormatFor(guess));
+    cursor.setBlockFormat(blockFormatFor(guess, m_view->palette(), m_logColors));
+    cursor.setCharFormat(charFormatFor(guess, m_view->palette(), m_logColors));
     cursor.insertText(m_pending);
     m_viewLastBlockIsPending = true;
 }
@@ -967,9 +989,10 @@ QColor GameLogWindow::levelBackground(LogLevel level, const QPalette &palette) {
     // 走哪一套底由 `Theme::isDarkPalette()` 说了算 —— **唯一判据**，和别处"深底上用亮的
     // 那一档"是同一个（别看"主题叫什么"，那会把判据散成两处）。
     const bool dark = Theme::isDarkPalette(palette);
+    if (dark) return QColor("#171E23");
     switch (level) {
         case LogLevel::Debug:
-            return levelTint(kDebugBg, kDebugBgDark, dark);
+            return QColor();
         case LogLevel::Info:
             // 不染（用窗口自己的底色）。日志里绝大多数是 INFO，全染上就成了一张色纸，
             // Warn/Error 反而不显眼了；"没染色的那些"本身就是最自然的一档。
@@ -985,9 +1008,7 @@ QColor GameLogWindow::levelBackground(LogLevel level, const QPalette &palette) {
 }
 
 QColor GameLogWindow::levelForeground(LogLevel level) {
-    // 只有 Fatal 要换墨：深红底上再写深灰字读不清。**两种主题下都是白的**（那块底是
-    // `#d32f2f`，两套通用），别的档一支墨都不设 —— 正文区自己那一支（深色下是浅的）正好。
-    return level == LogLevel::Fatal ? QColor(0xff, 0xff, 0xff) : QColor();
+    return logInk(level, QApplication::palette());
 }
 
 QColor GameLogWindow::filterButtonBackground(LogLevel level, bool on) {
@@ -1017,10 +1038,7 @@ QColor GameLogWindow::filterButtonForeground(LogLevel level) {
 }
 
 QColor GameLogWindow::filterButtonForeground(LogLevel level, const QPalette &palette) {
-    const QColor ink = levelForeground(level);
-    // Fatal 那一档白字（两套主题一样）；其余跟着**这块地方的墨**走：浅色下就是原来写死的
-    // 那个纯黑，深色下是调色板里的浅墨（再写死黑就是"黑字压深底"）。
-    return ink.isValid() ? ink : palette.color(QPalette::WindowText);
+    return logInk(level, palette);
 }
 
 QColor GameLogWindow::switchOffColor(const QPalette &palette) {
@@ -1176,8 +1194,8 @@ QColor GameLogWindow::separatorColor(const QPalette &palette) {
     // 底色和墨都取 `Base` / `Text`（**不是** Window 那一对）：这条线画在正文区上 ——
     // 那一块用的就是 Base 的底和 Text 的墨。浅色下算出来 `#d9d9d9`（原来那个字面量是
     // `#d8d8d8`，差 1），深色下就是压在深底上的一条深灰。
-    return Theme::neutralFill(palette.color(QPalette::Base), palette.color(QPalette::Text),
-                              kSeparatorPercent);
+    return Theme::isDarkPalette(palette) ? Theme::tokens(QStringLiteral("dark")).logDivider
+                                         : Theme::tokens().logDivider;
 }
 
 // ---------------------------------------------------------------------------

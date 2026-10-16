@@ -33,17 +33,41 @@
 #include <QIcon>
 #include <QScreen>
 #include <QSignalBlocker>
+#include <QSettings>
 #include <QStyle>
 #include <QMenuBar>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPalette>
 #include <QResizeEvent>
+#include <QRegularExpression>
 #include <QScrollArea>
 #include <QTimer>
 #include <QVBoxLayout>
+#include <algorithm>
 
 namespace {
+
+// Popup 会截获底下按钮的点击；必须主动处理关闭，避免一次点击被吞掉或重放后重新展开。
+class ToolboxPopup : public QFrame {
+public:
+    ToolboxPopup(QWidget *parent, std::function<void(const QPoint &)> outside)
+        : QFrame(parent, Qt::Popup | Qt::FramelessWindowHint), m_outside(std::move(outside)) {}
+protected:
+    void mousePressEvent(QMouseEvent *event) override {
+        if (rect().contains(event->position().toPoint())) {
+            QFrame::mousePressEvent(event);
+            return;
+        }
+        setAttribute(Qt::WA_NoMouseReplay, true);
+        const QPoint global = event->globalPosition().toPoint();
+        m_outside(global);
+        event->accept();
+    }
+    void mouseDoubleClickEvent(QMouseEvent *event) override { mousePressEvent(event); }
+private:
+    std::function<void(const QPoint &)> m_outside;
+};
 
 /// 给 @p widget 挂一个"面"（`wtfmlSurface`）。名字与值都从 Theme 那一组**唯一出处**来，
 /// 这里只是把 `const char *` 那一下收成一行（属性名要 `QByteArray` 活得比这一次调用长）。
@@ -2002,7 +2026,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
 
     // NOTE: 顺序就是契约：homeTabIndex() == 0 靠的就是"主页第一个 addTab"。
     tabWidget->addTab(homeTab, QStringLiteral("主页"));
-    tabWidget->addTab(instanceTab, QStringLiteral("实例"));
+    tabWidget->addTab(instanceTab, QStringLiteral("管理"));
     tabWidget->addTab(downloadTab, QStringLiteral("下载"));
     tabWidget->addTab(settingsTab, QStringLiteral("设置"));
     mainLayout->addWidget(tabWidget, 1);
@@ -2711,10 +2735,22 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
             themePresetCombo->setMinimumWidth(themePresetComboWidth());
             boxLayout->addWidget(themePresetCombo, 0, Qt::AlignLeft);
             addHint(box,
-                    QStringLiteral("「跟随系统」是 Windows 那边切深浅、这边跟着变；"
-                                   "选了「浅色」或「深色」之后就钉住不再跟系统走。"),
+                    QStringLiteral("翡翠实验室与海洋蓝为浅色主题，炭灰适合夜间使用；"
+                                   "也可以选择跟随系统的深浅模式。"),
                     form);
             addSettingItem(section2, themePresetRowText(), box, form);
+        }
+        {
+            auto *colors = new QCheckBox(QStringLiteral("日志颜色显示"), form);
+            colors->setObjectName(QStringLiteral("logColorsCheck"));
+            colors->setChecked(QSettings().value(QStringLiteral("Look/LogColors"), true).toBool());
+            QObject::connect(colors, &QCheckBox::toggled, colors, [](bool enabled) {
+                QSettings().setValue(QStringLiteral("Look/LogColors"), enabled);
+            });
+            QWidget *box = makeHintedControl(form);
+            qobject_cast<QVBoxLayout *>(box->layout())->addWidget(colors);
+            addHint(box, QStringLiteral("对新打开的日志窗口生效。关闭后使用统一文字与背景色，等级计数、过滤和导出仍然保留。"), form);
+            addSettingItem(section2, QStringLiteral("游戏日志"), box, form);
         }
 
         // ---- 主题色（顶栏那一块、当前那一颗导航底下那条线、确认性按钮的字和边）----
@@ -4512,7 +4548,7 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
 
     toolboxButton = new QPushButton(QStringLiteral("工具箱  ︿"), bottomBar);
     toolboxButton->setObjectName(toolboxButtonName());
-    toolboxButton->setFixedWidth(MainWindowUI::bottomBarRunStateColumnWidth());
+    toolboxButton->setFixedWidth(112);
     toolboxButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
     toolboxButton->setCursor(Qt::PointingHandCursor);
     toolboxButton->setToolTip(QStringLiteral("展开或收起工具箱"));
@@ -5104,10 +5140,10 @@ void MainWindowUI::toggleBottomBarPanel(const BottomBarAnchor &anchor) {
             overlayHost->dismiss();
         }
     }
-    if (auto *tools = bottomBar->findChild<QFrame *>(MainWindowUI::toolboxPanelName())) {
+    if (bottomBar->findChild<QFrame *>(MainWindowUI::toolboxPanelName()) != nullptr) {
         sameAnchor = sameAnchor || anchor.kind == BottomBarAnchorKind::Tools;
         anyOpen = true;
-        tools->close();
+        closeToolboxPanel();
     }
     if (anyOpen && (sameAnchor || blocked)) {
         return;  // 再点一次**同一颗** = 收回去，就这一下
@@ -5136,7 +5172,12 @@ void MainWindowUI::toggleToolboxPanel() {
         return;
     }
 
-    auto *panel = new QFrame(bottomBar, Qt::Popup | Qt::FramelessWindowHint);
+    auto *panel = new ToolboxPopup(bottomBar, [this](const QPoint &global) {
+        const BottomBarAnchor hit = bottomBarAnchorAt(global);
+        closeToolboxPanel();
+        if (hit.button != nullptr && hit.kind != BottomBarAnchorKind::Tools)
+            toggleBottomBarPanel(hit);
+    });
     panel->setObjectName(toolboxPanelName());
     panel->setAttribute(Qt::WA_DeleteOnClose);
     panel->setAttribute(Qt::WA_NoMouseReplay);
@@ -5195,6 +5236,7 @@ void MainWindowUI::closeToolboxPanel() {
         return;
     }
     if (auto *open = bottomBar->findChild<QFrame *>(toolboxPanelName())) {
+        open->setObjectName(QString());
         open->close();
     }
 }
@@ -5296,7 +5338,7 @@ void MainWindowUI::setBottomBarTaskSummary(const BottomBarTaskSummary &summary) 
 
 void MainWindowUI::refreshTaskCenterPanel() {
     if (TaskCenterPanel *panel = taskCenterPanel()) {
-        panel->refresh();
+        panel->requestRefresh();
     }
 }
 
@@ -5636,7 +5678,8 @@ void MainWindowUI::openHomeInstancePicker(
     heading->addWidget(folderFilter);
     auto *search = new QLineEdit(instancePane);
     search->setObjectName(QStringLiteral("homePickerSearch"));
-    search->setPlaceholderText(QStringLiteral("搜索名称、版本或加载器"));
+    search->setPlaceholderText(QStringLiteral("搜索名称、版本、加载器、文件夹或标签"));
+    search->setToolTip(QStringLiteral("支持空格组合搜索，例如：1.21 fabric 收藏。也可搜索加载器版本、文件夹路径、纯净/vanilla、最近/recent。"));
     search->setClearButtonEnabled(true);
     search->setMinimumWidth(140);
     heading->addWidget(search);
@@ -5646,8 +5689,9 @@ void MainWindowUI::openHomeInstancePicker(
     filter->addItem(QStringLiteral("收藏"), QStringLiteral("favorite"));
     filter->addItem(QStringLiteral("最近"), QStringLiteral("recent"));
     filter->addItem(QStringLiteral("原版"), QStringLiteral("vanilla"));
+    filter->addItem(QStringLiteral("含模组加载器"), QStringLiteral("modded"));
     for (const QString &loader : {QStringLiteral("Fabric"), QStringLiteral("Forge"),
-                                  QStringLiteral("NeoForge"), QStringLiteral("OptiFine")}) {
+                                  QStringLiteral("NeoForge"), QStringLiteral("Quilt"), QStringLiteral("OptiFine")}) {
         filter->addItem(loader, loader.toLower());
     }
     WheelGuard::install(filter);
@@ -5677,16 +5721,24 @@ void MainWindowUI::openHomeInstancePicker(
     const auto rebuild = [folderFilter, instanceList, empty, search, filter, instances]() {
         const QString folderPath = folderFilter->currentData().toString();
         const QString needle = search->text().trimmed();
+        const QStringList terms = needle.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
         const QString mode = filter->currentData().toString();
         instanceList->clear();
         for (const HomePickerInstance &instance : instances) {
             if (!folderPath.isEmpty() && instance.folderPath != folderPath) {
                 continue;
             }
-            const QString haystack = instance.title + QLatin1Char(' ') + instance.subtitle
+            QString haystack = instance.title + QLatin1Char(' ') + instance.subtitle
                                      + QLatin1Char(' ') + instance.id + QLatin1Char(' ')
-                                     + instance.loaderKey;
-            if (!needle.isEmpty() && !haystack.contains(needle, Qt::CaseInsensitive)) {
+                                     + instance.loaderKey + QLatin1Char(' ') + instance.folderPath
+                                     + QLatin1Char(' ') + instance.searchKeywords;
+            if (instance.loaderKey.isEmpty()) haystack += QStringLiteral(" 原版 纯净 vanilla 无加载器");
+            else haystack += QStringLiteral(" 模组 modded");
+            if (instance.favorite) haystack += QStringLiteral(" 收藏 置顶 favorite starred");
+            if (instance.recent) haystack += QStringLiteral(" 最近 上次游玩 recent played");
+            if (!std::all_of(terms.cbegin(), terms.cend(), [&haystack](const QString &term) {
+                    return haystack.contains(term, Qt::CaseInsensitive);
+                })) {
                 continue;
             }
             if (mode == QStringLiteral("favorite") && !instance.favorite) {
@@ -5698,8 +5750,10 @@ void MainWindowUI::openHomeInstancePicker(
             if (mode == QStringLiteral("vanilla") && !instance.loaderKey.isEmpty()) {
                 continue;
             }
+            if (mode == QStringLiteral("modded") && instance.loaderKey.isEmpty()) continue;
             if (mode != QStringLiteral("all") && mode != QStringLiteral("favorite")
                 && mode != QStringLiteral("recent") && mode != QStringLiteral("vanilla")
+                && mode != QStringLiteral("modded")
                 && instance.loaderKey.compare(mode, Qt::CaseInsensitive) != 0) {
                 continue;
             }
