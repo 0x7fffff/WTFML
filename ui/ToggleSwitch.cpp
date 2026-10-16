@@ -5,6 +5,7 @@
 #include <QPaintEvent>
 
 #include "MainWindowUI.hpp"
+#include "Theme.hpp"
 
 ToggleSwitch::ToggleSwitch(QWidget *parent) : QAbstractButton(parent) {
     setCheckable(true);
@@ -47,13 +48,14 @@ void ToggleSwitch::paintEvent(QPaintEvent *event) {
     const int knob = qMax(4, box.height() - 2 * margin);
 
     const QPalette &palette = this->palette();
-    // ★ 开是"高亮"那一档、关是"中灰"那一档 —— 都从调色板取，不写死颜色（用户换主题、
-    //   或者哪天把 Fusion 换掉，这一格跟着走）。这和底栏那枚状态方块取色的规矩一样。
+    // 翡翠开启态使用主题主强调，避免与列表的浅色选中底混用；其他主题保持原调色板映射。
     QColor track = isChecked() ? palette.color(QPalette::Highlight)
                                : palette.color(QPalette::Mid);
+    const bool emerald = Theme::current().presetId == QLatin1String("emerald");
+    if (isChecked() && emerald) track = Theme::tokens().primary;
     if (m_hovered && isEnabled()) {
         // 悬停亮一档（`lighter` 比手写一个色号稳：它按当前这一档算）。
-        track = track.lighter(115);
+        track = isChecked() && emerald ? Theme::tokens().primaryHover : track.lighter(115);
     }
 
     QPainter painter(this);

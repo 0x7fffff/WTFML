@@ -116,6 +116,9 @@
 #include "InstanceSettingsDialog.hpp"  // AH 段：面板里那颗齿轮开的那一页（按页眉认它）
 #include "InstanceFilesPage.hpp"  // T20：「文件管理」那六页的列表控件（禁用后缀 / objectName）
 #include "ConfigFileEditorPage.hpp"  // T20.7：「配置文件」那一页的编辑器（真落盘那一段）
+#include "controllers/InstanceMaintenanceController.hpp"
+#include "ResourcePackPage.hpp"
+#include "manage/ResourcePackOptions.hpp"
 #include "ConfigFileText.hpp"  // T20.7：行尾 / BOM 那一套（"原样写回去"是拿它比的）
 #include "OverlayHost.hpp"  // 提示开在它里面 —— activeModalWidget() 找不到它们
 // ZJ 节：详情页那一份（这一节要读它摆出来的 chip / 组 / 行，以及行上那把钥匙的角色号）。
@@ -140,6 +143,7 @@
 #include "manage/UpdatePolicy.hpp"
 #include "manage/UpdateRollback.hpp"
 #include "auth/AccountStore.hpp"
+#include "controllers/ActivityCenterController.hpp"
 #include "auth/AuthManager.hpp"
 #include "auth/TokenStore.hpp"
 #include "download/DownloadManager.hpp"
@@ -6747,7 +6751,111 @@ static void runInstanceFilesPagesTests() {
                     }
                 }
 
-                // 收尾：这一格是干净的（刚存过），顶上那颗返回箭头直接把整页收掉。
+                // 历史版本：必须列出当前文件各代备份，而非只有最新一份。
+                const QString configDir = QFileInfo(jsonPath2).absolutePath();
+                const QStringList history = InstanceMaintenanceController::configBackups(idV, configDir, jsonPath2);
+                check(history.size() == 20, "T20.10 历史版本只列当前文件的 20 代备份");
+                check(InstanceMaintenanceController::configBackups(QStringLiteral("../escape"), configDir, jsonPath2).isEmpty(),
+                      "T20.10 配置历史拒绝越界实例标识");
+                if (history.size() > 1 && editor->historyButton() != nullptr) {
+                    const QByteArray diskBeforeHistory = readBytesAt(jsonPath2);
+                    bool listed = false;
+                    QTimer::singleShot(0, [&listed, host, &history] {
+                        auto *box = host->findChild<InlineMessageBox *>();
+                        if (box != nullptr && box->listWidget() != nullptr) {
+                            auto *list = box->listWidget();
+                            listed = list->count() == history.size()
+                                && list->item(1)->text().contains(QDir::toNativeSeparators(history.at(1)))
+                                && list->item(1)->text().contains(QStringLiteral("字节"));
+                            list->setCurrentRow(1);
+                        }
+                    });
+                    {
+                        PromptAnswerer answerer({0});
+                        answerer.start();
+                        editor->historyButton()->click();
+                        answerer.stop();
+                    }
+                    check(listed && editor->text() == ConfigFileText::decode(readBytesAt(history.at(1))).text,
+                          "T20.10 历史选择可载入非最新备份，列表含路径和大小");
+                    check(readBytesAt(jsonPath2) == diskBeforeHistory && editor->isDirty(),
+                          "T20.10 载入历史只改变编辑器，不覆盖磁盘");
+                    const QString draft = QStringLiteral("unsaved draft");
+                    editor->editor()->setPlainText(draft);
+                    {
+                        PromptAnswerer answerer({1});
+                        answerer.start();
+                        editor->historyButton()->click();
+                        answerer.stop();
+                    }
+                    check(editor->text() == draft && readBytesAt(jsonPath2) == diskBeforeHistory,
+                          "T20.10 取消历史选择保留草稿和磁盘");
+                    {
+                        PromptAnswerer answerer({0, 1});
+                        answerer.start();
+                        editor->historyButton()->click();
+                        answerer.stop();
+                    }
+                    check(editor->text() == draft && readBytesAt(jsonPath2) == diskBeforeHistory,
+                          "T20.10 拒绝丢弃草稿时不载入历史");
+                    editor->discardChanges();
+                }
+                // 资源包：真实设置页切换模式，启停与优先级落到 options.txt，不再改名。
+                const QString gameRoot = QFileInfo(configDir).absolutePath();
+                const QString packRoot = gameRoot + QStringLiteral("/resourcepacks");
+                const QString optionsPath = gameRoot + QStringLiteral("/options.txt");
+                writeFileAt(packRoot + QStringLiteral("/a.zip"), "a");
+                writeFileAt(packRoot + QStringLiteral("/b.zip"), "b");
+                const QByteArray options = "unknown:keep\r\nresourcePacks:[\"vanilla\",\"file/a.zip\"]\r\n";
+                writeFileAt(optionsPath, options);
+                page->showPage(QStringLiteral("resourcepack"));
+                auto *mode = page->findChild<QPushButton *>(QStringLiteral("resourcePackMode"));
+                auto *packs = page->resourcePackPage();
+                check(mode != nullptr && packs != nullptr, "T20.10 资源包启用顺序入口存在");
+                if (mode != nullptr && packs != nullptr) {
+                    mode->click();
+                    auto *available = packs->findChild<QListWidget *>(QStringLiteral("resourcePackAvailable"));
+                    auto *selected = packs->findChild<QListWidget *>(QStringLiteral("resourcePackSelected"));
+                    auto *enable = packs->findChild<QPushButton *>(QStringLiteral("resourcePackEnable"));
+                    auto *disable = packs->findChild<QPushButton *>(QStringLiteral("resourcePackDisable"));
+                    auto *down = packs->findChild<QPushButton *>(QStringLiteral("resourcePackDown"));
+                    int betaRow = -1;
+                    for (int row = 0; row < available->count(); ++row)
+                        if (available->item(row)->data(Qt::UserRole).toString() == QStringLiteral("file/b.zip")) betaRow = row;
+                    check(packs->isVisible() && betaRow >= 0 && selected->count() == 2,
+                          "T20.10 真实资源包页面分出可用和已启用列表");
+                    available->setCurrentRow(betaRow);
+                    enable->click();
+                    check(ResourcePackOptions::parse(readBytesAt(optionsPath)).selected
+                              == QStringList{"vanilla", "file/a.zip", "file/b.zip"},
+                          "T20.10 真实启用按钮将资源包加入 options.txt");
+                    down->click();
+                    check(ResourcePackOptions::parse(readBytesAt(optionsPath)).selected
+                              == QStringList{"vanilla", "file/b.zip", "file/a.zip"},
+                          "T20.10 优先级按钮真正保存 options.txt 顺序");
+                    check(readBytesAt(optionsPath).startsWith("unknown:keep\r\n")
+                              && QFileInfo::exists(packRoot + QStringLiteral("/a.zip"))
+                              && QFileInfo::exists(packRoot + QStringLiteral("/b.zip")),
+                          "T20.10 资源包调整保留未知设置、原文件与文件名");
+                    const QByteArray changed = readBytesAt(optionsPath) + "external:change\r\n";
+                    writeFileAt(optionsPath, changed);
+                    selected->setCurrentRow(0);
+                    {
+                        PromptAnswerer answerer({0});
+                        answerer.start();
+                        disable->click();
+                        answerer.stop();
+                    }
+                    check(readBytesAt(optionsPath) == changed && packs->selectedIds().size() == 3,
+                          "T20.10 外部修改触发冲突提示，原文件不被覆盖且界面回滚");
+                    writeFileAt(packRoot + QStringLiteral("/new-download.zip"), "new");
+                    page->refreshFilePages();
+                    bool newFileVisible = false;
+                    for (int row = 0; row < available->count(); ++row)
+                        newFileVisible |= available->item(row)->data(Qt::UserRole).toString() == QStringLiteral("file/new-download.zip");
+                    check(newFileVisible, "T20.10 文件变更刷新同步更新资源包双区，不必退出重开");
+                }
+                // 收尾：所有改动均已保存，顶上返回箭头直接把整页收掉。
                 if (QPushButton *back =
                         host->findChild<QPushButton *>(OverlayHost::overlayBackButtonName())) {
                     back->click();
@@ -11319,8 +11427,8 @@ static void runInstanceFileResourceTests() {
             bool hasPage = false;
             QString header;
             bool slotShown = false;        // modSettingsSlotShown()
-            bool modButtonVisible = false; // 那颗占位按钮真的画着吗
-            bool modButtonEnabled = true;  // 「画成灰的、点不动」
+            bool modButtonVisible = false; // 模组设置入口是否可见
+            bool modButtonEnabled = false; // 入口应当启用
             QString modButtonText;
             bool checkboxVisible = true;   // 「显示快照版」那一颗露着吗（不该露）
             bool checkboxChecked = true;   // 按了裸 Alt 之后它被拨了吗（不该被拨）
@@ -11368,7 +11476,7 @@ static void runInstanceFileResourceTests() {
                     modProbe.checkboxChecked = box->isChecked();
                 }
             }
-            // 收这一页（= 用户按返回），紧接着排下一发量"退回到哪儿了"（同 ⑥ 那一段）。
+            // 点击模组设置，下一轮检查是否进入同一实例的配置管理。
             QTimer::singleShot(0, [&modReturned, overlay] {
                 modReturned.ran = true;
                 modReturned.opened = overlay->pageOpen();
@@ -11385,10 +11493,9 @@ static void runInstanceFileResourceTests() {
                     back->click();
                 }
             });
-            if (auto *back =
-                    overlay->findChild<QPushButton *>(OverlayHost::overlayBackButtonName())) {
-                back->click();
-            }
+            if (detail != nullptr && detail->modSettingsButton() != nullptr)
+                detail->modSettingsButton()->click();
+            else overlay->dismiss();
         });
         const bool modProbed = pumpUntil([&modProbe] { return modProbe.ran; }, 5000);
         check(modProbed && modProbe.opened && modProbe.hasPage,
@@ -11409,8 +11516,8 @@ static void runInstanceFileResourceTests() {
                   modProbe.modButtonText == QStringLiteral("模组设置"),
               "★★ T24.7 那四个字就是「模组设置」（唯一出处 ResourceDetailPage::modSettingsText()）",
               modProbe.modButtonText);
-        check(!modProbe.modButtonEnabled,
-              "★★ T24.7 而它**先占位**：画出来、灰着、点不动（用户 2026-09-27 选的那一档）");
+        check(modProbe.modButtonEnabled,
+              "★★ T24.7 模组设置已接通配置文件管理，按钮可用");
         check(modProbe.chip.isEmpty(),
               "★★ T24.7 反例：模组这一条的声明表里**没有**实例那个版本号 ⇒ chip 停在「全部」"
               "（换算不出来时不猜 —— 和用户自己点了一颗表里没有的 chip 是同一个结果）。"
@@ -11425,8 +11532,7 @@ static void runInstanceFileResourceTests() {
               "拨一个看不见的勾，用户只会得出「这软件没反应」的结论）");
         check(modReturned.ran && modReturned.opened && modReturned.hasSettings &&
                   modReturned.instanceName == idV,
-              "★★ T24.7 从模组那一页开出去的详情页按返回，**退回的还是实例设置**"
-              "（和资源包那一趟同一套，见 T24.5）",
+              "★★ T24.7 点击模组设置进入同一实例的设置，不误开其他实例",
               modReturned.ran ? QStringLiteral("页开着：%1；设置页在：%2；实例：%3")
                                     .arg(modReturned.opened ? QStringLiteral("是")
                                                             : QStringLiteral("不是"),
@@ -11434,9 +11540,8 @@ static void runInstanceFileResourceTests() {
                                                                  : QStringLiteral("不是"),
                                          modReturned.instanceName)
                               : QStringLiteral("那一发压根没跑"));
-        check(modReturned.pageKey == QStringLiteral("mod"),
-              "★★ T24.7 而且停的是**模组那一页**（「从模组点进去，返回也在模组而非概览」"
-              "对三类资源走的是同一条路，这里量的是模组那一趟）",
+        check(modReturned.pageKey == QStringLiteral("config"),
+              "★★ T24.7 模组设置打开配置文件管理页，而非概览或模组列表",
               modReturned.pageKey.isEmpty() ? QStringLiteral("(认不出是哪一页)")
                                             : modReturned.pageKey);
 
@@ -12467,7 +12572,7 @@ static void runCopyAndSavePageTests() {
     //       那条 NOTE 记的那个真实案例）。每一发都先 ++代数，让更早排下的兜底作废。
 
     // ---------------------------------------------------------------------
-    header("T27.1 概览页那颗「复制实例」在不在");
+    header("T27.1 复制与删除归入实例操作，不在概览重复展示");
     // ---------------------------------------------------------------------
     //
     // NOTE: 这一小节**自己建一个对话框**、不走 openInstanceSettings()：那一条会卡在嵌套
@@ -12482,11 +12587,16 @@ static void runCopyAndSavePageTests() {
         dialog.showPage(InstanceSettingsDialog::overviewCategoryKey());
         QApplication::processEvents();
         auto *button = dialog.findChild<QPushButton *>(InstanceSettingsDialog::copyButtonName());
-        check(button != nullptr, "★ T27.1 概览页上找得到「复制实例」那一颗（按 objectName 认）");
+        auto *remove = dialog.findChild<QPushButton *>(InstanceSettingsDialog::deleteButtonName());
+        check(button && remove && !button->isVisible() && !remove->isVisible(),
+              "T27.1 概览不再重复展示复制与删除入口");
+        dialog.showPage(QStringLiteral("operationsmenu"));
+        QApplication::processEvents();
+        check(button != nullptr, "★ T27.1 实例操作页找得到「复制实例」（保留原 objectName）");
         if (button != nullptr) {
             check(button->text() == InstanceSettingsDialog::copyText(),
                   "T27.1 按钮上那几个字来自唯一出处", button->text());
-            check(button->isVisible(), "T27.1 概览页开着的时候它是看得见的");
+            check(button->isVisible(), "T27.1 实例操作页开着时复制入口可见");
             // ★ tooltip 里必须说清**落到哪儿**：那一颗问的是「复制到哪个游戏文件夹」，
             //   而副本落在**那个文件夹**的 versions/ 底下 —— 不说的话用户会在自己挑的
             //   那一层里找它，找不到就以为复制没成。
@@ -12505,12 +12615,11 @@ static void runCopyAndSavePageTests() {
         // 用户原话：「顺便把删除实例功能做了，按钮放在概览里」。这一颗**不是新功能**：真去删
         // 的那条路（`confirmDeleteInstance()`）就是实例行行尾那颗垃圾桶走的同一条 —— 这一页
         // 上多出来的只是**第二个入口**。接线那一半在 T27.8。
-        auto *remove = dialog.findChild<QPushButton *>(InstanceSettingsDialog::deleteButtonName());
-        check(remove != nullptr, "★ T27.1 概览页上找得到「删除实例」那一颗（按 objectName 认）");
+        check(remove != nullptr, "★ T27.1 实例操作页找得到「删除实例」（保留原 objectName）");
         if (remove != nullptr) {
             check(remove->text() == InstanceSettingsDialog::deleteText(),
                   "T27.1 按钮上那几个字来自唯一出处", remove->text());
-            check(remove->isVisible(), "T27.1 概览页开着的时候它是看得见的");
+            check(remove->isVisible(), "T27.1 实例操作页开着时删除入口可见");
             // ★ 它是**红的**（`ButtonKind::Danger`）：用户给的规矩是「不可撤销（如修改存档，
             //   删除实例）做成红色」，而这一页上它是唯一一颗真会丢东西的按钮。
             check(remove->property("wtfmlButtonKind").toString() ==
@@ -17723,6 +17832,50 @@ int main(int argc, char *argv[]) {
     // 的产品"。（放在装日志处理器之前，免得样式相关的消息混进断言用的日志里。）
     QApplication::setStyle(Theme::createStyle());
     // 从这一行起收集所有日志（MainWindow 构造里就开始写了，晚了就漏）。
+    if (app.arguments().contains(QStringLiteral("activity-selection-check"))) {
+        QTemporaryDir fixture(QDir::current().filePath(QStringLiteral(".activity-check-XXXXXX")));
+        if (!fixture.isValid()) return 2;
+        int failures = 0;
+        const auto expect = [&failures](bool ok, const char *message) {
+            printf("%s %s\n", ok ? "PASS" : "FAIL", message);
+            if (!ok) ++failures;
+        };
+        const QString path = fixture.filePath(QStringLiteral("tasks.json"));
+        ActivityCenterController activity;
+        activity.tasks()->setHistoryPath(path);
+        const auto failed = activity.begin(Tasks::TaskKind::Crash, QStringLiteral("Game error"), {},
+            {{QStringLiteral("登录"), Tasks::TaskStepState::Done, {}},
+             {QStringLiteral("检查"), Tasks::TaskStepState::Running, {}},
+             {QStringLiteral("启动"), Tasks::TaskStepState::Pending, {}}});
+        activity.finish(failed, false, QStringLiteral("crash"), false);
+        const auto other = activity.begin(Tasks::TaskKind::Download, QStringLiteral("Other error"));
+        activity.finish(other, false, QStringLiteral("network"), false);
+        activity.markAllViewed();
+        expect(!activity.item(activity.tasks()->snapshot(failed), false, false, false).attentionAcknowledged,
+               "opening the task center does not acknowledge error attention");
+        expect(activity.markViewed(QString::number(failed)), "viewing a failed task acknowledges its attention");
+        expect(activity.item(activity.tasks()->snapshot(failed), false, false, false).attentionAcknowledged &&
+                   !activity.item(activity.tasks()->snapshot(other), false, false, false).attentionAcknowledged,
+               "attention acknowledgment is scoped to a single task");
+        expect(activity.tasks()->snapshot(failed).state == Tasks::TaskState::Failed,
+               "acknowledging an error never changes its failure result");
+        expect(activity.tasks()->snapshot(failed).steps.size() == 3 &&
+                   activity.tasks()->snapshot(failed).steps.at(0).state == Tasks::TaskStepState::Done &&
+                   activity.tasks()->snapshot(failed).steps.at(1).state == Tasks::TaskStepState::Failed &&
+                   activity.tasks()->snapshot(failed).steps.at(2).state == Tasks::TaskStepState::Pending,
+               "failure retains workflow and marks only the active stage failed");
+        const auto active = activity.begin(Tasks::TaskKind::Other, QStringLiteral("Active"));
+        expect(!activity.markViewed(QString::number(active)) && !activity.markViewed(QStringLiteral("invalid")),
+               "viewing active tasks or invalid keys does not acknowledge attention");
+        ActivityCenterController restored;
+        restored.tasks()->setHistoryPath(path);
+        restored.loadHistory();
+        expect(restored.item(restored.tasks()->snapshot(failed), false, false, false).attentionAcknowledged,
+               "acknowledged attention survives history reload");
+        expect(restored.tasks()->snapshot(active).state == Tasks::TaskState::Interrupted &&
+                   restored.markViewed(QString::number(active)), "interrupted tasks can be acknowledged on viewing");
+        return failures == 0 ? 0 : 1;
+    }
     if (app.arguments().contains(QStringLiteral("workspace-check"))) {
         QTemporaryDir fixture(QDir::current().filePath(QStringLiteral(".workspace-check-XXXXXX")));
         if (!fixture.isValid()) return 2;

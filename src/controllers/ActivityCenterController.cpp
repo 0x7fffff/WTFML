@@ -89,6 +89,19 @@ bool ActivityCenterController::markAllViewed() {
     return true;
 }
 
+bool ActivityCenterController::markViewed(const QString &key) {
+    bool ok = false;
+    const auto id = key.toInt(&ok);
+    if (!ok || !m_tasks.has(id)) return false;
+    const auto state = m_tasks.snapshot(id).state;
+    // 等待选择不能因为“看过”而消失，只随业务完成选择后离开 WaitingUser。
+    if (state != Tasks::TaskState::Failed && state != Tasks::TaskState::Interrupted) return false;
+    if (!m_tasks.acknowledgeAttention(id)) return false;
+    m_unreadFailures.remove(id);
+    emit activityChanged();
+    return true;
+}
+
 bool ActivityCenterController::retryWouldWork(const Tasks::TaskSnapshot &task,
                                                bool retryPayloadAvailable) const {
     return Tasks::retryOffered(task, m_retryableTaskId, retryPayloadAvailable);
@@ -132,6 +145,7 @@ TaskCenter::Item ActivityCenterController::item(const Tasks::TaskSnapshot &task,
     result.state = presentationState(task.state);
     result.unreadFailure = task.state == Tasks::TaskState::Failed
                            && isUnreadFailure(task.id);
+    result.attentionAcknowledged = task.attentionAcknowledged;
     result.finishedAt = task.finishedAt;
     result.startedAt = task.startedAt;
     result.errorSummary = task.errorSummary;

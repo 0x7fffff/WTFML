@@ -885,11 +885,11 @@ signals:
     void batchUpdateRequested(const QStringList &paths);
 
     /// 用户点了悬浮操作条上的**「禁用」/「启用」**：把选中的这些整体改成那个状态。
-    /// @param paths   选中的那些条目的绝对路径（禁用着的那些带 `.disabled`）。
+    /// @param paths   选中且需要改变状态的文件绝对路径（禁用着的那些带 `.disabled`）；不含目录。
     /// @param disable true = 禁用（挂后缀），false = 启用（去后缀）。
     ///
     /// NOTE: **一颗按钮一件事**（而不是"逐条翻转"）：用户点的是"禁用"，那就该全变成禁用，
-    ///       哪怕选中的里面混着已经禁用的那几条（那种情况下这一颗本来就是灰的）。
+    ///       已处于目标状态的条目保持不变，数量在按钮提示中说明；无适用文件时灰化。
     void batchToggleRequested(const QStringList &paths, bool disable);
 
     /// 用户点了悬浮操作条上的**「删除」**。**这一层不问那句"真的要删吗"**，接的人问
@@ -1154,6 +1154,8 @@ private:
 
     /// 选中的那些路径，按**列表里那一行的先后**排成一份（发给 MainWindow 的形态）。
     QStringList selectedPathList() const;
+    /// 只返回需要改变状态的选中文件，保持界面顺序。
+    QStringList selectedTogglePaths(bool disable) const;
 
     /// 这一条那一格该摆什么：真图标在 `m_icons` 里就摆它，否则摆占位图（形状按 isDir 分，
     /// 见 .cpp 里 placeholderIcon）。makeRow() 和 setIconForPath() 都走这一处 ——

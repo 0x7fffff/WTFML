@@ -156,6 +156,7 @@ QByteArray toJson(const QList<TaskSnapshot> &tasks) {
         object.insert(QStringLiteral("kind"), QLatin1String(kindKey(task.kind)));
         object.insert(QStringLiteral("state"), QLatin1String(stateKey(task.state)));
         object.insert(QStringLiteral("title"), task.title);
+        object.insert(QStringLiteral("attentionAcknowledged"), task.attentionAcknowledged);
         if (!task.targetId.isEmpty()) {
             object.insert(QStringLiteral("targetId"), task.targetId);
         }
@@ -200,6 +201,7 @@ QList<TaskSnapshot> fromJson(const QByteArray &bytes, bool *ok) {
             task.title = object.value(QStringLiteral("title")).toString();
             task.targetId = object.value(QStringLiteral("targetId")).toString();
             task.errorSummary = object.value(QStringLiteral("error")).toString();
+            task.attentionAcknowledged = object.value(QStringLiteral("attentionAcknowledged")).toBool(false);
             task.startedAt = QDateTime::fromString(
                 object.value(QStringLiteral("startedAt")).toString(), Qt::ISODateWithMs);
             task.finishedAt = QDateTime::fromString(

@@ -1,6 +1,9 @@
 #include "InstanceEditorController.hpp"
 #include "MainWindow.hpp"
 #include "ConfigFileEditorPage.hpp"
+#include "ResourcePackPage.hpp"
+#include "manage/ResourcePackOptions.hpp"
+#include "manage/VersionManager.hpp"
 #include "ConfigFileText.hpp"
 #include "InlineMessage.hpp"
 #include "InstanceSettingsDialog.hpp"
@@ -15,10 +18,55 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QListWidget>
 #include <QSaveFile>
+#include <QJsonDocument>
+#include <QVersionNumber>
+#include <algorithm>
 
 namespace {
 constexpr int kConfigBackupGenerations = 20;
+
+QList<ResourcePackPage::Pack> resourcePacksIn(const QString &dir) {
+    QList<ResourcePackPage::Pack> packs;
+    if (dir.isEmpty()) return packs;
+    for (const auto &file : QDir(dir).entryInfoList(QDir::AllEntries | QDir::NoDotAndDotDot, QDir::Name)) {
+        if (file.isSymLink()) continue;
+        const bool folderPack = file.isDir() && QFileInfo::exists(file.absoluteFilePath() + QStringLiteral("/pack.mcmeta"));
+        if (!folderPack && (!file.isFile() || file.suffix().compare(QStringLiteral("zip"), Qt::CaseInsensitive) != 0)) continue;
+        ResourcePackPage::Pack pack{QStringLiteral("file/") + file.fileName(), file.fileName(), {}};
+        if (!ResourcePackOptions::safeLocal(pack.id)) continue;
+        pack.detail = QDir::toNativeSeparators(file.absoluteFilePath());
+        if (folderPack) {
+            QFile meta(file.absoluteFilePath() + QStringLiteral("/pack.mcmeta"));
+            if (meta.open(QIODevice::ReadOnly) && meta.size() <= 1024 * 1024) {
+                const auto object = QJsonDocument::fromJson(meta.read(1024 * 1024 + 1)).object()
+                                        .value(QStringLiteral("pack")).toObject();
+                const QString description = object.value(QStringLiteral("description")).toString();
+                if (!description.isEmpty()) pack.detail += QLatin1Char('\n') + description;
+                if (object.value(QStringLiteral("pack_format")).isDouble())
+                    pack.detail += QStringLiteral("\npack_format: %1").arg(object.value(QStringLiteral("pack_format")).toInt());
+            }
+        }
+        packs.append(pack);
+    }
+    return packs;
+}
+
+QString resourcePackFormatProblem(const QString &version, const ResourcePackOptions::Document &document) {
+    for (const auto &id : document.selected) {
+        if (!ResourcePackOptions::isLocal(id) && id.endsWith(QStringLiteral(".zip"), Qt::CaseInsensitive))
+            return QStringLiteral("检测到旧版资源包标识，暂不自动转换，请在游戏中调整。");
+    }
+    // 已存在 file/ 标识可确认实例使用现代文件身份；空表则只对明确支持的正式版开放。
+    if (std::any_of(document.selected.cbegin(), document.selected.cend(), ResourcePackOptions::isLocal)) return {};
+    qsizetype suffix = 0;
+    const auto number = QVersionNumber::fromString(version, &suffix);
+    if (suffix != version.size() || number.isNull()
+        || !((number.majorVersion() == 1 && number.minorVersion() >= 20) || number.majorVersion() >= 26))
+        return QStringLiteral("未确认此版本的资源包标识格式；首版支持 1.20+ 正式版或已有 file/ 标识的实例。");
+    return {};
+}
 
 WorldSettingsPage::WorldView worldViewOf(const QString &worldDir,
                                          const WorldFiles::LevelData &data) {
@@ -74,6 +122,41 @@ void applyWorldViewTo(WorldFiles::LevelData *data, const WorldSettingsPage::Delt
 } // namespace
 
 InstanceEditorController::InstanceEditorController(MainWindow *owner) : QObject(owner), m_owner(owner) {}
+
+void InstanceEditorController::refreshResourcePacks(InstanceSettingsDialog *dialog, const QString &instanceId) {
+    if (dialog == nullptr || dialog->resourcePackPage() == nullptr) return;
+    const QString dir = m_owner->instanceFileDirs(instanceId).value(QStringLiteral("resourcepack"));
+    const QString root = QFileInfo(dir).absolutePath();
+    const auto snapshot = ResourcePackOptions::read(root + QStringLiteral("/options.txt"));
+    QString problem = snapshot.problem;
+    if (problem.isEmpty()) problem = resourcePackFormatProblem(
+        m_owner->m_versionManager->instanceGameVersion(instanceId), snapshot.document);
+    if (dir.isEmpty() || !QDir(root).exists()) problem = tr("实例目录不可用。");
+    if (m_owner->runningVersionIds().contains(instanceId)) problem = tr("此实例正在运行，请退出游戏后再调整资源包。");
+    dialog->resourcePackPage()->setPacks(resourcePacksIn(dir), snapshot.document.selected,
+                                        snapshot.document.bytes, snapshot.exists, problem);
+}
+
+void InstanceEditorController::saveResourcePacks(InstanceSettingsDialog *dialog, const QString &instanceId,
+                                                const QStringList &ids, const QByteArray &expected, bool expectedExists) {
+    if (dialog == nullptr) return;
+    const QString dir = m_owner->instanceFileDirs(instanceId).value(QStringLiteral("resourcepack"));
+    const QString root = QFileInfo(dir).absolutePath();
+    QString problem;
+    if (dir.isEmpty() || !QDir(root).exists()) problem = tr("实例目录不可用。");
+    if (m_owner->runningVersionIds().contains(instanceId)) problem = tr("此实例正在运行，未修改资源包设置。");
+    if (problem.isEmpty()) problem = resourcePackFormatProblem(
+        m_owner->m_versionManager->instanceGameVersion(instanceId), ResourcePackOptions::parse(expected));
+    QSet<QString> available;
+    for (const auto &pack : resourcePacksIn(dir)) available.insert(pack.id);
+    const QString backupRoot = AppPaths::minecraftDir() + QStringLiteral("/cache/resource-pack-backups/") + instanceId;
+    if (problem.isEmpty()) ResourcePackOptions::save(root + QStringLiteral("/options.txt"), expected,
+                                                    expectedExists, ids, available, backupRoot, &problem);
+    // 无论成功失败，界面都重新读取事实；失败不留下一个看似已经生效的名单。
+    refreshResourcePacks(dialog, instanceId);
+    if (!problem.isEmpty()) InlineMessage::warning(m_owner->m_ui->overlay(), tr("资源包设置未保存"), problem);
+    else m_owner->appendLog(tr("已保存资源包启用顺序：%1").arg(instanceId));
+}
 
 QString InstanceEditorController::latestConfigBackup(const QString &instanceId, const QString &path) const {
     return InstanceMaintenanceController::latestConfigBackup(
@@ -310,6 +393,48 @@ void InstanceEditorController::saveConfigFile(InstanceSettingsDialog *dialog, co
     }
 }
 
+void InstanceEditorController::showConfigHistory(InstanceSettingsDialog *dialog, const QString &path) {
+    if (dialog == nullptr || dialog->configFilePage() == nullptr) return;
+    auto *editor = dialog->configFilePage();
+    if (editor->path() != path || !editor->isEditable()) return;
+    const QString instanceId = m_owner->instanceIdOfPath(path);
+    const QString configDir = m_owner->instanceFileDirs(instanceId).value(QStringLiteral("config"));
+    const QStringList backups = InstanceMaintenanceController::configBackups(instanceId, configDir, path);
+    if (backups.isEmpty()) {
+        editor->setBackupAvailable(false);
+        InlineMessage::information(m_owner->m_ui->overlay(), m_owner->tr("暂无历史版本"),
+                                  m_owner->tr("这个配置文件没有可用的备份。保存修改前会自动保留原内容。"));
+        return;
+    }
+    QStringList rows;
+    for (const QString &backup : backups) {
+        const QFileInfo file(backup);
+        const QString generation = QDir(AppPaths::configBackupDir() + QLatin1Char('/') + instanceId)
+                                       .relativeFilePath(backup).section(QLatin1Char('/'), 0, 0);
+        const QDateTime when = QDateTime::fromString(generation.left(15), QStringLiteral("yyyyMMdd-HHmmss"));
+        rows.append(m_owner->tr("%1 · %2 字节\n%3")
+            .arg(when.isValid() ? when.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")) : generation)
+            .arg(file.size()).arg(QDir::toNativeSeparators(backup)));
+    }
+    auto *host = m_owner->m_ui->overlay();
+    if (host == nullptr || host->promptOpen()) return;
+    QString selectedBackup;
+    {
+        InlineMessageBox box(MessageKind::Question, m_owner->tr("配置历史版本"),
+            m_owner->tr("原文件：%1\n\n从新到旧排列。选择后仅载入编辑器，确认内容再保存；取消不会改动正文或磁盘。")
+                .arg(QDir::toNativeSeparators(path)),
+            {m_owner->tr("载入编辑器"), m_owner->tr("取消")}, 0, -1);
+        auto *list = box.setList(rows, 0);
+        for (int i = 0; i < rows.size(); ++i) list->item(i)->setToolTip(rows.at(i));
+        host->execPrompt(&box, false);
+        const int row = box.listRow();
+        if (box.clickedIndex() == 0 && row >= 0 && row < backups.size())
+            selectedBackup = backups.at(row);
+    }
+    // 先销毁选择提示，后续草稿确认是另一条独立提示。
+    if (!selectedBackup.isEmpty()) loadConfigBackup(dialog, path, selectedBackup);
+}
+
 void InstanceEditorController::restoreConfigFile(InstanceSettingsDialog *dialog, const QString &path) {
     if (dialog == nullptr) {
         return;
@@ -329,11 +454,33 @@ void InstanceEditorController::restoreConfigFile(InstanceSettingsDialog *dialog,
                                    AppPaths::configBackupDir())));
         return;
     }
+    loadConfigBackup(dialog, path, latest);
+}
+
+void InstanceEditorController::loadConfigBackup(InstanceSettingsDialog *dialog, const QString &path,
+                                                const QString &latest) {
+    if (dialog == nullptr) return;
+    auto *editor = dialog->configFilePage();
+    if (editor == nullptr || editor->path() != path || !editor->isEditable()) return;
+    const QString instanceId = m_owner->instanceIdOfPath(path);
+    const QString configDir = m_owner->instanceFileDirs(instanceId).value(QStringLiteral("config"));
+    // 选择器打开期间备份可能被清理或替换，载入前重新核对归属与路径边界。
+    if (!InstanceMaintenanceController::configBackups(instanceId, configDir, path).contains(latest)) {
+        InlineMessage::warning(m_owner->m_ui->overlay(), m_owner->tr("备份已不可用"),
+                               m_owner->tr("这份历史版本已被移除或不再位于有效的备份目录中，请重新选择。"));
+        return;
+    }
     QFile file(latest);
     if (!file.open(QIODevice::ReadOnly)) {
         InlineMessage::warning(m_owner->m_ui->overlay(), m_owner->tr("打不开备份里的那一份"),
                                m_owner->tr("%1\n\n%2").arg(QDir::toNativeSeparators(latest),
                                                   file.errorString()));
+        return;
+    }
+    if (file.size() > ConfigFileText::editableByteLimit()) {
+        InlineMessage::warning(m_owner->m_ui->overlay(), m_owner->tr("备份太大，未载入"),
+                               m_owner->tr("这份备份超过文本编辑上限，请通过文件管理器查看：\n%1")
+                                   .arg(QDir::toNativeSeparators(latest)));
         return;
     }
     const QByteArray raw = file.readAll();
@@ -360,6 +507,7 @@ void InstanceEditorController::restoreConfigFile(InstanceSettingsDialog *dialog,
     // 时候），不是文件夹名里那一串 —— 两者本来一样，但这一份是盘上真有的那个时间。
     const QString when =
         QFileInfo(latest).lastModified().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"));
+    if (editor->isDirty() && !confirmDiscardConfigEdits()) return;
     editor->restoreContent(loaded.text, when);
 }
 

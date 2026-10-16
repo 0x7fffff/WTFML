@@ -7,9 +7,13 @@
 #pragma once
 
 #include <QString>
+#include <QStringList>
 
 class InstanceMaintenanceController final {
 public:
+    /// 指定配置文件的历史备份，最新在前；忽略缺失文件和越出备份根的链接。
+    static QStringList configBackups(const QString &instanceId, const QString &configDir,
+                                     const QString &path);
     static QString latestConfigBackup(const QString &instanceId, const QString &configDir,
                                       const QString &path);
     static void pruneConfigBackups(const QString &instanceId, int keep);

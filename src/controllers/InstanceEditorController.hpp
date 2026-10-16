@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QByteArray>
 #include <QString>
+#include <QStringList>
 
 class MainWindow;
 class InstanceSettingsDialog;
@@ -10,12 +11,16 @@ class InstanceSettingsDialog;
 class InstanceEditorController final : public QObject {
     Q_OBJECT
 public:
+    void refreshResourcePacks(InstanceSettingsDialog *dialog, const QString &instanceId);
+    void saveResourcePacks(InstanceSettingsDialog *dialog, const QString &instanceId,
+                           const QStringList &ids, const QByteArray &expected, bool expectedExists);
     explicit InstanceEditorController(MainWindow *owner);
     QString latestConfigBackup(const QString &instanceId, const QString &path) const;
     void pruneConfigBackups(const QString &instanceId, int keep);
     void openConfigFile(InstanceSettingsDialog *dialog, const QString &path);
     void saveConfigFile(InstanceSettingsDialog *dialog, const QString &path, const QByteArray &bytes);
     void restoreConfigFile(InstanceSettingsDialog *dialog, const QString &path);
+    void showConfigHistory(InstanceSettingsDialog *dialog, const QString &path);
     bool backupWorldLevelData(const QString &worldDir, QString *problemOut);
     QString latestWorldBackup(const QString &worldDir) const;
     void showWorldSettingsPage(InstanceSettingsDialog *dialog, const QString &worldDir);
@@ -25,6 +30,8 @@ public:
     bool confirmDiscardConfigEdits();
     bool confirmDiscardWorldEdits();
 private:
+    void loadConfigBackup(InstanceSettingsDialog *dialog, const QString &path,
+                          const QString &backupPath);
     MainWindow *m_owner = nullptr;
 };
 

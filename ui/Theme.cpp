@@ -8,10 +8,13 @@
 #include "Theme.hpp"
 
 #include <QAbstractItemView>
+#include <QAbstractButton>
 #include <QApplication>
 #include <QComboBox>
 #include <QDir>
 #include <QEvent>
+#include <QFocusEvent>
+#include <QKeyEvent>
 #include <QGuiApplication>
 #include <QHash>
 #include <QJsonObject>
@@ -83,6 +86,48 @@ Tokens tokens() {
 }
 
 namespace {
+
+// Qt 的 :focus 同时包含鼠标和键盘焦点；按钮只对键盘操作显示焦点环。
+// 不清除真实焦点、不改 Tab 顺序，也不影响输入框和列表的焦点行为。
+class ButtonFocusVisibility : public QObject {
+public:
+    explicit ButtonFocusVisibility(QApplication &app) : QObject(&app) {
+        setObjectName(QStringLiteral("wtfmlButtonFocusVisibility"));
+        app.installEventFilter(this);
+    }
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override {
+        auto *button = qobject_cast<QAbstractButton *>(watched);
+        if (event->type() == QEvent::MouseButtonPress || event->type() == QEvent::MouseButtonDblClick) {
+            m_keyboard = false;
+            setVisible(qobject_cast<QAbstractButton *>(QApplication::focusWidget()), false);
+            setVisible(button, false);
+        } else if (event->type() == QEvent::KeyPress) {
+            const int key = static_cast<QKeyEvent *>(event)->key();
+            if (key != Qt::Key_Shift && key != Qt::Key_Control && key != Qt::Key_Alt && key != Qt::Key_Meta) {
+                m_keyboard = true;
+                setVisible(qobject_cast<QAbstractButton *>(QApplication::focusWidget()), true);
+            }
+        } else if (event->type() == QEvent::FocusIn && button != nullptr) {
+            const auto reason = static_cast<QFocusEvent *>(event)->reason();
+            if (reason == Qt::MouseFocusReason) m_keyboard = false;
+            if (reason == Qt::TabFocusReason || reason == Qt::BacktabFocusReason || reason == Qt::ShortcutFocusReason)
+                m_keyboard = true;
+            setVisible(button, m_keyboard);
+        }
+        return false;
+    }
+private:
+    static void setVisible(QAbstractButton *button, bool visible) {
+        if (button == nullptr || (button->property("wtfmlKeyboardFocus").isValid() &&
+                                  button->property("wtfmlKeyboardFocus").toBool() == visible)) return;
+        button->setProperty("wtfmlKeyboardFocus", visible);
+        button->style()->unpolish(button);
+        button->style()->polish(button);
+        button->update();
+    }
+    bool m_keyboard = false;
+};
 
 // ---------------------------------------------------------------------------
 // 那几张表：每一项都是"画面上哪儿"的唯一出处
@@ -458,6 +503,8 @@ public:
         //     等于顺手改了列表的样子（我们的选中色是另画的，见上面那两条原语）。
         //   ★ `w == nullptr` 时交回去：没有控件就没有"谁拿着焦点"这回事（探针调用的场景）。
         if (pe == PE_FrameFocusRect) {
+            if (qobject_cast<const QAbstractButton *>(w) != nullptr &&
+                !w->property("wtfmlKeyboardFocus").toBool()) return;
             if (w == nullptr || qobject_cast<const QAbstractItemView *>(w) != nullptr ||
                 (opt->state & State_HasFocus) == 0) {
                 QProxyStyle::drawPrimitive(pe, opt, p, w);
@@ -1126,7 +1173,7 @@ QString widgetStyleSheet() {
                       "QPushButton:default:enabled { background-color: %4; }"
                       "QPushButton:hover:enabled { background-color: %4; }"
                       "QPushButton:pressed:enabled { background-color: %5; }"
-                      "QPushButton:focus { border-color: %2; }")
+                      "QPushButton[wtfmlKeyboardFocus=\"true\"]:focus { border-color: %2; }")
                       .arg(ink.name(), border.name(), accentFill.name(), hover.name(), pressed.name())
                       .arg(buttonRadius())
                       .arg(actionHeight() - kButtonChrome);
@@ -1157,7 +1204,7 @@ QString widgetStyleSheet() {
                               const QColor &hoverFill, const QColor &pressedFill) {
         return QStringLiteral("QPushButton[%1=\"%2\"] { color: %3; background-color: %4;"
                               " border-color: transparent; }"
-                              "QPushButton[%1=\"%2\"]:focus { border-color: %3; }"
+                              "QPushButton[%1=\"%2\"][wtfmlKeyboardFocus=\"true\"]:focus { border-color: %3; }"
                               "QPushButton[%1=\"%2\"]:hover:enabled { background-color: %5; }"
                               "QPushButton[%1=\"%2\"]:pressed:enabled { background-color: %6; }")
             .arg(QString::fromLatin1(kButtonKindProperty), key, color.name(), fill.name(),
@@ -1235,7 +1282,7 @@ QString widgetStyleSheet() {
                " border-color: transparent; }"
                "QPushButton[wtfmlHomeAction=\"true\"]:hover:enabled { background-color: %3; }"
                "QPushButton[wtfmlHomeAction=\"true\"]:pressed:enabled { background-color: %4; }"
-               "QPushButton[wtfmlHomeAction=\"true\"]:focus { border-color: %5; }")
+               "QPushButton[wtfmlHomeAction=\"true\"][wtfmlKeyboardFocus=\"true\"]:focus { border-color: %5; }")
                .arg(t.subtle.name(), ink.name(), t.hover.name(), t.selected.name(), border.name());
 
     // -----------------------------------------------------------------------
@@ -1467,6 +1514,8 @@ QString widgetStyleSheet() {
                    "QFrame[%1=\"section\"] { background-color: %4; border: none;"
                    " border-radius: %8px; }"
                    "QFrame[%1=\"footer\"] { background-color: transparent; border: none; }"
+                   "QFrame[wtfmlSidebarRail=\"true\"] { background-color: %3; border: none; }"
+                   "QListWidget[wtfmlSidebarRail=\"true\"] { background: transparent; border: none; }"
                    "QLabel[%5=\"secondary\"] { color: %6; }")
                    .arg(QString::fromLatin1(kSurfaceProperty), sidebarFill.name(),
                         sheetBase.name(), sectionFill.name(),
@@ -1720,6 +1769,8 @@ void installButtonSheet(QApplication &app, bool force) {
 }
 
 void apply(QApplication &app) {
+    if (app.findChild<QObject *>(QStringLiteral("wtfmlButtonFocusVisibility")) == nullptr)
+        new ButtonFocusVisibility(app);
     const Spec &spec = current();
     const bool followSystem = spec.presetId == QLatin1String("system");
 

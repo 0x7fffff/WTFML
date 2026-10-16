@@ -111,6 +111,7 @@ struct TaskSnapshot {
     QList<TaskStep> steps;
     TaskCapabilities capabilities;
     QString errorSummary;   // 失败那一句话（只有 Failed 有）
+    bool attentionAcknowledged = false; // 失败/中断详情已查看，与业务终态分开保存。
 };
 
 // —— 下面几条都是**纯函数**（不看时钟、不看盘、不看 QObject）——

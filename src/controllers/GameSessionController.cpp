@@ -304,8 +304,10 @@ void GameSessionController::onGameFinished(int sessionId, int exitCode, QProcess
     //
     // NOTE: 对已经成功收过尾的那一件，这里什么都不做（终态只落一次，见 TaskManager::finish），
     //       所以"游戏跑了三小时后正常退出"不会把那次成功改写成失败。
-    m_host.finishLaunchTask(m_launchTaskIds.take(sessionId),
-                            exitCode == 0 && exitStatus != QProcess::CrashExit,
+    const auto finishingLaunchTask = m_launchTaskIds.take(sessionId);
+    const bool launchSucceeded = exitCode == 0 && exitStatus != QProcess::CrashExit;
+    if (launchSucceeded) m_host.launchTaskStepDone(finishingLaunchTask);
+    m_host.finishLaunchTask(finishingLaunchTask, launchSucceeded,
                             tr("游戏进程没等到能打日志就结束了，退出码 %1。").arg(exitCode));
 
     // ---------- §4.3：异常退出 → 账本上补一项「游戏异常退出」 ----------

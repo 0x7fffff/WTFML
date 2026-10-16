@@ -301,6 +301,7 @@ set(SOURCE_FILES
     ui/GroupListDelegate.cpp
     ui/InstanceSettingsDialog.cpp
     ui/InstanceFilesPage.cpp
+    ui/ResourcePackPage.cpp
     ui/ConfigFileText.cpp
     ui/ConfigFileEditorPage.cpp
     ui/WorldSettingsPage.cpp

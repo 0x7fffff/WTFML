@@ -120,6 +120,10 @@ bool TaskManager::finish(TaskId id, TaskState state, const QString &errorSummary
     task->state = state;
     task->errorSummary = errorSummary;
     task->finishedAt = QDateTime::currentDateTime();
+    if (state == TaskState::Failed) {
+        for (auto &step : task->steps)
+            if (step.state == TaskStepState::Running) step.state = TaskStepState::Failed;
+    }
     task->capabilities = TaskCapabilities();  // 收尾之后没什么可操作的（M1 里本来就没有可点的）
     task->doneUnits = (state == TaskState::Succeeded) ? task->totalUnits : task->doneUnits;
     saveHistory();
@@ -139,6 +143,15 @@ bool TaskManager::fail(TaskId id, const QString &errorSummary) {
 
 bool TaskManager::cancel(TaskId id) {
     return finish(id, TaskState::Cancelled, QString());
+}
+
+bool TaskManager::acknowledgeAttention(TaskId id) {
+    auto *task = find(id);
+    if (task == nullptr || task->attentionAcknowledged ||
+        (task->state != TaskState::Failed && task->state != TaskState::Interrupted)) return false;
+    task->attentionAcknowledged = true;
+    touch(id, true);
+    return true;
 }
 
 bool TaskManager::setDetail(TaskId id, const QString &detail) {

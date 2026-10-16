@@ -84,11 +84,13 @@ class QTreeWidget;
 class QTreeWidgetItem;
 class QVBoxLayout;
 class QWidget;
+class ResourcePackPage;
 
 class InstanceSettingsDialog : public QDialog {
     Q_OBJECT
 
 public:
+    ResourcePackPage *resourcePackPage() const { return m_resourcePackPage; }
     /// 这个实例覆盖的那几项。没有值 = 跟随全局（空串也算有值，见 EffectiveJavaSettings.hpp）。
     ///
     /// NOTE: 「窗口模式」这一项存的是**代号字符串**（`windowMode` 那一格），不是枚举 ——
@@ -1434,9 +1436,8 @@ public:
     static QString pinCheckText() { return QStringLiteral("加入收藏"); }
     /// 「更改图标」/「导出…」两颗按钮上的字。
     static QString changeIconText() { return QStringLiteral("更改图标"); }
-    /// 第四行那颗按钮上的字。**用户 2026-09-26 给这一行起的名字就是「导出」**
-    /// （「第四行 导出（还没做，可行的话顺便做了）」），所以这里不改成「导出整合包」。
-    static QString exportText() { return QStringLiteral("导出…"); }
+    /// 实例操作 → 导出页的主动作。
+    static QString exportText() { return QStringLiteral("导出整合包…"); }
     /// 浮层里那两个动作按钮上的字。
     static QString iconPickText() { return QStringLiteral("选一张图片…"); }
     static QString iconResetText() { return QStringLiteral("恢复默认"); }
@@ -1457,9 +1458,8 @@ public:
     ///       三件事：勾上之后**哪儿多出一条**、**原来那份不动**、取消勾选之后哪一条没了 ——
     ///       少说中间那一件，用户就会以为勾上等于"搬家"（那是这一版之前的语义）。
     static QString pinHint() {
-        return QStringLiteral("勾上之后这个实例会在两个地方各有一条：原来那一组里留一条，"
-                              "收藏组里再摆一条同名的，并出现在主页收藏排。"
-                              "取消勾选，收藏组和主页里的收藏条目就会移除。");
+        return QStringLiteral("在收藏组中保留快捷入口，不改变原分组。主页收藏区按显示数量和"
+                              "最近启动时间展示；取消收藏不会删除实例。");
     }
     /// 第四行那颗按钮下面那句话（**看得见的那一行**，短）。
     ///
@@ -1467,8 +1467,8 @@ public:
     ///       长了会把整页的 sizeHint 顶起来 —— 页面上那条 E5 断言钉的就是它），而 tooltip
     ///       该说全（.mrpack / .zip 的区别、认不出来的东西会怎样）。所以拆成两个函数。
     static QString exportHint() {
-        return QStringLiteral("把整个实例打包成一个整合包文件（含模组和配置），别人用"
-                              "「导入整合包」就能装回来。");
+        return QStringLiteral("导出为 Modrinth 或 CurseForge 整合包，包含可识别的资源清单和配置。"
+                              "保留完整用户数据请使用快照。");
     }
     /// 那颗按钮的 tooltip（**说全的那一份**）。
     static QString exportButtonTooltip() {
@@ -1588,6 +1588,7 @@ protected:
     void dropEvent(QDropEvent *event) override;
 
 signals:
+    void resourcePackPageEntered();
     /// 左栏底部的固定入口；真正启动仍统一交给 MainWindow 的启动链。
     void launchInstanceRequested();
 
@@ -1969,6 +1970,7 @@ signals:
     void serverPageEntered();
 
 private:
+    ResourcePackPage *m_resourcePackPage = nullptr;
     /// 「编辑」「删除」「加入服务器」三颗按钮的**可用性**照"现在选没选中一行"重算一次
     /// （2026-10-10）。
     ///
@@ -2134,6 +2136,7 @@ private:
     void setupLifecyclePages();
     void rebuildNavigationTree();
     void refreshLifecycleFiles(const QString &key);
+    void filterLifecycleFiles(const QString &key);
     /// 右栏那份堆叠页，下标见 pageCount() / filePageFirstIndex()。
     QStackedWidget *m_stack = nullptr;
 

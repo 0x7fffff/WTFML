@@ -19,11 +19,13 @@
 #include "ConfigFileText.hpp"
 #include "util/AppPaths.hpp"
 
-QString InstanceMaintenanceController::latestConfigBackup(const QString &instanceId,
-                                                           const QString &configDir,
-                                                           const QString &path) {
-    if (instanceId.isEmpty()) {
-        return QString();
+QStringList InstanceMaintenanceController::configBackups(const QString &instanceId,
+                                                         const QString &configDir,
+                                                         const QString &path) {
+    QStringList backups;
+    if (instanceId.isEmpty() || instanceId == QStringLiteral(".") || instanceId == QStringLiteral("..")
+        || instanceId.contains(QLatin1Char('/')) || instanceId.contains(QLatin1Char('\\'))) {
+        return backups;
     }
     const QString root = AppPaths::configBackupDir();
     const QStringList names =
@@ -38,11 +40,24 @@ QString InstanceMaintenanceController::latestConfigBackup(const QString &instanc
     for (const QString &name : candidates) {
         const QString candidate =
             ConfigFileText::backupPathFor(root, instanceId, configDir, path, name);
-        if (QFileInfo::exists(candidate)) {
-            return candidate;
-        }
+        const QFileInfo file(candidate);
+        if (!file.isFile() || file.isSymLink()) continue;
+        const QString canonicalRoot = QFileInfo(root).canonicalFilePath();
+        const QString canonicalFile = file.canonicalFilePath();
+        if (canonicalRoot.isEmpty() || canonicalFile.isEmpty()) continue;
+        const QString generationRoot = QDir(canonicalRoot).filePath(instanceId + QLatin1Char('/') + name);
+        const QString relative = QDir(generationRoot).relativeFilePath(canonicalFile);
+        if (QDir::isAbsolutePath(relative) || relative == QStringLiteral("..")
+            || relative.startsWith(QStringLiteral("../"))) continue;
+        backups.append(candidate);
     }
-    return QString();
+    return backups;
+}
+
+QString InstanceMaintenanceController::latestConfigBackup(const QString &instanceId,
+                                                           const QString &configDir,
+                                                           const QString &path) {
+    return configBackups(instanceId, configDir, path).value(0);
 }
 
 void InstanceMaintenanceController::pruneConfigBackups(const QString &instanceId, int keep) {

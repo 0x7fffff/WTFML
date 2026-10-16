@@ -34,6 +34,7 @@ public:
     Tasks::TaskSummary collapsedSummary(const QDateTime &now, qint64 recentWindowMs) const;
     bool isUnreadFailure(Tasks::TaskId id) const;
     bool markAllViewed();
+    bool markViewed(const QString &key);
     bool retryWouldWork(const Tasks::TaskSnapshot &task, bool retryPayloadAvailable) const;
     void markRetryConsumed();
 

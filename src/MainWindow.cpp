@@ -1560,7 +1560,10 @@ MainWindow::MainWindow(QWidget *parent)
         GameSessionController::Host{
             [this](const QString &text) { appendLog(text); },
             [this](Tasks::TaskId id) {
-                m_activityCenter->tasks()->setStepState(id, 1, Tasks::TaskStepState::Done);
+                const auto steps = m_activityCenter->tasks()->snapshot(id).steps;
+                for (int index = 0; index < steps.size(); ++index)
+                    if (steps.at(index).state == Tasks::TaskStepState::Running || index == steps.size() - 1)
+                        m_activityCenter->tasks()->setStepState(id, index, Tasks::TaskStepState::Done);
             },
             [this](Tasks::TaskId id, bool ok, const QString &note) { finishTask(id, ok, note); },
             [this] { updateBottomBar(); },
@@ -1679,6 +1682,9 @@ MainWindow::MainWindow(QWidget *parent)
     m_ui->setTaskCenterRowActionHandler(
         [this](const QString &key, TaskCenter::RowAction action) {
             switch (action) {
+            case TaskCenter::RowAction::Viewed:
+                m_activityCenter->markViewed(key);
+                break;
             case TaskCenter::RowAction::Cancel:
                 onTaskDetailAction(key, TaskDetailPage::Action::Cancel);
                 break;
@@ -7564,6 +7570,12 @@ void MainWindow::setupResourceDetailPage() {
         return;
     }
     m_resourceDetailPage = new ResourceDetailPage(this);
+    connect(m_resourceDetailPage, &ResourceDetailPage::modSettingsRequested, this, [this] {
+        if (m_resourcePage.open && m_resourceDetailPage->modSettingsSlotShown()
+            && !m_resourcePage.instanceId.isEmpty()) {
+            m_resourceDetailPage->accept();
+        }
+    });
     // NOTE: 这一页只发"用户想做什么"，一件事都不自己干 —— 收到信号之后干什么全在下面
     //       这几个槽里。所以它能在 ui_check 里被单独构造、单独驱动（不联网、不读盘）。
     connect(m_resourceDetailPage, &ResourceDetailPage::chipChanged, this,
@@ -10500,8 +10512,7 @@ void MainWindow::openFileResourcePage(const QString &versionId, const QString &i
     //    （那一层的规矩，见它的 .hpp），所以"来路"得由这一层自己放回去。
     //
     // ★ 判据是 `QDialog::Rejected`（= 用户把这一页**收掉**了）：返回箭头和 Esc 走的都是
-    //   它。这一页上没有别的出路会让 `execPage()` 返回（三颗按钮和版本行都只发信号、
-    //   不 accept）—— 哪一天真加了一条 accept 的出路，它自然就不会被实例设置盖住。
+    //   它。Accepted 专用于「模组设置」，转入当前实例的配置文件管理。
     //
     // ★★ 必须和 `kResourcePageNotOpened` 分开认：那一档是"这一页压根没开出来"（上面第
     //   ① ② 步认完之后、`m_resourceHits` 里那条已经不在了之类）。不分开的话，用户点一下
@@ -10513,6 +10524,10 @@ void MainWindow::openFileResourcePage(const QString &versionId, const QString &i
     // ★ 2026-09-28：`versionId` 就是"当前实例"，一并传进去（开页时按它的版本预选、把它的
     //   加载器排前面）。原来它只用来"返回时把实例设置放回去"，现在两件事都用它。
     const int result = openResourceDetailPage(iconKey, kindKey, DetailSource::InstanceFiles, versionId);
+    if (result == QDialog::Accepted && !versionId.isEmpty() && kindKey == QStringLiteral("mod")) {
+        openInstanceSettings(versionId, QStringLiteral("config"));
+        return;
+    }
     if (result != QDialog::Rejected || versionId.isEmpty()) {
         return;
     }

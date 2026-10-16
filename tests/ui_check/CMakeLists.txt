@@ -34,6 +34,7 @@ add_executable(ui_check main.cpp
                                 ${REPO_ROOT}/ui/InlineMessage.cpp
                                 ${REPO_ROOT}/ui/InstanceSettingsDialog.cpp
     ${REPO_ROOT}/ui/InstanceFilesPage.cpp
+    ${REPO_ROOT}/ui/ResourcePackPage.cpp
     # 「配置文件」那一页（2026-09-27）：编辑器那一格和它那套纯函数（认 BOM / 认行尾 /
     # 认是不是 UTF-8）都是 ui/ 的东西，InstanceSettingsDialog 直接 new 它。少了这两个
     # 文件，链接期报的是 `undefined reference to ConfigFileEditorPage::…`。
@@ -161,6 +162,18 @@ target_link_libraries(ui_check PRIVATE dwmapi)
 
 add_test(NAME wtfml.ui COMMAND ui_check)
 add_test(NAME wtfml.ui-refresh COMMAND ui_check --ui-refresh-check)
+add_test(NAME wtfml.lifecycle COMMAND ui_check --lifecycle-check)
+add_test(NAME wtfml.resource-packs COMMAND ui_check --resource-packs-check)
+set_tests_properties(wtfml.resource-packs PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+    TIMEOUT 60
+    LABELS "ui;files"
+)
+set_tests_properties(wtfml.lifecycle PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+    TIMEOUT 60
+    LABELS "ui"
+)
 set_tests_properties(wtfml.ui-refresh PROPERTIES
     LABELS "ui"
     TIMEOUT 30

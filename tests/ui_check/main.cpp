@@ -65,6 +65,8 @@
 #include <QPainter>
 #include <QImage>
 #include <QKeyEvent>
+#include <QEnterEvent>
+#include <QShortcut>
 #include <QPixmap>
 #include <QPlainTextEdit>
 #include <QPointer>
@@ -124,6 +126,8 @@
 #include "InstanceGroupDelegate.hpp"
 #include "InstanceFilesPage.hpp"
 #include "InstanceSettingsDialog.hpp"
+#include "ResourcePackPage.hpp"
+#include "manage/ResourcePackOptions.hpp"
 // U28：完整性检查报告页（体检跑完摊在内容区上的那一整页）。
 #include "IntegrityReportPage.hpp"
 #include "UpdateCenterPage.hpp"  // U33：更新中心（「检查更新」查出来的结论摊成能动手的一页）
@@ -361,6 +365,293 @@ int main(int argc, char *argv[]) {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
 
     QApplication app(argc, argv);
+    if (app.arguments().contains(QStringLiteral("--resource-packs-check"))) {
+        const int fontId = QFontDatabase::addApplicationFont(QDir(qEnvironmentVariable("WINDIR")).filePath(QStringLiteral("Fonts/msyh.ttc")));
+        const auto families = QFontDatabase::applicationFontFamilies(fontId);
+        if (!families.isEmpty()) app.setFont(QFont(families.first(), 9));
+        app.setStyle(Theme::createStyle());
+        Theme::setSpec(Theme::defaultSpec());
+        Theme::apply(app);
+        int failures = 0;
+        const auto expect = [&failures](bool ok, const char *message) {
+            printf("%s %s\n", ok ? "PASS" : "FAIL", message);
+            if (!ok) ++failures;
+        };
+        using namespace ResourcePackOptions;
+        const QByteArray original = QByteArray("\xef\xbb\xbf")
+            + "fov:0.5\r\nresourcePacks:[\"vanilla\"]\r\nunknown:keep:me\r\n"
+              "resourcePacks:[\"vanilla\",\"file/a.zip\"]\r\nincompatibleResourcePacks:[\"file/a.zip\"]";
+        const auto document = parse(original);
+        expect(document.problem.isEmpty() && document.selected == QStringList{"vanilla", "file/a.zip"},
+               "parse final resourcePacks line, keep builtin ids");
+        QByteArray output;
+        QString problem;
+        expect(rewrite(document, document.selected, &output, &problem) && output == original,
+               "no-op preserves every byte including BOM and CRLF");
+        expect(rewrite(document, {"vanilla", "file/b.zip", "file/a.zip"}, &output, &problem)
+                   && output.startsWith(QByteArray("\xef\xbb\xbf") + "fov:0.5\r\nresourcePacks:[\"vanilla\"]\r\nunknown:keep:me\r\n")
+                   && output.endsWith("\r\nincompatibleResourcePacks:[\"file/a.zip\"]")
+                   && parse(output).selected == QStringList{"vanilla", "file/b.zip", "file/a.zip"},
+               "rewrite only last resourcePacks value, preserve other settings");
+        expect(!rewrite(document, {"file/a.zip"}, &output, &problem), "cannot remove builtin packs");
+        expect(!rewrite(document, {"vanilla", "file/a.zip", "file/a.zip"}, &output, &problem), "reject duplicate ids");
+        expect(!parse("resourcePacks:[123]").problem.isEmpty()
+                   && !parse("resourcePacks:broken").problem.isEmpty(), "malformed lists are read-only");
+        expect(!safeLocal("file/../evil.zip") && !safeLocal("file/C:evil.zip")
+                   && !safeLocal("file/a/b.zip") && safeLocal("file/中文包.zip"), "local identifiers cannot escape directory");
+        expect(rewrite(parse("fov:0.7"), {"file/a.zip"}, &output, &problem)
+                   && output == "fov:0.7\nresourcePacks:[\"file/a.zip\"]\n", "missing key appends without damaging final line");
+        QTemporaryDir scratch(QDir::current().filePath(QStringLiteral(".resource-packs-XXXXXX")));
+        if (!scratch.isValid()) return 1;
+        const QString path = scratch.path() + QStringLiteral("/options.txt");
+        const QString backups = scratch.path() + QStringLiteral("/backups");
+        const auto write = [&](const QByteArray &bytes) { QFile file(path); return file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size(); };
+        const auto bytesAt = [](const QString &filePath) { QFile file(filePath); return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray(); };
+        expect(write(original), "create options fixture");
+        expect(save(path, original, true, {"vanilla", "file/a.zip", "file/b.zip"}, {"file/a.zip", "file/b.zip"}, backups, &problem),
+               "save enabled order with atomic backup");
+        const auto copies = QDir(backups).entryList(QDir::Files);
+        expect(copies.size() == 1 && bytesAt(backups + QLatin1Char('/') + copies.value(0)) == original,
+               "backup contains exact previous bytes");
+        const QByteArray saved = bytesAt(path);
+        expect(!save(path, original, true, document.selected, {"file/a.zip"}, backups, &problem) && bytesAt(path) == saved,
+               "stale snapshot cannot overwrite external changes");
+        expect(!save(path, saved, true, {"vanilla", "file/missing.zip"}, {}, backups, &problem) && bytesAt(path) == saved,
+               "cannot enable a vanished pack");
+        const QString blockedBackup = scratch.path() + QStringLiteral("/not-a-directory");
+        { QFile blocker(blockedBackup); expect(blocker.open(QIODevice::WriteOnly), "create blocked backup fixture"); }
+        expect(!save(path, saved, true, {"vanilla"}, {}, blockedBackup, &problem) && bytesAt(path) == saved,
+               "backup failure leaves original options intact");
+        {
+            QLockFile lock(path + QStringLiteral(".wtfml.lock"));
+            expect(lock.tryLock(0) && !save(path, saved, true, {"vanilla"}, {}, backups, &problem),
+                   "another writer blocks concurrent save");
+        }
+        ResourcePackPage page;
+        const QList<ResourcePackPage::Pack> packs{{"file/a.zip", "Alpha", "green"}, {"file/b.zip", "Beta", "blue"}};
+        page.setPacks(packs, {"vanilla", "file/a.zip"}, original, true);
+        auto *available = page.findChild<QListWidget *>(QStringLiteral("resourcePackAvailable"));
+        auto *selected = page.findChild<QListWidget *>(QStringLiteral("resourcePackSelected"));
+        auto *enable = page.findChild<QPushButton *>(QStringLiteral("resourcePackEnable"));
+        auto *disable = page.findChild<QPushButton *>(QStringLiteral("resourcePackDisable"));
+        auto *down = page.findChild<QPushButton *>(QStringLiteral("resourcePackDown"));
+        QStringList requested;
+        int requests = 0;
+        QObject::connect(&page, &ResourcePackPage::selectionRequested, &page,
+            [&](const QStringList &ids, const QByteArray &token, bool exists) {
+                requested = ids; ++requests;
+                expect(token == original && exists, "selection carries original conflict token");
+            });
+        expect(available->count() == 1 && selected->item(0)->text() == QStringLiteral("Alpha"),
+               "two columns exclude active files from available, high priority first");
+        available->setCurrentRow(0);
+        enable->click();
+        expect(requested == QStringList{"vanilla", "file/a.zip", "file/b.zip"}, "enable appends highest priority without file rename");
+        down->click();
+        expect(requested == QStringList{"vanilla", "file/b.zip", "file/a.zip"}, "priority button maps correctly to persisted order");
+        page.setPacks(packs, {"vanilla", "file/a.zip", "file/b.zip"}, original, true);
+        const bool moved = selected->model()->moveRows(QModelIndex(), 0, 1, QModelIndex(), 2);
+        app.processEvents();
+        expect(moved && requested == QStringList{"vanilla", "file/b.zip", "file/a.zip"},
+               "internal drag reorder submits after model finishes moving rows");
+        selected->setCurrentRow(selected->count() - 1);
+        expect(!disable->isEnabled(), "builtin pack cannot be disabled");
+        selected->setCurrentRow(0);
+        disable->click();
+        expect(requested == QStringList{"vanilla", "file/b.zip"}, "disable removes only selected local identifier");
+        page.setPacks(packs, {"vanilla", "file/missing.zip"}, original, true);
+        expect(selected->item(0)->text().contains(QStringLiteral("缺失")), "missing active file remains visible");
+        selected->setCurrentRow(0);
+        disable->click();
+        expect(requested == QStringList{"vanilla"} && available->count() == 2, "missing file can be removed but cannot become available");
+        page.setPacks(packs, {"vanilla"}, original, true, QStringLiteral("running"));
+        available->setCurrentRow(0);
+        const int before = requests;
+        enable->click();
+        expect(!enable->isEnabled() && requests == before, "read-only state blocks all selection changes");
+        if (app.arguments().contains(QStringLiteral("--resource-packs-preview"))) {
+            page.setPacks(packs, {"vanilla", "file/a.zip"}, original, true);
+            page.resize(820, 480);
+            page.show();
+            app.processEvents();
+            expect(page.grab().save(QDir::current().filePath(QStringLiteral("build/resource-packs-preview.png"))),
+                   "resource pack preview saved");
+        }
+        return failures == 0 ? 0 : 1;
+    }
+    if (app.arguments().contains(QStringLiteral("--lifecycle-check"))) {
+        QTemporaryDir scratch(QDir::current().filePath(QStringLiteral(".lifecycle-check-XXXXXX")));
+        if (!scratch.isValid()) return 1;
+        int failures = 0;
+        const auto expect = [&failures](bool ok, const char *message) {
+            printf("%s %s\n", ok ? "PASS" : "FAIL", message);
+            if (!ok) ++failures;
+        };
+        using Dlg = InstanceSettingsDialog;
+        Dlg dialog(QStringLiteral("Test"), QStringLiteral("test"), Dlg::Override(),
+                   Dlg::GlobalValues(), {}, true);
+        QHash<QString, QString> dirs;
+        const QStringList keys{QStringLiteral("screenshots"), QStringLiteral("replay"),
+                               QStringLiteral("logs"), QStringLiteral("crash"), QStringLiteral("structure")};
+        for (const QString &key : keys) {
+            const QString root = scratch.path() + QLatin1Char('/') + key;
+            dirs.insert(key == QStringLiteral("structure") ? QStringLiteral("save") : key, root);
+            const QString folder = key == QStringLiteral("structure")
+                ? root + QStringLiteral("/World/generated/test/structures") : root;
+            expect(QDir().mkpath(folder), "create lifecycle fixture directory");
+            const QString suffix = key == QStringLiteral("screenshots") ? QStringLiteral(".png")
+                : key == QStringLiteral("replay") ? QStringLiteral(".mcpr")
+                : key == QStringLiteral("structure") ? QStringLiteral(".nbt") : QStringLiteral(".log");
+            for (const QString &name : {QStringLiteral("Alpha-2026"), QStringLiteral("Beta-2025")}) {
+                const QString path = folder + QLatin1Char('/') + name + suffix;
+                if (key == QStringLiteral("screenshots")) {
+                    QImage image(16, 16, QImage::Format_RGB32);
+                    image.fill(Qt::green);
+                    expect(image.save(path), "write screenshot fixture");
+                } else {
+                    QFile file(path);
+                    expect(file.open(QIODevice::WriteOnly) && file.write("test") == 4,
+                           "write lifecycle fixture");
+                }
+            }
+        }
+        dialog.setFileDirs(dirs);
+        auto *navigation = dialog.findChild<QTreeWidget *>(Dlg::navigationTreeName());
+        bool backupLeaf = false;
+        int collapsedGroups = 0;
+        for (QTreeWidgetItemIterator it(navigation); navigation && *it; ++it) {
+            backupLeaf |= (*it)->data(0, Qt::UserRole).toString() == QStringLiteral("worldbackup");
+            const QString group = (*it)->data(0, Qt::UserRole + 1).toString();
+            if ((group == QStringLiteral("creative") || group == QStringLiteral("maintenance")) && !(*it)->isExpanded())
+                ++collapsedGroups;
+        }
+        expect(navigation && !backupLeaf, "world backup is not a standalone navigation item");
+        expect(collapsedGroups == 2, "creative and maintenance groups start collapsed");
+        const QList<QPair<QString, QString>> movedActions = {
+            {Dlg::exportButtonName(), QStringLiteral("export")},
+            {Dlg::copyButtonName(), QStringLiteral("operationsmenu")},
+            {Dlg::deleteButtonName(), QStringLiteral("operationsmenu")},
+            {Dlg::integrityCheckButtonName(), QStringLiteral("integrity")},
+            {Dlg::createSnapshotButtonName(), QStringLiteral("snapshots")},
+            {Dlg::restoreSnapshotButtonName(), QStringLiteral("snapshots")}};
+        for (const auto &entry : movedActions) {
+            auto *control = dialog.findChild<QPushButton *>(entry.first);
+            dialog.showPage(Dlg::overviewCategoryKey());
+            expect(control && !control->isVisibleTo(&dialog), "maintenance action no longer appears on overview");
+            dialog.showPage(entry.second);
+            expect(control && control->isVisibleTo(&dialog), "relocated action appears on dedicated page");
+            expect(dialog.findChildren<QPushButton *>(entry.first).size() == 1, "relocated action is not duplicated");
+        }
+        dialog.showPage(Dlg::overviewCategoryKey());
+        expect(dialog.findChild<QPushButton *>(Dlg::checkUpdatesButtonName())->isVisibleTo(&dialog),
+               "overview retains update check entry");
+        dialog.showPage(QStringLiteral("save"));
+        auto *backups = dialog.findChild<QPushButton *>(QStringLiteral("instanceSaveBackups"));
+        expect(backups != nullptr, "saves page provides world backup entry");
+        if (backups) backups->click();
+        expect(dialog.currentPageKey() == QStringLiteral("worldbackup") && navigation &&
+                   navigation->currentItem() && navigation->currentItem()->data(0, Qt::UserRole).toString() == QStringLiteral("save"),
+               "nested backups keep saves navigation selected");
+        auto *worlds = dialog.findChild<QListWidget *>(QStringLiteral("instanceWorldBackupList"));
+        expect(worlds && worlds->count() == 1 && worlds->item(0)->data(Qt::UserRole).toString() ==
+                   dirs.value(QStringLiteral("save")) + QStringLiteral("/World"),
+               "nested backup page still loads worlds from saves directory");
+        auto *back = dialog.findChild<QPushButton *>(QStringLiteral("instanceWorldBackupBack"));
+        if (back) back->click();
+        expect(back && dialog.currentPageKey() == QStringLiteral("save"), "backup page returns to saves");
+        dialog.showPage(QStringLiteral("screenshots"));
+        expect(navigation && navigation->currentItem() && navigation->currentItem()->parent()->isExpanded(),
+               "entering creative page reveals its navigation group");
+        for (const QString &key : keys) {
+            dialog.showPage(key);
+            auto *search = dialog.findChild<QLineEdit *>(QStringLiteral("instanceLifecycleSearch_%1").arg(key));
+            auto *list = dialog.findChild<QListWidget *>(QStringLiteral("instanceLifecycleFiles_%1").arg(key));
+            auto *result = dialog.findChild<QLabel *>(QStringLiteral("instanceLifecycleResult_%1").arg(key));
+            expect(search && list && result, "lifecycle search controls exist");
+            if (!search || !list || !result) continue;
+            expect(list->count() == 2, "lifecycle files loaded");
+            search->setText(QStringLiteral("ALPHA 2026"));
+            const auto visibleCount = [list] {
+                int count = 0;
+                for (int row = 0; row < list->count(); ++row)
+                    if (!list->item(row)->isHidden()) ++count;
+                return count;
+            };
+            expect(visibleCount() == 1, "file search is case insensitive and matches all terms");
+            dialog.showPage(QStringLiteral("overview"));
+            dialog.showPage(key);
+            expect(search->text() == QStringLiteral("ALPHA 2026") && visibleCount() == 1,
+                   "refresh preserves search and reapplies filter");
+            search->setText(QStringLiteral("nonexistent"));
+            expect(visibleCount() == 0 && result->text().contains(QStringLiteral("未找到")),
+                   "no matches has an explicit result message");
+            search->clear();
+            expect(visibleCount() == 2, "clearing search restores files");
+        }
+        {
+            const QString folder = scratch.path() + QStringLiteral("/mixed-mods");
+            expect(QDir().mkpath(folder + QStringLiteral("/libraries")), "create mixed selection fixture");
+            for (const QString &name : {QStringLiteral("active.jar"), QStringLiteral("inactive.jar.disabled")}) {
+                QFile file(folder + QLatin1Char('/') + name);
+                expect(file.open(QIODevice::WriteOnly), "create toggle fixture file");
+            }
+            InstanceFilesPage files;
+            files.setCanToggle(true);
+            files.setBatchMode(true);
+            files.setDirectory(folder);
+            files.list()->selectAll();
+            QStringList affected;
+            bool disabling = false;
+            int requests = 0;
+            QObject::connect(&files, &InstanceFilesPage::batchToggleRequested, &files,
+                [&](const QStringList &paths, bool disable) { affected = paths; disabling = disable; ++requests; });
+            auto *disable = files.selectionButtonAt(static_cast<int>(InstanceFilesPage::SelectionAction::Disable));
+            auto *enable = files.selectionButtonAt(static_cast<int>(InstanceFilesPage::SelectionAction::Enable));
+            disable->click();
+            expect(disabling && affected == QStringList{folder + QStringLiteral("/active.jar")},
+                   "mixed selection disables only active files, not folders or already-disabled files");
+            expect(disable->toolTip().contains(QStringLiteral("禁用 1"))
+                       && disable->toolTip().contains(QStringLiteral("2 项保持不变")),
+                   "toggle tooltip explains affected and unchanged counts");
+            enable->click();
+            expect(!disabling && affected == QStringList{folder + QStringLiteral("/inactive.jar.disabled")},
+                   "mixed selection enables only disabled files");
+            files.list()->clearSelection();
+            disable->click();
+            enable->click();
+            expect(requests == 2 && !disable->isEnabled() && !enable->isEnabled(),
+                   "empty selection cannot emit a toggle request");
+        }
+        {
+            ConfigFileEditorPage editor;
+            int requests = 0;
+            QObject::connect(&editor, &ConfigFileEditorPage::historyRequested, &editor,
+                [&](const QString &path) { if (path == QStringLiteral("/config/test.json")) ++requests; });
+            editor.setFile(QStringLiteral("/config/test.json"), ConfigFileText::decode("{}"));
+            expect(editor.historyButton()->isHidden(), "config history hidden without backups");
+            editor.setBackupAvailable(true);
+            editor.historyButton()->click();
+            expect(!editor.historyButton()->isHidden() && requests == 1,
+                   "config history emits request for current file");
+            editor.setFile(QStringLiteral("/config/other.json"), ConfigFileText::decode("{}"));
+            expect(editor.historyButton()->isHidden() && !editor.historyButton()->isEnabled(),
+                   "switching config file clears stale history availability");
+        }
+        ResourceDetailPage resource;
+        int configRequests = 0;
+        QObject::connect(&resource, &ResourceDetailPage::modSettingsRequested,
+                         &resource, [&configRequests] { ++configRequests; });
+        resource.modSettingsButton()->click();
+        expect(configRequests == 0, "download details cannot request local config");
+        resource.setModSettingsSlot(true);
+        resource.modSettingsButton()->click();
+        expect(configRequests == 1, "instance mod settings emits config request");
+        resource.setModSettingsSlot(false);
+        resource.modSettingsButton()->click();
+        expect(configRequests == 1 && !resource.modSettingsButton()->isEnabled(),
+               "reusing detail page for downloads resets config access");
+        return failures == 0 ? 0 : 1;
+    }
     if (app.arguments().contains(QStringLiteral("--ui-refresh-check"))) {
         const int fontId = QFontDatabase::addApplicationFont(QDir(qEnvironmentVariable("WINDIR")).filePath(QStringLiteral("Fonts/msyh.ttc")));
         const QStringList families = QFontDatabase::applicationFontFamilies(fontId);
@@ -380,6 +671,13 @@ int main(int argc, char *argv[]) {
             if (!ok) ++failures;
         };
         expect(ui.getTabWidget()->tabText(MainWindowUI::instancesTabIndex()) == QStringLiteral("管理"), "management navigation label");
+        for (const QString &name : {QStringLiteral("homeQuickCurrentTab"), QStringLiteral("homeQuickRecentTab"),
+                                    QStringLiteral("homeQuickFavoriteTab")}) {
+            auto *tab = preview.findChild<QPushButton *>(name);
+            expect(tab && tab->minimumWidth() >= 64, "home quick tabs have wider click targets");
+        }
+        expect(preview.findChild<QPushButton *>(MainWindowUI::homeInstanceSelectButtonName())->minimumWidth() >= 80,
+               "home list button is wider than quick tabs");
         MainWindowUI::HomePickerInstance instance;
         instance.id = QStringLiteral("custom-instance");
         instance.title = QStringLiteral("Adventure");
@@ -400,6 +698,19 @@ int main(int argc, char *argv[]) {
             search->setText(QStringLiteral("1.21 forge"));
             expect(list->count() == 0, "all search terms must match");
         } else expect(false, "home search controls exist");
+        ui.getTabWidget()->setCurrentIndex(MainWindowUI::instancesTabIndex());
+        expect(!ui.homeInstancePickerOpen(), "switching away resets hidden home picker");
+        ui.getTabWidget()->setCurrentIndex(MainWindowUI::homeTabIndex());
+        expect(!ui.homeInstancePickerOpen(), "returning home does not restore stale picker");
+        ui.openHomeInstancePicker({}, {instance}, {}, {});
+        auto *escape = preview.findChild<QShortcut *>(QStringLiteral("homePickerCloseShortcut"));
+        expect(escape && escape->key() == QKeySequence(Qt::Key_Escape)
+                   && escape->context() == Qt::WidgetWithChildrenShortcut,
+               "home picker escape is scoped to home controls");
+        if (escape) {
+            QMetaObject::invokeMethod(escape, "activated", Qt::DirectConnection);
+        }
+        expect(!ui.homeInstancePickerOpen(), "escape closes home picker");
         ui.closeHomeInstancePicker();
         auto *button = ui.getToolboxButton();
         expect(button->width() == 112, "toolbox trigger stays compact");
@@ -445,6 +756,13 @@ int main(int argc, char *argv[]) {
         running.resize(1000, 500);
         running.showEmbedded();
         app.processEvents();
+        auto *detailPane = running.findChild<QWidget *>(QStringLiteral("taskCenterDetailPane"));
+        expect(detailPane && detailPane->width() == 260, "task center detail pane is compact at 260 pixels");
+        running.resize(700, 500);
+        app.processEvents();
+        running.resize(1000, 500);
+        app.processEvents();
+        expect(detailPane && detailPane->width() == 260, "detail width is restored after compact layout");
         TaskCenter::RunningItem game;
         game.key = QStringLiteral("session-1");
         game.title = QStringLiteral("Live instance");
@@ -467,10 +785,135 @@ int main(int argc, char *argv[]) {
         app.processEvents();
         expect(running.findChildren<QWidget *>(QStringLiteral("taskCenterRunningRow")).size() == 1,
                "parked task center resyncs when shown");
+        {
+            QList<TaskCenter::Item> tasks;
+            TaskCenter::Item error;
+            error.key = QStringLiteral("error"); error.title = QStringLiteral("游戏错误"); error.state = TaskCenter::State::Failed;
+            TaskCenter::Item choice;
+            choice.key = QStringLiteral("choice"); choice.title = QStringLiteral("等待选择"); choice.state = TaskCenter::State::WaitingUser;
+            choice.percent = 70;
+            choice.steps = {{QStringLiteral("检查启动文件"), TaskCenter::StepState::Done, {}},
+                            {QStringLiteral("登录"), TaskCenter::StepState::Running, QStringLiteral("正在校验")},
+                            {QStringLiteral("等待启动"), TaskCenter::StepState::Pending, {}},
+                            {QStringLiteral("完成"), TaskCenter::StepState::Pending, {}}};
+            TaskCenter::Item interrupted;
+            interrupted.key = QStringLiteral("interrupted"); interrupted.title = QStringLiteral("中断"); interrupted.state = TaskCenter::State::Interrupted;
+            tasks = {error, choice, interrupted};
+            TaskCenterPanel panel(nullptr, [&tasks] { return tasks; }, {}, {}, {}, {}, nullptr, true);
+            panel.setRowActionHandler([&tasks](const QString &key, TaskCenter::RowAction action) {
+                if (action != TaskCenter::RowAction::Viewed) return;
+                for (auto &item : tasks)
+                    if (item.key == key && (item.state == TaskCenter::State::Failed || item.state == TaskCenter::State::Interrupted))
+                        item.attentionAcknowledged = true;
+            });
+            panel.resize(1000, 500); panel.showEmbedded(); app.processEvents();
+            const auto row = [&panel](const QString &key) -> QWidget * {
+                for (auto *widget : panel.findChildren<QWidget *>())
+                    if (widget->property(MainWindowUI::taskCenterPanelRowKeyProperty()).toString() == key) return widget;
+                return nullptr;
+            };
+            const auto click = [](QWidget *widget) {
+                if (!widget) return;
+                const QPointF p(widget->rect().center());
+                QMouseEvent event(QEvent::MouseButtonPress, p, QPointF(widget->mapToGlobal(p.toPoint())),
+                                  Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+                QApplication::sendEvent(widget, &event);
+            };
+            const auto attention = [&panel](int count) {
+                for (auto *label : panel.findChildren<QLabel *>())
+                    if (label->text() == QStringLiteral("需要处理：%1").arg(count)) return true;
+                return false;
+            };
+            expect(attention(3), "unselected task details show outstanding attention count");
+            click(row(error.key));
+            expect(row(error.key) && row(error.key)->property("taskCenterSelected").toBool() && tasks[0].attentionAcknowledged,
+                   "selecting an error highlights the row and acknowledges its attention");
+            auto *detail = panel.findChild<QLabel *>(MainWindowUI::taskDetailTitleName());
+            expect(detail && detail->text() == error.title && detail->isVisible(), "selected task details are visible immediately");
+            click(row(choice.key));
+            expect(row(choice.key)->property("taskCenterSelected").toBool() && !row(error.key)->property("taskCenterSelected").toBool(),
+                   "task selection is exclusive");
+            expect(!tasks[1].attentionAcknowledged, "viewing a choice does not resolve it");
+            expect(panel.findChild<QWidget *>(QStringLiteral("taskCenterFlowStep_3")) &&
+                       panel.findChild<TaskProgressBar *>(QStringLiteral("taskCenterFlowProgress")),
+                   "details retain completed, current and pending workflow stages with active stage progress");
+            click(row(choice.key));
+            expect(attention(2) && !row(choice.key)->property("taskCenterSelected").toBool(),
+                   "clicking the selected task again clears selection and restores overview");
+            click(row(choice.key));
+            auto *scroll = panel.findChild<QScrollArea *>(QStringLiteral("taskCenterTaskList"));
+            click(scroll->viewport());
+            expect(attention(2) && !row(choice.key)->property("taskCenterSelected").toBool(),
+                   "blank click clears selection and restores updated overview counts");
+            tasks[1].state = TaskCenter::State::Succeeded;
+            tasks[1].percent = 100;
+            for (auto &step : tasks[1].steps) step.state = TaskCenter::StepState::Done;
+            click(row(choice.key));
+            panel.refresh();
+            expect(panel.findChild<QWidget *>(QStringLiteral("taskCenterFlowStep_3")) &&
+                       !panel.findChild<TaskProgressBar *>(QStringLiteral("taskCenterFlowProgress")),
+                   "workflow stages remain visible after progress completes");
+            auto *completedBar = panel.findChild<TaskProgressBar *>(QStringLiteral("taskCenterDetailProgress"));
+            expect(completedBar && completedBar->value() == 100, "completed task retains its measured overall progress");
+            click(scroll->viewport());
+            panel.refresh();
+            expect(attention(1), "choice attention clears only after the task leaves WaitingUser");
+            click(row(interrupted.key)); panel.refresh();
+            expect(row(interrupted.key)->property("taskCenterSelected").toBool(), "selection survives refresh by task key");
+            tasks.removeLast(); panel.refresh();
+            expect(attention(0), "removing the selected task restores the unselected overview");
+        }
+        Anim::setEnabled(true);
+        const auto settle = [] {
+            QEventLoop loop;
+            QTimer::singleShot(400, &loop, &QEventLoop::quit);
+            loop.exec();
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        };
+        auto *home = ui.getTabWidget()->widget(MainWindowUI::homeTabIndex());
+        const auto curtainCount = [&preview] {
+            int count = 0;
+            for (auto *curtain : preview.findChildren<QWidget *>(QStringLiteral("wtfmlLayoutCurtain")))
+                if (!curtain->isHidden()) ++count;
+            return count;
+        };
+        ui.openHomeInstancePicker({}, {instance}, {}, {});
+        expect(ui.homeInstancePickerOpen() && curtainCount() == 1, "home picker changes state immediately and starts transition");
+        ui.closeHomeInstancePicker();
+        expect(!ui.homeInstancePickerOpen() && curtainCount() == 1, "rapid reversal replaces the previous transition");
+        settle();
+        expect(curtainCount() == 0, "home picker transition removes its snapshot on completion");
+        ui.openHomeInstancePicker({}, {instance}, {}, {});
+        ui.getTabWidget()->setCurrentIndex(MainWindowUI::instancesTabIndex());
+        settle();
+        ui.getTabWidget()->setCurrentIndex(MainWindowUI::homeTabIndex());
+        expect(!ui.homeInstancePickerOpen() && !home->findChild<QWidget *>(QStringLiteral("wtfmlLayoutCurtain")),
+               "switching tabs cancels picker animation without restoring stale content");
+        ui.getTaskSummaryButton()->click();
+        expect(preview.findChild<QWidget *>(MainWindowUI::taskCenterPanelName()) && curtainCount() == 1,
+               "task center open starts a bounded content transition");
+        auto *curtain = preview.findChild<QWidget *>(QStringLiteral("wtfmlLayoutCurtain"));
+        expect(curtain && curtain->testAttribute(Qt::WA_TransparentForMouseEvents) &&
+                   curtain->geometry() == ui.getTabWidget()->geometry(),
+               "task center transition excludes top navigation and bottom bar and does not intercept input");
+        ui.getTaskSummaryButton()->click();
+        settle();
+        expect(!preview.findChild<QWidget *>(MainWindowUI::taskCenterPanelName()) && curtainCount() == 0,
+               "task center closes cleanly during opening animation");
+        ui.getTaskSummaryButton()->click();
+        ui.getTabWidget()->setCurrentIndex(MainWindowUI::instancesTabIndex());
+        expect(curtainCount() == 0, "switching tabs cancels task center animation immediately");
+        ui.getTabWidget()->setCurrentIndex(MainWindowUI::homeTabIndex());
+        ui.getTaskSummaryButton()->click();
+        preview.resize(1020, 670);
+        settle();
+        expect(curtainCount() == 0, "window resizing leaves no stale transition snapshot");
+        Anim::setEnabled(false);
         printf("UI refresh check: %d failure(s)\n", failures);
         return failures == 0 ? 0 : 1;
     }
     if (app.arguments().contains(QStringLiteral("--theme-check"))) {
+        Anim::setEnabled(false);
         QTemporaryDir settingsDir(QDir::current().filePath(QStringLiteral(".theme-check-XXXXXX")));
         if (!settingsDir.isValid()) return 2;
         QSettings::setDefaultFormat(QSettings::IniFormat);
@@ -497,6 +940,55 @@ int main(int argc, char *argv[]) {
             expect(Theme::partBackground(Theme::Part::BottomBar) == t.subtle, "bottom bar uses subtle surface");
             expect(Theme::selectionFill(t.card) == t.selected, "selection uses specified color");
             expect(Theme::widgetStyleSheet().contains(t.input.name()), "inputs use theme colors");
+            {
+                QWidget focusHost;
+                focusHost.resize(180, 80);
+                QPushButton button(QStringLiteral("任务中心"), &focusHost);
+                button.setGeometry(20, 20, 140, 40);
+                Theme::markButton(&button, Theme::ButtonKind::Neutral);
+                focusHost.show();
+                focusHost.activateWindow();
+                app.processEvents();
+                button.setFocus(Qt::TabFocusReason);
+                QFocusEvent keyboardFocus(QEvent::FocusIn, Qt::TabFocusReason);
+                QApplication::sendEvent(&button, &keyboardFocus);
+                expect(button.property("wtfmlKeyboardFocus").toBool(), "keyboard focus shows button focus ring");
+                const QImage keyboardShot = button.grab().toImage();
+                const QPointF position(button.rect().center());
+                const QPointF global(button.mapToGlobal(button.rect().center()));
+                QMouseEvent press(QEvent::MouseButtonPress, position, global, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+                QMouseEvent release(QEvent::MouseButtonRelease, position, global, Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+                QApplication::sendEvent(&button, &press);
+                QApplication::sendEvent(&button, &release);
+                const QImage mouseShot = button.grab().toImage();
+                expect(!button.property("wtfmlKeyboardFocus").toBool(), "mouse activation clears focus ring even on an already focused button");
+                expect(keyboardShot.pixelColor(0, keyboardShot.height() / 2) !=
+                           mouseShot.pixelColor(0, mouseShot.height() / 2),
+                       "mouse click removes the rendered focus border");
+                expect(button.hasFocus() && (button.focusPolicy() & Qt::TabFocus),
+                       "hiding mouse focus ring preserves real focus and keyboard accessibility");
+                QKeyEvent tab(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier);
+                QApplication::sendEvent(&button, &tab);
+                expect(button.property("wtfmlKeyboardFocus").toBool(), "Tab restores keyboard focus feedback after mouse use");
+            }
+            ToggleSwitch toggle;
+            toggle.resize(toggle.sizeHint());
+            toggle.setChecked(true);
+            toggle.show();
+            app.processEvents();
+            QEvent leave(QEvent::Leave);
+            QApplication::sendEvent(&toggle, &leave);
+            const QPoint trackPoint(3, toggle.height() / 2);
+            expect(toggle.grab().toImage().pixelColor(trackPoint) ==
+                       (id == QLatin1String("emerald") ? t.primary : toggle.palette().color(QPalette::Highlight)),
+                   "emerald switch uses stronger brand, other themes retain their switch colors");
+            if (id == QLatin1String("emerald")) {
+                QEnterEvent enter(QPointF(3, 3), QPointF(3, 3), QPointF(3, 3));
+                QApplication::sendEvent(&toggle, &enter);
+                expect(toggle.grab().toImage().pixelColor(trackPoint) == t.primaryHover,
+                       "emerald switch hover uses palette brand hover");
+            }
+            toggle.hide();
             QSettings().setValue(QStringLiteral("Look/LogColors"), true);
             GameLogWindow log(QStringLiteral("Theme check"));
             log.appendText(QStringLiteral("[main/INFO]: info\n[main/WARN]: warn\n[main/ERROR]: error\n[main/FATAL]: fatal\n"));
@@ -540,6 +1032,17 @@ int main(int argc, char *argv[]) {
                 QDir().mkpath(directory);
                 QMainWindow preview;
                 MainWindowUI previewUi(&preview);
+                MainWindowUI::FolderRow currentFolder;
+                currentFolder.path = QStringLiteral("D:/Games/Minecraft");
+                currentFolder.title = QStringLiteral("当前文件夹");
+                currentFolder.subtitle = currentFolder.path;
+                currentFolder.assistant = true;
+                currentFolder.current = true;
+                MainWindowUI::FolderRow moddedFolder;
+                moddedFolder.path = QStringLiteral("E:/Minecraft/Modpacks");
+                moddedFolder.title = QStringLiteral("模组整合包");
+                moddedFolder.subtitle = moddedFolder.path;
+                previewUi.setFolderRows({currentFolder, moddedFolder});
                 preview.resize(1000, 650);
                 preview.show();
                 app.processEvents();
@@ -549,6 +1052,24 @@ int main(int argc, char *argv[]) {
                 app.processEvents();
                 expect(preview.grab().save(directory + QLatin1Char('/') + id + QStringLiteral("-settings.png")),
                        "save settings preview");
+                auto *settingsList = preview.findChild<QListWidget *>(MainWindowUI::settingsCategoryListName());
+                auto *settingsRail = preview.findChild<QFrame *>(QStringLiteral("settingsSidebarSurface"));
+                expect(settingsList && settingsList->frameShape() == QFrame::NoFrame &&
+                           settingsList->palette().color(QPalette::Base) == t.main &&
+                           settingsRail && settingsRail->property("wtfmlSidebarRail").toBool(),
+                       "settings sidebar uses the same seamless surface as management and downloads");
+                for (const auto &entry : {qMakePair(MainWindowUI::instancesTabIndex(), QStringLiteral("-management.png")),
+                                          qMakePair(MainWindowUI::downloadTabIndex(), QStringLiteral("-download.png"))}) {
+                    previewUi.getTabWidget()->setCurrentIndex(entry.first);
+                    app.processEvents();
+                    for (auto *list : {preview.findChild<QListWidget *>(MainWindowUI::folderListName()),
+                                       preview.findChild<QListWidget *>(MainWindowUI::downloadCategoryListName())}) {
+                        expect(list && list->frameShape() == QFrame::NoFrame
+                                   && list->palette().color(QPalette::Base) == t.main,
+                               "sidebar list uses seamless theme surface without inner frame");
+                    }
+                    expect(preview.grab().save(directory + QLatin1Char('/') + id + entry.second), "save sidebar preview");
+                }
                 log.show();
                 app.processEvents();
                 expect(view && view->viewport()->palette().color(QPalette::Base) == t.logBase,
@@ -9321,12 +9842,12 @@ int main(int argc, char *argv[]) {
                   navTextMiss.isEmpty() ? QStringLiteral("（%1 条全对上）").arg(navKeys.size())
                                         : navTextMiss.join(QLatin1Char('|')));
 
-            // 树里能点的那几条 = 概览 / 启动 + 七条可选页 + **另有自己那一行的八条生命周期
-            // 页**。最后那一组是"维护"那组（四条）+ 世界备份 / 截图 / 回放 / 结构各一条 ——
+            // 树里能点的那几条 = 概览 / 启动 + 七条可选页 + **另有自己那一行的七条生命周期
+            // 页**。最后那一组是"维护"那组（四条）+ 截图 / 回放 / 结构各一条 —— 世界备份从存档进入。
             // 下面那个数按名字钉死，是因为"哪几条另有自己的行"是**界面的分组规格**，不是
             // 从键表算得出来的东西（另八条生命周期页走的是那三条 `*menu` 的门）。
             const QStringList ownRowKeys = {
-                QStringLiteral("worldbackup"),       QStringLiteral("screenshots"),
+                QStringLiteral("screenshots"),
                 QStringLiteral("replay"),            QStringLiteral("structure"),
                 QStringLiteral("integritymenu"),     QStringLiteral("diagnosticsmenu"),
                 QStringLiteral("snapshots"),         QStringLiteral("operationsmenu")};
@@ -9350,8 +9871,8 @@ int main(int argc, char *argv[]) {
                       ownRowHit == ownRowKeys.size() &&
                       navKeys.size() == defaultKeys.size() + ownRowKeys.size() &&
                       navDedup.size() == navKeys.size(),
-                  "★ U0a 树里的键不多不少：默认那九条一条不落、另有自己那一行的八条生命周期页"
-                  "都在、也没有第九条野键（键两两不同 —— 它们要进 objectName）",
+                  "★ U0a 树里的键不多不少：默认那九条一条不落、另有自己那一行的七条生命周期页"
+                  "都在、没有多余的野键（键两两不同 —— 它们要进 objectName）",
                   QStringLiteral("默认 %1/%2、自有行 %3/%4、共 %5 条（去重后 %6）")
                       .arg(defaultRowHit)
                       .arg(defaultKeys.size())
@@ -11910,9 +12431,9 @@ int main(int argc, char *argv[]) {
             const auto hasDelete = [&rowsWith](const QString &key) {
                 return rowsWith(key, false) > 0;
             };
-            check(hasToggle(QStringLiteral("mod")) && hasToggle(QStringLiteral("resourcepack")) &&
+            check(hasToggle(QStringLiteral("mod")) && !hasToggle(QStringLiteral("resourcepack")) &&
                       hasToggle(QStringLiteral("shader")),
-                  "★ U10d 模组 / 资源包 / 光影包有「启用·禁用」（游戏会自己扫这三个目录）");
+                  "★ U10d 文件改名开关仅用于模组和光影；资源包改用 options.txt 启用顺序管理");
             check(!hasToggle(QStringLiteral("datapack")) &&
                       !hasToggle(QStringLiteral("schematic")) && !hasToggle(QStringLiteral("save")),
                   "★ U10d 数据包 / 原理图 / 存档**没有**「启用·禁用」（改了名也不会生效，"
@@ -22917,8 +23438,8 @@ int main(int argc, char *argv[]) {
                   "（用户原话「显示快照版那里替换为模组设置」—— 同一格只露一个）",
                   QStringLiteral("勾选框露着=%1")
                       .arg(snapBox->isVisible() ? QStringLiteral("是") : QStringLiteral("不是")));
-            check(modButton != nullptr && !modButton->isEnabled(),
-                  "★★ Z14 而它**先占位**：画出来、灰着、点不动（用户 2026-09-27 选的那一档）");
+            check(modButton != nullptr && modButton->isEnabled(),
+                  "★★ Z14 模组设置入口可用，打开当前实例配置文件管理");
 
             // ★ 这一档上裸 Alt **什么都不拨**：那一格上压根没有勾选框，拨了也是拨一个看不见的
             //   勾 —— 屏幕上什么都不动，用户只能得出"这软件没反应"的结论。
@@ -23371,8 +23892,10 @@ int main(int argc, char *argv[]) {
                       .arg(offKnob.name(), onKnob.name()));
             // 两头的轨道都是从**调色板**取的（不是写死的色号）：用户换主题或者哪天把
             // Fusion 换掉，这一格跟着走。写死色号的话，深色主题下这枚开关会是一块浅色药丸。
+            const QColor expectedOn = Theme::current().presetId == QLatin1String("emerald")
+                                          ? Theme::tokens().primary : toggle.palette().color(QPalette::Highlight);
             check(paintRgb(offTrack) == paintRgb(toggle.palette().color(QPalette::Mid)) &&
-                      paintRgb(onTrack) == paintRgb(toggle.palette().color(QPalette::Highlight)),
+                      paintRgb(onTrack) == paintRgb(expectedOn),
                   "★ Z15a 轨道：关着是中灰那一档、开着是高亮那一档 —— 两档都取自调色板"
                   "（写死色号的话，换个主题这枚开关就和整个界面不是一个调子）",
                   QStringLiteral("关 %1（中灰 %2）/ 开 %3（高亮 %4）")
@@ -26084,7 +26607,7 @@ int main(int argc, char *argv[]) {
             }
             check(sheet.contains(QLatin1String("QPushButton { background-color:")) &&
                       sheet.contains(QLatin1String("border: 1px solid transparent")) &&
-                      sheet.contains(QLatin1String("QPushButton:focus { border-color:")),
+                      sheet.contains(QLatin1String("QPushButton[wtfmlKeyboardFocus=\"true\"]:focus { border-color:")),
                   "★★ 普通按钮默认没有深色框，透明边保住几何，只有键盘焦点显示主题色边界");
             check(sheet.contains(QLatin1String("QAbstractSpinBox QLineEdit")) &&
                       sheet.contains(QLatin1String("QComboBox QLineEdit")) &&

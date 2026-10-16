@@ -258,6 +258,14 @@ ConfigFileEditorPage::ConfigFileEditorPage(QWidget *parent) : QWidget(parent) {
         emit restoreRequested(m_path);
     });
     topRow->addWidget(m_restore);
+    m_history = new QPushButton(tr("历史版本"), this);
+    m_history->setObjectName(QStringLiteral("configFileHistory"));
+    Theme::markButton(m_history, Theme::ButtonKind::Neutral);
+    m_history->setToolTip(tr("按时间选择这个文件的备份；载入后需点击保存才会写回。"));
+    connect(m_history, &QPushButton::clicked, this, [this] {
+        if (m_hasFile && m_backupAvailable && isEditable()) emit historyRequested(m_path);
+    });
+    topRow->addWidget(m_history);
 
     m_openFolder = new QPushButton(openFolderText(), this);
     m_openFolder->setObjectName(openFolderButtonName());
@@ -361,6 +369,8 @@ ConfigFileEditorPage::ConfigFileEditorPage(QWidget *parent) : QWidget(parent) {
     m_editor->setReadOnly(true);
     m_save->setVisible(false);
     m_restore->setVisible(false);
+    m_history->setVisible(false);
+    m_history->setEnabled(false);
     refreshNote();
     refreshIndexVisibility();
 }
@@ -425,6 +435,10 @@ void ConfigFileEditorPage::refreshRestore() {
     // 和画一颗灰按钮一样，都是"点了也没意义"（见 .hpp 里「保存」那一段）。
     m_restore->setVisible(m_backupAvailable && isEditable());
     m_restore->setEnabled(true);
+    if (m_history != nullptr) {
+        m_history->setVisible(m_backupAvailable && isEditable());
+        m_history->setEnabled(m_backupAvailable && isEditable());
+    }
 }
 
 void ConfigFileEditorPage::restoreContent(const QString &text, const QString &whenText) {

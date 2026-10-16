@@ -248,8 +248,11 @@ void LaunchController::onStartButtonClicked() {
     const Tasks::TaskId launchTask =
         m_owner->beginTask(Tasks::TaskKind::Launch, m_owner->tr("启动 %1").arg(m_owner->instanceDisplayName(versionId)),
                   versionId,
-                  {Tasks::TaskStep{m_owner->tr("准备运行环境"), Tasks::TaskStepState::Running, QString()},
-                   Tasks::TaskStep{m_owner->tr("启动游戏进程"), Tasks::TaskStepState::Pending, QString()}});
+                  {Tasks::TaskStep{m_owner->tr("校验登录状态"), Tasks::TaskStepState::Running, QString()},
+                   Tasks::TaskStep{m_owner->tr("检查启动文件"), Tasks::TaskStepState::Pending, QString()},
+                   Tasks::TaskStep{m_owner->tr("准备 Java 运行环境"), Tasks::TaskStepState::Pending, QString()},
+                   Tasks::TaskStep{m_owner->tr("等待游戏启动"), Tasks::TaskStepState::Pending, QString()},
+                   Tasks::TaskStep{m_owner->tr("完成"), Tasks::TaskStepState::Pending, QString()}});
     // 这一趟的收尾责任挂在栈上：从这儿往下到函数末尾有七八个早退（版本信息缺失 / 继承链
     // 不全 / natives 起不来 / ASCII 别名建不出 / 启动前检查没过 / Java 不匹配那个框里点了
     // 取消…），每一个都会让这件任务永远停在"正在启动"上。见 TaskAbortGuard 那段。
@@ -284,6 +287,9 @@ void LaunchController::onStartButtonClicked() {
         }
     }
 
+    m_owner->m_activityCenter->tasks()->setStepState(launchTask, 0, Tasks::TaskStepState::Done,
+        offlineMode ? m_owner->tr("离线账号，无需联网登录") : QString());
+    m_owner->m_activityCenter->tasks()->setStepState(launchTask, 1, Tasks::TaskStepState::Running);
     // version.json 要提前取：natives 的准备和启动前检查都依赖它
     QJsonObject versionJson = m_owner->m_versionManager->getVersionJson(versionId);
 
@@ -372,6 +378,8 @@ void LaunchController::onStartButtonClicked() {
         return;
     }
 
+    m_owner->m_activityCenter->tasks()->setStepState(launchTask, 1, Tasks::TaskStepState::Done);
+    m_owner->m_activityCenter->tasks()->setStepState(launchTask, 2, Tasks::TaskStepState::Running);
     // 兜底值只在 version.json 没写这个字段时才用得上（两处兜底的唯一出处是
     // versionRuntimeIds()）—— 这里要**提前**拿到 javaMajorVersion，下面挑 Java 就得用它。
     // assetIndex 那一半这里不取：它只进命令行，而那串参数是 launchArguments() 拼的。
@@ -460,11 +468,9 @@ void LaunchController::onStartButtonClicked() {
         return;
     }
 
-    // 账本上这件任务的第一步（「准备运行环境」= 换令牌 + 挑/下 Java）到此为止，下一步是
-    // 真正把进程拉起来。**摆在这一句**是因为它是这两步之间唯一说得准的分界：Java 拿到了，
-    // 后面剩下的都不再是"准备"（拼参数、startGame 都是"启动"那一步）。
-    m_owner->m_activityCenter->tasks()->setStepState(launchTask, 0, Tasks::TaskStepState::Done);
-    m_owner->m_activityCenter->tasks()->setStepState(launchTask, 1, Tasks::TaskStepState::Running);
+    // Java 已就绪，接下来拼参数、创建进程并等待游戏的首条输出；完成由会话回调确认。
+    m_owner->m_activityCenter->tasks()->setStepState(launchTask, 2, Tasks::TaskStepState::Done);
+    m_owner->m_activityCenter->tasks()->setStepState(launchTask, 3, Tasks::TaskStepState::Running);
 
     // 「改用匹配的 Java」：把刚挑中的那条路径写回**这个实例**。
     //

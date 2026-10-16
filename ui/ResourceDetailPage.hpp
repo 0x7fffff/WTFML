@@ -157,7 +157,7 @@ public:
     ///    · 只有**从实例的「文件管理」页点一个模组**进来时才摆它（判据在
     ///      MainWindow::openResourceDetailPage，按"这一页是怎么打开的"分）；
     ///    · 摆它的时候「显示快照版」那颗**整个收起来**（同一格只露一个）；
-    ///    · 它**先占位** —— 画出来、灰着、点不动（用户 2026-09-27 选的形态）。
+    ///    · 点击请求打开当前实例的配置文件管理，不推测单个模组的配置归属。
     ///
     /// NOTE: 下载页里点一行模组开出来的是**同一个页面对象**，它照旧摆「显示快照版」——
     ///       所以这一位**每次开页都要显式摆一次**（页面是建一次留着的，不摆就留着上一次的）。
@@ -199,7 +199,7 @@ public:
     /// chip 那颗按钮的 objectName 是「前缀 + 下标」（0 起）。
     static QString chipButtonNamePrefix();
     static QString showSnapshotsCheckBoxName();
-    /// 右上角那颗**占位**用的「模组设置」（见 setModSettingsSlot；默认是收着的）。
+    /// 右上角「模组设置」入口（见 setModSettingsSlot；默认收起）。
     static QString modSettingsButtonName();
     /// 那四个字。**唯一出处** —— 按钮和验证工程都读它，别在别处再写一遍。
     static QString modSettingsText();
@@ -252,6 +252,7 @@ signals:
     /// （开浏览器要能被验证工程拦，复制要能写日志 —— 两边都是 MainWindow 的事）。
     void openExternalRequested(const QString &url);
     void copyNameRequested(const QString &text);
+    void modSettingsRequested();
     /// 用户点了某一个具体版本（`Row::key` 原样带回去）= 要下它。
     void rowActivated(const QString &key);
 
@@ -287,8 +288,7 @@ private:
     /// （setDependencies 传空串时整个 hide 掉）。
     QLabel *m_dependencies = nullptr;
     QCheckBox *m_showSnapshots = nullptr;
-    /// 右上角那颗**占位**用的「模组设置」（建出来就是灰的、点不动、默认收着；
-    /// 摆不摆由 setModSettingsSlot 说了算）。
+    /// 右上角「模组设置」入口，显示和启用均由 setModSettingsSlot 控制。
     QPushButton *m_modSettings = nullptr;
     /// 现在摆的是不是它（`keyPressEvent` 那个裸 Alt 要读它 —— 见那儿那段）。
     bool m_modSettingsShown = false;

@@ -20,6 +20,7 @@
 #include <QEvent>
 #include <QGraphicsEffect>
 #include <QKeyEvent>
+#include <QLayout>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPalette>
@@ -700,6 +701,45 @@ QWidget *liftTarget(QWidget *widget) {
     return widget;
 }
 
+// 布局切换只绘制两个稳定状态，避免在每帧重排列表或缩放文字。
+class LayoutCurtain : public QWidget {
+public:
+    LayoutCurtain(QWidget *surface, const QRect &area, const QPixmap &before, const QPixmap &after,
+                  bool expanding)
+        : QWidget(surface), m_before(before), m_after(after), m_expanding(expanding) {
+        setObjectName(QStringLiteral("wtfmlLayoutCurtain"));
+        setAttribute(Qt::WA_TransparentForMouseEvents);
+        setFocusPolicy(Qt::NoFocus);
+        setGeometry(area);
+        surface->installEventFilter(this);
+    }
+    void frame(qreal progress) { m_progress = progress; update(); }
+protected:
+    bool eventFilter(QObject *, QEvent *event) override {
+        if (event->type() == QEvent::Hide || event->type() == QEvent::Resize) {
+            hide();
+            for (auto *timer : findChildren<QTimer *>()) timer->stop();
+            for (auto *animation : findChildren<QVariantAnimation *>()) animation->stop();
+            deleteLater();
+        }
+        return false;
+    }
+    void paintEvent(QPaintEvent *) override {
+        QPainter painter(this);
+        painter.setClipRect(rect());
+        painter.drawPixmap(0, 0, m_before);
+        painter.setOpacity(m_progress);
+        const qreal dpr = qMax(qreal(1), m_after.devicePixelRatio());
+        const qreal shift = qRound((m_expanding ? 1 : -1) * Anim::pageRiseDistance() *
+                                  (1 - m_progress) * dpr) / dpr;
+        painter.drawPixmap(QPointF(0, shift), m_after);
+    }
+private:
+    QPixmap m_before, m_after;
+    bool m_expanding;
+    qreal m_progress = 0;
+};
+
 }  // namespace
 
 namespace Anim {
@@ -847,6 +887,48 @@ void pageAppear(QWidget *widget, const QColor &backdrop) {
                 [curtain, rise, from](qreal t) {
                     curtain->setFrame(rise * (1.0 - t), from + (1.0 - from) * t);
                 });
+}
+
+void cancelLayoutTransition(QWidget *surface) {
+    if (surface == nullptr) return;
+    for (auto *old : surface->findChildren<QWidget *>(QStringLiteral("wtfmlLayoutCurtain"), Qt::FindDirectChildrenOnly))
+        delete old;
+}
+
+void layoutTransition(QWidget *surface, const std::function<void()> &change,
+                      bool expanding, const QRect &region) {
+    if (!change) return;
+    if (surface == nullptr) { change(); return; }
+    QPointer<QWidget> guard(surface);
+    const QRect area = (region.isEmpty() ? surface->rect() : region).intersected(surface->rect());
+    const bool animate = enabled() && surface->isVisible() && !area.isEmpty();
+    const auto capture = [surface, area]() {
+        QWidget *window = surface->window();
+        return window->grab(QRect(surface->mapTo(window, area.topLeft()), area.size()));
+    };
+    // 连点时从当前视觉帧起步，再移除旧幕布；旧动画不会晚到一步覆盖新状态。
+    const QPixmap before = animate ? capture() : QPixmap();
+    cancelLayoutTransition(surface);
+    // 主选项卡刚切换时可能仍有旧的换页快照，不能把它当作新布局的终点。
+    for (QWidget *ancestor = surface; ancestor != nullptr; ancestor = ancestor->parentWidget()) {
+        for (auto *old : ancestor->findChildren<QWidget *>(QLatin1String(kCurtainName), Qt::FindDirectChildrenOnly))
+            delete old;
+    }
+    for (auto *old : surface->findChildren<QWidget *>(QLatin1String(kCurtainName)))
+        delete old;
+    change();
+    if (!guard) return;
+    if (surface->layout()) surface->layout()->activate();
+    for (auto *child : surface->findChildren<QWidget *>())
+        if (child->isVisible() && child->layout()) child->layout()->activate();
+    if (!animate || !enabled() || !surface->isVisible() ||
+        !surface->rect().contains(area)) return;
+    auto *curtain = new LayoutCurtain(surface, area, before, capture(), expanding);
+    curtain->show();
+    curtain->raise();
+    runProgress(curtain, curtain, 0, 1, panelMs(), stepMs(),
+                [curtain]() { curtain->hide(); curtain->deleteLater(); },
+                [curtain](qreal progress) { curtain->frame(progress); });
 }
 
 void overlayAppear(QWidget *widget) {

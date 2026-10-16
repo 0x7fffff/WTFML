@@ -335,19 +335,17 @@ ResourceDetailPage::ResourceDetailPage(QWidget *parent) : QDialog(parent) {
             [this](bool checked) { emit showSnapshotsChanged(checked); });
     chipLine->addWidget(m_showSnapshots, 0, Qt::AlignVCenter);
 
-    // 同一格上那颗「模组设置」（2026-09-27，见 ResourceDetailPage.hpp 里 setModSettingsSlot
-    // 那段）：**默认收着**，而且**先占位** —— 画出来、灰着、点不动。
-    //
-    // ★ 为什么不干脆 `setEnabled(false)` 就算完：`QPushButton` 灰掉之后**照样能收键盘**
-    //   （不参与 Tab 链，可它还在那儿）；这儿更关键的是**不许它跟「显示快照版」同时露面**
-    //   —— 同一格只露一个，谁来摆由 setModSettingsSlot 说了算。
+    // 与「显示快照版」复用同一槽位，仅实例模组详情可见并可操作。
     m_modSettings = new QPushButton(modSettingsText(), this);
     m_modSettings->setObjectName(modSettingsButtonName());
     Theme::markButton(m_modSettings, Theme::ButtonKind::Neutral);
     m_modSettings->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-    // 灰着、点不动。**这一条就是"先占位"的全部实现** —— 接上去了再打开。
+    // 只有实例模组详情显示并启用它，下载详情不能访问本地配置。
     m_modSettings->setEnabled(false);
-    m_modSettings->setToolTip(tr("还没做"));
+    m_modSettings->setToolTip(tr("打开此实例的配置文件管理；共享配置需自行选择。"));
+    connect(m_modSettings, &QPushButton::clicked, this, [this] {
+        if (m_modSettingsShown) emit modSettingsRequested();
+    });
     m_modSettings->hide();
     chipLine->addWidget(m_modSettings, 0, Qt::AlignVCenter);
     outer->addLayout(chipLine);
@@ -596,6 +594,7 @@ void ResourceDetailPage::setModSettingsSlot(bool show) {
     // 同一格只露一个 —— 摆谁就把另一个**整个收起来**（用户原话「右上角显示快照版那里替换为
     // 模组设置」："替换"就是这个意思，不是两颗并排）。
     m_modSettings->setVisible(show);
+    m_modSettings->setEnabled(show);
     m_showSnapshots->setVisible(!show);
 }
 

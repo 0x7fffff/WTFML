@@ -604,7 +604,8 @@ InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
                 const bool disable = action == SelectionAction::Disable;
                 button->setToolTip(selectionToggleTip(disable));
                 connect(button, &QPushButton::clicked, this, [this, disable] {
-                    emit batchToggleRequested(selectedPathList(), disable);
+                    const QStringList paths = selectedTogglePaths(disable);
+                    if (!paths.isEmpty()) emit batchToggleRequested(paths, disable);
                 });
                 break;
             }
@@ -2033,6 +2034,19 @@ QStringList InstanceFilesPage::selectedPathList() const {
     return paths;
 }
 
+QStringList InstanceFilesPage::selectedTogglePaths(bool disable) const {
+    QStringList paths;
+    if (!m_canToggle) return paths;
+    QSet<QString> eligible;
+    for (const Entry &entry : m_entries) {
+        if (!entry.isDir && entry.disabled != disable) eligible.insert(entry.path);
+    }
+    for (const QString &path : selectedPathList()) {
+        if (eligible.contains(path)) paths.append(path);
+    }
+    return paths;
+}
+
 void InstanceFilesPage::updateSelectionBar() {
     if (m_selectionBar == nullptr) {
         return;
@@ -2044,20 +2058,9 @@ void InstanceFilesPage::updateSelectionBar() {
 
     // ---------- 灰化规则（用户 2026-10-09 原话，见 .hpp 里那段）----------
     bool anyOutdated = false;
-    bool anyEnabled = false;
-    bool anyDisabled = false;
     for (const QString &path : m_selectedPaths) {
         if (m_outdatedPaths.contains(path)) {
             anyOutdated = true;
-        }
-        const Entry *entry = entryForPath(path);
-        if (entry == nullptr) {
-            continue;
-        }
-        if (entry->disabled) {
-            anyDisabled = true;
-        } else {
-            anyEnabled = true;
         }
     }
     const auto buttonFor = [this](SelectionAction action) {
@@ -2081,16 +2084,22 @@ void InstanceFilesPage::updateSelectionBar() {
     //   根本没有启用这个功能（他当时要的是"别摆一颗按不动的"，今天要的是"两颗都在"）。
     //   现在的规矩和这一条上其余每一颗**逐字同一条**：摆着，不适用就灰着。
     //
-    //   NOTE: 判据取的是**选中集**（`anyDisabled` / `anyEnabled`）而不是整页的条数
+    //   NOTE: 判据取的是选中且确实需要改变状态的文件，而不是整页的条数
     //         （`stateFilterCount`，那是顶上那四颗筛选按钮的口径）—— 这条操作条办的一直是
     //         "选中的这些"，它上面每一颗的灰化也是同一个口径。
     if (QPushButton *button = buttonFor(SelectionAction::Disable)) {
+        const int affected = selectedTogglePaths(true).size();
         button->setVisible(m_canToggle);
-        button->setEnabled(m_canToggle && anyEnabled);
+        button->setEnabled(affected > 0);
+        button->setToolTip(tr("本次禁用 %1 个文件；其余 %2 项保持不变。\n%3")
+            .arg(affected).arg(m_selectedPaths.size() - affected).arg(selectionToggleTip(true)));
     }
     if (QPushButton *button = buttonFor(SelectionAction::Enable)) {
+        const int affected = selectedTogglePaths(false).size();
         button->setVisible(m_canToggle);
-        button->setEnabled(m_canToggle && anyDisabled);
+        button->setEnabled(affected > 0);
+        button->setToolTip(tr("本次启用 %1 个文件；其余 %2 项保持不变。\n%3")
+            .arg(affected).arg(m_selectedPaths.size() - affected).arg(selectionToggleTip(false)));
     }
     // 全选 / 反选 / 取消 / 删除四颗恒可用（它们要么只动"选中的集合"，要么在按下去之后
     // 还会问一句 —— 灰着反而让用户以为删不了）。

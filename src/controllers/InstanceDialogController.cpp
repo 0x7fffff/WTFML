@@ -2,6 +2,7 @@
 
 #include "MainWindow.hpp"
 #include "ConfigFileEditorPage.hpp"
+#include "ResourcePackPage.hpp"
 #include "InlineMessage.hpp"
 #include "InstanceSettingsDialog.hpp"
 #include "InstanceFilesPage.hpp"
@@ -12,6 +13,7 @@
 
 #include "controllers/BackupController.hpp"
 #include "controllers/InstancePagesController.hpp"
+#include "controllers/InstanceEditorController.hpp"
 #include "launcher/LauncherManager.hpp"
 #include "manage/FolderManager.hpp"
 #include "manage/InstanceFiles.hpp"
@@ -344,6 +346,14 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
         m_owner->pushInstanceFileUpdates(&dialog, id);
     };
     refreshInstanceDirs(targetId);
+    connect(&dialog, &InstanceSettingsDialog::resourcePackPageEntered, m_owner,
+            [this, &dialog, &targetId] {
+                m_owner->m_instanceEditorController->refreshResourcePacks(&dialog, targetId);
+            });
+    connect(dialog.resourcePackPage(), &ResourcePackPage::selectionRequested, m_owner,
+            [this, &dialog, &targetId](const QStringList &ids, const QByteArray &expected, bool exists) {
+                m_owner->m_instanceEditorController->saveResourcePacks(&dialog, targetId, ids, expected, exists);
+            });
 
     // 用户自己勾掉的那几页（2026-09-27）——**必须排在 refreshInstanceDirs() 之后**：
     // 灌进来的那份表是"藏起来的页"，而"这一条到底露不露"要拿"可不可用"一起算（见
@@ -874,6 +884,10 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
         //   所以那一格只发"用户要这个文件的上一次"，取和摆在这儿做。
         connect(editor, &ConfigFileEditorPage::restoreRequested, m_owner,
                 [this, &dialog](const QString &path) { m_owner->restoreConfigFile(&dialog, path); });
+        connect(editor, &ConfigFileEditorPage::historyRequested, m_owner,
+                [this, &dialog](const QString &path) {
+                    m_owner->m_instanceEditorController->showConfigHistory(&dialog, path);
+                });
         connect(editor, &ConfigFileEditorPage::backRequested, m_owner,
                 [this, &dialog]() { m_owner->leaveConfigEditor(&dialog); });
     }

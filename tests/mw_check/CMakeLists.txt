@@ -231,6 +231,7 @@ set(SOURCE_FILES
     ${REPO_ROOT}/ui/GroupListDelegate.cpp
     ${REPO_ROOT}/ui/InstanceSettingsDialog.cpp
     ${REPO_ROOT}/ui/InstanceFilesPage.cpp
+    ${REPO_ROOT}/ui/ResourcePackPage.cpp
     # 「配置文件」那一页（2026-09-27）：编辑器那一格和它那套纯函数（认 BOM / 认行尾 /
     # 认是不是 UTF-8）都是 ui/ 的东西，InstanceSettingsDialog 直接 new 它。少了这两个
     # 文件，链接期报的是 `undefined reference to ConfigFileEditorPage::…`。
@@ -357,6 +358,12 @@ target_link_libraries(mw_check PRIVATE crypt32 ole32 shlwapi windowscodecs dwmap
 
 add_test(NAME wtfml.main-window COMMAND mw_check)
 add_test(NAME wtfml.workspace COMMAND mw_check workspace-check)
+add_test(NAME wtfml.activity-selection COMMAND mw_check activity-selection-check)
+set_tests_properties(wtfml.activity-selection PROPERTIES
+    LABELS "ui;integration"
+    TIMEOUT 30
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+)
 set_tests_properties(wtfml.workspace PROPERTIES
     LABELS "ui;integration"
     TIMEOUT 30

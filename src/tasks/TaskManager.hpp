@@ -76,6 +76,7 @@ public:
 
     /// 换一句"现在在干什么"（面板里标题下面那行小字）。
     bool setDetail(TaskId id, const QString &detail);
+    bool acknowledgeAttention(TaskId id);
 
     /// 整表换掉步骤。
     bool setSteps(TaskId id, const QList<TaskStep> &steps);

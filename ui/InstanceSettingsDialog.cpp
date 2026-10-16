@@ -16,6 +16,7 @@
  * "读值"这一侧一个字都没改 —— 只是控件换了个父容器。
  */
 #include "InstanceSettingsDialog.hpp"
+#include "ResourcePackPage.hpp"
 
 #include "Animations.hpp"
 #include "Theme.hpp"   // 浮层的底色（Theme::Part::Panel）
@@ -349,12 +350,12 @@ QString menuEntryStyle(const QPalette &menuPalette) {
 
 /// 「文件管理」里哪几页有「启用 / 禁用」。
 ///
-/// **只有游戏会自己扫的那三个目录**：模组（`mods/*.jar`）、资源包、光影包。另外三页给
+/// 文件改名开关仅用于模组和光影；资源包通过专用页面修改 options.txt。
+/// 另外三页给
 /// 了也没用 —— 数据包要自己搬进存档，原理图要 Litematica 主动去读，存档干脆不是一个文件；
 /// 给它们一颗"禁用"只会让用户以为改名就等于不生效了。
 bool fileKeyCanToggle(const QString &key) {
-    return key == QStringLiteral("mod") || key == QStringLiteral("resourcepack") ||
-           key == QStringLiteral("shader");
+    return key == QStringLiteral("mod") || key == QStringLiteral("shader");
 }
 
 }  // namespace
@@ -974,13 +975,17 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         actionCells.append(cell);
     }
 
-    // 七格攒齐了，一次性摆成"每行三颗"。**必须摆在这一段之后**：那七格是在上面七个
-    // 作用域里各自建出来的，layoutActionCells() 要的是完整的一份。
-    //
-    // NOTE: 七格排三列 ⇒ 最后一行只有「删除实例」一颗（旁边两格空着、**不摊开**，
-    //       见 layoutActionCells() 那条 NOTE）。这不是排漏了 —— 那颗是这一页上唯一
-    //       真会丢东西的按钮，让它单独占一行反而更好按得准。
-    layoutActionCells(actionGrid, actionCells);
+    // 概览只保留更新入口；维护与实例操作的控件由 setupLifecyclePages() 迁入专属页。
+    // 保留同一份控件和接线，不另造一个相同功能的按钮。
+    QList<QWidget *> overviewActions;
+    for (QWidget *cell : actionCells) {
+        if (cell->findChild<QPushButton *>(checkUpdatesButtonName()) ||
+            cell->findChild<QPushButton *>(updateCenterButtonName()))
+            overviewActions.append(cell);
+        else
+            cell->hide();
+    }
+    layoutActionCells(actionGrid, overviewActions);
     grid->addLayout(actionGrid, row++, 0, 1, 2);
 
     // ---------- 常用目录那一排按钮（2026-09-27 从「快捷方式」那一页整块搬来）----------
@@ -1584,13 +1589,28 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             // ★ 2026-09-28：存档那一页（见下面 setCanEdit / setImportText / setBatchText
             //   那三处 —— 支笔、导入世界、批量编辑都只在这一页上）。
             const bool isSave = key == QStringLiteral("save");
+            const bool isResourcePack = key == QStringLiteral("resourcepack");
+            QStackedWidget *resourceStack = nullptr;
+            if (isResourcePack) {
+                resourceStack = new QStackedWidget(page);
+                auto *switchMode = new QPushButton(tr("启用与顺序"), page);
+                switchMode->setObjectName(QStringLiteral("resourcePackMode"));
+                switchMode->setCheckable(true);
+                Theme::markButton(switchMode, Theme::ButtonKind::Neutral);
+                layout->addWidget(switchMode, 0, Qt::AlignLeft);
+                connect(switchMode, &QPushButton::toggled, this, [this, resourceStack, switchMode](bool on) {
+                    resourceStack->setCurrentIndex(on ? 1 : 0);
+                    switchMode->setText(on ? tr("返回文件管理") : tr("启用与顺序"));
+                    if (on) emit resourcePackPageEntered();
+                });
+            }
             QWidget *listHost = page;
             QVBoxLayout *target = layout;
-            if (isConfig || isSave) {
-                auto *stack = new QStackedWidget(page);
+            if (isConfig || isSave || isResourcePack) {
+                auto *stack = isResourcePack ? resourceStack : new QStackedWidget(page);
                 if (isConfig) {
                     m_configStack = stack;
-                } else {
+                } else if (isSave) {
                     m_worldStack = stack;
                 }
                 listHost = new QWidget(stack);
@@ -1660,6 +1680,12 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             if (isSave) {
                 files->setImportText(importWorldText(), importWorldTip());
                 files->setBatchText(batchEditWorldsText(), batchEditWorldsTip());
+                auto *backups = new QPushButton(tr("世界备份"), listHost);
+                backups->setObjectName(QStringLiteral("instanceSaveBackups"));
+                Theme::markButton(backups, Theme::ButtonKind::Neutral);
+                target->addWidget(backups, 0, Qt::AlignLeft);
+                connect(backups, &QPushButton::clicked, this,
+                        [this]() { showPage(QStringLiteral("worldbackup")); });
             }
             connect(files, &InstanceFilesPage::downloadRequested, this, [this, key] {
                 const QString category = filesDownloadCategoryKey(key);
@@ -1761,6 +1787,13 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                 m_worldSettings = new WorldSettingsPage(m_worldStack);
                 m_worldStack->addWidget(m_worldSettings);
                 layout->addWidget(m_worldStack, 1);
+            }
+            if (isResourcePack) {
+                m_resourcePackPage = new ResourcePackPage(resourceStack);
+                resourceStack->addWidget(m_resourcePackPage);
+                layout->addWidget(resourceStack, 1);
+                connect(m_resourcePackPage, &ResourcePackPage::refreshRequested,
+                        this, &InstanceSettingsDialog::resourcePackPageEntered);
             }
         }
 
@@ -2353,10 +2386,17 @@ void InstanceSettingsDialog::applyPageKey(const QString &key) {
     const bool alreadyHere = m_stack->currentIndex() == index;
     m_stack->setCurrentIndex(index);
     refreshLifecycleFiles(key);
+    if (key == QStringLiteral("resourcepack") && m_resourcePackPage != nullptr) {
+        auto *stack = qobject_cast<QStackedWidget *>(m_resourcePackPage->parentWidget());
+        if (stack != nullptr && stack->currentWidget() == m_resourcePackPage)
+            emit resourcePackPageEntered();
+    }
     {
         const QSignalBlocker blocker(m_navigationTree);
         m_navigationTree->setCurrentItem(nullptr);
         QString navigationKey = key;
+        if (key == QStringLiteral("worldbackup"))
+            navigationKey = QStringLiteral("save");
         if (key == QStringLiteral("integrity") || key == QStringLiteral("repair"))
             navigationKey = QStringLiteral("integritymenu");
         if (key == QStringLiteral("logs") || key == QStringLiteral("crash") || key == QStringLiteral("diagnosis"))
@@ -3345,6 +3385,11 @@ void InstanceSettingsDialog::refreshFilePages() {
             page->refresh();
         }
     }
+    if (m_resourcePackPage != nullptr) {
+        auto *stack = qobject_cast<QStackedWidget *>(m_resourcePackPage->parentWidget());
+        if (stack != nullptr && stack->currentWidget() == m_resourcePackPage)
+            emit resourcePackPageEntered();
+    }
 }
 
 void InstanceSettingsDialog::setFileUpdates(const QStringList &outdatedPaths, bool checked) {
@@ -3685,7 +3730,7 @@ void InstanceSettingsDialog::rebuildNavigationTree() {
         if (m_pageOverrides.value(key).toBool(true)) leaf(content, key);
     }
     auto *worlds = group(nullptr, tr("世界与联机"), QStringLiteral("worlds"));
-    for (const QString &key : {QStringLiteral("save"), QStringLiteral("server"), QStringLiteral("worldbackup")})
+    for (const QString &key : {QStringLiteral("save"), QStringLiteral("server")})
         if (m_pageOverrides.value(key).toBool(true)) leaf(worlds, key);
     auto *creative = group(nullptr, tr("创作工具"), QStringLiteral("creative"));
     for (const QString &key : {QStringLiteral("screenshots"), QStringLiteral("replay"),
@@ -3702,8 +3747,11 @@ void InstanceSettingsDialog::rebuildNavigationTree() {
     leaf(maintenance, QStringLiteral("snapshots"));
     leaf(maintenance, QStringLiteral("operationsmenu"));
     for (QTreeWidgetItemIterator it(m_navigationTree); *it; ++it) {
-        if ((*it)->childCount() > 0)
-            (*it)->setExpanded(!rebuilding || !collapsed.contains((*it)->data(0, Qt::UserRole + 1).toString()));
+        if ((*it)->childCount() > 0) {
+            const QString id = (*it)->data(0, Qt::UserRole + 1).toString();
+            const bool defaultExpanded = id != QStringLiteral("creative") && id != QStringLiteral("maintenance");
+            (*it)->setExpanded(rebuilding ? !collapsed.contains(id) : defaultExpanded);
+        }
     }
 }
 
@@ -3727,6 +3775,15 @@ void InstanceSettingsDialog::setupLifecyclePages() {
             Theme::markButton(button, Theme::ButtonKind::Neutral);
             connect(button, &QPushButton::clicked, this, callback);
             layout->addWidget(button, 0, Qt::AlignLeft);
+            return button;
+        };
+        const auto moveOverviewAction = [this, page, layout](const QString &name) {
+            auto *button = findChild<QPushButton *>(name);
+            if (button == nullptr) return;
+            QWidget *cell = button->parentWidget();
+            cell->setParent(page);
+            layout->addWidget(cell);
+            cell->show();
         };
         QStringList children;
         if (key == QStringLiteral("integritymenu"))
@@ -3738,6 +3795,10 @@ void InstanceSettingsDialog::setupLifecyclePages() {
         if (!children.isEmpty()) {
             for (const QString &child : children)
                 action(pageText(child), [this, child]() { showPage(child); });
+            if (key == QStringLiteral("operationsmenu")) {
+                moveOverviewAction(copyButtonName());
+                moveOverviewAction(deleteButtonName());
+            }
             layout->addStretch(1);
             continue;
         }
@@ -3755,12 +3816,22 @@ void InstanceSettingsDialog::setupLifecyclePages() {
                      ? tr("浏览各存档 generated 目录中的结构文件；双击打开文件，右键打开所在目录。")
                      : tr("按修改时间从新到旧显示。双击打开文件，右键打开所在目录。"));
             action(tr("刷新"), [this, key]() { refreshLifecycleFiles(key); });
+            auto *search = new QLineEdit(page);
+            search->setObjectName(QStringLiteral("instanceLifecycleSearch_%1").arg(key));
+            search->setPlaceholderText(tr("搜索文件名或路径（空格分隔多个关键词）"));
+            search->setClearButtonEnabled(true);
+            layout->addWidget(search);
+            auto *result = new QLabel(page);
+            result->setObjectName(QStringLiteral("instanceLifecycleResult_%1").arg(key));
+            layout->addWidget(result);
             auto *list = new QListWidget(page);
             list->setObjectName(QStringLiteral("instanceLifecycleFiles_%1").arg(key));
             list->setIconSize(QSize(96, 64));
             list->setContextMenuPolicy(Qt::CustomContextMenu);
             layout->addWidget(list, 1);
             m_lifecycleLists.insert(key, list);
+            connect(search, &QLineEdit::textChanged, this,
+                    [this, key] { filterLifecycleFiles(key); });
             connect(list, &QListWidget::itemActivated, this, [this](QListWidgetItem *item) {
                 const QString path = item->data(Qt::UserRole).toString();
                 if (!path.isEmpty()) emit openInstanceFileRequested(path);
@@ -3775,15 +3846,17 @@ void InstanceSettingsDialog::setupLifecyclePages() {
         }
         if (key == QStringLiteral("integrity")) {
             hint(tr("检查核心文件、依赖库和资源，查看缺失或异常文件报告，再按报告选择修复。"));
-            action(tr("开始完整性检查"), [this]() { emit integrityCheckRequested(); });
+            moveOverviewAction(integrityCheckButtonName());
         } else if (key == QStringLiteral("repair")) {
             hint(tr("先检查实例并在报告中确认需要补全的文件；不会自动替换模组或用户配置。"));
             action(tr("检查并选择修复项目"), [this]() { emit integrityCheckRequested(); });
         } else if (key == QStringLiteral("snapshots")) {
             hint(tr("实例快照包含整个实例的用户数据，与单个世界备份独立。恢复前沿用现有预览和安全备份流程。"));
-            action(createSnapshotText(), [this]() { emit createSnapshotRequested(); });
-            action(restoreSnapshotText(), [this]() { emit restoreSnapshotRequested(); });
+            moveOverviewAction(createSnapshotButtonName());
+            moveOverviewAction(restoreSnapshotButtonName());
         } else if (key == QStringLiteral("worldbackup")) {
+            action(tr("返回存档"), [this]() { showPage(QStringLiteral("save")); })
+                ->setObjectName(QStringLiteral("instanceWorldBackupBack"));
             hint(tr("选择需要管理的世界。备份只覆盖这个世界，恢复沿用现有备份选择与安全确认流程。"));
             auto *list = new QListWidget(page);
             list->setObjectName(QStringLiteral("instanceWorldBackupList"));
@@ -3803,10 +3876,7 @@ void InstanceSettingsDialog::setupLifecyclePages() {
                 }
             });
         } else if (key == QStringLiteral("export")) {
-            hint(exportHint());
-            action(tr("导出整合包…"), [this]() {
-                if (auto *button = findChild<QPushButton *>(exportButtonName())) button->click();
-            });
+            moveOverviewAction(exportButtonName());
         } else if (key == QStringLiteral("diagnosis")) {
             hint(tr("通过启动日志和崩溃报告排查启动失败；启动前完整性检查可定位文件缺失。综合 Java、内存与模组的独立诊断报告仍待实现。"));
             action(tr("查看日志"), [this]() { showPage(QStringLiteral("logs")); });
@@ -3865,6 +3935,35 @@ void InstanceSettingsDialog::refreshLifecycleFiles(const QString &key) {
     if (files.isEmpty()) {
         auto *item = new QListWidgetItem(tr("暂无文件"), list);
         item->setFlags(Qt::NoItemFlags);
+    }
+    filterLifecycleFiles(key);
+}
+
+void InstanceSettingsDialog::filterLifecycleFiles(const QString &key) {
+    auto *list = m_lifecycleLists.value(key);
+    if (list == nullptr) return;
+    auto *search = list->parentWidget()->findChild<QLineEdit *>(
+        QStringLiteral("instanceLifecycleSearch_%1").arg(key));
+    if (search == nullptr) return; // 世界备份列表使用独立交互，不参与文件筛选。
+    const QStringList terms = search->text().simplified().split(QLatin1Char(' '), Qt::SkipEmptyParts);
+    int total = 0;
+    int matches = 0;
+    for (int row = 0; row < list->count(); ++row) {
+        auto *item = list->item(row);
+        const QString path = item->data(Qt::UserRole).toString();
+        if (path.isEmpty()) continue;
+        ++total;
+        const bool match = std::all_of(terms.cbegin(), terms.cend(), [&path](const QString &term) {
+            return path.contains(term, Qt::CaseInsensitive);
+        });
+        item->setHidden(!match);
+        if (match) ++matches;
+    }
+    if (auto *result = list->parentWidget()->findChild<QLabel *>(
+            QStringLiteral("instanceLifecycleResult_%1").arg(key))) {
+        result->setText(total == 0 ? tr("暂无文件")
+            : matches == 0 ? tr("未找到匹配文件（共 %1 个）").arg(total)
+                           : tr("显示 %1 / %2 个文件").arg(matches).arg(total));
     }
 }
 

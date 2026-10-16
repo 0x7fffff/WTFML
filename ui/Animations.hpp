@@ -56,6 +56,8 @@
 #pragma once
 
 #include <QPoint>
+#include <QRect>
+#include <functional>
 
 class QApplication;
 class QColor;
@@ -296,6 +298,12 @@ void pageAppear(QWidget *widget, const QColor &backdrop);
 /// 整块覆盖的那一层（`OverlayHost`）淡进来。**只淡、不抬** —— 它是"整块盖住内容区"的，
 /// 抬起来会在边上露出一条没盖住的缝。
 void overlayAppear(QWidget *widget);
+
+/// 原子地更新布局，再用前后合成快照过渡；不推迟真实状态、不拉伸控件。
+/// surface 内的 region 为空时使用整块区域。隐藏、缩放及连续切换会中止旧动画。
+void layoutTransition(QWidget *surface, const std::function<void()> &change,
+                      bool expanding = true, const QRect &region = QRect());
+void cancelLayoutTransition(QWidget *surface);
 
 /// 展开/折叠动画。**唯一出处**：所有会展开折叠的树/表都在自己搭好之后调它一次。
 /// 关掉动效时它把这一位关回去（等于回到 Qt 的出厂行为：瞬间展开）。

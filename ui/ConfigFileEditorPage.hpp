@@ -201,11 +201,14 @@ public:
     QLineEdit *indexFilter() const { return m_indexFilter; }
     QPushButton *indexToggle() const { return m_indexToggle; }
     QPushButton *restoreButton() const { return m_restore; }
+    QPushButton *historyButton() const { return m_history; }
     /// 点树上那一条（`jumpTo` 的正门）—— 验证工程合成点击时不想真去造一个鼠标事件走
     /// 事件派发的话，用它。**走的还是同一条路**（`itemClicked` 那个连接调的就是它）。
     void jumpToEntry(QTreeWidgetItem *item);
 
 signals:
+    /// 查看当前文件的历史备份；读取内容只进入编辑器，不直接覆盖磁盘。
+    void historyRequested(const QString &path);
     /// 用户点了「保存」。@param bytes 是**已经合好的整份字节**（行尾、BOM 都还完了，见
     /// `ConfigFileText::encode`）—— 接的人直接写到 @param path 上就行，不要自己再拼一遍。
     void saveRequested(const QString &path, const QByteArray &bytes);
@@ -244,6 +247,7 @@ private:
     QPushButton *m_back = nullptr;
     QPushButton *m_openFolder = nullptr;
     QPushButton *m_restore = nullptr;
+    QPushButton *m_history = nullptr;
     QPushButton *m_save = nullptr;
 
     QWidget *m_indexPanel = nullptr;

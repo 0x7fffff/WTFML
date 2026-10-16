@@ -32,6 +32,7 @@
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QScreen>
+#include <QShortcut>
 #include <QSignalBlocker>
 #include <QSettings>
 #include <QStyle>
@@ -80,6 +81,24 @@ void markSurface(QWidget *widget, const QString &value) {
 void markTextRole(QWidget *label, const QString &value) {
     const QByteArray name = Theme::textRolePropertyName().toUtf8();
     label->setProperty(name.constData(), value);
+}
+
+// 侧栏列表与容器共用一层底色；代理绘制选中/悬停时也拿相同的 Base，避免白色内框。
+void styleSidebarList(QListWidget *list) {
+    list->setProperty("wtfmlSidebarRail", true);
+    list->setFrameShape(QFrame::NoFrame);
+    const auto apply = [list] {
+        QPalette palette = QApplication::palette();
+        palette.setColor(QPalette::Base, Theme::tokens().main);
+        palette.setColor(QPalette::Window, Theme::tokens().main);
+        list->setPalette(palette);
+        list->viewport()->setPalette(palette);
+        list->setAutoFillBackground(false);
+        list->viewport()->setAutoFillBackground(false);
+        list->viewport()->update();
+    };
+    apply();
+    Theme::follow(list, apply);
 }
 
 /// 每个选项卡页面共用的边距：贴着选项卡内容区留一圈呼吸空间。
@@ -384,10 +403,15 @@ TwoColumns buildTwoColumnPage(QWidget *page, const QString &tab) {
         // ★ 面是 QFrame 而不是裸 QWidget：样式表给的底色只对 QFrame 这一族生效
         //   （裸 QWidget 得自己画）。
         auto *sidebar = new QFrame(columns.left.widget);
+        const bool rail = tab == QLatin1String("instance") || tab == QLatin1String("download")
+                          || tab == QLatin1String("settings");
+        sidebar->setObjectName(tab + QStringLiteral("SidebarSurface"));
+        sidebar->setProperty("wtfmlSidebarRail", rail);
+        sidebar->setFrameShape(QFrame::NoFrame);
         markSurface(sidebar, Theme::sidebarSurfaceValue());
         auto *sidebarLayout = new QVBoxLayout(sidebar);
-        sidebarLayout->setContentsMargins(kSurfacePadding, kSurfacePadding, kSurfacePadding,
-                                          kSurfacePadding);
+        const int padding = rail ? 12 : kSurfacePadding;
+        sidebarLayout->setContentsMargins(padding, padding, padding, padding);
         sidebarLayout->setSpacing(10);
         columns.left.surface = sidebar;
         // 侧栏里那些东西落在**面**里（侧栏没有页头，面就是这一栏的全部）
@@ -869,6 +893,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
             button->setCheckable(true);
             button->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
             button->setProperty("wtfmlHomeQuickTab", true);
+            button->setMinimumWidth(64);
             Theme::markButton(button, Theme::ButtonKind::Ghost);
             QObject::connect(button, &QPushButton::clicked, button,
                              [this, mode]() { setHomeQuickMode(mode); });
@@ -888,6 +913,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         homeInstanceSelectButton = new QPushButton(QStringLiteral("列表"), homeQuickSection);
         homeInstanceSelectButton->setObjectName(homeInstanceSelectButtonName());
         homeInstanceSelectButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+        homeInstanceSelectButton->setMinimumWidth(80);
         homeInstanceSelectButton->setToolTip(QStringLiteral("展开或收起实例列表"));
         Theme::markButton(homeInstanceSelectButton, Theme::ButtonKind::Neutral);
         quickTabs->addWidget(homeInstanceSelectButton);
@@ -1109,6 +1135,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         //   （用户文档第一条要减掉的正是它）。这条列表的行本来就是自绘的两行式行
         //   （见 FolderRowWidget），有没有外框在观感上是"一块面板"和"一串行"的区别。
         folderList->setFrameShape(QFrame::NoFrame);
+        styleSidebarList(folderList);
         instance.left.layout->addWidget(folderList, 1);
 
         // 下面两颗按钮**贴着侧栏底部**（列表那一格吃掉剩下的高度）。
@@ -1484,6 +1511,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // ★ 2026-10-12：这一列**不画自己那圈边** —— 它整列就长在侧栏那个面上（见
         //   `buildTwoColumnPage()`），再套一圈就是用户那份文档第一条要减掉的"框套框"。
         downloadCategoryList->setFrameShape(QFrame::NoFrame);
+        styleSidebarList(downloadCategoryList);
         // 2026-09-23：这一列换成**和上面两棵树同一个代理**（用户原话："下载界面左边栏
         // 每一项做大点，每一项的右边放一个刷新按钮"）。换代理同时办成两件事：
         //   ① 行高从样式那个"一行文字"（实测 ~24 px）变成 versionTreeRowHeight()（46），
@@ -1586,6 +1614,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         versionTree->setObjectName(versionTreeName());
         // 只有一列、只有一个版本号，表头没有信息量（"1" 那一格纯属噪音）。
         versionTree->setHeaderHidden(true);
+        versionTree->setFrameShape(QFrame::NoFrame);
         // 742 条快照全是同一个行高，让它按第一行算一次就够（省的是滚动时的重算）。
         // NOTE: 行高现在是**常数**（versionTreeRowHeight()）—— 见代理的 sizeHint()：
         //       分类那一行是一行字、版本号那两行字，按内容算会两边不一样高，两行那种会被裁。
@@ -2079,6 +2108,12 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
             closeHomeInstancePicker();
         }
     });
+    auto *closePickerShortcut = new QShortcut(QKeySequence(Qt::Key_Escape),
+                                              tabWidget->widget(homeTabIndex()));
+    closePickerShortcut->setObjectName(QStringLiteral("homePickerCloseShortcut"));
+    closePickerShortcut->setContext(Qt::WidgetWithChildrenShortcut);
+    QObject::connect(closePickerShortcut, &QShortcut::activated, tabWidget,
+                     [this] { closeHomeInstancePicker(); });
 
     // ================= 换页那一下 =================
     // 2026-09-29 用户点名要的第二个动效（「切换页面」）：新那一块**先等一拍、再淡进来**，
@@ -2108,6 +2143,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     //       在那时候就会响，而那些页还没上屏、几何也没定下来，给它们装效果纯属白干
     //       （`tabWidget` 是 `centralWidget` 里生出来的，这条判据在它身上同样说得通）。
     QObject::connect(tabWidget, &QTabWidget::currentChanged, tabWidget, [this](int) {
+        Anim::cancelLayoutTransition(tabWidget->parentWidget());
         // 覆盖层页面在别的主选项卡上“停放”时，切回所属页会由 OverlayHost 立即恢复。
         // 此时若再给底下的 QTabWidget 盖一层换页幕布，幕布的 Base 色会短暂从页面周围
         // 露出来，形成用户看到的灰屏和一拍延迟。普通根页面仍保留原来的换页动画。
@@ -2251,6 +2287,7 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
     // ---- 左栏：那五条分类（和下载页左栏那一列同一个代理、同一套写法）----
     settingsCategoryList = new QListWidget(columns.left.surface);
     settingsCategoryList->setObjectName(settingsCategoryListName());
+    styleSidebarList(settingsCategoryList);
     settingsCategoryList->setUniformItemSizes(true);
     // 同一个代理 = 一样高的行、大一号的字、"分类"那种粗体 —— 两栏里是同一种东西。
     // NOTE: **不设** rowRefreshRole()。那一格里画的刷新圈是下载页专有的（这一列没有
@@ -5039,6 +5076,7 @@ void MainWindowUI::openTaskCenterPanel() {
                 m_panelActionHandler(false, key, action);
             }
         };
+    Anim::layoutTransition(overlayHost->parentWidget(), [this, runningProvider, runningAction, onOutsidePress]() {
     QWidget *page = overlayHost->openPage(QStringLiteral("活动中心"));
     if (page == nullptr) {
         return;
@@ -5059,10 +5097,13 @@ void MainWindowUI::openTaskCenterPanel() {
     panel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     pageLayout->addWidget(panel);
     QObject::connect(overlayHost, &OverlayHost::backPressed, panel, [this, panel]() {
-        overlayHost->closeOverlay();
-        panel->deleteLater();
+        Anim::layoutTransition(overlayHost->parentWidget(), [this, panel]() {
+            overlayHost->closeOverlay();
+            panel->deleteLater();
+        }, false, tabWidget->geometry());
     });
     panel->showEmbedded();
+    }, true, tabWidget->geometry());
 }
 
 void MainWindowUI::openBottomBarPanel(const BottomBarAnchor &anchor) {
@@ -5786,6 +5827,7 @@ void MainWindowUI::openHomeInstancePicker(
                          closeHomeInstancePicker();
                      });
     rebuild();
+    Anim::layoutTransition(tabWidget->widget(0), [this, page]() {
     homeLaunchSpacer->changeSize(0, 0, QSizePolicy::Minimum, QSizePolicy::Fixed);
     homeLaunchSpacer->invalidate();
     if (homeHeroArea != nullptr) {
@@ -5815,16 +5857,19 @@ void MainWindowUI::openHomeInstancePicker(
         column->layout()->activate();
         column->updateGeometry();
     }
+    });
 }
 
 bool MainWindowUI::homeInstancePickerOpen() const {
-    return homePickerHost != nullptr && homePickerHost->isVisible();
+    // 页面切走后祖先已隐藏，但仍须复位选择器自身的展开状态。
+    return homePickerHost != nullptr && !homePickerHost->isHidden();
 }
 
 void MainWindowUI::closeHomeInstancePicker() {
     if (!homeInstancePickerOpen()) {
         return;
     }
+    Anim::layoutTransition(tabWidget->widget(0), [this]() {
     homePickerHost->hide();
     if (homeHeroArea != nullptr) {
         homeHeroArea->show();
@@ -5852,4 +5897,5 @@ void MainWindowUI::closeHomeInstancePicker() {
         layout->activate();
         homePickerHost->parentWidget()->updateGeometry();
     }
+    }, false);
 }
