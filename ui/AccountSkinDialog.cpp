@@ -45,6 +45,27 @@ constexpr int kListMinHeight = 96;
 ///       （窗口照样能拉到更大，这个窗里的东西是固定的几块）。
 constexpr int kInitialWidth = 720;
 constexpr int kInitialHeight = 460;
+/// 人物预览那一块的高度上限。★ 上面那句「做短一点」管的是**上限**这一侧：这一块
+/// 的策略是"宽固定、高跟着涨"，一页里那点富余高度全被它吃掉，人就被拉成一根柱子。
+/// 所以给它个盖：涨到 260（≈ 刚做短之前那一档）就停，多出来的高度让给下面的披风表。
+constexpr int kViewerMaxHeight = 260;
+/// 整页的高度上限。★★ 2026-10-16 用户原话「那个账号页的宽度恢复一下，高度窄一点」。
+///
+/// 这一页是**内嵌页**（`OverlayHost::execPage()`）：它由 `m_pageContent` 那个纵向布局
+/// 摆着、**只有它一个控件、也没有对齐**，于是多出来的高度全摊在它身上 ——
+///   · 宽：这一页**一道宽度约束都没有、也不该有** —— 外面那层滚动区是
+///         `setWidgetResizable(true)` 的，`m_pageContent` 永远等于内容区那么宽，这一页跟着
+///         铺满。屏幕上看着窄是**里面**那两栏 5:6 + 固定 160 的预览分出来的，不是这一页
+///         被谁钉住了。
+///         NOTE: 这一步我（2026-10-16）先在这儿写过一句"原来那句 `setMaximumWidth(760)`
+///               已删" —— 翻遍仓库（`git log -S`）**那一行从来没有过**，是记错了；宽度这边
+///               今天没有可"恢复"的东西，别照着那半句去改。
+///   · 高：不盖的话这一页就一路长到窗口底（就是个又高又窄的长条），用户要的是**窄一点**。
+///        盖在 kInitialHeight 上面留一档（460 → 560）：这一页是"固定的几块"，多出来的
+///        高度只是把它抻长，盖住之后底下留白反而更像一张"页"。
+/// NOTE: 盖的是**页**这一档；独立成窗那会儿（验证工程里 `resize()` 出来的那一份）照样
+///       按 kInitialWidth/kInitialHeight 起，两条不冲突。
+constexpr int kPageMaxHeight = 560;
 }  // namespace
 
 AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
@@ -52,6 +73,7 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     setObjectName(QStringLiteral("accountSkinDialog"));
     // 尺寸**不**跟着内容长：这个窗里的东西是固定的四块，摆好之后让用户自己拉。
     resize(kInitialWidth, kInitialHeight);
+    setMaximumHeight(kPageMaxHeight);
 
     QVBoxLayout *root = new QVBoxLayout(this);
     root->setContentsMargins(16, 12, 16, 12);
@@ -163,6 +185,7 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     m_viewer = new SkinViewer(this);
     m_viewer->setObjectName(viewerName());
     m_viewer->setMinimumHeight(kViewerMinHeight);
+    m_viewer->setMaximumHeight(kViewerMaxHeight);
     m_viewer->setFixedWidth(160);
     m_viewer->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
     // 一进来就有东西可看：没登录、还没取到、取不到，看到的都是这套默认外观

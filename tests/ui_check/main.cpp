@@ -422,9 +422,15 @@ int main(int argc, char *argv[]) {
         account.setStatusText(QStringLiteral("当前账号：Player（离线登录）"));
         account.setAccounts({{QStringLiteral("offline-player"), QStringLiteral("Player"), {}, true, true},
                              {QStringLiteral("other-player"), QStringLiteral("Adventure"), {}, false, true}});
+        // ★ 2026-10-16（用户原话「那个账号页的宽度恢复一下，高度窄一点」）：这一页是**内嵌页**，
+        //   摆进内容区之后宽高都由内容区说了算 ⇒ 这里量的是**它自己那两道约束**：
+        //   宽**一道都不许有**（这一页铺满内容区 ⇒ 谁给它加一句 `setMaximumWidth` 这一条
+        //   当场红）、高要有盖（否则它一路长到窗口底）。
         account.resize(900, 900);
         account.show();
         app.processEvents();
+        expect(account.width() == 900, "account page width is not capped");
+        expect(account.height() <= 560, "account page height is capped");
         auto *status = account.findChild<QLabel *>(AccountSkinDialog::statusLabelName());
         expect(status && status->alignment().testFlag(Qt::AlignRight), "account identity is right aligned");
         auto *viewer = account.findChild<SkinViewer *>(AccountSkinDialog::viewerName());

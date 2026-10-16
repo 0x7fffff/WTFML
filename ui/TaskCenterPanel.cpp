@@ -553,6 +553,37 @@ void TaskCenterPanel::place(bool animate) {
     }
 }
 
+/// 把「这一轮刚做出来、还留在隐藏态」的子控件 show 出来。
+///
+/// ★★ 为什么需要它：整块重建出来的那张脸，**只在面板还没露出来的时候**才会跟着父控件
+///    一起 show。面板**已经露着**的时候重建（`refresh()`：账本变了、行内动作回了话、面板
+///    自己 showEvent 那一发）新做的控件全是留在隐藏态的 —— Qt 的规矩是"挂到一个已经可见的
+///    父控件底下、自己没被 show 过的新控件，只跟父控件**下一次** show 一起露脸"，而父控件
+///    早就是可见的，那一发永远不会来。症状是**最难查的那一种**：行、行尾那颗「取消」、里面
+///    那根条全都真在那儿（`findChild` 找得到、`click()` 点得着、`setFixedHeight()` 量的
+///    高度也对），就是**一个像素都不画**（`isVisible()` 是 false，几何还停在 0,0 —— 隐藏的
+///    控件在布局里算"空"，连位置都不会被摆）。
+///
+///    2026-10-16 就是这么炸的：`refresh()` 改成排到下一轮（`requestRefresh()`）之后，第一次
+///    重建从 `showEmbedded()` 那句 `show()` **之前**挪到了**之后**，面板一开就是空的一页
+///    （`ui_check` I6 那条「行尾长出那颗取消」由绿转红）。
+///
+/// NOTE: 只补「**没被显式藏过**」的那些（`WA_WState_ExplicitShowHide` 是 false）。这一块
+///       里现在没有"故意先藏着"的子控件，但这条判据让这个函数**不会**把将来真被 `hide()`
+///       过的东西顺手露出来 —— 那种得靠调用方显式 `setVisible(true)` 恢复。
+static void revealBuiltChildren(QWidget *container) {
+    if (container == nullptr || !container->isVisible()) {
+        return;  // 容器自己还藏着：它 show 的那一发会把这些一起带出来，这里别抢
+    }
+    const QList<QWidget *> children =
+        container->findChildren<QWidget *>(Qt::FindDirectChildrenOnly);
+    for (QWidget *child : children) {
+        if (!child->isVisible() && !child->testAttribute(Qt::WA_WState_ExplicitShowHide)) {
+            child->show();
+        }
+    }
+}
+
 void TaskCenterPanel::rebuild() {
     auto *layout = qobject_cast<QVBoxLayout *>(m_content->layout());
     if (layout == nullptr) {
@@ -640,6 +671,12 @@ void TaskCenterPanel::rebuild() {
     // 内容比上限矮的时候，行堆在上面而不是被摊开（stretch 吃掉下面的空）。
     layout->addStretch(1);
     rebuildDetail(items);
+    // ★★ 面板**已经露着**的时候整块重建，新做出来的那些控件得自己 show 一下
+    //    （理由全文在 `revealBuiltChildren()` 上面那段）。三个容器都要过一遍：
+    //    任务清单、运行中实例那一栏、右边详情。
+    revealBuiltChildren(m_content);
+    revealBuiltChildren(m_runningContent);
+    revealBuiltChildren(m_detailContent);
 }
 
 void TaskCenterPanel::selectTask(const QString &key) {

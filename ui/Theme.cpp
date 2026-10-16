@@ -42,7 +42,10 @@ Tokens tokens(const QString &id) {
         static const Tokens ocean = {QColor("#196DAA"), QColor("#195F9D"), QColor("#135F98"), QColor("#104F7F"),
                 QColor("#F3F8FD"), QColor("#F8FBFF"), QColor("#FFFFFF"), QColor("#E1EDF9"),
                 QColor("#EAF4FE"), QColor("#D2E7F8"), QColor("#FFFFFF"), QColor("#263647"),
-                QColor("#687D90"), QColor("#9AABBB"), QColor("#A9C7E4"), QColor("#D3E3F4"),
+                // ★ 海洋蓝这一支：`#9AABBB` 压在 `subtle` #E1EDF9 上只有 **1.98:1**
+                //   （3:1 底线那条判据在 ui_check 里是按**当前这一档**现算的）⇒ 改 `#6E7E90`（**3.50:1**）。
+                //   翡翠那一支同一天也改了一处（`#94A9A0` → `#6B7D76`，见下面 emerald 那段★）。
+                QColor("#687D90"), QColor("#6E7E90"), QColor("#A9C7E4"), QColor("#D3E3F4"),
                 QColor("#196DAA"), QColor("#A9C4DC"), QColor("#EBF3FA"), QColor("#F3F8FD"),
                 QColor("#E1EDF9"), QColor("#FDFEFF"), QColor("#6B7B8B"), QColor("#91B8E0"), QColor("#BCD2EC")};
         return ocean;
@@ -50,7 +53,11 @@ Tokens tokens(const QString &id) {
     static const Tokens emerald = {QColor("#087A68"), QColor("#075E51"), QColor("#096D5E"), QColor("#055548"),
             QColor("#F2FAF7"), QColor("#F8FCFA"), QColor("#FFFFFF"), QColor("#D8F1E9"),
             QColor("#E5F5EF"), QColor("#C7E9DB"), QColor("#FFFFFF"), QColor("#20352E"),
-            QColor("#607C70"), QColor("#94A9A0"), QColor("#A8CFC0"), QColor("#D5E7DD"),
+            // ★ `disabled`（第 14 位）2026-10-16 从 `#94A9A0` 改深到 `#6B7D76`：
+            //   灰掉那一档的字必须对**它自己的底**（`subtle` #D8F1E9）读得出来 ——
+            //   `#94A9A0` 只有 **2.09:1**，破了这个工程钉着的那条 3:1 底线
+            //   （ui_check「§3.3 灰掉那一档的字对底 ≥ 3:1」）。改后是 **3.67:1**。
+            QColor("#607C70"), QColor("#6B7D76"), QColor("#A8CFC0"), QColor("#D5E7DD"),
             QColor("#087A68"), QColor("#AAC8BA"), QColor("#EDF5F0"), QColor("#F6FAF8"),
             QColor("#E4F2EC"), QColor("#FCFEFD"), QColor("#64776D"), QColor("#9CCDBB"), QColor("#B2D6C5")};
     return emerald;
@@ -1473,6 +1480,17 @@ QString widgetStyleSheet() {
     //
     // ★ 这一块**排在最后** ⇒ 按 QSS 的规矩（同优先级后写的赢）它盖在上面那几条之上。
     //   所以每加一句都得回上面看一眼**它盖掉的是哪一条**，以及那一条是不是钉过的规格。
+    //
+    // ★★ 两条**故意不在这里**：
+    //   · `QScrollBar`：滚动条有自己的唯一出处（上面那一段），「**不画底**」是拿像素钉死的
+    //     那一条（ui_check ⑭：槽上量到的色必须**等于它底下那一层**）。这里原来有一句
+    //     `QScrollBar { background-color: track }` —— 它是后写的 ⇒ 赢 ⇒ 横竖两条当场长出
+    //     一根底色条，⑭ 那一组（把手留白、把手宽度、那条"不画底"）跟着一起红。
+    //   · `QAbstractSpinBox`：数字框那一圈框是**基样式自己画的**（6px），它的高度是
+    //     `min-height: 18px` + 那 6px 凑出来的 24（见上面那段★★）。在这儿给它补一句
+    //     `border: 1px solid` 就会把那一圈的宽度改掉（量出来 23）—— 三样等高（24/24/24）
+    //     那条钉子当场破。它的颜色跟着**调色板**走（`buildPalette()` 已经按预设铺过
+    //     Mid/Dark/Base/Text），不需要这一层再管。
     //
     // ★ 圆角走 `controlRadius()`：**别在样式表里另写一个数** —— 换主题时那个数跟着主题一起
     //   变，`ui_modernize.py` 那类按名字定位的东西也认这个令牌。

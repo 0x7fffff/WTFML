@@ -15525,11 +15525,19 @@ static void runThemeControlsTests() {
         // 需要用户输入的东西，所以这一发就是用户点下去同一发）。
         QMetaObject::invokeMethod(&w, "onThemeAccentResetClicked", Qt::DirectConnection);
         QApplication::processEvents();
-        check(sameColor(Theme::current().accent, Theme::defaultAccentColor()) &&
-                  sameColor(swatchColor(accentSwatch), Theme::defaultAccentColor()),
-              "★★ T39.5 「主题色 → 恢复默认」：规格回到出厂那一支，那块色也**当场重涂**",
-              QStringLiteral("规格 %1 / 块上 %2")
-                  .arg(Theme::current().accent.name(), swatchColor(accentSwatch).name()));
+        // ★★ 2026-10-16：判据从「出厂那一支」改成「**当前这个预设自己的**那一支」。
+        //   三套预设各自的品牌色不一样（翡翠 #087A68 / 海洋蓝 #196DAA / 炭灰 #536F80），
+        //   而这一条跑在**深色**预设上（上面 T39.3 刚把预设拨到 dark）—— 拿
+        //   `defaultAccentColor()`（= 翡翠那一支）来量，量的是"恢复默认把预设也换回出厂"，
+        //   那是另一件事。产品里 `resetAccent()` 现在就是把主题色还给当前预设。
+        const QColor presetBrand = Theme::tokens(Theme::current().presetId).primary;
+        check(sameColor(Theme::current().accent, presetBrand) &&
+                  sameColor(swatchColor(accentSwatch), presetBrand),
+              "★★ T39.5 「主题色 → 恢复默认」：规格回到**当前预设那一支**，那块色也**当场重涂**"
+              "（预设照旧是深色，不跟着一起跳回出厂）",
+              QStringLiteral("规格 %1 / 块上 %2 / 预设那一支 %3")
+                  .arg(Theme::current().accent.name(), swatchColor(accentSwatch).name(),
+                       presetBrand.name()));
 
         // 语义色：先把四个色分别点成"用户挑过的"（直接改规格 + 重画，就是 `pickColor()`
         // 之后那一发），再按「跟随预设」把它们清掉。
