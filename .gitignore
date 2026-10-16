@@ -14,6 +14,10 @@ Makefile
 # Qt Creator
 *.autosave
 
+# 编辑器本地配置：`.vscode/` 里那两份钉的是**本机**的 Qt 与 MinGW 绝对路径
+# （`D:/Qt/...`，和 CMakePresets.json 同一套），换一台机器就不一样 —— 各人留一份，不入库。
+/.vscode/
+
 # Generated UI files
 ui/ui_MainWindow.h
 
