@@ -1272,6 +1272,7 @@ private:
             RunningInstaller,       ///< 三个都要跑安装器的：那个 Java 进程正在跑
             WaitingParentJson,      ///< 正在取原版的 version.json（走 fetchVersionDetails）
             WaitingParentBefore,    ///< OptiFine：原版那一批正在下（它的安装器要拿原版当输入）
+            WritingLegacyProfile,   ///< 老 Forge：正照它的安装说明写版本 json + 摆 universal jar
             WaitingParentFiles,     ///< 原版那一批正在下（客户端 jar / 库 / 资源）
             WaitingLoaderFiles,     ///< Fabric：加载器自己那几个库正在下
         };
@@ -1320,6 +1321,15 @@ private:
         /// 只试一次（见 VersionManager::retryInstallerDownloadAlternate）。
         bool retriedAltCoordinate = false;
 
+        /// 这一次是**老 Forge 安装器**、而且它没有命令行安装那条路（探针实测不认
+        /// `--installClient`）⇒ 我们照它 jar 里那份 `install_profile.json` 自己装。
+        ///
+        /// ★ 为什么是这个布尔、不是 `phase != Idle` 之类的推断：这一条决定"下一批原版文件
+        ///   下完之后要不要再下一遍**加载器自己的库**"。Forge/NeoForge 正常那条路是安装器
+        ///   已经把库摆好了（收尾），这一条是**我们**摆（还得下十几个库）—— 两者在同一批
+        ///   原版文件下完的那个接续点上分岔，只看 kind 分不开（都是 Forge）。
+        bool legacySelfInstall = false;
+
         bool active() const { return phase != Phase::Idle; }
         // 结算用的 id：还没算出 loaderId 时退化成原版号 —— 失败信号总得带一个 id。
         QString reportId() const { return loaderId.isEmpty() ? gameVersion : loaderId; }
@@ -1338,6 +1348,13 @@ private:
     void startParentOrLoaderFiles();
     // 把加载器 json 落盘并下它自己那几个库（走 downloadVersion 那条老路）。
     void startLoaderFiles();
+
+    // 老 Forge 安装器（不认 `--installClient`）那条路：先取原版的 json（说明书里那些"没有
+    // url、原版又已经带着"的库要靠它认出来），再照说明书写我们自己的版本 json、摆好
+    // universal jar，最后才轮到"补原版 + 下加载器自己的库"（前者走 WaitingParentJson，
+    // 后者复用 startLoaderFiles()）。
+    void startLegacySelfInstall();
+    void writeLegacyProfile(const QJsonObject &parentJson);
 
     // ---- 整合包导入的内部状态机 ----
     //

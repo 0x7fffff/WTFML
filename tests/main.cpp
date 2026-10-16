@@ -61,6 +61,7 @@
 #include "auth/TokenStore.hpp"
 #include "download/DownloadConcurrency.hpp"
 #include "download/DownloadManager.hpp"
+#include "download/LegacyForgeInstall.hpp"
 #include "download/LoaderMeta.hpp"
 #include "download/ModDependencies.hpp"
 #include "download/ResourceCatalog.hpp"
@@ -5892,6 +5893,14 @@ static void runLoaderInheritanceTests(const QString &sandbox) {
 //                                     它来的
 //   installer-help-legacy-1.8.9.txt   Forge 1.8.9 安装器（11.15.1.2318）的 `--help` 原样
 //   installer-help-neoforge-26.2.txt  NeoForge 26.2 安装器的 `--help` 原样
+//   forge-install-profile-1.12.2-14.23.5.2847.json
+//   forge-install-profile-1.7.10-10.13.4.1614-1.7.10.json
+//   forge-install-profile-1.12.2-14.23.5.2860.json
+//                                    三份都是**从真的安装器 jar 里抽出来的**
+//                                    `install_profile.json` 原样：前两份是老格式（install +
+//                                    versionInfo），第三份是新格式（spec/profile/processors）
+//                                    —— 新格式那份认 `--installClient`，不走"自己装"那条路，
+//                                    在这里当**反面判据**用（2026-10-17 抽的）
 //   neoforge-26.2.0.88.json           NeoForge 安装器写出来的那份 profile 原样（它的
 //                                     arguments.game 里就是启动崩溃缺的那三个 --fml.*）
 // 挑版本的规则、id 的格式、inheritsFrom 长什么样，都不许靠我自己的样例来证 —— U 节那次
@@ -6550,6 +6559,247 @@ static void runLoaderInstallTests() {
                                                 QStringLiteral("11.15.1.2318")),
               "V6g 两种坐标确实是两个地址（不一样才值得再下一遍）"
               " —— 也正是 V6d 那条 shouldRecordOfficialFallback 的判据");
+    }
+
+    // --- V6i. 老 Forge：照它自己那份安装说明装（2026-10-17 加）-----------------
+    //
+    // 起因是用户那句话：「forge 在新电脑上完全装不了难道不算 bug」—— 1.7.10 / 1.8.9 /
+    // 1.9.4 / 1.10.2 / 1.11.2 和 1.12.2 的**推荐版（2847）**这些安装器都没有
+    // `--installClient`（见 V6g 那段实测边界），而安装页默认挑的正是"稳定版"那一颗。
+    // 照它 jar 里那份 install_profile.json 装，不用它的界面、也不用起 JVM。
+    //
+    // 三份 profile 都是真数据：从真的安装器 jar 里抽出来的原样（见文件头那份清单）。
+    // 原版那一份用 meta/1.12.2.json（V6h 那一节已经在用它了）。
+    {
+        // 按名字把库表摊成一张表，下面按名字问。
+        const auto librariesByName = [](const QJsonObject &json) {
+            QHash<QString, QJsonObject> out;
+            for (const QJsonValue &value : json.value(QStringLiteral("libraries")).toArray()) {
+                const QJsonObject libObj = value.toObject();
+                out.insert(libObj.value(QStringLiteral("name")).toString(), libObj);
+            }
+            return out;
+        };
+
+        const QJsonObject vanilla122 = loadJson(metaDir + QStringLiteral("/1.12.2.json"));
+        check(!vanilla122.isEmpty(), "V6i 原版 1.12.2 那份 fixture 读到了");
+
+        const QString profile2847Path =
+            metaDir + QStringLiteral("/forge-install-profile-1.12.2-14.23.5.2847.json");
+        QFile profile2847File(profile2847Path);
+        const bool profile2847Open = profile2847File.open(QIODevice::ReadOnly);
+        const QByteArray profile2847 = profile2847Open ? profile2847File.readAll() : QByteArray();
+        check(profile2847Open && profile2847.size() > 4000,
+              "V6i 2847 那份安装说明读到了（4.6 MB 的安装器里那份 5878 B 的原样）",
+              QString::number(profile2847.size()));
+
+        const QString ourId = QStringLiteral("1.12.2-forge-14.23.5.2847");
+        const LegacyForgeInstall::Plan plan =
+            LegacyForgeInstall::planFromInstallProfile(profile2847, vanilla122, ourId);
+        check(plan.ok, "V6i 老格式（install + versionInfo）这份认得出来");
+        if (plan.ok) {
+            // 落盘那份 json 的四条"少了任何一条都启动不了"的字段。id 必须是**我们的**：
+            // 上游写的是 `1.12.2-forge1.12.2-14.23.5.2847`（多一截、没连字符），它要是飘进
+            // 目录名 / wtfml.meta / 版本列表，这个版本的显示名就和别的加载器长得不一样。
+            check(plan.inheritsFrom == QStringLiteral("1.12.2"),
+                  "V6i 它的父版本是 1.12.2（走的是 versionInfo.inheritsFrom）", plan.inheritsFrom);
+            check(plan.versionJson.value(QStringLiteral("id")).toString() == ourId,
+                  "V6i 落盘那份的 id 是**我们的**（上游那个 1.12.2-forge1.12.2-… 不许进去）",
+                  plan.versionJson.value(QStringLiteral("id")).toString());
+            check(plan.versionJson.value(QStringLiteral("jar")).toString() ==
+                      QStringLiteral("1.12.2"),
+                  "V6i jar 字段指原版那一份 ⇒ 不用往版本目录里再抄一份客户端 jar"
+                  "（安装器那条路也不抄：1.12.2 的 jar 和原版逐字节一样）");
+            check(plan.versionJson.value(QStringLiteral("mainClass")).toString() ==
+                      QStringLiteral("net.minecraft.launchwrapper.Launch"),
+                  "V6i 主类照它给的来（Forge 自己那份 launchwrapper，不是原版那个）");
+            check(!plan.versionJson.value(QStringLiteral("minecraftArguments")).toString().isEmpty(),
+                  "V6i 游戏参数那一串也是它给的（比如 --tweakClass，自己拼不出来）");
+
+            // 两颗路径必须一致：一个是"jar 摆到哪"，一个是"classpath 从哪挂"。
+            check(plan.universalEntry ==
+                      QStringLiteral("forge-1.12.2-14.23.5.2847-universal.jar"),
+                  "V6i universal jar 的条目名 = 它 install.filePath 那一句", plan.universalEntry);
+            check(plan.universalLibraryPath ==
+                      QStringLiteral("net/minecraftforge/forge/1.12.2-14.23.5.2847/"
+                                     "forge-1.12.2-14.23.5.2847.jar"),
+                  "V6i 它该落在 libraries/ 下**普通名字**那个位置（本机装好的 2860 / 1.7.10 "
+                  "都是这个形状：仓库上普通名字 404、-universal.jar 才是 200）",
+                  plan.universalLibraryPath);
+
+            const QHash<QString, QJsonObject> libs = librariesByName(plan.versionJson);
+            check(libs.size() == 19,
+                  "V6i 21 条库丢掉原版已经带着的那 2 条，其余 19 条都在",
+                  QString::number(libs.size()));
+            check(plan.droppedFromParent == 2 && !libs.contains(QStringLiteral("net.java.dev.jna"
+                                                                               ":jna:4.4.0")) &&
+                      !libs.contains(QStringLiteral("net.sf.jopt-simple:jopt-simple:5.0.3")),
+                  "V6i 丢的正好是原版 1.12.2 自己带着的那两颗（jna 4.4.0 / jopt-simple "
+                  "5.0.3）—— 留着就是拿我们猜的地址下重一遍",
+                  QString::number(plan.droppedFromParent));
+
+            // ★ 这一条是整条路的地基：它自己那颗库**不能带 url**。
+            const LibraryRules::Artifact universal = LibraryRules::artifactFor(
+                libs.value(QStringLiteral("net.minecraftforge:forge:1.12.2-14.23.5.2847")));
+            check(universal.localOnly && universal.hasPath() && !universal.valid(),
+                  "V6i 它自己那颗是「只有 name、没有 url」的写法（LibraryRules 的第 3 种）"
+                  "⇒ 不去下（普通名字 404），但**必须**进 classpath —— 少了它，装完启动时 "
+                  "NoClassDefFoundError: net.minecraft.launchwrapper.Launch",
+                  universal.path);
+            check(universal.path == plan.universalLibraryPath,
+                  "V6i 「摆到哪」和「classpath 挂哪」是同一处算出来的", universal.path);
+
+            // 没有 url、原版也不带的四颗：按 Mojang 拼（实测那四颗在 Mojang 上都是 200，
+            // 而 launchwrapper 在 forge maven 上是 404）。
+            check(plan.assumedMojang == 4,
+                  "V6i 没有 url 而原版也不带的正好四颗（launchwrapper / lzma / vecmath / "
+                  "trove4j）",
+                  QString::number(plan.assumedMojang));
+            const LibraryRules::Artifact launchwrapper = LibraryRules::artifactFor(
+                libs.value(QStringLiteral("net.minecraft:launchwrapper:1.12")));
+            check(launchwrapper.valid() &&
+                      launchwrapper.url ==
+                          LegacyForgeInstall::mojangLibraryBase() +
+                              QStringLiteral("net/minecraft/launchwrapper/1.12/"
+                                             "launchwrapper-1.12.jar"),
+                  "V6i 那四颗按 maven 规矩拼到 Mojang 那份仓库上（forge maven 上没有它）",
+                  launchwrapper.url);
+
+            // 有 url 的照它给的（别自作聪明换仓库）。这两颗 scala-continuations 是**唯一**
+            // 容易被"补上 _mc 后缀"的那一对 —— 实测普通 1.0.2 在 forge maven 上就是 200，
+            // 加了 _mc 反而多一个不再需要的假设。
+            const LibraryRules::Artifact scalaContinuations = LibraryRules::artifactFor(
+                libs.value(QStringLiteral(
+                    "org.scala-lang.plugins:scala-continuations-library_2.11:1.0.2")));
+            check(scalaContinuations.valid() &&
+                      scalaContinuations.url ==
+                          QStringLiteral("https://maven.minecraftforge.net/org/scala-lang/plugins/"
+                                         "scala-continuations-library_2.11/1.0.2/"
+                                         "scala-continuations-library_2.11-1.0.2.jar"),
+                  "V6i 有 url 的库原样照它给的 url（不加 _mc 后缀也一样能下：实测 200）",
+                  scalaContinuations.url);
+
+            // 一条都不许静默消失：每条都得拼得出 libraries/ 下的路径（拼不出来的那种，
+            // 症状是游戏起来时一个 NoClassDefFoundError，而安装界面一路绿灯）。
+            int unresolved = 0;
+            for (auto it = libs.constBegin(); it != libs.constEnd(); ++it) {
+                if (!LibraryRules::artifactFor(it.value()).hasPath()) {
+                    ++unresolved;
+                }
+            }
+            check(unresolved == 0, "V6i 19 条库一条都没丢（每条都解析出了路径）",
+                  QString::number(unresolved));
+        }
+
+        // 1.7.10（更老那个年代）：还是老格式，键的写法却不一样了 —— 它的
+        // `clientreq`/`serverreq` 都在，没有 url 的库是另外六颗。原版那一份这里**故意
+        // 传空对象**：那条路本来就允许"原版 json 拿不到"，此时一条都不丢、全靠 Mojang 兜底
+        // （实测那六颗里 lzma / launchwrapper 在 Mojang 上 200；guava / jopt-simple /
+        // commons-lang3 / asm-all 原版 1.7.10 自己带着，本来也会被上面那条规则丢掉）。
+        QFile profile1710File(metaDir +
+                              QStringLiteral("/forge-install-profile-1.7.10-10.13.4.1614-1.7.10.json"));
+        const bool profile1710Open = profile1710File.open(QIODevice::ReadOnly);
+        const QByteArray profile1710 = profile1710Open ? profile1710File.readAll() : QByteArray();
+        check(profile1710.size() > 4000, "V6i 1.7.10 那份安装说明读到了",
+              QString::number(profile1710.size()));
+        const QString id1710 = QStringLiteral("1.7.10-forge-10.13.4.1614-1.7.10");
+        const LegacyForgeInstall::Plan plan1710 =
+            LegacyForgeInstall::planFromInstallProfile(profile1710, QJsonObject(), id1710);
+        check(plan1710.ok, "V6i 1.7.10 那份（同一个老格式）也认得出来");
+        if (plan1710.ok) {
+            check(plan1710.inheritsFrom == QStringLiteral("1.7.10") && plan1710.droppedFromParent == 0,
+                  "V6i 原版那份拿不到时一条都不丢（继承链那边管不着，靠 Mojang 兜底）",
+                  QString::number(plan1710.droppedFromParent));
+            check(plan1710.universalLibraryPath ==
+                      QStringLiteral("net/minecraftforge/forge/1.7.10-10.13.4.1614-1.7.10/"
+                                     "forge-1.7.10-10.13.4.1614-1.7.10.jar"),
+                  "V6i 1.7.10 的 universal jar 落在同一个形状上（本机 PCL 装的那份就在这个"
+                  "路径上）",
+                  plan1710.universalLibraryPath);
+            check(plan1710.versionJson.value(QStringLiteral("id")).toString() == id1710 &&
+                      plan1710.versionJson.value(QStringLiteral("mainClass")).toString() ==
+                          QStringLiteral("net.minecraft.launchwrapper.Launch"),
+                  "V6i 1.7.10 那份的 id 也是我们的、主类也是它给的");
+        }
+
+        // 反面判据：认不出来的那几种，必须**明确不 ok**（调用方据此回退到"请你用别的启动器
+        // 装一次"那句话），而不是写出一份半截 json 落盘。
+        {
+            QFile modernFile(metaDir + QStringLiteral("/forge-install-profile-1.12.2-14.23.5.2860"
+                                                      ".json"));
+            const bool modernOpen = modernFile.open(QIODevice::ReadOnly);
+            const QByteArray modern = modernOpen ? modernFile.readAll() : QByteArray();
+            check(modern.size() > 4000, "V6i 2860 那份（新格式）安装说明读到了",
+                  QString::number(modern.size()));
+            const LegacyForgeInstall::Plan modernPlan =
+                LegacyForgeInstall::planFromInstallProfile(modern, vanilla122, ourId);
+            check(!modernPlan.ok &&
+                      modernPlan.problem == LegacyForgeInstall::Problem::ModernProfile,
+                  "V6i 新格式那份（spec/profile/processors，认 --installClient）明确不 ok —— "
+                  "那条路本来就走安装器，不该照这份自己装");
+        }
+        {
+            const LegacyForgeInstall::Plan notJson =
+                LegacyForgeInstall::planFromInstallProfile(QByteArray("not json at all"),
+                                                           vanilla122, ourId);
+            check(!notJson.ok && notJson.problem == LegacyForgeInstall::Problem::NotJson,
+                  "V6i 那个条目不是 json -> 明确报出来（半截 json 不许落盘）");
+        }
+        {
+            // 真数据上抠掉一个字段，看它认不认得出缺的是哪一节（两份 profile 都是真数据 +
+            // 一处定向改动，不是自造的样例）。
+            QJsonObject broken = QJsonDocument::fromJson(profile2847).object();
+            QJsonObject install = broken.value(QStringLiteral("install")).toObject();
+            install.remove(QStringLiteral("filePath"));
+            broken[QStringLiteral("install")] = install;
+            const LegacyForgeInstall::Plan missing = LegacyForgeInstall::planFromInstallProfile(
+                QJsonDocument(broken).toJson(QJsonDocument::Compact), vanilla122, ourId);
+            check(!missing.ok && missing.problem == LegacyForgeInstall::Problem::MissingInstall &&
+                      missing.detail == QStringLiteral("filePath"),
+                  "V6i install 里缺 filePath -> 说得出缺的是哪一项", missing.detail);
+        }
+        {
+            QJsonObject broken = QJsonDocument::fromJson(profile2847).object();
+            QJsonObject install = broken.value(QStringLiteral("install")).toObject();
+            install[QStringLiteral("path")] = QStringLiteral("net.minecraftforge:forge:..");
+            broken[QStringLiteral("install")] = install;
+            const LegacyForgeInstall::Plan unsafe = LegacyForgeInstall::planFromInstallProfile(
+                QJsonDocument(broken).toJson(QJsonDocument::Compact), vanilla122, ourId);
+            check(!unsafe.ok && unsafe.problem == LegacyForgeInstall::Problem::UnknownPath,
+                  "V6i 坐标里有 `..`（拼出来会写到 libraries/ 外面）-> 拒绝，不猜路径",
+                  unsafe.detail);
+        }
+        {
+            QJsonObject broken = QJsonDocument::fromJson(profile2847).object();
+            QJsonObject vi = broken.value(QStringLiteral("versionInfo")).toObject();
+            vi.remove(QStringLiteral("inheritsFrom"));
+            QJsonObject install = broken.value(QStringLiteral("install")).toObject();
+            install.remove(QStringLiteral("minecraft"));
+            broken[QStringLiteral("versionInfo")] = vi;
+            broken[QStringLiteral("install")] = install;
+            const LegacyForgeInstall::Plan orphan = LegacyForgeInstall::planFromInstallProfile(
+                QJsonDocument(broken).toJson(QJsonDocument::Compact), vanilla122, ourId);
+            check(!orphan.ok && orphan.problem == LegacyForgeInstall::Problem::NoParent,
+                  "V6i 两个字段都认不出父版本 -> 拒绝（否则写出来的 json 指向一个没下过的原版）");
+        }
+        {
+            // 反面判据里最容易被"顺手指"改成错的那一条：**不许按 `clientreq` 丢库**。
+            // 2847 那份 profile 里 `org.jline:jline:3.5.1` 写着 `clientreq: false`，而真装
+            // 出来的客户端 classpath 上**有它**（本机 1.12.2-Forge_14.23.5.2860 那份 json
+            // 里，jline 从 forge maven 下来）—— 第一版按这个键丢库，19 条变成了 18 条，
+            // 就是这两条断言抓出来的。这里钉住"它还在、而且地址就是它给的那个"。
+            QJsonObject keep = QJsonDocument::fromJson(profile2847).object();
+            const LegacyForgeInstall::Plan keepPlan = LegacyForgeInstall::planFromInstallProfile(
+                QJsonDocument(keep).toJson(QJsonDocument::Compact), vanilla122, ourId);
+            const QHash<QString, QJsonObject> keepLibs = librariesByName(keepPlan.versionJson);
+            const LibraryRules::Artifact jline =
+                LibraryRules::artifactFor(keepLibs.value(QStringLiteral("org.jline:jline:3.5.1")));
+            check(keepPlan.ok && jline.valid() &&
+                      jline.url == QStringLiteral("https://maven.minecraftforge.net/org/jline/jline/"
+                                                  "3.5.1/jline-3.5.1.jar"),
+                  "V6i clientreq: false 的库**照留**（真装出来的客户端 classpath 上有 jline）",
+                  jline.url);
+        }
     }
 
     // --- V6h. version.json 自己声明的游戏参数（2026-09-22 加）------------------

@@ -36,6 +36,7 @@
 #include <QUrl>
 #include <QUuid>
 
+#include "../download/LegacyForgeInstall.hpp"
 #include "../download/LoaderMeta.hpp"
 #include "../download/ResourceCatalog.hpp"
 #include "../launcher/VersionArguments.hpp"
@@ -2354,24 +2355,12 @@ void VersionManager::onProbeFinished(int exitCode, bool crashed) {
 
     if (!m_installerOptions.supportsInstallClient) {
         // 老安装器把"装客户端"做成了图形界面（不给参数就弹窗等人点），命令行里没有这条路。
-        // 本启动器没法替用户点那个窗口，所以**明说**，不要拿一段 Java 堆栈糊过去。
-        //
-        // ★ 2026-10-16：那颗「装一次**哪个版本**」改成 `%3` 拼出来的一个串，**不要复用
-        //   `%1`** —— `QString::arg(a, b, c)` 是"同一个编号**全部**替换"，`%1` 写两遍就
-        //   两处都吃第一个参数、第三颗参数没处可去。Qt 当场往日志里丢一句
-        //   「1 argument(s) missing in %1 %2 的安装器…」，而用户看到的是
-        //   「装一次 Forge」—— 到底装哪个游戏版本，那一句里说不出来（实测就是这么打印的）。
-        const QString namedVersion =
-            m_loaderInstall.loaderName + QLatin1Char(' ') + m_loaderInstall.gameVersion;
-        failLoaderInstall(tr("%1 %2 的安装器没有命令行安装这条路（它的帮助里只有 --extract / "
-                             "--installServer / --offline）—— 那个年代的安装器装客户端只能靠"
-                             "它的图形界面、要人点一下，本启动器替你点不了。\n"
-                             "这个版本请用原版启动器或 PCL 装一次 %3：装完本启动器认得出它、"
-                             "也能正常启动。（**原版** 1.12.2 及更新的游戏版本本启动器都能自己"
-                             "装，1.12.2 / 26.2 实测过 —— 卡住的只是这个年代的**加载器安装器**"
-                             "本身。）")
-                              .arg(m_loaderInstall.loaderName, m_loaderInstall.loaderVersion,
-                                   namedVersion));
+        // 别在这儿判死刑 —— 那个年代的安装器把自己该做的事全写在自己 jar 里那份
+        // install_profile.json 里了，照着它装**既不用开它的界面、也不用起 JVM**。
+        // （★ 2026-10-17：这里原来是直接报「本启动器替你点不了」+ 让用户去找别的启动器。
+        //   用户当场指出这不叫边界、叫没做完 —— 一台只有本启动器的新电脑上，默认挑的那个
+        //   「稳定版」（1.12.2 就是 2847）永远装不上。见 LegacyForgeInstall.hpp 文件头。）
+        startLegacySelfInstall();
         return;
     }
 
@@ -2381,6 +2370,166 @@ void VersionManager::onProbeFinished(int exitCode, bool crashed) {
                                      "（启动器这边下的库仍然走镜像）。"));
     }
     startInstallerProcess();
+}
+
+// ---------------------------------------------------------------------------
+// 老 Forge（那个年代的安装器没有命令行安装这条路）：照它自己那份安装说明装
+// ---------------------------------------------------------------------------
+//
+// 为什么走这条路、以及它自己那三条实测结论（universal jar 不能带 url、没有 url 的库往
+// Mojang 猜、原版已经带上的要丢掉）全在 LegacyForgeInstall.hpp 的文件头里。
+//
+// 这里只做"接线"那一半：从安装器 jar 里读出安装说明和那颗 universal jar、落盘摆好，剩下
+// 的两段复用既有的路 —— 先补原版（WaitingParentJson → WaitingParentFiles），再下加载器
+// 自己那几个库（startLoaderFiles()）。
+
+void VersionManager::startLegacySelfInstall() {
+    m_loaderInstall.legacySelfInstall = true;
+    emit loaderInstallMessage(
+        tr("%1 %2 的安装器没有命令行安装这条路（它的帮助里只有 --extract / --installServer / "
+           "--offline）—— 那个年代它把「装客户端」做成了图形界面。\n"
+           "我们不去开那个界面：它自己 jar 里那份安装说明（install_profile.json）写明了该"
+           "怎么装，本启动器照着那份说明装（不用点，也不用起那个安装器）。")
+            .arg(m_loaderInstall.loaderName, m_loaderInstall.loaderVersion));
+
+    // 先取原版那份 json。它有两个用处：安装说明里那些"没有 url、但原版自己已经带着"的库
+    // 要靠它认出来（认出来就不用下重），以及"这份版本基于哪个原版"要和它核对一遍。
+    m_loaderInstall.phase = LoaderInstall::Phase::WaitingParentJson;
+    fetchVersionDetails(m_loaderInstall.gameVersion);
+}
+
+void VersionManager::writeLegacyProfile(const QJsonObject &parentJson) {
+    // 认不出来时的那句话：**别**把"读不懂它的说明"说成"这个版本装不了"—— 前者的药是
+    // 换一份安装器 / 修 jar，后者是去找别的启动器。两颗参数各用一次（同一个编号写两遍
+    // 会被 arg 全部替换，2026-10-16 那个 %1 的坑就在旁边）。
+    const auto failWithProblem = [this](const QString &reason) {
+        const QString namedVersion =
+            m_loaderInstall.loaderName + QLatin1Char(' ') + m_loaderInstall.gameVersion;
+        failLoaderInstall(
+            tr("%1 %2 的安装器没有命令行安装这条路，我们本想照它自己 jar 里的安装说明"
+               "（install_profile.json）自己装，但那份说明用不上：%3\n"
+               "（%4 这一份的格式不是那个年代的，或者下下来的 jar 本身坏了。）\n"
+               "这个版本请用原版启动器或 PCL 装一次 %5：装完本启动器认得出它、也能正常启动。")
+                .arg(m_loaderInstall.loaderName, m_loaderInstall.loaderVersion, reason,
+                     m_loaderInstall.installerFileName, namedVersion));
+    };
+
+    // 两个条目都从 cache/installers/ 下那份安装器 jar 里读（只读，不动别的任何东西）。
+    QByteArray profileBytes;
+    QString error;
+    const QString readWhat = tr("读 %1 的安装说明").arg(m_loaderInstall.installerFileName);
+    const ZipUtil::EntryStatus profileStatus = ZipUtil::readEntry(
+        m_loaderInstall.installerPath, QStringLiteral("install_profile.json"), &profileBytes,
+        &error, readWhat);
+    if (profileStatus != ZipUtil::EntryStatus::Ok) {
+        // NotFound 那一档 errorOut 是空的（没有细节可给）—— 自己说一句。
+        failWithProblem(profileStatus == ZipUtil::EntryStatus::NotFound
+                            ? tr("jar 里没有 install_profile.json 这个文件")
+                            : error);
+        return;
+    }
+
+    const LegacyForgeInstall::Plan plan = LegacyForgeInstall::planFromInstallProfile(
+        profileBytes, parentJson, m_loaderInstall.loaderId);
+    if (!plan.ok) {
+        using LegacyForgeInstall::Problem;
+        QString reason;
+        switch (plan.problem) {
+        case Problem::NotJson:
+            reason = tr("那个文件不是一份 json（它坏了）");
+            break;
+        case Problem::ModernProfile:
+            reason = tr("里面没有 install / versionInfo 这两节（这是新格式的安装器，"
+                        "本来该走它自己的命令行安装）");
+            break;
+        case Problem::MissingInstall:
+            reason = tr("install 那一节缺 %1").arg(plan.detail);
+            break;
+        case Problem::UnknownPath:
+            reason = tr("install.path「%1」拼不出一个安全的 maven 路径").arg(plan.detail);
+            break;
+        case Problem::NoParent:
+            reason = tr("认不出它基于哪个原版（inheritsFrom / install.minecraft 都是空的）");
+            break;
+        case Problem::NoLibraries:
+            reason = tr("它的库表是空的");
+            break;
+        case Problem::None:
+            break;
+        }
+        failWithProblem(reason);
+        return;
+    }
+
+    // 说明书说要基于的原版，必须就是我们正要装的那个 —— 不是的话，照着它写出来的 json 会
+    // 指向一个我们**没下过**的原版（启动时那一句 NoClassDefFoundError 就是这么来的）。
+    // 实测两份 profile 里都是同一个值，这一条是防"哪天上游改了"。
+    if (plan.inheritsFrom != m_loaderInstall.gameVersion) {
+        failWithProblem(tr("它的安装说明说这份版本基于「%1」，不是我们选的「%2」")
+                            .arg(plan.inheritsFrom, m_loaderInstall.gameVersion));
+        return;
+    }
+
+    // 它 jar 里那颗 universal jar（真实安装器会把它摆进 libraries/，我们照摆）。
+    QByteArray universal;
+    const ZipUtil::EntryStatus universalStatus = ZipUtil::readEntry(
+        m_loaderInstall.installerPath, plan.universalEntry, &universal, &error,
+        tr("读 %1 里的 %2").arg(m_loaderInstall.installerFileName, plan.universalEntry));
+    if (universalStatus != ZipUtil::EntryStatus::Ok) {
+        failWithProblem(universalStatus == ZipUtil::EntryStatus::NotFound
+                            ? tr("jar 里没有 %1 这个文件").arg(plan.universalEntry)
+                            : error);
+        return;
+    }
+
+    // 摆到 libraries/<它自己的 maven 坐标算出来的位置>。这份 json 里那颗库是**只有 name、
+    // 没有 url** 的写法（见 LegacyForgeInstall.hpp），所以它不会被下载 —— 就是在等这一份。
+    const QString universalTarget =
+        AppPaths::libraryDir() + QLatin1Char('/') + plan.universalLibraryPath;
+    if (!QDir().mkpath(QFileInfo(universalTarget).absolutePath())) {
+        failWithProblem(tr("建不出目录 %1").arg(QFileInfo(universalTarget).absolutePath()));
+        return;
+    }
+    {
+        // QSaveFile：和版本 json 那边同一个理由 —— 半截的 jar 留在 libraries/ 里，症状是
+        // 启动时一个莫名其妙的类找不到，而"装"的那一步一路绿灯。
+        QSaveFile file(universalTarget);
+        if (!file.open(QIODevice::WriteOnly)) {
+            failWithProblem(tr("写不进 %1（%2）").arg(universalTarget, file.errorString()));
+            return;
+        }
+        file.write(universal);
+        if (!file.commit()) {
+            failWithProblem(tr("写 %1 的时候失败了（%2）").arg(universalTarget, file.errorString()));
+            return;
+        }
+    }
+
+    // 版本 json 落盘（id 是**我们的**那个，见 LegacyForgeInstall.hpp 里那条 NOTE）。
+    if (!writeVersionJson(m_loaderInstall.loaderId, AppPaths::versionDir(m_loaderInstall.loaderId),
+                          plan.versionJson, &error)) {
+        failWithProblem(error);
+        return;
+    }
+    // 内存里那份也要摆好：下一步 startLoaderFiles() 走的就是它（它只认 versionJsons 里那张
+    // 表，不是盘上那份）。
+    versionJsons[m_loaderInstall.loaderId] = plan.versionJson;
+
+    emit loaderInstallMessage(
+        tr("%1 %2 的版本文件写好了（%3 条库，其中 %4 条原版已经带着、不用下）。接着补原版 %5 "
+           "的文件，然后下加载器自己那几个库...")
+            .arg(m_loaderInstall.loaderName, m_loaderInstall.loaderVersion)
+            .arg(plan.versionJson.value(QStringLiteral("libraries")).toArray().size())
+            .arg(plan.droppedFromParent)
+            .arg(m_loaderInstall.gameVersion));
+
+    // 和安装器那条路一样：装完接着把原版补齐（安装器不下资源文件，我们更不会）。这一批
+    // 是从"刚收到原版 json"那条栈上起的，排到下一轮（同 startParentCompletion 那边）。
+    const QString parent = m_loaderInstall.gameVersion;
+    m_loaderInstall.phase = LoaderInstall::Phase::WaitingParentFiles;
+    deferLoaderStep(LoaderInstall::Phase::WaitingParentFiles, [this, parent] {
+        downloadVersion(parent, AppPaths::versionDir(parent));
+    });
 }
 
 void VersionManager::startInstallerProcess() {
@@ -4013,6 +4162,15 @@ void VersionManager::onVersionJsonFetched(const QJsonObject &versionJson) {
         // "用户点了下载原版"，于是同一个版本下两遍、两个批次互相打架。这里直接接手。
         if (m_loaderInstall.phase == LoaderInstall::Phase::WaitingParentJson &&
             versionId == m_loaderInstall.gameVersion) {
+            // 老 Forge 那条路：这一步的原版 json 是**写我们那份版本 json 的输入**（说明里
+            // 那些"没有 url、但原版已经带着"的库要靠它认出来），所以接的是"写 profile"，
+            // 不是"下原版的文件"。
+            if (m_loaderInstall.legacySelfInstall) {
+                m_loaderInstall.phase = LoaderInstall::Phase::WritingLegacyProfile;
+                deferLoaderStep(LoaderInstall::Phase::WritingLegacyProfile,
+                                [this, versionJson] { writeLegacyProfile(versionJson); });
+                return;
+            }
             // OptiFine 那次是"**装之前**先把原版下全"（它的安装器要拿原版的客户端 jar 当
             // 输入），所以它用另一个 phase 记着：那一批结束时该起安装器，而不是收尾。
             // 另外三个都是"装完再补原版"，走 WaitingParentFiles。
@@ -4267,7 +4425,10 @@ void VersionManager::onAllDownloadsFinished(bool success) {
                                            m_loaderInstall.loaderName, message));
                 return;
             }
-            if (m_loaderInstall.kind == LoaderKind::Fabric) {
+            // Fabric 那条路是"加载器自己那份 json 在内存里、库还没下"，所以这里接着下；
+            // 老 Forge（legacySelfInstall）这条**也是** —— 那个年代的安装器本来会替我们把那
+            // 十几个库摆好，我们没让它跑，所以一样得下（那份 json 和 universal jar 已经摆好了）。
+            if (m_loaderInstall.kind == LoaderKind::Fabric || m_loaderInstall.legacySelfInstall) {
                 emit loaderInstallMessage(tr("原版 %1 就绪，接着装 %2 自己的文件...")
                                               .arg(m_loaderInstall.gameVersion,
                                                    m_loaderInstall.loaderName));
@@ -4281,6 +4442,7 @@ void VersionManager::onAllDownloadsFinished(bool success) {
             // Forge / NeoForge / OptiFine：加载器自己那份 json 和库**安装器已经放好了**
             // （OptiFine 那两份是我们从临时目录里搬回来的），这一批只是把原版补齐，补完就
             // 结束了 —— 没有"加载器自己那几个库"要再下一遍。
+            // （老 Forge 那条自己装的路走不到这儿，上面那个 legacySelfInstall 已经把它接走了。）
             finishLoaderInstall(true, message);
             return;
         }
