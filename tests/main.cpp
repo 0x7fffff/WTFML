@@ -758,9 +758,9 @@ static int runPipelineTests(QCoreApplication &app, const QString &sandbox) {
         check(o.stats.failedPaths.contains(indexPath),
               "F6 索引 SHA1 不对: 失败清单里是索引文件本身");
         check(!QFile::exists(indexPath), "F6 索引 SHA1 不对: 坏索引没有留在盘上");
-        check(o.stats.total == 3,
+        check(o.stats.total == 4,
               "★ F6 索引 SHA1 不对: 索引没被解析（否则会多出 3 个 asset 任务）—— "
-              "分母里是 jar 1 + 库 2，索引那条本来就不在分母里",
+              "分母为 jar 1 + 库 2 + 失败索引 1；成功索引不计进度，失败索引计入并结算",
               QString("total=%1").arg(o.stats.total));
     }
 
