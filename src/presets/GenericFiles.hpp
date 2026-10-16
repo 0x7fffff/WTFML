@@ -29,9 +29,9 @@
  *
  * 【"只能复制/覆盖"是一个**按项**记的记号，不是一句注释】
  *
- * `GenericItem::copyOnly` 和段载荷里那一格 `"copyOnly"` 就是它。今天凡是这一组里的东西都是
- * `true`（一份结构适配器都还没有）；P4 把 MaLiLib 那几个接上来时，改的是
- * `genericItemIsCopyOnly()` **那一处**（它是这个记号的唯一出处），界面和报告都不用动。
+ * `GenericItem::copyOnly` 和段载荷里那一格 `"copyOnly"` 就是它。今天这一组里**绝大多数**
+ * 东西都是 `true`；P4 接上 MaLiLib 那一族之后，`config/` 底下**按结构**认得出是那一族的
+ * 那几份回 `false`（判据在 `genericItemIsCopyOnly()` **那一处**，界面和报告都不用动）。
  *
  * 【路径：三处闸，缺一不可】
  *
@@ -158,8 +158,32 @@ struct GenericItem {
     qint64 sizeBytes = 0;
 };
 
-/// ★ 这个记号的**唯一出处**（见文件头）。P4 接 MaLiLib 时改的就是这一处。
-bool genericItemIsCopyOnly(FileGroup group, const QString &relativePath);
+/**
+ * @brief 这一项是不是**只有复制/覆盖两种做法**（§6 P3 最后那条记号，见文件头）。
+ *        ★ 这个记号的**唯一出处**。
+ *
+ * 判法分两截：
+ *   · **名字那一截**（只看 @p group + @p relativePath）：不是 `config/` 底下的 `.json`
+ *     就一律 `true` —— 资源包、光影包、`defaultconfigs/` 那些我们一个字都看不懂。
+ *   · **结构那一截**（给了 @p absolutePath 才算）：`config/<xxx>.json` 里凡是 `MaLiLib`
+ *     那一族**按结构**认得出（`malilibLooksLikeConfig()`）的都回 `false` —— 那一族有 P4 的
+ *     适配器，它就不是"只能整份复制"的东西了。
+ *
+ * ★ **按结构认、不按名字认**（§6 P4 那条）：`config/tweakermore.json` 这种名字我们一个都
+ *   不认识，可它的结构一眼就是那一族的 —— 所以判据在**内容**上，模组名的表一张都不立
+ *   （立了也永远不全）。
+ * ★ 不给 @p absolutePath 就只能按名字那一截算（段载荷里只有相对路径，那一处没有盘上的
+ *   位置）。**要紧的那一处是带位置的那些**：扫盘（`scanFileGroup()`）和算计划那一档
+ *   （`planFileGroup()`，那儿拿源那一侧的文件看）。
+ * ★ 读不动 / 太大 / 不是文件 ⇒ 一律回 `true`（"看不出来"只能按"不认识"办，反过来会让用户
+ *   以为我们能合并一份**根本没读进来**的配置）。
+ */
+bool genericItemIsCopyOnly(FileGroup group, const QString &relativePath,
+                           const QString &absolutePath = QString());
+
+/// `config/<xxx>.json` 这一份文件里**按结构**认得出是 MaLiLib 那一族吗（见上面那一条）。
+/// 读不动就 false。**读文件的那一处**在这儿（别处再开一遍 `QFile` 就是第二份实现）。
+bool genericConfigLooksStructured(const QString &absolutePath);
 
 /**
  * @brief 扫一组（**两侧都能扫**：实例那侧，或者预设 `files/` 那侧）。

@@ -8,7 +8,7 @@
  * 【这一层在干什么】
  *
  * 一份预设是**一串段**（`PresetSection`），每一段归一个适配器解释（P2 的 `options.txt`、
- * P3 的 `servers.dat` 和通用文件组）。§7 要的那张表是**一段一行**：
+ * P3 的 `servers.dat` 和通用文件组、P4 的 MaLiLib 那一族热键）。§7 要的那张表是**一段一行**：
  *
  * ```text
  * 游戏设置          合并 18 项
@@ -17,7 +17,7 @@
  * 配置文件          复制 8 个，覆盖 1 个
  * ```
  *
- * 所以这一层的活只有三件：**按段的种类分派**给对应适配器的计划函数、把四个适配器各自的
+ * 所以这一层的活只有三件：**按段的种类分派**给对应适配器的计划函数、把五个适配器各自的
  * 报告**翻成同一张表**、以及把"哪些段这一趟做不了 / 哪些要用户先点头"标出来。
  *
  * 【为什么计划要单独走一趟，而不是"算完直接写"】
@@ -28,9 +28,10 @@
  *
  * 【★ 这一层只读，一个字节都不写】
  *
- * 计划里唯一会碰盘的是通用文件组那一档的**干跑**（`planFileGroup()` 要真数一遍目标上缺
- * 哪几份 —— 见那边文件头），那一趟**只 stat、不写**。所以这一层是能拿着**任何**一份预设
- * 对**任何**一个实例算的：算完不满意就丢掉，盘上什么都没变。
+ * 计划里会碰盘的只有两档的**干跑**：通用文件组那一档要真数一遍目标上缺哪几份
+ * （`planFileGroup()`），MaLiLib 那一档要真读一遍 `config/<modId>.json` 才知道"这一趟会
+ * 解绑几格"（`malilibReadTarget()`）—— 两趟都**只读、不写**。所以这一层是能拿着**任何**
+ * 一份预设对**任何**一个实例算的：算完不满意就丢掉，盘上什么都没变。
  *
  * 【★ 「覆盖」要用户明确确认，这是**两趟**协议】
  *
@@ -50,16 +51,18 @@
  *
  * 【★ 做不了的段不拦着别的段】
  *
- * 一份预设里可能有 `MaLilibKeys` 那样**这一版的启动器还不认识**的段（P4 还没落）。那种段
- * 落一行 `blocked`（理由写清楚），**其余照样算**。整份不认是 `PresetStore::loadManifest()`
- * 那一层的事（读不回来的段在那儿就被挡住了），这一层拿到的已经是一份读得回来的预设。
+ * 一份预设里可能有 `SectionKind::Custom` 那样**没有任何适配器接手**的段（用户自己塞进来的
+ * 种类）。那种段落一行 `blocked`（理由写清楚，还带上盘上那个词），**其余照样算**。整份不认
+ * 是 `PresetStore::loadManifest()` 那一层的事（读不回来的段在那儿就被挡住了），这一层拿到
+ * 的已经是一份读得回来的预设。
  *
  * 【冲突报在哪一行】
  *
  * §7 那行「原版按键 合并 23 项，冲突 1 项」里的"冲突"是**按键抢同一个键位**（§6 P2
- * 「检测标准按键的精确重复」）。服务器那边的"同一个地址已经在列表里了"是 `skipped`
- * （预设里那一条不动，目标上那条留着），通用文件组那边的"这一项只有复制和覆盖"是
- * `needsChoice`。三个数是三件事，别混着看。
+ * 「检测标准按键的精确重复」）。MaLiLib 那一段（§6 P4）报的是**同一件事**：两个热键抢
+ * 同一组键位 —— 所以它进的是同一个 `conflictCount`。服务器那边的"同一个地址已经在列表里
+ * 了"是 `skipped`（预设里那一条不动，目标上那条留着），通用文件组那边的"这一项只有复制
+ * 和覆盖"是 `needsChoice`。三个数是三件事，别混着看。
  */
 
 #pragma once
@@ -69,6 +72,7 @@
 #include <QStringList>
 
 #include "GenericFiles.hpp"
+#include "MalilibKeys.hpp"
 #include "PresetTypes.hpp"
 #include "ServerListPreset.hpp"
 #include "VanillaOptions.hpp"
@@ -197,6 +201,19 @@ struct ApplyPlan {
     /// ★ 和 `blocked` 那一行不是一回事：那些是"这一段做不了"，这一条是"整趟别动"。
     QString blockedReason;
 
+    /**
+     * @brief 这一趟**之后**整份键位里互相抢的那些（§6 P4 后半截那件事）。
+     *
+     * ★ 为什么整份还要单独来一张：一段 = 一个模组 = 一份文件，所以**行上**那个
+     *   `conflictCount` 只看得见"同一份文件里两格绑了同一组键位"。用户最需要看见的那一种
+     *   抢法是**两个模组各占一个**（`GenericHotkeys.xxx` 和 `litematica.Hotkeys.yyy` 都绑
+     *   `M,C`）—— 那一种只有在把各段算完**之后**的格子攒到一处才算得出来。
+     * ★ 两张单子问的是两个问题（"这一段自己有没有问题" / "整份有没有问题"），别去对加法：
+     *   同一份文件里那两格在**这一张**里也在（它们确实在抢）—— 这是对的，不是算重了。
+     * ★ 只有 MaLiLib 那一族进这张单子（原版按键那一档的冲突留在它自己那一行的数里，§6 P2）。
+     */
+    QList<MalilibConflict> keyConflicts;
+
     bool isEmpty() const { return rows.isEmpty(); }
     int totalCount() const;
     int riskyRowCount() const;
@@ -236,8 +253,8 @@ QString applyPlanRowText(const ApplyPlanRow &row);
  * @brief 算这一趟的计划（**只读**，见文件头）。
  *
  * 按段的种类分派给对应适配器：`optionsHandlesSection()` / `serverListHandlesSection()` /
- * `genericFilesHandlesSection()` 三张表是**分派的唯一出处**（那三口的语义就是"这一段归不
- * 归我管"）。都不认的种类落 `blocked`（不是"悄悄跳过"）。
+ * `genericFilesHandlesSection()` / `malilibHandlesSection()` 四张表是**分派的唯一出处**
+ * （那四口的语义就是"这一段归不归我管"）。都不认的种类落 `blocked`（不是"悄悄跳过"）。
  */
 ApplyPlan planPresetApplication(const PlanRequest &request);
 

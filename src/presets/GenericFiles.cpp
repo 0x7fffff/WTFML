@@ -29,6 +29,7 @@
 
 #include "download/ResourceCatalog.hpp"
 #include "manage/InstanceFiles.hpp"
+#include "presets/MalilibKeys.hpp"
 
 namespace Presets {
 
@@ -413,13 +414,47 @@ bool genericPathIsLink(const QString &absolutePath) {
 // 扫这一组
 // ---------------------------------------------------------------------------
 
-bool genericItemIsCopyOnly(FileGroup group, const QString &relativePath) {
-    // ★ 这个记号的**唯一出处**（§6 P3 最后那条）。今天这一组里的东西**全都**是 `true`：
-    //   一份结构适配器都还没有（P4 的 MaLiLib 是第一份）。接适配器的时候改的就是这一句 ——
-    //   比如那时可以按 `relativePath` 挑出 `<xxx>/config/malilib.json` 回 false。
-    Q_UNUSED(group);
-    Q_UNUSED(relativePath);
-    return true;
+bool genericConfigLooksStructured(const QString &absolutePath) {
+    if (absolutePath.trimmed().isEmpty()) {
+        return false;
+    }
+    const QFileInfo info(absolutePath);
+    if (!info.exists() || !info.isFile()) {
+        return false;
+    }
+    // ★ 大文件**不看**：`config/` 底下该有的都是几 KB 的东西，几十 MB 的 JSON 只可能是
+    //   别的什么（而"读它一遍"这件事本身就不该在一份**计划**里发生）。
+    constexpr qint64 kMaxSniffBytes = 8 * 1024 * 1024;
+    if (info.size() > kMaxSniffBytes) {
+        return false;
+    }
+    QFile file(absolutePath);
+    if (!file.open(QIODevice::ReadOnly)) {
+        return false;
+    }
+    const QByteArray bytes = file.read(kMaxSniffBytes);
+    file.close();
+    return malilibLooksLikeConfig(bytes);
+}
+
+bool genericItemIsCopyOnly(FileGroup group, const QString &relativePath,
+                           const QString &absolutePath) {
+    // ★ 这个记号的**唯一出处**（§6 P3 最后那条 + §6 P4 那条"按结构认"）。两截判法写在
+    //   头文件那一段里，这儿只说为什么是这个次序：**名字那两关先拦掉绝大多数**（不是
+    //   `config/` 底下的、不是 `.json` 的连盘都不用开），剩下那几份才真去读一遍内容。
+    if (group != FileGroup::Config) {
+        return true;
+    }
+    if (!relativePath.endsWith(QStringLiteral(".json"), Qt::CaseInsensitive)) {
+        return true;
+    }
+    if (absolutePath.isEmpty()) {
+        return true;  // 没有盘上的位置 ⇒ 只能按名字算（见头文件那一条）
+    }
+    // ★ 到这儿 = `config/` 底下的一份 `.json`。它是不是 MaLiLib 那一族，问**那一层**
+    //   （判据只有一处，这边不自己认结构）。依赖是**单向**的：通用文件组知道 MaLiLib
+    //   那一族的存在，反过来那边一个字都不知道通用文件组。
+    return !genericConfigLooksStructured(absolutePath);
 }
 
 bool scanFileGroup(const QString &root, FileGroup group, QList<GenericItem> *out,
@@ -469,7 +504,7 @@ bool scanFileGroup(const QString &root, FileGroup group, QList<GenericItem> *out
         GenericItem item;
         item.relativePath = relative;
         item.directory = entry.isDir();
-        item.copyOnly = genericItemIsCopyOnly(group, relative);
+        item.copyOnly = genericItemIsCopyOnly(group, relative, entry.absoluteFilePath());
         item.sizeBytes = item.directory ? treeSize(entry.absoluteFilePath()) : entry.size();
         if (out != nullptr) {
             out->append(item);
@@ -543,12 +578,25 @@ GenericPlan planFileGroup(const QString &sourceRoot, const QList<GenericItem> &i
             row.reason = presetText("这一趟不动。");
             break;
         case ApplyMode::Merge:
-        case ApplyMode::Append:
+        case ApplyMode::Append: {
             row.action = GenericAction::NeedsChoice;
-            row.reason = item.copyOnly
+            // ★ 「我们认不认得出它的结构」**这儿再算一遍**，而且这次带上**源那一侧的盘上
+            //   位置**：`GenericItem::copyOnly` 那一格可能是从段载荷读回来的（那儿只有相对
+            //   路径、名字那一截说了算），而 P4 的 MaLiLib 那一族是**按结构**认的。
+            //   两截判法合起来只有一处（`genericItemIsCopyOnly()`），这儿只是**喂它一个位置**。
+            FileGroup groupOfItem = FileGroup::Config;
+            const bool copyOnly =
+                item.copyOnly &&
+                (!fileGroupOfPath(item.relativePath, &groupOfItem) ||
+                 genericItemIsCopyOnly(groupOfItem, item.relativePath,
+                                       genericJoined(sourceRoot, item.relativePath)));
+            row.reason = copyOnly
                              ? presetText("这一项只有复制和覆盖两种做法（我们认不出它的结构）。")
-                             : presetText("这一组的结构合并还没做，只能复制或者覆盖。");
+                             : presetText("这一份是 MaLiLib 那一族的配置（结构我们认得）—— "
+                                          "要搬的是它里面的热键，那是「模组热键」那一段的活；"
+                                          "通用文件组这一层只做整份的复制和覆盖。");
             break;
+        }
         }
         countAction(row, &plan.replaced, &plan.copied, &plan.skipped, &plan.needsChoice);
         plan.items.append(row);

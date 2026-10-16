@@ -98,6 +98,11 @@ set(HEADER_FILES
     # 资源包 / 光影 —— 我们看不懂里面的东西，所以只做整份的动作（缺了才拷 / 覆盖 / 跳过），
     # 三道路径闸和"这一项只能复制或覆盖"那记号都在这一份里。
     src/presets/GenericFiles.hpp
+    # MaLiLib 那一族的热键（2026-10-17，coding plan §6 P4 / §10 第 12 项）：`config/` 底下
+    # `malilib.json` / `litematica.json` / `tweakeroo.json` / `minihud.json` / `itemscroller.json`
+    # 那一族 —— **按结构认**（不看文件名，所以 TweakerMore / Masa Gadget / OMMC 这些扩展照样认
+    # 得出来），身份是 `modId/groupId/optionName`，默认只搬热键、可选连开关和别的值一起搬。
+    src/presets/MalilibKeys.hpp
     # 把一份预设落到一个实例上这件事的**计划**那一层（2026-10-15，coding plan §5 的
     # `PresetPlanner` / §7 那张计划表 / 里程碑 M1 的「应用前可见精确计划」）：一段一行，
     # 按段的种类分派给上面三个适配器，再把各自的报告翻成同一张表。**只读，一个字节都不写。**
@@ -247,6 +252,8 @@ set(SOURCE_FILES
     src/presets/GenericFiles.cpp
     # 应用计划那一层（2026-10-15，coding plan §5 / §7）：见头文件那一位。
     src/presets/PresetPlanner.cpp
+    # MaLiLib 那一族的热键（2026-10-17，coding plan §6 P4）：见头文件那一位。
+    src/presets/MalilibKeys.cpp
     src/settings/EffectiveJavaSettings.cpp
     src/settings/GlobalJavaSettings.cpp
     src/settings/GameWindowSettings.cpp

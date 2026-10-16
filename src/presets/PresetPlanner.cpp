@@ -12,9 +12,15 @@
  *     （`written` / `added` / `removed` / `skipped` / `untouchable`）。
  *   · `GenericFiles` —— `planFileGroup()` 的 `GenericPlan`
  *     （`replaced + copied` / `skipped` / `needsChoice`）+ 逐项的理由。
+ *   · `MalilibKeys` —— `planMalilibApply()` 的 `MalilibApplyReport`
+ *     （`written` / `removed` / `skipped` / `conflicts`）。
  *
- * ★ **四个报告都不在这儿重算**：这一层只做"取数 + 翻译"。哪天某个适配器改了算法的口径，
+ * ★ **五个报告都不在这儿重算**：这一层只做"取数 + 翻译"。哪天某个适配器改了算法的口径，
  *   表上跟着变的是它自己那一行 —— 这一层里的加法和它无关。
+ *
+ * ★ MaLiLib 那一段的"冲突"和原版按键那一档**是同一件事**（两个东西抢同一组键位），
+ *   所以它报在同一个格子上（`conflictCount`）。它和"要你选"（通用文件组那一档）不是
+ *   一回事，别混着看。
  *
  * 【"还没确认"的那一趟为什么照样算】
  *
@@ -54,24 +60,29 @@ QString confirmReason(SectionKind kind) {
         return plannerText("「覆盖」会把目标上同名的那几份换成预设里的（多出来的文件不动），"
                            "需要先确认。");
     case SectionKind::MalilibKeys:
+        // 这一档的「覆盖」= 预设里没点名的那几格热键**整个解绑**（格子留着，见
+        // `MalilibKeys.hpp`）—— 用户会看见"我原来绑的那些全没了"，所以那句话得说在这儿。
+        return plannerText("「覆盖」会把目标上没被这一份点名的那几格热键整个解绑（格子留着不删），"
+                           "需要先确认。");
     case SectionKind::Custom:
         break;
     }
     return plannerText("「覆盖」会改动目标上已有的东西，需要先确认。");
 }
 
-/// 这一段的种类这一版还认不认识（P4 的 MaLiLib 还没落 —— 那一段落 `blocked` 是**对的**，
-/// 悄悄跳过的话用户会以为"MaLiLib 的热键跟着预设过来了"）。
+/// 这一段的种类这一版还认不认识（`Custom` 那一档是用户自己塞进来的、没有任何适配器接手
+/// —— 落 `blocked` 是**对的**，悄悄跳过的话用户会以为"那一段也跟着过来了"）。
 bool plannerKnowsKind(SectionKind kind) {
     return kind == SectionKind::VanillaOptions || kind == SectionKind::VanillaKeys ||
-           kind == SectionKind::ServerList || kind == SectionKind::GenericFiles;
+           kind == SectionKind::ServerList || kind == SectionKind::GenericFiles ||
+           kind == SectionKind::MalilibKeys;
 }
 
 QString unknownKindReason(SectionKind kind) {
-    if (kind == SectionKind::MalilibKeys) {
-        return plannerText("MaLiLib 那一族的热键这一版的启动器还不认识，这一段这一趟不动。");
-    }
-    return plannerText("这一段的种类这一版的启动器不认识，这一段这一趟不动。");
+    // 把**盘上那个词**写进理由里（`sectionKindKey()` 那一套，不翻译）：用户看见"custom"
+    // 才知道去预设里删哪一段，跟他说"不认识的种类"他只能猜。
+    return plannerText("这一段的种类（%1）这一版的启动器不认识，这一段这一趟不动。")
+        .arg(sectionKindKey(kind));
 }
 
 /// 「覆盖」那一行：点头这件事是**这一层**判的（见文件头那段）。
@@ -199,6 +210,55 @@ void planGenericFilesRow(const PlanRequest &request, const PresetSection &sectio
     row->needsChoice = plan.needsChoice;
 }
 
+/// 落一段 `MalilibKeys` 的计划。
+///
+/// ★ 这一段也要**读盘**（`config/<modId>.json`），和通用文件组那一档同一个形状：不读目标
+///   上那一份，就说不出"这一趟会解绑几格"。读的是**那一段点名的模组**那几份（不是整片扫
+///   `config/`）—— 段里装着模组名，所以这一层知道该读谁。
+void planMalilibRow(const PlanRequest &request, const PresetSection &section, ApplyPlanRow *row,
+                    QList<MalilibEntry> *afterOut) {
+    QList<MalilibEntry> entries;
+    QString why;
+    if (!malilibEntriesFromSections({section}, &entries, &why)) {
+        row->blocked = true;
+        row->problem = why;
+        return;
+    }
+
+    QStringList modIds;
+    for (const MalilibEntry &entry : entries) {
+        if (!modIds.contains(entry.modId)) {
+            modIds.append(entry.modId);
+        }
+    }
+
+    // ★ 空段（一格都没有）到这儿是 `modIds` 空 —— `malilibReadTarget()` 一份都不读，
+    //   下面自然算出"不动"。那不是错误（用户可能就是把这一段的勾全去掉了）。
+    const MalilibTarget target = malilibReadTarget(request.target.instanceRoot, modIds);
+    // ★ 一律按"已确认"算（见文件头）：这时候"还没点头"由 `markConfirm()` 标在行上。
+    const MalilibApplyResult applied = applyMalilibEntries(entries, target, section.mode, true);
+    const MalilibApplyReport &report = applied.report;
+    if (!report.ok) {
+        // ★ 今天**到不了这儿**（上面那句"按已确认算"关掉了适配器里唯一一条 `ok = false` 的
+        //   路）。留着是防着哪天那条路变成两条 —— 那一段该在表上落"做不了"，而不是悄悄报 0。
+        row->blocked = true;
+        row->problem = report.problem;
+        return;
+    }
+
+    row->count = report.written;
+    row->removed = report.removed;
+    row->skipped = report.skipped;
+    row->conflictCount = report.conflicts.size();
+
+    // ★ 这一份**这一趟之后**绑着的那几格交给**整份**那一张单子（跨模组的冲突只有攒到一处
+    //   才看得出来 —— 见 `ApplyPlan::keyConflicts`）。被跳过的段（`blocked`）不交：那一段
+    //   这一趟压根不动，拿它的格子去说"整份有冲突"是假的。
+    if (afterOut != nullptr) {
+        *afterOut += applied.after;
+    }
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -224,14 +284,15 @@ QString applyPlanVerb(ApplyMode mode) {
 QString applyPlanUnit(SectionKind kind) {
     switch (kind) {
     // `options.txt` 那两段动的是**键**，说「项」（§7：「游戏设置 合并 18 项」）。
+    // MaLiLib 那一段动的也是**格**（一格热键 / 一格设置），还是「项」。
     case SectionKind::VanillaOptions:
     case SectionKind::VanillaKeys:
+    case SectionKind::MalilibKeys:
         return plannerText("项");
     // 服务器条目、配置文件、资源包都是"一个东西"，说「个」（§7：「服务器列表 追加 3 个」）。
     case SectionKind::ServerList:
     case SectionKind::GenericFiles:
         return plannerText("个");
-    case SectionKind::MalilibKeys:
     case SectionKind::Custom:
         break;
     }
@@ -341,6 +402,7 @@ ApplyPlan planPresetApplication(const PlanRequest &request) {
                                         "先把它关掉再应用预设。");
     }
 
+    QList<MalilibEntry> malilibAfter;  // 各段这一趟**之后**绑着的那些格子（见 `keyConflicts`）
     for (const PresetSection &section : request.sections) {
         ApplyPlanRow row;
         row.sectionId = section.id;
@@ -357,8 +419,10 @@ ApplyPlan planPresetApplication(const PlanRequest &request) {
             planServerRow(request, section, &row);
         } else if (genericFilesHandlesSection(section.kind)) {
             planGenericFilesRow(request, section, &row);
+        } else if (malilibHandlesSection(section.kind)) {
+            planMalilibRow(request, section, &row, &malilibAfter);
         } else {
-            // 三张分派表都不认 —— 那说明"认识的种类"和"有人接手的种类"对不上了（加适配器
+            // 四张分派表都不认 —— 那说明"认识的种类"和"有人接手的种类"对不上了（加适配器
             // 时漏改一处）。落 `blocked` 而不是崩：这一趟少一段，用户看得见。
             row.blocked = true;
             row.problem = plannerText("这一段没有任何适配器接手，这一趟不动它。");
@@ -374,6 +438,9 @@ ApplyPlan planPresetApplication(const PlanRequest &request) {
         markConfirm(&row, request);
         plan.rows.append(row);
     }
+
+    // 整份键位里互相抢的那些（见 `ApplyPlan::keyConflicts`：**这一段是跨模组那一种的唯一出处**）。
+    plan.keyConflicts = malilibKeyConflicts(malilibAfter);
 
     plan.ok = true;
     return plan;

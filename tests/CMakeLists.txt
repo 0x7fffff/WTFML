@@ -119,6 +119,14 @@ set(PROJECT_SOURCES
     # 只读盘、一个字节都不写，所以除了通用文件组的干跑之外全都是纯值）。
     ${REPO_ROOT}/src/presets/PresetPlanner.cpp
     ${REPO_ROOT}/src/presets/PresetPlanner.hpp
+    # MaLiLib 那一族的热键（2026-10-17，coding plan §6 P4 / §10 第 12 项）：按**结构**认这一族
+    # （不看文件名）、一格一格地读/写（认三档：整格是热键 / 一格装开关+热键 / 别的值）、
+    # 冲突分析、以及在两份真形状的 `config/*.json` 之间真写一遍。`verify` 的 **PF** 一节拿
+    # `QTemporaryDir` 造几份真形状的配置就能逐格念 —— 最要紧的那几格：「目标上没绑的那些
+    # 热键一个字不动」（合并不许退化成覆盖）、「值那一格类型变了就不转」、「覆盖档解绑但
+    # **不删格子**」。
+    ${REPO_ROOT}/src/presets/MalilibKeys.cpp
+    ${REPO_ROOT}/src/presets/MalilibKeys.hpp
     ${REPO_ROOT}/src/settings/EffectiveJavaSettings.cpp
     ${REPO_ROOT}/src/settings/EffectiveJavaSettings.hpp
     ${REPO_ROOT}/src/settings/GlobalJavaSettings.cpp
