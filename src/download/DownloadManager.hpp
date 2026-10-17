@@ -740,6 +740,11 @@ private:
     void noteReroutedReplyOutcome(QNetworkReply *reply, bool success,
                                   bool forceUnreachable = false);
 
+    /// 看门狗 abort 掉一条**302 转过手**的镜像回复之后，先回镜像入口再试一次
+    /// （入口会重新挑一台落点），而不是直接退官方。镜像这一侧只重试一次。
+    /// @return 真的重排了 = true（调用方按"作业还在"收尾：不记失败、不增完成数）。
+    bool retryStalledFromMirror(QNetworkReply *reply, const QString &destinationPath);
+
     /// 从镜像取失败时，用官方地址**重发一次**（作业还是同一个，不算失败）。
     /// @param reply 刚失败的那条回复。
     /// @param destinationPath 落盘路径（原样搬给重发出去的那一条）。

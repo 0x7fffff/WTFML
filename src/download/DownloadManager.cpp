@@ -1317,6 +1317,38 @@ void DownloadManager::onAssetIndexDownloaded() {
     checkAllDownloadsFinished();
 }
 
+bool DownloadManager::retryStalledFromMirror(QNetworkReply *reply,
+                                             const QString &destinationPath) {
+    if (!replyIsFromCurrentBatch(reply) || m_shuttingDown || m_batchEmitted) return false;
+    // 只认**看门狗 abort 掉的**那条：error 是 Operation canceled，而不是 HTTP 失败。
+    if (reply->error() != QNetworkReply::OperationCanceledError) return false;
+    const QUrl mirrorEntry = reply->request().url();
+    const QUrl landed = reply->url();
+    // 只有 302 转手过的那一类才值得回入口重挑落点；没转手的 abort 是看门狗对"慢镜像"
+    // 那一档做的，它本来就该按原来的顺序退官方。
+    if (landed.host().isEmpty() ||
+        landed.host().compare(mirrorEntry.host(), Qt::CaseInsensitive) == 0) {
+        return false;
+    }
+    if (!m_officialFallbacks.contains(reply)) return false;  // 本来就走官方的作业没得回
+    const int attempts = reply->property("wtfmlRetryAttempts").toInt();
+    if (attempts >= 1) return false;  // 镜像只再试一次，之后照旧退官方
+    const QString mirrorUrl = mirrorEntry.toString();
+    m_pendingJobs.enqueue(PendingJob{mirrorUrl, destinationPath, expectedSha1s.value(reply),
+                                     expectedSizes.value(reply, -1),
+                                     m_officialFallbacks.value(reply), mirrorEntry.host(),
+                                     attempts + 1, 0, rangeOf(reply)});
+    qInfo() << "Retrying a stalled mirror download from the mirror entry (it may pick another"
+            << "backend this time):" << mirrorUrl;
+    if (DownloadDiag::enabled()) {
+        DownloadDiag::line(QStringLiteral("mirror retry after 302 stall dest=%1 url=%2 %3")
+                               .arg(QDir::toNativeSeparators(destinationPath),
+                                    DownloadDiag::safeUrl(mirrorEntry),
+                                    diagReplyFacts(reply)));
+    }
+    return true;
+}
+
 bool DownloadManager::retryWithOfficialUrl(QNetworkReply *reply, const QString &destinationPath,
                                            void (DownloadManager::*finishedSlot)()) {
     // 备用地址只在"这条作业走的是镜像"时登记过。没登记 = 这条就是官方地址，
@@ -1895,6 +1927,11 @@ void DownloadManager::onDownloadReplyFinished() {
         if (!stale) {
             emit downloadFinished(QFileInfo(destPath).fileName(), true, QString());
         }
+    } else if (!stale && retryStalledFromMirror(reply, destPath)) {
+        // 看门狗 abort 掉的镜像作业（302 转手之后卡住的那一类）：先回**镜像入口**再试
+        // 一次 —— 它会重新挑一台落点。以前这里直接退官方，而测试员那条网络上官方整条
+        // 都不通，等于把还能用的镜像换成了死路。镜像只重试一次，之后仍按原来的顺序退官方。
+        retryQueued = true;
     } else if (!stale &&
                retryWithOfficialUrl(reply, destPath, &DownloadManager::onDownloadReplyFinished)) {
         // 镜像那条路没成，已经换成官方地址重发了 —— 这一次**不算失败**：作业还在这一个
@@ -2044,7 +2081,7 @@ void DownloadManager::onStallWatchdogTick() {
         }
     }
     for (QNetworkReply *reply : wedged) {
-        qWarning() << "No data for" << (m_noProgressGiveUpMs / 1000) << "seconds, giving up:"
+        qWarning() << "No data for" << (m_noProgressGiveUpMs / 1000) << "seconds:"
                    << jobLabel(reply);
         if (DownloadDiag::enabled()) {
             DownloadDiag::line(QStringLiteral("watchdog: wedged job=%1 url=%2 giveUp=%3ms %4")
