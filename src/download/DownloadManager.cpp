@@ -2034,6 +2034,69 @@ void DownloadManager::failWedgedDownload(QNetworkReply *reply) {
     if (destPath.isEmpty()) {
         return;  // 这一条已经结过账了（比如同一跳里被"慢镜像"那段先处理掉了）
     }
+    // ★★ 2026-10-17（无代理实测）：90 秒一个字节都没有，几乎都不是"这个文件没了"，
+    //    而是这一次 302 落到了死节点上 —— 测试员那条网络下 5222 个对象只有 13 个这样，
+    //    落点全是 18/19/20.749333.xyz 这几台；同一个入口（bmclapi2）的另外 5209 个
+    //    对象都正常。**重新排回同一个地址**（BMCLAPI 每次会重新挑一台落点），别把它
+    //    当永久失败 —— 否则整批 5222 个下完了还要为这 13 个报"安装失败"。
+    //    NOTE: 走 `wtfmlRetryAttempts` 那套计数（和 transient 重试共用 3 次上限）：
+    //          一个真死的入口必须能停下来，不然整批永远收不了尾。
+    const int wedgedAttempts = reply->property("wtfmlRetryAttempts").toInt();
+    const int wedgedDelay = DownloadRetryPolicy::delayMs(wedgedAttempts, {});
+    if (!m_shuttingDown && wedgedDelay >= 0 && replyIsFromCurrentBatch(reply)) {
+        const QString retryUrl = reply->request().url().toString();
+        m_pendingJobs.enqueue(PendingJob{retryUrl, destPath, expectedSha1s.value(reply),
+                                         expectedSizes.value(reply, -1),
+                                         m_officialFallbacks.value(reply), QUrl(retryUrl).host(),
+                                         wedgedAttempts + 1, m_clock.elapsed() + wedgedDelay,
+                                         rangeOf(reply)});
+        const auto generation = m_batchGeneration;
+        auto *wakeup = new QTimer(this);
+        wakeup->setSingleShot(true);
+        wakeup->setTimerType(Qt::PreciseTimer);
+        connect(wakeup, &QTimer::timeout, this, [this, generation, wakeup] {
+            if (generation != m_batchGeneration || m_shuttingDown) {
+                wakeup->deleteLater();
+                return;
+            }
+            wakeup->deleteLater();
+            pumpDownloadQueue();
+            checkAllDownloadsFinished();
+        });
+        wakeup->start(wedgedDelay);
+        qWarning() << "No data for" << (m_noProgressGiveUpMs / 1000) << "seconds; retrying"
+                   << (wedgedAttempts + 1) << "of 3 in" << wedgedDelay << "ms:" << jobLabel(reply);
+        if (DownloadDiag::enabled()) {
+            DownloadDiag::line(QStringLiteral("watchdog: wedged retry attempt=%1 delay=%2ms "
+                                              "job=%3 url=%4 giveUp=%5ms %6")
+                                   .arg(wedgedAttempts + 1)
+                                   .arg(wedgedDelay)
+                                   .arg(jobLabel(reply),
+                                        DownloadDiag::safeUrl(reply->request().url()))
+                                   .arg(m_noProgressGiveUpMs)
+                                   .arg(diagReplyFacts(reply)));
+        }
+        // 作业回队列了：连接收干净、计数还回去，但**不算完成、也不进失败清单**（和
+        // onDownloadReplyFinished() 里 requeueTransientFailure 那条同一个口径）。
+        activeDownloads.remove(reply);
+        m_streamedFiles.remove(reply);
+        m_replyGenerations.remove(reply);
+        expectedSha1s.remove(reply);
+        expectedSizes.remove(reply);
+        m_stallMeters.remove(reply);
+        m_officialFallbacks.remove(reply);
+        reply->abort();
+        reply->deleteLater();
+        --pendingDownloads;
+        if (pendingDownloads < 0) {
+            qWarning() << "pendingDownloads went negative, clamping to 0.";
+            pendingDownloads = 0;
+        }
+        pumpDownloadQueue();
+        checkAllDownloadsFinished();
+        return;
+    }
+
     // 顺序不能反：handleDownloadError() 靠 activeDownloads 反查路径来记失败清单，
     // 所以先报错、再摘表。摘完表之后哪怕 abort() 真的憋出一个迟到的 finished，
     // 那两个处理函数开头也会把"没登记的回复"直接忽略掉 —— 不会重复计数。
