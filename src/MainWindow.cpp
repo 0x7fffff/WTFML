@@ -11345,10 +11345,21 @@ void MainWindow::exportLaunchScript(const QString &versionId, const QString &pat
     // 靠 QProcess 的 setWorkingDirectory(minecraftDir) 兜住），脚本不在那个目录下跑就找不到
     // jar。`/d` 是连盘符一起换 —— 数据目录在 E 盘、脚本导到 C 盘桌面上是最常见的情形。
     QString script;
+    // ★ 2026-10-17：注释也要按**本地 8 位**写得出来。英文版 Windows 的代码页装不下汉字，
+    //   `toLocal8Bit()` 会把它们变成 '?' —— 那一行就成了一句问号。注释是给人看的，宁可
+    //   换一种写得出来的语言，也不要写一串乱码（CI 的英文 runner 上就是这么红的）。
+    //   参数里那种非 ASCII 没法替（那是用户的路径/名字），只能照实写。
+    const auto localOrAscii = [](const QString &local, const QString &ascii) {
+        return QString::fromLocal8Bit(local.toLocal8Bit()) == local ? local : ascii;
+    };
     script += QStringLiteral("@echo off\r\n");
-    script += QStringLiteral("rem 由 WTFML 导出：按这个实例现在的参数启动。\r\n");
+    script += localOrAscii(
+        QStringLiteral("rem 由 WTFML 导出：按这个实例现在的参数启动。\r\n"),
+        QStringLiteral("rem Exported by WTFML: starts with this instance's current arguments.\r\n"));
     if (!offlineMode) {
-        script += QStringLiteral("rem 这个脚本里带着你的登录令牌，别发给别人。\r\n");
+        script += localOrAscii(
+            QStringLiteral("rem 这个脚本里带着你的登录令牌，别发给别人。\r\n"),
+            QStringLiteral("rem This script contains your login token. Do not share it.\r\n"));
     }
     script += QStringLiteral("cd /d ") +
               batchQuote(QDir::toNativeSeparators(AppPaths::minecraftDir())) +

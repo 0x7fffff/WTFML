@@ -338,9 +338,13 @@ endif()
 target_compile_definitions(verify PRIVATE REPO_ROOT_PATH="${REPO_ROOT}")
 
 add_test(NAME wtfml.core COMMAND verify)
+# TIMEOUT 900（2026-10-17）：300 秒在 CI 上不够。GitHub 那个 windows runner 上，300 秒
+# 只跑到 V5z（源码里大约四成），而被杀的那一刻还在稳定出 PASS —— 不是挂住，是慢
+# （O0 的验证工程 + 临时目录里一堆真文件 + 那几段等 10/30 秒超时的用例）。本机同样
+# 这一份大约 100 秒。放到 900 给 CI 留三倍富余；工作流自己还有 45 分钟的总闸。
 set_tests_properties(wtfml.core PROPERTIES
     LABELS "core"
-    TIMEOUT 300
+    TIMEOUT 900
 )
 
 # Windows resolves libstdc++ from PATH.  Developers often have another MinGW

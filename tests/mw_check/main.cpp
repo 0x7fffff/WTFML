@@ -3485,7 +3485,15 @@ static void runInstanceStartActionsTests() {
             check(scriptText.startsWith(QStringLiteral("@echo off\r\n")),
                   "T19.10 第一句是 @echo off（否则每一行都要回显出来）",
                   scriptText.left(20));
-            check(scriptText.contains(QStringLiteral("rem 由 WTFML 导出")),
+            // 中文注释只在**本地代码页写得出来**的时候才会出现（英文版 Windows 上产品
+            // 退回英文注释，见 exportLaunchScript 里 localOrAscii 那段）。判据跟着同一张
+            // 规矩走 —— 否则这台机器绿、那台机器红，量的就不是产品了。
+            const bool localCanEncodeChinese =
+                QString::fromLocal8Bit(QStringLiteral("由 WTFML 导出").toLocal8Bit()) ==
+                QStringLiteral("由 WTFML 导出");
+            check(scriptText.contains(localCanEncodeChinese
+                                          ? QStringLiteral("rem 由 WTFML 导出")
+                                          : QStringLiteral("rem Exported by WTFML")),
                   "★ T19.10 顶上那行 rem 按**本地 8 位**读得回来（不是 UTF-8 写出去的 ——"
                   " cmd 是按当前代码页读文件，中文会变成乱码）");
             check(!scriptText.contains(QStringLiteral("带着你的登录令牌")),
@@ -10862,14 +10870,21 @@ static void runInstanceFileResourceTests() {
 
     // ---------- 夹具：一个实例，里面三个文件 ----------
     //
-    // ★ 这个实例**报得出游戏版本号（1.97.1）和一个加载器（NeoForge）**（2026-09-28 加）：
+    // ★ 这个实例**报得出游戏版本号（1.20.1）和一个加载器（NeoForge）**（2026-09-28 加）：
     //   "点开一个资源时按当前实例的版本预选、把它的加载器排前面"这件事（用户原话
     //   「点开某个模组等的时候将版本自动选到当前实例对应的那个，对应的模组加载器的版本
     //   放在前面」）走的就是这两份值，而**一个报不出东西的实例量不出来**（没有版本号 ⇒
     //   预选为空 ⇒ 停在「全部」，和"接线断了"的样子一模一样）。
     //   版本号出处：没有 `realVersion`、目录名就是个像样的版本号 ⇒ `instanceGameVersion()`
     //   取链尾那个 id（见 VersionManager::instanceGameVersion）。
-    const QString idV = QStringLiteral("1.97.1");
+    //
+    // ★★ 2026-10-17：这个版本号**必须是清单里真有的**那一个。`instanceGameVersion()` 的
+    //   每一格都要过 `isKnownGameVersion()`：清单**已经拉到**时它只认清单里的 id，清单
+    //   **还没到**（离线第一趟）才退回"长得像版本号"的放宽判据。原来写的是凭空的
+    //   `1.97.1` —— 开发机（连不上 Mojang、清单是空的）一直绿，CI（网络好、清单在
+    //   T24 之前就到了）稳定红：chip 停在「全部」、底下也就不筛，两条断言一起红。
+    //   用清单里真有的 `1.20.1`（而**不是**反例要用的 `1.21.1`）两种情形都成立。
+    const QString idV = QStringLiteral("1.20.1");
     const QString instanceLoader = QStringLiteral("NeoForge");
     const QDir versionsDir(root.path() + QStringLiteral("/versions"));
     makeInstalledVersion(versionsDir, idV);
@@ -10928,7 +10943,7 @@ static void runInstanceFileResourceTests() {
     // `GET /v2/projects?ids=…`：那一份**项目对象**。名字就在这儿 —— 页面顶上那行字、
     // 行上点得动那句话，两处要的都是这一份里的东西。
     //
-    // ★ 资源包那一条**声明里带上实例那个版本号**（`1.97.1`，2026-09-28）：chip 那一排是照着
+    // ★ 资源包那一条**声明里带上实例那个版本号**（`1.20.1`，2026-09-28）：chip 那一排是照着
     //   这份声明表摆的，声明里没有它 ⇒ 预选换算不出来 ⇒ 停在「全部」上，而"接线断了"也是
     //   这个形状。倒着摆（接口的规矩是旧的在前）不打紧，`gameVersionChoices()` 自己会翻。
     //   模组那一条**故意只有 1.21.1** —— 它是下面"表里没有那个版本时停在「全部」"的反例。
@@ -10936,19 +10951,19 @@ static void runInstanceFileResourceTests() {
         QByteArrayLiteral("[{\"id\":\"") + packProject.toUtf8() +
         QByteArrayLiteral("\",\"title\":\"") + packTitle.toUtf8() +
         QByteArrayLiteral("\",\"slug\":\"pack-a\",\"description\":\"一个资源包\","
-                          "\"game_versions\":[\"1.21.1\",\"1.97.1\"],\"loaders\":[]},{\"id\":\"") +
+                          "\"game_versions\":[\"1.21.1\",\"1.20.1\"],\"loaders\":[]},{\"id\":\"") +
         modProject.toUtf8() + QByteArrayLiteral("\",\"title\":\"") + modTitle.toUtf8() +
         QByteArrayLiteral("\",\"slug\":\"mod-a\",\"description\":\"一个模组\","
                           "\"game_versions\":[\"1.21.1\"],\"loaders\":[\"fabric\"]}]");
     // `GET /v2/project/<项目号>/version`：详情页底下那一份版本列表。三条版本、**两个游戏
-    // 版本**（一条只支持 1.21.1 —— 它必须在预选到 1.97.1 之后**从列表里消失**）、
-    // **两个加载器**（1.97.1 上一条 neoforge 一条 fabric —— 实例报的是 NeoForge，那一条
+    // 版本**（一条只支持 1.21.1 —— 它必须在预选到 1.20.1 之后**从列表里消失**）、
+    // **两个加载器**（1.20.1 上一条 neoforge 一条 fabric —— 实例报的是 NeoForge，那一条
     // 那一组必须排在前面）。
     api.modrinthVersionListReply = QByteArrayLiteral(
         "[{\"id\":\"VNEO\",\"version_number\":\"9.0.0-neo\",\"date_published\":\"2026-09-01T00:00:00Z\","
-        "\"game_versions\":[\"1.97.1\"],\"loaders\":[\"neoforge\"]},"
+        "\"game_versions\":[\"1.20.1\"],\"loaders\":[\"neoforge\"]},"
         "{\"id\":\"VFAB\",\"version_number\":\"9.0.0-fab\",\"date_published\":\"2026-09-01T00:00:00Z\","
-        "\"game_versions\":[\"1.97.1\"],\"loaders\":[\"fabric\"]},"
+        "\"game_versions\":[\"1.20.1\"],\"loaders\":[\"fabric\"]},"
         "{\"id\":\"VOLD\",\"version_number\":\"1.0.0-fab\",\"date_published\":\"2025-01-01T00:00:00Z\","
         "\"game_versions\":[\"1.21.1\"],\"loaders\":[\"fabric\"]}]");
     // CurseForge 那一支也要**答得上话**（每一趟都会发那一发）：空结果、没有未匹配的。
@@ -11299,7 +11314,7 @@ static void runInstanceFileResourceTests() {
         //
         // 用户原话：「点开某个模组等的时候将版本自动选到当前实例对应的那个，对应的模组加载器
         // 的版本放在前面，资源包等同理，展示为对应版本适用的」。这一趟点的是**资源包**，实例
-        // 报的是 1.97.1 / NeoForge；假接口给的版本清单里三条版本、两个游戏版本、两个加载器。
+        // 报的是 1.20.1 / NeoForge；假接口给的版本清单里三条版本、两个游戏版本、两个加载器。
         //
         // 四条判据合起来才是用户那半句话，少一条都还差一截：
         //   ① chip 那一排摆的是这个资源**声明过**的那几档（表在这一页上，不是凭空的）；
@@ -11308,7 +11323,7 @@ static void runInstanceFileResourceTests() {
         //      必须不在了，不然"筛"这件事等于没发生）；
         //   ④ 它的加载器那一组**排在最前**（"对应的模组加载器的版本放在前面"）。
         //
-        // ★ 备注：`chipCount == 3` 就是【全部 + 1.97.1 + 1.21.1】。写死这个数是有意的 ——
+        // ★ 备注：`chipCount == 3` 就是【全部 + 1.20.1 + 1.21.1】。写死这个数是有意的 ——
         //   它同时钉住了「声明表里两条版本号 ⇒ 两颗 chip」（不是三条、也不是一颗）。
         check(probe.chipCount == 3, "★★ T24.5 前提：chip 那一排是**这个资源声明过的那几档**"
                                     "（全部 + 声明表里那两个版本号）",
@@ -11439,8 +11454,8 @@ static void runInstanceFileResourceTests() {
             QString modButtonText;
             bool checkboxVisible = true;   // 「显示快照版」那一颗露着吗（不该露）
             bool checkboxChecked = true;   // 按了裸 Alt 之后它被拨了吗（不该被拨）
-            // ★ 2026-09-28 的反例：模组这一条的声明表里**没有**实例那个版本号（1.97.1）
-            //   ⇒ 换算不出来 ⇒ 停在「全部」。同一个页面对象刚被资源包那一趟按到 1.97.1 上，
+            // ★ 2026-09-28 的反例：模组这一条的声明表里**没有**实例那个版本号（1.20.1）
+            //   ⇒ 换算不出来 ⇒ 停在「全部」。同一个页面对象刚被资源包那一趟按到 1.20.1 上，
             //   这一条量的就是"再开一次真的从「全部」重来"。
             QString chip;
         };
@@ -11528,7 +11543,7 @@ static void runInstanceFileResourceTests() {
         check(modProbe.chip.isEmpty(),
               "★★ T24.7 反例：模组这一条的声明表里**没有**实例那个版本号 ⇒ chip 停在「全部」"
               "（换算不出来时不猜 —— 和用户自己点了一颗表里没有的 chip 是同一个结果）。"
-              "同一个页面对象上一趟刚被按到 1.97.1 上，所以这一条同时钉住了「再开一次从「全部」"
+              "同一个页面对象上一趟刚被按到 1.20.1 上，所以这一条同时钉住了「再开一次从「全部」"
               "重来」",
               modProbe.chip.isEmpty() ? QStringLiteral("(全部)") : modProbe.chip);
         check(!modProbe.checkboxVisible,
@@ -16940,11 +16955,21 @@ static void runServerProcessTests() {
         // ---- T41.3 往它的 stdin 写一行：真的进去了 ----
         // 假服务端会把每一行**原样回声**，所以"回声到了"就是"写下去了、而且补了换行"
         // （少了换行它会一直躺在缓冲区里等下一行 —— 那句话永远不来）。
-        check(process.sendCommand(QStringLiteral("say 你好")), "T41.3 那一行写出去了");
+        //
+        // ★ 2026-10-17：中文只在**本地代码页写得出来**的时候才用。`sendCommand()` 走的是
+        //   `toLocal8Bit()`（JVM 的 stdin 也是按系统代码页解），英文版 Windows 上它会把
+        //   "你好"变成 "??" —— 回声当然对不上，而这跟换行、分包一点关系都没有。
+        //   写得出来就用中文（顺带钉住多字节那一趟），写不出来退回 ASCII。
+        const QString echoCommand =
+            QString::fromLocal8Bit(QStringLiteral("say 你好").toLocal8Bit()) ==
+                    QStringLiteral("say 你好")
+                ? QStringLiteral("say 你好")
+                : QStringLiteral("say hello");
+        check(process.sendCommand(echoCommand), "T41.3 那一行写出去了");
         const bool echoed = pumpUntil(
-            [&process] {
+            [&process, &echoCommand] {
                 for (const QString &line : process.logLines()) {
-                    if (line.contains(QStringLiteral("[回声] say 你好"))) {
+                    if (line.contains(QStringLiteral("[回声] ") + echoCommand)) {
                         return true;
                     }
                 }
@@ -21125,17 +21150,23 @@ int main(int argc, char *argv[]) {
                   "说明文字跟着变成「手动指定」", memoryHint->text());
         }
 
-        maxSpin->setValue(8192);
+        // ★ 2026-10-17：上限是按**本机物理内存**收过口的（见 applyMemoryLimits）——
+        //   写死 8192 在 8 GB 的机器上（CI runner 就是）根本填不进去：setValue 会先被
+        //   maximum 钳到 7936，于是两条断言红得莫名其妙（产品一点问题都没有）。
+        //   填一个"这台机器真能填的最大那个数"才是这一段想量的东西。
+        const int editTargetMb = qMin(8192, maxSpin->maximum());
+        maxSpin->setValue(editTargetMb);
         {
             GlobalJavaSettings probe;
-            check(probe.xmx() == 8192, "改完最大内存立刻落盘（另起一个读盘者读到的是新值）",
+            check(probe.xmx() == editTargetMb,
+                  "改完最大内存立刻落盘（另起一个读盘者读到的是新值）",
                   QString::number(probe.xmx()));
         }
 
         // ---- 改数字框：条跟着走（两件东西说的是同一个数） ----
         {
             const QList<int> steps = MemorySlider::valueSteps(maxSpin->minimum(), maxSpin->maximum());
-            check(steps.value(maxSlider->value(), -1) == 8192,
+            check(steps.value(maxSlider->value(), -1) == editTargetMb,
                   "在数字框里打一个数，条跟着挪到那一格上",
                   QString("条 %1 / 框 %2").arg(steps.value(maxSlider->value(), -1))
                       .arg(maxSpin->value()));
