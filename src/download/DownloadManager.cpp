@@ -1941,10 +1941,23 @@ void DownloadManager::onStallWatchdogTick() {
         // 降级是**按主机**的，而且降的是**这一条回复自己所在的那个主机**：一次 tick 里失速的
         // 回复可能来自好几个 CDN（整合包那条路就是），只降它们各自那个。降错方向的代价是
         // 2026-09-23 那次事故：一个慢 CDN 上的 8 条回复把别的 CDN 一起关了 300 秒。
-        // 同一个主机只降一次（顺延本身是幂等的，这里只是别把日志刷满）。
+        //
+        // ★★ 2026-10-17（特供版诊断日志）：**经过 302 的回复不降请求的那个主机**。
+        //    BMCLAPI 的资源对象地址（bmclapi2.bangbang93.com/assets/...）会 302 到它背后
+        //    临时挑的一台镜像（minio.749333.xyz / bmclapi.hurtmc.com / sakura...）。慢的是
+        //    落点那一台，不是入口；把入口降级 300 秒，排队里的**几千个**资源对象会一起改道
+        //    官方 resources.download.minecraft.net —— 而测试员那条网络上官方资源 CDN 每个
+        //    请求都吃满 30 秒超时（同一份日志：降级后 433 个官方请求 0 成功、400 个超时），
+        //    十分钟只下完 246/5222 个文件。只给"没有转手"的那条降级，转手慢的那一条自己
+        //    abort 后走官方重试即可（作业级，不连累别人）。
+        //    同一个主机只降一次（顺延本身是幂等的，这里只是别把日志刷满）。
         QSet<QString> demotedHosts;
         for (QNetworkReply *reply : stalled) {
             const QString host = reply->request().url().host();
+            const QString finalHost = reply->url().host();
+            if (!finalHost.isEmpty() && finalHost.compare(host, Qt::CaseInsensitive) != 0) {
+                continue;
+            }
             if (!host.isEmpty() && !demotedHosts.contains(host)) {
                 demotedHosts.insert(host);
                 demoteMirrorForSlowDownload(host);
