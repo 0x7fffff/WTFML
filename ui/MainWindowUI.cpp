@@ -18,7 +18,7 @@
 #include "Theme.hpp"
 #include "ThemeBackground.hpp"
 #include "TitleBar.hpp"
-#include "ToolboxPage.hpp"  // 工具箱那五件工具的键与名字（底栏面板那五颗按钮用的那张表）
+#include "ToolboxPage.hpp"  // 工具箱那张表的键与名字（底栏面板那六颗按钮按 tools() 摆）
 #include "VersionIcons.hpp"
 #include "VersionTreeDelegate.hpp"
 #include "WindowChrome.hpp"
@@ -520,6 +520,7 @@ void fillPageHeader(Column &column, const QString &title, const QString &subtitl
 /// 卡片按行跨两列塞进去。这样滚动区那一套（`scroll->widget() == form`）、栏与栏之间"页
 /// 数 = 分类数"那条对应关系、每一页的名字一个都不用动。
 struct SettingsSection {
+    QString title;
     /// 这一节的卡片（`wtfmlSurface="section"`）。**它就是项们的父窗**。
     QFrame *card = nullptr;
     /// 卡片里那条竖排布局。项按顺序往里加（见 `addSettingItem()`）。
@@ -532,10 +533,12 @@ struct SettingsSection {
 SettingsSection addSettingsSection(QGridLayout *grid, int &row, const QString &title,
                                    QWidget *parent) {
     SettingsSection section;
+    section.title = title;
     section.card = new QFrame(parent);
     // 面挂在**属性**上（不是 objectName）：一页里这样的卡片有好几张，名字只能靠它认
     //（产品、样式表、验证工程三方共用这一对字符串，见 Theme::surfacePropertyName()）。
     markSurface(section.card, Theme::sectionSurfaceValue());
+    section.card->setProperty("settingsSectionTitle", title);
     auto *layout = new QVBoxLayout(section.card);
     // ★ 2026-10-12（coding plan §9.1）：内边距 18,17,18,18 → **16 四面**、行距 13 → **10**。
     //   两个数都落进令牌那三档（区块间距 16 / 控件间距 10）：卡片自己那一圈属于"区块"，
@@ -569,9 +572,12 @@ SettingsSection addSettingsSection(QGridLayout *grid, int &row, const QString &t
 ///       的宽度和列怎么分无关，留着它是为了两边的表格长得一样（ui_check 仍在核它）。
 void addSettingItem(const SettingsSection &section, const QString &labelText, QWidget *control,
                     QWidget *parent) {
-    QLabel *label = new QLabel(labelText, parent);
-    label->setAlignment(Qt::AlignLeft);
-    section.layout->addWidget(label);
+    if (labelText != section.title) {
+        QLabel *label = new QLabel(labelText, parent);
+        label->setProperty("settingsItemLabel", true);
+        label->setAlignment(Qt::AlignLeft);
+        section.layout->addWidget(label);
+    }
     section.layout->addWidget(control);
 }
 
@@ -2329,6 +2335,27 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
     setupSettingsWarnPanel(settingsCategoryStack);
     setupSettingsLookPanel(settingsCategoryStack);
     setupSettingsDownloadPanel(settingsCategoryStack);
+    // 按职责收口：启动器行为/进程/日志归启动，下载的前置提醒归安全提醒。
+    const auto moveSetting = [this](QWidget *control, const QString &sectionTitle) {
+        if (!control) return;
+        QFrame *target = nullptr;
+        for (auto *card : settingsCategoryStack->findChildren<QFrame *>())
+            if (card->property("settingsSectionTitle").toString() == sectionTitle) { target = card; break; }
+        QWidget *box = control->parentWidget();
+        auto *source = box && box->parentWidget() ? qobject_cast<QVBoxLayout *>(box->parentWidget()->layout()) : nullptr;
+        if (!target || !source) return;
+        const int index = source->indexOf(box);
+        QWidget *label = index > 0 ? source->itemAt(index - 1)->widget() : nullptr;
+        if (label && label->property("settingsItemLabel").toBool()) {
+            label->setParent(target);
+            target->layout()->addWidget(label);
+        }
+        box->setParent(target);
+        target->layout()->addWidget(box);
+    };
+    moveSetting(showGameLogCheck, QStringLiteral("运行与日志"));
+    moveSetting(processPriorityCombo, QStringLiteral("运行与日志"));
+    moveSetting(warnMissingDependenciesCheck, QStringLiteral("安全提醒"));
 
     // 越界保护的理由和下载页那条一模一样（见 MainWindow 里那段）：分类表和页数将来要是
     // 对不上，宁可停在原来那页，也不要 setCurrentIndex(-1) 把右栏整片清空 —— 那种
@@ -2488,7 +2515,7 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
 
     // ---------- 启动后 ----------
     // ---- 第 3 节：标题 + 一张小节卡片（见 addSettingsSection()）----
-    const SettingsSection section3 = addSettingsSection(grid, row, QStringLiteral("启动后"), form);
+    const SettingsSection section3 = addSettingsSection(grid, row, QStringLiteral("运行与日志"), form);
     {
         QWidget *box = makeHintedControl(form);
         auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
@@ -2554,7 +2581,7 @@ void MainWindowUI::setupSettingsGamePanel(QStackedWidget *stack) {
     //       相邻关系里，它们一边挨着「启动后」（那是启动器自己）、一边挨着「启动提醒」
     //       （那是要不要问一句），三件事各自的性质都还没这么清楚。
     // ---- 第 1 节：标题 + 一张小节卡片（见 addSettingsSection()）----
-    const SettingsSection section1 = addSettingsSection(grid, row, QStringLiteral("启动选项"), form);
+    const SettingsSection section1 = addSettingsSection(grid, row, QStringLiteral("游戏窗口"), form);
     {
         QWidget *box = makeHintedControl(form);
         auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
@@ -2665,7 +2692,7 @@ void MainWindowUI::setupSettingsWarnPanel(QStackedWidget *stack) {
     //       它们管的是同一件事："现在这一下要不要再问一句"。**勾选框上那句话一个字都没动**，
     //       动的是"它摆在哪儿"和第三条那一行的行标题（原来叫「版本提醒」，说不清是提醒什么）。
     // ---- 第 1 节：标题 + 一张小节卡片（见 addSettingsSection()）----
-    const SettingsSection section1 = addSettingsSection(grid, row, QStringLiteral("启动前提醒"), form);
+    const SettingsSection section1 = addSettingsSection(grid, row, QStringLiteral("安全提醒"), form);
     {
         QWidget *box = makeHintedControl(form);
         auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
@@ -3072,6 +3099,7 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
     // 这里留一个入口。
     // ---- 第 4 节：标题 + 一张小节卡片（见 addSettingsSection()）----
     const SettingsSection section4 = addSettingsSection(grid, row, QStringLiteral("账户"), form);
+    section4.card->hide(); // 账号管理已集中在主页；不再显示空入口和过时说明。
     {
         QWidget *box = makeHintedControl(form);
         auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
@@ -5235,8 +5263,8 @@ void MainWindowUI::toggleToolboxPanel() {
     grid->setVerticalSpacing(8);
     // ★ 2026-10-16：这一排从前是"四颗写着工具名、点了没反应的空按钮"（tooltip 老实写着
     //   「该工具将在后续功能阶段接入」）。现在它们真接上了：键与名字都从
-    //   `ToolboxPage::tools()` 那**一张表**来（页面上那排 chip、这个面板上这五颗、
-    //   `ToolboxController::open()` 认的三个地方共用它），点一下把这件工具的键交给
+    //   `ToolboxPage::tools()` 那**一张表**来（页面上那排 chip 只取其中五件、这个面板上这
+    //   六颗全摆、`ToolboxController::open()` 认的键也来自它），点一下把这件工具的键交给
     //   handler（`MainWindow` 那头转给 `ToolboxController::open()`）。
     //
     // NOTE: 面板本身是 `Qt::Popup`，点它里面一颗按钮之后 Qt 会把它收掉 —— 但"收掉"这件

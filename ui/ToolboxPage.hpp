@@ -1,6 +1,7 @@
 /**
  * @file ToolboxPage.hpp
- * @brief 工具箱那一整页（底栏那把扳手 → 一片整块盖住内容区的页），五件小工具共用一页。
+ * @brief 工具箱那一整页（底栏那把扳手 → 一片整块盖住内容区的页），五件小工具共用一页；
+ *        第六件「高速下载」不在这一页里，它开自己的独立窗口（见下面的【第六件】）。
  * @author 0x7fffff
  * @date 2026-10-16
  * @note 用户 2026-10-16 点名的那一批：文件哈希校验、MOTD 文本生成器（含彩色文本那几种
@@ -14,6 +15,15 @@
  * "随手拿一件用一下就走"，为它各开一页只会让底栏那把扳手变成五个入口。chip 那一排的写法
  * 照抄下载页四颗 chip / 文件页四颗筛选按钮（同一套 `Theme::markButton` 和选中判据）。
  *
+ * 【第六件：高速下载为什么不在 chip 里】
+ *
+ * 2026-10-17 加的那一件（直链下载）**和这五件不是一个形状**：它要一直挂着一个正在跑的任务
+ * （进度、取消、关掉窗口还得接着下），塞进"随手用一下就走"的 chip 页会把这一页变成半个
+ * 任务中心。所以它仍然登记在**同一张表** `kToolInfos` / `tools()` 里（键、名字、说明、底栏
+ * 面板那颗按钮都跟着这张表走），但 `m_tools` 在构造里把它摘掉：chip 只有五颗、
+ * `QStackedWidget` 也只有五片，它由 `ToolboxController::open("download")` 转给独立窗口。
+ * 用户 2026-10-17 点名：工具箱里的工具允许开独立小窗口（以后可能加到十条）。
+ *
  * 【这一页自己一根手指都不碰游戏目录】
  *
  * `ui/` **不 include `src/`**（全仓的老规矩）。所以这一页只干两件事：把用户敲的东西
@@ -24,8 +34,9 @@
  *
  * 哈希要读一个可能几百 MB 的文件（要进度、要能取消），服务器检测要联网（要超时），
  * 这两件都是**慢活**：它们必须由 controller 派到线程上去，页面上那颗按钮只负责发一句
- * "用户要算了"。另三件是纯字符串活，本来当场就能算，但为了"五件工具一个形状"，入口
- * 一律是同一条（发信号 → controller 算 → 回来填页面）。
+ * "用户要算了"。另三件是纯字符串活，本来当场就能算，但为了"这几件工具一个形状"，入口
+ * 一律是同一条（发信号 → controller 算 → 回来填页面）。「高速下载」不走这一条：它整条链
+ * 在 `DirectDownloadController` 里，窗口只管收输入和摆状态（见头文件【第六件】）。
  */
 
 #pragma once
@@ -54,10 +65,11 @@ class ToolboxPage : public QDialog {
     Q_OBJECT
 
 public:
-    /// 五件工具。**这个次序就是顶上那排 chip 的次序**（`tools()` 是唯一出处）。
-    enum class Tool { Anvil, Text, Coord, Server, Hash };
+    /// 六件工具。**`tools()` 是次序的唯一出处**：顶上那排 chip 用其中除 `Download` 之外
+    /// 的五件（`.cpp` 构造里摘的），底栏面板那**六颗**按钮按原样摆。
+    enum class Tool { Anvil, Text, Coord, Server, Hash, Download };
 
-    /// 工具的键（底栏面板那五颗按钮、`ToolboxController::open()` 都用它认人）。
+    /// 工具的键（底栏面板那六颗按钮、`ToolboxController::open()` 都用它认人）。
     static QString toolKey(Tool tool);
     /// 反着来。认不出来时 @p ok 写 false。
     static Tool toolFromKey(const QString &key, bool *ok = nullptr);
@@ -65,7 +77,7 @@ public:
     static QString toolName(Tool tool);
     /// 一句话说明（chip 的 tooltip、以及每一片顶上那行小字）。
     static QString toolSummary(Tool tool);
-    /// 五件，**次序唯一出处**。
+    /// 六件，**次序唯一出处**（`Download` 排第一；它不出 chip、只出底栏面板那颗按钮）。
     static QList<Tool> tools();
     /// 这一页的标题（`OverlayHost::execPage` 顶上那一条写的字）。
     static QString windowTitle() { return QStringLiteral("工具箱"); }
@@ -198,6 +210,7 @@ public:
     void setHashBusy(bool busy);
 
 signals:
+    void downloadToolRequested();
     // ---- 附魔顺序助手 ----
     void anvilPlanRequested();
     // ---- 文本生成器 ----
@@ -222,6 +235,7 @@ protected:
 
 private:
     /// 五片各自搭一次（构造函数里全搭好，切的时候只是换 `QStackedWidget` 那一格）。
+    /// NOTE: `Download` 不占 `QStackedWidget` 的一格（它不是这一页的一片，见头文件）。
     QWidget *buildAnvilPanel();
     QWidget *buildTextPanel();
     QWidget *buildCoordPanel();

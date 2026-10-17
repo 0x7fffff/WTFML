@@ -10,6 +10,8 @@
  */
 
 #include "VersionManager.hpp"
+#include "../download/InstallerFailure.hpp"
+#include "../settings/GlobalJavaSettings.hpp"
 
 #include "FolderManager.hpp"
 
@@ -1739,6 +1741,7 @@ void VersionManager::installLoaderVersion(const QString &gameVersion, LoaderKind
     }
 
     m_loaderInstall = LoaderInstall();
+    if (installerProcess) installerProcess->setProperty("wtfmlCertificateRetried", false);
     m_loaderInstall.kind = kind;
     m_loaderInstall.gameVersion = gameVersion;
     m_loaderInstall.loaderName = loaderDisplayName(kind);
@@ -2721,6 +2724,30 @@ void VersionManager::onInstallerFinished(int exitCode, bool crashed) {
 
     const QString name = m_loaderInstall.loaderName;
     const QString version = m_loaderInstall.loaderVersion;
+
+    // 一些旧 Forge 安装器遇到过期 Java 证书仍返回 0；只有没有成功产物时才恢复。
+    // 仅更换本次安装器 JVM，不修改全局/实例游戏 Java，不关闭 TLS 校验，最多恢复一次。
+    const bool badCertificate = InstallerFailure::certificateFailure(m_installerOutput);
+    const bool missingProfile = !QFileInfo::exists(InstanceFiles::jsonPath(m_loaderInstall.loaderId));
+    if (!crashed && badCertificate && (exitCode != 0 || missingProfile)) {
+        QString replacement, reason;
+        if (!installerProcess->property("wtfmlCertificateRetried").toBool() &&
+            GlobalJavaSettings::installerJavaFor(17, m_installerProgram, &replacement, &reason) &&
+            !replacement.isEmpty() && replacement.compare(m_installerProgram, Qt::CaseInsensitive) != 0) {
+            installerProcess->setProperty("wtfmlCertificateRetried", true);
+            m_loaderInstall.javaPath = replacement;
+            emit loaderInstallMessage(tr("安装器使用的旧 Java 证书校验失败，改用本机较新的 Java 重试一次：%1。"
+                                         "不会更改游戏使用的 Java。HTTPS 证书校验保持开启。")
+                                          .arg(replacement));
+            deferLoaderStep(LoaderInstall::Phase::RunningInstaller, [this] { runInstaller(); });
+            return;
+        }
+        failLoaderInstall(tr("%1 %2 安装失败：安装器使用的 Java 无法验证 HTTPS 证书。"
+                             "请更新该 Java 的证书库，或为安装器选择证书正常的较新 Java；不要关闭 HTTPS 证书校验。\n"
+                             "当前安装器 Java：%3\n%4")
+                              .arg(name, version, m_installerProgram, installerOutputTail(m_installerOutput)));
+        return;
+    }
 
     if (crashed) {
         failLoaderInstall(tr("%1 %2 的安装器被强行结束了（不是它自己退出的）。\n"

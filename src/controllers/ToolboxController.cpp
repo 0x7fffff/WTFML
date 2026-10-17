@@ -6,6 +6,7 @@
  */
 
 #include "controllers/ToolboxController.hpp"
+#include "controllers/DirectDownloadController.hpp"
 
 #include "InlineMessage.hpp"
 #include "MotdText.hpp"
@@ -132,6 +133,8 @@ ToolboxController::ToolboxController(OverlayHost *overlay, QWidget *pageParent, 
                                     QObject *parent)
     : QObject(parent), m_overlay(overlay), m_pageParent(pageParent), m_host(std::move(host)) {
     m_page = new ToolboxPage(pageParent);
+    m_directDownload = new DirectDownloadController(m_host.activity, pageParent, this);
+    connect(m_page, &ToolboxPage::downloadToolRequested, this, [this] { m_directDownload->open(); });
 
     // ---------- 那四张表（各自的唯一出处都在 src/tools/ 里）----------
     QStringList algorithms;
@@ -168,7 +171,7 @@ ToolboxController::ToolboxController(OverlayHost *overlay, QWidget *pageParent, 
     }
     m_page->setTextPalette(palette);
 
-    // ---------- 五件工具的信号 ----------
+    // ---------- 工具箱里那几件的信号 ----------
     connect(m_page, &ToolboxPage::anvilPlanRequested, this, [this]() { runAnvilPlan(); });
     connect(m_page, &ToolboxPage::textSourceChanged, this, [this]() { refreshText(); });
     connect(m_page, &ToolboxPage::textJsonRequested, this,
@@ -198,8 +201,12 @@ ToolboxController::ToolboxController(OverlayHost *overlay, QWidget *pageParent, 
 }
 
 ToolboxController::~ToolboxController() { shutdown(); }
+bool ToolboxController::ownsDownloadTask(quint64 id) const { return m_directDownload->owns(id); }
+bool ToolboxController::canCancelDownloadTask(quint64 id) const { return m_directDownload->canCancel(id); }
+bool ToolboxController::cancelDownloadTask(quint64 id) { return m_directDownload->cancel(id); }
 
 void ToolboxController::shutdown() {
+    m_directDownload->shutdown();
     m_hashAbort.storeRelaxed(1);
     if (m_hashThread != nullptr) {
         m_hashThread->wait();
@@ -235,13 +242,14 @@ int ToolboxController::dimensionAt(int index) const {
 }
 
 void ToolboxController::open(const QString &toolKey) {
+    if (toolKey == QStringLiteral("download")) { m_directDownload->open(); return; }
     if (m_page == nullptr || m_overlay == nullptr) {
         return;
     }
     bool known = false;
     const ToolboxPage::Tool tool = ToolboxPage::toolFromKey(toolKey, &known);
     if (!known) {
-        return;  // 认不出来的键：不该发生（面板那五颗按钮的键就是这张表）
+        return;  // 认不出来的键：不该发生（面板那六颗按钮的键就是这张表）
     }
     // 换一件工具**先换再开**：这一页是复用的对象，开出来那一刻已经是用户点的那一件。
     m_page->showTool(tool);

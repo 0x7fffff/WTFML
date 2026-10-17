@@ -527,6 +527,16 @@ int main(int argc, char *argv[]) {
         }
         expect(navigation && !backupLeaf, "world backup is not a standalone navigation item");
         expect(collapsedGroups == 2, "creative and maintenance groups start collapsed");
+        int repairs = 0, inspections = 0;
+        QObject::connect(&dialog, &Dlg::repairFilesRequested, [&repairs] { ++repairs; });
+        QObject::connect(&dialog, &Dlg::integrityCheckRequested, [&inspections] { ++inspections; });
+        auto *repair = dialog.findChild<QPushButton *>(Dlg::repairFilesButtonName());
+        dialog.showPage(Dlg::launchCategoryKey());
+        expect(repair && !repair->isVisibleTo(&dialog), "launch settings no longer duplicate file repair");
+        dialog.showPage(QStringLiteral("repair"));
+        expect(repair && repair->isVisibleTo(&dialog), "maintenance repair owns the file completion action");
+        if (repair) repair->click();
+        expect(repairs == 1 && inspections == 0, "repair page repairs instead of duplicating integrity scan");
         const QList<QPair<QString, QString>> movedActions = {
             {Dlg::exportButtonName(), QStringLiteral("export")},
             {Dlg::copyButtonName(), QStringLiteral("operationsmenu")},
@@ -671,6 +681,13 @@ int main(int argc, char *argv[]) {
             if (!ok) ++failures;
         };
         expect(ui.getTabWidget()->tabText(MainWindowUI::instancesTabIndex()) == QStringLiteral("管理"), "management navigation label");
+        auto *launchSettings = preview.findChild<QWidget *>(MainWindowUI::settingsPanelName(QStringLiteral("launch")));
+        auto *warningSettings = preview.findChild<QWidget *>(MainWindowUI::settingsPanelName(QStringLiteral("warn")));
+        expect(launchSettings && launchSettings->isAncestorOf(preview.findChild<QWidget *>(MainWindowUI::showGameLogCheckName())) &&
+                   launchSettings->isAncestorOf(preview.findChild<QWidget *>(MainWindowUI::processPriorityComboName())),
+               "game logs and process priority belong to launch settings");
+        expect(warningSettings && warningSettings->isAncestorOf(preview.findChild<QWidget *>(MainWindowUI::warnMissingDependenciesCheckName())),
+               "dependency warning belongs to safety settings");
         for (const QString &name : {QStringLiteral("homeQuickCurrentTab"), QStringLiteral("homeQuickRecentTab"),
                                     QStringLiteral("homeQuickFavoriteTab")}) {
             auto *tab = preview.findChild<QPushButton *>(name);
@@ -7425,8 +7442,8 @@ int main(int argc, char *argv[]) {
                   MainWindowUI::javaWarnMismatchRowText() + QStringLiteral(" / ") +
                       MainWindowUI::warnDuplicateLaunchRowText() + QStringLiteral(" / ") +
                       MainWindowUI::warnWorldLossRowText());
-            check(hasLabelText(QStringLiteral("启动前提醒")),
-                  "这一栏的组标题「启动前提醒」也画出来了");
+            check(hasLabelText(QStringLiteral("安全提醒")),
+                  "这一栏的组标题「安全提醒」也画出来了");
             check(!hasLabelText(QStringLiteral("启动提醒")),
                   "老名字「启动提醒」不再画（改名之后不许两处都在）");
         }

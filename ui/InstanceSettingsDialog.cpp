@@ -1546,7 +1546,9 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         // 只报"用户想干这件事"：能不能开始（有没有下载在跑 / 这个实例装没装）由
         // MainWindow 说了算，它才知道。**不问路径**，所以这一层没什么可问的了。
         connect(repair, &QPushButton::clicked, this, &InstanceSettingsDialog::repairFilesRequested);
-        layoutActionButtons(pairGrid, {exportScript, repair});
+        // 补全文件只在维护页保留入口，不再和启动设置重复。
+        repair->hide();
+        layoutActionButtons(pairGrid, {exportScript});
         column->addLayout(pairGrid);
 
         auto *hint = new QLabel(actionsHint(), cell);
@@ -3611,9 +3613,8 @@ bool InstanceSettingsDialog::pinned() const {
 }
 
 QString InstanceSettingsDialog::actionsHint() {
-    // 两句各自还有一份，落在那儿（tooltip）和这儿的是**同一句话的两个出口** —— 不是
-    // 抄了两份。要改就改上面那两个。
-    return exportScriptHint() + QLatin1Char(' ') + repairFilesHint();
+    // 与导出按钮的 tooltip 共用文案；文件补全说明属于维护/修复页。
+    return exportScriptHint();
 }
 
 void InstanceSettingsDialog::refreshIconRow() {
@@ -3848,8 +3849,12 @@ void InstanceSettingsDialog::setupLifecyclePages() {
             hint(tr("检查核心文件、依赖库和资源，查看缺失或异常文件报告，再按报告选择修复。"));
             moveOverviewAction(integrityCheckButtonName());
         } else if (key == QStringLiteral("repair")) {
-            hint(tr("先检查实例并在报告中确认需要补全的文件；不会自动替换模组或用户配置。"));
-            action(tr("检查并选择修复项目"), [this]() { emit integrityCheckRequested(); });
+            hint(tr("重新补齐版本客户端、依赖库和资源；保留实例的模组、配置与存档。只需检查问题时，请使用完整性检查。"));
+            if (auto *repair = findChild<QPushButton *>(repairFilesButtonName())) {
+                repair->setParent(page);
+                layout->addWidget(repair, 0, Qt::AlignLeft);
+                repair->show();
+            }
         } else if (key == QStringLiteral("snapshots")) {
             hint(tr("实例快照包含整个实例的用户数据，与单个世界备份独立。恢复前沿用现有预览和安全备份流程。"));
             moveOverviewAction(createSnapshotButtonName());
@@ -3881,7 +3886,6 @@ void InstanceSettingsDialog::setupLifecyclePages() {
             hint(tr("通过启动日志和崩溃报告排查启动失败；启动前完整性检查可定位文件缺失。综合 Java、内存与模组的独立诊断报告仍待实现。"));
             action(tr("查看日志"), [this]() { showPage(QStringLiteral("logs")); });
             action(tr("查看崩溃报告"), [this]() { showPage(QStringLiteral("crash")); });
-            action(tr("检查启动文件"), [this]() { emit integrityCheckRequested(); });
         } else if (key == QStringLiteral("migration")) {
             hint(tr("实例迁移流程尚未实现。迁移需要规划目标路径、校验文件并更新引用；现有复制功能保留原实例，不等同于迁移。"));
         } else if (key == QStringLiteral("upgrade")) {

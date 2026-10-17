@@ -172,6 +172,8 @@ set(SOURCE_FILES
     ${REPO_ROOT}/src/settings/GlobalJavaSettings.cpp
     ${REPO_ROOT}/src/settings/LauncherSettings.cpp
     ${REPO_ROOT}/src/download/DownloadManager.cpp
+    ${REPO_ROOT}/src/download/ResumableDownload.cpp
+    ${REPO_ROOT}/src/download/ResumableDownload.hpp
     # 下载页那四页的取数（搜索 / 版本列表 / 图标）。MainWindow.cpp 里那条路要它们 ——
     # 少了这两个文件，mw_check 会在链接那一步报一串"undefined reference"。
     ${REPO_ROOT}/src/download/ResourceCatalog.cpp
@@ -197,6 +199,7 @@ set(SOURCE_FILES
     # ToolboxController 上，而 controller 自己要用这四个纯逻辑模块 + 那一页。少任何一个都会在
     # 链接那一步报一串 undefined reference。
     ${REPO_ROOT}/src/controllers/ToolboxController.cpp
+    ${REPO_ROOT}/src/controllers/DirectDownloadController.cpp
     ${REPO_ROOT}/src/controllers/ToolboxController.hpp
     ${REPO_ROOT}/ui/ToolboxPage.cpp
     ${REPO_ROOT}/ui/ToolboxPage.hpp
@@ -359,6 +362,24 @@ target_link_libraries(mw_check PRIVATE crypt32 ole32 shlwapi windowscodecs dwmap
 add_test(NAME wtfml.main-window COMMAND mw_check)
 add_test(NAME wtfml.workspace COMMAND mw_check workspace-check)
 add_test(NAME wtfml.activity-selection COMMAND mw_check activity-selection-check)
+add_test(NAME wtfml.download-retry COMMAND mw_check download-retry-check)
+add_test(NAME wtfml.high-speed-download COMMAND mw_check high-speed-download-check)
+add_test(NAME wtfml.segmented-download COMMAND mw_check segmented-download-check)
+set_tests_properties(wtfml.segmented-download PROPERTIES
+    LABELS "network;integration;resume"
+    TIMEOUT 120
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+)
+set_tests_properties(wtfml.high-speed-download PROPERTIES
+    LABELS "network;integration;toolbox"
+    TIMEOUT 120
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+)
+set_tests_properties(wtfml.download-retry PROPERTIES
+    LABELS "network;integration"
+    TIMEOUT 60
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+)
 set_tests_properties(wtfml.activity-selection PROPERTIES
     LABELS "ui;integration"
     TIMEOUT 30

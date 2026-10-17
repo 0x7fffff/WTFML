@@ -29,6 +29,8 @@ set(PROJECT_SOURCES
     ${REPO_ROOT}/src/net/HttpClient.cpp
     ${REPO_ROOT}/src/net/HttpClient.hpp
     ${REPO_ROOT}/src/download/DownloadManager.cpp
+    ${REPO_ROOT}/src/download/ResumableDownload.cpp
+    ${REPO_ROOT}/src/download/ResumableDownload.hpp
     ${REPO_ROOT}/src/download/DownloadManager.hpp
     ${REPO_ROOT}/src/launcher/LauncherManager.cpp
     ${REPO_ROOT}/src/launcher/LauncherManager.hpp

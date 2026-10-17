@@ -1454,7 +1454,7 @@ MainWindow::MainWindow(QWidget *parent)
         m_ui->overlay(), this,
         ToolboxController::Host{
             [this](const QString &text) { appendLog(text); },
-            [this](std::function<void()> open) { runWhenOverlayFree(open); }},
+            [this](std::function<void()> open) { runWhenOverlayFree(open); }, m_activityCenter},
         this);
     m_ui->setToolboxToolHandler(
         [this](const QString &key) { m_toolboxController->open(key); });
@@ -2396,6 +2396,8 @@ void MainWindow::updateBottomBarTaskSummary() {
 ///   `VersionManager::canCancelDownload()` 上头那句"别再加阶段判据，`isBusy()` 那时候
 ///   本来就是 false，那一格自然就没有取消可点" —— **说的就是这里**，从前没人接它。
 bool MainWindow::cancelWouldWork(const Tasks::TaskSnapshot &task) const {
+    if (m_toolboxController && m_toolboxController->ownsDownloadTask(task.id))
+        return m_toolboxController->canCancelDownloadTask(task.id);
     // ① 服务端安装那一趟：自己跑 `QProcess` + 自己的元数据请求，不走下载批次。
     if (m_serverInstall != nullptr && m_serverInstall->isRunning()
         && m_serverInstallTaskId != Tasks::invalidTaskId() && task.id == m_serverInstallTaskId) {
@@ -2448,6 +2450,9 @@ void MainWindow::onTaskDetailAction(const QString &key, TaskDetailPage::Action a
 }
 
 void MainWindow::cancelTaskFromDetail(const QString &key) {
+    bool directKey = false;
+    const auto directId = key.toULongLong(&directKey);
+    if (directKey && m_toolboxController && m_toolboxController->cancelDownloadTask(directId)) return;
     // ★ 取消要**按这一项是谁**分派：服务端安装那一趟和版本/资源下载那一批不是同一份
     //   状态（一个自己跑 QProcess + 自己的元数据请求，一个走 `VersionManager` 的批次）。
     //   两边都无脑叫一遍的话，取消一次服务端安装会顺手把别人正在跑的下载掐掉 ——

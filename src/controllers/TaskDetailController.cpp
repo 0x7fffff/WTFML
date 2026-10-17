@@ -181,7 +181,9 @@ void TaskDetailController::openTarget(const QString &key) {
     //   「打开目标位置」本来会报一句"那个目录现在不在"（而它明明就在 `Servers/<id>`）。
     //   先按实例认，认不出来再看它是不是一个服务端。
     QString dir;
-    if (task.targetId.isEmpty()) {
+    if (task.kind == Tasks::TaskKind::Download && QDir::isAbsolutePath(task.targetId)) {
+        dir = task.targetId;
+    } else if (task.targetId.isEmpty()) {
         dir = AppPaths::minecraftDir();
     } else {
         dir = AppPaths::versionDir(task.targetId);

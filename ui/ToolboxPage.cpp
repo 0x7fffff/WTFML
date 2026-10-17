@@ -1,6 +1,6 @@
 /**
  * @file ToolboxPage.cpp
- * @brief 工具箱那一页的实现（形状与"为什么五件挤一页"见头文件）。
+ * @brief 工具箱那一页的实现（形状、"为什么五件挤一页"、第六件为什么单开窗，见头文件）。
  * @author 0x7fffff
  * @date 2026-10-16
  */
@@ -35,7 +35,9 @@
 
 namespace {
 
-/// 五件工具的那张表（**键 / 中文名 / 一句话说明的唯一出处**）。
+/// 六件工具的那张表（**键 / 中文名 / 一句话说明的唯一出处**）。
+/// NOTE: `Download` 只在这张表里出现 —— chip 那排不摆它（构造里从 `m_tools` 摘掉），
+///       底栏面板按 `tools()` 原样摆六颗（见 MainWindowUI.cpp 那头）。
 struct ToolInfo {
     ToolboxPage::Tool tool;
     const char *key;
@@ -44,6 +46,8 @@ struct ToolInfo {
 };
 
 const ToolInfo kToolInfos[] = {
+    {ToolboxPage::Tool::Download, "download", "高速下载",
+     "HTTP/HTTPS 直链下载，复用下载队列并在任务中心跟踪。"},
     {ToolboxPage::Tool::Anvil, "anvil", "附魔顺序助手",
      "照 Java 版铁砧那套惩罚机制，算一条最省等级的顺序。"},
     {ToolboxPage::Tool::Text, "text", "文本生成器",
@@ -183,7 +187,7 @@ QLabel *makeFieldLabel(QWidget *parent, const QString &text) {
 }  // namespace
 
 // ---------------------------------------------------------------------------
-// 五件工具那张表（键 / 名字 / 说明）
+// 六件工具那张表（键 / 名字 / 说明）
 // ---------------------------------------------------------------------------
 
 QString ToolboxPage::toolKey(Tool tool) {
@@ -245,6 +249,8 @@ ToolboxPage::ToolboxPage(QWidget *parent) : QDialog(parent) {
     setAcceptDrops(true);  // 哈希那一件要能"拖一个文件进来"
 
     m_tools = tools();
+    // 直链下载使用独立小窗口，不再把第六颗长 chip 挤进原来的共享工具页。
+    m_tools.removeAll(Tool::Download);
 
     auto *box = new QVBoxLayout(this);
     box->setContentsMargins(12, 12, 12, 12);
@@ -258,6 +264,8 @@ ToolboxPage::ToolboxPage(QWidget *parent) : QDialog(parent) {
     for (Tool tool : m_tools) {
         QWidget *panel = nullptr;
         switch (tool) {
+        case Tool::Download:
+            continue;
         case Tool::Anvil:
             panel = buildAnvilPanel();
             break;
@@ -310,6 +318,7 @@ void ToolboxPage::syncChips() {
 }
 
 void ToolboxPage::showTool(Tool tool) {
+    if (tool == Tool::Download) { emit downloadToolRequested(); return; }
     int index = 0;
     for (int i = 0; i < m_tools.size(); ++i) {
         if (m_tools.at(i) == tool) {

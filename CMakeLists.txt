@@ -187,6 +187,7 @@ set(SOURCE_FILES
     src/controllers/CrashReportController.cpp
     src/controllers/IntegrityController.cpp
     src/controllers/ToolboxController.cpp
+    src/controllers/DirectDownloadController.cpp
     src/controllers/BackupController.cpp
     src/controllers/ServerPingController.cpp
     src/controllers/FolderController.cpp
@@ -259,6 +260,8 @@ set(SOURCE_FILES
     src/settings/GameWindowSettings.cpp
     src/settings/LauncherSettings.cpp
     src/download/DownloadManager.cpp
+    src/download/ResumableDownload.cpp
+    src/download/ResumableDownload.hpp
     src/download/ResourceCatalog.cpp
     src/download/ModDependencies.cpp
     src/download/ResourceStore.cpp

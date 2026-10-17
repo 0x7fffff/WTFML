@@ -29,10 +29,18 @@
 #include <QStringList>
 #include <QUrl>
 #include <QVariant>
+#include <QSharedPointer>
 
 #include "DownloadConcurrency.hpp"  // 「同时最多下几个」那四档（§9.2，唯一出处）
 
 class QTimer;
+class StreamedFile;
+
+struct DownloadRange {
+    qint64 first = -1, last = -1, total = -1;
+    QByteArray validator;
+    bool active() const { return first >= 0 && last >= first && total > last; }
+};
 
 // Minecraft 数据的结构
 struct MinecraftVersion {
@@ -77,6 +85,7 @@ struct AssetIndex {
  * 重新点"下载"时用它来跳过已经完好的文件，避免整包重下。
  */
 enum class VerifyMode {
+    AlwaysDownload,
     ExistsOnly,   // 文件存在就算好（用于海量 asset，全量哈希会让界面卡住几秒）
     SizeAndSha1,  // 先比字节数，再比 SHA1（用于客户端 jar 和 library）
 };
@@ -404,7 +413,10 @@ public:
     void downloadFile(const QString &url, const QString &destinationPath,
                       const QString &expectedSha1 = QString(), qint64 expectedSize = -1,
                       VerifyMode mode = VerifyMode::SizeAndSha1,
-                      const QString &officialUrl = QString());
+                      const QString &officialUrl = QString(), const DownloadRange &range = DownloadRange());
+    void setAllowOverwrite(bool allow) { m_allowOverwrite = allow; }
+    /// 分段协调器的探测请求复用同一代理、证书策略与网络连接池。
+    QNetworkAccessManager *networkAccess() const { return networkManager; }
     void downloadLibraries(const QList<Library> &libraries, const QString &basePath);
     /// 资源索引和资源对象都落在 AppPaths::assetsDir() 下，也就是 --assetsDir 指的那个
     /// 目录。调用方**不能**指定别处：索引和 objects 必须同源，否则游戏按 --assetsDir
@@ -542,6 +554,7 @@ private:
     QJsonObject currentVersionJson;
     // 两张表都以 QNetworkReply* 为键，回复一结束就从表里摘掉（onDownloadReplyFinished）。
     QMap<QNetworkReply *, QString> activeDownloads;  // reply -> 目标路径
+    QHash<QNetworkReply *, QSharedPointer<StreamedFile>> m_streamedFiles;
     QMap<QNetworkReply *, QString> expectedSha1s;    // reply -> 期望的 SHA1
     // reply -> 期望的字节数（没登记过 = 不知道）。
     //
@@ -632,6 +645,9 @@ private:
         //       主机的额度会被少算一条（这条按镜像的额度放过去了）—— 这个方向是**故意**的：
         //       宁可偶尔多发一条，也不要因为一个对不上的计数把队列卡死。
         QString host;
+        int retryAttempts = 0;
+        qint64 readyAtMs = 0;
+        DownloadRange range;
     };
     QQueue<PendingJob> m_pendingJobs;
 
@@ -641,6 +657,7 @@ private:
     /// finished 槽里各写一遍 —— 那四个槽里任何一个漏了，症状都只是"这个主机的并发上不去"，
     /// 不报警，很难发现。
     QSet<QString> m_http2Hosts;
+    QSet<QString> m_http1OnlyHosts;
 
     // 批次记账
     int m_totalJobs = 0;
@@ -664,6 +681,7 @@ private:
     bool m_shuttingDown = false;
     // 下载源。false = 官方（默认，也是加这一项之前的行为）。
     bool m_useMirror = false;
+    bool m_allowOverwrite = true;
     /// 同时最多几条在飞（出厂 = `kMaxConcurrentDownloads`；设置里能改，见 §9.2 那四档）。
     int m_maxConcurrentDownloads = kMaxConcurrentDownloads;
 
@@ -711,12 +729,14 @@ private:
 
     void startDownload(const QUrl &url, const QString &destinationPath,
                        const QString &expectedSha1 = QString(), qint64 expectedSize = -1,
-                       const QString &officialUrl = QString());
+                       const QString &officialUrl = QString(), int retryAttempts = 0,
+                       const DownloadRange &range = DownloadRange());
+    bool requeueTransientFailure(QNetworkReply *reply, const QString &destinationPath);
     /// downloadFile() 的本体：登记进批次、跳过已经下好的、剩下的排进 m_pendingJobs，
     /// 再由 pumpDownloadQueue() 按连接预算发出去。
     void scheduleFile(const QString &url, const QString &destinationPath,
                       const QString &expectedSha1, qint64 expectedSize, VerifyMode mode,
-                      const QString &officialUrl = QString());
+                      const QString &officialUrl = QString(), const DownloadRange &range = DownloadRange());
     /// 把队列里排着的作业发出去，直到连接用完（判据 = mayIssueAnotherDownload() 加
     /// mayIssueAnotherDownloadToHost()）。
     void pumpDownloadQueue();

@@ -1,11 +1,12 @@
 /**
  * @file ToolboxController.hpp
- * @brief 工具箱那五件小工具的脑子（页面在 `ui/ToolboxPage`，纯算术在 `src/tools/`）。
+ * @brief 工具箱那几件小工具的脑子（页面在 `ui/ToolboxPage`，纯算术在 `src/tools/`；
+ *        「高速下载」不是纯算术，它自己一份 `DirectDownloadController`）。
  * @author 0x7fffff
  * @date 2026-10-16
  * @note 用户 2026-10-16 原话：「不要再往 mainwindow 里堆超级屎山了，用 controller 等等方式
  *       合理分散功能」。所以这一件**一行逻辑都不往 MainWindow 放**：那边只有三件事 ——
- *       建它、把底栏面板那五颗按钮接到 `open()` 上、析构时 `shutdown()`。
+ *       建它、把底栏面板那六颗按钮接到 `open()` 上、析构时 `shutdown()`。
  *
  * 【这个 controller 管什么、不管什么】
  *
@@ -16,7 +17,8 @@
  *   - **另三件**（附魔顺序、文本生成器、坐标换算）：当场就能算的纯函数，这里只做
  *     "把页面上的控件读成参数 → 调 `src/tools/` → 把结果翻成页面认的那几个字符串"。
  *
- * 不管：任何"往盘上写"的事（这一层是只读的 —— 五件工具没有一件会改游戏文件）。
+ * 不管：任何"往盘上写"的事（这一层是只读的 —— 工具箱里没有一件会改游戏文件；
+ *       「高速下载」只写用户自己指定的目标文件，那条链在 `DirectDownloadController`）。
  *
  * 【为什么那几张表由 controller 喂给页面】
  *
@@ -38,6 +40,8 @@ class OverlayHost;
 class QThread;
 class QWidget;
 class ToolboxPage;
+class DirectDownloadController;
+class ActivityCenterController;
 
 namespace ServerPing {
 class Pinger;
@@ -52,6 +56,7 @@ public:
         std::function<void(const QString &)> log;
         /// 「覆盖层被占着」时静默收掉再继续（`MainWindow::runWhenOverlayFree()` —— 唯一出处）。
         std::function<void(std::function<void()>)> openWhenOverlayFree;
+        ActivityCenterController *activity = nullptr;
     };
 
     ToolboxController(OverlayHost *overlay, QWidget *pageParent, Host host,
@@ -68,6 +73,9 @@ public:
 
     /// 收线程（析构会调一次；`MainWindow` 收尾时也调一次）。
     void shutdown();
+    bool ownsDownloadTask(quint64 id) const;
+    bool canCancelDownloadTask(quint64 id) const;
+    bool cancelDownloadTask(quint64 id);
 
 private:
     // ---------- 附魔顺序助手 ----------
@@ -96,6 +104,7 @@ private:
     QWidget *m_pageParent = nullptr;
     Host m_host;
     ToolboxPage *m_page = nullptr;
+    DirectDownloadController *m_directDownload = nullptr;
     ServerPing::Pinger *m_pinger = nullptr;
 
     /// 哈希那一趟的线程（`QThread::create` 那种，和 `IntegrityController` 同一套做法）。
