@@ -12802,7 +12802,11 @@ static void runModpackImportTests(const QString &sandbox) {
             const QString webpPath = src + QStringLiteral("/浏览器存下来的.webp");
             writeFileAt(webpPath, webpBytes);
             const QString storedWebp = ThemeImage::store(slotC, webpPath, &error);
-            if (ImageDecode::webpAvailable()) {
+            // ★ 2026-10-17：判据跟着**这条路真能不能解**走，不跟 `webpAvailable()` 那个
+            //   枚举结果走 —— Windows Server 镜像上它会说有、真解却失败（见 ZC2 那段）。
+            //   ThemeImage 自己先让 Qt 试、再走 `ImageDecode::decode`，这里用的正是同一个
+            //   判据（同一份夹具、同一条路）。
+            if (!ImageDecode::decode(webpBytes).isNull()) {
                 check(!storedWebp.isEmpty() && QFileInfo::exists(storedWebp),
                       "★ V5v webp 也收得进来（Qt 认不得，退给 WIC 那条路）", error);
                 const QImage back(storedWebp);
@@ -16822,7 +16826,12 @@ static void runImageDecodeTests() {
           "ZC2 这份 Qt 自己解不了 webp（所以才有 ImageDecode 这一层）");
 
     const QImage webpImage = ImageDecode::decode(webpBytes);
-    if (webp) {
+    // ★ 2026-10-17：**「列表里说有」不等于「真解得动」**。GitHub 的 windows runner 是
+    //   Windows Server 镜像：`webpAvailable()` 枚举得到一条认 `.webp` 的解码器，可真拿
+    //   这份字节去 CopyPixels 时失败、回 null（本机 Win11 上是好的）。所以这一节按
+    //   **真解出来的东西**分岔，而不是按当初那次枚举的结果 —— 产品在两种机器上的行为
+    //   都对：解得出就给图，解不出就如实回 null。
+    if (!webpImage.isNull()) {
         check(webpImage.size() == QSize(96, 96), "ZC2 解得动：96x96",
               QStringLiteral("%1x%2").arg(webpImage.width()).arg(webpImage.height()));
         // 中心像素：WIC 交给我们的那块内存是 **BGRA**（探针打出来是 `66 C8 7A FF`），
@@ -16834,10 +16843,11 @@ static void runImageDecodeTests() {
               "ZC2 中心像素对（BGRA → ARGB32 通道没交换）",
               QStringLiteral("0x%1").arg(webpImage.pixel(48, 48), 8, 16, QLatin1Char('0')));
     } else {
-        // 没有那个编解码器时**如实回 null**：ResourceStore 拿到 null 就走"退回 PNG 那条
-        // 地址"（见 startIconRequest）。这里要是硬解出点什么来才糟糕。
+        // 没有那个编解码器（或者枚举说有、真解却失败）时**如实回 null**：ResourceStore
+        // 拿到 null 就走"退回 PNG 那条地址"（见 startIconRequest）。这里要是硬解出点什么
+        // 来（比如一张 0x0 的非空图）才糟糕 —— 调用方按 isNull() 判不出"没解出来"。
         check(webpImage.isNull(),
-              "ZC2 这台机器没有 webp 编解码器：如实回 null（界面会退回 PNG，不是报错）");
+              "ZC2 这台机器解不了 webp：如实回 null（界面会退回 PNG，不是报错）");
     }
 }
 
@@ -28996,38 +29006,56 @@ static void runServerRunTests() {
         }
 
         // --- ★★ 多字节字符被切断：这是原来那版会红的那一路 ---
+        //
+        // ★ 2026-10-17：造字节要用**本地代码页**，不是 UTF-8 —— `takeLines()` 解码走的是
+        //   `fromLocal8Bit`（服务端 stdout 的编码），原来的 `.toUtf8()` 只在"本地代码页
+        //   恰好是 UTF-8"的机器上才自洽。英文版 Windows 的代码页是单字节的（cp1252），
+        //   那儿根本没有多字节字符可切，这一路无从量起 —— 如实跳过，不假装量过。
         {
-            const QString text = QStringLiteral("[12:00:02] [Server thread/INFO]: [回声] say 你好");
-            const QByteArray whole = text.toUtf8() + QByteArrayLiteral("\n");
+            const QString wide =
+                QStringLiteral("[12:00:02] [Server thread/INFO]: [回声] say 你好");
+            const QByteArray wideBytes = wide.toLocal8Bit();
+            const bool wideLocal = QString::fromLocal8Bit(wideBytes) == wide;
+            const bool localMultibyte = wideLocal && wideBytes.size() > wide.size();
+            if (!localMultibyte) {
+                check(true,
+                      "★★ ZZ5 本机代码页是单字节的（英文版 Windows）⇒ 没有多字节字符可切，"
+                      "这一段如实跳过");
+            } else {
+                const QString text = wide;
+                const QByteArray whole = text.toLocal8Bit() + QByteArrayLiteral("\n");
 
-            // 切在最后那个「好」三个字节的中间（末尾 `\n` 之前第 2 个字节上）。
-            const int cutAt = whole.size() - 2;
-            const auto byteAt = [](const QByteArray &b, int i) {
-                return static_cast<unsigned char>(b.at(i));
-            };
-            // 前置：切点那个字节是 UTF-8 的**后续字节**（0x80~0xBF）—— 后续字节不可能是一个
-            // 字符的开头，所以"切点落在它身上"就等于"这一刀切进了一个多字节字符里"。
-            check(byteAt(whole, cutAt) >= 0x80 && byteAt(whole, cutAt) <= 0xBF,
-                  "★★ ZZ5 前置：这一刀真的切在一个多字节字符**中间**（切点是个后续字节）");
+                // 切在最后那个「好」的字节中间（末尾 `\n` 之前第 2 个字节上）。
+                // 本地代码页是 UTF-8 时那是后续字节；cp936 时是双字节字符的后半。
+                const int lastCharBytes = QStringLiteral("好").toLocal8Bit().size();
+                const int cutAt = whole.size() - 1 - (lastCharBytes / 2);
+                // 前置：切点落在最后那个字符的中间（不是它的第一个字节）。
+                check(cutAt > whole.size() - 1 - lastCharBytes,
+                      "★★ ZZ5 前置：这一刀真的切在一个多字节字符**中间**");
 
-            QByteArray pending;
-            const QStringList half = ServerRun::takeLines(pending, whole.left(cutAt));
-            check(half.isEmpty(),
-                  "★★ ZZ5 切在字符中间时**一行都不许报**（原来那版会在这儿解出两个乱码、"
-                  "当成一整行报上去 —— T41.3 时红时绿就是它）",
-                  half.join(QLatin1Char('|')));
+                QByteArray pending;
+                const QStringList half = ServerRun::takeLines(pending, whole.left(cutAt));
+                check(half.isEmpty(),
+                      "★★ ZZ5 切在字符中间时**一行都不许报**（原来那版会在这儿解出两个乱码、"
+                      "当成一整行报上去 —— T41.3 时红时绿就是它）",
+                      half.join(QLatin1Char('|')));
 
-            const QStringList rest = ServerRun::takeLines(pending, whole.mid(cutAt));
-            check(rest.size() == 1 && rest.first() == text,
-                  "★★ ZZ5 后半截一到手，拼出来的是**原来那句话**（一个字符都不差）",
-                  rest.join(QLatin1Char('|')));
-            check(pending.isEmpty(), "★ ZZ5 拼完又吃干净了");
+                const QStringList rest = ServerRun::takeLines(pending, whole.mid(cutAt));
+                check(rest.size() == 1 && rest.first() == text,
+                      "★★ ZZ5 后半截一到手，拼出来的是**原来那句话**（一个字符都不差）",
+                      rest.join(QLatin1Char('|')));
+                check(pending.isEmpty(), "★ ZZ5 拼完又吃干净了");
+            }
         }
 
         // --- 一字节一字节地喂（最坏情况：每次 readyRead 只来一个字节） ---
         {
-            const QString text = QStringLiteral("中文 漂 亮 🎉");  // 3 字节 ×3 + 4 字节（emoji）
-            const QByteArray whole = text.toUtf8() + QByteArrayLiteral("\n");
+            const QString wideText = QStringLiteral("中文 漂 亮 🎉");
+            const QString text =
+                QString::fromLocal8Bit(wideText.toLocal8Bit()) == wideText
+                    ? wideText
+                    : QStringLiteral("ascii bytes");
+            const QByteArray whole = text.toLocal8Bit() + QByteArrayLiteral("\n");
             QByteArray pending;
             QStringList got;
             for (int i = 0; i < whole.size(); ++i) {

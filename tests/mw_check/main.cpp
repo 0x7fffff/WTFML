@@ -16966,10 +16966,14 @@ static void runServerProcessTests() {
                 ? QStringLiteral("say 你好")
                 : QStringLiteral("say hello");
         check(process.sendCommand(echoCommand), "T41.3 那一行写出去了");
+        // ★ 2026-10-17：假服务端那句回声标记用的是 **ASCII**（`[echo]`）。它原来写的是
+        //   `[回声]`，而 `--fake-server` 那一支是 `fprintf` 的窄字符串（按编译期执行字符集
+        //   写出去），`ServerProcess` 那一侧又按**系统代码页**解码 —— 英文版 Windows 上
+        //   两边一对不上，红的却是"换行补上了没有"这条完全无关的判据。
         const bool echoed = pumpUntil(
             [&process, &echoCommand] {
                 for (const QString &line : process.logLines()) {
-                    if (line.contains(QStringLiteral("[回声] ") + echoCommand)) {
+                    if (line.contains(QStringLiteral("[echo] ") + echoCommand)) {
                         return true;
                     }
                 }
@@ -17826,7 +17830,9 @@ int main(int argc, char *argv[]) {
                 std::fflush(stdout);
                 return 0;
             }
-            std::fprintf(stdout, "[12:00:02] [Server thread/INFO]: [回声] %s\n", line.c_str());
+            // ASCII 标记：见 T41.3 那段 —— 窄字符串字面量按执行字符集写、对面按系统
+            // 代码页读，在英文版 Windows 上对不上。
+            std::fprintf(stdout, "[12:00:02] [Server thread/INFO]: [echo] %s\n", line.c_str());
             std::fflush(stdout);
         }
         // stdin 关了（父进程那一头收摊了）：当作被要求收工 —— 不许转在那儿把 exe 锁住。
