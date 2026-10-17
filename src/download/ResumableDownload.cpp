@@ -195,7 +195,9 @@ void ResumableDownload::probe(int attempt) {
             return;
         }
         if (code != QNetworkReply::NoError) {
-            const int delay = DownloadRetryPolicy::transient(code, status) ? DownloadRetryPolicy::delayMs(attempt, retryAfter) : -1;
+            const int delay = DownloadRetryPolicy::transientReply(reply)
+                                  ? DownloadRetryPolicy::delayMs(attempt, retryAfter)
+                                  : -1;
             if (delay >= 0) {
                 if (DownloadDiag::enabled()) {
                     DownloadDiag::line(QStringLiteral("probe transient retry attempt=%1 delay=%2ms "

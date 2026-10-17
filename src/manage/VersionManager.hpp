@@ -810,11 +810,13 @@ public:
     /// Forge / NeoForge 安装器的命令行（**纯函数**，就是为了能钉住 `--mirror` 那一条）。
     /// @param installerPath 安装器 jar 在盘上的路径。
     /// @param targetDir `--installClient` 后面那个目录。
-    /// @param useMirror 镜像源模式 —— 决定要不要给 `--mirror`。
+    /// @param mavenRoot `--mirror` 后面那个根（镜像模式 = BMCLAPI，官方模式 = 加载器自己的
+    ///        官方 maven 根）。空串 = 这一条不给。
     /// @param supportsMirror 探到安装器认不认 `--mirror`（见 parseInstallerHelp）。老安装器
     ///        不认它，喂过去就是当场报错退出，所以探到不认就**不给**。
     static QStringList forgeInstallerArguments(const QString &installerPath,
-                                               const QString &targetDir, bool useMirror,
+                                               const QString &targetDir,
+                                               const QString &mavenRoot,
                                                bool supportsMirror = true);
 
     /// 一个安装器的命令行开关认到什么程度（跑一次 `--help` 探出来的）。

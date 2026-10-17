@@ -2,7 +2,9 @@
 #include <QObject>
 #include <QPointer>
 #include <QElapsedTimer>
+#include <QPair>
 #include <QSet>
+#include <QVector>
 #include "tasks/TaskId.hpp"
 #include "download/DirectDownloadRequest.hpp"
 
@@ -33,6 +35,7 @@ private:
     bool m_running = false;
     QString m_path;
     QElapsedTimer m_rateClock;
-    qint64 m_lastBytes = 0;
+    /// 最近五秒的 (毫秒, 已完成字节) 采样，用来算稳定得多的预计剩余时间（见 .cpp 里那条 ★）。
+    QVector<QPair<qint64, qint64>> m_rateSamples;
     QString m_status;
 };

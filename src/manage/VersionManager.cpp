@@ -91,6 +91,15 @@ constexpr int kInstallerProbeTimeoutMs = 60 * 1000;
 /// 折中是：一行都不逐条转，但每 20 秒报一次"还在跑 + 它最后打的那一行"。
 constexpr int kInstallerHeartbeatSeconds = 20;
 
+/// 安装器连续这么久**一个字节都没往外打**，就当它卡在一条死连接上了：杀掉重起一次。
+///
+/// 依据（2026-10-17 的加载器矩阵）：Forge 1.20.1 / 47.4.0 的安装器在 `DOWNLOAD_MOJMAPS`
+/// 那一步一声不吭停了 580 秒（最后一行永远是 `Skip: false`），而同一个映射地址用 curl
+/// 4.5 秒就拿完 —— Java 那边是一条既不超时也不报错的死连接（`setTransferTimeout` 那套
+/// 只管我们自己的 QNetworkReply，管不到安装器内部的 HttpURLConnection）。安装器每下一次
+/// 库、每跑一个 processor 都会先打一行，所以静默三分钟是"卡住"而不是"在慢慢算"。
+constexpr int kInstallerStallTimeoutMs = 3 * 60 * 1000;
+
 /// 安装器输出的尾巴留多少字节。失败时要报"卡在哪一行"，但没必要把几万行都攥在内存里。
 constexpr int kInstallerOutputKeepBytes = 64 * 1024;
 
@@ -1741,7 +1750,12 @@ void VersionManager::installLoaderVersion(const QString &gameVersion, LoaderKind
     }
 
     m_loaderInstall = LoaderInstall();
-    if (installerProcess) installerProcess->setProperty("wtfmlCertificateRetried", false);
+    if (installerProcess) {
+        installerProcess->setProperty("wtfmlCertificateRetried", false);
+        // 卡死重起只给一次（见 kInstallerStallTimeoutMs）；这两个计数每次新安装都从零开始。
+        installerProcess->setProperty("wtfmlStallRestarts", 0);
+        installerProcess->setProperty("wtfmlStallRestartPending", false);
+    }
     m_loaderInstall.kind = kind;
     m_loaderInstall.gameVersion = gameVersion;
     m_loaderInstall.loaderName = loaderDisplayName(kind);
@@ -2210,19 +2224,24 @@ VersionManager::InstallerOptions VersionManager::parseInstallerHelp(const QStrin
 }
 
 QStringList VersionManager::forgeInstallerArguments(const QString &installerPath,
-                                                    const QString &targetDir, bool useMirror,
+                                                    const QString &targetDir,
+                                                    const QString &mavenRoot,
                                                     bool supportsMirror) {
     // `--installClient` 后面那个目录**必须**给：不给的话安装器会落到 user.home/.minecraft
     // （这台机器上是 C:\Users\User\.minecraft），装到一个用户根本不知道的地方去。
     QStringList args{QStringLiteral("-jar"), installerPath, QStringLiteral("--installClient"),
                      targetDir};
-    // 镜像模式下把安装器**自己**那条下载路也拨到镜像上。它的默认行为是去问 Forge 的镜像
-    // 列表、挑一个第三方镜像（本机上是 creeperhost），实测慢一倍：48 个库 61 秒 vs 30 秒。
+    // 把安装器**自己**那条下载路钉到一个明确的根上。不给它这个参数时它不去官方 maven，
+    // 而是按内置的第三方镜像列表挑（本机挑中 creeperhost）：实测慢一倍（48 个库 61 秒 vs
+    // 30 秒），而且那条连接一坏它就把整次安装判死 —— 2026-10-17 的 Forge 1.20.1 就是这样
+    // 死在 `org.ow2.asm:asm:9.6` 上的。所以**两种源模式都要给**：
+    //   * 镜像模式 → BMCLAPI 的 /maven/；
+    //   * 官方模式 → 加载器自己的官方 maven 根（见 LoaderMeta::forgeMavenRoot() 那一节）。
     // 它只对库生效 —— 原版那几个库（libraries.minecraft.net）它照旧走自己那条路。
-    // 探到它不认 `--mirror` 就**不能给**：老安装器（joptsimple）把不认识的选项当致命错误，
+    // 探到它不认 `--mirror`（老安装器）就**不能给**：joptsimple 把不认识的选项当致命错误，
     // 当场退出码 1。宁可这一条路慢一点，也不能让整个安装死在"多给了一个参数"上。
-    if (useMirror && supportsMirror) {
-        args << QStringLiteral("--mirror") << DownloadManager::mirrorMavenRootUrl();
+    if (!mavenRoot.isEmpty() && supportsMirror) {
+        args << QStringLiteral("--mirror") << mavenRoot;
     }
     return args;
 }
@@ -2332,6 +2351,7 @@ void VersionManager::probeInstallerOptions() {
     // 里写一个 `<jar 名>.log`，扔在缓存目录里比扔进用户的游戏目录干净。
     installerProcess->setWorkingDirectory(
         QFileInfo(m_loaderInstall.installerPath).absolutePath());
+    installerProcess->setProperty("wtfmlLastOutputMs", QDateTime::currentMSecsSinceEpoch());
     installerProcess->start();
     installerTimer->start();
 }
@@ -2582,16 +2602,23 @@ void VersionManager::startInstallerProcess() {
                                         QStringLiteral("optifine.Installer")});
     } else {
         // 和原版启动器一样的调用方式。命令行本体在 forgeInstallerArguments() 里（是个纯
-        // 函数，`--mirror` 那一条就是靠它被钉住的，见 verify 的 V8）。
+        // 函数，`--mirror` 那一条就是靠它被钉住的，见 verify 的 V6c）。
         // 传的是 mirrorPreferred() 而不是 useMirror()：镜像正被降级时**不能**再把安装器
         // 拨到它那边去 —— 降级的判据是"这条链子慢到 10 秒给不出 64 KB"，和走的是哪条
         // 路由无关（maven 那一支实测快，但真慢起来也不该硬塞）。
+        // 但**官方模式不再是"不给 --mirror"**：不给它就会去 creeperhost（见函数里那条 ★）。
+        const QString mavenRoot =
+            downloadManager->mirrorPreferred()
+                ? DownloadManager::mirrorMavenRootUrl()
+                : (m_loaderInstall.kind == LoaderKind::NeoForge ? LoaderMeta::neoForgeMavenRoot()
+                                                                : LoaderMeta::forgeMavenRoot());
         installerProcess->setArguments(forgeInstallerArguments(
-            m_loaderInstall.installerPath, m_installerTargetDir,
-            downloadManager->mirrorPreferred(), m_installerOptions.supportsMirror));
+            m_loaderInstall.installerPath, m_installerTargetDir, mavenRoot,
+            m_installerOptions.supportsMirror));
     }
     installerProcess->setProcessEnvironment(env);
     installerProcess->setWorkingDirectory(m_installerTargetDir);
+    installerProcess->setProperty("wtfmlLastOutputMs", QDateTime::currentMSecsSinceEpoch());
     installerProcess->start();
     installerTimer->start();
 }
@@ -2608,8 +2635,15 @@ void VersionManager::onInstallerOutput() {
     QByteArray *sink = m_loaderInstall.phase == LoaderInstall::Phase::ProbingInstallerOptions
                            ? &m_probeOutput
                            : &m_installerOutput;
-    *sink += installerProcess->readAllStandardOutput();
-    *sink += installerProcess->readAllStandardError();
+    const QByteArray standardOutput = installerProcess->readAllStandardOutput();
+    const QByteArray standardError = installerProcess->readAllStandardError();
+    if (!standardOutput.isEmpty() || !standardError.isEmpty()) {
+        // 卡死看门狗（onInstallerTick）就问这一个时刻：有字节出来 = 它还活着。
+        installerProcess->setProperty("wtfmlLastOutputMs",
+                                      QDateTime::currentMSecsSinceEpoch());
+    }
+    *sink += standardOutput;
+    *sink += standardError;
     if (sink->size() > kInstallerOutputKeepBytes) {
         *sink = sink->right(kInstallerOutputKeepBytes);
     }
@@ -2640,7 +2674,39 @@ void VersionManager::onInstallerTick() {
     if (m_loaderInstall.phase != LoaderInstall::Phase::RunningInstaller) {
         return;
     }
-    const qint64 elapsed = QDateTime::currentMSecsSinceEpoch() - m_installerStartedAt;
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    const qint64 elapsed = now - m_installerStartedAt;
+
+    // 先看"还活不活"，再看"跑了多久"：前者是真正的卡死（死连接），后者只是慢。
+    const qint64 lastOutput = installerProcess->property("wtfmlLastOutputMs").toLongLong();
+    const qint64 silentMs = lastOutput > 0 ? now - lastOutput : 0;
+    if (silentMs >= kInstallerStallTimeoutMs) {
+        const QString last = installerLastOutputLine();
+        const int restarts = installerProcess->property("wtfmlStallRestarts").toInt();
+        if (restarts < 1) {
+            installerProcess->setProperty("wtfmlStallRestarts", restarts + 1);
+            installerProcess->setProperty("wtfmlStallRestartPending", true);
+            qWarning() << "Installer produced no output for" << silentMs / 1000
+                       << "seconds; restarting it once. Last line:" << last;
+            emit loaderInstallMessage(
+                tr("%1 的安装器已经 %2 秒没有任何输出，像是卡在一条死连接上了。"
+                   "把它停掉重起一次（已经下好的库不会重下）...")
+                    .arg(m_loaderInstall.loaderName)
+                    .arg(silentMs / 1000));
+            installerTimer->stop();
+            installerProcess->kill();
+        } else {
+            abortInstaller(tr("%1 的安装器连续 %2 秒没有任何输出；重起一次之后还是这样，就先停掉了。\n"
+                              "它最后打出来的是：%3\n"
+                              "多半是网络（安装器自己那条连接）卡住了，过一会儿重试；"
+                              "一直这样就把日志发来。")
+                               .arg(m_loaderInstall.loaderName)
+                               .arg(silentMs / 1000)
+                               .arg(last));
+        }
+        return;
+    }
+
     if (elapsed >= kInstallerTimeoutMs) {
         abortInstaller(tr("%1 的安装器跑了 %2 分钟还没结束，已经把它停掉了。\n"
                           "它最后打出来的是：%3\n"
@@ -2715,6 +2781,16 @@ void VersionManager::onInstallerFinished(int exitCode, bool crashed) {
     }
     // 超时那一路已经收过尾了（见 abortInstaller）：这里只认还走在 RunningInstaller 上的。
     if (m_loaderInstall.phase != LoaderInstall::Phase::RunningInstaller) {
+        return;
+    }
+    // 卡死看门狗杀掉的那一发**不算失败**：重起安装器，已经下好的库它自己会认。
+    if (installerProcess->property("wtfmlStallRestartPending").toBool()) {
+        installerProcess->setProperty("wtfmlStallRestartPending", false);
+        if (installerTimer != nullptr) {
+            installerTimer->stop();
+        }
+        onInstallerOutput();  // 被杀之前最后那点输出也读干净
+        deferLoaderStep(LoaderInstall::Phase::RunningInstaller, [this] { runInstaller(); });
         return;
     }
     if (installerTimer != nullptr) {

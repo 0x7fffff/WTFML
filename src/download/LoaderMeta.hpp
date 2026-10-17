@@ -445,6 +445,19 @@ inline QString forgeInstallerUrlAlternate(const QString &gameVersion,
         .arg(full, gameVersion);
 }
 
+/// 安装器自己那条 maven 下载路的**官方**根（喂给 `--mirror`）。
+///
+/// NOTE: 2026-10-17 的加载器矩阵：Forge 1.20.1 的安装器在不给 `--mirror` 时**不是**去官方
+///       maven，而是按它内置的第三方镜像列表挑（本机挑中 creeperhost），一旦那条连接出问题，
+///       它就把整次安装判死（`These libraries failed to download. Try again. org.ow2.asm:asm:9.6`）。
+///       这两条官方根都实测认 maven central 的坐标（`org/ow2/asm/...`、`trove/...` 都是 206），
+///       原版库（libraries.minecraft.net）照旧走它自己的路、不受这个参数影响。
+///       ★ 结尾的斜杠是行为的一部分：安装器直接拿它拼相对路径，少一个斜杠就变成 `...netorg/...`。
+inline QString forgeMavenRoot() { return QStringLiteral("https://maven.minecraftforge.net/"); }
+inline QString neoForgeMavenRoot() {
+    return QStringLiteral("https://maven.neoforged.net/releases/");
+}
+
 /// Forge 装出来的版本目录名。
 ///
 /// 和 Fabric 那边一个道理：这个名字**不是我们发明的**，是安装器自己写进 launcher_profiles

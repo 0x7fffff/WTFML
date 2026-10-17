@@ -17,6 +17,34 @@ inline bool transient(QNetworkReply::NetworkError error, int status) {
            error == QNetworkReply::ProxyConnectionClosedError || error == QNetworkReply::ProxyTimeoutError ||
            error == QNetworkReply::ProtocolFailure; // HTTP/2 连接中断也会以协议错误返回。
 }
+/// 这一次 SSL 握手失败是不是"换一条连接再试一次就可能好"的那一类。
+///
+/// ★ 2026-10-17：Fabric 1.20.1 的整段资源补齐被**一个** 10 KB 的资源对象打断，错误是
+///   `wrong version number`（一个本来该是 TLS 的连接回了一段明文 —— 中间设备 / 被复用的
+///   死连接都会长这样）。它不是证书判断失败（不是过期、主机名不对、自签名），重试一次
+///   大概率就换到一条正常连接；而真正的证书问题重试一万次也一样，所以**不在这一档**。
+inline bool sslHandshakeTransient(const QByteArray &errorString) {
+    const QByteArray text = errorString.toLower();
+    for (const char *hint : {"wrong version number", "unexpected eof", "unexpected message",
+                             "connection reset", "connection closed"}) {
+        if (text.contains(hint)) return true;
+    }
+    return false;
+}
+
+/// 带回复的版本：`transient()` 管不到 SSL 握手，这里补上上面那一档。
+///
+/// 为什么不直接把 SslHandshakeFailedError 塞进 `transient()`：那个函数是"按错误码"的
+/// 判据，把证书失败也一并变成可重试，等于悄悄放宽了一条安全边界（verify 的 V6 那一带
+/// 钉着 `transient(SslHandshakeFailedError, 0) == false`）。
+inline bool transientReply(const QNetworkReply *reply) {
+    if (reply == nullptr) return false;
+    const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    if (transient(reply->error(), status)) return true;
+    return reply->error() == QNetworkReply::SslHandshakeFailedError &&
+           sslHandshakeTransient(reply->errorString().toUtf8());
+}
+
 inline int delayMs(int attempts, const QByteArray &retryAfter) {
     if (attempts >= 3) return -1;
     bool ok = false;

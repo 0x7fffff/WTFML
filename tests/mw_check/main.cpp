@@ -18105,6 +18105,17 @@ int main(int argc, char *argv[]) {
                    !DownloadRetryPolicy::transient(QNetworkReply::SslHandshakeFailedError, 0) &&
                    DownloadRetryPolicy::delayMs(3, {}) == -1 && DownloadRetryPolicy::delayMs(0, "999999999") == 60000,
                "policy retries weak-network failures, caps Retry-After and excludes cancel/TLS errors");
+        // 握手**没做完**（明文回到 TLS 端口 / 连接被掐）换一条连接就可能好；证书判断失败
+        // 一万次也一样 —— 这两档必须分开（2026-10-17 一个 wrong version number 打断整段安装）。
+        expect(DownloadRetryPolicy::sslHandshakeTransient(
+                   QByteArrayLiteral("SSL handshake failed: error:0A00010B:SSL routines::wrong version number")) &&
+                   DownloadRetryPolicy::sslHandshakeTransient(QByteArrayLiteral("unexpected eof while reading")) &&
+                   !DownloadRetryPolicy::sslHandshakeTransient(
+                       QByteArrayLiteral("The certificate has expired")) &&
+                   !DownloadRetryPolicy::sslHandshakeTransient(
+                       QByteArrayLiteral("The host name did not match any of the valid hosts")) &&
+                   !DownloadRetryPolicy::transient(QNetworkReply::SslHandshakeFailedError, 0),
+               "retry policy retries aborted TLS handshakes but never certificate verdicts");
         expect(InstallerFailure::certificateFailure(QStringLiteral("sun.security.validator.ValidatorException: PKIX path building failed")) &&
                    InstallerFailure::certificateFailure(QStringLiteral("Failed to validate certificates for https://launchermeta.mojang.com/")) &&
                    !InstallerFailure::certificateFailure(QStringLiteral("HTTP 404: not found")),

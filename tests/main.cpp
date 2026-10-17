@@ -6453,28 +6453,46 @@ static void runLoaderInstallTests() {
               "V6b 根地址结尾必须有斜杠");
     }
 
-    // --- V6c. 安装器命令行（--mirror 是唯一一条"拨到镜像"的实际动作）-------------
+    // --- V6c. 安装器命令行（--mirror 把安装器自己那条下载路钉到一个明确的根上）-----
+    //
+    // ★ 2026-10-17 改过一次语义：以前官方模式**不给** --mirror，理由是"用户的源选择不许
+    //   被绕过"。但实测（加载器矩阵）不给它的时候安装器去的既不是镜像、也不是官方，而是
+    //   它内置的第三方镜像列表（本机挑中 creeperhost），那条连接一坏整次安装就死在
+    //   `org.ow2.asm:asm:9.6` 上。官方模式下给**官方 maven 根**恰恰是"按用户的选择来"。
     {
         const QString jar = QStringLiteral("C:/cache/installers/forge-1.20.1-47.4.10-installer.jar");
-        const QStringList official =
-            VersionManager::forgeInstallerArguments(jar, QStringLiteral("D:/mc"), false);
-        check(official.size() == 4 && official.at(0) == QStringLiteral("-jar") &&
+        const QStringList official = VersionManager::forgeInstallerArguments(
+            jar, QStringLiteral("D:/mc"), LoaderMeta::forgeMavenRoot());
+        check(official.size() == 6 && official.at(0) == QStringLiteral("-jar") &&
                   official.at(1) == jar && official.at(2) == QStringLiteral("--installClient") &&
-                  official.at(3) == QStringLiteral("D:/mc"),
-              "V6c 官方源：四个参数，--installClient 带着目标目录（不给它，安装器会装到用户主"
-              "目录去）",
+                  official.at(3) == QStringLiteral("D:/mc") &&
+                  official.at(4) == QStringLiteral("--mirror") &&
+                  official.at(5) == LoaderMeta::forgeMavenRoot(),
+              "V6c 官方源：--installClient 带着目标目录，--mirror 钉到官方 maven 根（不给它，"
+              "安装器会去挑第三方镜像）",
               official.join(QLatin1Char(' ')));
-        check(!official.contains(QStringLiteral("--mirror")),
-              "V6c 官方源下**不给** --mirror（用户的源选择不许被绕过）");
+        check(LoaderMeta::forgeMavenRoot().endsWith(QLatin1Char('/')),
+              "V6c 官方 maven 根结尾必须有斜杠（安装器直接拼相对路径）",
+              LoaderMeta::forgeMavenRoot());
 
-        const QStringList mirror =
-            VersionManager::forgeInstallerArguments(jar, QStringLiteral("D:/mc"), true);
+        const QStringList noRoot =
+            VersionManager::forgeInstallerArguments(jar, QStringLiteral("D:/mc"), QString());
+        check(noRoot.size() == 4 && !noRoot.contains(QStringLiteral("--mirror")),
+              "V6c 没有可用根（空串）时不给 --mirror，其余四个参数一字不动",
+              noRoot.join(QLatin1Char(' ')));
+
+        const QStringList mirror = VersionManager::forgeInstallerArguments(
+            jar, QStringLiteral("D:/mc"), DownloadManager::mirrorMavenRootUrl());
         check(mirror.size() == 6 && mirror.at(4) == QStringLiteral("--mirror") &&
                   mirror.at(5) == DownloadManager::mirrorMavenRootUrl(),
-              "V6c 镜像源：多一对 --mirror <根地址>（安装器自己下那十几个库也走它）",
+              "V6c 镜像源：--mirror 指向 BMCLAPI 的 /maven/（安装器自己下那十几个库也走它）",
               mirror.join(QLatin1Char(' ')));
-        check(mirror.mid(0, 4) == official,
+        check(mirror.mid(0, 4) == noRoot,
               "V6c 加不加 --mirror，前面那四个参数一字不差");
+        check(LoaderMeta::neoForgeMavenRoot() ==
+                  QStringLiteral("https://maven.neoforged.net/releases/"),
+              "V6c NeoForge 用自己的官方 maven 根（它的库不在 Forge 那个根上）",
+              LoaderMeta::neoForgeMavenRoot());
     }
 
     // --- V6g. 安装器的命令行开关要**先探一次**（2026-09-22 加）-----------------
@@ -6534,12 +6552,12 @@ static void runLoaderInstallTests() {
         const QString probeJar =
             QStringLiteral("C:/cache/installers/forge-1.8.9-11.15.1.1722-installer.jar");
         const QStringList noMirror = VersionManager::forgeInstallerArguments(
-            probeJar, QStringLiteral("D:/mc"), true, false);
+            probeJar, QStringLiteral("D:/mc"), LoaderMeta::forgeMavenRoot(), false);
         check(noMirror.size() == 4 && !noMirror.contains(QStringLiteral("--mirror")),
               "V6g 探到不认 --mirror -> 那一条就不给（其余四个参数一字不动）",
               noMirror.join(QLatin1Char(' ')));
         const QStringList yesMirror = VersionManager::forgeInstallerArguments(
-            probeJar, QStringLiteral("D:/mc"), true, true);
+            probeJar, QStringLiteral("D:/mc"), LoaderMeta::forgeMavenRoot(), true);
         check(yesMirror.size() == 6,
               "V6g 认 --mirror 时照旧给（老行为不变）", yesMirror.join(QLatin1Char(' ')));
 

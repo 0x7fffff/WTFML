@@ -54,13 +54,28 @@ bool DirectDownloadController::start(const DirectDownloadRequest &request, bool 
     m_activity->tasks()->setCapabilities(m_task, caps);
     m_status = tr("正在连接；进度可在任务中心查看。关闭工具窗口后下载继续。");
     m_activity->tasks()->setDetail(m_task, m_status);
-    m_rateClock.start(); m_lastBytes = 0;
+    m_rateClock.start(); m_rateSamples.clear(); m_rateSamples.append({0, 0});
     if (m_dialog) { m_dialog->setBusy(true); m_dialog->showProgress(0, 0, m_status); }
     connect(m_download, &ResumableDownload::progress, this, [this](qint64 done, qint64 total) {
-        if (!m_running || m_rateClock.elapsed() < 200) return;
-        const qint64 elapsed = m_rateClock.restart();
-        const double speed = double(qMax<qint64>(0, done - m_lastBytes)) * 1000 / qMax<qint64>(1, elapsed);
-        m_lastBytes = done;
+        if (!m_running) return;
+        // ★ 预计剩余按**最近五秒的平均速度**算，不用"上一拍和这一拍"的瞬时速度：分段下载
+        //   天然一跳一跳的（一段收尾、下一段才起来），瞬时速度能差好几倍，剩余时间就跟着乱跳。
+        //   采样每 200 ms 最多一条；淘汰窗口外的旧样本时**至少留两条**，这样 first() 永远是
+        //   窗口起点（或窗口左边最近的那一条），两端之差除以真实跨度就是平均速度。
+        constexpr qint64 kRateWindowMs = 5000;
+        const qint64 now = m_rateClock.elapsed();
+        if (now - m_rateSamples.constLast().first >= 200) {
+            m_rateSamples.append({now, done});
+            while (m_rateSamples.size() > 2 && now - m_rateSamples.at(1).first >= kRateWindowMs)
+                m_rateSamples.removeFirst();
+        }
+        double speed = 0;
+        if (m_rateSamples.size() >= 2) {
+            const auto &first = m_rateSamples.constFirst();
+            const qint64 span = now - first.first;
+            if (span > 0) speed = double(qMax<qint64>(0, done - first.second)) * 1000.0 / double(span);
+        }
+        if (now < 200) return;
         const auto size = [](qint64 bytes) { return QLocale().formattedDataSize(qMax<qint64>(0, bytes)); };
         m_status = tr("%1 / %2 · %3/s").arg(size(done), total > 0 ? size(total) : tr("大小未知"), size(qint64(speed)));
         if (total > done && speed > 0) m_status += tr(" · 预计剩余 %1 秒").arg(qint64((total - done) / speed));

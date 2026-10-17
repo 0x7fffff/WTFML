@@ -1717,8 +1717,7 @@ void DownloadManager::onVersionJsonReplyFinished() {
 
 bool DownloadManager::requeueTransientFailure(QNetworkReply *reply, const QString &destinationPath) {
     if (!replyIsFromCurrentBatch(reply) || m_shuttingDown || m_batchEmitted) return false;
-    const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-    if (!DownloadRetryPolicy::transient(reply->error(), status)) return false;
+    if (!DownloadRetryPolicy::transientReply(reply)) return false;
     if (reply->error() == QNetworkReply::ProtocolFailure) {
         const QString host = reply->request().url().host();
         m_http1OnlyHosts.insert(host);
