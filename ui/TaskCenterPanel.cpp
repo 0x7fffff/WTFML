@@ -59,7 +59,11 @@ constexpr int kCompactWidth = 520;
 constexpr int kWorkspaceMinWidth = 820;
 constexpr int kWorkspaceMaxWidth = 1120;
 constexpr int kRunningWidth = 220;
+/// 右栏宽度的**下限 / 上限**。真正用多少按工作区宽度算（见 `kDetailWidthPercent`）：
+/// 用户 2026-10-17 原话「右侧栏宽度定死了，要不让其能够随窗口大小变化」—— 从前这里是
+/// 一个定死的 260，窗口再宽它也还是 260。
 constexpr int kDetailWidth = 260;
+constexpr int kDetailWidthPercent = 27;
 /// 高度上限 = 窗口可用高度的百分之多少（§3.2：60%）。
 constexpr int kHeightPercent = 72;
 /// 面板和那颗按钮之间那一道缝（和 `BottomBarPanel` 的 `kPanelGap` 同一个值 ——
@@ -86,10 +90,18 @@ void applyMutedFont(QWidget *widget, int pointDelta) {
 }
 
 /// 一行的宽度上限：面板最宽那一档减掉左右边距、再给右边那个百分比/时间留一段。
+///
+/// ★★ 2026-10-17：**水平方向必须是 `Ignored`**。QLabel 的 `minimumSizeHint()` 是整串字的
+///    宽度，`setMaximumWidth()` 只封得住上限、封不住"布局不许把它压得比最小值还窄" ——
+///    于是长文件名会把整行撑宽，行尾那颗「取消」被挤到视口外面（用户原话：「下载的文件名
+///    长度会导致取消按钮位置发生偏移 / 有的时候会被右侧栏挡住」）。Ignored 之后布局只问
+///    "这一格分到多宽"，`ElidedLabel` 自己按拿到的宽度画省略号。
 ElidedLabel *makeTextLabel(QWidget *parent, const QString &objectName) {
     auto *label = new ElidedLabel(parent);
     label->setObjectName(objectName);
     label->setMaximumWidth(kTextMaxWidth);
+    label->setMinimumWidth(0);
+    label->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     label->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     return label;
 }
@@ -358,8 +370,9 @@ TaskCenterPanel::TaskCenterPanel(QWidget *anchor, const TaskCenter::ItemProvider
     runningLayout->setContentsMargins(0, 0, 0, 0);
     runningLayout->setSpacing(kRowSpacing);
     auto *runningHeader = new QHBoxLayout;
-    auto *runningTitle = new QLabel(tr("运行中实例"), m_runningPane);
-    runningHeader->addWidget(runningTitle);
+    m_runningTitle = new QLabel(tr("运行中实例"), m_runningPane);
+    m_runningTitle->setObjectName(QStringLiteral("taskCenterRunningTitle"));
+    runningHeader->addWidget(m_runningTitle);
     runningHeader->addStretch(1);
     m_collapseRunning = new QPushButton(QStringLiteral("‹"), m_runningPane);
     m_collapseRunning->setObjectName(QStringLiteral("taskCenterRunningCollapse"));
@@ -384,17 +397,15 @@ TaskCenterPanel::TaskCenterPanel(QWidget *anchor, const TaskCenter::ItemProvider
     runningLayout->addWidget(m_runningScroll, 1);
     workspace->addWidget(m_runningPane);
 
-    connect(m_collapseRunning, &QPushButton::toggled, this, [this, runningTitle](bool expanded) {
-        Anim::layoutTransition(this, [this, runningTitle, expanded]() {
+    connect(m_collapseRunning, &QPushButton::toggled, this, [this](bool expanded) {
+        // 这一发只可能是**用户亲手点的**：程序改写勾选状态的那几处都先摆了
+        // QSignalBlocker（见 `applyRunningCollapsed()`）—— 不挡的话"没有实例在跑所以默认
+        // 收起"那一发会被当成用户点过，之后实例真跑起来也再不自动展开。
+        m_runningUserToggled = true;
         m_runningCollapsed = !expanded;
-        runningTitle->setVisible(expanded);
-        m_runningScroll->setVisible(!m_runningCollapsed);
-        m_runningPane->setFixedWidth(m_runningCollapsed ? 36 : kRunningWidth);
-        m_collapseRunning->setText(m_runningCollapsed ? QStringLiteral("›") : QStringLiteral("‹"));
-        m_collapseRunning->setToolTip(m_runningCollapsed ? tr("展开运行中实例")
-                                                         : tr("收起运行中实例"));
-        m_collapseRunning->setAccessibleName(m_collapseRunning->toolTip());
-        place(false);
+        Anim::layoutTransition(this, [this]() {
+            applyRunningCollapsed();
+            place(false);
         }, expanded);
     });
 
@@ -482,9 +493,8 @@ void TaskCenterPanel::applyWorkspaceMode() {
     if (!m_compact) {
         m_scroll->show();
         m_detailPane->show();
-        m_detailPane->setMinimumWidth(kDetailWidth);
-        m_detailPane->setMaximumWidth(kDetailWidth);
         m_detailPane->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
+        updateDetailPaneWidth();
         return;
     }
 
@@ -495,6 +505,54 @@ void TaskCenterPanel::applyWorkspaceMode() {
     m_detailPane->setMinimumWidth(0);
     m_detailPane->setMaximumWidth(QWIDGETSIZE_MAX);
     m_detailPane->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+}
+
+void TaskCenterPanel::updateDetailPaneWidth() {
+    if (m_compact) {
+        return;  // 窄屏那一档详情占满整页，宽度归布局管（见 applyWorkspaceMode()）
+    }
+    // 右栏跟着工作区一起长：窄的时候仍是 kDetailWidth，宽了按比例多分一点，
+    // 但**最多一倍**（再宽中列那一排任务就没地方了）。用户 2026-10-17 要的就是这一条。
+    const int wanted = qBound(kDetailWidth, width() * kDetailWidthPercent / 100,
+                              kDetailWidth * 2);
+    if (m_detailPane->minimumWidth() == wanted && m_detailPane->maximumWidth() == wanted) {
+        return;
+    }
+    m_detailPane->setMinimumWidth(wanted);
+    m_detailPane->setMaximumWidth(wanted);
+}
+
+void TaskCenterPanel::applyRunningCollapsed() {
+    if (m_runningTitle != nullptr) {
+        m_runningTitle->setVisible(!m_runningCollapsed);
+    }
+    m_runningScroll->setVisible(!m_runningCollapsed);
+    m_runningPane->setFixedWidth(m_runningCollapsed ? 36 : kRunningWidth);
+    m_collapseRunning->setText(m_runningCollapsed ? QStringLiteral("›") : QStringLiteral("‹"));
+    m_collapseRunning->setToolTip(m_runningCollapsed ? tr("展开运行中实例")
+                                                     : tr("收起运行中实例"));
+    m_collapseRunning->setAccessibleName(m_collapseRunning->toolTip());
+    // 勾选状态要和这一套对齐，但**不能惊动 toggled**：那一发是"用户点了"的专用通道。
+    const bool wantChecked = !m_runningCollapsed;
+    if (m_collapseRunning->isChecked() != wantChecked) {
+        const QSignalBlocker blocker(m_collapseRunning);
+        m_collapseRunning->setChecked(wantChecked);
+    }
+}
+
+void TaskCenterPanel::setRunningCollapsed(bool collapsed, bool animate) {
+    if (m_runningCollapsed == collapsed) {
+        return;
+    }
+    m_runningCollapsed = collapsed;
+    if (animate) {
+        Anim::layoutTransition(this, [this]() {
+            applyRunningCollapsed();
+            place(false);
+        }, !collapsed);
+        return;
+    }
+    applyRunningCollapsed();
 }
 
 void TaskCenterPanel::refresh() {
@@ -550,6 +608,9 @@ void TaskCenterPanel::place(bool animate) {
                                       : qBound(kWorkspaceMinWidth, availableWidth,
                                                kWorkspaceMaxWidth);
     resize(wantedWidth, height());
+    // 上面那句 resize 之后才是"这一块真正有多宽"；右栏按它重新分一次（见
+    // updateDetailPaneWidth() —— 定死 260 的那一版用户 2026-10-17 点名要改）。
+    updateDetailPaneWidth();
 
     const QPoint anchorTopLeft = m_anchor->mapToGlobal(QPoint(0, 0));
     // 水平方向对齐那颗按钮的**中线**：这块面板通常比按钮宽得多，左对齐容易伸到窗口
@@ -746,6 +807,16 @@ void TaskCenterPanel::rebuildRunning() {
     }
     const QList<TaskCenter::RunningItem> rows =
         m_runningProvider ? m_runningProvider() : QList<TaskCenter::RunningItem>();
+    // ★ 左栏的默认姿态（用户 2026-10-17）：「左侧没有实例运行时默认不展开」 —— 没有实例
+    //   在跑的时候，那一栏收成 36 px 的一条（只剩箭头），别让一句「当前没有运行中的实例」
+    //   占着 220 px。实例跑起来之后**自动展开**（同一句判据的另一头）。
+    //   NOTE: 用户亲手点过那颗按钮之后就不再替他做主（`m_runningUserToggled`）——
+    //         他展开就是想看着，下一次 rebuild 又收回去等于跟用户抢。
+    //   NOTE: 这里**不走动效**：rebuild 可能发生在面板还没露头的时候，而且"重画一行"
+    //         顺手展开一下会看着像整块面板跳了。
+    if (!m_runningUserToggled) {
+        setRunningCollapsed(rows.isEmpty(), /*animate=*/false);
+    }
     if (rows.isEmpty()) {
         auto *empty = new QLabel(tr("当前没有运行中的实例"), m_runningContent);
         empty->setWordWrap(true);
@@ -1032,17 +1103,20 @@ void TaskCenterPanel::keyPressEvent(QKeyEvent *event) {
 void TaskCenterPanel::resizeEvent(QResizeEvent *event) {
     QWidget::resizeEvent(event);
     if (!m_embedded) {
+        // 单独弹出来那一档（不是产品现在这条主路）：右栏跟着一起伸缩。
+        updateDetailPaneWidth();
         return;
     }
     const bool compact = event->size().width() < kWorkspaceMinWidth;
-    if (compact == m_compact) {
+    if (compact != m_compact) {
+        m_compact = compact;
+        if (!m_compact) {
+            m_compactDetailOpen = false;
+        }
+        applyWorkspaceMode();
         return;
     }
-    m_compact = compact;
-    if (!m_compact) {
-        m_compactDetailOpen = false;
-    }
-    applyWorkspaceMode();
+    updateDetailPaneWidth();
 }
 
 bool TaskCenterPanel::handleOutsidePress(QMouseEvent *event) {

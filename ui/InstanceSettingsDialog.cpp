@@ -997,6 +997,11 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     //   **不再是一个写死的网格**，而是两段 —— 现在真有东西的摆在外面、其余收在「更多目录…」
     //   里。摆法的那一份唯一出处是 relayoutShortcuts()（这一段只管把控件建出来、按**表序**
     //   收进 m_shortcutButtons）。
+    //
+    // ★★ 2026-10-18：十三颗 → **五颗**（用户原话「实例设置 概览里面 快捷入口重复了」）。
+    //   被拿掉的八颗全在左栏那一列里有同名的一页，或者紧贴着这段的「显示哪些页」勾选表里
+    //   刚列过一遍 —— 见 shortcutTexts() 那段。**这一段一行为此都不用改**：它建几颗、
+    //   怎么收，全听那张表的。
     {
         auto *cell = new QWidget(this);
         auto *column = new QVBoxLayout(cell);
@@ -1005,7 +1010,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         // 记住这两样：relayoutShortcuts() 之后还要拿它们重摆（那时早在别的函数里了）。
         m_shortcutCell = cell;
 
-        // ★ 2026-09-28：这九颗**从"默认尺寸靠左堆"改成这一页统一的那一套**（用户原话
+        // ★ 2026-09-28：这一排**从"默认尺寸靠左堆"改成这一页统一的那一套**（用户原话
         //   「所有按钮做成恒定宽度和高度的，每一行三个，间距适中且左右能充分利用」）——
         //   每颗和「导出…」那几颗一样大，三列铺满整幅。
         //
@@ -1034,7 +1039,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             //   "第 i 颗是第 i 路目录"就还成立，两段怎么挪都不影响它。
             m_shortcutButtons.append(button);
         }
-        // 摆法整份交给它：这会儿 m_shortcutPresentKeys 还是"全都在"，于是十三颗全在外面、
+        // 摆法整份交给它：这会儿 m_shortcutPresentKeys 还是"全都在"，于是这五颗全在外面、
         // 也没有「更多目录」（见 .hpp 里 setFolderPresentKeys() 那条 NOTE）。
         relayoutShortcuts();
         column->addLayout(buttonGrid);
@@ -2576,27 +2581,25 @@ void InstanceSettingsDialog::refreshPageChecks() {
 // ---------- 文件管理那八页（见 .hpp 里 filePageKeys() 上面那一段）----------
 
 QStringList InstanceSettingsDialog::shortcutTexts() {
-    return {tr("版本目录"), tr("存档"),     tr("截图"),       tr("模组"), tr("资源包"),
-            tr("数据包"),   tr("光影包"),   tr("结构/原理图"), tr("日志"),
-            // ★ 2026-10-13（§5.3）后补的四条：**一定要接在最后**，一个已有的下标都不挪
-            //   （验证工程里"第 i 颗是哪一路"是按位置认的）。
-            tr("游戏目录"), tr("录像"),     tr("崩溃报告"),   tr("配置")};
+    // ★★ 2026-10-18：十三颗 → **五颗**。用户原话：「实例设置 概览里面 快捷入口重复了」。
+    //   原来那一排里的 存档 / 截图 / 模组 / 资源包 / 数据包 / 光影包 / 结构/原理图 / 录像
+    //   这八颗，和紧贴着它下面的「显示哪些页」那几格、以及左栏那一列里的同名页**说的
+    //   是同一件事**（"去那一页"）—— 同一串名字在一屏里出现两遍。
+    //   现在只留**左栏那一列里没有入口**的那五路目录（版本目录 / 日志 / 游戏目录 /
+    //   崩溃报告 / 配置）。**以后要加一条，先问左栏有没有对应的一页：有就别加。**
+    return {tr("版本目录"), tr("日志"), tr("游戏目录"), tr("崩溃报告"), tr("配置")};
 }
 
 QStringList InstanceSettingsDialog::shortcutPathKeys() {
     // 和 shortcutTexts() **逐位对齐**。这些键由 MainWindow 从 setInstanceDir() /
     // setFileDirs() 灌进来（它才知道那些目录在哪儿）。
     //
-    // `game` / `replay` / `crash` 三个是 §5.3 后补的，**不走 setFileDirs()**（那一份是
-    // "文件管理那几页"的目录，多三个进去会让那几页认错根）—— MainWindow 把它们**并进**
-    // 灌给 setFileDirs() 的那一份里（多出来的键没人读就是死数据，比改 instanceFileDirs()
-    // 的形状安全得多，那个函数还有一个断言在数它是九条）。
-    return {QStringLiteral("dir"),        QStringLiteral("save"),
-            QStringLiteral("screenshots"), QStringLiteral("mod"),
-            QStringLiteral("resourcepack"), QStringLiteral("datapack"),
-            QStringLiteral("shader"),     QStringLiteral("schematic"),
-            QStringLiteral("logs"),       QStringLiteral("game"),
-            QStringLiteral("replay"),     QStringLiteral("crash"),
+    // `game` / `crash` 两个**不在** `fileDirs()` 那九条里（那一份是"文件管理那几页"的
+    // 目录，多两个进去会让那几页认错根）—— MainWindow 把它们**并进**灌给 setFileDirs()
+    // 的那一份里（多出来的键没人读就是死数据，比改 instanceFileDirs() 的形状安全得多，
+    // 那个函数还有一个断言在数它是九条）。`logs` / `config` 本来就在那九条里。
+    return {QStringLiteral("dir"),        QStringLiteral("logs"),
+            QStringLiteral("game"),       QStringLiteral("crash"),
             QStringLiteral("config")};
 }
 
@@ -2713,8 +2716,12 @@ QString InstanceSettingsDialog::filesHint(const QString &key) {
     //   `MultiSelection`，"按住 Ctrl"已经不是加选的办法），删得正是时候。
     //   剩下这几页的小字照旧，一条没动。
     if (key == QStringLiteral("shortcut")) {
-        return tr("这几颗只是把文件夹打开 —— 看里面有什么、禁用一个、删掉一个，都在左边那一"
-                  "列里对应的那几页（模组 / 资源包 / 光影包…）。下面那几格决定它们露不露出来。");
+        // ★ 2026-10-18：跟着去重一起改的。原来那句在解释"模组 / 资源包 / 光影包…都在左边
+        //   那一列里对应的那几页"—— 而它底下当时正好也摆着那几颗同名按钮，等于把"重复"
+        //   写在了脸上。现在这一排只开**左栏没有入口的那几路目录**。
+        return tr("这几颗只是把文件夹打开 —— 版本目录、日志、游戏目录、崩溃报告、配置，"
+                  "这几样左栏里没有单独的入口。模组 / 资源包 / 光影包…那些都在左栏对应的"
+                  "那几页里，不在这儿重复摆一遍。下面那几格决定左栏那几页露不露出来。");
     }
     if (key == QStringLiteral("schematic")) {
         // ★ 2026-10-10：这一页改名叫「结构/原理图」了（用户原话「那个原理图那个改成

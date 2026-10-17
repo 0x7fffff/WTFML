@@ -498,15 +498,19 @@ public:
         //   这里把它接过来画成**两像素的主题色圆圈**：浅底上用 `AccentShade::Ink`（深绿）、
         //   深底上用 `AccentShade::Hover`（浅绿），判据只有一处（`focusRingColor()`）。
         //
-        //   ★ **条目视图（列表 / 树 / 表格）不接管**：那儿的"当前项"框和选中那一块是两回事，
-        //     基样式画的 `PE_FrameFocusRect` 在 view 上是"焦点在哪个格子上"的提示，换掉它
-        //     等于顺手改了列表的样子（我们的选中色是另画的，见上面那两条原语）。
+        //   ★ **条目视图（列表 / 树 / 表格）不接管、而且是"一笔都不画"**（2026-10-18 改）：
+        //     原来这一支把它们交回基样式，Fusion 就在"当前项"那一格外面套一圈**浅色细框**
+        //     （左边三页的左栏那一列上量到的是 1 px 的 `#BDD9F0` 圆角框）—— 用户原话
+        //     「左栏都会有选中后一个浅浅的灰色框，不要使其出现」。列表这边"现在停在哪儿"
+        //     本来就由我们那套选中底（`selectionFill()` + 左边那根指示条）说清楚了，这一圈
+        //     框是多余的第二层，而且它画在**整格**上、比里面那块内缩的圆角选中块大一圈，
+        //     正是用户说的"框和实际按钮大小不同 ⇒ 难看"。所以直接返回，什么都不画。
         //   ★ `w == nullptr` 时交回去：没有控件就没有"谁拿着焦点"这回事（探针调用的场景）。
         if (pe == PE_FrameFocusRect) {
             if (qobject_cast<const QAbstractButton *>(w) != nullptr &&
                 !w->property("wtfmlKeyboardFocus").toBool()) return;
-            if (w == nullptr || qobject_cast<const QAbstractItemView *>(w) != nullptr ||
-                (opt->state & State_HasFocus) == 0) {
+            if (qobject_cast<const QAbstractItemView *>(w) != nullptr) return;
+            if (w == nullptr || (opt->state & State_HasFocus) == 0) {
                 QProxyStyle::drawPrimitive(pe, opt, p, w);
                 return;
             }

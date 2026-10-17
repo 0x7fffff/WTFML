@@ -5247,8 +5247,10 @@ static void runInstanceFilesPagesTests() {
                 &w, "instanceFileDirs", Qt::DirectConnection,
                 Q_RETURN_ARG(DirMap, dirs), Q_ARG(QString, idV));
             // 九条，不是六条：中间七页各一条（2026-09-27 加了「配置文件」），外加
-            // **截图 / 日志** —— 那两条没有自己的页，是快捷方式那一排里两颗按钮要的
-            // （见 shortcutPathKeys()）。
+            // **截图 / 日志** —— 那两条读的是实例设置里「截图」「日志」那两页
+            // （instanceFileDirs() 那张表一直如此；它们从前也喂过概览那排快捷方式，
+            // 2026-10-18 去重之后那排只用 dir / logs / game / crash / config，
+            // 但这两条仍由那两页要，见 InstancePagesController::fileDirs()）。
             check(got && dirs.size() == 9,
                   "★ T20.1 instanceFileDirs() 给全了九条路径（少一条 = 对应的那一页/那颗按钮"
                   " 安静地看着一个空目录）",
@@ -18232,12 +18234,16 @@ int main(int argc, char *argv[]) {
         app.processEvents();
         auto *toggle = panel.findChild<QPushButton *>(QStringLiteral("taskCenterRunningCollapse"));
         auto *pane = panel.findChild<QWidget *>(QStringLiteral("taskCenterRunningPane"));
-        check(toggle && pane && toggle->isChecked(), "running pane toggle starts expanded");
+        // ★ 2026-10-17 用户原话：「左侧没有实例运行时默认不展开」—— 这一份的外壳运行中
+        //   实例是空的，所以开局就该收成 36 px 的一条（只剩那颗箭头）。
+        check(toggle && pane && !toggle->isChecked() && pane->width() == 36,
+              "running pane starts collapsed when nothing is running");
         if (toggle && pane) {
             for (int i = 0; i < 4; ++i) {
                 toggle->click();
                 app.processEvents();
-                const bool expanded = i % 2 != 0;
+                // 开局是收着的 ⇒ 第一下是**展开**（i == 0），第三下又展开。
+                const bool expanded = i % 2 == 0;
                 check(toggle->isChecked() == expanded && pane->width() == (expanded ? 220 : 36),
                       "toggle selection follows running pane width");
                 check(pane->rect().contains(QRect(toggle->mapTo(pane, QPoint()), toggle->size())),

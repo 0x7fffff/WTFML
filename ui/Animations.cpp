@@ -241,9 +241,18 @@ void dropEffect(QWidget *widget) {
  *
  * 【淡的仍然是"一张定住的图"】
  *
- * 起手照一次（懒照：第一帧真要画的时候才照），之后每一帧都拿那一张 —— 理由和以前
- * 一样（见 `pageAppear()`）：换页那一刻常是"内容还在往里灌"的时候，现照现淡的话
- * 这一发淡的每一帧都不是同一张画面。尺寸变了才重照（第一帧可能还没摆完版）。
+ * 起手照一次，之后每一帧都拿那一张 —— 理由和以前一样（见 `pageAppear()`）：换页那一刻
+ * 常是"内容还在往里灌"的时候，现照现淡的话这一发淡的每一帧都不是同一张画面。尺寸变了
+ * 才重照。
+ *
+ * ★★ 2026-10-17：照那一张从 `paintEvent()` 里挪到了外面（`ensureSnapshot()`，
+ *    `start()` / `setFrame()` 调）。原来写成"懒照：第一帧真要画的时候才照"，可照相是
+ *    `grabSource->grab()` —— 抓的是 host / 顶层窗口，它会把**正在画**的这块幕布也重画
+ *    一遍，Qt 当场报一串 `QWidget::repaint: Recursive repaint detected` +
+ *    `QPainter::begin: Paint device returned engine == 0`（用户桌面版的 log 里那一串就是
+ *    它），那几帧还画不出来、换页第一帧会闪一下。起手这一刻页面已经 `show()` 过、几何
+ *    和布局都落了地（`pageAppear()` 挂在 `currentChanged` 上，而它是 `setCurrentIndex()`
+ *    里同步发的），照出来的和"第一帧"是同一张。
  */
 class PageCurtain : public QWidget {
 public:
@@ -264,6 +273,8 @@ public:
         if (target != nullptr && parentWidget() != nullptr) {
             setGeometry(QRect(target->mapTo(parentWidget(), QPoint(0, 0)), target->size()));
         }
+        // 照这一张**必须**在 paintEvent 外面（理由见类头上 2026-10-17 那一段）。
+        ensureSnapshot();
         show();
         raise();
     }
@@ -272,6 +283,9 @@ public:
     void setFrame(qreal shift, qreal opacity) {
         m_shift = shift;
         m_opacity = opacity;
+        // 目标中间改了尺寸（第一拍迟到、摆版还没落定的那一下）就在这儿补照：每一拍都在
+        // paint 外面，是唯一安全的补照时机。尺寸没变时它只是一句比较，一个像素都不抓。
+        ensureSnapshot();
         update();   // ★ 普通控件，这一句就是"这一帧真的会重画"的唯一出处
     }
 
@@ -293,38 +307,9 @@ protected:
         if (inHost.isEmpty() || inMe.isEmpty()) {
             return;
         }
-        // ★ 「淡的是一张定住的图」：第一帧照一次就定住（尺寸变了才重照）。
-        if (m_snapshot.isNull() || m_snapshotSize != m_target->size()) {
-            // NOTE: 不能直接 `m_target->grab()`：页面本身经常是透明光板，单独抓它时 Qt 会
-            //       用 `QPalette::Window` 补底（Fusion 下就是灰的），而屏幕上真正透出来的是
-            //       父层那张白卡片。动画期间于是会先灰、收掉幕布后才突然变白。
-            //       从 host 的对应区域抓，拿到的才是用户此刻真正看见的合成结果。
-            //       幕布自己可能就在 host 里面，所以照相时让自己一个像素都不画，避免照镜子。
-            //
-            // ★★ 2026-10-12（ui_check ⑬ 那条「透明页面换页时背景从第一帧起就是白的」逮住的）：
-            //   上面那条「从 host 抓」**漏了 host 就是 m_target 的那一路** —— `liftTarget()`
-            //   什么都没抬的时候（页面自己没有滚动区、也不是选项卡，`lift == widget`）幕布的
-            //   父层**就是**要照的那一块，`host->grab()` 于是又回到"抓一张透明光板"：
-            //   Qt 拿 `QPalette::Window` 补底，实测灰 `#808080` 配 `0.72` 的起手浓淡正好是
-            //   屏幕上那块先灰一下再变白。这时往**顶层窗口**的那一片区域抓，合成本身才是对的
-            //   （幕布是目标的**孩子**，它自己那一下照样由 `m_grabbing` 挡着不画）。
-            //   NOTE: 只改这一路 —— host 不是 target 那一路（选项卡 / 滚动区，也是界面上
-            //         真正跑得最多的那一路）一个字节都没动。
-            QWidget *grabSource = host;
-            if (grabSource == m_target) {
-                if (QWidget *top = m_target->window()) {
-                    grabSource = top;
-                }
-            }
-            const QRect inGrab(grabSource == host
-                                   ? inHost
-                                   : QRect(m_target->mapTo(grabSource, QPoint(0, 0)),
-                                           m_target->size()));
-            m_grabbing = true;
-            m_snapshot = grabSource->grab(inGrab);
-            m_snapshotSize = m_target->size();
-            m_grabbing = false;
-        }
+        // ★ 「淡的是一张定住的图」：快照已经由 `ensureSnapshot()` 在 paint 外面照好了。
+        //   这里**绝不**抓图 —— 在这一摞栈上 `grab()` 会把正在画的这块幕布也重画一遍
+        //   （2026-10-17，用户 log 里那一串 recursive repaint 就是它）。
         QPainter painter(this);
         // `setGeometry()` 已经把幕布搬到了 inHost；QPainter 用的是幕布**自己的**坐标，
         // 这里必须从 (0, 0) 画。再用 inHost 会把目标相对父层的偏移重复加一次，幕布左上会
@@ -347,6 +332,52 @@ protected:
     }
 
 private:
+    /// 照那一张"起手定住"的图。**只能在 paintEvent 外面调**（在里面抓 = 抓到自己，
+    /// 见类头上 2026-10-17 那一段）。
+    void ensureSnapshot() {
+        if (m_target == nullptr || parentWidget() == nullptr) {
+            return;
+        }
+        if (!m_snapshot.isNull() && m_snapshotSize == m_target->size()) {
+            return;   // 已经照好了（尺寸也没变），一个字节都不碰。
+        }
+        QWidget *host = parentWidget();
+        const QRect inHost(m_target->mapTo(host, QPoint(0, 0)), m_target->size());
+        if (inHost.isEmpty()) {
+            return;
+        }
+        // NOTE: 不能直接 `m_target->grab()`：页面本身经常是透明光板，单独抓它时 Qt 会
+        //       用 `QPalette::Window` 补底（Fusion 下就是灰的），而屏幕上真正透出来的是
+        //       父层那张白卡片。动画期间于是会先灰、收掉幕布后才突然变白。
+        //       从 host 的对应区域抓，拿到的才是用户此刻真正看见的合成结果。
+        //       幕布自己可能就在 host 里面，所以照相时让自己一个像素都不画，避免照镜子
+        //       （`m_grabbing` 那道早退 —— 抓图会把这块幕布也重画一遍）。
+        //
+        // ★★ 2026-10-12（ui_check ⑬ 那条「透明页面换页时背景从第一帧起就是白的」逮住的）：
+        //   上面那条「从 host 抓」**漏了 host 就是 m_target 的那一路** —— `liftTarget()`
+        //   什么都没抬的时候（页面自己没有滚动区、也不是选项卡，`lift == widget`）幕布的
+        //   父层**就是**要照的那一块，`host->grab()` 于是又回到"抓一张透明光板"：
+        //   Qt 拿 `QPalette::Window` 补底，实测灰 `#808080` 配 `0.72` 的起手浓淡正好是
+        //   屏幕上那块先灰一下再变白。这时往**顶层窗口**的那一片区域抓，合成本身才是对的
+        //   （幕布是目标的**孩子**，它自己那一下照样由 `m_grabbing` 挡着不画）。
+        //   NOTE: 只改这一路 —— host 不是 target 那一路（选项卡 / 滚动区，也是界面上
+        //         真正跑得最多的那一路）一个字节都没动。
+        QWidget *grabSource = host;
+        if (grabSource == m_target) {
+            if (QWidget *top = m_target->window()) {
+                grabSource = top;
+            }
+        }
+        const QRect inGrab(grabSource == host
+                               ? inHost
+                               : QRect(m_target->mapTo(grabSource, QPoint(0, 0)),
+                                       m_target->size()));
+        m_grabbing = true;
+        m_snapshot = grabSource->grab(inGrab);
+        m_snapshotSize = m_target->size();
+        m_grabbing = false;
+    }
+
     QPointer<QWidget> m_target;   ///< 要抬的那一块（照它、也按它的尺寸定位）。
     QPixmap m_snapshot;           ///< 起手照的那一张（定住）。
     QSize m_snapshotSize;

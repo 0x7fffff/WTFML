@@ -643,6 +643,27 @@ void addHint(QWidget *box, const QString &text, QWidget *parent) {
     addDynamicHint(box, text, parent);
 }
 
+/// 下载页页头该不该露着 —— **唯一出处**。
+///
+/// ★ 2026-10-18：用户原话「那个页面顶上的大标题和刷新键不要（点进去就隐藏，外面还
+///   保留）」。「那页」是「下载 → 游戏」里面第二层那页**安装页**（挑加载器、填名字、
+///   按安装）；外面（版本树那一层、以及别的分类）页头照旧露着。
+///
+/// NOTE: 只接收传进来的指针、**不捕获 MainWindowUI 自己** —— 它不是一个 QObject
+///       （见类声明），而这两发 `currentChanged` 的 context 是那两个堆叠页本身。
+///       判据读的是两个堆叠页**此刻**的下标，所以"先翻分类、后翻内层"哪一发先到、
+///       或者中间多来一发，结果都一样。
+void syncDownloadHeaderVisibility(QWidget *header, QStackedWidget *downloadStack,
+                                  QStackedWidget *gameStack) {
+    if (header == nullptr || downloadStack == nullptr || gameStack == nullptr) {
+        return;
+    }
+    const bool onInstallPage =
+        downloadStack->currentIndex() == MainWindowUI::downloadCategoryGameIndex() &&
+        gameStack->currentIndex() == MainWindowUI::downloadGameInstallIndex();
+    header->setVisible(!onInstallPage);
+}
+
 }  // namespace
 
 MainWindowUI::MainWindowUI(QMainWindow *parent) { setupUi(parent); }
@@ -1510,6 +1531,8 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // 「刷新」= 一般性（看一眼 / 重新拉一遍，不是"干这件事"）。
         Theme::markButton(downloadHeaderRefreshButton, Theme::ButtonKind::Neutral);
         download.right.actions->addWidget(downloadHeaderRefreshButton);
+        // 页头那一整块（进安装页时连标题带按钮一起收起来，见 getDownloadHeader() 那段）。
+        downloadHeader = download.right.header;
 
         downloadCategoryList = new QListWidget(download.left.surface);
         downloadCategoryList->setObjectName(downloadCategoryListName());
@@ -1681,6 +1704,31 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         installTop->addStretch(1);
         installLayout->addLayout(installTop);
 
+        // ---- 中间那一层：名称框 + 加载器卡片，**可滚动** ----
+        //
+        // ★ 2026-10-18（用户报「下载页（选择模组加载器的页）那个遮挡」）：这一页原来
+        //   一个能滚的地方都没有。名称框 + 卡片（标题 + 五条加载器）+ 固定底栏加起来
+        //   比正文面高 —— 默认 900×620 的窗口里底下那几条加载器正好长在卡片下沿之外，
+        //   被裁得只剩 Fabric/Forge 两行多一点（截图 `07c-install-page.png` 就是这么
+        //   拍的）；展开一条版本号之后更甚。现在把「名称框 + 卡片」整块塞进这层滚动区，
+        //   顶上那行「← 返回 + 基于哪个原版」和底下那条固定底栏留在外面不动：
+        //   窗口再矮也只是出滚动条，不会再出现画了一半的行。
+        //
+        // NOTE: 这层用的是设置页那几页同一个配方（无边框 + widgetResizable + 横向不滚）
+        //       —— 滚动条仍然贴着正文面右边那条线，和别的页一个规矩。
+        installScroll = new QScrollArea(installPage);
+        installScroll->setObjectName(installScrollName());
+        installScroll->setWidgetResizable(true);
+        installScroll->setFrameShape(QFrame::NoFrame);
+        installScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        auto *installBody = new QWidget(installScroll);
+        installBody->setObjectName(installScrollBodyName());
+        auto *installBodyLayout = new QVBoxLayout(installBody);
+        installBodyLayout->setContentsMargins(0, 0, 0, 0);
+        // 和 installLayout 同一个行距（名称框与卡片之间那 10 px 不变）。
+        installBodyLayout->setSpacing(installLayout->spacing());
+        installLayout->addWidget(installScroll, 1);
+
         // 版本名称：实例的目录名（`versions/<这个名字>`）。默认名、重名提示、名字不合法
         // 那句原因，都在 MainWindow::updateInstallNameHint() 一处刷（界面这边不持有
         // 业务状态：它不知道盘上有哪些目录）。
@@ -1701,7 +1749,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         installNameError = addDynamicErrorHint(nameBox, nameBox);
         installNameError->setObjectName(installNameErrorName());
         installNameError->setVisible(false);
-        installLayout->addWidget(nameBox);
+        installBodyLayout->addWidget(nameBox);
 
         // 加载器：**一棵树**，和上一页的版本树同一个模式（用户原话见头文件里那段）：
         // 顶层五条 = 四个加载器 + 「不装（纯原版）」，点一条展开它底下的版本号，
@@ -1731,7 +1779,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
             loaderTitle->setFont(titleFont);
             loaderLayout->addWidget(loaderTitle);
         }
-        installLayout->addWidget(loaderCard);
+        installBodyLayout->addWidget(loaderCard);
 
         loaderTree = new QTreeWidget(loaderCard);
         loaderTree->setObjectName(loaderTreeName());
@@ -1816,6 +1864,10 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         //       版本号）一件都不在这里做 —— 那是 MainWindow::updateLoaderRows() 的活，
         //       它按"选中了哪个加载器"一处重算。这里只把五条搭出来。
         fitLoaderTreeHeight();
+        // 中间那层滚动区收尾：名称框和卡片都铺完了，内容容器交给它；
+        // 底下那条 stretch 让内容**上对齐**（内容装不满时不会在滚动区里竖直居中）。
+        installBodyLayout->addStretch(1);
+        installScroll->setWidget(installBody);
 
         installButton = new QPushButton(installButtonText(), installPage);
         installButton->setObjectName(installButtonName());
@@ -1830,9 +1882,9 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         //   那条 `border-top`），摆位在**右下角**，和"填完表、按右下角那一颗"这条路上的
         //   直觉一致。
         //
-        // NOTE: 表格仍然是"内容在上、底栏在下"，只是中间不再垫 addStretch() —— 底栏跟着
-        //       内容走（`installLayout` 里最后那一条 stretch 留着，见下面），所以加载器
-        //       展开之后它不会被顶出可视区。
+        // NOTE: 表格仍然是"内容在上、底栏在下"，只是中间不再垫 addStretch() ——
+        //       底栏**钉在页面最底下**（中间那层滚动区吃掉全部剩余高度，见上面那段），
+        //       所以加载器展开多少都不会把它顶出可视区。
         QFont installFont = installButton->font();
         installFont.setPointSize(installFont.pointSize() + installButtonFontStep());
         installButton->setFont(installFont);
@@ -1847,14 +1899,32 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         footerLayout->addStretch(1);
         footerLayout->addWidget(installButton);
         installLayout->addWidget(installFooter);
-        // 底下那一大块空着是**刻意**的：加载器那条展开之后的版本号有多长说不准，
-        // 给按钮留出"余量"，免得它贴着窗口底边。
-        installLayout->addStretch(1);
+        // ★ 2026-10-18：底下那条 stretch 撤了 —— 中间那层滚动区（`installScroll`，撑 1）
+        //   吃掉剩余高度，底栏就钉在页面最底下；原来那一条会把底栏顶在内容正下方，
+        //   内容一矮，底栏就悬在半空，和"固定底栏"这个说法对不上。
         gameStack->addWidget(installPage);
 
         // 第 0 页加在**最前面** —— 下面那个循环按同一个表、同一个顺序往后加，
         // 于是"第 i 个分类 = 第 i 页"这条对应关系成立（验证工程会数一遍两边的条数）。
         downloadStack->addWidget(gamePage);
+
+        // 页头的显隐跟着这两层走（判据见 `syncDownloadHeaderVisibility()` 那段）：
+        //   · 外层翻分类（游戏 / 整合包 / 模组 …）；
+        //   · 内层在「游戏」里翻版本树 / 安装页。
+        // 两条入口都接上，是因为「退回版本树」（`MainWindow::backToVersionTree()`）
+        // 只动内层、不碰外层；从别的分类回到「游戏」又只动外层。只接一条就会漏掉另一半。
+        // NOTE: 两发都只传 `int`，判据自己读两个堆叠页的 currentIndex()，不依赖信号里
+        //       的下标（外面那一发给的是分类下标，里面那一发是层下标，含义不一样）。
+        QObject::connect(downloadStack, &QStackedWidget::currentChanged, downloadStack,
+                         [header = download.right.header, downloadStack = downloadStack,
+                          gameStack = gameStack](int) {
+                             syncDownloadHeaderVisibility(header, downloadStack, gameStack);
+                         });
+        QObject::connect(gameStack, &QStackedWidget::currentChanged, gameStack,
+                         [header = download.right.header, downloadStack = downloadStack,
+                          gameStack = gameStack](int) {
+                             syncDownloadHeaderVisibility(header, downloadStack, gameStack);
+                         });
 
         // ---- 其余几页：一行筛子 + 一棵三层树（资源 → 游戏版本 → 版本号）----
         //
@@ -2087,6 +2157,20 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     QObject::connect(bar, &TitleBar::navRequested, tabWidget, [this](int index) {
         const int sourceIndex = tabWidget->currentIndex();
         const bool reselected = index == sourceIndex;
+        // ★ 2026-10-17 用户原话：「点击上方四大钮的时候收起任务中心，现在的表现是在除了
+        //   展开它的那一页以外点击都没反应（也就是卡页面了）」。
+        //   任务中心是**整页覆盖**那一档：它在自己的选项卡上是摊开的，切到别的选项卡上
+        //   只是"收着"（OverlayHost::parked()），而那一位**还占着覆盖层**。于是：
+        //     · 在别的选项卡上点导航 —— `dismiss()` 对"收着"的页什么都不做（它按设计不
+        //       替用户收看不见的页），任务中心原样占着那一位；
+        //     · 再回到原来那一页 —— 它又摊开，看着像"哪颗都没反应、页面卡住了"。
+        //   所以点导航这一下先把它**收掉**（evict 连"收着"那一档一起收），再照常翻页 /
+        //   dismiss。只认任务中心：别的覆盖页（资源详情之类）仍旧按老规矩停放、切回来还在。
+        //   NOTE: `pageOpen()` 那一条是"**最上面**那一层是页"的意思 —— 页上面压着一句提示
+        //         的时候不在这儿收（那句话是要人回答的，不能因为切个页就替他答"取消"）。
+        if (taskCenterPanel() != nullptr && overlayHost != nullptr && overlayHost->pageOpen()) {
+            overlayHost->evict();
+        }
         // 用户原话：「顶端四个按钮点击以后自动到达对应选项卡的首页（比如说我现在正点开
         // sodium 的下载页面，现在我点击启动选项卡，直接切到那个页面，下载这个"弹窗"自动
         // 收起）」+「在下载页点击 下载（顶上那个，不是下载确认键），那就回到下载页的首页
@@ -4611,9 +4695,15 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     // 但不再把它放进可见布局。右下角改为跨页面的轻量工具箱入口。
     accountButton->hide();
 
-    toolboxButton = new QPushButton(QStringLiteral("工具箱  ︿"), bottomBar);
+    // ★ 2026-10-18（用户）：「右下角工具箱右侧有一小片空白，处理掉（把箭头和文本方向
+    //   调换一下）」——
+    //   · 空白来自**钉死的 112 px**：按钮里的字是左对齐的（`applyBottomBarButtonStyle()`
+    //     那条 `text-align: left`），字后面到按钮右边缘那一截就一直是空的。宽度改成
+    //     跟着内容走（`QSizePolicy::Fixed` 已经能钉住它：这句话是常量，宽度不会随状态跳）；
+    //   · 箭头挪到**文字前面**（原来在字后面，和左边那两颗"整格 + 右端箭头"的排法不同 ——
+    //     这一颗是窄按钮，箭头贴在最前面才不会又带出一截右留白）。
+    toolboxButton = new QPushButton(QStringLiteral("︿  工具箱"), bottomBar);
     toolboxButton->setObjectName(toolboxButtonName());
-    toolboxButton->setFixedWidth(112);
     toolboxButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
     toolboxButton->setCursor(Qt::PointingHandCursor);
     toolboxButton->setToolTip(QStringLiteral("展开或收起工具箱"));
@@ -5048,8 +5138,18 @@ void MainWindowUI::openTaskCenterPanel() {
     }
     // 任务中心是全局覆盖面板；主页实例列表是页面布局状态。两者不同时展开。
     closeHomeInstancePicker();
-    if (taskCenterPanel() != nullptr) {
-        overlayHost->dismiss();
+    if (TaskCenterPanel *panel = taskCenterPanel()) {
+        if (panel->isVisible() || !overlayHost->isOpen()) {
+            overlayHost->dismiss();
+            return;
+        }
+        // ★ 2026-10-17：任务中心开在**别的**选项卡上（收着，看不见）时，底栏这一按原来
+        //   调 `dismiss()` —— 而它按设计不收"收着的页"（见 OverlayHost::closeTopLayer），
+        //   于是这一按看着像"点了没反应"，那一页还占着覆盖层这一位。改成收掉、再在当前
+        //   这一页重新摊开（用户在这一页点任务中心，要的就是这一页的任务中心）。
+        if (overlayHost->evict()) {
+            QTimer::singleShot(0, taskSummaryButton, [this]() { openTaskCenterPanel(); });
+        }
         return;
     }
     if (overlayHost->isOpen()) {

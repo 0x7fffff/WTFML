@@ -774,12 +774,26 @@ int main(int argc, char *argv[]) {
         running.showEmbedded();
         app.processEvents();
         auto *detailPane = running.findChild<QWidget *>(QStringLiteral("taskCenterDetailPane"));
-        expect(detailPane && detailPane->width() == 260, "task center detail pane is compact at 260 pixels");
+        // ★ 2026-10-17 用户要的「右侧栏随窗口大小变化」：宽度 = 工作区宽度的 27%
+        //   （下限 260、上限 520），不再是定死的 260。
+        expect(detailPane && detailPane->width() == 270,
+               "task center detail pane scales with the workspace (27% of 1000)");
+        // 没有实例在跑 ⇒ 左边那一栏默认收起（用户原话：「左侧没有实例运行时默认不展开」）。
+        auto *runningToggle = running.findChild<QPushButton *>(
+            QStringLiteral("taskCenterRunningCollapse"));
+        auto *runningPane = running.findChild<QWidget *>(QStringLiteral("taskCenterRunningPane"));
+        expect(runningToggle && runningPane && !runningToggle->isChecked()
+                   && runningPane->width() == 36,
+               "running pane starts collapsed when nothing is running");
+        running.resize(1400, 500);
+        app.processEvents();
+        expect(detailPane && detailPane->width() == 378,
+               "wider workspace gives the detail pane more room (27% of 1400)");
         running.resize(700, 500);
         app.processEvents();
         running.resize(1000, 500);
         app.processEvents();
-        expect(detailPane && detailPane->width() == 260, "detail width is restored after compact layout");
+        expect(detailPane && detailPane->width() == 270, "detail width is restored after compact layout");
         TaskCenter::RunningItem game;
         game.key = QStringLiteral("session-1");
         game.title = QStringLiteral("Live instance");
@@ -789,11 +803,16 @@ int main(int argc, char *argv[]) {
         app.processEvents();
         expect(running.findChildren<QWidget *>(QStringLiteral("taskCenterRunningRow")).size() == 1,
                "running instance appears without reopening panel");
+        // 有实例跑起来了 ⇒ 同一句判据的另一头：自动展开（用户没亲手点过）。
+        expect(runningToggle && runningToggle->isChecked() && runningPane->width() == 220,
+               "running pane auto-expands when an instance starts");
         runningItems.clear();
         running.requestRefresh();
         app.processEvents();
         expect(running.findChildren<QWidget *>(QStringLiteral("taskCenterRunningRow")).isEmpty(),
                "finished instance disappears without reopening panel");
+        expect(runningToggle && !runningToggle->isChecked() && runningPane->width() == 36,
+               "running pane auto-collapses when the last instance exits");
         running.hide();
         runningItems.append(game);
         running.requestRefresh();
@@ -802,6 +821,42 @@ int main(int argc, char *argv[]) {
         app.processEvents();
         expect(running.findChildren<QWidget *>(QStringLiteral("taskCenterRunningRow")).size() == 1,
                "parked task center resyncs when shown");
+        {
+            // ★ 2026-10-17 用户原话：「下载的文件名长度会导致取消按钮位置发生偏移（有的时候会被
+            //   右侧栏挡住）」。真因：`ElidedLabel` 的 `minimumSizeHint()` 是**整行文字的宽**，
+            //   一行长名字会把那一行顶得比滚动区还宽，右边的「取消」就被裁到视口外面去了。
+            //   判据：① 那一行不比滚动区视口宽；② 行尾那颗「取消」右下角落在面板里面。
+            QList<TaskCenter::Item> longTasks;
+            TaskCenter::Item longItem;
+            longItem.key = QStringLiteral("long");
+            longItem.title = QString(90, QLatin1Char('W')) + QStringLiteral(".jar");
+            longItem.state = TaskCenter::State::Running;
+            longItem.capabilities.cancel = true;
+            longTasks << longItem;
+            TaskCenterPanel longPanel(nullptr, [&longTasks] { return longTasks; }, {},
+                                      {}, {}, {}, nullptr, true);
+            longPanel.setRowActionHandler(
+                [](const QString &, TaskCenter::RowAction) {});
+            longPanel.resize(1000, 500);
+            longPanel.showEmbedded();
+            app.processEvents();
+            auto *longRow =
+                longPanel.findChild<QWidget *>(MainWindowUI::taskCenterPanelRowName(0));
+            auto *longCancel = longPanel.findChild<QPushButton *>(
+                MainWindowUI::taskCenterPanelRowCancelName(0));
+            auto *list = longPanel.findChild<QScrollArea *>(QStringLiteral("taskCenterTaskList"));
+            expect(longRow && longCancel && list && list->viewport(),
+                   "long task name still shows the row and its cancel button");
+            if (longRow && longCancel && list && list->viewport()) {
+                expect(longRow->width() <= list->viewport()->width(),
+                       "a long file name does not widen the row past the scroll viewport");
+                const QPoint corner =
+                    longCancel->mapTo(&longPanel, QPoint(longCancel->width(), longCancel->height()));
+                expect(corner.x() <= longPanel.width() && corner.y() <= longPanel.height(),
+                       "the cancel button stays inside the panel with a long file name");
+            }
+            longPanel.hide();
+        }
         {
             QList<TaskCenter::Item> tasks;
             TaskCenter::Item error;
@@ -2693,6 +2748,29 @@ int main(int argc, char *argv[]) {
           "能翻到安装页那一层",
           gameStack != nullptr ? QString::number(gameStack->currentIndex()) : QString());
 
+    // ★ 2026-10-18（用户原话：「那个页面顶上的大标题和刷新键不要（点进去就隐藏，外面
+    //   还保留）」）：进安装页那一层，下载页页头**整块**收起来 —— 不是只收标题、
+    //   留一颗刷新孤零零在外面，也不是只藏文字、那一行的高度还占着。
+    {
+        QWidget *header = ui.getDownloadHeader();
+        QPushButton *refresh = ui.getDownloadHeaderRefreshButton();
+        check(header != nullptr &&
+                  header->objectName() ==
+                      MainWindowUI::pageHeaderName(QStringLiteral("download")),
+              "找得到下载页页头那一整块（标题 + 刷新都在里面，按 objectName）",
+              header != nullptr ? header->objectName() : QStringLiteral("<null>"));
+        check(header != nullptr && !header->isVisible(),
+              "★ 进了安装页，页头**整块收着**（大标题不在、刷新键也不在）",
+              header != nullptr
+                  ? (header->isHidden() ? QStringLiteral("整块收着")
+                                        : QStringLiteral("还露着"))
+                  : QStringLiteral("<null>"));
+        check(header != nullptr && refresh != nullptr && header->isAncestorOf(refresh) &&
+                  !refresh->isVisible(),
+              "那颗刷新跟着页头一起收了（不是只收标题、把它一个人留在外面）",
+              refresh != nullptr ? refresh->objectName() : QStringLiteral("<null>"));
+    }
+
     const QRect rBack = rectInPage(installBackBtn);
     const QRect rTarget = rectInPage(installTargetLabel);
     const QRect rEdit = rectInPage(installNameEdit);
@@ -2827,12 +2905,42 @@ int main(int argc, char *argv[]) {
         check(installFooter != nullptr && installBtn != nullptr &&
                   installFooter->isAncestorOf(installBtn) && !installFooter->isAncestorOf(installNameEdit),
               "「安装」长在这条底栏里（名称框不在里面 —— 底栏只管确认那一颗）");
-        check(!rInstall.isNull() && !rFooter.isNull() && !rGroup.isNull() &&
-                  rFooter.y() >= rGroup.y() + rGroup.height(),
-              "底栏在加载器那一卡**下面**（底下那块 stretch 把它留在内容之后）",
-              QString("footer.y=%1 card.bottom=%2")
+        // ★ 2026-10-18：中间那一层现在是**滚动区**（用户报「下载页（选择模组加载器的页）
+        //   那个遮挡」—— 这一页原来一个能滚的地方都没有，内容比正文面高的时候底下几条
+        //   加载器被卡片的下沿裁掉了）。于是"底栏在卡片下面"这条从 `footer.y >=
+        //   card.bottom` 改成 **"底栏在滚动区下面"**：
+        //     · 名称框和卡片住在滚动区**里面**（内容再长也只是在里面滚）；
+        //     · 底栏钉在**页面最底下**（滚动区吃掉全部剩余高度），不会再被内容顶走。
+        //   NOTE: 卡片未裁剪的几何在内容溢出时会伸到底栏下面去 —— 那不是回归，正是这一
+        //         版要有的样子（`rectInPage()` 不会裁剪，所以不能再拿 card.bottom 当界线）。
+        QScrollArea *installScroll = ui.getInstallScroll();
+        const QRect rScroll = rectInPage(installScroll);
+        check(installScroll != nullptr &&
+                  installScroll->objectName() == MainWindowUI::installScrollName(),
+              "中间那一层滚动区在（按 objectName）",
+              installScroll != nullptr ? installScroll->objectName() : QStringLiteral("<null>"));
+        check(installScroll != nullptr && installScroll->isAncestorOf(loaderTree) &&
+                  installScroll->isAncestorOf(installNameEdit) &&
+                  !installScroll->isAncestorOf(installFooter),
+              "名称框和加载器那一卡住在滚动区里（底栏留在外面）",
+              installScroll != nullptr
+                  ? QString("树=%1 名称框=%2 底栏=%3")
+                        .arg(installScroll->isAncestorOf(loaderTree) ? 1 : 0)
+                        .arg(installScroll->isAncestorOf(installNameEdit) ? 1 : 0)
+                        .arg(!installScroll->isAncestorOf(installFooter) ? 1 : 0)
+                  : QStringLiteral("<null>"));
+        check(installScroll != nullptr &&
+                  installScroll->horizontalScrollBarPolicy() == Qt::ScrollBarAlwaysOff,
+              "滚动区**不横向滚**（内容只往竖里长，横向滚动条是「我没排好」的供词）",
+              installScroll != nullptr
+                  ? QString::number(int(installScroll->horizontalScrollBarPolicy()))
+                  : QStringLiteral("<null>"));
+        check(!rInstall.isNull() && !rFooter.isNull() && !rScroll.isNull() &&
+                  rFooter.y() >= rScroll.y() + rScroll.height(),
+              "底栏在滚动区**下面**（钉在页面底上，内容再长也顶不走它）",
+              QString("footer.y=%1 scroll.bottom=%2")
                   .arg(rFooter.y())
-                  .arg(rGroup.y() + rGroup.height()));
+                  .arg(rScroll.y() + rScroll.height()));
         check(rInstall.width() >= 96, "「安装」有最小宽度", QString::number(rInstall.width()));
         // 反面：它不该被 stretch 拉伸成整页宽的一条（那是"一个按钮占满一行"的样子）。
         check(!rInstall.isNull() && rInstall.width() < downloadPage->width() / 2,
@@ -2908,6 +3016,24 @@ int main(int argc, char *argv[]) {
                       .arg(rTreeFull.height())
                       .arg(MainWindowUI::loaderTreeMaxRows() *
                                MainWindowUI::versionTreeRowHeight()));
+            // ★ 2026-10-18（"遮挡"那条的**回归钉子**）：内容长到超过可视区之后，滚动区
+            //   必须真有行程 —— 没有的话底下那几行还是"画不出来、也够不着"，正是用户
+            //   报的那个症状。行程由内容最小高度算出来（不依赖窗口实际显示），offscreen
+            //   上也量得准，不是布局几何那种假绿。
+            QScrollArea *installScrollNow = ui.getInstallScroll();
+            const int scrollRange =
+                installScrollNow != nullptr ? installScrollNow->verticalScrollBar()->maximum()
+                                            : -1;
+            check(installScrollNow != nullptr && scrollRange > 0,
+                  "★ 展开到头之后内容比滚动区高 ⇒ 竖向滚动条有行程（底下几行够得着）",
+                  QString("行程=%1 视口=%2 内容=%3")
+                      .arg(scrollRange)
+                      .arg(installScrollNow != nullptr && installScrollNow->viewport() != nullptr
+                               ? installScrollNow->viewport()->height()
+                               : -1)
+                      .arg(installScrollNow != nullptr && installScrollNow->widget() != nullptr
+                               ? installScrollNow->widget()->height()
+                               : -1));
             check(!rInstallFull.isNull() && !rPage.isNull() &&
                       rInstallFull.bottom() <= rPage.bottom() &&
                       rInstallFull.top() >= rPage.top() &&
@@ -3085,6 +3211,36 @@ int main(int argc, char *argv[]) {
                   .arg(installNameError->isHidden() ? 1 : 0)
                   .arg(installNameError->text()));
     }
+    }
+
+    // ---- 页头从安装页退出来之后要**回来**（"点进去就隐藏，外面还保留"的后半句）----
+    //
+    // ★ 2026-10-18：两条入口各走一遍 —— 内层「退回版本树」只动 gameStack，外层「翻到
+    //   别的分类」只动 downloadStack。只接一条的话另一条上页头会一直是收着的。
+    {
+        QWidget *header = ui.getDownloadHeader();
+        QStackedWidget *stack = ui.getDownloadStack();
+        if (header != nullptr && stack != nullptr && gameStack != nullptr) {
+            gameStack->setCurrentIndex(MainWindowUI::downloadGameTreeIndex());
+            QApplication::processEvents();
+            check(header->isVisible(), "退回版本树那一层，页头又露出来");
+
+            stack->setCurrentIndex(MainWindowUI::downloadCategoryGameIndex() + 1);
+            QApplication::processEvents();
+            check(header->isVisible(), "翻到别的分类，页头照旧露着（外面那几页不受影响）");
+
+            stack->setCurrentIndex(MainWindowUI::downloadCategoryGameIndex());
+            QApplication::processEvents();
+            check(header->isVisible(), "翻回「游戏」、停在版本树，页头还在");
+
+            gameStack->setCurrentIndex(MainWindowUI::downloadGameInstallIndex());
+            QApplication::processEvents();
+            check(!header->isVisible(), "再进安装页，页头再次收起来（两发信号都接上了）");
+
+            // 收尾：回到版本树；下面 C2 那节钉的是"打开下载页时看到的第一眼"。
+            gameStack->setCurrentIndex(MainWindowUI::downloadGameTreeIndex());
+            QApplication::processEvents();
+        }
     }
 
     // 量完翻回树那一层：下面 C2 那节钉的是"打开下载页时看到的第一眼"。
@@ -5297,6 +5453,31 @@ int main(int argc, char *argv[]) {
                 check(cancel0 == nullptr,
                       "I2 能力位说不能取消的行，行尾**不长**那颗「取消」",
                       cancel0 != nullptr ? cancel0->text() : QStringLiteral("<没找到>"));
+                // ★ 2026-10-17 用户原话：「点击上方四大钮的时候收起任务中心，现在的表现是
+                //   在除了展开它的那一页以外点击都没反应（也就是卡页面了）」。
+                //   走**顶上那四颗真按钮**（`TitleBar::navButton`）量两件事：切走那一下
+                //   任务中心被**收掉**（不是"停放"着继续占覆盖层那一位）；再点回原来那一页
+                //   它不会自己又摊开。
+                if (tabs != nullptr && otherTab >= 0 && ui.titleBar() != nullptr) {
+                    auto *otherNav = ui.titleBar()->navButton(otherTab);
+                    auto *ownerNav = ui.titleBar()->navButton(ownerTab);
+                    if (otherNav != nullptr && ownerNav != nullptr) {
+                        otherNav->click();
+                        QApplication::processEvents();
+                        QApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+                        check(tabs->currentIndex() == otherTab && ui.overlay() != nullptr
+                                  && !ui.overlay()->isOpen()
+                                  && window.findChild<QWidget *>(
+                                         MainWindowUI::taskCenterPanelName()) == nullptr,
+                              "I2 点顶上别的选项卡 = 任务中心被收起（不再占着覆盖层那一位）");
+                        ownerNav->click();
+                        QApplication::processEvents();
+                        check(ui.overlay() != nullptr && !ui.overlay()->isOpen()
+                                  && window.findChild<QWidget *>(
+                                         MainWindowUI::taskCenterPanelName()) == nullptr,
+                              "I2 再点回原来那一页，任务中心不会自己又摊开");
+                    }
+                }
                 ui.overlay()->dismiss();
                 QApplication::processEvents();
                 QApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
@@ -10127,7 +10308,7 @@ int main(int argc, char *argv[]) {
 
             // 控件**真的落在该落的那一栏里** —— 这是每次重排都最容易错的地方（控件全部
             // 换过一次父容器，而"读值"那一侧一个字没改，落错了不会报错，只会让用户
-            // 在「概览」里找不到「实例名」、或者找不到那九颗快捷按钮）。
+            // 在「概览」里找不到「实例名」、或者找不到那几颗快捷按钮）。
             const auto belongsTo = [&stack, &panelAt](const QWidget *widget) -> QString {
                 for (const QWidget *w = widget; w != nullptr; w = w->parentWidget()) {
                     for (int i = 0; i < stack->count(); ++i) {
@@ -10159,8 +10340,9 @@ int main(int argc, char *argv[]) {
             //   而"换父容器"这件事一旦漏了一个，症状是"那一颗按钮在哪儿都找不着"
             //   （它还在，只是挂在一页根本没露出来的控件底下）。
             //
-            //   NOTE: 2026-10-13（§5.3）起那一排是**十三条、而且可能收着几颗** —— 这一条
-            //         数的仍然是"十三颗都在概览页里"（`belongsTo` 看的是父链，和露不露无关）。
+            //   NOTE: 2026-10-13（§5.3）那一排一度是十三条、而且可能收着几颗；2026-10-18
+            //         去重后是**五条** —— 这一条数的仍然是"每一颗都在概览页里"（`belongsTo`
+            //         看的是父链，和露不露无关），条数跟着捷径表走。
             int shortcutInOverview = 0;
             int checkboxesInOverview = 0;
             for (int i = 0; i < Dlg::shortcutTexts().size(); ++i) {
@@ -10179,7 +10361,7 @@ int main(int argc, char *argv[]) {
             }
             check(shortcutInOverview == Dlg::shortcutTexts().size() &&
                       checkboxesInOverview == Dlg::optionalPageKeys().size(),
-                  "★ U0h 十三颗常用目录按钮与七格勾选框都落在**概览**那一页里",
+                  "★ U0h 五颗常用目录按钮与七格勾选框都落在**概览**那一页里",
                   QStringLiteral("按钮 %1/%2、勾选框 %3/%4")
                       .arg(shortcutInOverview)
                       .arg(Dlg::shortcutTexts().size())
@@ -10260,9 +10442,9 @@ int main(int argc, char *argv[]) {
             //
             // NOTE: 这里量的 x()/width() 都是**相对那个装按钮的格子**的 —— 它们同父，
             //       比宽度和间距不需要换算坐标。
-            // NOTE: 2026-10-13（§5.3）起这一排是十三条（默认"全都在"⇒ 十三颗全在外面、
-            //       也没有「更多目录…」），下面这些是按 `shortcutTexts().size()` 现算的，
-            //       一条都不写死条数。
+            // NOTE: 2026-10-13（§5.3）那一排一度是十三条；2026-10-18 去重后回到**五条**
+            //       （默认"全都在"⇒ 五颗全在外面、也没有「更多目录…」）。下面这些是按
+            //       `shortcutTexts().size()` 现算的，一条都不写死条数。
             {
                 dialog.resize(1000, 720);
                 dialog.showPage(Dlg::overviewCategoryKey());
@@ -10278,7 +10460,7 @@ int main(int argc, char *argv[]) {
                     found += button != nullptr ? 1 : 0;
                 }
                 check(found == shortcuts.size() && !shortcuts.isEmpty(),
-                      "U0j 前提：概览上那十三颗常用目录按钮都按 objectName 找得回来",
+                      "U0j 前提：概览上那五颗常用目录按钮都按 objectName 找得回来",
                       QStringLiteral("找到 %1/%2").arg(found).arg(shortcuts.size()));
 
                 QString heightBad;
@@ -11669,6 +11851,9 @@ int main(int argc, char *argv[]) {
         dirs.insert(QStringLiteral("save"), savesDir);
         dirs.insert(QStringLiteral("logs"), root + QStringLiteral("/logs"));
         dirs.insert(QStringLiteral("screenshots"), root + QStringLiteral("/screenshots"));
+        // 概览那排快捷方式里「游戏目录」那一路（不在文件管理那几页的表里，见
+        // InstanceSettingsDialog::shortcutPathKeys() 那段）。
+        dirs.insert(QStringLiteral("game"), root + QStringLiteral("/game"));
         dialog.setInstanceDir(root);
         dialog.setFileDirs(dirs);
         dialog.show();
@@ -11756,24 +11941,32 @@ int main(int argc, char *argv[]) {
         //
         // ★ 2026-10-13（coding plan §5.3）：九条 → **十三条**（后补的四条接在表尾，一个已有
         //   的下标都没挪），并且分成两段 —— 详见下面的 U10b2。
+        //
+        // ★★ 2026-10-18：十三条 → **五条**。用户原话「实例设置 概览里面 快捷入口重复了」：
+        //   那八条在左栏 / 勾选表里有同名的一页，摆在这一排里就是同一串名字出现两遍。
+        //   留下来的正好是"左栏没有入口"的那五路（版本目录 / 日志 / 游戏目录 / 崩溃报告 /
+        //   配置），见 shortcutTexts() 那段。
         {
             const QList<QWidget *> buttons = dialog.shortcutButtons();
             const QStringList texts = Dlg::shortcutTexts();
             const QStringList keys = Dlg::shortcutPathKeys();
-            check(buttons.size() == texts.size() && texts.size() == 13,
-                  "★ U10b 概览页里有十三颗常用目录按钮（用户点名的那一串 + 版本目录 / 日志 / "
-                  "游戏目录 / 录像 / 崩溃报告 / 配置）",
+            check(buttons.size() == texts.size() && texts.size() == 5,
+                  "★ U10b 概览页里是**五颗**常用目录按钮（版本目录 / 日志 / 游戏目录 / 崩溃"
+                  "报告 / 配置 —— 左栏有入口的那几路不再重复摆）",
                   QStringLiteral("%1 颗").arg(buttons.size()));
             check(keys.size() == texts.size(),
                   "★ U10b 两张表按下标一一对齐（按钮上的字 / 路径键），少一条就串位");
-            // ★ 后补的四条**接在表尾**：前面九条一个下标都没动，验证工程里"第 i 颗是哪一路"
-            //   （at(0)=版本目录 / at(2)=截图 / at(3)=模组 / at(7)=原理图）就还成立。
-            check(texts.value(8) == QStringLiteral("日志") &&
-                      keys.value(9) == QStringLiteral("game") &&
-                      keys.value(12) == QStringLiteral("config"),
-                  "★ U10b 后补的四条接在**表尾**（第 8 条还是「日志」，第 9/12 条是游戏目录/配置）",
-                  QStringLiteral("第 8 条 = %1 / 第 12 条 = %2")
-                      .arg(texts.value(8), keys.value(12)));
+            check(texts.value(0) == QStringLiteral("版本目录") &&
+                      texts.value(1) == QStringLiteral("日志") &&
+                      texts.value(2) == QStringLiteral("游戏目录") &&
+                      texts.value(3) == QStringLiteral("崩溃报告") &&
+                      texts.value(4) == QStringLiteral("配置") &&
+                      keys.value(0) == QStringLiteral("dir") &&
+                      keys.value(4) == QStringLiteral("config"),
+                  "★ U10b 五条的顺序与键（用户点名「合理顺序」：版本目录 → 日志 → 游戏"
+                  "目录 → 崩溃报告 → 配置）",
+                  QStringLiteral("第 0 条 = %1 / 第 4 条 = %2")
+                      .arg(texts.value(0), keys.value(4)));
             // 几何得先把这一页摆到台面上再量：QStackedLayout 在 StackOne 模式下**只给当前
             // 那一页设几何**，收着的页压根没被摆过 —— 直接量会读到一排 0。
             showPage(dialog, Dlg::overviewCategoryKey());
@@ -11795,20 +11988,20 @@ int main(int argc, char *argv[]) {
                                  ++opens;
                              });
             auto *first = qobject_cast<QPushButton *>(buttons.at(0));
-            auto *modButton = qobject_cast<QPushButton *>(buttons.at(3));
-            auto *shotButton = qobject_cast<QPushButton *>(buttons.at(2));
-            check(first != nullptr && modButton != nullptr && shotButton != nullptr,
-                  "U10b 那十三颗是普通按钮（不是自己画的那种）");
-            if (first != nullptr && modButton != nullptr && shotButton != nullptr) {
+            auto *logsButton = qobject_cast<QPushButton *>(buttons.at(1));
+            auto *gameButton = qobject_cast<QPushButton *>(buttons.at(2));
+            check(first != nullptr && logsButton != nullptr && gameButton != nullptr,
+                  "U10b 那五颗是普通按钮（不是自己画的那种）");
+            if (first != nullptr && logsButton != nullptr && gameButton != nullptr) {
                 first->click();
                 const bool dirOk = lastPath == root;
-                modButton->click();
-                const bool modOk = lastPath == modsDir;
-                shotButton->click();
-                const bool shotOk = lastPath == dirs.value(QStringLiteral("screenshots"));
-                check(opens == 3 && dirOk && modOk && shotOk,
-                      "★ U10b 每颗开的都是自己那个目录（版本目录 / 模组 / 截图 —— 路径现场问，"
-                      "不是构造那一刻的快照）",
+                logsButton->click();
+                const bool logsOk = lastPath == dirs.value(QStringLiteral("logs"));
+                gameButton->click();
+                const bool gameOk = lastPath == dirs.value(QStringLiteral("game"));
+                check(opens == 3 && dirOk && logsOk && gameOk,
+                      "★ U10b 每颗开的都是自己那个目录（版本目录 / 日志 / 游戏目录 —— 路径现场"
+                      "问，不是构造那一刻的快照）",
                       QStringLiteral("收到 %1 次，最后一条 %2").arg(opens).arg(lastPath));
             }
         }
@@ -11818,22 +12011,22 @@ int main(int argc, char *argv[]) {
         // ★ coding plan §5.3 原话：「仅在**目录存在**或**相关模组可识别**时优先展示，其他项
         //   收在'更多目录'」。**判据不在这儿**（哪几路目录在盘上、哪个实例装了 ReplayMod 都
         //   只有 MainWindow 知道，见 MainWindow::instanceCommonFolderKeys()）—— 这一层只认
-        //   递进来的那张表，所以这一条量的是"递进去一张只有三路的表之后，十三颗分别在哪一段"。
+        //   递进来的那张表，所以这一条量的是"递进去一张只有三路的表之后，五颗分别在哪一段"。
         {
             showPage(dialog, Dlg::overviewCategoryKey());
             const QList<QWidget *> buttons = dialog.shortcutButtons();
             const QStringList keys = Dlg::shortcutPathKeys();
-            // ① 默认这一档（没人喊过 setFolderPresentKeys）：十三颗全在外面，**没有**
+            // ① 默认这一档（没人喊过 setFolderPresentKeys）：五颗全在外面，**没有**
             //    「更多目录…」—— 不摆一颗按下去什么都不变的按钮。
             check(dialog.shortcutMoreButton() == nullptr &&
                       dialog.shortcutHiddenButtons().isEmpty() && !dialog.shortcutMoreExpanded(),
-                  "★ U10b2 没人说过哪几路「现在有东西」时：十三颗全摆在外面、也不摆"
+                  "★ U10b2 没人说过哪几路「现在有东西」时：五颗全摆在外面、也不摆"
                   "「更多目录…」（一个都没收起来 ⇒ 那颗开关没有存在的理由）");
 
-            // ② 只在盘上三路（版本目录 / 模组 / 日志）⇒ 外面三颗 + 第四格那颗开关，其余收着。
+            // ② 只在盘上三路（版本目录 / 游戏目录 / 配置）⇒ 外面三颗 + 第四格那颗开关，其余收着。
             //    收着的是 `setVisible(false)`（**还在表里**、下标一个没挪），不是删控件。
-            const QStringList present = {QStringLiteral("dir"), QStringLiteral("mod"),
-                                         QStringLiteral("logs")};
+            const QStringList present = {QStringLiteral("dir"), QStringLiteral("game"),
+                                         QStringLiteral("config")};
             dialog.setFolderPresentKeys(present);
             QCoreApplication::sendPostedEvents(nullptr, QEvent::LayoutRequest);
             QApplication::processEvents();
@@ -11848,8 +12041,8 @@ int main(int argc, char *argv[]) {
                   QStringLiteral("收着 %1 颗，应 %2 颗")
                       .arg(hidden.size())
                       .arg(keys.size() - present.size()));
-            // 该在外面的 / 该收着的，按**位置**（表序）认：外面那三颗是 at(0)/at(3)/at(8)。
-            const QList<int> outside = {0, 3, 8};
+            // 该在外面的 / 该收着的，按**位置**（表序）认：外面那三颗是 at(0)/at(2)/at(4)。
+            const QList<int> outside = {0, 2, 4};
             bool seenOk = buttons.size() == keys.size();
             for (int i = 0; i < buttons.size(); ++i) {
                 seenOk = seenOk &&
@@ -11863,7 +12056,7 @@ int main(int argc, char *argv[]) {
                   "★ U10b2 那颗开关接着外面那三颗往下排（第四格 —— 不是另起一块、也不是"
                   "甩到行尾）");
 
-            // ③ 点一下 → 十三颗全露出来（开关自己改叫「收起更多目录」）。
+            // ③ 点一下 → 五颗全露出来（开关自己改叫「收起更多目录」）。
             if (more != nullptr) {
                 more->click();
                 QCoreApplication::sendPostedEvents(nullptr, QEvent::LayoutRequest);
@@ -11874,7 +12067,7 @@ int main(int argc, char *argv[]) {
                 }
                 check(dialog.shortcutMoreExpanded() && more->text() == Dlg::shortcutMoreLessText() &&
                           dialog.shortcutHiddenButtons().isEmpty() && allSeen,
-                      "★ U10b2 点一下「更多目录…」⇒ 十三颗全露出来，那颗开关改口叫"
+                      "★ U10b2 点一下「更多目录…」⇒ 五颗全露出来，那颗开关改口叫"
                       "「收起更多目录」");
                 // 再点一下 → 收回去（这一档必须是**可逆**的，否则用户点开就关不掉了）。
                 more->click();
@@ -11890,7 +12083,7 @@ int main(int argc, char *argv[]) {
                       "★ U10b2 再点一下收回去，原样（「收起更多目录」是可逆的）");
             }
 
-            // ④ 摆回"全都在"：后面那几节（U10c…U12 / U0j）还按十三颗全在外面量。
+            // ④ 摆回"全都在"：后面那几节（U10c…U12 / U0j）还按五颗全在外面量。
             //    NOTE: 这一发会把「更多目录…」那颗**连控件一起删掉**，所以 `more` 从那以后
             //          就是野指针了 —— 上面那几条一个都不能挪到这后面来。
             dialog.setFolderPresentKeys(keys);
@@ -14994,9 +15187,12 @@ int main(int argc, char *argv[]) {
             // ---- ① 那一页现在叫「结构/原理图」----
             const QStringList shortcuts = Dlg::shortcutTexts();
             const QStringList optionalTexts = Dlg::optionalPageTexts();
-            check(shortcuts.size() > 7 && shortcuts.at(7) == QStringLiteral("结构/原理图"),
-                  "★ U10S 「结构/原理图」—— 快捷方式那一串里第 7 条换名字了（2026-10-10）",
-                  shortcuts.size() > 7 ? shortcuts.at(7) : QStringLiteral("<不够长>"));
+            // ★ 2026-10-18：概览那排快捷方式里**不再摆「结构/原理图」**（左栏里本来就有
+            //   那一页，用户原话「实例设置 概览里面 快捷入口重复了」）—— 这里钉的是"名字
+            //   从这一串里退场了"，改名那件事本身由下面两条（勾选表 / 键）继续钉。
+            check(!shortcuts.contains(QStringLiteral("结构/原理图")),
+                  "★ U10S 「结构/原理图」不再在快捷方式那一串里重复摆一遍（2026-10-18 去重）",
+                  shortcuts.join(QStringLiteral(" / ")));
             check(optionalTexts.size() > 6 &&
                       optionalTexts.at(6) == QStringLiteral("结构/原理图"),
                   "★ U10S 勾选表里那条也是同一个名字（两处不许各叫一个）",
@@ -16233,7 +16429,7 @@ int main(int argc, char *argv[]) {
                     }
                 }
                 check(!shortcuts.isEmpty() && shortcutsHere == shortcuts.size(),
-                      "U12 十三颗常用目录按钮也都在概览页里（「快捷方式」并进概览那一句）",
+                      "U12 五颗常用目录按钮也都在概览页里（「快捷方式」并进概览那一句）",
                       QStringLiteral("%1/%2 颗").arg(shortcutsHere).arg(shortcuts.size()));
             }
 
@@ -27673,8 +27869,9 @@ int main(int argc, char *argv[]) {
         // 现照现淡的话**淡的每一帧都不是同一张画面**（行长高、favicon 补上）。规矩：
         // 起手照一次，往后每一帧都拿那一张。
         //
-        // 判据这么搭：一块**白**的页面 + 黑底，起手照完（第一帧画出来那一刻就照了）之后把
-        // 页面改成**红的** ——
+        // 判据这么搭：一块**白**的页面 + 黑底，起手照完（2026-10-17 起 `pageAppear()` 里
+        // 同步照，见 `Animations.cpp` 里 `PageCurtain::ensureSnapshot()`）之后把页面改成
+        // **红的** ——
         //   * 定住了 ⇒ 淡到一半取样是**灰的**（黑底 + 半透明白），三个分量相等；
         //   * 没定住 ⇒ 那一帧照的是红的，取出来是**暗红**（R > G == B）。
         // 再补一条"跑完之后确实是红的"：不然上面那条可能是因为"改颜色根本没生效"而假绿。
@@ -27692,15 +27889,11 @@ int main(int argc, char *argv[]) {
 
             Anim::pageAppear(snapPage, Qt::black);
             QWidget *snapCurtain = curtainOf(&snapHost);
-            // ★ 2026-10-11：原来这里等的是"干等那一半"（35 ms）—— 干等没了之后改成
-            //   **等第一帧画出来**：幕布的 `paintEvent()` 不管这一帧透不透明都会先照一张，
-            //   照完就定住了。等完再补一发 `processEvents()`，保证那一帧真的落过地。
-            QEventLoop snapLead;
-            QTimer::singleShot(qMax(1, Anim::appearMs() / 8), &snapLead, &QEventLoop::quit);
-            snapLead.exec();
-            QApplication::processEvents();
-
-            // 这一帧该照的已经照好了。
+            // ★★ 2026-10-17：**不等那一帧了、当场就改颜色**。快照从这一版起是在
+            //   `pageAppear()` 里同步照的（`PageCurtain::ensureSnapshot()`，不在
+            //   `paintEvent()` 里 —— 在那里抓会抓到正在画的自己，见那个类头上那一段），
+            //   所以"起手照的那一张"必须早于这里这一改。反过来说：这一条现在也钉住了
+            //   "照快照不是拖到第一帧才做"—— 懒照那一版会照到下面这个红色，判据当场红。
             snapPalette.setColor(QPalette::Window, Qt::red);
             snapPage->setPalette(snapPalette);
             snapPage->update();

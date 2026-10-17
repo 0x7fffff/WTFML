@@ -186,6 +186,43 @@ public:
     /// 作业已经死在那边了，撤得再早也来不及。
     static constexpr int kReroutedFailuresToUndoDemotion = 3;
 
+    // ------------------------------------------------------------------
+    // ★★ 2026-10-17（用户本机实测）：镜像 302 之后的**落点**有几台是死的
+    // ------------------------------------------------------------------
+    // BMCLAPI 的资源地址每条都 302 到它背后临时挑的一台镜像（minio.749333.xyz /
+    // bmclapiN.sakura.sld.tw / hurtmc ...）。实测（本机校园网，curl 跟到最终地址）：
+    // 五条里有两条是 sakura 那几台 —— **TLS 接得上、一个字节都不给**（25 秒 0 字节），
+    // 另外三条落到 minio 的 1.5 秒就完。也就是说失败的是"这一发被分到哪台落点"，
+    // 跟入口 bmclapi2 没关系。
+    //
+    // 这一层之前只有 kNoProgressGiveUpMs（90 秒）那条兜底：死落点会把一条并发位占满
+    // 90 秒才重排，24 位里常年有几条在等死节点 ⇒ 整批只剩一两文件/秒（用户那次 751/5222、
+    // 十一分钟）。而同一时刻官方 resources.download.minecraft.net 在**同一条网**上
+    // 0.4~1.6 秒一个对象。
+    //
+    // 所以补三条判据（都不看"是镜像还是官方"这种静态偏好，只看当下谁通）：
+    //   1) 走镜像、有退路、**一个字节都没收到**的回复，12 秒就换 —— 不等 90 秒；
+    //   2) 落到一台刚证明过是死的落点主机上 ⇒ 当场 abort，直接重新掷落点（约一个往返）；
+    //   3) 短时间内攒够几条"落点死了"的证据 ⇒ **先探一下官方**（HEAD），探得通才把
+    //      整条镜像降级 5 分钟；探不通（系统代理那条网络）就继续用镜像，不瞎切。
+    //      降级之后官方要是也连不上，仍由 kReroutedFailuresToUndoDemotion 那条撤销。
+
+    /// 走镜像、有退路、还没收到第一个字节的回复最多等多久（毫秒）。
+    static constexpr qint64 kNoFirstByteGiveUpMs = 12 * 1000;
+
+    /// 一台落点主机被判死之后，多久之内再转到它就直接 abort（毫秒）。
+    /// 两分钟：BMCLAPI 的轮换大概就是分钟级的，久了会一直错过刚恢复的那台。
+    static constexpr qint64 kDeadRedirectHostBanMs = 2 * 60 * 1000;
+
+    /// 窗口内攒到几条"落点死了"的证据就探一次官方。
+    static constexpr int kDeadRedirectHitsToProbe = 4;
+
+    /// 上面那个窗口（毫秒）。
+    static constexpr qint64 kDeadRedirectWindowMs = 90 * 1000;
+
+    /// 官方探测失败之后，多久之内不再探（毫秒）—— 探测本身也是一次真实请求。
+    static constexpr qint64 kOfficialProbeCooldownMs = 2 * 60 * 1000;
+
     /// 三个**纯函数**（时间与字节数的判据），verify 里按边界钉过。
     /// @{
     /// 降级期过了没有。@param demotedUntilMs 0 = 从来没降级过。
@@ -327,6 +364,9 @@ public:
     /// 改上面那个期限。**只给验证工程用**：那一条只能靠时间验，而 90 秒对这种逐条的用例
     /// 太贵了（真机上它是固定值，界面上没有、也不该有这个开关）。
     void setNoProgressGiveUpMs(qint64 ms) { m_noProgressGiveUpMs = ms; }
+    /// 同上，改"镜像有退路、却连首字节都没等到"那条期限（默认 kNoFirstByteGiveUpMs）。
+    /// 也只给验证工程用 —— 12 秒对逐条用例同样太贵。
+    void setNoFirstByteGiveUpMs(qint64 ms) { m_noFirstByteGiveUpMs = ms; }
     /// @}
 
     /// 按**现在这一刻**的下载源，把一条"地址自带身份"的官方地址落到实际请求的地址上
@@ -723,8 +763,25 @@ private:
     /// 成没成"：同一只镜像主机改道出去的作业连着 3 条连不上，就把它的降级**撤掉**，
     /// 让后面排队的作业回到镜像去（那里至少刚才还在出字节）。
     QHash<QString, int> m_reroutedOfficialFailures;
+
+    /// 落点主机 → "死到什么时候"（m_clock 的毫秒读数）。302 转手之后一个字节都不来、
+    /// 或者从这台落点收到的字节长期不够的，记进来；到期前再转到它就直接 abort，
+    /// 代价只有一个往返（不算 12 秒、更不算 90 秒）。见 kDeadRedirectHostBanMs。
+    QHash<QString, qint64> m_deadRedirectHosts;
+    /// 最近窗口内"落点死了"的时刻（m_clock 读数，先进先出）。攒够
+    /// kDeadRedirectHitsToProbe 条就探一次官方，见 probeOfficialRoute()。
+    QList<qint64> m_deadRedirectHits;
+    /// 探测官方用哪条地址：最近一次死落点那条作业的官方地址（一定是真实存在的文件）。
+    QString m_officialProbeUrl;
+    /// 同一时刻只发一条探测。
+    bool m_officialProbeInFlight = false;
+    /// 探测失败之后到什么时候为止不再探（m_clock 读数）。见 kOfficialProbeCooldownMs。
+    qint64 m_officialProbeFailedUntilMs = 0;
     /// 判"卡死"的期限，默认 kNoProgressGiveUpMs（只有验证工程会改它）。
     qint64 m_noProgressGiveUpMs = kNoProgressGiveUpMs;
+    /// 判"镜像有退路、却连首字节都没等到"的期限，默认 kNoFirstByteGiveUpMs
+    /// （只有验证工程会改它）。
+    qint64 m_noFirstByteGiveUpMs = kNoFirstByteGiveUpMs;
 
     // kMaxConcurrentDownloads 的声明在上面 public 那一节（紧挨着 mayIssueAnotherDownload），
     // 因为验证工程要按那个数钉边界；理由和实测记录都写在那一处。
@@ -744,6 +801,21 @@ private:
     /// （入口会重新挑一台落点），而不是直接退官方。镜像这一侧只重试一次。
     /// @return 真的重排了 = true（调用方按"作业还在"收尾：不记失败、不增完成数）。
     bool retryStalledFromMirror(QNetworkReply *reply, const QString &destinationPath);
+
+    /// 一条镜像回复在 302 之后**一个字节都没收到**：把落点那台主机记进"死落点"表
+    /// （到期前再转到它就直接 abort，见 kDeadRedirectHostBanMs），并在窗口内攒够
+    /// kDeadRedirectHitsToProbe 条之后探一次官方。
+    /// @param landed 302 最终落到的地址（reply->url()）。
+    /// @param entry 这一发请求的入口地址（reply->request().url()）。
+    /// @param officialFallback 这条作业的官方地址（探测就用它；空 = 这次不提供）。
+    /// NOTE: 判"换了一台落点没有"用的是**主机 + 端口**：同一个主机名换端口也是换了一台
+    ///       （本地假服务器 / 反代就是这种形状），只比主机名会把它们当成同一跳。
+    void noteDeadRedirectTarget(const QUrl &landed, const QUrl &entry,
+                                const QString &officialFallback);
+
+    /// 用 HEAD 探一下官方那条到底通不通；通了才把 mirrorHost 降级。
+    /// 只在"镜像的落点短时间内连着死"之后被调到；同一时刻只有一发在飞。
+    void probeOfficialRoute(const QString &mirrorHost);
 
     /// 从镜像取失败时，用官方地址**重发一次**（作业还是同一个，不算失败）。
     /// @param reply 刚失败的那条回复。

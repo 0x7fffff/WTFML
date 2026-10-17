@@ -276,6 +276,9 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
         //   三路 —— 游戏目录 / 录像 / 崩溃报告。**并进同一份一起灌**（见 InstanceSettingsDialog
         //   里 setFileDirs() 那条 NOTE：这一层只是"按某个键取一个路径"，多出来的键没人当页读），
         //   不去动 fileDirs() 的形状（它那个九条有断言在数）。
+        //   ★ 2026-10-18：概览那排去重之后只剩 版本目录 / 日志 / 游戏目录 / 崩溃报告 /
+        //   配置 —— 这里仍然三条一起灌：`replay` 现在是左栏「Replay」那一页在读
+        //   （InstanceSettingsDialog::refreshLifecycleFiles()）。
         QHash<QString, QString> shortcutDirs = fileDirs;
         shortcutDirs.insert(QStringLiteral("game"), AppPaths::minecraftDir());
         shortcutDirs.insert(QStringLiteral("replay"), AppPaths::replayRecordingsDir());

@@ -170,6 +170,24 @@ bool unreachableError(QNetworkReply::NetworkError error) {
     }
 }
 
+/// 一个地址的"落点身份"：主机（小写）+ 端口。判"302 之后是不是换了一台落点"用它。
+///
+/// 只比 `host()` 不够：同一个主机名换端口也是换了服务（本地假服务器、反代都是这种），
+/// 而 BMCLAPI 的落点里也确有同域不同端口的形状。入口那一侧做"降级"时仍按主机名记
+/// （降级是"这只镜像先别用"，不是"这台机器"），只有这里的落点表用完整身份。
+QString authorityKey(const QUrl &url) {
+    QString key = url.host().toLower();
+    if (key.isEmpty()) {
+        return key;
+    }
+    const int port = url.port(-1);
+    if (port > 0) {
+        key += QLatin1Char(':');
+        key += QString::number(port);
+    }
+    return key;
+}
+
 /// 特供版日志用：一条回复的**判定依据**（状态码 / 错误 / 协议 / 关键响应头）。
 ///
 /// 只读。普通构建里调用方的 `DownloadDiag::enabled()` 为假，这个函数不会被调用；
@@ -341,6 +359,92 @@ void DownloadManager::noteReroutedReplyOutcome(QNetworkReply *reply, bool succes
         DownloadDiag::line(QStringLiteral("watchdog: demotion undone host=%1 reason=%2")
                                .arg(mirrorHost, reply->errorString()));
     }
+}
+
+void DownloadManager::noteDeadRedirectTarget(const QUrl &landed, const QUrl &entry,
+                                             const QString &officialFallback) {
+    const QString landedKey = authorityKey(landed);
+    const QString entryKey = authorityKey(entry);
+    if (landedKey.isEmpty() || entryKey.isEmpty() || landedKey == entryKey) {
+        return;  // 没有 302、或者根本还在入口那一跳：这一笔不是"落点死了"
+    }
+    const QString mirrorHost = entry.host();
+    const qint64 now = m_clock.elapsed();
+    m_deadRedirectHosts[landedKey] = now + kDeadRedirectHostBanMs;
+    // 窗口是一条先进先出的队列：只留最近 kDeadRedirectWindowMs 里那几条。
+    while (!m_deadRedirectHits.isEmpty()
+           && now - m_deadRedirectHits.first() > kDeadRedirectWindowMs) {
+        m_deadRedirectHits.removeFirst();
+    }
+    m_deadRedirectHits.append(now);
+    if (!officialFallback.isEmpty()) {
+        m_officialProbeUrl = officialFallback;
+    }
+    if (DownloadDiag::enabled()) {
+        DownloadDiag::line(QStringLiteral("dead redirect target: landed=%1 entry=%2 hits=%3/%4")
+                               .arg(landedKey, entryKey)
+                               .arg(m_deadRedirectHits.size())
+                               .arg(kDeadRedirectHitsToProbe));
+    }
+    if (m_deadRedirectHits.size() < kDeadRedirectHitsToProbe) {
+        return;
+    }
+    // 短时间内连着这么多条落在死节点上：**先探一下官方**再决定整条镜像要不要降级。
+    // 2026-10-17 的两种真实网络都要照顾到 —— 本机校园网官方 0.4~1.6 秒一个对象（该切），
+    // 测试员那条系统代理网络上官方整条不通（不该切，继续用镜像）。探测失败的话这一层
+    // 什么都不做，和从前一样按作业级重排。
+    probeOfficialRoute(mirrorHost);
+}
+
+void DownloadManager::probeOfficialRoute(const QString &mirrorHost) {
+    if (mirrorHost.isEmpty() || m_officialProbeInFlight || m_officialProbeUrl.isEmpty()) {
+        return;
+    }
+    const qint64 now = m_clock.elapsed();
+    if (now < m_officialProbeFailedUntilMs) {
+        return;  // 刚探过、没通：两分钟之内不再拿真实请求去撞
+    }
+    m_officialProbeInFlight = true;
+    // HEAD：只要拿到 2xx 就说明这条路"接得上、答得快"，不必拉正文。官方资源 CDN 实测支持
+    // （curl -I 200）。10 秒没答话就按"不通"处理 —— 探测本身也算延迟。
+    QNetworkRequest request{QUrl(m_officialProbeUrl)};
+    request.setTransferTimeout(10000);
+    QNetworkReply *probe = networkManager->head(request);
+    if (DownloadDiag::enabled()) {
+        DownloadDiag::line(QStringLiteral("official probe send url=%1 for mirror=%2")
+                               .arg(DownloadDiag::safeUrl(m_officialProbeUrl), mirrorHost));
+    }
+    connect(probe, &QNetworkReply::finished, this, [this, probe, mirrorHost] {
+        m_officialProbeInFlight = false;
+        const int status = probe->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        const bool reachable =
+            probe->error() == QNetworkReply::NoError
+            && (status == 0 || (status >= 200 && status < 300));
+        const QString errorText = probe->errorString();
+        probe->deleteLater();
+        if (reachable) {
+            // 官方探得通 ⇒ 把镜像入口降级 5 分钟：排队里的几千个作业从下一拍起直接走官方。
+            // 之后官方要是也连不上，noteReroutedReplyOutcome() 那条会把它撤销。
+            demoteMirrorForSlowDownload(mirrorHost);
+            m_deadRedirectHits.clear();
+            qInfo() << "The mirror keeps redirecting to dead nodes, while the official source"
+                       " answers; using the official download source for the next"
+                    << kMirrorDemoteMs / 1000 << "seconds.";
+        } else {
+            // 官方也不通（典型：系统代理那条网络）：不降级、继续用镜像，两分钟后再看。
+            m_officialProbeFailedUntilMs = m_clock.elapsed() + kOfficialProbeCooldownMs;
+            m_deadRedirectHits.clear();
+            qInfo() << "The official source is unreachable as well; keeping the mirror:"
+                    << errorText;
+        }
+        if (DownloadDiag::enabled()) {
+            DownloadDiag::line(QStringLiteral("official probe result reachable=%1 status=%2 "
+                                              "error=%3")
+                                   .arg(reachable ? QStringLiteral("yes") : QStringLiteral("no"))
+                                   .arg(status)
+                                   .arg(errorText));
+        }
+    });
 }
 
 bool DownloadManager::mirrorDemotedAt(qint64 nowMs, qint64 demotedUntilMs) {
@@ -905,6 +1009,23 @@ void DownloadManager::startDownload(const QUrl &url, const QString &destinationP
     reply->setProperty("rangeTotal", range.total);
     reply->setProperty("rangeValidator", range.validator);
     reply->setReadBufferSize(256 * 1024);
+    // ★★ 2026-10-17：这一发要是 302 转到一台**刚刚证明过是死的**落点上，别等首字节计时
+    //     到期（12 秒）—— 当场 abort，让它去重新掷一台落点。代价只有一个往返。
+    //     落点表见 noteDeadRedirectTarget()：那里记的是"接得上、一个字节都不给"的主机。
+    const QUrl entryUrlForRedirect{QUrl(targetText)};
+    const QString officialFallbackForRedirect = fallback;
+    connect(reply, &QNetworkReply::redirected, this,
+            [this, reply, entryUrlForRedirect, officialFallbackForRedirect](const QUrl &target) {
+                if (m_shuttingDown || !replyIsFromCurrentBatch(reply)) {
+                    return;
+                }
+                if (m_deadRedirectHosts.value(authorityKey(target)) <= m_clock.elapsed()) {
+                    return;  // 没被拉黑 / 已经到期
+                }
+                noteDeadRedirectTarget(target, entryUrlForRedirect,
+                                       officialFallbackForRedirect);
+                reply->abort();
+            });
     const auto stream = QSharedPointer<StreamedFile>::create(destinationPath, m_allowOverwrite);
     m_streamedFiles.insert(reply, stream);
     if (range.active()) connect(reply, &QNetworkReply::metaDataChanged, this, [reply, range] {
@@ -1326,8 +1447,9 @@ bool DownloadManager::retryStalledFromMirror(QNetworkReply *reply,
     const QUrl landed = reply->url();
     // 只有 302 转手过的那一类才值得回入口重挑落点；没转手的 abort 是看门狗对"慢镜像"
     // 那一档做的，它本来就该按原来的顺序退官方。
-    if (landed.host().isEmpty() ||
-        landed.host().compare(mirrorEntry.host(), Qt::CaseInsensitive) == 0) {
+    // ★ 2026-10-17：判"转没转手"用**主机 + 端口** —— 同一主机换端口的落点也算换了一台
+    //   （见 authorityKey()），只比主机名会把这种当成"没转手"、直接退官方。
+    if (landed.host().isEmpty() || authorityKey(landed) == authorityKey(mirrorEntry)) {
         return false;
     }
     if (!m_officialFallbacks.contains(reply)) return false;  // 本来就走官方的作业没得回
@@ -2008,6 +2130,28 @@ void DownloadManager::onStallWatchdogTick() {
             // 那种 0.85~10 KB/s）靠这句活着，它该由"太慢"那条判据管，不该被兜底掐掉。
             meter.lastSignOfLifeMs = now;
         }
+        // (0b) ★★ 2026-10-17（用户本机实测）：走镜像、有退路、**一个字节都没收到**的回复，
+        //      12 秒就换路 —— 别等下面那条 90 秒的兜底。
+        //
+        //      根子是 BMCLAPI 的 302：每条资源地址都会转到它背后临时挑的一台落点
+        //      （minio.749333.xyz / bmclapiN.sakura.sld.tw ...），而那几台里有的
+        //      **TLS 接得上、一个字节都不给**（curl 实测 25 秒 0 字节）。这种回复
+        //      Qt 的 30 秒不活动超时也掐不掉（握手 / h2 PING 的字节把它喂着了），
+        //      所以从前只有 90 秒兜底会动它 —— 一条死落点占满一个并发位一分半钟。
+        //      用户那次 24 位里常年有几条在等死节点，整批只剩一两文件/秒（751/5222、11 分钟）。
+        //
+        //      这里只换路、不判失败：abort 出来的 OperationCanceledError 会走
+        //      onDownloadReplyFinished，那里先 retryStalledFromMirror() 重新掷一台落点
+        //      （只掷一次），再不行就退官方。落到死落点这件事还要记一笔（noteDeadRedirectTarget），
+        //      攒够了整条镜像先探官方、再决定降不降级。
+        if (meter.bytesSeen == 0 && m_officialFallbacks.contains(reply)
+            && now - meter.lastSignOfLifeMs > m_noFirstByteGiveUpMs) {
+            const QUrl landed = reply->url();
+            const QUrl entry = reply->request().url();
+            noteDeadRedirectTarget(landed, entry, m_officialFallbacks.value(reply));
+            stalled.append(reply);
+            continue;
+        }
         // (1) 卡死兜底。**不看有没有退路** —— 没有退路的回复以前是没人管的，而它一旦永远
         //     不结束，pendingDownloads 就永远归不了零：整批永不收尾、界面永远停在"下载中"、
         //     连个错误都没有（2026-09-22 那次 422 个文件的导入就这么挂了二十分钟，进度条
@@ -2067,7 +2211,11 @@ void DownloadManager::onStallWatchdogTick() {
                                    .arg(stalled.size()));
         }
         for (QNetworkReply *reply : stalled) {
-            qInfo() << "Aborting a stalled mirror download and retrying it from the official url:"
+            // 这一条**不一定是退官方**：302 转过手的作业会先回镜像入口重新掷一台落点
+            // （见 retryStalledFromMirror），真退官方是掷完之后还没成的那一次。日志按实际
+            // 可能性写，别把"换条路再试"说成"已经决定走官方"。
+            qInfo() << "Aborting a stalled mirror download; the job retries from the mirror"
+                       " entry or the official url:"
                     << jobLabel(reply);
             if (DownloadDiag::enabled()) {
                 DownloadDiag::line(QStringLiteral("watchdog: stalled job=%1 url=%2 %3")

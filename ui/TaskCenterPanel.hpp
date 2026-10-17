@@ -36,6 +36,7 @@
 
 class QScrollArea;
 class QPushButton;
+class QLabel;
 class QResizeEvent;
 
 namespace TaskCenter {
@@ -233,6 +234,12 @@ private:
     void syncSelection();
     /// 宽屏三列 / 窄屏“列表或详情占满整页”的唯一布局切换点。
     void applyWorkspaceMode();
+    /// 按当前宽度摆**收起/展开**那一套（栏宽、箭头、标题）。**只读 `m_runningCollapsed`**。
+    void applyRunningCollapsed();
+    /// 改 `m_runningCollapsed` 并落到控件上。@p animate true = 走展开/折叠那一发。
+    void setRunningCollapsed(bool collapsed, bool animate);
+    /// 右栏的宽度跟着工作区一起伸缩（唯一出处；`applyWorkspaceMode` / `place` / `resizeEvent` 都问它）。
+    void updateDetailPaneWidth();
     /// 给某一行造一个"点了怎么办"（没挂处理器时回一个空的 —— 那一行就不可点）。
     std::function<void()> rowActivate(const QString &key);
     /// 摆到 anchor 正上方。@p animate true = 从下面滑上来（第一次），false = 直接挪过去。
@@ -259,9 +266,13 @@ private:
     QScrollArea *m_scroll = nullptr;
     QScrollArea *m_runningScroll = nullptr;
     QScrollArea *m_detailScroll = nullptr;
+    QLabel *m_runningTitle = nullptr;
     QPushButton *m_collapseRunning = nullptr;
     QString m_selectedKey;
     bool m_runningCollapsed = false;
+    /// 用户亲手点过那颗收起/展开按钮没有。点过之后**不再按"有没有实例在跑"替他做主**
+    /// （他展开就是想看着；重画一次又收回去等于跟用户抢）。
+    bool m_runningUserToggled = false;
     bool m_compact = false;
     bool m_compactDetailOpen = false;
     bool m_opened = false;

@@ -16,6 +16,11 @@ public:
     }
     void drain(QNetworkReply *reply) {
         if (!error.isEmpty()) return;
+        // ★ 2026-10-17（用户桌面版的 log）：`abort()` 之后迟到的 `readyRead` / `finished`
+        //   还会走到这儿，那时回复已经关掉了 —— `read()` 只会打一句
+        //   `QIODevice::read (QNetworkReplyHttpImpl): device not open`，一个字节都读不到。
+        //   `isReadable()` 判的就是"它还开着没有"，关着就当场返回。
+        if (!reply->isReadable()) return;
         while (reply->bytesAvailable() > 0) {
             const QByteArray chunk = reply->read(64 * 1024);
             if (chunk.isEmpty()) break;

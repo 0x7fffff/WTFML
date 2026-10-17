@@ -1318,6 +1318,9 @@ private:
         QString listOfficialUrl;
         bool listRequestWasMirror = false;
         bool listRetriedOfficial = false;
+        /// 镜像那一发已经用过了没有（开局就在镜像上、或者已经退过去一次）。
+        /// 官方那条**连不上**时 NeoForge 会往镜像退一次；用过就不再退，免得两边来回弹。
+        bool listMirrorTried = false;
 
         /// 安装器 jar 的常规坐标 404 之后，换 `<游戏>-<加载器>-<游戏>` 那种坐标试过一次没有。
         /// 只试一次（见 VersionManager::retryInstallerDownloadAlternate）。
@@ -1693,6 +1696,11 @@ private:
         //       里开关被点一下，正文就会按**另一条路**的规矩解析 —— 症状是「列表读不懂」
         //       或者列出一份空的，而用户什么都没做错。另外三个加载器不走镜像，这里恒 false。
         bool fromMirror = false;
+        // 这一发问的**官方**那条地址。官方连不上时拿它换镜像（只对 NeoForge 成立，
+        // 见 VersionManager::loaderVersionsMirrorFallback()）。
+        QString officialUrl;
+        // 已经往镜像退过一次了没有 —— 只退一次，镜像再失败就照实报。
+        bool mirrorFallbackUsed = false;
         // 正在飞的那一份。**同一个加载器**上换一局（同一个游戏版本重新问、或者换了
         // 游戏版本）时把它 abort 掉（abort 之后 finished() 照样会来一发，回复处理函数
         // 靠"这一个指针还是我手上这个吗"把它丢掉）。
@@ -1702,6 +1710,12 @@ private:
     // QHash 的键要靠 qHash 的特化，下标是 int，省一层。
     QHash<int, LoaderVersionRequest> m_loaderVersionRequests;
 
+    // 官方那条地址问不通时该换哪个镜像地址；没得换返回空串。
+    //
+    // ★ 只有 NeoForge 一支成立：它的 maven-metadata.xml 在 BMCLAPI 上是**同一份**
+    //   （2026-10-17 实测全量），而官方 host 在国内**直接连不上**。Forge 那个同名文件
+    //   镜像上是旧的，换过去会得出"没有 Forge"的假结论。理由全文在 .cpp 里。
+    QString loaderVersionsMirrorFallback(LoaderKind kind, const QString &officialUrl) const;
     // 发那一发 GET，回复交给 onLoaderVersionsReply()。@p fromMirror 跟着这一发钉住
     // （见 LoaderVersionRequest 里那一格）。
     void fetchLoaderVersions(LoaderKind kind, const QString &url, bool fromMirror);

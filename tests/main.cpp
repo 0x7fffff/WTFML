@@ -7133,12 +7133,13 @@ static void runLoaderInstallTests() {
     // 就不给了，它们对应真慢链子的两种形状：
     //   (a) 细水长流：吐了一小口（够不着"一跳 64 KB"那条下限）就停住 —— 镜像那条 302 到
     //       MinIO 的链子就是这个形状（实测 0.85~10 KB/s），**这一种该被看门狗在 10 秒判掉**；
-    //   (b) 一个字节都不吐。这一种**不该**被判失速（它可能只是还没轮到它、还在建连或排在
-    //       一条 h2 连接的队列里），该由 Qt 那条 30 秒的不活动超时收尾，照样走"退回官方、
-    //       不算失败"那条路（2026-09-23 加的判据，理由见 countsTowardStallStrike()）。
+    //   (b) 一个字节都不吐。这一种**不记失速 strike**（它可能只是还在建连 / 排在一条 h2
+    //       连接的队列里；2026-09-23 的判据，理由见 countsTowardStallStrike()）。2026-10-17
+    //       起它由 (0b) 那条「12 秒零字节就换路」收尾（理由见下面 (b) 那段注释），照样走
+    //       "退回官方、不算失败"那条路。
     // "官方那条"给成 file://（一个真文件），所以这两条用例**都不碰外网**，在哪台机器上跑
     // 都是同一个结果；顺带证明了 abort / 超时之后那次重发真的走通了。
-    // 代价：十来秒（看门狗两跳）+ 三十秒（等 Qt 那条超时），是这套里仅有的按秒计的用例。
+    // 代价：十来秒（看门狗两跳）+ 十五秒（(0b) 那条），是这套里仅有的按秒计的用例。
     {
         QTemporaryDir scratch(QDir::tempPath() + "/wtfml_stallwatch-XXXXXX");
         check(scratch.isValid(), "V6f 临时目录建出来了");
@@ -7224,10 +7225,18 @@ static void runLoaderInstallTests() {
                   QStringLiteral("%1 ms").arg(tookMs));
         }
 
-        // (b) 一个字节都不吐的假镜像：**不该**被判失速（2026-09-23 那次 422 个文件的导入就是
-        //     因为"还没收到第一个字节也算失速"垮掉的：头一批里 8 条两跳就被判"镜像太慢"，
-        //     然后整个主机被降级 300 秒）。它该由 Qt 那条 30 秒的不活动超时收尾，照样退回
-        //     官方、照样下成 —— 这一条同时钉住"少了那条判据不会把整批挂死"。
+        // (b) 一个字节都不吐的假镜像（2026-10-17 改口径）。
+        //
+        //     2026-09-23 那次 422 个文件的导入是因为"还没收到第一个字节也算失速"垮掉的：
+        //     头一批里 8 条两跳就被判"镜像太慢"，然后整个主机被降级 300 秒。所以
+        //     countsTowardStallStrike() 那条判据（零字节不算"太慢"）**仍然保留**。
+        //
+        //     但那种"零字节"当年还有另一个来源：几百条请求一起交给 Qt、排在它内部队列里。
+        //     现在连接预算在我们自己手里（全局 24、单主机 6），一条请求发出去 12 秒还是零字节
+        //     ＝ 那一跳真的死了（用户本机实测的 sakura 落点就是这个形状：TLS 接得上、一个
+        //     字节不给）。所以 (0b) 那条判据接管它：换路 + 把入口降级，不再干等 Qt 的 30 秒
+        //     不活动超时 —— 那一分半钟在 24 个并发位里全被死节点占着。这一条同时钉住
+        //     "换路之后整批照样下成"。
         QTcpServer silentMirror;
         const bool silentListening = silentMirror.listen(QHostAddress::LocalHost, 0);
         check(silentListening, "V6f 第二个假镜像（只 accept、一个字节都不发）起来了");
@@ -7274,20 +7283,21 @@ static void runLoaderInstallTests() {
                              body2.size(), VerifyMode::SizeAndSha1,
                              QUrl::fromLocalFile(officialPath).toString());
             dm2.endBatch();
-            // 兜底：真卡住也不能让验证工程自己挂在这儿（等的是 Qt 那条 30 秒的不活动超时）。
-            QTimer::singleShot(90000, &loop, &QEventLoop::quit);
+            // 兜底：真卡住也不能让验证工程自己挂在这儿（(0b) 那条判据 12 秒）。
+            QTimer::singleShot(60000, &loop, &QEventLoop::quit);
             loop.exec();
             const qint64 tookMs = elapsed.elapsed();
 
-            check(finished, "V6f 一个字节都不吐的那条也有终态（没被误判，也没挂住）");
-            check(!dm2.mirrorDemotedFor(QStringLiteral("127.0.0.1")),
-                  "V6f 一个字节都没收到过 -> **没有**被判失速、那个主机也没被降级");
+            check(finished, "V6f 一个字节都不吐的那条也有终态（没被误判成宿醉，也没挂住）");
+            check(dm2.mirrorDemotedFor(QStringLiteral("127.0.0.1")),
+                  "V6f 入口自己 12 秒一个字节都不给 -> 那个主机被降级（排队里的作业改走官方）。"
+                  "零字节那一条**不是**靠 countsTowardStallStrike() 两跳判的 —— 判据没动");
             check(ok, "V6f 它照样退回官方那条下成了", failure);
             QFile out2(scratch.path() + "/out2.txt");
             check(out2.exists() && out2.open(QIODevice::ReadOnly) && out2.readAll() == body2,
                   "V6f 落盘的内容就是官方那条给的");
-            check(tookMs >= 25000 && tookMs < 80000,
-                  "V6f 走的是 Qt 那条 30 秒不活动超时（不是 10 秒那条看门狗判据）",
+            check(tookMs >= 11000 && tookMs < 25000,
+                  "V6f 走的是 (0b) 那条「12 秒零字节就换路」（不是 Qt 那条 30 秒不活动超时）",
                   QStringLiteral("%1 ms").arg(tookMs));
         }
     }
@@ -7480,6 +7490,113 @@ static void runLoaderInstallTests() {
                       QStringLiteral("%1 ms").arg(tookMs));
                 check(!dm.isBusy(), "V6i 收尾之后不忙了 —— 界面不会永远停在「下载中」");
             }
+        }
+    }
+
+    // --- V6j. 镜像 302 到一台"接得上、一个字节都不给"的落点（2026-10-17 加）--------
+    //
+    // 用户本机实测的形状（校园网，无代理）：BMCLAPI 的资源地址 302 到
+    // bmclapiN.sakura.sld.tw，TLS 接得上、一个字节都不来（curl 25 秒 0 字节）；
+    // 同一时刻官方 resources.download.minecraft.net 0.4~1.6 秒一个对象。
+    // 从前只有 90 秒兜底会动这种回复 —— 一条死落点占满一个并发位一分半钟，
+    // 24 位里常年有几条在等死节点，整批只剩一两文件/秒（实测 751/5222、十一分钟）。
+    //
+    // 现在要钉住的三件事（这条用例把它压成一秒半）：
+    //   1) 走镜像、有退路、连首字节都没等到的回复，到点就换路（不等 90 秒）；
+    //   2) 那台落点被拉黑，第二次再转到它时当场 abort（约一个往返）；
+    //   3) 两条都没成之后退回官方，作业照常下成、不算失败。
+    {
+        QTemporaryDir scratch(QDir::tempPath() + "/wtfml_deadredir-XXXXXX");
+        check(scratch.isValid(), "V6j 临时目录建出来了");
+        QTcpServer fakeMirror;
+        QTcpServer deadBackend;
+        const bool listening = fakeMirror.listen(QHostAddress::LocalHost, 0)
+                               && deadBackend.listen(QHostAddress::LocalHost, 0);
+        check(listening, "V6j 两个假服务器起来了（入口 + 死落点）");
+        if (scratch.isValid() && listening) {
+            // 死落点：连接照接、一个字都不写（sakura 那几台就是这个形状）。
+            QObject::connect(&deadBackend, &QTcpServer::newConnection, &deadBackend,
+                             [&deadBackend] {
+                                 while (QTcpSocket *s = deadBackend.nextPendingConnection()) {
+                                     s->setParent(&deadBackend);
+                                 }
+                             });
+            // 入口：每条请求回一个 302，转到上面那台死落点（同主机不同端口 ——
+            // 判"换了一台落点"用的是主机 + 端口，见 authorityKey()）。
+            const QByteArray location =
+                QStringLiteral("http://127.0.0.1:%1/dead-backend")
+                    .arg(deadBackend.serverPort())
+                    .toUtf8();
+            QObject::connect(&fakeMirror, &QTcpServer::newConnection, &fakeMirror,
+                             [&fakeMirror, location] {
+                                 while (QTcpSocket *s = fakeMirror.nextPendingConnection()) {
+                                     s->setParent(&fakeMirror);
+                                     QObject::connect(s, &QTcpSocket::readyRead, s, [s, location]() {
+                                         if (s->property("answered").toBool()) return;
+                                         s->setProperty("answered", true);
+                                         s->readAll();
+                                         s->write("HTTP/1.1 302 Found\r\nLocation: " + location
+                                                  + "\r\nContent-Length: 0\r\n"
+                                                    "Connection: close\r\n\r\n");
+                                         s->flush();
+                                     });
+                                 }
+                             });
+
+            const QString officialPath = scratch.path() + "/official.txt";
+            const QByteArray body = QByteArrayLiteral("official-payload-after-dead-redirect");
+            {
+                QFile f(officialPath);
+                check(f.open(QIODevice::WriteOnly) && f.write(body) == body.size(),
+                      "V6j 官方那条（一个真文件）写好了");
+            }
+
+            const QString mirrorUrl = QStringLiteral("http://127.0.0.1:%1/pretend-mirror")
+                                          .arg(fakeMirror.serverPort());
+            const QString destPath = scratch.path() + "/out.txt";
+            const QString sha1 = QString::fromLatin1(
+                QCryptographicHash::hash(body, QCryptographicHash::Sha1).toHex());
+
+            DownloadManager dm;
+            dm.setUseMirror(true);
+            // 真机上首字节期限是 12 秒；这一条只能靠时间验，压到 1.5 秒。
+            dm.setNoFirstByteGiveUpMs(1500);
+            QEventLoop loop;
+            bool finished = false;
+            bool ok = false;
+            QString failure;
+            QObject::connect(&dm, &DownloadManager::allDownloadsFinished, &loop,
+                             [&](bool success) {
+                                 finished = true;
+                                 ok = success;
+                                 loop.quit();
+                             });
+            QObject::connect(&dm, &DownloadManager::downloadFinished, &loop,
+                             [&](const QString &, bool success, const QString &m) {
+                                 if (!success) failure = m;
+                             });
+            QElapsedTimer elapsed;
+            elapsed.start();
+            dm.beginBatch();
+            dm.downloadFile(mirrorUrl, destPath, sha1, body.size(), VerifyMode::SizeAndSha1,
+                            QUrl::fromLocalFile(officialPath).toString());
+            dm.endBatch();
+            // 兜底：真卡住也不能让验证工程自己挂在这儿。
+            QTimer::singleShot(30000, &loop, &QEventLoop::quit);
+            loop.exec();
+            const qint64 tookMs = elapsed.elapsed();
+
+            check(finished, "V6j 这条下载有终态（没终态 = 死落点还在占着并发位）");
+            check(ok, "V6j 退回官方那条之后下成了", failure);
+            check(tookMs >= 1200 && tookMs < 10000,
+                  "V6j 是「到点就换路」那个时间（1.5 秒左右；不是等 90 秒兜底、"
+                  "也不是立刻失败）",
+                  QStringLiteral("%1 ms").arg(tookMs));
+            QFile out(destPath);
+            check(out.exists() && out.open(QIODevice::ReadOnly) && out.readAll() == body,
+                  "V6j 落盘的内容就是官方那条给的（死落点一个字节都没混进来）");
+            check(dm.stats().failed == 0, "V6j 换路不算失败",
+                  QString::number(dm.stats().failed));
         }
     }
 

@@ -621,6 +621,17 @@ public:
     ///   底栏，样式由 `wtfmlSurface="footer"` 那条 QSS 给（只有一条上边框，不上底色）。
     static QString installFooterName() { return QStringLiteral("installFooter"); }
     static QString installBackButtonName() { return QStringLiteral("installBackButton"); }
+    /// 安装页中间那一层滚动区（名称框 + 加载器卡片），见 cpp 里 `installPage` 那段
+    /// 「遮挡」的 NOTE。
+    ///
+    /// ★ 2026-10-18：用户报「下载页（选择模组加载器的页）那个遮挡」—— 这一页原来
+    ///   **一个能滚的地方都没有**：名称框 + 卡片 + 五条加载器 + 底栏在默认 900×620 的
+    ///   窗口里比正文面高，底下那几条加载器被卡片的下沿裁掉了（展开版本号之后更甚）。
+    ///   现在名称框和卡片装在这一层里，顶上那行「← 返回 + 基于哪个原版」和底下那条
+    ///   固定底栏留在外面不动。
+    static QString installScrollName() { return QStringLiteral("installScroll"); }
+    /// 滚动区里那个内容容器（名称框 + 加载器卡片长在它上面）。
+    static QString installScrollBodyName() { return QStringLiteral("installScrollBody"); }
     /// 每个选项卡页面贴着内容区留的那一圈边距。**唯一出处** —— 内容区那个覆盖层
     /// （`OverlayHost`）也是一整个"页面"，它那边留白必须和别的页面一样，所以它读的是
     /// 这一个数，而不是自己再写一个。
@@ -3295,6 +3306,17 @@ public:
     ///   `getDownloadCategoryList()->currentRow()`。
     QPushButton *getDownloadHeaderRefreshButton() const { return downloadHeaderRefreshButton; }
 
+    /// 下载页页头**那一整块**（标题 + 说明 + 右上角动作）。
+    ///
+    /// ★ 2026-10-18：用户原话「那个页面顶上的大标题和刷新键不要（点进去就隐藏，外面
+    ///   还保留）」—— 这里的"那页"是「下载 → 游戏」里面那一层**安装页**（挑加载器那页）。
+    ///   它一打开，这一整块就整块收起来（不是只收标题和按钮、留一行空说明）；退回版本树
+    ///   或者翻到别的分类，它又露出来。判据只有一处：`syncDownloadHeaderVisibility()`
+    ///   （cpp 匿名命名空间），挂在 `downloadStack` / `gameStack` 两发 `currentChanged` 上。
+    QWidget *getDownloadHeader() const { return downloadHeader; }
+    /// 安装页中间那层滚动区（见 installScrollName() 那段）。
+    QScrollArea *getInstallScroll() const { return installScroll; }
+
     /// 把下载页页头那行说明刷成第 @p row 类的那一句（`downloadHeaderSubtitle()`）。
     ///
     /// ★ 由 `MainWindow` 在"当前分类变了"那一条路上调（那一层才知道分类列表翻到哪儿了，
@@ -3687,6 +3709,10 @@ private:
     QPushButton *downloadBackButton = nullptr;
     /// 下载页页头右上角那颗刷新（见 getDownloadHeaderRefreshButton() 那段）。
     QPushButton *downloadHeaderRefreshButton = nullptr;
+    /// 下载页页头那一整块（见 getDownloadHeader() 那段）。
+    QWidget *downloadHeader = nullptr;
+    /// 安装页中间那层滚动区（见 installScrollName() 那段）。
+    QScrollArea *installScroll = nullptr;
     /// 下载页页头那行说明（= 第 N 类的那一句，见 setDownloadHeaderRow()）。
     /// ★ 它**就是** `buildTwoColumnPage()` 给正文那一栏建的标题下面那一行 —— 不是另建一个
     ///   标签，页头那一行字只有这一处。

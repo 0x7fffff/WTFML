@@ -10,6 +10,7 @@
  */
 
 #include "VersionManager.hpp"
+#include "../download/DownloadRetryPolicy.hpp"
 #include "../download/InstallerFailure.hpp"
 #include "../settings/GlobalJavaSettings.hpp"
 
@@ -318,13 +319,22 @@ VersionManager::VersionManager(QObject *parent)
 VersionManager::~VersionManager() {
     // DownloadManager is automatically deleted as child
     //
+    // ★ 2026-10-17（用户桌面版的 log 末尾）：关掉启动器时安装器可能还在跑 —— 那个
+    //   `QProcess` 是 `this` 的孩子，交给 `~QObject` 收的话它只打一句
+    //   `QProcess: Destroyed while process (... java.exe) is still running.` 就放手，
+    //   那个 java.exe 会变成没人管的孤儿（还撑着我们下面要删的临时目录）。所以在这儿
+    //   先掐掉、等它退干净：这一步在删临时目录**之前**。
+    if (installerProcess != nullptr && installerProcess->state() != QProcess::NotRunning) {
+        if (installerTimer != nullptr) {
+            installerTimer->stop();
+        }
+        installerProcess->kill();
+        installerProcess->waitForFinished(5000);
+    }
+    //
     // 那份临时工作目录（OptiFine 那条路才有）不是 QObject 的子对象，得自己收。正常路径下
     // 它在安装的终态里已经被删过了（finishLoaderInstall / failLoaderInstall），这里只是
     // 兜住"装到一半程序被关掉"：不收的话系统临时目录里会积一份几 MB 的假 .minecraft。
-    //
-    // NOTE: 这一刻安装器那个子进程可能还活着（它是 QObject 的子对象，要到 ~QObject 才被
-    //       收），Windows 上文件被占着就删不掉 —— 那种情况下 remove() 会失败，这里是
-    //       析构，没有地方报，也不值得报（QTemporaryDir 下次会自己重试）。
     delete optifineWorkDir;
 }
 
@@ -1617,7 +1627,33 @@ void VersionManager::requestLoaderVersions(const QString &gameVersion, LoaderKin
                          : LoaderMeta::optifineDownloadsPageUrl();
         break;
     }
+    // 这两格跟着**这一局**重来：上一局退到镜像没有、官方地址是哪一条。
+    slot.officialUrl = url;
+    slot.mirrorFallbackUsed = false;
     fetchLoaderVersions(kind, url, fromMirror);
+}
+
+QString VersionManager::loaderVersionsMirrorFallback(LoaderKind kind,
+                                                     const QString &officialUrl) const {
+    // ★ 2026-10-17（用户桌面版的 log）：`拿不到 NeoForge 26.3 的版本列表（Operation timed out）`。
+    //   实测下来不是"那一发碰巧慢"：`maven.neoforged.net` 这台机器上**直接连不上**
+    //   （curl 12 秒零字节），而 BMCLAPI 上那份 maven-metadata.xml 是**同一份、是新的**
+    //   （1461 个 <version>、<latest> 26.3.0.86，26.3 能挑出 83 个）。所以官方那条问不通时
+    //   往镜像退一次 —— 不退这一条，国内这台机器上 NeoForge 的列表永远是「列表没取到」。
+    //
+    // 为什么只有 NeoForge 能这么退：
+    //  * Forge 那个同名 maven-metadata.xml 在镜像上是**旧的**（2026-10-17 实测 latest 停在
+    //    `1.18-38.0.17`、64,569 B；官方 213,257 B），它的 promotions 表更早（停在 1.15.2）。
+    //    照镜像那份列版本会得出「26.3 没有 Forge」的假结论 —— 这正是 requestLoaderVersions
+    //    里那段"两份 maven 清单不换镜像"注释防的那件事。
+    //  * Fabric 的 host 镜像不认（DownloadManager::mirrorUrl() 原样返回）。
+    //  * OptiFine 两条路的正文格式不一样（镜像 JSON / 官方网页），换源要连带换解析规矩，
+    //    不在这里掺和。
+    if (kind != LoaderKind::NeoForge || officialUrl.trimmed().isEmpty()) {
+        return QString();
+    }
+    const QString mirrored = DownloadManager::mirrorUrl(officialUrl);
+    return mirrored == officialUrl ? QString() : mirrored;
 }
 
 QNetworkAccessManager *VersionManager::loaderNetworkManager() {
@@ -1658,6 +1694,20 @@ void VersionManager::onLoaderVersionsReply(LoaderKind kind, QNetworkReply *reply
 
     const QByteArray body = reply->readAll();
     if (reply->error() != QNetworkReply::NoError) {
+        // ★ 2026-10-17：官方那条**连不上**时往镜像退一次（只 NeoForge，理由见
+        //   loaderVersionsMirrorFallback()）。判"连不上"用的是下载那条路同一个
+        //   transientReply()：超时 / 连接被掐 / HTTP/2 断流都算，404、证书不对、
+        //   用户取消不算 —— 那些换镜像也帮不上忙。只退一次，镜像再失败就照实报。
+        if (!slot->mirrorFallbackUsed && DownloadRetryPolicy::transientReply(reply)) {
+            const QString fallback = loaderVersionsMirrorFallback(kind, slot->officialUrl);
+            if (!fallback.isEmpty()) {
+                slot->mirrorFallbackUsed = true;
+                qInfo() << "Loader version list from" << slot->officialUrl << "failed ("
+                        << reply->errorString() << "); retrying through the mirror:" << fallback;
+                fetchLoaderVersions(kind, fallback, /*fromMirror=*/true);
+                return;
+            }
+        }
         emit loaderVersionsFetched(
             gameVersion, kind, false, LoaderMeta::LoaderVersionList(),
             tr("拿不到 %1 %2 的版本列表（%3）。检查网络后重试。")
@@ -2010,6 +2060,8 @@ void VersionManager::fetchInstallerList() {
     const QString url = downloadManager->endpoint(m_loaderInstall.listOfficialUrl);
     m_loaderInstall.listRequestWasMirror = (url != m_loaderInstall.listOfficialUrl);
     m_loaderInstall.listRetriedOfficial = false;
+    // 开局就落在镜像上的话，之后官方也失败时**不再**往镜像退（退过一次就够）。
+    m_loaderInstall.listMirrorTried = m_loaderInstall.listRequestWasMirror;
     requestInstallerList(url);
 }
 
@@ -2051,6 +2103,25 @@ void VersionManager::onInstallerListReply(QNetworkReply *reply) {
     if (reply->error() != QNetworkReply::NoError) {
         if (retryInstallerListFromOfficial()) {
             return;
+        }
+        // ★ 2026-10-17：NeoForge 的官方 maven 在国内**直接连不上**（理由见
+        //   loaderVersionsMirrorFallback()），而版本表这一步不通就整次安装都起不来。
+        //   官方那条连不上时往镜像退一次；镜像那一发已经用过（listMirrorTried）就不再退。
+        if (!m_loaderInstall.listMirrorTried &&
+            DownloadRetryPolicy::transientReply(reply)) {
+            const QString fallback = loaderVersionsMirrorFallback(
+                m_loaderInstall.kind, m_loaderInstall.listOfficialUrl);
+            if (!fallback.isEmpty()) {
+                m_loaderInstall.listMirrorTried = true;
+                m_loaderInstall.listRequestWasMirror = true;
+                // 官方这条**已经**试过了（就是刚失败的这一发），镜像那条别再往回弹。
+                m_loaderInstall.listRetriedOfficial = true;
+                emit loaderInstallMessage(
+                    tr("%1 版本表的官方地址连不上（%2），改用镜像再问一次...")
+                        .arg(m_loaderInstall.loaderName, reply->errorString()));
+                requestInstallerList(fallback);
+                return;
+            }
         }
         failLoaderInstall(tr("拿不到 %1 %2 的版本表（%3）。检查网络后重试。")
                               .arg(m_loaderInstall.loaderName, m_loaderInstall.gameVersion,
