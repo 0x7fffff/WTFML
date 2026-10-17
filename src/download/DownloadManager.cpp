@@ -28,6 +28,7 @@
 
 #include "../launcher/LibraryRules.hpp"
 #include "../util/AppPaths.hpp"
+#include "../util/DownloadDiagnostics.hpp"
 
 namespace {
 
@@ -149,6 +150,42 @@ QString effectiveDownloadUrl(const QString &url, const QString &officialUrl,
     return url;
 }
 
+/// 特供版日志用：一条回复的**判定依据**（状态码 / 错误 / 协议 / 关键响应头）。
+///
+/// 只读。普通构建里调用方的 `DownloadDiag::enabled()` 为假，这个函数不会被调用；
+/// 这里仍然不做任何副作用，免得"为了日志改状态"这类问题从这一层长出来。
+QString diagReplyFacts(QNetworkReply *reply) {
+    QStringList parts;
+    const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    parts << QStringLiteral("http=%1").arg(status > 0 ? QString::number(status) : QStringLiteral("-"));
+    parts << QStringLiteral("error=%1(%2)")
+                 .arg(QString::number(int(reply->error())), reply->errorString());
+    const QVariant h2 = reply->attribute(QNetworkRequest::Http2WasUsedAttribute);
+    parts << QStringLiteral("proto=%1")
+                 .arg(h2.isValid() ? (h2.toBool() ? QStringLiteral("h2") : QStringLiteral("h1"))
+                                   : QStringLiteral("?"));
+    if (reply->url() != reply->request().url()) {
+        parts << QStringLiteral("finalUrl=%1").arg(DownloadDiag::safeUrl(reply->url()));
+    }
+    // 这几条是排查源站 / 代理行为的全部依据：拿到半截（Content-Length 对不上）、
+    // 被中间设备换掉（Server / Content-Type）、或者要求等一会儿（Retry-After）。
+    for (const char *name : {"Content-Length", "Content-Range", "ETag", "Content-Type", "Server",
+                             "Retry-After", "Location"}) {
+        const QByteArray value = reply->rawHeader(name);
+        if (!value.isEmpty()) {
+            parts << QStringLiteral("%1=%2")
+                         .arg(QString::fromLatin1(name), QString::fromLatin1(value).simplified());
+        }
+    }
+    return parts.join(QLatin1Char(' '));
+}
+
+/// 一条回复从发出到现在多久（毫秒）。没登记过起点就回 -1。
+qint64 diagElapsedMs(QNetworkReply *reply, qint64 now) {
+    const qint64 start = reply->property("wtfmlStartMs").toLongLong();
+    return start > 0 ? now - start : -1;
+}
+
 }  // namespace
 
 QString DownloadManager::mirrorUrl(const QString &officialUrl) {
@@ -244,6 +281,14 @@ void DownloadManager::demoteMirrorForSlowDownload(const QString &host) {
     qInfo() << "The mirror is too slow (under" << kStallMinBytesPerTick << "bytes in"
             << kStallTickMs << "ms); using the official download source for the next"
             << kMirrorDemoteMs / 1000 << "seconds. Host demoted:" << host;
+    if (DownloadDiag::enabled()) {
+        DownloadDiag::line(QStringLiteral("watchdog: mirror host demoted host=%1 until-elapsed=%2ms "
+                                          "threshold=%3 bytes/%4ms")
+                               .arg(host)
+                               .arg(m_mirrorDemotedUntilByHost.value(host))
+                               .arg(kStallMinBytesPerTick)
+                               .arg(kStallTickMs));
+    }
 }
 
 bool DownloadManager::mirrorDemotedAt(qint64 nowMs, qint64 demotedUntilMs) {
@@ -280,6 +325,14 @@ void DownloadManager::setMaxConcurrentDownloads(int count) {
         return;
     }
     m_maxConcurrentDownloads = normalized;
+    if (DownloadDiag::enabled()) {
+        DownloadDiag::line(QStringLiteral("concurrency set request=%1 normalized=%2 inflight=%3 "
+                                          "queued=%4")
+                               .arg(count)
+                               .arg(normalized)
+                               .arg(activeDownloads.size())
+                               .arg(m_pendingJobs.size()));
+    }
     // 调小时，已经在飞的请求不撤回，pump 会看见“已超过上限”而什么都不做；
     // 调大时，这一次 pump 会立即把新空出的槽位补上。否则设置页虽然说“立即生效”，
     // 队列却必须等到下一条回复才会加速，用户看到的行为与文案不一致。
@@ -351,6 +404,13 @@ void DownloadManager::fetchVersionManifest() {
     // 元数据请求也要有超时：下载期间 UI 会禁用按钮，卡死的连接会让它永远禁用下去。
     request.setTransferTimeout(30000);
     QNetworkReply *reply = networkManager->get(request);
+    reply->setProperty("wtfmlStartMs", m_clock.elapsed());
+    if (DownloadDiag::enabled()) {
+        DownloadDiag::line(QStringLiteral("manifest send url=%1 official=%2 mirror=%3")
+                               .arg(DownloadDiag::safeUrl(url), DownloadDiag::safeUrl(officialUrl),
+                                    url.toString() == officialUrl ? QStringLiteral("no")
+                                                                  : QStringLiteral("yes")));
+    }
     // 元数据作业：**不落盘、也不计进 pendingDownloads / m_totalJobs**（进度条上它不是一个
     // 作业），但必须进 m_stallMeters，否则卡住的这条没人管。登记进这张表就是为了让看门狗
     // 收它的时候知道"别动那套计数"（见 DownloadManager.hpp 里 m_metadataReplies 的说明）。
@@ -395,6 +455,14 @@ void DownloadManager::fetchVersionJson(const QString &versionId) {
             QNetworkRequest request(versionQUrl);
             request.setTransferTimeout(30000);
             QNetworkReply *reply = networkManager->get(request);
+            reply->setProperty("wtfmlStartMs", m_clock.elapsed());
+            if (DownloadDiag::enabled()) {
+                DownloadDiag::line(QStringLiteral("version-json send id=%1 url=%2 expectedSha1=%3")
+                                       .arg(versionId, DownloadDiag::safeUrl(effectiveUrl),
+                                            sha1FromVersionUrl(version.url).isEmpty()
+                                                ? QStringLiteral("-")
+                                                : sha1FromVersionUrl(version.url)));
+            }
             // 和版本清单同理：元数据作业，不计进那套计数、但要被看门狗看着（无条件）。
             MetadataJob job;
             job.label = QStringLiteral("version_json");
@@ -447,16 +515,48 @@ void DownloadManager::beginBatch() {
     m_currentFile.clear();
     m_batchEmitted = false;
     m_batchOpen = true;
+    if (DownloadDiag::enabled()) {
+        DownloadDiag::line(QStringLiteral(
+                               "batch begin gen=%1 mirror=%2 mirrorPreferred=%3 cap=%4 "
+                               "official-manifest=%5")
+                               .arg(m_batchGeneration)
+                               .arg(m_useMirror ? QStringLiteral("on") : QStringLiteral("off"))
+                               .arg(mirrorPreferred() ? QStringLiteral("yes") : QStringLiteral("no"))
+                               .arg(m_maxConcurrentDownloads)
+                               .arg(officialVersionManifestUrl()));
+    }
 }
 
 void DownloadManager::endBatch() {
     m_batchOpen = false;
+    if (DownloadDiag::enabled()) {
+        DownloadDiag::line(QStringLiteral("batch end gen=%1 total=%2 done=%3 failed=%4 skipped=%5 "
+                                          "inflight=%6 queued=%7")
+                               .arg(m_batchGeneration)
+                               .arg(m_totalJobs)
+                               .arg(m_doneJobs)
+                               .arg(m_failedJobs)
+                               .arg(m_skippedJobs)
+                               .arg(pendingDownloads)
+                               .arg(m_pendingJobs.size()));
+    }
     // 这一个调用是关键：所有文件都已存在于磁盘、一个网络作业都没发出去的批次
     // 也会在这里被正常收尾，不会卡住。
     checkAllDownloadsFinished();
 }
 
 void DownloadManager::abandonBatch() {
+    if (DownloadDiag::enabled()) {
+        DownloadDiag::line(QStringLiteral("batch abandoned gen=%1 total=%2 done=%3 failed=%4 "
+                                          "skipped=%5 inflight=%6 queued=%7")
+                               .arg(m_batchGeneration)
+                               .arg(m_totalJobs)
+                               .arg(m_doneJobs)
+                               .arg(m_failedJobs)
+                               .arg(m_skippedJobs)
+                               .arg(pendingDownloads)
+                               .arg(m_pendingJobs.size()));
+    }
     m_batchOpen = false;
     // 还排着队的作业**不发了**：这一批已经放弃了，让它们接着跑等于"用户点了取消，
     // 几百 MB 还在后台往盘上写"。已经在飞的那几条照旧跑完（那几条的 NOTE 见 hpp）。
@@ -473,6 +573,18 @@ void DownloadManager::abandonBatch() {
 }
 
 void DownloadManager::cancelBatch() {
+    if (DownloadDiag::enabled()) {
+        DownloadDiag::line(QStringLiteral("batch cancelled gen=%1 oldGen=%2 total=%3 done=%4 "
+                                          "failed=%5 skipped=%6 inflight=%7 queued=%8")
+                               .arg(m_batchGeneration + 1)
+                               .arg(m_batchGeneration)
+                               .arg(m_totalJobs)
+                               .arg(m_doneJobs)
+                               .arg(m_failedJobs)
+                               .arg(m_skippedJobs)
+                               .arg(pendingDownloads)
+                               .arg(m_pendingJobs.size()));
+    }
     // 1. 还排着队的**不发了**。几百个作业留着的话，用户按了取消之后它们会一批批地继续
     //    发出去（每一次有回复收尾都会泵一遍队列），看着就是"取消了还在下"。
     m_pendingJobs.clear();
@@ -729,6 +841,7 @@ void DownloadManager::startDownload(const QUrl &url, const QString &destinationP
     request.setTransferTimeout(30000);
     QNetworkReply *reply = networkManager->get(request);
     reply->setProperty("wtfmlRetryAttempts", retryAttempts);
+    reply->setProperty("wtfmlStartMs", m_clock.elapsed());
     reply->setProperty("rangeFirst", range.first);
     reply->setProperty("rangeLast", range.last);
     reply->setProperty("rangeTotal", range.total);
@@ -774,6 +887,42 @@ void DownloadManager::startDownload(const QUrl &url, const QString &destinationP
     // （见 kNoProgressGiveUpMs）。有备用地址的那些另外还会走"太慢就换一条路"那条判据。
     m_stallMeters[reply].lastSignOfLifeMs = m_clock.elapsed();
     pendingDownloads++;
+    if (DownloadDiag::enabled()) {
+        QString rangeText = QStringLiteral("-");
+        if (range.active()) {
+            rangeText = QStringLiteral("%1-%2/%3 etag=%4")
+                            .arg(range.first)
+                            .arg(range.last)
+                            .arg(range.total)
+                            .arg(range.validator.isEmpty()
+                                     ? QStringLiteral("-")
+                                     : QString::fromLatin1(range.validator));
+        }
+        DownloadDiag::line(QStringLiteral(
+                               "send gen=%1 url=%2 dest=%3 range=%4 attempt=%5 inflight=%6 "
+                               "queued=%7 host=%8 http2=%9 rerouted=%10 fallback=%11 "
+                               "expectedSha1=%12 expectedSize=%13")
+                               .arg(m_batchGeneration)
+                               .arg(DownloadDiag::safeUrl(targetText))
+                               .arg(QDir::toNativeSeparators(destinationPath))
+                               .arg(rangeText)
+                               .arg(retryAttempts)
+                               .arg(activeDownloads.size())
+                               .arg(m_pendingJobs.size())
+                               .arg(QUrl(targetText).host())
+                               .arg(m_http2Hosts.contains(QUrl(targetText).host())
+                                        ? QStringLiteral("yes")
+                                        : (m_http1OnlyHosts.contains(QUrl(targetText).host())
+                                               ? QStringLiteral("no")
+                                               : QStringLiteral("?")))
+                               // 一次 arg() 最多认 %1..%9；剩下四条另起一次。
+                               .arg(rerouted ? QStringLiteral("yes -> official")
+                                             : QStringLiteral("no"),
+                                    fallback.isEmpty() ? QStringLiteral("-")
+                                                       : DownloadDiag::safeUrl(fallback),
+                                    expectedSha1.isEmpty() ? QStringLiteral("-") : expectedSha1,
+                                    QString::number(expectedSize)));
+    }
     connect(reply, &QNetworkReply::finished, this, &DownloadManager::onDownloadReplyFinished);
     connect(reply, &QNetworkReply::downloadProgress, this,
             &DownloadManager::onDownloadReplyProgress);
@@ -787,6 +936,21 @@ bool DownloadManager::replyIsFromCurrentBatch(QNetworkReply *reply) const {
 
 void DownloadManager::handleDownloadError(QNetworkReply *reply, const QString &errorMessage) {
     const QString destPath = activeDownloads.value(reply);
+    if (DownloadDiag::enabled()) {
+        const QFileInfo info(destPath);
+        DownloadDiag::line(
+            QStringLiteral("FAILED dest=%1 error=%2 expectedSha1=%3 expectedSize=%4 "
+                           "onDisk=%5 elapsed=%6ms stale=%7 request=%8 %9")
+                .arg(QDir::toNativeSeparators(destPath), errorMessage,
+                     expectedSha1s.value(reply).isEmpty() ? QStringLiteral("-")
+                                                          : expectedSha1s.value(reply),
+                     QString::number(expectedSizes.value(reply, -1)),
+                     info.exists() ? QStringLiteral("%1 bytes").arg(info.size())
+                                   : QStringLiteral("(missing)"),
+                     QString::number(diagElapsedMs(reply, m_clock.elapsed())),
+                     replyIsFromCurrentBatch(reply) ? QStringLiteral("no") : QStringLiteral("yes"),
+                     DownloadDiag::safeUrl(reply->request().url()), diagReplyFacts(reply)));
+    }
     qWarning() << "Download failed:" << destPath << errorMessage;
     // 属于**已经被放弃的那一批**：只留上面那行日志，不进当前批的失败计数、也不往失败清单
     // 里塞（那两样都是给界面上"这一批下完没有"看的，见 m_batchGeneration）。
@@ -831,6 +995,37 @@ void DownloadManager::checkAllDownloadsFinished() {
         return;
     }
     m_batchEmitted = true;
+    if (DownloadDiag::enabled()) {
+        DownloadDiag::line(QStringLiteral("batch complete gen=%1 success=%2 total=%3 done=%4 "
+                                          "failed=%5 skipped=%6")
+                               .arg(m_batchGeneration)
+                               .arg(m_failedJobs == 0 ? QStringLiteral("yes") : QStringLiteral("no"))
+                               .arg(m_totalJobs)
+                               .arg(m_doneJobs)
+                               .arg(m_failedJobs)
+                               .arg(m_skippedJobs));
+        // 失败清单最多列 200 条：几千个资源对象一起失败时，前 200 条已经足够看出是
+        // "整类地址都不通"还是"偶发几条"，无上限地抄下来只会把日志撑爆。
+        constexpr int kMaxListed = 200;
+        int listed = 0;
+        for (const FailedJob &job : m_failedJobInfos) {
+            if (listed++ >= kMaxListed) {
+                DownloadDiag::line(QStringLiteral("batch failed-list truncated: %1 more")
+                                       .arg(m_failedJobInfos.size() - kMaxListed));
+                break;
+            }
+            DownloadDiag::line(QStringLiteral("  failed-job url=%1 dest=%2 expectedSha1=%3 "
+                                              "expectedSize=%4 official=%5")
+                                   .arg(DownloadDiag::safeUrl(job.url),
+                                        QDir::toNativeSeparators(job.destinationPath),
+                                        job.expectedSha1.isEmpty() ? QStringLiteral("-")
+                                                                   : job.expectedSha1)
+                                   .arg(job.expectedSize)
+                                   .arg(job.officialUrl.isEmpty()
+                                            ? QStringLiteral("-")
+                                            : DownloadDiag::safeUrl(job.officialUrl)));
+        }
+    }
     emit allDownloadsFinished(m_failedJobs == 0);
 }
 
@@ -904,6 +1099,17 @@ void DownloadManager::downloadAssets(const AssetIndex &assetIndex) {
     QNetworkRequest request(indexQUrl);
     request.setTransferTimeout(30000);
     QNetworkReply *indexReply = networkManager->get(request);
+    indexReply->setProperty("wtfmlStartMs", m_clock.elapsed());
+    if (DownloadDiag::enabled()) {
+        DownloadDiag::line(QStringLiteral(
+                               "asset-index send id=%1 url=%2 official=%3 expectedSha1=%4")
+                               .arg(assetIndex.id, DownloadDiag::safeUrl(indexUrl),
+                                    assetIndex.url.isEmpty()
+                                        ? QStringLiteral("-")
+                                        : DownloadDiag::safeUrl(assetIndex.url),
+                                    assetIndex.sha1.isEmpty() ? QStringLiteral("-")
+                                                              : assetIndex.sha1));
+    }
     activeDownloads[indexReply] = indexPath;
     // 和 startDownload() 一样登记代次：索引这条也有可能落在被放弃的那一批里（见
     // m_batchGeneration）。
@@ -945,6 +1151,14 @@ void DownloadManager::onAssetIndexDownloaded() {
     // 但不解析、不发信号、不记账（理由见 m_batchGeneration）。
     const bool stale = !replyIsFromCurrentBatch(reply);
 
+    if (DownloadDiag::enabled()) {
+        DownloadDiag::line(QStringLiteral("asset-index reply %1 bytes=%2 elapsed=%3ms stale=%4")
+                               .arg(diagReplyFacts(reply))
+                               .arg(reply->bytesAvailable())
+                               .arg(diagElapsedMs(reply, m_clock.elapsed()))
+                               .arg(stale ? QStringLiteral("yes") : QStringLiteral("no")));
+    }
+
     bool success = false;
     QString errorMessage;
 
@@ -968,6 +1182,11 @@ void DownloadManager::onAssetIndexDownloaded() {
                 const QString expectedSha1 = expectedSha1s.value(reply);
                 if (expectedSha1.isEmpty() || verifyFileSha1(indexPath, expectedSha1)) {
                     success = true;
+                    if (DownloadDiag::enabled()) {
+                        DownloadDiag::line(QStringLiteral("asset-index saved path=%1 bytes=%2")
+                                               .arg(QDir::toNativeSeparators(indexPath))
+                                               .arg(body.size()));
+                    }
                     // 已经放弃的那一批**不往下发**资源对象：那几千个作业会被算进**当前**
                     // 这一批的总数里（用户点了取消却看见进度条的分母又涨了几千）。
                     if (!stale) {
@@ -1009,6 +1228,9 @@ void DownloadManager::onAssetIndexDownloaded() {
         if (!stale) {
             ++m_totalJobs;
             ++m_doneJobs;
+        }
+        if (DownloadDiag::enabled()) {
+            DownloadDiag::line(QStringLiteral("asset-index failed: %1").arg(errorMessage));
         }
         // NOTE: 必须在 activeDownloads.remove() 之前调用 —— handleDownloadError
         // 靠这张表反查目标路径来记失败清单。
@@ -1098,6 +1320,14 @@ bool DownloadManager::retryWithOfficialUrl(QNetworkReply *reply, const QString &
                        retryHost, 0, 0, rangeOf(reply)});
         // 别的作业可能刚腾出位置（也可能这一条立刻就能发出去），顺手泵一次。
         pumpDownloadQueue();
+        if (DownloadDiag::enabled()) {
+            DownloadDiag::line(QStringLiteral("fallback queued (host busy): dest=%1 official=%2 "
+                                              "inflight=%3 queued=%4")
+                                   .arg(QDir::toNativeSeparators(destinationPath),
+                                        DownloadDiag::safeUrl(officialUrl))
+                                   .arg(activeDownloads.size())
+                                   .arg(m_pendingJobs.size()));
+        }
         qInfo() << "The fallback host is busy; this retry waits in our own queue instead:"
                 << officialUrl;
         return true;
@@ -1111,6 +1341,13 @@ bool DownloadManager::retryWithOfficialUrl(QNetworkReply *reply, const QString &
     QNetworkRequest request(url);
     request.setTransferTimeout(30000);
     QNetworkReply *retry = networkManager->get(request);
+    retry->setProperty("wtfmlStartMs", m_clock.elapsed());
+    if (DownloadDiag::enabled()) {
+        DownloadDiag::line(QStringLiteral("fallback resend: dest=%1 official=%2 "
+                                          "previous=%3")
+                               .arg(QDir::toNativeSeparators(destinationPath),
+                                    DownloadDiag::safeUrl(officialUrl), diagReplyFacts(reply)));
+    }
     const QString expectedSha1 = expectedSha1s.take(reply);
     const qint64 expectedSize = expectedSizes.take(reply);
     activeDownloads.remove(reply);
@@ -1163,6 +1400,12 @@ void DownloadManager::parseAndDownloadAssets(const QString &indexPath) {
 
     QJsonObject indexObj = json.object();
     QJsonObject objects = indexObj["objects"].toObject();
+
+    if (DownloadDiag::enabled()) {
+        DownloadDiag::line(QStringLiteral("asset-index parsed path=%1 objects=%2")
+                               .arg(QDir::toNativeSeparators(indexPath))
+                               .arg(objects.size()));
+    }
 
     QString basePath = AppPaths::assetsDir();
     QString objectsPath = basePath + "/objects";
@@ -1314,6 +1557,12 @@ void DownloadManager::onVersionManifestReplyFinished() {
     // 那一条在。这里统一摘一遍，省得在每条路上都写一次。
     activeDownloads.remove(reply);
     m_replyGenerations.remove(reply);
+    if (DownloadDiag::enabled()) {
+        DownloadDiag::line(QStringLiteral("manifest reply %1 bytes=%2 elapsed=%3ms")
+                               .arg(diagReplyFacts(reply))
+                               .arg(reply->bytesAvailable())
+                               .arg(diagElapsedMs(reply, m_clock.elapsed())));
+    }
     // 镜像那条没成（失败 / 被看门狗 abort）→ 用官方地址重发一次，这次不算失败。
     if (reply->error() != QNetworkReply::NoError &&
         retryWithOfficialUrl(reply, QStringLiteral("version_manifest.json"),
@@ -1343,6 +1592,10 @@ void DownloadManager::onVersionManifestReplyFinished() {
         QJsonDocument json = QJsonDocument::fromJson(reply->readAll(), &error);
         if (error.error == QJsonParseError::NoError) {
             parseVersionManifest(json);
+            if (DownloadDiag::enabled()) {
+                DownloadDiag::line(
+                    QStringLiteral("manifest parsed versions=%1").arg(availableVersions.size()));
+            }
         } else {
             qWarning() << "版本清单下载回来解不开，按失败处理：" << error.errorString();
             // 解不开 = 内容和"网络失败"一样不可用：有备用地址就换一条路再试一次
@@ -1375,6 +1628,12 @@ void DownloadManager::onVersionJsonReplyFinished() {
     }
     activeDownloads.remove(reply);
     m_replyGenerations.remove(reply);
+    if (DownloadDiag::enabled()) {
+        DownloadDiag::line(QStringLiteral("version-json reply %1 bytes=%2 elapsed=%3ms")
+                               .arg(diagReplyFacts(reply))
+                               .arg(reply->bytesAvailable())
+                               .arg(diagElapsedMs(reply, m_clock.elapsed())));
+    }
     if (reply->error() != QNetworkReply::NoError &&
         retryWithOfficialUrl(reply, QStringLiteral("version_json"),
                              &DownloadManager::onVersionJsonReplyFinished)) {
@@ -1417,6 +1676,16 @@ void DownloadManager::onVersionJsonReplyFinished() {
         }
         if (problem.isEmpty()) {
             parseVersionJson(json);
+            if (DownloadDiag::enabled()) {
+                DownloadDiag::line(QStringLiteral("version-json parsed bytes=%1 id=%2 downloads=%3")
+                                       .arg(bytes.size())
+                                       .arg(json.object().value(QStringLiteral("id")).toString())
+                                       .arg(json.object()
+                                                .value(QStringLiteral("downloads"))
+                                                .toObject()
+                                                .keys()
+                                                .join(QLatin1Char(','))));
+            }
             emit versionJsonFetched(currentVersionJson);
         } else {
             // 内容不对 → 先按"换一条路再试"处理：有备用地址（= 这条走的是镜像）就重发一次，
@@ -1433,6 +1702,9 @@ void DownloadManager::onVersionJsonReplyFinished() {
             }
             m_metadataReplies.remove(reply);
             qWarning() << "版本 json 下载回来不对，而且没有备用地址，按失败处理：" << problem;
+            if (DownloadDiag::enabled()) {
+                DownloadDiag::line(QStringLiteral("version-json rejected: %1").arg(problem));
+            }
             emit versionJsonFetched(QJsonObject());
         }
     } else {
@@ -1475,6 +1747,19 @@ bool DownloadManager::requeueTransientFailure(QNetworkReply *reply, const QStrin
     wakeup->start(delay);
     qInfo() << "Temporary download failure; retry" << attempts + 1 << "of 3 in" << delay << "ms:"
             << QUrl(url).adjusted(QUrl::RemoveUserInfo | QUrl::RemoveQuery | QUrl::RemoveFragment);
+    if (DownloadDiag::enabled()) {
+        DownloadDiag::line(QStringLiteral("transient retry dest=%1 attempt=%2 delay=%3ms "
+                                          "status=%4 retryAfter=%5 %6")
+                               .arg(QDir::toNativeSeparators(destinationPath))
+                               .arg(attempts + 1)
+                               .arg(delay)
+                               .arg(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute)
+                                        .toString())
+                               .arg(reply->rawHeader("Retry-After").isEmpty()
+                                        ? QStringLiteral("-")
+                                        : QString::fromLatin1(reply->rawHeader("Retry-After")))
+                               .arg(diagReplyFacts(reply)));
+    }
     return true;
 }
 
@@ -1524,6 +1809,22 @@ void DownloadManager::onDownloadReplyFinished() {
         errorMessage = stream->finish(expectedSha1s.value(reply), expectedSizes.value(reply, -1),
                                       !range.active() && shouldBeZipArchive(destPath));
         success = errorMessage.isEmpty();
+    }
+    if (DownloadDiag::enabled()) {
+        const QString rangeText =
+            range.active() ? QStringLiteral("%1-%2/%3").arg(range.first).arg(range.last).arg(range.total)
+                           : QStringLiteral("-");
+        DownloadDiag::line(
+            QStringLiteral("reply dest=%1 result=%2 reason=%3 bytes=%4 expectedSize=%5 "
+                           "elapsed=%6ms stale=%7 range=%8 %9")
+                .arg(QDir::toNativeSeparators(destPath),
+                     success ? QStringLiteral("ok") : QStringLiteral("fail"),
+                     errorMessage.isEmpty() ? QStringLiteral("-") : errorMessage)
+                .arg(stream ? stream->bytes : -1)
+                .arg(QString::number(expectedSizes.value(reply, -1)))
+                .arg(QString::number(diagElapsedMs(reply, m_clock.elapsed())))
+                .arg(stale ? QStringLiteral("yes") : QStringLiteral("no"), rangeText,
+                     diagReplyFacts(reply)));
     }
     if (success) {
         m_officialFallbacks.remove(reply);
@@ -1650,9 +1951,19 @@ void DownloadManager::onStallWatchdogTick() {
                 demoteMirrorForSlowDownload(host);
             }
         }
+        if (DownloadDiag::enabled()) {
+            DownloadDiag::line(QStringLiteral("watchdog: aborting %1 stalled mirror reply(ies)")
+                                   .arg(stalled.size()));
+        }
         for (QNetworkReply *reply : stalled) {
             qInfo() << "Aborting a stalled mirror download and retrying it from the official url:"
                     << jobLabel(reply);
+            if (DownloadDiag::enabled()) {
+                DownloadDiag::line(QStringLiteral("watchdog: stalled job=%1 url=%2 %3")
+                                       .arg(jobLabel(reply),
+                                            DownloadDiag::safeUrl(reply->request().url()),
+                                            diagReplyFacts(reply)));
+            }
             // 只 abort，不在这里收尾：finished 那个槽会拿到 OperationCanceledError 并按
             // "镜像那条没成"处理（退回官方重发，作业还是同一个、不算失败）。
             reply->abort();
@@ -1661,6 +1972,13 @@ void DownloadManager::onStallWatchdogTick() {
     for (QNetworkReply *reply : wedged) {
         qWarning() << "No data for" << (m_noProgressGiveUpMs / 1000) << "seconds, giving up:"
                    << jobLabel(reply);
+        if (DownloadDiag::enabled()) {
+            DownloadDiag::line(QStringLiteral("watchdog: wedged job=%1 url=%2 giveUp=%3ms %4")
+                                   .arg(jobLabel(reply),
+                                        DownloadDiag::safeUrl(reply->request().url()))
+                                   .arg(m_noProgressGiveUpMs)
+                                   .arg(diagReplyFacts(reply)));
+        }
         failWedgedDownload(reply);
     }
 }
@@ -1680,6 +1998,11 @@ void DownloadManager::failWedgedDownload(QNetworkReply *reply) {
     if (const MetadataJob job = m_metadataReplies.take(reply); !job.label.isEmpty()) {
         qWarning() << "No data for" << (m_noProgressGiveUpMs / 1000)
                    << "seconds, giving up on the metadata request:" << job.label;
+        if (DownloadDiag::enabled()) {
+            DownloadDiag::line(QStringLiteral("watchdog: metadata wedged label=%1 url=%2 %3")
+                                   .arg(job.label, DownloadDiag::safeUrl(reply->request().url()),
+                                        diagReplyFacts(reply)));
+        }
         activeDownloads.remove(reply);
         m_replyGenerations.remove(reply);
         m_stallMeters.remove(reply);

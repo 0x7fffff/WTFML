@@ -174,6 +174,10 @@ set(SOURCE_FILES
     ${REPO_ROOT}/src/download/DownloadManager.cpp
     ${REPO_ROOT}/src/download/ResumableDownload.cpp
     ${REPO_ROOT}/src/download/ResumableDownload.hpp
+    # 下载诊断层（2026-10-17）：上面两个 .cpp 现在无条件调它，不进来就是链接期
+    # undefined reference（enabled() 在普通构建里是编译期 false）。
+    ${REPO_ROOT}/src/util/DownloadDiagnostics.cpp
+    ${REPO_ROOT}/src/util/DownloadDiagnostics.hpp
     # 下载页那四页的取数（搜索 / 版本列表 / 图标）。MainWindow.cpp 里那条路要它们 ——
     # 少了这两个文件，mw_check 会在链接那一步报一串"undefined reference"。
     ${REPO_ROOT}/src/download/ResourceCatalog.cpp

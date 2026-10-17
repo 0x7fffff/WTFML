@@ -17,6 +17,10 @@ find_package(Qt6 REQUIRED COMPONENTS Widgets Network Core Gui Concurrent)
 option(WTFML_BUILD_TESTS "Build the WTFML regression test executables" OFF)
 option(WTFML_STRICT_WARNINGS "Enable additional compiler diagnostics" OFF)
 option(WTFML_WARNINGS_AS_ERRORS "Treat launcher warnings as build errors" OFF)
+# 特供版：把下载链路的每一条请求 / 每一次换源与重试的**决定**都记进
+# `<数据目录>/logs/wtfml-download.log`（见 src/util/DownloadDiagnostics.hpp）。
+# 默认关：普通构建一行都不多写（enabled() 缓存成常量 false）。
+option(WTFML_DIAG_DOWNLOAD "Always-on verbose download diagnostics (special diagnostic build)" OFF)
 
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
@@ -151,6 +155,7 @@ set(HEADER_FILES
     src/util/NbtTree.hpp
     src/util/ServerPing.hpp
     src/util/ErrorReport.hpp
+    src/util/DownloadDiagnostics.hpp
     # 工具箱那五件（2026-10-16，用户点名的那一批）：纯逻辑层，各自的"照什么规矩、不做什么"
     # 都写在头文件开头那一段里。
     src/tools/TextFormat.hpp
@@ -288,6 +293,7 @@ set(SOURCE_FILES
     src/util/NbtTree.cpp
     src/util/ServerPing.cpp
     src/util/ErrorReport.cpp
+    src/util/DownloadDiagnostics.cpp
     src/tools/TextFormat.cpp
     src/tools/CoordConvert.cpp
     src/tools/FileHash.cpp
@@ -375,6 +381,16 @@ set_target_properties(WTFMinecraftLauncher PROPERTIES qt_no_entrypoint TRUE)
 # 从前这两处是**各写各的**（CMakeLists 写 0.1.0、main.cpp 写 1.0.0，早就不一致了），
 # 发 0.2.0 的时候才发现——所以改成从这一个宏出来，别再写第二份字面量。
 target_compile_definitions(WTFMinecraftLauncher PRIVATE WTFML_VERSION="${PROJECT_VERSION}")
+
+# 特供版（-DWTFML_DIAG_DOWNLOAD=ON）：详细下载日志恒开。
+#
+# ★ 宏**只给 DownloadDiagnostics.cpp 这一个文件**，不是 target 级的：别处的调用点一律走
+#   `DownloadDiag::enabled()`（普通构建里它回 false，一个字段都不多写）。这样切换这个开关
+#   只重编那一个文件 + 重新链接，不用把整份 300 多个 .o 全推翻重来。
+if(WTFML_DIAG_DOWNLOAD)
+    set_source_files_properties(src/util/DownloadDiagnostics.cpp PROPERTIES
+        COMPILE_DEFINITIONS "WTFML_DIAG_DOWNLOAD=1;WTFML_BUILD_FLAVOR=\"download-diagnostics\"")
+endif()
 
 # 正版登录那两格（coding plan §9.4「客户端 ID 和回调地址通过构建配置注入」）。
 #

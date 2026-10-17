@@ -1,6 +1,7 @@
 #include "ResumableDownload.hpp"
 #include "DownloadManager.hpp"
 #include "DownloadRetryPolicy.hpp"
+#include "../util/DownloadDiagnostics.hpp"
 #include <QCryptographicHash>
 #include <QJsonDocument>
 #include <QJsonArray>
@@ -83,6 +84,11 @@ void ResumableDownload::start(const QUrl &url, const QString &target, const QStr
         if (m_stage != Stage::Parts) return;
         if (!success) {
             if (error.startsWith(QStringLiteral("range:"))) {
+                if (DownloadDiag::enabled()) {
+                    DownloadDiag::line(QStringLiteral("resumable part rejected, switching to "
+                                                      "single download: %1")
+                                           .arg(error));
+                }
                 m_stage = Stage::Switching;
                 const auto generation = m_generation;
                 QTimer::singleShot(0, this, [this, generation] { if (m_running && generation == m_generation) startSingle(); });
@@ -104,6 +110,16 @@ void ResumableDownload::start(const QUrl &url, const QString &target, const QStr
             QTimer::singleShot(0, this, [this, generation] { if (m_running && generation == m_generation) assemble(); });
         }
     });
+    if (DownloadDiag::enabled()) {
+        DownloadDiag::line(QStringLiteral("resumable start url=%1 target=%2 sha1=%3 size=%4 "
+                                          "overwrite=%5 cache=%6")
+                               .arg(DownloadDiag::safeUrl(m_url),
+                                    QDir::toNativeSeparators(m_target),
+                                    m_sha1.isEmpty() ? QStringLiteral("-") : m_sha1)
+                               .arg(m_expectedSize)
+                               .arg(m_overwrite ? QStringLiteral("yes") : QStringLiteral("no"),
+                                    QDir::toNativeSeparators(m_cache)));
+    }
     emit statusChanged(tr("正在检查分段与续传支持…"));
     probe();
 }
@@ -115,6 +131,11 @@ void ResumableDownload::probe(int attempt) {
     request.setTransferTimeout(15000);
     auto *reply = m_files->networkAccess()->get(request);
     m_probe = reply;
+    if (DownloadDiag::enabled()) {
+        DownloadDiag::line(QStringLiteral("probe send attempt=%1 url=%2 range=bytes=0-0 timeout=15000")
+                               .arg(attempt)
+                               .arg(DownloadDiag::safeUrl(m_url)));
+    }
     reply->setReadBufferSize(4096);
     const auto generation = m_generation;
     connect(reply, &QNetworkReply::metaDataChanged, this, [reply] {
@@ -144,20 +165,80 @@ void ResumableDownload::probe(int attempt) {
         const auto retryAfter = reply->rawHeader("Retry-After");
         const auto effectiveUrl = reply->url();
         reply->deleteLater();
+        if (DownloadDiag::enabled()) {
+            DownloadDiag::line(QStringLiteral("probe reply attempt=%1 status=%2 error=%3(%4) "
+                                              "contentRange=%5 etag=%6 probeBytes=%7 "
+                                              "effectiveUrl=%8 unsupportedFlag=%9")
+                                   .arg(attempt)
+                                   .arg(status > 0 ? QString::number(status) : QStringLiteral("-"))
+                                   .arg(QString::number(int(code)), reason)
+                                   .arg(QString::fromLatin1(header).trimmed().isEmpty()
+                                            ? QStringLiteral("-")
+                                            : QString::fromLatin1(header).trimmed(),
+                                        etag.isEmpty() ? QStringLiteral("-")
+                                                       : QString::fromLatin1(etag))
+                                   .arg(data.size())
+                                   .arg(DownloadDiag::safeUrl(effectiveUrl))
+                                   .arg(reply->property("rangeUnsupported").toBool()
+                                            ? QStringLiteral("yes")
+                                            : QStringLiteral("no")));
+        }
         if (generation != m_generation || !m_running) return;
         m_probe = nullptr;
-        if (unsupported) { startSingle(); return; }
+        if (unsupported) {
+            if (DownloadDiag::enabled()) {
+                DownloadDiag::line(QStringLiteral("probe -> single: range unsupported status=%1")
+                                       .arg(status > 0 ? QString::number(status)
+                                                       : QStringLiteral("-")));
+            }
+            startSingle();
+            return;
+        }
         if (code != QNetworkReply::NoError) {
             const int delay = DownloadRetryPolicy::transient(code, status) ? DownloadRetryPolicy::delayMs(attempt, retryAfter) : -1;
-            if (delay >= 0) { QTimer::singleShot(delay, this, [this, generation, attempt] { if (m_running && generation == m_generation) probe(attempt + 1); }); return; }
-            finish(false, reason); return;
+            if (delay >= 0) {
+                if (DownloadDiag::enabled()) {
+                    DownloadDiag::line(QStringLiteral("probe transient retry attempt=%1 delay=%2ms "
+                                                      "retryAfter=%3")
+                                           .arg(attempt + 1)
+                                           .arg(delay)
+                                           .arg(retryAfter.isEmpty()
+                                                    ? QStringLiteral("-")
+                                                    : QString::fromLatin1(retryAfter)));
+                }
+                QTimer::singleShot(delay, this, [this, generation, attempt] { if (m_running && generation == m_generation) probe(attempt + 1); });
+                return;
+            }
+            if (DownloadDiag::enabled()) {
+                DownloadDiag::line(QStringLiteral("probe failed: %1").arg(reason));
+            }
+            finish(false, reason);
+            return;
         }
         static const QRegularExpression pattern(QStringLiteral("^bytes 0-0/([0-9]+)$"));
         const auto match = pattern.match(QString::fromLatin1(header));
         bool valid = false;
         const qint64 total = match.captured(1).toLongLong(&valid);
-        if (status != 206 || !valid || data.size() != 1 || total <= 0) { startSingle(); return; }
-        if (m_expectedSize > 0 && total != m_expectedSize) { finish(false, tr("源站文件大小与预期不一致。")); return; }
+        if (status != 206 || !valid || data.size() != 1 || total <= 0) {
+            if (DownloadDiag::enabled()) {
+                DownloadDiag::line(QStringLiteral("probe -> single: invalid probe response "
+                                                  "status=%1 total=%2 probeBytes=%3")
+                                       .arg(status)
+                                       .arg(valid ? QString::number(total) : QStringLiteral("-"))
+                                       .arg(data.size()));
+            }
+            startSingle();
+            return;
+        }
+        if (m_expectedSize > 0 && total != m_expectedSize) {
+            if (DownloadDiag::enabled()) {
+                DownloadDiag::line(QStringLiteral("probe rejected: source size %1 != expected %2")
+                                       .arg(total)
+                                       .arg(m_expectedSize));
+            }
+            finish(false, tr("源站文件大小与预期不一致。"));
+            return;
+        }
         m_total = total;
         m_source = effectiveUrl;
         m_urlHash = hashText(m_url.toEncoded() + '\n' + effectiveUrl.toEncoded());
@@ -165,10 +246,38 @@ void ResumableDownload::probe(int attempt) {
         // 没有强校验依据时不跨请求拼接，以免源文件变化而大小未变。
         // 先限制大小再做向上取整，避免恶意 Content-Range 的整数溢出。
         if (total < 4 * 1024 * 1024 || total > 8192LL * 4 * 1024 * 1024 ||
-            (m_etag.isEmpty() && m_sha1.isEmpty())) { startSingle(); return; }
+            (m_etag.isEmpty() && m_sha1.isEmpty())) {
+            if (DownloadDiag::enabled()) {
+                DownloadDiag::line(QStringLiteral("probe -> single: unsafe for ranges total=%1 "
+                                                  "etag=%2 sha1=%3")
+                                       .arg(total)
+                                       .arg(m_etag.isEmpty() ? QStringLiteral("-")
+                                                             : QString::fromLatin1(m_etag),
+                                            m_sha1.isEmpty() ? QStringLiteral("-") : m_sha1));
+            }
+            startSingle();
+            return;
+        }
         m_partSize = std::max<qint64>(1024 * 1024, std::min<qint64>(4 * 1024 * 1024, (total + 3) / 4));
-        if ((total + m_partSize - 1) / m_partSize > 8192) { startSingle(); return; }
+        if ((total + m_partSize - 1) / m_partSize > 8192) {
+            if (DownloadDiag::enabled()) {
+                DownloadDiag::line(QStringLiteral("probe -> single: would need %1 parts (limit 8192)")
+                                       .arg((total + m_partSize - 1) / m_partSize));
+            }
+            startSingle();
+            return;
+        }
         m_count = int((total + m_partSize - 1) / m_partSize);
+        if (DownloadDiag::enabled()) {
+            DownloadDiag::line(QStringLiteral("probe -> parts total=%1 partSize=%2 parts=%3 "
+                                              "etag=%4 effectiveUrl=%5")
+                                   .arg(total)
+                                   .arg(m_partSize)
+                                   .arg(m_count)
+                                   .arg(m_etag.isEmpty() ? QStringLiteral("-")
+                                                         : QString::fromLatin1(m_etag),
+                                        DownloadDiag::safeUrl(effectiveUrl)));
+        }
         prepareCache();
     });
 }
@@ -212,6 +321,11 @@ void ResumableDownload::prepareCache() {
     connect(worker, &QThread::finished, this, [this, result, generation] {
         if (!m_running || generation != m_generation) return;
         m_complete = result->parts;
+        if (DownloadDiag::enabled()) {
+            DownloadDiag::line(QStringLiteral("resumable cache: restored=%1/%2 cache=%3")
+                                   .arg(QString::number(m_complete.size()), QString::number(m_count),
+                                    QDir::toNativeSeparators(m_cache)));
+        }
         emit statusChanged(m_complete.isEmpty() ? tr("正在并行下载分段…") : tr("已恢复 %1 个完整分段，继续下载剩余部分…").arg(m_complete.size()));
         downloadParts();
     });
@@ -236,6 +350,14 @@ bool ResumableDownload::saveManifest(QString *error) {
 void ResumableDownload::downloadParts() {
     if (m_complete.size() == m_count) { assemble(); return; }
     m_stage = Stage::Parts;
+    if (DownloadDiag::enabled()) {
+        DownloadDiag::line(QStringLiteral("resumable parts: missing=%1/%2 partSize=%3 total=%4 "
+                                          "url=%5")
+                               .arg(m_count - m_complete.size())
+                               .arg(m_count)
+                               .arg(m_partSize)
+                               .arg(QString::number(m_total), DownloadDiag::safeUrl(m_source)));
+    }
     QString problem;
     if (!saveManifest(&problem)) { finish(false, problem); return; }
     emitProgress();
@@ -250,6 +372,12 @@ void ResumableDownload::downloadParts() {
 }
 
 void ResumableDownload::startSingle() {
+    if (DownloadDiag::enabled()) {
+        DownloadDiag::line(QStringLiteral("resumable -> single (reason in previous probe line) "
+                                          "url=%1 target=%2")
+                               .arg(DownloadDiag::safeUrl(m_url),
+                                    QDir::toNativeSeparators(m_target)));
+    }
     m_stage = Stage::Switching;
     m_files->cancelBatch();
     m_stage = Stage::Single;
@@ -262,6 +390,12 @@ void ResumableDownload::startSingle() {
 
 void ResumableDownload::assemble() {
     m_stage = Stage::Assemble;
+    if (DownloadDiag::enabled()) {
+        DownloadDiag::line(QStringLiteral("resumable assemble start parts=%1 total=%2 target=%3")
+                               .arg(m_count)
+                               .arg(m_total)
+                               .arg(QDir::toNativeSeparators(m_target)));
+    }
     emit statusChanged(tr("所有分段已就绪，正在后台合并、校验并保存…"));
     auto result = QSharedPointer<QString>::create();
     const auto cache = m_cache, target = m_target, expectedHash = m_sha1;
@@ -308,6 +442,13 @@ void ResumableDownload::assemble() {
     });
     connect(worker, &QThread::finished, this, [this, result, generation] {
         if (!m_running || generation != m_generation) return;
+        if (DownloadDiag::enabled()) {
+            DownloadDiag::line(result->isEmpty()
+                                   ? QStringLiteral("resumable assemble ok target=%1 bytes=%2")
+                                         .arg(QDir::toNativeSeparators(m_target))
+                                         .arg(m_total)
+                                   : QStringLiteral("resumable assemble failed: %1").arg(*result));
+        }
         if (result->isEmpty()) { clearCacheFiles(); emit progress(m_total, m_total); }
         finish(result->isEmpty(), *result);
     });
@@ -319,6 +460,12 @@ void ResumableDownload::clearCacheFiles() const { removeParts(m_cache); }
 void ResumableDownload::finish(bool success, const QString &error) {
     if (!m_running) return;
     m_running = false; m_stage = Stage::Done;
+    if (DownloadDiag::enabled()) {
+        DownloadDiag::line(QStringLiteral("resumable finished success=%1 error=%2 target=%3")
+                               .arg(success ? QStringLiteral("yes") : QStringLiteral("no"),
+                                    error.isEmpty() ? QStringLiteral("-") : error,
+                                    QDir::toNativeSeparators(m_target)));
+    }
     if (!success && m_files) m_files->cancelBatch();
     m_lock.reset();
     emit finished(success, error);

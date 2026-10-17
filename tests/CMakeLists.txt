@@ -32,6 +32,11 @@ set(PROJECT_SOURCES
     ${REPO_ROOT}/src/download/ResumableDownload.cpp
     ${REPO_ROOT}/src/download/ResumableDownload.hpp
     ${REPO_ROOT}/src/download/DownloadManager.hpp
+    # 下载诊断层（2026-10-17）：DownloadManager / ResumableDownload 现在无条件调它
+    # （普通构建 enabled() 是编译期 false，一个字段都不多写）。不放进来源表就是链接期
+    # 一片 undefined reference。
+    ${REPO_ROOT}/src/util/DownloadDiagnostics.cpp
+    ${REPO_ROOT}/src/util/DownloadDiagnostics.hpp
     ${REPO_ROOT}/src/launcher/LauncherManager.cpp
     ${REPO_ROOT}/src/launcher/LauncherManager.hpp
     ${REPO_ROOT}/src/launcher/LibraryRules.hpp

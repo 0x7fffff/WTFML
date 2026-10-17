@@ -17,6 +17,7 @@
 #include "../ui/Animations.hpp"  // 按下按钮那一份动效（见下面那段 NOTE）
 #include "../ui/Theme.hpp"   // 主题从盘上读回来、铺开（见下面那段 NOTE）
 #include "util/AppPaths.hpp"
+#include "util/DownloadDiagnostics.hpp"
 
 namespace {
 
@@ -179,6 +180,11 @@ int main(int argc, char *argv[]) {
     // 日志文件到这一刻才开：窗口立起来 = FolderManager 已经把「当前游戏文件夹」从
     // QSettings 里恢复好了，落点才是对的（见 installFileLog 的 NOTE）。
     openFileLog();
+
+    // 特供版（-DWTFML_DIAG_DOWNLOAD=ON）的下载明细：和 wtfml.log 同一个目录、同一份
+    // "这一次启动"。普通构建里 enabled() 是编译期常量 false，这两句什么都不做。
+    DownloadDiag::init(AppPaths::minecraftDir() + QStringLiteral("/logs"));
+    DownloadDiag::logEnvironment();
 
     return app.exec();
 }
