@@ -150,6 +150,26 @@ QString effectiveDownloadUrl(const QString &url, const QString &officialUrl,
     return url;
 }
 
+/// 这条失败是不是"根本连不上"（而不是"文件不在 / 内容不对"）。
+///
+/// 只用来回答一个问题：**官方那条路到底通不通**。所以 HTTP 状态码那一档一概不算，
+/// 只有连接层面的错误才算 —— 尤其是 `TimeoutError`：Qt 的 transfer timeout 是"30 秒
+/// 一个字节都没来"，在测试员那份日志里，官方 CDN 的每一条失败都是它。
+bool unreachableError(QNetworkReply::NetworkError error) {
+    switch (error) {
+    case QNetworkReply::TimeoutError:
+    case QNetworkReply::HostNotFoundError:
+    case QNetworkReply::ConnectionRefusedError:
+    case QNetworkReply::TemporaryNetworkFailureError:
+    case QNetworkReply::NetworkSessionFailedError:
+    case QNetworkReply::ProxyConnectionClosedError:
+    case QNetworkReply::ProxyTimeoutError:
+        return true;
+    default:
+        return false;
+    }
+}
+
 /// 特供版日志用：一条回复的**判定依据**（状态码 / 错误 / 协议 / 关键响应头）。
 ///
 /// 只读。普通构建里调用方的 `DownloadDiag::enabled()` 为假，这个函数不会被调用；
@@ -288,6 +308,38 @@ void DownloadManager::demoteMirrorForSlowDownload(const QString &host) {
                                .arg(m_mirrorDemotedUntilByHost.value(host))
                                .arg(kStallMinBytesPerTick)
                                .arg(kStallTickMs));
+    }
+}
+
+void DownloadManager::noteReroutedReplyOutcome(QNetworkReply *reply, bool success,
+                                               bool forceUnreachable) {
+    const QString mirrorHost = reply->property("wtfmlReroutedFromHost").toString();
+    if (mirrorHost.isEmpty()) {
+        return;  // 这条本来就走官方 / 本来就在镜像上，跟"改道"无关
+    }
+    if (success) {
+        // 官方还出得动字节 ⇒ 那只镜像主机继续被绕开，计数从头算。
+        m_reroutedOfficialFailures.remove(mirrorHost);
+        return;
+    }
+    if (!forceUnreachable && !unreachableError(reply->error())) {
+        return;  // 404 / 校验不对 这类：文件的事，不是链路的事
+    }
+    const int strikes = m_reroutedOfficialFailures.value(mirrorHost) + 1;
+    if (strikes < kReroutedFailuresToUndoDemotion) {
+        m_reroutedOfficialFailures[mirrorHost] = strikes;
+        return;
+    }
+    m_reroutedOfficialFailures.remove(mirrorHost);
+    if (!m_mirrorDemotedUntilByHost.contains(mirrorHost)) {
+        return;  // 降级期已经自然过掉了，没什么可撤
+    }
+    m_mirrorDemotedUntilByHost.remove(mirrorHost);
+    qWarning() << "The official download source is unreachable too; undoing the demotion of"
+               << mirrorHost << "so queued downloads go back to the mirror.";
+    if (DownloadDiag::enabled()) {
+        DownloadDiag::line(QStringLiteral("watchdog: demotion undone host=%1 reason=%2")
+                               .arg(mirrorHost, reply->errorString()));
     }
 }
 
@@ -842,6 +894,12 @@ void DownloadManager::startDownload(const QUrl &url, const QString &destinationP
     QNetworkReply *reply = networkManager->get(request);
     reply->setProperty("wtfmlRetryAttempts", retryAttempts);
     reply->setProperty("wtfmlStartMs", m_clock.elapsed());
+    // 这条是"降级改道"发出去的 ⇒ 记住它是从哪只镜像主机改道过来的。改道之后身上没有
+    // 备用地址（fallback 已清空），所以官方这条再失败就真的失败了；这个属性是
+    // noteReroutedReplyOutcome() 唯一能知道"该把谁的降级撤掉"的地方。
+    if (rerouted) {
+        reply->setProperty("wtfmlReroutedFromHost", url.host());
+    }
     reply->setProperty("rangeFirst", range.first);
     reply->setProperty("rangeLast", range.last);
     reply->setProperty("rangeTotal", range.total);
@@ -1718,6 +1776,9 @@ void DownloadManager::onVersionJsonReplyFinished() {
 bool DownloadManager::requeueTransientFailure(QNetworkReply *reply, const QString &destinationPath) {
     if (!replyIsFromCurrentBatch(reply) || m_shuttingDown || m_batchEmitted) return false;
     if (!DownloadRetryPolicy::transientReply(reply)) return false;
+    // 这一条如果是从镜像降级改道到官方的，"官方连不上"就是撤销降级的证据（见
+    // noteReroutedReplyOutcome）；不在这条路上记的话，超时这一档永远进不了那张表。
+    noteReroutedReplyOutcome(reply, false);
     if (reply->error() == QNetworkReply::ProtocolFailure) {
         const QString host = reply->request().url().host();
         m_http1OnlyHosts.insert(host);
@@ -1826,6 +1887,7 @@ void DownloadManager::onDownloadReplyFinished() {
                      diagReplyFacts(reply)));
     }
     if (success) {
+        noteReroutedReplyOutcome(reply, true);
         m_officialFallbacks.remove(reply);
         m_stallMeters.remove(reply);
         // 落盘那一步不分成哪一批（数据本身是好东西），**报**这一步才分：上一批的完成信号
@@ -2034,6 +2096,9 @@ void DownloadManager::failWedgedDownload(QNetworkReply *reply) {
     if (destPath.isEmpty()) {
         return;  // 这一条已经结过账了（比如同一跳里被"慢镜像"那段先处理掉了）
     }
+    // 90 秒一个字节都没有 = 这条链路根本不通。如果它是降级改道到官方的，这就是
+    // "官方也不通"的证据 —— 不管下面走重排还是记失败，都得先把这一笔记上。
+    noteReroutedReplyOutcome(reply, false, /*forceUnreachable=*/true);
     // ★★ 2026-10-17（无代理实测）：90 秒一个字节都没有，几乎都不是"这个文件没了"，
     //    而是这一次 302 落到了死节点上 —— 测试员那条网络下 5222 个对象只有 13 个这样，
     //    落点全是 18/19/20.749333.xyz 这几台；同一个入口（bmclapi2）的另外 5209 个
@@ -2043,7 +2108,11 @@ void DownloadManager::failWedgedDownload(QNetworkReply *reply) {
     //          一个真死的入口必须能停下来，不然整批永远收不了尾。
     const int wedgedAttempts = reply->property("wtfmlRetryAttempts").toInt();
     const int wedgedDelay = DownloadRetryPolicy::delayMs(wedgedAttempts, {});
-    if (!m_shuttingDown && wedgedDelay >= 0 && replyIsFromCurrentBatch(reply)) {
+    // 只重排**走镜像、身上有备用地址**的那一类（测试员日志里那 13 个就是）：它们的地址
+    // 是 BMCLAPI 入口，重发一次会重新挑一台落点。官方直连的作业没有"换一台落点"这回事，
+    // 重发同一条死链路只是把失败往后拖 3 倍 —— 那种照旧到点判失败（V6i 钉着）。
+    const bool mirrorJob = m_officialFallbacks.contains(reply);
+    if (mirrorJob && !m_shuttingDown && wedgedDelay >= 0 && replyIsFromCurrentBatch(reply)) {
         const QString retryUrl = reply->request().url().toString();
         m_pendingJobs.enqueue(PendingJob{retryUrl, destPath, expectedSha1s.value(reply),
                                          expectedSizes.value(reply, -1),

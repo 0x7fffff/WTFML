@@ -181,6 +181,11 @@ public:
     /// 好了以后还用不上它。
     static constexpr qint64 kMirrorDemoteMs = 5 * 60 * 1000;
 
+    /// 改道官方之后**连着几条连不上**才撤销降级：3 条。
+    /// 1 条太少（偶发一次超时很常见）；等太多条的话，在"官方整个不通"的网络上前几百个
+    /// 作业已经死在那边了，撤得再早也来不及。
+    static constexpr int kReroutedFailuresToUndoDemotion = 3;
+
     /// 三个**纯函数**（时间与字节数的判据），verify 里按边界钉过。
     /// @{
     /// 降级期过了没有。@param demotedUntilMs 0 = 从来没降级过。
@@ -710,12 +715,30 @@ private:
     /// **按主机各记各的**，理由见 mirrorDemotedFor()：整合包那条路上"镜像"是每条文件
     /// 各自的首选地址，一个全局的降级位会让一个慢 CDN 把别的 CDN 一起关掉。
     QHash<QString, qint64> m_mirrorDemotedUntilByHost;
+    /// 镜像主机 → "改道官方之后连着失败了几条"。
+    ///
+    /// ★ 2026-10-17：降级是拿**慢**当证据的，可它没验证过另一条路——官方 CDN——是不是
+    /// 走得通。测试员那条网络上（系统代理）官方资源 CDN 每个请求都吃满 30 秒超时，
+    /// 于是一次失速把几千个作业改道过去，全都死在那边。这一张表记的就是"改道之后到底
+    /// 成没成"：同一只镜像主机改道出去的作业连着 3 条连不上，就把它的降级**撤掉**，
+    /// 让后面排队的作业回到镜像去（那里至少刚才还在出字节）。
+    QHash<QString, int> m_reroutedOfficialFailures;
     /// 判"卡死"的期限，默认 kNoProgressGiveUpMs（只有验证工程会改它）。
     qint64 m_noProgressGiveUpMs = kNoProgressGiveUpMs;
 
     // kMaxConcurrentDownloads 的声明在上面 public 那一节（紧挨着 mayIssueAnotherDownload），
     // 因为验证工程要按那个数钉边界；理由和实测记录都写在那一处。
 
+
+    /// 一条**被降级改道到官方**的回复成/败了：记一笔，必要时撤掉那只镜像主机的降级。
+    ///
+    /// 只认"连不上"这一类错误（超时 / 连不上 / 代理断了）；HTTP 404 这种不算 —— 那是
+    /// 文件本身的事，跟"官方这条链路通不通"无关。
+    /// 成功一条就把计数清零：官方只要还在出数据，慢镜像那只主机就该继续被绕开。
+    /// @param forceUnreachable "90 秒一个字节都没有"那种卡死：错误码是 NoError，
+    ///        光看 error() 判不出来，由调用方直接告诉这里"它确实连不上"。
+    void noteReroutedReplyOutcome(QNetworkReply *reply, bool success,
+                                  bool forceUnreachable = false);
 
     /// 从镜像取失败时，用官方地址**重发一次**（作业还是同一个，不算失败）。
     /// @param reply 刚失败的那条回复。
