@@ -15,6 +15,7 @@
 #include "controllers/ActivityCenterController.hpp"
 #include "controllers/InstancePagesController.hpp"
 #include "controllers/InstanceEditorController.hpp"
+#include "controllers/InstanceIconController.hpp"
 #include "launcher/LauncherManager.hpp"
 #include "manage/FolderManager.hpp"
 #include "manage/InstanceFiles.hpp"
@@ -829,6 +830,21 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     //       "动完盘得刷新那一页"不一样：那些是**改这一页的样子**，这一件是把结果**告诉人**。
     connect(&dialog, &InstanceSettingsDialog::checkUpdatesRequested, m_owner,
             [this, &targetId, &dialog]() { m_owner->checkInstanceUpdates(targetId, &dialog); });
+    connect(&dialog, &InstanceSettingsDialog::modCheckSelectedUpdatesRequested, &dialog,
+            [this, &targetId, &dialog](const QStringList &paths) {
+                if (!paths.isEmpty()) m_owner->checkInstanceUpdates(targetId, &dialog, paths);
+            });
+    connect(&dialog, &InstanceSettingsDialog::modWebsiteRequested, &dialog,
+            [this](const QString &path) {
+                QString key;
+                if (!m_owner->m_instanceIconController->fileResourceIconKey(path, &key)) return;
+                const auto hit = m_owner->m_resourceHits.value(key);
+                const QUrl url(ResourceCatalog::projectPageUrl(hit.source, ResourceCatalog::Kind::Mod, hit.slug));
+                if (url.scheme() == QStringLiteral("https") && !url.host().isEmpty())
+                    QDesktopServices::openUrl(url);
+                else InlineMessage::information(m_owner->m_ui->overlay(), tr("项目网页"),
+                                                tr("当前资源没有可用的项目网址。"));
+            });
 
     // 「更新中心」（coding plan §7.1，2026-10-13）：紧挨着「检查更新」的那一颗。
     //
@@ -922,7 +938,22 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                 const QString contextId = targetId;
                 if (pageKey == QStringLiteral("mod")) {
                     QStringList names;
-                    for (const auto &path : paths) names.append(QFileInfo(path).fileName());
+                    const auto targets = m_owner->m_instanceUpdateTargets.value(contextId);
+                    QStringList executable;
+                    for (const auto &path : paths) {
+                        const auto version = targets.value(path);
+                        const auto *file = version.primaryFile();
+                        if (!file || file->url.isEmpty()) continue;
+                        executable.append(path);
+                        names.append(tr("%1\n  → %2 · %3\n  加载器：%4 · 游戏：%5")
+                            .arg(QFileInfo(path).fileName(), version.versionNumber.isEmpty() ? version.name : version.versionNumber,
+                                 file->filename, version.loaders.join(QStringLiteral(" / ")),
+                                 version.gameVersions.join(QStringLiteral(" / "))));
+                    }
+                    if (executable.isEmpty()) {
+                        InlineMessage::information(m_owner->m_ui->overlay(), tr("没有更新"),
+                                                   tr("选中项没有可安装的更新，请先检查更新。")); return;
+                    }
                     if (!InlineMessage::question(m_owner->m_ui->overlay(), tr("更新选中模组"),
                             tr("将更新以下选中项；没有可用更新的会跳过。\n更新可能改变依赖要求，请先关闭游戏。\n\n%1")
                                 .arg(names.join(QLatin1Char('\n'))), tr("更新"), tr("取消"), false, true)) return;
@@ -932,6 +963,15 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                         InlineMessage::warning(m_owner->m_ui->overlay(), tr("暂时不能更新"),
                                                tr("先关闭游戏并等待实例安装完成。")); return;
                     }
+                    const auto current = m_owner->m_instanceUpdateTargets.value(contextId);
+                    for (const auto &path : executable) {
+                        if (current.value(path).id != targets.value(path).id) {
+                            InlineMessage::information(m_owner->m_ui->overlay(), tr("更新清单已变化"),
+                                tr("检测结果在确认期间发生变化，请重新查看清单。")); return;
+                        }
+                    }
+                    m_owner->updateInstanceFiles(contextId, pageKey, executable);
+                    return;
                 }
                 // `targetId` **按引用**（和上面那批 lambda 同一个理由，见 refreshInstanceDirs
                 // 的 NOTE）：改名之后它变了，而这一发要更新的是**改名之后**那个实例里的

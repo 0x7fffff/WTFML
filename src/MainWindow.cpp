@@ -5189,7 +5189,8 @@ void MainWindow::finishDependencyCheck() {
 // 不自动下载、不自动改盘、不问"要不要更新" —— 用户要的是"检测"。报告里只说事实
 //（哪几个有新版本、最新的那一版叫什么），后面那一步是他自己的事。
 
-void MainWindow::checkInstanceUpdates(const QString &instanceId, InstanceSettingsDialog *dialog) {
+void MainWindow::checkInstanceUpdates(const QString &instanceId, InstanceSettingsDialog *dialog,
+                                     const QStringList &selectedPaths) {
     if (instanceId.isEmpty()) {
         return;
     }
@@ -5202,6 +5203,7 @@ void MainWindow::checkInstanceUpdates(const QString &instanceId, InstanceSetting
 
     // ① 候选文件（四个"能下载的资源"目录，不含存档/原理图 —— 那两样没有"更新"这回事）。
     QStringList paths;
+    const QSet<QString> selectedScope(selectedPaths.begin(), selectedPaths.end());
     // ★★ 2026-10-11：这一趟每个路径的**类别**（问版本列表时带不带加载器靠它，见
     //   `ModDependencies::kindUsesLoader()` 那段）。收集的时候就记下来 —— 目录本来就是
     //   按类走出来的，而反查那一趟只回一个路径，那时再猜就晚了。
@@ -5222,6 +5224,7 @@ void MainWindow::checkInstanceUpdates(const QString &instanceId, InstanceSetting
         const QFileInfoList entries =
             folder.entryInfoList(QDir::Files | QDir::NoSymLinks, QDir::Name);
         for (const QFileInfo &info : entries) {
+            if (!selectedScope.isEmpty() && !selectedScope.contains(info.absoluteFilePath())) continue;
             // ★★ 2026-10-11：**禁用着的那几条（`X.jar.disabled`）这一趟整个跳过**
             //   （用户原话：「检查更新时跳过它」）。
             //
@@ -5250,6 +5253,7 @@ void MainWindow::checkInstanceUpdates(const QString &instanceId, InstanceSetting
     }
 
     m_updateCheck = UpdateCheckRun{};
+    m_updateCheck.selectedScope = selectedScope;
     m_updateCheck.instanceId = instanceId;
     m_updateCheck.pathKinds = pathKinds;
     // 结果回来时要递给**同一页**（见 UpdateCheckRun::dialog 那段）。弱引用：收页了就不递。
@@ -5623,13 +5627,19 @@ void MainWindow::finishUpdateCheck(QString instanceId) {
     //   下面那份名单是"按忽略 / 固定筛过"的，而用户点了「不再忽略」之后不可能再跑一趟检测
     //   （那要读几十兆 jar、发几十发网络）—— 得拿这一份当场重算。
     UpdateCheckResult raw;
-    raw.verdicts = run.verdicts;
+    raw.verdicts = ModDependencies::mergeScopedUpdates(
+        m_instanceUpdateResults.value(instanceId).verdicts, run.verdicts, run.selectedScope);
     raw.lookupNote = run.lookupNote;
     m_instanceUpdateResults.insert(instanceId, raw);
     // ★ 2026-10-09（需求 2）：上面那份原始结论旁边再存一份"路径 → 换成哪一版"（见
     //   m_instanceUpdateTargets 那段）。**和上面那一句同一处**：两份东西说的本来就是同
     //   一件事的两面，"哪几条要更新"和"换成哪一版"分开写迟早会对不上。
-    m_instanceUpdateTargets.insert(instanceId, run.latestByPath);
+    auto targets = run.selectedScope.isEmpty()
+        ? QHash<QString, ResourceCatalog::VersionEntry>() : m_instanceUpdateTargets.value(instanceId);
+    for (const auto &path : run.selectedScope) targets.remove(path);
+    for (auto it = run.latestByPath.cbegin(); it != run.latestByPath.cend(); ++it)
+        targets.insert(it.key(), it.value());
+    m_instanceUpdateTargets.insert(instanceId, targets);
     // ★ 2026-10-13（§7.1）：「固定这一版」那几条的判据是**盘上那一份的内容 sha1**，所以
     //   用户自己把文件换过之后那条记录就该失效。这一趟检测正好把每个文件的 sha1 都算出来
     //   了 —— 顺手清一遍（不清的话那几条会一直挂着"已固定"，而他明明已经换成新的了）。
@@ -5643,7 +5653,8 @@ void MainWindow::finishUpdateCheck(QString instanceId) {
                 sha1ByKey.insert(key, verdict.item.sha1);
             }
         }
-        if (UpdatePolicy::dropStalePins(m_updatePolicy, instanceId, sha1ByKey) > 0) {
+        // Missing keys in a partial scan are not evidence of removed files.
+        if (run.selectedScope.isEmpty() && UpdatePolicy::dropStalePins(m_updatePolicy, instanceId, sha1ByKey) > 0) {
             saveUpdatePolicy();
         }
     }

@@ -872,6 +872,8 @@ public:
 
 signals:
     void checkUpdatesRequested();
+    void checkSelectedUpdatesRequested(const QStringList &paths);
+    void projectWebsiteRequested(const QString &path);
     void transferSelectionRequested(const QStringList &paths, bool move);
     /// 用户点了「打开文件夹」，或者行首那颗（两种都开同一个目录）。
     /// **这一层不自己开**：开目录是 QDesktopServices 的事，而失败要弹一句 —— 那句话

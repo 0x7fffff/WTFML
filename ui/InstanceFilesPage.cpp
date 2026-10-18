@@ -754,7 +754,7 @@ void InstanceFilesPage::setActionPanelEnabled(bool enabled) {
     connect(close, &QPushButton::clicked, this, [this] {
         m_actionPanelDismissed = true; updateSelectionBar();
     });
-    m_stateAction = new QPushButton(tr("启用 / 禁用 ▾"), m_selectionBar);
+    m_stateAction = new QPushButton(tr("启用 / 禁用…"), m_selectionBar);
     Theme::markButton(m_stateAction, Theme::ButtonKind::Neutral);
     panel->addWidget(m_stateAction);
     connect(m_stateAction, &QPushButton::clicked, this, [this] {
@@ -770,10 +770,14 @@ void InstanceFilesPage::setActionPanelEnabled(bool enabled) {
         menu.exec(m_stateAction->mapToGlobal(QPoint(0, m_stateAction->height())));
     });
     auto *check = new QPushButton(tr("检查更新"), m_selectionBar);
-    check->setToolTip(tr("检查此实例的资源更新，不会直接安装。"));
+    check->setObjectName(QStringLiteral("modCheckSelectedUpdates"));
+    check->setToolTip(tr("只检查选中的已启用模组，不会直接安装。"));
     Theme::markButton(check, Theme::ButtonKind::Neutral);
     panel->addWidget(check);
-    connect(check, &QPushButton::clicked, this, &InstanceFilesPage::checkUpdatesRequested);
+    connect(check, &QPushButton::clicked, this, [this] {
+        const auto paths = selectedPathList();
+        if (!paths.isEmpty()) emit checkSelectedUpdatesRequested(paths);
+    });
     auto *tools = new QHBoxLayout(m_selectionTools);
     tools->setContentsMargins(0, 0, 0, 0);
     m_selectionSummary = new QLabel(m_selectionTools);
@@ -809,7 +813,7 @@ void InstanceFilesPage::setActionPanelEnabled(bool enabled) {
             emit transferSelectionRequested(selectedPathList(), move);
         });
     }
-    auto *more = new QPushButton(tr("更多 ▾"), m_selectionBar);
+    auto *more = new QPushButton(tr("更多…"), m_selectionBar);
     Theme::markButton(more, Theme::ButtonKind::Neutral);
     panel->addWidget(more);
     connect(more, &QPushButton::clicked, this, [this, more] {
@@ -818,6 +822,9 @@ void InstanceFilesPage::setActionPanelEnabled(bool enabled) {
         auto *detail = menu.addAction(tr("查看详情"));
         detail->setEnabled(paths.size() == 1 && m_resourceTips.contains(identityPath(paths.value(0))));
         connect(detail, &QAction::triggered, this, [this, paths] { emit detailRequested(paths.first()); });
+        auto *website = menu.addAction(tr("打开项目网页"));
+        website->setEnabled(detail->isEnabled());
+        connect(website, &QAction::triggered, this, [this, paths] { emit projectWebsiteRequested(paths.first()); });
         auto *location = menu.addAction(tr("打开文件位置"));
         connect(location, &QAction::triggered, this, [paths] {
             if (!paths.isEmpty()) QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(paths.first()).absolutePath()));

@@ -9,6 +9,17 @@
 
 namespace ModDependencies {
 
+QList<UpdateVerdict> mergeScopedUpdates(const QList<UpdateVerdict> &previous,
+                                      const QList<UpdateVerdict> &checked,
+                                      const QSet<QString> &scope) {
+    QList<UpdateVerdict> merged = checked;
+    if (!scope.isEmpty()) {
+        for (const auto &entry : previous)
+            if (!scope.contains(entry.item.path)) merged.append(entry);
+    }
+    return merged;
+}
+
 QString versionsKeyFor(const QString &consumer, const QString &projectId,
                        const QString &gameVersion, const QString &loader,
                        ResourceCatalog::Source source) {

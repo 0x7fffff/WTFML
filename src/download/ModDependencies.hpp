@@ -290,6 +290,11 @@ struct UpdateVerdict {
     QString reason;
 };
 
+/// An empty scope replaces the whole result; a partial check preserves unqueried files.
+QList<UpdateVerdict> mergeScopedUpdates(const QList<UpdateVerdict> &previous,
+                                      const QList<UpdateVerdict> &checked,
+                                      const QSet<QString> &scope);
+
 /**
  * @brief 拿"这个资源问回来的版本列表"判盘上这一条是不是最新的。
  *

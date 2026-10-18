@@ -1,6 +1,7 @@
 #pragma once
 #include "InstanceFilesPage.hpp"
 #include "Animations.hpp"
+#include "download/ModDependencies.hpp"
 #include <QApplication>
 #include <QTemporaryDir>
 #include <QListWidget>
@@ -37,6 +38,11 @@ inline int runModActionPanelChecks() {
     auto *clear = page.findChild<QPushButton *>(InstanceFilesPage::selectionButtonName(InstanceFilesPage::SelectionAction::ClearAll));
     check(all->isVisible() && !clear->isEnabled(), "selection tools visible without selection");
     all->click(); QApplication::processEvents();
+    QStringList checkedPaths;
+    QObject::connect(&page, &InstanceFilesPage::checkSelectedUpdatesRequested, &page,
+                     [&](const QStringList &paths) { checkedPaths = paths; });
+    page.findChild<QPushButton *>(QStringLiteral("modCheckSelectedUpdates"))->click();
+    check(checkedPaths.size() == 2, "update check forwards selected paths only");
     check(list->selectedItems().size() == 2 && !panel->isHidden(), "multi-selection opens panel");
     check(panel->width() == 260 && list->width() < 740, "wide layout reserves panel space");
     page.findChild<QPushButton *>(QStringLiteral("modActionPanelClose"))->click();
@@ -66,5 +72,15 @@ inline int runModActionPanelChecks() {
     page.setSearchText(QString()); all->click();
     clear->click();
     check(list->selectedItems().isEmpty() && panel->isHidden(), "clear selection closes panel");
+    ModDependencies::UpdateVerdict oldA, oldB, newA;
+    oldA.item.path = QStringLiteral("a.jar"); oldA.latestVersionId = QStringLiteral("old");
+    oldB.item.path = QStringLiteral("b.jar"); newA = oldA; newA.latestVersionId = QStringLiteral("new");
+    const auto merged = ModDependencies::mergeScopedUpdates({oldA, oldB}, {newA}, {QStringLiteral("a.jar")});
+    check(merged.size() == 2 && merged.first().latestVersionId == QStringLiteral("new") &&
+          merged.last().item.path == QStringLiteral("b.jar"), "partial check replaces selected result but preserves unrelated result");
+    check(ModDependencies::mergeScopedUpdates({oldA, oldB}, {}, {QStringLiteral("a.jar")}).size() == 1,
+          "unknown or removed selected file clears its old update verdict only");
+    check(ModDependencies::mergeScopedUpdates({oldA, oldB}, {newA}, {}).size() == 1,
+          "full-instance check replaces entire result");
     return failed ? 1 : 0;
 }

@@ -1654,7 +1654,8 @@ private:
     // "枚举 mods → 反查一次 → 有几个项目就再问几发版本列表 → 判"，**全在后台线程**吗？
     // 不是：版本列表那几发走的是主线程上的 ResourceStore（界面这一层本来就等结果），
     // 只有"读几十兆 jar 算哈希"那一段在后台线程（沿用 `startInstanceFileIconLookup` 那套）。
-    void checkInstanceUpdates(const QString &instanceId, InstanceSettingsDialog *dialog);
+    void checkInstanceUpdates(const QString &instanceId, InstanceSettingsDialog *dialog,
+                              const QStringList &selectedPaths = QStringList());
 
     /// 把"这个实例**上一趟查出来可更新**的那些文件"递给那几页（见
     /// InstanceFilesPage::setUpdateResult）。@p dialog 是**现在开着的**那一页（空 =
@@ -2871,6 +2872,7 @@ private:
     /// 带出每个文件的 sha1）→ 有几个项目就再问几发版本列表（**新的在前**，按这个实例的
     /// 游戏版本 + 加载器筛）→ `ModDependencies::judgeUpdate()` 逐条判 → 一份报告。
     struct UpdateCheckRun {
+        QSet<QString> selectedScope; // Empty means a full-instance check.
         /// 这一趟查的是哪个实例（回来时按它认人：用户在等着的时候完全可能换了实例设置页）。
         QString instanceId;
         /// 还差几发没回来。**只有它到 0 才收尾** —— 少等一发的话，报告里会凭空少几条，
