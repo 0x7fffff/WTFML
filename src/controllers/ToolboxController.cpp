@@ -13,14 +13,22 @@
 #include "OverlayHost.hpp"
 #include "ToolboxPage.hpp"
 #include "tools/AnvilPlanner.hpp"
+#include "tools/ArmorTrim.hpp"
+#include "tools/Banner.hpp"
+#include "tools/Beacon.hpp"
+#include "tools/Brewing.hpp"
 #include "tools/CoordConvert.hpp"
 #include "tools/FileHash.hpp"
 #include "tools/TextFormat.hpp"
 #include "util/ServerPing.hpp"
 
 #include <QColor>
+#include <QDir>
+#include <QFileInfo>
+#include <QFileSystemWatcher>
 #include <QMetaObject>
 #include <QPalette>
+#include <QSaveFile>
 #include <QThread>
 
 #include <algorithm>
@@ -56,8 +64,11 @@ QString segmentsToHtml(const QList<TextFormat::Segment> &segments, const QColor 
         if (segment.text.isEmpty()) {
             continue;
         }
-        QColor color = QColor(TextFormat::colorRgb(segment.style.color));
-        if (segment.style.color != TextFormat::Color::Default) {
+        // 自定色和那十六个一样，先按"在浅底上还读不读得清"压一档；没写过颜色才用正文色。
+        const bool hasColor = segment.style.hasCustomColor
+                              || segment.style.color != TextFormat::Color::Default;
+        QColor color = QColor::fromRgb(TextFormat::styleRgb(segment.style));
+        if (hasColor) {
             color = MotdText::readableOn(color, background);
         } else {
             color = background.lightness() < 128 ? QColor(Qt::white) : QColor(Qt::black);
@@ -133,6 +144,10 @@ ToolboxController::ToolboxController(OverlayHost *overlay, QWidget *pageParent, 
                                     QObject *parent)
     : QObject(parent), m_overlay(overlay), m_pageParent(pageParent), m_host(std::move(host)) {
     m_page = new ToolboxPage(pageParent);
+    // 算完哈希之后盯着那个文件：它一变，屏幕上那串摘要就不再是"它现在的摘要"。
+    m_hashWatcher = new QFileSystemWatcher(this);
+    connect(m_hashWatcher, &QFileSystemWatcher::fileChanged, this,
+            [this](const QString &path) { onHashFileChanged(path); });
     m_directDownload = new DirectDownloadController(m_host.activity, pageParent, this);
     connect(m_page, &ToolboxPage::downloadToolRequested, this, [this] { m_directDownload->open(); });
 
@@ -143,6 +158,36 @@ ToolboxController::ToolboxController(OverlayHost *overlay, QWidget *pageParent, 
     }
     m_page->setAlgorithmChoices(algorithms);
     m_page->setDimensionChoices(dimensionNames());
+
+    // 信标 / 酿造那两张表（出处分别在 `Beacon` / `Brewing` 里，这一层只翻成字符串）。
+    m_page->setBeaconMaterials(Beacon::materialNames());
+    m_page->setBrewingPotions(Brewing::potionNames());
+    QStringList brewForms;
+    for (int index = 0; index < Brewing::formCount(); ++index) {
+        brewForms.append(Brewing::formName(Brewing::Form(index)));
+    }
+    m_page->setBrewingForms(brewForms);
+
+    // 旗帜 / 纹饰那两张表（出处分别在 `Banner` / `ArmorTrim` 里，这一层只翻成字符串）。
+    QStringList bannerColors;
+    for (int index = 0; index < Banner::colorCount(); ++index) {
+        bannerColors.append(Banner::colorName(index));
+    }
+    m_page->setBannerColors(bannerColors);
+    m_page->setBannerPatterns(Banner::patternNames());
+
+    QStringList trimArmor;
+    for (int index = 0; index < ArmorTrim::armorMaterialCount(); ++index) {
+        trimArmor.append(ArmorTrim::armorMaterialName(index));
+    }
+    m_page->setTrimArmorMaterials(trimArmor);
+    QStringList trimParts;
+    for (int index = 0; index < ArmorTrim::partCount(); ++index) {
+        trimParts.append(ArmorTrim::partName(index));
+    }
+    m_page->setTrimParts(trimParts);
+    m_page->setTrimPatterns(ArmorTrim::patternNames());
+    m_page->setTrimMaterials(ArmorTrim::trimMaterialNames());
 
     QList<QPair<QString, QString>> enchantments;
     for (const Anvil::EnchantInfo &info : Anvil::enchantmentTable()) {
@@ -176,6 +221,17 @@ ToolboxController::ToolboxController(OverlayHost *overlay, QWidget *pageParent, 
     connect(m_page, &ToolboxPage::textSourceChanged, this, [this]() { refreshText(); });
     connect(m_page, &ToolboxPage::textJsonRequested, this,
             [this](const QString &json) { loadTextFromJson(json); });
+    connect(m_page, &ToolboxPage::textHexColorRequested, this, [this](const QString &hex) {
+        quint32 rgb = 0;
+        if (!TextFormat::parseHexColor(hex, &rgb)) {
+            // 不猜：三位缩写、写错位数都直接说清楚要什么形状。
+            m_page->setTextNotice(tr("自定颜色要写成 `#RRGGBB` 那种六位十六进制，"
+                                     "比如 `#ff8800`（`#f80` 这种缩写游戏那边不认）。"));
+            return;
+        }
+        m_page->insertTextAtCursor(TextFormat::legacyHexColor(rgb));
+        m_page->setTextNotice(QString());
+    });
     connect(m_page, &ToolboxPage::coordinateRequested, this,
             [this](int dimension, double x, double y, double z) {
                 convertCoordinates(dimension, x, y, z);
@@ -195,9 +251,36 @@ ToolboxController::ToolboxController(OverlayHost *overlay, QWidget *pageParent, 
                 runHash(path, algorithm, expected);
             });
     connect(m_page, &ToolboxPage::hashCancelRequested, this, [this]() { cancelHash(); });
+    connect(m_page, &ToolboxPage::hashBatchRequested, this,
+            [this](const QStringList &paths, int algorithm) { runHashBatch(paths, algorithm); });
+    connect(m_page, &ToolboxPage::hashExportRequested, this,
+            [this](const QString &path, const QString &text) { exportHashBatch(path, text); });
+    connect(m_page, &ToolboxPage::beaconRequested, this,
+            [this](int fromLevel, int level, int materialIndex, int beaconCount) {
+                refreshBeacon(fromLevel, level, materialIndex, beaconCount);
+            });
+    connect(m_page, &ToolboxPage::brewingRequested, this,
+            [this](int potion, bool extended, bool level2, int formIndex, int bottles) {
+                refreshBrewing(potion, extended, level2, formIndex, bottles);
+            });
+    connect(m_page, &ToolboxPage::bannerRequested, this,
+            [this](int baseColor, const QStringList &layers) { refreshBanner(baseColor, layers); });
+    connect(m_page, &ToolboxPage::trimRequested, this,
+            [this](int armorMaterial, int part, int patternIndex, int trimMaterial, int pieces,
+                   bool wholeSet) {
+                refreshTrim(armorMaterial, part, patternIndex, trimMaterial, pieces, wholeSet);
+            });
 
     // 一进来先把文本生成器那一页的两块空着的地方填上（空预览框看着像没搭好）。
     refreshText();
+    // 新加那两件也一样：开页之前先把那两格算出来，别摆在"空的"那一档上。
+    refreshBeacon(m_page->beaconFromLevel(), m_page->beaconTargetLevel(),
+                  m_page->beaconMaterialIndex(), m_page->beaconCount());
+    refreshBrewing(m_page->brewingPotionIndex(), m_page->brewingExtended(),
+                   m_page->brewingLevel2(), m_page->brewingFormIndex(), m_page->brewingBottles());
+    refreshBanner(m_page->bannerBaseColor(), m_page->bannerLayers());
+    refreshTrim(m_page->trimArmorIndex(), m_page->trimPartIndex(), m_page->trimPatternIndex(),
+                m_page->trimMaterialIndex(), m_page->trimPieces(), m_page->trimWholeSet());
 }
 
 ToolboxController::~ToolboxController() { shutdown(); }
@@ -279,8 +362,17 @@ void ToolboxController::runAnvilPlan() {
     }
     QList<Anvil::Unit> units;
     for (const ToolboxPage::AnvilRow &row : rows) {
-        Anvil::Unit unit;
         const QString id = Anvil::normalizeId(row.id);
+        // 勾了「和上一行同一件」的，并进上一行那一件：一本书上能带好几条附魔，一件装备
+        // 本来也可能已经有好几条 —— 它们不是"几件东西"，拆开算会把前科算重。
+        if (row.sameAsPrevious && !units.isEmpty()) {
+            Anvil::Unit &unit = units.last();
+            // 同一件上写了两遍同一条附魔（手滑）：取高的那一档，别让低的那条把它盖回去。
+            unit.enchantments.insert(id, qMax(unit.enchantments.value(id, 0), row.level));
+            unit.label = unitText(unit.enchantments, unit.isBook);
+            continue;
+        }
+        Anvil::Unit unit;
         unit.enchantments.insert(id, row.level);
         unit.penalty = Anvil::penaltyForUses(row.uses);
         unit.isBook = row.isBook;
@@ -307,17 +399,17 @@ void ToolboxController::runAnvilPlan() {
             const Anvil::Step &produced = plan.steps.at(node - units.size());
             return QStringLiteral("第 %1 步合出来的那一件（%2）")
                 .arg(node - units.size() + 1)
-                .arg(unitText(produced.result, true));
+                .arg(unitText(produced.result, produced.resultIsBook));
         }
         return QStringLiteral("（认不出来的那一件）");
     };
     int stepNumber = 0;
     for (const Anvil::Step &step : plan.steps) {
         ++stepNumber;
-        QString line = QStringLiteral("第 %1 步：%2 + %3 → %4（代价 %5 级")
+        QString line = QStringLiteral("第 %1 步：左槽 %2 + 右槽 %3 → %4（代价 %5 级")
                            .arg(stepNumber)
                            .arg(nodeText(step, true), nodeText(step, false),
-                                unitText(step.result, true))
+                                unitText(step.result, step.resultIsBook))
                            .arg(step.cost.total);
         if (step.cost.penalties > 0) {
             line.append(QStringLiteral("，其中前科 %1").arg(step.cost.penalties));
@@ -327,17 +419,39 @@ void ToolboxController::runAnvilPlan() {
         }
         line.append(QChar(')'));
         view.steps.append(line);
+        // 互斥顶掉的那几条**点名说清楚**：不解释的话，用户会以为那一条悄悄丢了
+        // （代价里那 +1 是照旧的，所以要说明"合不上来但还是要多花一级"）。
+        for (auto it = step.cost.dropped.constBegin(); it != step.cost.dropped.constEnd(); ++it) {
+            view.notes.append(tr("第 %1 步：「%2」和目标上已有的附魔互斥，这一步**没合上来** —— "
+                                 "目标保住自己那条（铁砧按每一条互斥照旧 +1 级）。"
+                                 "想留下这一条，就把它那一件放到左边先合。")
+                                  .arg(stepNumber)
+                                  .arg(enchantmentText(it.key(), it.value())));
+        }
     }
+    const QString finalText = unitText(plan.finalEnchantments, plan.finalIsBook)
+                                  .replace(QStringLiteral(" 的书"), QString())
+                                  .replace(QStringLiteral(" 的装备"), QString());
     view.summary = plan.steps.isEmpty()
                        ? tr("只有一件，不用合。")
-                       : tr("一共 %1 级，合完是 %2。")
+                       : tr("一共 %1 级%2，合完是 %3。")
                              .arg(plan.totalCost)
-                             .arg(unitText(plan.finalEnchantments, true).replace(
-                                 QStringLiteral(" 的书"), QString()));
+                             .arg(plan.withinSurvival ? tr("（每一步都在 39 级以内）") : QString(),
+                                  finalText);
     view.anyTooExpensive = plan.anyTooExpensive;
     if (plan.anyTooExpensive) {
         view.notes.append(tr("★ 有计划里那一步的代价超过 39 级 —— 生存模式里铁砧会拒绝那一步"
                              "（创造模式不受这条限制）。换一个次序，或者先减掉几件上的前科。"));
+    }
+    if (!plan.unused.isEmpty()) {
+        QStringList leftover;
+        for (int index : plan.unused) {
+            if (index >= 0 && index < units.size()) {
+                leftover.append(units.at(index).label);
+            }
+        }
+        view.notes.append(tr("这几件**用不上**：%1 —— 加进去也升不了级（材料可以不全用）。")
+                              .arg(leftover.join(QStringLiteral("、"))));
     }
     if (plan.finalPenalty > 0) {
         view.notes.append(tr("合完之后那一件的前科是 %1（= 在铁砧上用过 %2 次）。")
@@ -364,6 +478,7 @@ void ToolboxController::refreshText() {
     m_page->setTextPreview(segmentsToHtml(segments, background));
     m_page->setTextOutputs(TextFormat::toLegacy(segments), TextFormat::toJsonText(segments),
                            TextFormat::toTellrawCommand(segments));
+    m_page->setTextMotd(TextFormat::toMotd(segments));
     m_page->setTextNotice(QString());
 }
 
@@ -497,6 +612,8 @@ void ToolboxController::checkServer(const QString &address) {
                     ToolboxPage::ServerView view;
                     view.ok = status.ok;
                     view.timedOut = status.timedOut;
+                    // 分类那句由这里翻成文字：`ui/` 不认识 `src/` 的枚举。
+                    view.kind = ServerPing::kindName(status.kind);
                     view.error = status.ok ? QString() : status.error;
                     view.address = m_serverAddress;
                     if (status.ok) {
@@ -558,6 +675,14 @@ void ToolboxController::runHash(const QString &path, int algorithmIndex, const Q
     const FileHash::Expected want = FileHash::parseExpected(expected);
     m_hashAbort.storeRelaxed(0);
     m_page->setHashBusy(true);
+    m_page->setHashStaleNote(QString());  // 新的一趟开始 ⇒ 上一趟那句"文件变过"收起来
+    // 单文件那一趟开始，批量那本"盯着谁"的账也作废（屏幕上换成了这一次的结果）。
+    if (m_hashWatcher != nullptr) {
+        for (auto it = m_hashBatchStamps.constBegin(); it != m_hashBatchStamps.constEnd(); ++it) {
+            m_hashWatcher->removePath(it.key());
+        }
+    }
+    m_hashBatchStamps.clear();
     if (m_host.log) {
         m_host.log(tr("算哈希：%1（%2）").arg(path, FileHash::algorithmName(algorithm)));
     }
@@ -600,6 +725,24 @@ void ToolboxController::runHash(const QString &path, int algorithmIndex, const Q
                 }
                 m_page->setHashView(view);
                 m_page->setHashBusy(false);
+                // 算成了就记下"这一刻文件长什么样"，并盯着它（文件变化使结果失效）。
+                if (m_hashWatcher != nullptr && !m_hashWatchedPath.isEmpty()) {
+                    m_hashWatcher->removePath(m_hashWatchedPath);
+                }
+                m_hashWatched = false;
+                m_hashWatchedPath.clear();
+                if (result.ok) {
+                    const FileHash::Stamp stamp = FileHash::stampOf(path);
+                    if (stamp.ok) {
+                        m_hashWatchedPath = path;
+                        m_hashWatchedBytes = stamp.bytes;
+                        m_hashWatchedModifiedMs = stamp.lastModifiedMs;
+                        m_hashWatched = true;
+                        if (m_hashWatcher != nullptr) {
+                            m_hashWatcher->addPath(path);
+                        }
+                    }
+                }
                 if (m_host.log) {
                     m_host.log(result.ok
                                    ? tr("哈希：%1 = %2").arg(path, result.hex)
@@ -619,4 +762,283 @@ void ToolboxController::runHash(const QString &path, int algorithmIndex, const Q
 
 void ToolboxController::cancelHash() {
     m_hashAbort.storeRelaxed(1);
+}
+
+void ToolboxController::runHashBatch(const QStringList &paths, int algorithmIndex) {
+    if (paths.isEmpty() || m_hashThread != nullptr) {
+        return;
+    }
+    const QList<FileHash::Algorithm> algorithms = FileHash::algorithms();
+    if (algorithmIndex < 0 || algorithmIndex >= algorithms.size()) {
+        algorithmIndex = 0;
+    }
+    const FileHash::Algorithm algorithm = algorithms.at(algorithmIndex);
+    m_hashAbort.storeRelaxed(0);
+    m_page->setHashBusy(true);
+    m_page->setHashStaleNote(QString());
+    // 上一趟（单文件或批量）盯着的那几个都作废 —— 屏幕上马上要换成这一次的清单。
+    if (m_hashWatcher != nullptr) {
+        if (!m_hashWatchedPath.isEmpty()) {
+            m_hashWatcher->removePath(m_hashWatchedPath);
+        }
+        for (auto it = m_hashBatchStamps.constBegin(); it != m_hashBatchStamps.constEnd(); ++it) {
+            m_hashWatcher->removePath(it.key());
+        }
+    }
+    m_hashWatched = false;
+    m_hashWatchedPath.clear();
+    m_hashBatchStamps.clear();
+    if (m_host.log) {
+        m_host.log(tr("批量算哈希：%1 个文件（%2）")
+                       .arg(paths.size())
+                       .arg(FileHash::algorithmName(algorithm)));
+    }
+
+    m_hashThread = QThread::create([this, paths, algorithm] {
+        QList<ToolboxPage::HashBatchRow> rows;
+        QHash<QString, FileHash::Stamp> stamps;
+        int failed = 0;
+        bool aborted = false;
+        for (int index = 0; index < paths.size(); ++index) {
+            if (m_hashAbort.loadRelaxed() != 0) {
+                aborted = true;
+                break;
+            }
+            const QString path = paths.at(index);
+            const QString name = QFileInfo(path).fileName();
+            QMetaObject::invokeMethod(
+                this,
+                [this, index, count = paths.size(), name] {
+                    if (m_page != nullptr) {
+                        m_page->setHashProgressNote(tr("第 %1 / %2 个：%3")
+                                                        .arg(index + 1)
+                                                        .arg(count)
+                                                        .arg(name));
+                    }
+                },
+                Qt::QueuedConnection);
+            const auto progress = [this](qint64 done, qint64 total) {
+                QMetaObject::invokeMethod(
+                    this,
+                    [this, done, total] {
+                        if (m_page != nullptr) {
+                            m_page->setHashProgress(done, total);
+                        }
+                    },
+                    Qt::QueuedConnection);
+            };
+            const auto cancelled = [this]() { return m_hashAbort.loadRelaxed() != 0; };
+            const FileHash::Result result =
+                FileHash::digestOfFile(path, algorithm, progress, cancelled);
+            ToolboxPage::HashBatchRow row;
+            row.path = path;
+            row.name = name;
+            row.ok = result.ok;
+            row.hex = result.hex;
+            row.error = result.error;
+            row.sizeText = FileHash::fileSizeText(result.bytes);
+            if (result.ok) {
+                const FileHash::Stamp stamp = FileHash::stampOf(path);
+                if (stamp.ok) {
+                    stamps.insert(path, stamp);
+                }
+            } else {
+                ++failed;
+            }
+            rows.append(row);
+            if (!result.ok && m_hashAbort.loadRelaxed() != 0) {
+                aborted = true;
+                break;
+            }
+        }
+        QMetaObject::invokeMethod(
+            this,
+            [this, rows, stamps, failed, aborted, algorithm] {
+                int okCount = 0;
+                for (const ToolboxPage::HashBatchRow &row : rows) {
+                    if (row.ok) {
+                        ++okCount;
+                    }
+                }
+                QString summary = tr("共 %1 个文件 · %2")
+                                      .arg(rows.size())
+                                      .arg(FileHash::algorithmName(algorithm));
+                if (aborted) {
+                    summary += tr(" · 停下了，后面那几个没算");
+                }
+                if (failed > 0) {
+                    summary += tr(" · %1 个没算成").arg(failed);
+                }
+                if (okCount == 0) {
+                    summary += tr(" · 一个都没算成");
+                }
+                m_page->setHashBatchView(rows, summary);
+                m_page->setHashBusy(false);
+                // 算成功的那些逐个盯着（文件变化使结果失效，批量这一档也一样）。
+                m_hashBatchStamps = stamps;
+                if (m_hashWatcher != nullptr) {
+                    for (auto it = m_hashBatchStamps.constBegin();
+                         it != m_hashBatchStamps.constEnd(); ++it) {
+                        m_hashWatcher->addPath(it.key());
+                    }
+                }
+                if (m_host.log) {
+                    m_host.log(aborted ? tr("批量算哈希：停下了（%1 / %2）")
+                                             .arg(rows.size())
+                                             .arg(stamps.size() + failed)
+                                       : tr("批量算哈希：%1 个文件，%2 个没算成")
+                                             .arg(rows.size())
+                                             .arg(failed));
+                }
+                if (m_hashThread != nullptr) {
+                    m_hashThread->deleteLater();
+                    m_hashThread = nullptr;
+                }
+            },
+            Qt::QueuedConnection);
+    });
+    m_hashThread->setParent(this);
+    m_hashThread->start();
+}
+
+void ToolboxController::exportHashBatch(const QString &path, const QString &text) {
+    if (path.isEmpty() || text.isEmpty()) {
+        return;
+    }
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        InlineMessage::information(m_overlay, tr("没写成"),
+                                   tr("「%1」打不开：%2").arg(QDir::toNativeSeparators(path),
+                                                             file.errorString()));
+        return;
+    }
+    file.write(text.toUtf8());
+    if (!file.commit()) {
+        InlineMessage::information(m_overlay, tr("没写成"),
+                                   tr("「%1」没写完：%2").arg(QDir::toNativeSeparators(path),
+                                                             file.errorString()));
+        return;
+    }
+    if (m_host.log) {
+        m_host.log(tr("哈希清单导出：%1").arg(path));
+    }
+    InlineMessage::information(m_overlay, tr("存好了"),
+                               tr("清单写到 %1").arg(QDir::toNativeSeparators(path)));
+}
+
+void ToolboxController::onHashFileChanged(const QString &path) {
+    if (m_page == nullptr) {
+        return;
+    }
+    // ---------- 批量那一档：清单里哪个文件变了 ----------
+    auto batch = m_hashBatchStamps.constFind(path);
+    if (batch != m_hashBatchStamps.constEnd()) {
+        const FileHash::Stamp before = batch.value();
+        const FileHash::Stamp now = FileHash::stampOf(path);
+        if (now.ok && now.bytes == before.bytes && now.lastModifiedMs == before.lastModifiedMs) {
+            // 只是被别的程序碰了一下（读打开之类的通知），文件本身没变 —— 继续盯着。
+            if (m_hashWatcher != nullptr) {
+                m_hashWatcher->addPath(path);
+            }
+            return;
+        }
+        // 这一条只提醒一次：从"盯着的"表里摘掉，免得每存一次盘就再弹一遍同一句话。
+        m_hashBatchStamps.erase(batch);
+        if (m_hashWatcher != nullptr) {
+            m_hashWatcher->removePath(path);
+        }
+        const QString name = QFileInfo(path).fileName();
+        m_page->setHashStaleNote(
+            now.ok ? tr("「%1」在算完之后变过（大小 / 修改时间对不上）—— 清单里那一串不是它"
+                       "现在的摘要了，重新算一遍。")
+                         .arg(name)
+                   : tr("「%1」在算完之后被移走或删掉了 —— 清单里那一串不是它现在的样子。")
+                         .arg(name));
+        return;
+    }
+    // ---------- 单文件那一档 ----------
+    if (!m_hashWatched || path != m_hashWatchedPath) {
+        return;
+    }
+    // 这一发只提醒一次：先把"盯着"这件事收掉，免得用户每存一次盘就再弹一遍同一句话。
+    m_hashWatched = false;
+    if (m_hashWatcher != nullptr) {
+        m_hashWatcher->removePath(m_hashWatchedPath);
+    }
+    const FileHash::Stamp now = FileHash::stampOf(path);
+    if (!now.ok) {
+        m_page->setHashStaleNote(tr("这个文件算完之后被移走或删掉了 —— 上面那串摘要不是它现在的样子。"));
+        return;
+    }
+    if (now.bytes == m_hashWatchedBytes && now.lastModifiedMs == m_hashWatchedModifiedMs) {
+        // 只是被别的程序碰了一下（读打开之类的通知），文件本身没变 —— 继续盯着。
+        m_hashWatched = true;
+        if (m_hashWatcher != nullptr) {
+            m_hashWatcher->addPath(path);
+        }
+        return;
+    }
+    m_page->setHashStaleNote(
+        tr("这个文件在算完之后变过（大小 / 修改时间对不上）—— 上面那串摘要不是它现在的样子，再算一遍。"));
+}
+
+// ---------------------------------------------------------------------------
+// 六、信标计算 / 七、酿造助手
+// ---------------------------------------------------------------------------
+
+void ToolboxController::refreshBeacon(int fromLevel, int level, int materialIndex,
+                                     int beaconCount) {
+    if (m_page == nullptr) {
+        return;
+    }
+    // 两格都是转盘（0–4 / 1–4），越不了界；真给了怪值也由 `Beacon` 回一句人话。
+    //
+    // 后面两行是 §9.11 第 9 项要求的两块：矿物折算（方块 → 锭/宝石）与多颗信标共用
+    // 底座。`detailText()` 那段本身不碰材质 —— 材质只影响折算，效果和层数跟它无关。
+    QString text = Beacon::detailText(fromLevel, level);
+    const int baseBlocks = Beacon::sharedBaseBlocks(level, beaconCount);
+    text += QStringLiteral("\n\n") + Beacon::materialText(materialIndex, baseBlocks);
+    text += QStringLiteral("\n") + Beacon::sharedBaseText(level, beaconCount);
+    m_page->setBeaconResult(text);
+}
+
+void ToolboxController::refreshBrewing(int potionIndex, bool extended, bool level2,
+                                       int formIndex, int bottles) {
+    if (m_page == nullptr) {
+        return;
+    }
+    Brewing::Form form = Brewing::Form::Normal;
+    if (formIndex >= 0 && formIndex < Brewing::formCount()) {
+        form = Brewing::Form(formIndex);
+    }
+    m_page->setBrewingResult(
+        Brewing::plan(potionIndex, extended, level2, form, bottles).detailText());
+}
+
+void ToolboxController::refreshBanner(int baseColor, const QStringList &layers) {
+    if (m_page == nullptr) {
+        return;
+    }
+    // 页面上每层是 `图案下标:颜色下标`；认不出来的那一段原样变成 -1，由 `Banner` 回一句人话。
+    QList<Banner::Layer> parsed;
+    for (const QString &entry : layers) {
+        const QStringList parts = entry.split(QChar(':'));
+        Banner::Layer layer;
+        layer.patternIndex = parts.value(0).toInt();
+        layer.colorIndex = parts.value(1).toInt();
+        parsed.append(layer);
+    }
+    const Banner::Plan plan = Banner::plan(baseColor, parsed);
+    m_page->setBannerResult(plan.detailText());
+    m_page->setBannerCommand(plan.ok ? plan.command : QString());
+}
+
+void ToolboxController::refreshTrim(int armorMaterial, int part, int patternIndex,
+                                    int trimMaterial, int pieces, bool wholeSet) {
+    if (m_page == nullptr) {
+        return;
+    }
+    m_page->setTrimResult(
+        ArmorTrim::plan(armorMaterial, part, patternIndex, trimMaterial, pieces, wholeSet)
+            .detailText());
 }

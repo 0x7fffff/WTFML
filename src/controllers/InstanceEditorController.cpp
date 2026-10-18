@@ -14,6 +14,8 @@
 #include "manage/FolderManager.hpp"
 #include "controllers/InstanceMaintenanceController.hpp"
 #include "manage/WorldFiles.hpp"
+#include "manage/WorldMap.hpp"
+#include "tools/FileHash.hpp"
 #include "util/AppPaths.hpp"
 #include <QDir>
 #include <QFile>
@@ -81,6 +83,65 @@ WorldSettingsPage::WorldView worldViewOf(const QString &worldDir,
     view.formatText = data.info.hasDataVersion ? QString::number(data.info.dataVersion) : QString();
     view.hasLastPlayed = data.info.hasLastPlayed;
     view.lastPlayedMs = data.info.lastPlayedMs;
+    // ---------- §9.6：只读概况（种子 / 玩家位置 / 已生成区域 / 大小） ----------
+    // `level.dat` 那一份已经解出来了，这里不再解第二遍；`region/` 那边只读每个文件的
+    // 前 8 KiB 头部（见 `WorldMap.hpp` 开头），不解区块正文。
+    WorldMap::Snapshot map = WorldMap::scan(worldDir);
+    WorldMap::readLevelFacts(data.document, &map);
+    view.hasSize = true;
+    view.sizeText = FileHash::fileSizeText(static_cast<qint64>(map.dirBytes));
+    view.hasSeed = map.hasSeed;
+    view.seedText = map.hasSeed ? QString::number(map.seed) : QString();
+    if (map.hasPlayer) {
+        QString dimension;
+        if (map.hasPlayerDimension) {
+            const QString &raw = map.playerDimension;
+            if (raw == QStringLiteral("minecraft:overworld")) {
+                dimension = InstanceEditorController::tr("主世界");
+            } else if (raw == QStringLiteral("minecraft:the_nether")) {
+                dimension = InstanceEditorController::tr("下界");
+            } else if (raw == QStringLiteral("minecraft:the_end")) {
+                dimension = InstanceEditorController::tr("末地");
+            } else {
+                dimension = raw;  // 模组维度：原样写出来，不编一个中文名
+            }
+        }
+        view.hasPlayer = true;
+        view.playerText = QStringLiteral("%1 / %2 / %3")
+                              .arg(map.playerX, 0, 'f', 1)
+                              .arg(map.playerY, 0, 'f', 1)
+                              .arg(map.playerZ, 0, 'f', 1);
+        if (!dimension.isEmpty()) {
+            view.playerText += QStringLiteral("（") + dimension + QStringLiteral("）");
+        }
+    }
+    view.hasRegions = !map.regions.isEmpty();
+    if (view.hasRegions) {
+        view.regionsText = InstanceEditorController::tr("%1 个区域文件 · 已生成 %2 个区块")
+                               .arg(map.regions.size())
+                               .arg(map.chunkCount);
+        if (map.chunkBounds.ok) {
+            view.regionsText += InstanceEditorController::tr(" · 范围 x %1 ~ %2、z %3 ~ %4")
+                                    .arg(map.chunkBounds.minBlockX())
+                                    .arg(map.chunkBounds.maxBlockX())
+                                    .arg(map.chunkBounds.minBlockZ())
+                                    .arg(map.chunkBounds.maxBlockZ());
+        }
+    }
+    QStringList notes;
+    if (map.hasOtherDimensions) {
+        notes.append(InstanceEditorController::tr("下界 / 末地与模组维度的区域没有算进来。"));
+    }
+    // §9.6 那句要求：「Mod 世界明确标注结果可能不完整」。判据拿不到"装没装模组"这件事
+    // （模组可以只写在别处），所以这一句**一直在**，说的是这份统计的口径。
+    notes.append(InstanceEditorController::tr(
+        "这份统计只看主世界 region/ 里的 .mca —— 模组生成的地形与维度不在里面，结果可能不完整。"));
+    if (map.unreadableRegions > 0) {
+        notes.append(InstanceEditorController::tr("有 %1 个区域文件的头部读不全（可能坏了），"
+                                                  "它们没有计入区块数与范围。")
+                         .arg(map.unreadableRegions));
+    }
+    view.mapNote = notes.join(QLatin1Char('\n'));
     view.hasAllowCommands = data.info.hasAllowCommands;
     view.allowCommands = data.info.allowCommands;
     view.hasHardcore = data.info.hasHardcore;

@@ -78,6 +78,28 @@ Result digestOfFile(const QString &path, Algorithm algorithm, const ProgressFn &
                     const CancelFn &cancelled = {});
 
 /**
+ * @brief 一个文件的"这一刻长什么样"（大小 + 修改时间）。
+ *
+ * 用途只有一个：**算完之后文件被改过没有**（coding plan §9.11 第 1 项那条"文件变化使结果
+ * 失效"）。摘要算的是当时那一刻的字节；文件被重新下载、被更新器换掉之后，屏幕上那串十六
+ * 进制就不是"这个文件现在的摘要"了 —— 这时必须说出来，而不是让用户拿它去对。
+ *
+ * NOTE: 只看大小和修改时间，不重算摘要（重算就回到"要再读一遍几百 MB"那条路上去了）。
+ *       所以这是**近似**判据：改了内容又把大小和修改时间都摆回原样的情况认不出来 ——
+ *       那种情况下"文件变过"本来就不该由这个工具来断言。
+ */
+struct Stamp {
+    bool ok = false;          ///< 读到了（文件在、读得动）
+    qint64 bytes = -1;        ///< 多大（读不到时 -1）
+    qint64 lastModifiedMs = -1;///< 修改时间（毫秒时间戳；读不到时 -1）
+};
+
+/// 现在这一刻的 @p path 长什么样。
+Stamp stampOf(const QString &path);
+/// 两份记录说的是不是同一个状态（**两个都 `ok` 才算一样**）。
+bool sameStamp(const Stamp &left, const Stamp &right);
+
+/**
  * @brief 用户粘进来的"已知值"。
  *
  * 认这些写法（大小写、空白、`-`、`:`、`sha256:` 前缀都不计较）：

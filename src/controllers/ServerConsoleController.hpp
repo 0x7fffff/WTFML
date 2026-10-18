@@ -65,6 +65,10 @@ public:
     bool showing(const QString &serverId) const { return !m_serverId.isEmpty() && m_serverId == serverId; }
 
 private:
+    /// 「导出日志…」：把控制台**整份**输出写到用户挑的那个文件（§9.8 的导出接口）。
+    void exportLog();
+
+private:
     ServerWorkspaceController *m_workspace = nullptr;
     MainWindowUI *m_ui = nullptr;
     QWidget *m_pageParent = nullptr;

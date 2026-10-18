@@ -105,9 +105,10 @@ const QList<Field> &commonFields() {
     //   调的，最后那几项是"卡了才来调"的。
     static const QList<Field> fields = {
         // ---------- 日常 ----------
+        // ★ `preview = true`：这一格下面挂一条"照游戏里画出来"的样子（`§` 码、两行）。
         Field{QStringLiteral("motd"), QStringLiteral("服务器简介"),
               QStringLiteral("服务器列表里显示的那一行字"),
-              Kind::Text, QStringLiteral("A Minecraft Server"), 0, 0, {}, false},
+              Kind::Text, QStringLiteral("A Minecraft Server"), 0, 0, {}, false, true},
         Field{QStringLiteral("server-port"), QStringLiteral("端口"),
               QStringLiteral("别人连进来用的端口；路由器上要把它转发出去"),
               Kind::Number, QStringLiteral("25565"), 1, 65535, {}, false},
@@ -139,6 +140,17 @@ const QList<Field> &commonFields() {
         Field{QStringLiteral("level-seed"), QStringLiteral("地图种子"),
               QStringLiteral("世界第一次生成时用；已经生成好的世界改它没有用"),
               Kind::Text, QString(), 0, 0, {}, false},
+        // ---------- 资源包（§9.7：选本地 zip、算 SHA-1；地址得用户自己托管）----------
+        //
+        // ★ 「地址」那一格**不收本机路径**：别人连不到你的 `C:\…`。界面明说这一句，
+        //   启动器不替用户把本地路径填进去（`ServerResourcePack.hpp` 文件头那段）。
+        Field{QStringLiteral("resource-pack"), QStringLiteral("资源包地址"),
+              QStringLiteral("别人连得到的一个 http(s) 链接；本机文件路径别人打不开"),
+              Kind::Text, QString(), 0, 0, {}, false},
+        // ★ `zipPick = true`：这一格旁边摆一颗「选择本地 zip…」，按 SHA-1 填进来。
+        Field{QStringLiteral("resource-pack-sha1"), QStringLiteral("资源包 SHA-1"),
+              QStringLiteral("这个 zip 的 SHA-1；可以用右边那颗按钮从本地 zip 算出来"),
+              Kind::Text, QString(), 0, 0, {}, false, false, true},
         // ---------- 规则 ----------
         Field{QStringLiteral("online-mode"), QStringLiteral("正版验证"),
               QStringLiteral("开着只让正版账号进来；关掉之后谁都能冒名顶替别人的名字"),

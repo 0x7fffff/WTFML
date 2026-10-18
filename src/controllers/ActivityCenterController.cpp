@@ -46,6 +46,10 @@ Tasks::TaskId ActivityCenterController::begin(Tasks::TaskKind kind, const QStrin
     return m_tasks.begin(kind, title, targetId, steps, defaultCapabilities(kind));
 }
 
+bool ActivityCenterController::bindSession(Tasks::TaskId id, int sessionId) {
+    return m_tasks.setSessionId(id, sessionId);
+}
+
 void ActivityCenterController::finish(Tasks::TaskId id, bool success,
                                       const QString &errorSummary,
                                       bool retryPayloadAvailable) {

@@ -56,6 +56,18 @@ public:
     /// 停在离 @p mb 最近的那一格上。**不发出信号的那一路也走它**（调用方自己挡）。
     void setValueMb(int mb);
 
+protected:
+    /// 2026-10-18（用户原话「这个拖动的条做成和底栏那个进度条一个样式」）：
+    /// 自绘成底栏那条进度条的样子 —— 圆角细轨道 + 主题色的填充，右端一个圆形把手。
+    /// 轨道 / 填充的色和 `TaskProgressBar` 同一处（`Theme::progressTrackColor()` /
+    /// `progressFillColor()`），所以两处永远是同一个颜色。
+    ///
+    /// 把手的位置**不自己算比例**：走 `style()->subControlRect(SC_SliderHandle)` ——
+    /// 那是 QSlider 自己认鼠标位置用的同一份几何（Fusion 的 groove/handle 各留了半个
+    /// 把手的边距）。自己按 `value()/maximum()` 乘宽度的话，画出来的把手会跟"点哪儿
+    /// 跳到哪儿"差一小截，越靠两头越明显。
+    void paintEvent(QPaintEvent *event) override;
+
 private:
     /// "第几格"。空表 = 还没 setRangeMb() 过（构造函数到第一次设范围之间只有一瞬）。
     QList<int> m_steps;

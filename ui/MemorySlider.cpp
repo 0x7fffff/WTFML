@@ -8,7 +8,14 @@
 
 #include "MemorySlider.hpp"
 
+#include <QApplication>
+#include <QPaintEvent>
+#include <QPainter>
+#include <QStyle>
+#include <QStyleOptionSlider>
 #include <QtGlobal>
+
+#include "Theme.hpp"
 
 MemorySlider::MemorySlider(QWidget *parent) : QSlider(Qt::Horizontal, parent) {
     // 一格 = 一档（值域是下标，见 .hpp）。键盘左右键因此正好挪一档，PgUp/PgDn 挪四档 ——
@@ -95,5 +102,67 @@ void MemorySlider::setValueMb(int mb) {
     const int index = nearestIndex(m_steps, mb);
     if (index >= 0) {
         setValue(index);
+    }
+}
+
+void MemorySlider::paintEvent(QPaintEvent *) {
+    if (height() <= 0 || width() <= 0) {
+        return;
+    }
+
+    QPainter painter(this);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+
+    // 几何问 QStyle：handle 的中心就是 QSlider 认鼠标位置时用的那一个（见 .hpp 里那段）。
+    // 样式表里没有 QSlider 的规则，所以这里拿到的是 Fusion 自己的 groove/handle。
+    QStyleOptionSlider opt;
+    initStyleOption(&opt);
+    const QRect groove =
+        style()->subControlRect(QStyle::CC_Slider, &opt, QStyle::SC_SliderGroove, this);
+    const QRect handle =
+        style()->subControlRect(QStyle::CC_Slider, &opt, QStyle::SC_SliderHandle, this);
+
+    // ★ 色取**应用那一份**调色板（和 TaskProgressBar 同一条理由：不认某一格自己那份）。
+    const QPalette palette = QApplication::palette();
+    QColor track = Theme::progressTrackColor(palette);
+    QColor fill = Theme::progressFillColor(palette);
+    QColor knobInner = palette.color(QPalette::Base);
+    if (!isEnabled()) {
+        // 灰掉的时候整根条跟着退一档 —— 光靠"拖不动"看不出它现在是禁用的。
+        track.setAlphaF(track.alphaF() * 0.5);
+        fill.setAlphaF(fill.alphaF() * 0.4);
+        knobInner.setAlphaF(knobInner.alphaF() * 0.4);
+    }
+
+    // 轨道比底栏那条（4 px）略粗一点：这条要用手拖，太细了不好瞄；但仍是"一条圆角细线"，
+    // 不是从前那种一整格高的灰块。
+    const int railHeight = qBound(2, height() / 4, 6);
+    const qreal radius = railHeight / 2.0;
+    const QRectF rail(groove.left(), (height() - railHeight) / 2.0, groove.width(), railHeight);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(track);
+    painter.drawRoundedRect(rail, radius, radius);
+
+    // 填充到把手中心：左端贴住轨道（整圆角），右端是把手下面那半截。
+    const qreal centerX = qBound(rail.left(), qreal(handle.center().x()), rail.right());
+    const qreal filledWidth = centerX - rail.left();
+    if (filledWidth > 0.0) {
+        painter.setBrush(fill);
+        painter.drawRoundedRect(
+            QRectF(rail.left(), rail.top(), qMax(filledWidth, radius * 2.0), railHeight), radius,
+            radius);
+    }
+
+    // 把手：一圈主题色的环，中间透出底色。纯色实心球在深色档下和填充粘成一团、看不出
+    // 哪儿是"现在的位置"。
+    const qreal knobDiameter = qMin<qreal>(qreal(height() - 2), 16.0);
+    if (knobDiameter >= 8.0) {
+        const qreal outer = knobDiameter / 2.0;
+        const qreal inner = qMax(1.5, outer - 3.0);
+        const QPointF knobCenter(centerX, height() / 2.0);
+        painter.setBrush(fill);
+        painter.drawEllipse(knobCenter, outer, outer);
+        painter.setBrush(knobInner);
+        painter.drawEllipse(knobCenter, inner, inner);
     }
 }

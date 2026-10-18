@@ -302,8 +302,9 @@ public:
     //       开着浏览器和什么都没开，可用内存能差好几 GB，而 JVM 只认启动那一刻的机器状态。
     //       所以 LauncherManager 生成命令行之前会再算一次（见 MainWindow 里那处调用）。
 
-    /// 自动档是不是开着。默认 true；老配置（没有这个键）按"用户有没有自己调过"判断，
-    /// 见 load()。
+    /// 自动档是不是开着。★ 2026-10-18：「自动（按系统内存）」那一档的界面撤掉了，
+    /// 所以**构造 / load() 之后它永远是 false**；这个访问器和 `setAutoMemory()` 留着是
+    /// 为了老数据与验证工程还能读这个键，产品里已经没有任何一处会在界面打开它。
     bool autoMemory() const { return m_memoryAuto; }
 
     /// 设置自动档并立刻落盘。**不动** m_xmx/m_xms —— 值由 refreshSuggestedMemory() 管。
@@ -400,7 +401,7 @@ private:
     /// 「实例指定的 Java 版本不符时提醒」这个总闸。默认 true —— 这也是加这个开关之前
     /// 的行为（那时候一律报错拦下），所以老配置读回来仍然是"该提醒就提醒"。
     bool m_warnVersionMismatch = true;
-    /// 「内存分配」选的是不是自动档（按系统内存算）。默认 true 的理由同上；
-    /// 老配置的例外处理见 load()。
-    bool m_memoryAuto = true;
+    /// 「内存分配」选的是不是自动档（按系统内存算）。
+    /// ★ 2026-10-18：界面撤掉了，默认值与 load() 都是 false —— 见 load() 里那段。
+    bool m_memoryAuto = false;
 };

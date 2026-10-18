@@ -52,12 +52,16 @@
 
 #include <QApplication>
 #include <QColor>
+#include <QEvent>
 #include <QHash>
 #include <QJsonObject>
 #include <QPalette>
 #include <QRect>
+#include <QScrollArea>
+#include <QScrollBar>
 #include <QString>
 #include <QStringList>
+#include <QStyle>
 
 #include <functional>
 #include <utility>
@@ -662,6 +666,57 @@ constexpr int scrollBarHandleRadius() { return (scrollBarThickness() - 2 * scrol
 /// 把手最短画多长。Fusion 自己也有一条（`PM_ScrollBarSliderMin`）；这一条是我们钉的，
 /// 内容长到上千行时把手不至于短成一个小点。
 constexpr int scrollBarMinHandleLength() { return 28; }
+
+/**
+ * @brief 右边常留一条"死区"的滚动区：宽度永远是 `scrollBarThickness()` 那一格。
+ *
+ * 用户 2026-10-18 原话：「上下拖拽窗口调整大小的时候文字会因为边上滚动条的出现和消失
+ * 重排列，在那里设置一个死区不要让文本进去」。
+ *
+ * 普通 `QScrollArea` 的竖条是 `AsNeeded` 的：内容一高，条子就**从视口里**拿走
+ * `scrollBarThickness()` 那么宽，里面那些换行的说明文字当场重排一遍；窗口再高一点、
+ * 条子收回去，文字又跳回去。这里把条子改成**常驻**（`ScrollBarAlwaysOn`）：视口宽度
+ * 从头到尾是同一个值，条子要么在那一格里画把手、要么那一格什么都不画 —— 就是那条
+ * "死区"，文字不许进去。
+ *
+ * ★ 别改用 `setViewportMargins(0, 0, scrollBarThickness(), 0)`：那个接口是给表头 / 页脚
+ *   留位的，条子露出来时照样再从视口里拿一格 ⇒ 文字反而一次少两格（实测 230 → 220）。
+ *
+ * ★ 只给"里面是换行文字"的那几层页面用（设置页每一栏、覆盖层整页、任务中心详情…）。
+ *   条目视图（列表 / 树 / 表格）不要换：它们自己那一圈边线和选中块的几何都在别处钉着
+ *   （见 [[wtfml-scrollbar-look]]），多出来的这条留白只会让行里的列宽少一截。
+ */
+class GutterScrollArea : public QScrollArea {
+public:
+    explicit GutterScrollArea(QWidget *parent = nullptr) : QScrollArea(parent) {
+        // ★ 条子**常驻**（`AlwaysOn`），不是 `AsNeeded`：`QAbstractScrollArea` 只在条子
+        //   "露着"的时候才从视口里拿走那一格 —— 常驻 ⇒ 视口宽度从头到尾是同一个值，
+        //   里面换行的文字永远不重排。装得下的时候那一格什么都不画（见 `syncIdle()`），
+        //   就是用户要的那条"死区"。
+        //   试过 `setViewportMargins()`：那个接口是给表头/页脚留位的，条子照样再从视口里
+        //   拿一格 ⇒ 条子一露，文字反而**一次少两格**（量出来 230 → 220）。
+        setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
+        QScrollBar *bar = verticalScrollBar();
+        connect(bar, &QScrollBar::rangeChanged, this, [this] { syncIdle(); });
+        syncIdle();
+    }
+
+private:
+    /// 装得下（`minimum == maximum`）时把条子标成"空的"：QSS 那条 `[wtfmlIdle="true"]`
+    /// 把把手画成透明 ⇒ 常驻的那一格看上去是一条留白，而不是一根永远拖不动的把手。
+    void syncIdle() {
+        QScrollBar *bar = verticalScrollBar();
+        const bool idle = bar->maximum() <= bar->minimum();
+        if (bar->property("wtfmlIdle").isValid() && bar->property("wtfmlIdle").toBool() == idle) {
+            return;
+        }
+        bar->setProperty("wtfmlIdle", idle);
+        // 动态属性是 QSS 选择器的一部分 ⇒ 改完**必须重新 polish** 一次，Qt 不会自己来看。
+        bar->style()->unpolish(bar);
+        bar->style()->polish(bar);
+        bar->update();
+    }
+};
 
 /**
  * @brief 把手平时的色。**带 alpha 的一支中性灰**，跟着深浅各取一边。

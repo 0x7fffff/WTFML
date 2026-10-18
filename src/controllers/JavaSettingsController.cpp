@@ -173,8 +173,11 @@ bool JavaSettingsController::clampXmsToXmx(int xmx) {
 }
 
 void JavaSettingsController::refreshMemory() {
-    const SystemMemory::Usage usage = m_settings->refreshSuggestedMemory();
-    const bool automatic = m_settings->autoMemory();
+    // ★ 2026-10-18：「自动（按系统内存）」那一档的界面撤掉了（用户原话「内存分配和最大
+    //   内存这玩意完全就是重复的，只保留那个拖动的」），所以这里**只读系统内存写说明**，
+    //   不再走 `refreshSuggestedMemory()`（那是自动档的"按可用内存重算并落盘"）。读它
+    //   只是为了让下面那句说明能说清这台机器有多少内存。
+    const SystemMemory::Usage usage = SystemMemory::read();
     applyMemoryLimits(usage.totalMb);
     const int cap = m_ui->getMemoryMaxSpin()->maximum();
     int xmx = m_settings->xmx();
@@ -190,28 +193,24 @@ void JavaSettingsController::refreshMemory() {
         log(tr("内存：最小内存不能超过最大内存，已跟着降到 %1 MB。").arg(xmx));
         clamped = true;
     }
-    if (automatic || clamped) m_settings->save();
-    const QSignalBlocker blockCheck(m_ui->getMemoryAutoCheck());
+    if (clamped) m_settings->save();
     const QSignalBlocker blockSpin(m_ui->getMemoryMaxSpin());
     const QSignalBlocker blockSlider(m_ui->getMemoryMaxSlider());
-    m_ui->getMemoryAutoCheck()->setChecked(automatic);
     m_ui->getMemoryMaxSpin()->setValue(xmx);
     m_ui->getMemoryMaxSlider()->setValueMb(xmx);
-    m_ui->getMemoryMaxSpin()->setEnabled(!automatic);
-    m_ui->getMemoryMaxSlider()->setEnabled(!automatic);
+    // 条和数字框**永远是活的**：能改的口子只剩这一个，再灰掉就没有地方能给 -Xmx 了。
+    m_ui->getMemoryMaxSpin()->setEnabled(true);
+    m_ui->getMemoryMaxSlider()->setEnabled(true);
     QString hint;
     if (usage.totalMb <= 0)
-        hint = tr("读不到系统内存，自动分配用的是内置默认值（最大 %1 MB）。最小内存由启动器定（%2 MB），不用管它。")
-                   .arg(m_settings->xmx()).arg(m_settings->xms());
-    else if (automatic)
-        hint = tr("系统总内存 %1、当前可用 %2，自动给到最大 %3 MB。最小内存由启动器定（%4 MB），不用管它。每次启动前都会按当时的可用内存重算。")
-                   .arg(memoryText(usage.totalMb), memoryText(usage.availableMb))
-                   .arg(m_settings->xmx()).arg(m_settings->xms());
+        hint = tr("读不到系统内存，最大内存直接用右边的数字框填。最小内存由启动器定（%1 MB），不用管它。")
+                   .arg(m_settings->xms());
     else
-        hint = tr("系统总内存 %1、当前可用 %2；现在是手动指定（最大 %3 MB）。最小内存由启动器定（%4 MB），不用管它。上面那条拖到哪儿就是哪儿，也可以直接填数字。")
+        hint = tr("系统总内存 %1、当前可用 %2；现在最多给到 %3 MB。左边拖着改，也可以直接填数字。"
+                  "最小内存由启动器定（%4 MB），不用管它。")
                    .arg(memoryText(usage.totalMb), memoryText(usage.availableMb))
                    .arg(m_settings->xmx()).arg(m_settings->xms());
-    m_ui->getMemoryAutoHint()->setText(hint);
+    m_ui->getMemoryHint()->setText(hint);
 }
 
 void JavaSettingsController::setWarnMismatchFromUi() {
@@ -221,16 +220,7 @@ void JavaSettingsController::setWarnMismatchFromUi() {
              : tr("实例指定的 Java 版本不符时：不再提醒，直接按它指定的 Java 启动。"));
 }
 
-void JavaSettingsController::setAutoMemoryFromUi() {
-    const bool automatic = m_ui->getMemoryAutoCheck()->isChecked();
-    m_settings->setAutoMemory(automatic);
-    refreshMemory();
-    log(automatic ? tr("内存分配：已改为按系统内存自动分配。")
-                  : tr("内存分配：已改为手动指定。"));
-}
-
 void JavaSettingsController::commitMemoryFromSpin() {
-    if (m_settings->autoMemory()) return;
     const int value = m_ui->getMemoryMaxSpin()->value();
     if (m_ui->getMemoryMaxSlider()->valueMb() != value) {
         const QSignalBlocker block(m_ui->getMemoryMaxSlider());

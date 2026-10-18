@@ -107,7 +107,7 @@ OverlayHost::OverlayHost(QWidget *anchor, QWidget *parent) : QWidget(parent), m_
     // （实例设置 820x560），而内容区多大是主窗口说了算 —— 窗口一小，页脚那排
     // 「取消 / 确定」就被切在下面，用户怎么点都点不着，而那正是"这个页面打不开"。
     // 外面套一层，任何窗口尺寸下它都能滚到底。
-    auto *pageScroll = new QScrollArea(m_pageFrame);
+    auto *pageScroll = new Theme::GutterScrollArea(m_pageFrame);
     pageScroll->setObjectName(overlayPageScrollName());
     pageScroll->setWidgetResizable(true);
     pageScroll->setFrameShape(QFrame::NoFrame);

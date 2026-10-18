@@ -63,10 +63,11 @@ struct EffectiveJavaSettings {
     /// 给 JVM 的 -Xmx / -Xms（MB）。
     int xmx = 0;
     int xms = 0;
-    /// 内存是不是自动档（按系统内存现算）。true 时 xmx/xms 会被重算，
-    /// 重算那一步**不在这个纯函数里** —— 它要用系统读数、还可能要写回磁盘，
-    /// 是 MainWindow::resolveMemoryForLaunch() 的事。
-    bool autoMemory = true;
+    /// 内存是不是自动档（按系统内存现算）。★ 2026-10-18：界面上那条「自动（按系统内存）」
+    /// 撤掉了、`GlobalJavaSettings::load()` 也一律读成手动，所以产品里这个值恒为 false。
+    /// 字段与下面那段"自动档重算不在纯函数里"的说明留着，是因为老版本写的 meta / 盘上数据
+    /// 还带着这个键；读侧照样认，只是再也没有入口把它打开。
+    bool autoMemory = false;
     /// 给 JVM 的额外参数（空格分隔的一条串，要拆开用）。
     QString extraJvmArgs;
 };

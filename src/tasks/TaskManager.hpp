@@ -76,6 +76,13 @@ public:
 
     /// 换一句"现在在干什么"（面板里标题下面那行小字）。
     bool setDetail(TaskId id, const QString &detail);
+
+    /// 把这一项和一次运行对上（§9.8 第三条：任务 / 日志 / 退出诊断 / 崩溃报告同一个号）。
+    ///
+    /// 启动那一件任务是**在进程起来之前**记的，那时会话号还不存在 ⇒ 只能事后补这一笔。
+    /// `sessionId <= 0` 什么都不做。已经对上过的那一项**不再改口**（一项任务只属于一份
+    /// 会话）。**不落盘**（见 `TaskSnapshot::sessionId`）。
+    bool setSessionId(TaskId id, int sessionId);
     bool acknowledgeAttention(TaskId id);
 
     /// 整表换掉步骤。

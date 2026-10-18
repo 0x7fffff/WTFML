@@ -332,6 +332,22 @@ public:
     /// 每一条身份存在第几列。只有一列，写 0 是给"将来加一列（比如发布日期）"留个说明：
     /// 那一列要是插在前面，认条目的代码就全得改。
     static int versionTreeKeyColumn() { return 0; }
+    /// 版本树上面那个筛选框（2026-10-18，coding plan §9「版本树没有过滤/搜索」）。
+    /// 筛的是**版本号**（子条目 `Qt::UserRole` 那串），不是分类文字：分类名那四个字
+    /// 本来就在眼前，按它筛只会把整栏一起留下或者一起藏掉。
+    /// 空格分词、每个词都得出现（和实例搜索、文件搜索同一条规矩）；不区分大小写。
+    static QString versionFilterEditName() { return QStringLiteral("versionFilterEdit"); }
+    /// 筛选框右边那句结果（`找到 N 个版本` / `没有版本号匹配「…」`）。空筛选时藏着。
+    static QString versionFilterHintName() { return QStringLiteral("versionFilterHint"); }
+    static QString versionFilterPlaceholderText() {
+        return QCoreApplication::translate("MainWindowUI", "按版本号筛选（空格分词，全部匹配）");
+    }
+    static QString versionFilterNoMatchText(const QString &text) {
+        return QCoreApplication::translate("MainWindowUI", "没有版本号匹配「%1」").arg(text);
+    }
+    static QString versionFilterMatchText(int count) {
+        return QCoreApplication::translate("MainWindowUI", "找到 %1 个版本").arg(count);
+    }
     /// 条目**下面**那行小字挂在哪个角色上（两棵树共用这一个角色）。
     /// 版本树上它是发布时间（精确到日）；加载器那棵树上是「与 X 不兼容」或者选中的版本号。
     /// NOTE: 它和正文在**同一列**里（由 VersionTreeDelegate 分两行画出来），所以
@@ -604,6 +620,13 @@ public:
     /// 返回值，界面这边不抄一份规则）。名字能用的时候它是空的、也藏起来 —— 于是名字框、
     /// 加载器树、安装按钮在正常情况下一个像素都不动。
     static QString installNameErrorName() { return QStringLiteral("installNameError"); }
+    /// 安装页「实例预设」那一小节：选一份预设、装好之后应用（coding plan §7）。
+    /// ★ 控件本身**不读盘**：盘上有哪些预设、默认是哪一份，全由 MainWindow 灌
+    ///   （`PresetController::fillInstallSelector()`）。组合框里每一项的 `Qt::UserRole`
+    ///   是预设 id，**空串那一项 = 不使用预设**。
+    static QString installPresetComboName() { return QStringLiteral("installPresetCombo"); }
+    static QString installPresetViewButtonName() { return QStringLiteral("installPresetViewButton"); }
+    static QString installPresetApplyCheckName() { return QStringLiteral("installPresetApplyCheck"); }
     /// 那行红字的红。色值放在这儿当唯一出处（验证工程量像素时要认的就是它）。
     ///
     /// NOTE: 2026-09-25 起**跟着调色板分深浅两档**，不再是一个写死的值。那句"产品里只有
@@ -655,6 +678,15 @@ public:
     static QString installButtonText() { return QCoreApplication::translate("MainWindowUI", "安装"); }
     static QString installBackButtonText() {
         return QCoreApplication::translate("MainWindowUI", "← 返回版本列表");
+    }
+    static QString installPresetSectionLabelText() {
+        return QCoreApplication::translate("MainWindowUI", "实例预设");
+    }
+    static QString installPresetViewText() {
+        return QCoreApplication::translate("MainWindowUI", "查看内容");
+    }
+    static QString installPresetApplyCheckText() {
+        return QCoreApplication::translate("MainWindowUI", "安装完成后应用");
     }
     /// 安装页顶上那句话：告诉用户这一份是**基于哪个原版**装的（点了树里哪一条，到这里
     /// 必须还看得见 —— 否则"我在给哪个版本装加载器"就全靠记忆了）。
@@ -1248,9 +1280,12 @@ public:
         Settings,      ///< 服务端设置（server.properties / 备份 / 体检）
         Repair,        ///< 修复（重跑安装）
         ForceKill,     ///< 强制结束
+        /// 异常退出后自动重启（**可勾选**的一项，见 `showServerContextMenu`）。放在
+        /// 「强制结束」后面、「删除」前面：删除永远在最后（不可逆的那一项别夹在中间）。
+        RestartOnCrash,
         Remove,        ///< 删掉这个服务端
     };
-    static int serverMenuActionCount() { return 6; }
+    static int serverMenuActionCount() { return 7; }
     static QString serverMenuText(ServerMenuAction action) {
         switch (action) {
         case ServerMenuAction::Console:
@@ -1263,10 +1298,17 @@ public:
             return QStringLiteral("修复（重新装一遍）");
         case ServerMenuAction::ForceKill:
             return QStringLiteral("强制结束");
+        case ServerMenuAction::RestartOnCrash:
+            return QStringLiteral("异常退出后自动重启");
         case ServerMenuAction::Remove:
             return QStringLiteral("删除这个服务端…");
         }
         return QString();
+    }
+    /// 「异常退出后自动重启」那一项的悬停说明（勾没勾都摆同一句）。
+    static QString serverRestartMenuNote() {
+        return QStringLiteral("连着崩几次就收手（默认 3 次，每次之间等一会儿）。\n"
+                              "你自己按「停止」或者它正常退出都不会被拉起来。");
     }
 
     // ---------- 服务端控制台那一页（coding plan §6.2 / M4-3）----------
@@ -1314,6 +1356,27 @@ public:
     static QString serverSettingsStackName() { return QStringLiteral("serverSettingsStack"); }
     /// 「常用设置」那一页里那张表单（每一格的名字见 `serverSettingsFieldName()`）。
     static QString serverSettingsFormName() { return QStringLiteral("serverSettingsForm"); }
+    /// 「服务器简介」那一格下面那块预览（§9.7「MOTD 提供格式化预览」）。
+    static QString serverSettingsMotdPreviewName() {
+        return QStringLiteral("serverSettingsMotdPreview");
+    }
+    /// 预览底下那行小字。**它和预览同进同退**（`FieldView::preview` 为真才有）。
+    static QString serverSettingsMotdNoteName() {
+        return QStringLiteral("serverSettingsMotdNote");
+    }
+    /// 预览底下那行小字说的话：**只画两行**，别让用户以为第三行也会出现。
+    static QString serverSettingsMotdNote() {
+        return QStringLiteral("游戏里大概长这样：服务器列表只画前两行，颜色和粗斜体都照 § 码来。");
+    }
+    /// 简介是空的时候预览盘上摆什么（不摆空白 —— 空白看起来像"预览坏了"）。
+    static QString serverSettingsMotdEmptyText() {
+        return QStringLiteral("（空的 —— 服务器列表那一行会是空白）");
+    }
+    /// 「资源包 SHA-1」那一格旁边那颗「选择本地 zip…」（§9.7）。
+    static QString serverSettingsPickZipButtonName() {
+        return QStringLiteral("serverSettingsPickZip");
+    }
+    static QString serverSettingsPickZipText() { return QStringLiteral("选择本地 zip…"); }
     static QString serverSettingsRawEditName() { return QStringLiteral("serverSettingsRawText"); }
     static QString serverSettingsRawNoteName() { return QStringLiteral("serverSettingsRawNote"); }
     static QString serverSettingsBackupNoteName() {
@@ -1324,6 +1387,24 @@ public:
     }
     static QString serverSettingsCheckListName() {
         return QStringLiteral("serverSettingsFindings");
+    }
+    // ---------- 玩家名单（§9.7「玩家管理」）----------
+    static QString serverSettingsPlayerNoteName() {
+        return QStringLiteral("serverSettingsPlayerNote");
+    }
+    /// 那四份名单的下拉框。
+    static QString serverSettingsPlayerComboName() {
+        return QStringLiteral("serverSettingsPlayerList");
+    }
+    /// 名单本身那张表。
+    static QString serverSettingsPlayerTreeName() {
+        return QStringLiteral("serverSettingsPlayerEntries");
+    }
+    static QString serverSettingsPlayerAddButtonName() {
+        return QStringLiteral("serverSettingsPlayerAdd");
+    }
+    static QString serverSettingsPlayerRemoveButtonName() {
+        return QStringLiteral("serverSettingsPlayerRemove");
     }
     static QString serverSettingsCheckSummaryName() {
         return QStringLiteral("serverSettingsCheckSummary");
@@ -1359,8 +1440,9 @@ public:
         return QStringLiteral("serverSettingsField_") + key;
     }
 
-    /// 左栏那四页的标题。**顺序就是左栏的顺序**（`ServerSettingsPage::Section` 按下标对齐）。
-    static int serverSettingsSectionCount() { return 4; }
+    /// 左栏那六页的标题。**顺序就是左栏的顺序**（`ServerSettingsPage::Section` 按下标对齐）。
+    /// 「内容」那一页是 §9.7 的内容管理（模组 / 数据包）。
+    static int serverSettingsSectionCount() { return 6; }
     static QString serverSettingsSectionTitle(int index) {
         switch (index) {
         case 0:
@@ -1368,8 +1450,12 @@ public:
         case 1:
             return QStringLiteral("原始文本");
         case 2:
-            return QStringLiteral("世界备份");
+            return QStringLiteral("内容");
         case 3:
+            return QStringLiteral("世界备份");
+        case 4:
+            return QStringLiteral("玩家");
+        case 5:
             return QStringLiteral("体检");
         }
         return QString();
@@ -1428,6 +1514,126 @@ public:
     /// 体检那一列的两格：左边那个词（`ServerCheck::severityName()`）右边那一句。
     static QStringList serverSettingsCheckColumns() {
         return QStringList{QStringLiteral("这一条"), QStringLiteral("说的是什么")};
+    }
+
+    // ---------- 内容（§9.7 内容管理）----------
+    //
+    // 两类：模组（服务端目录的 `mods/`）和数据包（世界目录的 `datapacks/`）。插件（Paper /
+    // Spigot）等服务器类型稳定之后再单独开——这一版不做（见 `ServerContent.hpp` 文件头）。
+    static QString serverSettingsContentNoteName() {
+        return QStringLiteral("serverSettingsContentNote");
+    }
+    static QString serverSettingsContentComboName() {
+        return QStringLiteral("serverSettingsContentKind");
+    }
+    static QString serverSettingsContentTreeName() {
+        return QStringLiteral("serverSettingsContentEntries");
+    }
+    static QString serverSettingsContentAddButtonName() {
+        return QStringLiteral("serverSettingsContentAdd");
+    }
+    static QString serverSettingsContentToggleButtonName() {
+        return QStringLiteral("serverSettingsContentToggle");
+    }
+    static QString serverSettingsContentOpenFolderButtonName() {
+        return QStringLiteral("serverSettingsContentOpenFolder");
+    }
+    static QString serverSettingsContentRefreshButtonName() {
+        return QStringLiteral("serverSettingsContentRefresh");
+    }
+    /// 那两类。**顺序就是下拉框的顺序**（`ServerContent::Kind` 按下标对齐）。
+    static int serverSettingsContentKindCount() { return 2; }
+    static QString serverSettingsContentKindTitle(int index) {
+        switch (index) {
+        case 0:
+            return QStringLiteral("模组");
+        case 1:
+            return QStringLiteral("数据包");
+        }
+        return QString();
+    }
+    /// 内容那张表的三格。
+    static QStringList serverSettingsContentColumns() {
+        return QStringList{QStringLiteral("名字"), QStringLiteral("大小"),
+                           QStringLiteral("状态")};
+    }
+    /// 状态那一格：禁用着的那一行说得明白一点（它还在文件夹里，只是不加载）。
+    static QString serverSettingsContentStateText(bool disabled) {
+        return disabled ? QStringLiteral("已禁用（不加载）") : QStringLiteral("启用中");
+    }
+    /// 这一页顶上那句说明（哪个文件夹、禁用是什么意思、在跑时为什么改了也不生效）。
+    static QString serverSettingsContentNoteText(int kind, const QString &folder, bool running) {
+        QString text = kind == 1
+                           ? QStringLiteral("这一页读写世界目录下的 datapacks 文件夹（%1）。")
+                                 .arg(folder)
+                           : QStringLiteral("这一页读写服务端目录下的 mods 文件夹（%1）。")
+                                 .arg(folder);
+        text += QStringLiteral("\n禁用只是把后缀改成 .disabled —— 文件还在，内容一个字节都不动，"
+                               "想恢复就再点一次「启用」。");
+        if (running) {
+            text += QStringLiteral("\n服务端正在跑：现在改它也不会加载，重启服务端之后才生效。");
+        }
+        return text;
+    }
+    static QString serverSettingsContentEmptyText() { return QStringLiteral("这个文件夹还是空的。"); }
+    static QString serverSettingsContentAddText() { return QStringLiteral("添加…"); }
+    static QString serverSettingsContentEnableText() { return QStringLiteral("启用"); }
+    static QString serverSettingsContentDisableText() { return QStringLiteral("禁用"); }
+    static QString serverSettingsContentOpenFolderText() { return QStringLiteral("打开文件夹"); }
+    static QString serverSettingsContentRefreshText() { return QStringLiteral("刷新"); }
+
+    // ---------- 玩家名单 ----------
+    /// 那四份名单。**顺序就是下拉框的顺序**（`ServerPlayers::List` 按下标对齐）。
+    static int serverSettingsPlayerListCount() { return 4; }
+    static QString serverSettingsPlayerListTitle(int index) {
+        switch (index) {
+        case 0:
+            return QStringLiteral("白名单");
+        case 1:
+            return QStringLiteral("管理员");
+        case 2:
+            return QStringLiteral("封禁的玩家");
+        case 3:
+            return QStringLiteral("封禁的 IP");
+        }
+        return QString();
+    }
+    /// 名单那张表的三格。
+    static QStringList serverSettingsPlayerColumns() {
+        return QStringList{QStringLiteral("玩家"), QStringLiteral("身份"),
+                           QStringLiteral("说明")};
+    }
+    /// 「加一个…」那颗按钮上的字（封禁 IP 那一档问的是地址，不是名字）。
+    static QString serverSettingsPlayerAddText(int index) {
+        return index == 3 ? QStringLiteral("封禁一个地址…") : QStringLiteral("加一个人…");
+    }
+    static QString serverSettingsPlayerRemoveText() { return QStringLiteral("移除…"); }
+    static QString serverSettingsPlayerKickButtonName() {
+        return QStringLiteral("serverSettingsPlayerKick");
+    }
+    /// 「踢出…」：只对**正在跑**的服务端有意义，而且必须走控制台（§9.7 那句）。
+    static QString serverSettingsPlayerKickText() { return QStringLiteral("踢出…"); }
+    /// 这一页顶上那句说明（哪个文件、在跑时为什么改不了）。
+    static QString serverSettingsPlayerNoteText(int index, bool running) {
+        const QString file = index == 0 ? QStringLiteral("whitelist.json")
+                            : index == 1 ? QStringLiteral("ops.json")
+                            : index == 2 ? QStringLiteral("banned-players.json")
+                                         : QStringLiteral("banned-ips.json");
+        QString text = QStringLiteral("这一页读写服务端目录里的 %1。").arg(file);
+        if (index == 0) {
+            text += QStringLiteral("白名单开不开在「常用设置」里的「启用白名单」那一格。");
+        } else if (index == 1) {
+            text += QStringLiteral("这一份里的人是管理员；等级 4 = 全部权限。");
+        } else if (index == 2 || index == 3) {
+            text += QStringLiteral("过期的条目服务端下次启动时会自己清掉。");
+        }
+        if (running) {
+            text += QStringLiteral("\n服务端正在跑 —— 它退出时会把内存里那份名单写回来，"
+                                   "所以这一页现在改不了。")
+                    + QStringLiteral("\n「踢出…」不一样：它把一条 kick 命令送进正在跑的服务端，"
+                                     "结果会回显在控制台里。");
+        }
+        return text;
     }
 
     /**
@@ -2691,6 +2897,9 @@ public:
     /// 「Java 管理」那一页，这里只剩一颗开门按钮。**别把那个下拉框加回来**：
     /// 加了就成两处都在说"这一台机器用哪个 Java"，而它们谁也不会跟着谁变。
     static QString javaManageButtonName() { return QStringLiteral("javaManageButton"); }
+    /// 「实例预设…」那颗按钮（设置 →「启动」栏最后一节）。整页归
+    /// `ui/PresetManagePage` + `src/controllers/PresetController`，这里只是那扇门。
+    static QString presetManageButtonName() { return QStringLiteral("presetManageButton"); }
     /// 「这一层现在用的是哪个 Java」。和那颗按钮**不是一回事**：按钮是"去哪儿改"，
     /// 这一行是"现在是什么"（「自动：上次用的是 …」/「手动指定：…」）。
     static QString javaPathLabelName() { return QStringLiteral("javaPathLabel"); }
@@ -2700,10 +2909,11 @@ public:
     /// 「进度提醒」并排（都在「提示」栏里），标题跟着改成同一族的说法（说的是"什么时候
     /// 会被问一句"）。**勾选框上那句话一个字都没动**。
     static QString javaWarnMismatchRowText() { return QStringLiteral("Java 版本"); }
-    static QString memoryAutoCheckName() { return QStringLiteral("memoryAutoCheck"); }
-    /// 「内存分配」那一行下面那句说明。文字随系统内存变（可用内存不是一个定值），
-    /// 所以它是唯一一个要 MainWindow 反复改文字的 QLabel，得能按名字取回来。
-    static QString memoryAutoHintName() { return QStringLiteral("memoryAutoHint"); }
+    static QString memoryHintName() { return QStringLiteral("memoryHint"); }
+    /// 「最大内存」那一行下面那句说明。文字随系统内存变（可用内存不是一个定值），
+    /// 所以它是这个设置页里唯一一个要 MainWindow 反复改文字的 QLabel，得能按名字取回来。
+    /// ★ 2026-10-18：原来挂在「分配方式」那一行下面（叫 memoryAutoHint），那行撤掉之后
+    ///   并到了「最大内存」这一行。
     static QString memoryMaxSpinName() { return QStringLiteral("memoryMaxSpin"); }
     /// 「最大内存」这一行是**一根条 + 一个数字框**（两件东西说的是同一件事）。★ 2026-09-26：
     /// 条是这一笔加的（用户要 PCL 那种拖着改的），数字框留着 —— 精细那几下还是打字快，
@@ -3354,12 +3564,28 @@ public:
     /// 四条分类 + 版本号那份树。身份读每条的 `Qt::UserRole`（顶层是分类键、子条目是
     /// 版本号，空串 = 这一条不是版本号）—— 见 versionTreeName() 上面那段。
     QTreeWidget *getVersionTree() const { return versionTree; }
+    /// 版本树上面那个筛选框（见 versionFilterEditName() 那段）。
+    QLineEdit *getVersionFilterEdit() const { return versionFilterEdit; }
+    /// 筛选框右边那句结果（空筛选时藏着）。
+    QLabel *getVersionFilterHint() const { return versionFilterHint; }
+    /// 按筛选框里现在的文字把树过滤一遍。
+    ///
+    /// ★ **每次重灌版本树之后必须再调一次**（`MainWindow::refreshAvailableVersions` 末尾）：
+    ///   框里的字是用户打的，重灌不清它；不重过滤的话，屏幕上是"框里写着 1.20、树里
+    ///   却把 742 条全摆出来"，而且没有任何报错。
+    void applyVersionFilter();
     /// 「版本名称」框（安装页顶上那个）。
     QLineEdit *getInstallNameEdit() const { return installNameEdit; }
     /// 名称框下面那行灰色小字（平时的说明 / 重名提示，两种取值一处决定）。
     QLabel *getInstallNameHint() const { return installNameHint; }
     /// 名称框底下那行红字（名字不能用时的原因；能用时它空着且藏着）。
     QLabel *getInstallNameError() const { return installNameError; }
+    /// 安装页「实例预设」那个下拉框（每一项的 `Qt::UserRole` 是预设 id，空串 = 不使用）。
+    QComboBox *getInstallPresetCombo() const { return installPresetCombo; }
+    /// 「查看内容」：把这一份预设**对着这个还没装出来的实例**会做什么摊开看一眼。
+    QPushButton *getInstallPresetViewButton() const { return installPresetViewButton; }
+    /// 「安装完成后应用」：**默认不勾**（coding plan §10：预览、备份、错误报告都齐了才谈默认）。
+    QCheckBox *getInstallPresetApplyCheck() const { return installPresetApplyCheck; }
     /// 安装页顶上那句"将基于原版 X 安装"。
     QLabel *getInstallTargetLabel() const { return installTargetLabel; }
     /// 安装页那个「安装」按钮。原来那个「下载版本」按钮的位子 —— 它现在只在这一页上，
@@ -3435,10 +3661,10 @@ public:
     // 设置页的控件。**只搭出来、只负责显隐**，值由 MainWindow 灌（它才知道
     // 那些设置存在哪、改了要不要落盘）。
     QPushButton *getJavaManageButton() const { return javaManageButton; }
+    QPushButton *getPresetManageButton() const { return presetManageButton; }
     QLabel *getJavaPathLabel() const { return javaPathLabel; }
     QCheckBox *getJavaWarnMismatchCheck() const { return javaWarnMismatchCheck; }
-    QCheckBox *getMemoryAutoCheck() const { return memoryAutoCheck; }
-    QLabel *getMemoryAutoHint() const { return memoryAutoHint; }
+    QLabel *getMemoryHint() const { return memoryHint; }
     QSpinBox *getMemoryMaxSpin() const { return memoryMaxSpin; }
     QSpinBox *getHomeFavoriteCountSpin() const { return homeFavoriteCountSpin; }
     QSpinBox *getHomeRecentCountSpin() const { return homeRecentCountSpin; }
@@ -3726,10 +3952,24 @@ private:
     /// 「游戏」那一页里的两层：版本树 / 安装页（见头文件上面那段）。
     QStackedWidget *gameStack = nullptr;
     QTreeWidget *versionTree = nullptr;
+    /// 版本树上面那个筛选框和它右边那句结果（见 versionFilterEditName() 那段）。
+    QLineEdit *versionFilterEdit = nullptr;
+    QLabel *versionFilterHint = nullptr;
+    /// 筛选**第一次生效之前**每个分类是展开还是收着（键 = 分类键）。
+    /// 筛完清空时按它还原 —— 不然"筛一下再清空"会把用户原来只展开一个分类的树撑成
+    /// 四栏全开，那不是用户自己动的手。
+    QHash<QString, bool> versionFilterExpandedBefore;
+    /// 上一趟过滤是不是"真的在筛"（空串 / 纯空白 = 没在筛）。
+    /// 用来判"要不要先把展开状态记下来"，以及"这一趟是不是第一次生效"。
+    bool versionFilterActive = false;
     QLabel *installTargetLabel = nullptr;
     QLineEdit *installNameEdit = nullptr;
     QLabel *installNameHint = nullptr;
     QLabel *installNameError = nullptr;
+    /// 安装页「实例预设」那一小节的三个控件（见 installPresetComboName() 那段）。
+    QComboBox *installPresetCombo = nullptr;
+    QPushButton *installPresetViewButton = nullptr;
+    QCheckBox *installPresetApplyCheck = nullptr;
     QPushButton *installButton = nullptr;
     QPushButton *installBackButton = nullptr;
     /// 安装页那棵「模组加载器」树（见头文件上面那段）。顶层五条按 modLoaderOptionNames()
@@ -3754,10 +3994,11 @@ private:
     QPushButton *downloadImportModpackButton = nullptr;
     /// 「Java 管理…」那颗按钮（见 javaManageButtonName()）。
     QPushButton *javaManageButton = nullptr;
+    /// 「实例预设…」那颗按钮（见 presetManageButtonName()）。
+    QPushButton *presetManageButton = nullptr;
     QLabel *javaPathLabel = nullptr;
     QCheckBox *javaWarnMismatchCheck = nullptr;
-    QCheckBox *memoryAutoCheck = nullptr;
-    QLabel *memoryAutoHint = nullptr;
+    QLabel *memoryHint = nullptr;
     QSpinBox *memoryMaxSpin = nullptr;
     QSpinBox *homeFavoriteCountSpin = nullptr;
     QSpinBox *homeRecentCountSpin = nullptr;

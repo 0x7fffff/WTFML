@@ -28,6 +28,7 @@
 #include <QStyleFactory>
 #include <QStyleHints>
 #include <QStyleOptionComboBox>
+#include <QToolButton>
 #include <QWidget>
 
 namespace Theme {
@@ -110,9 +111,17 @@ protected:
             }
         } else if (event->type() == QEvent::FocusIn && button != nullptr) {
             const auto reason = static_cast<QFocusEvent *>(event)->reason();
-            if (reason == Qt::MouseFocusReason) m_keyboard = false;
-            if (reason == Qt::TabFocusReason || reason == Qt::BacktabFocusReason || reason == Qt::ShortcutFocusReason)
-                m_keyboard = true;
+            if (reason == Qt::MouseFocusReason) {
+                m_keyboard = false;
+            }
+            // ★★ 2026-10-18（用户报的「在主页点用户那颗按钮、再切到管理/下载，它们右上角
+            //   那颗也进入选中状态」）：**`TabFocusReason` 不等于"用户按了 Tab"**。焦点控件
+            //   所在的页被藏起来时，Qt 用 `focusNextPrevChild()` 把焦点交给同一窗口里的下一颗
+            //   —— 那条路报的理由也是 TabFocusReason。于是鼠标用户切一次页，新页面那颗
+            //   页面级按钮就被标成"键盘焦点"，画出一圈他没碰过的绿框（实测：藏起主页面
+            //   那一刻先焦点给底栏 `runStateButton`、再交给 `groupInstanceButton`）。
+            //   现在这一档**只认真的按键**（上面 KeyPress 那一支）：真按 Tab 时 KeyPress
+            //   先到（把 `m_keyboard` 摆上）、FocusIn 后到读到的就是 true；这里不再自己打开。
             setVisible(button, m_keyboard);
         }
         return false;
@@ -514,6 +523,16 @@ public:
                 QProxyStyle::drawPrimitive(pe, opt, p, w);
                 return;
             }
+            // ★ 2026-10-18（用户拿图点名的「选中框的强调比实际按钮大小小」）：
+            //   `QStyleSheetStyle` 交给我们的焦点矩形是按样式表那圈 border/padding /
+            //   `PM_FocusFrameHMargin` **内缩过**的 —— 环于是画在按钮自己的边里面一小圈，
+            //   和 QSS 画出来的那颗按钮不是同一个形状（按钮越矮内缩越显眼）。`QPushButton`
+            //   / `QToolButton` 的"按钮本身"就是整个控件矩形，这里改拿 `w->rect()`；
+            //   复选框 / 单选框 / 输入类仍用传进来的那一个（它们的焦点框本来就不该铺满
+            //   整个控件，比如字在指示器右边）。
+            const bool wholeWidgetButton =
+                qobject_cast<const QPushButton *>(w) != nullptr
+                || qobject_cast<const QToolButton *>(w) != nullptr;
             QColor ring = focusRingColor(opt->palette);
             // 文字透明度调低过的话（`textOpacity`）那一整圈也跟着淡一档 —— 它挂在
             // 调色板的墨色上就是那个意思，跟着走别自己算。
@@ -528,8 +547,13 @@ public:
             pen.setWidthF(2.0);
             p->setPen(pen);
             // 内缩 1 px：两像素的笔有一半落在外面，贴着边缘画会被裁掉一半（看上去就成一像素了）。
-            // 圆角 3 和输入框那一圈（样式表里 `border-radius`）对齐。
-            p->drawRoundedRect(QRectF(opt->rect).adjusted(1, 1, -1, -1), 3, 3);
+            // 圆角跟着按钮那一档走（`controlRadius()`，和 QSS 里 `border-radius` 同一个数）；
+            // 别的控件仍用输入框那一档 3。
+            const QRectF ringRect = wholeWidgetButton
+                ? QRectF(w->rect()).adjusted(1, 1, -1, -1)
+                : QRectF(opt->rect).adjusted(1, 1, -1, -1);
+            p->drawRoundedRect(ringRect, wholeWidgetButton ? controlRadius() : 3,
+                                wholeWidgetButton ? controlRadius() : 3);
             p->restore();
             return;
         }
@@ -1449,6 +1473,10 @@ QString widgetStyleSheet() {
                " border-radius: %4px; margin: %5px; }"
                "QScrollBar::handle:vertical:hover { background: %6; }"
                "QScrollBar::handle:vertical:pressed { background: %7; }"
+               // ★ 2026-10-18：`Theme::GutterScrollArea` 那条常驻的条子装得下时是"空的"
+               //   （`wtfmlIdle`）—— 那一格是留给文字的**死区**，不是一根拖不动的把手。
+               //   放在 hover / pressed 之后：两者 QSS 优先级相同，后写的赢。
+               "QScrollBar::handle:vertical[wtfmlIdle=\"true\"] { background: transparent; }"
                "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }"
                "QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {"
                " background: transparent; }"

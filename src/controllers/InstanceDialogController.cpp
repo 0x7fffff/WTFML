@@ -12,6 +12,7 @@
 #include "VersionIcons.hpp"
 
 #include "controllers/BackupController.hpp"
+#include "controllers/ActivityCenterController.hpp"
 #include "controllers/InstancePagesController.hpp"
 #include "controllers/InstanceEditorController.hpp"
 #include "launcher/LauncherManager.hpp"
@@ -25,6 +26,13 @@
 #include "settings/GlobalJavaSettings.hpp"
 #include "settings/GameWindowSettings.hpp"
 #include "settings/LauncherSettings.hpp"
+#include "schematic/SchematicInfo.hpp"
+#include "replay/ReplayInfo.hpp"
+#include "diagnose/StartupDiagnosis.hpp"
+#include "operations/TransferApply.hpp"
+#include "operations/TransferPlanner.hpp"
+#include "tools/FileHash.hpp"
+#include "util/SystemMemory.hpp"
 #include "util/AppPaths.hpp"
 
 #include <QApplication>
@@ -37,6 +45,7 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QGuiApplication>
+#include <QHash>
 #include <QTabWidget>
 #include <QTimer>
 
@@ -263,7 +272,9 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     // NOTE: 它按**引用**收 targetId（而不是收一个 QString）：改名之后那个值变了，重算
     //       必须看新值。下面那些 lambda 也是同一个理由全都按引用捕获它。
     QString targetId = versionId;
-    const auto refreshInstanceDirs = [this, &dialog](const QString &id) {
+    //   ★ 2026-10-18：`&targetId` 收进来只为把底下「原理图信息」那一条连接也挂上 ——
+    //     那个 lambda 要拿"现在这个实例是哪个版本"（改名之后 id 会换）。
+    const auto refreshInstanceDirs = [this, &dialog, &targetId](const QString &id) {
         // ★ 2026-10-15：这一段"算"的活全在 `InstancePagesController` 里了（哪几页用得上、
         //   那几页指向哪个目录、有结构的存档是哪几个 —— 原来一百来行判断就夹在这儿）。
         //   这一层剩下的**只有摆**：把那一份事实挨个 `set` 到对话框上。
@@ -316,6 +327,36 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
         if (InstanceFilesPage *schematics = dialog.filesPage(QStringLiteral("schematic"))) {
             // 原理图与原版结构已拆为独立页面；原理图只列实例级 schematics 目录。
             schematics->setStructureSources({});
+            // ★ 2026-10-18（coding plan §9.5）：在列表里选中一份投影 ⇒ 底下那一格给出
+            //   元数据、方块统计和那句版本兼容提示。**算的活全在 `SchematicInfo`**（读
+            //   gzip NBT、认 Litematica 的位打包都是 src/ 的事，ui/ 够不着）；这一页只
+            //   负责说"选中的换了"，然后把算好的话摆上去。
+            //
+            //   NOTE: 连接只挂一次 —— 这个 lambda 改名时还会再跑一遍，再 connect 一次
+            //         就是同一份盘读两遍（目标版本也会跟着 targetId 换，所以捕获引用）。
+            schematics->setInfoPanelEnabled(true);
+            if (!schematics->property("wtfmlSchematicInfoWired").toBool()) {
+                schematics->setProperty("wtfmlSchematicInfoWired", true);
+                connect(
+                    schematics, &InstanceFilesPage::infoRequested, schematics,
+                    [this, schematics, &targetId](const QString &path) {
+                        // 和这个实例**现在**的真实版本比（改名换 id 之后也跟着走）。
+                        const VersionDisplayParts parts =
+                            m_owner->m_versionManager->displayParts(targetId);
+                        const QString targetVersion =
+                            parts.realVersion.isEmpty() ? parts.id : parts.realVersion;
+                        const SchematicInfo::Info info = SchematicInfo::read(path);
+                        if (!info.ok) {
+                            // 读失败也占着这一格（用户刚点的那一行，总得听到一句为什么）。
+                            schematics->setInfoText(
+                                path, QStringLiteral("读不出来：%1").arg(info.problem));
+                            return;
+                        }
+                        schematics->setInfoText(path,
+                                                SchematicInfo::summaryText(info, targetVersion),
+                                                SchematicInfo::topBlocksText(info));
+                    });
+            }
         }
         dialog.setDatapackUsable(usable.datapack);
         // ★ 2026-10-10：那两颗「加入…」（**临时占位**，见 QuickPlay）。
@@ -349,8 +390,400 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
         m_owner->pushInstanceFileUpdates(&dialog, id);
     };
     refreshInstanceDirs(targetId);
-    connect(&dialog, &InstanceSettingsDialog::resourcePackPageEntered, m_owner,
+
+    // ★ 2026-10-18（coding plan §9.5）：「Replay」和「结构」那两页，选中一行之后底下
+    //   那一格要说这一条是什么（录了多久 / 多大的结构 / 和这个实例的版本兼不兼容）。
+    //   和原理图那一页同一条分层：读盘与统计在 src/（`ReplayInfo` / `SchematicInfo`），
+    //   这一层只把"用户选的是哪一条"和"这个实例是哪个版本"接起来；ui/ 只管摆字。
+    //
+    //   NOTE: `targetId` 按引用捕获（和这个函数里别的 lambda 同一个理由）：改名之后
+    //         实例 id 会换一个，结构那一句的兼容性要跟新版本走。
+    connect(&dialog, &InstanceSettingsDialog::lifecycleFileInfoRequested, &dialog,
+            [this, &dialog, &targetId](const QString &key, const QString &path) {
+                if (key == QStringLiteral("replay")) {
+                    const ReplayInfo::Info info = ReplayInfo::read(path);
+                    if (!info.ok) {
+                        dialog.setLifecycleInfoText(
+                            key, path, QStringLiteral("读不出来：%1").arg(info.problem));
+                        return;
+                    }
+                    dialog.setLifecycleInfoText(key, path, ReplayInfo::summaryText(info),
+                                                ReplayInfo::detailText(info));
+                    return;
+                }
+                if (key != QStringLiteral("structure")) return;
+                // 结构那一页列的是各存档 `generated/**.nbt` —— 和原理图同一种格式族，
+                // 元数据、方块统计、版本兼容提示都问同一个 `SchematicInfo`。
+                const VersionDisplayParts parts =
+                    m_owner->m_versionManager->displayParts(targetId);
+                const QString targetVersion =
+                    parts.realVersion.isEmpty() ? parts.id : parts.realVersion;
+                const SchematicInfo::Info info = SchematicInfo::read(path);
+                if (!info.ok) {
+                    dialog.setLifecycleInfoText(
+                        key, path, QStringLiteral("读不出来：%1").arg(info.problem));
+                    return;
+                }
+                dialog.setLifecycleInfoText(key, path,
+                                            SchematicInfo::summaryText(info, targetVersion),
+                                            SchematicInfo::topBlocksText(info));
+            });
+
+    // ★ 2026-10-18（coding plan §9.5「综合启动诊断报告」）：「启动诊断」那一页进页就
+    //   自动跑一遍，按「重新检查」再跑一遍。所有判断都在 `StartupDiagnosis`（只读盘、
+    //   只算）；这一层负责把 MainWindow / 各 manager 里那几格事实（版本、加载器、Java、
+    //   内存、目录）收集成 `Inputs`。**一个字节都不写** —— 自动内存这一档只按启动那一刻
+    //   同一套纯函数算一个数来报，不调 `refreshSuggestedMemory()`（那个会落盘）。
+    connect(&dialog, &InstanceSettingsDialog::diagnosisRequested, &dialog,
             [this, &dialog, &targetId] {
+                StartupDiagnosis::Inputs inputs;
+                inputs.instanceName = m_owner->instanceDisplayName(targetId);
+                inputs.versionId = targetId;
+                const VersionDisplayParts parts =
+                    m_owner->m_versionManager->displayParts(targetId);
+                inputs.gameVersion =
+                    parts.realVersion.isEmpty() ? parts.id : parts.realVersion;
+                inputs.loaderName = parts.loaderName;
+                inputs.loaderVersion = parts.loaderVersion;
+                const QJsonObject versionJson =
+                    m_owner->m_versionManager->getVersionJson(targetId);
+                inputs.requiredJavaMajor = versionJson.value(QStringLiteral("javaVersion"))
+                                               .toObject()
+                                               .value(QStringLiteral("majorVersion"))
+                                               .toInt(-1);
+
+                const JavaSettingsOverride override =
+                    javaOverrideFromJson(m_owner->m_versionManager->versionMeta(targetId));
+                const EffectiveJavaSettings java =
+                    resolveJavaSettings(m_owner->m_javaSettings->effective(), override);
+                inputs.configuredJavaPath = java.javaPath;
+                inputs.autoSelectJava =
+                    m_owner->m_javaSettings->autoSelectJava() && !override.javaPath.has_value();
+                inputs.autoMemory = java.autoMemory;
+                const SystemMemory::Usage usage = SystemMemory::read();
+                inputs.systemTotalMb = usage.totalMb;
+                inputs.systemAvailableMb = usage.availableMb;
+                if (java.autoMemory) {
+                    inputs.xmxMb = GlobalJavaSettings::suggestXmxMb(
+                        usage.totalMb, usage.availableMb, m_owner->instanceModCount(targetId));
+                    inputs.xmsMb = GlobalJavaSettings::suggestXmsMb(inputs.xmxMb);
+                } else {
+                    inputs.xmxMb = java.xmx;
+                    inputs.xmsMb = java.xms;
+                }
+
+                inputs.modsDir = InstancePagesController::fileDirs(targetId)
+                                     .value(QStringLiteral("mod"));
+                inputs.logPath =
+                    AppPaths::minecraftDir() + QStringLiteral("/logs/wtfml.log");
+                inputs.crashDir = AppPaths::crashReportsDir();
+                dialog.setDiagnosisText(StartupDiagnosis::analyze(inputs).toText());
+            });
+
+    // ---------- 「迁移」/「升级」那两页（2026-10-18，coding plan §9.9 第 15 项）----------
+    //
+    // 用户在这一页做的只有三步：挑目标 → 看计划 / 勾范围 → 按动手。这一层负责把三样东西
+    // 接起来：
+    //   ① 目标列表 = **这个游戏文件夹里已经装好的其他版本**（升级副本不下载新版本：
+    //      目标没装的话它不在这一列里，页面上的话也这么写）；
+    //   ② 计划全在 `TransferPlanner`（扫盘 + 兼容结论 + 默认勾选），这一层只把
+    //      `VersionDisplayParts` 那几格事实递进去；
+    //   ③ 真正搬文件在 `TransferApply`（只增不删、不覆盖、不跟链接）；升级那一档先走
+    //      `copyInstanceTo()` 拿目标版本造一份新副本，再往副本里搬 —— 原实例一个字节不动。
+    //
+    // NOTE: 两条同步确认（`InlineMessage::question` / `getText`）都是嵌套事件循环，所以
+    //       sourceId / targetId 全都**按值收**再往下走。
+    const auto transferTargetsFor = [this, &targetId]() {
+        QList<QPair<QString, QString>> targets;
+        for (const QString &id : m_owner->m_versionManager->installedVersions()) {
+            if (id == targetId) continue;
+            const VersionDisplayParts parts = m_owner->m_versionManager->displayParts(id);
+            const QString gameVersion = parts.realVersion.isEmpty() ? parts.id : parts.realVersion;
+            QString label = m_owner->instanceDisplayName(id);
+            if (label.isEmpty()) label = id;
+            label += QStringLiteral("（%1").arg(gameVersion);
+            if (!parts.loaderName.isEmpty()) label += QStringLiteral(" · %1").arg(parts.loaderName);
+            label += QStringLiteral("）");
+            targets.append(qMakePair(label, id));
+        }
+        return targets;
+    };
+    const auto buildTransferPlan = [this, &targetId](const QString &key, const QString &otherId) {
+        const VersionDisplayParts source = m_owner->m_versionManager->displayParts(targetId);
+        const VersionDisplayParts target = m_owner->m_versionManager->displayParts(otherId);
+        TransferPlanner::Inputs inputs;
+        inputs.sourceDir = AppPaths::versionDir(targetId);
+        inputs.sourceGameVersion = source.realVersion.isEmpty() ? source.id : source.realVersion;
+        inputs.sourceLoaderName = source.loaderName;
+        inputs.sourceLoaderVersion = source.loaderVersion;
+        inputs.targetGameVersion = target.realVersion.isEmpty() ? target.id : target.realVersion;
+        inputs.targetLoaderName = target.loaderName;
+        inputs.targetLoaderVersion = target.loaderVersion;
+        inputs.upgrade = key == QStringLiteral("upgrade");
+        return TransferPlanner::plan(inputs);
+    };
+    const auto pushTransferPlan = [&dialog](const QString &key,
+                                            const TransferPlanner::Plan &plan) {
+        QList<QPair<QString, QString>> entries;
+        if (plan.ok) {
+            for (const TransferPlanner::Item &item : plan.items) {
+                if (!item.exists) continue;  // 没有的东西不摆勾选框（正文里已经说了「没有」）
+                QString label = item.label;
+                if (item.fileCount > 0) {
+                    label += QStringLiteral(" · %1 个文件 · %2")
+                                 .arg(item.fileCount)
+                                 .arg(FileHash::fileSizeText(item.bytes));
+                }
+                entries.append(qMakePair(label, item.key));
+            }
+        }
+        dialog.setTransferPlan(key, plan.ok ? plan.detailText() : plan.problem);
+        dialog.setTransferItems(key, entries,
+                                plan.ok ? plan.defaultSelectedKeys() : QStringList());
+    };
+    const auto refreshTransferPage = [this, &dialog, transferTargetsFor, buildTransferPlan,
+                                      pushTransferPlan](const QString &key) {
+        dialog.setTransferTargets(key, transferTargetsFor());
+        const QString targetIdNow = dialog.transferTarget(key);
+        if (targetIdNow.isEmpty()) {
+            dialog.setTransferPlan(key, tr("这个游戏文件夹里还没有别的版本。"
+                                           "升级副本要先把目标版本装好（下载页）。"));
+            dialog.setTransferItems(key, {}, {});
+            return;
+        }
+        pushTransferPlan(key, buildTransferPlan(key, targetIdNow));
+    };
+    refreshTransferPage(QStringLiteral("migration"));
+    refreshTransferPage(QStringLiteral("upgrade"));
+
+    connect(&dialog, &InstanceSettingsDialog::transferTargetChosen, &dialog,
+            [buildTransferPlan, pushTransferPlan](const QString &key, const QString &otherId) {
+                pushTransferPlan(key, buildTransferPlan(key, otherId));
+            });
+    connect(&dialog, &InstanceSettingsDialog::transferApplyRequested, &dialog,
+            [this, &dialog, &targetId, transferTargetsFor, buildTransferPlan,
+             pushTransferPlan, refreshTransferPage](const QString &key, const QString &otherId,
+                                                    const QStringList &keys) {
+                const QString sourceId = targetId;
+                const QString targetIdCopy = otherId;
+                const QString title =
+                    key == QStringLiteral("upgrade") ? tr("创建升级副本") : tr("迁移");
+                if (targetIdCopy.isEmpty()) {
+                    InlineMessage::warning(m_owner->m_ui->overlay(), title,
+                                           tr("先挑一个目标。"));
+                    return;
+                }
+                if (targetIdCopy == sourceId) {
+                    InlineMessage::warning(m_owner->m_ui->overlay(), title,
+                                           tr("目标不能是这一份自己。"));
+                    return;
+                }
+                if (keys.isEmpty()) {
+                    InlineMessage::warning(m_owner->m_ui->overlay(), title,
+                                           tr("一项都没勾 —— 没有什么可搬的。"));
+                    return;
+                }
+                // 两个实例任何一个在跑都不能动：游戏开着的时候拷出来的是一份写到一半的
+                // 存档，而往一个正在读配置的实例里塞文件同样不安全。
+                if (m_owner->m_launcherManager != nullptr
+                    && (m_owner->m_launcherManager->isVersionRunning(sourceId)
+                        || m_owner->m_launcherManager->isVersionRunning(targetIdCopy))) {
+                    InlineMessage::warning(
+                        m_owner->m_ui->overlay(), title,
+                        tr("有一份实例正在运行。先关掉游戏 —— 开着的时候搬出来的是一份"
+                           "写到一半的东西。"));
+                    return;
+                }
+                // 正在装（下载 / 安装器在跑）的那一份也不动：它的目录此刻正被写。
+                const QSet<QString> installing = m_owner->installingVersionIds();
+                if (installing.contains(sourceId) || installing.contains(targetIdCopy)) {
+                    InlineMessage::warning(m_owner->m_ui->overlay(), title,
+                                           tr("有一份实例正在安装，等它装完再试。"));
+                    return;
+                }
+                // ★ 现算一份计划：用户勾的那些文件可能在页面停着的时候变了。
+                const TransferPlanner::Plan plan = buildTransferPlan(key, targetIdCopy);
+                if (!plan.ok) {
+                    InlineMessage::critical(m_owner->m_ui->overlay(), title, plan.problem);
+                    return;
+                }
+                if (!InlineMessage::question(
+                        m_owner->m_ui->overlay(), title, plan.confirmText(keys),
+                        key == QStringLiteral("upgrade") ? tr("创建副本并迁移") : tr("开始迁移"),
+                        tr("取消"), false)) {
+                    return;
+                }
+
+                QString targetDir;
+                QString newName;
+                if (key == QStringLiteral("upgrade")) {
+                    // ★ 升级副本 = 用**已经装好的目标版本**复制一份新实例当底。这里
+                    //   `copyInstanceTo()` 会把"那一份正在跑 / 正在装 / 名字不合法"再挡一遍
+                    //   （四道闸和「复制实例」同一个函数），挡下来时它自己已经弹过话。
+                    bool nameOk = false;
+                    const QString suggestion =
+                        tr("%1 升级副本").arg(m_owner->instanceDisplayName(sourceId));
+                    newName = InlineMessage::getText(
+                                  m_owner->m_ui->overlay(), title,
+                                  tr("新的一份叫什么名字？\n\n它会建在这个游戏文件夹里，"
+                                     "以「%1」这个版本为底。")
+                                      .arg(m_owner->instanceDisplayName(targetIdCopy)),
+                                  suggestion, &nameOk)
+                                  .trimmed();
+                    if (!nameOk || newName.isEmpty()) {
+                        return;
+                    }
+                    targetDir = AppPaths::versionDir(newName);
+                } else {
+                    targetDir = AppPaths::versionDir(targetIdCopy);
+                }
+
+                // ---------- 长操作进任务中心（§9.9 bullet 5）----------
+                //
+                // 一块勾选 = 一步。升级那一档前面再加一步「造出新的那一份」，因为它比后面
+                // 每一块都慢，而且它是唯一可能"整件事没开始"的一步。
+                //
+                // 「可恢复中断」不用另存进度：`TransferApply` 只增不覆盖，重跑时已经搬过去
+                // 的按"目标里已经有"跳过，只有没搬完的才真正写盘。账本本身由
+                // `TaskManager` 落盘，启动器中途没了的话读回来是 `Interrupted`。
+                //
+                // 「完成后设为当前/启动」这一版落在两处：这一项记着目标实例 id（任务中心
+                // 的「打开目标位置」直接开到那一份），以及下面收尾那一问里的快速启动入口。
+                QList<Tasks::TaskStep> steps;
+                QHash<QString, int> stepIndexOf;
+                if (key == QStringLiteral("upgrade")) {
+                    steps << Tasks::TaskStep{tr("造出新的那一份"),
+                                             Tasks::TaskStepState::Running, {}};
+                }
+                for (const TransferPlanner::Item &item : plan.items) {
+                    if (!keys.contains(item.key) || !item.exists) continue;
+                    stepIndexOf.insert(item.key, steps.size());
+                    steps << Tasks::TaskStep{item.label, Tasks::TaskStepState::Pending, {}};
+                }
+                // 收尾校验（§9.9 bullet 3）——搬完对一遍账：目标里是不是点点名的那几个
+                // 文件**都在**。它不重读内容，只比文件数与大小，所以比搬本身快得多。
+                steps << Tasks::TaskStep{tr("校验"), Tasks::TaskStepState::Pending, {}};
+                const int verifyIndex = steps.size() - 1;
+                const bool upgrade = key == QStringLiteral("upgrade");
+                const QString taskTargetId = upgrade ? newName : targetIdCopy;
+                const Tasks::TaskId taskId = m_owner->m_activityCenter->begin(
+                    upgrade ? Tasks::TaskKind::Install : Tasks::TaskKind::Other,
+                    upgrade
+                        ? tr("升级副本：%1 → %2")
+                              .arg(m_owner->instanceDisplayName(sourceId), newName)
+                        : tr("迁移：%1 → %2").arg(m_owner->instanceDisplayName(sourceId),
+                                                  m_owner->instanceDisplayName(targetIdCopy)),
+                    taskTargetId, steps);
+                Tasks::TaskManager *ledger = m_owner->m_activityCenter->tasks();
+                const auto finishTask = [this, taskId](bool success, const QString &summary) {
+                    m_owner->m_activityCenter->finish(taskId, success, summary, false);
+                };
+
+                if (upgrade
+                    && !m_owner->copyInstanceTo(targetIdCopy, AppPaths::minecraftDir(),
+                                                newName)) {
+                    ledger->setStepState(taskId, 0, Tasks::TaskStepState::Failed,
+                                         tr("复制实例没成（原因已经弹出来了）"));
+                    finishTask(false, tr("复制实例没成"));
+                    return;
+                }
+                if (upgrade) {
+                    ledger->setStepState(taskId, 0, Tasks::TaskStepState::Done);
+                    ledger->setDetail(taskId, tr("新的一份「%1」已经造好了，开始搬文件。")
+                                                 .arg(newName));
+                }
+
+                qint64 doneUnits = 0;
+                const qint64 totalUnits = stepIndexOf.size();
+                const TransferApply::Result result = TransferApply::apply(
+                    AppPaths::versionDir(sourceId), targetDir, plan.items, keys,
+                    [ledger, taskId, &stepIndexOf, &doneUnits, totalUnits](
+                        const QString &itemKey, bool ok) {
+                        ++doneUnits;
+                        // 回调是同步的（见 TransferApply.hpp 那段 NOTE），下标表按引用收。
+                        const int index = stepIndexOf.value(itemKey, -1);
+                        if (index >= 0) {
+                            ledger->setStepState(
+                                taskId, index,
+                                ok ? Tasks::TaskStepState::Done : Tasks::TaskStepState::Failed);
+                        }
+                        ledger->setProgress(taskId, doneUnits, totalUnits);
+                    });
+                if (!result.ok) {
+                    finishTask(false, result.problem);
+                    InlineMessage::critical(m_owner->m_ui->overlay(), title, result.problem);
+                    return;
+                }
+
+                // ---------- 校验（§9.9 bullet 3 的最后一步）----------
+                //
+                // 只看"点名搬的那些文件，目标里在不在"：`TransferApply` 只增不覆盖，所以
+                // 目标里原有的同名文件（大小不同也算）**不是失败**，只如实报数。
+                ledger->setStepState(taskId, verifyIndex, Tasks::TaskStepState::Running);
+                const TransferApply::VerifySummary checks = TransferApply::verify(
+                    AppPaths::versionDir(sourceId), targetDir, plan.items, keys);
+                const bool verified = checks.ok && checks.missingFiles == 0;
+                ledger->setStepState(taskId, verifyIndex,
+                                     verified ? Tasks::TaskStepState::Done
+                                              : Tasks::TaskStepState::Failed);
+
+                ledger->setDetail(taskId, result.text() + QStringLiteral("\n\n") + checks.text());
+                finishTask(result.failedFiles == 0 && verified,
+                           result.failedFiles == 0 && verified
+                               ? QString()
+                               : tr("有文件没搬成，或者搬完校验没对上"));
+
+                QString text = result.text() + QStringLiteral("\n\n") + checks.text();
+                if (upgrade) {
+                    text += tr("\n\n新实例「%1」已经在这个游戏文件夹里了。").arg(newName);
+                } else {
+                    text += tr("\n\n目标实例：「%1」。")
+                                .arg(m_owner->instanceDisplayName(targetIdCopy));
+                }
+                if (result.failedFiles > 0 || !verified) {
+                    InlineMessage::warning(m_owner->m_ui->overlay(), title, text);
+                } else {
+                    InlineMessage::information(m_owner->m_ui->overlay(), title, text);
+                }
+
+                // ---------- 收尾那一问（§9.9 bullet 6）----------
+                //
+                // 「快速启动」在这一版就是主页的收藏区（`pinInstance()` 把它移进置顶组，
+                // 主页快速启动区读的就是这一组；§2.8「不新增第三份快速启动数据」）。
+                // 三档都由用户点头，**收藏和最近里没有哪一条是被悄悄改的**：
+                //   · 保留原入口（默认）—— 什么都不动；
+                //   · 创建新入口 —— 把新的那一份收藏进来（升级 = 刚造的副本，迁移 = 目标实例）；
+                //   · 不加入 —— 新的不进去，原来那条入口也收起来（用户明说这次不要它）。
+                //
+                // NOTE: 「不加入」确实会动收藏（把源实例取消收藏）—— 它是**显式**选择，
+                //       不是悄悄改：按钮写的就是"不加入"。取消收藏本身可逆（下箭头那颗
+                //       随时能加回来）。
+                const QString entryId = upgrade ? newName : targetIdCopy;
+                const QString entryName =
+                    upgrade ? newName : m_owner->instanceDisplayName(targetIdCopy);
+                const int launchChoice = InlineMessage::ask(
+                    m_owner->m_ui->overlay(), MessageKind::Question,
+                    tr("快速启动"),
+                    tr("「%1」要不要放进主页的快速启动区？").arg(entryName),
+                    {tr("保留原入口"), tr("创建新入口"), tr("不加入")}, 0, -1, false,
+                    tr("快速启动区显示的就是收藏的那几份；「保留原入口」保持现在的样子，"
+                       "「不加入」会把原来那一条也收起来（以后随时能再加回来）。"));
+                if (launchChoice == 1) {
+                    m_owner->pinInstance(entryId);
+                } else if (launchChoice == 2) {
+                    // ★ 只有**真在快速启动区里**才收起来：`unpinInstance()` 对"根本不在里面"
+                    //   的那一份也会写一条「未分组」归属 —— 那会把用户自己分好的组挪走。
+                    if (m_owner->m_groupStore->isPinned(m_owner->instanceKey(sourceId))) {
+                        m_owner->unpinInstance(sourceId);
+                    }
+                }
+
+                // 搬过之后（或者刚多了一份副本）把目标列和计划重摆一遍。
+                if (upgrade) refreshTransferPage(key);
+                else pushTransferPlan(key, buildTransferPlan(key, targetIdCopy));
+            });
+
+    connect(&dialog, &InstanceSettingsDialog::resourcePackPageEntered, m_owner,            [this, &dialog, &targetId] {
                 m_owner->m_instanceEditorController->refreshResourcePacks(&dialog, targetId);
             });
     connect(dialog.resourcePackPage(), &ResourcePackPage::selectionRequested, m_owner,
@@ -540,7 +973,10 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                 if (!ok) {
                     return;
                 }
-                m_owner->copyInstanceTo(sourceId, folder, name);
+                // ★ 后台版（coding plan §9.9「不在 UI 线程直接复制整个目录」）：拷一整个
+                //   实例动辄几十秒，以前这一按会把整扇窗按住。四道闸还是同一套，只是拷树
+                //   挪到后台，进度和结果落在任务中心。
+                m_owner->copyInstanceToInBackground(sourceId, folder, name);
             });
 
     // ---------- 「删除实例」（2026-09-28）----------

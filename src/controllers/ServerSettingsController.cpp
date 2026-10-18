@@ -9,6 +9,7 @@
 #include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
+#include <QSaveFile>
 
 QString ServerSettingsController::readRaw(const QString &serverId) const {
     QFile file(ServerRegistry::propertiesPath(serverId));
@@ -156,4 +157,63 @@ ServerCheck::Facts ServerSettingsController::checkFacts(
     facts.duplicateKeys = ServerPropertiesForm::duplicateKeys(properties);
     facts.unknownKeys = ServerPropertiesForm::unknownKeys(properties);
     return facts;
+}
+
+QString ServerSettingsController::playersPath(const QString &serverId,
+                                              ServerPlayers::List list) const {
+    const ServerRegistry::Entry entry = ServerRegistry::describe(serverId);
+    if (entry.dirPath.isEmpty()) return QString();
+    return entry.dirPath + QLatin1Char('/') + ServerPlayers::fileName(list);
+}
+
+ServerPlayers::Content ServerSettingsController::readPlayers(const QString &serverId,
+                                                             ServerPlayers::List list) const {
+    const QString path = playersPath(serverId, list);
+    if (path.isEmpty()) {
+        ServerPlayers::Content content;
+        content.ok = false;
+        content.problem = QStringLiteral("找不到这个服务端的目录。");
+        return content;
+    }
+    QFile file(path);
+    if (!file.exists()) {
+        // 文件不在 = 空名单（服务端还没跑过、或者从来没加过）。不是错误。
+        return ServerPlayers::Content();
+    }
+    if (!file.open(QIODevice::ReadOnly)) {
+        ServerPlayers::Content content;
+        content.ok = false;
+        content.problem = QStringLiteral("%1 打不开：%2")
+                              .arg(ServerPlayers::fileName(list), file.errorString());
+        return content;
+    }
+    return ServerPlayers::parse(list, file.readAll());
+}
+
+bool ServerSettingsController::writePlayers(const QString &serverId, ServerPlayers::List list,
+                                            const QList<ServerPlayers::Entry> &entries,
+                                            QString *problemOut) const {
+    const QString path = playersPath(serverId, list);
+    if (path.isEmpty()) {
+        if (problemOut != nullptr) *problemOut = QStringLiteral("找不到这个服务端的目录。");
+        return false;
+    }
+    QDir().mkpath(QFileInfo(path).absolutePath());
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly)) {
+        if (problemOut != nullptr) {
+            *problemOut = QStringLiteral("%1 写不进去：%2")
+                              .arg(ServerPlayers::fileName(list), file.errorString());
+        }
+        return false;
+    }
+    file.write(ServerPlayers::serialize(list, entries));
+    if (!file.commit()) {
+        if (problemOut != nullptr) {
+            *problemOut = QStringLiteral("%1 写不进去：%2")
+                              .arg(ServerPlayers::fileName(list), file.errorString());
+        }
+        return false;
+    }
+    return true;
 }

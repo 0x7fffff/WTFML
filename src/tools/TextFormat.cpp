@@ -112,14 +112,15 @@ bool isAnyCode(QChar code) {
 namespace TextFormat {
 
 bool Style::operator==(const Style &other) const {
-    return color == other.color && bold == other.bold && italic == other.italic
-           && underline == other.underline && strikethrough == other.strikethrough
-           && obfuscated == other.obfuscated;
+    return color == other.color && hasCustomColor == other.hasCustomColor
+           && (!hasCustomColor || customRgb == other.customRgb) && bold == other.bold
+           && italic == other.italic && underline == other.underline
+           && strikethrough == other.strikethrough && obfuscated == other.obfuscated;
 }
 
 bool Style::isPlain() const {
-    return color == Color::Default && !bold && !italic && !underline && !strikethrough
-           && !obfuscated;
+    return color == Color::Default && !hasCustomColor && !bold && !italic && !underline
+           && !strikethrough && !obfuscated;
 }
 
 bool Segment::operator==(const Segment &other) const {
@@ -191,6 +192,74 @@ quint32 colorRgb(Color color) {
     return 0xFFFFFF;
 }
 
+namespace {
+
+/// 一个十六进制字符值（不是就回 -1）。
+int hexDigit(QChar ch) {
+    const QChar lower = ch.toLower();
+    if (lower >= QChar('0') && lower <= QChar('9')) {
+        return lower.unicode() - QChar('0').unicode();
+    }
+    if (lower >= QChar('a') && lower <= QChar('f')) {
+        return lower.unicode() - QChar('a').unicode() + 10;
+    }
+    return -1;
+}
+
+}  // namespace
+
+bool parseHexColor(const QString &text, quint32 *rgb) {
+    QString body = text.trimmed();
+    if (body.startsWith(QChar('#'))) {
+        body = body.mid(1);
+    }
+    // ★ 只认六位：`#f00` 那种缩写游戏那边不认，这一层替它展开就等于猜。
+    if (body.size() != 6) {
+        return false;
+    }
+    quint32 value = 0;
+    for (const QChar ch : body) {
+        const int digit = hexDigit(ch);
+        if (digit < 0) {
+            return false;
+        }
+        value = (value << 4) | static_cast<quint32>(digit);
+    }
+    if (rgb != nullptr) {
+        *rgb = value;
+    }
+    return true;
+}
+
+QString hexColorName(quint32 rgb) {
+    return QStringLiteral("#%1").arg(rgb & 0xFFFFFFu, 6, 16, QChar('0'));
+}
+
+QString legacyHexColor(quint32 rgb) {
+    // `§x§R§R§G§G§B§B` —— 六个十六进制位各带一个 `§`，少一个游戏就不认。
+    QString out;
+    out.append(kSectionSign);
+    out.append(QChar('x'));
+    const quint32 masked = rgb & 0xFFFFFFu;
+    for (int shift = 20; shift >= 0; shift -= 4) {
+        const int digit = static_cast<int>((masked >> shift) & 0xFu);
+        out.append(kSectionSign);
+        out.append(QChar(QStringLiteral("0123456789abcdef").at(digit)));
+    }
+    return out;
+}
+
+quint32 styleRgb(const Style &style) {
+    return style.hasCustomColor ? (style.customRgb & 0xFFFFFFu) : colorRgb(style.color);
+}
+
+QString styleColorText(const Style &style) {
+    if (style.hasCustomColor) {
+        return hexColorName(style.customRgb);
+    }
+    return colorText(style.color);
+}
+
 QString colorText(Color color) {
     for (const ColorInfo &info : kColors) {
         if (info.color == color) {
@@ -244,12 +313,42 @@ QList<Segment> parseLegacy(const QString &text) {
             continue;
         }
         // 收尾那个孤零零的 `§`、或者 `§x` 这种不是码的：**原样留着**。
-        if (index + 1 >= text.size() || !isAnyCode(text.at(index + 1))) {
+        // NOTE: `x` 不是十六色也不是格式码，但它是 1.16 自定颜色那个 `§x§R§R§G§G§B§B`
+        //       的开头 —— 所以它得放进这道门里，再由下面那段确认后面六个是不是真接得上。
+        if (index + 1 >= text.size()
+            || (!isAnyCode(text.at(index + 1)) && text.at(index + 1).toLower() != QChar('x'))) {
             pending.append(current);
             continue;
         }
         const QChar code = text.at(index + 1).toLower();
         ++index;  // 吃掉码位那个字符
+        if (code == QChar('x')) {
+            // `§x` 后面必须是六个 `§<hex>`；少一个就整串**原样留着**（不猜、不吃掉半截）。
+            quint32 rgb = 0;
+            bool complete = index + 12 < text.size();
+            for (int pair = 0; complete && pair < 6; ++pair) {
+                const int signAt = index + 1 + pair * 2;
+                const QChar digit = text.at(signAt + 1);
+                const int value = hexDigit(digit);
+                if (text.at(signAt) != kSectionSign || value < 0) {
+                    complete = false;
+                    break;
+                }
+                rgb = (rgb << 4) | static_cast<quint32>(value);
+            }
+            if (!complete) {
+                pending.append(current);
+                pending.append(text.at(index));  // 原样那个 `x`（大小写照抄）
+                continue;
+            }
+            flush();
+            // 颜色码会把格式位一起清掉（和十六色那几条一个规矩）。
+            style = Style{};
+            style.hasCustomColor = true;
+            style.customRgb = rgb;
+            index += 12;
+            continue;
+        }
         if (isColorCode(code)) {
             flush();
             // ★ 颜色码**把格式位一起清掉**（游戏就是这么读的）—— `§a§lb§cc` 里那个 c 不粗。
@@ -280,7 +379,12 @@ QString toLegacy(const QList<Segment> &segments) {
         if (segment.text.isEmpty()) {
             continue;
         }
-        if (segment.style.color != Color::Default) {
+        if (segment.style.hasCustomColor) {
+            out.append(legacyHexColor(segment.style.customRgb));
+            running = Style{};
+            running.hasCustomColor = true;
+            running.customRgb = segment.style.customRgb & 0xFFFFFFu;
+        } else if (segment.style.color != Color::Default) {
             // 每段重开一遍颜色：颜色码自己就把格式位清了，所以下面那几个位是从零开始加的。
             out.append(kSectionSign);
             out.append(codeForColor(segment.style.color));
@@ -315,7 +419,9 @@ QJsonArray toJson(const QList<Segment> &segments) {
     for (const Segment &segment : segments) {
         QJsonObject object;
         object.insert(QStringLiteral("text"), segment.text);
-        if (segment.style.color != Color::Default) {
+        if (segment.style.hasCustomColor) {
+            object.insert(QStringLiteral("color"), hexColorName(segment.style.customRgb));
+        } else if (segment.style.color != Color::Default) {
             object.insert(QStringLiteral("color"), colorName(segment.style.color));
         }
         // 只写**开着**的那几位：全写出来读起来全是 false，噪音太大。
@@ -417,9 +523,14 @@ JsonParseResult parseJson(const QString &jsonText) {
             Style style = base;
             if (object.contains(QStringLiteral("color"))) {
                 const QString name = object.value(QStringLiteral("color")).toString().trimmed();
+                quint32 rgb = 0;
                 if (name.startsWith(QChar('#'))) {
-                    // `#RRGGBB` 那套十六位色不在这一层的表里 —— 记下来，别当成默认色读过去。
-                    if (!result.unsupported.contains(QStringLiteral("hex_color"))) {
+                    if (parseHexColor(name, &rgb)) {
+                        style.hasCustomColor = true;
+                        style.customRgb = rgb;
+                        style.color = Color::Default;  // 两个都写会让"哪个是色"得靠猜
+                    } else if (!result.unsupported.contains(QStringLiteral("hex_color"))) {
+                        // `#f00` 那种缩写、或者后面跟了别的东西：**不猜**。
                         result.unsupported.append(QStringLiteral("hex_color"));
                     }
                 } else {
@@ -445,6 +556,38 @@ JsonParseResult parseJson(const QString &jsonText) {
     }
     result.ok = result.unsupported.isEmpty();
     return result;
+}
+
+QString toMotd(const QList<Segment> &segments) {
+    const QString legacy = toLegacy(segments);
+    QString escaped;
+    escaped.reserve(legacy.size() * 2);
+    for (int index = 0; index < legacy.size(); ++index) {
+        const QChar ch = legacy.at(index);
+        if (ch == QChar('\\')) {
+            escaped.append(QStringLiteral("\\\\"));
+        } else if (ch == QChar('\n')) {
+            escaped.append(QStringLiteral("\\n"));
+        } else if (ch == QChar('\r')) {
+            escaped.append(QStringLiteral("\\r"));
+        } else if (ch == QChar('\t')) {
+            escaped.append(QStringLiteral("\\t"));
+        } else if (ch == QChar(' ')) {
+            // ★ 开头那串空白会被 Java 的 properties 读法吃掉 —— 只有第一个要转义，
+            //   后面那些在值中间，照原样写就是空格。
+            escaped.append(escaped.isEmpty() ? QStringLiteral("\\ ") : QStringLiteral(" "));
+        } else if (ch.unicode() >= 0x20 && ch.unicode() < 0x7f) {
+            escaped.append(ch);
+        } else {
+            // Java properties 用 ISO-8859-1 读：`§`、汉字都得写成 `\uXXXX` 才不坏。
+            // ★ 只把四位十六进制大写：前面那个 `u` 必须是**小写**（Java 只认 `\u`）。
+            escaped.append(QStringLiteral("\\u")
+                           + QStringLiteral("%1")
+                                 .arg(static_cast<uint>(ch.unicode()), 4, 16, QChar('0'))
+                                 .toUpper());
+        }
+    }
+    return QStringLiteral("motd=") + escaped;
 }
 
 }  // namespace TextFormat

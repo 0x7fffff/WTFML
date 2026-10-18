@@ -92,7 +92,7 @@ UpdateCenterPage::UpdateCenterPage(QWidget *parent) : QDialog(parent) {
     m_box->addWidget(makeSeparator(this));
 
     // ---------- 两组的内容都长在滚动区里（每次 setReport() 整块重建）----------
-    auto *scroll = new QScrollArea(this);
+    auto *scroll = new Theme::GutterScrollArea(this);
     scroll->setObjectName(MainWindowUI::updateCenterPageName() + QStringLiteral("Scroll"));
     scroll->setFrameShape(QFrame::NoFrame);
     scroll->setWidgetResizable(true);

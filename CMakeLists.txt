@@ -29,6 +29,8 @@ set(HEADER_FILES
     src/MainWindow.hpp
     src/controllers/JavaRuntimeController.hpp
     src/controllers/JavaSettingsController.hpp
+    # 实例预设管理页的胶水（2026-10-18，coding plan §6 P1 / §10 第 10 项）。
+    src/controllers/PresetController.hpp
     src/controllers/LauncherPreferencesController.hpp
     src/controllers/CrashReportController.hpp
     src/controllers/IntegrityController.hpp
@@ -83,6 +85,8 @@ set(HEADER_FILES
     src/manage/UpdateRollback.hpp
     src/manage/BackupFiles.hpp
     src/manage/WorldFiles.hpp
+    # 世界只读概况（2026-10-18，coding plan §9.6）：种子 / 玩家位置 / 已生成区域 / 大小。
+    src/manage/WorldMap.hpp
     # 启动历史账本（2026-10-13，coding plan §5.1）：主页“最近游玩”排与统计的数据源。
     src/manage/LaunchHistory.hpp
     # 实例页那张树的搜索与筛选（2026-10-13，coding plan §7.2）：判据层，纯函数。
@@ -111,6 +115,25 @@ set(HEADER_FILES
     # `PresetPlanner` / §7 那张计划表 / 里程碑 M1 的「应用前可见精确计划」）：一段一行，
     # 按段的种类分派给上面三个适配器，再把各自的报告翻成同一张表。**只读，一个字节都不写。**
     src/presets/PresetPlanner.hpp
+    # 提取那一趟（2026-10-18，coding plan §6 P1「从实例提取」）：四个适配器各会收自己那
+    # 一摊，但"先收哪几样、收不出来怎么报"是一条流程，只在这一处。
+    src/presets/PresetCapture.hpp
+    # 落到实例上那一趟（2026-10-18，coding plan §7 / §8.1）：快照 → 计划 → 备份 → 执行。
+    # 两趟确认协议照 `PresetPlanner` 那一份实现，别的层不再立第二套。
+    src/presets/PresetApply.hpp
+    # 结构 / 原理图的元数据与方块统计（2026-10-18，coding plan §9.5）：
+    # Litematica / Sponge / 原版结构三种格式，只读盘、只算。
+    src/schematic/SchematicInfo.hpp
+    # Replay 录像（`.mcpr`）的元数据（2026-10-18，coding plan §9.5）：
+    # 只读 zip 里的 metaData.json，不读那份几百 MB 的 recording.tmcpr。
+    src/replay/ReplayInfo.hpp
+    # 启动诊断（2026-10-18，coding plan §9.5「综合启动诊断报告」）：
+    # 版本 / 加载器 / Java / 内存 / 模组 / 日志 / 崩溃报告，只读盘、只算。
+    src/diagnose/StartupDiagnosis.hpp
+    # 迁移 / 升级副本（2026-10-18，coding plan §9.9 第 15 项）：计划只读盘，落盘在
+    # TransferApply。目标版本 / 加载器不一致时如实说不一致，不替用户猜。
+    src/operations/TransferPlanner.hpp
+    src/operations/TransferApply.hpp
     src/settings/GlobalJavaSettings.hpp
     src/settings/GameWindowSettings.hpp
     src/settings/LauncherSettings.hpp
@@ -146,6 +169,14 @@ set(HEADER_FILES
     src/server/ServerPropertiesForm.hpp
     src/server/ServerPortCheck.hpp
     src/server/ServerCheck.hpp
+    # 服务端那四份玩家名单（2026-10-18，§9.7「玩家管理」）：纯解析 / 纯拼 JSON。
+    src/server/ServerPlayers.hpp
+    # 异常退出后自动重启那一条策略（2026-10-18，§9.7「重启策略 + 上限」）：纯判据。
+    src/server/ServerRestart.hpp
+    # 服务端资源包那一份本地 zip 的判据 + SHA-1（2026-10-18，§9.7）。
+    src/server/ServerResourcePack.hpp
+    # 服务端内容（模组 / 数据包）的名字与分类判据（2026-10-18，§9.7「内容管理」）：纯函数。
+    src/server/ServerContent.hpp
     src/util/AppPaths.hpp
     src/util/ThemeImage.hpp
     src/util/ImageDecode.hpp
@@ -162,10 +193,18 @@ set(HEADER_FILES
     src/tools/CoordConvert.hpp
     src/tools/FileHash.hpp
     src/tools/AnvilPlanner.hpp
+    # 工具箱 2026-10-18 加的那四件（信标计算 / 酿造助手 / 旗帜设计 / 纹饰搭配）：同一层纯逻辑。
+    src/tools/Beacon.hpp
+    src/tools/Brewing.hpp
+    src/tools/Banner.hpp
+    src/tools/ArmorTrim.hpp
     ui/ConfigFileText.hpp
     ui/ConfigFileEditorPage.hpp
     ui/WorldSettingsPage.hpp
     ui/GameRuleNames.hpp
+    # 运行输出共用模型（2026-10-18，coding plan §9.8）：游戏日志窗和服务端控制台
+    # 共用"认级别 / 计数 / 搜索 / 行数上限 / 导出"这一份。
+    ui/RuntimeOutputModel.hpp
     ui/Theme.hpp
     ui/ThemeBackground.hpp
     ui/ConfigEntries.hpp
@@ -176,6 +215,9 @@ set(HEADER_FILES
     # 「服务端设置」那一整页（2026-10-13，coding plan §6.3 / M4-4）。
     ui/ServerSettingsPage.hpp
     ui/JavaManageDialog.hpp
+    # 实例预设管理页（2026-10-18，coding plan §6 P1 / §10 第 10 项）：
+    # 左侧列表 + 右侧摘要 / 提取 / 应用计划，全部在覆盖层里，不另开窗。
+    ui/PresetManagePage.hpp
     # 底栏中间那格点开之后弹出来的任务中心面板（页面/行的形状见它的文件头）。
     ui/TaskCenterPanel.hpp
     # 自绘的进度条（2026-10-13，coding plan §3.3「统一自绘任务进度组件」）：
@@ -188,6 +230,7 @@ set(SOURCE_FILES
     src/MainWindow.cpp
     src/controllers/JavaRuntimeController.cpp
     src/controllers/JavaSettingsController.cpp
+    src/controllers/PresetController.cpp
     src/controllers/LauncherPreferencesController.cpp
     src/controllers/CrashReportController.cpp
     src/controllers/IntegrityController.cpp
@@ -246,6 +289,8 @@ set(SOURCE_FILES
     src/manage/UpdateRollback.cpp
     src/manage/BackupFiles.cpp
     src/manage/WorldFiles.cpp
+    # 世界只读概况（§9.6）：只读 level.dat 的那几格 + region/*.mca 的 8 KiB 头。
+    src/manage/WorldMap.cpp
     # 「上一次启动」那本账（2026-10-13，coding plan §5.1）。
     src/manage/LaunchHistory.cpp
     # 实例预设的盘那一层（2026-10-14，coding plan §5–§6 / P1）：下标 + 单份 + 那几件增删改。
@@ -258,8 +303,20 @@ set(SOURCE_FILES
     src/presets/GenericFiles.cpp
     # 应用计划那一层（2026-10-15，coding plan §5 / §7）：见头文件那一位。
     src/presets/PresetPlanner.cpp
+    # 提取与落到实例上（2026-10-18，coding plan §6 P1 / §7）。
+    src/presets/PresetCapture.cpp
+    src/presets/PresetApply.cpp
     # MaLiLib 那一族的热键（2026-10-17，coding plan §6 P4）：见头文件那一位。
     src/presets/MalilibKeys.cpp
+    # 结构 / 原理图的元数据与方块统计（2026-10-18，coding plan §9.5）。
+    src/schematic/SchematicInfo.cpp
+    # Replay 录像的元数据（2026-10-18，coding plan §9.5）。
+    src/replay/ReplayInfo.cpp
+    # 启动诊断（2026-10-18，coding plan §9.5）。
+    src/diagnose/StartupDiagnosis.cpp
+    # 迁移 / 升级副本（2026-10-18，coding plan §9.9 第 15 项）。
+    src/operations/TransferPlanner.cpp
+    src/operations/TransferApply.cpp
     src/settings/EffectiveJavaSettings.cpp
     src/settings/GlobalJavaSettings.cpp
     src/settings/GameWindowSettings.cpp
@@ -285,6 +342,14 @@ set(SOURCE_FILES
     # 服务端设置那两张表 + 那一次真监听（2026-10-13，§6.3 / M4-4；判据那一半在各自的头里）。
     src/server/ServerPropertiesForm.cpp
     src/server/ServerPortCheck.cpp
+    # 玩家名单的 JSON 读写判据（2026-10-18，§9.7）。
+    src/server/ServerPlayers.cpp
+    # 崩溃自动重启的判据（2026-10-18，§9.7）。
+    src/server/ServerRestart.cpp
+    # 服务端资源包（2026-10-18，§9.7）：条目表判据 + SHA-1（借 ZipUtil / FileHash）。
+    src/server/ServerResourcePack.cpp
+    # 服务端内容（模组 / 数据包）的名字与分类（2026-10-18，§9.7「内容管理」）。
+    src/server/ServerContent.cpp
     src/util/ImageDecode.cpp
     src/util/ThemeImage.cpp
     src/util/SystemMemory.cpp
@@ -298,8 +363,14 @@ set(SOURCE_FILES
     src/tools/CoordConvert.cpp
     src/tools/FileHash.cpp
     src/tools/AnvilPlanner.cpp
+    src/tools/Beacon.cpp
+    src/tools/Brewing.cpp
+    src/tools/Banner.cpp
+    src/tools/ArmorTrim.cpp
     ui/AccountSkinDialog.cpp
     ui/GameLogWindow.cpp
+    # 运行输出共用模型（§9.8）：上面那一窗和 ServerConsolePage 都直接用它。
+    ui/RuntimeOutputModel.cpp
     ui/MainWindowUI.cpp
     ui/MemorySlider.cpp
     ui/MotdText.cpp
@@ -326,6 +397,7 @@ set(SOURCE_FILES
     ui/InlineMessage.cpp
     ui/JavaMismatchDialog.cpp
     ui/JavaManageDialog.cpp
+    ui/PresetManagePage.cpp
     ui/OverlayHost.cpp
     ui/SkinModel.cpp
     ui/VersionIcons.cpp

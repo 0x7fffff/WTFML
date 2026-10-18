@@ -37,6 +37,10 @@
 #include <QString>
 #include <QStringList>
 
+#include "RuntimeOutputModel.hpp"
+
+class QComboBox;
+class QEvent;
 class QLabel;
 class QLineEdit;
 class QPlainTextEdit;
@@ -63,6 +67,9 @@ public:
     void setCommandAvailable(bool available);
 
     /// 日志最多留几行（`QPlainTextEdit::setMaximumBlockCount()`）。见文件头那段。
+    ///
+    /// ★ §9.8 起这个数同时钉在**共用模型**的容量上：视图那一格只是"现在显示多少"，
+    ///   模型那一边才是真正的保留上限（搜索/切行数之后还能把行找回来）。
     void setMaxLines(int lines);
     /**
      * @brief 把日志整片换掉（开页时灌一次历史）。
@@ -71,11 +78,39 @@ public:
     void setLog(const QStringList &lines);
     /// 往末尾续一行（服务端刚吐出来的那一行）。
     void appendLine(const QString &line);
-    /// 现在这一页上留着的那些行（验证工程读它）。
+    /// 现在这一页上**模型里**留着的那些行（含被筛掉的；验证工程读它）。
     QStringList logLines() const;
+    /// 现在**看得见**的那些行（过搜索 / 档位筛选之后；验证工程读它）。
+    QStringList visibleLogLines() const;
+    /// 整份日志（含被筛掉的），一行一句、末尾有换行 —— 「导出日志…」交给外面的那一份。
+    QString allLogText() const;
+
+    // ---------- 搜索 / 显示上限（§9.8：和游戏日志窗共用同一份模型） ----------
+
+    void setSearchText(const QString &text);
+    QString searchText() const;
+    /// 视图最多显示几行（`0` = 全部）。**模型一行不动**。
+    void setDisplayLineLimit(int limit);
+    int displayLineLimit() const { return m_model.displayLimit(); }
+    static QString searchPlaceholderText();
+
+    // ---------- 命令历史（§9.8 第三条：服务端模式保留） ----------
+
+    /// 敲过的命令（从老到新）。空行、连续重复的不记。
+    QStringList commandHistory() const { return m_history; }
+    static int maxHistoryEntries() { return 200; }
+    /// 在历史里挪一步：`-1` 更老、`+1` 更新（上/下键走它）。挪到头时回 false。
+    bool stepHistory(int delta);
+    /// 现在停在历史里的哪一格（= `commandHistory().size()` 表示"不在历史里，正在写新的"）。
+    int historyCursor() const { return m_historyCursor; }
 
     /// 底下那行输入框里现在写着什么。
     QString commandText() const;
+
+    /// objectName（验证工程和覆盖层靠名字认控件）。
+    static QString searchEditName() { return QStringLiteral("serverConsoleSearchEdit"); }
+    static QString lineLimitComboName() { return QStringLiteral("serverConsoleLineLimitCombo"); }
+    static QString exportLogButtonName() { return QStringLiteral("serverConsoleExportButton"); }
 
 signals:
     /// 用户敲了一行并按了「发送」（或按了回车）。**原样**，没加换行也没过滤。
@@ -84,13 +119,35 @@ signals:
     void stopRequested();
     /// 用户按了「强制结束」。
     void forceKillRequested();
+    /// 用户按了「导出日志…」。槽该读 `allLogText()`（这一层不碰盘）。
+    void exportLogRequested();
+
+protected:
+    /// 输入框上的上/下键走命令历史（其余键原样还给输入框）。
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
     QLabel *m_titleLabel = nullptr;
     QLabel *m_statusLabel = nullptr;
     QPlainTextEdit *m_logView = nullptr;
+    QLineEdit *m_searchEdit = nullptr;
+    QComboBox *m_lineLimitCombo = nullptr;
+    QPushButton *m_exportButton = nullptr;
     QLineEdit *m_commandEdit = nullptr;
     QPushButton *m_sendButton = nullptr;
     QPushButton *m_stopButton = nullptr;
     QPushButton *m_forceKillButton = nullptr;
+
+    /// 记账那一半：和游戏日志窗同一份共用模型（§9.8）。档位筛选在这一页没有入口
+    /// （服务端的原始输出不按那五档组织），但搜索、行数上限、导出都走它。
+    RuntimeOutputModel m_model;
+    /// 命令历史（从老到新）。`m_historyCursor == m_history.size()` = 不在历史里。
+    QStringList m_history;
+    int m_historyCursor = 0;
+    /// 从历史里取出来的那一行是不是还没被动过（动过之后再按上/下就不再从它挪）。
+    QString m_historyDraft;
+    /// 按现在的模型重画一遍（搜索 / 显示上限 / 灌历史都走它）。
+    void rebuildView();
+    /// 视图的块数上限：显示上限优先，否则就是模型的容量。
+    int viewBlockLimit() const;
 };

@@ -213,6 +213,10 @@
 // T42：「服务端设置」那一整页（coding plan §6.3 第二阶段 / M4-4）—— 这一节把它经真
 // `MainWindow` 整页开出来、改一格、保存、看盘上那份文件、按「立即备份」、读体检单。
 #include "ServerSettingsPage.hpp"
+// T42.10：玩家名单那四份文件（`whitelist.json` / `ops.json` / `banned-players.json` /
+// `banned-ips.json`）的判据层 —— 这一节加完一条之后**从盘上读回来核对**，不拿界面上的行
+// 自己证明自己。
+#include "server/ServerPlayers.hpp"
 // T38：那一页（「新建服务端…」开出来的）要按 objectName 认控件、填字段、点「创建」。
 #include "NewServerPage.hpp"
 // T27.7：「世界设置…」那条路要**自己造一份真的 level.dat**（T27 前面那些夹具里那一份是
@@ -3527,27 +3531,23 @@ static void runInstanceStartActionsTests() {
                       "覆盖写也不该留下半截）");
             }
 
-            // ---------- ⑦ 自动档认不认「这个实例装了多少模组」 ----------
-            // 产品那一环：resolveMemoryForLaunch() 的"这个实例自己要自动档"那一支会去数
-            // mods/ 里的 *.jar，把个数喂给 suggestXmxMb() 第三个参数。**那个函数自己的
-            // 真值表在 verify 的 L1b**（手算的 10 条 + 单调性），这里只管"有没有真的去
-            // 数、数出来的有没有传到命令行上"。
-            //
-            // NOTE: 期望值现问同一个函数算（自动档天生跟着这台机器**当下**的可用内存走，
-            //       写死一个数字在任何一台别的机器上都是假红）。
-            // NOTE: 这台机器上量出来的 `withMods == withoutMods`（两条都报 7936）：可用内存
-            //       那一档（available/2）正好卡在 7936 上，把 +1536 那一档**整档吃掉**了 ——
-            //       这是设计里写明的行为（加成只抬"目标值"，机器侧的硬顶照旧说了算，见
-            //       suggestXmxMb 头文件里那条 NOTE）。所以下面那句"不等于没模组那一版"是
-            //       **有条件**的：它对得上时才算一条，对不上（= 加成被硬顶吃掉）就不摆。
-            //       换句话说：这一节在这台机器上只钉得住"数出来的数传下去了"，钉不住
-            //       "加成看得见" —— 后者由 L1b 那张纯函数表负责。
+            // ---------- ⑦ 老 meta 里的 autoMemory 不许劫持导出的 -Xmx ----------
+            // ★ 2026-10-18：「自动（按系统内存）」那一档从界面上撤掉了（用户原话「内存分配
+            //   和最大内存这玩意完全就是重复的，只保留那个拖动的」）⇒ 读侧一律手动档。
+            //   这一节钉的正是那件事：meta 里同时写着 autoMemory:true 和一对具体的
+            //   xmx/xms 时，导出的命令行必须用**那对数**，而不是按系统内存（还带模组加成）
+            //   现算一个 —— 老实例的 meta 里那个键到处都是，认它的结果就是"用户拖出来的数
+            //   每次导出都被换掉"。
             {
                 const QString idC = QStringLiteral("1.99.3-modpack");
                 installFake(idC, QStringLiteral("T19模组包"));
-                // 内存设成**这个实例自己要自动档**（全局那一档没有"哪个实例"可分）。
+                const int pinnedXmx = 3072;
+                const int pinnedXms = 1024;
                 writeFileAt(versionsDir.filePath(idC + QStringLiteral("/wtfml.meta")),
-                            QByteArrayLiteral("{\"name\":\"T19模组包\",\"autoMemory\":true}"));
+                            QByteArrayLiteral("{\"name\":\"T19模组包\",\"autoMemory\":true,"
+                                              "\"xmx\":3072,\"xms\":1024}"));
+                // 摆 200 个模组（外加一个禁用的反例）：要是导出还在走自动档那一支，它就会
+                // 数出 200 来加成，得到的数几乎必然不是 3072。
                 const int mods = 200;
                 const QDir modsDir(versionsDir.filePath(idC + QStringLiteral("/mods")));
                 modsDir.mkpath(QStringLiteral("."));
@@ -3555,9 +3555,6 @@ static void runInstanceStartActionsTests() {
                     writeFileAt(modsDir.filePath(QStringLiteral("m%1.jar").arg(i)),
                                 QByteArrayLiteral("x"));
                 }
-                // 禁用掉的那一个**不算**：盘上是 `X.jar.disabled`，游戏不会加载它
-                // （见 MainWindow::instanceModCount()）。多摆一个反例，判据才咬得住
-                // "数的是 *.jar 而不是目录里的所有条目"。
                 writeFileAt(modsDir.filePath(QStringLiteral("off.jar.disabled")),
                             QByteArrayLiteral("x"));
 
@@ -3570,20 +3567,17 @@ static void runInstanceStartActionsTests() {
                     pumpUntil([&answerer7] { return !answerer7.answered.isEmpty(); }, 10000);
                     answerer7.stop();
                 }
-                const SystemMemory::Usage usage = SystemMemory::read();
-                const int withoutMods =
-                    GlobalJavaSettings::suggestXmxMb(usage.totalMb, usage.availableMb, 0);
-                const int withMods =
-                    GlobalJavaSettings::suggestXmxMb(usage.totalMb, usage.availableMb, mods);
                 const QString scriptTextC = QString::fromLocal8Bit(readBytesAt(scriptPathC));
-                check(scriptTextC.contains(QStringLiteral("-Xmx%1m").arg(withMods)),
-                      "★ T19.14 实例自己要自动档时，导出的 -Xmx 是**按这个实例的模组数**算的"
-                      "（待办里那条「200 模组和原版拿到一样的建议值」）",
+                check(scriptTextC.contains(QStringLiteral("-Xmx%1m").arg(pinnedXmx)) &&
+                          scriptTextC.contains(QStringLiteral("-Xms%1m").arg(pinnedXms)),
+                      "★ T19.14 meta 里的 autoMemory:true 被忽略，导出的就是那一对 xmx/xms",
                       scriptTextC);
-                if (withMods != withoutMods) {
-                    check(!scriptTextC.contains(QStringLiteral("-Xmx%1m").arg(withoutMods)),
-                          "★ T19.14 而且不是「没数模组」那一版（这台机器上这两档正好不相等，"
-                          "所以这一条咬得动）",
+                const SystemMemory::Usage usage = SystemMemory::read();
+                const int autoWouldBe =
+                    GlobalJavaSettings::suggestXmxMb(usage.totalMb, usage.availableMb, mods);
+                if (autoWouldBe != pinnedXmx) {
+                    check(!scriptTextC.contains(QStringLiteral("-Xmx%1m").arg(autoWouldBe)),
+                          "★ T19.14 也不是自动档按系统内存 + 模组数现算的那一版",
                           scriptTextC);
                 }
             }
@@ -6485,6 +6479,443 @@ static void runInstanceFilesPagesTests() {
                   noticeText);
         }
 
+        // ---------- ⑦.6 原理图那一页底下那条「这一份是什么」（2026-10-18，§9.5）----------
+        //
+        // 这一条**只有把真页立起来才验得到**：那一条连接在 `InstanceDialogController` 里
+        // （选中一行 → 150 ms 合并 → `SchematicInfo::read()` → 摆回那一格），ui_check 够
+        // 不着控制器。盘上放一份**真形状**的 Sponge 原理图（`Palette` + `BlockData`），
+        // 选它，看那一格先写「正在读取…」、过一会儿换成元数据与方块统计。
+        {
+            const QString schematicPath = dirV + QStringLiteral("/schematics/真原理图.schematic");
+            {
+                NbtTree::Node sponge;
+                sponge.type = NbtTree::Type::Compound;
+                const auto addNode = [&sponge](const QString &name, const NbtTree::Node &node) {
+                    sponge.fields.append(qMakePair(name, node));
+                };
+                const auto intNode = [](qint64 value) {
+                    NbtTree::Node node;
+                    node.type = NbtTree::Type::Int;
+                    node.number = value;
+                    return node;
+                };
+                addNode(QStringLiteral("Width"), intNode(3));
+                addNode(QStringLiteral("Height"), intNode(1));
+                addNode(QStringLiteral("Length"), intNode(2));
+                addNode(QStringLiteral("DataVersion"), intNode(3465));
+                NbtTree::Node metadata;
+                metadata.type = NbtTree::Type::Compound;
+                NbtTree::Node nameNode;
+                nameNode.type = NbtTree::Type::String;
+                nameNode.text = QStringLiteral("真原理图");
+                metadata.fields.append(qMakePair(QStringLiteral("Name"), nameNode));
+                addNode(QStringLiteral("Metadata"), metadata);
+                NbtTree::Node palette;
+                palette.type = NbtTree::Type::Compound;
+                const auto addState = [&palette](const QString &name, qint64 index) {
+                    NbtTree::Node node;
+                    node.type = NbtTree::Type::Int;
+                    node.number = index;
+                    palette.fields.append(qMakePair(name, node));
+                };
+                addState(QStringLiteral("minecraft:air"), 0);
+                addState(QStringLiteral("minecraft:stone"), 1);
+                addState(QStringLiteral("minecraft:oak_planks"), 2);
+                addNode(QStringLiteral("Palette"), palette);
+                NbtTree::Node blockData;
+                blockData.type = NbtTree::Type::ByteArray;
+                blockData.bytes = QByteArray::fromHex("00010201");  // air / stone / oak / stone
+                addNode(QStringLiteral("BlockData"), blockData);
+                NbtTree::Document document;
+                document.root = sponge;
+                writeFileAt(schematicPath, NbtTree::serialize(document));
+            }
+
+            bool labelFound = false;
+            bool hiddenAtFirst = false;
+            bool pendingSeen = false;
+            bool otherPanelOff = false;
+            QString infoText;
+            QString infoTip;
+            QTimer::singleShot(0, [&] {
+                OverlayHost *host = currentPageOverlay();
+                auto *page = host != nullptr ? host->findChild<InstanceSettingsDialog *>() : nullptr;
+                if (page == nullptr) {
+                    return;  // 这一页没开起来：下面那几条会红，这里别崩
+                }
+                page->showPage(QStringLiteral("schematic"));
+                QApplication::processEvents();
+                InstanceFilesPage *files = page->filesPage(QStringLiteral("schematic"));
+                if (files == nullptr) {
+                    return;
+                }
+                QLabel *info = files->findChild<QLabel *>(InstanceFilesPage::infoLabelName());
+                labelFound = info != nullptr;
+                hiddenAtFirst = info != nullptr && info->isHidden();
+                QListWidget *list = files->list();
+                QListWidgetItem *targetItem = nullptr;
+                for (int i = 0; list != nullptr && i < list->count(); ++i) {
+                    QListWidgetItem *item = list->item(i);
+                    if (item != nullptr &&
+                        item->data(InstanceFilesPage::pathRole()).toString() == schematicPath) {
+                        targetItem = item;
+                        break;
+                    }
+                }
+                if (targetItem == nullptr || info == nullptr) {
+                    return;
+                }
+                list->setCurrentItem(targetItem);
+                QApplication::processEvents();
+                pendingSeen = info->isVisible() && info->text() == InstanceFilesPage::infoPendingText();
+                // 那一发合并定时器是 150 ms，读盘还要一会儿 —— 最多等 1.5 秒。
+                QElapsedTimer timer;
+                timer.start();
+                while (timer.elapsed() < 1500 && info->text() == InstanceFilesPage::infoPendingText()) {
+                    QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+                    QThread::msleep(5);
+                }
+                infoText = info->text();
+                infoTip = info->toolTip();
+                // ★ 这一条要在**收页之前**量：收掉之后这一页就没了。
+                InstanceFilesPage *modsPage = page->filesPage(QStringLiteral("mod"));
+                otherPanelOff = modsPage != nullptr && !modsPage->infoPanelEnabled();
+                if (modsPage != nullptr) {
+                    if (QLabel *modsLabel =
+                            modsPage->findChild<QLabel *>(InstanceFilesPage::infoLabelName())) {
+                        otherPanelOff = otherPanelOff && modsLabel->isHidden();
+                    }
+                }
+                if (auto *back =
+                        host->findChild<QPushButton *>(OverlayHost::overlayBackButtonName())) {
+                    back->click();
+                } else if (host->pageOpen()) {
+                    host->closeOverlay();
+                }
+            });
+            QMetaObject::invokeMethod(&w, "openInstanceSettings", Qt::DirectConnection,
+                                      Q_ARG(QString, idV));
+            QApplication::processEvents();
+
+            check(labelFound && hiddenAtFirst,
+                  "★ T20.11 原理图那一页有「这一份是什么」那一格，而且**什么都没选的时候藏着**"
+                  "（别的页上它压根不开，一个像素都不变）");
+            check(pendingSeen,
+                  "★ T20.11 选中一份投影 ⇒ 立即写「正在读取…」（不是空白、也不是上一份的字）");
+            check(infoText.contains(QStringLiteral("真原理图")) &&
+                      infoText.contains(QStringLiteral("3 × 1 × 2")) &&
+                      infoText.contains(QStringLiteral("3 个方块")) &&
+                      infoText.contains(QStringLiteral("Sponge 原理图")),
+                  "★★ T20.11 过一会儿那一格换成真读出来的元数据与方块统计"
+                  "（名字 / 尺寸 / 方块数 / 格式）",
+                  infoText);
+            check(infoText != InstanceFilesPage::infoPendingText() && !infoText.isEmpty(),
+                  "★ T20.11 那一格真的被接上了（停在「正在读取…」= 控制器那条连接漏了）");
+            check(infoTip.contains(QStringLiteral("minecraft:stone：2")),
+                  "★ T20.11 悬停提示里是方块排行（最多的那种真数出来了）", infoTip);
+            check(otherPanelOff,
+                  "★★ T20.11 别的页（模组）上那一格是关着的 —— 只有原理图那一页开");
+        }
+
+        // ---------- ⑦.7 Replay 那一页底下那条「这一份是什么」（2026-10-18，§9.5）----------
+        //
+        // 和 T20.11 同一个来路：这条连接也在 `InstanceDialogController` 里，ui_check 够不
+        // 着。盘上放一份**真形状**的 `.mcpr`（zip 里一份 metaData.json），选它，看那一格
+        // 先写「正在读取…」、过一会儿换成时长 / 版本 / 多人 / 玩家数。
+        {
+            const QString replayDir = AppPaths::replayRecordingsDir();
+            QDir().mkpath(replayDir);
+            const QString replayPath = replayDir + QStringLiteral("/测试录像.mcpr");
+            const QString metaSource = dirV + QStringLiteral("/replay-meta.json");
+            writeFileAt(metaSource, QByteArray(R"({
+                "singleplayer": false,
+                "serverName": "mc.example.com",
+                "duration": 125000,
+                "date": 1690000000000,
+                "mcversion": "1.20.1",
+                "generator": "ReplayMod v2.6.11",
+                "protocol": 763,
+                "players": ["a", "b"]
+            })"));
+            const QString recordingSource = dirV + QStringLiteral("/replay-recording.bin");
+            writeFileAt(recordingSource, QByteArray(8, '\0'));
+            QString replayWhy;
+            const bool replayBuilt = ZipUtil::createZip(
+                replayPath,
+                {{QStringLiteral("metaData.json"), metaSource},
+                 {QStringLiteral("recording.tmcpr"), recordingSource}},
+                &replayWhy);
+            check(replayBuilt, "★ T20.12 造一份真 `.mcpr`（zip + metaData.json）", replayWhy);
+
+            bool replayLabelFound = false;
+            bool replayPendingSeen = false;
+            QString replayInfoText;
+            QString replayInfoTip;
+            QString replayRowText;
+            QTimer::singleShot(0, [&] {
+                OverlayHost *host = currentPageOverlay();
+                auto *page = host != nullptr ? host->findChild<InstanceSettingsDialog *>() : nullptr;
+                if (page == nullptr) {
+                    return;
+                }
+                page->showPage(QStringLiteral("replay"));
+                QApplication::processEvents();
+                auto *list = page->findChild<QListWidget *>(
+                    QStringLiteral("instanceLifecycleFiles_replay"));
+                QLabel *info = page->findChild<QLabel *>(
+                    InstanceSettingsDialog::lifecycleInfoLabelName(QStringLiteral("replay")));
+                replayLabelFound = list != nullptr && info != nullptr;
+                if (list == nullptr || info == nullptr) {
+                    return;
+                }
+                QListWidgetItem *targetItem = nullptr;
+                for (int i = 0; i < list->count(); ++i) {
+                    QListWidgetItem *item = list->item(i);
+                    if (item != nullptr && item->data(Qt::UserRole).toString() == replayPath) {
+                        targetItem = item;
+                        break;
+                    }
+                }
+                if (targetItem == nullptr) {
+                    return;
+                }
+                list->setCurrentItem(targetItem);
+                QApplication::processEvents();
+                replayRowText = targetItem->text();
+                replayPendingSeen =
+                    info->isVisible() && info->text() == InstanceSettingsDialog::lifecycleInfoPendingText();
+                QElapsedTimer timer;
+                timer.start();
+                while (timer.elapsed() < 3000
+                       && info->text() == InstanceSettingsDialog::lifecycleInfoPendingText()) {
+                    QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+                    QThread::msleep(5);
+                }
+                replayInfoText = info->text();
+                replayInfoTip = info->toolTip();
+                if (auto *back =
+                        host->findChild<QPushButton *>(OverlayHost::overlayBackButtonName())) {
+                    back->click();
+                } else if (host->pageOpen()) {
+                    host->closeOverlay();
+                }
+            });
+            QMetaObject::invokeMethod(&w, "openInstanceSettings", Qt::DirectConnection,
+                                      Q_ARG(QString, idV));
+            QApplication::processEvents();
+
+            check(replayLabelFound,
+                  "★ T20.12 Replay 那一页有「这一份是什么」那一格");
+            check(replayPendingSeen,
+                  "★ T20.12 选中一份录像 ⇒ 立即写「正在读取…」");
+            check(replayInfoText.contains(QStringLiteral("2 分 5 秒"))
+                      && replayInfoText.contains(QStringLiteral("1.20.1"))
+                      && replayInfoText.contains(QStringLiteral("多人（mc.example.com）"))
+                      && replayInfoText.contains(QStringLiteral("2 位玩家"))
+                      && replayInfoText.contains(QStringLiteral("ReplayMod v2.6.11")),
+                  "★★ T20.12 过一会儿那一格换成真读出来的元数据"
+                  "（时长 / 版本 / 多人 + 服务器 / 玩家数 / 录制器）",
+                  replayInfoText);
+            check(replayInfoText != InstanceSettingsDialog::lifecycleInfoPendingText()
+                      && !replayInfoText.isEmpty(),
+                  "★ T20.12 那一格真的被接上了（停在「正在读取…」= 控制器那条连接漏了）");
+            check(replayInfoTip.contains(QStringLiteral("录制时间："))
+                      && replayInfoTip.contains(QStringLiteral("文件大小：")),
+                  "★ T20.12 悬停提示里补上了录制时间与文件大小", replayInfoTip);
+            check(replayRowText.contains(QStringLiteral(" · ")),
+                  "★ T20.12 列表行第二行是「时间 · 大小」那一条细节（不只是时间戳）",
+                  replayRowText);
+        }
+
+        // ---------- ⑦.8 「诊断」那一页的报告（2026-10-18，§9.5）----------
+        //
+        // `instanceDiagnosisReport` 里那份字是 `InstanceDialogController` 把实例 / Java /
+        // 内存 / 模组 / 日志 / 崩溃报告拼起来交给 `StartupDiagnosis::analyze()` 算的——
+        // ui_check 只量得到纯函数，**"这条线接没接上"在这里量**。另加一条：「重新检查」
+        // 按下去真的再算一遍（先塞一句哨兵，按完哨兵必须没了）。
+        {
+            bool reportFound = false;
+            bool autoFilled = false;
+            bool rerunReplaced = false;
+            QString reportText;
+            QTimer::singleShot(0, [&] {
+                OverlayHost *host = currentPageOverlay();
+                auto *page = host != nullptr ? host->findChild<InstanceSettingsDialog *>() : nullptr;
+                if (page == nullptr) {
+                    return;
+                }
+                page->showPage(QStringLiteral("diagnosis"));
+                QApplication::processEvents();
+                auto *report = page->findChild<QPlainTextEdit *>(
+                    InstanceSettingsDialog::diagnosisReportName());
+                auto *refresh = page->findChild<QPushButton *>(
+                    InstanceSettingsDialog::diagnosisRefreshButtonName());
+                reportFound = report != nullptr && refresh != nullptr;
+                if (report == nullptr || refresh == nullptr) {
+                    return;
+                }
+                QElapsedTimer timer;
+                timer.start();
+                while (timer.elapsed() < 3000
+                       && (report->toPlainText() == InstanceSettingsDialog::diagnosisPendingText()
+                           || report->toPlainText().isEmpty())) {
+                    QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+                    QThread::msleep(5);
+                }
+                reportText = report->toPlainText();
+                autoFilled = reportText.contains(QStringLiteral("启动诊断："))
+                             && reportText != InstanceSettingsDialog::diagnosisPendingText();
+
+                page->setDiagnosisText(QStringLiteral("哨兵：重新检查之前的旧报告"));
+                refresh->click();
+                timer.restart();
+                while (timer.elapsed() < 3000
+                       && report->toPlainText() == QStringLiteral("哨兵：重新检查之前的旧报告")) {
+                    QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+                    QThread::msleep(5);
+                }
+                rerunReplaced = report->toPlainText().contains(QStringLiteral("启动诊断："))
+                                && report->toPlainText() != QStringLiteral("哨兵：重新检查之前的旧报告");
+
+                if (auto *back =
+                        host->findChild<QPushButton *>(OverlayHost::overlayBackButtonName())) {
+                    back->click();
+                } else if (host->pageOpen()) {
+                    host->closeOverlay();
+                }
+            });
+            QMetaObject::invokeMethod(&w, "openInstanceSettings", Qt::DirectConnection,
+                                      Q_ARG(QString, idV));
+            QApplication::processEvents();
+
+            check(reportFound,
+                  "★ T20.13 「诊断」那一页有报告那一格和「重新检查」那一颗");
+            check(autoFilled,
+                  "★★ T20.13 一进这一页，报告那一格就换成了算出来的内容"
+                  "（停在「正在检查…」= 控制器那条连接漏了）",
+                  reportText.left(200));
+            check(reportText.contains(QStringLiteral("实例：")),
+                  "★ T20.13 报告第二行说这是哪个实例", reportText.left(200));
+            check(rerunReplaced,
+                  "★ T20.13 按「重新检查」⇒ 真再算一遍（哨兵被换掉了）");
+        }
+
+        // ---------- ⑦.9 「迁移」/「升级」那两页（2026-10-18，§9.9 第 15 项）----------
+        //
+        // 判据层（`TransferPlanner` / `TransferApply`）由 verify.exe 的 TR 节逐条钉住；
+        // 这里只量**这条线接没接上**：
+        //   ① 一进「迁移」页，目标下拉框里就摆着"这个游戏文件夹里别的版本"（且不含自己）；
+        //   ② 计划正文真的算出来了（`setTransferPlan` / `setTransferItems` 两个 setter 都被喂了）；
+        //   ③ 默认勾选真的摆到了框里（存档勾着、日志不勾 —— 记录类永不默认在 TR1 里钉过，
+        //      这里钉的是"那一条结论有没有落进界面"）；
+        //   ④ 动手那颗按钮听的是勾选：全不勾 ⇒ 灰、再勾一项 ⇒ 又亮；
+        //   ⑤ 「升级」页用的是同一个构建器，顶上是「升级副本计划：」而不是迁移。
+        {
+            bool migrationFound = false;
+            bool targetPicked = false;
+            bool planFilled = false;
+            bool checkboxDefaults = false;
+            bool applyGate = false;
+            bool upgradeFilled = false;
+            QString migrationPlanText;
+            QString upgradePlanText;
+            QTimer::singleShot(0, [&] {
+                OverlayHost *host = currentPageOverlay();
+                auto *page = host != nullptr ? host->findChild<InstanceSettingsDialog *>() : nullptr;
+                if (page == nullptr) {
+                    return;
+                }
+                page->showPage(QStringLiteral("migration"));
+                QApplication::processEvents();
+                const QString migrationKey = QStringLiteral("migration");
+                auto *combo = page->findChild<QComboBox *>(
+                    InstanceSettingsDialog::transferTargetComboName(migrationKey));
+                auto *plan = page->findChild<QPlainTextEdit *>(
+                    InstanceSettingsDialog::transferPlanTextName(migrationKey));
+                auto *list = page->findChild<QListWidget *>(
+                    InstanceSettingsDialog::transferItemsListName(migrationKey));
+                auto *apply = page->findChild<QPushButton *>(
+                    InstanceSettingsDialog::transferApplyButtonName(migrationKey));
+                migrationFound = combo != nullptr && plan != nullptr && list != nullptr
+                                && apply != nullptr;
+                if (migrationFound) {
+                    targetPicked = combo->count() > 0
+                                   && !combo->currentData().toString().isEmpty()
+                                   && combo->currentData().toString() != idV;
+                    migrationPlanText = plan->toPlainText();
+                    planFilled = migrationPlanText.contains(QStringLiteral("迁移计划："))
+                                 && !migrationPlanText.contains(QStringLiteral("找不到源实例目录"));
+
+                    bool savesChecked = false;
+                    bool logsUnchecked = false;
+                    bool logsPresent = false;
+                    for (int i = 0; i < list->count(); ++i) {
+                        const QListWidgetItem *item = list->item(i);
+                        if (item == nullptr) continue;
+                        const QString key = item->data(Qt::UserRole).toString();
+                        if (key == QStringLiteral("saves") && item->checkState() == Qt::Checked) {
+                            savesChecked = true;
+                        }
+                        if (key == QStringLiteral("logs")) {
+                            logsPresent = true;
+                            logsUnchecked = item->checkState() == Qt::Unchecked;
+                        }
+                    }
+                    checkboxDefaults = savesChecked && logsPresent && logsUnchecked;
+
+                    // 按钮状态由 `updateTransferApplyState()` 算：目标 + 至少一项勾选。
+                    const bool enabledWithSelection = apply->isEnabled();
+                    for (int i = 0; i < list->count(); ++i) {
+                        list->item(i)->setCheckState(Qt::Unchecked);
+                    }
+                    QApplication::processEvents();
+                    const bool disabledWithoutSelection = !apply->isEnabled();
+                    if (list->count() > 0) {
+                        list->item(0)->setCheckState(Qt::Checked);
+                    }
+                    QApplication::processEvents();
+                    applyGate = enabledWithSelection && disabledWithoutSelection
+                                && apply->isEnabled();
+                }
+
+                page->showPage(QStringLiteral("upgrade"));
+                QApplication::processEvents();
+                if (auto *upgradePlan = page->findChild<QPlainTextEdit *>(
+                        InstanceSettingsDialog::transferPlanTextName(
+                            QStringLiteral("upgrade")))) {
+                    upgradePlanText = upgradePlan->toPlainText();
+                    upgradeFilled =
+                        upgradePlanText.contains(QStringLiteral("升级副本计划："));
+                }
+
+                if (auto *back =
+                        host->findChild<QPushButton *>(OverlayHost::overlayBackButtonName())) {
+                    back->click();
+                } else if (host->pageOpen()) {
+                    host->closeOverlay();
+                }
+            });
+            QMetaObject::invokeMethod(&w, "openInstanceSettings", Qt::DirectConnection,
+                                      Q_ARG(QString, idV));
+            QApplication::processEvents();
+
+            check(migrationFound,
+                  "★ T20.14 「迁移」页有一整块：目标下拉框 + 计划正文 + 范围列表 + 动手那颗");
+            check(targetPicked,
+                  "★★ T20.14 目标列表里是别的版本（不含自己）"
+                  "（空 = 控制器没把 installedVersions 喂给下拉框）");
+            check(planFilled,
+                  "★★ T20.14 一进页计划正文就算好了（停在「正在准备计划…」= 那条线没接上）",
+                  migrationPlanText.left(160));
+            check(checkboxDefaults,
+                  "★★ T20.14 默认勾选落进了框里：存档勾着、日志不勾");
+            check(applyGate,
+                  "★ T20.14 动手那颗听勾选：一项不勾就灰、勾回来又亮");
+            check(upgradeFilled,
+                  "★ T20.14 「升级」页同一个构建器，顶上是「升级副本计划：」",
+                  upgradePlanText.left(160));
+        }
+
         // ---------- ⑧ 世代备份 + 写之前那几道闸（2026-09-27）----------
         //
         // 用户那份设计评审里 S 级的三条（撤销/世代备份、游戏在跑时挡写、写之前比对盘上
@@ -7082,26 +7513,48 @@ static void runInstanceFilesPagesTests() {
                   "「个性化」这三个字真正落地就是这一趟（写盘那一段断了的话，这一条红、"
                   "而上面那条还是绿的）");
 
+            bool reenableEnabled = false;
+            bool reenableChecked = false;
+            QString reenableChoices;
             withPage(idV, [&](InstanceSettingsDialog *page) {
                 auto *box = page->findChild<QCheckBox *>(
                     InstanceSettingsDialog::pageCheckName(QStringLiteral("save")));
                 if (box != nullptr) {
+                    // ★ 一条真实会出事的路：那颗勾选框**灰着**的时候 `click()` 是个空操作
+                    //   （QAbstractButton::click() 头一句就是 `if (!isEnabled()) return;`），
+                    //   于是"再勾回来"看起来什么都没发生、盘上那句 false 还在。
+                    reenableEnabled = box->isEnabled();
                     box->click();
                     QApplication::processEvents();
+                    reenableChecked = box->isChecked();
                 }
+                reenableChoices = QString::fromUtf8(
+                    QJsonDocument(page->pageChoices()).toJson(QJsonDocument::Compact));
             });
             const QJsonObject metaRestored = readMeta();
-            QStringList keysBefore = metaBefore.keys();
+            // ★ 拿**第一次写入之后**那一份当基准，不是开跑前那一份：这个实例原本一个
+            //   `wtfml.meta` 都没有，第一次写盘会顺手补一个稳定 id（`ensureInstanceId()`，
+            //   见 InstanceSettingsController::apply 开头），那是写盘顺带长的键、不是这一次
+            //   操作丢了什么。真正要钉的是"`settingsPages` 整格消失、别的键一个不少"。
+            QStringList keysWanted = metaAfter.keys();
+            keysWanted.removeAll(VersionManager::settingsPagesField());
             QStringList keysAfter = metaRestored.keys();
-            keysBefore.sort();
+            keysWanted.sort();
             keysAfter.sort();
             check(!metaRestored.contains(VersionManager::settingsPagesField()) &&
-                      keysBefore == keysAfter,
+                      keysWanted == keysAfter,
                   "★★ T20.11 再勾回来 ⇒ 那个键**整个消失**（不是记一个 true），旁边那些键"
                   "一个不少 —— 盘上要是留一坨 true，默认永远是「显示」这件事就再也改不动"
                   "了：写 false 和不写长得一样，读侧分不出来",
                   QString::fromUtf8(
-                      QJsonDocument(metaRestored).toJson(QJsonDocument::Compact)));
+                      QJsonDocument(metaRestored).toJson(QJsonDocument::Compact))
+                      + QStringLiteral("｜那颗框 enabled=%1 checked=%2 choices=%3")
+                            .arg(int(reenableEnabled))
+                            .arg(int(reenableChecked))
+                            .arg(reenableChoices)
+                      + QStringLiteral("｜第一次写后=%1")
+                            .arg(QString::fromUtf8(
+                                QJsonDocument(metaAfter).toJson(QJsonDocument::Compact))));
 
             // 第三件：**「有没有对应的加载器」这件事是按实例现算的**（两个假实例对着看）。
             //
@@ -17401,7 +17854,124 @@ static void runServerSettingsPageTests() {
               "★ T42.7 总括那句是 `summaryText()` 的形态（N 项要处理 · N 项提醒 · N 项说明）",
               checkSummary->text());
 
-        // ---------- ⑧ 收页 ----------
+        // ---------- ⑧ 玩家名单：四份文件、加一个 / 拿掉一个都真写盘 ----------
+        {
+            auto *playerNote =
+                page->findChild<QLabel *>(MainWindowUI::serverSettingsPlayerNoteName());
+            auto *playerCombo =
+                page->findChild<QComboBox *>(MainWindowUI::serverSettingsPlayerComboName());
+            auto *playerTree =
+                page->findChild<QTreeWidget *>(MainWindowUI::serverSettingsPlayerTreeName());
+            auto *playerAdd = page->findChild<QPushButton *>(
+                MainWindowUI::serverSettingsPlayerAddButtonName());
+            auto *playerRemove = page->findChild<QPushButton *>(
+                MainWindowUI::serverSettingsPlayerRemoveButtonName());
+            const bool playersWired =
+                playerNote != nullptr && playerCombo != nullptr && playerTree != nullptr
+                && playerAdd != nullptr && playerRemove != nullptr;
+            check(playersWired,
+                  "★ T42.10 玩家名单那一块整块找得到（下拉框 / 名单 / 两颗按钮 / 那行小字）");
+            if (playersWired) {
+                sections->setCurrentRow(
+                    static_cast<int>(ServerSettingsPage::Section::Players));
+                QApplication::processEvents();
+                check(stack->currentIndex()
+                              == static_cast<int>(ServerSettingsPage::Section::Players)
+                          && playerCombo->count()
+                                 == MainWindowUI::serverSettingsPlayerListCount(),
+                      "★ T42.10 切到玩家那一页：四份名单都在那个下拉框里"
+                      "（`serverSettingsPlayerListCount()` 是上限）",
+                      QString::number(playerCombo->count()));
+                bool comboOk = true;
+                QStringList comboTitles;
+                for (int i = 0; i < playerCombo->count(); ++i) {
+                    comboTitles << playerCombo->itemText(i);
+                    if (playerCombo->itemText(i)
+                        != MainWindowUI::serverSettingsPlayerListTitle(i)) {
+                        comboOk = false;
+                    }
+                }
+                check(comboOk,
+                      "★ T42.10 下拉框里那几格的字就是唯一出处里那几个名字（**那个下标**"
+                      "就是 `ServerPlayers::List` 的下标）",
+                      comboTitles.join(QStringLiteral(" / ")));
+                check(playerTree->topLevelItemCount() == 0 && !playerRemove->isEnabled()
+                          && playerAdd->isEnabled() && !playerNote->text().isEmpty(),
+                      "★ T42.10 夹具里白名单还是空的 ⇒ 一棵 0 行的树、「移除…」灰着、"
+                      "「加一个人…」亮着、那行小字说着这是哪份文件",
+                      playerNote->text());
+                const QDir serverDir(ServerRegistry::describe(serverId).dirPath);
+                const auto readList = [&serverDir](ServerPlayers::List list) {
+                    QFile file(serverDir.filePath(ServerPlayers::fileName(list)));
+                    if (!file.open(QIODevice::ReadOnly)) {
+                        return ServerPlayers::Content{};
+                    }
+                    return ServerPlayers::parse(list, file.readAll());
+                };
+                // 加一个人：那一问是**阻塞**的（`InlineMessage::getText` 自己转一层嵌套
+                // 事件循环），所以答它那一发只能摆在点按钮**之前**（同 T27.6 那支笔）。
+                QTimer::singleShot(0, [] {
+                    InlineMessageBox *input = currentPrompt();
+                    if (input == nullptr) {
+                        return;
+                    }
+                    if (auto *edit =
+                            input->findChild<QLineEdit *>(InlineMessageBox::lineEditName())) {
+                        edit->setText(QStringLiteral("alex"));
+                    }
+                    if (auto *ok =
+                            input->findChild<QPushButton *>(InlineMessageBox::buttonName(0))) {
+                        ok->click();
+                    } else {
+                        input->close();
+                    }
+                });
+                playerAdd->click();
+                QApplication::processEvents();
+                const ServerPlayers::Content afterAdd =
+                    readList(ServerPlayers::List::Whitelist);
+                check(afterAdd.ok && afterAdd.entries.size() == 1
+                          && afterAdd.entries.first().name == QStringLiteral("alex")
+                          && afterAdd.entries.first().uuid
+                                 == ServerPlayers::offlineUuid(QStringLiteral("alex")),
+                      "★★★ T42.10 「加一个人」⇒ 盘上 `whitelist.json` 真多一条，uuid 就是"
+                      "离线 UUID（离线服务端直接认得出这人）",
+                      afterAdd.entries.isEmpty() ? QStringLiteral("(空)")
+                                                 : afterAdd.entries.first().uuid);
+                check(playerTree->topLevelItemCount() == 1
+                          && playerTree->topLevelItem(0)->text(0).contains(
+                              QStringLiteral("alex")),
+                      "★ T42.10 这一列当场多了一行（收尾那一下把这一页重摆了）",
+                      QString::number(playerTree->topLevelItemCount()));
+                playerTree->setCurrentItem(playerTree->topLevelItem(0));
+                QApplication::processEvents();
+                check(playerRemove->isEnabled(),
+                      "★ T42.10 选中一行 ⇒ 「移除…」亮起来（一颗都没选的时候它点不动）");
+                QTimer::singleShot(0, [] {
+                    InlineMessageBox *box = currentPrompt();
+                    if (box == nullptr) {
+                        return;
+                    }
+                    if (auto *yes =
+                            box->findChild<QPushButton *>(InlineMessageBox::buttonName(0))) {
+                        yes->click();
+                    } else {
+                        box->close();
+                    }
+                });
+                playerRemove->click();
+                QApplication::processEvents();
+                const ServerPlayers::Content afterRemove =
+                    readList(ServerPlayers::List::Whitelist);
+                check(afterRemove.ok && afterRemove.entries.isEmpty()
+                          && playerTree->topLevelItemCount() == 0,
+                      "★★★ T42.10 「移除」⇒ 盘上那一条真没了、这一列也回到 0 行"
+                      "（问过一句才动手）",
+                      QString::number(afterRemove.entries.size()));
+            }
+        }
+
+        // ---------- ⑨ 收页 ----------
         if (auto *back = host->findChild<QPushButton *>(OverlayHost::overlayBackButtonName())) {
             back->click();  // 返回箭头 = reject（见 OverlayHost::execPage）
         }
@@ -20868,9 +21438,13 @@ int main(int argc, char *argv[]) {
     QLabel *javaLabel = window.findChild<QLabel *>(MainWindowUI::javaPathLabelName());
     QCheckBox *javaWarn =
         byObjectName<QCheckBox>(&window, MainWindowUI::javaWarnMismatchCheckName());
+    // ★ 2026-10-18：「内存分配」那一行从设置页撤掉了（用户原话「内存分配和最大内存这玩意
+    //   完全就是重复的，只保留那个拖动的」）⇒ 这一格现在一个字节都不该有。说明文字归
+    //   「最大内存」那一行，对象名是 memoryHint。这里刻意还留着一个"找它"的动作：
+    //   哪天有人把那个勾选框加回来，`memoryAuto != nullptr` 会让 L 节直接判红。
     QCheckBox *memoryAuto =
-        byObjectName<QCheckBox>(&window, MainWindowUI::memoryAutoCheckName());
-    QLabel *memoryHint = window.findChild<QLabel *>(MainWindowUI::memoryAutoHintName());
+        window.findChild<QCheckBox *>(QStringLiteral("memoryAutoCheck"));
+    QLabel *memoryHint = window.findChild<QLabel *>(MainWindowUI::memoryHintName());
     QSpinBox *maxSpin = byObjectName<QSpinBox>(&window, MainWindowUI::memoryMaxSpinName());
     // ★ 2026-09-26：「最大内存」那一行是一根条 + 一个数字框（用户要的 PCL 那种拖着改），
     //   「最小内存」那一格整格撤掉了。替它把门的是 onMemoryChanged() 里那道 Xms ≤ Xmx 的
@@ -20913,7 +21487,7 @@ int main(int argc, char *argv[]) {
     QLineEdit *titleEdit = byObjectName<QLineEdit>(&window, MainWindowUI::titleTextEditName());
     const bool settingsWired = javaManageButton != nullptr && javaLabel != nullptr &&
                                javaWarn != nullptr &&
-                               memoryAuto != nullptr && memoryHint != nullptr &&
+                               memoryAuto == nullptr && memoryHint != nullptr &&
                                maxSpin != nullptr && maxSlider != nullptr &&
                                behaviourCombo != nullptr && sourceCombo != nullptr &&
                                jvmEdit != nullptr && applyJvm != nullptr &&
@@ -20995,14 +21569,15 @@ int main(int argc, char *argv[]) {
             off.setWarnVersionMismatch(true);
         }
 
-        // ---- 内存分配：全新配置下是自动档 ----
-        // 全新的 ini 里既没有 Java/MemoryAuto，两个值也还是内置默认值，所以按"自动"处理
-        // （老配置的例外规则见 GlobalJavaSettings::load()），开窗时就按**这台机器**的内存
-        // 算了一遍。所以下面既断言"和盘上一致"，也断言几条与机器无关的不变量 ——
-        // 具体给多少 MB 随机器变，这里刻意不写死。
-        check(memoryAuto->isChecked(), "全新配置下「自动（按系统内存）」是勾上的");
-        check(!maxSpin->isEnabled() && !maxSlider->isEnabled(),
-              "自动档下那一行的条和数字框都是禁用的（能显示不能改才是对的，能改就是「改了不生效」）");
+        // ---- 内存：只有「最大内存」那一根拖动的条 ----
+        // ★ 2026-10-18：「内存分配」（自动 / 手动）和「最大内存」在界面上是重复的，用户
+        //   点名只留拖动的那个。所以现在开窗时：没有那个勾选框、条和数字框**直接能改**、
+        //   显示的就是盘上那个数（不再按本机内存重算）。下面既断言"和盘上一致"，也断言
+        //   几条与机器无关的不变量 —— 具体给多少 MB 随盘上变，这里刻意不写死。
+        check(memoryAuto == nullptr,
+              "设置页里没有「自动（按系统内存）」这个勾选框（和「最大内存」重复，已撤掉）");
+        check(maxSpin->isEnabled() && maxSlider->isEnabled(),
+              "条和数字框开窗就是能改的（能给 -Xmx 的口子只剩这一个，灰掉就没地方给了）");
         // ★ 2026-09-26：上限收到**这台机器真有那么多**上（用户原话「上限=本机物理内存」）。
         //   界面层那个 65536 只是"单独搭出来时"的天花板，真跑起来由 MainWindow 按物理内存
         //   再收一次口 —— 一台 16 GB 的机器上让它拖到 65536，用户拖到那儿只会在启动时拿到
@@ -21038,24 +21613,16 @@ int main(int argc, char *argv[]) {
                       QString("条 %1 / 框 %2").arg(sliderMb(maxSlider)).arg(maxSpin->value()));
             }
         }
-        check(javaProbe.autoMemory(), "盘上记的也是自动档");
-        // 自动档这个数是"开窗时按**那一刻**的系统内存现算的"，而盘上那份是上一次保存时
-        // 算的 —— 取数时刻差着，中间系统的可用内存只要动一点点，同一台机器就会算出相邻
-        // 的两档（suggestXmxMb 按 256 MB 取整，可用内存一变，商就差一格）。
-        // NOTE: 这不是产品不一致，是自动档的**本意**：开窗/进设置页就按现在的情况重算
-        //       （见 GlobalJavaSettings 里那段），重算**不落盘**，盘上留着的仍是用户上次
-        //       确认过的值。所以这条判的是"界面上的数就是设置层按这台机器算出来的那一档"
-        //       —— 不是硬编码的默认值 —— 允许一档的漂移。
-        //       实测踩过：这台机器的可用内存正好卡在 13824 MB 那条线上（差一百多 MB），
-        //       开窗算出来 6912、盘上还是 6656，十几跑里红几跑。
-        //       手动档那两个数是**逐字节**比的（见下面"改完内存立刻落盘"那几条）：那时候
-        //       盘上和界面必须一字不差。
-        const int memStepMb = 256;
-        check(qAbs(maxSpin->value() - javaProbe.xmx()) <= memStepMb,
-              "最大内存框显示的就是设置层按这台机器算出来的那一档（自动档允许差一档，见注释）",
+        check(!javaProbe.autoMemory(), "盘上记的是手动档（自动档那一档已经没有了）");
+        // ★ 2026-10-18：自动档撤掉之后，开窗**不再重算**这个数 ⇒ 界面和盘上必须是逐位
+        //   相同的同一个数。以前这里允许一档漂移（自动档按"开窗那一刻"的系统内存现算），
+        //   现在没有任何现算的时机了，再漂一格就是"界面上拖了、下次打开却变了"。
+        check(maxSpin->value() == javaProbe.xmx(),
+              "最大内存框显示的就是盘上存的那一个数（开窗不重算）",
               QString("界面 %1，盘上 %2").arg(maxSpin->value()).arg(javaProbe.xmx()));
-        check(maxSpin->value() >= 1024 && maxSpin->value() <= 8192 && maxSpin->value() % 256 == 0,
-              "自动算出来的最大内存在 [1024, 8192] 且是 256 的整数倍",
+        check(maxSpin->value() >= maxSpin->minimum() && maxSpin->value() <= maxSpin->maximum() &&
+                  maxSpin->value() % 256 == 0,
+              "最大内存在框自己的范围内，且是 256 的整数倍（条的档位就是这个步长）",
               QString::number(maxSpin->value()));
         // ★ 2026-09-26：「最小内存」那一格从界面上撤掉了，但**它照样发给 JVM** ⇒ 两条
         //   不变量得换个地方钉：① 盘上那对必须是自洽的（Xms 是 Xmx 四分之一那一档，
@@ -21070,8 +21637,10 @@ int main(int argc, char *argv[]) {
               QString("%1/%2").arg(javaProbe.xms()).arg(javaProbe.xmx()));
         check(memoryHint->text().contains(QStringLiteral("系统总内存")) &&
                   memoryHint->text().contains(QStringLiteral("可用")) &&
-                  memoryHint->text().contains(QStringLiteral("自动")),
-              "说明文字讲清了这台机器有多少内存、这是自动档", memoryHint->text());
+                  memoryHint->text().contains(QStringLiteral("拖着改")) &&
+                  !memoryHint->text().contains(QStringLiteral("自动")),
+              "说明文字讲清了这台机器有多少内存、并说明这个数怎么改（再没有「自动」那一档）",
+              memoryHint->text());
         check(memoryHint->text().contains(QStringLiteral("最小内存由启动器定")) &&
                   memoryHint->text().contains(QStringLiteral("不用管")),
               "说明文字把撤掉的那一项说全了（它还是发给 JVM 的）", memoryHint->text());
@@ -21155,22 +21724,18 @@ int main(int argc, char *argv[]) {
     header("M. 在设置页改东西：立刻落盘、立刻生效");
     // ------------------------------------------------------------------
     if (settingsWired) {
-        // ---- 内存：从自动切到手动，然后改一个数就落盘 ----
-        // 开窗时是自动档，两个框是禁用的，而且 onMemoryChanged() 里还有一道"自动档直接
-        // 返回"的守卫 —— 所以手调内存的第一步一定是取消这个勾选。这里就是照着用户的操作走。
-        memoryAuto->setChecked(false);
-        QApplication::processEvents();
+        // ---- 内存：改一个数就落盘 ----
+        // ★ 2026-10-18 起没有"先取消自动档"这一步了：条和数字框开窗就是手动、就能改。
+        //   这里量的第一件事是"它开窗时确实已经能改"，然后才是改一下立刻落盘。
         {
             GlobalJavaSettings probe;
-            check(!probe.autoMemory(), "取消勾选「自动」后盘上记的是手动档");
-            check(maxSpin->isEnabled() && maxSlider->isEnabled(), "手动档下条和数字框可以编辑了");
-            // 切到手动时**留着**刚才那个建议值当起点：用户是想微调，不是想从内置默认值
-            // 重来（这一条是 refreshMemoryUi()/setAutoMemory() 的取舍，钉住它）。
+            check(!probe.autoMemory(), "盘上记的是手动档（自动档那一档已经没有了）");
+            check(maxSpin->isEnabled() && maxSlider->isEnabled(), "条和数字框开窗就能编辑");
             check(maxSpin->value() == probe.xmx(),
-                  "切到手动时留着刚才那个建议值，没有退回内置默认值",
+                  "开窗时框里就是盘上那个数，没有退回内置默认值",
                   QString("界面 %1，盘上 %2").arg(maxSpin->value()).arg(probe.xmx()));
-            check(memoryHint->text().contains(QStringLiteral("手动")),
-                  "说明文字跟着变成「手动指定」", memoryHint->text());
+            check(!memoryHint->text().contains(QStringLiteral("自动")),
+                  "说明文字里不再提「自动档」", memoryHint->text());
         }
 
         // ★ 2026-10-17：上限是按**本机物理内存**收过口的（见 applyMemoryLimits）——
@@ -21275,59 +21840,43 @@ int main(int argc, char *argv[]) {
                   QString("框 %1 / 条下标 %2").arg(maxSpin->value()).arg(maxSlider->value()));
         }
 
-        // ---- 内存：切回自动 = 立刻重算，条和框又禁用 ----
-        // 先手动填一个**不可能**是建议值的数（建议值上限 8192，而且是从物理内存算出来的
-        // 小数），这样"它被换掉了"这件事在任何机器上都测得出来；写 8192 之类的话，
-        // 万一这台机器恰好建议 8192，这条断言就白写了。
-        // ★ 2026-09-26：框的上限已经不是那个定死的 65536，而是被**本机物理内存**夹过一道
-        //   （applyMemoryLimits()），所以"填个大数"最多只能填到 maxSpin->maximum()。
-        //   比 8 GB 还小的机器上这个上限可能恰好等于建议值 —— 那种机器上下面这条断言
-        //   就没意义了，所以先把它当**前提**摆出来（它红了 = 这台机器太小，不是产品的问题）。
-        const int manualTargetMb = maxSpin->maximum();
-        {
-            const SystemMemory::Usage usage = SystemMemory::read();
-            check(manualTargetMb !=
-                      GlobalJavaSettings::suggestXmxMb(usage.totalMb, usage.availableMb),
-                  "前提：手动填的这个数不等于自动档会算出来的那个建议值",
-                  QString("填 %1 / 建议 %2").arg(manualTargetMb)
-                      .arg(GlobalJavaSettings::suggestXmxMb(usage.totalMb, usage.availableMb)));
-        }
+        // ---- 内存：拖出来的数开窗不被重算（自动档撤掉之后的回归钉子） ----
+        // ★ 2026-10-18：以前这一节量的是"切回自动 = 按系统内存重算、条和框又禁用"。那条
+        //   路连同勾选框一起撤掉了，替它钉的是**相反**的一件事：用户拖到哪儿，下一次开窗
+        //   还是哪儿。自动档会在每次开窗时按当前可用内存重算，而这台机器上可用内存一动，
+        //   用户拖出来的数就会被换掉 —— 界面上又再没有关掉它的入口。
+        // ★ 2026-09-26：上限被**本机物理内存**夹过一道（applyMemoryLimits()），所以
+        //   "填个大数"最多只能填到 maxSpin->maximum()，这里用一个 qMin 兜住小机器。
+        const int manualTargetMb = qMin(5120, maxSpin->maximum());
         maxSpin->setValue(manualTargetMb);
         QApplication::processEvents();
         {
             GlobalJavaSettings probe;
-            check(probe.xmx() == manualTargetMb,
-                  "手动档下贴着上限的那个数存下去了（上限以内都是用户自己填的）",
-                  QString::number(probe.xmx()));
+            check(probe.xmx() == manualTargetMb && !probe.autoMemory(),
+                  "那个数存下去了，盘上记的是手动档",
+                  QString("%1 / %2").arg(probe.xmx()).arg(probe.autoMemory()));
         }
-        memoryAuto->setChecked(true);
-        QApplication::processEvents();
         {
-            GlobalJavaSettings probe;
-            check(probe.autoMemory(), "重新勾上「自动」后盘上记的是自动档");
-            check(!maxSpin->isEnabled() && !maxSlider->isEnabled(), "自动档下条和数字框又禁用了");
-            check(maxSpin->value() != manualTargetMb && maxSpin->value() >= 1024 &&
-                      maxSpin->value() <= 8192,
-                  "切回自动会按当前系统内存重算（手动填的那个数被换掉了）",
-                  QString::number(maxSpin->value()));
-            check(probe.xms() == GlobalJavaSettings::suggestXmsMb(probe.xmx()) &&
-                      probe.xms() <= probe.xmx(),
-                  "重算后的最小内存仍然和最大内存自洽",
-                  QString("%1/%2").arg(probe.xmx()).arg(probe.xms()));
-            check(maxSpin->value() == probe.xmx(),
-                  "重算的结果也落盘了（界面显示的就是盘上存的）",
-                  QString("界面 %1，盘上 %2").arg(maxSpin->value()).arg(probe.xmx()));
-            const QList<int> steps =
-                MemorySlider::valueSteps(maxSpin->minimum(), maxSpin->maximum());
-            check(maxSlider->value() == MemorySlider::nearestIndex(steps, probe.xmx()),
-                  "那条条也跟着挪到重算出来的那一格上（值是被重灌的，条不能停在原地）",
-                  QString("条下标 %1（期望 %2）")
-                      .arg(maxSlider->value())
-                      .arg(MemorySlider::nearestIndex(steps, probe.xmx())));
-            check(memoryHint->text().contains(QStringLiteral("系统总内存")),
-                  "说明文字变回自动档那一句", memoryHint->text());
+            MainWindow again;
+            again.show();
+            QApplication::processEvents();
+            QSpinBox *spin = byObjectName<QSpinBox>(&again, MainWindowUI::memoryMaxSpinName());
+            QSlider *reopenedSlider =
+                byObjectName<QSlider>(&again, MainWindowUI::memoryMaxSliderName());
+            QCheckBox *autoBox =
+                again.findChild<QCheckBox *>(QStringLiteral("memoryAutoCheck"));
+            check(spin != nullptr && spin->value() == manualTargetMb,
+                  "新开一扇设置窗，框里还是用户拖出来的那个数（开窗不重算）",
+                  spin != nullptr ? QString::number(spin->value()) : QString());
+            check(spin != nullptr && reopenedSlider != nullptr &&
+                      MemorySlider::valueSteps(spin->minimum(), spin->maximum())
+                              .value(reopenedSlider->value(), -1) == manualTargetMb,
+                  "那根条也停在同一格上",
+                  reopenedSlider != nullptr ? QString::number(reopenedSlider->value())
+                                            : QString());
+            check(autoBox == nullptr, "新窗口里同样没有「自动」勾选框");
         }
-        // 到这里窗口回到自动档（= 开窗时的状态），后面几节接着跑时起点是确定的。
+        // 到这里盘上和界面都停在 manualTargetMb，后面几节接着跑时起点是确定的。
 
         // ---- 启动后：落盘，且存的是约定的字符串 ----
         // 下面两条故意写死键名和存进去的串：LauncherSettings.cpp 里那两句注释说了
@@ -26389,7 +26938,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
             QApplication::processEvents();
             QSpinBox *maxSpin = byObjectName<QSpinBox>(&w, MainWindowUI::memoryMaxSpinName());
             QSlider *maxSlider = byObjectName<QSlider>(&w, MainWindowUI::memoryMaxSliderName());
-            QLabel *hint = byObjectName<QLabel>(&w, MainWindowUI::memoryAutoHintName());
+            QLabel *hint = byObjectName<QLabel>(&w, MainWindowUI::memoryHintName());
             check(maxSpin != nullptr && maxSpin->value() == 3072,
                   "U2 设置页那个框显示的是全局那份（3072），不是某个实例覆盖的 2048",
                   maxSpin != nullptr ? QString::number(maxSpin->value()) : QString());
@@ -26439,8 +26988,9 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
               "U4 前提：两个假运行时都认得出主版本（读 release 就够了，一次进程都没起）");
 
         // 专用实例：version.json 要的是 Java 17，而实例钉的是 fake8 —— 正是"对不上"。
-        // autoMemory 也覆盖成 true：那条"实例自己要的自动档不许写回全局"的分支就藏在这
-        // 一路之后（U 段开头那条 NOTE 说它证不到，现在证得到了）。
+        // meta 里还塞了一个无关的键（当年是 autoMemory，2026-10-18 起读侧已经不认它了，
+        // 见 EffectiveJavaSettings.cpp）：它现在的用处是钉住"合并写"——「改用匹配的 Java」
+        // 往 meta 里只该改 javaPath 那一项，别的键一个都不许丢。
         const QString remindId = QStringLiteral("版本提醒测试");
         const QDir remindDir(versionsDir.filePath(remindId));
         remindDir.mkpath(QStringLiteral("."));
@@ -27067,6 +27617,31 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                   "那句话还说清了再装一次会校验并补齐（不是「会多出一个」）",
                   installNameHint->text());
             check(installBtn->isEnabled(), "默认名合法，「安装」是亮的");
+
+            // 实例预设那一格（2026-10-18，coding plan §7「安装流程集成」）。三件东西都在，
+            // 而且进这一页那一刻已经灌好了：第一项**固定**是「不使用预设」，它的
+            // `Qt::UserRole` 是空串（"这一趟不带预设"就是靠这个空串判的，不认文字）。
+            {
+                QComboBox *presetCombo =
+                    window.findChild<QComboBox *>(MainWindowUI::installPresetComboName());
+                QCheckBox *presetCheck =
+                    window.findChild<QCheckBox *>(MainWindowUI::installPresetApplyCheckName());
+                QPushButton *presetView =
+                    window.findChild<QPushButton *>(MainWindowUI::installPresetViewButtonName());
+                check(presetCombo != nullptr && presetCheck != nullptr && presetView != nullptr,
+                      "★ 安装页有「实例预设」那一格的三件东西（下拉框 / 查看内容 / 勾选框）");
+                check(presetCombo != nullptr && presetCombo->count() >= 1 &&
+                          presetCombo->itemData(0).toString().isEmpty() &&
+                          presetCombo->itemText(0) == QStringLiteral("不使用预设"),
+                      "★★ 下拉框第一项是「不使用预设」，身份是空串（装完什么都不改）",
+                      presetCombo != nullptr && presetCombo->count() > 0
+                          ? presetCombo->itemText(0) + QStringLiteral(" / ") +
+                                presetCombo->itemData(0).toString()
+                          : QStringLiteral("<没有下拉框>"));
+                check(presetCheck != nullptr && !presetCheck->isChecked(),
+                      "★ 「安装完成后应用」默认**不勾**（§10：默认自动应用要等预览/备份/错误"
+                      "报告都齐了再谈）");
+            }
 
             // Y2b. **列表是进这一页就全问出去的**，不是点开哪条才问哪条（用户原话：
             //      "获取列表不能点开了再获取，得全获取完"）。所以此刻四条加载器底下都已经

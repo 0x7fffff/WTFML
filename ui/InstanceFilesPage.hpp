@@ -403,6 +403,29 @@ public:
     /// 「打开文件夹」都容易让人以为里面的东西会有用）。空串 = 恢复正常。
     void setUnavailable(const QString &reason);
 
+    // ---------- 列表下面那条"这一份是什么"（2026-10-18，原理图 / 结构）----------
+    //
+    // coding plan §9.5：原理图要给出元数据与方块统计，并且和实例的版本对一句"可能不兼容"。
+    // 那一份东西**不是这一层算得出来的**：要读 gzip NBT、要认识 Litematica 的位打包，
+    // 而那些都在 src/ 里（这一层不 include src/，见文件头）。所以这一层只做三件事：
+    // 建一格标签、在"选中的那一条换了"时说一声、以及把接的人递回来的话摆上去。
+    //
+    // NOTE: 默认**关着** —— 另外七页一个像素都不变；只有「原理图」那一页的调用方会开。
+    void setInfoPanelEnabled(bool enabled);
+    bool infoPanelEnabled() const { return m_infoPanelEnabled; }
+
+    /// 把那一格的话摆上去（空串 = 收起来）。@p toolTip 走悬停提示（方块排行那种长表）。
+    /// 读失败时也走这儿：接的人把 `SchematicInfo` 给的 `problem` 原样递进来。
+    ///
+    /// @param path 这个答案讲的是**哪一条**（就是 infoRequested() 递出去的那个）。
+    ///        ★ 不是当前选中的那一条 ⇒ **整份丢掉**：一次读取要几百毫秒（大投影更久），
+    ///        这段时间里用户完全来得及换行，摆上去就成了"选着 B、写着 A"。
+    void setInfoText(const QString &path, const QString &text, const QString &toolTip = QString());
+
+    static QString infoLabelName() { return QStringLiteral("instanceFilesInfoLabel"); }
+    /// 发出请求到接的人回来之间，那一格先写这句（读一份 gzip NBT 要几百毫秒）。
+    static QString infoPendingText() { return QStringLiteral("正在读取…"); }
+
     /// 重新列一遍目录。切到这一页时、以及 MainWindow 动过盘之后都会调它。
     void refresh();
 
@@ -919,6 +942,15 @@ signals:
     /// 用户点了顶上那颗「批量编辑」。**今天是个占位**：接的人负责说那句"还没做"。
     void batchEditRequested();
 
+    /// 列表里**刚好选中了一个文件**（不是目录），而且这一页开着信息格（见
+    /// setInfoPanelEnabled）。@param path 这一条的绝对路径。
+    ///
+    /// NOTE: 接的人要**同步**把话算出来、调 `setInfoText()` 递回来 —— 这一层不知道
+    ///       "原理图是什么"，也不该等一个异步答案（用户下一页就点走了）。
+    /// NOTE: 选择一变就会发一次（而且合并了 150 ms 内的连点，见 .cpp 里那个节拍器）——
+    ///       读一份大投影要几百毫秒，快速翻行时不该每行都读一遍。
+    void infoRequested(const QString &path);
+
     /// 用户点了某一条行尾的「编辑」（那支笔）。@param path 是这一条的绝对路径
     /// （= `item->data(pathRole())`）。
     ///
@@ -1283,6 +1315,21 @@ private:
     QString m_joinTip;
     QListWidget *m_list = nullptr;
     QLabel *m_notice = nullptr;
+
+    // ---------- 列表下面那条"这一份是什么"（2026-10-18）----------
+    /// 那一格标签。**每一页都建**（这几页是同一段循环搭的），只有
+    /// `setInfoPanelEnabled(true)` 的页上它才可能露出来。
+    QLabel *m_info = nullptr;
+    /// 这一页要不要那一格（默认关 —— 别的七页一个像素都不变）。
+    bool m_infoPanelEnabled = false;
+    /// 已经为哪一条发过请求（避免"选中没变、只是列表重列"时又读一遍盘）。
+    QString m_infoPath;
+    /// 连点合并用的单发定时器（150 ms；见 .cpp 里 updateInfoPanel()）。
+    QTimer *m_infoTimer = nullptr;
+
+    /// 按"现在选着哪一条"决定那一格露不露、写什么、要不要发 infoRequested()。
+    /// 选择变化、重列、开/关信息格时都会调它。
+    void updateInfoPanel();
 
     // ---------- 批量管理（2026-10-09，见文件头那段）----------
 

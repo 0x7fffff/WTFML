@@ -1112,7 +1112,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         grid->addWidget(cell, row++, 0, 1, 2);
     }
 
-    // ---------- 启动（Java 选项 / 内存分配 / 高级选项）----------
+    // ---------- 启动（Java 选项 / 内存 / 高级选项）----------
     grid = addForm(launchCategoryKey(), addPage(launchCategoryKey()));
     row = 0;
 
@@ -1270,19 +1270,12 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         }
         cell->hide();
     }
-    {
-        QWidget *cell = addOverrideRow(grid, row, autoMemoryField(), tr("内存分配"),
-                                       tr("只对这个实例生效（勾上 = 按系统内存现算）。"));
-        row += 2;
-        auto *choiceRow = choiceRowOf(autoMemoryField());
-        m_memoryAutoCheck = new QCheckBox(tr("自动（按系统内存）"), cell);
-        m_memoryAutoCheck->setObjectName(memoryAutoCheckName());
-        choiceRow->addWidget(m_memoryAutoCheck);
-        // 勾选框也要接：在「自定义」下面切换自动/手动时，上面那两行的开关跟着变。
-        // 接在这里而不是 addOverrideRow 里 —— 那个函数返回时这个勾选框还不存在。
-        connect(m_memoryAutoCheck, &QCheckBox::toggled, this,
-                &InstanceSettingsDialog::refreshHints);
-    }
+    // NOTE: 2026-10-18：「内存分配」（自动 / 手动那一行）**整行撤掉了**。用户原话：
+    //       「内存分配和最大内存这玩意完全就是重复的，只保留那个拖动的」。撤掉的是这一页
+    //       对 autoMemory 的**入口**，盘上已经存过的 autoMemory 覆盖照样由
+    //       JavaSettingsOverride 透传（见 src/settings/EffectiveJavaSettings.cpp），
+    //       不会因为开一次这一页就被抹掉 —— 和上面「最小内存」那一行同一个态度。
+
 
     // ---------- 窗口模式 / 窗口大小（2026-09-28 加的）----------
     //
@@ -1509,7 +1502,8 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     //       警告，而 tooltip 得悬停才看得见（理由见 .hpp 里 actionsHint() 那段）。
     // NOTE: 摆在「高级选项」**之后**：这一页从上到下是"这个实例拿什么启动"（Java、内存、
     //       额外参数），两件动作是收尾。而且高级选项默认折叠着，所以打开这一页看到的
-    //       顺序是 Java 路径 → 最大内存 → 最小内存 → 内存分配 → 两件动作。
+    //       顺序是 Java 路径 → 最大内存 → 最小内存 → 两件动作（「内存分配」那一行
+    //       2026-10-18 撤掉了，见上面那段 REMOVED 注释）。
     {
         auto *cell = new QWidget(this);
         auto *column = new QVBoxLayout(cell);
@@ -2035,9 +2029,6 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     setChoiceCustom(xmsField(), current.xms.has_value());
     m_memoryMinSpin->setValue(current.xms.value_or(global.xms));
 
-    setChoiceCustom(autoMemoryField(), current.autoMemory.has_value());
-    m_memoryAutoCheck->setChecked(current.autoMemory.value_or(global.autoMemory));
-
     setChoiceCustom(extraJvmArgsField(), current.extraJvmArgs.has_value());
     m_extraJvmArgsEdit->setText(current.extraJvmArgs.value_or(global.extraJvmArgs));
 
@@ -2241,7 +2232,7 @@ QWidget *InstanceSettingsDialog::addPage(const QString &key) {
     // NOTE: 页面自己是 `scroll->widget()`（objectName 还是 panelName(key)）—— 堆叠页里
     //       加进去的仍然是**一页一个控件**，所以那些按 index 认页的代码（filePageFirstIndex()
     //       那套）一位都不动。验证工程按 panelName() 找回来的也还是那一页。
-    auto *scroll = new QScrollArea(m_stack);
+    auto *scroll = new Theme::GutterScrollArea(m_stack);
     scroll->setObjectName(scrollName(key));
     scroll->setWidgetResizable(true);
     scroll->setFrameShape(QFrame::NoFrame);
@@ -2370,6 +2361,15 @@ void InstanceSettingsDialog::setPageChoices(const QJsonObject &stored) {
         }
     }
     rebuildEntryList();
+    // ★ 2026-10-18：签名基线要**跟着这一刻重记**。
+    //   构造末尾那一发布线（见构造函数里 `m_lastSignature = valueSignature()`）的时候，
+    //   盘上那份 `settingsPages` 还没灌进来 —— 它由 controller 在构造**之后**才调本函数。
+    //   于是：勾掉「存档」写盘 → 重开这一页（框是没勾的，可基线还是"七条全勾"）→ 用户
+    //   把它勾回来，拼出来的签名和构造时那份**逐字相同**，`notifyEdited()` 当成"没改过"、
+    //   一个字都不写盘 —— 用户眼前勾回来了，重开还是不见，而且没有任何错话可看。
+    //   这里重记不是"吞掉一次写"：此刻盘上那份就是这一份状态；用户之后再动任何一格，
+    //   签名都会真的变（勾选框那一路走的是 `clicked`，不是 `setChecked()`）。
+    m_lastSignature = valueSignature();
 }
 
 void InstanceSettingsDialog::applyEntry(int row) {
@@ -2393,6 +2393,15 @@ void InstanceSettingsDialog::applyPageKey(const QString &key) {
     const bool alreadyHere = m_stack->currentIndex() == index;
     m_stack->setCurrentIndex(index);
     refreshLifecycleFiles(key);
+    // ★ 2026-10-18（§9.5）：进「启动诊断」那一页就自动跑一遍（用户点进来要的是"现在
+    //   怎么样"，不是一句"按一下检查"）。重进/改名之后再进也重算。
+    if (key == QStringLiteral("diagnosis")) emit diagnosisRequested();
+    // ★ 2026-10-18（§9.9）：进「迁移」/「升级」那一页也重算一遍计划。用户可能在这一页停
+    //   着的时候往盘上加了文件（或反过来），而这两页的"搬多少"就是按盘上现算的。
+    if (key == QStringLiteral("migration") || key == QStringLiteral("upgrade")) {
+        const QString targetId = transferTarget(key);
+        if (!targetId.isEmpty()) emit transferTargetChosen(key, targetId);
+    }
     if (key == QStringLiteral("resourcepack") && m_resourcePackPage != nullptr) {
         auto *stack = qobject_cast<QStackedWidget *>(m_resourcePackPage->parentWidget());
         if (stack != nullptr && stack->currentWidget() == m_resourcePackPage)
@@ -3838,6 +3847,35 @@ void InstanceSettingsDialog::setupLifecyclePages() {
             list->setContextMenuPolicy(Qt::CustomContextMenu);
             layout->addWidget(list, 1);
             m_lifecycleLists.insert(key, list);
+            // ★ 2026-10-18（coding plan §9.5）：Replay / 结构这两页选中一行之后，底下
+            //   那一格说这一条是什么。**读盘不在这里**（见头文件里那段）—— 这里只把
+            //   "选中换了"发出去，再把接的人递回来的话摆上。150 ms 的延迟和原理图那一页
+            //   同一档：上下翻行时不该每过一行就读一次盘（读一份结构要起 PowerShell）。
+            if (key == QStringLiteral("replay") || key == QStringLiteral("structure")) {
+                auto *info = new QLabel(page);
+                info->setObjectName(lifecycleInfoLabelName(key));
+                info->setWordWrap(true);
+                info->setTextInteractionFlags(Qt::TextSelectableByMouse);
+                // 比正文浅一档 —— 和 InstanceFilesPage::makeSecondary() 同一个口径
+                // （`QPalette::PlaceholderText` 是全仓唯一那个"次要文字"色）。
+                QPalette infoPalette = info->palette();
+                infoPalette.setColor(QPalette::WindowText,
+                                     infoPalette.color(QPalette::PlaceholderText));
+                info->setPalette(infoPalette);
+                info->setVisible(false);
+                layout->addWidget(info);
+                m_lifecycleInfo.insert(key, info);
+                auto *timer = new QTimer(info);
+                timer->setSingleShot(true);
+                timer->setInterval(150);
+                connect(timer, &QTimer::timeout, this, [this, key] {
+                    const QString path = m_lifecycleInfoPath.value(key);
+                    if (!path.isEmpty()) emit lifecycleFileInfoRequested(key, path);
+                });
+                m_lifecycleInfoTimers.insert(key, timer);
+                connect(list, &QListWidget::currentItemChanged, this,
+                        [this, key] { updateLifecycleInfo(key); });
+            }
             connect(search, &QLineEdit::textChanged, this,
                     [this, key] { filterLifecycleFiles(key); });
             connect(list, &QListWidget::itemActivated, this, [this](QListWidgetItem *item) {
@@ -3890,13 +3928,77 @@ void InstanceSettingsDialog::setupLifecyclePages() {
         } else if (key == QStringLiteral("export")) {
             moveOverviewAction(exportButtonName());
         } else if (key == QStringLiteral("diagnosis")) {
-            hint(tr("通过启动日志和崩溃报告排查启动失败；启动前完整性检查可定位文件缺失。综合 Java、内存与模组的独立诊断报告仍待实现。"));
+            hint(tr("把实例本身、Java、内存、模组、最近一次启动日志和最近一份崩溃报告放在一起看。"
+                    "每一条都是盘上读得到的事实；认不出来的崩溃只如实转述，不猜是哪个模组。"
+                    "文件是否齐全请用「完整性检查」。"));
+            m_diagnosisReport = new QPlainTextEdit(page);
+            m_diagnosisReport->setObjectName(diagnosisReportName());
+            m_diagnosisReport->setReadOnly(true);
+            m_diagnosisReport->setPlainText(diagnosisPendingText());
+            m_diagnosisReport->setLineWrapMode(QPlainTextEdit::WidgetWidth);
+            layout->addWidget(m_diagnosisReport, 1);
+            action(tr("重新检查"), [this]() { emit diagnosisRequested(); })
+                ->setObjectName(diagnosisRefreshButtonName());
             action(tr("查看日志"), [this]() { showPage(QStringLiteral("logs")); });
             action(tr("查看崩溃报告"), [this]() { showPage(QStringLiteral("crash")); });
-        } else if (key == QStringLiteral("migration")) {
-            hint(tr("实例迁移流程尚未实现。迁移需要规划目标路径、校验文件并更新引用；现有复制功能保留原实例，不等同于迁移。"));
-        } else if (key == QStringLiteral("upgrade")) {
-            hint(tr("Minecraft 版本升级向导尚未实现。需要目标版本与加载器兼容性确认、升级副本和恢复点；现有模组更新中心不等同于版本升级。"));
+        } else if (key == QStringLiteral("migration") || key == QStringLiteral("upgrade")) {
+            // ★ 2026-10-18（coding plan §9.9 第 15 项）：这两页原来各是一句「还没实现」。
+            //   现在它们共用一套控件：目标 → 计划正文 → 可勾选的范围表 → 动手那一颗。
+            //   计划怎么算、勾什么、兼容性怎么说全在 `TransferPlanner`；这一层只摆字。
+            //
+            //   NOTE: 「升级」**不下载任何东西** —— 目标版本必须是这个游戏文件夹里已经
+            //         装好的那一份。要装新版本走下载页（这里只说清这一条，不假装能装）。
+            const bool upgrade = key == QStringLiteral("upgrade");
+            if (upgrade) {
+                hint(tr("升级副本 = 拿这个游戏文件夹里已经装好的另一份版本当底，复制成一份新实例，"
+                        "再把这一份实例的内容按你勾的搬进去。原实例一个字节都不动；"
+                        "这里不下载新版本 —— 目标版本要先在下载页装好。"));
+            } else {
+                hint(tr("把这一份实例的内容搬进这个游戏文件夹里的另一份实例。"
+                        "只增加文件，不删除、不覆盖目标里已有的同名文件；这一份实例原样保留。"
+                        "两边的游戏都要先关掉。"));
+            }
+            auto *targetLine = new QHBoxLayout();
+            auto *targetLabel = new QLabel(upgrade ? tr("目标版本") : tr("目标实例"), page);
+            auto *combo = new QComboBox(page);
+            combo->setObjectName(transferTargetComboName(key));
+            combo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+            targetLine->addWidget(targetLabel);
+            targetLine->addWidget(combo, 1);
+            layout->addLayout(targetLine);
+            m_transferTargets.insert(key, combo);
+
+            // 计划正文：只读、可选中复制（用户想把这份范围说明贴到别处就用得上）。
+            auto *plan = new QPlainTextEdit(page);
+            plan->setObjectName(transferPlanTextName(key));
+            plan->setReadOnly(true);
+            plan->setPlainText(tr("正在准备计划…"));
+            plan->setLineWrapMode(QPlainTextEdit::WidgetWidth);
+            layout->addWidget(plan, 2);
+            m_transferPlans.insert(key, plan);
+
+            // 可勾选的范围表。**只让勾选框可用、不让整行被选中**：点行 = 勾/取消勾，
+            // 不会出现"选中了一条但没勾上"那种两套状态。
+            auto *items = new QListWidget(page);
+            items->setObjectName(transferItemsListName(key));
+            items->setSelectionMode(QAbstractItemView::NoSelection);
+            layout->addWidget(items, 3);
+            m_transferItems.insert(key, items);
+            connect(items, &QListWidget::itemChanged, this,
+                    [this, key] { updateTransferApplyState(key); });
+
+            auto *apply = action(upgrade ? tr("创建升级副本…") : tr("搬过去…"), [this, key]() {
+                emit transferApplyRequested(key, transferTarget(key), transferSelectedKeys(key));
+            });
+            apply->setObjectName(transferApplyButtonName(key));
+
+            // 换目标 ⇒ 只发"选的是谁"，计划由接的人算好再递回来（和选一行读元数据同一套）。
+            connect(combo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+                    [this, key, combo] {
+                        const QString id = combo->currentData().toString();
+                        if (!id.isEmpty()) emit transferTargetChosen(key, id);
+                    });
+            updateTransferApplyState(key);
         }
         layout->addStretch(1);
     }
@@ -3933,21 +4035,42 @@ void InstanceSettingsDialog::refreshLifecycleFiles(const QString &key) {
         return a.lastModified() > b.lastModified();
     });
     for (const QFileInfo &file : files) {
-        auto *item = new QListWidgetItem(file.fileName() + QLatin1Char('\n')
-            + file.lastModified().toString(QStringLiteral("yyyy-MM-dd HH:mm")), list);
-        item->setData(Qt::UserRole, file.absoluteFilePath());
-        item->setToolTip(file.absoluteFilePath());
+        // 第二行是"细节"那一行（和文件管理页的行一个写法：上面名字、下面大小·时间）。
+        // ★ 2026-10-18（§9.5）：截图补上像素尺寸、余下几页补上文件大小 —— 只靠一个
+        //   时间戳，用户分不出"这张截图是 4K 的还是缩过的"、"这段录像有多大"。
+        QStringList details{file.lastModified().toString(QStringLiteral("yyyy-MM-dd HH:mm"))};
         if (key == QStringLiteral("screenshots")) {
             QImageReader reader(file.absoluteFilePath());
-            reader.setScaledSize(reader.size().scaled(QSize(96, 64), Qt::KeepAspectRatio));
-            item->setIcon(QPixmap::fromImage(reader.read()));
+            const QSize pixels = reader.size();
+            if (pixels.isValid()) {
+                details << QStringLiteral("%1×%2").arg(pixels.width()).arg(pixels.height());
+                reader.setScaledSize(pixels.scaled(QSize(96, 64), Qt::KeepAspectRatio));
+            }
+            // 尺寸读不出来也照样试着解一张缩略图（有些 PNG 的头信息坏了，数据还能读）。
+            const QImage thumb = reader.read();
+            details << InstanceFilesPage::formatSize(file.size());
+            auto *item = new QListWidgetItem(
+                file.fileName() + QLatin1Char('\n') + details.join(QStringLiteral(" · ")),
+                list);
+            item->setData(Qt::UserRole, file.absoluteFilePath());
+            item->setToolTip(file.absoluteFilePath());
+            if (!thumb.isNull()) item->setIcon(QPixmap::fromImage(thumb));
+            continue;
         }
+        details << InstanceFilesPage::formatSize(file.size());
+        auto *item = new QListWidgetItem(
+            file.fileName() + QLatin1Char('\n') + details.join(QStringLiteral(" · ")), list);
+        item->setData(Qt::UserRole, file.absoluteFilePath());
+        item->setToolTip(file.absoluteFilePath());
     }
     if (files.isEmpty()) {
         auto *item = new QListWidgetItem(tr("暂无文件"), list);
         item->setFlags(Qt::NoItemFlags);
     }
     filterLifecycleFiles(key);
+    // 重列之后选中项可能已经没了（`clear()` 不一定发 currentItemChanged）——
+    // 和 InstanceFilesPage::rebuildRows() 一样，收尾再对一次，别让旧的一句留在底下。
+    updateLifecycleInfo(key);
 }
 
 void InstanceSettingsDialog::filterLifecycleFiles(const QString &key) {
@@ -3976,6 +4099,119 @@ void InstanceSettingsDialog::filterLifecycleFiles(const QString &key) {
             : matches == 0 ? tr("未找到匹配文件（共 %1 个）").arg(total)
                            : tr("显示 %1 / %2 个文件").arg(matches).arg(total));
     }
+}
+
+void InstanceSettingsDialog::updateLifecycleInfo(const QString &key) {
+    auto *label = m_lifecycleInfo.value(key);
+    if (label == nullptr) return;
+    auto *list = m_lifecycleLists.value(key);
+    QString path;
+    if (list != nullptr && list->currentItem() != nullptr) {
+        path = list->currentItem()->data(Qt::UserRole).toString();
+    }
+    if (path.isEmpty()) {
+        // 没选中 / 只选中了「暂无文件」那一格 ⇒ 那一格整颗收起来，别摆个空行。
+        if (auto *timer = m_lifecycleInfoTimers.value(key)) timer->stop();
+        m_lifecycleInfoPath.remove(key);
+        label->clear();
+        label->setToolTip(QString());
+        label->setVisible(false);
+        return;
+    }
+    if (path == m_lifecycleInfoPath.value(key)) return; // 同一行：正在读 / 已经读好了
+    if (auto *timer = m_lifecycleInfoTimers.value(key)) timer->stop();
+    m_lifecycleInfoPath.insert(key, path);
+    label->setText(lifecycleInfoPendingText());
+    label->setToolTip(QString());
+    label->setVisible(true);
+    if (auto *timer = m_lifecycleInfoTimers.value(key)) timer->start();
+}
+
+void InstanceSettingsDialog::setLifecycleInfoText(const QString &key, const QString &path,
+                                                  const QString &text, const QString &toolTip) {
+    auto *label = m_lifecycleInfo.value(key);
+    if (label == nullptr) return;
+    // 答案自带"讲的是哪一条" —— 用户已经翻到别的行上时，这一发就是过期的（同一口径
+    // 见 InstanceFilesPage::setInfoText()）。
+    if (path != m_lifecycleInfoPath.value(key)) return;
+    label->setText(text);
+    label->setToolTip(toolTip);
+    label->setVisible(!text.isEmpty());
+}
+
+void InstanceSettingsDialog::setDiagnosisText(const QString &text) {
+    if (m_diagnosisReport == nullptr) return;
+    m_diagnosisReport->setPlainText(text.isEmpty() ? diagnosisPendingText() : text);
+}
+
+// ---------- 「迁移」/「升级」那两页(2026-10-18，§9.9 第 15 项) ----------
+//
+// 两页的控件是 setupLifecyclePages() 建好的；这一组只负责"把接的人递来的东西摆上去"和
+// "把用户勾了什么读回来"。**不读盘、不算兼容性、也不写盘**。
+
+void InstanceSettingsDialog::setTransferTargets(const QString &key,
+                                                const QList<QPair<QString, QString>> &targets) {
+    auto *combo = m_transferTargets.value(key);
+    if (combo == nullptr) return;
+    // ★ 这一发**不出声**：灌列表是 controller 在开页时做的，它紧接着会自己算第一份计划；
+    //   这里要是发 currentIndexChanged，controller 会在同一次调用里再算一遍（白扫一次盘）。
+    const QSignalBlocker blocker(combo);
+    combo->clear();
+    for (const QPair<QString, QString> &target : targets) {
+        combo->addItem(target.first, target.second);
+    }
+    updateTransferApplyState(key);
+}
+
+void InstanceSettingsDialog::setTransferPlan(const QString &key, const QString &text) {
+    auto *plan = m_transferPlans.value(key);
+    if (plan == nullptr) return;
+    plan->setPlainText(text);
+}
+
+void InstanceSettingsDialog::setTransferItems(const QString &key,
+                                              const QList<QPair<QString, QString>> &items,
+                                              const QStringList &defaultKeys) {
+    auto *list = m_transferItems.value(key);
+    if (list == nullptr) return;
+    // 清空 / 添加都会经 itemChanged，而这里正是一批**程序摆上去的**默认勾选 —— 挡掉这
+    // 一批只是别让它把"按钮状态"重算三遍；算三遍也没有副作用，但更吵。
+    const QSignalBlocker blocker(list);
+    list->clear();
+    for (const QPair<QString, QString> &entry : items) {
+        auto *item = new QListWidgetItem(entry.first, list);
+        item->setData(Qt::UserRole, entry.second);
+        item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
+        item->setCheckState(defaultKeys.contains(entry.second) ? Qt::Checked : Qt::Unchecked);
+    }
+    updateTransferApplyState(key);
+}
+
+QString InstanceSettingsDialog::transferTarget(const QString &key) const {
+    auto *combo = m_transferTargets.value(key);
+    return combo == nullptr ? QString() : combo->currentData().toString();
+}
+
+QStringList InstanceSettingsDialog::transferSelectedKeys(const QString &key) const {
+    QStringList keys;
+    auto *list = m_transferItems.value(key);
+    if (list == nullptr) return keys;
+    for (int i = 0; i < list->count(); ++i) {
+        const QListWidgetItem *item = list->item(i);
+        if (item != nullptr && item->checkState() == Qt::Checked) {
+            keys << item->data(Qt::UserRole).toString();
+        }
+    }
+    return keys;
+}
+
+void InstanceSettingsDialog::updateTransferApplyState(const QString &key) {
+    auto *apply = findChild<QPushButton *>(transferApplyButtonName(key));
+    if (apply == nullptr) return;
+    // 两样都得有：选了目标、而且至少勾了一项。少了哪一样，按下去都只会弹一句错话。
+    const bool hasTarget = !transferTarget(key).isEmpty();
+    const bool hasSelection = !transferSelectedKeys(key).isEmpty();
+    apply->setEnabled(hasTarget && hasSelection);
 }
 
 QWidget *InstanceSettingsDialog::addOverrideRow(QGridLayout *grid, int row, const QString &field,
@@ -4066,8 +4302,13 @@ QHBoxLayout *InstanceSettingsDialog::choiceRowOf(const QString &field) const {
 }
 
 bool InstanceSettingsDialog::effectiveAutoMemory() const {
-    return isCustomChoice(autoMemoryField()) ? m_memoryAutoCheck->isChecked()
-                                             : m_global.autoMemory;
+    // 2026-10-18：这一页和设置页都**没有**「内存分配」（自动 / 手动）那一档了 —— 用户
+    // 原话「内存分配和最大内存这玩意完全就是重复的，只保留那个拖动的」。所以有效值只看
+    // 全局那份；而 `GlobalJavaSettings::load()` 现在一律读成手动，产品里这个值恒为 false
+    // （界面上的条和数字框因此永远是可用的）。盘上老实例存着的 autoMemory 覆盖也不再生效
+    // （`resolveJavaSettings` 读侧忽略它），留着这个判据只是为了让"万一有人从代码里把
+    // 全局改成自动"时那两行仍然知道给自己灰掉。
+    return m_global.autoMemory;
 }
 
 bool InstanceSettingsDialog::advancedExpanded() const { return m_advancedToggle->isChecked(); }
@@ -4114,8 +4355,6 @@ void InstanceSettingsDialog::refreshHints() {
 
     followOrCustom(javaPathField(), isCustomChoice(javaPathField()),
                    m_global.javaPath.isEmpty() ? tr("未指定") : m_global.javaPath);
-    followOrCustom(autoMemoryField(), isCustomChoice(autoMemoryField()),
-                   m_global.autoMemory ? tr("自动（按系统内存）") : tr("手动指定"));
     followOrCustom(extraJvmArgsField(), isCustomChoice(extraJvmArgsField()),
                    m_global.extraJvmArgs.isEmpty() ? tr("未设置") : m_global.extraJvmArgs);
 
@@ -4211,9 +4450,6 @@ InstanceSettingsDialog::Override InstanceSettingsDialog::override() const {
         }
     }
 
-    if (isCustomChoice(autoMemoryField())) {
-        result.autoMemory = m_memoryAutoCheck->isChecked();
-    }
     if (isCustomChoice(extraJvmArgsField())) {
         result.extraJvmArgs = m_extraJvmArgsEdit->text().trimmed();
     }

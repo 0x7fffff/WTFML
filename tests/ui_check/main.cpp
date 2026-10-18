@@ -69,6 +69,7 @@
 #include <QShortcut>
 #include <QPixmap>
 #include <QPlainTextEdit>
+#include <QClipboard>  // U40b：旗帜那条「复制指令」按下去真的进了剪贴板
 #include <QPointer>
 #include <QProcess>      // U10O：造一个**真** junction（mklink 是个 cmd 内建命令，得起进程）
 #include <QProgressBar>
@@ -80,6 +81,7 @@
 #include <QSet>
 #include <QSettings>     // W7/W8：主题落盘那一趟（读写都在一个各自独立的窝里，见那一段）
 #include <QSpinBox>
+#include <QTableWidget>  // U40c：附魔那张表的「和上一行同一件」那一列
 #include <QStackedWidget>
 #include <QStandardItemModel>  // Z13：rowActionTip() 只要一个真 model 的 index（不挂视图）
 #include <QStyleHints>   // W2：深浅那一档是平台给的（`colorScheme()`），offscreen 上恒 Unknown
@@ -127,6 +129,7 @@
 #include "InstanceFilesPage.hpp"
 #include "InstanceSettingsDialog.hpp"
 #include "ResourcePackPage.hpp"
+#include "ToolboxPage.hpp"  // U39：信标计算 / 酿造助手那两片
 #include "manage/ResourcePackOptions.hpp"
 // U28：完整性检查报告页（体检跑完摊在内容区上的那一整页）。
 #include "IntegrityReportPage.hpp"
@@ -1022,6 +1025,12 @@ int main(int argc, char *argv[]) {
                 focusHost.activateWindow();
                 app.processEvents();
                 button.setFocus(Qt::TabFocusReason);
+                // ★ 2026-10-18：「键盘在用」这一档现在只认**真的按键**（见 Theme.cpp 里
+                //   `ButtonFocusVisibility` 那段 —— 藏起焦点控件时 Qt 也报 TabFocusReason，
+                //   不能拿它当"用户按了 Tab"）。这里先送一发普通按键把这一档摆上；
+                //   不送 Tab 键：那一发会真的触发焦点链移动，把被测按钮换掉。
+                QKeyEvent keyboardInput(QEvent::KeyPress, Qt::Key_A, Qt::NoModifier);
+                QApplication::sendEvent(&button, &keyboardInput);
                 QFocusEvent keyboardFocus(QEvent::FocusIn, Qt::TabFocusReason);
                 QApplication::sendEvent(&button, &keyboardFocus);
                 expect(button.property("wtfmlKeyboardFocus").toBool(), "keyboard focus shows button focus ring");
@@ -7433,7 +7442,7 @@ int main(int argc, char *argv[]) {
             MainWindowUI::accountSkinSettingsButtonName(),
             MainWindowUI::javaManageButtonName(),      MainWindowUI::javaPathLabelName(),
             MainWindowUI::javaWarnMismatchCheckName(),
-            MainWindowUI::memoryAutoCheckName(),       MainWindowUI::memoryAutoHintName(),
+            MainWindowUI::memoryHintName(),
             MainWindowUI::memoryMaxSpinName(),         MainWindowUI::memoryMaxSliderName(),
             MainWindowUI::launcherBehaviourComboName(), MainWindowUI::extraJvmArgsEditName(),
             MainWindowUI::applyExtraJvmArgsButtonName(),
@@ -7461,7 +7470,7 @@ int main(int argc, char *argv[]) {
                 missing << name;
             }
         }
-        check(missing.isEmpty(), "二十七个设置控件都能按 objectName 找回来", missing.join(", "));
+        check(missing.isEmpty(), "二十六个设置控件都能按 objectName 找回来", missing.join(", "));
 
         // 「CurseForge API key」那一格（2026-09-25 加的，摆在下拉框那一组里）。它和别处
         // 不同的地方有两条，都值得单独钉住：
@@ -7693,7 +7702,7 @@ int main(int argc, char *argv[]) {
 
         {
             const QList<QWidget *> controls = {
-                ui.getJavaManageButton(),          ui.getMemoryAutoCheck(),
+                ui.getJavaManageButton(),          ui.getMemoryHint(),
                 ui.getMemoryMaxSpin(),             ui.getMemoryMaxSlider(),
                 ui.getLauncherBehaviourCombo(),    ui.getExtraJvmArgsEdit(),
                 ui.getDownloadSourceCombo(),       ui.getVersionNameCustomCheck(),
@@ -7746,30 +7755,35 @@ int main(int argc, char *argv[]) {
                   "小节卡片都从列 0 起、跨两列（一页里的卡片各占整行一张）",
                   QString("cards=%1 bad=%2").arg(seenCards.size()).arg(cardSpanBad));
 
-            // 「分配方式」那一行：勾选框和它下面那句说明装在**同一个容器**里（说明在容器最后）。
-            check(ui.getMemoryAutoHint() != nullptr && ui.getMemoryAutoCheck() != nullptr &&
-                      ui.getMemoryAutoHint()->parentWidget() ==
-                          cardItemOf(ui.getMemoryAutoCheck()),
-                  "「分配方式」下面的说明和勾选框装在同一个容器里（说明跟着勾选框走）",
-                  ui.getMemoryAutoHint() != nullptr
+            // 「最大内存」那一行：条 / 数字框和它们下面那句说明装在**同一个容器**里
+            // （说明在容器最后）。★ 2026-10-18：「分配方式」那一行撤掉之后，这句说明并到了
+            // 这里 —— 它现在说的就是这根条（系统内存 + 当前给到多少）。
+            check(ui.getMemoryHint() != nullptr && ui.getMemoryMaxSlider() != nullptr &&
+                      ui.getMemoryHint()->parentWidget() ==
+                          cardItemOf(ui.getMemoryMaxSlider()),
+                  "「最大内存」下面的说明和那根条装在同一个容器里（说明跟着条走）",
+                  ui.getMemoryHint() != nullptr
                       ? QString("hint.parent=%1 item=%2")
-                            .arg(ui.getMemoryAutoHint()->parentWidget() != nullptr
-                                     ? ui.getMemoryAutoHint()->parentWidget()->objectName()
+                            .arg(ui.getMemoryHint()->parentWidget() != nullptr
+                                     ? ui.getMemoryHint()->parentWidget()->objectName()
                                      : QStringLiteral("<null>"))
-                            .arg(cardItemOf(ui.getMemoryAutoCheck()) != nullptr
-                                     ? cardItemOf(ui.getMemoryAutoCheck())->objectName()
+                            .arg(cardItemOf(ui.getMemoryMaxSlider()) != nullptr
+                                     ? cardItemOf(ui.getMemoryMaxSlider())->objectName()
                                      : QStringLiteral("<null>"))
                       : QStringLiteral("<null>"));
-            check(ui.getMemoryAutoHint() != nullptr && ui.getMemoryAutoCheck() != nullptr &&
-                      ui.getMemoryAutoHint()->y() >=
-                          ui.getMemoryAutoCheck()->y() + ui.getMemoryAutoCheck()->height(),
-                  "那句说明量出来的几何在勾选框**下面**（不是并排）",
-                  ui.getMemoryAutoHint() != nullptr
-                      ? QString("check.bottom=%1 hint.y=%2")
-                            .arg(ui.getMemoryAutoCheck()->y() +
-                                 ui.getMemoryAutoCheck()->height())
-                            .arg(ui.getMemoryAutoHint()->y())
-                      : QString());
+            if (ui.getMemoryHint() != nullptr && ui.getMemoryMaxSlider() != nullptr &&
+                ui.getMemoryHint()->parentWidget() != nullptr) {
+                // 条和说明的父控件不同（条在那一行的 line 里），所以先把条的下边沿换算到
+                // 说明的父容器里再比 y —— 直接减两边的 y 是两套坐标。
+                QWidget *hintParent = ui.getMemoryHint()->parentWidget();
+                const QPoint sliderBottom = ui.getMemoryMaxSlider()->mapTo(
+                    hintParent, QPoint(0, ui.getMemoryMaxSlider()->height()));
+                check(ui.getMemoryHint()->y() >= sliderBottom.y(),
+                      "那句说明量出来的几何在条**下面**（不是并排）",
+                      QString("bar.bottom=%1 hint.y=%2")
+                          .arg(sliderBottom.y())
+                          .arg(ui.getMemoryHint()->y()));
+            }
 
             // 拿「最大内存」那一行验几何：**行名在卡片里紧挨着控件上面那一项**，
             // 两者左边缘对齐 —— 这才是"上下结构"，并排的两列长得不是这样。
@@ -7885,13 +7899,11 @@ int main(int argc, char *argv[]) {
                   .arg(ui.getLauncherBehaviourCombo()->count())
                   .arg(ui.getDownloadSourceCombo()->count())
                   .arg(ui.getProcessPriorityCombo()->count()));
-        // 「分配方式」这一项也遵守同一条：勾选状态由 MainWindow 按盘上的值灌，
-        // 界面层不许自己默认打开（默认值是产品逻辑，不是界面的事）。
-        check(ui.getMemoryAutoCheck() != nullptr && !ui.getMemoryAutoCheck()->isChecked(),
-              "「自动（按系统内存）」刚搭好时是未勾选的");
-        check(ui.getMemoryAutoCheck() != nullptr && !ui.getMemoryAutoCheck()->text().isEmpty(),
-              "勾选框自带文字（这一项没有左边的选项名之外的说明）",
-              ui.getMemoryAutoCheck() != nullptr ? ui.getMemoryAutoCheck()->text() : QString());
+        // ★ 2026-10-18：「分配方式」（自动（按系统内存））那一行连同勾选框一起撤掉了 ——
+        //   用户说它和「最大内存」完全重复，只保留那根拖动的条。这里反过来钉一句"它不在"，
+        //   免得哪天有人把那一行又搭回来、界面上重新出现两套说法。
+        check(settingsPage->findChild<QCheckBox *>(QStringLiteral("memoryAutoCheck")) == nullptr,
+              "设置页上不再有「自动（按系统内存）」那个勾选框（只剩一根拖动的条）");
         // 同一个形状，另一项：「实例指定的 Java 版本不符时提醒」这个总闸同样只搭壳。
         // NOTE: 产品里的默认值是"提醒"（true），但那条是**产品逻辑**、不是界面的事 ——
         //       界面层自己默认打开的话，MainWindow 万一忘了灌值就会显示一个假的"开"。
@@ -7904,9 +7916,9 @@ int main(int argc, char *argv[]) {
                                   ? ui.getJavaWarnMismatchCheck()->text()
                                   : QString());
         // 那句说明要有占位文字：空标签会把行高压成 0，灌值的时候布局会跳一下。
-        check(ui.getMemoryAutoHint() != nullptr && !ui.getMemoryAutoHint()->text().isEmpty(),
-              "「分配方式」的说明有占位文字（免得布局跳）",
-              ui.getMemoryAutoHint() != nullptr ? ui.getMemoryAutoHint()->text() : QString());
+        check(ui.getMemoryHint() != nullptr && !ui.getMemoryHint()->text().isEmpty(),
+              "「最大内存」的说明有占位文字（免得布局跳）",
+              ui.getMemoryHint() != nullptr ? ui.getMemoryHint()->text() : QString());
     }
 
     std::printf("===== M. 实例列表（树：组 → 实例） =====\n");
@@ -10982,17 +10994,17 @@ int main(int argc, char *argv[]) {
                   "★ U0i 读不动 / 文件不在 / 空路径一律给**空图**（产品的退路是默认那张）");
         }
 
-        // ---- U1 七项各一个档位下拉框 + 各一个控件，都按 objectName 找得回来 ----
+        // ---- U1 六项各一个档位下拉框 + 各一个控件，都按 objectName 找得回来 ----
         //
         // ★ 2026-09-28：「跟随全局 / 自定义」从前是**一对单选钮**，用户原话「所有单选框
         //   换成下拉的」之后成了**一个两项的下拉框**（`choiceComboName()`）。所以这一节
-        //   现在两件事一起验：① 七项那一个格子都是一个两项的下拉框，两项的文字还是那两句
+        //   现在两件事一起验：① 六项那一个格子都是一个两项的下拉框，两项的文字还是那两句
         //   产品文案；② **这一整页里一个 QRadioButton 都不剩** —— 第二条就是用户那句原话
         //   本身，留着任何一颗没换完的单选钮它就红。那一格的 objectName（`choiceRowName()`）
         //   没变，一并钉住。
         //
         // NOTE: 这里喂了窗口模式表。不喂的话「窗口模式」那一行**根本不建**（见构造函数
-        //       windowModes 那段），七项就只剩六项能够着 —— 那正是这一条要覆盖的第七项。
+        //       windowModes 那段），六项就只剩五项能够着 —— 那正是这一条要覆盖的第六项。
         {
             const QList<Dlg::WindowModeChoice> modes = {
                 {QStringLiteral("小窗"), QStringLiteral("windowed")},
@@ -11001,9 +11013,8 @@ int main(int argc, char *argv[]) {
             Dlg dialog(instanceDisplayName, instanceDirName, Dlg::Override(), global,
                        QStringList(), true, modes);
             const QStringList fields = {Dlg::javaPathField(),      Dlg::xmxField(),
-                                        Dlg::xmsField(),          Dlg::autoMemoryField(),
-                                        Dlg::extraJvmArgsField(), Dlg::windowModeField(),
-                                        Dlg::windowWidthField()};
+                                        Dlg::xmsField(),           Dlg::extraJvmArgsField(),
+                                        Dlg::windowModeField(),    Dlg::windowWidthField()};
             bool allChoices = true;
             bool allRows = true;
             QStringList wrong;
@@ -11021,16 +11032,16 @@ int main(int argc, char *argv[]) {
                 }
             }
             check(allChoices,
-                  "★★ U1 七项「跟随全局 / 自定义」各是一个**两项的下拉框**（下标 0「跟随全局」、"
+                  "★★ U1 六项「跟随全局 / 自定义」各是一个**两项的下拉框**（下标 0「跟随全局」、"
                   "下标 1「自定义」，文字就是那两句产品文案）",
-                  wrong.isEmpty() ? QStringLiteral("七项都是")
+                  wrong.isEmpty() ? QStringLiteral("六项都是")
                                   : wrong.join(QStringLiteral(" / ")));
             const QList<QRadioButton *> leftoverRadios = dialog.findChildren<QRadioButton *>();
             check(leftoverRadios.isEmpty(),
                   "★★ U1 这一整页里**一个单选框都不剩**（用户原话「所有单选框换成下拉的」）",
                   QStringLiteral("还剩 %1 颗").arg(leftoverRadios.size()));
             check(allRows,
-                  "★★ U1 那七项「档位那一格」的 objectName 没变（choiceRowName() 照样找得回来）");
+                  "★★ U1 那六项「档位那一格」的 objectName 没变（choiceRowName() 照样找得回来）");
             check(choiceText(dialog, Dlg::javaPathField(), Dlg::choiceCustomIndex()) ==
                       Dlg::customText(),
                   "U1 下拉框里那两句就是约定的产品文案（「跟随全局」那句在别的行要写清当前值）");
@@ -11038,7 +11049,6 @@ int main(int argc, char *argv[]) {
                       lineEditOf(dialog, Dlg::extraJvmArgsEditName()) != nullptr &&
                       dialog.findChild<QSpinBox *>(Dlg::memoryMaxSpinName()) != nullptr &&
                       dialog.findChild<QSpinBox *>(Dlg::memoryMinSpinName()) != nullptr &&
-                      dialog.findChild<QCheckBox *>(Dlg::memoryAutoCheckName()) != nullptr &&
                       dialog.findChild<QPlainTextEdit *>(Dlg::appendJvmArgsEditName()) != nullptr,
                   "U1 五个控件 + 追加参数那个多行输入都找得回来");
             // 这一个窗里那两个内存数字框也装了滚轮防护（E2b 验的是设置页那一对）。
@@ -11194,62 +11204,51 @@ int main(int argc, char *argv[]) {
                   "U4 但额外参数自定义成空串要留着（那是一种真的意思）");
         }
 
-        // ---- U5 自动档：两行内存整行禁用，而且它们的覆盖不落值 ----
+        // ---- U5 内存只剩一根拖动的条，自动档那一行撤掉了 ----
         //
-        // ★ 2026-09-27（第 5 轮审计那条「跟随全局下的静默丢弃」）：这一段**前景**从
-        //   "可用"改成了"禁用"。这一行停在「跟随全局」时 `override()` 根本不发 xmx 这一项
-        //   （见下面那句"存一份永远不会被读的覆盖就是骗人"），所以让用户拖那条滑条就是
-        //   静默丢弃：数字跟着手指动、点确定、再开一次没了，而且**没有任何提示**。
-        //   判据于是收成 `!autoMemory && 这一行切了自定义`（refreshHints 里那一处），
-        //   要填数就先点「自定义」—— 那一下正是"我要覆盖"这个意思本身。
+        // ★ 2026-10-18（用户原话「内存分配和最大内存这玩意完全就是重复的，只保留那个
+        //   拖动的」）：这一页**不再有**「内存分配」（自动（按系统内存））那一行。两条路
+        //   仍然要钉住：
+        //     ① 这一页里找不到那个勾选框 / 那一格（防止哪天又被搭回来）；
+        //     ② 「跟随全局」时条和数字框仍然禁用（拖了也落不了值），切「自定义」才活。
         {
             Dlg dialog(instanceDisplayName, instanceDirName, Dlg::Override(), global,
                        QStringList(), true);
             auto *maxSpin = dialog.findChild<QSpinBox *>(Dlg::memoryMaxSpinName());
             auto *minSpin = dialog.findChild<QSpinBox *>(Dlg::memoryMinSpinName());
-            auto *autoCheck = dialog.findChild<QCheckBox *>(Dlg::memoryAutoCheckName());
+            check(dialog.findChild<QCheckBox *>(QStringLiteral("instanceMemoryAutoCheck")) ==
+                          nullptr &&
+                      dialog.findChild<QWidget *>(Dlg::choiceRowName(
+                          QStringLiteral("autoMemory"))) == nullptr,
+                  "U5 这一页不再有「内存分配」（自动 / 手动）那一行");
             check(!dialog.effectiveAutoMemory() && !maxSpin->isEnabled() && !minSpin->isEnabled(),
                   "U5 前景：这一行是「跟随全局」⇒ 两行内存**禁用**（拖了也落不了值）");
             check(dialog.override().autoMemory.has_value() == false,
-                  "U5 前景：这一行还是「跟随全局」");
+                  "U5 前景：这一页也不再往覆盖里写 autoMemory");
             // 点了「自定义」就该能填 —— 别为了堵"静默丢弃"把路全堵死。
             setChoice(dialog, Dlg::xmxField(), true);
             check(maxSpin->isEnabled() && minSpin->isEnabled(),
                   "U5 切到「自定义」之后两行内存可用");
-            // NOTE: 2026-09-28 起"摆回那一档"就是**摆回下标 0**（`setChoice(..., false)`）
-            //       —— 从前那对单选钮得勾另一个（同组互斥，对正勾着的那一颗 setChecked(false)
-            //       是取消不掉的），下拉框没有那个毛病。
-            setChoice(dialog, Dlg::xmxField(), false);
-
-            // 把「内存分配」切成自定义并勾上自动
-            setChoice(dialog, Dlg::autoMemoryField(), true);
-            autoCheck->setChecked(true);
-            check(dialog.effectiveAutoMemory(), "U5 勾上之后这一行是自动档");
-            check(!maxSpin->isEnabled() && !minSpin->isEnabled(),
-                  "U5 最大/最小两行跟着禁用");
-            check(choiceCombo(dialog, Dlg::xmxField()) != nullptr &&
-                      !choiceCombo(dialog, Dlg::xmxField())->isEnabled(),
-                  "U5 禁用的是**整行**（连档位那个下拉框一起），不是只禁数字框");
-            check(hintOf(dialog, Dlg::xmxField()) == Dlg::memoryAutoDisabledHint(),
-                  "U5 而且那行说明了为什么（自动档下这两个数按系统内存现算）",
-                  hintOf(dialog, Dlg::xmxField()));
-
-            // 就算用户手快先切了「自定义」再打开自动：那两个数**不许落进覆盖**
-            setChoice(dialog, Dlg::xmxField(), true);
             maxSpin->setValue(2048);
             const Dlg::Override ov = dialog.override();
-            check(ov.autoMemory.has_value() && *ov.autoMemory,
-                  "U5 自动这一档本身是要存的");
-            check(!ov.xmx.has_value(),
-                  "U5 但自动档下的 Xmx 覆盖不落值（存一份永远不会被读的覆盖就是骗人）");
+            check(ov.xmx.has_value() && *ov.xmx == 2048 && !ov.autoMemory.has_value(),
+                  "U5 自定义的 Xmx 才算一项真覆盖（autoMemory 不写）",
+                  ov.xmx.has_value() ? QString::number(*ov.xmx) : QStringLiteral("<无>"));
 
-            // 关掉自动：两行恢复可用，这时切了自定义的 Xmx 才算数
-            autoCheck->setChecked(false);
-            check(maxSpin->isEnabled() && minSpin->isEnabled(), "U5 关掉自动之后两行又可用了");
-            const Dlg::Override ov2 = dialog.override();
-            check(ov2.xmx.has_value() && *ov2.xmx == 2048,
-                  "U5 这时它才算一项真覆盖", ov2.xmx.has_value() ? QString::number(*ov2.xmx)
-                                                               : QStringLiteral("<无>"));
+            // 全局是自动档时：这一页照样只有禁用 + 一句说明（自动档由设置页决定，这里
+            // 没有能关掉它的入口）。
+            Dlg::GlobalValues autoGlobal = global;
+            autoGlobal.autoMemory = true;
+            Dlg autoDialog(instanceDisplayName, instanceDirName, Dlg::Override(), autoGlobal,
+                           QStringList(), true);
+            auto *autoMaxSpin =
+                autoDialog.findChild<QSpinBox *>(Dlg::memoryMaxSpinName());
+            check(autoDialog.effectiveAutoMemory() &&
+                      autoMaxSpin != nullptr && !autoMaxSpin->isEnabled(),
+                  "U5 全局自动档 ⇒ 这一页的条和数字框禁用（只能去设置页关自动）");
+            check(hintOf(autoDialog, Dlg::xmxField()) == Dlg::memoryAutoDisabledHint(),
+                  "U5 而且那行说明了为什么（自动档下这两个数按系统内存现算）",
+                  hintOf(autoDialog, Dlg::xmxField()));
         }
 
         // ---- U5b 藏起来的那一行：存过的值照样透传，只有"比最大内存还大"的不透传 ----
@@ -11420,25 +11419,24 @@ int main(int argc, char *argv[]) {
                   "U8 而且它的起点是**全局的有效值**（用户是想微调，不是想从头填）",
                   QString::number(dialog.findChild<QSpinBox *>(Dlg::memoryMaxSpinName())->value()));
 
-            check(dialog.effectiveAutoMemory() == false,
-                  "U8 这一行覆盖成手动之后，有效值就是手动（不听全局那个自动）");
-            // ★ 2026-09-27：这一条原来只判"手动档 ⇒ 可用"。现在还要**这一行切了自定义**
-            //   —— 停在「跟随全局」时 `override()` 不发 xmx，能拖就是静默丢弃（见 U5 那段）。
+            // ★ 2026-10-18：`current.autoMemory = false` 这份**老 meta 覆盖不再生效** ——
+            //   这一页没有能改它的入口了，有效值只看全局（见 effectiveAutoMemory()）。
+            //   于是全局自动档下，切「自定义」也不能填 Xmx（自动档会把它重算掉）。
+            check(dialog.effectiveAutoMemory() == true,
+                  "U8 老 meta 里的 autoMemory=false 不再生效（这一页只听全局）");
             check(!dialog.findChild<QSpinBox *>(Dlg::memoryMaxSpinName())->isEnabled() &&
                       !dialog.findChild<QSpinBox *>(Dlg::memoryMinSpinName())->isEnabled(),
-                  "U8 而它在「跟随全局」上 ⇒ 两行内存禁用（拖了也落不了值）");
+                  "U8 全局自动档 ⇒ 两行内存禁用（拖了也落不了值）");
             setChoice(dialog, Dlg::xmxField(), true);
-            check(dialog.findChild<QSpinBox *>(Dlg::memoryMaxSpinName())->isEnabled() &&
-                      dialog.findChild<QSpinBox *>(Dlg::memoryMinSpinName())->isEnabled(),
-                  "U8 于是切到「自定义」之后两行内存是可用的（覆盖成手动就该能填）");
+            check(!dialog.findChild<QSpinBox *>(Dlg::memoryMaxSpinName())->isEnabled(),
+                  "U8 自动档下切「自定义」也还是禁用（数字会被下次启动重算掉）");
             // 摆回「跟随全局」再读（下拉框就是摆回下标 0，见 U5 那条 NOTE）。
             setChoice(dialog, Dlg::xmxField(), false);
             const Dlg::Override back = dialog.override();
-            check(back.autoMemory.has_value() && !*back.autoMemory && !back.xmx.has_value(),
-                  "U8 原样读回来：自动那一档有值（false），内存两项还是跟随",
+            check(!back.autoMemory.has_value() && !back.xmx.has_value(),
+                  "U8 原样读回来：autoMemory 不再读出来、内存两项还是跟随",
                   QStringLiteral("autoMemory=%1 xmx=%2")
-                      .arg(back.autoMemory.has_value() ? (*back.autoMemory ? QStringLiteral("true")
-                                                                           : QStringLiteral("false"))
+                      .arg(back.autoMemory.has_value() ? QStringLiteral("有值")
                                                        : QStringLiteral("<无>"),
                            back.xmx.has_value() ? QString::number(*back.xmx)
                                                 : QStringLiteral("<无>")));
@@ -24972,6 +24970,16 @@ int main(int argc, char *argv[]) {
         view.formatText = QStringLiteral("3465");
         view.hasLastPlayed = true;
         view.lastPlayedMs = 1758960000000LL;
+        // §9.6 的只读概况（2026-10-18）：大小 / 种子 / 玩家位置 / 已生成区域。
+        view.hasSize = true;
+        view.sizeText = QStringLiteral("123.4 MB");
+        view.hasSeed = true;
+        view.seedText = QStringLiteral("1234567890123");
+        view.hasPlayer = true;
+        view.playerText = QStringLiteral("12.5 / 64.0 / -30.2（主世界）");
+        view.hasRegions = true;
+        view.regionsText = QStringLiteral("3 个区域文件 · 已生成 1234 个区块 · 范围 x 0 ~ 511、z 0 ~ 511");
+        view.mapNote = QStringLiteral("这份统计只看主世界 region/ 里的 .mca。");
         view.gzipped = true;
         view.hasAllowCommands = true;
         view.allowCommands = false;
@@ -25073,6 +25081,42 @@ int main(int argc, char *argv[]) {
                   infoLabel->text().contains(QStringLiteral("游戏版本 1.20.1")),
               "Z16a 那行只读的事实里有游戏版本（缺的那几位不写，不拿 0 / 空串顶替）",
               infoLabel == nullptr ? QStringLiteral("找不到那行字") : infoLabel->text());
+        // §9.6（2026-10-18）：那行事实多了四件只读的 —— 大小 / 种子 / 玩家位置 / 已生成区域。
+        check(infoLabel != nullptr && infoLabel->text().contains(QStringLiteral("大小 123.4 MB")),
+              "★★ Z16a 那行事实里有这个世界的**大小**（§9.6 第一条要的只读摘要）",
+              infoLabel == nullptr ? QStringLiteral("找不到那行字") : infoLabel->text());
+        check(infoLabel != nullptr && infoLabel->text().contains(QStringLiteral("种子 1234567890123")),
+              "★★ Z16a 那行事实里有**种子**");
+        check(infoLabel != nullptr &&
+                  infoLabel->text().contains(QStringLiteral("玩家位置 12.5 / 64.0 / -30.2")),
+              "★★ Z16a 那行事实里有**玩家位置**（世界地图第一阶段要的那一件）");
+        check(infoLabel != nullptr &&
+                  infoLabel->text().contains(QStringLiteral("已生成区域 3 个区域文件")),
+              "★★ Z16a 那行事实里有**已生成区域数**");
+        check(infoLabel != nullptr &&
+                  infoLabel->text().contains(QStringLiteral("已生成 1234 个区块")),
+              "★★ Z16a 已生成区域那句里还有区块数与范围");
+        check(infoLabel != nullptr && infoLabel->toolTip() == view.mapNote,
+              "★ Z16a 「结果可能不完整」那句说明挂在 tooltip 上（模组维度 / 坏的区域文件）",
+              infoLabel == nullptr ? QString() : infoLabel->toolTip());
+        {
+            // 缺的那几件**整条不写**：从没进过的世界没有玩家位置，老档可能没有种子。
+            WorldSettingsPage bare;
+            WorldSettingsPage::WorldView sparse;
+            sparse.dirName = QStringLiteral("空");
+            sparse.hasVersionName = true;
+            sparse.versionName = QStringLiteral("1.20.1");
+            bare.setWorld(sparse);
+            QLabel *bareInfo = bare.findChild<QLabel *>(WorldSettingsPage::infoLabelName());
+            check(bareInfo != nullptr
+                      && !bareInfo->text().contains(QStringLiteral("种子"))
+                      && !bareInfo->text().contains(QStringLiteral("玩家位置"))
+                      && !bareInfo->text().contains(QStringLiteral("已生成区域"))
+                      && !bareInfo->text().contains(QStringLiteral("大小"))
+                      && bareInfo->toolTip().isEmpty(),
+                  "★★ Z16a 盘上没有的那几件**整条不出现**（不拿 0 / 空串顶替，也不留一句空说明）",
+                  bareInfo == nullptr ? QStringLiteral("找不到那行字") : bareInfo->text());
+        }
         check(!page.allowCommandsSwitch()->isChecked() && page.allowCommandsSwitch()->isEnabled(),
               "Z16a 「允许作弊」是**关**的，而且是能点的（盘上有这一项）");
         check(page.difficultyCombo()->currentData().toInt() == 2 &&
@@ -26540,6 +26584,11 @@ int main(int argc, char *argv[]) {
                 //   这一条问的也就成了它该问的问题："键盘焦点进来之后那圈环有没有真上屏、
                 //   是不是那一档色"（环画在按钮自己的矩形里，所以下面量的是按钮那张图）。
                 ringHost.activateWindow();
+                // ★ 2026-10-18：这一档现在只认**真的按键**（藏起焦点控件时 Qt 交接焦点也报
+                //   TabFocusReason ⇒ 不能拿那个理由当"用户按了 Tab"，见 Theme.cpp 那段）。
+                //   所以照真路先送一发普通按键，再送 FocusIn。
+                QKeyEvent keyboardInput(QEvent::KeyPress, Qt::Key_A, Qt::NoModifier);
+                QApplication::sendEvent(ringButton, &keyboardInput);
                 QFocusEvent keyboardFocus(QEvent::FocusIn, Qt::TabFocusReason);
                 QApplication::sendEvent(ringButton, &keyboardFocus);
                 QApplication::processEvents();
@@ -26578,6 +26627,35 @@ int main(int argc, char *argv[]) {
                 check(darkRing != lightRing && lightRing.isValid() && darkRing.isValid(),
                       "★★ §8.3 焦点环深浅两档是**两支**（浅底用深的那一档、深底用浅的那一档）",
                       QStringLiteral("浅底 %1 / 深底 %2").arg(lightRing.name(), darkRing.name()));
+
+                // ★★ 2026-10-18（用户报的那一幕的钉子）：「在主页点用户那颗按钮之后切到
+                //   管理 / 下载，它们右上角那颗按钮也进入选中状态」—— 那一发是 Qt 在藏起
+                //   拿着焦点的控件时用 `focusNextPrevChild()` **交接**焦点，报的理由同样是
+                //   `TabFocusReason`。它不是键盘操作 ⇒ 不许把 `wtfmlKeyboardFocus` 摆上。
+                {
+                    // ① 鼠标按下先到（真点击就是这一路）：键盘那一档收掉。
+                    const QPoint center = ringButton->rect().center();
+                    QMouseEvent mousePress(QEvent::MouseButtonPress, QPointF(center),
+                                           QPointF(ringButton->mapToGlobal(center)),
+                                           Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+                    QApplication::sendEvent(ringButton, &mousePress);
+                    check(!ringButton->property("wtfmlKeyboardFocus").toBool(),
+                          "★ §8.3 鼠标按下就把键盘那一档收掉（上面那一圈环是给键盘的）");
+
+                    // ② 切页交接过来的焦点：理由写着 TabFocusReason，前面**没有任何按键**。
+                    QFocusEvent handoff(QEvent::FocusIn, Qt::TabFocusReason);
+                    QApplication::sendEvent(ringButton, &handoff);
+                    check(!ringButton->property("wtfmlKeyboardFocus").toBool(),
+                          "★★ 切页时 Qt 交接焦点（`TabFocusReason`）**不算键盘操作** —— "
+                          "新页面上那颗页面级按钮不会凭空亮一圈绿框（用户报的那一幕）");
+
+                    // ③ 反方向：真按键之后那一发照旧点亮（别把键盘用户一起挡了）。
+                    QKeyEvent realKey(QEvent::KeyPress, Qt::Key_A, Qt::NoModifier);
+                    QApplication::sendEvent(ringButton, &realKey);
+                    QApplication::sendEvent(ringButton, &handoff);
+                    check(ringButton->property("wtfmlKeyboardFocus").toBool(),
+                          "★★ 真按键之后焦点进来照旧点亮（键盘那一档没被一起挡掉）");
+                }
             }
 
             // ---------- W12 灰掉那一档：**中性 / 危险那两种也得跟着灰**（2026-10-09 真机揪出来的） ----------
@@ -28205,6 +28283,86 @@ int main(int argc, char *argv[]) {
                   .arg(bar3->isVisible() ? QStringLiteral("是") : QStringLiteral("不是"),
                        bar3->graphicsEffect() != nullptr ? bar3->graphicsEffect()->objectName()
                                                          : QStringLiteral("没有")));
+
+        // —— 用户 2026-10-18 点名的那一幕：**上下拖窗口**的时候条子来回出现／消失，
+        //    里面换行的说明文字跟着重排。`Theme::GutterScrollArea` 右边常留一格死区
+        //    （条子常驻、装得下时把手透明）⇒ 视口宽度不随条子变。
+        QWidget host4;
+        host4.resize(240, 160);
+        host4.setAutoFillBackground(true);
+        host4.setPalette(hostPalette);
+        auto *gutterScroll = new Theme::GutterScrollArea(&host4);
+        gutterScroll->setObjectName(QStringLiteral("wtfml_scrollbar_probe4"));
+        gutterScroll->setGeometry(0, 0, 240, 160);
+        gutterScroll->setFrameShape(QFrame::NoFrame);
+        gutterScroll->setWidgetResizable(true);
+        gutterScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        auto *gutterContent = new QWidget(gutterScroll);
+        gutterContent->setMinimumHeight(80);   // 一开始装得下 ⇒ 条子是"空的"
+        gutterScroll->setWidget(gutterContent);
+        host4.show();
+        QApplication::processEvents();
+        // 条子露头时有一发淡入（`Anim::scrollBarAppear`）—— 它从 opacity 0 开始，
+        // 不等它跑完就截图会量到"什么都没有"。这里按它那一段长度等够（和上面探针二同一套）。
+        if (Anim::enabled()) {
+            QEventLoop fadeDone;
+            QTimer::singleShot(Anim::scrollBarMs() + 120, &fadeDone, &QEventLoop::quit);
+            fadeDone.exec();
+            QApplication::processEvents();
+        }
+        QScrollBar *gutterBar = gutterScroll->verticalScrollBar();
+        const QPoint gutterBarOrigin = gutterBar->mapTo(gutterScroll, QPoint(0, 0));
+        // 把手的格子**问样式要**（`subControlRect`）。装得下时它铺满整条，变长之后在最上面。
+        const auto gutterSliderCenter = [&](const QImage &image) {
+            const QRect slider = subRect(gutterBar, QStyle::SC_ScrollBarSlider);
+            return image.pixelColor(gutterBarOrigin + slider.center());
+        };
+        const int gutterViewportWidth = gutterScroll->viewport()->width();
+        const bool gutterIdleAtFirst = gutterBar->property("wtfmlIdle").toBool();
+        const QImage gutterIdleImage = captureWidget(gutterScroll);
+        const QColor gutterIdlePixel = gutterSliderCenter(gutterIdleImage);
+        const QColor gutterBackgroundPixel = gutterIdleImage.pixelColor(
+            gutterBarOrigin + QPoint(-4, gutterBar->height() / 2));
+        gutterContent->setMinimumHeight(600);   // 内容变长 ⇒ 条子本来会冒出来（文字本来会重排）
+        QApplication::processEvents();
+        QApplication::processEvents();
+        check(gutterIdleAtFirst && !gutterBar->property("wtfmlIdle").toBool(),
+              "⑭ 死区那一格：条子常驻，装得下时它是「空的」（把手透明），内容变长后才真的画出来",
+              QStringLiteral("前 idle=%1 / 后 idle=%2")
+                  .arg(gutterIdleAtFirst ? QStringLiteral("1") : QStringLiteral("0"),
+                       gutterBar->property("wtfmlIdle").toBool() ? QStringLiteral("1")
+                                                                 : QStringLiteral("0")));
+        check(gutterScroll->viewport()->width() == gutterViewportWidth,
+              "★★ ⑭ 条子冒出来之后**视口宽度一个像素都不变** —— 右边那一格是常留的死区，"
+              "里面换行的文字不会跟着重排（用户原话：「拖窗口上下时文字因为滚动条出现消失重排列」）",
+              QStringLiteral("前 %1 / 后 %2")
+                  .arg(gutterViewportWidth)
+                  .arg(gutterScroll->viewport()->width()));
+        check(gutterBar->width() == Theme::scrollBarThickness() &&
+                  gutterScroll->viewport()->width() + Theme::scrollBarThickness()
+                      == gutterScroll->width(),
+              "★ ⑭ 死区那一格就是 `scrollBarThickness()` 那么宽，条子落进去、不多不少",
+              QStringLiteral("条宽 %1 / 视口 %2 / 总宽 %3 / 常数 %4")
+                  .arg(gutterBar->width())
+                  .arg(gutterScroll->viewport()->width())
+                  .arg(gutterScroll->width())
+                  .arg(Theme::scrollBarThickness()));
+
+        // ★ 那条 `[wtfmlIdle="true"]` 的 QSS 到底有没有生效 —— 只看字符串会假绿
+        //   （这一仓有过 `::drop-down` 里多写一句 `border: none` 把整个箭头吃掉的先例）。
+        //   量法：装得下时**把手那一格和它旁边的页面底一个色**（透明），内容变长之后
+        //   同一格变成把手那一档色。
+        {
+            const QImage busyImage = captureWidget(gutterScroll);
+            const QColor busyPixel = gutterSliderCenter(busyImage);
+            check(gutterIdlePixel == gutterBackgroundPixel && busyPixel != gutterIdlePixel,
+                  "★★ ⑭ 装得下时那一条**真的什么都不画**（把手透明、就是一条留白），"
+                  "内容变长之后同一格才有把手的颜色",
+                  QStringLiteral("空着 %1 / 有内容 %2 / 页面底 %3")
+                      .arg(gutterIdlePixel.name(QColor::HexArgb),
+                           busyPixel.name(QColor::HexArgb),
+                           gutterBackgroundPixel.name(QColor::HexArgb)));
+        }
 
         Anim::setEnabled(wasEnabled);
     }
@@ -30319,8 +30477,8 @@ int main(int argc, char *argv[]) {
                 titlesOk = sections->item(i)->text() == MainWindowUI::serverSettingsSectionTitle(i);
             }
             check(titlesOk && stack->count() == MainWindowUI::serverSettingsSectionCount(),
-                  "★★ U37.1 左栏就是那**四页**、次序就是唯一出处里的次序，右栏一页对一页"
-                  "（`serverSettingsSectionCount()` == 4）",
+                  "★★ U37.1 左栏的页数、次序就是唯一出处里的次序，右栏一页对一页"
+                  "（`serverSettingsSectionCount()`）",
                   sectionTexts.join(QStringLiteral(" / ")));
             check(sections->hasMouseTracking() &&
                       qobject_cast<VersionTreeDelegate *>(sections->itemDelegate()) != nullptr,
@@ -30338,7 +30496,8 @@ int main(int argc, char *argv[]) {
                              });
             page.setSection(ServerSettingsPage::Section::Check);
             check(page.section() == ServerSettingsPage::Section::Check &&
-                      stack->currentIndex() == 3 && sectionSignals == 0,
+                      stack->currentIndex() == static_cast<int>(ServerSettingsPage::Section::Check)
+                      && sectionSignals == 0,
                   "★★ U37.2 `setSection()` 是**程序摆的**：页翻过去了，但**不发 "
                   "`sectionChanged`**（发出去的话 `MainWindow` 会再合一次两边的编辑）");
             sections->setCurrentRow(1);  // 用户点了「原始文本」
@@ -30358,8 +30517,12 @@ int main(int argc, char *argv[]) {
                 return field;
             };
             QList<ServerSettingsPage::FieldView> fields;
-            fields.append(makeField(QStringLiteral("motd"), QStringLiteral("服务器说明"),
-                                    ServerSettingsPage::Kind::Text));
+            ServerSettingsPage::FieldView motdField =
+                makeField(QStringLiteral("motd"), QStringLiteral("服务器说明"),
+                          ServerSettingsPage::Kind::Text);
+            // 「服务器简介」那一格挂着"游戏里长什么样"的预览（§9.7）。
+            motdField.preview = true;
+            fields.append(motdField);
             ServerSettingsPage::FieldView port =
                 makeField(QStringLiteral("server-port"), QStringLiteral("端口"),
                           ServerSettingsPage::Kind::Number);
@@ -30409,6 +30572,71 @@ int main(int argc, char *argv[]) {
                       "`peaceful` 那一列，用户看的是「和平」那一列）",
                       QStringLiteral("%1=%2").arg(difficultyCombo->itemText(0),
                                                   difficultyCombo->itemData(0).toString()));
+            }
+
+            // ---------- ③b. MOTD 那条格式化预览（§9.7）----------
+            //
+            // 这一块画的是**游戏那一边**的样子：`§` 码的颜色、粗斜体、两行。判据只看
+            // QLabel 手里那份富文本（真正画出来的像素在 ui_shot 那边），因为这里的坑是
+            // "解析完没接到预览上" —— 那一种错在 offscreen 上一点异常都没有。
+            {
+                auto *preview = page.findChild<QLabel *>(
+                    MainWindowUI::serverSettingsMotdPreviewName());
+                auto *note = page.findChild<QLabel *>(MainWindowUI::serverSettingsMotdNoteName());
+                check(preview != nullptr && note != nullptr,
+                      "★★ U37.15 挂着预览的那一行下面真摆出了那块深色框 + 那行小字（名字走 "
+                      "`serverSettingsMotdPreviewName()`）",
+                      QStringLiteral("框=%1 小字=%2")
+                          .arg(preview != nullptr)
+                          .arg(note != nullptr));
+                if (preview != nullptr && note != nullptr) {
+                    // ★ 只有 motd 那一行挂预览：别的行要是也挂上，这一页就会多出几块画着
+                    //   `§` 码的框（"哪一项是 MOTD"只有一个出处：字段表那一格）。
+                    const QList<QLabel *> allPreviews = page.findChildren<QLabel *>(
+                        MainWindowUI::serverSettingsMotdPreviewName());
+                    check(allPreviews.size() == 1,
+                          "★★ U37.15 只有 `FieldView::preview` 为真的那一行挂预览（别的行不挂）",
+                          QString::number(allPreviews.size()));
+                    check(note->text() == MainWindowUI::serverSettingsMotdNote(),
+                          "U37.15 小字说的就是「只画前两行」那一句（产品措辞只有一处）",
+                          note->text());
+
+                    // 摆进来的值画出来没有：颜色 / 粗体 / 换行三样。
+                    page.setValues(ServerSettingsPage::Values{
+                        {QStringLiteral("motd"), QStringLiteral("§c红§l粗\n第二行")}});
+                    QApplication::processEvents();
+                    const QString painted = preview->text();
+                    check(painted.contains(QStringLiteral("#ff5555")) &&
+                              painted.contains(QStringLiteral("font-weight:bold")) &&
+                              painted.contains(QStringLiteral("<br>")),
+                          "★★ U37.15 摆进来的 MOTD 当场画成富文本（`§c` → 红、`§l` → 粗、"
+                          "`\\n` → 换行）",
+                          painted);
+                    // ★ 行首空格要换成 `&nbsp;`：HTML 会把它吃掉，而服务器正是拿它对齐的。
+                    page.setValues(ServerSettingsPage::Values{
+                        {QStringLiteral("motd"), QStringLiteral("  边距")}});
+                    QApplication::processEvents();
+                    check(preview->text().contains(QStringLiteral("&nbsp;")),
+                          "★★ U37.15 行首空格画成 `&nbsp;`（不然 HTML 把它吃掉，预览就窄了一截）",
+                          preview->text());
+
+                    // 敲一个字画一次：用户改动要当场反映到这块框上。
+                    if (motdEdit != nullptr) {
+                        motdEdit->setText(QStringLiteral("§a绿"));
+                        QApplication::processEvents();
+                        check(preview->text().contains(QStringLiteral("#55ff55")),
+                              "★★ U37.15 用户在输入框里改一个字，预览当场跟着变（不是只在"
+                              "开页时画一次）",
+                              preview->text());
+                    }
+                    // 空的那一档不能是一块空白（看起来像预览坏了）。
+                    page.setValues(ServerSettingsPage::Values{{QStringLiteral("motd"), QString()}});
+                    QApplication::processEvents();
+                    check(preview->text().contains(
+                              MainWindowUI::serverSettingsMotdEmptyText().toHtmlEscaped()),
+                          "★ U37.15 简介是空的时候摆一句「（空的…）」，不摆一块空白",
+                          preview->text());
+                }
             }
 
             // ---------- ④ 摆值 / 读回来 / 改过的那几项 ----------
@@ -30747,6 +30975,278 @@ int main(int argc, char *argv[]) {
                       .arg(saveSignals)
                       .arg(revertSignals));
 
+            // ---------- ③ 内容（模组 / 数据包，§9.7「内容管理」）----------
+            // 这一页只有名字上的规矩在判据层（`ServerContent`，ZAH 那一节钉）；这里管的是
+            // **界面上那几格**：下拉框摆的是什么、行里记的是不是原样那个名字、禁用着的那一行
+            // 长什么样、那颗按钮的字会不会跟着选中行翻、以及每一颗各发各的信号。
+            {
+                auto *contentNote = page.findChild<QLabel *>(
+                    MainWindowUI::serverSettingsContentNoteName());
+                auto *contentCombo = page.findChild<QComboBox *>(
+                    MainWindowUI::serverSettingsContentComboName());
+                auto *contentTree = page.findChild<QTreeWidget *>(
+                    MainWindowUI::serverSettingsContentTreeName());
+                auto *contentAdd = page.findChild<QPushButton *>(
+                    MainWindowUI::serverSettingsContentAddButtonName());
+                auto *contentToggle = page.findChild<QPushButton *>(
+                    MainWindowUI::serverSettingsContentToggleButtonName());
+                auto *contentOpenFolder = page.findChild<QPushButton *>(
+                    MainWindowUI::serverSettingsContentOpenFolderButtonName());
+                auto *contentRefresh = page.findChild<QPushButton *>(
+                    MainWindowUI::serverSettingsContentRefreshButtonName());
+                check(contentNote != nullptr && contentCombo != nullptr &&
+                          contentTree != nullptr && contentAdd != nullptr &&
+                          contentToggle != nullptr && contentOpenFolder != nullptr &&
+                          contentRefresh != nullptr,
+                      "★★ U37.16 内容那一段七格都在（说明 / 类型 / 表 / 添加 / 启用禁用 / 打开"
+                      "文件夹 / 刷新 —— 认 objectName，不认这一份布置）");
+                if (contentNote != nullptr && contentCombo != nullptr &&
+                    contentTree != nullptr && contentAdd != nullptr &&
+                    contentToggle != nullptr && contentOpenFolder != nullptr &&
+                    contentRefresh != nullptr) {
+                    check(contentCombo->count() ==
+                                  MainWindowUI::serverSettingsContentKindCount() &&
+                              contentCombo->itemText(0) ==
+                                  MainWindowUI::serverSettingsContentKindTitle(0) &&
+                              contentCombo->itemText(1) ==
+                                  MainWindowUI::serverSettingsContentKindTitle(1),
+                          "★★ U37.16 类型下拉框的两项逐字就是唯一出处那两句（模组 / 数据包）；"
+                          "**这里的下标同时就是 `ServerContent::Kind`**",
+                          QStringLiteral("%1 / %2")
+                              .arg(contentCombo->itemText(0), contentCombo->itemText(1)));
+                    check(contentTree->columnCount() ==
+                              MainWindowUI::serverSettingsContentColumns().size(),
+                          "★ U37.16 表是三列（名字 / 大小 / 状态）",
+                          QString::number(contentTree->columnCount()));
+
+                    // 程序摆的那一下**不发** `contentKindChanged`（用户点才发）。
+                    int kindSignals = 0;
+                    int lastKind = -1;
+                    QObject::connect(&page, &ServerSettingsPage::contentKindChanged, &page,
+                                     [&kindSignals, &lastKind](int index) {
+                                         ++kindSignals;
+                                         lastKind = index;
+                                     });
+                    page.setContentKind(1);
+                    check(page.contentKind() == 1 && kindSignals == 0,
+                          "★★ U37.16 `setContentKind()` 只摆下拉框、**不发信号**（程序摆的"
+                          "不算用户改了；发了那边会白重列一次）",
+                          QString::number(kindSignals));
+                    contentCombo->setCurrentIndex(0);
+                    check(kindSignals == 1 && lastKind == 0 && page.contentKind() == 0,
+                          "★★ U37.16 用户自己切下拉框才发一发，带的正是新下标",
+                          QStringLiteral("发了 %1 发，最后一发=%2").arg(kindSignals).arg(lastKind));
+
+                    QList<ServerSettingsPage::ContentRow> rows;
+                    ServerSettingsPage::ContentRow enabledRow;
+                    enabledRow.name = QStringLiteral("alpha.jar");
+                    enabledRow.size = QStringLiteral("1.2 MB");
+                    enabledRow.disabled = false;
+                    rows << enabledRow;
+                    ServerSettingsPage::ContentRow disabledRow;
+                    disabledRow.name = QStringLiteral("beta.zip.disabled");
+                    disabledRow.size = QStringLiteral("340 KB");
+                    disabledRow.disabled = true;
+                    rows << disabledRow;
+                    page.setContentRows(rows);
+                    QApplication::processEvents();
+                    check(contentTree->topLevelItemCount() == 2,
+                          "★ U37.16 两行就摆两行（禁用着的那一行也在 —— 它还在文件夹里）",
+                          QString::number(contentTree->topLevelItemCount()));
+                    if (contentTree->topLevelItemCount() == 2) {
+                        QTreeWidgetItem *first = contentTree->topLevelItem(0);
+                        QTreeWidgetItem *second = contentTree->topLevelItem(1);
+                        check(first->text(0) == QStringLiteral("alpha.jar") &&
+                                  first->text(1) == QStringLiteral("1.2 MB") &&
+                                  first->text(2) ==
+                                      MainWindowUI::serverSettingsContentStateText(false),
+                              "★ U37.16 第一行的三格逐字摆进来；状态那格走唯一出处",
+                              QStringLiteral("%1 / %2 / %3")
+                                  .arg(first->text(0), first->text(1), first->text(2)));
+                        check(first->data(0, Qt::UserRole).toString() ==
+                                      QStringLiteral("alpha.jar") &&
+                                  second->data(0, Qt::UserRole).toString() ==
+                                      QStringLiteral("beta.zip.disabled"),
+                              "★★ U37.16 认人记的是**原样那个文件名**（带 `.disabled` 尾巴的"
+                              "也照原样 —— 摘尾巴那条规矩的出处是 `ServerContent`，这一层不抄）");
+                        check(!first->data(0, Qt::UserRole + 1).toBool() &&
+                                  second->data(0, Qt::UserRole + 1).toBool(),
+                              "★★ U37.16 「禁用着没有」摆进来那一份说了算（`false`/`true` 原样）");
+                        check(second->font(0).italic() && second->font(1).italic() &&
+                                  second->font(2).italic() &&
+                                  second->foreground(0).color().alpha() == 150 &&
+                                  second->text(2) ==
+                                      MainWindowUI::serverSettingsContentStateText(true),
+                              "★★ U37.16 禁用着的那一行整行画灰 + 斜体（它不加载了），状态那格"
+                              "写「已禁用（不加载）」",
+                              QStringLiteral("italic=%1 alpha=%2")
+                                  .arg(second->font(0).italic())
+                                  .arg(second->foreground(0).color().alpha()));
+                        check(!first->font(0).italic() &&
+                                  first->text(2) ==
+                                      MainWindowUI::serverSettingsContentStateText(false),
+                              "★ U37.16 启用着的那一行不斜、状态写「启用中」（两类不是一个样子）");
+
+                        // 没选中：那颗按钮没意义 ⇒ 灰着，字落在「禁用」上（选中了才翻）。
+                        contentTree->setCurrentItem(nullptr);
+                        check(page.selectedContentName().isEmpty() &&
+                                  contentToggle->isEnabled() == false &&
+                                  contentToggle->text() ==
+                                      MainWindowUI::serverSettingsContentDisableText(),
+                              "★★ U37.16 没选中任何一行 ⇒「启用 / 禁用」那颗灰着（点了也"
+                              "不知道该动谁）");
+
+                        QString toggledName;
+                        bool toggledEnable = true;
+                        int toggleSignals = 0;
+                        QObject::connect(&page,
+                                         &ServerSettingsPage::contentToggleRequested, &page,
+                                         [&toggledName, &toggledEnable,
+                                          &toggleSignals](const QString &name, bool enable) {
+                                             toggledName = name;
+                                             toggledEnable = enable;
+                                             ++toggleSignals;
+                                         });
+                        contentTree->setCurrentItem(first);
+                        check(page.selectedContentName() == QStringLiteral("alpha.jar") &&
+                                  page.selectedContentDisabled() == false &&
+                                  contentToggle->isEnabled() &&
+                                  contentToggle->text() ==
+                                      MainWindowUI::serverSettingsContentDisableText(),
+                              "★★ U37.16 选中启用着的那一行 ⇒ 按钮的字是「禁用」");
+                        contentToggle->click();
+                        check(toggleSignals == 1 &&
+                                  toggledName == QStringLiteral("alpha.jar") &&
+                                  toggledEnable == false,
+                              "★★ U37.16 按下去发的是（这一行的原样名字, `false`=要禁用）"
+                              "—— 产品侧拿名字认文件、拿布尔认方向",
+                              QStringLiteral("%1 / %2 / %3")
+                                  .arg(toggleSignals)
+                                  .arg(toggledName)
+                                  .arg(toggledEnable));
+                        contentTree->setCurrentItem(second);
+                        check(page.selectedContentDisabled() == true &&
+                                  contentToggle->text() ==
+                                      MainWindowUI::serverSettingsContentEnableText(),
+                              "★★ U37.16 选中禁用着的那一行 ⇒ 按钮翻成「启用」");
+                        contentToggle->click();
+                        check(toggleSignals == 2 && toggledEnable == true,
+                              "★★ U37.16 那一发要的是「启用」（`true`，正好翻回来）",
+                              QString::number(toggledEnable));
+
+                        int addSignals = 0;
+                        int openFolderSignals = 0;
+                        int refreshSignals = 0;
+                        QObject::connect(&page, &ServerSettingsPage::contentAddRequested,
+                                         &page, [&addSignals] { ++addSignals; });
+                        QObject::connect(
+                            &page, &ServerSettingsPage::contentOpenFolderRequested, &page,
+                            [&openFolderSignals] { ++openFolderSignals; });
+                        QObject::connect(&page, &ServerSettingsPage::contentRefreshRequested,
+                                         &page, [&refreshSignals] { ++refreshSignals; });
+                        contentAdd->click();
+                        contentOpenFolder->click();
+                        contentRefresh->click();
+                        check(addSignals == 1 && openFolderSignals == 1 &&
+                                  refreshSignals == 1 && toggleSignals == 2,
+                              "★★ U37.16 那几颗各发各的信号，一发不多一发不少（串线的话按"
+                              "「刷新」会去弹文件选择框）",
+                              QStringLiteral("添加=%1 打开=%2 刷新=%3 翻=%4")
+                                  .arg(addSignals)
+                                  .arg(openFolderSignals)
+                                  .arg(refreshSignals)
+                                  .arg(toggleSignals));
+                    }
+                    page.setContentNote(QStringLiteral("文件夹：/srv/mc/mods"));
+                    check(contentNote->text() == QStringLiteral("文件夹：/srv/mc/mods"),
+                          "★ U37.16 顶上那句说明逐字摆进来（文件夹在哪儿由翻译点拼好）");
+
+                    // 服务端在跑：动盘那两颗锁上；只读那两颗（打开文件夹 / 刷新）照旧能按 ——
+                    // 它们不改任何东西，看一眼盘上的情况永远是安全的。
+                    const QString runningNote = MainWindowUI::serverSettingsRunningNote();
+                    page.setEditable(false, runningNote);
+                    check(!contentAdd->isEnabled() && !contentToggle->isEnabled() &&
+                              contentOpenFolder->isEnabled() && contentRefresh->isEnabled(),
+                          "★★★ U37.16 在跑的时候「添加…」和「启用 / 禁用」锁上，而「打开文件夹」"
+                          "「刷新」照旧能按（只读，不改任何东西）");
+                    page.setEditable(true, QString());
+                    check(contentAdd->isEnabled(),
+                          "★ U37.16 停下来了「添加…」就回来了");
+
+                    page.setContentRows(QList<ServerSettingsPage::ContentRow>());
+                    check(contentTree->topLevelItemCount() == 0 &&
+                              contentToggle->isEnabled() == false,
+                          "★ U37.16 空的文件夹 ⇒ 一行都没有、那颗按钮也跟着灰回去");
+                }
+            }
+
+            // ---------- ⑤ 「踢出…」（§9.7，名字不是身份键）----------
+            {
+                auto *playerTree = page.findChild<QTreeWidget *>(
+                    MainWindowUI::serverSettingsPlayerTreeName());
+                auto *kickButton = page.findChild<QPushButton *>(
+                    MainWindowUI::serverSettingsPlayerKickButtonName());
+                check(playerTree != nullptr && kickButton != nullptr &&
+                          kickButton->text() == MainWindowUI::serverSettingsPlayerKickText(),
+                      "★★ U37.16 「踢出…」那颗在玩家名单那一排里，字逐字就是唯一出处");
+                if (playerTree != nullptr && kickButton != nullptr) {
+                    check(kindOf(kickButton) ==
+                              Theme::buttonKindKey(Theme::ButtonKind::Neutral),
+                          "★ U37.16 「踢出…」是一般档（它只送一条命令，不改盘上任何文件）");
+
+                    ServerSettingsPage::PlayerRow steve;
+                    steve.identity = QStringLiteral("uuid-steve");
+                    steve.name = QStringLiteral("Steve");
+                    steve.detail = QStringLiteral("uuid-steve");
+                    steve.kickName = QStringLiteral("Steve");
+                    ServerSettingsPage::PlayerRow ipRow;
+                    ipRow.identity = QStringLiteral("1.2.3.4");
+                    ipRow.name = QStringLiteral("1.2.3.4");
+                    ipRow.detail = QStringLiteral("1.2.3.4");
+                    ipRow.kickName = QString();  // 封禁 IP 那一档没有玩家名可踢
+                    page.setPlayerRows(QList<ServerSettingsPage::PlayerRow>{steve, ipRow});
+                    page.setPlayerKickAvailable(true);
+                    playerTree->setCurrentItem(nullptr);
+                    check(!kickButton->isEnabled(),
+                          "★★ U37.16 没选中人 ⇒「踢出…」灰着（不知道该踢谁）");
+
+                    QString kickedName;
+                    int kickSignals = 0;
+                    QObject::connect(&page, &ServerSettingsPage::playerKickRequested, &page,
+                                     [&kickedName, &kickSignals](const QString &name) {
+                                         kickedName = name;
+                                         ++kickSignals;
+                                     });
+                    if (playerTree->topLevelItemCount() == 2) {
+                        playerTree->setCurrentItem(playerTree->topLevelItem(0));
+                        check(kickButton->isEnabled() &&
+                                  page.selectedPlayerName() == QStringLiteral("Steve"),
+                              "★★ U37.16 选中一个玩家、服务端又在跑 ⇒ 能按（名字取的是"
+                              "「玩家名」那一格，不是身份键）",
+                              page.selectedPlayerName());
+                        kickButton->click();
+                        check(kickSignals == 1 && kickedName == QStringLiteral("Steve"),
+                              "★★★ U37.16 按下去发的是**玩家名**（`kick <名字>` 那一句要"
+                              "的就是它；身份键 uuid 不是命令里的东西）",
+                              QStringLiteral("%1 / %2").arg(kickSignals).arg(kickedName));
+
+                        // 封禁 IP 那一档：行在、选中了，但没有名字可踢 ⇒ 仍然灰着。
+                        playerTree->setCurrentItem(playerTree->topLevelItem(1));
+                        check(!kickButton->isEnabled() && page.selectedPlayerName().isEmpty(),
+                              "★★ U37.16 封禁 IP 那一档选中了也点不动（`kick` 命令收的是"
+                              "玩家名，不是地址 —— 编一个名字出来只会踢错人）");
+                    }
+
+                    // 服务端停了：踢谁都没有意义（命令没地方送）。
+                    playerTree->setCurrentItem(playerTree->topLevelItem(0));
+                    page.setPlayerKickAvailable(false);
+                    check(!kickButton->isEnabled(),
+                          "★★ U37.16 服务端没在跑 ⇒「踢出…」灰着（和「加 / 移除」正好"
+                          "相反：那两颗跟着「能不能改文件」，这一颗跟着「进程在不在」）");
+                    page.setPlayerKickAvailable(true);
+                }
+            }
+
             page.close();
             QApplication::processEvents();
         }
@@ -30954,7 +31454,726 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    // ==================================================================
+    std::printf("\n===== U39. 工具箱：信标计算 / 酿造助手（§9.11） =====\n");
+    // ------------------------------------------------------------------
+    // 这两件和原来那五件同一个形状：控件只收输入、发信号，算的过程在 controller 那边
+    // （纯算术在 `src/tools/Beacon` / `src/tools/Brewing`，判据在 verify 的 ZAI 一节）。
+    // 这里只管**页面上那几格**：表里认得到、默认值是什么、改一下发的是哪几个参数、
+    // 程序摆值时不发信号（否则 controller 会在填表途中白算一遍）。
+    // ------------------------------------------------------------------
+    {
+        ToolboxPage page;
+        check(ToolboxPage::tools().size() == 10,
+              "★★ U39 工具箱那张表在 U39 之后又加了两件（这里只认「信标 / 酿造确实在表里」）",
+              QString::number(ToolboxPage::tools().size()));
+
+        int chips = 0;
+        for (ToolboxPage::Tool tool : ToolboxPage::tools()) {
+            if (tool == ToolboxPage::Tool::Download) {
+                continue;  // 高速下载不出 chip（它开独立小窗）
+            }
+            if (page.findChild<QPushButton *>(ToolboxPage::toolChipName(tool)) != nullptr) {
+                ++chips;
+            }
+        }
+        check(chips == 9,
+              "★ U39 chip 的颗数 = 表里除高速下载之外的九件",
+              QString::number(chips));
+
+        auto *beaconFrom = page.findChild<QSpinBox *>(ToolboxPage::beaconFromSpinName());
+        auto *beaconLevel = page.findChild<QSpinBox *>(ToolboxPage::beaconLevelSpinName());
+        auto *beaconResult = page.findChild<QLabel *>(ToolboxPage::beaconResultName());
+        check(beaconFrom != nullptr && beaconLevel != nullptr && beaconResult != nullptr,
+              "★★ U39 信标那一片三格都在（已有 / 目标 / 结果）");
+        if (beaconFrom != nullptr && beaconLevel != nullptr && beaconResult != nullptr) {
+            check(beaconFrom->minimum() == 0 && beaconFrom->maximum() == 4
+                      && beaconLevel->minimum() == 1 && beaconLevel->maximum() == 4
+                      && beaconFrom->value() == 0 && beaconLevel->value() == 4,
+                  "★★ U39 两格转盘的取值范围：已有 0–4（0 = 还没搭）、目标 1–4；默认 0 → 4",
+                  QStringLiteral("%1–%2 / %3–%4")
+                      .arg(beaconFrom->minimum())
+                      .arg(beaconFrom->maximum())
+                      .arg(beaconLevel->minimum())
+                      .arg(beaconLevel->maximum()));
+
+            int beaconSignals = 0;
+            int lastFrom = -1;
+            int lastLevel = -1;
+            QObject::connect(&page, &ToolboxPage::beaconRequested, &page,
+                             [&beaconSignals, &lastFrom, &lastLevel](int from, int level, int, int) {
+                                 ++beaconSignals;
+                                 lastFrom = from;
+                                 lastLevel = level;
+                             });
+            page.setBeaconLevels(2, 3);
+            check(beaconSignals == 0 && beaconFrom->value() == 2 && beaconLevel->value() == 3,
+                  "★★ U39 `setBeaconLevels()` 只摆两格、**不发信号**（程序摆的不算用户改了）",
+                  QString::number(beaconSignals));
+            beaconLevel->setValue(4);
+            check(beaconSignals == 1 && lastFrom == 2 && lastLevel == 4,
+                  "★ U39 用户把目标改成 4 ⇒ 发一发，带的是两格的当前值",
+                  QStringLiteral("%1 发（%2→%3）").arg(beaconSignals).arg(lastFrom).arg(lastLevel));
+
+            // §9.11 第 9 项后补的两格：底座方块（材质）与共用底座的颗数。
+            auto *beaconMaterial =
+                page.findChild<QComboBox *>(ToolboxPage::beaconMaterialComboName());
+            auto *beaconCount = page.findChild<QSpinBox *>(ToolboxPage::beaconCountSpinName());
+            check(beaconMaterial != nullptr && beaconCount != nullptr,
+                  "★★ U39 信标多出来的两格都在（底座方块 / 信标颗数）");
+            if (beaconCount != nullptr) {
+                check(beaconCount->minimum() == 1 && beaconCount->maximum() == 9
+                          && beaconCount->value() == 1,
+                      "★ U39 颗数 1–9（顶面 3 × 3 最多 9 颗）、默认 1",
+                      QStringLiteral("%1–%2")
+                          .arg(beaconCount->minimum())
+                          .arg(beaconCount->maximum()));
+                beaconSignals = 0;
+                beaconCount->setValue(2);
+                check(beaconSignals == 1,
+                      "★ U39 改颗数也发一发（不是只有那两格转盘才算「用户改了」）",
+                      QString::number(beaconSignals));
+            }
+            page.setBeaconResult(QStringLiteral("4 级信标：范围 50 格"));
+            check(beaconResult->text() == QStringLiteral("4 级信标：范围 50 格"),
+                  "★ U39 结果那一格逐字摆进来（怎么算的不在这一层）");
+        }
+
+        auto *brewingPotion =
+            page.findChild<QComboBox *>(ToolboxPage::brewingPotionComboName());
+        auto *brewingExtended =
+            page.findChild<QCheckBox *>(ToolboxPage::brewingExtendedName());
+        auto *brewingLevel2 = page.findChild<QCheckBox *>(ToolboxPage::brewingLevel2Name());
+        auto *brewingForm = page.findChild<QComboBox *>(ToolboxPage::brewingFormComboName());
+        auto *brewingResult = page.findChild<QLabel *>(ToolboxPage::brewingResultName());
+        check(brewingPotion != nullptr && brewingExtended != nullptr
+                  && brewingLevel2 != nullptr && brewingForm != nullptr
+                  && brewingResult != nullptr,
+              "★★ U39 酿造那一片五格都在（药水 / 延时 / II 级 / 形态 / 结果）");
+        if (brewingPotion != nullptr && brewingExtended != nullptr && brewingLevel2 != nullptr
+            && brewingForm != nullptr && brewingResult != nullptr) {
+            page.setBrewingPotions({QStringLiteral("迅捷"), QStringLiteral("抗火")});
+            page.setBrewingForms({QStringLiteral("普通"), QStringLiteral("喷溅型"),
+                                  QStringLiteral("滞留型")});
+            check(brewingPotion->count() == 2 && brewingPotion->itemText(1) == QStringLiteral("抗火")
+                      && brewingForm->count() == 3
+                      && brewingForm->itemText(2) == QStringLiteral("滞留型"),
+                  "★ U39 两张表由 controller 摆进来（这一页不自带一份药水清单）",
+                  QStringLiteral("%1 种药水 / %2 种形态")
+                      .arg(brewingPotion->count())
+                      .arg(brewingForm->count()));
+
+            int brewSignals = 0;
+            int lastPotion = -1;
+            bool lastExtended = false;
+            bool lastLevel2 = false;
+            int lastForm = -1;
+            int lastBottles = -1;
+            QObject::connect(&page, &ToolboxPage::brewingRequested, &page,
+                             [&](int potion, bool extended, bool level2, int form, int bottles) {
+                                 ++brewSignals;
+                                 lastPotion = potion;
+                                 lastExtended = extended;
+                                 lastLevel2 = level2;
+                                 lastForm = form;
+                                 lastBottles = bottles;
+                             });
+            brewingPotion->setCurrentIndex(1);
+            check(brewSignals == 1 && lastPotion == 1 && !lastExtended && !lastLevel2
+                      && lastForm == 0,
+                  "★★ U39 换一种药水 ⇒ 发（新下标, 两个勾, 形态下标）",
+                  QString::number(brewSignals));
+            brewingExtended->setChecked(true);
+            brewingExtended->setChecked(false);
+            check(brewSignals == 3 && !lastExtended,
+                  "★★ U39 两个勾各发一发（勾上 / 取消都算 —— 取消之后要把不用红石的那条路线摆回来）",
+                  QString::number(brewSignals));
+            brewingLevel2->setChecked(true);
+            check(brewSignals == 4 && lastLevel2,
+                  "★ U39 II 级那个勾也发自己的", QString::number(brewSignals));
+            brewingForm->setCurrentIndex(2);
+            check(brewSignals == 5 && lastForm == 2,
+                  "★ U39 形态换成滞留型 ⇒ 发的下标是 2（controller 靠它补火药 + 龙息两步）",
+                  QString::number(lastForm));
+
+            // §9.11 第 7 项补的「瓶数」那一格。
+            auto *brewingBottles =
+                page.findChild<QSpinBox *>(ToolboxPage::brewingBottlesSpinName());
+            check(brewingBottles != nullptr && brewingBottles->minimum() == 1
+                      && brewingBottles->maximum() == 64 && brewingBottles->value() == 1,
+                  "★★ U39 瓶数是 1–64 的转盘、默认 1",
+                  brewingBottles == nullptr
+                      ? QString()
+                      : QStringLiteral("%1–%2")
+                            .arg(brewingBottles->minimum())
+                            .arg(brewingBottles->maximum()));
+            if (brewingBottles != nullptr) {
+                brewingBottles->setValue(6);
+                check(brewSignals == 6 && lastBottles == 6,
+                      "★ U39 改瓶数也发一发（材料与酿造次数跟着变）",
+                      QString::number(brewSignals));
+            }
+            page.setBrewingResult(QStringLiteral("一共 4 步"));
+            check(brewingResult->text() == QStringLiteral("一共 4 步"),
+                  "★ U39 酿造结果那一格逐字摆进来");
+        }
+
+        // 切到新加那两件：`showTool()` 真的换到它们各自那一片（不是只换了 chip 的勾）。
+        page.showTool(ToolboxPage::Tool::Beacon);
+        auto *beaconPanel =
+            page.findChild<QWidget *>(ToolboxPage::toolPanelName(ToolboxPage::Tool::Beacon));
+        auto *brewPanel =
+            page.findChild<QWidget *>(ToolboxPage::toolPanelName(ToolboxPage::Tool::Brewing));
+        check(page.currentTool() == ToolboxPage::Tool::Beacon && beaconPanel != nullptr
+                  && brewPanel != nullptr && !beaconPanel->isHidden(),
+              "★★ U39 `showTool(Beacon)` 换到信标那一片（chip 与 QStackedWidget 的次序同源）");
+        page.showTool(ToolboxPage::Tool::Brewing);
+        check(page.currentTool() == ToolboxPage::Tool::Brewing && !brewPanel->isHidden()
+                  && beaconPanel->isHidden(),
+              "★★ U39 再换到酿造那一片：前一片收起来、这一片露出来");
+        page.close();
+        QApplication::processEvents();
+    }
+
+    // ==================================================================
+    std::printf("\n===== U40. 工具箱：旗帜设计 / 纹饰搭配（§9.11） =====\n");
+    // ------------------------------------------------------------------
+    // 这两件和 U39 那两件同一个形状：页面只收输入、发信号、摆结果；图案表、层数上限、
+    // 材料账、海龟壳那一条限制全在 `src/tools/Banner` / `src/tools/ArmorTrim`（判据在
+    // verify 的 ZAJ 一节）。这里钉的是**页面上那几格**：认得到、默认值、加了 / 挪了 /
+    // 删了 / 撤了之后发的那一份 `图案:颜色` 列表对不对。
+    // ------------------------------------------------------------------
+    {
+        ToolboxPage page;
+        check(ToolboxPage::tools().size() == 10,
+              "★★ U40 工具箱那张表现在是十件（加上旗帜设计 / 纹饰搭配）",
+              QString::number(ToolboxPage::tools().size()));
+
+        int chips = 0;
+        for (ToolboxPage::Tool tool : ToolboxPage::tools()) {
+            if (tool == ToolboxPage::Tool::Download) {
+                continue;
+            }
+            if (page.findChild<QPushButton *>(ToolboxPage::toolChipName(tool)) != nullptr) {
+                ++chips;
+            }
+        }
+        check(chips == 9, "★ U40 顶上那排 chip 是九颗（高速下载仍然不在 chip 里）",
+              QString::number(chips));
+
+        auto *base = page.findChild<QComboBox *>(ToolboxPage::bannerBaseComboName());
+        auto *pattern = page.findChild<QComboBox *>(ToolboxPage::bannerPatternComboName());
+        auto *color = page.findChild<QComboBox *>(ToolboxPage::bannerColorComboName());
+        auto *add = page.findChild<QPushButton *>(ToolboxPage::bannerAddName());
+        auto *list = page.findChild<QListWidget *>(ToolboxPage::bannerListName());
+        auto *up = page.findChild<QPushButton *>(ToolboxPage::bannerUpName());
+        auto *down = page.findChild<QPushButton *>(ToolboxPage::bannerDownName());
+        auto *remove = page.findChild<QPushButton *>(ToolboxPage::bannerRemoveName());
+        auto *undo = page.findChild<QPushButton *>(ToolboxPage::bannerUndoName());
+        auto *bannerResult = page.findChild<QLabel *>(ToolboxPage::bannerResultName());
+        check(base != nullptr && pattern != nullptr && color != nullptr && add != nullptr
+                  && list != nullptr && up != nullptr && down != nullptr && remove != nullptr
+                  && undo != nullptr && bannerResult != nullptr,
+              "★★ U40 旗帜那一片十格都在（三张表 / 加一层 / 列表 / 四颗按钮 / 结果）");
+        if (base != nullptr && pattern != nullptr && color != nullptr && add != nullptr
+            && list != nullptr && up != nullptr && down != nullptr && remove != nullptr
+            && undo != nullptr && bannerResult != nullptr) {
+            int bannerSignals = 0;
+            int lastBase = -1;
+            QStringList lastLayers;
+            QObject::connect(&page, &ToolboxPage::bannerRequested, &page,
+                             [&](int baseColor, const QStringList &layers) {
+                                 ++bannerSignals;
+                                 lastBase = baseColor;
+                                 lastLayers = layers;
+                             });
+            page.setBannerColors({QStringLiteral("红色"), QStringLiteral("白色")});
+            page.setBannerPatterns({QStringLiteral("十字"), QStringLiteral("边框")});
+            check(bannerSignals == 0 && base->count() == 2 && color->count() == 2
+                      && pattern->count() == 2 && base->currentIndex() == 0,
+                  "★★ U40 三张表由 controller 摆进来、**不发信号**（开页前 controller 自己算一次）",
+                  QString::number(bannerSignals));
+
+            add->click();
+            check(bannerSignals == 1 && lastLayers == QStringList{QStringLiteral("0:0")}
+                      && list->count() == 1,
+                  "★★ U40 「加一层」把当前选的图案与颜色并进列表，发一份 `图案:颜色`",
+                  lastLayers.join(QChar(',')));
+            pattern->setCurrentIndex(1);
+            color->setCurrentIndex(1);
+            add->click();
+            check(bannerSignals == 2
+                      && lastLayers
+                          == QStringList{QStringLiteral("0:0"), QStringLiteral("1:1")}
+                      && list->count() == 2,
+                  "★★ U40 换图案/颜色只改「下一层」，不改已经排好的那几层",
+                  lastLayers.join(QChar(',')));
+
+            list->setCurrentRow(0);
+            check(!up->isEnabled() && down->isEnabled() && remove->isEnabled()
+                      && undo->isEnabled(),
+                  "★ U40 选中第一层 ⇒ 上移灰着、下移/删除/撤销能按");
+            down->click();
+            check(lastLayers == QStringList{QStringLiteral("1:1"), QStringLiteral("0:0")}
+                      && list->currentRow() == 1,
+                  "★★ U40 下移只交换相邻两层，选中跟着那一行走",
+                  lastLayers.join(QChar(',')));
+            remove->click();
+            check(lastLayers == QStringList{QStringLiteral("1:1")} && list->count() == 1,
+                  "★ U40 删除这一层", lastLayers.join(QChar(',')));
+            undo->click();
+            check(lastLayers == QStringList{QStringLiteral("1:1"), QStringLiteral("0:0")}
+                      && list->count() == 2,
+                  "★★ U40 撤销把上一步整份退回来（不是只退最后一层）",
+                  lastLayers.join(QChar(',')));
+
+            page.setBannerLayers({QStringLiteral("0:0")});
+            check(page.bannerLayers() == QStringList{QStringLiteral("0:0")}
+                      && list->count() == 1 && !undo->isEnabled(),
+                  "★ U40 程序摆层不发信号、也不留撤销点（那是恢复草稿，不是用户动作）");
+            check(bannerSignals == 5, "★ U40 程序摆层那一发没有多出来",
+                  QString::number(bannerSignals));
+            page.setBannerResult(QStringLiteral("底色 红色 · 1 层 / 6"));
+            check(bannerResult->text() == QStringLiteral("底色 红色 · 1 层 / 6"),
+                  "★ U40 结果那一格逐字摆进来（怎么算的不在这一层）");
+        }
+
+        auto *trimArmor = page.findChild<QComboBox *>(ToolboxPage::trimArmorComboName());
+        auto *trimPart = page.findChild<QComboBox *>(ToolboxPage::trimPartComboName());
+        auto *trimPattern = page.findChild<QComboBox *>(ToolboxPage::trimPatternComboName());
+        auto *trimMaterial = page.findChild<QComboBox *>(ToolboxPage::trimMaterialComboName());
+        auto *trimPieces = page.findChild<QSpinBox *>(ToolboxPage::trimPiecesSpinName());
+        auto *trimResult = page.findChild<QLabel *>(ToolboxPage::trimResultName());
+        check(trimArmor != nullptr && trimPart != nullptr && trimPattern != nullptr
+                  && trimMaterial != nullptr && trimPieces != nullptr && trimResult != nullptr,
+              "★★ U40 纹饰那一片六格都在（四张表 / 件数 / 结果）");
+        if (trimArmor != nullptr && trimPart != nullptr && trimPattern != nullptr
+            && trimMaterial != nullptr && trimPieces != nullptr && trimResult != nullptr) {
+            page.setTrimArmorMaterials({QStringLiteral("皮革"), QStringLiteral("钻石")});
+            page.setTrimParts({QStringLiteral("头盔"), QStringLiteral("胸甲")});
+            page.setTrimPatterns({QStringLiteral("海岸"), QStringLiteral("哨兵")});
+            page.setTrimMaterials({QStringLiteral("紫水晶"), QStringLiteral("铜")});
+            check(trimPieces->minimum() == 1 && trimPieces->maximum() == 4
+                      && trimPieces->value() == 1,
+                  "★★ U40 件数 1–4、默认 1（整套四件自己填 4）",
+                  QStringLiteral("%1–%2 默认 %3")
+                      .arg(trimPieces->minimum())
+                      .arg(trimPieces->maximum())
+                      .arg(trimPieces->value()));
+
+            int trimSignals = 0;
+            int lastArmor = -1;
+            int lastPart = -1;
+            int lastPattern = -1;
+            int lastMaterial = -1;
+            int lastPieces = -1;
+            bool lastWholeSet = false;
+            QObject::connect(&page, &ToolboxPage::trimRequested, &page,
+                             [&](int armorMaterial, int part, int patternIndex, int trimMaterialIndex,
+                                 int pieces, bool wholeSet) {
+                                 ++trimSignals;
+                                 lastArmor = armorMaterial;
+                                 lastPart = part;
+                                 lastPattern = patternIndex;
+                                 lastMaterial = trimMaterialIndex;
+                                 lastPieces = pieces;
+                                 lastWholeSet = wholeSet;
+                             });
+            trimArmor->setCurrentIndex(1);
+            check(trimSignals == 1 && lastArmor == 1 && lastPart == 0 && lastPattern == 0
+                      && lastMaterial == 0 && lastPieces == 1,
+                  "★★ U40 换盔甲材质 ⇒ 五个参数一起发（这一层不裁「海龟壳只能头盔」那一刀）",
+                  QString::number(trimSignals));
+            trimPart->setCurrentIndex(1);
+            trimPattern->setCurrentIndex(1);
+            trimMaterial->setCurrentIndex(1);
+            check(trimSignals == 4 && lastPart == 1 && lastPattern == 1 && lastMaterial == 1,
+                  "★ U40 另外三张表各发各的", QString::number(trimSignals));
+            trimPieces->setValue(4);
+            check(trimSignals == 5 && lastPieces == 4,
+                  "★ U40 件数改成 4 ⇒ 发（模板也要四份）", QString::number(lastPieces));
+
+            // §9.11 第 10 项补的「整套」那个勾。
+            auto *trimWholeSet =
+                page.findChild<QCheckBox *>(ToolboxPage::trimWholeSetName());
+            check(trimWholeSet != nullptr, "★★ U40 「整套（四件）」那个勾在");
+            if (trimWholeSet != nullptr) {
+                trimWholeSet->setChecked(true);
+                check(trimSignals == 6 && lastWholeSet && !trimPart->isEnabled()
+                          && !trimPieces->isEnabled(),
+                      "★★ U40 勾整套：发一发（wholeSet = true），部位与件数两格收起来",
+                      QString::number(trimSignals));
+                trimWholeSet->setChecked(false);
+                check(trimSignals == 7 && !lastWholeSet && trimPart->isEnabled()
+                          && trimPieces->isEnabled(),
+                      "★ U40 取消整套：两格原样回来（不是偷偷忽略用户摆的设置）");
+            }
+            page.setTrimResult(QStringLiteral("紫水晶 · 海岸纹饰的钻石胸甲 × 1"));
+            check(trimResult->text()
+                      == QStringLiteral("紫水晶 · 海岸纹饰的钻石胸甲 × 1"),
+                  "★ U40 纹饰结果那一格逐字摆进来");
+        }
+
+        page.showTool(ToolboxPage::Tool::Banner);
+        auto *bannerPanel =
+            page.findChild<QWidget *>(ToolboxPage::toolPanelName(ToolboxPage::Tool::Banner));
+        auto *trimPanel =
+            page.findChild<QWidget *>(ToolboxPage::toolPanelName(ToolboxPage::Tool::Trim));
+        check(page.currentTool() == ToolboxPage::Tool::Banner && bannerPanel != nullptr
+                  && trimPanel != nullptr && !bannerPanel->isHidden(),
+              "★★ U40 `showTool(Banner)` 换到旗帜那一片");
+        page.showTool(ToolboxPage::Tool::Trim);
+        check(page.currentTool() == ToolboxPage::Tool::Trim && !trimPanel->isHidden()
+                  && bannerPanel->isHidden(),
+              "★★ U40 再换到纹饰那一片：前一片收起来、这一片露出来");
+        page.close();
+        QApplication::processEvents();
+    }
+
+    // ==================================================================
+    std::printf("\n===== U40b. 文本那一片的自定颜色 / motd，旗帜的「复制指令」 =====\n");
+    // ------------------------------------------------------------------
+    // §9.11 第 2 项补的两块：1.16 起那份 `#RRGGBB` 自定颜色（`§x…` 那串由 `TextFormat`
+    // 算，判据在 verify 的 ZAA7），以及 `server.properties` 的 `motd=` 那一行（ZAA8）。
+    // 这里只钉页面：两格在、按下去发的是用户敲的那串原文、插进去落在光标处。
+    // ------------------------------------------------------------------
+    {
+        ToolboxPage page;
+        auto *hex = page.findChild<QLineEdit *>(QStringLiteral("textHex"));
+        auto *hexInsert = page.findChild<QPushButton *>(QStringLiteral("textHexInsert"));
+        auto *motd = page.findChild<QPlainTextEdit *>(QStringLiteral("textMotd"));
+        auto *source = page.findChild<QPlainTextEdit *>(QStringLiteral("textSource"));
+        check(hex != nullptr && hexInsert != nullptr && motd != nullptr && source != nullptr,
+              "★★ U40b 文本那一片：自定颜色两格、motd 那一格、原文那格都在");
+        if (hex != nullptr && hexInsert != nullptr && motd != nullptr && source != nullptr) {
+            check(hex->maxLength() == 7 && hex->placeholderText() == QStringLiteral("#ff8800"),
+                  "★ U40b 自定颜色那格最多七位（`#RRGGBB`），例子是 `#ff8800`",
+                  QStringLiteral("%1 / %2").arg(hex->maxLength()).arg(hex->placeholderText()));
+
+            QStringList asked;
+            QObject::connect(&page, &ToolboxPage::textHexColorRequested, &page,
+                             [&asked](const QString &value) { asked.append(value); });
+            hex->setText(QStringLiteral("ff8800"));
+            hexInsert->click();
+            check(asked == QStringList{QStringLiteral("ff8800")},
+                  "★★ U40b 「插自定颜色」发的是用户敲的那串原文（`#` 可写可不写，怎么认不在这一层）",
+                  asked.join(QChar(',')));
+            hex->setText(QStringLiteral("#00ff00"));
+            emit hex->returnPressed();
+            check(asked == QStringList{QStringLiteral("ff8800"), QStringLiteral("#00ff00")},
+                  "★ U40b 在那格里按回车也算「插一下」", asked.join(QChar(',')));
+
+            source->setPlainText(QStringLiteral("abcd"));
+            QTextCursor cursor = source->textCursor();
+            cursor.setPosition(2);
+            source->setTextCursor(cursor);
+            page.insertTextAtCursor(QStringLiteral("§x"));
+            check(source->toPlainText() == QStringLiteral("ab§xcd"),
+                  "★★ U40b `insertTextAtCursor()` 插在**光标处**，不是整份覆盖、也不是接到尾巴",
+                  source->toPlainText());
+
+            page.setTextMotd(QStringLiteral("motd=欢迎\\u6765"));
+            check(motd->toPlainText() == QStringLiteral("motd=欢迎\\u6765"),
+                  "★ U40b motd 那一格逐字摆进来（转义怎么写不在这一层）");
+        }
+
+        auto *bannerCopy = page.findChild<QPushButton *>(QStringLiteral("toolboxBannerCopy"));
+        check(bannerCopy != nullptr, "★★ U40b 旗帜那一片的「复制指令」在");
+        if (bannerCopy != nullptr) {
+            check(!bannerCopy->isEnabled(),
+                  "★★ U40b 还没算出指令时那颗按钮灰着（点下去不能复制一份空串）");
+            page.setBannerCommand(QStringLiteral("/give @p white_banner"));
+            check(bannerCopy->isEnabled(),
+                  "★ U40b 算出指令 ⇒ 按钮可按");
+            bannerCopy->click();
+            check(QApplication::clipboard() != nullptr
+                      && QApplication::clipboard()->text() == QStringLiteral("/give @p white_banner"),
+                  "★★ U40b 按一下把那条指令真复制进剪贴板",
+                  QApplication::clipboard() != nullptr ? QApplication::clipboard()->text() : QString());
+            page.setBannerCommand(QString());
+            check(!bannerCopy->isEnabled(),
+                  "★ U40b 指令被撤掉（算不出来）⇒ 按钮跟着灰回去");
+        }
+        page.close();
+        QApplication::processEvents();
+    }
+
+    // ==================================================================
+    std::printf("\n===== U40c. 附魔那张表：「和上一行同一件」那一列 =====\n");
+    // ------------------------------------------------------------------
+    // 一本书能带好几条附魔、一件装备本来也可能已经有好几条 —— 表格一行只放得下一条，
+    // 所以第五列勾上 = 并进**上一行**那一件（分组在 controller，`runAnvilPlan()`）。
+    // 这里钉页面：那一列在、第一行没有"上一行"所以灰着、勾完读得回来、删掉第一行之后
+    // 新的第一行也跟着灰回去。
+    // ------------------------------------------------------------------
+    {
+        ToolboxPage page;
+        page.setEnchantmentChoices(
+            {{QStringLiteral("sharpness"), QStringLiteral("锋利")},
+             {QStringLiteral("unbreaking"), QStringLiteral("耐久")}});
+        auto *table = page.findChild<QTableWidget *>(QStringLiteral("anvilTable"));
+        auto *addRow = page.findChild<QPushButton *>(QStringLiteral("anvilAddRow"));
+        auto *removeRow = page.findChild<QPushButton *>(QStringLiteral("anvilRemoveRow"));
+        check(table != nullptr && addRow != nullptr && removeRow != nullptr
+                  && table->columnCount() == 5,
+              "★★ U40c 附魔那张表现在是五列（第五列 = 和上一行同一件）",
+              table != nullptr ? QString::number(table->columnCount()) : QString());
+        if (table != nullptr && addRow != nullptr && removeRow != nullptr) {
+            const auto sameAt = [table](int row) -> QCheckBox * {
+                QWidget *wrap = table->cellWidget(row, 4);
+                return wrap != nullptr ? wrap->findChild<QCheckBox *>() : nullptr;
+            };
+            QCheckBox *first = sameAt(0);
+            check(table->rowCount() == 1 && first != nullptr && !first->isEnabled()
+                      && !first->isChecked(),
+                  "★★ U40c 一进来那一行：第五格在，但第一行没有上一行 ⇒ 灰着、不勾");
+
+            addRow->click();
+            QCheckBox *second = sameAt(1);
+            check(table->rowCount() == 2 && second != nullptr && second->isEnabled(),
+                  "★ U40c 加一行 ⇒ 新那一行的第五格能勾（上面有东西可并）");
+            if (second != nullptr) {
+                second->setChecked(true);
+                const QList<ToolboxPage::AnvilRow> rows = page.anvilRows();
+                check(rows.size() == 2 && rows.at(1).sameAsPrevious
+                          && !rows.at(0).sameAsPrevious,
+                      "★★ U40c 勾上 ⇒ `anvilRows()` 读得回来（第一行恒 false）",
+                      QStringLiteral("%1 行").arg(rows.size()));
+                // 「这一件」「用过几次」描述的是那一件东西 ⇒ 并进上一行时这两格归上一行管。
+                auto *kindCell = qobject_cast<QComboBox *>(table->cellWidget(1, 2));
+                auto *usesCell = qobject_cast<QSpinBox *>(table->cellWidget(1, 3));
+                check(kindCell != nullptr && usesCell != nullptr && !kindCell->isEnabled()
+                          && !usesCell->isEnabled(),
+                      "★★ U40c 并进上一行 ⇒ 这一行自己的「这一件 / 用过几次」两格灰掉");
+            }
+
+            table->setCurrentCell(0, 0);
+            removeRow->click();
+            QCheckBox *newFirst = sameAt(0);
+            check(table->rowCount() == 1 && newFirst != nullptr && !newFirst->isEnabled()
+                      && !newFirst->isChecked(),
+                  "★★ U40c 删掉原来第一行 ⇒ 新的第一行跟着灰回去（不把上一条的勾带下来）");
+        }
+        page.close();
+        QApplication::processEvents();
+    }
+
+    // ==================================================================
+    std::printf("\n===== U41. 哈希那一件：算完之后文件变过的提醒 =====\n");
+    // ------------------------------------------------------------------
+    // §9.11 第 1 项那条「文件变化使结果失效」：盯文件的那一半在 controller（`QFileSystemWatcher`
+    // + `FileHash::stampOf`，判据在 verify 的 ZAK 一节）；这里只钉**页面上那句提醒**：
+    // 平时收着、有话说就露出来、没事了又收回去。
+    // ------------------------------------------------------------------
+    {
+        ToolboxPage page;
+        auto *notice = page.findChild<QLabel *>(ToolboxPage::hashNoticeName());
+        check(notice != nullptr && notice->isHidden(),
+              "★★ U41 那句提醒平时收着（算完没事的话页面上看不见它）");
+        if (notice != nullptr) {
+            page.setHashStaleNote(QStringLiteral("这个文件在算完之后变过 —— 再算一遍。"));
+            check(!notice->isHidden() && notice->text().contains(QStringLiteral("再算一遍")),
+                  "★★ U41 文件变过 ⇒ 那句话露出来");
+            page.setHashStaleNote(QString());
+            check(notice->isHidden() && notice->text().isEmpty(),
+                  "★ U41 再算一趟 ⇒ 那句话收回去");
+        }
+        page.close();
+        QApplication::processEvents();
+    }
+
+    std::printf("\n===== U42. 哈希那一件：多文件 + 复制全部 / 导出（§9.11 第 1 项） =====\n");
+    // ------------------------------------------------------------------
+    // 那一条「补多文件、复制/导出列表」落在页面上就是三颗钮 + 一张清单。
+    // 这里钉的是：清单怎么摆、导出/复制的**纯文本**长什么样、两档（单文件 / 批量）互相收掉。
+    // ------------------------------------------------------------------
+    {
+        ToolboxPage page;
+        auto *batchButton = page.findChild<QPushButton *>(ToolboxPage::hashBatchName());
+        auto *copyAll = page.findChild<QPushButton *>(ToolboxPage::hashCopyAllName());
+        auto *exportButton = page.findChild<QPushButton *>(ToolboxPage::hashExportName());
+        check(batchButton != nullptr && copyAll != nullptr && exportButton != nullptr,
+              "★★ U42 哈希那一页上有「批量…」「复制全部」「导出…」三颗钮");
+        check(copyAll != nullptr && !copyAll->isEnabled() && exportButton != nullptr
+                  && !exportButton->isEnabled(),
+              "★★ U42 还没有批量结果时「复制全部」「导出…」是灰的（没东西可拷/存）");
+
+        QList<ToolboxPage::HashBatchRow> rows;
+        ToolboxPage::HashBatchRow good;
+        good.name = QStringLiteral("a.jar");
+        good.path = QStringLiteral("C:/x/a.jar");
+        good.sizeText = QStringLiteral("12.3 MB");
+        good.hex = QStringLiteral("aaaa1111");
+        good.ok = true;
+        ToolboxPage::HashBatchRow bad;
+        bad.name = QStringLiteral("b.jar");
+        bad.path = QStringLiteral("C:/x/b.jar");
+        bad.ok = false;
+        bad.error = QStringLiteral("打不开");
+        rows.append(good);
+        rows.append(bad);
+        page.setHashBatchView(rows, QStringLiteral("共 2 个文件 · SHA-256 · 1 个没算成"));
+
+        auto *result = page.findChild<QLabel *>(QStringLiteral("hashResult"));
+        check(result != nullptr && result->text().contains(QStringLiteral("共 2 个文件")),
+              "★★ U42 清单顶上那句带着「一共几个 / 哪档算法 / 几个没算成」",
+              result == nullptr ? QString() : result->text());
+        check(result != nullptr && result->text().contains(QStringLiteral("a.jar"))
+                  && result->text().contains(QStringLiteral("aaaa1111"))
+                  && result->text().contains(QStringLiteral("12.3 MB")),
+              "★★ U42 算成的那个：文件名、摘要、大小都在清单里");
+        check(result != nullptr && result->text().contains(QStringLiteral("b.jar"))
+                  && result->text().contains(QStringLiteral("打不开")),
+              "★★ U42 没算成的那个也在清单里，而且带着原因（不是悄悄少一行）");
+        check(page.hashBatchText() == QStringLiteral("aaaa1111  a.jar\n"),
+              "★★ U42 复制/导出用的是**标准校验和格式**（`<摘要>  <文件名>`，一行一个）",
+              page.hashBatchText());
+        check(copyAll != nullptr && copyAll->isEnabled() && exportButton != nullptr
+                  && exportButton->isEnabled(),
+              "★★ U42 有批量结果之后那两颗钮都能按了");
+
+        // 两档互相收掉：单文件算完 ⇒ 清单和那两颗钮都收起来（屏幕上只留这一次的）。
+        ToolboxPage::HashView single;
+        single.ok = true;
+        single.algorithm = QStringLiteral("SHA-256");
+        single.hex = QStringLiteral("bbbb2222");
+        single.sizeText = QStringLiteral("4 KB");
+        page.setHashView(single);
+        check(page.hashBatchText().isEmpty() && copyAll != nullptr && !copyAll->isEnabled()
+                  && exportButton != nullptr && !exportButton->isEnabled(),
+              "★★ U42 单文件那一档把批量清单收掉（不留半屏上一次的东西）");
+        check(result != nullptr && result->text().contains(QStringLiteral("bbbb2222"))
+                  && !result->text().contains(QStringLiteral("a.jar")),
+              "★ U42 单文件结果是它自己那一份");
+
+        // 一个都没算成 ⇒ 清单照摆，但没有可复制的摘要（不导出半份空文件）。
+        QList<ToolboxPage::HashBatchRow> allBad;
+        allBad.append(bad);
+        page.setHashBatchView(allBad, QStringLiteral("共 1 个文件 · SHA-256 · 1 个没算成"));
+        check(page.hashBatchText().isEmpty() && copyAll != nullptr && !copyAll->isEnabled(),
+              "★★ U42 一个都没算成时「复制全部」是灰的（清单照摆，但没有摘要可拷）");
+        page.close();
+        QApplication::processEvents();
+    }
+
+    std::printf("\n===== U43. 版本树上面的筛选框（§9「版本树没有过滤/搜索」） =====\n");
+    // ------------------------------------------------------------------
+    // 过滤住在界面这一层（MainWindowUI::applyVersionFilter）：它只藏/露条目、撑开命中的
+    // 分类，一个字节的数据都不碰。清单重灌那一半在 MainWindow（refreshAvailableVersions
+    // 末尾再叫一次），这里把"重灌之后按框里现在的字再筛一遍"也走一遍。
+    // ------------------------------------------------------------------
+    {
+        auto *filter = ui.getVersionFilterEdit();
+        auto *hint = ui.getVersionFilterHint();
+        check(filter != nullptr && filter->objectName() == MainWindowUI::versionFilterEditName()
+                  && hint != nullptr && hint->objectName() == MainWindowUI::versionFilterHintName(),
+              "★★ U43 筛选框和它右边那句结果都找得回来（按 objectName）");
+        check(filter != nullptr && !filter->placeholderText().isEmpty(),
+              "★ U43 框里那句提示不是空的（空框时它就是唯一的说明）",
+              filter == nullptr ? QString() : filter->placeholderText());
+        check(hint != nullptr && hint->isHidden(),
+              "★★ U43 还没筛的时候那句结果收着（不占版面）");
+
+        if (filter != nullptr && hint != nullptr) {
+            // 造一棵小树：两个版本号的正式版、两个快照、一个远古版。产品那边是
+            // MainWindow 灌的，这一层只认 `Qt::UserRole` 里那串版本号。
+            versionTree->clear();
+            auto *release = new QTreeWidgetItem(versionTree);
+            release->setData(0, Qt::UserRole, QStringLiteral("release"));
+            release->setText(0, QStringLiteral("正式版"));
+            for (const QString &id : {QStringLiteral("1.20.1"), QStringLiteral("1.21.4")}) {
+                auto *child = new QTreeWidgetItem(release);
+                child->setData(0, Qt::UserRole, id);
+                child->setText(0, id);
+            }
+            release->setExpanded(true);
+            auto *snapshots = new QTreeWidgetItem(versionTree);
+            snapshots->setData(0, Qt::UserRole, QStringLiteral("snapshot"));
+            snapshots->setText(0, QStringLiteral("快照版"));
+            for (const QString &id : {QStringLiteral("24w14a"), QStringLiteral("24w15a")}) {
+                auto *child = new QTreeWidgetItem(snapshots);
+                child->setData(0, Qt::UserRole, id);
+                child->setText(0, id);
+            }
+            auto *ancient = new QTreeWidgetItem(versionTree);
+            ancient->setData(0, Qt::UserRole, QStringLiteral("ancient"));
+            ancient->setText(0, QStringLiteral("远古版"));
+            auto *old = new QTreeWidgetItem(ancient);
+            old->setData(0, Qt::UserRole, QStringLiteral("rd-132211"));
+            old->setText(0, QStringLiteral("rd-132211"));
+
+            filter->setText(QStringLiteral("1.2"));
+            check(!release->isHidden() && release->isExpanded()
+                      && !release->child(0)->isHidden() && !release->child(1)->isHidden(),
+                  "★★ U43 命中的分类自动撑开、命中的版本号露出来");
+            check(snapshots->isHidden() && ancient->isHidden(),
+                  "★★ U43 一条都不命中的分类整条收起来（不留在结果里当空行）");
+            check(!hint->isHidden() && hint->text() == MainWindowUI::versionFilterMatchText(2),
+                  "★★ U43 右边那句说的是「找到 2 个版本」",
+                  hint->text());
+
+            // 空格分词：两个词都得出现（和实例搜索、文件搜索同一条规矩）。
+            filter->setText(QStringLiteral("24w 15"));
+            check(release->isHidden() && !snapshots->isHidden() && snapshots->isExpanded(),
+                  "★★ U43 空格分词：`24w 15` 落在快照那一栏");
+            check(snapshots->child(0)->isHidden() && !snapshots->child(1)->isHidden(),
+                  "★★ U43 同一个分类里不命中的版本号也各藏各的");
+            check(hint->text() == MainWindowUI::versionFilterMatchText(1),
+                  "★ U43 计数跟着变（这一趟是 1 个）", hint->text());
+
+            filter->setText(QStringLiteral("zzz"));
+            check(release->isHidden() && snapshots->isHidden() && ancient->isHidden(),
+                  "★★ U43 一个都不命中 ⇒ 三栏都收起来");
+            check(!hint->isHidden()
+                      && hint->text() == MainWindowUI::versionFilterNoMatchText(QStringLiteral("zzz")),
+                  "★★ U43 一个都不命中时说「没有版本号匹配「…」」（不是一片空白像坏了）",
+                  hint->text());
+
+            filter->clear();
+            check(!release->isHidden() && !snapshots->isHidden() && !ancient->isHidden()
+                      && !release->child(0)->isHidden() && !snapshots->child(0)->isHidden(),
+                  "★★ U43 清空筛选 ⇒ 条目全露出来");
+            check(release->isExpanded() && !snapshots->isExpanded() && !ancient->isExpanded(),
+                  "★★ U43 清空筛选 ⇒ 展开状态回到**筛之前**那样（不是筛完四栏全开）");
+            check(hint->isHidden(),
+                  "★ U43 不筛了那句结果收回去");
+
+            // 重灌：框里的字留着，条目全是新摆的 ⇒ 产品在 refreshAvailableVersions 末尾
+            // 再叫一次 applyVersionFilter()。这里把那一趟照走一遍。
+            filter->setText(QStringLiteral("1.20"));
+            versionTree->clear();
+            auto *freshRelease = new QTreeWidgetItem(versionTree);
+            freshRelease->setData(0, Qt::UserRole, QStringLiteral("release"));
+            freshRelease->setText(0, QStringLiteral("正式版"));
+            for (const QString &id : {QStringLiteral("1.20.1"), QStringLiteral("1.18.2")}) {
+                auto *child = new QTreeWidgetItem(freshRelease);
+                child->setData(0, Qt::UserRole, id);
+                child->setText(0, id);
+            }
+            auto *freshSnapshot = new QTreeWidgetItem(versionTree);
+            freshSnapshot->setData(0, Qt::UserRole, QStringLiteral("snapshot"));
+            freshSnapshot->setText(0, QStringLiteral("快照版"));
+            auto *freshSnap = new QTreeWidgetItem(freshSnapshot);
+            freshSnap->setData(0, Qt::UserRole, QStringLiteral("24w14a"));
+            freshSnap->setText(0, QStringLiteral("24w14a"));
+            check(!freshSnapshot->isHidden(), "（重灌前：新摆的条目本该全是露着的）");
+            ui.applyVersionFilter();
+            check(!freshRelease->isHidden() && freshRelease->isExpanded()
+                      && !freshRelease->child(0)->isHidden()
+                      && freshRelease->child(1)->isHidden(),
+                  "★★ U43 重灌之后再筛一遍：框里的字还算数（不是「框里写着 1.20、树里全摆着」）");
+            check(freshSnapshot->isHidden(),
+                  "★★ U43 重灌之后不命中的分类照样收起来");
+            filter->clear();
+        }
+        // 收尾：后面没有别的地方读这棵树了，但把它清空、回到"没在筛"的样子。
+        if (versionTree != nullptr) versionTree->clear();
+    }
+
     std::printf("\n===== %s: %d/%d =====\n", g_fail == 0 ? "全部通过" : "有失败", g_pass,
                 g_pass + g_fail);
+    // ★ 2026-10-18：先冲一遍。退出前那几下一旦撞上那发**已知的**堆损坏（`InstanceFilesPage`
+    //   析构里那个 `c0000374`，还没定位），进程是异常终止的 —— 缓冲区里这行总结会跟着丢。
+    std::fflush(stdout);
     return g_fail == 0 ? 0 : 1;
 }

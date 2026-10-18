@@ -9,6 +9,7 @@
 #pragma once
 
 #include <QAtomicInt>
+#include <QDateTime>
 #include <QElapsedTimer>
 #include <QHash>
 #include <QJsonObject>
@@ -136,6 +137,7 @@ class QDropEvent;
 class ServerSettingsController;
 class ThemeSettingsController;
 class JavaSettingsController;
+class PresetController;
 class LauncherPreferencesController;
 class CrashReportController;
 class IntegrityController;
@@ -701,6 +703,10 @@ private slots:
     /// @return 做成了 true。失败时原因已经弹出来了。
     bool copyInstanceTo(const QString &sourceId, const QString &destGameFolder,
                         const QString &newName);
+    /// 界面那一颗「复制实例」走的后台版（coding plan §9.9：不在 UI 线程直接复制整个目录）。
+    /// 四道闸和同步版逐字一致，只是拷树落在后台线程；结果通过任务中心和弹框告诉人。
+    void copyInstanceToInBackground(const QString &sourceId, const QString &destGameFolder,
+                                    const QString &newName);
     /// 「导入世界」真正动手的那一半（顶上那颗按钮，2026-09-28）：把一个世界目录拷进
     /// 这个实例的 `saves/`。
     ///
@@ -1036,6 +1042,7 @@ private slots:
     ///       自己那几百行一行都不用重新缩进。
     void openInstanceSettingsNow(const QString &versionId, const QString &pageKey);
     void openJavaManageNow();
+    void openPresetManageNow();
     void openGroupDialogNow();
 
     /// 这个实例的服务器列表（名字 + 地址，按文件里的顺序）。servers.dat 读不动时是空的。
@@ -1172,6 +1179,10 @@ private slots:
     void onInstallNameEdited();
     /// 点了「安装」。名字校验、重名那一问、Java 挑选、忙态，都在这里收口。
     void onInstallButtonClicked();
+    /// 「实例预设」下拉框变了：记下"这是用户自己选的"（从此默认项不再顶掉它）。
+    void onInstallPresetChosen();
+    /// 「查看内容」：把这一份预设对着"还没装出来的那个实例"会做什么摊开看（只读）。
+    void onInstallPresetViewClicked();
     /// requestLoaderVersions() 的回复：填进**那一条**底下的子条目。
     ///
     /// 参数收的是**下标**（不是 VersionManager::LoaderKind）：这是给 moc 看的槽，
@@ -1876,6 +1887,9 @@ private:
     void onMainTabChanged();
     /// 开「Java 管理」那一页（设置页「启动」栏那颗按钮），打开后在后台重扫一遍盘。
     void openJavaManage();
+    /// 开「实例预设」那一页（设置页「启动」栏最后一节）。页面、读写、备份全在
+    /// `PresetController` 里 —— 这儿只有"让开覆盖层再开"这一层。
+    void openPresetManage();
     /// 把 m_localJavaVersions 里的四个主版本灌进那一页。
     void pushJavaRowsToPage();
     /// 那一页发上来的三件事；实际扫描 / 下载由 JavaRuntimeController 在后台完成。
@@ -1886,10 +1900,10 @@ private:
     /// 走的是同一对 setter + save()，所以盘上的格式一个字都没变。
     void onJavaUseAuto();
     void onJavaUseRuntime(int major);
-    /// 把「内存分配」那一行画成当前状态：自动档按**现在**的系统内存重算并落盘、禁用两个
-    /// 数字框，手动档原样显示用户定的值；两种情况都要写那句"这台机器有多少内存"的说明。
-    /// 调用点：开窗灌值时（applySettingsToUi）、切到设置页时、用户切自动/手动那一刻、
-    /// 用户拖/填「最大内存」那一刻、真的要启动游戏之前（那一刻的可用内存才算数）。
+    /// 把「内存」那一行画成当前状态：条和数字框显示盘上存的那个数（★ 2026-10-18 起
+    /// 「自动（按系统内存）」那一档撤掉了，开窗/切页都**不重算**），旁边写那句"这台机器
+    /// 有多少内存、这个数怎么改"的说明。
+    /// 调用点：开窗灌值时（applySettingsToUi）、切到设置页时、用户拖/填「最大内存」那一刻。
     void refreshMemoryUi();
     /// 把「最大内存」那一行的**上限**收到这台机器真有那么多上（用户原话：「上限=本机物理
     /// 内存」）。传进来的就是 SystemMemory 读到的物理总量（MB，读不到时 <= 0）。
@@ -1998,9 +2012,8 @@ private:
     JavaMismatchAnswer askAboutJavaMismatch(const QString &versionId,
                                             const JavaSettingsOverride &override,
                                             int expectedMajor);
-    /// 「自动（按系统内存）」勾选框。
+    /// 「实例指定的 Java 版本不符时提醒」那个勾选框。
     void onJavaWarnMismatchChanged();
-    void onMemoryAutoChanged();
     void onMemoryChanged();
     /// 「最大内存」那根条动了（见 .cpp 里那段：拖动中只跟着走数字、落盘留给松手那一下）。
     void onMemorySliderMoved();
@@ -2478,7 +2491,10 @@ private:
     /// 行尾按钮 + 右键菜单）。
     void activateServerRow(const QString &serverId);
     /// 起它。装好没有 / 已经在跑 / EULA / Java —— 四道闸全在这一条路上。
-    void startServer(const QString &serverId);
+    /// @param automatic 这一发是不是「崩了之后自动重启」拉起来的。用户自己按的会把这个
+    ///        服务端的重启计数清零（他亲手起的 = 新的一轮）；自动那一路不清（否则计数永远
+    ///        停在 0，崩无限次也停不下来）。
+    void startServer(const QString &serverId, bool automatic = false);
     /// 让它正常停下来（`stop`）。已经在停 / 没在跑 = 什么都不做。
     void stopServer(const QString &serverId);
     /// 强制结束（不等存盘）。**没在跑 = 什么都不做**。
@@ -2535,6 +2551,42 @@ private:
     void mergeServerSettingsEdits(int fromSection, int toSection);
     /// 现在改过几项 / 动没动原文 —— 保存带那句话与「保存」的灰亮的**唯一出处**。
     void updateServerSettingsSaveState();
+
+    // ---------- 玩家名单（§9.7「玩家管理」，2026-10-18）----------
+    //
+    // 四份 JSON 的判据在 `src/server/ServerPlayers`（纯函数），读写在
+    // `ServerSettingsController::readPlayers()/writePlayers()`；这一层只做三件事：
+    // 把行翻成页面认的字符串、问用户名字、写完之后重摆一遍。
+    //
+    // ★ **服务端在跑的时候不许改**：它退出时会把自己内存里那份名单写回盘上（同
+    //   `server.properties` 那条理由），页面那两颗按钮已经跟着 `setEditable()` 一起锁上了。
+    void refreshServerPlayers();
+    void addServerPlayer();
+    void removeServerPlayer(const QString &identity);
+    /// 「踢出…」：把一条 `kick <名字>` 送进**正在跑**的服务端的控制台（§9.7 那句：
+    /// 在线动作必须走运行控制台并回显结果），再把这一发记进控制台和启动器日志。
+    void kickServerPlayer(const QString &name);
+
+    // ---------- 服务端内容（§9.7「内容管理」，2026-10-18）----------
+    //
+    // 两类：模组（服务端目录 `mods/`）和数据包（世界目录 `datapacks/`）。判据（认哪个
+    // 后缀、禁用怎么改名、文件夹叫什么）全在 `src/server/ServerContent`；这一层只列目录、
+    // 拷文件、改名。
+    void refreshServerContent();
+    /// 「添加…」：选一个 / 几个文件拷进当前那一类的文件夹（重名不覆盖、逐个报数）。
+    void addServerContent();
+    /// 「启用」/「禁用」：把 `.disabled` 尾巴加上或摘掉（文件内容一个字节都不动）。
+    void toggleServerContent(const QString &name, bool enable);
+    void openServerContentFolder();
+    /// 现在这一页选中的那一类落在哪个文件夹（找不到 / `level-name` 认不出来回空串）。
+    QString serverContentFolder() const;
+
+    // ---------- 服务端资源包（§9.7，2026-10-18）----------
+    //
+    // 用户点「选择本地 zip…」：选文件 → `ServerResourcePack::inspect()` 验一眼、算 SHA-1
+    // → 填回 `resource-pack-sha1` 那一格。**地址那一格不替用户填** —— 本机路径别人打不开
+    // （`ServerResourcePack.hpp` 文件头那段）。
+    void pickServerResourcePack();
 
     /// 跑一遍体检（开页 / 保存之后 / 用户点了「重新检查」），把结论摆到那一页上。
     /// 顺带把端口那一次真监听的结论记进 `m_serverSettingsPortState`。
@@ -2961,9 +3013,18 @@ private:
     int m_serverInstallStepCount = 0;
     /// 服务端进程的所有权、复用与信号汇聚属于服务端域，主窗口只呈现状态。
     ServerWorkspaceController *m_serverWorkspace = nullptr;
+    /// 每个服务端**这一轮**里已经自动重启过几次（`ServerRestart::decide()` 的入参之一）。
+    /// 跑够久（`ServerRestart::kResetAfterSeconds()`）再崩、或者用户自己停 / 自己启动时清零。
+    QHash<QString, int> m_serverRestartAttempts;
+    /// 这一次启动是什么时候（判"跑够久了没有"，决定上面那个计数是不是新的一轮）。
+    QHash<QString, QDateTime> m_serverStartedAt;
+    /// 哪些服务端的**这一次退出是我们让的**（「停止」/「强制结束」）。退出回调里据此
+    /// 把这一趟判成 `UserStop` —— 被强杀的进程退出码往往非 0，但它不是"崩了"。
+    QSet<QString> m_serverStopRequested;
     ServerSettingsController *m_serverSettingsController = nullptr;
     ThemeSettingsController *m_themeSettingsController = nullptr;
     JavaSettingsController *m_javaSettingsController = nullptr;
+    PresetController *m_presetController = nullptr;
     LauncherPreferencesController *m_launcherPreferences = nullptr;
     CrashReportController *m_crashReports = nullptr;
     IntegrityController *m_integrityController = nullptr;
@@ -3286,6 +3347,18 @@ private:
     // 用户**自己改过**名称框没有。改过之后默认名就不再跟着加载器变了（不然他敲到一半
     // 的名字会被一次"选了 Forge"顶掉）；每次进安装页重置。
     bool m_installNameTouched = false;
+    // 安装页「实例预设」那一格（2026-10-18，coding plan §7）。三笔分开记：
+    //   · touched：用户**自己动过**那个下拉框没有。动过之后默认项再也不顶掉他的选择
+    //     （§7「用户手动选择后，不因后台默认项变化而偷偷切换」）；
+    //   · choice：他选的那一份（空串 = 「不使用预设」，也是合法的一种"选过"）；
+    //   · pending*：这一次安装**真的**带着预设走（点「安装」那一刻定下来，收尾时用）。
+    //     ★ 从点下安装到 versionDownloadFinished 之间用户还可能去动下拉框 —— 那一动
+    //       不该改变这一趟已经发出去的安装。所以收尾读的是 pending 这三笔，不是界面。
+    bool m_installPresetTouched = false;
+    QString m_installPresetChoice;
+    QString m_installPendingPresetId;
+    QString m_installPendingPresetInstance;
+    bool m_installPendingReplaceConfirmed = false;
     // "有版本目录但 jar 名对不上"这件事是否已经写过日志。refreshInstalledVersions()
     // 一次会话会被调很多次，不记一笔就是同样的告警反复刷。
     bool m_reportedUnrecognizedVersions = false;

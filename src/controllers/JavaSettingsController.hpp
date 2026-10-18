@@ -34,7 +34,6 @@ public:
     void download(int major);
     void downloadAllMissing();
     void setWarnMismatchFromUi();
-    void setAutoMemoryFromUi();
     void commitMemoryFromSpin();
     void syncMemorySlider();
     void applyMemoryLimits(qint64 totalMb);

@@ -684,7 +684,24 @@ void WorldSettingsPage::setWorld(const WorldView &view) {
         const QDateTime when = QDateTime::fromMSecsSinceEpoch(view.lastPlayedMs);
         facts.append(tr("上次游玩 %1").arg(when.toString(QStringLiteral("yyyy-MM-dd HH:mm"))));
     }
+    // ★ 2026-10-18（§9.6）：大小 / 种子 / 玩家位置 / 已生成范围 —— 四件**只读的事实**。
+    //   缺的那几件照样整条不写（"从没进过的世界"没有玩家位置，老档可能没有种子）。
+    if (view.hasSize && !view.sizeText.isEmpty()) {
+        facts.append(tr("大小 %1").arg(view.sizeText));
+    }
+    if (view.hasSeed) {
+        facts.append(tr("种子 %1").arg(view.seedText));
+    }
+    if (view.hasPlayer && !view.playerText.isEmpty()) {
+        facts.append(tr("玩家位置 %1").arg(view.playerText));
+    }
+    if (view.hasRegions && !view.regionsText.isEmpty()) {
+        facts.append(tr("已生成区域 %1").arg(view.regionsText));
+    }
     m_info->setText(facts.join(QStringLiteral("　·　")));
+    // 说明（模组维度不在里面 / 有区域文件读不出来）只挂在 tooltip 上：顶上那行已经够长了，
+    // 而它是"结果可能不完整"的补充事实，不是主角。
+    m_info->setToolTip(view.mapNote);
 
     // `false`：这一下换的是**世界**，不能把上一个世界页面上的值收进这一份里（见 .cpp 里
     // rebuildRuleRows 的 ★）。

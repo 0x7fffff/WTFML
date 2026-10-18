@@ -92,6 +92,10 @@ set(PROJECT_SOURCES
     # （测试驱动不了它）直接调函数 —— 重名挡住没有、拷一半失败会不会留半份，都在这里钉。
     ${REPO_ROOT}/src/manage/WorldFiles.cpp
     ${REPO_ROOT}/src/manage/WorldFiles.hpp
+    # 世界只读概况（§9.6）：头部表解析、种子/玩家位置读取、目录扫描 —— 纯函数那两截
+    # 直接喂假数据就能逐格念，不用造一个真存档。
+    ${REPO_ROOT}/src/manage/WorldMap.cpp
+    ${REPO_ROOT}/src/manage/WorldMap.hpp
     # 「上一次启动」那本账（§5.1）：格式怎么读写、时间怎么说成人话、目标没了怎么降级、
     # 上限怎么截 —— 全是纯函数，**一条都不用起界面**就能逐格念。
     ${REPO_ROOT}/src/manage/LaunchHistory.cpp
@@ -126,6 +130,13 @@ set(PROJECT_SOURCES
     # 只读盘、一个字节都不写，所以除了通用文件组的干跑之外全都是纯值）。
     ${REPO_ROOT}/src/presets/PresetPlanner.cpp
     ${REPO_ROOT}/src/presets/PresetPlanner.hpp
+    # 提取与落到实例上（2026-10-18，coding plan §6 P1 / §7 / §8.1）：`verify` 的 **PG**
+    # 一节拿真实例形状的临时目录走一遍 —— 收一份出来、再落回另一个实例、覆盖那几样
+    # 备份在不在、游戏在跑时是不是一个字节都没写。
+    ${REPO_ROOT}/src/presets/PresetCapture.cpp
+    ${REPO_ROOT}/src/presets/PresetCapture.hpp
+    ${REPO_ROOT}/src/presets/PresetApply.cpp
+    ${REPO_ROOT}/src/presets/PresetApply.hpp
     # MaLiLib 那一族的热键（2026-10-17，coding plan §6 P4 / §10 第 12 项）：按**结构**认这一族
     # （不看文件名）、一格一格地读/写（认三档：整格是热键 / 一格装开关+热键 / 别的值）、
     # 冲突分析、以及在两份真形状的 `config/*.json` 之间真写一遍。`verify` 的 **PF** 一节拿
@@ -134,6 +145,25 @@ set(PROJECT_SOURCES
     # **不删格子**」。
     ${REPO_ROOT}/src/presets/MalilibKeys.cpp
     ${REPO_ROOT}/src/presets/MalilibKeys.hpp
+    # 结构 / 原理图的元数据与方块统计（2026-10-18，coding plan §9.5）。`verify` 的 **SG**
+    # 一节拿 `NbtTree::serialize()` 手搭三种格式的树（含 gzip 那一层）逐项念。
+    ${REPO_ROOT}/src/schematic/SchematicInfo.cpp
+    ${REPO_ROOT}/src/schematic/SchematicInfo.hpp
+    # Replay 录像（`.mcpr`）的元数据（2026-10-18，coding plan §9.5）。`verify` 的 **RP**
+    # 一节拿 `ZipUtil::createZip()` 造几份真形状的 `.mcpr` 逐项念（缺字段 / 不是 zip /
+    # 少了 metaData.json 各一路）。
+    ${REPO_ROOT}/src/replay/ReplayInfo.cpp
+    ${REPO_ROOT}/src/replay/ReplayInfo.hpp
+    # 启动诊断（2026-10-18，coding plan §9.5）。`verify` 的 **DX** 一节造临时
+    # mods/日志/崩溃报告，逐条念「问题 / 提醒 / 信息」的判据。
+    ${REPO_ROOT}/src/diagnose/StartupDiagnosis.cpp
+    ${REPO_ROOT}/src/diagnose/StartupDiagnosis.hpp
+    # 迁移 / 升级副本（2026-10-18，coding plan §9.9 第 15 项）。`verify` 的 **TR** 一节
+    # 自己摆一份源实例（存档 / 模组 / 日志），逐条念兼容结论、默认勾选与"只增不删"。
+    ${REPO_ROOT}/src/operations/TransferPlanner.cpp
+    ${REPO_ROOT}/src/operations/TransferPlanner.hpp
+    ${REPO_ROOT}/src/operations/TransferApply.cpp
+    ${REPO_ROOT}/src/operations/TransferApply.hpp
     ${REPO_ROOT}/src/settings/EffectiveJavaSettings.cpp
     ${REPO_ROOT}/src/settings/EffectiveJavaSettings.hpp
     ${REPO_ROOT}/src/settings/GlobalJavaSettings.cpp
@@ -158,6 +188,22 @@ set(PROJECT_SOURCES
     ${REPO_ROOT}/src/tools/FileHash.hpp
     ${REPO_ROOT}/src/tools/AnvilPlanner.cpp
     ${REPO_ROOT}/src/tools/AnvilPlanner.hpp
+    # 信标计算 / 酿造助手（2026-10-18，coding plan §9.11）：ZAI 那一节钉那几组数
+    # （累计方块数、效果范围、效果解锁表）与酿造路线（链式前驱、二选一冲突、形态后处理）。
+    ${REPO_ROOT}/src/tools/Beacon.cpp
+    ${REPO_ROOT}/src/tools/Beacon.hpp
+    ${REPO_ROOT}/src/tools/Brewing.cpp
+    ${REPO_ROOT}/src/tools/Brewing.hpp
+    # 旗帜设计 / 纹饰搭配（2026-10-18，coding plan §9.11）：ZAJ 那一节钉图案表、层数上限、
+    # 材料合并与纹饰的海龟壳限制。
+    ${REPO_ROOT}/src/tools/Banner.cpp
+    ${REPO_ROOT}/src/tools/Banner.hpp
+    ${REPO_ROOT}/src/tools/ArmorTrim.cpp
+    ${REPO_ROOT}/src/tools/ArmorTrim.hpp
+    # 运行输出共用模型（2026-10-18，coding plan §9.8）：只依赖 QtCore（字符串 + 容器），
+    # 所以 ZAM 那一节能直接驱动它：认级别 / 计数 / 档案筛选 / 搜索 / 两条上限 / 导出。
+    ${REPO_ROOT}/ui/RuntimeOutputModel.cpp
+    ${REPO_ROOT}/ui/RuntimeOutputModel.hpp
     # ServerListFile（2026-10-10）：servers.dat 的读（转 NbtUtil）和「只动 name / ip
     # 两格」的写。它要 NbtUtil（读）和 ZipUtil（gzip 那一层）—— 那两样都在上面。
     ${REPO_ROOT}/src/manage/ServerListFile.cpp
@@ -320,9 +366,36 @@ if(EXISTS ${REPO_ROOT}/src/server/ServerPropertiesForm.hpp)
                                 ${REPO_ROOT}/src/server/ServerCheck.hpp)
 endif()
 
+# 服务端那四份玩家名单（2026-10-18，§9.7）：纯解析 / 纯拼 JSON，一个字节的盘都不碰。
+# verify 的 **ZAE** 一节直接钉它（外加离线 UUID 那个已知向量）。
+if(EXISTS ${REPO_ROOT}/src/server/ServerPlayers.hpp)
+    list(APPEND PROJECT_SOURCES ${REPO_ROOT}/src/server/ServerPlayers.hpp
+                                ${REPO_ROOT}/src/server/ServerPlayers.cpp)
+endif()
+
+# 崩溃自动重启那条策略（2026-10-18，§9.7）：纯判据，verify 的 **ZAF** 一节钉它。
+if(EXISTS ${REPO_ROOT}/src/server/ServerRestart.hpp)
+    list(APPEND PROJECT_SOURCES ${REPO_ROOT}/src/server/ServerRestart.hpp
+                                ${REPO_ROOT}/src/server/ServerRestart.cpp)
+endif()
+
+# 服务端资源包（2026-10-18，§9.7）：条目表判据是纯的；`inspect()` 会借 ZipUtil（真 zip）。
+# verify 的 **ZAG** 一节钉它。
+if(EXISTS ${REPO_ROOT}/src/server/ServerResourcePack.hpp)
+    list(APPEND PROJECT_SOURCES ${REPO_ROOT}/src/server/ServerResourcePack.hpp
+                                ${REPO_ROOT}/src/server/ServerResourcePack.cpp)
+endif()
+
+# 服务端内容（模组 / 数据包，2026-10-18，§9.7）：名字 / 分类 / 改名全是纯函数。
+# verify 的 **ZAH** 一节钉它。
+if(EXISTS ${REPO_ROOT}/src/server/ServerContent.hpp)
+    list(APPEND PROJECT_SOURCES ${REPO_ROOT}/src/server/ServerContent.hpp
+                                ${REPO_ROOT}/src/server/ServerContent.cpp)
+endif()
+
 add_executable(verify main.cpp ${PROJECT_SOURCES})
 
-target_include_directories(verify PRIVATE ${REPO_ROOT}/src)
+target_include_directories(verify PRIVATE ${REPO_ROOT}/src ${REPO_ROOT}/ui)
 target_link_libraries(verify PRIVATE Qt6::Core Qt6::Network Qt6::Gui)
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_compile_options(verify PRIVATE -O0)

@@ -69,6 +69,9 @@ struct Address {
     QString host;
     int port = kDefaultPort;
     bool valid = false;
+    /// 端口是**用户写出来的**（还是落回了默认那一个）。SRV 只在"没写端口"时查 ——
+    /// 游戏自己也是这个规矩：写了端口就是"我就要连这一对"，不许 SRV 再把它换掉。
+    bool portExplicit = false;
 };
 
 /**
@@ -88,9 +91,93 @@ struct Address {
  */
 Address splitAddress(const QString &text);
 
+// ---------- SRV（`_minecraft._tcp.<主机>`，§9.11 第 3 项） ----------
+
+/// 一台主机在 DNS 里自己报的服务地址（SRV 记录的四条：目标、端口、优先级、权重）。
+struct SrvRecord {
+    QString target;
+    int port = 0;
+    int priority = 0;
+    int weight = 0;
+};
+
+/// 过滤掉**用不了**的记录（目标空、端口不在 1..65535），只留 priority 最小的那一组。
+///
+/// 为什么先挑优先级再挑权重：SRV 的规矩是"优先级是硬次序、权重只排同一优先级里的先后"。
+/// 把两者混在一起算（比如按 weight/priority 排）会在有备份服务器时**先连到备份上**。
+QList<SrvRecord> bestPriorityRecords(const QList<SrvRecord> &records);
+
+/**
+ * @brief 在**同一优先级**那一组里按权重挑一条。
+ * @param sample 一个随机数（验证工程传定值来钉"权重怎么分"）。>= totalWeight 时从 0 算。
+ * @return 挑不出来（空表 / 全不合法）回 `false`，@p out 不动。
+ *
+ * 权重全是 0 的合法写法是"所有记录等概率"（RFC 2782），不是"谁都不选"。
+ */
+bool pickSrvRecord(const QList<SrvRecord> &records, quint32 sample, SrvRecord *out);
+
+/// SRV 查询开着没有（**默认开**，和游戏一样）。关掉之后 `resolve()` 直接回用户写的那一对 ——
+/// 验证工程要离线跑、或者用户在不认 SRV 的环境里想少等一趟 DNS，都可以关。
+bool srvLookupEnabled();
+void setSrvLookupEnabled(bool on);
+
+/// 一条地址**真正会连到哪**（见 resolve()）。
+struct Resolution {
+    /// 用户写的那一对（splitAddress 的结果）。valid=false 时后面几格没有意义。
+    Address address;
+    /// 真正去连的主机（SRV 命中时是记录里的 target；否则就是 address.host）。
+    QString connectHost;
+    int connectPort = kDefaultPort;
+    /// 查了 SRV、而且命中了（connectHost/connectPort 因此和 address 那两格不同）。
+    bool srvUsed = false;
+    /// 查了 SRV，但没查到（NXDOMAIN / 服务器没答 / 超时）。**不是错误**：照用户写的连。
+    bool srvTried = false;
+    /// 为什么没查到（中文，只作说明；srvTried && !srvUsed 时才有）。
+    QString srvError;
+    bool valid = false;
+};
+
+/**
+ * @brief 按"用户写的地址 → 实际要连的主机:端口"算一遍（含 SRV，阻塞、最多 @p budgetMs 毫秒）。
+ *
+ * 规矩（和游戏一致）：
+ *   - 写了端口 ⇒ **不查 SRV**（`example.com:25566` 就是要连这一对，别再被 DNS 换掉）；
+ *   - 主机是 IP 字面量（`1.2.3.4` / `[::1]`）⇒ 不查；
+ *   - `localhost` ⇒ 不查（本机的东西没有 SRV 可言，省一趟）；
+ *   - 其余查 `_minecraft._tcp.<主机>`：查到就按"最小优先级 → 权重随机"挑一条，
+ *     连记录里的 target:port；查不到就照原样连，并在 `srvError` 里说明。
+ *
+ * @param budgetMs <= 0 用 timeoutMs()；SRV 这一步**最多花一半预算**（见 .cpp）。
+ */
+Resolution resolve(const QString &text, int budgetMs = -1);
+
+/// 没通的原因**归成哪一类**（§9.11 第 3 项：协议错误分类）。
+///
+/// ★ 界面**不许再拿 `Status::error` 那句中文去认**（那是给人看的字，改一个字就静默失配）。
+///   要判"哪种没通"一律问 `Status::kind`。
+enum class Kind {
+    Ok = 0,           ///< 通了
+    InvalidAddress,   ///< 地址本身就看不懂（`splitAddress` 那几条规矩）
+    HostNotFound,     ///< DNS 说没有这台主机
+    Refused,          ///< 对面没开 / 端口不对（TCP 被拒）
+    Unreachable,      ///< 网络不通（含 connect 那一步超时）
+    NoAnswer,         ///< **连上了但是一个字节都没答**（协议层面的"没回话"）
+    ConnectionLost,   ///< 连上之后被对面断开 / 写不出去
+    Protocol,         ///< 答了，但答的不是一个合法的状态包（长度 / 包号 / JSON）
+    Other,            ///< 其余（本机不让连之类）
+};
+
+/// 这一类的机器判据（界面上要换一句话时用它，不去认中文）。
+QString kindName(Kind kind);
+
+/// 一个 socket 错误归到哪一类（超时那一档由 `Status::timedOut` 另记，见 isTimeoutError）。
+Kind kindForSocketError(int socketError);
+
 /// 一次 ping 的结果。**OK 和"为什么没 OK"两件事都在这里面**（同 HttpClient::Reply）。
 struct Status {
     bool ok = false;
+    /// 没通的是哪一类（机器判据；`error` 那句中文**只给人看**）。
+    Kind kind = Kind::Other;
     /// 没通的原因（**中文**，按 connectionErrorText() 那张表翻；"连上了但没人答"那一档是
     /// ping() 自己写的一句）。ok 为真时是空串。
     QString error;
@@ -135,6 +222,11 @@ struct Status {
     /// 图标：`favicon` 那串 data URL 解出来的**原始 PNG 字节**（没给就是空）。
     /// 解成图片是界面那一层的事（这里不碰 QPixmap，util 层不开图形依赖）。
     QByteArray iconPng;
+    /// 这一趟**真正连的**主机/端口（SRV 命中时和用户写的不一样；见 resolve()）。
+    QString connectHost;
+    int connectPort = -1;
+    /// 这一趟是 SRV 换过去的（界面想写"经 SRV → xxx:yyyy"时用；不写也行）。
+    bool srvUsed = false;
 };
 
 /// 问一台（同步，最多 timeoutMs()）。

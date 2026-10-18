@@ -121,6 +121,7 @@ struct MergeMaps {
     int value = 0;
     int incompatible = 0;
     QMap<QString, int> result;
+    QMap<QString, int> dropped;
 };
 
 MergeMaps mergeMaps(const QMap<QString, int> &target, const QMap<QString, int> &sacrifice, bool sacrificeIsBook) {
@@ -139,6 +140,7 @@ MergeMaps mergeMaps(const QMap<QString, int> &target, const QMap<QString, int> &
         }
         if (conflict) {
             ++merged.incompatible;
+            merged.dropped.insert(id, level);
             continue;
         }
         const EnchantInfo *info = findEnchantment(id);
@@ -163,6 +165,11 @@ MergeMaps mergeMaps(const QMap<QString, int> &target, const QMap<QString, int> &
 struct State {
     int cost = 0;
     int penalty = 0;
+    /// 走到这一件为止，**最大那一步**花了多少级（判"生存里做不做得出来"用它，
+    /// 不看累计 —— 铁砧限制的是每一次，不是总和）。
+    int maxStep = 0;
+    /// 这一件是不是附魔书（决定它当牺牲品时按哪一列倍率算；合并出来的那件跟着左边那件）。
+    bool isBook = true;
     QMap<QString, int> enchantments;
     /// 来源：子集 A、子集 B、以及"谁左谁右"（true = A 当牺牲品）。
     int leftMask = 0;
@@ -235,6 +242,7 @@ MergeCost mergeCost(const Unit &target, const Unit &sacrifice) {
     const MergeMaps merged = mergeMaps(target.enchantments, sacrifice.enchantments, sacrifice.isBook);
     cost.enchantValue = merged.value;
     cost.incompatible = merged.incompatible;
+    cost.dropped = merged.dropped;
     cost.penalties = target.penalty + sacrifice.penalty;
     cost.total = cost.enchantValue + cost.penalties + cost.incompatible;
     // 39 级是铁砧那条上限（wiki："beyond that, repairs are refused"）—— 代价**超过 39**
@@ -279,6 +287,7 @@ Plan plan(const QList<Unit> &units, bool includeRename) {
         State state;
         state.cost = 0;
         state.penalty = units.at(index).penalty;
+        state.isBook = units.at(index).isBook;
         state.enchantments = units.at(index).enchantments;
         best[size_t(1 << index)].append(state);
     }
@@ -314,15 +323,10 @@ Plan plan(const QList<Unit> &units, bool includeRename) {
                         Unit sacrifice;
                         sacrifice.enchantments = sacrificeState.enchantments;
                         sacrifice.penalty = sacrificeState.penalty;
-                        // 附魔书的倍率那一列：牺牲品是一本书才按书算。输入里那些单位自己是
-                        // 不是书由它们的 isBook 决定；**合并出来的中间件按附魔书算**（合出来的
-                        // 那一本还是书）。
-                        bool sacrificeIsBook = true;
-                        if (sacrificeState.leftState < 0 && sacrificeState.rightState < 0) {
-                            // 叶子：看输入里那一件自己怎么标的。
-                            sacrificeIsBook = units.at(__builtin_ctz(unsigned(swapped == 0 ? right : left))).isBook;
-                        }
-                        sacrifice.isBook = sacrificeIsBook;
+                        // 附魔书的倍率那一列：牺牲品是**书**才按书算，是装备就按物品那一列。
+                        // 合并出来的那一件跟着**左边**（留下）那一件 —— 铁砧的结果就是把
+                        // 左边那件改一改，所以拿一件装备当底子合到最后还是那件装备。
+                        sacrifice.isBook = sacrificeState.isBook;
 
                         MergeCost merge = mergeCost(target, sacrifice);
                         if (includeRename) {
@@ -334,6 +338,9 @@ Plan plan(const QList<Unit> &units, bool includeRename) {
                         State state;
                         state.cost = targetState.cost + sacrificeState.cost + merge.total;
                         state.penalty = merge.resultPenalty;
+                        state.isBook = targetState.isBook;
+                        state.maxStep = qMax(targetState.maxStep,
+                                             qMax(sacrificeState.maxStep, merge.total));
                         state.enchantments = merge.result;
                         state.leftMask = left;
                         state.rightMask = right;
@@ -352,6 +359,9 @@ Plan plan(const QList<Unit> &units, bool includeRename) {
             if (a.cost != b.cost) {
                 return a.cost < b.cost;
             }
+            if (a.maxStep != b.maxStep) {
+                return a.maxStep < b.maxStep;
+            }
             return a.penalty < b.penalty;
         });
         QList<State> kept;
@@ -359,6 +369,8 @@ Plan plan(const QList<Unit> &units, bool includeRename) {
             bool dominated = false;
             for (const State &keptState : kept) {
                 if (keptState.cost <= candidate.cost && keptState.penalty <= candidate.penalty
+                    && keptState.maxStep <= candidate.maxStep
+                    && keptState.isBook == candidate.isBook
                     && keptState.enchantments == candidate.enchantments) {
                     dominated = true;
                     break;
@@ -379,8 +391,66 @@ Plan plan(const QList<Unit> &units, bool includeRename) {
         plan.error = QStringLiteral("算不出计划来（这一组东西可能会有互斥的附魔）。");
         return plan;
     }
-    // 最后那一件取"代价最低"的那一条；代价一样时取前科小的。
-    const State *finalState = &finalStates.first();
+
+    // ---------- 选哪一条 ----------
+    // ★ "合完是哪一件"要跟着用户抱来的那堆东西走：全是书 ⇒ 合出来还是书；里面有一件
+    //   已经附过魔的装备 ⇒ 合出来必须是**那件装备**。不钉这一条的话，两件东西里"把装备
+    //   当牺牲品喂给书"往往更便宜，算出来的计划就变成"把装备烧了换一本书"，不是用户要的。
+    bool wantBook = true;
+    for (const Unit &unit : units) {
+        if (!unit.isBook) {
+            wantBook = false;
+            break;
+        }
+    }
+    /// 同样地看"能不能做出来"：累计小但中间某一步超了 39 的那条在生存里做不出来。
+    auto better = [](const State &candidate, const State &chosen) {
+        const bool candidateFeasible = candidate.maxStep <= 39;
+        const bool chosenFeasible = chosen.maxStep <= 39;
+        if (candidateFeasible != chosenFeasible) {
+            return candidateFeasible;
+        }
+        if (candidate.cost != chosen.cost) {
+            return candidate.cost < chosen.cost;
+        }
+        return candidate.penalty < chosen.penalty;
+    };
+
+    // 目标附魔 = 全部用上时、按"合完还是那一件"这条规矩的最优结果（用户列了哪些书，
+    // 就奔着那套结果去）。
+    int targetMask = total - 1;
+    int targetIndex = -1;
+    for (int index = 0; index < finalStates.size(); ++index) {
+        if (finalStates.at(index).isBook != wantBook) {
+            continue;
+        }
+        if (targetIndex < 0 || better(finalStates.at(index), finalStates.at(targetIndex))) {
+            targetIndex = index;
+        }
+    }
+    if (targetIndex < 0) {  // 兜底：一套符合"合完还是那一件"的都没有，就照累计最小那条
+        targetIndex = 0;
+    }
+    const QMap<QString, int> target = finalStates.at(targetIndex).enchantments;
+    // 材料可以不全用：所以要在**所有子集**合出来的状态里找，不只是"全用上"那一档 ——
+    // 合出来同一套附魔、少花几本的那条更好（剩下的那几本在 `unused` 里点名）。
+    int chosenMask = targetMask;
+    int chosenIndex = targetIndex;
+    for (int mask = 1; mask < total; ++mask) {
+        const QList<State> &bucket = best[size_t(mask)];
+        for (int index = 0; index < bucket.size(); ++index) {
+            const State &state = bucket.at(index);
+            if (state.enchantments != target || state.isBook != wantBook) {
+                continue;
+            }
+            const State &chosen = best[size_t(chosenMask)].at(chosenIndex);
+            if (better(state, chosen)) {
+                chosenMask = mask;
+                chosenIndex = index;
+            }
+        }
+    }
+    const State *finalState = &best[size_t(chosenMask)].at(chosenIndex);
 
     // ---------- 把步骤重建出来 ----------
     struct Walk {
@@ -418,6 +488,7 @@ Plan plan(const QList<Unit> &units, bool includeRename) {
             step.sacrificeNode = step.sacrificeIndex < 0 ? sacrificeNode : -1;
             step.cost = state.merge;
             step.result = state.enchantments;
+            step.resultIsBook = state.isBook;
             steps.append(step);
             const int node = units->size() + steps.size() - 1;
             // 中间件在表里、叶子不在表里（叶子的身份就是它的下标）。
@@ -437,14 +508,21 @@ Plan plan(const QList<Unit> &units, bool includeRename) {
     Walk walk;
     walk.best = &best;
     walk.units = &units;
-    walk.walk(total - 1, 0);
+    walk.walk(chosenMask, chosenIndex);
 
     plan.ok = true;
     plan.steps = walk.steps;
     plan.totalCost = walk.totalCost;
     plan.finalPenalty = finalState->penalty;
     plan.finalEnchantments = finalState->enchantments;
+    plan.finalIsBook = finalState->isBook;
     plan.anyTooExpensive = walk.anyTooExpensive;
+    plan.withinSurvival = !walk.anyTooExpensive;
+    for (int index = 0; index < units.size(); ++index) {
+        if ((chosenMask & (1 << index)) == 0) {
+            plan.unused.append(index);
+        }
+    }
     plan.consumed = walk.consumed;
     return plan;
 }

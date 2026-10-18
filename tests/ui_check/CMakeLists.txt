@@ -93,6 +93,9 @@ add_executable(ui_check main.cpp
                                 # 见它的文件头），所以归这一层验最合适：给它几行字，看它
                                 # 写没写上去、跟不跟到底、清空/关闭两颗钮管不管用。
                                 ${REPO_ROOT}/ui/GameLogWindow.cpp
+                                # 运行输出共用模型（2026-10-18，§9.8）：GameLogWindow 和
+                                # ServerConsolePage 都直接用它。
+                                ${REPO_ROOT}/ui/RuntimeOutputModel.cpp
                                 ${REPO_ROOT}/ui/SkinViewer.cpp
                                 ${REPO_ROOT}/ui/TitleBar.cpp
                                 ${REPO_ROOT}/ui/Theme.cpp

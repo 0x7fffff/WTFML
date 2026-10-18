@@ -144,6 +144,18 @@ public:
         QString formatText;
         bool hasLastPlayed = false;   ///< 上次游玩（毫秒时间戳）
         qint64 lastPlayedMs = 0;
+        bool hasSize = false;         ///< 这个世界占多大（目录递归加起来；`src/manage/WorldMap`）
+        QString sizeText;             ///< 已经翻成"123.4 MB"那种
+        bool hasSeed = false;         ///< 种子（1.16+ 在 `WorldGenSettings/seed`，老档在 `RandomSeed`）
+        QString seedText;
+        bool hasPlayer = false;       ///< `Data/Player/Pos` 在不在（从没进过的世界没有这一格）
+        QString playerText;           ///< "x / y / z（维度）"
+        bool hasRegions = false;      ///< `region/` 里扫到了至少一个 `.mca`
+        /// "3 个区域文件 · 已生成 1234 个区块 · 范围 x … z …"（或者"头部读不全"那句实话）
+        QString regionsText;
+        /// 只读说明，挂在顶上那行事实的 tooltip 上（"模组维度没算进来""有几个区域文件
+        /// 读不出来"这一类）。空串 = 没有要额外说的。
+        QString mapNote;
         bool gzipped = true;          ///< 盘上那份是 gzip 包着的（不是的话底下那行小字会说）
         bool hasAllowCommands = false;
         bool allowCommands = false;

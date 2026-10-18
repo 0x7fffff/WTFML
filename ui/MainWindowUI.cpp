@@ -36,13 +36,13 @@
 #include <QSignalBlocker>
 #include <QSettings>
 #include <QStyle>
-#include <QMenuBar>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPalette>
 #include <QResizeEvent>
 #include <QRegularExpression>
 #include <QScrollArea>
+#include <QSet>
 #include <QTimer>
 #include <QVBoxLayout>
 #include <algorithm>
@@ -1639,6 +1639,38 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         auto *treeLayout = new QVBoxLayout(treePage);
         treeLayout->setContentsMargins(0, 0, 0, 0);
         treeLayout->setSpacing(10);
+        // ---- 版本号筛选（2026-10-18，coding plan §9「版本树没有过滤/搜索」）----
+        //
+        // 742 条快照平铺在一棵树里，找一个版本号只能靠滚。这里给它一个和实例列表、
+        // 文件页同一个规矩的框：空格分词、每个词都得出现在版本号里、不区分大小写。
+        //
+        // NOTE: 过滤**只动条目**（`QTreeWidgetItem::setHidden`），不动数据 ——
+        //       `MainWindow::refreshAvailableVersions` 重灌时照旧从头摆一遍，摆完再叫
+        //       `applyVersionFilter()` 按框里现在的字筛一回。两边各管一半，别把过滤塞进
+        //       MainWindow 那一趟（那样刷新一次就得把"刚才筛的是什么"也搬过去）。
+        // NOTE: 结果那句话单独一个标签，**不塞进框里**：框里的字是用户打的，改它等于
+        //       改用户的输入；而"找到 0 个"必须有个地方说，不然筛出来一片空白像坏了。
+        QWidget *versionFilterBar = new QWidget(treePage);
+        auto *versionFilterLayout = new QHBoxLayout(versionFilterBar);
+        versionFilterLayout->setContentsMargins(0, 0, 0, 0);
+        versionFilterLayout->setSpacing(10);
+        versionFilterEdit = new QLineEdit(versionFilterBar);
+        versionFilterEdit->setObjectName(versionFilterEditName());
+        versionFilterEdit->setPlaceholderText(versionFilterPlaceholderText());
+        versionFilterLayout->addWidget(versionFilterEdit, 1);
+        versionFilterHint = new QLabel(versionFilterBar);
+        versionFilterHint->setObjectName(versionFilterHintName());
+        // 空筛选时它藏着（连位置都不占）—— 平时这一行只有那个框，和以前的版面一致。
+        versionFilterHint->setVisible(false);
+        // 这句最长也就十来个字，给个下限让"找到 1 个版本"和"找到 742 个版本"切换时
+        // 输入框的宽度不跟着跳。
+        versionFilterHint->setMinimumWidth(120);
+        versionFilterLayout->addWidget(versionFilterHint);
+        treeLayout->addWidget(versionFilterBar);
+        // 打在框里就筛（不另要一颗「筛选」键）：这一层只是藏/露条目，便宜到可以每敲一个字
+        // 跑一遍；资源页要按回车是因为那边真去发网络请求，两件事别混。
+        QObject::connect(versionFilterEdit, &QLineEdit::textChanged, versionFilterBar,
+                         [this] { applyVersionFilter(); });
         versionTree = new QTreeWidget(treePage);
         versionTree->setObjectName(versionTreeName());
         // 只有一列、只有一个版本号，表头没有信息量（"1" 那一格纯属噪音）。
@@ -1716,7 +1748,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         //
         // NOTE: 这层用的是设置页那几页同一个配方（无边框 + widgetResizable + 横向不滚）
         //       —— 滚动条仍然贴着正文面右边那条线，和别的页一个规矩。
-        installScroll = new QScrollArea(installPage);
+        installScroll = new Theme::GutterScrollArea(installPage);
         installScroll->setObjectName(installScrollName());
         installScroll->setWidgetResizable(true);
         installScroll->setFrameShape(QFrame::NoFrame);
@@ -1750,6 +1782,45 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         installNameError->setObjectName(installNameErrorName());
         installNameError->setVisible(false);
         installBodyLayout->addWidget(nameBox);
+
+        // ---- 实例预设（2026-10-18，coding plan §7「安装流程集成」）----
+        //
+        // 形状照抄上面加载器那张卡片（同一套内边距、同一个缺口标题），因为它就是同一页上
+        // 并列的一小节。三件东西：
+        //   · 下拉框：盘上有哪几份预设、默认是哪一份，全由 MainWindow 在进这一页时灌
+        //     （`PresetController::fillInstallSelector()`）—— 界面这边**一个字节都不读**。
+        //   · 「查看内容」：把"对着这个还没装出来的实例会做什么"摊开给人看一眼。
+        //   · 「安装完成后应用」：**默认不勾**。coding plan §10 那条「默认自动应用必须等
+        //     预览、备份和错误报告完成后再开启」说的就是这一格 —— 今天预览和备份都有了，
+        //     但"默认开"是产品决定，不替用户做主。
+        auto *presetCard = new QFrame(installPage);
+        markSurface(presetCard, Theme::sectionSurfaceValue());
+        auto *presetCardLayout = new QVBoxLayout(presetCard);
+        presetCardLayout->setContentsMargins(18, 16, 18, 18);
+        presetCardLayout->setSpacing(10);
+        {
+            auto *presetTitle = new QLabel(installPresetSectionLabelText(), presetCard);
+            markTextRole(presetTitle, Theme::sectionTitleTextRoleValue());
+            QFont presetTitleFont = presetTitle->font();
+            presetTitleFont.setBold(true);
+            presetTitle->setFont(presetTitleFont);
+            presetCardLayout->addWidget(presetTitle);
+        }
+        auto *presetRow = new QHBoxLayout();
+        presetRow->setSpacing(8);
+        installPresetCombo = new QComboBox(presetCard);
+        installPresetCombo->setObjectName(installPresetComboName());
+        presetRow->addWidget(installPresetCombo, 1);
+        installPresetViewButton = new QPushButton(installPresetViewText(), presetCard);
+        installPresetViewButton->setObjectName(installPresetViewButtonName());
+        Theme::markButton(installPresetViewButton, Theme::ButtonKind::Neutral);
+        installPresetViewButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+        presetRow->addWidget(installPresetViewButton);
+        presetCardLayout->addLayout(presetRow);
+        installPresetApplyCheck = new QCheckBox(installPresetApplyCheckText(), presetCard);
+        installPresetApplyCheck->setObjectName(installPresetApplyCheckName());
+        presetCardLayout->addWidget(installPresetApplyCheck);
+        installBodyLayout->addWidget(presetCard);
 
         // 加载器：**一棵树**，和上一页的版本树同一个模式（用户原话见头文件里那段）：
         // 顶层五条 = 四个加载器 + 「不装（纯原版）」，点一条展开它底下的版本号，
@@ -2291,10 +2362,13 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     // 等上面那些控件都挂完了再动标志，少一层"改到一半"的心。
     windowChrome = new WindowChrome(parent, bar, parent);
 
-    // 空的菜单栏：窗口上那条菜单现在什么都没挂。
-    // TODO: 菜单里放"打开 .minecraft 目录 / 关于"这类动作；设置项已经全部搬进
-    //       「设置」选项卡了（以前这上面挂着"做设置界面"的待办）。
-    parent->setMenuBar(new QMenuBar(parent));
+    // ★ 2026-10-18：这里原来挂着一个**空的** `QMenuBar`（`parent->setMenuBar(new
+    //   QMenuBar(parent))`）。量过：空菜单栏在 QMainWindow 里 `sizeHint()` 是 `0x0`、
+    //   实际高度 0 —— 它不只是"没用"，而是从来就没露过脸；而这一版的外框是自己画的
+    //   （见 WindowChrome），顶上那条已经归 TitleBar 管，没有给菜单栏留位置。
+    //   设置项全在「设置」选项卡里，那两件原本想挂上来的事（打开游戏目录 / 关于）
+    //   在设置页和「工具箱」里都各有入口。摆一个永远不会显示的空条子只会让下一个人
+    //   以为这里有个菜单要维护 ⇒ 直接不建。（coding plan §9 那条"要么用起来、要么别摆着"。）
 }
 
 namespace {
@@ -2316,7 +2390,7 @@ struct SettingsPanel {
  * 右栏的内容一起滚走，而那五条是导航。这条和下载页左栏那一列是同一条理由。
  */
 SettingsPanel addSettingsPanel(QStackedWidget *stack, const QString &key) {
-    QScrollArea *scroll = new QScrollArea(stack);
+    QScrollArea *scroll = new Theme::GutterScrollArea(stack);
     scroll->setObjectName(MainWindowUI::settingsPanelName(key));
     scroll->setWidgetResizable(true);
     scroll->setFrameShape(QFrame::NoFrame);
@@ -2484,6 +2558,84 @@ void MainWindowUI::setInstanceMode(InstanceMode mode) {
     }
 }
 
+void MainWindowUI::applyVersionFilter() {
+    if (versionTree == nullptr || versionFilterEdit == nullptr) {
+        return;  // 界面没搭出来（和上面那个函数一个规矩）
+    }
+    const QString text = versionFilterEdit->text().trimmed();
+    const QStringList terms =
+        text.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+    const bool active = !terms.isEmpty();
+    const int column = versionTreeKeyColumn();
+
+    // 第一次真正开筛之前，把"用户自己摆成什么样"记下来。之后清空筛选按它还原。
+    // NOTE: 已经在筛的时候**不重记**：那一趟的展开状态是筛选自己撑开的，记下来等于
+    //       把"筛完还原"变成"筛完全展开"。
+    if (active && !versionFilterActive) {
+        versionFilterExpandedBefore.clear();
+        for (int i = 0; i < versionTree->topLevelItemCount(); ++i) {
+            QTreeWidgetItem *top = versionTree->topLevelItem(i);
+            const QString key = top->data(column, Qt::UserRole).toString();
+            versionFilterExpandedBefore.insert(key, top->isExpanded());
+        }
+    }
+
+    // 藏/露条目和展开/收起都是纯界面动作，没必要让"展开动画"跟着每敲一个字跑一遍
+    // （742 条那个分类一次就是几百毫秒的动画队列）。信号挡掉不影响这里的 setHidden。
+    const QSignalBlocker blocker(versionTree);
+    QSet<QString> matchedIds;
+    for (int i = 0; i < versionTree->topLevelItemCount(); ++i) {
+        QTreeWidgetItem *top = versionTree->topLevelItem(i);
+        const QString key = top->data(column, Qt::UserRole).toString();
+        int visibleChildren = 0;
+        for (int c = 0; c < top->childCount(); ++c) {
+            QTreeWidgetItem *child = top->child(c);
+            const QString id = child->data(column, Qt::UserRole).toString();
+            bool match = !active;
+            if (active) {
+                match = true;
+                for (const QString &term : terms) {
+                    if (!id.contains(term, Qt::CaseInsensitive)) {
+                        match = false;
+                        break;
+                    }
+                }
+            }
+            child->setHidden(!match);
+            if (match) {
+                ++visibleChildren;
+                matchedIds.insert(id);
+            }
+        }
+        if (active) {
+            // 有命中的分类自动撑开（不然"找到 2 个"却还藏在收着的分类里，等于没找到）；
+            // 一个都不命中的分类整条收起来 —— 留一行空分类在结果里只是噪音。
+            top->setHidden(visibleChildren == 0);
+            top->setExpanded(visibleChildren > 0);
+        } else {
+            top->setHidden(false);
+            // NOTE: 清单刷新是"清空再重灌"，重灌出来的分类默认是收着的。这时候按筛选前
+            //       记下的状态摆回去；记不着的（筛选期间才出现的分类）保持它自己的样子。
+            top->setExpanded(versionFilterExpandedBefore.value(key, top->isExpanded()));
+        }
+    }
+    if (!active) {
+        versionFilterExpandedBefore.clear();
+    }
+    versionFilterActive = active;
+
+    if (versionFilterHint != nullptr) {
+        versionFilterHint->setVisible(active);
+        if (active) {
+            versionFilterHint->setText(matchedIds.isEmpty()
+                                           ? versionFilterNoMatchText(text)
+                                           : versionFilterMatchText(matchedIds.size()));
+        } else {
+            versionFilterHint->clear();
+        }
+    }
+}
+
 void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
     // 这一栏的键。**必须**和 settingsCategoryKeys() 里那一格一字不差（面板的 objectName
     // 由它拼出来），ui_check 拿那张表逐页核。
@@ -2533,21 +2685,13 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
 
     // ---------- 内存分配 ----------
     // ---- 第 2 节：标题 + 一张小节卡片（见 addSettingsSection()）----
+    //
+    // ★ 2026-10-18：原来这一节还有一行「分配方式」（自动（按系统内存）那个勾选框）。
+    //   用户原话：「内存分配和最大内存这玩意完全就是重复的，只保留那个拖动的」——
+    //   于是这一节只剩「最大内存」这一行，自动 / 手动那条路整个从界面上撤掉了
+    //   （`MemorySlider` 永远是唯一入口）。那句"这台机器有多少内存"的说明并到这一行
+    //   下面，改由 `JavaSettingsController::refreshMemory()` 写。
     const SettingsSection section2 = addSettingsSection(grid, row, QStringLiteral("内存分配"), form);
-    {
-        // 第一行是「自动 / 手动」的总开关。自动档下那两个数字框是**禁用**的 ——
-        // 它们显示的是刚算出来的建议值，让用户以为能改会变成"改了不生效"。
-        QWidget *box = makeHintedControl(form);
-        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
-        memoryAutoCheck = new QCheckBox(QStringLiteral("自动（按系统内存）"), box);
-        memoryAutoCheck->setObjectName(memoryAutoCheckName());
-        boxLayout->addWidget(memoryAutoCheck, 0, Qt::AlignLeft);
-        // 文字由 MainWindow 填（要说清系统总内存/当前可用/建议值），这里先给一句占位，
-        // 免得空标签把行高压成 0、布局跳一下。
-        memoryAutoHint = addDynamicHint(box, QStringLiteral("正在读取系统内存…"), form);
-        memoryAutoHint->setObjectName(memoryAutoHintName());
-        addSettingItem(section2, QStringLiteral("分配方式"), box, form);
-    }
     {
         // 「最大内存」这一行是**一根条 + 一个数字框**（两件东西说的是同一件事）。
         // 条是主要入口（用户原话：「像 pcl 那样子的灵活变通的拖动条」），数字框留着是为了
@@ -2587,14 +2731,15 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
         // 这一行要**撑满整格**（不是 addInlineControl 那种"按 sizeHint 靠左"）：条的长度
         // 就是它的精度，短了拖不准。
         boxLayout->addWidget(line);
-        addHint(box, QStringLiteral("给 JVM 的 -Xmx。左边拖着改，也可以直接填数字。"
-                                    "模组多、整合包大就往上调；机器内存不够时先降这一项。"),
-                form);
+        // 文字由 MainWindow 填（要说清系统总内存 / 当前可用 / 现在用的是多少），这里先给
+        // 一句占位，免得空标签把行高压成 0、布局跳一下。
+        memoryHint = addDynamicHint(box, QStringLiteral("正在读取系统内存…"), form);
+        memoryHint->setObjectName(memoryHintName());
         addSettingItem(section2, QStringLiteral("最大内存"), box, form);
     }
     // NOTE: 「最小内存」（-Xms）**这一行没有了**（2026-09-26）。用户原话：「不要 xms 了
     //       （或者隐藏起来），按照默认值」—— 界面上不再让他管这一项，值照旧存在设置里
-    //       （默认 1024 MB，命令行照发 -Xms），所以"这一项现在是多少"改由「分配方式」
+    //       （默认 1024 MB，命令行照发 -Xms），所以"这一项现在是多少"改由「最大内存」
     //       那一行的说明文字说全（见 MainWindow::refreshMemoryUi 里那三支 setText）。
 
     // ---------- 启动后 ----------
@@ -2647,6 +2792,26 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
                                     "的 jvmArgs 里，排在全局之后（同一条以后写的为准）。"),
                 form);
         addSettingItem(section4, QStringLiteral("全局额外参数"), box, form);
+    }
+
+    // ---------- 实例预设 ----------
+    // ---- 第 5 节：标题 + 一张小节卡片（见 addSettingsSection()）----
+    // §6 P1 / §7：新建、复制、改名、删除、从实例提取、应用前可见精确计划 —— 全在一页里，
+    // 这儿只留一颗开门的按钮（和上面「Java 管理…」同一种形状）。
+    const SettingsSection section5 = addSettingsSection(grid, row, QStringLiteral("实例预设"), form);
+    {
+        QWidget *box = makeHintedControl(form);
+        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        presetManageButton = new QPushButton(QStringLiteral("实例预设…"), box);
+        presetManageButton->setObjectName(presetManageButtonName());
+        Theme::markButton(presetManageButton, Theme::ButtonKind::Neutral);
+        boxLayout->addWidget(presetManageButton, 0, Qt::AlignLeft);
+        addHint(box, QStringLiteral("把一份实例的按键、游戏设置、服务器列表、"
+                                    "config/ 这些收成一份，再落到别的实例上 —— "
+                                    "应用之前会先列出「哪一段、写几项、删几项」的精确计划，"
+                                    "改动过的文件也会先备份。"),
+                form);
+        addSettingItem(section5, QStringLiteral("预设管理"), box, form);
     }
 
     // 剩下的竖直空间留在底部：设置项不跟着窗口高度一起被拉长
@@ -2781,7 +2946,7 @@ void MainWindowUI::setupSettingsWarnPanel(QStackedWidget *stack) {
         QWidget *box = makeHintedControl(form);
         auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
         // 勾选状态由 MainWindow 灌（它才知道这个开关存在哪），这里只搭控件 ——
-        // 和 memoryAutoCheck 同一条约定。
+        // 和内存那一行的说明文字同一条约定。
         javaWarnMismatchCheck =
             new QCheckBox(QStringLiteral("实例指定的 Java 版本不符时提醒"), box);
         javaWarnMismatchCheck->setObjectName(javaWarnMismatchCheckName());
@@ -5353,31 +5518,83 @@ void MainWindowUI::toggleToolboxPanel() {
     panel->setAutoFillBackground(true);
     markSurface(panel, Theme::workspaceSurfaceValue());
     auto *layout = new QVBoxLayout(panel);
-    layout->setContentsMargins(14, 12, 14, 12);
-    layout->setSpacing(10);
-    layout->addWidget(makeHomeTitle(QStringLiteral("工具箱"), panel));
+    layout->setContentsMargins(12, 10, 12, 12);
+    layout->setSpacing(8);
+
+    // ---------- 标题那一行：扳手 + 「工具箱」 + 右边的 × ----------
+    //
+    // 2026-10-18 用户拿图点名的那一块：**没有搜索框**，标题左边一枚主题色的扳手，
+    // 右边一颗 × 收回去。图标全是现画的（`ToolboxPage::panelTitleIcon()`），不引位图。
+    const QColor iconInk = Theme::isDark() ? Theme::accentShade(Theme::AccentShade::Pure)
+                                           : Theme::accentShade(Theme::AccentShade::Ink);
+    const QColor rowHover = Theme::rowHoverFill(QApplication::palette().color(QPalette::Base));
+    const QColor rowPressed = Theme::isDark() ? rowHover.lighter(118) : rowHover.darker(108);
+    auto *header = new QHBoxLayout;
+    header->setContentsMargins(2, 0, 0, 0);
+    header->setSpacing(8);
+    auto *badge = new QLabel(panel);
+    badge->setPixmap(ToolboxPage::panelTitleIcon(iconInk).pixmap(20, 20));
+    badge->setFixedSize(20, 20);
+    header->addWidget(badge);
+    header->addWidget(makeHomeTitle(QStringLiteral("工具箱"), panel));
+    header->addStretch(1);
+    auto *closeButton = new QPushButton(QStringLiteral("×"), panel);
+    closeButton->setObjectName(QStringLiteral("toolboxCloseButton"));
+    closeButton->setFlat(true);
+    closeButton->setFixedSize(26, 26);
+    closeButton->setCursor(Qt::PointingHandCursor);
+    closeButton->setToolTip(QCoreApplication::translate("MainWindowUI", "关闭"));
+    closeButton->setStyleSheet(
+        QStringLiteral("QPushButton { background: transparent; border: none;"
+                       " color: %1; font-size: 17px; padding: 0; border-radius: 6px; }"
+                       "QPushButton:hover { background-color: %2; }"
+                       "QPushButton:pressed { background-color: %3; }")
+            .arg(iconInk.name(), rowHover.name(), rowPressed.name()));
+    // NOTE: 上下文对象给按钮自己（`MainWindowUI` 不是 QObject），理由同下面那几颗。
+    QObject::connect(closeButton, &QPushButton::clicked, closeButton,
+                     [this]() { closeToolboxPanel(); });
+    header->addWidget(closeButton);
+    layout->addLayout(header);
 
     auto *grid = new QGridLayout;
-    grid->setContentsMargins(0, 0, 0, 0);
-    grid->setHorizontalSpacing(8);
-    grid->setVerticalSpacing(8);
+    grid->setContentsMargins(0, 2, 0, 0);
+    grid->setHorizontalSpacing(6);
+    grid->setVerticalSpacing(2);
     // ★ 2026-10-16：这一排从前是"四颗写着工具名、点了没反应的空按钮"（tooltip 老实写着
     //   「该工具将在后续功能阶段接入」）。现在它们真接上了：键与名字都从
-    //   `ToolboxPage::tools()` 那**一张表**来（页面上那排 chip 只取其中五件、这个面板上这
-    //   六颗全摆、`ToolboxController::open()` 认的键也来自它），点一下把这件工具的键交给
-    //   handler（`MainWindow` 那头转给 `ToolboxController::open()`）。
+    //   `ToolboxPage` 那**一张表**来（页面上那排 chip 只取其中几件、这个面板上十件全摆、
+    //   `ToolboxController::open()` 认的键也来自它），点一下把这件工具的键交给 handler
+    //   （`MainWindow` 那头转给 `ToolboxController::open()`）。
+    //
+    // ★ 2026-10-18：改成一幅"两列五排、没有搜索框"的面板（用户拿图点名）：每一格是
+    //   主题色线稿图标 + 短名，平铺在面板底色上、**没有框**，鼠标停上去只铺一层浅绿
+    //   （`Theme::rowHoverFill()` —— 和列表行悬停同一个出处，别在这里另调一个绿）。
+    //   次序归 `ToolboxPage::panelTools()`，短名归 `toolShortName()`。
     //
     // NOTE: 面板本身是 `Qt::Popup`，点它里面一颗按钮之后 Qt 会把它收掉 —— 但"收掉"这件
     //       事不该由"Qt 的行为"顺手办，所以这里显式 `closeToolboxPanel()` 一次。
-    const QList<ToolboxPage::Tool> tools = ToolboxPage::tools();
+    const QColor labelInk = QApplication::palette().color(QPalette::WindowText);
+    const QString buttonSheet =
+        QStringLiteral("QPushButton { background: transparent; border: none;"
+                       " color: %1; text-align: left; padding: 0 10px; border-radius: %4px; }"
+                       "QPushButton:hover { background-color: %2; }"
+                       "QPushButton:pressed { background-color: %3; }")
+            .arg(labelInk.name(), rowHover.name(), rowPressed.name())
+            .arg(Theme::surfaceRadius());
+    const QList<ToolboxPage::Tool> tools = ToolboxPage::panelTools();
     for (int index = 0; index < tools.size(); ++index) {
         const ToolboxPage::Tool tool = tools.at(index);
-        auto *button = new QPushButton(ToolboxPage::toolName(tool), panel);
+        auto *button = new QPushButton(ToolboxPage::toolShortName(tool), panel);
         button->setObjectName(ToolboxPage::toolButtonName(tool));
-        button->setMinimumSize(128, 42);
+        button->setIcon(ToolboxPage::toolIcon(tool, iconInk));
+        button->setIconSize(QSize(22, 22));
+        button->setCursor(Qt::PointingHandCursor);
+        // ★ 先挂样式表、再钉尺寸：`setStyleSheet()` 会按 QSS 里写着的 `min-height`
+        //   重写最小高度（见 `wtfml-theme-accent-and-buttons` 那条），这里两样都在
+        //   样式表之后再钉一次，免得行高被样式表改掉。
+        button->setStyleSheet(buttonSheet);
+        button->setFixedSize(146, 40);
         button->setToolTip(ToolboxPage::toolSummary(tool));
-        Theme::markButton(button, ToolboxPage::Tool::Anvil == tool ? Theme::ButtonKind::Accent
-                                                                   : Theme::ButtonKind::Neutral);
         const QString key = ToolboxPage::toolKey(tool);
         // NOTE: 上下文对象给的是 `button` 自己而不是 `this` —— `MainWindowUI` **不是**
         //       QObject（这一整层都没有对象身份），所以这里只有 `QObject::connect` 这一种

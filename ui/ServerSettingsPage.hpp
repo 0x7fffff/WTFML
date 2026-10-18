@@ -1,7 +1,7 @@
 /**
  * @file ServerSettingsPage.hpp
  * @brief 「服务端设置」那一整页（coding plan §6.3 第二阶段 / 里程碑 M4-4）：常用设置那张表单、
- *        原始文本编辑、世界备份、体检。
+ *        原始文本编辑、世界备份、玩家名单、体检。
  * @author 0x7fffff
  * @date 2026-10-13
  *
@@ -77,11 +77,13 @@ class ServerSettingsPage : public QDialog {
     Q_OBJECT
 
 public:
-    /// 左栏那四页（**顺序就是左栏那一列的顺序**）。
+    /// 左栏那六页（**顺序就是左栏那一列的顺序**）。
     enum class Section {
         Common = 0,  ///< 常用设置（表单）
         RawText,     ///< 原始文本（整份 `server.properties`）
+        Content,     ///< 内容（模组 / 数据包，§9.7）
         Backups,     ///< 世界备份
+        Players,     ///< 玩家名单（白名单 / 管理员 / 封禁两个）
         Check,       ///< 体检
     };
 
@@ -104,6 +106,11 @@ public:
         int max = 0;
         QStringList choiceTokens;  ///< 下拉框每一项**写进文件**的那个词
         QStringList choiceNames;   ///< 下拉框每一项**显示**的那个词（和上面按下标对齐）
+        /// 这一行下面要不要挂一条"游戏里长什么样"的预览（目前只有 `motd`；`src/` 那张
+        /// 字段表说了算，见 `ServerPropertiesForm::Field::preview`）。
+        bool preview = false;
+        /// 这一行旁边要不要摆「选择本地 zip…」（目前只有 `resource-pack-sha1`）。
+        bool zipPick = false;
     };
 
     /// 表单上的一项值（**顺序跟着字段表走**；`ui/` 自己的类型，见文件头那条界线）。
@@ -128,6 +135,24 @@ public:
         QString actionToken;
     };
 
+    /// 玩家名单里的一行。**全是现成的字符串**（名字 / 身份 / 说明都在翻译点那边拼好）。
+    struct PlayerRow {
+        QString identity;  ///< 认人用的键（uuid / ip）—— 移除时按它回话
+        QString name;      ///< 第一列（玩家名；封禁 IP 那一档是地址本身）
+        QString detail;    ///< 第二列（uuid / ip）
+        QString note;      ///< 第三列（管理员那一档 / 封禁理由和到期时间）
+        /// 「踢出」要送进控制台的那个名字（封禁 IP 那一档没有 —— 留空，那颗按钮就是灰的）。
+        QString kickName;
+        bool expired = false;  ///< 封禁已经过期（整行画灰 —— 服务端下次启动会自己清）
+    };
+
+    /// 内容那一页里的一行（名字 / 大小 / 状态都是翻译点拼好的字符串）。
+    struct ContentRow {
+        QString name;      ///< 文件现在的名字（带不带 `.disabled` 都照原样）—— 身份键
+        QString size;      ///< "1.2 MB"
+        bool disabled = false;  ///< 状态那一格和那颗按钮的文字从它来
+    };
+
     explicit ServerSettingsPage(QWidget *parent = nullptr);
 
     /// 覆盖层页眉上那行字（`OverlayHost::execPage()` 的标题）。
@@ -146,6 +171,11 @@ public:
     void setValues(const Values &values);
     /// 表单上现在是什么（不管改没改过）。
     Values values() const;
+    /// 把某一格摆成 @p value（**算"用户改了"**：会走 `edited()`，保存带也会重算）。
+    ///
+    /// 只有一种用法：`MainWindow` 从用户选的本地 zip 算出 SHA-1 之后填进
+    /// `resource-pack-sha1` 那一格。它不是"开页时摆基线"（那一条走 `setValues()`）。
+    void setFieldValue(const QString &key, const QString &value);
     /// **用户改过**的那几项（和基线比，值不一样的才算）。保存时报的就是它。
     Values changedOnly() const;
     /// 重设基线（= 现在这一份算"没改过"）。
@@ -169,14 +199,45 @@ public:
      */
     void markRawEdited();
 
-    // ---------- ③ 世界备份 ----------
+    // ---------- ③ 内容（模组 / 数据包）----------
+    /// 现在选的是哪一类（下标 = `ServerContent::Kind`，也是下拉框的下标）。
+    int contentKind() const;
+    /// 切到某一类（**不发 `contentKindChanged`** —— 这是程序摆的）。
+    void setContentKind(int kindIndex);
+    /// 摆这一类的行（会清掉上一次的；`name` 记在 `Qt::UserRole`）。
+    void setContentRows(const QList<ContentRow> &rows);
+    /// 顶上那句说明（文件夹在哪儿、禁用是什么意思）。
+    void setContentNote(const QString &text);
+    /// 现在选中的那一行的文件名（没选回空串）。
+    QString selectedContentName() const;
+    /// 现在选中的那一行禁用着吗（没选回 false）。
+    bool selectedContentDisabled() const;
+
+    // ---------- ④ 世界备份 ----------
     void setBackupRows(const QList<BackupRow> &rows);
     /// 现在选中的那一份 zip（没选回空串）。
     QString selectedBackup() const;
     /// 备份那一段顶上那句说明（世界在哪儿、备份落在哪儿 —— 由翻译点拼好）。
     void setBackupNote(const QString &text);
 
-    // ---------- ④ 体检 ----------
+    // ---------- ⑤ 玩家名单 ----------
+    /// 现在选中哪一份名单（下标 = `ServerPlayers::List`，也是下拉框的下标）。
+    int playerList() const;
+    /// 切到某一份名单（**不发 `playerListChanged`** —— 这是程序摆的）。
+    void setPlayerList(int listIndex);
+    /// 摆这一份名单的行（会清掉上一次的；`identity` 记在 `Qt::UserRole`）。
+    void setPlayerRows(const QList<PlayerRow> &rows);
+    /// 这一页顶上那句说明（由翻译点拼好：哪个文件、在跑时为什么改不了）。
+    void setPlayerNote(const QString &text);
+    /// 现在选中的那一行的身份键（没选回空串）。
+    QString selectedPlayerIdentity() const;
+
+    /// 现在选中的那一行的玩家名（没选回空串）——「踢出」用的是名字，不是身份键。
+    QString selectedPlayerName() const;
+    /// 「踢出…」能不能按：**服务端在跑才有意义**（由翻译点按进程状态喂）。
+    void setPlayerKickAvailable(bool available);
+
+    // ---------- ⑥ 体检 ----------
     void setCheckRows(const QList<CheckRow> &rows);
     /// 顶上那句总括（`ServerCheck::summaryText()` 的结论）。
     void setCheckSummary(const QString &text);
@@ -210,6 +271,24 @@ signals:
     void deleteBackupRequested(const QString &zipPath);
     void openBackupFolderRequested();
     void recheckRequested();
+    /// 内容那一页换了一类（模组 / 数据包）。
+    void contentKindChanged(int kindIndex);
+    /// 「添加…」：选文件、拷进文件夹全在 `MainWindow`（页面只发话）。
+    void contentAddRequested();
+    /// 「启用」/「禁用」：带那一行的文件名和想要的状态；改名在 `MainWindow`。
+    void contentToggleRequested(const QString &name, bool enable);
+    void contentOpenFolderRequested();
+    void contentRefreshRequested();
+    /// 玩家那一页换了一份名单（白名单 / 管理员 / 封禁两个）。
+    void playerListChanged(int listIndex);
+    /// 「加一个…」：页面只发话，问名字、算 UUID、写文件全在 `MainWindow` 那一边。
+    void playerAddRequested();
+    /// 「选择本地 zip…」：选文件、验 zip、算 SHA-1、把那颗结果填回来全在 `MainWindow`。
+    void resourcePackPickRequested();
+    /// 「移除…」：带那一行的身份键（uuid / ip）。
+    void playerRemoveRequested(const QString &identity);
+    /// 「踢出…」：带玩家名。命令由 `MainWindow` 送进运行中的服务端控制台并回显。
+    void playerKickRequested(const QString &name);
     /// 体检单上某一条的出路（记号见 `ServerCheck::actionToken()`）。
     void actionRequested(const QString &token);
 
@@ -228,6 +307,10 @@ private:
     void refreshBackupActions();
     /// 体检单上那一条的出路按钮要摆哪些（按出现过的记号去重、顺序按第一次出现）。
     void refreshCheckActions();
+    /// 玩家那一页那两颗按钮的灰亮（没选 / 只读 ⇒ 点不动）。
+    void refreshPlayerActions();
+    /// 内容那一页那几颗按钮的灰亮（没选 / 只读 ⇒ 点不动；「打开文件夹」「刷新」一直能按）。
+    void refreshContentActions();
     QWidget *fieldEditor(const QString &key) const;
     QTreeWidgetItem *backupItemAt(int row) const;
 
@@ -242,9 +325,27 @@ private:
     /// 表单那一竖排（弹簧在**收尾**，新加的行走它前面 —— 同实例设置那条老规矩）。
     QVBoxLayout *m_formLayout = nullptr;
 
+    /// 「服务器简介」那一格下面那块"游戏里长什么样"（`FieldView::preview` 为真的那一行才有；
+    /// 现在只有 `motd` 一行是那样）。**颜色与字形全照 `§` 码来**，见 `MotdText`。
+    QLabel *m_motdPreview = nullptr;
+    /// 上面那块底下那行小字（"列表里只画两行"）—— 和预览一起摆、一起收。
+    QLabel *m_motdPreviewNote = nullptr;
+    /// 「选择本地 zip…」那一颗（服务端在跑时跟着整页一起变灰）。
+    QPushButton *m_zipPickButton = nullptr;
+
     QPlainTextEdit *m_rawEdit = nullptr;
     QLabel *m_rawNote = nullptr;
 
+    // ---------- ③ 内容 ----------
+    QLabel *m_contentNote = nullptr;
+    QComboBox *m_contentKindCombo = nullptr;
+    QTreeWidget *m_contentTree = nullptr;
+    QPushButton *m_contentAddButton = nullptr;
+    QPushButton *m_contentToggleButton = nullptr;
+    QPushButton *m_contentOpenFolderButton = nullptr;
+    QPushButton *m_contentRefreshButton = nullptr;
+
+    // ---------- ④ 世界备份 ----------
     QLabel *m_backupNote = nullptr;
     QTreeWidget *m_backupList = nullptr;
     QPushButton *m_backupNowButton = nullptr;
@@ -256,6 +357,13 @@ private:
     QTreeWidget *m_checkList = nullptr;
     QWidget *m_checkActions = nullptr;
     QPushButton *m_recheckButton = nullptr;
+
+    QLabel *m_playerNote = nullptr;
+    QComboBox *m_playerListCombo = nullptr;
+    QTreeWidget *m_playerTree = nullptr;
+    QPushButton *m_playerAddButton = nullptr;
+    QPushButton *m_playerRemoveButton = nullptr;
+    QPushButton *m_playerKickButton = nullptr;
 
     QPushButton *m_revertButton = nullptr;
     QPushButton *m_saveButton = nullptr;
@@ -285,6 +393,8 @@ private:
     bool m_settingRaw = false;
     /// 正在程序性地切页（左栏那个 `currentRowChanged` 要丢掉，别当成用户点的）。
     bool m_settingSection = false;
+    /// 「踢出…」现在能不能按（= 服务端在跑；由翻译点喂，见 `setPlayerKickAvailable()`）。
+    bool m_playerKickAllowed = false;
     /**
      * @brief 盘上那一份的原文是不是 **CRLF** 行尾。
      *

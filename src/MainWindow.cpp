@@ -136,6 +136,7 @@
 #include "auth/SkinApi.hpp"
 #include "controllers/JavaRuntimeController.hpp"
 #include "controllers/JavaSettingsController.hpp"
+#include "controllers/PresetController.hpp"
 #include "controllers/LauncherPreferencesController.hpp"
 #include "controllers/CrashReportController.hpp"
 #include "controllers/IntegrityController.hpp"
@@ -203,6 +204,9 @@
 #include "download/ServerInstall.hpp"
 #include "server/ServerModel.hpp"
 #include "server/ServerRegistry.hpp"
+#include "server/ServerRestart.hpp"  // §9.7 崩溃自动重启那几条判据（纯头）
+#include "server/ServerResourcePack.hpp"  // §9.7 本地资源包那一份 zip 的判据 + SHA-1
+#include "server/ServerContent.hpp"  // §9.7 服务端内容（模组 / 数据包）的名字与分类判据
 // 服务端安装那四段的**判据层**（"还差哪一份元数据、取回来怎么读、分成几步"，coding plan
 // §6.2 / M4-2）：纯函数，`verify` 的 ZY 一节直接钉它。这里只用到那几个翻译。
 #include "server/ServerInstallRun.hpp"
@@ -1439,6 +1443,15 @@ MainWindow::MainWindow(QWidget *parent)
     m_javaSettingsController = new JavaSettingsController(
         m_ui, m_javaSettings, m_javaRuntimeController, this,
         JavaSettingsController::Host{[this](const QString &text) { appendLog(text); }}, this);
+    // 「实例预设」那一页（coding plan §6 P1 / §7）：页面、增删改、提取、计划、备份、落盘
+    // 全在 PresetController 里；这儿只把"实例叫什么 / 在不在跑 / 日志往哪儿写"三样递过去。
+    m_presetController = new PresetController(
+        m_versionManager, m_ui->overlay(), this,
+        PresetController::Host{
+            [this](const QString &id) { return instanceDisplayName(id); },
+            [this](const QString &id) { return m_launcherManager->isVersionRunning(id); },
+            [this](const QString &text) { appendLog(text); }},
+        this);
     m_launcherPreferences = new LauncherPreferencesController(
         m_ui, m_settings, m_javaSettings, m_versionManager, m_resourceStore,
         LauncherPreferencesController::Host{
@@ -1512,7 +1525,27 @@ MainWindow::MainWindow(QWidget *parent)
             [this](const QString &status) {
                 m_syncWaitStatus = status;
                 updateBottomBar();
-            }},
+            },
+            // 任务中心那一格（coding plan §9.9）。★ 收尾**不走 `MainWindow::finishTask()`**：
+            // 那一位会顺手把"这一批下载还能不能重试"塞进失败的那一项，而导出根本没有那个
+            // 失败清单 —— 挂上去会露一颗按下去重做别人下载的「重试」。
+            [this](Tasks::TaskKind kind, const QString &title, const QString &targetId,
+                   const QList<Tasks::TaskStep> &steps) {
+                return m_activityCenter->begin(kind, title, targetId, steps);
+            },
+            [this](Tasks::TaskId id, const QString &detail) {
+                m_activityCenter->tasks()->setDetail(id, detail);
+            },
+            [this](Tasks::TaskId id, qint64 done, qint64 total) {
+                m_activityCenter->tasks()->setProgress(id, done, total);
+            },
+            [this](Tasks::TaskId id, int index, Tasks::TaskStepState state) {
+                m_activityCenter->tasks()->setStepState(id, index, state);
+            },
+            [this](Tasks::TaskId id, bool success, const QString &errorSummary) {
+                m_activityCenter->finish(id, success, errorSummary, false);
+            },
+            [this](Tasks::TaskId id) { m_activityCenter->tasks()->cancel(id); }},
         this);
     m_instanceFileController = new InstanceFileController(
         m_ui->overlay(), InstanceFileController::Host{
@@ -1526,7 +1559,25 @@ MainWindow::MainWindow(QWidget *parent)
                 return instanceFileDirs(id).value(key);
             },
             [this] { refreshInstalledVersions(); },
-            [this](const QString &text) { appendLog(text); }},
+            [this](const QString &text) { appendLog(text); },
+            // 任务中心那一格：「复制实例」后台那一趟（coding plan §9.9）。收尾同样**不走**
+            // `MainWindow::finishTask()` —— 复制没有"可重试的下载批次"。
+            [this](Tasks::TaskKind kind, const QString &title, const QString &targetId,
+                   const QList<Tasks::TaskStep> &steps) {
+                return m_activityCenter->begin(kind, title, targetId, steps);
+            },
+            [this](Tasks::TaskId id, const QString &detail) {
+                m_activityCenter->tasks()->setDetail(id, detail);
+            },
+            [this](Tasks::TaskId id, qint64 done, qint64 total) {
+                m_activityCenter->tasks()->setProgress(id, done, total);
+            },
+            [this](Tasks::TaskId id, int index, Tasks::TaskStepState state) {
+                m_activityCenter->tasks()->setStepState(id, index, state);
+            },
+            [this](Tasks::TaskId id, bool success, const QString &errorSummary) {
+                m_activityCenter->finish(id, success, errorSummary, false);
+            }},
         this);
     m_instanceDialogController = new InstanceDialogController(this);
     m_instanceEditorController = new InstanceEditorController(this);
@@ -1564,6 +1615,10 @@ MainWindow::MainWindow(QWidget *parent)
                 for (int index = 0; index < steps.size(); ++index)
                     if (steps.at(index).state == Tasks::TaskStepState::Running || index == steps.size() - 1)
                         m_activityCenter->tasks()->setStepState(id, index, Tasks::TaskStepState::Done);
+            },
+            // §9.8 第三条：进程起来的这一刻把账本上那件「启动 X」和会话号对上。
+            [this](Tasks::TaskId id, int sessionId) {
+                m_activityCenter->bindSession(id, sessionId);
             },
             [this](Tasks::TaskId id, bool ok, const QString &note) { finishTask(id, ok, note); },
             [this] { updateBottomBar(); },
@@ -3329,6 +3384,12 @@ void MainWindow::refreshAvailableVersions() {
             }
         }
     }
+
+    // ★ 2026-10-18：重灌完**再按筛选框里现在的字筛一遍**。上面那一趟只认得清单，
+    //   不认识"用户此刻在找哪个版本号"—— 框里的字不会被 clear() 清掉，而条目全是
+    //   新摆的（全是露着的）。少了这一句，屏幕上是"框里写着 1.20、树里 742 条全在"，
+    //   不报错、只是一个字都不筛。
+    m_ui->applyVersionFilter();
 }
 
 void MainWindow::openInstallPage(const QString &gameVersion) {
@@ -3368,6 +3429,17 @@ void MainWindow::openInstallPage(const QString &gameVersion) {
     requestAllLoaderVersions();
     // 名称框里的默认值：勾的是「不装」时就是原版号本身（那正是"装原版"这条老路）。
     updateInstallName();
+
+    // 实例预设那一格（§7）。每进一次这一页重灌一次：盘上有哪几份预设是数据层的事，
+    // 界面这边只负责摆。**用户自己选过的那一份优先**（`m_installPresetTouched`）——
+    // 默认项只在"他没选过"时说话，不然设了一个新默认就会把他手里的选择偷偷换掉。
+    if (m_presetController != nullptr) {
+        m_presetController->fillInstallSelector(m_ui->getInstallPresetCombo(),
+                                                m_installPresetChoice,
+                                                m_installPresetTouched);
+    }
+    // 「安装完成后应用」那一勾**不跟着翻页重置**：勾了它说明用户这一轮就想这么装，
+    // 换一个版本再看一眼不该让他的选择悄悄没了（那一格建出来时本来就是不勾的）。
 
     // 树那一层留着不动（用户按返回时回的就是它，连展开状态都还在）。
     m_ui->getGameStack()->setCurrentIndex(MainWindowUI::downloadGameInstallIndex());
@@ -5955,10 +6027,16 @@ void MainWindow::activateServerRow(const QString &serverId) {
     startServer(serverId);
 }
 
-void MainWindow::startServer(const QString &serverId) {
+void MainWindow::startServer(const QString &serverId, bool automatic) {
     if (serverId.isEmpty()) {
         return;
     }
+    // 用户亲手起的 = 新的一轮：上一轮的"连着崩几次"从这里清零。自动重启那一路**不清**
+    // （理由见 `ServerRestart::decide()`：清了就等于不限次数）。
+    if (!automatic) {
+        m_serverRestartAttempts.remove(serverId);
+    }
+    m_serverStopRequested.remove(serverId);
     // 闸①：装好了没有。判据是 `ServerRegistry::describe()`（= `ServerModel::isInstalled()`），
     // 和那一行上写着「未安装」的是同一个出处。
     const ServerRegistry::Entry entry = ServerRegistry::describe(serverId);
@@ -6029,6 +6107,7 @@ void MainWindow::startServer(const QString &serverId) {
         // 照抄，别在这儿另编一句。
         appendLog(plan.note);
     }
+    m_serverStartedAt.insert(serverId, QDateTime::currentDateTime());
     process->start(serverId, entry.dirPath, java, arguments, gracefulMs);
 }
 
@@ -6037,6 +6116,8 @@ void MainWindow::stopServer(const QString &serverId) {
     if (process == nullptr || !process->isRunning()) {
         return;
     }
+    // ★ "这一次是我们让它停的"：退出回调要拿这个把 `Crash` 那一档排掉（见 `onServerExited`）。
+    m_serverStopRequested.insert(serverId);
     if (process->requestStop()) {
         return;
     }
@@ -6051,6 +6132,8 @@ void MainWindow::forceKillServer(const QString &serverId) {
     if (process == nullptr || !process->isRunning()) {
         return;
     }
+    // 同上：这是用户让它死的，退出码再难看也不是"崩了"。
+    m_serverStopRequested.insert(serverId);
     process->forceKill();
 }
 
@@ -6169,6 +6252,13 @@ void MainWindow::showServerContextMenu(const QPoint &pos) {
             continue;
         }
         QAction *entryAction = menu.addAction(MainWindowUI::serverMenuText(action));
+        if (action == MainWindowUI::ServerMenuAction::RestartOnCrash) {
+            // 可勾选：勾没勾读的是盘上那一份（`.wtfml-server` 的 `restartOnCrash`）——
+            // 这一项是**长期设置**，不是"这一次会话"的开关。
+            entryAction->setCheckable(true);
+            entryAction->setChecked(ServerRegistry::readMeta(serverId).restartOnCrash);
+            entryAction->setToolTip(MainWindowUI::serverRestartMenuNote());
+        }
         if (action == MainWindowUI::ServerMenuAction::ForceKill) {
             // 宽限时间那一条：没到点之前是不给按的（用户 2026-10-13 定的 —— 存盘中途被
             // 打死正是丢存档的姿势）。
@@ -6206,6 +6296,24 @@ void MainWindow::runServerMenuAction(const QString &serverId, int action) {
     case MainWindowUI::ServerMenuAction::ForceKill:
         forceKillServer(serverId);
         break;
+    case MainWindowUI::ServerMenuAction::RestartOnCrash: {
+        // 勾 / 取消勾：写进 `.wtfml-server`（下一次开菜单读的就是它）。写不进去要说一声 ——
+        // 一项"看起来勾上了、其实没记住"的设置比没有这一项更糟。
+        ServerModel::Info info = ServerRegistry::readMeta(serverId);
+        info.restartOnCrash = !info.restartOnCrash;
+        QString problem;
+        if (!ServerRegistry::writeMeta(serverId, info, &problem)) {
+            InlineMessage::warning(m_ui->overlay(), tr("没记住"), problem);
+            return;
+        }
+        if (!info.restartOnCrash) {
+            // 关掉 = 这一轮到此为止（再打开时从第 1 次算起）。
+            m_serverRestartAttempts.remove(serverId);
+        }
+        appendLog(tr("服务端 %1：异常退出后自动重启%2。")
+                      .arg(serverId, info.restartOnCrash ? tr("已打开") : tr("已关闭")));
+        break;
+    }
     case MainWindowUI::ServerMenuAction::Remove:
         removeServer(serverId);
         break;
@@ -6284,6 +6392,30 @@ void MainWindow::openServerSettingsPage(const QString &serverId) {
                 [this] { runServerCheck(); });
         connect(m_serverSettingsPage, &ServerSettingsPage::actionRequested, this,
                 [this](const QString &token) { runServerCheckAction(token); });
+        // 玩家名单（§9.7）：换一份名单就地重摆；加 / 移除由这一层问话、写盘。
+        connect(m_serverSettingsPage, &ServerSettingsPage::playerListChanged, this,
+                [this](int) { refreshServerPlayers(); });
+        connect(m_serverSettingsPage, &ServerSettingsPage::playerAddRequested, this,
+                [this] { addServerPlayer(); });
+        connect(m_serverSettingsPage, &ServerSettingsPage::playerRemoveRequested, this,
+                [this](const QString &identity) { removeServerPlayer(identity); });
+        // 资源包那一颗（§9.7）：选本地 zip、算 SHA-1。
+        connect(m_serverSettingsPage, &ServerSettingsPage::resourcePackPickRequested, this,
+                [this] { pickServerResourcePack(); });
+        // 内容那一页（§9.7）：换类就地重摆；加 / 启用禁用 / 打开文件夹 / 刷新由这一层做。
+        connect(m_serverSettingsPage, &ServerSettingsPage::contentKindChanged, this,
+                [this](int) { refreshServerContent(); });
+        connect(m_serverSettingsPage, &ServerSettingsPage::contentAddRequested, this,
+                [this] { addServerContent(); });
+        connect(m_serverSettingsPage, &ServerSettingsPage::contentToggleRequested, this,
+                [this](const QString &name, bool enable) { toggleServerContent(name, enable); });
+        connect(m_serverSettingsPage, &ServerSettingsPage::contentOpenFolderRequested, this,
+                [this] { openServerContentFolder(); });
+        connect(m_serverSettingsPage, &ServerSettingsPage::contentRefreshRequested, this,
+                [this] { refreshServerContent(); });
+        // 「踢出…」：送一条 kick 命令进正在跑的服务端（§9.7：必须走控制台、回显结果）。
+        connect(m_serverSettingsPage, &ServerSettingsPage::playerKickRequested, this,
+                [this](const QString &name) { kickServerPlayer(name); });
     }
     m_serverSettingsId = serverId;
     m_serverSettingsPage->setSection(ServerSettingsPage::Section::Common);
@@ -6360,6 +6492,10 @@ void MainWindow::refreshServerSettingsPage() {
         }
         view.min = field.min;
         view.max = field.max;
+        // 哪一行要挂"游戏里长什么样"的预览、哪一行旁边摆「选择本地 zip…」，都由字段表
+        // 说了算（目前分别是 `motd` 与 `resource-pack-sha1`）。
+        view.preview = field.preview;
+        view.zipPick = field.zipPick;
         for (const ServerPropertiesForm::Choice &choice : field.choices) {
             view.choiceTokens.append(choice.token);
             view.choiceNames.append(choice.name);
@@ -6544,6 +6680,461 @@ void MainWindow::runServerCheck() {
     }
     page->setCheckRows(rows);
     page->setCheckSummary(ServerCheck::summaryText(findings));
+
+    // ---------- ④ 玩家名单（§9.7，2026-10-18）----------
+    // **摆在最后**：它要读 `m_serverSettingsEditable`（上面 `setEditable()` 那一发算出来的），
+    // 而那一句又回头会重摆那两颗按钮的灰亮。
+    refreshServerPlayers();
+    // ---------- ⑤ 内容（§9.7，2026-10-18）----------
+    refreshServerContent();
+}
+
+// ---------------------------------------------------------------------------
+// 玩家名单（§9.7「玩家管理」）
+// ---------------------------------------------------------------------------
+
+void MainWindow::refreshServerPlayers() {
+    ServerSettingsPage *page = m_serverSettingsPage;
+    const QString serverId = m_serverSettingsId;
+    if (page == nullptr || serverId.isEmpty()) {
+        return;
+    }
+    const int index = qBound(0, page->playerList(), ServerPlayers::listCount() - 1);
+    const auto list = static_cast<ServerPlayers::List>(index);
+    // 「踢出…」只对正在跑的服务端有意义（和写名单那两颗正好相反 —— 见页面那段）。
+    page->setPlayerKickAvailable(!m_serverSettingsEditable);
+    const ServerPlayers::Content content =
+        m_serverSettingsController->readPlayers(serverId, list);
+    QString note = MainWindowUI::serverSettingsPlayerNoteText(index, !m_serverSettingsEditable);
+    if (!content.ok) {
+        // ★ 读不懂就**什么都不摆、也不许写**：那份文件里可能还有用户自己的记录，
+        //   拿空名单覆盖它比"这一页现在看不了"糟得多。
+        page->setPlayerRows({});
+        page->setPlayerNote(content.problem);
+        return;
+    }
+    if (content.entries.isEmpty()) {
+        note += tr("\n现在一条都没有。");
+    }
+    const QDateTime now = QDateTime::currentDateTime();
+    QList<ServerSettingsPage::PlayerRow> rows;
+    for (const ServerPlayers::Entry &entry : content.entries) {
+        ServerSettingsPage::PlayerRow row;
+        row.identity = ServerPlayers::identityOf(list, entry);
+        if (list == ServerPlayers::List::BannedIps) {
+            row.name = entry.ip;
+            row.detail = QString();
+            // 封禁 IP 那一档没有"玩家名"可踢 —— `kickName` 留空，那颗按钮就是灰的。
+        } else {
+            row.name = entry.name.isEmpty() ? entry.uuid : entry.name;
+            row.detail = entry.uuid;
+            row.kickName = entry.name;
+        }
+        QStringList notes;
+        if (list == ServerPlayers::List::Ops) {
+            notes << tr("等级 %1").arg(entry.level);
+            if (entry.bypassesPlayerLimit) notes << tr("可以绕过人数上限");
+        } else if (list == ServerPlayers::List::BannedPlayers
+                   || list == ServerPlayers::List::BannedIps) {
+            notes << ServerPlayers::expiryText(entry, now);
+            if (!entry.reason.isEmpty()) notes << entry.reason;
+            row.expired = ServerPlayers::isExpired(entry, now);
+        }
+        row.note = notes.join(QStringLiteral(" · "));
+        rows.append(row);
+    }
+    page->setPlayerRows(rows);
+    page->setPlayerNote(note);
+}
+
+void MainWindow::addServerPlayer() {
+    ServerSettingsPage *page = m_serverSettingsPage;
+    const QString serverId = m_serverSettingsId;
+    if (page == nullptr || serverId.isEmpty()) {
+        return;
+    }
+    if (!m_serverSettingsEditable) {
+        InlineMessage::warning(
+            m_ui->overlay(), tr("现在改不了"),
+            MainWindowUI::serverSettingsPlayerNoteText(page->playerList(), true));
+        return;
+    }
+    const int index = qBound(0, page->playerList(), ServerPlayers::listCount() - 1);
+    const auto list = static_cast<ServerPlayers::List>(index);
+    const QString listTitle = MainWindowUI::serverSettingsPlayerListTitle(index);
+    const bool ipList = list == ServerPlayers::List::BannedIps;
+    bool ok = false;
+    const QString typed =
+        InlineMessage::getText(
+            m_ui->overlay(), tr("加进%1").arg(listTitle),
+            ipList ? tr("要封哪个地址？\n\n只写一个 IPv4 / IPv6 地址（不带端口）。")
+                   : tr("玩家名是什么？\n\n"
+                        "离线模式（online-mode=false）的服务端按名字算 UUID；"
+                        "正版服务器的名单要在控制台里用 whitelist add / op 加，"
+                        "那一边才会解析成 Mojang 的 UUID。"),
+            QString(), &ok)
+            .trimmed();
+    if (!ok || typed.isEmpty()) {
+        return;
+    }
+    // 大致的形状闸（真正的判据在服务端那边 —— 这一层只挡明显的手滑）。
+    if (ipList && (typed.contains(QLatin1Char('/')) || typed.contains(QLatin1Char(' ')))) {
+        InlineMessage::warning(m_ui->overlay(), tr("加进%1").arg(listTitle),
+                               tr("地址里不该有空格或者斜杠。"));
+        return;
+    }
+    const ServerPlayers::Content content =
+        m_serverSettingsController->readPlayers(serverId, list);
+    if (!content.ok) {
+        InlineMessage::critical(m_ui->overlay(), tr("加不进%1").arg(listTitle),
+                                content.problem);
+        return;
+    }
+    QList<ServerPlayers::Entry> entries = content.entries;
+    for (const ServerPlayers::Entry &entry : entries) {
+        const bool same = ipList
+                              ? entry.ip.compare(typed, Qt::CaseInsensitive) == 0
+                              : entry.name.compare(typed, Qt::CaseInsensitive) == 0;
+        if (same) {
+            InlineMessage::information(m_ui->overlay(), tr("加进%1").arg(listTitle),
+                                       tr("「%1」已经在这一份名单上了。").arg(typed));
+            return;
+        }
+    }
+    entries.append(ServerPlayers::makeEntry(list, typed, QStringLiteral("WTFML"),
+                                            QDateTime::currentDateTime()));
+    QString problem;
+    if (!m_serverSettingsController->writePlayers(serverId, list, entries, &problem)) {
+        InlineMessage::critical(m_ui->overlay(), tr("加不进%1").arg(listTitle), problem);
+        return;
+    }
+    appendLog(tr("服务端 %1 的%2里加上了「%3」。").arg(serverId, listTitle, typed));
+    refreshServerPlayers();
+}
+
+void MainWindow::removeServerPlayer(const QString &identity) {
+    ServerSettingsPage *page = m_serverSettingsPage;
+    const QString serverId = m_serverSettingsId;
+    if (page == nullptr || serverId.isEmpty() || identity.isEmpty()) {
+        return;
+    }
+    if (!m_serverSettingsEditable) {
+        InlineMessage::warning(
+            m_ui->overlay(), tr("现在改不了"),
+            MainWindowUI::serverSettingsPlayerNoteText(page->playerList(), true));
+        return;
+    }
+    const int index = qBound(0, page->playerList(), ServerPlayers::listCount() - 1);
+    const auto list = static_cast<ServerPlayers::List>(index);
+    const QString listTitle = MainWindowUI::serverSettingsPlayerListTitle(index);
+    const ServerPlayers::Content content =
+        m_serverSettingsController->readPlayers(serverId, list);
+    if (!content.ok) {
+        InlineMessage::critical(m_ui->overlay(), tr("从%1里拿掉").arg(listTitle),
+                                content.problem);
+        return;
+    }
+    QList<ServerPlayers::Entry> entries = content.entries;
+    const int at = ServerPlayers::indexOf(entries, list, identity);
+    if (at < 0) {
+        // 页面停着的时候文件被别处改了：不硬来，重摆一遍让他看到现在的样子。
+        refreshServerPlayers();
+        return;
+    }
+    const ServerPlayers::Entry entry = entries.at(at);
+    const QString who = list == ServerPlayers::List::BannedIps
+                            ? entry.ip
+                            : (entry.name.isEmpty() ? entry.uuid : entry.name);
+    if (!InlineMessage::question(
+            m_ui->overlay(), tr("从%1里拿掉").arg(listTitle),
+            list == ServerPlayers::List::BannedIps
+                ? tr("「%1」会从封禁名单上拿掉（等于解封这个地址）。").arg(who)
+                : list == ServerPlayers::List::BannedPlayers
+                      ? tr("「%1」会从封禁名单上拿掉（等于解封）。").arg(who)
+                      : tr("「%1」会从这份名单上拿掉。").arg(who),
+            tr("拿掉"), tr("取消"), /*defaultYes=*/false, /*destructive=*/false)) {
+        return;
+    }
+    entries.removeAt(at);
+    QString problem;
+    if (!m_serverSettingsController->writePlayers(serverId, list, entries, &problem)) {
+        InlineMessage::critical(m_ui->overlay(), tr("从%1里拿掉").arg(listTitle), problem);
+        return;
+    }
+    appendLog(tr("服务端 %1 的%2里拿掉了「%3」。").arg(serverId, listTitle, who));
+    refreshServerPlayers();
+}
+
+void MainWindow::pickServerResourcePack() {
+    ServerSettingsPage *page = m_serverSettingsPage;
+    if (page == nullptr || m_serverSettingsId.isEmpty()) {
+        return;
+    }
+    if (!m_serverSettingsEditable) {
+        InlineMessage::warning(m_ui->overlay(), tr("现在改不了"),
+                               MainWindowUI::serverSettingsRunningNote());
+        return;
+    }
+    // 上一次选过的那一份就在它旁边接着选（`QFileDialog` 的"上次目录"由系统记，这里只
+    // 给一个起点）。筛子允许 `.zip` 和 `.jar`：资源包有时候是别人从模组里剥出来的，
+    // 扩展名不一定对 —— 真正的判据在 `ServerResourcePack::inspect()` 里（看条目表）。
+    const QString chosen = QFileDialog::getOpenFileName(
+        this, tr("选一份资源包 zip"), QString(),
+        tr("资源包 (*.zip *.jar);;所有文件 (*.*)"));
+    if (chosen.isEmpty()) {
+        return;
+    }
+    const ServerResourcePack::Inspect inspect = ServerResourcePack::inspect(chosen);
+    if (!inspect.ok) {
+        // 选错了 / 包坏了 / pack.mcmeta 套在文件夹里 —— 都要当场说清楚，不能只记日志。
+        InlineMessage::warning(m_ui->overlay(), tr("这个压缩包不能当资源包用"),
+                               inspect.problem);
+        return;
+    }
+    // 填的是**那一格**（算"用户改过"，保存时会写回 `server.properties`）。
+    page->setFieldValue(QStringLiteral("resource-pack-sha1"), inspect.sha1);
+    appendLog(tr("从本地资源包算出了 SHA-1：%1（%2，%3 字节）")
+                  .arg(inspect.sha1, ServerResourcePack::fileCountText(inspect),
+                       QString::number(inspect.bytes)));
+    // ★ 说清两件事：算的是哪一份、以及**地址还得你自己托管** —— 启动器不会把本机路径
+    //   填进 `resource-pack`（别人连不到你的硬盘，那会让每个人进来都卡一下）。
+    InlineMessage::information(
+        m_ui->overlay(), tr("SHA-1 算好了"),
+        tr("本地这一份「%1」的 SHA-1 已经填进「资源包 SHA-1」那一格：\n\n%2\n\n"
+           "「资源包地址」那一格还得你自己填 —— 要一个别的玩家**连得到**的 http(s) "
+           "链接（自己的网站 / 网盘直链 / 对象存储都行）。本机文件路径别人打不开，"
+           "启动器不会把它填进去。\n\n"
+           "换了 zip 就要重新算一遍 SHA-1；服务端下一次启动时才会用上新值。")
+            .arg(QFileInfo(chosen).fileName(), inspect.sha1));
+}
+
+// ---------------------------------------------------------------------------
+// 服务端内容（§9.7「内容管理」）
+// ---------------------------------------------------------------------------
+
+QString MainWindow::serverContentFolder() const {
+    ServerSettingsPage *page = m_serverSettingsPage;
+    const QString serverId = m_serverSettingsId;
+    if (page == nullptr || serverId.isEmpty()) {
+        return QString();
+    }
+    const int kindIndex = qBound(0, page->contentKind(), ServerContent::kindCount() - 1);
+    const ServerRegistry::Entry entry = ServerRegistry::describe(serverId);
+    if (static_cast<ServerContent::Kind>(kindIndex) == ServerContent::Kind::Mods) {
+        return ServerContent::modsDir(entry.dirPath);
+    }
+    // 数据包跟着世界走：`level-name` 认不出来 / 还没建过世界 ⇒ 这一页什么都不列。
+    return ServerContent::datapacksDir(serverWorldDir(serverId));
+}
+
+void MainWindow::refreshServerContent() {
+    ServerSettingsPage *page = m_serverSettingsPage;
+    const QString serverId = m_serverSettingsId;
+    if (page == nullptr || serverId.isEmpty()) {
+        return;
+    }
+    const int kindIndex = qBound(0, page->contentKind(), ServerContent::kindCount() - 1);
+    const auto kind = static_cast<ServerContent::Kind>(kindIndex);
+    const QString folder = serverContentFolder();
+    const bool running = !m_serverSettingsEditable;
+    if (folder.isEmpty()) {
+        // 数据包那一类：世界在哪儿都还不知道 —— 别摆一个假路径，说清楚该去哪儿改。
+        page->setContentRows({});
+        page->setContentNote(
+            tr("这个服务端的 level-name 现在这个值我们认不出来，不知道世界在哪儿 —— "
+               "先去「常用设置」把它改成一个正常的目录名，数据包才知道往哪个文件夹里放。"));
+        return;
+    }
+    page->setContentNote(MainWindowUI::serverSettingsContentNoteText(
+        kindIndex, QDir::toNativeSeparators(folder), running));
+
+    QDir dir(folder);
+    QStringList names = dir.entryList(QDir::Files | QDir::NoDotAndDotDot, QDir::Name);
+    // ★ 排序在后、认名在前：`entriesFromNames()` 会把别的文件（配置、备份、`.jar.bak`）
+    //   筛掉，禁用着的（`.jar.disabled`）留下来。
+    const QList<ServerContent::Entry> entries = ServerContent::entriesFromNames(names, kind);
+    QList<ServerSettingsPage::ContentRow> rows;
+    for (const ServerContent::Entry &entry : entries) {
+        ServerSettingsPage::ContentRow row;
+        row.name = entry.name;
+        row.size = backupSizeText(QFileInfo(dir.filePath(entry.name)).size());
+        row.disabled = entry.disabled;
+        rows.append(row);
+    }
+    page->setContentRows(rows);
+}
+
+void MainWindow::addServerContent() {
+    ServerSettingsPage *page = m_serverSettingsPage;
+    const QString serverId = m_serverSettingsId;
+    if (page == nullptr || serverId.isEmpty()) {
+        return;
+    }
+    if (!m_serverSettingsEditable) {
+        InlineMessage::warning(m_ui->overlay(), tr("现在改不了"),
+                               MainWindowUI::serverSettingsRunningNote());
+        return;
+    }
+    const QString folder = serverContentFolder();
+    if (folder.isEmpty()) {
+        InlineMessage::warning(m_ui->overlay(), tr("加不了"),
+                               tr("这个服务端的 level-name 认不出来，不知道世界在哪儿。"));
+        return;
+    }
+    const int kindIndex = qBound(0, page->contentKind(), ServerContent::kindCount() - 1);
+    const auto kind = static_cast<ServerContent::Kind>(kindIndex);
+    const QString suffix = ServerContent::fileSuffix(kind);
+    const QStringList chosen = QFileDialog::getOpenFileNames(
+        this, kind == ServerContent::Kind::Datapacks ? tr("选数据包 zip") : tr("选模组 jar"),
+        QString(),
+        kind == ServerContent::Kind::Datapacks ? tr("数据包 (*.zip);;所有文件 (*.*)")
+                                               : tr("模组 (*.jar);;所有文件 (*.*)"));
+    if (chosen.isEmpty()) {
+        return;
+    }
+    // 文件夹可能还不存在（服务端还没跑过）—— 这一次"要往里放东西"了，建出来。
+    if (!QDir().mkpath(folder)) {
+        InlineMessage::critical(m_ui->overlay(), tr("加不了"),
+                                tr("建不出这个文件夹：%1").arg(QDir::toNativeSeparators(folder)));
+        return;
+    }
+    QStringList added;
+    QStringList skipped;
+    for (const QString &source : chosen) {
+        const QFileInfo info(source);
+        // 后缀不对的不硬拦（别人给的包偶尔被改成 `.zip` / `.jar`），但要说一句。
+        if (!info.fileName().endsWith(suffix, Qt::CaseInsensitive)) {
+            skipped.append(tr("%1（后缀不是 %2）").arg(info.fileName(), suffix));
+            continue;
+        }
+        const QString target = QDir(folder).filePath(info.fileName());
+        if (QFileInfo::exists(target)) {
+            // ★ **重名不覆盖**：用户手上那一份可能正是他调过的。
+            skipped.append(tr("%1（文件夹里已经有一份了）").arg(info.fileName()));
+            continue;
+        }
+        if (!QFile::copy(source, target)) {
+            skipped.append(tr("%1（拷不进去）").arg(info.fileName()));
+            continue;
+        }
+        added.append(info.fileName());
+    }
+    if (!added.isEmpty()) {
+        appendLog(tr("服务端 %1 的%2里加进了 %3 份：%4")
+                      .arg(serverId, MainWindowUI::serverSettingsContentKindTitle(kindIndex),
+                           QString::number(added.size()), added.join(QStringLiteral("、"))));
+        refreshServerContent();
+    }
+    if (!skipped.isEmpty()) {
+        InlineMessage::warning(
+            m_ui->overlay(), tr("有几份没有加进去"),
+            skipped.join(QStringLiteral("\n"))
+                + tr("\n\n重名的那几份没有覆盖 —— 要换版本，先在「打开文件夹」里把旧的挪走。"));
+    } else if (!added.isEmpty()) {
+        InlineMessage::information(
+            m_ui->overlay(), tr("加好了"),
+            tr("放进去了 %1 份。服务端下一次启动时才会加载它们。").arg(added.size()));
+    }
+}
+
+void MainWindow::toggleServerContent(const QString &name, bool enable) {
+    ServerSettingsPage *page = m_serverSettingsPage;
+    const QString serverId = m_serverSettingsId;
+    if (page == nullptr || serverId.isEmpty() || name.isEmpty()) {
+        return;
+    }
+    if (!m_serverSettingsEditable) {
+        InlineMessage::warning(m_ui->overlay(), tr("现在改不了"),
+                               MainWindowUI::serverSettingsRunningNote());
+        return;
+    }
+    const int kindIndex = qBound(0, page->contentKind(), ServerContent::kindCount() - 1);
+    const auto kind = static_cast<ServerContent::Kind>(kindIndex);
+    const QString folder = serverContentFolder();
+    const QString target = ServerContent::toggledName(kind, name, enable);
+    if (folder.isEmpty() || target.isEmpty() || target == name) {
+        // 认不出来的名字（不是这一类的文件）—— 不猜，重摆一遍让用户看到现在是什么。
+        refreshServerContent();
+        return;
+    }
+    const QString sourcePath = QDir(folder).filePath(name);
+    const QString targetPath = QDir(folder).filePath(target);
+    if (!QFileInfo(sourcePath).isFile()) {
+        // 页面停着的时候文件夹被别处动了：重摆一遍，别对着空气改名。
+        refreshServerContent();
+        return;
+    }
+    if (QFileInfo::exists(targetPath)) {
+        InlineMessage::warning(
+            m_ui->overlay(), tr("改不了"),
+            tr("文件夹里已经有一份「%1」了 —— 先把那一份挪走，再改这一份的名字。").arg(target));
+        return;
+    }
+    QFile file(sourcePath);
+    // ★ 改名而不是删除 / 移动：文件内容一个字节都不动，用户想恢复就再点一次。
+    if (!file.rename(targetPath)) {
+        InlineMessage::critical(m_ui->overlay(), tr("改不了"),
+                                tr("「%1」改不成「%2」：%3")
+                                    .arg(name, target, file.errorString()));
+        return;
+    }
+    appendLog(tr("服务端 %1 的「%2」%3了（现在是「%4」）。")
+                  .arg(serverId, name, enable ? tr("启用") : tr("禁用"), target));
+    refreshServerContent();
+}
+
+void MainWindow::openServerContentFolder() {
+    const QString folder = serverContentFolder();
+    if (folder.isEmpty()) {
+        InlineMessage::warning(m_ui->overlay(), tr("找不到这个文件夹"),
+                               tr("这个服务端的 level-name 认不出来，不知道世界在哪儿。"));
+        return;
+    }
+    if (!QFileInfo(folder).isDir()) {
+        // 还没往里放过东西（服务端还没跑过 / 还没装过任何内容）——说清楚它该在哪儿，
+        // 别弹一个"打开失败"（`QDesktopServices` 对不存在的路径只会静默不受理）。
+        InlineMessage::information(
+            m_ui->overlay(), tr("这个文件夹还没建出来"),
+            tr("先往里放一份文件（「添加…」），或者自己建一个：\n%1")
+                .arg(QDir::toNativeSeparators(folder)));
+        return;
+    }
+    // 走 `QDesktopServices`（和"打开实例文件夹"同一条路：验证工程能换掉 url handler 拦下来）。
+    if (!QDesktopServices::openUrl(QUrl::fromLocalFile(folder))) {
+        InlineMessage::warning(m_ui->overlay(), tr("打开不了"),
+                               tr("系统没有受理这个文件夹：%1")
+                                   .arg(QDir::toNativeSeparators(folder)));
+    }
+}
+
+void MainWindow::kickServerPlayer(const QString &name) {
+    const QString serverId = m_serverSettingsId;
+    if (serverId.isEmpty() || name.isEmpty()) {
+        return;
+    }
+    ServerRun::ServerProcess *process = m_serverWorkspace->process(serverId);
+    if (process == nullptr || !process->isRunning()) {
+        InlineMessage::warning(m_ui->overlay(), tr("没有在跑的服务端"),
+                               tr("「踢出」是把一条 kick 命令送进正在跑的服务端 —— "
+                                  "它现在没在跑，所以踢不了人。"));
+        return;
+    }
+    // §9.7：在线动作**必须走运行控制台**（不是偷偷改名单 —— 那要等它重启才生效，
+    // 而且用户会以为人已经踢下去了）。命令和用户自己敲的那一条完全相同。
+    const QString command = QStringLiteral("kick ") + name;
+    if (!process->sendCommand(command)) {
+        InlineMessage::critical(m_ui->overlay(), tr("命令没有送出去"),
+                                tr("服务端的输入通道已经不在了（它可能刚好在退出）。"));
+        return;
+    }
+    // 回显：服务端答的那一行会走日志通道进控制台；这一条 `[wtfml]` 只是把"我们发了什么"
+    // 摆在同一页上（和"现在可以强杀了"那一句同一个前缀）。
+    m_serverConsole->appendLine(serverId, QStringLiteral("[wtfml] ") + tr("已发送：%1").arg(command));
+    appendLog(tr("服务端 %1：%2").arg(serverId, command));
+    InlineMessage::information(
+        m_ui->overlay(), tr("命令送出去了"),
+        tr("「%1」已经送进服务端控制台。它答的那一行会出现在控制台里 —— "
+           "去「控制台」看一眼结果（那才是真正说了算的）。").arg(command));
 }
 
 void MainWindow::runServerCheckAction(const QString &token) {
@@ -6912,6 +7503,22 @@ void MainWindow::onServerExited(const QString &serverId, int exitCode) {
     const ServerRun::ServerProcess *process = m_serverWorkspace->process(serverId);
     const ServerRegistry::Entry entry = ServerRegistry::describe(serverId);
     const QString shown = entry.name.isEmpty() ? serverId : entry.name;
+    // ---------- 这一次是怎么退的（§9.7 重启策略）----------
+    const bool userStopped = m_serverStopRequested.remove(serverId) > 0;
+    const bool forceKilled = process != nullptr && process->wasForceKilled();
+    const ServerRestart::Why why = ServerRestart::whyFor(userStopped, forceKilled, exitCode);
+    // 跑够久（`kResetAfterSeconds()`）再崩算新的一轮：一台"每周崩一次"的服务端不该在
+    // 第三次之后永远不再自动起来。
+    const QDateTime startedAt = m_serverStartedAt.take(serverId);
+    if (startedAt.isValid()
+        && startedAt.secsTo(QDateTime::currentDateTime())
+               >= ServerRestart::kResetAfterSeconds) {
+        m_serverRestartAttempts.remove(serverId);
+    }
+    if (!ServerRestart::isAbnormal(why)) {
+        // 正常退出 / 我们自己停的：这一轮结束，计数没必要留着。
+        m_serverRestartAttempts.remove(serverId);
+    }
     updateServerRow(serverId);
     updateServerConsole();
     if (exitCode == 0) {
@@ -6924,6 +7531,36 @@ void MainWindow::onServerExited(const QString &serverId, int exitCode) {
         return;
     }
     appendLog(tr("%1 异常退出（退出码 %2）。").arg(shown).arg(exitCode));
+    // ---------- 崩了之后要不要自动拉起（§9.7 重启策略 + 上限）----------
+    //
+    // 判据全在 `ServerRestart::decide()`（verify ZAF 一节钉死）。这一层只做两件事：
+    // 把盘上记的策略读出来、按它的结论排那一发 `singleShot`。
+    const ServerModel::Info info = ServerRegistry::readMeta(serverId);
+    ServerRestart::Policy policy;
+    policy.enabled = info.restartOnCrash;
+    policy.maxAttempts = info.restartMaxAttempts;
+    const int used = m_serverRestartAttempts.value(serverId);
+    const ServerRestart::Decision decision = ServerRestart::decide(policy, why, used);
+    if (decision.restart) {
+        m_serverRestartAttempts.insert(serverId, used + 1);
+        appendLog(tr("%1：%2").arg(shown, decision.note));
+        // ★ 这一步**不弹**那张阻塞的预警卡：用户多半不在跟前，弹了他不点，重启就一直等着
+        //   那层嵌套事件循环（"自动重启"变成"等用户回来才重启"）。日志里有原话，控制台里
+        //   也有它退出前最后那几行。
+        QTimer::singleShot(decision.delaySeconds * 1000, this, [this, serverId, shown] {
+            const ServerRun::ServerProcess *fresh = m_serverWorkspace->process(serverId);
+            if (fresh != nullptr && fresh->isRunning()) {
+                return;  // 用户在这几秒里自己又起来了
+            }
+            appendLog(tr("%1：自动重启来了。").arg(shown));
+            startServer(serverId, /*automatic=*/true);
+        });
+        return;
+    }
+    if (!decision.note.isEmpty()) {
+        // 次数用完了：这一句必须说出来，不然用户会以为它还会自己起来。
+        appendLog(tr("%1：%2").arg(shown, decision.note));
+    }
     // §11「错误既进入日志，也在用户当前流程中可见」：日志那一半上面已经写了，这一半是
     // 弹窗 —— 用户点了启动之后常常就去干别的了，不弹一下他看不见。
     InlineMessage::warning(
@@ -8116,6 +8753,58 @@ void MainWindow::onInstallNameEdited() {
     updateInstallNameHint();
 }
 
+// ---------------------------------------------------------------------------
+// 安装页：实例预设（coding plan §7）
+// ---------------------------------------------------------------------------
+
+void MainWindow::onInstallPresetChosen() {
+    // 「用户自己选过」这件事从此刻起成立 —— 默认项不再顶掉它（§7 那句原话）。
+    // **连"不使用预设"也算一种选择**：用户明确清掉之后，下一次进来不该又被默认那份顶上。
+    m_installPresetTouched = true;
+    if (QComboBox *combo = m_ui->getInstallPresetCombo()) {
+        m_installPresetChoice = combo->currentData().toString();
+    }
+}
+
+void MainWindow::onInstallPresetViewClicked() {
+    if (m_presetController == nullptr) {
+        return;
+    }
+    QComboBox *combo = m_ui->getInstallPresetCombo();
+    const QString presetId = combo == nullptr ? QString() : combo->currentData().toString();
+    if (presetId.isEmpty()) {
+        InlineMessage::information(
+            m_ui->overlay(), tr("没有选预设"),
+            tr("这个下拉框里现在是「不使用预设」：装好之后什么都不改。\n\n"
+               "要看看某一份预设会做什么，先在左边挑一份。"));
+        return;
+    }
+
+    const QString name = m_ui->getInstallNameEdit()->text().trimmed();
+    const PresetController::InstallPreview preview =
+        m_presetController->previewForInstall(presetId, name);
+
+    // 这一格是**只读**的：它算的那份计划就是"装好之后会落成什么样"，一个字节都不写。
+    // 打不开（读不回来 / 目标那份 options.txt 读不动）也如实说，不吞。
+    if (!preview.ok || !preview.blockedReason.isEmpty() || !preview.problem.isEmpty()) {
+        const QString why = !preview.problem.isEmpty() ? preview.problem : preview.blockedReason;
+        InlineMessage::warning(m_ui->overlay(), tr("这份预设现在不能用"),
+                               why.isEmpty() ? tr("这一份算不出计划。") : why);
+        return;
+    }
+
+    InlineMessageBox box(MessageKind::Information,
+                         tr("预设「%1」会做什么").arg(preview.presetName),
+                         preview.summary, {tr("知道了")}, 0, -1, this);
+    if (!preview.lines.isEmpty()) {
+        box.setList(preview.lines, -1);
+    }
+    if (preview.needsConfirm) {
+        box.setNote(tr("标了 ⚠ 的那几段是「覆盖」：到时候要先确认一次才会真动手。"));
+    }
+    m_ui->overlay()->execPrompt(&box, true);
+}
+
 void MainWindow::onInstallButtonClicked() {
     if (m_downloadInFlight) {
         appendLog(tr("已有下载任务正在进行，请等它结束。"));
@@ -8155,6 +8844,55 @@ void MainWindow::onInstallButtonClicked() {
             return;
         }
         appendLog(tr("开始校验 %1 的文件（已存在的会跳过）...").arg(name));
+    }
+
+    // ---- 实例预设（2026-10-18，coding plan §7）：勾了就先把计划摊开 ----
+    //
+    // 这一步在**发请求之前**：用户看到的是"装好之后会改哪些文件、有没有覆盖"的精确计划，
+    // 而不是装完了才发现某个段是「覆盖」。点了取消 ⇒ 整个安装也不开始（他取消的是这一次
+    // "带预设的安装"，不是"不要装了"再点一次——但那两种在屏幕上分不开，宁可不做）。
+    //
+    // ★ 三笔 pending 在这一刻定死：从点下安装到 versionDownloadFinished 之间用户还可能
+    //   去动下拉框，而那一动不该改变这一趟已经发出去的安装（见 MainWindow.hpp 那段）。
+    m_installPendingPresetId.clear();
+    m_installPendingPresetInstance.clear();
+    m_installPendingReplaceConfirmed = false;
+    QComboBox *presetCombo = m_ui->getInstallPresetCombo();
+    const QString presetId = presetCombo == nullptr ? QString()
+                                                    : presetCombo->currentData().toString();
+    if (m_ui->getInstallPresetApplyCheck()->isChecked() && !presetId.isEmpty()) {
+        if (m_presetController == nullptr) {
+            InlineMessage::warning(m_ui->overlay(), tr("预设不可用"),
+                                   tr("这一份启动器里预设那一层没有初始化，没法应用预设。"));
+            return;
+        }
+        const PresetController::InstallPreview preview =
+            m_presetController->previewForInstall(presetId, name);
+        if (!preview.ok || !preview.blockedReason.isEmpty() || !preview.problem.isEmpty()) {
+            const QString why =
+                !preview.problem.isEmpty() ? preview.problem : preview.blockedReason;
+            InlineMessage::warning(m_ui->overlay(), tr("这份预设现在不能应用"),
+                                   why.isEmpty() ? tr("这一份算不出计划。") : why);
+            return;
+        }
+        InlineMessageBox box(
+            MessageKind::Question, tr("安装完成后应用预设"),
+            tr("装好「%1」之后会把预设「%2」应用上去：\n\n%3")
+                .arg(name, preview.presetName, preview.summary),
+            {tr("安装并应用"), tr("取消")}, 0, -1, this);
+        if (!preview.lines.isEmpty()) {
+            box.setList(preview.lines, -1);
+        }
+        box.setNote(tr("应用前会把要改写的文件先备份到预设目录下的 backups/ 里。"));
+        m_ui->overlay()->execPrompt(&box);
+        if (box.clickedIndex() != 0) {
+            appendLog(tr("已取消这次安装（带预设的那一趟）。"));
+            return;
+        }
+        m_installPendingPresetId = presetId;
+        m_installPendingPresetInstance = name;
+        // 预览里用户已经看过「覆盖」那几行并点了「安装并应用」⇒ 收尾那一趟算已确认。
+        m_installPendingReplaceConfirmed = preview.needsConfirm;
     }
 
     QString installerJava = m_javaSettings->javaPath();
@@ -8282,9 +9020,10 @@ void MainWindow::applySettingsToUi() {
         m_ui->getJavaWarnMismatchCheck()->setChecked(m_javaSettings->warnVersionMismatch());
     }
 
-    // ---------- 内存分配 ----------
-    // 交给 refreshMemoryUi()：自动档下它要按当前系统内存算一遍值、禁用两个框、写说明
-    // 文字，还要落盘。两个 spin 的信号在那边自己挡（这里的局部 blocker 就不再重复了）。
+    // ---------- 内存 ----------
+    // 交给 refreshMemoryUi()：开窗时把盘上那个数灌进条和数字框（★ 2026-10-18 起**不重算**
+    // —— 自动档撤掉了）、把上限收到本机物理内存、写那句说明。两个控件的信号在那边自己挡
+    // （这里的局部 blocker 就不再重复了）。
     refreshMemoryUi();
 
     // ---------- 启动后 ----------
@@ -8436,6 +9175,16 @@ void MainWindow::openJavaManageNow() {
     m_javaSettingsController->openManagePage();
 }
 
+void MainWindow::openPresetManage() {
+    runWhenOverlayFree([this] { openPresetManageNow(); });
+}
+
+void MainWindow::openPresetManageNow() {
+    if (m_presetController != nullptr) {
+        m_presetController->open();
+    }
+}
+
 void MainWindow::pushJavaRowsToPage() {
     // JavaSettingsController owns and refreshes the page now.
 }
@@ -8474,10 +9223,6 @@ bool MainWindow::clampXmsToXmx(int xmxMb) {
 
 void MainWindow::onJavaWarnMismatchChanged() {
     m_javaSettingsController->setWarnMismatchFromUi();
-}
-
-void MainWindow::onMemoryAutoChanged() {
-    m_javaSettingsController->setAutoMemoryFromUi();
 }
 
 void MainWindow::onMemoryChanged() {
@@ -10970,6 +11715,12 @@ bool MainWindow::copyInstanceTo(const QString &sourceId, const QString &destGame
     return m_instanceTransferController->copyInstance(sourceId, destGameFolder, newName);
 }
 
+void MainWindow::copyInstanceToInBackground(const QString &sourceId,
+                                            const QString &destGameFolder,
+                                            const QString &newName) {
+    m_instanceTransferController->copyInstanceInBackground(sourceId, destGameFolder, newName);
+}
+
 bool MainWindow::importWorldInto(const QString &instanceId, const QString &worldDir,
                                  const QString &name) {
     return m_instanceTransferController->importWorld(instanceId, worldDir, name);
@@ -11909,11 +12660,41 @@ void MainWindow::onVersionDownloadFinished(const QString &versionId, bool succes
         m_repairingInstanceId.clear();
     }
 
+    // 安装任务的最后一步：把这一趟带着的那份预设落上去（coding plan §7 那条
+    // 「生成并显示 ApplyPlan → 备份 → 应用预设 → 写入实例元数据和任务结果」）。
+    //
+    // ★ 必须**在任务收尾之前**：预设应用本来就是安装任务的一步，它成没成要写进任务结果
+    //   那句话里。这一趟写的是刚装出来的实例目录（几十 KB 的配置文件），而它此刻还在
+    //   `installingVersionIds()` 里 —— 不会有人在这期间把它启动起来。
+    //
+    // ★ 应用失败**不把安装任务改判成失败**：游戏和加载器都装好了，能玩；预设没落上是
+    //   另一句话。所以 `success` 原样传下去，预设那一句并进结果文本里（见下面那一段）。
+    QString resultMessage = errorMessage;
+    QString presetApplyProblem;
+    if (wasInstallingInstance && success && !m_installPendingPresetId.isEmpty() &&
+        m_installPendingPresetInstance == versionId) {
+        if (m_presetController != nullptr) {
+            const PresetController::InstallApply outcome = m_presetController->applyAfterInstall(
+                m_installPendingPresetId, versionId, m_installPendingReplaceConfirmed);
+            if (outcome.ok) {
+                resultMessage = errorMessage + QStringLiteral("\n\n") + outcome.message;
+            } else {
+                presetApplyProblem = outcome.message;
+                resultMessage = errorMessage + QStringLiteral("\n\n预设没有应用上：") +
+                                outcome.message;
+            }
+        }
+    }
+    // 不管这一趟成没成、带没带预设，pending 都在这一刻清干净：下一次安装不该继承这一次的。
+    m_installPendingPresetId.clear();
+    m_installPendingPresetInstance.clear();
+    m_installPendingReplaceConfirmed = false;
+
     // 这一批在账本上收尾。**必须在 setDownloadUiBusy(false) 之前**：那个函数是"这一批
     // 结束了"的公共通道，它自己会在末尾兜一次底（见那边）——先在这儿按成败如实收，
     // 兜底那一句就什么都不做；反过来顺序的话，兜底会先把任务按失败收掉，这一句再说什么
     // 都晚了（终态只落一次）。
-    finishTask(m_downloadTaskId, success, errorMessage);
+    finishTask(m_downloadTaskId, success, resultMessage);
     m_downloadTaskId = Tasks::invalidTaskId();
 
     // 整批结束，无论成败都要把界面恢复回来
@@ -11955,7 +12736,7 @@ void MainWindow::onVersionDownloadFinished(const QString &versionId, bool succes
     // 和整合包那段同一个道理：不再往上叠「版本 X 的文件已全部就绪」那一句。
     if (wasInstallingInstance) {
         if (success) {
-            appendLog(tr("✓ %1").arg(errorMessage));
+            appendLog(tr("✓ %1").arg(resultMessage));
             // 装出来的实例要能被启动：刷"已安装版本"那一摊，并把它选上（刷新只保得住
             // "原来选中的"，保不住"原来压根没选"）。
             refreshInstalledVersions();
@@ -11966,7 +12747,14 @@ void MainWindow::onVersionDownloadFinished(const QString &versionId, bool succes
                 }
             }
             updateStartButtonText();
-            InlineMessage::information(m_ui->overlay(), tr("安装完成"), errorMessage);
+            // 预设没落上：安装本身成了，所以**不改标题**（「安装失败」是假话），
+            // 但那一句必须是 warning 的颜色 —— 用户这会儿最该看见的正是它。
+            if (!presetApplyProblem.isEmpty()) {
+                InlineMessage::warning(m_ui->overlay(), tr("安装完成，但预设没有应用上"),
+                                       resultMessage);
+            } else {
+                InlineMessage::information(m_ui->overlay(), tr("安装完成"), resultMessage);
+            }
         } else {
             appendLog(tr("✗ %1").arg(errorMessage));
             InlineMessage::warning(m_ui->overlay(), tr("安装失败"), errorMessage);

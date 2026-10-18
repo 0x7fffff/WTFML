@@ -36,6 +36,7 @@
 #include <QFontDatabase>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QLineEdit>
 #include <QPainter>
 #include <QPaintEvent>
 #include <QPlainTextEdit>
@@ -209,85 +210,9 @@ QTextCharFormat charFormatFor(GameLogWindow::LogLevel level, const QPalette &pal
     return format;
 }
 
-/// 级别字面量 → 枚举（大小写不分）。认不出来回 false。
-bool levelFromToken(const QString &token, GameLogWindow::LogLevel *out) {
-    struct Entry {
-        const char *token;
-        GameLogWindow::LogLevel level;
-    };
-    // TRACE 归 Debug、WARNING 归 Warn、SEVERE 归 Error：都是同一个意思的不同写法
-    // （log4j2 / java.util.logging / 各家的老代码），对用户来说"该不该看一眼"才重要。
-    static const Entry table[] = {
-        {"TRACE", GameLogWindow::LogLevel::Debug},  {"DEBUG", GameLogWindow::LogLevel::Debug},
-        {"INFO", GameLogWindow::LogLevel::Info},    {"WARN", GameLogWindow::LogLevel::Warn},
-        {"WARNING", GameLogWindow::LogLevel::Warn}, {"ERROR", GameLogWindow::LogLevel::Error},
-        {"SEVERE", GameLogWindow::LogLevel::Error}, {"FATAL", GameLogWindow::LogLevel::Fatal},
-    };
-    const QString upper = token.trimmed().toUpper();
-    if (upper.isEmpty()) {
-        return false;
-    }
-    for (const Entry &entry : table) {
-        if (upper == QLatin1String(entry.token)) {
-            *out = entry.level;
-            return true;
-        }
-    }
-    return false;
-}
-
-/// 只认这一行**自己写出来的**级别。返回 false 就表示它可能是上一条的续行；调用方再决定
-/// fallback。计数必须看这一步，不能看 fallback 后的结果：否则一条 ERROR 后面的二十行崩栈
-/// 会被记成二十一条 ERROR。
-bool explicitLevelOf(const QString &line, GameLogWindow::LogLevel *out) {
-    int i = 0;
-    while (i < line.size() && line.at(i) == QLatin1Char('[')) {
-        const int close = line.indexOf(QLatin1Char(']'), i + 1);
-        if (close < 0) {
-            break;
-        }
-        const QString inside = line.mid(i + 1, close - i - 1);
-        GameLogWindow::LogLevel level = GameLogWindow::LogLevel::Info;
-        if (levelFromToken(inside, &level) ||
-            levelFromToken(inside.section(QLatin1Char('/'), -1), &level)) {
-            if (out != nullptr) {
-                *out = level;
-            }
-            return true;
-        }
-        i = close + 1;
-        while (i < line.size() && line.at(i).isSpace()) {
-            ++i;
-        }
-    }
-
-    const QString head = line.left(GameLogWindow::levelScanHead());
-    int p = 0;
-    while (p < head.size()) {
-        if (!head.at(p).isLetter()) {
-            ++p;
-            continue;
-        }
-        int end = p;
-        while (end < head.size() && head.at(end).isLetter()) {
-            ++end;
-        }
-        int after = end;
-        while (after < head.size() && head.at(after) == QLatin1Char(' ')) {
-            ++after;
-        }
-        if (after < head.size() && head.at(after) == QLatin1Char(':')) {
-            GameLogWindow::LogLevel level = GameLogWindow::LogLevel::Info;
-            if (levelFromToken(head.mid(p, end - p), &level)) {
-                if (out != nullptr) {
-                    *out = level;
-                }
-                return true;
-            }
-        }
-        p = end;
-    }
-    return false;
+/// 这一窗的级别枚举 → 共用模型那一套（两套枚举的顺序钉在 .hpp 的 static_assert 上）。
+RuntimeOutputModel::Level modelLevel(GameLogWindow::LogLevel level) {
+    return static_cast<RuntimeOutputModel::Level>(int(level));
 }
 
 /**
@@ -371,9 +296,9 @@ GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent)
 
     auto *layout = new QVBoxLayout(this);
 
-    m_levelCounts = QVector<int>(levelCount(), 0);
-    m_levelVisible = QVector<bool>(levelCount(), true);
     m_filterButtons = QVector<QToolButton *>(levelCount(), nullptr);
+    // 模型那几张表（计数 / 可见）在 `RuntimeOutputModel` 的构造函数里已经摆好了；这一窗
+    // 只需要把容量对上 `maxLogBlocks()`（两者现在是同一个出处）。
 
     // ---------- 顶上那排：五档开关 + 「显示全部」 ----------
     // 摆在**最顶上**（说明文字之上）：它是"我现在想看哪几档"，先决定这个再看内容。
@@ -403,7 +328,7 @@ GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent)
         //   一遍，见 changeEvent()）—— 两份的话迟早有一份忘了跟着调色板走，而忘了的表现
         //   正是"深色主题下这几颗还是浅色的"。
         connect(button, &QToolButton::toggled, this, [this, level](bool on) {
-            m_levelVisible[levelIndex(level)] = on;
+            m_model.setLevelVisible(modelLevel(level), on);
             rebuildView();
         });
         m_filterButtons[i] = button;
@@ -436,7 +361,7 @@ GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent)
     // 摆到**它的**那一档（默认「全部」）。倒序找第一个数据等于默认值的：产品里「全部」
     // 排在最后，但这个循环不依赖顺序。
     for (int i = 0; i < m_lineLimitCombo->count(); ++i) {
-        if (m_lineLimitCombo->itemData(i).toInt() == m_displayLineLimit) {
+        if (m_lineLimitCombo->itemData(i).toInt() == m_model.displayLimit()) {
             m_lineLimitCombo->setCurrentIndex(i);
             break;
         }
@@ -455,6 +380,22 @@ GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent)
     filters->addWidget(m_clearButton);
 
     layout->addLayout(filters);
+
+    // ---------- 搜索那一行（coding plan §9.8） ----------
+    //
+    // 和档位筛选**同时**生效（`RuntimeOutputModel::matches()` 里是交集）：用户既可能
+    // "只看 ERROR"，也可能"在全部里找某一串"。搜索只影响**视图**，模型留着全部（导出的
+    // 那两份仍然走 `allLogText()` / `logTextFrom()`，不会被搜索框吃掉）。
+    m_searchEdit = new QLineEdit(this);
+    m_searchEdit->setObjectName(searchEditName());
+    m_searchEdit->setPlaceholderText(searchPlaceholderText());
+    m_searchEdit->setToolTip(searchTooltip());
+    m_searchEdit->setClearButtonEnabled(true);
+    connect(m_searchEdit, &QLineEdit::textChanged, this, [this](const QString &text) {
+        m_model.setSearchText(text);
+        rebuildView();
+    });
+    layout->addWidget(m_searchEdit);
 
     m_hintLabel = new QLabel(hintText(), this);
     m_hintLabel->setObjectName(hintLabelName());
@@ -541,8 +482,7 @@ GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent)
     // 都不动：这仍然只是个视图，和"关掉这个窗不会停游戏"是同一件事。
     // **筛选的勾不动**：那是"我现在想看哪几档"的偏好，不是日志内容。
     connect(m_clearButton, &QPushButton::clicked, this, [this]() {
-        m_lines.clear();
-        m_levelCounts.fill(0);
+        m_model.clear();
         m_pending.clear();
         m_view->clear();
         m_viewLastBlockIsPending = false;
@@ -596,7 +536,7 @@ void GameLogWindow::appendText(const QString &text) {
         // 这一档被筛掉的话不摆出来 —— 但**照样进了模型、照样计数**（数字不会因为
         // 用户关掉某一档就变小，见 .hpp 里那段）。筛掉的这几行不进段，但**也不必**
         // 把段切断：它们不摆出来，段里剩下的行在视图里本来就是挨着的。
-        if (m_levelVisible.at(levelIndex(level))) {
+        if (m_model.matches(modelLevel(level), line)) {
             if (!run.isEmpty() && level != runLevel) {
                 flushRun();
             }
@@ -613,7 +553,7 @@ void GameLogWindow::appendText(const QString &text) {
         const QString flushed = m_pending;
         m_pending.clear();
         const LogLevel level = rememberLine(flushed);
-        if (m_levelVisible.at(levelIndex(level))) {
+        if (m_model.matches(modelLevel(level), flushed)) {
             if (!run.isEmpty() && level != runLevel) {
                 flushRun();
             }
@@ -632,30 +572,9 @@ void GameLogWindow::appendText(const QString &text) {
 }
 
 GameLogWindow::LogLevel GameLogWindow::rememberLine(const QString &text) {
-    // 认不出来就跟上一行：崩栈的 `at net.minecraft...` 续行、我们自己补的那句
-    // "游戏已退出" 都属于上一条日志，跟着上一行的颜色读起来正对。
-    // 模型还是空的（第一行就没级别）时算 Info；严重级别之后的无级别行只作为续行显示。
-    const LogLevel fallback = m_lines.isEmpty() ? LogLevel::Info : m_lines.last().level;
-    LogLevel level = LogLevel::Info;
-    const bool hasOwnLevel = explicitLevelOf(text, &level);
-    if (!hasOwnLevel) {
-        // 空行是记录之间的分隔，不该继承上一条 ERROR 的颜色；同时也不算一条 INFO。
-        level = text.isEmpty() ? LogLevel::Info : fallback;
-    }
-    // 没写级别的普通输出在 INFO 上按一行一条记；但 ERROR/WARN/FATAL/DEBUG 后面的无级别行
-    // 是崩栈或正文续行，只跟随颜色，不重复增加严重级别计数。
-    const bool counted = hasOwnLevel || (!text.isEmpty() && level == LogLevel::Info);
-    m_lines.append(LogLine{level, text, counted});
-    if (counted) {
-        ++m_levelCounts[levelIndex(level)];
-    }
-    if (m_lines.size() > maxLogBlocks()) {
-        // 视图那边由它的 maximumBlockCount 同步丢最老的（两个上限对齐，见构造函数里那段）。
-        const LogLine dropped = m_lines.takeFirst();
-        if (dropped.counted) {
-            --m_levelCounts[levelIndex(dropped.level)];
-        }
-    }
+    // 记账那一半整个在共用模型里（§9.8）：认级别、算计数、超上限丢最老的，都是
+    // `RuntimeOutputModel::addLine()`。这里只负责把新级别回给调用方（摆视图时要按档分段）。
+    const LogLevel level = static_cast<LogLevel>(int(m_model.addLine(text)));
     updateFilterButtons();
     return level;
 }
@@ -722,7 +641,7 @@ GameLogWindow::LogLevel GameLogWindow::pendingLevelGuess() const {
     // 跟"上一行那一档"猜 —— 认不出级别的行本来就跟上一行走（见 classifyLine），半行是
     // 一条还没写完的行，多数时候它写完就是上一档的续行。真级别已经写在头里了（进程
     // 按块给输出，多半整行一起到）时，这个函数认出来的就是真级别。
-    return classifyLine(m_pending, m_lines.isEmpty() ? LogLevel::Info : m_lines.last().level);
+    return classifyLine(m_pending, static_cast<LogLevel>(int(m_model.lastLevel())));
 }
 
 void GameLogWindow::insertPendingIntoView() {
@@ -779,15 +698,13 @@ void GameLogWindow::rebuildView() {
     // 从"行数"降到"档数变化次数"，这正是"点一下筛选要等半秒"那条的解法。
     QStringList run;
     LogLevel runLevel = LogLevel::Info;
-    for (const LogLine &line : m_lines) {
-        if (!m_levelVisible.at(levelIndex(line.level))) {
-            continue;  // 筛掉的这几行不摆出来（它们还在模型里，数字也没变）
-        }
-        if (!run.isEmpty() && line.level != runLevel) {
+    for (const RuntimeOutputModel::VisibleLine &line : m_model.visibleLines()) {
+        const LogLevel level = static_cast<LogLevel>(int(line.level));
+        if (!run.isEmpty() && level != runLevel) {
             insertRun(runLevel, run);
             run.clear();
         }
-        runLevel = line.level;
+        runLevel = level;
         run.append(line.text);
     }
     insertRun(runLevel, run);  // run 空的话它自己会早退
@@ -804,16 +721,16 @@ int GameLogWindow::viewBlockLimit() const {
     // 「全部」那一档喂的就是模型那个上限（= 改之前的行为）。两条上限对齐是原有的不变量
     // （见构造函数里那段）：不对齐的话，模型里最早那一行会被视图悄悄丢掉、切一次筛选它
     // 又冒出来。
-    const int limit =
-        m_displayLineLimit <= 0 ? maxLogBlocks() : qMin(m_displayLineLimit, maxLogBlocks());
+    const int shown = m_model.displayLimit();
+    const int limit = shown <= 0 ? maxLogBlocks() : qMin(shown, maxLogBlocks());
     return limit + 1;  // 多出来那一格留给"还没等到换行的那半行"
 }
 
 void GameLogWindow::setDisplayLineLimit(int limit) {
-    if (limit == m_displayLineLimit) {
+    if (limit == m_model.displayLimit()) {
         return;
     }
-    m_displayLineLimit = limit;
+    m_model.setDisplayLimit(limit);
     if (m_lineLimitCombo != nullptr) {
         // 灌值不要把处理函数再绕回来（那只会在重建里再重建一次）。
         const QSignalBlocker blocker(m_lineLimitCombo);
@@ -832,10 +749,10 @@ void GameLogWindow::setDisplayLineLimit(int limit) {
 
 void GameLogWindow::setLevelVisible(LogLevel level, bool visible) {
     const int index = levelIndex(level);
-    if (m_levelVisible.at(index) == visible) {
+    if (m_model.levelVisible(modelLevel(level)) == visible) {
         return;
     }
-    m_levelVisible[index] = visible;
+    m_model.setLevelVisible(modelLevel(level), visible);
     if (QToolButton *button = m_filterButtons.at(index)) {
         const QSignalBlocker blocker(button);
         button->setChecked(visible);
@@ -844,15 +761,17 @@ void GameLogWindow::setLevelVisible(LogLevel level, bool visible) {
 }
 
 bool GameLogWindow::levelVisible(LogLevel level) const {
-    return m_levelVisible.at(levelIndex(level));
+    return m_model.levelVisible(modelLevel(level));
 }
 
-int GameLogWindow::lineCountFor(LogLevel level) const { return m_levelCounts.at(levelIndex(level)); }
+int GameLogWindow::lineCountFor(LogLevel level) const {
+    return m_model.countFor(modelLevel(level));
+}
 
 void GameLogWindow::updateFilterButtons() {
     for (int i = 0; i < levelCount(); ++i) {
         if (QToolButton *button = m_filterButtons.at(i)) {
-            button->setText(filterButtonText(levelAt(i), m_levelCounts.at(i)));
+            button->setText(filterButtonText(levelAt(i), m_model.countFor(modelLevel(levelAt(i)))));
         }
     }
 }
@@ -919,22 +838,22 @@ void GameLogWindow::changeEvent(QEvent *event) {
 }
 
 void GameLogWindow::refreshPlaceholder() {
-    // 「还没有输出」和「都被筛掉了」是**两句不同的话**：前者的下一步是"等游戏出话"，
-    // 后者的下一步是"把上面某几档勾回来"。做成一句的话，用户看到空窗只会以为日志窗坏了。
+    // 三句话**各说各的下一步**：
+    //   · 一行都没有                         → 「还没有输出」（下一步是等游戏出话）；
+    //   · 有行、但档位筛得一行不剩          → 「都被筛掉了」（下一步是勾回来）；
+    //   · 有行、档位没筛干净但搜索没匹配上  → 「没有搜到」（下一步是清掉搜索词）。
+    // 做成一句的话，用户看到空窗只会以为日志窗坏了。
     //
     // 判据是"**现在一行都没有显示**"，不是"模型是不是空的"：还有行、只是全被筛掉的
     // 时候，那句占位该说的是"这几档都被筛掉了"。反过来只要有行看得见，正文就占着地方，
     // 占位那句话根本不显形 —— 这时给"还没有输出"（那是"这一份游戏还没说过话"的意思，
     // 而它显然说过了）。
-    bool anyVisible = false;
-    for (const LogLine &line : m_lines) {
-        if (m_levelVisible.at(levelIndex(line.level))) {
-            anyVisible = true;
-            break;
-        }
+    const int matching = m_model.matchingLineCount();
+    QString want = emptyPlaceholderText();
+    if (matching == 0 && !m_model.lines().isEmpty()) {
+        want = m_model.searchText().isEmpty() ? filteredOutPlaceholderText()
+                                              : searchEmptyPlaceholderText();
     }
-    const QString want =
-        anyVisible || m_lines.isEmpty() ? emptyPlaceholderText() : filteredOutPlaceholderText();
     if (m_view->placeholderText() != want) {
         m_view->setPlaceholderText(want);
     }
@@ -945,16 +864,9 @@ void GameLogWindow::refreshPlaceholder() {
 // ---------------------------------------------------------------------------
 
 GameLogWindow::LogLevel GameLogWindow::classifyLine(const QString &line, LogLevel fallback) {
-    // ① 行首那串**连着开头**的方括号：`[12:34:56] [main/INFO] [net.minecraft.Foo]`
-    //    只认连着开头的那几格 —— 消息体里出现的方括号不算（理由见 .hpp）。
-    //    这里**不设长度窗口**：线程名长的（`[Chunk Render Task 12/WARN]`）那几格会排到
-    //    四十几个字符之后，切一刀反而把真级别切掉；而"连着开头"这件事本身就已经把
-    //    消息体挡在外面了。
-    LogLevel level = LogLevel::Info;
-    if (explicitLevelOf(line, &level)) {
-        return level;
-    }
-    return fallback;
+    // 规则只有一处实现（共用模型那一份，服务端控制台也走它）。这里保留同名转发。
+    return static_cast<LogLevel>(
+        int(RuntimeOutputModel::classifyLine(line, modelLevel(fallback))));
 }
 
 GameLogWindow::LogLevel GameLogWindow::levelAt(int index) {
@@ -1058,43 +970,15 @@ QColor GameLogWindow::switchEdgeColor(const QPalette &palette) {
 QString GameLogWindow::logText() const { return m_view->toPlainText(); }
 
 QString GameLogWindow::allLogText() const {
-    // 一行一句。末尾那半行（m_pending）**原样接上去、不补换行** —— 补了的话这一份文件就
-    // 和屏幕上看到的那一截对不上了（屏幕上那半行本来也没换行）。
-    // ★ 2026-10-11：先按已知行数把容量备足（`QString::size()` 是 O(1)，多走一趟很便宜），
-    //   省掉逐行 `+=` 时一连串的重分配。
-    int reserve = m_pending.size();
-    for (const LogLine &line : m_lines) {
-        reserve += line.text.size() + 1;
-    }
-    QString text;
-    text.reserve(reserve);
-    for (const LogLine &line : m_lines) {
-        text += line.text;
-        text += QLatin1Char('\n');
-    }
-    text += m_pending;
-    return text;
+    // 一行一句（正文那一半整个由共用模型给）。末尾那半行（m_pending）**原样接上去、
+    // 不补换行** —— 补了的话这一份文件就和屏幕上看到的那一截对不上了。
+    return m_model.allText() + m_pending;
 }
 
 QString GameLogWindow::logTextFrom(LogLevel minLevel) const {
     // 比的是**模型的级别**（认不出级别的续行跟着上一行走，见 .hpp），不再按字符串匹配一遍：
     // 匹配第二遍就会出现"屏幕上是红的、导出里没有"这种两边对不上的事。
-    const int floor = levelIndex(minLevel);
-    // ★ 2026-10-11：容量按**全部**行数备（这是个上界，过滤后只会更少）—— 免掉逐行 `+=`
-    //   时的连串重分配，又不必为算准确数把过滤判据再走一遍。
-    int reserve = 0;
-    for (const LogLine &line : m_lines) {
-        reserve += line.text.size() + 1;
-    }
-    QString text;
-    text.reserve(reserve);
-    for (const LogLine &line : m_lines) {
-        if (levelIndex(line.level) >= floor) {
-            text += line.text;
-            text += QLatin1Char('\n');
-        }
-    }
-    return text;
+    return m_model.textFrom(modelLevel(minLevel));
 }
 
 QPlainTextEdit *GameLogWindow::getLogView() const { return m_view; }
@@ -1241,6 +1125,23 @@ QString GameLogWindow::filteredOutPlaceholderText() {
     return QStringLiteral("这几档都被筛掉了 —— 上面勾回来就看得见。");
 }
 
+QString GameLogWindow::searchPlaceholderText() {
+    return QStringLiteral("在这里面找…（大小写不分；和上面那几档是同时生效的）");
+}
+
+QString GameLogWindow::searchEmptyPlaceholderText() {
+    return QStringLiteral("没有搜到 —— 换个词，或者把搜索框清空。");
+}
+
+QString GameLogWindow::searchTooltip() {
+    return QStringLiteral("只看**含有这一串**的行。它只影响这个窗里显示什么 —— "
+                          "「导出日志」拿到的仍然是整份日志。");
+}
+
+QString GameLogWindow::searchText() const {
+    return m_searchEdit != nullptr ? m_searchEdit->text() : m_model.searchText();
+}
+
 QString GameLogWindow::filterButtonText(LogLevel level, int count) {
     return QStringLiteral("%1 %2").arg(levelName(level)).arg(qMax(0, count));
 }
@@ -1252,28 +1153,15 @@ QString GameLogWindow::filterButtonTooltip() {
 }
 
 QVector<int> GameLogWindow::lineLimitChoices() {
-    // 六档，从"只想看最后一段"到"全都看"。最后一档是 0（全部）—— 它同时是默认值，
-    // 也就是"打开这个窗看到的和 2026-09-24 之前一样"。
-    //
-    // 第四档是 5000：用户当天原话里打的是「25」，那是**打错了**（他随后订正为 5000）。
-    // 所以这一档**不是**从原话推出来的，是问出来的 —— 别照着「25」去猜 250。
-    return {500, 1000, 2000, 5000, 10000, 0};
+    return RuntimeOutputModel::lineLimitChoices();
 }
 
 QString GameLogWindow::lineLimitText(int limit) {
-    // 数字**写全**（用户 2026-09-24 说的「直接写数字」，别学他打的 1k/2k）。
-    if (limit <= 0) {
-        return QStringLiteral("全部");
-    }
-    return QStringLiteral("%1 条").arg(limit);
+    return RuntimeOutputModel::lineLimitText(limit);
 }
 
 int GameLogWindow::lineLimitOfIndex(int index) {
-    const QVector<int> choices = lineLimitChoices();
-    if (index < 0 || index >= choices.size()) {
-        return defaultLineLimit();  // 越界回默认那一档：不为一个越界把上限设成 0
-    }
-    return choices.at(index);
+    return RuntimeOutputModel::lineLimitOfIndex(index);
 }
 
 QString GameLogWindow::lineLimitTooltip() {

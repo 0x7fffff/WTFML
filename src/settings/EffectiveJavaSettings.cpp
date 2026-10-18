@@ -72,9 +72,11 @@ EffectiveJavaSettings resolveJavaSettings(const EffectiveJavaSettings &global,
     if (override.extraJvmArgs.has_value()) {
         result.extraJvmArgs = *override.extraJvmArgs;
     }
-    if (override.autoMemory.has_value()) {
-        result.autoMemory = *override.autoMemory;
-    }
+    // ★ 2026-10-18：`override.autoMemory` **不再参与合成**。界面上那个「内存分配」入口
+    //   撤掉了（只剩一根拖动的条），老实例的 meta 里可能还留着 "autoMemory": true ——
+    //   要是还认它，用户拖完条、盘上那个数却每次启动被重算掉，界面上又没有任何地方能
+    //   关掉它。所以读侧也当它不存在：一律手动档。键本身不删（applyJavaOverrideToJson
+    //   只写调用方给的那几项，老值会原样留着，退回旧版本仍然读得懂）。
 
     // 内存这两个数要**一起**处理：先定 Xmx（它是 Xms 的上界），再夹 Xms。
     // 分开写（各自 qMax 一下就完事）会漏掉"只覆盖了 Xms、而它比有效 Xmx 还大"这种

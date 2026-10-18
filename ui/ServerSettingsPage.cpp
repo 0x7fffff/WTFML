@@ -28,6 +28,9 @@
 
 #include "Animations.hpp"  // 换页那一发（Anim::pageAppear）
 #include "MainWindowUI.hpp"
+// MOTD 那块预览：`§` 码那套解析在 `MotdText` 里（ui 层自己的东西，反过来 include src
+// 才是犯规）。这里只做"段 → 富文本"的最后一步。
+#include "MotdText.hpp"
 #include "Theme.hpp"
 #include "ToggleSwitch.hpp"
 #include "VersionTreeDelegate.hpp"
@@ -80,6 +83,49 @@ QLabel *makeNoteLabel(QWidget *parent, const QString &text) {
     return label;
 }
 
+/**
+ * @brief 把一串 MOTD（带 `§` 码）变成 QLabel 吃的那份富文本。
+ *
+ * `MotdText::parse()` 已经把"哪一段是什么颜色 / 什么字形"拆好了（见那个文件头：色号、
+ * `§l/m/n/o`、`§r` 复位、`§x` 十六进制都认）。这一步只剩三件事：
+ *
+ *   - **按行拼 `<br>`**（游戏那边 MOTD 就是两行，`parse(..., 2)` 第 3 行起就丢了）；
+ *   - **颜色照游戏那 16 个色号**（`pieceColor()`），不按我们的主题走 —— 这一块画的是
+ *     "别的玩家在服务器列表里看到的样子"，改成我们的主题色就不像了；
+ *   - **空格换成 `&nbsp;`**：HTML 会把行首空格和连续空格吃掉，而 MOTD 里那几种空格正是
+ *     服务器拿来对齐的。
+ */
+QString motdPreviewHtml(const QString &raw) {
+    const QVector<MotdPiece> pieces = MotdText::parse(raw, 2);
+    if (pieces.isEmpty()) {
+        return QStringLiteral("<span style=\"color:#9a9a9a;\">%1</span>")
+            .arg(MainWindowUI::serverSettingsMotdEmptyText().toHtmlEscaped());
+    }
+    QString html;
+    int line = 0;
+    for (const MotdPiece &piece : pieces) {
+        while (line < piece.line) {
+            html += QStringLiteral("<br>");
+            ++line;
+        }
+        QString text = piece.text.toHtmlEscaped();
+        text.replace(QLatin1Char(' '), QStringLiteral("&nbsp;"));
+        QStringList styles;
+        styles << QStringLiteral("color:%1").arg(MotdText::pieceColor(piece).name());
+        if (piece.bold) styles << QStringLiteral("font-weight:bold");
+        if (piece.italic) styles << QStringLiteral("font-style:italic");
+        QStringList decorations;
+        if (piece.underline) decorations << QStringLiteral("underline");
+        if (piece.strike) decorations << QStringLiteral("line-through");
+        if (!decorations.isEmpty()) {
+            styles << QStringLiteral("text-decoration:%1").arg(decorations.join(QLatin1Char(' ')));
+        }
+        html += QStringLiteral("<span style=\"%1\">%2</span>").arg(styles.join(QLatin1Char(';')),
+                                                                    text);
+    }
+    return html;
+}
+
 /// 往右栏那一叠里加一页。**每一页都活在一层滚动区里**（和实例设置那几页同一个形状）：
 /// 内容比视口高的时候自己能滚，而且换页动画垫的底色正是滚动区视口铺的那一份
 /// （`QPalette::Base`，见构造末尾那条 `currentChanged`）。
@@ -87,7 +133,7 @@ QLabel *makeNoteLabel(QWidget *parent, const QString &text) {
 /// @param objectName 里面那一页的名字（没名字就传空串 —— 表里一页一张，名字只能是噪音）。
 /// @return 那一页自己的竖排布局（往它里面加东西）。
 QVBoxLayout *addSectionPage(QStackedWidget *stack, const QString &objectName) {
-    auto *scroll = new QScrollArea(stack);
+    auto *scroll = new Theme::GutterScrollArea(stack);
     scroll->setFrameShape(QFrame::NoFrame);
     scroll->setWidgetResizable(true);
     auto *page = new QWidget(scroll);
@@ -223,7 +269,106 @@ ServerSettingsPage::ServerSettingsPage(QWidget *parent) : QDialog(parent) {
         layout->addWidget(m_rawEdit, 1);
     }
 
-    // ---------- ③ 世界备份 ----------
+    // ---------- ③ 内容（模组 / 数据包，§9.7）----------
+    //
+    // 两类内容一个文件夹一个下拉框：上面选哪一类，中间一张表（名字 / 大小 / 状态），底下
+    // 四颗按钮（加 / 启用禁用 / 打开文件夹 / 刷新）。**这一页不碰盘**：列目录、改名、拷
+    // 文件全在 `MainWindow`（`ui/` 不许 include `src/`，判据在 `ServerContent` 那一层）。
+    {
+        auto *layout = addSectionPage(m_stack, QString());
+        m_contentNote = makeNoteLabel(nullptr, QString());
+        m_contentNote->setObjectName(MainWindowUI::serverSettingsContentNoteName());
+        layout->addWidget(m_contentNote);
+
+        {
+            auto *row = new QWidget();
+            auto *rowLayout = new QHBoxLayout(row);
+            rowLayout->setContentsMargins(0, 0, 0, 0);
+            rowLayout->setSpacing(8);
+            m_contentKindCombo = new QComboBox(row);
+            m_contentKindCombo->setObjectName(MainWindowUI::serverSettingsContentComboName());
+            for (int i = 0; i < MainWindowUI::serverSettingsContentKindCount(); ++i) {
+                m_contentKindCombo->addItem(MainWindowUI::serverSettingsContentKindTitle(i));
+            }
+            // ★ 接在**摆完项之后**（同玩家那个下拉框：`addItem` 也会发 `currentIndexChanged`）。
+            connect(m_contentKindCombo, &QComboBox::currentIndexChanged, this, [this](int index) {
+                refreshContentActions();
+                emit contentKindChanged(index);
+            });
+            rowLayout->addWidget(m_contentKindCombo, 0);
+            rowLayout->addStretch(1);
+            layout->addWidget(row);
+        }
+
+        m_contentTree = new QTreeWidget();
+        m_contentTree->setObjectName(MainWindowUI::serverSettingsContentTreeName());
+        m_contentTree->setColumnCount(MainWindowUI::serverSettingsContentColumns().size());
+        m_contentTree->setHeaderLabels(MainWindowUI::serverSettingsContentColumns());
+        m_contentTree->setRootIsDecorated(false);
+        m_contentTree->setUniformRowHeights(true);
+        m_contentTree->setAllColumnsShowFocus(true);
+        m_contentTree->setSelectionMode(QAbstractItemView::SingleSelection);
+        m_contentTree->setEditTriggers(QAbstractItemView::NoEditTriggers);
+        m_contentTree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
+        m_contentTree->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+        m_contentTree->header()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+        connect(m_contentTree, &QTreeWidget::currentItemChanged, this,
+                [this](QTreeWidgetItem *, QTreeWidgetItem *) { refreshContentActions(); });
+        layout->addWidget(m_contentTree, 1);
+
+        {
+            auto *row = new QWidget();
+            auto *rowLayout = new QHBoxLayout(row);
+            rowLayout->setContentsMargins(0, 0, 0, 0);
+            rowLayout->setSpacing(8);
+            m_contentAddButton = new QPushButton(MainWindowUI::serverSettingsContentAddText(), row);
+            m_contentAddButton->setObjectName(MainWindowUI::serverSettingsContentAddButtonName());
+            Theme::markButton(m_contentAddButton, Theme::ButtonKind::Accent);
+            m_contentAddButton->setCursor(Qt::PointingHandCursor);
+            connect(m_contentAddButton, &QPushButton::clicked, this,
+                    &ServerSettingsPage::contentAddRequested);
+            rowLayout->addWidget(m_contentAddButton);
+            rowLayout->addStretch(1);
+            m_contentToggleButton =
+                new QPushButton(MainWindowUI::serverSettingsContentDisableText(), row);
+            m_contentToggleButton->setObjectName(
+                MainWindowUI::serverSettingsContentToggleButtonName());
+            // 改名而已，不做危险动作那一档（文件一个字节都不动，随时能改回来）。
+            Theme::markButton(m_contentToggleButton, Theme::ButtonKind::Neutral);
+            m_contentToggleButton->setCursor(Qt::PointingHandCursor);
+            connect(m_contentToggleButton, &QPushButton::clicked, this, [this] {
+                const QString name = selectedContentName();
+                if (name.isEmpty()) {
+                    return;
+                }
+                // 禁用着的按下去就是"启用"，反之是"禁用"。
+                emit contentToggleRequested(name, selectedContentDisabled());
+            });
+            rowLayout->addWidget(m_contentToggleButton);
+            m_contentOpenFolderButton =
+                new QPushButton(MainWindowUI::serverSettingsContentOpenFolderText(), row);
+            m_contentOpenFolderButton->setObjectName(
+                MainWindowUI::serverSettingsContentOpenFolderButtonName());
+            // 看一眼而已 ⇒ 一般性那一档；服务端在跑的时候照样能按。
+            Theme::markButton(m_contentOpenFolderButton, Theme::ButtonKind::Ghost);
+            m_contentOpenFolderButton->setCursor(Qt::PointingHandCursor);
+            connect(m_contentOpenFolderButton, &QPushButton::clicked, this,
+                    &ServerSettingsPage::contentOpenFolderRequested);
+            rowLayout->addWidget(m_contentOpenFolderButton);
+            m_contentRefreshButton =
+                new QPushButton(MainWindowUI::serverSettingsContentRefreshText(), row);
+            m_contentRefreshButton->setObjectName(
+                MainWindowUI::serverSettingsContentRefreshButtonName());
+            Theme::markButton(m_contentRefreshButton, Theme::ButtonKind::Ghost);
+            m_contentRefreshButton->setCursor(Qt::PointingHandCursor);
+            connect(m_contentRefreshButton, &QPushButton::clicked, this,
+                    &ServerSettingsPage::contentRefreshRequested);
+            rowLayout->addWidget(m_contentRefreshButton);
+            layout->addWidget(row);
+        }
+    }
+
+    // ---------- ④ 世界备份 ----------
     {
         auto *layout = addSectionPage(m_stack, QString());
         m_backupNote = makeNoteLabel(nullptr, QString());
@@ -304,7 +449,103 @@ ServerSettingsPage::ServerSettingsPage(QWidget *parent) : QDialog(parent) {
         layout->addWidget(row);
     }
 
-    // ---------- ④ 体检 ----------
+    // ---------- ⑤ 玩家名单 ----------
+    //
+    // 四份文件（`whitelist.json` / `ops.json` / 两份封禁）在盘上的形状都是 JSON 数组，
+    // 一页摆下它们：上面一个下拉框选哪一份，中间一张表，底下两颗动作按钮。**这一页不认
+    // JSON**（`ui/` 不许 include `src/`）—— 解析、UUID、写盘全在 `MainWindow` 那一边，
+    // 这里只把 `PlayerRow` 摆出来、把"用户点了加/移除"报出去。
+    {
+        auto *layout = addSectionPage(m_stack, QString());
+        m_playerNote = makeNoteLabel(nullptr, QString());
+        m_playerNote->setObjectName(MainWindowUI::serverSettingsPlayerNoteName());
+        layout->addWidget(m_playerNote);
+
+        {
+            auto *row = new QWidget();
+            auto *rowLayout = new QHBoxLayout(row);
+            rowLayout->setContentsMargins(0, 0, 0, 0);
+            rowLayout->setSpacing(8);
+            m_playerListCombo = new QComboBox(row);
+            m_playerListCombo->setObjectName(MainWindowUI::serverSettingsPlayerComboName());
+            for (int i = 0; i < MainWindowUI::serverSettingsPlayerListCount(); ++i) {
+                m_playerListCombo->addItem(MainWindowUI::serverSettingsPlayerListTitle(i));
+            }
+            // ★ 接在**摆完项之后**：`addItem` 也会发 `currentIndexChanged`，接早了会在
+            //   构造期把"换了一份名单"报给 `MainWindow`（那一头还没摆好这一页）。
+            connect(m_playerListCombo, &QComboBox::currentIndexChanged, this, [this](int index) {
+                if (m_playerAddButton != nullptr) {
+                    m_playerAddButton->setText(
+                        MainWindowUI::serverSettingsPlayerAddText(index));
+                }
+                refreshPlayerActions();
+                emit playerListChanged(index);
+            });
+            rowLayout->addWidget(m_playerListCombo, 0);
+            rowLayout->addStretch(1);
+            layout->addWidget(row);
+        }
+
+        m_playerTree = new QTreeWidget();
+        m_playerTree->setObjectName(MainWindowUI::serverSettingsPlayerTreeName());
+        m_playerTree->setColumnCount(MainWindowUI::serverSettingsPlayerColumns().size());
+        m_playerTree->setHeaderLabels(MainWindowUI::serverSettingsPlayerColumns());
+        m_playerTree->setRootIsDecorated(false);
+        m_playerTree->setUniformRowHeights(true);
+        m_playerTree->setAllColumnsShowFocus(true);
+        m_playerTree->setSelectionMode(QAbstractItemView::SingleSelection);
+        m_playerTree->setEditTriggers(QAbstractItemView::NoEditTriggers);
+        m_playerTree->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+        m_playerTree->header()->setSectionResizeMode(1, QHeaderView::Stretch);
+        m_playerTree->header()->setSectionResizeMode(2, QHeaderView::Stretch);
+        connect(m_playerTree, &QTreeWidget::currentItemChanged, this,
+                [this](QTreeWidgetItem *, QTreeWidgetItem *) { refreshPlayerActions(); });
+        layout->addWidget(m_playerTree, 1);
+
+        {
+            auto *row = new QWidget();
+            auto *rowLayout = new QHBoxLayout(row);
+            rowLayout->setContentsMargins(0, 0, 0, 0);
+            rowLayout->setSpacing(8);
+            m_playerAddButton = new QPushButton(
+                MainWindowUI::serverSettingsPlayerAddText(m_playerListCombo->currentIndex()), row);
+            m_playerAddButton->setObjectName(MainWindowUI::serverSettingsPlayerAddButtonName());
+            Theme::markButton(m_playerAddButton, Theme::ButtonKind::Accent);
+            m_playerAddButton->setCursor(Qt::PointingHandCursor);
+            connect(m_playerAddButton, &QPushButton::clicked, this,
+                    &ServerSettingsPage::playerAddRequested);
+            rowLayout->addWidget(m_playerAddButton);
+            rowLayout->addStretch(1);
+            m_playerRemoveButton =
+                new QPushButton(MainWindowUI::serverSettingsPlayerRemoveText(), row);
+            m_playerRemoveButton->setObjectName(
+                MainWindowUI::serverSettingsPlayerRemoveButtonName());
+            // 从名单上拿掉一个人 = 他会进不来 / 不再是管理员 —— 危险那一档。
+            Theme::markButton(m_playerRemoveButton, Theme::ButtonKind::Danger);
+            m_playerRemoveButton->setCursor(Qt::PointingHandCursor);
+            connect(m_playerRemoveButton, &QPushButton::clicked, this, [this] {
+                const QString identity = selectedPlayerIdentity();
+                if (!identity.isEmpty()) emit playerRemoveRequested(identity);
+            });
+            rowLayout->addWidget(m_playerRemoveButton);
+            // 「踢出…」：**只在服务端跑着的时候才有意义**（把一条 kick 命令送进它 stdin，
+            // 结果回显在控制台里 —— §9.7 那句的要求）。所以它和上面两颗正好相反：不是跟着
+            // "能不能改文件"走，而是跟着"进程在不在"走（见 `setPlayerKickAvailable()`）。
+            m_playerKickButton = new QPushButton(MainWindowUI::serverSettingsPlayerKickText(), row);
+            m_playerKickButton->setObjectName(
+                MainWindowUI::serverSettingsPlayerKickButtonName());
+            Theme::markButton(m_playerKickButton, Theme::ButtonKind::Neutral);
+            m_playerKickButton->setCursor(Qt::PointingHandCursor);
+            connect(m_playerKickButton, &QPushButton::clicked, this, [this] {
+                const QString name = selectedPlayerName();
+                if (!name.isEmpty()) emit playerKickRequested(name);
+            });
+            rowLayout->addWidget(m_playerKickButton);
+            layout->addWidget(row);
+        }
+    }
+
+    // ---------- ⑥ 体检 ----------
     {
         auto *layout = addSectionPage(m_stack, QString());
         m_checkSummary = makeNoteLabel(nullptr, QString());
@@ -378,6 +619,8 @@ ServerSettingsPage::ServerSettingsPage(QWidget *parent) : QDialog(parent) {
     refreshSaveBar();
     refreshBackupActions();
     refreshCheckActions();
+    refreshContentActions();
+    refreshPlayerActions();
 
     connect(m_sectionList, &QListWidget::currentRowChanged, this, [this](int row) {
         if (m_settingSection || row < 0) {
@@ -428,6 +671,11 @@ void ServerSettingsPage::setFields(const QList<FieldView> &fields) {
     }
     m_editors.clear();
     m_baseline.clear();
+    // ★ 预览那两块跟着行一起被 `delete` 掉了 —— 手边这两个指针必须同时作废，不然它们是
+    //   悬空的（`refreshSaveBar()` 那一路上还会用到 "有没有预览" 这个判断）。
+    m_motdPreview = nullptr;
+    m_motdPreviewNote = nullptr;
+    m_zipPickButton = nullptr;
     m_fields = fields;
     for (const FieldView &field : fields) {
         addFieldRow(field);
@@ -451,6 +699,20 @@ void ServerSettingsPage::setValues(const Values &values) {
     // ★ 摆进来的这一份就是**新的基线**（"改过没有"是拿它比的）—— `setValues()` 自己
     //   就带着 `clearChanged()` 的语义，别指望调用方记得再喊一次。
     clearChanged();
+}
+
+void ServerSettingsPage::setFieldValue(const QString &key, const QString &value) {
+    for (const FieldView &field : m_fields) {
+        if (field.key != key) {
+            continue;
+        }
+        // ★ **不**进 `m_settingValues` 那一段：这一发是"用户选了东西之后的产物"，要按
+        //   改动算（保存带上那句"改过 1 项"、保存时会写回盘上）。控件自己的 `textChanged`
+        //   会把 `edited()` 发出去 —— 那正是这里要的（`setValues()` 那一趟才是基线）。
+        setEditorValue(field, value);
+        refreshSaveBar();
+        return;
+    }
 }
 
 ServerSettingsPage::Values ServerSettingsPage::values() const {
@@ -487,9 +749,15 @@ void ServerSettingsPage::setEditable(bool editable, const QString &reason) {
     if (m_backupNowButton != nullptr) {
         m_backupNowButton->setEnabled(editable);
     }
+    // 「选择本地 zip…」只为填那一格服务 —— 那一格不能改的时候它也不该能按。
+    if (m_zipPickButton != nullptr) {
+        m_zipPickButton->setEnabled(editable);
+    }
     // 「打开备份文件夹」「重新检查」**留着能按**：它们只读、不改任何东西。
     refreshBackupActions();
     refreshCheckActions();
+    refreshContentActions();
+    refreshPlayerActions();
     refreshSaveBar();
 }
 
@@ -538,7 +806,73 @@ void ServerSettingsPage::markRawEdited() {
 }
 
 // ---------------------------------------------------------------------------
-// ③ 世界备份
+// ③ 内容（模组 / 数据包）
+// ---------------------------------------------------------------------------
+
+int ServerSettingsPage::contentKind() const {
+    return m_contentKindCombo == nullptr ? 0 : m_contentKindCombo->currentIndex();
+}
+
+void ServerSettingsPage::setContentKind(int kindIndex) {
+    if (m_contentKindCombo == nullptr) return;
+    if (kindIndex < 0 || kindIndex >= m_contentKindCombo->count()) return;
+    // 程序摆的那一下**不算用户换类**（`MainWindow` 会紧接着自己刷一遍行）。
+    const QSignalBlocker blocker(m_contentKindCombo);
+    m_contentKindCombo->setCurrentIndex(kindIndex);
+    refreshContentActions();
+}
+
+void ServerSettingsPage::setContentRows(const QList<ContentRow> &rows) {
+    if (m_contentTree == nullptr) return;
+    const QSignalBlocker blocker(m_contentTree);
+    m_contentTree->clear();
+    const QColor muted = [this] {
+        QColor color = m_contentTree->palette().color(QPalette::Text);
+        color.setAlpha(150);
+        return color;
+    }();
+    for (const ContentRow &row : rows) {
+        auto *item = new QTreeWidgetItem(m_contentTree);
+        item->setText(0, row.name);
+        item->setText(1, row.size);
+        item->setText(2, MainWindowUI::serverSettingsContentStateText(row.disabled));
+        // 认人认文件名（带不带 `.disabled` 都照原样），不认这行字。
+        item->setData(0, Qt::UserRole, row.name);
+        // 禁用着没有 —— 摆进来那一份说了算（**不在这里反推文件名尾巴**：`.disabled` 那条
+        // 规矩的出处是 `src/server/ServerContent`，这一层不该抄一份）。
+        item->setData(0, Qt::UserRole + 1, row.disabled);
+        item->setToolTip(0, row.name);
+        if (row.disabled) {
+            // 禁用着的那一行整行画灰 + 斜体：它还在文件夹里，但服务端不会加载它。
+            for (int column = 0; column < 3; ++column) {
+                QFont font = item->font(column);
+                font.setItalic(true);
+                item->setFont(column, font);
+                item->setForeground(column, muted);
+            }
+        }
+    }
+    refreshContentActions();
+}
+
+void ServerSettingsPage::setContentNote(const QString &text) {
+    if (m_contentNote != nullptr) m_contentNote->setText(text);
+}
+
+QString ServerSettingsPage::selectedContentName() const {
+    if (m_contentTree == nullptr) return QString();
+    const QTreeWidgetItem *item = m_contentTree->currentItem();
+    return item != nullptr ? item->data(0, Qt::UserRole).toString() : QString();
+}
+
+bool ServerSettingsPage::selectedContentDisabled() const {
+    if (m_contentTree == nullptr) return false;
+    const QTreeWidgetItem *item = m_contentTree->currentItem();
+    return item != nullptr && item->data(0, Qt::UserRole + 1).toBool();
+}
+
+// ---------------------------------------------------------------------------
+// ④ 世界备份
 // ---------------------------------------------------------------------------
 
 void ServerSettingsPage::setBackupRows(const QList<BackupRow> &rows) {
@@ -589,7 +923,80 @@ void ServerSettingsPage::setBackupNote(const QString &text) {
 }
 
 // ---------------------------------------------------------------------------
-// ④ 体检
+// ④ 玩家名单
+// ---------------------------------------------------------------------------
+
+int ServerSettingsPage::playerList() const {
+    return m_playerListCombo == nullptr ? 0 : m_playerListCombo->currentIndex();
+}
+
+void ServerSettingsPage::setPlayerList(int listIndex) {
+    if (m_playerListCombo == nullptr) return;
+    if (listIndex < 0 || listIndex >= m_playerListCombo->count()) return;
+    // 程序摆的那一下**不算用户换页**（`MainWindow` 会紧接着自己刷一遍行）。
+    const QSignalBlocker blocker(m_playerListCombo);
+    m_playerListCombo->setCurrentIndex(listIndex);
+    if (m_playerAddButton != nullptr) {
+        m_playerAddButton->setText(MainWindowUI::serverSettingsPlayerAddText(listIndex));
+    }
+    refreshPlayerActions();
+}
+
+void ServerSettingsPage::setPlayerRows(const QList<PlayerRow> &rows) {
+    if (m_playerTree == nullptr) return;
+    const QSignalBlocker blocker(m_playerTree);
+    m_playerTree->clear();
+    const QColor muted = [this] {
+        QColor color = m_playerTree->palette().color(QPalette::Text);
+        color.setAlpha(150);
+        return color;
+    }();
+    for (const PlayerRow &row : rows) {
+        auto *item = new QTreeWidgetItem(m_playerTree);
+        item->setText(0, row.name);
+        item->setText(1, row.detail);
+        item->setText(2, row.note);
+        // 认人认身份键（uuid / ip），不认这行字。
+        item->setData(0, Qt::UserRole, row.identity);
+        // 「踢出」用的是玩家名（控制台 `kick <名字>`），不是 uuid。
+        item->setData(0, Qt::UserRole + 1, row.kickName);
+        item->setToolTip(1, row.detail);
+        if (row.expired) {
+            // 已经过期的那条：整行画灰 + 斜体 —— 服务端下次启动会自己清掉它。
+            for (int column = 0; column < 3; ++column) {
+                QFont font = item->font(column);
+                font.setItalic(true);
+                item->setFont(column, font);
+                item->setForeground(column, muted);
+            }
+        }
+    }
+    refreshPlayerActions();
+}
+
+void ServerSettingsPage::setPlayerNote(const QString &text) {
+    if (m_playerNote != nullptr) m_playerNote->setText(text);
+}
+
+QString ServerSettingsPage::selectedPlayerIdentity() const {
+    if (m_playerTree == nullptr) return QString();
+    const QTreeWidgetItem *item = m_playerTree->currentItem();
+    return item != nullptr ? item->data(0, Qt::UserRole).toString() : QString();
+}
+
+QString ServerSettingsPage::selectedPlayerName() const {
+    if (m_playerTree == nullptr) return QString();
+    const QTreeWidgetItem *item = m_playerTree->currentItem();
+    return item != nullptr ? item->data(0, Qt::UserRole + 1).toString() : QString();
+}
+
+void ServerSettingsPage::setPlayerKickAvailable(bool available) {
+    m_playerKickAllowed = available;
+    refreshPlayerActions();
+}
+
+// ---------------------------------------------------------------------------
+// ⑤ 体检
 // ---------------------------------------------------------------------------
 
 void ServerSettingsPage::setCheckRows(const QList<CheckRow> &rows) {
@@ -731,10 +1138,33 @@ void ServerSettingsPage::addFieldRow(const FieldView &field) {
     }
     // 认人走这个名字（前缀 + `server.properties` 里那个键），不认行号、也不认那一行的字。
     editor->setObjectName(MainWindowUI::serverSettingsFieldName(field.key));
+    // 挂着预览的那一格：**敲一个字画一次**（预览就是给人边改边看的）。程序摆值那一趟
+    // （`setEditorValue()` 走 `setText()`）也走这里 —— 那也是"这一格现在写着什么"。
+    if (field.preview) {
+        if (auto *edit = qobject_cast<QLineEdit *>(editor)) {
+            connect(edit, &QLineEdit::textChanged, this, [this](const QString &text) {
+                if (m_motdPreview != nullptr) {
+                    m_motdPreview->setText(motdPreviewHtml(text));
+                }
+            });
+        }
+    }
     if (field.kind == Kind::Switch) {
         layout->addWidget(editor, 0, Qt::AlignLeft);
     } else {
         layout->addWidget(editor, 0);
+    }
+
+    // 「选择本地 zip…」：只为那一格服务。选文件、验 zip、算 SHA-1 全在 `MainWindow`
+    // （`ui/` 不 include `src/`，那条线见文件头）。
+    if (field.zipPick) {
+        auto *pick = new QPushButton(MainWindowUI::serverSettingsPickZipText(), row);
+        pick->setObjectName(MainWindowUI::serverSettingsPickZipButtonName());
+        pick->setEnabled(m_editable);
+        connect(pick, &QPushButton::clicked, this,
+                [this] { emit resourcePackPickRequested(); });
+        layout->addWidget(pick, 0);
+        m_zipPickButton = pick;
     }
 
     if (field.hint.isEmpty()) {
@@ -749,6 +1179,44 @@ void ServerSettingsPage::addFieldRow(const FieldView &field) {
     m_editors.insert(field.key, editor);
     // 弹簧在收尾 ⇒ 新行插在它**前面**。
     m_formLayout->insertWidget(m_formLayout->count() - 1, row);
+
+    // ---------- 这一行下面那块"游戏里长什么样"（§9.7「MOTD 提供格式化预览」）----------
+    //
+    // 只有 `FieldView::preview` 为真的那一行才有（目前是 `motd`）。它**紧跟在那一行后面**
+    // 插进同一竖排，左边留出和编辑栏同一个起点 —— 看起来是"这一格的注释"，而不是另一项设置。
+    if (field.preview) {
+        auto *holder = new QWidget(m_formBody);
+        auto *holderLayout = new QVBoxLayout(holder);
+        holderLayout->setContentsMargins(kFieldLabelWidth + 12, 0, 0, 0);
+        holderLayout->setSpacing(4);
+
+        auto *plate = new QLabel(holder);
+        plate->setObjectName(MainWindowUI::serverSettingsMotdPreviewName());
+        plate->setTextFormat(Qt::RichText);
+        plate->setWordWrap(true);
+        plate->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        // 这一块画的是**游戏那一边**的样子（深底 + 游戏那 16 色），不跟我们的主题走 ——
+        // 一行固定的深色就够了，别去动调色板（`setStyleSheet()` 只作用在它自己身上）。
+        plate->setStyleSheet(QStringLiteral("QLabel { background-color: #202020;"
+                                            " border: 1px solid #3a3a3a; border-radius: 4px;"
+                                            " padding: 6px 10px; }"));
+        plate->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+        holderLayout->addWidget(plate);
+
+        QLabel *note = makeMutedLabel(holder, MainWindowUI::serverSettingsMotdNoteName());
+        note->setText(MainWindowUI::serverSettingsMotdNote());
+        note->setWordWrap(true);
+        note->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+        holderLayout->addWidget(note);
+
+        m_motdPreview = plate;
+        m_motdPreviewNote = note;
+        // 摆进来的那一份也要画出来（开页时它是盘上那份 MOTD，不是空的）。
+        if (const auto *edit = qobject_cast<const QLineEdit *>(editor)) {
+            plate->setText(motdPreviewHtml(edit->text()));
+        }
+        m_formLayout->insertWidget(m_formLayout->count() - 1, holder);
+    }
 }
 
 QString ServerSettingsPage::editorValue(const FieldView &field) const {
@@ -925,6 +1393,43 @@ void ServerSettingsPage::refreshCheckActions() {
         layout->addWidget(button);
     }
     layout->addStretch(1);
+}
+
+void ServerSettingsPage::refreshContentActions() {
+    // 「添加…」只往文件夹里拷文件 ⇒ 服务端在跑的时候也先不给按（它下次启动才加载，
+    // 现在拷进去只会让人以为"已经生效了"；等它停下来）。
+    if (m_contentAddButton != nullptr) {
+        m_contentAddButton->setEnabled(m_editable);
+    }
+    const bool picked = !selectedContentName().isEmpty();
+    if (m_contentToggleButton != nullptr) {
+        m_contentToggleButton->setEnabled(m_editable && picked);
+        // 那颗按钮上的字跟着选中那一行翻：禁用着的写「启用」，反过来写「禁用」。
+        m_contentToggleButton->setText(
+            picked && selectedContentDisabled() ? MainWindowUI::serverSettingsContentEnableText()
+                                                 : MainWindowUI::serverSettingsContentDisableText());
+    }
+    // 「打开文件夹」「刷新」一直能按（只读，不改任何东西）。
+}
+
+void ServerSettingsPage::refreshPlayerActions() {
+    // 「加」那一颗：只读时点不动（服务端退出时会把它内存里那份名单写回来，见 `setEditable`）。
+    if (m_playerAddButton != nullptr) {
+        m_playerAddButton->setEnabled(m_editable);
+    }
+    // 「移除」还要选中一行才有意义。
+    if (m_playerRemoveButton != nullptr) {
+        m_playerRemoveButton->setEnabled(
+            m_editable && m_playerTree != nullptr && m_playerTree->currentItem() != nullptr);
+    }
+    // 「踢出」跟着**进程在不在**走（和上面两颗相反 —— 见 `setPlayerKickAvailable()`），
+    // 再有就是得选中一行、而且那一行得有名字（封禁 IP 那一档没有玩家名可踢）。
+    if (m_playerKickButton != nullptr) {
+        m_playerKickButton->setEnabled(
+            m_playerKickAllowed && m_playerTree != nullptr
+            && m_playerTree->currentItem() != nullptr
+            && !selectedPlayerName().isEmpty());
+    }
 }
 
 QWidget *ServerSettingsPage::fieldEditor(const QString &key) const {

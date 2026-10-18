@@ -7,20 +7,36 @@
 #include "ServerPing.hpp"
 
 #include <QAbstractSocket>
+#include <QDnsLookup>
 #include <QElapsedTimer>
+#include <QEventLoop>
 #include <QHash>
+#include <QHostAddress>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QRandomGenerator>
 #include <QTcpSocket>
 #include <QThread>
+#include <QTimer>
 
+#include <climits>
 #include <memory>
 
 namespace {
 
 /// 一次 ping 的超时。见 timeoutMs()（唯一出处）。
 int g_timeoutMs = 4000;
+
+/// SRV 查询开着没有（见 srvLookupEnabled()）。**默认开** —— 游戏自己就是先查 SRV 再连。
+bool g_srvLookupEnabled = true;
+
+/// SRV 这一步最多花多少毫秒（再长也不超过整趟预算的一半，见 resolve()）。
+///
+/// 取 2 秒：一个正常 DNS 查询是几十毫秒，2 秒还没回来基本就是解析器坏了 —— 那不该把
+/// 整趟预算（默认 4 秒）吃光，否则一台写域名、没有 SRV 的服务器会从"连了就答"变成
+/// "等到超时"，看起来像服务器挂了。
+constexpr int kSrvMaxBudgetMs = 2000;
 
 /// 一个状态包最大认多大（字节）。**必须有上限**：长度前缀是服务器给的，一个坏掉的
 /// （或者故意使坏的）服务器报一个 20 亿的长度，我们会一直等一堆永远不来的字节
@@ -254,6 +270,236 @@ QString flattenMotdRich(const QJsonValue &value, const MotdState &inherited, int
 
 namespace ServerPing {
 
+/// 把一条记录收成"能用"的样子：去掉两头空白和 FQDN 末尾那个点，其余原样。
+///
+/// 目标是 `.`（根）就是 RFC 2782 那句"这个服务**不可用**"—— 剥掉点之后变空，被过滤掉。
+/// 那正是我们想要的：宁可不换 SRV，也不要连到一个"就叫点"的主机上去。
+static bool usableSrvRecord(const SrvRecord &record, SrvRecord *out) {
+    SrvRecord fixed = record;
+    fixed.target = fixed.target.trimmed();
+    while (fixed.target.endsWith(QLatin1Char('.'))) {
+        fixed.target.chop(1);
+    }
+    if (fixed.target.isEmpty() || fixed.port <= 0 || fixed.port > 65535) {
+        return false;
+    }
+    if (out != nullptr) {
+        *out = fixed;
+    }
+    return true;
+}
+
+QList<SrvRecord> bestPriorityRecords(const QList<SrvRecord> &records) {
+    QList<SrvRecord> valid;
+    valid.reserve(records.size());
+    int bestPriority = INT_MAX;
+    for (const SrvRecord &record : records) {
+        SrvRecord fixed;
+        if (!usableSrvRecord(record, &fixed)) {
+            continue;
+        }
+        valid.append(fixed);
+        bestPriority = qMin(bestPriority, fixed.priority);
+    }
+    if (valid.isEmpty()) {
+        return {};
+    }
+    QList<SrvRecord> best;
+    best.reserve(valid.size());
+    for (const SrvRecord &record : valid) {
+        if (record.priority == bestPriority) {
+            best.append(record);
+        }
+    }
+    return best;
+}
+
+bool pickSrvRecord(const QList<SrvRecord> &records, quint32 sample, SrvRecord *out) {
+    const QList<SrvRecord> best = bestPriorityRecords(records);
+    if (best.isEmpty() || out == nullptr) {
+        return false;
+    }
+    quint32 totalWeight = 0;
+    for (const SrvRecord &record : best) {
+        totalWeight += static_cast<quint32>(qMax(0, record.weight));
+    }
+    if (totalWeight == 0) {
+        // 全是 0 权重 = 等概率（RFC 2782 明写的）。"权重为 0 就不选"会让这种表一条都
+        // 挑不出来 —— 而它是合法的、真有人这么配。
+        *out = best.at(static_cast<int>(sample % static_cast<quint32>(best.size())));
+        return true;
+    }
+    const quint32 point = sample % totalWeight;
+    quint32 running = 0;
+    for (const SrvRecord &record : best) {
+        running += static_cast<quint32>(qMax(0, record.weight));
+        if (point < running) {
+            *out = record;
+            return true;
+        }
+    }
+    // 走不到这儿（point < totalWeight）；留一个兜底免得"理论上不可能"变成空返回。
+    *out = best.constLast();
+    return true;
+}
+
+bool srvLookupEnabled() { return g_srvLookupEnabled; }
+
+void setSrvLookupEnabled(bool on) { g_srvLookupEnabled = on; }
+
+namespace {
+
+/// 这个主机是不是 IP 字面量（`1.2.3.4` / `::1`）。是的话**不查 SRV**：IP 没有域名可言，
+/// 对它的 SRV 查询只会白等一趟 DNS。
+bool isIpLiteral(const QString &host) {
+    QHostAddress address;
+    return address.setAddress(host);
+}
+
+/// 查 `_minecraft._tcp.<host>` 这一步。**阻塞**（内部开一个局部事件循环），最多 @p budgetMs。
+struct SrvOutcome {
+    bool found = false;
+    QString target;
+    int port = 0;
+    QString error;
+};
+
+SrvOutcome lookupSrv(const QString &host, int budgetMs) {
+    SrvOutcome outcome;
+    QDnsLookup lookup(QDnsLookup::SRV, QStringLiteral("_minecraft._tcp.%1").arg(host));
+
+    QEventLoop loop;
+    QTimer deadline;
+    deadline.setSingleShot(true);
+    bool timedOut = false;
+    QObject::connect(&lookup, &QDnsLookup::finished, &loop, &QEventLoop::quit);
+    QObject::connect(&deadline, &QTimer::timeout, &loop, [&loop, &timedOut] {
+        timedOut = true;
+        loop.quit();
+    });
+    deadline.start(qMax(1, budgetMs));
+    lookup.lookup();
+    // `lookup()` 偶尔会**同步**就完成（比如本机 hosts 文件里直接没有这个域）——
+    // 那时 isFinished() 已经是 true，再进一次 exec() 会一直等一个不会来的信号。
+    if (!lookup.isFinished()) {
+        loop.exec();
+    }
+
+    if (timedOut) {
+        outcome.error = QStringLiteral("SRV 查询超时");
+        return outcome;
+    }
+    if (lookup.error() != QDnsLookup::NoError) {
+        if (lookup.error() == QDnsLookup::NotFoundError) {
+            outcome.error = QStringLiteral("没有 SRV 记录");
+        } else {
+            outcome.error = QStringLiteral("SRV 查询失败");
+        }
+        return outcome;
+    }
+
+    QList<SrvRecord> candidates;
+    const QList<QDnsServiceRecord> records = lookup.serviceRecords();
+    candidates.reserve(records.size());
+    for (const QDnsServiceRecord &record : records) {
+        SrvRecord one;
+        one.target = record.target();
+        one.port = static_cast<int>(record.port());
+        one.priority = static_cast<int>(record.priority());
+        one.weight = static_cast<int>(record.weight());
+        candidates.append(one);
+    }
+    SrvRecord picked;
+    if (!pickSrvRecord(candidates, QRandomGenerator::global()->generate(), &picked)) {
+        outcome.error = QStringLiteral("没有能用的 SRV 记录");
+        return outcome;
+    }
+    outcome.found = true;
+    outcome.target = picked.target;
+    outcome.port = picked.port;
+    return outcome;
+}
+
+}  // namespace
+
+Resolution resolve(const QString &text, int budgetMs) {
+    Resolution out;
+    out.address = splitAddress(text);
+    out.valid = out.address.valid;
+    if (!out.address.valid) {
+        return out;
+    }
+    out.connectHost = out.address.host;
+    out.connectPort = out.address.port;
+
+    if (!g_srvLookupEnabled) {
+        return out;
+    }
+    // 写了端口 = 用户明确指定了这一对，不许 DNS 再换（游戏自己也是这个规矩）。
+    if (out.address.portExplicit) {
+        return out;
+    }
+    if (isIpLiteral(out.address.host)) {
+        return out;
+    }
+    if (out.address.host.compare(QStringLiteral("localhost"), Qt::CaseInsensitive) == 0) {
+        return out;
+    }
+
+    const int budget = budgetMs > 0 ? budgetMs : timeoutMs();
+    const int srvBudget = qMax(1, qMin(budget / 2, kSrvMaxBudgetMs));
+    out.srvTried = true;
+    const SrvOutcome srv = lookupSrv(out.address.host, srvBudget);
+    if (!srv.found) {
+        out.srvError = srv.error;
+        return out;
+    }
+    out.connectHost = srv.target;
+    out.connectPort = srv.port;
+    out.srvUsed = true;
+    return out;
+}
+
+QString kindName(Kind kind) {
+    switch (kind) {
+    case Kind::Ok:
+        return QStringLiteral("通了");
+    case Kind::InvalidAddress:
+        return QStringLiteral("地址看不懂");
+    case Kind::HostNotFound:
+        return QStringLiteral("找不到主机");
+    case Kind::Refused:
+        return QStringLiteral("连接被拒");
+    case Kind::Unreachable:
+        return QStringLiteral("网络不通");
+    case Kind::NoAnswer:
+        return QStringLiteral("没有回话");
+    case Kind::ConnectionLost:
+        return QStringLiteral("连接断了");
+    case Kind::Protocol:
+        return QStringLiteral("应答看不懂");
+    case Kind::Other:
+        return QStringLiteral("其余");
+    }
+    return QStringLiteral("其余");
+}
+
+Kind kindForSocketError(int socketError) {
+    switch (static_cast<QAbstractSocket::SocketError>(socketError)) {
+    case QAbstractSocket::ConnectionRefusedError:
+        return Kind::Refused;
+    case QAbstractSocket::HostNotFoundError:
+        return Kind::HostNotFound;
+    case QAbstractSocket::SocketTimeoutError:
+    case QAbstractSocket::NetworkError:
+        return Kind::Unreachable;
+    case QAbstractSocket::RemoteHostClosedError:
+        return Kind::ConnectionLost;
+    default:
+        return Kind::Other;
+    }
+}
+
 int timeoutMs() { return g_timeoutMs; }
 
 void setTimeoutMs(int ms) {
@@ -315,6 +561,7 @@ Address splitAddress(const QString &text) {
             return out;
         }
         out.port = port;
+        out.portExplicit = true;
     }
     out.valid = true;
     return out;
@@ -433,20 +680,30 @@ bool isTimeoutError(QAbstractSocket::SocketError error) {
 
 Status ping(const QString &address) {
     Status status;
-    const Address target = splitAddress(address);
-    if (!target.valid) {
-        status.error = QStringLiteral("这个地址看不懂（要写成 主机名:端口，不写端口就是 25565）");
-        return status;
-    }
-
-    QTcpSocket socket;
     QElapsedTimer clock;
     clock.start();
     const int budget = timeoutMs();
     const auto left = [&clock, budget] { return qMax(1, budget - static_cast<int>(clock.elapsed())); };
 
-    socket.connectToHost(target.host, static_cast<quint16>(target.port));
+    // §9.11 第 3 项：先按 SRV 算一遍"真正要连哪一对"（写了端口 / IP / localhost 那几种
+    // 情况 resolve() 自己就不查，见它的规矩）。SRV 这一段和建连**共用同一个预算** ——
+    // 否则一台写域名、又没有 SRV 的服务器会连着超时两回。
+    const Resolution resolved = resolve(address, budget);
+    status.connectHost = resolved.connectHost;
+    status.connectPort = resolved.connectPort;
+    status.srvUsed = resolved.srvUsed;
+    if (!resolved.valid) {
+        status.kind = Kind::InvalidAddress;
+        status.error = QStringLiteral("这个地址看不懂（要写成 主机名:端口，不写端口就是 25565）");
+        return status;
+    }
+    const Address target = resolved.address;
+
+    QTcpSocket socket;
+
+    socket.connectToHost(resolved.connectHost, static_cast<quint16>(resolved.connectPort));
     if (!socket.waitForConnected(left())) {
+        status.kind = kindForSocketError(socket.error());
         status.error = connectionErrorText(socket.error());
         status.timedOut = isTimeoutError(socket.error());
         return status;
@@ -471,6 +728,7 @@ Status ping(const QString &address) {
     socket.write(packet(handshakeBody));
     socket.write(packet(requestBody));
     if (!socket.waitForBytesWritten(left())) {
+        status.kind = Kind::ConnectionLost;
         status.error = QStringLiteral("发不出去（连接刚建立就断了）");
         return status;
     }
@@ -486,12 +744,14 @@ Status ping(const QString &address) {
             int size = 0;
             if (readVarInt(buffer, &offset, &size)) {
                 if (size < 0 || size > kMaxPacketBytes) {
+                    status.kind = Kind::Protocol;
                     status.error = QStringLiteral("服务器答的包看不懂（长度不对）");
                     return status;
                 }
                 bodyStart = offset;
                 need = offset + size;
             } else if (buffer.size() > 5) {
+                status.kind = Kind::Protocol;
                 status.error = QStringLiteral("服务器答的包看不懂（开头不是一个长度）");
                 return status;
             }
@@ -507,9 +767,11 @@ Status ping(const QString &address) {
             // 是"连上了、但它一个字都没回"。
             if (socket.error() == QAbstractSocket::SocketTimeoutError ||
                 socket.error() == QAbstractSocket::UnknownSocketError) {
+                status.kind = Kind::NoAnswer;
                 status.error = QStringLiteral("超时（连上了，但服务器没有回答）");
                 status.timedOut = true;
             } else {
+                status.kind = kindForSocketError(socket.error());
                 status.error = connectionErrorText(socket.error());
                 status.timedOut = isTimeoutError(socket.error());
             }
@@ -521,22 +783,26 @@ Status ping(const QString &address) {
     int pos = bodyStart;
     int packetId = 0;
     if (!readVarInt(buffer, &pos, &packetId) || packetId != 0x00) {
+        status.kind = Kind::Protocol;
         status.error = QStringLiteral("服务器答的不是状态包");
         return status;
     }
     int jsonLength = 0;
     if (!readVarInt(buffer, &pos, &jsonLength) || jsonLength < 0 || pos + jsonLength > buffer.size()) {
+        status.kind = Kind::Protocol;
         status.error = QStringLiteral("服务器答的包看不懂（正文长度不对）");
         return status;
     }
     const QJsonDocument document = QJsonDocument::fromJson(buffer.mid(pos, jsonLength));
     if (!document.isObject()) {
+        status.kind = Kind::Protocol;
         status.error = QStringLiteral("服务器答的不是一段 JSON");
         return status;
     }
     const QJsonObject root = document.object();
 
     status.ok = true;
+    status.kind = Kind::Ok;
     status.latencyMs = static_cast<int>(roundTrip.elapsed());
     status.motd = motdText(root.value(QStringLiteral("description")));
     // 同一格东西的**另一种写法**：留着 `§` 码和换行，给"照游戏里的样子画出来"用

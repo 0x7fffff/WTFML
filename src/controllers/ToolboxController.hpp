@@ -33,10 +33,15 @@
 #include <QString>
 
 #include <QAtomicInt>
+#include <QHash>
+#include <QStringList>
+
+#include "tools/FileHash.hpp"
 
 #include <functional>
 
 class OverlayHost;
+class QFileSystemWatcher;
 class QThread;
 class QWidget;
 class ToolboxPage;
@@ -92,7 +97,20 @@ private:
     void cancelServerCheck();
     // ---------- 文件哈希校验 ----------
     void runHash(const QString &path, int algorithmIndex, const QString &expected);
+    /// 批量算（§9.11 第 1 项「补多文件」）：一个线程里逐个算，中途可以取消。
+    void runHashBatch(const QStringList &paths, int algorithmIndex);
+    /// 把批量清单写到用户挑的那个路径（写盘只在这一层做）。
+    void exportHashBatch(const QString &path, const QString &text);
     void cancelHash();
+    /// 算完之后盯着的那个文件被改过 / 被删了（`QFileSystemWatcher` 那一发）。
+    void onHashFileChanged(const QString &path);
+    // ---------- 信标计算 / 酿造助手 ----------
+    void refreshBeacon(int fromLevel, int level, int materialIndex, int beaconCount);
+    void refreshBrewing(int potionIndex, bool extended, bool level2, int formIndex, int bottles);
+    // ---------- 旗帜设计 / 纹饰搭配 ----------
+    void refreshBanner(int baseColor, const QStringList &layers);
+    void refreshTrim(int armorMaterial, int part, int patternIndex, int trimMaterial, int pieces,
+                     bool wholeSet);
 
     /// 那一页认的那几个维度（`setDimensionChoices` 喂的就是它）。**下标 = 页面上下拉框的
     /// 下标**，所以"第 i 项是哪个维度"只有这一处说得出口。
@@ -111,6 +129,15 @@ private:
     QThread *m_hashThread = nullptr;
     /// 用户点了「停下」置 1（工作线程每一块读之前看一眼）。
     QAtomicInt m_hashAbort{0};
+    /// 算完之后盯着的那个文件（"文件变化使结果失效"，§9.11 第 1 项）。
+    QFileSystemWatcher *m_hashWatcher = nullptr;
+    QString m_hashWatchedPath;
+    qint64 m_hashWatchedBytes = -1;
+    qint64 m_hashWatchedModifiedMs = -1;
+    bool m_hashWatched = false;
+    /// 批量那一趟算成功的那些文件（路径 → 算完那一刻的长相）。哪一条对不上了就从这里摘掉
+    /// 并提醒一次（`onHashFileChanged()`）。
+    QHash<QString, FileHash::Stamp> m_hashBatchStamps;
     /// 这一趟问的是哪个地址（`Pinger::oneFinished` 只给下标、不给地址，所以自己记着）。
     QString m_serverAddress;
 };

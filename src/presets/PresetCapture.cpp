@@ -1,0 +1,307 @@
+/**
+ * @file PresetCapture.cpp
+ * @brief 实现 PresetCapture.hpp（提取那一趟）。取舍都写在头文件里。
+ * @author 0x7fffff
+ * @date 2026-10-18
+ *
+ * 【这一层不做的事】
+ *
+ * 不建预设目录、不写 `manifest.json`、不改下标 —— 那些是 `PresetStore` 的活。这里只回答
+ * 一个问题："这个实例现在这一份，能收成哪几段？"收出来的文件（`config/` 那几组）会落在
+ * 调用方指定的 `files/` 里，这是提取本身不可分割的一部分（`GenericFiles` 的 `files/`
+ * 就是那些文件的落点），没法也不该拖到调用方再办。
+ */
+
+#include "PresetCapture.hpp"
+
+#include <QCoreApplication>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QSet>
+
+#include "GenericFiles.hpp"
+#include "MalilibKeys.hpp"
+#include "ServerListPreset.hpp"
+#include "VanillaOptions.hpp"
+#include "manage/ServerListFile.hpp"
+
+namespace Presets {
+
+namespace {
+
+QString captureText(const char *source) { return QCoreApplication::translate("Presets", source); }
+
+/// `options.txt` 的这个上限只是"别整块读进内存"的闸：真机上它是几十 KB。超过这个数
+/// 我们不去猜它是不是坏文件，直接报给用户（宁可不收，也不收一半）。
+constexpr qint64 kOptionsMaxBytes = 32LL * 1024 * 1024;
+
+/// 读一整份文件。`ok = false` 时 `problem` 里是一句人话。
+bool readWholeFile(const QString &path, QByteArray *out, QString *problem) {
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        *problem = captureText("读不动「%1」：%2").arg(path, file.errorString());
+        return false;
+    }
+    *out = file.readAll();
+    if (file.error() != QFileDevice::NoError) {
+        *problem = captureText("读「%1」读到一半出错了：%2").arg(path, file.errorString());
+        return false;
+    }
+    return true;
+}
+
+/// 一个通用文件组的名字（给说明和报告用）。★ 和 `GenericFiles` 的目录名同源，
+/// 但那一口的 `fileGroupDirName()` 是 `src/` 内部的事 —— 这里只用 `scanFileGroup()`，
+/// 名字自己按产品里的叫法写。
+QString groupDisplayName(FileGroup group) {
+    switch (group) {
+    case FileGroup::Config:
+        return captureText("配置文件（config/）");
+    case FileGroup::DefaultConfigs:
+        return captureText("默认配置（defaultconfigs/）");
+    case FileGroup::ResourcePacks:
+        return captureText("资源包（resourcepacks/）");
+    case FileGroup::ShaderPacks:
+        return captureText("光影包（shaderpacks/）");
+    }
+    return QString();
+}
+
+/// 收一个通用文件组：扫 → 拷 → 出段。失败时把原因写进 `problems`，别的组照收。
+bool captureFileGroup(const CaptureRequest &request, FileGroup group,
+                      QList<PresetSection> *sections, CaptureReport *report) {
+    QList<GenericItem> items;
+    QStringList refused;
+    QString why;
+    if (!scanFileGroup(request.instanceRoot, group, &items, &refused, &why)) {
+        report->problems.append(captureText("%1 读不了：%2")
+                                    .arg(groupDisplayName(group), why));
+        return false;
+    }
+    for (const QString &one : refused) {
+        report->problems.append(captureText("%1 里有东西没收：%2")
+                                    .arg(groupDisplayName(group), one));
+    }
+    if (items.isEmpty()) {
+        report->notes.append(captureText("%1 里是空的。").arg(groupDisplayName(group)));
+        return false;
+    }
+
+    // ★ 先扫后拷：`sectionsFromFileGroup()` 要的是"这一组里有哪些项"，而那个清单在拷贝
+    //   前后是同一份（拷贝只往预设那一侧写，不动实例）。次序反过来也行，但先扫能让
+    //   "扫描就失败"的那一趟连一个文件都不碰。
+    const GenericReport extracted =
+        extractFileGroup(request.instanceRoot, request.presetFilesRoot, group);
+    if (!extracted.ok) {
+        report->problems.append(captureText("%1 没收成：%2")
+                                    .arg(groupDisplayName(group), extracted.problem));
+        return false;
+    }
+
+    QList<PresetSection> made;
+    QString sectionWhy;
+    if (!sectionsFromFileGroup(group, items, ApplyMode::CopyIfMissing, &made,
+                                             &sectionWhy)) {
+        report->problems.append(captureText("%1 没收成：%2")
+                                    .arg(groupDisplayName(group), sectionWhy));
+        return false;
+    }
+    sections->append(made);
+    switch (group) {
+    case FileGroup::Config:
+        report->configItems += static_cast<int>(items.size());
+        break;
+    case FileGroup::DefaultConfigs:
+        report->defaultConfigItems += static_cast<int>(items.size());
+        break;
+    case FileGroup::ResourcePacks:
+        report->resourcePackItems += static_cast<int>(items.size());
+        break;
+    case FileGroup::ShaderPacks:
+        report->shaderPackItems += static_cast<int>(items.size());
+        break;
+    }
+    return true;
+}
+
+}  // namespace
+
+CaptureReport captureFromInstance(const CaptureRequest &request) {
+    CaptureReport report;
+
+    if (request.instanceRoot.trimmed().isEmpty() ||
+        !QFileInfo(request.instanceRoot).isDir()) {
+        report.problem = captureText("这个实例的目录不在，没法从它收预设。");
+        return report;
+    }
+    if (request.presetFilesRoot.trimmed().isEmpty()) {
+        report.problem = captureText("没有指定这份预设的 files 目录。");
+        return report;
+    }
+    if (!QDir().mkpath(request.presetFilesRoot)) {
+        report.problem = captureText("建不了预设的文件目录：%1").arg(request.presetFilesRoot);
+        return report;
+    }
+    if (request.selection.isEmpty()) {
+        // 一样都没勾：这是一趟"什么都不做"，不是失败。调用方不该把这一趟当成"收成了
+        // 一份空预设"存下去 —— 空段表和"一份新预设"在界面上是两件事。
+        report.ok = true;
+        report.notes.append(captureText("这一趟没有勾任何内容。"));
+        return report;
+    }
+
+    // ------------------------------------------------------------------
+    // 1. options.txt（两段：基础设置 / 标准按键）
+    // ------------------------------------------------------------------
+    if (request.selection.vanillaOptions || request.selection.vanillaKeys) {
+        const QString path = request.instanceRoot + QStringLiteral("/options.txt");
+        const QFileInfo info(path);
+        if (!info.exists()) {
+            report.notes.append(captureText("实例里还没有 options.txt（游戏还没跑过），"
+                                            "游戏设置和按键这一趟没有可收的。"));
+        } else if (!info.isFile()) {
+            report.problems.append(captureText("「%1」不是一份普通文件，这一趟没收游戏设置。")
+                                       .arg(path));
+        } else if (info.size() > kOptionsMaxBytes) {
+            report.problems.append(captureText("「%1」大到不像是 options.txt（%2 字节），"
+                                               "这一趟没收游戏设置。")
+                                       .arg(path)
+                                       .arg(info.size()));
+        } else {
+            QByteArray bytes;
+            QString why;
+            if (!readWholeFile(path, &bytes, &why)) {
+                report.problems.append(why);
+            } else {
+                const OptionsFile file = parseOptions(bytes);
+                const QSet<QString> selected = defaultSelection(file);
+                const QList<PresetSection> made = sectionsFromOptions(file, selected);
+                for (const PresetSection &section : made) {
+                    if (section.kind == SectionKind::VanillaOptions) {
+                        if (!request.selection.vanillaOptions || section.items.isEmpty()) {
+                            continue;
+                        }
+                        report.optionKeys += static_cast<int>(section.items.size());
+                    } else if (section.kind == SectionKind::VanillaKeys) {
+                        if (!request.selection.vanillaKeys || section.items.isEmpty()) {
+                            continue;
+                        }
+                        report.keybindings += static_cast<int>(section.items.size());
+                    } else {
+                        continue;
+                    }
+                    report.sections.append(section);
+                }
+                if (report.optionKeys == 0 && request.selection.vanillaOptions) {
+                    report.notes.append(captureText("options.txt 里没有可收的游戏设置。"));
+                }
+                if (report.keybindings == 0 && request.selection.vanillaKeys) {
+                    report.notes.append(captureText("options.txt 里没有可收的按键。"));
+                }
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // 2. servers.dat
+    // ------------------------------------------------------------------
+    if (request.selection.servers) {
+        const QString path = request.instanceRoot + QStringLiteral("/servers.dat");
+        QList<NbtUtil::ServerEntry> entries;
+        QString why;
+        const NbtUtil::Status status = ServerListFile::read(path, &entries, &why);
+        if (status == NbtUtil::Status::Missing) {
+            report.notes.append(captureText("实例里还没有服务器列表（servers.dat）。"));
+        } else if (status == NbtUtil::Status::Unreadable) {
+            report.problems.append(captureText("服务器列表读不动：%1").arg(why));
+        } else if (entries.isEmpty()) {
+            // 盘上有一份好好的、但一条都没有 —— 收一段空段下来没有意义（应用"追加 0 条"
+            // 什么都不做）。这是"这一样是空的"，不是错误。
+            report.notes.append(captureText("服务器列表里一条都没有。"));
+        } else {
+            report.sections.append(sectionsFromServerList(entries, ApplyMode::Append));
+            report.servers += static_cast<int>(entries.size());
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // 3. 四个通用文件组
+    // ------------------------------------------------------------------
+    if (request.selection.config) {
+        captureFileGroup(request, FileGroup::Config, &report.sections, &report);
+    }
+    if (request.selection.defaultConfigs) {
+        captureFileGroup(request, FileGroup::DefaultConfigs, &report.sections,
+                         &report);
+    }
+    if (request.selection.resourcePacks) {
+        captureFileGroup(request, FileGroup::ResourcePacks, &report.sections,
+                         &report);
+    }
+    if (request.selection.shaderPacks) {
+        captureFileGroup(request, FileGroup::ShaderPacks, &report.sections,
+                         &report);
+    }
+
+    // ------------------------------------------------------------------
+    // 4. MaLiLib（一个模组一段）
+    // ------------------------------------------------------------------
+    if (request.selection.malilib) {
+        MalilibExtractRequest extract;
+        extract.instanceRoot = request.instanceRoot;
+        // ★ 空 = 扫 `config/` 下所有**结构上**认得出的（`malilibModIdsInInstance()` 那条
+        //   判据）—— 不立模组名表：那种表永远不全，而结构识别认得出来 TweakerMore 这类
+        //   名字里根本没有 "malilib" 的扩展。
+        extract.includeValues = request.selection.malilibValues;
+        extract.mode = ApplyMode::Merge;
+        const MalilibExtractReport malilib = extractMalilibSections(extract);
+        if (!malilib.ok) {
+            report.problems.append(captureText("MaLiLib 那一族没收成：%1").arg(malilib.problem));
+        } else {
+            report.sections.append(malilib.sections);
+            report.malilibFiles += malilib.files;
+            report.malilibHotkeys += malilib.hotkeys + malilib.hotkeyedValues;
+            report.malilibValues += malilib.values;
+            report.problems.append(malilib.skipped);
+            if (malilib.files == 0) {
+                report.notes.append(captureText("config/ 底下没认出 MaLiLib 那一族配置。"));
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // 收尾：勾了东西却一段都没有，就是这一趟没办成
+    // ------------------------------------------------------------------
+    if (report.sections.isEmpty()) {
+        report.problem = report.problems.isEmpty()
+                             ? captureText("勾了的那几样都没有收到东西，这一趟没有可存的内容。")
+                             : report.problems.first();
+        return report;
+    }
+
+    report.ok = true;
+    return report;
+}
+
+QList<PresetSection> mergeCapturedSections(const QList<PresetSection> &existing,
+                                           const QList<PresetSection> &captured) {
+    QList<PresetSection> merged = existing;
+    for (const PresetSection &one : captured) {
+        int index = -1;
+        for (int i = 0; i < merged.size(); ++i) {
+            if (merged.at(i).id == one.id) {
+                index = i;
+                break;
+            }
+        }
+        if (index >= 0) {
+            merged[index] = one;
+        } else {
+            merged.append(one);
+        }
+    }
+    return merged;
+}
+
+}  // namespace Presets

@@ -16,6 +16,7 @@
  * | 传统 `§` | `§c红§l粗` | `server.properties` 的 MOTD、书、告示牌、名字 |
  * | JSON 组件 | `[{"text":"红","color":"red"},{"text":"粗","bold":true}]` | `/tellraw`、`/title`、对话框、数据包 |
  * | 命令 | `/tellraw @a [{"text":"红",…}]` | 聊天栏直接粘 |
+ * | MOTD 那一行 | `motd=§c…` | `server.properties`（按 ISO-8859-1 读，非 ASCII 要转义） |
  *
  * 「同一件事」是这一层的**唯一理由**：三份形态里那份"一段一段的正文"只有一份模型
  * （`Segment`），三个方向都是它的译文。谁也别在界面里现拼字符串 —— 拼一遍就等于多一份
@@ -73,6 +74,10 @@ enum class Color {
 /// 中间插一段、删一段的时候必然出错。
 struct Style {
     Color color = Color::Default;
+    /// 1.16 起那份自定颜色（`#RRGGBB`；`§` 那边的写法是 `§x§R§R§G§G§B§B`）。
+    /// ★ 它一在位，`color` 就**不算数** —— 两个都写会让"到底哪个是色"得靠读者猜。
+    bool hasCustomColor = false;
+    quint32 customRgb = 0xFFFFFF;
     bool bold = false;
     bool italic = false;
     bool underline = false;
@@ -110,6 +115,19 @@ Color colorFromName(const QString &name);
 /// 颜色在游戏里那份十六进制值（`0xRRGGBB`）。`Default` 回 `0xFFFFFF`（浅底正文色）。
 /// NOTE: 这是**画预览**用的近似值，不是"游戏渲染出来的那个像素"。
 quint32 colorRgb(Color color);
+
+/// 自定颜色那一套：`#RRGGBB` ↔ `0xRRGGBB`。
+/// @param text 认带不带 `#` 都行、大小写都认，**只认六位**（三位那种缩写不猜）。
+/// @param rgb 读出来写这儿（失败时不改）。
+bool parseHexColor(const QString &text, quint32 *rgb);
+/// `0xRRGGBB` → `#rrggbb`（JSON 组件里就是这一串）。
+QString hexColorName(quint32 rgb);
+/// `0xRRGGBB` → `§x§R§R§G§G§B§B`（1.16 起那份 `§` 写法；界面「插自定颜色」用它）。
+QString legacyHexColor(quint32 rgb);
+/// 这一段实际画出来是什么色：自定色优先，否则那张十六色表。
+quint32 styleRgb(const Style &style);
+/// 这一段颜色的说法（自定色给 `#rrggbb`，具名色给中文名，默认给「默认」）。
+QString styleColorText(const Style &style);
 
 /// 颜色 / 格式位的中文名（界面上那个色板与开关的悬停提示用）。
 QString colorText(Color color);
@@ -157,6 +175,18 @@ QString toJsonText(const QList<Segment> &segments);
  */
 QString toTellrawCommand(const QList<Segment> &segments, const QString &target = QStringLiteral("@a"),
                          bool leadingSlash = true);
+
+/**
+ * @brief `server.properties` 里那一整行 `motd=…`。
+ *
+ * 游戏读 properties 走的是 Java 那套 **ISO-8859-1** 的规矩：直接写中文 / `§`，在有些
+ * 命令行参数、有些编辑器存盘之后会变成一堆问号。所以这一层照 Java 的转义规矩写：
+ * `\` → `\\`、换行 → `\n`、**凡是 ASCII 可打印范围以外的字（含 `§` 和汉字）一律
+ * `\uXXXX`**。粘进 properties 之后，游戏读回来还是原来那段。
+ *
+ * 值开头的空白也要转义（Java 会把 `=` 后面那串开头的空白吃掉）。
+ */
+QString toMotd(const QList<Segment> &segments);
 
 /**
  * @brief 反着读：把一份 JSON 组件（`/tellraw` 的正文）读回一段一段的正文。

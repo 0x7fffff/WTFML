@@ -490,6 +490,8 @@ InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
     connect(m_list, &QListWidget::itemSelectionChanged, this, [this] {
         syncSelectedPaths();
         updateSelectionBar();
+        // ★ 2026-10-18：选中的换了 ⇒ 底下那条"这一份是什么"跟着换（见 updateInfoPanel()）。
+        updateInfoPanel();
     });
     // ★ 2026-10-10：同一发信号再挂一条 —— 「加入选中的世界」那颗的灰/亮只跟"有没有选中
     //   一条"走（见 updateJoinEnabled()）。**单独一条连接**而不是塞进上面那个 lambda：
@@ -519,6 +521,34 @@ InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
         syncRowHover();
     });
     outer->addWidget(m_list, 1);
+
+    // ---------- 列表下面那条"这一份是什么"（2026-10-18）----------
+    //
+    // coding plan §9.5：原理图 / 结构那一页要给元数据、方块统计和那句版本兼容提示。
+    // **这一层算不出那些**（要读 gzip NBT、要认 Litematica 的位打包，全在 src/ 里；
+    // 这一层不 include src/）—— 它只摆一格标签，选中一条文件时发 infoRequested()，
+    // 由接的人算好再 `setInfoText()` 递回来。
+    //
+    // 默认藏着：别的七页一个像素都不变（`setInfoPanelEnabled(true)` 才露）。
+    m_info = new QLabel(this);
+    m_info->setObjectName(infoLabelName());
+    m_info->setWordWrap(true);
+    m_info->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    m_info->setVisible(false);
+    makeSecondary(m_info);
+    outer->addWidget(m_info);
+
+    // 连点合并：在一个文件上停 150 ms 才真去读。读一份大投影要几百毫秒（gzip 还要
+    // 起一次 PowerShell 解压），用户快速翻行时不该每一行都读一遍。
+    m_infoTimer = new QTimer(this);
+    m_infoTimer->setSingleShot(true);
+    m_infoTimer->setInterval(150);
+    connect(m_infoTimer, &QTimer::timeout, this, [this] {
+        if (!m_infoPanelEnabled || m_infoPath.isEmpty()) {
+            return;
+        }
+        emit infoRequested(m_infoPath);
+    });
 
     // ---------- 底下那条**悬浮**操作条（2026-10-09）----------
     //
@@ -1618,6 +1648,9 @@ void InstanceFilesPage::rebuildRows() {
     fillStateButtons();
     // 可见性 + 底下那条悬浮操作条的显隐/灰化（applyState 末尾会喊 updateSelectionBar）。
     applyState();
+    // ★ 2026-10-18：重列之后选择可能换了人（也可能一条都没选上）⇒ 那一格跟着重算。
+    //   上面那一趟是挡着信号重列的，itemSelectionChanged 不会自己来。
+    updateInfoPanel();
 
     // ★ 2026-10-10：光标**此刻正压在某一行上**时，把那一行的「详情」露出来。
     //   为什么要补这一发：重列把行控件整个换掉了，而鼠标没动过 —— Qt 不会对着一个新控件
@@ -1915,6 +1948,86 @@ QLabel *InstanceFilesPage::pathLabel() const {
     return m_pathLabel;
 }
 
+// ---------- 列表下面那条"这一份是什么"（2026-10-18）----------
+//
+// 这一层只记账、只摆字（理由见 .hpp 里那一段）：读 gzip NBT、认 Litematica 的位打包
+// 都是 src/ 的事，由接的人算好递回来。
+
+void InstanceFilesPage::setInfoPanelEnabled(bool enabled) {
+    if (m_infoPanelEnabled == enabled) {
+        return;
+    }
+    m_infoPanelEnabled = enabled;
+    if (!enabled) {
+        // 关掉 = 这一页一个字都不留（不是只藏起来：再打开时得从"正在读取…"重新来）。
+        if (m_infoTimer != nullptr) {
+            m_infoTimer->stop();
+        }
+        m_infoPath.clear();
+        if (m_info != nullptr) {
+            m_info->clear();
+            m_info->setToolTip(QString());
+            m_info->setVisible(false);
+        }
+        return;
+    }
+    updateInfoPanel();
+}
+
+void InstanceFilesPage::setInfoText(const QString &path, const QString &text,
+                                    const QString &toolTip) {
+    if (m_info == nullptr || !m_infoPanelEnabled) {
+        return;
+    }
+    // ★ 过期答案（理由见 .hpp）：用户已经换到别的行上了，这一份讲的不是屏幕上选着的那条。
+    if (path != m_infoPath) {
+        return;
+    }
+    m_info->setText(text);
+    m_info->setToolTip(toolTip);
+    m_info->setVisible(!text.isEmpty());
+}
+
+void InstanceFilesPage::updateInfoPanel() {
+    if (m_info == nullptr || !m_infoPanelEnabled) {
+        return;
+    }
+    // 判据：**正好选了一条、而且它是文件**（选两个、选一个目录、一条没选 —— 都不谈"这一份"）。
+    QString path;
+    bool isDir = false;
+    if (m_list != nullptr) {
+        const QList<QListWidgetItem *> selected = m_list->selectedItems();
+        if (selected.size() == 1 && selected.first() != nullptr) {
+            path = selected.first()->data(pathRole()).toString();
+            const Entry *entry = entryForPath(path);
+            isDir = entry != nullptr && entry->isDir;
+        }
+    }
+    if (path.isEmpty() || isDir) {
+        if (m_infoTimer != nullptr) {
+            m_infoTimer->stop();
+        }
+        m_infoPath.clear();
+        m_info->clear();
+        m_info->setToolTip(QString());
+        m_info->setVisible(false);
+        return;
+    }
+    // 已经在为这一条等答案 / 已经摆着它的答案 ⇒ 不重复读盘（重列、开筛选都会走到这儿）。
+    if (path == m_infoPath) {
+        return;
+    }
+    m_infoPath = path;
+    m_info->setText(infoPendingText());
+    m_info->setToolTip(QString());
+    // 列表本身藏着的时候（目录空 / 筛完一条不剩）不露 —— 那种画面下不可能有选中的一行，
+    // 这里只是兜底：applyState() 也会把它收起来。
+    m_info->setVisible(true);
+    if (m_infoTimer != nullptr) {
+        m_infoTimer->start();
+    }
+}
+
 void InstanceFilesPage::applyState() {
     const bool unavailable = !m_unavailable.isEmpty();
     const bool empty = !unavailable && m_empty;
@@ -1953,6 +2066,18 @@ void InstanceFilesPage::applyState() {
     }
     m_list->setVisible(!unavailable && !empty && !filtered);
     m_notice->setVisible(unavailable || empty || filtered);
+    // ★ 2026-10-18：那一格"这一份是什么"和列表同命 —— 列表都收起来了（这一页用不上 /
+    //   目录空 / 筛完一条不剩）就别留着上一份的字：它讲的是列表里的某一行，行都没了，
+    //   这句话就没有主语了。清空而不是只藏起来，是为了下一次露出来时不会先闪一眼旧内容。
+    if (m_info != nullptr && (unavailable || empty || filtered)) {
+        if (m_infoTimer != nullptr) {
+            m_infoTimer->stop();
+        }
+        m_infoPath.clear();
+        m_info->clear();
+        m_info->setToolTip(QString());
+        m_info->setVisible(false);
+    }
     // ★ 底下那条悬浮操作条跟着这一页的可见性走（它压在列表上，"列表都收起来了还浮着
     //   一条操作条"是最难解释的一种画面）。判据要的是**上面这一句刚摆好的** m_list 的
     //   可见性 ⇒ 必须排在这一句之后。

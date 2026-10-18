@@ -102,6 +102,12 @@ struct TaskSnapshot {
     QString title;       // 「安装 1.21.4 Fabric」
     QString detail;      // 「正在下载资源对象…」
     QString targetId;    // 实例 id / 服务端 id，可空
+    /// 这一项**属于哪一次运行**（§9.8 第三条：任务 / 日志 / 退出诊断 / 崩溃报告用同一个
+    /// sessionId 对上）。0 = 还没对上（还没起来的启动、和进程无关的下载）。
+    ///
+    /// ★ **只活在内存里，不落盘**：会话号是每次启动器运行从 1 开始的，重启之后同一个号
+    ///   指的是另一趟。读回来的历史一律是 0（`TaskHistory` 也不写它）。
+    int sessionId = 0;
     qint64 doneUnits = 0;
     qint64 totalUnits = 0;  // <= 0 表示不可测（**不许编造百分比**，§2.1 末段）
     qint64 bytesDone = 0;

@@ -7,9 +7,12 @@
 
 #include "ServerConsolePage.hpp"
 
+#include <QComboBox>
+#include <QEvent>
 #include <QFont>
 #include <QFontDatabase>
 #include <QHBoxLayout>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPlainTextEdit>
@@ -67,6 +70,62 @@ ServerConsolePage::ServerConsolePage(QWidget *parent) : QDialog(parent) {
         box->addWidget(row);
     }
 
+    // ---------- 搜索 / 显示多少行 / 导出（coding plan §9.8）----------
+    //
+    // 这三件和游戏日志窗**共用同一份模型与文案**（`RuntimeOutputModel`）：搜索是大小写
+    // 不分的子串，显示上限只影响视图，导出拿的永远是整份日志。
+    {
+        auto *row = new QWidget(this);
+        auto *layout = new QHBoxLayout(row);
+        layout->setContentsMargins(0, 0, 0, 0);
+        layout->setSpacing(8);
+        m_searchEdit = new QLineEdit(row);
+        m_searchEdit->setObjectName(searchEditName());
+        m_searchEdit->setPlaceholderText(searchPlaceholderText());
+        m_searchEdit->setClearButtonEnabled(true);
+        m_searchEdit->setToolTip(
+            QStringLiteral("只看含有这一串的行。它只影响这一页显示什么 —— "
+                           "「导出日志…」拿到的仍然是整份日志。"));
+        connect(m_searchEdit, &QLineEdit::textChanged, this, [this](const QString &text) {
+            m_model.setSearchText(text);
+            rebuildView();
+        });
+        layout->addWidget(m_searchEdit, 1);
+
+        m_lineLimitCombo = new QComboBox(row);
+        m_lineLimitCombo->setObjectName(lineLimitComboName());
+        for (int limit : RuntimeOutputModel::lineLimitChoices()) {
+            m_lineLimitCombo->addItem(RuntimeOutputModel::lineLimitText(limit), limit);
+        }
+        m_lineLimitCombo->setToolTip(
+            QStringLiteral("最多显示最后几行。**日志本身一行都不会少**，换回大的一档就看得见。"));
+        m_lineLimitCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+        m_lineLimitCombo->setMinimumContentsLength(8);
+        // 滚轮防护：这是一页"滚着看输出"的地方，鼠标划过下拉框的机会不少。
+        WheelGuard::install(m_lineLimitCombo);
+        for (int i = 0; i < m_lineLimitCombo->count(); ++i) {
+            if (m_lineLimitCombo->itemData(i).toInt() == m_model.displayLimit()) {
+                m_lineLimitCombo->setCurrentIndex(i);
+                break;
+            }
+        }
+        connect(m_lineLimitCombo, &QComboBox::currentIndexChanged, this, [this](int index) {
+            setDisplayLineLimit(RuntimeOutputModel::lineLimitOfIndex(index));
+        });
+        layout->addWidget(m_lineLimitCombo, 0);
+
+        m_exportButton = new QPushButton(QStringLiteral("导出日志…"), row);
+        m_exportButton->setObjectName(exportLogButtonName());
+        m_exportButton->setToolTip(
+            QStringLiteral("把这一份控制台**全部**的输出存成一个文本文件（含被搜掉的那些行）。"));
+        // 只读、低频 ⇒ Ghost（和游戏日志窗那两颗导出键同一档）。
+        Theme::markButton(m_exportButton, Theme::ButtonKind::Ghost);
+        connect(m_exportButton, &QPushButton::clicked, this,
+                &ServerConsolePage::exportLogRequested);
+        layout->addWidget(m_exportButton, 0);
+        box->addWidget(row);
+    }
+
     // ---------- 中间那一大片：它的输出 ----------
     {
         m_logView = new QPlainTextEdit(this);
@@ -108,8 +167,25 @@ ServerConsolePage::ServerConsolePage(QWidget *parent) : QDialog(parent) {
             if (text.isEmpty()) {
                 return;  // 空行不发（服务端那边收到一个空命令只会回一句没用的报错）
             }
+            // 命令历史（§9.8 第三条）：**发出去的那一刻**记，连续重复的不记（按两下回车
+            // 不该在历史里留下两条一模一样的）。
+            if (m_history.isEmpty() || m_history.last() != text) {
+                m_history.append(text);
+                while (m_history.size() > maxHistoryEntries()) {
+                    m_history.removeFirst();
+                }
+            }
+            m_historyCursor = m_history.size();
+            m_historyDraft.clear();
             emit commandSubmitted(text);
             m_commandEdit->clear();
+        });
+        // 上/下键走历史（在输入框上装一个事件过滤器，见 eventFilter()）。
+        m_commandEdit->installEventFilter(this);
+        // 用户自己动手改了字 ⇒ 退出"历史浏览"状态（下一次按上键从最新一条开始）。
+        connect(m_commandEdit, &QLineEdit::textEdited, this, [this](const QString &text) {
+            m_historyCursor = m_history.size();
+            m_historyDraft = text;
         });
     }
 
@@ -180,10 +256,44 @@ void ServerConsolePage::setCommandAvailable(bool available) {
 }
 
 void ServerConsolePage::setMaxLines(int lines) {
+    // §9.8：保留上限钉在**共用模型**上；视图的块数上限跟着它（或者跟着显示上限）走。
+    m_model.setCapacity(qMax(1, lines));
     if (m_logView != nullptr) {
-        // `setMaximumBlockCount()` 自己会把超出去的老行丢掉 —— 不用在这儿另写一段"留下
-        // 后 N 行"的逻辑（写两遍的话两边迟早对不上）。
-        m_logView->setMaximumBlockCount(qMax(1, lines));
+        m_logView->setMaximumBlockCount(viewBlockLimit());
+    }
+}
+
+int ServerConsolePage::viewBlockLimit() const {
+    const int shown = m_model.displayLimit();
+    if (shown > 0) {
+        return qMin(shown, m_model.capacity());
+    }
+    return m_model.capacity();
+}
+
+void ServerConsolePage::rebuildView() {
+    if (m_logView == nullptr) {
+        return;
+    }
+    QStringList shown;
+    for (const RuntimeOutputModel::VisibleLine &line : m_model.visibleLines()) {
+        shown.append(line.text);
+    }
+    m_logView->setPlainText(shown.join(QLatin1Char('\n')));
+    // 落到最底下：用户开这一页十有八九是来看"刚才那几行"的。
+    m_logView->moveCursor(QTextCursor::End);
+    m_logView->ensureCursorVisible();
+
+    // 空的时候说清**为什么**空（三句话和三件事对应，和游戏日志窗那边同一套）。
+    if (m_model.lines().isEmpty()) {
+        m_logView->setPlaceholderText(QStringLiteral("还没有输出…（服务端还没说话）"));
+    } else if (m_model.matchingLineCount() == 0) {
+        m_logView->setPlaceholderText(
+            m_model.searchText().isEmpty()
+                ? QStringLiteral("这些行都被筛掉了。")
+                : QStringLiteral("没有搜到 —— 换个词，或者把搜索框清空。"));
+    } else {
+        m_logView->setPlaceholderText(QString());
     }
 }
 
@@ -191,30 +301,113 @@ void ServerConsolePage::setLog(const QStringList &lines) {
     if (m_logView == nullptr) {
         return;
     }
-    m_logView->setPlainText(lines.join(QLatin1Char('\n')));
-    // 落到最底下：用户开这一页十有八九是来看"刚才那几行"的。
-    m_logView->moveCursor(QTextCursor::End);
-    m_logView->ensureCursorVisible();
+    m_model.clear();
+    for (const QString &line : lines) {
+        m_model.addLine(line);
+    }
+    rebuildView();
 }
 
 void ServerConsolePage::appendLine(const QString &line) {
     if (m_logView == nullptr) {
         return;
     }
-    // ★ `appendPlainText()` 会自己补一个换行，而且**会顺带把滚动条钉到底**（它是
-    //   "一条新消息来了"的语义）。这一页要的正是这个，别改成 insertPlainText + 自己挪光标。
-    m_logView->appendPlainText(line);
+    const RuntimeOutputModel::Level level = m_model.addLine(line);
+    // 被搜索筛掉的行不进视图（模型里照样留着）；这一行进了视图时，`appendPlainText()`
+    // 会自己补换行并把滚动条钉到底 —— 那正是"一条新消息来了"的意思。
+    if (m_model.matches(level, line)) {
+        m_logView->appendPlainText(line);
+    }
 }
 
 QStringList ServerConsolePage::logLines() const {
-    if (m_logView == nullptr) {
-        return QStringList();
+    QStringList lines;
+    lines.reserve(m_model.lineCount());
+    for (const RuntimeOutputModel::Line &line : m_model.lines()) {
+        lines.append(line.text);
     }
-    const QString text = m_logView->toPlainText();
-    if (text.isEmpty()) {
-        return QStringList();
+    return lines;
+}
+
+QStringList ServerConsolePage::visibleLogLines() const {
+    QStringList lines;
+    for (const RuntimeOutputModel::VisibleLine &line : m_model.visibleLines()) {
+        lines.append(line.text);
     }
-    return text.split(QLatin1Char('\n'));
+    return lines;
+}
+
+QString ServerConsolePage::allLogText() const {
+    return m_model.allText();
+}
+
+void ServerConsolePage::setSearchText(const QString &text) {
+    if (m_searchEdit != nullptr) {
+        m_searchEdit->setText(text);  // 走 textChanged → rebuildView()
+        return;
+    }
+    m_model.setSearchText(text);
+}
+
+QString ServerConsolePage::searchText() const {
+    return m_searchEdit != nullptr ? m_searchEdit->text() : m_model.searchText();
+}
+
+void ServerConsolePage::setDisplayLineLimit(int limit) {
+    if (limit == m_model.displayLimit()) {
+        return;
+    }
+    m_model.setDisplayLimit(limit);
+    if (m_lineLimitCombo != nullptr) {
+        const QSignalBlocker blocker(m_lineLimitCombo);
+        for (int i = 0; i < m_lineLimitCombo->count(); ++i) {
+            if (m_lineLimitCombo->itemData(i).toInt() == limit) {
+                m_lineLimitCombo->setCurrentIndex(i);
+                break;
+            }
+        }
+    }
+    if (m_logView != nullptr) {
+        m_logView->setMaximumBlockCount(viewBlockLimit());
+    }
+    rebuildView();
+}
+
+QString ServerConsolePage::searchPlaceholderText() {
+    return QStringLiteral("在这个控制台里找…（大小写不分）");
+}
+
+bool ServerConsolePage::stepHistory(int delta) {
+    if (m_commandEdit == nullptr || m_history.isEmpty() || delta == 0) {
+        return false;
+    }
+    // 第一次按上键时把手上那半截先收着；从历史里一路翻下去再按下来能回到它。
+    if (m_historyCursor == m_history.size()) {
+        m_historyDraft = m_commandEdit->text();
+    }
+    const int next = qBound(0, m_historyCursor + delta, m_history.size());
+    if (next == m_historyCursor) {
+        return false;
+    }
+    m_historyCursor = next;
+    const QString text =
+        next == m_history.size() ? m_historyDraft : m_history.at(next);
+    m_commandEdit->setText(text);
+    m_commandEdit->setCursorPosition(text.size());
+    return true;
+}
+
+bool ServerConsolePage::eventFilter(QObject *watched, QEvent *event) {
+    if (watched == m_commandEdit && event->type() == QEvent::KeyPress) {
+        auto *key = static_cast<QKeyEvent *>(event);
+        if (key->key() == Qt::Key_Up && key->modifiers() == Qt::NoModifier) {
+            return stepHistory(-1);
+        }
+        if (key->key() == Qt::Key_Down && key->modifiers() == Qt::NoModifier) {
+            return stepHistory(+1);
+        }
+    }
+    return QDialog::eventFilter(watched, event);
 }
 
 QString ServerConsolePage::commandText() const {

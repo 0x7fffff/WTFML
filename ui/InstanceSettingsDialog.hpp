@@ -79,6 +79,7 @@ class QPlainTextEdit;
 class QPushButton;
 class QSpinBox;
 class QStackedWidget;
+class QTimer;
 class QToolButton;
 class QTreeWidget;
 class QTreeWidgetItem;
@@ -182,10 +183,10 @@ public:
     ///   两个框的值一起收，选跟随时两个都不收"（见 .cpp 里那一行）。**不会**出现只有宽
     ///   有值的情况。
     ///
-    /// NOTE: 「内存分配」若是自动档（这一行选「自定义」且勾着自动，或者跟随全局而全局
-    ///       是自动），最大/最小内存**一律当成跟随全局**（那两行这时是禁用的）。
-    ///       自动档下这两个数由系统内存现算，存一份永远不会被读的覆盖就是骗人 ——
-    ///       "让用户以为能改"正是设置页那条注释明确反对的事。
+    /// NOTE: ★ 2026-10-18 起「内存分配」那一档整行撤掉了（用户原话「内存分配和最大内存
+    ///       这玩意完全就是重复的，只保留那个拖动的」）⇒ 这里**不再产出 autoMemory**
+    ///       覆盖。`Override::autoMemory` 字段还在（老数据、老测试要用），只是这一页
+    ///       永远不填它；读侧 `resolveJavaSettings()` 也当它不存在。
     Override override() const;
 
     /// 高级选项里那两行之一：**追加**在命令行最后的 JVM 参数（写进 meta 的 jvmArgs，
@@ -684,6 +685,72 @@ public:
     ///       folderForKind()，整合包那一路也照着它写），ui/ 抄第二份迟早会跟它对不上。
     void setFileDirs(const QHash<QString, QString> &dirs);
 
+    // ---------- 左侧那两类文件的「选中一行说一句」那一格（2026-10-18，§9.5）----------
+    //
+    // 「Replay」和「结构」两页今天只是把文件列出来。选中一行之后底下那一格要说的是：
+    // 这份录像录了多久、什么版本、多少位玩家；这份结构多大、多少种方块、和这个实例的
+    // 版本兼不兼容。**算的活不在这层**（读 `metaData.json` / gzip NBT 都在 src/），
+    // ui/ 只负责"选中换了" → 发 `lifecycleFileInfoRequested()`，拿到答案再摆上去。
+    //
+    // NOTE: 和 `InstanceFilesPage` 那边同一套口子（`setInfoText(path, …)`）：答案带回
+    //       它是**哪一条**的 —— 用户快速上下翻行时，前一发算得慢、后一发算得快，
+    //       先回来的旧答案不能盖住新的（这里按路径比对，见 .cpp）。
+    static QString lifecycleInfoLabelName(const QString &key) {
+        return QStringLiteral("instanceLifecycleInfo_%1").arg(key);
+    }
+    /// 还没算出来时那一格摆的字（验证工程也拿它当"正在读"的判据）。
+    static QString lifecycleInfoPendingText() { return QStringLiteral("正在读取…"); }
+
+    /// 把 @p key 那一页的信息摆出来。
+    /// @param path 这个答案讲的是**哪一条**（就是 `lifecycleFileInfoRequested()` 递出去的）。
+    void setLifecycleInfoText(const QString &key, const QString &path, const QString &text,
+                              const QString &toolTip = QString());
+
+    // ---------- 「启动诊断」那一页（2026-10-18，§9.5「综合启动诊断报告」）----------
+    //
+    // 那一页要的是把实例本身 / Java / 内存 / 模组 / 最近一次启动日志 / 最近一份崩溃报告
+    // 放在一起看。**算的活全在 `src/diagnose/StartupDiagnosis`**（读盘、认日志那几行都
+    // 是业务层的事），这一层只留一个只读的文本框，进页时喊一声 `diagnosisRequested()`。
+    static QString diagnosisReportName() { return QStringLiteral("instanceDiagnosisReport"); }
+    static QString diagnosisRefreshButtonName() { return QStringLiteral("instanceDiagnosisRefresh"); }
+    /// 还没算出来时摆的那一句（验证工程也拿它当"接没接上"的判据）。
+    static QString diagnosisPendingText() { return QStringLiteral("正在检查…"); }
+    void setDiagnosisText(const QString &text);
+
+    // ---------- 「迁移」与「升级」那两页（2026-10-18，§9.9 第 15 项）----------
+    //
+    // 两页共用一套控件：目标下拉框 + 计划正文 + 可勾选的范围表 + 动手那一颗。**算的活
+    // 全在 `src/operations/TransferPlanner`**（扫盘、兼容结论、默认勾选都在那儿），
+    // 写盘在 `TransferApply`；这一层只摆字、记勾选、发两发信号。
+    //
+    // NOTE: 目标那一列是**这个游戏文件夹里已经装好的其他版本**（migration 是把内容搬进
+    //       其中一份，upgrade 是拿其中一份当底造升级副本）。列表由 controller 灌进来 ——
+    //       ui/ 不认识 VersionManager，也不知道"哪一份是当前这一份"。
+    static QString transferTargetComboName(const QString &key) {
+        return QStringLiteral("instanceTransferTarget_%1").arg(key);
+    }
+    static QString transferPlanTextName(const QString &key) {
+        return QStringLiteral("instanceTransferPlan_%1").arg(key);
+    }
+    static QString transferItemsListName(const QString &key) {
+        return QStringLiteral("instanceTransferItems_%1").arg(key);
+    }
+    static QString transferApplyButtonName(const QString &key) {
+        return QStringLiteral("instanceTransferApply_%1").arg(key);
+    }
+    /// 灌目标列表（(显示名, id) 对）。**不发信号** —— 开页时由 controller 紧接着算第一份
+    /// 计划；用户在下拉框里换目标才发 `transferTargetChosen()`。
+    void setTransferTargets(const QString &key, const QList<QPair<QString, QString>> &targets);
+    /// 摆计划正文（`TransferPlanner::Plan::detailText()` 那一份）。
+    void setTransferPlan(const QString &key, const QString &text);
+    /// 摆可勾选的范围表（(显示名, 键) 对 + 默认勾选的键）。
+    void setTransferItems(const QString &key, const QList<QPair<QString, QString>> &items,
+                          const QStringList &defaultKeys);
+    /// 现在选中的目标 id（没有目标 = 空串）。
+    QString transferTarget(const QString &key) const;
+    /// 现在勾着的那几个键（**顺序与范围表一致**）。
+    QStringList transferSelectedKeys(const QString &key) const;
+
     // ---------- 「配置文件」那一页的第二个格子（2026-09-27）----------
     //
     // 【为什么是"格子里再嵌一格"，而不是再开一整页覆盖层】
@@ -879,7 +946,6 @@ public:
     static QString javaPathField() { return QStringLiteral("javaPath"); }
     static QString xmxField() { return QStringLiteral("xmx"); }
     static QString xmsField() { return QStringLiteral("xms"); }
-    static QString autoMemoryField() { return QStringLiteral("autoMemory"); }
     static QString extraJvmArgsField() { return QStringLiteral("extraJvmArgs"); }
     /// 「窗口模式」那两行（2026-09-28 加的）。
     ///
@@ -903,7 +969,6 @@ public:
     /// 项）。名字留着是因为验证工程还按它找这个控件 —— 找得到、但不该看得见（见 .cpp 里
     /// 「最小内存」那一行上面那段）。
     static QString memoryMinSpinName() { return QStringLiteral("instanceMemoryMinSpin"); }
-    static QString memoryAutoCheckName() { return QStringLiteral("instanceMemoryAutoCheck"); }
     /// 「窗口模式」那个下拉框。**项由调用方喂**（见 WindowModeChoice），这里只搭框。
     static QString windowModeComboName() { return QStringLiteral("instanceWindowModeCombo"); }
     static QString windowWidthSpinName() { return QStringLiteral("instanceWindowWidthSpin"); }
@@ -1759,6 +1824,33 @@ signals:
     void backupSelectedWorldRequested(const QString &path);
     void restoreSelectedWorldRequested(const QString &path);
 
+    /// 「Replay」/「结构」那一页里**选中的那一条换了**（2026-10-18，§9.5）。
+    ///
+    /// 接的人负责把 `metaData.json` / 结构 NBT 读成一句话，再拿
+    /// `setLifecycleInfoText(key, path, …)` 递回来。**这一层不读盘**（它连
+    /// `AppPaths` 都够不着），所以选不中 / 空目录时它一个字都不发。
+    void lifecycleFileInfoRequested(const QString &key, const QString &path);
+
+    /// 用户进了「启动诊断」那一页 / 按了「重新检查」（2026-10-18，§9.5）。
+    /// 接的人算好一份报告，拿 `setDiagnosisText()` 摆回来。
+    void diagnosisRequested();
+
+    /// 用户在「迁移」/「升级」那一页换了一个目标（2026-10-18，§9.9）。
+    /// @param key `migration` / `upgrade`
+    /// @param targetId 目标实例 / 目标版本的 id（下拉框的 data）。
+    ///
+    /// 接的人按"源实例 + 这个目标"重算一份计划，拿 `setTransferPlan()` /
+    /// `setTransferItems()` 摆回来。**这一层不读盘**，换目标时也不会自己发第二发。
+    void transferTargetChosen(const QString &key, const QString &targetId);
+
+    /// 用户按了「搬过去…」/「创建升级副本…」。**只发意图，不写盘**：路径闸、运不运
+    /// 行、要不要问名字都在 controller 那一层。
+    /// @param key `migration` / `upgrade`
+    /// @param targetId 下拉框里选中的那个（空串 = 还没选目标）
+    /// @param selectedKeys 用户勾着的那些范围键
+    void transferApplyRequested(const QString &key, const QString &targetId,
+                                const QStringList &selectedKeys);
+
     /**
      * @brief 用户按了某一条行尾的「禁用」/「启用」。
      *
@@ -2142,10 +2234,23 @@ private:
     QListWidget *m_pageList = nullptr;
     QTreeWidget *m_navigationTree = nullptr;
     QHash<QString, QListWidget *> m_lifecycleLists;
+    /// 「Replay」/「结构」选中一行之后底下那一格（键 → 标签），以及它现在讲的是哪一条。
+    /// @see lifecycleFileInfoLabelName() / setLifecycleInfoText()
+    QHash<QString, QLabel *> m_lifecycleInfo;
+    QHash<QString, QString> m_lifecycleInfoPath;
+    QHash<QString, QTimer *> m_lifecycleInfoTimers;
+    /// 「启动诊断」那一页的只读报告框（见 diagnosisReportName()）。
+    QPlainTextEdit *m_diagnosisReport = nullptr;
+    /// 「迁移」/「升级」那两页（键 → 控件；键就是 `migration` / `upgrade`）。
+    QHash<QString, QComboBox *> m_transferTargets;
+    QHash<QString, QPlainTextEdit *> m_transferPlans;
+    QHash<QString, QListWidget *> m_transferItems;
+    void updateTransferApplyState(const QString &key);
     void setupLifecyclePages();
     void rebuildNavigationTree();
     void refreshLifecycleFiles(const QString &key);
     void filterLifecycleFiles(const QString &key);
+    void updateLifecycleInfo(const QString &key);
     /// 右栏那份堆叠页，下标见 pageCount() / filePageFirstIndex()。
     QStackedWidget *m_stack = nullptr;
 
@@ -2278,7 +2383,6 @@ private:
     QSpinBox *m_memoryMaxSpin = nullptr;
     MemorySlider *m_memoryMaxSlider = nullptr;
     QSpinBox *m_memoryMinSpin = nullptr;
-    QCheckBox *m_memoryAutoCheck = nullptr;
     QLineEdit *m_extraJvmArgsEdit = nullptr;
     /// 「窗口模式」那一行（2026-09-28）。**项是调用方灌的**（构造参数 windowModes），
     /// 这里只有一个框；档位那一列以 itemData 存**代号字符串**，override() 直接把它读出来。

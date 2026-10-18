@@ -104,8 +104,11 @@
 #include <QStringList>
 #include <QVector>
 
+#include "RuntimeOutputModel.hpp"
+
 class QComboBox;
 class QLabel;
+class QLineEdit;
 class QPlainTextEdit;
 class QPushButton;
 class QToolButton;
@@ -126,6 +129,15 @@ public:
      * 没有 Trace 这一档：它比 Debug 还轻，和"到底出了什么事"没关系，认出来一律归 Debug。
      */
     enum class LogLevel { Debug, Info, Warn, Error, Fatal };
+
+    // coding plan §9.8：真正管"哪一档、几行、怎么筛"的是 `RuntimeOutputModel`（服务端控制台
+    // 那一页也在用同一份）。这一层保留自己的枚举只是为了不惊动已有的调用点与验证工程 ——
+    // 两套枚举**必须逐项对齐**（下面这几个 static_assert 就是那条约定的钉子）。
+    static_assert(int(LogLevel::Debug) == int(RuntimeOutputModel::Level::Debug));
+    static_assert(int(LogLevel::Info) == int(RuntimeOutputModel::Level::Info));
+    static_assert(int(LogLevel::Warn) == int(RuntimeOutputModel::Level::Warn));
+    static_assert(int(LogLevel::Error) == int(RuntimeOutputModel::Level::Error));
+    static_assert(int(LogLevel::Fatal) == int(RuntimeOutputModel::Level::Fatal));
 
     /// 有几档（循环/数组的上界）。
     static constexpr int levelCount() { return 5; }
@@ -245,7 +257,7 @@ public:
     // ---------- 级别与筛选 ----------
 
     /// 模型里现在留着几行（含被筛掉的）。
-    int lineCount() const { return m_lines.size(); }
+    int lineCount() const { return m_model.lineCount(); }
     /// 这一档有几条独立日志记录（续行不重复计数，含被筛掉的记录）。
     int lineCountFor(LogLevel level) const;
     bool levelVisible(LogLevel level) const;
@@ -265,7 +277,7 @@ public:
     /// 那一档在数据里存什么（`QComboBox::itemData`）。校验工程按它认条目。
     static int lineLimitOfIndex(int index);
     /// 现在这个窗最多显示几行（0 = 全部）。
-    int displayLineLimit() const { return m_displayLineLimit; }
+    int displayLineLimit() const { return m_model.displayLimit(); }
     /// 换一档上限（把下拉框也对上，然后重建视图）。给验证工程和那颗下拉框用。
     ///
     /// NOTE: 只影响**视图**，模型一行都不动（见文件头那段）。切到上限更大的那一档时那些行
@@ -275,20 +287,25 @@ public:
     /**
      * @brief 认一行的级别；**认不出来时回 fallback**（调用方传"上一行的级别"）。
      *
-     * 只在**行首**那一小段里认，两条规则：
-     *  ① 行首那串**连着开头**的方括号里找：`[main/INFO]` 取斜杠后那一段，`[INFO]` 整段就是。
-     *     只有连着开头的那几格算数 —— 消息体里出现的 `[ERROR]` 不算（`Failed to parse
-     *     [ERROR] block` 是人家在说"解析 ERROR 这块失败了"，不是这条日志的级别）。
-     *  ② 开头 kLevelScanHead 个字符里**带冒号**的裸词（`12:34:56 WARN: msg`，java.util.
-     *     logging 那一套）。冒号是必须的：不然 `Loaded 3 INFO files` 会被认成 INFO。
-     *
-     * 认的表（大小写不分）：TRACE/DEBUG→Debug，INFO→Info，WARN/WARNING→Warn，
-     * ERROR/SEVERE→Error，FATAL→Fatal。
+     * 规则只有一处实现（`RuntimeOutputModel::classifyLine`，§9.8 抽出去的那一层）；
+     * 这里保留同名转发是为了不惊动已有的调用点和验证工程。
      */
     static LogLevel classifyLine(const QString &line, LogLevel fallback);
     /// 规则 ② 的窗口（实测：原版那一行级别落在第 12 个字符上、Forge 那套（长线程名 + 长
     /// 时间戳）落在 45 上下 —— 48 是留了余量的）。
-    static int levelScanHead() { return 48; }
+    static int levelScanHead() { return RuntimeOutputModel::levelScanHead(); }
+
+    // ---------- 搜索（§9.8 抽出来的共用那一半） ----------
+
+    /// 搜索框里那一格（验证工程拿它打字、也拿它量"有没有这一格"）。
+    QLineEdit *getSearchEdit() const { return m_searchEdit; }
+    static QString searchEditName() { return QStringLiteral("gameLogSearchEdit"); }
+    static QString searchPlaceholderText();
+    /// 搜过、但一行都没匹配上时正文区那句占位（和"全被筛掉"是**第三句不同的话**）。
+    static QString searchEmptyPlaceholderText();
+    static QString searchTooltip();
+    /// 现在搜索框里的字（空串 = 没搜）。
+    QString searchText() const;
 
     /// 一条没有换行的输出最多攒多少字符就当成一整条收下（理由见 .cpp）。
     static int maxPendingChars() { return 8192; }
@@ -400,7 +417,7 @@ public:
 
     /// 最多留多少行。**必须有上限**：一个挂了一百个模组的实例能吐几十万行，
     /// 不封顶的话开一晚上日志就把内存吃干净了。超出之后最老的整段丢掉。
-    static int maxLogBlocks() { return 20000; }
+    static int maxLogBlocks() { return RuntimeOutputModel::defaultCapacity(); }
 
     // ---------- 用户想导出（2026-09-28） ----------
     //
@@ -438,14 +455,9 @@ protected:
     void changeEvent(QEvent *event) override;
 
 private:
-    /// 模型里的一行：级别 + 正文（**不带换行**，换行是摆出去的时候才加的）。
-    struct LogLine {
-        LogLevel level;
-        QString text;
-        bool counted = true;  ///< 是独立记录的首行；false = 上一条的续行 / 空分隔行
-    };
-
     /// 攒够一整行：认级别、进模型、记账、超上限就丢最老的。回它的级别。
+    ///
+    /// 记账那一半在 `m_model`（`RuntimeOutputModel::addLine()`，和服务端控制台共用）。
     LogLevel rememberLine(const QString &text);
     /// 视图的块数上限该喂多少 = 现在这一档的行数上限（「全部」时就是 maxLogBlocks()），
     /// **再留一格**给"还没等到换行的那半行"（见构造函数里那段）。喂给 maximumBlockCount()。
@@ -476,6 +488,8 @@ private:
 
     QLabel *m_hintLabel = nullptr;
     QPlainTextEdit *m_view = nullptr;
+    /// 正文区上面那一行搜索框（§9.8）。
+    QLineEdit *m_searchEdit = nullptr;
     QPushButton *m_clearButton = nullptr;
     QPushButton *m_closeButton = nullptr;
     /// 底下那一排那两颗导出键（2026-09-28）。顺序就是界面上从左到右的顺序。
@@ -487,13 +501,13 @@ private:
     QString m_instanceName;
     // 在窗口打开时确定，切换设置不触发已有海量日志重绘。
     bool m_logColors = true;
-    /// 现在最多显示几行（`0` = 全部）。**只是视图那一层的闸**，模型不跟着变。
-    int m_displayLineLimit = defaultLineLimit();
 
-    QVector<LogLine> m_lines;          ///< 上限 maxLogBlocks()，超出丢最老的
-    QString m_pending;                 ///< 还没等到换行的那半行（不属于任何一条）
-    QVector<int> m_levelCounts;        ///< 每一档几条独立记录（续行不重复，**含被筛掉的**）
-    QVector<bool> m_levelVisible;      ///< 每一档显不显示
+    /// 记账那一半（§9.8）：行、计数、档位可见、搜索词、显示上限都在这里，和服务端控制台共用。
+    /// **注意显示上限是模型里的 `displayLimit()`** —— 原来那格 `m_displayLineLimit` 没了。
+    RuntimeOutputModel m_model;
+    /// 还没等到换行的那半行（不属于任何一条；模型只收完整行）。
+    QString m_pending;
+
     QVector<QToolButton *> m_filterButtons;
     /// 上一趟算出来的"关态中性灰"（见 `refreshFilterButtonStyles()`）：`changeEvent()` 拿它
     /// 当"真的换了主题没有"的判据 —— `PaletteChange` / `StyleChange` 来得比主题变化勤得多。

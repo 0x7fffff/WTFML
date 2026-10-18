@@ -101,9 +101,17 @@
 // 应用计划那一层（2026-10-15，coding plan §5 / §7）。见 PE 节 —— 一段一行地算这一趟会发生
 // 什么（除了通用文件组的干跑，全是纯值）。
 #include "presets/PresetPlanner.hpp"
+// 提取与落到实例上（2026-10-18，coding plan §6 P1 / §7 / §8.1）。见 PG 节 —— 在两个临时
+// 实例目录之间真收真落，覆盖那几样**真去备份目录里看**，游戏在跑时**真去比字节**。
+#include "presets/PresetApply.hpp"
+#include "presets/PresetCapture.hpp"
 // 工具箱那四件小工具的判据层（2026-10-16，coding plan §9.11）。见 ZAA–ZAD 四节 —— 全是
 // **纯函数**（哈希那一节要真读一个文件，它在一个 QTemporaryDir 里读），不联网、不开界面。
 #include "tools/AnvilPlanner.hpp"
+#include "tools/Beacon.hpp"
+#include "tools/Brewing.hpp"
+#include "tools/Banner.hpp"
+#include "tools/ArmorTrim.hpp"
 #include "tools/CoordConvert.hpp"
 #include "tools/FileHash.hpp"
 #include "tools/TextFormat.hpp"
@@ -128,6 +136,9 @@
 // 世界（存档）那几个改盘的动作：「导入世界」和世界改名。见 ZJ 节 —— 那一节是**真的动盘**
 // 的（造两个临时游戏文件夹），所以它要 .cpp 而不只是头文件。
 #include "manage/WorldFiles.hpp"
+#include "manage/WorldMap.hpp"
+// §9.8 的运行输出共用模型：只依赖 QtCore，所以验证工程直接驱动它（ZAM 那一节）。
+#include "RuntimeOutputModel.hpp"
 #include "net/HttpClient.hpp"
 // 服务端工作区（coding plan §6 / 里程碑 M4）：判据层（状态那七档 / `eula.txt` 算不算接受 /
 // `server.properties` 解与写 / 我们记的那一份 —— 见 ZW 节）和扫盘那一层（`<数据目录>/Servers`
@@ -143,12 +154,28 @@
 // （`ServerPropertiesForm`）、体检（`ServerCheck`）、以及"这个端口有人占着吗"那一次真监听
 // （`ServerPortCheck`）。见下面 ZV 一节。
 #include "server/ServerCheck.hpp"
+// 服务端那四份玩家名单（coding plan §9.7「玩家管理」）：纯解析 / 纯拼 JSON，见下面 ZAE 一节。
+// 读文件 / 写文件那一半在 `ServerSettingsController`（mw_check 那边接得到）。
+#include "server/ServerPlayers.hpp"
+// 崩溃自动重启那条策略（coding plan §9.7）：纯判据，见下面 ZAF 一节。
+#include "server/ServerRestart.hpp"
+// 服务端资源包那一份本地 zip 的判据（§9.7）：条目表纯判、SHA-1 借 FileHash。
+#include "server/ServerResourcePack.hpp"
+// 服务端内容（模组 / 数据包）的名字与分类判据（§9.7）：纯函数，ZAH 一节钉它。
+#include "server/ServerContent.hpp"
 #include "server/ServerPortCheck.hpp"
 #include "server/ServerPropertiesForm.hpp"
 #include "settings/EffectiveJavaSettings.hpp"
 #include "settings/GameWindowSettings.hpp"
 #include "settings/GlobalJavaSettings.hpp"
 #include "settings/LauncherSettings.hpp"
+// 结构 / 原理图的元数据与方块统计（2026-10-18，coding plan §9.5）。见 SG 节 —— 三种格式
+// 的树都是这里手搭的（`NbtTree::serialize()`），gzip 那一份拿 `ZipUtil` 真压。
+#include "schematic/SchematicInfo.hpp"
+#include "replay/ReplayInfo.hpp"
+#include "diagnose/StartupDiagnosis.hpp"
+#include "operations/TransferPlanner.hpp"
+#include "operations/TransferApply.hpp"
 #include "util/AppPaths.hpp"
 // NbtTree：世界设置那条路的判据层（2026-09-28）。放进 ZL 那一节是为了能**拿手工拼的字节
 // 去喂它** ——"越界的长度当场拒绝""改一格别的地方一个字节不变"这些角落，造一个真存档来
@@ -3696,10 +3723,11 @@ static int runMemorySuggestionTests(const QString &sandbox) {
         QSettings::setDefaultFormat(QSettings::IniFormat);
         QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsDir);
 
-        section("L3 自动档：重算、落盘、手动档不许被动");
+        section("L3 手动档：值原样读回、重算不动、老「自动」键不再被认");
 
-        // 老配置（没有 Java/MemoryAuto 这个键）：两个值都是内置默认 → 当自动档。
-        // 这就是"升级上来的老用户不会因为多了这一项而换一套内存"。
+        // ★ 2026-10-18：「自动（按系统内存）」那一档从界面上撤掉了（用户原话「内存分配和
+        //   最大内存这玩意完全就是重复的，只保留那个拖动的」）⇒ 读侧一律手动档。
+        //   老配置（没有 Java/MemoryAuto 这个键）照旧原样读回那两个数。
         {
             QSettings raw;
             raw.clear();
@@ -3709,7 +3737,9 @@ static int runMemorySuggestionTests(const QString &sandbox) {
         }
         {
             GlobalJavaSettings old;
-            check(old.autoMemory(), "L3 老配置留着内置默认值 → 当自动档（升级不改老行为）");
+            check(!old.autoMemory(), "L3 老配置读成手动档（自动档那一档已经没有了）");
+            check(old.xmx() == 4096 && old.xms() == 1024, "L3 老配置的值原样读回",
+                  QStringLiteral("%1/%2").arg(old.xmx()).arg(old.xms()));
         }
 
         // 老配置但用户自己调过 → 当手动档，绝不静默改掉他定好的内存
@@ -3732,59 +3762,38 @@ static int runMemorySuggestionTests(const QString &sandbox) {
                   QString::number(usage.totalMb));
         }
 
-        // 自动档：两个值都该是"这台机器现在算出来的"，且与纯函数逐位一致
-        // （界面显示的就是这个函数算的那个数）。
+        // 盘上写着 Java/MemoryAuto=true 的老配置：**不再认**（界面上没有能关掉它的入口，
+        // 认了就等于"用户拖出来的数每次开窗被重算一次"）。那个键照旧读得懂，只是不生效。
         {
             QSettings raw;
             raw.clear();
             raw.setValue(QStringLiteral("Java/MemoryAuto"), true);
+            raw.setValue(QStringLiteral("Java/Xmx"), 5120);
+            raw.setValue(QStringLiteral("Java/Xms"), 1536);
             raw.sync();
-            GlobalJavaSettings autoJava;
-            check(autoJava.autoMemory(), "L3 盘上写着自动 → 自动档");
+            GlobalJavaSettings flagged;
+            check(!flagged.autoMemory(), "L3 盘上写着「自动」也读成手动档");
+            check(flagged.xmx() == 5120 && flagged.xms() == 1536,
+                  "L3 而且那两个数一个都不许被重算掉",
+                  QStringLiteral("%1/%2").arg(flagged.xmx()).arg(flagged.xms()));
 
-            const SystemMemory::Usage usage = autoJava.refreshSuggestedMemory();
-            check(usage.totalMb > 0, "L3 读到系统物理内存总量", QString::number(usage.totalMb));
-            check(usage.availableMb > 0, "L3 读到当前可用内存", QString::number(usage.availableMb));
-            check(usage.availableMb <= usage.totalMb, "L3 可用内存不超过总量",
-                  QStringLiteral("%1/%2").arg(usage.availableMb).arg(usage.totalMb));
-            check(autoJava.xmx() == GlobalJavaSettings::suggestXmxMb(usage.totalMb, usage.availableMb),
-                  "L3 自动档的 Xmx 就是纯函数算出来的那个值", QString::number(autoJava.xmx()));
-            check(autoJava.xms() == GlobalJavaSettings::suggestXmsMb(autoJava.xmx()),
-                  "L3 自动档的 Xms 是 Xmx 的四分之一档", QString::number(autoJava.xms()));
-            check(autoJava.xmx() >= 1024 && autoJava.xmx() <= 8192, "L3 自动档的值在体面范围内",
-                  QString::number(autoJava.xmx()));
-            check(autoJava.xmx() % 256 == 0 && autoJava.xms() % 256 == 0,
-                  "L3 自动档的两个值都是 256 的整数倍",
-                  QStringLiteral("%1/%2").arg(autoJava.xmx()).arg(autoJava.xms()));
+            const SystemMemory::Usage usage = flagged.refreshSuggestedMemory();
+            check(usage.totalMb > 0, "L3 手动档下也照样读了系统内存（界面拿它写说明）",
+                  QString::number(usage.totalMb));
+            check(flagged.xmx() == 5120 && flagged.xms() == 1536,
+                  "L3 老「自动」键不再触发重算（用户拖出来的数必须原地不动）",
+                  QStringLiteral("%1/%2").arg(flagged.xmx()).arg(flagged.xms()));
 
-            // 用户改过的值一个数字都不许动（手动档）。
-            // 10000 是**故意选的**：建议值上限是 8192，所以"它被换掉了"这件事永远能测出来，
-            // 不会在这台机器上恰好建议 3072 之类的值时假通过。
-            autoJava.setXmx(10000);
-            autoJava.setXms(2500);
-            autoJava.setAutoMemory(false);  // 这一句内部就落盘了
-            autoJava.refreshSuggestedMemory();
-            check(autoJava.xmx() == 10000 && autoJava.xms() == 2500,
-                  "L3 切手动档后重算仍然不动用户的数字",
-                  QStringLiteral("%1/%2").arg(autoJava.xmx()).arg(autoJava.xms()));
-
+            // setAutoMemory() 这个 API 还在（老版本、老数据都读得懂这个键），但新版本
+            // 读它的时候一律当手动——跨实例读回来必须还是手动档。
+            flagged.setAutoMemory(true);  // 这一句内部就落盘了
             check(!QSettings().value(QStringLiteral("Java/MemoryAuto"), QVariant()).isNull(),
-                  "L3 Java/MemoryAuto 这个键真的写进盘了");
-
-            // 换个实例读：验的是真落了盘，不是留在成员变量里
+                  "L3 Java/MemoryAuto 这个键仍然写进了盘（数据格式没变）");
             GlobalJavaSettings reopened;
-            check(!reopened.autoMemory(), "L3 手动档跨实例读得回来");
-            check(reopened.xmx() == 10000 && reopened.xms() == 2500, "L3 手动档的值也读得回来",
-                  QStringLiteral("%1/%2").arg(reopened.xmx()).arg(reopened.xms()));
-
-            // 切回自动：refreshSuggestedMemory() 立刻按当前内存把值重算一遍，
-            // 手动档留下的 10000 必须被覆盖掉（它不是建议值域里的数）
-            reopened.setAutoMemory(true);
-            const SystemMemory::Usage back = reopened.refreshSuggestedMemory();
-            check(reopened.xmx() == GlobalJavaSettings::suggestXmxMb(back.totalMb, back.availableMb),
-                  "L3 切回自动档会按当前内存重算", QString::number(reopened.xmx()));
-            check(reopened.xmx() != 10000, "L3 重算覆盖了手动档留下的 10000",
-                  QString::number(reopened.xmx()));
+            check(!reopened.autoMemory(), "L3 但新版本读这个键一律当手动档");
+            check(reopened.xmx() == 5120 && reopened.xms() == 1536,
+                  "L3 重启读回来的还是那两个数", QStringLiteral("%1/%2")
+                      .arg(reopened.xmx()).arg(reopened.xms()));
         }
 
         QSettings::setDefaultFormat(QSettings::NativeFormat);
@@ -3868,9 +3877,15 @@ static void runEffectiveJavaSettingsTests(const QString &sandbox) {
         check(onlyChanged(ov, QStringLiteral("xms")), "R2 只覆盖 Xms");
     }
     {
+        // ★ 2026-10-18：覆盖里的 autoMemory **不再参与合成**（界面上「内存分配」那一档
+        //   撤掉了）。老实例的 meta 里留着 true 时，有效值必须逐字段等于全局 —— 认了它，
+        //   用户拖出来的数每次启动都会被重算掉，而界面上没有关掉它的入口。
         JavaSettingsOverride ov;
         ov.autoMemory = true;
-        check(onlyChanged(ov, QStringLiteral("autoMemory")), "R2 只覆盖「内存分配」这一档");
+        const EffectiveJavaSettings got = resolveJavaSettings(global, ov);
+        check(diff(global, got).isEmpty(),
+              "R2 覆盖里的 autoMemory 被忽略：有效值 == 全局逐字段",
+              diff(global, got).join(QStringLiteral(" | ")));
     }
     {
         JavaSettingsOverride ov;
@@ -17930,6 +17945,93 @@ static void runServerPingTests() {
     }
 
     // ---------------------------------------------------------------------
+    section("ZH1b. SRV：先按优先级、再按权重挑（§9.11 第 3 项）");
+    // ---------------------------------------------------------------------
+
+    {
+        using Record = ServerPing::SrvRecord;
+        check(!ServerPing::splitAddress(QStringLiteral("example.com")).portExplicit &&
+                  ServerPing::splitAddress(QStringLiteral("example.com:25566")).portExplicit,
+              "★ ZH1b 端口是不是**用户写出来的**分得出来（SRV 只在前者为假时才查）");
+
+        const QList<Record> many = {
+            {QStringLiteral("backup.example.com"), 25566, 10, 0},
+            {QStringLiteral("mc.example.com"), 25565, 0, 0},
+            {QStringLiteral("other.example.com"), 25567, 0, 0},
+            {QString(), 25565, 0, 0},                            // 目标空 ⇒ 丢
+            {QStringLiteral("bad-port.example.com"), 0, 0, 0},   // 端口 0 ⇒ 丢
+        };
+        const QList<Record> best = ServerPing::bestPriorityRecords(many);
+        check(best.size() == 2 && best.at(0).priority == 0 && best.at(1).priority == 0,
+              "★★ ZH1b 先丢掉用不了的，再只留**最小优先级**那一组（备份记录不许先连）",
+              QString::number(best.size()));
+
+        Record picked;
+        check(ServerPing::pickSrvRecord(many, 0, &picked) &&
+                  picked.target == QStringLiteral("mc.example.com"),
+              "ZH1b 权重全 0 = 等概率（样本 0 拿同优先级里第一条）",
+              picked.target);
+        check(ServerPing::pickSrvRecord(many, 1, &picked) &&
+                  picked.target == QStringLiteral("other.example.com"),
+              "ZH1b 样本 1 拿第二条（`sample % 条数`）", picked.target);
+
+        const QList<Record> weighted = {
+            {QStringLiteral("a.example.com"), 25565, 0, 1},
+            {QStringLiteral("b.example.com"), 25565, 0, 3},
+        };
+        check(ServerPing::pickSrvRecord(weighted, 0, &picked) &&
+                  picked.target == QStringLiteral("a.example.com") &&
+                  ServerPing::pickSrvRecord(weighted, 1, &picked) &&
+                  picked.target == QStringLiteral("b.example.com") &&
+                  ServerPing::pickSrvRecord(weighted, 3, &picked) &&
+                  picked.target == QStringLiteral("b.example.com"),
+              "★★ ZH1b 权重 1:3 ⇒ [0,1) 给 a、[1,4) 给 b（按累计区间，不是四舍五入成一半）");
+
+        const QList<Record> fqdn = {{QStringLiteral("mc.example.com."), 25565, 0, 0}};
+        check(ServerPing::pickSrvRecord(fqdn, 0, &picked) &&
+                  picked.target == QStringLiteral("mc.example.com"),
+              "ZH1b FQDN 末尾那个点去掉（那不是名字的一部分）", picked.target);
+        const QList<Record> unavailable = {{QStringLiteral("."), 25565, 0, 0}};
+        check(!ServerPing::pickSrvRecord(unavailable, 0, &picked),
+              "★ ZH1b 目标 `.` = RFC 2782 那句「服务不可用」⇒ 不选（退回用户写的地址）");
+        check(!ServerPing::pickSrvRecord(QList<Record>{}, 0, &picked), "ZH1b 空表 ⇒ 挑不出来");
+    }
+
+    // ---------------------------------------------------------------------
+    section("ZH1c. 错误分类：哪一类没通（不拿那句中文去认）");
+    // ---------------------------------------------------------------------
+
+    {
+        check(ServerPing::kindForSocketError(QAbstractSocket::ConnectionRefusedError) ==
+                  ServerPing::Kind::Refused &&
+                  ServerPing::kindForSocketError(QAbstractSocket::HostNotFoundError) ==
+                  ServerPing::Kind::HostNotFound &&
+                  ServerPing::kindForSocketError(QAbstractSocket::SocketTimeoutError) ==
+                  ServerPing::Kind::Unreachable &&
+                  ServerPing::kindForSocketError(QAbstractSocket::RemoteHostClosedError) ==
+                  ServerPing::Kind::ConnectionLost &&
+                  ServerPing::kindForSocketError(QAbstractSocket::SocketAccessError) ==
+                  ServerPing::Kind::Other,
+              "★★ ZH1c 五种 socket 错误各归各的类（`timedOut` 那一档仍由 isTimeoutError 判）");
+
+        // 地址看不懂那一档连 socket 都还没用上 —— 它自己的类。
+        check(ServerPing::resolve(QStringLiteral("::1")).valid == false,
+              "ZH1c 看不懂的地址 ⇒ resolve 说 valid=false（不会去查 SRV、也不会去连）");
+        const ServerPing::Resolution direct =
+            ServerPing::resolve(QStringLiteral("127.0.0.1:25566"));
+        check(direct.valid && !direct.srvTried &&
+                  direct.connectHost == QStringLiteral("127.0.0.1") && direct.connectPort == 25566,
+              "★★ ZH1c 写了端口 / IP 字面量 ⇒ **一趟 DNS 都不查**（离线也确定）");
+        const ServerPing::Resolution noPort =
+            ServerPing::resolve(QStringLiteral("localhost"));
+        check(noPort.valid && !noPort.srvTried && noPort.connectPort == ServerPing::kDefaultPort,
+              "ZH1c localhost 也不查 SRV（本机没有域名可言）");
+
+        // 产品默认是开着的那一档（关掉是给离线环境留的口子）。
+        check(ServerPing::srvLookupEnabled(), "ZH1c 出厂是开的（和游戏一样先查 SRV）");
+    }
+
+    // ---------------------------------------------------------------------
     section("ZH2. VarInt：协议里每一个数字的写法");
     // ---------------------------------------------------------------------
 
@@ -20329,6 +20431,15 @@ static void runTaskLedgerTests() {
               "AM2 无效号 ⇒ false");
         check(!manager.succeed(Tasks::invalidTaskId()), "AM2 无效号收尾 ⇒ false");
         check(!manager.cancel(999999), "AM2 压根不存在的号 ⇒ false");
+
+        // §9.8 第三条：任务和会话对号（启动 / 崩溃报告两条路都走这一笔）。
+        check(!manager.setSessionId(a, 0), "AM2 §9.8 会话号 0 ⇒ false");
+        check(!manager.setSessionId(Tasks::invalidTaskId(), 7), "AM2 §9.8 无效任务号 ⇒ false");
+        check(manager.setSessionId(a, 7), "AM2 §9.8 第一次对上 ⇒ true");
+        check(manager.snapshot(a).sessionId == 7, "AM2 §9.8 快照里读得出来那个号");
+        check(!manager.setSessionId(a, 7), "AM2 §9.8 同一个号再来一次 ⇒ false（不白喊）");
+        check(!manager.setSessionId(a, 8) && manager.snapshot(a).sessionId == 7,
+              "AM2 §9.8 已经对上过的不许改口（一项任务只属于一份会话）");
     }
 
     // ---------------------------------------------------------------------
@@ -27410,8 +27521,209 @@ static void runMalilibKeysTests() {
 
 
 // ---------------------------------------------------------------------------
-// ZS. 实例页的搜索与筛选：判据层（coding plan §7.2）
+// PG. 提取与落到实例上：收一份 → 落回另一个实例 → 备份 / 两趟确认 / 游戏在跑（§6 P1 / §7）
+// ---------------------------------------------------------------------------
 //
+// ★ 这一节和 PE 那一节的分界：PE 只算"会怎么样"（一个字节都不写）；这一节**真的在两个临时
+//   实例目录之间收和落**。所以夹具是两份形状正确的实例目录（`options.txt` + `config/`），
+//   而最值钱的四条都是"盘上到底变了没有"：
+//     · 合并落下去以后，目标上预设没点名的键**还在**；
+//     · 覆盖那一趟**先**回 `needsConfirm`、盘上一个字节都没动，第二次才真写；
+//     · 游戏在跑 ⇒ 整趟不写（拿字节比，不是看那一句说明）；
+//     · 改写过的那一份**在备份目录里有一份原样的**。
+static void runPresetCaptureApplyTests() {
+    QTemporaryDir scratch;
+    check(scratch.isValid(), "PG 建得出一个临时目录来摆夹具");
+    if (!scratch.isValid()) {
+        return;
+    }
+
+    const QString instanceA = scratch.filePath(QStringLiteral("instanceA"));
+    const QString instanceB = scratch.filePath(QStringLiteral("instanceB"));
+    const QString presetsRoot = scratch.filePath(QStringLiteral("presets"));
+    QDir().mkpath(instanceA + QStringLiteral("/config"));
+    QDir().mkpath(instanceB);
+
+    const auto writeBytes = [](const QString &path, const QByteArray &bytes) {
+        QFile file(path);
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            return false;
+        }
+        return file.write(bytes) == bytes.size();
+    };
+    const auto readBytes = [](const QString &path) {
+        QFile file(path);
+        if (!file.open(QIODevice::ReadOnly)) {
+            return QByteArray();
+        }
+        return file.readAll();
+    };
+
+    const QByteArray optionsA =
+        QByteArrayLiteral("fov:0.5\nkey_attack:key.keyboard.a\n");
+    // ★ 目标上比预设**多一个** `gamma`：合并那一趟它必须留着，覆盖那一趟才该被拿掉。
+    const QByteArray optionsB = QByteArrayLiteral("fov:0.0\ngamma:1.0\n");
+    const QByteArray configA = QByteArrayLiteral("{\"quality\":\"high\"}");
+    check(writeBytes(instanceA + QStringLiteral("/options.txt"), optionsA),
+          "PG 夹具：源实例的 options.txt 写下去了");
+    check(writeBytes(instanceA + QStringLiteral("/config/sodium-options.json"), configA),
+          "PG 夹具：源实例的 config/ 写下去了");
+    check(writeBytes(instanceB + QStringLiteral("/options.txt"), optionsB),
+          "PG 夹具：目标实例的 options.txt 写下去了");
+
+    // ---------------------------------------------------------------------
+    section("PG1. 从实例收一份：三段、文件真的拷进预设的 files/");
+    // ---------------------------------------------------------------------
+    const QString presetId = Presets::newPresetId();
+    Presets::CaptureSelection selection;
+    // 默认只收这一小节关心的四样：游戏设置 / 按键 / config/。服务器和 MaLiLib 不勾 ——
+    // 这一节不验那两条（PC / PF 已经各自验过），勾上只会让夹具多两份空报告。
+    selection.servers = false;
+    selection.malilib = false;
+
+    Presets::CaptureRequest capture;
+    capture.instanceId = QStringLiteral("instanceA");
+    capture.instanceRoot = instanceA;
+    capture.presetFilesRoot = Presets::filesDir(presetsRoot, presetId);
+    capture.selection = selection;
+    const Presets::CaptureReport report = Presets::captureFromInstance(capture);
+
+    check(report.ok, "PG1 收得回来", report.problem);
+    check(report.sectionCount() == 3, "★★ PG1 收出三段：游戏设置 / 原样按键 / config/",
+          QString::number(report.sectionCount()));
+    check(report.optionKeys >= 1 && report.keybindings >= 1 && report.configItems == 1,
+          "★★ PG1 三个计数各自对得上（设置 1 项、按键 1 项、config 1 个）",
+          QStringLiteral("%1 / %2 / %3")
+              .arg(report.optionKeys)
+              .arg(report.keybindings)
+              .arg(report.configItems));
+    check(QFileInfo::exists(Presets::filesDir(presetsRoot, presetId) +
+                            QStringLiteral("/config/sodium-options.json")),
+          "★★ PG1 config/ 里那一份真的拷进了预设的 files/（这是提取唯一会写的一处盘）");
+
+    Presets::CaptureSelection nothing;
+    nothing.vanillaOptions = nothing.vanillaKeys = nothing.servers = false;
+    nothing.config = nothing.defaultConfigs = nothing.resourcePacks = nothing.shaderPacks = false;
+    nothing.malilib = false;
+    Presets::CaptureRequest emptyCapture = capture;
+    emptyCapture.selection = nothing;
+    const Presets::CaptureReport emptyReport = Presets::captureFromInstance(emptyCapture);
+    check(emptyReport.ok && emptyReport.sectionCount() == 0 && !emptyReport.notes.isEmpty(),
+          "★★ PG1 一样都没勾 ⇒ 成功但一段都没有（不是失败，也不该存成一份空预设）",
+          emptyReport.notes.join(QStringLiteral("；")));
+
+    // ---------------------------------------------------------------------
+    section("PG2. 合并落下去：目标上没点名的键还在");
+    // ---------------------------------------------------------------------
+    Presets::PresetManifest manifest;
+    manifest.id = presetId;
+    manifest.name = QStringLiteral("PG 夹具");
+    manifest.sections = report.sections;
+    check(Presets::saveManifest(presetsRoot, manifest), "PG2 这一份写下去了");
+    bool manifestOk = false;
+    const Presets::PresetManifest saved = Presets::loadManifest(presetsRoot, presetId, &manifestOk);
+    check(manifestOk && saved.sections.size() == 3, "PG2 写下去读回来还是三段");
+    if (!manifestOk) {
+        return;
+    }
+
+    Presets::PresetApplyRequest applyRequest;
+    applyRequest.instanceId = QStringLiteral("instanceB");
+    applyRequest.instanceRoot = instanceB;
+    const Presets::PresetApplyResult applied =
+        Presets::applyPresetToInstance(presetsRoot, saved, applyRequest);
+
+    check(applied.ok && !applied.needsConfirm, "★★ PG2 合并那一趟办完了", applied.problem);
+    check(applied.wroteAnything(), "★★ PG2 说是写进去了东西");
+    const QByteArray afterMerge = readBytes(instanceB + QStringLiteral("/options.txt"));
+    check(afterMerge.contains("fov:0.5") && afterMerge.contains("gamma:1.0") &&
+              afterMerge.contains("key_attack"),
+          "★★★ PG2 目标上：`fov` 换成了预设的值、`gamma`（预设没点名）**还在**、按键也落下了",
+          QString::fromUtf8(afterMerge));
+    check(readBytes(instanceB + QStringLiteral("/config/sodium-options.json")) == configA,
+          "★★ PG2 config/ 那一份「缺了才拷」也落到了目标上");
+
+    // ---------------------------------------------------------------------
+    section("PG3. 备份：改写过的那一份在备份目录里原样躺着一份");
+    // ---------------------------------------------------------------------
+    check(!applied.backupDir.isEmpty(), "★★ PG3 这一趟有备份目录");
+    check(readBytes(applied.backupDir + QStringLiteral("/options.txt")) == optionsB,
+          "★★★ PG3 备份里那份 `options.txt` 逐字节等于**动手之前**的那一份",
+          QString::fromUtf8(readBytes(applied.backupDir + QStringLiteral("/options.txt"))));
+
+    // ---------------------------------------------------------------------
+    section("PG4. 什么都不用做的那一趟：不写、也不建空备份目录");
+    // ---------------------------------------------------------------------
+    const Presets::PresetApplyResult second =
+        Presets::applyPresetToInstance(presetsRoot, saved, applyRequest);
+    check(second.ok && !second.wroteAnything() && second.backupDir.isEmpty(),
+          "★★ PG4 第二趟：目标已经是那个样子 ⇒ 没写、也没留下一个空备份目录",
+          QStringLiteral("written=%1 removed=%2").arg(second.written).arg(second.removed));
+
+    // ---------------------------------------------------------------------
+    section("PG5. 「覆盖」两趟：不点头一个字节都不动，点头之后才真写");
+    // ---------------------------------------------------------------------
+    Presets::PresetManifest replaceManifest = saved;
+    for (Presets::PresetSection &section : replaceManifest.sections) {
+        if (section.kind == Presets::SectionKind::VanillaOptions) {
+            section.mode = Presets::ApplyMode::Replace;
+        }
+    }
+    writeBytes(instanceB + QStringLiteral("/options.txt"), optionsB);
+    Presets::PresetApplyResult firstPass =
+        Presets::applyPresetToInstance(presetsRoot, replaceManifest, applyRequest);
+    check(firstPass.needsConfirm && !firstPass.ok,
+          "★★★ PG5 第一趟回 `needsConfirm`（「覆盖」必须由用户明确确认）");
+    check(readBytes(instanceB + QStringLiteral("/options.txt")) == optionsB,
+          "★★★ PG5 第一趟之后目标那份 `options.txt` 一个字节都没动");
+
+    Presets::PresetApplyRequest confirmed = applyRequest;
+    confirmed.replaceConfirmed = true;
+    const Presets::PresetApplyResult secondPass =
+        Presets::applyPresetToInstance(presetsRoot, replaceManifest, confirmed);
+    const QByteArray afterReplace = readBytes(instanceB + QStringLiteral("/options.txt"));
+    check(secondPass.ok && !secondPass.needsConfirm, "★★ PG5 点头之后才真写", secondPass.problem);
+    check(afterReplace.contains("fov:0.5") && !afterReplace.contains("gamma"),
+          "★★ PG5 覆盖：预设点名的键换掉，目标上多出来的 `gamma` 被拿掉",
+          QString::fromUtf8(afterReplace));
+    check(secondPass.removed >= 1, "★★ PG5 报告里那个「拿掉了几项」的数对得上",
+          QString::number(secondPass.removed));
+
+    // ---------------------------------------------------------------------
+    section("PG6. 游戏在跑：整趟不写");
+    // ---------------------------------------------------------------------
+    writeBytes(instanceB + QStringLiteral("/options.txt"), optionsB);
+    Presets::PresetApplyRequest running = applyRequest;
+    running.gameRunning = true;
+    const Presets::PresetApplyResult blocked =
+        Presets::applyPresetToInstance(presetsRoot, saved, running);
+    check(!blocked.ok && !blocked.blockedReason.isEmpty(),
+          "★★★ PG6 游戏在跑 ⇒ 整趟不许开始", blocked.blockedReason);
+    check(readBytes(instanceB + QStringLiteral("/options.txt")) == optionsB,
+          "★★★ PG6 而且目标那份 `options.txt` 一个字节都没动");
+
+    // ---------------------------------------------------------------------
+    section("PG7. 读目标快照：没有 / 读不动是两件事");
+    // ---------------------------------------------------------------------
+    const QString instanceC = scratch.filePath(QStringLiteral("instanceC"));
+    QDir().mkpath(instanceC);
+    QString snapshotProblem;
+    const Presets::TargetSnapshot fresh =
+        Presets::readTargetSnapshot(instanceC, &snapshotProblem);
+    check(snapshotProblem.isEmpty(), "PG7 新实例没有 options.txt 是正常的",
+          snapshotProblem);
+    check(fresh.instanceRoot == instanceC || !fresh.instanceRoot.isEmpty(),
+          "PG7 快照带着实例根");
+
+    // 名字是 options.txt、其实是**目录** ⇒ 读不动（不能当成"空的那一份"去铺预设）。
+    QDir().mkpath(instanceC + QStringLiteral("/options.txt"));
+    snapshotProblem.clear();
+    Presets::readTargetSnapshot(instanceC, &snapshotProblem);
+    check(!snapshotProblem.isEmpty(),
+          "★★★ PG7 `options.txt` 读不动 ⇒ 快照带着一句人话（不然整份设置会被当成空的铺掉）",
+          snapshotProblem);
+}
+
 // §7.2 原话：「搜索实例名、版本号、加载器；筛选原版/模组实例、可更新、最近运行；搜索不
 // 改变分组归属；清空搜索恢复原展开状态」。四句里只有**前两句**是这一节的事（纯判据：
 // 一条实例算不算匹配）；后两句说的是"重灌树时别动别的状态"，那是接线，在 mw_check 的 T37。
@@ -29258,7 +29570,7 @@ static void runServerSettingsTests() {
     // ---------- ZV0. 表本身 ----------
     {
         const QList<ServerPropertiesForm::Field> &fields = ServerPropertiesForm::commonFields();
-        check(fields.size() == 19, "ZV0 常用字段一共 19 项（§6.3 说的「那十几个旋钮」）",
+        check(fields.size() == 21, "ZV0 常用字段一共 21 项（§6.3 说的「那十几个旋钮」+ §9.7 资源包两项）",
               QString::number(fields.size()));
 
         // 键唯一、每项该有的字都有。
@@ -29276,6 +29588,22 @@ static void runServerSettingsTests() {
         }
         check(!dupKey, "★★ ZV0 十九个键互不相同（键是身份，重了界面上就摆两行同一个东西）");
         check(!blankText, "★★ ZV0 每一项都有键、行首那个中文名、和那行小字");
+
+        // ★ 只有 `motd` 那一项挂"游戏里长什么样"的预览（§9.7）：挂错一项就是那一行下面
+        //   多出一块画着 `§` 码的深色框；一项都不挂就是"格式化预览"又没了。
+        QStringList previewKeys;
+        for (const ServerPropertiesForm::Field &field : fields) {
+            if (field.preview) {
+                previewKeys.append(field.key);
+            }
+        }
+        check(previewKeys == QStringList{QStringLiteral("motd")},
+              "★★ ZV0 预览只挂在 motd 那一项上（界面按这一格决定挂不挂那块深色框）",
+              previewKeys.join(QStringLiteral(",")));
+        const ServerPropertiesForm::Field *motd =
+            ServerPropertiesForm::fieldFor(QStringLiteral("motd"));
+        check(motd != nullptr && motd->preview && motd->kind == ServerPropertiesForm::Kind::Text,
+              "ZV0 挂了预览的那一格是个文本框（预览跟着一格一格的文字走）");
 
         // ★ 表里写的那几个 `fallback` **必须过得了自己的 `accepts()`** —— 这是"按下保存会
         //   不会把文件写坏"的第一道保险。错在这儿的后果是：用户什么都没改、只按了一下保存，
@@ -29348,16 +29676,20 @@ static void runServerSettingsTests() {
         }
         check(badChoice == 0, "★ ZV0 下拉框每个候选都有「写进文件的那个词」和「显示的那个词」");
 
-        // 次序：日常（8）→ 规则（8）→ 性能（3）。前两组是建完服就想调的，最后一组是卡了才来调的。
+        // 次序：日常（8）→ 资源包（2）→ 规则（8）→ 性能（3）。资源包那两项贴着世界目录/种子，
+        // 因为建完服紧接着就是「要不要让大家下个包」；规则组和性能组各往后挪了两格。
         const auto keyAt = [&fields](int index) { return fields.value(index).key; };
         check(keyAt(0) == QStringLiteral("motd") && keyAt(7) == QStringLiteral("level-seed"),
               "ZV0 头八项是日常那几项（简介 / 端口 / 人数 / 难度 / 模式 / 极限 / 世界目录 / 种子）",
               keyAt(7));
-        check(keyAt(8) == QStringLiteral("online-mode") && keyAt(15) == QStringLiteral("spawn-protection"),
-              "ZV0 中间八项是规则那几项（正版验证 / 白名单 / PVP … 出生点保护）", keyAt(8));
-        check(keyAt(16) == QStringLiteral("view-distance")
-                  && keyAt(18) == QStringLiteral("player-idle-timeout"),
-              "ZV0 最后三项是性能（视距 / 模拟距离 / 挂机踢出）", keyAt(16));
+        check(keyAt(8) == QStringLiteral("resource-pack")
+                  && keyAt(9) == QStringLiteral("resource-pack-sha1"),
+              "ZV0 第九、十项是资源包（地址 / SHA-1）", keyAt(8));
+        check(keyAt(10) == QStringLiteral("online-mode") && keyAt(17) == QStringLiteral("spawn-protection"),
+              "ZV0 中间八项是规则那几项（正版验证 / 白名单 / PVP … 出生点保护）", keyAt(10));
+        check(keyAt(18) == QStringLiteral("view-distance")
+                  && keyAt(20) == QStringLiteral("player-idle-timeout"),
+              "ZV0 最后三项是性能（视距 / 模拟距离 / 挂机踢出）", keyAt(18));
 
         // ★ 只有 `level-name` 是"要当目录名用"的那一项（值里带路径分隔符就等于把世界写到
         //   服务端目录外面去 —— 见 `Field::dirName` 那段）。
@@ -29868,6 +30200,1686 @@ static void runServerSettingsTests() {
 }
 
 // ---------------------------------------------------------------------------
+// ZAE. 服务端那四份玩家名单（coding plan §9.7「玩家管理」）
+//
+// 白名单 / 管理员 / 封禁的玩家 / 封禁的 IP —— 四份文件都由服务端自己写，格式是 Gson 的漂亮
+// JSON。这一节钉的是判据层 `ServerPlayers`（全纯函数，不碰盘）：
+//
+//   · **读要宽容**：文件不在 = 空名单；读不懂 = `ok = false` + 一句毛病。这一条最要紧 ——
+//     拿空名单覆盖一份用户手改坏的 JSON，等于把他里面的记录全抹了；
+//   · **写按游戏那一份的字段形状**：多一个自定义键，服务端下次启动就整份读不懂、丢掉；
+//   · 离线 UUID 是确定的（`OfflinePlayer:<名字>` 的 MD5 + RFC 4122 那两个位），
+//     「按名字加一条」不登录 Mojang 也算得对。
+// ---------------------------------------------------------------------------
+static void runServerPlayersTests() {
+    section("ZAE. 服务端那四份玩家名单：读写 / 认人 / 离线 UUID（§9.7）");
+
+    // ---------- ZAE0. 四份名单的身份 ----------
+    {
+        check(ServerPlayers::listCount() == 4, "ZAE0 四份名单（白名单 / 管理员 / 封禁的玩家 / 封禁的 IP）",
+              QString::number(ServerPlayers::listCount()));
+        const QStringList files = {
+            ServerPlayers::fileName(ServerPlayers::List::Whitelist),
+            ServerPlayers::fileName(ServerPlayers::List::Ops),
+            ServerPlayers::fileName(ServerPlayers::List::BannedPlayers),
+            ServerPlayers::fileName(ServerPlayers::List::BannedIps),
+        };
+        check(files == QStringList({QStringLiteral("whitelist.json"), QStringLiteral("ops.json"),
+                                    QStringLiteral("banned-players.json"),
+                                    QStringLiteral("banned-ips.json")}),
+              "★★ ZAE0 四个文件名就是服务端自己用的那四个（写错一个名字 = 界面上改了、游戏里没变）",
+              files.join(QStringLiteral(",")));
+        const QStringList titles = {
+            ServerPlayers::title(ServerPlayers::List::Whitelist),
+            ServerPlayers::title(ServerPlayers::List::Ops),
+            ServerPlayers::title(ServerPlayers::List::BannedPlayers),
+            ServerPlayers::title(ServerPlayers::List::BannedIps),
+        };
+        check(!titles.contains(QString())
+                  && QSet<QString>(titles.begin(), titles.end()).size() == 4,
+              "ZAE0 四格标题都有字、互不相同", titles.join(QStringLiteral(",")));
+    }
+
+    // ---------- ZAE1. 读：空文件 = 空名单；读不懂就说毛病，不猜 ----------
+    {
+        for (int i = 0; i < ServerPlayers::listCount(); ++i) {
+            const auto list = static_cast<ServerPlayers::List>(i);
+            const ServerPlayers::Content empty = ServerPlayers::parse(list, QByteArray());
+            check(empty.ok && empty.entries.isEmpty(),
+                  "★ ZAE1 文件不在（空字节）⇒ 空名单，`ok` 仍然是 true（新服务端四份文件都不存在）",
+                  ServerPlayers::fileName(list));
+            const ServerPlayers::Content blank = ServerPlayers::parse(list, QByteArrayLiteral("  \r\n"));
+            check(blank.ok && blank.entries.isEmpty(),
+                  "ZAE1 只有空白同样算「没有东西」", ServerPlayers::fileName(list));
+        }
+        const ServerPlayers::Content broken =
+            ServerPlayers::parse(ServerPlayers::List::Whitelist, QByteArrayLiteral("[{\"uuid\":"));
+        check(!broken.ok && !broken.problem.isEmpty() && broken.entries.isEmpty(),
+              "★★ ZAE1 读不懂的 JSON ⇒ `ok = false` + 一句毛病（**不是**空名单 —— 那会让"
+              "「写回去」把用户手改坏的记录抹掉）", broken.problem);
+        check(broken.problem.contains(QStringLiteral("whitelist.json"))
+                  && broken.problem.contains(QStringLiteral("没有改动")),
+              "★ ZAE1 那句毛病点了文件名、并且说清楚**没有改动它**", broken.problem);
+        const ServerPlayers::Content notArray =
+            ServerPlayers::parse(ServerPlayers::List::Ops, QByteArrayLiteral("{\"a\":1}"));
+        check(!notArray.ok && notArray.problem.contains(QStringLiteral("不是一个数组")),
+              "★ ZAE1 不是数组（手改成一个对象）⇒ 同样 `ok = false`，不猜", notArray.problem);
+    }
+
+    // ---------- ZAE2. 读：四份文件的真实字段各就各位 ----------
+    {
+        const ServerPlayers::Content white = ServerPlayers::parse(
+            ServerPlayers::List::Whitelist,
+            QByteArrayLiteral("[{\"uuid\":\"b50ad385-829d-3141-a216-7e7d7539ba7f\",\"name\":\"Notch\"},"
+                              "{\"uuid\":\"\",\"name\":\"Herobrine\"}]"));
+        check(white.ok && white.entries.size() == 2, "ZAE2 白名单两条都读出来",
+              QString::number(white.entries.size()));
+        check(white.entries.value(0).uuid
+                      == QStringLiteral("b50ad385-829d-3141-a216-7e7d7539ba7f")
+                  && white.entries.value(0).name == QStringLiteral("Notch"),
+              "ZAE2 白名单的 `uuid` / `name` 一字不差",
+              white.entries.value(0).uuid);
+        check(white.entries.value(1).uuid.isEmpty()
+                  && white.entries.value(1).name == QStringLiteral("Herobrine"),
+              "★ ZAE2 `uuid` 空着也照样读（认人的时候退回名字 —— 见下面 ZAE4）");
+
+        const ServerPlayers::Content ops = ServerPlayers::parse(
+            ServerPlayers::List::Ops,
+            QByteArrayLiteral("[{\"uuid\":\"u-1\",\"name\":\"alice\",\"level\":2,"
+                              "\"bypassesPlayerLimit\":true},{\"uuid\":\"u-2\",\"name\":\"bob\"}]"));
+        check(ops.ok && ops.entries.size() == 2, "ZAE2 管理员两条",
+              QString::number(ops.entries.size()));
+        check(ops.entries.value(0).level == 2 && ops.entries.value(0).bypassesPlayerLimit,
+              "ZAE2 管理员的 `level` / `bypassesPlayerLimit` 读得出来",
+              QString::number(ops.entries.value(0).level));
+        check(ops.entries.value(1).level == 4 && !ops.entries.value(1).bypassesPlayerLimit,
+              "★ ZAE2 缺省 ⇒ `level = 4`、不绕过人数上限（和服务端 `op` 命令的缺省一致）",
+              QString::number(ops.entries.value(1).level));
+
+        const ServerPlayers::Content players = ServerPlayers::parse(
+            ServerPlayers::List::BannedPlayers,
+            QByteArrayLiteral("[{\"uuid\":\"u-3\",\"name\":\"mallory\","
+                              "\"created\":\"2026-10-18 12:00:00 +0800\","
+                              "\"source\":\"WTFML\",\"expires\":\"forever\","
+                              "\"reason\":\"Banned by WTFML\"}]"));
+        check(players.ok && players.entries.size() == 1, "ZAE2 封禁玩家一条",
+              QString::number(players.entries.size()));
+        const ServerPlayers::Entry &banned = players.entries.first();
+        check(banned.uuid == QStringLiteral("u-3") && banned.name == QStringLiteral("mallory")
+                  && banned.created == QStringLiteral("2026-10-18 12:00:00 +0800")
+                  && banned.source == QStringLiteral("WTFML")
+                  && banned.expires == QStringLiteral("forever")
+                  && banned.reason == QStringLiteral("Banned by WTFML"),
+              "★ ZAE2 封禁玩家那六格（`created` / `source` / `expires` / `reason`）全读得出来",
+              banned.created);
+
+        const ServerPlayers::Content ips = ServerPlayers::parse(
+            ServerPlayers::List::BannedIps,
+            QByteArrayLiteral("[{\"ip\":\"203.0.113.7\",\"created\":\"2026-10-18 12:00:00 +0800\","
+                              "\"source\":\"WTFML\",\"expires\":\"forever\",\"reason\":\"\"}]"));
+        check(ips.ok && ips.entries.size() == 1
+                  && ips.entries.first().ip == QStringLiteral("203.0.113.7"),
+              "★ ZAE2 封禁 IP 认的是 `ip`（没有 `uuid` / `name` 那两格）",
+              ips.entries.value(0).ip);
+
+        const ServerPlayers::Content tolerant =
+            ServerPlayers::parse(ServerPlayers::List::Whitelist,
+                                 QByteArrayLiteral("[1,\"x\",null,{\"uuid\":\"u\",\"name\":\"n\"}]"));
+        check(tolerant.ok && tolerant.entries.size() == 1
+                  && tolerant.entries.first().name == QStringLiteral("n"),
+              "★ ZAE2 数组里混着非对象的那几条跳过，剩下的照读（宽容读，不是整份丢掉）",
+              QString::number(tolerant.entries.size()));
+    }
+
+    // ---------- ZAE3. 写：字段形状和游戏那一份一致，读了能原样回来 ----------
+    {
+        QList<ServerPlayers::Entry> ops;
+        ServerPlayers::Entry alice;
+        alice.uuid = QStringLiteral("u-1");
+        alice.name = QStringLiteral("alice");
+        alice.level = 3;
+        alice.bypassesPlayerLimit = true;
+        ops << alice;
+        const QByteArray bytes = ServerPlayers::serialize(ServerPlayers::List::Ops, ops);
+        check(bytes.endsWith('\n'), "★ ZAE3 写出来的那份以换行收尾（服务端 Gson 那一份也是）");
+        const QJsonDocument document = QJsonDocument::fromJson(bytes);
+        check(document.isArray() && document.array().size() == 1,
+              "ZAE3 写出来的是一个数组", QString::number(document.array().size()));
+        const QJsonObject object = document.array().first().toObject();
+        const QStringList keys = object.keys();
+        check(QSet<QString>(keys.begin(), keys.end())
+                  == QSet<QString>({QStringLiteral("uuid"), QStringLiteral("name"),
+                                    QStringLiteral("level"),
+                                    QStringLiteral("bypassesPlayerLimit")}),
+              "★★ ZAE3 管理员那一份**正好**是游戏那四个键（多一个自定义键 ⇒ 服务端下次启动"
+              "整份读不懂）",
+              keys.join(QStringLiteral(",")));
+
+        bool roundTripOk = true;
+        QString badList;
+        for (int i = 0; i < ServerPlayers::listCount(); ++i) {
+            const auto list = static_cast<ServerPlayers::List>(i);
+            QList<ServerPlayers::Entry> entries;
+            entries << ServerPlayers::makeEntry(list, QStringLiteral("Alex"), QStringLiteral("WTFML"),
+                                                QDateTime::fromString(QStringLiteral("2026-10-18T12:00:00"),
+                                                                      Qt::ISODate));
+            entries << ServerPlayers::makeEntry(list, QStringLiteral("Steve"), QStringLiteral("WTFML"),
+                                                QDateTime::fromString(QStringLiteral("2026-10-18T12:00:00"),
+                                                                      Qt::ISODate));
+            const ServerPlayers::Content back =
+                ServerPlayers::parse(list, ServerPlayers::serialize(list, entries));
+            if (!back.ok || back.entries.size() != 2) {
+                roundTripOk = false;
+                badList = ServerPlayers::fileName(list);
+                break;
+            }
+        }
+        check(roundTripOk, "★★ ZAE3 四份名单都能写出去再读回来，条数不变", badList);
+        // 具体字段的往返（先造一条最全的：封禁玩家）。
+        ServerPlayers::Entry full = ServerPlayers::makeEntry(
+            ServerPlayers::List::BannedPlayers, QStringLiteral("Mallory"), QStringLiteral("WTFML"),
+            QDateTime::fromString(QStringLiteral("2026-10-18T12:00:00"), Qt::ISODate));
+        full.expires = QStringLiteral("2026-11-01 00:00:00 +0800");
+        const ServerPlayers::Entry readBack =
+            ServerPlayers::parse(ServerPlayers::List::BannedPlayers,
+                                 ServerPlayers::serialize(ServerPlayers::List::BannedPlayers, {full}))
+                .entries.value(0);
+        check(readBack.uuid == full.uuid && readBack.name == full.name
+                  && readBack.created == full.created && readBack.source == full.source
+                  && readBack.expires == full.expires && readBack.reason == full.reason,
+              "★★ ZAE3 封禁玩家那六格逐字往返（`expires` 是手写的也原样留着）",
+              readBack.expires);
+    }
+
+    // ---------- ZAE4. 认人 ----------
+    {
+        ServerPlayers::Entry withUuid;
+        withUuid.uuid = QStringLiteral("u-1");
+        withUuid.name = QStringLiteral("alice");
+        ServerPlayers::Entry noUuid;
+        noUuid.name = QStringLiteral("bob");
+        ServerPlayers::Entry ip;
+        ip.ip = QStringLiteral("198.51.100.9");
+        check(ServerPlayers::identityOf(ServerPlayers::List::Whitelist, withUuid)
+                  == QStringLiteral("u-1"),
+              "★ ZAE4 有 uuid 就认 uuid（名字可以改，uuid 不变）");
+        check(ServerPlayers::identityOf(ServerPlayers::List::Whitelist, noUuid)
+                  == QStringLiteral("bob"),
+              "★ ZAE4 uuid 空着 ⇒ 退回名字");
+        check(ServerPlayers::identityOf(ServerPlayers::List::BannedIps, ip)
+                  == QStringLiteral("198.51.100.9"),
+              "★ ZAE4 封禁 IP 认 `ip`（名字 / uuid 都不看）");
+        const QList<ServerPlayers::Entry> entries = {withUuid, noUuid};
+        check(ServerPlayers::indexOf(entries, ServerPlayers::List::Whitelist, QStringLiteral("bob")) == 1,
+              "ZAE4 按名字找得到（哪怕它排在有 uuid 的那一条后面）");
+        check(ServerPlayers::indexOf(entries, ServerPlayers::List::Whitelist, QStringLiteral("u-1")) == 0,
+              "ZAE4 按 uuid 找得到");
+        check(ServerPlayers::indexOf(entries, ServerPlayers::List::Whitelist, QString()) == -1
+                  && ServerPlayers::indexOf(entries, ServerPlayers::List::Whitelist,
+                                            QStringLiteral("carol")) == -1,
+              "ZAE4 空的 / 不存在的身份 ⇒ -1（不拿「第一条」凑数）");
+    }
+
+    // ---------- ZAE5. 离线 UUID ----------
+    {
+        check(ServerPlayers::offlineUuid(QStringLiteral("Notch"))
+                  == QStringLiteral("b50ad385-829d-3141-a216-7e7d7539ba7f"),
+              "★★ ZAE5 `OfflinePlayer:Notch` 的 MD5 加 RFC 4122 那两个位 ⇒ "
+              "b50ad385-829d-3141-a216-7e7d7539ba7f（这一格对了，离线服务器才认得出这人）",
+              ServerPlayers::offlineUuid(QStringLiteral("Notch")));
+        const QString many = ServerPlayers::offlineUuid(QStringLiteral("Steve"));
+        check(many.size() == 36 && many.count(QLatin1Char('-')) == 4,
+              "ZAE5 形状是 8-4-4-4-12（四根横杠、36 个字符）", many);
+        check(many == many.toLower(), "ZAE5 一律小写（服务端文件里那份也是小写）", many);
+        check(many.at(14) == QLatin1Char('3'),
+              "★ ZAE5 版本位是 3（名字 + MD5 那一档）—— 第 15 个字符",
+              QString(many.at(14)));
+        const QChar variant = many.at(19);
+        check(variant == QLatin1Char('8') || variant == QLatin1Char('9')
+                  || variant == QLatin1Char('a') || variant == QLatin1Char('b'),
+              "★ ZAE5 变体位落在 8~b（RFC 4122 的 10xx）—— 第 20 个字符", QString(variant));
+        check(ServerPlayers::offlineUuid(QString()) == QString(),
+              "★ ZAE5 空名字 ⇒ 空串（不拿 `OfflinePlayer:` 自己算一个出来）");
+        check(ServerPlayers::offlineUuid(QStringLiteral("Steve"))
+                  == ServerPlayers::offlineUuid(QStringLiteral("Steve")),
+              "ZAE5 同一个名字两次算出同一个值（不然「加一条」和「找到那一条」对不上）");
+        check(ServerPlayers::offlineUuid(QStringLiteral("Steve"))
+                  != ServerPlayers::offlineUuid(QStringLiteral("steve")),
+              "★ ZAE5 大小写是两个名字（游戏按原样算，我们也不折叠）");
+    }
+
+    // ---------- ZAE6. 造一条新记录 ----------
+    {
+        const QDateTime moment =
+            QDateTime::fromString(QStringLiteral("2026-10-18T12:34:56"), Qt::ISODate);
+        const ServerPlayers::Entry white = ServerPlayers::makeEntry(
+            ServerPlayers::List::Whitelist, QStringLiteral("  Alex  "), QStringLiteral("WTFML"),
+            moment);
+        check(white.name == QStringLiteral("Alex"), "★ ZAE6 名字两头空白先剪掉", white.name);
+        check(white.uuid == ServerPlayers::offlineUuid(QStringLiteral("Alex")),
+              "★ ZAE6 白名单那条的 uuid 就是离线 UUID（文件名那一格填好，服务端直接认）",
+              white.uuid);
+        check(white.created.isEmpty() && white.expires.isEmpty() && white.reason.isEmpty(),
+              "ZAE6 白名单不摆封禁那几格（空着 = 不写进 JSON）");
+        const ServerPlayers::Entry op = ServerPlayers::makeEntry(
+            ServerPlayers::List::Ops, QStringLiteral("Alex"), QStringLiteral("WTFML"), moment);
+        check(op.level == 4 && !op.bypassesPlayerLimit,
+              "★ ZAE6 新加的管理员缺省 `level = 4`、不绕过人数上限");
+        const ServerPlayers::Entry ban = ServerPlayers::makeEntry(
+            ServerPlayers::List::BannedPlayers, QStringLiteral("Alex"), QStringLiteral("WTFML"),
+            moment);
+        check(ban.created == QStringLiteral("2026-10-18 12:34:56 +0800")
+                  || ban.created.startsWith(QStringLiteral("2026-10-18 12:34:56")),
+              "★ ZAE6 封禁那条写上了 `created`（游戏那个 `yyyy-MM-dd HH:mm:ss t` 形状）",
+              ban.created);
+        check(ban.expires == QStringLiteral("forever")
+                  && ban.source == QStringLiteral("WTFML")
+                  && ban.reason.contains(QStringLiteral("WTFML")),
+              "★ ZAE6 封禁缺省「永久」、来源写我们这个名字、理由也写清楚", ban.expires);
+        const ServerPlayers::Entry ip = ServerPlayers::makeEntry(
+            ServerPlayers::List::BannedIps, QStringLiteral(" 203.0.113.7 "), QStringLiteral("WTFML"),
+            moment);
+        check(ip.ip == QStringLiteral("203.0.113.7") && ip.name.isEmpty() && ip.uuid.isEmpty(),
+              "★ ZAE6 封禁 IP 只收那个地址（不硬塞一个名字 / uuid）", ip.ip);
+    }
+
+    // ---------- ZAE7. 到期：`forever` / 看得懂 / 看不懂 ----------
+    {
+        const QDateTime now =
+            QDateTime::fromString(QStringLiteral("2026-10-18T12:00:00"), Qt::ISODate);
+        ServerPlayers::Entry entry;
+        entry.expires = QStringLiteral("forever");
+        check(!ServerPlayers::isExpired(entry, now), "ZAE7 `forever` ⇒ 没过期");
+        entry.expires.clear();
+        check(!ServerPlayers::isExpired(entry, now), "ZAE7 空着 ⇒ 没过期（不猜）");
+        entry.expires = QStringLiteral("看不懂的时间");
+        check(!ServerPlayers::isExpired(entry, now),
+              "★★ ZAE7 认不出来的到期时间 ⇒ **不算过期**（当成已过期会让一条封禁看起来不存在）");
+        entry.expires = QStringLiteral("2026-10-01 00:00:00 +0800");
+        check(ServerPlayers::isExpired(entry, now), "★ ZAE7 过去的点 ⇒ 过期了",
+              ServerPlayers::expiryText(entry, now));
+        entry.expires = QStringLiteral("2026-12-01 00:00:00 +0800");
+        check(!ServerPlayers::isExpired(entry, now), "ZAE7 将来的点 ⇒ 没过期",
+              ServerPlayers::expiryText(entry, now));
+        check(ServerPlayers::expiryText(entry, now) == QStringLiteral("到 2026-12-01 00:00"),
+              "ZAE7 「到 …」那句话的形状（分钟就够，别把秒摆出来）",
+              ServerPlayers::expiryText(entry, now));
+        entry.expires = QStringLiteral("forever");
+        check(ServerPlayers::expiryText(entry, now) == QStringLiteral("永久"),
+              "★ ZAE7 `forever` 那一句是「永久」", ServerPlayers::expiryText(entry, now));
+        entry.expires = QStringLiteral("2026-10-01 00:00:00 +0800");
+        const QString expired = ServerPlayers::expiryText(entry, now);
+        check(expired.startsWith(QStringLiteral("已经过期")) && expired.contains(QStringLiteral("2026-10-01")),
+              "★ ZAE7 过期那一句把那一刻也写出来", expired);
+        entry.expires = QStringLiteral("看不清");
+        check(ServerPlayers::expiryText(entry, now).contains(QStringLiteral("看不清")),
+              "ZAE7 看不懂的时间原样摆出来（不编一个日子）", ServerPlayers::expiryText(entry, now));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ZAF. 服务端异常退出后要不要自动拉起（coding plan §9.7「重启策略 + 上限」）
+//
+// 这一节钉的是 `ServerRestart` 那几条纯判据。最要紧的三条：
+//
+//   · **用户自己停的 / 正常退出**一律不拉 —— 点了「停止」五秒后又起来是最吓人的；
+//   · **连着崩几次就收手**，而且次数是「连着」的（跑够久再崩算新的一轮）；
+//   · 两次之间**退避**（5、10、20、40、60 封顶）：给用户留出看控制台的时间。
+//
+// 真接线在 `MainWindow::onServerExited()`（排那一发 `singleShot`），策略那两格在
+// `.wtfml-server` 里 —— 下面顺带钉一遍往返：记不住的设置等于没有。
+// ---------------------------------------------------------------------------
+static void runServerRestartTests() {
+    section("ZAF. 服务端异常退出后自动重启：哪一档才拉 / 连着几次收手 / 退避（§9.7）");
+
+    // ---------- ZAF0. 这一次是怎么退的 ----------
+    {
+        check(ServerRestart::whyFor(true, false, 0) == ServerRestart::Why::UserStop,
+              "★★ ZAF0 用户点了「停止」⇒ UserStop（退出码是 0 也一样）");
+        check(ServerRestart::whyFor(false, true, 137) == ServerRestart::Why::UserStop,
+              "★★ ZAF0 被强杀的那一趟也是 UserStop —— 强杀的退出码难看，但它不是崩了");
+        check(ServerRestart::whyFor(false, false, 0) == ServerRestart::Why::CleanExit,
+              "★ ZAF0 退出码 0 ⇒ CleanExit（控制台里敲了 stop 也走这一档）");
+        check(ServerRestart::whyFor(false, false, 1) == ServerRestart::Why::Crash,
+              "★ ZAF0 非 0 退出 ⇒ Crash");
+        check(ServerRestart::whyFor(false, false, -1) == ServerRestart::Why::Crash,
+              "★ ZAF0 起不来的那一档（−1）也算异常退出 —— 它下一次照样值得再试");
+        check(ServerRestart::isAbnormal(ServerRestart::Why::Crash)
+                  && !ServerRestart::isAbnormal(ServerRestart::Why::CleanExit)
+                  && !ServerRestart::isAbnormal(ServerRestart::Why::UserStop),
+              "★★ ZAF0 只有 Crash 会触发自动重启的考虑");
+        check(ServerRestart::whyName(ServerRestart::Why::UserStop) == QStringLiteral("你自己停的")
+                  && ServerRestart::whyName(ServerRestart::Why::CleanExit)
+                         == QStringLiteral("正常退出")
+                  && ServerRestart::whyName(ServerRestart::Why::Crash)
+                         == QStringLiteral("异常退出"),
+              "★ ZAF0 三档那三句话的唯一出处");
+    }
+
+    // ---------- ZAF1. 次数：越界回默认，不夹到边上 ----------
+    {
+        check(ServerRestart::normalizeMaxAttempts(0) == ServerRestart::kDefaultMaxAttempts,
+              "★★ ZAF1 0 ⇒ 回默认那一档（不是夹到 1：夹到边上会让被限流看起来像用户自己选的）",
+              QString::number(ServerRestart::normalizeMaxAttempts(0)));
+        check(ServerRestart::normalizeMaxAttempts(99) == ServerRestart::kDefaultMaxAttempts,
+              "★ ZAF1 越过大上限 ⇒ 默认",
+              QString::number(ServerRestart::normalizeMaxAttempts(99)));
+        check(ServerRestart::normalizeMaxAttempts(ServerRestart::kMinMaxAttempts)
+                      == ServerRestart::kMinMaxAttempts
+                  && ServerRestart::normalizeMaxAttempts(ServerRestart::kMaxMaxAttempts)
+                         == ServerRestart::kMaxMaxAttempts,
+              "ZAF1 两个边界值本身留得住");
+        check(ServerRestart::normalizeMaxAttempts(5) == 5, "ZAF1 表内的合法值（5）原样留");
+        ServerRestart::Policy policy;
+        policy.enabled = true;
+        policy.maxAttempts = 0;
+        const ServerRestart::Policy normalized = ServerRestart::normalize(policy);
+        check(normalized.enabled && normalized.maxAttempts == ServerRestart::kDefaultMaxAttempts,
+              "ZAF1 normalize() 只动那个数，开关原样");
+    }
+
+    // ---------- ZAF2. 退避：5、10、20、40、60 封顶 ----------
+    {
+        check(ServerRestart::delaySeconds(1) == 5 && ServerRestart::delaySeconds(2) == 10
+                  && ServerRestart::delaySeconds(3) == 20 && ServerRestart::delaySeconds(4) == 40
+                  && ServerRestart::delaySeconds(5) == 60 && ServerRestart::delaySeconds(6) == 60,
+              "★★ ZAF2 第一次 5 秒、之后每次翻倍、60 秒封顶（崩得越快等得越久）",
+              QStringLiteral("%1/%2/%3/%4/%5")
+                  .arg(ServerRestart::delaySeconds(1))
+                  .arg(ServerRestart::delaySeconds(2))
+                  .arg(ServerRestart::delaySeconds(3))
+                  .arg(ServerRestart::delaySeconds(4))
+                  .arg(ServerRestart::delaySeconds(6)));
+        check(ServerRestart::delaySeconds(0) == ServerRestart::kBaseDelaySeconds
+                  && ServerRestart::delaySeconds(-3) == ServerRestart::kBaseDelaySeconds,
+              "ZAF2 第 0 / 负数次也回第一次那个数（调用方数错一格不至于等 0 秒）");
+        check(ServerRestart::delaySeconds(100) == ServerRestart::kMaxDelaySeconds,
+              "ZAF2 很大的次数也封在 60 秒");
+        check(ServerRestart::kResetAfterSeconds > ServerRestart::kMaxDelaySeconds,
+              "★ ZAF2 跑够久算新的一轮那个门槛比最长退避还长（不然重启循环永远等不到新一轮）",
+              QString::number(ServerRestart::kResetAfterSeconds));
+    }
+
+    // ---------- ZAF3. 决定 ----------
+    {
+        ServerRestart::Policy policy;
+        policy.enabled = true;
+        policy.maxAttempts = 3;
+
+        const ServerRestart::Decision first =
+            ServerRestart::decide(policy, ServerRestart::Why::Crash, 0);
+        check(first.restart && first.delaySeconds == 5
+                  && first.note.contains(QStringLiteral("第 1 次"))
+                  && first.note.contains(QStringLiteral("3")),
+              "★★ ZAF3 第一次崩：5 秒后重启，那句话写清楚第几次 / 最多几次", first.note);
+
+        const ServerRestart::Decision third =
+            ServerRestart::decide(policy, ServerRestart::Why::Crash, 2);
+        check(third.restart && third.delaySeconds == 20
+                  && third.note.contains(QStringLiteral("第 3 次")),
+              "★ ZAF3 已经重启过 2 次 ⇒ 第 3 次、等 20 秒", third.note);
+
+        const ServerRestart::Decision exhausted =
+            ServerRestart::decide(policy, ServerRestart::Why::Crash, 3);
+        check(!exhausted.restart && exhausted.delaySeconds == 0
+                  && exhausted.note.contains(QStringLiteral("不再自动重启")),
+              "★★ ZAF3 连着重启满 3 次 ⇒ 收手，而且那句话必须说出来"
+              "（不然用户会一直等它自己起来）",
+              exhausted.note);
+
+        const ServerRestart::Decision clean =
+            ServerRestart::decide(policy, ServerRestart::Why::CleanExit, 0);
+        const ServerRestart::Decision user =
+            ServerRestart::decide(policy, ServerRestart::Why::UserStop, 0);
+        check(!clean.restart && clean.note.isEmpty() && !user.restart && user.note.isEmpty(),
+              "★★ ZAF3 正常退出 / 用户停的 ⇒ 不重启、也不多说一句（这两档不是问题）");
+
+        policy.enabled = false;
+        const ServerRestart::Decision off =
+            ServerRestart::decide(policy, ServerRestart::Why::Crash, 0);
+        check(!off.restart && off.note.isEmpty(),
+              "★★ ZAF3 策略关着 ⇒ 崩了也不拉（出厂就是这个状态：没问过用户的事不替他做）");
+
+        policy.enabled = true;
+        policy.maxAttempts = 0;  // 手改坏的那种
+        const ServerRestart::Decision fixed =
+            ServerRestart::decide(policy, ServerRestart::Why::Crash, 0);
+        check(fixed.restart && fixed.note.contains(QStringLiteral("最多连着 3 次")),
+              "★ ZAF3 次数写坏了 ⇒ 按默认的 3 次办事（不是一次都不拉）", fixed.note);
+
+        const ServerRestart::Decision beyond =
+            ServerRestart::decide(policy, ServerRestart::Why::Crash, 99);
+        check(!beyond.restart, "ZAF3 已经重启过 99 次 ⇒ 当然不拉");
+    }
+
+    // ---------- ZAF4. 策略记在 `.wtfml-server` 里，读了要回来 ----------
+    {
+        ServerModel::Info info;
+        info.serverId = QStringLiteral("s1");
+        info.gameVersion = QStringLiteral("1.20.1");
+        info.restartOnCrash = true;
+        info.restartMaxAttempts = 7;
+        bool ok = false;
+        const ServerModel::Info back = ServerModel::fromJson(ServerModel::toJson(info), &ok);
+        check(ok && back.restartOnCrash && back.restartMaxAttempts == 7,
+              "★★ ZAF4 重启策略那两格写得出、读得回（记不住的设置等于没有）",
+              QStringLiteral("%1/%2").arg(back.restartOnCrash).arg(back.restartMaxAttempts));
+
+        ServerModel::Info plain;
+        plain.serverId = QStringLiteral("s2");
+        const QByteArray plainBytes = ServerModel::toJson(plain);
+        check(!plainBytes.contains("restartOnCrash") && !plainBytes.contains("restartMaxAttempts"),
+              "★ ZAF4 没动过策略（关着 + 默认 3 次）⇒ 一个字节都不多写（老文件的样子）",
+              QString::fromUtf8(plainBytes));
+
+        // 手改坏的次数：读的时候归一化成默认那一档。
+        QJsonObject object;
+        object.insert(QStringLiteral("format"), ServerModel::formatTag());
+        object.insert(QStringLiteral("version"), ServerModel::formatVersion());
+        object.insert(QStringLiteral("restartOnCrash"), true);
+        object.insert(QStringLiteral("restartMaxAttempts"), 999);
+        const ServerModel::Info repaired =
+            ServerModel::fromJson(QJsonDocument(object).toJson());
+        check(repaired.restartOnCrash
+                  && repaired.restartMaxAttempts == ServerRestart::kDefaultMaxAttempts,
+              "★★ ZAF4 手改成 999 ⇒ 读回来是默认那一档（normalizeMaxAttempts() 兜住）",
+              QString::number(repaired.restartMaxAttempts));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ZAG. 服务端资源包：这份本地 zip 能不能用 / SHA-1 对不对（coding plan §9.7）
+//
+// §9.7 那一句是：「服务端资源包选择本地 zip、计算 SHA-1，并明确 URL 托管仍需用户提供，
+// 启动器不假装本地路径能被其他玩家访问」。这一节钉**判据那一半**：
+//
+//   · 游戏只认**最外层**那一份 `pack.mcmeta` —— "整个文件夹一起压"是最常见的错；
+//   · 只有 `data/` 没有 `assets/` 的那份是**数据包**，放错地方了，说法要跟着换；
+//   · SHA-1 得是这份 zip 的**真摘要**（小写 40 位）—— 填错一格，客户端每个人进服都
+//     会卡在一个下不下来的资源包上。
+//
+// 真 zip 由这一节自己用 `ZipUtil::createZip()` 打（和导出整合包同一条写侧），不碰安装。
+// ---------------------------------------------------------------------------
+static void runServerResourcePackTests() {
+    section("ZAG. 服务端资源包：条目表判据 / 真 zip 的 SHA-1（§9.7）");
+
+    // ---------- ZAG0. 条目表像不像资源包 ----------
+    {
+        const ServerResourcePack::EntriesCheck good = ServerResourcePack::checkEntries(
+            {QStringLiteral("pack.mcmeta"), QStringLiteral("assets/"),
+             QStringLiteral("assets/minecraft/textures/block/stone.png")});
+        check(good.ok && good.hasPackMeta && good.hasAssets && good.problem.isEmpty(),
+              "★★ ZAG0 最外层有 `pack.mcmeta`、也有 `assets/` ⇒ 可以用",
+              good.problem);
+
+        // "一键压缩"那类工具会写反斜杠；zip 规范里条目名只用 `/`，但现实里有这种包。
+        const ServerResourcePack::EntriesCheck slashed = ServerResourcePack::checkEntries(
+            {QStringLiteral("pack.mcmeta"), QStringLiteral("assets\\minecraft\\sounds.json")});
+        check(slashed.ok && slashed.hasAssets,
+              "★ ZAG0 反斜杠的条目名照样认得出 assets/（不认的话这个包会被判成「不是资源包」）");
+
+        // 最常见的错：整个文件夹一起压 —— 游戏只认最外层那一份。
+        const ServerResourcePack::EntriesCheck nested = ServerResourcePack::checkEntries(
+            {QStringLiteral("MyPack/pack.mcmeta"), QStringLiteral("MyPack/assets/x.png")});
+        check(!nested.ok && nested.problem.contains(QStringLiteral("最外层"))
+                  && nested.problem.contains(QStringLiteral("重新压")),
+              "★★ ZAG0 `pack.mcmeta` 套在文件夹里 ⇒ 不许用，而且要说清「重新压到最外层」",
+              nested.problem);
+
+        const ServerResourcePack::EntriesCheck missing = ServerResourcePack::checkEntries(
+            {QStringLiteral("assets/minecraft/x.png")});
+        check(!missing.ok && missing.problem.contains(QStringLiteral("pack.mcmeta")),
+              "★★ ZAG0 没有 `pack.mcmeta` ⇒ 不是资源包", missing.problem);
+
+        const ServerResourcePack::EntriesCheck dataPack = ServerResourcePack::checkEntries(
+            {QStringLiteral("pack.mcmeta"), QStringLiteral("data/minecraft/loot_tables/x.json")});
+        check(dataPack.ok && !dataPack.hasAssets,
+              "ZAG0 只有 pack.mcmeta + data/ 的条目表本身判得过去（拦不拦是下一步的事）");
+
+        const ServerResourcePack::EntriesCheck wrongKind = ServerResourcePack::checkEntries(
+            {QStringLiteral("data/minecraft/loot_tables/x.json")});
+        check(!wrongKind.ok && wrongKind.looksLikeDataPack
+                  && wrongKind.problem.contains(QStringLiteral("数据包")),
+              "★★ ZAG0 只有 data/ 没有 assets/ ⇒ 是**数据包**，那句说法要换成「放错地方」",
+              wrongKind.problem);
+
+        const ServerResourcePack::EntriesCheck empty = ServerResourcePack::checkEntries({});
+        check(!empty.ok && !empty.problem.isEmpty(),
+              "★ ZAG0 空压缩包 ⇒ 不许用，而且要有话说", empty.problem);
+    }
+
+    // ---------- ZAG1. 真 zip：inspect() 读得动、SHA-1 是对的 ----------
+    {
+        QTemporaryDir root;
+        check(root.isValid(), "ZAG1 临时目录建得出来");
+        if (!root.isValid()) {
+            return;
+        }
+        const QString filesDir = root.path() + QStringLiteral("/files");
+        check(QDir().mkpath(filesDir + QStringLiteral("/assets/minecraft")),
+              "ZAG1 造得出一棵小目录");
+        const auto writeFile = [](const QString &path, const QByteArray &bytes) {
+            QFile file(path);
+            if (!file.open(QIODevice::WriteOnly)) {
+                return false;
+            }
+            return file.write(bytes) == bytes.size();
+        };
+        const QString metaPath = filesDir + QStringLiteral("/pack.mcmeta");
+        const QString assetPath = filesDir + QStringLiteral("/assets/minecraft/x.txt");
+        check(writeFile(metaPath, QByteArrayLiteral("{\"pack\":{\"pack_format\":15}}"))
+                  && writeFile(assetPath, QByteArrayLiteral("hello")),
+              "ZAG1 两份源文件写得出来");
+
+        const QString packPath = root.path() + QStringLiteral("/pack.zip");
+        QString error;
+        const bool made =
+            ZipUtil::createZip(packPath,
+                               {{QStringLiteral("pack.mcmeta"), metaPath},
+                                {QStringLiteral("assets/minecraft/x.txt"), assetPath}},
+                               &error);
+        check(made, "★ ZAG1 真打一个 zip（写侧就是导出整合包那一条 `createZip`）", error);
+        if (made) {
+            const ServerResourcePack::Inspect inspected = ServerResourcePack::inspect(packPath);
+            QFile packFile(packPath);
+            QByteArray bytes;
+            if (packFile.open(QIODevice::ReadOnly)) {
+                bytes = packFile.readAll();
+            }
+            const QString expected = FileHash::digestOf(bytes, FileHash::Algorithm::Sha1);
+            check(inspected.ok && !expected.isEmpty() && inspected.sha1 == expected
+                      && inspected.sha1.size() == 40
+                      && inspected.sha1 == inspected.sha1.toLower(),
+                  "★★ ZAG1 `inspect()` 算出的 SHA-1 就是这份 zip 的真摘要（小写 40 位）",
+                  QStringLiteral("%1 / 应为 %2").arg(inspected.sha1, expected));
+            check(inspected.bytes == bytes.size() && inspected.fileCount == 2,
+                  "★ ZAG1 大小与文件数都对得上（目录条目不算文件）",
+                  QStringLiteral("%1 字节 / %2 个文件")
+                      .arg(inspected.bytes)
+                      .arg(inspected.fileCount));
+            check(ServerResourcePack::fileCountText(inspected) == QStringLiteral("2 个文件"),
+                  "ZAG1 「N 个文件」那句话的唯一出处",
+                  ServerResourcePack::fileCountText(inspected));
+
+            // 同一份文件再查一遍：结果要一模一样（SHA-1 不是随机的）。
+            const ServerResourcePack::Inspect again = ServerResourcePack::inspect(packPath);
+            check(again.ok && again.sha1 == inspected.sha1,
+                  "ZAG1 同一份 zip 查两遍给的摘要一样");
+        }
+
+        // 不是 zip 的那一份：改过扩展名的 rar / 坏文件都长这样。
+        const QString junkPath = root.path() + QStringLiteral("/junk.zip");
+        check(writeFile(junkPath, QByteArrayLiteral("this is not a zip")),
+              "ZAG1 造一份「假 zip」");
+        const ServerResourcePack::Inspect junk = ServerResourcePack::inspect(junkPath);
+        check(!junk.ok && junk.problem.contains(QStringLiteral("zip")),
+              "★★ ZAG1 不是 zip 的文件 ⇒ 明说「这不是一个 zip」，不是一句读失败", junk.problem);
+
+        // 套在文件夹里的那一份：条目表能读出来，但判据得拦住（游戏认不出它）。
+        const QString nestedPath = root.path() + QStringLiteral("/nested.zip");
+        QString nestedError;
+        const bool nestedMade = ZipUtil::createZip(
+            nestedPath, {{QStringLiteral("MyPack/pack.mcmeta"), metaPath}}, &nestedError);
+        if (nestedMade) {
+            const ServerResourcePack::Inspect nested = ServerResourcePack::inspect(nestedPath);
+            check(!nested.ok && nested.problem.contains(QStringLiteral("最外层")),
+                  "★★ ZAG1 套了一层的 zip 在 `inspect()` 那一层就被拦住（不白算一遍 SHA-1）",
+                  nested.problem);
+        }
+
+        const ServerResourcePack::Inspect missing =
+            ServerResourcePack::inspect(root.path() + QStringLiteral("/nope.zip"));
+        check(!missing.ok && missing.problem.contains(QStringLiteral("找不到")),
+              "★ ZAG1 文件不在 ⇒ 那句话说的是「找不到」，不是「读不出来」", missing.problem);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ZAH. 服务端内容：模组 / 数据包的名字与分类（coding plan §9.7「内容管理」）
+//
+// 内容那一页只认两种文件（`mods/*.jar`、`<世界>/datapacks/*.zip`），禁用 = 加 `.disabled`
+// 尾巴。这一层不碰盘，所以这里钉的全是"名字上的规矩"：
+//
+//   · **认名先摘尾巴**：`X.jar.disabled` 是禁用的模组，`X.jar.bak` 不是模组（尾巴摘不掉就
+//     落选）—— 少了这一步，禁用过的文件会在那一页上"消失"；
+//   · **改名只动尾巴**：内容、大小、mtime 一个字节都不变（用户随时能改回来）；
+//   · **认不出来的回空串**，不猜（调用方拿空串说明"这一行动不了"）。
+// ---------------------------------------------------------------------------
+static void runServerContentTests() {
+    section("ZAH. 服务端内容：模组 / 数据包的名字与分类（§9.7）");
+
+    // ---------- ZAH0. 名字上的规矩 ----------
+    {
+        check(ServerContent::kindCount() == 2, "ZAH0 内容就两类（模组 / 数据包）",
+              QString::number(ServerContent::kindCount()));
+        check(ServerContent::kindTitle(ServerContent::Kind::Mods) == QStringLiteral("模组")
+                  && ServerContent::kindTitle(ServerContent::Kind::Datapacks)
+                         == QStringLiteral("数据包"),
+              "ZAH0 两类的标题");
+        check(ServerContent::folderName(ServerContent::Kind::Mods) == QStringLiteral("mods")
+                  && ServerContent::folderName(ServerContent::Kind::Datapacks)
+                         == QStringLiteral("datapacks"),
+              "ZAH0 两类的文件夹名");
+        check(ServerContent::fileSuffix(ServerContent::Kind::Mods) == QStringLiteral(".jar")
+                  && ServerContent::fileSuffix(ServerContent::Kind::Datapacks)
+                         == QStringLiteral(".zip"),
+              "ZAH0 两类认的后缀");
+        check(ServerContent::disabledSuffix() == QStringLiteral(".disabled"),
+              "★ ZAH0 禁用那条尾巴的唯一出处");
+
+        check(ServerContent::isContentFileName(ServerContent::Kind::Mods,
+                                               QStringLiteral("a.jar"))
+                  && ServerContent::isContentFileName(ServerContent::Kind::Mods,
+                                                      QStringLiteral("A.JAR"))
+                  && ServerContent::isContentFileName(ServerContent::Kind::Mods,
+                                                      QStringLiteral("a.jar.disabled")),
+              "★ ZAH0 `.jar` / 大写 / 带 `.disabled` 尾巴的都算模组");
+        check(!ServerContent::isContentFileName(ServerContent::Kind::Mods,
+                                                QStringLiteral("a.jar.bak"))
+                  && !ServerContent::isContentFileName(ServerContent::Kind::Mods,
+                                                       QStringLiteral("a.zip"))
+                  && !ServerContent::isContentFileName(ServerContent::Kind::Mods,
+                                                       QStringLiteral("a"))
+                  && !ServerContent::isContentFileName(ServerContent::Kind::Mods,
+                                                       QStringLiteral(".jar")),
+              "★★ ZAH0 `.jar.bak` / `.zip` / 没后缀 / 光一条后缀都不算模组（摘不掉尾巴就落选）");
+        check(ServerContent::isContentFileName(ServerContent::Kind::Datapacks,
+                                               QStringLiteral("p.zip"))
+                  && ServerContent::isContentFileName(ServerContent::Kind::Datapacks,
+                                                      QStringLiteral("p.ZIP.DISABLED"))
+                  && !ServerContent::isContentFileName(ServerContent::Kind::Datapacks,
+                                                       QStringLiteral("p.jar")),
+              "ZAH0 数据包认 `.zip`（大写的尾巴也认），不认 `.jar`");
+
+        check(ServerContent::enabledName(QStringLiteral("a.jar.disabled"))
+                  == QStringLiteral("a.jar")
+                  && ServerContent::enabledName(QStringLiteral("a.jar")) == QStringLiteral("a.jar"),
+              "ZAH0 摘尾巴只摘一次");
+        check(ServerContent::isDisabledName(QStringLiteral("a.jar.DISABLED"))
+                  && !ServerContent::isDisabledName(QStringLiteral("a.jar")),
+              "ZAH0 禁用判据只看尾巴、不分大小写");
+    }
+
+    // ---------- ZAH1. 禁用 = 改名，不是删 ----------
+    {
+        check(ServerContent::toggledName(ServerContent::Kind::Mods, QStringLiteral("a.jar"), false)
+                  == QStringLiteral("a.jar.disabled"),
+              "★ ZAH1 禁用模组 = 加 `.disabled` 尾巴");
+        check(ServerContent::toggledName(ServerContent::Kind::Mods,
+                                         QStringLiteral("a.jar.disabled"), true)
+                  == QStringLiteral("a.jar"),
+              "★ ZAH1 启用 = 摘掉 `.disabled` 尾巴（文件内容原样）");
+        check(ServerContent::toggledName(ServerContent::Kind::Datapacks,
+                                         QStringLiteral("p.zip"), false)
+                  == QStringLiteral("p.zip.disabled"),
+              "ZAH1 数据包走同一条规矩");
+        check(ServerContent::toggledName(ServerContent::Kind::Mods, QStringLiteral("a.zip"), false)
+                      .isEmpty()
+                  && ServerContent::toggledName(ServerContent::Kind::Datapacks,
+                                                QStringLiteral("a.jar"), true)
+                         .isEmpty()
+                  && ServerContent::toggledName(ServerContent::Kind::Mods,
+                                                QStringLiteral("readme.txt"), false)
+                         .isEmpty(),
+              "★★ ZAH1 名字不是这一类的 ⇒ 回空串（调用方据此说\"这一行动不了\"，不猜）");
+        // 已经是想要的状态：改名前后同名（调用方据此直接跳过，不做多余的 rename）。
+        check(ServerContent::toggledName(ServerContent::Kind::Mods, QStringLiteral("a.jar"), true)
+                  == QStringLiteral("a.jar"),
+              "ZAH1 已经启用着再要启用 ⇒ 名字不变");
+    }
+
+    // ---------- ZAH2. 文件夹 ----------
+    {
+        const QString serverDir = QStringLiteral("/srv/mc");
+        check(ServerContent::modsDir(serverDir) == QStringLiteral("/srv/mc/mods"),
+              "ZAH2 模组在服务端目录的 mods/ 里", ServerContent::modsDir(serverDir));
+        const QString worldDir = QStringLiteral("/srv/mc/world");
+        check(ServerContent::datapacksDir(worldDir)
+                  == QStringLiteral("/srv/mc/world/datapacks"),
+              "ZAH2 数据包在世界目录的 datapacks/ 里",
+              ServerContent::datapacksDir(worldDir));
+        check(ServerContent::modsDir(QString()).isEmpty()
+                  && ServerContent::datapacksDir(QString()).isEmpty(),
+              "★ ZAH2 服务端目录 / 世界目录为空 ⇒ 回空串（不编一个假路径出来）");
+    }
+
+    // ---------- ZAH3. 列出来的行 ----------
+    {
+        const QStringList names{QStringLiteral("a.jar"),        QStringLiteral("readme.txt"),
+                                QStringLiteral("b.jar.disabled"), QStringLiteral("c.zip"),
+                                QStringLiteral("d.jar.bak")};
+        const QList<ServerContent::Entry> mods =
+            ServerContent::entriesFromNames(names, ServerContent::Kind::Mods);
+        check(mods.size() == 2 && mods.value(0).name == QStringLiteral("a.jar")
+                  && !mods.value(0).disabled && mods.value(1).name == QStringLiteral("b.jar.disabled")
+                  && mods.value(1).disabled,
+              "★★ ZAH3 模组那一列：只出 `.jar` / 禁用的；顺序照传进来的",
+              QStringLiteral("%1 行").arg(mods.size()));
+        const QList<ServerContent::Entry> packs =
+            ServerContent::entriesFromNames(names, ServerContent::Kind::Datapacks);
+        check(packs.size() == 1 && packs.value(0).name == QStringLiteral("c.zip")
+                  && !packs.value(0).disabled,
+              "★ ZAH3 数据包那一列只认 `.zip`（`.jar` 不进这一列）",
+              QStringLiteral("%1 行").arg(packs.size()));
+        check(ServerContent::entriesFromNames({}, ServerContent::Kind::Mods).isEmpty(),
+              "ZAH3 空文件夹 ⇒ 空列表（不是错误）");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ZAI. 工具箱那两件：信标计算 / 酿造助手（coding plan §9.11，2026-10-18）
+//
+// 两件都是纯算术 + 一张表，所以这里直接钉数字和路线：
+//
+//   · **信标**：一层 `(2n+1)^2` 块、累计 9 / 34 / 83 / 164；范围 `10n+10`；效果按级解锁。
+//     这些数错一格，界面上给出的"还要多少块"就会骗人（用户真的会照它去挖矿）。
+//   · **酿造**：链式前驱（隐身 ← 夜视 ← 粗制的药水）、水瓶直出（虚弱 / 缓降）、
+//     红石与荧石二选一、以及"滞留必须先从喷溅来"那一步。
+// ---------------------------------------------------------------------------
+static void runToolboxExtraTests() {
+    section("ZAI. 工具箱：信标计算 / 酿造助手（§9.11）");
+
+    // ---------- ZAI0. 信标：层、累计、范围 ----------
+    {
+        check(Beacon::minLevel() == 1 && Beacon::maxLevel() == 4,
+              "ZAI0 信标只有 1–4 级");
+        check(Beacon::layerBlocks(1) == 9 && Beacon::layerBlocks(2) == 25
+                  && Beacon::layerBlocks(3) == 49 && Beacon::layerBlocks(4) == 81,
+              "★★ ZAI0 每一层是 (2n+1)²（3×3 / 5×5 / 7×7 / 9×9）",
+              QStringLiteral("%1 / %2 / %3 / %4")
+                  .arg(Beacon::layerBlocks(1))
+                  .arg(Beacon::layerBlocks(2))
+                  .arg(Beacon::layerBlocks(3))
+                  .arg(Beacon::layerBlocks(4)));
+        check(Beacon::totalBlocks(1) == 9 && Beacon::totalBlocks(2) == 34
+                  && Beacon::totalBlocks(3) == 83 && Beacon::totalBlocks(4) == 164,
+              "★★ ZAI0 从零搭起的累计块数是 9 / 34 / 83 / 164（每层往上叠，不是只剩最上面那层）",
+              QStringLiteral("%1 / %2 / %3 / %4")
+                  .arg(Beacon::totalBlocks(1))
+                  .arg(Beacon::totalBlocks(2))
+                  .arg(Beacon::totalBlocks(3))
+                  .arg(Beacon::totalBlocks(4)));
+        check(Beacon::blocksToAdd(0, 4) == 164 && Beacon::blocksToAdd(3, 4) == 81
+                  && Beacon::blocksToAdd(2, 4) == 81 + 49 && Beacon::blocksToAdd(4, 4) == 0
+                  && Beacon::blocksToAdd(3, 2) == 0,
+              "★★ ZAI0 「已有 0 / 2 / 3 / 4 级」到 4 级还要补多少块（顺序反了回 0）",
+              QStringLiteral("0→4=%1 3→4=%2 2→4=%3")
+                  .arg(Beacon::blocksToAdd(0, 4))
+                  .arg(Beacon::blocksToAdd(3, 4))
+                  .arg(Beacon::blocksToAdd(2, 4)));
+        check(Beacon::effectRange(1) == 20 && Beacon::effectRange(2) == 30
+                  && Beacon::effectRange(3) == 40 && Beacon::effectRange(4) == 50,
+              "★ ZAI0 效果范围 = 10n+10（20 / 30 / 40 / 50 格）");
+
+        check(Beacon::layerBlocks(0) == 0 && Beacon::layerBlocks(5) == 0
+                  && Beacon::totalBlocks(9) == 0 && Beacon::effectRange(-1) == 0,
+              "ZAI0 越界等级回 0（不编一个整数出来）");
+        check(!Beacon::isValidLevel(0) && Beacon::isValidLevel(1) && Beacon::isValidLevel(4)
+                  && !Beacon::isValidLevel(5) && Beacon::isValidFromLevel(0)
+                  && Beacon::isValidFromLevel(3) && !Beacon::isValidFromLevel(4),
+              "ZAI0 「目标等级」是 1–4，「已有等级」是 0–3（0 = 还没搭）");
+    }
+
+    // ---------- ZAI1. 信标：效果按级解锁 ----------
+    {
+        check(Beacon::effectNames().size() == 6,
+              "ZAI1 一共六种效果", QString::number(Beacon::effectNames().size()));
+        const auto same = [](const QStringList &a, const QStringList &b) { return a == b; };
+        check(same(Beacon::effectsForLevel(1),
+                   {QStringLiteral("速度"), QStringLiteral("急迫")}),
+              "★ ZAI1 1 级：速度 / 急迫",
+              Beacon::effectsForLevel(1).join(QStringLiteral("、")));
+        check(same(Beacon::effectsForLevel(2),
+                   {QStringLiteral("速度"), QStringLiteral("急迫"),
+                    QStringLiteral("抗性提升"), QStringLiteral("跳跃提升")}),
+              "★ ZAI1 2 级再加抗性提升 / 跳跃提升",
+              Beacon::effectsForLevel(2).join(QStringLiteral("、")));
+        check(same(Beacon::effectsForLevel(3),
+                   {QStringLiteral("速度"), QStringLiteral("急迫"),
+                    QStringLiteral("抗性提升"), QStringLiteral("跳跃提升"),
+                    QStringLiteral("力量")}),
+              "★ ZAI1 3 级再加力量", Beacon::effectsForLevel(3).join(QStringLiteral("、")));
+        check(same(Beacon::effectsForLevel(4),
+                   {QStringLiteral("速度"), QStringLiteral("急迫"),
+                    QStringLiteral("抗性提升"), QStringLiteral("跳跃提升"),
+                    QStringLiteral("力量"), QStringLiteral("再生")}),
+              "★ ZAI1 4 级再加再生（六种全开）",
+              Beacon::effectsForLevel(4).join(QStringLiteral("、")));
+        check(Beacon::effectsForLevel(0).isEmpty() && Beacon::effectsForLevel(5).isEmpty(),
+              "ZAI1 越界等级回空表");
+
+        const QString detail = Beacon::detailText(2, 4);
+        check(detail.contains(QStringLiteral("9 × 9 = 81"))
+                  && detail.contains(QStringLiteral("再补 130 块"))
+                  && detail.contains(QStringLiteral("50 格"))
+                  && detail.contains(QStringLiteral("力量")),
+              "★★ ZAI1 明细里写清最上面那层、还差多少块、范围与效果",
+              detail.left(80));
+    }
+
+    // ---------- ZAI1b. 信标：矿物折算与多颗共用底座（§9.11 第 9 项）----------
+    {
+        check(Beacon::materialNames().size() == 5
+                  && Beacon::materialNames().first() == QStringLiteral("铁块")
+                  && Beacon::materialNames().last() == QStringLiteral("下界合金块"),
+              "★ ZAI1b 五种底座方块，次序 = 下拉框次序",
+              Beacon::materialNames().join(QStringLiteral("、")));
+        check(Beacon::isValidMaterial(0) && Beacon::isValidMaterial(4)
+                  && !Beacon::isValidMaterial(-1) && !Beacon::isValidMaterial(5),
+              "ZAI1b 材质下标 0–4");
+        check(Beacon::blockName(2) == QStringLiteral("钻石块")
+                  && Beacon::unitName(2) == QStringLiteral("钻石")
+                  && Beacon::unitName(4) == QStringLiteral("下界合金锭"),
+              "ZAI1b 方块名与锭/宝石名对得上");
+
+        check(Beacon::unitsPerBlock() == 9 && Beacon::unitsForBlocks(0, 164) == 1476,
+              "★★ ZAI1b 164 块铁块 = 1476 个铁锭（每块 9 个）",
+              QString::number(Beacon::unitsForBlocks(0, 164)));
+        check(Beacon::unitsForBlocks(-1, 164) == 0 && Beacon::unitsForBlocks(0, 0) == 0,
+              "ZAI1b 材质越界 / 块数为 0 ⇒ 0（不编数）");
+
+        const QString material = Beacon::materialText(1, 164);
+        check(material.contains(QStringLiteral("164 块金块"))
+                  && material.contains(QStringLiteral("1476 个金锭")),
+              "★★ ZAI1b 折算那一句把方块与锭都写出来", material);
+        check(Beacon::materialText(9, 164).contains(QStringLiteral("认不出")),
+              "ZAI1b 材质下标越界时说「认不出」，不装作知道");
+
+        check(Beacon::maxBeaconsPerBase() == 9,
+              "★ ZAI1b 顶面 3 × 3 ⇒ 一座金字塔最多 9 颗信标");
+        check(Beacon::sharedBaseBlocks(4, 1) == 164 && Beacon::sharedBaseBlocks(4, 9) == 164,
+              "★★ ZAI1b 共用底座时方块数不随颗数增加（1 颗与 9 颗都是 164）",
+              QStringLiteral("%1 / %2")
+                  .arg(Beacon::sharedBaseBlocks(4, 1))
+                  .arg(Beacon::sharedBaseBlocks(4, 9)));
+        check(Beacon::sharedBaseBlocks(4, 0) == 0 && Beacon::sharedBaseBlocks(4, 10) == 0
+                  && Beacon::sharedBaseBlocks(5, 1) == 0,
+              "ZAI1b 颗数 / 等级越界 ⇒ 0");
+        const QString shared = Beacon::sharedBaseText(4, 3);
+        check(shared.contains(QStringLiteral("3 颗"))
+                  && shared.contains(QStringLiteral("底座仍然只要 164 块"))
+                  && shared.contains(QStringLiteral("9 块黑曜石")),
+              "★★ ZAI1b 共用底座那句把底座与每颗信标自己的材料分开说", shared);
+        check(Beacon::sharedBaseText(4, 10).contains(QStringLiteral("放不下")),
+              "ZAI1b 超过 9 颗时说「放不下」");
+    }
+
+    // ---------- ZAI2. 酿造：表与形态 ----------
+    {
+        check(Brewing::formCount() == 3
+                  && Brewing::formName(Brewing::Form::Normal) == QStringLiteral("普通")
+                  && Brewing::formName(Brewing::Form::Splash) == QStringLiteral("喷溅型")
+                  && Brewing::formName(Brewing::Form::Lingering) == QStringLiteral("滞留型"),
+              "ZAI2 形态三档（下标 = 界面下拉框的下标）");
+        check(Brewing::potionCount() > 0
+                  && Brewing::potionNames().size() == Brewing::potionCount(),
+              "ZAI2 药水表与名字表同长",
+              QString::number(Brewing::potionCount()));
+        check(Brewing::potionAt(-1).name.isEmpty()
+                  && Brewing::potionAt(Brewing::potionCount()).name.isEmpty(),
+              "★ ZAI2 越界下标回空的那一项（不猜一种药水出来）");
+        const Brewing::PotionInfo swift = Brewing::potionAt(0);
+        check(swift.name == QStringLiteral("迅捷") && swift.ingredient == QStringLiteral("糖")
+                  && swift.parent == -1 && !swift.fromWater && swift.extendable
+                  && swift.upgradable,
+              "ZAI2 第一种是迅捷（糖，从粗制的药水来，可延时也可 II 级）");
+    }
+
+    // ---------- ZAI3. 酿造路线 ----------
+    {
+        const Brewing::Plan simple = Brewing::plan(0, false, false, Brewing::Form::Normal);
+        check(simple.ok && simple.steps.size() == 3
+                  && simple.steps.at(0).contains(QStringLiteral("水瓶"))
+                  && simple.steps.at(1).contains(QStringLiteral("下界疣"))
+                  && simple.steps.at(2).contains(QStringLiteral("糖"))
+                  && simple.summary.contains(QStringLiteral("迅捷药水")),
+              "★★ ZAI3 迅捷：水瓶 → 粗制的药水 → 加糖（一共三步）",
+              simple.detailText().left(100));
+        check(simple.summary.contains(QStringLiteral("3 步")),
+              "★ ZAI3 总述里写的是步数", simple.summary);
+
+        const Brewing::Plan extended = Brewing::plan(0, true, false, Brewing::Form::Normal);
+        check(extended.ok && extended.steps.last().contains(QStringLiteral("红石"))
+                  && extended.summary.contains(QStringLiteral("（延长）")),
+              "★ ZAI3 延时：最后一步加红石粉，名字带「（延长）」", extended.summary);
+
+        const Brewing::Plan both = Brewing::plan(0, true, true, Brewing::Form::Normal);
+        check(!both.ok && both.error.contains(QStringLiteral("二选一")),
+              "★★ ZAI3 红石 + 荧石同时要 ⇒ 直接报错（游戏里后加的会冲掉先加的）",
+              both.error);
+
+        const Brewing::Plan noExtend =
+            Brewing::plan(2, true, false, Brewing::Form::Normal);  // 治疗（瞬间药水）
+        check(!noExtend.ok && noExtend.error.contains(QStringLiteral("红石")),
+              "★ ZAI3 治疗没有延长版本 ⇒ 说清楚、不硬塞一步", noExtend.error);
+        const Brewing::Plan noLevel2 =
+            Brewing::plan(7, false, true, Brewing::Form::Normal);  // 抗火
+        check(!noLevel2.ok && noLevel2.error.contains(QStringLiteral("荧石")),
+              "★ ZAI3 抗火没有 II 级 ⇒ 说清楚", noLevel2.error);
+
+        const Brewing::Plan splash = Brewing::plan(0, false, false, Brewing::Form::Splash);
+        check(splash.ok && splash.steps.last().contains(QStringLiteral("火药"))
+                  && splash.summary.contains(QStringLiteral("喷溅型")),
+              "★ ZAI3 喷溅型：最后加火药", splash.summary);
+
+        const Brewing::Plan lingering = Brewing::plan(0, false, false, Brewing::Form::Lingering);
+        check(lingering.ok && lingering.steps.size() >= 2
+                  && lingering.steps.at(lingering.steps.size() - 2).contains(QStringLiteral("火药"))
+                  && lingering.steps.last().contains(QStringLiteral("龙息"))
+                  && lingering.summary.contains(QStringLiteral("滞留型")),
+              "★★ ZAI3 滞留型：先火药（喷溅）再龙息 —— 龙息不能直接加在普通药水上",
+              lingering.steps.join(QStringLiteral(" / ")));
+    }
+
+    // ---------- ZAI4. 链式前驱与水瓶直出 ----------
+    {
+        // 隐身 = 夜视 + 发酵蜘蛛眼；夜视 = 粗制的药水 + 金胡萝卜。
+        int invisibility = -1;
+        int weakness = -1;
+        for (int i = 0; i < Brewing::potionCount(); ++i) {
+            if (Brewing::potionAt(i).name == QStringLiteral("隐身")) invisibility = i;
+            if (Brewing::potionAt(i).name == QStringLiteral("虚弱")) weakness = i;
+        }
+        check(invisibility >= 0 && weakness >= 0, "ZAI4 表里有隐身和虚弱");
+        if (invisibility >= 0) {
+            const Brewing::Plan plan = Brewing::plan(invisibility, false, false,
+                                                     Brewing::Form::Normal);
+            check(plan.ok && plan.steps.size() == 4
+                      && plan.steps.at(1).contains(QStringLiteral("下界疣"))
+                      && plan.steps.at(2).contains(QStringLiteral("金胡萝卜"))
+                      && plan.steps.at(3).contains(QStringLiteral("发酵蜘蛛眼")),
+                  "★★ ZAI4 隐身要把前驱那条链补全：粗制的药水 → 夜视 → 隐身",
+                  plan.steps.join(QStringLiteral(" / ")));
+        }
+        if (weakness >= 0) {
+            const Brewing::Plan plan =
+                Brewing::plan(weakness, false, false, Brewing::Form::Normal);
+            check(plan.ok && plan.steps.size() == 2
+                      && plan.steps.at(1).contains(QStringLiteral("发酵蜘蛛眼"))
+                      && !plan.steps.join(QStringLiteral(" ")).contains(QStringLiteral("下界疣")),
+                  "★★ ZAI4 虚弱从水瓶直接做（不需要下界疣那一步）",
+                  plan.steps.join(QStringLiteral(" / ")));
+        }
+
+        const Brewing::Plan bad = Brewing::plan(-1, false, false, Brewing::Form::Normal);
+        check(!bad.ok && !bad.error.isEmpty(),
+              "★ ZAI4 认不出来的下标 ⇒ 报错，不编一份计划出来");
+    }
+
+    // ---------- ZAI3b. 酿造：瓶数、材料账与燃料（§9.11 第 7 项）----------
+    {
+        check(Brewing::maxBottlesPerOperation() == 3 && Brewing::maxBottles() == 64,
+              "★ ZAI3b 一次最多 3 瓶；界面最多问 64 瓶");
+        check(Brewing::operationsFor(0) == 0 && Brewing::operationsFor(1) == 1
+                  && Brewing::operationsFor(3) == 1 && Brewing::operationsFor(4) == 2
+                  && Brewing::operationsFor(64) == 22,
+              "★★ ZAI3b 酿造次数 = ⌈瓶数 / 3⌉（1–3 瓶一次、4 瓶两次、64 瓶 22 次）",
+              QStringLiteral("%1 / %2 / %3")
+                  .arg(Brewing::operationsFor(1))
+                  .arg(Brewing::operationsFor(4))
+                  .arg(Brewing::operationsFor(64)));
+        check(Brewing::blazePowderFor(0) == 0 && Brewing::blazePowderFor(1) == 1
+                  && Brewing::blazePowderFor(20) == 1 && Brewing::blazePowderFor(21) == 2,
+              "★★ ZAI3b 1 个烈焰粉够 20 次（21 次要 2 个）",
+              QStringLiteral("%1 / %2")
+                  .arg(Brewing::blazePowderFor(20))
+                  .arg(Brewing::blazePowderFor(21)));
+
+        const Brewing::Plan six = Brewing::plan(0, false, false, Brewing::Form::Normal, 6);
+        check(six.ok && six.bottles == 6 && six.operations == 2,
+              "★★ ZAI3b 要 6 瓶 ⇒ 酿 2 次", six.error);
+        check(six.materials.contains(QStringLiteral("糖 × 2"))
+                  && six.materials.contains(QStringLiteral("下界疣 × 2")),
+              "★★ ZAI3b 材料按次数备（糖 × 2、下界疣 × 2）",
+              six.materials.join(QStringLiteral("、")));
+        check(six.detailText().contains(QStringLiteral("一共酿 2 次"))
+                  && six.detailText().contains(QStringLiteral("玻璃瓶 6 个"))
+                  && six.detailText().contains(QStringLiteral("烈焰粉燃料：酿 2 次 ⇒ 1 个")),
+              "★★ ZAI3b 明细里写清次数、瓶子数与燃料用量", six.detailText().right(160));
+        check(six.summary.contains(QStringLiteral("6 瓶（酿 2 次）")),
+              "★ ZAI3b 总述里也带上瓶数", six.summary);
+
+        const Brewing::Plan lingeringSix =
+            Brewing::plan(0, false, false, Brewing::Form::Lingering, 6);
+        check(lingeringSix.ok && lingeringSix.materials.contains(QStringLiteral("火药 × 2"))
+                  && lingeringSix.materials.contains(QStringLiteral("龙息 × 2")),
+              "★★ ZAI3b 滞留型：火药与龙息也各按次数备料",
+              lingeringSix.materials.join(QStringLiteral("、")));
+
+        const Brewing::Plan none = Brewing::plan(0, false, false, Brewing::Form::Normal, 0);
+        const Brewing::Plan tooMany =
+            Brewing::plan(0, false, false, Brewing::Form::Normal, Brewing::maxBottles() + 1);
+        check(!none.ok && none.error.contains(QStringLiteral("瓶数"))
+                  && !tooMany.ok && tooMany.error.contains(QStringLiteral("瓶数")),
+              "★ ZAI3b 瓶数越界 ⇒ 报错（不悄悄钳到 1 或 64）", none.error + tooMany.error);
+
+        // 表里的两处事实（§9.11 第 7 项要求「合法效果/等级/延长」）：再生能延长；迟缓的
+        // 荧石粉给的是 IV。
+        int regeneration = -1;
+        int slowness = -1;
+        for (int i = 0; i < Brewing::potionCount(); ++i) {
+            if (Brewing::potionAt(i).name == QStringLiteral("再生")) regeneration = i;
+            if (Brewing::potionAt(i).name == QStringLiteral("迟缓")) slowness = i;
+        }
+        check(regeneration >= 0 && Brewing::potionAt(regeneration).extendable,
+              "★★ ZAI3b 再生能加红石延长（表里原来标成不能）");
+        check(slowness >= 0 && Brewing::potionAt(slowness).upgradedLevel == 4,
+              "★★ ZAI3b 迟缓荧石粉给的是 IV（不是 II）",
+              QString::number(slowness >= 0 ? Brewing::potionAt(slowness).upgradedLevel : 0));
+        const Brewing::Plan slownessIv =
+            Brewing::plan(slowness, false, true, Brewing::Form::Normal);
+        check(slownessIv.ok && slownessIv.summary.contains(QStringLiteral("IV"))
+                  && slownessIv.steps.last().contains(QStringLiteral("IV")),
+              "★★ ZAI3b 迟缓升一级之后名字与步骤都写 IV", slownessIv.summary);
+        check(Brewing::levelText(0).isEmpty() && Brewing::levelText(2) == QStringLiteral("II")
+                  && Brewing::levelText(4) == QStringLiteral("IV"),
+              "ZAI3b 等级写法（0 = 空、2 = II、4 = IV）");
+    }
+
+    // ---------- ZAJ0. 旗帜：图案表与十六色 ----------
+    {
+        check(Banner::patternCount() == 45,
+              "★ ZAJ0 图案表 45 种（和原版织布机那几十种对得上）",
+              QString::number(Banner::patternCount()));
+        check(Banner::colorCount() == 16 && Banner::colorName(0) == QStringLiteral("白色")
+                  && Banner::colorName(14) == QStringLiteral("红色")
+                  && Banner::colorName(15) == QStringLiteral("黑色"),
+              "★★ ZAJ0 十六色的次序和游戏里一致（0 = 白 … 14 = 红、15 = 黑）",
+              QStringLiteral("%1 / %2 / %3")
+                  .arg(Banner::colorName(0), Banner::colorName(14), Banner::colorName(15)));
+        check(Banner::dyeName(14) == QStringLiteral("红色染料")
+                  && Banner::colorId(14) == QStringLiteral("red"),
+              "★ ZAJ0 染料名和 id 都从同一张表里出来",
+              Banner::dyeName(14) + QStringLiteral(" / ") + Banner::colorId(14));
+        check(Banner::patternIndexById(QStringLiteral("creeper_charge")) >= 0
+                  && Banner::patternAt(Banner::patternIndexById(QStringLiteral("creeper_charge")))
+                             .item
+                         == QStringLiteral("苦力怕头颅"),
+              "★★ ZAJ0 少数几种图案用的不是「旗帜图案」那件物品（苦力怕 = 苦力怕头颅）",
+              Banner::patternAt(Banner::patternIndexById(QStringLiteral("creeper_charge"))).item);
+        check(Banner::patternIndexById(QStringLiteral("no_such_pattern")) == -1
+                  && Banner::patternAt(999).id.isEmpty(),
+              "★ ZAJ0 认不出来就回 -1 / 空，不编一个图案出来");
+        check(Banner::patternIndexById(QStringLiteral("circle")) >= 0
+                  && Banner::patternIndexById(QStringLiteral("rhombus")) >= 0
+                  && Banner::patternIndexById(QStringLiteral("straight_cross")) >= 0
+                  && Banner::patternIndexById(QStringLiteral("curly_border")) >= 0,
+              "★ ZAJ0 圆形 / 菱形 / 正十字 / 卷曲边框这四种也在表里（原来漏了）");
+        check(Banner::patternSince(Banner::patternIndexById(QStringLiteral("flow")))
+                      == QStringLiteral("1.21")
+                  && Banner::patternSince(Banner::patternIndexById(QStringLiteral("guster")))
+                         == QStringLiteral("1.21")
+                  && Banner::patternSince(Banner::patternIndexById(QStringLiteral("cross")))
+                         == QStringLiteral("1.14"),
+              "★★ ZAJ0 图案从哪一版起有：涡流 / 狂风是 1.21，普通图案回 1.14");
+    }
+
+    // ---------- ZAJ1. 旗帜：叠层计划与材料账 ----------
+    {
+        QList<Banner::Layer> layers;
+        layers.append({Banner::patternIndexById(QStringLiteral("cross")), 0});       // 白十字
+        layers.append({Banner::patternIndexById(QStringLiteral("field_masoned")), 15});  // 黑砖墙纹
+        const Banner::Plan plan = Banner::plan(14, layers);  // 红底
+        check(plan.ok, "ZAJ1 两层的计划算得出来", plan.error);
+        check(plan.steps.size() == 3 && plan.steps.first().contains(QStringLiteral("红色羊毛"))
+                  && plan.steps.at(1).contains(QStringLiteral("白色染料"))
+                  && plan.steps.at(2).contains(QStringLiteral("黑色染料")),
+              "★★ ZAJ1 先做底旗、再按列表从上往下逐层叠（次序不许乱）",
+              plan.steps.join(QStringLiteral(" / ")));
+        check(plan.materials.contains(QStringLiteral("红色羊毛 × 6"))
+                  && plan.materials.contains(QStringLiteral("白色染料 × 1"))
+                  && plan.materials.contains(QStringLiteral("砖块 × 1"))
+                  && plan.materials.contains(QStringLiteral("旗帜图案 × 1")),
+              "★★ ZAJ1 材料按种类合并成「× N」，特殊材料用图案表里那件东西",
+              plan.materials.join(QStringLiteral(" / ")));
+        check(plan.summary.contains(QStringLiteral("底色 红色"))
+                  && plan.summary.contains(QStringLiteral("2 层 / 6")),
+              "★ ZAJ1 总述写清底色和层数", plan.summary);
+        check(plan.command.contains(QStringLiteral("minecraft:red_banner"))
+                  && plan.command.contains(QStringLiteral("{Pattern:\"cross\",Color:0}"))
+                  && plan.command.contains(QStringLiteral("field_masoned")),
+              "★ ZAJ1 指令里图案、颜色、底色都对得上", plan.command);
+        check(plan.detailText().contains(QStringLiteral("材料清单："))
+                  && plan.detailText().contains(plan.command),
+              "★ ZAJ1 明细把步骤、材料、指令都摆出来");
+    }
+
+    // ---------- ZAJ2. 旗帜：层数上限与提醒 ----------
+    {
+        QList<Banner::Layer> seven;
+        for (int i = 0; i < Banner::kMaxLayers + 1; ++i) {
+            seven.append({0, 0});
+        }
+        const Banner::Plan tooMany = Banner::plan(0, seven);
+        check(!tooMany.ok && tooMany.error.contains(QStringLiteral("6")),
+              "★★ ZAJ2 超过 6 层 ⇒ 报错（原版织布机叠不了第 7 层）", tooMany.error);
+
+        QList<Banner::Layer> same;
+        same.append({0, 1});
+        same.append({0, 1});
+        const Banner::Plan duplicate = Banner::plan(0, same);
+        check(duplicate.ok && !duplicate.notes.isEmpty()
+                  && duplicate.notes.first().contains(QStringLiteral("只叠了一层")),
+              "★ ZAJ2 连续两层完全一样 ⇒ 一条提醒（不是错误 —— 游戏允许这么叠）",
+              duplicate.notes.join(QStringLiteral(" / ")));
+
+        const Banner::Plan noLayers = Banner::plan(3, {});
+        check(noLayers.ok && noLayers.materials.contains(QStringLiteral("淡蓝色羊毛 × 6"))
+                  && noLayers.command == QStringLiteral("/give @p minecraft:light_blue_banner"),
+              "★ ZAJ2 一层都没加 ⇒ 就是一面纯色旗（材料只有羊毛和木棍）", noLayers.command);
+
+        QList<Banner::Layer> badPattern;
+        badPattern.append({-1, 0});
+        const Banner::Plan badP = Banner::plan(0, badPattern);
+        check(!badP.ok && badP.error.contains(QStringLiteral("图案")),
+              "★ ZAJ2 认不出来的图案下标 ⇒ 报错", badP.error);
+
+        // 版本限制：用了 1.21 才加的图案就提醒一句（同一图案只提醒一次）。
+        QList<Banner::Layer> newer;
+        newer.append({Banner::patternIndexById(QStringLiteral("flow")), 0});
+        newer.append({Banner::patternIndexById(QStringLiteral("flow")), 0});
+        const Banner::Plan newerPlan = Banner::plan(0, newer);
+        check(newerPlan.ok
+                  && newerPlan.notes.join(QStringLiteral(" / ")).contains(QStringLiteral("1.21"))
+                  && newerPlan.notes.join(QStringLiteral(" / ")).count(QStringLiteral("1.21")) == 1,
+              "★★ ZAJ2 用了 1.21 才有的图案 ⇒ 一条版本提醒（同一图案只提一次）",
+              newerPlan.notes.join(QStringLiteral(" / ")));
+        const Banner::Plan oldPlan = Banner::plan(0, {{Banner::patternIndexById(
+                                                          QStringLiteral("cross")),
+                                                      0}});
+        check(oldPlan.ok && oldPlan.notes.isEmpty(),
+              "★ ZAJ2 老图案不啰嗦（没有版本提醒）", oldPlan.notes.join(QStringLiteral(" / ")));
+    }
+
+    // ---------- ZAJ3. 纹饰：表与限制 ----------
+    {
+        check(ArmorTrim::trimMaterialCount() == 10 && ArmorTrim::patternCount() == 18
+                  && ArmorTrim::partCount() == 4 && ArmorTrim::armorMaterialCount() == 7,
+              "★★ ZAJ3 十种材料 / 十八种图案 / 四个部位 / 七种盔甲材质",
+              QStringLiteral("%1 / %2 / %3 / %4")
+                  .arg(ArmorTrim::trimMaterialCount())
+                  .arg(ArmorTrim::patternCount())
+                  .arg(ArmorTrim::partCount())
+                  .arg(ArmorTrim::armorMaterialCount()));
+        const int turtle = ArmorTrim::armorMaterialCount() - 1;
+        check(ArmorTrim::armorMaterialFitsPart(turtle, 0)
+                  && !ArmorTrim::armorMaterialFitsPart(turtle, 1)
+                  && ArmorTrim::armorPieceName(turtle, 0) == QStringLiteral("海龟壳"),
+              "★★ ZAJ3 海龟壳只认头盔（别的部位连名字都拼不出来）");
+        check(ArmorTrim::armorPieceName(4, 1) == QStringLiteral("钻石胸甲"),
+              "★ ZAJ3 盔甲全名 = 材质 + 部位", ArmorTrim::armorPieceName(4, 1));
+        check(ArmorTrim::trimMaterialAt(0).item == QStringLiteral("紫水晶碎片")
+                  && ArmorTrim::trimMaterialAt(9).item == QStringLiteral("红石粉"),
+              "★ ZAJ3 每种纹饰材料在锻造台里摆的那件东西写在表里",
+              ArmorTrim::trimMaterialAt(0).item + QStringLiteral(" / ")
+                  + ArmorTrim::trimMaterialAt(9).item);
+    }
+
+    // ---------- ZAJ4. 纹饰：计划与整套 ----------
+    {
+        const int coast = 0;  // 表里第一个就是海岸
+        const ArmorTrim::Plan one = ArmorTrim::plan(4, 1, coast, 0, 1);
+        check(one.ok && one.summary.contains(QStringLiteral("紫水晶"))
+                  && one.summary.contains(QStringLiteral("海岸"))
+                  && one.summary.contains(QStringLiteral("钻石胸甲")),
+              "★★ ZAJ4 成品名 = 材料 · 图案纹饰的盔甲", one.summary);
+        check(one.materials.size() == 3
+                  && one.materials.contains(QStringLiteral("海岸纹饰模板 × 1"))
+                  && one.materials.contains(QStringLiteral("紫水晶碎片 × 1"))
+                  && one.materials.contains(QStringLiteral("钻石胸甲 × 1")),
+              "★★ ZAJ4 三样东西各一份（模板 / 材料 / 盔甲）",
+              one.materials.join(QStringLiteral(" / ")));
+        check(one.detailText().contains(QStringLiteral("锻造台")),
+              "★ ZAJ4 明细说清在锻造台里怎么摆");
+
+        const ArmorTrim::Plan set = ArmorTrim::plan(4, 1, coast, 0, 4);
+        check(set.ok && set.materials.contains(QStringLiteral("海岸纹饰模板 × 4"))
+                  && set.notes.join(QStringLiteral(" / ")).contains(QStringLiteral("每打一件消耗一个")),
+              "★★ ZAJ4 做 4 件 ⇒ 模板也是 4 份（模板不是一次性解锁）",
+              set.notes.join(QStringLiteral(" / ")));
+
+        const int turtle = ArmorTrim::armorMaterialCount() - 1;
+        const ArmorTrim::Plan badShell = ArmorTrim::plan(turtle, 1, coast, 0, 1);
+        check(!badShell.ok && badShell.error.contains(QStringLiteral("海龟壳")),
+              "★★ ZAJ4 海龟壳 + 胸甲 ⇒ 报错，不悄悄换成皮革", badShell.error);
+
+        const ArmorTrim::Plan badPieces = ArmorTrim::plan(0, 0, coast, 0, 5);
+        check(!badPieces.ok && badPieces.error.contains(QStringLiteral("1–4")),
+              "★ ZAJ4 件数越界 ⇒ 报错（最多四件）", badPieces.error);
+
+        const ArmorTrim::Plan badIndex = ArmorTrim::plan(0, 0, -1, 0, 1);
+        check(!badIndex.ok && badIndex.error.contains(QStringLiteral("图案")),
+              "★ ZAJ4 认不出来的图案下标 ⇒ 报错", badIndex.error);
+    }
+
+    // ---------- ZAJ5. 纹饰：模板来源 / 版本 / 整套（§9.11 第 10 项）----------
+    {
+        const int coast = 0;
+        check(ArmorTrim::patternSource(coast).contains(QStringLiteral("沉船")),
+              "★★ ZAJ5 海岸模板来自沉船（不是含糊的「地牢里」）",
+              ArmorTrim::patternSource(coast));
+        check(ArmorTrim::patternSource(-1).isEmpty(),
+              "★ ZAJ5 图案下标越界 ⇒ 来源是空串（不编一个地方出来）");
+        check(ArmorTrim::patternAt(coast).since == QStringLiteral("1.20"),
+              "★ ZAJ5 海岸是 1.20 加入的");
+
+        int flow = -1;
+        for (int i = 0; i < ArmorTrim::patternCount(); ++i) {
+            if (ArmorTrim::patternAt(i).name == QStringLiteral("涡流")) flow = i;
+        }
+        check(flow >= 0 && ArmorTrim::patternAt(flow).since == QStringLiteral("1.21")
+                  && ArmorTrim::patternSource(flow).contains(QStringLiteral("试炼密室")),
+              "★★ ZAJ5 涡流是 1.21 的试炼密室模板",
+              ArmorTrim::patternAt(flow).since);
+
+        const ArmorTrim::Plan single = ArmorTrim::plan(4, 1, coast, 0, 1);
+        check(single.notes.join(QStringLiteral(" / ")).contains(QStringLiteral("这枚海岸纹饰模板来自：沉船")),
+              "★★ ZAJ5 单件计划里也写清模板从哪儿来",
+              single.notes.join(QStringLiteral(" / ")));
+        const ArmorTrim::Plan flowPlan = ArmorTrim::plan(4, 1, flow, 0, 1);
+        check(flowPlan.ok
+                  && flowPlan.notes.join(QStringLiteral(" / ")).contains(QStringLiteral("1.21")),
+              "★★ ZAJ5 1.21 的模板会提醒版本（更早的版本里没有）",
+              flowPlan.notes.join(QStringLiteral(" / ")));
+
+        const ArmorTrim::Plan whole = ArmorTrim::plan(4, 0, coast, 0, 1, true);
+        check(whole.ok && whole.summary.contains(QStringLiteral("钻石四件套")),
+              "★★ ZAJ5 整套 = 四件套（部位那格不参与）", whole.summary);
+        check(whole.materials.contains(QStringLiteral("海岸纹饰模板 × 4"))
+                  && whole.materials.contains(QStringLiteral("紫水晶碎片 × 4"))
+                  && whole.materials.contains(QStringLiteral("钻石头盔 × 1"))
+                  && whole.materials.contains(QStringLiteral("钻石胸甲 × 1"))
+                  && whole.materials.contains(QStringLiteral("钻石护腿 × 1"))
+                  && whole.materials.contains(QStringLiteral("钻石靴子 × 1")),
+              "★★ ZAJ5 整套材料：模板与材料各 4 份、四件盔甲各 1 件",
+              whole.materials.join(QStringLiteral(" / ")));
+        check(whole.steps.size() == 5,
+              "★ ZAJ5 整套是四次锻造（总说明 + 四件各一步）",
+              QString::number(whole.steps.size()));
+
+        const int turtle = ArmorTrim::armorMaterialCount() - 1;
+        const ArmorTrim::Plan turtleSet = ArmorTrim::plan(turtle, 0, coast, 0, 1, true);
+        check(!turtleSet.ok && turtleSet.error.contains(QStringLiteral("整套")),
+              "★★ ZAJ5 海龟壳没有整套 ⇒ 报错，不悄悄只做头盔", turtleSet.error);
+    }
+
+    // ---------- ZAK. 哈希：算完之后文件变过没有 ----------
+    //
+    // §9.11 第 1 项那条「文件变化使结果失效」：摘要算的是当时那一刻的字节，文件被重新下载
+    // 之后屏幕上那串就不是"它现在的摘要"了。判据是**大小 + 修改时间**（只看这两样，不重读
+    // 几百 MB）。这里在一个真的临时文件上钉它。
+    {
+        QTemporaryDir dir;
+        check(dir.isValid(), "ZAK0 临时的窝造出来了");
+        const QString path = dir.filePath(QStringLiteral("sample.bin"));
+        QFile file(path);
+        const bool wrote = file.open(QIODevice::WriteOnly)
+                           && file.write(QByteArray(1024, 'a')) == 1024;
+        file.close();
+        check(wrote, "ZAK0 临时文件写进去了");
+
+        const FileHash::Stamp first = FileHash::stampOf(path);
+        check(first.ok && first.bytes == 1024 && first.lastModifiedMs > 0,
+              "★★ ZAK0 读得出来大小和修改时间",
+              QStringLiteral("%1 / %2").arg(first.bytes).arg(first.lastModifiedMs));
+        check(FileHash::sameStamp(first, FileHash::stampOf(path)),
+              "★★ ZAK0 同一个文件连着读两次 ⇒ 判据说「没变」");
+
+        QFile append(path);
+        const bool appended =
+            append.open(QIODevice::Append) && append.write(QByteArray(1, 'b')) == 1;
+        append.close();
+        const FileHash::Stamp grown = FileHash::stampOf(path);
+        check(appended && grown.ok && grown.bytes == 1025
+                  && !FileHash::sameStamp(first, grown),
+              "★★ ZAK0 追加一个字节 ⇒ 判据说「变过」（大小对不上）",
+              QStringLiteral("%1 → %2").arg(first.bytes).arg(grown.bytes));
+
+        const FileHash::Stamp missing = FileHash::stampOf(dir.filePath(QStringLiteral("gone.bin")));
+        check(!missing.ok && missing.bytes == -1 && missing.lastModifiedMs == -1
+                  && !FileHash::sameStamp(first, missing),
+              "★★ ZAK0 文件不在了 ⇒ 读不出来，而且**不能**和任何一份算成「没变」");
+    }
+
+    // ---------- ZAL. 世界只读概况（§9.6：种子 / 玩家位置 / 已生成区域 / 大小） ----------
+    //
+    // 这一层是"世界地图第一阶段"的**读**那一半：`level.dat` 里那几格、`region/*.mca` 的
+    // 8 KiB 头部表。这里分别用一棵手搭的树、一段合成的头部、一个真的临时世界目录钉住，
+    // 不依赖任何真实存档。
+    {
+        // 手搭一棵最小可用的 `level.dat` 树（和游戏写出来的形状一致）。
+        const auto makeNode = [](NbtTree::Type type) {
+            NbtTree::Node node;
+            node.type = type;
+            return node;
+        };
+        const auto putField = [](NbtTree::Node *compound, const QString &name,
+                                 const NbtTree::Node &node) {
+            compound->fields.append(QPair<QString, NbtTree::Node>(name, node));
+        };
+
+        NbtTree::Document document;
+        document.root.type = NbtTree::Type::Compound;
+        NbtTree::Node data = makeNode(NbtTree::Type::Compound);
+
+        NbtTree::Node worldGen = makeNode(NbtTree::Type::Compound);
+        NbtTree::Node seed = makeNode(NbtTree::Type::Long);
+        seed.number = 1234567890123LL;
+        putField(&worldGen, QStringLiteral("seed"), seed);
+        putField(&data, QStringLiteral("WorldGenSettings"), worldGen);
+
+        NbtTree::Node player = makeNode(NbtTree::Type::Compound);
+        NbtTree::Node pos = makeNode(NbtTree::Type::List);
+        pos.itemType = NbtTree::Type::Double;
+        for (const double value : {12.5, 64.0, -30.25}) {
+            NbtTree::Node item = makeNode(NbtTree::Type::Double);
+            item.real = value;
+            pos.items.append(item);
+        }
+        putField(&player, QStringLiteral("Pos"), pos);
+        NbtTree::Node dimension = makeNode(NbtTree::Type::String);
+        dimension.text = QStringLiteral("minecraft:the_nether");
+        putField(&player, QStringLiteral("Dimension"), dimension);
+        putField(&data, QStringLiteral("Player"), player);
+
+        for (const auto &spawn : {QPair<QString, qint64>(QStringLiteral("SpawnX"), 100),
+                                  QPair<QString, qint64>(QStringLiteral("SpawnY"), 70),
+                                  QPair<QString, qint64>(QStringLiteral("SpawnZ"), -200)}) {
+            NbtTree::Node value = makeNode(NbtTree::Type::Int);
+            value.number = spawn.second;
+            putField(&data, spawn.first, value);
+        }
+        putField(&document.root, QStringLiteral("Data"), data);
+
+        WorldMap::Snapshot facts;
+        WorldMap::readLevelFacts(document, &facts);
+        check(facts.hasSeed && facts.seed == 1234567890123LL,
+              "★★ ZAL0 1.16+ 的种子在 WorldGenSettings/seed 里",
+              QString::number(facts.seed));
+        check(facts.hasPlayer && facts.playerX == 12.5 && facts.playerY == 64.0
+                  && facts.playerZ == -30.25,
+              "★★ ZAL0 玩家位置是 Pos 列表里那三个 Double",
+              QStringLiteral("%1 / %2 / %3")
+                  .arg(facts.playerX)
+                  .arg(facts.playerY)
+                  .arg(facts.playerZ));
+        check(facts.hasPlayerDimension
+                  && facts.playerDimension == QStringLiteral("minecraft:the_nether"),
+              "★ ZAL0 玩家维度原样读了回来（不翻成中文 —— 那一层是 controller 的事）",
+              facts.playerDimension);
+        check(facts.hasSpawn && facts.spawnX == 100 && facts.spawnY == 70
+                  && facts.spawnZ == -200,
+              "★ ZAL0 出生点三格（SpawnX / SpawnY / SpawnZ）");
+
+        // 老存档：没有 WorldGenSettings、种子在 RandomSeed；`Data/Player` 一件都没有。
+        NbtTree::Document oldDocument;
+        oldDocument.root.type = NbtTree::Type::Compound;
+        NbtTree::Node oldData = makeNode(NbtTree::Type::Compound);
+        NbtTree::Node randomSeed = makeNode(NbtTree::Type::Long);
+        randomSeed.number = -42;
+        putField(&oldData, QStringLiteral("RandomSeed"), randomSeed);
+        putField(&oldDocument.root, QStringLiteral("Data"), oldData);
+
+        WorldMap::Snapshot oldFacts;
+        WorldMap::readLevelFacts(oldDocument, &oldFacts);
+        check(oldFacts.hasSeed && oldFacts.seed == -42,
+              "★★ ZAL1 没有 WorldGenSettings 的老存档退回 RandomSeed（连负数也照读）",
+              QString::number(oldFacts.seed));
+        check(!oldFacts.hasPlayer && !oldFacts.hasPlayerDimension && !oldFacts.hasSpawn,
+              "★★ ZAL1 没有 Data/Player 就**不编**玩家位置（从没进过的世界 / 服务端存档）");
+        check(oldFacts.playerX == 0.0 && !oldFacts.chunkBounds.ok,
+              "★ ZAL1 读不到的那几位留的是 `hasXxx = false`，不是拿 0 当成真值");
+
+        // 老存档的维度是一个 Int：-1 = 下界、0 = 主世界、1 = 末地；别的数字**不编名字**。
+        NbtTree::Document legacyDimension;
+        legacyDimension.root.type = NbtTree::Type::Compound;
+        NbtTree::Node legacyData = makeNode(NbtTree::Type::Compound);
+        NbtTree::Node legacyPlayer = makeNode(NbtTree::Type::Compound);
+        NbtTree::Node legacyValue = makeNode(NbtTree::Type::Int);
+        legacyValue.number = -1;
+        putField(&legacyPlayer, QStringLiteral("Dimension"), legacyValue);
+        putField(&legacyData, QStringLiteral("Player"), legacyPlayer);
+        putField(&legacyDimension.root, QStringLiteral("Data"), legacyData);
+        WorldMap::Snapshot legacyFacts;
+        WorldMap::readLevelFacts(legacyDimension, &legacyFacts);
+        check(legacyFacts.hasPlayerDimension
+                  && legacyFacts.playerDimension == QStringLiteral("minecraft:the_nether"),
+              "★ ZAL1 老存档的 Dimension 是 Int（-1 ⇒ 下界），照样认",
+              legacyFacts.playerDimension);
+
+        // ---------- 区域文件头 ----------
+        const auto locationEntry = [](QByteArray *header, int index, quint32 sectorOffset) {
+            char *bytes = header->data();
+            bytes[index * 4] = static_cast<char>((sectorOffset >> 16) & 0xFF);
+            bytes[index * 4 + 1] = static_cast<char>((sectorOffset >> 8) & 0xFF);
+            bytes[index * 4 + 2] = static_cast<char>(sectorOffset & 0xFF);
+            bytes[index * 4 + 3] = 1;  // 占 1 个扇区
+        };
+
+        QByteArray header(8192, '\0');
+        locationEntry(&header, 0, 2);        // 本地 (0,0)
+        locationEntry(&header, 1023, 5);     // 本地 (31,31)
+        int chunks = 0;
+        WorldMap::ChunkBounds bounds;
+        check(WorldMap::parseRegionHeader(header, 2, -1, &chunks, &bounds),
+              "★★ ZAL2 8 KiB 的头部解出来了");
+        check(chunks == 2, "★★ ZAL2 非空的位置表项才是一个已生成区块",
+              QString::number(chunks));
+        check(bounds.ok && bounds.minX == 64 && bounds.maxX == 95 && bounds.minZ == -32
+                  && bounds.maxZ == -1,
+              "★★ ZAL2 区块坐标 = 区域坐标 × 32 + 本地下标（负区域坐标也要对）",
+              QStringLiteral("x %1~%2、z %3~%4")
+                  .arg(bounds.minX)
+                  .arg(bounds.maxX)
+                  .arg(bounds.minZ)
+                  .arg(bounds.maxZ));
+        check(bounds.minBlockX() == 1024 && bounds.maxBlockX() == 1535
+                  && bounds.minBlockZ() == -512 && bounds.maxBlockZ() == -1,
+              "★★ ZAL2 方块坐标 = 区块坐标 × 16，右边界是 `(max+1)*16-1`（不是直接乘）",
+              QStringLiteral("x %1~%2、z %3~%4")
+                  .arg(bounds.minBlockX())
+                  .arg(bounds.maxBlockX())
+                  .arg(bounds.minBlockZ())
+                  .arg(bounds.maxBlockZ()));
+
+        const QByteArray emptyHeader(8192, '\0');
+        chunks = -7;
+        bounds = WorldMap::ChunkBounds();
+        check(WorldMap::parseRegionHeader(emptyHeader, 0, 0, &chunks, &bounds) && chunks == 0
+                  && !bounds.ok,
+              "★★ ZAL3 全零的头部 = 一个区块都没生成（不是「一个包络 0~0」）");
+        check(!WorldMap::parseRegionHeader(QByteArray(100, '\0'), 0, 0, nullptr, nullptr),
+              "★★ ZAL3 头部短于 8 KiB ⇒ 如实说解不出来（不把半截表当空的）");
+
+        // ---------- 真的扫一个临时世界 ----------
+        QTemporaryDir worldRoot;
+        check(worldRoot.isValid(), "ZAL4 临时的窝造出来了");
+        const QString worldDir = worldRoot.filePath(QStringLiteral("world"));
+        QDir().mkpath(worldDir + QStringLiteral("/region"));
+        {
+            QByteArray realHeader(8192, '\0');
+            locationEntry(&realHeader, 0, 2);
+            locationEntry(&realHeader, 33, 3);   // 本地 (1,1)
+            locationEntry(&realHeader, 1023, 9); // 本地 (31,31)
+            QFile regionFile(worldDir + QStringLiteral("/region/r.0.0.mca"));
+            if (regionFile.open(QIODevice::WriteOnly)) {
+                regionFile.write(realHeader);
+            }
+        }
+        {
+            // 一个头部读不全的 `.mca`：不计入区块数与范围，但 `unreadableRegions` 要记一笔。
+            QFile broken(worldDir + QStringLiteral("/region/r.1.0.mca"));
+            if (broken.open(QIODevice::WriteOnly)) {
+                broken.write(QByteArray(100, '\0'));
+            }
+        }
+        {
+            QFile notes(worldDir + QStringLiteral("/notes.txt"));
+            if (notes.open(QIODevice::WriteOnly)) {
+                notes.write(QByteArray(5, 'x'));
+            }
+        }
+
+        const WorldMap::Snapshot map = WorldMap::scan(worldDir);
+        check(map.ok && map.hasRegionDir, "★★ ZAL4 扫一个真的世界目录成功了");
+        check(map.regions.size() == 2 && map.regions.at(0).x == 0 && map.regions.at(0).z == 0
+                  && map.regions.at(1).x == 1 && map.regions.at(1).z == 0,
+              "★★ ZAL4 两个区域文件都认出来了，而且是按 (x, z) 排的",
+              QString::number(map.regions.size()));
+        check(map.chunkCount == 3 && map.chunkBounds.ok && map.chunkBounds.minBlockX() == 0
+                  && map.chunkBounds.maxBlockX() == 511 && map.chunkBounds.maxBlockZ() == 511,
+              "★★ ZAL4 区块数与范围只来自那个读得全的文件",
+              QStringLiteral("chunks %1、x %2~%3、z %4~%5")
+                  .arg(map.chunkCount)
+                  .arg(map.chunkBounds.minBlockX())
+                  .arg(map.chunkBounds.maxBlockX())
+                  .arg(map.chunkBounds.minBlockZ())
+                  .arg(map.chunkBounds.maxBlockZ()));
+        check(map.unreadableRegions == 1 && !map.regions.at(1).headerRead,
+              "★★ ZAL4 头部读不全的那个 `.mca` 记了一笔（界面要把「可能不完整」说出来）",
+              QString::number(map.unreadableRegions));
+        check(map.dirBytes == 8192 + 100 + 5 && map.fileCount == 3,
+              "★★ ZAL4 大小是**整个目录**递归加起来（区域文件 + 坏的那个 + 别的小文件）",
+              QStringLiteral("%1 字节 / %2 个文件").arg(map.dirBytes).arg(map.fileCount));
+
+        // 没有 `region/` 的世界（刚建好、还没存过档）不算错。
+        const QString emptyWorld = worldRoot.filePath(QStringLiteral("empty"));
+        QDir().mkpath(emptyWorld);
+        {
+            QFile level(emptyWorld + QStringLiteral("/level.dat"));
+            if (level.open(QIODevice::WriteOnly)) {
+                level.write(QByteArray(16, '\0'));
+            }
+        }
+        const WorldMap::Snapshot empty = WorldMap::scan(emptyWorld);
+        check(empty.ok && !empty.hasRegionDir && empty.regions.isEmpty() && empty.chunkCount == 0
+                  && !empty.chunkBounds.ok,
+              "★★ ZAL4 没有 region/ 的世界不是错（`region/` 本来就可以不在）");
+
+        const WorldMap::Snapshot gone =
+            WorldMap::scan(worldRoot.filePath(QStringLiteral("nowhere")));
+        check(!gone.ok && !gone.problem.isEmpty(),
+              "★ ZAL4 目录不在了 ⇒ 明说一句（不是悄悄回一份空的）");
+    }
+
+    // ---------- ZAM. 运行输出共用模型（§9.8：游戏日志窗 / 服务端控制台同一份） ----------
+    //
+    // 这一节钉的是"两页共用"的那一半：认级别、独立记录计数、档位筛选、搜索、两条上限
+    // （容量 vs 显示）、三份导出文本。`GameLogWindow` 现在整个转发到它，`ServerConsolePage`
+    // 也拿它记账 —— 所以这一节红了就是两页一起红。
+    {
+        using Level = RuntimeOutputModel::Level;
+
+        // 认级别：两条规则 + 认不出来回 fallback。
+        check(RuntimeOutputModel::classifyLine(
+                  QStringLiteral("[12:34:56] [main/INFO] [net.minecraft.Foo] hi"), Level::Warn) ==
+                  Level::Info &&
+                  RuntimeOutputModel::classifyLine(
+                      QStringLiteral("[Chunk Render Task 12/WARN] slow"), Level::Info) ==
+                      Level::Warn,
+              "★★ ZAM0 行首连着的方括号里认级别（原版 / 长线程名都认）");
+        check(RuntimeOutputModel::classifyLine(QStringLiteral("12:34:56 ERROR: boom"),
+                                               Level::Info) == Level::Error &&
+                  RuntimeOutputModel::classifyLine(QStringLiteral("Loaded 3 INFO files"),
+                                                   Level::Debug) == Level::Debug,
+              "★★ ZAM0 裸词**必须带冒号**才算级别（`Loaded 3 INFO files` 不算；认不出来回 "
+              "fallback）");
+        check(RuntimeOutputModel::classifyLine(QStringLiteral("[TRACE] x"), Level::Info) ==
+                      Level::Debug &&
+                  RuntimeOutputModel::classifyLine(QStringLiteral("[SEVERE] x"), Level::Info) ==
+                      Level::Error &&
+                  RuntimeOutputModel::classifyLine(QStringLiteral("[FATAL] x"), Level::Info) ==
+                      Level::Fatal,
+              "★ ZAM0 TRACE→Debug、SEVERE→Error、FATAL→Fatal（同一个意思的不同写法）");
+
+        RuntimeOutputModel model(100);
+        model.addLine(QStringLiteral("[main/INFO] hello"));
+        const Level err = model.addLine(QStringLiteral("[main/ERROR] boom"));
+        model.addLine(QStringLiteral("    at net.minecraft.Foo(Bar.java:1)"));
+        model.addLine(QString());
+        model.addLine(QStringLiteral("plain line"));
+        check(err == Level::Error && model.lineCount() == 5 &&
+                  model.countFor(Level::Info) == 2 && model.countFor(Level::Error) == 1,
+              "★★ ZAM1 一条 ERROR 后面的崩栈是**续行**：跟着染色、不重复计数；空行是分隔，"
+              "也不算一条 INFO",
+              QStringLiteral("Info=%1 Error=%2 行=%3")
+                  .arg(model.countFor(Level::Info))
+                  .arg(model.countFor(Level::Error))
+                  .arg(model.lineCount()));
+        check(model.lines().at(2).level == Level::Error && !model.lines().at(2).counted &&
+                  model.lines().at(0).counted,
+              "★★ ZAM1 续行的级别跟着上一行走（染色靠它），但 `counted` 是 false");
+
+        // 容量（内存的闸）：超了丢最老的，计数跟着减。
+        RuntimeOutputModel capped(3);
+        for (int i = 0; i < 5; ++i) {
+            capped.addLine(QStringLiteral("[main/INFO] line%1").arg(i));
+        }
+        check(capped.lineCount() == 3 && capped.countFor(Level::Info) == 3 &&
+                  capped.lines().first().text == QStringLiteral("[main/INFO] line2"),
+              "★★ ZAM2 容量是**内存**的闸：超了丢最老的，计数跟着减（不是只裁视图）",
+              QStringLiteral("%1 行，首行「%2」")
+                  .arg(capped.lineCount())
+                  .arg(capped.lines().isEmpty() ? QString() : capped.lines().first().text));
+
+        // 档位筛选。
+        RuntimeOutputModel filt(100);
+        filt.addLine(QStringLiteral("[main/INFO] a"));
+        filt.addLine(QStringLiteral("[main/WARN] b"));
+        filt.addLine(QStringLiteral("[main/ERROR] c"));
+        filt.addLine(QStringLiteral("[main/WARN] d"));
+        filt.setLevelVisible(Level::Warn, false);
+        check(filt.matchingLineCount() == 2 && filt.visibleLines().size() == 2 &&
+                  filt.visibleText() == QStringLiteral("[main/INFO] a\n[main/ERROR] c\n"),
+              "★★ ZAM3 关掉一档 ⇒ 视图里就没有那几行（模型和计数一行都没少）",
+              filt.visibleText());
+        check(filt.countFor(Level::Warn) == 2 && filt.lineCount() == 4,
+              "★★ ZAM3 被筛掉的行**照样在模型里、照样计数**（数字不会因为关一档就变小）");
+
+        // 搜索：大小写不分的子串，和档位筛选取交集。
+        filt.setLevelVisible(Level::Warn, true);
+        filt.setSearchText(QStringLiteral("C"));
+        check(filt.visibleLines().size() == 1 &&
+                  filt.visibleLines().first().text == QStringLiteral("[main/ERROR] c"),
+              "★★ ZAM4 搜索是大小写不分的子串（`c` 命中 `[main/ERROR] c`），只影响视图",
+              QStringLiteral("%1 行").arg(filt.visibleLines().size()));
+        check(filt.allText().contains(QStringLiteral("[main/INFO] a")) &&
+                  filt.textFrom(Level::Error) == QStringLiteral("[main/ERROR] c\n"),
+              "★★ ZAM4 导出拿的是**整份**（搜索框不会把导出的内容吃掉）");
+        filt.setSearchText(QString());
+        check(filt.matchingLineCount() == 4, "★ ZAM4 清掉搜索词 ⇒ 四行都回来了");
+
+        // 两条上限不是一回事：显示上限只留最后 N 行，模型不动。
+        filt.setDisplayLimit(2);
+        check(filt.visibleLines().size() == 2 &&
+                  filt.visibleLines().last().text == QStringLiteral("[main/WARN] d") &&
+                  filt.lineCount() == 4,
+              "★★ ZAM5 显示上限只留**最后** N 行；模型一行不动（换回大的一档就回来）");
+        filt.setDisplayLimit(0);
+        check(filt.visibleLines().size() == 4, "★ ZAM5 「全部」= 0 ⇒ 过筛的都摆出来");
+
+        // 导出文本的三份口径。
+        RuntimeOutputModel exp(100);
+        exp.addLine(QStringLiteral("[main/ERROR] boom"));
+        exp.addLine(QStringLiteral("    at Foo"));
+        exp.addLine(QStringLiteral("[main/INFO] ok"));
+        check(exp.allText() == QStringLiteral("[main/ERROR] boom\n    at Foo\n[main/INFO] ok\n"),
+              "★★ ZAM6 `allText()` 一行一句、末尾有换行（末尾那半行由日志窗自己接）");
+        check(exp.textFrom(Level::Error) == QStringLiteral("[main/ERROR] boom\n    at Foo\n"),
+              "★★ ZAM6 `textFrom(Error)` 连**续行**一起挑（级别是模型记着的，不是再匹配一遍）");
+
+        // 行数那几档（两页共用同一份文案）。
+        check(RuntimeOutputModel::lineLimitChoices() ==
+                  QVector<int>{500, 1000, 2000, 5000, 10000, 0} &&
+                  RuntimeOutputModel::lineLimitText(1000) == QStringLiteral("1000 条") &&
+                  RuntimeOutputModel::lineLimitText(0) == QStringLiteral("全部") &&
+                  RuntimeOutputModel::lineLimitOfIndex(5) == 0,
+              "★★ ZAM7 「显示多少行」六档只有一处出处（1000 写成「1000 条」不是「1k」，"
+              "最后一档 0 = 全部）");
+    }
+}
+
+// ---------------------------------------------------------------------------
 // ZA. 回调地址 → 监听端口（coding plan §9.4「客户端 ID 和回调地址通过构建配置注入」）
 //
 // 这两个常数从前是 AuthManager.cpp 里手写的两个字面量，而且**端口还是第三个数**：地址里
@@ -30295,9 +32307,18 @@ static void runTextFormatTests() {
 
         const TextFormat::JsonParseResult hexColor =
             TextFormat::parseJson(QStringLiteral("[{\"text\":\"x\",\"color\":\"#ff0000\"}]"));
-        check(!hexColor.ok && hexColor.unsupported.contains(QStringLiteral("hex_color")),
-              "ZAA5 `#RRGGBB` 那套十六位色不在表里 ⇒ 报出来，**别当成默认色读过去**",
+        check(hexColor.ok && hexColor.segments.size() == 1
+                  && hexColor.segments.at(0).style.hasCustomColor
+                  && hexColor.segments.at(0).style.customRgb == 0xFF0000
+                  && hexColor.segments.at(0).style.color == TextFormat::Color::Default,
+              "★ ZAA5 `#RRGGBB` 那套自定色**认**（1.16 起）；它一在位 `color` 就回默认，不两头都写",
               hexColor.unsupported.join(QStringLiteral(",")));
+
+        const TextFormat::JsonParseResult badHex =
+            TextFormat::parseJson(QStringLiteral("[{\"text\":\"x\",\"color\":\"#f00\"}]"));
+        check(!badHex.ok && badHex.unsupported.contains(QStringLiteral("hex_color")),
+              "★ ZAA5 `#f00` 那种三位缩写**不猜**（游戏那边不认这种写法）",
+              badHex.unsupported.join(QStringLiteral(",")));
 
         const TextFormat::JsonParseResult broken =
             TextFormat::parseJson(QStringLiteral("{这不是 json"));
@@ -30324,6 +32345,86 @@ static void runTextFormatTests() {
               "★ ZAA6 空正文**照样出一条合法命令**（回空串界面就分不清「没生成」和「生成了个空的」）",
               empty);
 
+    }
+
+    // ---------- ZAA7. 自定颜色（1.16 起那份 `§x…` / JSON `#RRGGBB`）----------
+    {
+        quint32 rgb = 0;
+        check(TextFormat::parseHexColor(QStringLiteral("#Ff8800"), &rgb) && rgb == 0xFF8800
+                  && TextFormat::parseHexColor(QStringLiteral("00ff00"), &rgb) && rgb == 0x00FF00,
+              "ZAA7 `#RRGGBB` 认带不带 `#`、大小写都行");
+        check(!TextFormat::parseHexColor(QStringLiteral("#f80"), &rgb)
+                  && !TextFormat::parseHexColor(QStringLiteral("#ff88001"), &rgb)
+                  && !TextFormat::parseHexColor(QStringLiteral("#gg0000"), &rgb),
+              "★★ ZAA7 三位缩写、位数不对、不是十六进制 ⇒ 一律不认（替用户展开就是猜）");
+        check(TextFormat::hexColorName(0x00FF00) == QStringLiteral("#00ff00"),
+              "ZAA7 反向给 `#rrggbb`（JSON 组件里就是这一串）", TextFormat::hexColorName(0x00FF00));
+
+        check(TextFormat::legacyHexColor(0x112233) == QStringLiteral("§x§1§1§2§2§3§3"),
+              "★ ZAA7 `§` 那边是 `§x` + 六对 `§<十六进制位>`（少一个游戏就不认）",
+              TextFormat::legacyHexColor(0x112233));
+
+        const QList<TextFormat::Segment> parsed =
+            TextFormat::parseLegacy(QStringLiteral("§x§1§1§2§2§3§3字§l粗"));
+        const bool hexOkay = parsed.size() == 2 && parsed.at(0).text == QStringLiteral("字")
+                             && parsed.at(0).style.hasCustomColor
+                             && parsed.at(0).style.customRgb == 0x112233
+                             && parsed.at(1).style.hasCustomColor
+                             && parsed.at(1).style.customRgb == 0x112233 && parsed.at(1).style.bold;
+        check(hexOkay, "ZAA7 `§x§1§1§2§2§3§3字§l粗` ⇒ 自定色 + 粗体（`§l` 照旧接得上）",
+              QStringLiteral("%1 段").arg(parsed.size()));
+        check(TextFormat::toLegacy(parsed)
+                  == QStringLiteral("§x§1§1§2§2§3§3字§x§1§1§2§2§3§3§l粗§r"),
+              "★ ZAA7 自定色往返：每段重开一遍颜色，拼回去还是那串（收尾补 `§r`）",
+              TextFormat::toLegacy(parsed));
+
+        const QList<TextFormat::Segment> one = {TextFormat::Segment{
+            QStringLiteral("色"), [] {
+                TextFormat::Style style;
+                style.hasCustomColor = true;
+                style.customRgb = 0x3366CC;
+                return style;
+            }()}};
+        const QString json = TextFormat::toJsonText(one);
+        check(json.contains(QStringLiteral("\"color\":\"#3366cc\"")),
+              "ZAA7 JSON 组件里自定色写 `\"color\":\"#rrggbb\"`", json);
+        const TextFormat::JsonParseResult back = TextFormat::parseJson(json);
+        check(back.ok && back.segments == one, "★ ZAA7 自定色往返：正文 → JSON → 正文逐样式一样");
+        check(TextFormat::styleRgb(one.at(0).style) == 0x3366CC
+                  && TextFormat::styleRgb(TextFormat::Style{}) == 0xFFFFFF
+                  && TextFormat::styleColorText(one.at(0).style) == QStringLiteral("#3366cc"),
+              "ZAA7 画预览用 `styleRgb()`：自定色优先，没有就回那张表");
+
+        // `§x` 后面接不全 ⇒ 不按颜色读（`§x` 原样留着，后面的 `§1` 照旧是深蓝）。
+        const QList<TextFormat::Segment> broken =
+            TextFormat::parseLegacy(QStringLiteral("§x§1§1§2§2§3"));
+        bool anyCustom = false;
+        for (const TextFormat::Segment &segment : broken) {
+            anyCustom = anyCustom || segment.style.hasCustomColor;
+        }
+        check(!anyCustom, "★★ ZAA7 `§x` 后面接不全六对 ⇒ **不当颜色读**（半截不算数）");
+    }
+
+    // ---------- ZAA8. server.properties 的 `motd=` 那一行 ----------
+    {
+        const QList<TextFormat::Segment> red = TextFormat::parseLegacy(QStringLiteral("§c红"));
+        check(TextFormat::toMotd(red) == QStringLiteral("motd=\\u00A7c\\u7EA2\\u00A7r"),
+              "★★ ZAA8 非 ASCII（含 `§` 和汉字）一律转 `\\uXXXX` —— properties 按 ISO-8859-1 读",
+              TextFormat::toMotd(red));
+
+        const QList<TextFormat::Segment> slash = {
+            TextFormat::Segment{QStringLiteral("a\\b"), TextFormat::Style{}}};
+        check(TextFormat::toMotd(slash) == QStringLiteral("motd=a\\\\b"),
+              "ZAA8 反斜杠自己也要转义（`\\` → `\\\\`）", TextFormat::toMotd(slash));
+
+        const QList<TextFormat::Segment> spaced = {
+            TextFormat::Segment{QStringLiteral(" x"), TextFormat::Style{}}};
+        check(TextFormat::toMotd(spaced) == QStringLiteral("motd=\\ x"),
+              "★ ZAA8 值开头的空白要转义（Java 会把 `=` 后面那串开头的空白吃掉）",
+              TextFormat::toMotd(spaced));
+
+        check(TextFormat::toMotd({}) == QStringLiteral("motd="),
+              "ZAA8 空正文 ⇒ 一行合法的 `motd=`");
     }
 }
 
@@ -30718,17 +32819,33 @@ struct ToolboxBruteUnit {
 };
 
 /**
- * @brief 把所有合并次序展开数一遍，回最小总代价。
+ * @brief 把所有合并次序展开数一遍，回"合完这件事的附魔 → 最小总代价"。
  *
  * 这是 ZAD 那条"计划确确实实最省"的**独立算法**（写法故意和 `AnvilPlanner` 里那套子集 DP
  * 不一样）：两边算出来的数一样，才说明 DP 的剪枝没把最优解剪掉。
- * NOTE: 中间件按附魔书算（`AnvilPlanner` 里那条规矩：合出来的那一本还是书）。
+ * NOTE: 中间件是什么跟着左边（`targetItem.isBook`）—— 铁砧的结果就是把左边那件改一改。
+ *       只收 `wantBook` 那一档的收尾（全是书 ⇒ 合出来是书；有装备 ⇒ 合出来必须是装备）。
  */
-static int toolboxBruteForceMinCost(const QList<ToolboxBruteUnit> &units) {
-    if (units.size() <= 1) {
-        return 0;
+static QString toolboxEnchantKey(const QMap<QString, int> &map) {
+    QStringList parts;
+    for (auto it = map.constBegin(); it != map.constEnd(); ++it) {
+        parts.append(it.key() + QLatin1Char('=') + QString::number(it.value()));
     }
-    int best = 0x7fffffff;
+    return parts.join(QLatin1Char(','));
+}
+
+static void toolboxBruteForceOrders(const QList<ToolboxBruteUnit> &units, int cost, bool wantBook,
+                                    QMap<QString, int> &best) {
+    if (units.size() == 1) {
+        if (units.first().isBook == wantBook) {
+            const QString key = toolboxEnchantKey(units.first().enchantments);
+            auto it = best.find(key);
+            if (it == best.end() || cost < it.value()) {
+                best.insert(key, cost);
+            }
+        }
+        return;
+    }
     for (int left = 0; left < units.size(); ++left) {
         for (int right = 0; right < units.size(); ++right) {
             if (left == right) {
@@ -30748,14 +32865,43 @@ static int toolboxBruteForceMinCost(const QList<ToolboxBruteUnit> &units) {
                 const Anvil::MergeCost merge = Anvil::mergeCost(target, sacrifice);
 
                 QList<ToolboxBruteUnit> rest;
-                rest.append(ToolboxBruteUnit{merge.result, merge.resultPenalty, true});
+                rest.append(ToolboxBruteUnit{merge.result, merge.resultPenalty, targetItem.isBook});
                 for (int index = 0; index < units.size(); ++index) {
                     if (index != left && index != right) {
                         rest.append(units.at(index));
                     }
                 }
-                best = qMin(best, merge.total + toolboxBruteForceMinCost(rest));
+                toolboxBruteForceOrders(rest, cost + merge.total, wantBook, best);
             }
+        }
+    }
+}
+
+/// 材料可以不全用 ⇒ 每个非空子集都试一遍；取"合出 @p target 这套附魔"的最小代价。
+/// 找不到回 -1。
+static int toolboxBruteForceMinCostFor(const QList<ToolboxBruteUnit> &units,
+                                       const QMap<QString, int> &target) {
+    bool wantBook = true;
+    for (const ToolboxBruteUnit &item : units) {
+        if (!item.isBook) {
+            wantBook = false;
+            break;
+        }
+    }
+    const QString wanted = toolboxEnchantKey(target);
+    int best = -1;
+    for (int mask = 1; mask < (1 << units.size()); ++mask) {
+        QList<ToolboxBruteUnit> subset;
+        for (int index = 0; index < units.size(); ++index) {
+            if ((mask & (1 << index)) != 0) {
+                subset.append(units.at(index));
+            }
+        }
+        QMap<QString, int> results;
+        toolboxBruteForceOrders(subset, 0, wantBook, results);
+        const auto it = results.constFind(wanted);
+        if (it != results.constEnd() && (best < 0 || it.value() < best)) {
+            best = it.value();
         }
     }
     return best;
@@ -30936,6 +33082,10 @@ static void runAnvilPlannerTests() {
         check(conflict.enchantValue == 0 && conflict.total == 1,
               "★ ZAD4 互斥那一条**不计价值、只 +1 级**（wiki：add 1 level in Java）",
               QString::number(conflict.total));
+        check(conflict.dropped.size() == 1
+                  && conflict.dropped.value(QStringLiteral("smite")) == 2,
+              "★★ ZAD4 顶掉的那一条**点名记下来**（界面拿它解释「谁没合上来」）",
+              QStringLiteral("%1 条").arg(conflict.dropped.size()));
 
         // 两边都互斥时，每一条各 +1。
         Anvil::Unit mixed;
@@ -31037,6 +33187,37 @@ static void runAnvilPlannerTests() {
               QStringLiteral("代价 %1 / tooExpensive=%2")
                   .arg(renamedOver.totalCost)
                   .arg(renamedOver.anyTooExpensive ? QStringLiteral("1") : QStringLiteral("0")));
+        check(renamedOver.ok && !renamedOver.withinSurvival,
+              "★★ ZAD6 `withinSurvival` 和那一步超 39 是**同一件事**的两个说法");
+
+        // 材料可以不全用：两本锋利 V 合出来还是锋利 V（封顶了），那一本白花代价 ⇒ 别用。
+        Anvil::Unit sharpFiveA;
+        sharpFiveA.enchantments.insert(QStringLiteral("sharpness"), 5);
+        Anvil::Unit sharpFiveB = sharpFiveA;
+        const Anvil::Plan leftover = Anvil::plan({sharpFiveA, sharpFiveB});
+        check(leftover.ok && leftover.steps.isEmpty() && leftover.totalCost == 0
+                  && leftover.unused == QList<int>{1}
+                  && leftover.consumed.isEmpty(),
+              "★★ ZAD6 材料可以不全用：第二本锋利 V 加进去也升不了级 ⇒ 不用它、代价 0",
+              QStringLiteral("步骤 %1 / 没用 %2 / 代价 %3")
+                  .arg(leftover.steps.size())
+                  .arg(leftover.unused.size())
+                  .arg(leftover.totalCost));
+
+        // 装备当底子：合出来的还是那件装备（倍率按"牺牲品是书"那一列算，但结果不是书）。
+        Anvil::Unit armor;
+        armor.isBook = false;
+        armor.enchantments.insert(QStringLiteral("protection"), 4);
+        Anvil::Unit thornsBook;
+        thornsBook.enchantments.insert(QStringLiteral("thorns"), 3);
+        const Anvil::Plan ontoArmor = Anvil::plan({armor, thornsBook});
+        check(ontoArmor.ok && !ontoArmor.finalIsBook && ontoArmor.steps.size() == 1
+                  && !ontoArmor.steps.first().resultIsBook
+                  && ontoArmor.totalCost == Anvil::mergeCost(armor, thornsBook).total,
+              "★★ ZAD6 拿装备当底子 ⇒ 合出来的还是装备（`finalIsBook` / `resultIsBook` 都是 false）",
+              QStringLiteral("cost=%1 book=%2")
+                  .arg(ontoArmor.ok ? ontoArmor.totalCost : -1)
+                  .arg(ontoArmor.finalIsBook ? QStringLiteral("1") : QStringLiteral("0")));
     }
 
     // ---------- ZAD7. 计划确实最省（拿穷举当独立对照）----------
@@ -31075,9 +33256,9 @@ static void runAnvilPlannerTests() {
                 units.append(unit);
             }
             const Anvil::Plan planned = Anvil::plan(units);
-            const int brute = toolboxBruteForceMinCost(group.units);
-            check(planned.ok && planned.totalCost == brute,
-                  QStringLiteral("★★ ZAD7 %1：计划那套 DP 算出来的代价 == 穷举所有次序的最小值")
+            const int brute = toolboxBruteForceMinCostFor(group.units, planned.finalEnchantments);
+            check(planned.ok && brute >= 0 && planned.totalCost == brute,
+                  QStringLiteral("★★ ZAD7 %1：计划那套 DP 算出来的代价 == 穷举所有次序（材料可不用）的最小值")
                       .arg(QString::fromUtf8(group.name)),
                   QStringLiteral("计划 %1 / 穷举 %2")
                       .arg(planned.ok ? QString::number(planned.totalCost) : planned.error)
@@ -31085,29 +33266,35 @@ static void runAnvilPlannerTests() {
             if (!planned.ok) {
                 continue;
             }
-            // 步骤与账本自洽：步数 = 件数 - 1、每一步的两头都"还算数"、总代价 = 各步之和。
+            // 步骤与账本自洽：步数 = 用上的件数 - 1、总代价 = 各步之和。
             int sum = 0;
             for (const Anvil::Step &step : planned.steps) {
                 sum += step.cost.total;
             }
-            check(planned.steps.size() == units.size() - 1 && sum == planned.totalCost,
-                  QStringLiteral("ZAD7 %1：步数 = 件数 - 1、总代价 = 各步之和（账本自洽）")
+            const int used = units.size() - planned.unused.size();
+            check(planned.steps.size() == used - 1 && sum == planned.totalCost,
+                  QStringLiteral("ZAD7 %1：步数 = 用上的件数 - 1、总代价 = 各步之和（账本自洽）")
                       .arg(QString::fromUtf8(group.name)),
                   QStringLiteral("%1 步 / 和 %2 vs 总 %3")
                       .arg(planned.steps.size())
                       .arg(sum)
                       .arg(planned.totalCost));
-            // 被吃掉的那些：恰好是"件数 - 1"个互不相同的下标。
+            // 被吃掉的那些：恰好是"用上的件数 - 1"个互不相同的下标，且和 unused 不重叠。
             QSet<int> consumed;
             for (int index : planned.consumed) {
                 consumed.insert(index);
             }
+            QSet<int> unused;
+            for (int index : planned.unused) {
+                unused.insert(index);
+            }
             check(consumed.size() == planned.consumed.size()
-                      && consumed.size() == units.size() - 1
-                      && !consumed.contains(-1),
-                  QStringLiteral("★ ZAD7 %1：被吃掉的恰好是「件数 - 1」个**互不相同**的下标（没有一步吃掉空气）")
+                      && consumed.size() == used - 1
+                      && !consumed.contains(-1)
+                      && consumed.intersects(unused) == false,
+                  QStringLiteral("★ ZAD7 %1：被吃掉的恰好是「用上的件数 - 1」个**互不相同**的下标（没有一步吃掉空气）")
                       .arg(QString::fromUtf8(group.name)),
-                  QStringLiteral("%1 个").arg(consumed.size()));
+                  QStringLiteral("%1 个 / 没用 %2 个").arg(consumed.size()).arg(unused.size()));
             // 最后一步的结果 = 计划说的"合完是什么"。
             if (!planned.steps.isEmpty()) {
                 check(planned.steps.last().result == planned.finalEnchantments,
@@ -31115,6 +33302,1142 @@ static void runAnvilPlannerTests() {
                           .arg(QString::fromUtf8(group.name)));
             }
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 结构 / 原理图的元数据与方块统计（2026-10-18，coding plan §9.5）
+// ---------------------------------------------------------------------------
+//
+// 三种格式各造一份**真形状**的 NBT（用 `NbtTree::serialize()` 手搭，不依赖任何外部文件）：
+//   · 原版结构 `.nbt` —— `size` + `palette` + `blocks`；
+//   · Sponge `.schematic` —— `Width/Height/Length` + `Palette` + `BlockData`（varint，
+//     其中一格故意写成两字节，验跨字节那个读法）；
+//   · Litematica `.litematic` —— 两个 region，一处 bits=2、一处 bits=5（后者的第 13 个值
+//     从第 60 位开始，**故意跨 long**；测试自己那套打包是独立写的一份，不是抄实现）。
+// 另外验：后缀骗人时按**字段**认、空气不算方块数、gzip 那一层（拿 `ZipUtil` 真压一份）、
+// 数据版本那张表、以及三种"读不动"（认不出 / 空的 / 太大）。
+static void runSchematicInfoTests() {
+    section("SG. 结构 / 原理图的元数据与方块统计（coding plan §9.5）");
+
+    const auto compoundNode = [] {
+        NbtTree::Node node;
+        node.type = NbtTree::Type::Compound;
+        return node;
+    };
+    const auto intNode = [](qint64 value) {
+        NbtTree::Node node;
+        node.type = NbtTree::Type::Int;
+        node.number = value;
+        return node;
+    };
+    const auto stringNode = [](const QString &text) {
+        NbtTree::Node node;
+        node.type = NbtTree::Type::String;
+        node.text = text;
+        return node;
+    };
+    const auto addField = [](NbtTree::Node *parent, const QString &name,
+                             const NbtTree::Node &child) {
+        parent->fields.append(qMakePair(name, child));
+    };
+    const auto writeTree = [](const QString &path, const NbtTree::Node &root) {
+        NbtTree::Document document;
+        document.root = root;
+        writeFileAt(path, NbtTree::serialize(document));
+    };
+    // Litematica 的位打包（高位在前）。**测试自己的一份**：实现那边有一份同样的算法，
+    // 两边独立写才对得上"跨 long"那一条的意义。
+    const auto packLongs = [](const QList<int> &values, int bits, qint64 volume) {
+        QList<qint64> words;
+        words.fill(0, static_cast<int>((volume * bits + 63) / 64));
+        const quint64 mask = (quint64(1) << bits) - 1;
+        for (int i = 0; i < values.size(); ++i) {
+            const quint64 value = quint64(values.at(i)) & mask;
+            const qint64 start = qint64(i) * bits;
+            const qint64 wordIndex = start >> 6;
+            const int offset = int(start & 63);
+            if (offset + bits <= 64) {
+                words[int(wordIndex)] |= qint64(value << (64 - offset - bits));
+            } else {
+                const int firstBits = 64 - offset;
+                const int rest = bits - firstBits;
+                words[int(wordIndex)] |= qint64(value >> rest);
+                words[int(wordIndex) + 1] |=
+                    qint64((value & ((quint64(1) << rest) - 1)) << (64 - rest));
+            }
+        }
+        return words;
+    };
+
+    QTemporaryDir dir;
+    check(dir.isValid(), "SG0 临时目录");
+    if (!dir.isValid()) {
+        return;
+    }
+    const QString root = dir.path();
+    const auto namedEntry = [&](const QString &name) {
+        NbtTree::Node entry = compoundNode();
+        addField(&entry, QStringLiteral("Name"), stringNode(name));
+        return entry;
+    };
+    const auto sizeCompound = [&](qint64 x, qint64 y, qint64 z) {
+        NbtTree::Node size = compoundNode();
+        addField(&size, QStringLiteral("x"), intNode(x));
+        addField(&size, QStringLiteral("y"), intNode(y));
+        addField(&size, QStringLiteral("z"), intNode(z));
+        return size;
+    };
+
+    // ---------- SG1. 原版结构（palette + blocks）----------
+    {
+        NbtTree::Node structure = compoundNode();
+        NbtTree::Node size;
+        size.type = NbtTree::Type::List;
+        size.itemType = NbtTree::Type::Int;
+        size.items.append(intNode(3));
+        size.items.append(intNode(2));
+        size.items.append(intNode(4));
+        addField(&structure, QStringLiteral("size"), size);
+
+        NbtTree::Node palette;
+        palette.type = NbtTree::Type::List;
+        palette.itemType = NbtTree::Type::Compound;
+        palette.items.append(namedEntry(QStringLiteral("minecraft:air")));
+        palette.items.append(namedEntry(QStringLiteral("minecraft:stone")));
+        palette.items.append(namedEntry(QStringLiteral("minecraft:oak_planks")));
+        addField(&structure, QStringLiteral("palette"), palette);
+
+        NbtTree::Node blocks;
+        blocks.type = NbtTree::Type::List;
+        blocks.itemType = NbtTree::Type::Compound;
+        for (const int state : {0, 1, 1, 2, 2, 2}) {
+            NbtTree::Node block = compoundNode();
+            addField(&block, QStringLiteral("state"), intNode(state));
+            blocks.items.append(block);
+        }
+        addField(&structure, QStringLiteral("blocks"), blocks);
+        addField(&structure, QStringLiteral("DataVersion"), intNode(3465));
+
+        const QString path = root + QStringLiteral("/house.nbt");
+        writeTree(path, structure);
+        const SchematicInfo::Info info = SchematicInfo::read(path);
+        check(info.ok && info.problem.isEmpty()
+                  && info.format == SchematicInfo::Format::Structure,
+              "SG1 原版结构：认得出是 `palette` + `blocks` 那一档",
+              info.ok ? QString() : info.problem);
+        check(info.width == 3 && info.height == 2 && info.length == 4 && info.volume == 24,
+              "SG1 `size` 三个数就是 宽 × 高 × 长（体积 24）",
+              QStringLiteral("%1×%2×%3/%4")
+                  .arg(info.width).arg(info.height).arg(info.length).arg(info.volume));
+        check(info.paletteSize == 3, "SG1 调色板条目数（**含空气**那一格）",
+              QString::number(info.paletteSize));
+        check(info.countsComplete && info.blockCount == 5,
+              "★ SG1 方块数**不含空气**：6 个里 1 个 air ⇒ 5",
+              QString::number(info.blockCount));
+        check(info.topBlocks.size() == 2 && info.topBlocks.at(0).id == QStringLiteral("minecraft:oak_planks")
+                  && info.topBlocks.at(0).count == 3 && info.topBlocks.at(1).count == 2,
+              "★ SG1 排行按个数降序（3 个木板压过 2 个石头）",
+              info.topBlocks.isEmpty() ? QStringLiteral("空") : info.topBlocks.at(0).id);
+        const QString summary = SchematicInfo::summaryText(info, QStringLiteral("1.20.1-Forge_47.2.0"));
+        check(summary.contains(QStringLiteral("3 × 2 × 4"))
+                  && summary.contains(QStringLiteral("5 个方块"))
+                  && summary.contains(QStringLiteral("1.20.1（数据版本 3465）")),
+              "★ SG1 那一行字：尺寸 / 方块数 / 数据版本对应的游戏版本",
+              summary);
+        check(!summary.contains(QStringLiteral("⚠")),
+              "SG1 同一个版本（1.20.1-Forge_47.2.0）⇒ **不出**兼容提示");
+        const QString other = SchematicInfo::summaryText(info, QStringLiteral("1.18.2"));
+        check(other.contains(QStringLiteral("⚠")) && other.contains(QStringLiteral("1.18.2")),
+              "★ SG1 换到 1.18.2 ⇒ 明说「来自哪一版、实例是哪一版」，不把话说死",
+              other);
+        check(SchematicInfo::topBlocksText(info).contains(QStringLiteral("最多的方块："))
+                  && SchematicInfo::topBlocksText(info).contains(QStringLiteral("minecraft:oak_planks：3")),
+              "SG1 悬停提示里的方块排行",
+              SchematicInfo::topBlocksText(info));
+    }
+
+    // ---------- SG2. Sponge（Palette + varint BlockData）----------
+    const auto buildSponge = [&]() {
+        NbtTree::Node sponge = compoundNode();
+        addField(&sponge, QStringLiteral("Width"), intNode(2));
+        addField(&sponge, QStringLiteral("Height"), intNode(1));
+        addField(&sponge, QStringLiteral("Length"), intNode(2));
+        addField(&sponge, QStringLiteral("DataVersion"), intNode(2586));
+        NbtTree::Node metadata = compoundNode();
+        addField(&metadata, QStringLiteral("Name"), stringNode(QStringLiteral("测试原理图")));
+        addField(&metadata, QStringLiteral("Author"), stringNode(QStringLiteral("作者甲")));
+        addField(&sponge, QStringLiteral("Metadata"), metadata);
+        NbtTree::Node palette = compoundNode();
+        addField(&palette, QStringLiteral("minecraft:air"), intNode(0));
+        for (int i = 1; i < 130; ++i) {
+            addField(&palette, QStringLiteral("minecraft:test%1").arg(i), intNode(i));
+        }
+        addField(&sponge, QStringLiteral("Palette"), palette);
+        return sponge;
+    };
+    {
+        NbtTree::Node sponge = buildSponge();
+        NbtTree::Node blockData;
+        blockData.type = NbtTree::Type::ByteArray;
+        // 0（空气）、1（单字节）、128（0x80 0x01 —— **两字节的 varint**）
+        blockData.bytes = QByteArray::fromHex("00018001");
+        addField(&sponge, QStringLiteral("BlockData"), blockData);
+        const QString path = root + QStringLiteral("/sponge.schematic");
+        writeTree(path, sponge);
+        const SchematicInfo::Info info = SchematicInfo::read(path);
+        check(info.ok && info.format == SchematicInfo::Format::SpongeSchematic,
+              "SG2 Sponge：认得出 `Palette` + `BlockData` 那一档",
+              info.ok ? QString() : info.problem);
+        check(info.paletteSize == 130 && info.volume == 4,
+              "SG2 调色板 130 条 / 体积 2×1×2",
+              QStringLiteral("%1 / %2").arg(info.paletteSize).arg(info.volume));
+        check(info.countsComplete && info.blockCount == 2,
+              "★ SG2 方块数：空气不算；剩下两格分别是下标 1 和**两字节写出来的** 128",
+              QStringLiteral("%1 个 / 完整 %2").arg(info.blockCount).arg(info.countsComplete));
+        check(info.topBlocks.size() == 2
+                  && info.topBlocks.at(0).id == QStringLiteral("minecraft:test1")
+                  && info.topBlocks.at(1).id == QStringLiteral("minecraft:test128"),
+              "★★ SG2 两字节 varint 解出来的正是 128（下标没被读成 0）",
+              info.topBlocks.size() == 2 ? info.topBlocks.at(1).id : QStringLiteral("少"));
+        const QString summary = SchematicInfo::summaryText(info, QString());
+        check(summary.contains(QStringLiteral("「测试原理图」"))
+                  && summary.contains(QStringLiteral("作者 作者甲"))
+                  && summary.contains(QStringLiteral("1.16.4（数据版本 2586）")),
+              "★ SG2 名字 / 作者 / 版本都在那一行里",
+              summary);
+    }
+
+    // ---------- SG4. Litematica（多 region + 位打包，含跨 long）----------
+    {
+        NbtTree::Node litematic = compoundNode();
+        addField(&litematic, QStringLiteral("MinecraftDataVersion"), intNode(2865));
+        NbtTree::Node metadata = compoundNode();
+        addField(&metadata, QStringLiteral("Name"), stringNode(QStringLiteral("小房子")));
+        addField(&metadata, QStringLiteral("Author"), stringNode(QStringLiteral("作者乙")));
+        addField(&metadata, QStringLiteral("EnclosingSize"), sizeCompound(9, 5, 1));
+        addField(&litematic, QStringLiteral("Metadata"), metadata);
+
+        NbtTree::Node regions = compoundNode();
+
+        // region A：体积 24、调色板 3 条 ⇒ 2 位一组（48 位正好 1 个 long）
+        NbtTree::Node regionA = compoundNode();
+        addField(&regionA, QStringLiteral("Size"), sizeCompound(4, 3, 2));
+        NbtTree::Node paletteA;
+        paletteA.type = NbtTree::Type::List;
+        paletteA.itemType = NbtTree::Type::Compound;
+        paletteA.items.append(namedEntry(QStringLiteral("minecraft:air")));
+        paletteA.items.append(namedEntry(QStringLiteral("minecraft:stone")));
+        paletteA.items.append(namedEntry(QStringLiteral("minecraft:oak_stairs[facing=north]")));
+        addField(&regionA, QStringLiteral("BlockStatePalette"), paletteA);
+        QList<int> valuesA;
+        valuesA.append(0);
+        for (int i = 0; i < 21; ++i) {
+            valuesA.append(1);
+        }
+        valuesA.append(2);
+        valuesA.append(2);  // 24 个值：1 空气 + 21 石头 + 2 楼梯
+        NbtTree::Node statesA;
+        statesA.type = NbtTree::Type::LongArray;
+        statesA.longs = packLongs(valuesA, 2, 24);
+        addField(&regionA, QStringLiteral("BlockStates"), statesA);
+        addField(&regions, QStringLiteral("main"), regionA);
+
+        // region B：体积 40、调色板 17 条 ⇒ 5 位一组；第 13 个值从第 60 位开始（**跨 long**）
+        NbtTree::Node regionB = compoundNode();
+        addField(&regionB, QStringLiteral("Size"), sizeCompound(8, 5, 1));
+        NbtTree::Node paletteB;
+        paletteB.type = NbtTree::Type::List;
+        paletteB.itemType = NbtTree::Type::Compound;
+        paletteB.items.append(namedEntry(QStringLiteral("minecraft:air")));
+        for (int i = 1; i <= 16; ++i) {
+            paletteB.items.append(namedEntry(QStringLiteral("minecraft:b%1").arg(i)));
+        }
+        addField(&regionB, QStringLiteral("BlockStatePalette"), paletteB);
+        QList<int> valuesB;
+        valuesB.fill(0, 40);
+        valuesB[12] = 3;
+        valuesB[13] = 4;
+        valuesB[39] = 16;
+        NbtTree::Node statesB;
+        statesB.type = NbtTree::Type::LongArray;
+        statesB.longs = packLongs(valuesB, 5, 40);
+        addField(&regionB, QStringLiteral("BlockStates"), statesB);
+        addField(&regions, QStringLiteral("wing"), regionB);
+
+        addField(&litematic, QStringLiteral("Regions"), regions);
+
+        const QString path = root + QStringLiteral("/house.litematic");
+        writeTree(path, litematic);
+        const SchematicInfo::Info info = SchematicInfo::read(path);
+        check(info.ok && info.format == SchematicInfo::Format::Litematic,
+              "SG4 Litematica：认得出 `Regions` 那一档",
+              info.ok ? QString() : info.problem);
+        check(info.name == QStringLiteral("小房子") && info.author == QStringLiteral("作者乙"),
+              "SG4 `Metadata` 里的名字 / 作者", info.name);
+        check(info.width == 9 && info.height == 5 && info.length == 1,
+              "★ SG4 尺寸取 `EnclosingSize`（不是拿 region 边长瞎凑）",
+              QStringLiteral("%1×%2×%3").arg(info.width).arg(info.height).arg(info.length));
+        check(info.volume == 64, "SG4 体积 = 两个 region 之和（24 + 40）",
+              QString::number(info.volume));
+        check(info.paletteSize == 20 && info.countsComplete,
+              "SG4 调色板条目数按 region 累加（3 + 17）、方块表解出来了",
+              QStringLiteral("%1 / %2").arg(info.paletteSize).arg(info.countsComplete));
+        check(info.blockCount == 26,
+              "★ SG4 方块数：空气两处都不算（23 + 3）",
+              QString::number(info.blockCount));
+        check(info.topBlocks.size() == 5 && info.topBlocks.at(0).id == QStringLiteral("minecraft:stone")
+                  && info.topBlocks.at(0).count == 21
+                  && info.topBlocks.at(1).id == QStringLiteral("minecraft:oak_stairs")
+                  && info.topBlocks.at(1).count == 2,
+              "★ SG4 排行按 id 聚合（状态后缀 `[facing=north]` 被摘掉）",
+              info.topBlocks.size() >= 2 ? info.topBlocks.at(1).id : QStringLiteral("少"));
+        bool sawB3 = false;
+        bool sawB4 = false;
+        bool sawB16 = false;
+        for (const SchematicInfo::BlockCount &block : info.topBlocks) {
+            sawB3 = sawB3 || block.id == QStringLiteral("minecraft:b3");
+            sawB4 = sawB4 || block.id == QStringLiteral("minecraft:b4");
+            sawB16 = sawB16 || block.id == QStringLiteral("minecraft:b16");
+        }
+        check(sawB3 && sawB4 && sawB16,
+              "★★ SG4 5 位那一档解对了：**跨 long** 的第 13 个值（b3 / b4）和最后一个（b16）都在",
+              QStringLiteral("b3=%1 b4=%2 b16=%3").arg(sawB3).arg(sawB4).arg(sawB16));
+        const QString summary = SchematicInfo::summaryText(info, QStringLiteral("1.20.1"));
+        check(summary.contains(QStringLiteral("「小房子」"))
+                  && summary.contains(QStringLiteral("9 × 5 × 1"))
+                  && summary.contains(QStringLiteral("1.18.2（数据版本 2865）")),
+              "★ SG4 那一行字：名字 / 尺寸 / 版本", summary);
+        const QString compat = SchematicInfo::compatibilityText(info, QStringLiteral("1.20.1"));
+        check(compat.contains(QStringLiteral("1.18.2"))
+                  && compat.contains(QStringLiteral("1.20.1"))
+                  && compat.contains(QStringLiteral("可能有方块兼容问题")),
+              "★ SG4 版本不一样 ⇒ 说清两边分别是什么、不把话说死", compat);
+    }
+
+    // ---------- SG5. gzip 那一层 + 后缀骗人 ----------
+    {
+        const QString raw = root + QStringLiteral("/house.litematic");
+        const QString gz = root + QStringLiteral("/renamed.schematic");
+        QString why;
+        check(ZipUtil::gzipFrom(raw, gz, &why), "SG5 把那份 Litematica 压成 gzip", why);
+        const SchematicInfo::Info info = SchematicInfo::read(gz);
+        check(info.ok && info.format == SchematicInfo::Format::Litematic,
+              "★★ SG5 后缀写着 `.schematic`、内容其实是 Litematica ⇒ 按**字段**认，不看后缀",
+              info.ok ? SchematicInfo::formatName(info.format) : info.problem);
+        const SchematicInfo::Info direct = SchematicInfo::read(raw);
+        check(SchematicInfo::summaryText(info, QStringLiteral("1.20.1"))
+                  == SchematicInfo::summaryText(direct, QStringLiteral("1.20.1")),
+              "★ SG5 gzip 解出来和裸 NBT 逐字一样（解压那一层没吃掉东西）");
+    }
+
+    // ---------- SG6. 三种"读不动"与"只读到元数据" ----------
+    {
+        NbtTree::Node mystery = compoundNode();
+        addField(&mystery, QStringLiteral("hello"), stringNode(QStringLiteral("world")));
+        const QString mysteryPath = root + QStringLiteral("/mystery.nbt");
+        writeTree(mysteryPath, mystery);
+        const SchematicInfo::Info info = SchematicInfo::read(mysteryPath);
+        check(!info.ok && info.problem.contains(QStringLiteral("认不出")),
+              "★ SG6 根里没有那三格 ⇒ 如实说「认不出」，不猜格式", info.problem);
+        check(SchematicInfo::summaryText(info, QString()) == info.problem,
+              "SG6 读失败时那一行字就是 `problem` 原文");
+
+        const QString emptyPath = root + QStringLiteral("/empty.nbt");
+        writeFileAt(emptyPath, QByteArray());
+        const SchematicInfo::Info empty = SchematicInfo::read(emptyPath);
+        check(!empty.ok && empty.problem.contains(QStringLiteral("空")),
+              "SG6 零字节文件：说「空的」", empty.problem);
+
+        NbtTree::Node small = compoundNode();
+        addField(&small, QStringLiteral("size"), intNode(1));
+        NbtTree::Document document;
+        document.root = small;
+        QByteArray truncatedBytes = NbtTree::serialize(document);
+        truncatedBytes.chop(4);
+        const QString truncatedPath = root + QStringLiteral("/truncated.nbt");
+        writeFileAt(truncatedPath, truncatedBytes);
+        const SchematicInfo::Info truncated = SchematicInfo::read(truncatedPath);
+        check(!truncated.ok && truncated.problem.contains(QStringLiteral("NBT")),
+              "★ SG6 截断的 NBT：说「不是能读懂的 NBT」，不硬解半份", truncated.problem);
+
+        const QString hugePath = root + QStringLiteral("/huge.nbt");
+        writeFileAt(hugePath, QByteArray("x"));
+        QFile huge(hugePath);
+        if (huge.open(QIODevice::ReadWrite)) {
+            huge.resize(97ll * 1024 * 1024);  // NTFS 上是稀疏的，不真占 97 MB
+            huge.close();
+        }
+        const SchematicInfo::Info oversized = SchematicInfo::read(hugePath);
+        check(!oversized.ok && oversized.problem.contains(QStringLiteral("太大")),
+              "★ SG6 超过 96 MB 的：明说太大、不展开读（同步解析不能把界面按在那儿）",
+              oversized.problem);
+
+        // Sponge 少了 BlockData：元数据照样读得出来，**方块表那一段如实说不完整**。
+        NbtTree::Node sponge = buildSponge();
+        const QString noDataPath = root + QStringLiteral("/nodata.schematic");
+        writeTree(noDataPath, sponge);
+        const SchematicInfo::Info noData = SchematicInfo::read(noDataPath);
+        check(noData.ok && !noData.countsComplete && noData.blockCount == 0,
+              "★ SG6 只有 Palette、没有 BlockData ⇒ ok 但 `countsComplete` 为假、方块数不编",
+              QStringLiteral("ok=%1 完整=%2 数=%3")
+                  .arg(noData.ok).arg(noData.countsComplete).arg(noData.blockCount));
+        const QString noDataSummary = SchematicInfo::summaryText(noData, QString());
+        check(noDataSummary.contains(QStringLiteral("没解出来")),
+              "★ SG6 那种情况那一行字要**明说**只读到元数据", noDataSummary);
+    }
+
+    // ---------- SG7. 数据版本那张表 ----------
+    {
+        check(SchematicInfo::gameVersionOfDataVersion(3465) == QStringLiteral("1.20.1")
+                  && SchematicInfo::gameVersionOfDataVersion(4440) == QStringLiteral("1.21.8"),
+              "SG7 数据版本 → 正式版号（3465→1.20.1、4440→1.21.8）");
+        check(SchematicInfo::gameVersionOfDataVersion(1234).isEmpty(),
+              "★ SG7 表里没有的号**只报数字**（不猜成某个版本）");
+        check(SchematicInfo::dataVersionOfGameVersion(QStringLiteral("1.20.1-Forge_47.2.0")) == 3465
+                  && SchematicInfo::dataVersionOfGameVersion(QStringLiteral("原版 1.18.2 整合")) == 2865,
+              "SG7 从实例的显示版本里抠出版本号（前面后面带什么都行）");
+        check(SchematicInfo::dataVersionOfGameVersion(QStringLiteral("26.2")) == 0
+                  && SchematicInfo::dataVersionOfGameVersion(QStringLiteral("原版ATT2地图（无模组）")) == 0,
+              "★ SG7 认不出来就回 0 ⇒ 兼容提示那一句整句不出（宁可不说话也不说错）");
+    }
+}
+
+static void runReplayInfoTests() {
+    section("RP. Replay 录像（.mcpr）的元数据（coding plan §9.5）");
+
+    QTemporaryDir dir;
+    check(dir.isValid(), "RP0 临时目录");
+    if (!dir.isValid()) {
+        return;
+    }
+    const QString root = dir.path();
+
+    // 造一份**真**的 `.mcpr`：zip 里一份 metaData.json + 一份假的 recording.tmcpr
+    // （后者只占个名字 —— 实现那边明确不读它）。
+    const auto makeReplay = [&](const QString &name, const QByteArray &meta,
+                                const QString &metaEntry = QStringLiteral("metaData.json")) {
+        const QString replayPath = root + QStringLiteral("/") + name;
+        const auto dirFor = root + QStringLiteral("/sources-") + name;
+        QDir().mkpath(dirFor);
+        QString why;
+        QList<ZipUtil::ZipSource> entries;
+        if (!metaEntry.isEmpty()) {
+            const QString metaPath = dirFor + QStringLiteral("/metaData.json");
+            writeFileAt(metaPath, meta);
+            entries.append({metaEntry, metaPath});
+        }
+        const QString recordingPath = dirFor + QStringLiteral("/recording.tmcpr");
+        writeFileAt(recordingPath, QByteArray(8, '\0'));
+        entries.append({QStringLiteral("recording.tmcpr"), recordingPath});
+        if (!ZipUtil::createZip(replayPath, entries, &why)) {
+            check(false, QStringLiteral("RP0 造一份真 `.mcpr`：%1").arg(name), why);
+            return QString();
+        }
+        return replayPath;
+    };
+
+    // ---------- RP1. 一份完整的录像 ----------
+    {
+        const QByteArray meta = R"({
+            "singleplayer": false,
+            "serverName": "mc.example.com",
+            "duration": 200500,
+            "date": 1690000000000,
+            "mcversion": "1.20.1",
+            "fileFormat": "MCPR",
+            "fileFormatVersion": 14,
+            "protocol": 763,
+            "generator": "ReplayMod v2.6.11",
+            "players": ["a", "b", "c"]
+        })";
+        const QString path = makeReplay(QStringLiteral("full.mcpr"), meta);
+        if (!path.isEmpty()) {
+            const ReplayInfo::Info info = ReplayInfo::read(path);
+            check(info.ok && info.problem.isEmpty(), "RP1 一份完整的录像读得出来",
+                  info.ok ? QString() : info.problem);
+            check(info.mcVersion == QStringLiteral("1.20.1")
+                      && info.generator == QStringLiteral("ReplayMod v2.6.11")
+                      && info.protocol == 763,
+                  "RP1 版本 / 录制器 / 协议号",
+                  QStringLiteral("%1 / %2 / %3")
+                      .arg(info.mcVersion, info.generator).arg(info.protocol));
+            check(!info.singleplayer && info.serverName == QStringLiteral("mc.example.com"),
+                  "RP1 多人录像记得住服务器名");
+            check(info.durationMs == 200500 && info.dateMs == 1690000000000,
+                  "RP1 时长 / 录制时间按原数（毫秒）");
+            check(info.playerCount == 3, "RP1 玩家数 = players 数组长度",
+                  QString::number(info.playerCount));
+            check(info.fileBytes > 0, "RP1 文件大小");
+            const QString summary = ReplayInfo::summaryText(info);
+            check(summary.contains(QStringLiteral("3 分 20 秒"))
+                      && summary.contains(QStringLiteral("1.20.1"))
+                      && summary.contains(QStringLiteral("多人（mc.example.com）"))
+                      && summary.contains(QStringLiteral("3 位玩家"))
+                      && summary.contains(QStringLiteral("ReplayMod v2.6.11")),
+                  "★ RP1 那一行字：时长 / 版本 / 单人还是多人 / 玩家数 / 录制器",
+                  summary);
+            const QString detail = ReplayInfo::detailText(info);
+            check(detail.contains(QStringLiteral("录制时间："))
+                      && detail.contains(QStringLiteral("文件大小：")),
+                  "RP1 悬停提示补上录制时间与文件大小", detail);
+        }
+    }
+
+    // ---------- RP2. 老录像：只有一格版本 ----------
+    {
+        const QString path =
+            makeReplay(QStringLiteral("old.mcpr"), QByteArray(R"({"mcversion":"1.8.9"})"));
+        if (!path.isEmpty()) {
+            const ReplayInfo::Info info = ReplayInfo::read(path);
+            check(info.ok && info.durationMs == -1 && info.dateMs == -1
+                      && info.playerCount == -1 && info.protocol == -1,
+                  "★ RP2 缺的字段留 -1（**不拿 0 顶**：0 毫秒和没记录是两件事）",
+                  QStringLiteral("时长=%1 日期=%2 玩家=%3")
+                      .arg(info.durationMs).arg(info.dateMs).arg(info.playerCount));
+            check(info.singleplayer, "RP2 没有 `singleplayer` 那一格 ⇒ 按单人算");
+            check(ReplayInfo::summaryText(info) == QStringLiteral("1.8.9 · 单人"),
+                  "★ RP2 不知道的字段一个都不往那一行里塞",
+                  ReplayInfo::summaryText(info));
+        }
+    }
+
+    // ---------- RP3. 读不出来的几种 ----------
+    {
+        const QString notZip = root + QStringLiteral("/plain.mcpr");
+        writeFileAt(notZip, QByteArrayLiteral("this is not a zip at all"));
+        const ReplayInfo::Info broken = ReplayInfo::read(notZip);
+        check(!broken.ok && (broken.problem.contains(QStringLiteral("打不开"))
+                             || broken.problem.contains(QStringLiteral("Replay"))),
+              "★ RP3 不是 zip：说「打不开、不是 Replay 录像」，不硬当录像念", broken.problem);
+
+        const QString noMeta =
+            makeReplay(QStringLiteral("nometa.mcpr"), QByteArray(), QString());
+        if (!noMeta.isEmpty()) {
+            const ReplayInfo::Info missing = ReplayInfo::read(noMeta);
+            check(!missing.ok && missing.problem.contains(QStringLiteral("metaData.json")),
+                  "★ RP3 zip 里没有 metaData.json ⇒ 明说缺的是哪一份", missing.problem);
+        }
+
+        const QString badJson =
+            makeReplay(QStringLiteral("badjson.mcpr"), QByteArrayLiteral("{oops"));
+        if (!badJson.isEmpty()) {
+            const ReplayInfo::Info bad = ReplayInfo::read(badJson);
+            check(!bad.ok && bad.problem.contains(QStringLiteral("读不懂")),
+                  "RP3 元数据不是 JSON：说「读不懂」", bad.problem);
+        }
+
+        const QString otherZip = makeReplay(QStringLiteral("other.mcpr"),
+                                            QByteArrayLiteral(R"({"name":"not a replay"})"));
+        if (!otherZip.isEmpty()) {
+            const ReplayInfo::Info other = ReplayInfo::read(otherZip);
+            check(!other.ok && other.problem.contains(QStringLiteral("版本信息")),
+                  "★ RP3 有 metaData.json 但没有 Replay 的版本信息 ⇒ 不当成录像",
+                  other.problem);
+        }
+
+        const ReplayInfo::Info absent = ReplayInfo::read(root + QStringLiteral("/nope.mcpr"));
+        check(!absent.ok && absent.problem.contains(QStringLiteral("不存在")),
+              "RP3 文件不存在", absent.problem);
+    }
+
+    // ---------- RP4. 单纯的格式化那几格 ----------
+    {
+        check(ReplayInfo::durationText(-1).isEmpty(),
+              "★ RP4 负数是「不知道」⇒ 空串（不是「不足 1 秒」）");
+        check(ReplayInfo::durationText(0) == QStringLiteral("不足 1 秒")
+                  && ReplayInfo::durationText(59999) == QStringLiteral("59 秒"),
+              "RP4 不足一秒 / 不到一分钟");
+        check(ReplayInfo::durationText(60000) == QStringLiteral("1 分")
+                  && ReplayInfo::durationText(200500) == QStringLiteral("3 分 20 秒"),
+              "RP4 分 + 秒（整分不拖一个「0 秒」）");
+        check(ReplayInfo::durationText(3600000) == QStringLiteral("1 小时")
+                  && ReplayInfo::durationText(3900000) == QStringLiteral("1 小时 5 分"),
+              "RP4 超过一小时按「时 分」说");
+        check(ReplayInfo::dateTimeText(-1).isEmpty() && ReplayInfo::dateTimeText(0).isEmpty()
+                  && ReplayInfo::dateTimeText(1690000000000).size() == 16,
+              "★ RP4 日期 0 / 负数是「没记录」⇒ 空串；有记录时是 `yyyy-MM-dd HH:mm`");
+    }
+}
+
+static void runStartupDiagnosisTests() {
+    section("DX. 启动诊断（coding plan §9.5「综合启动诊断报告」）");
+
+    QTemporaryDir dir;
+    check(dir.isValid(), "DX0 临时目录");
+    if (!dir.isValid()) {
+        return;
+    }
+    const QString root = dir.path();
+    const auto textOf = [](const StartupDiagnosis::Report &report) { return report.toText(); };
+    const auto hasTitle = [](const StartupDiagnosis::Report &report, const QString &needle) {
+        for (const StartupDiagnosis::Finding &finding : report.findings) {
+            if (finding.title.contains(needle)) return true;
+        }
+        return false;
+    };
+    const auto baseInputs = [&] {
+        StartupDiagnosis::Inputs inputs;
+        inputs.instanceName = QStringLiteral("测试实例");
+        inputs.versionId = QStringLiteral("1.20.1-Forge");
+        inputs.gameVersion = QStringLiteral("1.20.1");
+        inputs.loaderName = QStringLiteral("Forge");
+        inputs.loaderVersion = QStringLiteral("47.2.0");
+        inputs.requiredJavaMajor = 17;
+        inputs.autoSelectJava = true;
+        inputs.autoMemory = true;
+        inputs.xmxMb = 2048;
+        inputs.systemTotalMb = 8192;
+        inputs.systemAvailableMb = 4096;
+        return inputs;
+    };
+
+    // ---------- DX1. 一切都正常 ----------
+    {
+        const StartupDiagnosis::Inputs inputs = baseInputs();
+        const StartupDiagnosis::Report report = StartupDiagnosis::analyze(inputs);
+        check(report.problems == 0 && report.warnings == 0,
+              "★ DX1 一份没毛病的实例：0 个问题、0 条提醒",
+              QStringLiteral("%1 / %2").arg(report.problems).arg(report.warnings));
+        check(report.headline() == QStringLiteral("启动诊断：没有发现明显问题"),
+              "DX1 顶上那一句", report.headline());
+        check(report.instanceLine.contains(QStringLiteral("测试实例"))
+                  && report.instanceLine.contains(QStringLiteral("1.20.1"))
+                  && report.instanceLine.contains(QStringLiteral("Forge 47.2.0")),
+              "DX1 第二行说这是哪个实例（名字 / 版本 / 加载器版本）", report.instanceLine);
+        check(hasTitle(report, QStringLiteral("加载器：Forge 47.2.0")),
+              "DX1 加载器那一条");
+        check(hasTitle(report, QStringLiteral("没有崩溃报告"))
+                  && hasTitle(report, QStringLiteral("还没有启动日志")),
+              "DX1 没崩溃报告、没日志时如实说「没有」，不编");
+        check(textOf(report).contains(QStringLiteral("【正常】"))
+                  && textOf(report).contains(QStringLiteral("【信息】")),
+              "DX1 报告里带严重度标题");
+    }
+
+    // ---------- DX2. 原版实例 + mods 里有东西 ----------
+    {
+        StartupDiagnosis::Inputs inputs = baseInputs();
+        inputs.loaderName.clear();
+        inputs.loaderVersion.clear();
+        const QString mods = root + QStringLiteral("/mods-noloader");
+        QDir().mkpath(mods);
+        writeFileAt(mods + QStringLiteral("/a.jar"), QByteArray("x"));
+        writeFileAt(mods + QStringLiteral("/b.jar"), QByteArray("x"));
+        inputs.modsDir = mods;
+        const StartupDiagnosis::Report report = StartupDiagnosis::analyze(inputs);
+        check(report.problems == 1 && hasTitle(report, QStringLiteral("没有模组加载器")),
+              "★★ DX2 原版实例却有两个 .jar ⇒ **问题**（游戏不会读它们），不是一句提醒",
+              textOf(report));
+        check(hasTitle(report, QStringLiteral("2 个启用的模组")),
+              "DX2 数出来的是 2 个", textOf(report));
+    }
+
+    // ---------- DX3. Java 这一档 ----------
+    {
+        StartupDiagnosis::Inputs missing = baseInputs();
+        missing.configuredJavaPath = root + QStringLiteral("/no/such/java.exe");
+        const StartupDiagnosis::Report report = StartupDiagnosis::analyze(missing);
+        check(report.problems == 1
+                  && hasTitle(report, QStringLiteral("指定的 Java 用不了")),
+              "★ DX3 指定的 Java 路径不存在 ⇒ 问题", textOf(report));
+
+        StartupDiagnosis::Inputs manualEmpty = baseInputs();
+        manualEmpty.autoSelectJava = false;
+        manualEmpty.configuredJavaPath.clear();
+        const StartupDiagnosis::Report report2 = StartupDiagnosis::analyze(manualEmpty);
+        check(report2.problems == 1
+                  && hasTitle(report2, QStringLiteral("手动指定")),
+              "★ DX3 手动档却空着路径 ⇒ 问题（手动档不会自己去挑）", textOf(report2));
+
+        StartupDiagnosis::Inputs autoNoPath = baseInputs();
+        autoNoPath.configuredJavaPath.clear();
+        const StartupDiagnosis::Report report3 = StartupDiagnosis::analyze(autoNoPath);
+        check(report3.problems == 0 && hasTitle(report3, QStringLiteral("自动挑")),
+              "DX3 自动档、还没挑过 ⇒ 只是一条「信息」", textOf(report3));
+    }
+
+    // ---------- DX4. 内存那几档 ----------
+    {
+        StartupDiagnosis::Inputs over = baseInputs();
+        over.xmxMb = 9000;
+        over.systemTotalMb = 8192;
+        const StartupDiagnosis::Report report = StartupDiagnosis::analyze(over);
+        check(report.problems == 1 && hasTitle(report, QStringLiteral("超过了机器总内存")),
+              "★★ DX4 Xmx 比机器总内存还大 ⇒ 问题", textOf(report));
+
+        StartupDiagnosis::Inputs high = baseInputs();
+        high.xmxMb = 7000;
+        high.systemTotalMb = 8192;
+        const StartupDiagnosis::Report report2 = StartupDiagnosis::analyze(high);
+        check(report2.warnings == 1 && hasTitle(report2, QStringLiteral("偏多")),
+              "★ DX4 超过五分之四 ⇒ 提醒（不是问题）", textOf(report2));
+
+        StartupDiagnosis::Inputs tiny = baseInputs();
+        tiny.xmxMb = 256;
+        const StartupDiagnosis::Report report3 = StartupDiagnosis::analyze(tiny);
+        check(report3.warnings == 1 && hasTitle(report3, QStringLiteral("偏小")),
+              "★ DX4 256 MB ⇒ 提醒「偏小」", textOf(report3));
+
+        StartupDiagnosis::Inputs unknownMemory = baseInputs();
+        unknownMemory.systemTotalMb = 0;
+        const StartupDiagnosis::Report report4 = StartupDiagnosis::analyze(unknownMemory);
+        check(hasTitle(report4, QStringLiteral("读不到这台机器的物理内存"))
+                  && !hasTitle(report4, QStringLiteral("超过了机器总内存")),
+              "★ DX4 读不到系统内存：明说读不到，**不拿 0 当总内存**", textOf(report4));
+    }
+
+    // ---------- DX5. mods 的禁用那一格 ----------
+    {
+        StartupDiagnosis::Inputs inputs = baseInputs();
+        const QString mods = root + QStringLiteral("/mods-disabled");
+        QDir().mkpath(mods);
+        writeFileAt(mods + QStringLiteral("/on.jar"), QByteArray("x"));
+        for (int i = 0; i < 7; ++i) {
+            writeFileAt(mods + QStringLiteral("/off%1.jar.disabled").arg(i), QByteArray("x"));
+        }
+        inputs.modsDir = mods;
+        const StartupDiagnosis::Report report = StartupDiagnosis::analyze(inputs);
+        check(hasTitle(report, QStringLiteral("已启用 1 个模组")),
+              "DX5 启用中的只算 `.jar`（`.jar.disabled` 不算）", textOf(report));
+        check(hasTitle(report, QStringLiteral("有 7 个模组处于禁用状态")),
+              "DX5 禁用数按 `.jar.disabled` 数", textOf(report));
+        check(textOf(report).contains(QStringLiteral("…还有 2 个")),
+              "★ DX5 禁用名字只列前 5 个，余下用「还有 N 个」收尾"
+              "（**绝不出现「还有 1 个未列出」那种别扭说法**）",
+              textOf(report));
+    }
+
+    // ---------- DX6. 最近的崩溃报告 ----------
+    {
+        const QString crashDir = root + QStringLiteral("/crash");
+        QDir().mkpath(crashDir);
+        writeFileAt(crashDir + QStringLiteral("/crash-2026-10-18_12.00.00-client.txt"),
+                    QByteArrayLiteral("---- Minecraft Crash Report ----\n"
+                                      "Description: Rendering overlay\n"
+                                      "Time: 2026-10-18 12:00:00\n"
+                                      "java.lang.OutOfMemoryError: Java heap space\n"));
+        StartupDiagnosis::Inputs inputs = baseInputs();
+        inputs.crashDir = crashDir;
+        const StartupDiagnosis::Report report = StartupDiagnosis::analyze(inputs);
+        check(hasTitle(report, QStringLiteral("内存不足")),
+              "★ DX6 崩溃报告里是 OutOfMemoryError ⇒ 说「内存不足」，并把报告里那两行带上",
+              textOf(report));
+        check(textOf(report).contains(QStringLiteral("Description: Rendering overlay")),
+              "DX6 证据是崩溃报告里的原文");
+
+        const QString crashDir2 = root + QStringLiteral("/crash-class");
+        QDir().mkpath(crashDir2);
+        writeFileAt(crashDir2 + QStringLiteral("/crash-2.txt"),
+                    QByteArrayLiteral("Description: Exception in server tick loop\n"
+                                      "java.lang.NoClassDefFoundError: foo/Bar\n"));
+        StartupDiagnosis::Inputs inputs2 = baseInputs();
+        inputs2.crashDir = crashDir2;
+        const StartupDiagnosis::Report report2 = StartupDiagnosis::analyze(inputs2);
+        check(hasTitle(report2, QStringLiteral("缺类异常")),
+              "★ DX6 缺类异常 ⇒ 提醒是依赖不齐（只说事实，不点名模组）", textOf(report2));
+
+        const QString crashDir3 = root + QStringLiteral("/crash-java");
+        QDir().mkpath(crashDir3);
+        writeFileAt(crashDir3 + QStringLiteral("/crash-3.txt"),
+                    QByteArrayLiteral("Description: Initializing game\n"
+                                      "UnsupportedClassVersionError\n"));
+        StartupDiagnosis::Inputs inputs3 = baseInputs();
+        inputs3.crashDir = crashDir3;
+        const StartupDiagnosis::Report report3 = StartupDiagnosis::analyze(inputs3);
+        check(hasTitle(report3, QStringLiteral("Java 版本不对")),
+              "★ DX6 UnsupportedClassVersionError ⇒ 问题（Java 太旧）", textOf(report3));
+    }
+
+    // ---------- DX7. 上一次启动的日志 ----------
+    {
+        const QString logPath = root + QStringLiteral("/wtfml.log");
+        writeFileAt(logPath,
+                    QByteArrayLiteral("[12:00:00] [Game Error] Could not find main class\n"
+                                      "[12:00:01] Exit code: 1\n"));
+        StartupDiagnosis::Inputs inputs = baseInputs();
+        inputs.logPath = logPath;
+        const StartupDiagnosis::Report report = StartupDiagnosis::analyze(inputs);
+        check(hasTitle(report, QStringLiteral("上一次游戏以退出码 1 结束")),
+              "★★ DX7 日志末尾的 `Exit code: 1` ⇒ 提醒（这是启动失败最直接的一条证据）",
+              textOf(report));
+        check(textOf(report).contains(QStringLiteral("Could not find main class")),
+              "DX7 证据带上了最后那条 [Game Error]");
+
+        writeFileAt(logPath, QByteArrayLiteral("[12:00:01] Exit code: 0\n"));
+        const StartupDiagnosis::Report report2 = StartupDiagnosis::analyze(inputs);
+        check(hasTitle(report2, QStringLiteral("正常退出"))
+                  && report2.warnings == 0,
+              "DX7 退出码 0 ⇒ 「正常」那一条，不是提醒", textOf(report2));
+
+        writeFileAt(logPath, QByteArrayLiteral("java.lang.UnsupportedClassVersionError: oops\n"));
+        const StartupDiagnosis::Report report3 = StartupDiagnosis::analyze(inputs);
+        check(hasTitle(report3, QStringLiteral("UnsupportedClassVersionError")),
+              "★ DX7 日志里有 UnsupportedClassVersionError ⇒ 问题", textOf(report3));
+
+        writeFileAt(logPath, QByteArrayLiteral("java.lang.OutOfMemoryError: Java heap space\n"));
+        const StartupDiagnosis::Report report4 = StartupDiagnosis::analyze(inputs);
+        check(hasTitle(report4, QStringLiteral("OutOfMemoryError")),
+              "★ DX7 日志里有 OutOfMemoryError ⇒ 提醒（哪怕没有崩溃报告）", textOf(report4));
+    }
+
+    // ---------- DX8. 排序与计数 ----------
+    {
+        StartupDiagnosis::Inputs inputs = baseInputs();
+        inputs.loaderName.clear();  // 有模组 + 没加载器 ⇒ 问题
+        const QString mods = root + QStringLiteral("/mods-order");
+        QDir().mkpath(mods);
+        writeFileAt(mods + QStringLiteral("/a.jar"), QByteArray("x"));
+        inputs.modsDir = mods;
+        inputs.xmxMb = 256;  // 偏小 ⇒ 提醒
+        const StartupDiagnosis::Report report = StartupDiagnosis::analyze(inputs);
+        check(report.problems == 1 && report.warnings == 1,
+              "DX8 计数（1 个问题 / 1 条提醒）",
+              QStringLiteral("%1 / %2").arg(report.problems).arg(report.warnings));
+        check(!report.findings.isEmpty()
+                  && report.findings.first().severity == StartupDiagnosis::Severity::Problem,
+              "★ DX8 最严重的排最前（首条是「问题」）");
+        check(report.headline().contains(QStringLiteral("1 个问题"))
+                  && report.headline().contains(QStringLiteral("1 条提醒")),
+              "DX8 顶上那一句把两个数都说了", report.headline());
+    }
+}
+
+static void runTransferPlannerTests() {
+    section("TR. 迁移 / 升级副本：计划判据与只增不删的落盘（coding plan §9.9 第 15 项）");
+
+    QTemporaryDir dir;
+    check(dir.isValid(), "TR0 临时目录");
+    if (!dir.isValid()) {
+        return;
+    }
+    const QString root = dir.path();
+    const QString source = root + QStringLiteral("/src-instance");
+    // 一份有代表性的源实例：两块存档、一个模组、一份配置、游戏设置、日志、截图。
+    writeFileAt(source + QStringLiteral("/saves/w1/level.dat"), QByteArrayLiteral("AAA"));
+    writeFileAt(source + QStringLiteral("/saves/w2/level.dat"), QByteArrayLiteral("BBBBB"));
+    writeFileAt(source + QStringLiteral("/mods/a.jar"), QByteArrayLiteral("jar"));
+    writeFileAt(source + QStringLiteral("/config/mod.toml"), QByteArrayLiteral("cfg"));
+    writeFileAt(source + QStringLiteral("/options.txt"), QByteArrayLiteral("opt"));
+    writeFileAt(source + QStringLiteral("/logs/latest.log"), QByteArrayLiteral("log"));
+    writeFileAt(source + QStringLiteral("/screenshots/shot.png"), QByteArrayLiteral("png"));
+
+    const auto baseInputs = [&] {
+        TransferPlanner::Inputs inputs;
+        inputs.sourceDir = source;
+        inputs.sourceGameVersion = QStringLiteral("1.20.1");
+        inputs.sourceLoaderName = QStringLiteral("Forge");
+        inputs.sourceLoaderVersion = QStringLiteral("47.2.0");
+        inputs.targetGameVersion = QStringLiteral("1.20.1");
+        inputs.targetLoaderName = QStringLiteral("Forge");
+        inputs.targetLoaderVersion = QStringLiteral("47.2.0");
+        return inputs;
+    };
+    const auto itemOf = [](const TransferPlanner::Plan &p, const QString &key)
+        -> const TransferPlanner::Item * {
+        for (const TransferPlanner::Item &item : p.items) {
+            if (item.key == key) return &item;
+        }
+        return nullptr;
+    };
+
+    // ---------- TR1. 一致的这一档：默认勾什么 ----------
+    {
+        const TransferPlanner::Plan plan = TransferPlanner::plan(baseInputs());
+        check(plan.ok && plan.compatibility == TransferPlanner::Compatibility::Same,
+              "★ TR1 版本与加载器一致 ⇒ `Same`", TransferPlanner::compatibilityName(plan.compatibility));
+        const QStringList keys = plan.defaultSelectedKeys();
+        check(keys.contains(QStringLiteral("saves")) && keys.contains(QStringLiteral("mods"))
+                  && keys.contains(QStringLiteral("config"))
+                  && keys.contains(QStringLiteral("options")),
+              "TR1 存档 / 模组 / 配置 / 游戏设置有就默认勾", keys.join(QStringLiteral(",")));
+        check(!keys.contains(QStringLiteral("logs"))
+                  && !keys.contains(QStringLiteral("screenshots"))
+                  && !keys.contains(QStringLiteral("crashreports")),
+              "★★ TR1 日志 / 截图 / 崩溃报告**永不默认勾**", keys.join(QStringLiteral(",")));
+        const TransferPlanner::Item *saves = itemOf(plan, QStringLiteral("saves"));
+        check(saves != nullptr && saves->exists && saves->fileCount == 2 && saves->bytes == 8,
+              "★ TR1 存档那一项数出来是 2 个文件 / 8 字节（只数不读内容）",
+              saves == nullptr ? QString() : QStringLiteral("%1 / %2")
+                                                   .arg(saves->fileCount)
+                                                   .arg(saves->bytes));
+        check(plan.selectedFileCount(keys) == 5 && plan.selectedBytes(keys) == 17,
+              "★ TR1 默认勾选合计 5 个文件 / 17 字节",
+              QStringLiteral("%1 / %2").arg(plan.selectedFileCount(keys)).arg(plan.selectedBytes(keys)));
+        check(plan.headline().contains(QStringLiteral("迁移计划：一致"))
+                  && plan.headline().contains(QStringLiteral("默认搬")),
+              "TR1 顶上那一句", plan.headline());
+        check(plan.detailText().contains(QStringLiteral("☑ 存档"))
+                  && plan.detailText().contains(QStringLiteral("☐ 日志")),
+              "TR1 正文把勾与不勾都画出来");
+        check(plan.detailText().contains(QStringLiteral("不覆盖"))
+                  && plan.detailText().contains(QStringLiteral("不删除")),
+              "★★ TR1 正文写明「只增加、不删除、不覆盖」");
+        check(plan.confirmText(keys).contains(QStringLiteral("5 个文件"))
+                  && plan.confirmText(keys).contains(QStringLiteral("不覆盖")),
+              "TR1 动手之前那一句确认带上了数与规矩");
+        check(TransferPlanner::neverDefaultSelected(QStringLiteral("logs"))
+                  && !TransferPlanner::neverDefaultSelected(QStringLiteral("saves")),
+              "TR1 「永不默认」的判据只有这一处");
+    }
+
+    // ---------- TR2. 不一致 / 认不出来 ----------
+    {
+        TransferPlanner::Inputs newer = baseInputs();
+        newer.targetGameVersion = QStringLiteral("1.21.1");
+        const TransferPlanner::Plan plan = TransferPlanner::plan(newer);
+        check(plan.compatibility == TransferPlanner::Compatibility::GameVersionDiffers,
+              "★ TR2 目标游戏版本不同 ⇒ `GameVersionDiffers`");
+        const TransferPlanner::Item *mods = itemOf(plan, QStringLiteral("mods"));
+        check(mods != nullptr && mods->exists && !mods->defaultSelected && !mods->note.isEmpty(),
+              "★★ TR2 版本不同时**模组默认不勾**，并在那一项底下说明原因",
+              mods == nullptr ? QString() : mods->note);
+        check(plan.compatibilitySentence.contains(QStringLiteral("1.21.1"))
+                  && plan.compatibilitySentence.contains(QStringLiteral("1.20.1")),
+              "★ TR2 兼容性那句话把两边版本都写出来", plan.compatibilitySentence);
+
+        TransferPlanner::Inputs loader = baseInputs();
+        loader.targetLoaderName = QStringLiteral("Fabric");
+        const TransferPlanner::Plan plan2 = TransferPlanner::plan(loader);
+        check(plan2.compatibility == TransferPlanner::Compatibility::LoaderDiffers,
+              "★ TR2 游戏版本相同、加载器不同 ⇒ `LoaderDiffers`");
+        check(plan2.compatibilitySentence.contains(QStringLiteral("Fabric")),
+              "TR2 加载器那一句点了名", plan2.compatibilitySentence);
+
+        TransferPlanner::Inputs both = baseInputs();
+        both.targetGameVersion = QStringLiteral("1.21.1");
+        both.targetLoaderName = QStringLiteral("NeoForge");
+        check(TransferPlanner::plan(both).compatibility
+                  == TransferPlanner::Compatibility::BothDiffer,
+              "★ TR2 两边都不同 ⇒ `BothDiffer`");
+
+        TransferPlanner::Inputs unknown = baseInputs();
+        unknown.targetGameVersion.clear();
+        const TransferPlanner::Plan plan3 = TransferPlanner::plan(unknown);
+        check(plan3.compatibility == TransferPlanner::Compatibility::Unknown,
+              "★ TR2 目标版本读不出来 ⇒ `Unknown`（不猜）");
+        const TransferPlanner::Item *mods3 = itemOf(plan3, QStringLiteral("mods"));
+        check(mods3 != nullptr && !mods3->defaultSelected,
+              "★★ TR2 认不出来时模组默认不勾", mods3 == nullptr ? QString() : mods3->note);
+        check(plan3.compatibilitySentence.contains(QStringLiteral("不做猜测")),
+              "TR2 那一句明说「不做猜测」", plan3.compatibilitySentence);
+
+        TransferPlanner::Inputs patch = baseInputs();
+        patch.targetLoaderVersion = QStringLiteral("47.3.0");
+        const TransferPlanner::Plan plan4 = TransferPlanner::plan(patch);
+        check(plan4.compatibility == TransferPlanner::Compatibility::Same
+                  && plan4.compatibilitySentence.contains(QStringLiteral("小版本不同")),
+              "★ TR2 加载器小版本不同仍算 `Same`，但把事实说出来",
+              plan4.compatibilitySentence);
+
+        TransferPlanner::Inputs missing = baseInputs();
+        missing.sourceDir = root + QStringLiteral("/nope");
+        const TransferPlanner::Plan plan5 = TransferPlanner::plan(missing);
+        check(!plan5.ok && plan5.problem.contains(QStringLiteral("找不到源实例目录")),
+              "★ TR2 源目录不在盘上 ⇒ 计划不成立，报的是哪条路径", plan5.problem);
+    }
+
+    // ---------- TR3. 落盘：只增不删、不覆盖 ----------
+    {
+        const TransferPlanner::Plan plan = TransferPlanner::plan(baseInputs());
+        const QString target = root + QStringLiteral("/dst-instance");
+        QDir().mkpath(target);
+        // 目标里已经有一份同名的存档（**不能被改写**）和一个无关模组（**不能被删**）。
+        writeFileAt(target + QStringLiteral("/saves/w1/level.dat"),
+                    QByteArrayLiteral("OLD-CONTENT"));
+        writeFileAt(target + QStringLiteral("/mods/keep.jar"), QByteArrayLiteral("keep"));
+
+        const QStringList keys{QStringLiteral("saves"), QStringLiteral("mods"),
+                               QStringLiteral("logs")};
+        const TransferApply::Result result =
+            TransferApply::apply(source, target, plan.items, keys);
+        check(result.ok, "TR3 落盘成立", result.problem);
+        check(result.copiedFiles == 3 && result.skippedFiles == 1 && result.failedFiles == 0,
+              "★★ TR3 新文件 3 个（w2 / a.jar / latest.log）、同名 1 个跳过、0 失败",
+              QStringLiteral("%1 / %2 / %3")
+                  .arg(result.copiedFiles)
+                  .arg(result.skippedFiles)
+                  .arg(result.failedFiles));
+        const auto contentOf = [](const QString &path) {
+            QFile file(path);
+            if (!file.open(QIODevice::ReadOnly)) return QByteArray();
+            return file.readAll();
+        };
+        check(contentOf(target + QStringLiteral("/saves/w1/level.dat"))
+                  == QByteArrayLiteral("OLD-CONTENT"),
+              "★★ TR3 目标里已有的同名存档**一个字节都没被改**");
+        check(contentOf(target + QStringLiteral("/saves/w2/level.dat"))
+                  == QByteArrayLiteral("BBBBB"),
+              "TR3 新存档真的搬过去了");
+        check(QFileInfo::exists(target + QStringLiteral("/mods/keep.jar"))
+                  && contentOf(target + QStringLiteral("/mods/keep.jar"))
+                         == QByteArrayLiteral("keep"),
+              "★★ TR3 目标里原有的模组**没有被删**（只增不删）");
+        check(QFileInfo::exists(target + QStringLiteral("/logs/latest.log")),
+              "TR3 手动勾上的日志也会搬（默认不勾 ≠ 不让勾）");
+        check(!QFileInfo::exists(target + QStringLiteral("/screenshots")),
+              "TR3 没勾的截图一个字节都不搬");
+        check(result.text().contains(QStringLiteral("复制了 3 个文件"))
+                  && result.text().contains(QStringLiteral("跳过 1 个")),
+              "TR3 报告里把复制与跳过都说清", result.text());
+    }
+
+    // ---------- TR4. 路径闸 ----------
+    {
+        const TransferPlanner::Plan plan = TransferPlanner::plan(baseInputs());
+        const QStringList keys{QStringLiteral("saves")};
+        const TransferApply::Result same = TransferApply::apply(source, source, plan.items, keys);
+        check(!same.ok && same.problem.contains(QStringLiteral("同一份")),
+              "★★ TR4 源和目标就是同一份 ⇒ 拒绝（不然就是自己抄自己）", same.problem);
+
+        const QString nested = source + QStringLiteral("/nested");
+        QDir().mkpath(nested);
+        const TransferApply::Result inside =
+            TransferApply::apply(source, nested, plan.items, keys);
+        check(!inside.ok && inside.problem.contains(QStringLiteral("嵌套")),
+              "★★ TR4 目标在源里面 ⇒ 拒绝", inside.problem);
+        QDir().rmdir(nested);
+    }
+
+    // ---------- TR5. junction 一个都不跟 ----------
+    {
+        const QString link = source + QStringLiteral("/mods/linked-saves");
+        const bool madeLink =
+            QProcess::execute(QStringLiteral("cmd"),
+                              {QStringLiteral("/c"), QStringLiteral("mklink"),
+                               QStringLiteral("/J"), QDir::toNativeSeparators(link),
+                               QDir::toNativeSeparators(source + QStringLiteral("/saves"))})
+                == 0
+            && QFileInfo(link).isJunction();
+        check(madeLink, "★ TR5 先造出一根真 junction：`mods/linked-saves` → `saves`");
+        if (madeLink) {
+            const TransferPlanner::Plan plan = TransferPlanner::plan(baseInputs());
+            const TransferPlanner::Item *mods = itemOf(plan, QStringLiteral("mods"));
+            check(mods != nullptr && mods->fileCount == 1,
+                  "★ TR5 计划里数文件**不跟 junction**（只有 a.jar 那一个）",
+                  mods == nullptr ? QString() : QString::number(mods->fileCount));
+
+            const QString target = root + QStringLiteral("/dst-link");
+            QDir().mkpath(target);
+            const TransferApply::Result result = TransferApply::apply(
+                source, target, plan.items, {QStringLiteral("mods")});
+            check(result.ok && result.copiedFiles == 1 && result.failedFiles == 1,
+                  "★★ TR5 拷的时候也不跟：链接算失败、a.jar 照拷",
+                  QStringLiteral("%1 / %2").arg(result.copiedFiles).arg(result.failedFiles));
+            check(!QFileInfo::exists(target + QStringLiteral("/mods/linked-saves")),
+                  "★★ TR5 目标里没有那个链接，也没有顺着它把存档抄一份进来");
+
+            // ★ 收尾：junction 只能 rmdir（删链接本体，不跟着删那一头）——
+            //   QTemporaryDir 的清理会跟着 junction 往下走。
+            QDir().rmdir(link);
+        }
+    }
+
+    // ---------- TR6. 逐项回调 + 中断之后再跑一遍是可续的 ----------
+    //
+    // 任务中心那张步骤表靠 `ProgressCallback` 一块一块点亮（§9.9 bullet 5「逐项报告」）；
+    // 「可恢复中断」不另存进度，靠的是"只增不覆盖" ⇒ 第二遍同样的 keys 应当一个字节都不写、
+    // 全部按跳过计数。这两条都不碰界面，所以在 verify 工程里钉死。
+    {
+        const QString target = root + QStringLiteral("/dst-progress");
+        QDir().mkpath(target);
+        const TransferPlanner::Plan plan = TransferPlanner::plan(baseInputs());
+
+        QStringList reportedKeys;
+        QList<bool> reportedOk;
+        const TransferApply::Result first = TransferApply::apply(
+            source, target, plan.items,
+            {QStringLiteral("saves"), QStringLiteral("mods")},
+            [&reportedKeys, &reportedOk](const QString &key, bool ok) {
+                reportedKeys << key;
+                reportedOk << ok;
+            });
+        check(first.ok && first.copiedFiles == 3,
+              "TR6 第一遍：两个勾选项一共 3 个文件",
+              QStringLiteral("%1 / %2").arg(first.copiedFiles).arg(first.failedFiles));
+        check(reportedKeys == QStringList({QStringLiteral("saves"), QStringLiteral("mods")}),
+              "★ TR6 每搬完一块报一次，顺序跟着计划表走（存档在前、模组在后）",
+              reportedKeys.join(QStringLiteral(",")));
+        check(reportedOk.size() == 2 && reportedOk.at(0) && reportedOk.at(1),
+              "TR6 两块都报成了（跳过不算失败）");
+
+        QStringList secondKeys;
+        const TransferApply::Result second = TransferApply::apply(
+            source, target, plan.items,
+            {QStringLiteral("saves"), QStringLiteral("mods")},
+            [&secondKeys](const QString &key, bool) { secondKeys << key; });
+        check(second.ok && second.copiedFiles == 0 && second.skippedFiles == 3,
+              "★★ TR6 同样的 keys 再跑一遍：一个都不写、全按跳过（可恢复中断就靠这个）",
+              QStringLiteral("copied=%1 skipped=%2 failed=%3")
+                  .arg(second.copiedFiles)
+                  .arg(second.skippedFiles)
+                  .arg(second.failedFiles));
+        check(secondKeys.size() == 2,
+              "TR6 跳过的那一块也照样报一次（界面上的步骤不能停在「进行中」）",
+              QString::number(secondKeys.size()));
+    }
+
+    // ---------- TR7. 收尾校验（§9.9 bullet 3 的最后一步）----------
+    //
+    // 校验的判据只有一条：**点名搬的那些文件，目标里是不是都有**。目标里原有的同名文件
+    // （大小不同）不是失败 —— `apply()` 的规矩就是不覆盖，校验只如实报数。
+    {
+        const TransferPlanner::Plan plan = TransferPlanner::plan(baseInputs());
+        const QStringList keys{QStringLiteral("saves"), QStringLiteral("mods")};
+
+        const QString target = root + QStringLiteral("/dst-verify");
+        QDir().mkpath(target);
+        const TransferApply::Result applied = TransferApply::apply(source, target, plan.items, keys);
+        check(applied.ok && applied.failedFiles == 0, "TR7 先正常搬一遍", applied.problem);
+
+        const TransferApply::VerifySummary good =
+            TransferApply::verify(source, target, plan.items, keys);
+        check(good.ok && good.checkedFiles == 3 && good.missingFiles == 0
+                  && good.sizeMismatchFiles == 0,
+              "★★ TR7 搬完对账：3 个文件都在、大小都对",
+              QStringLiteral("%1 checked / %2 missing / %3 mismatch")
+                  .arg(good.checkedFiles)
+                  .arg(good.missingFiles)
+                  .arg(good.sizeMismatchFiles));
+        check(good.text().contains(QStringLiteral("缺 0 个")),
+              "TR7 那句话把「缺 0 个」直接说出来", good.text());
+
+        // 从目标里删掉一个 ⇒ 校验必须报缺，而不是静默通过。
+        check(QFile::remove(target + QStringLiteral("/saves/w2/level.dat")),
+              "TR7 造一个「目标里少了一个文件」的场景");
+        const TransferApply::VerifySummary missing =
+            TransferApply::verify(source, target, plan.items, keys);
+        check(missing.ok && missing.missingFiles == 1 && missing.text().contains(QStringLiteral("缺 1 个")),
+              "★★ TR7 少一个文件 ⇒ 校验报缺（不是静默通过）", missing.text());
+        check(missing.missing.size() == 1
+                  && missing.missing.first().contains(QStringLiteral("level.dat"))
+                  && missing.text().contains(QStringLiteral("没在目标里找到的")),
+              "TR7 缺失清单里点名了那一条路径", missing.text());
+
+        // 目标里原有的同名文件大小不同 ⇒ 跳过不覆盖是设计，校验只单独报数。
+        const QString mismatchTarget = root + QStringLiteral("/dst-verify-2");
+        QDir().mkpath(mismatchTarget);
+        writeFileAt(mismatchTarget + QStringLiteral("/saves/w1/level.dat"),
+                    QByteArrayLiteral("OLD-CONTENT"));
+        const TransferApply::Result applied2 =
+            TransferApply::apply(source, mismatchTarget, plan.items, {QStringLiteral("saves")});
+        check(applied2.ok && applied2.skippedFiles == 1,
+              "TR7 目标原有的同名文件照旧跳过", applied2.problem);
+        const TransferApply::VerifySummary mismatch =
+            TransferApply::verify(source, mismatchTarget, plan.items, {QStringLiteral("saves")});
+        check(mismatch.ok && mismatch.missingFiles == 0 && mismatch.sizeMismatchFiles == 1,
+              "★ TR7 同名文件大小不同 ⇒ 不算缺，单独报「大小不同」",
+              QStringLiteral("%1 missing / %2 mismatch")
+                  .arg(mismatch.missingFiles)
+                  .arg(mismatch.sizeMismatchFiles));
+        check(mismatch.text().contains(QStringLiteral("大小不同")),
+              "TR7 报告里那句「大小不同（没有覆盖）」说清了这是原有文件", mismatch.text());
+
+        // 一项都没勾 ⇒ 什么都不该被算成"缺"。
+        const TransferApply::VerifySummary empty =
+            TransferApply::verify(source, target, plan.items, {});
+        check(empty.ok && empty.checkedFiles == 0 && empty.missingFiles == 0,
+              "TR7 一项都没勾 ⇒ 校验看过 0 个、缺 0 个（不冤枉目标）");
     }
 }
 
@@ -32646,6 +35969,11 @@ int main(int argc, char *argv[]) {
     // 改动之前**（类型对不上就不转）。
     runMalilibKeysTests();
     // -----------------------------------------------------------------
+    // 提取与落到实例上（2026-10-18，coding plan §6 P1 / §7），见上面 PG 节。和 PE 那一节的
+    // 分界是"有没有真写盘"：这一节拿两份真实例形状的临时目录走一遍收与落，最值钱的是
+    // 覆盖那两趟（第一趟一个字节都不动）、游戏在跑整趟不写、以及备份里那份是不是原样。
+    runPresetCaptureApplyTests();
+    // -----------------------------------------------------------------
     // 实例页的搜索与筛选（2026-10-13，coding plan §7.2），见上面 ZS 节。**全是纯函数**：
     // 值进、bool 出，不读盘、不问时钟 —— 连一条实例都不必真的存在。
     runInstanceFilterTests();
@@ -32690,6 +36018,25 @@ int main(int argc, char *argv[]) {
     runServerSettingsTests();
 
     // -----------------------------------------------------------------
+    // 服务端那四份玩家名单（2026-10-18，coding plan §9.7「玩家管理」），见上面 ZAE 节。
+    // **纯函数**：读要宽容 / 写按游戏那份字段形状 / 认人 / 离线 UUID / 到期。
+    runServerPlayersTests();
+
+    // -----------------------------------------------------------------
+    // 服务端异常退出后自动重启那条策略（2026-10-18，coding plan §9.7「重启策略 + 上限」），
+    // 见上面 ZAF 节。**纯函数**：哪一档才拉 / 连着几次收手 / 退避 / 策略往返（不读盘、不看时钟）。
+    runServerRestartTests();
+
+    // -----------------------------------------------------------------
+    // 服务端资源包那一份本地 zip（2026-10-18，coding plan §9.7），见上面 ZAG 节。
+    // 条目表判据是纯的；那一发 `inspect()` 会真打一个 zip 再读它（走 ZipUtil + FileHash）。
+    runServerResourcePackTests();
+    // 服务端内容（§9.7）：模组 / 数据包的名字与分类（ZAH）。
+    runServerContentTests();
+    // 工具箱那两件（§9.11）：信标计算 / 酿造助手（ZAI）。
+    runToolboxExtraTests();
+
+    // -----------------------------------------------------------------
     // 正版登录那两格随构建配置走的常数（2026-10-13，coding plan §9.4），见上面 ZA 节。
     // **纯函数**：一串地址进去、端口出来（不联网、不开监听；真绑端口那一半在 AuthManager
     // 里，归 mw_check）。
@@ -32710,6 +36057,22 @@ int main(int argc, char *argv[]) {
     runCoordConvertTests();
     runFileHashTests();
     runAnvilPlannerTests();
+
+    // -----------------------------------------------------------------
+    // 结构 / 原理图的元数据与方块统计（2026-10-18，coding plan §9.5），见上面 SG 节。
+    // 三种格式的**真形状**都由这一节自己搭（`NbtTree::serialize()`），gzip 那一份真压一遍。
+    runSchematicInfoTests();
+    runReplayInfoTests();
+
+    // -----------------------------------------------------------------
+    // 综合启动诊断报告（coding plan §9.5「实例：诊断」），见上面 DX 节。
+    // 判据层是纯函数：读的东西都是这一节自己写的临时文件，一个字节都不碰真安装。
+    runStartupDiagnosisTests();
+
+    // -----------------------------------------------------------------
+    // 跨实例迁移 / 升级副本（coding plan §9.9 第 15 项），见上面 TR 节。
+    // 计划层只读盘、落盘层只增加；这一节自己搭源与目标两棵树，junction 那一发真造。
+    runTransferPlannerTests();
 
     // -----------------------------------------------------------------
     out() << "\n===== " << (g_failures == 0 ? "全部通过" : "有失败项") << ": "

@@ -92,6 +92,9 @@ Tasks::TaskId CrashReportController::report(int sessionId, int exitCode, bool cr
     const Tasks::TaskId id = m_activity->begin(Tasks::TaskKind::Crash, title,
                                                record.facts.instanceId, steps);
     if (id == Tasks::invalidTaskId()) return id;
+    // §9.8 第三条：崩溃报告这一项任务和那一份会话对上号 —— 任务中心 / 日志 / 退出诊断 /
+    // 崩溃报告说的是同一个会话号，从这里就能看出来了。
+    if (sessionId > 0) m_activity->bindSession(id, sessionId);
     m_activity->tasks()->setDetail(id, tr("退出码 %1").arg(exitText));
     m_records.insert(id, record);
     QString summary = GameExitDiagnosis::summary(record.facts);

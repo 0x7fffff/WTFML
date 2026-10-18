@@ -42,12 +42,15 @@
 #pragma once
 
 #include <QDialog>
+#include <QIcon>
 #include <QList>
 #include <QPair>
 #include <QString>
 #include <QStringList>
 #include <QPixmap>
 
+class QCheckBox;
+class QColor;
 class QComboBox;
 class QDoubleSpinBox;
 class QDragEnterEvent;
@@ -55,8 +58,10 @@ class QDropEvent;
 class QGridLayout;
 class QLabel;
 class QLineEdit;
+class QListWidget;
 class QPlainTextEdit;
 class QPushButton;
+class QSpinBox;
 class QStackedWidget;
 class QTableWidget;
 class QWidget;
@@ -65,9 +70,10 @@ class ToolboxPage : public QDialog {
     Q_OBJECT
 
 public:
-    /// 六件工具。**`tools()` 是次序的唯一出处**：顶上那排 chip 用其中除 `Download` 之外
-    /// 的五件（`.cpp` 构造里摘的），底栏面板那**六颗**按钮按原样摆。
-    enum class Tool { Anvil, Text, Coord, Server, Hash, Download };
+    /// 十件工具。**`tools()` 是 chip 那一排的次序唯一出处**：顶上那排 chip 用其中除
+    /// `Download` 之外的九件（`.cpp` 构造里摘的）；底栏面板另按 `panelTools()` 摆
+    /// （两列五排，2026-10-18 用户拿图点名的那张）。
+    enum class Tool { Anvil, Text, Coord, Server, Hash, Beacon, Brewing, Banner, Trim, Download };
 
     /// 工具的键（底栏面板那六颗按钮、`ToolboxController::open()` 都用它认人）。
     static QString toolKey(Tool tool);
@@ -77,9 +83,20 @@ public:
     static QString toolName(Tool tool);
     /// 一句话说明（chip 的 tooltip、以及每一片顶上那行小字）。
     static QString toolSummary(Tool tool);
-    /// 六件，**次序唯一出处**（`Download` 排第一；它不出 chip、只出底栏面板那颗按钮）。
+    /// 八件，**次序唯一出处**（`Download` 排第一；它不出 chip、只出底栏面板那颗按钮）。
     static QList<Tool> tools();
-    /// 这一页的标题（`OverlayHost::execPage` 顶上那一条写的字）。
+    /// 底栏那块「工具箱」面板的摆放次序（2026-10-18 用户拿图点名的那张：**两列五排、
+    /// 行优先**）。它和 `tools()` 故意不是同一个次序 —— `tools()` 是 chip 那一排的次序，
+    /// 面板按常用程度从左到右、从上到下另排一张。返回的十件一件不多一件不少。
+    static QList<Tool> panelTools();
+    /// 面板上那一行短名（`SHA校验` / `延迟测试` …）。**页面 / chip 仍用 `toolName()`**
+    /// （那是完整名字，写在每一片顶上）；面板窄，只放得下两三个字的那个。
+    static QString toolShortName(Tool tool);
+    /// 面板上每一件工具左边画的那枚 24×24 线稿图标。**不是位图资源** —— 现画，
+    /// 颜色由调用方给（面板拿主题色那一档）。
+    static QIcon toolIcon(Tool tool, const QColor &ink);
+    /// 面板标题旁那把扳手（同一个画法）。
+    static QIcon panelTitleIcon(const QColor &ink);    /// 这一页的标题（`OverlayHost::execPage` 顶上那一条写的字）。
     static QString windowTitle() { return QStringLiteral("工具箱"); }
 
     /// 验证工程认控件用的那几个名字（`@p tool` 那一档的 chip / 页 / 以及**底栏面板上
@@ -87,6 +104,45 @@ public:
     static QString toolChipName(Tool tool);
     static QString toolPanelName(Tool tool);
     static QString toolButtonName(Tool tool);
+
+    /// 新加那四件（信标 / 酿造 / 旗帜 / 纹饰）里认控件用的名字（验证工程用）。
+    static QString beaconFromSpinName() { return QStringLiteral("toolboxBeaconFrom"); }
+    static QString beaconLevelSpinName() { return QStringLiteral("toolboxBeaconLevel"); }
+    /// 底座方块种类（铁块 / 金块 / 钻石块 / 绿宝石块 / 下界合金块）。
+    static QString beaconMaterialComboName() { return QStringLiteral("toolboxBeaconMaterial"); }
+    /// 同一座金字塔上放几颗信标（1–9）。
+    static QString beaconCountSpinName() { return QStringLiteral("toolboxBeaconCount"); }
+    static QString beaconResultName() { return QStringLiteral("toolboxBeaconResult"); }
+    static QString brewingPotionComboName() { return QStringLiteral("toolboxBrewingPotion"); }
+    static QString brewingExtendedName() { return QStringLiteral("toolboxBrewingExtended"); }
+    static QString brewingLevel2Name() { return QStringLiteral("toolboxBrewingLevel2"); }
+    static QString brewingFormComboName() { return QStringLiteral("toolboxBrewingForm"); }
+    /// 要几瓶（1–64；一次酿造最多 3 瓶）。
+    static QString brewingBottlesSpinName() { return QStringLiteral("toolboxBrewingBottles"); }
+    static QString brewingResultName() { return QStringLiteral("toolboxBrewingResult"); }
+    static QString bannerBaseComboName() { return QStringLiteral("toolboxBannerBase"); }
+    static QString bannerPatternComboName() { return QStringLiteral("toolboxBannerPattern"); }
+    static QString bannerColorComboName() { return QStringLiteral("toolboxBannerColor"); }
+    static QString bannerAddName() { return QStringLiteral("toolboxBannerAdd"); }
+    static QString bannerListName() { return QStringLiteral("toolboxBannerList"); }
+    static QString bannerUpName() { return QStringLiteral("toolboxBannerUp"); }
+    static QString bannerDownName() { return QStringLiteral("toolboxBannerDown"); }
+    static QString bannerRemoveName() { return QStringLiteral("toolboxBannerRemove"); }
+    static QString bannerUndoName() { return QStringLiteral("toolboxBannerUndo"); }
+    static QString bannerResultName() { return QStringLiteral("toolboxBannerResult"); }
+    static QString trimArmorComboName() { return QStringLiteral("toolboxTrimArmor"); }
+    static QString trimPartComboName() { return QStringLiteral("toolboxTrimPart"); }
+    static QString trimPatternComboName() { return QStringLiteral("toolboxTrimPattern"); }
+    static QString trimMaterialComboName() { return QStringLiteral("toolboxTrimMaterial"); }
+    static QString trimPiecesSpinName() { return QStringLiteral("toolboxTrimPieces"); }
+    /// 「整套（四件）」那个勾（§9.11 第 10 项「单件 / 整套预览」）。
+    static QString trimWholeSetName() { return QStringLiteral("toolboxTrimWholeSet"); }
+    static QString trimResultName() { return QStringLiteral("toolboxTrimResult"); }
+    /// 哈希那一件：算完之后文件被改过的那句提醒（空串 = 收起来）。
+    static QString hashNoticeName() { return QStringLiteral("toolboxHashNotice"); }
+    static QString hashBatchName() { return QStringLiteral("toolboxHashBatch"); }
+    static QString hashCopyAllName() { return QStringLiteral("toolboxHashCopyAll"); }
+    static QString hashExportName() { return QStringLiteral("toolboxHashExport"); }
 
     explicit ToolboxPage(QWidget *parent = nullptr);
 
@@ -102,6 +158,9 @@ public:
         int level = 1;
         bool isBook = true;
         int uses = 0;    ///< 在铁砧上加工过几次（前科 = `2^n − 1`，界面上的小字会写出来）
+        /// 这一条和**上一行**说的是同一件东西（一本书上带好几条附魔 / 一件装备上本来就有
+        /// 好几条）。第一行没有"上一行"，这一格恒为 false。
+        bool sameAsPrevious = false;
     };
     /// 算完之后摆上去的那一份。
     struct AnvilView {
@@ -142,7 +201,13 @@ public:
     void setTextPreview(const QString &html);
     /// 三种输出：`§` 写法、JSON 组件、`/tellraw` 命令。
     void setTextOutputs(const QString &legacy, const QString &json, const QString &tellraw);
-    /// 认不出来的那几种组件（`translate`、`#RRGGBB` 那种）——**不猜**，就把这句摆出来。
+    /// 第四种：`server.properties` 那一整行 `motd=…`（controller 已经把非 ASCII 转成
+    /// `\uXXXX` 了 —— 按 ISO-8859-1 读也不会坏）。
+    void setTextMotd(const QString &motd);
+    /// 在原文那个光标处插一段（「插自定颜色」那颗按的：`§x§R§R§G§G§B§B` 是 controller
+    /// 按 `TextFormat` 的规矩算好递进来的，这一页不自己拼）。
+    void insertTextAtCursor(const QString &text);
+    /// 认不出来的那几种组件（`translate`、`score`、写错的 `#RRGGBB`）——**不猜**，就把这句摆出来。
     void setTextNotice(const QString &notice);
 
     // ================= 三、坐标换算 =================
@@ -172,6 +237,8 @@ public:
         bool ok = false;
         QString error;         ///< 非空 = 这次没问成（超时 / 没有应答 / 解析不了地址）
         bool timedOut = false; ///< 超时那一档（和"连上了但没答话"**分开**，见 ServerPing）
+        /// 这一次的结论分类（`ServerPing::kindName()`；没问成时看它就知道是哪一类问题）。
+        QString kind;
         QString address;       ///< 问的是哪个地址（回显一遍，免得用户看错行）
         QString motd;          ///< 那一行彩色 MOTD 的 HTML（这一页把它当富文本画）
         QString version;       ///< 版本名
@@ -205,9 +272,96 @@ public:
         QString algorithm;    ///< 算的是哪一档
     };
     void setHashView(const HashView &view);
+    /// 批量算完之后那一列（文件名 / 大小 / 摘要；没算成的那几个带原因）。
+    ///
+    /// ★ 和 `setHashView()` **是两档**：单文件那一份是"一个大摘要摆在正中间"，批量这一份是
+    ///   一张清单 —— 两档各自把对方那份收掉（按钮、`hashBatchText()` 都跟着走），免得屏幕上
+    ///   一半是上一次的单文件结果、一半是这一次的清单。
+    struct HashBatchRow {
+        QString name;      ///< 文件名（清单里那一行开头就是它）
+        QString path;      ///< 完整路径（tooltip 与导出用）
+        QString sizeText;  ///< 文件多大
+        QString hex;       ///< 摘要（没算成时为空）
+        bool ok = false;
+        QString error;     ///< 没算成的原因
+    };
+    /// @param rows 已算完的那几个（顺序就是选文件的顺序）
+    /// @param summary 顶上那句（"共 3 个文件 · SHA-256 · 1 个没算成"这种，controller 拼）
+    void setHashBatchView(const QList<HashBatchRow> &rows, const QString &summary);
+    /// 批量结果导出/复制的**纯文本**（`<摘要>  <文件名>` 一行一个，标准校验和格式）。
+    /// 没有批量结果时是空串。
+    QString hashBatchText() const;
+    /// 批量时那句"第 i / n 个：名字"（单文件那一趟不受影响）。
+    void setHashProgressNote(const QString &text);
     /// 进度（`done` / `total`，一共那个是 -1 时写成"读了 X"）。
     void setHashProgress(qint64 done, qint64 total);
     void setHashBusy(bool busy);
+    /// 算完之后那个文件被改过 / 不在了 ⇒ 摆这句提醒（空串 = 收起来）。
+    ///
+    /// ★ 为什么这句必须露在结果旁边：屏幕上那串十六进制**看上去和刚才一模一样**，
+    ///   但它已经不是这个文件现在的摘要了。不说的话，用户会拿它去和人家给的比，
+    ///   然后得出一个反的结论（"明明重新下载过了还是对不上"）。
+    void setHashStaleNote(const QString &text);
+
+    // ================= 六、信标计算 =================
+
+    /// 结果那一整段（`Beacon::detailText()` 拼好的；由 controller 摆进来）。
+    void setBeaconResult(const QString &text);
+    /// 现在那两格问的是几级（「已有」0–4、「目标」1–4）。
+    int beaconFromLevel() const;
+    int beaconTargetLevel() const;
+    /// 底座材质下标与颗数（材质次序由 controller 用 `Beacon::materialNames()` 摆进来）。
+    void setBeaconMaterials(const QStringList &names);
+    int beaconMaterialIndex() const;
+    int beaconCount() const;
+    /// 程序摆这两格（**不发 `beaconRequested`** —— 开页时给一个合理的默认）。
+    void setBeaconLevels(int fromLevel, int targetLevel);
+
+    // ================= 七、酿造助手 =================
+
+    /// 药水下拉框的那几项（名字由 controller 从 `Brewing::potionNames()` 拿）。
+    void setBrewingPotions(const QStringList &names);
+    /// 形态下拉框的那几项（`普通` / `喷溅型` / `滞留型`）。
+    void setBrewingForms(const QStringList &names);
+    /// 结果那一整段（`Brewing::Plan::detailText()` 拼好的）。
+    void setBrewingResult(const QString &text);
+    int brewingPotionIndex() const;
+    bool brewingExtended() const;
+    bool brewingLevel2() const;
+    int brewingFormIndex() const;
+    /// 要几瓶（1–64）。
+    int brewingBottles() const;
+
+    // ================= 八、旗帜设计 =================
+
+    /// 底色 / 当前这一层的图案 / 当前这一层的颜色（三张表的次序都由 controller 给）。
+    void setBannerColors(const QStringList &names);
+    void setBannerPatterns(const QStringList &names);
+    /// 结果那一整段（`Banner::Plan::detailText()` 拼好的）。
+    void setBannerResult(const QString &text);
+    /// 「复制指令」那颗按的文本（`Banner::Plan::command`；空串 = 排不出来，那颗按不动）。
+    void setBannerCommand(const QString &command);
+    int bannerBaseColor() const;
+    /// 已经排好的层，每层一项 `图案下标:颜色下标`（**顺序就是从下往上叠的顺序**）。
+    QStringList bannerLayers() const;
+    /// 程序摆层（**不发 `bannerRequested`**；验证工程与"恢复一份草稿"用）。
+    void setBannerLayers(const QStringList &layers);
+
+    // ================= 九、纹饰搭配 =================
+
+    void setTrimArmorMaterials(const QStringList &names);
+    void setTrimParts(const QStringList &names);
+    void setTrimPatterns(const QStringList &names);
+    void setTrimMaterials(const QStringList &names);
+    /// 结果那一整段（`ArmorTrim::Plan::detailText()` 拼好的）。
+    void setTrimResult(const QString &text);
+    int trimArmorIndex() const;
+    int trimPartIndex() const;
+    int trimPatternIndex() const;
+    int trimMaterialIndex() const;
+    int trimPieces() const;
+    /// 勾了「整套（四件）」吗（勾上时部位与件数两格收起来不用）。
+    bool trimWholeSet() const;
 
 signals:
     void downloadToolRequested();
@@ -216,6 +370,9 @@ signals:
     // ---- 文本生成器 ----
     void textSourceChanged(const QString &text);
     void textJsonRequested(const QString &json);  ///< 用户点了「从 JSON 读回来」
+    /// 用户在自定颜色那一格敲了 `#RRGGBB`、点了「插进去」：controller 验一下、算成
+    /// `§x…` 再调 `insertTextAtCursor()`。
+    void textHexColorRequested(const QString &hex);
     // ---- 坐标换算 ----
     void coordinateRequested(int dimensionIndex, double x, double y, double z);
     void teleportParseRequested(const QString &text);
@@ -226,6 +383,19 @@ signals:
     // ---- 文件哈希校验 ----
     void hashRequested(const QString &path, int algorithmIndex, const QString &expected);
     void hashCancelRequested();
+    /// 批量算（§9.11 第 1 项：「补多文件」）。`paths` 是用户一次选中的那几个。
+    void hashBatchRequested(const QStringList &paths, int algorithmIndex);
+    /// 把批量结果的纯文本写到 @p path（写盘那一半在 controller；这一层只给路和字）。
+    void hashExportRequested(const QString &path, const QString &text);
+    // ---- 信标计算 / 酿造助手 ----
+    void beaconRequested(int fromLevel, int targetLevel, int materialIndex, int beaconCount);
+    void brewingRequested(int potionIndex, bool extended, bool level2, int formIndex,
+                          int bottles);
+    // ---- 旗帜设计 / 纹饰搭配 ----
+    /// @p layers 每层一项 `图案下标:颜色下标`，顺序 = 从下往上叠的顺序。
+    void bannerRequested(int baseColor, const QStringList &layers);
+    void trimRequested(int armorMaterial, int part, int patternIndex, int trimMaterial,
+                       int pieces, bool wholeSet);
 
 protected:
     /// 拖一个文件进来（只对"哈希校验"这一件有意义 —— 别的工具不吃文件）。
@@ -241,12 +411,22 @@ private:
     QWidget *buildCoordPanel();
     QWidget *buildServerPanel();
     QWidget *buildHashPanel();
+    QWidget *buildBeaconPanel();
+    QWidget *buildBrewingPanel();
+    QWidget *buildBannerPanel();
+    QWidget *buildTrimPanel();
     /// 顶上那排 chip（点一下 = showTool）。
     QWidget *buildChipRow();
     /// 附魔那一张表加一行（「加一行」和"构造时先摆一行"走的是同一段）。
     void appendAnvilRow();
+    /// 删掉一行之后把「和上一行同一件」那一列重新摆一遍（第一行没有上一行）。
+    void refreshAnvilSameColumn();
     /// chip 的选中态（只认当前那一颗，和下载页四颗 chip 同一套判据）。
     void syncChips();
+    /// 旗帜那一排层的列表按 `m_bannerLayers` 重画一遍（行名从两张下拉框里取）。
+    void syncBannerList();
+    /// 旗帜这一份改了（底色 / 层序）之后发一发。
+    void emitBannerNow();
 
     Tool m_current = Tool::Anvil;
     QList<Tool> m_tools;
@@ -265,6 +445,8 @@ private:
     QPlainTextEdit *m_textLegacy = nullptr;
     QPlainTextEdit *m_textJson = nullptr;
     QPlainTextEdit *m_textTellraw = nullptr;
+    QPlainTextEdit *m_textMotd = nullptr;
+    QLineEdit *m_textHex = nullptr;
     QLabel *m_textNotice = nullptr;
     QGridLayout *m_textPaletteLayout = nullptr;
     QWidget *m_textPaletteRow = nullptr;
@@ -294,6 +476,59 @@ private:
     QPushButton *m_hashCancel = nullptr;
     QLabel *m_hashResult = nullptr;
     QLabel *m_hashProgress = nullptr;
+    /// 算完之后文件变过的那句提醒（见 `setHashStaleNote()`）。
+    QLabel *m_hashNotice = nullptr;
     /// 算出来的那一串摘要（「复制」那颗拷的是它 —— 结果标签里画的带 HTML，不能整段拷）。
     QString m_hashHex;
+    /// 批量那一档（§9.11 第 1 项：「补多文件」+「复制/导出列表」）。
+    QPushButton *m_hashBatch = nullptr;    ///< 「批量…」——选好几个文件一次算
+    QPushButton *m_hashCopyAll = nullptr;  ///< 「复制全部」（标准校验和文本）
+    QPushButton *m_hashExport = nullptr;   ///< 「导出…」（写一个 .txt）
+    /// 批量结果的纯文本（`<摘要>  <文件名>` 一行一个）。空串 = 没有批量结果。
+    QString m_hashBatchText;
+
+    // 六、信标计算
+    QSpinBox *m_beaconFrom = nullptr;
+    QSpinBox *m_beaconLevel = nullptr;
+    QComboBox *m_beaconMaterial = nullptr;
+    QSpinBox *m_beaconCount = nullptr;
+    QLabel *m_beaconResult = nullptr;
+
+    // 七、酿造助手
+    QComboBox *m_brewingPotion = nullptr;
+    QCheckBox *m_brewingExtended = nullptr;
+    QCheckBox *m_brewingLevel2 = nullptr;
+    QComboBox *m_brewingForm = nullptr;
+    QSpinBox *m_brewingBottles = nullptr;
+    QLabel *m_brewingResult = nullptr;
+
+    // 八、旗帜设计
+    QComboBox *m_bannerBase = nullptr;
+    QComboBox *m_bannerPattern = nullptr;
+    QComboBox *m_bannerColor = nullptr;
+    QPushButton *m_bannerAdd = nullptr;
+    QListWidget *m_bannerList = nullptr;
+    QPushButton *m_bannerUp = nullptr;
+    QPushButton *m_bannerDown = nullptr;
+    QPushButton *m_bannerRemove = nullptr;
+    QPushButton *m_bannerUndo = nullptr;
+    QPushButton *m_bannerCopy = nullptr;
+    QLabel *m_bannerResult = nullptr;
+    /// 已经排好的层（`图案下标:颜色下标`），顺序 = 从下往上叠。
+    QStringList m_bannerLayers;
+    /// 撤销栈（每一次改动前先把上一份抄进来；**只留最近二十次**，免得一直长）。
+    QList<QStringList> m_bannerUndoStack;
+    /// 「复制指令」那颗按的：controller 递进来的那条 `/give`（排不出来时是空串 ⇒ 收起来）。
+    QString m_bannerCommand;
+    /// 程序拽列表行时挡一下（`currentRowChanged` 只影响按钮可用性，不影响层）。
+    bool m_bannerSyncing = false;
+
+    // 九、纹饰搭配
+    QComboBox *m_trimArmor = nullptr;
+    QComboBox *m_trimPart = nullptr;
+    QComboBox *m_trimPattern = nullptr;
+    QComboBox *m_trimMaterial = nullptr;
+    QSpinBox *m_trimPieces = nullptr;
+    QCheckBox *m_trimWholeSet = nullptr;
+    QLabel *m_trimResult = nullptr;
 };

@@ -43,6 +43,11 @@ void GameSessionController::beginSession(int sessionId, const QString &displayNa
     m_launchTaskIds.insert(sessionId, launchTask);
     m_sessionDisplayNames.insert(sessionId, displayName);
     m_sessionLaunchFacts.insert(sessionId, facts);
+    // §9.8 第三条：账本上那件「启动 X」从这一刻起和这一号会话是同一件事（日志窗、
+    // 退出诊断、崩溃报告都拿同一个号说话）。启动任务是在进程起来之前记的，所以补在这里。
+    if (m_host.bindTaskSession && launchTask != Tasks::invalidTaskId()) {
+        m_host.bindTaskSession(launchTask, sessionId);
+    }
 }
 
 void GameSessionController::closeAllGameLogWindows() {

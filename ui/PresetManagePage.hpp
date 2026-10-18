@@ -1,0 +1,273 @@
+/**
+ * @file PresetManagePage.hpp
+ * @brief 「实例预设」整页：左边一份一份的列表，右边摘要 / 从实例提取 / 应用计划。
+ * @author 0x7fffff
+ * @date 2026-10-18
+ *
+ * 【这一层不认识预设的盘】
+ *
+ * 和 `JavaManageDialog` 同一条约定：页面只画外面喂进来的几份值、只把用户按了哪一颗发出去。
+ * 读 `manifest.json`、建目录、算计划、备份、真正落盘，全在 `src/controllers/PresetController`
+ * 和 `src/presets/` 那一层。界面上那些"段种类 / 模式"的中文名也是外面翻译好再喂进来的 ——
+ * `ui/` 不 include `src/`，`SectionKind` 这个枚举在这一层根本不出现。
+ *
+ * 【为什么提取和应用的入口都在这一页上】
+ *
+ * §6 P1 要的是"新建、复制、重命名、删除和从实例提取"一整套；§7 那张计划表要的是"应用前
+ * 看得见精确计划"。两件事共用"选一份预设"这一个上下文，拆成两页会让用户在两页之间来回
+ * 对照"我刚才选的是哪一份"。所以这一页分成三块，自上而下：**这一份是什么**（名字、说明、
+ * 段表）→ **从实例收一份**（勾几样、选实例）→ **落到实例上**（预览、确认、应用）。
+ *
+ * 【确认一律在页内做，不开第二个框】
+ *
+ * 产品方向是"不出现独立窗口"（见 `OverlayHost` / 用户原话）：删除和应用「覆盖」都用
+ * **点两次**（第一次把按钮文字改成"再点一次确认…"，四秒后自己复位）。这既避开了
+ * `execPrompt()` 在页面占着覆盖层时调不动那件事，也符合"危险动作多问一次"的本意。
+ */
+
+#pragma once
+
+#include <QDialog>
+#include <QList>
+#include <QString>
+#include <QStringList>
+
+class QCheckBox;
+class QComboBox;
+class QLabel;
+class QLineEdit;
+class QListWidget;
+class QListWidgetItem;
+class QPushButton;
+
+class PresetManagePage : public QDialog {
+    Q_OBJECT
+
+public:
+    // ------------------------------------------------------------------
+    // 外面喂进来的值（全是这一层能直接摆到屏幕上的形状）
+    // ------------------------------------------------------------------
+
+    /// 左栏那一份预设。
+    struct PresetItem {
+        QString id;
+        QString name;
+        QString description;
+        QString updatedText;   ///< 已经翻好的"最后修改：…"（空则不显示）
+        int sectionCount = 0;
+        bool isDefault = false;
+    };
+
+    /// 左栏底下那几份**读不回来**的（`PresetStore::BrokenPreset`）。它们不进可选列表，
+    /// 但必须让用户看见 —— "我昨天那份预设不见了"和"它坏了、就在这儿"是两种心情。
+    struct BrokenItem {
+        QString id;
+        QString reason;
+    };
+
+    /// 右栏"这一份里有什么"的一行（= 一段）。
+    struct SectionItem {
+        QString title;      ///< 段自己的标题，空的时候外面已经按种类翻好了
+        QString kindText;   ///< 种类（「游戏设置」「MaLiLib 热键」…）
+        QString modeText;   ///< 落法（「合并」「覆盖」「追加」…）
+        int itemCount = 0;
+        QString summary;    ///< 可选的一句补充（「其中 2 项认不出来」…）
+    };
+
+    /// 两个下拉框里的一个实例。
+    struct InstanceItem {
+        QString id;
+        QString name;
+        bool running = false;
+    };
+
+    /// 提取那一趟勾了哪几样（对应 `Presets::CaptureSelection`）。
+    struct CaptureChoice {
+        bool vanillaOptions = true;
+        bool vanillaKeys = true;
+        bool servers = true;
+        bool config = true;
+        bool defaultConfigs = false;
+        bool resourcePacks = false;
+        bool shaderPacks = false;
+        bool malilib = true;
+        bool malilibValues = false;
+
+        bool isEmpty() const {
+            return !vanillaOptions && !vanillaKeys && !servers && !config && !defaultConfigs &&
+                   !resourcePacks && !shaderPacks && !malilib;
+        }
+    };
+
+    /// 计划表上的一行（外面已经用 `PresetApplyRowText()` 翻好了）。
+    struct PlanLine {
+        QString text;
+        bool risky = false;
+    };
+
+    /// 一整份计划（`PresetPlanner::ApplyPlan` 的"给人看"版本）。
+    struct PlanView {
+        bool ok = false;
+        QString problem;        ///< 算不出来时的一句人话
+        QString blockedReason;  ///< 整趟不许开始（游戏在跑）
+        bool needsConfirm = false;  ///< 有「覆盖」段在等用户点头
+        bool replaceConfirmed = false;  ///< 这份计划**是按"已经确认过覆盖"算的**
+        bool canApply = false;
+        QList<PlanLine> rows;
+        QStringList keyConflicts;   ///< 整份键位里互相抢的那几条
+        QString summary;            ///< 一句总账（「4 段，共 41 项，删掉 2 项」）
+    };
+
+    /// 应用完之后的报告（每段一行 + 备份落在哪儿）。
+    struct ApplyView {
+        bool ok = false;
+        bool needsConfirm = false;
+        QString problem;
+        QStringList lines;
+        QString backupDir;
+    };
+
+    explicit PresetManagePage(QWidget *parent = nullptr);
+
+    QString titleText() const;
+
+    /// 左栏整份换掉。@param selectId 换完之后选中哪一份（不在列表里就选第一份）。
+    void setPresets(const QList<PresetItem> &presets, const QList<BrokenItem> &broken,
+                    const QString &selectId);
+    /// 右栏"这一份是什么"。
+    void showPreset(const QString &id, const QString &name, const QString &description,
+                    const QList<SectionItem> &sections);
+    /// 两个下拉框里的实例列表。@param selectId 空则保留各自原来的选择。
+    void setInstances(const QList<InstanceItem> &instances, const QString &selectId = QString());
+    /// 计划表。`canApply` 决定「应用」亮不亮；`needsConfirm` 决定它是不是要走"点两次"。
+    void showPlan(const PlanView &plan);
+    /// 应用报告。`needsConfirm` 那一趟会把「应用」旁边那句提示改掉。
+    void showApplyResult(const ApplyView &result);
+    /// 底下那行状态（提取结果、保存成功之类）。
+    void showStatus(const QString &text);
+    /// 清掉计划（换了预设 / 实例 / 段表之后调用）。
+    void clearPlan();
+
+    /// 忙的时候所有会动盘的东西都禁掉（列表本身还能选着看）。
+    void setBusy(bool busy);
+    bool isBusy() const { return m_busy; }
+
+    QString currentPresetId() const;
+    QString selectedApplyInstanceId() const;
+
+    /// 用户勾出来的那一份（验证工程也能直接念这一张表）。
+    CaptureChoice captureChoice() const;
+
+    // ---------- 控件的 objectName（验证工程靠这些名字认控件） ----------
+    static QString presetListName() { return QStringLiteral("presetList"); }
+    static QString newButtonName() { return QStringLiteral("presetNewButton"); }
+    static QString duplicateButtonName() { return QStringLiteral("presetDuplicateButton"); }
+    static QString deleteButtonName() { return QStringLiteral("presetDeleteButton"); }
+    static QString defaultButtonName() { return QStringLiteral("presetDefaultButton"); }
+    static QString moveUpButtonName() { return QStringLiteral("presetMoveUpButton"); }
+    static QString moveDownButtonName() { return QStringLiteral("presetMoveDownButton"); }
+    static QString nameEditName() { return QStringLiteral("presetNameEdit"); }
+    static QString descriptionEditName() { return QStringLiteral("presetDescriptionEdit"); }
+    static QString saveDetailsButtonName() { return QStringLiteral("presetSaveDetailsButton"); }
+    static QString sectionListName() { return QStringLiteral("presetSectionList"); }
+    static QString captureInstanceComboName() { return QStringLiteral("presetCaptureInstanceCombo"); }
+    static QString captureButtonName() { return QStringLiteral("presetCaptureButton"); }
+    static QString captureAsNewButtonName() { return QStringLiteral("presetCaptureAsNewButton"); }
+    static QString newPresetNameEditName() { return QStringLiteral("presetNewNameEdit"); }
+    static QString applyInstanceComboName() { return QStringLiteral("presetApplyInstanceCombo"); }
+    static QString previewButtonName() { return QStringLiteral("presetPreviewButton"); }
+    static QString planListName() { return QStringLiteral("presetPlanList"); }
+    static QString applyButtonName() { return QStringLiteral("presetApplyButton"); }
+    static QString statusLabelName() { return QStringLiteral("presetStatusLabel"); }
+
+signals:
+    /// 用户在左栏选了一份。
+    void presetSelected(const QString &id);
+
+    // ---------- 增删改 ----------
+    void createRequested();
+    void duplicateRequested(const QString &id);
+    /// 名字和说明一起交出去（改名 + 改说明是一颗按钮干的两件事）。
+    void detailsEdited(const QString &id, const QString &name, const QString &description);
+    void deleteRequested(const QString &id);
+    /// @param makeDefault 真 = 设成唯一的默认项；假 = 取消它的默认位。
+    void defaultRequested(const QString &id, bool makeDefault);
+    void moveRequested(const QString &id, int delta);
+
+    // ---------- 提取 ----------
+    void captureRequested(const QString &presetId, const QString &instanceId,
+                          const PresetManagePage::CaptureChoice &choice);
+    void captureAsNewRequested(const QString &instanceId, const QString &name,
+                               const PresetManagePage::CaptureChoice &choice);
+
+    // ---------- 应用 ----------
+    void planRequested(const QString &presetId, const QString &instanceId);
+    /// @param replaceConfirmed 第二趟（用户已经点过一次"确认覆盖"）为 true。
+    void applyRequested(const QString &presetId, const QString &instanceId,
+                        bool replaceConfirmed);
+
+private:
+    void buildUi();
+    void refreshActions();
+    void refreshCaptureEnabled();
+    void armDelete();
+    void disarmDelete();
+    void armApply();
+    void disarmApply();
+    void onCurrentPresetChanged(QListWidgetItem *current, QListWidgetItem *previous);
+    int currentPresetRow() const;
+    QString presetIdAt(int row) const;
+    bool rowIsBroken(int row) const;
+    void fillInstances(QComboBox *combo, const QList<InstanceItem> &instances,
+                       const QString &selectId);
+    static QString comboInstanceId(const QComboBox *combo);
+
+    QListWidget *m_presetList = nullptr;
+    QPushButton *m_newButton = nullptr;
+    QPushButton *m_duplicateButton = nullptr;
+    QPushButton *m_deleteButton = nullptr;
+    QPushButton *m_defaultButton = nullptr;
+    QPushButton *m_moveUpButton = nullptr;
+    QPushButton *m_moveDownButton = nullptr;
+
+    QLineEdit *m_nameEdit = nullptr;
+    QLineEdit *m_descriptionEdit = nullptr;
+    QPushButton *m_saveDetailsButton = nullptr;
+    QLabel *m_presetMeta = nullptr;
+    QListWidget *m_sectionList = nullptr;
+
+    QComboBox *m_captureInstanceCombo = nullptr;
+    QCheckBox *m_captureOptions = nullptr;
+    QCheckBox *m_captureKeys = nullptr;
+    QCheckBox *m_captureServers = nullptr;
+    QCheckBox *m_captureConfig = nullptr;
+    QCheckBox *m_captureDefaultConfigs = nullptr;
+    QCheckBox *m_captureResourcePacks = nullptr;
+    QCheckBox *m_captureShaderPacks = nullptr;
+    QCheckBox *m_captureMalilib = nullptr;
+    QCheckBox *m_captureMalilibValues = nullptr;
+    QPushButton *m_captureButton = nullptr;
+    QPushButton *m_captureAsNewButton = nullptr;
+    QLineEdit *m_newPresetNameEdit = nullptr;
+
+    QComboBox *m_applyInstanceCombo = nullptr;
+    QPushButton *m_previewButton = nullptr;
+    QListWidget *m_planList = nullptr;
+    QLabel *m_planHint = nullptr;
+    QPushButton *m_applyButton = nullptr;
+    QLabel *m_statusLabel = nullptr;
+
+    bool m_busy = false;
+    bool m_deleteArmed = false;
+    int m_deleteToken = 0;
+    bool m_applyArmed = false;
+    int m_applyToken = 0;
+    /// 这一份计划「应用」那一下要不要先点一次确认（`PlanView::needsConfirm`）。
+    bool m_planNeedsConfirm = false;
+    bool m_planReplaceConfirmed = false;
+    bool m_planCanApply = false;
+    /// 正在显示的预设 id（`showPreset` 灌进来，点按钮时带出去）。
+    QString m_currentId;
+    /// 灌列表时挡信号用（`setCurrentRow` 不该伪装成"用户选了一份"）。
+    bool m_fillingList = false;
+};

@@ -169,6 +169,23 @@ Result digestOfFile(const QString &path, Algorithm algorithm, const ProgressFn &
     return result;
 }
 
+Stamp stampOf(const QString &path) {
+    Stamp stamp;
+    const QFileInfo info(path);
+    if (!info.exists() || !info.isFile()) {
+        return stamp;
+    }
+    stamp.ok = true;
+    stamp.bytes = info.size();
+    stamp.lastModifiedMs = info.lastModified().toMSecsSinceEpoch();
+    return stamp;
+}
+
+bool sameStamp(const Stamp &left, const Stamp &right) {
+    return left.ok && right.ok && left.bytes == right.bytes
+           && left.lastModifiedMs == right.lastModifiedMs;
+}
+
 Expected parseExpected(const QString &text) {
     Expected expected;
     QString body = text.trimmed();

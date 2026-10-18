@@ -387,7 +387,7 @@ TaskCenterPanel::TaskCenterPanel(QWidget *anchor, const TaskCenter::ItemProvider
     m_collapseRunning->setFixedSize(28, 28);
     runningHeader->addWidget(m_collapseRunning);
     runningLayout->addLayout(runningHeader);
-    m_runningScroll = new QScrollArea(m_runningPane);
+    m_runningScroll = new Theme::GutterScrollArea(m_runningPane);
     m_runningScroll->setFrameShape(QFrame::NoFrame);
     m_runningScroll->setWidgetResizable(true);
     m_runningScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
@@ -410,7 +410,7 @@ TaskCenterPanel::TaskCenterPanel(QWidget *anchor, const TaskCenter::ItemProvider
     });
 
     // 中列：按时间和状态排列的任务横行。
-    m_scroll = new QScrollArea(this);
+    m_scroll = new Theme::GutterScrollArea(this);
     m_scroll->setObjectName(QStringLiteral("taskCenterTaskList"));
     m_scroll->setFrameShape(QFrame::NoFrame);
     m_scroll->setWidgetResizable(true);
@@ -435,7 +435,7 @@ TaskCenterPanel::TaskCenterPanel(QWidget *anchor, const TaskCenter::ItemProvider
     m_detailPane->setFixedWidth(kDetailWidth);
     auto *detailLayout = new QVBoxLayout(m_detailPane);
     detailLayout->setContentsMargins(0, 0, 0, 0);
-    m_detailScroll = new QScrollArea(m_detailPane);
+    m_detailScroll = new Theme::GutterScrollArea(m_detailPane);
     m_detailScroll->setFrameShape(QFrame::NoFrame);
     m_detailScroll->setWidgetResizable(true);
     m_detailScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);

@@ -22,6 +22,7 @@ set(HEADER_FILES
     ${REPO_ROOT}/src/MainWindow.hpp
     ${REPO_ROOT}/src/controllers/JavaRuntimeController.hpp
     ${REPO_ROOT}/src/controllers/JavaSettingsController.hpp
+    ${REPO_ROOT}/src/controllers/PresetController.hpp
     ${REPO_ROOT}/src/controllers/LauncherPreferencesController.hpp
     ${REPO_ROOT}/src/controllers/CrashReportController.hpp
     ${REPO_ROOT}/src/controllers/IntegrityController.hpp
@@ -81,6 +82,8 @@ set(HEADER_FILES
     ${REPO_ROOT}/src/manage/UpdateRollback.hpp
     ${REPO_ROOT}/src/manage/BackupFiles.hpp
     ${REPO_ROOT}/src/manage/WorldFiles.hpp
+    # 世界只读概况（§9.6）：InstanceEditorController 翻译 WorldView 时直接调它。
+    ${REPO_ROOT}/src/manage/WorldMap.hpp
     # 启动历史账本（§5.1）：主页“最近游玩”排的数据源，MainWindow.cpp 直接调它。
     ${REPO_ROOT}/src/manage/LaunchHistory.hpp
     ${REPO_ROOT}/src/settings/GameWindowSettings.hpp
@@ -96,6 +99,10 @@ set(SOURCE_FILES
     ${REPO_ROOT}/src/MainWindow.cpp
     ${REPO_ROOT}/src/controllers/JavaRuntimeController.cpp
     ${REPO_ROOT}/src/controllers/JavaSettingsController.cpp
+    # 「实例预设」那一页的控制器（2026-10-18）：MainWindow 构造里 new 它，少了这一个
+    # 文件链接期报的是 `undefined reference to PresetController::…`。它调的
+    # `src/presets/` 那一层在下面（`PresetStore` / 四个适配器 / 计划 / 提取 / 应用）。
+    ${REPO_ROOT}/src/controllers/PresetController.cpp
     ${REPO_ROOT}/src/controllers/LauncherPreferencesController.cpp
     ${REPO_ROOT}/src/controllers/CrashReportController.cpp
     ${REPO_ROOT}/src/controllers/IntegrityController.cpp
@@ -148,6 +155,28 @@ set(SOURCE_FILES
     # 导出整合包那一条路（VersionManager 里五个方法直接调它）：少了这一个文件，
     # mw_check 会在链接那一步报一串 `ModpackExport::…` 的 undefined reference。
     ${REPO_ROOT}/src/manage/ModpackExport.cpp
+    # 实例预设那一层（2026-10-18）：PresetController 直接调它。判据本身的断言在
+    # `verify` 的 PA–PG 那几节，这儿只是为了让 mw_check 链接得过。
+    ${REPO_ROOT}/src/presets/PresetStore.cpp
+    ${REPO_ROOT}/src/presets/VanillaOptions.cpp
+    ${REPO_ROOT}/src/presets/ServerListPreset.cpp
+    ${REPO_ROOT}/src/presets/GenericFiles.cpp
+    ${REPO_ROOT}/src/presets/MalilibKeys.cpp
+    ${REPO_ROOT}/src/presets/PresetPlanner.cpp
+    ${REPO_ROOT}/src/presets/PresetCapture.cpp
+    ${REPO_ROOT}/src/presets/PresetApply.cpp
+    # 结构 / 原理图的元数据与方块统计（2026-10-18）：InstanceDialogController 在
+    # 「原理图」那一页接上了它，少了这一个文件链接期报 `SchematicInfo::read` 未定义。
+    ${REPO_ROOT}/src/schematic/SchematicInfo.cpp
+    # Replay 那一页的信息格（2026-10-18）：InstanceDialogController 接上了它。
+    ${REPO_ROOT}/src/replay/ReplayInfo.cpp
+    # 「启动诊断」那一页（2026-10-18）：同一个控制器接上了它。
+    ${REPO_ROOT}/src/diagnose/StartupDiagnosis.cpp
+    # 「迁移」/「升级」那两页（2026-10-18，§9.9 第 15 项）：同一个控制器接上了计划层与
+    # 落盘层；少了这两个文件链接期报 `TransferPlanner::plan` / `TransferApply::apply`
+    # 未定义。
+    ${REPO_ROOT}/src/operations/TransferPlanner.cpp
+    ${REPO_ROOT}/src/operations/TransferApply.cpp
 
     ${REPO_ROOT}/src/manage/InstanceGroupStore.cpp
     ${REPO_ROOT}/src/manage/PlayerSkinStore.cpp
@@ -164,6 +193,7 @@ set(SOURCE_FILES
     # 少了这一个文件会在链接那一步报一串 `BackupFiles::…` 的 undefined reference。
     ${REPO_ROOT}/src/manage/BackupFiles.cpp
     ${REPO_ROOT}/src/manage/WorldFiles.cpp
+    ${REPO_ROOT}/src/manage/WorldMap.cpp
     # 「上一次启动」那一层（§5.1）：少了这一个文件会在链接那一步报一串
     # `LaunchHistory::…` 的 undefined reference。
     ${REPO_ROOT}/src/manage/LaunchHistory.cpp
@@ -211,6 +241,10 @@ set(SOURCE_FILES
     ${REPO_ROOT}/src/tools/CoordConvert.cpp
     ${REPO_ROOT}/src/tools/FileHash.cpp
     ${REPO_ROOT}/src/tools/AnvilPlanner.cpp
+    ${REPO_ROOT}/src/tools/Beacon.cpp
+    ${REPO_ROOT}/src/tools/Brewing.cpp
+    ${REPO_ROOT}/src/tools/Banner.cpp
+    ${REPO_ROOT}/src/tools/ArmorTrim.cpp
     # 「导出错误报告」那一份文本（2026-09-28）：MainWindow.cpp 直接调它。
     ${REPO_ROOT}/src/util/ErrorReport.cpp
     # 游戏异常退出那几句话（2026-10-12，coding plan §4.3）：MainWindow::buildCrashRecord()
@@ -228,6 +262,8 @@ set(SOURCE_FILES
     # 「游戏日志」窗是 2026-09-24 加的，MainWindow.cpp 直接 new 它 —— 少了这一个文件，
     # mw_check 会在链接那一步报"undefined reference to GameLogWindow::…"。
     ${REPO_ROOT}/ui/GameLogWindow.cpp
+    # 运行输出共用模型（2026-10-18，§9.8）：GameLogWindow / ServerConsolePage 都直接用它。
+    ${REPO_ROOT}/ui/RuntimeOutputModel.cpp
     ${REPO_ROOT}/ui/MainWindowUI.cpp
     # 「最大内存」那一行那根条（2026-09-26）：MainWindowUI.cpp 和
     # InstanceSettingsDialog.cpp 都直接 new 它，少了这一个文件会在链接那一步报一串
@@ -252,6 +288,8 @@ set(SOURCE_FILES
     ${REPO_ROOT}/ui/GameRuleNames.cpp
     ${REPO_ROOT}/ui/JavaMismatchDialog.cpp
     ${REPO_ROOT}/ui/JavaManageDialog.cpp
+    # 「实例预设」整页（2026-10-18）：PresetController 直接 new 它。
+    ${REPO_ROOT}/ui/PresetManagePage.cpp
     ${REPO_ROOT}/ui/SkinModel.cpp
     ${REPO_ROOT}/ui/VersionIcons.cpp
     # 四个加载器的标志那几张真图（2026-09-28）：qrc 不列在这儿，
@@ -315,6 +353,14 @@ set(SOURCE_FILES
     # （`ServerCheck.hpp` 是纯头，不用列）。
     ${REPO_ROOT}/src/server/ServerPropertiesForm.cpp
     ${REPO_ROOT}/src/server/ServerPortCheck.cpp
+    # 玩家名单的 JSON 判据（2026-10-18，§9.7）：`ServerSettingsController` 读写的就是它。
+    ${REPO_ROOT}/src/server/ServerPlayers.cpp
+    # 崩溃自动重启的判据（2026-10-18，§9.7）：`MainWindow::onServerExited()` 问的就是它。
+    ${REPO_ROOT}/src/server/ServerRestart.cpp
+    # 服务端资源包（2026-10-18，§9.7）：`MainWindow::pickServerResourcePack()` 用它。
+    ${REPO_ROOT}/src/server/ServerResourcePack.cpp
+    # 服务端内容（2026-10-18，§9.7）：`MainWindow::refreshServerContent()` 用它。
+    ${REPO_ROOT}/src/server/ServerContent.cpp
     ${REPO_ROOT}/src/tasks/TaskManager.cpp
     ${REPO_ROOT}/src/tasks/TaskHistory.cpp
     ${REPO_ROOT}/ui/WindowChrome.cpp

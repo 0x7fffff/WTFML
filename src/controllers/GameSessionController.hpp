@@ -89,6 +89,9 @@ public:
         std::function<void(const QString &text)> log;
         /// 账本上那件「启动 X」的第 1 步（就是"起来了"）完成了。
         std::function<void(Tasks::TaskId id)> launchTaskStepDone;
+        /// 把任务和这次会话对上（§9.8 第三条：任务 / 日志 / 退出诊断 / 崩溃报告同一个号）。
+        /// ★ 那次 `beginTask()` 是在进程起来**之前**发的，所以只能在这里补这一笔。
+        std::function<void(Tasks::TaskId id, int sessionId)> bindTaskSession;
         /// 把那件任务收尾（终态只落一次，见 `TaskManager::finish()`）。
         std::function<void(Tasks::TaskId id, bool success, const QString &errorSummary)> finishLaunchTask;
         /// 底栏按当前状态重画一遍（左下角那颗三态方块 + 中间那格）。

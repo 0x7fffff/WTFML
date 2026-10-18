@@ -1,5 +1,6 @@
 #include "controllers/ServerConsoleController.hpp"
 
+#include "InlineMessage.hpp"
 #include "MainWindowUI.hpp"
 #include "OverlayHost.hpp"
 #include "ServerConsolePage.hpp"
@@ -8,6 +9,12 @@
 #include "server/ServerRegistry.hpp"
 #include "server/ServerRun.hpp"
 
+#include <QDateTime>
+#include <QDir>
+#include <QFileDialog>
+#include <QRegularExpression>
+#include <QSaveFile>
+#include <QStandardPaths>
 #include <QTabWidget>
 
 #include <utility>
@@ -42,6 +49,8 @@ void ServerConsoleController::open(const QString &serverId) {
         connect(m_page, &ServerConsolePage::forceKillRequested, this, [this] {
             if (m_host.forceKill) m_host.forceKill(m_serverId);
         });
+        connect(m_page, &ServerConsolePage::exportLogRequested, this,
+                &ServerConsoleController::exportLog);
     }
     m_serverId = serverId;
     const ServerRegistry::Entry entry = ServerRegistry::describe(serverId);
@@ -102,5 +111,50 @@ void ServerConsoleController::announceForceKill(const QString &serverId, int sec
 void ServerConsoleController::forget(const QString &serverId) {
     if (m_serverId == serverId) {
         m_serverId.clear();
+    }
+}
+
+void ServerConsoleController::exportLog() {
+    if (m_page == nullptr || m_serverId.isEmpty()) {
+        return;
+    }
+    OverlayHost *overlay = m_ui == nullptr ? nullptr : m_ui->overlay();
+    const QString text = m_page->allLogText();
+    if (text.isEmpty()) {
+        InlineMessage::warning(overlay, tr("还没有日志"),
+                               tr("这个控制台还没有收到任何输出，导出来会是一个空文件。"));
+        return;
+    }
+    const ServerRegistry::Entry entry = ServerRegistry::describe(m_serverId);
+    // 文件名里不许出现路径分隔符和 Windows 的那几个非法字符 —— 服务端名是用户自己起的。
+    QString safeName = entry.name.isEmpty() ? m_serverId : entry.name;
+    safeName.replace(QRegularExpression(QStringLiteral("[\\\\/:*?\"<>|]")),
+                     QStringLiteral("_"));
+    const QString desktop = QStandardPaths::writableLocation(QStandardPaths::DesktopLocation);
+    const QString suggested =
+        QDir(desktop.isEmpty() ? QDir::homePath() : desktop)
+            .filePath(QStringLiteral("server-%1-%2.log")
+                          .arg(safeName, QDateTime::currentDateTime().toString(
+                                             QStringLiteral("yyyyMMdd-HHmmss"))));
+    const QString path = QFileDialog::getSaveFileName(
+        m_pageParent, tr("导出服务端日志"), suggested,
+        tr("文本文件 (*.txt *.log);;所有文件 (*)"));
+    if (path.isEmpty()) {
+        return;
+    }
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly) ||
+        file.write(text.toUtf8()) < 0 || !file.commit()) {
+        const QString error = file.errorString();
+        if (m_host.log) {
+            m_host.log(tr("导出服务端日志失败：%1").arg(error));
+        }
+        InlineMessage::warning(overlay, tr("导出失败"),
+                               tr("这个文件没能写出来（%1）：\n%2")
+                                   .arg(QDir::toNativeSeparators(path), error));
+        return;
+    }
+    if (m_host.log) {
+        m_host.log(tr("✓ 服务端日志已导出：%1").arg(QDir::toNativeSeparators(path)));
     }
 }

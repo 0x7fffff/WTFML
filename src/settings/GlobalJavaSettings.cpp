@@ -663,15 +663,12 @@ void GlobalJavaSettings::load() {
     // 也就是加这个开关之前的行为。
     m_autoSelectJava = settings.value(kAutoSelect, m_autoSelectJava).toBool();
 
-    // 内存自动档对这个键做了一点额外的判断，**必须在读完 Xmx/Xms 之后**：
-    //   - 盘上有这个键 → 听用户的。
-    //   - 没有这个键（加自动档之前存下来的老配置）→ 值是内置默认值就说明用户没动过它，
-    //     按自动处理；不是内置默认值就说明用户自己调过（比如手填了 8192），按手动处理，
-    //     免得升级之后静默改掉他已经定好的内存。这条和"识别失败要说出来"是同一个态度：
-    //     不确定的时候不改用户的东西。
-    m_memoryAuto = settings.contains(kMemoryAuto)
-                       ? settings.value(kMemoryAuto).toBool()
-                       : (m_xmx == kBuiltinXmxMb && m_xms == kBuiltinXmsMb);
+    // ★ 2026-10-18：内存「自动档」从界面上撤掉了（设置页 / 实例设置都只剩「最大内存」
+    //   那一根拖动的条 —— 用户原话「内存分配和最大内存这玩意完全就是重复的，只保留那个
+    //   拖动的」）。于是这里**不再听 Java/MemoryAuto 那个键**：盘上写着 true 的老配置
+    //   也按手动档读，避免出现"界面上没有开关、拖出来的数却每次启动被重算掉"。
+    //   那个键下次 save() 时会被写成 false，数据不删（老版本还能读回去）。
+    m_memoryAuto = false;
 
     // 提醒总闸：没有这个键（加它之前存下来的老配置）就落到成员默认值 true，
     // 也就是老行为 —— 那时候这类不匹配是一律报错拦下的，等于"总是提醒"。

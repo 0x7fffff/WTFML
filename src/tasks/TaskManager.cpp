@@ -165,6 +165,21 @@ bool TaskManager::setDetail(TaskId id, const QString &detail) {
     return true;
 }
 
+bool TaskManager::setSessionId(TaskId id, int sessionId) {
+    // 只活在内存里（理由见 TaskSnapshot::sessionId）：这里 touch 的 persist 是 false。
+    // 收尾之后也允许补：崩溃报告那一项可能在进程已经退出之后才和会话对上。
+    //
+    // ★ 一项任务只对**一份**会话。已经对上了还要换个号 = 调用方那边把两件事搞混了，
+    //   这里不替它改口（改了口之后"这一项说的是哪一次运行"就再也说不清）。
+    TaskSnapshot *task = find(id);
+    if (task == nullptr || sessionId <= 0 || task->sessionId != 0) {
+        return false;
+    }
+    task->sessionId = sessionId;
+    touch(id, /*persist=*/false);
+    return true;
+}
+
 bool TaskManager::setSteps(TaskId id, const QList<TaskStep> &steps) {
     TaskSnapshot *task = find(id);
     if (task == nullptr || !isActiveState(task->state)) {
