@@ -105,7 +105,7 @@ void ResumableDownload::start(const QUrl &url, const QString &target, const QStr
         if (m_stage != Stage::Parts) return;
         if (!success) {
             // 第一轮里某一条分段失败：**先只补缺的那几条**，不要立刻整文件重下。
-            // 已经完整校验过的分段都在 m_complete 里、`downloadParts()` 会跳过它们，
+            // 已经完整校验过的分段都在缓存里；重新探测/校验后跳过它们，
             // 所以这一轮最坏只是把失败的那一条再走一遍；而整文件重下在 41 MB 的
             // 客户端 jar 上就是白扔掉已经下好的几十 MB。
             // 分段请求本身已由内部 DownloadManager 做过有限重试，剩下的失败多半来自
@@ -114,7 +114,7 @@ void ResumableDownload::start(const QUrl &url, const QString &target, const QStr
             // ★ 必须**等这一批剩下的分段都收尾**再补：现在就重发，同一批里还有别的
             //   分段在飞，`downloadParts()` 会往同一个 part 文件再开一条写流。所以这里
             //   只挂个标记，真正重发在 allDownloadsFinished 里（见 start() 的连接）。
-            if (!m_partsRetried && !m_complete.isEmpty()) {
+            if (!m_partsRetried) {
                 if (!m_partsRetryPending) {
                     m_partsRetryPending = true;
                     if (DownloadDiag::enabled()) {
@@ -128,16 +128,13 @@ void ResumableDownload::start(const QUrl &url, const QString &target, const QStr
                 }
                 return;
             }
-            // 补过一轮还失败（或者一条分段都没成功过，重来没意义）：退回整文件下载。
-            // 整文件 SHA-1 仍会在落盘前兜底。
-            if (DownloadDiag::enabled()) {
-                DownloadDiag::line(QStringLiteral("resumable part failed, switching to single "
-                                                  "download: %1")
-                                       .arg(error));
-            }
+            // Keep verified parts rather than silently redownloading the entire payload.
+            // The outer manager can still fall back to an explicitly supplied official URL.
             m_stage = Stage::Switching;
             const auto generation = m_generation;
-            QTimer::singleShot(0, this, [this, generation] { if (m_running && generation == m_generation) startSingle(); });
+            QTimer::singleShot(0, this, [this, generation, error] {
+                if (m_running && generation == m_generation) finish(false, error);
+            });
             return;
         }
         bool valid = false;
@@ -173,7 +170,8 @@ void ResumableDownload::start(const QUrl &url, const QString &target, const QStr
         const auto generation = m_generation;
         QTimer::singleShot(0, this, [this, generation] {
             if (!m_running || generation != m_generation || m_stage != Stage::Parts) return;
-            downloadParts();
+            m_stage = Stage::Probe;
+            probe(); // Refresh expired signed URLs, then revalidate the saved parts/ETag.
         });
     });
     if (DownloadDiag::enabled()) {
@@ -194,6 +192,14 @@ void ResumableDownload::start(const QUrl &url, const QString &target, const QStr
 
 void ResumableDownload::probe(int attempt) {
     if (!m_running) return;
+    const auto cooldown = DownloadRetryPolicy::coolingDownMs(m_url);
+    if (cooldown > 0) {
+        const auto generation = m_generation;
+        QTimer::singleShot(int(cooldown) + 1, this, [this, generation, attempt] {
+            if (m_running && generation == m_generation) probe(attempt);
+        });
+        return;
+    }
     m_networkAttempted = true;
     QNetworkRequest request(m_url);
     request.setRawHeader("Range", "bytes=0-0"); request.setRawHeader("Accept-Encoding", "identity");
@@ -277,6 +283,8 @@ void ResumableDownload::probe(int attempt) {
             int delay = -1;
             if (status == 429) {
                 delay = DownloadRetryPolicy::throttleDelayMs(attempt, retryAfter);
+                DownloadRetryPolicy::coolDown(m_url, qMax(30000, delay));
+                if (delay >= 0) delay = qMax(30000, delay);
             } else if (DownloadRetryPolicy::transientReply(reply) || guardAbort) {
                 delay = DownloadRetryPolicy::delayMs(attempt, retryAfter);
                 if (delay >= 0 && guardAbort) delay = qMax(delay, 2000);
@@ -384,6 +392,7 @@ void ResumableDownload::emitProgress() {
 
 void ResumableDownload::prepareCache() {
     m_stage = Stage::Prepare;
+    m_live.clear(); // Discard partial progress from the previous settled range batch.
     emit statusChanged(tr("正在后台校验续传缓存…"));
     struct Result { QMap<int, QString> parts; };
     auto result = QSharedPointer<Result>::create();
@@ -458,12 +467,12 @@ void ResumableDownload::downloadParts() {
     emitProgress();
     m_files->setAllowOverwrite(true);
     m_files->beginBatch();
-    // 每条分段都请求**入口地址**，各自跟随 302 拿新的签名。BMCLAPI 的落点是 60 秒过期的
-    // 预签名 URL，直接复用探测时那一条会在慢链上的后半程 403。
+    // Reuse the probed node for this batch instead of repeatedly hitting the dispatcher.
+    // A settled failed batch reprobes once to refresh expired signatures safely.
     for (int index = 0; index < m_count; ++index) {
         if (m_complete.contains(index)) continue;
         DownloadRange range{index * m_partSize, index * m_partSize + partLength(index) - 1, m_total, m_etag};
-        m_files->downloadFile(m_url.toString(), partPath(index), {}, partLength(index), VerifyMode::AlwaysDownload, {}, range);
+        m_files->downloadFile(m_source.toString(), partPath(index), {}, partLength(index), VerifyMode::AlwaysDownload, {}, range);
     }
     m_files->endBatch();
 }

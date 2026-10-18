@@ -103,6 +103,8 @@ set(SOURCE_FILES
     # 文件链接期报的是 `undefined reference to PresetController::…`。它调的
     # `src/presets/` 那一层在下面（`PresetStore` / 四个适配器 / 计划 / 提取 / 应用）。
     ${REPO_ROOT}/src/controllers/PresetController.cpp
+    ${REPO_ROOT}/src/presets/PresetModInstaller.cpp
+    ${REPO_ROOT}/src/presets/ModInstallPlan.cpp
     ${REPO_ROOT}/src/controllers/LauncherPreferencesController.cpp
     ${REPO_ROOT}/src/controllers/CrashReportController.cpp
     ${REPO_ROOT}/src/controllers/IntegrityController.cpp
@@ -299,6 +301,8 @@ set(SOURCE_FILES
     ${REPO_ROOT}/ui/JavaManageDialog.cpp
     # 「实例预设」整页（2026-10-18）：PresetController 直接 new 它。
     ${REPO_ROOT}/ui/PresetManagePage.cpp
+    ${REPO_ROOT}/ui/PresetModEditor.cpp
+    ${REPO_ROOT}/ui/PresetOptionsEditor.cpp
     # 安装页「预设」那一行点开的紧凑弹窗（2026-10-18，§7.1）：MainWindow.cpp 直接 new 它。
     ${REPO_ROOT}/ui/PresetInstallPicker.cpp
     ${REPO_ROOT}/ui/SkinModel.cpp
@@ -433,6 +437,10 @@ set_tests_properties(wtfml.tool-features PROPERTIES
     TIMEOUT 90
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
 )
+add_test(NAME wtfml.preset-install COMMAND mw_check preset-install-check)
+set_tests_properties(wtfml.preset-install PROPERTIES TIMEOUT 90
+    LABELS "presets;network;integration"
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}")
 set_tests_properties(wtfml.segmented-download PROPERTIES
     LABELS "network;integration;resume"
     TIMEOUT 120

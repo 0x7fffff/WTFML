@@ -26,6 +26,10 @@
 #include <QListWidget>
 #include <QListWidgetItem>
 #include <QMouseEvent>
+#include <QMenu>
+#include <QClipboard>
+#include <QDesktopServices>
+#include <QUrl>
 #include <QPalette>
 #include <QPixmap>
 #include <QPushButton>
@@ -488,6 +492,7 @@ InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
     // ★ 2026-10-10：记账那一趟本身收进了 syncSelectedPaths() —— 重列末尾要办的正是同一件事
     //   （那一段把信号挡着，只能自己喊），两处各写一遍就是第二份真相。
     connect(m_list, &QListWidget::itemSelectionChanged, this, [this] {
+        m_actionPanelDismissed = false;
         syncSelectedPaths();
         updateSelectionBar();
         // ★ 2026-10-18：选中的换了 ⇒ 底下那条"这一份是什么"跟着换（见 updateInfoPanel()）。
@@ -520,7 +525,17 @@ InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
         }
         syncRowHover();
     });
-    outer->addWidget(m_list, 1);
+    m_selectionTools = new QWidget(this);
+    m_selectionTools->setObjectName(QStringLiteral("modSelectionTools"));
+    m_selectionTools->hide();
+    outer->addWidget(m_selectionTools);
+    m_contentHost = new QWidget(this);
+    m_contentHost->setMinimumWidth(0);
+    auto *contentLayout = new QHBoxLayout(m_contentHost);
+    contentLayout->setContentsMargins(0, 0, 0, 0);
+    contentLayout->addWidget(m_list);
+    m_contentHost->installEventFilter(this);
+    outer->addWidget(m_contentHost, 1);
 
     // ---------- 列表下面那条"这一份是什么"（2026-10-18）----------
     //
@@ -710,6 +725,125 @@ InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
 void InstanceFilesPage::setMode(Mode mode) {
     m_mode = mode;
     refresh();
+}
+
+void InstanceFilesPage::setActionPanelEnabled(bool enabled) {
+    // Opt-in only: the other file-management pages retain their existing controls.
+    if (!enabled || m_actionPanelEnabled) return;
+    m_actionPanelEnabled = true;
+    m_selectionBar->setParent(m_contentHost);
+    delete m_selectionBar->layout();
+    auto *panel = new QVBoxLayout(m_selectionBar);
+    panel->setContentsMargins(16, 16, 16, 16);
+    panel->setSpacing(10);
+    auto *heading = new QHBoxLayout;
+    auto *title = new QLabel(tr("操作"), m_selectionBar);
+    QFont titleFont = title->font(); titleFont.setBold(true); titleFont.setPointSize(16);
+    title->setFont(titleFont);
+    heading->addWidget(title, 1);
+    auto *close = new QPushButton(QStringLiteral("×"), m_selectionBar);
+    close->setObjectName(QStringLiteral("modActionPanelClose"));
+    Theme::markButton(close, Theme::ButtonKind::Neutral);
+    close->setAccessibleName(tr("收起操作栏（保留选择）"));
+    close->setFixedWidth(32);
+    heading->addWidget(close);
+    panel->addLayout(heading);
+    panel->addWidget(m_selectionCount);
+    m_actionStatus = new QLabel(m_selectionBar);
+    panel->addWidget(m_actionStatus);
+    connect(close, &QPushButton::clicked, this, [this] {
+        m_actionPanelDismissed = true; updateSelectionBar();
+    });
+    m_stateAction = new QPushButton(tr("启用 / 禁用 ▾"), m_selectionBar);
+    Theme::markButton(m_stateAction, Theme::ButtonKind::Neutral);
+    panel->addWidget(m_stateAction);
+    connect(m_stateAction, &QPushButton::clicked, this, [this] {
+        QMenu menu(this);
+        for (bool disable : {false, true}) {
+            QAction *action = menu.addAction(disable ? tr("全部禁用") : tr("全部启用"));
+            action->setEnabled(!selectedTogglePaths(disable).isEmpty());
+            connect(action, &QAction::triggered, this, [this, disable] {
+                const auto paths = selectedTogglePaths(disable);
+                if (!paths.isEmpty()) emit batchToggleRequested(paths, disable);
+            });
+        }
+        menu.exec(m_stateAction->mapToGlobal(QPoint(0, m_stateAction->height())));
+    });
+    auto *check = new QPushButton(tr("检查更新"), m_selectionBar);
+    check->setToolTip(tr("检查此实例的资源更新，不会直接安装。"));
+    Theme::markButton(check, Theme::ButtonKind::Neutral);
+    panel->addWidget(check);
+    connect(check, &QPushButton::clicked, this, &InstanceFilesPage::checkUpdatesRequested);
+    auto *tools = new QHBoxLayout(m_selectionTools);
+    tools->setContentsMargins(0, 0, 0, 0);
+    m_selectionSummary = new QLabel(m_selectionTools);
+    tools->addWidget(m_selectionSummary);
+    m_selectionReopen = new QPushButton(m_selectionTools);
+    m_selectionReopen->setObjectName(QStringLiteral("modSelectedCount"));
+    Theme::markButton(m_selectionReopen, Theme::ButtonKind::Neutral);
+    tools->addWidget(m_selectionReopen);
+    connect(m_selectionReopen, &QPushButton::clicked, this, [this] {
+        m_actionPanelDismissed = false; updateSelectionBar();
+    });
+    tools->addStretch();
+    for (int i = 0; i < selectionActionCount(); ++i) {
+        auto action = static_cast<SelectionAction>(i);
+        auto *button = m_selectionButtons.at(i);
+        if (action == SelectionAction::SelectAll || action == SelectionAction::InvertAll ||
+            action == SelectionAction::ClearAll) {
+            tools->addWidget(button);
+            if (action == SelectionAction::ClearAll) button->setText(tr("清除选择"));
+        } else if (action == SelectionAction::Disable || action == SelectionAction::Enable) {
+            button->hide();
+        } else {
+            panel->addWidget(button);
+            if (action == SelectionAction::Update) button->setText(tr("更新选中项"));
+            if (action == SelectionAction::Delete) button->setText(tr("删除选中项"));
+        }
+    }
+    for (bool move : {false, true}) {
+        auto *transfer = new QPushButton(move ? tr("移动到实例…") : tr("复制到实例…"), m_selectionBar);
+        Theme::markButton(transfer, Theme::ButtonKind::Neutral);
+        panel->insertWidget(panel->count() - 1, transfer);
+        connect(transfer, &QPushButton::clicked, this, [this, move] {
+            emit transferSelectionRequested(selectedPathList(), move);
+        });
+    }
+    auto *more = new QPushButton(tr("更多 ▾"), m_selectionBar);
+    Theme::markButton(more, Theme::ButtonKind::Neutral);
+    panel->addWidget(more);
+    connect(more, &QPushButton::clicked, this, [this, more] {
+        const auto paths = selectedPathList();
+        QMenu menu(this);
+        auto *detail = menu.addAction(tr("查看详情"));
+        detail->setEnabled(paths.size() == 1 && m_resourceTips.contains(identityPath(paths.value(0))));
+        connect(detail, &QAction::triggered, this, [this, paths] { emit detailRequested(paths.first()); });
+        auto *location = menu.addAction(tr("打开文件位置"));
+        connect(location, &QAction::triggered, this, [paths] {
+            if (!paths.isEmpty()) QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(paths.first()).absolutePath()));
+        });
+        auto *exportList = menu.addAction(tr("复制选中模组清单"));
+        connect(exportList, &QAction::triggered, this, [paths] {
+            QStringList names; for (const auto &path : paths) names.append(QFileInfo(path).fileName());
+            QApplication::clipboard()->setText(names.join(QLatin1Char('\n')));
+        });
+        auto *invert = menu.addAction(tr("反转每项启用状态"));
+        connect(invert, &QAction::triggered, this, [this] {
+            // Snapshot both subsets before either operation refreshes/renames rows.
+            const auto disable = selectedTogglePaths(true);
+            const auto enable = selectedTogglePaths(false);
+            if (!disable.isEmpty()) emit batchToggleRequested(disable, true);
+            if (!enable.isEmpty()) emit batchToggleRequested(enable, false);
+        });
+        menu.exec(more->mapToGlobal(QPoint(0, more->height())));
+    });
+    panel->addStretch();
+    auto *hint = new QLabel(tr("选择仅针对当前筛选结果。\n删除只处理模组文件，不清理配置。"), m_selectionBar);
+    hint->setWordWrap(true);
+    makeSecondary(hint);
+    panel->addWidget(hint);
+    m_selectionTools->show();
+    updateSelectionBar();
 }
 
 void InstanceFilesPage::setCanToggle(bool canToggle) {
@@ -2233,6 +2367,26 @@ void InstanceFilesPage::updateSelectionBar() {
     if (m_selectionCount != nullptr) {
         m_selectionCount->setText(selectionCountText(m_selectedPaths.size()));
     }
+    if (m_actionPanelEnabled) {
+        const int count = m_selectedPaths.size();
+        if (count == 0) m_actionPanelDismissed = false;
+        m_selectionSummary->setText(tr("共 %1 个模组").arg(m_list->count()));
+        m_selectionReopen->setText(tr("已选 %1 项").arg(count));
+        m_selectionReopen->setVisible(count > 0);
+        m_actionStatus->setText(tr("启用 %1  ·  禁用 %2")
+            .arg(selectedTogglePaths(true).size()).arg(selectedTogglePaths(false).size()));
+        buttonFor(SelectionAction::Enable)->hide();
+        buttonFor(SelectionAction::Disable)->hide();
+        setEnabled(SelectionAction::ClearAll, count > 0);
+        const bool targetVisible = show && !m_actionPanelDismissed;
+        if (targetVisible != !m_selectionBar->isHidden()) {
+            Anim::layoutTransition(m_contentHost, [this, targetVisible] {
+                m_selectionBar->setVisible(targetVisible);
+                repositionSelectionBar();
+            }, targetVisible);
+        } else repositionSelectionBar();
+        return;
+    }
     m_selectionBar->setVisible(show);
     if (show) {
         // ★ 2026-10-10：父控件换成 `m_list` 之后，这一条**结构上就在整棵 viewport 之上**
@@ -2245,6 +2399,17 @@ void InstanceFilesPage::updateSelectionBar() {
 }
 
 void InstanceFilesPage::repositionSelectionBar() {
+    if (m_actionPanelEnabled) {
+        const int panelWidth = qMin(260, m_contentHost->width());
+        const bool visible = !m_selectionBar->isHidden();
+        // Narrow windows use a drawer; wide windows reserve space beside the list.
+        m_contentHost->layout()->setContentsMargins(0, 0,
+            visible && m_contentHost->width() >= 740 ? panelWidth + 12 : 0, 0);
+        m_selectionBar->setGeometry(m_contentHost->width() - panelWidth, 0,
+                                    panelWidth, m_contentHost->height());
+        m_selectionBar->raise();
+        return;
+    }
     if (m_selectionBar == nullptr || m_list == nullptr) {
         return;
     }
@@ -2528,6 +2693,8 @@ void InstanceFilesPage::applyDetailButtonState(QToolButton *button, const QStrin
 }
 
 bool InstanceFilesPage::eventFilter(QObject *watched, QEvent *event) {
+    if (watched == m_contentHost && event->type() == QEvent::Resize)
+        repositionSelectionBar();
     // 列表的 viewport 变大小了 ⇒ 底下那条悬浮操作条要重算位置（见 .hpp 里那段）。
     //
     // NOTE: 那条操作条**不在布局里**（在布局里就成了"列表下面另起一行"，而用户要的是

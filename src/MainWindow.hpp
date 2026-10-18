@@ -3386,6 +3386,10 @@ private:
     //   不该改变这一趟已经发出去的安装。所以收尾读的是这两笔，不是界面。
     QList<QPair<QString, bool>> m_installPendingPresets;
     QString m_installPendingPresetInstance;
+    QMap<QString, QString> m_installPresetFingerprints;
+    bool m_installPresetModsReady = false;
+    bool m_installPresetModsOk = true;
+    QString m_installPresetModsReport;
     // "有版本目录但 jar 名对不上"这件事是否已经写过日志。refreshInstalledVersions()
     // 一次会话会被调很多次，不记一笔就是同样的告警反复刷。
     bool m_reportedUnrecognizedVersions = false;

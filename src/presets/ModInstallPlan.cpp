@@ -414,6 +414,29 @@ ModInstallPlan planModInstall(const ModInstallRequest &request) {
         }
     }
 
+    // Requiredness belongs to the complete dependency graph, not DFS encounter
+    // order. A shared dependency first visited from an optional parent may also
+    // be needed by a required root later in the same request.
+    QSet<QString> requiredKeys;
+    for (const auto &input : request.references)
+        if (input.reference.required) requiredKeys.insert(input.reference.key());
+    for (const auto &row : plan.rows) if (row.required) requiredKeys.insert(row.key);
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        for (const auto &row : plan.rows) {
+            if (!requiredKeys.contains(row.key)) continue;
+            for (const auto &dependency : row.version.dependencies) {
+                if (!dependency.required() || dependency.projectId.isEmpty()) continue;
+                const QString key = platformOfKey(row.key) + QLatin1Char(':') + dependency.projectId;
+                if (!requiredKeys.contains(key)) { requiredKeys.insert(key); changed = true; }
+            }
+        }
+    }
+    for (auto &row : plan.rows) {
+        if (requiredKeys.contains(row.key)) { row.required = true; row.reference.required = true; }
+    }
+
     // ---------- 总账 ----------
     for (const ModInstallRow &row : plan.rows) {
         switch (row.status) {

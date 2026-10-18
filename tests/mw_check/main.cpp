@@ -33,6 +33,8 @@
 #include "RangeChecks.hpp"
 #include "SegmentInstallChecks.hpp"
 #include "ToolFeatureChecks.hpp"
+#include "PresetInstallChecks.hpp"
+#include "ModActionPanelChecks.hpp"
 #include <QFontDatabase>
 #include "controllers/DirectDownloadController.hpp"
 #include "download/StreamedFile.hpp"
@@ -18500,6 +18502,8 @@ int main(int argc, char *argv[]) {
     if (app.arguments().contains(QStringLiteral("segmented-download-check"))) return runRangeChecks();
     if (app.arguments().contains(QStringLiteral("segment-install-check"))) return runSegmentInstallChecks();
     if (app.arguments().contains(QStringLiteral("tool-features-check"))) return runToolFeatureChecks();
+    if (app.arguments().contains(QStringLiteral("preset-install-check"))) return runPresetInstallChecks();
+    if (app.arguments().contains(QStringLiteral("mod-action-panel-check"))) return runModActionPanelChecks();
     if (argc >= 6 && QString::fromLocal8Bit(argv[1]) == QLatin1String("loader-install-live")) {
         const QString root = QFileInfo(QString::fromLocal8Bit(argv[2])).absoluteFilePath();
         const QString mc = QString::fromLocal8Bit(argv[3]);

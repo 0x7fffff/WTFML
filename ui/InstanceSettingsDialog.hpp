@@ -1965,6 +1965,7 @@ signals:
      * deleteInstanceFileRequested：这一层没有 OverlayHost）。
      */
     void fileBatchDeleteRequested(const QString &pageKey, const QStringList &paths);
+    void modTransferRequested(const QStringList &paths, bool move);
 
     /**
      * @brief 用户把几个文件**拖到这一页上**了（2026-09-29）。

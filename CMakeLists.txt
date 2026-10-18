@@ -318,6 +318,7 @@ set(SOURCE_FILES
     # 提取与落到实例上（2026-10-18，coding plan §6 P1 / §7）。
     src/presets/PresetCapture.cpp
     src/presets/PresetApply.cpp
+    src/presets/PresetModInstaller.cpp
     # 资源包次序 / 启用 + 存档数据包（2026-10-18，coding plan §6 P4）：见头文件那两位。
     src/presets/ResourcePackPreset.cpp
     src/presets/DataPackPreset.cpp
@@ -419,6 +420,8 @@ set(SOURCE_FILES
     ui/JavaMismatchDialog.cpp
     ui/JavaManageDialog.cpp
     ui/PresetManagePage.cpp
+    ui/PresetModEditor.cpp
+    ui/PresetOptionsEditor.cpp
     ui/PresetInstallPicker.cpp
     ui/OverlayHost.cpp
     ui/SkinModel.cpp

@@ -260,6 +260,22 @@ void PresetManagePage::buildUi() {
     m_sectionList->setFocusPolicy(Qt::NoFocus);
     m_sectionList->setFixedHeight(kSectionListHeight);
     rightLayout->addWidget(m_sectionList);
+    auto *editMods = new QPushButton(tr("编辑模组清单"), right);
+    editMods->setObjectName(QStringLiteral("presetEditModsButton"));
+    Theme::markButton(editMods, Theme::ButtonKind::Neutral);
+    editMods->setVisible(false);
+    rightLayout->addWidget(editMods, 0, Qt::AlignLeft);
+    connect(editMods, &QPushButton::clicked, this, [this] {
+        if (!currentPresetId().isEmpty()) emit editModsRequested(currentPresetId());
+    });
+    auto *editOptions = new QPushButton(tr("编辑游戏设置与按键"), right);
+    editOptions->setObjectName(QStringLiteral("presetEditOptionsButton"));
+    Theme::markButton(editOptions, Theme::ButtonKind::Neutral);
+    editOptions->setVisible(false);
+    rightLayout->addWidget(editOptions, 0, Qt::AlignLeft);
+    connect(editOptions, &QPushButton::clicked, this, [this] {
+        if (!currentPresetId().isEmpty()) emit editOptionsRequested(currentPresetId());
+    });
 
     // ---------- 从实例提取 ----------
     rightLayout->addWidget(makeSectionTitle(QStringLiteral("从实例提取"), right));

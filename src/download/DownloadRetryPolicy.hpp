@@ -4,9 +4,50 @@
 #include <QByteArray>
 #include <QtGlobal>
 #include <QDateTime>
+#include <QDeadlineTimer>
+#include <QHash>
+#include <QMutex>
+#include <QMutexLocker>
+#include <QUrl>
 #include <algorithm>
 
 namespace DownloadRetryPolicy {
+// All download managers (including nested range workers) share origin cooldowns.
+// Monotonic deadlines avoid wall-clock changes; unrelated origins keep running.
+struct OriginThrottle {
+    QDeadlineTimer blocked;
+    QDeadlineTimer recovery;
+};
+inline QMutex throttleMutex;
+inline QHash<QString, OriginThrottle> originThrottles;
+inline QString originKey(const QUrl &url) {
+    return url.scheme().toLower() + QStringLiteral("://") + url.host().toLower()
+        + QLatin1Char(':') + QString::number(url.port(url.scheme() == QStringLiteral("https") ? 443 : 80));
+}
+inline void coolDown(const QUrl &url, int milliseconds) {
+    QMutexLocker lock(&throttleMutex);
+    for (auto it = originThrottles.begin(); it != originThrottles.end();) {
+        if (it->recovery.hasExpired()) it = originThrottles.erase(it);
+        else ++it;
+    }
+    const auto key = originKey(url);
+    auto &state = originThrottles[key];
+    const int duration = qBound(500, milliseconds, 60000);
+    if (state.blocked.remainingTime() < duration) state.blocked = QDeadlineTimer(duration);
+    state.recovery = QDeadlineTimer(duration + 60000);
+}
+inline qint64 coolingDownMs(const QUrl &url) {
+    QMutexLocker lock(&throttleMutex);
+    const auto it = originThrottles.find(originKey(url));
+    if (it == originThrottles.end()) return 0;
+    if (it->recovery.hasExpired()) { originThrottles.erase(it); return 0; }
+    return qMax<qint64>(0, it->blocked.remainingTime());
+}
+inline bool recovering(const QUrl &url) {
+    QMutexLocker lock(&throttleMutex);
+    const auto it = originThrottles.constFind(originKey(url));
+    return it != originThrottles.cend() && !it->recovery.hasExpired();
+}
 // 只重试暂时性的网络/服务器故障；权限、404、证书与用户取消不重试。
 inline bool transient(QNetworkReply::NetworkError error, int status) {
     if (status >= 400) return status == 408 || status == 429 || status == 500 ||

@@ -37,6 +37,7 @@
 #include <QStringList>
 
 #include <functional>
+#include <QPointer>
 
 #include "PresetManagePage.hpp"
 #include "presets/PresetApply.hpp"
@@ -140,6 +141,7 @@ public:
         QString summary;
         QStringList lines;
         QString presetName;
+        QString fingerprint;
         /// 这一趟真会动的项数（`ApplyPlan::totalCount()`）。状态行那句「会动 12 项」用它。
         int itemCount = 0;
         /// 预设里有、这一趟不动的项数（各段 `skipped` 之和）。
@@ -159,6 +161,7 @@ public:
      * 再算一遍"比：那两份在通用文件组那几段上本来就该不一样（缺了才拷）。
      */
     InstallPreview previewForInstall(const QString &presetId, const QString &instanceName) const;
+    QString presetFingerprint(const QString &presetId) const;
 
     /// 安装收尾那一步的结果。
     struct InstallApply {
@@ -213,6 +216,10 @@ public:
 
     /// CurseForge 那一侧用的 key（设置里用户自己填的那一个）。空 = 那一侧一律「暂无法确认」。
     void setCurseForgeApiKey(const QString &apiKey);
+    void installModsAfterInstall(const QStringList &presetIds, const QString &instanceId,
+                                 std::function<void(bool, const QString &)> completed);
+    bool cancelModInstall();
+    bool isInstallingMods() const { return !m_modInstallTask.isNull(); }
 
 signals:
     /// 兼容检查每出一条 / 收尾都会发（`finished` 那一发也在这条信号上）。
@@ -260,4 +267,6 @@ private:
     Presets::PlatformCompatibilityProvider *m_modProvider = nullptr;
     /// 这一代查的是哪一份（信号里原样带回，界面按它判"还是不是我现在选的那一份"）。
     QString m_modCheckPresetId;
+    QPointer<QObject> m_modInstallTask;
+    QString m_presetApiKey;
 };

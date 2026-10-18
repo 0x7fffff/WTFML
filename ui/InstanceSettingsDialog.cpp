@@ -1626,6 +1626,13 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
 
             auto *files = new InstanceFilesPage(listHost);
             files->setObjectName(filesPageName(key));
+            if (key == QStringLiteral("mod")) {
+                files->setActionPanelEnabled(true);
+                connect(files, &InstanceFilesPage::checkUpdatesRequested,
+                        this, &InstanceSettingsDialog::checkUpdatesRequested);
+                connect(files, &InstanceFilesPage::transferSelectionRequested,
+                        this, &InstanceSettingsDialog::modTransferRequested);
+            }
             // 存档只列文件夹（saves 底下那些 level.dat / session.lock 不是存档）。
             // ★ 2026-10-11：「模组」那一页**只列文件** —— `mods/` 底下那些目录不是模组
             //   （`mcef-libraries`、Sinytra 的 `.connector` 这种是模组自己用的房子），

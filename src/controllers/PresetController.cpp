@@ -12,6 +12,11 @@
 #include "controllers/PresetController.hpp"
 
 #include "PresetManagePage.hpp"
+#include "PresetModEditor.hpp"
+#include "PresetOptionsEditor.hpp"
+#include "presets/PresetModInstaller.hpp"
+#include <QPushButton>
+#include <QCryptographicHash>
 #include "manage/VersionManager.hpp"
 #include "presets/DataPackPreset.hpp"
 #include "presets/GenericFiles.hpp"
@@ -192,6 +197,80 @@ void PresetController::buildPage() {
                 saveDetails(id, name, description);
             });
     connect(m_page, &PresetManagePage::deleteRequested, this, &PresetController::removePreset);
+    connect(m_page, &PresetManagePage::editOptionsRequested, this, [this](const QString &id) {
+        bool ok = false;
+        auto manifest = Presets::loadManifest(presetsRoot(), id, &ok);
+        if (!ok || manifest.category != Presets::PresetCategory::GameSettings) return;
+        QList<PresetOptionsEditor::Entry> entries;
+        QSet<QString> seen;
+        QMap<int, Presets::PresetSection> sections;
+        QMap<QString, QJsonObject> original;
+        for (const auto &section : manifest.sections) {
+            if (section.kind != Presets::SectionKind::VanillaOptions && section.kind != Presets::SectionKind::VanillaKeys) continue;
+            if (sections.contains(int(section.kind))) {
+                m_page->showStatus(tr("这份预设有多段同类设置，请先整理为单段，避免改变覆盖顺序。")); return;
+            }
+            sections.insert(int(section.kind), section);
+            for (const auto &value : section.items) {
+                const auto item = value.toObject(); const QString key = item.value("key").toString();
+                if (key.isEmpty() || !item.value("value").isString() || seen.contains(key)) {
+                    m_page->showStatus(tr("设置段含无效或重复键，未自动改写；请先修复或重新提取。")); return;
+                }
+                seen.insert(key); original.insert(key, item);
+                entries.append({key, item.value("value").toString()});
+            }
+        }
+        const QByteArray before = Presets::manifestToBytes(manifest);
+        PresetOptionsEditor editor(entries, m_page);
+        if (editor.exec() != QDialog::Accepted) return;
+        auto current = Presets::loadManifest(presetsRoot(), id, &ok);
+        if (!ok || Presets::manifestToBytes(current) != before) {
+            m_page->showStatus(tr("预设在编辑期间发生变化，未覆盖，请重新打开编辑。")); return;
+        }
+        for (auto it = sections.begin(); it != sections.end(); ++it) it->items = {};
+        for (const auto &entry : editor.entries()) {
+            const auto kind = entry.key.startsWith(QStringLiteral("key_")) ? Presets::SectionKind::VanillaKeys : Presets::SectionKind::VanillaOptions;
+            auto &section = sections[int(kind)]; section.kind = kind;
+            if (section.id.isEmpty()) section.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+            auto item = original.value(entry.key);
+            item.insert("key", entry.key); item.insert("value", entry.value);
+            section.items.append(item);
+        }
+        QList<Presets::PresetSection> output;
+        for (const auto &section : current.sections)
+            if (section.kind != Presets::SectionKind::VanillaOptions && section.kind != Presets::SectionKind::VanillaKeys) output.append(section);
+        for (const auto &section : sections) output.append(section);
+        current.sections = output;
+        current.updatedAt = QDateTime::currentDateTime();
+        if (!Presets::saveManifest(presetsRoot(), current)) { m_page->showStatus(tr("设置保存失败，原预设保留。")); return; }
+        refreshList(id);
+        m_page->showStatus(tr("游戏设置与按键已保存，其它配置段保持不变。"));
+    });
+    connect(m_page, &PresetManagePage::editModsRequested, this, [this](const QString &id) {
+        bool ok = false;
+        auto manifest = Presets::loadManifest(presetsRoot(), id, &ok);
+        if (!ok || manifest.category != Presets::PresetCategory::Mods) return;
+        QList<PresetModEditor::Entry> entries;
+        for (const auto &ref : manifest.modReferences)
+            entries.append({ref.platform, ref.projectId, ref.name, ref.gameVersion, ref.loader, ref.required});
+        PresetModEditor editor(entries, m_page);
+        if (editor.exec() != QDialog::Accepted) return;
+        // Re-read to preserve unrelated metadata changed while the editor was open.
+        manifest = Presets::loadManifest(presetsRoot(), id, &ok);
+        if (!ok || manifest.category != Presets::PresetCategory::Mods) return;
+        manifest.modReferences.clear();
+        for (const auto &entry : editor.entries()) {
+            Presets::ModReference ref;
+            ref.platform = entry.platform; ref.projectId = entry.projectId; ref.name = entry.name;
+            ref.gameVersion = entry.gameVersion; ref.loader = entry.loader; ref.required = entry.required;
+            manifest.modReferences.append(ref);
+        }
+        manifest.updatedAt = QDateTime::currentDateTime();
+        if (!Presets::saveManifest(presetsRoot(), manifest)) { m_page->showStatus(tr("模组清单保存失败，原内容保留。")); return; }
+        cancelModCheck();
+        refreshList(id);
+        m_page->showStatus(tr("模组清单已保存；安装时按目标版本检查并下载。"));
+    });
     connect(m_page, &PresetManagePage::defaultRequested, this,
             &PresetController::setDefaultPreset);
     connect(m_page, &PresetManagePage::moveRequested, this, &PresetController::movePreset);
@@ -445,6 +524,10 @@ void PresetController::pushPresetToPage(const QString &id) {
     }
     m_page->showPreset(id, manifest.name, manifest.description, categoryText(manifest.category),
                        sectionItems(manifest));
+    if (auto *edit = m_page->findChild<QPushButton *>(QStringLiteral("presetEditModsButton")))
+        edit->setVisible(manifest.category == Presets::PresetCategory::Mods);
+    if (auto *edit = m_page->findChild<QPushButton *>(QStringLiteral("presetEditOptionsButton")))
+        edit->setVisible(manifest.category == Presets::PresetCategory::GameSettings);
     m_page->setCaptureAvailability(captureMaskFor(manifest.category),
                                    captureNoteFor(manifest.category));
 }
@@ -452,6 +535,12 @@ void PresetController::pushPresetToPage(const QString &id) {
 QList<PresetManagePage::SectionItem> PresetController::sectionItems(
     const Presets::PresetManifest &manifest) const {
     QList<PresetManagePage::SectionItem> items;
+    if (!manifest.modReferences.isEmpty()) {
+        PresetManagePage::SectionItem item;
+        item.title = tr("平台模组清单"); item.kindText = tr("模组");
+        item.modeText = tr("按目标版本解析"); item.itemCount = manifest.modReferences.size();
+        items.append(item);
+    }
     for (const Presets::PresetSection &section : manifest.sections) {
         PresetManagePage::SectionItem item;
         item.title = section.title;
@@ -881,6 +970,12 @@ void PresetController::previewPlan(const QString &presetId, const QString &insta
     view.needsConfirm = plan.needsConfirm();
     view.replaceConfirmed = false;
     view.canApply = plan.canApply() && plan.writesAnything();
+    if (manifest.category == Presets::PresetCategory::Mods && !manifest.modReferences.isEmpty() &&
+        !request.gameRunning && plan.ok) {
+        view.canApply = true;
+        view.rows.append({tr("平台模组 %1 项；应用时联网检查发行版本、依赖和冲突，必要项无法确认则不安装。")
+                          .arg(manifest.modReferences.size()), false});
+    }
     for (const Presets::ApplyPlanRow &row : plan.rows) {
         PresetManagePage::PlanLine line;
         line.text = rowText(row);
@@ -901,6 +996,8 @@ void PresetController::previewPlan(const QString &presetId, const QString &insta
         }
         view.summary = summary;
     }
+    if (!manifest.modReferences.isEmpty())
+        view.summary += tr("；平台模组 %1 项（发行文件及前置待执行时确认）").arg(manifest.modReferences.size());
     m_page->showPlan(view);
 }
 
@@ -958,6 +1055,18 @@ void PresetController::applyPlan(const QString &presetId, const QString &instanc
     if (!ok) {
         view.problem = QStringLiteral("这一份读不出来：%1").arg(reason);
         m_page->showApplyResult(view);
+        return;
+    }
+    if (manifest.category == Presets::PresetCategory::Mods && !manifest.modReferences.isEmpty()) {
+        m_page->showStatus(tr("正在检查并安装模组预设，必要前置将一并解析…"));
+        installModsAfterInstall({presetId}, instanceId, [this](bool success, const QString &message) {
+            if (!m_page) return;
+            PresetManagePage::ApplyView report;
+            report.ok = success;
+            report.lines = message.split(QLatin1Char('\n'));
+            if (!success) report.problem = tr("模组预设未全部应用，请查看逐项原因。");
+            m_page->showApplyResult(report);
+        });
         return;
     }
 
@@ -1114,6 +1223,11 @@ PresetController::InstallPreview PresetController::previewForInstall(
         return view;
     }
     view.presetName = manifest.name;
+    view.fingerprint = QString::fromLatin1(QCryptographicHash::hash(Presets::manifestToBytes(manifest), QCryptographicHash::Sha256).toHex());
+    if (!manifest.modReferences.isEmpty()) {
+        view.lines.append(tr("平台模组 %1 项：安装后按目标版本解析发行文件和必要前置；缺失或查询失败将如实报告，不安装其它版本代替。")
+                          .arg(manifest.modReferences.size()));
+    }
 
     QString snapshotProblem;
     Presets::TargetSnapshot snapshot =
@@ -1178,6 +1292,12 @@ PresetController::InstallPreview PresetController::previewForInstall(
     return view;
 }
 
+QString PresetController::presetFingerprint(const QString &presetId) const {
+    bool ok = false;
+    const auto manifest = Presets::loadManifest(presetsRoot(), presetId, &ok);
+    return ok ? QString::fromLatin1(QCryptographicHash::hash(Presets::manifestToBytes(manifest), QCryptographicHash::Sha256).toHex()) : QString();
+}
+
 PresetController::InstallApply PresetController::applyAfterInstall(const QString &presetId,
                                                                    const QString &instanceName,
                                                                    bool replaceConfirmed) {
@@ -1236,6 +1356,10 @@ PresetController::InstallApply PresetController::applyAfterInstall(const QString
         }
         if (failed > 0) {
             out.message += QStringLiteral("，%1 段没做成（管理页里可以看详情）").arg(failed);
+        }
+        for (const auto &row : result.rows) {
+            if (row.deferred > 0 || !row.problem.isEmpty())
+                out.message += QLatin1Char('\n') + applyRowText(row);
         }
         if (!result.backupDir.isEmpty()) {
             out.message += QStringLiteral("；备份在 %1")
@@ -1345,9 +1469,57 @@ int PresetController::modCheckGeneration() const {
 }
 
 void PresetController::setCurseForgeApiKey(const QString &apiKey) {
+    m_presetApiKey = apiKey;
     if (m_modProvider == nullptr) {
         return;
     }
     m_modProvider->setCurseForge(QUrl(QStringLiteral("https://api.curseforge.com/v1")),
                                  apiKey.toUtf8());
+}
+
+void PresetController::installModsAfterInstall(const QStringList &presetIds, const QString &instanceId,
+    std::function<void(bool, const QString &)> completed) {
+    if (m_modInstallTask) { completed(false, tr("另一项模组预设仍在应用，请等待或取消。")); return; }
+    if (!m_versions || instanceId.isEmpty()) { completed(false, tr("目标实例不可用。")); return; }
+    QList<Presets::ModReference> references;
+    QJsonArray snapshot;
+    QSet<QString> seen;
+    for (const auto &id : presetIds) {
+        bool ok = false;
+        const auto manifest = Presets::loadManifest(presetsRoot(), id, &ok);
+        if (!ok) { completed(false, tr("预设已删除或损坏，无法继续应用。")); return; }
+        snapshot.append(Presets::manifestToJson(manifest));
+        for (const auto &ref : manifest.modReferences) {
+            if (seen.contains(ref.key())) {
+                for (auto &existing : references) if (existing.key() == ref.key()) {
+                    if (existing.gameVersion != ref.gameVersion || existing.loader.compare(ref.loader, Qt::CaseInsensitive) != 0) {
+                        completed(false, tr("同一模组存在不同版本/加载器约束，未自动选择其中一项。")); return;
+                    }
+                    existing.required = existing.required || ref.required;
+                }
+                continue;
+            }
+            seen.insert(ref.key()); references.append(ref);
+        }
+    }
+    if (references.isEmpty()) { completed(true, {}); return; }
+    QString loader, loaderVersion;
+    m_versions->instanceLoaderInfo(instanceId, &loader, &loaderVersion);
+    auto *task = new Presets::PresetModInstaller(this);
+    task->setSelectionSnapshot(snapshot);
+    m_modInstallTask = task;
+    task->start(references, instanceRoot(instanceId), m_versions->instanceGameVersion(instanceId), loader,
+                m_presetApiKey, [this, instanceId] { return m_host.isRunning && m_host.isRunning(instanceId); },
+                [this, completed](const Presets::PresetModInstaller::Result &result) {
+                    m_modInstallTask.clear();
+                    const QString text = result.lines.join(QLatin1Char('\n'));
+                    log(text);
+                    completed(result.ok, text);
+                });
+}
+
+bool PresetController::cancelModInstall() {
+    if (!m_modInstallTask) return false;
+    static_cast<Presets::PresetModInstaller *>(m_modInstallTask.data())->cancel();
+    return true;
 }

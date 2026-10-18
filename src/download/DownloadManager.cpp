@@ -1099,6 +1099,12 @@ void DownloadManager::pumpDownloadQueue() {
             effectiveDownloadUrl(candidate.url, candidate.officialUrl,
                                  mirrorDemotedFor(candidate.host));
         const QString targetHost = QUrl(targetUrl).host();
+        const QUrl sourceUrl(targetUrl);
+        if (DownloadRetryPolicy::coolingDownMs(sourceUrl) > 0 ||
+            (DownloadRetryPolicy::recovering(sourceUrl) && activeCountForHost(targetHost) > 0)) {
+            ++i;
+            continue; // The periodic watchdog pumps again; other origins are unaffected.
+        }
         const bool hostHttp2 = m_http2Hosts.contains(targetHost);
         bool segmented = candidate.segmented && m_segmentEnabled;
         if (segmented) {
@@ -2397,6 +2403,13 @@ bool DownloadManager::requeueTransientFailure(QNetworkReply *reply, const QStrin
     int delay = attempts >= 3 ? -1
                               : (status == 429 ? DownloadRetryPolicy::throttleDelayMs(attempts, retryAfter)
                                                : DownloadRetryPolicy::delayMs(attempts, retryAfter));
+    if (status == 429) {
+        // Even an exhausted job must stop queued siblings from hitting the same origin.
+        const int cooldown = qMax(30000, delay);
+        DownloadRetryPolicy::coolDown(reply->request().url(), cooldown);
+        DownloadRetryPolicy::coolDown(reply->url(), cooldown);
+        if (delay >= 0) delay = qMax(delay, cooldown);
+    }
     if (delay < 0) return false;
     const QString url = reply->request().url().toString();
     const qint64 readyAt = m_clock.elapsed() + delay;

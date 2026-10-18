@@ -223,6 +223,8 @@ public:
     static QString statusLabelName() { return QStringLiteral("presetStatusLabel"); }
 
 signals:
+    void editModsRequested(const QString &id);
+    void editOptionsRequested(const QString &id);
     /// 用户在左栏选了一份。
     void presetSelected(const QString &id);
 

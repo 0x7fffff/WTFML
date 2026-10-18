@@ -2468,6 +2468,7 @@ void MainWindow::updateBottomBarTaskSummary() {
 ///   `VersionManager::canCancelDownload()` 上头那句"别再加阶段判据，`isBusy()` 那时候
 ///   本来就是 false，那一格自然就没有取消可点" —— **说的就是这里**，从前没人接它。
 bool MainWindow::cancelWouldWork(const Tasks::TaskSnapshot &task) const {
+    if (task.id == m_downloadTaskId && m_presetController && m_presetController->isInstallingMods()) return true;
     if (m_toolboxController && m_toolboxController->ownsDownloadTask(task.id))
         return m_toolboxController->canCancelDownloadTask(task.id);
     // ① 服务端安装那一趟：自己跑 `QProcess` + 自己的元数据请求，不走下载批次。
@@ -2525,6 +2526,7 @@ void MainWindow::cancelTaskFromDetail(const QString &key) {
     bool directKey = false;
     const auto directId = key.toULongLong(&directKey);
     if (directKey && m_toolboxController && m_toolboxController->cancelDownloadTask(directId)) return;
+    if (m_presetController && key == QString::number(m_downloadTaskId) && m_presetController->cancelModInstall()) return;
     // ★ 取消要**按这一项是谁**分派：服务端安装那一趟和版本/资源下载那一批不是同一份
     //   状态（一个自己跑 QProcess + 自己的元数据请求，一个走 `VersionManager` 的批次）。
     //   两边都无脑叫一遍的话，取消一次服务端安装会顺手把别人正在跑的下载掐掉 ——
@@ -9134,6 +9136,7 @@ void MainWindow::onInstallButtonClicked() {
     //   弹窗里的选择，而那一动不该改变这一趟已经发出去的安装（见 MainWindow.hpp 那段）。
     m_installPendingPresets.clear();
     m_installPendingPresetInstance.clear();
+    m_installPresetFingerprints.clear();
     const QList<QPair<QString, QString>> presetSelections = currentInstallPresetSelections();
     if (!presetSelections.isEmpty()) {
         if (m_presetController == nullptr) {
@@ -9147,6 +9150,7 @@ void MainWindow::onInstallButtonClicked() {
 
         QStringList summaryLines;
         QList<QPair<QString, bool>> pending;
+        QMap<QString, QString> fingerprints;
         for (const QPair<QString, QString> &one : presetSelections) {
             const PresetController::InstallPreview preview =
                 m_presetController->previewForInstall(one.second, name);
@@ -9169,6 +9173,7 @@ void MainWindow::onInstallButtonClicked() {
             }
             // ★ 每一份自己那一道「覆盖」闸：装好之后按这一格决定要不要再问一次。
             pending.append({one.second, preview.needsConfirm});
+            fingerprints.insert(one.second, preview.fingerprint);
             summaryLines.append(
                 tr("· %1：%2").arg(preview.presetName, preview.summary));
         }
@@ -9185,6 +9190,7 @@ void MainWindow::onInstallButtonClicked() {
         }
         m_installPendingPresets = pending;
         m_installPendingPresetInstance = name;
+        m_installPresetFingerprints = fingerprints;
     }
 
     QString installerJava = m_javaSettings->javaPath();
@@ -13086,6 +13092,37 @@ void MainWindow::dropEvent(QDropEvent *event) {
 
 void MainWindow::onVersionDownloadFinished(const QString &versionId, bool success,
                                            const QString &errorMessage) {
+    // Keep the original installation task and busy guard alive until the asynchronous
+    // preset download step completes. Re-enter once to use the existing finalization.
+    if (success && m_presetController && !m_installPresetModsReady &&
+        versionId == m_installingInstanceId && versionId == m_installPendingPresetInstance &&
+        !m_installPendingPresets.isEmpty()) {
+        m_installPresetModsReady = true;
+        auto steps = m_activityCenter->tasks()->snapshot(m_downloadTaskId).steps;
+        steps.append({tr("应用实例预设"), Tasks::TaskStepState::Running, tr("检查模组、前置与配置")});
+        m_activityCenter->tasks()->setSteps(m_downloadTaskId, steps);
+        m_activityCenter->tasks()->setProgress(m_downloadTaskId, 0, 0);
+        m_activityCenter->tasks()->setDetail(m_downloadTaskId, tr("正在检查并应用实例预设…"));
+        QStringList ids;
+        for (const auto &choice : m_installPendingPresets) ids.append(choice.first);
+        for (const auto &id : ids) {
+            if (m_installPresetFingerprints.value(id).isEmpty() ||
+                m_presetController->presetFingerprint(id) != m_installPresetFingerprints.value(id)) {
+                m_installPresetModsOk = false;
+                m_installPresetModsReport = tr("预设在确认后发生变化或已损坏，未继续下载模组；请重新预览并确认。");
+                onVersionDownloadFinished(versionId, true, errorMessage);
+                return;
+            }
+        }
+        appendLog(tr("正在应用实例预设：检查模组及必要前置…"));
+        m_presetController->installModsAfterInstall(ids, versionId,
+            [this, versionId, errorMessage](bool ok, const QString &report) {
+                m_installPresetModsOk = ok;
+                m_installPresetModsReport = report;
+                onVersionDownloadFinished(versionId, true, errorMessage);
+            });
+        return;
+    }
     // 这两笔要在 setDownloadUiBusy(false) **之前**清：那个函数会重灌"能启动的实例"，
     // 而判据里就有它们两个（见 installingVersionIds()）—— 顺序反了的话，刚装完的实例
     // 第一次刷新时还被滤着（要等下面那句再刷一次才出现），中间那一帧用户看到的是
@@ -13120,12 +13157,23 @@ void MainWindow::onVersionDownloadFinished(const QString &versionId, bool succes
     //   另一句话。所以 `success` 原样传下去，预设那一句并进结果文本里（见下面那一段）。
     QString resultMessage = errorMessage;
     QString presetApplyProblem;
+    if (!m_installPresetModsOk) presetApplyProblem = m_installPresetModsReport;
     if (wasInstallingInstance && success && !m_installPendingPresets.isEmpty() &&
         m_installPendingPresetInstance == versionId) {
         if (m_presetController != nullptr) {
             QStringList applied;
             QStringList failed;
+            if (!m_installPresetModsReport.isEmpty()) {
+                if (m_installPresetModsOk) applied.append(m_installPresetModsReport);
+                else failed.append(m_installPresetModsReport);
+            }
             for (const QPair<QString, bool> &one : m_installPendingPresets) {
+                if (m_installPresetFingerprints.value(one.first).isEmpty() ||
+                    m_presetController->presetFingerprint(one.first) != m_installPresetFingerprints.value(one.first)) {
+                    presetApplyProblem = tr("预设在确认后发生变化或已损坏，未使用旧确认覆盖新内容，请重新预览。");
+                    failed.append(presetApplyProblem);
+                    continue;
+                }
                 // 四类各一份（§7.1）—— 每一份都走同一条路；一份失败不把前面已经落上去的
                 // 那几份从结果里抹掉（它们确实写进去了）。
                 const PresetController::InstallApply outcome =
@@ -13141,14 +13189,25 @@ void MainWindow::onVersionDownloadFinished(const QString &versionId, bool succes
                 resultMessage = errorMessage + QStringLiteral("\n\n") +
                                 applied.join(QLatin1Char('\n'));
             } else {
-                resultMessage = errorMessage + QStringLiteral("\n\n预设没有应用上：") +
-                                failed.join(QLatin1Char('\n'));
+                resultMessage = errorMessage + QStringLiteral("\n\n实例可用，预设部分应用：\n") +
+                                (applied + failed).join(QLatin1Char('\n'));
             }
         }
     }
     // 不管这一趟成没成、带没带预设，pending 都在这一刻清干净：下一次安装不该继承这一次的。
+    if (m_installPresetModsReady) {
+        const auto steps = m_activityCenter->tasks()->snapshot(m_downloadTaskId).steps;
+        if (!steps.isEmpty() && steps.last().name == tr("应用实例预设"))
+            m_activityCenter->tasks()->setStepState(m_downloadTaskId, steps.size() - 1,
+                presetApplyProblem.isEmpty() ? Tasks::TaskStepState::Done : Tasks::TaskStepState::Failed,
+                presetApplyProblem);
+    }
     m_installPendingPresets.clear();
     m_installPendingPresetInstance.clear();
+    m_installPresetModsReady = false;
+    m_installPresetModsOk = true;
+    m_installPresetModsReport.clear();
+    m_installPresetFingerprints.clear();
 
     // 这一批在账本上收尾。**必须在 setDownloadUiBusy(false) 之前**：那个函数是"这一批
     // 结束了"的公共通道，它自己会在末尾兜一次底（见那边）——先在这儿按成败如实收，

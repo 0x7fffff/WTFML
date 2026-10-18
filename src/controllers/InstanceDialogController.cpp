@@ -919,6 +919,20 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     //   每条落哪儿、名字怎么改，全在这一层（和上面那两条同一个分工）。
     connect(&dialog, &InstanceSettingsDialog::fileBatchUpdateRequested, m_owner,
             [this, &targetId](const QString &pageKey, const QStringList &paths) {
+                const QString contextId = targetId;
+                if (pageKey == QStringLiteral("mod")) {
+                    QStringList names;
+                    for (const auto &path : paths) names.append(QFileInfo(path).fileName());
+                    if (!InlineMessage::question(m_owner->m_ui->overlay(), tr("更新选中模组"),
+                            tr("将更新以下选中项；没有可用更新的会跳过。\n更新可能改变依赖要求，请先关闭游戏。\n\n%1")
+                                .arg(names.join(QLatin1Char('\n'))), tr("更新"), tr("取消"), false, true)) return;
+                    if (targetId != contextId) return;
+                    if (m_owner->installingVersionIds().contains(contextId) ||
+                        (m_owner->m_launcherManager && m_owner->m_launcherManager->isVersionRunning(contextId))) {
+                        InlineMessage::warning(m_owner->m_ui->overlay(), tr("暂时不能更新"),
+                                               tr("先关闭游戏并等待实例安装完成。")); return;
+                    }
+                }
                 // `targetId` **按引用**（和上面那批 lambda 同一个理由，见 refreshInstanceDirs
                 // 的 NOTE）：改名之后它变了，而这一发要更新的是**改名之后**那个实例里的
                 // 文件。**不刷新那一页** —— 理由见 m_owner->updateInstanceFiles() 末尾那段。
@@ -939,6 +953,78 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                 // 删掉的那几行还在屏幕上就说明没删掉 —— 重列一次。
                 dialog.refreshFilePages();
             });
+
+    connect(&dialog, &InstanceSettingsDialog::modTransferRequested, &dialog,
+            [this, &dialog, &targetId, transferTargetsFor, buildTransferPlan]
+            (const QStringList &paths, bool move) {
+        if (paths.isEmpty()) return;
+        const QString sourceId = targetId;
+        const QString title = move ? tr("移动模组") : tr("复制模组");
+        const auto targets = transferTargetsFor();
+        QStringList labels;
+        for (const auto &entry : targets) labels.append(entry.first);
+        if (labels.isEmpty()) {
+            InlineMessage::warning(m_owner->m_ui->overlay(), title, tr("没有其它已安装的实例。"));
+            return;
+        }
+        int row = -1;
+        if (!InlineMessage::pickFromList(m_owner->m_ui->overlay(), title,
+                tr("选择目标实例（不覆盖同名文件）"), labels, 0, &row)) return;
+        if (row < 0 || row >= targets.size() || targetId != sourceId) return;
+        const QString destId = targets.at(row).second;
+        const auto plan = buildTransferPlan(QStringLiteral("migration"), destId);
+        if (!plan.ok) {
+            InlineMessage::warning(m_owner->m_ui->overlay(), title, plan.problem); return;
+        }
+        if (!InlineMessage::question(m_owner->m_ui->overlay(), title,
+                tr("%1\n\n将%2 %3 个模组到「%4」。\n不会自动适配版本，不覆盖现有文件，不迁移配置。%5")
+                    .arg(plan.compatibilitySentence, move ? tr("移动") : tr("复制"))
+                    .arg(paths.size()).arg(targets.at(row).first)
+                    .arg(move ? tr("\n目标校验成功后才删除对应源文件。") : QString()),
+                tr("继续"), tr("取消"), false, true)) return;
+        // Confirmations run nested event loops; check context and busy state again.
+        if (targetId != sourceId || m_owner->installingVersionIds().contains(sourceId) ||
+            m_owner->installingVersionIds().contains(destId) ||
+            (m_owner->m_launcherManager &&
+             (m_owner->m_launcherManager->isVersionRunning(sourceId) ||
+              m_owner->m_launcherManager->isVersionRunning(destId)))) {
+            InlineMessage::warning(m_owner->m_ui->overlay(), title,
+                                   tr("实例正在运行、安装，或当前实例已切换，请稍后重试。")); return;
+        }
+        const QString sourceDir = AppPaths::versionDir(sourceId);
+        const QString destDir = AppPaths::versionDir(destId);
+        const QString modDir = m_owner->instanceFileDirs(sourceId).value(QStringLiteral("mod"));
+        int succeeded = 0;
+        QStringList failures;
+        for (const QString &path : paths) {
+            const QFileInfo source(path);
+            // Only direct regular mod files; TransferApply also rejects junctions/links.
+            if (!source.isFile() || source.isSymLink() || source.absolutePath() != QDir(modDir).absolutePath()) {
+                failures.append(source.fileName()); continue;
+            }
+            TransferPlanner::Item item;
+            item.key = QStringLiteral("selectedMod");
+            item.relativePath = QDir(sourceDir).relativeFilePath(path);
+            item.isDirectory = false; item.exists = true;
+            const QString destPath = QDir(destDir).filePath(item.relativePath);
+            if (QFileInfo::exists(destPath)) { failures.append(source.fileName()); continue; }
+            const auto before = FileHash::stampOf(path);
+            const auto hash = FileHash::digestOfFile(path, FileHash::Algorithm::Sha256);
+            const auto result = TransferApply::apply(sourceDir, destDir, {item}, {item.key});
+            const auto targetHash = FileHash::digestOfFile(destPath, FileHash::Algorithm::Sha256);
+            const bool verified = result.ok && result.copiedFiles == 1 && hash.ok && targetHash.ok &&
+                hash.hex == targetHash.hex && FileHash::sameStamp(before, FileHash::stampOf(path));
+            // This file was created by this operation, never an existing target.
+            // Do not leave an unverified jar where the game would load it.
+            if (!verified && result.copiedFiles == 1) QFile::remove(destPath);
+            if (!verified || (move && !QFile::remove(path))) failures.append(source.fileName());
+            else ++succeeded;
+        }
+        dialog.refreshFilePages();
+        InlineMessage::information(m_owner->m_ui->overlay(), title,
+            tr("成功 %1 项；跳过或失败 %2 项。\n%3")
+                .arg(succeeded).arg(failures.size()).arg(failures.join(QLatin1Char('\n'))));
+    });
 
     // ---------- 「复制实例」（2026-09-28）----------
     //

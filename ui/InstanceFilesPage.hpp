@@ -179,6 +179,7 @@ public:
     ///       按这一位显隐（见 applyState）。
     void setBatchMode(bool batchMode);
     bool batchMode() const { return m_batchMode; }
+    void setActionPanelEnabled(bool enabled);
 
     /// 顶上那颗「导入世界」（只有存档那一页给）。用户 2026-09-28 原话：「顶端加个导入
     /// 世界按钮」。
@@ -870,6 +871,8 @@ public:
     void setScrollPosition(const ScrollPosition &position);
 
 signals:
+    void checkUpdatesRequested();
+    void transferSelectionRequested(const QStringList &paths, bool move);
     /// 用户点了「打开文件夹」，或者行首那颗（两种都开同一个目录）。
     /// **这一层不自己开**：开目录是 QDesktopServices 的事，而失败要弹一句 —— 那句话
     /// 得挂在覆盖层上（见文件头那段）。
@@ -1372,6 +1375,14 @@ private:
     /// **不进任何布局**（进了布局就变成"列表下面另起一行"，不是浮在列表上）—— 位置由
     /// repositionSelectionBar() 算（算出来的是 viewport 坐标系，摆的时候加 viewport->pos()）。
     QWidget *m_selectionBar = nullptr;
+    bool m_actionPanelEnabled = false;
+    bool m_actionPanelDismissed = false;
+    QWidget *m_selectionTools = nullptr;
+    QWidget *m_contentHost = nullptr;
+    QPushButton *m_selectionReopen = nullptr;
+    QLabel *m_selectionSummary = nullptr;
+    QLabel *m_actionStatus = nullptr;
+    QPushButton *m_stateAction = nullptr;
     QLabel *m_selectionCount = nullptr;
     /// 那七颗按钮，**下标就是 `static_cast<int>(SelectionAction)`**。
     QList<QPushButton *> m_selectionButtons;
