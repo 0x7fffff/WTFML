@@ -126,13 +126,15 @@ void MemorySlider::paintEvent(QPaintEvent *) {
     const QPalette palette = QApplication::palette();
     QColor track = Theme::progressTrackColor(palette);
     QColor fill = Theme::progressFillColor(palette);
-    QColor knobInner = palette.color(QPalette::Base);
     if (!isEnabled()) {
         // 灰掉的时候整根条跟着退一档 —— 光靠"拖不动"看不出它现在是禁用的。
         track.setAlphaF(track.alphaF() * 0.5);
         fill.setAlphaF(fill.alphaF() * 0.4);
-        knobInner.setAlphaF(knobInner.alphaF() * 0.4);
     }
+    // 把手中间那一圈用**轨道色**而不是调色板的 Base：这一行坐在哪儿（设置页的表单、实例
+    // 设置那一栏）底色不一定等于 Base，拿 Base 会在深色档 / 卡片底上冒出一个白点。用轨道色
+    // 它就永远只是"填充色的一枚环"，和底下的条自己是一套。
+    const QColor knobInner = track;
 
     // 轨道比底栏那条（4 px）略粗一点：这条要用手拖，太细了不好瞄；但仍是"一条圆角细线"，
     // 不是从前那种一整格高的灰块。
