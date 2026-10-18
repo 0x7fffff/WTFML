@@ -67,7 +67,10 @@ void openFileLocked(const QString &logsDir) {
     QDir().mkpath(dir);
     g_path = QDir(dir).filePath(QStringLiteral("wtfml-download.log"));
     g_file.setFileName(g_path);
-    if (g_file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+    // ReadWrite 不只是为了读：init() 迁移时要 `g_file.seek(0); readAll()` 把启动早期
+    // 已经写下的那几行搬过去。只给 WriteOnly 的话 readAll() 静默回空 —— 迁移"成功"了，
+    // 内容却少了开头那几行（2026-10-18 第一次冒烟就是这么丢的）。
+    if (g_file.open(QIODevice::ReadWrite | QIODevice::Truncate)) {
         g_stream.setDevice(&g_file);
         g_stream.setEncoding(QStringConverter::Utf8);
     } else {
@@ -128,6 +131,59 @@ void init(const QString &logsDir) {
         return;
     }
     QMutexLocker locker(&g_mutex);
+    // ★ 2026-10-18：main() 里 init() 排在"把设置的游戏文件夹套上去"之后，可启动早期已经有
+    //   事件了（第一行就是并发数设置，+0.000s）—— `line()` 那条兜底会按**默认**数据目录
+    //   (appDir/.minecraft) 先把文件开掉，等 init() 拿着真正的数据目录过来时已经晚了。
+    //   表现：桌面版把明细写进 `D:\Desktop\.minecraft\logs\`，而用户按说明去自己的游戏
+    //   文件夹里找，什么都没有。
+    //   这里把已经写下的那几行搬过去再换文件；路径本来就对（用户的数据目录就是默认那个）
+    //   的话什么都不做。
+    if (g_initAttempted) {
+        QString dir = logsDir;
+        if (dir.isEmpty()) {
+            dir = AppPaths::minecraftDir() + QStringLiteral("/logs");
+        }
+        const QString wanted = QDir(dir).filePath(QStringLiteral("wtfml-download.log"));
+        if (g_path == wanted) {
+            return;  // 开的就是这一份
+        }
+        g_stream.flush();
+        QByteArray early;
+        if (g_file.isOpen()) {
+            g_file.seek(0);
+            early = g_file.readAll();
+            g_file.close();
+        }
+        const QString earlyPath = g_path;
+        QDir().mkpath(dir);
+        g_path = QDir(dir).filePath(QStringLiteral("wtfml-download.log"));
+        g_file.setFileName(g_path);
+        if (g_file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            g_stream.setDevice(&g_file);
+            g_stream.setEncoding(QStringConverter::Utf8);
+            if (!early.isEmpty()) {
+                g_file.write(early);
+                g_file.flush();
+                g_written = early.size();
+            }
+            // 默认位置那一份是 line() 抢开的，**这一份才是真正的日志**。删掉它，免得测试员
+            // 两个地方各有一份、发回来的是旧的那一份。
+            if (!earlyPath.isEmpty() && earlyPath != g_path) {
+                QFile::remove(earlyPath);
+            }
+        } else {
+            // 换不过去就退回原来那份继续写（有日志总比没有强），并记一行说明。
+            g_path = earlyPath;
+            g_file.setFileName(g_path);
+            if (!g_file.open(QIODevice::WriteOnly | QIODevice::Append)) {
+                g_path.clear();
+            } else {
+                g_stream.setDevice(&g_file);
+                g_stream.setEncoding(QStringConverter::Utf8);
+            }
+        }
+        return;
+    }
     openFileLocked(logsDir);
 }
 

@@ -368,6 +368,79 @@ int main(int argc, char *argv[]) {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
 
     QApplication app(argc, argv);
+    if (app.arguments().contains(QStringLiteral("--toolbox-polish-check"))) {
+        const int fontId = QFontDatabase::addApplicationFont(QDir(qEnvironmentVariable("WINDIR")).filePath(QStringLiteral("Fonts/msyh.ttc")));
+        const auto families = QFontDatabase::applicationFontFamilies(fontId);
+        if (!families.isEmpty()) app.setFont(QFont(families.first(), 10));
+        app.setStyle(Theme::createStyle());
+        Theme::setSpec(Theme::defaultSpec());
+        Theme::apply(app);
+        int failures = 0;
+        const auto expect = [&](bool ok, const char *text) {
+            printf("%s %s\n", ok ? "PASS" : "FAIL", text);
+            if (!ok) ++failures;
+        };
+        ToolboxPage page;
+        const QStringList names{QStringLiteral("coordResult"), ToolboxPage::beaconResultName(),
+                                ToolboxPage::brewingResultName(), ToolboxPage::trimResultName()};
+        for (const auto &name : names) {
+            auto *copy = page.findChild<QPushButton *>(name + QStringLiteral("Copy"));
+            expect(copy != nullptr && !copy->isEnabled() && !copy->autoDefault(), "empty report cannot copy and does not steal Enter");
+        }
+        const QString report = QStringLiteral("材料清单\n铁锭 × 9\n保留原样 <测试> & 引号");
+        page.setCoordinateRows({QStringLiteral("主世界 <位置>"), QStringLiteral("区块 -1, -2")});
+        page.setBeaconResult(report); page.setBrewingResult(report); page.setTrimResult(report);
+        for (const auto &name : names) {
+            auto *copy = page.findChild<QPushButton *>(name + QStringLiteral("Copy"));
+            if (copy == nullptr) { expect(false, "copy button exists"); continue; }
+            expect(copy->isEnabled(), "nonempty report enables copy");
+            copy->click();
+            const auto expected = name == QStringLiteral("coordResult")
+                ? QStringLiteral("主世界 <位置>\n区块 -1, -2") : report;
+            expect(QGuiApplication::clipboard()->text() == expected, "copy preserves Unicode/newlines and never exposes HTML");
+        }
+        page.setCoordinateRows({}); page.setBeaconResult({}); page.setBrewingResult({}); page.setTrimResult({});
+        for (const auto &name : names) {
+            auto *copy = page.findChild<QPushButton *>(name + QStringLiteral("Copy"));
+            expect(copy != nullptr && !copy->isEnabled(), "clearing report prevents copying stale results");
+        }
+        int requests = 0;
+        QObject::connect(&page, &ToolboxPage::serverCheckRequested, &page, [&](const QString &) { ++requests; });
+        auto *address = page.findChild<QLineEdit *>(QStringLiteral("serverAddress"));
+        expect(address != nullptr, "server address input exists");
+        if (address != nullptr) {
+            page.setServerBusy(true);
+            QMetaObject::invokeMethod(address, "returnPressed", Qt::DirectConnection);
+            expect(requests == 0, "Enter cannot bypass busy server-check button");
+            page.setServerBusy(false);
+            QMetaObject::invokeMethod(address, "returnPressed", Qt::DirectConnection);
+            expect(requests == 1, "Enter starts exactly one check when idle");
+        }
+        QImage preview(900, 750, QImage::Format_ARGB32_Premultiplied);
+        preview.fill(Qt::white);
+        QPainter painter(&preview); painter.setFont(app.font());
+        const QList<QColor> inks{QColor("#075b50"), QColor("#185a9d"), QColor("#e4e9ed")};
+        for (int column = 0; column < inks.size(); ++column) {
+            const int x = column * 300;
+            painter.fillRect(QRect(x, 0, 300, 750), column == 2 ? QColor("#20262c") : QColor("#f5f8f7"));
+            painter.setPen(inks[column]);
+            ToolboxPage::panelTitleIcon(inks[column]).paint(&painter, QRect(x + 24, 20, 28, 28));
+            painter.drawText(QRect(x + 68, 20, 220, 28), Qt::AlignVCenter, QStringLiteral("工具箱 · 线稿预览"));
+            const auto tools = ToolboxPage::panelTools();
+            for (int index = 0; index < tools.size(); ++index) {
+                const auto tool = tools[index]; const auto icon = ToolboxPage::toolIcon(tool, inks[column]);
+                const auto image = icon.pixmap(24, 24).toImage();
+                expect(!image.isNull() && image.hasAlphaChannel(), "tool icon renders with transparency");
+                icon.paint(&painter, QRect(x + 26, 80 + index * 64, 24, 24));
+                icon.paint(&painter, QRect(x + 70, 72 + index * 64, 40, 40));
+                painter.drawText(QRect(x + 130, 78 + index * 64, 160, 28), Qt::AlignVCenter, ToolboxPage::toolShortName(tool));
+            }
+        }
+        painter.end();
+        const QString path = qEnvironmentVariable("WTFML_TOOLBOX_ICON_PREVIEW");
+        if (!path.isEmpty()) expect(preview.save(path), "save icon preview sheet");
+        return failures ? 1 : 0;
+    }
     if (app.arguments().contains(QStringLiteral("--resource-packs-check"))) {
         const int fontId = QFontDatabase::addApplicationFont(QDir(qEnvironmentVariable("WINDIR")).filePath(QStringLiteral("Fonts/msyh.ttc")));
         const auto families = QFontDatabase::applicationFontFamilies(fontId);
@@ -733,7 +806,11 @@ int main(int argc, char *argv[]) {
         expect(!ui.homeInstancePickerOpen(), "escape closes home picker");
         ui.closeHomeInstancePicker();
         auto *button = ui.getToolboxButton();
-        expect(button->width() == 112, "toolbox trigger stays compact");
+        // 2026-10-18 已改为内容自适应，不能再要求旧的固定 112 px。
+        expect(button->sizePolicy().horizontalPolicy() == QSizePolicy::Fixed &&
+                   button->minimumWidth() != button->maximumWidth() &&
+                   button->width() == button->sizeHint().width(),
+               "toolbox trigger follows its content width without horizontal stretching");
         button->click();
         auto *panel = preview.findChild<QFrame *>(MainWindowUI::toolboxPanelName());
         expect(panel && panel->isVisible(), "toolbox opens on first click");

@@ -5,6 +5,8 @@
 
 #include <QObject>
 #include <QSet>
+#include <QPointer>
+#include <QHash>
 
 #include <functional>
 
@@ -24,6 +26,12 @@ public:
 
     void loadHistory();
     void clearFinished();
+    Tasks::TaskId enqueue(Tasks::TaskKind kind, const QString &title, const QString &target,
+        const QList<Tasks::TaskStep> &steps, const QString &lane, QObject *owner,
+        std::function<void(Tasks::TaskId)> start);
+    bool moveQueued(Tasks::TaskId id, int delta);
+    bool isQueued(Tasks::TaskId id) const;
+    void startReady() { dispatch(); }
 
     Tasks::TaskId begin(Tasks::TaskKind kind, const QString &title,
                         const QString &targetId = QString(),
@@ -61,6 +69,12 @@ signals:
     void historyChanged();
 
 private:
+    struct QueuedJob { Tasks::TaskId id; QString lane; QPointer<QObject> owner; std::function<void(Tasks::TaskId)> start; };
+    QList<QueuedJob> m_queue;
+    QHash<QString, Tasks::TaskId> m_runningLanes;
+    bool m_dispatchPending = false;
+    void scheduleDispatch();
+    void dispatch();
     Tasks::TaskManager m_tasks;
     Tasks::TaskId m_retryableTaskId = Tasks::invalidTaskId();
     QSet<Tasks::TaskId> m_unreadFailures;

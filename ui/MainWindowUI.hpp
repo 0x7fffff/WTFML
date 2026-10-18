@@ -1681,7 +1681,7 @@ public:
     }
     static QString homeInstancePickerName() { return QStringLiteral("homeInstancePicker"); }
 
-    enum class HomeQuickAction { Launch, Edit, ChooseInstance };
+    enum class HomeQuickAction { Launch, Edit, ChooseInstance, OpenFolder };
     enum class HomeQuickMode { Current, Recent, Favorite };
     struct HomeQuickItem {
         QString key;

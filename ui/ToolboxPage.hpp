@@ -176,6 +176,7 @@ public:
     void setEnchantmentChoices(const QList<QPair<QString, QString>> &idAndName);
     /// 现在表格里那几行（用户点了「算」）。
     QList<AnvilRow> anvilRows() const;
+    void setAnvilRows(const QList<AnvilRow> &rows);
     /// 把结论摆上去。
     void setAnvilView(const AnvilView &view);
 
@@ -307,6 +308,11 @@ public:
 
     /// 结果那一整段（`Beacon::detailText()` 拼好的；由 controller 摆进来）。
     void setBeaconResult(const QString &text);
+    void setBeamResult(const QList<QColor> &segments, const QString &report);
+    void setBeamColors(const QStringList &names);
+    void setBeamLayers(const QList<int> &colors);
+    void setBannerPreview(const QImage &image, const QString &notice);
+    void setBannerPatternIcons(const QList<QIcon> &icons);
     /// 现在那两格问的是几级（「已有」0–4、「目标」1–4）。
     int beaconFromLevel() const;
     int beaconTargetLevel() const;
@@ -346,6 +352,10 @@ public:
     QStringList bannerLayers() const;
     /// 程序摆层（**不发 `bannerRequested`**；验证工程与"恢复一份草稿"用）。
     void setBannerLayers(const QStringList &layers);
+    void setBannerDesign(int base, const QStringList &layers, const QString &version);
+    void setBannerVersions(const QStringList &versions);
+    QString bannerVersion() const;
+    void setBannerPatternAvailability(const QList<bool> &available);
 
     // ================= 九、纹饰搭配 =================
 
@@ -364,6 +374,10 @@ public:
     bool trimWholeSet() const;
 
 signals:
+    void beamRequested(const QList<int> &glass);
+    void bannerTexturesRequested();
+    void bannerSaveRequested();
+    void bannerLoadRequested();
     void downloadToolRequested();
     // ---- 附魔顺序助手 ----
     void anvilPlanRequested();

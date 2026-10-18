@@ -34,6 +34,7 @@
 
 #include <QAtomicInt>
 #include <QHash>
+#include <QImage>
 #include <QStringList>
 
 #include "tools/FileHash.hpp"
@@ -83,6 +84,8 @@ public:
     bool cancelDownloadTask(quint64 id);
 
 private:
+    QHash<QString, QImage> m_bannerTextures;
+    bool m_bannerTextureLoading = false;
     // ---------- 附魔顺序助手 ----------
     void runAnvilPlan();
     // ---------- 文本生成器 ----------

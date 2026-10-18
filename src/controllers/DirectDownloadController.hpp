@@ -4,6 +4,7 @@
 #include <QElapsedTimer>
 #include <QPair>
 #include <QSet>
+#include <QHash>
 #include <QVector>
 #include "tasks/TaskId.hpp"
 #include "download/DirectDownloadRequest.hpp"
@@ -24,7 +25,15 @@ public:
     bool cancel(Tasks::TaskId id);
     void shutdown();
     Tasks::TaskId taskId() const { return m_task; }
+    Tasks::TaskId lastSubmittedTaskId() const { return m_lastSubmitted; }
 private:
+    void manageCache(int action);
+    bool m_cacheBusy = false;
+    bool m_cacheTrimPending = false;
+    void startJob(Tasks::TaskId id, const DirectDownloadRequest &request, bool allowOverwrite);
+    QHash<Tasks::TaskId, QString> m_pendingPaths;
+    Tasks::TaskId m_lastSubmitted = Tasks::invalidTaskId();
+    bool m_stopping = false;
     void finish(bool success, const QString &error);
     ActivityCenterController *m_activity;
     QWidget *m_window;

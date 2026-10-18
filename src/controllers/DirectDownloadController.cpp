@@ -2,18 +2,46 @@
 #include "ActivityCenterController.hpp"
 #include "download/ResumableDownload.hpp"
 #include "DownloadToolDialog.hpp"
+#include "download/DownloadCache.hpp"
+#include <QSettings>
+#include <QThread>
 #include <QFileInfo>
 #include <QMessageBox>
 #include <QLocale>
+#include <algorithm>
 
 DirectDownloadController::DirectDownloadController(ActivityCenterController *activity, QWidget *window, QObject *parent)
-    : QObject(parent), m_activity(activity), m_window(window) {}
+    : QObject(parent), m_activity(activity), m_window(window) {
+    if (m_activity != nullptr) connect(m_activity->tasks(), &Tasks::TaskManager::taskFinished, this,
+        [this](Tasks::TaskId id, bool) { m_pendingPaths.remove(id); });
+    if (m_activity != nullptr) connect(m_activity, &QObject::destroyed, this, [this] {
+        // MainWindow 的 QObject 子对象销毁顺序不能成为任务账本的隐式寿命保证。
+        m_activity = nullptr; m_stopping = true; m_running = false; m_pendingPaths.clear();
+        if (m_download != nullptr) m_download->cancel();
+    });
+}
 
 DirectDownloadController::~DirectDownloadController() { shutdown(); delete m_dialog.data(); }
 
 void DirectDownloadController::open() {
     if (!m_dialog) {
         m_dialog = new DownloadToolDialog(m_window);
+        QSettings settings;
+        m_dialog->cacheLimit->setValue(settings.value(QStringLiteral("Toolbox/CacheLimitMiB"), 2048).toInt());
+        m_dialog->directory->setText(settings.value(QStringLiteral("Toolbox/DownloadDirectory"), m_dialog->directory->text()).toString());
+        connect(m_dialog->cacheLimit, &QSpinBox::valueChanged, this, [](int value) {
+            QSettings().setValue(QStringLiteral("Toolbox/CacheLimitMiB"), value);
+        });
+        connect(m_dialog->directory, &QLineEdit::editingFinished, this, [this] {
+            if (QDir(m_dialog->directory->text()).exists())
+                QSettings().setValue(QStringLiteral("Toolbox/DownloadDirectory"), m_dialog->directory->text());
+        });
+        m_dialog->onCache = [this](int action) {
+            if (action == 3 && QMessageBox::question(m_dialog, tr("清空闲置续传缓存"),
+                tr("仅删除未被任务使用的完整分段和续传记录。已下载文件不受影响；清理后相关任务需要重新下载。"),
+                QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) return;
+            manageCache(action);
+        };
         m_dialog->onStart = [this] {
             DirectDownloadRequest request;
             QString error;
@@ -31,27 +59,64 @@ void DirectDownloadController::open() {
     m_dialog->setBusy(m_running);
     if (!m_status.isEmpty()) m_dialog->status->setText(m_status);
     m_dialog->show(); m_dialog->raise(); m_dialog->activateWindow();
+    manageCache(0);
+}
+
+void DirectDownloadController::manageCache(int action) {
+    if (m_stopping) return;
+    if (m_cacheBusy) { if (action == 1) m_cacheTrimPending = true; return; }
+    m_cacheBusy = true;
+    const auto kind = action == 1 ? DownloadCache::Action::Trim : action == 2 ? DownloadCache::Action::ClearExpired
+        : action == 3 ? DownloadCache::Action::ClearIdle : DownloadCache::Action::Inspect;
+    QSettings settings;
+    const qint64 limit = qint64(qBound(128, settings.value(QStringLiteral("Toolbox/CacheLimitMiB"), 2048).toInt(), 65536)) * 1024 * 1024;
+    const auto result = QSharedPointer<DownloadCache::Result>::create();
+    auto *worker = QThread::create([result, kind, limit] { *result = DownloadCache::run(kind, limit); });
+    if (m_dialog) m_dialog->cacheStatus->setText(tr("正在后台整理缓存…"));
+    connect(worker, &QThread::finished, worker, &QObject::deleteLater);
+    connect(worker, &QThread::finished, this, [this, result] {
+        m_cacheBusy = false;
+        if (m_dialog) m_dialog->cacheStatus->setText(tr("续传缓存：%1 · 本次释放 %2 · 跳过占用 %3 · 失败 %4%5")
+            .arg(QLocale().formattedDataSize(qMax<qint64>(0, result->bytes)), QLocale().formattedDataSize(result->removed))
+            .arg(result->busy).arg(result->failed).arg(result->incomplete ? tr("（扫描达到安全限制，统计不完整）") : QString()));
+        if (m_cacheTrimPending) { m_cacheTrimPending = false; manageCache(1); }
+    });
+    worker->start();
 }
 
 bool DirectDownloadController::start(const DirectDownloadRequest &request, bool allowOverwrite, QString *error) {
     const auto reject = [error](const QString &text) { if (error) *error = text; return false; };
-    if (m_running) return reject(tr("已有直链下载正在进行，请先取消或等待完成。"));
+    if (m_stopping) return reject(tr("启动器正在关闭，不能新增下载。"));
     if (!m_activity) return reject(tr("任务中心尚未就绪。"));
     if (!QDir::isAbsolutePath(request.path)) return reject(tr("目标文件必须是绝对路径。"));
     DirectDownloadRequest validated;
     if (!DirectDownloadRequest::parse(request.url.toString(), QFileInfo(request.path).absolutePath(), QFileInfo(request.path).fileName(), &validated, error)) return false;
     if (!allowOverwrite && QFileInfo::exists(validated.path)) return reject(tr("目标文件已存在，请确认覆盖或更换文件名。"));
+    const auto samePath = [&](const QString &path) { return QDir::cleanPath(path).compare(QDir::cleanPath(validated.path), Qt::CaseInsensitive) == 0; };
+    if ((m_running && samePath(m_path)) || std::any_of(m_pendingPaths.cbegin(), m_pendingPaths.cend(), samePath))
+        return reject(tr("该保存路径已有进行中或排队的下载，请更换文件名。"));
+    const auto id = m_activity->enqueue(Tasks::TaskKind::Download,
+        tr("直链下载 · %1").arg(QFileInfo(validated.path).fileName()), QFileInfo(validated.path).absolutePath(),
+        {{tr("下载文件"), Tasks::TaskStepState::Pending, {}}, {tr("校验并保存"), Tasks::TaskStepState::Pending, {}}},
+        QStringLiteral("direct-download"), this, [this, validated, allowOverwrite](Tasks::TaskId job) { startJob(job, validated, allowOverwrite); });
+    if (id == Tasks::invalidTaskId()) return reject(tr("等待队列已满，请稍后再添加。"));
+    m_lastSubmitted = id; m_ownedTasks.insert(id); m_pendingPaths.insert(id, validated.path);
+    auto caps = m_activity->tasks()->snapshot(id).capabilities; caps.canOpenLog = false;
+    m_activity->tasks()->setCapabilities(id, caps);
+    if (!m_running) m_activity->startReady();
+    else if (m_dialog) m_dialog->status->setText(tr("已加入等待队列，可在任务中心拖动调整顺序。"));
+    if (error) error->clear();
+    return true;
+}
+
+void DirectDownloadController::startJob(Tasks::TaskId id, const DirectDownloadRequest &validated, bool allowOverwrite) {
+    m_pendingPaths.remove(id);
+    m_task = id;
     delete m_download;
     m_download = new ResumableDownload(this);
     m_path = validated.path;
     m_running = true;
-    m_task = m_activity->begin(Tasks::TaskKind::Download, tr("直链下载 · %1").arg(QFileInfo(m_path).fileName()),
-        QFileInfo(m_path).absolutePath(), {{tr("下载文件"), Tasks::TaskStepState::Running, {}},
-                                         {tr("校验并保存"), Tasks::TaskStepState::Pending, {}}});
-    auto caps = m_activity->tasks()->snapshot(m_task).capabilities;
-    m_ownedTasks.insert(m_task);
-    caps.canOpenLog = false;
-    m_activity->tasks()->setCapabilities(m_task, caps);
+    m_activity->tasks()->setStepState(id, 0, Tasks::TaskStepState::Running);
     m_status = tr("正在连接；进度可在任务中心查看。关闭工具窗口后下载继续。");
     m_activity->tasks()->setDetail(m_task, m_status);
     m_rateClock.start(); m_rateSamples.clear(); m_rateSamples.append({0, 0});
@@ -92,8 +157,7 @@ bool DirectDownloadController::start(const DirectDownloadRequest &request, bool 
     });
     connect(m_download, &ResumableDownload::finished, this, [this](bool success, const QString &message) { finish(success, message); });
     m_download->start(validated.url, validated.path, {}, -1, allowOverwrite);
-    if (error) error->clear();
-    return true;
+    manageCache(1);
 }
 
 void DirectDownloadController::finish(bool success, const QString &error) {
@@ -113,9 +177,12 @@ void DirectDownloadController::finish(bool success, const QString &error) {
 }
 
 bool DirectDownloadController::owns(Tasks::TaskId id) const { return m_ownedTasks.contains(id); }
-bool DirectDownloadController::canCancel(Tasks::TaskId id) const { return id == m_task && owns(id) && m_running && m_download && m_download->canCancel(); }
+bool DirectDownloadController::canCancel(Tasks::TaskId id) const {
+    return m_activity != nullptr && owns(id) && (m_activity->isQueued(id) || (id == m_task && m_running && m_download && m_download->canCancel()));
+}
 bool DirectDownloadController::cancel(Tasks::TaskId id) {
     if (!owns(id)) return false;
+    if (m_activity != nullptr && m_activity->isQueued(id)) { m_pendingPaths.remove(id); m_activity->tasks()->cancel(id); return true; }
     if (canCancel(id)) {
         if (!m_download->cancel()) return true;
         m_running = false;
@@ -125,4 +192,10 @@ bool DirectDownloadController::cancel(Tasks::TaskId id) {
     }
     return true;
 }
-void DirectDownloadController::shutdown() { if (m_running) cancel(m_task); }
+void DirectDownloadController::shutdown() {
+    if (m_stopping) return;
+    m_stopping = true;
+    const auto waiting = m_pendingPaths.keys();
+    for (auto id : waiting) cancel(id);
+    if (m_running) cancel(m_task);
+}

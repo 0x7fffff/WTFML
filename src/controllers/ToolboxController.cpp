@@ -7,6 +7,7 @@
 
 #include "controllers/ToolboxController.hpp"
 #include "controllers/DirectDownloadController.hpp"
+#include "controllers/ToolboxInputState.hpp"
 
 #include "InlineMessage.hpp"
 #include "MotdText.hpp"
@@ -16,6 +17,10 @@
 #include "tools/ArmorTrim.hpp"
 #include "tools/Banner.hpp"
 #include "tools/Beacon.hpp"
+#include "tools/BeaconBeam.hpp"
+#include "tools/BannerRender.hpp"
+#include "tools/BannerDesign.hpp"
+#include "tools/BannerTextures.hpp"
 #include "tools/Brewing.hpp"
 #include "tools/CoordConvert.hpp"
 #include "tools/FileHash.hpp"
@@ -25,6 +30,7 @@
 #include <QColor>
 #include <QDir>
 #include <QFileInfo>
+#include <QFileDialog>
 #include <QFileSystemWatcher>
 #include <QMetaObject>
 #include <QPalette>
@@ -150,6 +156,47 @@ ToolboxController::ToolboxController(OverlayHost *overlay, QWidget *pageParent, 
             [this](const QString &path) { onHashFileChanged(path); });
     m_directDownload = new DirectDownloadController(m_host.activity, pageParent, this);
     connect(m_page, &ToolboxPage::downloadToolRequested, this, [this] { m_directDownload->open(); });
+    QStringList beamNames;
+    for (int i = 0; i < Banner::colorCount(); ++i) beamNames.append(Banner::colorName(i));
+    m_page->setBeamColors(beamNames);
+    connect(m_page, &ToolboxPage::beamRequested, this, [this](const QList<int> &glass) {
+        const auto result = BeaconBeam::calculate(glass);
+        QStringList rows;
+        for (int i = 0; i < result.segments.size(); ++i)
+            rows.append(tr("第 %1 层 · %2玻璃 → %3").arg(i + 1).arg(Banner::colorName(glass[i]), result.segments[i].name()));
+        const QColor final = result.finalColor;
+        rows.append(tr("最终颜色：%1 · RGB(%2, %3, %4)").arg(final.name()).arg(final.red()).arg(final.green()).arg(final.blue()));
+        QStringList materials;
+        for (int color = 0; color < Banner::colorCount(); ++color) {
+            const int count = glass.count(color);
+            if (count > 0) materials.append(tr("%1玻璃 × %2").arg(Banner::colorName(color)).arg(count));
+        }
+        if (!materials.isEmpty()) rows.append(tr("材料：%1").arg(materials.join(QStringLiteral("、"))));
+        if (glass.isEmpty()) rows.prepend(tr("未放置染色玻璃：白色光柱。"));
+        m_page->setBeamResult(result.segments, result.ok ? rows.join(QLatin1Char('\n')) : result.error);
+    });
+    m_page->beamRequested({});
+    connect(m_page, &ToolboxPage::bannerTexturesRequested, this, [this] {
+        if (m_bannerTextureLoading) return;
+        const QString archive = QFileDialog::getOpenFileName(m_page, tr("选择原版游戏 JAR 或旗帜资源包"), {}, tr("游戏资源 (*.jar *.zip)"));
+        if (archive.isEmpty()) return;
+        m_bannerTextureLoading = true;
+        m_page->setBannerPreview({}, tr("正在后台读取本地旗帜贴图…"));
+        auto result = QSharedPointer<BannerTextures::Result>::create();
+        auto *worker = QThread::create([result, archive] { *result = BannerTextures::load(archive); });
+        connect(worker, &QThread::finished, this, [this, result] {
+            m_bannerTextureLoading = false;
+            if (!result->error.isEmpty()) { m_page->setBannerPreview({}, result->error); return; }
+            m_bannerTextures = result->images;
+            QList<QIcon> icons;
+            for (int i = 0; i < Banner::patternCount(); ++i)
+                icons.append(QIcon(QPixmap::fromImage(BannerRender::compose(0, {{i, 15}}, m_bannerTextures))));
+            m_page->setBannerPatternIcons(icons);
+            refreshBanner(m_page->bannerBaseColor(), m_page->bannerLayers());
+        });
+        connect(worker, &QThread::finished, worker, &QObject::deleteLater);
+        worker->start();
+    });
 
     // ---------- 那四张表（各自的唯一出处都在 src/tools/ 里）----------
     QStringList algorithms;
@@ -175,6 +222,24 @@ ToolboxController::ToolboxController(OverlayHost *overlay, QWidget *pageParent, 
     }
     m_page->setBannerColors(bannerColors);
     m_page->setBannerPatterns(Banner::patternNames());
+    m_page->setBannerVersions(BannerDesign::versions());
+    connect(m_page, &ToolboxPage::bannerSaveRequested, this, [this] {
+        const QString path = QFileDialog::getSaveFileName(m_page, tr("保存旗帜设计"), QStringLiteral("banner.wtfml-banner.json"), tr("旗帜设计 (*.json)"));
+        if (path.isEmpty()) return;
+        QString error;
+        if (!BannerDesign::save(path, {m_page->bannerBaseColor(), m_page->bannerVersion(), m_page->bannerLayers()}, &error))
+            InlineMessage::information(m_overlay, tr("保存失败"), error);
+    });
+    connect(m_page, &ToolboxPage::bannerLoadRequested, this, [this] {
+        const QString path = QFileDialog::getOpenFileName(m_page, tr("载入旗帜设计"), {}, tr("旗帜设计 (*.json)"));
+        if (path.isEmpty()) return;
+        BannerDesign::Design design; QString error;
+        if (!BannerDesign::load(path, &design, &error)) {
+            InlineMessage::information(m_overlay, tr("载入失败，当前设计未改变"), error); return;
+        }
+        m_page->setBannerDesign(design.base, design.layers, design.version);
+        refreshBanner(design.base, design.layers);
+    });
 
     QStringList trimArmor;
     for (int index = 0; index < ArmorTrim::armorMaterialCount(); ++index) {
@@ -271,6 +336,7 @@ ToolboxController::ToolboxController(OverlayHost *overlay, QWidget *pageParent, 
                 refreshTrim(armorMaterial, part, patternIndex, trimMaterial, pieces, wholeSet);
             });
 
+    ToolboxInputState::attach(m_page);
     // 一进来先把文本生成器那一页的两块空着的地方填上（空预览框看着像没搭好）。
     refreshText();
     // 新加那两件也一样：开页之前先把那两格算出来，别摆在"空的"那一档上。
@@ -1029,8 +1095,21 @@ void ToolboxController::refreshBanner(int baseColor, const QStringList &layers) 
         parsed.append(layer);
     }
     const Banner::Plan plan = Banner::plan(baseColor, parsed);
-    m_page->setBannerResult(plan.detailText());
-    m_page->setBannerCommand(plan.ok ? plan.command : QString());
+    QList<bool> availability;
+    const QString version = m_page->bannerVersion();
+    for (int i = 0; i < Banner::patternCount(); ++i) availability.append(BannerDesign::available(i, version));
+    m_page->setBannerPatternAvailability(availability);
+    QStringList unsupported;
+    for (const auto &layer : parsed) {
+        if (!BannerDesign::available(layer.patternIndex, version)) unsupported.append(Banner::patternAt(layer.patternIndex).name);
+    }
+    m_page->setBannerResult((unsupported.isEmpty() ? QString() : tr("目标版本 %1 不支持：%2。已保留图层，请调整设计或目标版本。\n\n").arg(version, unsupported.join(QStringLiteral("、")))) + plan.detailText());
+    m_page->setBannerCommand(plan.ok && unsupported.isEmpty() ? plan.command : QString());
+    QString notice;
+    const auto image = plan.ok ? BannerRender::compose(baseColor, parsed, m_bannerTextures, &notice) : QImage();
+    if (!plan.ok) notice = plan.error;
+    if (m_bannerTextures.isEmpty() && parsed.isEmpty()) notice = tr("加载本地游戏贴图后可预览图案；当前仅显示底色。需要重新加载时可再次选择 JAR。");
+    m_page->setBannerPreview(image, notice);
 }
 
 void ToolboxController::refreshTrim(int armorMaterial, int part, int patternIndex,

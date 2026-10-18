@@ -1,4 +1,6 @@
 #include "ActivityCenterController.hpp"
+#include <QTimer>
+#include <algorithm>
 
 #include "InstanceFilesPage.hpp"
 
@@ -25,7 +27,12 @@ ActivityCenterController::ActivityCenterController(QObject *parent)
     connect(&m_tasks, &Tasks::TaskManager::taskChanged, this,
             [this](Tasks::TaskId) { emit activityChanged(); });
     connect(&m_tasks, &Tasks::TaskManager::taskFinished, this,
-            [this](Tasks::TaskId, bool) { emit activityChanged(); });
+            [this](Tasks::TaskId id, bool) {
+                m_queue.removeIf([id](const QueuedJob &job) { return job.id == id; });
+                for (auto it = m_runningLanes.begin(); it != m_runningLanes.end();)
+                    if (it.value() == id) it = m_runningLanes.erase(it); else ++it;
+                scheduleDispatch(); emit activityChanged();
+            });
     connect(&m_tasks, &Tasks::TaskManager::historyChanged, this, [this] {
         emit historyChanged();
         emit activityChanged();
@@ -38,6 +45,55 @@ void ActivityCenterController::loadHistory() {
 
 void ActivityCenterController::clearFinished() {
     m_tasks.clearFinished();
+}
+
+Tasks::TaskId ActivityCenterController::enqueue(Tasks::TaskKind kind, const QString &title, const QString &target,
+    const QList<Tasks::TaskStep> &steps, const QString &lane, QObject *owner, std::function<void(Tasks::TaskId)> start) {
+    if (lane.isEmpty() || owner == nullptr || !start || m_queue.size() >= 64) return Tasks::invalidTaskId();
+    const auto id = m_tasks.begin(kind, title, target, steps, defaultCapabilities(kind), true);
+    m_queue.append({id, lane, owner, std::move(start)});
+    m_tasks.setDetail(id, tr("等待执行；可拖动手柄调整同队列内的顺序。"));
+    connect(owner, &QObject::destroyed, this, [this, id] {
+        // 这里只能保证“尚未调用执行器”的任务被安全取消；运行任务由执行器自身收尾。
+        // 不能把已进入原子提交的操作在 owner 析构时伪报为取消。
+        if (m_tasks.has(id) && m_tasks.snapshot(id).state == Tasks::TaskState::Queued) m_tasks.cancel(id);
+    });
+    scheduleDispatch(); return id;
+}
+bool ActivityCenterController::isQueued(Tasks::TaskId id) const {
+    return m_tasks.snapshot(id).state == Tasks::TaskState::Queued &&
+        std::any_of(m_queue.cbegin(), m_queue.cend(), [id](const QueuedJob &job) { return job.id == id && job.owner; });
+}
+bool ActivityCenterController::moveQueued(Tasks::TaskId id, int delta) {
+    if ((delta != -1 && delta != 1) || !isQueued(id)) return false;
+    for (int i = 0; i < m_queue.size(); ++i) if (m_queue[i].id == id) {
+        for (int j = i + delta; j >= 0 && j < m_queue.size(); j += delta) {
+            if (m_queue[j].lane != m_queue[i].lane || !isQueued(m_queue[j].id)) continue;
+            m_queue.swapItemsAt(i, j); emit activityChanged(); return true;
+        }
+        return false;
+    }
+    return false;
+}
+void ActivityCenterController::scheduleDispatch() {
+    if (m_dispatchPending) return;
+    m_dispatchPending = true;
+    QTimer::singleShot(0, this, [this] { m_dispatchPending = false; dispatch(); });
+}
+void ActivityCenterController::dispatch() {
+    // 启动前先摘出回调，执行器可以同步完成/取消甚至排入下一项，不能保留容器迭代器。
+    for (;;) {
+        int ready = -1;
+        for (int i = 0; i < m_queue.size(); ++i) if (!m_runningLanes.contains(m_queue[i].lane)) { ready = i; break; }
+        if (ready < 0) return;
+        const auto job = m_queue.takeAt(ready);
+        if (!job.owner || m_tasks.snapshot(job.id).state != Tasks::TaskState::Queued) { m_tasks.cancel(job.id); continue; }
+        m_runningLanes.insert(job.lane, job.id);
+        if (!m_tasks.startQueued(job.id)) { m_runningLanes.remove(job.lane); continue; }
+        // startQueued 发信号后所有者可能被同步关闭；未调用执行器前仍可安全取消。
+        if (!job.owner) { m_tasks.cancel(job.id); continue; }
+        job.start(job.id);
+    }
 }
 
 Tasks::TaskId ActivityCenterController::begin(Tasks::TaskKind kind, const QString &title,
@@ -147,6 +203,9 @@ TaskCenter::Item ActivityCenterController::item(const Tasks::TaskSnapshot &task,
     result.detail = task.detail;
     result.percent = Tasks::percentOf(task);
     result.state = presentationState(task.state);
+    for (int i = 0; i < m_queue.size(); ++i) if (m_queue[i].id == task.id && isQueued(task.id)) {
+        result.queueGroup = m_queue[i].lane; result.queueOrder = i; break;
+    }
     result.unreadFailure = task.state == Tasks::TaskState::Failed
                            && isUnreadFailure(task.id);
     result.attentionAcknowledged = task.attentionAcknowledged;
@@ -188,6 +247,14 @@ QList<TaskCenter::Item> ActivityCenterController::items(
         result.append(item(task, cancelAvailable && cancelAvailable(task),
                            retryPayloadAvailable, crashRecordIds.contains(task.id)));
     }
+    std::stable_sort(result.begin(), result.end(), [](const TaskCenter::Item &a, const TaskCenter::Item &b) {
+        const auto rank = [](const TaskCenter::Item &item) {
+            return item.state == TaskCenter::State::Queued ? 1 :
+                (item.state == TaskCenter::State::Running || item.state == TaskCenter::State::WaitingUser || item.state == TaskCenter::State::Paused ? 0 : 2);
+        };
+        if (rank(a) != rank(b)) return rank(a) < rank(b);
+        return a.state == TaskCenter::State::Queued && b.state == TaskCenter::State::Queued && a.queueOrder < b.queueOrder;
+    });
     const bool changed = markAllViewed();
     if (viewStateChanged != nullptr) {
         *viewStateChanged = changed;

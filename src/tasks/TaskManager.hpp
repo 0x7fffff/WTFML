@@ -72,7 +72,8 @@ public:
     /// @param capabilities 它**允许**什么操作（见 `TaskCapabilities` 那段：按钮不靠种类猜）。
     TaskId begin(TaskKind kind, const QString &title, const QString &targetId = QString(),
                  const QList<TaskStep> &steps = QList<TaskStep>(),
-                 const TaskCapabilities &capabilities = TaskCapabilities());
+                 const TaskCapabilities &capabilities = TaskCapabilities(), bool queued = false);
+    bool startQueued(TaskId id);
 
     /// 换一句"现在在干什么"（面板里标题下面那行小字）。
     bool setDetail(TaskId id, const QString &detail);

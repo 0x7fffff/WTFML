@@ -28,12 +28,14 @@ struct PatternRow {
 
 const PatternRow kPatterns[] = {
     {"bordure", "边框", "砖块", nullptr},
-    {"bordure_indented", "波纹边框", "藤蔓", "1.21"},
+    // 1.21.2 added the pattern ITEMS, not these already-existing loom designs:
+    // https://www.minecraft.net/en-us/article/minecraft-java-edition-1-21-2
+    {"bordure_indented", "波纹边框", "藤蔓", nullptr},
     {"circle", "圆形", "旗帜图案", nullptr},
     {"creeper_charge", "苦力怕", "苦力怕头颅", nullptr},
     {"cross", "十字", "旗帜图案", nullptr},
     {"curly_border", "卷曲边框", "旗帜图案", nullptr},
-    {"field_masoned", "砖墙纹", "砖块", "1.21"},
+    {"field_masoned", "砖墙纹", "砖块", nullptr},
     {"flower_charge", "花朵", "滨菊", nullptr},
     {"flow", "涡流", "旗帜图案", "1.21"},
     {"globe", "地球", "橡树树苗", nullptr},
@@ -45,10 +47,10 @@ const PatternRow kPatterns[] = {
     {"half_vertical", "左半", "旗帜图案", nullptr},
     {"half_vertical_right", "右半", "旗帜图案", nullptr},
     {"mojang", "Mojang 标志", "附魔金苹果", nullptr},
-    {"piglin", "猪灵", "旗帜图案", nullptr},
+    {"piglin", "猪灵", "旗帜图案", "1.16"},
     {"rhombus", "菱形", "旗帜图案", nullptr},
     {"skull_charge", "骷髅", "凋灵骷髅头颅", nullptr},
-    {"snout", "猪鼻", "金胡萝卜", nullptr},
+    {"snout", "猪鼻", "金胡萝卜", "1.16"},
     {"straight_cross", "正十字", "旗帜图案", nullptr},
     {"stripe_bottom", "底横条", "旗帜图案", nullptr},
     {"stripe_center", "中竖条", "旗帜图案", nullptr},

@@ -8,6 +8,7 @@
 #include <QProgressBar>
 #include <QVBoxLayout>
 #include <QStandardPaths>
+#include <QSpinBox>
 #include <functional>
 #include "Theme.hpp"
 
@@ -51,6 +52,25 @@ public:
         status->setTextFormat(Qt::PlainText); status->setWordWrap(true);
         status->setObjectName(QStringLiteral("downloadToolStatus"));
         layout->addWidget(status);
+        auto *cacheRow = new QHBoxLayout;
+        cacheStatus = new QLabel(QStringLiteral("缓存：尚未统计（仅分段续传缓存）"), this);
+        cacheStatus->setObjectName(QStringLiteral("downloadCacheStatus"));
+        cacheStatus->setTextFormat(Qt::PlainText); cacheStatus->setWordWrap(true);
+        layout->addWidget(cacheStatus);
+        cacheLimit = new QSpinBox(this); cacheLimit->setObjectName(QStringLiteral("downloadCacheLimit"));
+        cacheLimit->setRange(128, 65536); cacheLimit->setValue(2048); cacheLimit->setSuffix(QStringLiteral(" MiB"));
+        cacheRow->addWidget(new QLabel(QStringLiteral("闲置缓存上限"), this)); cacheRow->addWidget(cacheLimit);
+        cacheRow->addStretch(); layout->addLayout(cacheRow);
+        auto *cacheButtons = new QHBoxLayout;
+        for (int action = 0; action < 4; ++action) {
+            auto *button = new QPushButton(QStringList{QStringLiteral("统计"), QStringLiteral("按上限整理"), QStringLiteral("清理过期"), QStringLiteral("清空闲置")}[action], this);
+            button->setObjectName(QStringLiteral("downloadCacheAction%1").arg(action));
+            Theme::markButton(button, Theme::ButtonKind::Ghost);
+            cacheButtons->addWidget(button);
+            connect(button, &QPushButton::clicked, this, [this, action] { if (onCache) onCache(action); });
+        }
+        layout->addLayout(cacheButtons);
+        cacheLimit->setToolTip(QStringLiteral("新下载开始时按最旧优先整理闲置缓存；活动下载不会被清理，使用中可暂时超过上限。过期指 30 天未更新。"));
         auto *buttons = new QHBoxLayout;
         buttons->addStretch();
         stop = new QPushButton(QStringLiteral("取消下载"), this);
@@ -66,9 +86,10 @@ public:
         setBusy(false);
     }
     void setBusy(bool busy) {
-        start->setEnabled(!busy); stop->setEnabled(busy);
-        browse->setEnabled(!busy);
-        for (auto *field : {url, directory, name}) field->setEnabled(!busy);
+        start->setEnabled(true); start->setText(busy ? QStringLiteral("加入队列") : QStringLiteral("开始下载"));
+        stop->setEnabled(busy);
+        browse->setEnabled(true);
+        for (auto *field : {url, directory, name}) field->setEnabled(true);
     }
     void showProgress(qint64 done, qint64 total, const QString &text) {
         if (total <= 0) progress->setRange(0, 0);
@@ -76,6 +97,9 @@ public:
         status->setText(text);
     }
     std::function<void()> onStart, onCancel;
+    std::function<void(int)> onCache;
+    QSpinBox *cacheLimit = nullptr;
+    QLabel *cacheStatus = nullptr;
     QLineEdit *url = nullptr, *directory = nullptr, *name = nullptr;
     QPushButton *start = nullptr, *stop = nullptr, *browse = nullptr;
     QLabel *status = nullptr;

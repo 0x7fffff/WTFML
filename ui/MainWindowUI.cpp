@@ -13,6 +13,7 @@
 #include "InstanceGroupDelegate.hpp"
 #include "MemorySlider.hpp"
 #include "OverlayHost.hpp"
+#include "PopupPlacement.hpp"
 #include "SkinModel.hpp"
 #include "TaskProgressBar.hpp"
 #include "Theme.hpp"
@@ -5926,15 +5927,29 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
                 popup->setObjectName(QStringLiteral("homeQuickPopup"));
                 markSurface(popup, Theme::workspaceSurfaceValue());
                 popup->setAutoFillBackground(true);
-                auto *layout = new QVBoxLayout(popup);
+                auto *scroll = new QScrollArea(popup);
+                scroll->setFrameShape(QFrame::NoFrame);
+                scroll->setWidgetResizable(true);
+                scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+                auto *body = new QWidget(scroll);
+                scroll->setWidget(body);
+                auto *outer = new QVBoxLayout(popup);
+                outer->setContentsMargins(0, 0, 0, 0); outer->addWidget(scroll);
+                auto *layout = new QVBoxLayout(body);
                 layout->setContentsMargins(16, 14, 16, 14);
                 layout->setSpacing(8);
                 auto *title = new QLabel(item.name, popup);
+                title->setTextFormat(Qt::PlainText);
                 QFont titleFont = title->font();
                 titleFont.setBold(true);
                 title->setFont(titleFont);
                 title->setWordWrap(true);
                 layout->addWidget(title);
+                if (!item.icon.isNull()) {
+                    auto *icon = new QLabel(popup);
+                    icon->setPixmap(item.icon.pixmap(40, 40));
+                    layout->insertWidget(0, icon);
+                }
                 if (!item.detail.isEmpty()) {
                     auto *detail = makeHomeHint(item.detail, popup);
                     layout->addWidget(detail);
@@ -5943,6 +5958,9 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
                 auto *edit = new QPushButton(QStringLiteral("实例设置"), popup);
                 Theme::markButton(edit, Theme::ButtonKind::Ghost);
                 auto *launch = new QPushButton(QStringLiteral("启动实例"), popup);
+                auto *folder = new QPushButton(QStringLiteral("打开目录"), popup);
+                folder->setObjectName(QStringLiteral("homeQuickOpenFolder"));
+                Theme::markButton(folder, Theme::ButtonKind::Ghost);
                 Theme::markButton(launch, Theme::ButtonKind::Primary);
                 const QString key = item.key;
                 QObject::connect(edit, &QPushButton::clicked, popup, [this, popup, key]() {
@@ -5958,13 +5976,22 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
                     }
                 });
                 actions->addWidget(edit);
+                actions->addWidget(folder);
+                QObject::connect(folder, &QPushButton::clicked, popup, [this, popup, key]() {
+                    popup->close();
+                    if (m_homeQuickActionHandler) m_homeQuickActionHandler(key, HomeQuickAction::OpenFolder);
+                });
                 actions->addStretch(1);
                 actions->addWidget(launch);
                 layout->addLayout(actions);
-                popup->setFixedWidth(qMax(320, card->width() * 3));
-                popup->adjustSize();
-                const QPoint anchor = card->mapToGlobal(QPoint(0, 0));
-                popup->move(anchor.x(), anchor.y() - popup->height() - 6);
+                const QRect cardRect(card->mapToGlobal(QPoint()), card->size());
+                QScreen *screen = QGuiApplication::screenAt(cardRect.center());
+                if (!screen) screen = card->screen();
+                const QRect available = screen ? screen->availableGeometry() : QRect(card->window()->mapToGlobal(QPoint()), card->window()->size());
+                popup->setFixedWidth(qMin(qMax(320, card->width() * 3), qMax(1, available.width() - 16)));
+                const int contentWidth = qMax(1, popup->width() - 24);
+                const int contentHeight = qMax(layout->sizeHint().height(), layout->totalHeightForWidth(contentWidth));
+                popup->setGeometry(PopupPlacement::around(cardRect, QSize(popup->width(), contentHeight + 2), available));
                 popup->show();
             });
             row->addWidget(card, 1);

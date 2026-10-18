@@ -1737,6 +1737,10 @@ MainWindow::MainWindow(QWidget *parent)
     m_ui->setTaskCenterRowActionHandler(
         [this](const QString &key, TaskCenter::RowAction action) {
             switch (action) {
+            case TaskCenter::RowAction::MoveUp:
+            case TaskCenter::RowAction::MoveDown:
+                m_activityCenter->moveQueued(key.toULongLong(), action == TaskCenter::RowAction::MoveUp ? -1 : 1);
+                break;
             case TaskCenter::RowAction::Viewed:
                 m_activityCenter->markViewed(key);
                 break;
@@ -1773,6 +1777,10 @@ MainWindow::MainWindow(QWidget *parent)
             }
             if (action == MainWindowUI::HomeQuickAction::Edit) {
                 openInstanceSettings(key);
+                return;
+            }
+            if (action == MainWindowUI::HomeQuickAction::OpenFolder) {
+                QDesktopServices::openUrl(QUrl::fromLocalFile(AppPaths::versionDir(key)));
                 return;
             }
             QComboBox *combo = m_ui->getInstalledVersionCombo();

@@ -165,6 +165,12 @@ target_link_libraries(ui_check PRIVATE dwmapi)
 
 add_test(NAME wtfml.ui COMMAND ui_check)
 add_test(NAME wtfml.ui-refresh COMMAND ui_check --ui-refresh-check)
+add_test(NAME wtfml.toolbox-polish COMMAND ui_check --toolbox-polish-check)
+set_tests_properties(wtfml.toolbox-polish PROPERTIES
+    LABELS "ui;toolbox"
+    TIMEOUT 30
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+)
 add_test(NAME wtfml.lifecycle COMMAND ui_check --lifecycle-check)
 add_test(NAME wtfml.resource-packs COMMAND ui_check --resource-packs-check)
 set_tests_properties(wtfml.resource-packs PROPERTIES

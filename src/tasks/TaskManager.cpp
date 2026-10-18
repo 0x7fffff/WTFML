@@ -60,19 +60,28 @@ bool TaskManager::saveHistory() const {
 }
 
 TaskId TaskManager::begin(TaskKind kind, const QString &title, const QString &targetId,
-                          const QList<TaskStep> &steps, const TaskCapabilities &capabilities) {
+                          const QList<TaskStep> &steps, const TaskCapabilities &capabilities, bool queued) {
     TaskSnapshot task;
     task.id = m_nextId++;
     task.kind = kind;
-    task.state = TaskState::Running;
+    task.state = queued ? TaskState::Queued : TaskState::Running;
     task.title = title;
     task.targetId = targetId;
     task.steps = steps;
     task.capabilities = capabilities;
-    task.startedAt = QDateTime::currentDateTime();
+    if (!queued) task.startedAt = QDateTime::currentDateTime();
     m_tasks.append(task);
     touch(task.id, /*persist=*/true);
     return task.id;
+}
+
+bool TaskManager::startQueued(TaskId id) {
+    auto *task = find(id);
+    if (task == nullptr || task->state != TaskState::Queued) return false;
+    task->state = TaskState::Running;
+    task->startedAt = QDateTime::currentDateTime();
+    touch(id, true);
+    return true;
 }
 
 TaskSnapshot *TaskManager::find(TaskId id) {

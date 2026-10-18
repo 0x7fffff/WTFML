@@ -6,6 +6,12 @@
  */
 
 #include "TaskCenterPanel.hpp"
+#include <QDrag>
+#include <QMimeData>
+#include <QDragEnterEvent>
+#include <QDropEvent>
+#include <QApplication>
+#include <QPointer>
 
 #include <algorithm>
 
@@ -35,6 +41,27 @@
 #include "VersionIcons.hpp"
 
 namespace {
+bool taskDragActive = false;
+constexpr char taskMime[] = "application/x-wtfml-queued-task";
+class TaskDragHandle final : public QLabel {
+public:
+    TaskDragHandle(const QString &key, const QString &group, QWidget *parent) : QLabel(QStringLiteral("⠿"), parent), m_payload((key + '\n' + group).toUtf8()) {
+        setCursor(Qt::OpenHandCursor); setToolTip(QStringLiteral("拖动调整等待顺序；不会打断运行中的任务。"));
+        setObjectName(QStringLiteral("taskDragHandle_%1").arg(key)); setFixedWidth(24);
+    }
+protected:
+    void mousePressEvent(QMouseEvent *event) override { m_start = event->position().toPoint(); event->accept(); }
+    void mouseMoveEvent(QMouseEvent *event) override {
+        if (!(event->buttons() & Qt::LeftButton) || (event->position().toPoint() - m_start).manhattanLength() < QApplication::startDragDistance()) return;
+        // QDrag 属于应用而不是会刷新重建的行；执行期间面板延后重建。
+        auto *drag = new QDrag(qApp); auto *mime = new QMimeData;
+        mime->setData(taskMime, m_payload); drag->setMimeData(mime);
+        taskDragActive = true; drag->exec(Qt::MoveAction); taskDragActive = false; drag->deleteLater();
+    }
+    void mouseReleaseEvent(QMouseEvent *event) override { event->accept(); }
+private:
+    QByteArray m_payload; QPoint m_start;
+};
 
 bool isActive(TaskCenter::State state) {
     return state == TaskCenter::State::Queued || state == TaskCenter::State::Running
@@ -121,8 +148,10 @@ class TaskCenterRowWidget : public QWidget {
 public:
     TaskCenterRowWidget(const TaskCenter::Item &item, int index,
                         const std::function<void()> &onActivate, QWidget *parent,
-                        const TaskCenter::RowActionHandler &onRowAction)
-        : QWidget(parent), m_onActivate(onActivate) {
+                        const TaskCenter::RowActionHandler &onRowAction,
+                        std::function<void(const QString &, bool)> onDrop = {})
+        : QWidget(parent), m_onActivate(onActivate), m_onDrop(std::move(onDrop)), m_queueGroup(item.queueGroup) {
+        setAcceptDrops(!item.queueGroup.isEmpty() && item.state == TaskCenter::State::Queued && bool(m_onDrop));
         if (m_onActivate) {
             setCursor(Qt::PointingHandCursor);
         }
@@ -140,6 +169,20 @@ public:
         auto *titleRow = new QHBoxLayout();
         titleRow->setContentsMargins(0, 0, 0, 0);
         titleRow->setSpacing(kRowInnerSpacing);
+        if (acceptDrops()) {
+            titleRow->addWidget(new TaskDragHandle(item.key, item.queueGroup, this));
+            for (int delta : {-1, 1}) {
+                auto *button = new QPushButton(delta < 0 ? QStringLiteral("↑") : QStringLiteral("↓"), this);
+                button->setObjectName(QStringLiteral("taskQueue%1_%2").arg(delta < 0 ? "Up" : "Down", item.key));
+                button->setFixedWidth(28); button->setAutoDefault(false);
+                button->setToolTip(delta < 0 ? QStringLiteral("在等待队列中上移") : QStringLiteral("在等待队列中下移"));
+                Theme::markButton(button, Theme::ButtonKind::Ghost);
+                connect(button, &QPushButton::clicked, this, [onRowAction, key = item.key, delta] {
+                    if (onRowAction) onRowAction(key, delta < 0 ? TaskCenter::RowAction::MoveUp : TaskCenter::RowAction::MoveDown);
+                });
+                titleRow->addWidget(button);
+            }
+        }
         const bool active = isActive(item.state);
         const bool failed = item.state == TaskCenter::State::Failed;
         const bool interrupted = item.state == TaskCenter::State::Interrupted;
@@ -258,17 +301,43 @@ public:
     }
 
 protected:
+    bool acceptsTask(const QMimeData *mime, QObject *source) const {
+        if (!acceptDrops() || source != qApp || !mime->hasFormat(taskMime)) return false;
+        const auto fields = QString::fromUtf8(mime->data(taskMime)).split('\n');
+        return fields.size() == 2 && !fields[0].isEmpty() && fields[1] == m_queueGroup;
+    }
+    void dragEnterEvent(QDragEnterEvent *event) override {
+        if (acceptsTask(event->mimeData(), event->source())) event->acceptProposedAction();
+    }
+    void dragMoveEvent(QDragMoveEvent *event) override {
+        if (!acceptsTask(event->mimeData(), event->source())) return;
+        m_dropHover = true; m_dropAfter = event->position().y() >= height() / 2;
+        update(); event->acceptProposedAction();
+    }
+    void dragLeaveEvent(QDragLeaveEvent *event) override { m_dropHover = false; update(); event->accept(); }
+    void dropEvent(QDropEvent *event) override {
+        if (!acceptsTask(event->mimeData(), event->source())) return;
+        m_dropHover = false; update();
+        const auto key = QString::fromUtf8(event->mimeData()->data(taskMime)).section('\n', 0, 0);
+        if (m_onDrop) m_onDrop(key, event->position().y() >= height() / 2);
+        event->acceptProposedAction();
+    }
     void enterEvent(QEnterEvent *event) override { QWidget::enterEvent(event); update(); }
     void leaveEvent(QEvent *event) override { QWidget::leaveEvent(event); update(); }
     void paintEvent(QPaintEvent *) override {
         const bool selected = property("taskCenterSelected").toBool();
-        if (!selected && !underMouse()) return;
+        if (!selected && !underMouse() && !m_dropHover) return;
         QPainter painter(this);
         painter.setRenderHint(QPainter::Antialiasing);
         painter.setPen(Qt::NoPen);
         const QColor base = palette().color(QPalette::Base);
         painter.setBrush(selected ? Theme::selectionFill(base) : Theme::rowHoverFill(base));
         painter.drawRoundedRect(rect(), 6, 6);
+        if (m_dropHover) {
+            painter.setPen(QPen(Theme::focusRingColor(palette()), 2));
+            const int y = m_dropAfter ? height() - 1 : 1;
+            painter.drawLine(4, y, width() - 4, y);
+        }
         if (selected) {
             painter.setBrush(Theme::focusRingColor(palette()));
             painter.drawRoundedRect(QRectF(0, 6, 3, qMax(0, height() - 12)), 1.5, 1.5);
@@ -288,6 +357,9 @@ protected:
 
 private:
     std::function<void()> m_onActivate;
+    std::function<void(const QString &, bool)> m_onDrop;
+    QString m_queueGroup;
+    bool m_dropHover = false, m_dropAfter = false;
 };
 
 }  // namespace
@@ -666,6 +738,13 @@ static void revealBuiltChildren(QWidget *container) {
 }
 
 void TaskCenterPanel::rebuild() {
+    if (taskDragActive) {
+        if (!m_dragRefreshPending) {
+            m_dragRefreshPending = true;
+            QTimer::singleShot(100, this, [this] { m_dragRefreshPending = false; requestRefresh(); });
+        }
+        return;
+    }
     auto *layout = qobject_cast<QVBoxLayout *>(m_content->layout());
     if (layout == nullptr) {
         return;
@@ -712,7 +791,24 @@ void TaskCenterPanel::rebuild() {
         addSectionTitle(MainWindowUI::taskCenterPanelActiveSectionText());
         for (const TaskCenter::Item &item : active) {
             layout->addWidget(new TaskCenterRowWidget(
-                item, index, rowActivate(item.key), m_content, m_onRowAction));
+                item, index, rowActivate(item.key), m_content, m_onRowAction,
+                [this, target = item.key](const QString &source, bool after) {
+                    // 下一轮重取真实快照：拖动期间某项可能已经开跑/取消，不按旧行号改队列。
+                    QTimer::singleShot(0, this, [this, source, target, after] {
+                        if (!m_provider || !m_onRowAction || source == target) return;
+                        const auto current = m_provider(); QString group;
+                        for (const auto &row : current) if (row.key == source && row.state == TaskCenter::State::Queued) group = row.queueGroup;
+                        if (group.isEmpty()) return;
+                        QStringList keys;
+                        for (const auto &row : current) if (row.state == TaskCenter::State::Queued && row.queueGroup == group) keys.append(row.key);
+                        const int from = keys.indexOf(source), to = keys.indexOf(target);
+                        if (from < 0 || to < 0) return;
+                        int destination = to + (after ? 1 : 0); if (from < destination) --destination;
+                        const auto action = destination < from ? TaskCenter::RowAction::MoveUp : TaskCenter::RowAction::MoveDown;
+                        for (int i = 0; i < qAbs(destination - from); ++i) m_onRowAction(source, action);
+                        requestRefresh();
+                    });
+                }));
             ++index;
         }
     }

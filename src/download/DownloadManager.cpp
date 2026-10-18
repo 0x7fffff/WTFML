@@ -202,6 +202,19 @@ QString diagReplyFacts(QNetworkReply *reply) {
     parts << QStringLiteral("proto=%1")
                  .arg(h2.isValid() ? (h2.toBool() ? QStringLiteral("h2") : QStringLiteral("h1"))
                                    : QStringLiteral("?"));
+    // 首字节时刻（从发出算）。没有这一格的话，"慢"只能在事后按总耗时猜；有了它，
+    // "建连 + 302 + 排队"和"正文只有 2 KB/s"是两行不同的数。
+    const qint64 startMs = reply->property("wtfmlStartMs").toLongLong();
+    const QVariant firstByte = reply->property("wtfmlFirstByteMs");
+    if (startMs > 0 && reply->property("wtfmlMeasureTtfb").toBool()) {
+        parts << (firstByte.isValid()
+                      ? QStringLiteral("ttfb=%1ms").arg(firstByte.toLongLong() - startMs)
+                      : QStringLiteral("ttfb=never"));
+    }
+    const QString landedHost = reply->property("wtfmlLandedHost").toString();
+    if (!landedHost.isEmpty()) {
+        parts << QStringLiteral("landed=%1").arg(landedHost);
+    }
     if (reply->url() != reply->request().url()) {
         parts << QStringLiteral("finalUrl=%1").arg(DownloadDiag::safeUrl(reply->url()));
     }
@@ -932,11 +945,17 @@ void DownloadManager::pumpDownloadQueue() {
 int DownloadManager::activeCountForHost(const QString &host) const {
     int n = 0;
     for (auto it = activeDownloads.constBegin(); it != activeDownloads.constEnd(); ++it) {
-        // 用**请求自己**的 URL（`request().url()`）：这是"我们这条发给谁"的原话，和队列那头
-        // 的 `PendingJob::host` 是同一个东西，两边才比得到一起。别用 `reply->url()` ——
-        // 那个在跳转之后未必还是我们请求的那个地址（镜像那条 302 到别处之后，按它算就会把
-        // 额度记到另一个主机头上，而发给镜像的那几条一条都没算进去，守卫等于没生效）。
-        if (it.key()->request().url().host() == host) {
+        // 两把钥匙都要认，**不是二选一**：
+        //  · `request().url()` 是"我们这条发给谁"的原话，和队列那头的 `PendingJob::host`
+        //    是同一个东西。只认 `reply->url()` 的话，镜像 302 到别处之后这条就不再算在
+        //    入口头上了 —— 发给镜像的那几条一条都没记账，入口那道闸等于没生效（2026-09-27
+        //    那条 NOTE 说的就是这个）。
+        //  · `reply->url()` 是**真正开着连接的那个主机**。2026-10-18 加这一半：BMCLAPI 的
+        //    资源地址每条都 302 到它背后临时挑的 MinIO 落点，而落点全是 HTTP/1.1、每家只
+        //    放 6 条连接。只记入口的话，20 多条作业可以同时压在**同一台落点**身上，多出来
+        //    的进 Qt 内部队列（30 秒传输超时从请求建好就开始算）。入口和落点各算各的额度。
+        const QNetworkReply *reply = it.key();
+        if (reply->request().url().host() == host || reply->url().host() == host) {
             ++n;
         }
     }
@@ -1019,7 +1038,23 @@ void DownloadManager::startDownload(const QUrl &url, const QString &destinationP
                 if (m_shuttingDown || !replyIsFromCurrentBatch(reply)) {
                     return;
                 }
-                if (m_deadRedirectHosts.value(authorityKey(target)) <= m_clock.elapsed()) {
+                // 落点主机记在回复身上：之后每一条明细（停止 / 失败 / 完成）都能说出
+                // "这一条最后是在谁身上出的问题"，不必再从 finalUrl 反推。
+                reply->setProperty("wtfmlLandedHost", target.host());
+                const bool banned =
+                    m_deadRedirectHosts.value(authorityKey(target)) > m_clock.elapsed();
+                if (DownloadDiag::enabled()) {
+                    // 302 本身就是一条值得单独记的事件：BMCLAPI 的资源每条都转一手，
+                    // "每个文件多一个往返"和"转到一台坏落点"在总耗时上长得一模一样，
+                    // 只有这条能分开。elapsed 是**从发出到转手**用了多久。
+                    DownloadDiag::line(
+                        QStringLiteral("redirect entry=%1 -> landed=%2 elapsed=%3ms banned=%4")
+                            .arg(DownloadDiag::safeUrl(entryUrlForRedirect),
+                                 DownloadDiag::safeUrl(target),
+                                 QString::number(diagElapsedMs(reply, m_clock.elapsed())),
+                                 banned ? QStringLiteral("yes") : QStringLiteral("no")));
+                }
+                if (!banned) {
                     return;  // 没被拉黑 / 已经到期
                 }
                 noteDeadRedirectTarget(target, entryUrlForRedirect,
@@ -1028,12 +1063,22 @@ void DownloadManager::startDownload(const QUrl &url, const QString &destinationP
             });
     const auto stream = QSharedPointer<StreamedFile>::create(destinationPath, m_allowOverwrite);
     m_streamedFiles.insert(reply, stream);
+    // 文件作业才量首字节（元数据那几条走的是别的槽，没有 readyRead 这一截）。
+    // 有这一格，"ttfb=never"才只表示"真的一口都没吐"，而不是"这条没量"。
+    if (DownloadDiag::enabled()) {
+        reply->setProperty("wtfmlMeasureTtfb", true);
+    }
     if (range.active()) connect(reply, &QNetworkReply::metaDataChanged, this, [reply, range] {
         // If-Range 失效时源站可以改发整文件；不要等大正文写完才发现不能拼接。
         if (!rangeProblem(reply, range).isEmpty()) reply->abort();
     });
     connect(reply, &QIODevice::readyRead, this, [this, reply, stream] {
         if (m_shuttingDown || !replyIsFromCurrentBatch(reply)) return;
+        // 第一口数据到手的时刻。诊断日志靠它把"建连 + 302 + 首字节"与"正文传输"分开 ——
+        // 总耗时一样慢的两种链子（每文件多一个往返 vs 带宽低）只有这一格能区分。
+        if (DownloadDiag::enabled() && !reply->property("wtfmlFirstByteMs").isValid()) {
+            reply->setProperty("wtfmlFirstByteMs", m_clock.elapsed());
+        }
         if (!rangeProblem(reply, rangeOf(reply)).isEmpty()) { reply->abort(); return; }
         stream->drain(reply);
         if (auto meter = m_stallMeters.find(reply); meter != m_stallMeters.end()) {
@@ -1077,10 +1122,11 @@ void DownloadManager::startDownload(const QUrl &url, const QString &destinationP
                                      ? QStringLiteral("-")
                                      : QString::fromLatin1(range.validator));
         }
+        const QString targetHost = QUrl(targetText).host();
         DownloadDiag::line(QStringLiteral(
                                "send gen=%1 url=%2 dest=%3 range=%4 attempt=%5 inflight=%6 "
                                "queued=%7 host=%8 http2=%9 rerouted=%10 fallback=%11 "
-                               "expectedSha1=%12 expectedSize=%13")
+                               "expectedSha1=%12 expectedSize=%13 hostInflight=%14")
                                .arg(m_batchGeneration)
                                .arg(DownloadDiag::safeUrl(targetText))
                                .arg(QDir::toNativeSeparators(destinationPath))
@@ -1088,19 +1134,20 @@ void DownloadManager::startDownload(const QUrl &url, const QString &destinationP
                                .arg(retryAttempts)
                                .arg(activeDownloads.size())
                                .arg(m_pendingJobs.size())
-                               .arg(QUrl(targetText).host())
-                               .arg(m_http2Hosts.contains(QUrl(targetText).host())
+                               .arg(targetHost)
+                               .arg(m_http2Hosts.contains(targetHost)
                                         ? QStringLiteral("yes")
-                                        : (m_http1OnlyHosts.contains(QUrl(targetText).host())
+                                        : (m_http1OnlyHosts.contains(targetHost)
                                                ? QStringLiteral("no")
                                                : QStringLiteral("?")))
-                               // 一次 arg() 最多认 %1..%9；剩下四条另起一次。
+                               // 一次 arg() 最多认 %1..%9；剩下五条另起一次。
                                .arg(rerouted ? QStringLiteral("yes -> official")
                                              : QStringLiteral("no"),
                                     fallback.isEmpty() ? QStringLiteral("-")
                                                        : DownloadDiag::safeUrl(fallback),
                                     expectedSha1.isEmpty() ? QStringLiteral("-") : expectedSha1,
-                                    QString::number(expectedSize)));
+                                    QString::number(expectedSize),
+                                    QString::number(activeCountForHost(targetHost))));
     }
     connect(reply, &QNetworkReply::finished, this, &DownloadManager::onDownloadReplyFinished);
     connect(reply, &QNetworkReply::downloadProgress, this,
@@ -1453,6 +1500,14 @@ bool DownloadManager::retryStalledFromMirror(QNetworkReply *reply,
         return false;
     }
     if (!m_officialFallbacks.contains(reply)) return false;  // 本来就走官方的作业没得回
+    // ★ 2026-10-18：**入口已经在降级期里就别再掷第二次**。降级只有两种来路，两种都说明
+    //   "官方那条当下是能用的"：探针探通（probeOfficialRoute 成功）或者入口自己慢到被
+    //   判死。这时候回镜像入口重赌一台落点，等于把用户刚等过的那 10~12 秒再花一遍；
+    //   直接返回 false，让调用方按原来的顺序走 retryWithOfficialUrl()。
+    //   NOTE: 官方那条真不通的网络不会走到这里 —— 探针失败不降级、降级还会被
+    //         noteReroutedReplyOutcome() 撤掉（2026-10-17 测试员那条网络就是这一种），
+    //         那边"回入口重掷"的老行为一个字都没动。
+    if (mirrorDemotedFor(mirrorEntry.host())) return false;
     const int attempts = reply->property("wtfmlRetryAttempts").toInt();
     if (attempts >= 1) return false;  // 镜像只再试一次，之后照旧退官方
     const QString mirrorUrl = mirrorEntry.toString();

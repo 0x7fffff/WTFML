@@ -76,6 +76,8 @@ struct Capabilities {
 
 /// 面板里的一行（活动的那几行 + 已完成的那几行，形状一样、画法不同）。
 struct Item {
+    QString queueGroup; // 非空才有真实执行队列；运行/历史行不显示拖动手柄。
+    int queueOrder = 2147483647;
     /// 认人用。`MainWindow` 那边是 `TaskId` 的十进制字符串（面板拿它当**钥匙**，
     /// 不当行号 —— 行号会随着"清掉一条已完成"整体挪位）。
     QString key;
@@ -115,7 +117,7 @@ using ItemProvider = std::function<QList<Item>()>;
 /// 「查看详情」不在这一枚举里 —— 它是**点那一行本身**（整行的行为，不是行尾一颗按钮）。
 /// 两样分开是因为它们的位置不一样：详情页是"我想看看这是怎么回事"，取消是"别下了"，
 /// 后者要是也藏在详情页里，用户得点两下才够得着。
-enum class RowAction { Cancel, Retry, OpenTarget, OpenLog, ExportReport, OpenCrashDir, Viewed };
+enum class RowAction { Cancel, Retry, OpenTarget, OpenLog, ExportReport, OpenCrashDir, Viewed, MoveUp, MoveDown };
 
 /// 行尾那颗小按钮被点了。参数是那一行的 `key` 和点的是哪一颗。
 using RowActionHandler = std::function<void(const QString &key, RowAction action)>;
@@ -226,6 +228,7 @@ protected:
     void showEvent(QShowEvent *event) override;
 
 private:
+    bool m_dragRefreshPending = false;
     /// 把内容整块重建（两栏 + 那个「清除已完成」）。调用方负责随后摆位置。
     void rebuild();
     void rebuildRunning();

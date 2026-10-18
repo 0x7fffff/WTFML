@@ -415,6 +415,12 @@ add_test(NAME wtfml.activity-selection COMMAND mw_check activity-selection-check
 add_test(NAME wtfml.download-retry COMMAND mw_check download-retry-check)
 add_test(NAME wtfml.high-speed-download COMMAND mw_check high-speed-download-check)
 add_test(NAME wtfml.segmented-download COMMAND mw_check segmented-download-check)
+add_test(NAME wtfml.tool-features COMMAND mw_check tool-features-check)
+set_tests_properties(wtfml.tool-features PROPERTIES
+    LABELS "ui;tools;queue"
+    TIMEOUT 90
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+)
 set_tests_properties(wtfml.segmented-download PROPERTIES
     LABELS "network;integration;resume"
     TIMEOUT 120
